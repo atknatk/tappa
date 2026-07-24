@@ -148,8 +148,16 @@ Bu tablodaki her satırın adı `TestDecide_...` ile başlayan bir test durumu o
   `FORCE ROW LEVEL SECURITY`, `tenant_id` üzerinde politika, `tenant_id` üzerinde indeks.
   Beşinden biri eksikse migration eksiktir (GRANT dahil; bkz. docs/plan/m1-veri-katmani.md).
 - Tenant bağlamı bağlantı başına `SET LOCAL app.tenant_id` ile verilir; politikalar
-  `current_setting('app.tenant_id', true)::uuid` okur. `SET LOCAL` → transaction
-  dışında sızmaz. Havuzdan alınan bağlantıda `SET` (LOCAL'siz) **kullanma**.
+  **`NULLIF(current_setting('app.tenant_id', true), '')::uuid`** okur. `SET LOCAL` →
+  transaction dışında sızmaz. Havuzdan alınan bağlantıda `SET` (LOCAL'siz) **kullanma**.
+  `NULLIF` şart, süs değil: GUC'a bir kez **yazıldıktan** sonra bağlantıda `NULL`'a
+  dönmez, `''` kalır (`ROLLBACK`/`RESET`/`DISCARD ALL` üçü de) — çıplak cast o
+  bağlantıda `NULL` değil **hata** verir, yani davranış bağlantı geçmişine bağlı olur.
+  Ölçüm ve gerekçe: docs/plan/open-questions.md → Q27, ADR 0002.
+- **İzolasyon testi ile üretim sorgusu farklı şekiller ister.** Üretim sorguları
+  §4.5 gereği açık `tenant_id` filtresi taşımak **zorunda**; RLS izolasyon testi
+  ise taşımamalı — filtre varsa 0 satırın sebebi RLS değil `WHERE`'dir ve test RLS
+  kapalıyken de yeşil kalır (ölçüldü). İkisi çelişki değil, farklı iş.
 - Zaman: DB'de her şey `timestamptz`, **UTC**. Yerel saate çevirme sadece render
   katmanında. Gece vardiyası bug'larının kaynağı budur.
 - Para/saat hesabı `float` ile yapılmaz.

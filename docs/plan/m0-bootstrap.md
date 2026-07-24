@@ -205,6 +205,100 @@ kâğıt üzerinde kalır ve bunu M1'de değil, üretimde fark ederiz.
 - `tappa_owner` ve `tappa_app` **farklı** rollerdir ve ikisiyle de bağlanılabiliyor.
 - `pgcrypto` ve `citext` yüklü (`gen_random_uuid()` çalışıyor).
 
+> **Kart düzeltmesi (2026-07-24, M0-03 uygulaması sırasında).** M0-03 kartının
+> kendi maddeleri (adımlar, kabul kriterleri, tuzaklar) gerçekle **çelişmedi**;
+> düzeltilen şey bu kartın dışında: doğrulama, kabul kriterlerinin ötesine geçip
+> RLS'i canlı bir sonda tablosuyla sınadı (DB içinde geçici; sonunda düşürüldü,
+> `user_tables=0` ile doğrulandı) ve M1'i doğrudan etkileyen iki davranış
+> **ölçüldü**. İkincisi [m1-veri-katmani.md](m1-veri-katmani.md)'de yazılı bir
+> cümleyi yanlışladı → oraya da ayrı bir düzeltme bloğu kondu.
+>
+> **1) `app.tenant_id` bir kez set edilince o bağlantıda bir daha `NULL` olmaz —
+> `''` olur.** [CLAUDE.md](../../CLAUDE.md) §6 politika ifadesini
+> `current_setting('app.tenant_id', true)::uuid` diye yazıyor. `tappa_app` ile
+> ölçüm:
+>
+> | Bağlantının durumu | `current_setting(…, true)` | `…::uuid` sonucu |
+> |---|---|---|
+> | GUC'a **hiç yazılmamış** (kaç sorgu koştuğundan bağımsız) | `NULL` | `NULL` → politika false → **0 satır** |
+> | bir `SET LOCAL` + `COMMIT` sonrası | `''` | **`ERROR: invalid input syntax for type uuid: ""`** |
+> | `SET LOCAL` + `ROLLBACK` sonrası | `''` | aynı hata |
+> | `RESET app.tenant_id` sonrası | `''` | aynı hata |
+> | `DISCARD ALL` sonrası | `''` | aynı hata |
+>
+> `NULL`'a dönmenin tek yolu **yeni bir bağlantıdır** — `RESET` de `DISCARD ALL`
+> da yetmiyor (üçü de ayrı ayrı ölçüldü). **Tetikleyici, bağlantının kaçıncı
+> kullanımı değil, GUC'a ilk yazmadır**: taze bir bağlantıda arka arkaya üç
+> bağlamsız sorgu koşuldu → üçünde de `NULL`, 0 satır, hata yok. Havuzlu
+> (`pgxpool`) bir uygulamada bu şu demektir: `SET LOCAL`'ı unutan bir sorgu, o
+> bağlantıda **henüz hiç** `SET LOCAL` yapılmamışsa sessizce 0 satır döner; bir
+> kez yapılmışsa **o bağlantıda kalıcı olarak** hata fırlatır. Tek bir hata,
+> bağlantı geçmişine göre **iki farklı davranış** üretir — GUC'a hiç yazılmamış
+> bağlantıyla yazılmış bir test geçer, üretim patlar.
+>
+> Bu bir **güvenlik açığı değildir**: iki durum da fail-closed (ne satır sızar,
+> ne sessiz onay — §4.6 korunuyor). Sorun **determinizm**.
+>
+> Ölçülen alternatif: `NULLIF(current_setting('app.tenant_id', true), '')::uuid`
+> her iki durumda da `NULL` verir. Uçtan uca sondajla doğrulandı — **aynı**
+> bağlantıda: tenant A → 1 satır, commit sonrası → 0 satır, tenant B → 1 satır,
+> hata yok.
+>
+> **Karar M0-03'ün değil** — politika şablonu `NULLIF`'li biçime mi geçecek,
+> yoksa *"eksik bağlam yüksek sesle patlasın"* gerekçesiyle çıplak biçim mi
+> korunacak? İkisi de savunulabilir; savunulamaz olan, seçimi ölçmeden yapmaktır.
+> M0-03 yalnız ölçtü; orkestratör bunu **[Q27](open-questions.md)** olarak açtı ve
+> karar [M1-01](m1-veri-katmani.md#m1-01--adr-0002-tenant-bağlamı-ve-rls-stratejisi)
+> (ADR 0002) ile verilecek. Ne seçilirse CLAUDE.md §6'daki ifade, M1-02 adım 3 ve
+> M1-09 vaka 3 **aynı** biçimi göstermek zorunda — bugün yalnız çıplak biçim yazılı.
+>
+> **2) `tappa_owner` superuser'dır (OID 10); `FORCE ROW LEVEL SECURITY` onu
+> bağlamaz.** Mekanizma ölçümle ayrıştırıldı — `FORCE` **çalışıyor**, sorun
+> superuser: geçici olarak yaratılan **NOSUPERUSER** bir tablo sahibi
+> (`rolsuper=f`, `rolbypassrls=f`), `ENABLE`+`FORCE` RLS'li kendi tablosunu
+> bağlam kurmadan okuduğunda **0 satır** gördü. Yani `FORCE` tablo sahibini
+> gerçekten politikaya tabi kılıyor; `tappa_owner`'ın onu aşmasının sebebi
+> `POSTGRES_USER` olarak initdb'nin **bootstrap superuser'ı** olması — superuser
+> RLS'i koşulsuz atlar ve `FORCE` ona **erişemez**.
+>
+> **Sonucun M1'e yansıması tek dallı değil, iki dallıdır — ikisi de yazılmalı.**
+> [M1-09](m1-veri-katmani.md#m1-09--rls-izolasyonu-ve-değişmezlik-testleri)'un
+> fiilen yazılı vakaları `tappa_owner` ile koşuldu (sonda tablosu: A, B, C
+> tenant'larından birer satır, politika çıplak biçimde):
+>
+> | M1-09 vakası | beklenen | `tappa_app` | `tappa_owner` | testin davranışı |
+> |---|---|---|---|---|
+> | 1 — bağlam B iken A'nın satırı okunamaz | 0 satır | 0 | **1** | **gürültülü patlar** |
+> | 2 — bağlam B iken A'nın `tenant_id`'siyle INSERT | hata | `ERROR: new row violates row-level security policy` | **`INSERT 0 1`** | **gürültülü patlar** |
+> | 3 — bağlam hiç kurulmadan sorgu | 0 satır | 0 | **3** | **gürültülü patlar** |
+>
+> Yani yanlış rolle koşulan RLS testi **sessizce geçmez, patlar** — tehlike
+> "yanlış güven" değil, **yanlış yerde aranan bozukluk**tur.
+>
+> **Asıl tehlike role değil, sorgunun şekline bağlıdır.** CLAUDE.md §4.5
+> sorgularda RLS'e **ek olarak** açık `tenant_id` filtresi yazılmasını zorunlu
+> kılıyor ("kuşak+kemer") — yani M1'in **gerçek** store sorguları bu filtreyi
+> taşıyacak. Vaka 1 aynı iddiayla ("A'nın satırı — `id=1` — okunamaz, 0 beklenir")
+> iki sorgu şeklinde ölçüldü:
+>
+> | sorgu şekli | `tappa_app` | `tappa_owner` | vaka ne ölçüyor |
+> |---|---|---|---|
+> | ham: `ctx=B`, `WHERE id=1` | **0** ✅ | **1** ❌ | RLS gerçekten sınanıyor |
+> | §4.5 store biçimi: `ctx=B`, `WHERE id=1 AND tenant_id=<B>` | **0** ✅ | **0** ✅ | **iki rolde de geçer** |
+>
+> İkinci satırda iki rol **birebir aynı** sonucu veriyor: test yeşil, ama
+> yeşilliğin sebebi `WHERE` cümlesi — satır zaten A'nındır, filtre onu eler ve
+> vaka **RLS kapalıyken de geçer**. Yani doğru rol **tek başına yetmez**: vaka
+> `tappa_app`/`DATABASE_URL` ile koşsa bile, sqlc store sorgusu kullanıldığı anda
+> RLS hakkında hiçbir şey kanıtlamaz.
+>
+> **Kural (M1-09 için normatif, iki boyutlu):** CLAUDE.md §8'in zorunlu kıldığı
+> RLS izolasyon testi (i) **`tappa_app` ile — `DATABASE_URL` ile — koşulmalı**
+> ve (ii) assertion'ın sorgusu **açık `tenant_id` filtresi taşımamalı** (ham
+> sorgu). Biri eksikse vaka RLS'i değil kendi `WHERE`'ini ölçer. Bu, §4.5'i
+> **iptal etmez**: üretim sorguları filtreyi taşımak zorundadır, izolasyon testi
+> ise RLS'i yalın ölçmek zorundadır — ikisi farklı işlerdir.
+
 **Tuzaklar.**
 - Volume daha önce oluşmuşsa init script'i **çalışmaz**. Roller yoksa:
   `docker compose down -v` (⚠️ veriyi siler) sonra `make up`. Bu komut

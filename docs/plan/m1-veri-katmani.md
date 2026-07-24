@@ -38,9 +38,12 @@ delinir.
 2. Bağlam **transaction başına** `SET LOCAL app.tenant_id = $1` ile verilir.
    Havuzdan alınan bağlantıda `LOCAL`'siz `SET` **yasak** — bağlantı havuza kirli
    döner ve bir sonraki tenant onun bağlamıyla sorgu koşar.
-3. Politikalar `current_setting('app.tenant_id', true)::uuid` okur. İkinci
-   parametre `true`: ayar yoksa hata değil `NULL` döner → politika hiçbir satırı
-   eşleştirmez → **fail-closed**. Bu davranış test edilir.
+3. Politikalar `app.tenant_id`'yi okur ve bağlam yokken **fail-closed** davranır:
+   politika hiçbir satırı eşleştirmez. **Bu davranış test edilir** —
+   [M1-09](#m1-09--rls-izolasyonu-ve-değişmezlik-testleri) vaka 3. Politikanın
+   yazılacağı **tam ifade** [Q27](open-questions.md)'ye bağlıdır (çıplak cast mı,
+   `NULLIF`'li mi); ADR bunu karara bağlamadan hiçbir migration yazılmamalı, bkz.
+   aşağıdaki kart düzeltmesi.
 4. Sorgularda ayrıca **açık** `tenant_id = @tenant_id` filtresi yazılır. RLS'in
    kurulmadığı bir kod yolunda tek savunma budur.
 5. Tenant'ın kendisi (`tenants` tablosu) `id` üzerinden aynı politikayı alır.
@@ -70,7 +73,50 @@ delinir.
 **Kabul kriterleri.**
 - ADR yazıldı, "kabul edildi" durumunda, tarihli.
 - Alternatifler (şema-per-tenant, yalnız uygulama filtresi) ve neden seçilmedikleri var.
+- **ADR [Q27](open-questions.md)'yi karara bağlar:** politika ifadesi çıplak cast
+  mı `NULLIF`'li mi? Karar yazılmadan M1-02 ve sonrası **başlamaz** (aşağıdaki
+  kart düzeltmesindeki ölçüme dayanır).
 - M1-02 bu ADR'ye referansla yazılabiliyor.
+
+> **Kart düzeltmesi (2026-07-24, M0-03 uygulaması sırasında).** Madde 3'ün eski
+> hâli ölçümle **çürütüldü** ve yeniden yazıldı. Eskisi şuydu: *"Politikalar
+> `current_setting('app.tenant_id', true)::uuid` okur. İkinci parametre `true`:
+> ayar yoksa hata değil `NULL` döner → politika hiçbir satırı eşleştirmez →
+> **fail-closed**. Bu davranış test edilir."*
+>
+> Sonuç kısmı (**fail-closed** ve *"bu davranış test edilir"*) **doğru ve
+> korundu**; çürüyen şey `NULL` gerekçesidir. Ölçüm (`tappa_app`, canlı sonda):
+>
+> | bağlantının durumu | `current_setting('app.tenant_id', true)` | çıplak `::uuid` |
+> |---|---|---|
+> | GUC'a **hiç** yazılmamış | `NULL` | `NULL` → 0 satır ✅ |
+> | GUC'a bir kez **yazılmış**, tx bitmiş | `''` | **`ERROR: invalid input syntax for type uuid: ""`** |
+>
+> Tetikleyici bağlantının kaçıncı kullanımı değil, GUC'a **ilk yazma**dır: taze
+> bir bağlantıda arka arkaya üç bağlamsız sorgu koşuldu → üçünde de `NULL`, 0
+> satır, hata yok. `''`'e düştükten sonra `ROLLBACK`, `RESET app.tenant_id` ve
+> **`DISCARD ALL`** de `NULL`'a döndürmüyor (üçü ayrı ayrı ölçüldü); tek yol
+> **yeni bağlantı**. Havuzda (`pgxpool`) bu, ilk `SET LOCAL`'dan sonra o bağlantı
+> için **kalıcı** durumdur.
+>
+> **İkisi de fail-closed** (ne satır sızar ne sessiz onay — §4.6 korunuyor);
+> kırılan şey güvenlik değil **determinizm**: aynı hata (unutulmuş `SET LOCAL`)
+> bağlantı geçmişine göre iki farklı davranış üretir.
+>
+> Karara bağlanması gereken, politikanın **tam ifadesidir** — M0-03 bunu
+> bilinçli olarak **karara bağlamadı**, yalnız ölçtü; orkestratör
+> [Q27](open-questions.md) olarak açtı:
+> - **(a) çıplak** `current_setting('app.tenant_id', true)::uuid` — eksik bağlam
+>   ilk yazmadan sonra **yüksek sesle patlar**; savunulabilir, ama davranış
+>   bağlantı geçmişine bağlı.
+> - **(b)** `NULLIF(current_setting('app.tenant_id', true), '')::uuid` — her iki
+>   durumda da `NULL`, yani **her zaman** 0 satır. Uçtan uca doğrulandı: aynı
+>   bağlantıda tenant A → 1 satır, commit sonrası → 0 satır, tenant B → 1 satır,
+>   hata yok.
+>
+> Q27 ne karara bağlarsa **CLAUDE.md §6'daki ifade, M1-02 adım 3 ve M1-09 vaka 3
+> aynı biçimi göstermek zorundadır**; bugün üçü tutarlı değil. (CLAUDE.md'yi
+> güncellemek **orkestratörün** işidir — M0-03 ona dokunmadı.)
 
 ---
 
@@ -90,7 +136,12 @@ delinir.
 1. `make migrate-new name=create_tenants`
 2. Tabloyu yaz; `structure` ve `business_type` için `CHECK` kısıtı veya enum.
 3. RLS: politika `id = current_setting('app.tenant_id', true)::uuid` (bu tabloda
-   `tenant_id` yerine `id`).
+   `tenant_id` yerine `id`). ⚠️ Buradaki **çıplak** cast biçimi
+   [Q27](open-questions.md)'nin karara bağlayacağı şeydir
+   ([M1-01 madde 3](#m1-01--adr-0002-tenant-bağlamı-ve-rls-stratejisi) ve oradaki
+   kart düzeltmesi) — karar `NULLIF`'li biçim çıkarsa **bu satır da onunla
+   birlikte güncellenir**. İlk migration yazılmadan önce Q27 beklenmeli; iki
+   biçim repoda karışık kalırsa politikalar tablodan tabloya farklı davranır.
 4. `GRANT` + indeks + dolu `-- +goose Down`.
 5. `make migrate` → `make migrate-down` → `make migrate` (üçü de temiz).
 
@@ -383,7 +434,17 @@ func (d *DB) WithTenant(ctx context.Context, tenantID uuid.UUID,
 1. A bağlamında yazılan satır, B bağlamında **okunamaz** (0 satır).
 2. B bağlamında A'nın `tenant_id`'siyle INSERT → **hata** (`WITH CHECK`).
 3. Bağlam **hiç kurulmadan** sorgu → 0 satır (fail-closed), hata değil sessiz
-   sızıntı değil.
+   sızıntı değil. ⚠️ **Bu vaka, politika çıplak cast biçiminde yazılırsa GUC'a
+   bir kez yazılmış bir bağlantıda geçemez** — [Q27](open-questions.md) ve
+   [M1-01 madde 3](#m1-01--adr-0002-tenant-bağlamı-ve-rls-stratejisi)'teki
+   ölçüme bak. Aynı `tappa_app` bağlantısında M1-09'un kendi sırasıyla ölçüldü:
+   bir tenant transaction'ı → **vaka 6 tutuyor** (`app.tenant_id` = `''`, yani
+   "boş") → hemen ardından bağlamsız sorgu → `ERROR: invalid input syntax for
+   type uuid: ""`, **0 satır değil**. Yani **vaka 3 ile vaka 6 çıplak biçimde
+   aynı anda sağlanamaz**; ancak GUC'a hiç yazılmamış bağlantıda sağlanır. Q27
+   `NULLIF`'li biçimi seçerse ikisi birlikte tutar. Vakayı yazarken bağlantının
+   GUC'a daha önce yazılıp yazılmadığı **açıkça** kurulmalı — aksi hâlde test,
+   ölçtüğünü sandığı şeyi ölçmez.
 4. `tappa_app` ile `UPDATE transactions` → yetki hatası.
 5. `tappa_owner` ile `DELETE FROM transactions` → trigger hatası.
 6. Transaction bittikten sonra aynı havuz bağlantısında `app.tenant_id` boş.
@@ -391,13 +452,87 @@ func (d *DB) WithTenant(ctx context.Context, tenantID uuid.UUID,
 
 **Kabul kriterleri.**
 - Testler gerçek Postgres'e karşı koşuyor (Q04 kararına göre), sahte DB **yok**.
+- **İzolasyon vakaları (1, 2, 3, 7) iki şartı birden sağlar — biri eksikse vaka
+  RLS'i kanıtlamaz** (ölçümler: aşağıdaki kart düzeltmesi):
+  1. **Rol:** `tappa_app` ile, yani `DATABASE_URL` havuzuyla koşar. `tappa_owner`
+     superuser'dır ve RLS'i koşulsuz atlar.
+  2. **Sorgu şekli:** izolasyon assertion'ının sorgusu **açık `tenant_id`
+     filtresi taşımaz** (ham sorgu). Filtre varsa 0 satırın sebebi RLS değil
+     `WHERE`'dir ve vaka, RLS kapalıyken bile geçer.
+  **Mekanik denetim** (ikisi de grep'lenebilir olmalı): izolasyon vakalarının
+  SQL'i test dosyasında **satır içi** yazılır — sqlc store çağrısı değil, ham
+  `Query`/`Exec` — ve o SQL'de `tenant_id =` **geçmez**; vaka havuzu adlandırılmış
+  `appPool` üzerinden alır, `ownerPool` yalnız vaka 5'te geçer.
+- **Ayrı vaka (izolasyon kanıtı sayılmaz):** store sorgusu — yani §4.5'in
+  zorunlu kıldığı açık `tenant_id` filtresini taşıyan gerçek sqlc sorgusu — de
+  doğru sonucu verir. Bu vaka **sorgunun** doğruluğunu ölçer, RLS'i değil; kart
+  düzeltmesindeki tabloya göre RLS kapalıyken de geçeceği için izolasyon
+  kanıtı olarak **sayılamaz**. Ayrı adlandırılsın (ör. `TestStoreQueryFiltersByTenant`)
+  ki sonraki okuyan onu izolasyon testi sanmasın.
 - `make test` içinde koşuyor; DB yoksa anlamlı şekilde `t.Skip` ediyor (sessiz
   geçme değil, açık atlama mesajı).
 - Yeni tablo eklendiğinde bu test listesine eklemeyi hatırlatan bir yorum var.
 
+> **Kart düzeltmesi (2026-07-24, M0-03 uygulaması sırasında).** Tuzaklardaki şu
+> cümle **yanlıştı** ve kaldırıldı: *"Testi `tappa_owner` ile koşarsan RLS `FORCE`
+> sayesinde yine uygulanır."* M0-03'ün canlı RLS sondası bunu yanlışladı.
+>
+> **Ölçüm.** `FORCE ROW LEVEL SECURITY`'nin kendisi çalışıyor: geçici olarak
+> yaratılan **NOSUPERUSER** bir tablo sahibi, `ENABLE`+`FORCE` RLS'li kendi
+> tablosunu bağlam kurmadan okuduğunda **0 satır** gördü. Ama `tappa_owner`
+> `POSTGRES_USER` olarak initdb'nin **bootstrap superuser'ıdır** (`rolsuper=t`,
+> `rolbypassrls=t`, OID 10) ve **superuser RLS'i koşulsuz atlar** — `FORCE` ona
+> erişemez. Yukarıdaki vakalar `tappa_owner` ile koşuldu (A, B, C tenant'larından
+> birer satır):
+>
+> | vaka | beklenen | `tappa_app` | `tappa_owner` |
+> |---|---|---|---|
+> | 1 — bağlam B iken A'nın satırı okunamaz | 0 satır | 0 | **1** |
+> | 2 — bağlam B iken A'nın `tenant_id`'siyle INSERT | hata | `ERROR: new row violates row-level security policy` | **`INSERT 0 1`** |
+> | 3 — bağlam hiç kurulmadan sorgu | 0 satır | 0 | **3** |
+>
+> **Yanlış rolle koşmak sessiz değil, gürültülüdür.** Yukarıdaki üç vaka
+> `tappa_owner` altında **patlar** — tehlike "yanlış güven" değil, bozukluğun
+> yanlış yerde (RLS'te) aranmasıdır; oysa roldedir.
+>
+> **Asıl tehlike role değil, sorgunun şekline bağlıdır.** CLAUDE.md §4.5
+> sorgularda RLS'e **ek olarak** açık `tenant_id` filtresi ister ("kuşak+kemer"),
+> yani M1'in gerçek store sorguları o filtreyi taşıyacak. Vaka 1 aynı iddiayla
+> ("A'nın satırı — `id=1` — okunamaz, 0 beklenir") iki sorgu şeklinde ölçüldü:
+>
+> | sorgu şekli | `tappa_app` | `tappa_owner` | vaka ne ölçüyor |
+> |---|---|---|---|
+> | ham: `ctx=B`, `WHERE id=1` | **0** ✅ | **1** ❌ | RLS gerçekten sınanıyor |
+> | §4.5 store biçimi: `ctx=B`, `WHERE id=1 AND tenant_id=<B>` | **0** ✅ | **0** ✅ | **iki rolde de geçer** — RLS hiç sınanmıyor |
+>
+> İkinci satırda 0'ın sebebi `WHERE`'dir: satır 1 zaten A'nındır, filtre onu
+> eleyecektir — RLS kapalı olsa da vaka geçer. Yani **rol kriterini tek başına
+> koymak yetmez**: vaka 1 ve 7, `tappa_app` + `DATABASE_URL` şartına tam uyarak,
+> sqlc store sorgularıyla yazılıp RLS hakkında hiçbir şey kanıtlamayabilir. Bu,
+> CLAUDE.md §8'in zorunlu kıldığı testin sessizce yeşile boyanmasıdır.
+>
+> Kabul kriteri bu yüzden **iki boyutlu** yazıldı — rol **ve** sorgu şekli.
+> İkisi çelişmez, farklı şeylerdir: **üretim** sorguları §4.5 gereği filtreyi
+> taşımak **zorundadır**; **izolasyon testi** ise RLS'in tek başına yaptığı işi
+> ölçmek zorundadır, dolayısıyla filtreyi taşımamalıdır. Filtreli biçim ayrı bir
+> vaka olarak durabilir ama izolasyon kanıtı sayılmaz.
+>
+> Tuzağın **doğru** kalan kısmı korundu: vaka 4 (`tappa_app` ile `UPDATE`) ile
+> vaka 5 (`tappa_owner` ile `DELETE`) farklı roller ister, yani iki havuz yine
+> gerekir — ama gerekçesi "`FORCE` sayesinde owner da RLS'e tabi" **değil**.
+
 **Tuzaklar.**
-- Testi `tappa_owner` ile koşarsan RLS `FORCE` sayesinde yine uygulanır — ama
-  yetki testleri (4) `tappa_app` bağlantısı ister. İki ayrı havuz gerekir.
+- **İki ayrı havuz gerekir, ama roller karıştırılmamalı.** Vakaların tam rol
+  haritası:
+
+  | vaka | rol | neden |
+  |---|---|---|
+  | 1, 2, 3, 7 — izolasyon | `tappa_app` | RLS yalnız bu rolde yürürlükte |
+  | 4 — `UPDATE transactions` yetki hatası | `tappa_app` | yetki reddi bu rolde ölçülür |
+  | 5 — `DELETE FROM transactions` trigger hatası | `tappa_owner` | trigger'ın superuser'ı da durdurduğunu kanıtlar (§4.3) |
+  | 6 — tx sonrası `app.tenant_id` boş | `tappa_app` | havuz davranışı; uygulama rolüyle anlamlı |
+
+  Hangi vakanın hangi rolle koştuğu testte açıkça görünsün.
 - Paralel testlerde tenant UUID'lerini sabitleme; her test kendi tenant'ını yaratsın.
 
 ---

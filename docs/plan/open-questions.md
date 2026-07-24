@@ -79,10 +79,8 @@ A/Y maddelerine ek olarak çıkanlar ve nereye işlendikleri:
 
 | ID | Soru | Bloklar | Sahip | Durum |
 |---|---|---|---|---|
-| Q01 | **Zaman dilimi nerede tutulacak?** Şemada TZ alanı yok; vardiya `10:00–22:00` hangi saatte? Öneri: `tenants.timezone text NOT NULL DEFAULT 'Europe/Malta'`, lokasyon isterse `locations.timezone` ile ezer. DB'ye her şey UTC, çeviri yalnız render'da. | M1-02, M1-03 | C→A | açık |
 | Q02 | **E-posta sağlayıcısı.** Davet linki, şifre sıfırlama, rapor gönderimi buna bağlı. Postmark / Resend / SES / kendi SMTP. AB bölgesi ve GDPR işleme sözleşmesi şart. | M5-02, M7-04 | A | açık |
 | Q03 | **Admin şifre hash'i.** stdlib'de uygun KDF yok. Öneri: `golang.org/x/crypto/bcrypt` veya `argon2id`. CLAUDE.md §1 gereği yeni bağımlılık onay ister. | M6-01 | C→A | açık |
-| Q04 | **DB testleri neye karşı koşacak?** (a) `make up` ile yerel Postgres — bağımlılık yok, CI'da servis; (b) `testcontainers-go` — izole ama yeni bağımlılık. Öneri: (a). | M1-09, M0-06 | C→A | açık |
 | Q05 | **SDM mirroring modu.** Plain (UID + ctr açık) mı, şifreli PICC data mı? Karar ADR 0003 olacak. | M2-01 | C→A | açık |
 | Q06 | **Etiket anahtar stratejisi.** Plaket başına rastgele mi, master'dan UID ile türetilmiş mi? Türetme encode'u kolaylaştırır ama master sızarsa tüm park düşer. | M2-05 | C→A | açık |
 | Q07 | **`locations.static_ips` tipi.** `inet[]` (tek IP = /32) mi `cidr[]` (aralık) mi? Müşteri ISS'i /29 blok verirse aralık gerekir. | M1-03 | A | açık |
@@ -92,10 +90,120 @@ A/Y maddelerine ek olarak çıkanlar ve nereye işlendikleri:
 | Q11 | **iOS Safari çerez ömrü.** Oturum 1 yıl hedefleniyor; Safari ITP altında gerçek bir iPhone'da NFC → Safari akışıyla **ölçülmeli**. "Telefon seni tanır" vaadi buna dayanıyor. | M5-01 | C | açık |
 | Q12 | **Barındırma.** VPS sağlayıcı ve managed Postgres, AB bölgesi, yedek politikası, ~€30-50 bütçe. | M8-02 | A | açık |
 | Q13 | **GDPR silme talebi × immutable `transactions`.** Öneri: `employees` üzerinde anonimleştir, `transactions` korunur — hukuki onay ister. Saklama süresi de burada. | M8-06 | A | açık |
-| **Q25** | **Küçük araç düzeltmeleri** (P9). (a) `Makefile:seed` `psql` gerektiriyor — ön koşullara eklensin mi, yoksa hedef `docker compose exec` ile mi yazılsın? (b) `govulncheck@latest` pinlensin mi? (c) `sqlc.yaml`'a `inet[]`/`cidr[]` override'ı Q07 kararıyla birlikte. (d) `redline-check.sh` R5 `tenant_id NOT NULL`, indeks ve GRANT'i de tarasın mı? Öneri: hepsi evet, M0-04/M0-06 sırasında. | M0-04, M0-06, M1-03 | C→A | açık |
-| **Q26** | **Go toolchain yükseltmesi.** Yerel `go1.26.2`'de çağrı yolunda **dört stdlib açığı** var (`GO-2026-5856` crypto/tls · `GO-2026-5039` net/textproto · `GO-2026-5037` crypto/x509 · `GO-2026-4971` net) ve `govulncheck`'i exit 3 yapıp `make audit`'i kırmızıya düşürüyor. Düzeltmeler 1.26.3/.4/.5'te; en yükseği gerektiren `crypto/tls` → **≥ go1.26.5**. Hiçbiri pgx/uuid/templ/chi kaynaklı **değil**, yani bağımlılık seçimiyle ilgisiz. Toolchain yükseltilsin mi (kullanıcı eylemi), yoksa CI'da geçici istisna mı tanımlansın? Öneri: **yükselt** — istisna, `make audit`'i sessizce anlamsızlaştırır. | [M0-07](m0-bootstrap.md), [M0-06](m0-bootstrap.md) | A | açık |
 
 ## Cevaplananlar
+
+### Q27 — RLS politikaları `NULLIF` sarmalayıcısı kullanır (2026-07-24)
+
+**Karar:** her tenant politikası
+`NULLIF(current_setting('app.tenant_id', true), '')::uuid` yazar. Çıplak biçim
+**terk edildi**. Biçim ADR 0002'de normatif olarak yazılacak
+([M1-01](m1-veri-katmani.md)).
+
+**Ölçülen olgu (M0-03, üç ajan tarafından bağımsız üretildi).** `app.tenant_id`
+GUC'una bir kez **yazıldıktan** sonra bağlantıda asla `NULL`'a dönmez, `''` olur.
+`ROLLBACK`, `RESET app.tenant_id` ve `DISCARD ALL` üçü de `''` bırakır; yalnız
+**yeni bağlantı** `NULL`'a döndürür. Tetikleyici **yazmadır** — yalnız *okumak*
+placeholder yaratmaz: taze bir bağlantıda üç ardışık bağlamsız sorgu üçünde de
+`NULL` / 0 satır / hatasız geçti.
+
+> ⚠️ Bu maddenin ilk hâli "bağlantının **ikinci ve sonraki kullanımlarında** hata
+> fırlatır" diyordu. **Yanlıştı** ve 3. tur denetiminde ölçümle çürütüldü; tetikleyici
+> kullanım sayısı değil ilk yazmadır. Metin düzeltildi.
+
+**Sonucu:** çıplak `current_setting('app.tenant_id', true)::uuid` GUC'a hiç
+yazılmamış bağlantıda `NULL` → 0 satır verir, **yazılmış** bir bağlantıda
+`ERROR: invalid input syntax for type uuid: ""` fırlatır. `pgxpool` altında
+unutulan bir `SET LOCAL` bu yüzden **bağlantı geçmişine göre iki farklı** davranır
+— taze bağlantıya karşı yazılmış test geçer, üretim patlar.
+
+**Gerekçe:** güvenlik açığı değildi (iki yol da fail-closed, sızıntı yok) ama
+belirsizdi ve belirsizlik testi yalancı yapar. `NULLIF` her iki durumda `NULL`
+üretir; uçtan uca ölçüldü (aynı bağlantıda tenant A → 1 satır, commit sonrası
+bağlamsız → 0, tenant B → 1, hata yok).
+
+**Bedeli açıkça:** `NULLIF` unutulan `SET LOCAL`'i **sessizce** 0 satıra çevirir —
+çıplak biçimin gürültülü hatası bir bug'ı daha çabuk yakalardı. Telafi
+[M1-07](m1-veri-katmani.md)'ye yazıldı: tenant kapsamlı transaction sarmalayıcısı
+`SET LOCAL`'i **kendisi** kurar ve bağlam kurulmadan sorgu çalıştırmayı **API
+olarak imkânsız** kılar. Yani koruma politikadan değil giriş noktasından gelir.
+
+**Etkilenen:** CLAUDE.md §6 (çıplak biçimi tek doğru gibi yazıyordu — güncellendi) ·
+[M1-01](m1-veri-katmani.md) ADR 0002 · [M1-02](m1-veri-katmani.md)…M1-06 her
+politika · [M1-07](m1-veri-katmani.md) sarmalayıcı · [M1-09](m1-veri-katmani.md)
+vaka 3 (artık koşulsuz "0 satır, hata değil").
+
+### Q25 — Üç araç düzeltmesi M0-07'ye, dördüncüsü M1-03'e (2026-07-24)
+
+**Karar:** (a), (b), (d) **evet**, [M0-07](m0-bootstrap.md) kapsamında. (c) Q07'ye
+bağlı olduğu için [M1-03](m1-veri-katmani.md)'e bırakıldı.
+
+- **(a)** `Makefile:seed` yerel `psql` gerektiriyordu → `docker compose exec -T db psql`
+  ile yazılır. Dış bağımlılık kalkar, CI'da da çalışır.
+- **(b)** `govulncheck@latest` **pinlenir**. Gerekçe: pinsiz hâlde kod değişmeden
+  tarama sonucu değişebilir ve CI bir sabah kendiliğinden kırmızıya döner; sürüm
+  yükseltmesi bilinçli bir commit olmalı.
+- **(d)** `scripts/redline-check.sh` R5 genişletilir: RLS politikasının yanında
+  `tenant_id NOT NULL`, `tenant_id` indeksi ve GRANT de taranır. Böylece CLAUDE.md
+  §6'nın "beşinden biri eksikse migration eksiktir" kuralı **mekanik** hale gelir —
+  M1'in her migration'ında işe yarar.
+- **(c)** `sqlc.yaml`'a `inet[]`/`cidr[]` override'ı: Q07 (`locations.static_ips`
+  tipi) kararlanmadan yazılamaz. M1-03'te Q07 ile birlikte. Eklenirse
+  [M0-04](m0-bootstrap.md)'ün override tablosu da güncellenmek zorundadır
+  ("sabit olan sayı değil, listedir").
+
+
+### Q26 — Toolchain yükseltildi, mimari arm64'e geçiyor (2026-07-24)
+
+**Karar:** Go **1.26.5** kuruldu (kullanıcı eylemi, oturum dışında yapıldı) ve
+yerel toolchain **native arm64**'e geçirilecek.
+**Ölçüm:** `govulncheck ./...` artık **"No vulnerabilities found"** — dört stdlib
+açığının dördü de kapandı. [M0-07](m0-bootstrap.md)'nin **Bulgu 2'si kendiliğinden
+düştü**; kartta kalan tek iş **Bulgu 1** (staticcheck SA1019 → `middleware.RealIP`
+router'dan çıkarılır).
+**Mimari:** yükseltme Rosetta'yı kaldırmadı — `go version` → `darwin/amd64`, makine
+`arm64`, `.tools/tailwindcss` ise arm64 native (repo karma mimari). Karar: **arm64
+Go'ya geçilecek**, M0-07 kapsamında. Doğruluğu etkilemiyordu (üretim ikilisi zaten
+`linux/amd64` çapraz derlenecek), kazanç yerel derleme/test hızı. Geçişte build
+cache ve pinli CLI önbellekleri (`templ`, `sqlc`, `goose`) bir kez baştan derlenir —
+ilk `make gen` uzun sürer, bozukluk değil.
+**Kalan:** Q25 (b) — `govulncheck@latest` hâlâ pinsiz; tarama sonucu kod
+değişmeden değişebilir, CI bir sabah kendiliğinden kırmızıya dönebilir.
+
+### Q04 — DB testleri yerel Postgres'e karşı koşar (2026-07-24)
+
+**Karar:** (a) — testler `make up`'ın ayağa kaldırdığı Postgres'e bağlanır;
+CI'da `services: postgres:17` + `scripts/db-init/*.sql` uygulanır.
+**Gerekçe:** `testcontainers-go` yeni ve ağır bir bağımlılık zinciri getirirdi
+(docker API istemcisi + testify) — CLAUDE.md §1 "stdlib > küçük kütüphane >
+framework". RLS izolasyonunu test etmek için tek kullanımlık konteyner gerekmiyor;
+gereken şey **gerçek** Postgres ve **gerçek** rol ayrımı, ikisi de `make up` ile var.
+**Bedeli açıkça:** testler paylaşılan bir DB'ye yazar → [M1-09](m1-veri-katmani.md)
+her testin kendi tenant'ıyla çalışmasını ve temizlemesini **kendisi** garanti etmek
+zorunda. `make up` unutulursa DB testleri patlar; hata mesajı bunu açıkça söylemeli
+("Postgres'e bağlanılamadı — `make up` çalıştırdın mı?"), sessizce **atlanmamalı**.
+**Etkilenen kartlar:** [M0-06](m0-bootstrap.md) (CI'da Postgres servisi),
+[M1-09](m1-veri-katmani.md).
+
+### Q01 — `tenants.timezone` + lokasyon override'ı (2026-07-24)
+
+**Karar:** `tenants.timezone text NOT NULL DEFAULT 'Europe/Malta'`; bir lokasyon
+farklı zaman dilimindeyse `locations.timezone` (nullable) **ezer**. Çözüm sırası:
+lokasyon → tenant.
+**Gerekçe:** vardiya `10:00–22:00` bir **duvar saati**dir, mutlak an değil; hangi
+duvarda olduğu yazılı olmazsa geç kalma hesabı anlamsızdır. Lokasyon override'ı
+şimdi bir sütun, sonra bir migration — aynı firmanın farklı ülkedeki şubesi
+MVP'de yok ama alan bugün eklenirse bedeli sıfır.
+**Değişmeyen:** DB'de her şey `timestamptz` **UTC** (CLAUDE.md §6). Zaman dilimi
+yalnız **render** ve **vardiya çözümü** için kullanılır; `transactions.occurred_at`
+asla yerel saatte saklanmaz.
+**Dikkat:** vardiya çözümünde kullanılacak zaman dilimi, çalışanın profilindeki
+lokasyonun değil **tap edilen** lokasyonun zaman dilimidir — CLAUDE.md §5 ve
+[Q17](#q17--çapraz-lokasyonda-tap-edilen-lokasyonun-vardiyası-2026-07-24) ile aynı
+mantık.
+**Etkilenen kartlar:** [M1-02](m1-veri-katmani.md) (tenants),
+[M1-03](m1-veri-katmani.md) (locations), [M4-05](m4-tap-motoru.md) (vardiya ve
+geç kalma).
 
 ### Q21 — A1 azaltması politikaya bırakıldı (2026-07-24)
 

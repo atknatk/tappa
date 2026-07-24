@@ -122,3 +122,10 @@ Her biri gerçek bir turda çıktı; tekrarlanmasın diye burada:
 | `emit_pointers_for_null_types` **override'ı olan tipi kapsamaz**; her override'ın nullable ikizi elle yazılır. | M0-04 |
 | `make audit` `govulncheck`'te durursa `redline-check.sh` **hiç koşmaz** — "audit kırmızı" ≠ "redline denetlendi". | M0-02 |
 | Go toolchain Rosetta altında (`darwin/amd64`, makine arm64); yükseltirken mimari bilinçli seçilmeli. | M0-04 |
+| **Ölçüm doğru, çıkarım yanlış** olabilir. Yapıcı sondaj sayılarını doğru okudu, "sonuç" cümlesini iki kez ters kurdu. Denetçi ölçümü tekrar etmekle kalmayıp **iddianın kendisini** ölçmeli. | M0-03, 1. ve 2. tur |
+| Bir bulgu bir kartı yanlışlıyorsa **yanlışlanan kartı da düzelt.** Bulguyu yalnız kendi kartına yazmak repoda iki çelişik cümle bırakır ve okuyanın öbür kartı açmak için sebebi yoktur. | M0-03, 1. tur |
+| **Kriter yazarken "hangi kaçış yolu bunu yener?" diye sor.** "Rolü bağla" yeterli görünüyordu; sorgu şekli serbest kaldığı için kritere tam uyumlu ve hiçbir şey kanıtlamayan bir test yazmak mümkündü. | M0-03, 2. tur |
+| **grep tek başına kriter değil.** `tenant_id =` taraması `'x'::uuid = tenant_id`, `tenant_id IN (…)`, `tenant_id::text = …` biçimlerini kaçırır. Mekanik kontrol işaret, bağlayıcı olan düzyazı şart. | M0-03, 3. tur denetimi |
+| **Her negatif teste pozitif kontrol eşlik etmeli.** "0 satır döndü" boş tabloda da doğrudur; korumayı kapatınca kırmızıya dönmeyen test hiçbir şey kanıtlamaz. | M0-03, 3. tur denetimi |
+| Denetçi **kaçış yolu aramalı** ve denediklerini yazmalı — işlemeyen denemeler de kanıttır. | M0-03, 3. tur denetimi |
+| Onay, kusursuzluk demek değil. Bloklayan bulgu yoksa **onay ver**; kalan iyileştirmeler ilgili göreve devredilir. | M0-03, 3. tur |

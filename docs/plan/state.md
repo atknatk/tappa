@@ -4,7 +4,7 @@
 > güncellenir ([README.md](README.md) → oturum protokolü, adım 6.4).
 > Görev kartlarına durum işareti konmaz.
 
-**Son güncelleme:** 2026-07-24
+**Son güncelleme:** 2026-07-24 (2. oturum)
 
 ---
 
@@ -13,25 +13,53 @@
 | | |
 |---|---|
 | **Kilometre taşı** | M0 — [Bootstrap](m0-bootstrap.md) |
-| **Sıradaki görev** | **M0-03** (Docker bekliyor) → değilse **M0-07** (Q26 bekliyor). M0 kalanı kullanıcı girdisine bağlı. |
+| **Sıradaki görev** | **M0-07** (`make check` + `make audit` yeşile alma; artık serbest) → sonra **M0-06** (CI) → M0 kapanır |
 | **Çalışma modu** | Orkestrasyon + üçüncü göz — [README.md](README.md) · brief'ler [agent-brief.md](agent-brief.md) |
 | **Dal** | `m0-bootstrap` — ilk commit `7e12f37` `main`'de; M0'ın kalanı dalda, M0 bitince `main`'e birleşir (CLAUDE.md §10) |
-| **Blokeler** | **Docker daemon kapalı** → M0-03 için kullanıcı Docker Desktop'ı başlatmalı |
+| **Blokeler** | **Yok.** Bekleyen dört kullanıcı girdisi de geldi (Docker açıldı · Go 1.26.5 · Q04 · Q01) ve Q25 + Q27 karara bağlandı. |
 
-**Bir sonraki oturum ne yapmalı:** M0'ın kalan üç görevi de kullanıcı girdisi
-bekliyor: M0-03 → Docker Desktop · M0-07 → Q26 (Go ≥1.26.5, arm64) · M0-06 →
-Q04 + M0-07. Girdi gelmeden M1'e geçilmez (M1-02 ayrıca Q01'e bağlı).
+**Bir sonraki oturum ne yapmalı:** M0-07'yi yaptır (kapsamı bu oturumda büyüdü —
+aşağıdaki nota bak), sonra M0-06, sonra M0'ı `main`'e birleştir ve M1'e geç.
+M1 artık bekleyen karar olmadan yazılabilir.
+
+**M0-07'nin kapsamı büyüdü.** Kartın kendi Bulgu 1'i (staticcheck SA1019 →
+`middleware.RealIP` router'dan çıkarılır) **artı** bu oturumda karara bağlanan
+üç araç düzeltmesi (Q25 a/b/d) **artı** arm64 Go geçişi. Kartın **Bulgu 2'si
+düştü** — Go 1.26.5 ile `govulncheck` temiz.
 
 **Not:** M0-05 (ilk commit) sıradan **öne alındı** — kullanıcı "arada commit at"
 dedi. Bundan sonra her onaylanan görevin ardından bir commit atılır.
 
-**Politika ve kapsam kararları: hepsi karara bağlandı** — Q14…Q24 cevaplandı,
+**Politika ve kapsam kararları: hepsi karara bağlandı** — Q14…Q27 cevaplandı,
 gerekçe ve etkilenen kartlar [open-questions.md](open-questions.md) →
-Cevaplananlar'da. M3 ve M6 bekleyen karar olmadan yazılabilir.
+Cevaplananlar'da.
 
-**Kalan açık sorular (Q01–Q13, Q25, Q26)** teknik/ticari; hiçbiri M0'ı bloklamıyor.
-En yakın blokajlar: Q01 (zaman dilimi) → M1-02, Q04 (DB testi) → M0-06,
-Q25 (küçük araç düzeltmeleri) → M0-04, Q26 (Go toolchain) → M0-07.
+**Kalan açık sorular (Q02, Q03, Q05–Q13)** teknik/ticari; hiçbiri M0'ı veya M1'in
+başını bloklamıyor. En yakın blokajlar: Q07 (`static_ips` tipi) → M1-03,
+Q03 (admin şifre hash'i) → M1-11/M6-01, Q05+Q06 (SDM modu, anahtar stratejisi) → M2-01.
+
+### M1-09 için devralınan bulgular (M0-03 3. tur denetiminden)
+
+Denetçi kabul kriterini yenen **üç kaçış yolu** buldu. Bloklayan sayılmadılar
+(kriter bugünkü hâliyle de M0-03'ün gerektirdiğinden fazlasını yapıyor), ama
+M1-09 brief'ine **girmeleri zorunlu** — yoksa yeşil ve anlamsız bir test seti çıkar:
+
+1. **grep sağlam değil.** `tenant_id =` taraması `'<B>'::uuid = tenant_id`,
+   `tenant_id IN ('<B>')`, `tenant_id::text = '<B>'` biçimlerini kaçırıyor; üçü de
+   RLS **kapalıyken de** 0 satır veriyor. Bağlayıcı olan düzyazı şart, grep işaret.
+2. **Pozitif kontrol istenmiyor.** Vaka 3 boş tabloda kritere tam uyar ve hiçbir şey
+   kanıtlamaz. Her izolasyon vakası, aynı ham sorgunun **doğru bağlamda >0** döndüğünü
+   de göstermeli; korumayı kapatınca test **kırmızıya dönmeli**.
+3. **Rol boyutu çalışma anında kanıtlanmıyor.** Kriter `appPool`/`ownerPool`
+   **adlandırmasına** bakıyor; owner kimlikli havuzu `appPool` diye adlandıran test
+   geçer. Doğrusu: testin içinde `SELECT current_user` = `tappa_app` **ve**
+   `rolsuper/rolbypassrls = f,f` assertion'ı (ikisi de `tappa_app` ile çalışıyor).
+
+Ayrıca kapsam dışı iki tutarsızlık: `scripts/db-init/01-roles.sql:3` ve
+[m0-bootstrap.md:59](m0-bootstrap.md) bypass'ı "tablo sahibi + BYPASSRLS" diye
+anlatıyor, **superuser'dan söz etmiyor** ve `FORCE`'un salt sahipliği yendiğini
+yazmıyor (ölçüldü). Güvenlik sonucu yok, temkinli yönde yanlış — M1-01 ADR 0002
+yazılırken düzeltilmeli.
 
 **Kabul edilen riskler** (ADR 0005, [M3-09](m3-policy-motoru.md)): buddy
 punching · sahte GPS · **URL biriktirme** · mekânda proxy · müdürün kimlik
@@ -69,25 +97,25 @@ yazılır.
 |---|---|---|---|
 | M0-01 | .env ve kriptografik anahtarlar | **done** | commit yok (`.env` ignore'da) · üçüncü göz 2. turda ONAY · kart düzeltildi (F2) |
 | M0-02 | Go bağımlılıkları (pgx, uuid, templ) | **done** | `e6d9a63` · üçüncü göz 3. turda ONAY · kart iki kez düzeltildi |
-| M0-03 | Postgres ve rol ayrımı doğrulaması | blocked | Docker daemon kapalı |
+| M0-03 | Postgres ve rol ayrımı doğrulaması | **done** | üçüncü göz **3. turda** ONAY · kart düzeltildi · iki ölçüm M1'i bağladı (→ Q27, ve M1-01/M1-02/M1-09 kartları güncellendi) |
 | M0-04 | Üretim hattı doğrulaması (templ · sqlc · tailwind) | **done** | `2521d48` · üçüncü göz 2. turda ONAY · `sqlc.yaml`'da 3 bozuk override bulundu ve düzeltildi |
 | M0-05 | İlk commit ve dal stratejisi | **done** | `7e12f37` · sıradan öne alındı (kullanıcı isteği) · orkestratör yaptı, M0-02 denetiminde doğrulanacak |
-| M0-06 | CI iş akışı | todo | Q04 · M0-07'ye bağlı |
-| M0-07 | make check ve make audit'i yeşile alma | todo | Q26 · denetim bulgusu (SA1019 + stdlib CVE) |
+| M0-06 | CI iş akışı | todo | Q04 = yerel Postgres → CI'da `services: postgres:17` · M0-07'ye bağlı |
+| M0-07 | make check ve make audit'i yeşile alma | todo | **serbest.** Bulgu 1 (SA1019) + Q25 a/b/d + arm64 geçişi. Bulgu 2 düştü (Go 1.26.5 → govulncheck temiz) |
 
 ### M1 — [Veri katmanı](m1-veri-katmani.md)
 
 | ID | Görev | Durum | Commit / not |
 |---|---|---|---|
-| M1-01 | ADR 0002: tenant bağlamı ve RLS stratejisi | todo | |
-| M1-02 | Migration 0001: tenants | todo | Q01 |
-| M1-03 | Migration 0002: locations & departments | todo | Q01, Q07 |
+| M1-01 | ADR 0002: tenant bağlamı ve RLS stratejisi | todo | Q27 kararı normatif yazılır · M0-03 ölçümleri buraya taşınabilir |
+| M1-02 | Migration 0001: tenants | todo | Q01 ✔ (`timezone`) · Q27 ✔ |
+| M1-03 | Migration 0002: locations & departments | todo | Q01 ✔ (`locations.timezone` override) · **Q07 açık** · Q25 (c) burada |
 | M1-04 | Migration 0003: employees & sessions | todo | |
 | M1-05 | Migration 0004: tags | todo | |
 | M1-06 | Migration 0005: transactions (append-only) & audit_log | todo | |
-| M1-07 | internal/db: havuz ve tenant kapsamlı transaction | todo | |
-| M1-08 | İlk sqlc sorguları | todo | |
-| M1-09 | RLS izolasyonu ve değişmezlik testleri | todo | Q04 |
+| M1-07 | internal/db: havuz ve tenant kapsamlı transaction | todo | Q27 telafisi: sarmalayıcı `SET LOCAL`'i kendi kurar, bağlamsız sorgu **API olarak imkânsız** |
+| M1-08 | İlk sqlc sorguları | todo | ilk sorgu `make gen`/`make dev`/`make build`'i yeşile çevirir |
+| M1-09 | RLS izolasyonu ve değişmezlik testleri | todo | Q04 ✔ (yerel Postgres) · **ŞU AN bölümündeki "devralınan bulgular" brief'e girmeli** |
 | M1-10 | Seed verisi ve sabit ID'ler | todo | |
 | M1-11 | Migration 0006: admin kullanıcıları | todo | Q03 · denetim bulgusu |
 
@@ -195,13 +223,59 @@ yazılır.
 | M9-06 | Policy simülatörü | todo | Q22 — M6-10'dan ertelendi |
 | M9-07 | Ham JSON politika editörü | todo | Q22 — M6-09'dan ayrıldı |
 
-**Özet:** 82 görev · done 4 · wip 0 · blocked 1 · skipped 1 · todo 76
+**Özet:** 82 görev · done 5 · wip 0 · blocked 0 · skipped 1 · todo 76
 
 ---
 
 ## Oturum günlüğü
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
+
+### 2026-07-24 (2. oturum) — M0-03 kapandı, altı karar alındı, blokeler bitti
+
+**Ortam:** Docker açıldı, Go **1.26.5**'e yükseldi → `govulncheck` **temiz**.
+M0-07'nin Bulgu 2'si (dört stdlib CVE) kendiliğinden düştü. Toolchain hâlâ
+Rosetta (`darwin/amd64`); arm64 geçişi M0-07'ye alındı.
+
+**M0-03 done — üçüncü göz üç tur sürdü, üçünde de gerçek kusur çıktı.**
+Kabul kriterleri **ilk turda** karşılanmıştı (`tappa_app` NOBYPASSRLS/NOSUPERUSER,
+iki rol ayrı ve ikisiyle de bağlanılıyor, `pgcrypto`+`citext` çalışıyor). RED'lerin
+üçü de yapıcının **kart dışına çıkıp** yaptığı canlı RLS sondasının ürettiği
+bulgulardan çıktı — sonda meşruydu ve değerliydi, kartın üç kriteri RLS'in *ön
+şartını* ölçüyor, RLS'in kendisini değil.
+
+1. **1. tur RED:** ölçüm doğru, çıkarım ters. "`tappa_owner` ile koşan izolasyon
+   testi her zaman *sızıntı yok* der" **yanlış** — M1-09'un üç vakasında da
+   gürültülü patlıyor. Ayrıca bulgunun yanlışladığı `m1-veri-katmani.md` satırına
+   hiç dokunulmamıştı → repoda iki çelişik cümle.
+2. **2. tur RED:** düzeltme olarak eklenen kriter yalnız **rolü** bağlıyordu.
+   Oysa tehlike **sorgunun şekli**: `ctx=B, WHERE id=1 AND tenant_id=B` biçimi
+   iki rolde de 0 satır verir — kritere tam uyumlu bir test RLS'i hiç sınamaz.
+3. **3. tur ONAY.** Kriter iki boyutlu oldu (rol **ve** ham sorgu şekli), §4.5 ↔
+   izolasyon testi ayrımı yazıldı, düşen "test edilir" garantisi geri kondu,
+   filtreli biçim **ayrı** ve *izolasyon kanıtı sayılmayan* bir vaka oldu.
+
+**M1'i bağlayan iki ölçüm:**
+- `app.tenant_id` GUC'una bir kez **yazılınca** bağlantıda `NULL`'a dönmüyor, `''`
+  kalıyor (`ROLLBACK`/`RESET`/`DISCARD ALL` üçü de). Tetikleyici **yazma**, kullanım
+  sayısı değil. → **Q27**.
+- `FORCE ROW LEVEL SECURITY` tablo **sahibini** bağlar, **superuser'ı bağlamaz**;
+  `tappa_owner` initdb'nin bootstrap superuser'ı olduğu için kaçıyor. NOSUPERUSER
+  bir sahiple ölçülerek doğrulandı (`ENABLE`-only → 3 satır, `+FORCE` → 0).
+
+**Altı karar:** Q01 (`tenants.timezone` + `locations.timezone` override) ·
+Q04 (DB testleri yerel Postgres) · Q26 (toolchain yükseltildi, arm64'e geçilecek) ·
+Q25 a/b/d (seed `docker compose exec`, govulncheck pinlenir, redline R5 genişler) ·
+**Q27** (`NULLIF` sarmalayıcısı — CLAUDE.md §6 güncellendi). Açık soru 14 → **11**.
+
+**CLAUDE.md §6'ya iki madde eklendi:** politikaların `NULLIF`'li biçimi ve
+"izolasyon testi ile üretim sorgusu farklı şekiller ister" ayrımı. İkincisi
+olmadan §4.5'in kuşak+kemer kuralı, RLS testini sessizce anlamsızlaştırıyordu.
+
+**M1-09'a devredilen üç kaçış yolu** yukarıda "ŞU AN" bölümünde yazılı — brief'e
+girmeleri zorunlu.
+
+**Sırada:** M0-07 (kapsamı büyüdü) → M0-06 → `main`'e birleştir → M1.
 
 ### 2026-07-24 — dış denetim (3 ajan) ve bulguların işlenmesi
 
