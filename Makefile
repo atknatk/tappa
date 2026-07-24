@@ -10,14 +10,19 @@ TOOLS       := .tools
 TAILWIND    := $(TOOLS)/tailwindcss
 
 # Pinlenmis tool surumleri — surum yukseltmesi bilincli bir commit olmali.
-TAILWIND_VERSION := v3.4.17
-GOOSE_VERSION    := v3.24.1
-SQLC_VERSION     := v1.28.0
-TEMPL_VERSION    := v0.3.833
+TAILWIND_VERSION    := v3.4.17
+GOOSE_VERSION       := v3.24.1
+SQLC_VERSION        := v1.28.0
+TEMPL_VERSION       := v0.3.833
+GOVULNCHECK_VERSION := v1.6.0
 
-GOOSE := go run github.com/pressly/goose/v3/cmd/goose@$(GOOSE_VERSION)
-SQLC  := go run github.com/sqlc-dev/sqlc/cmd/sqlc@$(SQLC_VERSION)
-TEMPL := go run github.com/a-h/templ/cmd/templ@$(TEMPL_VERSION)
+GOOSE       := go run github.com/pressly/goose/v3/cmd/goose@$(GOOSE_VERSION)
+SQLC        := go run github.com/sqlc-dev/sqlc/cmd/sqlc@$(SQLC_VERSION)
+TEMPL       := go run github.com/a-h/templ/cmd/templ@$(TEMPL_VERSION)
+GOVULNCHECK := go run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
+
+# Seed fixture yolu — CI veya tek seferlik bir sondaj baska dosya verebilir.
+SEED_FILE ?= test/fixtures/seed.sql
 
 -include .env
 export
@@ -86,8 +91,9 @@ migrate-new:
 	$(GOOSE) -dir db/migrations create $(name) sql
 
 ## seed: KF + KM demo verisini yukle (bkz. skill tappa-seed)
+# psql konteynerden calisir — host'ta psql aranmaz (bkz. scripts/seed.sh).
 seed:
-	psql "$(DATABASE_MIGRATE_URL)" -v ON_ERROR_STOP=1 -f test/fixtures/seed.sql
+	./scripts/seed.sh "$(SEED_FILE)"
 
 ## db-reset: SIFIRDAN kur — TUM VERIYI SILER
 db-reset:
@@ -120,7 +126,7 @@ check: fmt lint test
 
 ## audit: guvenlik kirmizi cizgi denetimi (bkz. .claude/agents/tappa-security-auditor.md)
 audit:
-	go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+	$(GOVULNCHECK) ./...
 	./scripts/redline-check.sh
 
 .PHONY: help tools gen templ sqlc css up down dev build migrate migrate-down \

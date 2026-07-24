@@ -567,9 +567,9 @@ CI'da Postgres servisi gerekip gerekmediğini belirler.
 
 ## M0-07 — `make check` ve `make audit`'i yeşile alma
 
-- **Bağımlılık:** M0-02 · [Q26](open-questions.md)
+- **Bağımlılık:** M0-02 · [Q26](open-questions.md) ✅ · [Q25](open-questions.md) ✅
 - **Kırmızı çizgi:** §4.5 (IP, *proof of place*'in 50 puanlık ayağı — sahtelenebilir
-  IP, sahte kanıttır)
+  IP, sahte kanıttır) · §6 (R5 taraması "beş unsur" kuralını mekanikleştirir)
 - **Commit:** `chore: make check and audit pass`
 
 **Amaç.** CLAUDE.md §2'nin *"CI'nin çalıştırdığı"* dediği iki hedefi gerçekten
@@ -579,6 +579,32 @@ yeşile almak.
 yalnızca kırmızı bir rozet üretir. Bulgular M0-02 denetimi sırasında çıktı ama
 **M0-02'nin sebep olduğu şeyler değil** — biri ilk commit'ten beri duran kod,
 diğeri yerel toolchain sürümü. Ayrı kart olmalarının sebebi bu.
+
+> **Kart düzeltmesi (2026-07-24, M0-07 uygulaması sırasında).** Kartın kapsamı
+> iki yönden değişti; aşağıdaki bölümler buna göre güncellendi.
+>
+> 1. **Bulgu 2 düştü.** Kullanıcı toolchain'i **Go 1.26.5**'e yükseltti
+>    ([Q26](open-questions.md)). Bugün ölçülen: `govulncheck@v1.6.0 ./...` →
+>    `No vulnerabilities found`, **exit 0** (`Go: go1.26.5 · Scanner:
+>    govulncheck@v1.6.0 · DB: https://vuln.go.dev`). Dört `stdlib@go1.26.2`
+>    açığının dördü de kapandı; kod tarafında **hiçbir şey** yapılmadı — kartın
+>    "Bulgu 2 salt toolchain sürümüne bağlıdır" öngörüsü doğrulandı. Kartın
+>    "Ön koşullar" bölümü Q26'yı **bekliyor** gibi yazıyordu, artık yazmıyor.
+> 2. **[Q25](open-questions.md)'in (a), (b), (d) maddeleri bu karta eklendi**
+>    (kullanıcı kararı, aynı oturum). Üçü de `make check`/`make audit`'in
+>    güvenilirliğine dair olduğu için burada duruyorlar; (c) Q07'ye bağlı
+>    olduğundan [M1-03](m1-veri-katmani.md)'te kalır.
+> 3. **R5'in ilk sürümü denetimde RED aldı; sertleştirildi.** Üç bulgunun üçü de
+>    aynı sonuca varıyordu: *sıfır tenant izolasyonu olan bir tablo `make audit`
+>    yeşilken commit edilebiliyordu.* Kapatılanlar: kapsam sütunu kontrolü
+>    `tenants` dışında **ölüydü** (GUC adı `app.tenant_id` aranan dizeyi zaten
+>    içeriyor) · `/* … */` blok yorumu beş kontrolün tamamını susturuyordu ·
+>    `-- +goose Down` bölümü Up'ın şartlarını karşılıyordu. Ayrıca `tenants`
+>    istisnası her şemada geçerliydi ve muafiyet yorumu string literalinden bile
+>    tetiklenip sonsuza dek sessiz kalıyordu. Ders, `agent-brief.md`'dekinin
+>    tekrarı: **yapıcının sondası kendi yazdığı biçimi doğrular.** İlk 13 vakalık
+>    sonda, politikaların gerçekte yazılacağı `current_setting(…)` biçimini hiç
+>    denemediği için deliği göremedi.
 
 ### Bulgu 1 — `make check` kırmızı: staticcheck SA1019
 
@@ -610,7 +636,20 @@ zaten M5-03'ün; o yüzden **ADR gerektirmiyor**, gerekçe bu kartta yazılı ol
 yeterli. (Sonuçta (b) veya (c) seçilirse durum değişir: ikisi de güvenlik
 sınırına dokunur → CLAUDE.md §10 gereği **ADR yazılır**.)
 
-### Bulgu 2 — `make audit` kırmızı: govulncheck
+**Uygulandı (2026-07-24).** `r.Use(middleware.RealIP)` silindi;
+[router.go](../../internal/httpx/router.go)'daki uyarı yorumu **silinmedi,
+yeniden yazıldı** — artık var olmayan bir middleware'i anlatmıyor, "istemci IP'si
+bilerek çözülmüyor, `r.RemoteAddr` ham TCP eşi kalıyor, güvenilir-proxy sınırlı
+gerçek çözüm M5-03'te" diyor ve §5'teki 50 puanlık ağırlığa atıf yapıyor.
+`middleware` import'u kaldı (`RequestID`, `Recoverer`, `Timeout`). Ölçüm:
+`staticcheck ./...` exit 0, `go build ./...` exit 0, `go vet ./...` exit 0.
+
+### Bulgu 2 — `make audit` kırmızı: govulncheck → **KAPANDI** (Go 1.26.5)
+
+> **Bu bölüm tarihsel kayıttır.** Aşağıdaki tablo `stdlib@go1.26.2`
+> toolchain'inde ölçülmüştü. Kullanıcı **Go 1.26.5**'e yükseltti ve dördü de
+> düştü: `govulncheck@v1.6.0 ./...` → `No vulnerabilities found`, exit 0.
+> Bu kartta Bulgu 2 için yapılacak **kod işi yoktu ve yapılmadı**.
 
 `govulncheck` **exit 3**; dördü de çağrı yolunda ve **tamamı `stdlib@go1.26.2`**:
 
@@ -640,28 +679,137 @@ Tarama ayrıca import edilen paketlerde 4, gerekli modüllerde 5 açık daha bul
 ama **çağrı yolunda değiller**. Çözüm tek: toolchain'i **≥ go1.26.5**'e yükseltmek
 — bu bir **kullanıcı eylemi**, [Q26](open-questions.md) ile takip ediliyor.
 
-**Ön koşullar.** Q26 cevaplanmış ve toolchain yükseltilmiş olmalı; aksi hâlde bu
-kartın ikinci kabul kriteri karşılanamaz.
+### Q25 — üç araç düzeltmesi (bu kartın ikinci yarısı)
 
-**Dokunulacak dosyalar.** `internal/httpx/router.go` (yalnız Bulgu 1).
+**(a) `make seed` yerel `psql` istemez.** Hedef artık
+[scripts/seed.sh](../../scripts/seed.sh)'i çağırıyor; o da
+`docker compose exec -T db psql …` ile **konteynerdeki** psql'i kullanıyor.
+Kazanç: host'ta psql aranmaz (CI dahil) ve istemci sürümü daima sunucununkiyle
+aynı imajdan gelir. Çok adımlı iş `Makefile`'a yığılmadı — `.ONESHELL` yok
+(macOS GNU Make 3.81), kural gereği `scripts/` altına yazıldı.
+Script **üç** ön koşulu ayrı ayrı ve yüksek sesle reddeder — fixture yok/boş ·
+`docker` PATH'te yok · Postgres ayakta değil. Üçü **ayrı mesaj** verir: "docker
+yok" ile "postgres kapalı" aynı şey değildir, tek mesaja indirmek hata avını
+yanlış yöne sürer. `ON_ERROR_STOP=1` korundu.
+
+Değişkenler: `SEED_FILE` (Makefile, varsayılan `test/fixtures/seed.sql`) ·
+`SEED_DB_USER` (varsayılan `tappa_owner`) · `SEED_DB_NAME` (varsayılan `tappa`).
+
+⚠️ **`.env`'deki `DATABASE_MIGRATE_URL` bu hedefi artık sürmüyor** — bilinçli.
+Bağlantı konteynerin **içinden** kuruluyor, o URL ise host'tan bakan bir adres
+(`localhost:5432`) ve konteyner içinde anlamsız. **Rol ayrımı korunuyor**
+(`tappa_owner`, `SEED_DB_USER` ile değiştirilebilir); değişen yalnızca adresleme.
+⚠️ **Semantik bilerek değiştirilmedi:** eski hedef gibi `--single-transaction`
+**yok**. Yarım kalan bir seed geri alınmaz; kurtarma yolu `make db-reset`'tir.
+Değişen tek şey **taşıma katmanı**.
+
+**(b) `govulncheck` pinlendi.** `Makefile`'da `GOVULNCHECK_VERSION := v1.6.0`,
+diğer CLI'larla aynı üslupta. Gerekçe: sürüm yükseltmesi bilinçli bir commit
+olmalı.
+⚠️ **Pin neyi çözmez:** tarayıcı pinlendi, **açık veritabanı pinlenmedi**
+(`DB: https://vuln.go.dev`, her koşuda çekilir). Yeni bir açık yayımlanınca CI
+yine kırmızıya döner — bu **istenen** davranıştır. Pin yalnızca *tarayıcı
+sürümü* kaynaklı kendiliğinden kırmızıyı kaldırır.
+
+**(d) `redline-check.sh` R5 genişledi.** Eskiden dosya düzeyinde dört dizge
+arıyordu (bir migration'da üç tablodan biri RLS'liyse dosya "temiz" geçerdi).
+Artık **tablo tablo**, CLAUDE.md §6 ve [M1](m1-veri-katmani.md)'in "beş zorunlu
+unsur" cümlesinin tamamı taranıyor: `tenant_id uuid NOT NULL` · `tenant_id`
+**önde** olan indeks (ayrı `CREATE INDEX` ya da tablo gövdesindeki
+`PRIMARY KEY`/`UNIQUE`) · `ENABLE` + `FORCE ROW LEVEL SECURITY` · kapsam
+sütununu okuyan, **hem `USING` hem `WITH CHECK`** içeren politika ·
+`tappa_app` GRANT'i.
+
+M1'in bilmesi gereken sözleşmeler:
+
+- **Yalnız `-- +goose Up` denetlenir.** `-- +goose Down`'dan sonrası atılır —
+  yoksa Down'daki `ALTER … ENABLE RLS` / `CREATE POLICY` / `GRANT` satırları
+  Up'ın eksiğini kapatıyormuş gibi görünür ve **üretimde sıfır RLS'li** bir tablo
+  sessizce geçer. (Down'ın kendi içinde denetlenmesi ayrı bir karar; bugün
+  gerekmiyor.)
+- **`tenants` istisnası kuraldır, muafiyet değil — ve dardır.** O tabloda kapsam
+  sütunu `tenant_id` değil `id`'dir ([M1-02](m1-veri-katmani.md)). İstisna
+  **yalnızca şemasız ya da `public.`** olan `tenants` için geçerlidir
+  (`archive.tenants` normal tablo sayılır, beşlinin tamamı istenir), **ve
+  istisnanın dayandığı gerekçe ayrıca doğrulanır**: "kolon/indeks maddelerini
+  PRIMARY KEY karşılar" iddiası, PK'nın gerçekten `id` üzerinde olmasına bağlıdır;
+  değilse bulgu yazılır. RLS + politika + GRANT aynen aranır, politikanın **`id`**
+  okuduğu doğrulanır.
+- **Politika kapsam sütununu bir KARŞILAŞTIRMADA kullanmalı**, sadece geçirmesi
+  yetmez. Kontrol, gövdeden `current_setting(…)` çağrılarını **atarak** yapılır —
+  aksi hâlde politikanın çağırmak zorunda olduğu GUC adı (`app.tenant_id`) aranan
+  dizeyi zaten içerir ve **kural ölü doğar**: `USING (true)` bile geçerdi.
+- **Muafiyet katıdır ve sessiz değildir.** Sözdizimi birebir
+  `-- redline: no-tenant-scope(tablo_adi) — gerekçe`; **yalnızca `--` ile başlayan
+  gerçek bir yorum satırından**, yalnızca Up bölümünden okunur. Bir string
+  literali, bir `/* */` bloğu, büyük harfli ya da boşluklu bir varyant **muaf
+  edemez**; gerekçe zorunludur. Muaf bırakılan her tablo **her taramada** WARN
+  olarak dosya:satır ve gerekçesiyle basılır — muafiyet yalnız yazıldığı commit'in
+  diff'inde değil, sonsuza dek görünürdür. Muafiyet **tablo bazlıdır**: aynı
+  dosyadaki diğer tablolar taranmaya devam eder.
+- **Salt-okunur tablo tuzağı:** tek bir `FOR SELECT` politikası "WITH CHECK yok"
+  diye raporlanır. Postgres `FOR SELECT` politikasında `WITH CHECK`'e izin
+  **vermez**, yani ikinci bir politika (`FOR INSERT … WITH CHECK`) yazmak
+  zorunludur. Bu **bilinçli**: `WITH CHECK` yoksa GRANT bir gün genişlediğinde
+  yazma yolu korumasız kalır. Ayrık iki politika birlikte kriteri karşılar.
+
+Tetiklenme koşulu bilerek dar: yalnız `db/migrations/*.sql`, yalnız ifadenin
+**başındaki** `CREATE TABLE [IF NOT EXISTS] [şema.]ad (`, ve beş unsurun **aynı**
+migration'da olması beklenir ("tablo bunlarla *doğar*"). Gerekçe: kırmızı çizgi
+tarayıcısı her migration'da bağırırsa susturulur ve işe yaramaz hale gelir.
+Görüş alanı dışında kalan bir tablo yaratımı (`DO $$ … CREATE TABLE … $$`) sessiz
+geçmez, **"R5 denetleyemedi" WARN'ı** basılır.
+
+**Ön koşullar.** Yok — [Q26](open-questions.md) kapandı (Go 1.26.5 kurulu),
+[Q25](open-questions.md) karara bağlandı. Q25 (a)'nın doğrulanması için Postgres
+ayakta olmalı (`make up`).
+
+**Dokunulacak dosyalar.** `internal/httpx/router.go` (Bulgu 1) · `Makefile`
+(Q25 a+b) · `scripts/seed.sh` **yeni** (Q25 a) · `scripts/redline-check.sh` (Q25 d).
 
 **Adımlar.**
 1. `r.Use(middleware.RealIP)` satırını sil.
-2. [router.go:20-22](../../internal/httpx/router.go)'deki yorumu **güncelle**,
+2. [router.go](../../internal/httpx/router.go)'daki yorumu **güncelle**,
    silme: artık var olmayan bir middleware'i anlatmamalı, ama M5-03'e giden
    işaretçiyi korumalı (ör. *"istemci IP'sine güvenilmiyor; güvenilir-proxy
    sınırlı gerçek çözüm M5-03'te"*).
 3. `middleware` import'u **kalır** — `RequestID`, `Recoverer`, `Timeout` hâlâ kullanıyor.
-4. Toolchain'i Q26 kararına göre yükselt (kullanıcı eylemi).
-5. `make check` ve `make audit`.
+4. ~~Toolchain'i Q26 kararına göre yükselt~~ — **yapıldı** (kullanıcı, oturum dışı).
+5. Q25 (a): `scripts/seed.sh` + `Makefile:seed`.
+6. Q25 (b): `GOVULNCHECK_VERSION` + `audit` hedefi.
+7. Q25 (d): `redline-check.sh` R5.
+8. `make check` ve `make audit`.
+
+> **Açık kalan, bu kartın işi değil:** [Q26](open-questions.md) "arm64 Go'ya
+> geçilecek, M0-07 kapsamında" diyor; `go version` hâlâ `darwin/amd64`. Bu bir
+> **repo değişikliği değil** (toolchain kurulumu, go.dev tarball'ı ile) ve
+> orkestratör/kullanıcı tarafından yapılır. Doğruluğu etkilemiyor — üretim ikilisi
+> zaten `linux/amd64` çapraz derlenecek; kazanç yerel derleme hızı.
 
 **Kabul kriterleri.**
 - `make check` **yeşil** (fmt + vet + staticcheck + test + `git diff --exit-code`).
 - `make audit` **yeşil** — `govulncheck` exit 0 **ve** `redline-check.sh` temiz.
+  İkisinin de gerçekten koştuğu çıktıyla gösterilir (bkz. ilk tuzak).
 - RealIP kararı gerekçesiyle yazılı: ADR gerekmiyorsa bu kartta (yukarıda),
   (b)/(c) seçildiyse `docs/adr/NNNN-*.md`'de.
 - `./scripts/redline-check.sh` hâlâ temiz (RealIP'in kaldırılması hiçbir R kuralını
   tetiklememeli).
+- `make seed` host'ta `psql` **olmayan** bir `PATH` ile çalışıyor; eski hedef aynı
+  `PATH`'te `command not found` veriyordu.
+- `govulncheck` pinli ve pinli sürümle temiz.
+- Genişletilmiş R5 **sondajla** kanıtlanmış: kurallara uyan migration temiz geçer,
+  ihlal eden migration'ın **her ihlali ayrı ayrı** yakalanır. Sondaj repo dışında
+  yapılır ve silinir — `db/migrations/` bugün boş olduğu için tarama aksi hâlde
+  "girdi yok → temiz" der ve **hiçbir şey kanıtlamaz** (M0-04'ün dersi).
+- **Sonda, politikaların gerçekte yazılacağı biçimi içermeli.** Kapsam sütunu
+  kontrolü yalnızca `USING (true)` ile denendiği için bir tur **ölü kural**
+  onaylandı. Asgari sonda seti: `current_setting('app.tenant_id', …)` içeren ama
+  kapsam sütununu **kullanmayan** politika · yanlış sütunu (`id` yerine
+  `tenant_id`) karşılaştıran kopyala-yapıştır politikası · `/* … */` bloğuna
+  alınmış RLS satırları · şartları `-- +goose Down`'a taşınmış migration ·
+  `public` **dışı** şemadaki `tenants` · muafiyetin string literali / blok yorumu
+  / büyük harf / gerekçesiz varyantları · `DEFAULT ';'` içeren uyumlu tablo ·
+  `tappa_apprentice` gibi benzer isimli role verilmiş GRANT.
 
 **Tuzaklar.**
 - **`make audit` sırayla çalışır: `govulncheck` → `redline-check.sh`.** govulncheck
@@ -675,11 +823,37 @@ kartın ikinci kabul kriteri karşılanamaz.
   Yani RealIP kaldırıldıktan sonra da dört açık aynen durur; Bulgu 2 **salt
   toolchain sürümüne** bağlıdır. Adım 1'i uygulayıp audit hâlâ kırmızı diye
   "işe yaramadı" sanma.
-- `govulncheck@latest` pinli değil ([Q25](open-questions.md) b maddesi): kod
-  değişmeden tarama sonucu değişebilir, CI bir sabah kendiliğinden kırmızıya döner.
-  Q25 bu kartla birlikte kapatılırsa iyi olur.
+- ~~`govulncheck@latest` pinli değil~~ — **kapatıldı** (Q25 b, yukarıda).
 - (b) seçilirse: staticcheck **kullanılmayan** `//lint:ignore` direktifini de hata
   sayar — M5-03 RealIP'i kaldırdığında bayat direktif kendisi lint hatası olur.
 - Toolchain yükseltmesi `go.mod`'daki `go 1.26.2` satırına dokunmayı gerektirmez;
   o satır **asgari** sürümdür, yüklü toolchain'den bağımsızdır. Gereksiz yere
   değiştirme.
+- **`make check`'in son adımı `git diff --exit-code`'dur**: iş bitip de değişiklikler
+  **staged değilken** `make check` *daima* kırmızıdır ve bu **doğru** davranıştır
+  (kriter "gen/fmt çıktısı commit edilmemiş" der). Yapıcı ajanın commit atma
+  yetkisi olmadığından yeşili görmenin yolu `git add`'dir — staging commit değildir.
+  "fmt/gen sürüklenmesi var" ile "henüz commit edilmedi" **aynı kırmızıyı** üretir;
+  ayırmak için `make check`'in `gofmt`/`templ fmt` adımlarının **hiçbir dosyayı
+  değiştirmediğini** (`changed=0`) ayrıca göster.
+- **macOS'ta `sed -E 's/;/;\n/'` ÇALIŞMAZ.** BSD sed değiştirme tarafında `\n`'i
+  yeni satır saymaz, harfi harfine `n` yazar; SQL'i ifadelere bölmeye çalışan ilk
+  R5 sürümü bu yüzden tüm dosyayı **tek satıra** çökertti ve kurallara **uyan**
+  migration'ları ihlalli gösterdi (klasik yanlış pozitif). Ayırma `tr ';' '\n'` ile
+  yapılır. Aynı aile: `${x^^}` bash 4 özelliğidir, macOS'un `/bin/bash`'i **3.2**.
+- **Anahtar kelime aramasında alt dize tuzağı — üç kez ısırdı.** (1) politikanın
+  `USING` içerip içermediğini `grep 'using'` ile sınamak `v_using` adlı bir
+  **tabloda** geçer; (2) `foo_tenant_id_iso` adlı bir **politika** "kapsam
+  sütununu okuyor" sayılır; (3) en kötüsü, kapsam sütununu `tenant_id` diye
+  aramak **her** politikada geçer, çünkü politikanın çağırmak zorunda olduğu
+  **GUC adı** `app.tenant_id`'dir. Üçüncüsü kuralı tamamen ölü bırakmıştı ve
+  ancak denetimde çıktı. Kural: alt dize değil **sözdizimsel çıpa** (`using (`,
+  `col =`), ve aramadan önce gövdeden gürültü kaynaklarını (politika adı, tablo
+  adı, `current_setting(…)`) **çıkar**.
+- **`grep 'to .*tappa_app'` `tappa_apprentice`'i de eşler.** Rol/tablo adı
+  eşlemesinde daima sözcük sınırı kullan.
+- **Bir tarayıcı "bakmadığı yeri" sessiz geçmemeli.** Blok yorumu, `Down` bölümü,
+  `DO $$ … $$` gövdesi ve string literalleri; her biri denetimi hem *yanlış
+  pozitif* hem *yanlış negatif* yönünde bozabilir. Yanlış negatif sessizdir ve
+  bu yüzden tehlikelidir: göremediğini **söyleyen** bir WARN, hiç bakmamaktan
+  iyidir.

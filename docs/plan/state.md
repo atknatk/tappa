@@ -13,19 +13,24 @@
 | | |
 |---|---|
 | **Kilometre taşı** | M0 — [Bootstrap](m0-bootstrap.md) |
-| **Sıradaki görev** | **M0-07** (`make check` + `make audit` yeşile alma; artık serbest) → sonra **M0-06** (CI) → M0 kapanır |
+| **Sıradaki görev** | **M0-06** (CI iş akışı) → M0 kapanır → `main`'e birleştir → M1 |
 | **Çalışma modu** | Orkestrasyon + üçüncü göz — [README.md](README.md) · brief'ler [agent-brief.md](agent-brief.md) |
 | **Dal** | `m0-bootstrap` — ilk commit `7e12f37` `main`'de; M0'ın kalanı dalda, M0 bitince `main`'e birleşir (CLAUDE.md §10) |
-| **Blokeler** | **Yok.** Bekleyen dört kullanıcı girdisi de geldi (Docker açıldı · Go 1.26.5 · Q04 · Q01) ve Q25 + Q27 karara bağlandı. |
+| **Blokeler** | **Bir bekleyen kullanıcı eylemi:** arm64 Go kurulumu (aşağı bak) — M0'ı veya M1'i bloklamıyor, yalnız yerel derleme hızı. |
 
-**Bir sonraki oturum ne yapmalı:** M0-07'yi yaptır (kapsamı bu oturumda büyüdü —
-aşağıdaki nota bak), sonra M0-06, sonra M0'ı `main`'e birleştir ve M1'e geç.
-M1 artık bekleyen karar olmadan yazılabilir.
+**Bir sonraki oturum ne yapmalı:** M0-06'yı (CI) yaptır — bu M0'ın son görevi.
+Sonra M0'ı `main`'e birleştir ve M1'e geç. M1 artık bekleyen **karar** olmadan
+yazılabilir (M1-01 Q27'yi normatif yazar).
 
-**M0-07'nin kapsamı büyüdü.** Kartın kendi Bulgu 1'i (staticcheck SA1019 →
-`middleware.RealIP` router'dan çıkarılır) **artı** bu oturumda karara bağlanan
-üç araç düzeltmesi (Q25 a/b/d) **artı** arm64 Go geçişi. Kartın **Bulgu 2'si
-düştü** — Go 1.26.5 ile `govulncheck` temiz.
+### ⏳ Bekleyen kullanıcı eylemi — arm64 Go kurulumu
+
+Q26 kararı: yerel toolchain arm64'e geçecek. **Repo işini bloklamıyor** — her şey
+amd64 Go 1.26.5 ile yeşil; kazanç yalnız yerel derleme/test hızı (Rosetta ~2-3x
+yavaş). Orkestratör go.dev tarball'ını indirdi ve **checksum'ı go.dev ile birebir
+doğruladı** (`efb87ff2…`), ama `/usr/local`'a kurulum **sudo parolası** ister —
+kullanıcı çalıştırmalı. Komutlar oturum notunda. Yapılınca `go version` →
+`darwin/arm64` olur ve ilk `make gen` bir kez uzun sürer (build cache + pinli CLI
+önbellekleri tazelenir — bozukluk değil).
 
 **Not:** M0-05 (ilk commit) sıradan **öne alındı** — kullanıcı "arada commit at"
 dedi. Bundan sonra her onaylanan görevin ardından bir commit atılır.
@@ -100,8 +105,8 @@ yazılır.
 | M0-03 | Postgres ve rol ayrımı doğrulaması | **done** | üçüncü göz **3. turda** ONAY · kart düzeltildi · iki ölçüm M1'i bağladı (→ Q27, ve M1-01/M1-02/M1-09 kartları güncellendi) |
 | M0-04 | Üretim hattı doğrulaması (templ · sqlc · tailwind) | **done** | `2521d48` · üçüncü göz 2. turda ONAY · `sqlc.yaml`'da 3 bozuk override bulundu ve düzeltildi |
 | M0-05 | İlk commit ve dal stratejisi | **done** | `7e12f37` · sıradan öne alındı (kullanıcı isteği) · orkestratör yaptı, M0-02 denetiminde doğrulanacak |
-| M0-06 | CI iş akışı | todo | Q04 = yerel Postgres → CI'da `services: postgres:17` · M0-07'ye bağlı |
-| M0-07 | make check ve make audit'i yeşile alma | todo | **serbest.** Bulgu 1 (SA1019) + Q25 a/b/d + arm64 geçişi. Bulgu 2 düştü (Go 1.26.5 → govulncheck temiz) |
+| M0-06 | CI iş akışı | todo | **sıradaki.** Q04 = yerel Postgres → CI'da `services: postgres:17` |
+| M0-07 | make check ve make audit'i yeşile alma | **done** | üçüncü göz **2. turda** ONAY · SA1019 (RealIP çıkarıldı) + Q25 a/b/d · redline R5 üç sessiz atlatma turunda yeniden yazıldı (lexer) · **arm64 hâlâ açık** (aşağı bak) |
 
 ### M1 — [Veri katmanı](m1-veri-katmani.md)
 
@@ -223,13 +228,56 @@ yazılır.
 | M9-06 | Policy simülatörü | todo | Q22 — M6-10'dan ertelendi |
 | M9-07 | Ham JSON politika editörü | todo | Q22 — M6-09'dan ayrıldı |
 
-**Özet:** 82 görev · done 5 · wip 0 · blocked 0 · skipped 1 · todo 76
+**Özet:** 82 görev · done 6 · wip 0 · blocked 0 · skipped 1 · todo 75
 
 ---
 
 ## Oturum günlüğü
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
+
+### 2026-07-24 (2. oturum, devam) — M0-07 kapandı, `redline-check.sh` yeniden yazıldı
+
+**M0-07 done — üçüncü göz 2. turda ONAY.** Dört iş: (1) `middleware.RealIP`
+router'dan çıkarıldı (SA1019; §5'te 50 güven puanı taşıyan IP'nin altına
+sahtelenebilir değer koymamak) · (2) `make seed` yerel `psql` yerine
+`docker compose exec` (yeni `scripts/seed.sh`) · (3) `govulncheck` **v1.6.0**'a
+pinlendi · (4) `redline-check.sh` R5 dosya düzeyinden **tablo düzeyine** taşındı.
+`make check` ve `make audit` **yeşil**; Bulgu 2 (stdlib CVE) Go 1.26.5 ile düşmüştü.
+
+**1. tur RED — tarayıcının kendisi yalancıydı.** R5'te üç sessiz atlatma vardı:
+kapsam-sütunu kontrolü `tenants` dışında **hiç tetiklenemiyordu** (aranan
+`tenant_id`, politikanın zorunlu yazdığı `app.tenant_id` GUC adının içinde geçiyor)
+· `/* */` blok yorumu beş kontrolü de susturuyordu · `-- +goose Down` bölümü Up'ın
+şartlarını karşılıyordu. Yapıcının 13 vakalık sondası bunları kaçırdı çünkü
+gerçekte yazılacak biçimi hiç denemedi — `agent-brief.md`'ye yeni ders olarak
+işlendi ("sonda ürünün gerçek girdisiyle yapılır").
+
+**2. tur ONAY.** `sed`+`tr` atıldı, yerine durum makineli **SQL lexer** (`sql_lex`)
++ goose Up kesici yazıldı. Denetçi lexer'a 11 kaçış yoluyla saldırdı (iç içe yorum,
+E-string, dolar-etiketli gövde, `DO $$`, sonlandırılmamış tırnak…) ve **yapısal
+değişmezi** doğruladı: maskeleme metni silmiyor → Up'taki her `CREATE TABLE` en
+kötü ihtimalle görünür WARN üretir, asla sessiz-yeşil geçemez.
+
+**İki konvansiyon sıkılaştı:** `tenants` istisnası artık niteliksiz/`public.` +
+PK'nın `id` üzerinde olmasını arıyor (`archive.tenants` kaçışı kapandı); muafiyet
+yorumu yalnız Up `^--` satırından okunuyor ve **her koşuda WARN** basılıyor
+(sessiz muafiyet kapandı).
+
+**M1'e devredilen redline notları (bloklamayan):** `E'\''` E-string lexer durumunu
+bozup sonraki ifadeyi WARN'a düşürüyor (sessiz değil) — M1 migration'larında
+E-string kullanılmamalı, "R5 denetleyemedi" WARN'ı elle doğrulanmalı · iç içe blok
+yorumu desteklenmiyor (yalnız yanlış-pozitif yönü) · muafiyet `$$` gövdesi içinde
+de okunabiliyor ama WARN'lanıyor · tek dosyada O(tablo²) performans (goose'un
+küçük-migration konvansiyonuyla sorun değil).
+
+**Kapsam dışı gözlem:** `tappa_owner` `rolsuper=t` (M0 init'ten geliyor); M0-03'te
+de görülmüştü, M1-01 ADR 0002 yazılırken gözden geçirilmeli.
+
+**Sırada:** M0-06 (CI) → M0 kapanır → `main`'e birleştir → M1.
+
+**⏳ Kullanıcıya:** arm64 Go kurulumu iki komut, sudo parolası ister — orkestratör
+tarball'ı indirip checksum'ını doğruladı, kalanı kullanıcının.
 
 ### 2026-07-24 (2. oturum) — M0-03 kapandı, altı karar alındı, blokeler bitti
 

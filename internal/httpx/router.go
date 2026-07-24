@@ -17,10 +17,13 @@ func NewRouter(cfg *config.Config) http.Handler {
 	r := chi.NewRouter()
 
 	r.Use(middleware.RequestID)
-	// WARNING: chi's RealIP trusts X-Forwarded-For unconditionally, so client IP
-	// is forgeable today. Proof-of-place is NOT yet enforced. This is replaced by
-	// a middleware bounded by cfg.TrustedProxies in M5-03 (docs/plan).
-	r.Use(middleware.RealIP)
+	// No client-IP middleware on purpose: r.RemoteAddr stays the raw TCP peer.
+	// chi's RealIP rewrites it from X-Forwarded-For / True-Client-IP / X-Real-IP
+	// whether or not our infrastructure sets them, so it hands out a forgeable
+	// address. IP matching is worth 50 trust points in the tap decision engine
+	// (CLAUDE.md §5), so a spoofable value is worse than no value at all. The
+	// real resolver, bounded by cfg.TrustedProxies, arrives in M5-03 (docs/plan);
+	// until then nothing in this router reads the client IP.
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(30 * time.Second))
 
