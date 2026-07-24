@@ -1,0 +1,32 @@
+# --- build artifacts ---
+/bin/
+/dist/
+*.exe
+
+# --- secrets & local config ---
+.env
+.env.local
+*.pem
+*.key
+# NTAG AES keys must NEVER be committed. See CLAUDE.md "Kirmizi Cizgiler".
+secrets/
+*.aes
+
+# --- generated CSS (built by make css) ---
+/web/static/css/app.css
+
+# --- go ---
+*.test
+*.out
+coverage.*
+
+# --- local tooling downloaded by `make tools` ---
+/.tools/
+
+# --- os / editor ---
+.DS_Store
+.idea/
+*.swp
+
+# --- claude local overrides ---
+.claude/settings.local.json

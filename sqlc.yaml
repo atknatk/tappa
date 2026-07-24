@@ -1,0 +1,28 @@
+version: "2"
+sql:
+  - engine: postgresql
+    schema: db/migrations
+    queries: db/queries
+    gen:
+      go:
+        package: store
+        out: internal/store
+        sql_package: pgx/v5
+        emit_pointers_for_null_types: true
+        emit_prepared_queries: false
+        emit_interface: true          # handler'lar Querier arayuzune bagimli -> test'te sahtelenebilir
+        emit_json_tags: false         # DB tipleri API'ye sizmasin; DTO'lar internal/handler'da
+        emit_empty_slices: true
+        overrides:
+          - db_type: "uuid"
+            go_type: "github.com/google/uuid.UUID"
+          - db_type: "uuid"
+            nullable: true
+            go_type:
+              type: "uuid.UUID"
+              import: "github.com/google/uuid"
+              pointer: true
+          - db_type: "timestamptz"
+            go_type: "time.Time"
+          - db_type: "inet"
+            go_type: "netip.Addr"

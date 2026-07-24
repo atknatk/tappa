@@ -1,0 +1,28 @@
+services:
+  db:
+    image: postgres:17-alpine
+    container_name: tappa-db
+    environment:
+      POSTGRES_USER: tappa_owner
+      POSTGRES_PASSWORD: tappa
+      POSTGRES_DB: tappa
+      # Determinizm: testler ve raporlar UTC uzerinden calisir.
+      TZ: UTC
+      PGTZ: UTC
+    command: >
+      postgres
+      -c log_statement=all
+      -c log_min_duration_statement=0
+    ports:
+      - "5432:5432"
+    volumes:
+      - tappa-pgdata:/var/lib/postgresql/data
+      - ./scripts/db-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tappa_owner -d tappa"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  tappa-pgdata:

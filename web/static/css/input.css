@@ -1,0 +1,58 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Yazi tipleri self-host edilir — Google Fonts'a runtime baglantisi YOK
+   (GDPR + cevrimdisi calisma). Dosyalar: web/static/fonts/ */
+
+@layer base {
+  html {
+    @apply bg-porcelain text-ink font-display antialiased;
+  }
+  /* Her sayi mono — adisyon hissi buradan gelir. */
+  time, code, kbd, samp, .num {
+    @apply font-mono;
+  }
+}
+
+@layer components {
+  /* --- kitchen docket: Tappa'nin imza motifi --- */
+  .docket {
+    @apply relative bg-paper border border-line shadow-sm px-4 py-3 font-mono text-sm;
+  }
+  .docket::before,
+  .docket::after {
+    content: '';
+    @apply absolute inset-x-0 h-2 bg-repeat-x;
+    background-size: theme('backgroundSize.perf');
+  }
+  .docket::before { @apply -top-px bg-perf-top; }
+  .docket::after  { @apply -bottom-px bg-perf-bottom; }
+
+  .docket-label {
+    @apply text-[10px] uppercase tracking-widest text-ink/50;
+  }
+
+  /* --- kase damgasi: hafif egik, cift cerceve, murekkep hissi --- */
+  .stamp {
+    @apply inline-block px-2.5 py-1 text-[11px] font-bold uppercase tracking-[0.18em]
+           border-2 rounded-sm opacity-80 select-none -rotate-6;
+    box-shadow: inset 0 0 0 1px currentColor;
+  }
+  .stamp--approved { @apply text-tappa-green border-tappa-green; }
+  .stamp--flagged  { @apply text-saffron border-saffron -rotate-3; }
+  .stamp--rejected { @apply text-tomato border-tomato -rotate-12; }
+  .stamp--ignored  { @apply text-line border-line rotate-2; }
+  .stamp--training { @apply text-ink border-ink border-dashed rotate-3; }
+
+  /* --- tap ekrani: eldivenli/islak parmak icin buyuk hedef --- */
+  .tap-button {
+    @apply w-full min-h-16 rounded-sm bg-tappa-green text-paper font-display
+           text-xl tracking-tight active:scale-[0.99] transition-transform
+           focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .tap-button { @apply transition-none active:scale-100; }
+  }
+}
