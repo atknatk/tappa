@@ -1,0 +1,95 @@
+# Tappa CI — her push ve PR'da `make check` + `make audit` kosar.
+#
+# Neden: CLAUDE.md §2 `make check`'i "CI'nin calistirdigi" diye tanimlar; kural
+# mekanik olarak zorlanmazsa er gec unutulur (docs/plan/m0-bootstrap.md → M0-06).
+#
+# Node YOK (CLAUDE.md §1): tailwind standalone ikilisi `make tools` ile iner;
+# `actions/setup-node`/npm/node adimi KULLANILMAZ. Yalnizca birinci-parti
+# action'lar (checkout, setup-go), major tag ile pinli (Q25(b)'nin CI karsiligi).
+name: ci
+
+# Kural her PUSH ve her PR'da zorlanir (kartin "her push" ifadesi).
+on:
+  push:
+  pull_request:
+
+# Ayni ref'e ust uste itmeler eski kosuyu iptal etsin — runner israfini onler.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# En az yetki: is akisi salt okur, hicbir sey yazmaz.
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    # make up'in pg bekleme dongusu zaman asimsizdir; isi ust sinira baglariz.
+    timeout-minutes: 20
+    env:
+      # `make build` statik ikili icin CGO_ENABLED=0 ister ama CI `make build`
+      # KOSMAZ. CI'nin kostugu `make check` -> `go test -race` kosar ve -race,
+      # linux/amd64'te cgo GEREKTIRIR (cgo=0 iken "go: -race requires cgo" ile
+      # test yoklugu dahil ANINDA patlar). ubuntu-latest gcc'yi hazir getirir.
+      # Yerel macOS'ta -race cgo=0 ile calisir; bu darwin'e ozgudur, Linux'a
+      # tasinmaz — kart tuzagi bu yuzden 0 diyordu (bkz. M0-06 kart duzeltmesi).
+      CGO_ENABLED: "1"
+      # Determinizm: DB timestamptz'leri UTC; testler/raporlar UTC uzerinden
+      # (CLAUDE.md §6 — gece vardiyasi bug'lari). docker-compose.yml ile ayni.
+      TZ: UTC
+      # M1-09 DB testleri yerel Postgres'e karsi kosacak (Q04). Baglanti
+      # dizeleri .env.example ile birebir: uygulama rolu (RLS'e tabi) ve
+      # migration rolu ayri — rol ayrimi korunur (CLAUDE.md §4.5, §6).
+      DATABASE_URL: postgres://tappa_app:tappa@localhost:5432/tappa?sslmode=disable
+      DATABASE_MIGRATE_URL: postgres://tappa_owner:tappa@localhost:5432/tappa?sslmode=disable
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          # govulncheck'in temiz kalmasi icin >=1.26.5 (dort stdlib CVE 1.26.5'te
+          # kapandi). go.mod'daki 1.26.2 asgaridir; CI surumu acikca pinlenir.
+          go-version: "1.26.5"
+          # Modul onbellegi go.sum'a gore (setup-go varsayilani; "modul onbellegi"
+          # kart adim 1).
+          cache: true
+
+      - name: Install ripgrep
+        # redline-check.sh `rg` yoksa taramayi SESSIZCE atlar ve yanlis guven
+        # verir (scripts/redline-check.sh:21-25 — have_rg yoksa exit 0). Kur ve
+        # kurulu oldugunu KANITLA (`rg --version` adimin kendisidir).
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ripgrep
+          rg --version
+
+      - name: Fetch Tailwind CLI (make tools)
+        # Node'suz standalone ikili; surum Makefile'da pinli (TAILWIND_VERSION).
+        # scripts/get-tailwind.sh: uname -s=Linux, uname -m=x86_64 -> x64 ->
+        # tailwindcss-linux-x64. Indirdikten sonra ikiliyi calistirip dogrular.
+        run: make tools
+
+      - name: Start Postgres (make up)
+        # Q04 = yerel Postgres. `services:` bloku CHECKOUT'TAN ONCE baslar,
+        # dolayisiyla repodaki scripts/db-init/*.sql'i (tappa_app rolu +
+        # pgcrypto/citext uzantilari) uygulayamaz. Compose ise checkout SONRASI
+        # ayni init'i postgres entrypoint ile otomatik uygular. Tek dogru kaynak
+        # docker-compose.yml: drift yok, yerel dev ortamiyla birebir ayni (ayni
+        # imaj postgres:17-alpine, ayni roller, ayni uzantilar, TZ/PGTZ=UTC).
+        # M1-09 DB testleri geldiginde ayni `make check` icinden localhost:5432'ye
+        # baglanabilsin diye test adimindan ONCE ayaga kaldirilir.
+        run: make up
+
+      - name: make check (fmt + lint + test + uretilen-dosya kontrolu)
+        # fmt + vet + staticcheck + `go test -race` + `git diff --exit-code`.
+        # Son adim, `make gen`/`make fmt` ciktisinin (uretilen dosyalar) commit
+        # edildigini de dogrular — commit edilmemisse CI kirmizi (istenen).
+        run: make check
+
+      - name: make audit (govulncheck + redline-check)
+        # govulncheck@v1.6.0 (pinli) + scripts/redline-check.sh (kirmizi cizgi
+        # taramasi). rg yukarida kuruldu, tarama gercekten kosar.
+        run: make audit

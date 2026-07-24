@@ -560,8 +560,43 @@ CI'da Postgres servisi gerekip gerekmediğini belirler.
 **Tuzaklar.**
 - `make check` sonunda `git diff --exit-code` var: `make gen`/`make fmt`
   çıktısı commit edilmemişse CI kırmızı olur. Bu **istenen** davranış.
-- CI'da `CGO_ENABLED=0` ve `TZ=UTC` ayarlı olsun (repo settings.json'daki
-  yerel ortamla eşleşsin).
+- CI'da ~~`CGO_ENABLED=0`~~ **`CGO_ENABLED=1`** ve `TZ=UTC` ayarlı olsun
+  (aşağıdaki kart düzeltmesi §1).
+
+> **Kart düzeltmesi (2026-07-24, M0-06 uygulaması sırasında).** İki madde
+> gerçekle çelişti.
+>
+> **§1 — `CGO_ENABLED=0` CI'da `go test -race`'i Linux'ta anında kırar; CI
+> `CGO_ENABLED=1` kullanır.** Tuzak "yerel ortamla eşleşsin" gerekçesiyle
+> `CGO_ENABLED=0` diyordu. `make check` → `make test` → `go test -race ./...`
+> koşar ve **race dedektörü `linux/amd64`'te cgo gerektirir.** Ölçüm (go1.26.5,
+> repo dışı sonda):
+>
+> | Ortam | komut | sonuç |
+> |---|---|---|
+> | `darwin/amd64` (yerel), test dosyası **var** | `CGO_ENABLED=0 go test -race` | **ok** (darwin race'i cgo istemez) |
+> | `GOOS=linux`, test dosyası **var** | `CGO_ENABLED=0 go test -race -c` | **`go: -race requires cgo`** |
+> | `GOOS=linux`, test dosyası **YOK** | `CGO_ENABLED=0 go test -race ./...` | **`go: -race requires cgo`** |
+>
+> Yani `CGO_ENABLED=0`, CI runner'ında (ubuntu-latest = `linux/amd64`)
+> `make test`'i **bugün** — henüz hiç test yokken bile — kırardı; tam da
+> M0-06'nın önlemesi gereken kırmızı rozet. "Yerel ortamla eşleşme" yanılgıydı:
+> cgo=0 ile race yalnızca **darwin**'de çalışır, Linux'a taşınmaz. `make build`
+> hâlâ `CGO_ENABLED=0` (Makefile satır 73, statik ikili) ister ama CI `make
+> build` **koşmaz**; CI'nın koştuğu `make check`/`make audit` için doğru değer
+> **1**'dir (ubuntu-latest gcc'yi hazır getirir). `TZ=UTC` aynen kalır.
+>
+> **§2 — Postgres `services:` bloğu değil, `make up` (compose) ile kaldırılır.**
+> Adım 5 `services: postgres:17` diyordu. Ama `services:` konteynerleri
+> **checkout'tan önce** başlar, dolayısıyla repodaki `scripts/db-init/*.sql`'i
+> (tappa_app rolü + `pgcrypto`/`citext`) **uygulayamaz** — o roller ve uzantılar
+> olmadan M1-09 RLS testi koşamaz. Aynı env'i (roller, TZ, healthcheck) bir
+> `services:` bloğunda elle kopyalamak `docker-compose.yml`'den **drift**
+> yaratır (CLAUDE.md §6). `make up` checkout sonrası aynı compose'u kullanır,
+> init SQL'i entrypoint otomatik uygular, yerel dev ile birebir aynıdır → tek
+> doğru kaynak. `services:` init script'i doğrudan almaz sorusunun cevabı budur:
+> compose seçildi. Bağlantı dizeleri (`DATABASE_URL`/`DATABASE_MIGRATE_URL`,
+> `.env.example` ile birebir) M1-09 testleri için job env'ine kondu.
 
 ---
 

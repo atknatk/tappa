@@ -12,15 +12,22 @@
 
 | | |
 |---|---|
-| **Kilometre taşı** | M0 — [Bootstrap](m0-bootstrap.md) |
-| **Sıradaki görev** | **M0-06** (CI iş akışı) → M0 kapanır → `main`'e birleştir → M1 |
+| **Kilometre taşı** | **M0 tamamlandı** ✅ → sıradaki **M1 — [Veri katmanı](m1-veri-katmani.md)** |
+| **Sıradaki görev** | **M0'ı `main`'e birleştir** (kullanıcı onayı bekliyor — CLAUDE.md §10 "istemedikçe push/PR yok") → sonra **M1-01** (ADR 0002) |
 | **Çalışma modu** | Orkestrasyon + üçüncü göz — [README.md](README.md) · brief'ler [agent-brief.md](agent-brief.md) |
-| **Dal** | `m0-bootstrap` — ilk commit `7e12f37` `main`'de; M0'ın kalanı dalda, M0 bitince `main`'e birleşir (CLAUDE.md §10) |
+| **Dal** | `m0-bootstrap` — ilk commit `7e12f37` `main`'de; M0'ın kalanı dalda, **hepsi hazır, `main`'e birleştirilmeyi bekliyor** (CLAUDE.md §10) |
 | **Blokeler** | **Bir bekleyen kullanıcı eylemi:** arm64 Go kurulumu (aşağı bak) — M0'ı veya M1'i bloklamıyor, yalnız yerel derleme hızı. |
 
-**Bir sonraki oturum ne yapmalı:** M0-06'yı (CI) yaptır — bu M0'ın son görevi.
-Sonra M0'ı `main`'e birleştir ve M1'e geç. M1 artık bekleyen **karar** olmadan
-yazılabilir (M1-01 Q27'yi normatif yazar).
+**Bir sonraki oturum ne yapmalı:** **M0'ın yedi görevi de bitti** (biri `skipped`).
+`m0-bootstrap` dalını `main`'e birleştir — bu **kullanıcı kararı** (CLAUDE.md §10),
+birleştirmeden önce sor. Sonra M1-01'e geç: ADR 0002 tenant bağlamı ve RLS
+stratejisini yazar, **Q27'yi normatif kılar** (`NULLIF` biçimi) ve M0-03'te ölçülen
+`tappa_owner` superuser gerçeğini kaydeder. M1 artık bekleyen **karar** olmadan
+yazılabilir.
+
+**M1'e girmeden önce hazır olması gerekenler** (hepsi bu oturumda çözüldü):
+Q01 (timezone) ✔ · Q04 (yerel Postgres) ✔ · Q27 (`NULLIF`) ✔. Kalan M1 blokajı
+yalnız **Q07** (`static_ips` tipi) → M1-03, o da M1-02'den sonra.
 
 ### ⏳ Bekleyen kullanıcı eylemi — arm64 Go kurulumu
 
@@ -105,7 +112,7 @@ yazılır.
 | M0-03 | Postgres ve rol ayrımı doğrulaması | **done** | üçüncü göz **3. turda** ONAY · kart düzeltildi · iki ölçüm M1'i bağladı (→ Q27, ve M1-01/M1-02/M1-09 kartları güncellendi) |
 | M0-04 | Üretim hattı doğrulaması (templ · sqlc · tailwind) | **done** | `2521d48` · üçüncü göz 2. turda ONAY · `sqlc.yaml`'da 3 bozuk override bulundu ve düzeltildi |
 | M0-05 | İlk commit ve dal stratejisi | **done** | `7e12f37` · sıradan öne alındı (kullanıcı isteği) · orkestratör yaptı, M0-02 denetiminde doğrulanacak |
-| M0-06 | CI iş akışı | todo | **sıradaki.** Q04 = yerel Postgres → CI'da `services: postgres:17` |
+| M0-06 | CI iş akışı | **done** | üçüncü göz **1. turda** ONAY · `make up`+`make check`+`make audit`, Go 1.26.5 pinli, ripgrep kurulu, Node yok · iki kart sapması ölçümle doğrulandı (`CGO_ENABLED=1`, `services:` yerine `make up`) |
 | M0-07 | make check ve make audit'i yeşile alma | **done** | üçüncü göz **2. turda** ONAY · SA1019 (RealIP çıkarıldı) + Q25 a/b/d · redline R5 üç sessiz atlatma turunda yeniden yazıldı (lexer) · **arm64 hâlâ açık** (aşağı bak) |
 
 ### M1 — [Veri katmanı](m1-veri-katmani.md)
@@ -228,13 +235,40 @@ yazılır.
 | M9-06 | Policy simülatörü | todo | Q22 — M6-10'dan ertelendi |
 | M9-07 | Ham JSON politika editörü | todo | Q22 — M6-09'dan ayrıldı |
 
-**Özet:** 82 görev · done 6 · wip 0 · blocked 0 · skipped 1 · todo 75
+**Özet:** 82 görev · done 7 · wip 0 · blocked 0 · skipped 1 · todo 74 · **M0 tamam**
 
 ---
 
 ## Oturum günlüğü
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
+
+### 2026-07-24 (2. oturum, devam) — M0-06 kapandı, **M0 TAMAMLANDI**
+
+**M0-06 done — üçüncü göz 1. turda ONAY** (bu oturumun ilk tek-turluk onayı).
+`.github/workflows/ci.yml`: `push`+`pull_request`, tek job, `actions/checkout@v4`
++ `actions/setup-go@v5` (Go **1.26.5** pinli), ripgrep kurulur, `make tools` →
+`make up` → `make check` → `make audit`. **Node yok**, üçüncü parti action yok,
+action'lar pinli.
+
+**İki kart sapması ölçümle doğrulandı:** (1) `CGO_ENABLED` kartta `0` yazıyordu →
+**`1`** olmalı: `make check` `go test -race` koşuyor ve linux/amd64'te race detector
+cgo ister (`GOOS=linux CGO_ENABLED=0 go test -race` → `-race requires cgo`, **sıfır
+test dosyasıyla bile**). (2) Postgres `services: postgres:17` bloğuyla **değil**,
+`make up` (compose) ile: `services:` konteynerleri checkout'tan **önce** başlar,
+repo'nun `db-init/01-roles.sql`'ini uygulayamaz → `tappa_app` rolü hiç oluşmaz.
+
+**Q04 metni düzeltildi:** "CI'da `services: postgres:17`" cümlesi infeasible'dı ve
+sevk edilen CI ile çelişiyordu; uzlaştırma notu eklendi (kararın özü değişmedi,
+yalnız CI'da nasıl ayağa kalktığı). Denetçinin "yanlışlanan kartı da düzelt" bulgusu.
+
+**M0'ın yedi görevi:** M0-01 (2 tur) · M0-02 (3 tur) · M0-03 (3 tur) · M0-04 (2 tur) ·
+M0-05 (ilk commit) · M0-06 (1 tur) · M0-07 (2 tur). Biri (M6-10) proje genelinde
+`skipped`. **M0 milestone tamam.**
+
+**Sırada:** `m0-bootstrap` → `main` birleştirme (**kullanıcı kararı**, sor) → M1-01.
+
+**⏳ Kullanıcıya hatırlatma:** arm64 Go kurulumu hâlâ açık (iki komut, sudo).
 
 ### 2026-07-24 (2. oturum, devam) — M0-07 kapandı, `redline-check.sh` yeniden yazıldı
 

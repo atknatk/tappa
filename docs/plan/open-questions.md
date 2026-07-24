@@ -172,8 +172,18 @@ değişmeden değişebilir, CI bir sabah kendiliğinden kırmızıya dönebilir.
 
 ### Q04 — DB testleri yerel Postgres'e karşı koşar (2026-07-24)
 
-**Karar:** (a) — testler `make up`'ın ayağa kaldırdığı Postgres'e bağlanır;
-CI'da `services: postgres:17` + `scripts/db-init/*.sql` uygulanır.
+**Karar:** (a) — testler `make up`'ın ayağa kaldırdığı Postgres'e bağlanır.
+CI'da da **`make up` (compose)** koşar, `services: postgres:17` bloğu **değil**.
+
+> **Düzeltme (2026-07-24, M0-06 uygulaması sırasında).** Bu satır önce
+> "CI'da `services: postgres:17` + `scripts/db-init/*.sql` uygulanır" diyordu;
+> **infeasible.** GitHub Actions `services:` konteynerleri checkout'tan **önce**
+> başlar, dolayısıyla repo'daki `scripts/db-init/01-roles.sql`'i (→ `tappa_app`
+> rolü, `pgcrypto`/`citext`) hiç uygulayamaz — RLS testinin dayandığı rol ayrımı
+> hiç kurulmazdı. CI bu yüzden checkout'tan **sonra** `make up` koşar; init SQL'i
+> Postgres entrypoint uygular ve yerel dev'le birebir olur. Kararın **özü
+> değişmedi** ("yerel Postgres, testcontainers değil"); yalnız CI'da nasıl ayağa
+> kalktığı düzeltildi. Sevk edilen iş akışı: [.github/workflows/ci.yml](../../.github/workflows/ci.yml).
 **Gerekçe:** `testcontainers-go` yeni ve ağır bir bağımlılık zinciri getirirdi
 (docker API istemcisi + testify) — CLAUDE.md §1 "stdlib > küçük kütüphane >
 framework". RLS izolasyonunu test etmek için tek kullanımlık konteyner gerekmiyor;
