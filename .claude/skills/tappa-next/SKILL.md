@@ -46,7 +46,10 @@ sor** — sessizce yorumlama.
 ## Çalışma modu — orkestrasyon + üçüncü göz
 
 Ana oturum **iş yapmaz**. Görevi bir alt ajana (model `opus`) yaptır, sonra
-**ayrı** bir üçüncü göz ajanına (yine `opus`) denetlet. Bulgu varsa düzelttir ve
+**ayrı** bir üçüncü göz ajanına (yine `opus`) denetlet. Brief şablonları, her
+turda tekrarlanan sabit kurallar ve şimdiye kadar öğrenilen dersler:
+[docs/plan/agent-brief.md](../../../docs/plan/agent-brief.md) — brief yazmadan
+önce oku. Bulgu varsa düzelttir ve
 **yeni bir denetçiyle** tekrar denetlet. Onay gelmeden `done` yazma, sonraki
 göreve geçme. Denetçi işi yapan ajan olamaz; kod değiştirmez, yalnız bulgu
 üretir. Rapor kullanıcıya olduğu gibi aktarılır.

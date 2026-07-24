@@ -14,6 +14,7 @@
 |---|---|
 | **Kilometre taşı** | M0 — [Bootstrap](m0-bootstrap.md) |
 | **Sıradaki görev** | **M0-03** (Docker bekliyor) → değilse **M0-07** (Q26 bekliyor). M0 kalanı kullanıcı girdisine bağlı. |
+| **Çalışma modu** | Orkestrasyon + üçüncü göz — [README.md](README.md) · brief'ler [agent-brief.md](agent-brief.md) |
 | **Dal** | `m0-bootstrap` — ilk commit `7e12f37` `main`'de; M0'ın kalanı dalda, M0 bitince `main`'e birleşir (CLAUDE.md §10) |
 | **Blokeler** | **Docker daemon kapalı** → M0-03 için kullanıcı Docker Desktop'ı başlatmalı |
 
@@ -69,7 +70,7 @@ yazılır.
 | M0-01 | .env ve kriptografik anahtarlar | **done** | commit yok (`.env` ignore'da) · üçüncü göz 2. turda ONAY · kart düzeltildi (F2) |
 | M0-02 | Go bağımlılıkları (pgx, uuid, templ) | **done** | `e6d9a63` · üçüncü göz 3. turda ONAY · kart iki kez düzeltildi |
 | M0-03 | Postgres ve rol ayrımı doğrulaması | blocked | Docker daemon kapalı |
-| M0-04 | Üretim hattı doğrulaması (templ · sqlc · tailwind) | **done** | üçüncü göz 2. turda ONAY · `sqlc.yaml`'da 3 bozuk override bulundu ve düzeltildi |
+| M0-04 | Üretim hattı doğrulaması (templ · sqlc · tailwind) | **done** | `2521d48` · üçüncü göz 2. turda ONAY · `sqlc.yaml`'da 3 bozuk override bulundu ve düzeltildi |
 | M0-05 | İlk commit ve dal stratejisi | **done** | `7e12f37` · sıradan öne alındı (kullanıcı isteği) · orkestratör yaptı, M0-02 denetiminde doğrulanacak |
 | M0-06 | CI iş akışı | todo | Q04 · M0-07'ye bağlı |
 | M0-07 | make check ve make audit'i yeşile alma | todo | Q26 · denetim bulgusu (SA1019 + stdlib CVE) |
@@ -273,3 +274,36 @@ Repo durumu: iskelet dosyalar var ve derleniyor (`go build ./...` temiz), ama
 `config` ve `httpx` var. Commit geçmişi yok, `.env` yok, Docker kapalı.
 
 Sırada: M0-01.
+
+### 2026-07-24 — M0 yürütmeye başlandı: orkestrasyon + üçüncü göz
+
+Çalışma modu değişti ([README.md](README.md) → Çalışma modu): ana oturum iş
+yapmaz, her görevi bir Opus alt ajana yaptırır ve **ayrı** bir üçüncü göz ajanı
+onaylayana kadar düzelttirir.
+
+Dört görev kapandı: **M0-01** (2 tur), **M0-02** (3 tur), **M0-04** (2 tur),
+**M0-05** (ilk commit, sıradan öne alındı). Commit'ler: `7e12f37`, `e6d9a63`,
+`2521d48`. Dal `m0-bootstrap`.
+
+**Dördü de ilk turda RED aldı ve her seferinde gerçek bir kusur çıktı** —
+hayali bulgu yok. En değerlisi M0-04'teki üç bozuk `sqlc.yaml` override'ı
+(nullable `uuid` → geçersiz Go · `inet` → var olmayan paket, üstelik sqlc
+exit 0 veriyordu · nullable `timestamptz` override'ı hiç yoktu). Üçü de
+iskeleden beri oradaydı ve M1'de kesin patlardı.
+
+Kart hataları da bu turlarda çıktı ve düzeltildi: M0-01'in `go run` kriteri
+ulaşılamazdı (`.env`'i Makefile yüklüyor) · M0-02'nin `go mod tidy` adımı kendi
+önceki adımlarını siliyordu · M0-04'ün sqlc kriteri fazla gevşekti.
+
+Yeni görev **M0-07** (`make check` + `make audit` yeşile alma) ve yeni soru
+**Q26** (Go ≥1.26.5, arm64) denetimden doğdu.
+
+**M0'ın kalan üçü de kullanıcı girdisi bekliyor** — burada duruldu.
+
+Bağlam sıkıştırması öncesi [agent-brief.md](agent-brief.md) yazıldı: yapıcı ve
+denetçi brief şablonları, her turda tekrarlanan sabit kurallar ve M0'da
+öğrenilen dokuz ders. Bunlar o ana kadar yalnız sohbette taşınıyordu; artık
+repoda.
+
+**Kullanıcıdan beklenen dört girdi:** Docker Desktop (M0-03) · Q26 Go ≥1.26.5
+arm64 (M0-07) · Q04 DB testi hedefi (M0-06) · Q01 zaman dilimi (M1-02).

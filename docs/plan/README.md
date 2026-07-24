@@ -12,6 +12,7 @@ Hiçbir adımı atlamadan, önceki işi bozmadan.
 | **[state.md](state.md)** | **Tek canlı durum kaynağı.** Nerede kaldık, sırada ne var, hangi görev bitti/bloke, hangi commit'te | **Her oturumun sonunda** |
 | [roadmap.md](roadmap.md) | Kilometre taşları, sıralama gerekçesi, riskler, kapsam dışı | Ürün veya sıra kararı değişince |
 | `m0…m9-*.md` | **Görev kartları** — her görevin değişmez spec'i | Kapsam değişirse (gerekçesi yazılarak) |
+| [agent-brief.md](agent-brief.md) | Yapıcı/denetçi brief şablonları, sabit kurallar, öğrenilen dersler | Yeni bir ders çıkınca |
 | [open-questions.md](open-questions.md) | Karara bağlanmamış konular, hangi görevi blokladıkları | Soru çıkınca / cevaplanınca |
 
 > **Durum yalnızca `state.md`'de tutulur.** Görev kartlarına "yapıldı" işareti
@@ -83,10 +84,15 @@ Ana oturum **iş yapmaz, organize eder**. Her görev için:
   `tappa-security-auditor` da koşar.
 - Onay gelmeden `state.md`'de `done` yazılmaz.
 
+**Brief'lerin şekli ve her turda tekrarlanan kurallar:**
+[agent-brief.md](agent-brief.md). Yapıcı ve denetçi şablonları, sabit kurallar
+ve şimdiye kadar öğrenilen dersler orada — bağlam sıkışsa bile disiplin kaybolmasın.
+
 **Neden:** 2026-07-24'te plan üç bağımsız ajana denetletildi ve ana oturumun
 gözden kaçırdığı ciddi hatalar çıktı — en ağırı, bir güvenlik açığının
 (A1, URL biriktirme) yanlışlıkla "çözüldü" işaretlenmesiydi. Tek gözün
-yetmediği somut olarak görüldü.
+yetmediği somut olarak görüldü. M0 yürütmesinde de dört görevin dördü ilk
+turda RED aldı ve her seferinde gerçek bir kusur çıktı.
 
 ## Görev ID şeması
 
