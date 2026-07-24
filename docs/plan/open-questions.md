@@ -92,8 +92,8 @@ A/Y maddelerine ek olarak çıkanlar ve nereye işlendikleri:
 | Q11 | **iOS Safari çerez ömrü.** Oturum 1 yıl hedefleniyor; Safari ITP altında gerçek bir iPhone'da NFC → Safari akışıyla **ölçülmeli**. "Telefon seni tanır" vaadi buna dayanıyor. | M5-01 | C | açık |
 | Q12 | **Barındırma.** VPS sağlayıcı ve managed Postgres, AB bölgesi, yedek politikası, ~€30-50 bütçe. | M8-02 | A | açık |
 | Q13 | **GDPR silme talebi × immutable `transactions`.** Öneri: `employees` üzerinde anonimleştir, `transactions` korunur — hukuki onay ister. Saklama süresi de burada. | M8-06 | A | açık |
-
 | **Q25** | **Küçük araç düzeltmeleri** (P9). (a) `Makefile:seed` `psql` gerektiriyor — ön koşullara eklensin mi, yoksa hedef `docker compose exec` ile mi yazılsın? (b) `govulncheck@latest` pinlensin mi? (c) `sqlc.yaml`'a `inet[]`/`cidr[]` override'ı Q07 kararıyla birlikte. (d) `redline-check.sh` R5 `tenant_id NOT NULL`, indeks ve GRANT'i de tarasın mı? Öneri: hepsi evet, M0-04/M0-06 sırasında. | M0-04, M0-06, M1-03 | C→A | açık |
+| **Q26** | **Go toolchain yükseltmesi.** Yerel `go1.26.2`'de çağrı yolunda **dört stdlib açığı** var (`GO-2026-5856` crypto/tls · `GO-2026-5039` net/textproto · `GO-2026-5037` crypto/x509 · `GO-2026-4971` net) ve `govulncheck`'i exit 3 yapıp `make audit`'i kırmızıya düşürüyor. Düzeltmeler 1.26.3/.4/.5'te; en yükseği gerektiren `crypto/tls` → **≥ go1.26.5**. Hiçbiri pgx/uuid/templ/chi kaynaklı **değil**, yani bağımlılık seçimiyle ilgisiz. Toolchain yükseltilsin mi (kullanıcı eylemi), yoksa CI'da geçici istisna mı tanımlansın? Öneri: **yükselt** — istisna, `make audit`'i sessizce anlamsızlaştırır. | [M0-07](m0-bootstrap.md), [M0-06](m0-bootstrap.md) | A | açık |
 
 ## Cevaplananlar
 

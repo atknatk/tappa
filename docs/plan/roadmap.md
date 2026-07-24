@@ -7,7 +7,7 @@ milestone dosyalarına, nerede olduğumuz için [state.md](state.md)'ye bak.
 
 | # | Ad | Amaç | Çıktı | Görev |
 |---|---|---|---|---|
-| **M0** | [Bootstrap](m0-bootstrap.md) | Zemini çalışır hale getir | `.env`, bağımlılıklar, ayakta Postgres, ilk commit, CI | 6 |
+| **M0** | [Bootstrap](m0-bootstrap.md) | Zemini çalışır hale getir | `.env`, bağımlılıklar, ayakta Postgres, ilk commit, CI, yeşil `make check` | 7 |
 | **M1** | [Veri katmanı](m1-veri-katmani.md) | Şema + tenant izolasyonu | 10 tablo, RLS, sqlc, seed, izolasyon testi | 11 |
 | **M2** | [SUN doğrulama](m2-sun.md) | *Proof of moment* | `internal/sun`, atomik ctr, test vektörleri | 7 |
 | **M3** | [Policy motoru](m3-policy-motoru.md) | Kuralları müşteriye aç, kırmızı çizgiyi kilitle | `internal/policy`, guardrail + baseline, açıklanabilir karar | 9 |
@@ -18,7 +18,7 @@ milestone dosyalarına, nerede olduğumuz için [state.md](state.md)'ye bak.
 | **M8** | [Deploy & pilot](m8-deploy-pilot.md) | Sahaya çıkış | VPS + managed PG, encode runbook, KF St Julians pilotu | 7 |
 | **M9** | [Sonrası](m9-sonrasi.md) | Pilot sonrası | çevrimdışı kuyruk, push, CSV import, marka editörü | 7 |
 
-Toplam **81 görev** (1'i ertelendi: M6-10 → M9-06).
+Toplam **82 görev** (1'i ertelendi: M6-10 → M9-06).
 
 ## Bağımlılık zinciri
 

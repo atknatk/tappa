@@ -13,8 +13,8 @@
 | | |
 |---|---|
 | **Kilometre taşı** | M0 — [Bootstrap](m0-bootstrap.md) |
-| **Sıradaki görev** | **M0-02** — Go bağımlılıkları (pgx, uuid, templ) |
-| **Dal** | `main` (henüz commit yok; ilk commit M0-05'te `main`'e atılır, sonrası dal ile) |
+| **Sıradaki görev** | **M0-04** — Üretim hattı doğrulaması (templ · sqlc · tailwind) |
+| **Dal** | `m0-bootstrap` — ilk commit `7e12f37` `main`'de; M0'ın kalanı dalda, M0 bitince `main`'e birleşir (CLAUDE.md §10) |
 | **Blokeler** | **Docker daemon kapalı** → M0-03 için kullanıcı Docker Desktop'ı başlatmalı |
 
 **Bir sonraki oturum ne yapmalı:** M0-02, ardından M0-04 (ikisi de Docker
@@ -27,9 +27,9 @@ dedi. Bundan sonra her onaylanan görevin ardından bir commit atılır.
 gerekçe ve etkilenen kartlar [open-questions.md](open-questions.md) →
 Cevaplananlar'da. M3 ve M6 bekleyen karar olmadan yazılabilir.
 
-**Kalan açık sorular (Q01–Q13, Q25)** teknik/ticari; hiçbiri M0'ı bloklamıyor.
+**Kalan açık sorular (Q01–Q13, Q25, Q26)** teknik/ticari; hiçbiri M0'ı bloklamıyor.
 En yakın blokajlar: Q01 (zaman dilimi) → M1-02, Q04 (DB testi) → M0-06,
-Q25 (küçük araç düzeltmeleri) → M0-04.
+Q25 (küçük araç düzeltmeleri) → M0-04, Q26 (Go toolchain) → M0-07.
 
 **Kabul edilen riskler** (ADR 0005, [M3-09](m3-policy-motoru.md)): buddy
 punching · sahte GPS · **URL biriktirme** · mekânda proxy · müdürün kimlik
@@ -66,11 +66,12 @@ yazılır.
 | ID | Görev | Durum | Commit / not |
 |---|---|---|---|
 | M0-01 | .env ve kriptografik anahtarlar | **done** | commit yok (`.env` ignore'da) · üçüncü göz 2. turda ONAY · kart düzeltildi (F2) |
-| M0-02 | Go bağımlılıkları (pgx, uuid, templ) | todo | |
+| M0-02 | Go bağımlılıkları (pgx, uuid, templ) | **done** | üçüncü göz 3. turda ONAY · kart iki kez düzeltildi (tidy, dışlayıcılık) |
 | M0-03 | Postgres ve rol ayrımı doğrulaması | blocked | Docker daemon kapalı |
 | M0-04 | Üretim hattı doğrulaması (templ · sqlc · tailwind) | todo | |
-| M0-05 | İlk commit ve dal stratejisi | todo | |
-| M0-06 | CI iş akışı | todo | Q04'e bağlı |
+| M0-05 | İlk commit ve dal stratejisi | **done** | `7e12f37` · sıradan öne alındı (kullanıcı isteği) · orkestratör yaptı, M0-02 denetiminde doğrulanacak |
+| M0-06 | CI iş akışı | todo | Q04 · M0-07'ye bağlı |
+| M0-07 | make check ve make audit'i yeşile alma | todo | Q26 · denetim bulgusu (SA1019 + stdlib CVE) |
 
 ### M1 — [Veri katmanı](m1-veri-katmani.md)
 
@@ -192,7 +193,7 @@ yazılır.
 | M9-06 | Policy simülatörü | todo | Q22 — M6-10'dan ertelendi |
 | M9-07 | Ham JSON politika editörü | todo | Q22 — M6-09'dan ayrıldı |
 
-**Özet:** 81 görev · done 0 · wip 0 · blocked 1 · skipped 1 · todo 79
+**Özet:** 82 görev · done 3 · wip 0 · blocked 1 · skipped 1 · todo 77
 
 ---
 
