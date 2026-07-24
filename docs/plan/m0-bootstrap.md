@@ -32,8 +32,10 @@ zorunlu değerde **başlangıçta hata verir** — bu bilinçli. `.env` olmadan 
 **Kabul kriterleri.**
 - `.env` var, iki anahtar dolu, base64 çözümü tam 32 byte.
 - `git status` çıktısında `.env` **yok**.
-- Ortam yüklenmiş halde uygulama config hatası vermeden açılıyor — `make dev`
-  ya da doğrudan:
+- Ortam yüklenmiş halde uygulama config hatası vermeden açılıyor. ⚠️ Bunu
+  **`make dev` ile yapma** — `dev: gen css` olduğu için önce `sqlc`'ye uğrar ve
+  orada durur, `go run`'a hiç ulaşmaz ([M0-04](#m0-04--üretim-hattı-doğrulaması-templ--sqlc--tailwind)
+  kart düzeltmesi §1). Tek geçerli yol doğrudan:
   ```bash
   set -a; . ./.env; set +a; go run ./cmd/tappa   # -> level=INFO msg=listening
   ```
@@ -58,7 +60,8 @@ zorunlu değerde **başlangıçta hata verir** — bu bilinçli. `.env` olmadan 
 - Anahtarları sohbete, log'a veya commit mesajına yapıştırma. Doğrulama değeri
   göstermeden yapılır (base64 çöz → **byte sayısını** bas).
 - **Ortam yüklemeden `go run` çalıştırıp "bozuk" sanma** — üstteki kart
-  düzeltmesine bak. `make dev` bunu senin için yapar.
+  düzeltmesine bak. Ortamı `set -a; . ./.env; set +a` ile kendin yükle;
+  `make dev` bunu **yapamaz**, `sqlc` adımında durur (M0-04 §1).
 - **Öksüz süreç bırakma.** `go run` bir sarmalayıcıdır: ikiliyi build cache'ten
   (`~/Library/Caches/go-build/<hash>-d/tappa`) **çocuk süreç** olarak çalıştırır.
   Yalnız `go run` PID'ini öldürürsen çocuk PID 1'e evlat edinilir ve `:8080`'i
@@ -213,31 +216,186 @@ kâğıt üzerinde kalır ve bunu M1'de değil, üretimde fark ederiz.
 ## M0-04 — Üretim hattı doğrulaması (templ · sqlc · tailwind)
 
 - **Bağımlılık:** M0-02
-- **Commit:** yok (doğrulama görevi)
+- **Commit:** `fix(sqlc): correct type overrides for nullable uuid, timestamptz and inet`
+  — kart "doğrulama görevi, commit yok" diye başlamıştı; doğrulama, dört
+  override'ın **ikisinin bozuk** ve bir beşincisinin **eksik** olduğunu ortaya
+  çıkardı, `sqlc.yaml` düzeltildi (bkz. kart düzeltmesi §2).
 
-**Amaç.** `make gen` ve `make css`'in gerçekten çalıştığını, ilk gerçek kaynak
-dosya yazılmadan önce görmek.
+**Amaç.** Üretim hattının üç ayağını — tailwind, templ, sqlc — ilk gerçek kaynak
+dosya yazılmadan önce çalışır görmek; sqlc'nin boş girdideki davranışını
+**belgelemek**.
 
-**Neden.** Bu hatlar boş girdiyle de çalışmalı. M1'in ortasında "sqlc kurulmuyor"
-ile uğraşmak, işi iki kez böler.
+**Neden.** Araçların kurulumu/sürümü M1'in ortasında patlarsa iş iki kez bölünür.
+Üç aracın ikisi boş girdiyle sorunsuz koşar; sqlc **koşmaz** ve bu tasarım gereğidir
+(bkz. kart düzeltmesi) — bilinmesi gereken şey de tam olarak budur.
 
 **Adımlar.**
 1. `make tools` → `.tools/tailwindcss` iner (varsa atlar).
 2. `make css` → `web/static/css/app.css` üretilir.
 3. `make templ` → `.templ` dosyası yok, hatasız geçmeli.
-4. `make sqlc` → şema ve sorgu boş; hata veriyorsa mesajı not et
-   (sqlc boş şemayla "no queries" diyebilir — bu kabul edilebilir, M1-08'de dolacak).
+4. `make sqlc` → şema ve sorgu boş;
+   `error parsing queries: no queries contained in paths …/db/queries` der.
+   `sqlc generate` **exit 1**, `make` bunu sarmaladığı için `make sqlc` **exit 2**
+   ("Error 1" satırı sqlc'nin kodu, make'in kendi çıkış kodu 2'dir — ikisini
+   karıştırma). Beklenen budur; mesajı doğrula, "düzeltmeye" çalışma.
+5. `sqlc.yaml`'ı **repo dışında** gerçek bir sondaj şemasıyla sına (adım 4 bunu
+   yapamaz — girdi yokken config hiç değerlendirilmez). Sondaj **her override'ı,
+   nullable ve NOT NULL biçimiyle ayrı ayrı** tetiklemeli, artı **override'ı
+   olmayan nullable bir sütun** (ör. `text`) içermeli — `emit_pointers_for_null_types`
+   yalnızca oradan görünür. Üretilen kod `go build` **ve** `go vet` edilmeli.
+   Sondaj repoya **yazılmaz**, iş bitince silinir.
 
 **Kabul kriterleri.**
 - `make css` çıktı üretiyor, `app.css` gitignore'da (üretilen dosya).
 - `make templ` sıfır hata.
-- `make sqlc` ya temiz geçiyor ya da yalnızca "girdi yok" anlamında uyarıyor;
-  kurulum/sürüm hatası **yok**.
+- `make sqlc` **kurulum/sürüm hatası vermiyor**: `sqlc version` → `v1.28.0`, exit 0.
+  `generate`'in girdi yokluğundan exit 1 vermesi beklenir. Kabul edilen **tek hata
+  nedeni** girdi yokluğudur ve çıktı şu iki satırı içerir (make ayrıca kendi
+  `exit status 1` ve `make: *** [sqlc] Error 1` satırlarını basar — onlar bu
+  hatanın sarmalayıcısıdır, ayrı bir bulgu değildir):
+  ```
+  # package store
+  error parsing queries: no queries contained in paths <mutlak yol>/db/queries
+  ```
+  Girdi yokluğundan **başka** bir nedene işaret eden mesaj (config ayrıştırma,
+  bilinmeyen alan, tip override hatası, indirme/derleme hatası) kriteri **düşürür**.
+- **`sqlc.yaml` gerçek girdiyle kanıtlanmış olmalı.** Repo dışı bir kopyada, aşağıdaki
+  sütunları birden içeren bir tablo + onu `SELECT *` ile okuyan (`:one` **ve** `:many`)
+  ve **INSERT eden** bir sorgu (parametre yapısı da override'ları tetiklesin)
+  `sqlc generate` **exit 0** vermeli ve üretilen tip tablosu **birebir** şu olmalı:
+
+  | Sütun | Beklenen Go tipi | Neyi kanıtlar |
+  |---|---|---|
+  | `uuid NOT NULL` | `uuid.UUID` | override (dize biçimi) |
+  | `uuid` (nullable) | `*uuid.UUID` | nullable ikiz (nesne biçimi) |
+  | `timestamptz NOT NULL` | `time.Time` | override |
+  | `timestamptz` (nullable) | `*time.Time` | nullable ikiz |
+  | `inet NOT NULL` | `netip.Addr` | override (tam paket yolu) |
+  | `inet` (nullable) | `*netip.Addr` | nullable ikiz |
+  | `inet[]` | `[]netip.Addr` | dizi eşlemesi |
+  | `text` (nullable, **override'ı yok**) | `*string` | `emit_pointers_for_null_types` |
+
+  ⚠️ **Bu tablo bir liste değil, bir kuraldır: `sqlc.yaml`'a eklenen HER override
+  buraya en az iki satır ekler** (NOT NULL + nullable) **ve `sqlc.yaml`'dan
+  çıkarılan her override buradan silinir.** M0-02'deki "sabit olan sayı değil,
+  listedir" kuralının aynısı. Aday: [M1-03](m1-veri-katmani.md) `numeric` için
+  override istemeye eğilimlidir — eklenirse bu tablo güncellenmeden geçmemeli.
+  Son satır (override'sız nullable `text`) tabloda **kalmak zorundadır**: bayrağı
+  ondan başka hiçbir satır sınamaz, çünkü diğerlerinin hepsi override kapsamında.
+- **Diğer `gen.go` ayarları da doğrulanmış olmalı** — hepsi aynı sondaj çıktısından
+  okunur:
+
+  | Ayar | Beklenen kanıt |
+  |---|---|
+  | `sql_package: pgx/v5` | `db.go` → `DBTX` arayüzü `pgx.Rows` / `pgx.Row` / `pgconn.CommandTag` kullanır |
+  | `emit_interface: true` | `querier.go` → `type Querier interface` + `var _ Querier = (*Queries)(nil)` |
+  | `emit_json_tags: false` | üretilen struct'larda `json:"…"` etiketi **sıfır** |
+  | `emit_prepared_queries: false` | `func Prepare(` / `prepared` **yok** |
+  | `emit_empty_slices: true` | `:many` gövdesinde `items := []T{}` (`var items []T` **değil**) |
+- **Üretilen kod derlenmeli:** sondaj kopyasında `go build ./...` ve `go vet ./...`
+  exit 0. Bu şart **pazarlık dışıdır** — `sqlc generate`'in exit 0 vermesi tek başına
+  kanıt **değildir**; `inet` kusuru (aşağıdaki kart düzeltmesi) tam olarak böyle
+  gizlenmişti: sqlc memnun, üretilen dosya derlenmiyor.
+- **Bu sondajın** import bloğunda `pgtype` **yok**. Bu bir değişmez **değildir**,
+  yalnızca bu şema için doğrudur — bkz. tuzaklar.
+- Repoya iskele şema/sorgu **yazılmaz**; sondaj repo dışında kalır ve silinir.
+
+> **Kart düzeltmesi (2026-07-24, M0-04 uygulaması sırasında).**
+>
+> **§1 — sqlc boş girdide uyarmaz, ölür.** Kart, sqlc'nin boş
+> girdide "uyarı" vereceğini varsayıyordu; sqlc bunu **ölümcül hata** sayar.
+> `sqlc generate` (ve `sqlc compile`) `db/queries` altında en az bir `*.sql`
+> bulamazsa exit 1 verir. Koşul **yalnızca sorgulardır**: `db/migrations`'a tablo
+> koyup sorguyu boş bırakmak da aynı hatayı verir; tek `*.sql` sorgu eklemek
+> hattı anında yeşile çevirir (ikisi de repo dışı bir kopyada denendi).
+>
+> **Sonucu kart dışına taşar:** `make gen` = `templ sqlc` olduğu için `make gen`,
+> ve ona bağlı `make dev` ile `make build`, **M1-08 ilk sorguyu yazana kadar
+> kırmızıdır**. `make check` (= `fmt lint test`) sqlc'yi çağırmaz, dolayısıyla
+> [M0-06](#m0-06--ci-iş-akışı) CI adımları bundan **etkilenmez**.
+> [M0-01](#m0-01--env-ve-kriptografik-anahtarlar) iki yerde `make dev` öneriyordu
+> (kabul kriteri ve tuzaklar); ikisi de **bayattı** ve bu turda düzeltildi — ortam
+> yükleyip uygulamayı açmanın tek yolu `set -a; . ./.env; set +a; go run ./cmd/tappa`.
+>
+> Kriter, gerçekte doğrulanabilir olanı söyleyecek biçimde yeniden yazıldı:
+> "uyarı verir" yerine "**kurulum/sürüm hatası vermez ve hata mesajı tam olarak
+> şudur**". Eski hâliyle kriter fazla gevşekti — bozuk bir `sqlc.yaml` da,
+> indirilemeyen bir sqlc de "girdi yok herhâlde" diye geçebilirdi.
+>
+> **§2 — `sqlc.yaml`'ın dört override'ından ikisi bozuktu, bir beşincisi eksikti;
+> üçü de düzeltildi.** Boş girdi
+> config'i hiç değerlendirmediği için bu kusurlar M0-04'ün ilk turunda
+> **görünmedi**; ancak repo dışında, her override'ı hem nullable hem NOT NULL
+> biçimiyle tetikleyen bir sondaj ortaya çıkardı:
+>
+> | # | Ne | Belirti | Düzeltme |
+> |---|---|---|---|
+> | a | nullable `uuid` | `ParentID *uuid.uuid.UUID` → geçersiz Go, `generate` **exit 1** | nesne biçiminde `type` **çıplak** tip adıdır: `"UUID"` (`"uuid.UUID"` değil) — paket adını sqlc kendisi ekler |
+> | b | `inet` | `generate` **exit 0**, ama `models.go` içinde `import "netip"` → `package netip is not in std`, **derlenmez** | dize biçimi son noktadan bölünür (paket yolu + tip): `"net/netip.Addr"` |
+> | c | nullable `timestamptz` **override'ı yoktu** | `ClosedAt pgtype.Timestamptz`, kardeşi `CreatedAt time.Time` → derlenir ama API karışık | nullable ikiz **eklendi** (`type: "Time"`, `import: "time"`, `pointer: true`) → `*time.Time` |
+>
+> (c) diğer ikisinden farklıdır: **geçerli Go üretir**. Yine de kusurdur, ama
+> gerekçesi dikkatli kurulmalı — **`emit_pointers_for_null_types` bunu çözmez.**
+> Ölçüldü: bayrağı `true`↔`false` çevirmek `*time.Time` çıktısını
+> **değiştirmiyor**; `*time.Time`'ı üreten şey override içindeki `pointer: true`.
+> Bayrağın kapsamı, **override'ı olmayan** nullable sütunlardır — orada gerçekten
+> çalışır (`text → *string`, `int → *int32`, `bool → *bool`; hepsi ölçüldü) ama
+> `numeric`, `date`, `time` için çalışmaz.
+>
+> Yani (c) *"var olan ayarın yürürlüğe girmesi"* **değildir** — bayrak bu tipi hiç
+> kapsamıyordu. Doğru ifade: **ayarın kapsamadığı bir tip için ikizi açıkça yazma
+> kararıdır.** "Bayrağı açmak yeter" diye genelleme yapma; override'ı olan her
+> tipin nullable ikizi **elle** yazılmak zorundadır. Nullable override'ı silmek de
+> çözüm değildir: o zaman tip `pgtype`'a düşer, bayrak devreye girmez.
+>
+> Kararın gerekçesi bayrak değil **tutarlılıktır**: nullable `uuid` ikizi dosyada
+> zaten vardı, `timestamptz`'ninki gözden kaçmıştı; ikisi bir arada `time.Time` /
+> `pgtype.Timestamptz` karışık bir API üretiyordu.
+>
+> (b) hakkında ek bir ölçüm: `inet` override'ı **büsbütün çıkarılsa da** çıktı
+> byte-birebir aynı kalıyor — yani o satır bugün hiçbir yük taşımıyor, yalnızca
+> yanlış yazıldığında build kırıyordu. Satır bilinçli olarak korundu; gerekçe
+> [sqlc.yaml](../../sqlc.yaml)'da ve tuzaklarda yazılı.
+>
+> Bu üçü M1'de teorik değil **kesin** patlardı:
+> [m1-veri-katmani.md:235](m1-veri-katmani.md) `employee_id`, `location_id`,
+> `department_id` alanlarını **nullable uuid olmaya zorunlu** kılıyor (§4.6 —
+> çerezsiz kişinin çalınmış plakete dokunuşu kaydedilebilmeli), satır 280
+> `source_ip inet`, satır 127 `static_ips inet[]`.
+>
+> Bu yüzden kabul kriteri ikinci kez sıkılaştırıldı: artık **her override'ı adıyla
+> ve beklenen Go tipiyle** sayıyor ve sonunda **`go build`** şart koşuyor. Yalnız
+> `sqlc generate`'in exit koduna bakmak yetmez — (b) tam olarak orada saklanmıştı.
 
 **Tuzaklar.**
 - Makefile `.ONESHELL` kullanmıyor (macOS'un GNU Make 3.81'i yüzünden) — çok
   adımlı iş eklemen gerekirse `scripts/` altına script yaz, Makefile'a satır yığma.
 - `app.css` gitignore'da ama `*_templ.go` ve `internal/store/*.go` **commit edilir**.
+- **`make css` çıktısında `npx update-browserslist-db@latest` önerisi çıkar.**
+  Bu, tailwind ikilisine gömülü browserslist'in kozmetik uyarısıdır; üretilen CSS'i
+  etkilemez. **Çalıştırma** — Node bu repoda yasak (CLAUDE.md §1).
+- `make css` ayrıca `No utility classes were detected` uyarır. `web/templates/` boşken
+  normaldir ve şu anlama gelir: `app.css` **yalnızca base katmanını** içerir;
+  `.docket`, `.stamp`, `.tap-button` çıktıda **yoktur**. İlk `.templ` bunları
+  kullandığı anda gelirler — CSS'in "eksik" olduğunu sanma.
+- `make templ` boş repoda `(✓) Complete [ updates=4 … ]` yazar ama **hiçbir dosya
+  yazmaz**; `updates` templ'in iç sayacıdır, üretilen dosya sayısı değil.
+- ⚠️ **"`internal/store`'da `pgtype` yok" bir değişmez DEĞİLDİR.** M0-04 sondajı
+  için doğrudur, çünkü şemasındaki her nullable sütun ya override kapsamındadır ya
+  da bayrağın çalıştığı bir tiptir. [M1-03](m1-veri-katmani.md)'ün
+  `gps_lat/gps_lng numeric(9,6)` ve `shift_start/shift_end time` alanları
+  `pgtype.Numeric` ve `pgtype.Time`'ı **geri getirecek** (`date` → `pgtype.Date`;
+  üçü de ölçüldü). Bu **beklenen** davranıştır.
+  **Bunu "kirlilik" sanıp `numeric`'i `float64`'e override etmeye kalkma —
+  CLAUDE.md §6'yı doğrudan ihlal eder** ("para/saat hesabı `float` ile yapılmaz").
+  `pgtype.Numeric` gerekiyorsa `pgtype.Numeric` kalır; rahatsız ediyorsa doğru
+  çözüm `shopspring/decimal` gibi bir karar olur ve o **yeni bağımlılık kararıdır**
+  → CLAUDE.md §1, dur ve sor.
+- `inet` override'ı bugün **çıkarılsa da çıktı değişmez** (ölçüldü: byte-birebir
+  aynı) — sqlc v1.28 + pgx/v5 zaten `netip.Addr` eşliyor. Satır bilinçli olarak
+  duruyor, gerekçesi [sqlc.yaml](../../sqlc.yaml)'da yazılı. `uuid` ve `timestamptz`
+  override'ları böyle **değildir**: onların varsayılanı `pgtype`'tır, yani
+  çıkarılırsa çıktı bozulur. Üçünü aynı kefeye koyma.
 
 ---
 
@@ -368,6 +526,20 @@ sınırına dokunur → CLAUDE.md §10 gereği **ADR yazılır**.)
 | `GO-2026-5039` | `net/textproto` (hata mesajında kaçışsız girdi) | go1.26.4 |
 | `GO-2026-5037` | `crypto/x509` (verimsiz hostname ayrıştırma) | go1.26.4 |
 | `GO-2026-4971` | `net` (Windows'ta NUL byte panic) | go1.26.3 |
+
+> **M0-04'ten gelen not — yükseltmede mimariyi bilinçli seç.** Yerel toolchain
+> **tamamen Rosetta altında** çalışıyor: `which go` → `/usr/local/bin/go`,
+> `file` → **Mach-O x86_64**, `go env GOARCH`/`GOHOSTARCH` → **amd64**, oysa
+> `uname -m` → **arm64**. Yani `make build` bugün `bin/tappa`'yı **amd64** üretir;
+> buna karşılık `make tools`'un indirdiği `.tools/tailwindcss` **arm64 native**
+> (script `uname -m`'e bakar, Go'ya değil) — repo şu an **karma mimari**.
+> Q26 yükseltmesi refleksle yapılırsa (`brew upgrade go` gibi) mevcut x86_64
+> kurulumu **tazelenir** ve Rosetta kalıcılaşır. Yükseltirken hedef mimari
+> açıkça seçilmeli; arm64'e geçmek `GOARCH` değişikliği olduğu için build
+> cache'ini ve `go run ...@sürüm` ile pinli CLI'ların önbelleğini de tazeler
+> (ilk `make gen` yeniden uzun sürer — bozukluk değil). Not: deploy hedefi AB
+> bölgesinde bir VPS (CLAUDE.md §1) olduğundan **üretim ikilisi zaten
+> `linux/amd64` çapraz derlenecek**; bu not yerel geliştirme mimarisiyle ilgilidir.
 
 **Hiçbiri pgx / uuid / templ / chi kaynaklı değil** — yani M0-02 ile ilgisi yok.
 Tarama ayrıca import edilen paketlerde 4, gerekli modüllerde 5 açık daha buluyor

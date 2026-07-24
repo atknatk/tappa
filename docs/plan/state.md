@@ -13,12 +13,13 @@
 | | |
 |---|---|
 | **Kilometre taşı** | M0 — [Bootstrap](m0-bootstrap.md) |
-| **Sıradaki görev** | **M0-04** — Üretim hattı doğrulaması (templ · sqlc · tailwind) |
+| **Sıradaki görev** | **M0-03** (Docker bekliyor) → değilse **M0-07** (Q26 bekliyor). M0 kalanı kullanıcı girdisine bağlı. |
 | **Dal** | `m0-bootstrap` — ilk commit `7e12f37` `main`'de; M0'ın kalanı dalda, M0 bitince `main`'e birleşir (CLAUDE.md §10) |
 | **Blokeler** | **Docker daemon kapalı** → M0-03 için kullanıcı Docker Desktop'ı başlatmalı |
 
-**Bir sonraki oturum ne yapmalı:** M0-02, ardından M0-04 (ikisi de Docker
-gerektirmez). M0-03 Docker açılınca yapılır. M0-06 Q04 ve Q25'e bağlı.
+**Bir sonraki oturum ne yapmalı:** M0'ın kalan üç görevi de kullanıcı girdisi
+bekliyor: M0-03 → Docker Desktop · M0-07 → Q26 (Go ≥1.26.5, arm64) · M0-06 →
+Q04 + M0-07. Girdi gelmeden M1'e geçilmez (M1-02 ayrıca Q01'e bağlı).
 
 **Not:** M0-05 (ilk commit) sıradan **öne alındı** — kullanıcı "arada commit at"
 dedi. Bundan sonra her onaylanan görevin ardından bir commit atılır.
@@ -66,9 +67,9 @@ yazılır.
 | ID | Görev | Durum | Commit / not |
 |---|---|---|---|
 | M0-01 | .env ve kriptografik anahtarlar | **done** | commit yok (`.env` ignore'da) · üçüncü göz 2. turda ONAY · kart düzeltildi (F2) |
-| M0-02 | Go bağımlılıkları (pgx, uuid, templ) | **done** | üçüncü göz 3. turda ONAY · kart iki kez düzeltildi (tidy, dışlayıcılık) |
+| M0-02 | Go bağımlılıkları (pgx, uuid, templ) | **done** | `e6d9a63` · üçüncü göz 3. turda ONAY · kart iki kez düzeltildi |
 | M0-03 | Postgres ve rol ayrımı doğrulaması | blocked | Docker daemon kapalı |
-| M0-04 | Üretim hattı doğrulaması (templ · sqlc · tailwind) | todo | |
+| M0-04 | Üretim hattı doğrulaması (templ · sqlc · tailwind) | **done** | üçüncü göz 2. turda ONAY · `sqlc.yaml`'da 3 bozuk override bulundu ve düzeltildi |
 | M0-05 | İlk commit ve dal stratejisi | **done** | `7e12f37` · sıradan öne alındı (kullanıcı isteği) · orkestratör yaptı, M0-02 denetiminde doğrulanacak |
 | M0-06 | CI iş akışı | todo | Q04 · M0-07'ye bağlı |
 | M0-07 | make check ve make audit'i yeşile alma | todo | Q26 · denetim bulgusu (SA1019 + stdlib CVE) |
@@ -193,7 +194,7 @@ yazılır.
 | M9-06 | Policy simülatörü | todo | Q22 — M6-10'dan ertelendi |
 | M9-07 | Ham JSON politika editörü | todo | Q22 — M6-09'dan ayrıldı |
 
-**Özet:** 82 görev · done 3 · wip 0 · blocked 1 · skipped 1 · todo 77
+**Özet:** 82 görev · done 4 · wip 0 · blocked 1 · skipped 1 · todo 76
 
 ---
 

@@ -16,13 +16,34 @@ sql:
         overrides:
           - db_type: "uuid"
             go_type: "github.com/google/uuid.UUID"
+          # Nesne bicimi: `type` CIPLAK tip adidir, paket adini sqlc kendisi ekler.
+          # "uuid.UUID" yazilirsa cikti `*uuid.uuid.UUID` olur -> gecersiz Go.
           - db_type: "uuid"
             nullable: true
             go_type:
-              type: "uuid.UUID"
+              type: "UUID"
               import: "github.com/google/uuid"
               pointer: true
           - db_type: "timestamptz"
             go_type: "time.Time"
+          # Nullable ikizi yazilmazsa `emit_pointers_for_null_types` bu tip icin
+          # sessizce etkisiz kalir ve cikti pgtype.Timestamptz olur (derlenir ama
+          # API karisir: bir alan time.Time, oteki pgtype). Bkz. M0-04 karti.
+          - db_type: "timestamptz"
+            nullable: true
+            go_type:
+              type: "Time"
+              import: "time"
+              pointer: true
+          # Dize bicimi son noktadan bolunur: paket yolu + tip. "netip.Addr"
+          # `import "netip"` uretir (var olmayan paket, derlenmez) -> tam yol sart.
+          #
+          # KASITLI OLARAK ACIK. sqlc v1.28 + pgx/v5 `inet`i zaten netip.Addr'a
+          # esliyor; bu satir cikarilinca uretilen kod byte-birebir ayni kaliyor
+          # (M0-04'te olculdu). Yine de duruyor: `source_ip` proof-of-place
+          # kanitidir (CLAUDE.md §5, IP eslesmesi 50 guven puani), tasidigi Go
+          # tipi sqlc varsayilaninin degismesine birakilmayacak kadar onemli.
+          # Ustteki uuid/timestamptz override'lari boyle DEGILDIR - onlarin
+          # varsayilani pgtype'dir, yani yuk tasirlar.
           - db_type: "inet"
-            go_type: "netip.Addr"
+            go_type: "net/netip.Addr"
