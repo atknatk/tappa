@@ -12,19 +12,26 @@
 
 | | |
 |---|---|
-| **Kilometre taşı** | **M1 — [Veri katmanı](m1-veri-katmani.md)** (M1-01, M1-02 done) |
-| **Sıradaki görev** | **M1-03** — [Migration 0002: locations & departments](m1-veri-katmani.md#m1-03--migration-0002-locations--departments). ⚠️ **Q07 kararı gerekir** (`locations.static_ips` tipi: `inet[]` mi `cidr[]` mi) — başlamadan sorulmalı. |
+| **Kilometre taşı** | **M1 — [Veri katmanı](m1-veri-katmani.md)** (M1-01, M1-02, M1-03 done) |
+| **Sıradaki görev** | **M1-04** — [Migration 0003: employees & sessions](m1-veri-katmani.md#m1-04--migration-0003-employees--sessions). Bekleyen karar yok, **ama** ADR 0002 madde 7 çözümleme mekanizması (sessions için) brief'e girmeli — aşağıdaki "M1-04/M1-05 devralınan gereksinim" bloğu. §4.1 (biyometri yok), §4.7 (token değil hash). |
 | **Çalışma modu** | Orkestrasyon + üçüncü göz — [README.md](README.md) · brief'ler [agent-brief.md](agent-brief.md) |
 | **Dal** | **`main`** — M0 (`m0-bootstrap`) `main`'e fast-forward birleştirildi (`562f021`), dal silindi. **Kullanıcı kararı (2026-07-25): artık doğrudan `main`'de çalışılır, görev başına dal açılmaz** (CLAUDE.md §10 güncellendi). Push/PR yine istemedikçe yok. |
-| **Blokeler** | **Q07** (static_ips tipi) → M1-03'ü bloklar, kullanıcıya sorulacak. **Bekleyen kullanıcı eylemi:** arm64 Go kurulumu (aşağı bak) — hiçbir şeyi bloklamıyor. |
+| **Blokeler** | Yok (M1-04 için bekleyen karar yok). **Bekleyen kullanıcı eylemi:** arm64 Go kurulumu (aşağı bak) — hiçbir şeyi bloklamıyor. |
 
-**Bir sonraki oturum ne yapmalı:** **M1-03** (locations & departments). **Önce Q07'yi
-sor** (static_ips `inet[]` mi `cidr[]` mi — ISS /29 blok verirse aralık gerekir).
-Karar gelince: iki tablo, RLS beşlisi tam, `departments.location_id`→`locations` FK
-**aynı tenant'ta** (UNIQUE (id, tenant_id) + bileşik FK ile çapraz-tenant engellenir),
-`gps_lat/lng numeric(9,6)` (float değil), `shift_*` time + `overnight bool`,
-`departments.shift_*` nullable (lokasyonu ezer). Q25(c): sqlc.yaml'a static_ips tipi
-override'ı Q07 kararına göre eklenir (M0-04 override tablosu da güncellenir).
+**Bir sonraki oturum ne yapmalı:** **M1-04** (employees & sessions). Bekleyen karar
+yok. **Kritik:** `sessions` tablosu ADR 0002 madde 7 çözümleme yolunu destekler —
+brief'e "M1-04/M1-05 devralınan gereksinim" bloğu (aşağıda) **girmeli**; RLS politikası
+naif "bağlam NULL iken satır göster" dalı içermez. §4.1 biyometri yok (`device_info`
+yalnız kaba cihaz etiketi), §4.7 `token_hash` saklanır token asla, `token_hash` UNIQUE,
+silme yok (`revoked_at`), `email citext`.
+
+**M1-03'ten devralınan iki not (bloklamayan, yapıcının eklediği ekstra kısıtlar):**
+- **M4-05:** `locations.shift_*` nullable → geç kalma hesabı null vardiyayı "hesaplanmaz"
+  ile ele almalı. Ayrıca `shift_pair` CHECK **tek-yönlü vardiyayı** (yalnız shift_start)
+  reddediyor — ileride esnek-saat lokasyonu gerekirse bu kısıt gözden geçirilir.
+- **M1-10:** seed tüm lokasyonlarda **çift-uçlu** vardiya kullanmalı (shift_pair CHECK).
+  Ufak tutarsızlık: `overnight=true` + NULL vardiya migration'da kabul ediliyor (zararsız,
+  domain yok sayar); seed overnight'ı yalnız dolu vardiyayla kullansın.
 
 **Migration numaralandırma:** goose `-s` (sequential), 5 haneli — `00001_...`,
 `00002_...`. Makefile `migrate-new` artık `-s` geçiyor (M1-02'de düzeltildi).
@@ -144,7 +151,7 @@ yazılır.
 |---|---|---|---|
 | M1-01 | ADR 0002: tenant bağlamı ve RLS stratejisi | **done** | `4eb3780` · üçüncü göz **2. turda** ONAY (1. tur RED: madde 7 superuser SECURITY DEFINER çelişkisi) · Q27 (`NULLIF`) + M0-03 superuser/FORCE ölçümleri normatif · iki tutarsızlık (01-roles.sql, m0-bootstrap.md) + kart madde 7 örneği düzeltildi |
 | M1-02 | Migration 0001: tenants | **done** | `aff4ced` · üçüncü göz **1. turda** ONAY · RLS beşlisi (id-PK istisnası) canlı doğrulandı, policy birebir `NULLIF`, fail-closed/WITH CHECK/pozitif kontrol tappa_app ile geçti, Down çalışıyor, R5 mutasyonla kanıtlandı · Makefile `migrate-new` `-s` düzeltmesi · kart adım 3 NULLIF'e güncellendi |
-| M1-03 | Migration 0002: locations & departments | todo | Q01 ✔ (`locations.timezone` override) · **Q07 açık** · Q25 (c) burada |
+| M1-03 | Migration 0002: locations & departments | **done** | `3d66b17` · üçüncü göz **1. turda** ONAY · RLS beşlisi (iki tablo) + çapraz-tenant bileşik FK + `cidr[]` (Q07) + `numeric(9,6)` + Down + R5 mutasyonla kanıtlandı · 2 bloklamayan kısıt notu (→ M4-05/M1-10) · Q25(c) sqlc override M1-08'e ertelendi |
 | M1-04 | Migration 0003: employees & sessions | todo | |
 | M1-05 | Migration 0004: tags | todo | |
 | M1-06 | Migration 0005: transactions (append-only) & audit_log | todo | |
@@ -258,13 +265,37 @@ yazılır.
 | M9-06 | Policy simülatörü | todo | Q22 — M6-10'dan ertelendi |
 | M9-07 | Ham JSON politika editörü | todo | Q22 — M6-09'dan ayrıldı |
 
-**Özet:** 82 görev · done 9 · wip 0 · blocked 0 · skipped 1 · todo 72 · **M0 tamam · M1: M1-01, M1-02 done**
+**Özet:** 82 görev · done 10 · wip 0 · blocked 0 · skipped 1 · todo 71 · **M0 tamam · M1: M1-01, M1-02, M1-03 done**
 
 ---
 
 ## Oturum günlüğü
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
+
+### 2026-07-25 (3. oturum, devam) — **M1-03 done** (locations & departments)
+
+**M1-03 done — üçüncü göz 1. turda ONAY.** `00002_create_locations_departments.sql`:
+iki tablo, her ikisinde RLS beşlisi (`NULLIF` policy, USING+WITH CHECK). Çapraz-tenant
+FK: `locations UNIQUE(id, tenant_id)` + `departments` bileşik FK `(location_id,
+tenant_id)→locations` ON DELETE RESTRICT (+ doğrudan tenant FK). `static_ips cidr[]
+NOT NULL DEFAULT '{}'` (Q07), `gps numeric(9,6)` (float değil), `shift_* time` +
+`overnight bool`, `locations.shift_*` ve `departments.shift_*` nullable. Denetçi canlı
+doğruladı: fail-closed/pozitif/izolasyon/WITH CHECK (iki tablo, tappa_app), çapraz-tenant
+FK reddi (owner), cidr[] içerme, Down, R5 **mutasyonla** (GRANT+FORCE sildi→ayrı flag).
+
+**Yapıcı savunmacı ekstra kısıtlar ekledi** (işaretledi, kapsam içi/aynı tablo): gps/shift
+pair + gps aralık CHECK'leri, `(tenant_id, location_id)` bileşik indeks. Denetçi ikisini
+sorguladı (bloklamıyor): shift_pair tek-yönlü vardiyayı reddediyor · overnight=true+null
+vardiya kabul (tutarsız ama zararsız). İkisi de master veri, §4.6-güvenli → M4-05/M1-10'a
+devredildi (yukarı "ŞU AN"da).
+
+**Q25(c) ertelendi:** sqlc.yaml cidr[] override'ı M1-08'e — sqlc sorgu olmadan koşamaz,
+doğrulanamaz (M0-04 dersi). pgx/v5 zaten cidr'i netip.Prefix'e eşliyor; M1-08'de
+GetLocationByIP ile birlikte eklenip doğrulanır.
+
+**Sırada:** M1-04 (employees & sessions) — ADR 0002 madde 7 çözümleme mekanizması
+(sessions) brief'e girmeli.
 
 ### 2026-07-25 (3. oturum, devam) — **M1-02 done** (tenants migration)
 
