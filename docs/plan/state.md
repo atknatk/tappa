@@ -4,7 +4,7 @@
 > güncellenir ([README.md](README.md) → oturum protokolü, adım 6.4).
 > Görev kartlarına durum işareti konmaz.
 
-**Son güncelleme:** 2026-07-24 (2. oturum)
+**Son güncelleme:** 2026-07-25 (3. oturum)
 
 ---
 
@@ -12,22 +12,36 @@
 
 | | |
 |---|---|
-| **Kilometre taşı** | **M0 tamamlandı** ✅ → sıradaki **M1 — [Veri katmanı](m1-veri-katmani.md)** |
-| **Sıradaki görev** | **M0'ı `main`'e birleştir** (kullanıcı onayı bekliyor — CLAUDE.md §10 "istemedikçe push/PR yok") → sonra **M1-01** (ADR 0002) |
+| **Kilometre taşı** | **M1 — [Veri katmanı](m1-veri-katmani.md)** başladı (M1-01 done) |
+| **Sıradaki görev** | **M1-02** — [Migration 0001: tenants](m1-veri-katmani.md#m1-02--migration-0001-tenants). Bağımlılıkları hazır: M1-01 (ADR 0002) ✔ · Q01 ✔ · Q27 ✔. |
 | **Çalışma modu** | Orkestrasyon + üçüncü göz — [README.md](README.md) · brief'ler [agent-brief.md](agent-brief.md) |
-| **Dal** | `m0-bootstrap` — ilk commit `7e12f37` `main`'de; M0'ın kalanı dalda, **hepsi hazır, `main`'e birleştirilmeyi bekliyor** (CLAUDE.md §10) |
-| **Blokeler** | **Bir bekleyen kullanıcı eylemi:** arm64 Go kurulumu (aşağı bak) — M0'ı veya M1'i bloklamıyor, yalnız yerel derleme hızı. |
+| **Dal** | **`main`** — M0 (`m0-bootstrap`) `main`'e fast-forward birleştirildi (`562f021`), dal silindi. **Kullanıcı kararı (2026-07-25): artık doğrudan `main`'de çalışılır, görev başına dal açılmaz** (CLAUDE.md §10 güncellendi). Push/PR yine istemedikçe yok. |
+| **Blokeler** | **Bir bekleyen kullanıcı eylemi:** arm64 Go kurulumu (aşağı bak) — hiçbir şeyi bloklamıyor, yalnız yerel derleme hızı. |
 
-**Bir sonraki oturum ne yapmalı:** **M0'ın yedi görevi de bitti** (biri `skipped`).
-`m0-bootstrap` dalını `main`'e birleştir — bu **kullanıcı kararı** (CLAUDE.md §10),
-birleştirmeden önce sor. Sonra M1-01'e geç: ADR 0002 tenant bağlamı ve RLS
-stratejisini yazar, **Q27'yi normatif kılar** (`NULLIF` biçimi) ve M0-03'te ölçülen
-`tappa_owner` superuser gerçeğini kaydeder. M1 artık bekleyen **karar** olmadan
-yazılabilir.
+**Bir sonraki oturum ne yapmalı:** **M1-02** (Migration 0001: tenants). Kart hazır,
+bekleyen karar yok. ADR 0002 politika ifadesini normatif kıldı:
+`NULLIF(current_setting('app.tenant_id', true), '')::uuid` — M1-02 politikasını
+`id = NULLIF(...)::uuid` biçiminde bu ADR'ye referansla yazar. Araç: agent
+`tappa-db-migrator`. RLS beşlisi tam (tenant_id NOT NULL · indeks · ENABLE+FORCE ·
+USING+WITH CHECK · GRANT); `redline-check.sh` R5 tarar. `Down` gerçekten çalışmalı.
 
-**M1'e girmeden önce hazır olması gerekenler** (hepsi bu oturumda çözüldü):
+**M1'e girmeden önce hazır olması gerekenler** (hepsi çözüldü):
 Q01 (timezone) ✔ · Q04 (yerel Postgres) ✔ · Q27 (`NULLIF`) ✔. Kalan M1 blokajı
 yalnız **Q07** (`static_ips` tipi) → M1-03, o da M1-02'den sonra.
+
+### M1-04 / M1-05 için devralınan gereksinim (M1-01 ADR 0002'den)
+
+Tenant çözümleme yolu (`GetTagByUID`, `GetEmployeeBySessionHash`) ADR 0002 madde
+7'de **çevrelenmiş (bounded) bypass yüzeyi** olarak normatif tanımlandı; M1-04
+(sessions) ve M1-05 (tags) migration'ları bunu **birebir** uygulamalı — brief'e
+girmesi zorunlu:
+- Güvenlik RLS'ten değil **arayüzden** gelir: beş kısıt (girdi yalnız anahtar ·
+  en çok 1 satır · `SELECT *` yüzeyi yok · `tappa_app` yalnız `EXECUTE` · naif
+  "bağlam NULL iken satır göster" RLS dalı **yasak**).
+- **§6 FORCE altında salt-`SELECT` yetersiz** (RLS'e tabi rol 0 satır görür);
+  definer'ın bypass'ı **yalnız `BYPASSRLS`** olabilir (superuser ve FORCE'suz-sahip
+  yasak), yalnız bu iki tabloya GRANT'lı, en-az-ayrıcalıklı. Patlama yarıçapı iki
+  tablo. Sınırı M1-09'da test edilir.
 
 ### ⏳ Bekleyen kullanıcı eylemi — arm64 Go kurulumu
 
@@ -119,7 +133,7 @@ yazılır.
 
 | ID | Görev | Durum | Commit / not |
 |---|---|---|---|
-| M1-01 | ADR 0002: tenant bağlamı ve RLS stratejisi | todo | Q27 kararı normatif yazılır · M0-03 ölçümleri buraya taşınabilir |
+| M1-01 | ADR 0002: tenant bağlamı ve RLS stratejisi | **done** | `4eb3780` · üçüncü göz **2. turda** ONAY (1. tur RED: madde 7 superuser SECURITY DEFINER çelişkisi) · Q27 (`NULLIF`) + M0-03 superuser/FORCE ölçümleri normatif · iki tutarsızlık (01-roles.sql, m0-bootstrap.md) + kart madde 7 örneği düzeltildi |
 | M1-02 | Migration 0001: tenants | todo | Q01 ✔ (`timezone`) · Q27 ✔ |
 | M1-03 | Migration 0002: locations & departments | todo | Q01 ✔ (`locations.timezone` override) · **Q07 açık** · Q25 (c) burada |
 | M1-04 | Migration 0003: employees & sessions | todo | |
@@ -235,13 +249,48 @@ yazılır.
 | M9-06 | Policy simülatörü | todo | Q22 — M6-10'dan ertelendi |
 | M9-07 | Ham JSON politika editörü | todo | Q22 — M6-09'dan ayrıldı |
 
-**Özet:** 82 görev · done 7 · wip 0 · blocked 0 · skipped 1 · todo 74 · **M0 tamam**
+**Özet:** 82 görev · done 8 · wip 0 · blocked 0 · skipped 1 · todo 73 · **M0 tamam · M1 başladı (M1-01 done)**
 
 ---
 
 ## Oturum günlüğü
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
+
+### 2026-07-25 (3. oturum) — M0 `main`'e birleşti, **M1-01 done**
+
+**İki kullanıcı kararı.** (1) `m0-bootstrap` → `main` fast-forward birleştirildi
+(`562f021`), dal silindi. (2) **Bundan sonra doğrudan `main`'de çalışılır, görev
+başına dal açılmaz** (kullanıcı: "yeni proje, sürekli branch gereksiz"). CLAUDE.md
+§10 buna göre güncellendi (`88b775e`); push/PR yine istemedikçe yok.
+
+**M1-01 done — üçüncü göz 2. turda ONAY.** ADR 0002 (tenant bağlamı + RLS)
+yazıldı: rol ayrımı, tx-başına `set_config('app.tenant_id',$1,true)`, normatif
+politika ifadesi `NULLIF(current_setting('app.tenant_id', true), '')::uuid`
+(Q27), kuşak+kemer açık filtre, `tenants` öz-koruması, MVP'de süper-admin yok, ve
+**tenant çözümleme istisnası**. M0-03 ölçümleri (tappa_owner superuser + FORCE,
+izolasyon testi tappa_app/DATABASE_URL, ham sorgu vs §4.5 filtresi) normatif not.
+
+**1. tur RED — gerçek kusur.** Madde 7, çözümleme mekanizması olarak superuser
+`tappa_owner`'a ait `SECURITY DEFINER` fonksiyon öneriyordu — ama superuser gövdesi
+RLS'i tümüyle atlar, yani ADR'nin kendi "genel bypass açılmaz" şartını ihlal eden
+**genel bir bypass**. Ben (orkestratör) briefte bu gerilimi denetçiye sordurdum;
+denetçi bağımsız buldu. **Öğrenilen teknik gerçek:** saf RLS sorgunun **şekline**
+göre kısıtlama ifade edemez (satır bazlı boolean, `WHERE`'i göremez) → çözümleme
+kaçınılmaz olarak sınırlı bir bypass ister; iş onu **çevrelemektir** (arayüz beş
+kısıtı; definer superuser olamaz; §6 FORCE altında **yalnız BYPASSRLS**).
+
+**2. tur ONAY + iki bloklamayan gözlem kapatıldı.** (a) ADR'ye "§6 FORCE altında
+salt-SELECT yetersiz, bypass yalnız BYPASSRLS olabilir" sınır netliği eklendi
+(M1-04/05 tuzağını kapatır). (b) Kart madde 7'nin ADR'nin çürüttüğü "sütun bazında
+kısıtlı politika" örneği düzeltildi + görünür kart düzeltme bloğu ("yanlışlanan
+kartı da düzelt" dersi). Küçük doküman düzeltmeleri orkestratörce doğrulandı.
+
+**M1-04/M1-05'e devredilen gereksinim** yukarıda "ŞU AN"da yazılı (çevrelenmiş
+bypass yüzeyi, BYPASSRLS sınırı) — brief'e girmesi zorunlu.
+
+**Sırada:** M1-02 (Migration 0001: tenants) — bekleyen karar yok.
+**⏳ Kullanıcıya:** arm64 Go kurulumu hâlâ açık (iki komut, sudo), bloklamıyor.
 
 ### 2026-07-24 (2. oturum, devam) — M0-06 kapandı, **M0 TAMAMLANDI**
 
