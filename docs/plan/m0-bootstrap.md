@@ -55,8 +55,12 @@ zorunlu değerde **başlangıçta hata verir** — bu bilinçli. `.env` olmadan 
 
 **Tuzaklar.**
 - `.env.example`'daki `DATABASE_URL` ve `DATABASE_MIGRATE_URL` **farklı roller**
-  kullanır; ikisini eşitleme — config bunu bilerek reddeder (RLS, tablo sahibi
-  ve BYPASSRLS rolleri için atlanır).
+  kullanır; ikisini eşitleme — config bunu bilerek reddeder. RLS'i atlayan üç
+  durum var: **superuser** koşulsuz atlar (`FORCE ROW LEVEL SECURITY` ona bile
+  erişemez), tablo **sahibi** varsayılan olarak atlar (`FORCE` yalnız sahibi
+  politikaya tabi kılar, superuser'ı değil) ve **BYPASSRLS** rolleri atlar.
+  `tappa_app` üçünün de dışındadır; `tappa_owner` initdb'nin bootstrap
+  superuser'ıdır (M0-03 ölçümü, bkz. ADR 0002).
 - Anahtarları sohbete, log'a veya commit mesajına yapıştırma. Doğrulama değeri
   göstermeden yapılır (base64 çöz → **byte sayısını** bas).
 - **Ortam yüklemeden `go run` çalıştırıp "bozuk" sanma** — üstteki kart

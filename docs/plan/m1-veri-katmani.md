@@ -58,9 +58,13 @@ delinir.
    ADR bu istisnayı **açıkça, dar ve testli** tanımlamalı:
    - Yalnız bu iki sorgu, ayrı ve adlandırılmış bir "tenant çözümleme" yolunda.
    - `tappa_app` rolüyle, ama `tenant_id` filtresi olmadan → dolayısıyla bu iki
-     tablonun RLS politikası bağlam yokken **yalnız bu sorgulara** izin verecek
-     şekilde yazılmalı (ör. `tag_uid`/`token_hash` eşitliğine dayalı, sütun
-     bazında kısıtlı politika) — **genel bir bypass açılmaz**.
+     tablo bağlam yokken **yalnız bu anahtar aramalarına** izin vermeli —
+     **genel bir bypass açılmaz**. ⚠️ Bunun **saf RLS ile yazılamayacağına**
+     dikkat: RLS satır bazlı bir boolean'dır, sorgunun `WHERE` şeklini göremez;
+     gereken çevrelenmiş (bounded) bir bypass yüzeyidir. Tam sınır — beş arayüz
+     kısıtı, definer superuser olamaz ve §6 FORCE altında yalnız `BYPASSRLS` —
+     [ADR 0002 madde 7](../adr/0002-tenant-baglami-ve-rls.md)'de (aşağıdaki
+     2026-07-25 kart düzeltmesi).
    - Çözümlemenin ardından bağlam kurulur ve **geri kalan her şey** `WithTenant`
      içinde koşar.
    - `sys:tenant-mismatch` guardrail'i ([M3-05](m3-policy-motoru.md)) etiketin
@@ -117,6 +121,21 @@ delinir.
 > Q27 ne karara bağlarsa **CLAUDE.md §6'daki ifade, M1-02 adım 3 ve M1-09 vaka 3
 > aynı biçimi göstermek zorundadır**; bugün üçü tutarlı değil. (CLAUDE.md'yi
 > güncellemek **orkestratörün** işidir — M0-03 ona dokunmadı.)
+
+> **Kart düzeltmesi (2026-07-25, M1-01 uygulaması sırasında).** Madde 7'nin
+> "ör. `tag_uid`/`token_hash` eşitliğine dayalı, **sütun bazında kısıtlı
+> politika**" örneği ADR 0002 tarafından **çürütüldü**. Saf RLS satır bazlı bir
+> boolean'dır ve sorgunun `WHERE` şeklini göremez; dolayısıyla "bağlam yokken
+> yalnız anahtar aramalarına izin ver ama `SELECT *`'a verme" **bir RLS
+> politikasıyla ifade edilemez** — asıl gereken çevrelenmiş (bounded) bir bypass
+> yüzeyidir. Bağlayıcı şart **korundu** (**genel bir bypass açılmaz**; dar,
+> adlandırılmış, testli); düzeltilen yalnız yanlışlanan örnektir. Doğru mekanizma
+> [ADR 0002 madde 7](../adr/0002-tenant-baglami-ve-rls.md)'de normatif: beş
+> arayüz kısıtı (anahtar girdi · en çok 1 satır · `SELECT *` yüzeyi yok ·
+> `tappa_app`'e yalnız `EXECUTE` · naif "bağlam NULL iken satır" RLS dalı yasak)
+> \+ definer **superuser olamaz**. §6 her tabloya `FORCE` zorunlu kıldığı için
+> çevrelenmiş bypass **yalnız `BYPASSRLS`** olabilir — salt-`SELECT` bir rol
+> bağlam yokken 0 satır görür (FORCE'suz-sahip yolu §6 altında kapalı).
 
 ---
 
