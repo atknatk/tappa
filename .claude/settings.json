@@ -41,17 +41,17 @@
       "Bash(tree:*)",
       "Bash(wc:*)",
       "Bash(./scripts/redline-check.sh)",
-      "Read(//Users/atakan/Documents/GitHub/atknatk/tappa/**)"
-    ],
-    "ask": [
-      "Bash(make db-reset)",
-      "Bash(make migrate-down:*)",
-      "Bash(make seed)",
+      "Read(//Users/atakan/Documents/GitHub/atknatk/tappa/**)",
       "Bash(docker compose down:*)",
       "Bash(git push:*)",
       "Bash(git commit:*)",
       "Bash(gh pr create:*)",
       "Bash(go get:*)"
+    ],
+    "ask": [
+      "Bash(make db-reset)",
+      "Bash(make migrate-down:*)",
+      "Bash(make seed)"
     ],
     "deny": [
       "Read(./.env)",
