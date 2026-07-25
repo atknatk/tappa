@@ -88,7 +88,7 @@ migrate-status:
 ## migrate-new: yeni migration olustur — make migrate-new name=add_foo
 migrate-new:
 	@test -n "$(name)" || { echo "kullanim: make migrate-new name=add_foo"; exit 1; }
-	$(GOOSE) -dir db/migrations create $(name) sql
+	$(GOOSE) -dir db/migrations -s create $(name) sql
 
 ## seed: KF + KM demo verisini yukle (bkz. skill tappa-seed)
 # psql konteynerden calisir — host'ta psql aranmaz (bkz. scripts/seed.sh).
