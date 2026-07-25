@@ -12,31 +12,29 @@
 
 | | |
 |---|---|
-| **Kilometre taşı** | **M1 — [Veri katmanı](m1-veri-katmani.md)** (M1-01…M1-08 done). Kalan: M1-09 (RLS/immutability testleri), M1-10 (seed), M1-11 (admin). |
-| **Sıradaki görev** | **M1-09** — [RLS izolasyonu ve değişmezlik testleri](m1-veri-katmani.md#m1-09--rls-izolasyonu-ve-değişmezlik-testleri). İzolasyon+immutability'nin **kanıtı**. Gerçek Postgres (Q04). **Devralınan bulgular ZORUNLU** (aşağı: M0-03 3 kaçış yolu + M1-08 fixture/drift). Bağımlılık M1-06+M1-07 ✔. |
+| **Kilometre taşı** | **M1 — [Veri katmanı](m1-veri-katmani.md)** (M1-01…M1-09 done). Kalan: M1-10 (seed), M1-11 (admin). |
+| **Sıradaki görev** | **M1-10** — [Seed verisi ve sabit ID'ler](m1-veri-katmani.md#m1-10--seed-verisi-ve-sabit-idler). Araç **skill `tappa-seed`**. KF (9 lokasyon) + KM (5 departman), çalışanlar, plaketler, vardiyalar. Bağımlılık M1-06 ✔. Devralınanlar aşağı (çift-uçlu vardiya, aes_key_ref sahte-sarmalı, admin owner M1-11'e). |
 | **Çalışma modu** | Orkestrasyon + üçüncü göz — [README.md](README.md) · brief'ler [agent-brief.md](agent-brief.md) |
 | **Dal** | **`main`** — M0 (`m0-bootstrap`) `main`'e fast-forward birleştirildi (`562f021`), dal silindi. **Kullanıcı kararı (2026-07-25): artık doğrudan `main`'de çalışılır, görev başına dal açılmaz** (CLAUDE.md §10 güncellendi). Push/PR yine istemedikçe yok. |
 | **Blokeler** | Yok (M1-04 için bekleyen karar yok). **Bekleyen kullanıcı eylemi:** arm64 Go kurulumu (aşağı bak) — hiçbir şeyi bloklamıyor. |
 
-**Bir sonraki oturum ne yapmalı:** **M1-09** (RLS izolasyonu + değişmezlik testleri —
-izolasyonun/immutability'nin **kanıtı**). Gerçek Postgres'e karşı (Q04), sahte DB yok.
-Test vakaları (kart): (1) A yazdı, B okuyamaz; (2) B, A'nın tenant_id'siyle INSERT→hata;
-(3) bağlamsız→0 satır (NULLIF ile koşulsuz); (4) tappa_app UPDATE transactions→yetki hatası;
-(5) tappa_owner DELETE transactions→trigger; (6) tx sonrası app.tenant_id boş; (7) her tablo için 1&2.
-- **⭐ DEVRALINAN — brief'e ZORUNLU (M0-03 3. tur, aşağıdaki "M1-09 için devralınan bulgular"):**
-  (a) grep tek başına kriter değil (`'x'::uuid = tenant_id`/`IN`/`::text` kaçar); bağlayıcı düzyazı.
-  (b) her negatif teste **pozitif kontrol** (boş tabloda "0 satır" hiçbir şey kanıtlamaz; koruma
-  kapatılınca kırmızıya dönmeli). (c) rol boyutu **çalışma anında** kanıtlanır: test içinde
-  `SELECT current_user`=`tappa_app` **ve** `rolsuper/rolbypassrls=f,f` assertion'ı (havuzu
-  "appPool" **adlandırmak** kanıt değil). İzolasyon vakaları **ham sorgu** (tenant_id filtresi YOK);
-  §4.5 filtreli sqlc sorgusu **ayrı** vaka (`TestStoreQueryFiltersByTenant`, izolasyon kanıtı
-  SAYILMAZ). `tappa_owner` superuser → izolasyon vakaları **tappa_app**/DATABASE_URL ile.
-- **M1-08'den devralınan (bloklamayan):** (i) `store_test.go` DELETE-revoked yüzünden rastgele-UUID
-  fixture bırakıyor → M1-09 zaten `ownerPool` kullanacak (vaka 5), **owner-tabanlı teardown** oraya
-  eklenebilir. (ii) `internal/db/resolve.go` const SQL'i migration fonksiyon imzalarıyla **elle
-  senkron** — M1-09'a resolve sütun-sırası/tip kontrolü ekle (drift derlemede yakalanmaz).
-- **aes_key_ref-sarmalı doğrulaması** (M1-05'ten): insert-yolu/seed KEK-sarmalı bekler; şema bytea
-  zorlayamaz — M1-10 seed + M8 deploy denetiminde (KEK config'te).
+**Bir sonraki oturum ne yapmalı:** **M1-10** (seed verisi + sabit ID'ler). Araç **skill
+`tappa-seed`** (KF 9 lokasyon + KM 5 departman, çalışanlar, plaketler, vardiyalar — skill'de
+birebir tablo). `test/fixtures/seed.sql` + `test/fixtures/ids.go`. Kritik noktalar (kart +
+devralınanlar):
+- **İdempotent:** sabit UUID + `ON CONFLICT DO NOTHING` (iki kez koşunca temiz). `make seed`
+  (`scripts/seed.sh` → docker compose exec psql). Silme yok, ON CONFLICT idempotency sağlar.
+- **Zamanlar `now()`'a göreli** (sabit takvim tarihi GÖMME — dashboard bir hafta sonra boşalmasın).
+- IP'ler **dokümantasyon aralığından** (`203.0.113.0/24`, `198.51.100.0/24`) `cidr[]` olarak;
+  gerçek müşteri IP'si YOK. GPS **Malta**'da, birbirinden ≥ birkaç yüz m (150 m testi anlamlı olsun).
+- **Seed yalnız master veri** — `transactions` üretimi M5-09 "bir günü simüle et"e ait (karar
+  motorunun ÇIKTISIYLA), elle uydurulmaz.
+- **Devralınanlar:** (a) tüm lokasyonlarda **çift-uçlu vardiya** (M1-03 `shift_pair` CHECK); Rusty
+  Bar `overnight=true` ama **dolu vardiyayla**. (b) `aes_key_ref` **sahte + açıkça etiketli**,
+  bytea (sarmalı biçim) — gerçek anahtar değil; KEK-sarmalı doğrulaması burada da geçerli (M1-05).
+  (c) İki tenant arasında paylaşılan satır YOK (RLS testinin zemini). (d) **admin owner seed'i
+  M1-11'e** (admin_users henüz yok — M1-11 seed'e ekler; idempotent olduğu için sorun yok).
+- Malta yerel saatinden UTC'ye çeviriyi seed içinde açıkça yap + yorumla (§6 UTC).
 
 **M1-08/M1-10'a devredilen (M1-05 denetiminden):** `aes_key_ref`'in gerçekten KEK-sarmalı
 olduğu şema düzeyinde zorlanamaz (bytea) → insert-yolu (M1-08) ve seed (M1-10) bunu ayrıca
@@ -188,7 +186,7 @@ yazılır.
 | M1-06 | Migration 0005: transactions (append-only) & audit_log | **done** | `d91c609` · **iki denetçi ONAY** (kırmızı çizgi ihlali yok) · immutability kuşak+kemer (REVOKE UPDATE,DELETE + `tappa_forbid_mutation` trigger; superuser DISABLE-trigger sınırı kabul) · §4.6 nullable id + CHECK (flag/manuel/reject kaydedilebilir) · **`UNIQUE(tag_uid,ctr)` yok** · transaction_reviews 3 kısıt + çapraz-tenant review **yapısal** composite FK ile kapalı (X3/X4 kanıtı) · reviewer_id/entered_by FK M1-11'e ertelendi |
 | M1-07 | internal/db: havuz ve tenant kapsamlı transaction | **done** | `f73972a` · üçüncü göz **1. turda** ONAY (3 negatif kontrolle: set_config true→false, rollback→commit, panic silme — üçü de testi kırmızıya döndürdü) · `WithTenant` `set_config(...,$1,true)` param-bağlı, çıplak SET yok · havuz unexported (yapısal kapalı) · uuid.Nil guard · 5 gerçek-Postgres -race test (aynı-backend sızıntı-yok kanıtı) · **imza sapması:** callback `pgx.Tx` (store M1-08'de) — kart düzeltildi · resolve erişimi + go.mod'a templ geri-dönüşü M1-08'e/M2'ye |
 | M1-08 | İlk sqlc sorguları | **done** | `62b70a8` · **iki denetçi ONAY** · `make gen`/`build`/`dev` **yeşil** (planlı sqlc kırmızısı bitti) · 6 tenant-kapsamlı sorgu (hepsi açık tenant_id) · `AdvanceTagCounter` atomik CTE strict-`<` (canlı + 2-goroutine -race) · **resolve lookups ELLE** (`internal/db/resolve.go` — sqlc `RETURNS TABLE`'ı tipleyemedi; yalnız SECURITY DEFINER fonksiyon çağırır) · Q25(c) cidr[] override **gerekmedi** (pgx varsayılanı) · WithTenant pgx.Tx kaldı |
-| M1-09 | RLS izolasyonu ve değişmezlik testleri | todo | Q04 ✔ (yerel Postgres) · **ŞU AN bölümündeki "devralınan bulgular" brief'e girmeli** |
+| M1-09 | RLS izolasyonu ve değişmezlik testleri | **done** | `a033c8a` · üçüncü göz ONAY — **non-vacuous 3 bağımsız yolla kanıtlandı** (RLS DISABLE, trigger DISABLE, kaynak mutasyonu → hepsi RED, geri alındı) · 7 vaka + 9 tablo · M0-03 kaçış yolları kapalı (ham SQL, pozitif kontrol, çalışma-anı rol) · `TestResolveColumns_MatchSchema` drift koruması · **2 sapma çözüldü:** x/text CVE yamalandı (`1554135`), redline R3/R5 `_test.go` muafiyeti + test sadeleştirildi (`<sonraki>`) |
 | M1-10 | Seed verisi ve sabit ID'ler | todo | |
 | M1-11 | Migration 0006: admin kullanıcıları | todo | Q03 · denetim bulgusu |
 
@@ -296,13 +294,37 @@ yazılır.
 | M9-06 | Policy simülatörü | todo | Q22 — M6-10'dan ertelendi |
 | M9-07 | Ham JSON politika editörü | todo | Q22 — M6-09'dan ayrıldı |
 
-**Özet:** 82 görev · done 15 · wip 0 · blocked 0 · skipped 1 · todo 66 · **M0 tamam · M1: M1-01…M1-08 done; kalan M1-09…M1-11**
+**Özet:** 82 görev · done 16 · wip 0 · blocked 0 · skipped 1 · todo 65 · **M0 tamam · M1: M1-01…M1-09 done; kalan M1-10, M1-11**
 
 ---
 
 ## Oturum günlüğü
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
+
+### 2026-07-25 (3. oturum, devam) — **M1-09 done** (RLS/immutability testleri) + 2 sapma çözüldü
+
+**M1-09 done — üçüncü göz ONAY.** `internal/db/rls_test.go` (`a033c8a`): izolasyonun ve
+immutability'nin kanıtı. Üçüncü göz **non-vacuous'u 3 bağımsız yolla** doğruladı (kendi
+bozup kırmızıya döndürdü, geri aldı): DB'de RLS DISABLE, trigger DISABLE, kaynak mutasyonu
+`b.tenantID`→`a.tenantID`. 7 vaka + 9 tablo. M0-03 kaçış yolları kapalı (ham SQL/tenant_id
+yok, pozitif kontroller, çalışma-anı `current_user`+`rolsuper/rolbypassrls` assertion'ı).
+`TestStoreQueryFiltersByTenant` ayrı (izolasyon kanıtı değil). `TestResolveColumns_MatchSchema`
+resolve.go drift koruması. Fixture teardown: rastgele-UUID (append-only+REVOKE DELETE teardown'ı
+imkânsız kılar — imkânsızlık garantidir).
+
+**Denetimin bulduğu 2 sapma (bloklamadı) çözüldü:**
+1. **x/text CVE (`GO-2026-5970`)** — M1-07'nin pgxpool'u transitif getirmişti; `make audit`
+   kırmızıydı. `go get golang.org/x/text@v0.39.0` (+x/sync v0.21.0) → govulncheck temiz,
+   `make audit` yeşil. Commit `1554135`. **M1-07 denetimi bunu kaçırdı** (go build/vet/staticcheck
+   CVE görmez) → agent-brief dersi: go.mod değişince `make audit`/govulncheck koş.
+2. **redline R3/R5 `_test.go` yanlış-pozitifi** — RLS testi transactions UPDATE/DELETE ve
+   DATABASE_MIGRATE_URL'ü meşru çalıştırıyor; yapıcı string-concat ile atlatmıştı (smell).
+   Scanner düzeltildi (`--glob '!**/*_test.go'` yalnız R3 + R5-migrate-url'e; migration-beşlisi
+   ve SET-LOCAL dokunulmadı), test düz literal'e döndü. **Mutasyonla dar olduğu kanıtlandı**
+   (non-test .go ihlali hâlâ R3/R5 FAIL; migration ihlali hâlâ yakalanıyor). Commit `<sonraki>`.
+
+**Sırada:** M1-10 (seed) — skill `tappa-seed`.
 
 ### 2026-07-25 (3. oturum, devam) — **M1-08 done** (ilk sqlc sorguları) · `make gen` YEŞİL
 
