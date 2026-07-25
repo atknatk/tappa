@@ -220,7 +220,10 @@ dokunuş gerektirir. Bu ekrana özellik eklemek istiyorsan önce sor.
 - Şema, karar motoru veya güvenlik sınırı değiştiyse **ADR yaz** (`docs/adr/NNNN-*.md`).
 - İş bitince `make check` çalıştır. Kırmızıysa iş bitmemiştir.
 - Commit: `type(scope): özet` — `feat(tap): reject retired tags`. İngilizce, emir kipi.
-- `main`'e doğrudan commit yok; branch aç. Kullanıcı istemedikçe push/PR açma.
+- **Doğrudan `main`'de çalışılır** (kullanıcı kararı, 2026-07-24): yeni proje,
+  görev/milestone başına feature dal açılmaz. Kullanıcı istemedikçe **push/PR
+  açma** — commit yerelde `main`'e atılır. (M0, `m0-bootstrap` dalında yapılıp
+  `main`'e birleştirildi; sonrası doğrudan `main`.)
 - Emin değilsen sor — özellikle §4 kırmızı çizgilere değen her şeyde.
 
 ## 11. Ajanlar & skill'ler
