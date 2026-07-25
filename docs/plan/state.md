@@ -12,29 +12,29 @@
 
 | | |
 |---|---|
-| **Kilometre taşı** | **M1 — [Veri katmanı](m1-veri-katmani.md)** (M1-01…M1-05 done) |
-| **Sıradaki görev** | **M1-06** — [Migration 0005: transactions (append-only) & audit_log & transaction_reviews](m1-veri-katmani.md#m1-06--migration-0005-transactions-append-only--audit_log). Bekleyen karar yok. **En kritik immutability görevi** (§4.3 UPDATE/DELETE yok, §4.6 kayıt kaybolmaz). DELETE tuzağı (yukarı) burada **zorunlu**: `REVOKE UPDATE, DELETE` + trigger. Bağımlılık M1-04+M1-05 ✔. |
+| **Kilometre taşı** | **M1 — [Veri katmanı](m1-veri-katmani.md)** — **şema katmanı TAMAM** (M1-01…M1-06 done: 8 tablo + RLS + immutability + çözümleme mekanizması). Kalan: M1-07 (Go pool/WithTenant), M1-08 (sqlc sorguları), M1-09 (RLS testleri), M1-10 (seed), M1-11 (admin). |
+| **Sıradaki görev** | **M1-07** — [internal/db: havuz ve tenant kapsamlı transaction](m1-veri-katmani.md#m1-07--internaldb-havuz-ve-tenant-kapsamlı-transaction). **Faz değişimi: Go kodu** (migration değil → araç `tappa-db-migrator` DEĞİL, genel opus). Bekleyen karar yok ama **sıralama nüansı** var (aşağı). |
 | **Çalışma modu** | Orkestrasyon + üçüncü göz — [README.md](README.md) · brief'ler [agent-brief.md](agent-brief.md) |
 | **Dal** | **`main`** — M0 (`m0-bootstrap`) `main`'e fast-forward birleştirildi (`562f021`), dal silindi. **Kullanıcı kararı (2026-07-25): artık doğrudan `main`'de çalışılır, görev başına dal açılmaz** (CLAUDE.md §10 güncellendi). Push/PR yine istemedikçe yok. |
 | **Blokeler** | Yok (M1-04 için bekleyen karar yok). **Bekleyen kullanıcı eylemi:** arm64 Go kurulumu (aşağı bak) — hiçbir şeyi bloklamıyor. |
 
-**Bir sonraki oturum ne yapmalı:** **M1-06** (transactions append-only + audit_log +
-transaction_reviews). **En kritik immutability görevi.** Kritik noktalar (kart):
-- **§4.3 mekanik immutability:** `REVOKE UPDATE, DELETE ON transactions FROM tappa_app`
-  (GRANT yalnız SELECT+INSERT) **+ ayrıca** `BEFORE UPDATE OR DELETE` trigger `RAISE
-  EXCEPTION` (tappa_owner yolunu da kapatır — kuşak+kemer). audit_log ve
-  transaction_reviews de append-only aynı kalıpla. **DELETE tuzağı** (aşağı) burada zorunlu.
-- **§4.6 kayıt kaybolmaz:** `employee_id`, `location_id`, `department_id` **NULLABLE**
-  olmak zorunda — §5 satır 1-2 (etiket lost / SUN geçersiz) satır 3'ten (oturum yok) önce
-  gelir; çerezsiz biri çalınmış plakete dokununca `employee_id`'siz `reject` kaydı yazılmalı.
-  Hangi verdict'te hangi alanların null olabileceği CHECK ile sabitlenir.
-- **`(tag_uid, ctr)` üzerine UNIQUE KOYMA** (reddedilen replay de aynı çifti taşır → kayıt kaybı).
-- `transaction_reviews` **üç kısıtla** doğar: `UNIQUE(transaction_id)`; `transaction_id`
-  yalnız `verdict='flag'` kayda; `reviewer_id <> transactions.employee_id` (kendini onaylama
-  yasak, `sys:no-self-review`). Append-only + RLS beşlisi tam.
-- İndeksler: `(tenant_id, occurred_at DESC)`, `(tenant_id, employee_id, occurred_at DESC)`.
-  `source_ip inet`, `trust smallint`, `occurred_at` (§5 `sys:occurred-at-bound` guardrail'i
-  ileride) ≠ `created_at`. Bağımlılık M1-04 (employees) + M1-05 (tags) ✔.
+**Bir sonraki oturum ne yapmalı:** **M1-07** (`internal/db`: pgx havuzu + `WithTenant`).
+İlk **Go kodu** görevi (migration değil). Kart tasarımı: `WithTenant(ctx, tenantID, fn)`
+bir tx açar, `set_config('app.tenant_id', $1, true)` ile bağlamı kurar (asla `SET` LOCAL'siz;
+asla string birleştirme), fn'i o tx'te koşar; hata→rollback, panik→rollback+re-panic. Havuz
+tek yerde. Handler'lar pgxpool görmez, yalnız bu yardımcıyı.
+- ⚠️ **Sıralama nüansı:** kart imzası `fn func(ctx, store.Querier) error` diyor ama `store`
+  paketi M1-08'de (sqlc) üretilecek, **henüz yok** (make gen "no queries" ile patlıyor).
+  M1-07 `store.Querier`'a doğrudan bağlanamaz → derlenmez. Çözüm (yapıcı gerekçelesin):
+  `WithTenant` callback'i `pgx.Tx` (ya da internal/db'de tanımlı bir DBTX arayüzü) alsın;
+  `store.Querier`/`store.New(tx)` bağlaması M1-08'de store üretilince eklenir. CLAUDE.md §7
+  "arayüz tüketici tarafında tanımlanır" ile uyumlu. Bu bir kart sapması → görünür blokla işle.
+- **Kabul kriteri (kart):** `SET` (LOCAL'siz) hiçbir yerde yok; bağlantı havuza dönünce
+  `current_setting('app.tenant_id', true)` boş — **test ile kanıtla** (bu görev Go testi içerir,
+  gerçek Postgres'e karşı, Q04). `set_config(..., true)` (transaction-local); `SET LOCAL` `$1`
+  kabul etmez. **Çözümleme yolu** (context-less resolve fonksiyonları) `WithTenant` DIŞINDA
+  koşar (ADR 0002 madde 7) — M1-07 bunun için ayrı bir "bağlamsız" havuz erişimi de sağlamalı
+  mı yoksa M1-08 mi ekler, yapıcı karar+gerekçe versin.
 
 **M1-08/M1-10'a devredilen (M1-05 denetiminden):** `aes_key_ref`'in gerçekten KEK-sarmalı
 olduğu şema düzeyinde zorlanamaz (bytea) → insert-yolu (M1-08) ve seed (M1-10) bunu ayrıca
@@ -183,7 +183,7 @@ yazılır.
 | M1-03 | Migration 0002: locations & departments | **done** | `3d66b17` · üçüncü göz **1. turda** ONAY · RLS beşlisi (iki tablo) + çapraz-tenant bileşik FK + `cidr[]` (Q07) + `numeric(9,6)` + Down + R5 mutasyonla kanıtlandı · 2 bloklamayan kısıt notu (→ M4-05/M1-10) · Q25(c) sqlc override M1-08'e ertelendi |
 | M1-04 | Migration 0003: employees & sessions | **done** | `2c42c67` (+ db-init resolver rölü) · **iki denetçi ONAY** (üçüncü göz + tappa-security-auditor, kırmızı çizgi ihlali yok) · ADR 0002 madde 7 çözümleme mekanizması: `tappa_resolver` (BYPASSRLS) + `resolve_session_by_token_hash` SECURITY DEFINER (owner non-superuser, search_path sabit, PUBLIC REVOKE, kolon-SELECT) — enumerate/search_path/PUBLIC/injection saldırılarına dayandı · **GUC-anahtar alternatifi denetimde reddedildi** (ADR'ye kaydedildi) · sessions/employees DELETE `REVOKE` edildi (default-privilege tuzağı) · ADR 0002 + M1-04 kartı güncellendi |
 | M1-05 | Migration 0004: tags | **done** | `a1bcdc4` · **iki denetçi ONAY** (üçüncü göz + tappa-security-auditor, kırmızı çizgi ihlali yok) · `resolve_tag_by_uid` çözümleme fonksiyonu (M1-04 kalıbı; enumerate/pg_temp-poison/PUBLIC/injection saldırılarına dayandı) · uid `char(14)` hex CHECK · `aes_key_ref bytea` sarmalı · **`UNIQUE(uid,ctr)` YOK** (§4.4) · DELETE REVOKE · replaced_by same-tenant self-FK · aes_key_ref-sarmalı doğrulaması M1-08/M1-10'a devredildi |
-| M1-06 | Migration 0005: transactions (append-only) & audit_log | todo | |
+| M1-06 | Migration 0005: transactions (append-only) & audit_log | **done** | `d91c609` · **iki denetçi ONAY** (kırmızı çizgi ihlali yok) · immutability kuşak+kemer (REVOKE UPDATE,DELETE + `tappa_forbid_mutation` trigger; superuser DISABLE-trigger sınırı kabul) · §4.6 nullable id + CHECK (flag/manuel/reject kaydedilebilir) · **`UNIQUE(tag_uid,ctr)` yok** · transaction_reviews 3 kısıt + çapraz-tenant review **yapısal** composite FK ile kapalı (X3/X4 kanıtı) · reviewer_id/entered_by FK M1-11'e ertelendi |
 | M1-07 | internal/db: havuz ve tenant kapsamlı transaction | todo | Q27 telafisi: sarmalayıcı `SET LOCAL`'i kendi kurar, bağlamsız sorgu **API olarak imkânsız** |
 | M1-08 | İlk sqlc sorguları | todo | ilk sorgu `make gen`/`make dev`/`make build`'i yeşile çevirir |
 | M1-09 | RLS izolasyonu ve değişmezlik testleri | todo | Q04 ✔ (yerel Postgres) · **ŞU AN bölümündeki "devralınan bulgular" brief'e girmeli** |
@@ -294,13 +294,37 @@ yazılır.
 | M9-06 | Policy simülatörü | todo | Q22 — M6-10'dan ertelendi |
 | M9-07 | Ham JSON politika editörü | todo | Q22 — M6-09'dan ayrıldı |
 
-**Özet:** 82 görev · done 12 · wip 0 · blocked 0 · skipped 1 · todo 69 · **M0 tamam · M1: M1-01…M1-05 done**
+**Özet:** 82 görev · done 13 · wip 0 · blocked 0 · skipped 1 · todo 68 · **M0 tamam · M1 şema katmanı tamam (M1-01…M1-06); kalan M1-07…M1-11**
 
 ---
 
 ## Oturum günlüğü
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
+
+### 2026-07-25 (3. oturum, devam) — **M1-06 done** · **M1 şema katmanı TAMAM**
+
+**M1-06 done — iki denetçi ONAY** (üçüncü göz + tappa-security-auditor, kırmızı çizgi
+ihlali yok). `00005_create_transactions_audit_reviews.sql` (`d91c609`): transactions +
+audit_log + transaction_reviews, üçü append-only + RLS beşlisi.
+
+**§4.3 immutability kuşak+kemer:** açık `REVOKE UPDATE, DELETE` (default-privilege tuzağı)
++ `BEFORE UPDATE OR DELETE` trigger — satır varken **superuser tappa_owner bile** durduruldu.
+Bilinen sınır (kabul): superuser DISABLE TRIGGER / session_replication_role=replica ile
+atlayabilir — bilinçli defense-in-depth, mutlak değil.
+
+**§4.6:** nullable employee/location/department/tag_uid/ctr + CHECK'ler; çalınmış-plaket
+reject, flag, manuel kayıt yazılabiliyor; **`UNIQUE(tag_uid,ctr)` yok** (reddedilen replay
+kaydedilebilir). transaction_reviews 3 kısıt (UNIQUE + flag-only trigger + no-self-review).
+**Çapraz-tenant review YAPISAL kapalı** — composite FK ile (denetçi trigger'ı DISABLE edip
+kanıtladı: FK reddediyor, trigger değil). FLAGGED onay transactions'a dokunmuyor (Q20).
+
+**M1 şema katmanı bitti:** 8 tablo (tenants, locations, departments, employees, sessions,
+tags, transactions, audit_log, transaction_reviews) + RLS her tabloda + immutability +
+çözümleme mekanizması. Kalan M1: M1-07 (Go WithTenant), M1-08 (sqlc), M1-09 (RLS testleri),
+M1-10 (seed), M1-11 (admin).
+
+**Sırada:** M1-07 — ilk Go kodu görevi. Sıralama nüansı (store.Querier henüz yok) ŞU AN'da.
 
 ### 2026-07-25 (3. oturum, devam) — **M1-05 done** (tags)
 
