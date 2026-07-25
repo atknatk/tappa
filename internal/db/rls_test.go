@@ -30,21 +30,15 @@ import (
 //     RLS unconditionally, so it can NEVER prove isolation. It is used ONLY for
 //     case 5 to show the append-only trigger stops even a superuser.
 //
-// REDLINE NET (scripts/redline-check.sh, CLAUDE.md section 4): the mechanical
-// scanner greps ALL source under internal/ (including _test.go) and cannot tell
-// that this test issues forbidden statements precisely to prove they are BLOCKED.
-// Two of its production-code rules would false-positive here, so a few tokens are
-// assembled from values instead of written as contiguous literals -- the RUNTIME
-// SQL/behaviour is identical, only the source text differs, and each site says so:
-//   - R3 (no UPDATE/DELETE against the immutable transactions table): case 4/5
-//     build the statement from a table-name value (see txTable / the case-5 loop).
-//   - R5 (production code must not use the migration role): ownerDB assembles the
-//     migration-role env key (see ownerDB). This keeps the net aimed at real
-//     production violations. (A cleaner long-term fix is to exclude _test.go from
-//     R3/R5 in the scanner -- flagged for the orchestrator; out of scope here.)
-// The role is proven at RUNTIME (assertAppRole / assertOwnerRole): naming a pool
-// "appPool" is not evidence -- a test could hand an owner-identity pool that name
-// and pass vacuously.
+// REDLINE NET (scripts/redline-check.sh, CLAUDE.md section 4): this test issues
+// statements that its own production-code rules forbid -- UPDATE/DELETE on the
+// immutable transactions table (R3, section 4.3) and use of the migration role
+// (R5) -- precisely to prove they are BLOCKED, not to violate them. The scanner
+// excludes _test.go from exactly those two rules (see the R3 and R5 migrate-URL
+// waivers in redline-check.sh), so the SQL below reads as plain literals while
+// real production violations are still caught. The role is proven at RUNTIME
+// (assertAppRole / assertOwnerRole): naming a pool "appPool" is not evidence -- a
+// test could hand an owner-identity pool that name and pass vacuously.
 //
 // ISOLATION PROBES ARE RAW (escape-path (a), M0-03 3rd round): the isolation SQL
 // is written inline here (not a sqlc store call) and carries NO `tenant_id =`
@@ -66,13 +60,12 @@ import (
 // tenant_test.go for the tappa_app pools. Skips with a clear message when the URL
 // is absent.
 //
-// The migration-role env key is assembled from parts (see the redline note at the
-// top): redline R5 correctly forbids PRODUCTION code from using the migration role
-// (it bypasses RLS), and cannot tell this is test-only owner access needed to prove
-// case 5. Runtime behaviour is identical; only the source text is split.
+// Using the migration role is legitimate here: this is test-only owner access
+// needed to prove case 5. Redline R5 forbids the migration role in PRODUCTION code
+// (it bypasses RLS) and excludes _test.go, so the env key is a plain literal.
 func ownerDB(t *testing.T) *DB {
 	t.Helper()
-	raw := os.Getenv("DATABASE_" + "MIGRATE_URL")
+	raw := os.Getenv("DATABASE_MIGRATE_URL")
 	if raw == "" {
 		t.Skip("migration-role DB URL not set; skipping owner-role RLS tests (real Postgres required -- CLAUDE.md section 8, Q04)")
 	}
@@ -598,23 +591,19 @@ func TestRLS_AppCannotMutateTransactions(t *testing.T) {
 		t.Fatalf("positive control: app cannot SELECT its own transaction (got %d rows)", got)
 	}
 
-	// txTable is the immutable table's name as a VALUE, so the source never carries
-	// a mutation keyword immediately followed by that table name as a literal
-	// (redline R3, see the top note). The statements built below are byte-for-byte
-	// the real mutation SQL at runtime; the test issues them and asserts they are denied.
-	const txTable = "transactions"
-
+	// These are the real mutation statements at runtime; the test issues them and
+	// asserts the REVOKE denies them (redline R3 excludes _test.go, so plain SQL).
 	errU := app.WithTenant(context.Background(), fx.tenantID, func(ctx context.Context, tx pgx.Tx) error {
-		_, e := tx.Exec(ctx, "UPDATE "+txTable+" SET note = 'x' WHERE id = $1", fx.txReviewedID)
+		_, e := tx.Exec(ctx, "UPDATE transactions SET note = 'x' WHERE id = $1", fx.txReviewedID)
 		return e
 	})
-	assertPermissionDenied(t, "app UPDATE on "+txTable, errU)
+	assertPermissionDenied(t, "app UPDATE on transactions", errU)
 
 	errD := app.WithTenant(context.Background(), fx.tenantID, func(ctx context.Context, tx pgx.Tx) error {
-		_, e := tx.Exec(ctx, "DELETE FROM "+txTable+" WHERE id = $1", fx.txReviewedID)
+		_, e := tx.Exec(ctx, "DELETE FROM transactions WHERE id = $1", fx.txReviewedID)
 		return e
 	})
-	assertPermissionDenied(t, "app DELETE on "+txTable, errD)
+	assertPermissionDenied(t, "app DELETE on transactions", errD)
 }
 
 // ============================================================================
@@ -630,10 +619,9 @@ func TestRLS_OwnerMutationsHitAppendOnlyTrigger(t *testing.T) {
 
 	fx := buildFixture(t, app) // create the rows as tappa_app (committed)
 
-	// name/setCol are values; the mutation statements are assembled in the loop so
-	// the source carries no mutation keyword immediately followed by that table name
-	// as a literal (redline R3, see the top note). The assembled SQL is the real
-	// mutation at runtime and is asserted to be blocked by the append-only trigger.
+	// Table-driven over the three append-only tables, so the mutation SQL is
+	// assembled per case from name/setCol. The assembled SQL is the real mutation at
+	// runtime and is asserted to be blocked by the append-only trigger.
 	targets := []struct {
 		name   string
 		setCol string

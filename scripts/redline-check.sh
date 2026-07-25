@@ -50,8 +50,13 @@ report FAIL R2 "Surekli konum takibi — GPS yalnizca tap aninda okunur" \
   "$(scan -e 'watchPosition' -e 'BackgroundGeolocation' -e 'geofence' || true)"
 
 # --- R3: transactions immutability ------------------------------------------
+# _test.go MUAFIYETI (DAR — yalniz bu tarama, yalniz test dosyalari): bu kural
+# URETIM kodu icindir. RLS izolasyon testi (internal/db/rls_test.go) transactions
+# uzerinde UPDATE/DELETE'i BILEREK calistirir — amaci bu ifadelerin REVOKE/trigger
+# ile REDDEDILDIGINI kanitlamak (CLAUDE.md §4.3, §8 "RLS testi zorunlu"). Test
+# dosyasini taramak yanlis-pozitif uretirdi; uretim kodundaki ihlal hala yakalanir.
 report FAIL R3 "transactions tablosuna UPDATE/DELETE — kayitlar immutable" \
-  "$(scan -i -e '(UPDATE|DELETE +FROM) +transactions\b' || true)"
+  "$(scan -i -e '(UPDATE|DELETE +FROM) +transactions\b' --glob '!**/*_test.go' || true)"
 
 # --- R4: atomik ctr / replay koruması ---------------------------------------
 # Kosulsuz sayac guncellemesi = TOCTOU replay acigi.
@@ -275,8 +280,14 @@ report WARN R5 "Tenant kapsamindan MUAF birakilmis tablo(lar) — muafiyet sessi
 
 report WARN R5 "Tablo yaratimi R5'in gorus alani disinda — elle denetle" "${unverified%$'\n'}"
 
+# _test.go MUAFIYETI (DAR — yalniz bu tarama, yalniz test dosyalari): bu kural
+# URETIM kodu icindir. RLS izolasyon testi (internal/db/rls_test.go) vaka 5'te
+# tappa_owner (migrate URL) havuzunu MESRU kullanir — superuser'in bile append-only
+# trigger'i asamadigini kanitlamak icin (ADR 0002). Uretim kodundaki migrate-URL
+# kullanimi hala yakalanir. NOT: bu muafiyet R5'in yalniz bu (migrate-URL) taramasi
+# icindir; migration-besligi (db/migrations) ve SET-LOCAL kontrolu etkilenmez.
 report FAIL R5 "Uygulama migration rolu ile baglaniyor — RLS etkisiz kalir" \
-  "$(scan -e 'DATABASE_MIGRATE_URL' --glob '!cmd/migrate/*' --glob '!internal/config/*' || true)"
+  "$(scan -e 'DATABASE_MIGRATE_URL' --glob '!cmd/migrate/*' --glob '!internal/config/*' --glob '!**/*_test.go' || true)"
 
 report WARN R5 "SET LOCAL degil duz SET — havuzdaki baglantiyi kirletir" \
   "$(scan -e "SET +app\.tenant_id" | grep -viE 'SET +LOCAL' || true)"
