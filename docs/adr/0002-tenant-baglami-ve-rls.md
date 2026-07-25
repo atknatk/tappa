@@ -121,7 +121,13 @@ testlidir:
 - **Ayrı ve görünür.** İki sorgu `db/queries/resolve.sql` dosyasında durur
   (üretim sorgularının geri kalanından ayrı), böylece §4.5'in "her sorguda açık
   `tenant_id` filtresi" kuralının **tek istisnası** koda bakıldığında görünür
-  kalır.
+  kalır. **(Uygulama notu — M1-08, 2026-07-25:** sqlc v1.28 `RETURNS TABLE(...)`
+  döndüren fonksiyon çağrılarını **tipleyemiyor** (ölçüldü) → bu iki lookup
+  `internal/db/resolve.go`'da **elle, tipli** yazıldı; `resolve.sql` `-- name:`'siz
+  **kanonik-SQL belgesi** olarak kaldı (sqlc atlar). Güvenlik özellikleri değişmedi:
+  ikisi de yalnız `resolve_tag_by_uid`/`resolve_session_by_token_hash` SECURITY
+  DEFINER fonksiyonlarını çağırır, çıplak tablo erişimi yok, bağlamsız ham havuzda.
+  İki denetçi doğruladı. Elle-senkron drift riski M1-09 test kapsamına devredildi.**)
 - **`tappa_app` rolüyle, `tenant_id` filtresi olmadan.** Arama küresel olarak
   tekil bir anahtara dayanır (`tags.uid` birincil anahtar; `sessions.token_hash`
   UNIQUE), dolayısıyla tenant bilinmeden de en çok **bir** satır döner.
