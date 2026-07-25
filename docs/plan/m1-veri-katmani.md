@@ -432,6 +432,28 @@ func (d *DB) WithTenant(ctx context.Context, tenantID uuid.UUID,
 - Tenant'ı `context.Context` içinde taşımak cazip; taşı ama **tek okuma yeri**
   bu yardımcı olsun.
 
+> **Kart düzeltmesi (2026-07-25, M1-07 uygulaması sırasında).** Yukarıdaki
+> tasarım bloğu `WithTenant`'ın callback'ini `fn func(context.Context,
+> store.Querier) error` olarak yazıyordu. **`store` paketi M1-08'de sqlc ile
+> üretilir, henüz YOK** — `internal/db` ona import ederse `go build` derlenmez
+> (forward reference). Bu yüzden imza `fn func(context.Context, pgx.Tx) error`
+> olarak uygulandı (kodda `type TxFunc`). `pgx.Tx` sorgu koşmak için gereken
+> minimal, doğru handle'dır; M1-08 store üretilince onu `store.New(tx)` ile sarar
+> (WithTenant içinde bir aşırı yükleme ya da callback içinde çağrı yerinde). Karar
+> ve gerekçe kodda `internal/db/tenant.go` `TxFunc` yorumunda tekrar edilir.
+>
+> **Çözümleme yolu (ADR 0002 madde 7) kararı: M1-08'e bırakıldı.** M1-07 havuzu
+> handler'lara açmaz ve bağlamsız (context-less) bir erişim yardımcısı da
+> *eklemez*. Gerekçe: iki çözümleme sorgusu (`resolve_session_by_token_hash`,
+> `resolve_tag_by_uid`) M1-04/M1-05 migration'larında `SECURITY DEFINER` fonksiyon
+> olarak durur ve M1-08'de `db/queries/resolve.sql` ile store'a bağlanır — sorgular
+> henüz yok. Bugün dar bir "bağlamsız erişim" API'si eklemek (a) M1-08'e kadar
+> kullanılmayan bir yüzey olur, (b) şekli M1-08'in getireceği `store.Querier`
+> tipine bağlıdır, (c) gevşek tasarlanırsa ADR'nin yasakladığı genel bypass kapısına
+> dönüşür. Bu yüzden M1-07'de tek DB giriş noktası `WithTenant`'tır; dar, adlandırılmış
+> ve `set_config` ÇAĞIRMAYAN resolver erişimi resolve sorguları geldiğinde M1-08'de
+> eklenir. Bu karar `internal/db/pool.go` sonundaki yorumda da yazılıdır.
+
 ---
 
 ## M1-08 — İlk sqlc sorguları

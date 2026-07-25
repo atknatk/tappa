@@ -12,29 +12,35 @@
 
 | | |
 |---|---|
-| **Kilometre taşı** | **M1 — [Veri katmanı](m1-veri-katmani.md)** — **şema katmanı TAMAM** (M1-01…M1-06 done: 8 tablo + RLS + immutability + çözümleme mekanizması). Kalan: M1-07 (Go pool/WithTenant), M1-08 (sqlc sorguları), M1-09 (RLS testleri), M1-10 (seed), M1-11 (admin). |
-| **Sıradaki görev** | **M1-07** — [internal/db: havuz ve tenant kapsamlı transaction](m1-veri-katmani.md#m1-07--internaldb-havuz-ve-tenant-kapsamlı-transaction). **Faz değişimi: Go kodu** (migration değil → araç `tappa-db-migrator` DEĞİL, genel opus). Bekleyen karar yok ama **sıralama nüansı** var (aşağı). |
+| **Kilometre taşı** | **M1 — [Veri katmanı](m1-veri-katmani.md)** (M1-01…M1-07 done). Kalan: M1-08 (sqlc sorguları — `make gen`'i yeşile çevirir), M1-09 (RLS testleri), M1-10 (seed), M1-11 (admin). |
+| **Sıradaki görev** | **M1-08** — [İlk sqlc sorguları](m1-veri-katmani.md#m1-08--i̇lk-sqlc-sorguları). `make gen`/`dev`/`build`'i **yeşile çevirir** (planlı kırmızı durum biter). Araç `tappa-db-migrator`. Bağımlılık M1-06+M1-07 ✔. |
 | **Çalışma modu** | Orkestrasyon + üçüncü göz — [README.md](README.md) · brief'ler [agent-brief.md](agent-brief.md) |
 | **Dal** | **`main`** — M0 (`m0-bootstrap`) `main`'e fast-forward birleştirildi (`562f021`), dal silindi. **Kullanıcı kararı (2026-07-25): artık doğrudan `main`'de çalışılır, görev başına dal açılmaz** (CLAUDE.md §10 güncellendi). Push/PR yine istemedikçe yok. |
 | **Blokeler** | Yok (M1-04 için bekleyen karar yok). **Bekleyen kullanıcı eylemi:** arm64 Go kurulumu (aşağı bak) — hiçbir şeyi bloklamıyor. |
 
-**Bir sonraki oturum ne yapmalı:** **M1-07** (`internal/db`: pgx havuzu + `WithTenant`).
-İlk **Go kodu** görevi (migration değil). Kart tasarımı: `WithTenant(ctx, tenantID, fn)`
-bir tx açar, `set_config('app.tenant_id', $1, true)` ile bağlamı kurar (asla `SET` LOCAL'siz;
-asla string birleştirme), fn'i o tx'te koşar; hata→rollback, panik→rollback+re-panic. Havuz
-tek yerde. Handler'lar pgxpool görmez, yalnız bu yardımcıyı.
-- ⚠️ **Sıralama nüansı:** kart imzası `fn func(ctx, store.Querier) error` diyor ama `store`
-  paketi M1-08'de (sqlc) üretilecek, **henüz yok** (make gen "no queries" ile patlıyor).
-  M1-07 `store.Querier`'a doğrudan bağlanamaz → derlenmez. Çözüm (yapıcı gerekçelesin):
-  `WithTenant` callback'i `pgx.Tx` (ya da internal/db'de tanımlı bir DBTX arayüzü) alsın;
-  `store.Querier`/`store.New(tx)` bağlaması M1-08'de store üretilince eklenir. CLAUDE.md §7
-  "arayüz tüketici tarafında tanımlanır" ile uyumlu. Bu bir kart sapması → görünür blokla işle.
-- **Kabul kriteri (kart):** `SET` (LOCAL'siz) hiçbir yerde yok; bağlantı havuza dönünce
-  `current_setting('app.tenant_id', true)` boş — **test ile kanıtla** (bu görev Go testi içerir,
-  gerçek Postgres'e karşı, Q04). `set_config(..., true)` (transaction-local); `SET LOCAL` `$1`
-  kabul etmez. **Çözümleme yolu** (context-less resolve fonksiyonları) `WithTenant` DIŞINDA
-  koşar (ADR 0002 madde 7) — M1-07 bunun için ayrı bir "bağlamsız" havuz erişimi de sağlamalı
-  mı yoksa M1-08 mi ekler, yapıcı karar+gerekçe versin.
+**Bir sonraki oturum ne yapmalı:** **M1-08** (ilk sqlc sorguları). Bu görev `make gen`/
+`dev`/`build`'i **yeşile çevirir** (M1-02'den beri süren planlı sqlc kırmızısı biter).
+Kritik noktalar (kart + devralınanlar):
+- Asgari sorgu seti (kart): `GetTagByUID`, `AdvanceTagCounter` (:one, **atomik**,
+  `WHERE last_ctr < @ctr RETURNING`, ayrıca `ctr − last_ctr − 1` farkını `tap:ctrGap` için
+  döndürür), `GetEmployeeBySessionHash`, `GetLastOpenTransaction`, `GetLastTransactionForEmployee`,
+  `InsertTransaction`, `GetLocationByIP` (`@src::inet <<= ANY(static_ips)`), `ListLocationsForTenant`.
+- **Her sorguda açık `tenant_id` filtresi** (kuşak+kemer). **Tek istisna:** çözümleme sorguları
+  `GetTagByUID`+`GetEmployeeBySessionHash` → ayrı `db/queries/resolve.sql`; bunlar M1-04/M1-05'te
+  kurulan **SECURITY DEFINER fonksiyonları çağırır** (`SELECT ... FROM resolve_tag_by_uid(@uid)` /
+  `resolve_session_by_token_hash(@hash)`) — doğrudan tablo değil (bağlamsız, tappa_app EXECUTE'la).
+- **`AdvanceTagCounter` `:one`** (`:exec` değil — etkilenen satırı görmen gerek); `pgx.ErrNoRows`
+  → replay → reject.
+- **`SELECT *` yerine sütunları açık yaz.** `emit_interface: true` → `Querier` (handler testleri).
+- **Q25(c) — sqlc.yaml `cidr[]` override'ı BURADA** (M1-03'ten ertelendi): pgx/v5 `cidr`i
+  `netip.Prefix`e eşliyor; gerekiyorsa tam yol `net/netip.Prefix` (mevcut `inet → net/netip.Addr`
+  kardeşi). Eklenirse M0-04 override tablosu da güncellenir. Sorguyla birlikte **doğrulanabilir**.
+- **aes_key_ref-sarmalı doğrulaması** (M1-05'ten): insert-yolu KEK-sarmalı anahtar bekler;
+  şema bytea zorlayamaz — sorgu/handler seviyesinde ele alınır (tam M8 deploy'a kadar KEK config'te).
+- M1-07 `WithTenant` callback'i `pgx.Tx` alıyor; store üretilince handler `store.New(tx)` ile
+  sarabilir ya da WithTenant M1-08'de `store.Querier` verecek şekilde güncellenebilir (yapıcı karar).
+- `make gen` temiz; üretilen `internal/store/*.go` **commit edilir**. templ go.mod'a M2'de döner
+  (M1-07 tidy'si düşürdü) — M1-08 sqlc çalıştırır, templ'e dokunmaz.
 
 **M1-08/M1-10'a devredilen (M1-05 denetiminden):** `aes_key_ref`'in gerçekten KEK-sarmalı
 olduğu şema düzeyinde zorlanamaz (bytea) → insert-yolu (M1-08) ve seed (M1-10) bunu ayrıca
@@ -184,7 +190,7 @@ yazılır.
 | M1-04 | Migration 0003: employees & sessions | **done** | `2c42c67` (+ db-init resolver rölü) · **iki denetçi ONAY** (üçüncü göz + tappa-security-auditor, kırmızı çizgi ihlali yok) · ADR 0002 madde 7 çözümleme mekanizması: `tappa_resolver` (BYPASSRLS) + `resolve_session_by_token_hash` SECURITY DEFINER (owner non-superuser, search_path sabit, PUBLIC REVOKE, kolon-SELECT) — enumerate/search_path/PUBLIC/injection saldırılarına dayandı · **GUC-anahtar alternatifi denetimde reddedildi** (ADR'ye kaydedildi) · sessions/employees DELETE `REVOKE` edildi (default-privilege tuzağı) · ADR 0002 + M1-04 kartı güncellendi |
 | M1-05 | Migration 0004: tags | **done** | `a1bcdc4` · **iki denetçi ONAY** (üçüncü göz + tappa-security-auditor, kırmızı çizgi ihlali yok) · `resolve_tag_by_uid` çözümleme fonksiyonu (M1-04 kalıbı; enumerate/pg_temp-poison/PUBLIC/injection saldırılarına dayandı) · uid `char(14)` hex CHECK · `aes_key_ref bytea` sarmalı · **`UNIQUE(uid,ctr)` YOK** (§4.4) · DELETE REVOKE · replaced_by same-tenant self-FK · aes_key_ref-sarmalı doğrulaması M1-08/M1-10'a devredildi |
 | M1-06 | Migration 0005: transactions (append-only) & audit_log | **done** | `d91c609` · **iki denetçi ONAY** (kırmızı çizgi ihlali yok) · immutability kuşak+kemer (REVOKE UPDATE,DELETE + `tappa_forbid_mutation` trigger; superuser DISABLE-trigger sınırı kabul) · §4.6 nullable id + CHECK (flag/manuel/reject kaydedilebilir) · **`UNIQUE(tag_uid,ctr)` yok** · transaction_reviews 3 kısıt + çapraz-tenant review **yapısal** composite FK ile kapalı (X3/X4 kanıtı) · reviewer_id/entered_by FK M1-11'e ertelendi |
-| M1-07 | internal/db: havuz ve tenant kapsamlı transaction | todo | Q27 telafisi: sarmalayıcı `SET LOCAL`'i kendi kurar, bağlamsız sorgu **API olarak imkânsız** |
+| M1-07 | internal/db: havuz ve tenant kapsamlı transaction | **done** | `f73972a` · üçüncü göz **1. turda** ONAY (3 negatif kontrolle: set_config true→false, rollback→commit, panic silme — üçü de testi kırmızıya döndürdü) · `WithTenant` `set_config(...,$1,true)` param-bağlı, çıplak SET yok · havuz unexported (yapısal kapalı) · uuid.Nil guard · 5 gerçek-Postgres -race test (aynı-backend sızıntı-yok kanıtı) · **imza sapması:** callback `pgx.Tx` (store M1-08'de) — kart düzeltildi · resolve erişimi + go.mod'a templ geri-dönüşü M1-08'e/M2'ye |
 | M1-08 | İlk sqlc sorguları | todo | ilk sorgu `make gen`/`make dev`/`make build`'i yeşile çevirir |
 | M1-09 | RLS izolasyonu ve değişmezlik testleri | todo | Q04 ✔ (yerel Postgres) · **ŞU AN bölümündeki "devralınan bulgular" brief'e girmeli** |
 | M1-10 | Seed verisi ve sabit ID'ler | todo | |
@@ -294,13 +300,33 @@ yazılır.
 | M9-06 | Policy simülatörü | todo | Q22 — M6-10'dan ertelendi |
 | M9-07 | Ham JSON politika editörü | todo | Q22 — M6-09'dan ayrıldı |
 
-**Özet:** 82 görev · done 13 · wip 0 · blocked 0 · skipped 1 · todo 68 · **M0 tamam · M1 şema katmanı tamam (M1-01…M1-06); kalan M1-07…M1-11**
+**Özet:** 82 görev · done 14 · wip 0 · blocked 0 · skipped 1 · todo 67 · **M0 tamam · M1: M1-01…M1-07 done; kalan M1-08…M1-11**
 
 ---
 
 ## Oturum günlüğü
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
+
+### 2026-07-25 (3. oturum, devam) — **M1-07 done** (Go: havuz + WithTenant)
+
+**M1-07 done — üçüncü göz 1. turda ONAY** (ilk Go kodu görevi). `internal/db/{pool,tenant,
+tenant_test}.go` (`f73972a`): `pgxpool` sarmalayıcı (tappa_app, handler'lara açılmaz) +
+`WithTenant(ctx, tenantID, fn)` — `set_config('app.tenant_id',$1,true)` param-bağlı (çıplak
+SET/string concat yok), commit/rollback/panik-repanik, rollback `context.Background()` ile,
+`uuid.Nil` reddi. Q27 telafisi: bağlamsız sorgu yapısal olarak imkânsız.
+
+**Üçüncü göz üç negatif kontrolle kanıtladı** (repo-dışı kopyada): `set_config` true→false →
+sızıntı testi FAIL; error-branch Commit → rollback testi FAIL; `panic(p)` silme → panik testi
+FAIL. Testler vacuous değil. 5/5 -race test (aynı-backend `pg_backend_pid` sızıntı-yok kanıtı).
+
+**İmza sapması (dokümante):** callback `func(ctx, pgx.Tx) error` — `store` M1-08'de üretilecek,
+import derlenmezdi. M1-07 kartına düzeltme bloğu. Resolve erişimi M1-08'e ertelendi (havuz
+açılmadı — madde 7 telafisi korundu). `go mod tidy` pgx/uuid'yi direct yaptı, **templ'i düşürdü**
+(hiçbir .go import etmiyor; M2'de döner; make gen pinli @version kullandığı için etkilenmez).
+
+**Sırada:** M1-08 (ilk sqlc sorguları) — planlı sqlc kırmızısını yeşile çevirir; resolve.sql
+çözümleme sorguları + Q25(c) cidr[] override burada.
 
 ### 2026-07-25 (3. oturum, devam) — **M1-06 done** · **M1 şema katmanı TAMAM**
 
