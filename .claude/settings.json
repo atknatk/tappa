@@ -46,12 +46,12 @@
       "Bash(git push:*)",
       "Bash(git commit:*)",
       "Bash(gh pr create:*)",
-      "Bash(go get:*)"
-    ],
-    "ask": [
+      "Bash(go get:*)",
       "Bash(make db-reset)",
       "Bash(make migrate-down:*)",
       "Bash(make seed)"
+    ],
+    "ask": [
     ],
     "deny": [
       "Read(./.env)",
