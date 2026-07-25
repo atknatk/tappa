@@ -83,7 +83,7 @@ A/Y maddelerine ek olarak çıkanlar ve nereye işlendikleri:
 | Q03 | **Admin şifre hash'i.** stdlib'de uygun KDF yok. Öneri: `golang.org/x/crypto/bcrypt` veya `argon2id`. CLAUDE.md §1 gereği yeni bağımlılık onay ister. | M6-01 | C→A | açık |
 | Q05 | **SDM mirroring modu.** Plain (UID + ctr açık) mı, şifreli PICC data mı? Karar ADR 0003 olacak. | M2-01 | C→A | açık |
 | Q06 | **Etiket anahtar stratejisi.** Plaket başına rastgele mi, master'dan UID ile türetilmiş mi? Türetme encode'u kolaylaştırır ama master sızarsa tüm park düşer. | M2-05 | C→A | açık |
-| Q07 | **`locations.static_ips` tipi.** `inet[]` (tek IP = /32) mi `cidr[]` (aralık) mi? Müşteri ISS'i /29 blok verirse aralık gerekir. | M1-03 | A | açık |
+| Q07 | **`locations.static_ips` tipi.** `inet[]` (tek IP = /32) mi `cidr[]` (aralık) mi? Müşteri ISS'i /29 blok verirse aralık gerekir. | M1-03 | A | **cidr[]** (2026-07-25) — aşağı bak |
 | Q08 | **Domain + marka tescili.** `tappa.mt` / `tappa.io` alınmadı, EUIPO taraması yapılmadı. SUN URL'sinde geçiyor. | M8-05, M5-01 (ölçüm), M8-02 | A | açık |
 | Q09 | **VIES doğrulaması MVP'de zorunlu mu?** Servis sık kesilir. Öneri: format zorunlu + VIES "en iyi çaba", başarısızsa `vat_verified=false` ve panelde uyarı. | M7-02 | C→A | açık |
 | Q10 | **Etiket tedarikçisi ve encode akışı.** Ölçekte encode'lu tedarikçi mi, kendimiz mi? Anahtar teslimi ve döndürme nasıl? | M0 (sipariş), M8-05 | A | açık |
@@ -92,6 +92,25 @@ A/Y maddelerine ek olarak çıkanlar ve nereye işlendikleri:
 | Q13 | **GDPR silme talebi × immutable `transactions`.** Öneri: `employees` üzerinde anonimleştir, `transactions` korunur — hukuki onay ister. Saklama süresi de burada. | M8-06 | A | açık |
 
 ## Cevaplananlar
+
+### Q07 — `locations.static_ips` tipi `cidr[]` (2026-07-25)
+
+**Karar:** `locations.static_ips` **`cidr[]`**. `inet[]` terk edildi.
+
+**Gerekçe:** `cidr[]` hem tek IP'yi (`/32` olarak) hem ISS bloğunu (`/29` gibi) tek
+tiple ifade eder; proof-of-place eşleşmesi **içerme** operatörüyle yapılır:
+`@src::inet <<= ANY(static_ips)` — tek IP ve blok ikisi de çalışır. `inet[]` yalnız
+tek adres tutabilir; ISS blok verirse her adresi tek tek yazmak gerekir (kırılgan).
+Kullanıcı `cidr[]`'i seçti.
+
+**Etkilenen:**
+- [M1-03](m1-veri-katmani.md): `locations.static_ips cidr[]`.
+- **Q25(c)** ([M1-03](m1-veri-katmani.md)): `sqlc.yaml`'a `cidr[]` override'ı eklenir.
+  sqlc v1.28 + pgx/v5 `cidr`i `netip.Prefix`e, `cidr[]`i `[]netip.Prefix`e eşler;
+  override gerekiyorsa tam yol `net/netip.Prefix` (mevcut `inet → net/netip.Addr`
+  satırının kardeşi). Eklenirse [M0-04](m0-bootstrap.md) override tablosu da
+  güncellenir ("sabit olan sayı değil, listedir").
+- Eşleşme sorgusu (M1-08 `GetLocationByIP`): `@src::inet <<= ANY(static_ips)`.
 
 ### Q27 — RLS politikaları `NULLIF` sarmalayıcısı kullanır (2026-07-24)
 
