@@ -154,13 +154,11 @@ delinir.
 **Adımlar.**
 1. `make migrate-new name=create_tenants`
 2. Tabloyu yaz; `structure` ve `business_type` için `CHECK` kısıtı veya enum.
-3. RLS: politika `id = current_setting('app.tenant_id', true)::uuid` (bu tabloda
-   `tenant_id` yerine `id`). ⚠️ Buradaki **çıplak** cast biçimi
-   [Q27](open-questions.md)'nin karara bağlayacağı şeydir
-   ([M1-01 madde 3](#m1-01--adr-0002-tenant-bağlamı-ve-rls-stratejisi) ve oradaki
-   kart düzeltmesi) — karar `NULLIF`'li biçim çıkarsa **bu satır da onunla
-   birlikte güncellenir**. İlk migration yazılmadan önce Q27 beklenmeli; iki
-   biçim repoda karışık kalırsa politikalar tablodan tabloya farklı davranır.
+3. RLS: politika `id = NULLIF(current_setting('app.tenant_id', true), '')::uuid`
+   (bu tabloda `tenant_id` yerine `id`). Biçim [Q27](open-questions.md) ile
+   `NULLIF`'e karara bağlandı ve [ADR 0002](../adr/0002-tenant-baglami-ve-rls.md)
+   madde 3'te normatiftir — **çıplak cast YASAK**; iki biçim repoda karışık kalırsa
+   politikalar tablodan tabloya farklı davranır. Hem `USING` hem `WITH CHECK` yazılır.
 4. `GRANT` + indeks + dolu `-- +goose Down`.
 5. `make migrate` → `make migrate-down` → `make migrate` (üçü de temiz).
 

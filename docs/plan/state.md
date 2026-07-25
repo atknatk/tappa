@@ -12,22 +12,31 @@
 
 | | |
 |---|---|
-| **Kilometre taşı** | **M1 — [Veri katmanı](m1-veri-katmani.md)** başladı (M1-01 done) |
-| **Sıradaki görev** | **M1-02** — [Migration 0001: tenants](m1-veri-katmani.md#m1-02--migration-0001-tenants). Bağımlılıkları hazır: M1-01 (ADR 0002) ✔ · Q01 ✔ · Q27 ✔. |
+| **Kilometre taşı** | **M1 — [Veri katmanı](m1-veri-katmani.md)** (M1-01, M1-02 done) |
+| **Sıradaki görev** | **M1-03** — [Migration 0002: locations & departments](m1-veri-katmani.md#m1-03--migration-0002-locations--departments). ⚠️ **Q07 kararı gerekir** (`locations.static_ips` tipi: `inet[]` mi `cidr[]` mi) — başlamadan sorulmalı. |
 | **Çalışma modu** | Orkestrasyon + üçüncü göz — [README.md](README.md) · brief'ler [agent-brief.md](agent-brief.md) |
 | **Dal** | **`main`** — M0 (`m0-bootstrap`) `main`'e fast-forward birleştirildi (`562f021`), dal silindi. **Kullanıcı kararı (2026-07-25): artık doğrudan `main`'de çalışılır, görev başına dal açılmaz** (CLAUDE.md §10 güncellendi). Push/PR yine istemedikçe yok. |
-| **Blokeler** | **Bir bekleyen kullanıcı eylemi:** arm64 Go kurulumu (aşağı bak) — hiçbir şeyi bloklamıyor, yalnız yerel derleme hızı. |
+| **Blokeler** | **Q07** (static_ips tipi) → M1-03'ü bloklar, kullanıcıya sorulacak. **Bekleyen kullanıcı eylemi:** arm64 Go kurulumu (aşağı bak) — hiçbir şeyi bloklamıyor. |
 
-**Bir sonraki oturum ne yapmalı:** **M1-02** (Migration 0001: tenants). Kart hazır,
-bekleyen karar yok. ADR 0002 politika ifadesini normatif kıldı:
-`NULLIF(current_setting('app.tenant_id', true), '')::uuid` — M1-02 politikasını
-`id = NULLIF(...)::uuid` biçiminde bu ADR'ye referansla yazar. Araç: agent
-`tappa-db-migrator`. RLS beşlisi tam (tenant_id NOT NULL · indeks · ENABLE+FORCE ·
-USING+WITH CHECK · GRANT); `redline-check.sh` R5 tarar. `Down` gerçekten çalışmalı.
+**Bir sonraki oturum ne yapmalı:** **M1-03** (locations & departments). **Önce Q07'yi
+sor** (static_ips `inet[]` mi `cidr[]` mi — ISS /29 blok verirse aralık gerekir).
+Karar gelince: iki tablo, RLS beşlisi tam, `departments.location_id`→`locations` FK
+**aynı tenant'ta** (UNIQUE (id, tenant_id) + bileşik FK ile çapraz-tenant engellenir),
+`gps_lat/lng numeric(9,6)` (float değil), `shift_*` time + `overnight bool`,
+`departments.shift_*` nullable (lokasyonu ezer). Q25(c): sqlc.yaml'a static_ips tipi
+override'ı Q07 kararına göre eklenir (M0-04 override tablosu da güncellenir).
+
+**Migration numaralandırma:** goose `-s` (sequential), 5 haneli — `00001_...`,
+`00002_...`. Makefile `migrate-new` artık `-s` geçiyor (M1-02'de düzeltildi).
+
+**⚠️ Planlı kırmızı durum (M1-02→M1-07):** `make gen`/`make dev`/`make build` sqlc
+adımında **"no queries contained in paths"** ile patlar — sorgular M1-08'e ait
+(M1-08 ledger notu: "ilk sorgu bunları yeşile çevirir"). **`make check` bundan
+etkilenmez** (fmt+lint+test+temiz-diff; sqlc çalıştırmaz) ve CI yeşil kalır. Migration
+doğrulaması sqlc'ye değil goose+psql'e dayanır. Bu regresyon değil, plan sonucu.
 
 **M1'e girmeden önce hazır olması gerekenler** (hepsi çözüldü):
-Q01 (timezone) ✔ · Q04 (yerel Postgres) ✔ · Q27 (`NULLIF`) ✔. Kalan M1 blokajı
-yalnız **Q07** (`static_ips` tipi) → M1-03, o da M1-02'den sonra.
+Q01 (timezone) ✔ · Q04 (yerel Postgres) ✔ · Q27 (`NULLIF`) ✔.
 
 ### M1-04 / M1-05 için devralınan gereksinim (M1-01 ADR 0002'den)
 
@@ -134,7 +143,7 @@ yazılır.
 | ID | Görev | Durum | Commit / not |
 |---|---|---|---|
 | M1-01 | ADR 0002: tenant bağlamı ve RLS stratejisi | **done** | `4eb3780` · üçüncü göz **2. turda** ONAY (1. tur RED: madde 7 superuser SECURITY DEFINER çelişkisi) · Q27 (`NULLIF`) + M0-03 superuser/FORCE ölçümleri normatif · iki tutarsızlık (01-roles.sql, m0-bootstrap.md) + kart madde 7 örneği düzeltildi |
-| M1-02 | Migration 0001: tenants | todo | Q01 ✔ (`timezone`) · Q27 ✔ |
+| M1-02 | Migration 0001: tenants | **done** | `aff4ced` · üçüncü göz **1. turda** ONAY · RLS beşlisi (id-PK istisnası) canlı doğrulandı, policy birebir `NULLIF`, fail-closed/WITH CHECK/pozitif kontrol tappa_app ile geçti, Down çalışıyor, R5 mutasyonla kanıtlandı · Makefile `migrate-new` `-s` düzeltmesi · kart adım 3 NULLIF'e güncellendi |
 | M1-03 | Migration 0002: locations & departments | todo | Q01 ✔ (`locations.timezone` override) · **Q07 açık** · Q25 (c) burada |
 | M1-04 | Migration 0003: employees & sessions | todo | |
 | M1-05 | Migration 0004: tags | todo | |
@@ -249,13 +258,41 @@ yazılır.
 | M9-06 | Policy simülatörü | todo | Q22 — M6-10'dan ertelendi |
 | M9-07 | Ham JSON politika editörü | todo | Q22 — M6-09'dan ayrıldı |
 
-**Özet:** 82 görev · done 8 · wip 0 · blocked 0 · skipped 1 · todo 73 · **M0 tamam · M1 başladı (M1-01 done)**
+**Özet:** 82 görev · done 9 · wip 0 · blocked 0 · skipped 1 · todo 72 · **M0 tamam · M1: M1-01, M1-02 done**
 
 ---
 
 ## Oturum günlüğü
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
+
+### 2026-07-25 (3. oturum, devam) — **M1-02 done** (tenants migration)
+
+**M1-02 done — üçüncü göz 1. turda ONAY.** `db/migrations/00001_create_tenants.sql`:
+`tenants` tablosu + RLS beşlisi (`tenants` istisnası: scope anahtarı `id`, `tenant_id`
+değil — ADR 0002 madde 5). Policy birebir `id = NULLIF(current_setting('app.tenant_id',
+true), '')::uuid` (USING+WITH CHECK). Denetçi canlı doğruladı: fail-closed (bağlamsız→0,
+doğru bağlam→1) + WITH CHECK (yanlış-id INSERT hatası) + pozitif kontrol, hepsi
+**tappa_app** (rolsuper=f, rolbypassrls=f) ile; Down gerçekten çalışıyor (DROP TABLE
+policy+grant'ı düşürüyor); redline R5 **mutasyonla** kanıtlandı (4 sabotaj yolu da
+yakalandı). Yapıcı `tappa-db-migrator` idi, kapsam **yalnız migration** (sqlc/test
+M1-08/M1-09'a bırakıldı — sınır korundu).
+
+**Kararlar:** `vat_number NOT NULL UNIQUE` (global tekil, format app'te), `plan
+CHECK(founding|standard) DEFAULT founding` (M6-12 founding uyarısını okuyacak),
+`structure/business_type CHECK` (enum değil — goose Down temiz), `timezone` Q01.
+
+**İki keşif kapatıldı:** (1) Makefile `migrate-new` `-s` geçmiyordu → timestamp isim
+üretiyordu; `-s` eklendi, artık `00001/00002...` sequential. (2) `make gen`/`dev`/`build`
+sqlc'de "no queries" ile patlıyor — **planlı** (M1-08 ilk sorguyla yeşile döner);
+`make check` sqlc çalıştırmadığı için etkilenmiyor, CI yeşil.
+
+**settings.json:** oturumda beş izin (docker compose down · git push · git commit ·
+gh pr create · go get) ask→allow taşınmış; kullanıcı **olduğu gibi bırak** dedi,
+şeffaf chore commit'iyle kaydedildi (§10 davranışı değişmez: istemedikçe push/PR yok).
+
+**Sırada:** M1-03 (locations & departments) — **Q07 kararı gerekir** (static_ips tipi),
+başlamadan sorulacak.
 
 ### 2026-07-25 (3. oturum) — M0 `main`'e birleşti, **M1-01 done**
 
