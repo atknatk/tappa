@@ -12,22 +12,34 @@
 
 | | |
 |---|---|
-| **Kilometre taşı** | **M1 — [Veri katmanı](m1-veri-katmani.md)** (M1-01…M1-04 done) |
-| **Sıradaki görev** | **M1-05** — [Migration 0004: tags](m1-veri-katmani.md#m1-05--migration-0004-tags). Bekleyen karar yok. ADR 0002 madde 7 çözümleme mekanizmasının **tags ayağını** kurar (M1-04 sessions kalıbının aynısı — aşağıdaki devralınan blok). §4.4 (atomik ctr), §4.7 (anahtar sarmalı — `aes_key_ref`). Skill `tappa-sun`. |
+| **Kilometre taşı** | **M1 — [Veri katmanı](m1-veri-katmani.md)** (M1-01…M1-05 done) |
+| **Sıradaki görev** | **M1-06** — [Migration 0005: transactions (append-only) & audit_log & transaction_reviews](m1-veri-katmani.md#m1-06--migration-0005-transactions-append-only--audit_log). Bekleyen karar yok. **En kritik immutability görevi** (§4.3 UPDATE/DELETE yok, §4.6 kayıt kaybolmaz). DELETE tuzağı (yukarı) burada **zorunlu**: `REVOKE UPDATE, DELETE` + trigger. Bağımlılık M1-04+M1-05 ✔. |
 | **Çalışma modu** | Orkestrasyon + üçüncü göz — [README.md](README.md) · brief'ler [agent-brief.md](agent-brief.md) |
 | **Dal** | **`main`** — M0 (`m0-bootstrap`) `main`'e fast-forward birleştirildi (`562f021`), dal silindi. **Kullanıcı kararı (2026-07-25): artık doğrudan `main`'de çalışılır, görev başına dal açılmaz** (CLAUDE.md §10 güncellendi). Push/PR yine istemedikçe yok. |
 | **Blokeler** | Yok (M1-04 için bekleyen karar yok). **Bekleyen kullanıcı eylemi:** arm64 Go kurulumu (aşağı bak) — hiçbir şeyi bloklamıyor. |
 
-**Bir sonraki oturum ne yapmalı:** **M1-05** (tags). Bekleyen karar yok. ADR 0002
-madde 7 çözümleme mekanizmasının **tags ayağı** — M1-04'te sessions için kurulan
-kalıbın birebir aynısı (aşağıdaki devralınan blok): `tappa_resolver` rolü **zaten var**
-(db-init), M1-05 ona `tags`'te sütun-düzeyi SELECT verir + `resolve_tag_by_uid(...)`
-SECURITY DEFINER fonksiyonu (owner tappa_resolver, search_path sabit, PUBLIC REVOKE,
-yalnız tappa_app EXECUTE, ≤1 satır — `uid` PK). tags RLS politikası **standart NULLIF**
-(resolve dalı yok). §4.4 atomik ctr (`last_ctr` `<` karşılaştırması, UNIQUE `(tag_uid,ctr)`
-KOYMA), §4.7 `aes_key_ref` sarmalı anahtar (düz anahtar asla). **DELETE tuzağı** (aşağı):
-tags immutable değil ama silme istemiyorsak `REVOKE DELETE` gerekir (GRANT'tan çıkarmak
-yetmez — `ALTER DEFAULT PRIVILEGES` zaten veriyor).
+**Bir sonraki oturum ne yapmalı:** **M1-06** (transactions append-only + audit_log +
+transaction_reviews). **En kritik immutability görevi.** Kritik noktalar (kart):
+- **§4.3 mekanik immutability:** `REVOKE UPDATE, DELETE ON transactions FROM tappa_app`
+  (GRANT yalnız SELECT+INSERT) **+ ayrıca** `BEFORE UPDATE OR DELETE` trigger `RAISE
+  EXCEPTION` (tappa_owner yolunu da kapatır — kuşak+kemer). audit_log ve
+  transaction_reviews de append-only aynı kalıpla. **DELETE tuzağı** (aşağı) burada zorunlu.
+- **§4.6 kayıt kaybolmaz:** `employee_id`, `location_id`, `department_id` **NULLABLE**
+  olmak zorunda — §5 satır 1-2 (etiket lost / SUN geçersiz) satır 3'ten (oturum yok) önce
+  gelir; çerezsiz biri çalınmış plakete dokununca `employee_id`'siz `reject` kaydı yazılmalı.
+  Hangi verdict'te hangi alanların null olabileceği CHECK ile sabitlenir.
+- **`(tag_uid, ctr)` üzerine UNIQUE KOYMA** (reddedilen replay de aynı çifti taşır → kayıt kaybı).
+- `transaction_reviews` **üç kısıtla** doğar: `UNIQUE(transaction_id)`; `transaction_id`
+  yalnız `verdict='flag'` kayda; `reviewer_id <> transactions.employee_id` (kendini onaylama
+  yasak, `sys:no-self-review`). Append-only + RLS beşlisi tam.
+- İndeksler: `(tenant_id, occurred_at DESC)`, `(tenant_id, employee_id, occurred_at DESC)`.
+  `source_ip inet`, `trust smallint`, `occurred_at` (§5 `sys:occurred-at-bound` guardrail'i
+  ileride) ≠ `created_at`. Bağımlılık M1-04 (employees) + M1-05 (tags) ✔.
+
+**M1-08/M1-10'a devredilen (M1-05 denetiminden):** `aes_key_ref`'in gerçekten KEK-sarmalı
+olduğu şema düzeyinde zorlanamaz (bytea) → insert-yolu (M1-08) ve seed (M1-10) bunu ayrıca
+doğrulamalı; KEK'in DB dışında (config `TAPPA_TAG_KEK`) tutulması çözümleme güvenliğinin ön
+şartı (M8 deploy denetimi).
 
 **M1-03'ten devralınan iki not (bloklamayan, yapıcının eklediği ekstra kısıtlar):**
 - **M4-05:** `locations.shift_*` nullable → geç kalma hesabı null vardiyayı "hesaplanmaz"
@@ -170,7 +182,7 @@ yazılır.
 | M1-02 | Migration 0001: tenants | **done** | `aff4ced` · üçüncü göz **1. turda** ONAY · RLS beşlisi (id-PK istisnası) canlı doğrulandı, policy birebir `NULLIF`, fail-closed/WITH CHECK/pozitif kontrol tappa_app ile geçti, Down çalışıyor, R5 mutasyonla kanıtlandı · Makefile `migrate-new` `-s` düzeltmesi · kart adım 3 NULLIF'e güncellendi |
 | M1-03 | Migration 0002: locations & departments | **done** | `3d66b17` · üçüncü göz **1. turda** ONAY · RLS beşlisi (iki tablo) + çapraz-tenant bileşik FK + `cidr[]` (Q07) + `numeric(9,6)` + Down + R5 mutasyonla kanıtlandı · 2 bloklamayan kısıt notu (→ M4-05/M1-10) · Q25(c) sqlc override M1-08'e ertelendi |
 | M1-04 | Migration 0003: employees & sessions | **done** | `2c42c67` (+ db-init resolver rölü) · **iki denetçi ONAY** (üçüncü göz + tappa-security-auditor, kırmızı çizgi ihlali yok) · ADR 0002 madde 7 çözümleme mekanizması: `tappa_resolver` (BYPASSRLS) + `resolve_session_by_token_hash` SECURITY DEFINER (owner non-superuser, search_path sabit, PUBLIC REVOKE, kolon-SELECT) — enumerate/search_path/PUBLIC/injection saldırılarına dayandı · **GUC-anahtar alternatifi denetimde reddedildi** (ADR'ye kaydedildi) · sessions/employees DELETE `REVOKE` edildi (default-privilege tuzağı) · ADR 0002 + M1-04 kartı güncellendi |
-| M1-05 | Migration 0004: tags | todo | |
+| M1-05 | Migration 0004: tags | **done** | `a1bcdc4` · **iki denetçi ONAY** (üçüncü göz + tappa-security-auditor, kırmızı çizgi ihlali yok) · `resolve_tag_by_uid` çözümleme fonksiyonu (M1-04 kalıbı; enumerate/pg_temp-poison/PUBLIC/injection saldırılarına dayandı) · uid `char(14)` hex CHECK · `aes_key_ref bytea` sarmalı · **`UNIQUE(uid,ctr)` YOK** (§4.4) · DELETE REVOKE · replaced_by same-tenant self-FK · aes_key_ref-sarmalı doğrulaması M1-08/M1-10'a devredildi |
 | M1-06 | Migration 0005: transactions (append-only) & audit_log | todo | |
 | M1-07 | internal/db: havuz ve tenant kapsamlı transaction | todo | Q27 telafisi: sarmalayıcı `SET LOCAL`'i kendi kurar, bağlamsız sorgu **API olarak imkânsız** |
 | M1-08 | İlk sqlc sorguları | todo | ilk sorgu `make gen`/`make dev`/`make build`'i yeşile çevirir |
@@ -282,13 +294,38 @@ yazılır.
 | M9-06 | Policy simülatörü | todo | Q22 — M6-10'dan ertelendi |
 | M9-07 | Ham JSON politika editörü | todo | Q22 — M6-09'dan ayrıldı |
 
-**Özet:** 82 görev · done 11 · wip 0 · blocked 0 · skipped 1 · todo 70 · **M0 tamam · M1: M1-01…M1-04 done**
+**Özet:** 82 görev · done 12 · wip 0 · blocked 0 · skipped 1 · todo 69 · **M0 tamam · M1: M1-01…M1-05 done**
 
 ---
 
 ## Oturum günlüğü
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
+
+### 2026-07-25 (3. oturum, devam) — **M1-05 done** (tags)
+
+**M1-05 done — iki denetçi ONAY** (üçüncü göz + tappa-security-auditor, kırmızı çizgi
+görevi). `00004_create_tags.sql` (`a1bcdc4`): tags + RLS beşlisi (standart NULLIF) +
+`resolve_tag_by_uid` çözümleme fonksiyonu (M1-04 kalıbı — owner tappa_resolver superuser
+değil, search_path sabit, PUBLIC REVOKE, kolon-SELECT, ≤1 satır uid PK). uid `char(14)`
+hex CHECK, `aes_key_ref bytea` sarmalı, `last_ctr` yalnız durum, **`UNIQUE(uid,ctr)` YOK**
+(§4.4 — reddedilen replay de kaydedilebilmeli), DELETE açık REVOKE.
+
+**Adversarial denetim (tags):** enumerate, **pg_temp poisoning** (sahte TEMP tags →
+fonksiyon gerçek public.tags döndürdü), `public.tags_evil` yaratma (denied), SET ROLE
+(denied), uid injection — hepsi başarısız. **aes_key_ref maruziyeti kabul edilebilir +
+mimari zorunlu** (SUN/CMAC tenant bağlamından önce anahtarı ister; sarmalı ref KEK olmadan
+atıl, uid public, EXECUTE yalnız tappa_app).
+
+**İki gerekçeli sapma (denetçi sound buldu):** replaced_by same-tenant composite self-FK
+(+ UNIQUE(uid,tenant_id); çapraz-tenant pointer'ı yapısal engeller) · replaced_by redundant
+hex CHECK (zararsız). İkisi de güvenliği artırıyor.
+
+**İleriye devredildi (M1-08/M1-10):** aes_key_ref-sarmalı doğrulaması şema düzeyinde
+zorlanamaz → insert-yolu + seed ayrıca doğrulamalı (yukarı "ŞU AN").
+
+**Sırada:** M1-06 (transactions immutable + audit_log + transaction_reviews) — en kritik
+immutability görevi.
 
 ### 2026-07-25 (3. oturum, devam) — **M1-04 done** (employees, sessions, tenant çözümleme)
 
