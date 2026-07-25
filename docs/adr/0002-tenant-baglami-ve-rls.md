@@ -3,6 +3,38 @@
 - **Durum:** kabul edildi
 - **Tarih:** 2026-07-25
 
+> **ADR güncellemesi (2026-07-25, M1-04 uygulaması sırasında).** Bağımsız bir
+> tasarım denetçisi madde 7'nin reddettiği "GUC-anahtar saf-RLS" alternatifini
+> canlı Postgres'te sınadı. **Kararın kendisi (çevrelenmiş bypass) DEĞİŞMEDİ ve
+> doğrulandı** — düzeltilen yalnızca madde 7'nin bir gerekçesidir. İki bulgu
+> normatiftir:
+>
+> 1. **Madde 7'nin "saf RLS bunu ifade edemez / bypass kaçınılmaz" önermesi
+>    teknik olarak YANLIŞTI ve geri çekildi.** Bir resolve-GUC'a
+>    (`app.resolve_token` gibi) anahtarlanmış RLS dalı çözümlemenin mutlu-yolunu
+>    **bypass'sız** ifade eder: `tappa_app` tam RLS'e tabidir, dönüş tek anahtarla
+>    sınırlıdır, genel bypass yoktur. Madde 7'nin "bağlamı bilinmeyen satırı
+>    okumanın üç yolu, üçü de bypass içerir" listesi bu dördüncü yolu atladığı için
+>    eksikti.
+> 2. **Ama alternatif yine de REDDEDİLDİ, çünkü çevrelemesi disipline dayanır,
+>    YAPIYA değil.** İki tek-nokta hatası canlıda çapraz-tenant ihlal üretti:
+>    (a) **okuma:** resolve-GUC `SET LOCAL`'sız kurulursa havuz bağlantısında
+>    kalır; toplamsal OR-dalı o bağlantıdaki *her* meşru tenant sorgusuna bir
+>    çapraz-tenant satır ekler; `NULLIF` fail-closed bunu **yakalayamaz** ve
+>    `WithTenant` `app.tenant_id`'yi ezse de resolve-GUC'a dokunmaz. (b) **yazma:**
+>    `FOR ALL USING(...)` kısayolu `WITH CHECK`'i varsayılan olarak `USING`'den
+>    **kopyalar** → çapraz-tenant `INSERT` forge edilebilir. İkisi de yalnızca
+>    **dikkatle** önlenebilir; §4.5 "tek bir hata sızıntıya dönmemeli" **yapısal**
+>    çevreleme ister.
+>
+> **Sonuç — mekanizma artık somut:** çözümleme, M1-04'te uygulanan `tappa_resolver`
+> (NOLOGIN, BYPASSRLS, NOSUPERUSER, default privilege YOK, yalnız `sessions`/`tags`
+> tablolarına **sütun-düzeyi** `SELECT`) sahipli bir `SECURITY DEFINER` fonksiyondan
+> geçer (`resolve_session_by_token_hash`; anahtar parametreli, ≤1 satır,
+> `search_path` sabit `pg_catalog, pg_temp` + tablo `public.`-nitelenmiş, `EXECUTE`
+> yalnız `tappa_app`'e, PUBLIC'ten `REVOKE`). Çevreleme artık disipline değil
+> **yapıya** dayanır.
+
 ## Bağlam
 
 Tappa çok kiracılı (multi-tenant) bir SaaS: iki design partner (Kebab Factory —
@@ -93,19 +125,27 @@ testlidir:
 - **`tappa_app` rolüyle, `tenant_id` filtresi olmadan.** Arama küresel olarak
   tekil bir anahtara dayanır (`tags.uid` birincil anahtar; `sessions.token_hash`
   UNIQUE), dolayısıyla tenant bilinmeden de en çok **bir** satır döner.
-- **Saf RLS bunu tek başına ifade edemez — çevrelenmiş (bounded) bir bypass
-  yüzeyi gerekir.** Teknik gerçek: RLS `USING`/`WITH CHECK` **satır bazlı bir
-  boolean**'dır ve sorgunun `WHERE` yüklemini **göremez**; dolayısıyla "yalnız
-  `WHERE uid=` / `WHERE token_hash=` aramalarına izin ver ama `SELECT *`'a izin
-  verme" bir RLS politikasıyla **yazılamaz** (kartın "ör. sütun bazında kısıtlı
-  politika" ifadesi bu yüzden birebir bir RLS politikası olarak uygulanamaz).
-  Bağlamı bilinmeyen bir satırı Postgres'te okumanın üç yolu vardır ve **üçü de
-  bir bypass içerir**: (a) RLS'i atlayan bir rol (superuser / `BYPASSRLS` /
-  `FORCE`'suz sahip) — ayrıcalık düzeyinde **genel** bypass; (b) böyle bir role
-  ait bir `SECURITY DEFINER` fonksiyon — bypass'ı kontrollü bir arayüzün *içine*
-  taşır; (c) "bağlam `NULL` iken tüm satırlar" RLS dalı — bu ADR'nin zaten
-  yasakladığı naif genel bypass. Yani çözümleme **kaçınılmaz olarak** sınırlı bir
-  RLS-bypass yüzeyi ister; karar onu yok etmek değil, **çevrelemektir**.
+- **Neden saf RLS değil — gerekçe "ifade edilemezlik" DEĞİL, YAPISAL çevrelemedir.**
+  *(Bu maddenin önceki hâli — "saf RLS bunu tek başına ifade edemez, bypass
+  kaçınılmazdır" — canlı Postgres sondasıyla çürütüldü ve düzeltildi; bkz. baştaki
+  ADR güncellemesi ve Değerlendirilen alternatifler.)* Bir resolve-GUC'a
+  anahtarlanmış RLS dalı çözümlemenin mutlu-yolunu **bypass'sız** ifade edebilir:
+  `tappa_app` tam RLS'e tabi kalır, dönüş tek anahtarla sınırlıdır, genel bypass
+  yoktur. Dolayısıyla çözümleme bir bypass'ı **kaçınılmaz kılmaz.** Alternatif yine
+  de reddedildi çünkü çevrelemesi **disipline** dayanır, yapıya değil: (a) `SET
+  LOCAL` unutulan tek bir kod yolunda resolve-GUC havuz bağlantısında **kalır** ve
+  toplamsal OR-dalı o bağlantıdaki *her* meşru sorguya çapraz-tenant satır ekler
+  (`NULLIF` fail-closed bunu yakalayamaz; `WithTenant` `app.tenant_id`'yi ezse de
+  resolve-GUC'a dokunmaz); (b) `FOR ALL USING(...)` kısayolu `WITH CHECK`'i
+  sessizce `USING`'den kopyalayıp çapraz-tenant `INSERT` forge'una izin verir. §4.5
+  "tek bir hatanın sızıntıya dönmemesi"ni ister; bu yüzden çevreleme **yapıya**
+  dayanmalı. Seçilen yapıda: bağlamı bilinmeyen bir satırı §6 FORCE altında okumak
+  zaten bir `BYPASSRLS` gerektirir (RLS `USING`/`WITH CHECK` satır bazlı bir
+  **boolean**'dır ve sorgunun `WHERE`'ini göremez; "yalnız anahtar aramasına izin
+  ver, `SELECT *`'a verme" sınırı RLS'in kendisiyle değil aşağıdaki dar arayüzle
+  konur). Karar bu bypass'ı **yok etmek değil, çevrelemektir** — en-az-ayrıcalıklı
+  bir role ve tek bir `SECURITY DEFINER` fonksiyona; genel bir bypass (superuser /
+  geniş `BYPASSRLS` / naif "bağlam `NULL` iken tüm satırlar" dalı) açmadan.
 - **Güvenlik RLS'ten değil ARAYÜZDEN gelir.** Bağlam yokken çapraz-tenant okuma
   yalnızca dar, anahtar odaklı bir arayüzün ardında yapılır ve şu özellikleri
   **normatif** olarak taşır: (i) girdi yalnız **anahtar**dır (`uid` /
@@ -269,4 +309,5 @@ biçim ayrı bir vaka olarak durabilir ama izolasyon kanıtı **sayılmaz**
 | **Çıplak cast** `current_setting('app.tenant_id', true)::uuid` | Fail-closed ama **belirsiz**: GUC'a ilk yazmadan sonra bağlamsız sorgu `0 satır` değil `ERROR` verir (Q27 tablosu). Davranış bağlantı geçmişine bağlı; taze bağlantıya yazılmış test geçer, üretim patlar. `NULLIF` determinizm için seçildi. Çıplağın tek üstünlüğü (gürültülü patlama) M1-07 `WithTenant` ile telafi edildi. |
 | **`tappa_app`'e `BYPASSRLS`** (çözümlemeyi kolaylaştırmak için) | Tüm izolasyonu tek satırda iptal eder; Karar madde 6/7 bunu açıkça yasaklar. Çözümleme dar, anahtar-kısıtlı istisnayla halledilir. |
 | **Superuser `tappa_owner`'a ait `SECURITY DEFINER` çözümleme fonksiyonu** | `SECURITY DEFINER` gövdesi sahibinin yetkisiyle koşar; sahip superuser olduğu için gövde RLS'i **tümüyle** atlar → tüm veritabanını kapsayan genel bir bypass, patlama yarıçapı sınırsız. Tek satır dönmesi bir *gövde özelliği*dir, ayrıcalık modelinin yapısal garantisi değil. Çözümleme, en-az-ayrıcalıklı (yalnız iki tabloya erişen) bir arayüzün ardında yapılır (Karar madde 7). |
+| **GUC-anahtar saf-RLS** (`app.resolve_token` GUC'una anahtarlanmış, toplamsal bir RLS dalı; **bypass yok**) | Mutlu-yolu **bypass'sız** ifade eder ve "saf RLS bunu ifade edemez" iddiasını çürütür (canlıda doğrulandı: `tappa_app` tam RLS'e tabi, dönüş tek anahtarla sınırlı). Reddedilme sebebi ifade gücü değil, çevrelemenin **yapısal olmaması**: iki tek-nokta hatası canlıda çapraz-tenant ihlali üretti — (1) **okuma:** `SET LOCAL`'sız kurulan resolve-GUC havuz bağlantısında kalır, OR-dalı o bağlantıdaki her meşru sorguya bir çapraz-tenant satır sızdırır (`NULLIF` fail-closed yakalayamaz, `WithTenant` resolve-GUC'a dokunmaz); (2) **yazma:** `FOR ALL USING(...)` kısayolu `WITH CHECK`'i varsayılan olarak `USING`'den kopyalar → çapraz-tenant `INSERT` forge. İkisi de yalnız **disiplinle** engellenir; §4.5 yapısal çevreleme ister. Bu yüzden en-az-ayrıcalıklı `tappa_resolver` + anahtar-kısıtlı `SECURITY DEFINER` fonksiyon seçildi (Karar madde 7). |
 | **RLS testini `tappa_owner` ile koşmak** (tek havuz) | `tappa_owner` superuser'dır ve RLS'i koşulsuz atlar (M0-03 tablosu); testin negatif vakaları gürültülü patlar. İzolasyon `tappa_app` ile ölçülmek **zorundadır**. |

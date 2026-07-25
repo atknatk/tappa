@@ -237,12 +237,53 @@ last_used_at, revoked_at)`
 - Hiçbir alan biyometrik veri taşımıyor; `device_info` yalnız kaba cihaz etiketi
   (model/tarayıcı), parmak izi/kimlik değil.
 - Silme yok: iptal `revoked_at` damgasıdır.
+- **Tenant çözümleme mekanizması kurulur ([ADR 0002 madde 7](../adr/0002-tenant-baglami-ve-rls.md)).**
+  `sessions` politikası STANDART `NULLIF`'tir — resolve OR-dalı **yok**. Bağlamsız
+  çözümleme, `tappa_resolver` (db-init'te: NOLOGIN, BYPASSRLS, NOSUPERUSER, default
+  privilege yok) sahipli bir `SECURITY DEFINER` fonksiyondan geçer:
+  `resolve_session_by_token_hash(text)` — anahtar parametreli, sabit sütun listesi
+  (≤1 satır, `SELECT *` yüzeyi yok), `search_path = pg_catalog, pg_temp` + tablo
+  `public.`-nitelenmiş (search_path injection'a karşı), `REVOKE ALL … FROM PUBLIC`,
+  `GRANT EXECUTE … TO tappa_app`. `tappa_resolver`'a yalnız gerekli `sessions`
+  sütunlarında `SELECT` GRANT'i verilir (blast radius). Fonksiyon `revoked_at`'i
+  döndürür ama **filtrelemez** (iptal kararı domain'de, §5). Fonksiyon sahibi
+  **asla** superuser/`tappa_owner` olmaz.
 
 **Tuzaklar.**
 - `device_info`'yu tarayıcı fingerprint'ine dönüştürme — §4.1'in ruhuna aykırı ve
   denetimde bulgu olur.
 - `email` `citext` olsun (uzantı zaten yüklü); büyük/küçük harf farkıyla ikinci
   davet gönderilmesin.
+- **`SECURITY DEFINER` + sabit `search_path` iken tabloyu şema-nitelemeyi unutma.**
+  `search_path = pg_catalog, pg_temp`, `public`'i yola koymaz; `FROM sessions` o
+  hâlde tabloyu bulamaz. Gövde `FROM public.sessions` yazar. `search_path`'i
+  sabitlememek ise injection açığıdır — ikisi birlikte gider.
+- **Fonksiyonlar varsayılan olarak PUBLIC EXECUTE alır.** `REVOKE ALL … FROM
+  PUBLIC` atlanırsa her rol çözümleyebilir; `GRANT EXECUTE`'tan önce mutlaka REVOKE.
+- **`employees`/`sessions` bileşik same-tenant FK'si `departments`'ta
+  `UNIQUE (id, tenant_id)` ister.** M1-03 bunu yalnız `locations`'a koydu;
+  `employees.department_id` FK'si için `departments`'a da eklenmeli (yeni
+  migration, 00002 değiştirilmez).
+- **`sessions`/`employees`'a DELETE verilmez — ama GRANT'tan çıkarmak YETMEZ.**
+  `sessions` (iptal = `revoked_at`) ve `employees` (deaktivasyon =
+  `deactivated_at`/status) silme kabul etmez. Ancak db-init'teki
+  `ALTER DEFAULT PRIVILEGES` her yeni tabloda `tappa_app`'e DELETE dahil dört
+  yetkiyi otomatik verir; DELETE'i açık GRANT'tan çıkarmak onu geri almaz. Açıkça
+  `REVOKE DELETE ON <tablo> FROM tappa_app` gerekir (M1-06 `transactions` kalıbı).
+  UPDATE korunur — `revoked_at`/`deactivated_at` damgası UPDATE'tir.
+
+> **Kart eklemesi (2026-07-25, M1-04).** Bu kart yalnız `token_hash` + RLS
+> diyordu; **tenant çözümleme mekanizmasından** söz etmiyordu — o gereksinim
+> karttan sonra [ADR 0002 madde 7](../adr/0002-tenant-baglami-ve-rls.md) ile geldi.
+> Kabul kriterlerine, `sessions`'ın bağlamsız çözümleme yolunu **yapısal** olarak
+> çevreleyen mekanizma eklendi: `tappa_resolver` (NOLOGIN, BYPASSRLS, default
+> privilege yok, yalnız `sessions`/`tags`'e sütun-düzeyi `SELECT`) sahipli,
+> anahtar-parametreli, `search_path`'i sabit, PUBLIC'ten REVOKE'lu bir `SECURITY
+> DEFINER` fonksiyon (`resolve_session_by_token_hash`). `sessions` politikası
+> STANDART `NULLIF`; resolve OR-dalı **yok** (GUC-anahtar saf-RLS o dal yüzünden
+> reddedildi — ADR 0002 "Değerlendirilen alternatifler"). Karar madde 7'nin
+> gerekçesi de bu uygulama sırasında düzeltildi (bkz. ADR baştaki güncelleme
+> bloğu); değişen yalnız gerekçe, karar değil.
 
 ---
 

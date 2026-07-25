@@ -12,18 +12,22 @@
 
 | | |
 |---|---|
-| **Kilometre taşı** | **M1 — [Veri katmanı](m1-veri-katmani.md)** (M1-01, M1-02, M1-03 done) |
-| **Sıradaki görev** | **M1-04** — [Migration 0003: employees & sessions](m1-veri-katmani.md#m1-04--migration-0003-employees--sessions). Bekleyen karar yok, **ama** ADR 0002 madde 7 çözümleme mekanizması (sessions için) brief'e girmeli — aşağıdaki "M1-04/M1-05 devralınan gereksinim" bloğu. §4.1 (biyometri yok), §4.7 (token değil hash). |
+| **Kilometre taşı** | **M1 — [Veri katmanı](m1-veri-katmani.md)** (M1-01…M1-04 done) |
+| **Sıradaki görev** | **M1-05** — [Migration 0004: tags](m1-veri-katmani.md#m1-05--migration-0004-tags). Bekleyen karar yok. ADR 0002 madde 7 çözümleme mekanizmasının **tags ayağını** kurar (M1-04 sessions kalıbının aynısı — aşağıdaki devralınan blok). §4.4 (atomik ctr), §4.7 (anahtar sarmalı — `aes_key_ref`). Skill `tappa-sun`. |
 | **Çalışma modu** | Orkestrasyon + üçüncü göz — [README.md](README.md) · brief'ler [agent-brief.md](agent-brief.md) |
 | **Dal** | **`main`** — M0 (`m0-bootstrap`) `main`'e fast-forward birleştirildi (`562f021`), dal silindi. **Kullanıcı kararı (2026-07-25): artık doğrudan `main`'de çalışılır, görev başına dal açılmaz** (CLAUDE.md §10 güncellendi). Push/PR yine istemedikçe yok. |
 | **Blokeler** | Yok (M1-04 için bekleyen karar yok). **Bekleyen kullanıcı eylemi:** arm64 Go kurulumu (aşağı bak) — hiçbir şeyi bloklamıyor. |
 
-**Bir sonraki oturum ne yapmalı:** **M1-04** (employees & sessions). Bekleyen karar
-yok. **Kritik:** `sessions` tablosu ADR 0002 madde 7 çözümleme yolunu destekler —
-brief'e "M1-04/M1-05 devralınan gereksinim" bloğu (aşağıda) **girmeli**; RLS politikası
-naif "bağlam NULL iken satır göster" dalı içermez. §4.1 biyometri yok (`device_info`
-yalnız kaba cihaz etiketi), §4.7 `token_hash` saklanır token asla, `token_hash` UNIQUE,
-silme yok (`revoked_at`), `email citext`.
+**Bir sonraki oturum ne yapmalı:** **M1-05** (tags). Bekleyen karar yok. ADR 0002
+madde 7 çözümleme mekanizmasının **tags ayağı** — M1-04'te sessions için kurulan
+kalıbın birebir aynısı (aşağıdaki devralınan blok): `tappa_resolver` rolü **zaten var**
+(db-init), M1-05 ona `tags`'te sütun-düzeyi SELECT verir + `resolve_tag_by_uid(...)`
+SECURITY DEFINER fonksiyonu (owner tappa_resolver, search_path sabit, PUBLIC REVOKE,
+yalnız tappa_app EXECUTE, ≤1 satır — `uid` PK). tags RLS politikası **standart NULLIF**
+(resolve dalı yok). §4.4 atomik ctr (`last_ctr` `<` karşılaştırması, UNIQUE `(tag_uid,ctr)`
+KOYMA), §4.7 `aes_key_ref` sarmalı anahtar (düz anahtar asla). **DELETE tuzağı** (aşağı):
+tags immutable değil ama silme istemiyorsak `REVOKE DELETE` gerekir (GRANT'tan çıkarmak
+yetmez — `ALTER DEFAULT PRIVILEGES` zaten veriyor).
 
 **M1-03'ten devralınan iki not (bloklamayan, yapıcının eklediği ekstra kısıtlar):**
 - **M4-05:** `locations.shift_*` nullable → geç kalma hesabı null vardiyayı "hesaplanmaz"
@@ -45,19 +49,32 @@ doğrulaması sqlc'ye değil goose+psql'e dayanır. Bu regresyon değil, plan so
 **M1'e girmeden önce hazır olması gerekenler** (hepsi çözüldü):
 Q01 (timezone) ✔ · Q04 (yerel Postgres) ✔ · Q27 (`NULLIF`) ✔.
 
-### M1-04 / M1-05 için devralınan gereksinim (M1-01 ADR 0002'den)
+### M1-05 için devralınan gereksinim (ADR 0002 madde 7 — M1-04'te kurulan kalıp)
 
-Tenant çözümleme yolu (`GetTagByUID`, `GetEmployeeBySessionHash`) ADR 0002 madde
-7'de **çevrelenmiş (bounded) bypass yüzeyi** olarak normatif tanımlandı; M1-04
-(sessions) ve M1-05 (tags) migration'ları bunu **birebir** uygulamalı — brief'e
-girmesi zorunlu:
-- Güvenlik RLS'ten değil **arayüzden** gelir: beş kısıt (girdi yalnız anahtar ·
-  en çok 1 satır · `SELECT *` yüzeyi yok · `tappa_app` yalnız `EXECUTE` · naif
-  "bağlam NULL iken satır göster" RLS dalı **yasak**).
-- **§6 FORCE altında salt-`SELECT` yetersiz** (RLS'e tabi rol 0 satır görür);
-  definer'ın bypass'ı **yalnız `BYPASSRLS`** olabilir (superuser ve FORCE'suz-sahip
-  yasak), yalnız bu iki tabloya GRANT'lı, en-az-ayrıcalıklı. Patlama yarıçapı iki
-  tablo. Sınırı M1-09'da test edilir.
+Çözümleme yolu **çevrelenmiş (bounded) bypass** olarak M1-04'te sessions için
+kuruldu ve iki denetçi (üçüncü göz + tappa-security-auditor) tarafından ampirik
+onaylandı. **M1-05 tags ayağını AYNI kalıpla kurar:**
+- `tappa_resolver` rolü **zaten var** (db-init: NOLOGIN, BYPASSRLS, NOSUPERUSER,
+  default privilege YOK). M1-05 ona **`tags`'te sütun-düzeyi SELECT** verir (yalnız
+  çözümleme için gerekenler) + `resolve_tag_by_uid(...)` SECURITY DEFINER fonksiyonu:
+  **owner tappa_resolver** (superuser DEĞİL), **`SET search_path=pg_catalog, pg_temp`**,
+  gövde `public.tags` nitelenmiş, **`REVOKE ALL ... FROM PUBLIC` + yalnız tappa_app'e
+  EXECUTE**, `uid` PK → ≤1 satır. Fonksiyon ihtiyaçtan fazla sütun döndürmesin.
+- tags RLS politikası **standart NULLIF** — resolve OR-dalı **YOK** (GUC-anahtar saf-RLS
+  alternatifi denetimde reddedildi: SET LOCAL'siz GUC havuzda kalıp toplamsal OR ile
+  çapraz-tenant sızdırıyor + `FOR ALL USING` WITH CHECK'i kopyalıyor; ADR 0002 madde 7
+  ve "Değerlendirilen alternatifler"e kaydedildi).
+- Güvenlik RLS'ten değil **arayüzden**: beş kısıt (anahtar girdi · ≤1 satır · SELECT*
+  yüzeyi yok · yalnız EXECUTE · naif "NULL iken satır" dalı yasak). Sınırı M1-09'da test.
+
+### DELETE tuzağı — M1-05, M1-06 ve immutability isteyen her tablo (M1-04'te bulundu)
+
+`ALTER DEFAULT PRIVILEGES FOR ROLE tappa_owner ... GRANT ... DELETE ... TO tappa_app`
+(db-init) **her yeni tabloda** tappa_app'e DELETE'i otomatik verir. Bir tablodan silmeyi
+engellemek için GRANT'tan DELETE'i çıkarmak **YETMEZ** (GRANT yalnız ekler) — açık
+**`REVOKE DELETE ON <tablo> FROM tappa_app;`** gerekir (M1-04 sessions/employees böyle
+yaptı). **M1-06 `transactions`/`audit_log` için bu ZORUNLU** (§4.3 immutable: `REVOKE
+UPDATE, DELETE` + trigger). Ampirik doğrulandı: REVOKE'suz DELETE başarıyla koşuyordu.
 
 ### ⏳ Bekleyen kullanıcı eylemi — arm64 Go kurulumu
 
@@ -152,7 +169,7 @@ yazılır.
 | M1-01 | ADR 0002: tenant bağlamı ve RLS stratejisi | **done** | `4eb3780` · üçüncü göz **2. turda** ONAY (1. tur RED: madde 7 superuser SECURITY DEFINER çelişkisi) · Q27 (`NULLIF`) + M0-03 superuser/FORCE ölçümleri normatif · iki tutarsızlık (01-roles.sql, m0-bootstrap.md) + kart madde 7 örneği düzeltildi |
 | M1-02 | Migration 0001: tenants | **done** | `aff4ced` · üçüncü göz **1. turda** ONAY · RLS beşlisi (id-PK istisnası) canlı doğrulandı, policy birebir `NULLIF`, fail-closed/WITH CHECK/pozitif kontrol tappa_app ile geçti, Down çalışıyor, R5 mutasyonla kanıtlandı · Makefile `migrate-new` `-s` düzeltmesi · kart adım 3 NULLIF'e güncellendi |
 | M1-03 | Migration 0002: locations & departments | **done** | `3d66b17` · üçüncü göz **1. turda** ONAY · RLS beşlisi (iki tablo) + çapraz-tenant bileşik FK + `cidr[]` (Q07) + `numeric(9,6)` + Down + R5 mutasyonla kanıtlandı · 2 bloklamayan kısıt notu (→ M4-05/M1-10) · Q25(c) sqlc override M1-08'e ertelendi |
-| M1-04 | Migration 0003: employees & sessions | todo | |
+| M1-04 | Migration 0003: employees & sessions | **done** | `2c42c67` (+ db-init resolver rölü) · **iki denetçi ONAY** (üçüncü göz + tappa-security-auditor, kırmızı çizgi ihlali yok) · ADR 0002 madde 7 çözümleme mekanizması: `tappa_resolver` (BYPASSRLS) + `resolve_session_by_token_hash` SECURITY DEFINER (owner non-superuser, search_path sabit, PUBLIC REVOKE, kolon-SELECT) — enumerate/search_path/PUBLIC/injection saldırılarına dayandı · **GUC-anahtar alternatifi denetimde reddedildi** (ADR'ye kaydedildi) · sessions/employees DELETE `REVOKE` edildi (default-privilege tuzağı) · ADR 0002 + M1-04 kartı güncellendi |
 | M1-05 | Migration 0004: tags | todo | |
 | M1-06 | Migration 0005: transactions (append-only) & audit_log | todo | |
 | M1-07 | internal/db: havuz ve tenant kapsamlı transaction | todo | Q27 telafisi: sarmalayıcı `SET LOCAL`'i kendi kurar, bağlamsız sorgu **API olarak imkânsız** |
@@ -265,13 +282,49 @@ yazılır.
 | M9-06 | Policy simülatörü | todo | Q22 — M6-10'dan ertelendi |
 | M9-07 | Ham JSON politika editörü | todo | Q22 — M6-09'dan ayrıldı |
 
-**Özet:** 82 görev · done 10 · wip 0 · blocked 0 · skipped 1 · todo 71 · **M0 tamam · M1: M1-01, M1-02, M1-03 done**
+**Özet:** 82 görev · done 11 · wip 0 · blocked 0 · skipped 1 · todo 70 · **M0 tamam · M1: M1-01…M1-04 done**
 
 ---
 
 ## Oturum günlüğü
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
+
+### 2026-07-25 (3. oturum, devam) — **M1-04 done** (employees, sessions, tenant çözümleme)
+
+**M1-04 done — iki denetçi ONAY** (üçüncü göz + tappa-security-auditor, kırmızı çizgi
+görevi olduğu için kuşak+kemer). `00003_create_employees_sessions.sql`: employees +
+sessions, RLS beşlisi (standart NULLIF), biyometri yok, `token_hash` UNIQUE (token asla),
+composite same-tenant FK. Commit `2c42c67`.
+
+**En kritik parça — tenant çözümleme mekanizması (ADR 0002 madde 7).** "Kimlik doğrulama
+yolundaki tek delik". Kararı GUC-anahtar mı yoksa ADR'nin SECURITY DEFINER'ı mı diye
+**kullanıcıya sordum → "önce denetle"**. Bir tasarım denetçisi GUC-anahtar saf-RLS
+alternatifini canlı Postgres'te **iki tek-nokta hatasıyla kırdı** (SET LOCAL'siz resolve
+GUC → toplamsal OR çapraz-tenant READ sızıntısı, NULLIF yakalamıyor; `FOR ALL USING`
+WITH CHECK'i kopyalıyor → WRITE forge). Çevreleme **yapısal değil, disipline bağlıydı** →
+**reddedildi**. ADR'nin kararı doğruymuş; gerekçesi ("saf RLS ifade edemez") yanlıştı →
+madde 7 düzeltildi + GUC-anahtar reddedilen alternatif olarak kaydedildi.
+
+**Kurulan yapısal mekanizma:** `tappa_resolver` rolü (db-init: NOLOGIN, BYPASSRLS,
+NOSUPERUSER, default privilege YOK) + `resolve_session_by_token_hash` SECURITY DEFINER
+(owner tappa_resolver **superuser değil**, `search_path=pg_catalog,pg_temp` sabit + gövde
+`public.sessions` nitelenmiş, `REVOKE ALL FROM PUBLIC` + yalnız tappa_app EXECUTE, kolon-
+düzeyi SELECT, ≤1 satır UNIQUE). Denetçiler **enumerate · search_path injection (gerçek
+pg_temp.sessions kurdu) · PUBLIC EXECUTE · SET ROLE · param injection** saldırılarını
+denedi, hepsi başarısız. tappa_app fonksiyon olmadan çapraz-tenant session okuyamıyor.
+
+**db-init rölü + re-init:** kullanıcı "db-init'e ekle + re-init" seçti. `docker compose
+down -v` reddedildi + Docker daemon internet kesintisinde düşmüştü → daemon'ı yeniden
+başlattım, rolü tappa_owner ile **elle** oluşturdum (db-init'in taze konteynerde yapacağının
+aynısı — volume silmeden, dev DB ⇄ CI tutarlı).
+
+**DELETE tuzağı (ikinci denetçi + yapıcı buldu):** GRANT'tan DELETE çıkarmak yetmiyor —
+`ALTER DEFAULT PRIVILEGES` her tabloya DELETE veriyor; açık `REVOKE DELETE` gerekti
+(sessions/employees). **M1-06 transactions immutability için ZORUNLU** — yukarı "DELETE
+tuzağı" bloğuna işlendi + agent-brief dersine eklendi.
+
+**Sırada:** M1-05 (tags) — çözümleme mekanizmasının tags ayağı, M1-04 kalıbının aynısı.
 
 ### 2026-07-25 (3. oturum, devam) — **M1-03 done** (locations & departments)
 
