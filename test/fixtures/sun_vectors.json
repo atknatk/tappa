@@ -1,0 +1,98 @@
+{
+  "_label": "FAKE keys, self-consistent — NOT captured from real NTAG 424 DNA silicon.",
+  "_warning": [
+    "READ BEFORE TRUSTING THESE VECTORS.",
+    "Every `cmac` below was produced by Tappa's OWN pipeline (sv2 + RFC-4493 cmac + truncateSDMMAC in internal/sun) keyed by the FAKE test keys in this file. All key material here is FAKE (never a real per-tag K_sdmfileread, never the real TAPPA_TAG_KEK); real keys are random (ADR 0003 madde 3) and live only KEK-wrapped in the DB.",
+    "WHAT THESE PROVE: the Verify wiring end to end — resolve, retired/lost short-circuit, QR short-circuit, KEK unwrap, truncated-CMAC compare, the verify-BEFORE-advance order, monotonic replay ordering (accept / replay / backward / forward-gap), and the reject paths (wrong key, bit flip, malformed input, unknown uid). They pin the internal layout against regressions.",
+    "WHAT THEY DO NOT PROVE (self-consistency ceiling): because the same code both mints and checks these MACs, they CANNOT externally validate (a) the absolute byte/endian order a physical chip emits SDMReadCtr, nor (b) that the full SV2 + session-key + truncation chain matches real NTAG 424 DNA silicon. Only the RFC 4493 primitive is externally anchored — by the official RFC vectors in cmac_test.go, NOT here. A real-chip known-answer vector is REQUIRED before the M8 pilot (M8-05 encode runbook). Do NOT read a green run of these vectors as proof of real-chip correctness.",
+    "The counter VALUE endianness (Params.Ctr, big-endian per ADR 0003) used for replay ordering shares this ceiling; the SV2 counter bytes are used VERBATIM and are structurally proven (verify_mac_test.go TestSV2_CtrVerbatim), but the absolute value-endian is confirmed only by that same M8 real-chip vector."
+  ],
+  "kek": "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff",
+  "tag_key_A": "000102030405060708090a0b0c0d0e0f",
+  "tag_key_B_wrong": "0f0e0d0c0b0a09080706050403020100",
+  "vectors": [
+    {
+      "name": "valid_consecutive",
+      "description": "valid CMAC, ctr = last_ctr + 1 -> accept, last_ctr updated, gap 0",
+      "uid": "04AC7E55000601",
+      "tag_key": "000102030405060708090a0b0c0d0e0f",
+      "last_ctr": 100,
+      "ctr_hex": "000065",
+      "cmac": "83c0104d8ac39077",
+      "cmac_verifies": true,
+      "want_sun_valid": true,
+      "want_gap": 0
+    },
+    {
+      "name": "replay_equal",
+      "description": "valid CMAC, ctr = last_ctr -> reject (replay), last_ctr unchanged",
+      "uid": "04AC7E55000602",
+      "tag_key": "000102030405060708090a0b0c0d0e0f",
+      "last_ctr": 200,
+      "ctr_hex": "0000C8",
+      "cmac": "d430e38da9ad663c",
+      "cmac_verifies": true,
+      "want_sun_valid": false,
+      "want_gap": 0
+    },
+    {
+      "name": "backward_counter",
+      "description": "valid CMAC, ctr < last_ctr -> reject (backward counter), last_ctr unchanged",
+      "uid": "04AC7E55000603",
+      "tag_key": "000102030405060708090a0b0c0d0e0f",
+      "last_ctr": 200,
+      "ctr_hex": "0000C7",
+      "cmac": "6b161cbf0d7d8ef3",
+      "cmac_verifies": true,
+      "want_sun_valid": false,
+      "want_gap": 0
+    },
+    {
+      "name": "forward_jump_5000",
+      "description": "valid CMAC, ctr = last_ctr + 5000 -> accept, gap 4999 returned (threshold is policy, not sun)",
+      "uid": "04AC7E55000604",
+      "tag_key": "000102030405060708090a0b0c0d0e0f",
+      "last_ctr": 100,
+      "ctr_hex": "0013EC",
+      "cmac": "c47eee350d31b7b0",
+      "cmac_verifies": true,
+      "want_sun_valid": true,
+      "want_gap": 4999
+    },
+    {
+      "name": "wrong_key",
+      "description": "CMAC minted with tag_key_B but tag holds tag_key_A -> reject, no advance",
+      "uid": "04AC7E55000605",
+      "tag_key": "000102030405060708090a0b0c0d0e0f",
+      "last_ctr": 100,
+      "ctr_hex": "000065",
+      "cmac": "7510154e89b04870",
+      "cmac_verifies": false,
+      "want_sun_valid": false,
+      "want_gap": 0
+    },
+    {
+      "name": "single_bit_flip",
+      "description": "valid CMAC with one bit flipped (d7b7... -> d6b7...) -> reject, no advance",
+      "uid": "04AC7E55000606",
+      "tag_key": "000102030405060708090a0b0c0d0e0f",
+      "last_ctr": 100,
+      "ctr_hex": "000065",
+      "cmac": "d6b71c96ebc13f19",
+      "cmac_verifies": false,
+      "want_sun_valid": false,
+      "want_gap": 0
+    }
+  ],
+  "malformed": [
+    { "name": "uid_too_short",    "query": "tag=04AC7E55&ctr=000065&cmac=83c0104d8ac39077" },
+    { "name": "uid_bad_hex",      "query": "tag=04AC7E5500060Z&ctr=000065&cmac=83c0104d8ac39077" },
+    { "name": "ctr_too_short",    "query": "tag=04AC7E55000601&ctr=0065&cmac=83c0104d8ac39077" },
+    { "name": "ctr_bad_hex",      "query": "tag=04AC7E55000601&ctr=0000GG&cmac=83c0104d8ac39077" },
+    { "name": "cmac_too_short",   "query": "tag=04AC7E55000601&ctr=000065&cmac=83c0104d" },
+    { "name": "cmac_bad_hex",     "query": "tag=04AC7E55000601&ctr=000065&cmac=zzzzzzzzzzzzzzzz" },
+    { "name": "ctr_without_cmac", "query": "tag=04AC7E55000601&ctr=000065" },
+    { "name": "cmac_without_ctr", "query": "tag=04AC7E55000601&cmac=83c0104d8ac39077" },
+    { "name": "missing_tag",      "query": "ctr=000065&cmac=83c0104d8ac39077" }
+  ]
+}
