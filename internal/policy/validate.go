@@ -200,7 +200,7 @@ func Validate(doc Document, layer Layer, lim Limits) error {
 	// (ADR 0004 §10), and duplicates would make that reference ambiguous.
 	seen := make(map[string]bool, len(doc.Statements))
 	for i, st := range doc.Statements {
-		if err := validateStatement(i, st, lim); err != nil {
+		if err := validateStatement(i, st, layer, lim); err != nil {
 			return err
 		}
 		if seen[st.Sid] {
@@ -211,7 +211,7 @@ func Validate(doc Document, layer Layer, lim Limits) error {
 	return nil
 }
 
-func validateStatement(i int, st Statement, lim Limits) error {
+func validateStatement(i int, st Statement, layer Layer, lim Limits) error {
 	// --- sid -----------------------------------------------------------------
 	if strings.TrimSpace(st.Sid) == "" {
 		return &ValidationError{Index: i, Field: fieldSid, Msg: "sid is required"}
@@ -221,12 +221,23 @@ func validateStatement(i int, st Statement, lim Limits) error {
 			Msg: fmt.Sprintf("sid exceeds %d characters", maxSidLen)}
 	}
 	// The sys: namespace is RESERVED for code-embedded guardrails (ADR 0004 §4,
-	// §6); a parsed document must never claim it. Case-insensitive so "SYS:" is
-	// not a sneaky bypass. (The base: namespace is reserved for the baseline
-	// layer — enforced in M3-06, which owns the layer-specific rule.)
+	// §6); NO parsed document — baseline or tenant — may claim it. Case-insensitive
+	// so "SYS:" is not a sneaky bypass.
 	if strings.HasPrefix(strings.ToLower(st.Sid), "sys:") {
 		return &ValidationError{Index: i, Sid: st.Sid, Field: fieldSid,
 			Msg: "sid uses the reserved sys: namespace (guardrails only)"}
+	}
+	// The base: namespace is RESERVED for the MANAGED BASELINE layer (M3-06,
+	// baseline.go). A TENANT document may not claim a base: sid: it would collide
+	// with — and shadow the explanation of — a Tappa-managed baseline statement,
+	// and a Decision's MatchedSid could no longer be traced to a single owner
+	// (ADR 0004 §10). The tenant writes its own sid instead and overrides via
+	// specificity/restrictiveness (ADR 0004 §7), never by re-using a base: sid.
+	// A BASELINE document, being Tappa-authored, MAY use base: (that is its
+	// purpose). Case-insensitive, same anti-bypass reasoning as sys:.
+	if layer == LayerTenant && strings.HasPrefix(strings.ToLower(st.Sid), "base:") {
+		return &ValidationError{Index: i, Sid: st.Sid, Field: fieldSid,
+			Msg: "sid uses the reserved base: namespace (managed baseline only)"}
 	}
 
 	// --- effect --------------------------------------------------------------
