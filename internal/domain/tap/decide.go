@@ -393,10 +393,22 @@ func trustScore(ipMatch, gpsMatch bool) int {
 // necessarily has a prior tap, so LastForPerson != nil. A nil Employee (no session)
 // is never practice — there is no record to mark. This is a plain BOOLEAN FACT, not
 // a separate "training mode" state (M4-06 trap).
+//
+// DEFENSE IN DEPTH (M4-07, hardening carried over from M4-06 — state.md session
+// note): it ALSO requires LastOpenIn == nil, mirroring resolveDirection's stale-
+// practice guard. A CONSISTENT M5 query never yields the shape "LastForPerson == nil
+// yet LastOpenIn != nil" (an open check-in IS a prior tap for that person), so the
+// LastForPerson check already covers the real world. But an INCONSISTENT caller with
+// that shape would otherwise mark a checkout (LastOpenIn present -> resolveDirection
+// returns out) as practice, re-opening the exact hours-inflation exploit; requiring
+// LastOpenIn == nil keeps isPracticeTap and resolveDirection in agreement so a
+// checkout can never be practice regardless of which of the two prior-tap signals
+// the caller happens to pass.
 func isPracticeTap(in Input) bool {
 	return in.Employee != nil &&
 		!in.Employee.ActivatedAt.IsZero() &&
-		in.LastForPerson == nil
+		in.LastForPerson == nil &&
+		in.LastOpenIn == nil
 }
 
 // ipMatches reports whether src falls inside any of the location's registered
