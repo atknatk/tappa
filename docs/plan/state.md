@@ -12,8 +12,8 @@
 
 | | |
 |---|---|
-| **Kilometre taşı** | **M2 — [SUN doğrulama](m2-sun.md)** (M2-01, M2-02 done). M0+M1 tamam. |
-| **Sıradaki görev** | **M2-03** — [SDM URL ayrıştırma](m2-sun.md#m2-03--sdm-url-ayrıştırma). `?tag=…&ctr=…&cmac=…` → tipler (ADR 0003 plain biçim: `tag` 14 hex, `ctr` 6 hex **big-endian**, `cmac` 16 hex). Eksik/uzun/kısa/non-hex → **hata, panik yok**; QR'da ctr/cmac yokluğu **geçerli** (`sun_valid=false`, hata değil); fuzz testi. Bekleyen karar yok. Skill `tappa-sun`. |
+| **Kilometre taşı** | **M2 — [SUN doğrulama](m2-sun.md)** (M2-01…M2-03 done). M0+M1 tamam. |
+| **Sıradaki görev** | **M2-04** — [Oturum anahtarı, kısaltılmış MAC, sabit-zaman karşılaştırma](m2-sun.md#m2-04--oturum-anahtarı-kısaltılmış-mac-ve-sabit-zamanlı-karşılaştırma). **§4.7 kripto çekirdeği.** SV2=`3C C3 00 01 00 80‖UID‖ctr` → K_session=CMAC(K_sdmfileread,SV2) → full=CMAC(K_session, boş) → mac=full[**1,3,5,…15**] (8 byte tek-indeksli) → `subtle.ConstantTimeCompare`. **⚠️ SV2'deki ctr byte sırası bilinen-cevap vektörüyle SABİTLENMELİ** (N3; AN12196 örneği). Bağımlılık M2-02+M2-03. Skill `tappa-sun`. |
 | **Çalışma modu** | Orkestrasyon + üçüncü göz — [README.md](README.md) · brief'ler [agent-brief.md](agent-brief.md) |
 | **Dal** | **`main`** — M0 (`m0-bootstrap`) `main`'e fast-forward birleştirildi (`562f021`), dal silindi. **Kullanıcı kararı (2026-07-25): artık doğrudan `main`'de çalışılır, görev başına dal açılmaz** (CLAUDE.md §10 güncellendi). Push/PR yine istemedikçe yok. |
 | **Blokeler** | Yok (M2-02 için bekleyen karar yok). **Bekleyen kullanıcı eylemi:** arm64 Go kurulumu (aşağı bak) — hiçbir şeyi bloklamıyor. |
@@ -207,7 +207,7 @@ yazılır.
 |---|---|---|---|
 | M2-01 | ADR 0003: SDM modu ve anahtar yönetimi | **done** | `5a9cd2e` · üçüncü göz ONAY · **Q05 plain SDM + Q06 per-tag random** normatif · plain URL (`tag`/`ctr` big-endian/`cmac`) · KEK AES-256-GCM, `aes_key_ref`=nonce(12)‖ct(16)‖tag(16)=44B · **AAD=ham 7-byte UID v1'de ZORUNLU** (denetçi bulgusu: tappa_app UPDATE→sarmalı anahtar taşınabilir; sıfır maliyet pre-prod) · ctr-wrap fail-closed · AN12196/NT4H2421Gx ref |
 | M2-02 | AES-CMAC (RFC 4493) | **done** | `2380baa` · üçüncü göz ONAY (RFC vektörleri **OpenSSL ile bağımsız yeniden hesaplandı**, mutasyonla non-vacuous) · kurum-içi `crypto/aes`, **dep yok** · 4 resmi vektör + K1/K2 + padding · **%100 kapsam** · kısaltma yok (M2-04) · `cmac(key,msg)([16]byte,error)` |
-| M2-03 | SDM URL ayrıştırma | todo | |
+| M2-03 | SDM URL ayrıştırma | **done** | `ac51b20` · üçüncü göz ONAY · `Parse`→`Params{UID(kanonik BÜYÜK), UIDBytes, Ctr(big-endian), CMAC, Channel}`+`HasSUN()` · **mixed-case silent-zero-row tuzağı kapatıldı** (DB sondasıyla) · QR→sun_valid=false · fuzz 10.9M exec panik yok · §4.7 jenerik/sır-siz hata (mutasyonla) · yeni dep yok |
 | M2-04 | Oturum anahtarı, kısaltılmış MAC, sabit zamanlı karşılaştırma | todo | |
 | M2-05 | Anahtar sarmalama (KEK) | todo | |
 | M2-06 | Atomik sayaç ilerletme ve eşzamanlılık testi | todo | **§4.4 — en kritik** |
@@ -305,13 +305,25 @@ yazılır.
 | M9-06 | Policy simülatörü | todo | Q22 — M6-10'dan ertelendi |
 | M9-07 | Ham JSON politika editörü | todo | Q22 — M6-09'dan ayrıldı |
 
-**Özet:** 82 görev · done 20 · wip 0 · blocked 0 · skipped 1 · todo 61 · **M0+M1 tamam · M2: M2-01, M2-02 done**
+**Özet:** 82 görev · done 21 · wip 0 · blocked 0 · skipped 1 · todo 60 · **M0+M1 tamam · M2: M2-01…M2-03 done**
 
 ---
 
 ## Oturum günlüğü
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
+
+### 2026-07-26 (3. oturum, devam) — **M2-03 done** (SDM URL ayrıştırma)
+
+**M2-03 done — üçüncü göz ONAY.** `ac51b20`: `internal/sun/params.go`. Parse → `Params`
+(UID kanonik BÜYÜK + UIDBytes ham 7 + Ctr big-endian + CMAC ham 8 + Channel/HasSUN).
+**Mixed-case silent-zero-row tuzağı kapatıldı** (seed BÜYÜK saklıyor → parser uppercase kanonik;
+denetçi DB sondasıyla doğruladı: `04AC…`→1 satır, `04ac…`/`04Ac…`→0). QR (ctr/cmac yok)→
+sun_valid=false, hata değil; tam biri varsa hata. Big-endian ctr. §4.7 jenerik+sır-siz hata
+(mutasyonla kanıtlandı). Fuzz 10.9M exec panik yok. Yeni dep yok.
+
+**Sırada:** M2-04 (session key + tek-indeksli 8-byte MAC + ConstantTimeCompare) — kripto çekirdeği;
+SV2 ctr byte sırası bilinen-cevap vektörüyle sabitlenmeli.
 
 ### 2026-07-26 (3. oturum, devam) — **M2-02 done** (AES-CMAC)
 
