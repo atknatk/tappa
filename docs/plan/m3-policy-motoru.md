@@ -248,7 +248,7 @@ policy_attachments(id, tenant_id, policy_id, resource, created_at)
 **İmza.**
 ```go
 type Decision struct {
-    Effect          Effect // allow | review | deny | ignore
+    Effect          Effect // allow | review | deny | ignore | redirect
     MatchedSid      string // hangi ifade karar verdi
     PolicyVersionID *uuid.UUID
     Layer           Layer  // guardrail | baseline | tenant
@@ -257,6 +257,18 @@ type Decision struct {
 
 func Evaluate(set Set, ctx Context) Decision
 ```
+
+> **Kart düzeltmesi (2026-07-26, M3-04 uygulaması).** İki düzeltme:
+> 1. `Decision.Effect` yorumu effect'leri `allow | review | deny | ignore`
+>    sayıp **`redirect`'i atlıyordu**. Beş effect vardır (ADR 0004 §2) ve
+>    değerlendirici `redirect` döndürür: guardrail'ler `sys:no-session` ve
+>    `sys:tenant-mismatch` (M3-05) redirect üretir. Yorum düzeltildi.
+> 2. Aşağıdaki "Hiç eşleşme yok → `tap:*` için `review`" ifadesi ADR 0004 §3
+>    ile birebir değil: ADR §3 `tap:approve`'u **fail-closed `deny`** listesine
+>    koyar (M3-08 testi de öyle). `tap:*` bir kısaltmadır; kesin kural **tap
+>    KAYDI** eylemi (`tap:record`) → `review`, **diğer her eylem** (`tap:approve`
+>    dâhil) → `deny`. Uygulama (`reviewDefaultActions = {tap:record}`) ADR §3'ü
+>    izler; kabul kriteri metni de buna göre okunmalı.
 
 **Kabul kriterleri.**
 - Saf fonksiyon: DB, HTTP, `time.Now()` **yok** — bağlam girdiden gelir
@@ -271,8 +283,9 @@ func Evaluate(set Set, ctx Context) Decision
   zorunlu, **yalnız** statik IP'si olmayan Rusty Bar'da GPS yeterli" ifade
   edilemezdi ve müşterinin tek gevşetme aracı korumayı **9 şubenin hepsinde**
   kapatmak olurdu — en makul isteğin karşılığı en geniş gevşetme olamaz.
-- Hiç eşleşme yok → `tap:*` için `review`, diğer eylemler için `deny`;
-  `MatchedSid = "default"`.
+- Hiç eşleşme yok → **`tap:record`** için `review` (tap kaydı, §4.6), **diğer
+  her eylem** (`tap:approve` dâhil — ADR 0004 §3 authz listesi) için `deny`;
+  `MatchedSid = "default"`. (Kart başındaki düzeltme bloğu 2. maddesine bakın.)
 - **Bilinmeyen operatör/anahtar değerlendirme anında** (sürüm geri alma sonrası
   mümkün): ifade **eşleşmez** ve olay loglanır. Koşulu atlayıp ifadeyi eşleştirmek
   bir `deny` politikasını koşulsuz hâle getirir — tüm tap'ler reddedilir.
