@@ -4,16 +4,14 @@
 > güncellenir ([README.md](README.md) → oturum protokolü, adım 6.4).
 > Görev kartlarına durum işareti konmaz.
 
-**Son güncelleme:** 2026-07-26 (4. oturum — compact sonrası devam; **🏁 M3 KİLOMETRE TAŞI TAMAM 9/9**)
+**Son güncelleme:** 2026-07-26 (4. oturum — compact sonrası devam; **M3 TAMAM + M4-01 done**)
 
-> **🏁 M3 (policy motoru) TAMAM — 2026-07-26, 4. oturum.** M3-01→M3-09 (9 görev + 2 ADR
-> [0004,0005] + M3-06 followup + 1 kullanıcı kararı), hepsi builder→üçüncü göz (kırmızı çizgi
-> görevlerinde + tappa-security-auditor), hepsi `main`'de commit'li, ağaç temiz, `make check`+`make
-> audit` yeşil. Commit'ler: M3-01 `01c7a8a` · M3-02 `4126e4c` · M3-03 `555e1c5` · M3-04 `de831e1`
-> · M3-05 `e51504b` · M3-06 `a9b4dc6`(+`a6c41dd`) · M3-07 `1f144b7` · M3-08 `c39ccae` · M3-09
-> `0c0feb4`. **Sıradaki:** "ŞU AN" → **M4-01** (internal/geo — yeni kilometre taşı). M4/M5'e
-> devredilen guardrail girdi-sözleşmesi notları (N1–N4 + ErrUnknownTag) ŞU AN'da. Bekleyen
-> kullanıcı kararı YOK. Kritik durum sohbette kalmıyor.
+> **▶️ M4 BAŞLADI — 2026-07-26, 4. oturum.** M3 (policy motoru) 9/9 TAMAM (kullanıcı "M4'e devam
+> et" dedi). **M4-01** (internal/geo haversine+yarıçap) `f791f91` — üçüncü göz ONAY (mesafeler
+> bağımsız yeniden hesaplandı, %100 kapsam). Her şey `main`'de, ağaç temiz, `make check`+`make audit`
+> yeşil. **Sıradaki:** "ŞU AN" → **M4-02** (karar girdi/çıktı tipleri). M4/M5'e devredilen guardrail
+> girdi-sözleşmesi notları (N1–N4 + ErrUnknownTag) aşağıda "M4/M5'e devralınan"da — M4-03/M4-06'da
+> uygulanır. Bekleyen kullanıcı kararı YOK. Kritik durum sohbette kalmıyor. Kritik durum sohbette kalmıyor.
 
 ---
 
@@ -21,8 +19,8 @@
 
 | | |
 |---|---|
-| **Kilometre taşı** | **M0 + M1 + M2 + M3 TAMAM** ✅ (M3 policy motoru 9/9). → sıradaki **M4 — [Tap karar motoru](m4-tap-motoru.md)** |
-| **Sıradaki görev** | **M4-01** — [internal/geo: haversine ve yarıçap](m4-tap-motoru.md#m4-01--internalgeo-haversine-ve-yarıçap). Saf `internal/geo` paketi: haversine mesafe + GPS yarıçap kontrolü (§4.2 GPS yalnız tap anında; tam koordinat loglanmaz §4.7). `float` YOK para/saat için ama GPS mesafe float uygun. Tablo bazlı test (bilinen mesafeler). Yeni kilometre taşı — **M4 kartını ([m4-tap-motoru.md](m4-tap-motoru.md)) baştan oku.** Bekleyen kullanıcı kararı YOK. **NOT:** M4/M5 guardrail girdi-sözleşmesi devirleri (N1–N4 + ErrUnknownTag) aşağıda "M4/M5'e devralınan"da. |
+| **Kilometre taşı** | **M0 + M1 + M2 + M3 TAMAM** ✅ · **M4 devam** — M4-01 done (1/7). → **[M4 tap karar motoru](m4-tap-motoru.md)** |
+| **Sıradaki görev** | **M4-02** — [Karar girdi/çıktı tipleri](m4-tap-motoru.md#m4-02--karar-girdiçıktı-tipleri) (`internal/domain/tap`). `Input`/`Decision` struct'larını + `Decide` imzasını sabitle (kart satır ~52-102: tam alan listesi). **Saf:** paket `time.Now()`/`rand`/DB/HTTP KULLANMAZ (import listesiyle kanıtlanır); `Now` girdi olarak gelir (gece vardiyası determinizmi). `Decision` karar açıklar, **kayıt YAZMAZ**. Tuzak: alanları `interface{}` ardına gizleme (açık alan listesi test edilebilirliğin tamamı); **`Employee==nil` (oturum yok, §5.3) ≠ `Employee.Status==deactivated` (§5.4)** — tek alana sıkıştırma. `geo.Point` (M4-01) + `sun.Result` (M2-07) tiplerini kullanır. Bekleyen kullanıcı kararı YOK. |
 | **Çalışma modu** | Orkestrasyon + üçüncü göz — [README.md](README.md) · brief'ler [agent-brief.md](agent-brief.md) |
 | **Dal** | **`main`** — M0 (`m0-bootstrap`) `main`'e fast-forward birleştirildi (`562f021`), dal silindi. **Kullanıcı kararı (2026-07-25): artık doğrudan `main`'de çalışılır, görev başına dal açılmaz** (CLAUDE.md §10 güncellendi). Push/PR yine istemedikçe yok. |
 | **Blokeler** | Yok (M2-02 için bekleyen karar yok). **Bekleyen kullanıcı eylemi:** arm64 Go kurulumu (aşağı bak) — hiçbir şeyi bloklamıyor. |
@@ -287,7 +285,7 @@ yazılır.
 
 | ID | Görev | Durum | Commit / not |
 |---|---|---|---|
-| M4-01 | internal/geo: haversine ve yarıçap | todo | |
+| M4-01 | internal/geo: haversine ve yarıçap | **done** | `f791f91` · üçüncü göz **1. turda** ONAY · `internal/geo` saf paket (yalnız `math`) — `Point{Lat,Lng}`, `Distance` (haversine, R=6371008.8, **atan2** → acos-NaN tuzağı yapısal yok), `WithinRadius(a,b,radiusM)` **strict `<`** (§5 satır 6 "GPS < 150 m" ile hizalı, 150 m DIŞARIDA) · yarıçap **parametre** (config besler, gömülü değil) · **denetçi mesafeleri BAĞIMSIZ yeniden hesapladı** (783.557/1115.594/0/π·R byte-identical) · lat/lng-swap + %100 kapsam mutasyonla RED · §4.7 koordinat loglanmıyor (config/policy import yok, döngü yok) |
 | M4-02 | Karar girdi/çıktı tipleri | todo | |
 | M4-03 | Decide(): bağlam kurma ve kararın uygulanması | todo | M3-04 üstünde |
 | M4-04 | Yön tayini (in/out) | todo | |
@@ -361,13 +359,27 @@ yazılır.
 | M9-06 | Policy simülatörü | todo | Q22 — M6-10'dan ertelendi |
 | M9-07 | Ham JSON politika editörü | todo | Q22 — M6-09'dan ayrıldı |
 
-**Özet:** 82 görev · done 34 · wip 0 · blocked 0 · skipped 1 · todo 47 · **M0+M1+M2+M3 TAMAM · sıradaki M4 (tap karar motoru)**
+**Özet:** 82 görev · done 35 · wip 0 · blocked 0 · skipped 1 · todo 46 · **M0+M1+M2+M3 TAMAM · M4 devam (M4-01 done, 1/7) · sıradaki M4-02**
 
 ---
 
 ## Oturum günlüğü
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
+
+### 2026-07-26 (4. oturum, compact sonrası) — **M4-01 done** (internal/geo) · M4 başladı
+
+**M4-01 done — üçüncü göz 1. turda ONAY.** `f791f91`: `internal/geo` saf paket (yalnız `math` import).
+`Point{Lat,Lng}`, `Distance` (haversine, R=6371008.8 IUGG ortalama, **atan2** formülü → acos domain-NaN
+tuzağı yapısal olarak yok), `WithinRadius(a,b,radiusM)` yarıçap **parametre** (config besler; §5 satır 6
+"GPS < 150 m" gereği **strict `<`** → tam 150 m dışarıda). Kullanıcı M3 sonrası "M4'e devam et" dedi.
+
+**Denetçi bilinen mesafeleri BAĞIMSIZ yeniden hesapladı** (kendi Python haversine, R aynı): St Julians→
+Paceville 783.5570309985226 m, Hamrun→Msida 1115.5938858223842 m, 0 m, antipot π·R — hepsi byte-identical
+(iç-tutarlı golden değil dış hesap). lat/lng-swap direnci + %100 kapsam **mutasyonla** RED kanıtlandı
+(swap→761.77; Distance sabit→testler RED). §4.7 koordinat loglanmıyor; geo config/policy import etmiyor (saf).
+
+**Sırada:** M4-02 (karar girdi/çıktı tipleri — Input/Decision struct, saf imza, Employee==nil ≠ deactivated).
 
 ### 2026-07-26 (4. oturum, compact sonrası) — **M3-09 done · 🏁 M3 KİLOMETRE TAŞI TAMAM (9/9)**
 
