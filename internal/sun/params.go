@@ -69,10 +69,21 @@ type Params struct {
 	// §4/§6, M2-04) are built over the raw bytes, which are case-agnostic; kept
 	// separate from the canonical text UID above.
 	UIDBytes []byte
-	// Ctr is the 3-byte read counter decoded BIG-ENDIAN (ADR 0003 §1). Reading it
-	// little-endian would silently produce plausible-but-wrong counters and break
-	// replay ordering. Zero for QR (no counter present).
+	// Ctr is the read counter as a NUMERIC VALUE, decoded BIG-ENDIAN (ADR 0003
+	// §1). This VALUE axis is used ONLY for replay ordering (M2-06 monotonic
+	// last_ctr < ctr); it is NOT used to build the CMAC. The CMAC uses CtrBytes
+	// verbatim (see below), so the crypto is independent of this endian choice.
+	// Whether big-endian is the correct value interpretation for replay ordering
+	// is still pending an external vector (M2-07). Zero for QR (no counter).
 	Ctr uint32
+	// CtrBytes is the RAW 3-byte read counter exactly as it appears (hex-decoded)
+	// in the URL, in URL order. The CMAC's SV2 uses these bytes VERBATIM
+	// (verify_mac.go sv2), never a re-serialised value: the NTAG 424 mirrors
+	// SDMReadCtr into the URL with the SAME byte order it feeds into SV2, so
+	// copying the URL bytes unchanged is correct regardless of the chip's absolute
+	// endianness — and structurally rules out a parse/serialise reversal (an
+	// earlier M2-04 bug). All-zero for QR (no counter present).
+	CtrBytes [3]byte
 	// CMAC is the raw 8-byte truncated SDM MAC from the chip. Nil for QR. It is a
 	// value to verify, never to log (CLAUDE.md §4.7).
 	CMAC []byte
@@ -178,6 +189,9 @@ func Parse(q url.Values) (Params, error) {
 
 	p.Channel = ChannelNFC
 	p.Ctr = beUint24(ctrBytes)
+	// Keep the raw counter bytes verbatim for the CMAC (SV2), separate from the
+	// numeric value above. decodeFixedHex validated exactly 3 bytes.
+	copy(p.CtrBytes[:], ctrBytes)
 	p.CMAC = cmacBytes
 	return p, nil
 }
