@@ -12,29 +12,26 @@
 
 | | |
 |---|---|
-| **Kilometre taşı** | **M1 — [Veri katmanı](m1-veri-katmani.md)** (M1-01…M1-09 done). Kalan: M1-10 (seed), M1-11 (admin). |
-| **Sıradaki görev** | **M1-10** — [Seed verisi ve sabit ID'ler](m1-veri-katmani.md#m1-10--seed-verisi-ve-sabit-idler). Araç **skill `tappa-seed`**. KF (9 lokasyon) + KM (5 departman), çalışanlar, plaketler, vardiyalar. Bağımlılık M1-06 ✔. Devralınanlar aşağı (çift-uçlu vardiya, aes_key_ref sahte-sarmalı, admin owner M1-11'e). |
+| **Kilometre taşı** | **M1 — [Veri katmanı](m1-veri-katmani.md)** (M1-01…M1-10 done). **Kalan tek görev: M1-11 (admin).** |
+| **Sıradaki görev** | **M1-11** — [Migration 0006: admin kullanıcıları](m1-veri-katmani.md#m1-11--migration-0006-admin-kullanıcıları). **M1'in son görevi.** admin_users + admin_sessions + password_resets. **Q03 kullanıcıya sorulacak** (aşağı — ama migration KDF-agnostik). Bağımlılık M1-02 ✔. |
 | **Çalışma modu** | Orkestrasyon + üçüncü göz — [README.md](README.md) · brief'ler [agent-brief.md](agent-brief.md) |
 | **Dal** | **`main`** — M0 (`m0-bootstrap`) `main`'e fast-forward birleştirildi (`562f021`), dal silindi. **Kullanıcı kararı (2026-07-25): artık doğrudan `main`'de çalışılır, görev başına dal açılmaz** (CLAUDE.md §10 güncellendi). Push/PR yine istemedikçe yok. |
 | **Blokeler** | Yok (M1-04 için bekleyen karar yok). **Bekleyen kullanıcı eylemi:** arm64 Go kurulumu (aşağı bak) — hiçbir şeyi bloklamıyor. |
 
-**Bir sonraki oturum ne yapmalı:** **M1-10** (seed verisi + sabit ID'ler). Araç **skill
-`tappa-seed`** (KF 9 lokasyon + KM 5 departman, çalışanlar, plaketler, vardiyalar — skill'de
-birebir tablo). `test/fixtures/seed.sql` + `test/fixtures/ids.go`. Kritik noktalar (kart +
-devralınanlar):
-- **İdempotent:** sabit UUID + `ON CONFLICT DO NOTHING` (iki kez koşunca temiz). `make seed`
-  (`scripts/seed.sh` → docker compose exec psql). Silme yok, ON CONFLICT idempotency sağlar.
-- **Zamanlar `now()`'a göreli** (sabit takvim tarihi GÖMME — dashboard bir hafta sonra boşalmasın).
-- IP'ler **dokümantasyon aralığından** (`203.0.113.0/24`, `198.51.100.0/24`) `cidr[]` olarak;
-  gerçek müşteri IP'si YOK. GPS **Malta**'da, birbirinden ≥ birkaç yüz m (150 m testi anlamlı olsun).
-- **Seed yalnız master veri** — `transactions` üretimi M5-09 "bir günü simüle et"e ait (karar
-  motorunun ÇIKTISIYLA), elle uydurulmaz.
-- **Devralınanlar:** (a) tüm lokasyonlarda **çift-uçlu vardiya** (M1-03 `shift_pair` CHECK); Rusty
-  Bar `overnight=true` ama **dolu vardiyayla**. (b) `aes_key_ref` **sahte + açıkça etiketli**,
-  bytea (sarmalı biçim) — gerçek anahtar değil; KEK-sarmalı doğrulaması burada da geçerli (M1-05).
-  (c) İki tenant arasında paylaşılan satır YOK (RLS testinin zemini). (d) **admin owner seed'i
-  M1-11'e** (admin_users henüz yok — M1-11 seed'e ekler; idempotent olduğu için sorun yok).
-- Malta yerel saatinden UTC'ye çeviriyi seed içinde açıkça yap + yorumla (§6 UTC).
+**Bir sonraki oturum ne yapmalı:** **M1-11** (admin kullanıcıları) — **M1'in son görevi.**
+`admin_users(…, password_hash, role owner|manager)` + `admin_sessions` + `password_resets`,
+üçünde de RLS beşlisi. Kritik noktalar (kart):
+- **Q03 (admin şifre hash'i):** KDF seçimi (bcrypt vs argon2id) + `golang.org/x/crypto`
+  bağımlılığı (§1 onay ister). **AMA migration KDF-agnostiktir** — `password_hash text NOT NULL`
+  hem bcrypt (`$2a$…`) hem argon2id (`$argon2id$…`) kodlu string'i tutar; asıl KDF+dependency
+  kararı **M6-01/M7-04 kodunda** gerekir. Kullanıcıya soruldu → Q03 cevabına göre kart/M6-01.
+- **admin_sessions çalışan `sessions`'tan AYRI** (bir çalışan çerezi panele, admin çerezi tap
+  akışına geçemez). `password_resets` tek kullanımlık (`used_at` damgası, silme yok).
+- Silme yok; RLS beşlisi tam (üç tablo); DELETE tuzağı (gerekirse REVOKE — M1-04 dersi).
+- `role` alanı var; yetkilendirme policy motorundan (`actor:role`, `sys:policy-edit-owner-only`).
+- **M1-09 RLS test listesine üç tablo eklenir** (kart). **Seed her tenant için bir `owner` üretir**
+  — M1-11 seed.sql'e admin owner satırları ekler (idempotent; M1-10 ertelemişti).
+- Composite same-tenant FK'ler (admin_sessions→admin_users, password_resets→admin_users).
 
 **M1-08/M1-10'a devredilen (M1-05 denetiminden):** `aes_key_ref`'in gerçekten KEK-sarmalı
 olduğu şema düzeyinde zorlanamaz (bytea) → insert-yolu (M1-08) ve seed (M1-10) bunu ayrıca
@@ -187,7 +184,7 @@ yazılır.
 | M1-07 | internal/db: havuz ve tenant kapsamlı transaction | **done** | `f73972a` · üçüncü göz **1. turda** ONAY (3 negatif kontrolle: set_config true→false, rollback→commit, panic silme — üçü de testi kırmızıya döndürdü) · `WithTenant` `set_config(...,$1,true)` param-bağlı, çıplak SET yok · havuz unexported (yapısal kapalı) · uuid.Nil guard · 5 gerçek-Postgres -race test (aynı-backend sızıntı-yok kanıtı) · **imza sapması:** callback `pgx.Tx` (store M1-08'de) — kart düzeltildi · resolve erişimi + go.mod'a templ geri-dönüşü M1-08'e/M2'ye |
 | M1-08 | İlk sqlc sorguları | **done** | `62b70a8` · **iki denetçi ONAY** · `make gen`/`build`/`dev` **yeşil** (planlı sqlc kırmızısı bitti) · 6 tenant-kapsamlı sorgu (hepsi açık tenant_id) · `AdvanceTagCounter` atomik CTE strict-`<` (canlı + 2-goroutine -race) · **resolve lookups ELLE** (`internal/db/resolve.go` — sqlc `RETURNS TABLE`'ı tipleyemedi; yalnız SECURITY DEFINER fonksiyon çağırır) · Q25(c) cidr[] override **gerekmedi** (pgx varsayılanı) · WithTenant pgx.Tx kaldı |
 | M1-09 | RLS izolasyonu ve değişmezlik testleri | **done** | `a033c8a` · üçüncü göz ONAY — **non-vacuous 3 bağımsız yolla kanıtlandı** (RLS DISABLE, trigger DISABLE, kaynak mutasyonu → hepsi RED, geri alındı) · 7 vaka + 9 tablo · M0-03 kaçış yolları kapalı (ham SQL, pozitif kontrol, çalışma-anı rol) · `TestResolveColumns_MatchSchema` drift koruması · **2 sapma çözüldü:** x/text CVE yamalandı (`1554135`), redline R3/R5 `_test.go` muafiyeti + test sadeleştirildi (`<sonraki>`) |
-| M1-10 | Seed verisi ve sabit ID'ler | todo | |
+| M1-10 | Seed verisi ve sabit ID'ler | **done** | `516be65` · üçüncü göz ONAY · KF 9 lokasyon + KM 5 departman, 36 çalışan, 12 tag · idempotent (2. koşu INSERT 0 0) · 12/12 sahte-etiketli anahtar (§4.7) · doküman IP cidr[] · Malta GPS min 783.6m · çift-uçlu vardiya · cross-tenant paylaşım 0 · ids.go 53 UUID+12 tag DB ile birebir · yalnız master veri (admin owner M1-11'e) |
 | M1-11 | Migration 0006: admin kullanıcıları | todo | Q03 · denetim bulgusu |
 
 ### M2 — [SUN doğrulama](m2-sun.md)
@@ -294,13 +291,27 @@ yazılır.
 | M9-06 | Policy simülatörü | todo | Q22 — M6-10'dan ertelendi |
 | M9-07 | Ham JSON politika editörü | todo | Q22 — M6-09'dan ayrıldı |
 
-**Özet:** 82 görev · done 16 · wip 0 · blocked 0 · skipped 1 · todo 65 · **M0 tamam · M1: M1-01…M1-09 done; kalan M1-10, M1-11**
+**Özet:** 82 görev · done 17 · wip 0 · blocked 0 · skipped 1 · todo 64 · **M0 tamam · M1: M1-01…M1-10 done; kalan tek görev M1-11**
 
 ---
 
 ## Oturum günlüğü
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
+
+### 2026-07-25 (3. oturum, devam) — **M1-10 done** (seed) · M1 tek göreve indi
+
+**M1-10 done — üçüncü göz ONAY.** `516be65`: `test/fixtures/seed.sql` + `ids.go`. KF 9
+lokasyon + KM 5 departman, 36 çalışan, 12 tag. Bağımsız doğrulandı: idempotent (2. `make seed`
+→ INSERT 0 0), 12/12 sahte-etiketli anahtar (`FAKE-WRAPPED-KEY-DO-NOT-USE-<uid>`, §4.7), yalnız
+doküman IP'leri (cidr[]), Malta GPS en yakın çift 783.6 m, çift-uçlu vardiya + Rusty Bar overnight,
+cross-tenant paylaşım 0, ids.go 53 UUID+12 tag DB ile birebir, yalnız master veri (transactions/
+audit/reviews/sessions/admin_users hepsi 0). now()-göreli + DST-farkında Malta→UTC. Senaryo
+fixtures (lost/retired plaket, invited/deactivated/null-dept/null-email çalışan).
+
+**Sırada:** M1-11 (admin) — **M1'in son görevi.** Q03 kullanıcıya sorulacak (migration
+KDF-agnostik; asıl KDF+dependency kararı M6-01). M1-11 seed'e admin owner ekleyecek + M1-09 RLS
+test listesine 3 tablo.
 
 ### 2026-07-25 (3. oturum, devam) — **M1-09 done** (RLS/immutability testleri) + 2 sapma çözüldü
 
