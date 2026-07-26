@@ -166,6 +166,11 @@ ham SQL **yok** (§3).
 - Yanıt DTO'su `internal/handler`'da; `internal/store` tipleri API'ye sızmıyor.
 - Log'da: oturum token'ı, CMAC, AES anahtarı, davet kodu, **tam GPS** yok (§7).
 - Deaktive çalışan denemesi → `reject` + güvenlik uyarısı + audit izi.
+- **`channel='manual'` yazımında `entered_by` ZORUNLU** (M4-06'dan devredildi):
+  boşsa yazma yolunda **hata** — sessiz kabul yok. `tap.Decide` saf ve imzası
+  sabit olduğu için (hata döndüremez) bu doğrulama burada, handler sınırında yapılır
+  (§7); `entered_by` bir köken alanıdır, karar girdisi değil. Manuel giriş UI'ı ve
+  otomatik doldurma M6-04.
 
 - **`occurred_at` istemciden geliyorsa guardrail'e tabidir.** `sys:occurred-at-bound`
   ([M3-05](m3-policy-motoru.md)): gelecek zaman → `deny`; `created_at − occurred_at`

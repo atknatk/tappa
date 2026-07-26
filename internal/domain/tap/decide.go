@@ -46,10 +46,19 @@ var markSessionPresent = uuid.UUID{0: 0x01}
 //     verdict, and the no-match fallback for tap:record is review->flag, so a tap
 //     is NEVER silently approved and NEVER silently dropped (§4.6).
 //
-// SCOPE (M4-03 only). Type (direction, M4-04), Trust (M4-06), lateness (M4-05) and
-// the Practice/QR-channel derivations (M4-06) are NOT computed here — those fields
-// take their zero value and the later tasks extend Decide. This task resolves §5
-// rows 1-7 end to end; the arithmetic/report fields come next.
+// BEYOND THE VERDICT. On top of the M4-03 verdict mapping, Decide fills the
+// arithmetic/report fields the later tasks own, each a PURE computation, never a
+// policy decision and never a client claim:
+//   - Type (direction, M4-04): a toggle against the person's last open check-in.
+//   - MinutesLate (M4-05): lateness against the resolved shift; report only.
+//   - Trust (M4-06): 20 + 50(IP) + 30(GPS); INDEPENDENT of the verdict.
+//   - Practice (M4-06): the first record after activation, SERVER-derived from
+//     Employee.ActivatedAt + LastForPerson — Input carries no client practice flag,
+//     which is what closes the hours-inflation exploit (see isPracticeTap).
+//
+// The QR channel needs no code here: sys:sun-invalid is NFC-only, so a SUN-less QR
+// tap is not denied, and base:qr-requires-ip (Q15) sends a QR tap without an IP
+// match to review — both resolved by the policy Set, proven end to end in the tests.
 //
 // The signature is fixed (M4-02): Decide takes ONE Input value, so the per-tenant
 // policy Set travels IN the Input (in.PolicySet), assembled by the M5 caller
@@ -139,6 +148,11 @@ func Decide(in Input) Decision {
 	dec := Decision{
 		IPMatch:  ipMatch,
 		GPSMatch: gpsMatch,
+		// Confidence score (M4-06): a PURE function of the two "where" facts, set
+		// here BEFORE the verdict switch precisely because it is INDEPENDENT of the
+		// verdict — a flagged tap can carry 70 (IP matched but a GPS conflict sent it
+		// to review) and a GPS-only ok carries 50. Never derived from dec.Verdict.
+		Trust: trustScore(ipMatch, gpsMatch),
 		// The docket's human-facing "why" comes straight from the deciding rule.
 		Note:     pd.Reason,
 		Security: pd.SecurityAlert != "", // §5 row 4 / lost-tag: a manager push
@@ -182,6 +196,11 @@ func Decide(in Input) Decision {
 		dir, note := resolveDirection(in)
 		dec.Type = &dir
 		dec.Note = appendNote(dec.Note, note)
+		// Practice tap (M4-06). Only a RECORDED attendance tap (ok/flag — the same
+		// gate as direction) can be a TRAINING tap: a reject/ignored/redirect has no
+		// worked hours to exclude. The value is SERVER-derived (isPracticeTap), so a
+		// client cannot claim it; a checkout is structurally never practice.
+		dec.Practice = isPracticeTap(in)
 	}
 
 	// --- 6. Lateness (M4-05) -------------------------------------------------
@@ -341,6 +360,43 @@ func appendNote(existing, add string) string {
 	default:
 		return existing + "; " + add
 	}
+}
+
+// trustScore is §5's confidence score: a 20-point baseline plus 50 for network
+// proof of place (an IP match) and 30 for GPS proof, giving exactly 20/50/70/100
+// (M4-06). It is a PURE function of the two "where" facts and is INDEPENDENT of the
+// verdict — it measures EVIDENCE, not outcome, so it is deliberately NOT derived
+// from the verdict (M4-06 trap): a flagged tap can score 70 and a GPS-only ok 50.
+func trustScore(ipMatch, gpsMatch bool) int {
+	score := 20
+	if ipMatch {
+		score += 50
+	}
+	if gpsMatch {
+		score += 30
+	}
+	return score
+}
+
+// isPracticeTap reports whether this tap is the person's FIRST record after
+// activation — the §5/M4-06 practice (TRAINING) tap that must never count toward
+// worked hours. It is derived ENTIRELY on the server from two facts:
+//
+//   - the employee has a known activation time (Employee.ActivatedAt is not the
+//     zero value), and
+//   - the person has NO prior tap (Input.LastForPerson == nil).
+//
+// It reads NO client-supplied practice flag — Input carries none BY DESIGN
+// (types.go), which is what closes the M4-06 hours-inflation exploit: a client that
+// could set practice=true on a CHECKOUT would keep the check-in open and over-
+// report hours. Here a checkout is STRUCTURALLY never practice, because a checkout
+// necessarily has a prior tap, so LastForPerson != nil. A nil Employee (no session)
+// is never practice — there is no record to mark. This is a plain BOOLEAN FACT, not
+// a separate "training mode" state (M4-06 trap).
+func isPracticeTap(in Input) bool {
+	return in.Employee != nil &&
+		!in.Employee.ActivatedAt.IsZero() &&
+		in.LastForPerson == nil
 }
 
 // ipMatches reports whether src falls inside any of the location's registered

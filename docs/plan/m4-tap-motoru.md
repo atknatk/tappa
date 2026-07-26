@@ -268,6 +268,22 @@ Zincirde şube değişimi normaldir — St Julians (10:00) personeli Paceville'd
 - **Bağımlılık:** M4-03
 - **Commit:** `feat(tap): score trust and handle qr and practice channels`
 
+> **Kart düzeltmesi (2026-07-26, M4-06 uygulaması sırasında).** `entered_by`
+> doğrulaması **M5 yazma yoluna devredildi** — `Input`'a `EnteredBy` alanı
+> EKLENMEDİ. Gerekçe: (1) `Decide`'ın imzası sabittir (`func(Input) Decision`,
+> `types_test.go`'da derleme-zamanı doğrulanır) → **hata döndüremez**; (2) `entered_by`
+> bir *köken* (provenance) alanıdır, karar girdisi değil — verdict/trust/yön/geç
+> kalmanın hiçbirini etkilemez; (3) CLAUDE.md §7: dış girdi **handler sınırında**
+> doğrulanır, domain zaten geçerli veri görür. "Sessiz kabul yok" kuralı korunur:
+> `channel='manual'` + boş `entered_by` **M5-05 (orkestrasyon)** yazma yolunda
+> reddedilir ve entered_by giriş yapan admin'den otomatik doldurulur
+> (**M6-04**, m6-dashboard.md §165 ✓). M4-06 yalnızca manual kanalın **SUN
+> aranmadan** (sys:sun-invalid NFC-only) karara bağlandığını doğrular
+> (`TestDecide_ManualChannelSkipsSUN`). Trust ve practice `Decision`'a `decide.go`'da
+> eklendi (`trustScore`, `isPracticeTap` saf yardımcılar); practice **yalnız**
+> `Employee.ActivatedAt` + `LastForPerson`'dan türer, `Input`'ta istemci practice
+> alanı **yoktur** (yapısal kanıt: `TestInput_HasNoClientPracticeField`).
+
 **Amaç.** Kalan üç kuralı uygulamak.
 
 **Kurallar.**
