@@ -4,7 +4,7 @@
 > güncellenir ([README.md](README.md) → oturum protokolü, adım 6.4).
 > Görev kartlarına durum işareti konmaz.
 
-**Son güncelleme:** 2026-07-25 (3. oturum)
+**Son güncelleme:** 2026-07-26 (3. oturum — M1 tamamlandı)
 
 ---
 
@@ -12,31 +12,40 @@
 
 | | |
 |---|---|
-| **Kilometre taşı** | **M1 — [Veri katmanı](m1-veri-katmani.md)** (M1-01…M1-10 done). **Kalan tek görev: M1-11 (admin).** |
-| **Sıradaki görev** | **M1-11** — [Migration 0006: admin kullanıcıları](m1-veri-katmani.md#m1-11--migration-0006-admin-kullanıcıları). **M1'in son görevi.** admin_users + admin_sessions + password_resets. **Q03 kullanıcıya sorulacak** (aşağı — ama migration KDF-agnostik). Bağımlılık M1-02 ✔. |
+| **Kilometre taşı** | **M1 — Veri katmanı TAMAMLANDI** ✅ (M1-01…M1-11, 11/11). → sıradaki **M2 — [SUN doğrulama](m2-sun.md)** |
+| **Sıradaki görev** | **M2-01** — [ADR 0003: SDM modu ve anahtar yönetimi](m2-sun.md#m2-01--adr-0003-sdm-modu-ve-anahtar-yönetimi). ⚠️ **İKİ KULLANICI KARARI bekliyor: Q05** (SDM mirroring: plain mı şifreli PICC mı) **+ Q06** (etiket anahtar stratejisi: plaket-başına rastgele mi master'dan türetilmiş mi). Başlamadan sorulmalı. Skill `tappa-sun`. |
 | **Çalışma modu** | Orkestrasyon + üçüncü göz — [README.md](README.md) · brief'ler [agent-brief.md](agent-brief.md) |
 | **Dal** | **`main`** — M0 (`m0-bootstrap`) `main`'e fast-forward birleştirildi (`562f021`), dal silindi. **Kullanıcı kararı (2026-07-25): artık doğrudan `main`'de çalışılır, görev başına dal açılmaz** (CLAUDE.md §10 güncellendi). Push/PR yine istemedikçe yok. |
-| **Blokeler** | Yok (M1-04 için bekleyen karar yok). **Bekleyen kullanıcı eylemi:** arm64 Go kurulumu (aşağı bak) — hiçbir şeyi bloklamıyor. |
+| **Blokeler** | **M2-01 için Q05 + Q06** (kullanıcıya sorulacak). **Bekleyen kullanıcı eylemi:** arm64 Go kurulumu (aşağı bak) — hiçbir şeyi bloklamıyor. |
 
-**Bir sonraki oturum ne yapmalı:** **M1-11** (admin kullanıcıları) — **M1'in son görevi.**
-`admin_users(…, password_hash, role owner|manager)` + `admin_sessions` + `password_resets`,
-üçünde de RLS beşlisi. Kritik noktalar (kart):
-- **Q03 (admin şifre hash'i):** KDF seçimi (bcrypt vs argon2id) + `golang.org/x/crypto`
-  bağımlılığı (§1 onay ister). **AMA migration KDF-agnostiktir** — `password_hash text NOT NULL`
-  hem bcrypt (`$2a$…`) hem argon2id (`$argon2id$…`) kodlu string'i tutar; asıl KDF+dependency
-  kararı **M6-01/M7-04 kodunda** gerekir. Kullanıcıya soruldu → Q03 cevabına göre kart/M6-01.
-- **admin_sessions çalışan `sessions`'tan AYRI** (bir çalışan çerezi panele, admin çerezi tap
-  akışına geçemez). `password_resets` tek kullanımlık (`used_at` damgası, silme yok).
-- Silme yok; RLS beşlisi tam (üç tablo); DELETE tuzağı (gerekirse REVOKE — M1-04 dersi).
-- `role` alanı var; yetkilendirme policy motorundan (`actor:role`, `sys:policy-edit-owner-only`).
-- **M1-09 RLS test listesine üç tablo eklenir** (kart). **Seed her tenant için bir `owner` üretir**
-  — M1-11 seed.sql'e admin owner satırları ekler (idempotent; M1-10 ertelemişti).
-- Composite same-tenant FK'ler (admin_sessions→admin_users, password_resets→admin_users).
+**Bir sonraki oturum ne yapmalı:** **M2-01** (ADR 0003: SDM modu + anahtar yönetimi).
+**Önce iki kararı SOR:** **Q05** (SDM mirroring: plain UID+ctr açık mı, şifreli PICC data mı)
+ve **Q06** (etiket anahtar stratejisi: plaket-başına rastgele mi, master'dan UID ile türetilmiş
+mi — türetme encode'u kolaylaştırır ama master sızarsa tüm park düşer). ADR 0003 bunları
+normatif yazar. Skill `tappa-sun` (SUN/SDM/CMAC/ctr). M2 sırası: M2-01 (ADR) → M2-02 (AES-CMAC
+RFC 4493) → M2-03 (SDM URL ayrıştırma) → M2-04 (oturum anahtarı, kısaltılmış MAC, sabit-zaman) →
+M2-05 (KEK sarmalama) → M2-06 (**atomik sayaç + eşzamanlılık, §4.4 en kritik** — M1-08
+`AdvanceTagCounter`'ı N-goroutine -race ile kanıtlar) → M2-07 (sun.Verify + test vektörleri, %90+).
 
-**M1-08/M1-10'a devredilen (M1-05 denetiminden):** `aes_key_ref`'in gerçekten KEK-sarmalı
-olduğu şema düzeyinde zorlanamaz (bytea) → insert-yolu (M1-08) ve seed (M1-10) bunu ayrıca
-doğrulamalı; KEK'in DB dışında (config `TAPPA_TAG_KEK`) tutulması çözümleme güvenliğinin ön
-şartı (M8 deploy denetimi).
+### M6'ya devredilen (M1-11 denetiminden) — back-FK boşluğu
+`transactions.entered_by` · `transaction_reviews.reviewer_id` · `audit_log.actor_id` →
+`admin_users` FK'leri **eklenmedi** (00005 yorumları "M1-11'de eklenir" demişti — **artık
+yanıltıcı**, 00005 immutable/düzeltilemez). M1-11 kartı bunları istemiyor + `reviewer_id NOT NULL`
+FK'si rls_test fixture'ını (rastgele reviewer_id) kırardı. **M6-04 (review akışı) / M6-01 (auth)**
+bu back-FK'leri (composite same-tenant) + fixture yeniden yazımını yapar. Sınırlı risk: yazım
+yolları henüz yok, reviewer_id self-review trigger'ıyla korunuyor. `actor_id` polimorfik
+(admin|employee) → tek FK doğru değil, ayrı ele alınır.
+
+### M6 handler denetimine not (M1-11'den)
+`store.AdminUser.PasswordHash`/`TokenHash` üretilen struct'larda — handler'da `%+v`/slog ile
+loglanırsa §7 sır sızıntısı. M6-01 handler denetiminde kontrol et.
+
+### Devam eden düşük notlar
+- `password_resets.used_at`/`admin_sessions.revoked_at`/`expires_at` UPDATE-edilebilir (append-only
+  trigger yok); tek-kullanımlık/iptal bütünlüğü **app katmanında** (M6/M7 sorguları). sessions.revoked_at
+  ile aynı desen; istenirse M6'da immutability trigger'ı defense-in-depth eklenebilir.
+- **aes_key_ref KEK-sarmalı doğrulaması** (M1-05'ten): şema bytea zorlayamaz → insert-yolu (M2/M5)
+  + seed KEK-sarmalı bekler; KEK DB dışında (config `TAPPA_TAG_KEK`) — M8 deploy denetimi.
 
 **M1-03'ten devralınan iki not (bloklamayan, yapıcının eklediği ekstra kısıtlar):**
 - **M4-05:** `locations.shift_*` nullable → geç kalma hesabı null vardiyayı "hesaplanmaz"
@@ -185,7 +194,7 @@ yazılır.
 | M1-08 | İlk sqlc sorguları | **done** | `62b70a8` · **iki denetçi ONAY** · `make gen`/`build`/`dev` **yeşil** (planlı sqlc kırmızısı bitti) · 6 tenant-kapsamlı sorgu (hepsi açık tenant_id) · `AdvanceTagCounter` atomik CTE strict-`<` (canlı + 2-goroutine -race) · **resolve lookups ELLE** (`internal/db/resolve.go` — sqlc `RETURNS TABLE`'ı tipleyemedi; yalnız SECURITY DEFINER fonksiyon çağırır) · Q25(c) cidr[] override **gerekmedi** (pgx varsayılanı) · WithTenant pgx.Tx kaldı |
 | M1-09 | RLS izolasyonu ve değişmezlik testleri | **done** | `a033c8a` · üçüncü göz ONAY — **non-vacuous 3 bağımsız yolla kanıtlandı** (RLS DISABLE, trigger DISABLE, kaynak mutasyonu → hepsi RED, geri alındı) · 7 vaka + 9 tablo · M0-03 kaçış yolları kapalı (ham SQL, pozitif kontrol, çalışma-anı rol) · `TestResolveColumns_MatchSchema` drift koruması · **2 sapma çözüldü:** x/text CVE yamalandı (`1554135`), redline R3/R5 `_test.go` muafiyeti + test sadeleştirildi (`<sonraki>`) |
 | M1-10 | Seed verisi ve sabit ID'ler | **done** | `516be65` · üçüncü göz ONAY · KF 9 lokasyon + KM 5 departman, 36 çalışan, 12 tag · idempotent (2. koşu INSERT 0 0) · 12/12 sahte-etiketli anahtar (§4.7) · doküman IP cidr[] · Malta GPS min 783.6m · çift-uçlu vardiya · cross-tenant paylaşım 0 · ids.go 53 UUID+12 tag DB ile birebir · yalnız master veri (admin owner M1-11'e) |
-| M1-11 | Migration 0006: admin kullanıcıları | todo | Q03 · denetim bulgusu |
+| M1-11 | Migration 0006: admin kullanıcıları | **done** | `f416d45` · **iki denetçi ONAY** (kırmızı çizgi ihlali yok) · 3 tablo RLS beşlisi + REVOKE DELETE + composite same-tenant FK · **admin'de resolver YOK** (tenant login'de bilinir) · admin_sessions employee sessions'tan ayrı · Q03 bcrypt `password_hash text` (x/crypto M6-01'de) · seed admin owner (dev-only bcrypt) · rls_test +3 tablo (non-vacuous) · **back-FK'ler M6'ya ertelendi** (aşağı) |
 
 ### M2 — [SUN doğrulama](m2-sun.md)
 
@@ -291,13 +300,37 @@ yazılır.
 | M9-06 | Policy simülatörü | todo | Q22 — M6-10'dan ertelendi |
 | M9-07 | Ham JSON politika editörü | todo | Q22 — M6-09'dan ayrıldı |
 
-**Özet:** 82 görev · done 17 · wip 0 · blocked 0 · skipped 1 · todo 64 · **M0 tamam · M1: M1-01…M1-10 done; kalan tek görev M1-11**
+**Özet:** 82 görev · done 18 · wip 0 · blocked 0 · skipped 1 · todo 63 · **M0 tamam · M1 TAMAM (11/11) · sıradaki M2**
 
 ---
 
 ## Oturum günlüğü
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
+
+### 2026-07-25/26 (3. oturum, devam) — **M1-11 done · M1 KİLOMETRE TAŞI TAMAMLANDI** ✅
+
+**M1-11 done — iki denetçi ONAY** (kırmızı çizgi ihlali yok). `f416d45`: admin_users +
+admin_sessions + password_resets, üçünde RLS beşlisi + REVOKE DELETE + composite same-tenant
+FK. **admin'de resolver YOK** (tenant login'de bilinir — employee tap'ten farkı); admin_sessions
+employee sessions'tan ayrı tablo. Q03 bcrypt (`password_hash text`, x/crypto M6-01'de). Seed
+admin owner (dev-only bcrypt, round-trip doğrulandı). rls_test +3 tablo (non-vacuous: RLS DISABLE
+→ RED, geri alındı). models.go make gen (deterministik). Q03 kararı: bcrypt (`8b3a0b3`).
+
+**Denetim bulgusu (non-blocking, devredildi):** back-FK'ler (entered_by/reviewer_id/actor_id →
+admin_users) M6'ya ertelendi; 00005'in "M1-11'de eklenir" yorumu artık yanıltıcı (immutable) —
+ŞU AN'a M6-04/M6-01 devir maddesi + düşük notlar yazıldı.
+
+**🏁 M1 TAMAM (11/11):** 6 migration, 11 tablo (tenants, locations, departments, employees,
+sessions, tags, transactions, audit_log, transaction_reviews, admin_users, admin_sessions,
+password_resets) — hepsinde RLS beşlisi; transactions/audit/reviews immutable (REVOKE+trigger);
+tenant-çözümleme mekanizması (SECURITY DEFINER, GUC-anahtar denetimde reddedildi); WithTenant
+(set_config, sızıntı-yok kanıtlı); ilk sqlc sorguları (make gen yeşil); RLS izolasyon+immutability
+testleri (non-vacuous 3 yolla kanıtlı); KF/KM seed. Bu oturumda **M0→main merge + Q07 + Q03 +
+M1-01…M1-11 + x/text CVE + redline scanner düzeltmesi** — hepsi builder→üçüncü göz (kırmızı
+çizgi görevlerinde + tappa-security-auditor) döngüsünden geçti.
+
+**Sırada:** M2-01 (ADR 0003) — **Q05 + Q06 kullanıcıya sorulacak.**
 
 ### 2026-07-25 (3. oturum, devam) — **M1-10 done** (seed) · M1 tek göreve indi
 
