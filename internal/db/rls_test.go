@@ -51,7 +51,8 @@ import (
 // list in TestRLS_WriteWithCheck_AllTables (case 2/7 write), and -- if it is
 // append-only -- to TestRLS_OwnerMutationsHitAppendOnlyTrigger (case 5). Currently
 // covered: tenants, locations, departments, employees, sessions, tags, transactions,
-// audit_log, transaction_reviews, admin_users, admin_sessions, password_resets.
+// audit_log, transaction_reviews, admin_users, admin_sessions, password_resets,
+// policies, policy_versions, policy_attachments.
 
 // ---------------------------------------------------------------- pools -----
 
@@ -154,6 +155,9 @@ type fixture struct {
 	adminTokenHash string    // admin_sessions.token_hash (never a token, section 4.7)
 	resetID        uuid.UUID // password_resets (single-use)
 	resetTokenHash string    // password_resets.token_hash (never a token, section 4.7)
+	policyID       uuid.UUID // policies (M3-02 policy engine schema)
+	policyVersID   uuid.UUID // policy_versions (append-only), version_no = 1
+	policyAttachID uuid.UUID // policy_attachments (resource = '*')
 }
 
 func buildFixture(t *testing.T, d *DB) fixture {
@@ -177,6 +181,9 @@ func buildFixture(t *testing.T, d *DB) fixture {
 		adminTokenHash: "admin-hash-" + uuid.NewString(),
 		resetID:        uuid.New(),
 		resetTokenHash: "reset-hash-" + uuid.NewString(),
+		policyID:       uuid.New(),
+		policyVersID:   uuid.New(),
+		policyAttachID: uuid.New(),
 	}
 	fx.vatNumber = "VAT-" + fx.tenantID.String()
 
@@ -230,6 +237,19 @@ func buildFixture(t *testing.T, d *DB) fixture {
 		{`INSERT INTO password_resets (id, tenant_id, admin_user_id, token_hash, expires_at)
 		  VALUES ($1, $2, $3, $4, now() + interval '1 hour')`,
 			[]any{fx.resetID, fx.tenantID, fx.adminUserID, fx.resetTokenHash}},
+		// policies (M3-02) -- a tenant-layer policy container. depends only on tenants.
+		{`INSERT INTO policies (id, tenant_id, name, layer)
+		  VALUES ($1, $2, 'iso-policy', 'tenant')`,
+			[]any{fx.policyID, fx.tenantID}},
+		// policy_versions (M3-02) -- APPEND-ONLY; version_no = 1. Composite FK
+		// (policy_id, tenant_id) -> policies proves same-tenant. document is free-form.
+		{`INSERT INTO policy_versions (id, tenant_id, policy_id, version_no, document)
+		  VALUES ($1, $2, $3, 1, '{}'::jsonb)`,
+			[]any{fx.policyVersID, fx.tenantID, fx.policyID}},
+		// policy_attachments (M3-02) -- binds the policy to resource '*'.
+		{`INSERT INTO policy_attachments (id, tenant_id, policy_id, resource)
+		  VALUES ($1, $2, $3, '*')`,
+			[]any{fx.policyAttachID, fx.tenantID, fx.policyID}},
 	}
 
 	err := d.WithTenant(context.Background(), fx.tenantID, func(ctx context.Context, tx pgx.Tx) error {
@@ -359,6 +379,9 @@ func TestRLS_ReadIsolation_AllTables(t *testing.T) {
 		{"admin_users", `SELECT count(*) FROM admin_users WHERE id = $1`, a.adminUserID},
 		{"admin_sessions", `SELECT count(*) FROM admin_sessions WHERE id = $1`, a.adminSessionID},
 		{"password_resets", `SELECT count(*) FROM password_resets WHERE id = $1`, a.resetID},
+		{"policies", `SELECT count(*) FROM policies WHERE id = $1`, a.policyID},
+		{"policy_versions", `SELECT count(*) FROM policy_versions WHERE id = $1`, a.policyVersID},
+		{"policy_attachments", `SELECT count(*) FROM policy_attachments WHERE id = $1`, a.policyAttachID},
 	}
 
 	for _, tc := range tables {
@@ -501,6 +524,38 @@ func TestRLS_WriteWithCheck_AllTables(t *testing.T) {
 				_, e := tx.Exec(ctx, `INSERT INTO password_resets (id, tenant_id, admin_user_id, token_hash, expires_at) VALUES ($1, $2, $3, $4, now() + interval '1 hour')`, uuid.New(), b.tenantID, b.adminUserID, "own-"+uuid.NewString())
 				return e
 			}},
+		{"policies", blockRLS,
+			func(ctx context.Context, tx pgx.Tx) error {
+				_, e := tx.Exec(ctx, `INSERT INTO policies (id, tenant_id, name, layer) VALUES ($1, $2, 'forge', 'tenant')`, uuid.New(), a.tenantID)
+				return e
+			},
+			func(ctx context.Context, tx pgx.Tx) error {
+				_, e := tx.Exec(ctx, `INSERT INTO policies (id, tenant_id, name, layer) VALUES ($1, $2, 'own', 'tenant')`, uuid.New(), b.tenantID)
+				return e
+			}},
+		{"policy_versions", blockRLS,
+			func(ctx context.Context, tx pgx.Tx) error {
+				// tenant_id = A (fails WITH CHECK under B); composite FK to A's policy
+				// resolves (FK bypasses RLS). version_no = 99 avoids any unique clash so
+				// the ONLY failure is WITH CHECK (RLS evaluates before the unique index).
+				_, e := tx.Exec(ctx, `INSERT INTO policy_versions (id, tenant_id, policy_id, version_no, document) VALUES ($1, $2, $3, 99, '{}'::jsonb)`, uuid.New(), a.tenantID, a.policyID)
+				return e
+			},
+			func(ctx context.Context, tx pgx.Tx) error {
+				// B's OWN policy; version_no = 2 (fixture already inserted version 1).
+				_, e := tx.Exec(ctx, `INSERT INTO policy_versions (id, tenant_id, policy_id, version_no, document) VALUES ($1, $2, $3, 2, '{}'::jsonb)`, uuid.New(), b.tenantID, b.policyID)
+				return e
+			}},
+		{"policy_attachments", blockRLS,
+			func(ctx context.Context, tx pgx.Tx) error {
+				// resource differs from the fixture's '*' so no unique clash masks WITH CHECK.
+				_, e := tx.Exec(ctx, `INSERT INTO policy_attachments (id, tenant_id, policy_id, resource) VALUES ($1, $2, $3, $4)`, uuid.New(), a.tenantID, a.policyID, "location/"+uuid.NewString())
+				return e
+			},
+			func(ctx context.Context, tx pgx.Tx) error {
+				_, e := tx.Exec(ctx, `INSERT INTO policy_attachments (id, tenant_id, policy_id, resource) VALUES ($1, $2, $3, $4)`, uuid.New(), b.tenantID, b.policyID, "location/"+uuid.NewString())
+				return e
+			}},
 	}
 
 	for _, tc := range tables {
@@ -593,6 +648,87 @@ func TestRLS_AdminSession_CompositeFKBlocksCrossTenant(t *testing.T) {
 		return e
 	}); errOwn != nil {
 		t.Fatalf("positive control: B could not link a session to its OWN admin: %v", errOwn)
+	}
+}
+
+// ============================================================================
+// Composite same-tenant FK (M3-02): policy_versions(policy_id, tenant_id) ->
+// policies(id, tenant_id) structurally forbids a version pointing at a policy of
+// ANOTHER tenant. Distinct from WITH CHECK: here tenant_id = A matches the context
+// (WITH CHECK passes), but policy_id points at B's policy, for which no (B's id, A)
+// row exists -> foreign_key_violation. Same guarantee applies to policy_attachments
+// (identical composite FK), proven structurally identical. The positive control
+// (A's OWN policy, checked last) proves the FK fails ONLY on the cross-tenant link.
+// ============================================================================
+
+func TestRLS_PolicyVersion_CompositeFKBlocksCrossTenant(t *testing.T) {
+	app := appDB(t)
+	assertAppRole(t, app)
+
+	a := buildFixture(t, app) // the context we insert under
+	b := buildFixture(t, app) // owns the policy we try to borrow
+
+	// Negative: A's context, tenant_id = A (passes WITH CHECK), policy_id = B's.
+	// The composite FK finds no (B's policy id, A) row -> foreign_key_violation.
+	errX := app.WithTenant(context.Background(), a.tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		_, e := tx.Exec(ctx,
+			`INSERT INTO policy_versions (id, tenant_id, policy_id, version_no, document) VALUES ($1, $2, $3, 5, '{}'::jsonb)`,
+			uuid.New(), a.tenantID, b.policyID)
+		return e
+	})
+	if errX == nil {
+		t.Fatalf("cross-tenant policy_version link succeeded, want composite-FK rejection")
+	}
+	if pg := asPgErr(errX); pg == nil || pg.Code != "23503" {
+		t.Fatalf("want foreign_key_violation (23503) for cross-tenant policy link, got %v", errX)
+	}
+
+	// Positive control (same-tenant, checked last): A adding a version to its OWN
+	// policy must SUCCEED (version_no 2; fixture inserted 1) -- otherwise the
+	// rejection above could be for an unrelated reason.
+	if errOwn := app.WithTenant(context.Background(), a.tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		_, e := tx.Exec(ctx,
+			`INSERT INTO policy_versions (id, tenant_id, policy_id, version_no, document) VALUES ($1, $2, $3, 2, '{}'::jsonb)`,
+			uuid.New(), a.tenantID, a.policyID)
+		return e
+	}); errOwn != nil {
+		t.Fatalf("positive control: A could not add a version to its OWN policy: %v", errOwn)
+	}
+}
+
+// ============================================================================
+// layer='guardrail' is STRUCTURALLY unwritable (M3-02): guardrails are compiled
+// into internal/policy (CLAUDE.md section 5 lines 1-5, sys:*), never stored -- a
+// stored guardrail would let a single SQL write disable a section 4 red line. The
+// CHECK (layer IN ('baseline','tenant')) is that structural block. Positive control:
+// both allowed layers insert; negative: 'guardrail' is a check_violation (23514).
+// ============================================================================
+
+func TestPolicies_LayerCheckRejectsGuardrail(t *testing.T) {
+	app := appDB(t)
+	assertAppRole(t, app)
+	fx := buildFixture(t, app)
+
+	// Positive control: the two allowed layers are accepted.
+	for _, layer := range []string{"baseline", "tenant"} {
+		if err := app.WithTenant(context.Background(), fx.tenantID, func(ctx context.Context, tx pgx.Tx) error {
+			_, e := tx.Exec(ctx, `INSERT INTO policies (id, tenant_id, name, layer) VALUES ($1, $2, 'ok', $3)`, uuid.New(), fx.tenantID, layer)
+			return e
+		}); err != nil {
+			t.Fatalf("positive control: layer=%q was rejected: %v", layer, err)
+		}
+	}
+
+	// Negative: 'guardrail' cannot be spelled into a row.
+	err := app.WithTenant(context.Background(), fx.tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		_, e := tx.Exec(ctx, `INSERT INTO policies (id, tenant_id, name, layer) VALUES ($1, $2, 'evil', 'guardrail')`, uuid.New(), fx.tenantID)
+		return e
+	})
+	if err == nil {
+		t.Fatalf("layer='guardrail' was accepted; the CHECK must reject it (guardrails are code, not data)")
+	}
+	if pg := asPgErr(err); pg == nil || pg.Code != "23514" {
+		t.Fatalf("want check_violation (23514) for layer='guardrail', got %v", err)
 	}
 }
 
@@ -710,9 +846,49 @@ func TestRLS_AppCannotMutateTransactions(t *testing.T) {
 }
 
 // ============================================================================
+// Case 4 (policy_versions, M3-02): tappa_app cannot UPDATE or DELETE an append-only
+// policy version -- the REVOKE (belt 1) denies it at the privilege check, BEFORE the
+// trigger. policies stays UPDATE-able (the enabled toggle), proven as a control.
+// ============================================================================
+
+func TestRLS_AppCannotMutatePolicyVersions(t *testing.T) {
+	app := appDB(t)
+	assertAppRole(t, app)
+	fx := buildFixture(t, app)
+
+	// Positive control: app CAN SELECT its own policy version, so the failures below
+	// are the missing UPDATE/DELETE privilege, not invisibility.
+	if got := rawCountCtx(t, app, fx.tenantID, `SELECT count(*) FROM policy_versions WHERE id = $1`, fx.policyVersID); got != 1 {
+		t.Fatalf("positive control: app cannot SELECT its own policy version (got %d rows)", got)
+	}
+
+	errU := app.WithTenant(context.Background(), fx.tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		_, e := tx.Exec(ctx, "UPDATE policy_versions SET version_no = 2 WHERE id = $1", fx.policyVersID)
+		return e
+	})
+	assertPermissionDenied(t, "app UPDATE on policy_versions", errU)
+
+	errD := app.WithTenant(context.Background(), fx.tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		_, e := tx.Exec(ctx, "DELETE FROM policy_versions WHERE id = $1", fx.policyVersID)
+		return e
+	})
+	assertPermissionDenied(t, "app DELETE on policy_versions", errD)
+
+	// Control: policies IS mutable (enabled toggle) -- UPDATE must succeed, proving
+	// the REVOKE above is targeted at the append-only table, not blanket.
+	if err := app.WithTenant(context.Background(), fx.tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		_, e := tx.Exec(ctx, "UPDATE policies SET enabled = false WHERE id = $1", fx.policyID)
+		return e
+	}); err != nil {
+		t.Fatalf("policies must stay UPDATE-able (enabled toggle), got: %v", err)
+	}
+}
+
+// ============================================================================
 // Case 5: the append-only trigger stops mutation of transactions / audit_log /
-// transaction_reviews even for the SUPERUSER owner (RLS + REVOKE cannot -- a
-// superuser bypasses both, so this is the belt on top of those braces, section 4.3).
+// transaction_reviews / policy_versions even for the SUPERUSER owner (RLS + REVOKE
+// cannot -- a superuser bypasses both, so this is the belt on top of those braces,
+// section 4.3). policy_versions reuses the SAME tappa_forbid_mutation() trigger fn.
 // ============================================================================
 
 func TestRLS_OwnerMutationsHitAppendOnlyTrigger(t *testing.T) {
@@ -722,17 +898,20 @@ func TestRLS_OwnerMutationsHitAppendOnlyTrigger(t *testing.T) {
 
 	fx := buildFixture(t, app) // create the rows as tappa_app (committed)
 
-	// Table-driven over the three append-only tables, so the mutation SQL is
-	// assembled per case from name/setCol. The assembled SQL is the real mutation at
-	// runtime and is asserted to be blocked by the append-only trigger.
+	// Table-driven over the append-only tables, so the mutation SQL is assembled per
+	// case from name/setExpr. setExpr (not just a column name) because policy_versions
+	// has no free-text column: 'x' cast to its jsonb/int/uuid columns would raise
+	// BEFORE the trigger fires and mask the append-only proof. The assembled SQL is
+	// the real mutation at runtime and is asserted to be blocked by the trigger.
 	targets := []struct {
-		name   string
-		setCol string
-		id     any
+		name    string
+		setExpr string
+		id      any
 	}{
-		{"transactions", "note", fx.txReviewedID},
-		{"audit_log", "action", fx.auditID},
-		{"transaction_reviews", "note", fx.reviewID},
+		{"transactions", "note = 'x'", fx.txReviewedID},
+		{"audit_log", "action = 'x'", fx.auditID},
+		{"transaction_reviews", "note = 'x'", fx.reviewID},
+		{"policy_versions", "version_no = 2", fx.policyVersID},
 	}
 
 	for _, tc := range targets {
@@ -750,7 +929,7 @@ func TestRLS_OwnerMutationsHitAppendOnlyTrigger(t *testing.T) {
 				t.Fatalf("owner sees %d %s rows, want 1 (positive control for the trigger)", before, tc.name)
 			}
 
-			updateStmt := "UPDATE " + tc.name + " SET " + tc.setCol + " = 'x' WHERE id = $1"
+			updateStmt := "UPDATE " + tc.name + " SET " + tc.setExpr + " WHERE id = $1"
 			deleteStmt := "DELETE FROM " + tc.name + " WHERE id = $1"
 
 			_, errU := owner.pool.Exec(context.Background(), updateStmt, tc.id)

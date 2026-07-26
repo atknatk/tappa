@@ -93,6 +93,34 @@ type PasswordReset struct {
 	UsedAt      *time.Time
 }
 
+type Policy struct {
+	ID        uuid.UUID
+	TenantID  uuid.UUID
+	Name      string
+	Layer     string
+	Enabled   bool
+	CreatedAt time.Time
+	CreatedBy *uuid.UUID
+}
+
+type PolicyAttachment struct {
+	ID        uuid.UUID
+	TenantID  uuid.UUID
+	PolicyID  uuid.UUID
+	Resource  string
+	CreatedAt time.Time
+}
+
+type PolicyVersion struct {
+	ID        uuid.UUID
+	TenantID  uuid.UUID
+	PolicyID  uuid.UUID
+	VersionNo int32
+	Document  []byte
+	CreatedAt time.Time
+	CreatedBy *uuid.UUID
+}
+
 type Session struct {
 	ID         uuid.UUID
 	TenantID   uuid.UUID
