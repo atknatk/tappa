@@ -4,12 +4,13 @@
 > güncellenir ([README.md](README.md) → oturum protokolü, adım 6.4).
 > Görev kartlarına durum işareti konmaz.
 
-**Son güncelleme:** 2026-07-26 (4. oturum — compact sonrası devam; **M3-01 done**, ADR 0004 policy motoru modeli)
+**Son güncelleme:** 2026-07-26 (4. oturum — compact sonrası devam; **M3-01 + M3-02 done**)
 
 > **▶️ COMPACT SONRASI DEVAM (2026-07-26, 4. oturum).** 3. oturum compact noktasından
-> temiz devralındı; **M3-01 (ADR 0004) done** (`01c7a8a`, üçüncü göz ONAY). Her şey
-> `main`'de commit'li, ağaç temiz, `make check` yeşil. **Sıradaki:** "ŞU AN" → **M3-02**
-> (policy şeması, agent `tappa-db-migrator`). Kritik durum sohbette kalmıyor — hepsi
+> temiz devralındı. **M3-01 (ADR 0004) done** (`01c7a8a`, üçüncü göz ONAY) · **M3-02
+> (policy şeması, migration 00007) done** (`4126e4c`, **iki denetçi ONAY**). Her şey
+> `main`'de commit'li, ağaç temiz, `make check` yeşil. **Sıradaki:** "ŞU AN" → **M3-03**
+> (belge modeli + doğrulama, `internal/policy`). Kritik durum sohbette kalmıyor — hepsi
 > burada, `open-questions.md` ve `docs/adr/`'de.
 
 ---
@@ -18,8 +19,8 @@
 
 | | |
 |---|---|
-| **Kilometre taşı** | **M0 + M1 + M2 TAMAM** ✅ · **M3 başladı** — M3-01 (ADR 0004) done (1/9). → sıradaki **[M3 policy motoru](m3-policy-motoru.md)** |
-| **Sıradaki görev** | **M3-02** — [Policy şeması](m3-policy-motoru.md#m3-02--policy-şeması) (append-only sürümler). 3 tablo (`policies`, `policy_versions`, `policy_attachments`), RLS beşlisi + `policy_versions` **append-only** (REVOKE UPDATE,DELETE + trigger — M1-06 `transactions` kalıbı), **guardrail'ler DB'de DEĞİL** (kodda gömülü). Kırmızı çizgi §4.3/§4.5 → agent `tappa-db-migrator` + iki denetçi (üçüncü göz + tappa-security-auditor). Bekleyen kullanıcı kararı yok. |
+| **Kilometre taşı** | **M0 + M1 + M2 TAMAM** ✅ · **M3 devam** — M3-01 + M3-02 done (2/9). → **[M3 policy motoru](m3-policy-motoru.md)** |
+| **Sıradaki görev** | **M3-03** — [Belge modeli, ayrıştırma ve doğrulama](m3-policy-motoru.md#m3-03--belge-modeli-ayrıştırma-ve-doğrulama). `internal/policy/document.go` + `validate.go` + testleri. Bilinmeyen effect/action/operatör/anahtar → **doğrulama hatası** (sessiz yok sayma YOK); `sys:` ad alanı rezerve; **`ignore`/`redirect` baseline/tenant belgesinde reddedilir** (yalnız guardrail üretir); sınırlı param aralık dışı reddedilir; **nicel sınırlar zorunlu** (belge/ifade/action/resource/condition/IpInPrefix/kota — Evaluate her tap'te + tek VPS); bozuk JSON→anlamlı hata+fuzz; doğrulama **yazma anında**. Saf Go, DB yok. Bekleyen kullanıcı kararı yok. |
 | **Çalışma modu** | Orkestrasyon + üçüncü göz — [README.md](README.md) · brief'ler [agent-brief.md](agent-brief.md) |
 | **Dal** | **`main`** — M0 (`m0-bootstrap`) `main`'e fast-forward birleştirildi (`562f021`), dal silindi. **Kullanıcı kararı (2026-07-25): artık doğrudan `main`'de çalışılır, görev başına dal açılmaz** (CLAUDE.md §10 güncellendi). Push/PR yine istemedikçe yok. |
 | **Blokeler** | Yok (M2-02 için bekleyen karar yok). **Bekleyen kullanıcı eylemi:** arm64 Go kurulumu (aşağı bak) — hiçbir şeyi bloklamıyor. |
@@ -56,6 +57,12 @@ yolları henüz yok, reviewer_id self-review trigger'ıyla korunuyor. `actor_id`
 loglanırsa §7 sır sızıntısı. M6-01 handler denetiminde kontrol et.
 
 ### Devam eden düşük notlar
+- **Dev-DB test kalıntısı birikiyor** (M3-02 security-auditor bulgusu): `internal/db/rls_test.go`
+  random-UUID fixture'ları COMMIT ediyor ve `policy_versions`/`transactions` append-only + REVOKE DELETE
+  olduğundan app-katmanı teardown **tasarımca imkânsız** (M1-09: imkânsızlık = garanti). Sonuç: her
+  `make test` koşusu tenants/policies/... satırı ekliyor (auditor: tenants≈1089). Kırmızı çizgi DEĞİL,
+  yalnız hijyen; demo/prod öncesi `make db-reset`. İstenirse owner-teardown veya testcontainers ile
+  izole DB (M8 deploy denetimi) çözer.
 - `password_resets.used_at`/`admin_sessions.revoked_at`/`expires_at` UPDATE-edilebilir (append-only
   trigger yok); tek-kullanımlık/iptal bütünlüğü **app katmanında** (M6/M7 sorguları). sessions.revoked_at
   ile aynı desen; istenirse M6'da immutability trigger'ı defense-in-depth eklenebilir.
@@ -228,7 +235,7 @@ yazılır.
 | ID | Görev | Durum | Commit / not |
 |---|---|---|---|
 | M3-01 | ADR 0004: policy motoru modeli | **done** | `01c7a8a` · üçüncü göz **1. turda** ONAY · `docs/adr/0004-policy-motoru-modeli.md` (413 satır, 0002/0003 iskeleti) · 7+3 içerik maddesi gerekçeli · **§5 satır 1–5↔guardrail, 6–7↔baseline** hem tablo hem düz metin (denetçi CLAUDE.md §5'i satır satır doğruladı) · 5 effect, 2 varsayılan (tap:*→review / authz→deny), guardrail sırası + 2 somut sömürü, ignore/redirect tenant'a kapalı, Y-K spesifik-ezer, 4 alternatif · biyometrik anahtar YOK (§4.1), §4 gevşetme yok · **2 bloklamayan gözlem M3-04'e devredildi** (kart `redirect` eksik, eval-time bilinmeyen operatör) |
-| M3-02 | Policy şeması (append-only sürümler) | todo | |
+| M3-02 | Policy şeması (append-only sürümler) | **done** | `4126e4c` · **iki denetçi ONAY** (üçüncü göz + tappa-security-auditor, kırmızı çizgi ihlali yok) · migration 00007: policies + policy_versions (**append-only**) + policy_attachments, üçünde RLS beşlisi (birebir NULLIF USING+WITH CHECK, pg_policies'ten okundu) · §4.3 kuşak+kemer non-vacuous (trigger DISABLE→superuser UPDATE başarılı → koruma REVOKE değil paylaşılan `tappa_forbid_mutation` trigger) · **`layer` CHECK `guardrail`'i reddediyor** (23514 — guardrail DB'ye yazılamaz) · composite same-tenant FK çapraz-tenant'ı blokluyor (23503) · `tappa_app` rolsuper=f/rolbypassrls=f teyit · **2 sapma kabul:** `policies` DELETE REVOKE (§4.6 enabled durum alanı; planlı silme yolu yok), `created_by` FK-siz uuid (admin FK M6/M7'ye, M1-11 kalıbı) · rls_test.go +3 tablo non-vacuous · models.go make gen additive · make check/gen/audit yeşil |
 | M3-03 | Belge modeli, ayrıştırma ve doğrulama | todo | |
 | M3-04 | Değerlendirici (koşullar, öncelik, açıklanabilirlik) | todo | |
 | M3-05 | Guardrail politikaları | todo | **§4 — en kritik** |
@@ -315,13 +322,37 @@ yazılır.
 | M9-06 | Policy simülatörü | todo | Q22 — M6-10'dan ertelendi |
 | M9-07 | Ham JSON politika editörü | todo | Q22 — M6-09'dan ayrıldı |
 
-**Özet:** 82 görev · done 26 · wip 0 · blocked 0 · skipped 1 · todo 55 · **M0+M1+M2 TAMAM · M3 başladı (M3-01 done, 1/9) · sıradaki M3-02**
+**Özet:** 82 görev · done 27 · wip 0 · blocked 0 · skipped 1 · todo 54 · **M0+M1+M2 TAMAM · M3 devam (M3-01+M3-02 done, 2/9) · sıradaki M3-03**
 
 ---
 
 ## Oturum günlüğü
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
+
+### 2026-07-26 (4. oturum, compact sonrası) — **M3-02 done** (policy şeması, migration 00007)
+
+**M3-02 done — iki denetçi ONAY** (üçüncü göz + tappa-security-auditor, kırmızı çizgi ihlali yok).
+`4126e4c`: migration 00007 — `policies` + `policy_versions` (**append-only**) + `policy_attachments`,
+üçünde RLS beşlisi (birebir NULLIF USING+WITH CHECK). Yapıcı = agent `tappa-db-migrator`. **İki denetçi
+SIRALI koşuldu** (paylaşılan Postgres'te mutasyon sondası çakışmasın diye); üçüncü göz DB'yi migration 7
+temiz bıraktı, security-auditor write-sondalarını rollback tx'te yaptı.
+
+**§4.3 kuşak+kemer non-vacuous kanıtı:** trigger DISABLE edilince superuser UPDATE **başarılı** oldu →
+korumanın REVOKE (superuser atlar) değil paylaşılan `tappa_forbid_mutation` **trigger** olduğu kanıtlandı;
+restore edildi. **Guardrail DB'ye yazılamıyor:** `layer` CHECK `guardrail`'i reddediyor (23514) → bir SQL
+erişimi kırmızı çizgiyi kapatamaz (§4 varlık sebebi). Composite same-tenant FK çapraz-tenant link'i
+blokluyor (23503); `tappa_app` rolsuper=f/rolbypassrls=f (izolasyon kökü).
+
+**2 tasarım sapması — iki denetçi de kabul etti:** (1) `policies` DELETE **REVOKE**'lu (§4.6: silme yerine
+`enabled` durum alanı; planlı silme yolu yok — seed/reset owner ile DROP kullanıyor); (2) `created_by uuid`
+FK-siz (baseline'ı sistem yazar→NULL; admin FK M6/M7'ye ertelendi, M1-11 kalıbı). `policy_attachments`
+tam mutable (attachment karar geçmişi taşımaz; geçmiş `transactions.policy_version_id`+`policy_context`'te).
+
+**Ders (agent-brief'e):** paylaşılan canlı Postgres'e karşı **iki denetçi sıralı** koşulmalı, ya da write
+sondaları rollback tx'inde yapılmalı — eşzamanlı RLS/trigger DISABLE + migrate down/up birbirini bozar.
+
+**Sırada:** M3-03 (belge modeli + ayrıştırma + doğrulama — `internal/policy`, saf Go, DB yok).
 
 ### 2026-07-26 (4. oturum, compact sonrası) — **M3-01 done · M3 başladı**
 
