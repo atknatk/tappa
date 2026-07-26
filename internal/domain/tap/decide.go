@@ -2,6 +2,7 @@ package tap
 
 import (
 	"net/netip"
+	"time"
 
 	"github.com/atknatk/tappa/internal/geo"
 	"github.com/atknatk/tappa/internal/policy"
@@ -153,7 +154,93 @@ func Decide(in Input) Decision {
 		// review (record + queue) rather than drop or silently approve (§4.6).
 		dec.Verdict = VerdictFlag
 	}
+
+	// --- 5. Direction (M4-04) ------------------------------------------------
+	// Only records that JOIN the in/out chain carry a direction: ok and flag. A
+	// flagged tap is still a real record queued for approval (§4.6) and becomes
+	// part of the worked-hours chain once approved, so it needs a direction too.
+	// reject, ignored and the no-session redirect carry NONE — Type stays nil (a
+	// pointer so "no direction" is unambiguous, types.go Decision.Type). Direction
+	// is a pure TOGGLE against the person's last OPEN check-in, never calendar day.
+	if dec.Verdict == VerdictOK || dec.Verdict == VerdictFlag {
+		dir, note := resolveDirection(in)
+		dec.Type = &dir
+		dec.Note = appendNote(dec.Note, note)
+	}
+
 	return dec
+}
+
+// staleOpenInThreshold is how long a check-in may stay OPEN before this engine
+// treats a closing tap as a probable FORGOTTEN CHECKOUT (§5, M4-04). Beyond it the
+// tap is still resolved to out — never silently in — but annotated (staleOpenInNote)
+// so the manager's anomaly report surfaces it for a manual correction (§5: "the
+// system produces NO checkout; the open record is listed as an anomaly").
+//
+// WHY 18h, and why a FIXED duration rather than the resolved Shift length:
+//   - No plausible single continuous work session reaches 18h. A double shift with
+//     overtime and breaks stays under it, and the Rusty Bar overnight shift
+//     (18:00->02:00, ~8h) sits comfortably inside — so a legitimate long night is
+//     NEVER mis-flagged, while a check-in left open across a day is.
+//   - Deriving the threshold from Input.Shift would need the timezone/DST wall-clock
+//     resolution that belongs to M4-05 (types.go Shift doc); this M4-04 guard must
+//     also work when Input.Shift is nil. A fixed span keeps direction resolution
+//     pure arithmetic on UTC instants (§6) and out of M4-05's scope.
+const staleOpenInThreshold = 18 * time.Hour
+
+// staleOpenInNote is the docket/report annotation for a closing tap whose open
+// check-in is older than staleOpenInThreshold. It names an anomaly, carries no
+// secret and no raw coordinate (§4.7), and is appended to — never replaces — the
+// deciding policy's reason.
+const staleOpenInNote = "stale open check-in (possible forgotten checkout)"
+
+// resolveDirection decides whether this tap is a check-IN or check-OUT by TOGGLING
+// against the person's last OPEN check-in (Input.LastOpenIn) — the §5/M4-04 rule.
+// It returns the direction and an optional note to append.
+//
+// Open check-in present -> this tap CLOSES it -> out. None -> in. That is the whole
+// rule; there is deliberately NO "today's records" window. A calendar-day filter is
+// the classic overnight-shift bug: it would refuse to pair the Rusty Bar 02:10 exit
+// with the previous evening's 18:05 entry because they fall on different dates. The
+// caller's GetLastOpenTransaction query is likewise date-unfiltered (occurred_at
+// DESC, M5/M1-08); Decide must NOT assume a window either. All timing here is pure
+// UTC arithmetic on Input.Now and Transaction.OccurredAt (both UTC, §6) — no local
+// time, no time.Now(); conversion to wall-clock is M4-05's render concern only.
+//
+// PRACTICE records never hold the chain open (§5, M4-04). Primary enforcement is the
+// caller's query, which excludes practice so a practice record is never passed as
+// LastOpenIn (types.go Transaction.Practice). We ALSO defend in depth here: a
+// practice LastOpenIn is treated as no open in (-> in), so a caller bug cannot keep
+// a real check-in "open" behind a training tap (the M4-06 exploit that would inflate
+// hours). This is only about a PRIOR practice record's effect on the chain; whether
+// the CURRENT tap is itself practice is derived in M4-06 (Decision.Practice, from
+// Employee.ActivatedAt) — a practice tap still gets a direction computed here and is
+// still recorded, it simply must never later reappear as a LastOpenIn.
+func resolveDirection(in Input) (dir Type, note string) {
+	open := in.LastOpenIn
+	if open == nil || open.Practice {
+		return TypeIn, ""
+	}
+	// An open check-in exists -> close it. Toggle, not calendar day.
+	dir = TypeOut
+	if in.Now.Sub(open.OccurredAt) > staleOpenInThreshold {
+		note = staleOpenInNote
+	}
+	return dir, note
+}
+
+// appendNote joins a policy-derived note and a direction-derived one with "; ",
+// keeping either alone when the other is empty. It preserves the deciding rule's
+// human "why" (Decision.Note) while adding M4-04's stale-open-in annotation.
+func appendNote(existing, add string) string {
+	switch {
+	case add == "":
+		return existing
+	case existing == "":
+		return add
+	default:
+		return existing + "; " + add
+	}
 }
 
 // ipMatches reports whether src falls inside any of the location's registered

@@ -2,6 +2,7 @@ package tap
 
 import (
 	"net/netip"
+	"strings"
 	"testing"
 	"time"
 
@@ -413,5 +414,200 @@ func TestDecide_ZeroSetFailsToReview(t *testing.T) {
 	}
 	if got.MatchedSid != "default" {
 		t.Errorf("MatchedSid = %q, want default", got.MatchedSid)
+	}
+}
+
+// --- M4-04: direction (in/out) ---------------------------------------------------
+//
+// Direction is a pure TOGGLE against the person's last OPEN check-in (Input.LastOpenIn),
+// never calendar day (§5, M4-04). These tests fix Now so the overnight-shift cases are
+// deterministic (a time.Now() test would break at midnight — M4-07 trap).
+
+// onSiteInput is a baseInput whose source IP is on the location's registered range,
+// so the tap lands on §5 row 6 (ok) and therefore CARRIES a direction. Direction
+// tests use it to assert Type without the verdict being the variable under test.
+func onSiteInput() Input {
+	in := baseInput()
+	in.SourceIP = netip.MustParseAddr("203.0.113.7")
+	in.LocationIPs = []netip.Prefix{netip.MustParsePrefix("203.0.113.0/24")}
+	return in
+}
+
+// TestDecide_DirectionInWhenNoOpenCheckIn: no open check-in -> this tap is IN.
+func TestDecide_DirectionInWhenNoOpenCheckIn(t *testing.T) {
+	t.Parallel()
+	in := onSiteInput() // LastOpenIn is nil in baseInput
+	got := Decide(in)
+	if got.Verdict != VerdictOK {
+		t.Fatalf("precondition: want ok, got %q via %q", got.Verdict, got.MatchedSid)
+	}
+	if got.Type == nil || *got.Type != TypeIn {
+		t.Fatalf("no open check-in must yield IN; Type = %v", got.Type)
+	}
+}
+
+// TestDecide_DirectionOutWhenOpenCheckIn: an open check-in exists -> this tap is OUT.
+func TestDecide_DirectionOutWhenOpenCheckIn(t *testing.T) {
+	t.Parallel()
+	in := onSiteInput()
+	in.LastOpenIn = &Transaction{ID: uuid.New(), OccurredAt: in.Now.Add(-3 * time.Hour), Direction: TypeIn}
+	got := Decide(in)
+	if got.Type == nil || *got.Type != TypeOut {
+		t.Fatalf("open check-in must yield OUT; Type = %v", got.Type)
+	}
+	if strings.Contains(got.Note, staleOpenInNote) {
+		t.Errorf("a 3h-old open check-in is not stale; Note = %q", got.Note)
+	}
+}
+
+// TestDecide_DirectionRustyBarOvernight is the load-bearing overnight case: an 18:05
+// check-in is closed by a 02:10 tap the NEXT calendar day. It must pair (-> out) with
+// no "stale" note — proving there is no calendar-day window (the classic night-shift
+// bug that would refuse to pair across midnight).
+func TestDecide_DirectionRustyBarOvernight(t *testing.T) {
+	t.Parallel()
+	evening := time.Date(2026, 7, 26, 18, 5, 0, 0, time.UTC) // shift start, the open in
+	morning := time.Date(2026, 7, 27, 2, 10, 0, 0, time.UTC) // shift end, this tap
+
+	in := onSiteInput()
+	in.Now = morning
+	in.LastOpenIn = &Transaction{ID: uuid.New(), OccurredAt: evening, Direction: TypeIn}
+
+	got := Decide(in)
+	if got.Type == nil || *got.Type != TypeOut {
+		t.Fatalf("02:10 tap must close the previous evening's 18:05 check-in (out), across midnight; Type = %v", got.Type)
+	}
+	if strings.Contains(got.Note, staleOpenInNote) {
+		t.Errorf("an ~8h overnight shift is not a forgotten checkout; Note = %q", got.Note)
+	}
+}
+
+// TestDecide_DirectionMultipleInOutPairsToggle: several in/out pairs in one day
+// sequence correctly. Decide is stateless per call, so the test plays the caller's
+// role — an IN opens the chain, an OUT closes it — and feeds LastOpenIn accordingly.
+func TestDecide_DirectionMultipleInOutPairsToggle(t *testing.T) {
+	t.Parallel()
+	base := onSiteInput()
+	day := time.Date(2026, 7, 26, 0, 0, 0, 0, time.UTC)
+	times := []time.Time{
+		day.Add(8 * time.Hour),  // in
+		day.Add(12 * time.Hour), // out (lunch)
+		day.Add(13 * time.Hour), // in
+		day.Add(17 * time.Hour), // out
+	}
+	want := []Type{TypeIn, TypeOut, TypeIn, TypeOut}
+
+	var openIn *Transaction // the caller's running "last open check-in"
+	for i, ts := range times {
+		in := base
+		in.Now = ts
+		in.LastOpenIn = openIn
+		got := Decide(in)
+		if got.Type == nil {
+			t.Fatalf("tap %d at %s: Type is nil, want %q", i, ts, want[i])
+		}
+		if *got.Type != want[i] {
+			t.Fatalf("tap %d at %s: Type = %q, want %q", i, ts, *got.Type, want[i])
+		}
+		if *got.Type == TypeIn {
+			openIn = &Transaction{ID: uuid.New(), OccurredAt: ts, Direction: TypeIn}
+		} else {
+			openIn = nil
+		}
+	}
+}
+
+// TestDecide_DirectionStaleOpenInProducesOutWithNote: an open check-in far older than
+// staleOpenInThreshold (forgotten checkout) still resolves to OUT — never silently in
+// (§5) — but is annotated so the report shows the anomaly.
+func TestDecide_DirectionStaleOpenInProducesOutWithNote(t *testing.T) {
+	t.Parallel()
+	in := onSiteInput()
+	in.LastOpenIn = &Transaction{ID: uuid.New(), OccurredAt: in.Now.Add(-72 * time.Hour), Direction: TypeIn} // 3 days
+	got := Decide(in)
+	if got.Type == nil || *got.Type != TypeOut {
+		t.Fatalf("stale open check-in must still yield OUT, never silently IN; Type = %v", got.Type)
+	}
+	if !strings.Contains(got.Note, staleOpenInNote) {
+		t.Errorf("stale open check-in must be noted for the anomaly report; Note = %q", got.Note)
+	}
+}
+
+// TestDecide_DirectionStaleThresholdBoundary pins the boundary: just under the
+// threshold is not stale, just over it is.
+func TestDecide_DirectionStaleThresholdBoundary(t *testing.T) {
+	t.Parallel()
+
+	under := onSiteInput()
+	under.LastOpenIn = &Transaction{ID: uuid.New(), OccurredAt: under.Now.Add(-(staleOpenInThreshold - time.Minute)), Direction: TypeIn}
+	if got := Decide(under); strings.Contains(got.Note, staleOpenInNote) {
+		t.Errorf("just under threshold must NOT be stale; Note = %q", got.Note)
+	}
+
+	over := onSiteInput()
+	over.LastOpenIn = &Transaction{ID: uuid.New(), OccurredAt: over.Now.Add(-(staleOpenInThreshold + time.Minute)), Direction: TypeIn}
+	if got := Decide(over); !strings.Contains(got.Note, staleOpenInNote) {
+		t.Errorf("just over threshold must be stale; Note = %q", got.Note)
+	}
+}
+
+// TestDecide_DirectionPracticeOpenInDoesNotCloseChain proves a PRACTICE record never
+// holds the chain open (§5, M4-04). Even with an "open in" present, a practice one is
+// ignored -> this tap is IN. Defense in depth: the caller's query already excludes
+// practice, but a caller bug must not keep a real check-in open behind a training tap
+// (the M4-06 hours-inflation exploit).
+func TestDecide_DirectionPracticeOpenInDoesNotCloseChain(t *testing.T) {
+	t.Parallel()
+	in := onSiteInput()
+	in.LastOpenIn = &Transaction{ID: uuid.New(), OccurredAt: in.Now.Add(-2 * time.Hour), Direction: TypeIn, Practice: true}
+	got := Decide(in)
+	if got.Type == nil || *got.Type != TypeIn {
+		t.Fatalf("a practice open-in must not close the chain; want IN, Type = %v", got.Type)
+	}
+}
+
+// TestDecide_DirectionSetForFlaggedRecord: a flagged tap is still a real record that
+// joins the chain, so it carries a direction too (not only ok).
+func TestDecide_DirectionSetForFlaggedRecord(t *testing.T) {
+	t.Parallel()
+	in := baseInput() // no IP/GPS -> §5 row 7 flag
+	got := Decide(in)
+	if got.Verdict != VerdictFlag {
+		t.Fatalf("precondition: want flag, got %q via %q", got.Verdict, got.MatchedSid)
+	}
+	if got.Type == nil || *got.Type != TypeIn {
+		t.Fatalf("a flagged record still joins the chain and carries a direction; Type = %v", got.Type)
+	}
+}
+
+// TestDecide_DirectionNilForNonRecordVerdicts: reject, ignored and the no-session
+// redirect carry NO direction — Type stays nil even when an open check-in exists.
+func TestDecide_DirectionNilForNonRecordVerdicts(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name   string
+		mutate func(in *Input)
+	}{
+		{"reject_lost_tag", func(in *Input) { in.Tag.Status = TagLost }},
+		{"reject_sun_invalid", func(in *Input) { in.SUN = SUNResult{Valid: false} }},
+		{"reject_deactivated", func(in *Input) { in.Employee.Status = EmployeeDeactivated }},
+		{"ignored_debounce", func(in *Input) {
+			in.LastForPerson = &Transaction{OccurredAt: in.Now.Add(-10 * time.Second), Direction: TypeIn}
+		}},
+		{"redirect_no_session", func(in *Input) { in.Employee = nil }},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			in := baseInput()
+			// An open check-in is present, yet a non-record verdict must NOT carry a
+			// direction: it never pairs with anything.
+			in.LastOpenIn = &Transaction{ID: uuid.New(), OccurredAt: in.Now.Add(-2 * time.Hour), Direction: TypeIn}
+			c.mutate(&in)
+			got := Decide(in)
+			if got.Type != nil {
+				t.Errorf("%s: Type = %q, want nil (only ok/flag carry a direction)", c.name, *got.Type)
+			}
+		})
 	}
 }
