@@ -12,8 +12,8 @@
 
 | | |
 |---|---|
-| **Kilometre taşı** | **M2 — [SUN doğrulama](m2-sun.md)** başladı (M2-01 done). M1 tamam (11/11). |
-| **Sıradaki görev** | **M2-02** — [AES-CMAC (RFC 4493)](m2-sun.md#m2-02--aes-cmac-rfc-4493). Kurum-içi CMAC, `crypto/aes` üstüne (ADR 0001: üçüncü parti kripto YOK → `aead/cmac` gerekmez). **RFC 4493 §4 dört resmi test vektörü** birebir. Bekleyen karar yok. Skill `tappa-sun`. |
+| **Kilometre taşı** | **M2 — [SUN doğrulama](m2-sun.md)** (M2-01, M2-02 done). M0+M1 tamam. |
+| **Sıradaki görev** | **M2-03** — [SDM URL ayrıştırma](m2-sun.md#m2-03--sdm-url-ayrıştırma). `?tag=…&ctr=…&cmac=…` → tipler (ADR 0003 plain biçim: `tag` 14 hex, `ctr` 6 hex **big-endian**, `cmac` 16 hex). Eksik/uzun/kısa/non-hex → **hata, panik yok**; QR'da ctr/cmac yokluğu **geçerli** (`sun_valid=false`, hata değil); fuzz testi. Bekleyen karar yok. Skill `tappa-sun`. |
 | **Çalışma modu** | Orkestrasyon + üçüncü göz — [README.md](README.md) · brief'ler [agent-brief.md](agent-brief.md) |
 | **Dal** | **`main`** — M0 (`m0-bootstrap`) `main`'e fast-forward birleştirildi (`562f021`), dal silindi. **Kullanıcı kararı (2026-07-25): artık doğrudan `main`'de çalışılır, görev başına dal açılmaz** (CLAUDE.md §10 güncellendi). Push/PR yine istemedikçe yok. |
 | **Blokeler** | Yok (M2-02 için bekleyen karar yok). **Bekleyen kullanıcı eylemi:** arm64 Go kurulumu (aşağı bak) — hiçbir şeyi bloklamıyor. |
@@ -206,7 +206,7 @@ yazılır.
 | ID | Görev | Durum | Commit / not |
 |---|---|---|---|
 | M2-01 | ADR 0003: SDM modu ve anahtar yönetimi | **done** | `5a9cd2e` · üçüncü göz ONAY · **Q05 plain SDM + Q06 per-tag random** normatif · plain URL (`tag`/`ctr` big-endian/`cmac`) · KEK AES-256-GCM, `aes_key_ref`=nonce(12)‖ct(16)‖tag(16)=44B · **AAD=ham 7-byte UID v1'de ZORUNLU** (denetçi bulgusu: tappa_app UPDATE→sarmalı anahtar taşınabilir; sıfır maliyet pre-prod) · ctr-wrap fail-closed · AN12196/NT4H2421Gx ref |
-| M2-02 | AES-CMAC (RFC 4493) | todo | |
+| M2-02 | AES-CMAC (RFC 4493) | **done** | `2380baa` · üçüncü göz ONAY (RFC vektörleri **OpenSSL ile bağımsız yeniden hesaplandı**, mutasyonla non-vacuous) · kurum-içi `crypto/aes`, **dep yok** · 4 resmi vektör + K1/K2 + padding · **%100 kapsam** · kısaltma yok (M2-04) · `cmac(key,msg)([16]byte,error)` |
 | M2-03 | SDM URL ayrıştırma | todo | |
 | M2-04 | Oturum anahtarı, kısaltılmış MAC, sabit zamanlı karşılaştırma | todo | |
 | M2-05 | Anahtar sarmalama (KEK) | todo | |
@@ -305,13 +305,24 @@ yazılır.
 | M9-06 | Policy simülatörü | todo | Q22 — M6-10'dan ertelendi |
 | M9-07 | Ham JSON politika editörü | todo | Q22 — M6-09'dan ayrıldı |
 
-**Özet:** 82 görev · done 19 · wip 0 · blocked 0 · skipped 1 · todo 62 · **M0+M1 tamam · M2 başladı (M2-01 done)**
+**Özet:** 82 görev · done 20 · wip 0 · blocked 0 · skipped 1 · todo 61 · **M0+M1 tamam · M2: M2-01, M2-02 done**
 
 ---
 
 ## Oturum günlüğü
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
+
+### 2026-07-26 (3. oturum, devam) — **M2-02 done** (AES-CMAC)
+
+**M2-02 done — üçüncü göz ONAY.** `2380baa`: kurum-içi RFC 4493 AES-CMAC (`crypto/aes`, yeni
+dep yok — ADR 0001). Dört resmi §4 vektörü PASS, K1/K2/dbl/padding testleri, **%100 kapsam**,
+kısaltma yok (M2-04). Denetçi RFC vektörlerini **OpenSSL ile bağımsız yeniden hesapladı** + bayt
+mutasyonuyla non-vacuous kanıtladı. API: `cmac(key, msg) ([16]byte, error)` (M2-04 kullanacak).
+İki sapma (kabul): error dönüşü (§7 aes hatasını yutmaz), hata mesajı R7 "cmac" kelimesinden
+kaçınacak biçimde yeniden yazıldı (daha açıklayıcı).
+
+**Sırada:** M2-03 (SDM URL ayrıştırma).
 
 ### 2026-07-26 (3. oturum, devam) — **M2-01 done** (ADR 0003) · M2 başladı
 
