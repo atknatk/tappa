@@ -4,15 +4,14 @@
 > güncellenir ([README.md](README.md) → oturum protokolü, adım 6.4).
 > Görev kartlarına durum işareti konmaz.
 
-**Son güncelleme:** 2026-07-26 (4. oturum — compact sonrası devam; **M3 TAMAM + M4-01,M4-02 done**)
+**Son güncelleme:** 2026-07-26 (4. oturum — compact sonrası devam; **M3 TAMAM + M4-01…M4-03 done**)
 
-> **▶️ M4 DEVAM — 2026-07-26, 4. oturum.** M3 (policy motoru) 9/9 TAMAM. **M4-01** (internal/geo)
-> `f791f91` · **M4-02** (karar tipleri) `860fcd8` — ikisi de üçüncü göz ONAY. Her şey `main`'de,
-> ağaç temiz, `make check`+`make audit` yeşil. **Sıradaki:** "ŞU AN" → **M4-03** (Decide: bağlam
-> kurma + kararın uygulanması — M3-04 değerlendiricisi üstünde, §4.6/§5/R8 kritik, iki denetçi).
-> M4/M5'e devredilen notlar (N1–N4 + ErrUnknownTag) aşağıda "M4/M5'e devralınan"da. **⚠️ M4-03 açık
-> tasarım noktası:** `Decide(in Input)` policy.Set'i nasıl alıyor (Input'a alan mı, parametre mi —
-> M4-02 imzası Set içermiyor); M4-03 çözer + kartı düzeltir. Bekleyen kullanıcı kararı YOK. Kritik durum sohbette kalmıyor.
+> **▶️ M4 DEVAM — 2026-07-26, 4. oturum.** M3 (policy motoru) 9/9 TAMAM. **M4-01** (geo) `f791f91` ·
+> **M4-02** (karar tipleri) `860fcd8` · **M4-03** (Decide bağlam+uygulama) `bfbbf77` (**iki denetçi ONAY**)
+> — hepsi denetim ONAY, `main`'de, ağaç temiz, `make check`+`make audit` yeşil. **Sıradaki:** "ŞU AN" →
+> **M4-04** (yön tayini in/out). **🔴 M5 için BLOKLAYAN devir (N5):** tap.Decide tenant-farkındalıksız →
+> M5 Input'u TagTenantID/SessionTenantID ile besleyip `sys:tenant-mismatch`'i ateşlemeli, yoksa çapraz-tenant
+> izolasyon deliği (aşağıda "M4/M5'e devralınan"). Bekleyen kullanıcı kararı YOK. Kritik durum sohbette kalmıyor.
 
 ---
 
@@ -20,8 +19,8 @@
 
 | | |
 |---|---|
-| **Kilometre taşı** | **M0 + M1 + M2 + M3 TAMAM** ✅ · **M4 devam** — M4-01, M4-02 done (2/7). → **[M4 tap karar motoru](m4-tap-motoru.md)** |
-| **Sıradaki görev** | **M4-03** — [Decide(): bağlam kurma ve kararın uygulanması](m4-tap-motoru.md#m4-03--decide-bağlam-kurma-ve-kararın-uygulanması) (§4.6 · §5). Kanıtları `policy.Context`'e çevir → `policy.Evaluate` çağır → effect→verdict (allow→ok, review→flag, deny→reject, ignore→ignored); **`sys:no-session` özel: kayıt YAZILMAZ, Redirect** (§5.3 tek istisna). IPMatch/GPSMatch/gpsDistanceM/ctrGap hesapla (geo.WithinRadius, SourceIP∈LocationIPs). **§5 satır 1–5 guardrail, 6–7 baseline olarak policy'den çözülür — `if` zinciri YAZMA** (motor delege). **⚠️ Set nasıl geliyor:** M4-02 `Decide(in Input)` Set içermiyor → Input'a `policy.Set` alanı ekle VEYA parametre; çöz + M4-02 kartını düzelt. **R8/§4.6 tuzakları:** deaktive kontrolü SUN'dan önce=bilgi sızıntısı, debounce SUN'dan önce=replay (ama sıra artık M3-05 guardrail'de — Decide erken kısa-devre YAPMAMALI). Satır 7 asla reject değil (§4.6). Kırmızı çizgi §4.6/§5 → agent tappa-security-auditor R8 + iki denetçi. Bekleyen kullanıcı kararı YOK. |
+| **Kilometre taşı** | **M0 + M1 + M2 + M3 TAMAM** ✅ · **M4 devam** — M4-01→M4-03 done (3/7). → **[M4 tap karar motoru](m4-tap-motoru.md)** |
+| **Sıradaki görev** | **M4-04** — [Yön tayini (in/out)](m4-tap-motoru.md#m4-04--yön-tayini-inout). Kişinin **son açık girişine** göre toggle — **takvim gününe göre DEĞİL** (açık giriş varsa `out`, yoksa `in`). Rusty Bar gece vardiyası: 18:05 in → ertesi gün 02:10 out doğru eşleşmeli. Çok eski açık giriş (unutulmuş çıkış) → yine `out` ama `note` ile işaretli (rapor anomali gösterir; sessizce `in` üretme). **`practice=true` yön zincirine KATILMAZ.** Tüm karşılaştırmalar UTC; `GetLastOpenTransaction` tarih penceresi YOK, `occurred_at DESC`. `Input.LastOpenIn`'i (M4-02) kullanır; `Decide` `Decision.Type`'ı doldurur (M4-03 zero bıraktı). Bekleyen kullanıcı kararı YOK. |
 | **Çalışma modu** | Orkestrasyon + üçüncü göz — [README.md](README.md) · brief'ler [agent-brief.md](agent-brief.md) |
 | **Dal** | **`main`** — M0 (`m0-bootstrap`) `main`'e fast-forward birleştirildi (`562f021`), dal silindi. **Kullanıcı kararı (2026-07-25): artık doğrudan `main`'de çalışılır, görev başına dal açılmaz** (CLAUDE.md §10 güncellendi). Push/PR yine istemedikçe yok. |
 | **Blokeler** | Yok (M2-02 için bekleyen karar yok). **Bekleyen kullanıcı eylemi:** arm64 Go kurulumu (aşağı bak) — hiçbir şeyi bloklamıyor. |
@@ -76,6 +75,15 @@ DOLDURUR. Aşağıdakiler doldurulmazsa guardrail **sessizce** ateşlemez (eksik
   id yükler); bu tam da CHECK+FK'nin erken yakalamak için var olduğu wiring-bug sınıfı. **M5-05 yazma yolunda
   ve denetiminde:** baseline/tenant kararında gerçek `policy_version_id` yüklendiğini + policy_context'in ham
   GPS değil mesafe taşıdığını (§4.7) doğrula.
+- **🔴 N5 (M4-03 denetiminden) — M5 için BLOKLAYAN §4.5 tenant izolasyonu:** `tap.Decide` sıfır tenant-farkındalığıyla
+  çalışıyor — `Input`'ta bugün **TagTenantID/SessionTenantID YOK**, dolayısıyla `sys:tenant-mismatch` guardrail'i
+  ölü. Kritik incelik: tag çözümü (`GetTagByUID`) **context-less**'tır (ADR 0002 md.7) → **RLS çapraz-tenant tag'i
+  çözümde GİZLEMEZ.** Tenant B çalışanı fiziksel olarak tenant A'da (IP/GPS eşleşir) A plaketine dokunursa,
+  `sys:tenant-mismatch` beslenmediği sürece **`ok` check-in yazılır (izolasyon deliği).** Tek savunma bu
+  guardrail'in beslenmesidir. **M5, `Input`'u `TagTenantID`+`SessionTenantID` ile genişletip Decide'a vermeli**
+  (tag çözümünden tenant + oturumdan tenant). M4-03 bunu doğru şekilde M5'e erteledi (Decide karar taklidi
+  yapmıyor); ama M5 bunu sağlamazsa delik açık kalır — **belt-and-braces değil, tek gerçek engel.** Ayrıca (düşük):
+  Decide her redirect'i `RedirectActivation`'a eşliyor → M5 tenant-mismatch redirect'ini aktivasyondan ayırabilir.
 
 ### M2-04'e devralınan not (M2-01 denetiminden, N3)
 SV2 içindeki `ctr`'nin byte sırası ADR/skill'de açıkça sabitlenmedi (bilinçli) → **M2-04/M2-07
@@ -288,7 +296,7 @@ yazılır.
 |---|---|---|---|
 | M4-01 | internal/geo: haversine ve yarıçap | **done** | `f791f91` · üçüncü göz **1. turda** ONAY · `internal/geo` saf paket (yalnız `math`) — `Point{Lat,Lng}`, `Distance` (haversine, R=6371008.8, **atan2** → acos-NaN tuzağı yapısal yok), `WithinRadius(a,b,radiusM)` **strict `<`** (§5 satır 6 "GPS < 150 m" ile hizalı, 150 m DIŞARIDA) · yarıçap **parametre** (config besler, gömülü değil) · **denetçi mesafeleri BAĞIMSIZ yeniden hesapladı** (783.557/1115.594/0/π·R byte-identical) · lat/lng-swap + %100 kapsam mutasyonla RED · §4.7 koordinat loglanmıyor (config/policy import yok, döngü yok) |
 | M4-02 | Karar girdi/çıktı tipleri | **done** | `860fcd8` · üçüncü göz **1. turda** ONAY · `internal/domain/tap/{types,decide}.go` — `Input` (14 alan) + `Decision` (9 alan) karta birebir + `Decide(Input) Decision` imzası (gövde M4-03 **panic-stub**, zero-value §4.6 sessiz-onay riski yok) · **saf** (kendi import'ları `net/netip,time,geo,uuid`; store/db/sun/sql/http/pgx KODDA yok; `time.Now()` çağrısı yok; math/rand+database/sql/driver yalnız uuid'den, policy ile birebir) · enum'lar typed (DB CHECK sözlükleriyle birebir) · **`Employee` pointer (§5.3 nil=oturum yok) + Status (§5.4 deactivated) ayrı** · tap kendi `SUNResult`'ı (sun.Result db/store sürüklüyor) · sapma: `Employee.ActivatedAt` (Practice sunucu-türetim kaynağı, §5/M4-06 exploit önler) |
-| M4-03 | Decide(): bağlam kurma ve kararın uygulanması | todo | M3-04 üstünde |
+| M4-03 | Decide(): bağlam kurma ve kararın uygulanması | **done** | `bfbbf77` · **iki denetçi ONAY** (üçüncü göz + tappa-security-auditor R8, §4.6/§5, kırmızı çizgi ihlali yok) · `Decide` Input→policy.Context kurar (ipMatch/gpsMatch/gpsDistanceM/gpsConflict/ctrGap/sunValid/channel/tag/employee/location) → `policy.Evaluate` **tek çağrı** (if-zinciri/erken-return YOK) → effect→verdict; **no-session→redirect+kayıt-yok** (§5.3 tek istisna); row7→flag (asla reject); boş set→flag · **R8:** deactivated+invalid-SUN→sun-invalid+Security=false (üçüncü göz erken-return mutasyonuyla, security-auditor kod-okumasıyla) · **marker-hilesi iki yönlü doğrulandı** (SessionTenantID=Employee!=nil işareti→sys:no-session; TagTenantID nil→sys:tenant-mismatch inert) · §4.7 mesafe/ham-koordinat değil · saf (tap→policy/geo, store/db/sun yok) · %95.7 · **PolicySet Input alanı + Decision explainability alanları (M4-02 kart düzeltildi)** · **🔴 N5→M5 bloklayan tenant devri** (aşağı) |
 | M4-04 | Yön tayini (in/out) | todo | |
 | M4-05 | Vardiya çözümü ve geç kalma | todo | Q01 |
 | M4-06 | Trust puanı, QR kanalı, practice tap | todo | |
@@ -360,13 +368,33 @@ yazılır.
 | M9-06 | Policy simülatörü | todo | Q22 — M6-10'dan ertelendi |
 | M9-07 | Ham JSON politika editörü | todo | Q22 — M6-09'dan ayrıldı |
 
-**Özet:** 82 görev · done 36 · wip 0 · blocked 0 · skipped 1 · todo 45 · **M0+M1+M2+M3 TAMAM · M4 devam (M4-01,M4-02 done, 2/7) · sıradaki M4-03**
+**Özet:** 82 görev · done 37 · wip 0 · blocked 0 · skipped 1 · todo 44 · **M0+M1+M2+M3 TAMAM · M4 devam (M4-01→M4-03 done, 3/7) · sıradaki M4-04**
 
 ---
 
 ## Oturum günlüğü
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
+
+### 2026-07-26 (4. oturum, compact sonrası) — **M4-03 done** (Decide: bağlam kurma + kararın uygulanması)
+
+**M4-03 done — iki denetçi ONAY** (üçüncü göz + tappa-security-auditor R8; §4.6/§5, kırmızı çizgi ihlali yok).
+`bfbbf77`: `tap.Decide` gövdesi — Input→policy.Context (ipMatch/gpsMatch/gpsDistanceM/gpsConflict/ctrGap +
+guardrail alanları) → `policy.Evaluate` **tek çağrı, if-zinciri/erken-return YOK** → effect→verdict. no-session→
+redirect+kayıt-yok (§5.3 tek istisna); row7→flag; boş set→flag (§4.6 sessiz-ok yok). %95.7 kapsam.
+
+**R8 mutasyonla + kod-okumasıyla:** deactivated+invalid-SUN → sun-invalid kazanır + **Security=false** (deaktivasyon
+sızmaz, push seli yok); üçüncü göz erken-return ekleyip RED gördü. **Marker-hilesi iki yönlü doğrulandı:**
+SessionTenantID=Employee!=nil işareti (sys:no-session sürücüsü); TagTenantID nil → sys:tenant-mismatch ilk-clause
+kısa-devre, gerçekten inert (misfire yok). PolicySet Input alanı olarak eklendi (imza korundu); Decision'a
+MatchedSid/Layer/PolicyVersionID (M3-07). M4-02 kartı düzeltildi. Type/Trust/lateness/Practice M4-04/05/06'da.
+
+**🔴 M5 için BLOKLAYAN devir (N5, ŞU AN'a yazıldı):** tag çözümü context-less (ADR 0002 md.7) → RLS çapraz-tenant
+tag'i çözümde gizlemez. Decide tenant-farkındalıksız (Input'ta tenant id yok) → çapraz-tenant tap `sys:tenant-mismatch`
+beslenmezse `ok` yazılır (izolasyon deliği). M4-03 doğru şekilde erteledi (karar taklidi yapmıyor); **M5 Input'u
+TagTenantID/SessionTenantID ile genişletip guardrail'i ateşlemek ZORUNDA — tek gerçek engel.**
+
+**Sırada:** M4-04 (yön tayini — son açık girişe göre toggle, gece vardiyası, practice zincire girmez).
 
 ### 2026-07-26 (4. oturum, compact sonrası) — **M4-02 done** (karar girdi/çıktı tipleri)
 
