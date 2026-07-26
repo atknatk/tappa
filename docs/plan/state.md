@@ -4,13 +4,13 @@
 > güncellenir ([README.md](README.md) → oturum protokolü, adım 6.4).
 > Görev kartlarına durum işareti konmaz.
 
-**Son güncelleme:** 2026-07-26 (3. oturum — M0+M1+M2 tamam; **compact öncesi kapatıldı**)
+**Son güncelleme:** 2026-07-26 (4. oturum — compact sonrası devam; **M3-01 done**, ADR 0004 policy motoru modeli)
 
-> **⏸️ COMPACT NOKTASI (2026-07-26).** 3. oturum burada bağlam sıkıştırması için
-> durduruldu. Her şey `main`'de commit'li (son commit `ba022d4`), ağaç temiz,
-> `make check`+`make audit` yeşil. **Sıradaki oturum:** aşağıdaki "ŞU AN" → **M3-01**;
-> protokol için skill `tappa-next` + `agent-brief.md`. Sohbette kalan hiçbir kritik
-> durum yok — hepsi burada, `open-questions.md` ve `docs/adr/`'de.
+> **▶️ COMPACT SONRASI DEVAM (2026-07-26, 4. oturum).** 3. oturum compact noktasından
+> temiz devralındı; **M3-01 (ADR 0004) done** (`01c7a8a`, üçüncü göz ONAY). Her şey
+> `main`'de commit'li, ağaç temiz, `make check` yeşil. **Sıradaki:** "ŞU AN" → **M3-02**
+> (policy şeması, agent `tappa-db-migrator`). Kritik durum sohbette kalmıyor — hepsi
+> burada, `open-questions.md` ve `docs/adr/`'de.
 
 ---
 
@@ -18,21 +18,25 @@
 
 | | |
 |---|---|
-| **Kilometre taşı** | **M0 + M1 + M2 TAMAMLANDI** ✅ (M2 SUN doğrulama 7/7). → sıradaki **M3 — [Policy motoru](m3-policy-motoru.md)** |
-| **Sıradaki görev** | **M3-01** — [ADR 0004: policy motoru modeli](m3-policy-motoru.md#m3-01--adr-0004-policy-motoru-modeli). Guardrail/baseline/tenant üç katmanı, AWS IAM benzeri belge yapısı (statement/effect/action/resource/condition), fail-to-review. Bekleyen kullanıcı kararı yok (kontrol et). Skill: `internal/policy` — [docs/plan/m3-policy-motoru.md](m3-policy-motoru.md). |
+| **Kilometre taşı** | **M0 + M1 + M2 TAMAM** ✅ · **M3 başladı** — M3-01 (ADR 0004) done (1/9). → sıradaki **[M3 policy motoru](m3-policy-motoru.md)** |
+| **Sıradaki görev** | **M3-02** — [Policy şeması](m3-policy-motoru.md#m3-02--policy-şeması) (append-only sürümler). 3 tablo (`policies`, `policy_versions`, `policy_attachments`), RLS beşlisi + `policy_versions` **append-only** (REVOKE UPDATE,DELETE + trigger — M1-06 `transactions` kalıbı), **guardrail'ler DB'de DEĞİL** (kodda gömülü). Kırmızı çizgi §4.3/§4.5 → agent `tappa-db-migrator` + iki denetçi (üçüncü göz + tappa-security-auditor). Bekleyen kullanıcı kararı yok. |
 | **Çalışma modu** | Orkestrasyon + üçüncü göz — [README.md](README.md) · brief'ler [agent-brief.md](agent-brief.md) |
 | **Dal** | **`main`** — M0 (`m0-bootstrap`) `main`'e fast-forward birleştirildi (`562f021`), dal silindi. **Kullanıcı kararı (2026-07-25): artık doğrudan `main`'de çalışılır, görev başına dal açılmaz** (CLAUDE.md §10 güncellendi). Push/PR yine istemedikçe yok. |
 | **Blokeler** | Yok (M2-02 için bekleyen karar yok). **Bekleyen kullanıcı eylemi:** arm64 Go kurulumu (aşağı bak) — hiçbir şeyi bloklamıyor. |
 
-**Bir sonraki oturum ne yapmalı:** **M2-02** (AES-CMAC RFC 4493). Kurum-içi CMAC `crypto/aes`
-üstüne (ADR 0001: üçüncü parti kripto YOK; `aead/cmac` gerekmez — kurum-içi ~80 satır). Kabul:
-**RFC 4493 §4 dört resmi test vektörü** (boş mesaj, 16, 40, 64 byte) birebir; subkey K1/K2 türetme
-+ padding ayrı test; `crypto/aes` dışı kripto dep yok; kapsam %90+. **Kısaltma YOK** (tam 16 byte;
-kısaltma M2-04). Skill `tappa-sun`. Kalan M2 sırası: M2-03 (SDM URL ayrıştırma) → M2-04 (oturum
-anahtarı, tek-indeksli 8-byte MAC, `subtle.ConstantTimeCompare`) → M2-05 (KEK sarmalama —
-**Wrap(uid,key)/Unwrap(uid,ref), AAD=ham 7-byte UID**, ADR 0003 madde 4) → M2-06 (**atomik sayaç +
-N-goroutine eşzamanlılık, §4.4 en kritik** — M1-08 `AdvanceTagCounter`'ı kanıtlar; CMAC doğrula
-SONRA ctr ilerlet) → M2-07 (sun.Verify + test vektörleri, kapsam %90+).
+**Bir sonraki oturum ne yapmalı:** **M2-02** … **[TAMAMLANDI — M2 kapandı, aşağıki "ŞU AN" M3-02'yi gösterir]**.
+M3 sırası: M3-02 (şema) → M3-03 (belge modeli + doğrulama) → M3-04 (değerlendirici) → **M3-05
+(guardrail'ler, §4 en kritik)** → M3-06 (baseline) → M3-07 (kararın kayda bağlanması) → M3-08
+(gevşetilemezlik kanıtı, kapsam %90+) → M3-09 (ADR 0005 kabul edilen riskler).
+
+### M3-04'e devralınan (M3-01 denetiminden, bloklamayan)
+1. **M3-04 kartındaki `Decision` struct yorumu** ([m3-policy-motoru.md](m3-policy-motoru.md) ~satır 251)
+   effect'leri `allow | review | deny | ignore` sayıp **`redirect`'i atlıyor** — oysa değerlendirici
+   `redirect` de döndürür (`sys:no-session`, `sys:tenant-mismatch`). Kartın önceden var olan küçük
+   hatası, M3-01 kapsamı dışıydı; **M3-04 yapılırken kart düzeltilmeli** (agent-brief madde 6).
+2. ADR 0004, **değerlendirme anındaki** bilinmeyen operatör/anahtar (sürüm geri-alma sonrası) davranışını
+   açıkça yazmıyor; M3-04 kartı yazıyor (ifade **eşleşmez**, koşul atlanmaz — yoksa deny koşulsuzlaşır).
+   ADR bununla çelişmiyor ("sessizce yok sayma yok / kısıtlayıcıya düş" doğru yönde). M3-04'te uygula.
 
 ### M2-04'e devralınan not (M2-01 denetiminden, N3)
 SV2 içindeki `ctr`'nin byte sırası ADR/skill'de açıkça sabitlenmedi (bilinçli) → **M2-04/M2-07
@@ -223,7 +227,7 @@ yazılır.
 
 | ID | Görev | Durum | Commit / not |
 |---|---|---|---|
-| M3-01 | ADR 0004: policy motoru modeli | todo | |
+| M3-01 | ADR 0004: policy motoru modeli | **done** | `01c7a8a` · üçüncü göz **1. turda** ONAY · `docs/adr/0004-policy-motoru-modeli.md` (413 satır, 0002/0003 iskeleti) · 7+3 içerik maddesi gerekçeli · **§5 satır 1–5↔guardrail, 6–7↔baseline** hem tablo hem düz metin (denetçi CLAUDE.md §5'i satır satır doğruladı) · 5 effect, 2 varsayılan (tap:*→review / authz→deny), guardrail sırası + 2 somut sömürü, ignore/redirect tenant'a kapalı, Y-K spesifik-ezer, 4 alternatif · biyometrik anahtar YOK (§4.1), §4 gevşetme yok · **2 bloklamayan gözlem M3-04'e devredildi** (kart `redirect` eksik, eval-time bilinmeyen operatör) |
 | M3-02 | Policy şeması (append-only sürümler) | todo | |
 | M3-03 | Belge modeli, ayrıştırma ve doğrulama | todo | |
 | M3-04 | Değerlendirici (koşullar, öncelik, açıklanabilirlik) | todo | |
@@ -311,13 +315,38 @@ yazılır.
 | M9-06 | Policy simülatörü | todo | Q22 — M6-10'dan ertelendi |
 | M9-07 | Ham JSON politika editörü | todo | Q22 — M6-09'dan ayrıldı |
 
-**Özet:** 82 görev · done 25 · wip 0 · blocked 0 · skipped 1 · todo 56 · **M0+M1+M2 TAMAM · sıradaki M3 (policy motoru)**
+**Özet:** 82 görev · done 26 · wip 0 · blocked 0 · skipped 1 · todo 55 · **M0+M1+M2 TAMAM · M3 başladı (M3-01 done, 1/9) · sıradaki M3-02**
 
 ---
 
 ## Oturum günlüğü
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
+
+### 2026-07-26 (4. oturum, compact sonrası) — **M3-01 done · M3 başladı**
+
+**M3-01 done — üçüncü göz 1. turda ONAY.** `01c7a8a`: `docs/adr/0004-policy-motoru-modeli.md`
+(ADR 0004, policy motoru modeli). Compact noktasından temiz devralındı; ortam sağlıklı (ağaç temiz,
+Go 1.26.5, tappa-db healthy). ADR, M3 kartında zaten normatif tasarlanmış modeli **gerekçeleriyle**
+karara bağlar: IAM benzeri belge yapısı · 5 effect (allow|review|deny|ignore|redirect) · **2 farklı
+varsayılan** (tap:*→review fail-to-review §4.6 / authz eylemleri→deny fail-closed) · 3 katman
+(guardrail/baseline/tenant) · guardrail sırası NORMATİF + 2 somut sömürü (sun-invalid<employee-
+deactivated → bilgi sızıntısı+push seli; sun-invalid<person-debounce → replay penceresi) · ignore/
+redirect tenant'a kapalı · Y-K spesifik-kaynak-ezer · append-only sürümleme · açıklanabilirlik ·
+sınırlı parametre · 4 reddedilen alternatif (if/ayar tablosu/Rego-OPA/CEL).
+
+**Denetim (bağımsız):** üçüncü göz CLAUDE.md **§5'i satır satır** doğruladı — 1–5↔guardrail,
+6–7↔baseline eşlemesi (hem tablo hem düz metin) doğru; effect eşlemesi tutarlı; operatör/anahtar/
+eylem/kaynak listeleri spec ile **birebir** (10/24/7/4); biyometrik bağlam anahtarı **YOK** (§4.1);
+§4 gevşetme yok; M3-05'in 10 guardrail sid'i + M3-06 baseline sid'leri kartla uyumlu; M3-03/M3-04
+bu ADR'den türetilebilir. Kaçış yolu (başlık-only içi-boş) denendi, ADR düşmemiş — her madde gerekçeli.
+
+**2 bloklamayan gözlem → M3-04'e devredildi** (ŞU AN'da): (1) M3-04 kartındaki `Decision` struct
+yorumu `redirect`'i atlıyor — kart düzeltilmeli; (2) ADR eval-time bilinmeyen operatör davranışını
+yazmıyor, M3-04 kartı yazıyor (çelişki yok). ADR görevi olduğu için tek genel üçüncü göz (M1-01/
+M2-01 precedent'i; dual-audit kod/migration görevlerine mahsus).
+
+**Sırada:** M3-02 (policy şeması — 3 tablo, append-only sürümler, agent `tappa-db-migrator`).
 
 ### 2026-07-26 (3. oturum, devam) — **M2-07 done · M2 KİLOMETRE TAŞI TAMAMLANDI** ✅
 
