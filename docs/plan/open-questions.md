@@ -80,7 +80,7 @@ A/Y maddelerine ek olarak çıkanlar ve nereye işlendikleri:
 | ID | Soru | Bloklar | Sahip | Durum |
 |---|---|---|---|---|
 | Q02 | **E-posta sağlayıcısı.** Davet linki, şifre sıfırlama, rapor gönderimi buna bağlı. Postmark / Resend / SES / kendi SMTP. AB bölgesi ve GDPR işleme sözleşmesi şart. | M5-02, M7-04 | A | açık |
-| Q03 | **Admin şifre hash'i.** stdlib'de uygun KDF yok. Öneri: `golang.org/x/crypto/bcrypt` veya `argon2id`. CLAUDE.md §1 gereği yeni bağımlılık onay ister. | M6-01 | C→A | açık |
+| Q03 | **Admin şifre hash'i.** stdlib'de uygun KDF yok. Öneri: `golang.org/x/crypto/bcrypt` veya `argon2id`. CLAUDE.md §1 gereği yeni bağımlılık onay ister. | M6-01 | C→A | **bcrypt** (2026-07-26) — aşağı bak |
 | Q05 | **SDM mirroring modu.** Plain (UID + ctr açık) mı, şifreli PICC data mı? Karar ADR 0003 olacak. | M2-01 | C→A | açık |
 | Q06 | **Etiket anahtar stratejisi.** Plaket başına rastgele mi, master'dan UID ile türetilmiş mi? Türetme encode'u kolaylaştırır ama master sızarsa tüm park düşer. | M2-05 | C→A | açık |
 | Q07 | **`locations.static_ips` tipi.** `inet[]` (tek IP = /32) mi `cidr[]` (aralık) mi? Müşteri ISS'i /29 blok verirse aralık gerekir. | M1-03 | A | **cidr[]** (2026-07-25) — aşağı bak |
@@ -92,6 +92,26 @@ A/Y maddelerine ek olarak çıkanlar ve nereye işlendikleri:
 | Q13 | **GDPR silme talebi × immutable `transactions`.** Öneri: `employees` üzerinde anonimleştir, `transactions` korunur — hukuki onay ister. Saklama süresi de burada. | M8-06 | A | açık |
 
 ## Cevaplananlar
+
+### Q03 — Admin şifre hash'i: bcrypt (2026-07-26)
+
+**Karar:** admin şifreleri **`golang.org/x/crypto/bcrypt`** ile hash'lenir.
+`password_hash text` (`$2a$…` biçimi). argon2id terk edildi.
+
+**Gerekçe:** bcrypt olgun, basit ve doğru uygulaması en kolay (`GenerateFromPassword`/
+`CompareHashAndPassword` hazır, cost-tunable). argon2id modern/memory-hard (OWASP #1) ama
+param tuning + `$argon2id$…` hash-string encoding'i elle yazılır → daha fazla kod ve param
+tuzağı. Bu ölçekte (tek VPS, panel girişi) bcrypt yeterli ve daha az tuzaklı; §1 "stdlib >
+küçük kütüphane" ethos'uyla uyumlu.
+
+**Bağımlılık (§1):** `golang.org/x/crypto` (bcrypt alt paketi). **M1-11'de EKLENMEZ** —
+migration KDF-agnostiktir (`password_hash text` her iki KDF'i de tutar). Bağımlılık, hashing
+kodu yazılırken **M6-01** (admin auth) ve **M7-04** (şifre sıfırlama) 'te eklenir (§1 "gerektiğinde
+ekle" ruhu). Not: bcrypt 72-byte parola sınırı — M6-01/M7-04 uzun parolayı reddeder ya da SHA-256
+ön-hash uygular; kararı o kodda.
+
+**Etkilenen:** [M1-11](m1-veri-katmani.md) (`password_hash text NOT NULL`, KDF-agnostik) ·
+[M6-01](m6-dashboard.md) (bcrypt hashing + x/crypto dep) · [M7-04](m7-portal.md) (sıfırlama).
 
 ### Q07 — `locations.static_ips` tipi `cidr[]` (2026-07-25)
 
