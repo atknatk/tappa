@@ -12,6 +12,28 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type AdminSession struct {
+	ID          uuid.UUID
+	TenantID    uuid.UUID
+	AdminUserID uuid.UUID
+	TokenHash   string
+	CreatedAt   time.Time
+	LastUsedAt  *time.Time
+	RevokedAt   *time.Time
+}
+
+type AdminUser struct {
+	ID           uuid.UUID
+	TenantID     uuid.UUID
+	FullName     string
+	Email        *string
+	PasswordHash string
+	Role         string
+	Status       string
+	CreatedAt    time.Time
+	LastLoginAt  *time.Time
+}
+
 type AuditLog struct {
 	ID       uuid.UUID
 	TenantID uuid.UUID
@@ -59,6 +81,16 @@ type Location struct {
 	ShiftEnd   pgtype.Time
 	Overnight  bool
 	CreatedAt  time.Time
+}
+
+type PasswordReset struct {
+	ID          uuid.UUID
+	TenantID    uuid.UUID
+	AdminUserID uuid.UUID
+	TokenHash   string
+	CreatedAt   time.Time
+	ExpiresAt   time.Time
+	UsedAt      *time.Time
 }
 
 type Session struct {

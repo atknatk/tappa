@@ -110,3 +110,19 @@ const (
 	TagKFHeadquarter  = "04AC7E55000901"
 	TagKMPlant        = "04BE7E55000A01"
 )
+
+// Admin panel owners (one per tenant, M1-11). role='owner'. These are the panel
+// identity, kept separate from employees (an employee never sees a password). The
+// ...4xx range is the admin block (employees use ...3xx). The dev-only login
+// password is AdminDevPassword below; its bcrypt hash lives in seed.sql.
+var (
+	AdminKFOwner = uuid.MustParse("10000000-0000-4000-8000-000000000401") // owner@kebabfactory.mt
+	AdminKMOwner = uuid.MustParse("20000000-0000-4000-8000-000000000401") // owner@kebabmfg.mt
+)
+
+// AdminDevPassword is the DEV-ONLY plaintext whose bcrypt $2a$ hash seeds both
+// owners above. It is NOT a real secret -- documented on purpose, same principle
+// as the fake tag aes_key_ref: the demo panel login must work, but no real
+// customer credential ever lives in the repo. Production owners (M8-07) never use
+// it. Named here so a future admin-auth test can log in without a magic string.
+const AdminDevPassword = "tappa-dev-only-changeme"

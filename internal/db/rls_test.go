@@ -46,11 +46,12 @@ import (
 // and would pass with RLS OFF. The one place a filtered store query is exercised
 // is TestStoreQueryFiltersByTenant, which is explicitly NOT an isolation proof.
 //
-// NEW TABLE? When a migration adds a tenant-scoped table, add it to isoReadTables
-// (case 1/7 read) and to the write table list in TestRLS_WriteWithCheck_AllTables
-// (case 2/7 write), and -- if it is append-only -- to TestRLS_OwnerMutationsHit
-// AppendOnlyTrigger (case 5). Currently covered: tenants, locations, departments,
-// employees, sessions, tags, transactions, audit_log, transaction_reviews.
+// NEW TABLE? When a migration adds a tenant-scoped table, add it to the read table
+// list in TestRLS_ReadIsolation_AllTables (case 1/7 read) and to the write table
+// list in TestRLS_WriteWithCheck_AllTables (case 2/7 write), and -- if it is
+// append-only -- to TestRLS_OwnerMutationsHitAppendOnlyTrigger (case 5). Currently
+// covered: tenants, locations, departments, employees, sessions, tags, transactions,
+// audit_log, transaction_reviews, admin_users, admin_sessions, password_resets.
 
 // ---------------------------------------------------------------- pools -----
 
@@ -147,6 +148,12 @@ type fixture struct {
 	reviewID       uuid.UUID
 	reviewerID     uuid.UUID // != employeeID (self-review is forbidden)
 	auditID        uuid.UUID
+	adminUserID    uuid.UUID // admin_users owner (M1-11 panel identity)
+	adminEmail     string    // per-fixture unique (tenant-scoped citext unique)
+	adminSessionID uuid.UUID // admin_sessions (separate from employee sessions)
+	adminTokenHash string    // admin_sessions.token_hash (never a token, section 4.7)
+	resetID        uuid.UUID // password_resets (single-use)
+	resetTokenHash string    // password_resets.token_hash (never a token, section 4.7)
 }
 
 func buildFixture(t *testing.T, d *DB) fixture {
@@ -164,6 +171,12 @@ func buildFixture(t *testing.T, d *DB) fixture {
 		reviewID:       uuid.New(),
 		reviewerID:     uuid.New(),
 		auditID:        uuid.New(),
+		adminUserID:    uuid.New(),
+		adminEmail:     "admin-" + uuid.NewString() + "@iso.example",
+		adminSessionID: uuid.New(),
+		adminTokenHash: "admin-hash-" + uuid.NewString(),
+		resetID:        uuid.New(),
+		resetTokenHash: "reset-hash-" + uuid.NewString(),
 	}
 	fx.vatNumber = "VAT-" + fx.tenantID.String()
 
@@ -203,6 +216,20 @@ func buildFixture(t *testing.T, d *DB) fixture {
 		{`INSERT INTO audit_log (id, tenant_id, action)
 		  VALUES ($1, $2, 'iso.fixture')`,
 			[]any{fx.auditID, fx.tenantID}},
+		// admin_users (M1-11) -- panel identity, separate from employees. password_hash
+		// is any non-null text here (not a real hash; this fixture never authenticates).
+		{`INSERT INTO admin_users (id, tenant_id, full_name, email, password_hash, role)
+		  VALUES ($1, $2, 'iso-admin', $3, 'x', 'owner')`,
+			[]any{fx.adminUserID, fx.tenantID, fx.adminEmail}},
+		// admin_sessions (M1-11) -- separate from employee sessions; composite FK to
+		// admin_users(id, tenant_id) proves the session's admin is same-tenant.
+		{`INSERT INTO admin_sessions (id, tenant_id, admin_user_id, token_hash)
+		  VALUES ($1, $2, $3, $4)`,
+			[]any{fx.adminSessionID, fx.tenantID, fx.adminUserID, fx.adminTokenHash}},
+		// password_resets (M1-11) -- single-use; expires_at is NOT NULL.
+		{`INSERT INTO password_resets (id, tenant_id, admin_user_id, token_hash, expires_at)
+		  VALUES ($1, $2, $3, $4, now() + interval '1 hour')`,
+			[]any{fx.resetID, fx.tenantID, fx.adminUserID, fx.resetTokenHash}},
 	}
 
 	err := d.WithTenant(context.Background(), fx.tenantID, func(ctx context.Context, tx pgx.Tx) error {
@@ -329,6 +356,9 @@ func TestRLS_ReadIsolation_AllTables(t *testing.T) {
 		{"transactions", `SELECT count(*) FROM transactions WHERE id = $1`, a.txReviewedID},
 		{"audit_log", `SELECT count(*) FROM audit_log WHERE id = $1`, a.auditID},
 		{"transaction_reviews", `SELECT count(*) FROM transaction_reviews WHERE id = $1`, a.reviewID},
+		{"admin_users", `SELECT count(*) FROM admin_users WHERE id = $1`, a.adminUserID},
+		{"admin_sessions", `SELECT count(*) FROM admin_sessions WHERE id = $1`, a.adminSessionID},
+		{"password_resets", `SELECT count(*) FROM password_resets WHERE id = $1`, a.resetID},
 	}
 
 	for _, tc := range tables {
@@ -442,6 +472,35 @@ func TestRLS_WriteWithCheck_AllTables(t *testing.T) {
 				_, e := tx.Exec(ctx, `INSERT INTO transaction_reviews (id, tenant_id, transaction_id, reviewer_id, outcome) VALUES ($1, $2, $3, $4, 'approved')`, uuid.New(), b.tenantID, b.txUnreviewedID, uuid.New())
 				return e
 			}},
+		{"admin_users", blockRLS,
+			func(ctx context.Context, tx pgx.Tx) error {
+				_, e := tx.Exec(ctx, `INSERT INTO admin_users (id, tenant_id, full_name, email, password_hash, role) VALUES ($1, $2, 'Forge', $3, 'x', 'manager')`, uuid.New(), a.tenantID, "forge-"+uuid.NewString()+"@iso.example")
+				return e
+			},
+			func(ctx context.Context, tx pgx.Tx) error {
+				_, e := tx.Exec(ctx, `INSERT INTO admin_users (id, tenant_id, full_name, email, password_hash, role) VALUES ($1, $2, 'Own', $3, 'x', 'manager')`, uuid.New(), b.tenantID, "own-"+uuid.NewString()+"@iso.example")
+				return e
+			}},
+		{"admin_sessions", blockRLS,
+			func(ctx context.Context, tx pgx.Tx) error {
+				// tenant_id = A (fails WITH CHECK under B); FK to A's admin user resolves
+				// because FK checks bypass RLS, so only WITH CHECK stands in the way.
+				_, e := tx.Exec(ctx, `INSERT INTO admin_sessions (id, tenant_id, admin_user_id, token_hash) VALUES ($1, $2, $3, $4)`, uuid.New(), a.tenantID, a.adminUserID, "forge-"+uuid.NewString())
+				return e
+			},
+			func(ctx context.Context, tx pgx.Tx) error {
+				_, e := tx.Exec(ctx, `INSERT INTO admin_sessions (id, tenant_id, admin_user_id, token_hash) VALUES ($1, $2, $3, $4)`, uuid.New(), b.tenantID, b.adminUserID, "own-"+uuid.NewString())
+				return e
+			}},
+		{"password_resets", blockRLS,
+			func(ctx context.Context, tx pgx.Tx) error {
+				_, e := tx.Exec(ctx, `INSERT INTO password_resets (id, tenant_id, admin_user_id, token_hash, expires_at) VALUES ($1, $2, $3, $4, now() + interval '1 hour')`, uuid.New(), a.tenantID, a.adminUserID, "forge-"+uuid.NewString())
+				return e
+			},
+			func(ctx context.Context, tx pgx.Tx) error {
+				_, e := tx.Exec(ctx, `INSERT INTO password_resets (id, tenant_id, admin_user_id, token_hash, expires_at) VALUES ($1, $2, $3, $4, now() + interval '1 hour')`, uuid.New(), b.tenantID, b.adminUserID, "own-"+uuid.NewString())
+				return e
+			}},
 	}
 
 	for _, tc := range tables {
@@ -491,6 +550,50 @@ func TestRLS_WriteWithCheck_Tenants(t *testing.T) {
 		return e
 	})
 	assertWriteBlocked(t, "tenants", blockRLS, err)
+}
+
+// ============================================================================
+// Composite same-tenant FK (M1-11): admin_sessions(admin_user_id, tenant_id) ->
+// admin_users(id, tenant_id) structurally forbids linking a session to an admin of
+// ANOTHER tenant. This is a DIFFERENT guarantee from WITH CHECK: here tenant_id = B
+// matches the context (so WITH CHECK passes), but admin_user_id points at A's admin,
+// for which no (A's id, B) row exists -> a foreign_key_violation. The positive
+// control (B's OWN admin, checked last) proves the FK fails ONLY on the cross-tenant
+// link, not on some unrelated cause.
+// ============================================================================
+
+func TestRLS_AdminSession_CompositeFKBlocksCrossTenant(t *testing.T) {
+	app := appDB(t)
+	assertAppRole(t, app)
+
+	a := buildFixture(t, app) // foreign tenant (owns the admin we try to borrow)
+	b := buildFixture(t, app) // own tenant (the context we insert under)
+
+	// Negative: B's context, tenant_id = B (passes WITH CHECK), admin_user_id = A's.
+	// The composite FK finds no (A's admin id, B) row -> foreign_key_violation.
+	errX := app.WithTenant(context.Background(), b.tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		_, e := tx.Exec(ctx,
+			`INSERT INTO admin_sessions (id, tenant_id, admin_user_id, token_hash) VALUES ($1, $2, $3, $4)`,
+			uuid.New(), b.tenantID, a.adminUserID, "xfk-"+uuid.NewString())
+		return e
+	})
+	if errX == nil {
+		t.Fatalf("cross-tenant admin_session link succeeded, want composite-FK rejection")
+	}
+	if pg := asPgErr(errX); pg == nil || pg.Code != "23503" {
+		t.Fatalf("want foreign_key_violation (23503) for cross-tenant admin link, got %v", errX)
+	}
+
+	// Positive control (same-tenant, checked last): B linking to its OWN admin user
+	// must SUCCEED -- otherwise the rejection above could be for an unrelated reason.
+	if errOwn := app.WithTenant(context.Background(), b.tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		_, e := tx.Exec(ctx,
+			`INSERT INTO admin_sessions (id, tenant_id, admin_user_id, token_hash) VALUES ($1, $2, $3, $4)`,
+			uuid.New(), b.tenantID, b.adminUserID, "own-"+uuid.NewString())
+		return e
+	}); errOwn != nil {
+		t.Fatalf("positive control: B could not link a session to its OWN admin: %v", errOwn)
+	}
 }
 
 // ============================================================================

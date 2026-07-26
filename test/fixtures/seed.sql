@@ -11,10 +11,11 @@
 -- WHAT THIS IS NOT
 --   No transactions, no audit_log, no transaction_reviews. Tap records are the
 --   decision engine's OUTPUT and are produced by M5-09 ("simulate a day") from
---   the engine itself, never hand-authored here (section 5). No admin_users either --
---   that table does not exist yet (M1-11 adds it and seeds one owner per tenant).
---   No sessions: a persistent session is created by the activation flow (M2) /
---   day simulation (M5-09), not part of the durable master identity graph.
+--   the engine itself, never hand-authored here (section 5). ONE admin_users owner
+--   per tenant IS seeded (M1-11) so the panel demo can log in; no managers, no
+--   admin_sessions, no password_resets (those are runtime artifacts of M6/M7).
+--   No employee sessions: a persistent session is created by the activation flow
+--   (M2) / day simulation (M5-09), not part of the durable master identity graph.
 --
 -- IDEMPOTENCY
 --   Every row uses a fixed UUID / tag UID and ON CONFLICT DO NOTHING. Running
@@ -48,6 +49,11 @@
 --   nor a real KEK-wrapped blob. Real NTAG AES keys never live in the repo; in
 --   production this column is a KEK-wrapped blob and the KEK stays outside the DB
 --   (config TAPPA_TAG_KEK).
+--   admin_users.password_hash is a bcrypt $2a$ hash of the DOCUMENTED dev-only
+--   password "tappa-dev-only-changeme" (see the admin_users section below). Same
+--   principle as the fake tag key: NOT a real secret, the demo login must work,
+--   and no real customer credential ever lives in the repo. Production owners are
+--   created by M8-07, never seeded.
 --
 -- NETWORK (section proof-of-place)
 --   static_ips use only the documentation ranges 203.0.113.0/24 (KF) and
@@ -361,5 +367,32 @@ FROM (VALUES
      '20000000-0000-4000-8000-000000000101', 'active',  NULL)
 ) AS t(uid, tenant_id, location_id, status, replaced_by)
 ON CONFLICT (uid) DO NOTHING;
+
+-- ------------------------------------------------------------------ admin_users
+-- ONE panel owner per tenant (M1-11). role='owner', status='active'. This is the
+-- panel identity -- SEPARATE from employees (an employee never has a password).
+-- Idempotent via fixed UUID (...4xx admin block) + ON CONFLICT DO NOTHING.
+--
+-- DEV-ONLY PASSWORD -- NOT A REAL SECRET (section 4.7). password_hash is a bcrypt
+-- $2a$ hash (cost 12) of the DOCUMENTED dev-only password "tappa-dev-only-changeme"
+-- (mirrored as fixtures.AdminDevPassword in ids.go). Generated OFFLINE with Go's
+-- golang.org/x/crypto/bcrypt; x/crypto is NOT a project dependency -- the hash is a
+-- static string embedded here (same principle as the fake tag keys above). Each
+-- owner has its own salt (distinct hash), as bcrypt normally produces. Real owners
+-- (M8-07) set their own password; this credential is for the demo panel only.
+INSERT INTO admin_users
+    (id, tenant_id, full_name, email, password_hash, role, status, created_at)
+VALUES
+    ('10000000-0000-4000-8000-000000000401', '10000000-0000-4000-8000-000000000001',
+     'KF Owner', 'owner@kebabfactory.mt'::citext,
+     -- DEV ONLY -- not a real secret; bcrypt($2a$) of "tappa-dev-only-changeme".
+     '$2a$12$XqFC1yKNh9FGZ4bIx26ZWuchg1hmT1c4p7zWpzyxFeIQMOBmoRTji',
+     'owner', 'active', now() - interval '90 days'),
+    ('20000000-0000-4000-8000-000000000401', '20000000-0000-4000-8000-000000000001',
+     'KM Owner', 'owner@kebabmfg.mt'::citext,
+     -- DEV ONLY -- not a real secret; bcrypt($2a$) of "tappa-dev-only-changeme".
+     '$2a$12$dJ.K9p.uwM2Inl5J/cMcPOd5w6VLagLkjq41XYGu/TCfo3d.SDRCC',
+     'owner', 'active', now() - interval '90 days')
+ON CONFLICT (id) DO NOTHING;
 
 COMMIT;
