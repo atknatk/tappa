@@ -81,8 +81,8 @@ A/Y maddelerine ek olarak çıkanlar ve nereye işlendikleri:
 |---|---|---|---|---|
 | Q02 | **E-posta sağlayıcısı.** Davet linki, şifre sıfırlama, rapor gönderimi buna bağlı. Postmark / Resend / SES / kendi SMTP. AB bölgesi ve GDPR işleme sözleşmesi şart. | M5-02, M7-04 | A | açık |
 | Q03 | **Admin şifre hash'i.** stdlib'de uygun KDF yok. Öneri: `golang.org/x/crypto/bcrypt` veya `argon2id`. CLAUDE.md §1 gereği yeni bağımlılık onay ister. | M6-01 | C→A | **bcrypt** (2026-07-26) — aşağı bak |
-| Q05 | **SDM mirroring modu.** Plain (UID + ctr açık) mı, şifreli PICC data mı? Karar ADR 0003 olacak. | M2-01 | C→A | açık |
-| Q06 | **Etiket anahtar stratejisi.** Plaket başına rastgele mi, master'dan UID ile türetilmiş mi? Türetme encode'u kolaylaştırır ama master sızarsa tüm park düşer. | M2-05 | C→A | açık |
+| Q05 | **SDM mirroring modu.** Plain (UID + ctr açık) mı, şifreli PICC data mı? Karar ADR 0003 olacak. | M2-01 | C→A | **plain** (2026-07-26) — aşağı bak |
+| Q06 | **Etiket anahtar stratejisi.** Plaket başına rastgele mi, master'dan UID ile türetilmiş mi? Türetme encode'u kolaylaştırır ama master sızarsa tüm park düşer. | M2-01/M2-05 | C→A | **plaket-başına rastgele** (2026-07-26) — aşağı bak |
 | Q07 | **`locations.static_ips` tipi.** `inet[]` (tek IP = /32) mi `cidr[]` (aralık) mi? Müşteri ISS'i /29 blok verirse aralık gerekir. | M1-03 | A | **cidr[]** (2026-07-25) — aşağı bak |
 | Q08 | **Domain + marka tescili.** `tappa.mt` / `tappa.io` alınmadı, EUIPO taraması yapılmadı. SUN URL'sinde geçiyor. | M8-05, M5-01 (ölçüm), M8-02 | A | açık |
 | Q09 | **VIES doğrulaması MVP'de zorunlu mu?** Servis sık kesilir. Öneri: format zorunlu + VIES "en iyi çaba", başarısızsa `vat_verified=false` ve panelde uyarı. | M7-02 | C→A | açık |
@@ -92,6 +92,40 @@ A/Y maddelerine ek olarak çıkanlar ve nereye işlendikleri:
 | Q13 | **GDPR silme talebi × immutable `transactions`.** Öneri: `employees` üzerinde anonimleştir, `transactions` korunur — hukuki onay ister. Saklama süresi de burada. | M8-06 | A | açık |
 
 ## Cevaplananlar
+
+### Q05 — SDM mirroring modu: plain (2026-07-26)
+
+**Karar:** NTAG 424 DNA **plain SDM mirroring** — tap URL'si UID + ctr'yi **açık**
+taşır (`?tag=<uid>&ctr=<ctr>&cmac=<mac>`). Şifreli PICC data terk edildi. ADR 0003
+(M2-01) normatif yazar.
+
+**Gerekçe:** UID zaten fiziksel plakette basılı ve sistem onu **public** kabul ediyor
+(`resolve_tag_by_uid`, uid tap URL'sinde). Şifreli PICC'in mahremiyet kazancı bu yüzden
+düşük; buna karşılık PICC'i çözmek için **paylaşılan bir meta-read anahtarı** gerekir
+(uid bilinmeden çözülemez → Q06'nın "plaket-başına rastgele"siyle çelişir, tek-nokta
+risk). Plain mod basit ayrıştırma + paylaşılan anahtar yok; güvenlik CMAC (proof of
+moment) + monoton ctr (replay) 'den gelir. Kullanıcı plain'i seçti.
+
+**Etkilenen:** [M2-01](m2-sun.md) ADR 0003 · [M2-03](m2-sun.md) URL ayrıştırma
+(`tag`/`ctr`/`cmac` parametreleri, 7-byte UID hex / 3-byte ctr big-endian / 8-byte cmac) ·
+[M2-04](m2-sun.md) (SV2 = `3C C3 00 01 00 80 || UID || ctr`).
+
+### Q06 — Etiket anahtar stratejisi: plaket-başına rastgele (2026-07-26)
+
+**Karar:** her plaket için **bağımsız rastgele AES-128 anahtarı** (K_SDMFileRead);
+`TAPPA_TAG_KEK` ile sarmalanıp `tags.aes_key_ref`'te (bytea) saklanır. Master'dan
+UID-türetme terk edildi.
+
+**Gerekçe:** izolasyon — bir anahtar sızarsa **yalnız o plaket** düşer (§4.7 ruhu).
+Master-türetme encode'u kolaylaştırır ama **master sızarsa tüm park düşer** (Q06 notunun
+açıkça uyardığı kabul edilemez tek-nokta risk; güvenlik ürünü için uygun değil). Şema
+zaten per-tag `aes_key_ref` taşıyor; encode runbook (M8-05) her tag'in anahtarını üretip
+sarmalar.
+
+**Etkilenen:** [M2-01](m2-sun.md) ADR 0003 (anahtar üretimi + KEK sarmalama byte düzeni) ·
+[M2-05](m2-sun.md) Wrap/Unwrap (AES-GCM, TAPPA_TAG_KEK) · [M8-05](m8-deploy-pilot.md) encode
+runbook (per-tag rastgele üretim). Plain SDM (Q05) ile tutarlı: per-tag anahtar plain modda
+sorunsuz (paylaşılan meta-anahtar gerekmez).
 
 ### Q03 — Admin şifre hash'i: bcrypt (2026-07-26)
 
