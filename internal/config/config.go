@@ -15,6 +15,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/atknatk/tappa/internal/policy"
 )
 
 type Config struct {
@@ -72,10 +74,15 @@ func Load() (*Config, error) {
 	if c.TrustedProxies, err = prefixes(env("TAPPA_TRUSTED_PROXIES", "")); err != nil {
 		push(err)
 	}
-	if c.GPSRadiusMeters, err = floatEnv("TAPPA_GPS_RADIUS_M", 150); err != nil {
+	// GPS radius and debounce are BOUNDED parameters (ADR 0004 §11): they read the
+	// SAME min/max the policy engine declares, so a red line cannot be widened
+	// through an env var. A bare `> 0` check let TAPPA_GPS_RADIUS_M=20000000
+	// silently disable proof-of-place park-wide (Y-L); the upper bound now rejects
+	// it at startup.
+	if c.GPSRadiusMeters, err = floatEnvRange("TAPPA_GPS_RADIUS_M", 150, policy.GPSRadiusMinM, policy.GPSRadiusMaxM); err != nil {
 		push(err)
 	}
-	if secs, err := floatEnv("TAPPA_DEBOUNCE_SECONDS", 60); err != nil {
+	if secs, err := floatEnvRange("TAPPA_DEBOUNCE_SECONDS", 60, policy.DebounceMinSeconds, policy.DebounceMaxSeconds); err != nil {
 		push(err)
 	} else {
 		c.Debounce = time.Duration(secs * float64(time.Second))
@@ -126,7 +133,12 @@ func prefixes(s string) ([]netip.Prefix, error) {
 	return out, nil
 }
 
-func floatEnv(name string, def float64) (float64, error) {
+// floatEnvRange reads a float env var, returning def when unset, and enforces an
+// INCLUSIVE [min,max] range (ADR 0004 §11). min/max come from the policy engine's
+// bounded-parameter constants so config and the engine share one source: below
+// min a protection is meaningless, above max it is effectively off — both are a
+// startup failure, never a silent default (package doc).
+func floatEnvRange(name string, def, min, max float64) (float64, error) {
 	raw := os.Getenv(name)
 	if raw == "" {
 		return def, nil
@@ -135,8 +147,8 @@ func floatEnv(name string, def float64) (float64, error) {
 	if err != nil {
 		return 0, fmt.Errorf("%s: %w", name, err)
 	}
-	if v <= 0 {
-		return 0, fmt.Errorf("%s: must be positive, got %v", name, v)
+	if v < min || v > max {
+		return 0, fmt.Errorf("%s: must be within [%g, %g], got %v", name, min, max, v)
 	}
 	return v, nil
 }

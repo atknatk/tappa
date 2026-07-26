@@ -75,20 +75,21 @@ type Limits struct {
 	// (NumericEquals/LessThan/GreaterThan) targets a key present here, its VALUE
 	// must fall inside the range or the document is rejected.
 	//
-	// The ENFORCEMENT MECHANISM lives here and is tested. The concrete
-	// key→range wiring is deliberately LEFT EMPTY in DefaultLimits and FLAGGED,
-	// not invented: the four ranges and their units belong to M3-05 (guardrail
-	// parameters) and to internal/config, which do not exist yet, and only two
-	// of them map cleanly onto a single context key (gpsDistanceM,
-	// pageAgeSeconds); debounce has no context key at all — it is a pure
-	// guardrail parameter, not a document predicate. Guessing a key/unit here
-	// would bake an unverified decision into the validator. M3-05 populates this
-	// map from the same named constants config uses (ADR 0004 §11).
+	// DefaultLimits now populates this from boundedParams() (guardrails.go, M3-05)
+	// with the THREE keys that map cleanly onto a bounded range — tap:gpsDistanceM,
+	// tap:pageAgeSeconds, tap:occurredAtSkewSeconds — read from the SAME named
+	// constants internal/config enforces at startup (single source of truth).
+	// Debounce is intentionally NOT here: it has no context key at all — it is a
+	// pure guardrail/config parameter, not a document predicate — so it is
+	// enforced only in Guardrails and internal/config.
 	BoundedParams map[ContextKey]NumericRange
 }
 
 // DefaultLimits returns the production limits (the Default* constants).
-// BoundedParams is intentionally nil — see the field comment.
+// BoundedParams is populated by boundedParams() (M3-05): the three document
+// context keys that map onto an ADR 0004 §11 range, read from the same named
+// constants internal/config enforces — so the §11 protection is live on the
+// production write path, not the empty hook M3-03 left behind.
 func DefaultLimits() Limits {
 	return Limits{
 		MaxDocumentBytes:          DefaultMaxDocumentBytes,
@@ -99,7 +100,7 @@ func DefaultLimits() Limits {
 		MaxIPPrefixesPerCondition: DefaultMaxIPPrefixesPerCondition,
 		MaxDocumentsPerTenant:     DefaultMaxDocumentsPerTenant,
 		MaxVersionsPerPolicy:      DefaultMaxVersionsPerPolicy,
-		BoundedParams:             nil,
+		BoundedParams:             boundedParams(),
 	}
 }
 

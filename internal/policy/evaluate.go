@@ -71,6 +71,14 @@ type Decision struct {
 	// ("FLAGGED — policy: gps-only-review"). It is the statement's / guardrail's
 	// Reason, or a fixed sentence for a default.
 	Reason string
+	// SecurityAlert, when non-empty, names a security event the caller should
+	// push to the tenant's managers (§5): a lost tag was tapped, or a deactivated
+	// employee's session tapped. It is set ONLY by a guardrail that actually fires
+	// and declares an Alert (sys:tag-not-active on `lost`, sys:employee-deactivated)
+	// — so the normative order (sys:sun-invalid before both) means a forged SUN can
+	// never manufacture one (ADR 0004 §5). It is a fixed vocabulary term, never a
+	// secret, GPS coordinate or raw value (§4.7). Empty on every other path.
+	SecurityAlert SecurityAlert
 }
 
 // Context is one evaluation's input. The M3-04 brief describes it as "a
@@ -94,6 +102,37 @@ type Context struct {
 	// M3-03). A missing key is NOT false: every operator but Exists simply does
 	// not match on an absent key (conditions.go, M3-04 card).
 	Keys map[ContextKey]any
+
+	// --- Guardrail-only, server-derived inputs (ADR 0004 §8; M3-05) ----------
+	// These carry the handful of inputs the code-embedded guardrails need that
+	// are NOT part of the closed document ContextKey vocabulary — session
+	// presence, tag-vs-session tenant, the per-PERSON debounce gap, reviewer
+	// identity. They are explicit TYPED fields, not entries in Keys, so a tenant
+	// document can never set them and they cannot collide with (or grow) the
+	// closed key list — which needs an ADR to change and, per §4.1, defines no key
+	// derived from a person's body. Every one is derived on the SERVER; none is a
+	// client-declared flag.
+	// Their nil zero values mean "absent", so every existing caller (and every
+	// M3-04 test) that leaves them unset is unaffected — and, for debounce, the
+	// safe zero value: nil never ignores a real record (§4.6).
+
+	// SessionTenantID is the resolved session's tenant (proof-of-person), or nil
+	// when there is no valid session. One field answers both "is there a session"
+	// (nil check — sys:no-session) and "whose" (sys:tenant-mismatch).
+	SessionTenantID *uuid.UUID
+	// TagTenantID is the tenant that owns the tapped tag (server-resolved from the
+	// tag UID), or nil for a request with no tag (an authorization action).
+	TagTenantID *uuid.UUID
+	// SecondsSincePersonLastTap is the gap to the SAME PERSON's previous tap,
+	// computed server-side — person-based, never tag-based (§5), so different
+	// people can tap one plaque back-to-back and each is recorded. nil means the
+	// person has no previous tap, so sys:person-debounce never fires on a first
+	// tap.
+	SecondsSincePersonLastTap *float64
+	// ReviewerID and SubjectEmployeeID drive sys:no-self-review: an actor may not
+	// approve a transaction that is their own. Both nil for a non-review request.
+	ReviewerID        *uuid.UUID
+	SubjectEmployeeID *uuid.UUID
 }
 
 // Guardrail is one code-embedded, immutable system rule (ADR 0004 §4-§5). It is
@@ -109,6 +148,12 @@ type Guardrail struct {
 	Effect Effect
 	Reason string
 	Match  func(ctx Context) bool
+	// Alert, when non-nil, is called ONLY if this guardrail fires, to determine
+	// the SecurityAlert to surface on the Decision. It may return "" for a firing
+	// that needs no alert (sys:tag-not-active alerts on `lost` but not `retired`).
+	// It must return only a fixed vocabulary term, never a raw value (§4.7). nil
+	// means this guardrail never alerts.
+	Alert func(ctx Context) SecurityAlert
 }
 
 // Policy is one stored, ALREADY-VALIDATED document (baseline or tenant) paired
@@ -166,7 +211,7 @@ type Anomaly struct {
 }
 
 // reportAnomaly surfaces an eval-time anomaly. The DESIGN CHOICE (M3-04 card,
-// "logla tasarımını gerekçelendir; sinyal KAYBOLMASIN"):
+// "justify the logging design; the signal must NOT be lost"):
 //
 //   - Correctness does NOT depend on the log. An unknown operator/key makes the
 //     predicate FAIL — the statement becomes inert, so a conditional deny can
@@ -209,12 +254,21 @@ func Evaluate(set Set, ctx Context) Decision {
 	// 1. Guardrails: ordered, first match terminal (ADR 0004 §5).
 	for _, g := range set.Guardrails {
 		if g.Match != nil && g.Match(ctx) {
+			// The alert (if any) is computed ONLY for the guardrail that actually
+			// fires — so it inherits the terminal-order guarantee: an earlier
+			// guardrail (e.g. sys:sun-invalid) pre-empting this one means no alert
+			// is produced (ADR 0004 §5, the push-flood exploit).
+			var alert SecurityAlert
+			if g.Alert != nil {
+				alert = g.Alert(ctx)
+			}
 			return Decision{
 				Effect:          g.Effect,
 				MatchedSid:      g.Sid,
 				PolicyVersionID: nil, // guardrails are code, not in the DB
 				Layer:           LayerGuardrail,
 				Reason:          g.Reason,
+				SecurityAlert:   alert,
 			}
 		}
 	}
