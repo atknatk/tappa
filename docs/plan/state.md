@@ -12,8 +12,8 @@
 
 | | |
 |---|---|
-| **Kilometre taşı** | **M2 — [SUN doğrulama](m2-sun.md)** (M2-01…M2-04 done). M0+M1 tamam. |
-| **Sıradaki görev** | **M2-05** — [Anahtar sarmalama (KEK)](m2-sun.md#m2-05--anahtar-sarmalama-kek). `Wrap(uid, key)→aes_key_ref` / `Unwrap(uid, ref)→key`, **AES-256-GCM, TAPPA_TAG_KEK, AAD=ham 7-byte UID** (ADR 0003). `aes_key_ref`=nonce(12)‖ct(16)‖tag(16)=44B. Düz anahtar log/hata/çıktıda ASLA; kullanımdan sonra `clear()`. Yanlış KEK/yanlış UID→hata (panik değil). Bağımlılık M2-01+M1-05. Skill `tappa-sun`. |
+| **Kilometre taşı** | **M2 — [SUN doğrulama](m2-sun.md)** (M2-01…M2-05 done). M0+M1 tamam. |
+| **Sıradaki görev** | **M2-06** — [Atomik sayaç ilerletme ve eşzamanlılık testi](m2-sun.md#m2-06--atomik-sayaç-ilerletme-ve-eşzamanlılık-testi). **§4.4 — M2'nin EN KRİTİK görevi.** M1-08 `AdvanceTagCounter` (atomik CTE, `<`, gap döner) **N-goroutine `-race` ile aynı (uid,ctr) → tam 1 başarı** kanıtlanır (pazarlıksız). **Sıra: CMAC doğrula → SONRA ctr ilerlet** (ters DoS). Gerçek Postgres. Bağımlılık M1-08+M2-04. |
 | **Çalışma modu** | Orkestrasyon + üçüncü göz — [README.md](README.md) · brief'ler [agent-brief.md](agent-brief.md) |
 | **Dal** | **`main`** — M0 (`m0-bootstrap`) `main`'e fast-forward birleştirildi (`562f021`), dal silindi. **Kullanıcı kararı (2026-07-25): artık doğrudan `main`'de çalışılır, görev başına dal açılmaz** (CLAUDE.md §10 güncellendi). Push/PR yine istemedikçe yok. |
 | **Blokeler** | Yok (M2-02 için bekleyen karar yok). **Bekleyen kullanıcı eylemi:** arm64 Go kurulumu (aşağı bak) — hiçbir şeyi bloklamıyor. |
@@ -209,7 +209,7 @@ yazılır.
 | M2-02 | AES-CMAC (RFC 4493) | **done** | `2380baa` · üçüncü göz ONAY (RFC vektörleri **OpenSSL ile bağımsız yeniden hesaplandı**, mutasyonla non-vacuous) · kurum-içi `crypto/aes`, **dep yok** · 4 resmi vektör + K1/K2 + padding · **%100 kapsam** · kısaltma yok (M2-04) · `cmac(key,msg)([16]byte,error)` |
 | M2-03 | SDM URL ayrıştırma | **done** | `ac51b20` · üçüncü göz ONAY · `Parse`→`Params{UID(kanonik BÜYÜK), UIDBytes, Ctr(big-endian), CMAC, Channel}`+`HasSUN()` · **mixed-case silent-zero-row tuzağı kapatıldı** (DB sondasıyla) · QR→sun_valid=false · fuzz 10.9M exec panik yok · §4.7 jenerik/sır-siz hata (mutasyonla) · yeni dep yok |
 | M2-04 | Oturum anahtarı, kısaltılmış MAC, sabit zamanlı karşılaştırma | **done** | `88c6036` · **iki denetçi ONAY** (1. tur RED: SV2 sayaç byte'ları URL'ye göre TERS'ti → yapısal düzeltildi, `sv2()` ham `ctrBytes` verbatim) · tek-indeksli 8-byte kısaltma · `ConstantTimeCompare` (R7) · golden bağımsız Python'la doğrulandı · %98.9 kapsam · **değer-endian M2-07'ye ertelendi** (ayrı eksen) |
-| M2-05 | Anahtar sarmalama (KEK) | todo | |
+| M2-05 | Anahtar sarmalama (KEK) | **done** | `0d23d30` · **iki denetçi ONAY** · `Wrap(kek,uid,key)`/`Unwrap(kek,uid,ref)`+`Zero()` AES-256-GCM · AAD=UID taşınabilirlik-koruması (uidA→uidB unwrap hata) · 44-byte düzen · **KEK parametre (cache yok)** · AES-256 zorlanıyor (downgrade önlenir) · düz-anahtar/KEK sızmaz (mutasyonla) · %96.1 kapsam |
 | M2-06 | Atomik sayaç ilerletme ve eşzamanlılık testi | todo | **§4.4 — en kritik** |
 | M2-07 | sun.Verify ve test vektörleri | todo | kapsam %90+ |
 
@@ -305,13 +305,25 @@ yazılır.
 | M9-06 | Policy simülatörü | todo | Q22 — M6-10'dan ertelendi |
 | M9-07 | Ham JSON politika editörü | todo | Q22 — M6-09'dan ayrıldı |
 
-**Özet:** 82 görev · done 22 · wip 0 · blocked 0 · skipped 1 · todo 59 · **M0+M1 tamam · M2: M2-01…M2-04 done**
+**Özet:** 82 görev · done 23 · wip 0 · blocked 0 · skipped 1 · todo 58 · **M0+M1 tamam · M2: M2-01…M2-05 done**
 
 ---
 
 ## Oturum günlüğü
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
+
+### 2026-07-26 (3. oturum, devam) — **M2-05 done** (KEK sarmalama)
+
+**M2-05 done — iki denetçi ONAY.** `0d23d30`: `internal/sun/keys.go` Wrap/Unwrap + Zero,
+AES-256-GCM + AAD=ham 7-byte UID. **KEK parametre** (paket-seviyesi KEK state yok — cache tuzağı
+kapalı); açılan anahtar uzun-ömürlü yapıya kopyalanmıyor. AAD=UID taşınabilirlik-koruması (uidA
+sarıp uidB açma→hata) kendi sondasıyla kanıtlandı; **düz-anahtar/KEK sızmaz** mutasyonla (KEK
+enjeksiyonu→leak testi RED); AES-256 zorlanıyor (16/24-byte KEK reddi→downgrade önlenir); 44-byte
+düzen, uzunluk-KEK'ten-önce. %96.1 kapsam, redline-R7 temiz, yeni dep yok. TAPPA_TAG_KEK config'te
+zaten 32-byte doğrulanıyor.
+
+**Sırada:** M2-06 (atomik sayaç + N-goroutine eşzamanlılık — §4.4 en kritik).
 
 ### 2026-07-26 (3. oturum, devam) — **M2-04 done** (session key + truncated MAC) · RED yakalandı
 
