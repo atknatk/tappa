@@ -4,14 +4,14 @@
 > güncellenir ([README.md](README.md) → oturum protokolü, adım 6.4).
 > Görev kartlarına durum işareti konmaz.
 
-**Son güncelleme:** 2026-07-26 (4. oturum — compact sonrası devam; **M3 TAMAM + M4-01…M4-05 done**)
+**Son güncelleme:** 2026-07-26 (4. oturum — compact sonrası devam; **M3 TAMAM + M4-01…M4-06 done**)
 
-> **▶️ M4 DEVAM — 2026-07-26, 4. oturum.** M3 9/9 TAMAM. **M4-01** (geo) `f791f91` · **M4-02** `860fcd8`
-> · **M4-03** (Decide) `bfbbf77` · **M4-04** (yön) `703d3d1` · **M4-05** (vardiya+geç kalma, DST) `63f6b4a`
+> **▶️ M4 DEVAM — 2026-07-26, 4. oturum.** M3 9/9 TAMAM. **M4-01→M4-06 done** (geo `f791f91` · tipler
+> `860fcd8` · Decide `bfbbf77` · yön `703d3d1` · vardiya+DST `63f6b4a` · trust/QR/practice `a82dfa8`)
 > — hepsi denetim ONAY, `main`'de, ağaç temiz, `make check`+`make audit` yeşil. **Sıradaki:** "ŞU AN" →
-> **M4-06** (trust + QR + practice). **🔴 M5 için BLOKLAYAN devir (N5):** tap.Decide tenant-farkındalıksız
-> → M5 Input'u TagTenantID/SessionTenantID ile besleyip `sys:tenant-mismatch`'i ateşlemeli (çapraz-tenant
-> deliği; aşağıda "M4/M5'e devralınan"). Bekleyen kullanıcı kararı YOK. Kritik durum sohbette kalmıyor.
+> **M4-07** (tablo bazlı test seti — M4'ün SON görevi, §8 kapsam %90+, R6/R8). **🔴 M5 için BLOKLAYAN
+> devir (N5):** tap.Decide tenant-farkındalıksız → M5 Input'u TagTenantID/SessionTenantID ile besleyip
+> `sys:tenant-mismatch`'i ateşlemeli (çapraz-tenant deliği; aşağıda "M4/M5'e devralınan"). Kullanıcı kararı YOK. Kritik durum sohbette kalmıyor.
 
 ---
 
@@ -19,8 +19,8 @@
 
 | | |
 |---|---|
-| **Kilometre taşı** | **M0 + M1 + M2 + M3 TAMAM** ✅ · **M4 devam** — M4-01→M4-05 done (5/7). → **[M4 tap karar motoru](m4-tap-motoru.md)** |
-| **Sıradaki görev** | **M4-06** — [Trust puanı, QR kanalı, practice tap](m4-tap-motoru.md#m4-06--trust-puanı-qr-kanalı-ve-practice-tap). **Trust:** `20 + 50(IP) + 30(GPS)` → 20/50/70/100 (verdict'ten BAĞIMSIZ). **QR:** SUN yok → IP zorunlu, GPS tek başına yetmez → flag (Q15, base:qr-requires-ip zaten var; M4-06 uçtan uca doğrular). **Practice:** aktivasyon sonrası ilk kayıt (`Employee.ActivatedAt` + LastForPerson nil → **sunucu türetir**, istemci gövdesinden DEĞİL — M4-06 saat-şişirme exploit'i), TRAINING, saate sayılmaz (yön zincirine M4-04'te girmiyor). **Manuel:** entered_by dolu, SUN aranmaz (NFC-only guardrail zaten atlıyor); entered_by boş→hata (M5 yazma yolu olabilir — karar). Trust'ı verdict'ten türetme (bağımsız). `Decide` `Decision.Trust`/`Practice` doldurur. Bekleyen kullanıcı kararı YOK. |
+| **Kilometre taşı** | **M0 + M1 + M2 + M3 TAMAM** ✅ · **M4 devam** — M4-01→M4-06 done (6/7). → **[M4 tap karar motoru](m4-tap-motoru.md)** — son görev M4-07 |
+| **Sıradaki görev** | **M4-07** — [Tablo bazlı test seti](m4-tap-motoru.md#m4-07--tablo-bazlı-test-seti) — **M4'ün SON görevi** (§8 kapsam %90+). §5'in **yedi satırının her biri** için `TestDecide_…`; tablo bazlı `tests := []struct{name; in Input; want Decision}`. **Zorunlu ek vakalar:** ardışık **farklı kişiler** aynı plaket 10sn arayla → **hepsi ok** (debounce KİŞİ bazlı, etiket değil — bu vaka olmadan hata fark edilmez); aynı kişi 20sn → ignored; mobil veri (IP-yok, GPS✓) → ok trust 50 not "verified via GPS"; Rusty Bar gece turu; deaktive → reject + Security=true. `Now` **sabit** (time.Now test gece yarısı kırılır). Denetim: agent `tappa-security-auditor` **R6 (kayıt-kaybolmaz) + R8 (sıra)** temiz → **iki denetçi**. **Not:** M4-06 sertleştirme (isPracticeTap'e LastOpenIn==nil ekle — savunma-derinliği) M4-07'de eklenip test edilebilir (aşağı). Bekleyen kullanıcı kararı YOK. |
 | **Çalışma modu** | Orkestrasyon + üçüncü göz — [README.md](README.md) · brief'ler [agent-brief.md](agent-brief.md) |
 | **Dal** | **`main`** — M0 (`m0-bootstrap`) `main`'e fast-forward birleştirildi (`562f021`), dal silindi. **Kullanıcı kararı (2026-07-25): artık doğrudan `main`'de çalışılır, görev başına dal açılmaz** (CLAUDE.md §10 güncellendi). Push/PR yine istemedikçe yok. |
 | **Blokeler** | Yok (M2-02 için bekleyen karar yok). **Bekleyen kullanıcı eylemi:** arm64 Go kurulumu (aşağı bak) — hiçbir şeyi bloklamıyor. |
@@ -299,7 +299,7 @@ yazılır.
 | M4-03 | Decide(): bağlam kurma ve kararın uygulanması | **done** | `bfbbf77` · **iki denetçi ONAY** (üçüncü göz + tappa-security-auditor R8, §4.6/§5, kırmızı çizgi ihlali yok) · `Decide` Input→policy.Context kurar (ipMatch/gpsMatch/gpsDistanceM/gpsConflict/ctrGap/sunValid/channel/tag/employee/location) → `policy.Evaluate` **tek çağrı** (if-zinciri/erken-return YOK) → effect→verdict; **no-session→redirect+kayıt-yok** (§5.3 tek istisna); row7→flag (asla reject); boş set→flag · **R8:** deactivated+invalid-SUN→sun-invalid+Security=false (üçüncü göz erken-return mutasyonuyla, security-auditor kod-okumasıyla) · **marker-hilesi iki yönlü doğrulandı** (SessionTenantID=Employee!=nil işareti→sys:no-session; TagTenantID nil→sys:tenant-mismatch inert) · §4.7 mesafe/ham-koordinat değil · saf (tap→policy/geo, store/db/sun yok) · %95.7 · **PolicySet Input alanı + Decision explainability alanları (M4-02 kart düzeltildi)** · **🔴 N5→M5 bloklayan tenant devri** (aşağı) |
 | M4-04 | Yön tayini (in/out) | **done** | `703d3d1` · üçüncü göz **1. turda** ONAY (**4 mutasyon** öldürüldü: toggle-ters/stale-not/practice-guard/Type-yay) · `Decide` `Decision.Type` saf toggle (LastOpenIn varsa out, yoksa in) · **takvim-günü filtresi YOK** (bağımsız cross-midnight/ay/yıl/artık-gün + 5h fark 400 gün sabit; Rusty Bar 18:05→02:10 out) · stale **>18h** (strict) → out+note (asla sessiz in) · **practice LastOpenIn → in muamelesi** (eğitim tap'i gerçek check-in'i açık tutamaz, M4-06 saat-şişirme) · Type yalnız ok/flag (reject/ignored/redirect→nil) · UTC saf süre, sabit-Now determinizmi · saf (time.Now yok) · %95.1 |
 | M4-05 | Vardiya çözümü ve geç kalma | **done** | `63f6b4a` · üçüncü göz **1. turda** ONAY · **DST bağımsız yeniden hesaplandı** (denetçi Python `zoneinfo`: mart 09:15→15 geç, ekim 09:20→20 geç, overnight 01:00→420; naif midnight+offset bug −45/80 mutasyonla yakalandı) · `time.LoadLocation("Europe/Malta")` (sabit ofset yok), **tzdata tap paketine gömülü** (tek binary) · **geç kalma RAPOR-only** `Decision.MinutesLate *int` (nil=hesaplanmadı, int dakika **float yok** §6, Evaluate SONRASI, context'e girmiyor, hiçbir baseline time:minutesLate okumuyor → 180-geç→OK) · yalnız check-IN'de · çapraz-lokasyon Q17 (`employee:crossLocation`→base:cross-location-note + `Decision.CrossLocation`, geç damgası yok) · Shift==nil VE boş-tz→nil (LoadLocation("")→UTC tuzağı guard'lı) · %96.4 · cmd/tappa dokunulmadı |
-| M4-06 | Trust puanı, QR kanalı, practice tap | todo | |
+| M4-06 | Trust puanı, QR kanalı, practice tap | **done** | `a82dfa8` · üçüncü göz **1. turda** ONAY (2 mutasyon: trustScore sabit / isPracticeTap false → RED) · Trust `20+50(IP)+30(GPS)` verdict switch ÖNCESİ, **verdict'ten bağımsız** (reject 70 > ok 50) · **Practice sunucu-türev** (`ActivatedAt`+`LastForPerson==nil`, ok/flag'te) — **client alanı YOK** (reflection guard `TestInput_HasNoClientPracticeField` yeni alanı yakalıyor), checkout asla practice → **saat-şişirme exploit'i yapısal kapalı** · QR uçtan uca (base:qr-requires-ip): QR+IP-yok+**GPS-var→flag** (Q15), QR+IP→ok, SUN-suz QR sys:sun-invalid'e takılmaz (NFC-only) · manuel SUN atlar; entered_by M5-05 yazma-yoluna ertelendi (kart+M5-05 kriteri eklendi, Decide saf func hata dönemez) · %96.7 · **sertleştirme notu: isPracticeTap'e LastOpenIn==nil (savunma-derinliği, client-erişilemez)→M4-07** |
 | M4-07 | Tablo bazlı test seti | todo | kapsam %90+ |
 
 ### M5 — [Tap akışı](m5-tap-akisi.md)
@@ -368,13 +368,30 @@ yazılır.
 | M9-06 | Policy simülatörü | todo | Q22 — M6-10'dan ertelendi |
 | M9-07 | Ham JSON politika editörü | todo | Q22 — M6-09'dan ayrıldı |
 
-**Özet:** 82 görev · done 39 · wip 0 · blocked 0 · skipped 1 · todo 42 · **M0+M1+M2+M3 TAMAM · M4 devam (M4-01→M4-05 done, 5/7) · sıradaki M4-06**
+**Özet:** 82 görev · done 40 · wip 0 · blocked 0 · skipped 1 · todo 41 · **M0+M1+M2+M3 TAMAM · M4 devam (M4-01→M4-06 done, 6/7) · sıradaki M4-07**
 
 ---
 
 ## Oturum günlüğü
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
+
+### 2026-07-26 (4. oturum, compact sonrası) — **M4-06 done** (trust + QR + practice)
+
+**M4-06 done — üçüncü göz 1. turda ONAY** (2 mutasyon öldürüldü). `a82dfa8`: Trust `20+50(IP)+30(GPS)`
+verdict switch ÖNCESİ, **verdict'ten bağımsız** (reject 70 > ok 50 kanıtı). **Practice sunucu-türev**
+(`ActivatedAt`+`LastForPerson==nil`); Input'ta client practice alanı YOK (reflection guard denetçi tarafından
+Input'a alan eklenerek RED kanıtlandı); checkout asla practice → **saat-şişirme exploit'i yapısal kapalı**.
+QR uçtan uca policy'de (base:qr-requires-ip): QR+IP-yok+GPS-var→flag (Q15, GPS tek başına kurtarmaz), QR+IP→ok,
+SUN-suz QR sys:sun-invalid'e takılmaz. Manuel SUN atlar; entered_by write-path → M5-05 kartına kriter eklendi
+(Decide saf func hata dönemez). %96.7 kapsam.
+
+**Bloklamayan sertleştirme (→M4-07):** `isPracticeTap` yalnız LastForPerson==nil'e bakıyor; tutarsız çağıran
+(LastOpenIn!=nil, LastForPerson==nil) checkout'u practice yapabilir — **client-erişilemez, tutarlı M5 sorgusundan
+doğamaz**; opsiyonel: isPracticeTap'e `LastOpenIn==nil` ekle (resolveDirection'ın stale-practice guard'ını yansıtır).
+
+**Sırada:** M4-07 (tablo bazlı test seti — §5 yedi satır + zorunlu ek vakalar [debounce KİŞİ-bazlı!], kapsam %90+,
+iki denetçi R6/R8). **M4'ün son görevi.**
 
 ### 2026-07-26 (4. oturum, compact sonrası) — **M4-05 done** (vardiya çözümü + geç kalma, DST)
 
