@@ -12,20 +12,25 @@
 
 | | |
 |---|---|
-| **Kilometre taşı** | **M1 — Veri katmanı TAMAMLANDI** ✅ (M1-01…M1-11, 11/11). → sıradaki **M2 — [SUN doğrulama](m2-sun.md)** |
-| **Sıradaki görev** | **M2-01** — [ADR 0003: SDM modu ve anahtar yönetimi](m2-sun.md#m2-01--adr-0003-sdm-modu-ve-anahtar-yönetimi). ⚠️ **İKİ KULLANICI KARARI bekliyor: Q05** (SDM mirroring: plain mı şifreli PICC mı) **+ Q06** (etiket anahtar stratejisi: plaket-başına rastgele mi master'dan türetilmiş mi). Başlamadan sorulmalı. Skill `tappa-sun`. |
+| **Kilometre taşı** | **M2 — [SUN doğrulama](m2-sun.md)** başladı (M2-01 done). M1 tamam (11/11). |
+| **Sıradaki görev** | **M2-02** — [AES-CMAC (RFC 4493)](m2-sun.md#m2-02--aes-cmac-rfc-4493). Kurum-içi CMAC, `crypto/aes` üstüne (ADR 0001: üçüncü parti kripto YOK → `aead/cmac` gerekmez). **RFC 4493 §4 dört resmi test vektörü** birebir. Bekleyen karar yok. Skill `tappa-sun`. |
 | **Çalışma modu** | Orkestrasyon + üçüncü göz — [README.md](README.md) · brief'ler [agent-brief.md](agent-brief.md) |
 | **Dal** | **`main`** — M0 (`m0-bootstrap`) `main`'e fast-forward birleştirildi (`562f021`), dal silindi. **Kullanıcı kararı (2026-07-25): artık doğrudan `main`'de çalışılır, görev başına dal açılmaz** (CLAUDE.md §10 güncellendi). Push/PR yine istemedikçe yok. |
-| **Blokeler** | **M2-01 için Q05 + Q06** (kullanıcıya sorulacak). **Bekleyen kullanıcı eylemi:** arm64 Go kurulumu (aşağı bak) — hiçbir şeyi bloklamıyor. |
+| **Blokeler** | Yok (M2-02 için bekleyen karar yok). **Bekleyen kullanıcı eylemi:** arm64 Go kurulumu (aşağı bak) — hiçbir şeyi bloklamıyor. |
 
-**Bir sonraki oturum ne yapmalı:** **M2-01** (ADR 0003: SDM modu + anahtar yönetimi).
-**Önce iki kararı SOR:** **Q05** (SDM mirroring: plain UID+ctr açık mı, şifreli PICC data mı)
-ve **Q06** (etiket anahtar stratejisi: plaket-başına rastgele mi, master'dan UID ile türetilmiş
-mi — türetme encode'u kolaylaştırır ama master sızarsa tüm park düşer). ADR 0003 bunları
-normatif yazar. Skill `tappa-sun` (SUN/SDM/CMAC/ctr). M2 sırası: M2-01 (ADR) → M2-02 (AES-CMAC
-RFC 4493) → M2-03 (SDM URL ayrıştırma) → M2-04 (oturum anahtarı, kısaltılmış MAC, sabit-zaman) →
-M2-05 (KEK sarmalama) → M2-06 (**atomik sayaç + eşzamanlılık, §4.4 en kritik** — M1-08
-`AdvanceTagCounter`'ı N-goroutine -race ile kanıtlar) → M2-07 (sun.Verify + test vektörleri, %90+).
+**Bir sonraki oturum ne yapmalı:** **M2-02** (AES-CMAC RFC 4493). Kurum-içi CMAC `crypto/aes`
+üstüne (ADR 0001: üçüncü parti kripto YOK; `aead/cmac` gerekmez — kurum-içi ~80 satır). Kabul:
+**RFC 4493 §4 dört resmi test vektörü** (boş mesaj, 16, 40, 64 byte) birebir; subkey K1/K2 türetme
++ padding ayrı test; `crypto/aes` dışı kripto dep yok; kapsam %90+. **Kısaltma YOK** (tam 16 byte;
+kısaltma M2-04). Skill `tappa-sun`. Kalan M2 sırası: M2-03 (SDM URL ayrıştırma) → M2-04 (oturum
+anahtarı, tek-indeksli 8-byte MAC, `subtle.ConstantTimeCompare`) → M2-05 (KEK sarmalama —
+**Wrap(uid,key)/Unwrap(uid,ref), AAD=ham 7-byte UID**, ADR 0003 madde 4) → M2-06 (**atomik sayaç +
+N-goroutine eşzamanlılık, §4.4 en kritik** — M1-08 `AdvanceTagCounter`'ı kanıtlar; CMAC doğrula
+SONRA ctr ilerlet) → M2-07 (sun.Verify + test vektörleri, kapsam %90+).
+
+### M2-04'e devralınan not (M2-01 denetiminden, N3)
+SV2 içindeki `ctr`'nin byte sırası ADR/skill'de açıkça sabitlenmedi (bilinçli) → **M2-04/M2-07
+bilinen-cevap vektörleriyle** sabitlenmeli (little vs big-endian sessizce yanlış "makul" değer üretir).
 
 ### M6'ya devredilen (M1-11 denetiminden) — back-FK boşluğu
 `transactions.entered_by` · `transaction_reviews.reviewer_id` · `audit_log.actor_id` →
@@ -200,7 +205,7 @@ yazılır.
 
 | ID | Görev | Durum | Commit / not |
 |---|---|---|---|
-| M2-01 | ADR 0003: SDM modu ve anahtar yönetimi | todo | Q05, Q06 |
+| M2-01 | ADR 0003: SDM modu ve anahtar yönetimi | **done** | `5a9cd2e` · üçüncü göz ONAY · **Q05 plain SDM + Q06 per-tag random** normatif · plain URL (`tag`/`ctr` big-endian/`cmac`) · KEK AES-256-GCM, `aes_key_ref`=nonce(12)‖ct(16)‖tag(16)=44B · **AAD=ham 7-byte UID v1'de ZORUNLU** (denetçi bulgusu: tappa_app UPDATE→sarmalı anahtar taşınabilir; sıfır maliyet pre-prod) · ctr-wrap fail-closed · AN12196/NT4H2421Gx ref |
 | M2-02 | AES-CMAC (RFC 4493) | todo | |
 | M2-03 | SDM URL ayrıştırma | todo | |
 | M2-04 | Oturum anahtarı, kısaltılmış MAC, sabit zamanlı karşılaştırma | todo | |
@@ -300,13 +305,27 @@ yazılır.
 | M9-06 | Policy simülatörü | todo | Q22 — M6-10'dan ertelendi |
 | M9-07 | Ham JSON politika editörü | todo | Q22 — M6-09'dan ayrıldı |
 
-**Özet:** 82 görev · done 18 · wip 0 · blocked 0 · skipped 1 · todo 63 · **M0 tamam · M1 TAMAM (11/11) · sıradaki M2**
+**Özet:** 82 görev · done 19 · wip 0 · blocked 0 · skipped 1 · todo 62 · **M0+M1 tamam · M2 başladı (M2-01 done)**
 
 ---
 
 ## Oturum günlüğü
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
+
+### 2026-07-26 (3. oturum, devam) — **M2-01 done** (ADR 0003) · M2 başladı
+
+**M2-01 done — üçüncü göz ONAY.** `5a9cd2e`: ADR 0003 (SDM modu + anahtar yönetimi). Kullanıcı
+kararları: **Q05 = plain SDM** (`e81da68`), **Q06 = plaket-başına rastgele anahtar**. Normatif:
+plain URL (`tag`/`ctr` big-endian/`cmac`), per-tag random AES-128, KEK AES-256-GCM
+(`aes_key_ref`=nonce(12)‖ct(16)‖tag(16)=44B), MAC-input boş, ctr-wrap fail-closed, AN12196 ref.
+
+**Denetçi bulgusu → uygulandı:** ADR AAD=UID'yi "ileri sertleştirme"ye erteliyordu; denetçi bunun
+**ters** olduğunu gösterdi (pre-production, hiçbir tag sarılmadı → AAD şimdi bedava; tappa_app
+`tags` UPDATE'e sahip → AAD'siz sarmalı anahtar satırlar arası taşınabilir). **AAD=ham 7-byte UID
+v1'de ZORUNLU** yapıldı (Wrap(uid,key)/Unwrap(uid,ref)); aes_key_ref değişmedi.
+
+**Sırada:** M2-02 (AES-CMAC RFC 4493, kurum-içi, dep yok).
 
 ### 2026-07-25/26 (3. oturum, devam) — **M1-11 done · M1 KİLOMETRE TAŞI TAMAMLANDI** ✅
 
