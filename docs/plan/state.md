@@ -12,8 +12,8 @@
 
 | | |
 |---|---|
-| **Kilometre taşı** | **M2 — [SUN doğrulama](m2-sun.md)** (M2-01…M2-05 done). M0+M1 tamam. |
-| **Sıradaki görev** | **M2-06** — [Atomik sayaç ilerletme ve eşzamanlılık testi](m2-sun.md#m2-06--atomik-sayaç-ilerletme-ve-eşzamanlılık-testi). **§4.4 — M2'nin EN KRİTİK görevi.** M1-08 `AdvanceTagCounter` (atomik CTE, `<`, gap döner) **N-goroutine `-race` ile aynı (uid,ctr) → tam 1 başarı** kanıtlanır (pazarlıksız). **Sıra: CMAC doğrula → SONRA ctr ilerlet** (ters DoS). Gerçek Postgres. Bağımlılık M1-08+M2-04. |
+| **Kilometre taşı** | **M2 — [SUN doğrulama](m2-sun.md)** (M2-01…M2-06 done). **Kalan tek görev: M2-07.** M0+M1 tamam. |
+| **Sıradaki görev** | **M2-07** — [`sun.Verify` + test vektörleri](m2-sun.md#m2-07--sunverify-ve-test-vektörleri). **M2'nin son görevi.** Parçaları birleştirir: parse(M2-03)→resolve tag(resolve.go)→unwrap(M2-05)→verifyMAC(M2-04)→**doğrula SONRA** advance(M2-06). `Result{sun_valid,tag,location,ctrGap}` döner, **verdict VERMEZ** (M4). Kart vaka tablosunun tamamı + `sun_vectors.json` (sahte anahtar). Kapsam **%90+**. Bağımlılık M2-04+05+06. |
 | **Çalışma modu** | Orkestrasyon + üçüncü göz — [README.md](README.md) · brief'ler [agent-brief.md](agent-brief.md) |
 | **Dal** | **`main`** — M0 (`m0-bootstrap`) `main`'e fast-forward birleştirildi (`562f021`), dal silindi. **Kullanıcı kararı (2026-07-25): artık doğrudan `main`'de çalışılır, görev başına dal açılmaz** (CLAUDE.md §10 güncellendi). Push/PR yine istemedikçe yok. |
 | **Blokeler** | Yok (M2-02 için bekleyen karar yok). **Bekleyen kullanıcı eylemi:** arm64 Go kurulumu (aşağı bak) — hiçbir şeyi bloklamıyor. |
@@ -210,7 +210,7 @@ yazılır.
 | M2-03 | SDM URL ayrıştırma | **done** | `ac51b20` · üçüncü göz ONAY · `Parse`→`Params{UID(kanonik BÜYÜK), UIDBytes, Ctr(big-endian), CMAC, Channel}`+`HasSUN()` · **mixed-case silent-zero-row tuzağı kapatıldı** (DB sondasıyla) · QR→sun_valid=false · fuzz 10.9M exec panik yok · §4.7 jenerik/sır-siz hata (mutasyonla) · yeni dep yok |
 | M2-04 | Oturum anahtarı, kısaltılmış MAC, sabit zamanlı karşılaştırma | **done** | `88c6036` · **iki denetçi ONAY** (1. tur RED: SV2 sayaç byte'ları URL'ye göre TERS'ti → yapısal düzeltildi, `sv2()` ham `ctrBytes` verbatim) · tek-indeksli 8-byte kısaltma · `ConstantTimeCompare` (R7) · golden bağımsız Python'la doğrulandı · %98.9 kapsam · **değer-endian M2-07'ye ertelendi** (ayrı eksen) |
 | M2-05 | Anahtar sarmalama (KEK) | **done** | `0d23d30` · **iki denetçi ONAY** · `Wrap(kek,uid,key)`/`Unwrap(kek,uid,ref)`+`Zero()` AES-256-GCM · AAD=UID taşınabilirlik-koruması (uidA→uidB unwrap hata) · 44-byte düzen · **KEK parametre (cache yok)** · AES-256 zorlanıyor (downgrade önlenir) · düz-anahtar/KEK sızmaz (mutasyonla) · %96.1 kapsam |
-| M2-06 | Atomik sayaç ilerletme ve eşzamanlılık testi | todo | **§4.4 — en kritik** |
+| M2-06 | Atomik sayaç ilerletme ve eşzamanlılık testi | **done** | `2092796` · **iki denetçi ONAY** (§4.4 en kritik) · `sun.AdvanceCounter` M1-08 atomik CTE'sini kullanır (verify'dan ayrı) · **50-goroutine `-race` → tam 1 kazanan** (her iki denetçi kendi koştu) · **negatif kontrol yeniden üretildi** (TOCTOU→50 kazanan) · strict `<`, 0-satır→ErrReplay, gömülü eşik yok, R4 temiz · %96.3 kapsam |
 | M2-07 | sun.Verify ve test vektörleri | todo | kapsam %90+ |
 
 ### M3 — [Policy motoru](m3-policy-motoru.md)
@@ -305,13 +305,30 @@ yazılır.
 | M9-06 | Policy simülatörü | todo | Q22 — M6-10'dan ertelendi |
 | M9-07 | Ham JSON politika editörü | todo | Q22 — M6-09'dan ayrıldı |
 
-**Özet:** 82 görev · done 23 · wip 0 · blocked 0 · skipped 1 · todo 58 · **M0+M1 tamam · M2: M2-01…M2-05 done**
+**Özet:** 82 görev · done 24 · wip 0 · blocked 0 · skipped 1 · todo 57 · **M0+M1 tamam · M2: M2-01…M2-06 done; kalan M2-07**
 
 ---
 
 ## Oturum günlüğü
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
+
+### 2026-07-26 (3. oturum, devam) — **M2-06 done** (atomik sayaç, §4.4 en kritik)
+
+**M2-06 done — iki denetçi ONAY** (projenin en güçlü doğrulaması). `2092796`: `sun.AdvanceCounter`
+M1-08 atomik CTE'sini kullanır (verify'dan ayrı). **50-goroutine `-race` → tam 1 kazanan**; her
+iki denetçi **kendi koştu** (3750+ yarış) ve **negatif kontrolü yeniden üretti** (sorguyu TOCTOU'ya
+çevirince değiştirilmemiş test → 50 kazanan → harness gerçekten yarışıyor + atomiklik gerçek
+koruma). tappa-security-auditor bağımsız psql sondasıyla EvalPlanQual re-fetch'i doğruladı. strict
+`<`, 0-satır→ErrReplay, gömülü eşik yok (gap veri olarak döner), R4 temiz, %96.3 kapsam.
+
+**⚠️ Devam eden gap (M2-07 + M8):** Tüm SUN zinciri şu ana kadar **self-consistent** (sahte
+vektörler) doğrulandı — CMAC (RFC 4493 dış vektör ✔) hariç, SV2 ctr **mutlak** byte-sırası/endian
+ve tüm zincirin GERÇEK bir NTAG 424 çipine karşı doğruluğu **henüz dış-doğrulanmadı** (skill/ADR'de
+gerçek çip vektörü yok). M2-07 bunu flag'ler; **M8 pilot öncesi gerçek bir çipin SUN URL'si uçtan
+uca doğrulanmalı** (üretim etiketleri encode edilmeden — M8-05 runbook).
+
+**Sırada:** M2-07 (sun.Verify + vektör tablosu) — M2'nin son görevi.
 
 ### 2026-07-26 (3. oturum, devam) — **M2-05 done** (KEK sarmalama)
 
