@@ -180,8 +180,9 @@ func TestBaseline_Composition(t *testing.T) {
 // criterion: with ONLY the baseline attached (a freshly provisioned tenant, no
 // tenant policies) an owner can use every panel action and a manager the
 // operational subset — otherwise the fail-closed default (ADR 0004 §3) would lock
-// everyone out. It ALSO proves the closure still holds: a manager cannot
-// deactivate employees or edit policy, and a request with no role is denied.
+// everyone out. The manager subset now includes employee:deactivate (customer
+// decision, 2026-07-26). It ALSO proves the closure still holds: policy:edit stays
+// owner-only for a manager, and a request with no role is denied.
 func TestBaseline_AuthzPreventsFailClosedLockout(t *testing.T) {
 	set := Set{Guardrails: DefaultGuardrails(), Baseline: fullBaseline()}
 	authz := func(role string, action Action) Decision {
@@ -203,19 +204,19 @@ func TestBaseline_AuthzPreventsFailClosedLockout(t *testing.T) {
 		}
 	}
 
-	// Manager: operational subset allows.
+	// Manager: operational subset allows — now including employee:deactivate
+	// (customer decision, 2026-07-26).
 	for _, a := range []Action{
-		ActionReportExport, ActionTapApprove, ActionRecordManual, ActionRecordReview,
+		ActionReportExport, ActionTapApprove, ActionRecordManual,
+		ActionRecordReview, ActionEmployeeDeactivate,
 	} {
 		if d := authz(roleManager, a); d.Effect != EffectAllow || d.MatchedSid != SidAuthzManager {
 			t.Fatalf("manager %q = %q/%q, want allow via %q", a, d.Effect, d.MatchedSid, SidAuthzManager)
 		}
 	}
 
-	// Manager: the two owner-only actions stay closed.
-	if d := authz(roleManager, ActionEmployeeDeactivate); d.Effect != EffectDeny || d.MatchedSid != "default" {
-		t.Fatalf("manager employee:deactivate = %q/%q, want default deny", d.Effect, d.MatchedSid)
-	}
+	// Manager: policy:edit is the ONE action still closed — owner-only, denied by
+	// the guardrail sys:policy-edit-owner-only for any non-owner.
 	if d := authz(roleManager, ActionPolicyEdit); d.Effect != EffectDeny || d.MatchedSid != "sys:policy-edit-owner-only" {
 		t.Fatalf("manager policy:edit = %q/%q, want guardrail deny", d.Effect, d.MatchedSid)
 	}

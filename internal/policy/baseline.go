@@ -213,9 +213,11 @@ func Baseline() []BaselineDoc {
 		// sys:policy-edit-owner-only only DENIES non-owners, so without an owner
 		// allow here the owner's policy:edit would fall to the fail-closed default
 		// deny and the owner could never configure anything (a lockout). Manager
-		// gets the operational subset (review, approve, manual entry, reports) but
-		// NOT policy:edit (guardrail-denied for non-owners anyway) nor
-		// employee:deactivate (owner-only, a security-sensitive action).
+		// gets the operational subset (review, approve, manual entry, reports) plus
+		// employee:deactivate (customer decision, 2026-07-26). policy:edit remains
+		// the ONE action a manager cannot do: it is owner-only, enforced by the
+		// guardrail sys:policy-edit-owner-only (which denies non-owners) and left
+		// out of the manager grant here.
 		authzDoc(),
 	}
 }
@@ -256,11 +258,12 @@ func authzDoc() BaselineDoc {
 		Sid:    SidAuthzManager,
 		Effect: EffectAllow,
 		Action: []Action{
-			ActionReportExport, ActionTapApprove, ActionRecordManual, ActionRecordReview,
+			ActionReportExport, ActionTapApprove, ActionRecordManual,
+			ActionRecordReview, ActionEmployeeDeactivate,
 		},
 		Resource:  authzScope,
 		Condition: Condition{OpStringEquals: {CtxActorRole: roleManager}},
-		Reason:    "manager: review, approve, manual entry and reports",
+		Reason:    "manager: review, approve, manual entry, reports and employee deactivation",
 	}
 	return BaselineDoc{
 		Name:        name,
