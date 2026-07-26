@@ -4,14 +4,16 @@
 > güncellenir ([README.md](README.md) → oturum protokolü, adım 6.4).
 > Görev kartlarına durum işareti konmaz.
 
-**Son güncelleme:** 2026-07-26 (4. oturum — compact sonrası devam; **M3-01…M3-08 done**)
+**Son güncelleme:** 2026-07-26 (4. oturum — compact sonrası devam; **🏁 M3 KİLOMETRE TAŞI TAMAM 9/9**)
 
-> **▶️ COMPACT SONRASI DEVAM (2026-07-26, 4. oturum).** 3. oturum compact noktasından
-> temiz devralındı. **M3-01** `01c7a8a` · **M3-02** `4126e4c` · **M3-03** `555e1c5` · **M3-04**
-> `de831e1` · **M3-05** (§4) `e51504b` · **M3-06** (baseline) `a9b4dc6` (+followup `a6c41dd`) ·
-> **M3-07** (00008) `1f144b7` · **M3-08** (gevşetilemezlik kanıtı) `c39ccae` (**iki denetçi ONAY**)
-> — hepsi denetim ONAY, `main`'de commit'li, ağaç temiz, `make check` yeşil. **Sıradaki:** "ŞU AN"
-> → **M3-09** (ADR 0005 kabul edilen riskler) — **M3'ün SON görevi**. Bekleyen kullanıcı kararı YOK.
+> **🏁 M3 (policy motoru) TAMAM — 2026-07-26, 4. oturum.** M3-01→M3-09 (9 görev + 2 ADR
+> [0004,0005] + M3-06 followup + 1 kullanıcı kararı), hepsi builder→üçüncü göz (kırmızı çizgi
+> görevlerinde + tappa-security-auditor), hepsi `main`'de commit'li, ağaç temiz, `make check`+`make
+> audit` yeşil. Commit'ler: M3-01 `01c7a8a` · M3-02 `4126e4c` · M3-03 `555e1c5` · M3-04 `de831e1`
+> · M3-05 `e51504b` · M3-06 `a9b4dc6`(+`a6c41dd`) · M3-07 `1f144b7` · M3-08 `c39ccae` · M3-09
+> `0c0feb4`. **Sıradaki:** "ŞU AN" → **M4-01** (internal/geo — yeni kilometre taşı). M4/M5'e
+> devredilen guardrail girdi-sözleşmesi notları (N1–N4 + ErrUnknownTag) ŞU AN'da. Bekleyen
+> kullanıcı kararı YOK. Kritik durum sohbette kalmıyor.
 
 ---
 
@@ -19,8 +21,8 @@
 
 | | |
 |---|---|
-| **Kilometre taşı** | **M0 + M1 + M2 TAMAM** ✅ · **M3 devam** — M3-01→M3-08 done (8/9). → **[M3 policy motoru](m3-policy-motoru.md)** — son görev M3-09 |
-| **Sıradaki görev** | **M3-09** — [ADR 0005: kabul edilen riskler](m3-policy-motoru.md#m3-09--adr-0005-kabul-edilen-riskler) — **M3'ün SON görevi** (ADR, kod yok). Policy motorunun ve dört kanıtın **çözemediği** riskleri yazılı kabul et: buddy punching (A4/Q19) · sahte GPS (A3) · URL biriktirme (A1/Q21) · mekânda proxy (Y-E) · müdürün kimlik basması (Y-D) · fiziksel plaket devri. Her risk için **tespit sinyali + hangi görevde uygulandığı** (çoğu M6-11) + satış cevabı. "İleride bakarız" YOK — ya kabul ya görev. Satış cevabı [handoff.md](../handoff.md) §2 ile tutarlı (parmak izinin çözdüğü tek şey açıkça kabul). ADR 0002/0003/0004 iskeleti, "kabul edildi"+tarih. Precedent: ADR görevi = tek genel üçüncü göz (§4.1 sınırı — biyometri). Bekleyen kullanıcı kararı yok. |
+| **Kilometre taşı** | **M0 + M1 + M2 + M3 TAMAM** ✅ (M3 policy motoru 9/9). → sıradaki **M4 — [Tap karar motoru](m4-tap-motoru.md)** |
+| **Sıradaki görev** | **M4-01** — [internal/geo: haversine ve yarıçap](m4-tap-motoru.md#m4-01--internalgeo-haversine-ve-yarıçap). Saf `internal/geo` paketi: haversine mesafe + GPS yarıçap kontrolü (§4.2 GPS yalnız tap anında; tam koordinat loglanmaz §4.7). `float` YOK para/saat için ama GPS mesafe float uygun. Tablo bazlı test (bilinen mesafeler). Yeni kilometre taşı — **M4 kartını ([m4-tap-motoru.md](m4-tap-motoru.md)) baştan oku.** Bekleyen kullanıcı kararı YOK. **NOT:** M4/M5 guardrail girdi-sözleşmesi devirleri (N1–N4 + ErrUnknownTag) aşağıda "M4/M5'e devralınan"da. |
 | **Çalışma modu** | Orkestrasyon + üçüncü göz — [README.md](README.md) · brief'ler [agent-brief.md](agent-brief.md) |
 | **Dal** | **`main`** — M0 (`m0-bootstrap`) `main`'e fast-forward birleştirildi (`562f021`), dal silindi. **Kullanıcı kararı (2026-07-25): artık doğrudan `main`'de çalışılır, görev başına dal açılmaz** (CLAUDE.md §10 güncellendi). Push/PR yine istemedikçe yok. |
 | **Blokeler** | Yok (M2-02 için bekleyen karar yok). **Bekleyen kullanıcı eylemi:** arm64 Go kurulumu (aşağı bak) — hiçbir şeyi bloklamıyor. |
@@ -279,7 +281,7 @@ yazılır.
 | M3-06 | Tappa Baseline yönetilen politikası | **done** | `a9b4dc6` · üçüncü göz **1. turda** ONAY (non-vacuous **3 mutasyonla**: no-evidence effect değiş→RED; base: rezerv no-op→RED; owner'dan policy:edit çıkar→owner default deny=**fail-closed lockout gerçek** kanıtı) · `internal/policy/baseline.go` 8 `base:*` tap ifadesi + **2 yetki ifadesi** (authz-owner=6 eylem, authz-manager=4 eylem alt kümesi) · fail-closed lockout önleniyor (owner policy:edit baseline allow — guardrail owner'da ateşlemez) · **base: rezerv** validate.go'ya eklendi (tenant layer, case-insensitive) · base:ctr-gap-review kaynak-kapsamlı + tenant override (specExact>specType) · guardrail dokunulmaz (allow-all tenant→retired/deactivated guardrail deny kazanır) · ignore/redirect yok · BaselineVersion + otomatik-güncelleme-yok · **DB yazma M3-06'da YOK** (kanonik kaynak, M7-03 materyalize) · rol modeli admin_users {owner,manager} teyit · baseline.go %100/policy %98.3 · **manager employee:deactivate: kullanıcı kararı = manager DA yapabilir** (`a6c41dd` followup, odaklı üçüncü göz ONAY; policy:edit owner-only kaldı) |
 | M3-07 | Kararın kayda bağlanması | **done** | `1f144b7` · **iki denetçi ONAY** (üçüncü göz + tappa-security-auditor, §4.3 kırmızı çizgi ihlali yok) · migration 00008: transactions'a `policy_version_id`/`matched_sid`/`policy_layer`/`policy_context jsonb` (uygulanmış migration değişmedi) · **§4.6 kritik doğrulandı:** consistency CHECK Evaluate'in HER meşru kararını kabul eder (baseline `&vid` daima non-nil), yalnız wiring-bug keser (verdict CHECK precedent'i) — kayıt kaybı yok · §4.3 yeni sütunlar immutable (belt1 REVOKE sütun-seviyesi f + belt2 trigger DISABLE→superuser UPDATE başarılı kanıtı) · composite same-tenant FK policy_versions'a (23503 çapraz-tenant) + **ON DELETE RESTRICT** (cited version silinemez, delil zinciri) + policy_versions UNIQUE(id,tenant_id) hedefi · §4.7 policy_context mesafe/ham-koordinat değil · sqlc InsertTransaction+2 read additive (hepsi Transaction döner) · make check/gen/audit yeşil · **N4 → M5-05 devir** (Decision→sütun sadakati, aşağı) |
 | M3-08 | Test seti ve gevşetilemezlik kanıtı | **done** | `c39ccae` · **iki denetçi ONAY** (üçüncü göz + tappa-security-auditor, guardrail bypass + sys: sızıntısı arandı, bulunamadı) · `internal/policy/{property,invariants}_test.go` (üretim kodu DEĞİŞMEDİ) · **özellik testi** `TestGuardrail_NoTenantPolicyCanLoosen` fixed-seed 2000 iter: hiçbir rastgele tenant/baseline politikası guardrail deny/ignore/redirect'i allow'a çeviremez · **non-vacuous** (iterasyon-başına guardrail-siz kontrol allow assert eder; üçüncü göz katman sırasını bozunca step-3 property RED) · security-auditor bağımsız 7-guardrail bypass sondası (en spesifik resource dahil hepsi tuttu) · **invariant testleri:** §4.6 kanıt-yok→review (2 yığın), §4.1 yüzey-kilidi (24 anahtar+8 Context alanı; key+field ekleme→RED; D1 denylist değil çünkü redline R1 _test.go tarar), guardrail-restrictive-only · §4.7 test hata mesajı yalnız anahtar-adı · kapsam %98.3 |
-| M3-09 | ADR 0005: kabul edilen riskler | todo | Q19 — buddy punching, sahte GPS |
+| M3-09 | ADR 0005: kabul edilen riskler | **done** | `0c0feb4` · üçüncü göz **1. turda** ONAY (12 kabul kriteri) · `docs/adr/0005-kabul-edilen-riskler.md` — 6 risk (buddy punching A4/Q19, sahte GPS A3, URL biriktirme A1/Q21, mekânda proxy Y-E, müdürün kimlik basması Y-D, plaket devri) her biri neden+tespit sinyali+görev+satış · **referanslanan 8 sid + 2 anahtar kodda GERÇEK** (denetçi grep'ledi: base:ctr-gap-review/gps-conflict-review/no-evidence-review, sys:tag-not-active/tenant-mismatch/tap-freshness/occurred-at-bound) · handoff §2 tutarlı (parmak izi=yalnız buddy punching) · mekânda-proxy uyarısı iki yönlü · append kuralı + §4.1 sınırı · "ileride bakarız" yok |
 
 ### M4 — [Tap karar motoru](m4-tap-motoru.md)
 
@@ -359,13 +361,34 @@ yazılır.
 | M9-06 | Policy simülatörü | todo | Q22 — M6-10'dan ertelendi |
 | M9-07 | Ham JSON politika editörü | todo | Q22 — M6-09'dan ayrıldı |
 
-**Özet:** 82 görev · done 33 · wip 0 · blocked 0 · skipped 1 · todo 48 · **M0+M1+M2 TAMAM · M3 devam (M3-01→M3-08 done, 8/9) · sıradaki M3-09 (son M3 görevi)**
+**Özet:** 82 görev · done 34 · wip 0 · blocked 0 · skipped 1 · todo 47 · **M0+M1+M2+M3 TAMAM · sıradaki M4 (tap karar motoru)**
 
 ---
 
 ## Oturum günlüğü
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
+
+### 2026-07-26 (4. oturum, compact sonrası) — **M3-09 done · 🏁 M3 KİLOMETRE TAŞI TAMAM (9/9)**
+
+**M3-09 done — üçüncü göz 1. turda ONAY** (12 kabul kriteri). `0c0feb4`: `docs/adr/0005-kabul-edilen-riskler.md`
+— policy motorunun + dört kanıtın çözemediği 6 riski yazılı kabul (buddy punching, sahte GPS, URL biriktirme,
+mekânda proxy, müdürün kimlik basması, plaket devri); her biri neden+tespit sinyali+görev+satış. Denetçi
+referanslanan 8 sid + 2 anahtarı kodda grep'leyip GERÇEK olduğunu, handoff §2 tutarlılığını doğruladı.
+
+**🏁 M3 TAMAM (9/9):** ADR 0004 (motor modeli) · policy şeması (00007, append-only) · belge modeli+doğrulama ·
+değerlendirici (saf, guardrail terminal, deterministik) · **10 guardrail** (§4, sıra normatif, R8 sömürüsü
+kapalı) · Tappa baseline (8 tap + 2 authz ifadesi, fail-closed lockout çözüldü) · kararın kayda bağlanması
+(00008, delil zinciri) · **gevşetilemezlik özellik testi** (hiçbir tenant politikası guardrail'i allow'a
+çeviremez) · ADR 0005 (kabul edilen riskler). Her görev builder→üçüncü göz; kırmızı çizgi görevlerinde
+(M3-02/05/07 + M3-08) **iki denetçi** (+ tappa-security-auditor). policy kapsamı %98.3. Kullanıcı kararı:
+manager employee:deactivate (followup `a6c41dd`). **Tüm kripto/DB/policy stdlib + mevcut dep — yeni dep yok.**
+
+**M4/M5'e devreden (ŞU AN'da):** N1 tap:sunValid set · N2 channel sunucu-türetimi · N3 debounce Params'a bağla ·
+N4 Decision→sütun sadakati (M5-05) · ErrUnknownTag güvenlik olayı logla. **Bekleyen kullanıcı kararı: yok.**
+
+**Sırada:** M4-01 (internal/geo — yeni kilometre taşı; M4 kartını baştan oku). **Milestone sınırı — kullanıcı
+inceleme molası verebilir.**
 
 ### 2026-07-26 (4. oturum, compact sonrası) — **M3-08 done** (gevşetilemezlik kanıtı)
 
