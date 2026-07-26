@@ -4,14 +4,14 @@
 > güncellenir ([README.md](README.md) → oturum protokolü, adım 6.4).
 > Görev kartlarına durum işareti konmaz.
 
-**Son güncelleme:** 2026-07-26 (4. oturum — compact sonrası devam; **M3-01…M3-04 done**)
+**Son güncelleme:** 2026-07-26 (4. oturum — compact sonrası devam; **M3-01…M3-05 done**)
 
 > **▶️ COMPACT SONRASI DEVAM (2026-07-26, 4. oturum).** 3. oturum compact noktasından
 > temiz devralındı. **M3-01** (ADR 0004) `01c7a8a` · **M3-02** (şema) `4126e4c` · **M3-03**
-> (belge+doğrulama) `555e1c5` · **M3-04** (değerlendirici) `de831e1` — hepsi denetim ONAY,
-> `main`'de commit'li, ağaç temiz, `make check` yeşil. **Sıradaki:** "ŞU AN" → **M3-05**
-> (guardrail politikaları — **§4 en kritik**, iki denetçi + R8). Kritik durum sohbette
-> kalmıyor — hepsi burada, `open-questions.md` ve `docs/adr/`'de.
+> (belge+doğrulama) `555e1c5` · **M3-04** (değerlendirici) `de831e1` · **M3-05** (guardrail'ler,
+> §4 en kritik) `e51504b` (**iki denetçi ONAY**) — hepsi denetim ONAY, `main`'de commit'li,
+> ağaç temiz, `make check` yeşil. **Sıradaki:** "ŞU AN" → **M3-06** (Tappa Baseline yönetilen
+> politikası). Kritik durum sohbette kalmıyor — hepsi burada, `open-questions.md` ve `docs/adr/`'de.
 
 ---
 
@@ -19,8 +19,8 @@
 
 | | |
 |---|---|
-| **Kilometre taşı** | **M0 + M1 + M2 TAMAM** ✅ · **M3 devam** — M3-01→M3-04 done (4/9). → **[M3 policy motoru](m3-policy-motoru.md)** |
-| **Sıradaki görev** | **M3-05** — [Guardrail politikaları](m3-policy-motoru.md#m3-05--guardrail-politikaları) — **§4.1…§4.7, M3'ün EN KRİTİK görevi** → **iki denetçi** (üçüncü göz + `tappa-security-auditor`, R8 sıra kontrolü). 10 guardrail `sys:*`, **kodda gömülü**, `Set.Guardrails []Guardrail` (M3-04) sırasına konur. **SIRA NORMATİF** (1→10, ilk eşleşen terminal); yanlış sıra sömürülebilir (sun-invalid<employee-deactivated → bilgi sızıntısı+push seli; <person-debounce → replay). Sıra **kodda tek yerde sıralı liste**. Devre dışı bırakma API'si YOK. **`internal/config`'e alt/üst sınır kontrolü** (bugün `TAPPA_GPS_RADIUS_M`/`TAPPA_DEBOUNCE_SECONDS` yalnız `>0` → başlangıçta aralık dışı=hata). **Bounded-param M3-03 kancasını doldur** (aşağı: 3 anahtar + debounce). `person-debounce` KİŞİ bazlı; `tenant-mismatch` KM→KF plaketinde kayıt hiçbir tenant'a yazılmaz. Bekleyen kullanıcı kararı yok. |
+| **Kilometre taşı** | **M0 + M1 + M2 TAMAM** ✅ · **M3 devam** — M3-01→M3-05 done (5/9). → **[M3 policy motoru](m3-policy-motoru.md)** |
+| **Sıradaki görev** | **M3-06** — [Tappa Baseline yönetilen politikası](m3-policy-motoru.md#m3-06--tappa-baseline-yönetilen-politikası). §5 satır 6–7 + tespit edilen boşlukları **varsayılan ama değiştirilebilir** politikalar olarak paketle (8 `base:*` ifade: ip-or-gps-ok, no-evidence-review, qr-requires-ip Q15, gps-only-allow Q16, cross-location-note Q17, queued-window Y7, ctr-gap-review Q21, gps-conflict-review Y-E). Her yeni tenant'a otomatik bağlanır (M7-03) **yetki politikaları dahil** (yoksa fail-closed → kimse panele giremez). `base:ctr-gap-review` **kaynak kapsamlı** (yoğun şube kapatabilir). Tenant devre dışı/değiştirebilir, guardrail'i etkilemez. `base:` sid'leri koruma altında (tenant çakışan sid yazamaz). Baseline sürümü yükselince tenant **otomatik güncellenmez** (bildirilir). Bekleyen kullanıcı kararı yok. |
 | **Çalışma modu** | Orkestrasyon + üçüncü göz — [README.md](README.md) · brief'ler [agent-brief.md](agent-brief.md) |
 | **Dal** | **`main`** — M0 (`m0-bootstrap`) `main`'e fast-forward birleştirildi (`562f021`), dal silindi. **Kullanıcı kararı (2026-07-25): artık doğrudan `main`'de çalışılır, görev başına dal açılmaz** (CLAUDE.md §10 güncellendi). Push/PR yine istemedikçe yok. |
 | **Blokeler** | Yok (M2-02 için bekleyen karar yok). **Bekleyen kullanıcı eylemi:** arm64 Go kurulumu (aşağı bak) — hiçbir şeyi bloklamıyor. |
@@ -55,6 +55,19 @@ M3 sırası: M3-02 (şema) → M3-03 (belge modeli + doğrulama) → M3-04 (değ
 - **Default kararı `Layer=guardrail` taşıyor**, `MatchedSid="default"` ile ayrılıyor (kodda gerekçeli — dördüncü
   Layer değeri uydurulmadı). M3-07 raporlama/kayıt yolunda guardrail'i default'tan **`matched_sid`** ile ayırmalı
   (guardrail kararında `policy_version_id` boş + `matched_sid="sys:…"`; default'ta `matched_sid="default"`).
+
+### M4/M5'e devralınan (M3-05 denetiminden — guardrail'lerin girdi sözleşmesi)
+Guardrail'ler saf `policy.Evaluate` girdisine güvenir; bu girdiyi M4 (`tap.Decide` bağlam kurar) / M5 (handler)
+DOLDURUR. Aşağıdakiler doldurulmazsa guardrail **sessizce** ateşlemez (eksik anahtar ≠ false, M3-04 invariant'ı):
+- **N1 — `tap:sunValid`:** M5 her NFC tap'inde bunu set etmeli, yoksa `sys:sun-invalid` sessiz kalır (asıl atomik
+  ctr koruması `internal/sun` M2-06'da; guardrail onun policy-katmanı yansıması — ikisi birlikte).
+- **N2 — `tap:channel` SUNUCU-türetimi:** `channel` `ctr`/`cmac` varlığından türetilmeli (istemci beyanından
+  DEĞİL — ADR 0004 §8). sun-invalid/freshness'in "NFC-only" kapsaması buna dayanır; istemci `channel=qr`
+  diyip SUN korumasını atlayamamalı.
+- **N3 — debounce değer akışı:** `TAPPA_DEBOUNCE_SECONDS` aralık-kontrollü (M3-05) ama henüz `policy.Params`'a
+  **bağlanmadı** (`DefaultParams` debounce=60 sn sabit). M4/M5 config değerini Params'a bağlamalı; bağlanana
+  kadar küçük drift riski (bloklamıyor — sınırlar ortak).
+- Ayrıca (M2'den): `sun.Verify` `ErrUnknownTag` döndürür → M4/M5 bunu yutmamalı, global güvenlik olayı loglamalı.
 
 ### M2-04'e devralınan not (M2-01 denetiminden, N3)
 SV2 içindeki `ctr`'nin byte sırası ADR/skill'de açıkça sabitlenmedi (bilinçli) → **M2-04/M2-07
@@ -255,7 +268,7 @@ yazılır.
 | M3-02 | Policy şeması (append-only sürümler) | **done** | `4126e4c` · **iki denetçi ONAY** (üçüncü göz + tappa-security-auditor, kırmızı çizgi ihlali yok) · migration 00007: policies + policy_versions (**append-only**) + policy_attachments, üçünde RLS beşlisi (birebir NULLIF USING+WITH CHECK, pg_policies'ten okundu) · §4.3 kuşak+kemer non-vacuous (trigger DISABLE→superuser UPDATE başarılı → koruma REVOKE değil paylaşılan `tappa_forbid_mutation` trigger) · **`layer` CHECK `guardrail`'i reddediyor** (23514 — guardrail DB'ye yazılamaz) · composite same-tenant FK çapraz-tenant'ı blokluyor (23503) · `tappa_app` rolsuper=f/rolbypassrls=f teyit · **2 sapma kabul:** `policies` DELETE REVOKE (§4.6 enabled durum alanı; planlı silme yolu yok), `created_by` FK-siz uuid (admin FK M6/M7'ye, M1-11 kalıbı) · rls_test.go +3 tablo non-vacuous · models.go make gen additive · make check/gen/audit yeşil |
 | M3-03 | Belge modeli, ayrıştırma ve doğrulama | **done** | `555e1c5` · üçüncü göz **1. turda** ONAY (non-vacuous **2 mutasyonla** kanıtlandı: sys: no-op→test RED, documentEffect→true→test RED) · `internal/policy/{document,validate}.go`+testler, **%98.8 kapsam** · bilinmeyen effect/action/operatör/anahtar→hata (+ `DisallowUnknownFields` typo yakalama), sys: rezerve (case-insensitive, iki katman), ignore/redirect belgede reddedilir, nicel DoS sınırları (byte/ifade/action/resource/condition/IpInPrefix + `CheckTenantQuota` doc+version, sabitler tek yerde), bozuk JSON+fuzz (456K exec crasher yok), §4.7 hata değeri sızmıyor · saf paket (Evaluate M3-04'e bırakıldı) · ADR listeleri birebir (10 operatör/7 eylem/24 anahtar/5 effect) · **bounded-param wiring boş → M3-05'e devir** (aşağı) |
 | M3-04 | Değerlendirici (koşullar, öncelik, açıklanabilirlik) | **done** | `de831e1` · üçüncü göz **1. turda** ONAY (non-vacuous **3 mutasyonla**: guardrail return kaldır→terminal RED, deny/review takas→restrictiveness RED, bilinmeyen-op matched=false kaldır→deny koşulsuzlaştı 4 test RED) · `internal/policy/{evaluate,conditions}.go`, **%97.9 kapsam** (evaluate.go %100) · saf `Evaluate(Set,Context) Decision` · guardrail sıralı+**terminal** (alt katman OnAnomaly çağırmıyor=hiç çalışmıyor kanıtı) · en-kısıtlayıcı-kazanır + spesifik-resource tie-break · varsayılan `tap:record`→review / diğer 6 (tap:approve dahil)→deny · **bilinmeyen-op deny'yi koşulsuzlaştırMIYOR** · eksik-anahtar≠false (StringNotEquals dahil) · determinizm 1000-koşu (map-sıra bağımsız) · anomaly injectable sink+slog fallback §4.7-temiz · **2 kart düzeltmesi** (redirect eksiği + tap:approve→deny ADR §3, denetçi doğruladı) · Context struct sapması gerekçeli · 2 bloklamayan not (Türkçe yorum→M3-05, default Layer=guardrail→M3-07) |
-| M3-05 | Guardrail politikaları | todo | **§4 — en kritik** |
+| M3-05 | Guardrail politikaları | **done** | `e51504b` · **iki denetçi ONAY** (üçüncü göz + tappa-security-auditor, **§4 en kritik**, kırmızı çizgi ihlali yok) · non-vacuous **3 mutasyonla** (deactivated'ı öne al→sıra+R8 leak RED; sun-invalid Match→false→R8 RED; config üst sınır kaldır→20000000 RED) · `internal/policy/guardrails.go` 10 `sys:*` guardrail TEK sıralı slice, kodda gömülü, devre-dışı API YOK · **R8 sıra** sun-invalid(3)<deactivated(7)<debounce(8) — üçü eşleşince sun-invalid kazanır + SecurityAlert BOŞ (sızıntı/push-seli/replay kapalı) · terminallik: geniş tenant allow guardrail deny'ini çeviremiyor · tenant-mismatch→redirect+kayıt-yok · person-debounce KİŞİ bazlı (nil gap→kayıt düşmez §4.6) · Context 4 tipli sunucu-alanı (belge sözlüğü dışı) · SecurityAlert sabit sözlük §4.7-temiz · **config aralık** GPS 25–1000/debounce 30–300 başlangıçta (20000000+GPS=5 reddedilir), guardrail+config tek kaynak · bounded-param 3 anahtar (occurredAtSkew dahil) · policy %98.2 · **N1/N2/N3 → M4/M5 devir** (aşağı) |
 | M3-06 | Tappa Baseline yönetilen politikası | todo | A2, A3, Y1 varsayılanları |
 | M3-07 | Kararın kayda bağlanması | todo | |
 | M3-08 | Test seti ve gevşetilemezlik kanıtı | todo | kapsam %90+ |
@@ -339,13 +352,39 @@ yazılır.
 | M9-06 | Policy simülatörü | todo | Q22 — M6-10'dan ertelendi |
 | M9-07 | Ham JSON politika editörü | todo | Q22 — M6-09'dan ayrıldı |
 
-**Özet:** 82 görev · done 29 · wip 0 · blocked 0 · skipped 1 · todo 52 · **M0+M1+M2 TAMAM · M3 devam (M3-01→M3-04 done, 4/9) · sıradaki M3-05 (§4 en kritik)**
+**Özet:** 82 görev · done 30 · wip 0 · blocked 0 · skipped 1 · todo 51 · **M0+M1+M2 TAMAM · M3 devam (M3-01→M3-05 done, 5/9) · sıradaki M3-06 (baseline)**
 
 ---
 
 ## Oturum günlüğü
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
+
+### 2026-07-26 (4. oturum, compact sonrası) — **M3-05 done** (guardrail politikaları — §4 EN KRİTİK)
+
+**M3-05 done — iki denetçi ONAY** (üçüncü göz + tappa-security-auditor, kırmızı çizgi ihlali yok). `e51504b`:
+`internal/policy/guardrails.go` — 10 `sys:*` guardrail TEK sıralı slice, kodda gömülü, DB'de değil, **devre
+dışı bırakma API'si YOK**. İki denetçi **sıralı** koşuldu (M3-02 dersi). policy kapsamı **%98.2**.
+
+**R8 sıra sömürüsü kapalı — mutasyonla kanıtlandı:** sun-invalid(3) < deactivated(7) < debounce(8). Üçünü
+eşleştiren bağlamda sun-invalid kazanır, deny, **SecurityAlert BOŞ** → forge'lu SUN deaktivasyon durumunu
+sızdıramaz, müdüre push seli yollayamaz, replay `ignore`'a yutulmaz. `TestGuardrails_OrderIsLoadBearing`
+non-vacuous (yanlış sırada sızıntı geri geliyor); üçüncü göz deactivated'ı öne taşıyıp RED gördü.
+
+**Tasarım (iki denetçi kabul):** guardrail girdileri 24 belge anahtarı dışı → **tipli Context alanları**
+(SessionTenantID/TagTenantID/SecondsSincePersonLastTap/Reviewer+SubjectID), sunucu-türetimi, belge sözlüğü
+DIŞI (tenant set edemez), additive (M3-04 testleri geçer), nil=güvenli (§4.6 kayıt düşmez). Güvenlik uyarısı
+= `Decision.SecurityAlert` sabit sözlük (lost-tag-tapped/deactivated-employee-tapped), yalnız guardrail
+ateşleyince, §4.7-temiz (değer/GPS/sır taşımaz). **config aralık kontrolü:** GPS 25–1000/debounce 30–300
+başlangıçta (TAPPA_GPS_RADIUS_M=20000000 + GPS=5 artık reddedilir — proof-of-place tek env ile kapatılamaz),
+guardrail+config **tek sabit kaynağı**. **Bounded-param 3 anahtar** dolduruldu (M3-03 kancası; occurredAtSkew
+dahil — M3-03'te kaçırılan). evaluate.go:169 Türkçe yorum İngilizce'ye çevrildi.
+
+**3 bloklamayan not → M4/M5 devir** (guardrail girdi sözleşmesi, ŞU AN'a yazıldı): N1 M5 her NFC tap'te
+`tap:sunValid` set etmeli; N2 `channel` ctr/cmac'ten sunucu-türetimi (istemci `qr` diyip SUN atlayamamalı);
+N3 `TAPPA_DEBOUNCE_SECONDS` henüz `policy.Params`'a bağlanmadı (değer akışı M4/M5).
+
+**Sırada:** M3-06 (Tappa Baseline yönetilen politikası — 8 `base:*` ifade).
 
 ### 2026-07-26 (4. oturum, compact sonrası) — **M3-04 done** (değerlendirici — motorun doğruluk çekirdeği)
 
