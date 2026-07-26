@@ -12,8 +12,8 @@
 
 | | |
 |---|---|
-| **Kilometre taşı** | **M2 — [SUN doğrulama](m2-sun.md)** (M2-01…M2-06 done). **Kalan tek görev: M2-07.** M0+M1 tamam. |
-| **Sıradaki görev** | **M2-07** — [`sun.Verify` + test vektörleri](m2-sun.md#m2-07--sunverify-ve-test-vektörleri). **M2'nin son görevi.** Parçaları birleştirir: parse(M2-03)→resolve tag(resolve.go)→unwrap(M2-05)→verifyMAC(M2-04)→**doğrula SONRA** advance(M2-06). `Result{sun_valid,tag,location,ctrGap}` döner, **verdict VERMEZ** (M4). Kart vaka tablosunun tamamı + `sun_vectors.json` (sahte anahtar). Kapsam **%90+**. Bağımlılık M2-04+05+06. |
+| **Kilometre taşı** | **M0 + M1 + M2 TAMAMLANDI** ✅ (M2 SUN doğrulama 7/7). → sıradaki **M3 — [Policy motoru](m3-policy-motoru.md)** |
+| **Sıradaki görev** | **M3-01** — [ADR 0004: policy motoru modeli](m3-policy-motoru.md#m3-01--adr-0004-policy-motoru-modeli). Guardrail/baseline/tenant üç katmanı, AWS IAM benzeri belge yapısı (statement/effect/action/resource/condition), fail-to-review. Bekleyen kullanıcı kararı yok (kontrol et). Skill: `internal/policy` — [docs/plan/m3-policy-motoru.md](m3-policy-motoru.md). |
 | **Çalışma modu** | Orkestrasyon + üçüncü göz — [README.md](README.md) · brief'ler [agent-brief.md](agent-brief.md) |
 | **Dal** | **`main`** — M0 (`m0-bootstrap`) `main`'e fast-forward birleştirildi (`562f021`), dal silindi. **Kullanıcı kararı (2026-07-25): artık doğrudan `main`'de çalışılır, görev başına dal açılmaz** (CLAUDE.md §10 güncellendi). Push/PR yine istemedikçe yok. |
 | **Blokeler** | Yok (M2-02 için bekleyen karar yok). **Bekleyen kullanıcı eylemi:** arm64 Go kurulumu (aşağı bak) — hiçbir şeyi bloklamıyor. |
@@ -211,7 +211,7 @@ yazılır.
 | M2-04 | Oturum anahtarı, kısaltılmış MAC, sabit zamanlı karşılaştırma | **done** | `88c6036` · **iki denetçi ONAY** (1. tur RED: SV2 sayaç byte'ları URL'ye göre TERS'ti → yapısal düzeltildi, `sv2()` ham `ctrBytes` verbatim) · tek-indeksli 8-byte kısaltma · `ConstantTimeCompare` (R7) · golden bağımsız Python'la doğrulandı · %98.9 kapsam · **değer-endian M2-07'ye ertelendi** (ayrı eksen) |
 | M2-05 | Anahtar sarmalama (KEK) | **done** | `0d23d30` · **iki denetçi ONAY** · `Wrap(kek,uid,key)`/`Unwrap(kek,uid,ref)`+`Zero()` AES-256-GCM · AAD=UID taşınabilirlik-koruması (uidA→uidB unwrap hata) · 44-byte düzen · **KEK parametre (cache yok)** · AES-256 zorlanıyor (downgrade önlenir) · düz-anahtar/KEK sızmaz (mutasyonla) · %96.1 kapsam |
 | M2-06 | Atomik sayaç ilerletme ve eşzamanlılık testi | **done** | `2092796` · **iki denetçi ONAY** (§4.4 en kritik) · `sun.AdvanceCounter` M1-08 atomik CTE'sini kullanır (verify'dan ayrı) · **50-goroutine `-race` → tam 1 kazanan** (her iki denetçi kendi koştu) · **negatif kontrol yeniden üretildi** (TOCTOU→50 kazanan) · strict `<`, 0-satır→ErrReplay, gömülü eşik yok, R4 temiz · %96.3 kapsam |
-| M2-07 | sun.Verify ve test vektörleri | todo | kapsam %90+ |
+| M2-07 | sun.Verify ve test vektörleri | **done** | `cd639f5` · **iki denetçi ONAY** · `Verify` tüm zinciri birleştirir (resolve→retired/lost→QR→unwrap+verifyMAC+Zero→**sonra** advance) · `Result` döner **verdict vermez** · vaka tablosu tam + N-goroutine tam-1 (`-race`) · sıra kanıtı (kötü CMAC→advance yok) · §4.7 no-leak mutasyonla · %96.5 kapsam · **self-consistent vektör** (gerçek çip M8-05'te) |
 
 ### M3 — [Policy motoru](m3-policy-motoru.md)
 
@@ -305,13 +305,36 @@ yazılır.
 | M9-06 | Policy simülatörü | todo | Q22 — M6-10'dan ertelendi |
 | M9-07 | Ham JSON politika editörü | todo | Q22 — M6-09'dan ayrıldı |
 
-**Özet:** 82 görev · done 24 · wip 0 · blocked 0 · skipped 1 · todo 57 · **M0+M1 tamam · M2: M2-01…M2-06 done; kalan M2-07**
+**Özet:** 82 görev · done 25 · wip 0 · blocked 0 · skipped 1 · todo 56 · **M0+M1+M2 TAMAM · sıradaki M3 (policy motoru)**
 
 ---
 
 ## Oturum günlüğü
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
+
+### 2026-07-26 (3. oturum, devam) — **M2-07 done · M2 KİLOMETRE TAŞI TAMAMLANDI** ✅
+
+**M2-07 done — iki denetçi ONAY.** `cd639f5`: `sun.Verify` tüm SUN zincirini birleştirir
+(parse→resolve→retired/lost→QR→unwrap+verifyMAC+Zero→**doğrula SONRA** advance) ve `Result` döner
+(**verdict VERMEZ** — o M4). Vaka tablosunun tamamı + 50-goroutine tam-1 canlı `-race`; sıra kanıtı
+(kötü CMAC→advance yok, last_ctr sabit); §4.7 no-leak mutasyonla; %96.5 kapsam. Sapmalar (unknown
+UID→ErrUnknownTag, unwrap hatası→error) gerekçeli/kabul.
+
+**🏁 M2 TAMAM (7/7):** RFC 4493 AES-CMAC (dış vektör) · SDM URL ayrıştırma (mixed-case kanonik) ·
+session key + tek-indeksli 8-byte MAC + ConstantTimeCompare (RED yakalandı: SV2 byte-reversal
+düzeltildi) · KEK sarmalama (AAD=UID, cache yok) · atomik ctr (50-goroutine tam-1 + negatif kontrol) ·
+sun.Verify entegrasyonu. Tüm kripto stdlib (`crypto/aes`), yeni dep yok.
+
+**⚠️ DEVAM EDEN GAP → M8 pilot / M4:**
+- **Gerçek çip vektörü YOK:** tüm SUN zinciri self-consistent (sahte vektör) doğrulandı; RFC 4493
+  CMAC dış-vektörle sabit ama SV2 ctr **mutlak** endian'ı + zincirin gerçek NTAG 424'e karşı
+  doğruluğu **dış-doğrulanmadı**. **M8-05 pilot öncesi gerçek çip SUN URL'si uçtan uca test edilmeli**
+  (üretim etiketleri encode edilmeden).
+- **M4/M5:** `sun.Verify` `ErrUnknownTag` döner — decision/handler bunu **yutmamalı**, global güvenlik
+  olayı olarak loglamalı (bilinmeyen uid'in tenant'ı yok → transactions kaydı kurulamaz; kayıt kararı M5).
+
+**Sırada:** M3-01 (ADR 0004: policy motoru modeli).
 
 ### 2026-07-26 (3. oturum, devam) — **M2-06 done** (atomik sayaç, §4.4 en kritik)
 
