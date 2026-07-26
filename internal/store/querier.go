@@ -48,6 +48,14 @@ type Querier interface {
 	// (section 4.3): no UPDATE/DELETE queries exist here by design -- corrections are
 	// a new row + audit_log, and the FLAGGED review flow writes to
 	// transaction_reviews, never here.
+	//
+	// POLICY DECISION COLUMNS (M3-07, migration 0008): policy_version_id, matched_sid,
+	// policy_layer and policy_context bind each record to WHY it got its verdict. They
+	// are part of every column list below so this file keeps returning the full store
+	// Transaction model (additive). The tap engine's caller (M5-05) SUPPLIES the values
+	// from policy.Decision + a section 4.7-safe policy.Context snapshot (a GPS DISTANCE,
+	// never a raw coordinate); the DB CHECK transactions_policy_decision_consistent
+	// guarantees the four columns are mutually consistent or all absent.
 	// Direction toggle basis (CLAUDE.md section 5): the person's last OPEN check-in,
 	// i.e. the most recent type='in' with no later type='out'. If a row is found the
 	// next tap is 'out'; if none (pgx.ErrNoRows) the next tap is 'in'. Ordering is by
@@ -78,6 +86,14 @@ type Querier interface {
 	// employee_id/location_id/department_id/tag_uid/ctr are nullable so a
 	// context-less reject (stolen plaque, no session) is still recorded -- section
 	// 4.6, a record is never lost.
+	//
+	// The four POLICY-DECISION columns (M3-07) are also written here so the record
+	// carries WHY it got its verdict: policy_version_id (the pinned append-only version,
+	// NULL for a guardrail/default decision), matched_sid (the deciding sid --
+	// MACHINE-FILTERABLE, "sys:..." | tenant sid | "default"), policy_layer
+	// (guardrail|baseline|tenant) and policy_context (the section 4.7-safe input
+	// snapshot). The caller passes them from policy.Decision; passing all four NULL is
+	// valid too (the consistency CHECK permits the all-absent state, section 4.6).
 	InsertTransaction(ctx context.Context, arg InsertTransactionParams) (Transaction, error)
 	// GPS fallback path (CLAUDE.md section 5, row 6): when no IP matches, the domain
 	// computes the haversine distance from the tap's GPS to each location and checks

@@ -156,29 +156,33 @@ type Tenant struct {
 }
 
 type Transaction struct {
-	ID           uuid.UUID
-	TenantID     uuid.UUID
-	EmployeeID   *uuid.UUID
-	LocationID   *uuid.UUID
-	DepartmentID *uuid.UUID
-	TagUid       *string
-	Ctr          *int32
-	Type         *string
-	OccurredAt   time.Time
-	SourceIp     *netip.Addr
-	IpMatch      *bool
-	GpsLat       pgtype.Numeric
-	GpsLng       pgtype.Numeric
-	GpsMatch     *bool
-	SunValid     *bool
-	Trust        *int16
-	Verdict      string
-	Note         *string
-	Channel      string
-	EnteredBy    *uuid.UUID
-	Practice     bool
-	Queued       bool
-	CreatedAt    time.Time
+	ID              uuid.UUID
+	TenantID        uuid.UUID
+	EmployeeID      *uuid.UUID
+	LocationID      *uuid.UUID
+	DepartmentID    *uuid.UUID
+	TagUid          *string
+	Ctr             *int32
+	Type            *string
+	OccurredAt      time.Time
+	SourceIp        *netip.Addr
+	IpMatch         *bool
+	GpsLat          pgtype.Numeric
+	GpsLng          pgtype.Numeric
+	GpsMatch        *bool
+	SunValid        *bool
+	Trust           *int16
+	Verdict         string
+	Note            *string
+	Channel         string
+	EnteredBy       *uuid.UUID
+	Practice        bool
+	Queued          bool
+	CreatedAt       time.Time
+	PolicyVersionID *uuid.UUID
+	MatchedSid      *string
+	PolicyLayer     *string
+	PolicyContext   []byte
 }
 
 type TransactionReview struct {

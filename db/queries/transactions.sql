@@ -4,6 +4,14 @@
 -- (section 4.3): no UPDATE/DELETE queries exist here by design -- corrections are
 -- a new row + audit_log, and the FLAGGED review flow writes to
 -- transaction_reviews, never here.
+--
+-- POLICY DECISION COLUMNS (M3-07, migration 0008): policy_version_id, matched_sid,
+-- policy_layer and policy_context bind each record to WHY it got its verdict. They
+-- are part of every column list below so this file keeps returning the full store
+-- Transaction model (additive). The tap engine's caller (M5-05) SUPPLIES the values
+-- from policy.Decision + a section 4.7-safe policy.Context snapshot (a GPS DISTANCE,
+-- never a raw coordinate); the DB CHECK transactions_policy_decision_consistent
+-- guarantees the four columns are mutually consistent or all absent.
 
 -- name: GetLastOpenTransaction :one
 -- Direction toggle basis (CLAUDE.md section 5): the person's last OPEN check-in,
@@ -17,7 +25,7 @@
 SELECT id, tenant_id, employee_id, location_id, department_id, tag_uid, ctr,
        type, occurred_at, source_ip, ip_match, gps_lat, gps_lng, gps_match,
        sun_valid, trust, verdict, note, channel, entered_by, practice, queued,
-       created_at
+       created_at, policy_version_id, matched_sid, policy_layer, policy_context
 FROM transactions t
 WHERE t.tenant_id = @tenant_id
   AND t.employee_id = @employee_id
@@ -41,7 +49,7 @@ LIMIT 1;
 SELECT id, tenant_id, employee_id, location_id, department_id, tag_uid, ctr,
        type, occurred_at, source_ip, ip_match, gps_lat, gps_lng, gps_match,
        sun_valid, trust, verdict, note, channel, entered_by, practice, queued,
-       created_at
+       created_at, policy_version_id, matched_sid, policy_layer, policy_context
 FROM transactions
 WHERE tenant_id = @tenant_id
   AND employee_id = @employee_id
@@ -56,16 +64,26 @@ LIMIT 1;
 -- employee_id/location_id/department_id/tag_uid/ctr are nullable so a
 -- context-less reject (stolen plaque, no session) is still recorded -- section
 -- 4.6, a record is never lost.
+--
+-- The four POLICY-DECISION columns (M3-07) are also written here so the record
+-- carries WHY it got its verdict: policy_version_id (the pinned append-only version,
+-- NULL for a guardrail/default decision), matched_sid (the deciding sid --
+-- MACHINE-FILTERABLE, "sys:..." | tenant sid | "default"), policy_layer
+-- (guardrail|baseline|tenant) and policy_context (the section 4.7-safe input
+-- snapshot). The caller passes them from policy.Decision; passing all four NULL is
+-- valid too (the consistency CHECK permits the all-absent state, section 4.6).
 INSERT INTO transactions (
     tenant_id, employee_id, location_id, department_id, tag_uid, ctr, type,
     occurred_at, source_ip, ip_match, gps_lat, gps_lng, gps_match, sun_valid,
-    trust, verdict, note, channel, entered_by, practice, queued
+    trust, verdict, note, channel, entered_by, practice, queued,
+    policy_version_id, matched_sid, policy_layer, policy_context
 ) VALUES (
     @tenant_id, @employee_id, @location_id, @department_id, @tag_uid, @ctr, @type,
     @occurred_at, @source_ip, @ip_match, @gps_lat, @gps_lng, @gps_match,
-    @sun_valid, @trust, @verdict, @note, @channel, @entered_by, @practice, @queued
+    @sun_valid, @trust, @verdict, @note, @channel, @entered_by, @practice, @queued,
+    @policy_version_id, @matched_sid, @policy_layer, @policy_context
 )
 RETURNING id, tenant_id, employee_id, location_id, department_id, tag_uid, ctr,
           type, occurred_at, source_ip, ip_match, gps_lat, gps_lng, gps_match,
           sun_valid, trust, verdict, note, channel, entered_by, practice, queued,
-          created_at;
+          created_at, policy_version_id, matched_sid, policy_layer, policy_context;

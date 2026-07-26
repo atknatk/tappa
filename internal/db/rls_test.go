@@ -697,6 +697,189 @@ func TestRLS_PolicyVersion_CompositeFKBlocksCrossTenant(t *testing.T) {
 }
 
 // ============================================================================
+// M3-07 (migration 0008): transactions.{policy_version_id, matched_sid,
+// policy_layer, policy_context} bind the policy DECISION to the immutable record.
+// These tests prove the four new columns (a) are subject to RLS like every other
+// column of the row, (b) are structurally same-tenant via the composite FK, and
+// (c) obey the decision-consistency CHECK. Immutability of the new columns is
+// proven in Case 4 (belt 1, per-column app UPDATE denied) and Case 5 (belt 2,
+// superuser trigger on an M3-07 column).
+// ============================================================================
+
+// insertPolicyTx inserts, in fx's OWN tenant context, a flag transaction carrying
+// the M3-07 policy-decision columns and citing fx's own append-only policy version
+// (fx.policyVersID) -- FK-valid, and CHECK branch (c): baseline layer + version +
+// sid. Returns the new transaction id. Like every fixture row it is append-only and
+// stays inert (see the buildFixture teardown note).
+func insertPolicyTx(t *testing.T, d *DB, fx fixture) uuid.UUID {
+	t.Helper()
+	txID := uuid.New()
+	if err := d.WithTenant(context.Background(), fx.tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		_, e := tx.Exec(ctx,
+			`INSERT INTO transactions
+			   (id, tenant_id, employee_id, location_id, occurred_at, verdict, channel,
+			    policy_layer, matched_sid, policy_version_id, policy_context)
+			 VALUES ($1, $2, $3, $4, now(), 'flag', 'nfc',
+			    'baseline', 'base:no-evidence-review', $5, '{"tap:gpsDistanceM":842}'::jsonb)`,
+			txID, fx.tenantID, fx.employeeID, fx.locationID, fx.policyVersID)
+		return e
+	}); err != nil {
+		t.Fatalf("insertPolicyTx: %v", err)
+	}
+	return txID
+}
+
+// RLS is row-level, so a row invisible cross-tenant hides ALL its columns; this
+// proves the M3-07 columns are covered by the SAME transactions policy (no new RLS
+// statement was needed for the added columns). A policy-POPULATED row is used so the
+// probe is over a row that actually exercises the new columns.
+func TestRLS_Transaction_PolicyColumns_Isolation(t *testing.T) {
+	app := appDB(t)
+	assertAppRole(t, app)
+
+	a := buildFixture(t, app)
+	b := buildFixture(t, app)
+
+	txID := insertPolicyTx(t, app, a) // A's policy-populated row
+
+	const query = `SELECT count(*) FROM transactions WHERE id = $1`
+	// Positive control: A sees its own policy-populated row (else the 0 below is vacuous).
+	if self := rawCountCtx(t, app, a.tenantID, query, txID); self != 1 {
+		t.Fatalf("positive control: A sees %d of its own policy-populated tx, want 1", self)
+	}
+	// Isolation: B cannot see A's row -> the new columns are hidden with it.
+	if cross := rawCountCtx(t, app, b.tenantID, query, txID); cross != 0 {
+		t.Fatalf("RLS FAILED: B read %d of A's policy-populated tx, want 0", cross)
+	}
+}
+
+// Composite same-tenant FK (M3-07): transactions(policy_version_id, tenant_id) ->
+// policy_versions(id, tenant_id) forbids a record citing a policy version of ANOTHER
+// tenant. Distinct from WITH CHECK: here tenant_id = A matches the context (WITH
+// CHECK passes) and the consistency CHECK passes (baseline + version + sid), but
+// policy_version_id points at B's version, for which no (B's id, A) row exists ->
+// foreign_key_violation. The positive control (A's OWN version, checked last) proves
+// the FK fails ONLY on the cross-tenant link.
+func TestRLS_Transaction_PolicyVersionFK_BlocksCrossTenant(t *testing.T) {
+	app := appDB(t)
+	assertAppRole(t, app)
+
+	a := buildFixture(t, app) // the context we insert under
+	b := buildFixture(t, app) // owns the version we try to borrow
+
+	// Negative: A's context, tenant_id = A, policy_version_id = B's version.
+	errX := app.WithTenant(context.Background(), a.tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		_, e := tx.Exec(ctx,
+			`INSERT INTO transactions
+			   (id, tenant_id, employee_id, occurred_at, verdict, channel,
+			    policy_layer, matched_sid, policy_version_id)
+			 VALUES ($1, $2, $3, now(), 'flag', 'nfc', 'baseline', 'base:x', $4)`,
+			uuid.New(), a.tenantID, a.employeeID, b.policyVersID)
+		return e
+	})
+	if errX == nil {
+		t.Fatalf("cross-tenant policy_version_id on a transaction succeeded, want composite-FK rejection")
+	}
+	if pg := asPgErr(errX); pg == nil || pg.Code != "23503" {
+		t.Fatalf("want foreign_key_violation (23503) for cross-tenant policy_version_id, got %v", errX)
+	}
+
+	// Positive control (same-tenant, checked last): A citing its OWN version succeeds.
+	if errOwn := app.WithTenant(context.Background(), a.tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		_, e := tx.Exec(ctx,
+			`INSERT INTO transactions
+			   (id, tenant_id, employee_id, occurred_at, verdict, channel,
+			    policy_layer, matched_sid, policy_version_id)
+			 VALUES ($1, $2, $3, now(), 'flag', 'nfc', 'baseline', 'base:x', $4)`,
+			uuid.New(), a.tenantID, a.employeeID, a.policyVersID)
+		return e
+	}); errOwn != nil {
+		t.Fatalf("positive control: A could not cite its OWN policy version: %v", errOwn)
+	}
+}
+
+// The decision-consistency CHECK (transactions_policy_decision_consistent) mirrors
+// EXACTLY what policy.Evaluate can emit, so every legitimate decision inserts and
+// only an inconsistent (buggy) combination is rejected -- the same bargain as the
+// verdict CHECK (migration 0005). It also GUARANTEES the report invariant M3-07 is
+// about: "policy_version_id IS NULL <=> a guardrail/default decided" and "every
+// decided row names a sid". Accept: the shapes the engine returns; reject: three
+// inconsistent shapes, each a check_violation (23514).
+func TestTransactions_PolicyDecisionConsistencyCheck(t *testing.T) {
+	app := appDB(t)
+	assertAppRole(t, app)
+	fx := buildFixture(t, app)
+
+	// exec runs one INSERT in fx's context and returns the error (nil on success).
+	exec := func(cols, vals string, args ...any) error {
+		return app.WithTenant(context.Background(), fx.tenantID, func(ctx context.Context, tx pgx.Tx) error {
+			_, e := tx.Exec(ctx,
+				`INSERT INTO transactions (tenant_id, employee_id, occurred_at, verdict, channel, `+cols+`)
+				 VALUES ($1, $2, now(), 'flag', 'nfc', `+vals+`)`,
+				append([]any{fx.tenantID, fx.employeeID}, args...)...)
+			return e
+		})
+	}
+
+	// ACCEPT: the shapes policy.Evaluate actually produces.
+	accepts := []struct {
+		name string
+		cols string
+		vals string
+		args []any
+	}{
+		{"all-absent (pre-M5 / fixture shape)", "", "", nil},
+		{"guardrail decision (sys: sid, no version)",
+			"policy_layer, matched_sid", "'guardrail', 'sys:sun-invalid'", nil},
+		{"default decision (\"default\" sid, no version)",
+			"policy_layer, matched_sid", "'guardrail', 'default'", nil},
+		{"baseline decision (version + sid)",
+			"policy_layer, matched_sid, policy_version_id", "'baseline', 'base:no-evidence-review', $3", []any{fx.policyVersID}},
+	}
+	for _, tc := range accepts {
+		if tc.cols == "" {
+			// all-absent: no extra columns.
+			if err := app.WithTenant(context.Background(), fx.tenantID, func(ctx context.Context, tx pgx.Tx) error {
+				_, e := tx.Exec(ctx,
+					`INSERT INTO transactions (tenant_id, employee_id, occurred_at, verdict, channel)
+					 VALUES ($1, $2, now(), 'flag', 'nfc')`, fx.tenantID, fx.employeeID)
+				return e
+			}); err != nil {
+				t.Fatalf("accept %q: unexpected error: %v", tc.name, err)
+			}
+			continue
+		}
+		if err := exec(tc.cols, tc.vals, tc.args...); err != nil {
+			t.Fatalf("accept %q: unexpected error: %v", tc.name, err)
+		}
+	}
+
+	// REJECT: inconsistent shapes the engine can never produce -> 23514.
+	rejects := []struct {
+		name string
+		cols string
+		vals string
+		args []any
+	}{
+		{"guardrail layer WITH a version",
+			"policy_layer, matched_sid, policy_version_id", "'guardrail', 'sys:x', $3", []any{fx.policyVersID}},
+		{"unknown layer value",
+			"policy_layer, matched_sid", "'bogus', 'base:x'", nil},
+		{"baseline decision WITHOUT a sid",
+			"policy_layer, policy_version_id", "'baseline', $3", []any{fx.policyVersID}},
+	}
+	for _, tc := range rejects {
+		err := exec(tc.cols, tc.vals, tc.args...)
+		if err == nil {
+			t.Fatalf("reject %q: insert succeeded, want check_violation", tc.name)
+		}
+		if pg := asPgErr(err); pg == nil || pg.Code != "23514" {
+			t.Fatalf("reject %q: want check_violation (23514), got %v", tc.name, err)
+		}
+	}
+}
+
+// ============================================================================
 // layer='guardrail' is STRUCTURALLY unwritable (M3-02): guardrails are compiled
 // into internal/policy (CLAUDE.md section 5 lines 1-5, sys:*), never stored -- a
 // stored guardrail would let a single SQL write disable a section 4 red line. The
@@ -843,6 +1026,17 @@ func TestRLS_AppCannotMutateTransactions(t *testing.T) {
 		return e
 	})
 	assertPermissionDenied(t, "app DELETE on transactions", errD)
+
+	// M3-07 (migration 0008): the new policy-decision columns inherit immutability
+	// WITHOUT any new statement -- the table-level REVOKE UPDATE covers ALL columns
+	// (there is no column-level UPDATE grant), so an UPDATE of a NEW column is denied
+	// exactly like `note` above (belt 1). Proven per-column so a future column-level
+	// GRANT regression would fail here.
+	errNew := app.WithTenant(context.Background(), fx.tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		_, e := tx.Exec(ctx, "UPDATE transactions SET matched_sid = 'x' WHERE id = $1", fx.txReviewedID)
+		return e
+	})
+	assertPermissionDenied(t, "app UPDATE on transactions.matched_sid (M3-07 column)", errNew)
 }
 
 // ============================================================================
@@ -899,53 +1093,61 @@ func TestRLS_OwnerMutationsHitAppendOnlyTrigger(t *testing.T) {
 	fx := buildFixture(t, app) // create the rows as tappa_app (committed)
 
 	// Table-driven over the append-only tables, so the mutation SQL is assembled per
-	// case from name/setExpr. setExpr (not just a column name) because policy_versions
+	// case from table/setExpr. setExpr (not just a column name) because policy_versions
 	// has no free-text column: 'x' cast to its jsonb/int/uuid columns would raise
 	// BEFORE the trigger fires and mask the append-only proof. The assembled SQL is
 	// the real mutation at runtime and is asserted to be blocked by the trigger.
+	// `label` is a distinct subtest name so two cases can target the SAME real table
+	// (transactions, once on a pre-existing column and once on an M3-07 column).
 	targets := []struct {
-		name    string
+		label   string
+		table   string
 		setExpr string
 		id      any
 	}{
-		{"transactions", "note = 'x'", fx.txReviewedID},
-		{"audit_log", "action = 'x'", fx.auditID},
-		{"transaction_reviews", "note = 'x'", fx.reviewID},
-		{"policy_versions", "version_no = 2", fx.policyVersID},
+		{"transactions", "transactions", "note = 'x'", fx.txReviewedID},
+		// M3-07 (migration 0008): the trigger is a BEFORE UPDATE OR DELETE FOR EACH
+		// ROW guard with no column condition, so it fires on an update of a NEW column
+		// exactly as for `note`. Proven for a new column so belt 2 (the superuser path)
+		// is shown to cover the M3-07 columns too, not just the pre-existing ones.
+		{"transactions_policy_column", "transactions", "matched_sid = 'x'", fx.txReviewedID},
+		{"audit_log", "audit_log", "action = 'x'", fx.auditID},
+		{"transaction_reviews", "transaction_reviews", "note = 'x'", fx.reviewID},
+		{"policy_versions", "policy_versions", "version_no = 2", fx.policyVersID},
 	}
 
 	for _, tc := range targets {
-		t.Run(tc.name, func(t *testing.T) {
+		t.Run(tc.label, func(t *testing.T) {
 			// Positive control: the owner (bypasses RLS) SEES the row, so the
 			// FOR EACH ROW trigger has a row to fire on -- the failure below is the
 			// trigger, not an empty match (a WHERE that matches nothing would be
 			// a silent success).
 			var before int
 			if err := owner.pool.QueryRow(context.Background(),
-				"SELECT count(*) FROM "+tc.name+" WHERE id = $1", tc.id).Scan(&before); err != nil {
-				t.Fatalf("owner count %s: %v", tc.name, err)
+				"SELECT count(*) FROM "+tc.table+" WHERE id = $1", tc.id).Scan(&before); err != nil {
+				t.Fatalf("owner count %s: %v", tc.table, err)
 			}
 			if before != 1 {
-				t.Fatalf("owner sees %d %s rows, want 1 (positive control for the trigger)", before, tc.name)
+				t.Fatalf("owner sees %d %s rows, want 1 (positive control for the trigger)", before, tc.table)
 			}
 
-			updateStmt := "UPDATE " + tc.name + " SET " + tc.setExpr + " WHERE id = $1"
-			deleteStmt := "DELETE FROM " + tc.name + " WHERE id = $1"
+			updateStmt := "UPDATE " + tc.table + " SET " + tc.setExpr + " WHERE id = $1"
+			deleteStmt := "DELETE FROM " + tc.table + " WHERE id = $1"
 
 			_, errU := owner.pool.Exec(context.Background(), updateStmt, tc.id)
-			assertAppendOnlyTrigger(t, "owner UPDATE "+tc.name, errU)
+			assertAppendOnlyTrigger(t, "owner UPDATE "+tc.label, errU)
 
 			_, errD := owner.pool.Exec(context.Background(), deleteStmt, tc.id)
-			assertAppendOnlyTrigger(t, "owner DELETE "+tc.name, errD)
+			assertAppendOnlyTrigger(t, "owner DELETE "+tc.label, errD)
 
 			// Still present: the blocked mutations changed nothing.
 			var after int
 			if err := owner.pool.QueryRow(context.Background(),
-				`SELECT count(*) FROM `+tc.name+` WHERE id = $1`, tc.id).Scan(&after); err != nil {
-				t.Fatalf("owner re-count %s: %v", tc.name, err)
+				`SELECT count(*) FROM `+tc.table+` WHERE id = $1`, tc.id).Scan(&after); err != nil {
+				t.Fatalf("owner re-count %s: %v", tc.table, err)
 			}
 			if after != 1 {
-				t.Fatalf("%s row count after blocked mutations = %d, want 1 (still present, unchanged)", tc.name, after)
+				t.Fatalf("%s row count after blocked mutations = %d, want 1 (still present, unchanged)", tc.table, after)
 			}
 		})
 	}

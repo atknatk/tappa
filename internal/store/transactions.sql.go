@@ -19,7 +19,7 @@ const getLastOpenTransaction = `-- name: GetLastOpenTransaction :one
 SELECT id, tenant_id, employee_id, location_id, department_id, tag_uid, ctr,
        type, occurred_at, source_ip, ip_match, gps_lat, gps_lng, gps_match,
        sun_valid, trust, verdict, note, channel, entered_by, practice, queued,
-       created_at
+       created_at, policy_version_id, matched_sid, policy_layer, policy_context
 FROM transactions t
 WHERE t.tenant_id = $1
   AND t.employee_id = $2
@@ -47,6 +47,14 @@ type GetLastOpenTransactionParams struct {
 // (section 4.3): no UPDATE/DELETE queries exist here by design -- corrections are
 // a new row + audit_log, and the FLAGGED review flow writes to
 // transaction_reviews, never here.
+//
+// POLICY DECISION COLUMNS (M3-07, migration 0008): policy_version_id, matched_sid,
+// policy_layer and policy_context bind each record to WHY it got its verdict. They
+// are part of every column list below so this file keeps returning the full store
+// Transaction model (additive). The tap engine's caller (M5-05) SUPPLIES the values
+// from policy.Decision + a section 4.7-safe policy.Context snapshot (a GPS DISTANCE,
+// never a raw coordinate); the DB CHECK transactions_policy_decision_consistent
+// guarantees the four columns are mutually consistent or all absent.
 // Direction toggle basis (CLAUDE.md section 5): the person's last OPEN check-in,
 // i.e. the most recent type='in' with no later type='out'. If a row is found the
 // next tap is 'out'; if none (pgx.ErrNoRows) the next tap is 'in'. Ordering is by
@@ -82,6 +90,10 @@ func (q *Queries) GetLastOpenTransaction(ctx context.Context, arg GetLastOpenTra
 		&i.Practice,
 		&i.Queued,
 		&i.CreatedAt,
+		&i.PolicyVersionID,
+		&i.MatchedSid,
+		&i.PolicyLayer,
+		&i.PolicyContext,
 	)
 	return i, err
 }
@@ -90,7 +102,7 @@ const getLastTransactionForEmployee = `-- name: GetLastTransactionForEmployee :o
 SELECT id, tenant_id, employee_id, location_id, department_id, tag_uid, ctr,
        type, occurred_at, source_ip, ip_match, gps_lat, gps_lng, gps_match,
        sun_valid, trust, verdict, note, channel, entered_by, practice, queued,
-       created_at
+       created_at, policy_version_id, matched_sid, policy_layer, policy_context
 FROM transactions
 WHERE tenant_id = $1
   AND employee_id = $2
@@ -134,6 +146,10 @@ func (q *Queries) GetLastTransactionForEmployee(ctx context.Context, arg GetLast
 		&i.Practice,
 		&i.Queued,
 		&i.CreatedAt,
+		&i.PolicyVersionID,
+		&i.MatchedSid,
+		&i.PolicyLayer,
+		&i.PolicyContext,
 	)
 	return i, err
 }
@@ -142,40 +158,46 @@ const insertTransaction = `-- name: InsertTransaction :one
 INSERT INTO transactions (
     tenant_id, employee_id, location_id, department_id, tag_uid, ctr, type,
     occurred_at, source_ip, ip_match, gps_lat, gps_lng, gps_match, sun_valid,
-    trust, verdict, note, channel, entered_by, practice, queued
+    trust, verdict, note, channel, entered_by, practice, queued,
+    policy_version_id, matched_sid, policy_layer, policy_context
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7,
     $8, $9, $10, $11, $12, $13,
-    $14, $15, $16, $17, $18, $19, $20, $21
+    $14, $15, $16, $17, $18, $19, $20, $21,
+    $22, $23, $24, $25
 )
 RETURNING id, tenant_id, employee_id, location_id, department_id, tag_uid, ctr,
           type, occurred_at, source_ip, ip_match, gps_lat, gps_lng, gps_match,
           sun_valid, trust, verdict, note, channel, entered_by, practice, queued,
-          created_at
+          created_at, policy_version_id, matched_sid, policy_layer, policy_context
 `
 
 type InsertTransactionParams struct {
-	TenantID     uuid.UUID
-	EmployeeID   *uuid.UUID
-	LocationID   *uuid.UUID
-	DepartmentID *uuid.UUID
-	TagUid       *string
-	Ctr          *int32
-	Type         *string
-	OccurredAt   time.Time
-	SourceIp     *netip.Addr
-	IpMatch      *bool
-	GpsLat       pgtype.Numeric
-	GpsLng       pgtype.Numeric
-	GpsMatch     *bool
-	SunValid     *bool
-	Trust        *int16
-	Verdict      string
-	Note         *string
-	Channel      string
-	EnteredBy    *uuid.UUID
-	Practice     bool
-	Queued       bool
+	TenantID        uuid.UUID
+	EmployeeID      *uuid.UUID
+	LocationID      *uuid.UUID
+	DepartmentID    *uuid.UUID
+	TagUid          *string
+	Ctr             *int32
+	Type            *string
+	OccurredAt      time.Time
+	SourceIp        *netip.Addr
+	IpMatch         *bool
+	GpsLat          pgtype.Numeric
+	GpsLng          pgtype.Numeric
+	GpsMatch        *bool
+	SunValid        *bool
+	Trust           *int16
+	Verdict         string
+	Note            *string
+	Channel         string
+	EnteredBy       *uuid.UUID
+	Practice        bool
+	Queued          bool
+	PolicyVersionID *uuid.UUID
+	MatchedSid      *string
+	PolicyLayer     *string
+	PolicyContext   []byte
 }
 
 // THE single write path. id and created_at use DB defaults; every other column
@@ -185,6 +207,14 @@ type InsertTransactionParams struct {
 // employee_id/location_id/department_id/tag_uid/ctr are nullable so a
 // context-less reject (stolen plaque, no session) is still recorded -- section
 // 4.6, a record is never lost.
+//
+// The four POLICY-DECISION columns (M3-07) are also written here so the record
+// carries WHY it got its verdict: policy_version_id (the pinned append-only version,
+// NULL for a guardrail/default decision), matched_sid (the deciding sid --
+// MACHINE-FILTERABLE, "sys:..." | tenant sid | "default"), policy_layer
+// (guardrail|baseline|tenant) and policy_context (the section 4.7-safe input
+// snapshot). The caller passes them from policy.Decision; passing all four NULL is
+// valid too (the consistency CHECK permits the all-absent state, section 4.6).
 func (q *Queries) InsertTransaction(ctx context.Context, arg InsertTransactionParams) (Transaction, error) {
 	row := q.db.QueryRow(ctx, insertTransaction,
 		arg.TenantID,
@@ -208,6 +238,10 @@ func (q *Queries) InsertTransaction(ctx context.Context, arg InsertTransactionPa
 		arg.EnteredBy,
 		arg.Practice,
 		arg.Queued,
+		arg.PolicyVersionID,
+		arg.MatchedSid,
+		arg.PolicyLayer,
+		arg.PolicyContext,
 	)
 	var i Transaction
 	err := row.Scan(
@@ -234,6 +268,10 @@ func (q *Queries) InsertTransaction(ctx context.Context, arg InsertTransactionPa
 		&i.Practice,
 		&i.Queued,
 		&i.CreatedAt,
+		&i.PolicyVersionID,
+		&i.MatchedSid,
+		&i.PolicyLayer,
+		&i.PolicyContext,
 	)
 	return i, err
 }
