@@ -4,7 +4,13 @@
 > güncellenir ([README.md](README.md) → oturum protokolü, adım 6.4).
 > Görev kartlarına durum işareti konmaz.
 
-**Son güncelleme:** 2026-07-26 (3. oturum — M1 tamamlandı)
+**Son güncelleme:** 2026-07-26 (3. oturum — M0+M1+M2 tamam; **compact öncesi kapatıldı**)
+
+> **⏸️ COMPACT NOKTASI (2026-07-26).** 3. oturum burada bağlam sıkıştırması için
+> durduruldu. Her şey `main`'de commit'li (son commit `ba022d4`), ağaç temiz,
+> `make check`+`make audit` yeşil. **Sıradaki oturum:** aşağıdaki "ŞU AN" → **M3-01**;
+> protokol için skill `tappa-next` + `agent-brief.md`. Sohbette kalan hiçbir kritik
+> durum yok — hepsi burada, `open-questions.md` ve `docs/adr/`'de.
 
 ---
 
