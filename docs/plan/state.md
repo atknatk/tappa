@@ -4,14 +4,15 @@
 > güncellenir ([README.md](README.md) → oturum protokolü, adım 6.4).
 > Görev kartlarına durum işareti konmaz.
 
-**Son güncelleme:** 2026-07-26 (4. oturum — compact sonrası devam; **M3 TAMAM + M4-01 done**)
+**Son güncelleme:** 2026-07-26 (4. oturum — compact sonrası devam; **M3 TAMAM + M4-01,M4-02 done**)
 
-> **▶️ M4 BAŞLADI — 2026-07-26, 4. oturum.** M3 (policy motoru) 9/9 TAMAM (kullanıcı "M4'e devam
-> et" dedi). **M4-01** (internal/geo haversine+yarıçap) `f791f91` — üçüncü göz ONAY (mesafeler
-> bağımsız yeniden hesaplandı, %100 kapsam). Her şey `main`'de, ağaç temiz, `make check`+`make audit`
-> yeşil. **Sıradaki:** "ŞU AN" → **M4-02** (karar girdi/çıktı tipleri). M4/M5'e devredilen guardrail
-> girdi-sözleşmesi notları (N1–N4 + ErrUnknownTag) aşağıda "M4/M5'e devralınan"da — M4-03/M4-06'da
-> uygulanır. Bekleyen kullanıcı kararı YOK. Kritik durum sohbette kalmıyor. Kritik durum sohbette kalmıyor.
+> **▶️ M4 DEVAM — 2026-07-26, 4. oturum.** M3 (policy motoru) 9/9 TAMAM. **M4-01** (internal/geo)
+> `f791f91` · **M4-02** (karar tipleri) `860fcd8` — ikisi de üçüncü göz ONAY. Her şey `main`'de,
+> ağaç temiz, `make check`+`make audit` yeşil. **Sıradaki:** "ŞU AN" → **M4-03** (Decide: bağlam
+> kurma + kararın uygulanması — M3-04 değerlendiricisi üstünde, §4.6/§5/R8 kritik, iki denetçi).
+> M4/M5'e devredilen notlar (N1–N4 + ErrUnknownTag) aşağıda "M4/M5'e devralınan"da. **⚠️ M4-03 açık
+> tasarım noktası:** `Decide(in Input)` policy.Set'i nasıl alıyor (Input'a alan mı, parametre mi —
+> M4-02 imzası Set içermiyor); M4-03 çözer + kartı düzeltir. Bekleyen kullanıcı kararı YOK. Kritik durum sohbette kalmıyor.
 
 ---
 
@@ -19,8 +20,8 @@
 
 | | |
 |---|---|
-| **Kilometre taşı** | **M0 + M1 + M2 + M3 TAMAM** ✅ · **M4 devam** — M4-01 done (1/7). → **[M4 tap karar motoru](m4-tap-motoru.md)** |
-| **Sıradaki görev** | **M4-02** — [Karar girdi/çıktı tipleri](m4-tap-motoru.md#m4-02--karar-girdiçıktı-tipleri) (`internal/domain/tap`). `Input`/`Decision` struct'larını + `Decide` imzasını sabitle (kart satır ~52-102: tam alan listesi). **Saf:** paket `time.Now()`/`rand`/DB/HTTP KULLANMAZ (import listesiyle kanıtlanır); `Now` girdi olarak gelir (gece vardiyası determinizmi). `Decision` karar açıklar, **kayıt YAZMAZ**. Tuzak: alanları `interface{}` ardına gizleme (açık alan listesi test edilebilirliğin tamamı); **`Employee==nil` (oturum yok, §5.3) ≠ `Employee.Status==deactivated` (§5.4)** — tek alana sıkıştırma. `geo.Point` (M4-01) + `sun.Result` (M2-07) tiplerini kullanır. Bekleyen kullanıcı kararı YOK. |
+| **Kilometre taşı** | **M0 + M1 + M2 + M3 TAMAM** ✅ · **M4 devam** — M4-01, M4-02 done (2/7). → **[M4 tap karar motoru](m4-tap-motoru.md)** |
+| **Sıradaki görev** | **M4-03** — [Decide(): bağlam kurma ve kararın uygulanması](m4-tap-motoru.md#m4-03--decide-bağlam-kurma-ve-kararın-uygulanması) (§4.6 · §5). Kanıtları `policy.Context`'e çevir → `policy.Evaluate` çağır → effect→verdict (allow→ok, review→flag, deny→reject, ignore→ignored); **`sys:no-session` özel: kayıt YAZILMAZ, Redirect** (§5.3 tek istisna). IPMatch/GPSMatch/gpsDistanceM/ctrGap hesapla (geo.WithinRadius, SourceIP∈LocationIPs). **§5 satır 1–5 guardrail, 6–7 baseline olarak policy'den çözülür — `if` zinciri YAZMA** (motor delege). **⚠️ Set nasıl geliyor:** M4-02 `Decide(in Input)` Set içermiyor → Input'a `policy.Set` alanı ekle VEYA parametre; çöz + M4-02 kartını düzelt. **R8/§4.6 tuzakları:** deaktive kontrolü SUN'dan önce=bilgi sızıntısı, debounce SUN'dan önce=replay (ama sıra artık M3-05 guardrail'de — Decide erken kısa-devre YAPMAMALI). Satır 7 asla reject değil (§4.6). Kırmızı çizgi §4.6/§5 → agent tappa-security-auditor R8 + iki denetçi. Bekleyen kullanıcı kararı YOK. |
 | **Çalışma modu** | Orkestrasyon + üçüncü göz — [README.md](README.md) · brief'ler [agent-brief.md](agent-brief.md) |
 | **Dal** | **`main`** — M0 (`m0-bootstrap`) `main`'e fast-forward birleştirildi (`562f021`), dal silindi. **Kullanıcı kararı (2026-07-25): artık doğrudan `main`'de çalışılır, görev başına dal açılmaz** (CLAUDE.md §10 güncellendi). Push/PR yine istemedikçe yok. |
 | **Blokeler** | Yok (M2-02 için bekleyen karar yok). **Bekleyen kullanıcı eylemi:** arm64 Go kurulumu (aşağı bak) — hiçbir şeyi bloklamıyor. |
@@ -286,7 +287,7 @@ yazılır.
 | ID | Görev | Durum | Commit / not |
 |---|---|---|---|
 | M4-01 | internal/geo: haversine ve yarıçap | **done** | `f791f91` · üçüncü göz **1. turda** ONAY · `internal/geo` saf paket (yalnız `math`) — `Point{Lat,Lng}`, `Distance` (haversine, R=6371008.8, **atan2** → acos-NaN tuzağı yapısal yok), `WithinRadius(a,b,radiusM)` **strict `<`** (§5 satır 6 "GPS < 150 m" ile hizalı, 150 m DIŞARIDA) · yarıçap **parametre** (config besler, gömülü değil) · **denetçi mesafeleri BAĞIMSIZ yeniden hesapladı** (783.557/1115.594/0/π·R byte-identical) · lat/lng-swap + %100 kapsam mutasyonla RED · §4.7 koordinat loglanmıyor (config/policy import yok, döngü yok) |
-| M4-02 | Karar girdi/çıktı tipleri | todo | |
+| M4-02 | Karar girdi/çıktı tipleri | **done** | `860fcd8` · üçüncü göz **1. turda** ONAY · `internal/domain/tap/{types,decide}.go` — `Input` (14 alan) + `Decision` (9 alan) karta birebir + `Decide(Input) Decision` imzası (gövde M4-03 **panic-stub**, zero-value §4.6 sessiz-onay riski yok) · **saf** (kendi import'ları `net/netip,time,geo,uuid`; store/db/sun/sql/http/pgx KODDA yok; `time.Now()` çağrısı yok; math/rand+database/sql/driver yalnız uuid'den, policy ile birebir) · enum'lar typed (DB CHECK sözlükleriyle birebir) · **`Employee` pointer (§5.3 nil=oturum yok) + Status (§5.4 deactivated) ayrı** · tap kendi `SUNResult`'ı (sun.Result db/store sürüklüyor) · sapma: `Employee.ActivatedAt` (Practice sunucu-türetim kaynağı, §5/M4-06 exploit önler) |
 | M4-03 | Decide(): bağlam kurma ve kararın uygulanması | todo | M3-04 üstünde |
 | M4-04 | Yön tayini (in/out) | todo | |
 | M4-05 | Vardiya çözümü ve geç kalma | todo | Q01 |
@@ -359,13 +360,29 @@ yazılır.
 | M9-06 | Policy simülatörü | todo | Q22 — M6-10'dan ertelendi |
 | M9-07 | Ham JSON politika editörü | todo | Q22 — M6-09'dan ayrıldı |
 
-**Özet:** 82 görev · done 35 · wip 0 · blocked 0 · skipped 1 · todo 46 · **M0+M1+M2+M3 TAMAM · M4 devam (M4-01 done, 1/7) · sıradaki M4-02**
+**Özet:** 82 görev · done 36 · wip 0 · blocked 0 · skipped 1 · todo 45 · **M0+M1+M2+M3 TAMAM · M4 devam (M4-01,M4-02 done, 2/7) · sıradaki M4-03**
 
 ---
 
 ## Oturum günlüğü
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
+
+### 2026-07-26 (4. oturum, compact sonrası) — **M4-02 done** (karar girdi/çıktı tipleri)
+
+**M4-02 done — üçüncü göz 1. turda ONAY.** `860fcd8`: `internal/domain/tap/{types,decide}.go`. `Input`
+(14 alan) + `Decision` (9 alan) karta birebir; `Decide(Input) Decision` imzası sabit, gövde M4-03
+**panic-stub** (zero-value dönmez → §4.6 sessiz-onay tuzağı yok). **Saflık kanıtlandı:** paketin kendi
+import'ları `net/netip,time,internal/geo,uuid` — store/db/sun/database-sql/http/pgx KODDA yok, `time.Now()`
+çağrısı yok; `math/rand`+`database/sql/driver` yalnız uuid transitifi (policy ile birebir aynı). Enum'lar
+typed (migration CHECK sözlükleriyle birebir: nfc/qr/manual, ok/flag/reject/ignored, in/out, active/retired/
+lost, invited/active/deactivated). **`Employee` pointer (§5.3 nil=oturum yok) + `Status` (§5.4 deactivated)
+ayrı** → iki farklı karar mümkün. tap kendi `SUNResult`'ı (sun.Result db/store/pgx sürüklediği için import
+edilmedi; M5 map eder). Sapma (meşru): `Employee.ActivatedAt` — Practice **sunucu-türetim** kaynağı
+(Input'ta client practice bool'u yok → M4-06 exploit'i önlenir).
+
+**Sırada:** M4-03 (Decide gövdesi — bağlam kur, policy.Evaluate çağır, effect→verdict). Açık nokta: Decide
+policy.Set'i nasıl alacak (M4-02 imzası Set içermiyor) — M4-03 çözer + kartı düzeltir.
 
 ### 2026-07-26 (4. oturum, compact sonrası) — **M4-01 done** (internal/geo) · M4 başladı
 
