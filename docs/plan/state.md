@@ -4,14 +4,15 @@
 > güncellenir ([README.md](README.md) → oturum protokolü, adım 6.4).
 > Görev kartlarına durum işareti konmaz.
 
-**Son güncelleme:** 2026-07-26 (4. oturum — compact sonrası devam; **M3 TAMAM + M4-01…M4-06 done**)
+**Son güncelleme:** 2026-07-26 (4. oturum — compact sonrası devam; **🏁 M4 KİLOMETRE TAŞI TAMAM 7/7**)
 
-> **▶️ M4 DEVAM — 2026-07-26, 4. oturum.** M3 9/9 TAMAM. **M4-01→M4-06 done** (geo `f791f91` · tipler
-> `860fcd8` · Decide `bfbbf77` · yön `703d3d1` · vardiya+DST `63f6b4a` · trust/QR/practice `a82dfa8`)
-> — hepsi denetim ONAY, `main`'de, ağaç temiz, `make check`+`make audit` yeşil. **Sıradaki:** "ŞU AN" →
-> **M4-07** (tablo bazlı test seti — M4'ün SON görevi, §8 kapsam %90+, R6/R8). **🔴 M5 için BLOKLAYAN
-> devir (N5):** tap.Decide tenant-farkındalıksız → M5 Input'u TagTenantID/SessionTenantID ile besleyip
-> `sys:tenant-mismatch`'i ateşlemeli (çapraz-tenant deliği; aşağıda "M4/M5'e devralınan"). Kullanıcı kararı YOK. Kritik durum sohbette kalmıyor.
+> **🏁 M4 (tap karar motoru) TAMAM — 2026-07-26, 4. oturum.** M4-01→M4-07, hepsi builder→üçüncü göz
+> (M4-03/M4-07 + tappa-security-auditor R6/R8), hepsi `main`'de, ağaç temiz, `make check`+`make audit`
+> yeşil. Commit'ler: M4-01 `f791f91` · M4-02 `860fcd8` · M4-03 `bfbbf77` · M4-04 `703d3d1` · M4-05
+> `63f6b4a` · M4-06 `a82dfa8` · M4-07 `c5536be`. `internal/domain/tap` kapsamı %96.7. **Sıradaki:**
+> "ŞU AN" → **M5-01** (internal/session — yeni kilometre taşı). **🔴 M5 için BLOKLAYAN devir (N5):**
+> tap.Decide tenant-farkındalıksız → M5 Input'u TagTenantID/SessionTenantID ile besleyip
+> `sys:tenant-mismatch`'i ateşlemeli (çapraz-tenant deliği). N1–N5 + ErrUnknownTag "M4/M5'e devralınan"da. Kritik durum sohbette kalmıyor.
 
 ---
 
@@ -19,8 +20,8 @@
 
 | | |
 |---|---|
-| **Kilometre taşı** | **M0 + M1 + M2 + M3 TAMAM** ✅ · **M4 devam** — M4-01→M4-06 done (6/7). → **[M4 tap karar motoru](m4-tap-motoru.md)** — son görev M4-07 |
-| **Sıradaki görev** | **M4-07** — [Tablo bazlı test seti](m4-tap-motoru.md#m4-07--tablo-bazlı-test-seti) — **M4'ün SON görevi** (§8 kapsam %90+). §5'in **yedi satırının her biri** için `TestDecide_…`; tablo bazlı `tests := []struct{name; in Input; want Decision}`. **Zorunlu ek vakalar:** ardışık **farklı kişiler** aynı plaket 10sn arayla → **hepsi ok** (debounce KİŞİ bazlı, etiket değil — bu vaka olmadan hata fark edilmez); aynı kişi 20sn → ignored; mobil veri (IP-yok, GPS✓) → ok trust 50 not "verified via GPS"; Rusty Bar gece turu; deaktive → reject + Security=true. `Now` **sabit** (time.Now test gece yarısı kırılır). Denetim: agent `tappa-security-auditor` **R6 (kayıt-kaybolmaz) + R8 (sıra)** temiz → **iki denetçi**. **Not:** M4-06 sertleştirme (isPracticeTap'e LastOpenIn==nil ekle — savunma-derinliği) M4-07'de eklenip test edilebilir (aşağı). Bekleyen kullanıcı kararı YOK. |
+| **Kilometre taşı** | **M0 + M1 + M2 + M3 + M4 TAMAM** ✅ (M4 tap karar motoru 7/7). → sıradaki **M5 — [Tap akışı](m5-tap-akisi.md)** |
+| **Sıradaki görev** | **M5-01** — [internal/session: oturum yaşam döngüsü](m5-tap-akisi.md#m5-01--internalsession-oturum-yaşam-döngüsü) (Q11). Oturum token üretimi/doğrulama — **hash saklanır, token değil** (§7); kalıcı oturum (§handoff — çalışan kendi telefonu). Yeni kilometre taşı — **M5 kartını ([m5-tap-akisi.md](m5-tap-akisi.md)) baştan oku.** **🔴 M5 boyunca uygulanacak devirler** (aşağı "M4/M5'e devralınan"): N5 tenant-mismatch (BLOKLAYAN, M5-03/M5-05), N1 tap:sunValid, N2 channel sunucu-türetimi, N3 debounce→Params, N4 Decision→sütun sadakati (M5-05), ErrUnknownTag güvenlik olayı, manuel entered_by (M5-05). Bekleyen kullanıcı kararı: Q11 (oturum süresi) kontrol et. |
 | **Çalışma modu** | Orkestrasyon + üçüncü göz — [README.md](README.md) · brief'ler [agent-brief.md](agent-brief.md) |
 | **Dal** | **`main`** — M0 (`m0-bootstrap`) `main`'e fast-forward birleştirildi (`562f021`), dal silindi. **Kullanıcı kararı (2026-07-25): artık doğrudan `main`'de çalışılır, görev başına dal açılmaz** (CLAUDE.md §10 güncellendi). Push/PR yine istemedikçe yok. |
 | **Blokeler** | Yok (M2-02 için bekleyen karar yok). **Bekleyen kullanıcı eylemi:** arm64 Go kurulumu (aşağı bak) — hiçbir şeyi bloklamıyor. |
@@ -300,7 +301,7 @@ yazılır.
 | M4-04 | Yön tayini (in/out) | **done** | `703d3d1` · üçüncü göz **1. turda** ONAY (**4 mutasyon** öldürüldü: toggle-ters/stale-not/practice-guard/Type-yay) · `Decide` `Decision.Type` saf toggle (LastOpenIn varsa out, yoksa in) · **takvim-günü filtresi YOK** (bağımsız cross-midnight/ay/yıl/artık-gün + 5h fark 400 gün sabit; Rusty Bar 18:05→02:10 out) · stale **>18h** (strict) → out+note (asla sessiz in) · **practice LastOpenIn → in muamelesi** (eğitim tap'i gerçek check-in'i açık tutamaz, M4-06 saat-şişirme) · Type yalnız ok/flag (reject/ignored/redirect→nil) · UTC saf süre, sabit-Now determinizmi · saf (time.Now yok) · %95.1 |
 | M4-05 | Vardiya çözümü ve geç kalma | **done** | `63f6b4a` · üçüncü göz **1. turda** ONAY · **DST bağımsız yeniden hesaplandı** (denetçi Python `zoneinfo`: mart 09:15→15 geç, ekim 09:20→20 geç, overnight 01:00→420; naif midnight+offset bug −45/80 mutasyonla yakalandı) · `time.LoadLocation("Europe/Malta")` (sabit ofset yok), **tzdata tap paketine gömülü** (tek binary) · **geç kalma RAPOR-only** `Decision.MinutesLate *int` (nil=hesaplanmadı, int dakika **float yok** §6, Evaluate SONRASI, context'e girmiyor, hiçbir baseline time:minutesLate okumuyor → 180-geç→OK) · yalnız check-IN'de · çapraz-lokasyon Q17 (`employee:crossLocation`→base:cross-location-note + `Decision.CrossLocation`, geç damgası yok) · Shift==nil VE boş-tz→nil (LoadLocation("")→UTC tuzağı guard'lı) · %96.4 · cmd/tappa dokunulmadı |
 | M4-06 | Trust puanı, QR kanalı, practice tap | **done** | `a82dfa8` · üçüncü göz **1. turda** ONAY (2 mutasyon: trustScore sabit / isPracticeTap false → RED) · Trust `20+50(IP)+30(GPS)` verdict switch ÖNCESİ, **verdict'ten bağımsız** (reject 70 > ok 50) · **Practice sunucu-türev** (`ActivatedAt`+`LastForPerson==nil`, ok/flag'te) — **client alanı YOK** (reflection guard `TestInput_HasNoClientPracticeField` yeni alanı yakalıyor), checkout asla practice → **saat-şişirme exploit'i yapısal kapalı** · QR uçtan uca (base:qr-requires-ip): QR+IP-yok+**GPS-var→flag** (Q15), QR+IP→ok, SUN-suz QR sys:sun-invalid'e takılmaz (NFC-only) · manuel SUN atlar; entered_by M5-05 yazma-yoluna ertelendi (kart+M5-05 kriteri eklendi, Decide saf func hata dönemez) · %96.7 · **sertleştirme notu: isPracticeTap'e LastOpenIn==nil (savunma-derinliği, client-erişilemez)→M4-07** |
-| M4-07 | Tablo bazlı test seti | todo | kapsam %90+ |
+| M4-07 | Tablo bazlı test seti | **done** | `c5536be` · **iki denetçi ONAY** (üçüncü göz + tappa-security-auditor R6/R8) · `table_test.go` duplikasyon-ledger'ı: §5 yedi satır (`TestDecide_Section5Rows`) + 5 zorunlu ek vaka · **debounce KİŞİ-bazlı** vaka (farklı kişiler aynı plaket 10sn→hepsi ok) — person-scoping mutasyonuyla RED kanıtlandı (merkezi) · mobil-veri (ok/trust 50/not "verified via GPS" baseline'dan) · Rusty Bar gece turu cross-midnight · deaktive→reject+Security · **R8** Evaluate tek çağrı erken-return yok (redline temiz), **R6** row7-flag/no-session-tek-redirect/default→flag · **isPracticeTap sertleştirmesi** (+`LastOpenIn==nil`, revert→RED, kayıt yazımını etkilemez §4.6) · %96.7 kapsam · guardrails.go:222 yorum-notu→internal/policy sonraki dokunuş |
 
 ### M5 — [Tap akışı](m5-tap-akisi.md)
 
@@ -368,13 +369,33 @@ yazılır.
 | M9-06 | Policy simülatörü | todo | Q22 — M6-10'dan ertelendi |
 | M9-07 | Ham JSON politika editörü | todo | Q22 — M6-09'dan ayrıldı |
 
-**Özet:** 82 görev · done 40 · wip 0 · blocked 0 · skipped 1 · todo 41 · **M0+M1+M2+M3 TAMAM · M4 devam (M4-01→M4-06 done, 6/7) · sıradaki M4-07**
+**Özet:** 82 görev · done 41 · wip 0 · blocked 0 · skipped 1 · todo 40 · **M0+M1+M2+M3+M4 TAMAM · sıradaki M5 (tap akışı)**
 
 ---
 
 ## Oturum günlüğü
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
+
+### 2026-07-26 (4. oturum, compact sonrası) — **M4-07 done · 🏁 M4 KİLOMETRE TAŞI TAMAM (7/7)**
+
+**M4-07 done — iki denetçi ONAY** (üçüncü göz + tappa-security-auditor R6/R8). `c5536be`: `table_test.go`
+duplikasyon-ledger'ı ile §5 yedi satır + 5 zorunlu ek vaka. **Merkez:** debounce KİŞİ-bazlı vaka (farklı
+kişiler aynı plaket 10sn→hepsi ok) — person-scoping'i nötrleyen mutasyon 3 satırı RED yaptı. R8: Evaluate tek
+çağrı, erken-return yok (redline temiz). R6: row7-flag, no-session-tek-redirect, default→flag. isPracticeTap
+sertleştirildi (+LastOpenIn==nil, kayıt yazımını etkilemez). %96.7 kapsam.
+
+**🏁 M4 TAMAM (7/7):** internal/geo (haversine, DST-siz) · Input/Decision tipleri (saf) · Decide bağlam+delege
+(§5 tablo motora, if-zinciri yok) · yön (son-açık-giriş toggle, gece vardiyası) · vardiya+geç kalma (DST doğru,
+rapor-only) · trust/QR/practice (sunucu-türev, exploit kapalı) · tablo test (%96.7). Tüm motor saf
+(time.Now/DB/HTTP yok, Now girdiden); policy motoru (M3) üstünde durur, karar taklidi yok.
+
+**🔴 M5 için BLOKLAYAN + devirler (ŞU AN "M4/M5'e devralınan"da):** N5 tenant-mismatch (Input'a TagTenantID/
+SessionTenantID, sys:tenant-mismatch besle — çapraz-tenant deliği), N1 tap:sunValid, N2 channel sunucu-türetimi,
+N3 debounce→Params, N4 Decision→sütun sadakati, ErrUnknownTag logla, manuel entered_by (M5-05). Ayrıca düşük:
+guardrails.go:222 yanıltıcı yorum → internal/policy sonraki dokunuş.
+
+**Sırada:** M5-01 (internal/session — yeni kilometre taşı; M5 kartını baştan oku). **Milestone sınırı.**
 
 ### 2026-07-26 (4. oturum, compact sonrası) — **M4-06 done** (trust + QR + practice)
 
