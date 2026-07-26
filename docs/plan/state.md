@@ -4,14 +4,15 @@
 > güncellenir ([README.md](README.md) → oturum protokolü, adım 6.4).
 > Görev kartlarına durum işareti konmaz.
 
-**Son güncelleme:** 2026-07-26 (4. oturum — compact sonrası devam; **M3-01…M3-05 done**)
+**Son güncelleme:** 2026-07-26 (4. oturum — compact sonrası devam; **M3-01…M3-06 done**)
 
 > **▶️ COMPACT SONRASI DEVAM (2026-07-26, 4. oturum).** 3. oturum compact noktasından
-> temiz devralındı. **M3-01** (ADR 0004) `01c7a8a` · **M3-02** (şema) `4126e4c` · **M3-03**
-> (belge+doğrulama) `555e1c5` · **M3-04** (değerlendirici) `de831e1` · **M3-05** (guardrail'ler,
-> §4 en kritik) `e51504b` (**iki denetçi ONAY**) — hepsi denetim ONAY, `main`'de commit'li,
-> ağaç temiz, `make check` yeşil. **Sıradaki:** "ŞU AN" → **M3-06** (Tappa Baseline yönetilen
-> politikası). Kritik durum sohbette kalmıyor — hepsi burada, `open-questions.md` ve `docs/adr/`'de.
+> temiz devralındı. **M3-01** `01c7a8a` · **M3-02** `4126e4c` · **M3-03** `555e1c5` · **M3-04**
+> `de831e1` · **M3-05** (guardrail'ler, §4) `e51504b` · **M3-06** (baseline) `a9b4dc6` — hepsi
+> denetim ONAY, `main`'de commit'li, ağaç temiz, `make check` yeşil. **Sıradaki:** "ŞU AN" →
+> **M3-07** (kararın kayda bağlanması). **⚠️ Bekleyen kullanıcı kararı:** manager
+> `employee:deactivate` yapabilmeli mi (şu an owner-only — aşağı). Kritik durum sohbette
+> kalmıyor — hepsi burada, `open-questions.md` ve `docs/adr/`'de.
 
 ---
 
@@ -19,8 +20,8 @@
 
 | | |
 |---|---|
-| **Kilometre taşı** | **M0 + M1 + M2 TAMAM** ✅ · **M3 devam** — M3-01→M3-05 done (5/9). → **[M3 policy motoru](m3-policy-motoru.md)** |
-| **Sıradaki görev** | **M3-06** — [Tappa Baseline yönetilen politikası](m3-policy-motoru.md#m3-06--tappa-baseline-yönetilen-politikası). §5 satır 6–7 + tespit edilen boşlukları **varsayılan ama değiştirilebilir** politikalar olarak paketle (8 `base:*` ifade: ip-or-gps-ok, no-evidence-review, qr-requires-ip Q15, gps-only-allow Q16, cross-location-note Q17, queued-window Y7, ctr-gap-review Q21, gps-conflict-review Y-E). Her yeni tenant'a otomatik bağlanır (M7-03) **yetki politikaları dahil** (yoksa fail-closed → kimse panele giremez). `base:ctr-gap-review` **kaynak kapsamlı** (yoğun şube kapatabilir). Tenant devre dışı/değiştirebilir, guardrail'i etkilemez. `base:` sid'leri koruma altında (tenant çakışan sid yazamaz). Baseline sürümü yükselince tenant **otomatik güncellenmez** (bildirilir). Bekleyen kullanıcı kararı yok. |
+| **Kilometre taşı** | **M0 + M1 + M2 TAMAM** ✅ · **M3 devam** — M3-01→M3-06 done (6/9). → **[M3 policy motoru](m3-policy-motoru.md)** |
+| **Sıradaki görev** | **M3-07** — [Kararın kayda bağlanması](m3-policy-motoru.md#m3-07--kararın-kayda-bağlanması) (§4.3). `transactions`'a `policy_version_id`, `matched_sid`, `policy_layer`, **`policy_context jsonb`** ekleyen migration (M1-06'ya EK migration — uygulanmış migration değişmez → **00008**). `policy_context` = karar anındaki bağlam anlık görüntüsü (Evaluate'e giren tüm anahtarlar), **1. günden** yazılır (sonradan geçmiş üretilemez). Docket "FLAGGED — policy: `sid`" gösterebilir (M6-04). Guardrail kararında `policy_version_id` boş + `matched_sid="sys:…"`; **default'ta `matched_sid="default"`** (M3-04 devri). Politika sonradan değişse geçmiş kayıt aynı gerekçeyi gösterir. Kırmızı çizgi §4.3 → agent `tappa-db-migrator` + iki denetçi. Bekleyen kullanıcı kararı yok. |
 | **Çalışma modu** | Orkestrasyon + üçüncü göz — [README.md](README.md) · brief'ler [agent-brief.md](agent-brief.md) |
 | **Dal** | **`main`** — M0 (`m0-bootstrap`) `main`'e fast-forward birleştirildi (`562f021`), dal silindi. **Kullanıcı kararı (2026-07-25): artık doğrudan `main`'de çalışılır, görev başına dal açılmaz** (CLAUDE.md §10 güncellendi). Push/PR yine istemedikçe yok. |
 | **Blokeler** | Yok (M2-02 için bekleyen karar yok). **Bekleyen kullanıcı eylemi:** arm64 Go kurulumu (aşağı bak) — hiçbir şeyi bloklamıyor. |
@@ -269,7 +270,7 @@ yazılır.
 | M3-03 | Belge modeli, ayrıştırma ve doğrulama | **done** | `555e1c5` · üçüncü göz **1. turda** ONAY (non-vacuous **2 mutasyonla** kanıtlandı: sys: no-op→test RED, documentEffect→true→test RED) · `internal/policy/{document,validate}.go`+testler, **%98.8 kapsam** · bilinmeyen effect/action/operatör/anahtar→hata (+ `DisallowUnknownFields` typo yakalama), sys: rezerve (case-insensitive, iki katman), ignore/redirect belgede reddedilir, nicel DoS sınırları (byte/ifade/action/resource/condition/IpInPrefix + `CheckTenantQuota` doc+version, sabitler tek yerde), bozuk JSON+fuzz (456K exec crasher yok), §4.7 hata değeri sızmıyor · saf paket (Evaluate M3-04'e bırakıldı) · ADR listeleri birebir (10 operatör/7 eylem/24 anahtar/5 effect) · **bounded-param wiring boş → M3-05'e devir** (aşağı) |
 | M3-04 | Değerlendirici (koşullar, öncelik, açıklanabilirlik) | **done** | `de831e1` · üçüncü göz **1. turda** ONAY (non-vacuous **3 mutasyonla**: guardrail return kaldır→terminal RED, deny/review takas→restrictiveness RED, bilinmeyen-op matched=false kaldır→deny koşulsuzlaştı 4 test RED) · `internal/policy/{evaluate,conditions}.go`, **%97.9 kapsam** (evaluate.go %100) · saf `Evaluate(Set,Context) Decision` · guardrail sıralı+**terminal** (alt katman OnAnomaly çağırmıyor=hiç çalışmıyor kanıtı) · en-kısıtlayıcı-kazanır + spesifik-resource tie-break · varsayılan `tap:record`→review / diğer 6 (tap:approve dahil)→deny · **bilinmeyen-op deny'yi koşulsuzlaştırMIYOR** · eksik-anahtar≠false (StringNotEquals dahil) · determinizm 1000-koşu (map-sıra bağımsız) · anomaly injectable sink+slog fallback §4.7-temiz · **2 kart düzeltmesi** (redirect eksiği + tap:approve→deny ADR §3, denetçi doğruladı) · Context struct sapması gerekçeli · 2 bloklamayan not (Türkçe yorum→M3-05, default Layer=guardrail→M3-07) |
 | M3-05 | Guardrail politikaları | **done** | `e51504b` · **iki denetçi ONAY** (üçüncü göz + tappa-security-auditor, **§4 en kritik**, kırmızı çizgi ihlali yok) · non-vacuous **3 mutasyonla** (deactivated'ı öne al→sıra+R8 leak RED; sun-invalid Match→false→R8 RED; config üst sınır kaldır→20000000 RED) · `internal/policy/guardrails.go` 10 `sys:*` guardrail TEK sıralı slice, kodda gömülü, devre-dışı API YOK · **R8 sıra** sun-invalid(3)<deactivated(7)<debounce(8) — üçü eşleşince sun-invalid kazanır + SecurityAlert BOŞ (sızıntı/push-seli/replay kapalı) · terminallik: geniş tenant allow guardrail deny'ini çeviremiyor · tenant-mismatch→redirect+kayıt-yok · person-debounce KİŞİ bazlı (nil gap→kayıt düşmez §4.6) · Context 4 tipli sunucu-alanı (belge sözlüğü dışı) · SecurityAlert sabit sözlük §4.7-temiz · **config aralık** GPS 25–1000/debounce 30–300 başlangıçta (20000000+GPS=5 reddedilir), guardrail+config tek kaynak · bounded-param 3 anahtar (occurredAtSkew dahil) · policy %98.2 · **N1/N2/N3 → M4/M5 devir** (aşağı) |
-| M3-06 | Tappa Baseline yönetilen politikası | todo | A2, A3, Y1 varsayılanları |
+| M3-06 | Tappa Baseline yönetilen politikası | **done** | `a9b4dc6` · üçüncü göz **1. turda** ONAY (non-vacuous **3 mutasyonla**: no-evidence effect değiş→RED; base: rezerv no-op→RED; owner'dan policy:edit çıkar→owner default deny=**fail-closed lockout gerçek** kanıtı) · `internal/policy/baseline.go` 8 `base:*` tap ifadesi + **2 yetki ifadesi** (authz-owner=6 eylem, authz-manager=4 eylem alt kümesi) · fail-closed lockout önleniyor (owner policy:edit baseline allow — guardrail owner'da ateşlemez) · **base: rezerv** validate.go'ya eklendi (tenant layer, case-insensitive) · base:ctr-gap-review kaynak-kapsamlı + tenant override (specExact>specType) · guardrail dokunulmaz (allow-all tenant→retired/deactivated guardrail deny kazanır) · ignore/redirect yok · BaselineVersion + otomatik-güncelleme-yok · **DB yazma M3-06'da YOK** (kanonik kaynak, M7-03 materyalize) · rol modeli admin_users {owner,manager} teyit · baseline.go %100/policy %98.3 · **⚠️ manager employee:deactivate iş kararı → kullanıcıya soruldu** |
 | M3-07 | Kararın kayda bağlanması | todo | |
 | M3-08 | Test seti ve gevşetilemezlik kanıtı | todo | kapsam %90+ |
 | M3-09 | ADR 0005: kabul edilen riskler | todo | Q19 — buddy punching, sahte GPS |
@@ -352,13 +353,39 @@ yazılır.
 | M9-06 | Policy simülatörü | todo | Q22 — M6-10'dan ertelendi |
 | M9-07 | Ham JSON politika editörü | todo | Q22 — M6-09'dan ayrıldı |
 
-**Özet:** 82 görev · done 30 · wip 0 · blocked 0 · skipped 1 · todo 51 · **M0+M1+M2 TAMAM · M3 devam (M3-01→M3-05 done, 5/9) · sıradaki M3-06 (baseline)**
+**Özet:** 82 görev · done 31 · wip 0 · blocked 0 · skipped 1 · todo 50 · **M0+M1+M2 TAMAM · M3 devam (M3-01→M3-06 done, 6/9) · sıradaki M3-07**
 
 ---
 
 ## Oturum günlüğü
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
+
+### 2026-07-26 (4. oturum, compact sonrası) — **M3-06 done** (Tappa Baseline yönetilen politikası)
+
+**M3-06 done — üçüncü göz 1. turda ONAY.** `a9b4dc6`: `internal/policy/baseline.go` — kanonik Tappa
+baseline. **8 `base:*` tap ifadesi** (§5.6-7 + boşluklar: qr-requires-ip Q15, gps-only-allow Q16,
+cross-location-note Q17, queued-window Y7, ctr-gap-review Q21, gps-conflict-review Y-E) + **2 yetki ifadesi**.
+
+**Fail-closed lockout çözümü (kartın kritik kabul kriteri):** ADR §3 authz→deny varsayılanı yeni tenant'ta
+herkesi panelden kilitlerdi. İnce nokta: `sys:policy-edit-owner-only` guardrail'i yalnız non-owner'ı reddeder,
+owner'da ATEŞLEMEZ → baseline allow olmasa owner kendi policy:edit'inde default deny'ye takılırdı. Çözüm:
+`base:authz-owner` (owner→6 eylem incl policy:edit), `base:authz-manager` (manager→report:export/tap:approve/
+record:manual/record:review; employee:deactivate + policy:edit HARİÇ). Roller admin_users {owner,manager}
+CHECK'ini yansıtır. Denetçi bunu mutasyonla kanıtladı (owner'dan policy:edit çıkar→owner default deny).
+
+**Diğer:** `base:` ad alanı rezervi validate.go'ya eklendi (tenant layer, case-insensitive — sys: kalıbı);
+base:ctr-gap-review kaynak-kapsamlı (yoğun şube override edebilir, Q21); guardrail dokunulmaz (allow-all tenant
+altında retired/deactivated→guardrail deny kazanır); ignore/redirect yok; BaselineVersion + otomatik-güncelleme-
+yok; **M3-06'da DB yazma YOK** (kanonik kaynak kod'da, M7-03 tenant başına materyalize eder). baseline.go %100.
+
+**⚠️ Bekleyen kullanıcı kararı:** manager `employee:deactivate` yapabilmeli mi? Şu an güvenlik-muhafazakar
+**owner-only** (yalnız fail-closed default'a dayanıyor, policy:edit gibi ek guardrail backstop'u yok — bir iş
+kararı, kırmızı çizgi değil; tenant sonradan kendi politikasıyla genişletebilir). Kullanıcıya AskUserQuestion
+ile soruldu; cevaba göre baseline ayarlanır (küçük düzeltme).
+
+**Sırada:** M3-07 (kararın kayda bağlanması — transactions'a policy_version_id/matched_sid/policy_layer/
+policy_context, EK migration 00008, agent tappa-db-migrator + iki denetçi).
 
 ### 2026-07-26 (4. oturum, compact sonrası) — **M3-05 done** (guardrail politikaları — §4 EN KRİTİK)
 
