@@ -4,14 +4,14 @@
 > güncellenir ([README.md](README.md) → oturum protokolü, adım 6.4).
 > Görev kartlarına durum işareti konmaz.
 
-**Son güncelleme:** 2026-07-26 (4. oturum — compact sonrası devam; **M3-01 + M3-02 done**)
+**Son güncelleme:** 2026-07-26 (4. oturum — compact sonrası devam; **M3-01 + M3-02 + M3-03 done**)
 
 > **▶️ COMPACT SONRASI DEVAM (2026-07-26, 4. oturum).** 3. oturum compact noktasından
 > temiz devralındı. **M3-01 (ADR 0004) done** (`01c7a8a`, üçüncü göz ONAY) · **M3-02
-> (policy şeması, migration 00007) done** (`4126e4c`, **iki denetçi ONAY**). Her şey
-> `main`'de commit'li, ağaç temiz, `make check` yeşil. **Sıradaki:** "ŞU AN" → **M3-03**
-> (belge modeli + doğrulama, `internal/policy`). Kritik durum sohbette kalmıyor — hepsi
-> burada, `open-questions.md` ve `docs/adr/`'de.
+> (policy şeması) done** (`4126e4c`, iki denetçi ONAY) · **M3-03 (belge modeli + doğrulama)
+> done** (`555e1c5`, üçüncü göz ONAY, %98.8 kapsam). Her şey `main`'de commit'li, ağaç temiz,
+> `make check` yeşil. **Sıradaki:** "ŞU AN" → **M3-04** (değerlendirici). Kritik durum
+> sohbette kalmıyor — hepsi burada, `open-questions.md` ve `docs/adr/`'de.
 
 ---
 
@@ -19,8 +19,8 @@
 
 | | |
 |---|---|
-| **Kilometre taşı** | **M0 + M1 + M2 TAMAM** ✅ · **M3 devam** — M3-01 + M3-02 done (2/9). → **[M3 policy motoru](m3-policy-motoru.md)** |
-| **Sıradaki görev** | **M3-03** — [Belge modeli, ayrıştırma ve doğrulama](m3-policy-motoru.md#m3-03--belge-modeli-ayrıştırma-ve-doğrulama). `internal/policy/document.go` + `validate.go` + testleri. Bilinmeyen effect/action/operatör/anahtar → **doğrulama hatası** (sessiz yok sayma YOK); `sys:` ad alanı rezerve; **`ignore`/`redirect` baseline/tenant belgesinde reddedilir** (yalnız guardrail üretir); sınırlı param aralık dışı reddedilir; **nicel sınırlar zorunlu** (belge/ifade/action/resource/condition/IpInPrefix/kota — Evaluate her tap'te + tek VPS); bozuk JSON→anlamlı hata+fuzz; doğrulama **yazma anında**. Saf Go, DB yok. Bekleyen kullanıcı kararı yok. |
+| **Kilometre taşı** | **M0 + M1 + M2 TAMAM** ✅ · **M3 devam** — M3-01 + M3-02 + M3-03 done (3/9). → **[M3 policy motoru](m3-policy-motoru.md)** |
+| **Sıradaki görev** | **M3-04** — [Değerlendirici](m3-policy-motoru.md#m3-04--değerlendirici) (`internal/policy/evaluate.go` + `conditions.go` + testleri). `Evaluate(set Set, ctx Context) Decision` — **saf fonksiyon** (DB/HTTP/`time.Now` YOK, bağlam girdiden). Guardrail'ler **sıralı** (M3-05 sırası 1→10, ilk eşleşen terminal, alt katman çalışmaz); baseline+tenant birlikte **en kısıtlayıcı kazanır** (deny>ignore>review>allow); beraberlikte **daha spesifik resource** kazanır (Y-K); eşleşme yok → `tap:*` review, diğer eylemler deny; **bilinmeyen operatör/anahtar değerlendirme anında → ifade EŞLEŞMEZ + logla** (koşulu atlama = deny koşulsuzlaşır); her karar `MatchedSid`+`Layer` taşır (açıklanamayan karar yok); **deterministik** (map iterasyon sırası bağımlılığı YOK). Tuzak: eksik bağlam anahtarı ≠ false (Exists dışı operatör eşleşmez). **⚠️ Kart `Decision` yorumu `redirect`'i atlıyor — düzelt** (aşağı). Bekleyen kullanıcı kararı yok. |
 | **Çalışma modu** | Orkestrasyon + üçüncü göz — [README.md](README.md) · brief'ler [agent-brief.md](agent-brief.md) |
 | **Dal** | **`main`** — M0 (`m0-bootstrap`) `main`'e fast-forward birleştirildi (`562f021`), dal silindi. **Kullanıcı kararı (2026-07-25): artık doğrudan `main`'de çalışılır, görev başına dal açılmaz** (CLAUDE.md §10 güncellendi). Push/PR yine istemedikçe yok. |
 | **Blokeler** | Yok (M2-02 için bekleyen karar yok). **Bekleyen kullanıcı eylemi:** arm64 Go kurulumu (aşağı bak) — hiçbir şeyi bloklamıyor. |
@@ -38,6 +38,15 @@ M3 sırası: M3-02 (şema) → M3-03 (belge modeli + doğrulama) → M3-04 (değ
 2. ADR 0004, **değerlendirme anındaki** bilinmeyen operatör/anahtar (sürüm geri-alma sonrası) davranışını
    açıkça yazmıyor; M3-04 kartı yazıyor (ifade **eşleşmez**, koşul atlanmaz — yoksa deny koşulsuzlaşır).
    ADR bununla çelişmiyor ("sessizce yok sayma yok / kısıtlayıcıya düş" doğru yönde). M3-04'te uygula.
+
+### M3-05'e devralınan (M3-03 denetiminden, bloklamayan)
+- **Bounded-param üretimde BOŞ.** `internal/policy/validate.go` bounded-param mekanizmasını kurdu ve test
+  etti (enjekte edilen aralık → aralık-dışı reddedilir), ama `DefaultLimits().BoundedParams = nil` →
+  üretim yolunda ADR §11 koruması **fiilen yok** (değerlendirme henüz olmadığından M3-03/M3-04'te açık
+  yaratmaz). **M3-05 doldurmalı.** Denetçi düzeltmesi: eşlenebilir anahtar **ÜÇ** (`tap:gpsDistanceM`,
+  `tap:pageAgeSeconds`, **`tap:occurredAtSkewSeconds`** — ADR §11 occurred_at sapması 0–72 sa) + debounce
+  (bağlam anahtarı YOK, yalnız config/guardrail param). M3-05 üçünü de + config sınırlarını (GPS 25–1000 m,
+  tazelik 1–15 dk, sapma 0–72 sa, debounce 30–300 sn) doldurmazsa koruma **sessizce eksik** kalır.
 
 ### M2-04'e devralınan not (M2-01 denetiminden, N3)
 SV2 içindeki `ctr`'nin byte sırası ADR/skill'de açıkça sabitlenmedi (bilinçli) → **M2-04/M2-07
@@ -236,7 +245,7 @@ yazılır.
 |---|---|---|---|
 | M3-01 | ADR 0004: policy motoru modeli | **done** | `01c7a8a` · üçüncü göz **1. turda** ONAY · `docs/adr/0004-policy-motoru-modeli.md` (413 satır, 0002/0003 iskeleti) · 7+3 içerik maddesi gerekçeli · **§5 satır 1–5↔guardrail, 6–7↔baseline** hem tablo hem düz metin (denetçi CLAUDE.md §5'i satır satır doğruladı) · 5 effect, 2 varsayılan (tap:*→review / authz→deny), guardrail sırası + 2 somut sömürü, ignore/redirect tenant'a kapalı, Y-K spesifik-ezer, 4 alternatif · biyometrik anahtar YOK (§4.1), §4 gevşetme yok · **2 bloklamayan gözlem M3-04'e devredildi** (kart `redirect` eksik, eval-time bilinmeyen operatör) |
 | M3-02 | Policy şeması (append-only sürümler) | **done** | `4126e4c` · **iki denetçi ONAY** (üçüncü göz + tappa-security-auditor, kırmızı çizgi ihlali yok) · migration 00007: policies + policy_versions (**append-only**) + policy_attachments, üçünde RLS beşlisi (birebir NULLIF USING+WITH CHECK, pg_policies'ten okundu) · §4.3 kuşak+kemer non-vacuous (trigger DISABLE→superuser UPDATE başarılı → koruma REVOKE değil paylaşılan `tappa_forbid_mutation` trigger) · **`layer` CHECK `guardrail`'i reddediyor** (23514 — guardrail DB'ye yazılamaz) · composite same-tenant FK çapraz-tenant'ı blokluyor (23503) · `tappa_app` rolsuper=f/rolbypassrls=f teyit · **2 sapma kabul:** `policies` DELETE REVOKE (§4.6 enabled durum alanı; planlı silme yolu yok), `created_by` FK-siz uuid (admin FK M6/M7'ye, M1-11 kalıbı) · rls_test.go +3 tablo non-vacuous · models.go make gen additive · make check/gen/audit yeşil |
-| M3-03 | Belge modeli, ayrıştırma ve doğrulama | todo | |
+| M3-03 | Belge modeli, ayrıştırma ve doğrulama | **done** | `555e1c5` · üçüncü göz **1. turda** ONAY (non-vacuous **2 mutasyonla** kanıtlandı: sys: no-op→test RED, documentEffect→true→test RED) · `internal/policy/{document,validate}.go`+testler, **%98.8 kapsam** · bilinmeyen effect/action/operatör/anahtar→hata (+ `DisallowUnknownFields` typo yakalama), sys: rezerve (case-insensitive, iki katman), ignore/redirect belgede reddedilir, nicel DoS sınırları (byte/ifade/action/resource/condition/IpInPrefix + `CheckTenantQuota` doc+version, sabitler tek yerde), bozuk JSON+fuzz (456K exec crasher yok), §4.7 hata değeri sızmıyor · saf paket (Evaluate M3-04'e bırakıldı) · ADR listeleri birebir (10 operatör/7 eylem/24 anahtar/5 effect) · **bounded-param wiring boş → M3-05'e devir** (aşağı) |
 | M3-04 | Değerlendirici (koşullar, öncelik, açıklanabilirlik) | todo | |
 | M3-05 | Guardrail politikaları | todo | **§4 — en kritik** |
 | M3-06 | Tappa Baseline yönetilen politikası | todo | A2, A3, Y1 varsayılanları |
@@ -322,13 +331,35 @@ yazılır.
 | M9-06 | Policy simülatörü | todo | Q22 — M6-10'dan ertelendi |
 | M9-07 | Ham JSON politika editörü | todo | Q22 — M6-09'dan ayrıldı |
 
-**Özet:** 82 görev · done 27 · wip 0 · blocked 0 · skipped 1 · todo 54 · **M0+M1+M2 TAMAM · M3 devam (M3-01+M3-02 done, 2/9) · sıradaki M3-03**
+**Özet:** 82 görev · done 28 · wip 0 · blocked 0 · skipped 1 · todo 53 · **M0+M1+M2 TAMAM · M3 devam (M3-01→M3-03 done, 3/9) · sıradaki M3-04**
 
 ---
 
 ## Oturum günlüğü
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
+
+### 2026-07-26 (4. oturum, compact sonrası) — **M3-03 done** (belge modeli + doğrulama)
+
+**M3-03 done — üçüncü göz 1. turda ONAY.** `555e1c5`: `internal/policy/{document,validate}.go` + testler,
+**%98.8 kapsam**. Belge modeli ADR 0004'e sadık (5 effect · 10 operatör · 24 anahtar · 7 eylem — denetçi
+saydı, birebir). `Parse` byte-cap + strict JSON (`DisallowUnknownFields` typo'lu alanı yakalar); `Validate`
+yazma-anı kapı: bilinmeyen effect/action/operatör/anahtar → **hata** (sessiz yok sayma yok — en tehlikeli
+başarısızlık); ignore/redirect belgede reddedilir (yalnız kod-guardrail üretir); `sys:` rezerve
+(case-insensitive, iki katman); nicel DoS sınırları (Evaluate her tap'te, tek VPS). §4.7: hata mesajı
+belge değerini echo etmiyor. Saf paket — Evaluate M3-04'e.
+
+**Denetçi non-vacuous'u 2 mutasyonla kanıtladı** (sys: kontrolü no-op → test RED; documentEffect→true →
+test RED; geri alındı, sha teyit). Kendi kötü belgeleriyle 4 bilinmeyen-kategori + sys: 4 varyant + typo
+alanı + §4.7 (`424242`/`SECRET`/`10.9.8.7` mesajda yok) reddini üretti; FuzzParse'ı kendi koştu.
+
+**Devir → M3-05 (bloklamayan):** bounded-param mekanizması test edilmiş ama `DefaultLimits().BoundedParams`
+BOŞ → §11 koruması üretimde fiilen yok. Denetçi düzeltmesi: **üç** eşlenebilir anahtar (gpsDistanceM,
+pageAgeSeconds, **occurredAtSkewSeconds**) + debounce (config-only). M3-05 üçünü + config sınırlarını
+doldurmalı (ŞU AN'a yazıldı).
+
+**Sırada:** M3-04 (değerlendirici — saf `Evaluate`, guardrail sıralı + terminal, en-kısıtlayıcı-kazanır,
+spesifik-resource-ezer, deterministik). M3-04 başında kart `Decision` yorumundaki `redirect` eksiğini düzelt.
 
 ### 2026-07-26 (4. oturum, compact sonrası) — **M3-02 done** (policy şeması, migration 00007)
 
