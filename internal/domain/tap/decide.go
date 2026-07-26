@@ -82,6 +82,7 @@ func Decide(in Input) Decision {
 		keys[policy.CtxTagLocationID] = in.Tag.Location.String()
 		keys[policy.CtxLocationID] = in.Tag.Location.String() // the TAPPED location (§5/M4-05)
 	}
+	var crossLocation bool
 	if in.Employee != nil {
 		keys[policy.CtxEmployeeStatus] = string(in.Employee.Status) // sys:employee-deactivated (§5 row 4)
 		if in.Employee.Location != nil {
@@ -90,6 +91,18 @@ func Decide(in Input) Decision {
 		if in.Employee.Department != nil {
 			keys[policy.CtxEmployeeDepartmentID] = in.Employee.Department.String()
 		}
+		// Cross-location FACT (Q17, M4-05), computed BEFORE Evaluate so the baseline
+		// sees it: a tap at a location OTHER than the employee's home location is
+		// normal chain movement, affirmed by base:cross-location-note (allow) and
+		// RECORDED for the report, never penalised. It needs BOTH the home location
+		// (Employee.Location) and the tapped location (Tag.Location); with either
+		// absent there is no "other" location to be away from, so it is not cross-
+		// location (false). The verdict is unaffected — the tap is judged on the
+		// TAPPED location's evidence and shift (Input.Shift), so a cross-location
+		// worker is never spuriously "late" for being away from home.
+		crossLocation = in.Employee.Location != nil && in.Tag != nil &&
+			*in.Employee.Location != in.Tag.Location
+		keys[policy.CtxEmployeeCrossLocation] = crossLocation
 	}
 
 	ctx := policy.Context{
@@ -129,6 +142,9 @@ func Decide(in Input) Decision {
 		// The docket's human-facing "why" comes straight from the deciding rule.
 		Note:     pd.Reason,
 		Security: pd.SecurityAlert != "", // §5 row 4 / lost-tag: a manager push
+		// M4-05 report fact, independent of which policy won the tiebreak (see the
+		// CrossLocation doc): recorded so the report shows cross-location taps apart.
+		CrossLocation: crossLocation,
 		// Carried so the immutable record can explain itself forever (M3-07,
 		// migration 0008: matched_sid / policy_layer / policy_version_id).
 		MatchedSid:      pd.MatchedSid,
@@ -168,7 +184,91 @@ func Decide(in Input) Decision {
 		dec.Note = appendNote(dec.Note, note)
 	}
 
+	// --- 6. Lateness (M4-05) -------------------------------------------------
+	// A REPORT output only: how many minutes late this CHECK-IN is against the
+	// employee's resolved shift (Input.Shift). It NEVER touches dec.Verdict — a
+	// late tap stays ok (§5). Computed AFTER direction because only a check-IN can
+	// be "late" (a checkout is not), and only ok/flag records carry a direction at
+	// all (reject/ignored/redirect keep Type nil -> MinutesLate stays nil).
+	dec.MinutesLate = lateness(in, dec.Type)
+
 	return dec
+}
+
+// lateness reports how many minutes late a CHECK-IN is against the employee's
+// resolved shift, or nil when it is not computed. It is a REPORT output and NEVER
+// changes the verdict (§5, M4-05): a three-hours-late tap is still ok. It returns
+// nil when there is no shift, when dir is not a check-IN (a check-OUT is not
+// "late" — this is what keeps the Rusty Bar 02:00 exit out of the late column), or
+// when the shift's timezone cannot be resolved. A positive value is minutes late;
+// <= 0 means on time or early. Duration/integer minutes only, so no float touches
+// a time/attendance figure (§6); a pointer so "not computed" is distinct from "0".
+func lateness(in Input, dir *Type) *int {
+	if in.Shift == nil || dir == nil || *dir != TypeIn {
+		return nil
+	}
+	start, ok := shiftStartInstant(in.Now, *in.Shift)
+	if !ok {
+		return nil // unknown/empty timezone: do not guess a wall clock (M4-05 trap)
+	}
+	// Signed minutes, truncated toward zero: N full minutes after the shift start.
+	// Both operands are UTC instants (§6) — no local time enters the arithmetic;
+	// the wall-clock/DST resolution happened in shiftStartInstant.
+	m := int(in.Now.Sub(start) / time.Minute)
+	return &m
+}
+
+// shiftStartInstant returns the UTC instant of the shift's START for the tap's
+// local day. ok is false when the zone name is empty or unknown — the caller then
+// declines to compute lateness rather than silently measure against UTC.
+//
+// WHY wall-clock components, NOT midnight + Duration. A shift start is a WALL time
+// (Q01: "10:00–22:00 is a wall clock, not an absolute instant"). Building it with
+// time.Date(y, m, d, hh, mm, ss, ns, loc) lets the ZONE place it, so the Malta DST
+// transitions are correct: on the March spring-forward day (02:00->03:00) a 09:00
+// local start is 07:00 UTC (UTC+2), while in winter it is 08:00 UTC (UTC+1); on
+// the October fall-back day (03:00->02:00) the zone likewise resolves the repeated
+// hour. Adding the Start Duration to a local/UTC midnight instead would measure
+// ABSOLUTE hours and land an hour off across a transition (that day is 23 or 25 h
+// long) — the exact bug types.go's Shift doc warns against.
+//
+// For an OVERNIGHT shift (Rusty Bar 18:00->02:00) a tap in the after-midnight tail
+// (local time-of-day < End, e.g. 01:00 < 02:00) belongs to the shift that STARTED
+// THE PREVIOUS DAY, so the start date is rolled back one day; time.Date normalises
+// the day underflow (month/year and DST included).
+func shiftStartInstant(now time.Time, s Shift) (time.Time, bool) {
+	// An empty zone is treated as unresolvable, NOT as UTC: time.LoadLocation("")
+	// returns UTC without error, which would silently compute lateness against the
+	// wrong wall clock (Malta is UTC+1/+2). Q01 guarantees a non-empty zone in
+	// production; this guards a caller bug rather than trusting it.
+	if s.Timezone == "" {
+		return time.Time{}, false
+	}
+	loc, err := time.LoadLocation(s.Timezone)
+	if err != nil {
+		return time.Time{}, false
+	}
+	local := now.In(loc)
+	y, mo, d := local.Date()
+	if s.Overnight && localTimeOfDay(local) < s.End {
+		d-- // the after-midnight tail belongs to the previous day's shift start
+	}
+	return time.Date(y, mo, d,
+		int(s.Start/time.Hour),
+		int((s.Start%time.Hour)/time.Minute),
+		int((s.Start%time.Minute)/time.Second),
+		int(s.Start%time.Second),
+		loc), true
+}
+
+// localTimeOfDay is t's wall-clock time of day as a Duration since local midnight
+// — used only to place an overnight tap in either the evening (>= Start) or the
+// after-midnight tail (< End) portion of its shift.
+func localTimeOfDay(t time.Time) time.Duration {
+	return time.Duration(t.Hour())*time.Hour +
+		time.Duration(t.Minute())*time.Minute +
+		time.Duration(t.Second())*time.Second +
+		time.Duration(t.Nanosecond())
 }
 
 // staleOpenInThreshold is how long a check-in may stay OPEN before this engine

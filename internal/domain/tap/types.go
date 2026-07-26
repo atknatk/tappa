@@ -343,6 +343,24 @@ type Decision struct {
 	// GPS" when IP is absent, or a cross-location / stale-open-in note, §5/M4-04/05).
 	// It never contains a secret or a raw GPS coordinate (§4.7).
 	Note string
+	// CrossLocation is true when the tap happened at a location OTHER than the
+	// employee's home location (Employee.Location != Tag.Location) — normal chain
+	// movement (Q17, M4-05). It is a REPORT fact, recorded so the report can show
+	// cross-location taps separately; it NEVER penalises the tap. The SAME fact is
+	// also placed in the policy Context (employee:crossLocation) so base:cross-
+	// location-note affirms it and it freezes into policy_context (M3-07). It is a
+	// Decision field TOO because that baseline allow never wins the sid over
+	// base:ip-or-gps-ok, so the deciding Note would not otherwise reveal it — the
+	// report reads this field directly, independent of which allow won the tiebreak.
+	CrossLocation bool
+	// MinutesLate is how many minutes late a CHECK-IN is against the employee's
+	// resolved shift (Input.Shift), or nil when it is not computed: no shift, a
+	// check-OUT (a checkout is not "late"), or an unresolvable timezone. Positive
+	// means late; <= 0 means on time or early. It is a REPORT output and NEVER
+	// changes the verdict (§5, M4-05): a late tap is still ok. Minutes, not float
+	// hours, so no float touches a time figure (§6); a pointer so "not computed" is
+	// unambiguously distinct from "0 minutes late".
+	MinutesLate *int
 	// Practice marks a training tap (TRAINING stamp; never counts toward hours, §5,
 	// M4-06). SERVER-derived from Employee.ActivatedAt, never a client claim.
 	Practice bool

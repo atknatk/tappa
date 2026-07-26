@@ -80,6 +80,34 @@ yarıçap içinde olup olmadığını söylemek.
 > `Redirect=RedirectActivation`, **Verdict boş** (kayıt yok, §5.3). Tenant-mismatch
 > M4-03'te ateşlemez (Input tenant id taşımıyor — M5 devri).
 
+> **Kart düzeltmesi (2026-07-26, M4-05 uygulaması sırasında).** Yukarıdaki
+> `Decision` taslağına **iki rapor alanı eklendi**; M4-05 (vardiya çözümü + geç
+> kalma + çapraz lokasyon) ikisini de gerektirdi:
+>
+> 1. **`MinutesLate *int`** — çalışanın çözülmüş vardiyasına (`Input.Shift`) göre
+>    bir **check-IN**'in kaç dakika geç kaldığı. `nil` = **hesaplanmadı**: vardiya
+>    yok, tap bir check-OUT (çıkış "geç" olmaz), ya da zaman dilimi çözülemedi.
+>    Pozitif = geç, `<= 0` = zamanında/erken. **Rapor çıktısıdır, `Verdict`'i ASLA
+>    etkilemez** (§5, geç gelen yine `ok`). `float` saat DEĞİL, dakika tamsayısı
+>    (§6); pointer, çünkü "hesaplanmadı" (`nil`) ile "0 dk geç" ayrı olmalı. Geç
+>    kalma **Evaluate'ten SONRA** hesaplanır (yöne bağlı) → bir `Decision` alanı,
+>    `policy.Context` anahtarı değil (context Decide'dan dönmüyor; ayrıca hiçbir
+>    baseline `time:minutesLate` okumuyor, doğrulandı — verdict'e sızmaz).
+> 2. **`CrossLocation bool`** (Q17) — tap edilen lokasyon çalışanın profil
+>    lokasyonundan farklı mı (`Employee.Location != Tag.Location`). Aynı olgu
+>    `policy.Context`'e (`employee:crossLocation`) de **Evaluate'ten önce** konur ki
+>    `base:cross-location-note` (allow) eşleşsin ve olgu `policy_context`'e donsun
+>    (M3-07). **Decision alanı da** olmasının sebebi: o baseline allow'u
+>    `base:ip-or-gps-ok`'a karşı sid berabere kaybeder, yani karar `Note`'u tek
+>    başına çapraz-lokasyonu göstermez — rapor bu alanı doğrudan okur. Tap **tap
+>    edilen** lokasyonun vardiyasıyla (`Input.Shift`) değerlendirildiği için
+>    çapraz-lokasyon çalışanı "geç" damgası yemez.
+>
+> **tzdata:** `internal/domain/tap` `time.LoadLocation` çağırdığından paket
+> `time/tzdata`'yı **blank import** eder (`tzdata.go`) — sistem tzdata'sı olmayan
+> scratch imajda vardiya hesabı sessizce çökmesin. stdlib, yeni bağımlılık yok,
+> saflık korunur; `cmd/tappa`'ya (M8) dokunulmadı, embed orada olursa idempotent.
+
 **Amaç.** `Decide`'ın imzasını ve saflığını sabitlemek.
 
 **Tasarım.**

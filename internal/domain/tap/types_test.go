@@ -71,19 +71,25 @@ func TestInputDecision_construct(t *testing.T) {
 	}
 
 	dir := TypeIn
+	minutesLate := 10
 	dec := Decision{
-		Verdict:  VerdictOK,
-		Type:     &dir,
-		Trust:    50,
-		IPMatch:  true,
-		GPSMatch: false,
-		Note:     "verified via GPS",
-		Practice: false,
-		Redirect: RedirectNone,
-		Security: false,
+		Verdict:       VerdictOK,
+		Type:          &dir,
+		Trust:         50,
+		IPMatch:       true,
+		GPSMatch:      false,
+		Note:          "verified via GPS",
+		CrossLocation: true,
+		MinutesLate:   &minutesLate,
+		Practice:      false,
+		Redirect:      RedirectNone,
+		Security:      false,
 	}
 	if dec.Verdict != VerdictOK || *dec.Type != TypeIn {
 		t.Fatalf("decision wiring broken: verdict=%q type=%v", dec.Verdict, dec.Type)
+	}
+	if !dec.CrossLocation || dec.MinutesLate == nil || *dec.MinutesLate != 10 {
+		t.Fatalf("M4-05 field wiring broken: crossLocation=%v minutesLate=%v", dec.CrossLocation, dec.MinutesLate)
 	}
 
 	// The full closed vocabularies must be distinct, non-empty strings (guards
