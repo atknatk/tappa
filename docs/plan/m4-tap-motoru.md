@@ -54,6 +54,32 @@ yarıçap içinde olup olmadığını söylemek.
 - **Bağımlılık:** M2-07 (Result şekli) · M1-08
 - **Commit:** `feat(tap): define decision input and output types`
 
+> **Kart düzeltmesi (2026-07-26, M4-03 uygulaması sırasında).** Bu kartın
+> `Input`/`Decision` taslağı iki alan grubunu eksik gösteriyordu; M4-03 gerçek
+> `Decide` gövdesi ikisini de gerektirdi:
+>
+> 1. **`Input`'a `PolicySet policy.Set` alanı eklendi** (ikinci `Decide`
+>    parametresi DEĞİL). Neden alan: M4-02 imzası `func(Input) Decision` sabittir
+>    ve `types_test.go`'da derleme-zamanı doğrulanır — Set'i Input içine koymak bu
+>    imzayı korur ve `Decide`'ı tek değerin saf fonksiyonu bırakır. Set'i **M5
+>    çağıranı** kurar: `Guardrails(tenantParams)` + `BaselinePolicies(gerçek
+>    version id)` + tenant politikaları (gerçek append-only version id'lerle).
+>    Guardrail'ler ve baseline koddur; yalnız version id'leri ve tenant katmanı
+>    DB'den gelir → `Decide` DB'ye dokunmaz, saflık korunur (policy saf katman).
+> 2. **`Decision`'a `MatchedSid string`, `Layer policy.Layer`, `PolicyVersionID
+>    *uuid.UUID` eklendi** — M3-07 migration 0008'in `matched_sid`/`policy_layer`/
+>    `policy_version_id` sütunları için (kayıt "neden FLAGGED" sorusunu sonsuza
+>    dek cevaplasın). `Decide` bunları `policy.Evaluate`'ten taşır; M5-05 yazar.
+> 3. **`Input.Debounce` süperseded** (N3): debounce **penceresi** artık `PolicySet`
+>    içindeki `sys:person-debounce` guardrail'inin `Params`'ından uygulanır;
+>    `Decide` yalnız **olguyu** (kişinin son tap'inden bu yana geçen saniye)
+>    hesaplar ve bu alanı **okumaz**. Alan M4-02 sözleşmesi için korundu; M5
+>    aynı değeri `policy.Params`'a da beslemeli (ikisi de bugün 60 sn, drift yok).
+>
+> `redirect` effect'i (yalnız `sys:no-session`/`sys:tenant-mismatch`) →
+> `Redirect=RedirectActivation`, **Verdict boş** (kayıt yok, §5.3). Tenant-mismatch
+> M4-03'te ateşlemez (Input tenant id taşımıyor — M5 devri).
+
 **Amaç.** `Decide`'ın imzasını ve saflığını sabitlemek.
 
 **Tasarım.**

@@ -13,12 +13,14 @@
 //     tapped location's IPs/GPS, the person's last taps, the shift — is supplied by
 //     the caller, already resolved on the SERVER (never a client-declared body
 //     flag; see Channel and Employee.ActivatedAt below).
-//   - It IMPORTS internal/geo (itself pure — only "math") for geo.Point, but it
-//     does NOT import internal/sun, internal/store or internal/db: pulling in sun
-//     would drag database/sql + pgx + store into this package's dependency graph
-//     and destroy the purity proof. That is exactly why SUNResult is tap's OWN
-//     domain type rather than sun.Result (see SUNResult) — the caller maps the
-//     store/sun rows into these pure domain types at the M5 handler boundary.
+//   - It IMPORTS internal/geo and internal/policy (both pure — no DB/HTTP/clock)
+//     for geo.Point and the policy Set/Context/Layer it delegates the decision to
+//     (M4-03), but it does NOT import internal/sun, internal/store or internal/db:
+//     pulling in sun would drag database/sql + pgx + store into this package's
+//     dependency graph and destroy the purity proof. That is exactly why SUNResult
+//     is tap's OWN domain type rather than sun.Result (see SUNResult) — the caller
+//     maps the store/sun rows into these pure domain types at the M5 handler
+//     boundary.
 //
 // Decide DOES NOT WRITE RECORDS. It returns a Decision — a description of what
 // should happen — and touches no database. Persisting the tap (and honouring §4.6
@@ -36,6 +38,7 @@ import (
 	"time"
 
 	"github.com/atknatk/tappa/internal/geo"
+	"github.com/atknatk/tappa/internal/policy"
 	"github.com/google/uuid"
 )
 
@@ -292,7 +295,28 @@ type Input struct {
 
 	// Debounce is the per-person debounce window (§5: 60s), passed in rather than
 	// hard-coded so it is configurable and the test can set it explicitly.
+	//
+	// SUPERSEDED by PolicySet (M4-03, N3): the debounce WINDOW is now applied by the
+	// sys:person-debounce guardrail inside PolicySet (from its ADR 0004 §11 Params),
+	// so Decide computes only the FACT (seconds since the person's last tap) and does
+	// not consult this field. It is retained for the M4-02 contract; M5 must feed the
+	// SAME value into policy.Params when it assembles PolicySet so the two agree
+	// (both default to 60 s today, so there is no drift yet).
 	Debounce time.Duration
+
+	// PolicySet is the per-tenant decision Set — the ordered guardrails plus the
+	// baseline and tenant policies — that Decide delegates every §5 decision to
+	// (policy.Evaluate). It lives IN the Input (rather than as a second Decide
+	// parameter) so the M4-02 signature `func(Input) Decision` — asserted in
+	// types_test.go — stays fixed and Decide remains a pure function of ONE value.
+	//
+	// The M5 caller assembles it with the REAL append-only version ids:
+	// Guardrails(tenantParams) + BaselinePolicies(realVersionID) + the tenant's own
+	// policies. Guardrails and the baseline are code; only the version ids and the
+	// tenant layer come from the DB — so Decide itself never touches the DB and its
+	// purity holds (internal/policy is a pure layer). A zero PolicySet (no rules)
+	// makes tap:record fall to the fail-to-review default -> flag, never a silent ok.
+	PolicySet policy.Set
 }
 
 // Decision is Decide's output — a DESCRIPTION of what should happen, not a written
@@ -329,4 +353,23 @@ type Decision struct {
 	// managers — a deactivated account tapped (§5 line 4) or a lost tag tapped. It is
 	// a bool here; M4-03 sets it from policy.Decision.SecurityAlert being non-empty.
 	Security bool
+
+	// --- Explainability, carried from the policy Decision (M4-03) -------------
+	// These bind the record to WHY it got its verdict (M3-07, migration 0008:
+	// matched_sid / policy_layer / policy_version_id) so a past tap explains itself
+	// forever, even after the tenant edits its policy. The M5 write path persists
+	// them; Decide only carries them out of policy.Evaluate.
+
+	// MatchedSid is the sid of the deciding statement or guardrail — "sys:..." for a
+	// guardrail, a "base:..."/tenant sid for a stored decision, or "default" for the
+	// no-match fallback. MACHINE-FILTERABLE, so a report can count taps by rule.
+	MatchedSid string
+	// Layer is where the deciding rule lives (guardrail | baseline | tenant). A
+	// guardrail decision and the built-in default both carry LayerGuardrail; the
+	// "default" MatchedSid tells them apart.
+	Layer policy.Layer
+	// PolicyVersionID is the append-only policy_versions row a baseline/tenant
+	// decision came from, or nil for a guardrail/default decision (code, not in the
+	// DB). Pinning it is what keeps a past record's reason stable after a later edit.
+	PolicyVersionID *uuid.UUID
 }
