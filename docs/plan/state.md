@@ -4,7 +4,7 @@
 > güncellenir ([README.md](README.md) → oturum protokolü, adım 6.4).
 > Görev kartlarına durum işareti konmaz.
 
-**Son güncelleme:** 2026-07-31 (5. oturum — **M5-01 + M5-02 done, M5 2/10**)
+**Son güncelleme:** 2026-07-31 (5. oturum — **M5-01 + M5-02 + M5-03 done, M5 3/10**)
 
 > **M5-01 done — 2026-07-31, 5. oturum.** `internal/session` teslim edildi (`a71e1b2`), **iki denetçi
 > ONAY** (genel üçüncü göz 3. turda + `tappa-security-auditor` kapanış turunda). **Beş tur sürdü ve iki
@@ -25,8 +25,8 @@
 
 | | |
 |---|---|
-| **Kilometre taşı** | **M0 + M1 + M2 + M3 + M4 TAMAM** ✅ · **M5 — [Tap akışı](m5-tap-akisi.md) 2/10** |
-| **Sıradaki görev** | **M5-03** — [Middleware: gerçek IP, tenant, oran sınırı](m5-tap-akisi.md#m5-03--middleware-gerçek-ip-tenant-oran-sınırı). **🔴 M5-02'den ADLANDIRILMIŞ yükümlülük devraldı** (aşağı "M5-03'e devralınan" md. 1): `clientIP` bugün **yalnız `RemoteAddr`** okuyor → ters proxy arkasında **her istek tek anahtarı paylaşır**, yani flood tavanı **küresel**. `X-Forwarded-For` + `TrustedProxies` **M5-03'ün işi** ve `floodLimit` o zaman yeniden gözden geçirilmeli. Kart zaten "gerçek IP yalnız `cfg.TrustedProxies` hop'larından" diyor — ikisi aynı iş. Ayrıca chi'nin `middleware.RealIP`'i başlığa **koşulsuz** güvenir → kullanma (kart tuzağı, R5 kapsamı). **🔴 N5 tenant-mismatch BLOKLAYAN devri burada veya M5-05'te kapanmalı** (aşağı "M4/M5'e devralınan"). |
+| **Kilometre taşı** | **M0 + M1 + M2 + M3 + M4 TAMAM** ✅ · **M5 — [Tap akışı](m5-tap-akisi.md) 3/10** |
+| **Sıradaki görev** | **M5-04** — [`GET /t`: tap sayfası](m5-tap-akisi.md#m5-04--get-t-tap-sayfası) · araç: **skill `tappa-brand`**. Bağımlılıkları (M2-07 ✔, M5-01 ✔, M5-03 ✔) **tamam**. Tek ekran, tek buton, sıfır öğrenme (§9 — **tap ekranı kutsaldır**, özellik eklemek istiyorsan **önce sor**). Sunucuda SUN ön-doğrulaması ama sayfa açılışında sayaç **İLERLETİLMEZ** (ilerletme POST'ta, M5-05). GPS yalnız butona basınca `getCurrentPosition` — `watchPosition` **yasak** (§4.2). Oturum yoksa aktivasyona yönlendirir, **kayıt yazmaz** (§5 satır 3 — M5-02 hedefi kurdu, **yönlendirmeyi M5-04 bağlar**). **Fontları self-host et** (`web/static/fonts/`; bugün yok, `@font-face`=0 → sistem fontu, dış istek yok). **M5-03'ten devralınanları oku** (aşağı): `TapLimiter`'ı **monte edecek olan sensin** — 429 kalıntısı ve montaj sırası sözleşmesi orada. **🔴 N5 tenant-mismatch** M5-05'te kapanmalı. |
 | **Çalışma modu** | Orkestrasyon + üçüncü göz — [README.md](README.md) · brief'ler [agent-brief.md](agent-brief.md) |
 | **Dal** | **`main`** — M0 (`m0-bootstrap`) `main`'e fast-forward birleştirildi (`562f021`), dal silindi. **Kullanıcı kararı (2026-07-25): artık doğrudan `main`'de çalışılır, görev başına dal açılmaz** (CLAUDE.md §10 güncellendi). Push/PR yine istemedikçe yok. |
 | **Blokeler** | Yok. **Bekleyen kullanıcı eylemleri → [docs/backlog.md](../backlog.md)** (B1 iPhone/Q11 ölçümü, B2 arm64 Go kurulumu) — **ikisi de hiçbir şeyi bloklamıyor**. Q02 (davet kanalı) M5-02'yi bloklamaz; kart cevapsız hâli için yol gösteriyor. |
@@ -90,6 +90,35 @@ DOLDURUR. Aşağıdakiler doldurulmazsa guardrail **sessizce** ateşlemez (eksik
   (tag çözümünden tenant + oturumdan tenant). M4-03 bunu doğru şekilde M5'e erteledi (Decide karar taklidi
   yapmıyor); ama M5 bunu sağlamazsa delik açık kalır — **belt-and-braces değil, tek gerçek engel.** Ayrıca (düşük):
   Decide her redirect'i `RedirectActivation`'a eşliyor → M5 tenant-mismatch redirect'ini aktivasyondan ayırabilir.
+
+### M5-04 / M5-05'e devralınan (M5-03 denetimlerinden)
+
+1. **🔴 `TapLimiter`'ı MONTE EDECEK OLAN M5-04/M5-05'tir** ve montaj **sırası bir sözleşmedir**:
+   `ByAddress` (DB işinden **önce**) → `Identify` → `BySession`. Sıra bozulursa `BySession`
+   `SessionUnresolved` görür ve **500** verir (bilerek gürültülü: ölçülmeyen istek sessizce geçmesin).
+2. **🔴 429'un §4.6 kalıntısı — adıyla yazılı, çözülmedi.** Bir mekânın paylaşılan adres bütçesini
+   düşmanca bir cihaz harcarsa o mekânın **meşru tap'leri 429 alır** ve istek **karar motoruna hiç
+   ulaşmaz** → ne `transactions` satırı ne `flag`. §4.6 tam da bunu `flag` ile karşılamak için var.
+   Sınırlandı, çözülmedi (M8: paylaşılan store + mekân-başına anahtarlama).
+3. **`Identity` sıfır değerinde `Err == nil` VE `!Live()`** → `if id.Err != nil {500} else if !id.Live()
+   {aktivasyon}` yazan bir handler tam **§5 satır 3**'e düşer. `identity.go` dikkatli yazılmış ("artık
+   olamaz" demiyor), ama M5-04/M5-05 bu ayrımı **açıkça** ele almalı.
+4. **§5 satır 3 yönlendirmesi M5-04'ün işi.** M5-02 hedefi (aktivasyon sayfası) kurdu ve `transactions`
+   yazmıyor; oturumsuz tap'in oraya yönlendirilmesi bağlanmadı. ⚠️ M5-02'nin **koşullu** çerez-ekim
+   savunmasıyla birleşiyor: `GET /t` oturumsuz tap'i `/activate`'e yönlendirdiğinde, ekili bir davet
+   çerezi olan tarayıcı **yabancı tenant'ın formunu** görebilir (form artık hangi işletme/çalışan
+   olduğunu butonun üstünde yazıyor — tek gerçek engel bu).
+5. **Fontlar self-host DEĞİL** (`web/static/fonts/` yok, `@font-face`=0, sistem fontuna düşüyor,
+   **dış istek yok**) → M5-04 kabul kriteri.
+6. **429 gövdesi düz metin** — markalı sayfa `tappa-brand` ile M5-04'te.
+7. **Limiter süreç-içi ve sabit-pencere**; iki instance sınırı ikiye katlar, pencere sınırında 2×limit
+   mümkün. `limiterMaxKeys` 100k aşılınca map **toptan sıfırlanıyor** (fail-open, bilinçli ve yazılı).
+   Hepsi M8 (paylaşılan store).
+8. **`TAPPA_TRUSTED_PROXIES` kalan sınırı:** kapı yalnız **tek girdilik** `/0`'ı yakalar; `/1` ya da
+   birleşimle tüm uzayı kaplayan liste (`0.0.0.0/1,128.0.0.0/1`) **yakalanmaz** — yazılı. Ayrıca
+   güvenilen aralık **gerçek istemcileri içeriyorsa** onlar serbestçe uydurabilir (ölçüldü). M8 dağıtım
+   kontrol listesi. Proxy'nin XFF'e **append** etmesi zorunlu; **replace** eden proxy buradan
+   ayırt edilemez.
 
 ### M5-03'e devralınan (M5-02 B denetimlerinden)
 
@@ -383,7 +412,7 @@ yazılır.
 |---|---|---|---|
 | M5-01 | internal/session: oturum yaşam döngüsü | **done** | `a71e1b2` · **iki denetçi ONAY** (genel üçüncü göz **3. turda** + `tappa-security-auditor` kapanış turu) · **5 tur, 2 RED, ikisi de aynı sınıf: "yorum, kodun sağlamadığı garantiyi beyan ediyor"** · **RED-1** `Token` unexported alanda `%v/%+v/%#v/slog` ile ham token bastı (`fmt`, `CanInterface()==false` olunca `Formatter/Stringer/LogValuer` **atlar**) → `struct{ v *string }`; kapanış denetçisi **17 taşıyıcı × 18 render = 306 ölçüm, 0 sızıntı** + pozitif kontrol (çıplak `string` 18'in 13'ünde sızdı) · **RED-2** `Cookies` sıfır değeri (`var c`, `Cookies{}`, yazılmamış struct alanı — Go'da yasak olan alanı **adlandırmaktır**) prod'da `Set` **ve** `Clear`'da Secure'suz çerez yazdı → kutup çevrildi `struct{ insecure bool }`; 3. tur denetçisi **17 sıfır-değer yolu + 99 Env×BaseURL** kombinasyonunu yenemedi · `Verify` **tek sorgu** gerçek Postgres'te iki yolla ölçüldü (`pg_stat_user_tables` Δ + `log_statement=all`) · RLS izolasyonu **non-vacuous** (3 denetçi ayrı ayrı `DISABLE ROW LEVEL SECURITY` → RED → geri) · 5 sorguda açık `tenant_id`, DELETE yetkisi `f` · §5 satır 3/4 **korundu**: `Verify` iptalde **dolu `Resolved` + `ErrRevoked`** · sqlc çıktısı bağımsız yeniden üretilip **bayt bayt** eşleşti · kapsam **%94.0** (`deviceLabel`, `NewCookies`, `Secure` %100) · **kapsam genişlemesi:** `TAPPA_ENV` kapalı küme (`internal/config`) · **migration YOK** (00003 zaten var) · **Q11 AÇIK** (gerçek iPhone — yukarı) · 7 devir → "M5-02/M5-03'e devralınan" |
 | M5-02 | Davet ve aktivasyon akışı | **done** | **A fazı** `9139ee7` · **B fazı** `0601b6d` · **iki fazda toplam 5 denetim turu, 3 RED** · **A:** `employee_invites` (RLS beşlisi, `password_resets` kalıbı) + `resolve_invite_by_code_hash` (ADR 0002 md.7 **üçüncü** resolver) + **kaynaşık CTE `ConsumeInviteAndActivate`** (iki ayrı sorgu "aktive ⇒ davet tüketildi"i çağrı sırasına bırakıyordu = hayalet-çalışan) + iç CTE'de **`EXISTS` guard'ı** (veri-değiştiren CTE koşulsuz çalışır → deaktif çalışanda davet **yanıyordu**; COMMIT ile ölçüldü, guard'la `burned=f`) + **sütun-düzeyi `GRANT UPDATE (used_at)`** (diriltme/kaydırma/hash-yeniden-yazma üçü de `permission denied`) · **A-RED:** kart CHECK'in **kod entropisini zorladığını** sanıyordu — `sha256('123456')` da 64-hex, tel-tuzak hiç ateşlenmiyordu → yükümlülük **Kabul kriterleri**ne taşındı · `FOR SHARE` **ölçümle reddedildi** (40P01 deadlock, iki cihaz aynı çalışanı aktive ederken) · **B:** `internal/{invite,audit,handler}` + ilk `.templ` sayfaları + `00010 locations.wifi_ssid` · **alan ayrımı çift** (`TAPPA_INVITE_HMAC_KEY` + etiketli girdi; aynı anahtar altında bile session yapısından farklı, ölçüldü) · **B-RED 1: aktivasyon-fixation** (SameSite çerez **yazmayı** kısıtlamaz → çapraz-site GET saldırganın kodunu ekiyor, sonraki GET **başka tenant'ın** formunu render ediyor, `Submit` mevcut oturumu görmediği için kurbanın oturumu **sessizce eziliyordu**) → CSRF token + 409 + koşullu ekim-reddi, **5 mutasyonla** kanıtlandı · **B-RED 2: sınırsız SİLİNEMEZ `audit_log` yazımı** (300 istek → 290×429 ama **300 satır**; `audit_log` append-only, `tappa_owner` bile silemiyor → tek ölü davet linkiyle izin şişirilmesi; §4.6'nın koruduğu iz kendi bağışıklığıyla silah oluyordu) → **üç bütçe** (flood/unknown/invite), 300→**11 satır** · **M5-01'in RED'i yeni pakette yeniden üretilmişti** (`activationState.code` çıplak `string`, `%+v` ham kodu basıyordu) → `invite.Code` · `heldBy` **fail-closed** (DB hatası "oturum yok" değil "bilmiyorum") · GDPR Art.13 **config'den** render (koda hukuki sayı gömülmedi, Q13→backlog B3) · **davet üreten HTTP uç noktası YOK** (admin auth M6; kimliksiz uç nokta Y-D'yi genişletirdi) · **7 aşırı iddia ölçümle çürütülüp indirildi** · **§5 satır 3 BAĞLANMADI** (hedef var, yönlendirme M5-04) · handler+invite+audit **64 test**, 0 SKIP · Node yok |
-| M5-03 | Middleware: gerçek IP, tenant, oran sınırı | todo | |
+| M5-03 | Middleware: gerçek IP, tenant, oran sınırı | **done** | `1fdd1ad` · **iki denetçi**, **2 RED** (üçüncü göz + `tappa-security-auditor`) · `internal/httpx/{realip,identity,ratelimit}.go` · **XFF SAĞDAN sola**, tüm başlık örnekleri, güvenilmeyen peer → başlık **hiç okunmaz**, `TrustedProxies` boş → `RemoteAddr`; chi `RealIP` **kullanılmadı** (koşulsuz güvenir; §5'te IP = **50 puan**, sahtelenebilir adres hiç adres olmamasından **kötü**) · **RED-1:** *"tek otorite / handler kazara ham başlığa uzanamaz"* yanlıştı — `Forwarded` (RFC 7239)/`CF-Connecting-IP`/`X-Client-IP` handler'a ulaşıyordu → strip listesi **3→32**, **canlı TCP soketiyle** ölçüldü (36 adayın **23'ü** geçiyordu → **4**), iddia denylist kapsamına indirildi; kalan 4 **pozitif kontrol** (`Via`, `X-Forwarded-Host/-Proto` adres değil; **`Origin` CSRF için taşıyıcı**, silinse aktivasyon kırılır) · **RED-2 (aynı kapının içinde):** varsayılan-rota kapısı **HAM** prefix'e bakıyordu ama normalizasyon 4-in-6'yı unmap ediyor → `::ffff:0.0.0.0/96` kapıdan `/96` geçip çözücüde **`0.0.0.0/0`** oluyordu; prod'da **sessizce**, her çağıran kendi adresini seçebiliyordu → **ikinci temsil silindi** (config v4-mapped yazımı reddediyor, httpx düşürüyor) — iki kanonikleştirme hatanın **kaynağıydı**, ve `config→httpx` import döngüsü yüzünden normalizasyon config'e taşınamıyor · **kart iki yerde düzeltildi:** klasik tenant middleware'i tap yolunda **kurulamaz** (tenant çözümlemenin **ÇIKTISI**, ADR 0002 md.7; girdi alan middleware çağıranın kendi tenant'ını adlandırmasına izin verirdi) → `httpx.Identify` **yalnız gerçekleri** taşıyor, **sıfır değeri `SessionUnresolved`** (M5-01 kutup dersi; middleware'i unutan rota **gerçek oturumsuz tap gibi görünemez**), `BySession` o durumda **500** ama `SessionAbsent` **geçiyor** (§5 satır 3 meşru); 429'da `audit_log` **yalnız kimlik sonrası** mümkün (`tenant_id` NOT NULL + FK, **uydurma tenant YOK**) · **devralınan yükümlülük kapandı:** `handler.clientIP` artık `httpx` üstünden → proxy arkasındaki çağıranlar **ayrı kova** (negatif kontrol: çözücüsüz = M5-02 hâli → 429); `floodLimit` **600'de kaldı** (düzeltilmesi gereken sayı değil **anahtardı**) · **`tapSessionLimit` ilk taslakta 120'ydi, yapıcının KENDİ testi çürüttü** (5 sn'lik yenileme döngüsü tam 120) → 300 · **TapLimiter monte EDİLMEDİ** (`/t`, `/api/checkin` yok) · **N5 yalnız oturum yarısı** — `sys:tenant-mismatch` hâlâ ölü, "kapandı" **denmiyor** · 393 test 0 SKIP, httpx %95.4 |
 | M5-04 | GET /t: tap sayfası | todo | skill tappa-brand |
 | M5-05 | POST /api/checkin: orkestrasyon | todo | **§4.3/4.4/4.6** |
 | M5-06 | Onay ekranı ve marka mesajları | todo | |
@@ -443,13 +472,65 @@ yazılır.
 | M9-06 | Policy simülatörü | todo | Q22 — M6-10'dan ertelendi |
 | M9-07 | Ham JSON politika editörü | todo | Q22 — M6-09'dan ayrıldı |
 
-**Özet:** 82 görev · done 43 · wip 0 · blocked 0 · skipped 1 · todo 38 · **M0+M1+M2+M3+M4 TAMAM · M5 2/10 · sıradaki M5-03**
+**Özet:** 82 görev · done 44 · wip 0 · blocked 0 · skipped 1 · todo 37 · **M0+M1+M2+M3+M4 TAMAM · M5 3/10 · sıradaki M5-04**
 
 ---
 
 ## Oturum günlüğü
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
+
+### 2026-07-31 (5. oturum) — **M5-03 done** (middleware: gerçek IP, kimlik, oran sınırı)
+
+`1fdd1ad`. `internal/httpx/{realip,identity,ratelimit}.go`. **İki denetçi, 2 RED.**
+
+**Çözücü:** XFF **sağdan sola**, tüm başlık örnekleri boyunca; güvenilmeyen peer → başlık **hiç
+okunmaz**; `TrustedProxies` boş → `RemoteAddr`. chi `middleware.RealIP` **kullanılmadı** (başlığa
+koşulsuz güvenir). Gerekçe §5: IP eşleşmesi **50 güven puanı**, yani **sahtelenebilir bir adres hiç
+adres olmamasından kötüdür**. Denetçi kendi 24 satırlık tablosu + 10 sahtecilik denemesi + **canlı TCP
+soketi** ile sınadı: obs-fold, başlık büyük/küçük harf, 51 hop, 100k girişli zincir, 4-in-6, zone —
+append eden proxy arkasında **10/10** sahtecilik taze kova satın alamadı.
+
+**RED-1:** *"tek otorite / bir handler kazara ham başlığa uzanamaz"* **yanlıştı** — `Forwarded`
+(RFC 7239), `CF-Connecting-IP`, `X-Client-IP` handler'a ulaşıyordu. Strip listesi **3→32**; canlı
+soketle ölçüldü: **36 adayın 23'ü** geçiyordu → **4**. Kalan dördü **pozitif kontrol**: `Via` ve
+`X-Forwarded-Host/-Proto` adres taşımıyor, **`Origin` ise CSRF kontrolleri için taşıyıcı** — silinse
+aktivasyon kırılırdı. İddia denylist kapsamına indirildi (bilinmeyen satıcı başlığı hayatta kalır).
+
+**RED-2 — ve bu ders bu oturumun en pahalısı:** varsayılan-rota kapısı **ham** prefix'e bakıyordu, ama
+normalizasyon 4-in-6'yı unmap ediyor → `TAPPA_TRUSTED_PROXIES=::ffff:0.0.0.0/96` kapıya `/96` görünüp
+çözücüde **`0.0.0.0/0`** oluyordu. Prod'da **ne hata ne uyarı**; sıradan bir internet çağıranı kendi
+adresini yazabiliyordu. **Kapı bir önceki RED'e cevaben eklenmişti.**
+> **🔁 Desen (üçüncü kez):** `HTTPS://` (M5-01) · `Cross-Site` (M5-02) · `::ffff:` (M5-03) — hepsinde
+> **kontrol, tüketicinin gördüğünden farklı bir biçime bakıyordu.** agent-brief'e yazıldı.
+
+Çözüm **ikinci temsili silmek** oldu (config v4-mapped yazımı reddediyor, httpx düşürüyor) — iki
+kanonikleştirme hatanın **kaynağıydı**; ayrıca `config→httpx` **import döngüsü** yüzünden
+normalizasyon config'e taşınamıyordu. Yapıcı iki alternatifi de gerekçeleyerek reddetti.
+
+**Kart iki yerde düzeltildi (gerçekle hizalama, kaçış değil — denetçi ikisini de meşru buldu):**
+klasik bir **tenant middleware'i tap yolunda KURULAMAZ** — tenant çözümlemenin **ÇIKTISI**dır (ADR 0002
+md.7); girdi alan bir middleware çağıranın **kendi tenant'ını adlandırmasına** izin verirdi. Yerine
+`httpx.Identify` yalnız **gerçekleri** taşıyor ve **sıfır değeri `SessionUnresolved`** (M5-01'in kutup
+dersi): middleware'i unutan bir rota **gerçek bir oturumsuz tap gibi görünemez**. `BySession` o durumda
+**500** veriyor (fail-open'dı, denetçi 100/100 isteğin ölçülmeden geçtiğini ölçtü) ama `SessionAbsent`
+**geçiyor** — §5 satır 3 meşrudur. İkincisi: 429'da `audit_log` **yalnız kimlik çözüldükten sonra**
+mümkün (`tenant_id` NOT NULL + FK) → **uydurma "sistem tenant'ı" üretilmedi**.
+
+**M5-02'nin adlandırılmış yükümlülüğü kapandı:** `handler.clientIP` artık `httpx` üstünden çözüyor →
+proxy arkasındaki çağıranlar **ayrı kova** (negatif kontrol: çözücüsüz = M5-02 hâli → B'ye 429).
+`floodLimit` **600'de bırakıldı** — düzeltilmesi gereken **sayı değil anahtardı**.
+
+**Yapıcının kendi testi kendi taslağını çürüttü:** `tapSessionLimit` ilk hâlinde 120'ydi; 5 saniyelik
+bir yenileme döngüsü tam 120 eder → 300'e çıkarıldı. Aynı sınıf: "meşru akış sınıra değmez" cümlesi
+ölçülmeden yazılmamalı.
+
+**Kapsam:** `TapLimiter` yazıldı ve testlendi ama **monte edilmedi** (`/t`, `/api/checkin` yok) —
+montaj sırası bir **sözleşme** ve 429'un §4.6 kalıntısı adıyla yazıldı (aşağı "M5-04/M5-05'e
+devralınan"). **N5 yalnız oturum yarısı** teslim edildi; `sys:tenant-mismatch` hâlâ ölü ve **"kapandı"
+denmiyor** — tag yarısı M5-05.
+
+**Sıradaki: M5-04** (tap sayfası, skill `tappa-brand`) — bağımlılıkları tamam.
 
 ### 2026-07-31 (5. oturum) — **M5-02 done** (davet + aktivasyon, iki fazda)
 
