@@ -10,6 +10,7 @@ import (
 	"net/netip"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const getLocationByIP = `-- name: GetLocationByIP :one
@@ -62,6 +63,74 @@ func (q *Queries) GetLocationByIP(ctx context.Context, arg GetLocationByIPParams
 		&i.Overnight,
 		&i.CreatedAt,
 		&i.WifiSsid,
+	)
+	return i, err
+}
+
+const getLocationForTap = `-- name: GetLocationForTap :one
+SELECT id, tenant_id, name, static_ips, gps_lat, gps_lng,
+       shift_start, shift_end, overnight
+FROM locations
+WHERE tenant_id = $1
+  AND id = $2
+`
+
+type GetLocationForTapParams struct {
+	TenantID uuid.UUID
+	ID       uuid.UUID
+}
+
+type GetLocationForTapRow struct {
+	ID         uuid.UUID
+	TenantID   uuid.UUID
+	Name       string
+	StaticIps  []netip.Prefix
+	GpsLat     pgtype.Numeric
+	GpsLng     pgtype.Numeric
+	ShiftStart pgtype.Time
+	ShiftEnd   pgtype.Time
+	Overnight  bool
+}
+
+// PROOF OF PLACE FOR ONE LOCATION -- the TAPPED one (M5-05). This is the third
+// proof-of-place query and the three do not overlap: GetLocationByIP asks "which
+// location does this address belong to" (a search), ListLocationsForTenant asks
+// "where are all of them" (a scan), and this asks "what is the evidence AT the
+// plaque that was actually touched".
+//
+// WHY THE TAPPED LOCATION AND NOT A SEARCH. §5 matches a tap against the venue
+// whose plaque is in front of the person, which the TAG resolves to -- never
+// against whichever venue happens to own the source address, and never against
+// the employee's profile location (a chain moves people between branches). So the
+// id comes from resolving the tag, the DATABASE supplies it, and the caller
+// supplies only a uid.
+//
+//   - static_ips  -> the IP half of proof of place (50 of 100 trust points). An
+//     unconfigured location carries '{}' and simply never matches,
+//     which drops the tap to the GPS path rather than failing it.
+//   - gps_lat/lng -> the backup half. numeric, never float (section 6).
+//   - shift_*     -> the LOCATION shift, used for lateness when the employee has
+//     no department shift (§5, M4-05). Nullable: a location with
+//     no shift means lateness is not computed, not that it is zero.
+//
+// NO ROW is returned for an id belonging to another tenant -- the explicit
+// tenant_id predicate plus RLS (section 4.5, belt and braces). That is NOT how a
+// cross-tenant tap is refused: refusing it is sys:tenant-mismatch's decision and
+// it must be RECORDED (hand-off N5). All this does is make sure the decision is
+// never made on another tenant's evidence.
+func (q *Queries) GetLocationForTap(ctx context.Context, arg GetLocationForTapParams) (GetLocationForTapRow, error) {
+	row := q.db.QueryRow(ctx, getLocationForTap, arg.TenantID, arg.ID)
+	var i GetLocationForTapRow
+	err := row.Scan(
+		&i.ID,
+		&i.TenantID,
+		&i.Name,
+		&i.StaticIps,
+		&i.GpsLat,
+		&i.GpsLng,
+		&i.ShiftStart,
+		&i.ShiftEnd,
+		&i.Overnight,
 	)
 	return i, err
 }

@@ -80,3 +80,36 @@ SELECT id, tenant_id, name, wifi_ssid
 FROM locations
 WHERE tenant_id = @tenant_id
   AND id = @id;
+
+-- name: GetLocationForTap :one
+-- PROOF OF PLACE FOR ONE LOCATION -- the TAPPED one (M5-05). This is the third
+-- proof-of-place query and the three do not overlap: GetLocationByIP asks "which
+-- location does this address belong to" (a search), ListLocationsForTenant asks
+-- "where are all of them" (a scan), and this asks "what is the evidence AT the
+-- plaque that was actually touched".
+--
+-- WHY THE TAPPED LOCATION AND NOT A SEARCH. §5 matches a tap against the venue
+-- whose plaque is in front of the person, which the TAG resolves to -- never
+-- against whichever venue happens to own the source address, and never against
+-- the employee's profile location (a chain moves people between branches). So the
+-- id comes from resolving the tag, the DATABASE supplies it, and the caller
+-- supplies only a uid.
+--
+--   * static_ips  -> the IP half of proof of place (50 of 100 trust points). An
+--                    unconfigured location carries '{}' and simply never matches,
+--                    which drops the tap to the GPS path rather than failing it.
+--   * gps_lat/lng -> the backup half. numeric, never float (section 6).
+--   * shift_*     -> the LOCATION shift, used for lateness when the employee has
+--                    no department shift (§5, M4-05). Nullable: a location with
+--                    no shift means lateness is not computed, not that it is zero.
+--
+-- NO ROW is returned for an id belonging to another tenant -- the explicit
+-- tenant_id predicate plus RLS (section 4.5, belt and braces). That is NOT how a
+-- cross-tenant tap is refused: refusing it is sys:tenant-mismatch's decision and
+-- it must be RECORDED (hand-off N5). All this does is make sure the decision is
+-- never made on another tenant's evidence.
+SELECT id, tenant_id, name, static_ips, gps_lat, gps_lng,
+       shift_start, shift_end, overnight
+FROM locations
+WHERE tenant_id = @tenant_id
+  AND id = @id;

@@ -17,6 +17,7 @@ import (
 	"github.com/atknatk/tappa/internal/audit"
 	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/db"
+	"github.com/atknatk/tappa/internal/domain/checkin"
 	"github.com/atknatk/tappa/internal/domain/tenant"
 	"github.com/atknatk/tappa/internal/handler"
 	"github.com/atknatk/tappa/internal/httpx"
@@ -81,7 +82,15 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	tap, err := handler.NewTap(sun.NewVerifier(data, cfg.TagKEK), directory, sessions, trail, cfg, slog.Default())
+	// The tap ORCHESTRATOR (M5-05): the one thing on this path that writes an
+	// attendance record. It gets the raw *db.DB rather than the verifier, because
+	// the atomic counter advance and the record insert are its own work and
+	// nothing above it may do either.
+	checkins, err := checkin.New(data, trail, cfg, slog.Default())
+	if err != nil {
+		return err
+	}
+	tap, err := handler.NewTap(sun.NewVerifier(data, cfg.TagKEK), directory, sessions, checkins, trail, cfg, slog.Default())
 	if err != nil {
 		return err
 	}

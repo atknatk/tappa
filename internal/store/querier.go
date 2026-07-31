@@ -293,6 +293,72 @@ type Querier interface {
 	// token_hash is the HMAC of a token this query never sees; it is written, never
 	// returned. device_info is NULL when the caller has no coarse label.
 	CreateSession(ctx context.Context, arg CreateSessionParams) (CreateSessionRow, error)
+	// Materialise one managed-baseline policy CONTAINER. layer is fixed to 'baseline'
+	// in the statement rather than taken as a parameter: this query exists for the
+	// Tappa-authored baseline only, and a caller that could pass 'tenant' would be
+	// able to author a tenant policy from the tap path. ('guardrail' is not spellable
+	// at all -- 00007's CHECK sees to that, which is what keeps a red line out of the
+	// database.)
+	//
+	// created_by is NULL: the author is Tappa's system provisioning, not a human
+	// admin (00007 documents exactly this case).
+	//
+	// ON CONFLICT (id) DO NOTHING is what makes a second tap free and a hundred
+	// concurrent first taps produce one row. It also means an EXISTING row is left
+	// exactly as it is -- including enabled=false. A tenant that switched a baseline
+	// statement off must not have it switched back on by someone walking up to a
+	// plaque.
+	EnsureBaselinePolicy(ctx context.Context, arg EnsureBaselinePolicyParams) error
+	// Materialise version 1 of a managed-baseline policy's document.
+	//
+	// VERSION 1, ALWAYS, and never an update. policy_versions is APPEND-ONLY at two
+	// levels (REVOKE UPDATE/DELETE plus a trigger that stops even the owner), because
+	// every transaction pins the version that decided it: rewriting a version would
+	// rewrite why a past, immutable record was flagged. So when the shipped baseline
+	// changes, the correct move is a NEW version appended after the tenant accepts it
+	// (internal/policy.BaselineVersion says so, and M7-03 owns the flow) -- not an
+	// edit here. This statement therefore does nothing at all once version 1 exists,
+	// whatever the binary now says.
+	//
+	// The conflict target is the (tenant_id, policy_id, version_no) key rather than
+	// the primary key, so it holds even if a caller passed a different id for the
+	// same version -- the row that exists wins either way.
+	EnsureBaselinePolicyVersion(ctx context.Context, arg EnsureBaselinePolicyVersionParams) error
+	// Bind a materialised baseline policy to a resource ('*' tenant-wide for every
+	// shipped baseline document today).
+	//
+	// ⚠️ NOTHING READS THESE ROWS YET, and writing them anyway is a decision rather
+	// than an oversight. policy.Evaluate scopes a statement by the Resource patterns
+	// INSIDE its document, not by attachments, so the Set assembled for a tap is
+	// identical with or without them. They are written because a materialised policy
+	// with no attachment row is a half-provisioned policy, and the panel (M6-09) and
+	// provisioning (M7-03) will both read attachments to answer "where does this
+	// apply" -- a question that would otherwise get the wrong answer for every tenant
+	// provisioned by this path.
+	EnsurePolicyAttachment(ctx context.Context, arg EnsurePolicyAttachmentParams) error
+	// departments.sql -- tenant-scoped department reads. Every query carries an
+	// explicit tenant_id filter (CLAUDE.md section 4.5, belt + braces on RLS) and
+	// runs inside db.(*DB).WithTenant.
+	//
+	// It is a SEPARATE file from locations.sql even though migration 00002 creates
+	// both tables, because that file states in its header that it holds location
+	// reads and a department query underneath it would make the header false.
+	// The DEPARTMENT shift, which BEATS the location shift when the employee has a
+	// department (CLAUDE.md section 5, Q17, M4-05): a kitchen starts before the
+	// counter does, and judging a kitchen hand against the venue's opening time would
+	// report lateness that is not there.
+	//
+	// The id comes from employees.department_id -- a value the DATABASE produced, not
+	// one a client chose. Returns NO ROW for a department of another tenant (explicit
+	// predicate + RLS), and the caller treats that exactly as it treats an employee
+	// with no department at all: fall back to the tapped location's shift. Lateness
+	// is a REPORT output and never changes a verdict (section 5), so the fallback
+	// cannot cost anyone a record.
+	//
+	// shift_start/shift_end are nullable: a department with no shift means lateness
+	// is NOT COMPUTED for it, which is different from "on time" and is why the domain
+	// carries a nil Shift rather than a zero one.
+	GetDepartmentShift(ctx context.Context, arg GetDepartmentShiftParams) (GetDepartmentShiftRow, error)
 	// employees.sql -- employee reads. NO WRITE QUERY LIVES HERE, and that absence is
 	// load-bearing: db/queries/invites.sql documents that ConsumeInviteAndActivate is
 	// the ONLY statement in db/queries that writes employees.status, so that
@@ -340,6 +406,39 @@ type Querier interface {
 	// screens that greet somebody is the point, and a second near-identical query
 	// would be the drift this file's header warns about.
 	GetEmployeeActivationContext(ctx context.Context, arg GetEmployeeActivationContextParams) (GetEmployeeActivationContextRow, error)
+	// Everything the DECISION engine needs to know about the person tapping
+	// (M5-05). It is a SECOND read of the same table rather than a widening of
+	// GetEmployeeActivationContext above, and the reason is that the two answer
+	// different questions with different audiences: that one builds a page (a name,
+	// an employer, a venue) and this one builds tap.Input (a lifecycle state, two
+	// scope ids, an activation instant). Widening the first would have put the
+	// greeting query in the position of also being the decision query, and every
+	// column added for one purpose would then be rendered by the other.
+	//
+	// WHAT EACH COLUMN DECIDES, so nothing here is decoration:
+	//   * status         -> sys:employee-deactivated (§5 row 4: reject, RECORD it,
+	//                       and raise a security alert). The tap page deliberately
+	//                       does not read this; a page cannot record a refusal.
+	//   * location_id    -> the employee's HOME location, compared against the
+	//                       TAPPED one for the cross-location fact (Q17). It never
+	//                       penalises a tap — chain staff move between branches —
+	//                       and the evidence is always matched against the TAPPED
+	//                       location, never this one.
+	//   * department_id  -> which shift applies: the department's if there is one,
+	//                       otherwise the tapped location's (§5, M4-05). Nullable.
+	//   * activated_at   -> the practice (TRAINING) tap: the first record after
+	//                       activation never counts toward hours. SERVER-side, which
+	//                       is what stops a client claiming practice=true on a real
+	//                       checkout to keep it out of the totals (M4-06).
+	//   * timezone       -> the tenant's IANA zone (Q01), needed to turn a shift's
+	//                       WALL-CLOCK start into an instant so lateness survives the
+	//                       Malta DST transitions. Joined for the same reason the
+	//                       query above joins the tenant name: one round trip, one
+	//                       place to remember the tenant filter.
+	//
+	// NOT RETURNED: full_name, email, role, invited_at, deactivated_at. A decision
+	// never reads a name, and a record that cannot hold one cannot leak one.
+	GetEmployeeForTap(ctx context.Context, arg GetEmployeeForTapParams) (GetEmployeeForTapRow, error)
 	// transactions.sql -- tenant-scoped reads and the single append-only write for
 	// the product's core record. Every query carries an explicit tenant_id filter
 	// (CLAUDE.md section 4.5, belt + braces on RLS). transactions is IMMUTABLE
@@ -390,6 +489,33 @@ type Querier interface {
 	// etc.). An unconfigured location has static_ips = '{}', so <<= ANY('{}') is
 	// cleanly FALSE and it never matches (proof falls back to GPS).
 	GetLocationByIP(ctx context.Context, arg GetLocationByIPParams) (Location, error)
+	// PROOF OF PLACE FOR ONE LOCATION -- the TAPPED one (M5-05). This is the third
+	// proof-of-place query and the three do not overlap: GetLocationByIP asks "which
+	// location does this address belong to" (a search), ListLocationsForTenant asks
+	// "where are all of them" (a scan), and this asks "what is the evidence AT the
+	// plaque that was actually touched".
+	//
+	// WHY THE TAPPED LOCATION AND NOT A SEARCH. §5 matches a tap against the venue
+	// whose plaque is in front of the person, which the TAG resolves to -- never
+	// against whichever venue happens to own the source address, and never against
+	// the employee's profile location (a chain moves people between branches). So the
+	// id comes from resolving the tag, the DATABASE supplies it, and the caller
+	// supplies only a uid.
+	//
+	//   * static_ips  -> the IP half of proof of place (50 of 100 trust points). An
+	//                    unconfigured location carries '{}' and simply never matches,
+	//                    which drops the tap to the GPS path rather than failing it.
+	//   * gps_lat/lng -> the backup half. numeric, never float (section 6).
+	//   * shift_*     -> the LOCATION shift, used for lateness when the employee has
+	//                    no department shift (§5, M4-05). Nullable: a location with
+	//                    no shift means lateness is not computed, not that it is zero.
+	//
+	// NO ROW is returned for an id belonging to another tenant -- the explicit
+	// tenant_id predicate plus RLS (section 4.5, belt and braces). That is NOT how a
+	// cross-tenant tap is refused: refusing it is sys:tenant-mismatch's decision and
+	// it must be RECORDED (hand-off N5). All this does is make sure the decision is
+	// never made on another tenant's evidence.
+	GetLocationForTap(ctx context.Context, arg GetLocationForTapParams) (GetLocationForTapRow, error)
 	// THE ACTIVATION READ (M5-02 phase B / Q14): the network name the page asks the
 	// employee to join, for ONE location. Separate from the two queries above on
 	// purpose -- neither of them is the activation path. GetLocationByIP is keyed by
@@ -464,6 +590,76 @@ type Querier interface {
 	// used_at is not selected: the WHERE pins it to NULL for every returned row.
 	// code_hash is not selected either (section 4.7).
 	ListPendingInvitesForEmployee(ctx context.Context, arg ListPendingInvitesForEmployeeParams) ([]ListPendingInvitesForEmployeeRow, error)
+	// policies.sql -- reading a tenant's stored policy layer, and MATERIALISING the
+	// Tappa-managed baseline into it.
+	//
+	// WHY THESE QUERIES EXIST AT ALL, measured before they were written. The
+	// decision engine's rows 6 and 7 of CLAUDE.md section 5 -- the ordinary `ok` and
+	// the ordinary `flag`, i.e. the MAIN PATH of the whole product -- are BASELINE
+	// decisions, and migration 00008 requires a baseline decision to name a real
+	// policy_versions row: the consistency CHECK demands policy_version_id IS NOT
+	// NULL for layer 'baseline', and the composite FK demands it resolve to a
+	// same-tenant version. Measured against the dev database, as tappa_app, for the
+	// seeded Kebab Factory tenant:
+	//
+	//   policies = 0, policy_versions = 0
+	//   INSERT ... policy_layer='baseline', policy_version_id=<any uuid>
+	//     -> ERROR 23503 transactions_policy_version_fk
+	//
+	// So before this file existed, an ordinary approved check-in COULD NOT BE
+	// WRITTEN. That is a section 4.6 record loss on the most common path there is,
+	// and it is not hypothetical: M7-03 (provisioning) is the task that was supposed
+	// to write these rows and it has not been done.
+	//
+	// THE FIX IS TO MATERIALISE, NOT TO SKIP. The alternative -- evaluate with no
+	// baseline -- writes the record but sends EVERY tap to the fail-to-review default,
+	// which is a silent, permanent degradation dressed as safety. So the tap path
+	// materialises the baseline the first time it needs it, idempotently, and M7-03
+	// takes the job over at provisioning time (see internal/domain/checkin).
+	//
+	// IDEMPOTENCY IS ANCHORED ON CONSTRAINTS THAT ALREADY EXIST, so no migration was
+	// needed -- but the three statements below do NOT all use the same one, and an
+	// earlier version of this comment said "the primary key" for all three, which was
+	// wrong for two of them:
+	//
+	//   policies            ON CONFLICT (id)                       -- the PRIMARY KEY
+	//   policy_versions     ON CONFLICT ON CONSTRAINT
+	//                       policy_versions_no_key                 -- UNIQUE (tenant_id, policy_id, version_no)
+	//   policy_attachments  ON CONFLICT ON CONSTRAINT
+	//                       policy_attachments_resource_key        -- UNIQUE (tenant_id, policy_id, resource)
+	//
+	// policies has no (tenant_id, name) key, which is why its id is DERIVED from
+	// (tenant, baseline document name) with uuid v5: that makes its primary key a
+	// usable conflict target. The other two already had a natural key to conflict on.
+	// All three keep this an INSERT-ONLY change to append-only data: policy_versions
+	// is append-only by privilege AND by trigger (00007), so "write it again" must be
+	// a no-op rather than a second row.
+	//
+	// TENANT SCOPE (section 4.5, belt + braces): every statement carries an explicit
+	// tenant_id and runs inside db.(*DB).WithTenant, whose RLS WITH CHECK refuses a
+	// row for any other tenant.
+	// The tenant's stored policy layer: one row per policy, carrying its LATEST
+	// version's id and document.
+	//
+	// DISTINCT ON (p.id) with ORDER BY p.id, v.version_no DESC takes the highest
+	// version_no per policy -- "latest" is the version number, never created_at,
+	// because version_no is the monotonic sequence 00007 defines and two versions can
+	// share a timestamp. A policy with no version yet is NOT returned (an inner
+	// join): a policy without a document decides nothing, and returning it would let
+	// a caller pin a policy_version_id it does not have.
+	//
+	// enabled IS RETURNED, NOT FILTERED. The caller needs to tell "this tenant turned
+	// this baseline statement OFF" (leave it out of the Set) apart from "this baseline
+	// statement was never materialised" (materialise it) -- a WHERE enabled would make
+	// those two indistinguishable and turn a deliberate opt-out into a permanent
+	// re-provisioning loop. Disabling is the tenant's off switch and is never a
+	// delete (section 4.6, 00007).
+	//
+	// ROW ORDER IS NOT THE EVALUATION ORDER. This comes back ordered by a random
+	// uuid; the evaluator's tiebreak needs baseline-in-document-order, so the caller
+	// re-orders against the canonical list in internal/policy. Relying on this order
+	// would make which sid gets reported depend on uuid generation.
+	ListPolicySet(ctx context.Context, tenantID uuid.UUID) ([]ListPolicySetRow, error)
 	// All sessions of one employee, newest first: the read side of the optional
 	// device limit (M5-01 card: "config ile kapali gelebilir" -- NOT enforced here)
 	// and of the M5-02 "is this a new phone or an attack?" decision. Revoked rows are

@@ -147,3 +147,94 @@ type ProblemView struct {
 	// message never blames and always says what to do next.
 	Hint string
 }
+
+// ResultView is the screen a tap lands on: what was recorded, and nothing else.
+//
+// ⚠️ THIS IS THE INTERIM CONFIRMATION SCREEN. M5-05 has to answer the POST with
+// SOMETHING — the form is a plain browser navigation, so "the endpoint returns a
+// decision" means "a page appears" — and M5-06 owns the finished article: the
+// tenant's own message ("Have a great shift — keep those kebabs rolling!"), the
+// full docket treatment and the copy review. What is here is the part M5-05
+// cannot avoid deciding: which stamp, whether there is a button, and the fact
+// that a time is shown in mono. The brand rules it does follow are the ones a
+// later change must not undo, not a claim that the screen is finished.
+//
+// NO §4.7 VALUE CAN TRAVEL HERE, and that is a property of the field list rather
+// than of this comment: there is no field for a session token, a CMAC, a key, an
+// invite code or a COORDINATE. The tap's position reaches the database as a
+// number in two columns and reaches this screen not at all — what a person sees
+// is a verdict, a venue name and a clock.
+type ResultView struct {
+	// Verdict is the recorded outcome: ok | flag | reject | ignored. It drives
+	// both the stamp text and the colour, and the two are never separated —
+	// status is never told by colour alone (accessibility, skill tappa-brand).
+	Verdict string
+	// Direction is "in" or "out", or "" for a verdict that carries none (a
+	// reject, an ignored duplicate). It is the difference between "Tapped in" and
+	// "Tapped out", which is the one sentence somebody actually reads.
+	Direction string
+	// At is the tap time as a WALL CLOCK in the tenant's zone, already formatted
+	// by the handler (§6: everything below the render layer is UTC).
+	At string
+	// Venue is the TAPPED location's name, or "" when it could not be read.
+	Venue string
+	// Trust is the confidence score (20/50/70/100). Shown as data, in mono,
+	// because it is the number a manager asks about when a tap is queried.
+	Trust int
+	// Note is the deciding rule's human sentence ("verified via GPS only — no
+	// network proof of place"). It never carries a secret or a coordinate —
+	// internal/policy's reasons are fixed strings written by us.
+	Note string
+	// Practice marks the training tap that never counts toward hours (§5).
+	Practice bool
+}
+
+// Recorded reports whether this outcome put an hour on the record — the question
+// that decides whether the screen offers a "Try again" button. ok and flag both
+// did (a flag is a real record awaiting approval, §4.6); reject and ignored did
+// not put an hour anywhere, but they ARE recorded, so the screen still does not
+// invite a retry — pressing again would produce the same answer, and the tap
+// screen's rule is that the next action is a new physical touch.
+func (v ResultView) Recorded() bool { return v.Verdict == "ok" || v.Verdict == "flag" }
+
+// Stamp is the rubber-stamp text. It is the accessibility half of the status:
+// the colour says the same thing, and neither is allowed to say it alone.
+func (v ResultView) Stamp() string {
+	switch v.Verdict {
+	case "ok":
+		return "APPROVED"
+	case "flag":
+		return "FLAGGED"
+	case "reject":
+		return "REJECTED"
+	case "ignored":
+		return "IGNORED"
+	default:
+		return "RECORDED"
+	}
+}
+
+// NOTE — THERE IS NO StampClass HERE ANY MORE, and its absence is deliberate.
+// It returned "stamp stamp--approved" and friends from Go, and Tailwind does not
+// scan Go files (content globs: web/templates/**/*.templ, web/static/js/**/*.js),
+// so those four classes were compiled OUT of app.css and every stamp rendered
+// unstyled. The class names now live as literals inside result.templ's `stamp`
+// component, where the tool can see them. Anything that maps a value to a CSS
+// class belongs in a scanned template for the same reason.
+
+// Headline is the one sentence the screen exists to say. Short, warm, factual —
+// "Tapped in at 14:03", never "Your check-in operation has been processed".
+func (v ResultView) Headline() string {
+	switch {
+	case v.Verdict == "ignored":
+		return "Already tapped"
+	case v.Verdict == "reject":
+		return "Not recorded"
+	case v.Direction == "in":
+		return "Tapped in"
+	case v.Direction == "out":
+		return "Tapped out"
+	default:
+		return "Tapped"
+	}
+}

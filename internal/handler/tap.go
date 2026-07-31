@@ -61,10 +61,15 @@ type Tap struct {
 	sun       tapPreviewer
 	directory tapDirectory
 	sessions  sessionVerifier
+	checkins  checkinRecorder
 	cookies   session.Cookies
 	contexts  tapContexts
 	limiter   *httpx.TapLimiter
-	log       *slog.Logger
+	// baseURL is this deployment's own origin, for the Origin check on the POST
+	// (checkin.go). Reduced to scheme://host at construction, the way an Origin
+	// header is written, so a BaseURL with a path still compares.
+	baseURL string
+	log     *slog.Logger
 }
 
 // ⚠️ THE AUDIT RECORDER IS NOT A FIELD ON Tap, and that is not an oversight:
@@ -93,7 +98,7 @@ type (
 
 // NewTap wires the screen. Every dependency is required: a nil one cannot fail
 // safely on a path whose failure mode is a missing hour on a payslip.
-func NewTap(preview tapPreviewer, dir tapDirectory, sess sessionVerifier, rec auditRecorder, cfg *config.Config, log *slog.Logger) (*Tap, error) {
+func NewTap(preview tapPreviewer, dir tapDirectory, sess sessionVerifier, checkins checkinRecorder, rec auditRecorder, cfg *config.Config, log *slog.Logger) (*Tap, error) {
 	switch {
 	case preview == nil:
 		return nil, errors.New("handler: nil sun previewer")
@@ -101,6 +106,14 @@ func NewTap(preview tapPreviewer, dir tapDirectory, sess sessionVerifier, rec au
 		return nil, errors.New("handler: nil directory")
 	case sess == nil:
 		return nil, errors.New("handler: nil session manager")
+	case isNil(checkins):
+		// REQUIRED for the same reason the recorder is: this is the production
+		// path, and the ONE thing POST /api/checkin exists to do is write an
+		// attendance record. A nil here would not degrade the endpoint, it would
+		// delete it — and it would do so at the first tap, as a panic, rather than
+		// at boot. isNil rather than == nil because a TYPED nil in an interface
+		// parameter is not nil (the same trap the recorder check documents).
+		return nil, errors.New("handler: nil checkin service")
 	case isNil(rec):
 		// REQUIRED, not optional. httpx.TapLimiter accepts a nil recorder
 		// because it must be constructible before a database is (tests, a future
@@ -133,8 +146,10 @@ func NewTap(preview tapPreviewer, dir tapDirectory, sess sessionVerifier, rec au
 		sun:       preview,
 		directory: dir,
 		sessions:  sess,
+		checkins:  checkins,
 		cookies:   session.NewCookies(cfg),
 		contexts:  ctxs,
+		baseURL:   originOf(cfg.BaseURL),
 		log:       log,
 	}
 	t.limiter = httpx.NewTapLimiter(httpx.TapLimitParams{
@@ -183,14 +198,19 @@ func NewTap(preview tapPreviewer, dir tapDirectory, sess sessionVerifier, rec au
 // mounting the shield here does not change it either way. What would resolve it
 // is a shared store plus per-venue keying (M8).
 //
-// POST /api/checkin is NOT mounted here: it is M5-05's, and it belongs in this
-// same group when it lands so it inherits the same order.
+// POST /api/checkin IS MOUNTED HERE, in the same group and behind the same
+// limiter INSTANCE — which is the point rather than a convenience. A tap costs
+// two requests (the page, then the button), and metering them against separate
+// budgets would mean neither budget describes a tap. It also means the shield the
+// M5-03 audit measured is the one both endpoints get, rather than a second one
+// somebody wired up later with different arguments.
 func (t *Tap) Mount(r chi.Router) {
 	r.Group(func(r chi.Router) {
 		r.Use(t.limiter.ByAddress)
 		r.Use(httpx.Identify(t.cookies, t.sessions))
 		r.Use(t.limiter.BySession)
 		r.Get("/t", t.Page)
+		r.Post("/api/checkin", t.Checkin)
 	})
 }
 
@@ -218,6 +238,26 @@ var (
 		Title:   "Too many taps from here",
 		Message: "We have paused requests from this network for a few minutes.",
 		Hint:    "Wait a moment and tap the plaque again. Tell your manager if it keeps happening.",
+	}
+	// tapProblemStale answers a tap whose signed context did not verify — expired,
+	// tampered with, or minted for another phone. The three are DELIBERATELY
+	// indistinguishable to the visitor (§4.7: no oracle); the distinction is in
+	// the log. The advice is the same in all three cases and it works: touch the
+	// plaque again and a fresh context is minted.
+	tapProblemStale = pages.ProblemView{
+		Title:   "That tap has expired",
+		Message: "Nothing was recorded. Tap pages are only good for a few minutes.",
+		Hint:    "Hold your phone to the plaque again.",
+	}
+	// tapProblemForeignTenant answers sys:tenant-mismatch: a real session for one
+	// organisation, in front of another organisation's plaque. It names NEITHER
+	// organisation — one tenant's venue is not disclosed to another tenant's
+	// employee (§4.5) — and it does not send them to activation, because their
+	// session is perfectly good.
+	tapProblemForeignTenant = pages.ProblemView{
+		Title:   "That plaque isn't yours",
+		Message: "This plaque belongs to a different employer, so nothing was recorded.",
+		Hint:    "Use your own workplace's plaque, or tell your manager.",
 	}
 )
 

@@ -1,0 +1,316 @@
+package checkin
+
+// 🔴 THE TEST THAT WAS MISSING, AND THE MEASUREMENT THAT PROVED IT MISSING.
+//
+// A security audit rewrote the atomic advance in checkin.go into a genuine
+// TOCTOU — SELECT last_ctr, compare it in Go, then UPDATE, all inside the same
+// transaction — and ran the full suite:
+//
+//	make test -race (.env loaded)  ->  ok, all THIRTEEN packages
+//	the same mutation + an 80 ms sleep between the read and the write
+//	                              ->  "12 of 12 concurrent taps were SUN-valid"
+//
+// So the mutation is a REAL replay hole and the suite's timing could not see it.
+// The reason is a seam between two proofs: internal/sun's contention test proves
+// that sun.AdvanceCounter resolves N racers to one winner (an auditor confirmed
+// it by breaking that function — 50 of 50 winners, RED), and this package's DB
+// tests prove that a tap ends in the right record. Nothing proved the tap path
+// CALLS that function, so a mutation walked between them.
+//
+// Testing harder for concurrency here would not close it: the window between a
+// SELECT and an UPDATE is sub-millisecond while each request does several other
+// round trips, so an HTTP-level race test stays green against the broken shape
+// (measured twice — with and without a start barrier). What belongs at THIS
+// layer is the WIRING, and wiring is assertable without waiting for a race:
+// exactly one AdvanceTagCounter, with this tap's tenant, uid and counter, inside
+// a transaction scoped to the TAG's tenant.
+//
+// This is the third appearance of one lesson in this milestone (M5-04's audit
+// recorder, M5-04's branded 429, M5-05's debounce window): a test must pin what
+// the product actually does, not what a neighbouring package can do.
+
+import (
+	"context"
+	"errors"
+	"io"
+	"log/slog"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+
+	"github.com/atknatk/tappa/internal/audit"
+	"github.com/atknatk/tappa/internal/config"
+	"github.com/atknatk/tappa/internal/db"
+	"github.com/atknatk/tappa/internal/domain/tap"
+	"github.com/atknatk/tappa/internal/store"
+)
+
+// countingAdvancer records every AdvanceTagCounter it is asked for.
+type countingAdvancer struct {
+	calls []store.AdvanceTagCounterParams
+	gap   int32
+	err   error
+}
+
+func (c *countingAdvancer) AdvanceTagCounter(_ context.Context, arg store.AdvanceTagCounterParams) (store.AdvanceTagCounterRow, error) {
+	c.calls = append(c.calls, arg)
+	if c.err != nil {
+		return store.AdvanceTagCounterRow{}, c.err
+	}
+	return store.AdvanceTagCounterRow{CtrGap: c.gap}, nil
+}
+
+// countingTx implements pgx.Tx by EMBEDDING the interface, the same trick
+// internal/sun's tests use: every method not overridden below is nil and panics
+// if called. Here that is the desired behaviour — the only legitimate use of the
+// transaction on this path is building the querier, which the seam has already
+// replaced, so a body that issues its OWN SQL is doing something this path must
+// not do.
+//
+// QueryRow and Exec ARE implemented, and only so that the auditor's TOCTOU
+// mutation (SELECT ... then UPDATE ...) runs to completion and fails on the
+// COUNTING ASSERTION with a sentence that says what went wrong, rather than on a
+// nil-pointer panic that reads like flakiness.
+type countingTx struct {
+	pgx.Tx
+	statements *int
+}
+
+func (c countingTx) QueryRow(context.Context, string, ...any) pgx.Row {
+	*c.statements++
+	return noRow{}
+}
+
+func (c countingTx) Exec(context.Context, string, ...any) (pgconn.CommandTag, error) {
+	*c.statements++
+	return pgconn.CommandTag{}, nil
+}
+
+type noRow struct{}
+
+func (noRow) Scan(...any) error { return nil }
+
+// tenantRecorder is a Database that runs the callback and remembers which tenant
+// it was scoped to, plus how many statements the callback issued against the
+// transaction ITSELF (which must be zero — see countingTx).
+type tenantRecorder struct {
+	tenants    []uuid.UUID
+	statements int
+	err        error
+}
+
+func (t *tenantRecorder) WithTenant(ctx context.Context, tenantID uuid.UUID, fn db.TxFunc) error {
+	t.tenants = append(t.tenants, tenantID)
+	if t.err != nil {
+		return t.err
+	}
+	return fn(ctx, countingTx{statements: &t.statements})
+}
+
+func (t *tenantRecorder) GetTagByUID(context.Context, string) (db.ResolvedTag, error) {
+	return db.ResolvedTag{}, errors.New("not used by these tests")
+}
+
+func advanceService(t *testing.T, data Database, adv counterAdvancer) *Service {
+	t.Helper()
+	return &Service{
+		data:     data,
+		advancer: func(pgx.Tx) counterAdvancer { return adv },
+		log:      slog.New(slog.NewTextHandler(io.Discard, nil)),
+	}
+}
+
+// TestAdvance_IssuesTheAtomicQueryExactlyOnce is the pin. It fails on any body
+// that stops routing the advance through AdvanceTagCounter — including the exact
+// TOCTOU the audit wrote, which issues its own SELECT and UPDATE and never
+// touches the querier.
+func TestAdvance_IssuesTheAtomicQueryExactlyOnce(t *testing.T) {
+	t.Parallel()
+	tenantID := uuid.New()
+	adv := &countingAdvancer{gap: 3}
+	data := &tenantRecorder{}
+	s := advanceService(t, data, adv)
+
+	tagRow := db.ResolvedTag{
+		UID: "04AC7E55000601", TenantID: tenantID, LocationID: uuid.New(),
+		Status: string(tap.TagActive),
+		// LastCtr is deliberately populated and deliberately never used: a body
+		// that compared it in Go would be the TOCTOU §4.4 forbids by name, and it
+		// is sitting right here for anyone tempted.
+		LastCtr: 700,
+	}
+	req := Request{
+		SessionTenantID: tenantID, EmployeeID: uuid.New(),
+		TagUID: tagRow.UID, Ctr: 701, Channel: tap.ChannelNFC, CMACVerified: true,
+	}
+
+	sunValid, gap, err := s.advance(context.Background(), req, tagRow)
+	if err != nil {
+		t.Fatalf("advance: %v", err)
+	}
+	if !sunValid {
+		t.Fatal("a verified CMAC with an advancing counter must be SUN-valid")
+	}
+	if len(adv.calls) != 1 {
+		t.Fatalf("AdvanceTagCounter was called %d times, want exactly 1 — the advance is not going through "+
+			"the atomic statement (§4.4). A read-then-compare-then-write body reaches this line with 0.",
+			len(adv.calls))
+	}
+	if gap != 3 {
+		t.Fatalf("gap = %d, want the value the atomic query returned (3)", gap)
+	}
+	got := adv.calls[0]
+	if got.TenantID != tenantID || got.Uid != tagRow.UID || got.Ctr != 701 {
+		t.Fatalf("AdvanceTagCounter(%+v), want tenant=%s uid=%s ctr=701", got, tenantID, tagRow.UID)
+	}
+	if len(data.tenants) != 1 || data.tenants[0] != tenantID {
+		t.Fatalf("the advance ran under tenants %v, want exactly [%s]: it must execute inside the TAG's "+
+			"tenant context so the UPDATE runs under RLS (§4.5)", data.tenants, tenantID)
+	}
+	if data.statements != 0 {
+		t.Fatalf("the advance issued %d statement(s) of its own against the transaction: the counter is "+
+			"moved by ONE query and that query is AdvanceTagCounter (§4.4). A read-then-compare-then-write "+
+			"body lands here with 2.", data.statements)
+	}
+}
+
+// TestAdvance_SkipsTheQueryEntirelyWhenItMust. Every condition that stops the
+// advance must stop it BEFORE the statement is issued — not by having the
+// statement decline. Each of these is a way to move a counter that must not move.
+func TestAdvance_SkipsTheQueryEntirelyWhenItMust(t *testing.T) {
+	t.Parallel()
+	tenantID := uuid.New()
+	other := uuid.New()
+	base := db.ResolvedTag{UID: "04AC7E55000601", TenantID: tenantID, Status: string(tap.TagActive)}
+	baseReq := Request{SessionTenantID: tenantID, TagUID: base.UID, Ctr: 701,
+		Channel: tap.ChannelNFC, CMACVerified: true}
+
+	cases := []struct {
+		name string
+		tag  func(db.ResolvedTag) db.ResolvedTag
+		req  func(Request) Request
+		why  string
+	}{
+		{
+			name: "a QR arrival has no counter",
+			req:  func(r Request) Request { r.Channel = tap.ChannelQR; return r },
+			why:  "QR carries no ctr; there is nothing to advance",
+		},
+		{
+			name: "a manual record has no chip",
+			req:  func(r Request) Request { r.Channel = tap.ChannelManual; return r },
+			why:  "a manager typing a record must not move a plaque's counter",
+		},
+		{
+			name: "the CMAC did not verify",
+			req:  func(r Request) Request { r.CMACVerified = false; return r },
+			why:  "§4.4's denial of service: pushing last_ctr with rubbish MACs rejects every real tap after it",
+		},
+		{
+			name: "the plaque is retired",
+			tag:  func(g db.ResolvedTag) db.ResolvedTag { g.Status = string(tap.TagRetired); return g },
+			why:  "a dead plaque never reaches cryptography or the counter (§5 row 1)",
+		},
+		{
+			name: "the plaque is lost",
+			tag:  func(g db.ResolvedTag) db.ResolvedTag { g.Status = string(tap.TagLost); return g },
+			why:  "same as retired, plus a security alert downstream",
+		},
+		{
+			name: "the plaque belongs to another organisation",
+			tag:  func(g db.ResolvedTag) db.ResolvedTag { g.TenantID = other; return g },
+			why:  "§4.5: a session must not change another tenant's state (the F1 finding)",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			tag, req := base, baseReq
+			if tc.tag != nil {
+				tag = tc.tag(tag)
+			}
+			if tc.req != nil {
+				req = tc.req(req)
+			}
+			adv := &countingAdvancer{}
+			data := &tenantRecorder{}
+			s := advanceService(t, data, adv)
+
+			sunValid, gap, err := s.advance(context.Background(), req, tag)
+			if err != nil {
+				t.Fatalf("advance: %v", err)
+			}
+			if sunValid || gap != 0 {
+				t.Fatalf("sunValid=%v gap=%d, want false/0", sunValid, gap)
+			}
+			if len(adv.calls) != 0 {
+				t.Fatalf("the atomic statement was issued anyway (%d times): %s", len(adv.calls), tc.why)
+			}
+			if len(data.tenants) != 0 {
+				t.Fatalf("a transaction was opened against %v: %s", data.tenants, tc.why)
+			}
+		})
+	}
+}
+
+// TestAdvance_ReplayIsNotAnErrorAndOutageIs. The two non-success outcomes are
+// different in kind and the caller depends on the difference: a replay is §5 row
+// 2 and must end in a RECORDED reject, while an outage must surface so nothing
+// claims a tap was judged when it was not.
+func TestAdvance_ReplayIsNotAnErrorAndOutageIs(t *testing.T) {
+	t.Parallel()
+	tenantID := uuid.New()
+	tagRow := db.ResolvedTag{UID: "04AC7E55000601", TenantID: tenantID, Status: string(tap.TagActive)}
+	req := Request{SessionTenantID: tenantID, TagUID: tagRow.UID, Ctr: 701,
+		Channel: tap.ChannelNFC, CMACVerified: true}
+
+	// The atomic UPDATE matched no row: the counter did not advance.
+	replay := advanceService(t, &tenantRecorder{}, &countingAdvancer{err: pgx.ErrNoRows})
+	sunValid, _, err := replay.advance(context.Background(), req, tagRow)
+	if err != nil {
+		t.Fatalf("a replay must not be an error, got %v", err)
+	}
+	if sunValid {
+		t.Fatal("a replay reported SUN-valid")
+	}
+
+	// The database was unreachable.
+	outage := advanceService(t, &tenantRecorder{err: errors.New("connection refused")}, &countingAdvancer{})
+	if _, _, err := outage.advance(context.Background(), req, tagRow); err == nil {
+		t.Fatal("an outage was swallowed: the tap would be recorded as SUN-invalid rather than surfaced")
+	}
+}
+
+// TestNew_WiresTheProductionAdvancer. The seam exists for tests, so the thing
+// that must not slip is production still getting the real one — a nil advancer
+// would panic at the first NFC tap, and a zero Service must not be constructible
+// into the request path.
+func TestNew_WiresTheProductionAdvancer(t *testing.T) {
+	t.Parallel()
+	s, err := New(&tenantRecorder{}, stubRecorder{}, testConfig(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if s.advancer == nil {
+		t.Fatal("New left the advancer nil: the first NFC tap would panic")
+	}
+	// It must be the store-backed one. Calling it with a nil transaction returns a
+	// *store.Queries built on nil, which is exactly what production builds from a
+	// real tx — the point is that it is store.New and not a leftover double.
+	if _, ok := s.advancer(nil).(*store.Queries); !ok {
+		t.Fatalf("New wired %T as the advancer, want *store.Queries", s.advancer(nil))
+	}
+}
+
+type stubRecorder struct{}
+
+func (stubRecorder) Record(context.Context, audit.Event) (uuid.UUID, error) { return uuid.New(), nil }
+
+func testConfig() *config.Config {
+	return &config.Config{
+		Env: config.EnvDev, GPSRadiusMeters: 150, Debounce: 90 * time.Second,
+	}
+}

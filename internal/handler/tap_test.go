@@ -118,7 +118,7 @@ func newTapHandler(t *testing.T, pv *fakePreviewer, dir *fakeDirectory, sess *fa
 func newTapHandlerWithAudit(t *testing.T, pv *fakePreviewer, dir *fakeDirectory, sess *fakeSessions) (http.Handler, *Tap, *fakeAudit) {
 	t.Helper()
 	rec := &fakeAudit{}
-	tp, err := NewTap(pv, dir, sess, rec, tapCfg(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	tp, err := NewTap(pv, dir, sess, &fakeCheckins{}, rec, tapCfg(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatalf("NewTap: %v", err)
 	}
@@ -202,7 +202,7 @@ func TestTapPage_LiveSessionOfADeactivatedEmployeeStillRenders(t *testing.T) {
 // exactly that wiring mistake.
 func TestTapPage_UnresolvedIdentityIsNotNoSession(t *testing.T) {
 	tp, err := NewTap(&fakePreviewer{preview: okPreview(true)}, &fakeDirectory{facts: okFacts()},
-		&fakeSessions{}, &fakeAudit{}, tapCfg(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+		&fakeSessions{}, &fakeCheckins{}, &fakeAudit{}, tapCfg(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatalf("NewTap: %v", err)
 	}
@@ -557,7 +557,7 @@ func TestTapPage_IsNotCached(t *testing.T) {
 // hand-off 6).
 func TestTapPage_RateLimitIsMountedAndBranded(t *testing.T) {
 	tp, err := NewTap(&fakePreviewer{preview: okPreview(true)}, &fakeDirectory{facts: okFacts()},
-		&fakeSessions{}, &fakeAudit{}, tapCfg(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+		&fakeSessions{}, &fakeCheckins{}, &fakeAudit{}, tapCfg(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatalf("NewTap: %v", err)
 	}
@@ -721,7 +721,7 @@ func TestNewTap_RefusesATypedNilAuditRecorder(t *testing.T) {
 	var typedNil *audit.Recorder // nil pointer, non-nil interface once passed
 
 	_, err := NewTap(&fakePreviewer{preview: okPreview(true)}, &fakeDirectory{facts: okFacts()},
-		&fakeSessions{}, typedNil, tapCfg(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+		&fakeSessions{}, &fakeCheckins{}, typedNil, tapCfg(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err == nil {
 		t.Fatal("a typed-nil audit recorder was accepted: the trail would fail at the first " +
 			"refused tap instead of at startup")
@@ -763,7 +763,7 @@ func TestTapPage_CarriesAContentPolicy(t *testing.T) {
 // now a startup error, so it cannot be made again by leaving an argument out.
 func TestNewTap_RefusesANilAuditRecorder(t *testing.T) {
 	_, err := NewTap(&fakePreviewer{preview: okPreview(true)}, &fakeDirectory{facts: okFacts()},
-		&fakeSessions{}, nil, tapCfg(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+		&fakeSessions{}, &fakeCheckins{}, nil, tapCfg(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err == nil {
 		t.Fatal("a nil audit recorder was accepted: half of an accepted M5-03 criterion would silently not happen")
 	}
@@ -778,7 +778,7 @@ func TestTapPage_MountOrderMetersTheSession(t *testing.T) {
 	// STABLE one — a fresh uuid per request would silently spread three requests
 	// across three buckets and the test would pass while measuring nothing.
 	tp, err := NewTap(&fakePreviewer{preview: okPreview(true)}, &fakeDirectory{facts: okFacts()},
-		fixedSessions(), &fakeAudit{}, tapCfg(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+		fixedSessions(), &fakeCheckins{}, &fakeAudit{}, tapCfg(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatalf("NewTap: %v", err)
 	}

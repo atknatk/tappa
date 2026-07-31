@@ -1,0 +1,102 @@
+package pages
+
+import "github.com/atknatk/tappa/web/templates/layout"
+import "strconv"
+
+// Result is what a tap lands on: one docket saying what was recorded.
+//
+// THERE IS NO BUTTON ON IT, and that is CLAUDE.md §9 rather than an omission —
+// "All done — you can close this page." The next action is a new physical touch
+// of the plaque, which is the whole shape of the product: nothing on a screen can
+// produce another attendance record, so there is nothing for a button to do. A
+// "Try again" belongs on the FAILURE pages (pages.Problem), where a retry is a
+// real instruction; here it would invite somebody to double their own tap.
+//
+// ⚠️ INTERIM (M5-05). M5-06 owns the finished screen: the tenant's own message
+// after a check-in, the copy pass, and whatever the brand review asks for. What
+// this renders is the part the POST cannot go without — the stamp, the sentence,
+// the time — built out of the docket motif and the stamp classes that already
+// exist in input.css rather than out of new ones.
+//
+// THE STAMP TEXT AND THE COLOUR SAY THE SAME THING. Status is never carried by
+// colour alone (accessibility, skill tappa-brand): APPROVED / FLAGGED / REJECTED
+// / IGNORED is readable with no colour at all, and the class only tints it.
+//
+// EVERY NUMBER IS MONO. The time and the trust score run in IBM Plex Mono
+// through .docket, which is where the docket feeling comes from.
+templ Result(v ResultView) {
+	@layout.Page("Tapped — Tappa") {
+		<section class="docket">
+			<div class="flex items-start justify-between gap-4">
+				<div>
+					<p class="docket-label">{ v.Venue }</p>
+					<h1 class="font-display text-3xl font-bold tracking-tight text-ink">
+						{ v.Headline() }
+						if v.At != "" {
+							<span class="block font-mono text-xl font-normal text-ink/70">{ v.At }</span>
+						}
+					</h1>
+				</div>
+				@stamp(v)
+			</div>
+			if v.Practice {
+				<p class="mt-3">
+					<span class="stamp stamp--training">TRAINING</span>
+					<span class="ml-2 text-ink/70">This practice tap does not count toward your hours.</span>
+				</p>
+			}
+			<dl class="mt-3 grid grid-cols-2 gap-x-4 gap-y-1">
+				<dt class="docket-label">Trust</dt>
+				<dd class="font-mono">{ strconv.Itoa(v.Trust) }</dd>
+			</dl>
+			if v.Note != "" {
+				<p class="mt-2 text-ink/70">{ v.Note }</p>
+			}
+		</section>
+		if v.Recorded() {
+			<p class="mt-4 text-ink/70">All done — you can close this page.</p>
+		} else {
+			<p class="mt-4 text-ink/70">
+				This tap was recorded but not counted. Tell your manager if that looks wrong.
+			</p>
+		}
+	}
+}
+
+// stamp renders the verdict's rubber stamp.
+//
+// 🔴 THE CLASS NAMES ARE WRITTEN OUT HERE, AS LITERALS, AND THAT IS THE WHOLE
+// REASON THIS COMPONENT EXISTS. They used to be built in Go
+// (ResultView.StampClass returning "stamp stamp--approved"), and an audit
+// measured what that cost: Tailwind's content globs are
+// ./web/templates/**/*.templ and ./web/static/js/**/*.js — GO FILES ARE NOT
+// SCANNED — so the four verdict classes were compiled out of app.css entirely
+// (0 occurrences in a fresh build) and every stamp rendered as a bare .stamp:
+// no colour, no border tone, no tilt. Accessibility survived, because the WORD
+// carries the status; the brand's fixed status-to-colour mapping did not
+// (skill tappa-brand: ok -> tappa-green, flag -> saffron, reject -> tomato,
+// ignored -> line).
+//
+// Two other fixes were available — add **/*.go to the globs, or a safelist —
+// and both were rejected for the same reason: they keep the class name in a
+// file the tool has to be TOLD about, which is how this broke. A literal in an
+// already-scanned template stops being compiled only if the globs themselves
+// change — a visible edit to tailwind.config.js, rather than a class name quietly
+// moving house.
+//
+// The STATUS IS NEVER CARRIED BY COLOUR ALONE: each branch renders the word too,
+// so the screen reads correctly in monochrome and to a screen reader.
+templ stamp(v ResultView) {
+	switch v.Verdict {
+		case "ok":
+			<span class="stamp stamp--approved">APPROVED</span>
+		case "flag":
+			<span class="stamp stamp--flagged">FLAGGED</span>
+		case "reject":
+			<span class="stamp stamp--rejected">REJECTED</span>
+		case "ignored":
+			<span class="stamp stamp--ignored">IGNORED</span>
+		default:
+			<span class="stamp stamp--ignored">RECORDED</span>
+	}
+}

@@ -249,6 +249,55 @@ type Input struct {
 	// calls time.Now() — so overnight-shift and debounce tests are deterministic.
 	Now time.Time
 
+	// OccurredAt is when the tap CLAIMS to have happened (UTC, §6), as opposed to
+	// Now, which is when the server is deciding it. The two differ only for a tap
+	// that was recorded offline and posted later (the M9-01 queue).
+	//
+	// 🔴 IT IS THE ONE UNVERIFIED CLIENT INPUT ON THE WHOLE PATH, and it is the
+	// most important field of an attendance record (M5-05 trap K1). None of the
+	// four evidences carries a time: a SUN payload has no clock, an IP has no
+	// clock, a GPS fix is not a timestamp and a session cookie is not one either.
+	// So an employee who genuinely taps at 09:00 — real chip, matching IP — can
+	// declare occurred_at=07:00 and claim two hours that never happened. The
+	// ceiling on that is the sys:occurred-at-bound GUARDRAIL, which cannot be
+	// switched off, and Decide feeds it by computing the skew below. The softer,
+	// tenant-tunable review threshold (base:queued-window) sits underneath it.
+	//
+	// The ZERO VALUE means "this tap is happening now": Decide substitutes Now, so
+	// the skew is exactly 0 and the guardrail cannot fire on a live tap. That is
+	// also what keeps every caller written before this field existed unaffected.
+	OccurredAt time.Time
+	// PageIssuedAt is when the SERVER minted the tap page's signed context, or the
+	// zero value when there is no page behind this record (a manual entry).
+	//
+	// 🔴 IT IS WHAT KEEPS sys:tap-freshness ALIVE. That guardrail denies an NFC tap
+	// whose page has gone stale, and it reads tap:pageAgeSeconds — a key that, until
+	// this field existed, NOTHING set. A missing key never matches (M3-04's
+	// invariant), so guardrail #4 was inert: not weakened, not tunable, simply
+	// unable to fire. An audit measured it and this is the fix.
+	//
+	// It is an INSTANT, not an age, so the age is computed from Input.Now like every
+	// other elapsed value here — the package has no clock of its own, and a caller
+	// passing a pre-computed age could pass one measured against a different one.
+	// The stamp is server-minted and authenticated; a client cannot choose it.
+	//
+	// WHAT IS AND IS NOT COVERED TODAY, measured rather than assumed: the signed
+	// context's own TTL (15 min) currently equals the guardrail's default window
+	// (FreshnessMaxSeconds = 900 s), so with the shipped defaults an over-age
+	// context is refused at parse time — an unrecorded 400 — before the guardrail
+	// could produce its RECORDED reject. The two are NOT interchangeable, which is
+	// why the key is fed anyway: the moment a tenant sets a tighter window (M5-10:
+	// 1-15 min, default 3), the band between that window and the TTL belongs to the
+	// guardrail, and §4.6 wants a record there rather than an error page.
+	PageIssuedAt time.Time
+
+	// OccurredAtFromClient reports whether OccurredAt was DECLARED BY THE CALLER
+	// rather than read from the server clock. It is what tap:queued is derived
+	// from (with the skew) — never a client-supplied "queued" flag, which is the
+	// ADR 0004 §8 rule and the reason Input has no such field. A live tap leaves
+	// it false; only the offline queue sets it.
+	OccurredAtFromClient bool
+
 	// Channel is the SERVER-DERIVED arrival path (see Channel). Never a client flag.
 	Channel Channel
 
@@ -263,6 +312,38 @@ type Input struct {
 	// Employee is the tapping session's employee, or nil for NO session (§5 line 3).
 	// nil and Status==deactivated are different decisions — see Employee.
 	Employee *Employee
+
+	// TagTenantID and SessionTenantID are the two halves of the tenant-mismatch
+	// check — the §4.5 hole state.md tracked as hand-off N5, closed by M5-05.
+	//
+	// 🔴 WHY THIS CANNOT BE LEFT TO RLS. The tag lookup is CONTEXT-LESS by
+	// construction (ADR 0002 item 7): a tap carries a uid, and the tenant is what
+	// resolving it PRODUCES, so row-level security has no tenant to filter on and
+	// does NOT hide another tenant's plaque. Until both ids reach the policy
+	// engine, sys:tenant-mismatch never fires and an employee of tenant B standing
+	// physically inside tenant A — matching A's IP and GPS — is written an `ok`
+	// check-in in A. Feeding these two fields is what stops it.
+	//
+	// ⚠️ "THERE IS NO SECOND LINE OF DEFENCE" IS WHAT THIS SAID, and measuring it
+	// proved the sentence too strong — and the truth less comforting. There IS a
+	// second net and it is worse than none: the composite FK
+	// transactions_tag_fk (tag_uid, tenant_id) refuses a row citing another
+	// tenant's tag, so an UNFED engine reaches the `ok` DECISION and then fails the
+	// write with 23503 — an HTTP 500 and NO record (measured in psql, and by
+	// mutating the production write path). The schema therefore converts an
+	// isolation violation into a §4.6 record loss rather than preventing one. The
+	// guardrail is what produces the outcome anybody would want: refuse, say why,
+	// and record nothing because nothing should be recorded.
+	//
+	// SessionTenantID is the tenant the SESSION resolved to (httpx.Identity),
+	// TagTenantID the tenant the TAG resolved to, RE-RESOLVED at POST time rather
+	// than trusted from the page. Both nil keeps the pre-M5-05 behaviour: session
+	// presence alone is signalled to sys:no-session and the mismatch guardrail
+	// stays inert (see Decide, which refuses to compare a real tenant against its
+	// value-less presence placeholder — a comparison that would fabricate a
+	// mismatch and, because a mismatch REDIRECTS, drop a record).
+	TagTenantID     *uuid.UUID
+	SessionTenantID *uuid.UUID
 
 	// SourceIP is the request's real client IP (resolved through the trusted proxy
 	// at the httpx layer), the "where" evidence.
@@ -390,4 +471,28 @@ type Decision struct {
 	// decision came from, or nil for a guardrail/default decision (code, not in the
 	// DB). Pinning it is what keeps a past record's reason stable after a later edit.
 	PolicyVersionID *uuid.UUID
+
+	// PolicyContext is the EXACT key map that was handed to policy.Evaluate — the
+	// frozen decision snapshot migration 0008's policy_context column exists for,
+	// and the input half of "replay this tap and get the same verdict" (M9-06).
+	//
+	// IT IS THE SAME MAP, NOT A RECONSTRUCTION, and that is the whole point. The
+	// alternative was for the M5-05 write path to rebuild it from Input, which
+	// means the same facts computed in two places by two pieces of code that are
+	// free to drift — the failure this repo has now paid for three times (a check
+	// and its consumer seeing different representations of one value). Decide
+	// computes the facts once, evaluates on them, and hands out what it evaluated.
+	//
+	// §4.7: it carries a GPS DISTANCE IN METRES and never a coordinate, because
+	// the map it comes from never held one (see Decide). It holds no token, no
+	// CMAC, no key and no invite code — none of those is a context key at all.
+	//
+	// WHAT IS NOT IN IT, stated so a reader does not infer more: the values
+	// computed AFTER the evaluation (direction, practice, trust, minutes late) are
+	// not here, because they did not feed the decision; each has its own column on
+	// the record. Nor are the guardrail-only Context fields (the two tenant ids,
+	// the debounce gap, reviewer identity), which are not document vocabulary —
+	// the tenant and employee are columns on the row, and the debounce gap is
+	// recomputable from the person's previous row.
+	PolicyContext map[policy.ContextKey]any
 }

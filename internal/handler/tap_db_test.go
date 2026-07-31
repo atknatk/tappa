@@ -28,6 +28,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -36,12 +37,17 @@ import (
 	"github.com/atknatk/tappa/internal/audit"
 	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/db"
+	"github.com/atknatk/tappa/internal/domain/checkin"
 	"github.com/atknatk/tappa/internal/domain/tenant"
 	"github.com/atknatk/tappa/internal/httpx"
 	"github.com/atknatk/tappa/internal/session"
 	"github.com/atknatk/tappa/internal/store"
 	"github.com/atknatk/tappa/internal/sun"
 )
+
+// harnessDebounce is the person-debounce window every DB test runs under. See
+// the config block in newTapHarness for why it must not be the shipped default.
+const harnessDebounce = 120 * time.Second
 
 // tapFakeKEK and tapFakeTagKey are OBVIOUSLY FAKE (agent-brief madde 2), used
 // only to wrap a per-tag key in a throwaway fixture row.
@@ -53,6 +59,7 @@ const (
 type tapHarness struct {
 	router     http.Handler
 	tap        *Tap
+	checkins   *checkin.Service
 	trail      *audit.Recorder
 	data       *db.DB
 	cookies    session.Cookies
@@ -82,6 +89,22 @@ func newTapHarness(t *testing.T) *tapHarness {
 		InviteHMACKey:  []byte("IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII"),
 		TagKEK:         kek,
 		RetentionYears: 2,
+		// The decision engine's two configured thresholds, set explicitly because a
+		// zero radius would silently make every GPS fix a miss and a zero debounce
+		// would disable §5 row 5.
+		//
+		// 🔴 THE DEBOUNCE IS DELIBERATELY *NOT* THE SHIPPED DEFAULT. It was 60 s
+		// here, which is exactly what policy.DefaultParams() hard-codes — so the one
+		// line that carries TAPPA_DEBOUNCE_SECONDS into the guardrail (hand-off N3)
+		// could be DELETED and the whole suite stayed green. An audit measured that:
+		// the same shape as the M5-04 finding, a criterion that cannot fail, only
+		// with a degenerate VALUE instead of a self-configured object. 120 s is
+		// inside the ADR 0004 §11 range [30, 300] and differs from the default, so a
+		// tap 90 seconds after the last one is `ignored` under the configured window
+		// and RECORDED under the shipped one — see
+		// TestCheckinDB_ConfiguredDebounceWindowReachesTheGuardrail.
+		GPSRadiusMeters: 150,
+		Debounce:        harnessDebounce,
 	}
 
 	data, err := db.New(context.Background(), cfg)
@@ -104,7 +127,14 @@ func newTapHarness(t *testing.T) *tapHarness {
 	if err != nil {
 		t.Fatalf("audit.New: %v", err)
 	}
-	tp, err := NewTap(sun.NewVerifier(data, kek), directory, sessions, trail, cfg,
+	// THE REAL orchestrator, not a fake: this harness serves POST /api/checkin as
+	// well, and the whole point of the DB tests is that the decision, the counter
+	// and the row are the production ones.
+	checkins, err := checkin.New(data, trail, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatalf("checkin.New: %v", err)
+	}
+	tp, err := NewTap(sun.NewVerifier(data, kek), directory, sessions, checkins, trail, cfg,
 		slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatalf("NewTap: %v", err)
@@ -113,7 +143,7 @@ func newTapHarness(t *testing.T) *tapHarness {
 	tp.Mount(r)
 
 	h := &tapHarness{
-		router: r, tap: tp, trail: trail, data: data, cookies: session.NewCookies(cfg), sessions: sessions,
+		router: r, tap: tp, checkins: checkins, trail: trail, data: data, cookies: session.NewCookies(cfg), sessions: sessions,
 		tenantID: uuid.New(), locationID: uuid.New(), employeeID: uuid.New(),
 		startCtr: 700,
 	}

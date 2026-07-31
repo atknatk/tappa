@@ -9,13 +9,14 @@ import (
 	"github.com/google/uuid"
 )
 
-// markSessionPresent is a NON-NIL placeholder that marks "a session exists" in the
-// policy Context (see Decide). Its BYTES ARE NEVER COMPARED: the only guardrail
-// that reads a non-nil SessionTenantID for its VALUE is sys:tenant-mismatch, and
-// that guardrail also requires TagTenantID to be non-nil — which Decide leaves nil
-// (tag/session tenant ids are a later M5 Input, see the tenant-mismatch deferral
-// in Decide). sys:no-session reads only its nil-ness. A FIXED value (not a fresh
-// random one per call) keeps Decide deterministic, preserving the purity proof.
+// markSessionPresent is a NON-NIL placeholder that marks "a session exists" in
+// the policy Context for a caller that supplies no real session tenant (see
+// Decide). Its BYTES ARE NEVER COMPARED, and that is enforced by the ONLY branch
+// that installs it: it is used exclusively when Input.SessionTenantID is nil, and
+// on that branch Decide also withholds TagTenantID — so sys:tenant-mismatch, the
+// one guardrail that reads a SessionTenantID for its VALUE, cannot see it.
+// sys:no-session reads only its nil-ness. A FIXED value (not a fresh random one
+// per call) keeps Decide deterministic, preserving the purity proof.
 var markSessionPresent = uuid.UUID{0: 0x01}
 
 // Decide turns one tap's evidence (Input) into a single explainable Decision. It
@@ -73,13 +74,31 @@ func Decide(in Input) Decision {
 	// Keys are the closed document vocabulary (document.go). A key that a guardrail
 	// or baseline reads MUST be present or the rule silently does not fire (M3-04:
 	// "missing key != false"); a key nothing reads is a harmless recorded input.
+	// The declared-time facts (§5 / M5-05 K1). skew = Now - OccurredAt in seconds:
+	// positive means the tap claims to have happened in the PAST, negative means
+	// the FUTURE. sys:occurred-at-bound denies both a future stamp and one past
+	// the tenant's tolerance, and it can only do that if the key is PRESENT — a
+	// missing key never matches (M3-04's invariant), which is how a guardrail goes
+	// silently dead. So it is set on EVERY tap, including the ordinary live one
+	// where OccurredAt is the zero value and the skew is therefore exactly 0.
+	skewSeconds, queued := occurredAtFacts(in)
 	keys := map[policy.ContextKey]any{
-		policy.CtxTapChannel:     string(in.Channel),
-		policy.CtxTapSunValid:    in.SUN.Valid,
-		policy.CtxTapCtrGap:      in.SUN.CtrGap, // base:ctr-gap-review (Q21); toFloat handles int
-		policy.CtxTapIPMatch:     ipMatch,
-		policy.CtxTapGPSMatch:    gpsMatch,
-		policy.CtxTapGPSConflict: gpsConflict,
+		policy.CtxTapChannel:               string(in.Channel),
+		policy.CtxTapSunValid:              in.SUN.Valid,
+		policy.CtxTapCtrGap:                in.SUN.CtrGap, // base:ctr-gap-review (Q21); toFloat handles int
+		policy.CtxTapIPMatch:               ipMatch,
+		policy.CtxTapGPSMatch:              gpsMatch,
+		policy.CtxTapGPSConflict:           gpsConflict,
+		policy.CtxTapOccurredAtSkewSeconds: skewSeconds,
+		policy.CtxTapQueued:                queued,
+	}
+	// The page's age, for sys:tap-freshness (guardrail #4). Set ONLY when there is
+	// a page behind this tap: a manual record has none, and a zero PageIssuedAt
+	// read literally would report a fifty-six-year-old page and deny it. Absent is
+	// the honest value there — and it is safe, because the guardrail is NFC-only
+	// and a manual record is not NFC.
+	if !in.PageIssuedAt.IsZero() {
+		keys[policy.CtxTapPageAgeSeconds] = in.Now.Sub(in.PageIssuedAt).Seconds()
 	}
 	if haveGPS {
 		// A DISTANCE in metres, never the raw coordinate (§4.7) — this is exactly
@@ -122,14 +141,36 @@ func Decide(in Input) Decision {
 		Resources: tapResources(in.Tag),
 		Keys:      keys,
 	}
-	// Session presence for sys:no-session (§5 line 3). tap's session-presence
-	// signal is Employee (types.go: Employee==nil => no session), which we translate
-	// into the Context's SessionTenantID nil-ness. Input carries no real tenant id
-	// yet (a later M5 field feeding sys:tenant-mismatch), so a non-nil session uses
-	// the value-less placeholder markSessionPresent — see its doc for why the value
-	// is never inspected.
+	// Session presence for sys:no-session (§5 line 3) AND the tenant pair for
+	// sys:tenant-mismatch (§4.5, hand-off N5). tap's session-presence signal is
+	// Employee (types.go: Employee==nil => no session), which becomes the Context's
+	// SessionTenantID nil-ness.
+	//
+	// TWO SHAPES, and the split is deliberate rather than transitional:
+	//
+	//   - The caller supplied a REAL session tenant (M5-05 always does). Both ids
+	//     go into the Context and sys:tenant-mismatch is live: a session for one
+	//     organisation tapping another's plaque redirects and writes nothing, so
+	//     the tap lands in NEITHER tenant.
+	//   - The caller supplied none (every M4 caller, and any test that only cares
+	//     that a session exists). Then presence is signalled with the value-less
+	//     placeholder and the TAG tenant is deliberately WITHHELD from the Context,
+	//     because comparing a real tenant id against a placeholder would produce a
+	//     mismatch that is not one — and a mismatch REDIRECTS, which writes no
+	//     record (§4.6). Withholding keeps the guardrail inert instead, which is
+	//     exactly the pre-N5 behaviour and cannot lose a tap.
+	//
+	// The second shape is a hazard in one direction only: a caller that forgets
+	// SessionTenantID silently loses the isolation check rather than gaining a
+	// spurious one. That is why M5-05's service REFUSES a request without a
+	// session tenant, and why a mutation test drives a cross-tenant tap end to end.
 	if in.Employee != nil {
-		ctx.SessionTenantID = &markSessionPresent
+		if in.SessionTenantID != nil {
+			ctx.SessionTenantID = in.SessionTenantID
+			ctx.TagTenantID = in.TagTenantID
+		} else {
+			ctx.SessionTenantID = &markSessionPresent
+		}
 	}
 	// Per-person debounce FACT for sys:person-debounce (§5 line 5): seconds since
 	// THIS PERSON's last tap. The WINDOW (60 s, tenant-tunable) is applied by the
@@ -160,10 +201,13 @@ func Decide(in Input) Decision {
 		// CrossLocation doc): recorded so the report shows cross-location taps apart.
 		CrossLocation: crossLocation,
 		// Carried so the immutable record can explain itself forever (M3-07,
-		// migration 0008: matched_sid / policy_layer / policy_version_id).
+		// migration 0008: matched_sid / policy_layer / policy_version_id), and the
+		// frozen INPUT snapshot beside them (policy_context) so the reason can be
+		// replayed rather than merely named.
 		MatchedSid:      pd.MatchedSid,
 		Layer:           pd.Layer,
 		PolicyVersionID: pd.PolicyVersionID,
+		PolicyContext:   keys,
 	}
 	switch pd.Effect {
 	case policy.EffectAllow:
@@ -212,6 +256,59 @@ func Decide(in Input) Decision {
 	dec.MinutesLate = lateness(in, dec.Type)
 
 	return dec
+}
+
+// occurredAtFacts reduces the one unverified client input to the two facts the
+// policy layer reads: how far the declared tap time sits from the server's now,
+// in seconds, and whether this tap arrived from an offline queue.
+//
+// skew = Now - OccurredAt. POSITIVE is the past ("this happened an hour ago"),
+// NEGATIVE is the future ("this happens in an hour"), and sys:occurred-at-bound
+// denies a negative outright — a tap cannot have happened later than the moment
+// the server is judging it, so a future stamp is a forged one or a broken clock,
+// and neither is worth a recorded `ok`.
+//
+// A ZERO OccurredAt IS "NOW", NOT 1970. Reading the zero value literally would
+// make every caller that never set the field produce a fifty-six-year skew and a
+// denied tap — the mirror image of the missing-key problem, and a worse one,
+// since it would turn a live tap into a reject. Substituting Now yields a skew of
+// exactly 0, which is what a live tap's skew IS.
+//
+// QUEUED IS DERIVED, NEVER DECLARED (ADR 0004 §8; the M5-05 criterion). It is
+// true when the CALLER stated its own occurred_at and that time is genuinely in
+// the past — the shape only an offline client produces, since a live tap sends no
+// timestamp at all. No threshold is applied here on purpose: how much lateness is
+// suspicious is base:queued-window's judgement (a tenant-tunable 120 s) and how
+// much is intolerable is sys:occurred-at-bound's, and duplicating either number
+// in this function would put a policy threshold in two places.
+//
+// ⚠️ tap:queued IS NOT transactions.queued. They are different questions wearing
+// one word: the CONTEXT KEY means "did this tap come from an offline queue", the
+// COLUMN means "is this record in the approval queue" (migration 00005 says so
+// where it defines the column: flag -> true). The write path sets the column from
+// the verdict, not from this.
+func occurredAtFacts(in Input) (skewSeconds float64, queued bool) {
+	// 🔴 THE TEST IS "DID THE CALLER DECLARE ONE", NEVER "IS THE VALUE ZERO".
+	// This used to read `if in.OccurredAt.IsZero()`, and an audit measured what a
+	// sentinel VALUE costs when it is also a legal input:
+	//
+	//	occurred_at=0001-01-01T00:00:00Z  ->  ok, and the record stored the SERVER's
+	//	                                      clock instead of the declared time
+	//	occurred_at=0001-01-01T00:00:01Z  ->  reject / sys:occurred-at-bound
+	//
+	// One second apart, opposite outcomes, and the first silently replaced a time
+	// the caller had stated. The harm ran toward the attacker (a denied tap became
+	// an honest one) and the record was still written, so nothing was lost — but a
+	// guard that a caller can land on by writing a valid timestamp is a guard, not
+	// a zero value, and the boundary belongs on an explicit flag.
+	//
+	// A tap the SERVER timed is by construction happening now — the caller passes
+	// its own clock reading — so its skew is 0 and no guardrail can fire on it.
+	if !in.OccurredAtFromClient {
+		return 0, false
+	}
+	skewSeconds = in.Now.Sub(in.OccurredAt).Seconds()
+	return skewSeconds, skewSeconds > 0
 }
 
 // lateness reports how many minutes late a CHECK-IN is against the employee's

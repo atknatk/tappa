@@ -1476,6 +1476,296 @@ sözleşme aşağıdaki kart düzeltmesinde.
   `base:queued-window`'a bırakmak yetmez: o bir **baseline**'dır, tenant
   kapatabilir. Üst sınır guardrail'de olmak zorunda.
 
+> **Kart düzeltmesi (2026-07-31, M5-05 uygulaması sırasında).** Hiçbir kriter
+> düşürülmedi. Kartın **bilmediği bir bloklayıcı ölçüldü** ve kartın anmadığı
+> yedi karar aşağıda gerekçesiyle sabitleniyor.
+>
+> **1) 🔴 ORDINARY BİR CHECK-IN BU GÖREVDEN ÖNCE YAZILAMIYORDU — ölçüldü.**
+> *(⚠️ Bu bloğun "conflict hedefi mevcut PK" ifadesi 2. turda düzeltildi — aşağı.)*
+> `policy.BaselinePolicies(versionID)` bir callback alır ve dokümanı "üretimde
+> **M7-03**'ün kalıcılaştırdığı gerçek id" der; **M7-03 yapılmadı.** Gerçek
+> Postgres'e karşı, `tappa_app` olarak, seed'li KF tenant'ı için:
+>
+> | Deneme | Sonuç |
+> |---|---|
+> | `policies` / `policy_versions` satır sayısı | **0 / 0** |
+> | `policy_layer='baseline'` + rastgele `policy_version_id` | **ERROR 23503** `transactions_policy_version_fk` |
+> | `policy_layer='baseline'` + `uuid.Nil` (N4'ün uyardığı wiring bug'ı) | **ERROR 23503** |
+> | `policy_layer='guardrail'` + `policy_version_id NULL` | **INSERT 0 1** |
+>
+> Yani §5'in **1–5. satırları** (guardrail) yazılabiliyordu ama **6. ve 7.
+> satırlar** — sıradan `ok` ve sıradan `flag`, ürünün **ana yolu** — 00008'in
+> CHECK'i + composite FK'si yüzünden **kaydedilemiyordu**. Bu, §4.6'nın en sık
+> gerçekleşen sonuçta ihlali.
+>
+> **Seçilen yol: (a) M5-05 baseline'ı ilk ihtiyaçta MATERYALİZE EDER.** Reddedilen
+> (b) "gürültülü başarısız ol" iki şeyden birine indirgeniyordu: tap'i düşürmek
+> (§4.6 ihlali) ya da baseline'sız değerlendirmek — ki o da kaydı yazar ama o
+> tenant'taki **her** tap'i fail-to-review default'una düşürür; sessiz olmayan
+> ama kalıcı bir bozulma. On satırı bir kez yazmak ikisinden de iyi.
+> **Yapısal detaylar:** id'ler `uuid` v5 ile **(tenant, doküman adı)**'ndan
+> türetilir → conflict hedefi **mevcut PK**, yani **migration gerekmedi**;
+> `ON CONFLICT DO NOTHING` üçünde de (policies / policy_versions / attachments);
+> `policy_versions` append-only olduğu için tekrar yazmak **no-op**;
+> `enabled=false` olan bir baseline **ne Set'e girer ne de yeniden yaratılır**.
+> **M7-03'e kalan:** sign-up anında provisioning, panelin görünümü ve **baseline
+> yükseltme akışı** (yeni `BaselineVersion` tenant'a sunulur, kabul edilirse
+> version 2 eklenir). Bu dosya **asla var olan bir sürümü değiştirmez**;
+> sürümler farklıysa **saklanan** doküman değerlendirilir (kayıt onu pinliyor) ve
+> INFO log düşer. **Ölçüm (canlı sunucu, seed'li KF):** `policies 0 → 9`,
+> `policy_versions 0 → 9`, sonraki üç tap'te **9 → 9** (idempotent), ve
+> `transactions` satırı `layer=baseline` + **gerçek** `policy_version_id` ile
+> yazıldı.
+>
+> **1b) N5'in şekli ölçüldü ve state.md'nin cümlesi bir yerde DÜZELTİLMELİ.**
+> "Bugün `ok` yazılır" **kararın** doğru tarifi (saf test: besleme kaldırılınca
+> `Decide` → `ok`), ama **yazmanın** değil: yazma yolu, oturumun tenant'ına
+> **yabancı bir `tag_uid`** ile INSERT etmeye çalışır ve
+> `transactions_tag_fk` bunu **23503** ile reddeder (ölçüldü, hem canlı psql
+> hem de üretim koduna uygulanan mutasyonla: unfed çapraz-tenant tap → **HTTP
+> 500**, sıfır satır). Yani beslemesiz hâlde sonuç *çapraz-tenant `ok` satırı*
+> değil, **kayıp kayıt** (§4.6) olurdu — şemanın composite FK'si sessiz ikinci
+> ağdı ve bir izolasyon ihlalini bir kayıt kaybına çeviriyordu. Guardrail
+> beslendiğinde sonuç temiz: **403, iki tenant'ta da 0 satır**, ve karar
+> açıklanabilir.
+>
+> **2) `tap.Input` iki alan çifti kazandı; ikisi de ölü guardrail besliyor.**
+> `TagTenantID`/`SessionTenantID` (**N5**) ve `OccurredAt`/`OccurredAtFromClient`
+> (**K1**). ⚠️ **N5'te bir tuzak vardı ve kapatıldı:** Decide, session tenant'ı
+> verilmediğinde değersiz bir **placeholder** kullanıyor; gerçek bir tag tenant'ı
+> o placeholder ile karşılaştırılsaydı **var olmayan bir mismatch** üretilir, o da
+> **redirect** olduğu için **kayıt yazılmazdı** (§4.6 kaybı). Çözüm: placeholder
+> dalında tag tenant'ı Context'e **hiç konmuyor** (guardrail atıl kalıyor —
+> M5-05 öncesi davranışın aynısı) ve `checkin.Service` session tenant'sız isteği
+> **reddediyor**, yani o dal üretimden erişilemez. `sys:occurred-at-bound`
+> **her tap'te** besleniyor (eksik anahtar ≠ false); sıfır `OccurredAt` **"şimdi"**
+> demek — düz okunsaydı her eski çağıran 56 yıllık sapmayla **reject** olurdu.
+>
+> **3) `tap:queued` ile `transactions.queued` AYNI ŞEY DEĞİL** ve karıştırılması
+> kolay olduğu için üç yerde yazılı. **Bağlam anahtarı** = "bu tap çevrimdışı
+> kuyruktan geldi" (skew'den türetilir, istemci beyanı değil — ADR 0004 §8).
+> **Sütun** = "onay kuyruğunda mı" (00005 birebir böyle diyor: `flag -> true`).
+>
+> **4) `Decision.PolicyContext` eklendi** — Evaluate'e verilen **tam anahtar
+> haritası**. Alternatif (yazma yolunun Input'tan yeniden kurması) aynı gerçeği
+> **iki yerde** hesaplamaktı; bu repo o hatanın bedelini üç kez ödedi. §4.7:
+> harita **mesafe** taşır, koordinat taşımaz (test her anahtarı tarıyor).
+>
+> **5) Yeni paket `internal/domain/checkin`** (kart bir yer adı vermiyordu).
+> `internal/handler` §3 gereği SQL/iş kuralı tutamaz; `internal/domain/tap`
+> **saf** kalmak zorunda (pgx import'u saflık kanıtını bitirirdi). Orkestrasyon
+> ikisinin arasına yazıldı. **Yeni sorgular:** `GetEmployeeForTap`,
+> `GetLocationForTap`, `GetDepartmentShift` (yeni dosya `departments.sql`),
+> ve `policies.sql` (`ListPolicySet` + üç `Ensure…`). **Migration YOK.**
+>
+> **6) Yanıt ekranı: `pages.Result` — ARA ÇÖZÜM, M5-06'nın işi duruyor.** POST bir
+> tarayıcı gezinmesidir, yani "karar döndür" = "sayfa göster"; M5-05 bunu
+> atlayamaz. Teslim edilen: damga (`APPROVED/FLAGGED/REJECTED/IGNORED` — renk
+> **tek başına** durum anlatmıyor), mono saat, **buton yok** (§9: "All done").
+> M5-06'ya kalan: tenant mesajı, kopya turu, docket'in tam işlenişi.
+>
+> **7) `POST /api/checkin` `Tap.Mount` grubuna, AYNI limiter örneğiyle** girdi
+> (`ByAddress → Identify → BySession`). Bir tap **iki istektir**; ayrı bütçeler
+> hiçbirinin bir tap'i tarif etmemesi demekti. **Devralınan 429 kalıntısı
+> (M5-03 md.2) ÇÖZÜLMEDİ** ve çözüldüğü iddia edilmiyor.
+>
+> **Açıkta bırakılan sınırlar (iddia değil, sınır):**
+> - **Eşzamanlılık testinin gücü sınırlı** *(⚠️ bu cümle 3. turda hem düzeltildi
+>   hem kapatıldı — aşağıki 3. tur bloğu, madde 1)*. 12 goroutine + start
+>   bariyeri ile atomik uygulama **tam 1** kazanan veriyor; ama negatif kontrol
+>   (oku-sonra-yaz) **penceresi 80 ms genişletilmeden** testi kırmıyor — istekler
+>   havuzda sıralanıyor. Genişletilince **12/12** kazanan. **Bu satır "o test
+>   kırılmıyor" diyordu; ölçüm "HİÇBİR test kırılmıyordu" idi** — açığı kapatan
+>   şey artık çekişme değil, **çağrının pinlenmesi** (`counterAdvancer`).
+> - **Oturumsuz bir POST tag'e bağlanamaz.** İmzalı bağlam **oturum id'si**
+>   üzerinden MAC'lidir → oturum yoksa doğrulanacak anahtar yok. 00005
+>   `employee_id`'yi tam da kimliksiz bir reddi kaydedebilmek için nullable
+>   bırakıyor; o şekil bugün **erişilemez** (GET /t zaten oturumsuzu yönlendiriyor).
+>   Şema izin veriyor, akış üretemiyor — **sınır olarak yazıldı**.
+> - **`acc` (GPS doğruluğu) okunmuyor:** sütunu yok, kuralı yok. 5 km doğruluklu
+>   bir "fix" 150 m yarıçapta aynı sayılıyor. Kendi görevini hak ediyor.
+> - **Tenant katmanı bugün BOŞ** — `db/queries`'te tenant policy yazan sorgu yok
+>   (panel M6-09). Yükleyici yine de okuyor; pozitif kontrol testte.
+> - **Debounce temeli herhangi bir verdict'tir** (`GetLastTransactionForEmployee`
+>   sorgusunun kendi sözleşmesi). Sonuç: 10 sn önce başka bir plakette `reject`
+>   almış biri gerçek tap'inde `ignored` alabilir, ve sabırsız tapper kendi
+>   penceresini uzatır. Kartın "60 sn içinde tekrar" ifadesiyle uyumlu; farklı
+>   isteniyorsa politika kararıdır.
+> - **`tap:trust` / `tap:direction` / `tap:practice` / `time:minutesLate`
+>   bağlamda YOK** (M4'ten devraldığım durum): bunlar Evaluate'ten **sonra**
+>   hesaplanıyor, yani bu anahtarlara yazılmış bir tenant politikası **sessizce
+>   hiç eşleşmez**. M5-05 bunu kötüleştirmedi ama düzeltmedi de — M6-09 politika
+>   yazma yüzeyi gelmeden önce ele alınmalı.
+
+---
+
+> **Kart düzeltmesi (2026-07-31, M5-05 2. tur — üçüncü göz ONAY, dört bulgu
+> düzeltildi).** Denetçi bloklayan bulmadı ve çok şeyi kendi komutuyla doğruladı
+> (§5 satır 1/3/6/7, N5'in 403 + iki tenant'ta 0 satır oluşu, 8 eşzamanlı ilk
+> tap'te fazla satır olmaması, 15 sahte form alanının yok sayılması, 40 reject →
+> 40 tx / 40 audit 1:1, `make gen`'in 17 üretilmiş dosyayı bayt bayt aynı
+> bırakması). Dört bulgu düzeltildi, ikisi yazıldı.
+>
+> **🔑 F1 — çapraz-tenant tap YABANCI tenant'ın sayacını ilerletiyordu.** Ölçüm:
+> yabancı plaket `last_ctr` **900 → 901**, iki tenant'ta da **0** `transactions`
+> ve **0** audit satırı. Sebep sıraydı: `advance`, `Decide`'dan **önce** ve
+> **`WithTenant(tag'in tenant'ı)`** ile — yani **öteki tenant'ın RLS bağlamında**
+> — çalışıyordu. Bir tenant'ın oturumu ötekinin satırını **izsiz** değiştiriyordu
+> (§4.5). Zarar dar ama gerçek: sayaç yalnız çipin gerçekten ürettiği değere
+> gidebilir, ama o okumayı **sahibinin altından harcar** — aynı okuma için sayfası
+> açık duran meşru çalışan POST ettiğinde **kaydedilmiş replay-reject** alır.
+> **Düzeltme:** `advance`'e dördüncü koşul — `tagRow.TenantID != SessionTenantID`
+> → hiç dokunma. Bu bir **kapsam** kuralıdır ("ait olmadığın tenant'a yazma"),
+> karar değil: verdict hâlâ `sys:tenant-mismatch`'in ve `Decide` yine koşuyor.
+> **Mutasyon:** koşulu silince yeni test `900 → 901` ile **RED**; pozitif kontrol
+> (aynı plaket, kendi tenant'ının oturumu) **900 → 901 beklendiği gibi**.
+>
+> **🔑 F2 — `sys:tap-freshness` (guardrail #4) ÖLÜYDÜ.** `tap:pageAgeSeconds`'ı
+> ürün genelinde **hiçbir şey** set etmiyordu; eksik anahtar hiç eşleşmez, yani
+> guardrail hiçbir pencerede ateşleyemezdi. **Seçim: BESLE** (kartın önerdiği
+> ikinci yol — "TTL kapsıyor diye yaz" — reddedildi, çünkü iki cevap **türce**
+> farklı: TTL **kaydedilmeyen 400**, guardrail **kaydedilen reject** üretir ve
+> §4.6 ikincisini ister). `tap.Input.PageIssuedAt` eklendi; kaynak imzalı
+> bağlamın `issuedAt`'i (sunucu saati, authenticated — istemci seçemez).
+> **Ölçülen sınır, iddia değil:** bugün `tapContextTTL = 15dk` **==**
+> `FreshnessMaxSeconds = 900 sn`, yani guardrail'in bandı **boş** — uçtan uca
+> ölçüldü: 14dk59sn → **200 + kayıt**, 15dk01sn → **400, +0 satır, sayaç sabit**.
+> Yani besleme bugün davranışı değiştirmiyor; değiştirdiği şey M5-10 pencereyi
+> daralttığı anda (1–15 dk, varsayılan 3) o bandın **kayıtla** cevaplanabilir
+> olması. Guardrail'in artık ateşleyebildiği **ölçüldü** (pencere 60 sn'ye
+> çekilip 5 dk'lık sayfa → `reject`/`sys:tap-freshness`), ve **beslemesiz**
+> mutasyon aynı girdide `ok` veriyor (testte).
+>
+> **🔑 F3 — N3 kabloluydu ama mutasyonu YEŞİL kalıyordu.** Harness 60 sn
+> yapılandırıyordu ve `policy.DefaultParams()` de 60 sn — yani
+> `params.DebounceWindow = cfg.Debounce` **silinince suite yeşil** kalıyordu:
+> M5-04 RED'inin ikinci kostümü, "kendi kurduğu nesne" yerine **dejenere değer**.
+> Harness **120 sn**'ye alındı (ADR 0004 §11 aralığında, varsayılandan farklı) ve
+> yeni test 60 ile 120 arasındaki bandı sürüyor: 90 sn'lik boşluk → `ignored`.
+> **Mutasyon artık RED** (`ok`/`base:ip-or-gps-ok` veriyor). Teste ayrıca bir
+> koruma kondu: harness değeri bir gün varsayılana döndürülürse test **kendini
+> anlamsız bulup patlıyor**.
+>
+> **🔑 F4 — dört verdict damga sınıfı derlenen CSS'e HİÇ girmiyordu.**
+> `StampClass()` sınıf adını **Go'da** kuruyordu; Tailwind `content` globları
+> `web/templates/**/*.templ` + `web/static/js/**/*.js` — **Go taranmıyor**. Ölçüm
+> (taze `make css`): `stamp--approved|flagged|rejected|ignored` = **0/0/0/0**,
+> yani APPROVED/FLAGGED/REJECTED/IGNORED hepsi çıplak `.stamp` ile render
+> oluyordu — metin durumu taşıdığı için **erişilebilirlik bozulmuyor**, ama §9'un
+> sabit durum→renk eşlemesi bozuluyordu. **Düzeltme: literaller `.templ`'e
+> taşındı** (`templ stamp(v)` bileşeni). Glob'a `**/*.go` eklemek ve safelist
+> **reddedildi**: ikisi de sınıf adını aracın **haberdar edilmesi gereken** bir
+> dosyada bırakır ve bu tam da kırılma sebebiydi. **Ölçüm sonrası:** 1/2/2/2 ve
+> kurallar doğru renkleri taşıyor (`rgb(31 92 65)` = tappa-green,
+> `rgb(190 61 42)` = tomato). Counterfactual da ölçüldü: sınıfı Go tarafına geri
+> koyup derleyince yine **0/0/0/0**. (`app.css` gitignore'da — üretilen dosya;
+> bu yüzden bulgu ancak **taze derlemeyle** görülür.)
+>
+> **F6 — kart ifadesi düzeltildi (üç yerde).** "conflict hedefi **mevcut PK**"
+> yalnız `policies` için doğru. Gerçek: `policies` → **PRIMARY KEY (id)** ·
+> `policy_versions` → **`policy_versions_no_key` UNIQUE (tenant_id, policy_id,
+> version_no)** · `policy_attachments` → **`policy_attachments_resource_key`
+> UNIQUE (tenant_id, policy_id, resource)`**. Öz aynı kalıyor (migration
+> gerekmedi, var olan kısıtlar kullanıldı), ifade artık doğru. Aynı yanlış cümle
+> `db/queries/policies.sql` ve `policyset.go` başlıklarında da düzeltildi.
+>
+> **Yeni sınır (denetçinin 7. devri):** `Record` baştan sona `r.Context()`
+> taşıyor → istemci **advance ile insert arasında** bağlantıyı keserse sayaç
+> harcanır, kayıt yazılmaz. Kalıcı kayıp değil (yeni fiziksel dokunuş daha yüksek
+> bir `ctr` üretir) ama o basış için kanıt gider ve kimse söylemez. Yazmayı
+> iptalden ayırmak **daha kötü** bir sorun üretirdi (terk edilmiş bir isteğin
+> mesai kaydetmesi, üstelik ayırt edilemez), o yüzden olduğu gibi bırakıldı ve
+> `checkin.go`'da adıyla yazıldı. Pencere birkaç milisaniyelik yerel DB işi.
+>
+> **Düzeltilen bir aşırı-iddia:** `checkin.go`'daki *"It REDIRECTS and writes
+> nothing"* cümlesi `transactions` için doğru, **mutlak hâliyle yanlıştı** (F1
+> tam da onu çürüttü). Artık garanti edilenin boyunda: *hiçbir tenant'ta
+> `transactions` satırı yok; **yabancı** tenant'ın hiçbir durumu değişmiyor* —
+> ve **oturumun KENDİ** tenant'ında baseline materyalizasyonu olabileceği açıkça
+> yazıldı (karar kurallar olmadan verilemez).
+
+---
+
+> **Kart düzeltmesi (2026-07-31, M5-05 3. tur — `tappa-security-auditor` ONAY).**
+> Bloklayan yok. Denetçi kendi sondalarıyla çok şeyi doğruladı (§5'in altı satırı,
+> N5'in 403 + iki tenant'ta 0 satır + yabancı `last_ctr` sabit + gövdede sızıntı
+> yok, dokuz düşmanca `occurred_at`/GPS girdisi → hepsi **200 + tam satır, hiç
+> 500 yok**, politika katmanı çökerken bile kayıt yazılıyor, materyalizasyon
+> `max version_no = 1`, `log_statement=all` altında **tek ifade**, R1/R2/R7
+> temiz). Üç bulgu düzeltildi, iki sınır yazıldı, biri zaten sınırdı.
+>
+> **🔑 1 — ÜRETİM YAZMA YOLUNDAKİ GERÇEK BİR TOCTOU TÜM SUITE'İ YEŞİL BIRAKIYORDU
+> (bu sınıf ÜÇÜNCÜ kez).** Denetçi atomik ilerletmeyi aynı `WithTenant` içinde
+> `SELECT last_ctr` → Go'da karşılaştır → `UPDATE`'e çevirdi: `make test -race`
+> → **13 paketin HEPSİ ok**. Aynı mutasyon + 80 ms uyku → **"12 of 12 concurrent
+> taps were SUN-valid"**, yani mutasyon **gerçek bir replay deliği**. Sebep iki
+> kanıtın arasındaki boşluktu: `internal/sun` **`AdvanceCounter`'ı** kanıtlıyor,
+> bu paket **kaydın doğruluğunu** kanıtlıyor, **çağrının varlığını hiçbir şey
+> kanıtlamıyordu**.
+> **Seçilen yol: ÇAĞRIYI PİNLE** (denetçinin ilk seçeneği). Çekişmeyi bu katmanda
+> test etmek işe yaramazdı ve bu **ölçüldü**: SELECT→UPDATE penceresi milisaniye
+> altı, HTTP testi bariyerli ve bariyersiz iki kez bozuk şekle karşı **yeşil**
+> kaldı. Eklenen: tüketici tarafında `counterAdvancer` arayüzü + `Service.advancer`
+> tohumu (üretim `storeAdvancer` = `store.New`). Yeni testler
+> `internal/domain/checkin/advance_test.go`: **tam 1** `AdvanceTagCounter`, doğru
+> tenant/uid/ctr ile, **tag'in tenant'ının** `WithTenant`'ı içinde, ve
+> transaction'a **kendi başına 0 ifade**; ayrıca ilerletmeyi durduran **altı
+> koşulun** her biri sorguyu **hiç açtırmıyor**. **Mutasyon artık RED:**
+> *"AdvanceTagCounter was called 0 times, want exactly 1"*. `New`'in gerçek
+> querier'ı bağladığı da ayrıca test ediliyor — tohum, gerçek sorgunun kaybolduğu
+> yer olmasın diye.
+>
+> **🔑 2 — §4.6 başlığı "TEK istisna" diyordu; ölçüm ÜÇ.** Paket başlığı
+> düzeltildi: (a) §5 satır 3 (oturum yok — bu pakete hiç ulaşmıyor), (b)
+> `sys:tenant-mismatch` redirect'i, (c) bilinmeyen uid (yalnız `audit_log`).
+> Aynı cümledeki *"burada tek INSERT var"* da yanlıştı — `policyset.go`'nun üç
+> INSERT'ü ve `audit_log` var; artık *"`transactions`'a yazan tek ifade"* diyor.
+> Kodun kendisi doğruydu; yanlış olan **başlıktaki garanti beyanıydı** — bu
+> oturumun sekiz RED'ini üreten sınıf.
+>
+> **🔑 3 — sıfır-zaman nöbetçisi geçerli bir RFC 3339 değeriyle çakışıyordu.**
+> Ölçüm (bir saniye arayla, zıt sonuçlar): `0001-01-01T00:00:00Z` → **`ok`**, ve
+> satıra **SUNUCU SAATİ** yazılıyor; `0001-01-01T00:00:01Z` → **`reject` /
+> `sys:occurred-at-bound`**, satıra `0001-01-01`. Zarar yönü saldırganı
+> güçsüzleştiriyordu ve kayıt yazılıyordu, ama `handler/checkin.go` *"beyan
+> edilmiş bir zaman sessizce başkasıyla damgalanmaz"* diyordu ve **bu değer için
+> yanlıştı**. **Seçim: NÖBETÇİYİ AYIR, iddiayı indirme.** Gerekçe: iddia
+> korunmaya değer bir özellik ve maliyeti tek bir pointer —
+> `checkin.Request.OccurredAt` artık `*time.Time` (nil = "sunucu zamanlar"), ve
+> `tap`'te gerçek **`OccurredAtFromClient` bayrağından** okunuyor, sıfır-değer
+> testinden değil. Bir form alanı `nil` taşıyamaz, yani iki soru ("beyan edildi
+> mi", "değeri ne") artık bir değeri paylaşmıyor. **Sonra:** üç yazım da
+> (`…00Z`, `…01Z`, `+01:00` ofsetli) **`reject`/`sys:occurred-at-bound`**, satırda
+> **beyan edilen yıl 1**; pozitif kontrol (alan yok) → sıradan tap, sunucu saati.
+>
+> **Yazılan iki sınır (kod değişmedi):**
+> 1. **Sayaç kayıttan ÖNCE harcanıyor; advance ile insert arasındaki HER hata o
+>    basışın kanıtını götürür.** Kart yalnız **iptal** şeklini yazmıştı; denetçi
+>    **DB hatası** şeklini ölçtü (çözülemeyen employee id → `transactions` **+0**,
+>    `last_ctr` **700→701**). Sınır ikisini de kapsayacak şekilde genişletildi.
+>    Bugün erişilebilirliği dar: `tappa_app` `tags`/`employees` silemiyor, yani
+>    çağıran bu hatayı **üretemiyor**; kalıcı kayıp da değil (yeni dokunuş daha
+>    yüksek `ctr` üretir) ve **sessiz değil** (ERROR log + *"Nothing was
+>    recorded … Tap the plaque again in a moment."*).
+> 2. **`transactions` artık bir YAZMA BÜTÇESİDİR.** Ölçüm: tek oturum + tek mint
+>    edilmiş bağlam + 40 POST → **40 silinemez satır**; bütçelerle (300/10dk
+>    oturum, 3000/10dk adres) oturum başına ~43.200, mekân adresi başına ~432.000
+>    satır/gün. **Sahtecilik değil** — her satır atfedilebilir ve çoğu `ignored`
+>    veya `reject` — **gürültü ve depolama**. Yazıldı çünkü M5-02'nin *"koruma
+>    maliyeti, koruduğu şeye saldırı olmasın"* argümanı **yalnız `audit_log`
+>    için** kurulmuştu. Çözüm 429 kalıntısıyla aynı: paylaşılan store +
+>    mekân-başına anahtarlama (**M8**).
+>    ⚠️ `audit_log` tarafı denetçide **temiz**: `tap.security_alert` 1:1;
+>    `tap.unknown_tag` **çözülemeyen bir uid** istiyor ve `tappa_app`'in `tags`
+>    üzerinde DELETE'i yok (ölçülen grant: `INSERT,SELECT,UPDATE`) → çağıran
+>    üretemiyor.
+>
+> **Sınır olarak bırakılan (denetçi "delik değil" dedi):** `Origin: null` kabul
+> ediliyor. Artık `handler/checkin.go`'da **adıyla** yazılı: sandbox'lı iframe,
+> `data:` doküman ve bazı gizlilik araçları bunu gönderir; reddetmek meşru
+> çağıranı kırar, saldırgan ise başlığı hiç göndermezdi. Asıl savunma zaten
+> **oturum-bağlı MAC + SameSite=Lax**.
+
 ---
 
 ## M5-06 — Onay ekranı ve marka mesajları

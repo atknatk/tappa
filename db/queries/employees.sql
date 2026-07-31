@@ -51,3 +51,43 @@ FROM employees e
 JOIN tenants t ON t.id = e.tenant_id
 WHERE e.tenant_id = @tenant_id
   AND e.id = @employee_id;
+
+-- name: GetEmployeeForTap :one
+-- Everything the DECISION engine needs to know about the person tapping
+-- (M5-05). It is a SECOND read of the same table rather than a widening of
+-- GetEmployeeActivationContext above, and the reason is that the two answer
+-- different questions with different audiences: that one builds a page (a name,
+-- an employer, a venue) and this one builds tap.Input (a lifecycle state, two
+-- scope ids, an activation instant). Widening the first would have put the
+-- greeting query in the position of also being the decision query, and every
+-- column added for one purpose would then be rendered by the other.
+--
+-- WHAT EACH COLUMN DECIDES, so nothing here is decoration:
+--   * status         -> sys:employee-deactivated (§5 row 4: reject, RECORD it,
+--                       and raise a security alert). The tap page deliberately
+--                       does not read this; a page cannot record a refusal.
+--   * location_id    -> the employee's HOME location, compared against the
+--                       TAPPED one for the cross-location fact (Q17). It never
+--                       penalises a tap — chain staff move between branches —
+--                       and the evidence is always matched against the TAPPED
+--                       location, never this one.
+--   * department_id  -> which shift applies: the department's if there is one,
+--                       otherwise the tapped location's (§5, M4-05). Nullable.
+--   * activated_at   -> the practice (TRAINING) tap: the first record after
+--                       activation never counts toward hours. SERVER-side, which
+--                       is what stops a client claiming practice=true on a real
+--                       checkout to keep it out of the totals (M4-06).
+--   * timezone       -> the tenant's IANA zone (Q01), needed to turn a shift's
+--                       WALL-CLOCK start into an instant so lateness survives the
+--                       Malta DST transitions. Joined for the same reason the
+--                       query above joins the tenant name: one round trip, one
+--                       place to remember the tenant filter.
+--
+-- NOT RETURNED: full_name, email, role, invited_at, deactivated_at. A decision
+-- never reads a name, and a record that cannot hold one cannot leak one.
+SELECT e.status, e.location_id, e.department_id, e.activated_at,
+       t.timezone AS tenant_timezone
+FROM employees e
+JOIN tenants t ON t.id = e.tenant_id
+WHERE e.tenant_id = @tenant_id
+  AND e.id = @employee_id;
