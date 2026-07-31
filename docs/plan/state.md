@@ -4,7 +4,7 @@
 > güncellenir ([README.md](README.md) → oturum protokolü, adım 6.4).
 > Görev kartlarına durum işareti konmaz.
 
-**Son güncelleme:** 2026-07-31 (5. oturum — **M5-01…M5-04 done, M5 4/10**)
+**Son güncelleme:** 2026-07-31 (5. oturum — **M5-01…M5-05 done, M5 5/10 · uçtan uca check-in çalışıyor**)
 
 > **M5-01 done — 2026-07-31, 5. oturum.** `internal/session` teslim edildi (`a71e1b2`), **iki denetçi
 > ONAY** (genel üçüncü göz 3. turda + `tappa-security-auditor` kapanış turunda). **Beş tur sürdü ve iki
@@ -25,8 +25,8 @@
 
 | | |
 |---|---|
-| **Kilometre taşı** | **M0 + M1 + M2 + M3 + M4 TAMAM** ✅ · **M5 — [Tap akışı](m5-tap-akisi.md) 4/10** |
-| **Sıradaki görev** | **M5-05** — [`POST /api/checkin`: orkestrasyon](m5-tap-akisi.md#m5-05--post-apicheckin-orkestrasyon) · **§4.3/4.4/4.6 — milestone'un EN KRİTİK görevi**. M3+M4 (policy motoru, guardrail'ler, `tap.Decide`) bugüne kadar **hiç gerçek bir HTTP isteğiyle çalışmadı**; bu görev o kabloyu ilk kez takıyor. **🔴 N5 tenant-mismatch BURADA kapanmalı** (aşağı "M4/M5'e devralınan"): `tap.Decide` tenant-farkındalıksız, `sys:tenant-mismatch` **ölü**, ve tag çözümü context-less olduğu için **RLS çapraz-tenant tag'i gizlemiyor** → tenant B'nin çalışanı A'nın plaketine dokunursa bugün **`ok` yazılır**. M5-03 oturum yarısını, M5-04 tag tenant'ını imzalı bağlamda **taşıdı**; **karşılaştırmayı M5-05 yapacak**. **🔴 `sun.Verify` ÇAĞRILMAZ** — imzalı bağlamda CMAC yok (kart tuzağı: cmac DOM'a gömülmez), sözleşme: `sunValid == ctx.CMACVerified && AdvanceCounter başarılı`. **Atomik `AdvanceCounter` §4.4'ün TEK gerçek koruması** ve `WithTenant` ister. Tag'i **yeniden çözümle** (durum GET ile POST arasında değişebilir, §5 satır 1). **QR uyarısı:** ilerletilecek sayaç yok → bağlam TTL boyunca tekrar POST edilebilir, tek savunma 60 sn debounce. Ayrıca N1–N4 devirleri + manuel `entered_by` (aşağı) ve "M5-04/M5-05'e devralınan". |
+| **Kilometre taşı** | **M0 + M1 + M2 + M3 + M4 TAMAM** ✅ · **M5 — [Tap akışı](m5-tap-akisi.md) 5/10** · **🎉 uçtan uca check-in ÇALIŞIYOR** (aktivasyon → tap sayfası → karar → kayıt) |
+| **Sıradaki görev** | **M5-06** — [Onay ekranı ve marka mesajları](m5-tap-akisi.md#m5-06--onay-ekranı-ve-marka-mesajları) · araç: **skill `tappa-brand`**. M5-05 geçici bir `pages.Result` bıraktı; **bitmişini M5-06 sahipleniyor**. §9: başarılıda **buton YOK** (*"All done — you can close this page."*), başarısızda **"Try again" var**. Durum rengi sabit eşleme (`ok → tappa-green`, `flag → saffron`, `reject → tomato`, `ignored → line`) ve durum **yalnız renkle** anlatılmıyor — **damga metni de var** (erişilebilirlik). Saat/süre **mono** (IBM Plex Mono). Tenant'a özel mesaj (KF/KM metinleri skill'de; panelden düzenlenebilirlik M9-04). **⚠️ Damga sınıflarını TAZE build ile doğrula** — `app.css` gitignore'da, M5-05'te dört verdict sınıfı derlenen CSS'e hiç girmemişti (aşağı devir md.8). **Tuzak:** bu ekran ürünün en sade parçası; "bir de şunu ekleyelim" baskısına **direnç** — değişiklik önerisi → **önce sor**. |
 | **Çalışma modu** | Orkestrasyon + üçüncü göz — [README.md](README.md) · brief'ler [agent-brief.md](agent-brief.md) |
 | **Dal** | **`main`** — M0 (`m0-bootstrap`) `main`'e fast-forward birleştirildi (`562f021`), dal silindi. **Kullanıcı kararı (2026-07-25): artık doğrudan `main`'de çalışılır, görev başına dal açılmaz** (CLAUDE.md §10 güncellendi). Push/PR yine istemedikçe yok. |
 | **Blokeler** | Yok. **Bekleyen kullanıcı eylemleri → [docs/backlog.md](../backlog.md)** (B1 iPhone/Q11 ölçümü, B2 arm64 Go kurulumu) — **ikisi de hiçbir şeyi bloklamıyor**. Q02 (davet kanalı) M5-02'yi bloklamaz; kart cevapsız hâli için yol gösteriyor. |
@@ -90,6 +90,31 @@ DOLDURUR. Aşağıdakiler doldurulmazsa guardrail **sessizce** ateşlemez (eksik
   (tag çözümünden tenant + oturumdan tenant). M4-03 bunu doğru şekilde M5'e erteledi (Decide karar taklidi
   yapmıyor); ama M5 bunu sağlamazsa delik açık kalır — **belt-and-braces değil, tek gerçek engel.** Ayrıca (düşük):
   Decide her redirect'i `RedirectActivation`'a eşliyor → M5 tenant-mismatch redirect'ini aktivasyondan ayırabilir.
+
+### M5-06 / M5-08 / M5-10 / M6'ya devralınan (M5-05 denetimlerinden)
+
+1. **🔴 `tap:trust` · `tap:direction` · `tap:practice` · `time:minutesLate` policy context'inde YOK**
+   (Evaluate **sonrası** hesaplanıyor — M4'ten miras, kötüleştirilmedi). Bunlara yazılmış bir **tenant
+   politikası sessizce hiç eşleşmez**. **M6-09** (policy yönetim ekranı) politika yazma yüzeyini
+   açmadan **önce** ele alınmalı — yoksa müşteri çalışmayan kural yazar ve bunu fark etmez.
+2. **Sayaç kayıttan ÖNCE harcanıyor.** `advance` ile `insert` arasındaki **her** hata (altyapı hatası
+   **ve** istemci bağlantı kesme) o basışın kanıtını götürür: ölçüldü, `transactions` **+0**,
+   `last_ctr` **700→701**. Kalıcı kayıp değil (yeni dokunuş yeni `ctr` üretir), **sessiz de değil**
+   (ERROR log + "Nothing was recorded … Tap the plaque again"). Bugün dar (`tappa_app` `tags`/
+   `employees` silemez). Yazma'yı istekten koparmak **daha kötü** olurdu (terk edilmiş istek mesai
+   kaydeder).
+3. **`transactions` artık bir YAZMA BÜTÇESİ.** 40 POST → **40 silinemez satır**; bütçeler 300/10dk
+   (oturum) + 3000/10dk (adres) ⇒ ~43k/oturum/gün, ~432k/mekân-adresi/gün. Atfedilebilir olduğu için
+   sahtecilik değil **gürültü/depolama** — ama M5-02'nin *"koruma maliyeti saldırı olmasın"* argümanı
+   **yalnız `audit_log` için** kurulmuştu. **M8** (paylaşılan store + mekân-başına anahtarlama).
+4. **`acc` (GPS doğruluğu) kimse tarafından okunmuyor** — sütun yok, kural yok; **5 km'lik bir fix
+   sıkı olanla aynı sayılıyor**. Trust puanı sahte-GPS'e karşı bunu kullanabilirdi (ADR 0005 A3).
+5. **Debounce temeli herhangi bir verdict** — 10 sn önceki bir `reject` gerçek bir tap'i yutabilir.
+6. **QR bağlamı TTL boyunca tekrar POST edilebilir** (ilerletilecek sayaç yok) → **M5-08**'in işi.
+7. **Oturumsuz POST tag'e atfedilemiyor** (bağlam oturum id'si üzerinden MAC'li) → 00005'in çalışansız
+   reject satırı bugün **erişilemez**.
+8. **Damga sınıfları:** literaller artık `.templ`'de; **`app.css` gitignore'da**, yani hata yalnız
+   **taze build'de** görünür. M5-06 ekranı bitirirken taze derlemeyle doğrula.
 
 ### M5-05'e devralınan (M5-04 denetimlerinden)
 
@@ -437,7 +462,7 @@ yazılır.
 | M5-02 | Davet ve aktivasyon akışı | **done** | **A fazı** `9139ee7` · **B fazı** `0601b6d` · **iki fazda toplam 5 denetim turu, 3 RED** · **A:** `employee_invites` (RLS beşlisi, `password_resets` kalıbı) + `resolve_invite_by_code_hash` (ADR 0002 md.7 **üçüncü** resolver) + **kaynaşık CTE `ConsumeInviteAndActivate`** (iki ayrı sorgu "aktive ⇒ davet tüketildi"i çağrı sırasına bırakıyordu = hayalet-çalışan) + iç CTE'de **`EXISTS` guard'ı** (veri-değiştiren CTE koşulsuz çalışır → deaktif çalışanda davet **yanıyordu**; COMMIT ile ölçüldü, guard'la `burned=f`) + **sütun-düzeyi `GRANT UPDATE (used_at)`** (diriltme/kaydırma/hash-yeniden-yazma üçü de `permission denied`) · **A-RED:** kart CHECK'in **kod entropisini zorladığını** sanıyordu — `sha256('123456')` da 64-hex, tel-tuzak hiç ateşlenmiyordu → yükümlülük **Kabul kriterleri**ne taşındı · `FOR SHARE` **ölçümle reddedildi** (40P01 deadlock, iki cihaz aynı çalışanı aktive ederken) · **B:** `internal/{invite,audit,handler}` + ilk `.templ` sayfaları + `00010 locations.wifi_ssid` · **alan ayrımı çift** (`TAPPA_INVITE_HMAC_KEY` + etiketli girdi; aynı anahtar altında bile session yapısından farklı, ölçüldü) · **B-RED 1: aktivasyon-fixation** (SameSite çerez **yazmayı** kısıtlamaz → çapraz-site GET saldırganın kodunu ekiyor, sonraki GET **başka tenant'ın** formunu render ediyor, `Submit` mevcut oturumu görmediği için kurbanın oturumu **sessizce eziliyordu**) → CSRF token + 409 + koşullu ekim-reddi, **5 mutasyonla** kanıtlandı · **B-RED 2: sınırsız SİLİNEMEZ `audit_log` yazımı** (300 istek → 290×429 ama **300 satır**; `audit_log` append-only, `tappa_owner` bile silemiyor → tek ölü davet linkiyle izin şişirilmesi; §4.6'nın koruduğu iz kendi bağışıklığıyla silah oluyordu) → **üç bütçe** (flood/unknown/invite), 300→**11 satır** · **M5-01'in RED'i yeni pakette yeniden üretilmişti** (`activationState.code` çıplak `string`, `%+v` ham kodu basıyordu) → `invite.Code` · `heldBy` **fail-closed** (DB hatası "oturum yok" değil "bilmiyorum") · GDPR Art.13 **config'den** render (koda hukuki sayı gömülmedi, Q13→backlog B3) · **davet üreten HTTP uç noktası YOK** (admin auth M6; kimliksiz uç nokta Y-D'yi genişletirdi) · **7 aşırı iddia ölçümle çürütülüp indirildi** · **§5 satır 3 BAĞLANMADI** (hedef var, yönlendirme M5-04) · handler+invite+audit **64 test**, 0 SKIP · Node yok |
 | M5-03 | Middleware: gerçek IP, tenant, oran sınırı | **done** | `1fdd1ad` · **iki denetçi**, **2 RED** (üçüncü göz + `tappa-security-auditor`) · `internal/httpx/{realip,identity,ratelimit}.go` · **XFF SAĞDAN sola**, tüm başlık örnekleri, güvenilmeyen peer → başlık **hiç okunmaz**, `TrustedProxies` boş → `RemoteAddr`; chi `RealIP` **kullanılmadı** (koşulsuz güvenir; §5'te IP = **50 puan**, sahtelenebilir adres hiç adres olmamasından **kötü**) · **RED-1:** *"tek otorite / handler kazara ham başlığa uzanamaz"* yanlıştı — `Forwarded` (RFC 7239)/`CF-Connecting-IP`/`X-Client-IP` handler'a ulaşıyordu → strip listesi **3→32**, **canlı TCP soketiyle** ölçüldü (36 adayın **23'ü** geçiyordu → **4**), iddia denylist kapsamına indirildi; kalan 4 **pozitif kontrol** (`Via`, `X-Forwarded-Host/-Proto` adres değil; **`Origin` CSRF için taşıyıcı**, silinse aktivasyon kırılır) · **RED-2 (aynı kapının içinde):** varsayılan-rota kapısı **HAM** prefix'e bakıyordu ama normalizasyon 4-in-6'yı unmap ediyor → `::ffff:0.0.0.0/96` kapıdan `/96` geçip çözücüde **`0.0.0.0/0`** oluyordu; prod'da **sessizce**, her çağıran kendi adresini seçebiliyordu → **ikinci temsil silindi** (config v4-mapped yazımı reddediyor, httpx düşürüyor) — iki kanonikleştirme hatanın **kaynağıydı**, ve `config→httpx` import döngüsü yüzünden normalizasyon config'e taşınamıyor · **kart iki yerde düzeltildi:** klasik tenant middleware'i tap yolunda **kurulamaz** (tenant çözümlemenin **ÇIKTISI**, ADR 0002 md.7; girdi alan middleware çağıranın kendi tenant'ını adlandırmasına izin verirdi) → `httpx.Identify` **yalnız gerçekleri** taşıyor, **sıfır değeri `SessionUnresolved`** (M5-01 kutup dersi; middleware'i unutan rota **gerçek oturumsuz tap gibi görünemez**), `BySession` o durumda **500** ama `SessionAbsent` **geçiyor** (§5 satır 3 meşru); 429'da `audit_log` **yalnız kimlik sonrası** mümkün (`tenant_id` NOT NULL + FK, **uydurma tenant YOK**) · **devralınan yükümlülük kapandı:** `handler.clientIP` artık `httpx` üstünden → proxy arkasındaki çağıranlar **ayrı kova** (negatif kontrol: çözücüsüz = M5-02 hâli → 429); `floodLimit` **600'de kaldı** (düzeltilmesi gereken sayı değil **anahtardı**) · **`tapSessionLimit` ilk taslakta 120'ydi, yapıcının KENDİ testi çürüttü** (5 sn'lik yenileme döngüsü tam 120) → 300 · **TapLimiter monte EDİLMEDİ** (`/t`, `/api/checkin` yok) · **N5 yalnız oturum yarısı** — `sys:tenant-mismatch` hâlâ ölü, "kapandı" **denmiyor** · 393 test 0 SKIP, httpx %95.4 |
 | M5-04 | GET /t: tap sayfası | **done** | `cfa6cd5` · **iki denetçi**, üçüncü göz **RED** · **§4.4 yeni giriş noktası:** kart "sayfa açılışında ilerletme" istiyordu ama `sun.Verify` 6. adımda ilerletiyor → `PreviewWithoutReplayProtection`. **Caydırıcı yapısal:** `Preview` ≠ `Result` (atanamaz → `Verify`-şekilli kod **derlenmez**), `SUNValid` alanı **yok**, ve denetimden sonra `db.ResolvedTag` da **taşınmıyor** (`pv.CMACValid && p.Ctr > pv.Tag.LastCtr` yazılabilir bir cümleydi = §4.4'ün yasakladığı TOCTOU; ayrıca KEK-sarmalı anahtar handler'a gidiyordu). Kalan 4 alan. **İki denetçi de beş caydırıcıyı kendi paketinden derleyerek denedi → hepsi derleme hatası** · **🔬 güvenlik denetçisi bağımsız RFC 4493 + NXP SDM türetmesi yazıp GERÇEK geçerli SUN URL'i mintledi:** 30 açılış → `last_ctr` **0→0**, aynı URL `Verify`'dan geçince **700→701 `SUNValid=true`**, replay → false. **M2-04'ün "iç-tutarlı vektör byte-sırası hatasını yakalayamaz" dersine karşı DIŞ doğrulama** → yapıcının açık bıraktığı geçerli-CMAC boşluğu **ölçümle kapandı** · **RED:** `NewTap` `TapLimiter`'ı **`Audit` olmadan** kuruyordu → **M5-03'ün ONAYLANMIŞ kriteri üretimde ölüydü** (15×429, çözülmüş `employee_id`, `audit_log` 4145→4145). **Hata kimsenin dosyasında değil, iki görevin ARASINDAydı** · **🔁 ve düzeltmenin ilk mutasyonu YEŞİL kaldı** — red testleri `tp.limiter`'ı **kendileri** kuruyordu (`Audit`'i açıkça vererek): *denetlediği şeyi kendisi kuran test hiçbir şey denetlemez*. Yapıcı kendi raporladı; testler artık **ürünün kurduğu** limiter'ı üretim bütçesiyle sürüyor. Aynı tuzak **bir alan yanında** tekrar bulundu (`Refused: nil` de yeşil kalıyordu) → o da kapatıldı · **imzalı bağlam:** çipin MAC'i sunucuda **bir kez** kontrol ediliyor, sayfaya **tek bit** geçiyor; türetilmiş anahtar + oturum id'si AAD; **dokuz sahtecilik denemesi** reddedildi, sabit zamanlı, TTL 15 dk + kayma fail-closed · **`ctr`/uid bağlamda SEYAHAT EDİYOR** (ikisi de adres çubuğunda zaten var), **CMAC etmiyor** — tersini söyleyen üç yer düzeltildi · §5 satır 3 (oturumsuz/iptal → 303, `transactions` sabit) ve satır 4 (deaktif çalışan canlı oturumla **sayfayı görüyor**, kaydı POST'a kalıyor) canlıda doğrulandı · **fontlar self-host** (6 woff2, **79.032 bayt**, latin+latin-ext Maltaca için, 2 OFL + sha256 provenance; **mutlak URL 0**) · `/static` dizin listelemesi kapatıldı, tap yanıtlarına **CSP**, `watchPosition` **0** · 933 test 0 SKIP, `internal/sun` %96.7 |
-| M5-05 | POST /api/checkin: orkestrasyon | todo | **§4.3/4.4/4.6** |
+| M5-05 | POST /api/checkin: orkestrasyon | **done** | `b82c9f2` · **iki denetçi ONAY** · **M3+M4 İLK KEZ gerçek HTTP isteğiyle çalıştı**; §5'in **yedi satırı da** uçtan uca kanıtlandı (güvenlik denetçisi altısını **kendi HTTP sondasıyla** yeniden üretti) · **🔴 ölçülmüş bloklayan:** seed'li tenant'ta `policies`/`policy_versions` **0/0** → baseline katmanlı kararlar **`23503`**; guardrail satırları (1–5) yazılabiliyordu çünkü `version_id NULL` taşıyor → **delik tam olarak satır 6–7'deydi: sıradan `ok` ve `flag`, ANA YOL**. M7-03 hiç çalışmamış. Çözüm: **ilk ihtiyaçta idempotent materyalizasyon** (uuid-v5 türetilmiş id → conflict hedefi **var olan kısıt**, migration yok; `policy_versions` append-only korunuyor, `max version_no = 1`). Alternatif ("gürültülü başarısız ol") ya tap'i düşürmeye (§4.6) ya da o tenant'taki **her** tap'i review'a göndermeye indirgeniyordu · **🔴 N5 KAPANDI** — `tap.Input` iki tenant'ı taşıyor, `sys:tenant-mismatch` **ateşliyor** (403, iki tenant'ta da **0 satır**, yabancı `last_ctr` sabit, gövdede yabancı id/uid/mekân adı **yok**; kararı **guardrail** veriyor, FK değil) · **F1 (denetimden):** advance karşılaştırmadan **ÖNCE** ve **yabancı tenant'ın RLS bağlamında** koşuyordu → çapraz-tenant tap yabancı `last_ctr`'ı **900→901** yapıyor, o tenant'ta **hiç iz bırakmıyordu**; karşılaştırma öne alındı · **yapıcı state.md'nin N5 ifadesini DÜZELTTİ:** beslenmemiş hâlde *yazma* çapraz-tenant `ok` üretmezdi — `transactions_tag_fk` **23503** → 500 → **kayıt kaybı**; şema **sessiz bir ikinci ağdı** ve izolasyon ihlalini §4.6 kaybına çeviriyordu · **🔁 en değerli bulgu bir KANIT boşluğu (bu sınıf oturumda 3. kez):** üretim yazma yolundaki **gerçek TOCTOU** tüm suite'i **yeşil bıraktı** — `internal/sun` `AdvanceCounter`'ı kanıtlıyor, bu paket tap'in doğru kayıtla bittiğini kanıtlıyor, ama **çağırdığını pinleyen hiçbir şey yoktu**; mutasyon ikisinin **arasından** geçti (80 ms pencere → **12/12 SUN-valid**). Çözüm: yarışı daha çok test etmek **değil**, **çağrıyı pinlemek** (tam 1 `AdvanceTagCounter`, doğru tenant/uid/ctr, tag tenant'ının `WithTenant`'ı içinde) · **F2:** `sys:tap-freshness` **ÖLÜYDÜ** (`tap:pageAgeSeconds` beslenmiyordu); beslendi — bandı varsayılanlarla **boş** (TTL 900 == eşik 900), bu yüzden hiçbir test yakalamamıştı; M5-10 pencereyi daraltınca **erişilebilir** olacak · **F3:** N3 wiring'i **yanlışlanamazdı** (harness debounce'u varsayılana eşitti → mutasyon yeşil); harness 120 sn'ye çekildi · **F4:** dört verdict damga sınıfı **derlenen CSS'e hiç girmiyordu** (Tailwind globları **Go dosyalarını taramıyor**) → literaller `.templ`'e taşındı · **K1:** sıfır-zaman nöbetçisi `0001-01-01T00:00:00Z` ile çakışıyordu → `OccurredAt` **pointer** oldu · N1/N2 (16 sahte alan yok sayıldı)/N4 + `ErrUnknownTag` + `entered_by` + `sys:occurred-at-bound` hepsi ayrı kanıtlı · **dayanıklılık:** 9 düşmanca girdi (yıl 9999/yıl 1/±23:59 offset/±180/denormal float) → **hepsi 200 + tam bir satır, hiç 500 yok**; politika katmanı zorla düşürülünce **kayıt yine yazılıyor** (`flag`/`default`) · dokümanlar `redirect`/`ignore` beyan **edemiyor** → tenant politikası tap'i **susturamaz** · 1033 test 0 SKIP, tap %97.0 / sun %96.7 |
 | M5-06 | Onay ekranı ve marka mesajları | todo | |
 | M5-07 | Mini tur ve practice tap | todo | |
 | M5-08 | QR kanalı | todo | |
@@ -495,13 +520,77 @@ yazılır.
 | M9-06 | Policy simülatörü | todo | Q22 — M6-10'dan ertelendi |
 | M9-07 | Ham JSON politika editörü | todo | Q22 — M6-09'dan ayrıldı |
 
-**Özet:** 82 görev · done 45 · wip 0 · blocked 0 · skipped 1 · todo 36 · **M0+M1+M2+M3+M4 TAMAM · M5 4/10 · sıradaki M5-05**
+**Özet:** 82 görev · done 46 · wip 0 · blocked 0 · skipped 1 · todo 35 · **M0+M1+M2+M3+M4 TAMAM · M5 5/10 · sıradaki M5-06**
 
 ---
 
 ## Oturum günlüğü
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
+
+### 2026-07-31 (5. oturum) — **M5-05 done** · 🎉 **uçtan uca check-in ÇALIŞIYOR**
+
+`b82c9f2`. İki denetçi ONAY. **M3+M4 ilk kez gerçek bir HTTP isteğiyle çalıştı** — policy motoru,
+10 guardrail ve `tap.Decide` bugüne kadar yalnız saf paket olarak, tablo testleriyle kanıtlanmıştı.
+**§5'in yedi satırı da uçtan uca kanıtlandı**; güvenlik denetçisi altısını **kendi HTTP sondasıyla**
+yeniden üretti.
+
+**Ölçülmüş bloklayan — ürünün en sık yolunda saklıydı.** Seed'li tenant'ta `policies`/`policy_versions`
+**0/0**'dı → baseline katmanlı kararlar `23503`. Guardrail satırları (§5 1–5) **yazılabiliyordu**,
+çünkü onlar `policy_version_id NULL` taşıyor. Yani delik tam olarak **satır 6 ve 7'deydi: sıradan `ok`
+ve `flag`, ana yol.** M7-03 hiç çalışmamıştı. Çözüm: **ilk ihtiyaçta idempotent materyalizasyon**
+(uuid-v5 türetilmiş id → conflict hedefi **var olan kısıt**, migration yok; append-only korunuyor).
+"Gürültülü başarısız ol" alternatifi ya tap'i düşürmeye (§4.6) ya da o tenant'taki **her** tap'i
+review'a göndermeye indirgeniyordu — ikisi de ölçümle gösterildi.
+
+**🔴 N5 KAPANDI.** `tap.Input` iki tenant'ı taşıyor, `sys:tenant-mismatch` ateşliyor: **403**, iki
+tenant'ta da **0 satır**, gövdede yabancı id/uid/mekân adı yok (denetçi yabancı mekâna "SECRET RIVAL
+VENUE" adını verip sıfır sızıntı ölçtü), ve kararı **guardrail** veriyor — FK değil.
+İki denetim deliğin kendisinden fazlasını buldu:
+- **F1:** `advance`, karşılaştırmadan **ÖNCE** ve **yabancı tenant'ın RLS bağlamında** koşuyordu →
+  çapraz-tenant tap yabancı `last_ctr`'ı **900→901** yapıyor, o tenant'ta **hiç iz bırakmıyordu**.
+- **Yapıcı bizim N5 ifademizi düzeltti:** beslenmemiş hâlde *yazma* çapraz-tenant `ok` **üretmezdi** —
+  `transactions_tag_fk` **23503** → 500 → **kayıt kaybı**. Şema **sessiz bir ikinci ağdı** ve bir
+  izolasyon ihlalini §4.6 kaybına çeviriyordu. İkisi de ölçüldü.
+
+**🔁 En değerli bulgu bir KANIT boşluğuydu — ve bu sınıf oturumda üçüncü kez çıktı.** Güvenlik
+denetçisi üretim yazma yolundaki atomik ilerletmeyi **gerçek bir TOCTOU'ya** çevirdi ve
+**tüm suite yeşil kaldı**. Sebep: `internal/sun` `AdvanceCounter`'ın N yarışçıyı tek kazanana
+indirdiğini kanıtlıyor, `checkin` tap'in doğru kayıtla bittiğini kanıtlıyor — ama **tap yolunun onu
+ÇAĞIRDIĞINI** pinleyen hiçbir şey yoktu; mutasyon **ikisinin arasından** geçti. Yeşil kalmasının tek
+sebebi `SELECT→UPDATE` penceresinin milisaniye-altı olmasıydı: 80 ms'ye genişletilince **12/12 tap
+SUN-valid** oldu.
+> **Doğru çözüm yarışı daha çok test etmek değil, ÇAĞRIYI PİNLEMEKTİR.** Yapıcı bunu iki kez
+> ölçtükten sonra seçti (bariyerli ve bariyersiz HTTP yarışı, ikisi de bozuk şekle karşı yeşil kaldı):
+> tüketici tarafında sayan bir arayüz → "tam 1 `AdvanceTagCounter`, şu tenant/uid/ctr ile, tag
+> tenant'ının `WithTenant`'ı içinde". Denetçinin mutasyonu birebir kurulunca artık **RED**.
+> agent-brief'e yazıldı.
+
+**Üç ölü/yanlışlanamaz koruma daha bulundu:**
+- **`sys:tap-freshness` ÖLÜYDÜ** — `tap:pageAgeSeconds` hiç beslenmiyordu. Beslendi. Bandı
+  varsayılanlarla **boş** (TTL 900 == eşik 900) — **hiçbir testin yakalamamasının sebebi buydu**;
+  M5-10 pencereyi daraltınca erişilebilir olacak. İki cevap **türce farklı**: TTL kaydedilmeyen 400,
+  guardrail **kaydedilen reject** (§4.6).
+- **N3 wiring'i yanlışlanamazdı:** harness debounce'u `DefaultParams()` ile **aynıydı** → wiring silinince
+  test yeşil kalıyordu. **Dejenere değer**, "kendi kurduğu nesne"nin akrabası. Harness 120 sn'ye çekildi.
+- **Dört verdict damga sınıfı derlenen CSS'e hiç girmiyordu** — Tailwind globları **Go dosyalarını
+  taramıyor** ve `StampClass()` repodaki tek Go-tarafı sınıf literaliydi. `app.css` gitignore'da olduğu
+  için hata yalnız **taze build'de** görünüyordu; denetçinin yöntemi bu yüzden buldu.
+
+**Dayanıklılık (denetçi ölçümü):** 9 düşmanca girdi şekli (yıl 9999, yıl 1, ±23:59 offset, ±180
+koordinat, üstel ve denormal float) → **hepsi 200 + tam bir satır, hiç 500 yok**; **politika katmanı
+zorla düşürülünce kayıt YİNE yazılıyor** (`flag`/`default`). §4.6 tuttu. Dokümanlar `redirect`/`ignore`
+beyan **edemiyor** → bir tenant politikası tap'i **susturamaz**.
+
+**Ayrıca:** sıfır-zaman nöbetçisi `0001-01-01T00:00:00Z` ile çakışıyordu (denetçi **bir saniye
+ötedeki pozitif kontrolle** gösterdi) → `OccurredAt` **pointer** oldu, "beyan edildi mi" ile "neydi"
+artık aynı değeri paylaşmıyor.
+
+**Yöntem tuzağı (agent-brief'e yazıldı):** çıplak `go test ./...` **her DB testini sessizce SKIP**
+ediyor; yalnız `make test` gerçek Postgres'e karşı koşuyor. "0 SKIP" iddiası hangi komutla ölçüldüğü
+söylenmeden anlamsız.
+
+**Sıradaki: M5-06** (onay ekranı) — M5-05 geçici bir `pages.Result` bıraktı.
 
 ### 2026-07-31 (5. oturum) — **M5-04 done** (tap sayfası)
 
