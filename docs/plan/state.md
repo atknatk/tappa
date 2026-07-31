@@ -29,7 +29,7 @@
 | **Sıradaki görev** | **M5-02** — [Davet ve aktivasyon akışı](m5-tap-akisi.md#m5-02--davet-ve-aktivasyon-akışı) (Q02). Davet linki → tek kullanımlık kod → oturum çerezi (`session.Issue` + `Cookies.Set` hazır). **§5 satır 3 buraya bağlanır** (oturum yok → kayıt YAZILMADAN aktivasyon sayfası) · GDPR Art. 13 metni · WiFi adımı (Q14) · davet kodu **loglanmaz** (§4.7) ve kendi dar oran sınırı olur (M5-03'ün geniş tap sınırına girmez). Q02 cevapsızsa akışı kodla, gönderimi arayüz ardına al — ama "kodu panelde göster" **kalıcı çözüm değil** (Y-D, ADR 0005). **🔴 M5 boyunca uygulanacak devirler** (aşağı "M4/M5'e devralınan"): N5 tenant-mismatch (BLOKLAYAN, M5-03/M5-05), N1 tap:sunValid, N2 channel sunucu-türetimi, N3 debounce→Params, N4 Decision→sütun sadakati (M5-05), ErrUnknownTag güvenlik olayı, manuel entered_by (M5-05). **+ M5-01'den yeni devirler:** aşağı "M5-02/M5-03'e devralınan". |
 | **Çalışma modu** | Orkestrasyon + üçüncü göz — [README.md](README.md) · brief'ler [agent-brief.md](agent-brief.md) |
 | **Dal** | **`main`** — M0 (`m0-bootstrap`) `main`'e fast-forward birleştirildi (`562f021`), dal silindi. **Kullanıcı kararı (2026-07-25): artık doğrudan `main`'de çalışılır, görev başına dal açılmaz** (CLAUDE.md §10 güncellendi). Push/PR yine istemedikçe yok. |
-| **Blokeler** | Yok (M2-02 için bekleyen karar yok). **Bekleyen kullanıcı eylemi:** arm64 Go kurulumu (aşağı bak) — hiçbir şeyi bloklamıyor. |
+| **Blokeler** | Yok. **Bekleyen kullanıcı eylemleri → [docs/backlog.md](../backlog.md)** (B1 iPhone/Q11 ölçümü, B2 arm64 Go kurulumu) — **ikisi de hiçbir şeyi bloklamıyor**. Q02 (davet kanalı) M5-02'yi bloklamaz; kart cevapsız hâli için yol gösteriyor. |
 
 **Bir sonraki oturum ne yapmalı:** **M2-02** … **[TAMAMLANDI — M2 kapandı, aşağıki "ŞU AN" M3-02'yi gösterir]**.
 M3 sırası: M3-02 (şema) → M3-03 (belge modeli + doğrulama) → M3-04 (değerlendirici) → **M3-05
@@ -202,27 +202,18 @@ engellemek için GRANT'tan DELETE'i çıkarmak **YETMEZ** (GRANT yalnız ekler) 
 yaptı). **M1-06 `transactions`/`audit_log` için bu ZORUNLU** (§4.3 immutable: `REVOKE
 UPDATE, DELETE` + trigger). Ampirik doğrulandı: REVOKE'suz DELETE başarıyla koşuyordu.
 
-### ⏳ Bekleyen kullanıcı eylemi — Q11 ölçümü (gerçek iPhone)
+### ⏳ Bekleyen kullanıcı eylemleri → **[docs/backlog.md](../backlog.md)**
 
-**M5-01 kodla kapatıldı ama Q11 AÇIK ve kod bunu kapatamaz.** Ölçüm gerçek bir iPhone ister:
-plakete dokun → Safari açılır → aktive ol → **günler/haftalar sonra** aynı telefonla tekrar dokun →
-çerez hâlâ duruyor mu. Sunucu tarafı hazır ve ölçümden bağımsız (`Set-Cookie`, `HttpOnly`,
-`SameSite=Lax`, `Max-Age=31536000`) — **kod tasarımı sonuca göre değişmez**, o yüzden M5-01 `done`
-sayıldı ve kart bunu kabul kriteri olamayacağını gerekçesiyle yazıyor. Ölçüm gerçekte şunu sınar:
-Safari ITP altında **sunucunun yazdığı httpOnly** çerez 1 yıl yaşıyor mu (JS ile yazılan çerezler
-7 güne kırpılır; sunucu-yazımı httpOnly çerez bu kırpmaya tabi **değil** — doğrulanması gereken bu).
-Sonuç `open-questions.md` Q11'e yazılır. Uçtan uca gerçek cihaz testi zaten M8-05'te.
-"Telefon seni tanır" vaadi buna dayanıyor.
+Kullanıcının yapabileceği (ajanın kodla kapatamayacağı) işler artık **tek yerde**:
+[docs/backlog.md](../backlog.md). Buraya kopyalama — çelişirler.
 
-### ⏳ Bekleyen kullanıcı eylemi — arm64 Go kurulumu
+- **B1 — iOS Safari çerez ömrü ölçümü (Q11).** Gerçek iPhone ister. **Hiçbir şeyi
+  bloklamıyor:** M5-01 sunucu tarafı ölçümden bağımsız, bu yüzden kabul kriteri olamadı
+  (kart düzeltmesi 2026-07-31). Sonuç `open-questions.md` → Q11'e yazılır.
+- **B2 — arm64 Go kurulumu (Q26).** `sudo` ister. **Hiçbir şeyi bloklamıyor** — her şey
+  amd64 Go 1.26.5 ile yeşil; kazanç yalnız yerel derleme/test hızı.
 
-Q26 kararı: yerel toolchain arm64'e geçecek. **Repo işini bloklamıyor** — her şey
-amd64 Go 1.26.5 ile yeşil; kazanç yalnız yerel derleme/test hızı (Rosetta ~2-3x
-yavaş). Orkestratör go.dev tarball'ını indirdi ve **checksum'ı go.dev ile birebir
-doğruladı** (`efb87ff2…`), ama `/usr/local`'a kurulum **sudo parolası** ister —
-kullanıcı çalıştırmalı. Komutlar oturum notunda. Yapılınca `go version` →
-`darwin/arm64` olur ve ilk `make gen` bir kez uzun sürer (build cache + pinli CLI
-önbellekleri tazelenir — bozukluk değil).
+**Kullanıcı "backlog ekle" derse madde oraya yazılır.**
 
 **Not:** M0-05 (ilk commit) sıradan **öne alındı** — kullanıcı "arada commit at"
 dedi. Bundan sonra her onaylanan görevin ardından bir commit atılır.
