@@ -4,15 +4,20 @@
 > güncellenir ([README.md](README.md) → oturum protokolü, adım 6.4).
 > Görev kartlarına durum işareti konmaz.
 
-**Son güncelleme:** 2026-07-26 (4. oturum — compact sonrası devam; **🏁 M4 KİLOMETRE TAŞI TAMAM 7/7**)
+**Son güncelleme:** 2026-07-31 (5. oturum — **M5 başladı, M5-01 done**)
 
-> **🏁 M4 (tap karar motoru) TAMAM — 2026-07-26, 4. oturum.** M4-01→M4-07, hepsi builder→üçüncü göz
-> (M4-03/M4-07 + tappa-security-auditor R6/R8), hepsi `main`'de, ağaç temiz, `make check`+`make audit`
-> yeşil. Commit'ler: M4-01 `f791f91` · M4-02 `860fcd8` · M4-03 `bfbbf77` · M4-04 `703d3d1` · M4-05
-> `63f6b4a` · M4-06 `a82dfa8` · M4-07 `c5536be`. `internal/domain/tap` kapsamı %96.7. **Sıradaki:**
-> "ŞU AN" → **M5-01** (internal/session — yeni kilometre taşı). **🔴 M5 için BLOKLAYAN devir (N5):**
-> tap.Decide tenant-farkındalıksız → M5 Input'u TagTenantID/SessionTenantID ile besleyip
-> `sys:tenant-mismatch`'i ateşlemeli (çapraz-tenant deliği). N1–N5 + ErrUnknownTag "M4/M5'e devralınan"da. Kritik durum sohbette kalmıyor.
+> **M5-01 done — 2026-07-31, 5. oturum.** `internal/session` teslim edildi (`a71e1b2`), **iki denetçi
+> ONAY** (genel üçüncü göz 3. turda + `tappa-security-auditor` kapanış turunda). **Beş tur sürdü ve iki
+> RED gördü — ikisi de AYNI SINIFTAN:** *dosya, sağlamadığı bir güvenlik garantisini yorum olarak beyan
+> ediyordu.* (1) `Token` unexported alanda `%v/%+v/%#v/slog` ile ham token basıyordu (`fmt`,
+> `CanInterface()==false` olunca `Formatter/Stringer/LogValuer`'ı **atlar**) → `struct{ v *string }`.
+> (2) `Cookies` sıfır değeri prod'da **`Secure`'suz** çerez yazıyordu (Go'da yasak olan alanı
+> *adlandırmaktır*, `T{}` yazmak değil) → kutup çevrildi, `struct{ insecure bool }`. **Ders M5-02…M5-10
+> boyunca geçerli:** bir yorum "hiçbir çağıran X yapamaz" diyorsa X **harici paketten denenmiş** olmalı;
+> denenmediyse *sınır* olarak yazılır. **Sıradaki:** "ŞU AN" → **M5-02** (davet + aktivasyon). **🔴 M5
+> için BLOKLAYAN devir (N5) HÂLÂ AÇIK:** tap.Decide tenant-farkındalıksız → M5-03/M5-05 Input'u
+> TagTenantID/SessionTenantID ile besleyip `sys:tenant-mismatch`'i ateşlemeli (çapraz-tenant deliği).
+> N1–N5 + ErrUnknownTag "M4/M5'e devralınan"da. Kritik durum sohbette kalmıyor.
 
 ---
 
@@ -20,8 +25,8 @@
 
 | | |
 |---|---|
-| **Kilometre taşı** | **M0 + M1 + M2 + M3 + M4 TAMAM** ✅ (M4 tap karar motoru 7/7). → sıradaki **M5 — [Tap akışı](m5-tap-akisi.md)** |
-| **Sıradaki görev** | **M5-01** — [internal/session: oturum yaşam döngüsü](m5-tap-akisi.md#m5-01--internalsession-oturum-yaşam-döngüsü) (Q11). Oturum token üretimi/doğrulama — **hash saklanır, token değil** (§7); kalıcı oturum (§handoff — çalışan kendi telefonu). Yeni kilometre taşı — **M5 kartını ([m5-tap-akisi.md](m5-tap-akisi.md)) baştan oku.** **🔴 M5 boyunca uygulanacak devirler** (aşağı "M4/M5'e devralınan"): N5 tenant-mismatch (BLOKLAYAN, M5-03/M5-05), N1 tap:sunValid, N2 channel sunucu-türetimi, N3 debounce→Params, N4 Decision→sütun sadakati (M5-05), ErrUnknownTag güvenlik olayı, manuel entered_by (M5-05). Bekleyen kullanıcı kararı: Q11 (oturum süresi) kontrol et. |
+| **Kilometre taşı** | **M0 + M1 + M2 + M3 + M4 TAMAM** ✅ · **M5 — [Tap akışı](m5-tap-akisi.md) BAŞLADI (1/10)** |
+| **Sıradaki görev** | **M5-02** — [Davet ve aktivasyon akışı](m5-tap-akisi.md#m5-02--davet-ve-aktivasyon-akışı) (Q02). Davet linki → tek kullanımlık kod → oturum çerezi (`session.Issue` + `Cookies.Set` hazır). **§5 satır 3 buraya bağlanır** (oturum yok → kayıt YAZILMADAN aktivasyon sayfası) · GDPR Art. 13 metni · WiFi adımı (Q14) · davet kodu **loglanmaz** (§4.7) ve kendi dar oran sınırı olur (M5-03'ün geniş tap sınırına girmez). Q02 cevapsızsa akışı kodla, gönderimi arayüz ardına al — ama "kodu panelde göster" **kalıcı çözüm değil** (Y-D, ADR 0005). **🔴 M5 boyunca uygulanacak devirler** (aşağı "M4/M5'e devralınan"): N5 tenant-mismatch (BLOKLAYAN, M5-03/M5-05), N1 tap:sunValid, N2 channel sunucu-türetimi, N3 debounce→Params, N4 Decision→sütun sadakati (M5-05), ErrUnknownTag güvenlik olayı, manuel entered_by (M5-05). **+ M5-01'den yeni devirler:** aşağı "M5-02/M5-03'e devralınan". |
 | **Çalışma modu** | Orkestrasyon + üçüncü göz — [README.md](README.md) · brief'ler [agent-brief.md](agent-brief.md) |
 | **Dal** | **`main`** — M0 (`m0-bootstrap`) `main`'e fast-forward birleştirildi (`562f021`), dal silindi. **Kullanıcı kararı (2026-07-25): artık doğrudan `main`'de çalışılır, görev başına dal açılmaz** (CLAUDE.md §10 güncellendi). Push/PR yine istemedikçe yok. |
 | **Blokeler** | Yok (M2-02 için bekleyen karar yok). **Bekleyen kullanıcı eylemi:** arm64 Go kurulumu (aşağı bak) — hiçbir şeyi bloklamıyor. |
@@ -85,6 +90,40 @@ DOLDURUR. Aşağıdakiler doldurulmazsa guardrail **sessizce** ateşlemez (eksik
   (tag çözümünden tenant + oturumdan tenant). M4-03 bunu doğru şekilde M5'e erteledi (Decide karar taklidi
   yapmıyor); ama M5 bunu sağlamazsa delik açık kalır — **belt-and-braces değil, tek gerçek engel.** Ayrıca (düşük):
   Decide her redirect'i `RedirectActivation`'a eşliyor → M5 tenant-mismatch redirect'ini aktivasyondan ayırabilir.
+
+### M5-02 / M5-03'e devralınan (M5-01 denetimlerinden, bloklamayan)
+
+1. **🔑 Deaktif çalışanın çerezi CANLI oturum olarak çözülmeye devam eder** (3. tur denetçisi, en önemlisi).
+   Bilinçli: `resolve_session_by_token_hash` `employees.status` döndürmez ve deaktivasyon oturumları
+   **iptal etmemelidir** (aşağı md. 2). Sonuç: **tap yolu dışındaki** her kimlik doğrulayan yüzey
+   (M5-03 middleware, ileride herhangi bir çalışan sayfası) `employees.status`'ü **kendisi** kontrol
+   etmek zorunda. Tap yolunda otorite `sys:employee-deactivated` guardrail'idir; başka yerde otorite yok.
+2. **Deaktivasyon (M6-05) `RevokeAllForEmployee`'yi ÇAĞIRMAZ.** Denetçi kanıtladı: `decide.go:96`
+   `CtxEmployeeStatus`'ü doğrudan `Employee.Status`'ten kurar ve `sys:employee-deactivated` yalnız ona
+   bakar → iptal reddetmeye hiçbir şey **katmaz**, yalnız §4.6 kayıp koşulunu üretir (guardrail sırası:
+   `sys:no-session` **#6**, `sys:employee-deactivated` **#7** → iptali "oturum yok"a çeviren çağıran
+   önce redirect alır, **kayıt yazılmaz**). Meşru çağıranlar: çalınan/kayıp telefon, M5-02 ikinci aktivasyon.
+3. **`Verify` API tuzağı — `if err != nil { aktivasyon }` YANLIŞ.** `ErrNoSession` için doğru,
+   **`ErrRevoked` için değil**: `Verify` iptalde **dolu `Resolved`** döndürür (çağıran §5 satır 4'ü
+   uygulayıp kaydı yazabilsin). Sözleşme `manager.go`'da 3 adımda yazılı. Tip zorlaması **bilinçli
+   yapılmadı**: `(Resolved, Outcome, error)` şekli çağıran Outcome'u kaçırırsa iptal edilmiş çerezi
+   CANLI sayar = **fail-open auth bypass**; bugünkü en kötü hâl fail-closed'dır.
+4. **`sessions.revoked_at` UPDATE ile NULL'a çekilebilir** (kapanış denetçisi, canlı ölçüm: `tappa_app`
+   olarak `UPDATE sessions SET revoked_at=NULL` → 1 satır). `tappa_app`'in tablo geneli UPDATE'i
+   `last_used_at` için **gerekli**, sütun-düzeyi grant bu ayrımı ifade edemez. Gönderilen 5 sorgunun
+   hiçbiri yapmıyor (`COALESCE` yalnız ileri yönlü) ve kural `db/queries/sessions.sql`'de yazılı:
+   `revoked_at` NULL → non-NULL, asla geri. **Yapısal fix bir trigger'dır ve YENİ migration ister**
+   (00003 immutable, §6) — M6/M7'de değerlendirilir. Şu an koruma dosya disiplininde, DB'de değil.
+5. **`config.Load` `BaseURL`'ü doğrulamıyor** (2. kapsam genişlemesinden bilinçli kaçınıldı). `NewCookies`
+   **prefix testi** yapar, URL parse etmez → başında boşluk olan veya URL olmayan `BaseURL` NOT-Secure
+   dalına düşer (**non-prod'la sınırlı**; prod koşulsuz Secure). M5-03/M8 config sertleştirmesinde ele alınır.
+6. **`TAPPA_ENV` YOKLUĞU hâlâ sessizce `dev`** — enum yalnız *yanlış* değeri reddeder, *eksik* olanı değil
+   (kasıtlı varsayılan). TLS sonlandıran proxy arkasındaki prod'da operatör `TAPPA_ENV`'i unutur ve
+   `TAPPA_BASE_URL`'i iç http adresinde bırakırsa çerez Secure'suz gider. Bugün sömürülebilir değil
+   (`NewCookies`'in test dışı çağıranı yok). Kalan savunma **operasyoneldir** → M8 deploy denetimi.
+7. **`DeviceInfo` sınırı UA'yı ENGELLEMEZ, yalnız sütunu sınırlar.** Bilinçli olarak **kısa** bir user
+   agent bu sınırdan geçer. M5-02 `r.UserAgent()`'ı **doğrudan geçirmemeli** (§7: dış girdi handler
+   sınırında doğrulanır) — kaba etiket türetmeli.
 
 ### M2-04'e devralınan not (M2-01 denetiminden, N3)
 SV2 içindeki `ctr`'nin byte sırası ADR/skill'de açıkça sabitlenmedi (bilinçli) → **M2-04/M2-07
@@ -162,6 +201,18 @@ engellemek için GRANT'tan DELETE'i çıkarmak **YETMEZ** (GRANT yalnız ekler) 
 **`REVOKE DELETE ON <tablo> FROM tappa_app;`** gerekir (M1-04 sessions/employees böyle
 yaptı). **M1-06 `transactions`/`audit_log` için bu ZORUNLU** (§4.3 immutable: `REVOKE
 UPDATE, DELETE` + trigger). Ampirik doğrulandı: REVOKE'suz DELETE başarıyla koşuyordu.
+
+### ⏳ Bekleyen kullanıcı eylemi — Q11 ölçümü (gerçek iPhone)
+
+**M5-01 kodla kapatıldı ama Q11 AÇIK ve kod bunu kapatamaz.** Ölçüm gerçek bir iPhone ister:
+plakete dokun → Safari açılır → aktive ol → **günler/haftalar sonra** aynı telefonla tekrar dokun →
+çerez hâlâ duruyor mu. Sunucu tarafı hazır ve ölçümden bağımsız (`Set-Cookie`, `HttpOnly`,
+`SameSite=Lax`, `Max-Age=31536000`) — **kod tasarımı sonuca göre değişmez**, o yüzden M5-01 `done`
+sayıldı ve kart bunu kabul kriteri olamayacağını gerekçesiyle yazıyor. Ölçüm gerçekte şunu sınar:
+Safari ITP altında **sunucunun yazdığı httpOnly** çerez 1 yıl yaşıyor mu (JS ile yazılan çerezler
+7 güne kırpılır; sunucu-yazımı httpOnly çerez bu kırpmaya tabi **değil** — doğrulanması gereken bu).
+Sonuç `open-questions.md` Q11'e yazılır. Uçtan uca gerçek cihaz testi zaten M8-05'te.
+"Telefon seni tanır" vaadi buna dayanıyor.
 
 ### ⏳ Bekleyen kullanıcı eylemi — arm64 Go kurulumu
 
@@ -307,7 +358,7 @@ yazılır.
 
 | ID | Görev | Durum | Commit / not |
 |---|---|---|---|
-| M5-01 | internal/session: oturum yaşam döngüsü | todo | Q11 |
+| M5-01 | internal/session: oturum yaşam döngüsü | **done** | `a71e1b2` · **iki denetçi ONAY** (genel üçüncü göz **3. turda** + `tappa-security-auditor` kapanış turu) · **5 tur, 2 RED, ikisi de aynı sınıf: "yorum, kodun sağlamadığı garantiyi beyan ediyor"** · **RED-1** `Token` unexported alanda `%v/%+v/%#v/slog` ile ham token bastı (`fmt`, `CanInterface()==false` olunca `Formatter/Stringer/LogValuer` **atlar**) → `struct{ v *string }`; kapanış denetçisi **17 taşıyıcı × 18 render = 306 ölçüm, 0 sızıntı** + pozitif kontrol (çıplak `string` 18'in 13'ünde sızdı) · **RED-2** `Cookies` sıfır değeri (`var c`, `Cookies{}`, yazılmamış struct alanı — Go'da yasak olan alanı **adlandırmaktır**) prod'da `Set` **ve** `Clear`'da Secure'suz çerez yazdı → kutup çevrildi `struct{ insecure bool }`; 3. tur denetçisi **17 sıfır-değer yolu + 99 Env×BaseURL** kombinasyonunu yenemedi · `Verify` **tek sorgu** gerçek Postgres'te iki yolla ölçüldü (`pg_stat_user_tables` Δ + `log_statement=all`) · RLS izolasyonu **non-vacuous** (3 denetçi ayrı ayrı `DISABLE ROW LEVEL SECURITY` → RED → geri) · 5 sorguda açık `tenant_id`, DELETE yetkisi `f` · §5 satır 3/4 **korundu**: `Verify` iptalde **dolu `Resolved` + `ErrRevoked`** · sqlc çıktısı bağımsız yeniden üretilip **bayt bayt** eşleşti · kapsam **%94.0** (`deviceLabel`, `NewCookies`, `Secure` %100) · **kapsam genişlemesi:** `TAPPA_ENV` kapalı küme (`internal/config`) · **migration YOK** (00003 zaten var) · **Q11 AÇIK** (gerçek iPhone — yukarı) · 7 devir → "M5-02/M5-03'e devralınan" |
 | M5-02 | Davet ve aktivasyon akışı | todo | Q02 |
 | M5-03 | Middleware: gerçek IP, tenant, oran sınırı | todo | |
 | M5-04 | GET /t: tap sayfası | todo | skill tappa-brand |
@@ -369,13 +420,68 @@ yazılır.
 | M9-06 | Policy simülatörü | todo | Q22 — M6-10'dan ertelendi |
 | M9-07 | Ham JSON politika editörü | todo | Q22 — M6-09'dan ayrıldı |
 
-**Özet:** 82 görev · done 41 · wip 0 · blocked 0 · skipped 1 · todo 40 · **M0+M1+M2+M3+M4 TAMAM · sıradaki M5 (tap akışı)**
+**Özet:** 82 görev · done 42 · wip 0 · blocked 0 · skipped 1 · todo 39 · **M0+M1+M2+M3+M4 TAMAM · M5 başladı (1/10) · sıradaki M5-02**
 
 ---
 
 ## Oturum günlüğü
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
+
+### 2026-07-31 (5. oturum) — **M5-01 done · M5 başladı (1/10)**
+
+`internal/session` teslim (`a71e1b2`): token üretimi/doğrulama/yenileme/iptal + çerez kodeği + 5
+tenant-kapsamlı sqlc sorgusu. **Migration yazılmadı** — `sessions` 00003'te RLS beşlisi ve
+`REVOKE DELETE` ile zaten tam; uygulanmış migration'a dokunulmadı (§6).
+
+**Beş tur sürdü. İki RED ve ikisi de AYNI SINIFTAN — bu oturumun asıl çıktısı bu ders:**
+> **Bir yorum "hiçbir çağıran X yapamaz / yapısal olarak imkânsız" diyorsa, X harici bir paketten
+> DENENMİŞ olmalıdır. Denenmediyse iddia değil, *sınır* yazılır.**
+1. **RED-1 (genel denetçi):** `Token` **unexported bir alanda** taşındığında `fmt`
+   `Formatter/Stringer/GoStringer/LogValuer`'ı **atlıyor** (`CanInterface()==false`) ve `%v/%+v/%#v` +
+   `slog` **ham token'ı** basıyordu — oysa `token.go` bunun "yapısal olarak imkânsız" olduğunu yazıyordu
+   ve testi yalnız **exported** alanlı sarmalayıcıyı deniyordu (bu yüzden yeşildi ve hiçbir şey
+   kanıtlamıyordu). Fix: `type Token struct{ v *string }` → dolaylılık adres bastırır. XOR-maske
+   alternatifi §7 ("paket seviyesi singleton yok") gerekçesiyle reddedildi; `func`-alan comparability'yi
+   bozardı. **Bedeli kaydedildi:** `==` artık **kimlik**, değer değil (sonuçları fail-closed).
+2. **RED-2 (`tappa-security-auditor`):** `cookie.go` *"no caller can produce a non-Secure session cookie
+   in production"* diyordu; ama **Go'da yasak olan alanı ADLANDIRMAKTIR, `T{}` yazmak değil** →
+   `var c session.Cookies` (paketin **kendi** harici testinin kullandığı idiom!) `secure=false` verip
+   `Set` **ve** `Clear`'da Secure'suz çerez yazıyordu. Fix: **kutup çevirme** → `struct{ insecure bool }`,
+   sıfır değer **fail-closed**. Tehlikeli durum artık *kazara temsil edilemez*.
+
+**Denetim derinliği (hepsi denetçilerin kendi komutlarıyla, yapıcının testlerinden bağımsız):**
+`Verify`'ın **tek sorgu** oluşu gerçek Postgres'te **iki ayrı yolla** (`pg_stat_user_tables` deltası +
+marker'lar arasına bracket'lenmiş `log_statement=all`) · RLS izolasyonu **üç denetçi tarafından ayrı ayrı**
+`ALTER TABLE sessions DISABLE ROW LEVEL SECURITY` → test RED → geri açıp `pg_class` ile ölçerek doğrulama ·
+sızıntı için **306 hücrelik matris + pozitif kontrol** (çıplak `string` aynı harness'ta 18 render'ın
+13'ünde sızdı → sonda kör değil) · **17 sıfır-değer yolu** (embedded alan, kanal, `reflect.Zero`,
+map-eksik-anahtar, `append` büyümesi…) × `Set`+`Clear` · **99 `Env`×`BaseURL`** kombinasyonu ·
+sqlc çıktısının bağımsız yeniden üretilip **bayt bayt** diff'lenmesi (elle düzenleme yok).
+
+**§5 satır 3 vs satır 4 — kartla gerçeğin çeliştiği yer, gerekçeli çözüldü.**
+`resolve_session_by_token_hash` `employees.status` **döndürmüyor** (00003:189-205) → kartın "tek sorgu"
++ "deaktive anında geçersiz" ikilisi literal olarak sağlanamaz. Session katmanı **gerçeği taşır, karar
+vermez**: `Verify` iptalde **dolu `Resolved` + `ErrRevoked`** döndürür ki çağıran §5 satır 4'ü (reject +
+**KAYIT** + uyarı) uygulayabilsin. Aksi hâlde satır 4 satır 3'e (aktivasyon, **kayıt yok**) çökerdi ve
+deneme iz bırakmadan kaybolurdu (§4.6). Guardrail sırası bunu doğruluyor: `sys:no-session` **#6**,
+`sys:employee-deactivated` **#7**. Kart bir "Kart düzeltmesi" bloğuyla düzeltildi — kriter
+**zayıflatılmadı, yeri değişti** ve düşürülen garantinin karşılığı üç maddeyle gösterildi.
+
+**Kapsam genişlemesi (bilinçli, işaretli):** `TAPPA_ENV` kapalı küme `{dev,staging,prod}` oldu
+(`internal/config`) — `NewCookies` artık `IsProd()` okuduğu için env bir **güvenlik niteliği**;
+`TAPPA_ENV=production` insana doğru görünür ama `IsProd()`'u false yapar. Değiştirmeden önce mevcut tüm
+değerler tarandı (`.env`, `.env.example`, Makefile, compose, CI → hepsi `dev` veya unset) — hiçbir şey kırılmadı.
+
+**Ayrıca:** `DeviceInfo` sınırlandı (≤64 rune, geçerli UTF-8, Cc/Cf/Zl/Zp **ham dizede, trim'den ÖNCE**
+reddedilir → konum önemsiz); **reddeder, kırpmaz** (sessiz kırpma = sessiz kabul, §7). Yapıcının ilk
+taslağı 120'ydi ve **kendi testi dekoratif olduğunu yakaladı** (gerçek Chrome UA 117 rune, altından
+geçiyordu).
+
+**Kalan:** Q11 **AÇIK** (gerçek iPhone — "Bekleyen kullanıcı eylemi"). 7 devir notu →
+"M5-02/M5-03'e devralınan"; en önemlisi **deaktif çalışanın çerezi canlı oturum olarak çözülmeye devam
+eder** → tap dışındaki her kimlik yüzeyi `employees.status`'ü kendisi kontrol etmeli.
+**Sıradaki: M5-02** (davet + aktivasyon; §5 satır 3 oraya bağlanıyor).
 
 ### 2026-07-26 (4. oturum, compact sonrası) — **M4-07 done · 🏁 M4 KİLOMETRE TAŞI TAMAM (7/7)**
 
