@@ -104,3 +104,54 @@ func TestLoad_DebounceRange(t *testing.T) {
 		})
 	}
 }
+
+// TestLoad_EnvIsAClosedSet: TAPPA_ENV feeds IsProd, which internal/session reads
+// to decide whether the session cookie carries Secure. A typo must be a startup
+// failure, not a silent downgrade to the base-URL heuristic.
+func TestLoad_EnvIsAClosedSet(t *testing.T) {
+	t.Run("accepts every documented value", func(t *testing.T) {
+		for _, v := range []string{config.EnvDev, config.EnvStaging, config.EnvProd} {
+			setRequired(t)
+			t.Setenv("TAPPA_ENV", v)
+			c, err := config.Load()
+			if err != nil {
+				t.Fatalf("TAPPA_ENV=%q should load: %v", v, err)
+			}
+			if c.Env != v {
+				t.Fatalf("Env = %q, want %q", c.Env, v)
+			}
+			if got, want := c.IsProd(), v == config.EnvProd; got != want {
+				t.Fatalf("TAPPA_ENV=%q IsProd() = %v, want %v", v, got, want)
+			}
+		}
+	})
+
+	t.Run("unset falls back to the dev default", func(t *testing.T) {
+		setRequired(t)
+		t.Setenv("TAPPA_ENV", "")
+		c, err := config.Load()
+		if err != nil {
+			t.Fatalf("an unset TAPPA_ENV must keep loading: %v", err)
+		}
+		if c.Env != config.EnvDev {
+			t.Fatalf("default Env = %q, want %q", c.Env, config.EnvDev)
+		}
+	})
+
+	t.Run("rejects near misses", func(t *testing.T) {
+		// "production" is the one that matters: it reads as correct to a human
+		// and makes IsProd() false.
+		for _, v := range []string{"production", "Prod", "PROD", "prd", "develop", "test", "live", " prod"} {
+			setRequired(t)
+			t.Setenv("TAPPA_ENV", v)
+			_, err := config.Load()
+			if err == nil {
+				t.Errorf("TAPPA_ENV=%q was accepted; it must be a startup failure", v)
+				continue
+			}
+			if !strings.Contains(err.Error(), "TAPPA_ENV") {
+				t.Errorf("TAPPA_ENV=%q error does not name the variable: %v", v, err)
+			}
+		}
+	})
+}

@@ -54,6 +54,16 @@ func Load() (*Config, error) {
 		}
 	}
 
+	// Env is a CLOSED SET because it is a security attribute, not a label.
+	// IsProd is exact string equality, and internal/session reads it to decide
+	// whether the session cookie gets Secure. TAPPA_ENV=production (or Prod, or a
+	// typo) would make IsProd false, and a deployment that believes it is in
+	// production would fall through to the base-URL heuristic. That is precisely
+	// the "silent default" this package's doc comment forbids, so it is a startup
+	// failure instead. The set is closed rather than open-with-a-warning: a new
+	// environment name should be a deliberate edit here, next to IsProd.
+	push(validEnv(c.Env))
+
 	c.DatabaseURL = os.Getenv("DATABASE_URL")
 	if c.DatabaseURL == "" {
 		push(errors.New("DATABASE_URL is required"))
@@ -94,7 +104,52 @@ func Load() (*Config, error) {
 	return c, nil
 }
 
-func (c *Config) IsProd() bool { return c.Env == "prod" }
+// EnvDev, EnvStaging and EnvProd are the only values TAPPA_ENV may take. Load
+// rejects anything else; see the check in Load for why this is closed.
+const (
+	EnvDev     = "dev"
+	EnvStaging = "staging"
+	EnvProd    = "prod"
+)
+
+// envValues is the closed set, in the order the error message lists them.
+var envValues = []string{EnvDev, EnvStaging, EnvProd}
+
+func validEnv(v string) error {
+	for _, ok := range envValues {
+		if v == ok {
+			return nil
+		}
+	}
+	return fmt.Errorf("TAPPA_ENV: must be one of %s, got %q", strings.Join(envValues, ", "), v)
+}
+
+// IsProd reports whether this process runs in production. Callers use it to pick
+// security defaults (internal/session hardens the session cookie on it), so the
+// comparison is exact and Load guarantees Env is one of envValues.
+//
+// LIMITS, stated because they matter. Two ways this reports false without anyone
+// having chosen it: (1) a Config built as a struct literal — tests, or future
+// wiring that skips Load — bypasses the enum guarantee entirely, and a zero
+// Config reports false; (2) an UNSET or empty TAPPA_ENV falls back to the "dev"
+// default, which is deliberate (a developer must not have to set it) but means
+// "not production" is also the answer when nobody said anything at all.
+//
+// WHAT IS AND IS NOT COMPENSATED — do not repeat the earlier version's mistake of
+// closing this gap by pointing at internal/session. Cookies' zero value is
+// Secure, which covers the case where NO Cookies was constructed at all; it does
+// NOT cover this one, because NewCookies reads a CONSTRUCTED Config and simply
+// believes it. A Config whose Env is missing, misspelled or bypassed takes the
+// non-prod branch, and with a plain-http BaseURL that yields a session cookie
+// without Secure — measured, not assumed. So:
+//
+//   - Load enforces the enum, and therefore rejects a WRONG value;
+//   - nothing here can detect an ABSENT value, since absent is a valid default;
+//   - the remaining defence is operational: a production deployment must set
+//     TAPPA_ENV=prod (and should serve https, which makes BaseURL agree).
+//
+// IsProd is a convenience, never a security boundary by itself.
+func (c *Config) IsProd() bool { return c.Env == EnvProd }
 
 func env(k, def string) string {
 	if v := os.Getenv(k); v != "" {

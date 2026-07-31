@@ -32,10 +32,134 @@ agent `tappa-security-auditor` (milestone sonunda)
 
 **Kabul kriterleri.**
 - Ham token DB'de, log'da, hata mesajında **hiç** yok — testle kanıtlanır.
-- Doğrulama tek sorgu (`GetEmployeeBySessionHash`) ve sabit zamanlı.
-- Deaktive çalışanın oturumu anında geçersiz.
-- **Q11 ölçüldü:** gerçek bir iPhone'da NFC → Safari akışıyla çerez ömrü
-  doğrulandı; sonuç `open-questions.md`'ye yazıldı.
+- Doğrulama **tek sorgu** (`GetEmployeeBySessionHash`); zamanlama yüzeyi
+  gerekçelendirilmiş ve Go tarafında sır karşılaştırması yok (aşağıdaki
+  düzeltme bloğu).
+- Deaktive çalışanın oturumu **anında geçersiz kılınabilir**: iptal yüzeyi
+  (`RevokeSession` / `RevokeSessionsForEmployee`) var, iptal edilmiş oturum
+  sonraki doğrulamada **düşer** — ama *deaktiflik kararı* session katmanında
+  DEĞİL, `sys:employee-deactivated` guardrail'inde kalır (§5 satır 4: kayıt
+  yazılır). Gerekçe aşağıdaki düzeltme bloğunda.
+- **Q11 — kodla karşılanmaz, AÇIK kalır.** Sunucu tarafı (uzun `Max-Age`,
+  `httpOnly`, `Secure`, `SameSite=Lax`) M5-01'de yazıldı ve doğrulandı; gerçek
+  bir iPhone'da NFC → Safari akışıyla çerez ömrünün ölçülmesi **kullanıcının
+  eylemidir** ve M5-01'i bloklamaz. Ölçüm yapılınca sonucu
+  `open-questions.md`'ye yazılır. Ölçüm kod tasarımını değiştirmez; değiştirirse
+  ayrı bir görev açılır.
+
+> **Kart düzeltmesi (2026-07-31, M5-01 uygulaması sırasında).** Üç kriter
+> gerçekle çelişiyordu; üçü de **zayıflatılmadan** yeniden yazıldı.
+>
+> **1) "Tek sorgu" ile "deaktive oturum anında geçersiz" aynı anda tutulamıyor —
+> ve tutulmaya çalışılırsa §5 İHLAL EDİLİR.** Ölçüm:
+> [`00003`](../../db/migrations/00003_create_employees_sessions.sql) satır
+> 189-205'teki `resolve_session_by_token_hash` yalnızca
+> `(id, tenant_id, employee_id, revoked_at)` döndürür — **`employees.status`
+> yok**. Yani o tek sorgu deaktifliği göremez; görebilmesi için ya ikinci bir
+> sorgu ya uygulanmış migration'ın değiştirilmesi gerekirdi (§6: yasak).
+>
+> Asıl mesele performans değil, **doğruluk**: session katmanı deaktif bir
+> oturumu sessizce "oturum yok"a çevirirse, §5 **satır 3** (aktivasyon sayfası,
+> **kayıt YAZILMAZ**) devreye girer ve deaktive çalışanın denemesi **iz
+> bırakmadan kaybolur**. Oysa §5 **satır 4** o denemeyi `reject` + log +
+> güvenlik uyarısı olarak **kayda geçirmeyi** emreder (§4.6 "kayıt asla
+> kaybolmaz"). Karar-yeri hatası bir kırmızı çizgi ihlaline dönüşürdü.
+>
+> **Doğru sınır: session katmanı gerçeği taşır, karar vermez** — 00003'ün
+> `revoked_at` yorumundaki ("iptal kararı domain katmanındadır") ilkeyle birebir
+> aynı. Deaktiflik otoritesi zaten `internal/policy`'nin `sys:employee-deactivated`
+> guardrail'i + `tap.Decide`'dır (M4'te bitti; `tap.Input.Employee` nil ile
+> `deactivated`'ı bilerek ayırır).
+>
+> **Düşürülen garanti neyle karşılanıyor** (M0-02 2. tur dersi — zayıflatma
+> değil, yer değiştirme):
+> 1. Session katmanı `revoked_at`'ı **doğrular**: iptal edilmiş oturum `Verify`
+>    çağrısında `ErrRevoked` alır, `Touch` fail-closed düşer.
+> 2. İptal yüzeyi **var ve testli**: `Revoke`, `RevokeSessionsForEmployee`
+>    (bir çalışanın tüm canlı oturumları, idempotent). Meşru çağıranlar:
+>    **çalınan/kaybolan telefon** ve **ikinci-aktivasyon kararı (M5-02)**.
+>    ⚠️ **Deaktivasyon (M6-05) bunu ÇAĞIRMAZ** — gerekçe aşağıdaki 3. tur ekinde;
+>    bu satır önce "M6-05 çağırır" diyordu ve 3. turda çürütüldü.
+> 3. Tap yolunda otorite **guardrail**'dir: `employees.status` okunur, kayıt
+>    yazılır, uyarı üretilir. Bu yüzden `Verify` iptal durumunda bile
+>    **çözümlenen gerçekleri döndürür** (`Resolved` dolu + `ErrRevoked`) —
+>    çağıran kaydı yazabilsin diye. Kayıt kaybı yolu yapısal olarak kapalı.
+>
+> **2) "sabit zamanlı" kriteri, olmayan bir karşılaştırmayı istiyordu.** Ana
+> arama Postgres'te `sessions.token_hash` UNIQUE indeksi üzerinden yapılır ve bu
+> **sabit zamanlı değildir**. Kabul edilebilir olmasının gerekçesi yazıldı
+> (`internal/session/manager.go`, `Verify` doküman bloğu): aranan değer, sunucu
+> tarafındaki anahtarla üretilmiş bir **HMAC-SHA256 çıktısıdır**. Zamanlama
+> sinyalini gerçek bir satıra doğru yürütmek için saldırganın *hash*'i seçmesi
+> gerekir; hash'i seçmek HMAC'i hesaplamayı, o da anahtarı bilmeyi gerektirir.
+> Çerez değerini serbestçe seçebilir, karşılık gelen hash'i seçemez. Ayrıca
+> komşu hash'ler sızsa bile işe yaramaz: çerez bir **ön-görüntü** taşımak
+> zorundadır. Go tarafında bu pakette **hiçbir sır karşılaştırması yoktur**
+> (eşleştirmeyi DB yapar); eklenecek olursa `crypto/subtle.ConstantTimeCompare`
+> zorunludur (redline R7) — `==` veya `bytes.Equal` değil.
+>
+> **3) "Q11 ölçüldü" bir kabul kriteri olamaz.** Kriter, M5-01'in ancak gerçek
+> bir iPhone'la kapanabileceğini söylüyordu; ölçüm **kullanıcının eylemidir**,
+> yapıcı ajanın erişemeyeceği bir donanım ister ve kod tasarımını
+> değiştirmez — sunucu tarafı zaten `Set-Cookie` + `httpOnly` + `Secure` +
+> `SameSite=Lax` + ~1 yıl `Max-Age` yazıp test eder. Kriter, M5-01'in gerçekten
+> teslim ettiğini söyleyecek ve Q11'i **açık** bırakacak biçimde yeniden yazıldı.
+> `open-questions.md`'ye **dokunulmadı** (orkestratörün).
+>
+> **Dokunulmayan:** Cihaz limiti kart gereği opsiyonel bırakıldı — M5-01 yalnızca
+> sorgu yüzeyini (`ListForEmployee`, `RevokeSessionsForEmployee`) verir, politika
+> uygulamaz.
+>
+> **3. tur eki (aynı gün, `tappa-security-auditor` RED sonrası).** Denetim,
+> 2. turdakiyle **aynı sınıftan** bir hata buldu: dosya, ölçmediği bir garantiyi
+> yorum olarak beyan ediyordu. `cookie.go` "hiçbir çağıran prod'da Secure'suz
+> çerez üretemez" diyordu; **yanlıştı.** `Cookies` alanı `secure bool` olduğu için
+> **sıfır değer = Secure'suz** demekti ve Go, başka bir paketin unexported alanı
+> *adlandırmasını* yasaklar, sıfır değeri **elde etmesini** değil:
+> `var c session.Cookies`, `session.Cookies{}` ve — asıl tehlikelisi — bir handler
+> struct'ında **alanı hiç yazmamak** (Go'da derleme hatası değildir). Üçü de
+> ölçüldü, üçü de `HttpOnly; SameSite=Lax` yazıp **`Secure` yazmıyordu**.
+>
+> **Düzeltme — alanın kutbu çevrildi:** `insecure bool`, `Secure() = !insecure`.
+> Artık **sıfır değer fail-closed (Secure)** ve gevşemeyi yalnız `NewCookies`
+> isteyebilir (tek dal: prod DEĞİL **ve** BaseURL https DEĞİL). "Set/Clear
+> kurulmamış codec'i reddetsin" alternatifi yerine kutup çevirme seçildi: sentinel
+> alan, hata döndürmeyen bir metotta hata yolu ve disiplin gerektirmiyor —
+> tehlikeli durum **kazara temsil edilemez** hâle geliyor. Regresyon testi harici
+> test paketinden yazıldı (üç sıfır-değer yolu + dev/http'nin hâlâ gevşediğini
+> gösteren pozitif kontrol).
+>
+> **Bu turda düzeltilen üç şey daha:** (1) `Token` karşılaştırması artık **kimlik**,
+> değer değil (`*string` sonrası aynı değeri saran iki Token `!=`) — yorum gerçeğe
+> indirildi ve teste bağlandı; sonuç fail-closed, açık değil. (2) **Deaktivasyon
+> oturum iptal ETMEMELİ**: `sys:employee-deactivated` yalnız `employees.status`'e
+> bakar, iptal reddetmeye hiçbir şey katmaz ama her sonraki tap'i `ErrRevoked`
+> dalına iterek §4.6 kayıp koşulunu üretir. `RevokeAllForEmployee`'nin meşru
+> çağıranları çalınan/kaybolan telefon ve M5-02 ikinci-aktivasyon;
+> belge tersine çevrildi (kod değişmedi). (3) `IssueParams.DeviceInfo` **sınırlandı**
+> (≤64 rune, geçerli UTF-8, Unicode `Cc` **ve** `Cf` reddedilir — U+0085 NEL ve
+> U+202E RTL-override dahil —, **kırpma değil RED** — §7 sessiz kabul yasağı;
+> CSV formül enjeksiyonu ve HTML kaçışı bilinçli olarak **bu katmanın işi değil**,
+> sırasıyla M6-07 CSV yazıcısı ve templ şablonu);
+> gerçek UA'lar reddediliyor, meşru kaba etiketler dokunulmadan geçiyor.
+>
+> **Kapsam genişlemesi (agent-brief madde 8):** `TAPPA_ENV` artık **kapalı kümede**
+> doğrulanıyor (`internal/config`, M5-01 kapsamı dışı). Gerekçe: bu değer
+> `IsProd()` üzerinden çerez sertleşmesini seçtiği için artık bir güvenlik
+> nitelidir; `TAPPA_ENV=production` yazımı `IsProd()`'u sessizce false yapardı.
+> Repodaki tüm mevcut değerler tarandı (`.env`, `.env.example` = `dev`; CI hiç
+> set etmiyor → varsayılan `dev`), hiçbiri kırılmadı.
+>
+> **2. tur eki (aynı gün, üçüncü göz RED sonrası).** Bağımsız denetim, bu kartın
+> "ham token hiçbir yerde yok" kriterinin ilk uygulamada **karşılanmadığını**
+> ölçtü: `session.Token`'ı **unexported** bir alanda taşıyan sıradan bir
+> handler struct'ı `%v`/`%+v`/`%#v`/`slog` ile ham değeri basıyordu (`fmt`,
+> `CanInterface()==false` olduğu için `Formatter`/`Stringer`'ı atlar). Düzeltme:
+> değer **dolaylı** tutuluyor (`*string`) → aynı yol artık adres basıyor.
+> Regresyon testi **harici bir test paketinden** (`package session_test`)
+> yazıldı, çünkü hata tam da paket sınırının dışında ortaya çıkıyor. Kalan sınır
+> açıkça yazıldı: kasıtlı `reflect` okuması hâlâ mümkün ve bu "imkânsız" diye
+> belgelenmiyor.
 
 **Tuzaklar.**
 - `SameSite=Strict` NFC → tarayıcı açılışında çerezi göndermeyebilir; `Lax` seç
