@@ -11,6 +11,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/netip"
 	"os"
 	"strconv"
@@ -110,6 +111,8 @@ func Load() (*Config, error) {
 	}
 	if c.TrustedProxies, err = prefixes(env("TAPPA_TRUSTED_PROXIES", "")); err != nil {
 		push(err)
+	} else {
+		push(trustedProxySanity(c.TrustedProxies, c.IsProd()))
 	}
 	// GPS radius and debounce are BOUNDED parameters (ADR 0004 §11): they read the
 	// SAME min/max the policy engine declares, so a red line cannot be widened
@@ -248,6 +251,103 @@ func key32(name string) ([]byte, error) {
 	return b, nil
 }
 
+// trustedProxySanity refuses (in production) or shouts about (everywhere else) a
+// TAPPA_TRUSTED_PROXIES that contains a DEFAULT ROUTE — 0.0.0.0/0 or ::/0.
+//
+// WHY THIS IS NOT PEDANTRY. internal/httpx walks X-Forwarded-For from the right
+// and stops at the first UNTRUSTED address, which is what makes a forged
+// left-hand entry worthless. Trust everyone and there is no untrusted address to
+// stop at: the walk runs off the left end of the chain and returns the entry the
+// CLIENT wrote. Measured in that package, not reasoned about — with 0.0.0.0/0
+// and "X-Forwarded-For: 1.2.3.4, 5.6.7.8" the resolved client is 1.2.3.4. So a
+// default route does not widen the trust boundary, it INVERTS the defence: proof
+// of place (§5: an IP match is 50 of 100 trust points) and every abuse budget's
+// key become caller-chosen. "TrustedProxies=everything" is strictly worse than
+// "TrustedProxies=empty", which ignores the header entirely.
+//
+// PROD IS AN ERROR, NON-PROD IS A WARNING, following this package's own rule that
+// a value which quietly breaks a security property must not be a silent default.
+// A developer may genuinely want to test the proxy path from a container with an
+// address they cannot predict; a production box has a known ingress and no
+// reason for one.
+//
+// WHAT MAKES Bits()==0 SUFFICIENT — and it was NOT sufficient before this round.
+// A check on a value is only as good as its agreement with the code that USES
+// the value, and an audit measured the gap: ::ffff:0.0.0.0/96 reads as Bits()==96
+// here and behaved as 0.0.0.0/0 in the resolver. That is fixed UPSTREAM, in
+// prefixes, by refusing the v4-mapped spelling outright — so by the time this
+// function runs, every range has exactly one writing and "/0" is the only way a
+// SINGLE ENTRY can say "everybody". This check is complete over the values that
+// can reach it BECAUSE of that refusal, not on its own merits.
+//
+// (The same lesson has now cost this repo three findings: HTTPS:// past a
+// lower-case prefix test in M5-01, Cross-Site past a case-sensitive compare in
+// M5-02, and this one. A validator must see the exact form its consumer sees.)
+//
+// LIMITS, stated rather than implied:
+//   - This catches a SINGLE entry that means everybody. A UNION that covers the
+//     space — "0.0.0.0/1,128.0.0.0/1" — is not detected. It takes deliberate
+//     effort rather than one plausible spelling, and detecting coverage across
+//     entries would mean this package deciding how wide an ingress may be.
+//   - A /1, or any range far larger than a deployment's real ingress, is
+//     accepted. How wide is too wide is a deployment fact this package cannot
+//     know, and refusing a legitimate but broad range would be a startup failure
+//     invented out of a guess.
+func trustedProxySanity(ps []netip.Prefix, isProd bool) error {
+	var defaults []string
+	for _, p := range ps {
+		if p.Bits() == 0 {
+			defaults = append(defaults, p.String())
+		}
+	}
+	if len(defaults) == 0 {
+		return nil
+	}
+	const why = "trusting every address makes X-Forwarded-For fully forgeable: the resolver stops at the first UNTRUSTED hop, so with a default route it returns the value the client wrote (proof-of-place is worth 50 trust points, CLAUDE.md §5). List the real ingress addresses instead, or leave it empty to ignore the header entirely"
+	if isProd {
+		return fmt.Errorf("TAPPA_TRUSTED_PROXIES: refusing the default route %s: %s", strings.Join(defaults, ", "), why)
+	}
+	slog.Warn("TAPPA_TRUSTED_PROXIES contains a default route; this would be a startup failure in production",
+		"prefixes", strings.Join(defaults, ", "), "why", why)
+	return nil
+}
+
+// prefixes parses TAPPA_TRUSTED_PROXIES and enforces ONE SPELLING PER RANGE.
+//
+// 🔴 WHY THE 4-IN-6 FORM IS REFUSED RATHER THAN ACCEPTED. A security audit
+// measured the previous arrangement, and it was the sharpest kind of bug: a
+// check and the code it protects looking at two different representations of the
+// same value. internal/httpx used to UNMAP a v4-mapped prefix (::ffff:0.0.0.0/96
+// becomes 0.0.0.0/0 once the mapping's 96 bits come off), while the default-route
+// gate below looked at the RAW prefix and saw Bits()==96. Measured end to end,
+// with real config.Load and real httpx.NewRouter, TAPPA_ENV=prod and an ordinary
+// internet caller as the peer:
+//
+//	0.0.0.0/0                       -> REFUSED
+//	::ffff:0.0.0.0/96               -> loaded, and the CALLER CHOSE ITS OWN ADDRESS
+//	::ffff:10.0.0.1/96              -> loaded, same
+//	127.0.0.1/32,::ffff:0.0.0.0/96  -> loaded, same
+//
+// No error, no warning, and proof-of-place (50 trust points, §5) forgeable by
+// anyone. And the spelling is not exotic: on a dual-stack box an operator SEES
+// their proxy as ::ffff:10.0.0.1 and writes what they see.
+//
+// THE FIX IS TO DELETE THE SECOND REPRESENTATION, not to teach the gate about
+// it. Two options existed. Teaching the gate to unmap would mean the same
+// canonicalisation living in two packages that cannot share code (httpx imports
+// config, so config cannot import httpx without a cycle, and inverting that would
+// make the lowest layer depend on the HTTP router) — two copies of a security
+// rule is how this bug was born. Refusing the form instead means there is exactly
+// ONE way to write any range, so the gate and the resolver cannot look at
+// different things: there is only one thing to look at.
+//
+// THE COST, stated: an operator who writes ::ffff:10.0.0.0/104 now gets a startup
+// error naming the IPv4 form to use instead. That is worse than silently
+// supporting it and far better than the two outcomes it replaces — silently
+// trusting everybody, or (if the unmapping were simply removed) a trusted-proxy
+// entry that matches nothing and is never noticed. internal/httpx DROPS the form
+// as well, so a caller constructing RealIP directly cannot reach the walk with it
+// either; this is the loud half, that is the fail-closed half.
 func prefixes(s string) ([]netip.Prefix, error) {
 	if strings.TrimSpace(s) == "" {
 		return nil, nil // no proxy: RemoteAddr is used verbatim
@@ -257,6 +357,10 @@ func prefixes(s string) ([]netip.Prefix, error) {
 		p, err := netip.ParsePrefix(strings.TrimSpace(part))
 		if err != nil {
 			return nil, fmt.Errorf("TAPPA_TRUSTED_PROXIES: %q: %w", part, err)
+		}
+		if p.Addr().Is4In6() {
+			return nil, fmt.Errorf("TAPPA_TRUSTED_PROXIES: %q: write IPv4 ranges in IPv4 form (%s/%d), not as v4-mapped IPv6: the mapped form is a second spelling of the same range, and a second spelling is how a range slips past the checks on this value",
+				strings.TrimSpace(part), p.Addr().Unmap(), max(p.Bits()-96, 0))
 		}
 		out = append(out, p)
 	}

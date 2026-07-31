@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -20,6 +19,7 @@ import (
 
 	"github.com/atknatk/tappa/internal/audit"
 	"github.com/atknatk/tappa/internal/config"
+	"github.com/atknatk/tappa/internal/httpx"
 	"github.com/atknatk/tappa/internal/invite"
 	"github.com/atknatk/tappa/internal/session"
 	"github.com/atknatk/tappa/web/templates/pages"
@@ -691,7 +691,7 @@ const (
 // anonymous flood starve a legitimate activation (ratelimit.go).
 func (a *Activation) failAttempt(ctx context.Context, ip string, ictx invite.Context, reason string, scope budgetScope) {
 	if scope == againstInvite && ictx.InviteID != uuid.Nil {
-		a.inviteLimiter.charge(ictx.InviteID.String())
+		a.inviteLimiter.Charge(ictx.InviteID.String())
 	}
 	if ictx.TenantID == uuid.Nil {
 		return
@@ -726,7 +726,7 @@ func (a *Activation) overInviteBudget(w http.ResponseWriter, r *http.Request, ip
 		return false
 	}
 	key := ictx.InviteID.String()
-	if a.inviteLimiter.allowed(key) {
+	if a.inviteLimiter.Allowed(key) {
 		return false
 	}
 	// THE REFUSAL ITSELF IS CHARGED, AND THE ROW IS WRITTEN ONCE. An audit found
@@ -740,8 +740,8 @@ func (a *Activation) overInviteBudget(w http.ResponseWriter, r *http.Request, ip
 	// firstOverLimit is true exactly once per window, so the trail records THAT
 	// this invitation was throttled without recording every request that hit the
 	// wall. The count keeps climbing, so the window still expires normally.
-	n := a.inviteLimiter.charge(key)
-	if a.inviteLimiter.firstOverLimit(n) {
+	n := a.inviteLimiter.Charge(key)
+	if a.inviteLimiter.FirstOverLimit(n) {
 		a.record(r.Context(), audit.Event{
 			TenantID: ictx.TenantID,
 			Action:   ActionActivationLimited,
@@ -772,11 +772,11 @@ func (a *Activation) overInviteBudget(w http.ResponseWriter, r *http.Request, ip
 // floodLimit requests from the same address in the window, and behind a reverse
 // proxy "the same address" is everyone (clientIP; M5-03 owns the fix).
 func (a *Activation) flooded(w http.ResponseWriter, r *http.Request, ip, where string) bool {
-	n := a.floodLimiter.charge(ip)
+	n := a.floodLimiter.Charge(ip)
 	if n <= floodLimit {
 		return false
 	}
-	if a.floodLimiter.firstOverLimit(n) {
+	if a.floodLimiter.FirstOverLimit(n) {
 		a.log.Warn("activation flood ceiling reached", "ip", ip, "at", where,
 			"limit", floodLimit, "period", floodPeriod.String())
 	}
@@ -794,11 +794,11 @@ func (a *Activation) flooded(w http.ResponseWriter, r *http.Request, ip, where s
 // measured: an unknown-code flood must not be able to refuse a request that
 // carries a real invitation.
 func (a *Activation) anonFail(ip, where, reason string) {
-	n := a.unknownLimiter.charge(ip)
+	n := a.unknownLimiter.Charge(ip)
 	switch {
 	case n <= unknownLimit:
 		a.log.Info("activation attempt refused", "reason", reason, "at", where, "ip", ip)
-	case a.unknownLimiter.firstOverLimit(n):
+	case a.unknownLimiter.FirstOverLimit(n):
 		a.log.Warn("activation: further unattributable refusals from this address will not be logged this window",
 			"ip", ip, "at", where, "limit", unknownLimit, "period", unknownPeriod.String())
 	}
@@ -939,7 +939,7 @@ func (a *Activation) recordConflict(ctx context.Context, ip string, ictx invite.
 		return
 	}
 	if ictx.InviteID != uuid.Nil {
-		a.inviteLimiter.charge(ictx.InviteID.String())
+		a.inviteLimiter.Charge(ictx.InviteID.String())
 	}
 	a.record(ctx, audit.Event{
 		TenantID: ictx.TenantID,
@@ -1034,30 +1034,6 @@ func (a *Activation) redirect(w http.ResponseWriter, r *http.Request, to string)
 	http.Redirect(w, r, to, http.StatusSeeOther)
 }
 
-// clientIP is the rate-limiter key: the TCP peer address, and NOTHING ELSE.
-//
-// IT DELIBERATELY IGNORES X-Forwarded-For. Reading that header without knowing
-// which hops may set it hands every caller a free choice of rate-limit bucket —
-// and, worse on this product, a free choice of "where I am" (§5: an IP match is
-// worth 50 trust points). The bounded resolver that consults cfg.TrustedProxies
-// is M5-03's job, and internal/httpx/router.go carries the same note about why
-// chi's RealIP is not used.
-//
-// ⚠️ NAMED HAND-OFF TO M5-03, because until it lands this key is not just coarse,
-// it is SHARED. The planned deployment is a single VPS behind a reverse proxy, so
-// r.RemoteAddr is the PROXY for every request on earth: one key for the whole
-// internet. Concretely, until M5-03 resolves the real client address —
-//
-//   - the flood ceiling (the one budget that can refuse a VALID activation) is
-//     global rather than per caller, so a determined outsider can spend it and
-//     make activation unavailable for everyone until the window rolls;
-//   - the unknown budget's log suppression is global too, so one noisy source
-//     silences the logging of everybody else's anonymous refusals.
-//
-// What the budget split already removed is the CHEAP version of that: sixty bad
-// links no longer refuse a real one (ratelimit.go). What remains needs the real
-// client IP, and that is M5-03's work, not a number that can be tuned here.
-// M5-03 must also revisit floodLimit, which was chosen for per-address traffic.
 // originOf reduces a configured base URL to its scheme://host origin, which is
 // the form an Origin header takes. A BaseURL with a path ("https://x/app") would
 // otherwise never match one.
@@ -1069,10 +1045,26 @@ func originOf(base string) string {
 	return u.Scheme + "://" + u.Host
 }
 
+// clientIP is the rate-limiter key for this flow.
+//
+// M5-03 CLOSED THE HAND-OFF THIS FUNCTION USED TO CARRY. It read r.RemoteAddr
+// and nothing else, which behind the planned reverse proxy meant ONE key for
+// every caller on earth: the flood ceiling — the single budget that can refuse a
+// VALID activation — was global, so an outsider could spend it and keep every
+// venue from activating until the window rolled, and the unknown budget's log
+// suppression was global with it.
+//
+// It now asks httpx.ClientIP, the one authority on the client address. That
+// resolver honours X-Forwarded-For ONLY across hops inside cfg.TrustedProxies
+// and walks the chain from the right, so a caller still cannot pick its own
+// bucket — which was always the reason not to read the header naively. The key
+// is httpx.RateKey's, so an IPv6 caller is metered by /64 rather than by an
+// address it can change at will.
+//
+// WHAT REMAINS, stated rather than claimed away: an address is still shared by
+// everyone behind one NAT, so a hostile device on a venue's own wifi can spend
+// that venue's ceiling. No address-keyed budget can do better; the other two
+// budgets exist because of it.
 func clientIP(r *http.Request) string {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
-	return host
+	return httpx.RateKey(httpx.ClientIP(r))
 }

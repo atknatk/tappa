@@ -237,3 +237,115 @@ func TestLoad_EnvIsAClosedSet(t *testing.T) {
 		}
 	})
 }
+
+// TestLoad_TrustedProxiesDefaultRoute measures the gate added in M5-03.
+//
+// WHY IT EXISTS. internal/httpx walks X-Forwarded-For from the right and stops
+// at the first UNTRUSTED hop. Trust everybody and there is no untrusted hop to
+// stop at, so the walk runs off the left end and returns the entry the CLIENT
+// wrote — proof of place (50 trust points, CLAUDE.md §5) and every abuse budget
+// key become caller-chosen. The behaviour itself is measured next door in
+// TestResolveClientIP_DefaultRouteReturnsTheClientsOwnClaim; this test is about
+// the deployment never reaching that state in production.
+func TestLoad_TrustedProxiesDefaultRoute(t *testing.T) {
+	// Every spelling that means "everybody", INCLUDING the ones that only mean it
+	// after the resolver is done with them. The last four are the audit's
+	// blocking finding: this test used to try /0 forms only, so a v4-mapped
+	// prefix — which config saw as Bits()==96 and the resolver treated as
+	// 0.0.0.0/0 — had no row anywhere and shipped.
+	defaults := []string{
+		"0.0.0.0/0", "::/0", "10.0.0.0/8,0.0.0.0/0", "::/0, 127.0.0.1/32",
+		"1.2.3.4/0",                      // /0 with host bits set
+		"::ffff:0.0.0.0/96",              // v4-mapped: 0.0.0.0/0 to the resolver
+		"::ffff:10.0.0.1/96",             // same range, host bits set
+		"127.0.0.1/32,::ffff:0.0.0.0/96", // hidden inside an otherwise sane list
+	}
+
+	t.Run("prod refuses it", func(t *testing.T) {
+		for _, v := range defaults {
+			setRequired(t)
+			t.Setenv("TAPPA_ENV", config.EnvProd)
+			t.Setenv("TAPPA_TRUSTED_PROXIES", v)
+			err := loadErr(t)
+			if err == nil {
+				t.Errorf("TAPPA_TRUSTED_PROXIES=%q was accepted in production", v)
+				continue
+			}
+			if !strings.Contains(err.Error(), "TAPPA_TRUSTED_PROXIES") {
+				t.Errorf("%q: the error does not name the variable: %v", v, err)
+			}
+		}
+	})
+
+	t.Run("non-prod allows it, loudly", func(t *testing.T) {
+		// A developer testing the proxy path from a container cannot always
+		// predict its address. The value is accepted and warned about; the
+		// warning is a log line, so what is asserted here is that the
+		// configuration still loads and carries the prefix.
+		for _, env := range []string{config.EnvDev, config.EnvStaging} {
+			setRequired(t)
+			t.Setenv("TAPPA_ENV", env)
+			t.Setenv("TAPPA_TRUSTED_PROXIES", "0.0.0.0/0")
+			c, err := config.Load()
+			if err != nil {
+				t.Fatalf("TAPPA_ENV=%s: a default route must not be fatal outside production: %v", env, err)
+			}
+			if len(c.TrustedProxies) != 1 || c.TrustedProxies[0].Bits() != 0 {
+				t.Fatalf("TAPPA_ENV=%s: prefixes = %v", env, c.TrustedProxies)
+			}
+		}
+	})
+
+	// The two refusals are NOT the same rule, and the difference is visible in
+	// dev: a default route is a RISK JUDGEMENT (fatal in prod, warned about
+	// elsewhere), while a v4-mapped prefix is an AMBIGUOUS SPELLING and is
+	// refused EVERYWHERE. Ambiguity is never acceptable, because the whole
+	// finding was a check and its consumer disagreeing about what a value meant.
+	t.Run("the mapped spelling is refused even in dev", func(t *testing.T) {
+		for _, v := range []string{"::ffff:0.0.0.0/96", "::ffff:10.0.0.0/104"} {
+			setRequired(t)
+			t.Setenv("TAPPA_ENV", config.EnvDev)
+			t.Setenv("TAPPA_TRUSTED_PROXIES", v)
+			err := loadErr(t)
+			if err == nil {
+				t.Errorf("TAPPA_TRUSTED_PROXIES=%q was accepted in dev", v)
+				continue
+			}
+			// The message has to tell the operator what to write instead, or the
+			// refusal just moves the confusion.
+			if !strings.Contains(err.Error(), "IPv4 form") {
+				t.Errorf("%q: the error does not name the form to use: %v", v, err)
+			}
+		}
+		// Positive control for THIS rule: the same range in IPv4 form loads.
+		setRequired(t)
+		t.Setenv("TAPPA_ENV", config.EnvDev)
+		t.Setenv("TAPPA_TRUSTED_PROXIES", "10.0.0.0/8")
+		if err := loadErr(t); err != nil {
+			t.Errorf("the IPv4 spelling of the same range must load: %v", err)
+		}
+	})
+
+	// POSITIVE CONTROL: the gate must be about /0 and nothing else. A real
+	// ingress list — including the shipped default and a broad-but-finite private
+	// range — has to load in production, or the check would be a startup failure
+	// invented out of a guess.
+	t.Run("real ingress lists still load in prod", func(t *testing.T) {
+		for _, v := range []string{"", "127.0.0.1/32", "10.0.0.0/8", "127.0.0.1/32,10.0.0.0/8,::1/128", "128.0.0.0/1"} {
+			setRequired(t)
+			t.Setenv("TAPPA_ENV", config.EnvProd)
+			t.Setenv("TAPPA_TRUSTED_PROXIES", v)
+			if err := loadErr(t); err != nil {
+				t.Errorf("TAPPA_TRUSTED_PROXIES=%q must load in production: %v", v, err)
+			}
+		}
+	})
+}
+
+// loadErr runs Load and returns only the error, so a caller asserting on
+// acceptance does not have to name the config it is throwing away.
+func loadErr(t *testing.T) error {
+	t.Helper()
+	_, err := config.Load()
+	return err
+}

@@ -733,12 +733,17 @@ oturum çerezi.
 - Gerçek IP yalnızca `cfg.TrustedProxies` içindeki hop'lardan gelen
   `X-Forwarded-For` ile çözülüyor; dışarıdan gelen başlık **yok sayılıyor**
   (aksi halde *proof of place* uydurulabilir).
-- Tenant bağlamı `WithTenant` üzerinden; handler'da elle `SET` yok.
+- Tenant bağlamı `WithTenant` üzerinden; handler'da elle `SET` yok. ⚠️ Bu kriter
+  **klasik bir tenant middleware'i ile karşılanamaz** — tap yolunda tenant
+  çözümlemenin sonucudur (ADR 0002 md. 7). Karşılanma biçimi ve ölçümü aşağıdaki
+  kart düzeltmesi md. 1'de.
 - Oran sınırı: tap uçları için IP + oturum bazlı. Sınır, meşru bir tap'in **asla
-  değemeyeceği** kadar geniş olmalı; aşan istekler `429` alır ve `audit_log`'a
-  yazılır — sessizce düşürülmez. (§4.6 "kayıt asla kaybolmaz" ile çelişmemesi
-  için: sınır bir kötüye kullanım kalkanıdır, meşru mesaiyi eleyen bir filtre
-  değil. Debounce zaten guardrail'de.)
+  değemeyeceği** kadar geniş olmalı; aşan istekler `429` alır ve **tenant
+  çözülmüşse** `audit_log`'a yazılır (pencere başına bir kez), çözülmemişse
+  yapılandırılmış WARN log'una — sessizce düşürülmez. (§4.6 "kayıt asla
+  kaybolmaz" ile çelişmemesi için: sınır bir kötüye kullanım kalkanıdır, meşru
+  mesaiyi eleyen bir filtre değil. Debounce zaten guardrail'de.) ⚠️ `audit_log`'un
+  neden her hâlde yazılamadığı: kart düzeltmesi md. 2.
 - Panik kurtarma zaten var; 500 dönerken tap kaydı kaybolmuyor mu — M5-05'te
   ayrıca ele alınır.
 
@@ -746,6 +751,267 @@ oturum çerezi.
 - `middleware.RealIP` chi'de başlığa **koşulsuz** güvenir. Tappa'da bu yeterli
   değil; `TrustedProxies` ile sınırlı kendi middleware'ini yaz veya RealIP'i
   yalnız güvenli dağıtımda kullan. Bu, denetimde R5 kapsamına girer.
+
+> **Kart düzeltmesi (2026-07-31, M5-03 uygulaması sırasında).** Üç kriterden
+> **biri** gerçekle çelişiyordu, biri **kısmen** karşılanabiliyordu; ikisi de
+> zayıflatılmadan yeniden yazıldı. Gerçek IP kriteri **aynen** karşılandı.
+>
+> **1) "Tenant bağlamı `WithTenant` üzerinden" — ikinci yarısı doğru, ilk yarısı
+> KLASİK BİR TENANT MIDDLEWARE'İ İLE KARŞILANAMAZ.** Ölçüldü, varsayılmadı:
+> `grep -rn 'SELECT set_config' --include='*.go' cmd internal` üretim kodunda
+> **tek** satır döndürüyor (`internal/db/tenant.go:76`, `WithTenant`'ın içi) —
+> yani "handler'da elle `SET` yok" kuralı **tutuyor** ve M5-03 onu bozmadı.
+>
+> Ama tap yolunda tenant **isteğin girdisi değil, çözümlemenin SONUCUdur**
+> (ADR 0002 md. 7): istek bir tag UID'si ve bir oturum çerezi taşır, ikisi de
+> tenant taşımaz; `app.tenant_id` tam da o iki aramanın çıktısıdır. Okunacak bir
+> host/path/başlık yok — uydurulsaydı **çağıran kendi tenant'ını seçebilirdi**,
+> yani §4.5'in engellemek için var olduğu şey olurdu. Bu yüzden "middleware"
+> kelimesini karşılamak için işe yaramaz bir katman **yazılmadı**.
+>
+> **Yerine kurulan mekanizma:** `httpx.Identify` — oturum çerezini istek başında
+> **bir kez** çözer ve **olguları** context'e koyar (`httpx.Identity`);
+> `httpx.SessionTenantID(r)` ile okunur. Karar vermez, yanıt yazmaz, `Touch`
+> etmez. Gerekçe kodda (`internal/httpx/identity.go` başlığı) ve aşağıdaki 4.
+> maddede.
+>
+> **2) "Aşan istek `429` alır ve `audit_log`'a yazılır" — ancak kimlik
+> çözüldükten SONRA mümkün.** `audit_log.tenant_id` **NOT NULL** + `tenants`
+> FK'si (00005); tenant'ı bilinmeyen bir olay **saklanamaz** ve "sistem tenant'ı"
+> uydurulmadı (M5-02 aynı duvara çarptı, `db/queries/audit.sql` gerekçeyi yazıyor).
+> Bir tap isteğinde tenant, oturum çözülene kadar bilinmez. Teslim edilen ayrım:
+> - oturumu çözülmüş istek → **`tap.rate_limited` audit satırı**, pencere başına
+>   **bir kez** (`FirstOverLimit`) + WARN;
+> - oturumsuz istek → yalnız **WARN**, o da pencere başına bir kez.
+>
+> İkisi de bilinçli olarak sınırlı: `audit_log` veritabanı seviyesinde
+> append-only, yani istek başına satır yazan bir 429 dalı **korunan şeye daha ucuz
+> bir saldırı** olurdu (M5-02 bloklayan #1). Ölçüldü: 20 arka arkaya reddedilen
+> istek → **tam 1** satır (`TestTapLimiter_BySession`); mutasyon (`FirstOverLimit`
+> → `true`) testi **kırmızıya** çeviriyor.
+>
+> **3) Tap uçları YOK, bu yüzden middleware MONTE EDİLMEDİ.** `GET /t` ve
+> `POST /api/checkin` M5-04/M5-05'in. `httpx.TapLimiter` yazıldı ve testlendi
+> (`ByAddress` + `BySession`), ama hiçbir rotaya bağlanmadı — var olmayan bir
+> rotanın önüne kalkan koymak, bu dosyanın tutamayacağı bir iddia olurdu. Montaj
+> sırası **sözleşme olarak** `TapLimiter`'ın doküman bloğunda yazılı ve
+> zorunludur:
+> `ByAddress` → `Identify` → `BySession`. Sıra taşıyıcıdır: DB'ye dokunmadan yük
+> atabilen tek yer `Identify`'dan **önce**dir, oturuma göre ölçebilen tek yer ise
+> **sonrası**dır.
+>
+> **4) 🔴 N5 devrinin OTURUM YARISI teslim edildi; TAG yarısı M5-05'te.**
+> `Identity.TenantID()` çözümlenen oturumun tenant'ını taşıyor ve
+> `httpx.SessionTenantID(r)` ile okunuyor (`TestSessionTenantID`). **Delik
+> kapanmadı ve kapandığı iddia edilmiyor:** `sys:tenant-mismatch` ancak
+> `tap.Input` **iki** tenant'ı da taşıdığında ısırır ve tag çözümü istek sınırında
+> yapılmaz (ADR 0002 md. 7, context-less) — o yüzden `TagTenantID` M5-05'in işi.
+> M5-03'ün katkısı, M5-05'in artık besleyecek bir kaynağı olması.
+>
+> **5) `floodLimit` yeniden değerlendirildi (devir gereği) ve bilinçle 600'de
+> BIRAKILDI.** Sayı zaten adres-başına trafiğe göre seçilmişti; değişen **sayı
+> değil ANAHTAR**: `clientIP` artık `httpx.ClientIP`'i soruyor, yani tavan gerçek
+> arayana ait. Düşürme reddedildi (bir NAT'ın arkasındaki tüm mekân tek adresi
+> paylaşır ve bu, **geçerli** bir aktivasyonu reddedebilen tek bütçedir);
+> yükseltme bir şey satın almıyor. **Ölçüldü:** proxy arkasındaki iki istemciden
+> biri tavanı harcadıktan sonra öteki hâlâ **200** alıyor; aynı testin **negatif
+> kontrolü** (çözücüsüz, eski durum) ötekine **429** veriyor
+> (`TestClientIP_ProxiedCallersDoNotShareABucket`). **Kalan sınır yazıldı:** aynı
+> NAT'ın arkasındaki düşmanca bir cihaz o mekânın tavanını harcayabilir — adres
+> anahtarlı hiçbir bütçe bundan iyisini yapamaz.
+>
+> **Kart dışı yan etkiler (kapsam işaretleri):**
+> 1. **Sabit-pencere limiter `internal/httpx`'e taşındı** (`httpx.Limiter`) —
+>    CLAUDE.md §3 oran sınırını httpx'e koyuyor ve tap uçları aynı ilkeli istiyor;
+>    ikinci bir kopya kaçınılmaz olarak sürüklenirdi. `internal/handler` artık
+>    `type limiter = httpx.Limiter` diyor: **üç bütçe, kimin neyi artırdığı ve
+>    neyi reddettiği DEĞİŞMEDİ** (M5-02'nin dar sınırı korunuyor, kart gereği
+>    `/api/activate` geniş tap sınırının kapsamına girmiyor).
+> 2. **`limiterMaxKeys` 20 000 → 100 000.** Gerçek istemci adresleri çözülünce
+>    anahtar kardinalitesi arttı; eski tavan artık ulaşılabilir ve aşıldığında map
+>    **toptan sıfırlanıyor** (fail-open, bilinçli). Bellek **ölçüldü**: 100 bin
+>    canlı pencere = **7.9 MB** heap (go1.26/darwin-amd64, `runtime.MemStats`).
+>    Dağıtık bir kaynağı hiçbir süreç-içi sabit pencere yenemez — o M8'in
+>    paylaşılan store'u.
+> 3. **`httpx.RateKey`: IPv6 `/64` ile kovalanıyor**, IPv4 birebir adresle. Tek bir
+>    IPv6 host'u kendi `/64`'ünden milyarlarca adres kullanır; adres başına bütçe
+>    bütçe değil, davetiyedir. (`TestRateKey_IPv6RotationSharesOneBucket`, pozitif
+>    kontrolüyle.)
+> 4. **Onurlandırılmayan başlıklar SİLİNİYOR.** `RealIP` çalıştıktan sonra
+>    `X-Forwarded-For`, `X-Real-IP`, `True-Client-IP` istekten kaldırılıyor: chi'nin
+>    `RealIP`'inin inanacağı üçlü. Amaç yapısal — bu noktadan sonra istemci adresi
+>    için **tek otorite** `httpx.ClientIP`'tir ve bir handler kazara ham başlığa
+>    uzanamaz.
+> 5. **`tapSessionLimit` ilk taslakta 120'ydi ve kendi testi çürüttü:** 10 dakikada
+>    5 saniyede bir yenilenen bir telefon **tam 120** istek üretir, yani sınır
+>    "meşru akış asla değmez" kriterini karşılamıyordu. 300'e çıkarıldı (2 saniyede
+>    bir istek); aritmetik artık yorum değil **test**
+>    (`TestTapLimiter_DefaultsAreWideEnoughForAShiftChange`).
+>
+> **Açık bırakılan sınırlar (iddia değil, sınır):**
+> - **Ters proxy'nin `X-Forwarded-For`'a EKLEDİĞİ (append) varsayılıyor.** Başlığı
+>   **değiştiren** (replace) bir proxy, istemcinin iddiasını bizim hop'umuzun
+>   imzasıyla teslim eder ve bu taraftan ayırt edilemez. Dağıtım kontrol listesi
+>   maddesi (M8), kod savunması değil.
+> - `Identify` **yetkilendirme kapısı değildir** ve `employees.status`'e bakmaz
+>   (M5-01 devri): tap dışındaki her kimlikli yüzey durumu **kendisi** kontrol
+>   etmek zorunda. Tap yolunda otorite `sys:employee-deactivated` guardrail'idir.
+> - 429 yanıtı **düz metin**; markalı sayfa `tappa-brand` işidir ve yanına
+>   koyulacağı tap ekranı henüz yok (M5-04 isterse değiştirir).
+> - `Retry-After` pencerenin **tamamını** söyler, kalan süreyi değil (sabit pencere
+>   başlangıcını dışa vurmamak için) — fazla söylemek kibar yön.
+> - Oran sınırlayıcı hâlâ **süreç-içi** ve **sabit pencere** (M5-02 devri md. 2
+>   aynen geçerli): iki instance sınırı ikiye katlar, pencere sınırında kısa sürede
+>   2× limit mümkün. Paylaşılan store M8.
+
+> **Kart düzeltmesi (2026-07-31, M5-03 2. tur — üçüncü göz RED sonrası).** Denetim
+> 1. turun IP çözücüsünü kendi ölçümüyle **doğruladı** (26 satırlık kendi tablosu,
+> canlı TCP soketi, obs-fold devam satırı, 100 000 girişli zincir, 6 mutasyon) ama
+> **bir bloklayan** buldu — bu oturumun **altıncı** "yorum, sağlanmayan bir garantiyi
+> beyan ediyor" vakası.
+>
+> **🔴 `strippedHeaders` bir DENYLIST'ti, yorum ise "yapısal" ve "hiçbir handler
+> kazara ham başlığa uzanamaz" diyordu.** Ölçüldü (harici paketten, düzeltmeden
+> **önce**): liste üç isim taşırken **dokuz** başlık handler'a ulaşıyordu —
+> `Forwarded` (RFC 7239 **standardı**, bu dağıtımda değerini yazan hiçbir şey yok →
+> tümüyle istemci kontrollü), `CF-Connecting-Ip`, `X-Client-Ip`,
+> `X-Cluster-Client-Ip`, `Fastly-Client-Ip`, `X-Original-Forwarded-For`,
+> `X-Forwarded`, `Forwarded-For`, `X-Forwarded-Host`. Bugün üretimde bunları okuyan
+> kod **yok** (kendi ölçümüm: üretim Go'sunda okunan istek başlıkları
+> `Sec-Fetch-Site`, `Origin` ve `r.UserAgent()`), yani **canlı açık değildi**; ama
+> iddia yanlıştı ve M5-04 bir satırla doğru yapabilirdi.
+> **Düzeltme iki parçalı:** (a) liste 13 isme genişletildi (Azure/App Engine dâhil);
+> (b) **iddia kapsamına indirildi** — bu bir denylist'tir, bilinmeyen bir satıcı
+> başlığı hayatta kalır; doğru cümle "istemci adresi `ClientIP`'ten gelir, adres
+> için **herhangi** bir başlık okumak yeni bir hatadır". Ölçüm: SURVIVED **9 → 0**;
+> iki mutasyon (silmeyi kaldır / listeyi eski üç isme daralt) testi **kırmızıya**
+> çeviriyor, ve **pozitif kontrol** listenin "her başlığı sil" olmadığını gösteriyor
+> (`X-Forwarded-Host`, `X-Forwarded-Proto`, `Origin`, `Cookie` **geçiyor** —
+> `X-Forwarded-Host` bilinçli kapsam dışı: adres değil host taşır, URL kuran kodun
+> ve M8'in işi).
+>
+> **Bloklamayan dört madde de kapatıldı:**
+> 1. **Tap kalıntısı ADIYLA yazıldı.** 3000/10dk **paylaşılan** adres bütçesini
+>    düşmanca bir cihaz harcarsa o mekânın **meşru tap'leri 429 alır** ve 429 dalı
+>    **ne `transactions` ne `flag`** üretir — istek karar motoruna hiç ulaşmaz.
+>    §4.6 ile gerçek bir gerilim; **çözülmedi, sınırlandı** ve M5-04/M5-05 monte
+>    etmeden **önce** görsün diye `TapLimiter` doküman bloğunun başına kondu.
+>    Kartın *"meşru bir tap'in asla değemeyeceği"* cümlesi M5-02'nin ayrımıyla
+>    düzeltildi: akışın **kendi katkısı** için doğru, **servis edilmesi** için
+>    değil. Aktivasyonda aynı kalıntı var ama bedeli farklı — reddedilen aktivasyon
+>    10 dk sonra tekrarlanır, reddedilen check-in bordroda **eksik saattir**.
+> 2. **`BySession` sözleşmesi artık ZORLANIYOR.** Denetçi ölçtü: `Identify`
+>    unutulunca sıfır `Identity` → `Session.ID == uuid.Nil` → **100/100 istek
+>    ölçülmeden** geçiyordu; dosya sırayı "the contract" diye adlandırıyordu ama
+>    hiçbir şey kontrol etmiyordu. Artık `SessionUnresolved` bir **wiring hatası**
+>    olarak ele alınıyor: **500 + `slog.Error`**, sessiz geçiş yok. ⚠️
+>    **`SessionAbsent` bununla karıştırılmadı** — oturumsuz tap meşrudur (§5 satır 3)
+>    ve **geçiyor**; ayrımı yapan zaten `SessionState`'in sıfır-değer kutbu, ve bu
+>    onun ilk gerçek tüketicisi. İki mutasyon (kontrolü kaldır / `SessionAbsent`'i de
+>    reddet) testi kırmızıya çeviriyor.
+> 3. **Varsayılan rota (`0.0.0.0/0`, `::/0`) artık bir kapıdan geçiyor —
+>    KAPSAM GENİŞLEMESİ, gerekçeli.** Denetçi ölçtü: zincirin tamamı güvenilirse
+>    yürüyüş duracak **güvenilmeyen** adres bulamaz ve **en soldaki** (istemcinin
+>    yazdığı) değeri döndürür — yani "herkese güven" trust sınırını genişletmez,
+>    savunmayı **tersine çevirir**. `internal/config`: prod'da **başlangıç hatası**,
+>    aksi hâlde **gürültülü WARN**. Gerekçe paketin kendi kuralı ("güvenlik niteliği
+>    olan bir değer sessiz varsayılana düşmez"). **Mevcut değerlerin tamamı tarandı**
+>    ve hiçbiri kırılmıyor: `.env` = `127.0.0.1/32` (dev), `.env.example` =
+>    `127.0.0.1/32`, CI **hiç set etmiyor** (→ boş), compose set etmiyor,
+>    `config_test` boş kullanıyor. **Sınır yazıldı:** kapı yalnız `/0` yakalar; `/1`
+>    ya da gerçek ingress'ten çok geniş bir aralık hâlâ kabul edilir — "ne kadar
+>    geniş fazla geniş" bu paketin bilemeyeceği bir dağıtım gerçeğidir. Davranış
+>    `realip.go`'da da yazılı ve **teste bağlandı**
+>    (`TestResolveClientIP_DefaultRouteReturnsTheClientsOwnClaim` + `::/0`'ın IPv4
+>    zincirini **etkilemediğini** gösteren pozitif kontrol).
+> 4. **Terminoloji:** tavan aşılınca dönen değer "innermost" değil, yürünenlerin en
+>    **dıştaki** (outermost) trusted hop'u. Düzeltildi — ve aynı yerde **fazla güçlü
+>    bir cümle** de indirildi: "hiçbir meşru istek oraya çözülmez" **yanlıştı**
+>    (zincirsiz gelen bir proxy health-check'i tam oraya çözülür); doğrusu "hiçbir
+>    **tap** oraya çözülmez".
+>
+> **Mutlak iddia taraması (son tur).** Bu turda değişen dosyalardaki
+> *cannot/never/only/structural* kalıpları tek tek tarandı; ölçülemeyen üç cümle
+> daha indirildi: (a) `SessionTenantID`'nin "çağıran uuid.Nil'i tenant sanamaz"ı →
+> *"ayırt etme yolu vardır; `ok`'u yok saymak bu fonksiyonun engelleyemeyeceği bir
+> tercihtir"*; (b) `BySession`'ın "tenant adlandırabilen tek bütçe"si → *"bu montaj
+> sırası altında tek"* (`refuse` kimliği her iki dalda da kontrol ediyor);
+> (c) hop-cap yorumundaki "yalnız bizim aralığımızı sahteleyen bir çağıran
+> ödeyebilir" → *"ya elli gerçek proxy ya da sahteleyen bir çağıran"*.
+
+> **Kart düzeltmesi (2026-07-31, M5-03 3. tur — `tappa-security-auditor` RED
+> sonrası).** Bulgu **2. turda eklediğim kapının içindeydi** ve yine aynı sınıf
+> (yedincisi).
+>
+> **🔴 Varsayılan rota kapısı EŞDEĞER BİR YAZIMLA atlatılıyordu.**
+> `trustedProxySanity` **ham** prefix'te `Bits()==0` bakıyordu; `httpx` ise bir
+> **4-in-6** prefix'i unmap edip 96 bit çıkarıyordu. Yani `::ffff:0.0.0.0/96`
+> kapıya **96** görünüyor, çözücüde **`0.0.0.0/0`** oluyordu. Gerçek `config.Load`
+> + gerçek `httpx.NewRouter`, `TAPPA_ENV=prod`, peer **sıradan bir internet
+> çağıranı** (`198.51.100.7`), `XFF: 192.0.2.55, 1.1.1.1` — **kendi ölçümüm,
+> denetçininkiyle birebir**:
+>
+> | `TAPPA_TRUSTED_PROXIES` | ÖNCE | SONRA |
+> |---|---|---|
+> | `0.0.0.0/0` | REFUSED | REFUSED |
+> | `::/0` | REFUSED | REFUSED |
+> | `::ffff:0.0.0.0/96` | **yüklendi, client=192.0.2.55** 🔴 | REFUSED |
+> | `::ffff:10.0.0.1/96` | **yüklendi, client=192.0.2.55** 🔴 | REFUSED |
+> | `127.0.0.1/32,::ffff:0.0.0.0/96` | **yüklendi, client=192.0.2.55** 🔴 | REFUSED |
+> | `::ffff:0.0.0.0/104` | yüklendi, client=198.51.100.7 | REFUSED |
+>
+> Prod'da ne hata ne uyarı vardı; tek satırlık bu yazım **§5 satır 6'nın 50 güven
+> puanını** uydurulabilir kılıyordu.
+>
+> **Seçilen tasarım ve gerekçesi (koordinatör iki seçenek verdi; üçüncüsü
+> seçildi).** "Kontrolü normalize et" iki pakette **iki kopya** kanonikleştirme
+> demekti — hatanın kaynağı tam olarak buydu. "Normalizasyonu config'e taşı" tek
+> nokta verirdi ama `httpx` zaten `config`'i import ediyor, yani `config → httpx`
+> **döngü** olurdu; döngüyü kırmak için en alt katmanı HTTP router'ına bağlamak
+> gerekirdi. Bu yüzden **ikinci temsil tümden silindi**: `config.prefixes` 4-in-6
+> yazımını **her ortamda reddediyor** (mesaj IPv4 karşılığını yazıyor),
+> `httpx.acceptPrefixes` ise unmap etmek yerine **düşürüyor** — böylece `RealIP`'i
+> doğrudan kuran bir çağıran da o forma ulaşamıyor. Artık bir aralığın **tek**
+> yazımı var: kapı ile çözücünün farklı şeye bakması **mümkün değil, çünkü
+> bakılacak tek şey var**. Bedeli yazıldı: `::ffff:10.0.0.0/104` yazan operatör
+> artık başlangıçta hata alır (sessizce herkese güvenmekten de, sessizce ölü bir
+> girdiden de iyidir). İki yarı **bağımsız olarak taşıyıcı**: her birini ayrı ayrı
+> geri alan mutasyon (M15, M16) uçtan uca testi **kırmızıya** çeviriyor.
+> **İki kural ayrı:** varsayılan rota bir **risk yargısıdır** (prod hata /
+> prod-dışı WARN); 4-in-6 bir **belirsiz yazımdır** ve **her ortamda** reddedilir.
+> `Bits()==0` kontrolü artık "kendi başına" değil, **bu reddin sayesinde**
+> tamdır ve dosya bunu böyle yazıyor. Test boşluğu kapandı: `::ffff:0.0.0.0/96`,
+> `::ffff:10.0.0.1/96`, `1.2.3.4/0`, karışık liste satırları + uçtan uca
+> (`config.Load`+`NewRouter`) regresyon + gerçek ingress listesinin hâlâ
+> çalıştığını gösteren **pozitif kontrol**.
+>
+> **Genel ders (üçüncü kez):** *bir değeri doğrulayan kontrol, o değeri kullanan
+> kodun gördüğü biçimi görmelidir.* M5-01'de `HTTPS://`, M5-02'de `Cross-Site`,
+> burada `::ffff:`. Ders `config.go`'ya yazıldı.
+>
+> **Bloklamayan üç madde:**
+> 1. **`router.go`'daki indirilmemiş ikiz düzeltildi.** `realip.go`'daki cümleyi
+>    2. turda kapsamına indirmiştim ama `router.go` düz düz *"httpx.ClientIP is the
+>    single authority"* diyordu — repo iki şey söylüyordu. Artık kural olarak
+>    yazılı ve `realip.go`'ya işaret ediyor.
+> 2. **Denylist 13 → 32 isim.** Denetçi **canlı TCP soketinden** ölçtü: 36 adayın
+>    **23'ü** hâlâ handler'a ulaşıyordu — `Client-IP`, `Proxy-Client-IP`,
+>    `WL-Proxy-Client-IP` gibi **klasik listelerin tamamında olan** isimler dâhil,
+>    yani cümle kendi ölçütünü karşılamıyordu. Ölçüm önce/sonra: **23 → 4**, kalan
+>    dördü **bilinçli** (`Via` aracıları adlandırır, `X-Forwarded-Host`/`-Proto`
+>    host ve şema taşır, `Origin` **CSRF kontrolünün girdisidir** — silinseydi
+>    aktivasyon akışı kırılırdı). Bu dördü aynı zamanda **pozitif kontrol**:
+>    "her başlığı sil" mutasyonu (M18) testi kırmızıya çeviriyor. Test artık
+>    elle kurulmuş `http.Header` yerine **gerçek sokete** yazıyor.
+> 3. **`writeTooManyRequests`'in doc bloğu** araya boş satır girmediği için
+>    `writeUnavailable`'a yapışmıştı (godoc 429 gerekçesini 500 yardımcısına
+>    atıyordu); ayrıldı.
+>
+> **Denetçinin doğrulayamadığı nokta (dürüstlük payı, kapatıldı):** `.env` okuma
+> izni olmadığı için "`.env` = `127.0.0.1/32`" iddiasını teyit edememiş. Değer
+> bu turda **yeniden** okundu (yalnız bu değişken yazdırılarak, sır basılmadan):
+> `TAPPA_TRUSTED_PROXIES=127.0.0.1/32`, `TAPPA_ENV=dev` — yani yeni kapı mevcut
+> geliştirme ortamını **kırmıyor**, ki canlı sunucu koşusu da bunu gösteriyor.
 
 ---
 
