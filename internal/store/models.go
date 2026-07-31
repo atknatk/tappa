@@ -70,6 +70,16 @@ type Employee struct {
 	CreatedAt     time.Time
 }
 
+type EmployeeInvite struct {
+	ID         uuid.UUID
+	TenantID   uuid.UUID
+	EmployeeID uuid.UUID
+	CodeHash   string
+	CreatedAt  time.Time
+	ExpiresAt  time.Time
+	UsedAt     *time.Time
+}
+
 type Location struct {
 	ID         uuid.UUID
 	TenantID   uuid.UUID

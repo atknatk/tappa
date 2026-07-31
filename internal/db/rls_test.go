@@ -52,7 +52,7 @@ import (
 // append-only -- to TestRLS_OwnerMutationsHitAppendOnlyTrigger (case 5). Currently
 // covered: tenants, locations, departments, employees, sessions, tags, transactions,
 // audit_log, transaction_reviews, admin_users, admin_sessions, password_resets,
-// policies, policy_versions, policy_attachments.
+// policies, policy_versions, policy_attachments, employee_invites.
 
 // ---------------------------------------------------------------- pools -----
 
@@ -158,6 +158,8 @@ type fixture struct {
 	policyID       uuid.UUID // policies (M3-02 policy engine schema)
 	policyVersID   uuid.UUID // policy_versions (append-only), version_no = 1
 	policyAttachID uuid.UUID // policy_attachments (resource = '*')
+	inviteID       uuid.UUID // employee_invites (M5-02), live and unconsumed
+	inviteCodeHash string    // employee_invites.code_hash (never a code, section 4.7)
 }
 
 func buildFixture(t *testing.T, d *DB) fixture {
@@ -184,6 +186,8 @@ func buildFixture(t *testing.T, d *DB) fixture {
 		policyID:       uuid.New(),
 		policyVersID:   uuid.New(),
 		policyAttachID: uuid.New(),
+		inviteID:       uuid.New(),
+		inviteCodeHash: randCodeHash(t),
 	}
 	fx.vatNumber = "VAT-" + fx.tenantID.String()
 
@@ -250,6 +254,14 @@ func buildFixture(t *testing.T, d *DB) fixture {
 		{`INSERT INTO policy_attachments (id, tenant_id, policy_id, resource)
 		  VALUES ($1, $2, $3, '*')`,
 			[]any{fx.policyAttachID, fx.tenantID, fx.policyID}},
+		// employee_invites (M5-02) -- a live (unconsumed, unexpired) invite for the
+		// fixture's employee. Composite FK (employee_id, tenant_id) -> employees
+		// proves same-tenant. code_hash is 64 random hex chars: the shape 00009's
+		// CHECK demands, and the pre-image of nothing -- the invite CODE exists
+		// nowhere, not even in tests (section 4.7).
+		{`INSERT INTO employee_invites (id, tenant_id, employee_id, code_hash, expires_at)
+		  VALUES ($1, $2, $3, $4, now() + interval '1 hour')`,
+			[]any{fx.inviteID, fx.tenantID, fx.employeeID, fx.inviteCodeHash}},
 	}
 
 	err := d.WithTenant(context.Background(), fx.tenantID, func(ctx context.Context, tx pgx.Tx) error {
@@ -382,6 +394,7 @@ func TestRLS_ReadIsolation_AllTables(t *testing.T) {
 		{"policies", `SELECT count(*) FROM policies WHERE id = $1`, a.policyID},
 		{"policy_versions", `SELECT count(*) FROM policy_versions WHERE id = $1`, a.policyVersID},
 		{"policy_attachments", `SELECT count(*) FROM policy_attachments WHERE id = $1`, a.policyAttachID},
+		{"employee_invites", `SELECT count(*) FROM employee_invites WHERE id = $1`, a.inviteID},
 	}
 
 	for _, tc := range tables {
@@ -556,6 +569,18 @@ func TestRLS_WriteWithCheck_AllTables(t *testing.T) {
 				_, e := tx.Exec(ctx, `INSERT INTO policy_attachments (id, tenant_id, policy_id, resource) VALUES ($1, $2, $3, $4)`, uuid.New(), b.tenantID, b.policyID, "location/"+uuid.NewString())
 				return e
 			}},
+		{"employee_invites", blockRLS,
+			func(ctx context.Context, tx pgx.Tx) error {
+				// tenant_id = A (fails WITH CHECK under B); the composite FK to A's
+				// employee resolves because FK checks bypass RLS, so only WITH CHECK
+				// stands in the way. A fresh code_hash avoids any unique clash masking it.
+				_, e := tx.Exec(ctx, `INSERT INTO employee_invites (id, tenant_id, employee_id, code_hash, expires_at) VALUES ($1, $2, $3, $4, now() + interval '1 hour')`, uuid.New(), a.tenantID, a.employeeID, randCodeHash(t))
+				return e
+			},
+			func(ctx context.Context, tx pgx.Tx) error {
+				_, e := tx.Exec(ctx, `INSERT INTO employee_invites (id, tenant_id, employee_id, code_hash, expires_at) VALUES ($1, $2, $3, $4, now() + interval '1 hour')`, uuid.New(), b.tenantID, b.employeeID, randCodeHash(t))
+				return e
+			}},
 	}
 
 	for _, tc := range tables {
@@ -693,6 +718,49 @@ func TestRLS_PolicyVersion_CompositeFKBlocksCrossTenant(t *testing.T) {
 		return e
 	}); errOwn != nil {
 		t.Fatalf("positive control: A could not add a version to its OWN policy: %v", errOwn)
+	}
+}
+
+// ============================================================================
+// Composite same-tenant FK (M5-02): employee_invites(employee_id, tenant_id) ->
+// employees(id, tenant_id) structurally forbids an invite that activates ANOTHER
+// tenant's employee -- the worst shape this table could take, since consuming such
+// an invite would hand a cross-tenant identity a session. Distinct from WITH CHECK:
+// here tenant_id = B matches the context (WITH CHECK passes), but employee_id points
+// at A's employee, for which no (A's id, B) row exists -> foreign_key_violation. The
+// positive control (B's OWN employee, checked last) proves the FK fails ONLY on the
+// cross-tenant link.
+// ============================================================================
+
+func TestRLS_EmployeeInvite_CompositeFKBlocksCrossTenant(t *testing.T) {
+	app := appDB(t)
+	assertAppRole(t, app)
+
+	a := buildFixture(t, app) // owns the employee we try to borrow
+	b := buildFixture(t, app) // the context we insert under
+
+	errX := app.WithTenant(context.Background(), b.tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		_, e := tx.Exec(ctx,
+			`INSERT INTO employee_invites (id, tenant_id, employee_id, code_hash, expires_at) VALUES ($1, $2, $3, $4, now() + interval '1 hour')`,
+			uuid.New(), b.tenantID, a.employeeID, randCodeHash(t))
+		return e
+	})
+	if errX == nil {
+		t.Fatalf("cross-tenant invite link succeeded, want composite-FK rejection")
+	}
+	if pg := asPgErr(errX); pg == nil || pg.Code != "23503" {
+		t.Fatalf("want foreign_key_violation (23503) for a cross-tenant invite link, got %v", errX)
+	}
+
+	// Positive control (same-tenant, checked last): B inviting its OWN employee
+	// must SUCCEED -- otherwise the rejection above could be for another reason.
+	if errOwn := app.WithTenant(context.Background(), b.tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		_, e := tx.Exec(ctx,
+			`INSERT INTO employee_invites (id, tenant_id, employee_id, code_hash, expires_at) VALUES ($1, $2, $3, $4, now() + interval '1 hour')`,
+			uuid.New(), b.tenantID, b.employeeID, randCodeHash(t))
+		return e
+	}); errOwn != nil {
+		t.Fatalf("positive control: B could not invite its OWN employee: %v", errOwn)
 	}
 }
 

@@ -182,6 +182,20 @@ oturum çerezi.
 - Davet kodu tek kullanımlık, süreli, kullanıldıktan sonra ölü.
 - Aktivasyon `POST /api/activate` → `Set-Cookie` (httpOnly) → çalışan `active`.
 - Kod tahmin edilemez ve **loglanmaz**.
+- **Kod entropisi ≥128 bit — DEĞİLSE katı kilitleme ZORUNLU.** Şema (00009) hiçbir
+  kilitleme durumu taşımaz ve bu yalnızca ≥128-bit kodla savunulabilir. Kod bundan
+  kısaysa (insan okuyan/yazan her biçim dahil) şunlar **birlikte** gerekir: davet
+  ve kaynak IP bazlı **deneme sayacı + kilit damgası** (yeni migration), **kısa
+  TTL**, başarısız her denemenin **`audit_log`'a** yazılması, `/api/activate`'e
+  **kendi dar oran sınırı** (M5-03'ün geniş tap sınırı kapsamaz).
+  ⚠️ **Bunu yakalayacak mekanik bir kontrol YOKTUR:** `code_hash` CHECK'i hash'in
+  **şeklini** sınar, kodun entropisini değil — 6 haneli bir kodun hash'i de
+  64-hex'tir (ölçüldü). Yani bu kriter yalnızca **okunarak** tutulur; kısa koda
+  geçen değişiklik bu maddeyi karşıladığını raporunda **göstermek zorundadır**.
+- **Aktivasyon ⇒ tüketim.** Bir çalışanı `active` yapan tek veri-katmanı yolu
+  `ConsumeInviteAndActivate`'tir (tek ifade: davet tüketilmeden aktivasyon olmaz).
+  B fazı ayrı bir "aktive et" sorgusu **eklemez**; gerekiyorsa (M6 müdür eylemi)
+  ayrı bir görevde, ayrı gerekçeyle gelir.
 - Zaten aktif çalışanın ikinci aktivasyonu: yeni cihaz mı, saldırı mı — davranış
   belirlenmiş ve testli.
 - §5 satır 3 buraya bağlanır: oturum yoksa tap → **kayıt yazılmadan** aktivasyon
@@ -211,6 +225,133 @@ oturum çerezi.
   `audit_log`'a). M5-03'ün tap oran sınırı bilinçli olarak geniş — `/api/activate`
   onun kapsamına **girmez**, kendi dar sınırı olur. 10⁶ uzay + sınırsız deneme +
   15 bekleyen davet = saniyeler içinde ele geçirilen bir kimlik.
+
+> **Kart düzeltmesi (2026-07-31, M5-02 A fazı sırasında).** Görev **iki faza**
+> bölündü (orkestratör kararı) ve kart bunu söylemiyordu; bölünme kriterleri
+> **değiştirmez**, yalnızca hangi fazın hangisini kapattığını sabitler.
+>
+> **A fazı (bitti) — yalnız veri katmanı.** Migration
+> [00009](../../db/migrations/00009_create_employee_invites.sql)
+> (`employee_invites` + RLS beşlisi + `REVOKE DELETE` + çözümleme fonksiyonu),
+> [`db/queries/invites.sql`](../../db/queries/invites.sql) (`CreateInvite`,
+> `ConsumeInviteAndActivate`, `ListPendingInvitesForEmployee` — DELETE sorgusu
+> **yok**, consume-by-id sorgusu **yok**, ayrı "aktive et" sorgusu da **yok**),
+> `internal/db/resolve.go` → `GetInviteByCodeHash`, testler
+> `internal/db/invites_test.go` + `rls_test.go`.
+>
+> **B fazı (açık) — kartın geri kalanı aynen geçerli:** `POST /api/activate`,
+> `Set-Cookie`, aktivasyon sayfası, **GDPR Art. 13 metni**, **WiFi adımı (Q14)**,
+> §5 satır 3 bağlantısı, uç nokta oran sınırı, kodun üretimi/HMAC'i ve Q02 kanalı.
+> Hiçbiri A fazında yapılmadı ve hiçbiri kriterlerden düşürülmedi.
+>
+> **A fazında bağlanan beş karar** (B fazını bağlar):
+>
+> 1. **Entropi dalı seçildi: ≥128 bit — ama bunu ŞEMA ZORLAMIYOR, kabul kriteri
+>    zorluyor.** Tablo bilerek **hiçbir kilitleme durumu taşımıyor** (deneme sayacı /
+>    `locked_until` / IP sütunu yok); bu ancak kriptografik ≥128-bit kod
+>    varsayımıyla doğrudur. `code_hash` bir **biçim CHECK'i** aldı
+>    (`^[0-9a-f]{64}$` — `internal/session`'ın ürettiği hex HMAC-SHA256 şekli) ve
+>    bunun satın aldığı şey **yalnızca şudur: ham, hash'lenmemiş bir kodu sütuna
+>    yazma KAZASI** artık veritabanı tarafından reddediliyor (insan-okuyan kod,
+>    base64url token, büyük harfli hex, yanlış uzunluk → 23514, ölçüldü).
+>    **CHECK entropiyi ÖLÇMEZ** — 6 haneli bir kodun hash'i de tam 64-hex'tir
+>    (ölçüldü: `encode(sha256('123456'::bytea),'hex') ~ '^[0-9a-f]{64}$'` → `t`).
+>    Yani B fazı kısa bir koda geçip onu düzgünce HMAC'lerse **CHECK yeşil kalır,
+>    hiçbir migration gerekmez ve hiçbir mekanik uyarı ateşlenmez.** Bu yüzden
+>    yükümlülük yukarıdaki **kabul kriterine** yazıldı; buradaki blok onu
+>    hatırlatır, zorlamaz. (CHECK'in kendisi
+>    `sessions.token_hash`/`password_resets.token_hash` precedent'inden **bilinçli
+>    sapmadır** — gerekçe: iddiayı yazan dosya onu zorlamak zorundadır.) Uç nokta
+>    oran sınırı ve başarısız denemenin `audit_log`'a yazılması her iki dalda da
+>    **B fazının işi** — şema değil.
+> 2. **Tüketim KOD HASH'i ile anahtarlanır (`id` ile DEĞİL) ve aktivasyonla TEK
+>    İFADEDE birleşiktir** (iki denetim bulgusu, tek çözüm).
+>    `ListPendingInvitesForEmployee` davet `id`'sini tenant içindeki her çağırana
+>    verir; id ile tüketen bir sorgu **kodu bilmeyi gereksiz** kılardı. Ayrı bir
+>    `ActivateEmployee` sorgusu ise "aktive edildi ⇒ bir davet tüketildi"
+>    çıkarımını **çağrı sırasına** bırakıyordu: tenant bağlamındaki bir kod yolu
+>    hiç davet harcamadan istediği çalışanı aktive edebiliyordu (ölçüldü).
+>    İkisi de **silindi**; yerlerine tek atomik ifade geldi:
+>    `ConsumeInviteAndActivate` (data-modifying CTE — tüket, yalnız tüketildiyse
+>    aktive et). Bu katmanda `active` olmanın **başka yolu yok**.
+>    **Deaktif çalışanda davet YANMIYOR — koruma yapısal.** İlk uygulamada
+>    veri-değiştiren CTE koşulsuz çalıştığı için `deactivated` çalışanda damga
+>    yazılıyor, aktivasyon olmuyordu; davet yalnızca çağıran hatayı ilettiği için
+>    (`WithTenant` rollback) kurtuluyordu — yani koruma **disiplindi**. Ölçüldü:
+>    guard'sız ifade COMMIT ile daveti **yakıyor** (`used_at` dolu), guard'lı ifade
+>    **yakmıyor** (`used_at` NULL). Düzeltme: iç CTE'nin `WHERE`'ine
+>    `AND EXISTS (… employees … status IN ('invited','active'))`. Artık hatayı
+>    yutup COMMIT eden dikkatsiz çağıran bile daveti harcayamıyor (test tam da
+>    bunu simüle ediyor: hata yutuluyor, transaction commit ediliyor, davet hâlâ
+>    tüketilmemiş ve sonradan başarıyla harcanabiliyor).
+>    **Çift kontrol bilinçli:** CTE'deki `EXISTS` **damgayı**, dıştaki
+>    `status IN (…)` **aktivasyonu** korur; ikincisi bir YARIŞ koruyucusudur
+>    (READ COMMITTED yeniden değerlendirmesi), tekrar değil.
+>    **Kalan pencere yazıldı (ölçüldü):** deaktivasyon tam da CTE ile dış UPDATE
+>    arasında commit ederse damga yazılır ve commit eden çağıran kodu boşa harcar
+>    — ama **aktivasyon yine olmaz** (fail-closed); en kötü sonuç yanmış bir kod,
+>    yetkisiz aktivasyon değil. Pencereyi kapatmak için `EXISTS (… FOR SHARE)`
+>    denendi ve **ölçülerek reddedildi**: aynı çalışanın iki eşzamanlı
+>    aktivasyonunu kilit yükseltmesinde **deadlock**'a sokuyor
+>    (`ERROR: deadlock detected`, 40P01).
+>    Panelden **iptal** ayrı bir işlemdir ve `used_at`'i yeniden kullanamaz
+>    ("kod kullanıldı" demektir); M6 gerektirdiğinde kendi sütununu yeni bir
+>    migration'da alır. Akış: resolve (bağlamsız) → `WithTenant` → tek ifade;
+>    açık `tenant_id` yüklemi **her iki yarıda da** korundu (§4.5 kuşak+kemer).
+> 3. **"Kullanıldıktan sonra ölü" = damga, silme DEĞİL.** Tüketim `used_at`
+>    damgasıdır; satır **uygulama tarafından silinemez** (`REVOKE DELETE`, ampirik:
+>    `has_table_privilege('tappa_app','employee_invites','DELETE')` = `f`), çünkü
+>    "hangi kod bu kişiyi ne zaman aktive etti" bir denetim izidir (§4.6).
+>    **Garantinin kapsamı yazıldı:** bu `tappa_app`'i bağlar, `tappa_owner`'ı
+>    (migration superuser) bağlamaz — onu da kapatmak 00005'teki gibi bir trigger
+>    ister, ama 00005'in trigger'ı UPDATE'i de yasakladığı için burada
+>    kullanılamaz (`used_at` yazılabilir kalmalı); bilinçli non-goal,
+>    `sessions`/`employees` precedent'iyle aynı.
+>    **UPDATE artık SÜTUN düzeyinde:** `GRANT UPDATE (used_at)` — tablo geneli
+>    UPDATE, dosyanın hiç anmadığı iki yazmaya daha izin veriyordu (süresi geçmiş
+>    daveti `expires_at`'i ileri alarak **diriltmek**, `employee_id`'yi aynı tenant
+>    içinde **başka çalışana kaydırmak**); üçü de artık `permission denied`
+>    (ölçüldü). `sessions`/`tags`'ten bilinçli sapma — orada birden çok meşru
+>    yazılabilir sütun var, burada tek. **Kalan sınır:** sütun grant'ı hangi
+>    sütunun yazılacağını sınırlar, hangi DEĞERİN yazılacağını değil —
+>    `used_at := NULL` (un-consume) hâlâ yetki düzeyinde mümkündür; onu tutan tek
+>    şey sorgu disiplinidir, yapısal olması trigger ister (yeni migration).
+>    Tek-kullanımlık **atomiktir** (`ConsumeInviteAndActivate`, §4.4 kalıbı);
+>    50 goroutine → tam 1 kazanan, ve testin boş yere yeşil olmadığını gösteren
+>    **negatif kontrol** aynı dosyada (oku-sonra-yaz 8 kazanan üretiyor).
+> 4. **İkinci aktivasyon: veri katmanı karar VERMEZ, ama bir şeyi yapısal olarak
+>    kapatır.** `ConsumeInviteAndActivate` `status IN ('invited','active')` ister:
+>    zaten aktif çalışanın ikinci aktivasyonu bu katmanda hata değildir (kararı B
+>    fazı verir), ama **`deactivated` çalışan bir davetle geri aktive edilemez** —
+>    aksi halde müdürün deaktivasyon kararı bir linkle dolanılabilirdi. Ayrıca
+>    `activated_at` **ezilmez** (`COALESCE`), ilk aktivasyon damgası korunur.
+>
+> 5. **"Süresiz davet" iki türlü yazılır; ikisi de kapatıldı, üçüncüsü sınır
+>    olarak yazıldı.** `expires_at NOT NULL` yalnız **atlanan** süreyi engeller;
+>    ilk taslakta `expires_at = 'infinity'` sorunsuz insert oluyordu ve
+>    `now() < 'infinity'` sonsuza dek doğru — yani gerçekten ölümsüz bir davet
+>    (ölçüldü, varsayılmadı). `CHECK (expires_at <> 'infinity')` eklendi.
+>    **Hâlâ yazılabilen:** sonlu ama saçma bir tarih (9999). O bir **TTL politikası**
+>    sorusudur ve TTL kararı B fazınındır; B fazı üst sınırı yapısal isterse **yeni
+>    bir migration**'da sınırlı bir CHECK ekler. `-infinity` bilerek serbest: "zaten
+>    süresi dolmuş" demek, fail-closed. Test: `TestEmployeeInvites_ExpiryCannotBeAbsent`.
+>
+> **Kart dışı yan etkiler (kapsam işaretleri):**
+> 1. Çözümleme sorgusu sayısı 2 → 3 oldu, bu yüzden **ADR 0002 madde 7**
+>    güncellendi (karar değişmedi; sayı garanti değil, beş normatif kısıt garanti
+>    — üçüncüsü beşini de canlı katalogda karşılıyor).
+> 2. **`scripts/redline-check.sh` R7 deseni genişletildi** (güvenlik denetçisi
+>    bulgusu): `code[_a-z]*hash` ve yapılandırılmış log anahtarı `"code",` eklendi.
+>    Gerekçe: bu tasarımda `code_hash` bir **taşıyıcı (bearer)** kimlik bilgisidir
+>    (hash → resolver → tenant → tüketim), yani hash'i loglamak kodu loglamakla
+>    aynı ağırlıktadır; eski desen bu satırları **kaçırıyordu** (ölçüldü).
+>    **Desen KELİMEYİ değil DEĞERİ hedefler** — ilk deneme çıplak
+>    `[^a-z]code[^a-z]` idi ve iki masum satırı (`"reason", "code expired"` ve
+>    `fmt.Errorf("… invalid activation code: %w", …)`) FAIL veriyordu; bu, ağın
+>    **aşınmasına** (baskı altında gevşetilmesine) davetiyeydi. Yeni desen:
+>    dört gerçek sızıntı satırını yakalıyor, iki masum satırı **geçiriyor**, temiz
+>    repoda `exit 0` (üçü de ölçüldü). Sınır: `"hash"`/`"c"` gibi bir anahtar
+>    altında loglanan değer yakalanmaz (değişken adı `codeHash` ise yakalanır).
 
 ---
 

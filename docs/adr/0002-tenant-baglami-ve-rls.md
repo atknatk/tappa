@@ -35,6 +35,38 @@
 > yalnız `tappa_app`'e, PUBLIC'ten `REVOKE`). Çevreleme artık disipline değil
 > **yapıya** dayanır.
 
+> **ADR güncellemesi (2026-07-31, M5-02 A fazı sırasında).** Madde 7'nin sayımı
+> **ikiden üçe** çıktı: `GetInviteByCodeHash` (`resolve_invite_by_code_hash`,
+> migration [00009](../../db/migrations/00009_create_employee_invites.sql))
+> eklendi — bir aktivasyon linki yalnız kod taşır, tenant o aramanın **sonucudur**.
+> Üstteki M1-04 bloğunun `tappa_resolver` tarifi de bir tablo genişledi: rol artık
+> `sessions`/`tags` **ve `employee_invites`** üzerinde sütun-düzeyi `SELECT`
+> tutuyor (başka hiçbir tabloda yetkisi yok — ölçüldü).
+>
+> **Karar değişmedi**; değişen yalnız sayımdır ve sayı hiçbir zaman garanti
+> değildi: garanti maddedeki **beş normatif kısıt**tır. Üçüncü lookup beşini de
+> canlı katalogda karşıladı (ölçüldü, varsayılmadı): girdi yalnız anahtar
+> (`code_hash`); dönüş ≤1 satır — bunu fonksiyon gövdesi değil `code_hash`
+> üzerindeki **global UNIQUE indeks** garanti eder; sabit sütun listesi, `SELECT *`
+> yüzeyi yok (`RETURNS TABLE(id, tenant_id, employee_id, expires_at, used_at)` —
+> `code_hash` ve `created_at` dönmez); `tappa_app`'in tabloda çapraz-tenant
+> `SELECT`'i yok, yalnız fonksiyonda `EXECUTE` var (`has_function_privilege`:
+> PUBLIC `f`, `tappa_app` `t`); politikada naif "bağlam NULL iken göster" dalı yok
+> — standart `NULLIF` politikası. Definer yine `tappa_resolver` (`rolsuper=f`,
+> `rolbypassrls=t`), `search_path=pg_catalog, pg_temp` sabit, tabloya
+> **sütun-düzeyi** SELECT (`created_at` dahil DEĞİL).
+>
+> Canlı ölçüm ayrıca şunu gösterdi (bağlamsız `tappa_app`, tek transaction):
+> tabloya doğrudan `SELECT` **0 satır** (FORCE RLS, fail-closed), aynı bağlamda
+> fonksiyon **1 satır**, bağlam kurulunca doğrudan okuma yine **1 satır** (pozitif
+> kontrol) — yani çevreleme çalışıyor ve sonda boş tablo üzerinde koşmuş değil.
+> Kalıcı testi: `internal/db/invites_test.go`
+> (`TestResolveInvite_SecurityDefinerProperties`).
+>
+> **Kural, sayı değil sınırdır:** dördüncü bir çözümleme sorgusu eklenecekse aynı
+> beş kısıtı karşıladığını **ölçerek** göstermek zorundadır; "zaten üç tane var"
+> gerekçe değildir.
+
 ## Bağlam
 
 Tappa çok kiracılı (multi-tenant) bir SaaS: iki design partner (Kebab Factory —
@@ -113,12 +145,14 @@ tablosu müşteri isimlerini ve VAT numaralarını sızdırır.
 doğarsa ayrı bir rol ve ayrı bir ADR ile gelir. `tappa_app` bu amaçla asla
 ayrıcalıklandırılmaz; ona `BYPASSRLS` verilmez.
 
-**7. Tenant çözümleme istisnası — bu ADR'nin en kritik maddesi.** Yalnızca iki
-sorgu — `GetTagByUID` ve `GetEmployeeBySessionHash` — tenant bağlamı kurulmadan
-koşar, çünkü bağlam onların **sonucudur**. Bu istisna dar, adlandırılmış ve
-testlidir:
+**7. Tenant çözümleme istisnası — bu ADR'nin en kritik maddesi.** Yalnızca üç
+sorgu — `GetTagByUID`, `GetEmployeeBySessionHash` ve (M5-02'de eklenen)
+`GetInviteByCodeHash` — tenant bağlamı kurulmadan koşar, çünkü bağlam onların
+**sonucudur**. *(Bu sayı 2026-07-31'e kadar "iki"ydi; sayı garanti değildir,
+garanti aşağıdaki beş kısıttır — baştaki M5-02 güncelleme bloğu.)* Bu istisna
+dar, adlandırılmış ve testlidir:
 
-- **Ayrı ve görünür.** İki sorgu `db/queries/resolve.sql` dosyasında durur
+- **Ayrı ve görünür.** Üç sorgu da `db/queries/resolve.sql` dosyasında durur
   (üretim sorgularının geri kalanından ayrı), böylece §4.5'in "her sorguda açık
   `tenant_id` filtresi" kuralının **tek istisnası** koda bakıldığında görünür
   kalır. **(Uygulama notu — M1-08, 2026-07-25:** sqlc v1.28 `RETURNS TABLE(...)`
@@ -128,9 +162,14 @@ testlidir:
   ikisi de yalnız `resolve_tag_by_uid`/`resolve_session_by_token_hash` SECURITY
   DEFINER fonksiyonlarını çağırır, çıplak tablo erişimi yok, bağlamsız ham havuzda.
   İki denetçi doğruladı. Elle-senkron drift riski M1-09 test kapsamına devredildi.**)
+  **(M5-02, 2026-07-31: aynı ölçüm 00009'un `resolve_invite_by_code_hash`'i için
+  tekrarlandı — sqlc v1.28 birebir aynı davranıyor: açık sütun listesi `column "id"
+  does not exist`, `SELECT *` ise `interface{}` — bu yüzden üçüncü lookup da elle
+  yazıldı.)**
 - **`tappa_app` rolüyle, `tenant_id` filtresi olmadan.** Arama küresel olarak
   tekil bir anahtara dayanır (`tags.uid` birincil anahtar; `sessions.token_hash`
-  UNIQUE), dolayısıyla tenant bilinmeden de en çok **bir** satır döner.
+  UNIQUE; `employee_invites.code_hash` UNIQUE), dolayısıyla tenant bilinmeden de
+  en çok **bir** satır döner.
 - **Neden saf RLS değil — gerekçe "ifade edilemezlik" DEĞİL, YAPISAL çevrelemedir.**
   *(Bu maddenin önceki hâli — "saf RLS bunu tek başına ifade edemez, bypass
   kaçınılmazdır" — canlı Postgres sondasıyla çürütüldü ve düzeltildi; bkz. baştaki
@@ -155,9 +194,10 @@ testlidir:
 - **Güvenlik RLS'ten değil ARAYÜZDEN gelir.** Bağlam yokken çapraz-tenant okuma
   yalnızca dar, anahtar odaklı bir arayüzün ardında yapılır ve şu özellikleri
   **normatif** olarak taşır: (i) girdi yalnız **anahtar**dır (`uid` /
-  `token_hash`); (ii) dönüş en çok **bir** satırdır (anahtarlar tekildir); (iii)
+  `token_hash` / `code_hash`); (ii) dönüş en çok **bir** satırdır (anahtarlar
+  tekildir); (iii)
   **`SELECT *` yüzeyi yoktur** — sabit, yalnız gerekli sütunları içeren liste;
-  (iv) çağıran `tappa_app`'in bu iki tabloda doğrudan çapraz-tenant `SELECT`
+  (iv) çağıran `tappa_app`'in bu tablolarda doğrudan çapraz-tenant `SELECT`
   hakkı **yoktur**, yalnız bu dar arayüz üzerinde `EXECUTE` hakkı vardır; (v)
   "bağlam `NULL` iken satırı göster" biçiminde naif bir RLS izin dalı
   **yasaktır** — o, `SELECT * FROM tags`'i tüm tenant'lara açan yukarıdaki (c)
@@ -173,9 +213,9 @@ testlidir:
   `SELECT` yetkisi **yetersizdir** — RLS'e tabi bir rol 0 satır görür; okumak bir
   bypass ister. §6 FORCE altında **tek uyumlu bypass `BYPASSRLS`**'tir (FORCE'suz-
   sahip yolu §6 altında kapalı; superuser yasak). Yani definer'ın çevrelenmiş
-  bypass'ı, `BYPASSRLS` olan ama yalnız bu iki tabloya (gerekli sütunlarda)
+  bypass'ı, `BYPASSRLS` olan ama yalnız bu tablolara (gerekli sütunlarda)
   `SELECT` GRANT'i verilmiş, adanmış ve **en-az-ayrıcalıklı** bir roldür; patlama
-  yarıçapı o role verilen GRANT'larla bu iki tabloya sınırlanır, tüm DB değil.
+  yarıçapı o role verilen GRANT'larla bu tablolara sınırlanır, tüm DB değil.
   Böylece M1-04/M1-05 uygulayıcısı bypass'sız salt-`SELECT` bir rol kurup 0
   satırla şaşırmaz. Kesin rol adı ve DDL [M1-04](../plan/m1-veri-katmani.md)
   (sessions) ve [M1-05](../plan/m1-veri-katmani.md) (tags) migration'larında
@@ -314,6 +354,6 @@ biçim ayrı bir vaka olarak durabilir ama izolasyon kanıtı **sayılmaz**
 | **Yalnız uygulama filtresi** (RLS yok, her sorguda `WHERE tenant_id=`) | Tek bir unutulan `WHERE` sessiz çapraz-tenant sızıntısıdır; §4.5 izolasyonu "her katmanda" ister. Filtre kalır ama RLS'in **yanına** (kuşak+kemer), tek savunma olarak değil. |
 | **Çıplak cast** `current_setting('app.tenant_id', true)::uuid` | Fail-closed ama **belirsiz**: GUC'a ilk yazmadan sonra bağlamsız sorgu `0 satır` değil `ERROR` verir (Q27 tablosu). Davranış bağlantı geçmişine bağlı; taze bağlantıya yazılmış test geçer, üretim patlar. `NULLIF` determinizm için seçildi. Çıplağın tek üstünlüğü (gürültülü patlama) M1-07 `WithTenant` ile telafi edildi. |
 | **`tappa_app`'e `BYPASSRLS`** (çözümlemeyi kolaylaştırmak için) | Tüm izolasyonu tek satırda iptal eder; Karar madde 6/7 bunu açıkça yasaklar. Çözümleme dar, anahtar-kısıtlı istisnayla halledilir. |
-| **Superuser `tappa_owner`'a ait `SECURITY DEFINER` çözümleme fonksiyonu** | `SECURITY DEFINER` gövdesi sahibinin yetkisiyle koşar; sahip superuser olduğu için gövde RLS'i **tümüyle** atlar → tüm veritabanını kapsayan genel bir bypass, patlama yarıçapı sınırsız. Tek satır dönmesi bir *gövde özelliği*dir, ayrıcalık modelinin yapısal garantisi değil. Çözümleme, en-az-ayrıcalıklı (yalnız iki tabloya erişen) bir arayüzün ardında yapılır (Karar madde 7). |
+| **Superuser `tappa_owner`'a ait `SECURITY DEFINER` çözümleme fonksiyonu** | `SECURITY DEFINER` gövdesi sahibinin yetkisiyle koşar; sahip superuser olduğu için gövde RLS'i **tümüyle** atlar → tüm veritabanını kapsayan genel bir bypass, patlama yarıçapı sınırsız. Tek satır dönmesi bir *gövde özelliği*dir, ayrıcalık modelinin yapısal garantisi değil. Çözümleme, en-az-ayrıcalıklı (yalnız çözümleme tablolarına — `sessions`, `tags`, `employee_invites` — sütun-düzeyinde erişen) bir arayüzün ardında yapılır (Karar madde 7). |
 | **GUC-anahtar saf-RLS** (`app.resolve_token` GUC'una anahtarlanmış, toplamsal bir RLS dalı; **bypass yok**) | Mutlu-yolu **bypass'sız** ifade eder ve "saf RLS bunu ifade edemez" iddiasını çürütür (canlıda doğrulandı: `tappa_app` tam RLS'e tabi, dönüş tek anahtarla sınırlı). Reddedilme sebebi ifade gücü değil, çevrelemenin **yapısal olmaması**: iki tek-nokta hatası canlıda çapraz-tenant ihlali üretti — (1) **okuma:** `SET LOCAL`'sız kurulan resolve-GUC havuz bağlantısında kalır, OR-dalı o bağlantıdaki her meşru sorguya bir çapraz-tenant satır sızdırır (`NULLIF` fail-closed yakalayamaz, `WithTenant` resolve-GUC'a dokunmaz); (2) **yazma:** `FOR ALL USING(...)` kısayolu `WITH CHECK`'i varsayılan olarak `USING`'den kopyalar → çapraz-tenant `INSERT` forge. İkisi de yalnız **disiplinle** engellenir; §4.5 yapısal çevreleme ister. Bu yüzden en-az-ayrıcalıklı `tappa_resolver` + anahtar-kısıtlı `SECURITY DEFINER` fonksiyon seçildi (Karar madde 7). |
 | **RLS testini `tappa_owner` ile koşmak** (tek havuz) | `tappa_owner` superuser'dır ve RLS'i koşulsuz atlar (M0-03 tablosu); testin negatif vakaları gürültülü patlar. İzolasyon `tappa_app` ile ölçülmek **zorundadır**. |

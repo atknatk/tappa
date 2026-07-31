@@ -293,8 +293,30 @@ report WARN R5 "SET LOCAL degil duz SET — havuzdaki baglantiyi kirletir" \
   "$(scan -e "SET +app\.tenant_id" | grep -viE 'SET +LOCAL' || true)"
 
 # --- R7: sir sizintisi -------------------------------------------------------
-report FAIL R7 "Sir loglanıyor olabilir (token / cmac / anahtar / davet kodu)" \
-  "$(scan -i -e '(slog|log|fmt)\.[A-Za-z]+\([^)]*(token|cmac|aes_?key|secret|invite_?code)' || true)"
+# `code[_a-z]*hash` ve `"code"[[:space:]]*,` (M5-02): davet AKISINDA hash bir
+# TASIYICI (bearer) kimlik bilgisidir -- hash -> resolver -> tenant -> tuketim.
+# Log'a dusen bir code_hash, kodu hic gormemis birine tam aktivasyon yetenegi
+# verir; yani hash'i loglamak kodu loglamakla ayni agirliktadir (CLAUDE.md §4.7).
+# M5-02 oncesi desen `invite_?code` disinda hicbirini yakalamiyordu (olculdu).
+#
+# DESEN DEGERI HEDEFLER, KELIMEYI DEGIL -- bilincli ve olculmus bir secim.
+# Ilk deneme ciplak `[^a-z]code[^a-z]` idi; iki MASUM ve cok olasi satiri FAIL
+# veriyordu (guvenlik denetcisi olctu): bir log MESAJINDA gecen "code expired" ve
+# `fmt.Errorf("... invalid activation code: %w", err)`. Ikisi de sir sizdirmaz.
+# Tehlike, agin kendisinin asinmasidir: CI mesru satirlarda kizarirsa baski
+# deseni GEVSETMEYE doner ve gercek `code_hash` dali da gider (M0-07: "sessiz
+# muafiyet bir kez yazilir, sonsuza dek denetimi susturur"nun tersi).
+# Bu yuzden desen artik yalnizca DEGER tasiyan bicimleri arar:
+#   * `code[_a-z]*hash` -> code_hash, codeHash, codehash (anahtar VEYA degisken adi)
+#   * `"code"[[:space:]]*,` -> yapilandirilmis log ANAHTARI olarak "code",
+# Serbest metindeki `code` kelimesi (mesaj, hata metni) artik tetiklemez (olculdu).
+#
+# SINIRLAR (ikisi de yanlis-NEGATIF, ag mekaniktir, kanit degildir):
+#   * baska adlandirma -- `"hash"`, `"c"` gibi bir ANAHTAR altinda gecen deger
+#     yakalanmaz (degisken adi codeHash ise yine yakalanir);
+#   * sir bir ara degiskene kopyalanip nötr bir adla loglanirsa yakalanmaz.
+report FAIL R7 "Sir loglanıyor olabilir (token / cmac / anahtar / davet kodu / kod hash'i)" \
+  "$(scan -i -e '(slog|log|fmt)\.[A-Za-z]+\([^)]*(token|cmac|aes_?key|secret|invite_?code|code[_a-z]*hash|"code"[[:space:]]*,)' || true)"
 
 report FAIL R7 "Repoda gomulu anahtar dosyasi" \
   "$(git ls-files '*.pem' '*.key' '*.aes' 'secrets/*' 2>/dev/null || true)"
