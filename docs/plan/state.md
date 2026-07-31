@@ -374,11 +374,21 @@ düzelt**.
 | `go version` | `go1.26.2` veya üstü |
 | `go build ./...` | çıktı yok (temiz) |
 | `git log --oneline \| head -3` | M0-05 sonrası en az 1 commit |
-| `git status --short` | M0-05 sonrası temiz |
-| `ls .env` | M0-01 sonrası var (git'e **girmez**) |
-| `docker compose ps` | M0-03 sonrası `tappa-db` ayakta |
-| `make migrate-status` | M1 boyunca uygulanan migration listesi |
-| `make check` | M0-06 sonrası yeşil |
+| `git status --short` | temiz (görev arasındaysan) |
+| `ls .env` | var (git'e **girmez**) |
+| `docker compose ps` | `tappa-db` ayakta ve `healthy` |
+| `make migrate-status` | **00001–00010 uygulanmış** (M5-04 sonrası) |
+| `make check` | yeşil |
+
+⚠️ **`make test` kullan, çıplak `go test` DEĞİL.** Makefile `.env`'i yüklüyor
+(`-include .env` + `export`); çıplak `go test ./...` `DATABASE_URL` olmadığı için **her DB testini
+sessizce SKIP eder** ve §4.4/§4.5/§4.6 hakkında hiçbir şey kanıtlamadan yeşil verir (M5-05 denetimi).
+Bir iddia "N test geçti, 0 SKIP" diyorsa **hangi komutla** ölçüldüğünü söylemeli.
+
+**Zorunlu env değişkenleri** (eksikse başlangıçta panic — bilinçli, §config): `DATABASE_URL` ·
+`DATABASE_MIGRATE_URL` (farklı olmalı) · `TAPPA_SESSION_HMAC_KEY` · **`TAPPA_INVITE_HMAC_KEY`**
+(M5-02; oturum anahtarıyla **aynı olamaz**) · `TAPPA_TAG_KEK` · **`TAPPA_RETENTION_YEARS`** (M5-02) ·
+`TAPPA_ENV` ∈ {dev, staging, prod} · `TAPPA_TRUSTED_PROXIES` (varsayılan rota **prod'da hata**).
 
 ---
 

@@ -107,6 +107,42 @@ Sen Tappa projesinde ÜÇÜNCÜ GÖZ DENETÇİSİSİN. Repo: <yol> · dal: <dal>
 
 ---
 
+## Orkestrasyon ritmi — M5'te fiilen uygulanan tur döngüsü
+
+> **Neden yazılı:** [README.md](README.md) *ne* yapılacağını söylüyor (yapıcı → üçüncü göz → onay).
+> Bu bölüm M5-01…M5-05'te **fiilen işleyen** ritmi kaydeder. Beş görevde **9 RED** çıkardı; ritim
+> gevşerse o RED'ler kaçar. Bağlam sıkıştırılınca bu bilgi sohbette kalmaz — kalıcı olmak zorunda.
+
+**Bir görevin turu:**
+1. **Orkestratör kartı ve devirleri okur**, brief'i yazar. Kart gerçekle çelişebileceği için brief
+   *"çelişirse kartı düzelt"* der. **Bilinen tuzakları brief'e önceden koy** — M5-05'te "baseline
+   materyalize değil, ölç" uyarısı bloklayanı ilk turda buldurdu.
+2. **Yapıcı** (model `opus`) uygular. Brief her zaman: sabit kurallar · kırmızı çizgiler · **ölçüm
+   isteyen** doğrulama listesi · mutasyon + pozitif kontrol zorunluluğu.
+3. **Üçüncü göz** (model `opus`, **her turda YENİ ajan**) denetler. Brief'e **yapıcının iddiaları
+   madde madde** yazılır ki denetçi *her birini kendi komutuyla yeniden üretsin*. "Raporuna güvenme"
+   yeterli değil — iddiayı önüne koy.
+4. **Kırmızı çizgiye değen her işte** ayrıca `tappa-security-auditor` (**yeni örnek**). Farklı mercek:
+   genel denetçi doğruluk, güvenlik denetçisi §4. **Biri diğerinin yerine geçmez** — M2-04'te güvenlik
+   denetçisi "temiz" derken genel göz byte-reversal buldu; M5-03'te tersi oldu.
+5. **RED → düzelt → YENİ denetçi.** Onay gelmeden `done` yok, commit yok.
+6. **Ucuz bloklamayan bulguları commit'ten ÖNCE kapat.** M5-01'de dördü kapatılmasa aynı sınıf
+   M5-02'de tekrar çıkacaktı. Devretmek yalnız gerçekten başka görevin işiyse.
+7. Orkestratör **kendi doğrular** (`make check`, ağaç, kritik iddialardan birkaçı), commit'ler,
+   `state.md` + gerekirse `agent-brief.md`'yi günceller.
+
+**Sabitler:**
+- **Denetçiler PAYLAŞILAN Postgres'e karşı SIRALI koşar** (M3-02 dersi) — DDL/mutasyon sondaları
+  birbirini bozar. Salt-okuma sondaları eşzamanlı güvenli.
+- **Denetçi raporu kullanıcıya olduğu gibi aktarılır.** Ölçüm sayıları (satır sayısı, `last_ctr`,
+  429 sayısı) **özetlenmez** — kanıtın kendisi onlar.
+- **Yapıcı ve denetçi `state.md`/`roadmap.md`/`backlog.md`/`open-questions.md`'ye DOKUNMAZ ve commit
+  ATMAZ** — ikisi de orkestratörün. Görev **kartını** düzeltmek serbest (tarihli blok).
+- **Alt ajanın kendi hatasını raporlaması iyi işaret**, cezalandırma. M5-04'te yapıcı mutasyonunun
+  yeşil kaldığını kendi söyledi; M5-05'te dört aşırı iddiasını kendi indirdi.
+- **Ürün kararı gerektiren yerde kullanıcıya sor** (§9 tap ekranı, GDPR saklama süresi, WiFi alanı) —
+  varsayma. Cevap `state.md` oturum günlüğüne **tarihiyle** yazılır.
+
 ## Şimdiye kadar öğrenilenler
 
 Her biri gerçek bir turda çıktı; tekrarlanmasın diye burada:
