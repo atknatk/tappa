@@ -75,6 +75,27 @@ uzun sürer (build cache + pinli CLI önbellekleri tazelenir — bozukluk değil
 
 ---
 
+## Ertelenmiş teknik borç (sahibi bir görev kartı DEĞİL)
+
+> Bunlar **kullanıcı eylemi değil**, ama hiçbir yakın görev kartının da sahiplenmediği işler —
+> çoğu dağıtım (M8) zamanına ait. Buraya yazılmalarının sebebi kaybolmaları: M8 uzak.
+>
+> ⚠️ **Görev-kapsamlı devirler buraya YAZILMAZ** — onlar [state.md](plan/state.md)'deki
+> "M5-04/M5-05'e devralınan" gibi bölümlerde ve sahibi bellidir (ör. 429'un §4.6 kalıntısı → M5-04,
+> N5 tenant-mismatch → M5-05, font self-host → M5-04). İki yere yazılan gerçek çelişir.
+
+| # | Ne | Nereden | Sahibi |
+|---|---|---|---|
+| **T1** | **Oran sınırlayıcı süreç-içi ve sabit-pencere.** İki instance sınırı ikiye katlar; pencere sınırında kısa sürede 2×limit mümkün; `limiterMaxKeys` (100k) aşılınca map **toptan sıfırlanıyor** (fail-open, bilinçli ve yazılı). Paylaşılan store gerekir. | M5-02, M5-03 | M8 |
+| **T2** | **`TAPPA_TRUSTED_PROXIES` dağıtım kontrol listesi.** Proxy XFF'e **append** etmeli — **replace** eden proxy koddan ayırt **edilemez**. Kapı yalnız tek girdilik `/0`'ı yakalar; `/1` veya birleşimle tüm uzayı kaplayan liste (`0.0.0.0/1,128.0.0.0/1`) yakalanmaz. Güvenilen aralık **gerçek istemcileri içeriyorsa** onlar serbestçe IP uydurabilir (ölçüldü). | M5-03 | M8 |
+| **T3** | **Çerez gölgeleme + `__Host-` öneki.** Aynı isimli iki `tappa_activation` çerezinde `r.Cookie` **ilkini** alıyor; alt alan adı kontrolü gerektirir. | M5-02 | M8 |
+| **T4** | **`docker-compose.yml` `log_statement=all` bind parametrelerini log'a yazıyor** (denetçi 30 dk'da `$1 = '<64-hex>'` biçiminde **1036 satır** saydı). `code_hash` taşıyıcı kimlik bilgisi olduğu için dev Postgres log'u bir aktivasyon anahtarı deposuna dönüşüyor. **Dev-only** ve denetçiler bu log'u ölçüm aracı olarak kullanıyor → bilinçli bırakıldı; üretim deploy config'i repoda henüz yok. | M5-02 | M8 |
+| **T5** | **`config.Load` `TAPPA_BASE_URL`'ü doğrulamıyor.** `NewCookies` bir **prefix testi** yapar, URL parse etmez → başında boşluk olan veya URL olmayan değer NOT-Secure dalına düşer (**non-prod'la sınırlı**; prod koşulsuz Secure). | M5-01, M5-02 | M5-03 sonrası / M8 |
+| **T6** | **Dev-DB test kalıntısı birikiyor.** `tenants` ~7250 satır; `audit_log`/`transactions` append-only olduğu için **tasarımca** temizlenemez (M1-09: imkânsızlık = garanti). Kırmızı çizgi değil, hijyen. Demo/prod öncesi `make db-reset`; kalıcı çözüm testcontainers ile izole DB. | M3-02, M5-03 | M8 |
+| **T7** | **`aes_key_ref` KEK-sarmalı doğrulaması.** Şema `bytea` zorlayamaz → insert-yolu + seed KEK-sarmalı bekler; KEK DB dışında (`TAPPA_TAG_KEK`). | M1-05 | M8 |
+
+---
+
 ## Kapananlar
 
 *(henüz yok)*
