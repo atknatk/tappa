@@ -1,6 +1,7 @@
 package config_test
 
 import (
+	"bytes"
 	"encoding/base64"
 	"strconv"
 	"strings"
@@ -21,9 +22,90 @@ func setRequired(t *testing.T) {
 	t.Setenv("DATABASE_MIGRATE_URL", "") // must NOT equal DATABASE_URL
 	t.Setenv("TAPPA_SESSION_HMAC_KEY", key)
 	t.Setenv("TAPPA_TAG_KEK", key)
+	// The invite key must DIFFER from the session key (Load rejects equality), so
+	// this fixture cannot reuse `key` the way TAPPA_TAG_KEK does.
+	t.Setenv("TAPPA_INVITE_HMAC_KEY", otherKey)
+	t.Setenv("TAPPA_RETENTION_YEARS", "2") // required, no default
 	t.Setenv("TAPPA_TRUSTED_PROXIES", "")
 	t.Setenv("TAPPA_GPS_RADIUS_M", "")     // -> default 150
 	t.Setenv("TAPPA_DEBOUNCE_SECONDS", "") // -> default 60
+}
+
+// otherKey is a valid 32-byte key that is NOT all zeroes, so it differs from the
+// one setRequired gives the session.
+var otherKey = base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{7}, 32))
+
+// TestLoad_InviteKeyMustDifferFromSessionKey measures the domain-separation
+// guard: the two MAC keys may not be the same bytes.
+//
+// The POSITIVE CONTROL is the other half of the test — with distinct keys the
+// same configuration loads cleanly — so a green result cannot come from the
+// configuration being broken for some unrelated reason.
+func TestLoad_InviteKeyMustDifferFromSessionKey(t *testing.T) {
+	setRequired(t)
+	same := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{9}, 32))
+	t.Setenv("TAPPA_SESSION_HMAC_KEY", same)
+	t.Setenv("TAPPA_INVITE_HMAC_KEY", same)
+
+	if _, err := config.Load(); err == nil {
+		t.Fatal("identical session and invite keys must be refused at startup")
+	} else if !strings.Contains(err.Error(), "TAPPA_INVITE_HMAC_KEY") {
+		t.Errorf("error should name the offending variable, got %v", err)
+	}
+
+	// Positive control: change one byte and the same environment loads.
+	t.Setenv("TAPPA_INVITE_HMAC_KEY", base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{10}, 32)))
+	c, err := config.Load()
+	if err != nil {
+		t.Fatalf("distinct keys must load: %v", err)
+	}
+	if len(c.InviteHMACKey) != 32 {
+		t.Errorf("invite key length = %d, want 32", len(c.InviteHMACKey))
+	}
+}
+
+// TestLoad_RetentionYearsIsRequiredAndBounded covers the value the GDPR notice
+// renders. It is REQUIRED (a missing legal figure must not become a silent
+// default) and bounded against typos.
+func TestLoad_RetentionYearsIsRequiredAndBounded(t *testing.T) {
+	cases := []struct {
+		name string
+		val  string
+		ok   bool
+	}{
+		{"unset is a startup failure", "", false},
+		{"zero would render \"kept for 0 years\"", "0", false},
+		{"negative", "-1", false},
+		{"at min", "1", true},
+		{"typical", "5", true},
+		{"at max", "30", true},
+		{"above max is indistinguishable from forever", "31", false},
+		{"non-numeric", "two", false},
+		{"float is not whole years", "2.5", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			setRequired(t)
+			t.Setenv("TAPPA_RETENTION_YEARS", tc.val)
+			c, err := config.Load()
+			if tc.ok && err != nil {
+				t.Fatalf("%q should load: %v", tc.val, err)
+			}
+			if !tc.ok {
+				if err == nil {
+					t.Fatalf("%q should be refused", tc.val)
+				}
+				if !strings.Contains(err.Error(), "TAPPA_RETENTION_YEARS") {
+					t.Errorf("error should name the variable, got %v", err)
+				}
+				return
+			}
+			want, _ := strconv.Atoi(tc.val)
+			if c.RetentionYears != want {
+				t.Errorf("RetentionYears = %d, want %d", c.RetentionYears, want)
+			}
+		})
+	}
 }
 
 func TestLoad_DefaultsWithinRange(t *testing.T) {

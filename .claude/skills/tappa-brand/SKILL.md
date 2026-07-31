@@ -34,8 +34,18 @@ sakin ve hızlı okunur** olmalı — yağlı elle, kötü ışıkta, 3 saniyede
 - **Space Grotesk** — başlık, buton, marka. Sıkı harf aralığı (`tracking-tight`).
 - **IBM Plex Mono** — her sayı: saat, süre, tag UID, sayaç, güven puanı, CSV.
   Bir veri hücresi mono değilse yanlıştır; adisyon hissi buradan gelir.
-- Yazı tipleri `web/static/fonts/` altından self-host edilir. Google Fonts'a
-  runtime bağlantı **yok** (GDPR + çevrimdışı çalışma).
+- **Kural:** Google Fonts'a (ya da herhangi bir dış kaynağa) runtime bağlantı
+  **yok** — GDPR + çevrimdışı çalışma. Bu kural bugün **tutuluyor**: render edilen
+  sayfada tek dış referans `/static/css/app.css`.
+- ⚠️ **Durum (2026-07-31, M5-02 B fazı 2. tur denetimi):** yazı tipleri **henüz
+  self-host EDİLMİYOR.** `web/static/fonts/` dizini **yok**, `app.css`'te **sıfır**
+  `@font-face` var (ölçüldü), yani sayfa şu an **sistem yazı tipine** düşüyor. Bu
+  satır önce "self-host edilir" diyordu ve yanlıştı; bir spec'in yanlış olması
+  sonraki UI ajanını yanıltır, o yüzden durum burada duruyor.
+  **Yapılacak:** Space Grotesk + IBM Plex Mono dosyalarını `web/static/fonts/`
+  altına koy, `input.css`'te `@font-face` ile tanımla. Sahibi: **M5-04** (tap
+  ekranı) — çalışanın en sık gördüğü ekran orası. O iş bitince bu madde
+  "self-host ediliyor" olarak güncellenir.
 
 ## İmza motif: kitchen docket
 

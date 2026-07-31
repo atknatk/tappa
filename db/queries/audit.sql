@@ -1,0 +1,54 @@
+-- audit.sql -- the append-only administrative/domain trail (migration 00005).
+--
+-- WHY THIS FILE EXISTS NOW (M5-02 phase B): CLAUDE.md section 4.6 says a record is
+-- never lost -- an attempt that fails must leave a trace rather than disappearing.
+-- The activation endpoint is the first code path that produces failures worth
+-- keeping (a replayed code, an expired one, a rate-limited caller, a second device
+-- taking over an account), so it is the first caller that needs a writer. Until
+-- now audit_log had a table and no INSERT query.
+--
+-- APPEND-ONLY IS ENFORCED BY THE DATABASE, NOT BY THIS FILE (00005): tappa_app
+-- holds SELECT and INSERT only (REVOKE UPDATE, DELETE) AND a BEFORE UPDATE OR
+-- DELETE trigger stops even tappa_owner. So there is deliberately no update and no
+-- delete query here, and adding one would fail at runtime rather than quietly
+-- rewriting history.
+--
+-- TENANT SCOPE (section 4.5): the INSERT names tenant_id explicitly as a VALUE and
+-- runs inside db.(*DB).WithTenant, so the RLS WITH CHECK refuses a row whose
+-- tenant disagrees with the transaction context (the same shape CreateInvite
+-- uses -- there is no row to filter yet).
+--
+-- ⚠️ THE TENANT IS THE LIMIT OF THIS TRAIL, AND IT IS A REAL ONE. audit_log.tenant_id
+-- is NOT NULL with an FK to tenants, so an event that cannot be attributed to a
+-- tenant CANNOT be written here -- the clearest case being an activation attempt
+-- with a code that resolves to nothing at all. There is no "system tenant" row and
+-- inventing one would be worse than the gap: it would put unattributable events
+-- inside a tenant's audit view. Those attempts are counted by the endpoint's rate
+-- limiter and logged (without the code, section 4.7); the honest statement is that
+-- the audit trail covers every failure whose OWNER is known, not every failure.
+--
+-- KIRMIZI CIZGI section 4.7 -- WHAT MUST NEVER GO IN `detail`: the invite code, its
+-- hash, a session token, a CMAC, an AES key, or a full GPS coordinate. 00005 states
+-- this and calls it the application's responsibility, because a jsonb column cannot
+-- inspect its own contents. The Go side keeps it: internal/audit builds the detail
+-- from a typed struct per event, never from a map of whatever the caller had.
+
+-- name: RecordAuditEvent :one
+-- Appends one event. Every column except the two nullable ones is supplied:
+--
+--   actor_id  NULL when the actor is the SYSTEM (00005: the column is
+--             deliberately polymorphic and FK-less). An employee activating
+--             themselves is NOT an admin actor, so activation events carry NULL
+--             and name the employee in `target` instead.
+--   target    the affected entity as opaque text -- an employee id for activation
+--             events. Nullable because some events have no single target.
+--
+-- `at` is left to its DEFAULT now(): the event time is the DATABASE's, not a
+-- caller-supplied timestamp, so a clock-skewed or malicious caller cannot
+-- backdate the trail (the same reason transactions.created_at is server-side).
+--
+-- RETURNING id, at: the caller logs the id (a stable, non-secret handle) instead
+-- of the payload, and `at` lets a test assert the row exists without re-reading.
+INSERT INTO audit_log (tenant_id, actor_id, action, target, detail)
+VALUES (@tenant_id, @actor_id, @action, @target, @detail)
+RETURNING id, at;

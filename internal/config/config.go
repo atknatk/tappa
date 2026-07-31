@@ -7,6 +7,7 @@
 package config
 
 import (
+	"crypto/subtle"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -33,8 +34,25 @@ type Config struct {
 	SessionHMACKey []byte // 32 bytes
 	TagKEK         []byte // 32 bytes, wraps per-tag NTAG AES keys
 
+	// InviteHMACKey keys the activation-code MAC (internal/invite). It is a
+	// SEPARATE key from SessionHMACKey on purpose — see keySeparation below for
+	// the measurement and the reasoning.
+	InviteHMACKey []byte // 32 bytes
+
 	GPSRadiusMeters float64
 	Debounce        time.Duration
+
+	// RetentionYears is how long attendance records are kept, in whole years. It
+	// is REQUIRED and has no default because it is a LEGAL statement: the GDPR
+	// Art. 13 notice on the activation page renders this number, and a number
+	// that appeared out of a Go constant would be this repo inventing a legal
+	// claim on a customer's behalf (M5-02, user decision 2026-07-31).
+	//
+	// The value in .env / .env.example is a DEVELOPMENT PLACEHOLDER, not legal
+	// advice; the real figure is Q13 / backlog B3 and waits on a lawyer. The
+	// activation page says so in the rendered text, so an employee reading a dev
+	// deployment is not told a fabricated retention period.
+	RetentionYears int
 
 	LogLevel string
 }
@@ -79,6 +97,15 @@ func Load() (*Config, error) {
 		push(err)
 	}
 	if c.TagKEK, err = key32("TAPPA_TAG_KEK"); err != nil {
+		push(err)
+	}
+	if c.InviteHMACKey, err = key32("TAPPA_INVITE_HMAC_KEY"); err != nil {
+		push(err)
+	}
+	// The invite key must not simply BE the session key. See keySeparation.
+	push(keySeparation(c.SessionHMACKey, c.InviteHMACKey))
+	// RetentionYears is required (no default): see the field comment.
+	if c.RetentionYears, err = intEnvRequiredRange("TAPPA_RETENTION_YEARS", retentionYearsMin, retentionYearsMax); err != nil {
 		push(err)
 	}
 	if c.TrustedProxies, err = prefixes(env("TAPPA_TRUSTED_PROXIES", "")); err != nil {
@@ -151,6 +178,54 @@ func validEnv(v string) error {
 // IsProd is a convenience, never a security boundary by itself.
 func (c *Config) IsProd() bool { return c.Env == EnvProd }
 
+// retentionYearsMin / retentionYearsMax bound TAPPA_RETENTION_YEARS.
+//
+// THESE ARE SANITY BOUNDS, NOT A LEGAL RANGE — the distinction matters, because
+// encoding a legal minimum here would be the very thing the field comment
+// forbids. What they reject is a TYPO or an operator mistake: 0 (which would
+// render "kept for 0 years" on a notice an employee is asked to consent to), a
+// negative number, and a figure so large it is indistinguishable from "forever"
+// (which GDPR storage limitation, Art. 5(1)(e), does not permit as a
+// declaration). 30 is deliberately far above any employment-record retention
+// period we have seen so that a genuine legal requirement is never rejected by
+// this file.
+const (
+	retentionYearsMin = 1
+	retentionYearsMax = 30
+)
+
+// keySeparation refuses a deployment where the invite MAC key and the session
+// MAC key are the same bytes.
+//
+// WHY THIS CHECK EXISTS. internal/invite and internal/session both derive a hex
+// HMAC-SHA256 over a 43-character base64url value, and both store the result in
+// a `text` column with the same shape. Domain separation between the two is
+// carried by TWO independent mechanisms (internal/invite/code.go states them):
+// a separate KEY, and a labelled MAC input. The label alone would already make
+// one MAC unusable as the other, so this check is not what makes the design
+// sound — it catches the realistic OPERATIONAL failure, which is a copy-pasted
+// .env where both variables hold the same generated key. That failure is
+// invisible in every other way: the app boots, activation works, sessions work,
+// and the independence the deployment believes it has is simply absent.
+//
+// Comparison is crypto/subtle.ConstantTimeCompare rather than bytes.Equal.
+// There is no attacker-supplied input here (both values come from the process
+// environment at startup), so this is hygiene, not a timing defence — but it
+// costs nothing and keeps the rule "secrets are never compared with ==" from
+// growing exceptions someone later copies (redline R7).
+//
+// A nil or short key is NOT reported here: key32 already pushed that error and a
+// second message about the same variable would only be noise.
+func keySeparation(sessionKey, inviteKey []byte) error {
+	if len(sessionKey) != 32 || len(inviteKey) != 32 {
+		return nil
+	}
+	if subtle.ConstantTimeCompare(sessionKey, inviteKey) == 1 {
+		return errors.New("TAPPA_INVITE_HMAC_KEY must differ from TAPPA_SESSION_HMAC_KEY: they key two different credential types and sharing one key removes the independence the separation is for (generate: openssl rand -base64 32)")
+	}
+	return nil
+}
+
 func env(k, def string) string {
 	if v := os.Getenv(k); v != "" {
 		return v
@@ -186,6 +261,28 @@ func prefixes(s string) ([]netip.Prefix, error) {
 		out = append(out, p)
 	}
 	return out, nil
+}
+
+// intEnvRequiredRange reads an integer env var that has NO DEFAULT: unset or
+// empty is a startup failure, exactly like a missing key. It is the twin of
+// floatEnvRange for a value where "the operator did not say" is not an
+// acceptable answer (package doc: never a silent default).
+//
+// The range is INCLUSIVE at both ends, matching floatEnvRange, so the two
+// helpers cannot disagree about what "within bounds" means.
+func intEnvRequiredRange(name string, min, max int) (int, error) {
+	raw := strings.TrimSpace(os.Getenv(name))
+	if raw == "" {
+		return 0, fmt.Errorf("%s is required (whole years, %d-%d; it is rendered in the GDPR Art. 13 notice, so this repo must not invent it)", name, min, max)
+	}
+	v, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0, fmt.Errorf("%s: %w", name, err)
+	}
+	if v < min || v > max {
+		return 0, fmt.Errorf("%s: must be within [%d, %d], got %d", name, min, max, v)
+	}
+	return v, nil
 }
 
 // floatEnvRange reads a float env var, returning def when unset, and enforces an

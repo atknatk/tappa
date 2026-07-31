@@ -91,6 +91,7 @@ type Location struct {
 	ShiftEnd   pgtype.Time
 	Overnight  bool
 	CreatedAt  time.Time
+	WifiSsid   *string
 }
 
 type PasswordReset struct {

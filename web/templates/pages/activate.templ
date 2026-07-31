@@ -1,0 +1,261 @@
+package pages
+
+import (
+	"strconv"
+
+	"github.com/atknatk/tappa/web/templates/components"
+	"github.com/atknatk/tappa/web/templates/layout"
+)
+
+// Activate is the activation screen: identity, the GDPR Art. 13 notice, the
+// optional Wi-Fi step, and ONE button.
+//
+// It follows the tap screen's discipline without being it (skill tappa-brand,
+// CLAUDE.md §9): no menu, no tabs, no settings, one action. The difference is
+// that this screen legitimately carries text — it is the only moment an employee
+// is told what the product records about them, and consent has to be informed to
+// be consent.
+//
+// THE FORM CARRIES NO CODE. It posts two fields: the consent box and the
+// synchronizer token. The invite code reached the server in the link and now
+// lives in an HttpOnly cookie (internal/handler/cookies.go), so it is not in
+// this HTML, not in the address bar after the first hop, and not in a screenshot
+// of this page.
+//
+// IT ALWAYS SAYS WHOSE ACTIVATION THIS IS. The employer and the employee are on
+// the docket at the top AND on the line directly above the button, because a
+// planted cookie on a session-less phone is still possible (cookies.go, measure
+// 3 and its M5-04 note) and the only thing between that and a confused tap is a
+// person reading a name they do not recognise before pressing anything.
+templ Activate(v ActivateView) {
+	@layout.Page("Activate your phone — Tappa") {
+		<section class="docket">
+			<p class="docket-label">Activating</p>
+			<h1 class="font-display text-2xl font-bold tracking-tight text-ink">
+				Hello { v.EmployeeName }
+			</h1>
+			<p class="mt-1 text-ink/70">{ v.EmployerName }</p>
+			if v.LocationName != "" {
+				<p class="text-ink/70">{ v.LocationName }</p>
+			}
+		</section>
+		if v.HeldByName != "" {
+			@components.Notice(components.ToneAlert, "This phone belongs to someone else") {
+				<p>
+					It is signed in as
+					<span class="font-bold">{ v.HeldByName }</span>
+					if v.HeldByEmployer != "" {
+						({ v.HeldByEmployer })
+					}
+					. Finishing here signs { v.HeldByName } out and hands this phone to
+					{ v.EmployeeName }.
+				</p>
+				<p class="mt-2 font-bold text-tomato">
+					If you did not expect this, close the page and tell your manager. Their
+					hours are recorded on this phone.
+				</p>
+			}
+		}
+		if v.SecondDevice {
+			@components.Notice(components.ToneWarn, "This is a new phone") {
+				You are already set up on another phone. Finishing here signs that one out —
+				only the phone you are holding will work afterwards. If you did not expect
+				this, stop and tell your manager.
+			}
+		}
+		@components.Card("Before you start") {
+			<ul class="mt-3 flex flex-col gap-3 text-sm text-ink/85">
+				<li>
+					<span class="font-bold">What a tap records.</span>
+					When you touch the plaque, Tappa saves the time, your phone's internet (IP)
+					address and — only at that moment — your location. Nothing runs in the
+					background and nothing is recorded between taps.
+				</li>
+				<li>
+					<span class="font-bold">No fingerprints. Ever.</span>
+					Tappa collects no biometric data of any kind: no fingerprints, no face, no voice.
+					Your phone's own screen lock stays private to your phone.
+				</li>
+				<li>
+					<span class="font-bold">How long records are kept.</span>
+					Your attendance records are kept for
+					<span class="num font-bold">{ strconv.Itoa(v.RetentionYears) }</span>
+					if v.RetentionYears == 1 {
+						year,
+					} else {
+						years,
+					}
+					as set by your employer.
+				</li>
+				<li>
+					<span class="font-bold">Who is responsible.</span>
+					{ v.EmployerName } is the controller of these records; Tappa processes them
+					on their behalf. To see, correct or ask about your data, speak to your
+					manager.
+				</li>
+			</ul>
+			if v.ShowConfigNotice {
+				<p class="mt-4 border-t border-line pt-3 font-mono text-[11px] leading-relaxed text-ink/50">
+					Non-production deployment: the retention period above is read from this
+					server's configuration and is a placeholder value, not legal advice.
+				</p>
+			}
+		}
+		@components.Card("Join the Wi-Fi") {
+			if v.WiFiSSID != "" {
+				<p class="mt-2 text-sm text-ink/85">
+					Connect to
+					<span class="num font-bold">{ v.WiFiSSID }</span>
+					before you tap: being on the venue's network is how Tappa can tell you are
+					really here.
+				</p>
+			} else {
+				<p class="mt-2 text-sm text-ink/85">
+					This place has no staff network to join, so Tappa will use your location at
+					the moment you tap instead.
+				</p>
+			}
+			<p class="mt-2 text-sm text-ink/60">
+				You can skip this — activation works either way. Without the network, taps fall
+				back to your location and may need your manager to confirm them.
+			</p>
+		}
+		<form method="post" action="/api/activate" class="flex flex-col gap-4">
+			<input type="hidden" name="csrf" value={ v.CSRFToken }/>
+			if v.HeldByName != "" {
+				<label class="flex items-start gap-3 border-l-4 border-tomato bg-paper px-4 py-4">
+					<input
+						type="checkbox"
+						name="switch"
+						value="yes"
+						required
+						checked?={ v.SwitchConfirmed }
+						class="mt-1 h-5 w-5 shrink-0 accent-tomato"
+					/>
+					<span class="text-sm text-ink/85">
+						I understand this signs { v.HeldByName } out of this phone.
+					</span>
+				</label>
+				if v.SwitchMissing {
+					@components.Notice(components.ToneAlert, "") {
+						<span class="font-bold text-tomato">
+							Nothing was changed. Tick the box above if you really mean to take
+							this phone over.
+						</span>
+					}
+				}
+			}
+			<label class="flex items-start gap-3 bg-paper border border-line px-4 py-4">
+				<input
+					type="checkbox"
+					name="consent"
+					value="yes"
+					required
+					class="mt-1 h-5 w-5 shrink-0 accent-tappa-green"
+					if v.ConsentMissing {
+						aria-invalid="true"
+						aria-describedby="consent-error"
+					}
+				/>
+				<span class="text-sm text-ink/85">
+					I have read what Tappa records and how long it is kept.
+				</span>
+			</label>
+			if v.ConsentMissing {
+				<p id="consent-error" class="border-l-4 border-tomato bg-paper px-4 py-3 text-sm font-bold text-tomato">
+					Please tick the box above so we know you have read this. Nothing was
+					activated.
+				</p>
+			}
+			<p class="text-center text-sm text-ink/70">
+				This sets up this phone for
+				<span class="font-bold text-ink">{ v.EmployeeName }</span>
+				at
+				<span class="font-bold text-ink">{ v.EmployerName }</span>
+				.
+			</p>
+			<button type="submit" class="tap-button">Activate this phone</button>
+		</form>
+	}
+}
+
+// Done is the confirmation. No button (skill tappa-brand): the next thing that
+// happens is a physical touch on a plaque, so there is nothing to press here.
+templ Done(v DoneView) {
+	@layout.Page("You're set up — Tappa") {
+		<section class="docket">
+			<p class="docket-label">Activated</p>
+			<h1 class="font-display text-2xl font-bold tracking-tight text-ink">
+				You're set, { v.EmployeeName }
+			</h1>
+			if v.LocationName != "" {
+				<p class="mt-1 text-ink/70">{ v.LocationName }</p>
+			}
+		</section>
+		@components.Notice(components.ToneOK, "This phone is now your time clock.") {
+			Hold it near the plaque at the door and press the one button you see. That is
+			the whole thing — there is nothing to install and nothing to remember.
+		}
+		if v.WiFiSSID != "" {
+			@components.Card("") {
+				<p class="text-sm text-ink/85">
+					One last thing: connect to
+					<span class="num font-bold">{ v.WiFiSSID }</span>
+					when you are at work, so Tappa can see you are on site.
+				</p>
+			}
+		}
+		if v.SecondDevice {
+			@components.Notice(components.ToneWarn, "") {
+				Your other phone has been signed out. Only this one works now.
+			}
+		}
+		<p class="pt-2 text-center font-display text-lg tracking-tight text-ink/70">
+			All done — you can close this page.
+		</p>
+	}
+}
+
+// Problem is every failure screen. The handler picks the words from a fixed set
+// of constants so that an unknown, an expired and an already-used code produce
+// BYTE-IDENTICAL output (§4.7: no oracle) — asserted in
+// internal/handler/activate_test.go.
+templ Problem(v ProblemView) {
+	@layout.Page("Tappa") {
+		@components.Notice(components.ToneAlert, "") {
+			<h1 class="font-display text-xl font-bold tracking-tight">{ v.Title }</h1>
+			<p class="mt-2">{ v.Message }</p>
+			if v.Hint != "" {
+				<p class="mt-2 text-ink/60">{ v.Hint }</p>
+			}
+		}
+	}
+}
+
+// Confirm is the same-site confirmation step for a cross-site arrival that would
+// collide with the session already on this phone (internal/handler: measure 3).
+// It stores NOTHING — the code only reaches a cookie if the person holding the
+// phone presses the button on this page.
+templ Confirm(v ConfirmView) {
+	@layout.Page("Continue? — Tappa") {
+		@components.Notice(components.ToneAlert, "") {
+			<h1 class="font-display text-xl font-bold tracking-tight">This phone is already in use</h1>
+			<p class="mt-2">
+				Someone is signed in on this phone. You have opened a link that would set it
+				up for
+				<span class="font-bold">{ v.EmployeeName }</span>
+				if v.EmployerName != "" {
+					at { v.EmployerName }
+				}
+				instead.
+			</p>
+			<p class="mt-2 text-ink/60">
+				If you did not expect this page, close it. Nothing has changed.
+			</p>
+		}
+		<form method="post" action="/activate" class="flex flex-col gap-4">
+			<input type="hidden" name="code" value={ v.Code }/>
+			<button type="submit" class="tap-button">Continue anyway</button>
+		</form>
+	}
+}

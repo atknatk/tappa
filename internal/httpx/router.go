@@ -13,7 +13,16 @@ import (
 	"github.com/atknatk/tappa/web"
 )
 
-func NewRouter(cfg *config.Config) http.Handler {
+// Mounter is a feature that registers its own routes. Declared HERE at the
+// consumer (CLAUDE.md §7) so this package does not import every handler it
+// serves, and so a new screen is added by passing it in rather than by editing
+// this file.
+type Mounter interface {
+	Mount(r chi.Router)
+}
+
+// NewRouter builds the HTTP surface. Features are mounted in the order given.
+func NewRouter(cfg *config.Config, features ...Mounter) http.Handler {
 	r := chi.NewRouter()
 
 	r.Use(middleware.RequestID)
@@ -34,8 +43,15 @@ func NewRouter(cfg *config.Config) http.Handler {
 
 	r.Handle("/static/*", http.StripPrefix("/static/", http.FileServer(http.FS(web.Static()))))
 
-	// Roadmap: GET /t (tap page), POST /api/checkin, /api/activate,
-	// dashboard routes. See docs/handoff.md §8.
+	for _, f := range features {
+		if f != nil {
+			f.Mount(r)
+		}
+	}
+
+	// Roadmap: GET /t (tap page), POST /api/checkin, dashboard routes.
+	// See docs/handoff.md §8. /activate, /activate/done and /api/activate are
+	// mounted by internal/handler.Activation (M5-02).
 
 	return r
 }

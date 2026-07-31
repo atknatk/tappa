@@ -41,6 +41,25 @@ Sonuç çıkınca: [open-questions.md](plan/open-questions.md) → Q11'e yaz.
 tekrarlatan bir akış, ya da çereze ek olarak ikinci bir tanıma kanıtı — **ama §4.1
 gereği biyometri/WebAuthn/attestation değil.** Karar o zaman verilir.
 
+### B3 — Saklama süresinin hukuki onayı (Q13)
+
+**Durum:** açık · **Bloklar:** hiçbir şeyi (kod hazır) · **İlgili:** Q13, M5-02, M8-06
+
+**Ne yapılacak.** `TAPPA_RETENTION_YEARS`'in **gerçek** değerini bir hukukçuya doğrulat
+(Malta/AB istihdam + bordro/vergi saklama yükümlülüğü) ve `.env`'e yaz.
+
+**Neden önemli.** Bu sayı **GDPR Art. 13 aydınlatma metninde çalışana gösteriliyor** —
+yani hukuki bir beyan. Yanlışsa metin çalışana yanlış bilgi vermiş olur.
+
+**Kod tarafı hazır ve bu yüzden bloklamıyor** (kullanıcı kararı 2026-07-31): sayı
+**koda gömülmedi**, config'den geliyor; aydınlatma metni onu render ediyor. Dev/demo
+değeri bir **varsayılan**dır, hukuki iddia değildir — kod bunu böyle söylüyor.
+Doğru değer öğrenilince tek yapılacak `.env`'i güncellemek; sürüm çıkmaya gerek yok.
+
+**Sonuç çıkınca:** [open-questions.md](plan/open-questions.md) → Q13'e yaz ve buradaki
+maddeyi "Kapananlar"a taşı. Q13 ayrıca "GDPR silme talebi × immutable `transactions`"
+sorusunu da taşıyor (M8-06) — saklama süresi onun bir parçası, tamamı değil.
+
 ### B2 — arm64 Go toolchain kurulumu (Q26)
 
 **Durum:** açık · **Bloklar:** hiçbir şeyi · **İlgili:** Q26, M0-07

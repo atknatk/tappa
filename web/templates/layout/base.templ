@@ -1,0 +1,51 @@
+// Package layout holds the page shell every Tappa screen is rendered into.
+//
+// Brand rules that are enforced HERE rather than repeated per page (skill
+// tappa-brand): porcelain page ground, ink text, Space Grotesk display face, one
+// narrow column sized for a phone held in one hand. No dark theme — the plaque
+// environment is lit, and a half-done theme is worse than none.
+package layout
+
+// Page is the shell. It deliberately loads ONE stylesheet and NOTHING else:
+//
+//   - No <script>. Nothing on the activation flow needs JavaScript, and a form
+//     that works with JS disabled works on a locked-down work phone too.
+//   - No font <link>, no CDN, no analytics. A runtime request to a third party
+//     would send this page's URL, and on the activation page that URL carries
+//     the invite code.
+//
+//     ⚠️ WEB FONTS ARE NOT SELF-HOSTED YET — an earlier version of this comment
+//     said they were, and an audit measured otherwise: web/static/fonts/ does
+//     not exist and app.css contains zero @font-face rules, so the page falls
+//     back to the system typeface. The RED LINE is kept (no external request is
+//     made, and the only href on a rendered page is /static/css/app.css); what is
+//     missing is the brand's Space Grotesk / IBM Plex Mono. Shipping the files
+//     belongs with the tap screen (M5-04), which is the first screen an employee
+//     sees often enough for the typeface to matter.
+//   - <meta name="referrer" content="no-referrer"> for the same reason, one layer
+//     lower: even a future page with an external image must not put the current
+//     URL in a Referer header.
+//   - <meta name="robots" content="noindex, nofollow"> because an activation link
+//     that reaches a crawler is an activation link that reaches a log somewhere.
+templ Page(title string) {
+	<!DOCTYPE html>
+	<html lang="en">
+		<head>
+			<meta charset="utf-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+			<meta name="robots" content="noindex, nofollow"/>
+			<meta name="referrer" content="no-referrer"/>
+			<title>{ title }</title>
+			<link rel="stylesheet" href="/static/css/app.css"/>
+		</head>
+		<body class="min-h-screen bg-porcelain text-ink antialiased">
+			<main class="mx-auto flex w-full max-w-md flex-col gap-6 px-4 py-8">
+				<header class="flex items-baseline justify-between">
+					<span class="font-display text-lg font-bold tracking-tight text-tappa-green">tappa</span>
+					<span class="font-mono text-[10px] uppercase tracking-widest text-ink/40">punchless</span>
+				</header>
+				{ children... }
+			</main>
+		</body>
+	</html>
+}

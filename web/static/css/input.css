@@ -2,8 +2,19 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Yazi tipleri self-host edilir — Google Fonts'a runtime baglantisi YOK
-   (GDPR + cevrimdisi calisma). Dosyalar: web/static/fonts/ */
+/* YAZI TIPLERI HENUZ SELF-HOST EDILMIYOR — olculdu, iddia degil.
+   web/static/fonts/ dizini YOK ve bu dosyada tek bir @font-face yok, yani
+   tarayici sistem yazi tipine duser. Bu satir bir sure tersini soyluyordu
+   (M5-02 B fazi, 2. tur denetimi).
+
+   KIRMIZI CIZGI DURUYOR: Google Fonts'a ya da baska bir dis kaynaga runtime
+   baglanti YOK (GDPR + cevrimdisi calisma) — render edilen sayfada tek dis
+   referans /static/css/app.css'tir (olculdu).
+
+   EKSIK OLAN marka yazi tipleri (Space Grotesk / IBM Plex Mono). Dosyalar
+   web/static/fonts/ altina konup burada @font-face ile tanimlanacak; is
+   M5-04 (tap ekrani) ile birlikte yapilir — bir calisanin sik sik gordugu ilk
+   ekran orasi. Bkz. docs/plan/m5-tap-akisi.md, M5-02 2. tur duzeltme blogu. */
 
 @layer base {
   html {

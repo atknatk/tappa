@@ -14,8 +14,13 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/atknatk/tappa/internal/audit"
 	"github.com/atknatk/tappa/internal/config"
+	"github.com/atknatk/tappa/internal/db"
+	"github.com/atknatk/tappa/internal/handler"
 	"github.com/atknatk/tappa/internal/httpx"
+	"github.com/atknatk/tappa/internal/invite"
+	"github.com/atknatk/tappa/internal/session"
 )
 
 func main() {
@@ -35,15 +40,42 @@ func run() error {
 		Level: parseLevel(cfg.LogLevel),
 	})))
 
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	// The pool is built with a bounded startup context: an unreachable database
+	// must fail the boot, not hang it.
+	dialCtx, cancelDial := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancelDial()
+	data, err := db.New(dialCtx, cfg)
+	if err != nil {
+		return err
+	}
+	defer data.Close()
+
+	sessions, err := session.New(data, cfg)
+	if err != nil {
+		return err
+	}
+	invites, err := invite.New(data, cfg)
+	if err != nil {
+		return err
+	}
+	trail, err := audit.New(data)
+	if err != nil {
+		return err
+	}
+	activation, err := handler.NewActivation(invites, sessions, trail, cfg, slog.Default())
+	if err != nil {
+		return err
+	}
+
 	srv := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           httpx.NewRouter(cfg),
+		Handler:           httpx.NewRouter(cfg, activation),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       90 * time.Second,
 	}
-
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 
 	errCh := make(chan error, 1)
 	go func() {

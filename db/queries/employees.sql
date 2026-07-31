@@ -1,0 +1,43 @@
+-- employees.sql -- employee reads. NO WRITE QUERY LIVES HERE, and that absence is
+-- load-bearing: db/queries/invites.sql documents that ConsumeInviteAndActivate is
+-- the ONLY statement in db/queries that writes employees.status, so that
+-- "activated" implies "an invite was spent". Adding an activate/deactivate query
+-- to this file would silently break that property (M5-02 phase A, binding
+-- decision 2). Deactivation (M6-05) gets its own query with its own justification.
+--
+-- TENANT SCOPE (CLAUDE.md section 4.5, belt + braces on RLS): every query here
+-- carries an explicit tenant_id predicate and runs inside db.(*DB).WithTenant.
+-- The tenant comes from the context-less resolver (ADR 0002 madde 7), never from
+-- the client.
+
+-- name: GetEmployeeActivationContext :one
+-- Everything the activation page must render about WHO is activating, in one
+-- round trip: the greeting name, the current lifecycle status, the location whose
+-- WiFi step comes next, and the DATA CONTROLLER's name for the GDPR Art. 13
+-- notice.
+--
+-- WHY status IS SELECTED. Two callers need it and neither is cosmetic:
+--   * the page refuses to invite a 'deactivated' person to activate (the
+--     consuming statement would refuse anyway -- this only avoids showing a form
+--     that cannot succeed);
+--   * the POST path reads it BEFORE consuming to tell a FIRST activation from a
+--     SECOND one (a new phone). That read is not a security decision -- the
+--     consumption is atomic and authoritative -- it only decides whether the
+--     employee's older sessions get revoked. A race there revokes sessions that
+--     did not need revoking, which is fail-closed.
+--
+-- WHY THE TENANT NAME IS JOINED RATHER THAN QUERIED SEPARATELY. GDPR Art. 13(1)(a)
+-- requires the identity of the CONTROLLER, and the controller here is the
+-- employer, not Tappa (docs/handoff.md). Naming them costs one join on a row the
+-- transaction can already see; a second query would cost a second round trip and
+-- a second place to forget the tenant filter. The join is safe under RLS: the
+-- tenants policy scopes on id, and inside WithTenant that is the same tenant.
+--
+-- NOT RETURNED: email, role, invited_at, deactivated_at, created_at. The
+-- activation page has no use for them and the resolver-function precedent
+-- (00003/00004/00009) is "no more columns than the caller needs".
+SELECT e.id, e.full_name, e.status, e.location_id, t.name AS tenant_name
+FROM employees e
+JOIN tenants t ON t.id = e.tenant_id
+WHERE e.tenant_id = @tenant_id
+  AND e.id = @employee_id;

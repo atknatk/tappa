@@ -1,0 +1,116 @@
+-- +goose Up
+
+-- Migration 0010 -- locations.wifi_ssid: the venue network NAME the activation
+-- page shows ("connect to <this> before you finish"). M5-02 phase B / Q14: the
+-- card says "ag adi lokasyon kaydindan gosterilir" and until now no such column
+-- existed -- the card assumed a field the schema did not have. 00002 is APPLIED
+-- and therefore immutable (CLAUDE.md section 6), so the field arrives here.
+--
+-- WHY THE WIFI STEP EXISTS AT ALL, in one sentence, because it explains the
+-- column's shape: joining the venue network is what puts the phone behind the
+-- location's static IP, and IP is the 50-point half of proof-of-place (section 5,
+-- row 6). Skipping it is allowed -- the card is explicit that the step is not
+-- mandatory -- and the cost of skipping is that later taps fall back to the GPS
+-- path. So this column exists to make the step POSSIBLE, never to make it a
+-- condition.
+--
+-- NULLABLE, AND NULL HAS ONE MEANING: "this location has no network name to
+-- show, skip the step". A venue may genuinely have no staff WiFi, and the phase-B
+-- page must be able to render without one. There is no second spelling of that
+-- state -- see the CHECK below, which refuses the empty string precisely so
+-- "nothing to show" cannot be written two ways.
+--
+-- THIS COLUMN IS NOT A DECISION INPUT, AND MUST NOT BECOME ONE. No policy key
+-- reads it (internal/policy), it is not a field of tap.Input, and no trust point
+-- branches on it (section 5: 20 base + 50 IP + 30 GPS -- the IP half comes from
+-- locations.static_ips and keeps coming from there). Written down because the
+-- tempting next step is "if the SSID matches, award points", and that would be a
+-- proof made of a CLIENT CLAIM: an SSID is a name anyone can give their own
+-- hotspot, so "I am on KF-StJulians-Staff" costs an attacker nothing to assert.
+-- The honest form of the same evidence is the source IP, which the client does
+-- not choose. LIMIT, stated rather than claimed away: nothing in this schema can
+-- PREVENT a future reader from branching on the column -- a comment is not a
+-- constraint. What the schema does do is keep the value out of every decision
+-- surface that exists today.
+--
+-- WHAT THIS COLUMN DELIBERATELY IS NOT (scope refused, not forgotten):
+--   * NO password/PSK column. The page shows a network NAME, not a credential.
+--     Storing a WiFi password would open a second secret-keeping surface next to
+--     tags.aes_key_ref (section 4.7) -- one that would need KEK wrapping, log
+--     scrubbing and a rotation story of its own, all to save the employee one
+--     glance at the sticker on the router. If it is ever genuinely needed it
+--     arrives in its own migration with its own justification.
+--   * NO FINGERPRINTING INPUTS ARE STORED -- no BSSID, no MAC address, no signal
+--     strength, no list of nearby networks. Those are the raw material of device
+--     and location profiling (section 4.1; redline R1 watches for exactly that
+--     vocabulary, which is why this line spells out that we refuse it), and a
+--     scan list is a background-location signal in all but name (section 4.2: GPS
+--     is read at the tap and nowhere else). Only the human-readable name lives
+--     here.
+--
+-- 32 OCTETS, NOT 32 CHARACTERS -- the distinction is the whole point of the
+-- CHECK. The IEEE 802.11 SSID element carries at most 32 OCTETS, so a name that
+-- does not fit in 32 bytes cannot be a real SSID. octet_length() counts bytes in
+-- the SERVER ENCODING, which is UTF8 in this database (measured: SHOW
+-- server_encoding -> UTF8), so a Maltese name with multi-byte letters costs more
+-- than one byte per character: 'Hamrun' is 6 octets, its Maltese spelling with a
+-- barred H is 7. A 32-CHARACTER string of two-byte letters is 64 octets and is
+-- REJECTED (measured, 23514) -- correctly, because it would not fit in a beacon
+-- frame either.
+--   THE LIMIT: 802.11 does not mandate an encoding for that field; UTF-8 is
+--   practice, not law. This CHECK measures the byte length of the text WE store
+--   in OUR server encoding. If some access point published a name in another
+--   encoding, its on-air octet count could differ from ours. We are storing a
+--   string to display, not reproducing a beacon frame, so that gap is accepted
+--   and named rather than pretended away.
+--
+-- LOWER BOUND 1 -- the empty string is REFUSED, and NULL is the only way to say
+-- "no network". Two spellings of the same absence is a bug generator: every
+-- reader (the activation page, a future panel form, an export) would have to
+-- handle both, and one of them eventually would not -- the page would render
+-- "connect to ''". The apparent inconsistency with 00002's static_ips, which
+-- prefers the EMPTY SET over NULL, is deliberate and the two cases differ: there
+-- the value is a SET and "no ranges" has a natural, total representation as {}
+-- (and NULL would poison `<<= ANY(...)` into three-valued logic); here the value
+-- is a NAME, and the natural representation of "there is none" is its absence.
+--   THE LIMIT: a whitespace-only name (' ') is still representable. 802.11 does
+--   permit spaces in an SSID, so the database cannot tell a silly name from a
+--   legitimate one; trimming user input belongs to the phase-B form, not here.
+--
+-- NO NEW RLS POLICY, INDEX OR GRANT IS NEEDED -- verified, not assumed:
+--   * RLS is a ROW-level mechanism. locations already carries the section 6 five
+--     (tenant_id NOT NULL, tenant_id index, ENABLE + FORCE RLS, USING + WITH
+--     CHECK policy, tappa_app GRANT) and the existing policy governs every column
+--     of the row, including one added later. Measured after this migration:
+--     relrowsecurity/relforcerowsecurity still true and the policy count on
+--     locations is unchanged.
+--   * The GRANT is TABLE-level (pg_class.relacl = tappa_app=arwd/tappa_owner)
+--     and locations has NO column-level ACLs at all (pg_attribute.attacl IS NULL
+--     for every column -- measured BEFORE writing this file). A table-level
+--     privilege covers columns added later, so tappa_app can read and write
+--     wifi_ssid the moment it exists (measured after: has_column_privilege
+--     ('tappa_app','locations','wifi_ssid','SELECT') = true).
+--     THIS IS NOT A GENERAL RULE, which is why it was measured: 00009 grants
+--     tappa_resolver COLUMN-level SELECT on employee_invites, and a column added
+--     to THAT table would be invisible to that role until granted explicitly.
+--     locations simply is not that shape. tappa_resolver holds no privilege on
+--     locations at all, so the new column is not reachable from any resolver
+--     path either (measured: has_column_privilege -> false).
+ALTER TABLE locations
+    ADD COLUMN wifi_ssid text
+        CONSTRAINT locations_wifi_ssid_len
+        CHECK (octet_length(wifi_ssid) BETWEEN 1 AND 32);
+
+-- NOTE ON THE CHECK AND NULL: a CHECK passes unless it evaluates to FALSE, and
+-- octet_length(NULL) BETWEEN 1 AND 32 is NULL, so every existing row (all NULL
+-- after ADD COLUMN) and every future "no network" row satisfies it. That is the
+-- intended reading of "nullable", and it is asserted in the test rather than
+-- inferred from three-valued logic.
+
+-- +goose Down
+
+-- DROP COLUMN takes the CHECK constraint with it (it is a column constraint and
+-- depends on the column); nothing else references wifi_ssid -- no index, no view,
+-- no foreign key, no policy expression. locations itself, its RLS and its grants
+-- belong to 00002 and are untouched here, in both directions.
+ALTER TABLE locations DROP COLUMN wifi_ssid;

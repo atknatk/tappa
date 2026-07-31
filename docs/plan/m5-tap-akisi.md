@@ -198,8 +198,16 @@ oturum çerezi.
   ayrı bir görevde, ayrı gerekçeyle gelir.
 - Zaten aktif çalışanın ikinci aktivasyonu: yeni cihaz mı, saldırı mı — davranış
   belirlenmiş ve testli.
-- §5 satır 3 buraya bağlanır: oturum yoksa tap → **kayıt yazılmadan** aktivasyon
-  sayfası.
+- §5 satır 3'ün **hedefi** buraya düşer: aktivasyon sayfası var, erişilebilir ve
+  hiçbir **`transactions`** satırı yazmıyor (§5 satır 3'ün yasakladığı budur).
+  ⚠️ "Bir kod harcanana kadar hiçbir kayıt yazmıyor" **değil**: tüketilmiş bir
+  kodla gelen `GET /activate` bir `audit_log` satırı yazar ve bu **doğrudur**
+  (§4.6 reddedilen denemenin iz bırakmasını ister) — yanlış olan eski cümleydi,
+  davranış değil. ⚠️ **Yönlendirmenin kendisi
+  M5-02'nin işi DEĞİL:** "oturum yoksa tap → aktivasyon sayfası" dalını kuran uç
+  nokta `GET /t`'dir ve o **M5-04**'tür. Bu satır önce "buraya bağlanır" diyordu;
+  M5-02 bittiğinde bağlanamayacağı ölçüldü (tap uç noktası yok) ve kriter gerçeğe
+  indirildi — düşen bir garanti yok, yalnızca sahibi doğru göreve yazıldı.
 - **WiFi adımı (Q14):** aktivasyon akışında çalışandan mekânın WiFi'ına bağlanması
   istenir (ağ adı lokasyon kaydından gösterilir), "neden" tek cümleyle açıklanır.
   Atlanabilir — zorunlu tutulmaz — ama atlandığında sonraki tap'ler GPS yoluna
@@ -352,6 +360,364 @@ oturum çerezi.
 >    dört gerçek sızıntı satırını yakalıyor, iki masum satırı **geçiriyor**, temiz
 >    repoda `exit 0` (üçü de ölçüldü). Sınır: `"hash"`/`"c"` gibi bir anahtar
 >    altında loglanan değer yakalanmaz (değişken adı `codeHash` ise yakalanır).
+
+> **Kart düzeltmesi (2026-07-31, WiFi adımının veri katmanı).** Kartın WiFi
+> maddesi "ağ adı **lokasyon kaydından** gösterilir" diyordu; `locations`
+> tablosunda böyle bir alan **yoktu** — kart, şemanın karşılamadığı bir alanı
+> varsayıyordu. Kullanıcı kararıyla alan eklendi:
+> [00010](../../db/migrations/00010_add_wifi_ssid_to_locations.sql) →
+> `locations.wifi_ssid text` (NULLABLE, `CHECK octet_length BETWEEN 1 AND 32`).
+> Kriter değişmedi; yalnızca dayandığı alan artık gerçek.
+>
+> **B fazını bağlayan üç nokta:**
+> 1. **Okuma yolu hazır:** `GetLocationWiFi` (`db/queries/locations.sql`) —
+>    `tenant_id` + `id` ile, açık tenant yüklemiyle. Lokasyon id'si zaten
+>    `ConsumeInviteAndActivate`'in döndürdüğü `e.location_id`'dir; B fazı yeni bir
+>    sorgu yazmak zorunda değil.
+> 2. **`wifi_ssid IS NULL` = "bu lokasyonun ağı yok, adımı atla"** — hata değil.
+>    Boş dize veritabanı tarafından **reddediliyor** (23514), yani "ağ yok"un tek
+>    yazımı NULL. Seed'de KF Msida bilerek NULL (nullable yolun fixture'ı).
+> 3. **Sütun bir karar girdisi DEĞİL ve olmamalı:** hiçbir policy anahtarı,
+>    `tap.Input` alanı veya güven puanı buna dallanmaz; IP kanıtı `static_ips`'ten
+>    gelmeye devam eder. SSID istemci beyanıdır — bir hotspot'a istenen ad
+>    verilebilir. Şifre/PSK, BSSID/MAC, sinyal gücü ve çevre ağ listesi bilinçli
+>    olarak **eklenmedi** (§4.7 yeni sır yüzeyi; §4.1/§4.2 parmak izi ve arka plan
+>    konum sinyali). Gerekçeler 00010'un içinde.
+>
+> **Sınır (yazıldı, iddia edilmedi):** bu üçüncü maddeyi zorlayan hiçbir mekanik
+> kontrol yok — bir yorum kısıt değildir. Sütunu bir karar girdisine çevirmeyi
+> engelleyen tek şey inceleme.
+
+> **Kart düzeltmesi (2026-07-31, M5-02 B fazı sırasında).** Kriterlerin hiçbiri
+> düşürülmedi; kartın *anmadığı* yedi karar aşağıda gerekçesiyle sabitleniyor.
+> Kart "kod entropisi ≥128 bit" dalını istiyordu: **32 bayt (256 bit)**,
+> `internal/invite/code.go` → `codeBytes`. Kısa/insan-okuyan koda geçilmedi, yani
+> kilitleme migration'ı gerekmedi — ama şema bunu **zorlamıyor**, sabitin üstündeki
+> yorum yükümlülüğü taşıyor (00009 zaten böyle söylüyordu).
+>
+> 1. **Alan ayrımı iki mekanizmayla: ayrı anahtar + etiketli türetme.** Brief
+>    ikisinden birini istiyordu; ikisi de var, çünkü ikisi **farklı** şeye karşı
+>    korur. `TAPPA_INVITE_HMAC_KEY` (yeni **zorunlu** env) kriptografik bağımsızlık
+>    verir: birinin sızması diğerini forge edilebilir kılmaz. Etiket
+>    (`HMAC(key, "tappa/invite/v1|" || code)`) **operasyonel** hatayı kapatır —
+>    iki env'i tek `openssl rand` çıktısından kopyala-yapıştır etmek. `config.Load`
+>    iki anahtarın **birebir eşitliğini** başlangıçta reddeder
+>    (`crypto/subtle.ConstantTimeCompare`), ama eşitlik dışı bir bağımlılık
+>    (ör. ikisini tek kaynaktan türeten gelecekteki bir yol) yalnız etiketle
+>    zararsız kalır. **Ölçüldü:** aynı anahtar altında invite MAC'i, session'ın
+>    çıplak `hex(HMAC(key, value))` yapısına **eşit değil**
+>    (`TestHash_DomainSeparation`).
+> 2. **Kod, sayfada DEĞİL kısa ömürlü HttpOnly çerezde taşınır.** `GET
+>    /activate?code=…` kodu doğrular, `tappa_activation` çerezine yazar ve **temiz
+>    `/activate`'e 303** döner. Kazanç ölçülebilir: (a) hiçbir **yanıt gövdesi**
+>    kodu taşımaz (test her baytı tarıyor) — gizli input alanı kullansaydık kod,
+>    ortak bir dükkân telefonunda render edilen HTML'de, geri-ileri önbelleğinde ve
+>    "sayfayı kaydet" çıktısında olurdu; (b) ilk sıçramadan sonra **adres
+>    çubuğunda/geçmişte** kod kalmaz; (c) `SameSite=Lax` sayesinde çapraz-site POST
+>    çerezi taşımaz → **forge edilmiş POST** kapalı (çerez EKİMİ değil — bkz.
+>    aşağıdaki 2. tur bloğu). **Bedeli açıkça yazıldı:**
+>    çerezi reddeden tarayıcı aktive olamaz — ama ürün zaten kalıcı çereze
+>    dayanıyor, bu yüzden hata **erken ve açıklanabilir** hâle gelir (plaket
+>    başında değil). Çerez tipi `insecure bool` kutbuyla yazıldı (M5-01 3. tur
+>    dersi): **sıfır değer Secure**.
+> 3. **Üçüncü uç nokta: `GET /activate/done`.** POST 303 ile buraya yönlendirir ve
+>    burası ziyaretçiyi **yeni oturum çerezinden** tanır. İki sebep: (a) PRG —
+>    yenilenen sayfa tüketilmiş bir kodu tekrar POST etmez; (b) çerezin gerçekten
+>    saklandığı **tam da o anda** ölçülür, ertesi gün plakette değil.
+> 4. **İkinci aktivasyon: yeni cihaz kabul, önce iptal sonra üretim.** Zaten
+>    `active` çalışan + geçerli kullanılmamış davet = yeni telefon.
+>    `RevokeAllForEmployee` **`Issue`'dan ÖNCE** çağrılır — sıra taşıyıcıdır, çünkü
+>    o sorgu çalışanın **tüm canlı** oturumlarını iptal eder ve sonra çağrılsaydı
+>    yeni oturumu da öldürürdü (`TestSubmit_SecondDeviceRevokesBeforeIssuing`
+>    sırayı ölçüyor). Aktivasyon öncesi form **uyarır** ("This is a new phone…"),
+>    sonrası onay ekranı **söyler**, `audit_log`'a `activation.device_replaced`
+>    yazılır. Gerekçe: çalınan telefon senaryosunda tek çare budur ve M5-01
+>    `RevokeAllForEmployee`'nin meşru çağıranları arasında bunu zaten sayıyor.
+>    ⚠️ Deaktivasyon bu yolu **çağırmıyor** (M5-01 3. tur eki) — dokunulmadı.
+> 5. **Oran sınırı iki katman ve biri bilinçli olarak izsiz.** (a) **IP başına**,
+>    DB'ye dokunmadan — yük atmanın tek mümkün yeri; tenant **bilinmediği** için
+>    `audit_log`'a yazılamaz (tablo `tenant_id NOT NULL` + FK; "sistem tenant'ı"
+>    uydurmak daha kötü olurdu). Bu boşluk yazıldı, kapatılmış gibi yapılmadı.
+>    (b) **davet başına**, davet UUID'siyle anahtarlanır (kod/hash **asla** bellek
+>    map'inin anahtarı olmaz) — tenant bilindiği için 429 **`audit_log` satırı
+>    bırakır**. **Yalnız başarısızlıklar sayılır**, yani meşru akış (bir link, bir
+>    form, bir onay) sınıra yapı gereği değmez — bu, "büyük sayı seçmek" yerine
+>    ölçülen bir özellik (`TestRateLimit_SuccessNeverConsumesBudget`). M5-03'ün
+>    geniş tap sınırı bu uçları **kapsamıyor**, kartın istediği gibi.
+>    ⚠️ **Bu madde 4. turda ikiye bölündü ve bir cümlesi çürütüldü** — aşağıdaki
+>    4. tur bloğuna bak: "meşru akış sınıra yapı gereği değmez" akışın **kendi
+>    katkısı** için doğru, **servis edilip edilmediği** için değil.
+> 6. **`TAPPA_RETENTION_YEARS` zorunlu, aralık [1,30].** Aralık **hukuki değil
+>    mantık** sınırıdır (0 = "0 yıl saklanır" yazan bir aydınlatma metni; 500 =
+>    "sonsuza dek"). Üretim dışı dağıtımlarda sayfa metni bunun **konfigürasyondan
+>    okunan bir placeholder** olduğunu açıkça söylüyor (Q13 / backlog B3 hâlâ
+>    açık). Kodda hiçbir yerde gömülü yıl sayısı yok.
+> 7. **Q02 kanalı arayüz ardında ve iz bırakıyor.** `invite.Channel` tek egress;
+>    tek implementasyon `ManagerVisibleChannel`, adı bilinçli olarak rahatsız edici
+>    ve **her teslimde `invite.code_shown_to_manager` audit satırı** yazıyor —
+>    ADR 0005 Y-D'nin tespit sinyali (M6-11) böylece ham veriye kavuşuyor.
+>    `IssueAndDeliver` kodu **çağırana döndürmez**.
+>
+> **Kart dışı yan etkiler (kapsam işaretleri):**
+> 1. **Yeni sorgu:** `db/queries/employees.sql` → `GetEmployeeActivationContext`
+>    (isim + durum + lokasyon + **tenant adı** = GDPR veri sorumlusu). Kartın
+>    "B fazı yeni sorgu yazmak zorunda değil" notu **yalnız SSID okuması** içindi;
+>    SSID gerçekten `GetLocationWiFi` ile okunuyor. Bu dosyada **yazma sorgusu
+>    yok** — A fazının "aktive eden tek ifade" garantisi korundu.
+> 2. **Yeni sorgu:** `db/queries/audit.sql` → `RecordAuditEvent` (§4.6; tablo
+>    vardı, INSERT sorgusu yoktu). Yeni paket `internal/audit`.
+> 3. **Yeni paketler:** `internal/invite`, `internal/audit`, `internal/handler`
+>    (ilk sakini), `web/templates/{layout,pages}` (ilk `.templ` dosyaları) →
+>    `go.mod`'a `github.com/a-h/templ` eklendi, `make audit` koşuldu (M1-07→M1-09
+>    dersi): `No vulnerabilities found`.
+> 4. **`httpx.NewRouter` imzası değişti:** `NewRouter(cfg, features ...Mounter)`.
+>    `cmd/tappa` artık havuzu ve yöneticileri kuruyor (wiring; iş mantığı yok).
+>
+> **Kapsam DIŞI bırakılanlar (bilinçli):**
+> - **Davet üreten HTTP uç noktası YOK.** Panel M6, admin kimlik doğrulaması da
+>   M6 — kimliksiz bir "davet üret" ucu, bu görevin azaltmaya çalıştığı Y-D
+>   riskini doğrudan internete açardı. Davet bugün yalnız `invite.Manager` +
+>   `Channel` üzerinden üretilebiliyor.
+> - **M5-03 middleware'i yazılmadı:** istemci IP'si `r.RemoteAddr`'ın host'u,
+>   `X-Forwarded-For` **okunmuyor**. Ters proxy arkasında IP penceresi tüm mekân
+>   için ortak olur — bu yüzden IP penceresi geniş, davet penceresi dar.
+> - **§5 satır 3 tam bağlanmadı:** yönlendirmeyi yapacak `GET /t` M5-04'te.
+>   Teslim edilen, **hedefin var ve erişilebilir** olması: `/activate` çalışıyor ve
+>   hiçbir `transactions` satırı yazmıyor. (Tüketilmiş kodla gelen bir istek
+>   `audit_log`'a yazar — §4.6 gereği doğru; eski "hiçbir kayıt yazmıyor" cümlesi
+>   3. turda ölçülerek çürütüldü.) "Bağlandı" denmiyor.
+> - **M5-07 turu ve practice tap** bu görevde yok.
+> - **Yazı tipleri hâlâ self-host EDİLMİYOR:** `web/static/fonts/` dizini yok,
+>   `app.css`'te **sıfır** `@font-face` (ölçüldü) — M5-02 öncesinden gelen boşluk.
+>   Kırmızı çizgi korunuyor — sayfa hiçbir dış kaynağa bağlanmıyor (render edilen
+>   HTML'de tek `href` `/static/css/app.css`), ama Space Grotesk / IBM Plex Mono
+>   gelene kadar tarayıcı **sistem yazı tipine düşer**. `base.templ` bir süre
+>   tersini söylüyordu; iddia gerçeğe indirildi (2. tur). M5-04 ile kapanmalı.
+
+> **Kart düzeltmesi (2026-07-31, M5-02 B fazı 2. tur — üçüncü göz RED sonrası).**
+> Denetim iki **bloklayan** bulgu ölçtü; ikisi de aynı sınıftan: *dosya,
+> sağlamadığı bir güvenlik sınırını beyan ediyordu.*
+>
+> **B1 — aktivasyon-fixation. "SameSite=Lax sayesinde CSRF yapısal olarak kapalı"
+> YANLIŞTI ve çapraz-tenant render ÖLÇÜLDÜ.** SameSite çerez **yazmayı**
+> kısıtlamaz, yalnız **göndermeyi**. Denetçi kurbanın tarayıcısını çapraz-site
+> `GET /activate?code=<saldırganın kodu>` yaptırdı → `Set-Cookie` yerleşti →
+> sonraki aynı-site GET **başka tenant'ın** formunu render etti → aynı-site POST
+> (Lax bunu **taşır**) kurbanın telefonunu yabancı bir çalışan kaydına bağladı ve
+> **kurbanın oturum çerezini sessizce ezdi**. Saldırı bu turda **yeniden üretildi**
+> (üç adım da başarılı), sonra üç önlem eklendi ve **yeniden koşuldu** (üç adım da
+> başarısız) — `internal/handler/activate_test.go` → `TestB1_*`:
+>
+> 1. **Synchronizer token.** Aktivasyon çerezi artık `<csrf>.<code>`; form
+>    token'ı echo ediyor, `Submit` `crypto/subtle.ConstantTimeCompare` ile
+>    karşılaştırıyor. Token **koddan türetilmiyor** (türetilseydi saldırgan
+>    hesaplardı) ve sunucuda üretildiği için saldırgan onu **okuyamaz**. Geriye
+>    kalan **kimlik avıdır**, CSRF değil — ve o sayfada **başkasının adı** yazar.
+> 2. **`Submit` mevcut oturumu görüyor.** İstek canlı bir `tappa_session`
+>    taşıyorsa ve aktive edilecek çalışan **o oturumun çalışanı değilse**: form
+>    **409** ile geri döner, mevcut sahip **adıyla** yazılır ve ayrı bir onay
+>    kutusu (`switch`) istenir. Sessiz ezme kalktı — kurbanın oturumu bir
+>    **kanıttır**. `audit_log`'a `activation.blocked` düşer.
+> 3. **Çapraz-site GET, dolu telefonda çerez ekemiyor.** `Sec-Fetch-Site:
+>    cross-site` **ve** telefonda başka birinin canlı oturumu varsa çerez
+>    **yazılmıyor**; aynı-site bir onay adımı (`POST /activate`, Origin kontrolü
+>    **katı**) gerekiyor. ⚠️ **Kasıtlı ve ölçülmüş sapma:** koordinatör
+>    "çapraz-site GET'te çerez ekme" dedi; **koşulsuz** uygulanmadı, çünkü ürünün
+>    **normal** akışı (WhatsApp/SMS/e-postadaki linke dokunmak) **daima
+>    çapraz-site**'tir — koşulsuz interstitial her aktivasyona bir tık ekler **ve**
+>    kodu her ilk sayfanın gövdesine sokardı (denetimin doğruladığı "gövdede kod
+>    yok" özelliğini bozardı). Kural bu yüzden **çatışma varken** uygulanıyor:
+>    ölçülen saldırının tam şekli budur (kurbanın oturumu var). Pozitif kontrol
+>    testte: aynı istek çapraz-site başlığı olmadan hâlâ çerezi yazıyor.
+>    **Sınır:** `Sec-Fetch-Site` her tarayıcıda yok ve **yokluğu aynı-site
+>    sayılıyor** (fail-open) — bu yüzden 1 ve 2 asıl korumadır, 3 ektir.
+>
+> **Ek olarak `Origin` kontrolü:** `POST /api/activate`'te gevşek (`Origin` varsa
+> eşleşmeli; yoksa token'a güveniliyor) ve `POST /activate`'te **katı** (eşleşme
+> ya da `Sec-Fetch-Site: same-origin` şart). Gerekçe: `Origin` çapraz-origin
+> POST'ta her modern tarayıcıda gönderilir, yani form gönderimi için **gerçek**
+> bir kontroldür; `Sec-Fetch-Site` değildir.
+>
+> **B2 — `base.templ` "fontlar self-host ediliyor" diyordu; edilmiyor.** Ölçüm:
+> `web/static/fonts/` yok, `@font-face` sayısı **0**. Dosyanın iddiası gerçeğe
+> indirildi (dış istek yok = kırmızı çizgi duruyor; marka fontu yok = sistem
+> fontuna düşülüyor; self-host **M5-04**). Kart ile dosya artık aynı şeyi diyor.
+>
+> **B3 — kartın kendi içindeki çelişki** giderildi: §5 satır 3 kriteri artık
+> yönlendirmenin **M5-04**'e ait olduğunu söylüyor.
+>
+> **B4 — onay kutusunu unutmak artık kullanıcının kendi davet bütçesini
+> yakmıyor.** `failAttempt` bir **bütçe kapsamı** aldı: `consent_missing` yalnız
+> (geniş, 60'lık) IP penceresini artırıyor; kötüye kullanım sinyalleri (yanlış
+> form token'ı, tüketilmiş/süresi geçmiş kod, aktive edilemez çalışan) davet
+> penceresini artırmaya devam ediyor. Ölçüldü: 30 arka arkaya onay hatasından
+> sonra çalışan **hâlâ** aktive olabiliyor, ve pozitif kontrol olarak tüketilmiş
+> kodu 11 kez denemek hâlâ **429** veriyor (`TestB4_*`). Eski iddia ("meşru akış
+> sınıra yapısal olarak değmez") yalnız **hatasız** akış için doğruydu.
+>
+> **B5 — sabit pencere (fixed window) sınırı yazıldı** (`ratelimit.go`): pencere
+> sınırında kısa sürede 2×limit mümkün. İddia edilmiyor, **sınır** olarak duruyor;
+> kayan pencere/token bucket paylaşılan depoyla birlikte M8'de değerlendirilir.
+>
+> **Yeni uç nokta:** `POST /activate` (yalnız çatışma onayı). Yeni audit eylemi:
+> `activation.blocked`. Yeni görünüm: `pages.Confirm` — **bu sayfa kodu gizli
+> alanda taşır** ve paketin "gövdede kod yok" kuralının **bilinçli tek
+> istisnasıdır**: yalnız çatışmalı çapraz-site gelişte render edilir; o durumda kod
+> ya ziyaretçinindir ya saldırganın (zaten bildiği). Normal akış bu sayfayı hiç
+> görmez.
+
+> **Kart düzeltmesi (2026-07-31, M5-02 B fazı 3. tur — yeni üçüncü göz RED
+> sonrası).** 2. turun B1 düzeltmesi bağımsız denetimde **doğrulandı ve
+> non-vacuous kanıtlandı** (denetçi üç önlemi tek tek sabote edip testleri
+> kırmızıya döndürdü, sonra dosyaları sha256 ile geri yükledi). Bu turda **iki
+> yeni bloklayan** çıktı.
+>
+> **🔴 1. Sınırsız, SİLİNEMEZ `audit_log` yazımı.** İki dal (`overInviteBudget`
+> ve `recordConflict`) her istekte bir satır yazıyor, **hiçbir pencereyi
+> artırmıyordu**. Ölçüldü — önce/sonra:
+>
+> | Sonda | Önce | Sonra |
+> |---|---|---|
+> | 300 × `GET /activate?code=<tüketilmiş>` | 290×429, **300 satır** | 290×429, **60 satır** |
+> | 400 × `POST /api/activate` (ölü kod) | 390×429, **400 satır** | 390×429, **60 satır** |
+> | 500 × çapraz-site GET (çakışan oturum) | **0×429**, **500 satır** | **440×429**, **60 satır** |
+>
+> Ön koşul yalnızca **ölü bir davet linki** — yani aktive olmuş her çalışanın
+> telefonunda duran kendi linki; oturum, kimlik, geçerli kod gerekmiyor. Ve
+> `audit_log` **veritabanı seviyesinde** append-only (`tappa_owner` bile
+> `DELETE` alamıyor), yani satırlar **kalıcı**. Bu, §4.6'nın korumaya çalıştığı
+> izin kendisine karşı bir servis engelleme saldırısıydı. **Düzeltme:** her iki
+> dalda `a.ipLimiter.fail(ip)`. `ratelimit.go`'nun "yalnız başarısızlıklar
+> sayılır" ve "DB işinden önce" cümleleri de gerçeğe indirildi. **429'un izi
+> kaybolmuyor:** WARN log satırı duruyor (IP-başına aşımın audit satırı olmaması
+> §4.6 ihlali değildir — denetçiyle mutabık). Pozitif kontrol: 200 ardışık
+> **başarılı** aktivasyon hiç kısıtlanmıyor.
+>
+> **🔴 2. M5-01'in RED'i yeni pakette yeniden üretilmişti.**
+> `handler.activationState.code` **çıplak `string`**'di; ölçüldü: `%v`/`%+v`/
+> `%#v` ham kodu bastı — sarmalayıcı struct'ta da. `invite.Code`'un `*string`
+> dolaylılığı, değer tipinden çıkarıldığı anda düşüyordu. **Düzeltme:** alan artık
+> `invite.Code`; ham dize yalnızca iki istek giriş noktasında ve `set`'in tek
+> satırında **fonksiyon-yerel** olarak var. Mutasyon kanıtı: alanı `string`'e
+> çevirince yeni test **7 render yolunda** kırmızı (`TestActivationState_*`).
+>
+> **Bloklamayan beş madde de kapatıldı:**
+> 1. **`heldBy` artık DB hatasında fail-CLOSED.** Önce ölçülmüştü: `Verify` hata
+>    verince `Submit` 409'u atlayıp oturum üretiyordu — koruma tam da sistem
+>    hastayken kendini kapatıyordu. Artık "bilmiyorum" ≠ "oturum yok": 500 +
+>    "tekrar dene", hiçbir şey tüketilmiyor. Mutasyonla kanıtlandı.
+> 2. **Adres çubuğu iddiası indirildi:** çakışmalı çapraz-site varış 303 değil
+>    **200** döner, yani o URL (kod dahil) geçmişte kalır. İstisna `cookies.go`'da
+>    yazılı.
+> 3. **`view.go` kendi içindeki çelişki giderildi:** `ConfirmView.Code` artık
+>    paket dokümanında **adıyla anılan tek istisna**.
+> 4. **"Bir kod harcanana kadar hiçbir kayıt yazmıyor" cümlesi** hem kodda hem
+>    kartta düzeltildi (yukarıdaki kabul kriteri): yazılan `audit_log` satırı
+>    §4.6 gereği **doğru**, yanlış olan cümleydi.
+> 5. **Önlem 3'ün koşulluluğu ve M5-04 devri yazıldı.** Oturumsuz telefonda
+>    çapraz-site GET hâlâ çerez ekiyor; bugün saldırgana **ek yetenek
+>    kazandırmıyor** (aynı linki doğrudan da gönderebilirdi) ama **M5-04** `GET /t`
+>    oturumsuz tap'i `/activate`'e yönlendirdiğinde bu ekili çerez o yolun girdisi
+>    olur. Risk `cookies.go`'da **M5-04 adıyla anılarak** yazıldı; bugünkü azaltım
+>    formun **hangi işletme + hangi çalışan** için aktive olduğunu hem üstte hem
+>    **butonun hemen üstünde** söylemesi. Ayrıca `Sec-Fetch-Site` karşılaştırması
+>    **büyük/küçük harf duyarsız** yapıldı — ölçülmüştü: `Cross-Site` ve
+>    `CROSS-SITE` çerezi ekiyordu (M5-01'in `HTTPS://` hatasıyla aynı sınıf).
+>
+> **B2 iki dosyada daha düzeltildi:** `web/static/css/input.css` ve
+> **`.claude/skills/tappa-brand/SKILL.md`** — skill bir **spec**'tir ve yanlış bir
+> spec sonraki UI ajanını yanıltır (agent-brief md. 6). Üçü de artık aynı şeyi
+> diyor: dış bağlantı yok (kırmızı çizgi duruyor), marka yazı tipleri **henüz
+> yok**, sahibi **M5-04**.
+>
+> **Bileşen tekrarı giderildi:** `web/templates/components/` açıldı
+> (`Notice` + `Card`); `border-l-4 border-tomato bg-paper px-4 py-4` zinciri
+> `activate.templ`'de **5 → 1**.
+>
+> **Kapsam dışı bırakılan, sınır olarak yazılan:** **çerez gölgeleme** — bir alt
+> alan adı aynı isimle ikinci bir `tappa_activation` yazabilir ve `r.Cookie`
+> ilkini alır. Standart çare `__Host-` önekidir; `internal/session` onu
+> `http://localhost` geliştirmeyi bozduğu için **bilinçli olarak** ertelemişti.
+> Hangi hostların bu alan adı altında var olacağı bir **dağıtım** kararıdır → M8.
+> Kod değiştirilmedi, yalnız `cookies.go`'ya yazıldı.
+
+> **Kart düzeltmesi (2026-07-31, M5-02 B fazı 4. tur — `tappa-security-auditor`
+> ONAY + son bulgular).** Güvenlik denetimi 3. turun iki bloklayanını kendi
+> ölçümüyle kapalı buldu (300 GET → **tam 60** satır; 500 çapraz-site GET →
+> **440×429 + tam 60** satır; `%+v` matrisinde `invite.Code` her verb'de redacted,
+> pozitif kontrol ham dizenin sızdığını gösteriyor). Bu turda **bir ana bulgu ve
+> beş küçük madde** kapatıldı.
+>
+> **⚠️ Oran sınırı BAŞARILARI da reddediyordu — bütçeler ayrıldı.** Tek bir per-IP
+> penceresi her handler'ın ilk kontrolüydü, yani **geçerli** bir aktivasyonu da
+> reddediyordu. Ölçüldü: **60 × bilinmeyen kod** (kimlik, oturum, geçerli kod
+> gerektirmez) → ardından **geçerli** kodla gelen çalışan **429** alıyor, hâlâ
+> `invited`. Ağırlaştıran: `clientIP` bilinçli olarak `X-Forwarded-For` okumuyor
+> ve dağıtım **tek VPS + ters proxy**, yani proxy arkasında **tüm internet tek
+> anahtarı** paylaşır — 0.1 istek/sn ile ürünün aktivasyonu süresiz kapatılabilir.
+>
+> **Üç bütçe, üç iş** (`ratelimit.go`):
+>
+> | bütçe | anahtar | neyle artar | neyi reddeder |
+> |---|---|---|---|
+> | `flood` (600/10dk) | IP | **her istek** | gerçek DoS — **geçerli aktivasyonu reddedebilen tek bütçe** |
+> | `unknown` (60/10dk) | IP | **tenant'sız** başarısızlıklar (bilinmeyen kod, çerez yok, yabancı Origin) | hiçbir şeyi — yalnız **süreç log'unu** sınırlar |
+> | `invite` (10/10dk) | davet UUID'si | **atfedilebilir** başarısızlıklar | `audit_log` satırlarını sınırlar |
+>
+> **Önce/sonra ölçüm** (aynı sondalar):
+>
+> | sonda | 3. tur | 4. tur |
+> |---|---|---|
+> | 300 × `GET` (ölü kod) | 290×429, 60 satır | 290×429, **11 satır** |
+> | 400 × `POST` (ölü kod) | 390×429, 60 satır | 390×429, **11 satır** |
+> | 500 × çapraz-site GET | 440×429, 60 satır | 490×429, **11 satır** |
+> | 60 bilinmeyen → 1 **geçerli** kod | **429** (kilitli) | **303 (servis ediliyor)** |
+> | 605. istek, tek adres | — | **429** (kalkan hâlâ ısırıyor) |
+>
+> Bloklayan #1'in kazanımı **bozulmadı, iyileşti** (60 → 11): `overInviteBudget`
+> artık satırı yalnız **pencere eşiğini geçen ilk istekte** yazıyor
+> (`limiter.firstOverLimit`), `recordConflict` ise davet penceresini artırıyor.
+> **Bu sınırın kapsamı yazıldı:** davet **başına**dır; N farklı geçerli davet
+> tutan bir çağıran N× yazabilir ve onu sınırlayan `flood` tavanıdır — yani
+> satır sayısı asla istek sayısını aşmaz.
+>
+> **Çürütülen iddia gerçeğe indirildi** (`ratelimit.go` + yukarıdaki 5. madde):
+> "meşru akış sınıra **yapı gereği** değmez" akışın **kendi katkısı** için
+> doğrudur (200 ardışık başarılı aktivasyon → sıfır 429), ama "akış **her koşulda
+> servis edilir**" demek **değildir** — `flood` tavanı aynı kaynak adresten gelen
+> herkese uygulanır.
+>
+> **🔴 M5-03'e ADLANDIRILMIŞ DEVİR — kapatılmadı, kapatılamaz.** Gerçek istemci
+> IP'si (`X-Forwarded-For` + `cfg.TrustedProxies`) çözülene kadar: (a) `flood`
+> tavanı per-caller değil **global**'dir → dışarıdan biri onu harcayıp herkesin
+> aktivasyonunu pencere boyunca engelleyebilir; (b) `unknown` bütçesinin log
+> susturması da global'dir. Bütçe ayrımı bunun **ucuz** biçimini kaldırdı (altmış
+> kötü link artık gerçek bir linki reddetmiyor); geri kalanı burada ayarlanabilir
+> bir sayı değil, **M5-03'ün işi** — ve M5-03 `floodLimit`'i de yeniden
+> değerlendirmeli (per-adres trafiğe göre seçildi). Aynı uyarı
+> `activate.go` → `clientIP` ve `ratelimit.go` başlığında da yazılı.
+>
+> **Beş küçük madde:**
+> 1. **`cookies.go` ile `view.go` çelişkisi giderildi.** `pages.ConfirmView.Code`
+>    **exported düz `string`**'dir ve `%+v` onu **basar** (ölçüldü; aynı koşuda
+>    `invite.Code` redacted). **Redakte edilemez:** templ değeri gizli alana
+>    yazarken tipin dize biçimini ister — redakte eden tip "…(redacted)" post
+>    ederdi. Bu yüzden istisna **ilan edildi**, tek görünümde, tek yolda; koruma
+>    tip sistemi değil **inceleme** ve bu artık her iki dosyada da böyle yazılı.
+> 2. **"Normal akış bu sayfayı hiç görmez" YANLIŞTI** (ölçüldü): **ortak dükkân
+>    telefonu** — biri oturum açıkken ikinci çalışanın **kendi** linkini sohbet
+>    uygulamasından açması (daima çapraz-site) tam da bu sayfayı render eder. Yani
+>    "URL'de kod kalıyor" istisnası nadir değil; düzeltildi.
+> 3. **Origin-red dalları artık ücretsiz değil:** `unknown` bütçesini artırıyorlar
+>    ve log satırı bütçe dolunca **susuyor** (bir kez "susturuyorum" diyerek).
+>    Ölçüldü: 400 istek → 60+ değil, **sınırlı** satır.
+> 4. **`GET /activate/done` kalkanın arkasına alındı** — yazma yok ama istek başına
+>    iki DB okuması var; `ratelimit.go`'nun "DoS kalkanı" cümlesi artık akışın
+>    tamamını kapsıyor.
+> 5. **§4.6 asimetrisi giderildi:** `cookies.Set` hatası artık `sessions.Issue`
+>    hatası gibi `audit_log`'a yazıyor — iki dal **aynı durumu** bırakıyor (davet
+>    tüketilmiş, çalışan `active`, kullanılabilir oturum yok). Pratikte erişilemez
+>    bir dal; zaten bu yüzden asimetri incelemeden geçmişti.
 
 ---
 

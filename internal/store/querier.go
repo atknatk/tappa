@@ -293,6 +293,43 @@ type Querier interface {
 	// token_hash is the HMAC of a token this query never sees; it is written, never
 	// returned. device_info is NULL when the caller has no coarse label.
 	CreateSession(ctx context.Context, arg CreateSessionParams) (CreateSessionRow, error)
+	// employees.sql -- employee reads. NO WRITE QUERY LIVES HERE, and that absence is
+	// load-bearing: db/queries/invites.sql documents that ConsumeInviteAndActivate is
+	// the ONLY statement in db/queries that writes employees.status, so that
+	// "activated" implies "an invite was spent". Adding an activate/deactivate query
+	// to this file would silently break that property (M5-02 phase A, binding
+	// decision 2). Deactivation (M6-05) gets its own query with its own justification.
+	//
+	// TENANT SCOPE (CLAUDE.md section 4.5, belt + braces on RLS): every query here
+	// carries an explicit tenant_id predicate and runs inside db.(*DB).WithTenant.
+	// The tenant comes from the context-less resolver (ADR 0002 madde 7), never from
+	// the client.
+	// Everything the activation page must render about WHO is activating, in one
+	// round trip: the greeting name, the current lifecycle status, the location whose
+	// WiFi step comes next, and the DATA CONTROLLER's name for the GDPR Art. 13
+	// notice.
+	//
+	// WHY status IS SELECTED. Two callers need it and neither is cosmetic:
+	//   * the page refuses to invite a 'deactivated' person to activate (the
+	//     consuming statement would refuse anyway -- this only avoids showing a form
+	//     that cannot succeed);
+	//   * the POST path reads it BEFORE consuming to tell a FIRST activation from a
+	//     SECOND one (a new phone). That read is not a security decision -- the
+	//     consumption is atomic and authoritative -- it only decides whether the
+	//     employee's older sessions get revoked. A race there revokes sessions that
+	//     did not need revoking, which is fail-closed.
+	//
+	// WHY THE TENANT NAME IS JOINED RATHER THAN QUERIED SEPARATELY. GDPR Art. 13(1)(a)
+	// requires the identity of the CONTROLLER, and the controller here is the
+	// employer, not Tappa (docs/handoff.md). Naming them costs one join on a row the
+	// transaction can already see; a second query would cost a second round trip and
+	// a second place to forget the tenant filter. The join is safe under RLS: the
+	// tenants policy scopes on id, and inside WithTenant that is the same tenant.
+	//
+	// NOT RETURNED: email, role, invited_at, deactivated_at, created_at. The
+	// activation page has no use for them and the resolver-function precedent
+	// (00003/00004/00009) is "no more columns than the caller needs".
+	GetEmployeeActivationContext(ctx context.Context, arg GetEmployeeActivationContextParams) (GetEmployeeActivationContextRow, error)
 	// transactions.sql -- tenant-scoped reads and the single append-only write for
 	// the product's core record. Every query carries an explicit tenant_id filter
 	// (CLAUDE.md section 4.5, belt + braces on RLS). transactions is IMMUTABLE
@@ -321,8 +358,21 @@ type Querier interface {
 	// tap the same wall plaque back to back. The domain compares this row's
 	// occurred_at with the new tap's time against the 60s window.
 	GetLastTransactionForEmployee(ctx context.Context, arg GetLastTransactionForEmployeeParams) (Transaction, error)
-	// locations.sql -- tenant-scoped location reads for proof-of-place. Both queries
-	// carry an explicit tenant_id filter (CLAUDE.md section 4.5, belt + braces on RLS).
+	// locations.sql -- tenant-scoped location reads for proof-of-place, plus the one
+	// read the activation page needs. EVERY query here carries an explicit tenant_id
+	// filter (CLAUDE.md section 4.5, belt + braces on RLS).
+	//
+	// WHY wifi_ssid IS IN THE TWO PROOF-OF-PLACE QUERIES BELOW, since it is NOT
+	// proof of anything (00010): because leaving it out is the change, not putting it
+	// in. Both column lists mirror the whole table, which is what makes sqlc map them
+	// onto the shared `store.Location` model. Measured on 00010 before this edit: with
+	// wifi_ssid missing from the lists, sqlc v1.28 stopped using Location and emitted
+	// two near-identical ten-field structs instead (GetLocationByIPRow,
+	// ListLocationsForTenantRow), changing both function signatures. Naming the column
+	// keeps the canonical mapping and costs one text field per row. NOTHING ON THE TAP
+	// PATH READS IT -- the decision engine takes static_ips and gps_lat/gps_lng
+	// (section 5, row 6); wifi_ssid is display data, and 00010 explains at length why
+	// it must never become a decision input.
 	// Proof-of-place, IP side (CLAUDE.md section 5, row 6): the location whose
 	// static_ips contains the request source IP. static_ips is cidr[]; the source is
 	// matched with @src::inet <<= ANY(static_ips), which is TRUE when the address
@@ -330,6 +380,34 @@ type Querier interface {
 	// etc.). An unconfigured location has static_ips = '{}', so <<= ANY('{}') is
 	// cleanly FALSE and it never matches (proof falls back to GPS).
 	GetLocationByIP(ctx context.Context, arg GetLocationByIPParams) (Location, error)
+	// THE ACTIVATION READ (M5-02 phase B / Q14): the network name the page asks the
+	// employee to join, for ONE location. Separate from the two queries above on
+	// purpose -- neither of them is the activation path. GetLocationByIP is keyed by
+	// the source IP, which is exactly what the employee does not have yet at the
+	// moment we ask them to join the network, and ListLocationsForTenant returns the
+	// whole tenant when the page needs one row.
+	//
+	// KEYED BY LOCATION ID, AND THAT ID IS SERVER-SIDE. The activation flow already
+	// holds it: ConsumeInviteAndActivate (db/queries/invites.sql) RETURNS
+	// e.location_id for the employee it just activated. So phase B passes a value the
+	// database produced, not one the client chose. Stated as intent for the caller,
+	// NOT as a guarantee this query can enforce -- it cannot see where its argument
+	// came from. What it does enforce is the tenant boundary: the explicit tenant_id
+	// predicate plus the RLS policy mean an id from another tenant returns no row
+	// (measured in internal/db/locations_test.go), so the worst a wrong id can do is
+	// name another location OF THE SAME TENANT.
+	//
+	// NARROW ON PURPOSE: id, tenant_id, name, wifi_ssid. static_ips, GPS and the
+	// shift columns are not returned because the activation page has no use for them
+	// -- the same "no more columns than needed" rule the resolver functions follow
+	// (00003/00004/00009). name comes along so the page can say WHICH venue's network
+	// it means; a venue with several locations would otherwise show a bare SSID.
+	//
+	// wifi_ssid IS NULL means "this location has no network to show" (00010) and the
+	// page skips the step. That is not an error and must not be rendered as one: a
+	// skipped WiFi step costs the IP half of proof-of-place on later taps (section 5,
+	// row 6), it does not cost the activation.
+	GetLocationWiFi(ctx context.Context, arg GetLocationWiFiParams) (GetLocationWiFiRow, error)
 	// THE single write path. id and created_at use DB defaults; every other column
 	// is set by the tap engine, including practice and queued (no silent default is
 	// relied on for those two -- the engine states them). tenant_id is provided
@@ -371,6 +449,56 @@ type Querier interface {
 	// included on purpose; the caller filters on revoked_at, so history stays visible.
 	// token_hash is NOT selected: nothing outside the resolution path needs it.
 	ListSessionsForEmployee(ctx context.Context, arg ListSessionsForEmployeeParams) ([]ListSessionsForEmployeeRow, error)
+	// audit.sql -- the append-only administrative/domain trail (migration 00005).
+	//
+	// WHY THIS FILE EXISTS NOW (M5-02 phase B): CLAUDE.md section 4.6 says a record is
+	// never lost -- an attempt that fails must leave a trace rather than disappearing.
+	// The activation endpoint is the first code path that produces failures worth
+	// keeping (a replayed code, an expired one, a rate-limited caller, a second device
+	// taking over an account), so it is the first caller that needs a writer. Until
+	// now audit_log had a table and no INSERT query.
+	//
+	// APPEND-ONLY IS ENFORCED BY THE DATABASE, NOT BY THIS FILE (00005): tappa_app
+	// holds SELECT and INSERT only (REVOKE UPDATE, DELETE) AND a BEFORE UPDATE OR
+	// DELETE trigger stops even tappa_owner. So there is deliberately no update and no
+	// delete query here, and adding one would fail at runtime rather than quietly
+	// rewriting history.
+	//
+	// TENANT SCOPE (section 4.5): the INSERT names tenant_id explicitly as a VALUE and
+	// runs inside db.(*DB).WithTenant, so the RLS WITH CHECK refuses a row whose
+	// tenant disagrees with the transaction context (the same shape CreateInvite
+	// uses -- there is no row to filter yet).
+	//
+	// ⚠️ THE TENANT IS THE LIMIT OF THIS TRAIL, AND IT IS A REAL ONE. audit_log.tenant_id
+	// is NOT NULL with an FK to tenants, so an event that cannot be attributed to a
+	// tenant CANNOT be written here -- the clearest case being an activation attempt
+	// with a code that resolves to nothing at all. There is no "system tenant" row and
+	// inventing one would be worse than the gap: it would put unattributable events
+	// inside a tenant's audit view. Those attempts are counted by the endpoint's rate
+	// limiter and logged (without the code, section 4.7); the honest statement is that
+	// the audit trail covers every failure whose OWNER is known, not every failure.
+	//
+	// KIRMIZI CIZGI section 4.7 -- WHAT MUST NEVER GO IN `detail`: the invite code, its
+	// hash, a session token, a CMAC, an AES key, or a full GPS coordinate. 00005 states
+	// this and calls it the application's responsibility, because a jsonb column cannot
+	// inspect its own contents. The Go side keeps it: internal/audit builds the detail
+	// from a typed struct per event, never from a map of whatever the caller had.
+	// Appends one event. Every column except the two nullable ones is supplied:
+	//
+	//   actor_id  NULL when the actor is the SYSTEM (00005: the column is
+	//             deliberately polymorphic and FK-less). An employee activating
+	//             themselves is NOT an admin actor, so activation events carry NULL
+	//             and name the employee in `target` instead.
+	//   target    the affected entity as opaque text -- an employee id for activation
+	//             events. Nullable because some events have no single target.
+	//
+	// `at` is left to its DEFAULT now(): the event time is the DATABASE's, not a
+	// caller-supplied timestamp, so a clock-skewed or malicious caller cannot
+	// backdate the trail (the same reason transactions.created_at is server-side).
+	//
+	// RETURNING id, at: the caller logs the id (a stable, non-secret handle) instead
+	// of the payload, and `at` lets a test assert the row exists without re-reading.
+	RecordAuditEvent(ctx context.Context, arg RecordAuditEventParams) (RecordAuditEventRow, error)
 	// Revokes one session. COALESCE keeps the FIRST revocation timestamp: a repeated
 	// revoke is idempotent AND does not rewrite when the session actually died
 	// (audit truth). Because the row is matched regardless of its revocation state,

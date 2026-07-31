@@ -21,6 +21,10 @@
 --   Every row uses a fixed UUID / tag UID and ON CONFLICT DO NOTHING. Running
 --   `make seed` twice is clean: the second run inserts nothing and errors on
 --   nothing. There is no DELETE -- ON CONFLICT is the whole idempotency story.
+--   ONE EXCEPTION, scoped to a single column: locations carries a DO UPDATE that
+--   backfills wifi_ssid (00010) into rows seeded before that column existed. It
+--   is guarded so it fires at most once per row and never overwrites a value;
+--   the reasoning is written out at that statement.
 --   The same fixed identifiers are mirrored, typed, in test/fixtures/ids.go so
 --   Go tests reference named handles instead of magic strings.
 --
@@ -81,42 +85,75 @@ ON CONFLICT (id) DO NOTHING;
 -- and every pair is >= ~780 m apart, so the 150 m GPS-radius test is meaningful.
 -- Shift times are Malta LOCAL wall-clock (see TIMEZONE POLICY). Rusty Bar carries
 -- overnight = true WITH a filled 18:00-02:00 shift (shift_pair CHECK satisfied).
+--
+-- wifi_ssid (00010) is the network NAME the activation page asks the employee to
+-- join (M5-02 phase B / Q14). It is display data and NOTHING decides on it -- the
+-- IP half of proof-of-place stays static_ips above. Values follow one pattern,
+-- <VENUE>-Staff, and stay ASCII on purpose: this file's naming discipline is
+-- ASCII (see the Liam O'Brien note below) and the interesting case for
+-- wifi_ssid -- multi-byte UTF-8 against a 32-OCTET limit -- is exercised where it
+-- can be ASSERTED, in internal/db/locations_test.go, not by staring at a fixture.
+-- The longest value here is 18 octets, comfortably inside the CHECK.
+--
+-- KF Msida deliberately has NO network name (NULL): a venue may simply not have
+-- staff WiFi, and phase B must render that case -- the WiFi step is skipped and
+-- later taps from that location fall back to the GPS path. It is the wifi_ssid
+-- counterpart of Marco Bugeja's NULL email below: one fixture row that keeps the
+-- nullable path from going untested by accident.
 INSERT INTO locations
-    (id, tenant_id, name, static_ips, gps_lat, gps_lng, shift_start, shift_end, overnight, created_at)
+    (id, tenant_id, name, static_ips, gps_lat, gps_lng, shift_start, shift_end, overnight, wifi_ssid, created_at)
 VALUES
     ('10000000-0000-4000-8000-000000000101', '10000000-0000-4000-8000-000000000001',
      'KF Hamrun',      ARRAY['203.0.113.10/32']::cidr[], 35.885000, 14.488000,
-     TIME '10:00', TIME '22:00', false, now() - interval '80 days'),
+     TIME '10:00', TIME '22:00', false, 'KF-Hamrun-Staff',    now() - interval '80 days'),
     ('10000000-0000-4000-8000-000000000102', '10000000-0000-4000-8000-000000000001',
      'KF Mellieha',    ARRAY['203.0.113.11/32']::cidr[], 35.957000, 14.362000,
-     TIME '10:00', TIME '22:00', false, now() - interval '80 days'),
+     TIME '10:00', TIME '22:00', false, 'KF-Mellieha-Staff',  now() - interval '80 days'),
+    -- KF Msida: no staff network -- the NULL wifi_ssid fixture (see above).
     ('10000000-0000-4000-8000-000000000103', '10000000-0000-4000-8000-000000000001',
      'KF Msida',       ARRAY['203.0.113.12/32']::cidr[], 35.895000, 14.489000,
-     TIME '10:00', TIME '22:00', false, now() - interval '80 days'),
+     TIME '10:00', TIME '22:00', false, NULL,                 now() - interval '80 days'),
     ('10000000-0000-4000-8000-000000000104', '10000000-0000-4000-8000-000000000001',
      'KF Valletta',    ARRAY['203.0.113.13/32']::cidr[], 35.899000, 14.514000,
-     TIME '10:00', TIME '22:00', false, now() - interval '80 days'),
+     TIME '10:00', TIME '22:00', false, 'KF-Valletta-Staff',  now() - interval '80 days'),
     ('10000000-0000-4000-8000-000000000105', '10000000-0000-4000-8000-000000000001',
      'KF San Gwann',   ARRAY['203.0.113.14/32']::cidr[], 35.907000, 14.478000,
-     TIME '10:00', TIME '22:00', false, now() - interval '80 days'),
+     TIME '10:00', TIME '22:00', false, 'KF-SanGwann-Staff',  now() - interval '80 days'),
     ('10000000-0000-4000-8000-000000000106', '10000000-0000-4000-8000-000000000001',
      'KF St Julians',  ARRAY['203.0.113.15/32']::cidr[], 35.918000, 14.489000,
-     TIME '10:00', TIME '22:00', false, now() - interval '80 days'),
+     TIME '10:00', TIME '22:00', false, 'KF-StJulians-Staff', now() - interval '80 days'),
     ('10000000-0000-4000-8000-000000000107', '10000000-0000-4000-8000-000000000001',
      'KF Paceville',   ARRAY['203.0.113.16/32']::cidr[], 35.925000, 14.490000,
-     TIME '11:00', TIME '23:00', false, now() - interval '80 days'),
+     TIME '11:00', TIME '23:00', false, 'KF-Paceville-Staff', now() - interval '80 days'),
+    -- Rusty Bar keeps its own brand here too: it is the one KF venue whose name
+    -- carries no "KF" prefix, so its network does not either.
     ('10000000-0000-4000-8000-000000000108', '10000000-0000-4000-8000-000000000001',
      'Rusty Bar',      ARRAY['203.0.113.17/32']::cidr[], 35.949000, 14.413000,
-     TIME '18:00', TIME '02:00', true,  now() - interval '80 days'),
+     TIME '18:00', TIME '02:00', true,  'RustyBar-Staff',     now() - interval '80 days'),
     ('10000000-0000-4000-8000-000000000109', '10000000-0000-4000-8000-000000000001',
      'KF Headquarter', ARRAY['203.0.113.18/32']::cidr[], 35.890000, 14.470000,
-     TIME '09:00', TIME '17:00', false, now() - interval '80 days'),
+     TIME '09:00', TIME '17:00', false, 'KF-HQ-Staff',        now() - interval '80 days'),
     -- KM single facility. Location shift is the general 09:00-17:00 baseline;
     -- department shifts (below) override it for staff who have a department.
     ('20000000-0000-4000-8000-000000000101', '20000000-0000-4000-8000-000000000001',
      'KM Plant',       ARRAY['198.51.100.0/29']::cidr[], 35.870000, 14.450000,
-     TIME '09:00', TIME '17:00', false, now() - interval '80 days')
-ON CONFLICT (id) DO NOTHING;
+     TIME '09:00', TIME '17:00', false, 'KM-Plant-Staff',     now() - interval '80 days')
+-- DELIBERATE DEVIATION from this file's DO NOTHING rule, and ONLY for wifi_ssid.
+-- Every dev database that was seeded before 00010 already holds these ten rows,
+-- so DO NOTHING would leave every network name NULL there for good and `make
+-- seed` would silently not deliver the fixture it claims to (only the destructive
+-- `make db-reset` would). The narrow backfill below fills a name in exactly once:
+--   * `locations.wifi_ssid IS NULL` -- an operator's hand-set value is never
+--     overwritten, and neither is a name once this has run;
+--   * `EXCLUDED.wifi_ssid IS NOT NULL` -- KF Msida is MEANT to stay NULL, so it
+--     is not "updated" from NULL to NULL on every run.
+-- Together those keep the idempotency claim literal rather than approximate: a
+-- second run inserts nothing AND updates nothing (measured -- INSERT 0 0). No
+-- other column is touched here; everything else still relies on DO NOTHING.
+ON CONFLICT (id) DO UPDATE
+    SET wifi_ssid = EXCLUDED.wifi_ssid
+    WHERE locations.wifi_ssid IS NULL
+      AND EXCLUDED.wifi_ssid IS NOT NULL;
 
 -- ----------------------------------------------------------------- departments
 -- KM only (KF models the location as the operational unit -- no departments).
