@@ -36,6 +36,16 @@
 -- NOT RETURNED: email, role, invited_at, deactivated_at, created_at. The
 -- activation page has no use for them and the resolver-function precedent
 -- (00003/00004/00009) is "no more columns than the caller needs".
+--
+-- THIRD CALLER (M5-04): the TAP PAGE reads full_name here for its greeting
+-- (internal/domain/tenant.Directory.TapPage). It uses no other column -- the
+-- venue it names is the TAPPED location, not e.location_id, and the status is
+-- deliberately not a page input: whether a deactivated employee's tap is refused
+-- is the sys:employee-deactivated guardrail's answer at POST time, and §5 row 4
+-- requires that refusal to be RECORDED, which a page cannot do. The name is
+-- kept as-is rather than widened to "GetEmployee...": one query serving the two
+-- screens that greet somebody is the point, and a second near-identical query
+-- would be the drift this file's header warns about.
 SELECT e.id, e.full_name, e.status, e.location_id, t.name AS tenant_name
 FROM employees e
 JOIN tenants t ON t.id = e.tenant_id

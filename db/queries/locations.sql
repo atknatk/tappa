@@ -65,6 +65,17 @@ ORDER BY name;
 -- page skips the step. That is not an error and must not be rendered as one: a
 -- skipped WiFi step costs the IP half of proof-of-place on later taps (section 5,
 -- row 6), it does not cost the activation.
+--
+-- SECOND CALLER (M5-04): the TAP PAGE names the venue an employee just tapped
+-- (internal/domain/tenant.Directory.TapPage). It reads `name` and ignores
+-- wifi_ssid. The "server-side id" intent above still holds and is worth
+-- restating for that path: the id comes from resolving the TAG (resolve_tag_by_uid
+-- maps a plaque uid to its location), so the client supplies a uid and the
+-- DATABASE supplies the location. The tenant is the SESSION's, not the tag's, so
+-- a plaque belonging to another tenant returns NO ROW -- which is how the tap
+-- page avoids rendering one tenant's venue name to another tenant's employee.
+-- That is a DISCLOSURE choice, not the isolation decision: whether such a tap is
+-- allowed is sys:tenant-mismatch's answer at POST time (hand-off N5).
 SELECT id, tenant_id, name, wifi_ssid
 FROM locations
 WHERE tenant_id = @tenant_id

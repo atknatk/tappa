@@ -237,7 +237,12 @@ type TapLimiter struct {
 	// a nil recorder cannot silently drop an ATTENDANCE record — this path never
 	// writes one.
 	audit AuditRecorder
-	log   *slog.Logger
+	// refused renders the 429 body. It is INJECTED rather than imported: this
+	// package must not depend on web/templates, and a middleware that reached
+	// for a page would drag the whole template tree into the request boundary.
+	// nil keeps the plain-text fallback — see writeTooManyRequests.
+	refused http.HandlerFunc
+	log     *slog.Logger
 }
 
 // AuditRecorder is the slice of audit.Recorder this package needs (§7).
@@ -282,12 +287,30 @@ const (
 	tapSessionPeriod = 10 * time.Minute
 )
 
+// TapSessionLimit and TapAddressLimit report the default budgets.
+//
+// They are exported for ONE reason and it is worth stating, because "exported
+// for tests" is usually a smell: a test that wants to see a refusal has two
+// options, and only one of them is honest. It can replace the limiter with a
+// small one — which then measures a limiter the test built, not the one the
+// product builds, and an audit caught exactly that hiding a missing Audit
+// recorder in internal/handler. Or it can drive the real budget, which needs to
+// know what the real budget is. These accessors make the second option
+// possible; the numbers themselves stay private and unchangeable from outside.
+func TapSessionLimit() int { return tapSessionLimit }
+func TapAddressLimit() int { return tapAddressLimit }
+
 // TapLimitParams configures NewTapLimiter. The zero value of each budget field
 // means "the constant above"; tests set them small so they do not have to send
 // three thousand requests to prove a limit exists.
 type TapLimitParams struct {
-	Audit         AuditRecorder
-	Log           *slog.Logger
+	Audit AuditRecorder
+	Log   *slog.Logger
+	// Refused renders the body of a 429. Optional: when nil the plain-text
+	// fallback is used. The caller writes the status; Retry-After,
+	// Cache-Control: no-store and X-Content-Type-Options are already set by the
+	// time it runs (refuse -> writeTooManyRequests).
+	Refused       http.HandlerFunc
 	AddressLimit  int
 	AddressPeriod time.Duration
 	SessionLimit  int
@@ -313,10 +336,11 @@ func NewTapLimiter(p TapLimitParams) *TapLimiter {
 		log = slog.Default()
 	}
 	return &TapLimiter{
-		addr:  NewLimiter(pick(p.AddressLimit, tapAddressLimit), pickd(p.AddressPeriod, tapAddressPeriod)),
-		sess:  NewLimiter(pick(p.SessionLimit, tapSessionLimit), pickd(p.SessionPeriod, tapSessionPeriod)),
-		audit: p.Audit,
-		log:   log,
+		addr:    NewLimiter(pick(p.AddressLimit, tapAddressLimit), pickd(p.AddressPeriod, tapAddressPeriod)),
+		sess:    NewLimiter(pick(p.SessionLimit, tapSessionLimit), pickd(p.SessionPeriod, tapSessionPeriod)),
+		audit:   p.Audit,
+		refused: p.Refused,
+		log:     log,
 	}
 }
 
@@ -401,7 +425,7 @@ func (t *TapLimiter) refuse(w http.ResponseWriter, r *http.Request, l *Limiter, 
 			}
 		}
 	}
-	writeTooManyRequests(w, l.Period())
+	writeTooManyRequests(w, r, l.Period(), t.refused)
 }
 
 // tapLimitDetail is the hand-written detail for the audit row. Typed, with known
@@ -424,22 +448,31 @@ func writeUnavailable(w http.ResponseWriter) {
 	_, _ = w.Write([]byte("Something went wrong on our side. Please tap again.\n"))
 }
 
-// writeTooManyRequests answers 429 in plain text.
+// writeTooManyRequests answers 429.
 //
-// PLAIN TEXT, NOT A BRANDED PAGE, deliberately. This is an abuse shield, not a
-// screen: designing one would mean a templ view and the tappa-brand skill
-// (CLAUDE.md §9), and the employee tap screen it would sit beside does not exist
-// yet. M5-04 may replace this with a branded page; the status code, the
-// Retry-After and the no-store are the parts that matter and they do not change.
+// THE BODY IS THE CALLER'S IF IT WANTS ONE. M5-03 shipped plain text and said
+// why: an abuse shield is not a screen, and the employee tap screen it would sit
+// beside did not exist yet. It does now (M5-04), so internal/handler passes a
+// renderer and this middleware still does not import a template — the direction
+// of the dependency is the point, not the appearance of the page.
+//
+// The parts that matter do not depend on which body is written: the status code,
+// Retry-After, and no-store are set HERE, before the renderer runs, so a caller
+// cannot forget them. A nil renderer keeps the plain-text fallback, which is
+// what every construction other than the tap screen still gets.
 //
 // Retry-After is the whole window rather than the time left in it: a fixed
 // window would have to expose its start to say anything tighter, and overstating
 // the wait is the polite direction.
-func writeTooManyRequests(w http.ResponseWriter, retryAfter time.Duration) {
+func writeTooManyRequests(w http.ResponseWriter, r *http.Request, retryAfter time.Duration, render http.HandlerFunc) {
 	w.Header().Set("Retry-After", strconv.Itoa(int(retryAfter.Seconds())))
 	w.Header().Set("Cache-Control", "no-store")
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
+	if render != nil {
+		render(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(http.StatusTooManyRequests)
 	_, _ = w.Write([]byte("Too many requests. Please wait a moment and tap again.\n"))
 }

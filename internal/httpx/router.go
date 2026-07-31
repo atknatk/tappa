@@ -3,6 +3,7 @@
 package httpx
 
 import (
+	"io/fs"
 	"net/http"
 	"net/netip"
 	"time"
@@ -60,7 +61,7 @@ func NewRouter(cfg *config.Config, features ...Mounter) http.Handler {
 		_, _ = w.Write([]byte("ok"))
 	})
 
-	r.Handle("/static/*", http.StripPrefix("/static/", http.FileServer(http.FS(web.Static()))))
+	r.Handle("/static/*", http.StripPrefix("/static/", http.FileServer(noListing{http.FS(web.Static())})))
 
 	for _, f := range features {
 		if f != nil {
@@ -68,16 +69,49 @@ func NewRouter(cfg *config.Config, features ...Mounter) http.Handler {
 		}
 	}
 
-	// Roadmap: GET /t (tap page), POST /api/checkin, dashboard routes.
-	// See docs/handoff.md §8. /activate, /activate/done and /api/activate are
-	// mounted by internal/handler.Activation (M5-02).
+	// Roadmap: POST /api/checkin (M5-05), dashboard routes. See docs/handoff.md
+	// §8. /activate, /activate/done and /api/activate are mounted by
+	// internal/handler.Activation (M5-02); GET /t by internal/handler.Tap
+	// (M5-04).
 	//
-	// The tap routes arrive with their own middleware group — the identity
-	// resolver and the two-sided rate limit — and NOT here: both cost something
-	// (a database query, a counter) that /healthz and /static must not pay, and
-	// mounting a shield in front of routes that do not exist would be a claim
-	// this file cannot keep. TapLimiter's doc carries the exact order M5-04 and
-	// M5-05 must use.
+	// The tap routes arrive with their OWN middleware group — the identity
+	// resolver and the two-sided rate limit — and not from here: both cost
+	// something (a database query, a counter) that /healthz and /static must not
+	// pay. handler.Tap.Mount applies them in the order TapLimiter's doc fixes as
+	// a contract (ByAddress -> Identify -> BySession), and POST /api/checkin
+	// belongs in that same group when it lands.
 
 	return r
+}
+
+// noListing serves files and refuses DIRECTORIES.
+//
+// http.FileServer renders an index page for any directory it can open, and an
+// audit measured what that meant once M5-04 added real asset directories:
+// GET /static/fonts/ answered 200 with a complete file listing. Nothing secret
+// is in there — the fonts are public assets and their names are already in
+// app.css — so this is surface reduction rather than a leak being closed. The
+// reason to close it anyway is that a listing is a free inventory of what a
+// deployment ships, and the directory only grows.
+//
+// Refusing the OPEN (rather than filtering the response) keeps it in one place:
+// FileServer treats fs.ErrNotExist as a 404, so a directory request answers
+// exactly as a missing file does, with no separate code path to keep in sync.
+type noListing struct{ fsys http.FileSystem }
+
+func (n noListing) Open(name string) (http.File, error) {
+	f, err := n.fsys.Open(name)
+	if err != nil {
+		return nil, err
+	}
+	info, err := f.Stat()
+	if err != nil {
+		_ = f.Close()
+		return nil, err
+	}
+	if info.IsDir() {
+		_ = f.Close()
+		return nil, fs.ErrNotExist
+	}
+	return f, nil
 }

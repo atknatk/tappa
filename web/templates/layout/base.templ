@@ -6,28 +6,56 @@
 // environment is lit, and a half-done theme is worse than none.
 package layout
 
-// Page is the shell. It deliberately loads ONE stylesheet and NOTHING else:
+// Page is the shell for a screen that needs NO JavaScript, which is every screen
+// except the tap page. See PageWithScript for the one exception and why it is
+// one.
+templ Page(title string) {
+	@shell(title, "") {
+		{ children... }
+	}
+}
+
+// PageWithScript is the same shell plus exactly ONE self-hosted script tag.
 //
-//   - No <script>. Nothing on the activation flow needs JavaScript, and a form
-//     that works with JS disabled works on a locked-down work phone too.
+// IT EXISTS FOR THE TAP PAGE AND NOTHING ELSE. §4.2 allows the browser's
+// location to be read at the moment of a tap and forbids every other shape of
+// it (in the background, continuously, or by watching a boundary), and reading
+// it at a moment requires
+// script — there is no HTML that says "ask once, when this button is pressed".
+// The activation flow needs no script and gets none: a form that works with
+// JavaScript disabled works on a locked-down work phone too, and the tap form
+// keeps that property as well (without script it simply posts no coordinates,
+// which §5 rows 6-7 already treat as a legitimate state).
+//
+// src must be an app-relative path under /static. Nothing here builds a URL from
+// user input, and no page passes one in.
+templ PageWithScript(title, src string) {
+	@shell(title, src) {
+		{ children... }
+	}
+}
+
+// shell is the actual document. It is unexported so the two entry points above
+// are the whole vocabulary — a third variant should be a third named component
+// with its own reason, not an extra parameter nobody reads.
+//
+// It deliberately loads ONE stylesheet, the caller's optional script, and
+// NOTHING ELSE:
+//
 //   - No font <link>, no CDN, no analytics. A runtime request to a third party
 //     would send this page's URL, and on the activation page that URL carries
-//     the invite code.
-//
-//     ⚠️ WEB FONTS ARE NOT SELF-HOSTED YET — an earlier version of this comment
-//     said they were, and an audit measured otherwise: web/static/fonts/ does
-//     not exist and app.css contains zero @font-face rules, so the page falls
-//     back to the system typeface. The RED LINE is kept (no external request is
-//     made, and the only href on a rendered page is /static/css/app.css); what is
-//     missing is the brand's Space Grotesk / IBM Plex Mono. Shipping the files
-//     belongs with the tap screen (M5-04), which is the first screen an employee
-//     sees often enough for the typeface to matter.
+//     the invite code. The BRAND FACES ARE SELF-HOSTED as of M5-04:
+//     web/static/fonts/ holds Space Grotesk and IBM Plex Mono under the SIL OFL
+//     with their licences and provenance beside them, and app.css declares them
+//     with @font-face pointing at our own origin. (Before M5-04 the directory
+//     did not exist, app.css had zero @font-face rules and every screen fell
+//     back to the system typeface — the red line held, the brand did not.)
 //   - <meta name="referrer" content="no-referrer"> for the same reason, one layer
 //     lower: even a future page with an external image must not put the current
 //     URL in a Referer header.
 //   - <meta name="robots" content="noindex, nofollow"> because an activation link
 //     that reaches a crawler is an activation link that reaches a log somewhere.
-templ Page(title string) {
+templ shell(title, script string) {
 	<!DOCTYPE html>
 	<html lang="en">
 		<head>
@@ -37,6 +65,9 @@ templ Page(title string) {
 			<meta name="referrer" content="no-referrer"/>
 			<title>{ title }</title>
 			<link rel="stylesheet" href="/static/css/app.css"/>
+			if script != "" {
+				<script src={ script } defer></script>
+			}
 		</head>
 		<body class="min-h-screen bg-porcelain text-ink antialiased">
 			<main class="mx-auto flex w-full max-w-md flex-col gap-6 px-4 py-8">

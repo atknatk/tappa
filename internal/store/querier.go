@@ -329,6 +329,16 @@ type Querier interface {
 	// NOT RETURNED: email, role, invited_at, deactivated_at, created_at. The
 	// activation page has no use for them and the resolver-function precedent
 	// (00003/00004/00009) is "no more columns than the caller needs".
+	//
+	// THIRD CALLER (M5-04): the TAP PAGE reads full_name here for its greeting
+	// (internal/domain/tenant.Directory.TapPage). It uses no other column -- the
+	// venue it names is the TAPPED location, not e.location_id, and the status is
+	// deliberately not a page input: whether a deactivated employee's tap is refused
+	// is the sys:employee-deactivated guardrail's answer at POST time, and §5 row 4
+	// requires that refusal to be RECORDED, which a page cannot do. The name is
+	// kept as-is rather than widened to "GetEmployee...": one query serving the two
+	// screens that greet somebody is the point, and a second near-identical query
+	// would be the drift this file's header warns about.
 	GetEmployeeActivationContext(ctx context.Context, arg GetEmployeeActivationContextParams) (GetEmployeeActivationContextRow, error)
 	// transactions.sql -- tenant-scoped reads and the single append-only write for
 	// the product's core record. Every query carries an explicit tenant_id filter
@@ -407,6 +417,17 @@ type Querier interface {
 	// page skips the step. That is not an error and must not be rendered as one: a
 	// skipped WiFi step costs the IP half of proof-of-place on later taps (section 5,
 	// row 6), it does not cost the activation.
+	//
+	// SECOND CALLER (M5-04): the TAP PAGE names the venue an employee just tapped
+	// (internal/domain/tenant.Directory.TapPage). It reads `name` and ignores
+	// wifi_ssid. The "server-side id" intent above still holds and is worth
+	// restating for that path: the id comes from resolving the TAG (resolve_tag_by_uid
+	// maps a plaque uid to its location), so the client supplies a uid and the
+	// DATABASE supplies the location. The tenant is the SESSION's, not the tag's, so
+	// a plaque belonging to another tenant returns NO ROW -- which is how the tap
+	// page avoids rendering one tenant's venue name to another tenant's employee.
+	// That is a DISCLOSURE choice, not the isolation decision: whether such a tap is
+	// allowed is sys:tenant-mismatch's answer at POST time (hand-off N5).
 	GetLocationWiFi(ctx context.Context, arg GetLocationWiFiParams) (GetLocationWiFiRow, error)
 	// THE single write path. id and created_at use DB defaults; every other column
 	// is set by the tap engine, including practice and queued (no silent default is

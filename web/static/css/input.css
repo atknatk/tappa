@@ -2,32 +2,100 @@
 @tailwind components;
 @tailwind utilities;
 
-/* YAZI TIPLERI HENUZ SELF-HOST EDILMIYOR — olculdu, iddia degil.
-   web/static/fonts/ dizini YOK ve bu dosyada tek bir @font-face yok, yani
-   tarayici sistem yazi tipine duser. Bu satir bir sure tersini soyluyordu
-   (M5-02 B fazi, 2. tur denetimi).
+/* THE BRAND FACES ARE SELF-HOSTED (M5-04). The files live under
+   web/static/fonts/, are embedded in the binary (web/embed.go, `all:static`)
+   and are served from /static/fonts/; their source URLs, sha256 sums and OFL
+   licence texts are in that directory's README.md. At the end of M5-02 the
+   directory did not exist and this file had ZERO @font-face rules (measured),
+   so every screen fell back to the system typeface.
 
-   KIRMIZI CIZGI DURUYOR: Google Fonts'a ya da baska bir dis kaynaga runtime
-   baglanti YOK (GDPR + cevrimdisi calisma) — render edilen sayfada tek dis
-   referans /static/css/app.css'tir (olculdu).
+   THE RED LINE IS UNCHANGED: no RUNTIME connection to Google Fonts or any other
+   third party (GDPR + working offline). Every url() below points at our OWN
+   origin; the files were downloaded once, at build time, and committed.
 
-   EKSIK OLAN marka yazi tipleri (Space Grotesk / IBM Plex Mono). Dosyalar
-   web/static/fonts/ altina konup burada @font-face ile tanimlanacak; is
-   M5-04 (tap ekrani) ile birlikte yapilir — bir calisanin sik sik gordugu ilk
-   ekran orasi. Bkz. docs/plan/m5-tap-akisi.md, M5-02 2. tur duzeltme blogu. */
+   WHY TWO FILES PER WEIGHT: `latin` carries ASCII and the Western European
+   accents, `latin-ext` adds the Maltese letters c-dot g-dot h-bar z-dot. The UI
+   text is English but employee and venue NAMES are not — and unicode-range
+   means a browser fetches latin-ext only when a page actually contains one of
+   those characters.
+
+   font-display: swap — text is painted in the system face FIRST and swaps when
+   the web font arrives. Deliberate: somebody standing at a plaque must never be
+   shown a blank screen. A late typeface beats a late check-in. */
+
+@font-face {
+  font-family: 'Space Grotesk';
+  font-style: normal;
+  font-weight: 300 700;
+  font-display: swap;
+  src: url('/static/fonts/space-grotesk-v22-latin-wght.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Space Grotesk';
+  font-style: normal;
+  font-weight: 300 700;
+  font-display: swap;
+  src: url('/static/fonts/space-grotesk-v22-latin-ext-wght.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF,
+    U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020,
+    U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/static/fonts/ibm-plex-mono-v20-latin-400.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/static/fonts/ibm-plex-mono-v20-latin-ext-400.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF,
+    U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020,
+    U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/static/fonts/ibm-plex-mono-v20-latin-700.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/static/fonts/ibm-plex-mono-v20-latin-ext-700.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF,
+    U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020,
+    U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
 
 @layer base {
   html {
     @apply bg-porcelain text-ink font-display antialiased;
   }
-  /* Her sayi mono — adisyon hissi buradan gelir. */
+  /* Every number is mono — the docket feel comes from exactly this. */
   time, code, kbd, samp, .num {
     @apply font-mono;
   }
 }
 
 @layer components {
-  /* --- kitchen docket: Tappa'nin imza motifi --- */
+  /* --- kitchen docket: Tappa's signature motif --- */
   .docket {
     @apply relative bg-paper border border-line shadow-sm px-4 py-3 font-mono text-sm;
   }
@@ -44,7 +112,7 @@
     @apply text-[10px] uppercase tracking-widest text-ink/50;
   }
 
-  /* --- kase damgasi: hafif egik, cift cerceve, murekkep hissi --- */
+  /* --- rubber stamp: slightly rotated, double framed, ink-like --- */
   .stamp {
     @apply inline-block px-2.5 py-1 text-[11px] font-bold uppercase tracking-[0.18em]
            border-2 rounded-sm opacity-80 select-none -rotate-6;
@@ -56,7 +124,7 @@
   .stamp--ignored  { @apply text-line border-line rotate-2; }
   .stamp--training { @apply text-ink border-ink border-dashed rotate-3; }
 
-  /* --- tap ekrani: eldivenli/islak parmak icin buyuk hedef --- */
+  /* --- tap screen: a target big enough for a gloved or wet finger --- */
   .tap-button {
     @apply w-full min-h-16 rounded-sm bg-tappa-green text-paper font-display
            text-xl tracking-tight active:scale-[0.99] transition-transform

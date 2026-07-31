@@ -17,10 +17,12 @@ import (
 	"github.com/atknatk/tappa/internal/audit"
 	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/db"
+	"github.com/atknatk/tappa/internal/domain/tenant"
 	"github.com/atknatk/tappa/internal/handler"
 	"github.com/atknatk/tappa/internal/httpx"
 	"github.com/atknatk/tappa/internal/invite"
 	"github.com/atknatk/tappa/internal/session"
+	"github.com/atknatk/tappa/internal/sun"
 )
 
 func main() {
@@ -70,9 +72,23 @@ func run() error {
 		return err
 	}
 
+	// The tap screen (M5-04). It is given the NON-ADVANCING half of internal/sun
+	// on purpose: sun.Verifier offers both entry points, but handler.Tap's
+	// consumer-side interface names only PreviewWithoutReplayProtection, so the
+	// page cannot spend a chip's counter even by accident. The atomic advance
+	// belongs to POST /api/checkin (M5-05).
+	directory, err := tenant.NewDirectory(data)
+	if err != nil {
+		return err
+	}
+	tap, err := handler.NewTap(sun.NewVerifier(data, cfg.TagKEK), directory, sessions, trail, cfg, slog.Default())
+	if err != nil {
+		return err
+	}
+
 	srv := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           httpx.NewRouter(cfg, activation),
+		Handler:           httpx.NewRouter(cfg, activation, tap),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       90 * time.Second,
 	}

@@ -1040,6 +1040,342 @@ oturum çerezi.
   sunucu tarafında imzalı bir bağlam taşımak daha temiz.
 - Karanlık tema yok (şimdilik) — yarım iş yapma.
 
+> **Kart düzeltmesi (2026-07-31, M5-04 uygulaması sırasında).** Hiçbir kriter
+> düşürülmedi; ikisi gerçekle çelişiyordu ve kartın anmadığı yedi karar aşağıda
+> gerekçesiyle sabitleniyor.
+>
+> **1) 🔴 "Sayfa açılırken sayaç ilerletilmez" MEVCUT API İLE İMKÂNSIZDI.**
+> `sun.Verify` (verify.go) sabit akışının **6. adımı** `AdvanceCounter`'dır, yani
+> sayfa yolunda `Verify` çağrılamaz; kripto kontrolünü ilerletmeden yapan
+> `verifySUN` ise **unexported**'tı. Kart bunu bilmiyordu. Yeni giriş noktası:
+>
+> ```go
+> func (v *Verifier) PreviewWithoutReplayProtection(ctx, p Params) (Preview, error)
+> ```
+>
+> **Adın ve tipin işi caydırmaktır** — `Check`/`Validate`/`IsValid` bilinçli
+> olarak yok. Yanlış kullanımı zorlaştıran **dört ölçülmüş** önlem:
+> (a) ad "replay koruması yok" diyor; (b) dönüş tipi `Result` **değil** `Preview`
+> ve ona atanabilir değil, yani `Verify` için yazılmış kod bu fonksiyonla
+> **derlenmez** (`TestPreview_HasNoSUNValidField` ikisini de ölçüyor);
+> (c) `Preview`'da **`SUNValid` alanı YOK** — çağıranın "SUN gerçek" sonucunu
+> okuyacağı alan mevcut değil, yalnız `CMACValid` var; (d) `inspect` (ortak
+> 2–5. adımlar) **unexported**, yani paketten tek çıkış ya `Verify` ya bu.
+> Doküman bloğu POST'un `AdvanceCounter`'ı çağırmak **ZORUNDA** olduğunu
+> büyük harflerle yazıyor; `tapcontext.go` aynı sözleşmeyi öteki uçtan yazıyor.
+>
+> **Kanıt (ölçüldü, iddia değil):** sahte bir resolver'ın `WithTenant`'ı
+> callback'i **gerçekten çalıştırıyor** ve içindeki `pgx.Tx` stub'ı ifadeleri
+> sayıyor → preview'da **0 ifade**, `Verify`'da **1 ifade** (pozitif kontrol,
+> `TestVerify_StillIssuesTheAdvanceQuery` — inspect refactor'ünün regresyon
+> koruması da bu). Gerçek Postgres'e karşı: 20 sayfa açılışı → `last_ctr`
+> **değişmedi**, ardından `Verify` → **değişti**; sonra aynı URL preview'dan yine
+> geçiyor (replay'i ayırt edemediğinin kanıtı). Canlı sunucuda 13 + 20 sayfa
+> açılışı sonrası `last_ctr` 0 → **0**. `internal/sun` kapsamı **%96.7**
+> (preview.go %100), §8 hedefinin üstünde.
+>
+> **2) İmzalı bağlam CMAC TAŞIMIYOR — kartın tuzağından bir adım öteye gidildi.**
+> Tuzak "ctr/cmac'i DOM'a gömme" diyor; buradaki tasarım **CMAC'i** hiç
+> gömmüyor: `<payload>.<mac>`, payload =
+> `1|uid|ctr|channel|cmacVerified|tagTenant|location|issuedAt`.
+> ⚠️ **Düzeltme (3. tur):** "tag, ctr ve cmac HTML'de yok" cümlesi **yanlıştı** —
+> uid ve sayaç imzalı payload'ın **içinde** ve script tarafından çözülebilir;
+> yalnız **CMAC** gerçekten yok (denetçi her baytı taradı). İkisi de sır değil
+> (çip ikisini de aynı sayfanın adres çubuğunda basıyor), ama iddia ölçümden
+> genişti. İmzanın satın aldığı şey **gizlilik değil bütünlük**: POST yalnız bu
+> sunucunun, bu oturum için, yakın zamanda ürettiği bir bağlamla çalışır.
+> Çipin MAC'i sunucuda **bir kez** kontrol edilir ve sayfaya yalnız **tek bitlik
+> sonucu** geçer, yani §4.7 listesindeki hiçbir değer (oturum token'ı, CMAC,
+> anahtar, davet kodu, GPS) bağlamda **yok** (`TestTapContext_MintedPayloadHasNoHexMAC`
+> + `TestTapPage_BodyCarriesNoCryptographicMaterial` her baytı tarıyor).
+> **Bedeli açıkça M5-05'e yazıldı:** `SUN geçerli == CMACVerified && atomik
+> sayaç ilerlemesi` — iki yarı, VE'lenmiş. Alanı okumadan ilerleten bir POST
+> sahte tap kaydeder; ilerletmeden alana bakan bir POST replay kaydeder.
+> **Oturum id'si MAC girdisinde, payload'da DEĞİL** (authenticated, disclosed
+> değil): bağlam yalnız servis edildiği tarayıcıda çözülür ve id sayfaya
+> düşmez. ⚠️ Bu **URL paylaşmayı** (buddy punching, ADR 0005) **çözmez**.
+>
+> **3) Anahtar TÜRETİLDİ, dördüncü env var eklenmedi.**
+> `HMAC(TAPPA_SESSION_HMAC_KEY, "tappa/tap-context/v1/key-derivation")`, üstüne
+> MAC etiketi `tappa/tap-context/v1|` (alan ayrımı — üçüncü tür, kendi etiketi).
+> Gerekçe: bu değer **saklanmıyor**, 15 dakika yaşıyor; zorunlu yeni bir env var
+> her dağıtımı ve CI'yı, yalnız bunu imzalayan bir anahtar konana kadar
+> **başlatılamaz** yapardı. HMAC tek yönlü → bu anahtarın sızması session
+> anahtarını vermez. **Sınır açıkça yazıldı:** ters yön geçerli — session
+> anahtarını tutan bunu türetebilir, yani ikisi **bağımsız değil**. Ölçüldü
+> (`TestTapContext_DomainSeparation`): türetilen anahtar ≠ session anahtarı;
+> session anahtarı altındaki çıplak HMAC bu imzayı **üretmiyor**; etiket
+> çıkarılınca MAC **değişiyor**; farklı dağıtım anahtarı farklı imza veriyor.
+> **TTL 15 dk** — M5-10 penceresinin (1–15 dk) **üst sınırına** eşit seçildi ki
+> M5-10 indiğinde ikisinden **gevşek olan** asla bu olmasın. `IssuedAt` sunucu
+> saati ve authenticated → M5-10'un `first_seen_at`'i bunun **üstüne** kurulur
+> (ama M5-10 imzalı damgayı değil **DB'deki en erken satırı** okumalı: bir
+> çağıran aynı tap için birden çok bağlam tutabilir). `tap_page_views` tablosu
+> ve tazelik guardrail'i **kurulmadı** — M5-10'un işi.
+>
+> **4) 🔴 ÖN-DOĞRULAMA BAŞARISIZ OLSA BİLE SAYFA RENDER EDİLİYOR** (retired/lost
+> plaket = §5 satır 1, geçersiz CMAC = §5 satır 2). İlk bakışta yanlış görünür;
+> **§4.6'nın izin verdiği tek davranış budur:** üçü de `reject`'tir ve
+> `reject` **kayıt gerektirir**, kaydı POST yazar. Render etmeyi reddeden bir
+> sayfa butonun hiç basılmamasına, yani reddedilen denemenin **iz bırakmamasına**
+> yol açardı. Tek istisna **bilinmeyen UID**: tenant'ı ve lokasyonu yok, yani
+> kayıt yazılacak bir bağlam yok (404; `sun.ErrUnknownTag`'in kendi gerekçesiyle
+> aynı). Aynı sebeple **çapraz-tenant plaket de render ediliyor** (venue adı
+> **olmadan**) — reddetmek `sys:tenant-mismatch`'i **kayıtsız** karara bağlamak
+> olurdu; karar M5-05'in.
+>
+> **5) §5 satır 3 BAĞLANDI ve devralınan tuzak açıkça ele alındı.** Oturumsuz
+> **ve** iptal edilmiş oturum → `303 /activate`, **kayıt yok** (gerçek Postgres:
+> 40 `GET /t`, yarısı oturumsuz → `transactions` **5133 → 5133**). `Identity`
+> sıfır değeri tuzağı (devir md.3) mekanik olarak ele alındı: `SessionUnresolved`
+> → **500 + ERROR log**, `SessionAbsent` → aktivasyon; ikisi ayrı `case`'ler ve
+> ayrımı kaldıran mutasyon testleri **kırmızıya** çeviriyor.
+> ⚠️ **İptal edilmiş oturum ile DEAKTİF ÇALIŞAN karıştırılmadı:** deaktivasyon
+> oturum iptal etmez (M5-01), yani deaktif çalışan **canlı oturumla** sayfayı
+> görür, butona basar ve `sys:employee-deactivated` denemeyi **kaydeder** (§5
+> satır 4). Testte ikisi ayrı vaka.
+> **Ekili aktivasyon çerezi etkileşimi (devir md.4) — DEĞERLENDİRİLDİ,
+> kötüleştirilmedi:** yönlendirme saldırgana **yeni yetenek vermiyor** (çerezi
+> ekmek zaten kurbanın saldırganın linkini açmasını gerektirir ve o gezinme
+> **zaten** 303 ile `/activate`'e düşüp formu gösterir), değişen **ne zaman**
+> görülebileceği. Azaltım M5-02'nin gönderdiği hâliyle duruyor: form hangi
+> işletme + hangi çalışan olduğunu butonun üstünde yazıyor. Yönlendirmeye
+> tek-kullanımlık bir işaret ekleyip `/activate`'in ekili çerezi reddetmesini
+> sağlamak **bilinçli olarak yapılmadı**: o akışın çerez mantığı dört denetim
+> turu sürdü ve dışarıdan yapılan bir değişiklik ölçülmüş savunmayı ölçülmemiş
+> hâle getirir. `tap.go` → `redirectToActivation` bunu yazıyor.
+>
+> **6) `TapLimiter` MONTE EDİLDİ, sözleşme sırasıyla** —
+> `ByAddress → Identify → BySession` (`handler.Tap.Mount`). Sırayı bozan mutasyon
+> testleri kırmızıya çeviriyor (`BySession` `SessionUnresolved` görüp 500 veriyor).
+> **429 gövdesi artık markalı** (devir md.6): `httpx.TapLimitParams.Refused
+> http.HandlerFunc` eklendi — `internal/httpx` şablon **import etmiyor**,
+> renderer enjekte ediliyor; `nil` eski düz metin davranışını koruyor.
+> `Retry-After`/`no-store`/`nosniff` renderer'dan **önce** yazılıyor, yani
+> gövdeyi değiştiren çağıran onları düşüremez. ⚠️ **429 kalıntısı (devir md.2)
+> ÇÖZÜLMEDİ ve çözüldüğü iddia edilmiyor:** paylaşılan adres bütçesi tükenirse
+> meşru tap 429 alır, karar motoruna ulaşmaz, ne `transactions` ne `flag` olur.
+> M8 (paylaşılan store + mekân-başına anahtar).
+>
+> **7) Fontlar SELF-HOST EDİLİYOR — kriter karşılandı.** `web/static/fonts/`:
+> Space Grotesk (variable 300–700) + IBM Plex Mono (400/700), her biri `latin`
+> **ve** `latin-ext` alt kümesiyle — `latin-ext` Maltaca **ċ ġ ħ ż** içindir
+> (arayüz İngilizce ama **isimler** değil). Altı woff2 toplam **79.032 bayt**
+> (~77 KiB), ikiliye gömülü, `/static/fonts/`'tan servis ediliyor (canlı ölçüm:
+> 200, `font/woff2`). ⚠️ **Düzeltme (3. tur):** bu satır "92 KB" diyordu; 92.126
+> bayt **dizinin tamamıdır** (iki OFL metni + README dâhil), tarayıcının
+> indirdiği yalnızca yazı tipleridir.
+> Kaynak Google Fonts CSS API'sinin kendi woff2 dosyaları; **derleme zamanında
+> bir kez** indirildi ve commit edildi — **runtime'da hiçbir dış bağlantı yok**
+> (render edilen sayfada `href`/`src` yalnız `/static/css/app.css` ve
+> `/static/js/tap.js`; mutlak URL sayısı **0**). Her iki aile **SIL OFL**;
+> lisans metinleri, kaynak URL'ler ve sha256'lar
+> `web/static/fonts/README.md`'de. `app.css`'te `@font-face` sayısı **0 → 6**.
+> `input.css`, `layout/base.templ` ve **skill `tappa-brand`** aynı anda
+> güncellendi (yanlış bir spec sonraki UI ajanını yanıltır).
+>
+> **Kart dışı yan etkiler (kapsam işaretleri):**
+> 1. **Yeni paket `internal/domain/tenant`** (`Directory.TapPage`) — CLAUDE.md §3
+>    "handler içinde iş kuralı veya SQL YOK" gereği; iki store çağrısı handler'a
+>    konsaydı kural delinirdi. Dizin haritası bu paketi zaten adlandırıyor.
+>    Venue **oturumun tenant'ı altında** okunuyor: yabancı plaket satır
+>    döndürmez → başka tenant'ın venue adı bu çalışanın ekranına **düşmez**.
+>    Bu bir **ifşa** tercihidir, izolasyon kararı değil (`ErrForeignLocation`
+>    dosyada bunu yazıyor).
+> 2. **Yeni sorgu yazılmadı;** `GetEmployeeActivationContext` ve `GetLocationWiFi`
+>    yeniden kullanıldı ve **ikisinin de doküman bloğuna yeni çağıran eklendi**
+>    (bir sorgu, kendi çağıranlarını sayan bir yorum taşıyorsa o yorum gerçeği
+>    söylemek zorundadır).
+> 3. **`layout.Page` bölündü:** ortak `shell` + `Page` (script yok) +
+>    `PageWithScript` (tek self-host script). Çağıran imzaları değişmedi.
+> 4. **`web/static/js/` ilk sakini** (`tap.js`). GPS **yalnız butona basınca**
+>    tek `getCurrentPosition`, `maximumAge: 0` (önbellek konumu bilerek
+>    reddediliyor), 8 sn timeout, her başarısızlıkta **koordinatsız gönderim**.
+>    JS kapalıysa form yine çalışır (boş koordinat alanları = §5 satır 6/7'nin
+>    zaten meşru saydığı durum). Hata nesnesi **loglanmıyor** (içindeki tek şey
+>    konum olabilir).
+> 5. **🔴 `redline-check.sh` R2 ile etkileşim — desen GEVŞETİLMEDİ.** R2 yasak üç
+>    API adını **tüm repoda** tarar ve yorumları da görür; ilk taslakta kendi
+>    açıklama metinlerim ve bir testim CI'yı **kırmızıya** çeviriyordu. Çözüm
+>    **muafiyet eklemek değil**, kaynakta o adları **hiç yazmamak** oldu (prose
+>    dahil) — ağı tartışılır hâle getirmek onu er geç gevşetir (M0-07 dersi).
+>    Sayfa tarafındaki "abone olma yok" iddiası testte değil **R2'de** duruyor;
+>    o daha geniş. **Ölçümün kapsamı (düzeltildi — ilk yazım fazla genişti):**
+>    üç ad, **R2'nin taradığı yollarda** (`cmd internal db web/templates
+>    web/static/js scripts`, `redline-check.sh` hariç) **0 eşleşme**. Repo
+>    genelinde 0 **değil** ve olmamalı: `CLAUDE.md` §4.2, `docs/adr/0005`,
+>    `docs/plan/*` ve `.claude/agents/tappa-security-auditor.md` bu adları
+>    **meşru olarak** — yasağı tarif etmek için — içeriyor. Kural kaynak koda
+>    dairdir, dokümana değil.
+>
+> **Açıkta bırakılan sınırlar (iddia değil, sınır):**
+> - **HTTP yolunda GEÇERLİ CMAC'li uçtan uca test YOK.** Geçerli bir SDM MAC'i
+>   `internal/sun` dışında üretmek, SV2+CMAC türetmesinin **ikinci bir kopyasını**
+>   yazmak demekti (M2-04 byte-reversal dersi tam olarak bunun bedeli).
+>   `internal/handler`'ın DB testi bu yüzden **geçersiz** CMAC kullanıyor ve
+>   pozitif kontrolünü `sun.AdvanceCounter`'ı doğrudan çağırarak kuruyor;
+>   geçerli-CMAC hâli türetmenin yaşadığı yerde, aynı gerçek Postgres'e karşı
+>   ve kendi pozitif kontrolüyle ölçülüyor
+>   (`internal/sun` → `TestPreview_AgainstPostgresDoesNotMoveTheCounter`).
+> - **Seed'in plaketleri NFC yolunda 500 veriyor** (ölçüldü, canlı):
+>   `test/fixtures/seed.sql` `aes_key_ref`'e KEK-sarmalı değil düz bir yer
+>   tutucu yazıyor (`FAKE-WRAPPED-KEY-DO-NOT-USE-…`), Unwrap onu reddediyor.
+>   QR biçimi (yalnız `tag=`) kriptoya hiç uğramadığı için **200** ve sayfa
+>   render ediliyor. Bu M5-04'ün değil **seed'in** boşluğu (state.md
+>   "aes_key_ref KEK-sarmalı doğrulaması" notu) — M5-09/M8'e ait.
+> - **Buton yönsüz ("Tap").** Yön §5'e göre kişinin **son açık girişine** göre
+>   hesaplanır, karar motorunun işidir ve sayfada tahmin edilirse bir saniye
+>   sonraki onay ekranıyla çelişebilir. Yön-farkında etiket (`Tap in`/`Tap out`)
+>   §9 gereği **kullanıcıya sorulmak üzere** raporlandı; kendiliğinden eklenmedi.
+> - Bağlamın TTL'i **sabit** (15 dk), tenant ayarı değil. Ayarlanabilir pencere
+>   M5-10'un guardrail'i.
+
+> **Kart düzeltmesi (2026-07-31, M5-04 2. tur — üçüncü göz RED sonrası).**
+> Denetim 1. turun §4.4 çekirdeğini kendi ölçümüyle **doğruladı**
+> (`log_statement=all` altında `AdvanceTagCounter` için **tam 1 execute**; dört
+> caydırıcının dördü de geçici bir paketten **derleme hatası** verdi; imzalı
+> bağlamı openssl ile bağımsız yeniden kurup birebir eşleştirdi) ama **bir
+> bloklayan** buldu — ve o bloklayan, bu oturumun kendi ders listesindeki
+> kalıbın **tekrarıydı**.
+>
+> **🔴 M5-03'ün ONAYLANMIŞ kriteri benim montajımla üretimde ÖLÜYDÜ.**
+> `handler.NewTap` `TapLimiter`'ı **`Audit` alanı olmadan** kuruyordu — tek
+> üretim çağrısı. Sonuç: `httpx/ratelimit.go`'nun montaj sözleşmesi
+> (`NewTapLimiter(TapLimitParams{Audit: rec, Log: log})`) ve *"oturumu çözülmüş
+> bir red, pencere başına bir `audit_log` satırı bırakır"* cümlesi **middleware
+> için doğru, ürün için yanlıştı**. Denetçinin canlı ölçümü: 300 istek →
+> 285×200 / 15×429, red **kimlikli** (`scope=session`, `employee_id=…0301`),
+> `audit_log` **4145 → 4145**. `cmd/tappa/main.go`'da `trail` **zaten vardı**;
+> `NewTap`'in imzasında onu alacak parametre yoktu — unutulmuş satır değil,
+> **eksik tasarım**. Ağırlaştıran: `POST /api/checkin` aynı gruba gireceği için
+> boşluk M5-05'e sessizce miras kalacaktı.
+>
+> **Seçilen yol: BAĞLA** (koordinatör "gerekçeyle bırakmak da kabul" dedi;
+> tercih edilmedi). Onaylanmış bir kriteri, yalnız montajı bana devredildiği
+> için düşürmek §4.6'nın izini zayıflatırdı — yetenek M5-03'te teslim edilmişti,
+> eksik olan tek şey bir parametreydi. `NewTap(preview, dir, sess, **rec**, cfg,
+> log)`; nil recorder artık **başlangıç hatası** (`TapLimiter` nil'i kabul
+> etmeye devam ediyor — DB'siz kurulabilmesi gerek — ama üretim yolu etmiyor).
+> **Ölçüm, gerçek Postgres:** `tap.rate_limited` satırları **0 → 1** (301 istek,
+> 298 servis + 3 red), `transactions` **sabit**; oturumsuz redde **0 satır**
+> (audit_log.tenant_id NOT NULL — sınır, boşluk değil).
+>
+> **⚠️ MUTASYON İLK DENEMEDE YEŞİL KALDI — kendi testim aynı hatayı yapıyordu.**
+> `Audit: rec`'i silen mutasyon testleri **kırmızıya çevirmedi**, çünkü iki
+> refusal testim `tp.limiter`'ı **kendi kurdukları** (ve `Audit`'i açıkça
+> geçen) bir limiter'la değiştiriyordu: yapılandırdığı şeyi denetleyen bir test
+> hiçbir şey denetlemez — denetçinin bulduğu boşluğun **birebir aynısı**, bir
+> katman yukarıda. Düzeltildi: testler artık `NewTap`'in kurduğu limiter'ı
+> **üretim bütçesiyle** sürüyor (`httpx.TapSessionLimit()+3` istek; fake'lerle
+> 0.03 sn, gerçek DB ile 1.4 sn). Yeniden koşuldu: mutasyon **iki testi de**
+> kırmızıya çeviriyor. `TapSessionLimit()`/`TapAddressLimit()` bu yüzden export
+> edildi ve gerekçesi `ratelimit.go`'da yazılı ("test için export" normalde
+> kokar; alternatifi, ölçtüğünü sanan bir test).
+>
+> **Bloklamayan dört madde de kapatıldı:**
+> 1. **`Preview` artık `db.ResolvedTag` TAŞIMIYOR.** Denetçi haklıydı: satır
+>    `LastCtr`'ı da `AESKeyRef`'i de handler'a taşıyordu, yani
+>    `pv.CMACValid && p.Ctr > pv.Tag.LastCtr` **yazılabilir bir cümleydi** —
+>    §4.4'ün adıyla yasakladığı Go-tarafı TOCTOU'nun tam şekli — ve
+>    *"tek sunduğu alan CMACValid"* cümlesi **harfiyen yanlıştı**. Ayrıca
+>    KEK-sarmalı anahtarı bir HTTP handler'ına vermenin hiçbir sebebi yoktu
+>    (§4.7). Yeni yüzey **dört alan**: `CMACValid`, `TenantID`, `TagStatus`,
+>    `Location`. Reflection testi artık üçünü birden zorluyor: `SUNValid` yok,
+>    **sayaç benzeri alan yok**, **ham byte alanı yok**, ve alan sayısı sabit
+>    (yeni alan eklemek testi kırar — "argüman gerektirir, miras alınmaz").
+>    `Verify` satırı döndürmeye devam ediyor: karar katmanı tag'in sahibi, sayfa
+>    değil.
+> 2. **Çift basış artık koordinatsız natif submit üretmiyor.** `tap.js`'te
+>    yeniden-giriş koruması `preventDefault` **çağırmadan** dönüyordu → ikinci
+>    basış formu **boş koordinatlarla** natif olarak gönderiyordu. Kayıt kaybı
+>    yok (§4.6 güvende) ama **kanıt kaybı** var: `ok` olacak bir tap `flag`'e
+>    düşer. Islak/eldivenli parmakta çift basış **beklenen girdi**. Düzeltme:
+>    guard artık iptal ediyor, ve `markPending()` basış **kabul edildiği anda**
+>    (fix beklenirken) butonu kilitliyor. **Testin sınırı açıkça yazıldı:**
+>    repoda JS çalıştırıcı **yok** ve olmayacak (Node yasak §1), o yüzden bu bir
+>    **kaynak düzeyinde regresyon ağı** — hatayı üreten tam şekli yakalar, davranışı
+>    çalıştırmaz.
+> 3. **`internal/domain/tenant` kendi testlerini aldı** (§8): normal yol,
+>    **tap edilen** lokasyonun profil lokasyonunu yenmesi, `ErrForeignLocation`'ın
+>    **dolu** sonuçla dönmesi + venue adının sızmaması, nil lokasyon, bilinmeyen
+>    çalışan, **çapraz-tenant çalışan** — son ikisi **pozitif kontrollü** (aynı
+>    id kendi tenant'ında çözülüyor, yani "0 satır"ın sebebi RLS, typo değil).
+> 4. **İki ifade düzeltmesi.** (a) *"üç API adı repoda 0 eşleşme"* iddiam
+>    **kapsam olarak abartılıydı**; ölçüm R2'nin taradığı yollar için doğru,
+>    `CLAUDE.md` §4.2 / `docs/adr/0005` / `docs/plan/*` /
+>    `.claude/agents/tappa-security-auditor.md` bu adları **meşru olarak**
+>    içeriyor. Kapsam hem karta hem `tap.js`'e yazıldı. (b) `input.css`
+>    yorumları **İngilizce'ye çevrildi** (§7 ruhu) — yalnız benim eklediğim blok
+>    değil, dosyanın tamamı; yarısı Türkçe bir dosya bırakmak tutarsız olurdu.
+>
+> **Kullanıcı kararı:** buton **nötr "Tap" kalıyor** — yön karar motorunun işi,
+> sayfada tahmin etmek onay ekranıyla çelişirdi. Değişiklik yok.
+
+> **Kart düzeltmesi (2026-07-31, M5-04 3. tur — `tappa-security-auditor` ONAY).**
+> Bloklayan yok. Denetçi §4.4'ü **benim ölçümüme hiç güvenmeden** kanıtladı:
+> repo dışında, `internal/sun`'dan tek satır almadan bağımsız bir RFC 4493 CMAC
+> + NXP SDM türetmesi yazıp **gerçek geçerli bir SUN URL'i** üretti. Canlı: 30
+> sayfa açılışı → `last_ctr` **0→0**; in-process: 20 açılış → 700→700, sonra
+> **aynı URL `Verify`'dan geçince 700→701 + `SUNValid=true`** (mint'in gerçek
+> olduğunun kanıtı), ikinci `Verify` → `false`. Bu, M2-04'ün *"iç-tutarlı vektör
+> byte-sırası hatasını yakalayamaz"* dersine karşı **dış bağımsız doğrulama**:
+> 1. turda "HTTP yolunda geçerli-CMAC testi yok" diye yazdığım sınır fiilen
+> **kapandı** (benim değil, denetçinin ölçümüyle). Beş caydırıcı da kendi
+> paketinden derlenerek denendi; beşi de **derleme hatası** verdi.
+>
+> **Beş bloklamayan bulgu kapatıldı:**
+>
+> 1. **🔑 Markalı 429 ÜRÜN düzeyinde testsizdi — az önce düzelttiğim hatanın bir
+>    alan yanı.** `Refused: t.renderTooManyRequests` → **`nil`** mutasyonu tüm
+>    süiti **yeşil** bırakıyordu, çünkü gövdeyi doğrulayan tek test yine
+>    `tp.limiter`'ı **kendi kuruyor** ve `Refused`'ı açıkça geçiriyordu. Aynı
+>    tuzağın **üçüncü** görünüşü (denetçi 2. turda `Audit` için bulmuştu, ben
+>    testimde tekrarlamıştım, şimdi komşu alanda). Düzeltme:
+>    `TestTapPage_RefusalBodyIsBrandedAtTheProductWiring` **ürünün kurduğu**
+>    limiter'ı üretim adres bütçesiyle sürüyor. **Mutasyon: `Refused: nil` →
+>    KIRMIZI.** Ders (tekrar): *bir testin kurduğu şey, o testin
+>    doğrulayabileceği şey değildir.*
+> 2. **M5-05 kartının akış satırı düzeltildi** — ayrıntı ve doğru sözleşme
+>    M5-05 kartındaki kendi düzeltme bloğunda. Özet: POST `sun.Verify`
+>    **çağırmaz** (bağlamda CMAC yok, fail-closed), `CMACVerified` **VE** atomik
+>    `AdvanceCounter` birlikte SUN geçerliliğini kurar.
+> 3. **"tag, ctr ve cmac HTML'de yok" iddiası üç yerde gerçeğe indirildi**
+>    (`tap.templ`, `tap_test.go` doküman bloğu, bu kart). Denetçi `ctx`'i çözdü:
+>    **uid ve sayaç payload'ın içinde**, yalnız **CMAC** yok. `tapcontext.go`
+>    zaten *"The counter does travel"* diyordu → repo kendi kendisiyle
+>    çelişiyordu. Sömürülebilir değil (ikisi de adres çubuğunda), ama iddia
+>    ölçümden genişti; testin doküman bloğu da artık **ne aradığını** söylüyor.
+> 4. **Font boyutu düzeltildi:** 6 woff2 = **79.032 bayt**; 92.126 bayt
+>    **dizinin tamamıydı** (2 OFL + README). Hem bu kartta hem — daha önemlisi —
+>    **skill `tappa-brand`**'de düzeltildi: skill bir **spec**'tir ve yanlış bir
+>    sayı sonraki UI ajanının bütçe kararını bozar.
+> 5. **Üç sertleştirme:**
+>    (a) **`/static/*` dizin listelemesi kapatıldı.** `GET /static/fonts/`
+>        **200 + tam dosya listesi** döndürüyordu (canlı ölçüm); `noListing`
+>        sarmalayıcısı artık dizin açılışını `fs.ErrNotExist`'e çeviriyor →
+>        FileServer 404 veriyor. Sızan bir şey yoktu (fontlar `app.css`'te zaten
+>        adlandırılmış); kazanılan şey, dağıtımın ne taşıdığının ücretsiz
+>        envanterini vermemek. **Pozitif kontrollü** test
+>        (`/static/js/tap.js` hâlâ 200) + mutasyon KIRMIZI.
+>    (b) **Tipli-nil kapatıldı, iddia indirilmedi:** `rec == nil`,
+>        `(*audit.Recorder)(nil)` için **false**'tur → `isNil()` (reflect,
+>        yalnız başlangıç yolunda). Üretimde erişilemezdi; tam da bu yüzden
+>        zayıf kontrol incelemeden geçmişti. Mutasyon (`isNil` → `== nil`)
+>        KIRMIZI.
+>    (c) **CSP eklendi** — `default-src 'none'` + `script/style/font-src 'self'`
+>        + `form-action 'self'` + `base-uri 'none'` + **`frame-ancestors
+>        'none'`**. Denetçi enjeksiyon vektörü **bulamadı** (templ escape ediyor,
+>        canlı XSS denemesi kaçtı), yani bu derinlik önlemidir — **tek istisna**
+>        `frame-ancestors`: bu ekranın tamamı mesai kaydeden tek bir büyük
+>        butondur, yani görünmez bir çerçeve altında tıklatmak için ideal
+>        hedeftir. **Kapsam:** yalnız bu paketin tap yanıtları; aktivasyon
+>        ekranlarına (M5-02) **eklenmedi** — dört denetim turu sürmüş bir akışa
+>        yan etki olarak dokunmak yanlış olurdu, kendi görevini hak eder.
+>
+> **Denetçinin doğrulayamadığı (bulgu değil, dürüstlük payı):** oturumsuz redde
+> **0 `audit_log` satırı** iddiasını canlıda üretemedi (adres bütçesi 3000/10dk,
+> 3000+ curl orantısızdı); in-process test üretim bütçesini gerçekten sürüyor.
+
 ---
 
 ## M5-05 — `POST /api/checkin`: orkestrasyon
@@ -1050,9 +1386,13 @@ oturum çerezi.
 
 **Amaç.** Dört kanıtı toplayıp karara bağlamak ve kaydı yazmak.
 
-**Akış.** parse → `sun.Verify` → bağlam topla (oturum, IP, GPS, vardiya, son
-işlemler) → `tap.Decide` → **kaydı yaz** → yanıt üret. Handler'da iş kuralı ve
-ham SQL **yok** (§3).
+**Akış.** imzalı bağlamı çöz → tag'i **yeniden** çözümle → **`sun.AdvanceCounter`
+(atomik)** → bağlam topla (oturum, IP, GPS, vardiya, son işlemler) →
+`tap.Decide` → **kaydı yaz** → yanıt üret. Handler'da iş kuralı ve ham SQL
+**yok** (§3).
+
+🔴 **`sun.Verify` BU YOLDA ÇAĞRILMAZ** ve çağrılamaz — gerekçesi ve doğru
+sözleşme aşağıdaki kart düzeltmesinde.
 
 **Kabul kriterleri.**
 - Karar ne olursa olsun (`ok`/`flag`/`reject`/`ignored`) **kayıt yazılır** —
@@ -1075,6 +1415,52 @@ ham SQL **yok** (§3).
   aralık içinde ayarlanır.
 - `tap:queued` **istemci beyanından değil**, sunucudaki `occurredAtSkewSeconds`
   farkından türetilir.
+
+> **Kart düzeltmesi (2026-07-31, M5-04 3. tur denetiminden — M5-05'in akış
+> satırı gerçekle çelişiyordu).** Bu kart *"parse → `sun.Verify` → …"* diyordu.
+> M5-04 teslim edildikten sonra bu **çalışmaz**, ve denetçi bunu ölçtü:
+>
+> - Form `action="/api/checkin"`, **query string yok**, gövde yalnız
+>   `ctx/lat/lng/acc`; `<meta name="referrer" content="no-referrer">` Referer'ı
+>   da siliyor. Yani POST'a ulaşan hiçbir yerde ham SUN URL'i **yok**.
+> - İmzalı bağlam UID, `ctr` ve `channel` taşıyor ama **CMAC taşımıyor** —
+>   bilinçli (§4.7: çipin MAC'i sayfaya hiç inmiyor, yalnız kontrolün tek bitlik
+>   sonucu iniyor). Çözülen örnek payload:
+>   `1|6CB832018A53A3|5|nfc|1|<tenant>|<location>|<ts>`.
+> - Dolayısıyla CMAC'siz elle kurulmuş bir `Params` ile `sun.Verify` çağrılırsa
+>   `verifyMAC` **false** döner → `SUNValid=false` → sayaç **hiç ilerlemez** →
+>   her NFC tap `flag`'e düşer. **Fail-closed**, sessiz açık değil — ama §4.4'ün
+>   yaşadığı tek yerde bir sonraki ajanı doğaçlamaya iterdi.
+>
+> **DOĞRU SÖZLEŞME — SUN geçerliliği İKİ yarının VE'sidir:**
+>
+> ```
+> sunValid  ==  ctx.CMACVerified          (M5-04, sayfa kurulurken sunucuda ölçüldü)
+>           &&  AdvanceCounter başarılı   (M5-05, ATOMİK — §4.4'ün tek gerçek koruması)
+> ```
+>
+> Birinci yarı **eksiksizdir ve bayatlamaz**: bir CMAC ya tag'in anahtarına göre
+> doğrulanır ya doğrulanmaz. İkinci yarı, taze bir dokunuşu **replay**'den
+> ayıran **tek** şeydir ve yalnız POST yapabilir. `CMACVerified`'ı okumadan
+> sayacı ilerleten bir POST **sahte** tap kaydeder; sayacı ilerletmeden
+> `CMACVerified`'a bakan bir POST **replay** kaydeder. İkisi de yazılmalı.
+>
+> **Uygulama notu:** `sun.AdvanceCounter` zaten **exported**'dır ve tenant
+> kapsamlı bir querier ister → `WithTenant(ctx.TagTenantID, …)` içinde çağrılır.
+> Tag **yeniden çözümlenmeli** (`GetTagByUID`, bağlamsız): `status` bağlamda
+> taşınmıyor ve GET ile POST arasında `lost` işaretlenmiş bir plaket §5 satır
+> 1'e düşmeli. Bağlamın `TagTenantID`'si ile taze çözümlemenin tenant'ı
+> **karşılaştırılmalı** (N5).
+>
+> Sözleşme kodda **üç yerde** büyük harfle yazılı — `internal/sun/preview.go`,
+> `internal/handler/tapcontext.go`, `internal/handler/tap.go` — eksik olan tek
+> şey bu kartın kendi akış satırıydı; düzeltildi.
+>
+> ⚠️ **QR kanalı için ek uyarı (M5-04 devri):** QR'da `ctr` yoktur, yani
+> ilerletilecek sayaç da yoktur — imzalı bir QR bağlamı **TTL boyunca (15 dk)
+> tekrar POST edilebilir** ve onu durduran tek şey 60 sn'lik debounce
+> guardrail'idir. NFC'de atomik ilerletme bunu yapısal olarak kapatır; QR'da
+> kapatmaz. M5-08 bu kanalı açarken bunu bilerek ele almalı.
 
 **Tuzaklar.**
 - `flag` kararını sonradan `ok`'a çeviren bir UPDATE yazma — onay ayrı tabloya

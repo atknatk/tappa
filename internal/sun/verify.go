@@ -149,46 +149,32 @@ func NewVerifier(tags tagResolver, kek []byte) *Verifier {
 // hard reject) is carried by p.Channel, which the decision layer already holds —
 // so it is deliberately NOT duplicated into Result.
 func (v *Verifier) Verify(ctx context.Context, p Params) (Result, error) {
-	// Step 2: resolve the plaque uid -> tag, context-less (the tenant is produced
-	// here, not supplied). Unknown uid is a reject with no tenant to record.
-	tag, err := v.tags.GetTagByUID(ctx, p.UID)
+	// Steps 2-5 (resolve -> status -> QR -> unwrap/verifyMAC) are SHARED with
+	// PreviewWithoutReplayProtection and live in inspect (preview.go). The split
+	// is exactly at the point where the two callers diverge: Verify goes on to
+	// step 6 and advances the counter, the preview stops here. Sharing the code
+	// rather than copying it is what keeps a second, drifting SUN flow from
+	// existing — the failure mode where a "lighter" path quietly skips a check.
+	tag, valid, err := v.inspect(ctx, p)
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
+		if errors.Is(err, ErrUnknownTag) {
+			// Unknown uid is a reject with no tenant to record. Returned bare, so
+			// callers can errors.Is it (advance.go's ErrReplay follows the same rule).
 			return Result{}, ErrUnknownTag
 		}
-		return Result{}, fmt.Errorf("sun: verify: resolve tag: %w", err)
+		return Result{}, fmt.Errorf("sun: verify: %w", err)
 	}
 
 	// From here we have a tenant + location, so every non-error outcome carries
 	// them for the decision layer.
 	res := Result{Tag: tag, Location: tag.LocationID}
 
-	// Step 3: a retired or lost tag is a §5 line-1 reject. Short-circuit BEFORE
-	// unwrapping the key or advancing — a dead tag must not touch cryptography and
-	// must not move its counter. SUNValid stays false; Tag.Status carries the
-	// reason (retired/lost) for the decision engine.
-	if tag.Status != tagStatusActive {
-		return res, nil
-	}
-
-	// Step 4: QR fallback carries no proof of moment (Parse set Channel=qr, no
-	// ctr/cmac). No MAC to verify, nothing to advance. SUNValid stays false and
-	// base:qr-requires-ip takes over downstream (§5). A valid, not an error.
-	if !p.HasSUN() {
-		return res, nil
-	}
-
-	// Step 5: unwrap this tag's key, verify the chip's CMAC, then wipe the key.
-	// A cryptographic mismatch is a normal reject (SUNValid stays false); only a
-	// real failure (corrupt ref / wrong KEK / bad key length) surfaces as error.
-	valid, err := v.verifySUN(tag, p)
-	if err != nil {
-		return Result{}, fmt.Errorf("sun: verify: %w", err)
-	}
 	if !valid {
-		// Bad CMAC -> reject. Return NOW, before AdvanceCounter: the counter is
-		// advanced only after a verified MAC (§4.4 DoS guard). withTenant is not
-		// reached on this path — proven by verify_test.go's order test.
+		// A retired/lost tag (§5 line 1), a QR URL with no SUN, or a CMAC that did
+		// not verify. Return NOW, before AdvanceCounter: the counter is advanced
+		// only after a verified MAC (§4.4 DoS guard), and a dead tag or a QR
+		// fallback must never move it either. WithTenant is not reached on any of
+		// these paths — proven by verify_test.go's order tests.
 		return res, nil
 	}
 

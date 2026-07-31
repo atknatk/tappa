@@ -35,17 +35,22 @@ sakin ve hızlı okunur** olmalı — yağlı elle, kötü ışıkta, 3 saniyede
 - **IBM Plex Mono** — her sayı: saat, süre, tag UID, sayaç, güven puanı, CSV.
   Bir veri hücresi mono değilse yanlıştır; adisyon hissi buradan gelir.
 - **Kural:** Google Fonts'a (ya da herhangi bir dış kaynağa) runtime bağlantı
-  **yok** — GDPR + çevrimdışı çalışma. Bu kural bugün **tutuluyor**: render edilen
-  sayfada tek dış referans `/static/css/app.css`.
-- ⚠️ **Durum (2026-07-31, M5-02 B fazı 2. tur denetimi):** yazı tipleri **henüz
-  self-host EDİLMİYOR.** `web/static/fonts/` dizini **yok**, `app.css`'te **sıfır**
-  `@font-face` var (ölçüldü), yani sayfa şu an **sistem yazı tipine** düşüyor. Bu
-  satır önce "self-host edilir" diyordu ve yanlıştı; bir spec'in yanlış olması
-  sonraki UI ajanını yanıltır, o yüzden durum burada duruyor.
-  **Yapılacak:** Space Grotesk + IBM Plex Mono dosyalarını `web/static/fonts/`
-  altına koy, `input.css`'te `@font-face` ile tanımla. Sahibi: **M5-04** (tap
-  ekranı) — çalışanın en sık gördüğü ekran orası. O iş bitince bu madde
-  "self-host ediliyor" olarak güncellenir.
+  **yok** — GDPR + çevrimdışı çalışma. Bu kural tutuluyor: render edilen sayfada
+  `href`/`src` yalnız `/static/…` yollarını gösterir, mutlak URL sayısı **0**.
+- ✅ **Durum (2026-07-31, M5-04):** yazı tipleri artık **self-host EDİLİYOR.**
+  `web/static/fonts/` altında Space Grotesk (variable 300–700) ve IBM Plex Mono
+  (400/700), her biri `latin` **ve** `latin-ext` alt kümesiyle; altı woff2
+  toplam **79.032 bayt** (~77 KiB — dizinin tamamı 92.126 bayttır, farkı iki OFL
+  metni ve README oluşturur ve tarayıcı onları indirmez), Go ikilisine gömülü,
+  `input.css`'te 6 `@font-face` ile tanımlı.
+  `latin-ext` şart: Maltaca **ċ ġ ħ ż** (arayüz metni İngilizce ama çalışan ve
+  mekân **adları** değil). Dosyalar derleme zamanında bir kez indirildi ve
+  commit edildi; kaynak URL'ler, sha256'lar ve **SIL OFL** lisans metinleri
+  `web/static/fonts/README.md`'de. (Bu satır M5-02 sonunda "self-host edilmiyor"
+  diyordu ve o zaman doğruydu — dizin yoktu, `@font-face` = 0.)
+  **Yeni bir ağırlık/aile eklerken:** dosyayı `web/static/fonts/`'a koy,
+  README'nin tablosuna kaynak + boyut + sha256 yaz, lisansı doğrula. `@font-face`
+  içinde **uzak URL kullanma** — bu dosyaların var olma sebebi o kırmızı çizgi.
 
 ## İmza motif: kitchen docket
 

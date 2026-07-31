@@ -106,6 +106,34 @@ type DoneView struct {
 	SecondDevice bool
 }
 
+// TapView is the tap screen — the one an employee sees several times a day, and
+// the one CLAUDE.md §9 calls sacred: one screen, one button, zero learning.
+//
+// THREE FIELDS, AND THAT IS THE SPEC. There is no menu, no history, no shift
+// summary, no "you are currently clocked in" and no settings, because a view
+// model with a field cannot help rendering it. Adding one here is the first step
+// of adding a feature to this screen, and the rule is to ask first.
+//
+// NOTE WHAT IS ABSENT: no direction. The button does not say "Tap in" or "Tap
+// out" because direction is a COMPUTATION over the employee's last open entry
+// (§5), it belongs to the decision engine at POST time, and a page that guessed
+// it would sometimes contradict the confirmation screen that follows.
+type TapView struct {
+	// EmployeeName greets the person: "Hello Maria".
+	EmployeeName string
+	// LocationName is the TAPPED venue — the plaque in front of them, not the
+	// location on their profile (§5: branch changes are normal in a chain).
+	// Empty renders without the line rather than with a blank one.
+	LocationName string
+	// TapContext is the server-signed, opaque blob that POST /api/checkin will
+	// act on (internal/handler/tapcontext.go). It is NOT a §4.7 secret and it is
+	// deliberately not one: the chip's CMAC never enters it, only the one-bit
+	// outcome of checking it, so nothing on §4.7's list can travel here. The
+	// contract it carries, and what M5-05 must do with it, is documented at the
+	// type that mints it.
+	TapContext string
+}
+
 // ProblemView is every "this did not work" screen.
 //
 // ONE TYPE FOR ALL OF THEM ON PURPOSE. An unknown code, an expired code and an
