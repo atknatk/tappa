@@ -493,13 +493,24 @@ düzelt**.
 | `git status --short` | temiz (görev arasındaysan) |
 | `ls .env` | var (git'e **girmez**) |
 | `docker compose ps` | `tappa-db` ayakta ve `healthy` |
-| `make migrate-status` | **00001–00010 uygulanmış** (M5-04 sonrası) |
-| `make check` | yeşil |
+| `make migrate-status` | **00001–00010 uygulanmış** (M5-04'ten beri; M5-05…M5-08 migration açmadı) |
+| `make check` | **exit 0** — ama yalnız **temiz ağaçta** (aşağı) |
+| `make test` | 13 paket `ok`, **PASS 1250 / SKIP 0 / FAIL 0** (M5-08 sonrası) |
+
+⚠️ **`make check` son adımı `git diff --exit-code`.** Commit edilmemiş iş varken **exit 2** verir ve bu
+**bilgi taşımaz** — fmt/lint/test geçmiş olabilir. Bir ajan *"make check kırmızı"* diyorsa hangi adımın
+düştüğünü söylemeli; iş bitmiş sayılmadan önce **commit sonrası** exit 0 görülmeli.
 
 ⚠️ **`make test` kullan, çıplak `go test` DEĞİL.** Makefile `.env`'i yüklüyor
 (`-include .env` + `export`); çıplak `go test ./...` `DATABASE_URL` olmadığı için **her DB testini
 sessizce SKIP eder** ve §4.4/§4.5/§4.6 hakkında hiçbir şey kanıtlamadan yeşil verir (M5-05 denetimi).
-Bir iddia "N test geçti, 0 SKIP" diyorsa **hangi komutla** ölçüldüğünü söylemeli.
+Bir iddia "N test geçti, 0 SKIP" diyorsa **hangi komutla** ölçüldüğünü söylemeli. M5-08'de bir mutasyon
+kolu çıplak koşuda **"ok"** verdi (2,5 sn), `make test` ile **24,6 sn** ve gerçek sonuç.
+
+⚠️ **Dev-DB kirli: `make db-reset` gerekiyor.** M5-08 benchmark'ı `4d6ddc99-48a5-4f65-8374-861fc9c5f1e6`
+tenant'ına **20 002 satır** bıraktı ve **`tappa_owner` bile silemiyor** (§4.3 append-only trigger'ı —
+doğru çalışıyor, kusur değil). Testleri bozmuyor ama M5-09'un *"bir günü simüle et"*i temiz DB ister.
+Genel birikim de var (M3-02'den beri her koşu satır ekliyor).
 
 **Zorunlu env değişkenleri** (eksikse başlangıçta panic — bilinçli, §config): `DATABASE_URL` ·
 `DATABASE_MIGRATE_URL` (farklı olmalı) · `TAPPA_SESSION_HMAC_KEY` · **`TAPPA_INVITE_HMAC_KEY`**

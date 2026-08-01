@@ -131,6 +131,22 @@ Sen Tappa projesinde ÜÇÜNCÜ GÖZ DENETÇİSİSİN. Repo: <yol> · dal: <dal>
 7. Orkestratör **kendi doğrular** (`make check`, ağaç, kritik iddialardan birkaçı), commit'ler,
    `state.md` + gerekirse `agent-brief.md`'yi günceller.
 
+**Ne zaman durulur — M5-06 ve M5-08'den çıkan iki durma kuralı:**
+- **Kod yakınsadığının işareti: bulguların METNE dönmesi.** M5-06 15 tur, M5-08 8 tur sürdü; ikisinde de
+  son üç tur **yalnız cümle/sayı** düzeltti. Bulgular hâlâ davranış değiştiriyorsa dur**ma**; art arda
+  iki tur yalnız metin çıkarıyorsa mekanizma oturmuştur, kalanı belgeyi ölçüme eşitlemektir.
+- **Yeni kanal KAPATILMAZ, sayılır** (M5-06'nın 11. turunda kondu, M5-08'de de işe yaradı). Bir noktadan
+  sonra her koruma bir sonraki turda yeniliyorsa: kapatmayı bırak, **dürüstçe LİMİT olarak yaz**. Sayılmış
+  bir açık, kapatıldığı **iddia edilen** bir açıktan güvenlidir. Ve hiçbir yere *"tamamen / bitmiş /
+  complete / exhaustive"* yazma — yazmadan önce **yenmeye çalış**, yenemediysen **nasıl denediğini** yaz.
+
+**Kullanıcıya ne zaman sorulur — bu oturumda beş kez soruldu, beşi de işin şeklini değiştirdi:**
+marka token'ı/kontrast (§9) · ekran metninin var olmayan bir şeyi vaat etmesi · **kartın CLAUDE.md ile
+çelişmesi** (kart mı yanlış, §5 mi değişmeli) · karar motorunun semantiğini değiştiren bir düzeltme ·
+ve o düzeltmenin **yapısal** bir alternatifi (advisory lock). **Kalıp:** ajan **ölçer ve iki okumayı
+önüne koyar**, kararı vermez; orkestratör soruyu **ölçümle** sorar (seçenek başına somut sayı), cevap
+`state.md` oturum günlüğüne **tarihiyle** yazılır ve kart/ADR ona atıf yapar.
+
 **Sabitler:**
 - **Denetçiler PAYLAŞILAN Postgres'e karşı SIRALI koşar** (M3-02 dersi) — DDL/mutasyon sondaları
   birbirini bozar. Salt-okuma sondaları eşzamanlı güvenli.
