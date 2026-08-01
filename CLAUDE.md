@@ -124,6 +124,14 @@ statik IP = *nerede* · GPS = *yedek nerede*.
 
 - **Debounce KİŞİ bazlıdır, etiket bazlı değil.** Sıra halinde farklı kişiler
   aynı plakete art arda dokunabilmeli.
+- **Debounce'un "60 sn"si SUNUCU zamanıdır** (ADR 0006, 2026-08-01). Mesafe iki
+  ölçünün **küçüğüdür**: istemcinin beyan ettiği `occurred_at` farkı **ve**
+  veritabanının hesapladığı kayıt yaşı (`clock_timestamp() − created_at`, yalnız
+  tap kanalları; `manual` öncül muaf — müdürün yazdığı satır dokunuş değildir).
+  Yalnız beyana bakmak dört ayrı şekilde aşılabiliyordu (ölçüldü): geriye tarihleme ·
+  öncülü seçme (`ORDER BY occurred_at`) · ileri tarihleme (negatif mesafe guardrail'i
+  kapatıyordu) · eşzamanlılık. Sonuncusu için karar + kayıt **kişi başına advisory
+  kilit** altında tek transaction'da koşar. **QR'da bu tek frendir** — sayaç yok.
 - **Güven puanı:** `20 (taban) + 50 (IP eşleşti) + 30 (GPS eşleşti)`.
 - **Yön (in/out):** kişinin **son açık girişine** göre toggle — takvim gününe göre
   DEĞİL. Rusty Bar 18:00–02:00 vardiyasında 02:00 çıkışı doğru eşleşmeli.
