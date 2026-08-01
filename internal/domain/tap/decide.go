@@ -1,6 +1,7 @@
 package tap
 
 import (
+	"math"
 	"net/netip"
 	"time"
 
@@ -177,9 +178,8 @@ func Decide(in Input) Decision {
 	// guardrail from in.PolicySet's Params — person-based, not tag-based, so
 	// different people can tap one plaque back-to-back and each is recorded. nil
 	// (no previous tap) never debounces — the safe zero value (§4.6).
-	if in.LastForPerson != nil {
-		gap := in.Now.Sub(in.LastForPerson.OccurredAt).Seconds()
-		ctx.SecondsSincePersonLastTap = &gap
+	if gap := debounceGap(in); gap != nil {
+		ctx.SecondsSincePersonLastTap = gap
 	}
 
 	// --- 3. Delegate to the policy engine (ONE call, no early return) --------
@@ -457,6 +457,81 @@ func appendNote(existing, add string) string {
 	default:
 		return existing + "; " + add
 	}
+}
+
+// debounceGap is how long ago this person's previous tap happened, for
+// sys:person-debounce (§5 row 5). It returns nil when there is nothing to
+// measure against, which never debounces (§4.6's safe zero value).
+//
+// IT IS THE SMALLER OF TWO DISTANCES, and ADR 0006 is why there are two:
+//
+//	now − LastForPerson.OccurredAt   what the previous record CLAIMS.
+//	*SecondsSinceLastRecordedTap     how long ago the SERVER wrote this person's
+//	                                 last tap, measured on the DATABASE clock.
+//
+// 🔴 THE HOLE THIS CLOSES HAS THREE LAYERS, and the first fix only reached one of
+// them. All three were measured end to end, against real Postgres, through the
+// mounted router:
+//
+//	DISTANCE   occurred_at arrives in the POST body. A repeat declaring a time in
+//	           the past reported an enormous gap, so the guardrail never fired:
+//	           20 posts of ONE scanned QR context -> 20 counted rows, 0.51 s.
+//	SELECTION  GetLastTransactionForEmployee ordered by occurred_at, so a caller
+//	           also chose WHICH row was the predecessor. Declaring a time UNDER
+//	           the person's existing newest row makes every new row sort beneath
+//	           it: the predecessor never advances and both legs keep measuring one
+//	           untouched old record. Measured against an employee with ordinary
+//	           history: 20 posts -> 20 counted rows, 0.31 s. Adding a created_at
+//	           column to that row fixed the distance and left this untouched.
+//	SIGN       sys:occurred-at-bound REFUSES a future stamp but §4.6 still RECORDS
+//	           the row, which then wins ORDER BY occurred_at forever and makes the
+//	           declared distance NEGATIVE. The guardrail matches on
+//	           `gap >= 0 && gap < window`, so a negative gap disabled it entirely:
+//	           ONE future-dated POST, then 20 honest taps declaring nothing ->
+//	           20 `ok` rows, 0.29 s. Not even flagged; no manager ever sees it.
+//
+// So the server leg is read from a SEPARATE, SERVER-ORDERED fact
+// (SecondsSinceLastRecordedTap: the age of the newest nfc/qr row, computed in SQL)
+// rather than off
+// whichever row the declared ordering happened to surface. That single change
+// answers SELECTION, and it is what makes the whole rule hold: the declared leg
+// may be steered, but it can only ever make the gap SMALLER (min), never larger.
+//
+// A NEGATIVE DECLARED DISTANCE IS DROPPED, NOT CLAMPED, and the choice is
+// deliberate in both directions. Dropping is fail-closed against the ATTACKER:
+// they gain nothing, because the server leg still answers. Clamping it to zero
+// would have been fail-closed against the USER instead — one future-dated row
+// would debounce that person's every real tap until the future caught up, which
+// turns a self-inflicted mistake into hours they cannot claim. A claim about the
+// future is not evidence of nearness; it is simply not evidence, so it is not
+// counted.
+//
+// THE MANUAL EXEMPTION LIVES IN THE QUERY (channel IN ('nfc','qr')) rather than
+// here. created_at on a manual row is when a MANAGER TYPED IT, which says nothing
+// about where the employee was: counting it would swallow an employee's genuine
+// tap thirty seconds after a manager's backdated entry, and would break bulk
+// manual entry. Expressing it as a predicate keeps it out of reach — channel is
+// server-derived, so no caller can produce a manual predecessor for itself.
+func debounceGap(in Input) *float64 {
+	gap := math.Inf(1)
+	if in.LastForPerson != nil {
+		// Dropped when negative: see the sign paragraph above.
+		if declared := in.Now.Sub(in.LastForPerson.OccurredAt).Seconds(); declared >= 0 {
+			gap = declared
+		}
+	}
+	if in.SecondsSinceLastRecordedTap != nil {
+		// Already an age, computed end to end on the database clock, so nothing
+		// here mixes clocks. Still guarded: a fixture may seed a row stamped in the
+		// future, and a negative age is not proximity.
+		if recorded := *in.SecondsSinceLastRecordedTap; recorded >= 0 && recorded < gap {
+			gap = recorded
+		}
+	}
+	if math.IsInf(gap, 1) {
+		return nil
+	}
+	return &gap
 }
 
 // trustScore is §5's confidence score: a 20-point baseline plus 50 for network

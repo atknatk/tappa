@@ -145,6 +145,83 @@ Anatomi:
   - KM check-out: *"Shift complete. Thank you for your work today! 👋"*
 - Metin İngilizce (Malta pazarı). Sadeliği koru; jargon yok.
 
+## Plaket baskısı — NFC + QR (fiziksel yüzey)
+
+> Eklendi 2026-08-01, M5-08. **Bu bölüm bir TASARIM ÖNERİSİDİR, ölçüm değil.**
+> Ölçülmüş olan tek şey aşağıda ayrıca işaretli: iki URL'nin biçimi ve uzunluğu.
+> Milimetreler baskı provasında doğrulanacak; doğrulanınca bu blok "ölçüldü"
+> olarak güncellenir. Tedarik/encode akışı **M8-05**, telefon envanteri **M8-07**.
+
+Duvara monte edilen plaket **iki okuma yolu** taşır ve ikisi de birincildir:
+
+| Yol | Ne olur | URL |
+|---|---|---|
+| **NFC** (NTAG 424 DNA, gömülü) | çip URL'yi her okumada yeniden yazar: `ctr`+1, taze CMAC | `…/t?tag=<uid>&ctr=<6 hane>&cmac=<16 hane>` |
+| **QR** (baskı, statik) | hiçbir şey yeniden yazmaz | `…/t?tag=<uid>` |
+
+**✅ Ölçüldü (2026-08-01):** QR URL'i, NFC URL'inin **`&ctr=`/`&cmac=` olmadan
+aynısıdır** — `internal/sun.Parse` bu iki alanın **ikisinin de yokluğunu**
+`Channel=qr` olarak okur, birinin tek başına yokluğunu **bozuk URL** sayar
+(`params.go`). Örnek uzunluklar (`https://time.tappa.mt` tabanıyla):
+NFC **75** karakter, QR **42** karakter. QR yolu uçtan uca test altında:
+`internal/handler/qr_db_test.go`.
+
+**Neden plakette QR da var — ve neden "yedek" demiyoruz.** iPhone X ve öncesi
+arka planda NFC etiketi okuyamaz; o telefonlardaki çalışan için NFC URL'i **hiç
+açılmaz**, yani QR onun **her günkü** yoludur. Baskı, dil ve yerleşim bunu
+yansıtmalı: QR küçük bir "sorun giderme" ikonu gibi köşeye sıkıştırılmaz.
+
+**Yerleşim (öneri).**
+- Plaket dikey bölünür: **üst ~%60 dokunma alanı**, **alt ~%40 QR alanı**.
+  Dokunma alanının ortasında NFC anteninin merkezi ve `tappa` kelime markası;
+  telefon oraya dayanır, o yüzden orada başka bilgi yok.
+- **QR kenar uzunluğu ≥ 30 mm.** Gerekçe: yaygın baskı kuralı, tarama mesafesinin
+  **1/10'u** kadar kenar; duvar plaketi 20–40 cm'den taranır → 30–40 mm.
+  Altına inme; eldivenli el telefonu yakınlaştırmaz.
+- **Sessiz alan (quiet zone) 4 modül**, QR'ın etrafında `paper` zemin. Perforasyon
+  motifi ya da çerçeve **sessiz alana giremez** — adisyon hissi için QR'ın *dışına*
+  konur.
+- QR **`ink` on `paper`** basılır. `tappa-green` üstüne beyaz QR **basma**:
+  tarayıcılar koyu-modül/açık-zemin bekler ve ters kontrast okuma oranını düşürür.
+- QR'ın altında **tek satır**, mono, uppercase, küçük punto: plaketin kendi
+  **UID'sinin son 4 hanesi** (ör. `PLAQUE 000A`). Müdür "hangi kapı" derken
+  telefonda değil duvarda okuyabilsin; UID sır değildir (adres çubuğunda zaten
+  görünür, §4.7 kapsamında değil).
+
+**Metin (İngilizce, ses tonu kuralına uyar).**
+- Dokunma alanı: **`Hold your phone here`**
+- QR alanı: **`Or scan — same thing`**
+  Gerekçe: "or" iki eşit yolu ayırır, "if… doesn't work" bir başarısızlık
+  anlatır. *"backup"*, *"fallback"*, *"if your phone can't"* **yazma** — M5-08
+  kartının kriteri bu.
+- Plaketin üstünde marka: `tappa` + `punchless` (uygulama içindeki kabuğun aynısı).
+
+**Yapma.** QR'ı logonun içine gömme (sessiz alanı ve hata düzeltmesini yer) ·
+gradient/renkli QR · yuvarlatılmış modül · plakete talimat paragrafı (üç satırdan
+uzun metin duvarda okunmaz) · QR'ı NFC alanının üstüne bindirme (telefon anteni
+QR'ı kapatır ve kamera odaklanamaz).
+
+🔴 **BASKI GERÇEKLEŞTİĞİNDE EKRAN METNİ YENİDEN ELE ALINMALI (M8 devri).**
+Bugün üründe **hiçbir ekran QR'dan bahsetmiyor** (ölçüldü: tap + aktivasyon
+ailesinin tamamı taranıp 0 eşleşme —
+`internal/handler/qr_db_test.go → TestQRScreens_SayNothingAboutTheQRRoute`) ve
+bu **bilinçli**: plaketler henüz QR ile basılmadığı için ekranın var olmayan bir
+şeyi tarif etmesi yanlış olurdu (kullanıcı kararı, 2026-08-01).
+**Ama ölçülen kusur duruyor:** tur slayt 1 *"If your phone does not react, ask
+your manager."* diyor; **iPhone X ve öncesi arka planda NFC etiketi okuyamaz**,
+yani o çalışan için sayfa **hiç açılmaz** ve bu cümle onun **her günkü yolunu bir
+arıza gibi** çerçeveliyor. Plaketler QR ile basıldığı anda slayt 1 (ve genel
+olarak iPhone X yolu) *"Or scan the code on the plaque — it works the same way"*
+yönünde yeniden yazılmalı. O değişiklik §9 kapsamındadır (önce sor) ve
+`result_test.go`'nun **üç beyaz listesi** + tur testleri + yukarıdaki tripwire
+testi **birlikte** güncellenir.
+
+**Açık soru (M8-05'e).** QR'a `?src=qr` gibi bir işaret **KOYULMADI ve
+koyulmamalı**: kanal, `ctr`/`cmac`'in yokluğundan **sunucuda** türetiliyor
+(state.md N2) ve URL'e istemcinin taşıdığı bir kanal işareti eklemek o türetimi
+ikinci bir kaynakla yarıştırırdı. Baskı sağlayıcısı "izleme parametresi ekleyelim
+mi" diye sorarsa cevap **hayır**.
+
 ## Ses tonu
 
 Kısa, sıcak, kendinden emin. *"Tapped in at 14:03."* — *"Your check-in operation

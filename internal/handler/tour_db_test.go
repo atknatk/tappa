@@ -424,23 +424,23 @@ func TestTourDB_AClientCannotDeclareOrRefuseThePracticeFlag(t *testing.T) {
 		emp := f.newEmployee(t, "active")
 		cookie := f.cookieForEmployee(t, emp)
 
-		// THREE taps, and it takes three because the practice rule itself removes the
-		// shorter path: tap one is the genuine practice run, and a practice record
-		// does NOT hold the chain open, so tap two is still an `in`. Tap three is the
-		// first CHECKOUT this person can have — the record the exploit wants, because
-		// a checkout marked training would leave the check-in open and run the day on.
-		for i, gap := range []int{900, 600} {
-			if w := f.postTap(t, f.nfcContext(uint32(f.startCtr)+uint32(i)+1), cookie, tapAgo(gap)); w.Code != http.StatusOK {
-				t.Fatalf("tap %d status = %d", i+1, w.Code)
-			}
-		}
+		// THE HISTORY IS SEEDED, NOT TAPPED, and ADR 0006 is why. This used to fire
+		// taps one and two as real POSTs declaring tapAgo(900)/tapAgo(600), which
+		// cleared the person-debounce only because the debounce read a CLIENT-
+		// DECLARED time. It now also reads transactions.created_at, so two POSTs a
+		// second apart are a second apart and the second one is `ignored`. The two
+		// rows this case needs are therefore WRITTEN aged (both stamps together) —
+		// a practice `in`, then the ordinary `in` a practice tap does not hold open —
+		// and the tap under test, the CHECKOUT, is still a real POST.
+		f.seedTapAgedBy(t, emp, 900*time.Second, "in", true)  // the practice run, spent
+		f.seedTapAgedBy(t, emp, 600*time.Second, "in", false) // the ordinary check-IN
 		if rec := f.lastRecord(t, emp); rec.Practice || rec.Type == nil || *rec.Type != "in" {
-			t.Fatalf("precondition: tap two is an ordinary check-IN; practice=%v type=%q",
+			t.Fatalf("precondition: the open record is an ordinary check-IN; practice=%v type=%q",
 				rec.Practice, deref(rec.Type))
 		}
 
 		// Tap three arrives with every practice-shaped field a client could invent.
-		claimed := url.Values{occurredAtField: tapAgo(300)[occurredAtField]}
+		claimed := url.Values{}
 		for k, v := range claims {
 			claimed[k] = v
 		}
@@ -478,10 +478,21 @@ func TestTourDB_ARejectedFirstTapSpendsThePracticeRun(t *testing.T) {
 	emp := f.newEmployee(t, "active") // activated_at is set: the practice shape
 	cookie := f.cookieForEmployee(t, emp)
 
-	// TAP ONE lands on a retired plaque — §5 row 1, a reject, and §4.6 says it is
-	// still a record.
+	// 🔴 THE SEQUENCE IS NOW RUN IN TWO HALVES, and ADR 0006 is why. It used to be
+	// two real POSTs a second apart, with tap one declaring tapAgo(600) so tap two
+	// cleared the person-debounce — this file's own comment said exactly that. The
+	// debounce now also measures against transactions.created_at, so a declared
+	// past no longer buys distance and tap two would be `ignored`. Splitting keeps
+	// BOTH halves production: half one still produces the reject through the real
+	// flow, half two still decides the following tap through the real engine.
+
+	// HALF ONE — a rejected tap IS a record, and it is recorded AGAINST THE PERSON.
+	// (lastRecord and countFor both key on employee_id, so finding the row at all
+	// is the proof that a §5 row-1 reject carries one. That is the join this test
+	// exists for: without it, "a reject spends the practice run" would stay a
+	// deduction from two facts proven apart.)
 	f.retireTag(t, f.tagUID, "retired")
-	if w := f.postTap(t, f.nfcContext(uint32(f.startCtr)+1), cookie, tapAgo(600)); w.Code != http.StatusOK {
+	if w := f.postTap(t, f.nfcContext(uint32(f.startCtr)+1), cookie, nil); w.Code != http.StatusOK {
 		t.Fatalf("tap one status = %d, want 200 (a denied tap is RECORDED, not refused)", w.Code)
 	}
 	first := f.lastRecord(t, emp)
@@ -491,30 +502,35 @@ func TestTourDB_ARejectedFirstTapSpendsThePracticeRun(t *testing.T) {
 	if first.Practice {
 		t.Fatal("a rejected tap must not be marked practice: there are no hours to exclude")
 	}
+	if first.Type != nil {
+		t.Fatalf("a reject carries a direction (%q): nothing is opened by a refusal", deref(first.Type))
+	}
 	if n := f.countFor(t, emp); n != 1 {
 		t.Fatalf("the reject left %d rows, want 1 — §4.6 is what makes this test possible", n)
 	}
 
-	// TAP TWO is an ordinary LIVE tap on the same plaque, now back in service.
+	// HALF TWO — the tap that FOLLOWS such a reject. Same shape, its own person,
+	// and the reject in the history is written aged (the row half one just proved
+	// production writes). The tap itself is a real POST on a live plaque.
 	//
-	// TWO DETAILS ARE MEASURED RATHER THAN GUESSED, and both cost a red run first:
+	// TWO DETAILS ARE MEASURED RATHER THAN GUESSED, and both cost a red run:
 	//
-	//   - IT DECLARES NO TIME. A caller-stated past time is exactly what
-	//     base:queued-window sends to review, so tapAgo(300) made this `flag`. A
-	//     live tap posts no timestamp, which is also the shape the tap page has.
-	//     It still clears the 120 s person-debounce, because tap one declared
-	//     itself 600 s ago.
+	//   - IT DECLARES NO TIME. A caller-stated past time is what
+	//     base:queued-window sends to review, so declaring one made this `flag`.
+	//     A live tap posts no timestamp, which is also the shape the tap page has.
 	//   - ITS COUNTER IS READ OFF THE TAG. A reject on a retired plaque does NOT
 	//     advance tags.last_ctr, so assuming startCtr+2 opened a gap of two and
 	//     base:ctr-gap-review made this `flag` as well ("the tag counter jumped").
 	//     Reading the live row keeps the test measuring the practice rule instead
 	//     of accidentally measuring the counter.
-	f.retireTag(t, f.tagUID, "active")
-	next := uint32(f.lastCtr(t, f.tagUID)) + 1 //nolint:gosec // fixture counter, far inside uint32
-	if w := f.postTap(t, f.nfcContext(next), cookie, nil); w.Code != http.StatusOK {
+	f.retireTag(t, f.tagUID, "active") // the plaque is back in service
+	next := f.newEmployee(t, "active")
+	f.seedAgedRecord(t, next, 600*time.Second, nil, "reject", false)
+	ctr := uint32(f.lastCtr(t, f.tagUID)) + 1 //nolint:gosec // fixture counter, far inside uint32
+	if w := f.postTap(t, f.nfcContext(ctr), f.cookieForEmployee(t, next), nil); w.Code != http.StatusOK {
 		t.Fatalf("tap two status = %d", w.Code)
 	}
-	second := f.lastRecord(t, emp)
+	second := f.lastRecord(t, next)
 	if second.Verdict != "ok" {
 		t.Fatalf("tap two verdict = %q via %q, want ok", second.Verdict, deref(second.MatchedSid))
 	}

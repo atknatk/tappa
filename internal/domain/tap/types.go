@@ -200,8 +200,13 @@ type Transaction struct {
 	// ID identifies the record this decision may pair with (e.g. the open check-in
 	// an out closes), for the caller to reference when it writes.
 	ID uuid.UUID
-	// OccurredAt is when the prior tap happened (UTC, §6). Used for the debounce gap
-	// (Now - OccurredAt < Debounce) and to order the direction chain.
+	// OccurredAt is when the prior tap CLAIMS to have happened (UTC, §6). It orders
+	// the direction chain and supplies the DECLARED leg of the debounce gap.
+	//
+	// 🔴 IT IS CLIENT-DECLARABLE, and so is the CHOICE of which row lands here
+	// (the query orders by this column). Neither the value nor the selection can
+	// therefore carry the debounce on its own — see Input.SecondsSinceLastRecordedTap and
+	// ADR 0006.
 	OccurredAt time.Time
 	// Direction is the prior tap's in/out.
 	Direction Type
@@ -361,10 +366,36 @@ type Input struct {
 	// 150) — supplied, never baked in (geo.WithinRadius takes it as a parameter).
 	GPSRadiusM float64
 
-	// LastForPerson is this PERSON's most recent tap (any direction), or nil if they
-	// have none. Drives the per-PERSON debounce (§5 line 5) — person-based so
-	// different people can tap one plaque back-to-back and each is recorded.
+	// LastForPerson is this PERSON's most recent tap BY DECLARED TIME (any
+	// direction), or nil if they have none. It supplies the DECLARED leg of the
+	// per-PERSON debounce (§5 line 5) — person-based so different people can tap
+	// one plaque back-to-back and each is recorded.
 	LastForPerson *Transaction
+	// SecondsSinceLastRecordedTap is how long ago this person's most recent TAP
+	// was WRITTEN, measured ENTIRELY ON THE DATABASE CLOCK
+	// (clock_timestamp() − created_at over the nfc/qr channels), or nil if they
+	// have no recorded tap.
+	//
+	// 🔴 IT IS THE ONLY LEG A CALLER CANNOT STEER, and ADR 0006 is the whole story
+	// of why a second one was needed. LastForPerson above is selected by a
+	// client-declarable column and carries a client-declarable value, so BOTH the
+	// distance and the choice of predecessor are reachable from a POST body: a
+	// declared past inflates the distance, and a declared time under the person's
+	// existing newest row freezes the selection so the predecessor never advances.
+	// Each was measured producing 20 counted rows from ONE scanned QR in about a
+	// third of a second.
+	//
+	// 🔴 IT IS AN AGE AND NOT A TIMESTAMP, and that is load-bearing rather than
+	// tidy. Handing Go a timestamp to subtract from its own clock mixes two clock
+	// domains, and under lock contention it INVERTS: the request captures Now
+	// before it waits, while created_at belongs to a LATER transaction, so the
+	// subtraction goes negative and the leg is discarded — measured, a fully
+	// serialised request still came back `ok` for exactly that reason. Both ends
+	// are now read from the same clock, so there is no skew to reason about and no
+	// dependency on two hosts agreeing.
+	//
+	// nil means "no recorded tap", which never debounces (§4.6's safe zero value).
+	SecondsSinceLastRecordedTap *float64
 	// LastOpenIn is the person's last OPEN check-in (an "in" with no matching "out"),
 	// or nil. Drives direction: open in present -> this tap is out, else in (§5,
 	// M4-04). A practice record is never passed here (Transaction.Practice).

@@ -611,3 +611,175 @@ func TestDecide_DirectionNilForNonRecordVerdicts(t *testing.T) {
 		})
 	}
 }
+
+// TestDecide_DebounceMeasuresBothTheDeclaredAndTheServerClock is ADR 0006's
+// table. §5 row 5 asks "did this person tap again within the window", and the
+// honest answer needs a fact the caller cannot steer.
+//
+// 🔴 THE HOLE HAD THREE LAYERS AND THE FIRST FIX ONLY REACHED ONE. All measured
+// end to end (internal/handler/qr_db_test.go), one scanned QR context each time:
+//
+//	DISTANCE   the declared occurred_at inflated the gap        20 counted rows
+//	SELECTION  the predecessor is CHOSEN by occurred_at order   20 counted rows
+//	SIGN       a future-dated predecessor made the gap negative 20 counted `ok`s
+//
+// Adding a created_at column to the predecessor fixed DISTANCE and left the other
+// two untouched, because both are about WHICH row is read, not what it says. The
+// server leg therefore comes from a separately ordered fact, whose AGE is computed
+// in SQL (SecondsSinceLastRecordedTap) so no Go clock enters it.
+func TestDecide_DebounceMeasuresBothTheDeclaredAndTheServerClock(t *testing.T) {
+	t.Parallel()
+	now := baseInput().Now
+	// ago(x) is "the server wrote this person's last tap x ago", the shape the
+	// database now computes.
+	ago := func(seconds float64) *float64 { return &seconds }
+
+	tests := []struct {
+		name        string
+		last        *Transaction
+		recordedAt  *float64
+		wantIgnored bool
+		why         string
+	}{
+		{
+			name:        "no history at all",
+			wantIgnored: false,
+			why:         "a first tap is never a duplicate (§4.6's safe zero value)",
+		},
+		{
+			name:        "both legs far: an ordinary later tap",
+			last:        &Transaction{Direction: TypeIn, OccurredAt: now.Add(-90 * time.Second)},
+			recordedAt:  ago(90),
+			wantIgnored: false,
+			why:         "90 s on both clocks is outside the 60 s window",
+		},
+		{
+			name:        "both legs near: the plain duplicate §5 row 5 was always about",
+			last:        &Transaction{Direction: TypeIn, OccurredAt: now.Add(-20 * time.Second)},
+			recordedAt:  ago(20),
+			wantIgnored: true,
+			why:         "20 s on both clocks is inside the window",
+		},
+		{
+			// LAYER 1 (DISTANCE) and LAYER 2 (SELECTION) look identical from here,
+			// and that is the point: whether the caller inflated the predecessor's
+			// claim or froze which row IS the predecessor, the declared leg reads
+			// far and the server leg reads seconds.
+			name:        "declared far, recorded seconds ago: backdating and freezing both land here",
+			last:        &Transaction{Direction: TypeIn, OccurredAt: now.Add(-71 * time.Hour)},
+			recordedAt:  ago(1),
+			wantIgnored: true,
+			why:         "a declared past cannot manufacture distance the server clock denies",
+		},
+		{
+			// The mirror, and why min is not simply "use created_at": a genuinely
+			// queued tap (M9-01) is written late and its DECLARED time is the real
+			// one. Written far, declared near, is still a repeat.
+			name:        "declared near, recorded long ago",
+			last:        &Transaction{Direction: TypeIn, OccurredAt: now.Add(-10 * time.Second)},
+			recordedAt:  ago(10800),
+			wantIgnored: true,
+			why:         "the smaller distance decides",
+		},
+		{
+			// 🔴 LAYER 3 (SIGN). sys:occurred-at-bound REFUSES a future stamp but
+			// §4.6 still records the row, which then wins the declared ordering and
+			// makes the declared distance negative. The guardrail matches on
+			// `gap >= 0`, so a negative gap used to switch it off entirely.
+			name:        "future-dated predecessor: the negative leg must not disable the guardrail",
+			last:        &Transaction{Direction: TypeIn, OccurredAt: now.Add(48 * time.Hour)},
+			recordedAt:  ago(2),
+			wantIgnored: true,
+			why:         "a claim about the future is not evidence of distance; the server leg answers",
+		},
+		{
+			// The same poison with NOTHING recorded to fall back on. Dropping the
+			// negative leg is fail-OPEN here, deliberately: there is no evidence of
+			// a recent tap, and inventing one would swallow a real tap for as long
+			// as the future stamp lasts.
+			name:        "future-dated predecessor and no recorded tap: not debounced",
+			last:        &Transaction{Direction: TypeIn, OccurredAt: now.Add(48 * time.Hour)},
+			wantIgnored: false,
+			why:         "nothing measurable; a self-inflicted stamp must not cost this person hours",
+		},
+		{
+			name:        "no recorded tap, declared far: the manual/bulk-entry shape",
+			last:        &Transaction{Direction: TypeIn, OccurredAt: now.Add(-8 * time.Hour)},
+			wantIgnored: false,
+			why:         "a manager's entry is excluded from the server leg by the query predicate",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			in := baseInput()
+			in.LastForPerson = tc.last
+			in.SecondsSinceLastRecordedTap = tc.recordedAt
+			got := Decide(in)
+			gotIgnored := got.Verdict == VerdictIgnored
+			if gotIgnored != tc.wantIgnored {
+				t.Fatalf("ignored = %v, want %v (%s); verdict %q via %q",
+					gotIgnored, tc.wantIgnored, tc.why, got.Verdict, got.MatchedSid)
+			}
+			if gotIgnored && got.MatchedSid != "sys:person-debounce" {
+				t.Fatalf("ignored via %q, want sys:person-debounce", got.MatchedSid)
+			}
+		})
+	}
+}
+
+// TestDebounceGap_TakesTheSmallerDistance drives debounceGap DIRECTLY, and it
+// exists because driving it only through Decide could not kill two mutations:
+// each guard is redundant with a check somewhere else (the guardrail already
+// refuses a negative gap), and a guard no test can kill is either dead or
+// unproven. Asserting the function on its own terms keeps its answer meaningful
+// instead of outsourced to a predicate in another package — the "proven in A,
+// consumed in B" gap this repo has paid for three times.
+func TestDebounceGap_TakesTheSmallerDistance(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
+	// ago(x) is "the server wrote this person's last tap x ago", the shape the
+	// database now computes.
+	ago := func(seconds float64) *float64 { return &seconds }
+	f := func(v float64) *float64 { return &v }
+
+	tests := []struct {
+		name       string
+		last       *Transaction
+		recordedAt *float64
+		want       *float64
+	}{
+		{"neither leg -> nil, which never debounces", nil, nil, nil},
+		{"declared only", &Transaction{OccurredAt: now.Add(-30 * time.Second)}, nil, f(30)},
+		{"recorded only", nil, ago(30), f(30)},
+		{"declared far, recorded near -> the server clock wins",
+			&Transaction{OccurredAt: now.Add(-10 * time.Minute)}, ago(2), f(2)},
+		{"declared near, recorded far -> the declared time wins",
+			&Transaction{OccurredAt: now.Add(-10 * time.Second)}, ago(10800), f(10)},
+		{"declared NEGATIVE (future-dated predecessor) -> dropped, the server leg answers",
+			&Transaction{OccurredAt: now.Add(48 * time.Hour)}, ago(2), f(2)},
+		{"declared negative with nothing recorded -> nil, not a clamped zero",
+			&Transaction{OccurredAt: now.Add(48 * time.Hour)}, nil, nil},
+		{"recorded in the future (clock skew) -> dropped, never returned as negative",
+			&Transaction{OccurredAt: now.Add(-30 * time.Second)}, ago(-9), f(30)},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			in := baseInput()
+			in.Now = now
+			in.LastForPerson = tc.last
+			in.SecondsSinceLastRecordedTap = tc.recordedAt
+			got := debounceGap(in)
+			switch {
+			case tc.want == nil && got != nil:
+				t.Fatalf("debounceGap = %v, want nil", *got)
+			case tc.want != nil && got == nil:
+				t.Fatalf("debounceGap = nil, want %v", *tc.want)
+			case tc.want != nil && *got != *tc.want:
+				t.Fatalf("debounceGap = %v, want %v", *got, *tc.want)
+			}
+		})
+	}
+}

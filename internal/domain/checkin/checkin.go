@@ -460,8 +460,19 @@ func (s *Service) clock() time.Time {
 // was recorded … Tap the plaque again in a moment." Detaching the write from
 // cancellation would trade this for something worse — a request the client
 // abandoned still recording attendance, indistinguishable from a real one — so it
-// is left as it is and named here. The window is a few milliseconds of local
-// database work.
+// is left as it is and named here.
+//
+// 🔴 HOW WIDE THE WINDOW IS — MEASURED, AND IT IS NO LONGER "A FEW MILLISECONDS".
+// An earlier version of this comment said exactly that, and ADR 0006's per-person
+// advisory lock made it false: the window is now `advance` -> acquiring a pool
+// connection -> WAITING FOR THIS PERSON'S LOCK -> INSERT, and the wait is bounded
+// only by middleware.Timeout(30s) (internal/httpx/router.go). Measured two ways:
+// holding that person's exact lock key from outside for 3 s left last_ctr at 701
+// with zero rows for the whole 3 s (the tap completed 3.06 s after the POST); and
+// self-contained, 50 simultaneous NFC POSTs by one person produced a worst case of
+// 1.24 s. The loss shape is unchanged and still not silent — what changed is how
+// long the gap can last, and pretending otherwise is the fourth absolute sentence
+// this file has had measured out from under it.
 func (s *Service) Record(ctx context.Context, req Request) (Result, error) {
 	if err := req.validate(); err != nil {
 		return Result{}, err
@@ -512,46 +523,132 @@ func (s *Service) Record(ctx context.Context, req Request) (Result, error) {
 		return Result{}, err
 	}
 
-	// --- 3. Gather the rest of the evidence ----------------------------------
-	facts, err := s.gather(ctx, req, tagRow.LocationID)
+	// --- 3. THE SERIALISED SECTION: lock, gather, decide, write --------------
+	//
+	// 🔴 ONE TRANSACTION, AND THE LOCK IS ITS FIRST STATEMENT (ADR 0006, layer 4).
+	// The debounce is a READ-THEN-DECIDE, and it used to lose the same way §4.4
+	// says a counter check loses: gather and write were separate transactions, so
+	// N simultaneous requests all read BEFORE any of them had written, every one
+	// saw the same old predecessor, and not one of them was a duplicate. Measured,
+	// -race, one employee: 50 simultaneous POSTs -> 51 counted rows, ZERO ignored,
+	// in 0.41 s; TWO simultaneous POSTs were already enough.
+	//
+	// pg_advisory_xact_lock is TRANSACTION-SCOPED, so COMMIT or ROLLBACK releases
+	// it and no error path can leak it. The key is derived from (tenant, employee),
+	// so different people do not wait on EACH OTHER'S LOCK (measured: 30 people at
+	// once, zero non-200s, every one counted, no slower than before the lock).
+	//
+	// 🔴 BUT THE LOCK DOES COST UNRELATED PEOPLE, and an earlier version of this
+	// comment claimed the opposite ("no new denial-of-service surface is
+	// attributable to the lock"). That was measured and it is FALSE. A waiter holds
+	// its pool connection while it waits, so a flood aimed at ONE key parks
+	// connections that do nothing: sampled pg_stat_activity showed up to 15 of the
+	// 16 pooled connections in wait_event='advisory', against 0 for the same row
+	// volume spread over separate keys. Other tenants' requests then queue at
+	// pool.Begin. A clean A/B (flood 150, victim measured as a SINGLE shot at a
+	// fixed 200 ms offset, fresh session each round, warmed tenant, 3 rounds):
+	//
+	//	one key       flood 1.91/1.38/1.45 s   uninvolved third party 1.60/1.05/1.14 s
+	//	separate keys flood 0.372/0.370/0.370  uninvolved third party 0.178/0.178/0.176
+	//
+	// i.e. an unrelated person's single tap gets 6-9x slower. The ceilings are the
+	// ByAddress budget (3000/10min) and middleware.Timeout(30s); no record is lost
+	// in either arm (§4.6 holds).
+	//
+	// ⚠️ MEASURE IT THIS WAY OR NOT AT ALL. The earlier "no difference" reading was
+	// an artefact: driving a one-key flood from a SINGLE session makes most requests
+	// hit the BySession 300/10min limit and return 429 without ever touching the
+	// lock (reproduced: a 200-request one-key flood finished in 40 ms, all rate
+	// limited). Measuring the victim in a loop also pushes worst-of-N onto the slow
+	// arm. One shot, fresh session, distinct sessions for the flood.
+	//
+	// A KEY COLLISION (two different people hashing to one 64-bit key) serialises
+	// them. It cannot mix their data — every statement inside still carries its own
+	// tenant_id filter and runs under RLS — but THE WAIT IS NOT MILLISECONDS. The
+	// loser pays for the REMAINDER OF THE WHOLE LOCKED SECTION: measured, a session
+	// holding the key for 2 s made a colliding session that arrived 0.4 s later
+	// wait 1778.890 ms, and the third-party figures nine lines above
+	// (1.60/1.05/1.14 s) are exactly the position a collided person sits in
+	// permanently. Ceiling: middleware.Timeout(30s).
+	//
+	// (An earlier version of this line said "costs one of them milliseconds" — the
+	// SIXTH absolute sentence this change had measured out from under it, and the
+	// twin of one the sibling query file retracts by name.)
+	//
+	// WHAT IS DELIBERATELY OUTSIDE IT: the policy set is resolved ABOVE, because
+	// materialising a tenant's baseline opens its own transaction and doing that
+	// while holding a lock would nest two pool connections; the atomic counter
+	// advance stays in step 2, in the TAG tenant's own context, exactly where §4.4
+	// and the M5-05 audit put it. NOTHING inside the locked section does HTTP or
+	// any other network work — tap.Decide is pure, and the only I/O is this
+	// tenant's own reads and one INSERT.
+	set := s.policies.forTenant(ctx, req.SessionTenantID)
+
+	var (
+		facts tapFacts
+		dec   tap.Decision
+		id    uuid.UUID
+	)
+	err = s.data.WithTenant(ctx, req.SessionTenantID, func(ctx context.Context, tx pgx.Tx) error {
+		if e := store.New(tx).LockEmployeeForTap(ctx, store.LockEmployeeForTapParams{
+			TenantID: req.SessionTenantID, EmployeeID: req.EmployeeID,
+		}); e != nil {
+			return fmt.Errorf("lock employee: %w", e)
+		}
+
+		facts, err = s.gather(ctx, tx, req, tagRow.LocationID)
+		if err != nil {
+			return err
+		}
+
+		// --- 4. Decide (one pure call, no rules here) ------------------------
+		in := tap.Input{
+			Now:                  now,
+			OccurredAt:           occurredAt,
+			OccurredAtFromClient: fromClient,
+			PageIssuedAt:         req.PageIssuedAt,
+			Channel:              req.Channel,
+			SUN:                  tap.SUNResult{Valid: sunValid, CtrGap: int(ctrGap)},
+			Tag: &tap.Tag{
+				Status:   tap.TagStatus(tagRow.Status),
+				Location: tagRow.LocationID,
+			},
+			Employee:                    facts.employee,
+			TagTenantID:                 &tagRow.TenantID,
+			SessionTenantID:             &req.SessionTenantID,
+			SourceIP:                    req.SourceIP,
+			LocationIPs:                 facts.locationIPs,
+			GPS:                         req.GPS,
+			LocationGPS:                 facts.locationGPS,
+			GPSRadiusM:                  s.gpsRadiusM,
+			LastForPerson:               facts.lastForPerson,
+			SecondsSinceLastRecordedTap: facts.secondsSinceLastRecordedTap,
+			LastOpenIn:                  facts.lastOpenIn,
+			Shift:                       facts.shift,
+			Debounce:                    s.debounce,
+			PolicySet:                   set,
+		}
+		dec = tap.Decide(in)
+
+		// --- 5. Apply the decision -------------------------------------------
+		if dec.Redirect != tap.RedirectNone {
+			// The ONLY path that writes nothing (§4.6's single exception). The
+			// transaction still commits — it wrote nothing to commit.
+			return nil
+		}
+		id, err = s.write(ctx, tx, req, tagRow, facts, dec, occurredAt)
+		return err
+	})
 	if err != nil {
+		// NEVER SWALLOWED (§7). The caller answers "try again" and the person taps
+		// again; what must not happen is a screen that says "done" over a record
+		// that does not exist.
 		return Result{}, err
 	}
 
-	// --- 4. Decide (one pure call, no rules here) ----------------------------
-	set := s.policies.forTenant(ctx, req.SessionTenantID)
-	in := tap.Input{
-		Now:                  now,
-		OccurredAt:           occurredAt,
-		OccurredAtFromClient: fromClient,
-		PageIssuedAt:         req.PageIssuedAt,
-		Channel:              req.Channel,
-		SUN:                  tap.SUNResult{Valid: sunValid, CtrGap: int(ctrGap)},
-		Tag: &tap.Tag{
-			Status:   tap.TagStatus(tagRow.Status),
-			Location: tagRow.LocationID,
-		},
-		Employee:        facts.employee,
-		TagTenantID:     &tagRow.TenantID,
-		SessionTenantID: &req.SessionTenantID,
-		SourceIP:        req.SourceIP,
-		LocationIPs:     facts.locationIPs,
-		GPS:             req.GPS,
-		LocationGPS:     facts.locationGPS,
-		GPSRadiusM:      s.gpsRadiusM,
-		LastForPerson:   facts.lastForPerson,
-		LastOpenIn:      facts.lastOpenIn,
-		Shift:           facts.shift,
-		Debounce:        s.debounce,
-		PolicySet:       set,
-	}
-	dec := tap.Decide(in)
-
-	// --- 5. Apply the decision -----------------------------------------------
 	if dec.Redirect != tap.RedirectNone {
-		// The ONLY path that writes nothing (§4.6's single exception). Which of the
-		// two redirects it is comes from the deciding sid, because Decide maps both
-		// to RedirectActivation.
+		// Which of the two redirects it is comes from the deciding sid, because
+		// Decide maps both to RedirectActivation.
 		out := Result{
 			Outcome: OutcomeActivation, Decision: dec,
 			OccurredAt: occurredAt, Timezone: facts.timezone,
@@ -564,14 +661,6 @@ func (s *Service) Record(ctx context.Context, req Request) (Result, error) {
 				"session_tenant_id", req.SessionTenantID, "tag_tenant_id", tagRow.TenantID)
 		}
 		return out, nil
-	}
-
-	id, err := s.write(ctx, req, tagRow, facts, dec, occurredAt)
-	if err != nil {
-		// NEVER SWALLOWED (§7). The caller answers "try again" and the person taps
-		// again; what must not happen is a screen that says "done" over a record
-		// that does not exist.
-		return Result{}, err
 	}
 
 	if dec.Security {
@@ -714,6 +803,10 @@ type tapFacts struct {
 	shift         *tap.Shift
 	lastForPerson *tap.Transaction
 	lastOpenIn    *tap.Transaction
+	// secondsSinceLastRecordedTap is how long ago this person's most recent nfc/qr
+	// record was written, measured on the DATABASE clock — the one debounce leg no
+	// caller can steer, and the one that survives lock contention (ADR 0006).
+	secondsSinceLastRecordedTap *float64
 }
 
 // gather reads the tenant-scoped evidence in ONE transaction, so every fact the
@@ -730,9 +823,9 @@ type tapFacts struct {
 // THE TAPPED LOCATION COMES FROM THE FRESH TAG ROW, not from the signed context,
 // for the same reason the status does: a plaque can be re-mounted, and the venue
 // a tap is judged against must be where the plaque is NOW.
-func (s *Service) gather(ctx context.Context, req Request, tappedLocationID uuid.UUID) (tapFacts, error) {
+func (s *Service) gather(ctx context.Context, tx pgx.Tx, req Request, tappedLocationID uuid.UUID) (tapFacts, error) {
 	var f tapFacts
-	err := s.data.WithTenant(ctx, req.SessionTenantID, func(ctx context.Context, tx pgx.Tx) error {
+	err := func(ctx context.Context, tx pgx.Tx) error {
 		q := store.New(tx)
 
 		emp, err := q.GetEmployeeForTap(ctx, store.GetEmployeeForTapParams{
@@ -806,6 +899,30 @@ func (s *Service) gather(ctx context.Context, req Request, tappedLocationID uuid
 			return fmt.Errorf("load last tap: %w", err)
 		}
 
+		// THE SERVER-CLOCK LEG OF THE DEBOUNCE (ADR 0006), and it is a SEPARATE
+		// query on purpose. The row above is chosen by ORDER BY occurred_at — a
+		// client-declarable column — so a caller can steer which record is treated
+		// as the predecessor as well as how far away it claims to be. This one is
+		// ordered by created_at over the nfc/qr channels, so neither its value nor
+		// its selection is reachable from a POST body.
+		// The window is the SAME one the guardrail applies, so bounding the query
+		// cannot change a decision: anything at or beyond it would have lost the
+		// min() anyway. It runs inside the advisory lock, so an unbounded sort over
+		// a flooded person's whole history would be paid while holding a pool
+		// connection (ADR 0006).
+		since, err := q.SecondsSinceLastRecordedTap(ctx, store.SecondsSinceLastRecordedTapParams{
+			TenantID: req.SessionTenantID, EmployeeID: &req.EmployeeID,
+			WindowSeconds: s.debounce.Seconds(),
+		})
+		switch {
+		case err == nil:
+			f.secondsSinceLastRecordedTap = &since
+		case errors.Is(err, pgx.ErrNoRows):
+			// No recorded tap: nil never debounces (§4.6's safe zero value).
+		default:
+			return fmt.Errorf("load last recorded tap: %w", err)
+		}
+
 		open, err := q.GetLastOpenTransaction(ctx, store.GetLastOpenTransactionParams{
 			TenantID: req.SessionTenantID, EmployeeID: &req.EmployeeID,
 		})
@@ -827,7 +944,7 @@ func (s *Service) gather(ctx context.Context, req Request, tappedLocationID uuid
 			return fmt.Errorf("load open check-in: %w", err)
 		}
 		return nil
-	})
+	}(ctx, tx)
 	if err != nil {
 		return tapFacts{}, fmt.Errorf("checkin: gather: %w", err)
 	}
@@ -839,24 +956,16 @@ func (s *Service) gather(ctx context.Context, req Request, tappedLocationID uuid
 // EVERY DECIDED TAP LANDS HERE — ok, flag, reject and ignored alike. §4.6 is not
 // "record the good ones": a reject is the outcome the record matters MOST for,
 // because it is the one somebody will dispute.
-func (s *Service) write(ctx context.Context, req Request, tagRow db.ResolvedTag, f tapFacts, dec tap.Decision, occurredAt time.Time) (uuid.UUID, error) {
+func (s *Service) write(ctx context.Context, tx pgx.Tx, req Request, tagRow db.ResolvedTag, f tapFacts, dec tap.Decision, occurredAt time.Time) (uuid.UUID, error) {
 	params, err := s.insertParams(req, tagRow, f, dec, occurredAt)
 	if err != nil {
 		return uuid.Nil, err
 	}
-	var id uuid.UUID
-	err = s.data.WithTenant(ctx, req.SessionTenantID, func(ctx context.Context, tx pgx.Tx) error {
-		row, e := store.New(tx).InsertTransaction(ctx, params)
-		if e != nil {
-			return e
-		}
-		id = row.ID
-		return nil
-	})
+	row, err := store.New(tx).InsertTransaction(ctx, params)
 	if err != nil {
 		return uuid.Nil, fmt.Errorf("checkin: record tap: %w", err)
 	}
-	return id, nil
+	return row.ID, nil
 }
 
 // insertParams maps a Decision onto the record's columns.

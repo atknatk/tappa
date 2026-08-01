@@ -33,11 +33,66 @@ type EnsureBaselinePolicyParams struct {
 // created_by is NULL: the author is Tappa's system provisioning, not a human
 // admin (00007 documents exactly this case).
 //
-// ON CONFLICT (id) DO NOTHING is what makes a second tap free and a hundred
-// concurrent first taps produce one row. It also means an EXISTING row is left
-// exactly as it is -- including enabled=false. A tenant that switched a baseline
-// statement off must not have it switched back on by someone walking up to a
-// plaque.
+// ON CONFLICT (id) DO NOTHING is what makes a second tap free. It also means an
+// EXISTING row is left exactly as it is -- including enabled=false. A tenant that
+// switched a baseline statement off must not have it switched back on by someone
+// walking up to a plaque.
+//
+// 🔴 THIS COMMENT USED TO SAY "and a hundred concurrent first taps produce one
+// row". IT IS FALSE, AND THIS INSERT IS THE ONE THAT FAILS. Measured (M5-08
+// audit, barrier-synchronised COMMITTING racers, a virgin key per attempt, five
+// attempts per row):
+//
+//	policies            ON CONFLICT (id)                20 racers: 4 / 100 fail
+//	                                                    40 racers: 9 / 200 fail
+//	policies            ON CONFLICT (id, tenant_id)      8 racers: 10 / 40 fail
+//	policy_versions     ON CONSTRAINT ..._no_key        20 racers: 19 / 100 fail
+//	policy_versions     ON CONFLICT (id)  [the PK]      20 racers:  9 / 100 fail
+//	policy_attachments  ON CONSTRAINT ..._resource_key  20 and 40 racers: 0 fail
+//
+// and through the REAL code path (policySets.forTenant against a virgin tenant),
+// 40 racers produce 3-4 failures per 200, every one logged as:
+//
+//	materialise baseline: ensure baseline policy "...": duplicate key value
+//	violates unique constraint "policies_id_tenant_key" (SQLSTATE 23505)
+//
+// THE RULE IS "A NON-ARBITER UNIQUE INDEX", NOT "THE PRIMARY KEY". ON CONFLICT
+// arbitrates on ONE index; the speculative insertion can still trip any OTHER
+// unique index on the row. policies carries TWO: policies_pkey (id) and
+// policies_id_tenant_key (id, tenant_id) -- the latter added by 00007 as a
+// composite FK target. Arbitrating on either one leaves the other exposed, which
+// is why both columns of the table above fail and why swapping the target only
+// moves the collision. policy_attachments never fails for a structural reason
+// instead: it does not supply id at all (see its INSERT), so gen_random_uuid()
+// gives every racer a distinct primary key and there is no second index to trip.
+//
+// ⚠️ NO WORKING ARBITER CHOICE IS KNOWN. An earlier version of this comment
+// recommended "arbitrate on the PRIMARY KEY"; that is RETRACTED -- measured, PK
+// arbitration on policy_versions still fails 9 / 100, on policy_versions_no_key.
+// A real fix has to come from somewhere else (retry on 23505, an upsert that
+// names both indexes, or provisioning the baseline once at sign-up so the tap
+// path never races -- M7-03's job).
+//
+// 🔬 METHOD, because this class is easy to measure wrongly and an earlier
+// measurement in this very comment reported "0 failures" for the top row:
+//   - the race only exists once a COMPETING TRANSACTION COMMITS -- a harness
+//     whose racers roll back cannot see it at all;
+//   - it is a LOW-PROBABILITY event (~4% of inserts here), so ONE green run
+//     proves nothing: run many attempts, each with a VIRGIN key;
+//   - the probe must supply ids the way PRODUCTION does. The earlier probe handed
+//     every racer the same policy_attachments id, which production never does,
+//     and so "measured" a failure that cannot occur.
+//
+// IT IS FAIL-SAFE, NOT SILENT: a losing racer's tap falls back to a
+// guardrail-only decision, so the record is still written (section 4.6) and is
+// flagged rather than counted. NOT FIXED HERE -- policyset.go is outside the
+// M5-08 diff and the fix belongs with M7-03's provisioning; the existing race
+// test uses 8 racers, below the rate at which this shows up.
+//
+// ON CONFLICT (id) DO NOTHING still makes a second tap free, and it leaves an
+// EXISTING row exactly as it is -- including enabled=false. A tenant that
+// switched a baseline statement off must not have it switched back on by someone
+// walking up to a plaque.
 func (q *Queries) EnsureBaselinePolicy(ctx context.Context, arg EnsureBaselinePolicyParams) error {
 	_, err := q.db.Exec(ctx, ensureBaselinePolicy, arg.ID, arg.TenantID, arg.Name)
 	return err

@@ -1676,6 +1676,13 @@ sözleşme aşağıdaki kart düzeltmesinde.
 > iptalden ayırmak **daha kötü** bir sorun üretirdi (terk edilmiş bir isteğin
 > mesai kaydetmesi, üstelik ayırt edilemez), o yüzden olduğu gibi bırakıldı ve
 > `checkin.go`'da adıyla yazıldı. Pencere birkaç milisaniyelik yerel DB işi.
+> *(⚠️ **Düzeltme, 2026-08-01, M5-08:** bu son cümle artık **yanlış**. ADR 0006'nın
+> kişi başına advisory kilidi `write`'ı sınırsız bir kilit beklemesinin arkasına
+> taşıdı; pencere artık `advance` → havuz alımı → **kilit beklemesi** → `INSERT`
+> ve tavanı `middleware.Timeout(30s)`. Ölçüldü: dışarıdan 3 sn tutulan kilitte tap
+> 3,32 sn, tek kişiye 50 eşzamanlı POST'ta en kötü 1,24–1,91 sn. Kayıp **şekli**
+> değişmedi ve sessiz değil; değişen **süresi**. Blok tarihsel kayıt olarak
+> duruyor, doğrusu `internal/domain/checkin/checkin.go`'nun `Record` başlığında.)*
 >
 > **Düzeltilen bir aşırı-iddia:** `checkin.go`'daki *"It REDIRECTS and writes
 > nothing"* cümlesi `transactions` için doğru, **mutlak hâliyle yanlıştı** (F1
@@ -2385,7 +2392,13 @@ sözleşme aşağıdaki kart düzeltmesinde.
 - **Bu kanalda IP zorunlu; GPS tek başına yetmez → `flag`** (Q15 kararı,
   `base:qr-requires-ip`). Gerekçe: QR fotoğraflanır, süresiz geçerlidir ve
   hiçbir fiziksel dokunuş kanıtı taşımaz — tek gerçek kanıt mekânın ağında olmak.
-- QR asla NFC ile aynı trust seviyesine çıkmıyor.
+- **QR aynı kanıtla asla NFC'nin kanıt tavanına çıkmıyor:** yalnız GPS ile bir QR
+  tap'i **hiçbir zaman insansız `ok` olamaz** (`base:qr-requires-ip` → `flag`),
+  bir NFC tap'i olabilir (`base:gps-only-allow` → `ok`).
+  ⚠️ Bu kriter **2026-08-01'de yeniden yazıldı**; eski hâli *"QR asla NFC ile aynı
+  **trust** seviyesine çıkmıyor"*du ve **lafzı yanlıştı** — `trust` SAYISI kanalı
+  hiç ayırmıyor (IP+GPS'li QR **100**, IP+GPS'li NFC **100**). Ölçüm, gerekçe ve
+  kullanıcı kararı: aşağıdaki kart düzeltmesi md. 3.
 - Plaket baskısında NFC + QR birlikte — tasarım notu `tappa-brand` ile uyumlu.
 - **QR bazı çalışanlar için kalıcı yoldur, yedek değil.** iPhone X ve öncesi
   arka planda NFC etiketi okuyamaz (arka plan okuma iPhone XS/XR ve sonrası) —
@@ -2393,6 +2406,332 @@ sözleşme aşağıdaki kart düzeltmesinde.
   olduğundan, bu çalışanlar mekânın WiFi'ına bağlanmazsa **her gün** `flag`
   üretir. Pilot öncesi telefon envanteri çıkarılır ([M8-07](m8-deploy-pilot.md));
   oran yüksekse Q15 varsayılanı tenant bazında yeniden değerlendirilir.
+
+> **Kart düzeltmesi (2026-08-01, M5-08 uygulaması sırasında).** Hiçbir kriter
+> düşürülmedi. Kartın **iki cümlesi** ölçümle karşılaştırıldı (biri açık bir
+> çelişki çıktı, karara bağlanmadı), bir **maskelenmiş mutant** bulunup kapatıldı
+> ve M5-10'a sayıyla bir devir yazıldı.
+>
+> **1) Görevin çoğu HAZIRDI — ama YOLUN KENDİSİ hazır değildi, ve ilk iş bunu
+> ölçmekti.** Hazır olanlar tek tek doğrulandı: `sun.Parse` `ctr` ve `cmac`'in
+> **ikisi de yokken** `Channel=qr` üretiyor · `preview.go` adım 4'te QR'ı kriptoya
+> dokunmadan kısa devre yapıyor · `base:qr-requires-ip` baseline'da · `decide_test.go`
+> ve `policyset_db_test.go`'da QR vakaları var · bağlam `Channel`'ı sunucudan
+> türetilmiş taşıyor.
+> **Ama boşluk tam ortadaydı:** `grep` ile ölçüldü, bu pakette **hiçbir** `GET /t`
+> isteği `&ctr=&cmac=` **olmadan** yapılmıyordu; QR'lı her DB testi bağlamı
+> **elle** kuruyordu (`h.qrContext()`). Yani *"SUN parametresiz bir plaket URL'i →
+> kaydedilmiş QR tap'i"* zincirinin **hiçbir testi yoktu** — M5-05 dersinin birebir
+> şekli (*"A'da kanıtlanan garanti B'de tüketiliyorsa B'nin onu KULLANDIĞI ayrıca
+> pinlenmeli"*). Yeni dosya `internal/handler/qr_db_test.go` **her testte
+> `GET /t?tag=<uid>` ile başlıyor ve sayfanın KENDİ mint ettiği bağlamı** POST
+> ediyor.
+>
+> **2) Beş kriterin durumu (ölçüm, iddia değil).**
+>
+> | Kriter | Önceden | M5-08'in eklediği |
+> |---|---|---|
+> | `sun_valid=false`, `channel='qr'` | sütun doğru yazılıyordu (elle kurulmuş bağlamla) | **uçtan uca**: GET → mint → POST → sütun; ayrıca `ctr` **NULL** ve `tags.last_ctr` **kıpırdamıyor** |
+> | IP zorunlu, GPS tek başına yetmez | `decide_test.go` (saf) + policy testleri | **aynı kanıtla iki kanal yan yana**: QR+GPS → `flag`/`base:qr-requires-ip`, NFC+GPS → `ok`/`base:gps-only-allow` |
+> | QR ≠ NFC trust seviyesi | — | **ölçüldü, çelişki çıktı** (md. 3) |
+> | Plaket baskısı NFC+QR | yoktu | skill **`tappa-brand` → "Plaket baskısı"** bölümü (md. 5) |
+> | QR kalıcı yol, "yedek" değil | — | **yokluk ölçüldü** + tripwire testi (md. 6) |
+>
+> **3) 🔴 KARTIN TRUST CÜMLESİ YANLIŞTI — ÖLÇÜLDÜ, KULLANICI KARARI ALINDI
+> (2026-08-01), KRİTER YENİDEN YAZILDI.**
+>
+> Kartın eski cümlesi *"QR asla NFC ile aynı **trust** seviyesine çıkmıyor"*du.
+> `trustScore` (`decide.go:467`) ise **kanal terimi taşımıyor** ve bu bir kaza
+> değil: formül **CLAUDE.md §5'te normatif** yazılı — `20 (taban) + 50 (IP eşleşti)
+> + 30 (GPS eşleşti)` — ve trust **kanıtı** ölçer, **sonucu** değil (M4-06'nın
+> kendi tuzağı). İki okuma da uçtan uca ölçüldü
+> (`TestQRDB_WithoutAnIPMatchGPSAloneIsNotEnough`, üç alt vaka, gerçek Postgres):
+>
+> | Okuma | Ölçüm | Sonuç |
+> |---|---|---|
+> | *"trust" = SAYI* | IP+GPS: QR **100**, NFC **100** · yalnız GPS: QR **50**, NFC **50** | **Kartın LAFZI YANLIŞ.** Sayı kanalları hiç ayırmıyor. |
+> | *"trust seviyesi" = KANIT TAVANI* | yalnız GPS: QR → **`flag`** (`base:qr-requires-ip`), NFC → **`ok`** (`base:gps-only-allow`) | **Kartın KASTI DOĞRU.** QR aynı kanıtla **asla insansız `ok` olamıyor**. |
+>
+> **KULLANICI KARARI (2026-08-01):**
+> 1. **§5'in formülü DEĞİŞMİYOR.** Normatiftir, M4-06 testleri 20/50/70/100'ü
+>    pinliyor, ve kanal terimi eklemek ADR + o testlerin güncellenmesi demekti —
+>    ölçülen fayda bunu karşılamıyor, çünkü ayrımı zaten `transactions.channel`
+>    taşıyor.
+> 2. **Kartın cümlesi "kanıt tavanı" okumasına indirildi** (yukarıdaki kriter
+>    listesinde yeniden yazıldı). Artık ölçülen şeyi söylüyor: *aynı kanıtla QR
+>    asla insansız `ok` olamaz*.
+> 3. **🔴 M6'YA DEVİR — TRUST'IN GÖRÜNDÜĞÜ HER YÜZEYDE `channel` DE GÖRÜNMELİ.**
+>    Bugünkü sınır ölçüldü: `transactions.channel` **yazılıyor ama hiçbir
+>    kullanıcı yüzeyinde gösterilmiyor** — `pages.ResultView`'da kanal alanı yok
+>    (§9 gereği çalışan ekranına eklenmez) ve müdür arayüzü henüz yok. Sonuç: bir
+>    müdür `Trust 100` görüp NFC sanar, oysa satır QR olabilir. **M6-01 (işlem
+>    listesi) ve M6-04 (onay kuyruğu)** kanalı trust'ın yanında göstermek
+>    zorundadır; aksi hâlde Q15'in ayırdığı iki dünya raporda tek görünür.
+>    *(Orkestratör bunu `state.md`'ye devir olarak yazıyor.)*
+>
+> **4) 🔴 M5-10'A DEVİR — SAYIYLA. "Bir sonraki işlem yeni fiziksel dokunuş
+> gerektirir" QR'da TUTMUYOR.**
+> Ölçülen (12 POST, tek taranmış QR bağlamı, gerçek Postgres, `qr_db_test.go`):
+> **12 istek → 12 `transactions` satırı**, hepsi 200; **1'i `ok`, 11'i `ignored`**;
+> `tags.last_ctr` **kıpırdamadı**. **Kontrol (aynı döngü, NFC):** 12 istek → **1
+> `ok` + 11 `reject`/`sys:sun-invalid`**, `last_ctr` **tam 1** ilerledi (700→701).
+> Fark **tür farkı**: NFC'de sayaç harcanıyor, QR'da harcanacak sayaç yok.
+>
+> 🔴 **GERİ ÇEKİLEN SAYI (1. denetim turu, 2026-08-01).** Bu madde önce şöyle
+> diyordu: *"`tapContextTTL = 900 sn` / `DebounceWindow = 60 sn` ⇒ tek taramadan
+> **en fazla 16** yön taşıyan satır"*, ve *"M5-10 varsayılanda tavanı 16 → 4'e
+> indirir"*. **İkisi de yanlıştı**, ve yanlışlık bir varsayımdaydı: aritmetik,
+> debounce'un tekrarları **duvar saatinde** aralıklandırdığını varsayıyordu.
+> **Aralıklandırmıyor.** `decide.go:181`:
+> ```go
+> gap := in.Now.Sub(in.LastForPerson.OccurredAt).Seconds()
+> ```
+> `in.Now` **sunucu** saati, ama `LastForPerson.OccurredAt` **istemcinin beyan
+> ettiği** `occurred_at` (`handler/checkin.go` → `domain/checkin.Record`). Geçmiş
+> bir `occurred_at` gap'i şişiriyor ve **`sys:person-debounce` hiç ateşlenmiyor**.
+>
+> **Yeniden üretilen ölçüm** (tek taranmış QR bağlamı, sabit ve 10 dk geçmiş bir
+> `occurred_at`, `TestQRDB_ABackdatedOccurredAtNoLongerDefeatsTheDebounce`):
+> **20 istek → 20 satır, 20'si de yön taşıyor** (`{in:1, out:19}`), **0 `ignored`**,
+> hepsi `flag` (`base:queued-window`), duvar saati **0,51 sn**, `last_ctr`
+> **700→700**. Yani 16 aritmetiği hem sayıca hem zamanca yanlıştı: 20 satır, 900
+> saniyede değil **yarım saniyede**.
+> **Kontrol — aynı numara NFC'de İŞE YARAMIYOR** (aynı testin ikinci yarısı):
+> 20 istek → **1 `in`** + **19 `reject`/`sys:sun-invalid`**, `last_ctr`
+> **700→701**. Freni sayaç tutuyor, debounce değil.
+>
+> **GERÇEK BAĞLAYICI: `tapSessionLimit`, ve o bir RATE DEĞİL BURST.**
+> `httpx.Limiter` **sabit pencere** (`ratelimit.go`), yani bütçe anında
+> harcanabiliyor. Monte edilmiş router üzerinden ölçüldü
+> (`TestQRDB_TheExposureCeilingIsTheSessionBudget`, `GET /t` ile — o yol
+> `transactions` yazmıyor): **300 istek arka arkaya servis edildi (~1,2 sn),
+> 301.'si 429**. Dolayısıyla 15 dk'lık TTL içine **iki** 10 dk'lık pencere sığıyor
+> ⇒ yapısal tavan **~600 istek**, eksi bağlamı basan 1 `GET` ⇒ **~599 yön taşıyan
+> satır** — geri çekilen 16 sayısının **~37 katı**.
+> **VE BU YÜZDEN M5-10 TAVANI 4'E İNDİRMİYOR.** 3 dk'lık tazelik penceresi hâlâ
+> tam bir **300'lük burst**'e izin veriyor; yalnız **ikinci pencereyi** siliyor,
+> yani tavan kabaca **yarılanıyor (~600 → ~300)**. M5-10'un kabul kriterine
+> yazılacak doğru cümle: *"pencere QR'da da geçerlidir ve tavanı kabaca yarıya
+> indirir; debounce bu kanalda hiçbir şeyi sınırlamıyor."*
+>
+> 🟢 **VE KURAL 2026-08-01'DE UYGULANDI — bu maddenin tavanı artık TARİHTİR.**
+> Kullanıcı kararı: debounce iki saate birden bakar —
+> `gap = min(now − LastForPerson.OccurredAt, SecondsSinceLastRecordedTap)`, manuel
+> öncül sunucu bacağından muaf. ⚠️ İkinci terim bir **çıkarma değil**, SQL'in
+> hesapladığı hazır bir **yaş**tır (`EXTRACT(EPOCH FROM (clock_timestamp() −
+> created_at))`); Go'nun bir DB timestamp'ini kendi saatinden çıkardığı ilk yazım
+> 4. katmanda ölçümle çöktü. Gerekçe, ölçümler, reddedilen alternatifler ve M9-01 çarpışması:
+> **[ADR 0006](../adr/0006-debounce-iki-kosullu-zaman.md)**.
+> **Kural sonrası yeniden ölçüm, aynı sonda (20 POST, tek taranmış QR bağlamı,
+> sabit geçmiş `occurred_at`):** **20 satır** (§4.6 korunuyor — hiçbiri
+> reddedilmiyor), ama **1 yön taşıyan + 19 `ignored`**. Yani *"tek taramadan kaç
+> yön taşıyan satır"* sorusunun cevabı — **ardışık** trafik için — **~599 → 1**.
+> ⚠️ **EŞZAMANLI trafik ayrı bir hikâyeydi ve o da kapatıldı:** `gather` ile
+> `write` ayrı transaction'lar olduğu için 50 eşzamanlı POST **51 sayılan** satır
+> üretiyordu (2 eşzamanlı POST bile yetiyordu). Kişi başına
+> `pg_advisory_xact_lock` ile artık **50 satır, 1 sayılan, 49 `ignored`**;
+> farklı kişiler birbirini beklemiyor (30 kişi eşzamanlı, 0 non-200).
+> ⚠️ **VE İLK UYGULAMA YETMEDİ — denetim iki katman daha ölçtü.** Yukarıdaki
+> *"1 satır"* yalnız **geçmişi olmayan** bir çalışan için doğruydu. (a) Kişinin
+> mevcut en yeni satırının **altına** bir zaman beyan et → öncül hiç ilerlemez →
+> yine **20 sayılan satır**; (b) **tek** bir ileri tarihli POST (`sys:occurred-at-bound`
+> reddeder ama §4.6 satırı **yazar**) `ORDER BY occurred_at`'i kazanır, gap
+> **negatif** olur, guardrail `gap >= 0` istediği için **hiç ateşlemez** → sonraki
+> 20 dürüst tap **20 `ok`** (flag bile değil). Kural bu yüzden genişletildi:
+> sunucu bacağı artık **ayrı bir sorgudan** (`SecondsSinceLastRecordedTap`,
+> `ORDER BY created_at`, `channel IN ('nfc','qr')`, **yaşı SQL hesaplıyor**)
+> okunuyor ve negatif beyan bacağı **düşürülüyor**. Ölçüm: (a) → **1 sayılan + 19 `ignored`**,
+> (b) → **0 sayılan, 20'si de `sys:person-debounce`**. Üç katmanın tamamı:
+> [ADR 0006](../adr/0006-debounce-iki-kosullu-zaman.md).
+> **M5-10 devir cümlesi de buna göre düzeltildi:** pencere artık tavanı
+> belirlemiyor (debounce belirliyor); yaptığı iş **imzalı bağlamın ömrünü**
+> kısaltmak ve `sys:tap-freshness`'in bandını **erişilebilir** kılmak — yani
+> M5-10 hâlâ gerekli, ama artık *"QR tekrarını sınırlayan tek şey"* değil,
+> ikinci katman.
+>
+> **Aşağısı kural uygulanmadan ÖNCEki fizibilite ölçümüdür; tarihsel kayıt olarak
+> duruyor ve ADR 0006'nın "Bağlam" bölümüne kaynaklık etti:**
+> - **Veri bir katman aşağıda ZATEN VAR:** `GetLastTransactionForEmployee`
+>   `created_at`'i **seçiyor** (`db/queries/transactions.sql`), ama
+>   `checkin.transaction()` eşlemesi onu **düşürüyor** ve `tap.Transaction`'da
+>   böyle bir alan **yok** (yalnız `OccurredAt`). Yani teknik maliyet üç satır.
+> - **Geri tarih odası 72 saat** (ölçüldü: 71sa50dk → **200**,
+>   `flag`/`base:queued-window`; 72sa10dk → **`reject`/`sys:occurred-at-bound`**).
+>   Yani `sys:occurred-at-bound` kapıyı kapatmıyor, **genişliğini** belirliyor.
+> - **Değişikliğin bedeli semantik:** debounce'un girdisini değiştirmek §5 satır
+>   5'in anlamını ("aynı **kişi** 60 sn içinde tekrar") ve M4 karar motorunu
+>   değiştirir; çevrimdışı kuyruk (M9-01) senaryosunda meşru bir toplu
+>   senkronizasyonu da yutabilir. **Yapıcı bunu UYGULAMADI**; karar kullanıcının.
+>
+> **§4.6 açısından kayıp yok** (her satır yazılıyor, atfedilebilir; hepsi `flag`
+> olduğu için müdür onayı olmadan saate girmiyor) — kaybolan şey §5'in *fiziksel
+> dokunuş* ilkesi.
+> **M5-08 pencereyi DARALTMADI** ve daraltmamalı: `sys:tap-freshness` zaten
+> `tap:pageAgeSeconds` ile besleniyor (M5-05 F2) ve bandının boş olmasının **tek
+> sebebi** TTL == guardrail tavanı (900 == 900).
+> ⚠️ Bu **A1'i (URL biriktirme) çözmez** — ADR 0005'te kabul edilmiş risk, ve
+> QR'da `tap:ctrGap` sinyali de **yok** (sayaç yok), yani Q21'in tek gözlemlenebilir
+> işareti bu kanalda hiç üretilmiyor. Yazıldı, kapatılmadı.
+>
+> **5) Plaket baskı notu skill'e yazıldı, karta değil** (`tappa-brand` →
+> *"Plaket baskısı — NFC + QR"*). Gerekçe: marka skill'i **fiziksel yüzeyin de**
+> sahibi (kitchen docket motifi, palet, ses tonu orada) ve notu okuyacak olan
+> M8-05 (encode runbook) ile M8-07 (pilot) skill'e bakar, bu karta değil; ayrıca
+> §11 *"herhangi bir UI işi → skill `tappa-brand`"* diyor. Blok **"TASARIM ÖNERİSİ,
+> ölçüm değil"** diye başlıyor ve ölçülmüş olan **tek** şeyi ayrıca işaretliyor:
+> QR URL'i NFC URL'inin `&ctr=`/`&cmac=`'siz hâlidir (75 → **42** karakter,
+> `https://time.tappa.mt` tabanıyla). Milimetreler baskı provasında doğrulanacak.
+> Metin kararı: **`Hold your phone here` / `Or scan — same thing`** — *"backup"*,
+> *"fallback"*, *"if your phone can't"* açıkça yasaklandı.
+>
+> **6) "QR ikinci sınıf gösterilmiyor" ÖLÇÜLDÜ: bugün HİÇBİR ekran QR'dan
+> BAHSETMİYOR.** `TestQRScreens_SayNothingAboutTheQRRoute` tap + aktivasyon
+> ailesinin **tamamını** (11 `Problem` sabiti × 2 retry hâli + `Tap` + `Activate` +
+> `Confirm` + `Done` + 3 tur slaytı + 8 sonuç ekranı şekli) render edip `screenText`
+> ile tarıyor: `qr` · `scan the` · `barcode` · `point your camera` → **0 eşleşme**.
+> Yani kriter bugün **yoklukla** sağlanıyor. Test bir **tripwire**: biri bu
+> ekranlara QR cümlesi eklerse kırılır ve mesajı §9'u hatırlatır (pozitif kontrol:
+> `tapProblemUnknownTag`'e *"scan the QR code"* konunca **RED**).
+> ⚠️ **Ölçülmüş sınır — kelime listesi neden kısa:** akış *"fall back"* ifadesini
+> **zaten meşru** kullanıyor (`pages.Activate`: *"Without the network, taps fall
+> back to your location"*, GPS hakkında). Genel başarısızlık sözlüğünü yasaklamak
+> **yanlış KIRMIZI** üretiyordu (ilk sürüm tam da bununla patladı), o yüzden test
+> yalnız **bu yola özgü** sözlüğü tarıyor.
+> 🔴 **BULGU VE KULLANICI KARARI (2026-08-01): CÜMLE ŞİMDİ EKLENMİYOR.** Tur
+> slayt 1 bugün *"If your phone does not react, ask your manager."* diyor. iPhone
+> X ve öncesi arka planda NFC etiketi okuyamaz, yani o çalışan için telefon
+> **hiçbir zaman** tepki vermeyecek: cümle onun **her günkü** yolunu bir arıza
+> gibi çerçeveliyor ve müdüre yönlendiriyor. Doğru cümle muhtemelen *"Or scan the
+> code on the plaque — it works the same way."*
+> **Karar: EKLENMEDİ, ve gerekçesi bu görevin kendi bulgusuyla aynı sınıf.**
+> **QR henüz fiziksel plakette basılı değil** — baskı spesifikasyonu bu görevde
+> yeni yazıldı (md. 5), plaketler **M8** pilotunda üretilecek. Bugün o cümleyi
+> koymak ekranın **var olmayan bir şeyi** çalışana söylemesi olurdu; §4.6'nın
+> *"ekran, doğru olmayan bir şeyi beyan etmesin"* sınıfı, tam da bu oturumun
+> avladığı kusur. **Kod değişmedi, ekran metnine dokunulmadı.**
+> **M8 devri (skill'e de yazıldı):** plaketler QR ile basıldığı anda **tur slayt
+> 1 ve iPhone X yolu yeniden ele alınmalı**; eklenince M5-06'nın **üç beyaz
+> listesi** (metin · eleman · referans), tur testlerinin beklenen metni ve
+> `TestQRScreens_SayNothingAboutTheQRRoute` **birlikte** güncellenir — o test tam
+> bu anı yakalamak için tripwire olarak bırakıldı. *(Orkestratör bunu `state.md`'ye
+> M8 devri olarak yazıyor.)*
+>
+> **7) 🔁 MASKELENMİŞ MUTANT BULUNDU VE KAPATILDI (bu oturumda dördüncü kez).**
+> `internal/sun/preview.go` adım 4 (`if !p.HasSUN()`) silindiğinde **13 paketin
+> HEPSİ yeşil** kaldı (ölçüldü, tam suite). Kalabiliyordu çünkü **sonuç aynı**:
+> QR `Params` nil CMAC taşır, `verifyMAC` boşluğa karşı karşılaştırır ve `false`
+> döner — kısa devrenin döndürdüğünün aynısı. Sonucun sakladığı fark: **doğrulanacak
+> hiçbir şey taşımayan bir URL için etiketin AES anahtarı AÇILIYOR** (§4.7'nin
+> *"anahtar yalnız gerektiğinde ve doğrulama süresince yaşar"* kuralı; aynı kural
+> adım 3'te ölü etiket için **pinli**, çünkü emekli bir etiket + geçerli CMAC
+> `CMACValid`'i `true`'ya çevirip tabloyu kırardı — QR'ın böyle bir teli yoktu).
+> **Kapatıldı:** `TestPreview_QRURLNeverUnwrapsTheTagKey` bozuk bir `aes_key_ref`
+> ile anahtar açmayı **gözlemlenebilir** yapıyor (açan yol **hata** döner, kısa
+> devre yapan yol `(CMACValid:false, nil)`), **pozitif kontrolüyle** (aynı bozuk
+> ref + NFC URL → hata). Mutasyon artık **RED**.
+>
+> **7b) M5-09'A DEVİR — bozuk `aes_key_ref` NFC'yi kesiyor, QR'ı KESMİYOR
+> (ölçüldü).** M5-04 devri md. 5, seed'li plaketlerin `aes_key_ref`'inin KEK-sarmalı
+> **olmadığını** ve NFC yolunun onlarda **500** verdiğini yazıyor; kimse bunun QR'ı
+> da öldürüp öldürmediğini ölçmemişti. Ölçüldü
+> (`TestQRDB_ABrokenKeyRefBlocksNFCButNotQR`, aynı plakette bir bayt bozularak):
+> **NFC `GET /t` → 500**, **QR `GET /t` → 200 + POST → `ok`/`channel='qr'` satırı**.
+> Sebep md. 7'nin kısa devresi: QR yolu anahtara hiç uzanmıyor. **Sonuç:** M5-09'un
+> *"bir günü simüle et"* senaryosunun **QR yarısı bugün seed'li plaketlerle
+> HTTP üzerinden çalıştırılabilir**; NFC yarısı seed düzelene kadar bloklu kalır
+> (backlog **T7** ile aynı kök).
+>
+> **8) Ölçülen bir davranış, iddia değil: `POST /api/checkin` MULTIPART GÖVDEYİ
+> HİÇ OKUMUYOR.** `Checkin` önce `r.ParseForm()` çağırıyor; bu, multipart bir gövde
+> için `r.PostForm`'u **nil olmayan ve boş** bırakıyor, `PostFormValue` ise
+> `ParseMultipartForm`'a yalnız `PostForm == nil` iken uzanıyor. Sonuç: multipart
+> bir POST'ta `ctx` de kayboluyor → **400 `tapProblemStale`, sıfır satır**. JSON
+> gövde de aynı yere düşüyor. İkisi de **savunma olarak değil, ölçülmüş şekil**
+> olarak yazıldı ve teste bağlandı; bu endpoint bir gün multipart okumaya başlarsa
+> iki vaka da kanal-beyanı tablosuna **taşınmalı**. *(İlk test sürümü multipart'ın
+> "servis edilip beyanı yok sayacağını" varsaymıştı; ölçüm 400 dedi ve varsayım
+> düzeltildi.)*
+>
+> **8b) DOSYANIN DEĞERİ RAPORDA AZ SÖYLENMİŞTİ — denetim ÜÇÜNCÜ bir maskeli
+> mutant ölçtü.** `handler/checkin.go`'daki `Channel: tap.Channel(tctx.Channel)`
+> eşlemesi sabit `nfc`'ye çevrildiğinde, `qr_db_test.go` **olmadan** tüm suite
+> **yeşil** kalıyor: yani M5-08 öncesinde *"kanal sunucudan türetiliyor"*
+> garantisinin **sütuna ulaştığını** hiçbir şey kanıtlamıyordu (var olan test
+> `TestCheckin_TagFactsComeFromTheSignedContextOnly` bir **fake** servisin gördüğü
+> alanı okuyor, `transactions.channel`'ı değil). Aynı sınıf iki yerde daha:
+> `ctr` sütununun QR'a da yazılması ve kanal beyanının **header / harf-varyantı**
+> yüzeyleri — üçünü de yalnız bu dosya yakalıyor. Yani dosyanın kapattığı boşluk
+> *"QR yolu test edilmemişti"*den daha geniş: **kanalın kayda ulaşması** hiç
+> pinlenmemişti.
+>
+> **Mutasyonlar — 13 deneme: 11 tam RED, 1 kısmi, 1 TAM YEŞİL (kapatıldı).**
+> Tam RED olanlar: `base:qr-requires-ip` `review`→`allow` · `Channel` eşlemesi sabit
+> `nfc` · istemci kanalı `PostFormValue` ile · `FormValue` ile (query'yi de kapsar) ·
+> header ile · `sun_valid` sütunu hiç yazılmıyor · `ctr` sütunu QR'a da yazılıyor ·
+> `sun.Parse` SUN'sız URL'e `nfc` diyor · person-debounce beslenmiyor · ekrana
+> *"scan the QR code"* cümlesi eklendi · `tapContextTTL` 15→5 dk.
+> **TAM YEŞİL kalan tek mutant** md. 7 (preview adım 4, 13 paketin hepsi `ok`) —
+> kapatıldı, artık **iki** pakette RED.
+> **1. denetim turunda iki mutasyon daha koşuldu** (yeni/yeniden yazılan iki testin
+> boş olmadığını göstermek için, **ikisi de RED**): `decide.go`'da debounce gap'i
+> sabit `0`'a çekildi → 20 tekrarın hepsi `ignored` oldu, `…DefeatsTheDebounce…`
+> **RED**; `httpx.BySession` hiç ücretlendirmiyor → `served=303 refused=0`,
+> `…TheExposureCeilingIsTheSessionBudget` **RED**.
+> ⚠️ **KISMİ (dürüst nüans):** `advance`'in `req.Channel != tap.ChannelNFC` koşulu
+> silindiğinde `internal/domain/checkin` **RED** oluyor (M5-05'in `advance_test.go`'su),
+> ama **`internal/handler` YEŞİL** kalıyor — çünkü QR'ın `ctr`'ı 0 ve
+> `WHERE last_ctr < 0` zaten hiç satır tutmuyor. Yani bu koruma HTTP seviyesinden
+> **gözlemlenemiyor**; onu tutan tel alt katmanda ve orada duruyor.
+>
+> **Açıkta bırakılan sınırlar (iddia değil, sınır):**
+> - **QR'da `tap:ctrGap` yok** → A1'in tek gözlemlenebilir sinyali (Q21,
+>   `base:ctr-gap-review`) bu kanalda **hiç üretilmiyor**. M6-11'in tespit
+>   sinyalleri QR trafiğini bu telle göremez.
+> - 🔴 **GERİ ÇEKİLDİ (1. denetim turu):** burada iki cümle vardı ve **ikisi de
+>   ölçümün tersini** söylüyordu — *"`occurred_at` bir açık değil"* ve *"tavan 16
+>   bir aritmetiktir; gerçek trafikte **daha düşük** sayılar üretir"*. Ölçüm
+>   **daha yüksek** dedi (0,51 sn'de 20 satır; yapısal tavan ~599) ve mekanizma
+>   tam olarak `occurred_at`. Doğrusu md. 4'te.
+> - **~600 / ~599 YAPISAL BİR TAVANDIR, gözlenmiş bir sayı değil.** Gözlenen iki
+>   şey: *20 satır 0,51 sn'de, 0 `ignored`* ve *300 istek servis edildi, 301. 429*.
+>   Aradaki *"15 dk'ya iki pencere sığar"* adımı **aritmetik** — 600 isteklik bir
+>   koşu yapılmadı, çünkü `transactions` silinemez ve paylaşılan dev DB'ye
+>   600 satır yazmak M5-05'in *"yazma bütçesi"* uyarısının kendisi olurdu.
+> - 🟢 **Debounce'a sunucu saati vermek UYGULANDI** (kullanıcı kararı 2026-08-01,
+>   [ADR 0006](../adr/0006-debounce-iki-kosullu-zaman.md)). Migration gerekmedi.
+> - 🔴 **YENİ, AÇIK BEDEL: M9-01 (çevrimdışı kuyruk) bu kuralla ÇARPIŞIR.** Aynı
+>   senkronda saniyeler arayla gönderilen iki kuyruklanmış tap'in ikincisi
+>   `created_at` bacağından `ignored` olur, oysa kişi gerçekten iki kez tap
+>   etmiştir. Sessizce feda edilmedi: M9-01 kuyruk boşaltmasını sunucunun
+>   **doğrulayabileceği** bir işarete bağlamak zorunda (M5-10 kartı `queued`
+>   damgası + `base:queued-window`'u zaten bu ayrım için ayırıyor). ADR 0006
+>   "Sonuçlar" md. 1.
+> - **Repodaki DÖRT test bu deliğe yaslanıyordu** (`tapAgo(900)`, `at(-300s)`) ve
+>   yorumları bunu açıkça söylüyordu — deliğin gerçek ve erişilebilir olduğunun
+>   ayrıca kanıtı. Geçmiş artık beyan edilerek değil **yazılarak** kuruluyor
+>   (`seedTapAgedBy`/`seedAgedRecord`, iki damga birlikte geriye alınıyor);
+>   ölçülen tap her vakada hâlâ gerçek bir POST, hiçbir iddia zayıflatılmadı.
+> - **`channel` hiçbir kullanıcı yüzeyinde görünmüyor** (md. 3 sonu) — M6 devri.
+> - **Migration yok, şema değişmedi, yeni bağımlılık yok.** Bu görev yalnız test,
+>   bir belge bloğu ve skill bölümü ekledi; **üretim kodu değişmedi**.
+>   ⚠️ **BU CÜMLE ARTIK YANLIŞ** ve düzeltilmeden bırakılamaz: ADR 0006 kararı
+>   (2026-08-01) üretimde **üç Go dosyası + bir sorgu** değiştirdi —
+>   `internal/domain/tap/{decide.go,types.go}`, `internal/domain/checkin/checkin.go`
+>   ve `db/queries/transactions.sql` (+ üretilen `internal/store`). **Migration
+>   yine yok.** Cümle görevin ilk yarısı için doğruydu; ikinci yarısı kod işiydi.
+> - 🔴 **KİLİDİN İLGİSİZ KİŞİLERE BEDELİ VAR** (kırmızı çizgi denetimi, ölçüldü).
+>   Bekleyen istek **havuz bağlantısını tutuyor**: tek anahtara inen bir flood'da
+>   16 bağlantının **15'i** `wait_event='advisory'`, ayrı anahtarlarda **0**.
+>   Temiz A/B'de ilgisiz birinin **tek** tap gecikmesi **6–9×** kötüleşiyor
+>   (1,60/1,05/1,14 sn vs 0,178 sn). §4 ihlali değil (kayıt kaybı yok, tavanlar
+>   `ByAddress` 3000/10dk ve `middleware.Timeout(30s)`) ama **yeni bir yüzey**;
+>   *"kilide atfedilebilir DoS yok"* cümlesi geri çekildi. **Yöntem uyarısı:**
+>   flood'u tek oturumdan sürmek isteklerin çoğunu `BySession` 300/10dk'ya takıp
+>   429 yaptırır ve "fark yok" artefaktı üretir — flood ayrı oturumlardan, kurban
+>   **tek atış** ölçülmeli.
+> - 🔴 **DAĞITIM DEVRİ (M8):** küme, DB ve rol seviyesinde `statement_timeout`,
+>   `lock_timeout`, `idle_in_transaction_session_timeout` **üçü de 0** (ölçüldü).
+>   Tek tavan `middleware.Timeout(30s)`.
 
 ---
 

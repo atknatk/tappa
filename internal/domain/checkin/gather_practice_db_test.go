@@ -111,9 +111,16 @@ func TestGatherDB_APracticeCheckInIsNeverHandedOnAsAnOpenOne(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			locationID, employeeID := practiceFixture(t, data, tenantID, tc.practice)
 
-			facts, err := svc.gather(context.Background(), Request{
-				SessionTenantID: tenantID, EmployeeID: employeeID,
-			}, locationID)
+			// gather now runs INSIDE the caller's transaction (ADR 0006 layer 4:
+			// lock, gather, decide and write share one), so the test supplies one.
+			var facts tapFacts
+			err := data.WithTenant(context.Background(), tenantID, func(ctx context.Context, tx pgx.Tx) error {
+				var e error
+				facts, e = svc.gather(ctx, tx, Request{
+					SessionTenantID: tenantID, EmployeeID: employeeID,
+				}, locationID)
+				return e
+			})
 			if err != nil {
 				t.Fatalf("gather: %v", err)
 			}

@@ -303,11 +303,66 @@ type Querier interface {
 	// created_by is NULL: the author is Tappa's system provisioning, not a human
 	// admin (00007 documents exactly this case).
 	//
-	// ON CONFLICT (id) DO NOTHING is what makes a second tap free and a hundred
-	// concurrent first taps produce one row. It also means an EXISTING row is left
-	// exactly as it is -- including enabled=false. A tenant that switched a baseline
-	// statement off must not have it switched back on by someone walking up to a
-	// plaque.
+	// ON CONFLICT (id) DO NOTHING is what makes a second tap free. It also means an
+	// EXISTING row is left exactly as it is -- including enabled=false. A tenant that
+	// switched a baseline statement off must not have it switched back on by someone
+	// walking up to a plaque.
+	//
+	// 🔴 THIS COMMENT USED TO SAY "and a hundred concurrent first taps produce one
+	// row". IT IS FALSE, AND THIS INSERT IS THE ONE THAT FAILS. Measured (M5-08
+	// audit, barrier-synchronised COMMITTING racers, a virgin key per attempt, five
+	// attempts per row):
+	//
+	//   policies            ON CONFLICT (id)                20 racers: 4 / 100 fail
+	//                                                       40 racers: 9 / 200 fail
+	//   policies            ON CONFLICT (id, tenant_id)      8 racers: 10 / 40 fail
+	//   policy_versions     ON CONSTRAINT ..._no_key        20 racers: 19 / 100 fail
+	//   policy_versions     ON CONFLICT (id)  [the PK]      20 racers:  9 / 100 fail
+	//   policy_attachments  ON CONSTRAINT ..._resource_key  20 and 40 racers: 0 fail
+	//
+	// and through the REAL code path (policySets.forTenant against a virgin tenant),
+	// 40 racers produce 3-4 failures per 200, every one logged as:
+	//
+	//   materialise baseline: ensure baseline policy "...": duplicate key value
+	//   violates unique constraint "policies_id_tenant_key" (SQLSTATE 23505)
+	//
+	// THE RULE IS "A NON-ARBITER UNIQUE INDEX", NOT "THE PRIMARY KEY". ON CONFLICT
+	// arbitrates on ONE index; the speculative insertion can still trip any OTHER
+	// unique index on the row. policies carries TWO: policies_pkey (id) and
+	// policies_id_tenant_key (id, tenant_id) -- the latter added by 00007 as a
+	// composite FK target. Arbitrating on either one leaves the other exposed, which
+	// is why both columns of the table above fail and why swapping the target only
+	// moves the collision. policy_attachments never fails for a structural reason
+	// instead: it does not supply id at all (see its INSERT), so gen_random_uuid()
+	// gives every racer a distinct primary key and there is no second index to trip.
+	//
+	// ⚠️ NO WORKING ARBITER CHOICE IS KNOWN. An earlier version of this comment
+	// recommended "arbitrate on the PRIMARY KEY"; that is RETRACTED -- measured, PK
+	// arbitration on policy_versions still fails 9 / 100, on policy_versions_no_key.
+	// A real fix has to come from somewhere else (retry on 23505, an upsert that
+	// names both indexes, or provisioning the baseline once at sign-up so the tap
+	// path never races -- M7-03's job).
+	//
+	// 🔬 METHOD, because this class is easy to measure wrongly and an earlier
+	// measurement in this very comment reported "0 failures" for the top row:
+	//   * the race only exists once a COMPETING TRANSACTION COMMITS -- a harness
+	//     whose racers roll back cannot see it at all;
+	//   * it is a LOW-PROBABILITY event (~4% of inserts here), so ONE green run
+	//     proves nothing: run many attempts, each with a VIRGIN key;
+	//   * the probe must supply ids the way PRODUCTION does. The earlier probe handed
+	//     every racer the same policy_attachments id, which production never does,
+	//     and so "measured" a failure that cannot occur.
+	//
+	// IT IS FAIL-SAFE, NOT SILENT: a losing racer's tap falls back to a
+	// guardrail-only decision, so the record is still written (section 4.6) and is
+	// flagged rather than counted. NOT FIXED HERE -- policyset.go is outside the
+	// M5-08 diff and the fix belongs with M7-03's provisioning; the existing race
+	// test uses 8 racers, below the rate at which this shows up.
+	//
+	// ON CONFLICT (id) DO NOTHING still makes a second tap free, and it leaves an
+	// EXISTING row exactly as it is -- including enabled=false. A tenant that
+	// switched a baseline statement off must not have it switched back on by someone
+	// walking up to a plaque.
 	EnsureBaselinePolicy(ctx context.Context, arg EnsureBaselinePolicyParams) error
 	// Materialise version 1 of a managed-baseline policy's document.
 	//
@@ -687,6 +742,50 @@ type Querier interface {
 	// included on purpose; the caller filters on revoked_at, so history stays visible.
 	// token_hash is NOT selected: nothing outside the resolution path needs it.
 	ListSessionsForEmployee(ctx context.Context, arg ListSessionsForEmployeeParams) ([]ListSessionsForEmployeeRow, error)
+	// SERIALISE ONE PERSON'S TAP DECISION (ADR 0006, layer 4).
+	//
+	// 🔴 THE DEBOUNCE IS A READ-THEN-DECIDE, and without this it loses the same way
+	// CLAUDE.md section 4.4 says a counter check loses: N concurrent requests all
+	// gather BEFORE any of them has written, so every one of them sees the same old
+	// predecessor and none of them is a duplicate. Measured, -race, one employee:
+	// 50 simultaneous POSTs -> 51 counted rows, zero ignored, in 0.41 s. TWO
+	// simultaneous POSTs are already enough.
+	//
+	// The lock is TRANSACTION-SCOPED (pg_advisory_xact_lock), so it is released by
+	// COMMIT or ROLLBACK and no code path can leak it. It is taken as the FIRST
+	// statement of the transaction that gathers, decides and writes, so the whole
+	// read-decide-write is serial FOR THIS PERSON.
+	//
+	// THE KEY IS 64 BITS DERIVED FROM (tenant_id, employee_id). Advisory locks live
+	// in one cluster-wide space and are NOT scoped by RLS or by database role, so the
+	// tenant MUST be in the key or two tenants could collide by employee id alone.
+	// A hash collision serialises two unrelated people. It can never mix their data
+	// -- every statement inside still carries its own tenant_id filter and runs under
+	// RLS -- but the WAIT IS NOT SMALL, and calling it "a few milliseconds" was the
+	// fifth absolute sentence this change had measured out from under it. The loser
+	// waits for the WHOLE locked section: measured, holding a person's key from
+	// outside for 3 s delayed their POST by 3.32 s, and 50 simultaneous taps by one
+	// person put the worst request at 1.46 s (QR) / 1.91 s (NFC). The ceiling is
+	// middleware.Timeout(30s); this repo sets no statement_timeout or lock_timeout.
+	//
+	// DIFFERENT PEOPLE DO NOT WAIT ON EACH OTHER'S LOCK: distinct keys, no shared row
+	// lock.
+	//
+	// 🔴 THEY DO STILL PAY FOR IT, THOUGH, and an earlier version of this comment said
+	// otherwise. A waiter HOLDS ITS POOL CONNECTION while waiting, so a flood aimed at
+	// ONE key parks connections that are doing nothing: sampled pg_stat_activity showed
+	// up to 15 of 16 pooled connections in wait_event='advisory', versus 0 for the same
+	// row volume spread across separate keys. Clean A/B (flood 150, victim a SINGLE
+	// shot at a fixed 200 ms offset, fresh session per round, 3 rounds): an uninvolved
+	// third party's single tap took 1.60/1.05/1.14 s against one key and
+	// 0.178/0.178/0.176 s against separate keys -- 6-9x worse. Ceilings: the ByAddress
+	// budget (3000/10min) and middleware.Timeout(30s). No record is lost either way.
+	//
+	// ⚠️ MEASURING THIS WRONG IS EASY: a one-key flood driven from a SINGLE session
+	// mostly returns 429 from the BySession 300/10min limit without ever reaching the
+	// lock (a 200-request flood finished in 40 ms, all rate limited), which reads as
+	// "no difference". Use distinct sessions for the flood and one shot for the victim.
+	LockEmployeeForTap(ctx context.Context, arg LockEmployeeForTapParams) error
 	// audit.sql -- the append-only administrative/domain trail (migration 00005).
 	//
 	// WHY THIS FILE EXISTS NOW (M5-02 phase B): CLAUDE.md section 4.6 says a record is
@@ -761,6 +860,61 @@ type Querier interface {
 	// reject-with-alert (section 5 row 4) versus activation redirect (row 3) is the
 	// guardrail's call, not this query's.
 	RevokeSessionsForEmployee(ctx context.Context, arg RevokeSessionsForEmployeeParams) ([]uuid.UUID, error)
+	// THE SERVER-CLOCK LEG OF THE DEBOUNCE (ADR 0006): when did this person's most
+	// recent TAP get WRITTEN? Not "claim to have happened" -- written.
+	//
+	// 🔴 WHY THIS IS A SEPARATE QUERY AND NOT A COLUMN OFF THE ROW BELOW. The row
+	// below is chosen by ORDER BY occurred_at, which is a CLIENT-DECLARABLE column,
+	// so a caller can decide WHICH row is treated as the predecessor: declare a time
+	// under the person's existing newest row and every new row sorts beneath it, so
+	// the predecessor never advances and both legs of the gap keep measuring one
+	// untouched old record (measured: 20 posts, 20 counted rows, 0.31 s). Ordering by
+	// created_at instead answers the question the debounce actually asks -- "does
+	// this person have a tap RECORDED in the last N seconds" -- and no caller can
+	// reorder it, because created_at is the database's own now().
+	//
+	// channel IN ('nfc','qr') IS THE MANUAL EXEMPTION, expressed where it cannot be
+	// dodged. created_at on a manual row is when a MANAGER TYPED IT, which carries no
+	// claim about where the employee was: counting it would debounce an employee's
+	// genuine tap thirty seconds after a manager's backdated entry, and would break
+	// bulk manual entry. channel is server-derived, so this predicate is not a lever
+	// a caller can reach.
+	//
+	// 🔴 IT RETURNS AN AGE, NOT A TIMESTAMP, AND THAT IS LOAD-BEARING. An earlier
+	// version returned created_at and let Go subtract it from its own clock. That
+	// mixes two clock domains, and under contention it INVERTS: the application
+	// captures `now` before waiting on the lock, while created_at is a LATER
+	// transaction's start time, so the subtraction goes NEGATIVE and the skew guard
+	// discards the leg -- which is exactly how a serialised request still came back
+	// `ok`. Measured: now=…46.400 against a predecessor created_at=…46.475, 75 ms in
+	// the future. Computing the age HERE keeps both ends on the database clock, so
+	// there is no skew to guard against and no dependence on separate hosts agreeing.
+	//
+	// clock_timestamp(), NOT now(): now() is the TRANSACTION START time, which in a
+	// request that waited on the lock predates the row it is measuring against.
+	//
+	// 🔴 IT IS BOUNDED BY THE DEBOUNCE WINDOW, and this runs INSIDE the per-person
+	// advisory lock, so its cost is paid while holding a pool connection. Without the
+	// bound it sorted the person's ENTIRE lifetime history: section 4.6 writes a row
+	// for every flood POST and section 4.3 makes those rows permanent, so the scanned
+	// set only ever grows, fastest for the very person being flooded.
+	//
+	// The caller discards anything at or beyond the window anyway (the guardrail
+	// fires on `gap < window`), so bounding here changes no decision — it only stops
+	// the sort from ordering rows nobody can use. MEASURED on one employee with
+	// 20 002 rows: sort input 20 002 -> 43, execution 22.1 / 47.5 / 11.8 ms ->
+	// 10.2 / 10.2 / 15.8 ms.
+	//
+	// ⚠️ IT BOUNDS THE SORT, NOT THE SCAN, and that is the honest limit. The index is
+	// (tenant_id, employee_id, occurred_at); created_at is not in it, so the Bitmap
+	// Heap Scan still visits every row of the person's history and throws them away
+	// (measured: "Rows Removed by Filter: 19959"). Making the scan itself bounded
+	// needs an index on created_at, which is a migration and was NOT taken here.
+	//
+	// pgx.ErrNoRows means "no tap recorded for this person INSIDE THE WINDOW", which
+	// never debounces (the safe zero value, section 4.6) — the same answer the
+	// unbounded query produced by returning an age too large to win the min.
+	SecondsSinceLastRecordedTap(ctx context.Context, arg SecondsSinceLastRecordedTapParams) (float64, error)
 	// Refreshes last_used_at on use (the card's "kullanimda yenilenir"). The
 	// revoked_at IS NULL guard makes the refresh fail CLOSED: a session revoked
 	// between verification and this write updates 0 rows and the caller sees

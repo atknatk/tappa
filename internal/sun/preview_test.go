@@ -366,3 +366,53 @@ func TestPreview_AgainstPostgresDoesNotMoveTheCounter(t *testing.T) {
 		t.Fatalf("last_ctr = %d after a replayed preview, want %d unchanged", got, startCtr+1)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// A QR URL must not reach cryptography at all.
+// ---------------------------------------------------------------------------
+
+// TestPreview_QRURLNeverUnwrapsTheTagKey closes a MASKED MUTANT found in M5-08:
+// deleting step 4 of inspect() — the `if !p.HasSUN()` short-circuit that stops a
+// QR URL before the key is unwrapped — left the ENTIRE suite green (measured: all
+// 13 packages ok). It could, because the OUTCOME is identical either way: a QR
+// Params carries a nil CMAC, so verifyMAC compares against nothing and returns
+// false, which is what the short-circuit returns too.
+//
+// The difference the outcome hides is that the tag's AES key gets UNWRAPPED for a
+// URL that carries nothing to verify. That is a §4.7 property (a key is unwrapped
+// only when it is needed, and lives only for the length of the check) and it is
+// the same rule step 3 applies to a dead tag — where it IS pinned, because a
+// retired tag with a GENUINE CMAC would flip CMACValid to true and break the
+// table above. QR has no such tell, so it needs this.
+//
+// HOW THE UNWRAP IS OBSERVED: a corrupt aes_key_ref. Unwrap fails on it, so a
+// code path that unwraps returns an ERROR while a path that short-circuits
+// returns (CMACValid:false, nil). Positive control included — the same corrupt
+// ref on an NFC URL DOES produce the error, so this measures the short-circuit
+// rather than a resolver that never ran.
+func TestPreview_QRURLNeverUnwrapsTheTagKey(t *testing.T) {
+	kek := hexBytes(t, fakeKEKHex)
+	uidBytes := hexBytes(t, fakeUIDHex)
+	tag := fakeActiveTag(t, kek, uidBytes, hexBytes(t, fakeTagKey), "active")
+	// Corrupt the wrapped key. Unwrap authenticates it (AEAD), so any flipped
+	// byte makes it unopenable — no secret is constructed or printed here.
+	tag.AESKeyRef[len(tag.AESKeyRef)-1] ^= 0xFF
+
+	ver := NewVerifier(&spyResolver{tag: tag}, kek)
+
+	pv, err := ver.PreviewWithoutReplayProtection(context.Background(), mustParse(t, fakeUIDHex, "", ""))
+	if err != nil {
+		t.Fatalf("a QR preview returned %v: it unwrapped the tag key, which a URL with no CMAC gives it no reason to do", err)
+	}
+	if pv.CMACValid {
+		t.Fatal("a QR URL reported CMACValid=true")
+	}
+
+	// POSITIVE CONTROL: an NFC URL on the same corrupt ref DOES reach the unwrap
+	// and DOES fail. Without this, "no error" above would also be true of a
+	// verifier that never looked at aes_key_ref at all.
+	if _, err := ver.PreviewWithoutReplayProtection(
+		context.Background(), mustParse(t, fakeUIDHex, fakeCtrHex, "0000000000000000")); err == nil {
+		t.Fatal("an NFC preview over a corrupt aes_key_ref returned nil: this test is not observing the unwrap")
+	}
+}

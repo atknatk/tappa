@@ -853,48 +853,66 @@ func TestCheckinDB_PolicyContextCarriesADistanceAndNoCoordinate(t *testing.T) {
 //	       measuring the practice rule without knowing it.
 //	tap 3  the check-OUT, toggling on tap 2.
 //
-// THE DECLARED TIMES ARE CHOSEN BETWEEN TWO THRESHOLDS, not picked: each gap is
-// past the 60 s person-debounce (so nothing is swallowed as a duplicate) while
-// the skew stays inside the 72 h sys:occurred-at-bound ceiling.
+// 🔴 THE SHAPE OF THIS TEST CHANGED IN ADR 0006, AND THE OLD SHAPE IS WHY.
+// It used to fire all three taps as real POSTs inside one second, each declaring
+// a backdated occurred_at (-300 s, -150 s, none), and the comment here said the
+// times were "chosen between two thresholds": past the person-debounce, inside
+// the 72 h occurred-at ceiling. That worked only because the debounce compared
+// against a CLIENT-DECLARED timestamp — the hole ADR 0006 closes. The debounce
+// now also measures against transactions.created_at, so three real POSTs one
+// second apart are three taps one second apart — whatever they declare, and
+// whether they arrive one after another or all at once (ADR 0006 layers 1-4) —
+// and the second and third are `ignored` exactly as §5 row 5 intends.
+//
+// So each step now gets its OWN employee, whose HISTORY is seeded aged (both
+// stamps moved together, the way a row written minutes ago actually looks) and
+// whose MEASURED tap is still a real POST through the real router and the real
+// decision engine. Nothing about what is asserted was weakened; what changed is
+// that the past is written rather than declared.
 func TestCheckinDB_PracticeThenDirectionTogglesAgainstTheLastOpenCheckIn(t *testing.T) {
 	h := newTapHarness(t)
-	emp := h.newEmployee(t, "active") // activated_at is set, so tap 1 is practice
-	cookie := h.cookieForEmployee(t, emp)
 
-	at := func(d time.Duration) url.Values {
-		return url.Values{occurredAtField: {time.Now().UTC().Add(d).Format(time.RFC3339)}}
-	}
-
-	if w := h.postTap(t, h.nfcContext(uint32(h.startCtr)+1), cookie, at(-300*time.Second)); w.Code != http.StatusOK {
+	// tap 1 — the PRACTICE tap. No history at all, which is what makes it
+	// practice, and also what keeps it clear of the debounce.
+	first := h.newEmployee(t, "active") // activated_at is set, so this is practice
+	if w := h.postTap(t, h.nfcContext(uint32(h.startCtr)+1), h.cookieForEmployee(t, first), nil); w.Code != http.StatusOK {
 		t.Fatalf("practice tap status = %d", w.Code)
 	}
-	first := h.lastRecord(t, emp)
-	if !first.Practice {
-		t.Fatalf("the first record after activation is not marked practice (verdict %q)", first.Verdict)
+	one := h.lastRecord(t, first)
+	if !one.Practice {
+		t.Fatalf("the first record after activation is not marked practice (verdict %q)", one.Verdict)
 	}
-	if first.Type == nil || *first.Type != "in" {
-		t.Fatalf("practice direction = %v, want in", deref(first.Type))
+	if one.Type == nil || *one.Type != "in" {
+		t.Fatalf("practice direction = %v, want in", deref(one.Type))
 	}
 
-	if w := h.postTap(t, h.nfcContext(uint32(h.startCtr)+2), cookie, at(-150*time.Second)); w.Code != http.StatusOK {
+	// tap 2 — the real check-IN, arriving on top of a practice tap. THE HEADLINE:
+	// it is an `in`, not an `out`, because a training record must not hold the
+	// chain open (the M4-06 hours-inflation exploit). And it is not practice,
+	// because the run was already spent.
+	second := h.newEmployee(t, "active")
+	h.seedTapAgedBy(t, second, 300*time.Second, "in", true) // an aged PRACTICE tap
+	if w := h.postTap(t, h.nfcContext(uint32(h.startCtr)+2), h.cookieForEmployee(t, second), nil); w.Code != http.StatusOK {
 		t.Fatalf("check-in status = %d", w.Code)
 	}
-	second := h.lastRecord(t, emp)
-	if second.Practice {
+	two := h.lastRecord(t, second)
+	if two.Practice {
 		t.Fatal("the SECOND tap was marked practice: only the first record after activation is training")
 	}
-	if second.Type == nil || *second.Type != "in" {
+	if two.Type == nil || *two.Type != "in" {
 		t.Fatalf("check-in direction = %q, want in — a practice tap must not hold the chain open (§5)",
-			deref(second.Type))
+			deref(two.Type))
 	}
 
-	w := h.postTap(t, h.nfcContext(uint32(h.startCtr)+3), cookie, nil)
-	if w.Code != http.StatusOK {
+	// tap 3 — the check-OUT, toggling on an ordinary open check-in.
+	third := h.newEmployee(t, "active")
+	h.seedTapAgedBy(t, third, 300*time.Second, "in", false)
+	if w := h.postTap(t, h.nfcContext(uint32(h.startCtr)+3), h.cookieForEmployee(t, third), nil); w.Code != http.StatusOK {
 		t.Fatalf("check-out status = %d", w.Code)
 	}
-	third := h.lastRecord(t, emp)
-	if third.Type == nil || *third.Type != "out" {
-		t.Fatalf("check-out direction = %q, want out (toggle on the open check-in)", deref(third.Type))
+	three := h.lastRecord(t, third)
+	if three.Type == nil || *three.Type != "out" {
+		t.Fatalf("check-out direction = %q, want out (toggle on the open check-in)", deref(three.Type))
 	}
 }
 
@@ -1589,14 +1607,126 @@ func TestCheckinDB_ScreenTextIsWhatProductionRenders(t *testing.T) {
 func (h *tapHarness) openCheckInAgedBy(t *testing.T, age time.Duration) {
 	t.Helper()
 	err := h.data.WithTenant(context.Background(), h.tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		// created_at IS AGED TOO, and that is not decoration (ADR 0006). The
+		// debounce also measures the SERVER-side age of this person's last recorded
+		// tap (ADR 0006), so a row
+		// that CLAIMS to be 19 hours old while having been WRITTEN a millisecond
+		// ago is a shape production cannot produce — and seeding it would debounce
+		// the very tap this fixture exists to enable. Both stamps move together,
+		// which is what a row written 19 hours ago actually looks like.
 		_, e := tx.Exec(ctx,
 			`INSERT INTO transactions (tenant_id, employee_id, location_id, tag_uid, type,
-			                           occurred_at, verdict, channel, sun_valid, trust)
-			 VALUES ($1, $2, $3, $4, 'in', now() - $5::interval, 'ok', 'nfc', true, 100)`,
+			                           occurred_at, created_at, verdict, channel, sun_valid, trust)
+			 VALUES ($1, $2, $3, $4, 'in', now() - $5::interval, now() - $5::interval, 'ok', 'nfc', true, 100)`,
 			h.tenantID, h.employeeID, h.locationID, h.tagUID, age.String())
 		return e
 	})
 	if err != nil {
 		t.Fatalf("seeding an open check-in: %v", err)
 	}
+}
+
+// seedTapAgedBy commits a decided tap for one employee, aged by `age` in BOTH
+// timestamps, and returns nothing because callers only need it to exist.
+//
+// 🔴 WHY THIS EXISTS AT ALL, AND WHAT IT REPLACED (ADR 0006). Several tests used
+// to simulate a multi-tap day inside one second by declaring a backdated
+// occurred_at on each POST — `tapAgo(900)`, `at(-300s)` — and the comments said
+// so plainly ("it still clears the 120 s person-debounce, because tap one
+// declared itself 600 s ago"). That worked only because the debounce compared
+// against a CLIENT-DECLARED timestamp, which is the hole ADR 0006 closes. With
+// the second leg in place, a sequence of real POSTs by one person cannot be
+// separated in time without actually waiting — so a fixture that needs an OLD
+// predecessor has to write one, with both stamps moved together, which is what a
+// row written `age` ago genuinely looks like.
+//
+// It is a SETUP tool. Every assertion about how production DECIDES a tap is still
+// made against a real POST; this only supplies the history such a tap arrives on
+// top of.
+func (h *tapHarness) seedTapAgedBy(t *testing.T, employeeID uuid.UUID, age time.Duration, direction string, practice bool) {
+	t.Helper()
+	h.seedAgedRecord(t, employeeID, age, &direction, "ok", practice)
+}
+
+// seedAgedRecord is seedTapAgedBy with the verdict and a nullable direction
+// spelled out, for the cases that need a REJECT in the history (a reject carries
+// no direction, which is itself part of what a caller may be measuring).
+func (h *tapHarness) seedAgedRecord(t *testing.T, employeeID uuid.UUID, age time.Duration, direction *string, verdict string, practice bool) {
+	t.Helper()
+	err := h.data.WithTenant(context.Background(), h.tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		_, e := tx.Exec(ctx,
+			`INSERT INTO transactions (tenant_id, employee_id, location_id, tag_uid, type,
+			                           occurred_at, created_at, verdict, channel, sun_valid, trust, practice)
+			 VALUES ($1, $2, $3, $4, $5, now() - $6::interval, now() - $6::interval, $7, 'nfc', true, 100, $8)`,
+			h.tenantID, employeeID, h.locationID, h.tagUID, direction, age.String(), verdict, practice)
+		return e
+	})
+	if err != nil {
+		t.Fatalf("seeding an aged record: %v", err)
+	}
+}
+
+// seedRecordWithSplitClocks commits a record whose DECLARED and WRITTEN times are
+// deliberately far apart — occurred_at aged by `occurredAgo`, created_at by
+// `createdAgo` — on a chosen channel.
+//
+// It is what makes ADR 0006's manual exemption testable. That exemption lives in
+// SecondsSinceLastRecordedTap's `channel IN ('nfc','qr')` predicate, and the shape it
+// protects is exactly this one: a row DECLARING yesterday that was WRITTEN a
+// moment ago. Production makes that shape two ways — a manager typing a forgotten
+// shift (channel manual, exempt) and a queued tap syncing late (channel nfc, not
+// exempt) — and no HTTP flow can produce the manual one yet (M6-04).
+func (h *tapHarness) seedRecordWithSplitClocks(t *testing.T, employeeID uuid.UUID, occurredAgo, createdAgo time.Duration, channel, direction string) {
+	t.Helper()
+	err := h.data.WithTenant(context.Background(), h.tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		enteredBy := &employeeID // a manual row must name who entered it
+		if channel != "manual" {
+			enteredBy = nil
+		}
+		_, e := tx.Exec(ctx,
+			`INSERT INTO transactions (tenant_id, employee_id, location_id, tag_uid, type,
+			                           occurred_at, created_at, verdict, channel, trust, entered_by)
+			 VALUES ($1, $2, $3, $4, $5, now() - $6::interval, now() - $7::interval, 'ok', $8, 100, $9)`,
+			h.tenantID, employeeID, h.locationID, h.tagUID, direction,
+			occurredAgo.String(), createdAgo.String(), channel, enteredBy)
+		return e
+	})
+	if err != nil {
+		t.Fatalf("seeding a split-clock record: %v", err)
+	}
+}
+
+// verdictBreakdown counts one employee's rows by verdict, plus two synthetic
+// keys: __directional (rows carrying a type) and __practice.
+func (h *tapHarness) verdictBreakdown(t *testing.T, employeeID uuid.UUID) map[string]int {
+	t.Helper()
+	out := map[string]int{}
+	err := h.data.WithTenant(context.Background(), h.tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		rows, e := tx.Query(ctx,
+			`SELECT verdict, type IS NOT NULL, practice FROM transactions
+			 WHERE tenant_id = $1 AND employee_id = $2`, h.tenantID, employeeID)
+		if e != nil {
+			return e
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var v string
+			var directional, practice bool
+			if e := rows.Scan(&v, &directional, &practice); e != nil {
+				return e
+			}
+			out[v]++
+			if directional {
+				out["__directional"]++
+			}
+			if practice {
+				out["__practice"]++
+			}
+		}
+		return rows.Err()
+	})
+	if err != nil {
+		t.Fatalf("verdict breakdown: %v", err)
+	}
+	return out
 }
