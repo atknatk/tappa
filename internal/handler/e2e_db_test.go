@@ -233,12 +233,30 @@ func TestE2E_ActivationFlow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("POST /api/activate: %v", err)
 	}
-	confirmation := body(t, done)
+	// A FIRST activation lands on the mini tour (M5-07), not on the confirmation.
+	// The tour is three linked GETs and the last one points at /activate/done, so
+	// this step follows the same path a phone does.
+	tour := body(t, done)
 	if done.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200 after following the redirect", done.StatusCode)
 	}
-	if !strings.Contains(done.Request.URL.Path, "/activate/done") {
-		t.Errorf("landed on %s, want /activate/done", done.Request.URL.Path)
+	if done.Request.URL.Path != "/activate/tour" {
+		t.Errorf("landed on %s, want /activate/tour", done.Request.URL.Path)
+	}
+	if !strings.Contains(tour, "Tap the plaque") {
+		t.Error("the first slide of the tour did not render")
+	}
+	if strings.Contains(tour, code) {
+		t.Fatal("the tour carries the raw code")
+	}
+
+	confirmationResp, err := c.Get(h.server.URL + "/activate/done")
+	if err != nil {
+		t.Fatalf("GET /activate/done: %v", err)
+	}
+	confirmation := body(t, confirmationResp)
+	if confirmationResp.StatusCode != http.StatusOK {
+		t.Fatalf("confirmation status = %d, want 200", confirmationResp.StatusCode)
 	}
 	if !strings.Contains(confirmation, "All done") {
 		t.Error("the confirmation screen did not render")

@@ -319,3 +319,167 @@ func TestDecide_ManualChannelSkipsSUN(t *testing.T) {
 		t.Errorf("manual with an IP match must be ok; got %q via %q", got.Verdict, got.MatchedSid)
 	}
 }
+
+// TestDecide_ThePracticeRunIsSpentByANYPriorRecord is the measurement the mini
+// tour's third slide (M5-07) is written against, and it exists because that slide
+// makes a CLAIM ABOUT THE SYSTEM to somebody who cannot check it.
+//
+// The claim under test is "your first tap is a practice run". What the engine
+// actually does is narrower: a tap is practice only when the person has NO PRIOR
+// RECORD, and §4.6 records EVERY decided tap — GetLastTransactionForEmployee
+// carries no verdict predicate and no channel predicate (db/queries/transactions.sql
+// says so at the query). So a first tap that is REJECTED, or an `ignored`
+// duplicate, or a manual row a manager entered, all leave a record and the run is
+// gone.
+//
+// ⚠️ THE TABLE IS NOT "EXHAUSTIVE", AND THE FIRST VERSION OF THIS SENTENCE SAID IT
+// WAS. It cannot be, in an interesting way: tap.Transaction carries NO verdict and
+// NO channel, so from the engine's side every row below is the SAME INPUT — one
+// non-nil predecessor. What the rows enumerate is the SITUATIONS a reader would
+// otherwise assume are different, and the finding is that none of them is. (The
+// version an audit caught also omitted the most ordinary predecessor of all, an
+// earlier `ok`; it is row one now.) pages.Tour's words are chosen so that every
+// row here leaves them true.
+//
+// WHY A TABLE AND NOT FOUR TESTS: these are the same question asked of different
+// predecessors, and the answer that would be a bug — "some verdicts do not count"
+// — is only visible when they are read side by side.
+func TestDecide_ThePracticeRunIsSpentByANYPriorRecord(t *testing.T) {
+	t.Parallel()
+
+	// A predecessor far outside the debounce window, so nothing below is `ignored`
+	// for the wrong reason.
+	priorAt := func(in Input) *Transaction {
+		return &Transaction{OccurredAt: in.Now.Add(-300 * time.Second)}
+	}
+
+	tests := []struct {
+		name string
+		// prior describes the record the engine can see, if any. The VERDICT of that
+		// record is deliberately absent from Transaction: the query does not filter
+		// on it, so the engine cannot tell an `ok` predecessor from a `reject` one —
+		// which is the whole finding.
+		prior        func(in Input) *Transaction
+		wantPractice bool
+		why          string
+	}{
+		{
+			name:         "no_prior_record_at_all",
+			prior:        func(Input) *Transaction { return nil },
+			wantPractice: true,
+			why:          "the case the tour's slide is about",
+		},
+		{
+			name:         "after_an_ordinary_earlier_ok",
+			prior:        priorAt,
+			wantPractice: false,
+			why: "the most common predecessor there is, and it was missing from the first " +
+				"version of this table — the engine cannot tell it from any other row",
+		},
+		{
+			name:         "after_a_rejected_first_tap",
+			prior:        priorAt,
+			wantPractice: false,
+			why: "a reject IS a record (§4.6), so it spends the practice run: the tour " +
+				"may not promise the NEXT tap will be a practice one",
+		},
+		{
+			name:         "after_an_ignored_duplicate",
+			prior:        priorAt,
+			wantPractice: false,
+			why:          "an ignored duplicate is recorded too, and spends it the same way",
+		},
+		{
+			name:         "after_a_manual_row_a_manager_entered",
+			prior:        priorAt,
+			wantPractice: false,
+			why:          "channel is not read here either (M6-04 will make this reachable)",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			in := onSiteInput()
+			in.LastForPerson = tc.prior(in)
+			got := Decide(in)
+			if got.Verdict != VerdictOK {
+				t.Fatalf("precondition: want ok, got %q via %q", got.Verdict, got.MatchedSid)
+			}
+			if got.Practice != tc.wantPractice {
+				t.Errorf("Practice = %v, want %v — %s", got.Practice, tc.wantPractice, tc.why)
+			}
+		})
+	}
+}
+
+// TestDecide_TheFirstTapCanNeverBeIgnored is the other half of the promise: the
+// person-debounce needs a PREVIOUS tap to measure a gap against, and on a first
+// tap there is none. So of the four verdicts, only three can befall the tap the
+// tour is talking about — ok and flag are practice, reject is not.
+//
+// It matters because "ignored" is the one verdict whose screen says nothing at all
+// about hours; if a first tap could land there, the tour would be promising a
+// TRAINING mark on a screen that never shows one.
+func TestDecide_TheFirstTapCanNeverBeIgnored(t *testing.T) {
+	t.Parallel()
+	in := onSiteInput() // LastForPerson nil -> SecondsSincePersonLastTap is not set
+	got := Decide(in)
+	if got.Verdict == VerdictIgnored {
+		t.Fatalf("a first tap has no predecessor to be a duplicate of; got ignored via %q", got.MatchedSid)
+	}
+	if !got.Practice {
+		t.Fatalf("precondition: the first tap after activation is the practice run")
+	}
+}
+
+// TestDecide_APracticeTapCanStillFlag pins the combination pages.Tour and
+// pages.Result both have to survive: practice is set on the SAME ok/flag gate as
+// direction, so a training tap at a venue with no evidence is `flag` AND practice.
+// The tour says a TRAINING mark means the tap does not count toward hours, and
+// that has to stay true of the flagged one too — which is why result.templ drops
+// "before it counts" from the flag sentence when Practice is set.
+func TestDecide_APracticeTapCanStillFlag(t *testing.T) {
+	t.Parallel()
+	in := baseInput() // no IP, no GPS
+	got := Decide(in)
+	if got.Verdict != VerdictFlag {
+		t.Fatalf("precondition: want flag, got %q via %q", got.Verdict, got.MatchedSid)
+	}
+	if !got.Practice {
+		t.Errorf("a flagged first tap is still the practice run")
+	}
+	if got.Type == nil || *got.Type != TypeIn {
+		t.Errorf("a flagged practice tap still carries a direction; Type = %v", got.Type)
+	}
+}
+
+// TestDecide_QRFirstTapIsStillThePracticeRun: the channel is not read by
+// isPracticeTap, so somebody whose phone cannot read the chip (M5-08's iPhone X
+// note) gets the same practice run as everybody else — with or without an IP
+// match, i.e. on both the `ok` and the `flag` the QR baseline can produce.
+func TestDecide_QRFirstTapIsStillThePracticeRun(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name    string
+		mutate  func(in *Input)
+		wantVer Verdict
+	}{
+		{"qr_with_an_ip_match", withIP, VerdictOK},
+		{"qr_without_one", func(*Input) {}, VerdictFlag},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			in := baseInput()
+			in.Channel = ChannelQR
+			in.SUN = SUNResult{Valid: false} // a static QR carries no chip signature
+			tc.mutate(&in)
+			got := Decide(in)
+			if got.Verdict != tc.wantVer {
+				t.Fatalf("precondition: want %q, got %q via %q", tc.wantVer, got.Verdict, got.MatchedSid)
+			}
+			if !got.Practice {
+				t.Errorf("a QR first tap must still be the practice run")
+			}
+		})
+	}
+}

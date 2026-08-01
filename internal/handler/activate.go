@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/a-h/templ"
@@ -142,6 +143,7 @@ func NewActivation(inv inviteManager, sess sessionManager, rec auditRecorder, cf
 func (a *Activation) Mount(r chi.Router) {
 	r.Get("/activate", a.Page)
 	r.Post("/activate", a.Continue)
+	r.Get("/activate/tour", a.Tour)
 	r.Get("/activate/done", a.Done)
 	r.Post("/api/activate", a.Submit)
 }
@@ -551,11 +553,79 @@ func (a *Activation) Submit(w http.ResponseWriter, r *http.Request) {
 		},
 	})
 
-	dest := "/activate/done"
+	// WHERE A FRESH ACTIVATION LANDS (M5-07). A FIRST activation goes to the mini
+	// tour; a SECOND DEVICE goes straight to the confirmation it already knows.
+	//
+	// THAT SPLIT IS THE TOUR'S HONESTY GATE, not a convenience. The tour's third
+	// slide says the first tap is a practice run, and practice is derived from "this
+	// person has no prior record" (internal/domain/tap, isPracticeTap). The one
+	// moment that is knowable cheaply is HERE: SecondDeviceReplaced is true exactly
+	// when employees.status was already 'active', and somebody who has never been
+	// activated has never held a session and therefore has never tapped. So the
+	// audience of the promise is exactly the audience it is true for. A second
+	// device would have been told something false about their next tap.
+	//
+	// THE TOUR IS STILL REACHABLE by hand at /activate/tour, and its words hold
+	// there too — see the measured limits on pages.Tour, which is why the slide
+	// speaks about the FIRST tap rather than about the NEXT one.
+	dest := "/activate/tour"
 	if act.SecondDeviceReplaced {
-		dest += "?replaced=1"
+		dest = "/activate/done?replaced=1"
 	}
 	a.redirect(w, r, dest)
+}
+
+// Tour serves GET /activate/tour — the three slides of M5-07's mini tour.
+//
+// IT WRITES NOTHING. No attendance record, no audit row, no cookie: it reads the
+// session to prove somebody is behind the request and renders literals. That is
+// why the card's "the tour can be skipped" needs no mechanism — skipping is
+// following the same kind of link as finishing, and neither one leaves a trace to
+// undo. Measured by row count in TestTourDB_WritesNothing.
+//
+// IT IS BEHIND THE FLOOD CEILING for the reason Done is: it does a database round
+// trip per request even though it stores nothing, and an unshielded read path in
+// this flow is what made ratelimit.go's "DoS shield" smaller than it sounded.
+//
+// A MISSING OR DEAD SESSION GETS THE SAME SCREEN AS THE CONFIRMATION DOES, and
+// for the same reason: nothing is at stake on this page, so the ErrRevoked /
+// ErrNoSession distinction that matters enormously on the tap path (§5 rows 3 vs
+// 4) buys nothing here.
+func (a *Activation) Tour(w http.ResponseWriter, r *http.Request) {
+	ip := clientIP(r)
+	if a.flooded(w, r, ip, "activate_tour") {
+		return
+	}
+	tok, err := a.cookies.Read(r)
+	if err != nil {
+		a.renderProblem(w, r, http.StatusOK, problemNoSession)
+		return
+	}
+	if _, err := a.sessions.Verify(r.Context(), tok); err != nil {
+		if errors.Is(err, session.ErrNoSession) || errors.Is(err, session.ErrRevoked) {
+			a.renderProblem(w, r, http.StatusOK, problemNoSession)
+			return
+		}
+		a.log.Error("activation tour: verifying the session failed", "err", err)
+		a.renderProblem(w, r, http.StatusInternalServerError, problemServer)
+		return
+	}
+	a.render(w, r, http.StatusOK, pages.Tour(pages.TourView{Step: tourStep(r)}))
+}
+
+// tourStep reads ?step= and CLAMPS it into 1..pages.TourSteps.
+//
+// An unparseable, missing or out-of-range value becomes step one rather than an
+// error screen: there is nothing to get wrong here — no record, no credential —
+// so a mistyped number does not deserve a failure page. The clamp is also what
+// keeps the template's "unknown step behaves as step one" fallback unreachable in
+// production while leaving it correct if it ever is reached.
+func tourStep(r *http.Request) int {
+	n, err := strconv.Atoi(r.URL.Query().Get("step"))
+	if err != nil || n < 1 || n > pages.TourSteps {
+		return 1
+	}
+	return n
 }
 
 // Done serves GET /activate/done — the confirmation, identified by the session

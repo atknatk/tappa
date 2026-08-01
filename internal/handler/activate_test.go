@@ -445,7 +445,12 @@ func TestSubmit_ConsentIsRequired(t *testing.T) {
 }
 
 // TestSubmit_HappyPath: session cookie set, activation cookie cleared, 303 to the
-// confirmation, one audit row.
+// mini tour, one audit row.
+//
+// THE DESTINATION CHANGED IN M5-07 and the reason is on Submit: a FIRST
+// activation lands on /activate/tour, a second device still lands on the
+// confirmation. The split is what keeps the tour's third slide ("your first tap
+// is a practice run") true of everyone who is shown it.
 func TestSubmit_HappyPath(t *testing.T) {
 	sess := &fakeSessions{}
 	rec := &fakeAudit{}
@@ -456,8 +461,8 @@ func TestSubmit_HappyPath(t *testing.T) {
 	if w.Code != http.StatusSeeOther {
 		t.Fatalf("status = %d, want 303 (POST/redirect/GET keeps a refresh from re-posting)", w.Code)
 	}
-	if loc := w.Header().Get("Location"); loc != "/activate/done" {
-		t.Fatalf("Location = %q", loc)
+	if loc := w.Header().Get("Location"); loc != "/activate/tour" {
+		t.Fatalf("Location = %q, want /activate/tour (a first activation is shown the tour)", loc)
 	}
 	if sess.issued != 1 {
 		t.Fatalf("sessions issued = %d, want 1", sess.issued)
@@ -510,7 +515,9 @@ func TestSubmit_SecondDeviceRevokesBeforeIssuing(t *testing.T) {
 		t.Fatalf("order = %q, want activate,revoke,issue", got)
 	}
 	if loc := w.Header().Get("Location"); loc != "/activate/done?replaced=1" {
-		t.Errorf("Location = %q: the confirmation must be able to say the other phone was signed out", loc)
+		t.Errorf("Location = %q: the confirmation must be able to say the other phone was signed out, "+
+			"and a second device must NOT be sent through the tour — see Submit for why the tour's "+
+			"practice promise is false for somebody who has already tapped", loc)
 	}
 	if !rec.has(ActionDeviceReplaced) {
 		t.Errorf("audit = %v, want activation.device_replaced", rec.actions())

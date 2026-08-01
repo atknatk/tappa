@@ -106,6 +106,52 @@ type DoneView struct {
 	SecondDevice bool
 }
 
+// TourSteps is how many slides the mini tour has (M5-07's card: "Tap the plaque"
+// -> "One button" -> "First tap is practice").
+//
+// IT IS A CONSTANT BECAUSE THE SLIDES COUNT THEMSELVES OUT LOUD. Every slide
+// renders "Step N of TourSteps", so a number typed into the prose would be a
+// second source of truth that drifts the moment a slide is added — the failure
+// mode agent-brief.md lists as its own class of finding. The handler clamps
+// against this same constant, and TestTour_HasExactlyTourStepsSlides ties it to
+// the slides that actually render.
+const TourSteps = 3
+
+// TourView is one slide of the mini tour shown right after a first activation.
+//
+// ONE FIELD, AND IT CARRIES NO PERSONAL DATA AT ALL — not a name, not a venue,
+// not an id. That is the strongest form of this package's §4.7 rule: the other
+// views promise "no field a secret could travel in", and this one has no field a
+// PERSON could travel in either. The tour teaches; it reports nothing, so it
+// needs to know nothing. The consequence is that the whole tour is literals from
+// activate.templ, and the only value reaching the template from a request is a
+// small integer the handler has already clamped.
+//
+// IT IS ALSO WHY THE TOUR NEEDS NO WRITE OF ANY KIND. There is no progress to
+// remember: which slide you are on is the URL you are looking at, so skipping and
+// finishing are the same act — following a link — and neither leaves a
+// `transactions` row, an `audit_log` row or a cookie behind.
+type TourView struct {
+	// Step is 1..TourSteps. The handler clamps anything else to 1 rather than
+	// erroring: a mistyped step is not a failure worth a screen.
+	Step int
+}
+
+// TourPageTitle is the browser title for one slide. It lives in Go rather than in
+// the template because layout.Page takes the title as a value; the SLIDES
+// themselves are literals in activate.templ, where Tailwind can see their classes
+// (see the note on ResultView for what happens to a class name that lives here).
+func TourPageTitle(step int) string {
+	switch step {
+	case 2:
+		return "One button — Tappa"
+	case 3:
+		return "Your first tap — Tappa"
+	default:
+		return "How Tappa works — Tappa"
+	}
+}
+
 // TapView is the tap screen — the one an employee sees several times a day, and
 // the one CLAUDE.md §9 calls sacred: one screen, one button, zero learning.
 //

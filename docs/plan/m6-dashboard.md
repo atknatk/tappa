@@ -154,6 +154,17 @@ panel; FLAGGED kuyruğu işliyor, CSV dışa aktarım var.
   Bu kayıtlar saat toplamına **girmez**, ayrı bir "open / needs action" bölümünde
   listelenir ve rapor toplamın **eksik olduğunu açıkça söyler**. Sessizce 0 saat
   saymak bordroyu eksik çıkarır. Müdür manuel çıkış girer (M6-08).
+  - ⚠️ **`practice = true` girişler bu bölüme GİRMEZ** (eklendi 2026-08-01, M5-07
+    denetimi). Practice tap bir `type='in'` satırıdır ve SQL anlamında **kapanmamış**
+    görünür — `GetLastOpenTransaction`'ın `NOT EXISTS`'i onu ancak bir `out` gelince
+    eler, oysa deneme tap'inin ardından hiçbir zaman bir `out` gelmez. Bu kriter
+    yazıldığında practice istisnası yalnız **saat** satırında (üç satır yukarıda)
+    yazılıydı; ikisini ayrı bırakmak, M5-07'nin turunun *"ilk tap'in deneme"*
+    vaadini müdürün **"eylem gerekiyor"** kuyruğunda anomali olarak gösterirdi —
+    yani her yeni çalışan, ilk gününde, kapatılması istenen bir kayıt üretirdi.
+    Karar motoru tarafında zaten böyle: practice kaydı yön zincirini açık tutmaz
+    (`checkin.go` `gather` + `tap/decide.go` `resolveDirection`, ikisi de testle
+    pinli). Rapor sorgusu **aynı istisnayı taşımak zorunda**.
 - CSV: UTF-8, mono hizalı başlık, saatler UTC **ve** yerel — hangisi olduğu
   başlıkta açık. Excel'in tarih bozmaması için ISO 8601.
 - Saat hesabı `numeric`/`Duration` ile — **float yok** (§6).
@@ -275,6 +286,11 @@ URL biriktirme) görünür kalması buna bağlı.
 - **Eş-zamanlı tap çiftleri** — her gün saniyeler içinde birlikte tap yapan
   kişiler (buddy punching sinyali). Suçlama değil, bakılacak yer.
 - **Çıkışsız açık kayıtlar** ve **çapraz lokasyon tap'leri**.
+  - ⚠️ **`practice = true` kayıtlar "çıkışsız açık kayıt" SAYILMAZ** (eklendi
+    2026-08-01, M5-07 denetimi) — gerekçesi M6-07'nin aynı maddesinde. Deneme
+    tap'i tanım gereği çıkışsızdır; anomali listesine düşerse liste her yeni
+    çalışan için bir kez **yanlış pozitif** üretir ve "rapor yorum yapmaz, veri
+    gösterir" ilkesi tam da burada yorum yapmış olur.
 - **Politika kırılımı**: hangi `sid` kaç kayıt üretti (M3-07 sayesinde makine
   tarafından filtrelenebilir).
 - Rapor **yorum yapmaz**, veri gösterir. "Şüpheli çalışan" etiketi yok.

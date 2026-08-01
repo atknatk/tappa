@@ -89,10 +89,30 @@ func newLimiter(limit int, period time.Duration) *limiter {
 // than chosen for feeling generous.
 const (
 	// floodLimit / floodPeriod: 600 requests in 10 minutes from one address, i.e.
-	// one per second sustained. A venue onboarding fifteen people costs about 45
-	// requests; a curious employee reloading costs a handful. Reaching 600 takes
-	// deliberate automation, which is the only case where refusing everything
-	// from that address is the right answer.
+	// one per second sustained. Reaching 600 takes deliberate automation, which is
+	// the only case where refusing everything from that address is the right
+	// answer.
+	//
+	// WHAT ONE ACTIVATION ACTUALLY COSTS, counted by a middleware in front of the
+	// real router rather than by reading the flow (M5-07). There is NO single
+	// number, because the mini tour can be walked or skipped and both are ordinary:
+	//
+	//	4 requests  the pre-tour shape (M5-02..M5-06): GET /activate?code= ->
+	//	            303 -> GET /activate -> POST /api/activate -> GET /activate/done
+	//	5 requests  first activation, tour SKIPPED (the redirect lands on
+	//	            /activate/tour, the visitor follows the way out)
+	//	7 requests  first activation, tour WALKED (two more slides)
+	//
+	// A second device is the 4-request shape: Submit sends it straight to the
+	// confirmation. So a venue onboarding fifteen people costs 60, 75 or 105
+	// requests depending on how many read the tour — against a ceiling of 600,
+	// i.e. 150, 120 or 85 complete activations per window per address key.
+	//
+	// ⚠️ THIS PARAGRAPH USED TO SAY "about 45 requests" FOR FIFTEEN PEOPLE, and it
+	// was already wrong before the tour existed: 45 implies three requests each,
+	// which never counts the 303 hop from the code-bearing URL to the clean one.
+	// The measured pre-tour figure is 60. A number that nobody re-derives is a
+	// number that drifts, and this one had drifted by a third on its own.
 	//
 	// RE-EVALUATED IN M5-03, as the hand-off required, and DELIBERATELY LEFT AT
 	// 600. The number was already chosen for per-address traffic; what changed is
@@ -104,9 +124,10 @@ const (
 	//     wifi is a legitimate burst, and this is the one budget that can refuse
 	//     a VALID activation. Refusing a real activation to save 480 counter
 	//     increments is a bad trade.
-	//   · HIGHER buys nothing: past ~45 requests a venue is not activating, it is
-	//     scripting, and every failure mode past this ceiling is already bounded
-	//     by the other two budgets.
+	//   · HIGHER buys nothing: 600 already carries a fifteen-person crew reading
+	//     every slide (105 requests) with more than five times the room to spare,
+	//     and every failure mode past this ceiling is already bounded by the other
+	//     two budgets. (This line also said "~45"; same drift, same fix.)
 	// What genuinely improved is not the number but the KEY, and that was the
 	// whole content of the hand-off.
 	floodLimit  = 600

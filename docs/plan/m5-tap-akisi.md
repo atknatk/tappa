@@ -2189,6 +2189,188 @@ sözleşme aşağıdaki kart düzeltmesinde.
   (M4-06 ile tutarlı).
 - Tur atlanabiliyor ama practice bayrağı yine ilk kayda düşüyor.
 
+> **Kart düzeltmesi (2026-08-01, M5-07 uygulaması sırasında).** Dört kriterden
+> **ikisi zaten sağlanıyordu** (ölçüldü, aşağıda), biri kartın yazdığından **dar**
+> çıktı, ve üçüncü slaytın metni §4.6 gereği **yeniden yazıldı**.
+>
+> **1. "İlk tap practice + TRAINING damgası" ZATEN sağlanıyordu** (M4-06 + M5-06).
+> `practice` sunucu türetimli (`isPracticeTap`: `Employee.ActivatedAt` dolu **ve**
+> `LastForPerson == nil` **ve** `LastOpenIn == nil`), `Input`'ta istemci alanı yok
+> (`TestInput_HasNoClientPracticeField` — alan eklendi, test **RED**), damga ve
+> "does not count toward your hours" cümlesi `result.templ`'de pinli. M5-07'nin
+> eklediği: aynı iddianın **HTTP sınırından** denenmesi
+> (`TestTourDB_AClientCannotDeclareOrRefuseThePracticeFlag` — `practice`,
+> `Practice`, `is_practice`, `training`, `practice_tap` alanlarıyla hem **talep**
+> hem **ret** denendi, ikisi de kolonu değiştirmedi; handler yalnız `ctx`,
+> `occurred_at`, `lat`, `lng` okuyor).
+>
+> **2. "Çalışılan saate asla sayılmıyor" — BUGÜN ÖLÇÜLEBİLİR HÂLİ DAHA DAR.**
+> Repoda **hiçbir saat toplamı yok** (ölçüldü: `worked_hours|WorkedHours|SumHours|
+> total_hours` → 0 eşleşme; raporlar M6). Bugün gerçekten uygulanan iki şey var:
+> (a) practice kaydı **yön zincirini açık tutmuyor**, yani hiçbir in/out çiftine
+> giremez; (b) `transactions.practice` değişmez satırda duruyor, yani gelecekteki
+> rapor onu dışlayabilir. Kartın cümlesi doğru ama **gelecek zamanlı**; bugün
+> sınanabilen kısım (a)'dır ve iki kere sınanıyor.
+>
+> **🔴 VE ORADA GERÇEK BİR BOŞLUK VARDI.** Yön zinciri koruması **iki yerde**:
+> `checkin.go` `gather` (`if !open.Practice`) ve `tap/decide.go` `resolveDirection`
+> (`open == nil || open.Practice`). İkisi **aynı gözlemlenebilir sonucu** ürettiği
+> için **birini tek başına silmek tüm suite'i yeşil bırakıyordu** — ölçüldü:
+> `checkin.go` guard'ı silindi + `gather_practice_db_test.go` geri çekildi →
+> **`make test`** (yani `.env` yüklü, gerçek Postgres) → **13 ok / 0 FAIL**.
+> *(Bu satır ilk yazılışında çıplak `go test ./...` diye alıntılanmıştı — tam da
+> `agent-brief.md`'nin "her DB testini sessizce SKIP eder" diye işaretlediği komut.
+> Denetimde yakalandı, `make test` ile yeniden ölçüldü, sayı değişmedi; ve
+> `TestCheckinDB_PracticeThenDirection…` ile `TestTourDB_Skipping…`'in gerçekten
+> PASS olduğu — SKIP değil — ayrıca doğrulandı.)* (Öbür yön
+> zaten kırmızıydı: `decide.go` guard'ı silinince
+> `TestDecide_DirectionPracticeOpenInDoesNotCloseChain` **RED**.) Yani "iki koruma"
+> bir tanesinin sessizce ölmesine açıktı. Kapatıldı:
+> `TestGatherDB_APracticeCheckInIsNeverHandedOnAsAnOpenOne` `gather`'ı gerçek
+> Postgres'e karşı kendi sınırında sürüyor (pozitif kontrollü: practice=false satır
+> **taşınıyor**, practice=true satır **taşınmıyor**); aynı mutasyon artık **RED**.
+>
+> **Ve altında ÜÇÜNCÜ bir eşdeğer mutant vardı** (denetimde bulundu):
+> `checkin.go` `transaction()` içindeki `Practice: t.Practice` → `false` de suite'i
+> **yeşil** bırakıyordu. Eşdeğerdi, çünkü `tap.Transaction.Practice`'in tek
+> tüketicisi `resolveDirection` ve `gather` filtresi ayaktayken o alan üretimde hiç
+> `true` olmuyor. Yani ortada *"iki canlı koruma"* değil, **bir canlı guard + beslemesi
+> pinlenmemiş bir yedek** vardı: `gather` filtresini *"motor zaten koruyor"* diye
+> silen biri, sabit `false` ile beslenen bir guard'a güvenmiş olurdu.
+> `TestTransaction_CarriesThePracticeColumn` beslemeyi pinliyor; aynı mutasyon
+> artık **RED**. Üçü birlikte: her katman kendi sınırında ölçülü.
+>
+> **3. Tur SUNUCU TARAFINDA üç GET'tir; JS yok, istemci state'i yok, YAZMA yok.**
+> `GET /activate/tour?step=1..3`, ilerleme bir **link**. Adım dışı/bozuk değer
+> **1'e kırpılır** (hata ekranı değil). Tur `transactions`, `audit_log` veya çerez
+> **yazmaz** — ölçüldü (`TestTourDB_WritesNothing`: 7 istek boyunca iki sayaç da
+> sabit, ardından **pozitif kontrol** olarak gerçek bir tap sayacı +1 yapıyor).
+> "Atlanabilir" bunun sonucudur: atlamak da bitirmek de aynı linki izlemektir.
+> Turun view modeli **tek alan** taşır (`TourView.Step`) ve **hiçbir kişisel veri**
+> taşımaz — isim, mekân, id, kod hiçbiri (`TestTour_CarriesNoPersonalDataAtAll`,
+> `TestTourView_FieldCountIsTheSpec`).
+>
+> **4. 🔴 ÜÇÜNCÜ SLAYT "SONRAKİ TAP'İN PRACTICE OLACAĞINI" SÖYLEMİYOR — ölçüm
+> öyle demiyor.** `GetLastTransactionForEmployee` **verdict ve kanal yüklemi
+> taşımıyor** ve §4.6 her kararlı tap'i yazıyor, dolayısıyla practice hakkı
+> **herhangi bir önceki kayıtla** harcanır. Ölçüldü
+> (`TestDecide_ThePracticeRunIsSpentByANYPriorRecord`):
+>
+> | Önceki kayıt | Sonraki tap practice mi |
+> |---|---|
+> | hiç yok | **evet** |
+> | `reject` (emekli plaket · geçersiz SUN · deaktif çalışan) | **hayır** |
+> | `ignored` (debounce) | **hayır** |
+> | manuel satır (M6-04, bugün üretilemiyor) | **hayır** |
+>
+> Ayrıca ölçülenler: **ilk tap asla `ignored` olamaz** (debounce'un ölçeceği önceki
+> tap yok → `TestDecide_TheFirstTapCanNeverBeIgnored`); **QR ilk tap'i de practice**
+> (kanal okunmuyor; hem `ok` hem `flag` dalında); **practice + `flag` üretilebilir**
+> ve `result.templ` o bileşimde "before it counts" demiyor.
+>
+> **En zararlı vaka İKİNCİ CİHAZ.** Zaten tap etmiş biri yeni telefon kurduğunda
+> sonraki tap'i practice **değildir**; ona "ilk tap'in deneme" demek, gerçek bir
+> giriş kaydını deneme sanmasına ve günü yanlış kapatmasına yol açardı. Çözüm
+> `Submit`'te: **ilk aktivasyon → `/activate/tour`**, **ikinci cihaz →
+> `/activate/done?replaced=1`** (bugünkü davranışın aynısı). Gerekçe ölçülebilir:
+> `SecondDeviceReplaced` tam olarak `employees.status` zaten `'active'` iken
+> doğrudur, ve hiç aktive olmamış biri hiç oturum tutmamıştır → hiç tap etmemiştir.
+> Uçtan uca kanıt: `TestTourDB_ASecondDeviceIsNotShownThePractisePromise`.
+> Slaytın metni yine de **"ilk tap"** hakkında konuşuyor, "sıradaki tap" hakkında
+> değil — turu elle açan ikinci cihaz kullanıcısı için de doğru kalsın diye.
+>
+> **5. Kapsam kararı: tur M5-06'nın ÜÇ beyaz listesine EKLENDİ** (kartın dışında
+> bırakılmadı), **ve bir DÖRDÜNCÜ liste yazılması gerekti.** M5-06 o mekanizmanın
+> sınırını *"kapsam ekran başına ve elle"* diye yazmıştı; tur o günden beri eklenen
+> ilk ekran, ve liste genişletildi: metin (`TestTour_SaysExactlyThisAndNothingElse`,
+> `screenText` ile tüm belge), eleman (`TestTour_RendersOnlyTheseElements`,
+> **13** etiketlik kapalı küme) ve referans (`TestTour_PointsOnlyAtItsOwnFlow`,
+> adım başına birebir href **değer** kümesi). Mutasyonla: eklenen cümle **RED**,
+> eklenen `<iframe srcdoc>` **RED** (metin testi görmüyor — `srcdoc` `textAttrRE`'de
+> yok, kapalı küme yakalıyor), `https://evil.example/x` **RED**.
+>
+> **Ve `ping` de açıktaydı** (ikinci denetimde bulundu, bloklamayan).
+> `<a href="/activate/done" ping="https://evil.example/beacon">` üretilen slayta
+> ulaşıyor ve **tüm handler paketi yeşil** kalıyordu: `assertRefs` yalnız `href`,
+> `src` ve `meta http-equiv` okuyordu, `ping` ise hiçbir şeyin *fetch etmediği* ama
+> tarayıcının tıklamada **POST attığı** bir öznitelik — yani markanın *"mutlak URL
+> sayısı 0"* kuralının tam ihlali. `refRE`'ye `ping` eklendi; repoda hiçbir şablonda
+> `ping` geçmediği için mevcut hiçbir beklenti kımıldamadı (ölçüldü). Mutasyon iki
+> yerde **RED**: tur slaytında ve **ortak `Problem` şablonunda** (on bir ekran).
+> `TestTour_PointsOnlyAtItsOwnFlow`'un *"her slaytın yaydığı adres kümesini
+> pinler"* cümlesi de **öznitelik adlarını sayacak** şekilde indirildi — liste hâlâ
+> bir liste, ve bunu artık yorumun kendisi söylüyor.
+>
+> **🔴 ÜÇÜ BİRDEN YETMEDİ — DOKUNMA HEDEFİ SAYISI AÇIKTA KALMIŞTI** (denetimde
+> bulundu, **bloklayan**). `assertRefs` href **değerlerini** karşılaştırıyor,
+> **kaçını** değil. Slayt 2'ye eklenen
+> `<a href="/activate/done" class="tap-button …"></a>` — **boş etiketli** ikinci bir
+> dokunma hedefi — tüm paketi **yeşil** bıraktı: metin pini metin düğümü görmüyor,
+> eleman kümesi `a`'ya zaten izin veriyor, referans kümesinde o adres zaten var.
+> §9'un *"bu ekranlarda ikinci aksiyon olmaz"* kuralı tam olarak buna bakıyordu.
+> `TestTour_HasExactlyTheseTouchTargets` eklendi: adım başına **sıralı
+> (hedef → etiket)** listesi + izinsiz `on…=` özniteliği reddi. Beş mutasyon,
+> beşi **RED**: boş anchor · etiketli fazladan anchor · silinen skip linki
+> (**4 test** kırılıyor) · yeniden adlandırılan anchor · izinli elemana konan
+> `onclick`.
+> *(Aynı yorumda ikinci bir hata daha vardı: "üç slayt, iki link" — slayt 3'te bir
+> link var, toplam **beş** anchor. Cümle geri çekildi ve düzeltildi.)*
+>
+> **SINIRLAR — garanti değil, sayıldı:**
+> (i) tur `Activation.render`'dan geçtiği için **CSP taşımıyor**, ve bu boşluk
+> M5-06'nın yazdığından **geniş**: `Activation.render` **hiçbir** yanıta CSP
+> koymuyor (ölçüldü: fonksiyon gövdesinde `Content-Security-Policy` sayısı **0**),
+> yani beş hata ekranı **değil**, `Activate` · `Confirm` · `Done` · **`Tour`** +
+> beş `problem*` sabiti = **dokuz** ekran. Karşılaştırma: `Tap.render` yazdığı
+> **her** yanıta koyuyor.
+> (ii) dokunma hedefleri: `tap-button` 64px (`min-h-16`), skip linki 44px
+> (`min-h-11` → derlenmiş CSS'te `min-height:2.75rem`) — ama **hiçbir test piksel
+> ölçmüyor**, ve `TestTour_HasExactlyTheseTouchTargets` **markup** okuyor: yalnız
+> stille basılabilir hâle getirilmiş bir alanı (dev bir `::after`) göremez.
+> (iii) `screenText`'in bilinen açık kanalları (CSS `content:`, `meta description`,
+> yanıt başlıkları) turda da açık — tur onları kapatmıyor, aynı listelere giriyor.
+> (iv) slayt 1 *"telefonun bu sayfayı açar"* diyor, oysa iPhone X ve öncesi arka
+> planda NFC okuyamaz (M5-08) — bu yüzden slayt *"telefonun tepki vermezse
+> müdürüne söyle"* ile bitiyor; QR'dan söz **etmiyor**, çünkü kanal henüz yok.
+> (v) **slayt 3'ün ilk cümlesi koşulsuz:** *"your first tap is a practice run."*
+> İlk tap `reject` olursa o tap ne practice olur ne TRAINING damgası alır. Hata
+> yönü **güvenli** (reject de saate girmez, yani kimseye "sayılmadı" denip
+> sayılmıyor) ve slayt *"Whatever a tap turns out to be, the screen right after it
+> says so"* ile kapanıyor — yani çalışan her hâlükârda doğru bilgiyi onay
+> ekranından alıyor. Koşullandırmak render anında bir DB okuması gerektirirdi;
+> **sınır olarak yazıldı**, kapatılmadı.
+> (vi) **Oran sınırı:** tur, bir aktivasyonun IP başına harcadığı istek sayısını
+> **4 → 5** (atlayan) / **4 → 7** (tam tur) yapıyor — ölçüldü, sayılarak değil,
+> istekleri sayan bir sarmalayıcıyla. `floodLimit=600`/10 dk demek: aynı IP
+> anahtarından 10 dakikada **150 → 120 / 85** tam aktivasyon. Gerçek onboarding
+> hızının çok üstünde (bir mekân bir seferde onlarca çalışan aktive eder), ama
+> **tek NAT arkasındaki tavan bu kadar düştü** ve yazılı olması gerekiyordu.
+> `ratelimit.go`'nun yorumu da düzeltildi: *"onbeş kişi ≈ **45** istek"* diyordu ve
+> **turdan önce de yanlıştı** (üç istek/aktivasyon varsayıyor, kod taşıyan URL'den
+> temiz URL'e giden 303 hop'unu hiç saymıyor; ölçülen HEAD değeri **60**). Artık
+> tek sayı değil, üç şeklin tablosu yazılı: **4 / 5 / 7** istek → onbeş kişi için
+> **60 / 75 / 105**. Tur atlanabilir olduğu için tek bir sayı zaten yanlış olurdu.
+>
+> **İleri kartlar da kapatıldı** (denetim bulgusu, kod değişikliği yok):
+> [m6-dashboard.md](m6-dashboard.md) M6-07 *"açık kalan giriş"* ve M6-11
+> *"çıkışsız açık kayıtlar"* kriterleri practice istisnasını **saymıyordu**, oysa
+> aynı kartın **saat** kriteri sayıyor. Practice bir `type='in'` satırıdır ve
+> ardından hiç `out` gelmez → SQL anlamında sonsuza dek "açık" görünür. Bugünkü
+> etkisi sıfır (rapor yok), ama M6'da **her yeni çalışanın deneme tap'i müdürün
+> "eylem gerekiyor" kuyruğunda** belirirdi — yani turun *"deneme"* vaadi anomali
+> olarak okunurdu. İki kritere de tarihli not eklendi.
+>
+> **Tailwind:** yeni tek seçici `.min-h-11` (+29 bayt, 14.283 → 14.312) ve o sınıf
+> gerçek bir `class` özniteliğinde geçiyor (`activate.templ`, `tourSkip`).
+> Düzyazıdan doğan **sıfır** yeni ölü kural (taze build'in seçici kümesi HEAD'inkiyle
+> bu tek satır dışında birebir).
+>
+> **Kapsam dışı, tek satır, bilinçli:** `internal/policy/document.go`'da
+> `EffectIgnore` yorumu *"debounce — no record"* diyordu ve bu **yanlış**;
+> `checkin.go` yalnız `EffectRedirect`'te yazmayı atlıyor, `ignored` **satır
+> yazıyor** (gerçek Postgres'te ölçülü, `checkin_db_test.go` §5 satır 5). Bu diff'e
+> ait değildi ama §4.6 hakkında çelişik bir cümleydi; düzeltildi.
+
 ---
 
 ## M5-08 — QR kanalı

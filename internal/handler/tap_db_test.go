@@ -57,7 +57,12 @@ const (
 )
 
 type tapHarness struct {
-	router     http.Handler
+	router http.Handler
+	// cfg is kept so a test can build a SECOND handler on the same fixture with
+	// the same keys — tour_db_test.go mounts the activation flow beside the tap
+	// flow, which is the only way to drive "activate, then tap" through one
+	// router.
+	cfg        *config.Config
 	tap        *Tap
 	checkins   *checkin.Service
 	trail      *audit.Recorder
@@ -143,7 +148,7 @@ func newTapHarness(t *testing.T) *tapHarness {
 	tp.Mount(r)
 
 	h := &tapHarness{
-		router: r, tap: tp, checkins: checkins, trail: trail, data: data, cookies: session.NewCookies(cfg), sessions: sessions,
+		router: r, cfg: cfg, tap: tp, checkins: checkins, trail: trail, data: data, cookies: session.NewCookies(cfg), sessions: sessions,
 		tenantID: uuid.New(), locationID: uuid.New(), employeeID: uuid.New(),
 		startCtr: 700,
 	}

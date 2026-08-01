@@ -64,11 +64,18 @@ type Condition map[Operator]map[ContextKey]any
 type Effect string
 
 const (
-	EffectAllow    Effect = "allow"    // ok — counts toward hours
-	EffectReview   Effect = "review"   // flag — record written, goes to approval queue (§4.6)
-	EffectDeny     Effect = "deny"     // reject
-	EffectIgnore   Effect = "ignore"   // debounce — no record; GUARDRAIL-ONLY (ADR 0004 §6)
-	EffectRedirect Effect = "redirect" // activation page — no record; GUARDRAIL-ONLY (ADR 0004 §6)
+	EffectAllow  Effect = "allow"  // ok — counts toward hours
+	EffectReview Effect = "review" // flag — record written, goes to approval queue (§4.6)
+	EffectDeny   Effect = "deny"   // reject
+	// 🔴 ignore IS RECORDED. An earlier version of this line said "no record", which
+	// is false and is a §4.6 claim to get wrong: checkin.Service.Record skips the
+	// write for EffectRedirect ALONE, so a debounced duplicate lands in
+	// `transactions` with verdict='ignored' and no direction — measured against
+	// real Postgres in internal/handler (TestCheckinDB_… row 5: the row count goes
+	// up by one). What "ignore" means is that the tap does not COUNT, not that it
+	// leaves no trace; the trace is the whole point (§4.6).
+	EffectIgnore   Effect = "ignore"   // debounce — recorded, counts toward nothing; GUARDRAIL-ONLY (ADR 0004 §6)
+	EffectRedirect Effect = "redirect" // activation page — the one effect that writes NO record; GUARDRAIL-ONLY (ADR 0004 §6)
 )
 
 var validEffects = map[Effect]bool{
