@@ -246,13 +246,20 @@ func (t *Tap) renderCheckinFailure(w http.ResponseWriter, r *http.Request, id ht
 // (§6: UTC everywhere below, local only where a human reads it). An unknown or
 // missing zone falls back to UTC and says so, rather than silently showing a time
 // that is an hour out.
+//
+// BusinessType is copied for ONE purpose and is never printed: result.templ
+// switches on it to pick which fixed brand sentence a good tap ends with (M5-06).
+// It is a CATEGORY out of migration 00001's CHECK list, shared by every tenant of
+// that kind, so copying it does not widen what this screen can disclose — the
+// view model still has no field for an id, a token, a key or a coordinate.
 func resultView(res checkin.Result) pages.ResultView {
 	v := pages.ResultView{
-		Verdict: string(res.Decision.Verdict),
-		Note:    res.Decision.Note,
-		Venue:   res.LocationName,
-		At:      localClock(res.OccurredAt, res.Timezone),
-		Trust:   res.Decision.Trust,
+		Verdict:      string(res.Decision.Verdict),
+		Note:         res.Decision.Note,
+		Venue:        res.LocationName,
+		At:           localClock(res.OccurredAt, res.Timezone),
+		Trust:        res.Decision.Trust,
+		BusinessType: res.BusinessType,
 	}
 	if res.Decision.Type != nil {
 		v.Direction = string(*res.Decision.Type)

@@ -146,24 +146,89 @@ type ProblemView struct {
 	// Hint is the "what do I do now" line — the brand's rule that an error
 	// message never blames and always says what to do next.
 	Hint string
+
+	// RetryURL turns the Hint into a link labelled "Try again" (M5-06). EMPTY IS
+	// THE DEFAULT AND THE COMMON CASE, and that is the honest shape rather than a
+	// missing feature.
+	//
+	// 🔴 A RETRY THAT CANNOT WORK IS A LIE, and on this flow most retries cannot.
+	// Nothing on a screen can produce an attendance record — the next one needs a
+	// new physical touch of the plaque (§9) — so a "Try again" here can only mean
+	// "fetch this page again", and that is useful in exactly one situation: the
+	// failure was TRANSIENT and the page it would re-fetch is a GET that writes
+	// nothing. A malformed URL re-fetches to the same error; an unknown plaque
+	// re-fetches to the same 404; a rate-limited request re-fetches into the very
+	// budget it is being asked to stop spending; and a POST failure has no address
+	// to offer at all, because the tap context is single-use and the chip's URL is
+	// not in the request. Those screens say what to DO instead ("Ask your manager
+	// for the new plaque"), which is the brand's rule for an error message anyway.
+	//
+	// It is a LINK and never a form: an anchor cannot resubmit a POST, so no
+	// FAILURE screen in this package can produce a second `transactions` row. The
+	// qualifier matters and was missing here while activate.templ carried it —
+	// pages.Tap is in this package and renders exactly such a form
+	// (<form method="post" action="/api/checkin"> and the one button), which is
+	// the whole point of that screen.
+	//
+	// 🔴 IT DOES CARRY REQUEST BYTES, AND SAYING OTHERWISE WAS WRONG. An earlier
+	// version of this comment claimed the value is "never taken from a parameter —
+	// nothing builds it from user input". The handler sets it to
+	// r.URL.RequestURI(), which is EscapedPath() + "?" + RawQuery, and RawQuery is
+	// the request line verbatim; internal/sun's parser ignores parameters it does
+	// not know, so /t?tag=<14 hex>&anything=… reaches this screen and "anything"
+	// is reflected into the href. MEASURED: a raw `"><script>alert(1)</script>` in
+	// the query arrives in RequestURI() unchanged.
+	//
+	// TWO MECHANISMS MAKE THAT SAFE, and they are named because a guarantee with
+	// no named mechanism is a wish:
+	//
+	//  1. THE PATH IS PINNED BY ROUTING. Only chi's /t route reaches the handler
+	//     that sets this, so EscapedPath() is /t. Measured: `//t`, `//evil.com/t`
+	//     and `/%2Ft` all answer 404 without ever entering the handler, and an
+	//     absolute-form request line (GET http://evil.com/t?…) yields a
+	//     RequestURI() of /t?… with the host dropped. The link therefore cannot be
+	//     re-pointed at another origin.
+	//  2. TEMPL ESCAPES THE ATTRIBUTE. The value goes through templ.EscapeString,
+	//     so the probe above renders as
+	//     &#34;&gt;&lt;script&gt;alert(1)&lt;/script&gt; — inside the quotes,
+	//     inert. What it is NOT protected by is templ.URL's scheme filter: see
+	//     the note beside the anchor in activate.templ for what that check does
+	//     and does not do.
+	RetryURL string
 }
 
 // ResultView is the screen a tap lands on: what was recorded, and nothing else.
 //
-// ⚠️ THIS IS THE INTERIM CONFIRMATION SCREEN. M5-05 has to answer the POST with
-// SOMETHING — the form is a plain browser navigation, so "the endpoint returns a
-// decision" means "a page appears" — and M5-06 owns the finished article: the
-// tenant's own message ("Have a great shift — keep those kebabs rolling!"), the
-// full docket treatment and the copy review. What is here is the part M5-05
-// cannot avoid deciding: which stamp, whether there is a button, and the fact
-// that a time is shown in mono. The brand rules it does follow are the ones a
-// later change must not undo, not a claim that the screen is finished.
+// FINISHED AS OF M5-06, and "finished" is a claim about a specific list rather
+// than a feeling: the stamp and its fixed colour, the sentence, the wall clock in
+// mono, the tenant-kind brand line after a good tap, and NO BUTTON. What M5-06
+// did NOT do is make that brand line editable from a panel — the copy is fixed in
+// result.templ and keyed on the tenant's business TYPE, so two restaurants share
+// one sentence. Per-tenant copy needs a column that does not exist yet and is
+// M9-04's work; it is a limit, not a gap left unnoticed.
+//
+// EIGHT FIELDS, AND THE LIST IS THE SPEC — the same rule TapView carries. There
+// is no history, no shift total, no "you are currently clocked in", no settings
+// and no second action, because a view model with a field cannot help rendering
+// it. Adding one is adding a feature to the screen CLAUDE.md §9 calls sacred, and
+// the rule there is to ask first.
+//
+// ⚠️ THE COUNT IS ENFORCED, NOT ASSERTED. A number in a comment only catches a
+// smuggled field if somebody re-counts, and this one was WRONG within a single
+// task: it said seven while the struct carried eight (BusinessType had been
+// added). TestResultView_FieldCountIsTheSpec reflects over the type and fails on
+// any change to the count, so the tripwire is a test and this sentence is only
+// its explanation. Changing the number is fine — changing it without the
+// conversation §9 asks for is not.
 //
 // NO §4.7 VALUE CAN TRAVEL HERE, and that is a property of the field list rather
 // than of this comment: there is no field for a session token, a CMAC, a key, an
 // invite code or a COORDINATE. The tap's position reaches the database as a
 // number in two columns and reaches this screen not at all — what a person sees
-// is a verdict, a venue name and a clock.
+// is a verdict, a venue name and a clock. BusinessType, added by M5-06, does not
+// change that: it is one of eight CHECK-constrained CATEGORIES (migration 00001),
+// shared by every tenant of that kind, so it identifies nobody — and it is not
+// rendered at all, it only chooses between sentences written in the template.
 type ResultView struct {
 	// Verdict is the recorded outcome: ok | flag | reject | ignored. It drives
 	// both the stamp text and the colour, and the two are never separated —
@@ -187,53 +252,83 @@ type ResultView struct {
 	Note string
 	// Practice marks the training tap that never counts toward hours (§5).
 	Practice bool
+	// BusinessType is the tenant's category ('restaurant', 'production', … —
+	// migration 00001's CHECK list), and it exists to pick ONE SENTENCE: the brand
+	// line a good tap ends with. It is never printed: result.templ switches on it
+	// and renders a literal, so an unknown or empty value falls to the neutral
+	// wording rather than to a blank space or to a made-up trade.
+	BusinessType string
 }
 
-// Recorded reports whether this outcome put an hour on the record — the question
-// that decides whether the screen offers a "Try again" button. ok and flag both
-// did (a flag is a real record awaiting approval, §4.6); reject and ignored did
-// not put an hour anywhere, but they ARE recorded, so the screen still does not
-// invite a retry — pressing again would produce the same answer, and the tap
-// screen's rule is that the next action is a new physical touch.
-func (v ResultView) Recorded() bool { return v.Verdict == "ok" || v.Verdict == "flag" }
+// NOTE — THERE IS NO Recorded() HERE ANY MORE. It answered "did this put an hour
+// on the record" with one bool for a screen that needs four different sentences
+// (a flag is recorded AND awaiting a manager, §4.6; an ignored duplicate is
+// recorded and counted nowhere; a reject is recorded and refused), and a bool
+// that collapses those into two was how "All done" ended up over a FLAGGED tap.
+// The copy now branches on the verdict itself, once, inside result.templ.
 
-// Stamp is the rubber-stamp text. It is the accessibility half of the status:
-// the colour says the same thing, and neither is allowed to say it alone.
-func (v ResultView) Stamp() string {
-	switch v.Verdict {
-	case "ok":
-		return "APPROVED"
-	case "flag":
-		return "FLAGGED"
-	case "reject":
-		return "REJECTED"
-	case "ignored":
-		return "IGNORED"
-	default:
-		return "RECORDED"
-	}
-}
-
-// NOTE — THERE IS NO StampClass HERE ANY MORE, and its absence is deliberate.
-// It returned "stamp stamp--approved" and friends from Go, and Tailwind does not
-// scan Go files (content globs: web/templates/**/*.templ, web/static/js/**/*.js),
-// so those four classes were compiled OUT of app.css and every stamp rendered
-// unstyled. The class names now live as literals inside result.templ's `stamp`
-// component, where the tool can see them. Anything that maps a value to a CSS
-// class belongs in a scanned template for the same reason.
+// NOTE — THERE IS NEITHER StampClass NOR Stamp() HERE, and both absences are
+// deliberate.
+//
+// StampClass returned "stamp stamp--approved" and friends from Go, and Tailwind
+// does not scan Go files (content globs: web/templates/**/*.templ,
+// web/static/js/**/*.js), so those four classes were compiled OUT of app.css and
+// every stamp rendered unstyled. The class names now live as literals inside
+// result.templ's `stamp` component, where the tool can see them. Anything that
+// maps a value to a CSS class belongs in a scanned template for the same reason.
+//
+// Stamp() returned the WORD ("APPROVED"…) and was removed by M5-06 for the
+// neighbouring reason: the template has to write the word as a literal anyway,
+// next to the class it belongs with, so a Go copy was a second source of truth
+// that nothing consulted — and a second source of truth for a thing that must
+// agree is how "the class says reject, the word says approved" becomes possible.
+// If a caller outside a template ever needs the word, it should read it from the
+// same switch the screen renders, not from a copy.
 
 // Headline is the one sentence the screen exists to say. Short, warm, factual —
 // "Tapped in at 14:03", never "Your check-in operation has been processed".
+//
+// 🔴 IT IS THE BIGGEST TEXT ON THE PAGE, SO IT IS ALSO THE EASIEST PLACE TO DENY
+// A RECORD. For `reject` it used to read "Not recorded", four lines above a
+// closing sentence that said "This tap WAS recorded but not counted" — the page
+// contradicted itself, and the headline was the half that was false. Measured
+// rather than argued: internal/domain/checkin returns an ERROR when the insert
+// fails and only builds OutcomeRecorded after it succeeds, so a rendered Result
+// page for a reject is proof a `transactions` row exists (that service's write()
+// says the same from its side: "a reject is the outcome the record matters MOST
+// for, because it is the one somebody will dispute").
+//
+// That is not a cosmetic slip. §5 rows 1, 2 and 4 — a retired or lost plaque, an
+// invalid SUN or a replay, a deactivated account — are all `reject`, and §4.6's
+// entire promise to the person standing there is that the attempt left a record
+// they can dispute. A headline telling them there is nothing to dispute is the
+// promise being withdrawn in the largest type on the screen.
+//
+// SO THE SWITCH IS ON THE VERDICT FIRST, and a direction is only spoken for the
+// two verdicts that HAVE one. It used to fall through to "Tapped in" for any
+// verdict this file did not recognise, which read as a counted tap under a
+// RECORDED stamp; an unknown verdict now gets the neutral word, which claims
+// neither that the hours counted nor that the record is missing.
 func (v ResultView) Headline() string {
-	switch {
-	case v.Verdict == "ignored":
+	switch v.Verdict {
+	case "ok", "flag":
+		switch v.Direction {
+		case "in":
+			return "Tapped in"
+		case "out":
+			return "Tapped out"
+		default:
+			return "Tapped"
+		}
+	case "ignored":
+		// Says a tap happened a moment ago, which is exactly what the debounce
+		// established, and says NOTHING about what became of it (see the ignored
+		// branch in result.templ for why that distinction is load-bearing).
 		return "Already tapped"
-	case v.Verdict == "reject":
-		return "Not recorded"
-	case v.Direction == "in":
-		return "Tapped in"
-	case v.Direction == "out":
-		return "Tapped out"
+	case "reject":
+		// "Not counted", never "Not recorded". The hours are what was refused; the
+		// record exists and is the point.
+		return "Not counted"
 	default:
 		return "Tapped"
 	}

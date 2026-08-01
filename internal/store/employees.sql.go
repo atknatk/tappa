@@ -95,7 +95,7 @@ func (q *Queries) GetEmployeeActivationContext(ctx context.Context, arg GetEmplo
 
 const getEmployeeForTap = `-- name: GetEmployeeForTap :one
 SELECT e.status, e.location_id, e.department_id, e.activated_at,
-       t.timezone AS tenant_timezone
+       t.timezone AS tenant_timezone, t.business_type AS tenant_business_type
 FROM employees e
 JOIN tenants t ON t.id = e.tenant_id
 WHERE e.tenant_id = $1
@@ -108,11 +108,12 @@ type GetEmployeeForTapParams struct {
 }
 
 type GetEmployeeForTapRow struct {
-	Status         string
-	LocationID     uuid.UUID
-	DepartmentID   *uuid.UUID
-	ActivatedAt    *time.Time
-	TenantTimezone string
+	Status             string
+	LocationID         uuid.UUID
+	DepartmentID       *uuid.UUID
+	ActivatedAt        *time.Time
+	TenantTimezone     string
+	TenantBusinessType string
 }
 
 // Everything the DECISION engine needs to know about the person tapping
@@ -145,8 +146,29 @@ type GetEmployeeForTapRow struct {
 //     query above joins the tenant name: one round trip, one
 //     place to remember the tenant filter.
 //
-// NOT RETURNED: full_name, email, role, invited_at, deactivated_at. A decision
-// never reads a name, and a record that cannot hold one cannot leak one.
+// TWO OF THE COLUMNS ALSO REACH THE RENDER LAYER, and that is stated rather than
+// left to be discovered, because an earlier version of this block described the
+// query as feeding tap.Input and nothing else:
+//   - timezone       is BOTH a decision input (above) and what turns the stored
+//     UTC instant into the wall clock on the confirmation screen.
+//   - business_type  is RENDER ONLY (M5-06). Nothing in tap.Input carries it and
+//     no rule reads it; it selects which of the fixed brand
+//     sentences the confirmation screen ends with ("Have a great
+//     shift - keep those kebabs rolling!" for a restaurant, the
+//     factory-floor wording for production, a neutral one for
+//     every other type). It is a CATEGORY, not an identity: the
+//     column is a CHECK-constrained enum of eight generic values
+//     (00001), so no tenant name, id or other tenant's data
+//     travels with it. Per-TENANT editable copy is M9-04's job and
+//     needs a column that does not exist yet -- until then two
+//     restaurants get the same sentence, which is a known limit
+//     and not a bug in this query.
+//
+// NOT RETURNED: full_name, email, role, invited_at, deactivated_at. A DECISION
+// never reads a name, and a record that cannot hold one cannot leak one. That
+// claim is about the four columns above, not about the whole result set: the two
+// presentation columns exist precisely because the screen that follows the
+// decision has to say something, and neither of them is a name.
 func (q *Queries) GetEmployeeForTap(ctx context.Context, arg GetEmployeeForTapParams) (GetEmployeeForTapRow, error) {
 	row := q.db.QueryRow(ctx, getEmployeeForTap, arg.TenantID, arg.EmployeeID)
 	var i GetEmployeeForTapRow
@@ -156,6 +178,7 @@ func (q *Queries) GetEmployeeForTap(ctx context.Context, arg GetEmployeeForTapPa
 		&i.DepartmentID,
 		&i.ActivatedAt,
 		&i.TenantTimezone,
+		&i.TenantBusinessType,
 	)
 	return i, err
 }

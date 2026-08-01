@@ -1790,6 +1790,263 @@ sözleşme aşağıdaki kart düzeltmesinde.
 - "Bir de şunu ekleyelim" baskısına direnç: bu ekran ürünün en sade parçası ve
   öyle kalmalı. Değişiklik önerisi → önce sor.
 
+> **Kart düzeltmesi (2026-07-31, M5-06 uygulaması sırasında).** Üç kriter
+> ölçüldükten sonra daraltıldı ya da netleştirildi; üçü de kartın *ruhunu*
+> koruyor ama *lafzını* değiştiriyor.
+>
+> **1. "Başarısızda Try again var" → ALTI ekrandan YALNIZ BİRİNDE buton var.**
+> §9'un asıl kuralı hiçbir ekranın ikinci bir mesai kaydı üretememesidir; bu
+> yüzden bu akışta "Try again"in tek dürüst anlamı *"bu sayfayı yeniden getir"*
+> ve o da yalnız hata GEÇİCİ ise ve yeniden getirilecek adres **hiçbir şey
+> yazmayan bir GET** ise işe yarar. Ölçülen tablo:
+>
+> | Ekran | Nereden | Affordance | Hedef URL | Kayıt üretir mi | `last_ctr` ilerletir mi |
+> |---|---|---|---|---|---|
+> | `tapProblemServer` | **GET `/t`** — **5 daldan 3'ü** (identity-unresolved · sun pre-check · directory) | **link: "Try again"** | isteğin kendi URI'si (`/t?tag=…&ctr=…&cmac=…`) | **hayır** | **hayır** |
+> | `tapProblemServer` | GET `/t` — `mint` ve unknown-session-state dalları | talimat | — | hayır | hayır |
+> | `tapProblemServer` | POST | talimat | — (verilecek adres yok) | hayır | *zaten harcanmış olabilir* (devir md.2) |
+> | `tapProblemBadURL` | GET + POST | talimat | — | hayır | hayır |
+> | `tapProblemUnknownTag` | GET + POST | talimat | — | hayır (POST'ta audit satırı) | hayır |
+> | `tapProblemTooMany` | middleware | talimat | — | hayır | hayır |
+> | `tapProblemStale` | POST | talimat | — | hayır | hayır |
+> | `tapProblemForeignTenant` | POST | talimat | — | hayır | hayır |
+>
+> Gerekçeler: bozuk URL yeniden getirilince **aynı** hatayı verir · bilinmeyen
+> plaket bilinmeyen kalır · 429'a buton koymak, sayfanın *durmasını istediği*
+> bütçeyi harcatır · POST tarafında verilecek adres **yoktur** (tap bağlamı tek
+> kullanımlık, çipin SUN URL'i istekte yok). Buton konmayan yerde ekran **ne
+> yapılacağını** söylüyor (marka kuralı). Affordance `<a>`'dır, `<form>`/`<button>`
+> değil — bir link POST gövdesini yeniden gönderemez, yani bu paketteki hiçbir
+> hata ekranı ikinci bir `transactions` satırı üretemez. GET `/t`'nin hiçbir şey
+> yazmadığı ve sayacı ilerletmediği zaten `TestTapDB_PageNeverMovesTheCounter`
+> ile gerçek Postgres'e karşı (pozitif kontrollü) ölçülü.
+>
+> **2. Tenant'a özel mesaj bugün TENANT'a değil, `tenants.business_type`'a
+> bağlı.** Şemada tenant başına düzenlenebilir metin sütunu yok ve M5-06 yeni
+> migration açmıyor; seed UUID'si üretim koduna girmez. Sonuç: `restaurant` → KF
+> metinleri, `production` → KM metinleri, **diğer altı tip + boş değer → nötr bir
+> varsayılan** (sessizlik de yok, uydurma sektör jargonu da yok). **Bilinen sınır:**
+> ikinci bir restoran tenant'ı KF'in cümlesini görür. Tenant başına metin **M9-04**.
+>
+> **3. Kartta yazmayan metin kararları** (hepsi §4.6'dan çıkıyor, teslimde ayrıca
+> bildirildi): (a) `flag` ekranı artık *"All done"* **demiyor** — kayıt alındı ama
+> müdür onaylayana kadar saymıyor, ve bu çalışana söyleniyor; ekran yine
+> **butonsuz**. (b) Marka mesajı yalnız `ok`'ta ve **practice olmayan** tap'te
+> çıkıyor: eğitim tap'i vardiya başlangıcı değil. (c) `practice && flag`
+> bileşiminde `flag` cümlesinden *"before it counts"* **çıkarıldı** — practice
+> zaten hiçbir koşulda saate girmiyor, onay bunu değiştirmiyor; iki cümle
+> birbirini yalanlamasın.
+>
+> **4. `ignored` ekranı ÖNCEKİ tap hakkında hiçbir şey iddia etmiyor** (kırmızı
+> çizgi denetiminde bulundu, 2. turda düzeltildi, 3. turda **sertleştirildi**).
+> İlk sürüm *"Your earlier tap stands."* diyordu; bu **yanlış**, çünkü debounce
+> **verdict'ten VE KANALDAN bağımsız**: `GetLastTransactionForEmployee`'de ne verdict
+> ne de `channel` yüklemi var
+> → `SecondsSincePersonLastTap` koşulsuz doluyor → `sys:person-debounce` yalnız
+> gap'e bakıyor. Yani `ignored`'ın öncülü onay kuyruğunda bekleyen bir `flag` ya da
+> bir `reject` olabilir; ekran "kaydedildi" demiş oluyordu. **Sonuç: `flag`'den
+> silinen sessiz onay kusuru `ignored`'a taşınmıştı.** İkinci turda *"not counted
+> **again**"* yazılmıştı — "again" da bir **önvarsayım** taşıyor (önceden bir
+> sayma olduğunu ima ediyor), o da kaldırıldı. `ResultView`'a öncül verdict'i
+> **taşınmadı** (§9).
+>
+> Kanal yüklemi de olmadığı için §5'in `channel='manual'` satırı (müdürün elle
+> girdiği kayıt) pencereye düşerse ekran *"You tapped a moment ago"* der, oysa kişi
+> tap etmemiştir. Bugün üretilemiyor (manuel giriş M6-04), ama cümle eksikti.
+>
+> **Koruma biçimi iki kez değişti; bağlayıcı olan üçüncüsü.** (a) 2. turun "yasak
+> ifade listesi" testi ölçümle yetersiz çıktı — *"…**and that one is safely logged**,
+> …"* mutasyonu **suite'i yeşil bıraktı**; bir *anlamın* yokluğu kara listeyle
+> kanıtlanamaz. (b) 3. turun bayt-golden'ı da yetersiz çıktı, ama başka sebepten:
+> **elde kurulmuştu ve `Note` boş bir gövdeyi pinliyordu.** Oysa `Decision.Note`
+> her zaman dolu (kararı veren kuralın `Reason`'ı; her guardrail/baseline ve
+> no-match fallback bir tane taşıyor) — ölçüldü: gerçek `ignored` `<main>` **1061
+> bayt**, golden **971 bayt**, aradaki fark tam da Note paragrafı; oraya gizlenen
+> bir cümle testi geçti. (c) 4. turun `<main>`-kapsamlı **metin** karşılaştırması da
+> **dar** çıktı: denetçi aynı cümleyi `<main>` DIŞINA (ortak kabuk), **öznitelik
+> içine** (`title`, `aria-label`), sayfa `<title>`'ına ve **CSS `content:`**'ine
+> koydu — **beşi de yeşil kaldı**. (d) **Bağlayıcı olan:** karşılaştırma artık
+> **tüm belgenin** metin düğümleri (`<title>` + `<body>`) **artı** insanın
+> algıladığı özniteliklerin değerleri — liste `textAttrRE`'de yazılı ve
+> **`value` ile `aria-roledescription` dâhil**: ikisi de ilk sürümde eksikti ve
+> denetçi ikisinden de aynı §4.6 cümlesini geri soktu (`value` "makineye dönük"
+> diye dışlanmıştı; oysa `readonly` bir `<input>` onu ekrana basar). **Liste bir
+> yarış olduğu için tek katman değil** — ve ikinci katman bir kez **yeniden
+> kuruldu**. Önce kara listeydi (`<input>/<textarea>/<select>/<button>/<form>`) ve
+> *"özniteliği gösteren elemanın kendisi kalkıyor"* diye tarif edilmişti; bu
+> **yanlıştı**: denetçi `<iframe srcdoc>`, `<object data="data:text/html,…">` ve
+> `<img src="data:image/svg+xml,…<text>…">` ile aynı cümleyi üç kez geri soktu,
+> dördüncüsünde de kartın **YALAN** olarak belgelediği *"Nothing was recorded and
+> nothing was logged"* cümlesini **ortak `Problem` şablonuna** koydu (on bir
+> ekranın hepsi) — **dördü de suite'i yeşil bıraktı.**
+> *(Düzeltme, 8. tur: o cümlenin ilk hâli "bu ekranlarda CSP yok" diyordu — **yanlış**.
+> `handler.Tap.render` yazdığı **her** yanıta CSP koyuyor: `pages.Tap`, `pages.Result`
+> **ve** `pages.Problem`. Politikasız olan **beş aktivasyon** hata ekranı
+> (`Activation.render`). Ortak şablon ikisine birden düştüğü için testler on bir
+> ekranı da koruyor, başlık altısını.)* **Bugünkü
+> hâli KAPALI KÜME:** `TestScreens_RenderOnlyTheseElements` iki ailenin render
+> ettiği etiket kümesinin **şablonlardan ölçülen kümeye eşit** olduğunu iddia
+> ediyor (onay ekranları **16** etiket, hata ekranları **14**). Eleman eklemek de,
+> listede kalıp render edilmeyen ölü giriş bırakmak da testi kırar. Kara liste her
+> tur bir eleman daha bulunmasına açıktı; kapalı küme **eleman kanalını** bitirir.
+>
+> **Ama "bitmiş" demek yetmedi (8. tur).** İzinli bir elemanın **okunmayan bir
+> özniteliği** kaldı: `link` her iki kümede de var (kabuğun stylesheet'i) ve `href`
+> `textAttrRE`'nin **açık dışlama listesinde**. Denetçi
+> `<link rel="stylesheet" href="data:text/css,…{content:'…'}">` ile aynı cümleyi hem
+> sonuç ekranına hem **ortak `Problem` şablonuna** geri soktu — **ikisi de yeşil**;
+> `TestCompiledCSS_GeneratesNoText` de göremez, çünkü `data:` stylesheet hiç
+> derlenmiyor. **Üçüncü kapalı küme eklendi:** `TestScreens_ReferenceOnlyOurOwnAssets`
+> render edilen belgelerdeki `href`/`src` **değer kümesini** birebir pinliyor
+> (onay ekranları `{/static/css/app.css}`, hata ekranları retry linkiyle birlikte) ve
+> şema taşıyan her değeri reddediyor. Bu aynı zamanda **markanın "hiçbir dış kaynağa
+> runtime bağlantı yok, mutlak URL sayısı 0" kuralını ilk kez teste bağlıyor** — o
+> kural bugüne kadar yalnız disiplinle duruyordu. **Dürüst özet:** üç dar beyaz liste
+> (metin · eleman · referans) birlikte, hiçbirinin tek başına kapsamadığından
+> fazlasını kapsıyor — ama **hiçbiri "bitmiş" değil**, ve 9. tur bunu bir kez daha
+> gösterdi: `meta` her iki eleman kümesinde izinli olduğu için
+> `<meta http-equiv="refresh" content="30;url=https://…">` **kabuğa konup her
+> ekrandan üçüncü tarafa navigasyon** üretiyordu ve suite yeşildi; ayrıca metin
+> testi altı hata ekranını **yalnız `RetryURL == ""`** ile render ediyordu, oysa üç
+> GET dalı retry linkiyle servis ediliyor — o blok içine konan iki yalan cümle de
+> yeşil geçti. İkisi de kapatıldı (meta-refresh `assertRefs`'te reddediliyor;
+> metin testi artık `{"", retryURL}` üzerinde dönüyor ve anchor metnini de pinliyor).
+>
+> **Ayrıca CSP artık pinli.** `grep -rn "Content-Security-Policy"` yalnız tap
+> **sayfasını** çeken tek bir teste çıkıyordu; sonuç ekranı ve altı hata ekranı
+> denetimsiz bir başlığa yaslanıyordu. `TestTapResponses_CarryTheContentSecurityPolicy`
+> **yedisini de** pinliyor — ama 13. tura kadar **altısını** pinliyordu:
+> `tapProblemForeignTenant` vakası eksikti (`checkin.go` 403 dalı). Vaka eklendi;
+> mutasyonla kanıtlandı (o dal `Tap.render`'ı atlayacak şekilde değiştirilince
+> **RED**, `Content-Security-Policy = ""`). Kapsam **11 şekil** (dört verdict +
+> bilinmeyen verdict + practice bileşimleri + Note'un dört hâli: boş · tek ·
+> reason+`"; "`+stale · **stale tek başına**); **altı `tapProblem*` ekranı ve
+> ortak `Problem` şablonu** da aynı disiplinde (bunlar da
+> korumasızdı: 429 ekranına *"nothing was logged"* eklendi ve suite yeşil kaldı —
+> üstelik o cümle **yanlış**, çözülmüş oturumlu 429 `audit_log`'a satır yazıyor);
+> ve hepsi **iki kez** doğrulanıyor — biri fake'lerle, biri **gerçek Postgres'te
+> gerçek karar motoruyla** (`TestCheckinDB_ScreenTextIsWhatProductionRenders`).
+>
+> **SINIR — garanti değil.** Bu mekanizma **CSS ile üretilen metni görmez**:
+> `content:` bir `::before`/`::after` üzerinde ekrana gerçek kelime basar ve
+> hiçbir HTML okuması onu bulamaz. O kanal **ayrı ve dar** bir kontrolle kapatıldı
+> (`TestCompiledCSS_GeneratesNoText` derlenmiş `app.css`'i okur, harf/rakam içeren
+> her `content:` bildirimini reddeder), ama **CI'DA HİÇ KOŞMUYOR — DAİMA SKIP.**
+> Ölçüldü: `.github/workflows/ci.yml` yalnız `make tools` · `make up` ·
+> `make check` · `make audit` koşuyor, hiçbiri CSS derlemiyor, ve `.gitignore:16`
+> `/web/static/css/app.css`'i checkout dışında tutuyor. Yani bu kanal **yalnız
+> geliştirici makinesinde, elle `make css` sonrası** korunuyor; **atlanması geçme
+> değildir.** (CI'a `make css` adımı bu görevin dışında.) Ayrıca tarama, kanıt
+> değil.
+>
+> **İki SINIR daha, garanti değil:** (i) `<meta name="description">` içine konan
+> bir cümle metin karşılaştırmasına görünmüyor (ölçüldü, yeşil kaldı) — kullanıcıya
+> render edilmediği için kapatılmadı, **sınır olarak yazıldı**. (ii) **Kapsam
+> ekran başına ve elle**: bu pakete sonradan eklenen bir şablon, biri onu hem
+> metin tablosuna hem etiket kümesine yazmadıkça **korunmuyor**. Bunu zorlayan
+> hiçbir mekanizma yok; daha önce doğruydu ama **hiçbir yerde yazılı değildi**.
+>
+> ### Bilinen açık kanallar (9. tur kapanışı — "kapandı" değil, **sayıldı**)
+>
+> Bu görevde mekanizma eklemek burada durdu. Kapatılmayan her kanal **garanti
+> olarak değil, liste olarak** taşınıyor; kaynak liste `screenText`'in yorumunda,
+> özet burada:
+>
+> 1. **`<meta name="description">`** — ölçüldü, yeşil kalıyor. Kullanıcıya render
+>    edilmediği için kapatılmadı. (`http-equiv` taşıyan **her** `<meta>` ayrı:
+>    `assertRefs` **öznitelik sırasından bağımsız** olarak reddediyor. 10. turda
+>    bu kontrolün kendisi sıra-bağımlıydı — `content=` önce yazılınca geçiyordu,
+>    ve HTML'de sıranın anlamı yok; kanonikleştirme artık tek yerde: *"bu meta
+>    `http-equiv` taşıyor mu"*. **Uçtan uca (`.templ` → `make gen` → `make test`)
+>    ölçülen altı yazımın altısı da RED:** ters sıra · büyük harf
+>    (`HTTP-EQUIV="REFRESH"` — templ bunu **birebir koruyor**, `make templ` exit 0,
+>    üretilen literalde `HTTP-EQUIV` aynen duruyor, yani bu satır kontrolün
+>    gerçekten harf-duyarsız olduğunu sınıyor) · araya fazladan öznitelik ·
+>    `=` çevresinde boşluk · `content` hiç yok · başka bir direktif.
+>    **Kalan tek varsayım:** `metaTagRE` etiketi ilk `>`'de bitiriyor, HTML ise
+>    tırnak içindeki `>`'de bitirmiyor. `.templ` yolundan **üretilemiyor** (templ
+>    `>` → `&gt;`), tek erişim yolu elle düzenlenmiş `*_templ.go` — o da md.5.)
+> 2. **CSS `content:`** — yalnız geliştirici makinesinde. `TestCompiledCSS_GeneratesNoText`
+>    derlenmiş `app.css`'i okur; **CI hiç CSS derlemiyor → daima SKIP**, ve
+>    atlanması geçme değildir.
+> 3. **Kapsam ekran başına ve elle** — bu pakete sonradan eklenen bir şablon, biri
+>    onu hem metin tablosuna hem eleman kümesine yazmadıkça korunmuyor.
+> 4. **Beş aktivasyon hata ekranında CSP yok** (`Activation.render`) ve `Message`
+>    metinlerini bu pakette hiçbir test pinlemiyor — M5-02'nin akışı, bilinçli
+>    olarak kapsam dışı.
+> 5. **Üretilen `*_templ.go`'nun elle düzenlenmesi** — `make test` onları yeniden
+>    üretmiyor; `make check` yalnız diff'i yakalar, niyeti değil.
+> 6. Runtime'da `<script>` ile yazılacak metin — bu ekranlarda script yok.
+>
+> 7. **YANIT BAŞLIKLARI** (10. turda eklendi). Hiçbir test gövde dışını okumuyor;
+>    `Tap.render` dört başlık koyuyor ve beşincisinin **yokluğunu** kimse iddia
+>    etmiyor. Ölçüldü: `w.Header().Set("Refresh", "30;url=https://evil.example/x")`
+>    → `make test` **tamamen yeşil**, ve şablona hiç dokunmadan meta-refresh'in
+>    etkisini üretiyor. Yalnız `Content-Security-Policy` pinli
+>    (`TestTapResponses_CarryTheContentSecurityPolicy`). **Yani bu yüzeydeki URL
+>    kanalı "meta refresh" değil; "meta refresh VE kimsenin izlemediği her
+>    navigasyon başlığı".**
+>
+> 8. **Not sabitlerinin üretime bağlılığı** (13. tur). `result_test.go`'daki beş
+>    not sabitinin **beşi de** artık `TestCheckinDB_ScreenTextIsWhatProductionRenders`
+>    tarafından gerçek motordan sürülüyor. 13. tura kadar **dördü** sürülüyordu:
+>    `noteStaleOpenIn` elle yazılmış bir kopyaydı ve motordaki metin değişse hiçbir
+>    test kırılmıyordu (ölçüldü: `staleOpenInNote` yeniden yazıldı → **suite yeşil**).
+>    Vaka 19 saatlik açık bir check-in tohumlanarak üretildi (eşik 18s); aynı
+>    mutasyon şimdi **RED**.
+>
+> **5. `reject` başlığı: "Not recorded" → "Not counted"** (3. turda kırmızı çizgi
+> denetiminde bulundu, **bloklayan**). Sayfanın en büyük yazısı kaydın **yokluğunu**
+> beyan ediyordu, dört satır altındaki *"This tap was recorded but not counted"*
+> ile çelişerek. Ölçüm: `checkin.Service.write` hata verirse `Record` hata döndürür
+> ve `OutcomeRecorded` ancak INSERT geçtikten sonra kurulur — yani bu ekranın
+> render edilmiş olması kaydın **var olduğunun kanıtı**. §5 satır 1/2/4'ün üçü de
+> `reject`; §4.6'nın çalışana verdiği tek şey *itiraz edilebilir kayıt* ve başlık
+> onu geri alıyordu. Ayrıca **bilinmeyen verdict** artık yönlü başlık almıyor
+> (eskiden "Tapped in"e düşüyordu). Kusur M5-05'ten devralınmıştı ama M5-06 bu
+> ekranın kopya geçişi görevi — dört verdict'in cümlesi yeniden türetilirken
+> sayfadaki en büyük cümle atlanmıştı.
+>
+> **6. `flag` cümlesi onayı VAAT ETMİYOR ve itiraz kapısını kapatmıyor** (4. turda).
+> Eski metin *"your manager **will** confirm this one … There is **nothing for you
+> to do**"* diyordu: müdür bir flag'i **reddedebilir**, yani cümle kimsenin
+> vermediği bir kararı beyan ediyordu; ve itiraz kapısını, tam da §4.6'nın onu
+> korumak için var olduğu verdict'te kapatıyordu. Yeni metin: *"Recorded — it needs
+> your manager's approval before it counts toward your hours. Tell them if that
+> looks wrong."* Diğer üç dalın kaçış kapısıyla aynı hizada.
+>
+> **7. Damga kontrastı: yorum düzeltildi, kod DEĞİL** (5. tur). `stamp` bileşeninin
+> yorumu *"the screen reads correctly **in monochrome** and to a screen reader"*
+> diyordu; ekran-okuyucu yarısı doğru, **gören kullanıcı yarısı yanlış**: `.stamp`
+> 11px bold + `opacity:.8`, ve `paper #FFFDF4` üstünde `stamp--ignored`
+> (`line #C9D2C8`) **1,52:1**, `stamp--flagged` (`saffron #D98E2B`) **2,62:1** —
+> AA 4,5:1 ister. Bu iki verdict'te gören kullanıcı damgadan ne rengi ne kelimeyi
+> alıyor. Durumu onlar için taşıyan şey **kapanış cümlesi** — ve onun kontrastı
+> **5,70:1**, 15. turda düzeltildi: `~16:1` **yanlıştı**. İki hata üst üste
+> gelmişti: (i) kapanış paragrafları `text-ink/70` (`rgba(21,34,25,.7)`), düz `ink`
+> değil; (ii) `closing()` **docket'in DIŞINDA** çalışıyor (`</section>`'dan sonra
+> çağrılıyor), yani zemin `bg-paper #FFFDF4` değil gövdenin `bg-porcelain #EDF0EA`'sı.
+> Tarayıcının yaptığı gibi sRGB'de harmanlanınca `rgb(86,96,88)` → **5,70:1**.
+> **AA'yı geçiyor** (4,5:1), yani kod değişmedi — değişen **iddia**. `~16:1`
+> **başlığın** değeri (docket içinde düz `text-ink` on `bg-paper` = 16,17:1), başka
+> bir eleman başka bir zemin üstünde. Başlık dört verdict'in **ikisinde** yardım
+> ediyor (*"Already tapped"*, *"Not counted"*); **`flag`'de etmiyor** — başlığı
+> `ok` ile aynı, dolayısıyla orada AA'yı geçen tek taşıyıcı kapanış cümlesi.
+> **Kontrast değiştirilmedi** — `ignored → line` skill'in mandası, marka kararı
+> kullanıcıya sorulacak.
+>
+> **Ortak `Problem` şablonu ONBİR ekrana düşüyor**, dokuza değil (5 aktivasyon
+> sabiti `activate.go:161-185` + 6 tap sabiti `tap.go`). Pinlenen altısı tap
+> ailesi; **beş aktivasyon sabitinin metni bilinçli olarak pinlenmedi** —
+> onlar M5-02'nin kopyası, o akış dört denetim turu gördü, ve buradan yazılacak
+> bir test o metnin sahipliğini sessizce devralırdı. **Açık boşluk:**
+> `problemServer.Message` (*"Nothing was activated and nothing was recorded
+> against you"*) bu pakette hiçbir test tarafından korunmuyor.
+>
+> **Ölçülemeyen/olmayan:** bu ekranda **süre yok** (vardiya toplamı rapor işi,
+> M6), dolayısıyla "saat ve süre mono" kriteri var olan tek yarısıyla — duvar
+> saati + trust puanı, ikisi de `font-mono` — karşılanıyor.
+
 ---
 
 ## M5-07 — Mini tur ve practice tap

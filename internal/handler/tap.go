@@ -288,7 +288,9 @@ func (t *Tap) Page(w http.ResponseWriter, r *http.Request) {
 		t.log.Error("tap page: no resolved identity on the request",
 			"hint", "mount httpx.Identify in front of GET /t",
 			"err", id.Err, "path", r.URL.Path)
-		t.renderProblem(w, r, http.StatusInternalServerError, tapProblemServer)
+		// Retryable: one of the two things this state means is "looking FAILED",
+		// which is a database that may be back in a second.
+		t.renderRetryableProblem(w, r, http.StatusInternalServerError, tapProblemServer)
 		return
 
 	case httpx.SessionAbsent, httpx.SessionRevoked:
@@ -316,6 +318,9 @@ func (t *Tap) Page(w http.ResponseWriter, r *http.Request) {
 		// is not guessed at. Unreachable today; the branch exists so that adding
 		// a state does not silently pick a behaviour.
 		t.log.Error("tap page: unknown session state", "state", int(id.State))
+		// NO retry: this is a code path that does not exist yet being taken, which
+		// re-fetching reproduces exactly. Offering a button here would be the fake
+		// affordance renderRetryableProblem's comment refuses.
 		t.renderProblem(w, r, http.StatusInternalServerError, tapProblemServer)
 		return
 	}
@@ -339,7 +344,10 @@ func (t *Tap) Page(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		t.log.Error("tap page: sun pre-check failed", "tag_uid", p.UID, "err", err)
-		t.renderProblem(w, r, http.StatusInternalServerError, tapProblemServer)
+		// Retry offered on a MIXED error class — an outage and a corrupt key ref
+		// arrive here identically (internal/sun/preview.go). Stated at
+		// renderRetryableProblem rather than claimed away.
+		t.renderRetryableProblem(w, r, http.StatusInternalServerError, tapProblemServer)
 		return
 	}
 
@@ -367,7 +375,7 @@ func (t *Tap) Page(w http.ResponseWriter, r *http.Request) {
 			"session_tenant_id", id.TenantID(), "tag_tenant_id", pv.TenantID)
 	case err != nil:
 		t.log.Error("tap page: loading the employee failed", "employee_id", id.EmployeeID(), "err", err)
-		t.renderProblem(w, r, http.StatusInternalServerError, tapProblemServer)
+		t.renderRetryableProblem(w, r, http.StatusInternalServerError, tapProblemServer)
 		return
 	}
 
@@ -384,6 +392,9 @@ func (t *Tap) Page(w http.ResponseWriter, r *http.Request) {
 	}, id.Session.ID)
 	if err != nil {
 		t.log.Error("tap page: minting the tap context failed", "tag_uid", p.UID, "err", err)
+		// NO retry: mint fails on exactly two DETERMINISTIC conditions (an
+		// unconfigured signing key, a nil session id — tapcontext.go), and a second
+		// fetch changes neither. Same reasoning as the unknown-session-state branch.
 		t.renderProblem(w, r, http.StatusInternalServerError, tapProblemServer)
 		return
 	}
@@ -480,6 +491,102 @@ func (t *Tap) renderTooManyRequests(w http.ResponseWriter, r *http.Request) {
 
 func (t *Tap) renderProblem(w http.ResponseWriter, r *http.Request, status int, v pages.ProblemView) {
 	t.render(w, r, status, pages.Problem(v))
+}
+
+// renderRetryableProblem is renderProblem plus the M5-06 card's "Try again", and
+// it exists as a SEPARATE entry point so that offering a retry is a decision
+// somebody made at a call site rather than a default every screen inherits.
+//
+// 🔴 THE RULE IS NOT "THE FAILURE IS TRANSIENT", BECAUSE THIS HANDLER CANNOT
+// KNOW THAT. An earlier version of this comment said it was, and an audit showed
+// the classification is not one the code can make: the branch below that answers
+// a failed SUN pre-check catches EVERY non-ErrUnknownTag error from
+// PreviewWithoutReplayProtection, and that function's own contract
+// (internal/sun/preview.go) lists a database outage and a CORRUPT aes_key_ref or
+// wrong KEK in the same class. The permanent half is not hypothetical — the
+// seeded plaques in this repo carry a key ref that is not KEK-wrapped and answer
+// 500 on the NFC path every time (state.md hand-off from M5-05). So the honest
+// rule is narrower and is about COST, not about diagnosis:
+//
+//	OFFER A RETRY ONLY WHERE (a) the address is a GET that writes no record and
+//	advances no counter, and (b) the failure is not one this code can PROVE is
+//	deterministic. Where a retry can help it costs one request; where it cannot,
+//	it costs one wasted press and the instruction underneath still stands.
+//
+// Which is why two of the FIVE 500 branches on this page do NOT get a link. Five,
+// not four: an earlier version of this list counted the branches it had opinions
+// about and silently dropped the unknown-session-state one, which is the same
+// class of error as a field-count comment that stopped matching its struct — so
+// the enumeration below is exhaustive against the five CALL SITES in Page that
+// render tapProblemServer. (Stated against call sites rather than "grep returns
+// five": an earlier version said that, and then a later edit quoted the pattern
+// inside this very comment and made its own count wrong. A sentence that measures
+// the file it lives in is a sentence that breaks itself.) TestTapPage_EveryGetServerErrorBranchIsAccountedFor drives FOUR of
+// the five; the unknown-session-state branch is not reachable from a test, because
+// httpx.Identity's State is written by the middleware from a closed set and the
+// context key is unexported, so nothing outside internal/httpx can hand this
+// handler a value the switch does not know. That branch is verified by reading.
+//
+//	tapProblemServer on GET /t        FIVE branches; THREE carry a link. The
+//	                                  plaque's own URL, re-fetched. GET /t writes
+//	                                  no `transactions` row and advances no
+//	                                  `tags.last_ctr` (this file's header states
+//	                                  both, and the domain never runs), so the
+//	                                  press is free; a database that was down a
+//	                                  second ago may well be up. On a corrupt key
+//	                                  ref it reproduces the 500 — a wasted press,
+//	                                  said here rather than denied.
+//	  · identity unresolved           RETRY. Through Mount, Identify is always in
+//	                                  front, so in production this state means the
+//	                                  lookup FAILED. (The other half — no
+//	                                  middleware at all — is a wiring bug only a
+//	                                  direct call can produce.)
+//	  · unknown session state         NO. A SessionState this file does not know
+//	                                  is a code path that does not exist yet being
+//	                                  taken; re-fetching reproduces it exactly.
+//	  · sun pre-check failed          RETRY, and this is the mixed one above.
+//	  · directory read failed         RETRY. Its errors are query errors; the
+//	                                  foreign-location case is handled separately
+//	                                  and never reaches here.
+//	  · mint failed                   NO — provably deterministic: tapcontext.go
+//	                                  raises it on exactly two conditions (an
+//	                                  unconfigured key, a nil session id), and a
+//	                                  second fetch changes neither.
+//
+// Splitting the sun error class properly is internal/sun's job and a real task;
+// it is not something a comment here can do, and pretending otherwise is what
+// made an earlier version of this text false.
+//
+//	tapProblemServer on POST          NO. There is no address to offer: the tap
+//	                                  context is single-use and the chip's SUN
+//	                                  URL — the only thing that could mint a new
+//	                                  one — is not in a POST request. The hint
+//	                                  already says the true instruction.
+//	tapProblemBadURL                  NO. The URL did not parse; re-fetching it
+//	                                  reproduces the same failure exactly.
+//	tapProblemUnknownTag              NO. A uid we do not have stays a uid we do
+//	                                  not have. The screen sends them to a
+//	                                  manager, which is the actionable answer.
+//	tapProblemTooMany                 NO, AND THIS ONE IS DELIBERATE RATHER THAN
+//	                                  MERELY USELESS: a retry button on a rate
+//	                                  limit invites spending the budget the page
+//	                                  is asking them to stop spending.
+//	tapProblemStale                   NO. A fresh context comes from touching the
+//	                                  plaque, not from re-fetching anything we
+//	                                  could name.
+//	tapProblemForeignTenant           NO. Their session is fine and the plaque is
+//	                                  somebody else's; no number of retries makes
+//	                                  that a tap.
+//
+// THE GET GUARD IS STRUCTURAL, not a comment. r.URL.RequestURI() on a POST is
+// /api/checkin, and a link to it would be a 405 dressed as help — so a non-GET
+// request silently gets the plain page instead. Fail-closed: the worst case is a
+// screen that says what to do without a button, which is what the other six do.
+func (t *Tap) renderRetryableProblem(w http.ResponseWriter, r *http.Request, status int, v pages.ProblemView) {
+	if r.Method == http.MethodGet {
+		v.RetryURL = r.URL.RequestURI()
+	}
+	t.renderProblem(w, r, status, v)
 }
 
 // render writes one component with the headers every screen on this path needs.

@@ -383,6 +383,20 @@ type Result struct {
 	// (§6: convert at render, never in storage or in the decision, which is where
 	// overnight-shift bugs come from).
 	Timezone string
+	// BusinessType is the tenant's own category — one of the eight CHECK-
+	// constrained values in migration 00001 ('restaurant', 'production', …). It
+	// travels for ONE reason (M5-06): the confirmation screen ends with a brand
+	// sentence that differs per kind of workplace, and picking it in the render
+	// layer needs the category.
+	//
+	// IT IS NOT A DECISION INPUT and must not become one. Nothing in tap.Input
+	// carries it, no policy reads it, and a rule that varied a verdict by business
+	// type would belong in internal/policy as a tenant policy, not here.
+	//
+	// IT IS ALSO NOT AN IDENTITY. A category shared by every restaurant in the
+	// system says nothing about WHICH tenant this is, so it does not widen what a
+	// screen could disclose (§4.5/§4.7). Per-tenant editable copy is M9-04.
+	BusinessType string
 }
 
 func (s *Service) clock() time.Time {
@@ -541,6 +555,7 @@ func (s *Service) Record(ctx context.Context, req Request) (Result, error) {
 		out := Result{
 			Outcome: OutcomeActivation, Decision: dec,
 			OccurredAt: occurredAt, Timezone: facts.timezone,
+			BusinessType: facts.businessType,
 		}
 		if dec.MatchedSid == sidTenantMismatch {
 			out.Outcome = OutcomeForeignTenant
@@ -583,6 +598,7 @@ func (s *Service) Record(ctx context.Context, req Request) (Result, error) {
 		OccurredAt:    occurredAt,
 		LocationName:  facts.locationName,
 		Timezone:      facts.timezone,
+		BusinessType:  facts.businessType,
 	}, nil
 }
 
@@ -691,10 +707,13 @@ type tapFacts struct {
 	locationResolved bool
 	locationName     string
 	timezone         string
-	departmentID     *uuid.UUID
-	shift            *tap.Shift
-	lastForPerson    *tap.Transaction
-	lastOpenIn       *tap.Transaction
+	// businessType is carried for the RENDER layer only (Result.BusinessType).
+	// It is deliberately not put into tap.Input.
+	businessType  string
+	departmentID  *uuid.UUID
+	shift         *tap.Shift
+	lastForPerson *tap.Transaction
+	lastOpenIn    *tap.Transaction
 }
 
 // gather reads the tenant-scoped evidence in ONE transaction, so every fact the
@@ -735,6 +754,7 @@ func (s *Service) gather(ctx context.Context, req Request, tappedLocationID uuid
 		}
 		f.departmentID = emp.DepartmentID
 		f.timezone = emp.TenantTimezone
+		f.businessType = emp.TenantBusinessType
 
 		// The TAPPED location — the venue whose IP, GPS and shift this tap is
 		// matched against (§5), never the employee's profile location.

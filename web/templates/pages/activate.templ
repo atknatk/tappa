@@ -220,6 +220,41 @@ templ Done(v DoneView) {
 // of constants so that an unknown, an expired and an already-used code produce
 // BYTE-IDENTICAL output (§4.7: no oracle) — asserted in
 // internal/handler/activate_test.go.
+//
+// ONE TEMPLATE SERVES BOTH FLOWS, so a sentence added here appears on ALL of
+// them — ELEVEN screens, counted rather than guessed: five activation failures
+// (internal/handler/activate.go: problemNoLink, problemBadLink, problemTooMany,
+// problemNoSession, problemServer) and six tap failures (tap.go's tapProblem*).
+// An earlier version of this paragraph said "three activation failures", which
+// was wrong in exactly the way a field count that stops matching its struct is
+// wrong.
+//
+// THAT REACH IS WHY THE COPY IS PINNED AS WHOLE TEXT rather than by keyword: an
+// audit added a plain sentence to this template and to two of the constants and
+// the entire suite stayed green. TestProblemScreens_SayExactlyThisAndNothingElse
+// renders the six TAP screens and compares the complete document text, so a
+// sentence added HERE — the cross-flow vector, the one that reaches all eleven —
+// is caught by those six.
+//
+// THE FIVE ACTIVATION CONSTANTS ARE NOT PINNED, and that is a scope decision
+// rather than an oversight. Their words are M5-02's copy, that flow took four
+// audit rounds to settle, and a test written from here would quietly take
+// ownership of text this task never reviewed. What is checked from here is the
+// SHARED surface. The gap is real and worth naming: an edit to
+// problemServer.Message ("Nothing was activated and nothing was recorded against
+// you") would not be caught by anything in this package.
+//
+// THE "TRY AGAIN" OF THE M5-06 CARD LIVES HERE AND NOWHERE ELSE, because this is
+// the only family of screens where nothing was recorded and a retry can therefore
+// change the outcome. It appears only when the handler supplied a RetryURL, which
+// it does for three of the five GET-path server errors — see ProblemView.RetryURL
+// and internal/handler/tap.go for the measured reasons the others get an
+// INSTRUCTION instead of a button that cannot work.
+//
+// IT IS AN ANCHOR, NOT A FORM. A link issues a GET; it cannot resubmit the body
+// of a POST, so no failure screen in this package can produce a second
+// attendance record. That is the same rule the confirmation screen keeps by
+// having no button at all (§9).
 templ Problem(v ProblemView) {
 	@layout.Page("Tappa") {
 		@components.Notice(components.ToneAlert, "") {
@@ -228,6 +263,24 @@ templ Problem(v ProblemView) {
 			if v.Hint != "" {
 				<p class="mt-2 text-ink/60">{ v.Hint }</p>
 			}
+		}
+		if v.RetryURL != "" {
+			// WHAT templ.URL ACTUALLY CHECKS, read from its source (v0.3.833,
+			// url.go) rather than assumed: if the string has a ':' before any '/',
+			// the part in front of it must be http, https, mailto, tel, ftp or ftps,
+			// otherwise the whole value becomes about:invalid. That is a NARROW
+			// guarantee and the useful one here — a future caller cannot turn this
+			// anchor into a javascript: or data: handler.
+			//
+			// IT IS NOT A GENERAL SANITISER, and an earlier version of this comment
+			// said it was. Every string with NO colon before a slash passes through
+			// UNTOUCHED: relative paths, and scheme-relative //host/... references
+			// too. So templ.URL is not what keeps this link on our own origin — the
+			// ROUTE is (only chi's /t reaches the handler that sets RetryURL, and
+			// //host forms answer 404 before it; measured, see ProblemView.RetryURL).
+			// Escaping of the query is templ's attribute escaping, which is a
+			// different mechanism again.
+			<a href={ templ.URL(v.RetryURL) } class="tap-button flex items-center justify-center">Try again</a>
 		}
 	}
 }

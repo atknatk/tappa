@@ -34,6 +34,7 @@ import (
 	"net/http/httptest"
 	"net/netip"
 	"net/url"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -1181,7 +1182,7 @@ func TestCheckinDB_ConfiguredDebounceWindowReachesTheGuardrail(t *testing.T) {
 	}
 }
 
-// TestCheckinDB_ForeignTenantTapNeverTouchesTheOtherTENANTSCOUNTER is F1: a
+// TestCheckinDB_ForeignTenantTapNeverTouchesTheOtherTenantsCounter is F1: a
 // session for one organisation must not move another organisation's chip counter.
 //
 // MEASURED BEFORE THE FIX (by an audit, and reproduced here as a regression net):
@@ -1386,5 +1387,216 @@ func TestCheckinDB_TheZeroInstantIsADeclarationNotSilence(t *testing.T) {
 	}
 	if rec.OccurredAt.Year() < 2000 {
 		t.Fatalf("stored occurred_at = %v, want the server clock", rec.OccurredAt)
+	}
+}
+
+// TestCheckinDB_BrandMessageComesFromTheTenantRow closes the gap the unit tests
+// cannot see (M5-06).
+//
+// 🔴 IT PINS THE WHOLE CHAIN, and that is the point. The screen tests in
+// result_test.go drive the real router and the real template but hand the domain
+// a checkin.Result they built themselves — so every one of them would stay green
+// if db/queries/employees.sql stopped selecting business_type, if gather() stopped
+// copying it, or if Result stopped carrying it. That is exactly the shape this
+// session keeps paying for: a guarantee proven in one package and merely assumed
+// in the next. Here the value starts as a column in `tenants`, on real Postgres,
+// and is asserted as a sentence in the HTML.
+//
+// The tenant is UPDATEd rather than the fixture re-parameterised because
+// newTapHarness commits the row before a test can reach it; each harness makes a
+// fresh random tenant, so nothing else sees the change.
+func TestCheckinDB_BrandMessageComesFromTheTenantRow(t *testing.T) {
+	tests := []struct {
+		name         string
+		businessType string
+		want         string
+		wantNot      string
+	}{
+		{"restaurant gets the kitchen line", "restaurant",
+			"Have a great shift — keep those kebabs rolling! 🌯", "stay safe on the floor"},
+		{"production gets the factory line", "production",
+			"Have a productive shift — stay safe on the floor! 🏭", "kebabs rolling"},
+		{"any other type gets the neutral line", "hotel",
+			"Have a great shift!", "kebabs rolling"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newTapHarness(t)
+			h.setBusinessType(t, tc.businessType)
+			cookie := h.sessionCookieFor(t)
+
+			w := h.postTap(t, h.nfcContext(uint32(h.startCtr)+1), cookie, nil)
+			if w.Code != http.StatusOK {
+				t.Fatalf("status = %d, want 200", w.Code)
+			}
+			// The record must actually be an `ok` — a flag or an ignored renders no
+			// brand line at all, and "the sentence is missing" would then be true for
+			// the wrong reason.
+			if rec := h.lastRecord(t, h.employeeID); rec.Verdict != "ok" {
+				t.Fatalf("verdict = %q, want ok: this row cannot test the send-off", rec.Verdict)
+			}
+			body := w.Body.String()
+			if !strings.Contains(body, tc.want) {
+				t.Fatalf("business_type %q did not produce %q", tc.businessType, tc.want)
+			}
+			if strings.Contains(body, tc.wantNot) {
+				t.Fatalf("business_type %q also produced %q", tc.businessType, tc.wantNot)
+			}
+			// The category chooses a sentence and is never printed (§4.7 adjacent:
+			// the screen shows a verdict, a venue and a clock).
+			if strings.Contains(body, tc.businessType) {
+				t.Fatalf("the business type %q was printed on the screen", tc.businessType)
+			}
+		})
+	}
+}
+
+// setBusinessType rewrites the harness tenant's category. UPDATE is granted on
+// `tenants` (migration 00001) — unlike transactions, which is immutable by
+// REVOKE (§4.3) and which no test may rewrite.
+func (h *tapHarness) setBusinessType(t *testing.T, businessType string) {
+	t.Helper()
+	err := h.data.WithTenant(context.Background(), h.tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		tag, e := tx.Exec(ctx, `UPDATE tenants SET business_type = $2 WHERE id = $1`, h.tenantID, businessType)
+		if e != nil {
+			return e
+		}
+		if tag.RowsAffected() != 1 {
+			t.Fatalf("UPDATE tenants affected %d rows, want 1", tag.RowsAffected())
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("setting business_type: %v", err)
+	}
+}
+
+// TestCheckinDB_ScreenTextIsWhatProductionRenders closes the gap that made the
+// first whole-screen test worthless (M5-06, round 4).
+//
+// 🔴 THE EXPECTED SCREEN MUST COME FROM PRODUCTION, NOT FROM A KEYBOARD. An
+// earlier version of the whitelist was assembled by hand with an empty
+// Decision.Note — a shape the product never renders, because Note is the deciding
+// rule's Reason and EVERY guardrail, baseline rule and the no-match fallback
+// carries one. The consequence was measured: the real ignored <main> was 1061
+// bytes against a 971-byte expectation, the note paragraph was outside what the
+// test looked at, and a "Your earlier tap stands." hidden inside that paragraph
+// passed the whole suite. The repo's own lesson, restated in this file's terms: a
+// verification probe is built from the PRODUCT'S REAL INPUT, never from the
+// minimum the tool will accept.
+//
+// So this test drives four verdicts through the real engine, on real Postgres,
+// and asserts the SAME strings the unit table asserts. If a policy reason is
+// reworded, this fails first and names the new wording, which is the correct
+// order: the employee-facing screen changed, and a test says so.
+//
+// The wall clock is the one thing normalised away — it is `now`.
+func TestCheckinDB_ScreenTextIsWhatProductionRenders(t *testing.T) {
+	clockRE := regexp.MustCompile(`\d{2}:\d{2}:\d{2}`)
+	// The SAME constant the unit table uses, not a second copy: two shell strings
+	// drift, and the point of this test is that both layers assert one screen.
+	shell := shellText
+
+	t.Run("ok on the venue network", func(t *testing.T) {
+		h := newTapHarness(t)
+		w := h.postTap(t, h.nfcContext(uint32(h.startCtr)+1), h.sessionCookieFor(t), nil)
+		got := clockRE.ReplaceAllString(screenText(t, w.Body.String()), "<clock>")
+		want := shell + " St Julians Tapped in <clock> APPROVED Trust 70 " + noteIPMatched +
+			" Have a great shift — keep those kebabs rolling! 🌯 All done — you can close this page."
+		if got != want {
+			t.Fatalf("production ok screen:\n got: %s\nwant: %s", got, want)
+		}
+	})
+
+	t.Run("flag off the network with no fix", func(t *testing.T) {
+		h := newTapHarness(t)
+		w := h.postFrom(t, h.nfcContext(uint32(h.startCtr)+1), h.sessionCookieFor(t), "198.51.100.9:5000", nil)
+		got := clockRE.ReplaceAllString(screenText(t, w.Body.String()), "<clock>")
+		want := shell + " St Julians Tapped in <clock> FLAGGED Trust 20 " + noteNoPlace +
+			" Recorded — it needs your manager's approval before it counts toward your hours." +
+			" Tell them if that looks wrong. You can close this page."
+		if got != want {
+			t.Fatalf("production flag screen — this is the §4.6 branch:\n got: %s\nwant: %s", got, want)
+		}
+	})
+
+	t.Run("reject on a retired plaque", func(t *testing.T) {
+		h := newTapHarness(t)
+		h.retireTag(t, h.tagUID, "retired")
+		w := h.postTap(t, h.nfcContext(uint32(h.startCtr)+1), h.sessionCookieFor(t), nil)
+		got := clockRE.ReplaceAllString(screenText(t, w.Body.String()), "<clock>")
+		want := shell + " St Julians Not counted <clock> REJECTED Trust 70 " + noteDeadTag +
+			" This tap was recorded but not counted. Tell your manager if that looks wrong." +
+			" You can close this page."
+		if got != want {
+			t.Fatalf("production reject screen — the row EXISTS, the screen must not deny it:\n got: %s\nwant: %s",
+				got, want)
+		}
+	})
+
+	t.Run("ok out closing a stale check-in: the two-part note", func(t *testing.T) {
+		// THE FIFTH NOTE CONSTANT, driven from production. tap.Decide's appendNote
+		// joins the deciding rule's reason to the direction annotation with "; ", and
+		// until this case existed noteStaleOpenIn was a hand-typed copy of
+		// internal/domain/tap's staleOpenInNote bound to nothing: rewording the
+		// engine's string left every test green while the screen table went on
+		// pinning a sentence production no longer emitted.
+		h := newTapHarness(t)
+		h.openCheckInAgedBy(t, 19*time.Hour)
+		w := h.postTap(t, h.nfcContext(uint32(h.startCtr)+1), h.sessionCookieFor(t), nil)
+		rec := h.lastRecord(t, h.employeeID)
+		if rec.Verdict != "ok" || rec.Type == nil || *rec.Type != "out" {
+			t.Fatalf("verdict/type = %q/%v, want ok/out: this case is not testing the stale-open-in note",
+				rec.Verdict, rec.Type)
+		}
+		got := clockRE.ReplaceAllString(screenText(t, w.Body.String()), "<clock>")
+		want := shell + " St Julians Tapped out <clock> APPROVED Trust 70 " +
+			noteIPMatched + "; " + noteStaleOpenIn +
+			" Great work today. See you next shift! 👋 All done — you can close this page."
+		if got != want {
+			t.Fatalf("production stale-check-out screen:\n got: %s\nwant: %s", got, want)
+		}
+	})
+
+	t.Run("ignored: the debounced duplicate", func(t *testing.T) {
+		h := newTapHarness(t)
+		cookie := h.sessionCookieFor(t)
+		if w := h.postTap(t, h.qrContext(), cookie, nil); w.Code != http.StatusOK {
+			t.Fatalf("first tap status = %d", w.Code)
+		}
+		w := h.postTap(t, h.qrContext(), cookie, nil)
+		if rec := h.lastRecord(t, h.employeeID); rec.Verdict != "ignored" {
+			t.Fatalf("verdict = %q, want ignored: this case is not testing the debounce screen", rec.Verdict)
+		}
+		got := clockRE.ReplaceAllString(screenText(t, w.Body.String()), "<clock>")
+		want := shell + " St Julians Already tapped <clock> IGNORED Trust 70 " + noteDebounce +
+			" You tapped a moment ago, so this one was not counted. Tell your manager if that looks" +
+			" wrong. You can close this page."
+		if got != want {
+			t.Fatalf("production ignored screen — the predecessor's verdict is UNKNOWN here:\n got: %s\nwant: %s",
+				got, want)
+		}
+	})
+}
+
+// openCheckInAgedBy commits an OPEN check-in that occurred `age` ago, so the next
+// real tap resolves to a check-OUT against it.
+//
+// It INSERTs directly rather than tapping, and that is the only way to reach the
+// shape: staleOpenInThreshold is 18 hours (internal/domain/tap), and a test cannot
+// wait. The row is otherwise an ordinary decided tap — type 'in', verdict 'ok' —
+// so GetLastOpenTransaction finds it exactly as it would find a real one.
+func (h *tapHarness) openCheckInAgedBy(t *testing.T, age time.Duration) {
+	t.Helper()
+	err := h.data.WithTenant(context.Background(), h.tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		_, e := tx.Exec(ctx,
+			`INSERT INTO transactions (tenant_id, employee_id, location_id, tag_uid, type,
+			                           occurred_at, verdict, channel, sun_valid, trust)
+			 VALUES ($1, $2, $3, $4, 'in', now() - $5::interval, 'ok', 'nfc', true, 100)`,
+			h.tenantID, h.employeeID, h.locationID, h.tagUID, age.String())
+		return e
+	})
+	if err != nil {
+		t.Fatalf("seeding an open check-in: %v", err)
 	}
 }

@@ -20,18 +20,23 @@ import "strconv"
 // "Try again" belongs on the FAILURE pages (pages.Problem), where a retry is a
 // real instruction; here it would invite somebody to double their own tap.
 //
-// ⚠️ INTERIM (M5-05). M5-06 owns the finished screen: the tenant's own message
-// after a check-in, the copy pass, and whatever the brand review asks for. What
-// this renders is the part the POST cannot go without — the stamp, the sentence,
-// the time — built out of the docket motif and the stamp classes that already
-// exist in input.css rather than out of new ones.
+// THE COPY BRANCHES ON THE VERDICT, ONCE, AND THAT IS §4.6 (M5-06). Until this
+// task the closing line was chosen by a single bool — "did this put an hour on
+// the record" — which grouped `ok` with `flag` and told somebody whose tap had
+// just gone into a manager's approval queue "All done". That is the silent
+// approval §4.6 forbids, on the one surface where the person could have done
+// something about it. Four verdicts now get four sentences; none of them is
+// cheerful about a tap that was not counted, and none of them offers a button.
 //
 // THE STAMP TEXT AND THE COLOUR SAY THE SAME THING. Status is never carried by
 // colour alone (accessibility, skill tappa-brand): APPROVED / FLAGGED / REJECTED
 // / IGNORED is readable with no colour at all, and the class only tints it.
 //
 // EVERY NUMBER IS MONO. The time and the trust score run in IBM Plex Mono
-// through .docket, which is where the docket feeling comes from.
+// through .docket, which is where the docket feeling comes from. There is no
+// DURATION on this screen — a shift total is a report, not a confirmation — so
+// "clock and duration in mono" is satisfied by the only one of the two that
+// exists here.
 func Result(v ResultView) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -72,7 +77,7 @@ func Result(v ResultView) templ.Component {
 			var templ_7745c5c3_Var3 string
 			templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinStringErrs(v.Venue)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/result.templ`, Line: 32, Col: 38}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/result.templ`, Line: 37, Col: 38}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var3))
 			if templ_7745c5c3_Err != nil {
@@ -85,7 +90,7 @@ func Result(v ResultView) templ.Component {
 			var templ_7745c5c3_Var4 string
 			templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(v.Headline())
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/result.templ`, Line: 34, Col: 20}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/result.templ`, Line: 39, Col: 20}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 			if templ_7745c5c3_Err != nil {
@@ -103,7 +108,7 @@ func Result(v ResultView) templ.Component {
 				var templ_7745c5c3_Var5 string
 				templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(v.At)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/result.templ`, Line: 36, Col: 75}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/result.templ`, Line: 41, Col: 75}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
 				if templ_7745c5c3_Err != nil {
@@ -139,7 +144,7 @@ func Result(v ResultView) templ.Component {
 			var templ_7745c5c3_Var6 string
 			templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.JoinStringErrs(strconv.Itoa(v.Trust))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/result.templ`, Line: 50, Col: 49}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/result.templ`, Line: 55, Col: 49}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var6))
 			if templ_7745c5c3_Err != nil {
@@ -157,7 +162,7 @@ func Result(v ResultView) templ.Component {
 				var templ_7745c5c3_Var7 string
 				templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinStringErrs(v.Note)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/result.templ`, Line: 53, Col: 40}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/result.templ`, Line: 58, Col: 40}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var7))
 				if templ_7745c5c3_Err != nil {
@@ -172,16 +177,9 @@ func Result(v ResultView) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			if v.Recorded() {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, "<p class=\"mt-4 text-ink/70\">All done — you can close this page.</p>")
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-			} else {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 15, "<p class=\"mt-4 text-ink/70\">This tap was recorded but not counted. Tell your manager if that looks wrong.</p>")
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
+			templ_7745c5c3_Err = closing(v).Render(ctx, templ_7745c5c3_Buffer)
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
 			}
 			return nil
 		})
@@ -214,8 +212,48 @@ func Result(v ResultView) templ.Component {
 // change — a visible edit to tailwind.config.js, rather than a class name quietly
 // moving house.
 //
-// The STATUS IS NEVER CARRIED BY COLOUR ALONE: each branch renders the word too,
-// so the screen reads correctly in monochrome and to a screen reader.
+// THE STATUS IS NEVER CARRIED BY COLOUR ALONE: each branch renders the word too,
+// so a screen reader gets the verdict.
+//
+// ⚠️ THAT IS THE SCREEN-READER HALF ONLY, and an earlier version of this comment
+// claimed the sighted half as well ("reads correctly in monochrome"). MEASURED,
+// it does not: .stamp is 11px bold at opacity .8, and against paper #FFFDF4 the
+// two quiet verdicts fall far below the 4.5:1 that AA asks for — stamp--ignored
+// (line #C9D2C8) at 1.52:1 and stamp--flagged (saffron #D98E2B) at 2.62:1, before
+// the opacity is even applied. A sighted user gets neither the colour nor the
+// word from the stamp on those two.
+//
+// WHAT ACTUALLY CARRIES THE STATUS FOR THEM is the CLOSING SENTENCE — and its
+// contrast is 5.70:1, NOT the ~16:1 an earlier version of this comment claimed.
+// Two mistakes produced that number and both are worth naming, because the second
+// one is a DOM fact nobody had checked:
+//
+//   - the closing paragraphs are text-ink/70, not solid ink
+//     (rgba(21,34,25,.7) in the compiled stylesheet), and
+//   - they render OUTSIDE the docket. `closing()` is invoked after </section>,
+//     so their ground is the body's bg-porcelain #EDF0EA, not the docket's
+//     bg-paper #FFFDF4.
+//
+// Composited the way a browser does it (sRGB), ink/70 over porcelain is
+// rgb(86,96,88) → 5.70:1. It CLEARS AA's 4.5:1, so nothing here needs changing;
+// what needed changing was the claim. ~16:1 is the HEADLINE's value — solid
+// text-ink on bg-paper inside the docket, 16.17:1 — which is a different element
+// on a different ground.
+//
+// For two of the four verdicts the headline helps as well: "Already tapped" over
+// "…this one was not counted", and "Not counted" over "…recorded but not counted".
+//
+// THE HEADLINE DOES NOT HELP ON `flag`, which is worth stating because flag is
+// the quiet-stamp verdict that matters most: its headline is the SAME as an
+// `ok`'s ("Tapped in"), so a sighted user who cannot read a 2.62:1 saffron stamp
+// learns the tap is not counted yet from ONE place only — the closing sentence.
+// That sentence is therefore not decoration: it is the ONLY carrier of §4.6 on
+// that screen that clears AA, at 5.70:1 — not "full contrast", which is what the
+// retracted version called it. TestResultScreen_SaysExactlyThisAndNothingElse
+// pins its words.
+//
+// The contrast of the stamp itself is a BRAND decision (skill tappa-brand fixes
+// ignored -> line) and is not changed here.
 func stamp(v ResultView) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -239,29 +277,279 @@ func stamp(v ResultView) templ.Component {
 		ctx = templ.ClearChildren(ctx)
 		switch v.Verdict {
 		case "ok":
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 16, "<span class=\"stamp stamp--approved\">APPROVED</span>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, "<span class=\"stamp stamp--approved\">APPROVED</span>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		case "flag":
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "<span class=\"stamp stamp--flagged\">FLAGGED</span>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 15, "<span class=\"stamp stamp--flagged\">FLAGGED</span>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		case "reject":
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 18, "<span class=\"stamp stamp--rejected\">REJECTED</span>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 16, "<span class=\"stamp stamp--rejected\">REJECTED</span>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		case "ignored":
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 19, "<span class=\"stamp stamp--ignored\">IGNORED</span>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "<span class=\"stamp stamp--ignored\">IGNORED</span>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		default:
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 20, "<span class=\"stamp stamp--ignored\">RECORDED</span>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 18, "<span class=\"stamp stamp--ignored\">RECORDED</span>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
+			}
+		}
+		return nil
+	})
+}
+
+// closing is the last thing on the screen: what just happened, in one or two
+// sentences, and no way to do anything else.
+//
+// ONE SENTENCE PER VERDICT, and each one has to be true of THAT verdict:
+//
+//	ok       counted. The brand line, then §9's exact words.
+//	flag     RECORDED AND WAITING. §4.6 forbids a silent approval, so this is
+//	         the one that may not say "all done": the hours are not on the sheet
+//	         until a manager approves them, and the person is told so plainly
+//	         and without blame. It still has NO BUTTON — there is nothing they
+//	         can press that would help, and offering one would suggest the
+//	         opposite.
+//
+//	         IT ALSO MAY NOT PROMISE THE APPROVAL. It used to say the manager
+//	         "will confirm this one" and that there is "nothing for you to do" —
+//	         two closed doors in one sentence. A manager can REFUSE a flagged
+//	         tap, so "will confirm" states an outcome nobody has decided; and
+//	         "nothing for you to do" removes the appeal that §4.6's whole point
+//	         is to preserve, on the one verdict where the person most needs it.
+//	         Every other branch already ends with an escape hatch; this one now
+//	         does too.
+//	ignored  the debounce (§5 row 5). SAYS NOTHING ABOUT THE EARLIER TAP — see
+//	         the block on that branch below, it is the whole point of it.
+//	reject   recorded and refused. Not counted, and worth telling a manager.
+//
+// 🔴 THE ignored BRANCH MAY NOT CLAIM THE EARLIER TAP COUNTED, and an earlier
+// version of this file did exactly that ("Your earlier tap stands."). It is
+// false, and it moved the §4.6 defect this task removed from `flag` onto
+// `ignored` rather than fixing it, because THE DEBOUNCE IS VERDICT-BLIND at
+// every link of the chain:
+//
+//	db/queries/transactions.sql  GetLastTransactionForEmployee selects the
+//	                             person's most recent row with NO verdict filter.
+//	internal/domain/tap/decide   SecondsSincePersonLastTap is set from that row
+//	                             unconditionally.
+//	internal/policy/guardrails   sys:person-debounce matches on the GAP alone.
+//
+// So the predecessor of an `ignored` can be a `flag` sitting in an approval
+// queue, or a `reject`. Concretely: a venue with no registered IP where the
+// person denies location gives tap 1 = `flag`; they hesitate, tap again twenty
+// seconds later, and this screen used to send them away believing the first one
+// had gone through. (state.md already carried the same fact as a hand-off:
+// "debounce basis is any verdict — a reject ten seconds ago can swallow a real
+// tap".) The fix is NOT to teach this screen the predecessor's verdict — that
+// would be a new field on ResultView, and §9 says ask before adding one — it is
+// to say only what this screen can know: THIS tap did not count, and here is who
+// to ask if that is wrong.
+//
+// EVEN THE WORD "AGAIN" WAS TOO MUCH, and it survived the first repair of this
+// branch ("was not counted again"). "Again" presupposes a first counting — the
+// exact claim the paragraph above proves the screen cannot make, smuggled in as
+// grammar rather than as a sentence. It is gone.
+//
+// HOW THE WHOLE SCREEN IS HELD NOW, and the history matters because two weaker
+// mechanisms were tried and beaten. A blacklist of forbidden phrases was beaten
+// twice by rephrasing the same claim. A byte-golden for THIS branch was beaten
+// too — not because goldens do not work, but because it was hand-written with an
+// empty Decision.Note, a shape production never renders, so it did not cover the
+// note paragraph a sentence was then hidden inside.
+//
+// WHAT HOLDS NOW, stated as what the code actually reads rather than as a
+// guarantee: the WHOLE DOCUMENT's text nodes — <title> and every element in
+// <body>, not just <main> — plus the values of the ELEVEN attributes a person
+// perceives that textAttrRE lists (title, value, alt, placeholder and seven aria-*
+// string attributes; `value` and aria-roledescription are on it because a
+// five-name version of this sentence was written first and an audit walked a
+// sentence through both of them). Compared for every
+// verdict with the notes the real engine emits, and asserted twice: once against
+// fakes and once against real Postgres through the real decision engine
+// (internal/handler: TestResultScreen_SaysExactlyThisAndNothingElse and
+// TestCheckinDB_ScreenTextIsWhatProductionRenders).
+//
+// IT DOES NOT SEE TEXT THAT CSS GENERATES. `content:` on a ::before/::after puts
+// words on the screen that no HTML reader can find, and a measured mutation used
+// exactly that. TestCompiledCSS_GeneratesNoText covers that channel separately by
+// reading the built stylesheet, and only when one has been built. The limits are
+// listed in full at screenText.
+//
+// NOBODY IS TOLD TO TAP AGAIN HERE. On every one of these four the tap DID
+// reach the record, so a retry would either double a real entry or produce the
+// identical answer — which is why the "Try again" of the M5-06 card lives on
+// pages.Problem, where nothing was recorded and a retry can change something.
+func closing(v ResultView) templ.Component {
+	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
+			return templ_7745c5c3_CtxErr
+		}
+		templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+		if !templ_7745c5c3_IsBuffer {
+			defer func() {
+				templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+				if templ_7745c5c3_Err == nil {
+					templ_7745c5c3_Err = templ_7745c5c3_BufErr
+				}
+			}()
+		}
+		ctx = templ.InitializeContext(ctx)
+		templ_7745c5c3_Var9 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var9 == nil {
+			templ_7745c5c3_Var9 = templ.NopComponent
+		}
+		ctx = templ.ClearChildren(ctx)
+		switch v.Verdict {
+		case "ok":
+			templ_7745c5c3_Err = brandMessage(v).Render(ctx, templ_7745c5c3_Buffer)
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 19, " <p class=\"mt-4 text-ink/70\">All done — you can close this page.</p>")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+		case "flag":
+			if v.Practice {
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 20, "      <p class=\"mt-4 text-ink/70\">Recorded, and your manager will see it. Tell them if that looks wrong.</p>")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+			} else {
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 21, "<p class=\"mt-4 text-ink/70\">Recorded — it needs your manager's approval before it counts toward your hours. Tell them if that looks wrong.</p>")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 22, " <p class=\"mt-2 text-ink/70\">You can close this page.</p>")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+		case "ignored":
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 23, "<p class=\"mt-4 text-ink/70\">You tapped a moment ago, so this one was not counted. Tell your manager if that looks wrong.</p><p class=\"mt-2 text-ink/70\">You can close this page.</p>")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+		default:
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 24, "<p class=\"mt-4 text-ink/70\">This tap was recorded but not counted. Tell your manager if that looks wrong.</p><p class=\"mt-2 text-ink/70\">You can close this page.</p>")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+		}
+		return nil
+	})
+}
+
+// brandMessage is the warm line a good tap ends with (skill tappa-brand).
+//
+// IT IS KEYED ON THE TENANT'S BUSINESS TYPE, NOT ON THE TENANT. The category is
+// one of the eight CHECK-constrained values of migration 00001, so this switch
+// cannot name, identify or leak an organisation — and a tenant id was never
+// available here anyway (see ResultView's field list). The consequence is a
+// KNOWN LIMIT rather than a hidden one: two restaurants get the same sentence.
+// Copy a customer can edit per tenant is M9-04, and it needs a column that does
+// not exist yet.
+//
+// THE DEFAULT IS NEUTRAL ON PURPOSE. An unknown, new or empty business type must
+// not fall into silence (a blank space where a sentence belongs reads as a bug)
+// and must not be handed somebody else's trade — telling a hotel's night porter
+// to keep the kebabs rolling is worse than saying nothing. So the fall-through
+// says something warm that is true of any workplace.
+//
+// NOT SHOWN ON A PRACTICE TAP. A training tap is not a shift starting, and
+// "have a great shift" directly beside "this does not count toward your hours"
+// contradicts itself. The training line is the message on that screen.
+//
+// NOT SHOWN ON flag / ignored / reject — those branches never call this. A
+// cheerful send-off over a tap that is waiting for a manager is exactly the
+// silent approval §4.6 forbids.
+//
+// BOTH AXES HAVE A DEFAULT, and the symmetry is the rule rather than a tidiness
+// preference: every switch on a value this template does not own must end
+// somewhere, or a value nobody anticipated produces SILENCE where a sentence
+// belongs. The first version guarded BusinessType that way and left Direction
+// without a fallback, so an `ok` carrying no direction would have rendered an
+// empty send-off. Unreachable today (tap.Decide gives every ok and flag a
+// direction, on the same gate that sets Practice) — which is exactly why it
+// needed writing down instead of relying on.
+//
+// DIRECTION IS THE OUTER SWITCH so the fallback is written ONCE. Arriving and
+// leaving are different sentences in every trade; "we do not know which" is one
+// sentence in all of them.
+func brandMessage(v ResultView) templ.Component {
+	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
+			return templ_7745c5c3_CtxErr
+		}
+		templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+		if !templ_7745c5c3_IsBuffer {
+			defer func() {
+				templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+				if templ_7745c5c3_Err == nil {
+					templ_7745c5c3_Err = templ_7745c5c3_BufErr
+				}
+			}()
+		}
+		ctx = templ.InitializeContext(ctx)
+		templ_7745c5c3_Var10 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var10 == nil {
+			templ_7745c5c3_Var10 = templ.NopComponent
+		}
+		ctx = templ.ClearChildren(ctx)
+		if !v.Practice {
+			switch v.Direction {
+			case "in":
+				switch v.BusinessType {
+				case "restaurant":
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 25, "<p class=\"mt-4 font-display text-lg tracking-tight\">Have a great shift — keep those kebabs rolling! 🌯</p>")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+				case "production":
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 26, "<p class=\"mt-4 font-display text-lg tracking-tight\">Have a productive shift — stay safe on the floor! 🏭</p>")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+				default:
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 27, "<p class=\"mt-4 font-display text-lg tracking-tight\">Have a great shift!</p>")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+				}
+			case "out":
+				switch v.BusinessType {
+				case "restaurant":
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 28, "<p class=\"mt-4 font-display text-lg tracking-tight\">Great work today. See you next shift! 👋</p>")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+				case "production":
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 29, "<p class=\"mt-4 font-display text-lg tracking-tight\">Shift complete. Thank you for your work today! 👋</p>")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+				default:
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 30, "<p class=\"mt-4 font-display text-lg tracking-tight\">Thanks for today. See you next time! 👋</p>")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+				}
+			default:
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 31, "  <p class=\"mt-4 font-display text-lg tracking-tight\">Thanks — have a good one!</p>")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
 			}
 		}
 		return nil
