@@ -112,17 +112,38 @@
     @apply text-[10px] uppercase tracking-widest text-ink/50;
   }
 
-  /* --- rubber stamp: slightly rotated, double framed, ink-like --- */
+  /* --- rubber stamp: slightly rotated, double framed, ink-like ---
+     THE WORD IS `ink`; THE STATUS COLOUR IS THE FRAME (user decision, 2026-08-01).
+     Until this change the WORD carried the status colour, and two of the five
+     stamps were unreadable by measurement rather than by opinion: against the
+     docket's bg-paper #FFFDF4, stamp--ignored (line #C9D2C8) was 1.52:1 and
+     stamp--flagged (saffron #D98E2B) 2.62:1, where AA asks 4.5:1 of 11px bold.
+     The brand's fixed status-to-colour mapping is NOT weakened by the fix and no
+     token was added to the palette: the colour moved into the 2px frame, the 1px
+     inner ring and a 10% ground. Every word is now ink on a tinted paper ground —
+     13.27:1 at worst, 15.55:1 at best.
+
+     opacity-80 IS GONE, and the reason is that sentence rather than AA. Group
+     opacity fades everything inside the group, and what is inside it is now the
+     only carrier of the colour: it took the saffron frame from 2.62:1 to 2.14:1
+     against paper and the line frame from 1.52:1 to 1.39:1. The "ink impression"
+     the transparency was buying is what the frame and the ground now give. The
+     word would have cleared AA either way — ink@.8 on paper is 8.54:1 measured —
+     so this is a legibility-of-the-FRAME decision, not a rescue of the text.
+
+     --stamp-tone carries the status colour to the inner ring, which used to read
+     `currentColor` and would otherwise now be ink; the fallback keeps a bare
+     .stamp framed rather than ringless. */
   .stamp {
     @apply inline-block px-2.5 py-1 text-[11px] font-bold uppercase tracking-[0.18em]
-           border-2 rounded-sm opacity-80 select-none -rotate-6;
-    box-shadow: inset 0 0 0 1px currentColor;
+           text-ink border-2 rounded-sm select-none -rotate-6;
+    box-shadow: inset 0 0 0 1px var(--stamp-tone, currentColor);
   }
-  .stamp--approved { @apply text-tappa-green border-tappa-green; }
-  .stamp--flagged  { @apply text-saffron border-saffron -rotate-3; }
-  .stamp--rejected { @apply text-tomato border-tomato -rotate-12; }
-  .stamp--ignored  { @apply text-line border-line rotate-2; }
-  .stamp--training { @apply text-ink border-ink border-dashed rotate-3; }
+  .stamp--approved { --stamp-tone: theme('colors.tappa-green'); @apply border-tappa-green bg-tappa-green/10; }
+  .stamp--flagged  { --stamp-tone: theme('colors.saffron'); @apply border-saffron bg-saffron/10 -rotate-3; }
+  .stamp--rejected { --stamp-tone: theme('colors.tomato'); @apply border-tomato bg-tomato/10 -rotate-12; }
+  .stamp--ignored  { --stamp-tone: theme('colors.line'); @apply border-line bg-line/10 rotate-2; }
+  .stamp--training { --stamp-tone: theme('colors.ink'); @apply border-ink border-dashed bg-ink/10 rotate-3; }
 
   /* --- tap screen: a target big enough for a gloved or wet finger --- */
   .tap-button {

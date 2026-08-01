@@ -118,14 +118,19 @@ DOLDURUR. Aşağıdakiler doldurulmazsa guardrail **sessizce** ateşlemez (eksik
    **altısı** korunuyor, ortak `pages.Problem` şablonunu paylaşan **beş aktivasyon ekranı** korunmuyor.
    İki denetçi de "düşük riskli, asimetriyi kaldırır" dedi ama **M5-02'nin akışı** olduğu için dokunulmadı.
 4. **CI `make css` koşmuyor** (`ci.yml`: yalnız `make tools`/`up`/`check`/`audit`; `app.css` gitignore'da)
-   → `TestCompiledCSS_GeneratesNoText` **CI'da daima SKIP**. CSS ile üretilen metin kanalı yalnız
-   geliştiricinin makinesinde, elle `make css` sonrası korunuyor. **M8** (ya da tek satırlık CI adımı).
-5. **Damga kontrastı — kullanıcı kararı bekliyor.** `.stamp` 11px bold + `opacity:.8`; `paper #FFFDF4`
-   üstünde `stamp--ignored` (`line`) **1.52:1**, `stamp--flagged` (`saffron`) **2.62:1** — AA 4.5 ister
-   (opaklıkla efektif 1.39 / 2.14). Bilgi **kaybolmuyor**: durumu gören kullanıcıya kapanış cümlesi
-   taşıyor (**5.70:1**, AA geçer) ve iki verdict'te başlık (**16.17:1**). `ignored → line` eşlemesi
-   **skill `tappa-brand`'in mandası**, o yüzden ajan tek başına değiştirmedi. Aşağıda "kullanıcıya
-   sorulacak"ta.
+   → derlenen CSS'i okuyan **iki test de** (`TestCompiledCSS_GeneratesNoText` ve `TestCompiledCSS_StampWordIsInk`)
+   **CI'da daima SKIP**, ve bir skip **pass değildir**. Hem CSS ile üretilen metin kanalı hem damga
+   renginin ink kaldığı yalnız geliştiricinin makinesinde, elle `make css` sonrası korunuyor.
+   **M8** (ya da tek satırlık CI adımı).
+5. ~~**Damga kontrastı — kullanıcı kararı bekliyor.**~~ **KAPANDI — kullanıcı kararı 2026-08-01:**
+   *damga METNİ `ink`, durum RENGİ çerçevede.* Eşleme korundu, palete yeni token girmedi. Ölçüldü
+   (`paper #FFFDF4` üstünde, damganın `.docket` içinde olduğu render edilen HTML'den doğrulandı):
+   **ÖNCE** approved 7.73 / flagged **2.62** / rejected 5.30 / ignored **1.52** / training 16.17, ve
+   `.stamp`'in `opacity:.8`'iyle efektif 4.70 / **2.14** / **3.77** / **1.39** / 8.54 → **beşten üçü AA'nın
+   altındaydı**. **SONRA** 13.85 / 14.81 / 13.99 / 15.55 / 13.27 — hepsi geçiyor. `opacity-80` **kaldırıldı**
+   (AA için değil: çerçeve artık tek renk taşıyıcı ve grup opaklığı onu da soluklaştırıyordu).
+   **Kalan sınır (yazılı, kabul edildi):** çerçevenin kendisi WCAG 1.4.11'in **metin-dışı 3:1** eşiğini
+   `saffron` (2.62) ve `line` (1.52) için geçmiyor — durumu **kelime** taşıdığı için kabul edildi.
 6. **Ekran-başına elle kapsam.** M5-06'nın üç beyaz listesi (metin · eleman · referans) **ekran başına**
    ve **elle**: bu pakete sonradan eklenen bir şablon, biri onu **iki listeye de** yazana kadar hiçbiriyle
    kapsanmıyor. Hiçbir şey bunu zorlamıyor — yazılı sınır.
@@ -619,7 +624,20 @@ metnini yalnız elle kurulmuş bir view pinliyordu → `renderProblem` saptırı
   düzeltme talimatını `make templ` çıktısıyla çürüttü (templ büyük harfi **birebir koruyor**).
 
 **Sırada:** M5-07 (mini tur + practice tap). `practice` bayrağı ve TRAINING damgası zaten çalışıyor;
-M5-07'nin işi turun kendisi. **Kullanıcıya sorulacak:** damga kontrastı (aşağı, devirler md.5).
+M5-07'nin işi turun kendisi.
+
+**Aynı gün, kapanış:** damga kontrastı kullanıcıya soruldu ve **karar alındı — *kelime `ink`, durum rengi
+çerçevede*.** Eşleme korundu, palete yeni token girmedi, beş damga da AA'yı geçiyor (13.27–15.55; önce
+render edildiği hâliyle **üçü** altındaydı). `opacity-80` kaldırıldı. **skill `tappa-brand` güncellendi** —
+skill'in kendi *"Kontrast AA"* kuralını iki damgada çiğnediği açıkça yazıldı. Ve bu küçük iş **iki ders**
+üretti: (1) **Tailwind `.templ`'i YORUMLAR DÂHİL ham metin olarak tarıyor** — düzyazıda geçen `opacity-80`
+gibi bir kelime **gerçek ölü kural derliyor** (ölçüldü: iki isim = **+330 bayt**), ve tuzak **zaten
+ateşlenmiş**: `app.css` bugün **yedi** ölü kural taşıyor (`.filter` 185 B · `.visible` · `.relative` ·
+`.min-h-16` · `.static` · `.fixed` · `.hidden` = **334 bayt, %2.34**), hiçbiri **95 `class` özniteliğinin**
+hiçbirinde yok. (2) **Bir değişiklik `state.md`'yi yanlışlayabilir:** denetçinin bloklayan bulgusu koda
+değil **bu dosyaya** çıktı — kontrast satırları düzeltmeden önce hâlâ *"kullanıcı kararı bekliyor"* ve
+*"1.52:1 / opacity:.8"* diyordu. **Ders: bir görevi kapatan değişiklik, o görevin devir notlarını da
+kapatmak zorunda** — yoksa sonraki oturum var olmayan bir kusuru taşır.
 
 ### 2026-07-31 (5. oturum) — **M5-05 done** · 🎉 **uçtan uca check-in ÇALIŞIYOR**
 

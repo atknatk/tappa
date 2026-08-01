@@ -2015,7 +2015,12 @@ sözleşme aşağıdaki kart düzeltmesinde.
 > your manager's approval before it counts toward your hours. Tell them if that
 > looks wrong."* Diğer üç dalın kaçış kapısıyla aynı hizada.
 >
-> **7. Damga kontrastı: yorum düzeltildi, kod DEĞİL** (5. tur). `stamp` bileşeninin
+> **7. Damga kontrastı: 5. turda YORUM düzeltildi, kod 2026-08-01'de düzeldi.**
+> *(Bu madde 2026-08-01'de güncellendi. Başlığı "yorum düzeltildi, kod DEĞİL"di ve
+> artık doğru değil: kullanıcı kararı geldi ve kod değişti. Aşağıdaki 5. tur
+> ölçümü tarihsel kayıt olarak duruyor; kararın kendisi maddenin sonunda.)*
+>
+> `stamp` bileşeninin
 > yorumu *"the screen reads correctly **in monochrome** and to a screen reader"*
 > diyordu; ekran-okuyucu yarısı doğru, **gören kullanıcı yarısı yanlış**: `.stamp`
 > 11px bold + `opacity:.8`, ve `paper #FFFDF4` üstünde `stamp--ignored`
@@ -2031,9 +2036,129 @@ sözleşme aşağıdaki kart düzeltmesinde.
 > **başlığın** değeri (docket içinde düz `text-ink` on `bg-paper` = 16,17:1), başka
 > bir eleman başka bir zemin üstünde. Başlık dört verdict'in **ikisinde** yardım
 > ediyor (*"Already tapped"*, *"Not counted"*); **`flag`'de etmiyor** — başlığı
-> `ok` ile aynı, dolayısıyla orada AA'yı geçen tek taşıyıcı kapanış cümlesi.
-> **Kontrast değiştirilmedi** — `ignored → line` skill'in mandası, marka kararı
-> kullanıcıya sorulacak.
+> `ok` ile aynı, dolayısıyla **o gün** AA'yı geçen tek taşıyıcı kapanış cümlesiydi.
+>
+> **KARAR VE DÜZELTME (kullanıcı, 2026-08-01).** 5. turda kod değiştirilmemişti,
+> çünkü `ignored → line` skill'in mandası ve bu bir **marka** kararı; kullanıcıya
+> soruldu. Verilen karar: **damganın METNİ `ink` olur, durum RENGİ çerçevede
+> kalır** (2px kenarlık + 1px iç halka + `bg-<token>/10` zemin). Gerekçe: durum →
+> renk eşlemesi **korunur**, palete **yeni token girmez**, beş damga da okunur olur,
+> kaşe hissi çerçeveden gelir. `input.css` buna göre yeniden yazıldı; `.templ`
+> sınıf adları **değişmedi** (`stamp--approved` … `stamp--training`), yani M5-05'in
+> "sınıf adı taranan `.templ`'de literal yaşamalı" kuralına dokunulmadı.
+>
+> `opacity-80` de **kaldırıldı**, ve gerekçesi AA değil: grup opaklığı içindeki her
+> şeyi soluklaştırıyor, rengi taşıyan şey ise artık çerçeve — saffron kenarlığı
+> paper üstünde 2,62:1 → **2,14:1**, `line` kenarlığı 1,52:1 → **1,39:1**. Kelime
+> her iki hâlde de AA'yı geçiyordu (`ink@.8` on paper = **8,54:1**, ölçüldü; bu sayı
+> önceden "≈11:1" diye tahmin edilmişti, ölçüm **8,54** dedi).
+>
+> Ölçülen kontrast (zemin `paper #FFFDF4`; damganın docket'in **içinde** render
+> edildiği **üretilen HTML'den** doğrulandı, varsayılmadı):
+>
+> | Damga | ÖNCE (kelime = durum rengi) | ÖNCE @`.8` | SONRA (kelime `ink`, zemin `<token>/10`) |
+> |---|---|---|---|
+> | `approved` | 7,73:1 ✅ | 4,70:1 ✅ | **13,85:1** ✅ |
+> | `flagged` | 2,62:1 ❌ | 2,14:1 ❌ | **14,81:1** ✅ |
+> | `rejected` | 5,30:1 ✅ | 3,77:1 ❌ | **13,99:1** ✅ |
+> | `ignored` | 1,52:1 ❌ | 1,39:1 ❌ | **15,55:1** ✅ |
+> | `training` | 16,17:1 ✅ | 8,54:1 ✅ | **13,27:1** ✅ |
+>
+> Yani `flag`'de artık **iki** taşıyıcı var (damga 14,81:1 + kapanış cümlesi
+> 5,70:1), bir değil.
+>
+> **Skill de düzeltildi.** `tappa-brand` hem "durum → renk eşlemesi sabittir" hem
+> "Kontrast AA" diyordu ve ikisinin **çakıştığını hiç ölçmemişti**; beş damganın
+> **gerçekte render edilen** hâlleri (`opacity:.8` uygulanmış) sayıldığında **üçü**
+> AA'nın altındaydı (`ignored` 1,39 · `flagged` 2,14 · `rejected` 3,77; `approved`
+> 4,70 ile sınırın hemen üstünde). Skill artık kelimenin `ink`
+> olduğunu, rengin çerçeveye gittiğini, ölçülen sayıları ve **kendi kuralını
+> çiğnediğini** açıkça yazıyor.
+>
+> **KONTRAST ARTIK BİR TESTLE KORUNUYOR — ama dar ve CI'da koşmuyor.** Mutasyonla
+> ölçüldü: kelimeyi durum rengine geri döndürmek suite'i **tamamen yeşil**
+> bırakıyordu — **1158 PASS / 0 FAIL**, mutasyon uygulanmış ve bu test **henüz
+> yazılmamışken** ölçüldü — bu dosyadaki damga testlerinin hepsi HTML
+> okuyor, HTML ise iki hâlde de aynı. `TestCompiledCSS_StampWordIsInk` eklendi:
+> derlenmiş `app.css`'i okur ve iddiası şu — **seçicisinin METNİNDE `.stamp` GEÇEN**
+> her kural, eğer `color:` bildiriyorsa `ink` bildirmek zorunda; artı beş
+> modifier'ın **adının** derlenmiş CSS'te bulunması.
+>
+> ⚠️ **Testin İLK sürümü daha dardı ve denetim iki kaçış ölçtü.** Seçicileri
+> *şekle* göre ayırıyordu (`== ".stamp"` ya da `.stamp--` öneki), ve ikisi de
+> yeşil kalıyordu: `.stamp.stamp--flagged{color:…}` (**bileşik seçici**, ikisine de
+> uymuyor) ve temel kuraldan sonra **ikinci bir** `.stamp{color:…}` (kontrol yalnız
+> *bir* `.stamp` kuralının ink verdiğine bakıyordu). İkisi de artık reddediliyor.
+>
+> 🔴 **GERİ ÇEKİLEN CÜMLE (2. denetim turu).** Burada *"kaçacak şekil kalmıyor"* ve
+> *"yanlış KIRMIZI üretir, yanlış yeşil değil"* yazıyordu. **İkisi de yanlıştı**;
+> denetçi bu cümlelere karşı **üç yanlış yeşil** üretti ve üçü de bizzat yeniden
+> ölçüldü (aşağıda, SINIR v). Testin gerçekte sorduğu şey daha dar: *"bir damgayla
+> **eşleşebilen**"* değil, *"seçicisinin metninde `.stamp` **geçen**"*. Fazla-kapsama
+> yalnız **öbür** yönde duruyor (`.stamp + p{color:…}` de reddedilir — o yanlış
+> KIRMIZI'dır); geri çekilen, bu yönle ilgili olan iddia.
+>
+> ⚠️ **`modifiersSeen` nöbetçisi de saydığını sanmıyordu.** *Occurrence* sayıyordu:
+> taze build'de dokuz `.stamp--*` seçici var, eşik beşti, yani **dört slack**. İki
+> modifier kuralı tamamen silinip sayı **5**'e düştüğünde test **yeşil** kalıyordu
+> (ölçüldü) — iki damga çıplak render edilirken. Artık **distinct ad** aranıyor:
+> `approved · flagged · rejected · ignored · training`.
+>
+> **Dört mutasyonla kanıtlandı, dördü de RED:** (a) kelime geri durum renginde ·
+> (b) `.stamp`'ten `text-ink` silinince · (c) `.stamp.stamp--flagged` bileşik
+> seçicisi · (d) ikinci `.stamp{color:…}` kuralı. Modifier nöbetçisi ayrıca (e) iki
+> modifier kuralı silinince **RED** (mesaj eksik adı yazıyor).
+> **SINIRLARI:** (i) `TestCompiledCSS_GeneratesNoText` gibi **CI'DA DAİMA SKIP** —
+> `ci.yml` CSS derlemiyor, `.gitignore:16` `app.css`'i checkout dışında tutuyor, ve
+> **atlanması geçme değildir**; (ii) **bildirilen** rengi okur, render edilen
+> pikseli değil — ata bir `opacity`/`filter` ya da paper'dan koyu bir zemin bu
+> testin göremeyeceği şeyler; (iii) Tailwind'in `rgb(21 34 25/…)` yazımına bağlı;
+> (iv) 🔴 **BİR KURAL DAMGANIN RENGİNİ BU TARAMA GÖRMEDEN DEĞİŞTİREBİLİR.** Tarama
+> seçicideki `.stamp` **metnine** bakıyor ve yalnız `color:` bildirimlerini okuyor.
+> **Dördü** ölçüldü, **dördü de suite'i tamamen yeşil bıraktı** (sıfır FAIL
+> satırı; sayı burada rakamla yazılıyor çünkü `go test`in FAIL satır kalıbını
+> düzyazıya yazmak, bu dosyanın diff'ini okuyan bir log sayımını yanıltıyor —
+> ölçüldü, `make check` çıktısında tam olarak bu oldu):
+> **(1)** `class="stamp stamp--training text-saffron"` — **markup'ta sıradan bir
+> utility**, yani bu repoda renk eklemenin normal yolu; `.text-saffron` utilities
+> katmanında, eşit özgüllük, dosyada sonra → kazanıyor, kelime **2,15:1**.
+> **(2)** `.docket * { color: … }` — eşit özgüllük, sonra geliyor.
+> **(3)** `span[class~="stamp"] { color: … }` — **daha yüksek** özgüllük, üstelik
+> minifier tırnakları atıyor (`span[class~=stamp]`) yani seçici `.stamp` metnini
+> **hiç içermiyor**.
+> **(4)** `.stamp--flagged { @apply text-opacity-10; }` — bu sınıfı **adıyla anıyor**
+> ve yine de geçiyor: derlenen hâli `.stamp--flagged{--tw-text-opacity:0.1}`
+> (**bayt 7785**, temel `.stamp` kuralı **5956**'da, yani sonra ve eşit özgüllük) ve
+> **hiçbir `color:` bildirimini değiştirmiyor**. Temel kuralın dizesi hâlâ
+> `color:rgb(21 34 25/var(--tw-text-opacity,1))`, tarama ink okuyup geçiyor; FLAGGED
+> **1,22:1** render ediliyor — **bu görevin başladığı 2,62'den bile kötü**. Bu madde
+> (ii)'ye de ait: **beyan edilen** renk ink, **render edilen** piksel değil.
+> **(1) KAPANDI** — ama bu testte değil, **öbür yarıda**:
+> `TestResultScreen_PracticeIsStampedAndSaysItDoesNotCount` artık TRAINING'in tam
+> `class` dizesini pinliyor (dört verdict damgası zaten öyleydi; TRAINING yalnız
+> `Contains("stamp--training")` ile tutuluyordu ve kaçış tam oradan girdi).
+> **(2), (3) ve (4) AÇIK**: kapatmak keyfî seçiciler üzerinde cascade çözmeyi **ve**
+> Tailwind'in kendi değişkenlerini yerine koymayı gerektirir, o da bir tarayıcı —
+> **garanti değil, liste olarak** taşınıyor;
+> (v) **stylesheet'i okur, şablonun o sınıfı hâlâ KULLANIP kullanmadığını göremez.**
+> Ölçüldü: `result.templ`'in markup'ından iki damga sınıfı silindiğinde beş
+> modifier'ın **beşi de** `app.css`'te kaldı (adlar yorumlarda geçtiği için) ve bu
+> test **yeşil**; onu yakalayan
+> `TestResultScreen_StampCarriesTheWordAndTheBrandClass` (aynı mutasyon → **4 FAIL
+> satırı**). İki test bir çiftin iki yarısı.
+> `.stamp`'in `opacity`'si **bilinçli olarak pinlenmedi**: kaldırılması çerçeve
+> kararıydı ve bir marka tercihini teste çivilemek bu testin işi değil.
+> ⚠️ **Bunun eski gerekçesi fazla dardı:** *"ink@.8 = 8,54:1, AA'yı geçiyor"*
+> deniyordu — `.8` için doğru, **başka hiçbir değer için bir şey söylemiyor**;
+> `.1`'de aynı aritmetik **1,22:1** veriyor (yukarıda kaçış 4, ölçüldü). Dürüst
+> ifade *"opacity burada güvenli"* değil, **"bu dosyada opacity'yi kısıtlayan hiçbir
+> şey yok"**tur; ortaya çıkan kontrastı `input.css`'teki ölçümler ve insan denetimi
+> taşıyor.
+>
+> **Kapatılmayan sınır:** çerçevenin kendisi WCAG 1.4.11'in metin-dışı **3:1**'ini
+> saffron (2,62) ve line (1,52) için geçmiyor. Durumu **kelime** taşıdığı için renk
+> pekiştirme sayılıyor ve 1.4.11 bunu zorunlu tutmuyor — kapatılmadı, **sınır olarak
+> yazıldı**.
 >
 > **Ortak `Problem` şablonu ONBİR ekrana düşüyor**, dokuza değil (5 aktivasyon
 > sabiti `activate.go:161-185` + 6 tap sabiti `tap.go`). Pinlenen altısı tap

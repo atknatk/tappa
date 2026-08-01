@@ -181,20 +181,28 @@ func decisionOf(verdict, direction string, practice bool) tap.Decision {
 // saffron, reject -> tomato, ignored -> line, and the WORD says the same thing so
 // a SCREEN READER gets the verdict.
 //
-// ⚠️ NOT "reads in monochrome" — that half is retracted, and it is retracted in
-// result.templ's `stamp` comment with the measurement, so this sentence must not
-// re-assert it. .stamp is 11px bold at opacity .8, and against paper #FFFDF4
-// stamp--ignored (line #C9D2C8) is 1.52:1 and stamp--flagged (saffron #D98E2B) is
-// 2.62:1, both far below AA's 4.5:1: on those two verdicts a sighted user gets
-// neither the colour nor the word FROM THE STAMP. What carries the status for them
-// is the closing sentence — text-ink/70 on the body's bg-porcelain, because
-// closing() renders OUTSIDE the docket, which composites to 5.70:1: over AA's
-// 4.5:1, but not the "~16:1" an earlier version of this comment copied from the
-// HEADLINE (solid ink on bg-paper inside the docket, 16.17:1). The headline helps
-// on two of the four verdicts, not on flag. The words are pinned by
-// TestResultScreen_SaysExactlyThisAndNothingElse. What this test checks is that
-// the stamp's word and its class agree; it is not evidence that the stamp is
-// legible.
+// ⚠️ THIS TEST IS NOT EVIDENCE THAT THE STAMP IS LEGIBLE, and it never was. It
+// reads the HTML, so the word and its class are all it can see; the colours are
+// in the stylesheet. That distinction was load-bearing: with the word in the
+// status colour, .stamp at 11px bold and opacity .8, stamp--ignored (line
+// #C9D2C8) was 1.52:1 and stamp--flagged (saffron #D98E2B) 2.62:1 against the
+// docket's bg-paper — far below AA's 4.5:1, and 1.39:1 / 2.14:1 once the opacity
+// was applied, which also took stamp--rejected under the line at 3.77:1. Three of
+// the five as rendered, and every case here stayed green through all of it.
+//
+// FIXED IN THE STYLESHEET ON 2026-08-01 (user decision): the word is `ink` and
+// the status colour is the frame, the inner ring and a 10% ground, which is why
+// the class assertions below are unchanged — the mapping moved, it did not go
+// away. Measured after the change: 13.85 / 14.81 / 13.99 / 15.55 / 13.27:1.
+// TestCompiledCSS_StampWordIsInk is what holds it, and it holds it only where a
+// stylesheet has been built (never on CI — see its comment).
+//
+// The other carriers, unchanged: the closing sentence is text-ink/70 on the
+// body's bg-porcelain, because closing() renders OUTSIDE the docket, which
+// composites to 5.70:1 — over AA's 4.5:1, but not the "~16:1" an earlier version
+// of this comment copied from the HEADLINE (solid ink on bg-paper inside the
+// docket, 16.17:1). The headline helps on two of the four verdicts, not on flag.
+// The words are pinned by TestResultScreen_SaysExactlyThisAndNothingElse.
 //
 // The class names are asserted as the strings that must appear in the HTML,
 // which is also what Tailwind scans for — a class that stops being a literal in a
@@ -252,6 +260,18 @@ func TestResultScreen_StampCarriesTheWordAndTheBrandClass(t *testing.T) {
 // TRAINING, and an explicit sentence that the hours do not count. The brand
 // message is deliberately absent — "have a great shift" beside "this does not
 // count toward your hours" contradicts itself.
+//
+// 🔴 THE CLASS STRING IS PINNED EXACTLY, and it was not until an audit walked
+// through the gap. The four verdict stamps above are held to
+// `class="stamp X">WORD` as one literal; TRAINING was held to
+// strings.Contains("stamp--training"), which a SIXTH class slides straight past.
+// Measured: `class="stamp stamp--training text-saffron"` — an ordinary Tailwind
+// utility in the markup, the normal way colour is added in this repo — left the
+// WHOLE SUITE GREEN while the word rendered at 2.15:1 against its own ground,
+// because .text-saffron lands in the utilities layer at equal specificity and
+// later in the file than .stamp. The stylesheet-side check cannot see that (its
+// LIMITS list says so); this is the side that can, so it is held as tightly as
+// its four neighbours.
 func TestResultScreen_PracticeIsStampedAndSaysItDoesNotCount(t *testing.T) {
 	body, _ := resultBody(t, checkin.Result{
 		Outcome:      checkin.OutcomeRecorded,
@@ -260,10 +280,15 @@ func TestResultScreen_PracticeIsStampedAndSaysItDoesNotCount(t *testing.T) {
 		BusinessType: "restaurant",
 	}, nil)
 
-	for _, want := range []string{"TRAINING", "stamp--training", "does not count toward your hours"} {
-		if !strings.Contains(body, want) {
-			t.Fatalf("a practice tap did not render %q", want)
-		}
+	// One literal: the word, the class, and NOTHING ELSE on the element.
+	if !strings.Contains(body, `<span class="stamp stamp--training">TRAINING</span>`) {
+		t.Fatalf("the TRAINING stamp is not exactly `<span class=\"stamp stamp--training\">TRAINING</span>`.\n"+
+			"An extra class here is a colour override at equal specificity — measured at 2.15:1 "+
+			"for text-saffron, where AA asks 4.5:1 (user decision, 2026-08-01: the word is ink and "+
+			"the status colour is the frame).\nbody: %s", body)
+	}
+	if !strings.Contains(body, "does not count toward your hours") {
+		t.Fatal("a practice tap did not say the hours do not count")
 	}
 	if strings.Contains(body, "kebabs rolling") {
 		t.Fatal("a practice tap was sent off as if a shift had started")
@@ -1453,6 +1478,184 @@ func TestCompiledCSS_GeneratesNoText(t *testing.T) {
 				"them (§4.6: an added sentence is a claim, wherever it is written).", d[1])
 		}
 	}
+}
+
+// TestCompiledCSS_StampWordIsInk pins the brand decision of 2026-08-01: the
+// stamp's WORD is `ink` and the status COLOUR is the frame.
+//
+// 🔴 WHY IT EXISTS: THE CONTRAST WAS PROTECTED BY NOTHING, and that was measured
+// rather than suspected. Putting the word back on the status colour — the exact
+// regression this decision reverses — left the whole suite GREEN: 1158 PASS, 0
+// FAIL, measured with the mutation applied and BEFORE this test was written (with
+// it, the same mutation produces one FAIL line, which is this test). Every stamp
+// assertion in this file reads the
+// HTML, and the HTML did not change: the class names and the words are identical
+// either way, so the only place the difference exists is the compiled stylesheet.
+//
+// WHAT IT READS, stated as what the code asks rather than as what one would want
+// it to ask, and it is deliberately not a cascade simulation: every rule whose
+// SELECTOR TEXT CONTAINS `.stamp` must, if it declares `color:` at all, declare
+// ink. Plus at least one such declaration, so the word has a colour rather than
+// inheriting one. Everything that phrasing leaves out is LIMIT 5.
+//
+// 🔴 THAT SHAPE IS THE SECOND VERSION, AND THE FIRST ONE HAD TWO MEASURED HOLES.
+// It classified selectors by their SHAPE — `== ".stamp"` or the prefix
+// `.stamp--` — and an audit walked saffron back onto the word twice with the test
+// green: `.stamp.stamp--flagged{color:…}` is a compound selector that is neither,
+// and a SECOND `.stamp{color:…}` after the base rule passed because the check only
+// asked whether SOME `.stamp` rule set ink. Both are refused now.
+//
+// ⚠️ AND THE SENTENCE THAT USED TO STAND HERE IS RETRACTED. It said the new shape
+// "has no shape to dodge" and that the over-approximation below produces "a false
+// RED, never a false green". BOTH WERE FALSE, and a second audit produced three
+// false greens against them — they are LIMIT 5. What this check actually asks is
+// narrower than what that sentence promised: it asks about rules whose selector
+// TEXT CONTAINS `.stamp`, not about every rule that can MATCH a stamp.
+//
+// It is still an over-approximation in the other direction — `.stamp + p{color:…}`
+// would be refused though it colours a sibling — and that half is only a false RED.
+// The claim that is gone is the one about the other half.
+//
+// Before the 2026-08-01 change every modifier carried a `color:`, and against the
+// docket's bg-paper #FFFDF4 that put stamp--ignored (line #C9D2C8) at 1.52:1 and
+// stamp--flagged (saffron #D98E2B) at 2.62:1 where AA asks 4.5:1 of 11px bold.
+//
+// FIVE LIMITS, none of them papered over:
+//
+//   - 🔴 IT NEVER RUNS IN CI, for the same measured reason as
+//     TestCompiledCSS_GeneratesNoText above: .github/workflows/ci.yml runs `make
+//     tools`, `make up`, `make check` and `make audit`, none of which builds CSS,
+//     and .gitignore line 16 keeps app.css out of the checkout. So this SKIPS on
+//     CI, always. A skip is not a pass — it is the check having nothing to read.
+//
+//   - IT READS A DECLARED COLOUR, NOT A RENDERED PIXEL. An ancestor `opacity`, a
+//     `filter`, or a ground darker than paper would all change the contrast a
+//     person actually gets, and none of them is visible to a text scan of the
+//     stylesheet. The measured ratios live in the comment at .stamp in input.css.
+//
+//   - IT KNOWS ONE SPELLING OF ink. Tailwind writes `rgb(21 34 25/…)`; a change
+//     in the generator's output format would fail this test without anything
+//     being wrong. That is a loud failure rather than a silent pass, which is the
+//     right way round, but it is a maintenance cost and not a free check.
+//
+//   - IT READS THE STYLESHEET, SO IT CANNOT SEE WHETHER A TEMPLATE STILL USES A
+//     CLASS. A modifier can survive in app.css purely because its name appears in
+//     PROSE in a scanned .templ file — measured: `stamp--approved` occurs twice in
+//     result.templ, once in a class attribute and once inside a comment. The other
+//     half is TestResultScreen_StampCarriesTheWordAndTheBrandClass, which asserts
+//     the class reaches the HTML.
+//
+//   - 🔴 A RULE CAN RECOLOUR A STAMP WITHOUT THIS SCAN SEEING IT. Four were
+//     measured, each leaving the WHOLE SUITE GREEN:
+//
+//     1. `class="stamp stamp--training text-saffron"` — an ordinary utility in
+//     the MARKUP, which is the normal way colour is added in this repo.
+//     .text-saffron sits in the utilities layer at equal specificity and later
+//     in the file, so it wins; the word rendered at 2.15:1. CLOSED, but on the
+//     OTHER side: TestResultScreen_PracticeIsStampedAndSaysItDoesNotCount pins
+//     the exact class string, the way the four verdict stamps already were. It
+//     is not closed here, and the same trick through a class this file does not
+//     pin would be invisible again.
+//     2. `.docket * { color: … }` — equal specificity, later in the file. OPEN.
+//     3. `span[class~=stamp] { color: … }` — HIGHER specificity, and the
+//     minifier drops the quotes, so the selector does not even contain the
+//     text `.stamp`. OPEN.
+//     4. `.stamp--flagged { @apply text-opacity-10; }` — this one DOES name the
+//     class, and still walks past: it compiles to
+//     `.stamp--flagged{--tw-text-opacity:0.1}` at byte 7785, after the base
+//     rule at 5956, and changes NO `color:` declaration at all. The base
+//     rule's string is still `color:rgb(21 34 25/var(--tw-text-opacity,1))`,
+//     so the scan reads ink and passes while FLAGGED renders at 1.22:1 —
+//     WORSE than the 2.62:1 this whole change started from. OPEN. It belongs
+//     to the second limit above as much as to this one: the declared colour is
+//     ink, the rendered pixel is not.
+//
+//     2, 3 and 4 are OPEN. Closing them needs the cascade resolved over
+//     arbitrary selectors and Tailwind's own variables interpolated — that is a
+//     browser, not a scan — so they are listed rather than defended.
+//
+// NOTE WHAT IS DELIBERATELY NOT PINNED: `opacity` on .stamp. Removing it was a
+// judgement about the FRAME (the colour carrier since this change), not about the
+// word, and pinning it would freeze a brand choice this test has no accessibility
+// grounds to freeze.
+//
+// ⚠️ THE REASON THAT USED TO BE GIVEN FOR THAT WAS TOO NARROW: "measured, ink at
+// .8 over paper is 8.54:1 and still clears AA". True of .8, and it says nothing
+// about any other value — at .1 the same arithmetic gives 1.22:1 (escape 4 in
+// LIMIT 5, measured). So the honest statement is not "opacity is safe here"; it is
+// that NOTHING IN THIS FILE CONSTRAINS OPACITY AT ALL, deliberately, and the
+// contrast that results is carried by the measurements in input.css and by review.
+func TestCompiledCSS_StampWordIsInk(t *testing.T) {
+	raw, err := fs.ReadFile(web.Static(), "css/app.css")
+	if err != nil {
+		t.Skipf("no compiled stylesheet to read (%v) — run `make css`. THIS IS NOT A PASS.", err)
+	}
+	// ink #152219 as the Tailwind standalone CLI writes it.
+	const inkColor = "rgb(21 34 25"
+
+	// One flat rule: a selector list, then declarations with no nested braces. It
+	// matches rules inside an @media block too, because the inner rule is flat.
+	ruleRE := regexp.MustCompile(`([^{}]*)\{([^{}]*)\}`)
+	// "This selector names a class called stamp, or one whose name starts with
+	// stamp-". \b keeps `.stamped` out; `.stamp.stamp--flagged`, `.docket .stamp`
+	// and `.stamp--flagged` are all in, which is the point — see the comment above.
+	stampSelRE := regexp.MustCompile(`\.stamp\b`)
+	// The VALUE of each `color:` declaration. The leading delimiter is what keeps
+	// this off background-color and border-color, which are supposed to carry the
+	// status colour.
+	colorValRE := regexp.MustCompile(`(?:^|;)color:([^;]*)`)
+	modifierRE := regexp.MustCompile(`\.stamp--([a-z][a-z0-9-]*)`)
+
+	inkDecls := 0
+	modifiers := map[string]bool{}
+	for _, m := range ruleRE.FindAllStringSubmatch(string(raw), -1) {
+		selectors, decls := m[1], m[2]
+		for _, mod := range modifierRE.FindAllStringSubmatch(selectors, -1) {
+			modifiers[mod[1]] = true
+		}
+		if !stampSelRE.MatchString(selectors) {
+			continue
+		}
+		for _, c := range colorValRE.FindAllStringSubmatch(decls, -1) {
+			if !strings.Contains(c[1], inkColor) {
+				t.Fatalf("a rule whose selector names a stamp sets the WORD's colour to "+
+					"something other than ink:\n  %s{%s}\n"+
+					"The status colour belongs to the frame and the ground (border-color, "+
+					"background-color); the word is ink. That is how stamp--ignored ended up at "+
+					"1.52:1 and stamp--flagged at 2.62:1 against bg-paper, where AA asks 4.5:1 "+
+					"of 11px bold (user decision, 2026-08-01).", strings.TrimSpace(selectors), decls)
+			}
+			inkDecls++
+		}
+	}
+	if inkDecls == 0 {
+		t.Fatalf("no rule matching a stamp sets %q, so the word's colour is whatever it "+
+			"inherits.\nThe word is what carries the verdict to a sighted user; it is ink on "+
+			"purpose.", inkColor)
+	}
+	// DISTINCT names, not occurrences. Counting occurrences left slack — there are
+	// nine `.stamp--*` selectors in a fresh build for five modifiers, so a threshold
+	// of five passed with two whole modifiers missing (measured). Absence is the
+	// failure this guards: when the class names lived in Go, Tailwind never saw
+	// them, none of these rules compiled and every stamp rendered bare
+	// (result.templ's comment carries that history).
+	for _, want := range []string{"approved", "flagged", "rejected", "ignored", "training"} {
+		if !modifiers[want] {
+			t.Fatalf("the compiled CSS carries no .stamp--%s rule (found: %v).\n"+
+				"A stamp whose modifier did not compile renders with no frame, no ground and no "+
+				"tilt — the brand's fixed status-to-colour mapping silently gone.", want, sortedKeys(modifiers))
+		}
+	}
+}
+
+// sortedKeys renders a set for an error message, in a stable order.
+func sortedKeys(m map[string]bool) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // TestScreens_RenderOnlyTheseElements is the structural half of the copy defence,

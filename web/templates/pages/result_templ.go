@@ -215,18 +215,54 @@ func Result(v ResultView) templ.Component {
 // THE STATUS IS NEVER CARRIED BY COLOUR ALONE: each branch renders the word too,
 // so a screen reader gets the verdict.
 //
-// ⚠️ THAT IS THE SCREEN-READER HALF ONLY, and an earlier version of this comment
-// claimed the sighted half as well ("reads correctly in monochrome"). MEASURED,
-// it does not: .stamp is 11px bold at opacity .8, and against paper #FFFDF4 the
-// two quiet verdicts fall far below the 4.5:1 that AA asks for — stamp--ignored
-// (line #C9D2C8) at 1.52:1 and stamp--flagged (saffron #D98E2B) at 2.62:1, before
-// the opacity is even applied. A sighted user gets neither the colour nor the
-// word from the stamp on those two.
+// ⚠️ THE SIGHTED HALF WAS FALSE UNTIL 2026-08-01, and the measurement is kept
+// here rather than only the correction. An earlier version of this comment
+// claimed the screen "reads correctly in monochrome"; it did not. .stamp was 11px
+// bold at opacity .8 with the WORD in the status colour, so against the docket's
+// paper #FFFDF4 the two quiet verdicts sat far below AA's 4.5:1 — stamp--ignored
+// (line #C9D2C8) at 1.52:1 and stamp--flagged (saffron #D98E2B) at 2.62:1 before
+// the opacity, 1.39:1 and 2.14:1 after it. On those two, a sighted user got
+// neither the colour nor the word from the stamp. Counting what was actually
+// RENDERED, it was THREE of the five and not two: stamp--rejected passed at
+// 5.30:1 on paper and failed at 3.77:1 once the opacity was applied.
 //
-// WHAT ACTUALLY CARRIES THE STATUS FOR THEM is the CLOSING SENTENCE — and its
-// contrast is 5.70:1, NOT the ~16:1 an earlier version of this comment claimed.
-// Two mistakes produced that number and both are worth naming, because the second
-// one is a DOM fact nobody had checked:
+// THE FIX IS A BRAND DECISION (user, 2026-08-01) AND IT LIVES IN input.css, NOT
+// HERE: the word is `ink` and the status colour moved into the 2px frame, the 1px
+// inner hairline and a 10% ground, so the brand's fixed status-to-colour mapping
+// survives intact and no token was added to the palette. Measured on the tinted
+// ground each stamp actually renders on — approved 13.85:1, flagged 14.81:1,
+// rejected 13.99:1, ignored 15.55:1, training 13.27:1. The 80% element opacity
+// went with it, because it was fading the frame, which now carries the colour.
+//
+// 🔴 AND MIND HOW THAT SENTENCE IS SPELLED — THIS HAS ALREADY HAPPENED, IT IS NOT
+// A WARNING. Tailwind scans THIS FILE as raw text, COMMENTS AND ATTRIBUTE VALUES
+// INCLUDED, so a utility name written in PROSE compiles a real rule into app.css
+// that nothing renders. Measured on HEAD's own sources: SEVEN bare class rules in
+// app.css appear in no class attribute anywhere — 334 bytes, 2.3% of the
+// file. Three of them are born in this very file: `.filter` from "NO verdict
+// filter" below, `.visible` from "a visible edit" above, `.static` from the
+// /static/ paths. The others come from "the fixed status vocabulary", an
+// <input type="hidden">, and two comments naming utilities directly.
+//
+// An earlier draft of the paragraph above added two more the same way (+330 bytes,
+// measured) and was reworded until a fresh build matched HEAD's byte for byte. The
+// seven are NOT cleaned up here: out of scope, and names like `hidden` and `static`
+// may be wanted for real later. Counted, written down, left alone.
+//
+// IT CUTS THE OTHER WAY TOO: a class can stay compiled purely because a COMMENT
+// still names it. Measured — deleting two stamp modifiers from the markup left all
+// five in app.css, so the stylesheet cannot tell you a template stopped using one.
+// TestResultScreen_StampCarriesTheWordAndTheBrandClass is the half that can.
+//
+// Describe a utility, do not spell it.
+// TestCompiledCSS_StampWordIsInk reads the built stylesheet and fails if the word
+// goes back to the status colour; before that test existed, exactly that
+// regression was measured to leave the whole suite GREEN.
+//
+// THE CLOSING SENTENCE IS STILL THE FULL SENTENCE, and its contrast is 5.70:1 —
+// NOT the ~16:1 an earlier version of this comment claimed. Two mistakes produced
+// that number and both are worth naming, because the second one is a DOM fact
+// nobody had checked:
 //
 //   - the closing paragraphs are text-ink/70, not solid ink
 //     (rgba(21,34,25,.7) in the compiled stylesheet), and
@@ -243,17 +279,18 @@ func Result(v ResultView) templ.Component {
 // For two of the four verdicts the headline helps as well: "Already tapped" over
 // "…this one was not counted", and "Not counted" over "…recorded but not counted".
 //
-// THE HEADLINE DOES NOT HELP ON `flag`, which is worth stating because flag is
-// the quiet-stamp verdict that matters most: its headline is the SAME as an
-// `ok`'s ("Tapped in"), so a sighted user who cannot read a 2.62:1 saffron stamp
-// learns the tap is not counted yet from ONE place only — the closing sentence.
-// That sentence is therefore not decoration: it is the ONLY carrier of §4.6 on
-// that screen that clears AA, at 5.70:1 — not "full contrast", which is what the
-// retracted version called it. TestResultScreen_SaysExactlyThisAndNothingElse
-// pins its words.
+// THE HEADLINE DOES NOT HELP ON `flag`: its headline is the SAME as an `ok`'s
+// ("Tapped in"). Until 2026-08-01 that left the closing sentence as the only
+// carrier of §4.6 on that screen clearing AA, because the saffron stamp was
+// 2.62:1. The stamp now clears it too (14.81:1), so flag has two carriers rather
+// than one — but the closing sentence is still the only one that says what
+// happens NEXT, and TestResultScreen_SaysExactlyThisAndNothingElse pins its
+// words. 5.70:1, not "full contrast", which is what the retracted version called
+// it.
 //
-// The contrast of the stamp itself is a BRAND decision (skill tappa-brand fixes
-// ignored -> line) and is not changed here.
+// The stamp's colours are a BRAND decision, they are set in input.css, and the
+// status-to-colour mapping skill tappa-brand fixes (ignored -> line) is unchanged
+// by this — what moved is which PART of the stamp wears it.
 func stamp(v ResultView) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context

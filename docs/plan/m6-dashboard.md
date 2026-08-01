@@ -53,7 +53,14 @@ panel; FLAGGED kuyruğu işliyor, CSV dışa aktarım var.
 - Semantik sınıflar `input.css` içinde `@layer components` (`.docket`, `.stamp`,
   `.stamp--approved`).
 - Perforasyon saf CSS `radial-gradient` — görsel dosya **yok**.
-- Kaşe damgası hafif eğik (`-rotate-6`…`-rotate-12`), çift çerçeve, yarı saydam.
+- Kaşe damgası hafif eğik (`-rotate-6`…`-rotate-12`), çift çerçeve; **kelime
+  `ink`, durum rengi çerçevede** — 2px kenarlık + 1px iç halka + `bg-<token>/10`
+  zemin. *(Güncellendi 2026-08-01, kullanıcı kararı. Bu satır **"yarı saydam"**
+  diyordu; `opacity-80` o gün `.stamp`'ten **kaldırıldı**, çünkü grup opaklığı
+  rengi taşıyan **çerçeveyi** soluklaştırıyordu: saffron kenarlık `paper` üstünde
+  2,62:1 → **2,14:1**, `line` 1,52:1 → **1,39:1**. Kelime ink olduğu için beş
+  damganın beşi de AA'yı geçiyor (en kötü 13,27:1). Ölçüm ve tam gerekçe: M5-06
+  kartı md.7 + skill `tappa-brand`. Eski anatomiyi geri koyma.)*
 - Her sayı **mono**; palet dışı renk yok; gradient yok.
 - Dokunma hedefi ≥44px, kontrast AA, `prefers-reduced-motion` saygılı.
 - `make gen` sonrası `*_templ.go` commit edildi.
