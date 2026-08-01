@@ -4,7 +4,17 @@
 > güncellenir ([README.md](README.md) → oturum protokolü, adım 6.4).
 > Görev kartlarına durum işareti konmaz.
 
-**Son güncelleme:** 2026-08-01 (5. oturum — **M5-01…M5-06 done, M5 6/10 · uçtan uca check-in çalışıyor ve onay ekranı bitti**)
+**Son güncelleme:** 2026-08-01 (5. oturum — **M5-01…M5-07 done, M5 7/10 · davetten onay ekranına kadar akışın tamamı çalışıyor**)
+
+> **M5-07 done — 2026-08-01 (`e0a5700`), iki denetçi ONAY, 2 tur.** Görevin **yarısı zaten hazırdı**
+> (`practice` M4-06'da sunucu türetimli, TRAINING damgası M5-06'da) — işin ilk yarısı bunu **ölçmekti**,
+> ve ölçüm **iki maskeli mutant** buldu: `gather`'ın practice guard'ı silinince suite **yeşil** kalıyordu
+> (motor tarafı bağımsız kanıtlı olduğu için), ve mapper'ın `Practice` alanı **eşdeğer mutanttı**.
+> **Bu, oturumda üçüncü kez:** *bir garanti A paketinde kanıtlanıp B'de tüketiliyorsa, B'nin onu
+> KULLANDIĞI ayrıca pinlenmeli.* Tek RED de aynı aileden: bir test yorumu *"slayta eklenen bir link de
+> testi kırar"* diyordu, oysa `assertRefs` href **değer** kümesini karşılaştırıyor, **sayısını değil** —
+> metinsiz, izinli hedefli üçüncü bir `<a>` (görünmez ikinci dokunma hedefi) suite'i yeşil bırakıyordu.
+> **Sıradaki:** "ŞU AN" → **M5-08** (QR kanalı; Q15: IP zorunlu, GPS tek başına yetmez).
 
 > **M5-06 done — 2026-08-01 (`b3fb2b5`), iki denetçi ONAY.** **15 tur, 11 RED — projenin en uzun görevi**, ve
 > neredeyse hepsi **tek sınıftan**: *bir cümle ya da bir SAYI, sistemin vermediği bir şeyi beyan ediyor.* İlk iki RED
@@ -36,8 +46,8 @@
 
 | | |
 |---|---|
-| **Kilometre taşı** | **M0 + M1 + M2 + M3 + M4 TAMAM** ✅ · **M5 — [Tap akışı](m5-tap-akisi.md) 6/10** · **🎉 uçtan uca check-in ÇALIŞIYOR** (aktivasyon → tap sayfası → karar → kayıt → **bitmiş onay ekranı**) |
-| **Sıradaki görev** | **M5-07** — [Mini tur ve practice tap](m5-tap-akisi.md#m5-07--mini-tur-ve-practice-tap) · araç: **skill `tappa-brand`** (aktivasyon sonrası 3 slayt). Bağımlılıkları (M5-02, M5-06) **done**. `practice` bayrağı ve TRAINING damgası **zaten çalışıyor** (M4-06 sunucu tarafı, M5-06 ekranı: TRAINING satırı + marka mesajının bastırılması, `ok+practice` ve `flag+practice` vakaları testte pinli) — M5-07'nin işi **tur** ve turun atlanabilirliği. **⚠️ Ekranlara dokunacaksan M5-06'nın üç beyaz listesini bil** (`internal/handler/result_test.go`): yeni bir cümle **beklenen metni değiştirir** (test kırılır — bu testin çalışması demektir, `want`'ı güncelle), yeni bir **eleman** kapalı kümeye yazılmadıkça reddedilir, yeni bir **dış referans** reddedilir. Yeni bir ekran eklersen **iki listeye de** elle eklemen gerekir (limit olarak yazılı, hiçbir şey zorlamıyor). §9 hâlâ geçerli: tap/onay ekranına özellik eklemek istiyorsan **önce sor**. |
+| **Kilometre taşı** | **M0 + M1 + M2 + M3 + M4 TAMAM** ✅ · **M5 — [Tap akışı](m5-tap-akisi.md) 7/10** · **🎉 uçtan uca check-in ÇALIŞIYOR** (davet → aktivasyon → **mini tur** → tap sayfası → karar → kayıt → bitmiş onay ekranı) |
+| **Sıradaki görev** | **M5-08** — [QR kanalı](m5-tap-akisi.md#m5-08--qr-kanalı) · bağımlılığı (M5-05) **done**. **Q15 kararı normatif:** QR'da **IP zorunlu**, GPS tek başına yetmez → `flag` (`base:qr-requires-ip`); QR asla NFC trust'ına çıkmaz. **⚠️ M5-05 devri md.6 bu görevin ana tuzağı:** NFC'de tekrarı atomik ilerletme durduruyor, **QR'da ilerletilecek sayaç YOK** → imzalı bağlam TTL boyunca tekrar POST edilebilir ve tek savunma **60 sn person-scoped debounce**. **Ölçülmüş bir gerçek:** M5-07 denetimi QR ilk tap'in `ok` ve `flag`'de **practice olduğunu** doğruladı. **⚠️ Ekranlara dokunacaksan** `internal/handler/result_test.go`'daki **üç beyaz listeyi** bil (metin · **kapalı** eleman kümesi · referanslar — `href`/`src`/`ping`/`meta http-equiv`): yeni bir cümle beklenen metni değiştirir (test kırılır = test çalışıyor, `want`'ı güncelle), listede olmayan eleman/referans **reddedilir**, ve yeni bir ekran **iki listeye de elle** eklenmezse kapsanmaz (yazılı limit). §9: tap/onay ekranına özellik eklemek istiyorsan **önce sor**. |
 | **Çalışma modu** | Orkestrasyon + üçüncü göz — [README.md](README.md) · brief'ler [agent-brief.md](agent-brief.md) |
 | **Dal** | **`main`** — M0 (`m0-bootstrap`) `main`'e fast-forward birleştirildi (`562f021`), dal silindi. **Kullanıcı kararı (2026-07-25): artık doğrudan `main`'de çalışılır, görev başına dal açılmaz** (CLAUDE.md §10 güncellendi). Push/PR yine istemedikçe yok. |
 | **Blokeler** | Yok. **Bekleyen kullanıcı eylemleri → [docs/backlog.md](../backlog.md)** (B1 iPhone/Q11 ölçümü, B2 arm64 Go kurulumu) — **ikisi de hiçbir şeyi bloklamıyor**. Q02 (davet kanalı) M5-02'yi bloklamaz; kart cevapsız hâli için yol gösteriyor. |
@@ -102,7 +112,23 @@ DOLDURUR. Aşağıdakiler doldurulmazsa guardrail **sessizce** ateşlemez (eksik
   yapmıyor); ama M5 bunu sağlamazsa delik açık kalır — **belt-and-braces değil, tek gerçek engel.** Ayrıca (düşük):
   Decide her redirect'i `RedirectActivation`'a eşliyor → M5 tenant-mismatch redirect'ini aktivasyondan ayırabilir.
 
-### M5-07 / M5-08 / M6'ya devralınan (M5-06 denetimlerinden)
+### M5-08 / M6 / M8'e devralınan (M5-07 denetimlerinden)
+
+- **Rota başına flood tavanı PİNLENMEMİŞ.** Beş `flooded` çağrısından yalnız `activate_submit` bir
+  testle tutuluyor (`TestBudgets_FloodCeilingStillRefuses`); `activate_tour` **ve** `activate_done`
+  gate'i silinince suite **yeşil** kalıyor (ölçüldü). M5-07 mevcut boşluğa **beşinci üye ekledi,
+  boşluğu açmadı**. Rota başına *"floodLimit+1. istek 429"* tablo testi **kendi görevini hak ediyor**.
+- **Dokunma hedefi ölçümü markup okur.** `TestTour_HasExactlyTheseTouchTargets` HTML'e bakıyor;
+  **salt CSS ile** basılabilir hale getirilmiş bir alanı (dev `::after`) hiçbir test göremez. Kapalı
+  küme içinde basılabilir olan yalnız `<a href>` (`button`/`form`/`input`/`area`/`label`/`details`
+  kümenin dışında), o yüzden bugün dar; ama piksel ölçen test yok.
+- **Turun *"never counts toward your hours"* cümlesi GELECEK ZAMANLI.** Repoda saat toplama **yok**
+  (0 eşleşme); sahibi **M6-07** ve o kart `practice = true` kayıtların saate dahil olmadığını zaten
+  yazıyor. Bugün sınanabilen kısım yalnız **yön zinciri**.
+- **Tur `Activation.render`'dan geçiyor → CSP yok** (aşağı md.3, dokuz ekran). Güvenlik denetçisi §4
+  açısından kabul edilebilir buldu: turda form yok, script yok, `<a>` dışında basılabilir eleman yok.
+
+### M5-08 / M6'ya devralınan (M5-06 denetimlerinden)
 
 1. **`checkin.go:205` outcome switch'inin `default:` dalı Result ("recorded") ekranını render ediyor.**
    Bugün yalnız `OutcomeRecorded` oraya düşüyor, ama ileride *"yazılmadı"* anlamına gelen bir outcome
@@ -113,10 +139,14 @@ DOLDURUR. Aşağıdakiler doldurulmazsa guardrail **sessizce** ateşlemez (eksik
    tenant'ın plaketine dokunması **anlamlı bir olay** ve DB'de izi kalmıyor → §4.5 kanıtı **log
    rotasyonuna bağlı**. §4.6 ihlali değil (o yolda yazılacak meşru mesai kaydı yok). **M6** (dashboard
    anomali sinyalleri) ya da daha erken.
-3. **Beş aktivasyon ekranında CSP yok** ve `Message` dizeleri hiçbir testle pinli değil.
-   `internal/handler`'da tek `Header().Set("Content-Security-Policy")` var (`tap.go:602`) → tap ailesinin
-   **altısı** korunuyor, ortak `pages.Problem` şablonunu paylaşan **beş aktivasyon ekranı** korunmuyor.
-   İki denetçi de "düşük riskli, asimetriyi kaldırır" dedi ama **M5-02'nin akışı** olduğu için dokunulmadı.
+3. **DOKUZ aktivasyon ekranında CSP yok** (M5-07 denetiminde yeniden sayıldı: `Activation.render`
+   `Content-Security-Policy`'yi **0 kez** set ediyor → `Activate` · `Confirm` · `Done` · **`Tour`** +
+   beş `problem*` sabiti). `internal/handler`'da tek `Header().Set("Content-Security-Policy")` var
+   (`tap.go:602`) → **tap ailesinin altısı** korunuyor, aktivasyon ailesinin **dokuzu** korunmuyor;
+   ortak `pages.Problem` şablonu ikisine birden hizmet ettiği için asimetri aynı şablonun içinden
+   geçiyor. Aktivasyon `Message` dizeleri de o pakette pinli değil. Üç denetçi "düşük riskli, asimetriyi
+   kaldırır" dedi ama **M5-02'nin akışı** olduğu için dokunulmadı. *(M5-06'da bu satır "beş" diyordu;
+   M5-07 `Tour`'u ekleyip sayıyı 8'den 9'a çıkardı ve doğru sayım o denetimde yapıldı.)*
 4. **CI `make css` koşmuyor** (`ci.yml`: yalnız `make tools`/`up`/`check`/`audit`; `app.css` gitignore'da)
    → derlenen CSS'i okuyan **iki test de** (`TestCompiledCSS_GeneratesNoText` ve `TestCompiledCSS_StampWordIsInk`)
    **CI'da daima SKIP**, ve bir skip **pass değildir**. Hem CSS ile üretilen metin kanalı hem damga
@@ -521,7 +551,7 @@ yazılır.
 | M5-04 | GET /t: tap sayfası | **done** | `cfa6cd5` · **iki denetçi**, üçüncü göz **RED** · **§4.4 yeni giriş noktası:** kart "sayfa açılışında ilerletme" istiyordu ama `sun.Verify` 6. adımda ilerletiyor → `PreviewWithoutReplayProtection`. **Caydırıcı yapısal:** `Preview` ≠ `Result` (atanamaz → `Verify`-şekilli kod **derlenmez**), `SUNValid` alanı **yok**, ve denetimden sonra `db.ResolvedTag` da **taşınmıyor** (`pv.CMACValid && p.Ctr > pv.Tag.LastCtr` yazılabilir bir cümleydi = §4.4'ün yasakladığı TOCTOU; ayrıca KEK-sarmalı anahtar handler'a gidiyordu). Kalan 4 alan. **İki denetçi de beş caydırıcıyı kendi paketinden derleyerek denedi → hepsi derleme hatası** · **🔬 güvenlik denetçisi bağımsız RFC 4493 + NXP SDM türetmesi yazıp GERÇEK geçerli SUN URL'i mintledi:** 30 açılış → `last_ctr` **0→0**, aynı URL `Verify`'dan geçince **700→701 `SUNValid=true`**, replay → false. **M2-04'ün "iç-tutarlı vektör byte-sırası hatasını yakalayamaz" dersine karşı DIŞ doğrulama** → yapıcının açık bıraktığı geçerli-CMAC boşluğu **ölçümle kapandı** · **RED:** `NewTap` `TapLimiter`'ı **`Audit` olmadan** kuruyordu → **M5-03'ün ONAYLANMIŞ kriteri üretimde ölüydü** (15×429, çözülmüş `employee_id`, `audit_log` 4145→4145). **Hata kimsenin dosyasında değil, iki görevin ARASINDAydı** · **🔁 ve düzeltmenin ilk mutasyonu YEŞİL kaldı** — red testleri `tp.limiter`'ı **kendileri** kuruyordu (`Audit`'i açıkça vererek): *denetlediği şeyi kendisi kuran test hiçbir şey denetlemez*. Yapıcı kendi raporladı; testler artık **ürünün kurduğu** limiter'ı üretim bütçesiyle sürüyor. Aynı tuzak **bir alan yanında** tekrar bulundu (`Refused: nil` de yeşil kalıyordu) → o da kapatıldı · **imzalı bağlam:** çipin MAC'i sunucuda **bir kez** kontrol ediliyor, sayfaya **tek bit** geçiyor; türetilmiş anahtar + oturum id'si AAD; **dokuz sahtecilik denemesi** reddedildi, sabit zamanlı, TTL 15 dk + kayma fail-closed · **`ctr`/uid bağlamda SEYAHAT EDİYOR** (ikisi de adres çubuğunda zaten var), **CMAC etmiyor** — tersini söyleyen üç yer düzeltildi · §5 satır 3 (oturumsuz/iptal → 303, `transactions` sabit) ve satır 4 (deaktif çalışan canlı oturumla **sayfayı görüyor**, kaydı POST'a kalıyor) canlıda doğrulandı · **fontlar self-host** (6 woff2, **79.032 bayt**, latin+latin-ext Maltaca için, 2 OFL + sha256 provenance; **mutlak URL 0**) · `/static` dizin listelemesi kapatıldı, tap yanıtlarına **CSP**, `watchPosition` **0** · 933 test 0 SKIP, `internal/sun` %96.7 |
 | M5-05 | POST /api/checkin: orkestrasyon | **done** | `b82c9f2` · **iki denetçi ONAY** · **M3+M4 İLK KEZ gerçek HTTP isteğiyle çalıştı**; §5'in **yedi satırı da** uçtan uca kanıtlandı (güvenlik denetçisi altısını **kendi HTTP sondasıyla** yeniden üretti) · **🔴 ölçülmüş bloklayan:** seed'li tenant'ta `policies`/`policy_versions` **0/0** → baseline katmanlı kararlar **`23503`**; guardrail satırları (1–5) yazılabiliyordu çünkü `version_id NULL` taşıyor → **delik tam olarak satır 6–7'deydi: sıradan `ok` ve `flag`, ANA YOL**. M7-03 hiç çalışmamış. Çözüm: **ilk ihtiyaçta idempotent materyalizasyon** (uuid-v5 türetilmiş id → conflict hedefi **var olan kısıt**, migration yok; `policy_versions` append-only korunuyor, `max version_no = 1`). Alternatif ("gürültülü başarısız ol") ya tap'i düşürmeye (§4.6) ya da o tenant'taki **her** tap'i review'a göndermeye indirgeniyordu · **🔴 N5 KAPANDI** — `tap.Input` iki tenant'ı taşıyor, `sys:tenant-mismatch` **ateşliyor** (403, iki tenant'ta da **0 satır**, yabancı `last_ctr` sabit, gövdede yabancı id/uid/mekân adı **yok**; kararı **guardrail** veriyor, FK değil) · **F1 (denetimden):** advance karşılaştırmadan **ÖNCE** ve **yabancı tenant'ın RLS bağlamında** koşuyordu → çapraz-tenant tap yabancı `last_ctr`'ı **900→901** yapıyor, o tenant'ta **hiç iz bırakmıyordu**; karşılaştırma öne alındı · **yapıcı state.md'nin N5 ifadesini DÜZELTTİ:** beslenmemiş hâlde *yazma* çapraz-tenant `ok` üretmezdi — `transactions_tag_fk` **23503** → 500 → **kayıt kaybı**; şema **sessiz bir ikinci ağdı** ve izolasyon ihlalini §4.6 kaybına çeviriyordu · **🔁 en değerli bulgu bir KANIT boşluğu (bu sınıf oturumda 3. kez):** üretim yazma yolundaki **gerçek TOCTOU** tüm suite'i **yeşil bıraktı** — `internal/sun` `AdvanceCounter`'ı kanıtlıyor, bu paket tap'in doğru kayıtla bittiğini kanıtlıyor, ama **çağırdığını pinleyen hiçbir şey yoktu**; mutasyon ikisinin **arasından** geçti (80 ms pencere → **12/12 SUN-valid**). Çözüm: yarışı daha çok test etmek **değil**, **çağrıyı pinlemek** (tam 1 `AdvanceTagCounter`, doğru tenant/uid/ctr, tag tenant'ının `WithTenant`'ı içinde) · **F2:** `sys:tap-freshness` **ÖLÜYDÜ** (`tap:pageAgeSeconds` beslenmiyordu); beslendi — bandı varsayılanlarla **boş** (TTL 900 == eşik 900), bu yüzden hiçbir test yakalamamıştı; M5-10 pencereyi daraltınca **erişilebilir** olacak · **F3:** N3 wiring'i **yanlışlanamazdı** (harness debounce'u varsayılana eşitti → mutasyon yeşil); harness 120 sn'ye çekildi · **F4:** dört verdict damga sınıfı **derlenen CSS'e hiç girmiyordu** (Tailwind globları **Go dosyalarını taramıyor**) → literaller `.templ`'e taşındı · **K1:** sıfır-zaman nöbetçisi `0001-01-01T00:00:00Z` ile çakışıyordu → `OccurredAt` **pointer** oldu · N1/N2 (16 sahte alan yok sayıldı)/N4 + `ErrUnknownTag` + `entered_by` + `sys:occurred-at-bound` hepsi ayrı kanıtlı · **dayanıklılık:** 9 düşmanca girdi (yıl 9999/yıl 1/±23:59 offset/±180/denormal float) → **hepsi 200 + tam bir satır, hiç 500 yok**; politika katmanı zorla düşürülünce **kayıt yine yazılıyor** (`flag`/`default`) · dokümanlar `redirect`/`ignore` beyan **edemiyor** → tenant politikası tap'i **susturamaz** · 1033 test 0 SKIP, tap %97.0 / sun %96.7 |
 | M5-06 | Onay ekranı ve marka mesajları | **done** | `b3fb2b5` · **iki denetçi ONAY** (`tappa-security-auditor` + genel üçüncü göz) · **15 tur, 11 RED — projenin en uzun görevi ve neredeyse HEPSİ tek sınıftan: bir cümle ya da bir SAYI, sistemin vermediği bir şeyi beyan ediyor** · **RED-1 (§4.6, güvenlik denetçisi):** `ignored` ekranı *"Your earlier tap stands."* diyordu — debounce **verdict'ten VE kanaldan bağımsız** (`GetLastTransactionForEmployee`'de yüklem yok → `decide.go:180` koşulsuz → `guardrails.go:328` yalnız gap), yani öncül `flag`/`reject` olabilir. **Görevin `flag`'den sildiği sessiz onay kusuru yok olmamış, `ignored`'a TAŞINMIŞTI** · **RED-2:** `reject` başlığı `<h1>`'de *"Not recorded"* diyordu; `Record` INSERT'ten **sonra** hiç hata döndürmüyor (`checkin.go:569-602`) → render edilen Result **satırın kanıtı**; aynı sayfa dört satır altta "was recorded" diyordu ve yanlış cümleyi **hiçbir test yasaklamıyordu** → *"Not counted"* · **RED-3…9 hep ARACIN kendisinde:** elle kurulmuş bayt-golden üretimin hiç render etmediği bir gövdeyi pinliyordu (Note'suz **971 B** vs gerçek **1061 B**) → metin-düğümü beyaz listesi **dört kanaldan** yenildi (CSS `content`, `</main>` dışı, `aria-label`, `title`) → `<input readonly value>` (*"value machine-facing'dir"* yanlıştı) → `<iframe srcdoc>`/`<object data>`/`<img src=data:svg>` → `<link href="data:text/css,…{content:'…'}">` (izinli eleman + okunmayan öznitelik) → metin testi retry dalını **hiç render etmiyordu** + `<meta http-equiv=refresh>` → **regex öznitelik SIRASINA bağlıydı** (oturumun kanonik dersi, kendi kontrolünün içinde) · **son hâl: üç dar beyaz liste** — görünür metin (doküman + 11 öznitelik) · eleman adları (**kapalı küme 16/14, iki yönlü eşitlik**) · dış referanslar (`{/static/css/app.css}`; **markanın "mutlak URL 0" kuralı ilk kez teste bağlandı**) — artı 7 tap yanıtında pinlenen CSP · **kapatılamayan 8 kanal GARANTİ değil LİMİT olarak sayıldı** (`<meta name=description>`, navigasyon yanıt başlıkları (`Refresh:` ölçüldü), CI'da **daima SKIP** olan CSS kontrolü, runtime script, beş aktivasyon ekranında CSP yok, elle düzenlenmiş `*_templ.go`, ekran-başına elle kapsam) · **wiring boşluğu ayrıca kapatıldı:** altı hata ekranının metnini yalnız elle kurulmuş bir view pinliyordu → `renderProblem` başka şablona/view'a bağlanınca **RED 20/17** (önce ikisi de yeşildi) · **11 sonuç şekli + 6 hata ekranı ×2 + 5 DB alt testi**, beş not sabitinin **5/5**'i üretimden sürülüyor (`staleOpenInNote` 19 sa eski açık kayıt seed'iyle) · **kopya kararları §4.6'dan:** `flag` "All done" **demiyor**, onayı **vaat etmiyor**, itiraz kapısı açık · practice tap'te marka mesajı **yok** · `business_type` ile tenant mesajı (**seed UUID yok, migration yok**) · **sayı hataları tek başına bir bulgu sınıfı oldu** (`SEVEN`→8 · "üç aktivasyon ekranı"→5 · "dört dal"→5 · "iki vaka"→4 · "yedisini de"→6 · "~16:1"→**5.70:1**, çünkü kapanış cümlesi docket'in **dışında**) → alan sayısı artık **reflection teliyle** çivili · **denetçi ağaca iki kez zarar verdi** (biri `git checkout` ile commit edilmemiş 12 satırı **kalıcı** sildi, biri `basename` çakışmasıyla dosya ezdi ama `git hash-object` ile birebir kurtardı) → kural `agent-brief.md`'ye yazıldı · PASS **1158** SKIP **0**, `app.css` 14256 B, `make audit` 0 |
-| M5-07 | Mini tur ve practice tap | todo | |
+| M5-07 | Mini tur ve practice tap | **done** | `e0a5700` · **iki denetçi ONAY** (genel üçüncü göz 2. turda + `tappa-security-auditor`) · **görevin yarısı zaten hazırdı ve bunu ÖLÇMEK işin ilk yarısıydı:** `practice` sunucu türetimli (M4-06), TRAINING damgası + marka mesajı bastırması (M5-06) çalışıyordu · **YENİ:** `GET /activate/tour?step=1..3`, **sunucu render, JS yok, istemci state'i yok**, linklerle ilerliyor, her slayttan atlanabiliyor; `Submit` **ilk** aktivasyonu tura, **ikinci cihazı** doğrudan onaya yönlendiriyor · **tur hiçbir şey yazmıyor** (7 istek boyunca `transactions`/`audit_log` donuk + pozitif kontrol; `Set-Cookie` boş; POST/PUT/DELETE → 405) · **🔁 İKİ MASKELİ MUTANT bulundu ve kapatıldı** — `gather`'ın `if !open.Practice` guard'ı silinince **tüm suite yeşil** kalıyordu (motor tarafı `decide.go` bağımsız kanıtlı olduğu için: *bir garanti A'da kanıtlanıp B'de tüketiliyorsa B'nin onu KULLANDIĞI ayrıca pinlenmeli* — bu oturumda **üçüncü** kez), ve `transaction()`'ın `Practice: t.Practice` eşlemesi **eşdeğer mutanttı** (tek tüketicisi `resolveDirection`, filtre ayaktayken alan üretimde hiç `true` olmuyordu) → `TestGatherDB_…` + `TestTransaction_CarriesThePracticeColumn` · **§4.6 vaat analizi:** practice hakkı **herhangi bir** önceki satırla harcanıyor (`GetLastTransactionForEmployee`'de **verdict ve kanal yüklemi yok**): önceki yok → evet · `reject`/`ignored`/manuel → hayır; ilk tap **asla `ignored` olamaz**; QR ilk tap practice **olur** · **en kötü vaka ikinci cihaz** (zaten tap etmiş biri) **yapısal olarak** vaadi hiç görmüyor · güvenlik denetçisi `practice`'i **dört kanaldan** (query/header/multipart/JSON) hem iddia hem **reddetme** yönünde denedi ve sütunu geri okudu: `practice=false` gönderen ilk tap yine **`true`** · **davet kodu çerezi tura kadar yaşamıyor** (istek istek izlendi, `clear(w)` yönlendirmeden önce) · **RED (1 tur):** `assertRefs` href **DEĞER** kümesini karşılaştırıyor **sayısını değil** → slayta **metinsiz**, izinli hedefli üçüncü bir `<a>` (görünmez ikinci dokunma hedefi) eklenince suite yeşildi ve testin yorumu *"a link ADDED to a slide fails too"* diyordu → `TestTour_HasExactlyTheseTouchTargets` slayt başına **sıralı (hedef → etiket)** listesini pinliyor + `on…=` reddediyor · **`ping=` kapatıldı** (`refRE`'ye eklendi; M5-06'dan devralınan boşluk, ortak `Problem` şablonunda da RED → **on bir ekran**) · tur M5-06'nın **üç beyaz listesine de eklendi** (13 etiketlik kapalı küme) · **§4.4 kararı:** emekli plakete reject `last_ctr`'ı **ilerletmiyor** ve bu **doğru** (ilerletmek sayacı çipin önüne iter → sonraki gerçek tap'ler replay = kodun kendi adlandırdığı DoS); bedeli plaket dönünce bir kez `base:ctr-gap-review` · **kapsam dışı düzeltildi:** `internal/policy/document.go` *"EffectIgnore → no record"* **yanlıştı** (`ignored` satır **yazıyor**; mutasyonla 4 test RED) · Tailwind farkı **tek yeni seçici** `.min-h-11` (14283→14312), sıfır düzyazı-doğumlu ölü kural · **1197 test, 0 SKIP** |
 | M5-08 | QR kanalı | todo | |
 | M5-09 | Uçtan uca test ve "bir günü simüle et" | todo | |
 | M5-10 | Tap tazelik penceresi (URL biriktirmeye karşı) | todo | A1 · §4.4 |
@@ -577,13 +607,47 @@ yazılır.
 | M9-06 | Policy simülatörü | todo | Q22 — M6-10'dan ertelendi |
 | M9-07 | Ham JSON politika editörü | todo | Q22 — M6-09'dan ayrıldı |
 
-**Özet:** 82 görev · done 47 · wip 0 · blocked 0 · skipped 1 · todo 34 · **M0+M1+M2+M3+M4 TAMAM · M5 6/10 · sıradaki M5-07**
+**Özet:** 82 görev · done 48 · wip 0 · blocked 0 · skipped 1 · todo 33 · **M0+M1+M2+M3+M4 TAMAM · M5 7/10 · sıradaki M5-08**
 
 ---
 
 ## Oturum günlüğü
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
+
+### 2026-08-01 (5. oturum, devam) — **M5-07 done** · aktivasyondan onay ekranına akış tamam
+
+`e0a5700`. İki denetçi ONAY, **2 tur**. Yeni olan: `GET /activate/tour?step=1..3` — üç slayt,
+**sunucu render, JS yok, istemci state'i yok**, her slayttan atlanabiliyor, ve **hiçbir şey yazmıyor**
+(7 istek boyunca satır sayıları donuk + pozitif kontrol). `Submit` ilk aktivasyonu tura, **ikinci
+cihazı** doğrudan onaya gönderiyor — çünkü zaten tap etmiş birine *"ilk tap'in deneme"* demek gerçek
+bir check-in'i deneme sandırırdı.
+
+**Görevin yarısı zaten hazırdı ve asıl iş bunu ÖLÇMEKTİ.** Ölçüm iki **maskeli mutant** buldu:
+`gather`'ın `if !open.Practice` guard'ı silinince **tüm suite yeşil** kalıyordu (motor tarafı
+`decide.go`'da bağımsız kanıtlı olduğu için), ve `transaction()`'ın `Practice` eşlemesi **eşdeğer
+mutanttı**. **Oturumda üçüncü kez aynı şekil:** bir garanti A paketinde kanıtlanıp B'de tüketiliyorsa,
+**B'nin onu kullandığı ayrıca pinlenmeli**.
+
+**Tek RED de aynı aileden ve öğretici:** bir test yorumu *"a link ADDED to a slide fails too"* diyordu;
+`assertRefs` href **DEĞER** kümesini karşılaştırıyor, **sayısını değil** → slayta **metinsiz**, hedefi
+zaten izinli üçüncü bir `<a>` eklenebiliyordu: görünmez ikinci bir dokunma hedefi, tam da §9'un baktığı
+şey. Düzeltme slayt başına **sıralı (hedef → etiket)** listesini pinliyor.
+
+**Vaat ölçüme indirildi (§4.6).** Practice hakkı **herhangi bir** önceki satırla harcanıyor
+(`GetLastTransactionForEmployee`'de verdict ve kanal yüklemi yok), o yüzden slayt *"your **first** tap"*
+diyor ve *"Whatever a tap turns out to be, the screen right after it says so"* ile kapanıyor. Güvenlik
+denetçisi `practice`'i **dört kanaldan** (query · header · multipart · JSON) hem iddia hem **reddetme**
+yönünde denedi ve sütunu geri okudu: `practice=false` gönderen ilk tap yine **`true`**.
+
+**Ve ileriye dönük iki kart düzeltildi** — bu oturumun kalıcı dersi: *bir görevi kapatan değişiklik,
+o davranışı tarif eden **ileri** kartları da kapatmak zorunda.* M6-07 ve M6-11'in "çıkışsız açık kayıt"
+kriterleri practice istisnasını saymıyordu → M6'da **her yeni çalışanın deneme tap'i** müdürün "eylem
+gerekiyor" kuyruğunda belirecekti. (Aynı sınıf bir tur önce `m6-dashboard.md:56`'da yaşandı ve bu
+oturumda `state.md`'de **iki kez** benim hatam olarak çıktı.)
+
+**Sırada:** M5-08 (QR kanalı). ⚠️ Ana tuzağı yazılı: **QR'da ilerletilecek sayaç yok**, tek savunma
+60 sn person-scoped debounce.
 
 ### 2026-08-01 (5. oturum, devam) — **M5-06 done** · onay ekranı bitti · **15 tur, 11 RED**
 
