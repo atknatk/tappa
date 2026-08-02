@@ -229,6 +229,55 @@ func New(data Database, trail AuditRecorder, cfg *config.Config, log *slog.Logge
 	if cfg.Debounce > 0 {
 		params.DebounceWindow = cfg.Debounce
 	}
+	// The same plumbing for the freshness window (M5-10). Until this line existed
+	// the guardrail compared against policy.DefaultParams()'s 900 s, which EQUALS
+	// the signed context's TTL — an empty band, so sys:tap-freshness could not
+	// fire at all and every over-age page was an unrecorded 400. With the shipped
+	// 180 s the band 180..900 s becomes a RECORDED reject, which is what §4.6
+	// wants there. Falsified by
+	// TestCheckinDB_ConfiguredFreshnessWindowReachesTheGuardrail: the DB harness
+	// runs a NON-DEFAULT window on purpose, so deleting this line turns that test
+	// red instead of leaving it green on a degenerate value (the M5-05 F3 lesson).
+	//
+	// 🔴 A ZERO IS AN ERROR HERE AND A FALLBACK TWO LINES UP, and the asymmetry is
+	// the point rather than an inconsistency. Debounce's fallback (60 s) EQUALS
+	// its shipped default, so a caller that omits it lands on shipped behaviour.
+	// Freshness's fallback WAS DefaultParams()'s 900 s: the range MAXIMUM, and the
+	// same number as the signed context's TTL — i.e. precisely the value at which
+	// the recorded band is empty and sys:tap-freshness cannot fire at all. So the
+	// omission was not a smaller window, it was the guardrail switched off.
+	// MEASURED while the assignment below was still conditional, from an external
+	// package: checkin.New(data, trail, &config.Config{/* no Freshness */}, log)
+	// returned err == nil with an effective window of 15m0s, and TWO in-tree
+	// callers were doing exactly that, one of them the harness behind
+	// `make simulate-day`.
+	//
+	// ⚠️ WHAT CLOSES THAT HOLE IS THE NEXT TWO LINES, NOT THIS BLOCK, and an
+	// earlier version of this comment implied otherwise. The assignment is
+	// UNCONDITIONAL, so a zero reaches params.Validate(), which refuses it against
+	// the same ADR 0004 §11 range config uses: delete the `if` and New still fails,
+	// with "checkin: policy: freshness window = 0s is outside [60, 900] seconds".
+	// This block earns its four lines on the MESSAGE alone — Validate can only
+	// report an out-of-range window, which sends the reader hunting for a policy
+	// bug, when the actual fault is an unset config field whose fallback history is
+	// the paragraph above. TestNew_RefusesAZeroFreshnessWindow asserts that text,
+	// so deleting the block is RED rather than green (measured, both ways).
+	//
+	// THE GUARD IS `<= 0` AND THE MESSAGE MUST NOT SAY "zero", because a NEGATIVE
+	// value is reachable and an earlier wording printed "is zero" for it: with
+	// TAPPA_FRESHNESS_SECONDS=NaN, config.floatEnvRange returns NaN (every NaN
+	// comparison is false, so the range check passes — a known limit documented
+	// there) and time.Duration(NaN * 1s) is the int64 MINIMUM, i.e.
+	// -2562047h47m16.85s. Measured. This line is what fails that deployment closed,
+	// so it is also the line whose text the operator reads; printing the actual
+	// value is what turns "why is it zero, I set it" into "my value did not parse".
+	if cfg.Freshness <= 0 {
+		return nil, fmt.Errorf("checkin: config Freshness is not positive (%v); set it "+
+			"(config.Load defaults it to 180s, and TAPPA_FRESHNESS_SECONDS=NaN lands here as a large "+
+			"NEGATIVE duration) — falling back would silently run the 900s window, where "+
+			"sys:tap-freshness cannot fire", cfg.Freshness)
+	}
+	params.FreshnessWindow = cfg.Freshness
 	if err := params.Validate(); err != nil {
 		return nil, fmt.Errorf("checkin: %w", err)
 	}
@@ -284,7 +333,7 @@ type Request struct {
 
 	// PageIssuedAt is when GET /t minted the signed context — a SERVER clock
 	// reading, authenticated, carried back by the browser. It feeds
-	// sys:tap-freshness (guardrail #4), which an audit found INERT because
+	// sys:tap-freshness (guardrail #6), which an audit found INERT because
 	// tap:pageAgeSeconds had no source anywhere in the product. Zero means "no page
 	// behind this record" (a manual entry) and the guardrail then has nothing to
 	// judge, which is correct rather than lenient: it is NFC-only.

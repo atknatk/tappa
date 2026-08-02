@@ -455,10 +455,20 @@ const qrRepeatPosts = 12
 // person-debounce, which turns the extras into `ignored` — recorded, attributable,
 // and not counted toward hours, but not refused either.
 //
-// Narrowing that window is NOT this task's to do: sys:tap-freshness already reads
-// tap:pageAgeSeconds (fed in M5-05) and its band is empty only because the TTL
-// equals the guardrail ceiling. M5-10 sets the window and the exposure shrinks
-// with it. This test records the size of the gap M5-10 inherits.
+// 🔴 M5-10 DID NOT NARROW THIS, AND AN EARLIER VERSION OF THIS PARAGRAPH SAID IT
+// WOULD ("M5-10 sets the window and the exposure shrinks with it"). It does not,
+// and the reason is deliberate: sys:tap-freshness is NFC-ONLY. It reads
+// tap:channel first and returns false for `qr`, because §5 says a photographed
+// code has no touch to be stale relative to and is valid indefinitely — M3-05
+// wrote the guardrail that way on purpose and M5-10 rightly left it. Measured by
+// TestCheckinDB_StaleQRPageIsNotDeniedByFreshness: the same page age that is a
+// recorded sys:tap-freshness reject on NFC is an ordinary `ok` on QR.
+//
+// SO THE QR CEILING IS STILL WHAT THIS TEST RECORDS: one scanned context stays
+// postable for the signed context's full 15-minute TTL, and the brakes are
+// base:qr-requires-ip, the 60 s person-debounce (extras become RECORDED
+// `ignored`), and the per-session and per-address rate limits. Narrowing it is
+// a §5 product decision about QR, not a freshness setting.
 func TestQRDB_OneScanIsSpendableRepeatedlyWhileOneTouchIsNot(t *testing.T) {
 	t.Run("qr: one scan, many rows", func(t *testing.T) {
 		h := newTapHarness(t)
@@ -709,11 +719,20 @@ func TestQRDB_ABackdatedOccurredAtNoLongerDefeatsTheDebounce(t *testing.T) {
 // so the structural ceiling is about 600 requests, minus the one GET that minted
 // the context. That is roughly 599 direction-carrying rows, not 16.
 //
-// AND THEREFORE M5-10 DOES NOT REDUCE IT THE WAY THIS FILE FIRST CLAIMED. A
-// 3-minute freshness window still admits a full 300-request burst; it removes the
-// SECOND window, so the ceiling roughly halves (600 -> 300). It does not become 4.
-// The thing that would actually bound this is giving the debounce a server-side
-// timestamp, which is a §5 row 5 semantics change and a product decision.
+// AND M5-10 DOES NOT REDUCE IT AT ALL — not "to 4", and not by half either,
+// which is what the second version of this paragraph guessed. sys:tap-freshness
+// is NFC-ONLY (it returns false for tap:channel == "qr", because §5 makes a
+// photographed code valid indefinitely), so the shipped 180 s window never
+// touches a QR context. Measured: TestCheckinDB_StaleQRPageIsNotDeniedByFreshness
+// posts a QR page at an age that is a recorded reject on NFC and gets `ok`.
+//
+// So the ~600 figure above stands as written, and the things that actually bound
+// it are base:qr-requires-ip, the 60 s person-debounce and these limits. The
+// debounce already measures against SERVER time (ADR 0006: the smaller of the
+// declared gap and clock_timestamp() - created_at), so an earlier note here
+// naming that as the outstanding fix is spent — it landed. What is left is a
+// product decision about QR itself: a shorter context TTL, a single-use nonce
+// per scan, or accepting the ceiling as ADR 0005 does.
 func TestQRDB_TheExposureCeilingIsTheSessionBudget(t *testing.T) {
 	h := newTapHarness(t)
 	cookie := h.sessionCookieFor(t)

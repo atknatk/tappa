@@ -278,7 +278,7 @@ type Input struct {
 	// 🔴 IT IS WHAT KEEPS sys:tap-freshness ALIVE. That guardrail denies an NFC tap
 	// whose page has gone stale, and it reads tap:pageAgeSeconds — a key that, until
 	// this field existed, NOTHING set. A missing key never matches (M3-04's
-	// invariant), so guardrail #4 was inert: not weakened, not tunable, simply
+	// invariant), so guardrail #6 was inert: not weakened, not tunable, simply
 	// unable to fire. An audit measured it and this is the fix.
 	//
 	// It is an INSTANT, not an age, so the age is computed from Input.Now like every
@@ -286,14 +286,15 @@ type Input struct {
 	// passing a pre-computed age could pass one measured against a different one.
 	// The stamp is server-minted and authenticated; a client cannot choose it.
 	//
-	// WHAT IS AND IS NOT COVERED TODAY, measured rather than assumed: the signed
-	// context's own TTL (15 min) currently equals the guardrail's default window
-	// (FreshnessMaxSeconds = 900 s), so with the shipped defaults an over-age
-	// context is refused at parse time — an unrecorded 400 — before the guardrail
-	// could produce its RECORDED reject. The two are NOT interchangeable, which is
-	// why the key is fed anyway: the moment a tenant sets a tighter window (M5-10:
-	// 1-15 min, default 3), the band between that window and the TTL belongs to the
-	// guardrail, and §4.6 wants a record there rather than an error page.
+	// WHAT IS AND IS NOT COVERED, measured rather than assumed. TWO ceilings bound
+	// a tap page and they answer DIFFERENTLY: this guardrail's window
+	// (TAPPA_FRESHNESS_SECONDS, shipped 180 s) produces a RECORDED reject, while
+	// the signed context's own TTL (15 min, internal/handler) refuses at parse
+	// time with an UNRECORDED 400. Until M5-10 the window defaulted to 900 s —
+	// the SAME number as the TTL — so the guardrail's band was empty and every
+	// over-age page was answered by the TTL. It is not empty now: 180..900 s is a
+	// record, which is what §4.6 wants there. Past 900 s the answer is still the
+	// error page, and that is a counted LIMIT (M5-10 card), not a closed hole.
 	PageIssuedAt time.Time
 
 	// OccurredAtFromClient reports whether OccurredAt was DECLARED BY THE CALLER

@@ -34,6 +34,8 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"math"
+	"strings"
 	"testing"
 	"time"
 
@@ -305,12 +307,95 @@ func TestNew_WiresTheProductionAdvancer(t *testing.T) {
 	}
 }
 
+// TestNew_RefusesAZeroFreshnessWindow pins the asymmetry between the two
+// configured windows, because without a test a reader would call it an
+// inconsistency and "fix" it in the wrong direction.
+//
+// Debounce MAY be omitted: its fallback is policy.DefaultParams()'s 60 s, which
+// is also TAPPA_DEBOUNCE_SECONDS' shipped default, so omission lands on shipped
+// behaviour. Freshness may NOT: its fallback was 900 s, the range maximum and the
+// same number as the signed context's TTL, so omission was not a looser window —
+// it was sys:tap-freshness unable to fire on any page at all. Measured while the
+// wiring was still conditional: a Config with no Freshness built with err == nil
+// and ran at 15m0s, and two in-tree callers were doing it.
+//
+// ⚠️ THE FIRST ASSERTION READS THE MESSAGE, NOT JUST err != nil, and that is the
+// whole reason it can fail. checkin.New's wiring is unconditional now, so a zero
+// reaches policy.Params.Validate() and is refused there too; an err != nil
+// assertion therefore stayed GREEN with the explicit check deleted (measured).
+// The check survives for the MESSAGE — "config Freshness is zero" names the unset
+// field, where Validate can only say the window is out of range — so the message
+// is what this pins.
+//
+// The last assertion is the non-DB falsifier for the wiring itself: 120 s is not
+// policy.DefaultParams()'s 900 s fallback, so deleting
+// `params.FreshnessWindow = cfg.Freshness` turns this red without a Postgres.
+//
+// THE NEGATIVE CASE IS NOT DECORATION. The guard is `<= 0`, and a negative value
+// is REACHABLE: TAPPA_FRESHNESS_SECONDS=NaN survives config's range check (NaN
+// comparisons are all false — a limit documented on floatEnvRange) and becomes
+// the int64-minimum duration. The message used to say "is zero" for it, which
+// sends the operator looking for an unset field when the fault is an unparseable
+// one, so the wording is pinned here for BOTH shapes.
+func TestNew_RefusesAZeroFreshnessWindow(t *testing.T) {
+	t.Parallel()
+	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	for _, tc := range []struct {
+		name string
+		val  time.Duration
+	}{
+		{"zero", 0},
+		// What time.Duration(math.NaN() * float64(time.Second)) actually is.
+		{"nan_derived_negative", time.Duration(math.MinInt64)},
+	} {
+		stale := testConfig()
+		stale.Freshness = tc.val
+		_, err := New(&tenantRecorder{}, stubRecorder{}, stale, quiet)
+		if err == nil {
+			t.Fatalf("%s: New accepted a non-positive Freshness: the service would run the 900s fallback, "+
+				"which equals the signed context TTL and leaves sys:tap-freshness with an empty band", tc.name)
+		}
+		if !strings.Contains(err.Error(), "config Freshness is not positive") {
+			t.Fatalf("%s: New refused Freshness with %q, but not at the config layer: want the message that "+
+				"names the unset field, because policy.Validate's range error alone sends the reader after a "+
+				"policy bug that is not there", tc.name, err)
+		}
+	}
+
+	cfg := testConfig()
+	cfg.Debounce = 0
+	s, err := New(&tenantRecorder{}, stubRecorder{}, cfg, quiet)
+	if err != nil {
+		t.Fatalf("New refused a zero Debounce, but that one has a safe fallback: %v", err)
+	}
+	if got := s.policies.params.DebounceWindow; got != 60*time.Second {
+		t.Fatalf("zero Debounce -> %v, want the shipped 60s fallback", got)
+	}
+	if got, want := s.policies.params.FreshnessWindow, testConfig().Freshness; got != want {
+		t.Fatalf("FreshnessWindow = %v, want the configured %v", got, want)
+	}
+}
+
 type stubRecorder struct{}
 
 func (stubRecorder) Record(context.Context, audit.Event) (uuid.UUID, error) { return uuid.New(), nil }
 
+// testConfig is the smallest config New will accept. Freshness is present
+// because New REFUSES a zero one (checkin.go): omitting it used to build a
+// service whose freshness window was policy.DefaultParams()'s 900 s, i.e. the
+// guardrail switched off, and this file was one of the two callers doing it.
 func testConfig() *config.Config {
 	return &config.Config{
 		Env: config.EnvDev, GPSRadiusMeters: 150, Debounce: 90 * time.Second,
+		// 120 s carries ONE load-bearing property: it is not policy.DefaultParams()'s
+		// 900 s fallback, so an assertion on the effective window can tell "the
+		// configured value arrived" from "the wiring is missing". Being unequal to
+		// config.Load's shipped 180 buys nothing HERE and the comment used to claim it
+		// did — checkin.New never calls config.Load, so 180 is not a value this test
+		// could land on by accident (measured: set this to 180, delete the wiring, and
+		// the test is still red). It stays 120 only so a reader does not mistake the
+		// harness value for the shipped one.
+		Freshness: 120 * time.Second,
 	}
 }

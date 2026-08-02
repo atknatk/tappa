@@ -165,8 +165,17 @@ zaten "**§4 + §5 satır 1–5**" olarak tanımlar; bu üst küme o tanımın i
 
 ### 5. Guardrail sırası NORMATİFTİR
 
-Guardrail'ler [M3-05](../plan/m3-policy-motoru.md)'teki **1→10 sırasıyla** çalışır
-ve ilk eşleşen terminaldir. §5 "ilk eşleşen kazanır" der; bu, sıralamanın bir stil
+> ⚠️ **Bu madde [ADR 0007](0007-guardrail-sirasi-ve-guvenlik-uyarisi.md) ile
+> genişletildi (2026-08-02).** Kural aynen geçerlidir; **sıra numaraları
+> değişmiştir** ve aşağıdaki iki kısıta bir üçüncüsü eklenmiştir. Güncel sıra
+> tablosu ADR 0007'dedir; kodda tek kaynak `policy.Guardrails()` slice'ıdır.
+> Bu bölümde ve yukarıdaki paragrafta geçen numaralar 0007 öncesine aittir
+> (`sys:employee-deactivated` artık **5**, `sys:tap-freshness` **6**,
+> `sys:occurred-at-bound` **7**, `sys:no-session` **4**).
+
+Guardrail'ler [M3-05](../plan/m3-policy-motoru.md)'teki **1→10 sırasıyla** çalışır ve
+ilk eşleşen terminaldir. ⚠️ Bu, o karttaki **ilk** tablo değil, kartın
+**2026-08-02 düzeltme bloğundaki** tablodur (yukarıdaki kutu). §5 "ilk eşleşen kazanır" der; bu, sıralamanın bir stil
 tercihi değil **güvenlik sınırı** olduğu anlamına gelir. Sıra kodda tek bir yerde,
 sıralı liste olarak tanımlanır ve testi ([M3-08](../plan/m3-policy-motoru.md))
 1→10'u doğrular. Yanlış sıranın somut sömürüleri:
@@ -182,7 +191,15 @@ sıralı liste olarak tanımlanır ve testi ([M3-08](../plan/m3-policy-motoru.md
   Tersi olsaydı debounce, geçersiz/replay bir SUN'ı "yakın zamanda gördük" diye
   yutup **replay penceresi** açardı; §4.4'ün kapattığı deliği yeniden açmak olurdu.
 
-Bu iki hatayı `tappa-security-auditor` (R8) özellikle arar.
+- **(ADR 0007, 2026-08-02) `sys:employee-deactivated` §5'in anmadığı iki zamanlama
+  guardrail'inden — `sys:tap-freshness` ve `sys:occurred-at-bound` — önce gelmeli.**
+  Tersi ölçüldü: yalnızca **kazanan** guardrail `Alert` üretir, dolayısıyla ön-alan
+  kural §5 satır 4'ün *güvenlik uyarısını* siler ama reddi ve kaydı bıraktığı için
+  satır doğru görünür. Maliyeti yok: biri **beklemek**, diğeri bir POST form alanı
+  (`occurred_at`). Yukarıdaki `sys:sun-invalid` ön-alması bununla **çelişmez** —
+  orada dokunuş sahtedir, burada CMAC doğrulanmıştır.
+
+Bu üç hatayı `tappa-security-auditor` (R8) özellikle arar.
 
 ### 6. `ignore` ve `redirect` tenant'a kapalıdır
 
@@ -384,7 +401,8 @@ Guardrail'in ilan ettiği aralık config'te de zorlanmalı, yoksa koruma env
   baseline+tenant en kısıtlayıcı kazanır, spesifik kaynak geneli ezer (madde 7);
   eşleşme yoksa `tap:*`→`review`, diğerleri→`deny` (madde 3); her karar `MatchedSid`
   + `Layer` taşır (madde 10); sonuç deterministik.
-- **[M3-05](../plan/m3-policy-motoru.md) (guardrail):** 1→10 normatif sıra (madde 5);
+- **[M3-05](../plan/m3-policy-motoru.md) (guardrail):** 1→10 normatif sıra (madde 5;
+  ⚠️ yürürlükteki tablo kartın **2026-08-02 düzeltme bloğundadır**, [ADR 0007](0007-guardrail-sirasi-ve-guvenlik-uyarisi.md));
   §5 satır 1–5 ↔ `sys:*` eşlemesi (madde 4 tablosu); sınırlı parametreler config ile
   aynı aralıktan (madde 11).
 - **[M3-06](../plan/m3-policy-motoru.md) (baseline):** §5 satır 6–7 + tespit edilen

@@ -65,7 +65,7 @@
 | | |
 |---|---|
 | **Kilometre taşı** | **M0 + M1 + M2 + M3 + M4 TAMAM** ✅ · **M5 — [Tap akışı](m5-tap-akisi.md) 9/11** · **🎉 uçtan uca check-in ÇALIŞIYOR**, **iki kanalda** (davet → aktivasyon → mini tur → **NFC veya QR** → karar → kayıt → onay ekranı) ve artık **gerçek HTTP + gerçek Postgres üzerinde bir GÜN** olarak kanıtlı (`make simulate-day` — 10 çalışan, 31 kayıt, kayıtları **karar motoru** üretiyor) |
-| **Sıradaki görev** | **M5-10** — [Tap tazelik penceresi](m5-tap-akisi.md#m5-10--tap-tazelik-penceresi-url-biriktirmeye-karşı) · **kendi migration'ını açar** (`tap_page_views` + RLS beşlisi + saklama süresi) → agent `tappa-db-migrator`. **Kart A1'i ÇÖZMEZ**, bunu "A1 kapandı" diye işaretleme (kartın kendi uyarısı). **M5-09'dan iki hazır girdi:** (1) `sys:tap-freshness` guardrail'i **canlı ama bandı boş** (TTL 900 == eşik 900, M5-05 F2) → pencere daralınca **ilk kez erişilebilir** olacak; (2) `tapSessionLimit` **burst**'ü ölçüldü (300 istek ~1,2 sn, 301.'si 429; 15 dk TTL'e **iki pencere** sığıyor) → 3 dk'lık pencere tavanı kabaca **yarılar**. **Sonra M5-11** (M5-09'da bulunan §5 yön ihlali; kullanıcı kararı 2026-08-02). |
+| **Sıradaki görev** | **M5-10 WIP — denetimde** ([Tap tazelik penceresi](m5-tap-akisi.md#m5-10--tap-tazelik-penceresi-url-biriktirmeye-karşı)). ⚠️ **Kartın istediği `tap_page_views` tablosu YAPILMADI — kullanıcı kararı 2026-08-02:** imzalı tap bağlamı zaten authenticated bir sunucu-saati `IssuedAt` taşıyor (MAC'in 8. alanı, istemci dokunamıyor), dolayısıyla tablo **koruma tarafında** bir şey eklemiyordu; tek gerçek katkısı M6-11'in *"POST'suz GET"* metriğiydi ve **o karta devredildi**. Görev **migration AÇMADI**; üretim değişikliği **11 yorum-dışı satır** (`TAPPA_FRESHNESS_SECONDS`, varsayılan 180, aralık 60–900 → `params.FreshnessWindow`). **A1 KAPANMADI** — pencere `GET` anından ölçülüyor ve o anı saldırgan seçiyor (ADR 0005 kabul edilen risk). **Sonra M5-11** (M5-09'da bulunan §5 yön ihlali; kullanıcı kararı 2026-08-02). |
 | **Çalışma modu** | Orkestrasyon + üçüncü göz — [README.md](README.md) · brief'ler [agent-brief.md](agent-brief.md) |
 | **Dal** | **`main`** — M0 (`m0-bootstrap`) `main`'e fast-forward birleştirildi (`562f021`), dal silindi. **Kullanıcı kararı (2026-07-25): artık doğrudan `main`'de çalışılır, görev başına dal açılmaz** (CLAUDE.md §10 güncellendi). Push/PR yine istemedikçe yok. |
 | **Blokeler** | Yok. **Bekleyen kullanıcı eylemleri → [docs/backlog.md](../backlog.md)** (B1 iPhone/Q11 ölçümü, B2 arm64 Go kurulumu) — **ikisi de hiçbir şeyi bloklamıyor**. Q02 (davet kanalı) M5-02'yi bloklamaz; kart cevapsız hâli için yol gösteriyor. |
@@ -222,10 +222,15 @@ DOLDURUR. Aşağıdakiler doldurulmazsa guardrail **sessizce** ateşlemez (eksik
   iki kuyruklanmış tap'in ikincisi `ignored` olur (ölçüldü: 7 sa arayla `occurred_at`, saniyeler arayla
   POST → `sys:person-debounce`). ADR 0006 bunu **ifşa ediyor, gerekçelendirmiyor** — M9-01 kuyruğu
   tasarlarken kanal/işaretle ayırmak zorunda.
-- **M5-10 — tazelik penceresi tavanı düşürüyor ama tek başına yetmiyor.** Tek taranmış QR bağlamının
-  yapısal tavanı artık `tapSessionLimit` **burst**'ü (300 istek ~1,2 sn'de servis edildi, 301.'si 429;
-  15 dk TTL'e iki pencere sığıyor). 3 dk'lık pencere ikinci pencereyi siler, tavanı kabaca **yarılar**.
-  Debounce artık **girdi** tarafında sağlam, yani M5-10 hacmi daraltır, kuralı değil.
+- ~~**M5-10 — tazelik penceresi tavanı düşürüyor…** 3 dk'lık pencere ikinci pencereyi siler, tavanı
+  kabaca **yarılar**.~~ **🔴 BU VAAT YANLIŞTI — düzeltildi 2026-08-02 (M5-10 denetimi).** `sys:tap-freshness`
+  guardrail'i **NFC-only**'dir ve bu **bilinçlidir** (M3-05; §5: *"QR fotoğraflanır ve süresiz geçerlidir"* —
+  QR'da sayfa yaşı diye bir kanıt yok), `TestGuardrails_SunInvalidExemptsQR` o günden beri pinliyor.
+  Dolayısıyla **M5-10 QR tavanını DEĞİŞTİRMEDİ**: tek taranmış QR bağlamı bugün de **15 dk TTL** boyunca
+  yeniden POST edilebiliyor. Frenler değişmedi — `base:qr-requires-ip` · 60 sn kişi-debounce (fazlaları
+  **kayıtlı `ignored`** yapar) · `tapSessionLimit` 300/10dk + `ByAddress` 3000/10dk. Yapısal tavan
+  (~600, TTL'e iki pencere) **aynen duruyor**. Sahibi: QR tavanını gerçekten daraltmak isteyen bir görev
+  (M6-11 sinyal tarafı / M8 paylaşılan store), M5-10 değil.
 - **Kilidin ölçülmüş bedeli (M8 kapasite planı):** bekleyen istek **havuz bağlantısı tutuyor**; tek
   anahtara inen flood'da ilgisiz kişinin gecikmesi **6–9×** (16 bağlantının 15'i `wait_event='advisory'`).
   Tavanlar `ByAddress` 3000/10dk ve 30 sn. **Ölçüm yöntemi de yazılı** (flood **ayrı oturumlardan**,

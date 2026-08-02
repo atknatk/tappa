@@ -43,6 +43,43 @@ type Config struct {
 	GPSRadiusMeters float64
 	Debounce        time.Duration
 
+	// Freshness is how long a minted tap page stays usable before
+	// sys:tap-freshness denies it (M5-10). It is a bounded parameter, read from
+	// the SAME policy constants the engine declares (ADR 0004 §11), and it
+	// reaches the guardrail through checkin.New — a value range-checked here and
+	// then never plumbed is hand-off N3's exact failure, and it happened once
+	// already with Debounce.
+	//
+	// 🔴 THE LIMIT THIS VALUE DOES NOT REACH, stated because it is a deliberate
+	// user decision (2026-08-02) and not an oversight. A second, INDEPENDENT
+	// ceiling bounds a tap page: the signed context's TTL (internal/handler,
+	// tapContextTTL = 15 min), which refuses at parse time with an UNRECORDED
+	// 400. So with the shipped 180 s window:
+	//
+	//	     age <= 180 s   ordinary tap
+	//	180 s < age <= 900 s   RECORDED reject, verdict reject, sys:tap-freshness
+	//	     age >  900 s   UNRECORDED 400 "tap again" (the TTL, not this value)
+	//
+	// THE TOP BAND IS A DECISION, AND CALLING IT A NECESSITY WOULD BE FALSE. Past
+	// the TTL the MAC is refused, so the TAP is unverified — no verified tag,
+	// counter, channel or location. The SESSION is not: the handler resolves the
+	// identity before it parses the context, so the tenant and the employee are
+	// authenticated at that moment, and migration 00005's nullable tag_uid would
+	// have accepted an attributed row. Not writing one was chosen because the 400
+	// is not silent (the page says to tap again), the person is at the plaque, and
+	// there is no attendance event to record — see tapContextTTL in
+	// internal/handler for the full statement. Narrowing this value widens the
+	// RECORDED band; it never narrows the TTL.
+	//
+	// ⚠️ THE TOP OF THE RANGE IS AN ACCEPTED NO-OP. Setting 900 makes this value
+	// equal the TTL, and since parse refuses an over-900 s context first, the
+	// recorded band is EXACTLY EMPTY — the pre-M5-10 state, reached with no
+	// warning (measured: window 900, page 870 s -> 200 ok / base:ip-or-gps-ok
+	// instead of a sys:tap-freshness reject). It stays accepted because it is a
+	// legal point of an ADR 0004 §11 range, but an operator who wants a recorded
+	// band must stay BELOW 900.
+	Freshness time.Duration
+
 	// RetentionYears is how long attendance records are kept, in whole years. It
 	// is REQUIRED and has no default because it is a LEGAL statement: the GDPR
 	// Art. 13 notice on the activation page renders this number, and a number
@@ -126,6 +163,18 @@ func Load() (*Config, error) {
 		push(err)
 	} else {
 		c.Debounce = time.Duration(secs * float64(time.Second))
+	}
+	// 180 s (3 min) is the SHIPPED window, and it is a product choice rather than
+	// the range's midpoint: the gap between the chip rewriting the URL and a
+	// person pressing the button is seconds, plus unlocking a phone and reading
+	// the screen on venue wifi. policy.DefaultParams() deliberately keeps the
+	// range MAXIMUM as its no-config fallback, so this line is what makes the
+	// guardrail's band non-empty in production — deleting it does not fail to
+	// compile, it silently restores 900 s (see the DB test named in that file).
+	if secs, err := floatEnvRange("TAPPA_FRESHNESS_SECONDS", 180, policy.FreshnessMinSeconds, policy.FreshnessMaxSeconds); err != nil {
+		push(err)
+	} else {
+		c.Freshness = time.Duration(secs * float64(time.Second))
 	}
 
 	if len(errs) > 0 {
@@ -394,6 +443,31 @@ func intEnvRequiredRange(name string, min, max int) (int, error) {
 // bounded-parameter constants so config and the engine share one source: below
 // min a protection is meaningless, above max it is effectively off — both are a
 // startup failure, never a silent default (package doc).
+//
+// 🟡 KNOWN LIMIT, MEASURED AND LEFT OPEN (2026-08-02, M5-10 audit): **NaN PASSES**.
+// strconv.ParseFloat accepts "NaN" (and "nan"; a SIGN is not accepted — "+nan" is
+// an "invalid syntax" error, Go allows a sign only on Inf), and every NaN comparison
+// is false — so `v < min || v > max` is false and the range check waves it through.
+// What each of the three callers then does with it, measured:
+//
+//	TAPPA_GPS_RADIUS_M=NaN       Load err=nil, checkin.New err=nil. The radius is
+//	                             NaN, so every distance comparison is false: GPS
+//	                             never matches. NARROWING (GPS-only taps flag
+//	                             instead of ok), §4.6 intact — but silent.
+//	TAPPA_DEBOUNCE_SECONDS=NaN   time.Duration(NaN * 1s) is the int64 minimum
+//	                             (-2562047h47m16.85s), so `cfg.Debounce > 0` is
+//	                             false in checkin.New and it silently falls back to
+//	                             DefaultParams()'s 60 s. Shipped behaviour, by luck.
+//	TAPPA_FRESHNESS_SECONDS=NaN  the SAME negative duration, but checkin.New's
+//	                             `cfg.Freshness <= 0` catches it and refuses to
+//	                             start. Fail-closed, and the only one that is.
+//
+// So the hazard is not the value, it is that two of the three are caught (or not)
+// by an accident of the layer below rather than here. THE FIX IS ONE LINE —
+// rejecting math.IsNaN(v) beside the range check closes all three at the source —
+// and it is deliberately NOT taken here: it is outside M5-10's scope and belongs
+// to whoever owns config hardening. Effect today is LOW (narrowing or shipped
+// defaults, no record lost); the reason to close it is honesty, not exposure.
 func floatEnvRange(name string, def, min, max float64) (float64, error) {
 	raw := os.Getenv(name)
 	if raw == "" {

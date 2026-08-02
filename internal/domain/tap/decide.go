@@ -93,7 +93,7 @@ func Decide(in Input) Decision {
 		policy.CtxTapOccurredAtSkewSeconds: skewSeconds,
 		policy.CtxTapQueued:                queued,
 	}
-	// The page's age, for sys:tap-freshness (guardrail #4). Set ONLY when there is
+	// The page's age, for sys:tap-freshness (guardrail #6). Set ONLY when there is
 	// a page behind this tap: a manual record has none, and a zero PageIssuedAt
 	// read literally would report a fifty-six-year-old page and deny it. Absent is
 	// the honest value there — and it is safe, because the guardrail is NFC-only

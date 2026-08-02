@@ -108,6 +108,30 @@ const seedDebounce = policy.DebounceMinSeconds * time.Second
 // Postgres reading its own.
 const seedDebounceWait = seedDebounce + time.Second
 
+// seedFreshness is the tap-page freshness window the simulated day runs under,
+// and like seedDebounce it is the LOWEST value a real deployment may configure
+// (policy.FreshnessMinSeconds).
+//
+// 🔴 IT IS SET BECAUSE OMITTING IT USED TO SWITCH THE GUARDRAIL OFF. This file's
+// config went to checkin.New without a Freshness, which fell back to
+// policy.DefaultParams()'s 900 s — the same number as the signed context's TTL,
+// so sys:tap-freshness had an empty band and `make simulate-day` exercised a
+// production path with one guardrail inert. checkin.New now refuses a zero, and
+// this constant is the answer to it.
+//
+// The tightest legal window costs the day nothing, and that is measured rather
+// than argued: every `make test` runs the whole day at this 60 s and it passes.
+// The structural reason is that tapNFC/tapQR do the GET and the POST inside a
+// single call, so a page here is milliseconds old, and the two dayWait sleeps sit
+// BETWEEN phases rather than between a mint and its post.
+//
+// ⚠️ SO THE VALUE ITSELF CARRIES NO LOAD, and nobody should read a mutation-proof
+// into it. An audit measured the converse: at 900 s the day is green too (65 s).
+// The day is insensitive to this number in BOTH directions — exactly what the
+// structural reason predicts. 60 is picked because a harness should exercise the
+// strictest deployment a customer may configure, not because the day needs it.
+const seedFreshness = policy.FreshnessMinSeconds * time.Second
+
 // offSiteAddr, the mobile-data case: a documentation-range address that belongs
 // to no KF venue, so proof-of-place must come from GPS or not at all.
 const seedOffSiteAddr = "198.51.100.9"
@@ -168,6 +192,7 @@ func newSeedFlow(t *testing.T) *seedFlow {
 		},
 		GPSRadiusMeters: 150,
 		Debounce:        seedDebounce,
+		Freshness:       seedFreshness,
 	}
 
 	data, err := db.New(context.Background(), cfg)

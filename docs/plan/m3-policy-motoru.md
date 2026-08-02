@@ -312,6 +312,11 @@ func Evaluate(set Set, ctx Context) Decision
 **Guardrail listesi — SIRA NORMATİFTİR, ilk eşleşen kazanır ve terminaldir.**
 Kodda gömülü, `sys:` ad alanı.
 
+> ⚠️ **AŞAĞIDAKİ TABLONUN 4–7 BANDI ARTIK YÜRÜRLÜKTE DEĞİL** —
+> [ADR 0007](../adr/0007-guardrail-sirasi-ve-guvenlik-uyarisi.md) (2026-08-02) ile
+> değişti. Tablo, kararın çıktığı hâli göstermek için duruyor; **yürürlükteki sıra
+> tablonun hemen altındaki düzeltme bloğundadır.**
+
 | # | sid | Kural | Kaynak |
 |---|---|---|---|
 | 1 | `sys:tenant-mismatch` | Etiketin tenant'ı ≠ oturumun tenant'ı → `redirect` (kayıt yok) | §4.5 · Y2 |
@@ -324,6 +329,44 @@ Kodda gömülü, `sys:` ad alanı.
 | 8 | `sys:person-debounce` | Aynı kişi pencere içinde → `ignore` | §5 satır 5 |
 | 9 | `sys:policy-edit-owner-only` | `policy:edit` yalnız tenant owner'ında → aksi `deny` | K2 |
 | 10 | `sys:no-self-review` | `reviewer_id == transaction.employee_id` → `deny` | Y-C |
+
+> **Kart düzeltmesi (2026-08-02, [ADR 0007](../adr/0007-guardrail-sirasi-ve-guvenlik-uyarisi.md),
+> M5-10'un 4. denetim turu).** **Yukarıdaki tablonun 4–7 bandı yanlıştı ve
+> düzeltildi.** [M5-10](m5-tap-akisi.md) tazelik penceresini yapılandırılabilir
+> yapınca `sys:tap-freshness` ilk kez gerçekten ateşlenebilir oldu ve
+> `sys:employee-deactivated`'i **ön-almaya** başladı. Yalnızca **kazanan**
+> guardrail `Alert` ürettiği için ([evaluate.go](../../internal/policy/evaluate.go))
+> §5 satır 4'ün *güvenlik uyarısı* sessizce düştü — ret ve kayıt yerinde kaldığından
+> satır doğru görünüyordu. `sys:occurred-at-bound` aynı şeyi M5-10'dan **önce de**
+> yapıyordu ve onun girdisi bir POST form alanı (`occurred_at`), yani deaktif
+> oturum uyarıyı kendisi kapatabiliyordu. **Yürürlükteki sıra:**
+>
+> | # | sid | Kural | Kaynak |
+> |---|---|---|---|
+> | 1 | `sys:tenant-mismatch` | Etiketin tenant'ı ≠ oturumun tenant'ı → `redirect` (kayıt yok) | §4.5 · Y2 |
+> | 2 | `sys:tag-not-active` | Etiket `retired` → `deny`; `lost` → `deny` **+ güvenlik uyarısı** | §5 satır 1 |
+> | 3 | `sys:sun-invalid` | CMAC uyuşmuyor veya `ctr` artmadı → `deny` | §5 satır 2 · §4.4 |
+> | **4** | **`sys:no-session`** | Oturum yok → `redirect`, **kayıt yok** | §5 satır 3 |
+> | **5** | **`sys:employee-deactivated`** | `deactivated` → `deny` + güvenlik uyarısı | §5 satır 4 |
+> | **6** | **`sys:tap-freshness`** | Sayfa yaşı pencereyi aştı → `deny` | ADR 0004 §11 · [M5-10](m5-tap-akisi.md) |
+> | **7** | **`sys:occurred-at-bound`** | `occurred_at` gelecekte, veya sapma üst sınırı aştı → `deny` | ADR 0004 §11 · K1 |
+> | 8 | `sys:person-debounce` | Aynı kişi pencere içinde → `ignore` | §5 satır 5 |
+> | 9 | `sys:policy-edit-owner-only` | `policy:edit` yalnız tenant owner'ında → aksi `deny` | K2 |
+> | 10 | `sys:no-self-review` | `reviewer_id == transaction.employee_id` → `deny` | Y-C |
+>
+> 1–3 ve 8–10 değişmedi. Kodda tek kaynak `policy.Guardrails()` slice'ıdır ve
+> `TestGuardrails_NormativeOrder` bu on satırı birebir pinler.
+>
+> ⚠️ **ONBİRİNCİ BİR GUARDRAIL EKLERKEN — "§5'in beş satırının göreli sırasını
+> koru" KURALI YETMEZ.** Ölçüldü: regresyonu üreten sıra da o kuralı sağlıyordu
+> (§5 satırlarının konumları eskiden `[2 3 6 7 8]`, bugün `[2 3 4 5 8]` — ikisi de
+> artan). Yürürlükteki yerleştirme kuralı
+> [`internal/policy/guardrails.go`](../../internal/policy/guardrails.go)'nun
+> `Guardrails` doküman yorumundadır: **uyarı üreten bir guardrail'in (bugün
+> `sys:employee-deactivated` ve `lost` etiketteki `sys:tag-not-active`) önüne, aynı
+> istekte ateşleyebilen hiçbir kural konulamaz; konulacaksa bastırma BİLİNÇLİ ve
+> ADLANDIRILMIŞ olmalıdır.** Bugün üç bilinçli bastırma var: `sys:tenant-mismatch`,
+> `sys:tag-not-active`, `sys:sun-invalid` (gerekçeleri ADR 0007'nin aile tablosunda).
 
 **Sıra neden normatif:** §5 "ilk eşleşen kazanır" der ve sıralama sömürülebilir.
 `sys:employee-deactivated`, `sys:sun-invalid`'den **önce** gelseydi: elinde eski
@@ -434,6 +477,17 @@ değiştirilebilir** politikalar olarak paketlemek.
 - **Guardrail sırası testi:** M3-05'teki 1→10 sırası tablo bazlı doğrulanıyor;
   özellikle `sys:sun-invalid` her zaman `sys:employee-deactivated` ve
   `sys:person-debounce`'tan **önce** çalışıyor.
+  > ⚠️ **Kriter düzeltmesi (2026-08-02, [ADR 0007](../adr/0007-guardrail-sirasi-ve-guvenlik-uyarisi.md)).**
+  > M3-05'in sıra tablosu o tarihte değişti (4–7 bandı), dolayısıyla
+  > `TestGuardrails_NormativeOrder` artık **kartın düzeltme bloğundaki** listeyi
+  > doğruluyor — tablonun ilk hâlini değil. `sys:sun-invalid` kısıtı aynen geçerli.
+  > Buna **sıranın sonucunu** ölçen ikinci bir kriter eklendi: aynı istekte
+  > ateşleyebilen hiçbir kural `sys:employee-deactivated`'in güvenlik uyarısını
+  > silmiyor — `TestGuardrails_TimingRulesDoNotPreemptTheDeactivatedAlert`
+  > (`sys:tap-freshness`, `sys:occurred-at-bound` ×2, `sys:person-debounce` +
+  > bilinçli `sys:sun-invalid` karşı-örneği). Sıra testi **tek başına yetmez**:
+  > sabit listeyi kimse gerekçesiyle okumaz, davranış testi *neden* o sırada
+  > olduğunu söyler.
 - Hiç politika bağlı değilken: `tap:record` → `review`; `policy:edit`,
   `report:export`, `tap:approve`, `record:manual` → **`deny`**. Bu ayrım testli.
 - `ignore`/`redirect` içeren bir tenant/baseline belgesi **doğrulamada reddediliyor**.

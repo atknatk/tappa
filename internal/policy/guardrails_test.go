@@ -1,6 +1,7 @@
 package policy
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -47,10 +48,10 @@ func TestGuardrails_NormativeOrder(t *testing.T) {
 		"sys:tenant-mismatch",
 		"sys:tag-not-active",
 		"sys:sun-invalid",
-		"sys:tap-freshness",
-		"sys:occurred-at-bound",
 		"sys:no-session",
 		"sys:employee-deactivated",
+		"sys:tap-freshness",
+		"sys:occurred-at-bound",
 		"sys:person-debounce",
 		"sys:policy-edit-owner-only",
 		"sys:no-self-review",
@@ -69,6 +70,229 @@ func TestGuardrails_NormativeOrder(t *testing.T) {
 		if gs[i].Match == nil {
 			t.Errorf("guardrail %d (%q) has a nil Match", i, gs[i].Sid)
 		}
+	}
+}
+
+// --- the placement rule, as a STRUCTURAL invariant (ADR 0007) ---------------
+
+// namedAlertPreemptors is the allowlist half of the placement rule stated in
+// guardrails.go's Guardrails doc comment: the guardrails whose suppression of a
+// later alert is DELIBERATE, NAMED and ARGUED (all four also sit in ADR 0007's
+// family table). The reasons are never asserted on — they are here so that
+// SHRINKING this map, the only way to make a new pre-emption legal, is an edit
+// somebody has to write down and defend rather than a line silently skipped.
+var namedAlertPreemptors = map[string]string{
+	"sys:tenant-mismatch": "redirect writes into no tenant at all, so there is no tenant to alert (§4.5; ADR 0002 Y2)",
+	"sys:tag-not-active":  "accepts the loss on `retired`; on `lost` it trades the alert for a more urgent one",
+	"sys:sun-invalid":     "the tap is FORGED, and an unauthenticated request must not manufacture an alert (R8)",
+	"sys:no-session":      "mutually exclusive with sys:employee-deactivated — tap.Decide sets employee:status and SessionTenantID together (decide.go), so the two can never match one request. A SECOND caller of the exported Evaluate could break that; see the boundary noted in guardrails.go",
+}
+
+// unnamedAlertPreemptions applies the placement rule STRUCTURALLY: only the
+// WINNING guardrail's Alert reaches the Decision (evaluate.go), so every
+// guardrail sitting AHEAD of an alerting one (Alert != nil) is a potential
+// suppressor and must appear in namedAlertPreemptors. It returns one message per
+// offending pair, naming the suppressor and its victim.
+//
+// ⚠️ IT DELIBERATELY DOES NOT RESTATE THE 1->10 ORDER, because a second copy of
+// that list would be a twin of TestGuardrails_NormativeOrder and inherit its one
+// blind spot: a fixed order list also turns red when a guardrail is ADDED, and
+// the natural repair is to write the newcomer into the list — which is precisely
+// the wrong move if it landed ahead of an alert. Here the shape of the check
+// leaves only two repairs, and both are the right ones: move the newcomer
+// BEHIND the alerting guardrails, or argue it into the allowlist above.
+//
+// It is CONSERVATIVE on purpose: it does not try to prove that a suppressor can
+// actually co-fire with its victim. That proof is exactly what a future author
+// would get wrong — sys:no-session is the single case where it holds, it rests
+// on an invariant in ANOTHER package, and it is written down for that reason.
+func unnamedAlertPreemptions(gs []Guardrail) []string {
+	var bad []string
+	for i, g := range gs {
+		if g.Alert == nil {
+			continue
+		}
+		for j, ahead := range gs[:i] {
+			if _, named := namedAlertPreemptors[ahead.Sid]; named {
+				continue
+			}
+			bad = append(bad, fmt.Sprintf(
+				"%s (position %d) sits ahead of the alerting %s (position %d) and is named in no exception",
+				ahead.Sid, j+1, g.Sid, i+1))
+		}
+	}
+	return bad
+}
+
+// TestGuardrails_NothingUnnamedPreemptsAnAlert is the mechanical net ADR 0007's
+// non-guarantee 4 said did not exist: the shipped order must satisfy the
+// placement rule, addition included.
+func TestGuardrails_NothingUnnamedPreemptsAnAlert(t *testing.T) {
+	t.Parallel()
+	if bad := unnamedAlertPreemptions(DefaultGuardrails()); len(bad) > 0 {
+		t.Fatalf("the shipped guardrail order deletes a security alert:\n  %s\n"+
+			"Either move the guardrail behind the alerting one, or argue it into namedAlertPreemptors "+
+			"(guardrails.go, the placement rule).", strings.Join(bad, "\n  "))
+	}
+}
+
+// TestGuardrails_PlacementRuleRejectsTheRegressionOrder is negative control ONE:
+// the order that shipped the ADR 0007 regression must be REJECTED by the rule.
+// Without this, the invariant above could pass by being vacuous.
+//
+// The old order is rebuilt by MOVING blocks rather than by spelling out ten sids,
+// so it keeps meaning if an eleventh guardrail is added.
+func TestGuardrails_PlacementRuleRejectsTheRegressionOrder(t *testing.T) {
+	t.Parallel()
+	// Pre-ADR-0007: ... sun-invalid(3), tap-freshness(4), occurred-at-bound(5),
+	// no-session(6), employee-deactivated(7) ...
+	old := moveAhead(t, DefaultGuardrails(), "sys:tap-freshness", "sys:no-session")
+	old = moveAhead(t, old, "sys:occurred-at-bound", "sys:no-session")
+
+	bad := strings.Join(unnamedAlertPreemptions(old), "\n")
+	for _, want := range []string{"sys:tap-freshness", "sys:occurred-at-bound"} {
+		if !strings.Contains(bad, want) {
+			t.Errorf("the rule must reject the regression order and BLAME %s by name; got:\n%s", want, bad)
+		}
+	}
+}
+
+// TestGuardrails_PlacementRuleRejectsAnUnnamedEleventhGuardrail is negative
+// control TWO, and the one this invariant exists for. A plausible eleventh
+// guardrail (an implausible counter jump — a real abuse rule someone will want)
+// placed ahead of sys:employee-deactivated deletes §5 row 4's alert exactly as
+// the timing rules did. TestGuardrails_NormativeOrder cannot defend against it:
+// its fixed list turns red, and updating the list is both the obvious repair and
+// the wrong one. This rule stays red until the guardrail moves or is argued for.
+func TestGuardrails_PlacementRuleRejectsAnUnnamedEleventhGuardrail(t *testing.T) {
+	t.Parallel()
+	eleventh := Guardrail{
+		Sid:    "sys:counter-jump",
+		Effect: EffectDeny,
+		Reason: "the tag counter jumped implausibly far",
+		Match:  func(Context) bool { return false },
+	}
+	gs := insertBefore(t, DefaultGuardrails(), eleventh, "sys:employee-deactivated")
+
+	bad := unnamedAlertPreemptions(gs)
+	if len(bad) != 1 || !strings.Contains(bad[0], "sys:counter-jump") {
+		t.Fatalf("an eleventh guardrail ahead of sys:employee-deactivated must be rejected BY NAME, got %v", bad)
+	}
+	// And placing the same guardrail BEHIND the alerting ones is accepted, so the
+	// rule constrains placement rather than forbidding growth.
+	ok := insertBefore(t, DefaultGuardrails(), eleventh, "sys:person-debounce")
+	if got := unnamedAlertPreemptions(ok); len(got) > 0 {
+		t.Fatalf("an eleventh guardrail placed behind every alert must be accepted, got %v", got)
+	}
+}
+
+// insertBefore returns gs with g spliced in immediately before beforeSid.
+func insertBefore(t *testing.T, gs []Guardrail, g Guardrail, beforeSid string) []Guardrail {
+	t.Helper()
+	out := make([]Guardrail, 0, len(gs)+1)
+	var done bool
+	for _, cur := range gs {
+		if cur.Sid == beforeSid {
+			out = append(out, g)
+			done = true
+		}
+		out = append(out, cur)
+	}
+	if !done {
+		t.Fatalf("insertBefore: no guardrail %q", beforeSid)
+	}
+	return out
+}
+
+// moveAhead returns gs with movedSid lifted out and re-inserted before beforeSid.
+func moveAhead(t *testing.T, gs []Guardrail, movedSid, beforeSid string) []Guardrail {
+	t.Helper()
+	var moved Guardrail
+	rest := make([]Guardrail, 0, len(gs))
+	for _, g := range gs {
+		if g.Sid == movedSid {
+			moved = g
+			continue
+		}
+		rest = append(rest, g)
+	}
+	if moved.Sid == "" {
+		t.Fatalf("moveAhead: no guardrail %q", movedSid)
+	}
+	return insertBefore(t, rest, moved, beforeSid)
+}
+
+// TestGuardrails_TimingRulesDoNotPreemptTheDeactivatedAlert pins the ORDER claim
+// ADR 0007 exists for, at the layer that owns the order.
+//
+// Only the WINNING guardrail's Alert reaches the Decision (evaluate.go), so a rule
+// placed ahead of sys:employee-deactivated deletes §5 row 4's security alert while
+// still denying and still writing the row — a silent loss, because the record looks
+// correct. The two rules §5 does not name are exactly the ones that DID: a stale
+// page (WAITING is the whole attack) and a client-declared occurred_at (a POST form
+// field). Both were measured suppressing the alert before this ordering.
+//
+// THE THIRD CASE IS NOT A REGRESSION, IT IS THE GAP THIS TEST LEFT. sys:person-
+// debounce (#8) also fires on the very same request — a deactivated employee who
+// tapped 10 s ago — and would delete the same alert if it were ever moved ahead of
+// #5. It is behind today, so the case passes for the RIGHT reason; without it the
+// test covered two of the three rules that can co-fire, and an eleventh guardrail
+// placed near the debounce would have had nothing to break (guardrails.go, the
+// placement rule).
+//
+// The contrast with the pre-emption that STAYS is the substance: sys:sun-invalid
+// (#3) must keep pre-empting, because there the tap is FORGED and an unauthenticated
+// request must not be able to manufacture an alert (R8). On the timing paths the
+// CMAC verified and the session is live.
+func TestGuardrails_TimingRulesDoNotPreemptTheDeactivatedAlert(t *testing.T) {
+	t.Parallel()
+	// A non-default freshness window: DefaultParams keeps the range maximum, which
+	// equals the signed context's TTL, so the deny band would be empty here.
+	p := DefaultParams()
+	p.FreshnessWindow = 180 * time.Second
+	set := Set{Guardrails: Guardrails(p)}
+
+	cases := []struct {
+		name      string
+		mutate    func(c *Context)
+		wantSid   string
+		wantAlert SecurityAlert
+	}{
+		{"stale_page", func(c *Context) { c.Keys[CtxTapPageAgeSeconds] = 300.0 },
+			"sys:employee-deactivated", AlertDeactivatedEmployeeTapped},
+		{"occurred_at_in_future", func(c *Context) { c.Keys[CtxTapOccurredAtSkewSeconds] = -60.0 },
+			"sys:employee-deactivated", AlertDeactivatedEmployeeTapped},
+		{"occurred_at_too_old", func(c *Context) { c.Keys[CtxTapOccurredAtSkewSeconds] = float64(OccurredAtSkewMaxSeconds + 1) },
+			"sys:employee-deactivated", AlertDeactivatedEmployeeTapped},
+		// The third co-firing rule (see the doc comment): §5 names this one, so it
+		// was never part of the ADR 0007 fix — but it deletes the same alert from
+		// the same request if it ever moves ahead of #5.
+		{"person_debounce", func(c *Context) { g := 10.0; c.SecondsSincePersonLastTap = &g },
+			"sys:employee-deactivated", AlertDeactivatedEmployeeTapped},
+		// The deliberate exception, restated here so the two live side by side and
+		// a future reorder has to break one of them to break the other's meaning.
+		{"forged_sun_still_preempts", func(c *Context) { c.Keys[CtxTapSunValid] = false },
+			"sys:sun-invalid", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			c := cleanTap(uuid.New())
+			c.Keys[CtxEmployeeStatus] = "deactivated"
+			tc.mutate(&c)
+
+			d := Evaluate(set, c)
+
+			if d.MatchedSid != tc.wantSid {
+				t.Errorf("MatchedSid = %q, want %q", d.MatchedSid, tc.wantSid)
+			}
+			if d.SecurityAlert != tc.wantAlert {
+				t.Errorf("SecurityAlert = %q, want %q (§5 row 4; ADR 0007)", d.SecurityAlert, tc.wantAlert)
+			}
+			if d.Effect != EffectDeny {
+				t.Errorf("Effect = %q, want deny", d.Effect)
+			}
+		})
 	}
 }
 
@@ -119,7 +343,7 @@ func TestGuardrails_EachFiresOnItsOwnCondition(t *testing.T) {
 			wantSid: "sys:sun-invalid", wantEff: EffectDeny,
 		},
 		{
-			name: "4 tap-freshness (int page age) -> deny",
+			name: "6 tap-freshness (int page age) -> deny",
 			// int value exercises toFloat's integer path.
 			build: func() Context {
 				c := cleanTap(tenant)
@@ -129,12 +353,12 @@ func TestGuardrails_EachFiresOnItsOwnCondition(t *testing.T) {
 			wantSid: "sys:tap-freshness", wantEff: EffectDeny,
 		},
 		{
-			name:    "5 occurred-at in future -> deny",
+			name:    "7 occurred-at in future -> deny",
 			build:   func() Context { c := cleanTap(tenant); c.Keys[CtxTapOccurredAtSkewSeconds] = -1.0; return c },
 			wantSid: "sys:occurred-at-bound", wantEff: EffectDeny,
 		},
 		{
-			name: "5 occurred-at too old -> deny",
+			name: "7 occurred-at too old -> deny",
 			build: func() Context {
 				c := cleanTap(tenant)
 				c.Keys[CtxTapOccurredAtSkewSeconds] = OccurredAtSkewMaxSeconds + 1
@@ -143,12 +367,12 @@ func TestGuardrails_EachFiresOnItsOwnCondition(t *testing.T) {
 			wantSid: "sys:occurred-at-bound", wantEff: EffectDeny,
 		},
 		{
-			name:    "6 no-session -> redirect, no record",
+			name:    "4 no-session -> redirect, no record",
 			build:   func() Context { c := cleanTap(tenant); c.SessionTenantID = nil; return c },
 			wantSid: "sys:no-session", wantEff: EffectRedirect,
 		},
 		{
-			name:    "7 employee-deactivated -> deny + alert",
+			name:    "5 employee-deactivated -> deny + alert",
 			build:   func() Context { c := cleanTap(tenant); c.Keys[CtxEmployeeStatus] = "deactivated"; return c },
 			wantSid: "sys:employee-deactivated", wantEff: EffectDeny, wantAlert: AlertDeactivatedEmployeeTapped,
 		},
@@ -378,6 +602,61 @@ func TestGuardrails_FreshnessWindowIsParameterised(t *testing.T) {
 	p.FreshnessWindow = 60 * time.Second
 	if d := Evaluate(Set{Guardrails: Guardrails(p)}, c); d.MatchedSid != "sys:tap-freshness" || d.Effect != EffectDeny {
 		t.Fatalf("120s page with a 60s window must be denied stale, got %+v", d)
+	}
+}
+
+// TestDefaultParams_FreshnessStaysAtTheRangeMaximum pins the fallback ITSELF,
+// which nothing did before (measured: changing DefaultParams().FreshnessWindow
+// from 900 s to 180 s, and then ALSO deleting checkin.New's assignment, left all
+// 13 packages green — both existing guards compare the DB harness's own
+// constant, so neither could fire).
+//
+// The property being pinned is not the number, it is the INEQUALITY: the
+// no-config fallback must differ from what internal/config ships
+// (TAPPA_FRESHNESS_SECONDS = 180 s). If the two were equal, the one line that
+// carries the configured value into the guardrail could be deleted and every
+// test would still pass on a value that merely LOOKS right — hand-off N3's
+// failure, and M5-05's F3, in the shape they actually recur.
+//
+// It is asserted against FreshnessMaxSeconds rather than against a literal so
+// the pin follows a deliberate range change (ADR 0004 §11) instead of turning
+// red on one.
+func TestDefaultParams_FreshnessStaysAtTheRangeMaximum(t *testing.T) {
+	t.Parallel()
+	if got, want := DefaultParams().FreshnessWindow, FreshnessMaxSeconds*time.Second; got != want {
+		t.Fatalf("DefaultParams().FreshnessWindow = %v, want the range maximum %v: this fallback must stay "+
+			"distinguishable from the shipped 180s, or the config wiring becomes unfalsifiable", got, want)
+	}
+}
+
+// TestGuardrails_FreshnessBoundaryIsStrictlyGreater pins WHICH side of the
+// window the boundary second falls on: `age > window` denies, `age == window`
+// does not.
+//
+// It is pinned for one reason — internal/config pins the OTHER boundary
+// deliberately (TestLoad_FreshnessRange asserts 60 and 900 are both accepted, an
+// inclusive range), so leaving this one to `<` vs `>=` in a Match closure is an
+// asymmetry rather than a gap nobody noticed. Measured: flipping the comparison
+// to `>=` left policy, tap and checkin green.
+//
+// The direction is also the right one on its own terms: a page that is exactly
+// as old as the window has not yet exceeded it, and a hard-deny guardrail should
+// take the second that is not yet stale.
+func TestGuardrails_FreshnessBoundaryIsStrictlyGreater(t *testing.T) {
+	t.Parallel()
+	p := DefaultParams()
+	p.FreshnessWindow = 180 * time.Second
+
+	at := cleanTap(uuid.New())
+	at.Keys[CtxTapPageAgeSeconds] = 180.0
+	if d := Evaluate(Set{Guardrails: Guardrails(p)}, at); d.MatchedSid == "sys:tap-freshness" {
+		t.Fatalf("a page aged exactly the window is NOT stale, got %+v", d)
+	}
+
+	past := cleanTap(uuid.New())
+	past.Keys[CtxTapPageAgeSeconds] = 180.001
+	if d := Evaluate(Set{Guardrails: Guardrails(p)}, past); d.MatchedSid != "sys:tap-freshness" || d.Effect != EffectDeny {
+		t.Fatalf("a page one millisecond past the window is stale, got %+v", d)
 	}
 }
 

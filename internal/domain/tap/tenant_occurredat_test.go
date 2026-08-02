@@ -260,16 +260,25 @@ func TestDecide_PolicyContextIsTheEvaluatedSnapshot(t *testing.T) {
 	}
 }
 
-// TestDecide_TapFreshnessIsFedAndCanFire is guardrail #4, which an audit found
+// TestDecide_TapFreshnessIsFedAndCanFire is guardrail #6, which an audit found
 // INERT: nothing in the product set tap:pageAgeSeconds, and a missing key never
 // matches (M3-04's invariant), so sys:tap-freshness could not fire at any window
 // a tenant chose. It was not weakened or mis-tuned — it was unreachable.
 //
 // The window is tightened here to 60 s because that is what makes the assertion
-// mean something: with the SHIPPED default (900 s) the signed context's own TTL
-// refuses an over-age page first, so the guardrail's band is empty until a tenant
-// narrows it (M5-10: 1-15 min, default 3). Feeding the key is what makes that
-// future window produce a RECORDED reject instead of an unrecorded error page.
+// mean something under policy.DefaultParams(): its 900 s fallback is the same
+// number as the signed context's TTL, so at THAT value the signed context is
+// refused at parse time first and the guardrail's band is exactly empty.
+//
+// 🔴 THAT IS NO LONGER THE SHIPPED STATE, and this comment said it was. M5-10
+// landed TAPPA_FRESHNESS_SECONDS, default 180 s, carried into Params by
+// checkin.New — so a deployment runs at 180 s and the 180..900 s band IS a
+// recorded reject. Two corrections to the old sentence: the shipped value is 180
+// and not 900, and the setting is per-DEPLOYMENT (an env var, like
+// TAPPA_GPS_RADIUS_M and TAPPA_DEBOUNCE_SECONDS) and not per-tenant — no bounded
+// param is stored per tenant today; that is M6-09's work. Feeding the key here is
+// what lets any of those windows produce a RECORDED reject instead of an
+// unrecorded error page.
 func TestDecide_TapFreshnessIsFedAndCanFire(t *testing.T) {
 	t.Parallel()
 

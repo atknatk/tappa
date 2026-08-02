@@ -27,8 +27,9 @@ func setRequired(t *testing.T) {
 	t.Setenv("TAPPA_INVITE_HMAC_KEY", otherKey)
 	t.Setenv("TAPPA_RETENTION_YEARS", "2") // required, no default
 	t.Setenv("TAPPA_TRUSTED_PROXIES", "")
-	t.Setenv("TAPPA_GPS_RADIUS_M", "")     // -> default 150
-	t.Setenv("TAPPA_DEBOUNCE_SECONDS", "") // -> default 60
+	t.Setenv("TAPPA_GPS_RADIUS_M", "")      // -> default 150
+	t.Setenv("TAPPA_DEBOUNCE_SECONDS", "")  // -> default 60
+	t.Setenv("TAPPA_FRESHNESS_SECONDS", "") // -> default 180
 }
 
 // otherKey is a valid 32-byte key that is NOT all zeroes, so it differs from the
@@ -120,6 +121,13 @@ func TestLoad_DefaultsWithinRange(t *testing.T) {
 	if c.Debounce.Seconds() != 60 {
 		t.Errorf("default debounce = %v, want 60s", c.Debounce)
 	}
+	// 180 s is the shipped freshness window (M5-10). It is pinned rather than
+	// left implicit because it is the number that decides how wide the RECORDED
+	// reject band is: everything between it and the 900 s context TTL is a §4.6
+	// record instead of an unrecorded 400.
+	if c.Freshness.Seconds() != 180 {
+		t.Errorf("default freshness = %v, want 180s", c.Freshness)
+	}
 }
 
 // TestLoad_GPSRadiusRange proves the bound reads policy's constants (single
@@ -182,6 +190,67 @@ func TestLoad_DebounceRange(t *testing.T) {
 				t.Fatalf("value %q should be a startup error", tc.val)
 			case !tc.ok && !strings.Contains(err.Error(), "TAPPA_DEBOUNCE_SECONDS"):
 				t.Fatalf("error should name TAPPA_DEBOUNCE_SECONDS, got %v", err)
+			}
+		})
+	}
+}
+
+// TestLoad_FreshnessRange proves the same for the tap freshness window
+// (60..900 s, M5-10). Both ends are INCLUSIVE — floatEnvRange's range is, and
+// the two boundary cases below are what says so out loud rather than leaving a
+// reader to infer it from `<` vs `<=`.
+//
+// The variable exists because the guardrail was reachable-but-inert: its window
+// came from policy.DefaultParams(), which is 900 s, and the signed context's TTL
+// is also 900 s, so no age could land between them. Refusing an out-of-range
+// value here is what keeps the same protection from being widened back out
+// through an env var (ADR 0004 §11) — 3600 would put the window past the TTL,
+// making it unreachable again from the other side.
+//
+// ⚠️ "at max is accepted" IS PINNING A SILENT NO-OP, and the case name now says
+// so instead of leaving the row to look like an ordinary boundary. 900 puts the
+// window exactly ON the TTL, so the recorded band is empty and the deployment is
+// back in the pre-M5-10 state with no warning at startup. It is accepted because
+// the range is inclusive at both ends and 900 is a declared point of it; the
+// consequence is documented in .env.example, internal/config's Freshness field
+// and policy.FreshnessMaxSeconds. A deployment that wants a recorded band must
+// stay below it.
+func TestLoad_FreshnessRange(t *testing.T) {
+	lo, hi := policy.FreshnessMinSeconds, policy.FreshnessMaxSeconds
+	cases := []struct {
+		name string
+		val  string
+		ok   bool
+	}{
+		{"below min", strconv.Itoa(lo - 1), false},
+		{"at min is accepted", strconv.Itoa(lo), true},
+		{"shipped default", "180", true},
+		{"at max is accepted, and it empties the recorded band", strconv.Itoa(hi), true},
+		{"just above max", strconv.Itoa(hi + 1), false},
+		{"past the context TTL", "3600", false},
+		{"zero would deny every tap", "0", false},
+		{"negative", "-1", false},
+		{"non-numeric", "soon", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			setRequired(t)
+			t.Setenv("TAPPA_FRESHNESS_SECONDS", tc.val)
+			c, err := config.Load()
+			switch {
+			case tc.ok && err != nil:
+				t.Fatalf("value %q should load, got %v", tc.val, err)
+			case !tc.ok && err == nil:
+				t.Fatalf("value %q should be a startup error", tc.val)
+			case !tc.ok && !strings.Contains(err.Error(), "TAPPA_FRESHNESS_SECONDS"):
+				t.Fatalf("error should name TAPPA_FRESHNESS_SECONDS, got %v", err)
+			}
+			if !tc.ok {
+				return
+			}
+			want, _ := strconv.Atoi(tc.val)
+			if c.Freshness.Seconds() != float64(want) {
+				t.Fatalf("Freshness = %v, want %ds", c.Freshness, want)
 			}
 		})
 	}

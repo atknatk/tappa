@@ -212,7 +212,9 @@ parametrelerini ayarlaması. Policy motorunun kullanıcıya bakan yüzü.
   - **Tenant** — tam CRUD.
 - Sık kullanılan politikalar için **form** (JSON yazmak zorunda değil):
   "QR ile giriş: IP zorunlu / GPS yeterli / her zaman onaya düşsün" gibi.
-- Guardrail'lerin **sırası** da gösteriliyor (M3-05'teki 1→10) — müdür bir
+- Guardrail'lerin **sırası** da gösteriliyor (M3-05'in **2026-08-02 düzeltme
+  bloğundaki** 1→10; [ADR 0007](../adr/0007-guardrail-sirasi-ve-guvenlik-uyarisi.md)
+  4–7 bandını değiştirdi — kartın ilk tablosu değil) — müdür bir
   kararın neden o guardrail'e takıldığını görebilsin.
 - Yetkilendirme politikaları (`policy:edit`, `report:export`, `tap:approve`)
   ayrı bir bölümde; varsayılanın **fail-closed** olduğu ekranda yazıyor.
@@ -278,6 +280,29 @@ URL biriktirme) görünür kalması buna bağlı.
   (A1/Q21). Çalışan ve plaket kırılımında.
 - **POST'suz `GET /t` sayısı** — ikincil sinyal. Uçak modu senaryosunda sıfır
   kalır, bu yüzden tek başına yeterli değildir.
+  - ⚠️ **BU SİNYALİN BUGÜN KAYNAĞI YOK** (eklendi 2026-08-02, M5-10 uygulaması).
+    Kriter, M5-10'un `tap_page_views(tag_uid, ctr, first_seen_at, source_ip)`
+    tablosunu yazacağını varsayıyordu; o tablo **kullanıcı kararıyla
+    yapılmadı.** ⚠️ Yapmama gerekçesi bir **ARGÜMANDIR, ölçüm değil** —
+    yapılmamış bir tablonun koruma katkısı ölçülemez, ve bu notun ilk yazımı
+    "ölçüldü" diyordu. Argüman: pencere zaten `GET` anından ölçülüyor
+    (imzalı `IssuedAt`), saldırgan o `GET`'in **zamanını kendisi seçtiği**
+    için "en eski satırı pinlemek" tehdit modelinde bir şey kazandırmıyor;
+    tablonun tek gerçek katkısı bu metrikti. Argümanı destekleyen **iki olgu
+    ölçüldü**: (a) pencere gerçekten bu imzalı damgadan ölçülüyor (damga
+    payload'dan silinince **üç** DB testi kırmızı); (b) oturumsuz `GET /t`
+    **303'te duruyor** (`transactions` ve `last_ctr` sabit). Tam gerekçe:
+    M5-10 kartının 2026-08-02 düzeltme bloğu, **md. 3**.
+    `GET /t` bugün **stateless**'tır: sayfa imzalı bir bağlam mintler ve
+    hiçbir yere satır yazmaz, yani "açıldı ama basılmadı" sayısını türetecek
+    bir kayıt yoktur. **M6-11 ya kendi kaynağını üretecek** (sayaç/tablo +
+    saklama süresi + RLS beşlisi; kimliksiz `GET /t` 303'te durduğu için
+    yazma yolu **oturumlu** isteklerle sınırlıdır) **ya da sinyali
+    düşürecek.** Kartın kendi cümlesi düşürmeyi kolaylaştırıyor: bu ikincil
+    sinyal uçak modu senaryosunda zaten sıfır kalır; A1'in **asıl** izi olan
+    `ctr` boşlukları (bir sonraki madde) M5-05'ten beri **canlı**
+    (`base:ctr-gap-review` gerçek bir tap'te ateşlendi). Bu not M6-11'i
+    çözmüyor, yalnız sahibine doğru bilgiyi bırakıyor.
 - **"IP eşleşti ama GPS uyuşmuyor"** (`tap:gpsConflict`) — mekânda bırakılmış
   proxy sinyali (Y-E). Bu saldırı GPS-only oranında **görünmez**; kayıtları
   tersine "IP ile doğrulanmış" olarak en güvenilir gösterir.

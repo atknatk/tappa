@@ -98,6 +98,27 @@ func (h *tapHarness) postTap(t *testing.T, c tapContext, cookie *http.Cookie, ex
 	return w
 }
 
+// postAgedTap posts a context whose page really IS `age` old.
+//
+// THE STAMP IS BACKDATED, NOT THE READER. The clock is wound back for the MINT
+// only, so IssuedAt — which lives inside the MAC — is a genuine past reading of
+// the server clock; the parse, the TTL check and tap.Decide then run on the
+// ordinary clock. That is the difference from moving contexts.now FORWARD, which
+// ages the page only in the eyes of the TTL: the decision reads its own clock
+// (checkin.Service), so a stamp minted "now" is nought seconds old to the
+// guardrail no matter what the context codec has been told the time is.
+func (h *tapHarness) postAgedTap(t *testing.T, c tapContext, cookie *http.Cookie, age time.Duration, extra url.Values) *httptest.ResponseRecorder {
+	t.Helper()
+	sid := h.sessionIDOf(t, cookie)
+	h.tap.contexts.now = func() time.Time { return time.Now().Add(-age) }
+	signed, err := h.tap.contexts.mint(c, sid)
+	h.tap.contexts.now = nil
+	if err != nil {
+		t.Fatalf("mint: %v", err)
+	}
+	return h.postSigned(t, signed, cookie, "203.0.113.5:41234", extra)
+}
+
 // postFrom is postTap with a chosen source address, for the IP-evidence cases.
 func (h *tapHarness) postFrom(t *testing.T, c tapContext, cookie *http.Cookie, remoteAddr string, extra url.Values) *httptest.ResponseRecorder {
 	t.Helper()
@@ -1280,62 +1301,293 @@ func TestCheckinDB_ForeignTenantTapNeverTouchesTheOtherTenantsCounter(t *testing
 	}
 }
 
-// TestCheckinDB_PageAgeIsCoveredByTheContextTTLToday MEASURES the boundary F2 is
-// really about, instead of asserting it.
+// TestCheckinDB_ConfiguredFreshnessWindowReachesTheGuardrail is M5-10's wiring,
+// measured the only way that can fail.
 //
-// Two mechanisms bound the age of a tap page and they produce DIFFERENT kinds of
-// answer:
+// 🔑 WHY IT LOOKS LIKE THE DEBOUNCE TEST ABOVE: it is the same trap, one field
+// across. `params.FreshnessWindow = cfg.Freshness` (checkin.New) can be DELETED
+// without breaking a build, and what comes back is policy.DefaultParams()'s
+// 900 s. If this harness ran at the shipped 180 s the deletion would still be
+// caught, but if it ran at 900 — which is what the code did until this task —
+// nothing would notice at all. So the harness runs at 240 s (harnessFreshness),
+// a value that is NEITHER fallback, and this test drives the band between 240
+// and 900 with a page aged 300 s.
 //
-//	the signed context's TTL   15 minutes, fixed, refuses at parse time ->
-//	                           an UNRECORDED 400 ("tap again")
-//	sys:tap-freshness          a bounded guardrail param (60..900 s) -> a
-//	                           RECORDED reject (§4.6 wants the record)
+// WHAT 300 s IS UNDER EACH VALUE, stated exactly because a looser sentence here
+// was wrong once: recorded reject at the harness's 240 s, recorded reject at
+// config.Load's shipped 180 s, ordinary tap only at the 900 s fallback. So the
+// 300 s page separates "the wiring is gone" from "the wiring is there"; what it
+// does NOT separate is 240 from 180, which is the job of the second guard below.
 //
-// With the SHIPPED defaults the two thresholds are the SAME number (tapContextTTL
-// == FreshnessMaxSeconds == 900 s), so the guardrail's band is empty and every
-// over-age page is answered by the TTL. That is measured below by driving the
-// clock across the boundary, and it is why feeding tap:pageAgeSeconds changes no
-// behaviour TODAY while making the guardrail reachable the moment M5-10 lets a
-// tenant narrow the window (1-15 min, default 3) — which is the whole point:
-// inside that narrower band the answer becomes a record instead of an error page.
-func TestCheckinDB_PageAgeIsCoveredByTheContextTTLToday(t *testing.T) {
+// WHAT §4.6 REQUIRES HERE, and it is the point of the whole guardrail: the tap
+// is DENIED and the row is still written. A stale page that produced no record
+// would be a silent loss, which is the one outcome the red line forbids.
+func TestCheckinDB_ConfiguredFreshnessWindowReachesTheGuardrail(t *testing.T) {
+	// A guard on the guard (the same one the debounce test carries): if somebody
+	// sets the harness back to a fallback value, this test stops measuring the
+	// wiring and nobody finds out.
+	if policy.DefaultParams().FreshnessWindow == harnessFreshness {
+		t.Fatal("harnessFreshness equals policy.DefaultParams(): deleting the wiring would leave this test green")
+	}
+	// Weaker but worth keeping, and stated for what it is: at the shipped 180 s
+	// this test WOULD still catch the deletion. What it would stop telling apart
+	// is "the configured value arrived" from "config.Load's default arrived", so
+	// a drift in that default would become invisible here.
+	if harnessFreshness == 180*time.Second {
+		t.Fatal("harnessFreshness equals config.Load's default: pick a third value so the two are distinguishable")
+	}
+	h := newTapHarness(t)
+
+	t.Run("inside the window an ordinary tap is untouched", func(t *testing.T) {
+		emp := h.newEmployee(t, "active")
+		cookie := h.cookieForEmployee(t, emp)
+		before := h.countFor(t, emp)
+
+		// The real gap: unlock the phone, let the page load, read it, press.
+		w := h.postAgedTap(t, h.nfcContext(uint32(h.startCtr)+1), cookie, 8*time.Second, nil)
+		if w.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200", w.Code)
+		}
+		if after := h.countFor(t, emp); after != before+1 {
+			t.Fatalf("rows went %d -> %d, want +1", before, after)
+		}
+		rec := h.lastRecord(t, emp)
+		if rec.Verdict == "reject" || deref(rec.MatchedSid) == "sys:tap-freshness" {
+			t.Fatalf("verdict/sid = %q/%q eight seconds after the page was minted: the window is denying "+
+				"legitimate taps", rec.Verdict, deref(rec.MatchedSid))
+		}
+	})
+
+	t.Run("past the window the tap is denied AND recorded", func(t *testing.T) {
+		emp := h.newEmployee(t, "active")
+		cookie := h.cookieForEmployee(t, emp)
+		before := h.countFor(t, emp)
+		ctrBefore := h.lastCtr(t, h.tagUID)
+
+		// 300 s: past the configured 240 s, comfortably inside both the 900 s
+		// fallback window and the 900 s context TTL. Under the fallback this is an
+		// `ok`, which is exactly what makes the deletion visible.
+		w := h.postAgedTap(t, h.nfcContext(uint32(ctrBefore)+1), cookie, 300*time.Second, nil)
+		if w.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200 — a denied tap still renders its result page", w.Code)
+		}
+		if after := h.countFor(t, emp); after != before+1 {
+			t.Fatalf("rows went %d -> %d, want +1: §4.6 keeps the record for a denied tap", before, after)
+		}
+		rec := h.lastRecord(t, emp)
+		if rec.Verdict != "reject" || deref(rec.MatchedSid) != "sys:tap-freshness" {
+			t.Fatalf("verdict/sid = %q/%q at a %s page age, want reject/sys:tap-freshness — the guardrail is "+
+				"comparing against a default, not the configured %s",
+				rec.Verdict, deref(rec.MatchedSid), 300*time.Second, harnessFreshness)
+		}
+		if rec.PolicyLayer == nil || *rec.PolicyLayer != "guardrail" {
+			t.Fatalf("policy_layer = %v, want guardrail", rec.PolicyLayer)
+		}
+
+		// THE REASON IS IN THE FROZEN SNAPSHOT, not only in the sid: a manager
+		// reviewing this row months later must be able to see WHY without
+		// re-running the engine.
+		var snapshot map[string]any
+		if err := json.Unmarshal(rec.PolicyContext, &snapshot); err != nil {
+			t.Fatalf("policy_context is not readable json: %v", err)
+		}
+		age, ok := snapshot[string(policy.CtxTapPageAgeSeconds)].(float64)
+		if !ok {
+			t.Fatalf("policy_context has no %s: %s", policy.CtxTapPageAgeSeconds, rec.PolicyContext)
+		}
+		if age < harnessFreshness.Seconds() {
+			t.Fatalf("recorded page age = %v s, which is INSIDE the %s window: the row would not explain "+
+				"its own verdict", age, harnessFreshness)
+		}
+
+		// 🔴 THE COUNTER MOVED, and that is the correct §4.4 behaviour rather than
+		// an accident. The advance is step 2 of checkin.Record, before any verdict:
+		// the chip really emitted this (uid, ctr) pair, so the value is SPENT and
+		// the same stale URL cannot be presented again — a second post of it is a
+		// replay (sys:sun-invalid), not a second freshness reject. Refusing to
+		// advance on a stale page would leave the pair live for later, which is
+		// precisely the hoarding this window exists to narrow.
+		if got := h.lastCtr(t, h.tagUID); got != ctrBefore+1 {
+			t.Fatalf("last_ctr = %d, want %d: a freshness reject must still spend the counter value",
+				got, ctrBefore+1)
+		}
+	})
+}
+
+// TestCheckinDB_DeactivatedAlertSurvivesTheTimingGuardrails is ADR 0007 measured
+// where it actually costs something: through the router, against real Postgres,
+// counting the tap.security_alert row a manager would (or would not) receive.
+//
+// THE REGRESSION IT PINS, and it was live in this milestone's own diff. §5 row 4
+// is "reject + log the attempt + SECURITY ALERT". Only the WINNING guardrail
+// contributes an alert, so any rule ordered ahead of sys:employee-deactivated
+// deletes the alert while still writing a reject row — the record still looks
+// right, which is why two review passes read past it. Measured before the fix,
+// same harness: a deactivated session that simply WAITED five minutes came back
+// verdict=reject, matched_sid=sys:tap-freshness, security alerts +0.
+//
+// TWO WAYS IN, and neither costs an attacker anything:
+//   - WAIT. Freshness (240 s here) is a high-volume BENIGN reject class — a slow
+//     phone, someone reading the screen — so the rare malicious event hides in it.
+//   - DECLARE. occurred_at is a plain POST form field, so a future timestamp used
+//     to switch the alert off on demand. That path pre-dates M5-10.
+//
+// It matters because deactivation deliberately does NOT revoke the session
+// (M5-01) — precisely so this attempt can be recorded and raised.
+func TestCheckinDB_DeactivatedAlertSurvivesTheTimingGuardrails(t *testing.T) {
+	cases := []struct {
+		name  string
+		age   time.Duration
+		extra url.Values
+	}{
+		// Past the harness's 240 s window, inside the 900 s context TTL: the exact
+		// band M5-10 created and the auditor's probe fired into.
+		{name: "stale_page", age: 300 * time.Second},
+		// skew < 0. Fresh page, so ONLY the declared timestamp is unusual.
+		{name: "occurred_at_in_future", age: 5 * time.Second,
+			extra: url.Values{"occurred_at": {time.Now().UTC().Add(10 * time.Minute).Format(time.RFC3339)}}},
+		// skew > 72 h.
+		{name: "occurred_at_far_past", age: 5 * time.Second,
+			extra: url.Values{"occurred_at": {time.Now().UTC().Add(-100 * time.Hour).Format(time.RFC3339)}}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newTapHarness(t)
+			emp := h.newEmployee(t, "deactivated")
+			cookie := h.cookieForEmployee(t, emp)
+			before := h.countFor(t, emp)
+			alertsBefore := h.auditCount(t, "tap.security_alert")
+
+			w := h.postAgedTap(t, h.nfcContext(uint32(h.lastCtr(t, h.tagUID))+1), cookie, tc.age, tc.extra)
+			if w.Code != http.StatusOK {
+				t.Fatalf("status = %d, want 200", w.Code)
+			}
+			if after := h.countFor(t, emp); after != before+1 {
+				t.Fatalf("rows went %d -> %d, want +1 (§4.6)", before, after)
+			}
+			rec := h.lastRecord(t, emp)
+			if rec.Verdict != "reject" || deref(rec.MatchedSid) != "sys:employee-deactivated" {
+				t.Fatalf("verdict/sid = %q/%q, want reject/sys:employee-deactivated: a timing rule "+
+					"pre-empted §5 row 4 (ADR 0007)", rec.Verdict, deref(rec.MatchedSid))
+			}
+			if got := h.auditCount(t, "tap.security_alert") - alertsBefore; got != 1 {
+				t.Fatalf("security alerts = %d, want 1: §5 row 4's alert was lost to %q",
+					got, deref(rec.MatchedSid))
+			}
+
+			// LOSING THE TIEBREAK IS NOT LOSING THE FACT. The frozen snapshot still
+			// carries the timing input, so the row explains the full circumstance
+			// even though the sid names the more serious of the two reasons.
+			var snapshot map[string]any
+			if err := json.Unmarshal(rec.PolicyContext, &snapshot); err != nil {
+				t.Fatalf("policy_context is not readable json: %v", err)
+			}
+			if snapshot[string(policy.CtxEmployeeStatus)] != "deactivated" {
+				t.Fatalf("policy_context employee:status = %v, want deactivated", snapshot[string(policy.CtxEmployeeStatus)])
+			}
+			if tc.name == "stale_page" {
+				age, ok := snapshot[string(policy.CtxTapPageAgeSeconds)].(float64)
+				if !ok || age < harnessFreshness.Seconds() {
+					t.Fatalf("policy_context tap:pageAgeSeconds = %v (present=%v), want the recorded stale age",
+						snapshot[string(policy.CtxTapPageAgeSeconds)], ok)
+				}
+			}
+		})
+	}
+}
+
+// TestCheckinDB_StaleQRPageIsNotDeniedByFreshness pins the exemption the
+// guardrail states and nothing had measured through the HTTP path.
+//
+// §5: a QR code is PHOTOGRAPHED and valid indefinitely — there is no counter, no
+// chip, and therefore no "moment" for a freshness window to be fresh relative to.
+// sys:tap-freshness is NFC-only for that reason, and so is sys:sun-invalid. What
+// bounds a QR tap instead is base:qr-requires-ip, which this test satisfies by
+// posting from inside the venue's registered prefix.
+//
+// (The channel travels INSIDE the MAC — a client that could declare channel=qr
+// would shed both NFC-only guardrails, which is why tapcontext.go carries it.)
+func TestCheckinDB_StaleQRPageIsNotDeniedByFreshness(t *testing.T) {
 	h := newTapHarness(t)
 	emp := h.newEmployee(t, "active")
 	cookie := h.cookieForEmployee(t, emp)
-	sid := h.sessionIDOf(t, cookie)
-
-	minted := time.Now().UTC()
-	post := func(age time.Duration, ctr uint32) *httptest.ResponseRecorder {
-		// Mint at `minted`, present it `age` later. Both halves go through the
-		// production codec; only the clock moves.
-		h.tap.contexts.now = func() time.Time { return minted }
-		signed, err := h.tap.contexts.mint(h.nfcContext(ctr), sid)
-		if err != nil {
-			t.Fatalf("mint: %v", err)
-		}
-		h.tap.contexts.now = func() time.Time { return minted.Add(age) }
-		defer func() { h.tap.contexts.now = nil }()
-
-		req := httptest.NewRequest(http.MethodPost, "/api/checkin",
-			strings.NewReader(url.Values{"ctx": {signed}}.Encode()))
-		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-		req.RemoteAddr = "203.0.113.5:41234"
-		req.AddCookie(cookie)
-		w := httptest.NewRecorder()
-		h.router.ServeHTTP(w, req)
-		return w
-	}
-
 	before := h.countFor(t, emp)
-	if w := post(14*time.Minute+59*time.Second, uint32(h.startCtr)+1); w.Code != http.StatusOK {
-		t.Fatalf("a page just inside the TTL: status = %d, want 200", w.Code)
+
+	// The SAME age that denies an NFC tap in the test above.
+	w := h.postAgedTap(t, h.qrContext(), cookie, 300*time.Second, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
 	}
 	if after := h.countFor(t, emp); after != before+1 {
-		t.Fatalf("rows went %d -> %d, want +1 for the in-TTL tap", before, after)
+		t.Fatalf("rows went %d -> %d, want +1", before, after)
+	}
+	rec := h.lastRecord(t, emp)
+	if deref(rec.MatchedSid) == "sys:tap-freshness" {
+		t.Fatalf("a QR tap was denied by sys:tap-freshness: the guardrail is no longer NFC-only, and a " +
+			"photographed code has no touch to be stale relative to (§5)")
+	}
+	if rec.Verdict != "ok" {
+		t.Fatalf("verdict/sid = %q/%q for an on-site QR tap, want ok — the positive control says this "+
+			"request is otherwise fine, so a reject would mean the exemption above proves nothing",
+			rec.Verdict, deref(rec.MatchedSid))
+	}
+}
+
+// TestCheckinDB_TwoCeilingsBoundATapPageAndTheyAnswerDifferently measures the
+// LIMIT this task deliberately did not close (user decision, 2026-08-02).
+//
+// Two mechanisms bound the age of a tap page and they produce different kinds of
+// answer:
+//
+//	sys:tap-freshness         the configured window (60..900 s, shipped 180) ->
+//	                          a RECORDED reject, §4.6's outcome
+//	the signed context's TTL  15 minutes, fixed, refuses at PARSE time ->
+//	                          an UNRECORDED 400 ("tap again")
+//
+// So with the shipped window there are three bands, not two: ordinary tap up to
+// 180 s, recorded reject from there to 900 s, and past 900 s an error page with
+// no row at all.
+//
+// THE TOP BAND WAS LEFT AS IT IS ON PURPOSE, and the reason is a decision rather
+// than an impossibility — the earlier version of this comment claimed the
+// impossibility and was wrong. Past the TTL the MAC is refused, so the TAP is
+// unverified: no trustworthy tag, counter, channel or location. THE SESSION IS
+// STILL VERIFIED — Checkin resolves the identity and requires SessionLive BEFORE
+// it parses the context — so the tenant and the employee are known, and
+// migration 00005's nullable tag_uid (plus the CHECK that lets a `reject` carry
+// no employee) would have accepted a row. It was not written because the 400 is
+// not silent (the page says to tap again), the person is at the plaque, and
+// there is no attendance event to record: the row would name the person and no
+// plaque, recording that a stale page was posted rather than an arrival.
+//
+// This test runs at the harness's 240 s window, so its lower band starts there.
+func TestCheckinDB_TwoCeilingsBoundATapPageAndTheyAnswerDifferently(t *testing.T) {
+	h := newTapHarness(t)
+	emp := h.newEmployee(t, "active")
+	cookie := h.cookieForEmployee(t, emp)
+
+	// 870 s: past the window, inside the 900 s TTL. Not 899 — IssuedAt is
+	// truncated to the second and a real request takes real milliseconds, so the
+	// tighter figure sits within a millisecond of the TTL and would fail on a slow
+	// machine for the wrong reason.
+	before := h.countFor(t, emp)
+	ctrBefore := h.lastCtr(t, h.tagUID)
+	w := h.postAgedTap(t, h.nfcContext(uint32(ctrBefore)+1), cookie, 870*time.Second, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("a page inside the TTL: status = %d, want 200", w.Code)
+	}
+	if after := h.countFor(t, emp); after != before+1 {
+		t.Fatalf("rows went %d -> %d, want +1: inside the TTL the answer is a RECORD", before, after)
+	}
+	if rec := h.lastRecord(t, emp); rec.Verdict != "reject" || deref(rec.MatchedSid) != "sys:tap-freshness" {
+		t.Fatalf("verdict/sid = %q/%q at 870 s, want reject/sys:tap-freshness",
+			rec.Verdict, deref(rec.MatchedSid))
 	}
 
+	// 901 s: past the TTL. Different mechanism, different answer.
 	before = h.countFor(t, emp)
-	w := post(15*time.Minute+1*time.Second, uint32(h.startCtr)+2)
+	ctrBefore = h.lastCtr(t, h.tagUID)
+	w = h.postAgedTap(t, h.nfcContext(uint32(ctrBefore)+1), cookie, 901*time.Second, nil)
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("a page past the TTL: status = %d, want 400", w.Code)
 	}
@@ -1343,8 +1595,9 @@ func TestCheckinDB_PageAgeIsCoveredByTheContextTTLToday(t *testing.T) {
 		t.Fatalf("rows went %d -> %d: the TTL refusal is UNRECORDED, which is exactly the difference "+
 			"from the guardrail's recorded reject", before, after)
 	}
-	if got := h.lastCtr(t, h.tagUID); got != h.startCtr+1 {
-		t.Fatalf("last_ctr = %d: a context refused at parse time must not reach the counter", got)
+	if got := h.lastCtr(t, h.tagUID); got != ctrBefore {
+		t.Fatalf("last_ctr = %d, want %d: a context refused at parse time must not reach the counter",
+			got, ctrBefore)
 	}
 }
 

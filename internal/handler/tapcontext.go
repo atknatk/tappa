@@ -23,11 +23,11 @@ import (
 // card names that as the trap. Three things go wrong with it:
 //
 //  1. The POST would accept ANY (uid, ctr, cmac) triple a caller cares to send.
-//     Whatever the GET step establishes — today the CMAC check, from M5-10 a
-//     freshness record — would be bypassable by posting straight at the API. A
-//     server-minted context inverts that: the POST accepts ONLY a value THIS
-//     server put in front of a person, so the GET step sits ON the path instead
-//     of beside it.
+//     Whatever the GET step establishes — the CMAC check, and the mint time the
+//     freshness guardrail measures — would be bypassable by posting straight at
+//     the API. A server-minted context inverts that: the POST accepts ONLY a
+//     value THIS server put in front of a person, so the GET step sits ON the
+//     path instead of beside it.
 //  2. The CMAC would be page state: readable by script, kept by "save page",
 //     resurrected by a shared phone's back button.
 //  3. Nothing would tie the values to WHEN they were seen, which is the anchor
@@ -70,16 +70,31 @@ import (
 // advancing the counter would record replays. internal/sun/preview.go states
 // the same requirement from the other end.
 //
-// HOW M5-10 BUILDS ON THIS RATHER THAN AROUND IT. The freshness window and the
-// tap_page_views table are M5-10's and none of it is here. What is here is the
-// hook it needs: IssuedAt is a SERVER clock reading, authenticated, carried to
-// the POST. M5-10 changes the trust model rather than the field — it records
-// (tag_uid, ctr, first_seen_at, source_ip) in the database and consults the
-// EARLIEST row, because a signed stamp only proves when THIS context was minted
-// and a caller may hold several of them for the same tap. The TTL below is a
-// credential lifetime, not that policy window: it bounds how long a minted
-// context can be presented at all, and it produces "tap again", not a recorded
-// sys:tap-freshness reject.
+// HOW THE FRESHNESS WINDOW USES THIS (M5-10, landed 2026-08-02). IssuedAt is
+// the anchor and there is no second one: sys:tap-freshness measures
+// now - IssuedAt, so the window is entirely built on this authenticated server
+// stamp. The M5-10 card had planned a tap_page_views table and an EARLIEST-row
+// rule instead — that was NOT built (user decision).
+//
+// ⚠️ THE REASON IT WAS NOT BUILT IS AN ARGUMENT, NOT A MEASUREMENT, and an
+// earlier version of this sentence said "measured", which dressed a design
+// choice as evidence: the contribution of a table nobody built cannot be
+// measured. The argument is that the window is measured from the GET either way
+// and an attacker picks when that GET happens, so pinning the earliest of
+// several rows buys nothing against the threat the card named. What IS measured
+// is narrower, and only supports that argument: the window really does hang off
+// this signed stamp (drop IssuedAt from the payload and three DB tests go red),
+// and a session-less GET /t stops at the 303 before any row could be written.
+// Both facts and the argument they support are in the card's dated correction
+// block, M5-10 item 3.
+//
+// THE TTL BELOW IS A DIFFERENT CEILING AND IT ANSWERS DIFFERENTLY. It is a
+// credential lifetime, not the policy window: it bounds how long a minted
+// context can be presented at all, and it produces an UNRECORDED "tap again"
+// where the guardrail produces a RECORDED sys:tap-freshness reject. With the
+// shipped 180 s window the bands are: ordinary tap up to 180 s, recorded reject
+// to 900 s, error page beyond. See tapContextTTL for why the top band is
+// deliberate.
 
 const (
 	// tapContextVersion prefixes the payload, and parse refuses any other value
@@ -121,13 +136,32 @@ const (
 	// tapContextTTL bounds how long a minted context may be presented.
 	//
 	// FIFTEEN MINUTES, chosen as a CEILING rather than as the product rule. The
-	// product rule is M5-10's window (1-15 minutes, default 3, tenant-settable
-	// inside a guardrail), which is tighter at every setting except the very top
-	// and produces a RECORDED reject. This only stops a context from being
-	// usable indefinitely. It is set to the TOP of M5-10's stated range, so
-	// while that range is 1-15 this is at worst EQUAL to the window and never
-	// the looser of the two — an arithmetic claim about the range as written,
-	// which a later change to that range would invalidate.
+	// product rule is TAPPA_FRESHNESS_SECONDS (60..900 s, shipped 180 —
+	// internal/config, M5-10), which is tighter at every setting except the very
+	// top and produces a RECORDED reject. This only stops a context from being
+	// usable indefinitely. It equals the TOP of that range, so this is at worst
+	// EQUAL to the window and never the looser of the two — an arithmetic claim
+	// about the range as written, which a later change to it would invalidate.
+	//
+	// 🔴 IT WAS DELIBERATELY LEFT AT FIFTEEN MINUTES (user decision, 2026-08-02)
+	// rather than raised to widen the recorded band.
+	//
+	// WHAT IS AND IS NOT AUTHENTICATED AT THAT MOMENT, because an earlier version
+	// of this comment got it wrong and the wrong version is the more comfortable
+	// one. Past the ceiling the MAC is refused, so the TAP is unverified: no
+	// verified tag, counter, channel or location. THE SESSION IS NOT: Checkin
+	// resolves the identity (httpx.IdentityOf), requires SessionLive, and only
+	// then parses this context — so at the refusal the tenant and the employee are
+	// already authenticated. Migration 00005 leaves tag_uid, employee_id,
+	// location_id and ctr nullable, and its first CHECK admits a `reject` with no
+	// employee at all, so a row COULD be written and attributed here.
+	//
+	// NOT WRITING ONE IS THEREFORE A DECISION, NOT AN IMPOSSIBILITY. The reasons
+	// it was taken: the 400 is not silent (the page says to tap again), the person
+	// is standing in front of the plaque and can repeat the touch in seconds, and
+	// there is no attendance event to record — the row would name the person while
+	// naming no plaque, i.e. it would record that a stale page was posted, not
+	// that anyone arrived or left. Counted as a LIMIT in the M5-10 card.
 	//
 	// It is generous for its own job on purpose: the gap between the chip
 	// rewriting the URL and a person pressing the button is seconds, but the

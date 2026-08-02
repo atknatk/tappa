@@ -1108,10 +1108,20 @@ oturum çerezi.
 > çıkarılınca MAC **değişiyor**; farklı dağıtım anahtarı farklı imza veriyor.
 > **TTL 15 dk** — M5-10 penceresinin (1–15 dk) **üst sınırına** eşit seçildi ki
 > M5-10 indiğinde ikisinden **gevşek olan** asla bu olmasın. `IssuedAt` sunucu
-> saati ve authenticated → M5-10'un `first_seen_at`'i bunun **üstüne** kurulur
-> (ama M5-10 imzalı damgayı değil **DB'deki en erken satırı** okumalı: bir
-> çağıran aynı tap için birden çok bağlam tutabilir). `tap_page_views` tablosu
-> ve tazelik guardrail'i **kurulmadı** — M5-10'un işi.
+> saati ve authenticated.
+>
+> > ⚠️ **Düzeltme (2026-08-02, M5-10 uygulandıktan sonra).** Bu maddenin son iki
+> > cümlesi M5-10'dan **önce** yazılmıştı; ikisi de artık geçerli değil.
+> > (1) *"M5-10 imzalı damgayı değil DB'deki en erken satırı okumalı"* — **öyle
+> > olmadı:** `tap_page_views` tablosu **hiç yapılmadı** (kullanıcı kararı) ve
+> > `sys:tap-freshness` sayfa yaşını doğrudan bu imzalı `IssuedAt`'ten ölçüyor.
+> > Yapmama gerekçesi M5-10 kartının düzeltme bloğu **md. 3**'tedir ve bir
+> > **argümandır, ölçüm değil**. (2) *"tazelik guardrail'i kurulmadı"* —
+> > **kuruldu:** `TAPPA_FRESHNESS_SECONDS` (varsayılan **180 sn**) `checkin.New`
+> > üzerinden `params.FreshnessWindow`'a bağlandı. `tapContextTTL` **15 dk
+> > kaldı**, yani yukarıdaki *"gevşek olan asla TTL olmasın"* gerekçesi tuttu
+> > (180 < 900) — ⚠️ tek istisna `TAPPA_FRESHNESS_SECONDS=900`: kabul edilen ama
+> > kayıtlı bandı boşaltan **sessiz no-op**, M5-10 kartı md. **7b**.
 >
 > **4) 🔴 ÖN-DOĞRULAMA BAŞARISIZ OLSA BİLE SAYFA RENDER EDİLİYOR** (retired/lost
 > plaket = §5 satır 1, geçersiz CMAC = §5 satır 2). İlk bakışta yanlış görünür;
@@ -3092,6 +3102,297 @@ saatler sonra (belki başka bir yerden) basan kullanıcıyı durdurur.
   açılır, sayfa yüklenir, kullanıcı ekranı okur. 3 dk makul başlangıç.
 - `first_seen_at` sunucu saatidir; istemciden gelen zamana **asla** güvenilmez.
 - Bu görevi "A1 kapandı" diye işaretleme. Kapanmadı; sinyal ekledi.
+
+> **Kart düzeltmesi (2026-08-02, M5-10 uygulaması).** Yukarıdaki kriterler
+> **context olarak duruyor**, silinmedi — ama kartın yarısı **M5-04'ten ÖNCE**
+> yazılmış ve o görev **imzalı tap bağlamını** getirdiği için sekiz cümlesi
+> ölçümle yanlışlandı. Aşağısı ne yapıldığını ve neden kartın tasarımının
+> **uygulanmadığını** yazar.
+>
+> **NE YAPILDI — küçük ve odaklı.** `TAPPA_FRESHNESS_SECONDS` (varsayılan
+> **180 sn**, aralık `policy.FreshnessMin/MaxSeconds` = 60..900, aralık dışı
+> değer **başlangıç hatası**) config'e girdi ve `checkin.New` onu
+> `params.FreshnessWindow`'a bağladı. Guardrail `sys:tap-freshness` M3-05'te,
+> `tap:pageAgeSeconds` beslemesi M5-04'te zaten inmişti; **eksik olan tek şey bir
+> parametreydi** — ve o parametre eksik olduğu için guardrail pratikte hiç
+> ateşlenemiyordu: `DefaultParams().FreshnessWindow` = 900 sn **ve** imzalı
+> bağlamın TTL'i = 900 sn, yani bandın genişliği sıfırdı.
+>
+> **1. "POST en yeni GET kaydına bakar" — `tapcontext.go` (73-79) `EARLIEST`
+> yazıyor.** İki cümle çelişiyordu; ikisi de artık ölü, çünkü tablo yapılmadı
+> (aşağıya bak). Kaydı düzeltmek için: kartın gerekçesi (saldırgan gelecek
+> sayaçlar için eski damgalı satır üretip meşru kullanıcıyı reject'e düşürür)
+> **en eski**'yi ister, çünkü **en yeni**'yi seçmek saldırganın taze bir satır
+> ekleyip pencereyi kendi lehine sıfırlamasına izin verir.
+>
+> **2. 🔴 "Sıra senaryosu korunuyor: A dokunur, B dokunur, A basar → A hâlâ
+> geçerli" — BU KRİTER BUGÜN YANLIŞ ve hiçbir tazelik tasarımıyla
+> karşılanamaz.** Ölçüldü (gerçek Postgres, üretim yolu, `last_ctr` 700'den
+> başlıyor):
+>
+> ```
+> B(ctr=702) → 200  verdict=flag    sid=base:ctr-gap-review   last_ctr=702
+> A(ctr=701) → 200  verdict=reject  sid=sys:sun-invalid       last_ctr=702
+> ```
+>
+> A, kartın reddettiği `seen_ctr` tasarımı yüzünden değil, **§4.4'ün monoton
+> `ctr`'ı** yüzünden reddediliyor: sayaç 702'ye ilerledikten sonra 701 tanım
+> gereği replay'dir. §5'in *"ardışık farklı kişiler hepsi `ok`"* gereksinimi
+> **debounce** hakkındadır (kişi bazlı, `sys:person-debounce`), aynı plaketin
+> `ctr` sırası hakkında değil — kart ikisini karıştırmış. Kartın `seen_ctr`
+> reddi **yine de doğru** (GET'te sayaç harcamak sayfayı açıp basmayanı cezalandırır,
+> M5-04); düzelen yalnız **gerekçesi**.
+>
+> **3. `tap_page_views` TABLOSU YAPILMADI — kullanıcı kararı (2026-08-02).**
+> **Bu bir ARGÜMANDIR, ölçüm değil** — yapılmamış bir tablonun katkısı
+> ölçülemez; ilk yazımı "ölçüldü" diyordu ve bu yanlıştı. Argüman: pencere zaten
+> `GET` anından ölçülüyor (imzalı `IssuedAt`, sunucu saati) ve saldırgan ilk
+> GET'in **zamanını kendisi seçtiği** için "en eski satırı pinlemek" tehdit
+> modelinde bir şey kazandırmıyor. Argümanı destekleyen **iki ölçülmüş olgu**
+> aşağıda: pencerenin `GET` anından ölçülmesi (`IssuedAt` MAC'in içinde,
+> `PageIssuedAt` oradan besleniyor — silinince **üç** DB testi kırmızı) ve
+> oturumsuz `GET /t`'nin 303'te durması.
+> Tablonun tek gerçek katkısı M6-11'in *"POST'suz `GET /t`
+> sayısı"* metriğiydi; o **M6-11'e devredildi** (kartın kendi ifadesiyle
+> *"ikincil sinyal, uçak modu senaryosunda sıfır kalır"* — asıl sinyal olan
+> `ctr` boşlukları zaten çalışıyor).
+> Kartın *"kimliksiz herkes `GET /t` açabildiği için temizliksiz tablo ucuz bir
+> disk doldurma vektörü"* gerekçesi de **yanlıştı**: oturumsuz `GET /t`
+> **303'te duruyor**, ön-kontrole hiç ulaşmıyor (ölçüldü: `303 → /activate`,
+> `transactions` 2→2, `last_ctr` 702→702). Gerçek tavan oturum başına
+> **300 GET/10 dk**'dır (M5-03 bütçesi).
+>
+> **4. "Sayaç boşluğu hesaplanıp `base:ctr-gap-review`'a besleniyor" — ZATEN
+> TAMAMDI** (M5-05). Yukarıdaki ölçümde `sid=base:ctr-gap-review` canlı ateşledi.
+> Kartta kalması M5-10'un başkasının işini kendine yazması olurdu.
+>
+> **5. "süre tenant tarafından 1–15 dk arası seçilir" — bugün TENANT BAŞINA
+> DEĞİL, env.** Hiçbir bounded param tenant başına saklanmıyor (`tenants`'ta ayar
+> sütunu yok; `policySets.params` süreç genelinde tek). Emsal `TAPPA_GPS_RADIUS_M`
+> ve `TAPPA_DEBOUNCE_SECONDS`'tır ve M5-10 aynı kalıbı izledi. **Tenant başına
+> ayar M6-09'un işidir**; M5-10 ilk tenant-başına parametre depolamasını
+> **açmadı**.
+>
+> **6. "Neden yine de gerekli … saatler sonra basan kullanıcıyı durdurur" —
+> bunu 15 dk'lık TTL zaten durduruyordu.** Doğru gerekçe iki tanedir:
+> (a) cevabın **türü** — kayıtsız 400 yerine **kayıtlı reject** (§4.6);
+> (b) **sıkılık** — 900 sn yerine 180 sn.
+>
+> **7. 🔴 SAYILAN LİMİT — 180–900 sn kayıtlı reject, >900 sn KAYITSIZ 400.**
+> `tapContextTTL` **15 dk kalıyor** (kullanıcı kararı, 2026-08-02). Yani bugün
+> üç bant var:
+>
+> | Sayfa yaşı | Cevap | Kayıt |
+> |---|---|---|
+> | ≤ 180 sn | normal tap | var |
+> | 180–900 sn | `reject` / `sys:tap-freshness` | **var** (§4.6) |
+> | > 900 sn | 400 "tekrar dokun" | **yok** |
+>
+> Üçüncü bant §4.6 deliği **değil** — ama gerekçesi *"kayıt yazılamazdı"*
+> **DEĞİL**; ilk yazımda öyle diyordu ve **ölçümle yanlışlandı**. Doğrusu:
+> TTL aşılınca **TAP** doğrulanmamış olur (tag, sayaç, kanal, lokasyon), fakat
+> **OTURUM doğrulanmıştır** — `handler/checkin.go` kimliği `httpx.IdentityOf`
+> ile çözüp `SessionLive` şartını koyduktan **sonra** bağlamı parse ediyor, yani
+> reddin olduğu anda `id.Session.TenantID` **ve** `id.Session.EmployeeID` elde.
+> Şema da izin veriyor: `00005`'te `tag_uid`/`employee_id`/`location_id`/`ctr`
+> **NULLABLE** ve ilk CHECK `verdict IN ('reject','ignored')` için `employee_id`
+> NULL'a açıkça izin veriyor. **Yani satır yazılabilirdi ve atfedilebilirdi.**
+> Yazmamak bir **kullanıcı kararıdır** (2026-08-02) ve gerekçesi şu: 400
+> **sessiz değil** ("tekrar dokun"), çalışan zaten plaketin önünde ve o anda
+> **kaydedilecek bir mesai olayı yok** — satır kişiyi adlandırır ama plaketi
+> adlandıramaz, yani bir geliş/gidiş değil "bayat sayfa POST edildi" bilgisini
+> kaydederdi. Pin: `TestCheckinDB_TwoCeilingsBoundATapPageAndTheyAnswerDifferently`.
+>
+> **7b. ⚠️ `TAPPA_FRESHNESS_SECONDS=900` KABUL EDİLEN, SESSİZ BİR NO-OP.**
+> Aralığın üst ucu TTL ile **aynı sayı** olduğundan, 900 yazan bir kurulumda
+> kayıtlı-reject bandı **tam olarak boşalır** (guardrail `age > 900` arıyor,
+> parse zaten `age > 900`'ü önce reddediyor) — yani M5-10 öncesi atıl duruma
+> dönülür ve **hiçbir başlangıç uyarısı verilmez**. Ölçüldü: harness penceresi
+> 900 iken 870 sn'lik sayfa → `200`, `verdict=ok`, `sid=base:ip-or-gps-ok`
+> (180/240 sn'de aynı istek `reject` / `sys:tap-freshness`). Değer **kabul
+> edilmeye devam ediyor** (ADR 0004 §11 aralığının gerçek bir noktası,
+> `TestLoad_FreshnessRange` iki ucu da kapalı olarak pinliyor) ama sonucu artık
+> `.env.example`, `config.Config.Freshness` ve `policy.FreshnessMaxSeconds`
+> üzerinde **yazılı**. Kayıtlı bant isteyen kurulum 900'ün **altında** kalmalı.
+> Alt uç böyle bir tuzak taşımıyor; yalnızca sıkı ve kartın *"< 1 dk meşru
+> kullanıcıyı düşürür"* uyarısı orada geçerli.
+>
+> **8. "Tuzak: `first_seen_at` sunucu saatidir; istemciden gelen zamana asla
+> güvenilmez" — bu tuzak M5-04'te ZATEN KAPANDI.** `tapcontext.go` `mint`
+> damgayı `c.clock()`'tan alıyor, damga payload'ın 8. alanı ve **MAC'in içinde**;
+> `handler/checkin.go` onu form alanından değil **MAC'ten** okuyor. Kartın
+> M5-04'ten önce yazıldığının en net kanıtı bu satır.
+>
+> **9. A1 KAPANMADI ve kapandığı iddia edilmiyor** (kartın kendi uyarısı geçerli).
+> Pencere `GET` anından başlıyor, o anı saldırgan seçiyor: uçak modunda
+> biriktirilen URL ertesi gün açılır, sayfa **o an** mintlenir, 5 sn sonra POST
+> pencere içindedir. ADR 0005 Risk 3'te **kabul edilen risk**; tek gerçek iz
+> `tap:ctrGap`.
+>
+> **Kanıt (hepsi `make test` ile, gerçek Postgres).**
+> - `TestCheckinDB_ConfiguredFreshnessWindowReachesTheGuardrail` — 300 sn'lik
+>   sayfa → 200, satır **+1**, `verdict='reject'`, `matched_sid='sys:tap-freshness'`,
+>   `policy_context.tap:pageAgeSeconds` ≥ pencere, `last_ctr` **+1**.
+>   Pencere **config'ten** sürülüyor; harness 240 sn (varsayılan 180 ve fallback
+>   900'ün **ikisi de değil**), yani `params.FreshnessWindow = cfg.Freshness`
+>   satırı silinince test **kırmızı** (ölçüldü: 1,39 sn, iki test birden).
+>   ⚠️ 300 sn'lik sayfanın **ne olduğu** (2. denetim turunda düzeltildi — burada
+>   ve `tap_db_test.go`'da *"her iki fallback'te de sıradan bir tap"* yazıyordu,
+>   **aritmetik olarak yanlış**): 300 sn, 240'ta da **180'de de** KAYITLI
+>   reject'tir; sıradan tap **yalnız 900** fallback'inde. Ölçüldü: harness geçici
+>   olarak 180'e çekilip ikinci nöbetçi susturulunca alt test
+>   *"past the window the tap is denied AND recorded"* **YEŞİL** kaldı.
+> - `TestCheckinDB_StaleQRPageIsNotDeniedByFreshness` — aynı yaşta **QR** tap'i
+>   `ok`; guardrail NFC-only. Mutasyon (kanal kontrolünü sil) → KIRMIZI.
+>   🔴 Bu ölçüm **QR hakkındaki üç yazılı vaadi yanlışladı** ve üçü de düzeltildi
+>   (`qr_db_test.go` ×2, `tap/tenant_occurredat_test.go` ×1): M5-10 QR tavanını
+>   **değiştirmiyor** — ne "onunla birlikte küçülüyor" ne de "yarıya iniyor".
+>   QR frenleri `base:qr-requires-ip` + 60 sn kişi-debounce (fazlaları **kayıtlı
+>   `ignored`**) + oturum/adres limitleri olarak kalıyor.
+> - `TestLoad_FreshnessRange` — sınır değerlerin **ikisi de kabul** (60 ve 900,
+>   aralık kapalı); 59, 901, 3600, 0, -1 ve sayı olmayan değer **başlangıç
+>   hatası**. Üst sınır vakasının adı artık **ne pinlediğini söylüyor**
+>   (md. 7b'deki sessiz no-op).
+> - `TestNew_RefusesAZeroFreshnessWindow` (yeni, DB'siz) — **tehlikeli sıfır
+>   değer kapatıldı.** Ölçüldü (düzeltmeden önce, harici paketten):
+>   `checkin.New(…, &config.Config{/* Freshness yok */}, …)` → `err=nil`, etkin
+>   pencere **15m0s**, yani guardrail atıl. **İki çağıran bunu yapıyordu**:
+>   `seedflow_db_test.go` (yani `make simulate-day`) ve
+>   `internal/domain/checkin/advance_test.go`. Karar: `checkin.New` artık sıfır
+>   `Freshness`'i **reddediyor** (M5-01 kalıbı) ve iki çağıran da değer veriyor —
+>   `seedFreshness = policy.FreshnessMinSeconds` (gün, sayfa yaşı ~ms olduğu için
+>   en sıkı yasal pencerede koşuyor), `testConfig()` 120 sn. `Debounce`'ta bu
+>   asimetri **yok** ve olmamalı: onun fallback'i (60) sevk edilen varsayılana
+>   **eşit**, tazelikte fallback (900) hem farklı hem **en gevşek** değerdi.
+>   Aynı test wiring'i **DB'siz** de yanlışlanabilir kılıyor: `testConfig()`'in
+>   120'si `DefaultParams()`'ın **900**'ünden farklı olduğu için atama silinince
+>   `FreshnessWindow = 15m0s` → KIRMIZI. ⚠️ *"120 ≠ **180** ≠ 900"* diyen ilk
+>   yazım **fazla-belirtimdi** (3. denetim turu ölçtü, düzeltildi): `checkin.New`
+>   hiç `config.Load` çağırmıyor, yani 180 bu testte kaza eseri düşülebilecek bir
+>   değer değil. Ölçüldü: `testConfig()` **180** yapılıp atama da silindiğinde
+>   test **yine KIRMIZI** (`15m0s ≠ 3m0s`). Yük taşıyan tek özellik **≠ 900**.
+>   ⚠️ **Sıfır kontrolünün kendisi tek başına yanlışlanamazdı** ve bu da 3. turda
+>   ölçüldü: atama **koşulsuz** olduğu için sıfır her hâlükârda
+>   `params.Validate()`'e ulaşıp orada reddediliyor, dolayısıyla `if cfg.Freshness
+>   <= 0` bloğu **silindiğinde** `checkin`+`config`+`handler` **yeşil** kalıyordu.
+>   Yani deliği kapatan şey **koşulsuz atama + `Validate`**; blok yalnız **mesajı**
+>   iyileştiriyor (`Validate` "0s aralık dışı" der ve okuru olmayan bir politika
+>   hatasına yollar). Seçilen çözüm: test artık hata **metnini** de doğruluyor
+>   (`"config Freshness is not positive"` — 4. turda "is zero"dan düzeltildi, bkz.
+>   aşağıdaki blok), böylece blok gerçekten yanlışlanabilir —
+>   ölçüldü, blok silinince `checkin` **KIRMIZI**
+>   (`checkin: policy: freshness window = 0s is outside [60, 900] seconds`).
+> - `TestDefaultParams_FreshnessStaysAtTheRangeMaximum` (yeni) — *"fallback sevk
+>   edilen varsayılana eşit olmamalı"* özelliği artık **düzyazıda değil, testte**.
+>   Denetim turu ölçtü (düzeltmeden önce): `DefaultParams().FreshnessWindow`
+>   900→180 **tek başına** → 13 paket **yeşil**; ardından wiring de silinince →
+>   **hâlâ yeşil**. Sebep doğrulandı: iki nöbetçi de `harnessFreshness`'i (240)
+>   karşılaştırıyor — biri `DefaultParams()` ile (180≠240), diğeri 180 ile
+>   (240≠180) — yani mutasyonda **ikisi de ateşlenemez**. Bu turda ölçülen:
+>   düzeltmeden sonra aynı mutasyon → **KIRMIZI** (`policy`, 0,52 sn).
+> - `TestGuardrails_FreshnessBoundaryIsStrictlyGreater` (yeni) — sınır artık
+>   pinli: `age == pencere` **taze**, `age > pencere` reddediliyor. Mutasyon
+>   (`>` → `>=`) → **KIRMIZI**. Gerekçe: `TestLoad_FreshnessRange` config
+>   sınırlarını bilerek kapalı pinliyor, guardrail sınırının operatörden
+>   çıkarılmaya bırakılması asimetriydi.
+> - **Sayaç davranışı (§4.4):** tazelik reddinde `last_ctr` **ilerliyor** ve bu
+>   doğrudur — advance, `checkin.Record`'un 2. adımı, her karardan önce. Çip o
+>   `(uid, ctr)` çiftini gerçekten yaydı; değer **harcanır**, böylece aynı bayat
+>   URL ikinci kez sunulduğunda ikinci bir tazelik reddi değil **replay**
+>   (`sys:sun-invalid`) olur. İlerletmemek çifti ileride kullanılmak üzere canlı
+>   bırakırdı — tam da bu pencerenin daraltmaya çalıştığı biriktirme.
+>
+> **Ölçüm (3. tur, `.env` yüklü).** `make test` → **13 paket ok**, 129,5 sn,
+> **1272 PASS / 0 SKIP / 0 FAIL**. Sayım komutu (tek yöntem olsun diye yazılı):
+> `make test GOFLAGS=-v` çıktısında `grep -c -- '--- PASS:'` (alt testler dâhil).
+> ⚠️ **Çıplak `go test` ile sayma:** `.env` yüklenmez, 13 paketin DB'ye bağlanan
+> testleri atlanır ve sayım **1022 PASS / 176 SKIP**'e düşer — denetim turunda
+> birebir yaşandı.
+>
+> **Üretim ayak izi — 11 yorum-dışı satır.** `internal/config/config.go` **6**
+> (`Freshness` alanı + `floatEnvRange` bloğu) ve
+> `internal/domain/checkin/checkin.go` **5** (sıfır kontrolü 4 + atama 1).
+> Değişen diğer üç üretim dosyası (`policy/guardrails.go`, `handler/tapcontext.go`,
+> `domain/tap/types.go`) **yalnız yorum**. ⚠️ Daha önce yazılan **9** sayısı
+> `checkin.New`'in sıfır kontrolünden **öncesine** aitti. **4. turda değişti:**
+> `policy/guardrails.go` artık yorum-dışı da değişiyor (guardrail sırası) ve
+> `checkin.go`'nun sıfır kontrolü `fmt.Errorf`'e döndü — bkz. aşağıdaki blok.
+>
+> > ⚠️ **YÜRÜRLÜKTEKİ SAYI 11 DEĞİL (yeniden ölçüldü 2026-08-02, 5. tur).**
+> > Yukarıdaki 11, yukarıda kendi kabul ettiği iki değişikliği **saymıyor**.
+> > Doğru ayrım iki kalemdir, çünkü biri yeni mantık diğeri yer değiştirme:
+> >
+> > - **13 yorum-dışı EKLENEN satır, 0 silinen** — `internal/config/config.go`
+> >   **6** (`Freshness` alanı + `floatEnvRange` bloğu), `internal/domain/checkin/checkin.go`
+> >   **7** (`fmt.Errorf`'e dönen sıfır kontrolü 6 + atama 1; 4. turdan önce 5'ti).
+> > - **18 satır YER DEĞİŞTİRDİ** — `internal/policy/guardrails.go`'da guardrail
+> >   sırası (ADR 0007). Eklenen ve silinen yorum-dışı satır kümeleri **birebir
+> >   aynı** (`sort | diff` → fark yok), yani **net yeni mantık sıfır**; değişen
+> >   şey yalnız blokların sırası — ki bu diff'teki asıl güvenlik değişikliği odur.
+> >
+> > `domain/tap/decide.go`, `domain/tap/types.go` ve `handler/tapcontext.go`
+> > yorum-dışı **0/0**: yalnız yorum. Komut:
+> > ```
+> > git diff -U0 -- <üretim dosyaları> | grep '^+' | grep -v '^+++' \
+> >   | sed 's/^+//;s/^[[:space:]]*//' | grep -v '^$' | grep -v '^//' | wc -l
+> > ```
+> > (silinenler için `'^-'` / `'^---'`; yer değiştirme kanıtı için iki kümeyi
+> > `sort` edip `diff`le.)
+
+> ### 🔴 4. tur — `tappa-security-auditor` REGRESYON buldu (2026-08-02)
+>
+> Genel üçüncü göz iki turda kaçırdı; güvenlik denetçisi ölçtü. **Bu diff'in
+> ürettiği gerçek bir regresyon:** M5-10 bandı açınca `sys:tap-freshness`
+> (o sıradaki #4) `sys:employee-deactivated`'i (#7) **ön-almaya başladı** ve
+> §5 satır 4'ün *güvenlik uyarısı* düştü — ret ve kayıt yerinde kaldığı için
+> satır doğru görünüyordu.
+>
+> ```
+> window=15m0s  DEACTIVATED, 5 dk bekledi -> sid=sys:employee-deactivated  ALERTS +1  (öncesi)
+> window=3m0s   DEACTIVATED, 5 dk bekledi -> sid=sys:tap-freshness         ALERTS +0  (sonrası)
+> ```
+>
+> **Aile taraması bir ikinci yol buldu, ve o M5-10'dan eskiydi:**
+> `sys:occurred-at-bound` (#5) de uyarıyı düşürüyordu ve girdisi bir **POST form
+> alanı** — deaktif oturum `occurred_at = now + 60 sn` beyan ederek uyarıyı
+> kendisi kapatabiliyordu. İkisi tek düzeltmeyle kapandı: guardrail sırası
+> `… sun-invalid(3) · no-session(4) · employee-deactivated(5) · tap-freshness(6) ·
+> occurred-at-bound(7) · person-debounce(8) …`. §5'in beş satırı artık kendi
+> sırasında — konumları `[2 3 4 5 8]`. ⚠️ **KESİNTİSİZ DEĞİL:** iki zamanlama
+> kuralı §5 satır 4 ile satır 5'in **arasında** duruyor. Ve eski sıra da §5'in
+> satırlarını artan konumlarda tutuyordu (`[2 3 6 7 8]`), yani "göreli sıra
+> korundu" ölçütünü regresyonu üreten sıra **da** geçiyordu. Kazanılan şey §5
+> uygunluğu **değil**, **uyarıdır**.
+> **`sys:sun-invalid`'in ön-alması KALDI** (sahte SUN uyarı imal edememeli, R8) —
+> gerekçe, mutasyonlar ve reddedilen alternatifler
+> [ADR 0007](../adr/0007-guardrail-sirasi-ve-guvenlik-uyarisi.md)'de.
+>
+> **Yeni pinler:** `TestGuardrails_TimingRulesDoNotPreemptTheDeactivatedAlert`
+> (policy, 4 vaka + sahte-SUN karşı-örneği) · `TestDecide_DelegatesOrderToPolicy`
+> içindeki iki ikiz vaka (`freshness_does_NOT_…`, `occurred_at_bound_does_NOT_…`) ·
+> `TestCheckinDB_DeactivatedAlertSurvivesTheTimingGuardrails` (gerçek Postgres,
+> `tap.security_alert` satırını **sayar**). Mutasyon: her iki sıra değişikliği
+> tek tek geri alındığında üç katman da **KIRMIZI** (4–11 sn); ikisinde de
+> `sun_invalid_preempts_deactivated_alert` **yeşil kaldı**, yani testler
+> ön-almanın kendisini değil hangisinin meşru olduğunu ölçüyor.
+>
+> **⚠️ 3. turun "config Freshness is zero" pini değişti.** Guard `<= 0` ve
+> **negatif değer erişilebilir**: `TAPPA_FRESHNESS_SECONDS=NaN` config'in aralık
+> kontrolünden geçiyor (her NaN karşılaştırması false) ve
+> `time.Duration(NaN × 1sn)` int64 **minimumu** oluyor (`-2562047h47m16.85s`).
+> Metin artık `"config Freshness is not positive (%v)"` ve değeri basıyor;
+> `TestNew_RefusesAZeroFreshnessWindow` iki şekli de (0 ve negatif) sürüyor.
+> Mutasyon (eski metne dön) → **KIRMIZI**, 6 sn.
+>
+> **🟡 DEVREDİLEN — `floatEnvRange` NaN'ı geçiriyor.** Ölçüldü, üç çağıran:
+> `TAPPA_GPS_RADIUS_M=NaN` → `Load` ve `checkin.New` **err=nil**, yarıçap NaN,
+> her mesafe karşılaştırması false → GPS eşleşmiyor (**daraltıcı**, §4.6 sağlam);
+> `TAPPA_DEBOUNCE_SECONDS=NaN` → negatif süre → `cfg.Debounce > 0` false →
+> sessizce 60 sn fallback; `TAPPA_FRESHNESS_SECONDS=NaN` → aynı negatif süre,
+> ama `checkin.New` **yakalıyor** (tek fail-closed olan). Yani üçünden ikisi alt
+> katmanın kazasına bağlı. Tek satırlık düzeltme (`math.IsNaN(v)` reddi) üçünü
+> birden kapatır; **M5-10 kapsamı dışı**, bu yüzden `config.floatEnvRange`'in
+> üstüne ölçümüyle birlikte **SINIR olarak yazıldı**, düzeltilmedi.
 
 ---
 

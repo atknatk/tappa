@@ -270,11 +270,37 @@ func TestDecide_Row7NeverRejects(t *testing.T) {
 // with its own §5 order before calling policy.Evaluate. If it did (e.g. an early
 // "deactivated -> reject + alert" or "debounce -> ignored"), these cases would
 // decide differently than the guardrail slice does. Because the ORDER is policy's,
-// sys:sun-invalid (slice position 3) PRE-EMPTS both sys:employee-deactivated (7)
+// sys:sun-invalid (slice position 3) PRE-EMPTS both sys:employee-deactivated (5)
 // and sys:person-debounce (8): an invalid SUN denies WITHOUT leaking the account
 // state (no alert) and WITHOUT the replay being swallowed by debounce (§4.4).
+//
+// THE PRE-EMPTION IS NOT A GENERAL LICENCE, and the last two subtests are the
+// counterexamples that say so (ADR 0007). sun-invalid suppresses the alert
+// because the TAP is forged; the two TIMING guardrails must NOT, because on
+// their paths the CMAC verified and the session is live — a real touch, posted
+// late or with a bogus declared time. Shipping without these two, §5 row 4's
+// "+ security alert" was measured silently gone for any tap older than the
+// freshness window (a regression this milestone introduced) and for any tap
+// declaring a future occurred_at (older, and a plain POST field).
 func TestDecide_DelegatesOrderToPolicy(t *testing.T) {
 	t.Parallel()
+
+	// shippedParams is a NON-DEFAULT freshness window on purpose: DefaultParams
+	// keeps the range maximum (900 s), which equals the signed context's TTL, so a
+	// test built on it could never reach the band sys:tap-freshness denies in.
+	shippedParams := policy.Params{
+		DebounceWindow:    60 * time.Second,
+		FreshnessWindow:   180 * time.Second,
+		OccurredAtSkewMax: 72 * time.Hour,
+	}
+	deactivatedWith := func(mutate func(in *Input)) Decision {
+		in := baseInput()
+		in.PolicySet.Guardrails = policy.Guardrails(shippedParams)
+		in.Employee.Status = EmployeeDeactivated
+		in.PageIssuedAt = in.Now.Add(-5 * time.Second) // fresh unless a case says otherwise
+		mutate(&in)
+		return Decide(in)
+	}
 
 	t.Run("sun_invalid_preempts_deactivated_alert", func(t *testing.T) {
 		t.Parallel()
@@ -308,6 +334,57 @@ func TestDecide_DelegatesOrderToPolicy(t *testing.T) {
 		}
 		if got.Verdict != VerdictReject {
 			t.Errorf("Verdict = %q, want reject", got.Verdict)
+		}
+	})
+
+	// THE TWIN of sun_invalid_preempts_deactivated_alert, and the one that would
+	// have caught M5-10's regression: a STALE page is not a forged one. Waiting out
+	// the freshness window must not buy the silence a forged SUN buys.
+	t.Run("freshness_does_NOT_preempt_deactivated_alert", func(t *testing.T) {
+		t.Parallel()
+		got := deactivatedWith(func(in *Input) {
+			in.PageIssuedAt = in.Now.Add(-300 * time.Second) // > 180 s window, < 900 s TTL
+		})
+
+		if got.MatchedSid != "sys:employee-deactivated" {
+			t.Fatalf("MatchedSid = %q, want sys:employee-deactivated: WAITING must not switch §5 row 4's alert off", got.MatchedSid)
+		}
+		if !got.Security {
+			t.Errorf("Security = false; §5 row 4 requires the alert on every deactivated attempt (ADR 0007)")
+		}
+		if got.Verdict != VerdictReject {
+			t.Errorf("Verdict = %q, want reject", got.Verdict)
+		}
+		// The staleness is not lost by losing the tiebreak: it stays in the frozen
+		// input snapshot, which is where a replay reads it from (migration 0008).
+		if age, ok := got.PolicyContext[policy.CtxTapPageAgeSeconds]; !ok || age != 300.0 {
+			t.Errorf("policy_context[tap:pageAgeSeconds] = %v (present=%v), want 300", age, ok)
+		}
+	})
+
+	// The SHARPER twin: occurred_at is a POST form field (internal/handler), so
+	// ahead of the deactivated rule it let the tapper choose whether managers were
+	// told. Pre-dates M5-10; same defect, same fix (ADR 0007).
+	t.Run("occurred_at_bound_does_NOT_preempt_deactivated_alert", func(t *testing.T) {
+		t.Parallel()
+		for _, c := range []struct {
+			name string
+			at   time.Duration
+		}{
+			{"future", 60 * time.Second},  // skew < 0
+			{"too_old", -100 * time.Hour}, // skew > 72 h
+		} {
+			t.Run(c.name, func(t *testing.T) {
+				got := deactivatedWith(func(in *Input) {
+					in.OccurredAt, in.OccurredAtFromClient = in.Now.Add(c.at), true
+				})
+				if got.MatchedSid != "sys:employee-deactivated" {
+					t.Fatalf("MatchedSid = %q, want sys:employee-deactivated: a declared timestamp must not switch §5 row 4's alert off", got.MatchedSid)
+				}
+				if !got.Security {
+					t.Errorf("Security = false; a client-declared occurred_at silenced the alert (ADR 0007)")
+				}
+			})
 		}
 	})
 }

@@ -49,6 +49,27 @@ import (
 // the config block in newTapHarness for why it must not be the shipped default.
 const harnessDebounce = 120 * time.Second
 
+// harnessFreshness is the tap-page freshness window every DB test runs under,
+// and like harnessDebounce it is deliberately NEITHER of the two values the
+// product could fall back to:
+//
+//	180 s  the shipped default (config.Load, TAPPA_FRESHNESS_SECONDS)
+//	900 s  policy.DefaultParams(), i.e. what deleting the wiring restores
+//
+// 240 s sits between them, inside the ADR 0004 §11 range [60, 900] and below the
+// signed context's 15-minute TTL.
+//
+// WHAT THE 300 s PAGE IN THAT TEST MEASURES, spelled out because a shorter
+// sentence here claimed it was an ordinary tap "under either fallback" and that
+// is arithmetically false: 300 s is a RECORDED reject at 240 and also at the
+// shipped 180 — it is an ordinary tap ONLY at the 900 s fallback. So the page
+// falsifies the wiring (delete the assignment, get 900, get an ordinary tap,
+// test red) and the two explicit guards inside the test are what keep 240
+// distinguishable from 180. See
+// TestCheckinDB_ConfiguredFreshnessWindowReachesTheGuardrail, and M5-05's F3 for
+// what happens when a harness picks the default instead.
+const harnessFreshness = 240 * time.Second
+
 // tapFakeKEK and tapFakeTagKey are OBVIOUSLY FAKE (agent-brief madde 2), used
 // only to wrap a per-tag key in a throwaway fixture row.
 const (
@@ -110,6 +131,7 @@ func newTapHarness(t *testing.T) *tapHarness {
 		// TestCheckinDB_ConfiguredDebounceWindowReachesTheGuardrail.
 		GPSRadiusMeters: 150,
 		Debounce:        harnessDebounce,
+		Freshness:       harnessFreshness,
 	}
 
 	data, err := db.New(context.Background(), cfg)
