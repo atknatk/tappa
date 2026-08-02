@@ -165,6 +165,17 @@ panel; FLAGGED kuyruğu işliyor, CSV dışa aktarım var.
     Karar motoru tarafında zaten böyle: practice kaydı yön zincirini açık tutmaz
     (`checkin.go` `gather` + `tap/decide.go` `resolveDirection`, ikisi de testle
     pinli). Rapor sorgusu **aynı istisnayı taşımak zorunda**.
+  - ⚠️ **Bu bölüm M5-11'den sonra DAHA AZ satır görecek** (eklendi 2026-08-02,
+    [ADR 0008](../adr/0008-practice-satiri-ve-yon-zinciri.md)). O tarihe kadar bir
+    practice satırı, altındaki **gerçek açık girişi maskeliyordu**: sonraki tap
+    `out` yerine `in` yazılıyor ve gerçek giriş hiç kapanmıyordu — yani bu listede
+    **iki** satır beliriyordu ve ikisi de "unutulmuş çıkış" gibi görünüyordu.
+    `GetLastOpenTransaction` artık `AND NOT t.practice` taşıyor. **Düzeltme ileriye
+    dönüktür (§4.3):** o şekilde yazılmış eski satırlar olduğu gibi kalır ve §5'in
+    dediği gibi **müdürün manuel kaydıyla** kapanır. ⚠️ Ve bu liste, bir kaydın
+    **neden** açık kaldığını (gerçekten unutulmuş çıkış mu, maskelenmiş giriş mi)
+    satırın kendisinden **söyleyemez** — ikisi de aynı şekildir. Ayırmak isteyen
+    bir rapor, kişinin practice satırının `occurred_at`'ini ayrıca okumak zorunda.
 - CSV: UTF-8, mono hizalı başlık, saatler UTC **ve** yerel — hangisi olduğu
   başlıkta açık. Excel'in tarih bozmaması için ISO 8601.
 - Saat hesabı `numeric`/`Duration` ile — **float yok** (§6).
@@ -316,6 +327,35 @@ URL biriktirme) görünür kalması buna bağlı.
     tap'i tanım gereği çıkışsızdır; anomali listesine düşerse liste her yeni
     çalışan için bir kez **yanlış pozitif** üretir ve "rapor yorum yapmaz, veri
     gösterir" ilkesi tam da burada yorum yapmış olur.
+  - ⚠️ **M5-11 bu listeyi kısalttı** (eklendi 2026-08-02,
+    [ADR 0008](../adr/0008-practice-satiri-ve-yon-zinciri.md)): practice satırı
+    artık altındaki gerçek açık girişi maskelemiyor, yani "çıkışsız açık kayıt"
+    sayısı düşüyor. Eski (maskelenmiş) satırlar `transactions` immutable olduğu
+    için **duruyor** ve M6-08'in manuel girişiyle kapanır. Ölçüldü (dev/seed DB,
+    2026-08-02): 2 502 açık girişin **0**'ı M5-11 öncesinden maskelenmiş
+    durumdaydı; o gün ölçülen 13 maskelenmiş satırın **hepsi** M5-11'in kendi
+    sondalarının ürünü ve isimlerinden tanınıyor (`M511 Probe`, `Rita Zammit`
+    fixture'ı, `Practice Chain`, `Ivan Petrov [sim …]`). ⚠️ `chainFixture` her
+    `make test`'te bu şekilden **iki satır daha** bırakır ve §4.3 + `REVOKE DELETE`
+    yüzünden temizlenemez — bu listeyi yazan sorgu dev veritabanında onlarla
+    karşılaşacak.
+  - 🔴 **DEVİR NOTU — maskelenmiş açık girişler bu listeden KENDİLİĞİNDEN düşer,
+    yani onları GERİYE DÖNÜK aramak ayrı bir sorgu ister** (eklendi 2026-08-02,
+    M5-11 2. tur). "Açık kayıt" testi `NOT EXISTS (… o.type='out' AND
+    o.occurred_at > t.occurred_at)`'tir: **tek bir `out`, kendinden eski TÜM açık
+    girişleri kapatır**. Dolayısıyla M5-11 öncesinde maskelenmiş bir giriş,
+    kişinin **bir sonraki çıkışıyla** birlikte bu listeden sessizce çıkar —
+    kapanmış *sayılır*, ama onu kapatan `out` aslında **başka** bir girişin
+    çıkışıdır ve arada geçen süre saatlere yanlış girer. Ölçüldü (dev/seed DB,
+    2026-08-02): bu şekilden **47** satır hâlâ açık ve listede görünür, **43**
+    satır ise sonradan gelen bir `out` yüzünden **artık görünmüyor**.
+    (47 sayısı ADR yazıldığında 13'tü; fark `chainFixture`'ın her `make test`'te
+    eklediği satırlardır, üretim değil.)
+    **Geriye dönük tespit bu listeyle YAPILAMAZ** — ayrı bir sorgu gerekir:
+    `EXISTS (… p.practice AND p.occurred_at > t.occurred_at)`, yani "altında
+    kendisinden yeni bir practice satırı olan `in`". ⚠️ Bu **§4.6 ihlali DEĞİL**:
+    hiçbir satır kaybolmuyor, `transactions` hepsini tutuyor — kaybolan
+    **sinyaldir**, kayıt değil.
 - **Politika kırılımı**: hangi `sid` kaç kayıt üretti (M3-07 sayesinde makine
   tarafından filtrelenebilir).
 - Rapor **yorum yapmaz**, veri gösterir. "Şüpheli çalışan" etiketi yok.

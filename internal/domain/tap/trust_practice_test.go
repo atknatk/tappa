@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/atknatk/tappa/internal/geo"
 )
 
@@ -482,4 +484,119 @@ func TestDecide_QRFirstTapIsStillThePracticeRun(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestDecide_PracticeIsAlwaysAnIn pins the invariant ADR 0008 relies on:
+// a practice record NEVER carries direction `out`.
+//
+// WHY IT HAS TO BE PINNED AT ALL. GetLastOpenTransaction excludes practice rows from
+// the OUTER filter but leaves its NOT EXISTS ("was this entry closed later?")
+// practice-neutral. That split is only safe while a practice row cannot BE a closing
+// `out` — otherwise a training tap could silently close somebody's shift and the
+// anti-join would never see it. The implication holds structurally (isPracticeTap
+// requires LastOpenIn == nil; resolveDirection returns TypeOut only for a
+// non-practice LastOpenIn) and this test is what keeps it holding.
+//
+// IT CHECKS A PROPERTY, NOT A LIST (the M5-10 lesson): every combination below is
+// run and the assertion is the implication itself, so a new field or a new branch
+// that produced a practice `out` fails here without anybody remembering to add a
+// case. The two counters underneath are the non-vacuity control — a mutation that
+// simply stopped setting Practice, or stopped ever producing `out`, would satisfy
+// the implication trivially and is caught by them instead.
+func TestDecide_PracticeIsAlwaysAnIn(t *testing.T) {
+	t.Parallel()
+
+	prior := func(in Input) *Transaction {
+		return &Transaction{ID: uuid.New(), OccurredAt: in.Now.Add(-300 * time.Second)}
+	}
+	openIn := func(in Input, practice bool) *Transaction {
+		return &Transaction{
+			ID: uuid.New(), OccurredAt: in.Now.Add(-3 * time.Hour),
+			Direction: TypeIn, Practice: practice,
+		}
+	}
+
+	type dim struct {
+		name  string
+		apply func(in *Input)
+	}
+	history := []dim{
+		{"no_history", func(*Input) {}},
+		{"prior_tap_only", func(in *Input) { in.LastForPerson = prior(*in) }},
+		{"open_real_in", func(in *Input) {
+			in.LastForPerson, in.LastOpenIn = prior(*in), openIn(*in, false)
+		}},
+		{"open_practice_in", func(in *Input) {
+			in.LastForPerson, in.LastOpenIn = prior(*in), openIn(*in, true)
+		}},
+		// The inconsistent shape a caller must never produce, kept because it is the
+		// one that used to re-open the hours-inflation exploit (M4-07).
+		{"open_real_in_without_a_prior_tap", func(in *Input) { in.LastOpenIn = openIn(*in, false) }},
+		{"open_practice_in_without_a_prior_tap", func(in *Input) { in.LastOpenIn = openIn(*in, true) }},
+	}
+	activation := []dim{
+		{"activated", func(*Input) {}},
+		{"never_activated", func(in *Input) { in.Employee.ActivatedAt = time.Time{} }},
+	}
+	evidence := []dim{
+		{"on_site", func(in *Input) {
+			in.SourceIP = netip.MustParseAddr("203.0.113.7")
+			in.LocationIPs = []netip.Prefix{netip.MustParsePrefix("203.0.113.0/24")}
+		}},
+		{"no_evidence", func(*Input) {}},
+	}
+	channels := []dim{
+		{"nfc", func(*Input) {}},
+		{"qr", func(in *Input) { in.Channel, in.SUN = ChannelQR, SUNResult{Valid: false} }},
+		{"manual", func(in *Input) { in.Channel, in.SUN = ChannelManual, SUNResult{Valid: false} }},
+	}
+
+	var (
+		combos, sawPractice, sawOut int
+	)
+	for _, h := range history {
+		for _, a := range activation {
+			for _, e := range evidence {
+				for _, c := range channels {
+					name := h.name + "/" + a.name + "/" + e.name + "/" + c.name
+					in := baseInput()
+					h.apply(&in)
+					a.apply(&in)
+					e.apply(&in)
+					c.apply(&in)
+
+					got := Decide(in)
+					combos++
+					if got.Practice {
+						sawPractice++
+						if got.Type == nil || *got.Type != TypeIn {
+							// Dereferenced: %v on a *Type prints an ADDRESS, and a
+							// failure message that costs a second run to read is half
+							// a message.
+							dir := "<none>"
+							if got.Type != nil {
+								dir = string(*got.Type)
+							}
+							t.Errorf("%s: a practice record came out as %q — ADR 0008 lets "+
+								"GetLastOpenTransaction's NOT EXISTS stay practice-neutral only "+
+								"because this cannot happen", name, dir)
+						}
+					}
+					if got.Type != nil && *got.Type == TypeOut {
+						sawOut++
+					}
+				}
+			}
+		}
+	}
+
+	// Non-vacuity: the implication above is worthless unless BOTH sides occur.
+	if sawPractice == 0 {
+		t.Fatalf("%d combinations produced no practice record at all: the implication is vacuous", combos)
+	}
+	if sawOut == 0 {
+		t.Fatalf("%d combinations produced no `out` at all: this table cannot tell a "+
+			"practice `out` from an engine that stopped producing `out` entirely", combos)
+	}
+	t.Logf("%d combinations: %d practice records, %d check-outs, no overlap", combos, sawPractice, sawOut)
 }

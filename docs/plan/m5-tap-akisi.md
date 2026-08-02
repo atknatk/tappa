@@ -1485,6 +1485,22 @@ sözleşme aşağıdaki kart düzeltmesinde.
   gövdeye `occurred_at=07:00` yazar → 2 saat sahte mesai. Sınırı yalnız
   `base:queued-window`'a bırakmak yetmez: o bir **baseline**'dır, tenant
   kapatabilir. Üst sınır guardrail'de olmak zorunda.
+  - 🔴 **K1 TORBASINA EK — geriye tarihli bir `out` HİÇBİR ZAMAN kapatmıyor**
+    (eklendi 2026-08-02, M5-11 2. turu;
+    [ADR 0008](../adr/0008-practice-satiri-ve-yon-zinciri.md)). Bu, practice
+    satırından **bağımsız** ve M5-11 diff'inin eseri **değil** — `NOT EXISTS`
+    testi `o.occurred_at > t.occurred_at` olduğu için, girişten **önceye**
+    tarihlenmiş bir çıkış o girişi kapatmaz. Ölçüldü (gerçek Postgres,
+    rollback'li): `in @13:16`'nın altına `out @12:16` ve `out @11:16` yazıldı;
+    **ikisi de dangling kaldı**, `GetLastOpenTransaction` hâlâ 13:16'daki `in`'i
+    döndürüyor — yani giriş **sonsuza dek açık**. (Dev DB'de kendinden önce açık
+    `in` bulunmayan **84** `out` satırı var.) **Hafifletici, ve zayıf değil:**
+    geriye tarihli her satır `base:queued-window` eşiğini (**120 sn**, tenant
+    ayarlanabilir) aştığı için **`flag`** alıyor, yani sinyal **var** ve müdür
+    kuyruğuna düşüyor — sessiz değil. Ama "açık kayıt" listesi bunu *unutulmuş
+    çıkış* diye gösterir, oysa çıkış **yazılmıştır**; ayırt etmek isteyen rapor
+    dangling `out` satırlarını ayrıca aramak zorunda. K1'in üst sınır guardrail'i
+    bu şekli **daraltır ama kapatmaz** (72 sa içinde hâlâ mümkün).
 
 > **Kart düzeltmesi (2026-07-31, M5-05 uygulaması sırasında).** Hiçbir kriter
 > düşürülmedi. Kartın **bilmediği bir bloklayıcı ölçüldü** ve kartın anmadığı
@@ -2956,6 +2972,29 @@ dashboard'un üstünde duracağı gerçekçi bir günü üretmek.
 > kendi görevinde (**M5-11**) düzeltilecek; M5-09 motoru değiştirmedi, yalnızca
 > etrafından dolaştı ve bunu yüksek sesle yazdı.
 >
+> ✅ **KAPANDI (2026-08-02, M5-11, [ADR 0008](../adr/0008-practice-satiri-ve-yon-zinciri.md)).**
+> `GetLastOpenTransaction` artık `AND NOT t.practice` taşıyor — yani "son açık
+> giriş" sorusu, sıralamanın olduğu yerde cevaplanıyor. Seçilen seçenek **sorguyu
+> daraltmak**tır (bu maddedeki listede 2., M5-11 kartındaki listede 1.) ve bu,
+> `decide.go`'nun M4'ten beri
+> **yanlış** olan *"primary enforcement is the caller's query, which excludes
+> practice"* cümlesini doğru hâle getirdi. Gerekçe, reddedilen alternatiflerin
+> ölçümü ve geçmiş satırlara ne olacağı ADR 0008'de.
+>
+> **Bu maddenin M5-09'a bıraktığı iki iz de kapandı:** `day_db_test.go`'daki
+> workaround (**Ivan'ın practice tap'i artık `declaring(...)` taşımıyor**;
+> `nightTimes.practice` alanı silindi) ve **LIMITS L3** (artık ✅ CLOSED, pinin
+> hangi testlerde olduğunu adıyla söylüyor). Gün, workaround'suz **64,98 sn**de
+> yeşil; düzeltme geri alınınca **63,99 sn**de `day_db_test.go:579` — *"Ivan's
+> 02:10 tap = in, want out"* — ile kırmızı.
+>
+> ⚠️ **Bu maddenin bir cümlesi M5-11'de ÖLÇÜLEREK ÇÜRÜTÜLDÜ.** Yukarıda *"beyansız
+> (yani sıradan) bir practice tap'i sunucu şimdi'sine yazılır"* doğru; ama
+> **M5-11 kartının** aynı bulguyu anlatan *"yeniden aktive olan çalışan yine
+> practice alır"* senaryosu **yanlıştı** — `isPracticeTap` `LastForPerson == nil`
+> ister, yani practice *"her aktivasyondan sonraki ilk kayıt"* değil *"kişinin HİÇ
+> kaydı yok"* demektir (ölçüm: M5-11 kartı ve ADR 0008).
+>
 > ⚠️ **2. tur eki — simülasyonun ürettiği kadro artık DAMGALI, ve seed'li kadroyu
 > sürmeme kararı ölçüldü.** Gün, seed'li isimleri (Maria Borg, …) taşıyan
 > **taze** çalışanlar yaratıyor; `transactions` değişmez (§4.3), `tappa_app`'in
@@ -3436,12 +3475,15 @@ edilmiş bir form alanı ve `sys:occurred-at-bound` tavanı **72 saat**
 geriye tarihli tek bir giriş yeter. **M9-01 çevrimdışı kuyruğu** tam olarak bu
 şekli üretir.
 
-**Gerçek hayat senaryosu (bu yüzden teorik değil).** Çalışan giriş yapar →
-telefonunu kaybeder → yeni cihazda **yeniden aktive olur** → çıkış için dokunur.
-Aktivasyon sonrası ilk kayıt tanımı gereği `practice=true`. Açık girişi kapanmaz,
-saatleri eksik kalır. Bu zincirin gerçekten böyle davrandığı **ölçülmeli** —
-`practice` türetiminin "hiç kaydı yok" mu yoksa "bu aktivasyondan sonra ilk" mi
-olduğu bu senaryonun erişilebilirliğini belirler.
+**~~Gerçek hayat senaryosu (bu yüzden teorik değil).~~ ÇÜRÜTÜLDÜ — bkz. aşağıdaki
+düzeltme bloğu.** Bu paragraf şöyle diyordu: *"Çalışan giriş yapar → telefonunu
+kaybeder → yeni cihazda yeniden aktive olur → çıkış için dokunur. Aktivasyon
+sonrası ilk kayıt tanımı gereği `practice=true`."* **Yanlış.** `isPracticeTap`
+`in.LastForPerson == nil` ister; practice *"her aktivasyondan sonraki ilk kayıt"*
+değil **"kişinin HİÇ kaydı yok"** demektir. Paragrafın kendisi ölçüm istiyordu
+(*"bu zincirin gerçekten böyle davrandığı ölçülmeli"*) ve ölçüm onu çürüttü.
+**Kusur teorik değil** — düz HTTP'den, tek geriye tarihli `occurred_at` ile
+erişilebilir (yukarıdaki paragraf) — ama **bu rota** onun rotası değil.
 
 **Tasarım — üç seçenek, biri seçilip gerekçelendirilecek.**
 1. **Sorguda ele:** `GetLastOpenTransaction`'a `AND practice = false` ekle. En
@@ -3482,3 +3524,65 @@ UPDATE değil.)
 - Bu bulgu M5-09'un `LIMITS` bölümünde (L3) ve M5-09 kart düzeltmesi md. 6'da
   yazılı. **Görev bitince ikisini de kapat** — yoksa repoda kapanmış bir kusuru
   açık gösteren iki cümle kalır.
+
+> **Kart düzeltmesi (2026-08-02, M5-11 uygulaması sırasında).** Kriterlerin hiçbiri
+> düşürülmedi; biri **çürütüldü ve yeniden yazıldı**, biri de ölçülünce başka bir
+> şeye dönüştü.
+>
+> **1) 🔴 "Gerçek hayat senaryosu" YANLIŞTI (ölçüldü).** Yukarıdaki paragraf
+> çizildi. Ölçüm — gerçek Postgres, gerçek HTTP aktivasyon akışı, 0,26 sn:
+>
+> ```
+> ilk kayıt:                                    practice=true  type=in
+> yeniden aktivasyon (M5-02 ikinci cihaz yolu)  -> /activate/done, 200
+> activated_at  önce = 2026-07-03T15:06:31.937191Z
+>               sonra = 2026-07-03T15:06:31.937191Z     (hareket ETMEDİ)
+> yeniden aktivasyondan sonraki ilk kayıt:      practice=FALSE type=in
+> ```
+>
+> İki bağımsız sebep, her biri tek başına yeterli: (a) `isPracticeTap`
+> `in.LastForPerson == nil` ister ve yeniden aktive olanın geçmişi vardır;
+> (b) `ConsumeInviteAndActivate` `activated_at`'i **`COALESCE`** ile korur, yani
+> kuralın okuduğu damga ikinci aktivasyonda kıpırdamaz — ve
+> [`db/queries/invites.sql`](../../db/queries/invites.sql) bunu **zaten
+> yazıyordu** ("resetting activated_at does NOT by itself hand a second practice
+> tap to someone who has already tapped"). Kart, repoda ölçülmüş ve yazılmış bir
+> gerçeğe rağmen tersini varsaymıştı. Ölçüm
+> `TestSeedDB_ASecondActivationIsNotASecondPracticeRun` olarak pinlendi.
+> **Kusurun kendisi değişmedi:** düz HTTP + tek geriye tarihli `occurred_at` ile
+> erişilebilir, ve `sys:occurred-at-bound` tavanı 72 saattir.
+>
+> **2) "Ardışık practice" kriteri, ölçülünce başka bir kriter oldu.** Kart *"iki
+> practice arka arkaya gelirse (yeniden aktivasyon)"* diyordu; md. 1 gereği bu
+> **motordan üretilemez**. Kriter zayıflatılmadı, **doğru soruya** çevrildi:
+> veritabanı o şekli tutabilir (ithalat, backfill, M9-01 kuyruğunun sırasız
+> yazması), dolayısıyla sorgu **elle kurulmuş** iki ardışık practice satırının
+> altındaki gerçek girişi bulmak zorunda. Vaka
+> `TestGatherDB_APracticeRowDoesNotHideAnOlderOpenCheckIn`'in üçüncü satırıdır ve
+> **Go tarafında "bir practice satırı atla" diye yazılmış bir düzeltmeyi yakalar** —
+> tam da bu yüzden orada.
+>
+> **3) Seçilen tasarım: 1. seçenek (sorguya `AND NOT t.practice`).** Gerekçe ve
+> reddedilen ikisinin **ölçümü**
+> [ADR 0008](../adr/0008-practice-satiri-ve-yon-zinciri.md)'de. Kısaca: 3. seçenek
+> (practice satırı `type` taşımasın) `transactions_ok_has_direction` CHECK'i
+> tarafından **veritabanı düzeyinde reddediliyor** (ölçüldü: 23514) ve ayrıca bir
+> migration isterdi; 2. seçenek (N satır + Go'da atla) "kaç satır" sorusuna cevap
+> veremiyor ve tanımı yine iki yere bölüyor.
+>
+> **4) `EXPLAIN (ANALYZE, BUFFERS)` sonucu: yüklem taramayı DARALTMIYOR.**
+> `practice` indekste olmadığı için plan onu `Index Cond` değil `Filter` olarak
+> uyguluyor. Değişen şey `LIMIT 1`'in nerede durduğu: 5001 satırlık geçmişte kusur
+> şekli **7 → 9** buffer, "kişi dışarıda + practice en üstte" şekli **9 → 16 090**
+> buffer — ama aynı kişinin practice satırı olmayan hâli **bugün zaten 10 246**
+> ödüyor, yani yeni bir en-kötü durum yok. **İndeks eklemek bir migration'dır ve
+> bu görevin kapsamı DEĞİL**; ölçüm ADR 0008'de devredildi.
+>
+> **5) Kapsam dışı bırakılan (bilinçli):** `gather`'daki `if !open.Practice`
+> **silinmedi**. Ölçüldü: tek başına silmek `-short` süitini **ve** simüle edilen
+> günü (67,26 sn) **yeşil bırakıyor** — yani kalması bir tercih, kanıt değil, ve
+> dosya bunu böyle yazıyor. ⚠️ **2. turda gerekçesi değişti:** tutma sebebi "yüklem
+> ileride düşerse" **değil** (ölçüldü: yüklemi `AND TRUE` yapmak iki pakette **üç**
+> testi kırmızıya çeviriyor, yani sessizce düşemez), **paket sınırındaki
+> sözleşmedir** — `tap.Input.LastOpenIn`'in belgelenmiş tanımını doğru yapan şey
+> çağıranın o satırıdır. Tam gerekçe ADR 0008 "Ne garanti edilmiyor"da.

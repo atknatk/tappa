@@ -15,13 +15,54 @@
 
 -- name: GetLastOpenTransaction :one
 -- Direction toggle basis (CLAUDE.md section 5): the person's last OPEN check-in,
--- i.e. the most recent type='in' with no later type='out'. If a row is found the
--- next tap is 'out'; if none (pgx.ErrNoRows) the next tap is 'in'. Ordering is by
--- occurred_at, NOT by calendar day, so the overnight shift (Rusty Bar 18:00-02:00)
--- toggles correctly at a 02:00 exit. Neutral on verdict: 'in' only ever appears on
--- decided taps (reject/ignored carry NULL type), so filtering on the direction
--- column is enough; whether a flagged 'in' counts is a domain (M3) call, not the
--- store's. Uses the (tenant_id, employee_id, occurred_at DESC) index.
+-- i.e. the most recent NON-PRACTICE type='in' with no later type='out'. If a row is
+-- found the next tap is 'out'; if none (pgx.ErrNoRows) the next tap is 'in'.
+-- Ordering is by occurred_at, NOT by calendar day, so the overnight shift (Rusty
+-- Bar 18:00-02:00) toggles correctly at a 02:00 exit. Neutral on verdict: 'in' only
+-- ever appears on decided taps (reject/ignored carry NULL type), so filtering on the
+-- direction column is enough; whether a flagged 'in' counts is a domain (M3) call,
+-- not the store's. Uses the (tenant_id, employee_id, occurred_at DESC) index.
+--
+-- 🔴 `NOT t.practice` IS THE FIX FOR A MEASURED SECTION 5 VIOLATION (ADR 0008,
+-- M5-11). This query used to be practice-NEUTRAL and the exclusion lived in the
+-- caller, which discarded a practice row WITHOUT LOOKING AT THE ONE BENEATH IT. So
+-- a practice row that merely sorted newest made a real, still-open check-in
+-- invisible: the next tap resolved to 'in' instead of 'out', the real entry never
+-- closed, and nothing signalled it (verdict ok, no note, no flag). Measured, three
+-- rows per arm, the only difference being the practice row's occurred_at:
+--
+--      practice OLDER than the real 'in'  -> third tap 'out', 0 open check-ins
+--      practice NEWER than the real 'in'  -> third tap 'in',  2 open check-ins
+--
+-- Reachable over plain HTTP: occurred_at is a shipped form field and the
+-- sys:occurred-at-bound ceiling is 72 h. It is also exactly the shape M9-01's
+-- offline queue will produce.
+--
+-- WHY IN THE QUERY AND NOT IN GO. "The person's last open check-in" is ONE
+-- question, and answering it needs the ordering -- a caller that reads a single row
+-- and rejects it cannot see past it without asking again. Deciding it here also
+-- makes this query agree with the anomaly count in
+-- internal/handler/seedflow_db_test.go (openCheckIns), which already carried
+-- `AND NOT t.practice`.
+--
+-- SCOPE, exactly: the predicate is on the OUTER row only. The NOT EXISTS stays
+-- practice-neutral because it asks a different question -- "was this entry closed
+-- later" -- and a closing 'out' closes it whatever flag it carries. It is also moot
+-- today: a practice row is ALWAYS type='in' (tap.isPracticeTap requires no prior
+-- tap and no open check-in, so resolveDirection cannot return 'out' for it), pinned
+-- by TestDecide_PracticeIsAlwaysAnIn.
+--
+-- COST, MEASURED (EXPLAIN (ANALYZE, BUFFERS), 5001 rows for one person, ADR 0008):
+-- the predicate NEVER narrows the index range -- `practice` is not in
+-- transactions_tenant_employee_occurred_idx, so it lands as
+-- `Filter: ((NOT practice) AND (type = 'in'))` next to the type filter that was
+-- always there. What it changes is where LIMIT 1 stops. Person currently checked
+-- IN (the defect shape): 7 -> 9 buffers. Person currently checked OUT with a
+-- practice row on top: 9 -> 16090 buffers, because the practice row was buying an
+-- early exit by returning the WRONG row; the same person WITHOUT a practice row
+-- already costs 10246 buffers today. So this is not a new worst case, it is the
+-- one every ordinary employee's check-in already pays. Making it cheap is an
+-- INDEX question (a migration, deliberately out of M5-11's scope).
 SELECT id, tenant_id, employee_id, location_id, department_id, tag_uid, ctr,
        type, occurred_at, source_ip, ip_match, gps_lat, gps_lng, gps_match,
        sun_valid, trust, verdict, note, channel, entered_by, practice, queued,
@@ -30,6 +71,7 @@ FROM transactions t
 WHERE t.tenant_id = @tenant_id
   AND t.employee_id = @employee_id
   AND t.type = 'in'
+  AND NOT t.practice
   AND NOT EXISTS (
       SELECT 1
       FROM transactions o

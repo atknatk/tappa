@@ -220,10 +220,19 @@ DEĞİL**. Açık giriş varsa `out`, yoksa `in`.
   **belirlenmiş ve testli**: öneri → yine `out` üretilir ama `note` ile işaretlenir;
   rapor bunu anomali olarak gösterir. Sessizce `in` üretme.
 - `practice = true` kayıtlar yön zincirine **katılmaz**.
+  - 🔴 **BU KRİTER M4-04'te KARŞILANMIŞ SAYILDI AMA KARŞILANMAMIŞTI** (eklendi
+    2026-08-02, M5-11 / [ADR 0008](../adr/0008-practice-satiri-ve-yon-zinciri.md)).
+    Practice satırı zincire **katılmıyordu**, doğru; ama zincirin geri kalanını
+    **gizliyordu**: `GetLastOpenTransaction` tek satır döndürüp practice'e kör
+    olduğu için, sadece daha yeni sıralanan bir practice satırı altındaki gerçek
+    açık girişi görünmez yapıyor ve sonraki tap `out` yerine `in` oluyordu — hiçbir
+    sinyal olmadan. Kusur M5-09'da bulundu, M5-11'de sorguya `AND NOT t.practice`
+    eklenerek kapatıldı. Kriter değişmedi; **artık gerçekten doğru.**
 
 **Tuzaklar.**
 - "Bugünün kayıtları" filtresiyle çalışmak en yaygın gece vardiyası bug'ıdır.
-  Sorgu `GetLastOpenTransaction` — tarih penceresi yok, sıra `occurred_at DESC`.
+  Sorgu `GetLastOpenTransaction` — tarih penceresi yok, sıra `occurred_at DESC`
+  (ve **2026-08-02'den beri** `AND NOT t.practice`, ADR 0008).
 - Tüm karşılaştırmalar UTC; yerel saate çevirme yalnızca render'da (§6).
 
 ---

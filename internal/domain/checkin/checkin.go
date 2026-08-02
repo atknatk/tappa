@@ -978,12 +978,34 @@ func (s *Service) gather(ctx context.Context, tx pgx.Tx, req Request, tappedLoca
 		switch {
 		case err == nil:
 			// A PRACTICE record never holds the chain open (§5, M4-04): a training
-			// tap must not make the next real tap a checkout. The SQL does not
-			// filter it — GetLastOpenTransaction is deliberately verdict- and
-			// practice-neutral — so the exclusion happens here, which is what
-			// tap.Input.LastOpenIn's contract asks of a caller. Decide guards the
-			// same case again; two guards, because the failure mode is inflated
-			// hours.
+			// tap must not make the next real tap a checkout.
+			//
+			// 🔴 THE QUERY DECIDES THIS NOW, AND UNTIL M5-11 IT DID NOT (ADR 0008).
+			// GetLastOpenTransaction used to be practice-neutral and this branch was
+			// the whole enforcement — but it only ever saw ONE row, so discarding a
+			// practice row meant NOT LOOKING AT THE ONE BENEATH IT. A practice row
+			// that merely sorted newest hid a real, still-open check-in: the next
+			// tap became an `in`, the entry never closed, and nothing said so.
+			// `AND NOT t.practice` moved the question to where the ordering is.
+			//
+			// The check below therefore CANNOT be false today, and it stays anyway —
+			// but be precise about WHY, because the tempting reason is the wrong one.
+			// It is NOT a safety net for "someday the predicate gets dropped": that
+			// cannot happen quietly. MEASURED (M5-11, second round) — replacing the
+			// predicate with `AND TRUE` turns THREE named tests red across two
+			// packages: TestGatherDB_APracticeRowDoesNotHideAnOlderOpenCheckIn (two
+			// subtests), TestSeedDB_APracticeRowNeverHidesAnOlderOpenCheckIn, and
+			// TestSeedDB_ADayAtKFStJulians ("Ivan's 02:10 tap = in, want out").
+			//
+			// The real reason is the PACKAGE BOUNDARY CONTRACT: tap.Input.LastOpenIn
+			// is documented as the last open NON-PRACTICE check-in, and this line is
+			// what a caller does to make that documented sentence true — the engine
+			// is a pure function that cannot verify its own inputs. Unreachable code
+			// that is CORRECTLY LABELLED is safer than reachable code that is
+			// mislabelled, and this whole ADR exists because of the second kind (see
+			// resolveDirection's old "primary enforcement" comment). It is NOT what
+			// pins the fix — TestGatherDB_APracticeRowDoesNotHideAnOlderOpenCheckIn
+			// is, and deleting this branch alone leaves the suite green (measured).
 			if !open.Practice {
 				f.lastOpenIn = transaction(open)
 			}

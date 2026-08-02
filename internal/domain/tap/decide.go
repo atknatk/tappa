@@ -425,13 +425,31 @@ const staleOpenInNote = "stale open check-in (possible forgotten checkout)"
 //
 // PRACTICE records never hold the chain open (§5, M4-04). Primary enforcement is the
 // caller's query, which excludes practice so a practice record is never passed as
-// LastOpenIn (types.go Transaction.Practice). We ALSO defend in depth here: a
-// practice LastOpenIn is treated as no open in (-> in), so a caller bug cannot keep
-// a real check-in "open" behind a training tap (the M4-06 exploit that would inflate
-// hours). This is only about a PRIOR practice record's effect on the chain; whether
+// LastOpenIn (types.go Transaction.Practice).
+//
+// 🔴 THAT SENTENCE WAS FALSE FOR THE WHOLE OF M4 AND M5, AND THE COST WAS A §5
+// VIOLATION (ADR 0008, M5-11). GetLastOpenTransaction was practice-NEUTRAL; the
+// exclusion lived in checkin's gather, which discarded a practice row WITHOUT
+// LOOKING BENEATH IT. A practice row that merely sorted newest hid a real open
+// check-in, so the checkout came out as an `in` and the entry never closed —
+// silently, over plain HTTP. The query now carries `AND NOT t.practice`, which is
+// what makes the sentence above true rather than aspirational. It is written down
+// here because the comment, not the code, was the defect: a guard described as
+// "primary" that nothing implemented.
+//
+// We ALSO defend in depth here: a practice LastOpenIn is treated as no open in
+// (-> in), so a caller bug cannot keep a real check-in "open" behind a training tap
+// (the M4-06 exploit that would inflate hours). MEASURED LIMIT, not a claim: because
+// the production query can no longer return such a row, this branch is unreachable
+// through checkin and only a hand-built Input reaches it — which is exactly what
+// TestDecide_DirectionPracticeOpenInDoesNotCloseChain does, and all it can prove.
+//
+// This is only about a PRIOR practice record's effect on the chain; whether
 // the CURRENT tap is itself practice is derived in M4-06 (Decision.Practice, from
 // Employee.ActivatedAt) — a practice tap still gets a direction computed here and is
-// still recorded, it simply must never later reappear as a LastOpenIn.
+// still recorded, it simply must never later reappear as a LastOpenIn. That
+// direction is ALWAYS `in` and it is a structural fact, not a convention: see
+// isPracticeTap.
 func resolveDirection(in Input) (dir Type, note string) {
 	open := in.LastOpenIn
 	if open == nil || open.Practice {
@@ -550,13 +568,30 @@ func trustScore(ipMatch, gpsMatch bool) int {
 	return score
 }
 
-// isPracticeTap reports whether this tap is the person's FIRST record after
-// activation — the §5/M4-06 practice (TRAINING) tap that must never count toward
-// worked hours. It is derived ENTIRELY on the server from two facts:
+// isPracticeTap reports whether this tap is the person's FIRST RECORD EVER — the
+// §5/M4-06 practice (TRAINING) tap that must never count toward worked hours. It is
+// derived ENTIRELY on the server from two facts:
 //
 //   - the employee has a known activation time (Employee.ActivatedAt is not the
 //     zero value), and
 //   - the person has NO prior tap (Input.LastForPerson == nil).
+//
+// ⚠️ "FIRST AFTER ACTIVATION" AND "FIRST EVER" ARE NOT THE SAME SENTENCE, and this
+// function means the second one. Somebody who loses their phone and RE-ACTIVATES on
+// a new one does NOT get a second training tap: their next record is an ordinary
+// one. MEASURED end to end (M5-11) — one record, then a real second activation over
+// HTTP (which lands on /activate/done, the second-device path), then another record:
+// practice=true, then practice=FALSE. Two independent reasons, either alone enough:
+// LastForPerson is non-nil, and activated_at is not even moved by the second
+// activation (ConsumeInviteAndActivate COALESCEs it, db/queries/invites.sql).
+//
+// 🔴 PRACTICE IMPLIES DIRECTION `in`, STRUCTURALLY. This function requires
+// LastOpenIn == nil, and resolveDirection returns TypeOut only when LastOpenIn is a
+// non-practice row — so a practice record can never be an `out`. Both are computed
+// from the same Input in the same branch of Decide, so the implication holds for
+// every tap, not by convention. It is what lets GetLastOpenTransaction's NOT EXISTS
+// stay practice-neutral while its outer filter excludes practice (ADR 0008), and it
+// is pinned by TestDecide_PracticeIsAlwaysAnIn.
 //
 // It reads NO client-supplied practice flag — Input carries none BY DESIGN
 // (types.go), which is what closes the M4-06 hours-inflation exploit: a client that

@@ -293,17 +293,20 @@ func TestSeedDB_ADayAtKFStJulians(t *testing.T) {
 		}
 	}
 
-	// Ivan's night starts before his shift: his practice tap is DECLARED at 17:50
-	// so it sits below the 18:05 check-in in the chain. Without that ordering the
-	// practice row would be the newest open 'in', and because gather DISCARDS a
-	// practice row rather than looking past it, the 02:10 checkout would be read as
-	// a check-IN. That is a REAL DEFECT of the current engine, not a fixture quirk:
-	// this line steps around it, and LIMITS L3 at the end of this file states it in
-	// full, with the measurement.
+	// Ivan taps his plaque for the first time like everybody else — NO declared
+	// time, so the training row is stamped at server-now, which is LATER than both
+	// halves of the night shift he is about to work.
+	//
+	// 🔴 THIS LINE USED TO CARRY declaring(rbGPS, night.practice), AND THAT WAS A
+	// WORKAROUND FOR A PRODUCT DEFECT (M5-11, ADR 0008). Pushing the training row
+	// down to 17:50 kept it below the 18:05 check-in, because a practice row that
+	// sorted newest hid the real open check-in and turned the 02:10 checkout into a
+	// second `in`. The query now excludes practice rows, so the fixture no longer
+	// has to arrange the history for the engine — and this ordering (training tap
+	// newest, real shift beneath it) is exactly the shape that used to break.
 	night := rustyBarNight(t, rustyBar.Timezone)
 	rbGPS := atFix(rustyBar.Lat, rustyBar.Lng)
-	if code, _ := f.tapNFC(t, ivan, fixtures.TagKFRustyBar, rustyBar.OnSiteIP,
-		declaring(rbGPS, night.practice)); code != http.StatusOK {
+	if code, _ := f.tapNFC(t, ivan, fixtures.TagKFRustyBar, rustyBar.OnSiteIP, rbGPS); code != http.StatusOK {
 		t.Fatalf("Ivan: practice tap status = %d, want 200", code)
 	}
 	if rec := f.lastRow(t, ivan.id); !rec.Practice {
@@ -703,8 +706,14 @@ func TestSeedDB_WithoutTheWaitTheDayCollapsesIntoIgnoredRows(t *testing.T) {
 
 // --- scenario helpers --------------------------------------------------------
 
-// nightTimes are the three declared instants of the Rusty Bar shift.
-type nightTimes struct{ practice, in, out time.Time }
+// nightTimes are the two declared instants of the Rusty Bar shift.
+//
+// There used to be a third, `practice`, and it was a WORKAROUND rather than part of
+// the scenario: it declared Ivan's training tap at 17:50 so it sorted below the
+// 18:05 check-in and could not hide it (M5-11, ADR 0008). With the defect fixed the
+// training tap is an ordinary undeclared one, and the field is gone rather than left
+// unused — an unused workaround is an invitation to reintroduce it.
+type nightTimes struct{ in, out time.Time }
 
 // rustyBarNight picks the most recent night whose 02:10 checkout is already in the
 // past, so the fixture never declares a FUTURE time (sys:occurred-at-bound denies
@@ -723,9 +732,8 @@ func rustyBarNight(t *testing.T, timezone string) nightTimes {
 		out = time.Date(day.Year(), day.Month(), day.Day()+1, 2, 10, 0, 0, loc)
 	}
 	return nightTimes{
-		practice: time.Date(day.Year(), day.Month(), day.Day(), 17, 50, 0, 0, loc),
-		in:       time.Date(day.Year(), day.Month(), day.Day(), 18, 5, 0, 0, loc),
-		out:      out,
+		in:  time.Date(day.Year(), day.Month(), day.Day(), 18, 5, 0, 0, loc),
+		out: out,
 	}
 }
 
@@ -799,52 +807,39 @@ func ptrTime(v time.Time) *time.Time  { return &v }
 // than no assertion: it reads like coverage. The skill's "late 17m" scenario is
 // therefore NOT produced by this file over HTTP, and skill tappa-seed now says so.
 //
-// L3 — 🔴 A PRACTICE ROW HIDES AN OLDER OPEN CHECK-IN, AND THIS FILE STEPS
-// AROUND IT. Found here, NOT fixed here: the fix is a decision about §5's
-// direction rule and belongs to its own task (M5-09 card correction, item 6).
+// L3 — ✅ CLOSED (2026-08-02, M5-11, ADR 0008). It is kept, struck through rather
+// than deleted, because the workaround it describes is gone from the file above and
+// a reader who finds the old shape somewhere else should be able to recognise it.
 //
-//	mechanism   GetLastOpenTransaction returns ONE row (type='in', no later
-//	            'out', ORDER BY occurred_at DESC LIMIT 1) and is practice-neutral
-//	            by design. checkin's gather then DISCARDS that row when it is a
-//	            practice row — `if !open.Practice {...}` — and does NOT look at
-//	            the one beneath it. So a practice row that merely SORTS newest
-//	            makes a real open check-in invisible.
-//	measured    Two people, three taps each, plain HTTP both arms, the only
-//	            difference being the practice row's occurred_at:
-//	              practice declared 4 h ago (older than the real 'in'):
-//	                third tap -> direction "out", open check-ins left 0   (control)
-//	              practice at server-now (no declaration at all):
-//	                third tap -> direction "in",  open check-ins left 2   (defect)
-//	            Both arms' real check-in was declared 3 h ago, verdict flag.
-//	§5 broken   "Direction (in/out): a toggle against the person's LAST OPEN
-//	            check-in." In the defective arm the checkout became an `in`, the
-//	            real check-in never closed, and NOTHING signals it: verdict ok,
-//	            no note, no flag. To a manager it looks like a forgotten checkout,
-//	            which §5 treats as the employee's mistake to correct.
-//	reachable   Over plain HTTP. No manual channel is involved: occurred_at is a
-//	            field POST /api/checkin already accepts, and 3 h sits well inside
-//	            sys:occurred-at-bound's tolerance (ADR 0004 §11 bounded parameter,
-//	            policy.OccurredAtSkewMaxSeconds = 72 h). Shipped endpoints suffice.
-//	here        Ivan's practice tap is DECLARED at 17:50 so it sorts below his
-//	            18:05 check-in. That is a workaround, and the reason it is spelled
-//	            out at the call site is that a silent one would make the fixture
-//	            evidence that the engine is fine.
+// WHAT IT SAID. GetLastOpenTransaction returned ONE row (type='in', no later 'out',
+// ORDER BY occurred_at DESC LIMIT 1) and was practice-neutral; checkin's gather
+// DISCARDED that row when it was a practice row — `if !open.Practice {...}` — and
+// did NOT look at the one beneath it. So a practice row that merely SORTED newest
+// made a real open check-in invisible. Measured, two people, three taps each, plain
+// HTTP both arms, the only difference being the practice row's occurred_at:
 //
-// No test pins this behaviour, and the honest reason is NOT what an earlier
-// draft of this paragraph claimed. That draft said pinning it would cost two
-// more debounce waits (~62 s); MEASURED, that is wrong, and the disproof is in
-// this very file. The server-age leg of the debounce counts only
-// `channel IN ('nfc','qr')` rows (db/queries/transactions.sql,
-// SecondsSinceLastRecordedTap — the manual exemption, because created_at on a
-// manual row is when a MANAGER TYPED IT). So the three rows this needs could be
-// declared through checkin.Service.Record on the manual channel and the
-// direction behaviour would pin in about zero seconds — which is the path
-// Nadia's entry above already uses. The cost argument falls.
+//	practice declared 4 h ago (older than the real 'in'):
+//	  third tap -> direction "out", open check-ins left 0   (control)
+//	practice at server-now (no declaration at all):
+//	  third tap -> direction "in",  open check-ins left 2   (defect)
 //
-// What stands is the other one: a pinned test would FREEZE a defect that is
-// about to be fixed. User decision (2026-08-02): it is fixed in its own task,
-// M5-11, not worked around here. Until then the reproduction recipe above is
-// the record.
+// §5's "direction is a toggle against the person's LAST OPEN check-in" was broken
+// in the second arm: the checkout became an `in`, the real check-in never closed,
+// and NOTHING signalled it — verdict ok, no note, no flag. Reachable over plain
+// HTTP (occurred_at is a shipped form field; 3 h is well inside
+// sys:occurred-at-bound's 72 h).
+//
+// WHAT CHANGED. `AND NOT t.practice` in GetLastOpenTransaction (ADR 0008). Ivan's
+// training tap above no longer declares 17:50 — the workaround was removed as the
+// task's finish condition, and this file's night shift closes with the training row
+// sitting NEWEST, which is precisely the arrangement that used to break it.
+//
+// WHERE IT IS PINNED NOW, so this paragraph cannot rot into the only record:
+// TestSeedDB_APracticeRowNeverHidesAnOlderOpenCheckIn (both arms, through
+// checkin.Service.Record), TestGatherDB_APracticeRowDoesNotHideAnOlderOpenCheckIn
+// (the query's own boundary, including two stacked practice rows) and
+// TestDecide_PracticeIsAlwaysAnIn (the invariant that lets the NOT EXISTS stay
+// practice-neutral).
 //
 // L4 — THE CREW IS EPHEMERAL AND RUN-STAMPED, SO THIS DAY DOES NOT FILL THE
 // SEEDED ROSTER. Driving the SEEDED people instead would serve the skill's stated
