@@ -18,7 +18,7 @@ milestone dosyalarına, nerede olduğumuz için [state.md](state.md)'ye bak.
 | **M8** | [Deploy & pilot](m8-deploy-pilot.md) | Sahaya çıkış | VPS + managed PG, encode runbook, KF St Julians pilotu | 7 |
 | **M9** | [Sonrası](m9-sonrasi.md) | Pilot sonrası | çevrimdışı kuyruk, push, CSV import, marka editörü | 7 |
 
-Toplam **82 görev** (1'i ertelendi: M6-10 → M9-06).
+Toplam **83 görev** (1'i ertelendi: M6-10 → M9-06; M5-11 M5-09 denetiminde bulunan §5 ihlali için 2026-08-02'de eklendi).
 
 ## Bağımlılık zinciri
 

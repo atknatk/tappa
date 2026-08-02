@@ -3092,3 +3092,92 @@ saatler sonra (belki başka bir yerden) basan kullanıcıyı durdurur.
   açılır, sayfa yüklenir, kullanıcı ekranı okur. 3 dk makul başlangıç.
 - `first_seen_at` sunucu saatidir; istemciden gelen zamana **asla** güvenilmez.
 - Bu görevi "A1 kapandı" diye işaretleme. Kapanmadı; sinyal ekledi.
+
+---
+
+## M5-11 — Practice satırı açık girişi maskeliyor (§5 yön kuralı ihlali)
+
+- **Bağımlılık:** M5-05 · M5-07 (practice) · M5-09 (bulan ölçüm)
+- **Kırmızı çizgi:** §5 yön kuralı · §4.6 (kayıt kaybolmuyor ama **kapanmıyor**)
+- **Commit:** `fix(tap): let direction skip practice rows and find the real open entry`
+
+> **Neden bu kart var.** M5-09'un yapıcısı buldu, iki denetçi doğruladı ve
+> büyüttü, **kullanıcı 2026-08-02'de "şimdi düzelt, kendi görevi olsun" dedi.**
+> M5-09 bir test görevi olduğu için orada düzeltilmedi; gün fixture'ı bunun
+> **etrafından dolaşıyor** (Ivan'ın practice tap'i 17:50 beyan ediliyor).
+
+**Belirti (ölçüldü, üç bağımsız sonda).** Bir `practice=true` satırı, kendisinden
+**daha eski** ve hâlâ **açık** bir gerçek girişi maskeliyor:
+
+| kol | practice'in `occurred_at`'i | sonraki tap'in yönü | kalan açık giriş |
+|---|---|---|---|
+| kontrol | gerçek girişten **eski** | `out` ✅ | **0** |
+| bozuk | gerçek girişten **yeni** | `in` 🔴 | **2** |
+
+Üçüncü sonda M5-09'un gün testinin **kendisi**: Ivan'ın practice tap'inden
+`declaring(...)` workaround'u kaldırılınca gece vardiyası kapanmıyor —
+`day_db_test.go:546`, *"Ivan's 02:10 tap = in, want out"*.
+
+**Mekanizma.** `GetLastOpenTransaction` **tek** satır döndürüyor
+(`ORDER BY occurred_at DESC LIMIT 1`, practice'e **kör**), tüketici
+(`internal/domain/checkin/checkin.go` ≈937, `if !open.Practice`) dönen satır
+practice ise onu **atıyor ve bir alttakine bakmıyor**. Yani "son açık giriş"
+sorusu, "son açık giriş **practice değilse**" diye cevaplanıyor.
+
+**İhlal edilen cümle (CLAUDE.md §5).** *"Yön (in/out): kişinin **son açık
+girişine** göre toggle."* Sonuç: çıkış `in` olarak yazılıyor, gerçek giriş
+**hiç kapanmıyor** ve müdüre §5'in *"unutulmuş çıkış"* anomalisi gibi görünüyor.
+**Hiçbir sinyal yok** — verdict `ok`, not yok, flag yok.
+
+**🔴 Düz HTTP'den erişilebilir.** Kötü niyet gerekmiyor: `occurred_at` sevk
+edilmiş bir form alanı ve `sys:occurred-at-bound` tavanı **72 saat**
+(`policy.OccurredAtSkewMaxSeconds`, ADR 0004 §11). Sıradan bir practice tap +
+geriye tarihli tek bir giriş yeter. **M9-01 çevrimdışı kuyruğu** tam olarak bu
+şekli üretir.
+
+**Gerçek hayat senaryosu (bu yüzden teorik değil).** Çalışan giriş yapar →
+telefonunu kaybeder → yeni cihazda **yeniden aktive olur** → çıkış için dokunur.
+Aktivasyon sonrası ilk kayıt tanımı gereği `practice=true`. Açık girişi kapanmaz,
+saatleri eksik kalır. Bu zincirin gerçekten böyle davrandığı **ölçülmeli** —
+`practice` türetiminin "hiç kaydı yok" mu yoksa "bu aktivasyondan sonra ilk" mi
+olduğu bu senaryonun erişilebilirliğini belirler.
+
+**Tasarım — üç seçenek, biri seçilip gerekçelendirilecek.**
+1. **Sorguda ele:** `GetLastOpenTransaction`'a `AND practice = false` ekle. En
+   basit; ama "açık giriş" tanımını sorguya gömer ve practice satırının kendisi
+   hiç açık sayılmaz — bugünkü tüketici davranışıyla aynı, farkı **altına
+   bakabilmesi**. Yeni sorgu = `db/queries/*.sql` + `make sqlc`.
+2. **Sorgu N satır döndürsün**, tüketici practice'leri atlayarak ilk gerçek açık
+   girişi bulsun. Daha esnek, ama sınırsız tarama riski (§4.3 satırları kalıcı).
+3. **Semantiği değiştir:** practice satırı hiçbir zaman `type` taşımasın (yön
+   üretmesin) — o zaman "açık giriş" sorgusu onu zaten görmez. En temiz olabilir
+   ama **M5-07/M4-06 semantiğine dokunur** ve mevcut satırlar geriye dönük
+   değişmez (§4.3).
+
+**Bu bir semantik karardır → ADR yaz** (CLAUDE.md §10: karar motoru değişti).
+ADR şunu da cevaplamalı: *bugün yazılmış, practice yüzünden kapanmamış açık
+kayıtlara ne olacak?* (§4.3 gereği düzeltme = **yeni kayıt + `audit_log`**,
+UPDATE değil.)
+
+**Kabul kriterleri.**
+- Yukarıdaki **kontrol/bozuk** tablosu düzeltme sonrası **iki kolda da** `out` /
+  `0 açık giriş` veriyor — ve bu bir testle pinli.
+- M5-09'un gün testindeki **workaround kaldırılıyor** (Ivan'ın practice tap'i
+  artık `declaring(...)` olmadan da doğru sonucu vermeli). Kaldırılmazsa görev
+  bitmemiştir: fixture kusuru gizlemek için oradaydı.
+- `practice` satırı hâlâ **saate sayılmıyor** ve TRAINING damgası korunuyor
+  (M5-07 kazanımı geriye gitmesin — mutasyonla kanıtla).
+- **Ardışık practice** durumu: iki practice arka arkaya gelirse (yeniden
+  aktivasyon) yön yine gerçek açık girişe göre çözülüyor.
+- Seçilen tasarımın **taranan satır sayısı** ölçülü (`EXPLAIN (ANALYZE, BUFFERS)`)
+  — §4.3 yüzünden kişinin geçmişi yalnız **büyür**.
+- `-race` temiz · `make check` yeşil · ADR yazıldı.
+
+**Tuzaklar.**
+- **`transactions` immutable.** Var olan satırları düzeltme; davranışı ileriye
+  dönük düzelt ve geçmişe ne olacağını ADR'de yaz.
+- Düzeltme **açık kayıt sayısını** değiştirir → M6-07/M6-11'in "unutulmuş çıkış"
+  anomali listesi bundan etkilenir; o kartlara not düş.
+- Bu bulgu M5-09'un `LIMITS` bölümünde (L3) ve M5-09 kart düzeltmesi md. 6'da
+  yazılı. **Görev bitince ikisini de kapat** — yoksa repoda kapanmış bir kusuru
+  açık gösteren iki cümle kalır.

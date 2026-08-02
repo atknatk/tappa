@@ -252,7 +252,7 @@ dokunuş gerektirir. Bu ekrana özellik eklemek istiyorsan önce sor.
 durum yazma — çelişirler.
 
 Plan sistemi [docs/plan/](docs/plan/) altında: [roadmap](docs/plan/roadmap.md)
-(M0–M9, 81 görev, sıralama gerekçesi) · `m*-*.md` görev kartları ·
+(M0–M9, 83 görev, sıralama gerekçesi) · `m*-*.md` görev kartları ·
 [state.md](docs/plan/state.md) (nerede kaldık) ·
 [open-questions.md](docs/plan/open-questions.md) (karara bağlanmamışlar).
 Nasıl çalıştığı: [docs/plan/README.md](docs/plan/README.md).

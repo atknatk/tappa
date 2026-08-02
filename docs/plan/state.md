@@ -4,7 +4,25 @@
 > güncellenir ([README.md](README.md) → oturum protokolü, adım 6.4).
 > Görev kartlarına durum işareti konmaz.
 
-**Son güncelleme:** 2026-08-01 (5. oturum — **M5-01…M5-07 done, M5 7/10 · davetten onay ekranına kadar akışın tamamı çalışıyor**)
+**Son güncelleme:** 2026-08-02 (5. oturum — **M5-01…M5-09 done, M5 9/11 · akış artık gerçek HTTP üzerinde BİR GÜN olarak kanıtlı**)
+
+> **M5-09 done — 2026-08-02 (`b0044c5`), iki denetçi ONAY, 3 tur, 1 RED.** Görev iki iş yaptı:
+> **bilinen engeli kaldırmak** (seed'in `aes_key_ref`'i 42 baytlık düz ASCII'ydi → her seed'li plaket
+> NFC yolunda **500**; zarf operatörün KEK'ine bağlı ve `Wrap` taze nonce çektiği için **SQL literali
+> olamaz** → seed iki adımlı oldu) ve **bir günü gerçek HTTP + gerçek Postgres üzerinde üretmek**
+> (10 çalışan, 31 kayıt, hepsi karar motorundan — yeni dosyalarda **sıfır** `INSERT INTO transactions`).
+> **Görevin şeklini belirleyen şey ADR 0006'ydı:** debounce sunucu saatiyle ölçüldüğü için gün
+> **sıkıştırılamıyor** (beklemesiz koşuda 15 kaydın 10'u `sys:person-debounce`, ve §4.6 gereği 15/15
+> satır yine yazılıyor). **Motor fixture'a eğilmedi** — gün gerçek zamanda bekledi, ve bunun bedeli
+> (62 sn) kullanıcıya sayılarla soruldu → **`make test` tam kaldı, `make test-short` eklendi**.
+> **En değerli çıktı bir test değil, bir MOTOR HATASI:** yapıcı `practice` satırının daha eski bir
+> **açık girişi maskelediğini** buldu, iki denetçi bunu **düz HTTP'den erişilebilir** olarak doğruladı
+> (§5'in yön kuralı sevk edilmiş kodda ihlal ediliyor, **hiçbir sinyal vermeden**) → kullanıcı kararı:
+> **M5-11 açıldı**. **Ve iki denetim aracı kendi kapsamlarından yakalandı:** `assertAfterShiftStart`
+> **yapısal olarak boştu** (mutasyonla kanıtlandı: geç kalma hesabı tümden ölse bile yeşil kalıyordu),
+> `assertTellableApart` **dejenere değer tuzağına** düştü (iki taraf da aynı damgadan türüyordu — tuzağı
+> önlemek için yazılmış kontrolün içinde), ve **`make audit`'in `SRC`'si `test/`'i hiç taramıyordu**.
+> **Sıradaki:** "ŞU AN" → **M5-10**, sonra **M5-11**.
 
 > **M5-07 done — 2026-08-01 (`e0a5700`), iki denetçi ONAY, 2 tur.** Görevin **yarısı zaten hazırdı**
 > (`practice` M4-06'da sunucu türetimli, TRAINING damgası M5-06'da) — işin ilk yarısı bunu **ölçmekti**,
@@ -46,8 +64,8 @@
 
 | | |
 |---|---|
-| **Kilometre taşı** | **M0 + M1 + M2 + M3 + M4 TAMAM** ✅ · **M5 — [Tap akışı](m5-tap-akisi.md) 8/10** · **🎉 uçtan uca check-in ÇALIŞIYOR**, **iki kanalda** (davet → aktivasyon → mini tur → **NFC veya QR** → karar → kayıt → onay ekranı) |
-| **Sıradaki görev** | **M5-09** — [Uçtan uca test ve "bir günü simüle et"](m5-tap-akisi.md#m5-09--uçtan-uca-entegrasyon-testi-ve-bir-günü-simüle-et) · araç: **skill `tappa-seed`**. **🔴 BİLİNEN ENGEL, önce bunu çöz:** seed'deki `aes_key_ref` **KEK-sarmalı DEĞİL** → seed'li plaketler **NFC yolunda 500** veriyor (`unwrap: wrapped ref must be 44 bytes, got 42`); birim/DB testleri kendi plaketlerini ürettiği için bugüne kadar bir şey bloklamadı ama *"bir günü simüle et"* tam olarak **HTTP üzerinden NFC** ile çalışır. Çözüm: seed `sun.Wrap(kek, uid, key)` ile **yapısal olarak doğru sahte** anahtar üretsin (§4.7: gerçek anahtar repoda yer almaz). Backlog **T7** aynı kök. **M5-08'den ölçülmüş kolaylık:** QR yolu seed'li plaketlerle **bugün çalışıyor** (bozuk `aes_key_ref` NFC'yi 500 yapıyor ama QR **200 + `ok`** üretiyor), yani simülasyonun QR yarısı engelsiz. **⚠️ Dev-DB kalıntısı:** M5-08 benchmark'ı `4d6ddc99-48a5-4f65-8374-861fc9c5f1e6` tenant'ına **20 002 satır** bıraktı ve `tappa_owner` bile silemiyor (§4.3 trigger'ı — doğru çalışıyor); simülasyon öncesi **`make db-reset`**. |
+| **Kilometre taşı** | **M0 + M1 + M2 + M3 + M4 TAMAM** ✅ · **M5 — [Tap akışı](m5-tap-akisi.md) 9/11** · **🎉 uçtan uca check-in ÇALIŞIYOR**, **iki kanalda** (davet → aktivasyon → mini tur → **NFC veya QR** → karar → kayıt → onay ekranı) ve artık **gerçek HTTP + gerçek Postgres üzerinde bir GÜN** olarak kanıtlı (`make simulate-day` — 10 çalışan, 31 kayıt, kayıtları **karar motoru** üretiyor) |
+| **Sıradaki görev** | **M5-10** — [Tap tazelik penceresi](m5-tap-akisi.md#m5-10--tap-tazelik-penceresi-url-biriktirmeye-karşı) · **kendi migration'ını açar** (`tap_page_views` + RLS beşlisi + saklama süresi) → agent `tappa-db-migrator`. **Kart A1'i ÇÖZMEZ**, bunu "A1 kapandı" diye işaretleme (kartın kendi uyarısı). **M5-09'dan iki hazır girdi:** (1) `sys:tap-freshness` guardrail'i **canlı ama bandı boş** (TTL 900 == eşik 900, M5-05 F2) → pencere daralınca **ilk kez erişilebilir** olacak; (2) `tapSessionLimit` **burst**'ü ölçüldü (300 istek ~1,2 sn, 301.'si 429; 15 dk TTL'e **iki pencere** sığıyor) → 3 dk'lık pencere tavanı kabaca **yarılar**. **Sonra M5-11** (M5-09'da bulunan §5 yön ihlali; kullanıcı kararı 2026-08-02). |
 | **Çalışma modu** | Orkestrasyon + üçüncü göz — [README.md](README.md) · brief'ler [agent-brief.md](agent-brief.md) |
 | **Dal** | **`main`** — M0 (`m0-bootstrap`) `main`'e fast-forward birleştirildi (`562f021`), dal silindi. **Kullanıcı kararı (2026-07-25): artık doğrudan `main`'de çalışılır, görev başına dal açılmaz** (CLAUDE.md §10 güncellendi). Push/PR yine istemedikçe yok. |
 | **Blokeler** | Yok. **Bekleyen kullanıcı eylemleri → [docs/backlog.md](../backlog.md)** (B1 iPhone/Q11 ölçümü, B2 arm64 Go kurulumu) — **ikisi de hiçbir şeyi bloklamıyor**. Q02 (davet kanalı) M5-02'yi bloklamaz; kart cevapsız hâli için yol gösteriyor. |
@@ -111,6 +129,73 @@ DOLDURUR. Aşağıdakiler doldurulmazsa guardrail **sessizce** ateşlemez (eksik
   (tag çözümünden tenant + oturumdan tenant). M4-03 bunu doğru şekilde M5'e erteledi (Decide karar taklidi
   yapmıyor); ama M5 bunu sağlamazsa delik açık kalır — **belt-and-braces değil, tek gerçek engel.** Ayrıca (düşük):
   Decide her redirect'i `RedirectActivation`'a eşliyor → M5 tenant-mismatch redirect'ini aktivasyondan ayırabilir.
+
+### M5-10 / M5-11 / M6 / M8'e devralınan (M5-09 denetimlerinden)
+
+- **🔴 M8 / M0-06 — CI OLDUĞU GİBİ KIRMIZI VERİR VE BUNU BUGÜNE KADAR KİMSE GÖRMEDİ.**
+  Repoda **uzak yok** (`git remote -v` boş — kullanıcı kararı: push/PR yok), yani `ci.yml`
+  **hiç çalışmadı**; "CI yeşil" bu projede **teorik** bir cümle. Ve olduğu gibi koşarsa
+  kırmızı verir: workflow `DATABASE_URL`/`DATABASE_MIGRATE_URL` veriyor ve `make up`
+  koşuyor (yalnız Postgres'i **başlatır**), ama **`make migrate` koşmuyor**, `make seed`
+  koşmuyor ve **`TAPPA_TAG_KEK` vermiyor** → `make check` → `make test` DB testlerini
+  **migrate edilmemiş** şemaya karşı sürer. Ölçüldü (boş DB'ye karşı `make test`):
+  **17 pakette 140 üst düzey FAIL**, bunların **136'sı M5-09'dan eski** — yani bu bir
+  gerileme değil, **M1-09'dan beri taşınan** bir durum. Düzeltme tek satır değil:
+  `make migrate` + `TAPPA_TAG_KEK` + `make seed` (dördü seed'e bağlı) gerekiyor, ve
+  **uzak olmadan doğrulanamaz**. Bu kapanana kadar `make check`'in tek gerçek koşum yeri
+  **geliştiricinin makinesi**dir.
+- **🔴 M6 — koşum damgası kullanıcıya görünen yüzeye SIZIYOR.** Gün simülasyonu çalışanları
+  `Maria Borg [sim 08-02T00:40:24 f4ef]` diye üretiyor; `full_name` → `EmployeeName`
+  (`internal/domain/tenant/directory.go:109`) → aktivasyon/tap ekranındaki *"Hello …"*.
+  Yani bugünkü dev-DB **ekran görüntüsüne hazır değil** ve M6 dashboard'u da `full_name`
+  okuyacak. **Değerlendirilmemiş üçüncü yol** (kartta yazılı): günü `make test`'ten ayırıp
+  **yalnız `make simulate-day` içinde seed'li kadroyu** sürmek — hem yeniden koşulabilirliği
+  hem demo amacını karşılardı. Damgasız sabit kadro bugün **DB ömrü başına bir kez**
+  ağırlanabiliyor (ölçüldü: 2. koşuda tur atlanıyor, `practice=false`, önceki koşumdan
+  **açık giriş devralınıyor**) — §4.3 sonucudur, sondanın sınırı değil.
+- **🔴 M5-11 — sevk edilmiş §5 ihlali** (practice satırı açık girişi maskeliyor). Kartı
+  açıldı, kullanıcı kararı 2026-08-02. Düzeltilince M5-09'un `LIMITS L3`'ü ve kart md. 6'sı
+  **kapatılmalı** — yoksa repoda kapanmış bir kusuru açık gösteren iki cümle kalır.
+- **M6-07 — `MinutesLate` hem YANLIŞ HESAPLANIYOR hem HİÇBİR YERE YAZILMIYOR.**
+  `decide.go` `lateness()` `in.Now`'u (sunucu saati) kullanıyor, kaydın `OccurredAt`'ini
+  **değil** → 10:00 vardiyasına 10:17 beyan eden geriye tarihli giriş **`-520`** döndürdü.
+  Canlı tap'te ikisi çakıştığı için görünmüyor, ama `occurred_at` sevk edilmiş bir alan ve
+  tavanı **72 saat**. Ayrıca `minutes_late` **sütunu yok**, `policy_context`'e yazılmıyor
+  (`time:minutesLate` `document.go`'da tanımlı ama `Decide` set etmiyor) → o anahtara
+  yazılmış bir tenant politikası **sessizce hiç eşleşmez** (M3-04 invariant'ı). Bu yüzden
+  skill'in *"geç kalma"* senaryosu **HTTP'de üretilemiyor** ve M5-09 onu üretmedi.
+- **🟡 M6/M7 — `tags.uid` CHECK'i İKİ YAZIMA izin veriyor, zarfın AAD'si ise HAM 7 BAYT**
+  (güvenlik denetçisi, ORTA). `hex.DecodeString` büyük/küçük harf duyarsız + `CHECK (uid ~
+  '^[0-9A-Fa-f]{14}$')` → `04AC7E55000601` ile `04ac7e55000601` **iki ayrı PK satırı, aynı
+  AAD**; ölçüldü: bir plaketin zarfı diğerine **açılıyor**, `last_ctr`'ler **bağımsız**, ve
+  çapraz-tenant ikinci satır **INSERT edilebiliyor**. **Bugün sömürülemiyor** — `sun.Parse`
+  UID'yi büyük harfe **kanonikleştiriyor** (3/3 yazım aynı satıra düştü) ve `tags`'a INSERT
+  eden **hiçbir üretim yolu yok**. Latent: **M8-05** plaket kayıt akışı operatörün yazdığı
+  uid'yi olduğu gibi eklerse sonuç **ölü plaket** olur (kaydedilir, hiç tap almaz, hata
+  vermez). Çözüm **ikinci temsili silen** tek şey: yeni migration, `CHECK (uid ~
+  '^[0-9A-F]{14}$')` (00004 uygulanmış, §6 — yenisi yazılır). Mevcut 12 satır zaten büyük
+  harf, veri taşıması yok. **Bu, "kontrol ile tüketici aynı temsili görmeli" sınıfının bu
+  oturumdaki DÖRDÜNCÜ vakası.**
+- **🟡 M6/M7 — `tappa_app` `tags`'ın DOKUZ sütununda da UPDATE'e sahip** (güvenlik denetçisi,
+  ORTA). Ölçüldü: `aes_key_ref`'i bozabiliyor (DoS), `uid`'i yeniden adlandırabiliyor (DoS)
+  ve **`last_ctr`'ı 0'a GERİ SARABİLİYOR** (§4.4 replay penceresi). Bugün erişilebilir değil
+  (hiçbir üretim sorgusu bu sütunları yazmıyor — `tags` üzerinde tek sqlc sorgusu
+  `AdvanceTagCounter`; repoda **dinamik SQL yok**). ⚠️ **Sütun-düzeyi grant TEK BAŞINA
+  yetmez:** `last_ctr` listede kalmak **zorunda** (§4.4 advance onu yazar) ve en ağır yetenek
+  tam olarak onu geri sarmak. Gerçek çözüm: `REVOKE UPDATE` + `GRANT UPDATE (last_ctr,
+  status, retired_at, replaced_by)` **artı** monotonluk trigger'ı (`NEW.last_ctr >
+  OLD.last_ctr`).
+- **🟡 M8 — `redline-check.sh` kapsamı bir DENETİM İDDİASININ PARÇASIDIR.** `SRC` `test/`'i
+  içermiyordu → M5-09'un dört yeni dosyasının **ikisi** hiç taranmıyordu ve *"make audit
+  temiz"* göründüğünden az şey kanıtlıyordu. `test` eklendi (ölçüldü: **sıfır** yanlış
+  pozitif). Kalan iki sınır: R7 desenleri **tek satırlık**, `fmt.Fprintf(&b,` + duyarlı
+  dize sonraki satırda olunca ağdan geçiyor (ölçüldü, `-U` ile yakalanıyor); ve `SRC`'ye
+  eklenmeyen her yeni dizin sessizce denetim dışıdır.
+- **🟡 M6/M8 — rota başına flood tavanı hâlâ PİNLENMEMİŞ** (M5-07'den devam). M5-09 bunu
+  değiştirmedi.
+- **⚪ `make help` her hedefi `Makefile` diye yazıyor** — `-include .env` `.env`'i
+  `MAKEFILE_LIST`'e sokuyor, grep dosya adı önekliyor. Tek karakterlik düzeltme (`grep -h`),
+  M5-09'un işi değildi, commit'e karıştırılmadı.
 
 ### M5-09 / M5-10 / M6 / M7 / M8 / M9'a devralınan (M5-08 denetimlerinden)
 
@@ -493,9 +578,11 @@ düzelt**.
 | `git status --short` | temiz (görev arasındaysan) |
 | `ls .env` | var (git'e **girmez**) |
 | `docker compose ps` | `tappa-db` ayakta ve `healthy` |
-| `make migrate-status` | **00001–00010 uygulanmış** (M5-04'ten beri; M5-05…M5-08 migration açmadı) |
+| `make migrate-status` | **00001–00010 uygulanmış** (M5-04'ten beri; M5-05…M5-09 migration açmadı) |
 | `make check` | **exit 0** — ama yalnız **temiz ağaçta** (aşağı) |
-| `make test` | 13 paket `ok`, **PASS 1250 / SKIP 0 / FAIL 0** (M5-08 sonrası) |
+| `make test` | 13 paket `ok`, **PASS 1255 / SKIP 0 / FAIL 0** (M5-09 sonrası) · **~85–142 sn** |
+| `make test-short` | **~33–35 sn**, **TAM 1 SKIP** (`TestSeedDB_ADayAtKFStJulians`) — iç döngü içindir, **commit öncesi `make test`** |
+| `make simulate-day` | KF St Julians'ta bir gün: `PASS`, ~64 sn (~62'si ADR 0006 beklemesi). **`make seed` yapılmış olmalı** |
 
 ⚠️ **`make check` son adımı `git diff --exit-code`.** Commit edilmemiş iş varken **exit 2** verir ve bu
 **bilgi taşımaz** — fmt/lint/test geçmiş olabilir. Bir ajan *"make check kırmızı"* diyorsa hangi adımın
@@ -507,10 +594,14 @@ sessizce SKIP eder** ve §4.4/§4.5/§4.6 hakkında hiçbir şey kanıtlamadan y
 Bir iddia "N test geçti, 0 SKIP" diyorsa **hangi komutla** ölçüldüğünü söylemeli. M5-08'de bir mutasyon
 kolu çıplak koşuda **"ok"** verdi (2,5 sn), `make test` ile **24,6 sn** ve gerçek sonuç.
 
-⚠️ **Dev-DB kirli: `make db-reset` gerekiyor.** M5-08 benchmark'ı `4d6ddc99-48a5-4f65-8374-861fc9c5f1e6`
-tenant'ına **20 002 satır** bıraktı ve **`tappa_owner` bile silemiyor** (§4.3 append-only trigger'ı —
-doğru çalışıyor, kusur değil). Testleri bozmuyor ama M5-09'un *"bir günü simüle et"*i temiz DB ister.
-Genel birikim de var (M3-02'den beri her koşu satır ekliyor).
+⚠️ **Dev-DB birikimi artık her `make test` koşusunda ~44 satır.** M5-08'in 20 002 satırlık kalıntısı
+`make db-reset` ile temizlendi (2026-08-02), ama gün simülasyonu her koşuda **31 `transactions` + 11
+`employees` + 2 `audit_log`** ekliyor ve bunlar §4.3/§4.6 gereği **silinemez** (kusur değil, garanti).
+Üretilen çalışanlar **koşum damgalı** (`Maria Borg [sim 08-02T00:40:24 f4ef]`) → seed'li kadroyla
+karışmıyor; ama damga `full_name` üzerinden **kullanıcıya görünen yüzeye** (aktivasyon ekranı, M6
+dashboard) sızar, yani bugünkü dev-DB **ekran görüntüsüne hazır değil**. Demo öncesi `make db-reset`.
+**CI etkilenmiyor** — workflow `make migrate`/`make seed` koşmuyor (aşağı: bu yüzden 140 test CI'da
+FAIL ederdi; **önceden var olan** durum, M5-09'un gerilemesi değil, sahibi **M8**).
 
 **Zorunlu env değişkenleri** (eksikse başlangıçta panic — bilinçli, §config): `DATABASE_URL` ·
 `DATABASE_MIGRATE_URL` (farklı olmalı) · `TAPPA_SESSION_HMAC_KEY` · **`TAPPA_INVITE_HMAC_KEY`**
@@ -603,8 +694,9 @@ yazılır.
 | M5-06 | Onay ekranı ve marka mesajları | **done** | `b3fb2b5` · **iki denetçi ONAY** (`tappa-security-auditor` + genel üçüncü göz) · **15 tur, 11 RED — projenin en uzun görevi ve neredeyse HEPSİ tek sınıftan: bir cümle ya da bir SAYI, sistemin vermediği bir şeyi beyan ediyor** · **RED-1 (§4.6, güvenlik denetçisi):** `ignored` ekranı *"Your earlier tap stands."* diyordu — debounce **verdict'ten VE kanaldan bağımsız** (`GetLastTransactionForEmployee`'de yüklem yok → `decide.go:180` koşulsuz → `guardrails.go:328` yalnız gap), yani öncül `flag`/`reject` olabilir. **Görevin `flag`'den sildiği sessiz onay kusuru yok olmamış, `ignored`'a TAŞINMIŞTI** · **RED-2:** `reject` başlığı `<h1>`'de *"Not recorded"* diyordu; `Record` INSERT'ten **sonra** hiç hata döndürmüyor (`checkin.go:569-602`) → render edilen Result **satırın kanıtı**; aynı sayfa dört satır altta "was recorded" diyordu ve yanlış cümleyi **hiçbir test yasaklamıyordu** → *"Not counted"* · **RED-3…9 hep ARACIN kendisinde:** elle kurulmuş bayt-golden üretimin hiç render etmediği bir gövdeyi pinliyordu (Note'suz **971 B** vs gerçek **1061 B**) → metin-düğümü beyaz listesi **dört kanaldan** yenildi (CSS `content`, `</main>` dışı, `aria-label`, `title`) → `<input readonly value>` (*"value machine-facing'dir"* yanlıştı) → `<iframe srcdoc>`/`<object data>`/`<img src=data:svg>` → `<link href="data:text/css,…{content:'…'}">` (izinli eleman + okunmayan öznitelik) → metin testi retry dalını **hiç render etmiyordu** + `<meta http-equiv=refresh>` → **regex öznitelik SIRASINA bağlıydı** (oturumun kanonik dersi, kendi kontrolünün içinde) · **son hâl: üç dar beyaz liste** — görünür metin (doküman + 11 öznitelik) · eleman adları (**kapalı küme 16/14, iki yönlü eşitlik**) · dış referanslar (`{/static/css/app.css}`; **markanın "mutlak URL 0" kuralı ilk kez teste bağlandı**) — artı 7 tap yanıtında pinlenen CSP · **kapatılamayan 8 kanal GARANTİ değil LİMİT olarak sayıldı** (`<meta name=description>`, navigasyon yanıt başlıkları (`Refresh:` ölçüldü), CI'da **daima SKIP** olan CSS kontrolü, runtime script, beş aktivasyon ekranında CSP yok, elle düzenlenmiş `*_templ.go`, ekran-başına elle kapsam) · **wiring boşluğu ayrıca kapatıldı:** altı hata ekranının metnini yalnız elle kurulmuş bir view pinliyordu → `renderProblem` başka şablona/view'a bağlanınca **RED 20/17** (önce ikisi de yeşildi) · **11 sonuç şekli + 6 hata ekranı ×2 + 5 DB alt testi**, beş not sabitinin **5/5**'i üretimden sürülüyor (`staleOpenInNote` 19 sa eski açık kayıt seed'iyle) · **kopya kararları §4.6'dan:** `flag` "All done" **demiyor**, onayı **vaat etmiyor**, itiraz kapısı açık · practice tap'te marka mesajı **yok** · `business_type` ile tenant mesajı (**seed UUID yok, migration yok**) · **sayı hataları tek başına bir bulgu sınıfı oldu** (`SEVEN`→8 · "üç aktivasyon ekranı"→5 · "dört dal"→5 · "iki vaka"→4 · "yedisini de"→6 · "~16:1"→**5.70:1**, çünkü kapanış cümlesi docket'in **dışında**) → alan sayısı artık **reflection teliyle** çivili · **denetçi ağaca iki kez zarar verdi** (biri `git checkout` ile commit edilmemiş 12 satırı **kalıcı** sildi, biri `basename` çakışmasıyla dosya ezdi ama `git hash-object` ile birebir kurtardı) → kural `agent-brief.md`'ye yazıldı · PASS **1158** SKIP **0**, `app.css` 14256 B, `make audit` 0 |
 | M5-07 | Mini tur ve practice tap | **done** | `e0a5700` · **iki denetçi ONAY** (genel üçüncü göz 2. turda + `tappa-security-auditor`) · **görevin yarısı zaten hazırdı ve bunu ÖLÇMEK işin ilk yarısıydı:** `practice` sunucu türetimli (M4-06), TRAINING damgası + marka mesajı bastırması (M5-06) çalışıyordu · **YENİ:** `GET /activate/tour?step=1..3`, **sunucu render, JS yok, istemci state'i yok**, linklerle ilerliyor, her slayttan atlanabiliyor; `Submit` **ilk** aktivasyonu tura, **ikinci cihazı** doğrudan onaya yönlendiriyor · **tur hiçbir şey yazmıyor** (7 istek boyunca `transactions`/`audit_log` donuk + pozitif kontrol; `Set-Cookie` boş; POST/PUT/DELETE → 405) · **🔁 İKİ MASKELİ MUTANT bulundu ve kapatıldı** — `gather`'ın `if !open.Practice` guard'ı silinince **tüm suite yeşil** kalıyordu (motor tarafı `decide.go` bağımsız kanıtlı olduğu için: *bir garanti A'da kanıtlanıp B'de tüketiliyorsa B'nin onu KULLANDIĞI ayrıca pinlenmeli* — bu oturumda **üçüncü** kez), ve `transaction()`'ın `Practice: t.Practice` eşlemesi **eşdeğer mutanttı** (tek tüketicisi `resolveDirection`, filtre ayaktayken alan üretimde hiç `true` olmuyordu) → `TestGatherDB_…` + `TestTransaction_CarriesThePracticeColumn` · **§4.6 vaat analizi:** practice hakkı **herhangi bir** önceki satırla harcanıyor (`GetLastTransactionForEmployee`'de **verdict ve kanal yüklemi yok**): önceki yok → evet · `reject`/`ignored`/manuel → hayır; ilk tap **asla `ignored` olamaz**; QR ilk tap practice **olur** · **en kötü vaka ikinci cihaz** (zaten tap etmiş biri) **yapısal olarak** vaadi hiç görmüyor · güvenlik denetçisi `practice`'i **dört kanaldan** (query/header/multipart/JSON) hem iddia hem **reddetme** yönünde denedi ve sütunu geri okudu: `practice=false` gönderen ilk tap yine **`true`** · **davet kodu çerezi tura kadar yaşamıyor** (istek istek izlendi, `clear(w)` yönlendirmeden önce) · **RED (1 tur):** `assertRefs` href **DEĞER** kümesini karşılaştırıyor **sayısını değil** → slayta **metinsiz**, izinli hedefli üçüncü bir `<a>` (görünmez ikinci dokunma hedefi) eklenince suite yeşildi ve testin yorumu *"a link ADDED to a slide fails too"* diyordu → `TestTour_HasExactlyTheseTouchTargets` slayt başına **sıralı (hedef → etiket)** listesini pinliyor + `on…=` reddediyor · **`ping=` kapatıldı** (`refRE`'ye eklendi; M5-06'dan devralınan boşluk, ortak `Problem` şablonunda da RED → **on bir ekran**) · tur M5-06'nın **üç beyaz listesine de eklendi** (13 etiketlik kapalı küme) · **§4.4 kararı:** emekli plakete reject `last_ctr`'ı **ilerletmiyor** ve bu **doğru** (ilerletmek sayacı çipin önüne iter → sonraki gerçek tap'ler replay = kodun kendi adlandırdığı DoS); bedeli plaket dönünce bir kez `base:ctr-gap-review` · **kapsam dışı düzeltildi:** `internal/policy/document.go` *"EffectIgnore → no record"* **yanlıştı** (`ignored` satır **yazıyor**; mutasyonla 4 test RED) · Tailwind farkı **tek yeni seçici** `.min-h-11` (14283→14312), sıfır düzyazı-doğumlu ölü kural · **1197 test, 0 SKIP** |
 | M5-08 | QR kanalı | **done** | `1d836e3` · **iki denetçi ONAY** · **8 tur, 7 RED — projenin en derin zinciri** · **başladığı yer:** QR motorda zaten bağlıydı (`Parse` kanalı üretiyor, `base:qr-requires-ip` baseline'da, `preview` anahtara dokunmadan kısa devre yapıyor); eksik olan **kanıttı** — bu pakette **hiçbir** `GET /t` isteği `&ctr=&cmac=` olmadan yapılmamıştı, yani varış yolu hiç sürülmemişti · **iki maskeli mutant öldü:** `preview.go` adım 4 silinince suite **tamamen yeşil** kalıyordu (sonuç aynı, saklanan fark: **doğrulanacak hiçbir şey taşımayan URL için AES anahtarı açılıyor**) ve `channel` sütunu hiç pinlenmemişti (`"nfc"` sabitlemesi her paketi geçiyordu) · **sonra ölçüm bir zincir açtı:** §5 satır 5 debounce'u — sayacı olmayan bir kanalın **tek freni** — **dört ayrı şekilde** aşılabiliyordu ve her biri ancak öncekini kapatınca göründü: **mesafe** (gap istemcinin `occurred_at`'inden) → **seçim** (`ORDER BY occurred_at DESC`, yani öncülü de istemci seçiyor: geçmişi olan çalışan + 20 geriye tarihli POST → **20 sayılan satır**) → **işaret** (ileri tarihli tap `sys:occurred-at-bound` ile reddedilir ama **kaydedilir**, sonra o sıralamayı kazanır, negatif gap guardrail'i tümden kapatır → sonraki 20 dürüst tap **`flag` değil `ok`**) → **eşzamanlılık** (`gather` ve `write` ayrı tx → 50 eşzamanlı POST **0,48 sn'de 51 sayılan satır**) · **iki kullanıcı kararı (2026-08-01):** iki koşullu debounce **şimdi**, ve **kişi başına advisory lock** · **bugünkü kural:** `gap = min(beyan mesafesi, DB'nin hesapladığı yaş)` — `clock_timestamp() − created_at`, yalnız tap kanalları, **manuel öncül muaf** (müdürün satırı dokunuş değil; düz `min` müdürün geçmişe tarihli girişinden 30 sn sonraki **gerçek tap'i yutuyordu**) — ve `gather`+`Decide`+`write` **tek transaction**, `pg_advisory_xact_lock(tenant‖employee)` altında · **ADR 0006** (ölçümler, **beş reddedilen alternatif**, ne garanti edilmediği) · **kilidin bedeli ölçüldü ve yazıldı:** bekleyen istek **havuz bağlantısı tutuyor** → tek anahtara flood, ilgisiz kişinin gecikmesini **6–9×** artırıyor (`pg_stat_activity`: **16 bağlantının 15'i** `wait_event='advisory'`, kontrol kolunda **0**) · **§4.6 penceresi büyüdü** (`advance` → havuz → **kilit beklemesi** → `INSERT`; dışarıdan 3 sn kilitte tap **3,32 sn**; tavan `middleware.Timeout(30s)` — küme/DB/rol'de `statement_timeout`/`lock_timeout`/`idle_in_transaction` **üçü de 0**) — güvenlik denetçisi **kabul edilebilir** buldu (şekil önceden de vardı; diff havuz alımını **3'ten 2'ye düşürüyor**; aynı kişinin kendi çakışması gerekiyor; kaybedilen kayıt zaten `ignored` olacak olan; sessiz değil) · **kapsam dışı düzeltildi:** `policy/document.go` *"EffectIgnore → kayıt yok"* **yanlıştı** (mutasyonla 4 test RED) · **7 RED'in tamamı "bir cümle, sistemin vermediği bir şeyi beyan ediyor" sınıfından**; son üçü **yalnız metin** ve aynı iddia (*"birkaç milisaniye"*) **altı kez** yeniden doğdu — bir kez aynı commit içinde bir dosyada geri çekilirken kardeşinde ayakta kaldı · **1250 test, 0 SKIP**, migration yok |
-| M5-09 | Uçtan uca test ve "bir günü simüle et" | todo | |
+| M5-09 | Uçtan uca test ve "bir günü simüle et" | **done** | `b0044c5` · **iki denetçi ONAY** (genel üçüncü göz 2. turda + `tappa-security-auditor` koşulsuz) · **3 tur, 1 RED** · **önce bilinen engel:** seed `aes_key_ref`'e **42 baytlık düz ASCII** yazıyordu → her seed'li plaket NFC yolunda **500** (`sun.Unwrap` 44 bayt ister). Zarf **SQL literali olamaz** (operatörün KEK'ine bağlı + `Wrap` her çağrıda taze nonce çeker) → seed **iki adımlı**: `seed.sql` yüksek sesli placeholder yazar, `seed.sh` `go run ./test/fixtures/seedkeys | psql` ile **aynı role** (`tappa_owner`) zarfları basar; program **hiçbir yere bağlanmaz**, `(KEK, fixture listesi)`'nin saf fonksiyonu. Sahte anahtar `SHA-256("tappa-fake-seed-tag-key-do-not-use|"‖UID)[:16]` — repoda **ne düz ne sarmalı** değer var, yalnız tarif (§4.7) · **drift guard** (`DO $$ … RAISE $$`) **ilk hâlinde mutasyonda YEŞİL kaldı** (kapsamı `SeedTags`'ten türetiyordu, listeden plaket silinince guard da bakmayı bırakıyordu) → tenant çifti sabitlendi, mutasyon **RED** · **gün sıkıştırılamaz:** ADR 0006 debounce'u **sunucu saatiyle** ölçüyor → beklemesiz koşuda **15 kaydın 10'u** `sys:person-debounce` (tam günde 31'in 19'u), ve §4.6 gereği **15/15 satır yazılıyor**. **Motor fixture'a eğilmedi**, gün gerçek zamanda bekliyor (`policy.DebounceMinSeconds=30`; 30 sn altı `config.Load`'un reddettiği **dejenere değer** olurdu) · **RED (1. tur, iki madde, ikisi de belgeleme):** `day_db_test.go`'nun *"see the limits at the end"* atfının işaret ettiği bölüm **yoktu**, ve F5 (aşağı) hiçbir kalıcı yere yazılmamıştı → `LIMITS L1–L4` bölümü + kart md. 6 · **🔴 F5 — sevk edilmiş kodda §5 ihlali bulundu (yapıcının kendi bulgusu, iki denetçi büyüttü):** bir `practice` satırı **daha eski ve açık** bir gerçek girişi maskeliyor (`GetLastOpenTransaction` tek satır döndürüyor, tüketici practice ise **atıyor ve altına bakmıyor**) → çıkış `in` oluyor, giriş **hiç kapanmıyor**, **hiçbir sinyal yok**. **Düz HTTP'den erişilebilir** (`occurred_at` sevk edilmiş alan, tavan 72 sa). Denetçi bunu **günün kendi testiyle** üretti (workaround kaldırılınca `day_db_test.go:546` RED) → **kullanıcı kararı 2026-08-02: kendi görevinde düzeltilecek → M5-11** · **`assertAfterShiftStart` YAPISAL OLARAK BOŞTU** (mutasyon: `lateness → return nil` ile gün o satırdan sorunsuz geçti) → kaldırıldı, "geç kalma" senaryosu **HTTP'de üretilmiyor** diye dürüstçe sayıldı · **`assertTellableApart` dejenere değer tuzağına düştü** (beklenen de fiili de aynı `f.runStamp`'tan; `newRunStamp → "CONSTANT"` süiti **yeşil** bıraktı — *kendi dosyasının adını koyduğu tuzak, onu önlemek için yazılmış kontrolün içinde*) → saf `TestRunStampVariesBetweenRuns` + satır-sayısı kolu, mutasyon **0,96 sn'de RED** · **senaryo tablosu dürüstçe sayıldı: 12'den 10'u HTTP üzerinden, 1'i HTTP dışı** (`manual` — uç nokta **uydurulmadı**, M6-04'ün; router'ın kullandığı **aynı `checkin.Service`**), **1'i hiç üretilmiyor** (geç kalma) · **NFC'de tek stipülasyon:** sayfa gerçekten açılıyor (gerçek `Parse`+unwrap+preview) ama CMAC biti çevriliyor — geçerli CMAC üretmek SDM'nin **ikinci uygulaması** demekti (repo bunu iki kez reddetti) → **LİMİT olarak sayıldı, kapatılmadı** · **kullanıcı kararı 2026-08-02 (süre):** `make test` **tam kalsın** (98,5 sn; CI değişmedi) + **`make test-short`** (32,9 sn, **tam 1 SKIP**, yüksek sesli mesaj) — `t.Parallel()` **elendi** (3/3 kırmızı: testler **aynı seed'li plaketin `last_ctr`'ını** paylaşıyor, paralelde tap replay sayılıyor ve biri **§4.4 kırmızı-çizgi testini olmayan bir ihlalle** kızarttı) · **`make audit` bu görevde ZAYIF KANITTI:** `redline-check.sh` `SRC`'si `test/`'i **içermiyordu** → yeni dört dosyanın **ikisi** hiç taranmıyordu; güvenlik denetçisi dokuz deseni de elle koşturdu (hepsi temiz) ve `SRC`'ye `test` eklendi (**sıfır yanlış pozitif**, ölçüldü) · **1255 test, 0 SKIP** · migration **yok** |
 | M5-10 | Tap tazelik penceresi (URL biriktirmeye karşı) | todo | A1 · §4.4 |
+| M5-11 | Practice satırı açık girişi maskeliyor (§5 yön ihlali) | todo | **M5-09'da bulundu, kullanıcı kararıyla açıldı (2026-08-02)** · sevk edilmiş kodda §5 ihlali, düz HTTP'den erişilebilir · semantik karar → **ADR ister** · bitince M5-09'un `LIMITS L3` ve kart md. 6 notları kapatılmalı |
 
 ### M6 — [Admin dashboard](m6-dashboard.md)
 
@@ -657,7 +749,7 @@ yazılır.
 | M9-06 | Policy simülatörü | todo | Q22 — M6-10'dan ertelendi |
 | M9-07 | Ham JSON politika editörü | todo | Q22 — M6-09'dan ayrıldı |
 
-**Özet:** 82 görev · done 49 · wip 0 · blocked 0 · skipped 1 · todo 32 · **M0+M1+M2+M3+M4 TAMAM · M5 8/10 · sıradaki M5-09**
+**Özet:** 83 görev · done 50 · wip 0 · blocked 0 · skipped 1 · todo 32 · **M0+M1+M2+M3+M4 TAMAM · M5 9/11 · sıradaki M5-10** *(M5-11 M5-09'da bulunan §5 ihlali için kullanıcı kararıyla açıldı → toplam 82'den 83'e)*
 
 ---
 
