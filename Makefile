@@ -100,10 +100,45 @@ db-reset:
 	$(GOOSE) -dir db/migrations postgres "$(DATABASE_MIGRATE_URL)" reset
 	$(MAKE) migrate seed
 
+## simulate-day: KF St Julians'ta bir gun uret (skill tappa-seed, M5-09)
+# Kayitlari KARAR MOTORU uretir: gercek HTTP, gercek router, gercek Postgres.
+# `make seed` yapilmis olmali; degilse test SKIP eder ve sebebini soyler.
+# ~65 sn surer — bunun ~62 sn'si BEKLEMEDIR: ADR 0006 debounce'u sunucu saatiyle
+# olcer, yani ayni kisinin ardisik tap'leri gercek zaman ister (gerekce:
+# internal/handler/seedflow_db_test.go, seedDebounce).
+simulate-day:
+	go test -race -count=1 -v -run TestSeedDB_ADayAtKFStJulians ./internal/handler
+
 # ------------------------------------------------------------------- kalite --
-## test: tum testler + yaris dedektoru
+## test: tum testler + yaris dedektoru (CI bunu kosar — hicbir sey atlanmaz)
 test:
 	go test -race -count=1 ./...
+
+## test-short: gelistirici ic dongusu — SIMULE EDILEN GUN atlanir
+# NEDEN IKI HEDEF VAR. Olculdu (-race -count=1, tek makine, dort oturum). Sayilar
+# ARALIKTIR; makine yukuyle oynayan tek sey uyku DISINDAKI her seydir:
+#   make test        84,7-138 sn    gunun ~62 sn'si time.Sleep'tir: ADR 0006
+#                                   debounce'u SUNUCU saatiyle olcer, yani ayni
+#                                   kisinin ardisik tap'leri gercek zaman ister
+#                                   ve sikistirilamaz. (Gun testi tek basina
+#                                   62,9-64,3 sn.)
+#   make test-short  32,9-35 sn     tek fark: TestSeedDB_ADayAtKFStJulians
+#                                   (internal/handler/day_db_test.go) atlanir —
+#                                   olculdu: suitte TAM 1 skip, baska yok.
+#   t.Parallel()     ELENDI         paketin tum ust duzey testlerine eklendi;
+#                                   art arda UC kosu, UC FARKLI testte kirmizi.
+#                                   Koku tek: bu testler AYNI seed'li plakete
+#                                   dokunuyor ve her tap last_ctr+1 okuyor, yani
+#                                   paralel kosuda sayaci baskasi ilerletince tap
+#                                   REPLAY sayilip reddediliyor. Biri §4.4
+#                                   (kirmizi cizgi) testini OLMAYAN bir ihlalle
+#                                   kizartti — yanlis alarm ureten bir kurulum.
+# VARSAYILAN DEGISMEDI: CI hala `make check` -> `make test` kosar. Bu repoda
+# "atlanan bir test gecmis sayilmaz" yazili bir derstir (M5-06 md.4: CI `make
+# css` kosmadigi icin iki test DAIMA skip ediyordu). -short yalnizca ELDE, ic
+# donguda kullanilir; zincirin gercekten kosuldugu yer `make test`tir.
+test-short:
+	go test -race -count=1 -short ./...
 
 ## cover: kapsam raporu
 cover:
@@ -130,4 +165,5 @@ audit:
 	./scripts/redline-check.sh
 
 .PHONY: help tools gen templ sqlc css up down dev build migrate migrate-down \
-        migrate-status migrate-new seed db-reset test cover lint fmt check audit
+        migrate-status migrate-new seed db-reset simulate-day test test-short \
+        cover lint fmt check audit

@@ -2755,6 +2755,275 @@ dashboard'un üstünde duracağı gerçekçi bir günü üretmek.
 - `-race` ile temiz.
 - Milestone kapanışı: agent `tappa-security-auditor` tam denetim, `make audit` temiz.
 
+> **Kart düzeltmesi (2026-08-01, M5-09 uygulaması sırasında; md. 6 ve md. 2'nin
+> son paragrafı 2026-08-02, 2. turda eklendi).** Altı nokta gerçekle çelişti;
+> hiçbiri kriter zayıflatılarak değil, **ölçülerek** düzeltildi.
+>
+> **1) "~21 işlem" ARİTMETİK OLARAK MÜMKÜN DEĞİL — ve sebebi §5'in kendisi.**
+> §5 *"aktivasyon sonrası ilk kayıt `practice=true`"* diyor. Taze seed'li bir
+> veritabanında **hiç kimsenin** kaydı yoktur, yani tap eden her çalışanın ilk
+> satırı bir TRAINING satırıdır. 10 çalışanın 9'u tap ediyorsa (biri telefonsuz,
+> manuel giriliyor) taban zaten 9 + 9 giriş + 9 çıkış = 27'dir. Ölçülen gerçek gün
+> **31 satır** — ve dökümü **kayıt** olarak yazılmalı, "giriş/çıkış" olarak değil
+> (2. turda düzeltildi: `ignored` çift tap ve retired plaket reddi **hiçbir yön
+> taşımaz**, `type` sütunları NULL'dır; onları "giriş"/"çıkış" saymak aritmetiği
+> doğru, adlandırmayı yanlış yapıyordu):
+> **9 practice + 1 deaktive denemesi (reddedildi, yönsüz) + faz 1'de 11 kayıt**
+> (6 NFC giriş · 1 `ignored` çift tap · 1 QR giriş · 1 manuel giriş · 1 Rusty Bar
+> 18:05 · 1 Grace'in ilk gerçek girişi) **+ faz 2'de 10 kayıt** (7 NFC çıkış ·
+> 1 QR çıkış · 1 Rusty Bar 02:10 · 1 retired plaket reddi, yönsüz) = **31**.
+> Kriter *"~21"* yerine **"her senaryo dahil, sayı senaryoların toplamıdır"**
+> okunmalı; test toplamı (31) açıkça iddia ediyor ki bir senaryo sessizce düşerse
+> sayı değişsin.
+>
+> **2) "Geç kalma → rapor 'late 17m'" BUGÜN ÜRETİLEMİYOR — iki ayrı sebep,
+> ikisi de ölçüldü.** (a) `tap.Decision.MinutesLate` **hiçbir yere yazılmıyor**:
+> ne `transactions` sütunu, ne `policy_context` anahtarı (`time:minutesLate`
+> `document.go`'da tanımlı ama `Decide` onu **set etmiyor**), ne onay ekranı. Yani
+> HTTP üzerinden bir tap'in geç kalması **gözlemlenemez**. (b) Daha ağırı:
+> `lateness()` mesafeyi `in.Now` — **sunucu saati** — ile ölçüyor, kaydın
+> `occurred_at`'i ile değil. Canlı tap'te ikisi çakıştığı için hiçbir mevcut test
+> bunu görmüyor (`lateness_test.go` `OccurredAt`'i **hiç** set etmiyor). Ölçüm:
+> 10:00 vardiyasına 10:17 beyan eden manuel bir giriş `MinutesLate = -520`
+> döndürdü (= o anki sunucu saati − bugünün 10:00'ı). Geriye tarihli müdür girişi
+> ve M9-01 çevrimdışı kuyruk için bu **yanlış**. Bu görevde **düzeltilmedi**:
+> karar motoru semantiğini (M4-05, §5) değiştirir ve bugün üretimde sonucu yoktur
+> (değer hiçbir yere yazılmıyor). M6-07 raporlarında **gerçek** olur. Bugünkü
+> davranış `day_db_test.go`'da pinlendi; düzeltilirse test kırmızıya döner.
+>
+> ⚠️ **2. tur eki — "geç kalma" senaryosunun HTTP tarafında HİÇBİR kanıtı yok,
+> ve 1. turda bunu gizleyen bir assertion vardı.** `assertAfterShiftStart`
+> (kaydın `occurred_at`'i vardiya başlangıcından sonra mı) **yapısal olarak
+> boştu**: karşılaştırılan an tanımı gereği `now − 20 dk`'dan eski, canlı tap'in
+> `occurred_at`'i ise ≈ `now`. Ölçüldü — `tap.lateness` `return nil`'e mutasyona
+> uğratılınca (yani geç kalma hesabı **tümden** ölünce) gün o satırdan sorunsuz
+> geçti ve ancak çok sonra, manuel girişin `MinutesLate == nil` kontrolünde öldü
+> (`day_db_test.go:440`, mutasyon anındaki numara). Assertion yeniden yazılmadı,
+> **kaldırıldı**: hiçbir motor hatasının
+> kırmızıya çeviremediği bir kontrol, kapsam gibi okunduğu için yokluğundan
+> **daha kötüdür**. Senaryonun dürüst durumu: **HTTP'de üretilmiyor**; tek
+> gözlem noktası, çağıranın `Decision`'ı elinde tuttuğu manuel giriştir ve o da
+> yukarıdaki sunucu-saati okumasıdır. Skill `tappa-seed`'in senaryo tablosu ve
+> `day_db_test.go`'nun LIMITS L2'si aynı şeyi söylüyor.
+>
+> **3) NFC tap'in "CMAC doğrulandı" biti SİMÜLASYONDA VARSAYILIYOR — sınır olarak
+> sayıldı, kapatılmadı.** Sayfa gerçekten açılıyor (gerçek `sun.Parse`, gerçek
+> KEK unwrap, gerçek preview) ama URL'deki CMAC kasten yanlış; simülasyon sunucunun
+> kendi imzaladığı bağlamı alıp **tek biti** çevirip yeniden imzalıyor. Geçerli bir
+> CMAC üretmek SDM yapısının `internal/sun` dışında **ikinci bir uygulaması**
+> demekti (repo bunu daha önce iki kez reddetti — `tap_db_test.go`). Sonuç: bu
+> dosya bir NFC tap hakkında **çipin imzasının doğrulandığı dışında her şeyi**
+> kanıtlıyor; o yarısı `internal/sun`'ın kendi vektörlerinde duruyor.
+>
+> **4) Gün, gerçek zamanda BEKLEMEK ZORUNDA (~62 sn) — ADR 0006'nın bedeli.**
+> Debounce mesafesi artık istemcinin erişemediği bir sunucu yaşıdır, yani aynı
+> kişinin ardışık tap'leri arasında **gerçek** saniye geçmeli. Ölçüldü
+> (`TestSeedDB_WithoutTheWaitTheDayCollapsesIntoIgnoredRows`): beklemesiz 15
+> kaydın **10'u `ignored`**; tam güne uygulandığında 31 satırın 19'u, bütün
+> çıkışlar dahil. Pencere `policy.DebounceMinSeconds` = **30 sn**'ye (bir
+> deployment'ın kurabileceği en düşük değer) çekildi; daha azı `config.Load`
+> tarafından reddediliyor, yani hiçbir kurulumun sahip olamayacağı bir
+> konfigürasyonu sürmek olurdu.
+>
+> **SÜRE ÖLÇÜMÜ (2. tur) — üç okuma, KARAR KULLANICININ.** Bu görevden önce
+> `make test` ~38 sn'ydi. Aynı makinede, `-race`, `-count=1`. ⚠️ **Mutlak sayılar
+> ARALIKTIR, sabit değil:** dört oturumda `make test` **84,7 – 138 sn**, gün testi
+> **62,9 – 64,3 sn**, `-short` **32,9 – 35 sn** verdi. Fark makine yüküdür ve
+> **uyku dışındaki her şeyi** oynatır — gün testi süitin duruma göre yarısı ile
+> üçte ikisi arasındadır; sabit olan yalnız içindeki ~62 sn'lik `time.Sleep`'tir:
+>
+> | | `make test` | `internal/handler` | kararlılık |
+> |---|---|---|---|
+> | **(a) bugünkü hâl** | **84,7 – 138 sn** | 91,6 sn (gün testi tek başına **62,9 – 64,3 sn**; ≈62'si `time.Sleep`) | 3/3 + 3. turda 2/2 yeşil |
+> | **(b) `-short` ile gün testi atlanır** | **32,9 – 35 sn** | 27,7 sn | yeşil — ama **atlanan bir test geçmiş sayılmaz** (M5-06); varsayılan koşu artık zinciri hiç sürmez |
+> | **(c) `t.Parallel()`** | — | **3/3 KIRMIZI** | ⛔ kullanılamaz |
+>
+> ✅ **KULLANICI KARARI (2026-08-02): "`make test` tam kalsın + `make test-short`
+> eklensin."** Uygulandı, 3. turda. `make test` ve CI (`make check` → `make test`)
+> **değişmedi** — hiçbir şey atlanmıyor. `make test-short` (`-short`) yalnızca
+> geliştiricinin iç döngüsü içindir ve tek bir testi atlar:
+> `TestSeedDB_ADayAtKFStJulians`. Skip **yüksek sesle** neyin koşmadığını adıyla
+> söyler ve "atlanan test geçmiş sayılmaz" dersini (M5-06 md. 4) tekrarlar; bu,
+> repodaki **ilk** `testing.Short()` kullanımıdır, o yüzden gerekçesi testin
+> başında yazılıdır. İki hedefin neden var olduğu (üç sayı + `t.Parallel()`'ın
+> neden elendiği) `Makefile`'da `test-short`'un üstüne de yazıldı.
+> **Ölçüm (3. tur):** `make test` → 138 sn, 13 paket, **1255 PASS / 0 SKIP /
+> 0 FAIL**; `make test-short` → 35 sn, 13 paket, **1254 PASS / TAM 1 SKIP /
+> 0 FAIL** ve o tek skip `TestSeedDB_ADayAtKFStJulians`. Yani `-short` süitte
+> başka hiçbir şeyi sessizce düşürmüyor.
+>
+> **(c) neden çöktü — ölçüldü, tahmin değil.** Paketin bütün üst düzey testlerine
+> `t.Parallel()` eklendi (zaten paralel olanlar hariç) ve `-race` ile **art arda
+> üç koşu, üç FARKLI testte kırmızı**: `TestSeedDB_ADayAtKFStJulians`
+> (*"the first record after activation must be a TRAINING tap"*) ·
+> `TestSeedDB_ANFCTapOnASeededPlaqueReachesTheDecisionEngine`
+> (*"last_ctr moved 192 → 193 on an unverified MAC (§4.4)"*) ·
+> `TestSeedDB_WithoutTheWaitTheDayCollapsesIntoIgnoredRows`
+> (*"tap 1 = reject, expected ok or ignored"*). Üçünün de kökü aynı: bu testler
+> **aynı seed'li plakete** dokunuyor ve her tap `last_ctr + 1` okuyor; paralel
+> koşuda sayacı başka bir test ilerletince tap **replay** sayılıp reddediliyor.
+> İkincisi özellikle önemli: paralellik bir **kırmızı çizgi** testine (§4.4)
+> olmayan bir ihlali rapor ettiriyor — yani sessiz bir yavaşlama değil, **yanlış
+> alarm üreten** bir kurulum olurdu. Üstelik kazanç en iyi ihtimalle sınırlı:
+> paketin 91,6 sn'sinin 63,7'si tek testin uykusu, geri kalan **28 sn**'nin
+> tamamı gizlenebilse bile `make test` ancak ~70 sn'ye iner. Paralellik uykuyu
+> **kısaltamaz**, yalnız arkasına iş saklayabilir. Çalışır hâle getirmek, plaket
+> sayacına test-içi bir serileştirme (ya da test başına ayrı plaket) demek —
+> kendi görevi.
+>
+> **5) `manual` kanalının HTTP yüzeyi YOK (M6-04), ve geriye tarihli manuel giriş
+> `flag` oluyor.** Manuel kayıt bu yüzden router'ın kullandığı **aynı** servisten
+> (`checkin.Service.Record`) üretiliyor — uydurulmuş bir endpoint değil, elle
+> yazılmış bir satır da değil. Yan ölçüm: müdürün sabahki mesaiyi girmesi
+> `base:queued-window`'un 120 sn eşiğini aştığı için kaydı **`flag`** yapıyor, yani
+> müdürün kendi girdiği satır kendi onay kuyruğuna düşüyor. Bug değil, **ürün
+> kararı** — M6-04'ün çözmesi gereken bir şey olarak yazıldı.
+>
+> **6) 🔴 BULGU (2. tur) — PRACTICE SATIRI DAHA ESKİ BİR AÇIK GİRİŞİ MASKELİYOR.
+> BU GÖREVDE DÜZELTİLMEDİ: kendi görevini ve muhtemelen bir ADR'yi hak ediyor.**
+>
+> **Mekanizma.** `GetLastOpenTransaction` **tek** satır döndürüyor
+> (`type='in'` + daha yeni bir `'out'` yok, `ORDER BY occurred_at DESC LIMIT 1`)
+> ve practice'e **nötr** — bilinçli, sorgunun kendi doküman bloğu bunu söylüyor.
+> Ayıklamayı `internal/domain/checkin/checkin.go`'nun `gather`'ı yapıyor
+> (≈ satır 937): `if !open.Practice { f.lastOpenIn = transaction(open) }`. Yani
+> dönen satır practice ise **atılıyor ve bir alttakine BAKILMIYOR**. Sonuç:
+> `occurred_at` sıralamasında en üste düşen bir practice satırı, altındaki
+> **gerçek açık girişi görünmez** yapıyor ve `lastOpenIn` `nil` kalıyor.
+>
+> **Ölçüm (2. turda, kontrol koluyla yeniden üretildi).** İki kişi, üçer tap,
+> her tap **düz HTTP** (`GET /t` + `POST /api/checkin`); tek fark practice
+> satırının `occurred_at`'i:
+>
+> | kol | practice `occurred_at` | 3. tap'in yönü | kalan açık giriş |
+> |---|---|---|---|
+> | kontrol | beyan: −4 sa (gerçek girişten **eski**) | `out` | **0** ✓ |
+> | bozuk | beyansız = sunucu şimdi (**yeni**) | `in` | **2** 🔴 |
+>
+> (İki kolun gerçek girişi de −3 sa beyan edildi, ikisi de `verdict=flag`;
+> 3. tap'ler canlı ve `verdict=ok`.)
+>
+> **İhlal edilen cümle — §5:** *"Yön (in/out): kişinin **son açık girişine** göre
+> toggle."* Bozuk kolda çıkış `in` oldu, gerçek giriş **hiç kapanmadı** ve bunun
+> bir motor hatası olduğuna dair **hiçbir sinyal yok**: `verdict` `ok`, not yok,
+> flag yok, kuyruk yok. Müdüre §5'in *"unutulmuş çıkış"* anomalisi gibi
+> görünüyor — yani **çalışanın hatası** gibi.
+>
+> **Düz HTTP'den erişilebilir; manuel kanal gerekmiyor.** `occurred_at` sevk
+> edilmiş `POST /api/checkin`'in **zaten kabul ettiği** bir form alanı ve 3 saat
+> `sys:occurred-at-bound`'un toleransının (ADR 0004 §11 sınırlı parametre,
+> `policy.OccurredAtSkewMaxSeconds` = 72 sa) rahat içinde. Kötü niyet de
+> gerekmiyor: **beyansız** (yani sıradan) bir practice tap'i sunucu şimdi'sine
+> yazılır, ve geriye tarihli tek bir gerçek giriş yeterlidir.
+>
+> **Gün fixture'ı bunun ETRAFINDAN DOLAŞIYOR, kapatmıyor.** Ivan'ın practice
+> tap'i 17:50 **beyan ediliyor** ki 18:05 girişinin altında sıralansın; bu
+> olmadan 02:10 çıkışı `in` okunurdu — yani gece vardiyası regresyon testinin
+> kendisi bu bulguya çarpıyor. Çare çağrı yerinde ve `day_db_test.go`'nun
+> **LIMITS L3** bölümünde açıkça yazılı; sessiz bırakılsa fixture "motor sağlam"
+> kanıtı gibi okunurdu.
+>
+> **Neden burada düzeltilmedi.** Düzeltmenin kendisi bir **karar**: practice'i
+> atlayıp bir alttakine mi bakılacak (sorgu `LIMIT 1`'i bırakır), sorgu
+> `AND NOT practice` ile mi daraltılacak (o zaman "practice-nötr" doküman bloğu
+> ve M4-04'ün iki-koruma gerekçesi değişir), yoksa practice satırı hiç `type`
+> taşımamalı mı (o zaman §5'in *"ilk kayıt practice"* satırı ile `transactions`
+> tutarlılık CHECK'i yeniden konuşulur). Üçü de karar motoru semantiği + saat
+> hesabı kesişimi. **Hiçbir test bu davranışı pinlemiyor**; yeniden üretme tarifi
+> yukarıdaki tablo ve LIMITS L3.
+>
+> ⚠️ **3. tur düzeltmesi — pinlememenin MALİYET gerekçesi düşüyor, DONDURMA
+> gerekçesi ayakta.** Yukarıda "pinlemek iki debounce beklemesi = ~62 sn daha
+> demekti" yazıyordu; **yanlış**, ve karşı kanıt aynı dosyada: debounce'un
+> sunucu-yaşı bacağı yalnız `channel IN ('nfc','qr')` satırlarını sayıyor
+> (`db/queries/transactions.sql` → `SecondsSinceLastRecordedTap`, manuel muafiyet).
+> Yani üç satır `checkin.Service.Record` ile **`manual`** kanalından beyan
+> edilerek yön davranışı **~0 sn**'de pinlenebilirdi — ve `day_db_test.go` Nadia
+> için o yolu zaten kullanıyor. Geriye tek gerçek gerekçe kalıyor: pinlemek
+> **düzeltilecek bir kusuru dondururdu**.
+>
+> ✅ **KULLANICI KARARI (2026-08-02): "şimdi düzelt — yeni M5 görevi."** Bu bulgu
+> kendi görevinde (**M5-11**) düzeltilecek; M5-09 motoru değiştirmedi, yalnızca
+> etrafından dolaştı ve bunu yüksek sesle yazdı.
+>
+> ⚠️ **2. tur eki — simülasyonun ürettiği kadro artık DAMGALI, ve seed'li kadroyu
+> sürmeme kararı ölçüldü.** Gün, seed'li isimleri (Maria Borg, …) taşıyan
+> **taze** çalışanlar yaratıyor; `transactions` değişmez (§4.3), `tappa_app`'in
+> DELETE yetkisi yok, yani hiçbir şey onları temizlemiyor — ölçüldü: birkaç
+> `make test` sonrası demo tenant'ında **13 tane "Maria Borg"** vardı, tap'ler
+> onlardaydı, seed'li asıl Maria Borg'un **0 işlemi**. Alternatif (a) — günün
+> **seed'li kadroyu** sürmesi, ki skill'in *"dashboard'u gerçekçi göster"*
+> amacını gerçekten karşılardı — sabit kimlikli bir sonda ile **iki koşuda**
+> ölçüldü: 1. koşu (`rows=0, status=invited`) davet + aktivasyon + tur çalışıyor,
+> ilk tap `practice=true`; 2. koşu (`rows=1, status=active`) aktivasyon **turu
+> atlıyor** (`/activate/done`'a düşüyor, ilk slayt hiç render edilmiyor), ilk tap
+> `practice=false`, üstelik koşu 1'den **açık bir giriş devralıyor**. Yani sabit
+> kadro bu günü veritabanı ömrü başına **tam bir kez** ağırlayabilir; `make test`
+> yeniden koşabilir olmak zorunda ve ikinci koşuda `t.Skip`'e düşmek bu repoda
+> kabul edilmiyor (*"atlanması geçme değildir"*, M5-06). Seçim (b): taze kadro +
+> `full_name`'e **koşum damgası** (`Maria Borg [sim 08-02T00:40:24 f4ef]`), yani
+> satırlar **ne olduklarını kendileri söylüyor** ve M6 dashboard'u ana veriyi
+> simülasyon çıktısından ad üzerinden ayırabiliyor. Skill'in *"dashboard'u
+> gerçekçi göstermek"* cümlesi de ölçüme eşitlendi.
+> Damganın kendisi **korumasızdı** (ölçüldü: kaldırınca süit tamamen yeşil kalıyor
+> — `full_name`'e hiçbir test bakmıyor), o yüzden bir iddiaya bağlandı:
+> `assertTellableApart` günün başında, hiçbir bekleme öncesinde koşuyor ve hem
+> damgayı hem de *"seed'li satır AYRI bir satırdır, üzerine yazılmadı"* şartını
+> kontrol ediyor. **Mutasyon (`stamped := name`) → 0,17 sn'de KIRMIZI.**
+> ⚠️ Bu ölçümler dev veritabanında damgasız birkaç çift bıraktı; demo/ekran
+> görüntüsü öncesi **`make db-reset`**.
+>
+> ⚠️ **3. tur — o iddia damganın TEKİLLİĞİNİ korumuyordu.** `assertTellableApart`
+> yalnız `stamped := name` mutasyonunu yakalıyor; `newRunStamp()`'ı
+> `return "CONSTANT"` yapan mutasyonda süit **yeşil kaldı** (ölçüldü). Sebep
+> dosyanın kendi adını koyduğu tuzak: karşılaştırmanın iki yakası da aynı
+> `f.runStamp`'tan türüyor, yani damga kendisiyle kıyaslanıyor. Kapatıldı:
+> (i) `assertTellableApart` artık damgalı adın veritabanında **tam 1** satıra ait
+> olduğunu da soruyor; (ii) `TestRunStampVariesBetweenRuns` fonksiyona doğrudan
+> soruyor (DB'siz, `-short`'ta da koşar). **Mutasyon `newRunStamp → "CONSTANT"`
+> artık KIRMIZI.** Kalan kalıntı yazıldı: damga bir saniyelik saat + 16 bit UUID,
+> yani aynı saniyedeki iki koşu **1/65536** olasılıkla çakışır.
+>
+> 🔭 **DEĞERLENDİRİLMEMİŞ ÜÇÜNCÜ YOL (sahibi M6, kayda geçsin).** (a) ve (b)
+> arasındaki gerilim, günün **`make test` içinde** olmasından doğuyor: yeniden
+> koşulabilirlik zorunlu olduğu için kadro taze olmak zorunda, taze olduğu için
+> de dashboard seed'li isimlerle dolmuyor. Üçüncü yol ikisini ayırır: günü
+> `make test`'ten **çıkar** (bugün `testing.Short()` yalnız `-short`'ta atlıyor —
+> bu daha ileri bir adım), ve seed'li kadroyu **yalnız `make simulate-day`**
+> içinde sür. O zaman `make test` her koşuda yeşil kalır, `make simulate-day` ise
+> veritabanı ömrü başına bir kez çalışan, **ekran görüntüsüne hazır** bir gün
+> üretir (ikinci koşu için `make db-reset`). Bedeli: günün regresyon değeri
+> varsayılan koşudan çıkar — yani M5-06'nın *"atlanan test geçmiş sayılmaz"*
+> dersiyle doğrudan çelişir ve bu bir **ürün/CI kararıdır**, bu görevin değil.
+> Ölçülmedi; M6 dashboard'u seed'li veriye baktığında karar verilmeli.
+>
+> **Ayrıca bu görevde kapatılan bir bloke:** seed'li plaketlerin `aes_key_ref`'i
+> KEK-sarmalı değildi (42 bayt ASCII placeholder) ve seed'li her NFC tap
+> `GET /t`'de **500** veriyordu (yeniden üretildi, sonra düzeltildi ve pinlendi).
+> Sarmalama artık `scripts/seed.sh`'ın 2. adımı; anahtarlar **türetiliyor**
+> (`fixtures.SeedTagKey`), repoda hiçbir sarmalı değer ya da gerçek anahtar yok.
+> Backlog **T7**'nin *seed* yarısı kapandı ve mekanik olarak korunuyor (seed adımı
+> 44 baytlık zarfı olmayan demo plaket bırakırsa `RAISE` ile patlar).
+>
+> **Açık kalan yarısı — ve 2. turda düzeltilen bir karamsarlık.** 1. turda
+> *"şema `bytea`ya bu bir KEK zarfıdır dedirtemiyor"* yazmıştım; bu **fazla
+> genişti**. Şema zarfın **AÇILDIĞINI** zorlayamaz (KEK veritabanında değil, ki
+> öyle olmalı — ADR 0003), ama **ŞEKLİNİ** zorlayabilir:
+> `CHECK (octet_length(aes_key_ref) = 44)` 44 dışındaki her değeri, bu görevin
+> yeniden ürettiği 500'ün tam sebebini, **insert anında** reddederdi. Bunu bugün
+> engelleyen şey şema değil, **iki adımlı seed'in ara durumu**: adım 1 düz ASCII
+> bir placeholder yazıyor (bugün **50 bayt**: 36 karakterlik etiket + 14 hex uid,
+> `octet_length` ile ölçüldü) ve adım 2 onu sarmalıyla değiştiriyor — CHECK
+> olsaydı adım 1 patlardı, Postgres'te CHECK `DEFERRABLE` de olamaz.
+> **T7'nin sahibine (M6/M7) net seçenekler:** (i) placeholder'ı tam **44 bayta**
+> çek, CHECK'i ekle (en ucuzu; placeholder'ın "yer tutucu" olduğunu metin yerine
+> uzunluk-dışı bir işaret taşısın); (ii) adım 1 `tags` satırını `aes_key_ref`
+> **olmadan** yazsın — sütun bugün `NOT NULL`, yani ya nullable olacak ya da
+> plaket satırı tümüyle adım 2'de doğacak; (iii) CHECK yerine sarmalama/çözme
+> **yalnız `internal/sun` üzerinden** kuralını insert yolunda testle koru
+> (bugünkü fiili durum). T7 **daraldı, kapanmadı**; ölçülmemiş tek şey (i)'in
+> seed dışındaki insert yollarına maliyeti.
+
 ---
 
 ## M5-10 — Tap tazelik penceresi (URL biriktirmeye karşı)

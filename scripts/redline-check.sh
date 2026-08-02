@@ -11,7 +11,15 @@ fail=0
 
 # Yalnizca kaynak kod taranir: dokumanlar ve .claude/ kurallari bu terimleri
 # mesru olarak icerir, onlari eslestirmek gurultu uretir.
-SRC=(cmd internal db web/templates web/static/js scripts)
+#
+# `test` M5-09'da EKLENDI (guvenlik denetimi olctu): test/fixtures altinda
+# `_test.go` OLMAYAN gercek Go kaynagi var (tagkeys.go, seedkeys/main.go) ve
+# fixture SQL'i var; liste onlari icermeyince "make audit temiz" cumlesi
+# gorundugunden az sey kanitliyordu. Dokuz desenin dokuzu da `test/` uzerinde
+# temiz dondu, sifir yanlis pozitif. DIKKAT: asagidaki `_test.go` muafiyetleri
+# (R3/R5, uretim-kodu kurallari) korunur; test/fixtures/*.go `_test.go` DEGILDIR,
+# yani gercekten taranir — istenen budur.
+SRC=(cmd internal db web/templates web/static/js scripts test)
 GEN_EXCLUDE=(
   --glob '!*_templ.go'          # templ ciktisi
   --glob '!internal/store/*.go' # sqlc ciktisi

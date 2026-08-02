@@ -27,6 +27,13 @@
 --   the reasoning is written out at that statement.
 --   The same fixed identifiers are mirrored, typed, in test/fixtures/ids.go so
 --   Go tests reference named handles instead of magic strings.
+--   ONE MORE THING TO KNOW, and it belongs to scripts/seed.sh rather than to this
+--   file: the key-wrapping half rewrites all twelve tags.aes_key_ref values on
+--   EVERY run, because sun.Wrap draws a fresh GCM nonce each time. The bytes
+--   differ between runs; the keys they decrypt to do not. Row identity is still
+--   idempotent -- nothing is inserted, deleted or otherwise changed -- and the
+--   reason it is not byte-stable is written out at that statement: the stable
+--   alternative would strand a database after a KEK change.
 --
 -- TENANT ISOLATION GROUND
 --   No single row is shared between the two tenants. Every KF id starts with
@@ -48,11 +55,23 @@
 --     +1/+2 offset.
 --
 -- SECRETS (section 4.7)
---   tags.aes_key_ref holds a clearly FAKE value: literal ASCII text, so any
---   byte/hex dump self-identifies as a placeholder. It is neither a real tag key
---   nor a real KEK-wrapped blob. Real NTAG AES keys never live in the repo; in
---   production this column is a KEK-wrapped blob and the KEK stays outside the DB
---   (config TAPPA_TAG_KEK).
+--   tags.aes_key_ref is written TWICE and this file writes only the first half.
+--   Here it gets a loud ASCII PLACEHOLDER; scripts/seed.sh then runs
+--   test/fixtures/seedkeys, which replaces every one of them with a genuine
+--   AES-256-GCM envelope (nonce||ciphertext||tag = 44 bytes) sealed under the
+--   operator's TAPPA_TAG_KEK. Two reasons the wrapped value cannot be a literal
+--   here: it depends on a KEK that lives in the environment and never in the repo,
+--   and sun.Wrap draws a fresh nonce on every call, so there is no single "the"
+--   value even for one KEK. The plaintext per-tag keys are DERIVED from a public,
+--   deliberately loud label (fixtures.SeedTagKeyLabel + the uid), so every demo
+--   key is recomputable by anyone reading the repo -- which is precisely what
+--   makes them self-evidently fake. Real NTAG AES keys never live here.
+--   ⚠️ RUNNING THIS FILE ALONE (psql < seed.sql) LEAVES BROKEN PLAQUES: the
+--   placeholder below is 50 bytes (36-character label + 14 hex uid; measured with
+--   octet_length), sun.Unwrap demands exactly 44, and every NFC tap on such a
+--   plaque answers 500. The length is incidental -- ANY length other than 44 ends
+--   the same way. Use `make seed` / scripts/seed.sh, which runs both halves; the
+--   second half also RAISEs if any demo plaque was left behind.
 --   admin_users.password_hash is a bcrypt $2a$ hash of the DOCUMENTED dev-only
 --   password "tappa-dev-only-changeme" (see the admin_users section below). Same
 --   principle as the fake tag key: NOT a real secret, the demo login must work,
@@ -360,14 +379,17 @@ ON CONFLICT (id) DO NOTHING;
 -- (replaced_by, tenant_id) -> tags(uid, tenant_id) is checked at statement end,
 -- so the referenced active plaque may sit in the same INSERT.
 --
--- aes_key_ref is a FAKE placeholder: literal ASCII text (see SECRETS above),
--- distinct per tag. last_ctr keeps its DEFAULT 0 (untapped in master data; M5-09
--- advances it atomically). retired_at is stamped only on the retired plaque.
+-- aes_key_ref below is only a PLACEHOLDER and is NOT usable: the real value is a
+-- 44-byte KEK-wrapped envelope written by the second half of scripts/seed.sh (see
+-- SECRETS above). The text says so in the value itself, so a byte dump taken
+-- between the two halves explains its own state instead of looking like a corrupt
+-- key. last_ctr keeps its DEFAULT 0 (untapped in master data; taps advance it
+-- atomically). retired_at is stamped only on the retired plaque.
 INSERT INTO tags
     (uid, tenant_id, location_id, aes_key_ref, status, retired_at, replaced_by, created_at)
 SELECT
     t.uid, t.tenant_id, t.location_id,
-    convert_to('FAKE-WRAPPED-KEY-DO-NOT-USE-' || t.uid, 'UTF8'),
+    convert_to('PLACEHOLDER-UNTIL-seedkeys-WRAPS-IT-' || t.uid, 'UTF8'),
     t.status,
     CASE WHEN t.status = 'retired' THEN now() - interval '20 days' ELSE NULL END,
     t.replaced_by,

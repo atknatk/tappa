@@ -60,8 +60,20 @@ Hiyerarşi: `Tenant → Location (statik IP + GPS) → Department (ops.) → Emp
 
 ## "Bir günü simüle et" — KF St Julians
 
-Dashboard'u gerçekçi göstermek ve karar motorunu uçtan uca sınamak için tek
-komutla üretilen bir gün: **10 çalışan, ~21 işlem**. Şunları **mutlaka** içermeli:
+Karar motorunu uçtan uca sınamak için tek komutla üretilen bir gün:
+**10 çalışan, ~21 işlem**. Şunları **mutlaka** içermeli:
+*(Bu tablo bir **spec**'tir. Bugün fiilen üretilen gün ile arasındaki dört ölçülmüş
+fark — sayı, geç kalma satırı, kadronun kim olduğu ve bir motor bulgusu — artı
+günün gerçek zaman maliyeti, hemen tablonun altındaki ölçüm notunda.)*
+
+🔴 **Bu cümle eskiden "dashboard'u gerçekçi göstermek ve…" diye başlıyordu; o yarısı
+BUGÜN KARŞILANMIYOR ve ölçüme eşitlendi.** Gün, seed'li kadroyu değil, `full_name`'i
+**koşum damgalı** taze çalışanları sürüyor (`Maria Borg [sim 08-02T00:40:24 f4ef]`)
+— ve damga **kullanıcıya görünen yüzeye sızıyor**: `employees.full_name` →
+`TapPageFacts.EmployeeName` (`internal/domain/tenant/directory.go`) → tap ve
+aktivasyon ekranlarındaki "Hello …"; M6 dashboard'u da aynı sütunu okuyacak. Yani
+bugünkü çıktı **ekran görüntüsüne hazır değil**. Sebep, ölçüm ve değerlendirilen
+alternatifler: aşağıdaki not + M5-09 kart düzeltmesi md. 6 eki.
 
 | Senaryo | Beklenen kayıt |
 |---|---|
@@ -81,10 +93,55 @@ komutla üretilen bir gün: **10 çalışan, ~21 işlem**. Şunları **mutlaka**
 Son satır kritik: **yön tayini son açık girişe göre**, takvim gününe göre değil.
 Bu senaryo olmadan gece vardiyası regresyonu fark edilmez.
 
+> **Ölçüm notu (2026-08-01, 2. turda genişletildi 2026-08-02 — M5-09).** Gün artık
+> üretiliyor: `make simulate-day` (kayıtları karar motoru yazar — gerçek HTTP,
+> gerçek router, gerçek Postgres; `internal/handler/day_db_test.go`). Yukarıdaki
+> tablo **spec olarak duruyor**; bugün fiilen üretilenle arasındaki farklar
+> ölçüldü ve şunlar:
+> - **"~21 işlem" değil, 31.** §5 *"aktivasyon sonrası ilk kayıt practice"* diyor;
+>   taze seed'de kimsenin kaydı olmadığı için tap eden **her** çalışan bir TRAINING
+>   satırıyla başlıyor. Sayı senaryoların toplamıdır, hedef değil.
+> - 🔴 **"Geç kalma (vardiya 10:00, giriş 10:17) → `ok` + rapor 'late 17m'" satırı
+>   BUGÜN ÜRETİLMİYOR.** `MinutesLate` hiçbir sütuna/`policy_context`'e/ekrana
+>   yazılmıyor → HTTP'den **gözlemlenemez**; hesap ayrıca sunucu saatinden yapılıyor
+>   (kaydın `occurred_at`'inden değil) → geriye tarihli girişte **yanlış**. Tek
+>   gözlem noktası, çağıranın `Decision`'ı elinde tuttuğu manuel giriştir. 1. turda
+>   bunu örten "vardiya başlangıcından sonra" assertion'ı **yapısal olarak boştu**
+>   (mutasyonla ölçüldü) ve kaldırıldı. Ayrıntı: M5-09 kart düzeltmesi md. 2.
+> - **Gün ~62 sn gerçek zamanda bekliyor.** ADR 0006 debounce'u sunucu saatiyle
+>   ölçtüğü için aynı kişinin ardışık tap'leri sıkıştırılamıyor (beklemesiz: 15
+>   kaydın 10'u `ignored`).
+> - 🔴 **Bu gün DASHBOARD'U SEED'Lİ KADROYLA DOLDURMUYOR** — cümlenin ölçüme
+>   eşitlenmiş hâli budur. Simülasyon, seed'li isimleri taşıyan ama **taze** ve
+>   `full_name`'i **koşum damgalı** çalışanlar yaratıyor
+>   (`Maria Borg [sim 08-02T00:40:24 f4ef]`); seed'li asıl Maria Borg'un işlemi
+>   olmuyor. Sebep ölçüldü: `transactions` değişmez (§4.3) ve temizlik yok, yani
+>   sabit bir kadro bu günü **veritabanı ömrü başına bir kez** ağırlayabilir
+>   (2. koşuda aktivasyon turu atlanıyor, practice tap'i kalmıyor, önceki koşudan
+>   açık giriş devralınıyor). Damga sayesinde ana veri ile simülasyon çıktısı
+>   **ad üzerinden ayrılabiliyor** — M6 dashboard'u bunu bilmeli. Ayrıntı:
+>   M5-09 kart düzeltmesi md. 6 eki, `day_db_test.go` LIMITS L4.
+> - 🔴 **Motorda açık bir bulgu var ve gün onun etrafından dolaşıyor:** daha yeni
+>   `occurred_at`'li bir practice satırı, altındaki gerçek açık girişi maskeliyor
+>   → çıkış `in` oluyor. Ivan'ın practice tap'i bu yüzden 17:50 **beyan ediliyor**.
+>   Fixture'ı kopyalarken bu satırı da kopyalama, **sebebini** oku:
+>   M5-09 kart düzeltmesi md. 6.
+
 ## Nasıl yazılır
 
 - `test/fixtures/seed.sql` — idempotent (sabit UUID'ler + `ON CONFLICT DO NOTHING`),
   `make seed` ile çalışır.
+- ⚠️ **`make seed` İKİ ADIMDIR ve `TAPPA_TAG_KEK` ZORUNLUDUR** — yoksa
+  `scripts/seed.sh` exit 1 verir, yarım seed bırakmaz. Adım 1 `seed.sql`'i akıtır;
+  adım 2 `test/fixtures/seedkeys` ile her demo plaketin per-tag anahtarını KEK ile
+  **sarmalar** ve `tags.aes_key_ref`'i yazar. Bu SQL'de yapılamaz: pgcrypto'da GCM
+  yok ve değer operatörün KEK'ine bağlı (KEK repoda değil — §4.7). Anahtarın hiç
+  yoksa üret: `openssl rand -base64 32` → `.env`.
+- ⚠️ **Yeni plaket = İKİ yer:** `seed.sql`'e satır **ve** `fixtures.SeedTags`'e
+  giriş (`test/fixtures/tagkeys.go`). Yalnız birine yazarsan plaket 44 baytlık
+  zarfsız kalır ve ilk tap `GET /t`'de **500** verir. Drift guard bunu mekanik
+  yakalar: seed adımı 44 bayt olmayan bir demo plaket görürse `RAISE` ile patlar,
+  yani hata günler sonra ilk tap'te değil, `make seed`'de çıkar.
 - Tarihler `now()`'a **göreli** üretilir (bugünün vardiyası) ki dashboard her
   zaman dolu görünsün; sabit takvim tarihi gömme.
 - Üretilen `transactions` satırları karar motorunun **çıktısıyla tutarlı** olmalı:
