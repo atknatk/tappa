@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/atknatk/tappa/internal/adminauth"
 	"github.com/atknatk/tappa/internal/audit"
 	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/db"
@@ -95,9 +96,26 @@ func run() error {
 		return err
 	}
 
+	// Panel authentication (M6-01 phase B). It is a SEPARATE manager from
+	// `sessions` on purpose — separate table, separate resolver, separate cookie
+	// and a separately derived HMAC key — so an employee cookie can never reach
+	// the panel and an admin cookie can never reach the tap surface.
+	//
+	// It also carries the middleware M6-02 mounts the dashboard behind
+	// (AdminAuth.Protect), so the dashboard does not have to know how an admin is
+	// resolved.
+	admins, err := adminauth.New(data, cfg)
+	if err != nil {
+		return err
+	}
+	panelAuth, err := handler.NewAdminAuth(admins, trail, cfg, slog.Default())
+	if err != nil {
+		return err
+	}
+
 	srv := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           httpx.NewRouter(cfg, activation, tap),
+		Handler:           httpx.NewRouter(cfg, activation, tap, panelAuth),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       90 * time.Second,
 	}

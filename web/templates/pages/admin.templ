@@ -1,0 +1,152 @@
+package pages
+
+import (
+	"github.com/atknatk/tappa/web/templates/components"
+	"github.com/atknatk/tappa/web/templates/layout"
+)
+
+// The PANEL screens. skill tappa-brand governs every class below: palette tokens
+// only, Space Grotesk for display, IBM Plex Mono for anything that is data, the
+// kitchen-docket motif for a record-shaped row, touch targets at least 44px, and
+// no dark theme.
+//
+// WHY THE PANEL USES THE SAME SHELL AS THE TAP SCREENS. layout.Page is one narrow
+// column sized for a phone, which is not what a dashboard wants — but M6-01 is
+// authentication, and a sign-in form IS one narrow column. M6-02 owns the panel
+// layout and will bring its own shell; giving this task a second one would mean
+// two shells nobody had decided between.
+//
+// NO SCRIPT ON ANY OF THESE PAGES, which is why layout.Page is used rather than
+// layout.PageWithScript: a sign-in that works with JavaScript disabled works on a
+// locked-down work laptop too. The CSP the handler sets omits script-src entirely
+// for the same reason.
+
+// AdminLogin is the panel sign-in form: one email, one password, one button.
+//
+// 🔴 THE FAILURE SENTENCE IS FIXED AND NAMES NO CAUSE — migration 00011's PHASE B
+// OBLIGATION 1. "That email is not registered", "wrong password" and "your account
+// is disabled" are three different sentences and all three are forbidden here: the
+// first two are an enumeration oracle and the third tells an attacker they have
+// found a real account AND its password. The view model has no field to carry a
+// reason, so this template could not write one even if it tried.
+//
+// The wording still follows the brand's rule that an error says what to do next —
+// it just cannot say what went wrong.
+templ AdminLogin(v AdminLoginView) {
+	@layout.Page("Sign in — Tappa") {
+		<h1 class="font-display text-2xl font-bold tracking-tight">Sign in</h1>
+		<p class="text-sm text-ink/70">The Tappa panel for your business.</p>
+		if v.Failed {
+			@components.Notice(components.ToneAlert, "We could not sign you in") {
+				<p>Check the email address and the password, then try again.</p>
+			}
+		}
+		<form method="post" action="/admin/login" class="flex flex-col gap-4">
+			<input type="hidden" name="csrf" value={ v.CSRFToken }/>
+			<div class="flex flex-col gap-1">
+				<label for="admin-email" class="docket-label">Email</label>
+				<input
+					id="admin-email"
+					name="email"
+					type="email"
+					autocomplete="username"
+					required
+					autofocus
+					class="min-h-11 w-full border border-line bg-paper px-3 py-2 font-mono text-sm text-ink focus:border-tappa-green focus:outline-none focus:ring-1 focus:ring-tappa-green"
+				/>
+			</div>
+			<div class="flex flex-col gap-1">
+				<label for="admin-password" class="docket-label">Password</label>
+				<input
+					id="admin-password"
+					name="password"
+					type="password"
+					autocomplete="current-password"
+					required
+					class="min-h-11 w-full border border-line bg-paper px-3 py-2 font-mono text-sm text-ink focus:border-tappa-green focus:outline-none focus:ring-1 focus:ring-tappa-green"
+				/>
+			</div>
+			<button
+				type="submit"
+				class="min-h-12 w-full bg-tappa-green px-4 py-3 font-display text-base font-bold tracking-tight text-paper hover:bg-ink focus:outline-none focus:ring-2 focus:ring-ink motion-safe:transition-colors"
+			>
+				Sign in
+			</button>
+		</form>
+		<p class="text-xs text-ink/60">
+			This is the manager panel. Employees do not sign in — they tap the plaque.
+		</p>
+	}
+}
+
+// AdminChoose is the "which business?" step: it renders only businesses whose
+// stored password ACTUALLY VERIFIED (PHASE B OBLIGATION 5 — the set is built in
+// internal/adminauth and signed on the way here).
+//
+// EACH ROW IS A DOCKET, which is the brand's signature motif for a record: paper
+// ground, perforated edges, mono content, the label small and uppercase. A plain
+// list of links would have been less work and would have looked like every other
+// product.
+//
+// EACH ROW IS ITS OWN FORM rather than one form with radio buttons: it makes the
+// whole row-plus-button a single decision with nothing to select first, and it
+// keeps a keyboard user one tab away from submitting. The tenant id is a hidden
+// field per form, and the server does not believe it — it checks membership of the
+// signed set.
+templ AdminChoose(v AdminChooseView) {
+	@layout.Page("Which business? — Tappa") {
+		<h1 class="font-display text-2xl font-bold tracking-tight">Which business?</h1>
+		<p class="text-sm text-ink/70">
+			You manage more than one. Pick the one you want to work in — you can sign out and switch at any time.
+		</p>
+		<div class="flex flex-col gap-4">
+			for _, b := range v.Businesses {
+				<form method="post" action="/admin/login/choose">
+					<input type="hidden" name="csrf" value={ v.CSRFToken }/>
+					<input type="hidden" name="tenant_id" value={ b.TenantID }/>
+					<section class="docket">
+						<p class="docket-label">Business</p>
+						<p class="font-display text-lg font-bold tracking-tight text-ink">{ b.TenantName }</p>
+						<p class="mt-1 docket-label">Your role</p>
+						<p class="uppercase tracking-widest text-ink">{ b.Role }</p>
+						<button
+							type="submit"
+							class="mt-3 min-h-12 w-full bg-tappa-green px-4 py-3 font-display text-base font-bold tracking-tight text-paper hover:bg-ink focus:outline-none focus:ring-2 focus:ring-ink motion-safe:transition-colors"
+						>
+							Continue
+						</button>
+					</section>
+				</form>
+			}
+		</div>
+	}
+}
+
+// AdminHome is the protected placeholder M6-02 replaces with the real dashboard.
+//
+// 🔴 IT SHOWS NO DATA ON PURPOSE. Its whole job is to prove that the gate lets a
+// signed-in operator through and knows who they are. A transaction count here
+// would be M6-03 leaking into M6-01, and it would need a query nobody has
+// reviewed for this task.
+templ AdminHome(v AdminHomeView) {
+	@layout.Page("Panel — Tappa") {
+		<h1 class="font-display text-2xl font-bold tracking-tight">You are signed in</h1>
+		@components.Card("") {
+			<p class="docket-label">Signed in as</p>
+			<p class="font-display text-lg font-bold tracking-tight">{ v.FullName }</p>
+			<p class="mt-2 docket-label">Role</p>
+			<p class="font-mono uppercase tracking-widest">{ v.Role }</p>
+		}
+		<p class="text-sm text-ink/70">
+			The dashboard is not built yet. This page exists so the sign-in can be checked end to end.
+		</p>
+		<form method="post" action="/admin/logout">
+			<button
+				type="submit"
+				class="min-h-11 w-full border border-line bg-paper px-4 py-2 font-display text-sm font-bold tracking-tight text-ink hover:border-tomato hover:text-tomato focus:outline-none focus:ring-2 focus:ring-ink motion-safe:transition-colors"
+			>
+				Sign out
+			</button>
+		</form>
+	}
+}

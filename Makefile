@@ -114,17 +114,76 @@ simulate-day:
 test:
 	go test -race -count=1 ./...
 
-## test-short: gelistirici ic dongusu — SIMULE EDILEN GUN atlanir
-# NEDEN IKI HEDEF VAR. Olculdu (-race -count=1, tek makine, dort oturum). Sayilar
-# ARALIKTIR; makine yukuyle oynayan tek sey uyku DISINDAKI her seydir:
-#   make test        84,7-138 sn    gunun ~62 sn'si time.Sleep'tir: ADR 0006
+## test-short: gelistirici ic dongusu — SIMULE EDILEN GUN + BCRYPT ORNEKLEMI atlanir
+# NEDEN IKI HEDEF VAR. Olculdu (-race -count=1, tek makine). Sayilar ARALIKTIR;
+# makine yukuyle oynayan tek sey uyku DISINDAKI her seydir:
+# ⚠️ ASAGIDAKI SAYILAR DUVAR SAATIDIR (/usr/bin/time -p, ucer kosu), PAKET
+# SURELERININ TOPLAMI DEGIL. Bu ayrim onemli: bu blok bir sure "~300 sn" diyordu ve
+# o rakam `go test` ciktisindaki paket surelerinin TOPLAMIYDI (ayni agacta 254,5 sn)
+# — paketler paralel kostugu icin duvar saati bunun yarisindan az. Bagimsiz bir
+# ⚠️ VE HER SAYI BIR YUK KOSULUYLA BIRLIKTE YAZILIR. Dar, tek makineden alinmis
+# bir bant bu repoda UC KEZ yanlis cikti: bagimsiz denetciler ayni hedefte
+# 92-112 sn, 115,73 sn ve 120,6/149,3/145,6 sn olctu. Sebep makine durumu, kod
+# degil — bu yuzden bant artik IKI kosulda olculuyor ve kosul da yaziliyor.
+#   make test        113-115 sn BOS MAKINE   (bes kosu: 113,3 / 113,4 / 113,8 /
+#                                             114,7 / 114,9)
+#                    120-121 sn 4 CEKIRDEK MESGUL (iki kosu: 120,5 / 121,1)
+#                    bagimsiz olcumler: 92-112 · 115,7 · 120,6-149,3
+#                    -> makine durumuna gore 92-150 sn araliginda gorulur;
+#                       bant bir HEDEF degil, bir gozlem kaydidir.
+#                                   84,7-138 sn idi; M6-01 B fazi bcrypt getirdi.
+#                                   Gunun ~62 sn'si time.Sleep'tir: ADR 0006
 #                                   debounce'u SUNUCU saatiyle olcer, yani ayni
-#                                   kisinin ardisik tap'leri gercek zaman ister
-#                                   ve sikistirilamaz. (Gun testi tek basina
+#                                   kisinin ardisik tap'leri gercek zaman ister ve
+#                                   sikistirilamaz. (Gun testi tek basina
 #                                   62,9-64,3 sn.)
-#   make test-short  32,9-35 sn     tek fark: TestSeedDB_ADayAtKFStJulians
-#                                   (internal/handler/day_db_test.go) atlanir —
-#                                   olculdu: suitte TAM 1 skip, baska yok.
+#   make test-short  51-74 sn GOZLENEN ARALIK — bant bir HEDEF degil, `make test`
+#                    icin oldugu gibi bir GOZLEM KAYDIDIR. Yuk arttikca dogrusal
+#                    buyuyor ve makine durumu tek degiskendir:
+#                      bos makine       50,9 / 51,4 / 51,9 sn
+#                      4 cekirdek mesgul 54,9 / 57,0 / 57,0 sn
+#                      8 cekirdek mesgul 73,6 sn
+#                      bagimsiz denetci  69,9 / 70,6 / 74,2 sn  (8-cekirdek koluyla
+#                                                                birebir ortusuyor)
+#                    ⚠️ Bu sayi bu gorevde UC KEZ dar yazildi ve UC KEZ tutmadi
+#                    (37-41 -> 50-57 -> 55-62). Dorduncusunu yazmamak icin artik
+#                    tek bir dar bant degil GOZLENEN ARALIK yaziliyor.
+#                    156 sn idi; M6-01 B fazi once 37-41 sn'ye indirdi, sonra
+#                    kendi denetim turlari geri ekledi. 14. turda 66-67 sn'ye
+#                    cikmisti; iki degisiklik geri getirdi: (a) flood tablosu
+#                    artik adres butcesini ROTA BASINA degil BIR KEZ yakiyor
+#                    (tavan 200 -> 3000 oldugu icin ~15000 istek ~3000'e indi),
+#                    (b) sahte-DB'li ve KANITLAMAYAN unlookupable testi silindi
+#                    (~10,7 sn, yerine gercek Postgres'li ikizi).
+#
+# ⚠️ -short SUITTE TAM UC SKIP URETIR, ve ucu de burada ADIYLA sayilir. Sayiyi
+# dogrulayan komut: `go test -race -count=1 -short -v ./... | grep -c -- "--- SKIP:"`
+# -> 3. Dorduncu bir skip eklenirse bu yorum da guncellenmelidir (M5-09'da bu blok
+# uc zamanlama sayisini tasiyordu; ayni standart).
+#   1. TestSeedDB_ADayAtKFStJulians (internal/handler/day_db_test.go) — simule
+#      edilen gun; ~62 sn'si gercek time.Sleep.
+#   2. TestAuthenticate_TimingIsFlat (internal/adminauth/manager_timing_test.go) —
+#      YALNIZ bcrypt DUVAR SAATI ORNEKLEMI (5 kol x N cost-12 karsilastirma).
+#   3. TestPanelE2E_TimingIsFlatOverHTTP (internal/handler/adminlogin_db_test.go) —
+#      ayni olcumun HTTP + gercek Postgres uzerindeki ikizi (4 hucre x 2 giris).
+#      2. ve 3. M6-01 B fazinda eklendi; -race altinda bir cost-12 karsilastirma
+#      ~11 sn.
+#      🔴 YUKUMLULUK 2 ATLANMIYOR — ve bu cumle bir sure YANLISTI, o yuzden
+#      simdi UC yapisal test sayiyor, iki degil. -short'ta kosanlar:
+#        a. TestAuthenticate_DummyIsReallyRun            (kukla KOSUYOR)
+#        b. TestCost_MatchesTheDummyDigest
+#           + TestSeedDigests_UseTheDeclaredCost         (DOGRU COST'ta)
+#        c. TestAuthenticate_OverLongPasswordStillPaysBcrypt
+#           (>72 BAYTLIK parola + BILINEN aday da tam bedeli oduyor)
+#      ⚠️ (c) 8. turda EKLENDI ve eksikligi bir guvenlik denetcisi olctu: 6. tur
+#      53x'lik bir zamanlama kehanetini kapatti ama onu YALNIZ duvar saati
+#      testleriyle pinledi ve ayni turda ikisini de -short'tan cikardi. Denetci
+#      duzeltmeyi geri cevirip `go test -short ./...` kostu: 14/14 YESIL, delik
+#      ACIKKEN. Urun korumasizdi degil (commit kapisi tuttu) ama ic dongu kordu ve
+#      bu blok tersini soyluyordu. (c) cost-4 fixture kullanir: durust
+#      karsilastirma ~1,4 ms, bozuk dal ~66 ns -> dort buyukluk mertebesi pay,
+#      duvar saati ornegi GEREKMEZ.
+#      Atlanan yalnizca ISTATISTIKSEL ornektir; (a)-(c) olcum degil TAM kontrol.
 #   t.Parallel()     ELENDI         paketin tum ust duzey testlerine eklendi;
 #                                   art arda UC kosu, UC FARKLI testte kirmizi.
 #                                   Koku tek: bu testler AYNI seed'li plakete

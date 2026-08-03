@@ -27,6 +27,7 @@ panel; FLAGGED kuyruğu işliyor, CSV dışa aktarım var.
   erişemiyor ve tersi.
 - Oturum tenant'a bağlı; giriş sonrası tüm sorgular o tenant bağlamında.
 - Başarısız giriş denemeleri oran sınırlı ve `audit_log`'a yazılıyor.
+  ⚠️ **KISMEN karşılandı — koşulsuz okuma yanlıştır.** Oran sınırı tamdır; `audit_log` yazımı yalnız **çözümlenen** e-postalar için olur: **bilinmeyen e-postada `failLogin` aday döngüsüne hiç girmez**, dolayısıyla satır yazılmaz (ölçüldü: 0 satır, sahte recorder üzerinde). `audit_log.tenant_id` NOT NULL + `tenants` FK (00005) ise bu boşluğun **neden kapatılmadığının** gerekçesidir — atfedilecek tenant yoktur — **sıfırın mekanizması değil** (nedensellik 8. turda ayrıldı, 10. turda bu satıra da işlendi). Ayrıntı ve sayılar: aşağıdaki **2026-08-03 kart güncellemesi**.
 - Rol ayrımı (owner/manager) için alan var; yetkilendirme MVP'de kaba olabilir
   ama şema hazırlıklı.
 
@@ -185,6 +186,819 @@ panel; FLAGGED kuyruğu işliyor, CSV dışa aktarım var.
 > yolunda **kalan tek O(N)** budur ve maliyet **veritabanı** tarafındadır. Doğal
 > çözüm 6. maddeden geliyor: seçici yalnız **hash'i doğrulanan** adayları görürse
 > bu döngü de yan etki olarak sınırlanır.
+
+> **Kart güncellemesi (2026-08-03) — B fazı teslim edildi.**
+> Yeni paket `internal/adminauth` (parola, token, çerez, oturum yaşam döngüsü) ·
+> `internal/handler/adminlogin.go` + `logincontext.go` + `adminratelimit.go` ·
+> `internal/httpx/adminidentity.go` (`RequireAdmin`) ·
+> `web/templates/pages/admin.templ` + `adminview.go` · `cmd/tappa` wiring.
+> **Yeni migration YOK** — şema gerçekten hazırdı.
+>
+> **Beş yükümlülüğün durumu (00011 numaralandırması):**
+> 1. **Aynı yanıt — KARŞILANDI, bayt düzeyinde ölçüldü.** Üç sonuç (bilinmeyen
+>    e-posta / yanlış parola / devre dışı admin) tek tarayıcıdan sürüldüğünde
+>    **401 + 2360 bayt, üçü de birebir aynı**; ayrı tarayıcılardan sürüldüğünde
+>    **yalnız `csrf` alanı** normalize edilerek aynı (2323 bayt).
+>    `TestAdminLogin_ThreeFailuresAreByteIdentical`.
+> 2. **Kukla bcrypt — KARŞILANDI *(bu satır 6. turda düzeltildi; o güne kadar
+>    YANLIŞTI)*.** n=20/kol, `-race`siz ölçüm: bilinmeyen e-posta **med 521 ms** ·
+>    yanlış parola **med 491 ms** · devre dışı admin **med 491 ms**; **medyan
+>    yayılımı 1,06×**. ⚠️ Üç kolun üçü de **≤72 baytlık** parola kullanıyordu;
+>    **72 baytı aşan parola şekli ölçülmemişti ve o şekilde yükümlülük TERSİNE
+>    dönüyordu.** Güvenlik denetçisi 6. turda buldu; ayrıntı ve düzeltme aşağıdaki
+>    **6. tur** bloğunda.
+> 3. **Oran sınırı + `audit_log` — KISMEN.** Adres başına 10 başarısız giriş;
+>    ölçüldü: 25 POST → 10×401 + 15×429 ve `Authenticate` **tam 10 kez** çağrıldı.
+>    Audit bütçesi ölçüldü: **60 adresten 60 başarısız giriş → 11 satır**
+>    (10 `failed` + 1 `rate_limited`), 60 değil. **Karşılanmayan yarısı aşağıda
+>    LİMİT olarak yazılı.**
+> 4. **bcrypt amplifikasyon sınırı — KARŞILANDI, sınır 8.**
+> 5. **Aday↔parola bağı — KARŞILANDI, yapısal.** Tek üretici
+>    `Authentication.Verified()` (matched **AND** active); `Issue` yalnız
+>    `Verified` tipini alır; seçicinin kümesi HMAC'le imzalanır ve ikinci adımda
+>    üyelik yeniden kanıtlanır (`selectVerified`). 00011'in canlı ölçtüğü saldırı
+>    gerçek satırlarla kuruldu ve reddedildi:
+>    `TestAuthenticate_RefusesTheCrossTenantBypass` ·
+>    `TestPanelE2E_TenantPickerWithRealRows`.
+>
+> **⚠️ 00011'İN BİR SAYISI DÜZELTİLDİ, PAHALI YÖNDE.** 00011 amplifikasyonu
+> *"cost-10'da bir karşılaştırma ~60–100 ms"* diye ölçekliyor. Bu makinede cost-10
+> gerçekten **88–99 ms** — ama **sevk edilen digest'ler cost-12'dir**
+> (`test/fixtures/seed.sql`, `$2a$12$`), ve cost-12 **376–427 ms** ölçüldü. Yani
+> 500 adaylık şekil **~30–50 sn değil ~190 sn CPU**'dur; 00011'den türeyen her
+> sayı **~4× iyimser**. Kukla digest de bu yüzden cost-12'dir.
+>
+> **🔬 BCRYPT `-race` ALTINDA 19× YAVAŞ — ve bu suite'i bir kez KIRDI.** Ölçüldü:
+> bir cost-12 karşılaştırma **-race'siz 0,60 sn**, **-race ile 11,34 sn**. İlk
+> uygulamada `internal/adminauth` Go'nun 10 dakikalık paket zaman aşımına takıldı
+> (**609 sn, FAIL**). Çare: cost, **konusu olmadığı her yerde** `bcrypt.MinCost`'a
+> indirildi (digest kendi cost'unu taşır, doğrulama yolu aynıdır) ve zamanlama
+> testinin örneklem sayısı **build tag ile** ayrıldı (`-race`: 3, düz: 20) —
+> test **atlanmıyor**, daha az turla koşuyor. Sonuç: `make test` **YEŞİL**,
+> 14 paket, 0 FAIL, **301 sn**.
+>
+> **Verilen kararlar (hepsi ölçümle):**
+> - **Aday sınırı 8.** `8 × 10 başarısız deneme × ~380 ms ≈ 30 sn CPU / 10 dk /
+>   adres` (≈ bir çekirdeğin %5'i). *"İlk eşleşmede dur"* **REDDEDİLDİ**: aynı
+>   parolayı iki işletmede kullanan kişi seçiciyi hiç görmezdi — özelliğin kendisi.
+> - **Oran sınırı anahtarı ADRES.** Hesaba göre sınır kurbanı kilitler (e-posta
+>   yarı-açıktır); adrese göre sınır dağıtık saldırganı durdurmaz. Kilitlenme
+>   müşteriye kesin zarar, CPU sınırı kademeli — adres seçildi, kalanı LİMİT.
+>   Hesap bütçesi **yalnız `audit_log` yazımını** sınırlar, hiçbir isteği reddetmez.
+> - **72 bayt: REDDET.** Ölçüldü ve bu bir ürün hatasıydı:
+>   `GenerateFromPassword` 72 baytı aşanı **reddediyor** ama
+>   `CompareHashAndPassword` **sessizce kırpıyor** — 72 baytlık öneki paylaşan iki
+>   farklı parola birbirini doğruluyor (`nil` döndü). SHA-256 ön-hash reddedildi
+>   (saklama biçimi değişir, sürüm işareti yok, NUL tuzağı).
+> - **Adım 1 → adım 2 taşıması: HttpOnly çerezte imzalı bağlam** (`tapcontext.go`
+>   kalıbı). Reddedilenler: sunucu tarafı bekleyen-giriş tablosu (migration
+>   gerektirir + kimliksiz yolda yazma), parolayı ikinci adımda tekrar sormak
+>   (+380 ms ve hiçbir şey bağlamaz). **Tek aday varsa seçici atlanır**, yani blob
+>   olağan yolda hiç üretilmez.
+>
+> **LİMİTLER — kapatılamayanlar, dürüstçe:**
+> - **Bilinmeyen e-postalı deneme `audit_log`'a YAZILMAZ.** Ölçüldü: **0 satır**
+>   (`TestAdminLogin_UnknownEmailCannotBeAudited`, pozitif kontrollü). Kartın
+>   *"başarısız girişler `audit_log`'a yazılıyor"* kriteri **bilinen adresler için**
+>   karşılanır, bilinmeyenler için **karşılanmaz**.
+>   ⚠️ **Nedensellik düzeltildi (8. tur).** Bu madde sıfırın sebebini
+>   `audit_log.tenant_id` NOT NULL + FK'ye bağlıyordu; **yanlış bağlıyordu.**
+>   Sıfırın doğrudan sebebi `failLogin`'in **0 adayla döngüye hiç girmemesi**;
+>   NOT NULL kısıtı ise *"neden bir sistem-tenant'ı uydurmuyoruz"*un gerekçesidir
+>   (yani niçin bu boşluğun kapatılmadığının sebebi, boşluğun mekanizması değil).
+>   İkisi de doğru, cümle kaydırılmıştı.
+>   ⚠️ Ayrıca *"ölçüldü"* **sahte recorder** üzerinde ölçülmüştür (`fakeTrail`),
+>   canlı Postgres'te değil — `TestPanelE2E_SignInAndOut` gerçek `audit_log`'u
+>   sayar ama yalnız **bilinen** adres için.
+> - **Panel oturumunun SUNUCU tarafı süresi YOK.** `admin_sessions`'ta `expires_at`
+>   yok ve ne çözümleyici ne `TouchAdminSession` karşılaştırılabilir bir damga
+>   döndürür. Çerezin 12 saatlik `Max-Age`'i **tarayıcıya bir ricadır**; çerezi
+>   saklayan bir istemci süresiz kalır. Oturumu bitiren üç şey: açık çıkış,
+>   *"her yerden çıkış"*, `admin_users.status='disabled'`. **Devir: M6-05/M7-04**
+>   (sütun + sorgu, yani migration).
+> - **Dağıtık saldırgan sınırsız.** Adres bütçesi N adreste N× açılır; tek yapısal
+>   çare M7-02'nin e-posta doğrulaması (00011 da bunu söylüyor) veya proxy düzeyi
+>   sınır (M8).
+> - **Aday SAYISI bir zamanlama sinyali.** Üç sonuç ayırt edilemez, ama iki
+>   işletmede kayıtlı bir adres ~2× sürer. Kapatılabilirdi (her girişi
+>   `maxCandidates` karşılaştırmaya doldurmak) ve **kapatılmadı**: her başarılı
+>   giriş dahil **~3,0 sn** ve saldırganın istek başına aldığı CPU **25×** artardı.
+> - **Aday sınırı bir KİLİTLENME satın alır.** 8'den fazla işletmede kayıtlı bir
+>   adres için sırada geç kalan gerçek satır hiç karşılaştırılmaz. Bugün
+>   erişilemez; **M7-02'den itibaren saldırgan 9 tenant açarak kurbanı kilitleyebilir.**
+> - **`internal/store/*.sql.go` bu görevde değişti ama kod değişmedi:** A fazı
+>   `db/queries/admins.sql`'in **yorumlarını** `make gen`'den sonra düzenlemiş;
+>   bu görevin `make gen`'i onları üretilen dosyalara taşıdı (**+98 satır, hepsi
+>   yorum, 0 silme**).
+
+> **Kart güncellemesi (2026-08-03, 2. tur — üçüncü göz RED'inden sonra).**
+> Denetçi bloklayan **bir** bulgu çıkardı ve doğruydu:
+> **`adminauth.CookiePath` sabitinin DEĞERİ hiçbir testle sabitlenmemişti.** Sabiti
+> tek başına `"/admin"` → `"/"` yapmak üç paketi de **yeşil** bırakıyordu
+> (`adminauth` 23,4 sn · `handler` 116,5 sn · `httpx` 4,3 sn — kendim tekrar
+> ürettim), çünkü path'ten söz eden iki test de sabiti **kendisiyle**
+> karşılaştırıyordu (`ck.Path != CookiePath`; `HasPrefix(route, CookiePath)` — `"/"`
+> ile her rota geçer). **1. turdaki "çerez path'i mutasyonu RED" iddiam yanlıştı:**
+> ben sabitin **kullanımını** (`Set()` içinde literal) bozmuştum, **tanımını**
+> değil.
+> **Çare:** `internal/handler/admincookiepath_test.go` — gerçek `http.CookieJar`
+> ile, **üç panel çerezinin üçü için** (`tappa_admin_session`,
+> `tappa_admin_login`, `tappa_admin_choice`), **iki durumda** (giriş ortası +
+> giriş yapılmış), **iki bağımsız okumayla** (sunucunun gördüğü + jar'ın
+> göndereceği) ve **pozitif kontrollü** (çalışan çerezi `/t`'de **görünmeli**).
+> Ölçüm: `GET /t while signed into the panel saw exactly: [tappa_session]`.
+> Mutasyon: sabit `"/"` → **RED**, hata mesajı sızan çerezleri adıyla sayıyor
+> (`[tappa_admin_choice tappa_admin_login tappa_session]`). İki totolojik satır da
+> düzeltildi (artık `CookiePath == "/"` durumunu ayrıca reddediyorlar).
+>
+> **Bloklamayan düzeltmeler (hepsi ölçümle):**
+> - **`go.mod` kaydı yanlıştı** — `x/crypto` doğrudan import edilirken
+>   `// indirect` yazıyordu. `go mod tidy` onu doğrudan bloğa taşıdı.
+>   ⚠️ **Düzeltme (4. tur):** bu satır *"`go.sum`'dan 4 bayat satır sildi"* diyordu;
+>   **yanlış**. O iki modül **silinmedi, YÜKSELTİLDİ** — `x/sync 0.21.0→0.22.0`,
+>   `x/text 0.39.0→0.40.0` — ve `go.sum`'dan düşen satırlar **eski sürümlerin**
+>   satırlarıydı. Meşru bir MVS sonucu (`go mod graph`:
+>   `x/crypto@v0.54.0 → x/text@v0.40.0 → x/sync@v0.22.0`), ama bir sürüm
+>   yükseltmesini "bayat satır silme" diye yazmak **sayı/olgu hatası** sınıfıdır.
+> - **`manager.go` fazla söylüyordu.** *"there is no constructor for it outside
+>   `Authentication.Verified()`"* **YANLIŞTI**: `logincontext.go`'nun `parse`'ı
+>   imzalı bloptan `adminauth.Verified` kuruyor. Garanti **iki ayaklı** olarak
+>   yeniden yazıldı (bu paketin AND'i + HMAC & `selectVerified`). Tek-üreticili
+>   yapmak **ölçüldü ve reddedildi**: imzalı çerez BİÇİMİNİ `internal/adminauth`'a
+>   taşımak gerekirdi (§3 sınırını ters çevirir) ve sonuç yine ikinci bir üretici
+>   olurdu, sadece adı uzun.
+> - **Seçim blobu TEK KULLANIMLIK DEĞİL.** Ölçüldü ve testle sabitlendi
+>   (`TestAdminChoose_BlobIsNotSingleUse`): tamamlanmış girişten sonra çerezleri
+>   geri koyup aynı kümeden başka bir işletme POST etmek **303, oturum 1 → 2**.
+>   İki yorum (*"the one path that spends them"*, *"can finish the login"*) buna
+>   göre düzeltildi. **Yükselme değil:** küme genişlemiyor — aynı test replay'in
+>   küme DIŞINA çıkamadığını da kanıtlıyor. Tek kullanımlık yapmanın bedeli
+>   sunucu tarafı durumdur (tablo = migration, ya da yeniden başlatmada kaybolan
+>   süreç-içi küme) ve küme genişlemesine karşı **hiçbir şey** satın almaz.
+> - **MAC girdisindeki ön-ek belirsizliği YAPISAL olarak kapatıldı** (yoruma
+>   bırakılmadı): `sign` artık `label || len(payload) || "|" || payload || "|" ||
+>   bind` yazıyor. Eskiden güvenlik `parse`'ın *"tam 3 alan"* kontrolünden
+>   geliyordu — **başka bir fonksiyondan** — ve payload'a 4. alan eklendiği gün
+>   sessizce açılırdı. Test tek bir dizgenin **her ayırıcısından** bölünerek
+>   üretiliyor (elle yazılmış ilk tabloda iki vaka gerçek çakışma değildi; boşluk
+>   koruması yakaladı ve tablo üretilen biçime çevrildi), pozitif kontrol eski
+>   yapının **çakıştığını** gösteriyor.
+> - **Kabul kriteri satırı** artık koşulsuz değil: `audit_log` maddesine
+>   **KISMEN** işareti ve bu bloğa atıf konuldu.
+>
+> **N5 — ÖLÇÜLDÜ, KARAR KULLANICININ (verilmedi).**
+> `TestPanelTypes_CarryNoSecretField` sabit **tip** listeli; M5-10'un adlandırdığı
+> sınıf. İki okuma:
+> **(a) yapısal invaryant** (go/ast ile paketin tiplerini gezip sır-benzeri alan
+> arar): ~55 satır, **1,9–2,6 ms**, bugünkü pakette **0 yanlış pozitif**
+> (5 dışa açık string alanının 0'ı işaretlendi), ve negatif kontrolde yeni eklenen
+> `AdminProfile.PasswordHash`'i **YAKALADI**. Sınırı: ad tabanlı, nötr adlı bir
+> alan (`Value string`) kaçar.
+> **(b) LİMİT olarak sayıp yazmak:** sabit liste **7 tip** sayıyor, paket ise
+> **10 dışa açık struct** taşıyor (`Token`, `Manager`, `Cookies` listede yok —
+> bugün zararsız, hiçbirinde dışa açık string alan yok). Aynı negatif kontrolde
+> sevk edilen test **YEŞİL** kaldı: yeni bir tipe karşı gerçekten çaresiz.
+
+> **Kart güncellemesi (2026-08-03, 4. tur — yeni denetçi, İKİ bloklayan).**
+>
+> **B2 — totoloji sınıfının KARDEŞİ.** `adminauth.MaxCandidates`'i tek başına
+> `8`→`9` yapmak iki paketi de yeşil bırakıyordu (kendim tekrar ürettim), çünkü
+> `TestAuthenticate_CapsTheCandidateLoop`'un her beklentisi sabitin **kendisiyle**
+> yazılmıştı. 00011 bu sayıyı *"the COST limit, MEASURED, and the largest number in
+> this file"* diye adlandırıyor — yani **sayının kendisi teslimattır**.
+> **İki ayrı kusur, ikisi de kapatıldı:**
+> 1. **Çapraz-paket eşitlik artık YAPISAL.** `MaxCandidates` dışa açıldı ve
+>    `adminChoiceMaxEntries = adminauth.MaxCandidates` oldu. Eskiden iki bağımsız
+>    literal + bir yorum vardı ve sonucu ölçüldü: cap 9 iken **9 işletmeli meşru
+>    bir yönetici HTTP 500 alıyordu** (`8 → 303`, `9 → 500`). Artık cap'i tek
+>    başına değiştirmek handler'ı **yeşil** bırakıyor (derive edildiği için) ve
+>    `TestAdminLogin_FullSizeVerifiedSetReachesThePicker` cap'teki kümenin
+>    picker'a **303** ile ulaştığını sürüyor.
+> 2. **DEĞER pinlendi.** `TestMaxCandidates_IsTheMeasuredCPUBound` literal `8`'i ve
+>    aritmetiği (`8 × 10 × 380 ms ≈ 30 sn CPU/10dk/adres`) taşıyor; cap testinin
+>    tablosu artık literal. Mutasyon `8→9` → **iki test de kırmızı**.
+>
+> **🔴 AİLE TARAMASI — bu bulgunun asıl dersi, sayıyla.** M6-01 B fazının getirdiği
+> **16 sabit** tek tek, **yalnız değeri** değiştirilerek tarandı:
+> **9'u pinliydi, 7'si PİNSİZDİ** (`cookieMaxAgeSeconds` 12sa · `adminFloodLimit`
+> 200 · `adminAccountLimit` 10 · `adminAttemptPeriod` · `adminLoginCookieMaxAge` ·
+> `adminChoiceCookieMaxAge` · `adminChoiceFutureSkew`). **Yedisi de pinlendi**
+> (`TestPanelConstants_ShippedValuesArePinned` +
+> `TestAdminAuthConstants_ShippedValuesArePinned`, her satır kendi gerekçesini
+> taşıyor) ve yeniden tarandı → **16/16 PİNLİ**.
+> Tarama ayrıca **B2'nin bir kardeşini daha** buldu: `adminChoiceCookieMaxAge`
+> `adminChoiceTTL`'i *"deliberately equal"* diyen bir yorumla ikinci kez yazıyordu
+> → artık `int(adminChoiceTTL / time.Second)` olarak **türetiliyor**.
+> ⚠️ Tarama sırasında bir **10 dakikalık timeout ağaçta canlı mutasyon bıraktı**
+> (`adminAttemptPeriod = 60 * time.Minute`); doğrulama adımı yakaladı ve geri
+> alındı. Agent-brief'in M5-06 dersi bu turda tekrar ateşlendi.
+>
+> **B1 — `make check` TEMİZ AĞAÇTA KIRMIZIYDI.** 3. turdaki *"yalnız `git diff`
+> kapısında düştü"* iddiam **çürütüldü**: `make test` adımında düşmüştü.
+> `TestAuthenticate_TimingIsFlat` 5 tam koşuda 1 kez kırmızı (1,59× > 1,50× kapısı).
+> **Kullanıcı kararı (2026-08-03) uygulandı:**
+> - **Yükümlülük 2'nin dayanağı artık YAPISAL testler** ve yorum bunu söylüyor:
+>   *kukla KOŞUYOR* (`TestAuthenticate_DummyIsReallyRun`) + *DOĞRU COST'ta*
+>   (`TestCost_MatchesTheDummyDigest`, `TestSeedDigests_UseTheDeclaredCost`).
+>   İkisi de **tam** kontrol — integer karşılaştırması, istatistik değil.
+> - **Kapı ölçülmüş gürültüye göre kondu.** Gerçek koşulda (tam suite, `-race`,
+>   14 paket eşzamanlı) **10 koşu**: medyan yayılım **min 1,00 · medyan 1,01 ·
+>   maks 1,07**; tek kolun kendi max/min'i **medyan 1,07 · maks 1,56**. Denetçinin
+>   daha yüklü makinesinde: **1,59** (kırmızı veren koşu), kol içi **2,3×**.
+>   ⚠️ İki veri kümesi **aynı değil** — benim makinem boştu; bu M5-08'in
+>   *"eşzamanlılık ölçümü sessizce artefakt üretir"* dersidir, o yüzden kapı
+>   **iki kümenin en kötüsüne** göre seçildi.
+> - **Sinyal de ölçüldü** (varsayılmadı): kukla **tamamen yok** → **515594×** ·
+>   kukla **cost 10** → **4,04×** · kukla **cost 11** → **1,91×**.
+> - **Kapı: `-race` altında 2,5× · `-race`siz 1,5×.** Gerekçe her ikisinde de kendi
+>   gürültüsü: race kolunda en kötü gözlenen 1,59'un **1,57× üstünde**, en yakın
+>   sinyal 4,04'ün **1,62× altında**; race'siz kolda gözlenen gürültü 1,00 olduğu
+>   için 1,5× kapısı **1,91× vakasını da yakalıyor**.
+> - **LİMİT:** `-race` kapısı artık **2,5×'ten küçük** bir zamanlama kaçağını
+>   göremez — somut olarak **bir cost adımı** sapmasını (1,91×) **kaçırır**. Bu
+>   yalnızca cost uyuşmazlığı **tam** olarak pinlendiği için kabul edilebilir.
+>   Gerçekten korumasız kalan: 2,5×'in altında, ne eksik kukla ne cost uyuşmazlığı
+>   olan **üçüncü bir şekil**.
+>
+> **Süre — kullanıcı kararı uygulandı.** `make test-short` artık bcrypt **duvar
+> saati örneklemini** de atlıyor: **156 sn → 39,80 sn** (`/usr/bin/time -p`).
+> Suitte **tam 2 SKIP** ve **ikisi de Makefile yorumunda adıyla sayılı**.
+> `make test` **değişmedi** ve commit kapısı aynı. Yükümlülük 2 `-short`'ta da
+> koşuyor.
+> ⚠️ **Bu paragrafın iki sayısı sonradan geçersizleşti — 12. turda işaretlendi.**
+> (a) **SKIP sayısı artık 2 değil 3**: 6. tur HTTP zamanlama testini ekledi
+> (`TestPanelE2E_TimingIsFlatOverHTTP`), üçü de Makefile yorumunda adıyla sayılı;
+> doğrulayan komut `go test -race -count=1 -short -v ./... | grep -c -- "--- SKIP:"`
+> → **3**. (b) **Süreler**: `make test` ~300 sn **değil**, o rakam paket
+> sürelerinin toplamıydı; duvar saati **111–116 sn**, `make test-short`
+> **gözlenen aralık 51–74 sn** (18. turda üç yük durumunda: boş 50,9–51,9 · 4
+> çekirdek 54,9–57,0 · 8 çekirdek 73,6; bağımsız denetçi 69,9–74,2 — 8 çekirdek
+> koluyla birebir örtüşüyor. Bu sayı görevde üç kez dar yazıldı ve üç kez tutmadı;
+> artık `make test` gibi **gözlem kaydı** olarak yazılıyor) (16. turda iki
+> koşulda ölçüldü ve Makefile'a koşuluyla yazıldı; 10. turun 37,2–41,4 ve
+> 12. turun 50–57 bantları o turlardan sonra eklenen testlerle geçersizleşti). Bu blok tarihli
+> olduğu için metni değiştirmiyorum; dosyanın geri kalanındaki gibi ⚠️ notuyla
+> işaretliyorum — 10. turun F-2'si `day_db_test.go`'yu düzeltmiş ama bu satırı
+> atlamıştı ve dosyada iki farklı standart kalmıştı.
+>
+> **Bloklamayan:**
+> - **N1 — kabul edilen güvenlik açığı artık yazılı:** `GO-2026-5932`,
+>   *"golang.org/x/crypto/openpgp is unmaintained, unsafe by design"*,
+>   `Found in: golang.org/x/crypto@v0.54.0`, **`Fixed in: N/A`**. **Yükselterek
+>   kapatılamaz.** Bu repo `x/crypto`'dan **yalnız `bcrypt`**'i import ediyor
+>   (ölçüldü: **4** import satırı — `password.go`, `password_test.go`,
+>   `manager_db_test.go`, `manager_timing_test.go` — dördü de `bcrypt`;
+>   1. turda "2", 4. turda "3" yazmıştı, dördüncüsü 8. turda eklendi ve sayı
+>   10. turda düzeltildi), `openpgp` çağrılmıyor →
+>   govulncheck *"0 vulnerabilities affect your code"* diyor ve `make audit`
+>   **exit 0**. Q03 `x/crypto`'yu onaylıyor. **Kabul edilen limit olarak burada
+>   sayılıyor** (M1-07→M1-09 dersi).
+> - **N3 — `tapSurfacePaths` artık KAYNAKTAN türetiliyor.** Elle yazılmış liste
+>   gerçek 6 rotanın **4'ünü** sayıyordu (`/activate/tour` ve `/api/activate`
+>   eksikti) ama yorumu *"the real paths"* diyordu. Şimdi paket kaynağı taranıyor
+>   → **6 rota** (`TestEmployeeRoutes_DerivationIsNotVacuous` boşluk koruması
+>   olarak bilinen 6'yı zorunlu tutuyor).
+> - **N5 — yapısal invaryant SEVK EDİLDİ** (kullanıcı kararı):
+>   `TestPackageTypes_NoExportedCredentialField`, paketin tiplerini go/ast ile
+>   gezip sır-benzeri **dışa açık ham alan** arıyor. Ölçüm: **10 struct, 5 dışa
+>   açık ham alan, 0 işaretli**, ~2 ms. Negatif kontrol
+>   (`TestPackageTypes_InvariantCatchesANewType`) sabit listeli testin **kaçırdığı**
+>   `AdminProfile.PasswordHash`'i yakalıyor. **LİMİT: ad tabanlıdır** — nötr adlı
+>   bir alan (`Value string`) kaçar; taşınması gereken değerler için asıl koruma
+>   hâlâ redakte eden tip (`db.PasswordHash`, `adminauth.Token`).
+> - **N4 — panel flood kapıları KAPATILDI** (ölçüldü: **tek tablo testi, 4 alt
+>   test, 0,01 sn, yeni altyapı YOK** → devretmeye değmez).
+>   `TestAdminAuth_FloodCeilingRefusesEveryUnauthenticatedRoute`; mutasyon (bir
+>   rotadan `flooded` çağrısını kaldır) → **kırmızı**.
+>   ⚠️ **Bu ölçüm bir bulgu da çıkardı** ve **12. turda KAPATILDI** —
+>   ayrıca aşağıdaki 12. tur bloğuna bak. O tur bu paragrafın **cümlesini de
+>   çürüttü**: *"kimliksiz değiller … çalınmış bir çerezi olan biri"* **YANLIŞTI**.
+>   `adminauth.Token.hash` yalnız bir **şekil** kapısı uygular (43 karakter,
+>   base64url), yani **uydurma** bir token da resolver'a ulaşıyordu; tehdit modeli
+>   *"çalınmış çerez"* değil **herkes**ti. `GET /admin` ve `POST /admin/logout`
+>   artık `a.floodGate` arkasında. **Çalışan tarafındaki 3 rota** (`/t`, `/activate*`, `/api/*`) hâlâ
+>   testsiz ve **altyapı istiyor** (Tap/Activation koşum takımı: DB, invite
+>   yöneticisi, oturum yöneticisi, SUN doğrulayıcı) — M5-07'den devredilen borç,
+>   M6-01'in kapsamı değil.
+
+> **Kart güncellemesi (2026-08-03, 6. tur — `tappa-security-auditor` RED, GERÇEK DELİK).**
+> Genel üçüncü göz aynı turda ONAY vermişti; güvenlik denetçisi §4 merceğiyle
+> baktı ve **yükümlülük 2'yi yıkan bir zamanlama kehanetini** buldu. Bu projede
+> ikisinin birlikte koşmasının sebebi tam olarak budur (M2-04, M5-10 ile aynı desen).
+>
+> **🔴🔴 KRİTİK — kendi Q03 düzeltmem deliği açmıştı.** `Compare` 72 baytı aşan
+> parolada bcrypt'e **hiç girmeden** `false` dönüyordu; `Authenticate` kuklayı
+> **yalnız aday yokken** ödüyordu. Sonuç yükümlülüğün **tam tersi**: kayıtlı
+> e-posta HIZLI, kayıtsız e-posta YAVAŞ. **Kendim tekrar ürettim** (domain, n=5):
+> `20 bayt: bilinen 203,9 ms / bilinmeyen 197,0 ms → 0,97×` ·
+> `100 bayt: bilinen 66 ns / bilinmeyen 211,4 ms → **3.203.211×**`.
+> Denetçinin HTTP tablosu: `100 bayt bilinen **5,53 ms** vs bilinmeyen 295,4 ms
+> → **53,43×**`. Tek istekle, istatistiksiz, internet gecikmesinin çok üstünde:
+> *"bu adres bir panel yöneticisi mi?"* sorusuna kesin cevap. Üstelik sunucuya
+> **sıfır bcrypt**'e mal oluyordu, yani adres bütçesinin koruduğu CPU bile
+> harcanmıyordu. 00011 bunu B fazına **zorunlu** devretmişti ve birebir bu
+> cümleyle: *"skipping it is a timing oracle wide enough to measure over the
+> internet."*
+>
+> **Düzeltme:** `Compare` uzun parolada **aynı digest'e karşı** kırpılmış bir
+> karşılaştırma koşuyor ve sonucu **atıp** `false` dönüyor. `CompareDummy` yerine
+> *bu* digest seçildi çünkü satırın **kendi cost'unu** öder (eski bir cost-10 satır
+> ya da cost-4 fixture'da da yassı kalır). Sonuç kullanılmadığı için sessiz kırpma
+> da yeniden doğmuyor. ⚠️ `Authenticate`'in başına erken-dönüş **koyulmadı**:
+> süreyi yassılatırdı ama `Attempts`'i boşaltıp §4.6 audit izini silerdi.
+>
+> **Doğrulama (dördü de):**
+> 1. Zamanlama testine **iki yeni kol** (uzun parola × bilinen/bilinmeyen), toplam
+>    **5 kol**: `195,7 / 207,9 / 200,7 / 195,7 / 196,4 ms`, yayılım **1,06×**.
+> 2. **HTTP tablosu yeniden üretildi** (gerçek router + gerçek Postgres, cost-12
+>    satır, min n=2): `20B bilinen 202,6 ms · 20B bilinmeyen 198,2 ms ·
+>    100B bilinen **205,1 ms** · 100B bilinmeyen 197,4 ms` → **1,04×**
+>    (53,43× idi). ⚠️ İlk deneme n=3 ile **kendi oran sınırıma** takıldı
+>    (12 başarısız giriş > 10) — sınır çalışıyor; test bütçeyi yükseltmek yerine
+>    n=2'ye indi.
+> 3. **Mutasyon** (erken dönüşü geri koy): domain **235.621×** → kırmızı,
+>    HTTP **47,75×** → kırmızı.
+> 4. **Yükümlülük 4 yeniden ölçüldü.** Uzun parola artık aday başına tam bcrypt
+>    ödüyor (**önce bedavaydı**): 8 aday, in-range **1,608 sn** (201 ms/aday) vs
+>    uzun **1,708 sn** (214 ms/aday). Yani uzun yol **en kötü duruma yükseldi,
+>    onu aşmadı** — `8 × 10 × ~380 ms ≈ 30 sn` sınırı ve
+>    `TestMaxCandidates_IsTheMeasuredCPUBound`'un gerekçesi **hâlâ geçerli**.
+>    Değişen: ucuz prob artık ücretli, yani bütçe gerçekten probu da sınırlıyor.
+>
+> **Yanlışlanan üç cümle gerçeğe indirildi:** `password.go`'nun *"caller still pays
+> a dummy"* ve *"decided entirely by the attacker's own input"* iddiaları (ikisi de
+> **yanlıştı** — `CompareDummy`'yi handler hiç çağırmıyor, `grep` → 0; ve hızlı
+> dala yalnız **sunucu durumu** aday üretince giriliyordu) ve bu kartın *"2. Kukla
+> bcrypt — KARŞILANDI"* satırı.
+>
+> **Güvenlik denetçisinin diğerleri:**
+> - **S1 (§4.6) — hesap audit bütçesi bir İZ SUSTURMA primitifi.** 11 istekle bir
+>   hesabın bütçesi yanar ve pencerenin kalanında o hesaba yapılan **her**
+>   başarısız giriş yazılmaz — *"devre dışı hesapta DOĞRU parola"* dahil.
+>   *"Kilitleme yok"* doğruydu, **eksikti**: kilitleme yok, **susturma var**.
+>   Pencere başına bir `rate_limited` satırı kaldığı için **kesinti, körlük değil**;
+>   satır artık `SuppressedFrom` (ilk bastırılan denemenin sırası) taşıyor.
+>   **LİMİT:** toplam sayı DB'den kurtarılamaz — gerçek adet, pencere **kapanınca**
+>   yazılan bir satır ister ve `httpx.Limiter`'ın süre-sonu kancası yok (tembel
+>   tahliye eder), yani altyapı. Sayıldı ve devredildi.
+> - **S2 (§4.7)** — *"Compare … is the ONLY caller of RevealForPasswordComparison"*
+>   → `Compare` **çağrılandır**; tek üretim çağrı yeri `Authenticate`. Garanti
+>   doğruydu, cümle yanlıştı; düzeltildi.
+> - **S3** — *"etiket, payload'ın alfabesinde geçemeyen bir baytla biter"* →
+>   etiket `|` ile bitiyor ve payload'ın ayırıcısı da `|`. Zararsızdı (belirsizliği
+>   kapatan şey **uzunluk öneki** ve dört ayrı türetilmiş anahtar), **cümle**
+>   düzeltildi — etiket değiştirilmedi (hiçbir şey satın almaz, uçuştaki blobları
+>   geçersiz kılar).
+> - **S4 — patlama yarıçapı yazıldı.** `TAPPA_SESSION_HMAC_KEY` sızarsa sonuç
+>   yalnız *"çalışan oturumu forge etme"* değil: denetçi gerçek türetilmiş
+>   anahtarla imzaladığı sahte payload'la seçiciyi kurbanı gösterir hâle getirdi
+>   (200) ve POST **303 + kurbanın tenant'ında 1 oturum** üretti — yani
+>   **parolasız çapraz-tenant panel oturumu**. DÜŞÜK kalmasının sebebi ön koşul:
+>   kurbanın `admin_user_id` **ve** `tenant_id`'si (**244 bit**, hiçbir sayfada,
+>   URL'de veya hata metninde görünmez). Yükümlülük 5 bağı etkilenmiyor —
+>   sunucunun imzalamadığı her şeyi reddediyor; bu saldırı **sunucu olarak
+>   imzalayabilmeyi** varsayıyor.
+>
+> **Genel üçüncü gözün sayı/cümle bulguları — hepsi kapatıldı:**
+> - **`make test` süresi yanlıştı.** Kart/Makefile `~300 sn` diyordu; o rakam
+>   **paket sürelerinin TOPLAMI** (aynı ağaçta **254,5 sn**). Duvar saati
+>   (`/usr/bin/time -p`, 3 koşu): **112,1 / 113,1 / 115,9 sn** (denetçi 92-112 sn).
+> - **`make test-short`:** **37,7 / 38,2 / 40,7 sn** (denetçi 47,1-51,2 sn).
+>   Her iki aralık da Makefile'a yazıldı.
+> - **`x/crypto` import satırı 2 değil 3.**
+> - **`-short` skip sayısı 2 değil 3** oldu (HTTP zamanlama testi eklendi); üçü de
+>   Makefile yorumunda **adıyla** sayılı.
+> - **"ALL 16 CONSTANTS"** → 16 **sayısal alt kümedir**; faz ~29 sabit getiriyor
+>   (etiketler, çerez adları, `adminCSP`, `dummyDigest`, `redacted`,
+>   `adminChoiceVersion`). Cümle indirildi. Ve sayısal kümede eksik olan
+>   **`hmacKeyLen`** pinlendi (mutasyon `32→16` → **kırmızı**); daha önce yalnız
+>   **yapısal** olarak korunuyordu, **değerle** değil.
+> - **"en yakın sinyal 4,04"** → en yakın sinyal **1,91×** ve **kapının ALTINDA**
+>   (bilerek feda edildi). Aynı dosya bunu LİMİT'te doğru söylüyordu; çelişki
+>   kaldırıldı.
+> - **Seçim blob'unun en kötü ömrü 5 değil ~6 dakika** (`adminChoiceTTL` +
+>   `adminChoiceFutureSkew`; ölçülen kabul bandı `[-1m .. 5m]` = **6m1s**). Yazıldı.
+> - **`adminChoiceMaxEntries`'in iki gerekçesi birbirine bağlandı**: 4 KB çerez
+>   garantisi artık **CPU** sınırından türetilen bir sayıya biniyor (64 girişte
+>   ~4,7 KB). Bugün hareket edemez (değer pinli) ama yazıldı.
+
+> **Kart güncellemesi (2026-08-03, 8. tur — yeni güvenlik denetçisi: 6. TURUN
+> DÜZELTMESİ KENDİ SAVUNMASINI KALDIRMIŞ.)** Denetçi kritik düzeltmeyi doğruladı ve
+> genişletti (13 parola şekli × bilinen/bilinmeyen, hepsi ≤1,04×; HTTP 6 hücre ×
+> n=10 → 1,05×; aday sayısı doğrusal, cap 9'da ve 500'de de 8,0×'te tutuyor;
+> eşleşme konumu sızmıyor; Go bcrypt'in NUL tuzağı yok) — sonra **üç bulgu** çıkardı.
+>
+> **🔴 F1 — üçüncü `-short` skip'i, kapattığım 53× kehanetin İÇ DÖNGÜDEKİ TEK
+> savunmasını sildi.** 6. tur kehaneti kapattı ama **yalnız duvar saati
+> testleriyle** pinledi ve **aynı turda ikisini de `-short`'tan çıkardı**.
+> Denetçi `Compare`'i geri çevirdi (kehanet yeniden açık) ve
+> `go test -count=1 -short ./...` **14/14 YEŞİL** verdi. Ürün korumasız değildi
+> (commit kapısı tuttu) ama günde onlarca kez koşan mod kördü — ve Makefile
+> **tersini** beyan ediyordu. *"Bir cümle sistemin vermediği bir şeyi beyan
+> ediyor"* sınıfının **beşinci** vakası, ve bu kez **düzeltmenin kendisi** üretti.
+> **Çare:** `TestAuthenticate_OverLongPasswordStillPaysBcrypt` — **cost-4** fixture
+> digest'i, taban **200 µs**; dürüst karşılaştırma **1,47 ms**, bozuk dal **66 ns**
+> → **dört büyüklük mertebesi** pay, duvar saati örneklemi gerekmiyor, her modda
+> koşar. Makefile cümlesi **üç** yapısal testi adıyla sayacak şekilde düzeltildi.
+> **ASIL KANIT:** aynı mutasyonla
+> `go test -count=1 -short ./...` → `FAIL internal/adminauth` (önce 14/14 ok idi).
+>
+> **🔴 F2 — `SuppressedFrom` hiçbir testle tutulmuyordu.** Mutasyon `n → 0` ile
+> **tüm handler paketi yeşil** kalıyordu; tanımlayıcı 3 kaynak satırında ve kartta
+> geçiyor, **0 testte**. S1'in *"körlük değil kesinti"* savunmasının tamamı bu
+> alana biniyor. **Çare:** `TestAdminLogin_SuppressionRowCarriesItsStartingOrdinal`
+> — 15 adresten 15 başarısızlık → **10 yazılı + 1 rate_limited, SuppressedFrom=11**
+> (denetçinin sayısıyla birebir); mutasyon → **kırmızı**.
+>
+> **🔴 AİLE TARAMASI YENİDEN KOŞULDU (4. turdan sonra eklenen her öğe).**
+> **6 öğe tarandı: 1'i pinliydi, 5'i PİNSİZDİ.** Pinsizlerin **dördü test
+> EŞİĞİYDİ** (`timingSpreadGate` ×2 build, `httpTimingGate`, iki duvar saati
+> tabanı) — M5-10 sınıfının en baştan çıkarıcı biçimi: *"kırmızıya dönen bir
+> zamanlama testinin doğal onarımı kapıyı genişletmektir, ve genişletilmiş kapı
+> silahsızlandırılmış kapıdır."* **Beşi de pinlendi**, ama **DEĞER olarak değil
+> ÖZELLİK olarak**: her kapı, kendi ölçülmüş **gürültüsünün üstünde** ve yakalaması
+> gereken **en zayıf sinyalin altında** olmak zorunda. Yeniden tarandı → **6/6**.
+> ⚠️ **Bu invaryant kendi yazarını da yakaladı:** ilk hâli `-race`siz kapıyı (1,5×)
+> `-race` gürültüsüne (1,59×) karşı ölçüyordu ve **kırmızı verdi** — haklı olarak,
+> çünkü 1,59× yarış dedektörü + eşzamanlı paketlerin artefaktı ve o derlemede
+> **yok**. Gürültü çıpası da build-tag'lendi (race 1,59 · düz 1,10). M5-08'in
+> *"eşzamanlılık ölçümü artefakt üretir"* dersinin küçük ölçekli tekrarı.
+>
+> **🔴 F3 — `Compare`'de DÖRDÜNCÜ zamanlama kolu, DIGEST tarafında.** Denetçi
+> ölçtü: `password_hash = ''` → **198 ns**, bozuk digest → **154 ns**, kukla
+> (cost-12) → **297,9 ms** — yani **~1,5-1,9 milyon kat**. Sebep bcrypt'in kendisi:
+> boş/kısa/geçersiz digest'te **49-215 ns** içinde hata döner, anahtar programını
+> hiç kurmaz. Kapattığım kehanetin şekli **digest tarafından ve ters yönde**
+> yeniden açılır. **Bugün erişilemez** (doğrulandı: `db/queries` ve üretim Go'sunda
+> `INSERT INTO admin_users` yok, `password_hash` UPDATE'i yok — tek
+> `UPDATE admin_users` `MarkAdminLoggedIn`, yalnız `last_login_at`; seed iki satır
+> da `$2a$12$`; `Hash()` boşu ve >72'yi reddediyor). **Ama şema
+> `password_hash text NOT NULL`, format CHECK'i YOK** → `''` şema-geçerli, ve yazma
+> yolunu açacak görevler adıyla belli: **M6-05 · M7-04 · M7-02**. 00011'in
+> amplifikasyon sınırıyla **aynı yapı**: *"bugün erişilemez ve bu sebep süresi
+> dolacak."* **Devredilen kural tek cümle:** `admin_users.password_hash` yalnız
+> `adminauth.Hash` çıktısıyla yazılır. Sütun CHECK'i **yapısal** çare olurdu —
+> migration olduğu için **yapılmadı**, seçenek olarak yazıldı.
+>
+> **F4 (düşük, ikisi de cümle):**
+> - **Bilinen e-postalı başarısızlık N adet `audit_log` gidiş-dönüşü öder**,
+>   bilinmeyen ödemez. ⚠️ **Bu satır %0,3 diyordu — DÜŞÜKTÜ (12. turda düzeltildi).**
+>   Kapanış denetimi üç kolu ayırdı (n=15): satır **yazılırken** +%1,67, yazım
+>   **bastırılmışken** −%0,27; tekrarlar +%1,25/+%1,63 ve +%1,38/+%1,88. Kendi
+>   ölçümüm: gerçek Postgres'te **bir `audit_log` satırı min 1,89 / med 2,51 /
+>   maks 3,66 ms**, yani ~300 ms'lik bir girişin **aday başına ~%0,84'ü**. Dürüst
+>   bant **~%0,8–1,9**. **Vargı değişmedi:** farkın tamamı yazımdır (bastırılınca
+>   sıfıra iner, ölçüldü) ve büyüklük loopback'te ölçümün kendi gürültüsüyle aynı
+>   mertebede — bir koşuda medyan **−%1,21** çıktı. *"Aday SAYISI bir sinyaldir"*
+>   limitinin yanına yazıldı.
+> - **Kartın nedenselliği kaydırılmıştı** (bilinmeyen e-postada 0 satırın sebebi
+>   `tenant_id` NOT NULL **değil**, `failLogin`'in 0 adayla döngüye girmemesi) ve
+>   *"ölçüldü"* **sahte recorder** üzerindeydi. İkisi de düzeltildi.
+
+> **Kart güncellemesi (2026-08-03, 10. tur — sayı hijyeni turu).** Yeni bir genel
+> üçüncü göz **18 mutasyon** koştu ve *"ürün kodunda bloklayan kusur bulamadım"*
+> dedi; yeşil kalan 7 mutasyonun hiçbiri erişilebilir açık değil, hepsi test-ağı
+> kalitesi. Bir bloklayan vardı ve yine **bir düzeltmenin içinden** doğdu.
+>
+> **🔴 F-1 (bloklayan) — 8. turda Makefile'ı düzelttim, KAYNAĞINI bırakmışım.**
+> Makefile *"üç yapısal test"* diyordu ama işaret ettiği kanonik dosya beş yerde
+> hâlâ *"two"* diyordu — ve en kötüsü **canlı `-short` skip mesajı** yükümlülük
+> 2'nin kanıtı olarak yalnız **iki** test adı veriyordu, 8. turun tam da bu boşluk
+> için eklediği `TestAuthenticate_OverLongPasswordStillPaysBcrypt`'i saymıyordu.
+> Yani `-short` koşan geliştirici **kapsamı eksik beyan eden** bir mesaj okuyordu.
+> **Sayı hassasiyeti düzeltildi:** doğru ifade *"üç test"* değil,
+> **DÖRT test fonksiyonu / ÜÇ başarısızlık şekli** (cost kanıtı iki fonksiyon).
+> Canlı kanıt (`go test -short -v -run TestAuthenticate_TimingIsFlat ./internal/adminauth/`):
+> mesaj artık dördünü de adıyla sayıyor.
+>
+> **🔴 F-6 — eşik invaryantının KENDİ ÇIPASI pinsizdi (listenin en önemlisi).**
+> Denetçi ölçtü: `worstObservedNoise 1,59 → 1,00` **tek başına** yeşil; `gate → 1,5`
+> **ve** çıpa birlikte indirilince de yeşil — yani kırmızı bir kapının **doğal
+> onarımı** invaryantı geçiyor ve *"5 koşuda 1 kırmızı"* diye ölçülmüş 1,50×
+> kapısını geri getiriyordu. **Çare, yeni mekanizma değil repodaki mevcut şekil**
+> (`guardrails_test.go`): üç build-tag'li sabit (`timingSamples`,
+> `timingSpreadGate`, `worstObservedNoise`) artık **KAPALI BİR KÜME** —
+> `legalTimingConfigs`, iki adlandırılmış tuple, saf `isNamedTimingConfig`
+> yüklemi ve **iki kalıcı negatif kontrol**. Herhangi **bir** değeri değiştirmek
+> eşleşen satır bırakmıyor; üçünü birden değiştirmek de birinin **yazdığı** bir
+> satıra düşmek zorunda. **Kanıt:** kapı+çıpa **birlikte** indirilince →
+> `{samples:20 gate:1.20 noise:1.00} matches no named tuple` → **KIRMIZI**.
+> ⚠️ **Bu mekanizma kendi tasarımcısını da yakaladı:** negatif kontrole *"kapı+çıpa
+> birlikte"* vakasını **oran yüklemine** koymuştum ve kontrol **kırmızı verdi** —
+> haklı olarak, çünkü çıpa 1,00 iken 1,5 kapısı gerçekten gürültü ile sinyal
+> arasındadır. Oran yüklemi **düzenlenmiş çıpayı göremez** (çıpa onun girdisidir);
+> onu yalnız kapalı küme görür. Vaka doğru teste taşındı ve bu ayrım yorumda yazılı.
+>
+> **F-7 ve F-8 aynı mekanizmayla kapandı:** kapının sessizce %60 genişletilmesi
+> (`2,5 → 4,0`) ve `timingSamples 3 → 1` artık tuple'ı bozuyor → **kırmızı**.
+>
+> **Diğer pinler (hepsi mutasyon + pozitif kontrol):**
+> - **F-9** `ErrPasswordTooLong` **hiçbir testte iddia edilmiyordu** — `Hash`'in
+>   guard'ı kaldırılınca paket yeşil kalıyordu, çünkü bcrypt'in **kendi** hatası
+>   `err != nil`'i karşılıyordu. Q03'ün *"reddet"* kararını bu repoda tutan tek
+>   satırdı. Pinlendi (sentinel + limitin adı + parolanın hata metninde geçmemesi);
+>   mutasyon → **kırmızı**.
+> - **F-10** `parse`'ın `len(parts) != 3` katılığı ağsızdı (`< 3`'e gevşetince
+>   yeşil). Gerçek anahtarla imzalanmış ama **alan sayısı yanlış** payload'larla
+>   pinlendi (4/2/1/5 alan) + pozitif kontrol; mutasyon → **kırmızı**.
+> - **F-11** uzun-parola testinin girdisi 72 bayta indirilince **geçiyordu** —
+>   *"bcrypt koştu"* ve *"eşleşmedi"* sıradan yanlış parola için de doğru. Test
+>   artık **girdi uzunluğunu kendisi iddia ediyor**; mutasyon → **kırmızı**.
+>
+> **Sayı/cümle düzeltmeleri — her sayı kendi komutuyla yeniden ölçüldü:**
+> - **F-2** `day_db_test.go` *"THE ONLY testing.Short() SKIP IN THIS REPOSITORY"*
+>   diyordu → **üç** skip var (`grep -c -- "--- SKIP:"` → **3**), ve Makefile bu
+>   dosyayı *skip #1* diye sayıyor: iki dosya birbirini gösterip farklı sayı
+>   söylüyordu. Aynı blok `make test 84,7-98,5 sn` / `test-short 32,9 sn`
+>   taşıyordu → yeniden ölçüldü (`/usr/bin/time -p`, üçer koşu):
+>   **111,4 / 112,1 / 113,9 sn** ve **37,2 / 39,5 / 41,4 sn**.
+>   ⚠️ **`test-short` bandı 12. turda geçersizleşti:** o turun testleri (`floodGate`
+>   tablosu, NUL/UTF-8, alan sayısı, sabit pinleri) ~10 sn geri ekledi; yeniden
+>   ölçüldü → **50,1 / 51,1 / 51,3 / 56,4 sn**, Makefile güncellendi.
+>   `make test` değişmedi (112,0 / 112,2 / 112,5 sn).
+> - **F-3** skip mesajı *"3 arms"* diyordu, tablo **5 kol**; hata mesajı *"the
+>   three outcomes"* diyordu. İkisi de düzeltildi.
+> - **F-4** `x/crypto` import satırı: kart *3* diyordu, ölçüm **4**
+>   (dördüncüsünü 8. turda ben ekledim). Dayandığı sonuç değişmiyor.
+> - **F-5** geri çekilen nedensellik iki yerde daha duruyordu (kabul kriteri satırı
+>   ve `adminlogin.go`); ikisi de düzeltildi: **sıfırın mekanizması `failLogin`'in
+>   döngüye hiç girmemesi**, NOT NULL kısıtı ise boşluğun **kapatılmama** gerekçesi.
+> - **F-12** `password.go`'da bozuk tırnak (`so ” is schema-valid`) düzeltildi.
+>
+> **⚠️ TUR SIRASINDA ORTAYA ÇIKAN, M6-01'E AİT OLMAYAN BİR KUSUR — sayıldı, kapsam
+> dışı olduğu için DÜZELTİLMEDİ.** Doğrulama partisinin bir koşumunda `make test`
+> kırmızı bitti: `TestConsumeInvite_ConcurrentRaceExactlyOneWinner`
+> (`internal/db`) → `FATAL: sorry, too many clients already (SQLSTATE 53300)`.
+> **Mantık hatası değil, bağlantı yuvası tükenmesi.** Aritmetik:
+> `max_connections=100`, `superuser_reserved_connections=3` → `tappa_app`'e **97**;
+> iki **mevcut** kırmızı-çizgi yarış testi **her biri 54** bağlantılık havuz açıyor
+> (`internal/db/invites_test.go` `raceInviteGoroutines=50` ve
+> `internal/sun/advance_test.go` `raceGoroutines=50`, ikisi de +4) →
+> **54+54 = 108 > 97, tek başlarına**. Yani iki paket örtüştüğünde suite **zaten**
+> sınırın üstünde; M6-01 sebep değil. Tek başına koşturulduğunda test **3/3 yeşil**.
+> **M6-01'in payı ve yapılan:** bu görev eşzamanlı koşan bir DB havuzu daha ekliyor
+> (pgx varsayılanı `max(4, NumCPU)`), oysa bu paketin testleri **sıralı**. Kendi
+> ayak izimi `pool_max_conns=4`'e indirdim — kendi kapsamım, dürüst azaltma.
+> Sonrasında **`make check` 5/5 yeşil** (ağaç shasum'ı değişmedi).
+> **Çare M6-01'in değil:** kök neden `internal/db` + `internal/sun` test
+> altyapısında ve goroutine sayılarını düşürmek **§4.4 kırmızı-çizgi testlerini
+> zayıflatır**. Devredilen seçenekler: `max_connections`'ı yükseltmek (docker
+> compose), iki yarış testini aynı pakete toplamak, ya da paket düzeyinde
+> serileştirme. **Orkestratöre devir.**
+
+> **Kart güncellemesi (2026-08-03, 12. tur — KAPANIŞ).** Kapanış güvenlik denetimi
+> **beşinci zamanlama şeklini aradı ve bulamadı** (12 hücrelik tabloda yayılım
+> **1,04×**, negatif kontrolü **57,72×**), beş kanalı ayrıca sondaladı, yükümlülük
+> 5'i takas dâhil kendi saldırı matrisiyle yeniden kırmayı denedi ve **geçemedi**;
+> 13 mutasyonun 13'ü kırmızı. Üç iş kaldı, üçü de kapatıldı.
+>
+> **🔴 F-A (bloklayan) — `GET /admin` KİMLİKSİZ bir çağırana bütçesiz resolver
+> okuması ödetiyordu, ve LİMİT cümlem bunu inkâr ediyordu.** Kendim tekrar ürettim
+> (200 istek/şekil): çerezsiz **med 5,9 µs**, **uydurma** 43 karakterlik token
+> **med 1,56 ms** — yani gerçek bir resolver okuması — ve **600 istekte HİÇ 429
+> yok**. `adminauth.Token.hash` yalnız **şekil** kapısı uyguladığı için saldırganın
+> çözümlenecek bir oturumu **olması gerekmiyordu**; *"çalınmış bir çerezi olan
+> biri"* cümlesi yanlış öncüldü ve M6-02'ye devir notu da ona dayanıyordu.
+> Üstelik `manager.go:518` **doğru** söylüyordu (*"an unauthenticated flood costs
+> reads, not writes"*) — repo iki şey söylüyordu.
+> **Çare (kullanıcı kararı): korumalı gruba `a.floodGate`**, `Protect`'ten
+> **ÖNCE** — reponun kendi sırası (`tap.go`: `ByAddress` → `Identify` →
+> `BySession`; `httpx/router.go` bunu açıkça savunuyor). Yeni mekanizma yok, aynı
+> bütçe, aynı sayaç. ⚠️ **Sayı ayrımı (bu turda kendi taslağımda karıştırmıştım):**
+> `a.flooded` **çağrı yeri** 4 → **5**'tir (dört handler + bir middleware, çünkü
+> iki korumalı rota tek `floodGate` üzerinden geçer); **kapsanan ROTA** sayısı
+> 4 → **6**'dır. İkisi aynı sayı değil.
+> **Doğrulama:** (i) 600 uydurma-token isteği → `map[303:200 429:400]`, **ilk 429
+> tam #201'de** (tavan 200); (ii) flood tablo testi artık **altı** rota (⚠️ **18. turda beşe indi**: çıkış satırı 16. turda çıkarıldı — ölçülüyor ama reddedilmiyor — ve kendi değişmez testine taşındı); (iii)
+> mutasyon (`floodGate` satırını sil) → **iki alt test kırmızı**; (iv) pozitif
+> kontrol: **100 ardışık kimliği doğrulanmış sayfa yüklemesinin 100'ü de 200**.
+>
+> **🟡 F-C — NUL / geçersiz UTF-8 → HTTP 500. Yazmak yerine KAPATILDI.** Ölçüm:
+> `NUL 500 / 1,43 ms` · `geçersiz UTF-8 500 / 1,43 ms` · `sıradan bilinmeyen
+> 401 / 201,6 ms`. Kehanet değildi (dal tamamen saldırgan girdisiyle belirlenir)
+> ama üç şey birden yanlıştı: kimliksiz bir yolda **500**, tek biçimli reddin
+> **dışında**, ve **bedava** (failLogin hiç koşmadığı için deneme bütçesi de
+> yüklenmiyordu). Çare `adminauth.Authenticate`'in başındaki mevcut boş-alan
+> dalına eklendi (`isLookupableEmail`: NUL + `utf8.ValidString`, yani **yalnız
+> Postgres'in reddettiği baytlar** — "geçerli e-posta" tanımı **değil**, o ikinci
+> bir doğruluk kaynağı olurdu). Kukla yine ödeniyor. **Sonuç ölçüldü:** üçü de
+> **401**, **~198–202 ms**, ve gövdeler **bayt-bayt aynı (2360 bayt)**. Yükümlülük
+> 1'in *"aynı yanıt"* testine bir kol daha eklendi — kazanç, maliyet değil.
+>
+> **🟡 F-B — iki sayı yanlıştı, ikisi de benim yazdığım.** (1) *"%0,3"* →
+> gerçek bant **~%0,8–1,9**; kendi ölçümüm: bir `audit_log` satırı gerçek
+> Postgres'te **min 1,89 / med 2,51 / maks 3,66 ms** = ~300 ms'lik girişin **aday
+> başına ~%0,84'ü**. **Vargı korundu** (farkın tamamı yazımdır ve loopback
+> gürültüsüyle aynı mertebede — bir koşuda medyan −%1,21). (2) 4. tur bloğundaki
+> *"tam 2 SKIP … ikisi de"* → bugün **3**; blok tarihli olduğu için metin
+> korunup dosyanın geri kalanıyla **aynı standartta ⚠️ notu** aldı (10. turun
+> F-2'si `day_db_test.go`'yu düzeltmiş, bu satırı atlamıştı — dosyada iki farklı
+> standart kalmıştı).
+
+> **Kart güncellemesi (2026-08-03, 14. tur).** Kapanış denetçisi 12 turun tamamını
+> yeniden doğruladı (B1–B10 yeşil, yükümlülük 5 canlı iki-tenant saldırısıyla
+> kırılamadı, `utf8.ValidString` ≡ Postgres UTF8 denkliği 30 bayt şekliyle
+> **0/30 sapma**, yükümlülük-1 tablosu 10 hücrede **hepsi 401 · 2360 bayt · tek
+> sha256 · 1,05×**). İki bloklayan çıktı; **ikisi de bir düzeltmenin ürünüydü.**
+>
+> **🔴 F1 — `isLookupableEmail` guard'ının üretim yolunda SIFIR ağı vardı.** Guard
+> silinince **tüm suite yeşil** (kendim tekrar ürettim). Sebep: onu adıyla anan tek
+> test `newFakeManager` ile koşuyordu ve **sahte DB her bayt dizisini kabul eder**,
+> yani test pinlediğini iddia ettiği dalı **hiç görmüyordu**. Aynı sınıfın
+> **üçüncü** vakası ve yine kendi düzeltmemden doğdu (12. tur F-C).
+> **`newFakeManager` taraması — sayılar iki hâlde:** tarama sırasında **6 üst düzey
+> test / 8 çağrı yeri**, beşi meşru (bcrypt maliyeti, döngü sınırı, kukla — DB'nin
+> söz hakkı yok), **1'i kördü**. Kör test silindikten sonra **5 test / 7 çağrı
+> yeri** kaldı; hiçbiri DB'nin reddettiği bir şeyi kanıtlıyormuş gibi yapmıyor.
+> Çare: `TestAuthenticate_RefusesAnUnlookupableAddress_RealDB` (gerçek Postgres) +
+> iki pozitif kontrol. **Kanıt:** guard silinince **tam suitte VE `-short`'ta
+> kırmızı**; yalnız NUL satırı devre dışı bırakılınca **iki NUL vakası kırmızı,
+> UTF-8 vakası yeşil**. **Kör test SİLİNDİ** — kanıtlamadığı hâlde bir ağ olarak
+> sayılıyordu ve `-short`'a **10,7 sn** mal oluyordu.
+>
+> **🔴 F2 — 12. turdaki kararın ürettiği regresyon: flood kapısı ÇIKIŞI
+> reddedebiliyordu.** Tekrar ürettim: kurbanın **kendi** 100 sayfa yüklemesi
+> pencerenin yarısını harcadı, adres anahtarını paylaşan biri kalanını yaktı,
+> kurbanın `POST /admin/logout` → **429, `Revoke` 0 kez**. O pencerede oturumu
+> bitirecek **başka hiçbir yol yok**. **Değişmez kısıt uygulandı: çıkış üçüncü bir
+> tarafça reddedilemez.** `POST /admin/logout` artık **ölçülüyor ama
+> reddedilmiyor** (`meterOnly`), önünde resolver'dan **önce** koşan **bedava** bir
+> same-origin kapısı var. **Ve desen tamamlandı:** `tap.go`'nun **üçüncü aşaması**
+> eklendi — `sessionGate`, **oturum UUID'siyle** anahtarlanmış (token/hash değil,
+> §4.7), `adminSessionLimit = 300`. ⚠️ **16. tur bu cümleyi düzeltti:** desen "tamamlanmadı" — `sessionGate` resolver'dan **sonra** koştuğu için maliyeti sınırlamaz, ve 300 türetilmedi kopyalandı; ayrıntı 16. tur bloğunda. **Aritmetik yeniden türetildi:**
+> `adminFloodLimit` **200 → 3000** (eski 200 yalnız girişlerden türetilmişti;
+> 12. tur kalkanı kimliği doğrulanmış rotaların önüne koyunca aynı 200 her sayfa
+> yüklemesini taşımaya başladı). 3000 = `httpx.tapAddressLimit`, bilinçli.
+> ⚠️ **bcrypt sınırını genişletmez** — onu `adminAttemptLimit` (10) tutar.
+> **M6-02 bu sayıyı yeniden saymalı.**
+> **Kanıtlar:** bütçe yanıkken çıkış → **303, `Revoke` 1 kez** · F-A hâlâ kapalı
+> (**3400 istek → 3000×303 + 400×429, ilk 429 #3001**) · mutasyon → **kırmızı**.
+>
+> **🟡 F6 — `Protect()` dışa açıktı, bütçe değildi.** Garanti bir **yorumda**
+> yaşıyordu; M6-02 kendi grubunda mount etseydi bütçesiz resolver okuması geri
+> gelirdi. `Protect()` artık üç aşamayı besteliyor; kendi grubunda mount edilen bir
+> dashboard rotası **#3001'de 429** alıyor.
+>
+> **🟡 F3 — audit asimetri bandı yine düşüktü, ve "gürültünün içinde" iddiası
+> GERİ ÇEKİLDİ.** İki koşulda: **boş 2,29 ms / 205,6 ms = %1,11**; **4 çekirdek
+> meşgul 3,64 ms / 222,3 ms = %1,64**. Denetçinin uçtan uca yazım-farkı **+%2,58**.
+> Dürüst bant **~%1–3** (~2–10 ms). Yapısal iddia ayakta (bastırılınca +%0,58) ama
+> *"ölçümün gürültüsüyle aynı mertebede"* **yanlıştı** — 15 iç içe turda iki kol
+> temiz ayrışıyor. Artık **gerçek, ölçülebilir, kapatılmamış** bir asimetri.
+>
+> **🟡 F4 — `day_db_test.go` geri çekilen bandı taşıyordu.** 10. turun F-2'si
+> *"iki dosya farklı sayı söylüyor"* diye açılmıştı ve **kendi düzeltmesi aynı
+> kusuru ters yönde üretti**. Çare sayıyı düzeltmek değil **tek yere indirmek**:
+> süreler artık yalnız Makefile'da.
+>
+> **🟡 F5 — `make test` bandı tekrar üretilemedi.** Artık **iki koşulda** ölçülüyor
+> ve koşul yazılıyor: `make test` **boş 113,3/113,8/114,9**, **meşgul 120,5/121,1**;
+> `make test-short` **boş 51,2/51,3/53,1**, **meşgul 54,3/58,3**. Makefile bandın
+> bir **hedef değil gözlem kaydı** olduğunu ve bağımsız ölçümlerin **92–150 sn**'ye
+> yayıldığını söylüyor. ⚠️ `test-short` bu turda önce **66–67 sn**'ye çıkmıştı;
+> flood tablosunun bütçeyi **rota başına değil bir kez** yakması ve kör testin
+> silinmesi geri getirdi.
+
+> **Kart güncellemesi (2026-08-03, 16. tur — SON MEKANİZMA TURU).** 15. tur
+> denetçisi ürünün sağlam olduğunu ölçtü (yükümlülük 1 **10 hücrede tek sha256**,
+> yükümlülük 5 **yedi canlı saldırıda** ayakta, B1–B10 mutasyonla kırmızı,
+> `newFakeManager` taraması temiz, flake 7 koşuda 0) — ama **14. tur hiç
+> denetlenmemişti** ve iki bloklayan çıkardı. **İkisi de yine kendi düzeltmemin ağı
+> ve sayısı hakkındaydı.**
+>
+> **🔴 F-1 — `sessionGate` hem SIFIR AĞA sahipti hem koruduğunu söylediğini
+> korumuyordu.** İki mutasyon (asla reddetme · `Protect`'ten tamamen sil) **tam
+> ağaçta yeşil**; pinli olan yalnız sabitin **değeriydi**. `isLookupableEmail` ile
+> **birebir aynı desen, dördüncü kez**. Ve aşama **maliyetin yanlış tarafında**:
+> `Verify` = resolver okuması **+ transaction + `TouchAdminSession` UPDATE**, gate
+> ondan **sonra** koşuyor → **reddedilen istek maliyeti zaten ödemiş** (429 alan
+> istek `last_used_at`'i değiştirdi; 3000 istek → **3000 Verify**, 2700×429).
+> *"Çalınmış çerezin sınırı 300"* **yanlıştı** — DB sınırı **3000**.
+> **Mekanizma taşınmadı** (oturumu çözmeden oturuma göre anahtarlanamaz;
+> `tap.go`'da sorun yok çünkü `httpx.Identify` bilerek **yazmaz**). **İki şey
+> yapıldı:** (1) davranışsal ağ — **300 servis, ilk ret #301**, aynı adresten
+> **başka bir oturum etkilenmiyor** (pozitif kontrol); iki mutasyon da **kırmızı**.
+> (2) cümle ölçüme indirildi: **`floodGate` (3000/adres) okuma+UPDATE'i sınırlar;
+> `sessionGate` (300/oturum) kimlik doğrulamadan SONRAKİ işi sınırlar — bugün o iş
+> boş, M6-02 dolduruyor.**
+>
+> **🔴 F-2 — 15× gevşetmenin gerekçesi YANLIŞ KOLDA ölçülmüştü.** Yazılı olan
+> *"3000 × ~1,5 ms = ~4,5 sn = %0,75"*; 1,5 ms **uydurma-token** kolu, oysa tavan
+> **kimliği doğrulanmış sayfa yüklemeleri** için genişletilmişti. Kendi ölçümüm
+> (gerçek Postgres, n=200/kol, **iki yük durumunda**):
+> `çerezsiz 0,083 / 0,172 ms` · `uydurma token 0,650 / 0,875 ms` ·
+> **`CANLI oturum 3,040 / 4,161 ms`** (denetçi: 0,142 / 1,206 / **5,717 ms**).
+> Doğru aritmetik: **3000 × 3,0–5,7 ms = 9–17 sn/pencere/adres = bir çekirdeğin
+> %1,5–2,9'u** — yazılanın **2–3,8 katı**. **3000 yine de haklı** (meşru gereksinim
+> ~2000; %2,9 ödenebilir) — **değişen sayı değil cümle**, ve *"reddedilen istek de
+> ödüyor"* artık aritmetiğin **içinde**.
+>
+> **🟡 F-4 — çıkışın bedeli "bütçesiz" değil SINIRSIZDI; üçüncü yol seçildi.**
+> Denetçi: **10000 anonim `POST /admin/logout` → 10000 resolver okuması, hiçbiri
+> reddedilmedi** (kontrol: 10000 `GET /admin` → 3000 okuma + 7000×429). Ürünün tek
+> tavansız rotası, tap yüzeyinin **aynı havuzuna** sınırsız anonim erişim
+> veriyordu. Seçilen: çıkışa **kendi** tavanı,
+> `adminLogoutLimit = 10 × adminFloodLimit = 30000`.
+> ⚠️ **14. turun değişmezinden DAHA ZAYIF ve öyle yazıldı:** önce *"üçüncü taraf
+> çıkışı asla reddedemez"*di; şimdi *"**30000 istek** harcamadan reddedemez"* —
+> panelin geri kalanını engellemenin **on katı**, flood log'unda gürültülü.
+> Karşılığında sonsuz yükselteç kapandı. **Ölçüldü:** 30050 çıkış → **50 ret,
+> resolver 30000 kez** · panel tavanı yanık + 3000 çıkış harcanmışken **kurban yine
+> çıkış yaptı (303, `Revoke` +1)**. Mutasyon → **kırmızı**.
+>
+> **🟡 F-5 — `sameOriginGate`'in ağı yoktu.** Silinince suite yeşildi çünkü
+> `Logout` Origin'i **tekrar** kontrol ediyor → **sonuç** aynı, değişen **maliyet**.
+> Ağ artık **resolver çağrısını sayıyor**: yabancı Origin → **0 okuma**, Origin yok
+> → **0 okuma**, meşru çıkış → **1 okuma**. Mutasyon → **kırmızı**.
+>
+> **🟡 F-3 — `adminSessionLimit = 300` TÜRETİLMEDİ, KOPYALANDI → 11. limit.**
+> Dosya adres tavanını *"10 admin × 20 görüntüleme × 10 parça ≈ 2000"* diye
+> türetiyor → **yönetici başına ~200 istek/pencere**; oturum tavanı 300, payı
+> yalnız **1,5×**. `tap.go`'nun 300'ü **başka bir şekle** ait. **Somut sonuç:**
+> yoğun bir gün geçiren **meşru** yönetici 301. istekte kendi paneline 429 yer —
+> kilitlenme değil (çıkış çalışıyor, ölçüldü) ama panel o pencerede ölü. **M6-02
+> bu sayıya adres tavanından DAHA ACİL bir türetme borçlu.**
+>
+> **🟡 F-6 — bayat sayı** (*"200 requests per 10 minutes"* → **3000**) düzeltildi.
+
+> **Kart güncellemesi (2026-08-03, 18. tur — SON TUR).** Kapanış denetçisi **ONAY**
+> verdi (*"zero findings meet the narrow blocking definition"*); 16. turun beş ağı
+> da gerçek, tavanlar ürünün kendi koşumundan yeniden üretildi
+> (**#3001 · #301 · 30050→50 ret, resolver tam 30000**), `make gen` 252 dosyada
+> bayt-idempotent, flake 8 koşuda 0. Kalan yedi madde ucuz olduğu için commit'ten
+> **önce** kapatıldı.
+>
+> **1 — BEŞİNCİ KÖR AĞ: `meterOnly`'nin ücretlendirmesi.** Denetçi `Charge`'ı
+> sabitle değiştirdi → **tüm paket yeşil**; `meterOnly` repoda üç yerde geçiyordu
+> (iki yorum, bir `r.Use`) ve **sıfır testte**. `isLookupableEmail` ·
+> `sessionGate` · `sameOriginGate` ile aynı desen, **beşinci kez**. Ağ, çıkışın
+> **paylaşılan** kovayı gerçekten yaktığını ölçüyor: **2500 çıkıştan sonra
+> `/admin/login` tam 500 istek daha servis edildi** (tavan 3000). Mutasyon →
+> **kırmızı**.
+>
+> **2 — 🔴 BİR YORUM, VAR OLMAYAN BİR AUDIT İZİNİ BEYAN EDİYORDU.** *"the audit
+> trail already carries the successful comparison"* — denetçi ölçtü: çok-adaylı dal
+> `a.record`/`a.log` **çağırmıyor**, `internal/adminauth` **0** satır yazıyor, altı
+> `a.record` yeri **başka yollarda**. Yani **≥2 gerçek hesapta doğrulanmış bir
+> parola**, o hesaplar iki adım arasında devre dışı bırakılırsa **hiçbir yerde iz
+> bırakmıyordu** — ve cümle sonraki okuyucuya **bakmamasını** söylüyordu. **M5-11
+> sınıfının ta kendisi.** **Cümle yumuşatılmadı, SATIR YAZILDI**: `verified[0]`'ın
+> tenant'ına (yani bu isteğin **doğruladığı** bir tenant'a, çağıranın adlandırdığı
+> birine değil) `admin.login.failed` + *"password verified but every business was
+> disabled before the choice"*. Ölçüm: **1 audit satırı**, doğru tenant,
+> `VerifiedBusiness=2`. Mutasyon (satırı sil) → **kırmızı**.
+>
+> **3 — 12. LİMİT: 30000 tavanının maliyeti hiç hesaplanmamıştı.** Flood tavanı
+> aritmetiğini gösteriyor, ürünün **en geniş** tavanı hiçbir şey göstermiyordu.
+> Dosyanın kendi uydurma-token ölçümünden: **30000 × 0,65–1,21 ms = 19,5–36,3
+> sn/pencere/adres = bir çekirdeğin %3,3–6,0'ı** — flood tavanının **iki katı**, ve
+> **tap yüzeyinin paylaştığı havuzda**. **Düşürülmedi**: her istek, *"üçüncü taraf
+> çıkışı reddedemesin"* eşiğini yaklaştırır; tek VPS'te %6 ödenebilir, oturumunu
+> bitiremeyen müşteri değil. **Eksik olan karar değil SAYIydı** ve artık yazılı.
+>
+> **4 — kendi içinde çelişen yorum.** *"ALL SIX PANEL ROUTES"* diyordu; tabloda
+> **beş** satır vardı, `RequireAdmin` arkasında **bir** tane, ve **aynı blok üç
+> satır sonra** çıkışın bilerek dışarıda olduğunu söylüyordu. 16. tur çıkış
+> satırını çıkarıp başlığı okumamıştı. Hem test yorumu hem kartın bayat *"altı
+> rota"*sı düzeltildi.
+>
+> **5 — 2. turda geri çekilen ifade, seçiciyi RENDER EDEN dosyada duruyordu.**
+> `adminview.go` hâlâ Businesses'ın `Verified()`'den kurulduğunu söylüyordu; seçici
+> yolunda **`adminChoices.parse`**'tan geliyorlar, ve `manager.go` bu ifadeyi
+> **açıkça yasaklıyor** (*"an audit refuted exactly that wording"*). 2. tur
+> `manager.go`'yu düzeltip render eden dosyayı süpürmemişti. Garanti artık **iki
+> ayağıyla** yazılı (parola karşılaştırması + imzalı kümenin üyelik yeniden kanıtı).
+>
+> **6 — ÖLÜ TANIMLAYICI ATIFLARI: 15 tane, tam sayı.** Denetçi üçünü doğrulamış ve
+> *"test dosyalarında on bir tane daha"* demişti; **tüm depo gövdesine** (yorum
+> olmayan her satır, `.tools` hariç) karşı taranınca **15** çıktı — **2 üretim +
+> 13 test**. Onüçü mevcut adına yönlendirildi (`maxCandidates`→`MaxCandidates`,
+> `TestCookieSeparation`→`TestPanelCookies_NeverReachTheTapSurface`,
+> `problemAdminSignIn`→`problemAdminRestart`, …); ikisi **silinmiş** şeylere
+> yapılan tarihsel atıflardı (M5-09 yardımcısı ve 14. turda silinen kör
+> test) ve **ada değil OLAYA** atıf yapacak şekilde yeniden yazıldı.
+> ⚠️ **İlk düzeltme turundan sonra İKİ tane kaldı** — biri yeniden yazarken
+> **benim ürettiğim**, biri gözden kaçan bir tanesi — yeniden tarandı ve ikisi de
+> olaya atıf yapacak şekilde düzeltildi. **Son tarama: 0.**
+>
+> **7 — `make test-short` bandı üretilmiyordu** (denetçi 69,9 / 70,6 / 74,2 ölçtü,
+> yazılı bant 55–62). **Üç yük durumunda ölçtüm:** boş **50,9/51,4/51,9** · 4
+> çekirdek **54,9/57,0/57,0** · 8 çekirdek **73,6** — sekiz çekirdek kolu
+> denetçinin aralığıyla **birebir örtüşüyor**, yani fark makine durumuydu. Bant
+> artık tek bir dar aralık değil **GÖZLENEN ARALIK 51–74 sn**, ve `make test`'in
+> taşıdığı *"hedef değil gözlem kaydı"* uyarısını artık bu da taşıyor. ⚠️ Bu sayı
+> görevde **üç kez** dar yazılıp **üç kez** tutmamıştı (37–41 → 50–57 → 55–62);
+> dördüncüsünü yazmamak için biçim değiştirildi.
+
+
+
+
+
+
+
+
+
+
 
 ---
 

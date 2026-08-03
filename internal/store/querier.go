@@ -232,6 +232,29 @@ type Querier interface {
 	// repoint-my-session-at-the-owner all succeeded before 00011 and all fail after.
 	// The remaining discipline is smaller but real: a NULL -> now() stamp is still
 	// free-form, so a query could stamp a future or past instant. No query here does.
+	//
+	// ⚠️ WHAT CLOSED IS THE PATH, NOT THE CAPABILITY -- the sentence above used to be
+	// read the other way and the correction is worth spelling out, because it changes
+	// who has to be careful. admin_users keeps a TABLE-WIDE UPDATE grant, deliberately
+	// (00011 argues it, correctly: nearly every column there is legitimately writable,
+	// so a column grant would merely enumerate the table). The consequence is that two
+	// of the three effects 00011 closed on admin_sessions remain reachable ONE TABLE
+	// OVER. Measured live as tappa_app, inside its OWN tenant context:
+	//   UPDATE admin_users SET status = 'active'        WHERE ... -> UPDATE 1
+	//       the disable kill switch, undone.
+	//   UPDATE admin_users SET role = 'owner'           WHERE ... -> UPDATE 1
+	//       the SAME privilege escalation the column grant closed on admin_sessions.
+	//   UPDATE admin_users SET password_hash = '<mine>' WHERE ... -> UPDATE 1
+	//       STRONGER than what was closed: it survives revocation entirely.
+	// So the guarantee this file may claim is narrow and exact: no application code
+	// path can rewrite a SESSION's identity or resurrect its revocation. It may NOT
+	// claim that the underlying abilities are gone -- they are reachable through
+	// admin_users by any SQL that runs as tappa_app.
+	// WHOSE DEBT: M6-05 (panel-side admin management writes the legitimate UPDATEs and
+	// must scope them per column and per role) and M7-04 (password reset). Whoever
+	// writes those decides whether admin_users deserves its own column grants, a role
+	// guard, or an audit trigger; today the answer is "no query in this repo does it",
+	// which is exactly the discipline-not-structure position sessions.sql is in.
 	// Issues a panel session. Written as INSERT ... SELECT so the admin's existence,
 	// tenancy and ACTIVE status are conditions of the INSERT ITSELF: a disabled admin
 	// yields 0 rows and sqlc returns pgx.ErrNoRows. That makes "a disabled admin never
@@ -481,6 +504,18 @@ type Querier interface {
 	// The status = 'active' filter is what makes this query safe to drive a picker: a
 	// disabled admin's tenant is simply not offered, so the picker cannot present a
 	// door that CreateAdminSession would then refuse to open.
+	//
+	// ⚠️ THE PICKER'S OTHER O(N), named here because it is the one that SURVIVES the
+	// bcrypt bound. "Run once per candidate tenant" means one TENANT-SCOPED TRANSACTION
+	// per candidate -- 500 candidates, 500 transactions, each with its own
+	// SET LOCAL app.tenant_id, because a single statement cannot span two tenant
+	// contexts. Risk is LOW today and stays low: it runs only AFTER a password has
+	// verified, so it is not credential-less work like PHASE B OBLIGATION 4's bcrypt
+	// loop. But once phase B bounds that loop, this is the remaining linear cost in the
+	// login path, and it is the DATABASE's side of the line rather than the CPU's.
+	// Phase B should size it against the same measurement it uses for the bcrypt bound;
+	// the natural answer is that the picker only ever sees the candidates whose hash
+	// VERIFIED (OBLIGATION 5), which bounds this loop as a side effect.
 	GetAdminForTenantChoice(ctx context.Context, arg GetAdminForTenantChoiceParams) (GetAdminForTenantChoiceRow, error)
 	// departments.sql -- tenant-scoped department reads. Every query carries an
 	// explicit tenant_id filter (CLAUDE.md section 4.5, belt + braces on RLS) and
@@ -990,6 +1025,19 @@ type Querier interface {
 	// The row is matched regardless of its revocation state, so pgx.ErrNoRows means
 	// "no such session in this tenant", which is a genuinely different outcome from
 	// "already revoked" and callers must be able to tell them apart.
+	//
+	// ⚠️ THE COALESCE IS LOAD-BEARING UNDER CONCURRENCY, NOT JUST TIDY -- a note for
+	// whoever writes the NEXT revocation query (M7-04's password reset, or the same
+	// trigger reused on `sessions`). Measured: with T1 holding the row lock, T2's
+	// COALESCE is RE-EVALUATED against T1's committed row, so T2 writes the identical
+	// value, the trigger's IS DISTINCT FROM is false and nothing fires. Both queries in
+	// this file are safe for that reason -- COALESCE here, `revoked_at IS NULL` in
+	// RevokeAdminSessionsForAdmin -- and NOT because the trigger tolerates races.
+	// A future `SET revoked_at = now()` with neither guard RAISES on the second
+	// concurrent writer; the exception rolls back the whole transaction, so "sign out
+	// everywhere" reports FAILURE and the session KEEPS LIVING. That is fail-OPEN, out
+	// of a mechanism whose purpose was to make revocation stronger. Rule: every write
+	// to revoked_at carries COALESCE(revoked_at, ...) or an `IS NULL` predicate.
 	RevokeAdminSession(ctx context.Context, arg RevokeAdminSessionParams) (RevokeAdminSessionRow, error)
 	// Revokes EVERY live session of one admin and returns the ids it revoked (empty
 	// when there was nothing live -- idempotent). This is "sign out everywhere": the

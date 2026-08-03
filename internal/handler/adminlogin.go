@@ -1,0 +1,1044 @@
+package handler
+
+import (
+	"context"
+	"errors"
+	"log/slog"
+	"net/http"
+	"strings"
+
+	"github.com/a-h/templ"
+	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
+
+	"github.com/atknatk/tappa/internal/adminauth"
+	"github.com/atknatk/tappa/internal/audit"
+	"github.com/atknatk/tappa/internal/config"
+	"github.com/atknatk/tappa/internal/httpx"
+	"github.com/atknatk/tappa/web/templates/pages"
+)
+
+// adminAuthenticator is the slice of adminauth.Manager this package needs,
+// declared HERE at the consumer (section 7).
+type adminAuthenticator interface {
+	Authenticate(ctx context.Context, email, password string) (adminauth.Authentication, error)
+	TenantChoices(ctx context.Context, verified []adminauth.Verified) ([]adminauth.Choice, error)
+	Issue(ctx context.Context, v adminauth.Verified) (adminauth.Issued, error)
+	Verify(ctx context.Context, t adminauth.Token) (adminauth.Resolved, error)
+	Revoke(ctx context.Context, tenantID, sessionID uuid.UUID) error
+}
+
+// Audit actions written by the panel auth flow. The vocabulary is free text by
+// schema decision (00005), so these constants are the vocabulary.
+const (
+	ActionAdminLoginSucceeded = "admin.login.succeeded"
+	ActionAdminLoginFailed    = "admin.login.failed"
+	ActionAdminLoginLimited   = "admin.login.rate_limited"
+	ActionAdminLoginRefused   = "admin.login.tenant_refused"
+	ActionAdminLoggedOut      = "admin.logout"
+)
+
+// AdminAuth serves panel authentication: the login screen, the "which business?"
+// picker, sign-out, and the one protected placeholder M6-02 will build the
+// dashboard onto.
+//
+// ROUTES, AND WHY EACH EXISTS:
+//
+//	GET  /admin/login         the form. Mints the synchronizer token and the value
+//	                          the choice blob is bound to.
+//	POST /admin/login         resolves the email GLOBALLY, verifies the password
+//	                          against every candidate it is willing to compare, and
+//	                          either issues a session (one match) or hands off to
+//	                          the picker (several).
+//	GET  /admin/login/choose  the picker. Reads the SIGNED verified set from an
+//	                          HttpOnly cookie and shows one row per business.
+//	POST /admin/login/choose  re-proves membership of the signed set, then issues.
+//	POST /admin/logout        revokes the session and clears the cookie.
+//	GET  /admin               protected placeholder. NOT the dashboard (M6-02).
+//
+// EVERYTHING IS UNDER /admin, and that is a requirement rather than tidiness: the
+// panel cookie is Path=/admin (adminauth.CookiePath), so a route outside that
+// prefix would arrive with no cookie and look permanently signed out.
+//
+// WHY THE PICKER IS A SEPARATE GET RATHER THAN THE POST'S RESPONSE. A rendered POST
+// means a refresh re-submits the PASSWORD. With the 303 the picker is a plain page
+// load, refreshable, and the password exists for exactly one request.
+//
+// WHAT THIS FLOW DELIBERATELY DOES NOT DO:
+//
+//   - It does not tell anyone whether an email exists. See renderLoginFailure.
+//   - It does not lock an account out. See adminratelimit.go for the two readings
+//     and why the address is metered instead.
+//   - It does not read the panel cookie on GET /admin/login to "helpfully" skip a
+//     login somebody is already signed in for. That would put a resolver read plus
+//     an UPDATE on an unauthenticated endpoint for a convenience, and the cost of
+//     NOT doing it is one extra click.
+type AdminAuth struct {
+	admins adminAuthenticator
+	audit  auditRecorder
+	// cookies writes the PANEL SESSION cookie (internal/adminauth owns its
+	// attributes).
+	cookies adminauth.Cookies
+	// short writes the two SHORT-LIVED auth cookies: the synchronizer token and
+	// the signed verified-candidate set (logincontext.go).
+	short   adminCookies
+	choices adminChoices
+	// baseURL is this deployment's own origin, for the Origin header check.
+	baseURL string
+
+	// See adminratelimit.go for why there are three and what each may refuse.
+	floodLimiter   *limiter
+	attemptLimiter *limiter
+	accountLimiter *limiter
+	sessionLimiter *limiter
+	logoutLimiter  *limiter
+
+	log *slog.Logger
+}
+
+// NewAdminAuth wires the flow. Every dependency is required: a nil recorder would
+// silently drop the section 4.6 trail and a nil manager cannot fail safely.
+func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, cfg *config.Config, log *slog.Logger) (*AdminAuth, error) {
+	switch {
+	case admins == nil:
+		return nil, errors.New("handler: nil admin authenticator")
+	case rec == nil:
+		return nil, errors.New("handler: nil audit recorder")
+	case cfg == nil:
+		return nil, errors.New("handler: nil config")
+	}
+	choices, err := newAdminChoices(cfg)
+	if err != nil {
+		return nil, err
+	}
+	if log == nil {
+		log = slog.Default()
+	}
+	return &AdminAuth{
+		admins:         admins,
+		audit:          rec,
+		cookies:        adminauth.NewCookies(cfg),
+		short:          newAdminCookies(cfg),
+		choices:        choices,
+		baseURL:        originOf(cfg.BaseURL),
+		floodLimiter:   newLimiter(adminFloodLimit, adminFloodPeriod),
+		attemptLimiter: newLimiter(adminAttemptLimit, adminAttemptPeriod),
+		accountLimiter: newLimiter(adminAccountLimit, adminAccountPeriod),
+		sessionLimiter: newLimiter(adminSessionLimit, adminSessionPeriod),
+		logoutLimiter:  newLimiter(adminLogoutLimit, adminLogoutPeriod),
+		log:            log,
+	}, nil
+}
+
+// Mount registers the routes on r.
+//
+// The protected group carries httpx.RequireAdmin, which is what M6-02 mounts the
+// dashboard inside. Everything it guards costs one resolver read plus one UPDATE
+// per request (adminauth.Manager.Verify), so it is applied to the group and never
+// globally.
+func (a *AdminAuth) Mount(r chi.Router) {
+	r.Get("/admin/login", a.LoginPage)
+	r.Post("/admin/login", a.Login)
+	r.Get("/admin/login/choose", a.ChoosePage)
+	r.Post("/admin/login/choose", a.Choose)
+
+	// THE DASHBOARD GROUP. Protect() carries the whole chain, so M6-02 mounts
+	// inside this group — or uses Protect() in its own — and inherits every stage.
+	r.Group(func(r chi.Router) {
+		r.Use(a.Protect())
+		r.Get("/admin", a.Home)
+	})
+
+	// 🔴 SIGN-OUT IS A SEPARATE GROUP, AND THE REASON IS AN INVARIANT: ENDING YOUR
+	// OWN SESSION MUST NOT BE REFUSABLE BY A THIRD PARTY.
+	//
+	// Round 12 put the refusing address gate in front of both protected routes. An
+	// audit measured what that bought: an operator's own 100 page loads spent half
+	// the window, somebody sharing the address key (one NAT, one IPv6 /64) spent the
+	// rest, and the victim's POST /admin/logout came back 429 with the session still
+	// LIVE. Nothing else could have ended it: "sign out everywhere" has no route
+	// mounted, disabling an admin is M6-05, and there is no server-side expiry.
+	//
+	// 🔴 ROUND 14 THEN OVERCORRECTED, AND AN AUDIT MEASURED THAT TOO. Exempting
+	// sign-out from refusal entirely did not make it "unbudgeted", it made it
+	// UNBOUNDED — a different threat model and a worse one:
+	//
+	//	10000 anonymous POST /admin/logout, ONE address, Origin set
+	//	  -> 10000 resolver reads, codes {303: 10000}, nothing refused
+	//	CONTROL, 10000 anonymous GET /admin
+	//	  -> 3000 reads, {303: 3000, 429: 7000}
+	//
+	// One route with no ceiling at all, on the SAME connection pool the tap surface
+	// depends on. The choice had been framed as a binary — refuse (lockout) or never
+	// refuse (unbounded) — and there is a third option, which is what this group now
+	// does: sign-out gets its OWN ceiling, ten times the panel's.
+	//
+	// WHAT THAT TRADES, EXACTLY, because it is a weaker invariant than round 14's
+	// and must not be described as the same one:
+	//	BEFORE  a third party could never refuse your sign-out; an anonymous caller
+	//	        could make unlimited resolver reads on this route.
+	//	NOW     a third party must spend adminLogoutLimit requests in one window to
+	//	        refuse your sign-out — 30000, ten times what it takes to deny the
+	//	        rest of the panel, and loud in the flood log — and the amplifier is
+	//	        bounded at the same number.
+	// A legitimate operator signs out a handful of times per window and cannot
+	// approach it (measured: TestAdminLogout_CannotBeBlockedByAThirdParty burns BOTH
+	// the panel ceiling and 3000 sign-outs, and the victim still signs out).
+	//
+	// THE CHAIN:
+	//	logoutGate      sign-out's own wide ceiling — the ONLY thing that may refuse
+	//	                here, and it is deliberately not the panel's bucket.
+	//	meterOnly       still charges the PANEL bucket so this route cannot be used
+	//	                as a free amplifier for the routes that share it.
+	//	sameOriginGate  a FREE refusal, BEFORE the resolver, so a browser-driven
+	//	                cross-site flood costs zero database work. Defence in depth,
+	//	                not the bound: curl sets an Origin header trivially.
+	//	requireAdmin    the gate itself.
+	r.Group(func(r chi.Router) {
+		r.Use(a.logoutGate)
+		r.Use(a.meterOnly("admin_logout"))
+		r.Use(a.sameOriginGate)
+		r.Use(a.requireAdmin())
+		r.Post("/admin/logout", a.Logout)
+	})
+}
+
+// floodGate is the per-address ceiling as a middleware, so it can be mounted in
+// front of the resolver rather than called from inside a handler.
+//
+// It is the same budget and the same counter the four unauthenticated auth routes
+// charge (a.flooded); nothing new is introduced. M6-02 mounts the dashboard inside
+// this group and inherits it.
+func (a *AdminAuth) floodGate(where string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if a.flooded(w, r, clientIP(r), where) {
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// meterOnly charges the address budget and NEVER refuses. It keeps a route from
+// being a free amplifier for the budget the other routes rely on, without letting
+// a third party turn that budget into a lockout.
+func (a *AdminAuth) meterOnly(where string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if n := a.floodLimiter.Charge(clientIP(r)); a.floodLimiter.FirstOverLimit(n) {
+				a.log.Warn("panel auth flood ceiling reached (metered, not refused)",
+					"ip", clientIP(r), "at", where, "limit", adminFloodLimit)
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// logoutGate is sign-out's own address ceiling: very wide, and separate from the
+// panel's so that burning one cannot deny the other. See the sign-out group for
+// the invariant it trades and the measurement behind it.
+func (a *AdminAuth) logoutGate(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ip := clientIP(r)
+		if n := a.logoutLimiter.Charge(ip); n > adminLogoutLimit {
+			if a.logoutLimiter.FirstOverLimit(n) {
+				a.log.Warn("panel sign-out ceiling reached", "ip", ip,
+					"limit", adminLogoutLimit, "period", adminLogoutPeriod.String())
+			}
+			a.renderProblem(w, r, http.StatusTooManyRequests, problemAdminTooMany)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// sameOriginGate refuses a cross-origin request BEFORE the resolver runs, so the
+// refusal is free. Defence in depth only — an attacker who is not a browser sets
+// the header themselves.
+func (a *AdminAuth) sameOriginGate(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !a.sameOrigin(r) {
+			a.log.Warn("panel sign-out refused: not same-origin", "ip", clientIP(r))
+			a.redirect(w, "/admin")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// sessionGate is the THIRD stage: a per-session budget, applied AFTER the identity
+// is known and keyed on the session's own UUID. It bounds what one session can do
+// without letting anybody else spend that budget.
+func (a *AdminAuth) sessionGate(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		id := httpx.AdminOf(r)
+		if !id.Live() {
+			next.ServeHTTP(w, r)
+			return
+		}
+		key := id.Admin.SessionID.String()
+		if n := a.sessionLimiter.Charge(key); n > adminSessionLimit {
+			if a.sessionLimiter.FirstOverLimit(n) {
+				a.log.Warn("panel session budget reached", "session_id", key,
+					"limit", adminSessionLimit, "period", adminSessionPeriod.String())
+			}
+			a.renderProblem(w, r, http.StatusTooManyRequests, problemAdminTooMany)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// requireAdmin is the bare gate, without any budget. Only the sign-out group uses
+// it directly; everything else goes through Protect.
+func (a *AdminAuth) requireAdmin() func(http.Handler) http.Handler {
+	return httpx.RequireAdmin(a.cookies, a.admins, http.HandlerFunc(a.requireLogin))
+}
+
+// Protect is the middleware M6-02 puts in front of every dashboard route. It is
+// exported so the dashboard does not have to know how an admin is resolved, and so
+// there is exactly ONE place that decides what an unauthenticated panel request
+// gets.
+// 🔴 IT CARRIES THE BUDGETS, NOT JUST THE GATE, and that is a correction. Round 12
+// added the address shield inside Mount's own group while leaving this EXPORTED
+// symbol as the bare gate — so an M6-02 that mounted the dashboard in its own
+// group with a.Protect() would have reinstated the unbudgeted resolver read that
+// round 12 existed to close. The guarantee lived in a comment saying "M6-02 mounts
+// inside this group"; nothing enforced it, and the exported symbol was the one
+// WITHOUT the protection. Composing here makes the safe thing the only thing a
+// caller can reach.
+func (a *AdminAuth) Protect() func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		// Order is tap.go's, and it is load-bearing: shield -> identity -> session
+		// budget. The shield must precede the resolver (it is what bounds the cost
+		// of an anonymous caller) and the session budget must follow it (it needs
+		// an identity to key on).
+		return a.floodGate("admin_panel")(a.requireAdmin()(a.sessionGate(next)))
+	}
+}
+
+// requireLogin is what an unauthenticated panel request lands on: a 303 to the
+// login form.
+//
+// A DATABASE FAILURE GETS THE SAME REDIRECT but a different LOG LINE. Telling the
+// visitor two stories would mean the panel announcing its own outage to anyone who
+// asks; not telling OURSELVES would mean an outage looking like a wave of expired
+// sessions.
+func (a *AdminAuth) requireLogin(w http.ResponseWriter, r *http.Request) {
+	if err := httpx.AdminOf(r).Err; err != nil {
+		a.log.Error("panel: could not resolve the admin session", "err", err)
+	}
+	a.redirect(w, "/admin/login")
+}
+
+// The failure screens. problemAdminRestart is ONE value used for several internal
+// outcomes, exactly as problemBadLink is in the activation flow, and for the same
+// reason: the distinction belongs in audit_log, not in a response body.
+var (
+	problemAdminNoCookie = pages.ProblemView{
+		Title:   "Your browser didn't keep the sign-in",
+		Message: "Tappa needs a cookie to sign you in, and this browser is not storing one.",
+		Hint:    "Allow cookies for this site, or turn off private browsing, then try again.",
+	}
+	problemAdminRestart = pages.ProblemView{
+		Title:   "That sign-in step expired",
+		Message: "The choice of business is only valid for a few minutes.",
+		Hint:    "Start again from the sign-in page.",
+	}
+	problemAdminTooMany = pages.ProblemView{
+		Title:   "Too many attempts",
+		Message: "We have stopped accepting sign-ins from here for a few minutes.",
+		Hint:    "Wait a little and try again.",
+	}
+	problemAdminServer = pages.ProblemView{
+		Title:   "Something went wrong on our side",
+		Message: "You were not signed in and nothing was changed.",
+		Hint:    "Try again in a minute.",
+	}
+)
+
+// LoginPage serves GET /admin/login: mint the synchronizer token and render the
+// form.
+func (a *AdminAuth) LoginPage(w http.ResponseWriter, r *http.Request) {
+	ip := clientIP(r)
+	if a.flooded(w, r, ip, "admin_login_page") {
+		return
+	}
+	// A FRESH pair on every render, rather than reusing an existing cookie. It
+	// costs 64 bytes of randomness and it means a token left in a shared browser is
+	// superseded the moment anyone loads the page again.
+	st, err := newAdminLoginState()
+	if err != nil {
+		// The message says "csrf" rather than the word redline R7 matches
+		// inside a log call: an innocent MESSAGE reddening CI is how a net gets
+		// loosened under pressure (activate.go states the same reasoning).
+		a.log.Error("panel: minting the sign-in csrf value failed", "err", err)
+		a.renderProblem(w, r, http.StatusInternalServerError, problemAdminServer)
+		return
+	}
+	a.short.setLogin(w, st)
+	// Any choice blob from an abandoned attempt is dead the moment a new login
+	// starts: leaving it would let a stale verified set survive into a new attempt.
+	a.short.clear(w, adminChoiceCookieName)
+	a.render(w, r, http.StatusOK, pages.AdminLogin(pages.AdminLoginView{CSRFToken: st.csrf}))
+}
+
+// Login serves POST /admin/login.
+//
+// ORDER OF CHECKS, and why each is where it is:
+//
+//	flood ceiling     BEFORE anything; the only position a limiter can shed load.
+//	Origin            strict. A cross-origin POST here would be login CSRF, whose
+//	                  result is the VICTIM signed in as the ATTACKER.
+//	login cookie      no cookie means no synchronizer token to compare.
+//	form parse
+//	synchronizer      the load-bearing CSRF check.
+//	attempt budget    BEFORE the password work, because the password work is the
+//	                  expensive thing it exists to bound (~380 ms per candidate).
+//	Authenticate      the resolver, the bcrypt loop and the dummy, all inside
+//	                  adminauth so no handler can skip one.
+func (a *AdminAuth) Login(w http.ResponseWriter, r *http.Request) {
+	ip := clientIP(r)
+	if a.flooded(w, r, ip, "admin_login") {
+		return
+	}
+	st, ok := a.beginPost(w, r, ip, "admin_login")
+	if !ok {
+		return
+	}
+
+	// THE BUDGET IS CHECKED BEFORE THE FAILURE IS COUNTED, so exactly
+	// adminAttemptLimit failures are answered normally and the next one is refused
+	// — rather than the limit-th request being the one that trips.
+	if !a.attemptLimiter.Allowed(ip) {
+		// The refusal itself is charged (ratelimit.go's rule: a limiter whose own
+		// refusals are free is a cheaper way to reach the thing it protects), and
+		// the log line is written once per window.
+		if n := a.attemptLimiter.Charge(ip); a.attemptLimiter.FirstOverLimit(n) {
+			a.log.Warn("panel sign-in rate limited", "scope", "address", "ip", ip,
+				"limit", adminAttemptLimit, "period", adminAttemptPeriod.String())
+		}
+		a.renderProblem(w, r, http.StatusTooManyRequests, problemAdminTooMany)
+		return
+	}
+
+	// The email is normalised only by trimming surrounding whitespace. CASE IS NOT
+	// touched here: admin_users.email is citext and migration 00011's resolver
+	// compares with OPERATOR(public.=), so the DATABASE is the single authority on
+	// what "the same address" means. Lower-casing in Go would be a SECOND
+	// canonicalisation, which is the M5-01/02/03 failure class ("a check and its
+	// consumer must see the same representation; the fix is to delete the second
+	// representation, not to teach it twice").
+	email := strings.TrimSpace(r.PostFormValue("email"))
+	password := r.PostFormValue("password")
+
+	auth, err := a.admins.Authenticate(r.Context(), email, password)
+	if err != nil && !errors.Is(err, adminauth.ErrBadCredentials) {
+		// A database or internal failure is NOT bad credentials: saying so would
+		// tell every operator at once that their password stopped working, and would
+		// hide an outage behind a UX message.
+		a.log.Error("panel sign-in failed", "err", err)
+		a.renderProblem(w, r, http.StatusInternalServerError, problemAdminServer)
+		return
+	}
+	if auth.Truncated() {
+		// The one signal that keeps the lockout named at adminauth.MaxCandidates
+		// from being invisible. No email in the line (section 4.7 spirit: an address
+		// is personal data and this line is written on an unauthenticated path).
+		a.log.Warn("panel sign-in: candidate list was truncated by the per-request cap",
+			"ip", ip, "resolved", auth.Resolved, "compared", len(auth.Attempts))
+	}
+	if err != nil {
+		a.failLogin(w, r, ip, st, auth)
+		return
+	}
+
+	verified := auth.Verified()
+	if len(verified) == 1 {
+		// The ordinary path, and the reason the signed blob is off it entirely.
+		a.completeLogin(w, r, ip, verified[0])
+		return
+	}
+
+	blob, err := a.choices.mint(verified, st.bind)
+	if err != nil {
+		a.log.Error("panel sign-in: minting the business choice failed", "err", err)
+		a.renderProblem(w, r, http.StatusInternalServerError, problemAdminServer)
+		return
+	}
+	a.short.set(w, adminChoiceCookieName, blob, adminChoiceCookieMaxAge)
+	a.redirect(w, "/admin/login/choose")
+}
+
+// ChoosePage serves GET /admin/login/choose: the "which business?" screen.
+//
+// THE BUSINESS NAMES ARE READ HERE AND NOT EARLIER, which is migration 00011's
+// requirement and not an implementation detail: resolve_admin_by_email
+// deliberately does not touch `tenants`, because a business name reachable before
+// authentication is itself an enumeration signal. GetAdminForTenantChoice runs
+// inside each tenant's own context and only after a password has verified.
+func (a *AdminAuth) ChoosePage(w http.ResponseWriter, r *http.Request) {
+	ip := clientIP(r)
+	if a.flooded(w, r, ip, "admin_choose_page") {
+		return
+	}
+	st, verified, ok := a.readChoice(w, r)
+	if !ok {
+		return
+	}
+	choices, err := a.admins.TenantChoices(r.Context(), verified)
+	if err != nil {
+		a.log.Error("panel sign-in: reading the business list failed", "err", err)
+		a.renderProblem(w, r, http.StatusInternalServerError, problemAdminServer)
+		return
+	}
+	if len(choices) == 0 {
+		// Every verified identity was disabled between the password check and this
+		// read. There is nothing to offer and nothing to explain to the visitor.
+		//
+		// 🔴 BUT IT MUST NOT BE SILENT, AND FOR ONE ROUND IT WAS. This branch used to
+		// end with "the audit trail already carries the successful comparison", and a
+		// closing audit measured that to be FALSE: the multi-candidate branch of
+		// Login mints the blob and answers 303 without a.record or a.log,
+		// internal/adminauth writes no audit rows at all, and every a.record call
+		// site is on a different path. So a password that VERIFIED against two or
+		// more real accounts left no trace anywhere if those accounts were disabled
+		// between the two steps.
+		//
+		// That is the M5-11 class exactly — a sentence declaring a trail the system
+		// does not produce, which tells the next reader not to look. The row is
+		// written instead of the sentence being softened, because section 4.6 wants
+		// a refused attempt visible and this one is genuinely interesting: somebody
+		// held a correct password for accounts that have just been switched off.
+		//
+		// It is attributable: verified[0] is an identity whose digest verified, so
+		// the tenant is one this request authenticated against — never a tenant the
+		// caller merely named.
+		if len(verified) > 0 {
+			a.record(r.Context(), audit.Event{
+				TenantID: verified[0].TenantID,
+				ActorID:  &verified[0].AdminUserID,
+				Action:   ActionAdminLoginFailed,
+				Target:   verified[0].AdminUserID.String(),
+				Detail: adminLoginDetail{
+					Outcome:          "rejected",
+					Reason:           "password verified but every business was disabled before the choice",
+					VerifiedBusiness: len(verified),
+				},
+			})
+		}
+		a.log.Warn("panel sign-in: every verified business was disabled before the choice",
+			"ip", clientIP(r), "verified", len(verified))
+		a.resetLogin(w)
+		a.renderProblem(w, r, http.StatusOK, problemAdminRestart)
+		return
+	}
+	v := pages.AdminChooseView{CSRFToken: st.csrf}
+	for _, c := range choices {
+		v.Businesses = append(v.Businesses, pages.AdminBusiness{
+			TenantID:   c.TenantID.String(),
+			TenantName: c.TenantName,
+			Role:       c.Role,
+		})
+	}
+	a.render(w, r, http.StatusOK, pages.AdminChoose(v))
+}
+
+// Choose serves POST /admin/login/choose — the second half of PHASE B OBLIGATION
+// 5.
+//
+// The posted tenant is checked against the AUTHENTICATED set (selectVerified), so
+// a client that posts a tenant it did not authenticate for is refused. That check
+// is the whole reason this endpoint exists as a separate step rather than trusting
+// the picker's markup.
+func (a *AdminAuth) Choose(w http.ResponseWriter, r *http.Request) {
+	ip := clientIP(r)
+	if a.flooded(w, r, ip, "admin_choose") {
+		return
+	}
+	if !a.sameOrigin(r) {
+		a.log.Warn("panel business choice refused: not same-origin", "ip", ip)
+		a.renderProblem(w, r, http.StatusBadRequest, problemAdminRestart)
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		a.renderProblem(w, r, http.StatusBadRequest, problemAdminServer)
+		return
+	}
+	st, verified, ok := a.readChoice(w, r)
+	if !ok {
+		return
+	}
+	if !st.csrfMatches(r.PostFormValue("csrf")) {
+		a.log.Warn("panel business choice refused: csrf mismatch", "ip", ip)
+		a.renderProblem(w, r, http.StatusBadRequest, problemAdminRestart)
+		return
+	}
+
+	tenantID, err := uuid.Parse(r.PostFormValue("tenant_id"))
+	if err != nil {
+		a.renderProblem(w, r, http.StatusBadRequest, problemAdminRestart)
+		return
+	}
+	chosen, ok := selectVerified(verified, tenantID)
+	if !ok {
+		// 🔴 THE CROSS-TENANT AUTHENTICATION BYPASS, REFUSED. Somebody posted a
+		// tenant that is not in the set their password verified against. It is
+		// loud: an error-level log AND an audit row.
+		//
+		// THE ROW IS WRITTEN INTO A TENANT WE DID AUTHENTICATE FOR, never into the
+		// posted one. Writing into the posted tenant would BE the cross-tenant
+		// write this endpoint exists to refuse — it would hand an unauthenticated
+		// caller a way to append rows to any tenant's undeletable audit_log.
+		a.log.Error("panel business choice refused: tenant not in the verified set",
+			"ip", ip, "attempted_tenant_id", tenantID)
+		if len(verified) > 0 {
+			a.record(r.Context(), audit.Event{
+				TenantID: verified[0].TenantID,
+				ActorID:  &verified[0].AdminUserID,
+				Action:   ActionAdminLoginRefused,
+				Target:   verified[0].AdminUserID.String(),
+				Detail: adminLoginDetail{
+					Outcome:          "refused",
+					Reason:           "chosen business was not in the verified set",
+					AttemptedTenant:  tenantID.String(),
+					VerifiedBusiness: len(verified),
+				},
+			})
+		}
+		a.resetLogin(w)
+		a.renderProblem(w, r, http.StatusBadRequest, problemAdminRestart)
+		return
+	}
+	a.completeLogin(w, r, ip, chosen)
+}
+
+// completeLogin issues the session, writes the cookie, records the success and
+// sends the operator to the panel.
+//
+// THE SHORT-LIVED COOKIES ARE CLEARED HERE, on the path that completes the login.
+// A choice blob is a bearer credential for the accounts inside it
+// (logincontext.go), and leaving one in a browser is a habit worth not forming.
+//
+// ⚠️ CLEARING IS NOT INVALIDATING, and the earlier wording ("the one path that
+// SPENDS them") implied it was. The blob carries no server-side use count: a caller
+// that kept a copy can present it again until the five-minute TTL expires, and
+// TestAdminChoose_BlobIsNotSingleUse measures exactly that (session count 1 -> 2).
+// What does not change is the SET — every replay is still confined to businesses
+// whose password verified in the same attempt, which is the obligation.
+func (a *AdminAuth) completeLogin(w http.ResponseWriter, r *http.Request, ip string, v adminauth.Verified) {
+	issued, err := a.admins.Issue(r.Context(), v)
+	if err != nil {
+		// The password was right and the account is active, but no session exists.
+		// This must be visible: it is not "wrong credentials" and telling the
+		// operator so would send them looking for a password problem they do not
+		// have.
+		a.log.Error("panel sign-in: issuing the session failed",
+			"admin_user_id", v.AdminUserID, "err", err)
+		a.renderProblem(w, r, http.StatusInternalServerError, problemAdminServer)
+		return
+	}
+	if err := a.cookies.Set(w, issued.Token); err != nil {
+		// Unreachable in practice (Set fails only on an empty token, and Issue has
+		// already refused to return one), and recorded anyway: it leaves the same
+		// state as the branch above — a live session row nobody can use — so it must
+		// leave the same trail (section 4.6). An unreachable branch still teaches
+		// the next reader what the rule is.
+		a.log.Error("panel sign-in: writing the session cookie failed",
+			"admin_user_id", v.AdminUserID, "err", err)
+		a.record(r.Context(), audit.Event{
+			TenantID: v.TenantID,
+			ActorID:  &v.AdminUserID,
+			Action:   ActionAdminLoginFailed,
+			Target:   v.AdminUserID.String(),
+			Detail: adminLoginDetail{
+				Outcome: "session_cookie_failed",
+				Reason:  "the session was created but its cookie could not be written",
+			},
+		})
+		a.renderProblem(w, r, http.StatusInternalServerError, problemAdminServer)
+		return
+	}
+	a.resetLogin(w)
+	a.record(r.Context(), audit.Event{
+		TenantID: v.TenantID,
+		ActorID:  &v.AdminUserID,
+		Action:   ActionAdminLoginSucceeded,
+		Target:   v.AdminUserID.String(),
+		Detail: adminLoginDetail{
+			Outcome:   "ok",
+			SessionID: issued.Session.ID.String(),
+		},
+	})
+	a.log.Info("panel sign-in", "admin_user_id", v.AdminUserID, "ip", ip)
+	a.redirect(w, "/admin")
+}
+
+// failLogin is the SINGLE exit for every credential failure.
+//
+// 🔴 PHASE B OBLIGATION 1 LIVES IN THIS FUNCTION. "Unknown email", "wrong
+// password" and "disabled admin" reach it through one call site with one argument
+// they cannot influence, and it renders ONE view with ONE status. The three are
+// distinguishable in adminauth.Authentication.Attempts — which is written to
+// audit_log, where the distinction belongs — and nowhere in the response.
+//
+// The BODY is identical byte for byte apart from the synchronizer token, which is
+// per-cookie rather than per-outcome; TestAdminLogin_ThreeFailuresAreByteIdentical
+// pins both readings (same cookie -> literally identical bytes; different cookies
+// -> identical after normalising the one named field).
+func (a *AdminAuth) failLogin(w http.ResponseWriter, r *http.Request, ip string, st adminLoginState, auth adminauth.Authentication) {
+	a.attemptLimiter.Charge(ip)
+
+	// ⚠️ THE AUDIT TRAIL IS ATTRIBUTABLE ONLY WHEN THE EMAIL RESOLVED, AND THAT GAP
+	// IS REAL. The MECHANISM is directly below: with no candidates the loop does not
+	// execute, so nothing is written. The SCHEMA is why the gap is not closed rather
+	// than why it exists — audit_log.tenant_id is NOT NULL with an FK to tenants
+	// (migration 00005), so there is no tenant to attribute an unknown address to,
+	// and db/queries/audit.sql explains at length why no "system tenant" is invented
+	// to paper over it. Those attempts exist in the process log and in the address
+	// budget, and nowhere else.
+	//
+	// (An earlier wording made the NOT NULL constraint the cause of the zero. An
+	// audit separated the two: both facts are true, the causality was shifted.)
+	//
+	// So the M6-01 card's criterion "failed sign-ins are rate limited and written to
+	// audit_log" is met for attempts against a KNOWN address and is NOT met for
+	// attempts against an unknown one. That is stated here rather than left for a
+	// reader to discover from an empty table.
+	for _, at := range auth.Attempts {
+		key := at.AdminUserID.String()
+		if !a.accountLimiter.Allowed(key) {
+			if n := a.accountLimiter.Charge(key); a.accountLimiter.FirstOverLimit(n) {
+				// ONE row saying the trail is being throttled, then silence. The
+				// M5-02 lesson: an append-only table nobody can delete from must
+				// never be reachable without a budget.
+				a.record(r.Context(), audit.Event{
+					TenantID: at.TenantID,
+					ActorID:  &at.AdminUserID,
+					Action:   ActionAdminLoginLimited,
+					Target:   key,
+					Detail: adminLoginDetail{
+						Outcome: "rate_limited",
+						Reason:  "too many failed sign-ins against this account",
+						// The ordinal of the FIRST suppressed attempt. It is the
+						// only count the database can be given at this moment —
+						// see the limit at adminAccountLimit.
+						SuppressedFrom: n,
+					},
+				})
+				a.log.Warn("panel sign-in rate limited", "scope", "account",
+					"admin_user_id", at.AdminUserID, "ip", ip)
+			}
+			continue
+		}
+		a.accountLimiter.Charge(key)
+		reason := "wrong password"
+		if at.PasswordMatched && !at.Active {
+			// A genuinely different security event: the CORRECT password on a
+			// disabled account. The visitor is told nothing extra; the owner's trail
+			// says exactly what happened.
+			reason = "correct password on a disabled account"
+		}
+		a.record(r.Context(), audit.Event{
+			TenantID: at.TenantID,
+			ActorID:  &at.AdminUserID,
+			Action:   ActionAdminLoginFailed,
+			Target:   key,
+			Detail: adminLoginDetail{
+				Outcome:          "rejected",
+				Reason:           reason,
+				VerifiedBusiness: 0,
+			},
+		})
+	}
+	if len(auth.Attempts) == 0 {
+		// Unattributable. Logged WITHOUT the address that was tried (section 4.7
+		// spirit: an email is personal data and this path is unauthenticated, so a
+		// flood of guesses would otherwise write a list of guessed addresses into
+		// the process log).
+		a.log.Info("panel sign-in refused", "reason", "no such admin", "ip", ip)
+	}
+	a.renderLoginFailure(w, r, st)
+}
+
+// renderLoginFailure writes THE one failure response. It is a separate function
+// with no parameters carrying an outcome, so there is no argument through which a
+// caller could vary what a failure looks like.
+func (a *AdminAuth) renderLoginFailure(w http.ResponseWriter, r *http.Request, st adminLoginState) {
+	a.render(w, r, http.StatusUnauthorized, pages.AdminLogin(pages.AdminLoginView{
+		CSRFToken: st.csrf,
+		Failed:    true,
+	}))
+}
+
+// Home serves GET /admin — the protected placeholder.
+//
+// 🔴 IT IS DELIBERATELY EMPTY OF DASHBOARD CONTENT. M6-01 delivers authentication;
+// M6-02 delivers the layout and the docket components, M6-03 the transactions
+// view. What this page proves is that the gate works and that a signed-in operator
+// lands somewhere that knows who they are — nothing else. Adding a number to it
+// would be starting M6-02 inside M6-01.
+func (a *AdminAuth) Home(w http.ResponseWriter, r *http.Request) {
+	id := httpx.AdminOf(r)
+	a.render(w, r, http.StatusOK, pages.AdminHome(pages.AdminHomeView{
+		FullName: id.Admin.FullName,
+		Role:     id.Admin.Role,
+	}))
+}
+
+// Logout serves POST /admin/logout.
+//
+// IT IS BEHIND THE GATE, so the session to revoke is the one the request proved it
+// holds — there is no id to post and therefore nothing to forge.
+//
+// IT IS A POST AND IT CHECKS ORIGIN. A GET would let any page sign an operator out
+// with an <img> tag; that is an annoyance rather than a breach, but it is free to
+// refuse. There is no synchronizer token here because the login cookie that
+// carries one is cleared at sign-in; the Origin check is the whole defence and is
+// stated as such rather than implied.
+func (a *AdminAuth) Logout(w http.ResponseWriter, r *http.Request) {
+	id := httpx.AdminOf(r)
+	if !a.sameOrigin(r) {
+		a.log.Warn("panel sign-out refused: not same-origin", "ip", clientIP(r))
+		a.redirect(w, "/admin")
+		return
+	}
+	if err := a.admins.Revoke(r.Context(), id.Admin.TenantID, id.Admin.SessionID); err != nil {
+		// Clearing the cookie without revoking would leave a live session behind a
+		// browser that thinks it signed out — the worst of both. Say so and keep the
+		// operator on a page that still works.
+		a.log.Error("panel sign-out: revoking the session failed",
+			"admin_user_id", id.Admin.AdminUserID, "err", err)
+		a.renderProblem(w, r, http.StatusInternalServerError, problemAdminServer)
+		return
+	}
+	a.cookies.Clear(w)
+	a.record(r.Context(), audit.Event{
+		TenantID: id.Admin.TenantID,
+		ActorID:  ptr(id.Admin.AdminUserID),
+		Action:   ActionAdminLoggedOut,
+		Target:   id.Admin.AdminUserID.String(),
+		Detail:   adminLoginDetail{Outcome: "ok", SessionID: id.Admin.SessionID.String()},
+	})
+	a.redirect(w, "/admin/login")
+}
+
+// adminLoginDetail is the audit payload for this flow.
+//
+// IT IS A PURPOSE-BUILT STRUCT, NOT A MAP (internal/audit's package doc explains
+// why): there is no field here through which an email, a password or a digest
+// could travel, so no later edit adds one by accident and the section 4.7 promise
+// is a property of the type rather than of the author's memory. Everything in it
+// is an opaque id or a fixed string written in this file.
+type adminLoginDetail struct {
+	Outcome string `json:"outcome"`
+	Reason  string `json:"reason,omitempty"`
+	// SessionID is the panel session this event concerns. It is a row id, never a
+	// token or a hash — neither of those has a field here.
+	SessionID string `json:"session_id,omitempty"`
+	// AttemptedTenant is the tenant a caller asked for and was refused. Present
+	// only on ActionAdminLoginRefused, where it is the whole point of the row.
+	AttemptedTenant string `json:"attempted_tenant,omitempty"`
+	// SuppressedFrom is the attempt ordinal at which this account's audit budget
+	// tripped, i.e. the first failure that was NOT written. It is present only on
+	// ActionAdminLoginLimited and it is a START, not a total — see the limit
+	// documented at adminAccountLimit.
+	SuppressedFrom int `json:"suppressed_from,omitempty"`
+	// VerifiedBusiness is how many businesses the password verified against.
+	VerifiedBusiness int `json:"verified_businesses,omitempty"`
+}
+
+// beginPost runs the checks every state-changing panel auth POST shares: Origin,
+// the login cookie, the form, and the synchronizer token.
+//
+// It returns ok=false having ALREADY answered the request.
+func (a *AdminAuth) beginPost(w http.ResponseWriter, r *http.Request, ip, where string) (adminLoginState, bool) {
+	if !a.sameOrigin(r) {
+		a.log.Warn("panel auth refused: not same-origin", "at", where, "ip", ip)
+		a.renderProblem(w, r, http.StatusBadRequest, problemAdminRestart)
+		return adminLoginState{}, false
+	}
+	st, ok := a.short.readLogin(r)
+	if !ok {
+		// No cookie: either the form was never loaded in this browser, or cookies
+		// are blocked. The screen says which to fix. This is NOT the credential
+		// failure and does not have to look like one — it reveals nothing about any
+		// account, because the branch is decided entirely by the caller's own
+		// request.
+		a.renderProblem(w, r, http.StatusBadRequest, problemAdminNoCookie)
+		return adminLoginState{}, false
+	}
+	if err := r.ParseForm(); err != nil {
+		a.renderProblem(w, r, http.StatusBadRequest, problemAdminServer)
+		return adminLoginState{}, false
+	}
+	if !st.csrfMatches(r.PostFormValue("csrf")) {
+		// An attack signal, not a user slip. It is NOT charged to the attempt
+		// budget: that budget's meaning is "logins that made the server run bcrypt",
+		// and this one is refused before any password work happens. The flood
+		// ceiling has already been charged.
+		a.log.Warn("panel auth refused: csrf mismatch", "at", where, "ip", ip)
+		a.renderProblem(w, r, http.StatusBadRequest, problemAdminRestart)
+		return adminLoginState{}, false
+	}
+	return st, true
+}
+
+// readChoice reads and verifies the signed candidate set for both halves of the
+// picker. It returns ok=false having already answered.
+func (a *AdminAuth) readChoice(w http.ResponseWriter, r *http.Request) (adminLoginState, []adminauth.Verified, bool) {
+	st, ok := a.short.readLogin(r)
+	if !ok {
+		a.renderProblem(w, r, http.StatusBadRequest, problemAdminNoCookie)
+		return adminLoginState{}, nil, false
+	}
+	ck, err := r.Cookie(adminChoiceCookieName)
+	if err != nil || ck.Value == "" {
+		a.renderProblem(w, r, http.StatusBadRequest, problemAdminRestart)
+		return adminLoginState{}, nil, false
+	}
+	verified, err := a.choices.parse(ck.Value, st.bind)
+	if err != nil {
+		// A stale blob and a tampered one get the SAME screen; the difference is
+		// only in what we log. A signature failure is worth an error line because it
+		// means somebody presented a value this deployment did not mint (or minted
+		// for a different browser); an expiry is ordinary.
+		if errors.Is(err, errChoiceSignature) || errors.Is(err, errChoiceMalformed) {
+			a.log.Error("panel business choice rejected", "ip", clientIP(r), "err", err)
+		}
+		a.resetLogin(w)
+		a.renderProblem(w, r, http.StatusBadRequest, problemAdminRestart)
+		return adminLoginState{}, nil, false
+	}
+	return st, verified, true
+}
+
+// resetLogin expires both short-lived cookies. Called when they are spent and when
+// they are refused, so a dead credential never lingers in a browser.
+func (a *AdminAuth) resetLogin(w http.ResponseWriter) {
+	a.short.clear(w, adminChoiceCookieName)
+	a.short.clear(w, adminLoginCookieName)
+}
+
+// flooded is the entry gate on every panel auth handler. It reports true (and has
+// already answered) when this address is over the ceiling.
+//
+// IT WRITES NO AUDIT ROW, a stated limit rather than an oversight: the check runs
+// before any credential is resolved, so no tenant is known, and resolving one
+// first would defeat the only purpose of a pre-database shield. The trail for a
+// flooded caller is the process log, written once per window so the shield cannot
+// be turned into an unbounded disk writer.
+func (a *AdminAuth) flooded(w http.ResponseWriter, r *http.Request, ip, where string) bool {
+	n := a.floodLimiter.Charge(ip)
+	if n <= adminFloodLimit {
+		return false
+	}
+	if a.floodLimiter.FirstOverLimit(n) {
+		a.log.Warn("panel auth flood ceiling reached", "ip", ip, "at", where,
+			"limit", adminFloodLimit, "period", adminFloodPeriod.String())
+	}
+	a.renderProblem(w, r, http.StatusTooManyRequests, problemAdminTooMany)
+	return true
+}
+
+// sameOrigin checks the Origin header against this deployment's own, STRICTLY: an
+// absent Origin falls back to the fetch metadata and is refused if that is missing
+// too.
+//
+// STRICT ON EVERY PANEL POST, unlike the activation flow's Submit, which allows an
+// absent header and leans on its synchronizer token. Two reasons the trade is
+// different here: the audience is a desktop browser signing into an administrative
+// panel rather than an arbitrary phone at a plaque, and every browser that can run
+// the panel sends Origin on a cross-origin POST. What refusing buys is the ONE
+// attack the synchronizer token cannot stop — an attacker who completes step 1 in
+// their own browser holds a matching (cookie, token) pair and can plant both, so
+// the token matches and only the Origin does not.
+//
+// IT IS A SEPARATE FUNCTION FROM Activation.sameOrigin, DELIBERATELY. The two are
+// near-identical and merging them would be the tidier diff, but the activation
+// version carries a `strict` flag whose two settings were argued over four audit
+// rounds, and re-shaping it as a side effect of adding a panel is how a settled
+// flow acquires an unreviewed change. The duplication is named so it is a decision
+// rather than an accident.
+//
+// A malformed configured BaseURL makes this check pass; config.Load does not
+// validate the URL's shape and this is not the place to start (the same note
+// session.NewCookies carries).
+func (a *AdminAuth) sameOrigin(r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+	if origin == "" || origin == "null" {
+		switch strings.ToLower(strings.TrimSpace(r.Header.Get("Sec-Fetch-Site"))) {
+		case "same-origin", "same-site":
+			return true
+		default:
+			return false
+		}
+	}
+	return strings.EqualFold(strings.TrimRight(origin, "/"), strings.TrimRight(a.baseURL, "/"))
+}
+
+// record writes an audit event and never lets its failure change the outcome of
+// the request — but never swallows it either (section 7): a trail that cannot be
+// written is an ERROR, because it means section 4.6 is not being kept.
+func (a *AdminAuth) record(ctx context.Context, e audit.Event) {
+	if _, err := a.audit.Record(ctx, e); err != nil {
+		a.log.Error("audit write failed", "action", e.Action, "err", err)
+	}
+}
+
+// ptr is the one-line helper for audit.Event.ActorID, which is a *uuid.UUID
+// because migration 00005 makes the column polymorphic and nullable.
+func ptr(id uuid.UUID) *uuid.UUID { return &id }
+
+// render writes one component with the headers every panel auth screen needs.
+//
+// Cache-Control: no-store on all of them, failure pages included. These responses
+// carry an operator's name and a synchronizer token; a back button on a shared
+// machine must not resurrect either, and no intermediary should keep a copy.
+//
+// THE CSP IS SET HERE, which the activation family does NOT do (tap.go sets it,
+// the nine activation screens do not — a known asymmetry M5-02 left behind). These
+// screens carry PASSWORD FORMS, so the new surface starts with the header rather
+// than inheriting the gap. form-action 'self' is the one directive with a concrete
+// threat behind it here: a browser that honours it will not let a password form be
+// repointed at another host.
+func (a *AdminAuth) render(w http.ResponseWriter, r *http.Request, status int, c templ.Component) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Content-Security-Policy", adminCSP)
+	w.WriteHeader(status)
+	if err := c.Render(r.Context(), w); err != nil {
+		// The status line is already on the wire, so there is nothing to send but a
+		// log line. Never swallowed (section 7).
+		a.log.Error("rendering the panel page failed", "err", err)
+	}
+}
+
+func (a *AdminAuth) renderProblem(w http.ResponseWriter, r *http.Request, status int, v pages.ProblemView) {
+	a.render(w, r, status, pages.Problem(v))
+}
+
+// redirect answers 303 See Other: the browser follows with GET, which turns a POST
+// into a plain page load and makes a refresh harmless.
+func (a *AdminAuth) redirect(w http.ResponseWriter, to string) {
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Location", to)
+	w.WriteHeader(http.StatusSeeOther)
+}
+
+// adminCSP is the content policy for the panel auth screens.
+//
+// It is tap.go's policy WITHOUT script-src: none of these screens loads a script,
+// so naming one would widen the policy for nothing. default-src 'none' already
+// forbids scripts, and dropping the directive means adding a script later is a
+// visible edit here rather than a silent inheritance.
+//
+//	default-src 'none'      nothing loads unless named below
+//	style-src / font-src    our own origin only; there is no CDN to allow
+//	form-action 'self'      a password form cannot be repointed at another host
+//	base-uri 'none'         a <base> tag cannot re-root the relative asset paths
+//	frame-ancestors 'none'  the panel must not be framed under someone else's page
+const adminCSP = "default-src 'none'; style-src 'self'; font-src 'self'; " +
+	"form-action 'self'; base-uri 'none'; frame-ancestors 'none'"

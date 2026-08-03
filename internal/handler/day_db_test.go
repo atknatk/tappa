@@ -210,13 +210,30 @@ func (f *seedFlow) activate(t *testing.T, p *phone) {
 
 // TestSeedDB_ADayAtKFStJulians is the card's acceptance run.
 //
-// 🔴 THE ONLY testing.Short() SKIP IN THIS REPOSITORY, AND IT IS AN INNER-LOOP
-// CONVENIENCE — NOT A COVERAGE DECISION. `make test` (and therefore CI, which
-// runs `make check` -> `make test`) passes NO -short flag, so this day runs
-// there exactly as before. What -short buys is a developer's edit-run cycle:
-// measured on one machine with -race -count=1, `make test` is 84.7-98.5 s and
-// `make test-short` is 32.9 s, and the whole difference is the ~62 s this test
-// spends asleep because ADR 0006 measures the debounce on the SERVER clock
+// 🔴 AN INNER-LOOP CONVENIENCE — NOT A COVERAGE DECISION. `make test` (and
+// therefore CI, which runs `make check` -> `make test`) passes NO -short flag, so
+// this day runs there exactly as before. What -short buys is a developer's
+// edit-run cycle.
+//
+// ⚠️ THIS COMMENT USED TO OPEN "THE ONLY testing.Short() SKIP IN THIS REPOSITORY"
+// AND TO CARRY TWO STALE NUMBERS. Both were measured false. There are now THREE
+// skips (`go test -race -count=1 -short -v ./... | grep -c -- "--- SKIP:"` -> 3):
+// this one, plus the two bcrypt wall-clock SAMPLES M6-01 phase B added
+// (TestAuthenticate_TimingIsFlat, TestPanelE2E_TimingIsFlatOverHTTP). The Makefile
+// is the canonical list and names all three; it points HERE as skip #1, so the two
+// files were pointing at each other while saying different things.
+//
+// ⚠️ THE TIMINGS LIVE IN THE MAKEFILE, NOT HERE — deliberately, and the reason is
+// this comment's own history. Round 10 corrected two stale numbers here; round 12
+// corrected the same numbers in the Makefile and left THESE behind, so the two
+// files pointed at each other and disagreed AGAIN — the exact defect round 10 had
+// been opened to fix, reproduced by its own fix. A number that lives in two places
+// drifts; this one now lives in one.
+//
+// `make test-short` is the target this test's skip exists for. See the Makefile's
+// test-short block for the measured band, the load condition it was measured under,
+// and all three skips by name. Most of the difference `-short` buys is still the ~62 s this test
+// spends asleep, because ADR 0006 measures the debounce on the SERVER clock
 // (seedDebounce, seedflow_db_test.go).
 //
 // The skip is LOUD on purpose. This repo has a written lesson about the other
