@@ -140,12 +140,27 @@ Sen Tappa projesinde ÜÇÜNCÜ GÖZ DENETÇİSİSİN. Repo: <yol> · dal: <dal>
   bir açık, kapatıldığı **iddia edilen** bir açıktan güvenlidir. Ve hiçbir yere *"tamamen / bitmiş /
   complete / exhaustive"* yazma — yazmadan önce **yenmeye çalış**, yenemediysen **nasıl denediğini** yaz.
 
-**Kullanıcıya ne zaman sorulur — bu oturumda beş kez soruldu, beşi de işin şeklini değiştirdi:**
+**Kullanıcıya ne zaman sorulur — 5. oturumda ON kez soruldu, onu da işin şeklini değiştirdi:**
 marka token'ı/kontrast (§9) · ekran metninin var olmayan bir şeyi vaat etmesi · **kartın CLAUDE.md ile
 çelişmesi** (kart mı yanlış, §5 mi değişmeli) · karar motorunun semantiğini değiştiren bir düzeltme ·
-ve o düzeltmenin **yapısal** bir alternatifi (advisory lock). **Kalıp:** ajan **ölçer ve iki okumayı
-önüne koyar**, kararı vermez; orkestratör soruyu **ölçümle** sorar (seçenek başına somut sayı), cevap
-`state.md` oturum günlüğüne **tarihiyle** yazılır ve kart/ADR ona atıf yapar.
+o düzeltmenin **yapısal** bir alternatifi (advisory lock) · **sevk edilmiş bir §5 ihlalinin ne zaman
+düzeltileceği** (şimdi mi, devir mi) · bir testin **süre bedeli** (98,5 vs 32,9 sn) · **bir kartın
+istediği tablonun gereksiz olduğunun ölçülmesi** (migration + retention altyapısı → 13 satır) ·
+**§4.6 eşiğinin nerede duracağı** (kayıtsız 400 bandı) · ve **şemanın sağlamadığı bir önkoşulun nasıl
+kurulacağı** (admin girişinde tenant çözümlemesi).
+**Kalıp:** ajan **ölçer ve iki okumayı önüne koyar**, kararı vermez; orkestratör soruyu **ölçümle**
+sorar (seçenek başına somut sayı), cevap `state.md` oturum günlüğüne **tarihiyle** yazılır ve kart/ADR
+ona atıf yapar. **Gözlem:** on sorunun **altısı** ancak bir ajan bir şeyi **ölçtükten sonra** doğdu —
+yani "kullanıcıya ne soracağımı" başta bilmiyordum, **ölçüm üretti**. Brief'e *"ölç ve iki okumayı
+önüme koy, karar verme"* yazmak bu yüzden bir nezaket değil, **soruyu var eden mekanizma**.
+
+**Bir görevi A/B fazına bölmek — iki kez işe yaradı (M5-02, M6-01).** Ölçüt **kapsam değil, DENETİM
+MERCEĞİ**: bir görev hem **veri katmanı** (migration · RLS · resolver · GRANT) hem **uygulama katmanı**
+(handler · ekran · oran sınırı · bağımlılık) içeriyorsa, ikisi **farklı saldırılarla** denetlenir ve tek
+commit'te ikisi de yüzeysel kalır. Bölünce A fazı `tappa-db-migrator`'a gider ve güvenlik denetçisi
+**yalnız çevrelenmiş bypass'a** bakar; B fazı ayrı bir denetim turu alır ve A'nın yazdığı **yükümlülük
+listesini** miras alır. M6-01'de A fazının en değerli çıktısı kod değil, **B'ye devredilen beş
+yükümlülüktü** — biri çapraz-tenant kimlik atlatmasıydı ve **B yazılmadan önce** bulundu.
 
 **Sabitler:**
 - **Denetçiler PAYLAŞILAN Postgres'e karşı SIRALI koşar** (M3-02 dersi) — DDL/mutasyon sondaları

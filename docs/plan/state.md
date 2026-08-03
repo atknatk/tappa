@@ -6,6 +6,18 @@
 
 **Son güncelleme:** 2026-08-03 (5. oturum — **M5 kapandı 11/11 · M6 başladı, M6-01 A fazı done**)
 
+> **M6-01 A fazı done — 2026-08-03 (`66d5442`), iki denetçi ONAY, 3 tur.** M6'nın ilk görevi, M5-02'nin
+> **A/B kalıbıyla** bölündü (veri katmanı → auth+ekran) çünkü iş bir migration + resolver + kripto bağımlılığı
+> + iki ekran + oran sınırı + audit'i **tek commit'e** sığdıracaktı. **Görevin ilk adımı yine kartı ölçmekti**
+> ve yine kart eksikti — ama bu kez eksik olan **şemaydı**: 00006 *"resolver YOK: giriş tenant'ı biliyor"*
+> varsayıyor, **hiçbir şey tenant'ı kurmuyordu**. Bu bir **kullanıcı kararı** gerektirdi (global çözümleme +
+> tenant seçici). **İki bulgu kayda değer:** (1) `citext`'in `=` operatörü `public`'te, sabit `search_path`
+> altında **görünmüyor** ve Postgres **hata vermeden** `text=text`'e düşüyor → kimlik doğrulama araması
+> sessizce **harfe duyarlı**; (2) parola hash'i **çıplak `string`**'di ve **altı** basma yolu onu verbatim
+> sızdırıyordu. **Ve en ağır madde denetimden çıktı:** aday↔parola bağı yazılmamıştı, ve onu azaltmak için
+> önerilen DoS çaresi (*"ilk eşleşmede dur"*) yanlış uygulanırsa **tam olarak o atlatmayı** üretiyor.
+> **Sıradaki:** "ŞU AN" → **M6-01 B fazı**, beş yükümlülükle.
+
 > **M5-11 done — 2026-08-02 (`1a945fd`), iki denetçi ONAY, 2 tur. M5 KAPANDI.** Bu görev **sevk edilmiş
 > kodda bir §5 ihlalini** düzeltti ve kusurun adı **bir cümleydi**: `decide.go` *"birincil koruma çağıranın
 > sorgusudur, **ki practice'i dışlar**"* diyordu — **sorgu dışlamıyordu**. Düzeltme **tek satır**
