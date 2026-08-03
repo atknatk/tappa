@@ -319,12 +319,30 @@ report WARN R5 "SET LOCAL degil duz SET — havuzdaki baglantiyi kirletir" \
 #   * `"code"[[:space:]]*,` -> yapilandirilmis log ANAHTARI olarak "code",
 # Serbest metindeki `code` kelimesi (mesaj, hata metni) artik tetiklemez (olculdu).
 #
-# SINIRLAR (ikisi de yanlis-NEGATIF, ag mekaniktir, kanit degildir):
+# `password` M6-01'de EKLENDI (guvenlik denetimi olctu): desen `PasswordHash`'i
+# taramiyordu, yani panel parolasinin bcrypt digest'inin loglanmasi mekanik olarak
+# YAKALANMIYORDU. Eklendikten sonra ayni SRC/GEN_EXCLUDE ile 0 eslesme ve 0 yanlis
+# pozitif -- M5-09'un `test` eklemesiyle ayni sonuc.
+#
+# DURUSTCE: bu genisleme, denetcinin ResolvedAdmin.PasswordHash uzerinde OLCTUGU
+# ALTI sizinti yolunun HICBIRINI yakalamaz -- `%+v`, dilim uzerinde `%v`, `%#v`,
+# fmt.Errorf, unexported alan, slog. Altisinda da digest, ADI gecmeden, tasiyici
+# yapinin icinden basiliyor; `password` KELIMESI cagri parantezleri icinde hic
+# gecmiyor. Ag yine de eklendi cunku ucuz ve gurultusuz (0 yanlis pozitif) ve
+# `slog.Info("login", "password_hash", h)` gibi APACIK bir satiri yakalar.
+# GERCEK COZUM TIP DUZEYINDEDIR: internal/db/passwordhash.go, digest'i
+# session.Token / invite.Code kalibiyla (Format+String+GoString+LogValue+
+# MarshalText + isaretci dolaylamasi) sarmalar; kanit
+# internal/db/resolve_leak_external_test.go, pozitif kontrolu dahil.
+#
+# SINIRLAR (hepsi yanlis-NEGATIF, ag mekaniktir, kanit degildir):
 #   * baska adlandirma -- `"hash"`, `"c"` gibi bir ANAHTAR altinda gecen deger
 #     yakalanmaz (degisken adi codeHash ise yine yakalanir);
-#   * sir bir ara degiskene kopyalanip nötr bir adla loglanirsa yakalanmaz.
-report FAIL R7 "Sir loglanıyor olabilir (token / cmac / anahtar / davet kodu / kod hash'i)" \
-  "$(scan -i -e '(slog|log|fmt)\.[A-Za-z]+\([^)]*(token|cmac|aes_?key|secret|invite_?code|code[_a-z]*hash|"code"[[:space:]]*,)' || true)"
+#   * sir bir ara degiskene kopyalanip nötr bir adla loglanirsa yakalanmaz;
+#   * sir bir YAPININ icinde tasiniyorsa (ResolvedAdmin, store.AdminUser) desen
+#     yalnizca yapinin degisken adina bakar -- yukaridaki alti yol tam olarak budur.
+report FAIL R7 "Sir loglanıyor olabilir (token / cmac / anahtar / davet kodu / kod hash'i / parola hash'i)" \
+  "$(scan -i -e '(slog|log|fmt)\.[A-Za-z]+\([^)]*(token|cmac|aes_?key|secret|invite_?code|code[_a-z]*hash|password|"code"[[:space:]]*,)' || true)"
 
 report FAIL R7 "Repoda gomulu anahtar dosyasi" \
   "$(git ls-files '*.pem' '*.key' '*.aes' 'secrets/*' 2>/dev/null || true)"

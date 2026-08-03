@@ -34,6 +34,158 @@ panel; FLAGGED kuyruğu işliyor, CSV dışa aktarım var.
 - Admin'in çapraz-tenant görmesi **yok**. "Destek için" bir bypass eklemek §4.5
   ihlalidir; gerekirse ayrı ADR.
 
+> **Kart güncellemesi (2026-08-02) — M6-01 A/B fazına bölündü; A fazı bitti.**
+> M5-02'nin kalıbı: **A = veri katmanı**, **B = auth + ekranlar**.
+>
+> **A fazı teslim edildi** — migration
+> [00011](../../db/migrations/00011_add_admin_resolution.sql) (yeni tablo YOK;
+> 00006 uygulanmış ve değişmez), `db/queries/admins.sql`, `internal/db/resolve.go`
+> içindeki iki elle yazılmış çözümleyici, `internal/db/admins_test.go`.
+>
+> **Kartın gizli varsayımı çürüdü ve karara bağlandı.** 00006 "resolver YOK, admin
+> girişi tenant bağlamı KURULU iken yapılır" diyordu; **hiçbir şey o bağlamı
+> kurmuyordu** (e-posta yalnız tenant içinde tekil, `tenants`'ta slug/subdomain
+> yok, tek giriş adresi var). **Kullanıcı kararı (2026-08-02): global çözümleme +
+> tenant seçici** — tek giriş, tek e-posta, parola doğrulandıktan **sonra** "hangi
+> işletme?" ekranı. Gerekçe ve reddedilen alternatif (tenant'ı imzalı çerezde
+> taşımak): ADR 0002 → M6-01 güncelleme bloğu.
+>
+> **B fazının devraldığı sınırlar** (hiçbiri A fazında kapatılamaz):
+> 1. **E-posta numaralandırma + zamanlama.** `resolve_admin_by_email` parola
+>    olmadan "bu e-posta kayıtlı mı"yı cevaplayabilir. B fazı: üç sonuç için
+>    (bilinmeyen e-posta / yanlış parola / devre dışı admin) **aynı** yanıt; 0
+>    satırda **kukla bcrypt**; oran sınırı; `audit_log`.
+> 2. **🔴 bcrypt AMPLİFİKASYONU — 1. maddeden AYRI bir sınır (DoS, zamanlama
+>    değil), ve bu dosyanın en büyük sayısı.** Çözümleyici **N satır** döndürür;
+>    B fazı her satırı bcrypt'ler, yani pahalı yarı **çağıranın** tarafındadır.
+>    Ölçüldü (bu şemada, transaction içinde ekilip geri alındı): kurbanın adresi
+>    **500 tenant**'a ekildiğinde çözümleyici **500 satır**'ı sıcakta
+>    **~0,9–1,2 ms**'de (soğukta 2,8 ms) döndürüyor — **darboğaz veritabanı
+>    DEĞİL**. cost-10 bir bcrypt karşılaştırması **~60–100 ms** olduğuna göre tek
+>    bir **kimliksiz** `POST /login` **~30–50 sn CPU** satın alır: tek istekten
+>    **~500×** amplifikasyon. **Bugün sömürülemez** — tenant yaratan bir
+>    **uygulama yolu yok**: `db/queries`'te `CreateTenant`/`InsertTenant` sorgusu
+>    yok ve `INSERT INTO tenants` yalnız `test/fixtures/seed.sql` ile test
+>    yardımcılarında geçiyor (grep'lendi). **M7-02 tam
+>    da bunu değiştirir:** kayıt sihirbazı **herkese açık** ve RLS bir tenant'ın
+>    **kendi** `admin_users`'ına **istediği e-postayı** yazmasını engellemez →
+>    o andan itibaren **satır sayısını, yani sınırı, saldırgan belirler.**
+>    Masadaki seçenekler — **kararı B fazı kendi ölçümüyle verecek**, burada
+>    verilmedi: tek istekte doğrulanacak aday sayısına **üst sınır** · **ilk
+>    eşleşmede durmak** · M7-02'de **e-posta doğrulaması** olmadan admin satırının
+>    çözümlenememesi. Üçü de bir giriş hata modunu DoS sınırına takas eder.
+>    ⚠️ **Ortadaki seçeneği 6. madde ile BİRLİKTE oku** — yanlış uygulanırsa
+>    tam olarak oradaki atlatmayı üretir.
+> 3. **bcrypt bağımlılığı ve karşılaştırma B fazınındır** (Q03). Şema KDF-agnostik.
+> 4. **Seçici ekranı işletme adını `GetAdminForTenantChoice` ile, tenant bağlamı
+>    içinde ve YALNIZCA parola doğrulandıktan sonra okumalı** — çözümleyici tenant
+>    adını bilinçli olarak döndürmez (pre-auth bir ad, numaralandırma sinyalidir).
+> 5. **`store.AdminUser.PasswordHash` handler'da `%+v`/slog ile loglanmamalı**
+>    (state.md'nin M1-11'den devrettiği not). Bu madde A fazında **kısmen**
+>    kapandı ve kalanı dürüstçe yazılıyor: `db.ResolvedAdmin.PasswordHash` artık
+>    çıplak `string` değil, **redakte eden `db.PasswordHash` tipi**
+>    (`internal/db/passwordhash.go` — `session.Token`/`invite.Code` kalıbının
+>    üçüncü uygulaması); açık değere tek çıkış `RevealForPasswordComparison()`.
+>    **Kapanmayan:** sqlc'nin ürettiği `store.AdminUser.PasswordHash` hâlâ çıplak
+>    `string`'dir (üretilen dosya elle düzenlenmez) — o tipi `%+v` ile loglayan
+>    handler hâlâ sızdırır. `make audit` R7 desenine `password` **eklendi**, ama
+>    ağ dar: yalnız `password` **kelimesi** bir `fmt.`/`log.`/`slog.` çağrısının
+>    parantezleri içinde geçerse yakalar; ara değişkene kopyalanan veya nötr adla
+>    loglanan bir digest'i yakalamaz. Gerçek koruma **tip düzeyindedir**.
+> 6. **🔴🔴 ADAY ↔ PAROLA BAĞI — listenin en ağır maddesi ve tek çapraz-tenant
+>    KİMLİK DOĞRULAMA ATLATMASI (§4.5); diğerleri numaralandırma/DoS.**
+>    00011'in kanonik numaralandırmasında **"PHASE B OBLIGATION 5"**.
+>    Kural: **oturum YALNIZCA hash'i eşleşen adaya verilir; seçici YALNIZCA
+>    eşleşen adayları gösterir.**
+>    **Veri katmanı bunu uygulayamaz:** çözümleyici bir **küme** döndürür,
+>    `CreateAdminSession` parolayı **hiç görmez** — tek istediği
+>    `(admin_user_id, tenant_id)` çiftinin kendi içinde tutarlı ve admin'in aktif
+>    olması. Seçicinin geri verdiği çift **gerçek DB satırlarından** kuruludur,
+>    yani `INSERT … SELECT` gardı da, açık `tenant_id` yüklemi de, RLS
+>    `WITH CHECK`'i de memnun olur. Eksik olan bağ SQL'de hiçbir yerde yoktur.
+>    **Saldırı (M7-02 sonrası, canlı ölçüldü):** saldırgan herkese açık kayıt
+>    sihirbazıyla kendi tenant'ını açar, **kendi** `admin_users`'ına **kurbanın
+>    e-postasını** ve **kendi bildiği parolayı** yazar (RLS engellemez — kendi
+>    tenant'ı). Giriş: adres **2 aday** çözümler → parola **saldırganın**
+>    satırıyla eşleşir → seçici "hangi işletme?" der → saldırgan **kurbanınkini**
+>    seçer:
+>    ```
+>    ### C1: yalnız AttackerCo hash'i doğrulandı; seçici VictimCo'yu sunuyor
+>    INSERT … WHERE a.id='aaaa…0001' AND a.tenant_id='1111…1111' AND a.status='active'
+>     → INSERT 0 1   (tenant_id = VICTIM)
+>    ### C2: sonraki her istek de geçiyor
+>     → UPDATE 1 | role=owner | full_name=Victim Owner
+>    ```
+>    ⚠️ **2. MADDE İLE GERİLİM — yazılı olmadığı için burada yazılıyor.** 2.
+>    maddenin *"ilk eşleşmede durmak"* seçeneği bcrypt DoS'unu azaltır; ama
+>    **"ilk eşleşmede dur + seçicide tüm adayları göster"** biçiminde
+>    uygulanırsa **tam olarak yukarıdaki atlatmadır**. İki madde **birlikte**
+>    okunmalıdır: işi ne sınırlarsa sınırlasın, **seçicinin sunduğu küme, hash'i
+>    gerçekten doğrulanan kümeden asla geniş olamaz.**
+>
+> **Kabul kriterlerinin veri-katmanı tarafı karşılandı:** admin oturumu çalışan
+> oturumundan ayrı tablo + ayrı çözümleyici (test:
+> `TestAdminAndEmployeeSessionsDoNotOverlap`); oturum tenant'a bağlı; rol alanı
+> hazır (`TouchAdminSession` `role`'ü de döndürür). **Karşılanmayan (B fazı):**
+> şifre hash'i, oran sınırı, `audit_log` yazımı.
+>
+> **Fazladan gelen (kart istemiyordu, ölçümle gerekçelendirildi):**
+> `admin_sessions` üzerinde **sütun-düzeyi UPDATE** + **monotonluk trigger'ı**.
+> 00011 öncesi `tappa_app` canlı olarak (a) `revoked_at`'i NULL'a çekebiliyor,
+> (b) bir **manager'ın oturumunu owner'a** yönlendirebiliyor (yetki yükseltme),
+> (c) `token_hash`'i yeniden yazabiliyordu (oturum ele geçirme). (b) ve (c) yetki
+> düzeyinde, (a) trigger'la kapatıldı — trigger `tappa_owner`'ı da bağlar.
+>
+> **⚠️ Kapanan YOL'dur, YETENEK değil — cümle düzeltildi (2026-08-03).**
+> `admin_users` **tablo-geneli UPDATE** grant'ini korur (00011 bunu bilerek yapar
+> ve gerekçesi doğru: o tablonun neredeyse her sütunu meşru olarak yazılabilir,
+> sütun-kapsamlamak tabloyu saymaktan ibaret olurdu). Sonuç: kapatılan üç etkiden
+> **ikisi bir tablo öteden** hâlâ ulaşılabilir. Canlı ölçüldü (`tappa_app`, kendi
+> tenant'ında): `SET status='active'` → **UPDATE 1** (devre-dışı bırakma kill
+> switch'i geri alındı) · `SET role='owner'` → **UPDATE 1** (kapatılan yetki
+> yükseltmesinin **aynısı**) · `SET password_hash=…` → **UPDATE 1**
+> (kapatılandan **daha güçlü**: iptali de aşar). **Devir: M6-05** (panel tarafı
+> admin yönetimi) **ve M7-04** (parola sıfırlama) — meşru UPDATE'leri onlar yazar,
+> `admin_users`'ın sütun grant'i / rol gardı / audit trigger'ı hak edip etmediğine
+> onlar karar verir. O zamana kadar koruma "bu repoda öyle bir sorgu yok",
+> yani **disiplin**.
+>
+> **⚠️ `revoked_at` "panelin tek anlık kill switch'i" DEĞİL — düzeltildi.**
+> `admin_users.status='disabled'` **daha güçlüdür**: `TouchAdminSession`
+> `admin_users`'a join'lediği için **tek satır değişimi** o admin'in **tüm**
+> oturumlarını (mevcut + gelecek) öldürür, `revoked_at` ise satır başına birini.
+> Ve **güçlü olanın hiçbir monotonluk koruması yok** — `SET status='active'`
+> hepsini geri getirir (UPDATE 1, ölçüldü). Trigger **zayıf olanı** sertleştirir;
+> yine de değerli (o alan aynı zamanda **denetim kaydıdır**), ama "kill switch
+> artık monoton" diye okunamaz.
+>
+> **⚠️ Sınır: trigger YANLIŞ ilk damgayı da dondurur.** Geçişi kısıtlar, **değeri**
+> değil: `SET revoked_at='1970-01-01'` → **UPDATE 1**, ardından düzeltme →
+> `ERROR: revocation is monotonic`. `CHECK (revoked_at IS NULL OR revoked_at >=
+> created_at)` **yok**. Bugün böyle yazan sorgu yok (hepsi
+> `COALESCE(revoked_at, now())` / `now()`), yani sınır — ama denetim cevabının
+> **kalıcı olarak** yanlış kalabileceği tek yol budur.
+>
+> **⚠️ Sınır (M7-04'e devir): iptal sorgusunda eşzamanlılık tuzağı — fail-OPEN.**
+> Sevk edilen iki sorgu **güvenli** ve bu ölçüldü: T1 satır kilidini tutarken
+> T2'nin `COALESCE`'i T1'in commit'lediği satıra göre **yeniden değerlendiriliyor**,
+> aynı değer yazılıyor, `IS DISTINCT FROM` yanlış, trigger ateşlenmiyor. Güvenlik
+> `COALESCE` ile `revoked_at IS NULL` gardından gelir, **trigger'ın hoşgörüsünden
+> değil**. Gardsız bir `SET revoked_at = now()` iki eşzamanlı yazıcıda
+> `ERROR: revocation is monotonic` alır → **transaction geri alınır** → "her
+> yerden çıkış yap" **başarısız raporlar, oturum yaşamaya devam eder**. 00011
+> trigger'ı `sessions` üzerinde yeniden kullanmaya **açıkça davet ettiği** için bu
+> kısıt davetin yanına yazıldı. Kural: `revoked_at`'e her yazım `COALESCE` veya
+> `IS NULL` yüklemi taşır.
+>
+> **⚠️ Seçicinin İKİNCİ O(N)'i (B fazının notuna):** `GetAdminForTenantChoice`
+> aday **başına bir tenant-kapsamlı transaction** koşar (tek ifade iki tenant
+> bağlamını kapsayamaz) — 500 adayda 500 transaction. Kimlik **doğrulandıktan
+> sonra** koştuğu için risk düşük; ama bcrypt döngüsü sınırlandıktan sonra giriş
+> yolunda **kalan tek O(N)** budur ve maliyet **veritabanı** tarafındadır. Doğal
+> çözüm 6. maddeden geliyor: seçici yalnız **hash'i doğrulanan** adayları görürse
+> bu döngü de yan etki olarak sınırlanır.
+
 ---
 
 ## M6-02 — Dashboard iskeleti ve docket bileşenleri

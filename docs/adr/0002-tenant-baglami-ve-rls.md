@@ -67,6 +67,96 @@
 > beş kısıtı karşıladığını **ölçerek** göstermek zorundadır; "zaten üç tane var"
 > gerekçe değildir.
 
+> **ADR güncellemesi (2026-08-02, M6-01 A fazı sırasında) — bu blok bir kısıtı
+> DEĞİŞTİRİYOR, yalnız sayımı değil. Dikkatle okuyun.** Madde 7'nin sayımı
+> **üçten beşe** çıktı: `GetAdminByEmail` (`resolve_admin_by_email`) ve
+> `GetAdminSessionByTokenHash` (`resolve_admin_session_by_token_hash`), migration
+> [00011](../../db/migrations/00011_add_admin_resolution.sql). Gerekçe: panele tek
+> bir giriş adresinden gelinir, istek yalnız e-posta+parola (ya da yalnız çerez)
+> taşır — tenant yine o aramanın **sonucudur**. `tappa_resolver` iki tablo daha
+> gördü: `admin_users` ve `admin_sessions` üzerinde **sütun-düzeyi** `SELECT`
+> (başka hiçbir tabloda yetkisi yok — ölçüldü).
+>
+> **KULLANICI KARARI (2026-08-02): global çözümleme + tenant seçici.** Tek giriş,
+> tek e-posta; e-posta global çözülür, parola doğrulanır, e-posta birden fazla
+> işletmede kayıtlıysa **kimlik doğrulandıktan SONRA** "hangi işletme?" ekranı
+> gelir. Gerekçe: iki design partner tenant'ı (KF + KM) **aynı kişiye** ait.
+> Reddedilen alternatif — tenant'ı imzalı çerezde/alt alan adında taşımak: tenant
+> çözümlemenin **çıktısıdır**, girdisi değil; girdi alan bir middleware çağıranın
+> kendi tenant'ını adlandırmasına izin verir (M5-03). İmza bunu değiştirmez: imza
+> değeri **bizim** ürettiğimizi söyler, **hangi oturuma** ait olduğunu değil.
+>
+> **Değişen kısıt — (ii) "dönüş en çok BİR satır" e-posta lookup'ı için GEÇERSİZ.**
+> Diğer dördünün anahtarı **global** tekildir (`tags.uid` PK,
+> `sessions.token_hash`, `employee_invites.code_hash`, `admin_sessions.token_hash`)
+> — hepsi ≤1 satırı korur. Admin e-postası **yalnız tenant içinde** tekildir
+> (`admin_users_tenant_email_key`), çünkü aynı kişi iki işletmenin sahibi olabilir;
+> bu ürün kararıdır, bir eksiklik değil. (ii) yerine geçen **ölçülmüş sınır**:
+>
+> > tenant başına **en çok bir** satır — bunu fonksiyon gövdesi değil kısmi
+> > **UNIQUE (tenant_id, email)** indeksi garanti eder → toplamda en çok
+> > `count(tenants)` satır, ve sonuçta **aynı tenant_id iki kez görünemez**.
+>
+> Sınır 1/2/3 tenant'la ve bilinmeyen e-postayla (0 satır) canlı ölçüldü:
+> `internal/db/admins_test.go` → `TestGetAdminByEmail_RowBound`. `LIMIT`
+> **konmadı**: bir LIMIT, kullanıcının gerçekten üye olduğu bir işletmeyi sessizce
+> düşürürdü. Kalan dört kısıt ikisinde de aynen geçerli ve canlı katalogda
+> ölçüldü (`TestResolveAdmin_SecurityDefinerProperties`): girdi yalnız anahtar;
+> sabit sütun listesi (`SELECT *` yüzeyi yok); `tappa_app`'in tabloda çapraz-tenant
+> `SELECT`'i yok, yalnız fonksiyonda `EXECUTE` (PUBLIC `f`, `tappa_app` `t`);
+> politikalarda naif "bağlam NULL iken göster" dalı yok. Definer yine
+> `tappa_resolver` (`rolsuper=f`, `rolbypassrls=t`), `search_path=pg_catalog,
+> pg_temp` sabit.
+>
+> **Yeni bir sınır adlandırıldı: e-posta numaralandırma.** `tappa_app`
+> `resolve_admin_by_email`'i çağırabildiği için uygulama, parola olmadan "bu
+> e-posta kayıtlı mı" sorusunu cevaplayabilir. Bu, global çözümlemenin **doğasında**
+> vardır (kimlik doğrulama önce kimliği bulmak zorundadır) ve **veritabanında
+> kapatılamaz**. Kapatma yükümlülüğü M6-01 **B fazı** handler'ınındır: üç sonuç
+> (bilinmeyen e-posta / yanlış parola / devre dışı admin) için **aynı** yanıt, 0
+> satır dönünce **kukla bcrypt** karşılaştırması (bcrypt kasıtlı olarak yavaştır;
+> atlamak ölçülebilir bir zamanlama sızıntısıdır), oran sınırı ve `audit_log`.
+> Sınır hem 00011'in "PHASE B OBLIGATION" listesine, hem `db/queries/resolve.sql`'e,
+> hem `internal/db/resolve.go`'daki çağrılabilir fonksiyonun doküman yorumuna, hem
+> de M6-01 kartına (`docs/plan/m6-dashboard.md`) yazıldı — B fazının okumadan
+> geçemeyeceği yerler. **Aşağıdaki bcrypt amplifikasyonu sınırı da aynı dört yere
+> yazıldı.**
+>
+> **Ölçülmüş bir tuzak, kalıcı kayıt:** `citext` sütununda **`=` operatörü
+> `public` şemasındadır**; `search_path = pg_catalog, pg_temp` sabitlendiğinde
+> operatör görünmez olur ve Postgres **hata vermeden** citext→text örtük cast'iyle
+> `text = text`'e düşer → arama sessizce **büyük/küçük harfe duyarlı** olur
+> (ölçüldü: kayıtlı `Owner@Example.Test` için tam yazım 1 satır, küçük harf 0,
+> büyük harf 0). Düzeltme: gövdede **`OPERATOR(public.=)`**. Bu yalnız kullanılabilirlik
+> değil doğruluk meselesidir: farklı bir eşitlik kullanan bir gövde, yukarıdaki
+> satır sınırını garanti eden UNIQUE indeksin eşitliğinden **sapardı**. İki test,
+> iki ayrı iş — **atıf önemlidir, karıştırılırsa greplayan okur ya ADR'nin ya
+> testin yalan söylediğini sanır:** `TestGetAdminByEmail_IsCaseInsensitive`
+> **sevk edilen** çözümleyiciyi üç yazımla (tam / küçük / büyük harf) çağırıp
+> üçünde de 1 satır bulur; **kalıcı negatif kontrol ayrı bir testtir** —
+> `TestGetAdminByEmail_CaseInsensitivityNegativeControl`, aynı sabitlenmiş
+> `search_path` altında **niteliksiz `=`** ile bozuk bir ikiz gövde kurar, küçük
+> harfte **0 satır** bulduğunu gösterir ve gövdeyi düşürür. Onsuz ilk test yalnız
+> "citext bir yerde var" derdi, `OPERATOR(public.=)`'in yük taşıdığını değil.
+>
+> **Ölçülmüş bir sınır daha, ve numaralandırmadan AYRI: bcrypt amplifikasyonu.**
+> Çözümleyici N satır döndürür, B fazı her satırı bcrypt'ler; pahalı yarı
+> **çağıranın** tarafındadır. Ölçüldü: 500 tenant'a ekilmiş tek bir adres **500
+> satır**ı sıcakta ~0,9–1,2 ms'de döner (**darboğaz veritabanı değil**), buna
+> karşılık cost-10 bir bcrypt ~60–100 ms → tek **kimliksiz** `POST /login`
+> ~30–50 sn CPU, yani ~**500×** amplifikasyon (bir **DoS** sınırı, zamanlama
+> sınırı değil). Bugün sömürülemez (repoda tenant yaratan sorgu yok), ama
+> **M7-02'nin herkese açık kayıt sihirbazıyla satır sayısını saldırgan belirler**
+> — RLS bir tenant'ın kendi `admin_users`'ına istediği e-postayı yazmasını
+> engellemez. Seçenekler (aday sayısına üst sınır · ilk eşleşmede durma · M7-02'de
+> e-posta doğrulaması) **B fazının kendi ölçümüyle** kararlaştırılacak; bu ADR
+> hiçbirini seçmez.
+>
+> **Kural, sayı değil sınırdır** (yukarıdaki blok): altıncı bir çözümleme sorgusu
+> aynı kısıtları **ölçerek** göstermek zorundadır — ve bir kısıt bu blokta olduğu
+> gibi geçerliliğini yitiriyorsa, yerine geçen sınır **yazılmak ve ölçülmek**
+> zorundadır.
+
 ## Bağlam
 
 Tappa çok kiracılı (multi-tenant) bir SaaS: iki design partner (Kebab Factory —
@@ -96,7 +186,10 @@ Ayrı bir yapısal kısıt da kararı şekillendirir: bir tap geldiğinde elde y
 tag UID (URL'den) ve oturum çerezi vardır; **ikisi de tenant taşımaz.**
 `app.tenant_id` tam da bu iki aramanın *sonucudur*. Yani "her erişim tenant
 bağlamında koşar" kuralı, bağlamı **kuran** aramalar için sağlanamaz — bu ADR'nin
-çözmesi gereken çelişki budur (Karar madde 7).
+çözmesi gereken çelişki budur (Karar madde 7). *(Bu paragraf **tap akışını**
+anlatır ve o akışta arama sayısı ikidir; aynı şekil sonradan aktivasyon linkine
+(M5-02) ve panel girişine (M6-01) de çıktı — **güncel ve tam liste madde 7'dedir,
+bu paragraf sayı kaynağı değildir.**)*
 
 ## Karar
 
@@ -145,14 +238,17 @@ tablosu müşteri isimlerini ve VAT numaralarını sızdırır.
 doğarsa ayrı bir rol ve ayrı bir ADR ile gelir. `tappa_app` bu amaçla asla
 ayrıcalıklandırılmaz; ona `BYPASSRLS` verilmez.
 
-**7. Tenant çözümleme istisnası — bu ADR'nin en kritik maddesi.** Yalnızca üç
-sorgu — `GetTagByUID`, `GetEmployeeBySessionHash` ve (M5-02'de eklenen)
-`GetInviteByCodeHash` — tenant bağlamı kurulmadan koşar, çünkü bağlam onların
-**sonucudur**. *(Bu sayı 2026-07-31'e kadar "iki"ydi; sayı garanti değildir,
-garanti aşağıdaki beş kısıttır — baştaki M5-02 güncelleme bloğu.)* Bu istisna
-dar, adlandırılmış ve testlidir:
+**7. Tenant çözümleme istisnası — bu ADR'nin en kritik maddesi.** Yalnızca beş
+sorgu — `GetTagByUID`, `GetEmployeeBySessionHash`, (M5-02'de eklenen)
+`GetInviteByCodeHash` ve (M6-01 A fazında eklenen) `GetAdminByEmail` +
+`GetAdminSessionByTokenHash` — tenant bağlamı kurulmadan koşar, çünkü bağlam
+onların **sonucudur**. *(Bu sayı 2026-07-31'e kadar "iki", 2026-08-02'ye kadar
+"üç"tü; sayı garanti değildir, garanti aşağıdaki beş kısıttır — baştaki M5-02 ve
+M6-01 güncelleme blokları. **`GetAdminByEmail` için (ii) "≤1 satır" kısıtı
+GEÇERSİZDİR** ve yerini ölçülmüş bir tenant-başına-bir sınırına bırakır; ayrıntı
+M6-01 bloğunda.)* Bu istisna dar, adlandırılmış ve testlidir:
 
-- **Ayrı ve görünür.** Üç sorgu da `db/queries/resolve.sql` dosyasında durur
+- **Ayrı ve görünür.** **Beşi de** `db/queries/resolve.sql` dosyasında durur
   (üretim sorgularının geri kalanından ayrı), böylece §4.5'in "her sorguda açık
   `tenant_id` filtresi" kuralının **tek istisnası** koda bakıldığında görünür
   kalır. **(Uygulama notu — M1-08, 2026-07-25:** sqlc v1.28 `RETURNS TABLE(...)`
@@ -165,11 +261,16 @@ dar, adlandırılmış ve testlidir:
   **(M5-02, 2026-07-31: aynı ölçüm 00009'un `resolve_invite_by_code_hash`'i için
   tekrarlandı — sqlc v1.28 birebir aynı davranıyor: açık sütun listesi `column "id"
   does not exist`, `SELECT *` ise `interface{}` — bu yüzden üçüncü lookup da elle
-  yazıldı.)**
-- **`tappa_app` rolüyle, `tenant_id` filtresi olmadan.** Arama küresel olarak
-  tekil bir anahtara dayanır (`tags.uid` birincil anahtar; `sessions.token_hash`
-  UNIQUE; `employee_invites.code_hash` UNIQUE), dolayısıyla tenant bilinmeden de
-  en çok **bir** satır döner.
+  yazıldı.)** **(M6-01 A fazı, 2026-08-02: ölçüm 00011'in
+  `resolve_admin_by_email`'i için üçüncü kez tekrarlandı, sonuç yine aynı — bu
+  yüzden dördüncü ve beşinci lookup da `internal/db/resolve.go`'da elle yazıldı.)**
+- **`tappa_app` rolüyle, `tenant_id` filtresi olmadan.** Aramaların dördü küresel
+  olarak tekil bir anahtara dayanır (`tags.uid` birincil anahtar;
+  `sessions.token_hash`, `employee_invites.code_hash`, `admin_sessions.token_hash`
+  UNIQUE), dolayısıyla tenant bilinmeden de en çok **bir** satır döner. **Beşincisi
+  (`GetAdminByEmail`) dönmez** — admin e-postası yalnız tenant içinde tekildir;
+  sınırı kısmi `UNIQUE (tenant_id, email)` indeksinden gelir: tenant başına en çok
+  bir satır, aynı tenant iki kez görünemez (M6-01 güncelleme bloğu, ölçüldü).
 - **Neden saf RLS değil — gerekçe "ifade edilemezlik" DEĞİL, YAPISAL çevrelemedir.**
   *(Bu maddenin önceki hâli — "saf RLS bunu tek başına ifade edemez, bypass
   kaçınılmazdır" — canlı Postgres sondasıyla çürütüldü ve düzeltildi; bkz. baştaki
@@ -194,15 +295,23 @@ dar, adlandırılmış ve testlidir:
 - **Güvenlik RLS'ten değil ARAYÜZDEN gelir.** Bağlam yokken çapraz-tenant okuma
   yalnızca dar, anahtar odaklı bir arayüzün ardında yapılır ve şu özellikleri
   **normatif** olarak taşır: (i) girdi yalnız **anahtar**dır (`uid` /
-  `token_hash` / `code_hash`); (ii) dönüş en çok **bir** satırdır (anahtarlar
-  tekildir); (iii)
+  `token_hash` / `code_hash` / **`email`**); (ii) dönüş **yapısal olarak
+  sınırlıdır ve sınırı gövde değil bir UNIQUE indeks verir** — anahtarı **global**
+  tekil olan dörtte bu en çok **bir** satırdır (`tags.uid`,
+  `sessions.token_hash`, `employee_invites.code_hash`,
+  `admin_sessions.token_hash`); **`GetAdminByEmail`'de değildir**, çünkü admin
+  e-postası yalnız tenant içinde tekildir — orada sınır kısmi
+  `UNIQUE (tenant_id, email)` indeksinden gelir: **tenant başına en çok bir**
+  satır, toplamda en çok `count(tenants)` satır, aynı `tenant_id` iki kez
+  görünemez (ayrıntı ve ölçüm: M6-01 güncelleme bloğu); (iii)
   **`SELECT *` yüzeyi yoktur** — sabit, yalnız gerekli sütunları içeren liste;
   (iv) çağıran `tappa_app`'in bu tablolarda doğrudan çapraz-tenant `SELECT`
   hakkı **yoktur**, yalnız bu dar arayüz üzerinde `EXECUTE` hakkı vardır; (v)
   "bağlam `NULL` iken satırı göster" biçiminde naif bir RLS izin dalı
   **yasaktır** — o, `SELECT * FROM tags`'i tüm tenant'lara açan yukarıdaki (c)
-  şıkkıdır. Tek satır dönmesi bir *gövde özelliği*dir; yapısal garanti bu beş
-  kısıttan gelir, gövdenin iyi niyetinden değil.
+  şıkkıdır. Dönüşün sınırlı kalması, gövdeye bakılırsa yalnız bir *gövde
+  özelliği*dir; yapısal garanti bu beş kısıttan (ve (ii)'de adı geçen UNIQUE
+  indekslerden) gelir, gövdenin iyi niyetinden değil.
 - **En-az-ayrıcalık: definer superuser OLAMAZ.** Arayüz bir `SECURITY DEFINER`
   fonksiyonla kurulacaksa sahibi **superuser `tappa_owner` DEĞİLDİR.** Gerekçe:
   `SECURITY DEFINER` gövdesi **sahibinin** yetkisiyle koşar; sahip superuser ise
@@ -221,8 +330,11 @@ dar, adlandırılmış ve testlidir:
   (sessions) ve [M1-05](../plan/m1-veri-katmani.md) (tags) migration'larında
   sabitlenir, sınırı [M1-09](../plan/m1-veri-katmani.md)'da test edilir; bu ADR
   yalnız **sınırı ve reddedilenleri** normatif koyar.
-- **Çözümlemeden sonra bağlam kurulur.** İki arama tamamlanınca `app.tenant_id`
-  ayarlanır ve **geri kalan her şey** `WithTenant` içinde koşar (madde 2).
+- **Çözümlemeden sonra bağlam kurulur.** Bu beş aramadan hangisi koştuysa o
+  tamamlanınca `app.tenant_id` ayarlanır ve **geri kalan her şey** `WithTenant`
+  içinde koşar (madde 2). `GetAdminByEmail` birden çok aday döndürdüğünde bağlam
+  **her aday için ayrı ayrı** kurulur (tenant seçici); adaylar arasında paylaşılan
+  tek bir bağlam yoktur.
 - **`sys:tenant-mismatch` guardrail'i.** `token_hash` küresel UNIQUE olduğu için
   arama farklı tenant'ların Tag'i ve Session'ıyla başarılı olabilir
   (`Employee{KM}` + `Tag{KF}`). Etiketin tenant'ı ile oturumun tenant'ı
@@ -333,7 +445,10 @@ biçim ayrı bir vaka olarak durabilir ama izolasyon kanıtı **sayılmaz**
   hiçbir yerde geçmez. Bu, `NULLIF`'in "sessiz 0 satır" bedelinin telafisidir.
 - **[M1-08](../plan/m1-veri-katmani.md):** `GetTagByUID` ve
   `GetEmployeeBySessionHash` `db/queries/resolve.sql`'de durur; kalan tüm sorgular
-  açık `tenant_id = @tenant_id` filtresi taşır.
+  açık `tenant_id = @tenant_id` filtresi taşır. *(M5-02 aynı dosyaya üçüncüyü —
+  `GetInviteByCodeHash` —, M6-01 A fazı dördüncü ve beşinciyi —
+  `GetAdminByEmail`, `GetAdminSessionByTokenHash` — ekledi; **güncel liste madde
+  7'dedir.**)*
 - **[M1-09](../plan/m1-veri-katmani.md):** izolasyon vakaları (1, 2, 3, 7)
   `tappa_app`/`DATABASE_URL` havuzuyla ve **ham** (filtresiz) sorguyla koşar;
   vaka 5 (`tappa_owner` `DELETE` → trigger) owner havuzuyla; her negatif vakaya
@@ -354,6 +469,6 @@ biçim ayrı bir vaka olarak durabilir ama izolasyon kanıtı **sayılmaz**
 | **Yalnız uygulama filtresi** (RLS yok, her sorguda `WHERE tenant_id=`) | Tek bir unutulan `WHERE` sessiz çapraz-tenant sızıntısıdır; §4.5 izolasyonu "her katmanda" ister. Filtre kalır ama RLS'in **yanına** (kuşak+kemer), tek savunma olarak değil. |
 | **Çıplak cast** `current_setting('app.tenant_id', true)::uuid` | Fail-closed ama **belirsiz**: GUC'a ilk yazmadan sonra bağlamsız sorgu `0 satır` değil `ERROR` verir (Q27 tablosu). Davranış bağlantı geçmişine bağlı; taze bağlantıya yazılmış test geçer, üretim patlar. `NULLIF` determinizm için seçildi. Çıplağın tek üstünlüğü (gürültülü patlama) M1-07 `WithTenant` ile telafi edildi. |
 | **`tappa_app`'e `BYPASSRLS`** (çözümlemeyi kolaylaştırmak için) | Tüm izolasyonu tek satırda iptal eder; Karar madde 6/7 bunu açıkça yasaklar. Çözümleme dar, anahtar-kısıtlı istisnayla halledilir. |
-| **Superuser `tappa_owner`'a ait `SECURITY DEFINER` çözümleme fonksiyonu** | `SECURITY DEFINER` gövdesi sahibinin yetkisiyle koşar; sahip superuser olduğu için gövde RLS'i **tümüyle** atlar → tüm veritabanını kapsayan genel bir bypass, patlama yarıçapı sınırsız. Tek satır dönmesi bir *gövde özelliği*dir, ayrıcalık modelinin yapısal garantisi değil. Çözümleme, en-az-ayrıcalıklı (yalnız çözümleme tablolarına — `sessions`, `tags`, `employee_invites` — sütun-düzeyinde erişen) bir arayüzün ardında yapılır (Karar madde 7). |
+| **Superuser `tappa_owner`'a ait `SECURITY DEFINER` çözümleme fonksiyonu** | `SECURITY DEFINER` gövdesi sahibinin yetkisiyle koşar; sahip superuser olduğu için gövde RLS'i **tümüyle** atlar → tüm veritabanını kapsayan genel bir bypass, patlama yarıçapı sınırsız. Dönüşün sınırlı kalması bir *gövde özelliği*dir, ayrıcalık modelinin yapısal garantisi değil. Çözümleme, en-az-ayrıcalıklı (yalnız çözümleme tablolarına — `sessions`, `tags`, `employee_invites`, `admin_users`, `admin_sessions` — sütun-düzeyinde erişen) bir arayüzün ardında yapılır (Karar madde 7). |
 | **GUC-anahtar saf-RLS** (`app.resolve_token` GUC'una anahtarlanmış, toplamsal bir RLS dalı; **bypass yok**) | Mutlu-yolu **bypass'sız** ifade eder ve "saf RLS bunu ifade edemez" iddiasını çürütür (canlıda doğrulandı: `tappa_app` tam RLS'e tabi, dönüş tek anahtarla sınırlı). Reddedilme sebebi ifade gücü değil, çevrelemenin **yapısal olmaması**: iki tek-nokta hatası canlıda çapraz-tenant ihlali üretti — (1) **okuma:** `SET LOCAL`'sız kurulan resolve-GUC havuz bağlantısında kalır, OR-dalı o bağlantıdaki her meşru sorguya bir çapraz-tenant satır sızdırır (`NULLIF` fail-closed yakalayamaz, `WithTenant` resolve-GUC'a dokunmaz); (2) **yazma:** `FOR ALL USING(...)` kısayolu `WITH CHECK`'i varsayılan olarak `USING`'den kopyalar → çapraz-tenant `INSERT` forge. İkisi de yalnız **disiplinle** engellenir; §4.5 yapısal çevreleme ister. Bu yüzden en-az-ayrıcalıklı `tappa_resolver` + anahtar-kısıtlı `SECURITY DEFINER` fonksiyon seçildi (Karar madde 7). |
 | **RLS testini `tappa_owner` ile koşmak** (tek havuz) | `tappa_owner` superuser'dır ve RLS'i koşulsuz atlar (M0-03 tablosu); testin negatif vakaları gürültülü patlar. İzolasyon `tappa_app` ile ölçülmek **zorundadır**. |

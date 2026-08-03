@@ -183,6 +183,73 @@ type Querier interface {
 	// This is the ONLY statement in db/queries that writes employee_invites.used_at
 	// (greppable), which is what makes the un-consume limit in the header hold.
 	ConsumeInviteAndActivate(ctx context.Context, arg ConsumeInviteAndActivateParams) (ConsumeInviteAndActivateRow, error)
+	// admins.sql -- the TENANT-SCOPED half of panel authentication (M6-01 phase A):
+	// issuing, refreshing and revoking the ADMIN session, plus the two in-context
+	// reads the login flow needs once the tenant is known.
+	//
+	// Every query below carries an EXPLICIT tenant_id predicate (CLAUDE.md section
+	// 4.5, belt + braces on top of RLS) and is meant to run inside
+	// db.(*DB).WithTenant, i.e. with app.tenant_id established. The TWO admin lookups
+	// that carry no tenant scope live elsewhere on purpose -- db/queries/resolve.sql,
+	// ADR 0002 madde 7 -- because there the tenant is the RESULT of the lookup, not an
+	// input. They are deliberately NOT duplicated here.
+	//
+	// SEPARATE FROM THE EMPLOYEE SESSION, STRUCTURALLY (M1-11). Nothing in this file
+	// touches `sessions`, `employees` or `employee_invites`, and nothing in
+	// db/queries/sessions.sql touches `admin_*`. An admin cookie resolves through
+	// resolve_admin_session_by_token_hash over admin_sessions; an employee cookie
+	// through resolve_session_by_token_hash over sessions. Two tables, two functions,
+	// two column sets -- a token from one is not a row in the other, so the isolation
+	// is a property of the schema and not of a flag anyone can mis-set.
+	//
+	// KIRMIZI CIZGI (section 4.7): the raw session token appears nowhere in this file
+	// and is not stored. Only token_hash is written or matched, and NO query below
+	// RETURNS it. The precise, grep-checkable form of that claim -- because a looser
+	// one was written here first and a grep refuted it: `token_hash` appears in NO
+	// RETURNING list in this file, and in exactly ONE select-list, the
+	// `SELECT a.tenant_id, a.id, @token_hash::text` of CreateAdminSession, where it is
+	// the VALUE BEING INSERTED by an INSERT ... SELECT and not a value handed back.
+	// The property that actually matters is measured on the generated code: no *Row
+	// struct in internal/store/admins.sql.go carries a TokenHash field -- the only
+	// TokenHash there is CreateAdminSessionParams', i.e. an INPUT. So a row read
+	// cannot leak the hash into a log, and the guarantee survives a regeneration
+	// rather than depending on how this comment is worded. password_hash is likewise
+	// never selected by any query in this file: the only place it is read is the
+	// context-less login resolver, which needs it to verify a password and returns it
+	// to exactly one caller.
+	//
+	// NO DELETE QUERIES BY DESIGN: 00006 REVOKEs DELETE on both admin tables, so no
+	// application code path can destroy an admin or a session row (section 4.6).
+	// Revocation is a revoked_at stamp; disabling an admin is status='disabled'.
+	//
+	// WHAT THE DATABASE NOW ENFORCES THAT sessions.sql ONLY ASKED FOR. The employee
+	// file has to say "the protection against un-revoking is that NO QUERY IN THIS
+	// FILE DOES IT". For admin_sessions that is no longer discipline: 00011 revokes
+	// table-wide UPDATE (leaving column-level UPDATE on last_used_at and revoked_at
+	// only -- so token_hash and admin_user_id cannot be rewritten at all) and adds a
+	// BEFORE UPDATE trigger that refuses any change to a revoked_at that is already
+	// set. Measured: un-revoke, session-hijack-by-UPDATE and
+	// repoint-my-session-at-the-owner all succeeded before 00011 and all fail after.
+	// The remaining discipline is smaller but real: a NULL -> now() stamp is still
+	// free-form, so a query could stamp a future or past instant. No query here does.
+	// Issues a panel session. Written as INSERT ... SELECT so the admin's existence,
+	// tenancy and ACTIVE status are conditions of the INSERT ITSELF: a disabled admin
+	// yields 0 rows and sqlc returns pgx.ErrNoRows. That makes "a disabled admin never
+	// gets a session" a property of the DATABASE rather than of the handler
+	// remembering to check status -- the trap state.md records for employees (the
+	// session resolver does not return employees.status, so every surface must check
+	// it itself). The login resolver DOES return admin status, so phase B can refuse
+	// earlier and with a uniform message; this is the belt underneath that.
+	//
+	// tenant_id is taken from the ADMIN ROW, not from the caller's parameter, so the
+	// session cannot be stamped with a tenant the admin does not belong to. The
+	// @tenant_id parameter is still spelled out as a predicate (section 4.5 belt) and
+	// the RLS WITH CHECK independently refuses a value that disagrees with the
+	// transaction context.
+	//
+	// token_hash is the HMAC of a token this query never sees; it is written, never
+	// returned.
+	CreateAdminSession(ctx context.Context, arg CreateAdminSessionParams) (CreateAdminSessionRow, error)
 	// invites.sql -- the TENANT-SCOPED half of activation (M5-02): issuing an invite,
 	// consuming it exactly once, and flipping the employee to 'active'.
 	//
@@ -391,6 +458,30 @@ type Querier interface {
 	// apply" -- a question that would otherwise get the wrong answer for every tenant
 	// provisioned by this path.
 	EnsurePolicyAttachment(ctx context.Context, arg EnsurePolicyAttachmentParams) error
+	// The in-context identity read: who am I, what may I do, am I still enabled.
+	// This is where `role` comes from -- authorization is decided with a tenant
+	// context established, never from the pre-authentication resolver (00011).
+	//
+	// status is returned rather than filtered, for the same reason the resolvers carry
+	// their state instead of hiding it: a caller that finds a disabled admin can say
+	// so and audit it; one that gets "not found" cannot tell that from a bad id.
+	// password_hash is NOT selected (section 4.7 spirit: it leaves the database only
+	// on the one path that must compare it).
+	GetAdminByID(ctx context.Context, arg GetAdminByIDParams) (GetAdminByIDRow, error)
+	// One row of the "which business?" picker (the user decision behind 00011): the
+	// BUSINESS NAME plus this operator's identity within it. Run once per candidate
+	// tenant returned by resolve_admin_by_email, each inside that tenant's own
+	// context, and ONLY AFTER the password has been verified -- the tenant name is an
+	// enumeration signal and must never be reachable before authentication, which is
+	// precisely why the resolver does not return it and does not touch `tenants`.
+	//
+	// Both tables are RLS-covered by the same context, so the join cannot cross a
+	// tenant boundary, and the explicit predicates are the belt on top.
+	//
+	// The status = 'active' filter is what makes this query safe to drive a picker: a
+	// disabled admin's tenant is simply not offered, so the picker cannot present a
+	// door that CreateAdminSession would then refuse to open.
+	GetAdminForTenantChoice(ctx context.Context, arg GetAdminForTenantChoiceParams) (GetAdminForTenantChoiceRow, error)
 	// departments.sql -- tenant-scoped department reads. Every query carries an
 	// explicit tenant_id filter (CLAUDE.md section 4.5, belt + braces on RLS) and
 	// runs inside db.(*DB).WithTenant.
@@ -688,6 +779,11 @@ type Querier interface {
 	// snapshot). The caller passes them from policy.Decision; passing all four NULL is
 	// valid too (the consistency CHECK permits the all-absent state, section 4.6).
 	InsertTransaction(ctx context.Context, arg InsertTransactionParams) (Transaction, error)
+	// Every session of one admin, newest first: the read side of "sign out everywhere"
+	// and of the panel's device list. Revoked rows are included on purpose; the caller
+	// filters on revoked_at, so the history stays visible (section 4.6).
+	// token_hash is NOT selected: nothing outside the resolution path needs it.
+	ListAdminSessionsForAdmin(ctx context.Context, arg ListAdminSessionsForAdminParams) ([]ListAdminSessionsForAdminRow, error)
 	// GPS fallback path (CLAUDE.md section 5, row 6): when no IP matches, the domain
 	// computes the haversine distance from the tap's GPS to each location and checks
 	// the < 150 m radius. Returns every location in the tenant so that check can run.
@@ -827,6 +923,14 @@ type Querier interface {
 	// lock (a 200-request flood finished in 40 ms, all rate limited), which reads as
 	// "no difference". Use distinct sessions for the flood and one shot for the victim.
 	LockEmployeeForTap(ctx context.Context, arg LockEmployeeForTapParams) error
+	// Stamps last_login_at after a SUCCESSFUL login. The status test keeps the stamp
+	// honest: a disabled admin never gets one, so "last successful login" cannot be
+	// advanced by an attempt that did not produce a session.
+	//
+	// Unlike employees.activated_at this stamp is DELIBERATELY overwritten every time:
+	// it answers "when was the most recent login", not "when was the first". The
+	// history of logins is audit_log's job (phase B writes it), not this column's.
+	MarkAdminLoggedIn(ctx context.Context, arg MarkAdminLoggedInParams) (MarkAdminLoggedInRow, error)
 	// audit.sql -- the append-only administrative/domain trail (migration 00005).
 	//
 	// WHY THIS FILE EXISTS NOW (M5-02 phase B): CLAUDE.md section 4.6 says a record is
@@ -877,6 +981,27 @@ type Querier interface {
 	// RETURNING id, at: the caller logs the id (a stable, non-secret handle) instead
 	// of the payload, and `at` lets a test assert the row exists without re-reading.
 	RecordAuditEvent(ctx context.Context, arg RecordAuditEventParams) (RecordAuditEventRow, error)
+	// Revokes one panel session (sign out). COALESCE keeps the FIRST revocation
+	// timestamp: a repeated revoke is idempotent AND does not rewrite when the session
+	// actually died (audit truth). It is also what keeps the 00011 monotonicity
+	// trigger quiet on a repeat -- the new value equals the old one, so nothing
+	// changes and the trigger does not fire.
+	//
+	// The row is matched regardless of its revocation state, so pgx.ErrNoRows means
+	// "no such session in this tenant", which is a genuinely different outcome from
+	// "already revoked" and callers must be able to tell them apart.
+	RevokeAdminSession(ctx context.Context, arg RevokeAdminSessionParams) (RevokeAdminSessionRow, error)
+	// Revokes EVERY live session of one admin and returns the ids it revoked (empty
+	// when there was nothing live -- idempotent). This is "sign out everywhere": the
+	// password was changed or reset (M7-04), the laptop was lost, or a manager was
+	// disabled and the person is still holding a cookie.
+	//
+	// Unlike the employee equivalent, calling this on DISABLE is not merely allowed but
+	// pointless-to-skip in only one direction: TouchAdminSession already refuses a
+	// disabled admin on the next request, so revocation adds promptness and an audit
+	// trail rather than the protection itself. It costs nothing to call and the
+	// panel should.
+	RevokeAdminSessionsForAdmin(ctx context.Context, arg RevokeAdminSessionsForAdminParams) ([]uuid.UUID, error)
 	// Revokes one session. COALESCE keeps the FIRST revocation timestamp: a repeated
 	// revoke is idempotent AND does not rewrite when the session actually died
 	// (audit truth). Because the row is matched regardless of its revocation state,
@@ -956,6 +1081,27 @@ type Querier interface {
 	// never debounces (the safe zero value, section 4.6) — the same answer the
 	// unbounded query produced by returning an age too large to win the min.
 	SecondsSinceLastRecordedTap(ctx context.Context, arg SecondsSinceLastRecordedTapParams) (float64, error)
+	// THE per-request authority for the panel, and the reason the session resolver
+	// does not need to carry the admin's status. It does three things in one
+	// statement, so no code path can perform two of them and skip the third:
+	//   * proves the session is still live (revoked_at IS NULL);
+	//   * proves the admin behind it is still ACTIVE (join + status test) -- a manager
+	//     disabled thirty seconds ago stops passing here, without any revocation
+	//     having been issued;
+	//   * refreshes last_used_at.
+	// Returns the identity the request should act as, including `role`, so the caller
+	// has what the policy engine's actor:role context key needs without a second
+	// query.
+	//
+	// It fails CLOSED: revoked session, disabled admin and unknown id all produce 0
+	// rows and pgx.ErrNoRows. They are deliberately indistinguishable to the caller --
+	// all three mean "you are not authenticated, go to the login page" -- and the
+	// distinction, when it matters for auditing, comes from the resolver, which
+	// carries revoked_at as a fact.
+	//
+	// last_used_at is the only column written, which is all the 00011 column grant
+	// permits.
+	TouchAdminSession(ctx context.Context, arg TouchAdminSessionParams) (TouchAdminSessionRow, error)
 	// Refreshes last_used_at on use (the card's "kullanimda yenilenir"). The
 	// revoked_at IS NULL guard makes the refresh fail CLOSED: a session revoked
 	// between verification and this write updates 0 rows and the caller sees
