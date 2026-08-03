@@ -4,7 +4,52 @@
 > güncellenir ([README.md](README.md) → oturum protokolü, adım 6.4).
 > Görev kartlarına durum işareti konmaz.
 
-**Son güncelleme:** 2026-08-03 (5. oturum — **M5 kapandı 11/11 · M6 başladı, M6-01 A fazı done**)
+**Son güncelleme:** 2026-08-03 (5. oturum — **M5 kapandı 11/11 · M6-01 KAPANDI (A+B)**)
+
+> **M6-01 B fazı done — 2026-08-03 (`4bc2e72`), iki denetçi ONAY, 18 TUR, 8 RED — projenin en uzun görevi
+> (M5-06'nın 15 turunu geçti).** Panel girişi uçtan uca: bcrypt (Q03) · admin oturumu · giriş ekranı ·
+> "hangi işletme?" seçicisi · oran sınırı · `audit_log`. **Yeni migration YOK** — A fazının şeması gerçekten
+> hazırdı. **Beş yükümlülüğün beşi karşılandı ya da dürüstçe limit yazıldı.**
+>
+> **Bu görevin öğrettiği tek şey var ve on sekiz turun sekizi onu tekrar etti: BİR DÜZELTMENİN KENDİ AĞI
+> AYNI TURDA ÖLÇÜLMEZSE, DÜZELTME YAZILMAMIŞ SAYILIR.** Beş koruma sevk edildi ve **beşinin de silinmesi
+> suite'i yeşil bıraktı** — `isLookupableEmail` · `sessionGate` · `sameOriginGate` · `meterOnly`'nin
+> ücretlendirmesi · ve `CookiePath`/`maxCandidates`'in **totolojik** testleri (beklentiyi sabitin
+> **kendisiyle** yazmak). Her biri ayrı bir turda, ayrı bir denetçi tarafından, **mutasyonla** bulundu.
+>
+> **🔴 En ağır bulgu güvenlik merceğinden geldi — genel üçüncü göz ONAY verdikten SONRA.** Q03'ün
+> 72-bayt reddi (ki x/crypto'nun **canlı bir kusurunu** kapatıyor: `CompareHashAndPassword(hash(72×'a'),
+> 100×'a')` **nil** döner) bcrypt'i **kısa devre** yaptırıyordu ve kukla yalnız *"hiç aday yok"* dalında
+> ödeniyordu → **kayıtlı e-posta 5,53 ms, kayıtsız 295,42 ms = 53×**. Tek istekle, istatistiksiz,
+> kimliksiz, ve **sunucuya maliyeti sıfır bcrypt**. 00011 bunu **OBLIGATION 2** olarak yasaklamıştı ve
+> üç yerde *"kapalı"* diye yazılıydı. Düzeltme: uzun parola **aynı digest'e karşı** tam maliyeti öder.
+> Ve düzeltmenin kendisi bir sonraki turda yakalandı — eklenen üçüncü `-short` skip'i kehanetin **iç
+> döngüdeki tek savunmasını** sildi (delik geri açıkken `go test -short ./...` **14/14 yeşil**).
+>
+> **Üç bulgu daha, üçü de ölçümle:** `GET /admin` **hiç çerezi olmayan** bir çağırana bütçesiz bir
+> `SECURITY DEFINER` resolver okuması ödetiyordu (uydurma 43 karakterlik token **1,36 ms** vs bozuk
+> **156 µs**, 600 istekte **0×429**) · onu kapatmak için eklediğim flood kapısı **çıkışı reddedip oturumu
+> canlı bırakıyordu** (kurbanın adres anahtarını paylaşan biri 200 isteği yakınca `POST /admin/logout` →
+> **429**, `Revoke` **0**, ve sunucu tarafı süre olmadığı için o pencerede oturumu bitirecek **hiçbir yol**
+> yok) — **bu benim kararımın regresyonuydu**, `tap.go`'nun **ByAddress → Identify → BySession** deseninin
+> yalnız ilk aşamasını uygulamıştım · ve `sessionGate` **koruduğu maliyetin yanlış tarafındaydı** (429 alan
+> istek resolver okumasını **ve** `TouchAdminSession` UPDATE'ini **zaten ödemiş** oluyordu; ölçüldü:
+> reddedilen istekte bile `last_used_at` değişiyor).
+>
+> **Sayı hijyeni kendi başına bir bulgu sınıfı oldu — ALTI kez.** `make test-short` bandı **üç kez** dar
+> yazıldı ve **üç kez** tutmadı; dördüncü denemede format değişti (**gözlenen aralık 51–74 sn** + `make
+> test`'in taşıdığı *"gözlem kaydı, hedef değil"* uyarısı). 00011'in en büyük sayısı (`cost-10 ≈ 60–100 ms`)
+> **~4× iyimserdi** çünkü sevk edilen digest'ler **cost 12** (367–372 ms) → 500 adaylık şekil 30–50 sn
+> değil **~185 sn CPU**; uygulanmış migration değişmez, düzeltme kartta yaşıyor. 15× flood gevşetmesinin
+> gerekçesi **yanlış kolda** ölçülmüştü (uydurma token 1,2 ms yerine canlı oturum **5,7 ms**, çünkü o kol
+> bir de UPDATE yazıyor) → gerçek maliyet 4,5 sn değil **17,2 sn**.
+>
+> **On iki limit yazılı, kapatıldığı iddia edilmedi.** En önemlileri: digest-tarafı zamanlama kolu
+> (bozuk/boş `password_hash` → **154–198 ns** vs kukla **297,9 ms** = ~10⁶×; **bugün erişilemez** çünkü
+> `password_hash` yazan üretim yolu yok, ama **M6-05/M7-04/M7-02'de süresi doluyor** — kural: *`admin_users.
+> password_hash` yalnız `adminauth.Hash` çıktısıyla yazılır*) · çıkış **30000** üçüncü-taraf isteğinde
+> reddedilebilir (invaryant **zayıfladı**, yazılı) · `adminSessionLimit = 300` **kopyalandı, türetilmedi**
+> (**M6-02'nin en acil borcu** — adres tavanından dar). **Sıradaki:** "ŞU AN" → **M6-02**.
 
 > **M6-01 A fazı done — 2026-08-03 (`66d5442`), iki denetçi ONAY, 3 tur.** M6'nın ilk görevi, M5-02'nin
 > **A/B kalıbıyla** bölündü (veri katmanı → auth+ekran) çünkü iş bir migration + resolver + kripto bağımlılığı
@@ -107,7 +152,7 @@
 | | |
 |---|---|
 | **Kilometre taşı** | **M0 + M1 + M2 + M3 + M4 + M5 TAMAM** ✅ 🎉 · **[Tap akışı](m5-tap-akisi.md) 11/11 — çalışanın gördüğü ürünün tamamı bitti.** Davet → aktivasyon → mini tur → **NFC veya QR** → karar → kayıt → onay ekranı, **gerçek HTTP + gerçek Postgres üzerinde bir GÜN** olarak kanıtlı (`make simulate-day`: 10 çalışan, 31 kayıt, hepsi **karar motorundan**), tap sayfası **3 dk'lık tazelik penceresine** bağlı, ve §5'in yön kuralı sevk edilmiş kodda **doğru**. **Sıradaki: M6 — müdürün gördüğü taraf.** |
-| **Sıradaki görev** | **M6-01 B fazı** — auth + ekranlar (A fazı `66d5442` **done**). Q03 **cevaplı**: **bcrypt**, ve bağımlılık onayı da orada (`golang.org/x/crypto`, M6-01'de eklenir) → ⚠️ `go.mod` değişince **`make audit` ZORUNLU** (M1-07→M1-09 dersi: `go build`/`vet`/`staticcheck` CVE görmez). **UI var → skill `tappa-brand` ZORUNLU.** 🔴 **A fazının yazdığı BEŞ yükümlülük dört yerde duruyor ve B fazı hepsini karşılamak zorunda** (00011'in `PHASE B OBLIGATION` listesi kanonik numaralandırma): **1** numaralandırma (aynı yanıt, aynı zamanlama) · **2** kukla bcrypt (e-posta yoksa da karşılaştır) · **3** oran sınırı · **4** bcrypt amplifikasyonu (aday sayısına sınır) · **🔴 5 aday↔parola bağı** (oturum **yalnızca** eşleşen adaya, seçici **yalnızca** eşleşenleri gösterir) — **4 ile 5 birbirinin tersine çekiyor**, birlikte okunmalı. ⚠️ Ayrıca: `store.AdminUser.PasswordHash` (sqlc **üretimi**) hâlâ çıplak `string` — handler `%+v` ile loglarsa sızar (`db.ResolvedAdmin`'inki korundu, üretilen tip korunmadı); ve `audit_log` **append-only** → başarısız giriş yazımı **bütçesiz olamaz** (M5-02'nin dersi: *"bir korumanın maliyeti, koruduğu şeyin kendisine saldırı olabilir"* — 300 istek 290×429 aldı ama **300 satır** yazdı). **Sonra:** M6-02 (docket iskeleti). |
+| **Sıradaki görev** | **M6-02** — dashboard iskeleti ve docket bileşenleri. **UI → skill `tappa-brand` ZORUNLU.** M6-01 giriş yolunu **ve** `AdminAuth.Protect()` middleware'ini bıraktı; `Protect()` **bütçeyi de taşıyor** (kendi grubunda mount etmek güvenli — 17. turda ölçüldü, `#3001`'de 429). 🔴 **M6-02'nin DEVRALDIĞI ÜÇ SAYI:** (1) **`adminSessionLimit = 300` KOPYALANDI, TÜRETİLMEDİ** — dosyanın kendi aritmetiği yönetici başına ~200 istek/pencere veriyor, yani pay yalnız **1,5×**, ve M6-02'nin HTMX parçaları bunu çarpar; **meşru** bir yönetici 301. istekte kendi paneline 429 yiyor (kilitlenme değil, çıkış çalışıyor). **İki tavandan DAR olanı bu.** (2) `adminFloodLimit = 3000` **kimliği doğrulanmış sayfa yüklemelerini de taşıyor** (10 yönetici × 20 görüntüleme × 10 parça ≈ 2000 varsayımıyla) — parça sayısı değişirse **yeniden say**. (3) `sessionGate` kimlik doğrulamadan **sonraki** işi sınırlar ve **bugün o iş boş** — M6-02 onu dolduran taraf. ⚠️ Ayrıca `store.AdminUser.PasswordHash` (sqlc **üretimi**) hâlâ çıplak `string`; **bugün üretimde sıfır referansı var** (17. turda sayıldı) ama M6-02/M6-05 onu döndüren bir sorgu yazarsa `%+v` sızdırır — koruma **tip düzeyinde değil, yokluk düzeyinde**. |
 | **Çalışma modu** | Orkestrasyon + üçüncü göz — [README.md](README.md) · brief'ler [agent-brief.md](agent-brief.md) |
 | **Dal** | **`main`** — M0 (`m0-bootstrap`) `main`'e fast-forward birleştirildi (`562f021`), dal silindi. **Kullanıcı kararı (2026-07-25): artık doğrudan `main`'de çalışılır, görev başına dal açılmaz** (CLAUDE.md §10 güncellendi). Push/PR yine istemedikçe yok. |
 | **Blokeler** | Yok. **Bekleyen kullanıcı eylemleri → [docs/backlog.md](../backlog.md)** (B1 iPhone/Q11 ölçümü, B2 arm64 Go kurulumu) — **ikisi de hiçbir şeyi bloklamıyor**. Q02 (davet kanalı) M5-02'yi bloklamaz; kart cevapsız hâli için yol gösteriyor. |
@@ -171,6 +216,72 @@ DOLDURUR. Aşağıdakiler doldurulmazsa guardrail **sessizce** ateşlemez (eksik
   (tag çözümünden tenant + oturumdan tenant). M4-03 bunu doğru şekilde M5'e erteledi (Decide karar taklidi
   yapmıyor); ama M5 bunu sağlamazsa delik açık kalır — **belt-and-braces değil, tek gerçek engel.** Ayrıca (düşük):
   Decide her redirect'i `RedirectActivation`'a eşliyor → M5 tenant-mismatch redirect'ini aktivasyondan ayırabilir.
+
+### M6-02 / M6-05 / M7-02 / M7-04 / M8'e devralınan (M6-01 B'nin ON İKİ LİMİTİ)
+
+Hiçbiri kapatıldı diye yazılmadı; hepsi **ölçüldü ve sayıldı**. Sahibi belli olanlar işaretli.
+
+1. **🔴 M6-05 / M7-04 / M7-02 — digest-tarafı zamanlama kolu, ve SEBEBİ SÜRESİ DOLACAK.** Geçerli bcrypt
+   digest'i olmayan bir admin satırı **154–198 ns**'de cevap veriyor (bcrypt anahtar programını kurmadan
+   hata döner), kukla kolu **297,9 ms** → **~1,5–1,9 milyon×**. Yani 53× kehanetinin şekli **digest
+   tarafından ve ters yönde** yeniden açılır. **Bugün erişilemez** (`db/queries` ve üretim Go'sunda
+   `INSERT INTO admin_users` yok, `password_hash` UPDATE'i yok — tek `UPDATE admin_users`
+   `MarkAdminLoggedIn`/`last_login_at`; seed'in iki satırı da `$2a$12$`; `Hash` boşu ve >72'yi reddediyor)
+   **ama şemada format CHECK'i YOK**, `''` şema-geçerli. **Kural: `admin_users.password_hash` yalnız
+   `adminauth.Hash` çıktısıyla yazılır.** Yapısal çözüm bir sütun CHECK'i = **yeni migration**, alınmadı.
+2. **🔴 M6-02 — `adminSessionLimit = 300` KOPYALANDI, TÜRETİLMEDİ, ve iki tavandan DAR olanı bu.**
+   `adminratelimit.go` adres tavanını *"10 yönetici × 20 görüntüleme × 10 parça ≈ 2000"* diye türetiyor
+   (**yönetici başına ~200 istek/pencere**) ama oturum tavanını *"300, `tapSessionLimit` ile eşleşiyor"*
+   diye koyuyor — **kendi türetmesine karşı hiç sınamadan**, yani pay yalnız **1,5×**. Üstelik
+   `httpx/ratelimit.go`'nun 300 gerekçesi **başka bir şekle** ait (çalışanın günde birkaç tap'i). Sonuç:
+   yoğun bir yönetici **301. istekte kendi paneline 429** yiyor. Kilitlenme değil (çıkış çalışıyor), ama
+   panel o pencerede ölü. **M6-02 HTMX parçalarını ekleyen taraf; sayıyı o türetmeli.**
+3. **M6-02 — `adminFloodLimit = 3000` kimliği doğrulanmış sayfa yüklemelerini de taşıyor.** 12. turda
+   kapı `Protect`'in **önüne** kondu (F-A'yı kapatmak için), böylece anonim kalkan ile meşru iş **tek
+   kovayı** paylaşır oldu; tavan 200 → 3000 çıkarıldı. Maliyet **doğru kolda** ölçüldü: canlı oturum
+   **3,0–5,7 ms** (resolver okuması **+ `TouchAdminSession` UPDATE**), uydurma token 0,65–1,21 ms →
+   `3000 × 3,0–5,7 ms = 9–17 sn/pencere/adres = bir çekirdeğin %1,5–2,9'u`. **Parça sayısı değişirse
+   yeniden say.**
+4. **M6-02 — `sessionGate` (300/oturum) kimlik doğrulamadan SONRAKİ işi sınırlar ve bugün o iş BOŞ.**
+   Ve **koruduğu maliyetin yanlış tarafında**: gate `requireAdmin`'den sonra koştuğu için **429 alan
+   istek resolver okumasını ve UPDATE'i zaten ödemiştir** (ölçüldü: reddedilen istekte bile `last_used_at`
+   değişiyor). Taşımak mümkün değil — oturumu çözmeden oturuma göre anahtarlayamazsın; `tap.go`'da sorun
+   yok çünkü `httpx.Identify` bilerek **yazmıyor**.
+5. **Çıkış 30000 üçüncü-taraf isteğinde reddedilebilir — invaryant ZAYIFLADI.** 14. turda çıkış
+   *"asla reddedilmez"*di; 16. turda kendi tavanı kondu (`adminLogoutLimit = 10 × adminFloodLimit`) çünkü
+   ölçüldü ki *"asla reddetme"* **sınırsız** bir yükselteç demekti (10000 anonim çıkış → **10000 resolver
+   okuması, 0 red**, tap yüzeyinin **paylaştığı havuzda**). Şimdi üçüncü tarafın kurbanın çıkışını
+   engellemesi **30000 istek** gerektiriyor — panelin geri kalanını reddetmenin **10 katı** ve flood
+   log'unda gürültülü. **Bedeli:** `30000 × 0,65–1,21 ms ≈ 19,5–36 sn/pencere/adres ≈ çekirdeğin %3,3–6,0'ı`
+   — **ürünün en geniş tavanı, flood tavanından pahalı.**
+6. **Bastırılan deneme TOPLAMI DB'den kurtarılamaz.** Hesap audit bütçesi bir **iz susturma** primitifi:
+   60 başarısızlık → **11 satır** (10 `failed` + 1 `rate_limited`). `rate_limited` satırı `SuppressedFrom`
+   taşıyor (bastırmanın **başladığı sıra**, ölçüldü: 11) → *sessizlik değil kesinti*; müfettiş saldırıyı
+   görür, **sayısını göremez**. Gerçek sayım pencere **kapanışında** bir satır ister; `httpx.Limiter`
+   tembel tahliye ediyor ve süre-sonu kancası yok → **altyapı**.
+7. **`-race` zamanlama kapısı 2,5× altını GÖRMEZ.** Kapı ölçülmüş gürültüye göre genişletildi (kullanıcı
+   kararı 2026-08-03) ve **bir cost-adımlık kuklayı (1,91–1,99×) bilerek feda ediyor** — o vaka
+   `TestCost_MatchesTheDummyDigest`'in **tam sayı** karşılaştırmasına bırakıldı. Gerçekten korumasız olan:
+   ne eksik kukla ne cost uyuşmazlığı olan, **2,5× altındaki dördüncü bir şekil**.
+8. **Sunucu tarafı panel oturum süresi YOK.** `admin_sessions`'da `expires_at` yok; 12 saatlik `Max-Age`
+   bir **tarayıcı ipucu**. Gerçek kontroller: açık çıkış · *"her yerden çıkış"* (**rotası mount edilmemiş**)
+   · `admin_users.status='disabled'` (**M6-05**). Düzeltmesi **migration**.
+9. **Bilinmeyen e-postalı denemeler AUDIT'LENEMEZ.** `audit_log.tenant_id` NOT NULL + FK → atfedilecek
+   tenant yok. Sıfırın **mekanizması** `failLogin`'in 0 adayla döngüye hiç girmemesi; **kısıt** boşluğun
+   neden kapanmadığının gerekçesi. Kart kriteri bu yüzden **⚠️ KISMEN** işaretli.
+10. **`GO-2026-5932` kabul edildi.** `golang.org/x/crypto/openpgp` bakımsız, **`Fixed in: N/A`**;
+    yalnız `bcrypt` import ediliyor (4 satır, dördü de bcrypt), **0 vuln kodu etkiliyor** → `make audit`
+    yeşil. **Yükselterek kapatılamaz.**
+11. **Tip invaryantı AD-TABANLI.** `TestPackageTypes_NoExportedCredentialField` paketteki dışa açık
+    struct'ları gezip **sır-benzeri ADI** olan ham alan arıyor (sabit listeli önceki hâli yeni **tipe**
+    karşı çaresizdi — negatif kontrolle kanıtlandı). **Nötr adlı bir alan (`Value string`) kaçar.**
+12. **🔴 M8 — SUITE GENELİ BAĞLANTI TÜKENMESİ, ÖNCEDEN VAR, M6-01 SEBEP DEĞİL.** `max_connections=100`
+    − 3 rezerve = **97 slot**; `internal/db/invites_test.go` ve `internal/sun/advance_test.go`'nun
+    kırmızı-çizgi yarış testleri **54'er** bağlantı açıyor (50 goroutine + 4) = **108 > 97**, yani
+    **tek başlarına** sınırı aşıyorlar. Belirti: `TestConsumeInvite_ConcurrentRaceExactlyOneWinner` →
+    `FATAL: sorry, too many clients already`. ⚠️ **Goroutine sayısını düşürmek bir §4.4 testini
+    ZAYIFLATIR** (aynı `(tag, ctr)` ile N goroutine → tam 1 kazanan) → düzeltilmedi. Çözüm ya
+    `max_connections` ya testcontainers ile izole DB — ikisi de **altyapı**.
 
 ### M6 / M7'ye devralınan (M5-11 denetimlerinden)
 
@@ -362,6 +473,12 @@ DOLDURUR. Aşağıdakiler doldurulmazsa guardrail **sessizce** ateşlemez (eksik
   testle tutuluyor (`TestBudgets_FloodCeilingStillRefuses`); `activate_tour` **ve** `activate_done`
   gate'i silinince suite **yeşil** kalıyor (ölçüldü). M5-07 mevcut boşluğa **beşinci üye ekledi,
   boşluğu açmadı**. Rota başına *"floodLimit+1. istek 429"* tablo testi **kendi görevini hak ediyor**.
+  ⚠️ **2026-08-03: bu satır AKTİVASYON ailesi için hâlâ doğru** (`activate.go`'da hâlâ tam 5 çağrı, hâlâ
+  yalnız `activate_submit` tutuluyor) **ama artık eksik konuşuyor:** M6-01 B panelin **beş** flood çağrısını
+  bir tablo testiyle **pinledi** (`TestAdminAuth_FloodCeilingRefusesEveryUnauthenticatedRoute`, kapsanan
+  rota **5**), yani boşluk **yarıya indi**. Kalan borç: `activate_tour` · `activate_done` — ve o üç çalışan
+  rotası **altyapı** istiyor (Tap/Activation koşum takımı: DB, davet yöneticisi, oturum yöneticisi, SUN
+  doğrulayıcı), M6-01'in kapsamı değildi.
 - **Dokunma hedefi ölçümü markup okur.** `TestTour_HasExactlyTheseTouchTargets` HTML'e bakıyor;
   **salt CSS ile** basılabilir hale getirilmiş bir alanı (dev `::after`) hiçbir test göremez. Kapalı
   küme içinde basılabilir olan yalnız `<a href>` (`button`/`form`/`input`/`area`/`label`/`details`
@@ -385,7 +502,9 @@ DOLDURUR. Aşağıdakiler doldurulmazsa guardrail **sessizce** ateşlemez (eksik
    anomali sinyalleri) ya da daha erken.
 3. **DOKUZ aktivasyon ekranında CSP yok** (M5-07 denetiminde yeniden sayıldı: `Activation.render`
    `Content-Security-Policy`'yi **0 kez** set ediyor → `Activate` · `Confirm` · `Done` · **`Tour`** +
-   beş `problem*` sabiti). `internal/handler`'da tek `Header().Set("Content-Security-Policy")` var
+   beş `problem*` sabiti). ⚠️ **2026-08-03 güncellemesi: artık İKİ** `Header().Set("Content-Security-Policy")` var
+   (`tap.go:602` + `adminlogin.go:978` — M6-01 B panelin **gövdeli her yanıtına** CSP koyuyor); aşağıdaki
+   "tek" ifadesi M5-07 dönemine aitti. Aktivasyon ailesinin **dokuzu** hâlâ korumasız. Eski hâliyle: `internal/handler`'da tek `Header().Set("Content-Security-Policy")` var
    (`tap.go:602`) → **tap ailesinin altısı** korunuyor, aktivasyon ailesinin **dokuzu** korunmuyor;
    ortak `pages.Problem` şablonu ikisine birden hizmet ettiği için asimetri aynı şablonun içinden
    geçiyor. Aktivasyon `Message` dizeleri de o pakette pinli değil. Üç denetçi "düşük riskli, asimetriyi
@@ -563,7 +682,9 @@ bilinen-cevap vektörleriyle** sabitlenmeli (little vs big-endian sessizce yanl�
 `transactions.entered_by` · `transaction_reviews.reviewer_id` · `audit_log.actor_id` →
 `admin_users` FK'leri **eklenmedi** (00005 yorumları "M1-11'de eklenir" demişti — **artık
 yanıltıcı**, 00005 immutable/düzeltilemez). M1-11 kartı bunları istemiyor + `reviewer_id NOT NULL`
-FK'si rls_test fixture'ını (rastgele reviewer_id) kırardı. **M6-04 (review akışı) / M6-01 (auth)**
+FK'si rls_test fixture'ını (rastgele reviewer_id) kırardı. ⚠️ **2026-08-03: M6-01 BUNU YAPMADI ve
+yapamazdı** — iki fazı da **yeni migration olmadan** sevk edildi (00011 A fazınındır ve `admin_users`'a
+back-FK eklemez; B fazının `db/` diff'i **boş**). **Kalan tek sahip M6-04.** Eski hâliyle: **M6-04 (review akışı) / M6-01 (auth)**
 bu back-FK'leri (composite same-tenant) + fixture yeniden yazımını yapar. Sınırlı risk: yazım
 yolları henüz yok, reviewer_id self-review trigger'ıyla korunuyor. `actor_id` polimorfik
 (admin|employee) → tek FK doğru değil, ayrı ele alınır.
@@ -579,7 +700,15 @@ loglanırsa §7 sır sızıntısı. M6-01 handler denetiminde kontrol et.
   `make test` koşusu tenants/policies/... satırı ekliyor (auditor: tenants≈1089). Kırmızı çizgi DEĞİL,
   yalnız hijyen; demo/prod öncesi `make db-reset`. İstenirse owner-teardown veya testcontainers ile
   izole DB (M8 deploy denetimi) çözer.
-- `password_resets.used_at`/`admin_sessions.revoked_at`/`expires_at` UPDATE-edilebilir (append-only
+- ⚠️ **2026-08-03: bu satırın `admin_sessions` yarısı ARTIK YANLIŞ.** 00011 (M6-01 A, `66d5442`)
+  `admin_sessions_revocation_monotonic` trigger'ını **sevk etti** — `revoked_at` monoton, `tappa_owner`
+  bile geri alamıyor — ve tablo-geneli UPDATE'i **REVOKE** edip yalnız `(last_used_at, revoked_at)`
+  sütunlarına GRANT verdi. Ayrıca **`admin_sessions`'da `expires_at` sütunu HİÇ YOK** (kolonlar: id,
+  tenant_id, admin_user_id, token_hash, created_at, last_used_at, revoked_at) — o alan
+  `password_resets`'e ait. **Sağ kalan doğru yarı:** `password_resets.used_at`/`expires_at` gerçekten
+  hâlâ serbest. ⚠️ Ve **daha güçlü kill switch'in hiçbir monotonluk koruması yok**: `admin_users.status`
+  tek satırla o admin'in **tüm** oturumlarını öldürüyor, ama `SET status='active'` hepsini geri getiriyor
+  (ölçüldü). Eski hâliyle: `password_resets.used_at`/`admin_sessions.revoked_at`/`expires_at` UPDATE-edilebilir (append-only
   trigger yok); tek-kullanımlık/iptal bütünlüğü **app katmanında** (M6/M7 sorguları). sessions.revoked_at
   ile aynı desen; istenirse M6'da immutability trigger'ı defense-in-depth eklenebilir.
 - **aes_key_ref KEK-sarmalı doğrulaması** (M1-05'ten): şema bytea zorlayamaz → insert-yolu (M2/M5)
@@ -700,8 +829,9 @@ düzelt**.
 | `docker compose ps` | `tappa-db` ayakta ve `healthy` |
 | `make migrate-status` | **00001–00011 uygulanmış** (00011 = M6-01 A fazı, admin çözümleme) |
 | `make check` | **exit 0** — ama yalnız **temiz ağaçta** (aşağı) |
-| `make test` | 13 paket `ok`, **PASS 1331 / SKIP 0 / FAIL 0** (M6-01 A sonrası) · **~85–142 sn** · sayım: `make test GOFLAGS=-v \| grep -c -- '--- PASS:'` · ⚠️ çıplak `go test` **156 üst düzey / 201 toplam** testi sessizce SKIP eder |
-| `make test-short` | **~33–35 sn**, **TAM 1 SKIP** (`TestSeedDB_ADayAtKFStJulians`) — iç döngü içindir, **commit öncesi `make test`** |
+| `make test` | **14 paket** `ok`, **PASS 1633 / SKIP 0 / FAIL 0** (M6-01 B sonrası) · **gözlenen aralık 92–150 sn** (makine durumuna göre; **hedef değil, gözlem kaydı**) · sayım: `make test GOFLAGS=-v \| grep -c -- '--- PASS:'` · ⚠️ çıplak `go test` DB testlerini **sessizce SKIP eder** (ölçüldü: PASS 1260 / SKIP 212) |
+| `make test-short` | **gözlenen aralık 51–74 sn**, **TAM 3 SKIP** (`TestAuthenticate_TimingIsFlat`, `TestPanelE2E_TimingIsFlatOverHTTP`, `TestSeedDB_ADayAtKFStJulians`) — iç döngü içindir, **commit öncesi `make test`**. ⚠️ Bu bant **üç kez dar yazılıp üç kez tutmadı**; artık gözlenen aralık ve **hedef değil** |
+| **⚠️ İki bilinen flake** | İkisi de **M6-01 kaynaklı DEĞİL**, ikisi de **önceden var**: (1) `TestPolicySetDB_ConcurrentFirstTapsMaterialiseOnce` — M7-03 devrinin (`EnsureBaselinePolicy` eşzamanlılıkta 23505) test yüzü, ~26 koşuda 2; son 8 kapanış koşusunda **0**. (2) **bağlantı tükenmesi** (`FATAL: sorry, too many clients already`) — `max_connections=100` − 3 rezerve = **97**, ve `internal/db` + `internal/sun`'ın kırmızı-çizgi yarış testleri **54'er** bağlantı açıyor = **108 > 97**, yani **tek başlarına** sınırı aşıyorlar. Goroutine sayısını düşürmek bir **§4.4 testini zayıflatır** → düzeltilmedi. **Sonuç: `make check` yeşilliği bu iki testin zamanlamasına bağlı; kırmızı görürsen ÖNCE hangisi olduğuna bak.** |
 | `make simulate-day` | KF St Julians'ta bir gün: `PASS`, ~64 sn (~62'si ADR 0006 beklemesi). **`make seed` yapılmış olmalı** |
 
 ⚠️ **`make check` son adımı `git diff --exit-code`.** Commit edilmemiş iş varken **exit 2** verir ve bu
@@ -822,7 +952,7 @@ yazılır.
 
 | ID | Görev | Durum | Commit / not |
 |---|---|---|---|
-| M6-01 | Admin kimlik doğrulama | **wip — A fazı done** | **A fazı `66d5442`** · **iki denetçi ONAY** (genel üçüncü göz 2. turda + `tappa-security-auditor` koşullu, koşullar kapatıldı) · **3 tur** · M5-02'nin A/B kalıbı: **veri katmanı** önce, auth+ekran sonra · **🔴 kart bir şeyi söylemiyordu ve şema onu VARSAYIYORDU:** 00006 *"resolver YOK: giriş tenant'ı biliyor"* diyor ama **hiçbir şey tenant'ı kurmuyordu** (e-posta yalnız `(tenant_id, email)` içinde tekil, slug yok, tek `/api/auth/login`) → **kullanıcı kararı 2026-08-02: global çözümleme + tenant seçici** (kullanıcının kendi demo tenant'ları KF+KM **aynı kişiye ait**) · **migration 00011:** iki SECURITY DEFINER fonksiyon (ADR 0002 md.7 kalıbı; resolver sayısı **3→5**, `tappa_resolver` sütun-SELECT'i **5 tabloda 26 sütun**, tablo-düzeyi yetkisi **sıfır**) · **`resolve_admin_by_email` beş kısıttan birini BİLEREK kırıyor:** dönüş **≤1 değil N satır**, sınır kısmi unique indeksten geliyor ve **saldırgan tarafından büyütülebilir** (M7-02 kayıt açılınca) — yazıldı · **şema sertleştirmesi repoda HİÇ ADI GEÇMEMİŞ iki yeteneği kapattı:** `admin_sessions.admin_user_id`'yi yeniden yönlendirme (**yetki yükseltme**) ve `token_hash`'i ezme (**oturum ele geçirme**); sütun-kapsamlı UPDATE ikisini kapatıyor ama **un-revoke'u kapatamıyor** (*"grant hangi SÜTUN der, hangi DEĞER demez"*) → **monotonluk trigger'ı**, `tappa_owner`'ı da bağlıyor · **🔬 en ince bulgu:** `citext`'in `=` operatörü `public`'te; `search_path=pg_catalog,pg_temp` altında **görünmez** ve Postgres **hata vermeden** `text=text`'e düşüyor → kimlik doğrulama araması sessizce **harfe duyarlı** oluyor (ölçüldü: küçük/büyük harf **0 satır**). Düzeltme `OPERATOR(public.=)` + kalıcı negatif kontrol. Tuzak **`search_path` özelliğidir**, SECURITY DEFINER'a özgü değil; şemadaki diğer citext sütunu `employees.email` bugün hiçbir sorguda filtrelenmiyor → sınıf kapalı ama **kapalılık yazıldı** · **§4.7: hash artık çıplak `string` DEĞİL** — altı basma yolu (`%+v`, dilim `%v`, `%#v`, `fmt.Errorf`, unexported alan, `slog`) hash'i **verbatim** sızdırıyordu; repo'nun kendi kalıbı (`session.Token`/`invite.Code`) **üçüncü kez** uygulandı, ve **pozitif kontrol testin körü olmadığını kanıtlıyor** · `redline-check.sh` R7 desenine **`password` eklendi** (ölçüldü: 0 yanlış pozitif) — **ve yakalamadığı dürüstçe yazıldı** (altı yolun hiçbirinde `password` **kelimesi** log çağrısında geçmiyor) · **B fazına BEŞ yükümlülük**, dört yerde: numaralandırma · kukla bcrypt · oran sınırı · **bcrypt amplifikasyonu** (bir e-posta 500 tenant'ta → 500 satır, DB **0,9 ms**, ama B fazı 500 bcrypt = **~30–50 sn CPU**, **~500×**, tek kimliksiz istekten) · **🔴 aday↔parola bağı** (`tappa-security-auditor`'ın bulduğu **en ağır** madde: oturum **yalnızca hash'i eşleşen adaya** verilmeli, seçici **yalnızca eşleşenleri** göstermeli — yoksa saldırgan kurbanın e-postasını kendi tenant'ına yazıp **kendi satırında** doğrulanır ve **kurbanın işletmesini seçer**; §4.5 çapraz-tenant kimlik atlatması, canlı ölçüldü) ⚠️ ve **4. ile 5. madde birbirinin tersine çekiyor** — *"ilk eşleşmede dur"* DoS'u azaltır ama seçici tüm adayları gösterirse **tam olarak bu atlatmadır**; gerilim dört yerde de yazılı · güvenlik denetçisi **on beş** saldırı denedi (`ON CONFLICT DO UPDATE`, `MERGE`, `session_replication_role`, `pg_temp` operatör/tablo enjeksiyonu, çapraz-tenant forge…), **on beşi de bloklandı** · down/up **tam tersinir** · **1331 test, 0 SKIP** |
+| M6-01 | Admin kimlik doğrulama | **done** | **B fazı `4bc2e72`** · **iki denetçi ONAY** · **18 tur, 8 RED — projenin en uzun görevi** · bcrypt (Q03, `golang.org/x/crypto` eklendi, `make audit` yeşil) · admin oturumu · giriş + seçici ekranları · oran sınırı · `audit_log` · **yeni migration YOK** · **beş yükümlülüğün beşi karşılandı ya da limit yazıldı** · 🔴 **beş koruma sevk edildi ve BEŞİNİN DE silinmesi suite'i yeşil bıraktı** (`isLookupableEmail` · `sessionGate` · `sameOriginGate` · `meterOnly`'nin ücretlendirmesi · `CookiePath`/`maxCandidates`'in **totolojik** testleri) — her biri ayrı turda, ayrı denetçi, **mutasyonla** · 🔴 **53× zamanlama kehaneti** (>72 baytlık parola bcrypt'i kısa devre yaptırıyordu; kayıtlı e-posta **5,53 ms**, kayıtsız **295,42 ms**, tek istekle kesin, **sunucuya maliyeti sıfır bcrypt**) — güvenlik merceği genel gözün ONAY'ından **sonra** buldu · ve düzeltmesi bir sonraki turda yakalandı (üçüncü `-short` skip'i kehanetin **iç döngüdeki tek savunmasını** sildi) · **`GET /admin` çerezsiz çağırana bütçesiz `SECURITY DEFINER` okuması ödetiyordu** (uydurma token 1,36 ms vs bozuk 156 µs, 600 istekte 0×429) · onu kapatan flood kapısı **çıkışı reddedip oturumu canlı bırakıyordu** (orkestratörün kararının regresyonu: `tap.go`'nun **ByAddress → Identify → BySession** deseninin yalnız ilk aşaması uygulanmıştı) · **sayı hijyeni altı kez bulgu oldu** (`test-short` bandı üç kez dar yazılıp üç kez tutmadı → format **gözlenen aralığa** çevrildi; 00011'in `cost-10` sayısı **~4× iyimser**, sevk edilen digest'ler cost 12) · **1633 test, 0 SKIP** · **12 limit yazılı** · *(A fazı `66d5442`, 3 tur — aşağıda)* **A fazı `66d5442`** · **iki denetçi ONAY** (genel üçüncü göz 2. turda + `tappa-security-auditor` koşullu, koşullar kapatıldı) · **3 tur** · M5-02'nin A/B kalıbı: **veri katmanı** önce, auth+ekran sonra · **🔴 kart bir şeyi söylemiyordu ve şema onu VARSAYIYORDU:** 00006 *"resolver YOK: giriş tenant'ı biliyor"* diyor ama **hiçbir şey tenant'ı kurmuyordu** (e-posta yalnız `(tenant_id, email)` içinde tekil, slug yok, tek `/api/auth/login`) → **kullanıcı kararı 2026-08-02: global çözümleme + tenant seçici** (kullanıcının kendi demo tenant'ları KF+KM **aynı kişiye ait**) · **migration 00011:** iki SECURITY DEFINER fonksiyon (ADR 0002 md.7 kalıbı; resolver sayısı **3→5**, `tappa_resolver` sütun-SELECT'i **5 tabloda 26 sütun**, tablo-düzeyi yetkisi **sıfır**) · **`resolve_admin_by_email` beş kısıttan birini BİLEREK kırıyor:** dönüş **≤1 değil N satır**, sınır kısmi unique indeksten geliyor ve **saldırgan tarafından büyütülebilir** (M7-02 kayıt açılınca) — yazıldı · **şema sertleştirmesi repoda HİÇ ADI GEÇMEMİŞ iki yeteneği kapattı:** `admin_sessions.admin_user_id`'yi yeniden yönlendirme (**yetki yükseltme**) ve `token_hash`'i ezme (**oturum ele geçirme**); sütun-kapsamlı UPDATE ikisini kapatıyor ama **un-revoke'u kapatamıyor** (*"grant hangi SÜTUN der, hangi DEĞER demez"*) → **monotonluk trigger'ı**, `tappa_owner`'ı da bağlıyor · **🔬 en ince bulgu:** `citext`'in `=` operatörü `public`'te; `search_path=pg_catalog,pg_temp` altında **görünmez** ve Postgres **hata vermeden** `text=text`'e düşüyor → kimlik doğrulama araması sessizce **harfe duyarlı** oluyor (ölçüldü: küçük/büyük harf **0 satır**). Düzeltme `OPERATOR(public.=)` + kalıcı negatif kontrol. Tuzak **`search_path` özelliğidir**, SECURITY DEFINER'a özgü değil; şemadaki diğer citext sütunu `employees.email` bugün hiçbir sorguda filtrelenmiyor → sınıf kapalı ama **kapalılık yazıldı** · **§4.7: hash artık çıplak `string` DEĞİL** — altı basma yolu (`%+v`, dilim `%v`, `%#v`, `fmt.Errorf`, unexported alan, `slog`) hash'i **verbatim** sızdırıyordu; repo'nun kendi kalıbı (`session.Token`/`invite.Code`) **üçüncü kez** uygulandı, ve **pozitif kontrol testin körü olmadığını kanıtlıyor** · `redline-check.sh` R7 desenine **`password` eklendi** (ölçüldü: 0 yanlış pozitif) — **ve yakalamadığı dürüstçe yazıldı** (altı yolun hiçbirinde `password` **kelimesi** log çağrısında geçmiyor) · **B fazına BEŞ yükümlülük**, dört yerde: numaralandırma · kukla bcrypt · oran sınırı · **bcrypt amplifikasyonu** (bir e-posta 500 tenant'ta → 500 satır, DB **0,9 ms**, ama B fazı 500 bcrypt = **~30–50 sn CPU**, **~500×**, tek kimliksiz istekten) · **🔴 aday↔parola bağı** (`tappa-security-auditor`'ın bulduğu **en ağır** madde: oturum **yalnızca hash'i eşleşen adaya** verilmeli, seçici **yalnızca eşleşenleri** göstermeli — yoksa saldırgan kurbanın e-postasını kendi tenant'ına yazıp **kendi satırında** doğrulanır ve **kurbanın işletmesini seçer**; §4.5 çapraz-tenant kimlik atlatması, canlı ölçüldü) ⚠️ ve **4. ile 5. madde birbirinin tersine çekiyor** — *"ilk eşleşmede dur"* DoS'u azaltır ama seçici tüm adayları gösterirse **tam olarak bu atlatmadır**; gerilim dört yerde de yazılı · güvenlik denetçisi **on beş** saldırı denedi (`ON CONFLICT DO UPDATE`, `MERGE`, `session_replication_role`, `pg_temp` operatör/tablo enjeksiyonu, çapraz-tenant forge…), **on beşi de bloklandı** · down/up **tam tersinir** · **1331 test, 0 SKIP** |
 | M6-02 | Dashboard iskeleti ve docket bileşenleri | todo | |
 | M6-03 | Transactions sekmesi | todo | |
 | M6-04 | FLAGGED onay kuyruğu | todo | **§4.3** |
@@ -869,13 +999,37 @@ yazılır.
 | M9-06 | Policy simülatörü | todo | Q22 — M6-10'dan ertelendi |
 | M9-07 | Ham JSON politika editörü | todo | Q22 — M6-09'dan ayrıldı |
 
-**Özet:** 83 görev · done 52 · **wip 1 (M6-01, A fazı done)** · blocked 0 · skipped 1 · todo 29 · **M0+M1+M2+M3+M4+M5 TAMAM 🎉 · M6 başladı** *(M5-11 M5-09'da bulunan §5 ihlali için kullanıcı kararıyla açıldı → toplam 82'den 83'e)*
+**Özet:** 83 görev · done **53** · **wip 0** · blocked 0 · skipped 1 · todo **29** · **M0+M1+M2+M3+M4+M5 TAMAM 🎉 · M6 1/12** *(M5-11 M5-09'da bulunan §5 ihlali için kullanıcı kararıyla açıldı → toplam 82'den 83'e)*
 
 ---
 
 ## Oturum günlüğü
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
+
+### 2026-08-03 (5. oturum, devam) — **M6-01 KAPANDI (A+B)** · panel girişi · **18 tur, 8 RED — projenin en uzun görevi**
+
+**Ne yapıldı.** M5-09/M5-10/M5-11 ile M5 kapandı (11/11; ayrıntı dosyanın başındaki bloklarda), sonra
+M6-01 **A/B kalıbıyla** bölündü ve ikisi de sevk edildi: A (`66d5442`) global admin çözümlemesi + şema
+sertleştirmesi, B (`4bc2e72`) bcrypt + oturum + iki ekran + oran sınırı + `audit_log`. 00011'in **beş
+yükümlülüğünün beşi** karşılandı ya da limit yazıldı. **12 limit** devredildi.
+
+**Ne öğrenildi — bu oturumun tek büyük dersi.** *Bir düzeltmenin kendi ağı AYNI TURDA ölçülmezse, düzeltme
+yazılmamış sayılır.* Beş koruma sevk edildi ve **beşinin de silinmesi suite'i yeşil bıraktı**; hepsi ayrı
+turda, ayrı denetçi tarafından, **mutasyonla** bulundu. İkinci ders: **iki mercek birbirinin yerine
+geçmiyor** — genel üçüncü göz 5. turda ONAY verdi, `tappa-security-auditor` hemen ardından **sömürülebilir
+bir 53× zamanlama kehaneti** buldu. Üçüncüsü: **sayı hijyeni kendi başına bir bulgu sınıfı** (altı vaka);
+dar bir bant üç kez yazılıp üç kez tutmadı, format **gözlenen aralığa** çevrilince bitti.
+
+**Orkestratör kendi hatasını da kaydediyor:** 12. turda denetçinin sunduğu iki seçenekten *"bütçeyi ekle"*yi
+seçtim ve gerekçem reponun kendi sırasıydı — ama `tap.go`'nun **ByAddress → Identify → BySession** deseninin
+yalnız **ilk aşamasını** uygulattım. Sonuç 13. turda ölçüldü: flood kapısı **çıkışı reddedip oturumu canlı
+bırakıyordu**, ve sunucu tarafı süre olmadığı için o pencerede oturumu bitirecek hiçbir yol yoktu. *Bir
+deseni kopyalarken kaç parçası olduğunu saymak, hangi parçayı kopyaladığını bilmekten daha önemli.*
+
+**Ne kaldı.** M6-02 (docket iskeleti) — ve **üç sayıyı devralıyor**: `adminSessionLimit` (kopyalandı,
+türetilmedi, iki tavandan **dar** olanı), `adminFloodLimit` (kimliği doğrulanmış yüklemeleri de taşıyor),
+`sessionGate`'in sınırladığı iş (bugün **boş**, M6-02 dolduruyor).
 
 ### 2026-08-01 (5. oturum, devam) — **M5-08 done** · QR kanalı · **debounce dört katmanda sertleştirildi**
 
