@@ -4,7 +4,7 @@
 > güncellenir ([README.md](README.md) → oturum protokolü, adım 6.4).
 > Görev kartlarına durum işareti konmaz.
 
-**Son güncelleme:** 2026-08-02 (5. oturum — **🎉 M5 KAPANDI, 11/11 · çalışanın gördüğü ürünün tamamı bitti · sıradaki M6**)
+**Son güncelleme:** 2026-08-03 (5. oturum — **M5 kapandı 11/11 · M6 başladı, M6-01 A fazı done**)
 
 > **M5-11 done — 2026-08-02 (`1a945fd`), iki denetçi ONAY, 2 tur. M5 KAPANDI.** Bu görev **sevk edilmiş
 > kodda bir §5 ihlalini** düzeltti ve kusurun adı **bir cümleydi**: `decide.go` *"birincil koruma çağıranın
@@ -95,7 +95,7 @@
 | | |
 |---|---|
 | **Kilometre taşı** | **M0 + M1 + M2 + M3 + M4 + M5 TAMAM** ✅ 🎉 · **[Tap akışı](m5-tap-akisi.md) 11/11 — çalışanın gördüğü ürünün tamamı bitti.** Davet → aktivasyon → mini tur → **NFC veya QR** → karar → kayıt → onay ekranı, **gerçek HTTP + gerçek Postgres üzerinde bir GÜN** olarak kanıtlı (`make simulate-day`: 10 çalışan, 31 kayıt, hepsi **karar motorundan**), tap sayfası **3 dk'lık tazelik penceresine** bağlı, ve §5'in yön kuralı sevk edilmiş kodda **doğru**. **Sıradaki: M6 — müdürün gördüğü taraf.** |
-| **Sıradaki görev** | **M6-01 — Admin kimlik doğrulama** ([m6-dashboard.md](m6-dashboard.md#m6-01--admin-kimlik-doğrulama)) · **kırmızı çizgi §4.5 + §4.7** · **Q03 kararı gerekiyor** (bcrypt mi argon2id mi — [open-questions.md](open-questions.md)'ye bak, açıksa **kullanıcıya sor**). Şema **hazır** (`admin_users`, `admin_sessions`, `password_resets` M1-11'de indi). ⚠️ **M6-01'in denetiminde kontrol edilecek iki devir var:** `store.AdminUser.PasswordHash`/`TokenHash` üretilen struct'larda → handler'da `%+v`/`slog` ile **loglanırsa §7 sır sızıntısı**; ve `transactions.entered_by` · `transaction_reviews.reviewer_id` · `audit_log.actor_id` için **`admin_users` back-FK'leri eklenmedi** (M1-11 devri). **M6'nın kart sırası:** M6-01 → M6-02 (docket iskeleti, skill `tappa-brand`) → M6-03… |
+| **Sıradaki görev** | **M6-01 B fazı** — auth + ekranlar (A fazı `66d5442` **done**). Q03 **cevaplı**: **bcrypt**, ve bağımlılık onayı da orada (`golang.org/x/crypto`, M6-01'de eklenir) → ⚠️ `go.mod` değişince **`make audit` ZORUNLU** (M1-07→M1-09 dersi: `go build`/`vet`/`staticcheck` CVE görmez). **UI var → skill `tappa-brand` ZORUNLU.** 🔴 **A fazının yazdığı BEŞ yükümlülük dört yerde duruyor ve B fazı hepsini karşılamak zorunda** (00011'in `PHASE B OBLIGATION` listesi kanonik numaralandırma): **1** numaralandırma (aynı yanıt, aynı zamanlama) · **2** kukla bcrypt (e-posta yoksa da karşılaştır) · **3** oran sınırı · **4** bcrypt amplifikasyonu (aday sayısına sınır) · **🔴 5 aday↔parola bağı** (oturum **yalnızca** eşleşen adaya, seçici **yalnızca** eşleşenleri gösterir) — **4 ile 5 birbirinin tersine çekiyor**, birlikte okunmalı. ⚠️ Ayrıca: `store.AdminUser.PasswordHash` (sqlc **üretimi**) hâlâ çıplak `string` — handler `%+v` ile loglarsa sızar (`db.ResolvedAdmin`'inki korundu, üretilen tip korunmadı); ve `audit_log` **append-only** → başarısız giriş yazımı **bütçesiz olamaz** (M5-02'nin dersi: *"bir korumanın maliyeti, koruduğu şeyin kendisine saldırı olabilir"* — 300 istek 290×429 aldı ama **300 satır** yazdı). **Sonra:** M6-02 (docket iskeleti). |
 | **Çalışma modu** | Orkestrasyon + üçüncü göz — [README.md](README.md) · brief'ler [agent-brief.md](agent-brief.md) |
 | **Dal** | **`main`** — M0 (`m0-bootstrap`) `main`'e fast-forward birleştirildi (`562f021`), dal silindi. **Kullanıcı kararı (2026-07-25): artık doğrudan `main`'de çalışılır, görev başına dal açılmaz** (CLAUDE.md §10 güncellendi). Push/PR yine istemedikçe yok. |
 | **Blokeler** | Yok. **Bekleyen kullanıcı eylemleri → [docs/backlog.md](../backlog.md)** (B1 iPhone/Q11 ölçümü, B2 arm64 Go kurulumu) — **ikisi de hiçbir şeyi bloklamıyor**. Q02 (davet kanalı) M5-02'yi bloklamaz; kart cevapsız hâli için yol gösteriyor. |
@@ -686,9 +686,9 @@ düzelt**.
 | `git status --short` | temiz (görev arasındaysan) |
 | `ls .env` | var (git'e **girmez**) |
 | `docker compose ps` | `tappa-db` ayakta ve `healthy` |
-| `make migrate-status` | **00001–00010 uygulanmış** (M5-04'ten beri; M5-05…**M5-10** migration açmadı) |
+| `make migrate-status` | **00001–00011 uygulanmış** (00011 = M6-01 A fazı, admin çözümleme) |
 | `make check` | **exit 0** — ama yalnız **temiz ağaçta** (aşağı) |
-| `make test` | 13 paket `ok`, **PASS 1299 / SKIP 0 / FAIL 0** (M5-11 sonrası) · **~85–142 sn** · sayım: `make test GOFLAGS=-v \| grep -c -- '--- PASS:'` |
+| `make test` | 13 paket `ok`, **PASS 1331 / SKIP 0 / FAIL 0** (M6-01 A sonrası) · **~85–142 sn** · sayım: `make test GOFLAGS=-v \| grep -c -- '--- PASS:'` · ⚠️ çıplak `go test` **156 üst düzey / 201 toplam** testi sessizce SKIP eder |
 | `make test-short` | **~33–35 sn**, **TAM 1 SKIP** (`TestSeedDB_ADayAtKFStJulians`) — iç döngü içindir, **commit öncesi `make test`** |
 | `make simulate-day` | KF St Julians'ta bir gün: `PASS`, ~64 sn (~62'si ADR 0006 beklemesi). **`make seed` yapılmış olmalı** |
 
@@ -810,7 +810,7 @@ yazılır.
 
 | ID | Görev | Durum | Commit / not |
 |---|---|---|---|
-| M6-01 | Admin kimlik doğrulama | todo | Q03 |
+| M6-01 | Admin kimlik doğrulama | **wip — A fazı done** | **A fazı `66d5442`** · **iki denetçi ONAY** (genel üçüncü göz 2. turda + `tappa-security-auditor` koşullu, koşullar kapatıldı) · **3 tur** · M5-02'nin A/B kalıbı: **veri katmanı** önce, auth+ekran sonra · **🔴 kart bir şeyi söylemiyordu ve şema onu VARSAYIYORDU:** 00006 *"resolver YOK: giriş tenant'ı biliyor"* diyor ama **hiçbir şey tenant'ı kurmuyordu** (e-posta yalnız `(tenant_id, email)` içinde tekil, slug yok, tek `/api/auth/login`) → **kullanıcı kararı 2026-08-02: global çözümleme + tenant seçici** (kullanıcının kendi demo tenant'ları KF+KM **aynı kişiye ait**) · **migration 00011:** iki SECURITY DEFINER fonksiyon (ADR 0002 md.7 kalıbı; resolver sayısı **3→5**, `tappa_resolver` sütun-SELECT'i **5 tabloda 26 sütun**, tablo-düzeyi yetkisi **sıfır**) · **`resolve_admin_by_email` beş kısıttan birini BİLEREK kırıyor:** dönüş **≤1 değil N satır**, sınır kısmi unique indeksten geliyor ve **saldırgan tarafından büyütülebilir** (M7-02 kayıt açılınca) — yazıldı · **şema sertleştirmesi repoda HİÇ ADI GEÇMEMİŞ iki yeteneği kapattı:** `admin_sessions.admin_user_id`'yi yeniden yönlendirme (**yetki yükseltme**) ve `token_hash`'i ezme (**oturum ele geçirme**); sütun-kapsamlı UPDATE ikisini kapatıyor ama **un-revoke'u kapatamıyor** (*"grant hangi SÜTUN der, hangi DEĞER demez"*) → **monotonluk trigger'ı**, `tappa_owner`'ı da bağlıyor · **🔬 en ince bulgu:** `citext`'in `=` operatörü `public`'te; `search_path=pg_catalog,pg_temp` altında **görünmez** ve Postgres **hata vermeden** `text=text`'e düşüyor → kimlik doğrulama araması sessizce **harfe duyarlı** oluyor (ölçüldü: küçük/büyük harf **0 satır**). Düzeltme `OPERATOR(public.=)` + kalıcı negatif kontrol. Tuzak **`search_path` özelliğidir**, SECURITY DEFINER'a özgü değil; şemadaki diğer citext sütunu `employees.email` bugün hiçbir sorguda filtrelenmiyor → sınıf kapalı ama **kapalılık yazıldı** · **§4.7: hash artık çıplak `string` DEĞİL** — altı basma yolu (`%+v`, dilim `%v`, `%#v`, `fmt.Errorf`, unexported alan, `slog`) hash'i **verbatim** sızdırıyordu; repo'nun kendi kalıbı (`session.Token`/`invite.Code`) **üçüncü kez** uygulandı, ve **pozitif kontrol testin körü olmadığını kanıtlıyor** · `redline-check.sh` R7 desenine **`password` eklendi** (ölçüldü: 0 yanlış pozitif) — **ve yakalamadığı dürüstçe yazıldı** (altı yolun hiçbirinde `password` **kelimesi** log çağrısında geçmiyor) · **B fazına BEŞ yükümlülük**, dört yerde: numaralandırma · kukla bcrypt · oran sınırı · **bcrypt amplifikasyonu** (bir e-posta 500 tenant'ta → 500 satır, DB **0,9 ms**, ama B fazı 500 bcrypt = **~30–50 sn CPU**, **~500×**, tek kimliksiz istekten) · **🔴 aday↔parola bağı** (`tappa-security-auditor`'ın bulduğu **en ağır** madde: oturum **yalnızca hash'i eşleşen adaya** verilmeli, seçici **yalnızca eşleşenleri** göstermeli — yoksa saldırgan kurbanın e-postasını kendi tenant'ına yazıp **kendi satırında** doğrulanır ve **kurbanın işletmesini seçer**; §4.5 çapraz-tenant kimlik atlatması, canlı ölçüldü) ⚠️ ve **4. ile 5. madde birbirinin tersine çekiyor** — *"ilk eşleşmede dur"* DoS'u azaltır ama seçici tüm adayları gösterirse **tam olarak bu atlatmadır**; gerilim dört yerde de yazılı · güvenlik denetçisi **on beş** saldırı denedi (`ON CONFLICT DO UPDATE`, `MERGE`, `session_replication_role`, `pg_temp` operatör/tablo enjeksiyonu, çapraz-tenant forge…), **on beşi de bloklandı** · down/up **tam tersinir** · **1331 test, 0 SKIP** |
 | M6-02 | Dashboard iskeleti ve docket bileşenleri | todo | |
 | M6-03 | Transactions sekmesi | todo | |
 | M6-04 | FLAGGED onay kuyruğu | todo | **§4.3** |
@@ -857,7 +857,7 @@ yazılır.
 | M9-06 | Policy simülatörü | todo | Q22 — M6-10'dan ertelendi |
 | M9-07 | Ham JSON politika editörü | todo | Q22 — M6-09'dan ayrıldı |
 
-**Özet:** 83 görev · done 52 · wip 0 · blocked 0 · skipped 1 · todo 30 · **M0+M1+M2+M3+M4+M5 TAMAM 🎉 · sıradaki M6-01** *(M5-11 M5-09'da bulunan §5 ihlali için kullanıcı kararıyla açıldı → toplam 82'den 83'e)*
+**Özet:** 83 görev · done 52 · **wip 1 (M6-01, A fazı done)** · blocked 0 · skipped 1 · todo 29 · **M0+M1+M2+M3+M4+M5 TAMAM 🎉 · M6 başladı** *(M5-11 M5-09'da bulunan §5 ihlali için kullanıcı kararıyla açıldı → toplam 82'den 83'e)*
 
 ---
 
