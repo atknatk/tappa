@@ -4,7 +4,44 @@
 > güncellenir ([README.md](README.md) → oturum protokolü, adım 6.4).
 > Görev kartlarına durum işareti konmaz.
 
-**Son güncelleme:** 2026-08-03 (5. oturum — **M5 kapandı 11/11 · M6-01 KAPANDI (A+B)**)
+**Son güncelleme:** 2026-08-04 (5. oturum — **M6-02 done · M6 2/12**)
+
+> **M6-02 done — 2026-08-04 (`6757537`), üçüncü göz ONAY, 10 tur, 5 RED.** Panel kabuğu: `layout.Panel`,
+> `TabBar` + `EmptyState`, üç CSS bileşen ailesi (`.btn`, `.empty-state`, `.tab-bar`) ve **tek bir tablodan**
+> `Protect()` içinde mount edilen **beş sekme rotası**. `AdminHome` placeholder'ı gitti. Sekmeler **bilerek boş** —
+> M6-03'ten itibaren doldurulacak.
+>
+> **🔍 KARTI ÖNCE ÖLÇMEK İKİ KEZ KENDİNİ ÖDEDİ.** (1) Docket motifi ve **beş** damga varyantı **zaten sevk
+> edilmişti** — ve **M5-06'da değil, M0 iskeletinde** (`7e12f37`); M5-06 damganın **anatomisini** değiştirmiş,
+> varlığını değil. Perforasyon görseli **hiç var olmamış**. Yani kartın üç kriteri **karşılanmıştı** ve iş,
+> eksik olan **dört bileşendi**. Kartın damga listesi de eksikti (dört sayıyordu, **beş** var). ⚠️ **Yapıcı
+> ORKESTRATÖRÜN brief'indeki tarihlemeyi de ölçümle çürüttü** — ve iki ayrı denetçi `git log -S` ile doğruladı.
+> (2) **M6-01'in devrettiği borç ölçümle kapandı:** panel bütçeleri *"10 yönetici × 20 görüntüleme × ~10 HTMX
+> parçası"* varsayımıyla türetilmişti; gerçek sunucuda **bir sekme görüntülemesi = TAM 1 ücretli istek**
+> (bu görev HTMX **getirmiyor**, ve `/static` kapının **dışında** — bütçe harcanmışken 200 döndü). Adres
+> tavanının payı **11,5× (3000/260)**, eski öncülün ima ettiği 1,46× değil. **Üç sabit de DEĞİŞMEDİ.**
+>
+> **🔴 SEVK EDİLMİŞ BİR KONTRAST HATASI BULUNDU VE DÜZELTİLDİ.** `.docket-label` **3,13:1** ile sevk
+> ediliyordu (AA 4,5:1), **12 çağrı yerinde** — **çalışanın tap ekranı ve onay ekranı dahil** — ve beş ton
+> daha **2,40–4,36:1** arasındaydı. **Kullanıcı kararı (2026-08-04): hepsi düzeltilsin** → `ink/70`
+> (en kötü zeminde **5,58:1**). `/60` **ölçülüp reddedildi** (*"düzeltmeyen bir düzeltme"*, dört zeminde de
+> kalıyor). Wordmark **WCAG 1.4.3'ün logotype istisnasını kullanabilirdi; REDDEDİLDİ** ve gerekçesi yazıldı.
+> ⚠️ **Bağlayıcı zemin porcelain DEĞİL, `green-lite`** (L 0,8229 < 0,8627) — iki tur ve orkestratörün brief'i
+> porcelain varsaymıştı çünkü **sayfa zemini** o; **türetilmiş test yakaladı**.
+>
+> **Ürünün İLK kontrast testi bu görevle geldi** ve üç `TestCompiledCSS_*`'in aksine **CI'da koşuyor**
+> (`input.css` + `tailwind.config.js` okuyor, ikisi de commit'li): paleti config'den **yeniden türetiyor**,
+> WCAG'i **yeniden hesaplıyor**, **sıfır çağrı yerinde koşmayı reddediyor**, ve **hangi zeminin bağlayıcı
+> olduğunu** pinliyor (işaret silinirse de kırmızı: *"Removing the line is not a way to make this pass"*).
+>
+> **⚠️ BU GÖREVİN İMZA HATASI: SAYI HİJYENİ — BEŞ TURDA BEŞ KEZ.** Ve beşi de aynı kökten: **bir sayının
+> ETİKETİ hangi büyüklüğü gösterdiği kontrol edilmeden yazılıyor.** En öğretici üçü: (a) düzyazı *"PORCELAIN
+> IS THE BINDING GROUND"* derken **kendi tablosu ve kendi test dosyası** green-lite diyordu — **aynı tur**
+> ikisini birden yazmıştı; (b) aynı cümlede **yük bir paydayla (260), pay başka bir paydayla (200)** →
+> yazılan 15×, gerçek **11,5×**; (c) *"türetilen çağrı yeri sayısı"* diye basılan sayı **dosya sayısıydı**
+> (5), gerçek **12** — ve **aynı satırdaki döküm 12'ye toplanıyordu**, üstelik bu **kanıt diye sunulan
+> sayının kendisiydi**. **Sonuncusunu düzeltirken yapıcı kendi çift sayımını (24) kendi mutasyonuyla yakaladı.**
+> **Sıradaki:** "ŞU AN" → **M6-03**.
 
 > **M6-01 B fazı done — 2026-08-03 (`4bc2e72`), iki denetçi ONAY, 18 TUR, 8 RED — projenin en uzun görevi
 > (M5-06'nın 15 turunu geçti).** Panel girişi uçtan uca: bcrypt (Q03) · admin oturumu · giriş ekranı ·
@@ -152,7 +189,7 @@
 | | |
 |---|---|
 | **Kilometre taşı** | **M0 + M1 + M2 + M3 + M4 + M5 TAMAM** ✅ 🎉 · **[Tap akışı](m5-tap-akisi.md) 11/11 — çalışanın gördüğü ürünün tamamı bitti.** Davet → aktivasyon → mini tur → **NFC veya QR** → karar → kayıt → onay ekranı, **gerçek HTTP + gerçek Postgres üzerinde bir GÜN** olarak kanıtlı (`make simulate-day`: 10 çalışan, 31 kayıt, hepsi **karar motorundan**), tap sayfası **3 dk'lık tazelik penceresine** bağlı, ve §5'in yön kuralı sevk edilmiş kodda **doğru**. **Sıradaki: M6 — müdürün gördüğü taraf.** |
-| **Sıradaki görev** | **M6-02** — dashboard iskeleti ve docket bileşenleri. **UI → skill `tappa-brand` ZORUNLU.** M6-01 giriş yolunu **ve** `AdminAuth.Protect()` middleware'ini bıraktı; `Protect()` **bütçeyi de taşıyor** (kendi grubunda mount etmek güvenli — 17. turda ölçüldü, `#3001`'de 429). 🔴 **M6-02'nin DEVRALDIĞI ÜÇ SAYI:** (1) **`adminSessionLimit = 300` KOPYALANDI, TÜRETİLMEDİ** — dosyanın kendi aritmetiği yönetici başına ~200 istek/pencere veriyor, yani pay yalnız **1,5×**, ve M6-02'nin HTMX parçaları bunu çarpar; **meşru** bir yönetici 301. istekte kendi paneline 429 yiyor (kilitlenme değil, çıkış çalışıyor). **İki tavandan DAR olanı bu.** (2) `adminFloodLimit = 3000` **kimliği doğrulanmış sayfa yüklemelerini de taşıyor** (10 yönetici × 20 görüntüleme × 10 parça ≈ 2000 varsayımıyla) — parça sayısı değişirse **yeniden say**. (3) `sessionGate` kimlik doğrulamadan **sonraki** işi sınırlar ve **bugün o iş boş** — M6-02 onu dolduran taraf. ⚠️ Ayrıca `store.AdminUser.PasswordHash` (sqlc **üretimi**) hâlâ çıplak `string`; **bugün üretimde sıfır referansı var** (17. turda sayıldı) ama M6-02/M6-05 onu döndüren bir sorgu yazarsa `%+v` sızdırır — koruma **tip düzeyinde değil, yokluk düzeyinde**. |
+| **Sıradaki görev** | **M6-03** — Transactions sekmesi. **UI → skill `tappa-brand` ZORUNLU.** M6-02 kabuğu bıraktı: `layout.Panel`, `TabBar`, `EmptyState`, ve `pages.PanelSections` **tek kaynak** (rotalar ondan mount ediliyor, nav ondan render ediliyor → *"linki 404 veren sekme"* üretilemez bir şekil). 🔴 **M6-03'ÜN DEVRALDIĞI ÜÇ ŞEY** (üçü de M6-02'nin kartında ve `adminratelimit.go`'da yazılı): (1) **filtre çubuğu bileşeni** — M6-02'den taşındı (kullanıcı kararı 2026-08-04: filtrelenecek bir şey yokken dürüstçe sevk edilemezdi; üç yolun üçü de — ölü CSS kuralı · işlevsiz kontrol · uydurma *"kayıt yok"* — bu repoda **bulgu** sayılırdı). (2) **HTMX'i M6-03 vendor'lar** (embed, **CDN YOK**) **ve CSP genişlemesini M6-03 gerekçelendirir** — `adminCSP` bugün `default-src 'none'`; `TestPanelScreens_LoadNoScriptAndReachNoThirdParty` **ilk `<script>`'te kırmızıya dönüyor**, yani sessiz miras imkânsız. (3) **BÜTÇEYİ YENİDEN SAY:** M6-02 ölçtü ki bir sekme görüntülemesi **1 ücretli istek** (pay **11,5×**); parçalar gelince çarpan geri gelir. Eşik yazılı: `adminSessionLimit=300`, **≥15 istek/görüntülemede** bağlayıcı olur. ⚠️ Ayrıca `store.AdminUser.PasswordHash` (sqlc **üretimi**) hâlâ çıplak `string`; **bugün üretimde sıfır referansı var** ama onu döndüren bir sorgu yazılırsa `%+v` sızdırır — koruma **tip düzeyinde değil, yokluk düzeyinde**. |
 | **Çalışma modu** | Orkestrasyon + üçüncü göz — [README.md](README.md) · brief'ler [agent-brief.md](agent-brief.md) |
 | **Dal** | **`main`** — M0 (`m0-bootstrap`) `main`'e fast-forward birleştirildi (`562f021`), dal silindi. **Kullanıcı kararı (2026-07-25): artık doğrudan `main`'de çalışılır, görev başına dal açılmaz** (CLAUDE.md §10 güncellendi). Push/PR yine istemedikçe yok. |
 | **Blokeler** | Yok. **Bekleyen kullanıcı eylemleri → [docs/backlog.md](../backlog.md)** (B1 iPhone/Q11 ölçümü, B2 arm64 Go kurulumu) — **ikisi de hiçbir şeyi bloklamıyor**. Q02 (davet kanalı) M5-02'yi bloklamaz; kart cevapsız hâli için yol gösteriyor. |
@@ -229,20 +266,24 @@ Hiçbiri kapatıldı diye yazılmadı; hepsi **ölçüldü ve sayıldı**. Sahib
    `MarkAdminLoggedIn`/`last_login_at`; seed'in iki satırı da `$2a$12$`; `Hash` boşu ve >72'yi reddediyor)
    **ama şemada format CHECK'i YOK**, `''` şema-geçerli. **Kural: `admin_users.password_hash` yalnız
    `adminauth.Hash` çıktısıyla yazılır.** Yapısal çözüm bir sütun CHECK'i = **yeni migration**, alınmadı.
-2. **🔴 M6-02 — `adminSessionLimit = 300` KOPYALANDI, TÜRETİLMEDİ, ve iki tavandan DAR olanı bu.**
-   `adminratelimit.go` adres tavanını *"10 yönetici × 20 görüntüleme × 10 parça ≈ 2000"* diye türetiyor
-   (**yönetici başına ~200 istek/pencere**) ama oturum tavanını *"300, `tapSessionLimit` ile eşleşiyor"*
-   diye koyuyor — **kendi türetmesine karşı hiç sınamadan**, yani pay yalnız **1,5×**. Üstelik
-   `httpx/ratelimit.go`'nun 300 gerekçesi **başka bir şekle** ait (çalışanın günde birkaç tap'i). Sonuç:
-   yoğun bir yönetici **301. istekte kendi paneline 429** yiyor. Kilitlenme değil (çıkış çalışıyor), ama
-   panel o pencerede ölü. **M6-02 HTMX parçalarını ekleyen taraf; sayıyı o türetmeli.**
-3. **M6-02 — `adminFloodLimit = 3000` kimliği doğrulanmış sayfa yüklemelerini de taşıyor.** 12. turda
-   kapı `Protect`'in **önüne** kondu (F-A'yı kapatmak için), böylece anonim kalkan ile meşru iş **tek
-   kovayı** paylaşır oldu; tavan 200 → 3000 çıkarıldı. Maliyet **doğru kolda** ölçüldü: canlı oturum
-   **3,0–5,7 ms** (resolver okuması **+ `TouchAdminSession` UPDATE**), uydurma token 0,65–1,21 ms →
-   `3000 × 3,0–5,7 ms = 9–17 sn/pencere/adres = bir çekirdeğin %1,5–2,9'u`. **Parça sayısı değişirse
-   yeniden say.**
-4. **M6-02 — `sessionGate` (300/oturum) kimlik doğrulamadan SONRAKİ işi sınırlar ve bugün o iş BOŞ.**
+2. **✅ ÖDENDİ (M6-02, `6757537`) — borç M6-03'e EL DEĞİŞTİRDİ, iptal edilmedi.** Bu üç madde
+   *"`adminSessionLimit` kopyalandı"* · *"pay 1,5×"* · *"`adminFloodLimit` 10 parça ≈ 2000 varsayımıyla"* ·
+   *"`sessionGate`'in sınırladığı iş boş"* diyordu. **Dördü de ölçümle çürütüldü:** M6-02 **HTMX getirmedi**
+   (kullanıcı kararı: M6-03) ve gerçek sunucuda **bir sekme görüntülemesi = TAM 1 ücretli istek**
+   (`/static` kapının **dışında**; 305 ardışık `GET /admin` → **300×200, #301'de 429**). Ölçülen meşru yük
+   **~260/pencere** (200 görüntüleme + ~60 giriş), pay **11,5× (3000/260)** — eski öncülün ima ettiği
+   **1,46× (3000/2060)** değil. ⚠️ **`300/20 = 15×` AYRI bir tavandır** (oturum başına, yönetici-başına
+   payda) **ve doğrudur** — ikisini karıştırma; bu iki *"15×"*ten yalnız biri hataydı. **Üç sabit de
+   DEĞİŞMEDİ.** Türetme artık `adminratelimit.go`'da, tavanların **yanında** yaşıyor (yalnız plan kartında
+   değil) ve **paydayı gösteriyor**. **M6-03 parçaları getirince çarpan geri gelir → YENİDEN SAY**; eşik
+   yazılı: **≥15 istek/görüntüleme**.
+3. **M6-02 — `adminFloodLimit = 3000`'in maliyeti (referans, ödendi).** 12. turda kapı `Protect`'in
+   **önüne** kondu (F-A'yı kapatmak için), böylece anonim kalkan ile meşru iş **tek kovayı** paylaşır oldu;
+   tavan 200 → 3000 çıkarıldı. Maliyet **doğru kolda** ölçüldü: canlı oturum **3,0–5,7 ms** (resolver
+   okuması **+ `TouchAdminSession` UPDATE**), uydurma token 0,65–1,21 ms →
+   `3000 × 3,0–5,7 ms = 9–17 sn/pencere/adres = bir çekirdeğin %1,5–2,9'u`.
+4. **M6-03 — `sessionGate` (300/oturum) kimlik doğrulamadan SONRAKİ işi sınırlar; M6-02 onu BEŞ ROTAYLA
+   DOLDURDU ama her biri tek istek.**
    Ve **koruduğu maliyetin yanlış tarafında**: gate `requireAdmin`'den sonra koştuğu için **429 alan
    istek resolver okumasını ve UPDATE'i zaten ödemiştir** (ölçüldü: reddedilen istekte bile `last_used_at`
    değişiyor). Taşımak mümkün değil — oturumu çözmeden oturuma göre anahtarlayamazsın; `tap.go`'da sorun
@@ -829,7 +870,7 @@ düzelt**.
 | `docker compose ps` | `tappa-db` ayakta ve `healthy` |
 | `make migrate-status` | **00001–00011 uygulanmış** (00011 = M6-01 A fazı, admin çözümleme) |
 | `make check` | **exit 0** — ama yalnız **temiz ağaçta** (aşağı) |
-| `make test` | **14 paket** `ok`, **PASS 1633 / SKIP 0 / FAIL 0** (M6-01 B sonrası) · **gözlenen aralık 92–150 sn** (makine durumuna göre; **hedef değil, gözlem kaydı**) · sayım: `make test GOFLAGS=-v \| grep -c -- '--- PASS:'` · ⚠️ çıplak `go test` DB testlerini **sessizce SKIP eder** (ölçüldü: PASS 1260 / SKIP 212) |
+| `make test` | **14 paket** `ok`, **PASS 1647 / SKIP 0 / FAIL 0** (M6-02 sonrası) · **gözlenen aralık 92–150 sn** (makine durumuna göre; **hedef değil, gözlem kaydı**) · sayım: `make test GOFLAGS=-v \| grep -c -- '--- PASS:'` · ⚠️ çıplak `go test` DB testlerini **sessizce SKIP eder** (ölçüldü: PASS 1318 / SKIP 214) |
 | `make test-short` | **gözlenen aralık 51–74 sn**, **TAM 3 SKIP** (`TestAuthenticate_TimingIsFlat`, `TestPanelE2E_TimingIsFlatOverHTTP`, `TestSeedDB_ADayAtKFStJulians`) — iç döngü içindir, **commit öncesi `make test`**. ⚠️ Bu bant **üç kez dar yazılıp üç kez tutmadı**; artık gözlenen aralık ve **hedef değil** |
 | **⚠️ İki bilinen flake** | İkisi de **M6-01 kaynaklı DEĞİL**, ikisi de **önceden var**: (1) `TestPolicySetDB_ConcurrentFirstTapsMaterialiseOnce` — M7-03 devrinin (`EnsureBaselinePolicy` eşzamanlılıkta 23505) test yüzü, ~26 koşuda 2; son 8 kapanış koşusunda **0**. (2) **bağlantı tükenmesi** (`FATAL: sorry, too many clients already`) — `max_connections=100` − 3 rezerve = **97**, ve `internal/db` + `internal/sun`'ın kırmızı-çizgi yarış testleri **54'er** bağlantı açıyor = **108 > 97**, yani **tek başlarına** sınırı aşıyorlar. Goroutine sayısını düşürmek bir **§4.4 testini zayıflatır** → düzeltilmedi. **Sonuç: `make check` yeşilliği bu iki testin zamanlamasına bağlı; kırmızı görürsen ÖNCE hangisi olduğuna bak.** |
 | `make simulate-day` | KF St Julians'ta bir gün: `PASS`, ~64 sn (~62'si ADR 0006 beklemesi). **`make seed` yapılmış olmalı** |
@@ -953,7 +994,7 @@ yazılır.
 | ID | Görev | Durum | Commit / not |
 |---|---|---|---|
 | M6-01 | Admin kimlik doğrulama | **done** | **B fazı `4bc2e72`** · **iki denetçi ONAY** · **18 tur, 8 RED — projenin en uzun görevi** · bcrypt (Q03, `golang.org/x/crypto` eklendi, `make audit` yeşil) · admin oturumu · giriş + seçici ekranları · oran sınırı · `audit_log` · **yeni migration YOK** · **beş yükümlülüğün beşi karşılandı ya da limit yazıldı** · 🔴 **beş koruma sevk edildi ve BEŞİNİN DE silinmesi suite'i yeşil bıraktı** (`isLookupableEmail` · `sessionGate` · `sameOriginGate` · `meterOnly`'nin ücretlendirmesi · `CookiePath`/`maxCandidates`'in **totolojik** testleri) — her biri ayrı turda, ayrı denetçi, **mutasyonla** · 🔴 **53× zamanlama kehaneti** (>72 baytlık parola bcrypt'i kısa devre yaptırıyordu; kayıtlı e-posta **5,53 ms**, kayıtsız **295,42 ms**, tek istekle kesin, **sunucuya maliyeti sıfır bcrypt**) — güvenlik merceği genel gözün ONAY'ından **sonra** buldu · ve düzeltmesi bir sonraki turda yakalandı (üçüncü `-short` skip'i kehanetin **iç döngüdeki tek savunmasını** sildi) · **`GET /admin` çerezsiz çağırana bütçesiz `SECURITY DEFINER` okuması ödetiyordu** (uydurma token 1,36 ms vs bozuk 156 µs, 600 istekte 0×429) · onu kapatan flood kapısı **çıkışı reddedip oturumu canlı bırakıyordu** (orkestratörün kararının regresyonu: `tap.go`'nun **ByAddress → Identify → BySession** deseninin yalnız ilk aşaması uygulanmıştı) · **sayı hijyeni altı kez bulgu oldu** (`test-short` bandı üç kez dar yazılıp üç kez tutmadı → format **gözlenen aralığa** çevrildi; 00011'in `cost-10` sayısı **~4× iyimser**, sevk edilen digest'ler cost 12) · **1633 test, 0 SKIP** · **12 limit yazılı** · *(A fazı `66d5442`, 3 tur — aşağıda)* **A fazı `66d5442`** · **iki denetçi ONAY** (genel üçüncü göz 2. turda + `tappa-security-auditor` koşullu, koşullar kapatıldı) · **3 tur** · M5-02'nin A/B kalıbı: **veri katmanı** önce, auth+ekran sonra · **🔴 kart bir şeyi söylemiyordu ve şema onu VARSAYIYORDU:** 00006 *"resolver YOK: giriş tenant'ı biliyor"* diyor ama **hiçbir şey tenant'ı kurmuyordu** (e-posta yalnız `(tenant_id, email)` içinde tekil, slug yok, tek `/api/auth/login`) → **kullanıcı kararı 2026-08-02: global çözümleme + tenant seçici** (kullanıcının kendi demo tenant'ları KF+KM **aynı kişiye ait**) · **migration 00011:** iki SECURITY DEFINER fonksiyon (ADR 0002 md.7 kalıbı; resolver sayısı **3→5**, `tappa_resolver` sütun-SELECT'i **5 tabloda 26 sütun**, tablo-düzeyi yetkisi **sıfır**) · **`resolve_admin_by_email` beş kısıttan birini BİLEREK kırıyor:** dönüş **≤1 değil N satır**, sınır kısmi unique indeksten geliyor ve **saldırgan tarafından büyütülebilir** (M7-02 kayıt açılınca) — yazıldı · **şema sertleştirmesi repoda HİÇ ADI GEÇMEMİŞ iki yeteneği kapattı:** `admin_sessions.admin_user_id`'yi yeniden yönlendirme (**yetki yükseltme**) ve `token_hash`'i ezme (**oturum ele geçirme**); sütun-kapsamlı UPDATE ikisini kapatıyor ama **un-revoke'u kapatamıyor** (*"grant hangi SÜTUN der, hangi DEĞER demez"*) → **monotonluk trigger'ı**, `tappa_owner`'ı da bağlıyor · **🔬 en ince bulgu:** `citext`'in `=` operatörü `public`'te; `search_path=pg_catalog,pg_temp` altında **görünmez** ve Postgres **hata vermeden** `text=text`'e düşüyor → kimlik doğrulama araması sessizce **harfe duyarlı** oluyor (ölçüldü: küçük/büyük harf **0 satır**). Düzeltme `OPERATOR(public.=)` + kalıcı negatif kontrol. Tuzak **`search_path` özelliğidir**, SECURITY DEFINER'a özgü değil; şemadaki diğer citext sütunu `employees.email` bugün hiçbir sorguda filtrelenmiyor → sınıf kapalı ama **kapalılık yazıldı** · **§4.7: hash artık çıplak `string` DEĞİL** — altı basma yolu (`%+v`, dilim `%v`, `%#v`, `fmt.Errorf`, unexported alan, `slog`) hash'i **verbatim** sızdırıyordu; repo'nun kendi kalıbı (`session.Token`/`invite.Code`) **üçüncü kez** uygulandı, ve **pozitif kontrol testin körü olmadığını kanıtlıyor** · `redline-check.sh` R7 desenine **`password` eklendi** (ölçüldü: 0 yanlış pozitif) — **ve yakalamadığı dürüstçe yazıldı** (altı yolun hiçbirinde `password` **kelimesi** log çağrısında geçmiyor) · **B fazına BEŞ yükümlülük**, dört yerde: numaralandırma · kukla bcrypt · oran sınırı · **bcrypt amplifikasyonu** (bir e-posta 500 tenant'ta → 500 satır, DB **0,9 ms**, ama B fazı 500 bcrypt = **~30–50 sn CPU**, **~500×**, tek kimliksiz istekten) · **🔴 aday↔parola bağı** (`tappa-security-auditor`'ın bulduğu **en ağır** madde: oturum **yalnızca hash'i eşleşen adaya** verilmeli, seçici **yalnızca eşleşenleri** göstermeli — yoksa saldırgan kurbanın e-postasını kendi tenant'ına yazıp **kendi satırında** doğrulanır ve **kurbanın işletmesini seçer**; §4.5 çapraz-tenant kimlik atlatması, canlı ölçüldü) ⚠️ ve **4. ile 5. madde birbirinin tersine çekiyor** — *"ilk eşleşmede dur"* DoS'u azaltır ama seçici tüm adayları gösterirse **tam olarak bu atlatmadır**; gerilim dört yerde de yazılı · güvenlik denetçisi **on beş** saldırı denedi (`ON CONFLICT DO UPDATE`, `MERGE`, `session_replication_role`, `pg_temp` operatör/tablo enjeksiyonu, çapraz-tenant forge…), **on beşi de bloklandı** · down/up **tam tersinir** · **1331 test, 0 SKIP** |
-| M6-02 | Dashboard iskeleti ve docket bileşenleri | todo | |
+| M6-02 | Dashboard iskeleti ve docket bileşenleri | **done** | **`6757537`** · üçüncü göz **ONAY** · **10 tur, 5 RED** · `layout.Panel` + `TabBar` + `EmptyState` + üç CSS ailesi; **beş sekme rotası tek tablodan** `Protect()` içinde mount ediliyor (nav da aynı tablodan → *"linki 404 veren sekme"* **üretilemez**) · **kartı ölçmek iki kez kendini ödedi:** docket motifi + beş damga **zaten sevk edilmişti** (**M0 iskeleti** `7e12f37`, M5-06 değil — M5-06 yalnız **anatomiyi** değiştirmiş; perforasyon görseli **hiç var olmamış**) → üç kriter **karşılanmıştı**, iş eksik **dört bileşendi**; ve **M6-01'in bütçe borcu ölçümle kapandı** (bir sekme görüntülemesi = **1 ücretli istek**, `/static` kapı dışında → pay **11,5×**, üç sabit **değişmedi**) · 🔴 **sevk edilmiş kontrast hatası bulundu ve düzeltildi:** `.docket-label` **3,13:1** (AA 4,5:1) **12 çağrı yerinde** — **tap ve onay ekranları dahil** — artı beş ton daha **2,40–4,36:1** → **kullanıcı kararı: hepsi `ink/70`** (en kötü zemin **5,58:1**); `/60` ölçülüp **reddedildi**; wordmark **WCAG 1.4.3 logotype istisnasını REDDETTİ**, gerekçe yazılı · **ürünün İLK kontrast testi** geldi ve üç `TestCompiledCSS_*`'in aksine **CI'da koşuyor** (paleti config'den türetir, WCAG'i yeniden hesaplar, **sıfır çağrı yerinde koşmayı reddeder**, **bağlayıcı zemini pinler** — işaret silinirse de kırmızı) · ⚠️ **bağlayıcı zemin porcelain değil `green-lite`** (L 0,8229 < 0,8627); iki tur **ve** orkestratörün brief'i yanlış varsaymıştı, **türetilmiş test yakaladı** · **filtre çubuğu ve HTMX M6-03'e TAŞINDI** (kullanıcı kararı, iki kartta da yazılı) · **1647 test, 0 SKIP** |
 | M6-03 | Transactions sekmesi | todo | |
 | M6-04 | FLAGGED onay kuyruğu | todo | **§4.3** |
 | M6-05 | Employees sekmesi | todo | |
@@ -999,7 +1040,7 @@ yazılır.
 | M9-06 | Policy simülatörü | todo | Q22 — M6-10'dan ertelendi |
 | M9-07 | Ham JSON politika editörü | todo | Q22 — M6-09'dan ayrıldı |
 
-**Özet:** 83 görev · done **53** · **wip 0** · blocked 0 · skipped 1 · todo **29** · **M0+M1+M2+M3+M4+M5 TAMAM 🎉 · M6 1/12** *(M5-11 M5-09'da bulunan §5 ihlali için kullanıcı kararıyla açıldı → toplam 82'den 83'e)*
+**Özet:** 83 görev · done **54** · **wip 0** · blocked 0 · skipped 1 · todo **28** · **M0+M1+M2+M3+M4+M5 TAMAM 🎉 · M6 2/12** *(M5-11 M5-09'da bulunan §5 ihlali için kullanıcı kararıyla açıldı → toplam 82'den 83'e)*
 
 ---
 
