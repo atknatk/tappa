@@ -69,15 +69,30 @@ const (
 	// load of every admin behind the address. An audit measured the consequence:
 	// ONE operator's 100 ordinary page loads consumed HALF the window.
 	//
-	// RE-DERIVED, with the shape M6-02 will actually have:
+	// RE-DERIVED TWICE. The first re-derivation guessed the dashboard's shape; the
+	// second MEASURED it, once M6-02 had shipped one:
 	//
 	//	10 admins behind one NAT (the office case this file already names)
 	//	  x  1 login each                          =    40-60 requests
 	//	  +  ~20 page views each per 10 minutes
-	//	     x ~10 requests per view (HTMX fragments, M6-02's whole design)
-	//	                                            = ~2000 requests
+	//	     x 1 request per view   <- MEASURED, M6-02
+	//	                                            =  200 requests
 	//	                                              ---------------
-	//	                                              ~2060 per window
+	//	                                              ~260 per window
+	//
+	// THE FACTOR USED TO BE "~10 requests per view (HTMX fragments, M6-02's whole
+	// design)" AND THAT PREMISE WAS FALSE. M6-02 shipped the dashboard with no HTMX
+	// at all: the five sections are plain <a href> links, so a section is one
+	// document and the browser makes one request for it. Measured over real HTTP
+	// against real Postgres with a real session — 305 sequential GET /admin gave 300
+	// x 200 and a 429 at exactly #301, which is one charged request per view and not
+	// ten. The stylesheet is NOT in that number: /static/* is mounted outside
+	// Protect(), and it still answered 200 with the session budget fully spent.
+	//
+	// ⚠️ THE MULTIPLIER COMES BACK WITH M6-03, which is the task that brings HTMX
+	// and the first real fragment (docs/plan/m6-dashboard.md, M6-03's inherited
+	// block). THE DEBT IS NOT CANCELLED, IT CHANGED HANDS: whoever adds fragments
+	// counts them again, against the threshold recorded at adminSessionLimit.
 	//
 	// 3000 sits above that with room, and it is deliberately the SAME number as
 	// httpx.tapAddressLimit: the tap surface solved this exact problem with a WIDE
@@ -116,9 +131,24 @@ const (
 	// 2.9% of one core per source address is a cost this deployment can pay. What
 	// changed is the sentence, not the number.
 	//
-	// 🔴 M6-02 OWES THIS NUMBER A RE-DERIVATION. The ~10-requests-per-view factor
-	// is an estimate of a design that does not exist yet. Count it when the
-	// dashboard lands.
+	// ✅ THE RE-DERIVATION M6-02 OWED IS PAID, AND THE NUMBER SURVIVED IT.
+	//
+	// ⚠️ BOTH HEADROOM FIGURES ARE OVER THE SAME DENOMINATOR, WRITTEN OUT, because
+	// the first version of this paragraph used two different ones and produced a
+	// third wrong number: it divided by the page requests ALONE for the new figure
+	// (3000/200 = 15x) and by page requests PLUS logins for the old one
+	// (3000/2060 = 1.46x), so the two were not comparable and the improvement read
+	// 30% larger than it is.
+	//
+	//	OLD PREMISE  200 views x 10 fragments = 2000, + 40-60 logins = ~2060
+	//	             3000 / 2060 = 1.46x
+	//	MEASURED     200 views x  1 request   =  200, + 40-60 logins =  ~260
+	//	             3000 /  260 = 11.5x      <- the comparable figure
+	//
+	// It is NOT lowered: the ceiling exists for an anonymous flood rather than for
+	// the office, and the cost arithmetic above (9-17 s of database time per window
+	// per address) is what sizes it. What was wrong was the premise, and the premise
+	// is now a measurement.
 	adminFloodLimit  = 3000
 	adminFloodPeriod = 10 * time.Minute
 
@@ -160,22 +190,36 @@ const (
 	// the rule for the invite budget and it holds here: an in-memory map key ends
 	// up in heap dumps, and a token hash is a bearer credential (section 4.7).
 	//
-	// 🔴 300 WAS COPIED FROM httpx.tapSessionLimit, NOT DERIVED — WRITTEN DOWN AS A
-	// LIMIT RATHER THAN QUIETLY FIXED. The address ceiling above derives itself
-	// ("10 admins x ~20 views x ~10 fragments"), which works out at ~200 requests
-	// per ADMIN per window; this ceiling is 300, so the headroom against its own
-	// neighbouring derivation is 1.5x. And tap's 300 was derived for a different
-	// shape entirely (httpx/ratelimit.go: "an employee taps a few times a day … a
-	// refresh every 5 s = 120 requests, 2.5x headroom").
+	// 🔴 300 WAS COPIED FROM httpx.tapSessionLimit, NOT DERIVED, and it was written
+	// down as a limit rather than quietly fixed. ✅ M6-02 DERIVED IT, AND THE NUMBER
+	// SURVIVED — but the headroom this comment claimed was wrong in the SAFE
+	// direction, which is worth being exact about because the old figure was the
+	// reason this was called the tighter of the two ceilings.
+	//
+	//	CLAIMED  ~200 requests per admin per window (20 views x 10 fragments),
+	//	         so 300 leaves 1.5x.
+	//	MEASURED  1 request per view (the sections are plain links, no HTMX), so an
+	//	         admin's 20 views cost 20 requests and 300 leaves 15x. A session's
+	//	         budget is 300 SECTION VIEWS per 10 minutes.
+	//
+	// And tap's 300 was derived for a different shape entirely
+	// (httpx/ratelimit.go: "an employee taps a few times a day … a refresh every
+	// 5 s = 120 requests, 2.5x headroom") — that part of the objection stands.
+	//
+	// ⚠️ THE THRESHOLD, so the next person does not have to re-measure to know
+	// whether they are near it: at 20 views per window, 300 becomes binding at
+	// ≥15 requests per view. M6-03 brings HTMX and the first fragments, so it is
+	// the task that has to count them.
 	//
 	// CONSEQUENCE, STATED PRECISELY: a LEGITIMATE admin having a heavy day meets 429
 	// on their own panel at request 301. It is not a lockout — signing out still
 	// works (TestAdminLogout_CannotBeBlockedByAThirdParty, measured with both
 	// buckets burnt) — but the panel is dead for the rest of that window.
 	//
-	// 🔴 M6-02 OWES THIS NUMBER A DERIVATION, exactly as it owes one for the address
-	// ceiling, and MORE URGENTLY: this is the tighter of the two, and the
-	// per-fragment request count that decides it is the dashboard's design.
+	// ✅ PAID BY M6-02 (see the arithmetic above). The consequence sentence directly
+	// above still holds — a session that spends 300 requests meets 429 on its own
+	// panel — but reaching it now takes 300 section views in ten minutes rather than
+	// the 30 the old estimate implied.
 	adminSessionLimit  = 300
 	adminSessionPeriod = 10 * time.Minute
 
@@ -201,7 +245,10 @@ const (
 	// to reach. 6% of one core per source address is payable on a single VPS; a
 	// customer who cannot end a session is not. What was missing was the NUMBER, not
 	// the decision — and the number belongs to whoever revisits either.
-	// ⚠️ M6-02 inherits this together with the other two ceilings.
+	// ⚠️ M6-02 INHERITED THIS WITH THE OTHER TWO AND DID NOT SPEND IT. Sign-out is
+	// one POST at the end of a session, so the dashboard's shape does not touch this
+	// ceiling the way it touches the other two — the cost above is unchanged and the
+	// number is still nobody's measurement but this comment's arithmetic.
 	adminLogoutLimit  = 10 * adminFloodLimit
 	adminLogoutPeriod = 10 * time.Minute
 

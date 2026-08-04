@@ -297,7 +297,7 @@ func Activate(v ActivateView) templ.Component {
 					return templ_7745c5c3_Err
 				}
 				if v.ShowConfigNotice {
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 23, "<p class=\"mt-4 border-t border-line pt-3 font-mono text-[11px] leading-relaxed text-ink/50\">Non-production deployment: the retention period above is read from this server's configuration and is a placeholder value, not legal advice.</p>")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 23, "<p class=\"mt-4 border-t border-line pt-3 font-mono text-[11px] leading-relaxed text-ink/70\">Non-production deployment: the retention period above is read from this server's configuration and is a placeholder value, not legal advice.</p>")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -348,7 +348,7 @@ func Activate(v ActivateView) templ.Component {
 						return templ_7745c5c3_Err
 					}
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 28, " <p class=\"mt-2 text-sm text-ink/60\">You can skip this — activation works either way. Without the network, taps fall back to your location and may need your manager to confirm them.</p>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 28, " <p class=\"mt-2 text-sm text-ink/70\">You can skip this — activation works either way. Without the network, taps fall back to your location and may need your manager to confirm them.</p>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -1115,7 +1115,7 @@ func Problem(v ProblemView) templ.Component {
 					return templ_7745c5c3_Err
 				}
 				if v.Hint != "" {
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 73, "<p class=\"mt-2 text-ink/60\">")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 73, "<p class=\"mt-2 text-ink/70\">")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -1253,7 +1253,7 @@ func Confirm(v ConfirmView) templ.Component {
 						return templ_7745c5c3_Err
 					}
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 82, "instead.</p><p class=\"mt-2 text-ink/60\">If you did not expect this page, close it. Nothing has changed.</p>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 82, "instead.</p><p class=\"mt-2 text-ink/70\">If you did not expect this page, close it. Nothing has changed.</p>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}

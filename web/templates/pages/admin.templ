@@ -66,14 +66,9 @@ templ AdminLogin(v AdminLoginView) {
 					class="min-h-11 w-full border border-line bg-paper px-3 py-2 font-mono text-sm text-ink focus:border-tappa-green focus:outline-none focus:ring-1 focus:ring-tappa-green"
 				/>
 			</div>
-			<button
-				type="submit"
-				class="min-h-12 w-full bg-tappa-green px-4 py-3 font-display text-base font-bold tracking-tight text-paper hover:bg-ink focus:outline-none focus:ring-2 focus:ring-ink motion-safe:transition-colors"
-			>
-				Sign in
-			</button>
+			<button type="submit" class="btn btn--primary w-full">Sign in</button>
 		</form>
-		<p class="text-xs text-ink/60">
+		<p class="text-xs text-ink/70">
 			This is the manager panel. Employees do not sign in — they tap the plaque.
 		</p>
 	}
@@ -109,12 +104,7 @@ templ AdminChoose(v AdminChooseView) {
 						<p class="font-display text-lg font-bold tracking-tight text-ink">{ b.TenantName }</p>
 						<p class="mt-1 docket-label">Your role</p>
 						<p class="uppercase tracking-widest text-ink">{ b.Role }</p>
-						<button
-							type="submit"
-							class="mt-3 min-h-12 w-full bg-tappa-green px-4 py-3 font-display text-base font-bold tracking-tight text-paper hover:bg-ink focus:outline-none focus:ring-2 focus:ring-ink motion-safe:transition-colors"
-						>
-							Continue
-						</button>
+						<button type="submit" class="btn btn--primary mt-3 w-full">Continue</button>
 					</section>
 				</form>
 			}
@@ -122,31 +112,64 @@ templ AdminChoose(v AdminChooseView) {
 	}
 }
 
-// AdminHome is the protected placeholder M6-02 replaces with the real dashboard.
+// AdminDashboard is the panel shell: brand lockup, who is signed in, the five
+// sections, and the section that was asked for.
 //
-// 🔴 IT SHOWS NO DATA ON PURPOSE. Its whole job is to prove that the gate lets a
-// signed-in operator through and knows who they are. A transaction count here
-// would be M6-03 leaking into M6-01, and it would need a query nobody has
-// reviewed for this task.
-templ AdminHome(v AdminHomeView) {
-	@layout.Page("Panel — Tappa") {
-		<h1 class="font-display text-2xl font-bold tracking-tight">You are signed in</h1>
-		@components.Card("") {
-			<p class="docket-label">Signed in as</p>
-			<p class="font-display text-lg font-bold tracking-tight">{ v.FullName }</p>
-			<p class="mt-2 docket-label">Role</p>
-			<p class="font-mono uppercase tracking-widest">{ v.Role }</p>
+// 🔴 EVERY SECTION IS EMPTY, AND SAYS SO. M6-02 is the skeleton — the layout, the
+// navigation and the repeated components — and the sections are M6-03, M6-05,
+// M6-06, M6-07 and M6-09. An empty state that names its task is the honest shape
+// for that: a manager who opens Reports on a demo deployment learns that the
+// section is coming, rather than concluding that they have no hours.
+//
+// ONE COMPONENT RENDERS ALL FIVE SECTIONS, keyed by v.Tab. When M6-03 gives
+// Transactions real content it replaces this component's body for that one tab;
+// the chrome above it does not move, and the other four keep working.
+templ AdminDashboard(v AdminDashboardView) {
+	@layout.Panel("Panel — Tappa") {
+		@layout.Wordmark()
+		<div class="flex flex-wrap items-baseline justify-between gap-3">
+			<div>
+				<p class="docket-label">Signed in as</p>
+				<p class="font-display text-xl font-bold tracking-tight">{ v.FullName }</p>
+			</div>
+			<div class="flex items-center gap-3">
+				<span class="font-mono text-xs uppercase tracking-widest text-ink/70">{ v.Role }</span>
+				<form method="post" action="/admin/logout">
+					<button type="submit" class="btn btn--quiet">Sign out</button>
+				</form>
+			</div>
+		</div>
+		@components.TabBar(panelTabs(), currentHref(v))
+		if s, ok := v.Section(); ok {
+			<h1 class="font-display text-2xl font-bold tracking-tight">{ s.Label }</h1>
+			@components.EmptyState(s.Label + " is not built yet") {
+				<p>{ s.Blurb }</p>
+				<p class="mt-2">
+					It arrives with <span class="font-mono uppercase">{ s.Task }</span>.
+				</p>
+			}
 		}
-		<p class="text-sm text-ink/70">
-			The dashboard is not built yet. This page exists so the sign-in can be checked end to end.
-		</p>
-		<form method="post" action="/admin/logout">
-			<button
-				type="submit"
-				class="min-h-11 w-full border border-line bg-paper px-4 py-2 font-display text-sm font-bold tracking-tight text-ink hover:border-tomato hover:text-tomato focus:outline-none focus:ring-2 focus:ring-ink motion-safe:transition-colors"
-			>
-				Sign out
-			</button>
-		</form>
 	}
+}
+
+// panelTabs adapts the section list to the navigation component.
+// THE COMPONENT DOES NOT IMPORT THE SECTION TABLE, deliberately: components.TabBar
+// knows about labels and hrefs and nothing about the panel's roadmap, so the same
+// bar can carry a different set of sections later without the component changing.
+func panelTabs() []components.Tab {
+	out := make([]components.Tab, 0, len(PanelSections))
+	for _, s := range PanelSections {
+		out = append(out, components.Tab{Label: s.Label, Href: s.Href})
+	}
+	return out
+}
+
+// currentHref is the href TabBar compares against. An unknown tab yields "", which
+// marks no tab current rather than marking the first one — see Section().
+func currentHref(v AdminDashboardView) string {
+	s, ok := v.Section()
+	if !ok {
+		return ""
+	}
+	return s.Href
 }

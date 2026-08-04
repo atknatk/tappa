@@ -1259,23 +1259,31 @@ func TestPanelConstants_ShippedValuesArePinned(t *testing.T) {
 	}{
 		{
 			"adminFloodLimit", adminFloodLimit, 3000,
-			"RE-DERIVED in round 14: this shield now covers the AUTHENTICATED routes too, so it " +
-				"carries every page load of every admin behind one address. 10 admins x ~20 page " +
-				"views x ~10 HTMX fragments = ~2000 per window, plus logins. It matches " +
-				"httpx.tapAddressLimit deliberately. It does NOT bound bcrypt — adminAttemptLimit " +
-				"does. What it bounds is DATABASE work, and the cost was re-measured on the RIGHT " +
-				"arm in round 16: an authenticated page load is 3.0-5.7 ms (resolver read + " +
-				"TouchAdminSession UPDATE), not the 1.5 ms of an invented token, so 3000 buys " +
-				"9-17 s per window per address = 1.5-2.9% of one core. M6-02 owes it a re-count.",
+			"RE-DERIVED in round 14 and MEASURED by M6-02: this shield covers the AUTHENTICATED " +
+				"routes too, so it carries every page load of every admin behind one address. The " +
+				"round-14 estimate was 10 admins x ~20 page views x ~10 HTMX fragments = ~2000 per " +
+				"window; M6-02 shipped the dashboard with NO HTMX (plain <a href> sections) and " +
+				"measured 1 request per view over real HTTP. Both headroom figures over the SAME " +
+				"denominator (page requests PLUS logins, which is how the 1.46x was computed): " +
+				"old premise 2000+60 = ~2060 -> 3000/2060 = 1.46x; measured 200+60 = ~260 -> " +
+				"3000/260 = 11.5x. It matches httpx.tapAddressLimit " +
+				"deliberately. It does NOT bound bcrypt — adminAttemptLimit does. What it bounds " +
+				"is DATABASE work, and the cost was re-measured on the RIGHT arm in round 16: an " +
+				"authenticated page load is 3.0-5.7 ms (resolver read + TouchAdminSession UPDATE), " +
+				"not the 1.5 ms of an invented token, so 3000 buys 9-17 s per window per address " +
+				"= 1.5-2.9% of one core. M6-03 brings the fragments and re-counts.",
 		},
 		{
 			"adminSessionLimit", adminSessionLimit, 300,
 			"the THIRD stage, keyed on the session UUID (never the token or its hash). ⚠️ It " +
 				"bounds work AFTER authentication, NOT the resolver read or the UPDATE — those " +
 				"are already paid when it refuses (measured in round 16). It was COPIED from " +
-				"httpx.tapSessionLimit rather than derived, and against this file's own " +
-				"neighbouring derivation (~200 requests per admin per window) the headroom is " +
-				"only 1.5x. M6-02 owes it a derivation more urgently than the address ceiling.",
+				"httpx.tapSessionLimit rather than derived; M6-02 DERIVED it and the number " +
+				"survived. A section view is 1 charged request (measured: 300 x 200 then 429 at " +
+				"#301, stylesheet served outside Protect and not charged), so 300 is 300 section " +
+				"views per window and the headroom against 20 views is ~15x, not the 1.5x this " +
+				"string used to claim. Threshold: it becomes binding at >=15 requests per view, " +
+				"which is what M6-03 has to re-count when HTMX fragments arrive.",
 		},
 		{
 			"adminAttemptLimit", adminAttemptLimit, 10,

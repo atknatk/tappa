@@ -95,7 +95,7 @@ templ Activate(v ActivateView) {
 				</li>
 			</ul>
 			if v.ShowConfigNotice {
-				<p class="mt-4 border-t border-line pt-3 font-mono text-[11px] leading-relaxed text-ink/50">
+				<p class="mt-4 border-t border-line pt-3 font-mono text-[11px] leading-relaxed text-ink/70">
 					Non-production deployment: the retention period above is read from this
 					server's configuration and is a placeholder value, not legal advice.
 				</p>
@@ -115,7 +115,7 @@ templ Activate(v ActivateView) {
 					the moment you tap instead.
 				</p>
 			}
-			<p class="mt-2 text-sm text-ink/60">
+			<p class="mt-2 text-sm text-ink/70">
 				You can skip this — activation works either way. Without the network, taps fall
 				back to your location and may need your manager to confirm them.
 			</p>
@@ -403,7 +403,7 @@ templ Problem(v ProblemView) {
 			<h1 class="font-display text-xl font-bold tracking-tight">{ v.Title }</h1>
 			<p class="mt-2">{ v.Message }</p>
 			if v.Hint != "" {
-				<p class="mt-2 text-ink/60">{ v.Hint }</p>
+				<p class="mt-2 text-ink/70">{ v.Hint }</p>
 			}
 		}
 		if v.RetryURL != "" {
@@ -444,7 +444,7 @@ templ Confirm(v ConfirmView) {
 				}
 				instead.
 			</p>
-			<p class="mt-2 text-ink/60">
+			<p class="mt-2 text-ink/70">
 				If you did not expect this page, close it. Nothing has changed.
 			</p>
 		}

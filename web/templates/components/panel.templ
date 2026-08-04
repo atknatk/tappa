@@ -1,0 +1,62 @@
+package components
+
+// The PANEL's repeated patterns. Same rule as notice.templ: a chain that will be
+// pasted a second time is a component that has not been written yet.
+//
+// These two are written BEFORE their second caller, which is the opposite of that
+// rule, and the reason is that both already have five callers: the panel has five
+// sections (M6-03, M6-05, M6-06, M6-07, M6-09) and every one of them renders the
+// same navigation and, until its own task lands, the same empty state.
+
+// Tab is one section of the panel's navigation.
+//
+// IT CARRIES NO "current" FLAG. Which tab is current is a property of the REQUEST,
+// not of the tab, and giving each Tab a bool would let a caller render two current
+// tabs or none. TabBar takes the current href once and compares.
+type Tab struct {
+	Label string
+	Href  string
+}
+
+// TabBar is the panel's section navigation.
+//
+// ACCESSIBILITY, and it is the brand's "never colour alone" rule applied to
+// navigation rather than to a stamp: the current tab is marked with
+// aria-current="page", which a screen reader announces, and the green rule under
+// the label only repeats that for people who can see it. Remove the colour and the
+// tab bar still says where you are.
+//
+// EACH TAB IS A PLAIN LINK. There is no script on this page and no fragment swap:
+// a tab is a URL, so it can be bookmarked, opened in a new window, and used with
+// JavaScript switched off. See docs/plan/m6-dashboard.md M6-02 for the measured
+// request cost of that choice and the HTMX question it leaves open.
+templ TabBar(tabs []Tab, currentHref string) {
+	<nav class="tab-bar" aria-label="Panel sections">
+		for _, t := range tabs {
+			if t.Href == currentHref {
+				<a href={ templ.URL(t.Href) } class="tab-link tab-link--current" aria-current="page">{ t.Label }</a>
+			} else {
+				<a href={ templ.URL(t.Href) } class="tab-link">{ t.Label }</a>
+			}
+		}
+	</nav>
+}
+
+// EmptyState is what a section shows when it holds nothing.
+//
+// IT IS NOT A DOCKET, and the difference is the whole point of the motif: a docket
+// is a RECORD, with a solid `line` border and perforated edges, and this is the
+// absence of one. The dashed border says "nothing has been printed here" without
+// borrowing the shape that means "something happened".
+//
+// The heading is the only thing a caller must supply; the children carry the
+// sentence. Both are text, so the state is never carried by the border alone.
+templ EmptyState(heading string) {
+	<section class="empty-state">
+		<p class="docket-label">Nothing here yet</p>
+		<h2 class="font-display text-lg font-bold tracking-tight text-ink">{ heading }</h2>
+		<div class="text-sm text-ink/70">
+			{ children... }
+		</div>
+	</section>
+}

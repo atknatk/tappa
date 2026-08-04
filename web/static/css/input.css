@@ -108,8 +108,51 @@
   .docket::before { @apply -top-px bg-perf-top; }
   .docket::after  { @apply -bottom-px bg-perf-bottom; }
 
+  /* --- the docket's small caps label ---
+     THE TONE IS text-ink/70 AND IT USED TO BE /50, which failed AA (user decision,
+     2026-08-04). Measured against every light surface in the palette, for 10px
+     text where WCAG AA asks 4.5:1:
+
+                      ink/50 (was)   ink/70 (now)     ink/60 (rejected)
+       paper            3.23:1         6.05:1            4.36:1
+       porcelain        3.13:1         5.70:1            4.18:1
+       green-lite       3.09:1         5.58:1            4.11:1
+       saffron-lite     3.11:1         5.64:1            4.15:1
+
+     /60 WAS MEASURED AND REJECTED: it fails on ALL FOUR grounds (4.11-4.36), so it
+     would have been a fix that did not fix. /70 is the smallest step on Tailwind's
+     standard scale that clears AA on every one of them, with 24% margin on the
+     binding ground.
+
+     BINDING GROUND: green-lite
+     ^ THAT LINE IS PINNED. TestBrand_ProseNamesTheGroundTheMeasurementDERIVES reads
+     it and compares it against the ground the test derives from the palette, so
+     this comment cannot drift away from the arithmetic the way the paragraph it
+     replaced did.
+
+     WHY IT IS NOT PORCELAIN, WHICH IS WHAT THIS COMMENT USED TO SAY. Porcelain is
+     the page ground, so two rounds of this work assumed it was the harshest surface
+     and wrote that down; the derived test disagreed, and the derivation is right.
+     Relative luminance decides it, not intuition: green-lite is 0.8229 against
+     porcelain's 0.8627, and a DARKER ground gives dark text LESS contrast. The
+     table above shows it directly — green-lite's 5.58 is below porcelain's 5.70 —
+     which means the old sentence was contradicted by the numbers printed two lines
+     above it. That is why the claim is now pinned rather than merely corrected.
+
+     THE CALL SITES ARE NOT COUNTED HERE, deliberately. An earlier version said "ten
+     of the twelve ... the two form labels" and both figures were wrong within the
+     round that wrote them (the panel header is a third porcelain site). A hand
+     count in a comment rots. The test derives HOW MANY call sites exist and refuses
+     to run when there are none; it does NOT derive which ground each one sits on,
+     because that needs the enclosing element and nothing reads these files as HTML.
+
+     THIS IS A VISIBLE CHANGE on the employee tap and result screens, and it is
+     deliberate: CLAUDE.md §9 keeps those screens to one action and zero learning,
+     which is a rule about ADDING things. A label nobody can read is not a
+     simplification. TestBrand_DocketLabelClearsAAOnEveryGroundItSitsOn pins the
+     arithmetic above, so the tone cannot drift back without a red test. */
   .docket-label {
-    @apply text-[10px] uppercase tracking-widest text-ink/50;
+    @apply text-[10px] uppercase tracking-widest text-ink/70;
   }
 
   /* --- rubber stamp: slightly rotated, double framed, ink-like ---
@@ -155,4 +198,37 @@
   @media (prefers-reduced-motion: reduce) {
     .tap-button { @apply transition-none active:scale-100; }
   }
+
+  /* --- button: the chain that was pasted three times --- */
+  .btn {
+    @apply inline-flex items-center justify-center min-h-11 px-4 py-2 font-display
+           text-sm font-bold tracking-tight
+           focus:outline-none focus:ring-2 focus:ring-ink
+           motion-safe:transition-colors;
+  }
+  .btn--primary { @apply min-h-12 py-3 text-base bg-tappa-green text-paper hover:bg-ink; }
+  .btn--quiet   { @apply border border-line bg-paper text-ink hover:border-tomato hover:text-tomato; }
+
+  /* --- empty state: a section that has nothing in it YET ---
+     Dashed rather than solid, because the docket's solid `line` border is what a
+     RECORD looks like and this is the absence of one. */
+  .empty-state {
+    @apply flex flex-col items-start gap-1 border border-dashed border-line
+           bg-paper px-4 py-8;
+  }
+
+  /* --- tab navigation: the panel's five sections ---
+     min-h-11 is 44px, which is the touch-target floor rather than a look: the
+     panel is a desktop screen but a manager checks it on a phone at the pass. */
+  .tab-bar {
+    @apply flex flex-wrap items-stretch gap-x-1 border-b border-line;
+  }
+  .tab-link {
+    @apply inline-flex min-h-11 items-center border-b-2 border-transparent px-3 py-2
+           font-display text-sm font-bold tracking-tight text-ink/70
+           hover:text-ink focus:outline-none focus:ring-2 focus:ring-ink
+           motion-safe:transition-colors;
+  }
+  /* The current tab is named by aria-current as well; the colour only repeats it. */
+  .tab-link--current { @apply border-tappa-green text-ink; }
 }

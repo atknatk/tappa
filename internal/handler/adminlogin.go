@@ -39,8 +39,8 @@ const (
 )
 
 // AdminAuth serves panel authentication: the login screen, the "which business?"
-// picker, sign-out, and the one protected placeholder M6-02 will build the
-// dashboard onto.
+// picker, sign-out, and — since M6-02 — the protected panel shell those sign a
+// person into (dashboard.go).
 //
 // ROUTES, AND WHY EACH EXISTS:
 //
@@ -54,7 +54,9 @@ const (
 //	                          HttpOnly cookie and shows one row per business.
 //	POST /admin/login/choose  re-proves membership of the signed set, then issues.
 //	POST /admin/logout        revokes the session and clears the cookie.
-//	GET  /admin               protected placeholder. NOT the dashboard (M6-02).
+//	GET  /admin               the panel. Transactions is the section sign-in lands
+//	                          on; the other four are mounted beside it from
+//	                          pages.PanelSections (dashboard.go).
 //
 // EVERYTHING IS UNDER /admin, and that is a requirement rather than tidiness: the
 // panel cookie is Path=/admin (adminauth.CookiePath), so a route outside that
@@ -142,11 +144,15 @@ func (a *AdminAuth) Mount(r chi.Router) {
 	r.Get("/admin/login/choose", a.ChoosePage)
 	r.Post("/admin/login/choose", a.Choose)
 
-	// THE DASHBOARD GROUP. Protect() carries the whole chain, so M6-02 mounts
+	// THE DASHBOARD GROUP. Protect() carries the whole chain, so the panel mounts
 	// inside this group — or uses Protect() in its own — and inherits every stage.
+	//
+	// M6-02 FILLED IT. mountSections (dashboard.go) registers one GET per
+	// pages.PanelSection, /admin among them — Transactions is the section sign-in
+	// lands on. There is no bare placeholder route left.
 	r.Group(func(r chi.Router) {
 		r.Use(a.Protect())
-		r.Get("/admin", a.Home)
+		a.mountSections(r)
 	})
 
 	// 🔴 SIGN-OUT IS A SEPARATE GROUP, AND THE REASON IS AN INVARIANT: ENDING YOUR
@@ -769,21 +775,6 @@ func (a *AdminAuth) renderLoginFailure(w http.ResponseWriter, r *http.Request, s
 	a.render(w, r, http.StatusUnauthorized, pages.AdminLogin(pages.AdminLoginView{
 		CSRFToken: st.csrf,
 		Failed:    true,
-	}))
-}
-
-// Home serves GET /admin — the protected placeholder.
-//
-// 🔴 IT IS DELIBERATELY EMPTY OF DASHBOARD CONTENT. M6-01 delivers authentication;
-// M6-02 delivers the layout and the docket components, M6-03 the transactions
-// view. What this page proves is that the gate works and that a signed-in operator
-// lands somewhere that knows who they are — nothing else. Adding a number to it
-// would be starting M6-02 inside M6-01.
-func (a *AdminAuth) Home(w http.ResponseWriter, r *http.Request) {
-	id := httpx.AdminOf(r)
-	a.render(w, r, http.StatusOK, pages.AdminHome(pages.AdminHomeView{
-		FullName: id.Admin.FullName,
-		Role:     id.Admin.Role,
 	}))
 }
 

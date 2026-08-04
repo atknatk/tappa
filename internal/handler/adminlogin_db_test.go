@@ -38,6 +38,7 @@ import (
 	"github.com/atknatk/tappa/internal/audit"
 	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/db"
+	"github.com/atknatk/tappa/web/templates/pages"
 )
 
 // The two stored digests these tests authenticate against, as LITERALS at
@@ -288,9 +289,20 @@ func TestPanelE2E_SignInAndOut(t *testing.T) {
 	if !strings.Contains(panel, "E2E Owner") {
 		t.Fatalf("the panel does not name the signed-in operator")
 	}
-	// And it carries no dashboard content: M6-01 delivers authentication only.
-	if !strings.Contains(panel, "The dashboard is not built yet") {
-		t.Fatalf("the placeholder does not say it is a placeholder")
+	// And it lands on the panel shell M6-02 shipped: the five sections are there,
+	// every one of them empty and saying which task fills it. Asserted through the
+	// SECTION TABLE rather than against a sentence, so this stays true as the
+	// sections are filled in one by one.
+	for _, sec := range pages.PanelSections {
+		// htmlText, not the raw label: "Locations & Wall Tags" reaches the page as
+		// "Locations &amp; Wall Tags", and the first version of this loop compared the
+		// unescaped string and failed on exactly that section.
+		if !strings.Contains(panel, htmlText(sec.Label)) {
+			t.Fatalf("the panel does not offer the %q section", sec.Label)
+		}
+	}
+	if !strings.Contains(panel, "Nothing here yet") {
+		t.Fatalf("the default section does not say it is empty")
 	}
 
 	// Sign out: the row is revoked in the database, not merely forgotten by the

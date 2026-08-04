@@ -114,7 +114,7 @@ func AdminLogin(v AdminLoginView) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "\"><div class=\"flex flex-col gap-1\"><label for=\"admin-email\" class=\"docket-label\">Email</label> <input id=\"admin-email\" name=\"email\" type=\"email\" autocomplete=\"username\" required autofocus class=\"min-h-11 w-full border border-line bg-paper px-3 py-2 font-mono text-sm text-ink focus:border-tappa-green focus:outline-none focus:ring-1 focus:ring-tappa-green\"></div><div class=\"flex flex-col gap-1\"><label for=\"admin-password\" class=\"docket-label\">Password</label> <input id=\"admin-password\" name=\"password\" type=\"password\" autocomplete=\"current-password\" required class=\"min-h-11 w-full border border-line bg-paper px-3 py-2 font-mono text-sm text-ink focus:border-tappa-green focus:outline-none focus:ring-1 focus:ring-tappa-green\"></div><button type=\"submit\" class=\"min-h-12 w-full bg-tappa-green px-4 py-3 font-display text-base font-bold tracking-tight text-paper hover:bg-ink focus:outline-none focus:ring-2 focus:ring-ink motion-safe:transition-colors\">Sign in</button></form><p class=\"text-xs text-ink/60\">This is the manager panel. Employees do not sign in — they tap the plaque.</p>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "\"><div class=\"flex flex-col gap-1\"><label for=\"admin-email\" class=\"docket-label\">Email</label> <input id=\"admin-email\" name=\"email\" type=\"email\" autocomplete=\"username\" required autofocus class=\"min-h-11 w-full border border-line bg-paper px-3 py-2 font-mono text-sm text-ink focus:border-tappa-green focus:outline-none focus:ring-1 focus:ring-tappa-green\"></div><div class=\"flex flex-col gap-1\"><label for=\"admin-password\" class=\"docket-label\">Password</label> <input id=\"admin-password\" name=\"password\" type=\"password\" autocomplete=\"current-password\" required class=\"min-h-11 w-full border border-line bg-paper px-3 py-2 font-mono text-sm text-ink focus:border-tappa-green focus:outline-none focus:ring-1 focus:ring-tappa-green\"></div><button type=\"submit\" class=\"btn btn--primary w-full\">Sign in</button></form><p class=\"text-xs text-ink/70\">This is the manager panel. Employees do not sign in — they tap the plaque.</p>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -187,7 +187,7 @@ func AdminChoose(v AdminChooseView) templ.Component {
 				var templ_7745c5c3_Var7 string
 				templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinStringErrs(v.CSRFToken)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/admin.templ`, Line: 105, Col: 57}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/admin.templ`, Line: 100, Col: 57}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var7))
 				if templ_7745c5c3_Err != nil {
@@ -200,7 +200,7 @@ func AdminChoose(v AdminChooseView) templ.Component {
 				var templ_7745c5c3_Var8 string
 				templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs(b.TenantID)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/admin.templ`, Line: 106, Col: 61}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/admin.templ`, Line: 101, Col: 61}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var8))
 				if templ_7745c5c3_Err != nil {
@@ -213,7 +213,7 @@ func AdminChoose(v AdminChooseView) templ.Component {
 				var templ_7745c5c3_Var9 string
 				templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.JoinStringErrs(b.TenantName)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/admin.templ`, Line: 109, Col: 86}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/admin.templ`, Line: 104, Col: 86}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var9))
 				if templ_7745c5c3_Err != nil {
@@ -226,13 +226,13 @@ func AdminChoose(v AdminChooseView) templ.Component {
 				var templ_7745c5c3_Var10 string
 				templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.JoinStringErrs(b.Role)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/admin.templ`, Line: 111, Col: 60}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/admin.templ`, Line: 106, Col: 60}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var10))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "</p><button type=\"submit\" class=\"mt-3 min-h-12 w-full bg-tappa-green px-4 py-3 font-display text-base font-bold tracking-tight text-paper hover:bg-ink focus:outline-none focus:ring-2 focus:ring-ink motion-safe:transition-colors\">Continue</button></section></form>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "</p><button type=\"submit\" class=\"btn btn--primary mt-3 w-full\">Continue</button></section></form>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -251,13 +251,19 @@ func AdminChoose(v AdminChooseView) templ.Component {
 	})
 }
 
-// AdminHome is the protected placeholder M6-02 replaces with the real dashboard.
+// AdminDashboard is the panel shell: brand lockup, who is signed in, the five
+// sections, and the section that was asked for.
 //
-// 🔴 IT SHOWS NO DATA ON PURPOSE. Its whole job is to prove that the gate lets a
-// signed-in operator through and knows who they are. A transaction count here
-// would be M6-03 leaking into M6-01, and it would need a query nobody has
-// reviewed for this task.
-func AdminHome(v AdminHomeView) templ.Component {
+// 🔴 EVERY SECTION IS EMPTY, AND SAYS SO. M6-02 is the skeleton — the layout, the
+// navigation and the repeated components — and the sections are M6-03, M6-05,
+// M6-06, M6-07 and M6-09. An empty state that names its task is the honest shape
+// for that: a manager who opens Reports on a demo deployment learns that the
+// section is coming, rather than concluding that they have no hours.
+//
+// ONE COMPONENT RENDERS ALL FIVE SECTIONS, keyed by v.Tab. When M6-03 gives
+// Transactions real content it replaces this component's body for that one tab;
+// the chrome above it does not move, and the other four keep working.
+func AdminDashboard(v AdminDashboardView) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -290,70 +296,145 @@ func AdminHome(v AdminHomeView) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, "<h1 class=\"font-display text-2xl font-bold tracking-tight\">You are signed in</h1>")
+			templ_7745c5c3_Err = layout.Wordmark().Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Var13 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
-				templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
-				templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
-				if !templ_7745c5c3_IsBuffer {
-					defer func() {
-						templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
-						if templ_7745c5c3_Err == nil {
-							templ_7745c5c3_Err = templ_7745c5c3_BufErr
-						}
-					}()
-				}
-				ctx = templ.InitializeContext(ctx)
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "<p class=\"docket-label\">Signed in as</p><p class=\"font-display text-lg font-bold tracking-tight\">")
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				var templ_7745c5c3_Var14 string
-				templ_7745c5c3_Var14, templ_7745c5c3_Err = templ.JoinStringErrs(v.FullName)
-				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/admin.templ`, Line: 136, Col: 72}
-				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var14))
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, "</p><p class=\"mt-2 docket-label\">Role</p><p class=\"font-mono uppercase tracking-widest\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, " <div class=\"flex flex-wrap items-baseline justify-between gap-3\"><div><p class=\"docket-label\">Signed in as</p><p class=\"font-display text-xl font-bold tracking-tight\">")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var13 string
+			templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.JoinStringErrs(v.FullName)
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/admin.templ`, Line: 133, Col: 73}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var13))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "</p></div><div class=\"flex items-center gap-3\"><span class=\"font-mono text-xs uppercase tracking-widest text-ink/70\">")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var14 string
+			templ_7745c5c3_Var14, templ_7745c5c3_Err = templ.JoinStringErrs(v.Role)
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/admin.templ`, Line: 136, Col: 82}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var14))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, "</span><form method=\"post\" action=\"/admin/logout\"><button type=\"submit\" class=\"btn btn--quiet\">Sign out</button></form></div></div>")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = components.TabBar(panelTabs(), currentHref(v)).Render(ctx, templ_7745c5c3_Buffer)
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 15, " ")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			if s, ok := v.Section(); ok {
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 16, "<h1 class=\"font-display text-2xl font-bold tracking-tight\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var15 string
-				templ_7745c5c3_Var15, templ_7745c5c3_Err = templ.JoinStringErrs(v.Role)
+				templ_7745c5c3_Var15, templ_7745c5c3_Err = templ.JoinStringErrs(s.Label)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/admin.templ`, Line: 138, Col: 58}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/admin.templ`, Line: 144, Col: 71}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var15))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 15, "</p>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "</h1>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				return nil
-			})
-			templ_7745c5c3_Err = components.Card("").Render(templ.WithChildren(ctx, templ_7745c5c3_Var13), templ_7745c5c3_Buffer)
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 16, " <p class=\"text-sm text-ink/70\">The dashboard is not built yet. This page exists so the sign-in can be checked end to end.</p><form method=\"post\" action=\"/admin/logout\"><button type=\"submit\" class=\"min-h-11 w-full border border-line bg-paper px-4 py-2 font-display text-sm font-bold tracking-tight text-ink hover:border-tomato hover:text-tomato focus:outline-none focus:ring-2 focus:ring-ink motion-safe:transition-colors\">Sign out</button></form>")
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
+				templ_7745c5c3_Var16 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+					templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+					templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+					if !templ_7745c5c3_IsBuffer {
+						defer func() {
+							templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+							if templ_7745c5c3_Err == nil {
+								templ_7745c5c3_Err = templ_7745c5c3_BufErr
+							}
+						}()
+					}
+					ctx = templ.InitializeContext(ctx)
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 18, "<p>")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					var templ_7745c5c3_Var17 string
+					templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.JoinStringErrs(s.Blurb)
+					if templ_7745c5c3_Err != nil {
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/admin.templ`, Line: 146, Col: 16}
+					}
+					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var17))
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 19, "</p><p class=\"mt-2\">It arrives with <span class=\"font-mono uppercase\">")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					var templ_7745c5c3_Var18 string
+					templ_7745c5c3_Var18, templ_7745c5c3_Err = templ.JoinStringErrs(s.Task)
+					if templ_7745c5c3_Err != nil {
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/admin.templ`, Line: 148, Col: 63}
+					}
+					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var18))
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 20, "</span>.</p>")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					return nil
+				})
+				templ_7745c5c3_Err = components.EmptyState(s.Label+" is not built yet").Render(templ.WithChildren(ctx, templ_7745c5c3_Var16), templ_7745c5c3_Buffer)
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = layout.Page("Panel — Tappa").Render(templ.WithChildren(ctx, templ_7745c5c3_Var12), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = layout.Panel("Panel — Tappa").Render(templ.WithChildren(ctx, templ_7745c5c3_Var12), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		return nil
 	})
+}
+
+// panelTabs adapts the section list to the navigation component.
+// THE COMPONENT DOES NOT IMPORT THE SECTION TABLE, deliberately: components.TabBar
+// knows about labels and hrefs and nothing about the panel's roadmap, so the same
+// bar can carry a different set of sections later without the component changing.
+func panelTabs() []components.Tab {
+	out := make([]components.Tab, 0, len(PanelSections))
+	for _, s := range PanelSections {
+		out = append(out, components.Tab{Label: s.Label, Href: s.Href})
+	}
+	return out
+}
+
+// currentHref is the href TabBar compares against. An unknown tab yields "", which
+// marks no tab current rather than marking the first one — see Section().
+func currentHref(v AdminDashboardView) string {
+	s, ok := v.Section()
+	if !ok {
+		return ""
+	}
+	return s.Href
 }
 
 var _ = templruntime.GeneratedTemplate

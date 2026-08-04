@@ -76,13 +76,102 @@ type AdminChooseView struct {
 	Businesses []AdminBusiness
 }
 
-// AdminHomeView is the protected placeholder behind the gate.
+// PanelTab identifies one section of the dashboard.
 //
-// 🔴 IT IS NOT THE DASHBOARD. M6-02 owns the layout and the docket components,
-// M6-03 the transactions view. Two fields, both about WHO is signed in, so that
-// this screen can prove the gate works without starting the next task inside this
-// one. Adding a count, a chart or a filter here is M6-02's work.
-type AdminHomeView struct {
+// IT IS A NAMED TYPE RATHER THAN A string so a handler cannot pass a section that
+// does not exist by mistyping it — the compiler will take an untyped constant, but
+// every call site in the product reads from PanelSections below and therefore
+// cannot invent one at all.
+type PanelTab string
+
+const (
+	TabTransactions PanelTab = "transactions"
+	TabEmployees    PanelTab = "employees"
+	TabLocations    PanelTab = "locations"
+	TabReports      PanelTab = "reports"
+	TabPolicies     PanelTab = "policies"
+)
+
+// PanelSection is one row of the panel's navigation AND one route.
+//
+// 🔴 THE ROUTE AND THE TAB ARE THE SAME FACT, which is why Href lives here rather
+// than in the router. internal/handler mounts by RANGING over PanelSections, so a
+// section added to this slice is a section that is navigable, and a section
+// removed from it is a route that stops existing. The failure this shape makes
+// unavailable is a tab whose link 404s — the shape M6-03..M6-09 would otherwise
+// each have a chance to produce.
+type PanelSection struct {
+	Tab   PanelTab
+	Label string
+	Href  string
+	// Task is the roadmap task that fills this section. It is rendered, on
+	// purpose: until the section has content, the honest thing for it to say is
+	// which piece of work is missing rather than a blank panel that looks broken.
+	Task string
+	// Blurb is what will be here, in the brand's voice. It is NOT a promise the
+	// system already keeps — the empty state says "not built yet" beside it.
+	Blurb string
+}
+
+// PanelSections is the panel's five sections, in the order CLAUDE.md §9 and
+// docs/handoff.md name them.
+//
+// TRANSACTIONS IS /admin RATHER THAN /admin/transactions, and that is a decision
+// rather than an accident: /admin is where sign-in lands (completeLogin), so
+// giving the default section its own second URL would mean either a redirect on
+// every sign-in or two URLs rendering the same page. The tab's link points at
+// /admin and there is exactly one URL per section.
+var PanelSections = []PanelSection{
+	{
+		Tab: TabTransactions, Label: "Transactions", Href: "/admin", Task: "M6-03",
+		Blurb: "Every tap of the day as a docket card — who, where, in or out, the trust score, and the stamp that says how it was judged.",
+	},
+	{
+		Tab: TabEmployees, Label: "Employees", Href: "/admin/employees", Task: "M6-05",
+		Blurb: "The people who tap: who is active, who has been invited, and who has stopped working here.",
+	},
+	{
+		Tab: TabLocations, Label: "Locations & Wall Tags", Href: "/admin/locations", Task: "M6-06",
+		Blurb: "Your venues and the plaque on each wall — which tag is mounted where, and which one needs replacing.",
+	},
+	{
+		Tab: TabReports, Label: "Reports", Href: "/admin/reports", Task: "M6-07",
+		Blurb: "Hours worked per person per week, and the CSV your accountant asks for.",
+	},
+	{
+		Tab: TabPolicies, Label: "Policies", Href: "/admin/policies", Task: "M6-09",
+		Blurb: "The rules this business is allowed to change — shown beside the ones no business can.",
+	},
+}
+
+// AdminDashboardView is the panel shell: who is signed in, and which section they
+// are looking at.
+//
+// 🔴 IT CARRIES NO SECTION CONTENT, and that is M6-02's scope rather than an
+// oversight. Every section renders an empty state naming the task that fills it;
+// the first field that holds a transaction, an employee or a policy belongs to
+// M6-03 and after. A view model with a data field is how a skeleton quietly
+// becomes a half-built dashboard.
+//
+// Tab is a PanelTab, so the template can only be pointed at a section that exists.
+type AdminDashboardView struct {
 	FullName string
 	Role     string
+	Tab      PanelTab
+}
+
+// Section returns the section this view is showing.
+//
+// IT RETURNS ok=false FOR AN UNKNOWN TAB RATHER THAN A ZERO SECTION. A zero
+// PanelSection would render a nameless tab with an empty href — a link to the
+// current page, which looks like a working control and is not. The template
+// renders nothing at all instead, and the handler cannot reach that branch because
+// it only ever passes a tab it read from PanelSections.
+func (v AdminDashboardView) Section() (PanelSection, bool) {
+	for _, s := range PanelSections {
+		if s.Tab == v.Tab {
+			return s, true
+		}
+	}
+	return PanelSection{}, false
 }

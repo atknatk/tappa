@@ -1010,12 +1010,20 @@ panel; FLAGGED kuyruğu işliyor, CSV dışa aktarım var.
 
 **Amaç.** Tekrar eden desenleri bileşen olarak bir kez yazmak.
 
-**Dokunulacak dosyalar.** `web/templates/layouts/`, `web/templates/components/`,
-`web/static/css/input.css`
+**Dokunulacak dosyalar.** `web/templates/layout/`, `web/templates/components/`,
+`web/static/css/input.css`, `web/templates/pages/`, `internal/handler/`
+*(Düzeltildi 2026-08-04: kart `layouts/` diyordu, repoda dizin **tekil** `layout/`.
+Ayrıca iş yalnız CSS+bileşen değil — kabuk `pages/` + `handler/`'a da dokunuyor.)*
 
 **Kabul kriterleri.**
-- Bileşenler: `docket`, `stamp` (approved/flagged/rejected/training), buton, boş
-  durum, sekme navigasyonu, filtre çubuğu.
+- Bileşenler: `docket`, `stamp` (approved/flagged/rejected/**ignored**/training),
+  buton, boş durum, sekme navigasyonu, ~~filtre çubuğu~~ → **M6-03'e TAŞINDI**
+  (kullanıcı kararı 2026-08-04; gerekçe aşağıdaki düzeltme bloğunda, madde
+  **M6-03 kartında** da yazılı — iki kart aynı şeyi söylüyor).
+  *(Düzeltildi 2026-08-04: kart **dört** damga sayıyordu, damga **beş**tir ve beşi de
+  M0 scaffold'undan beri var. `ignored` bir verdict'tir (§5 satır 5), `result.templ`
+  onu **markup'ta** basıyor ve `TestCompiledCSS_StampWordIsInk` **beşini birden**
+  arıyor — yani kartın listesi eksikti, kod değil.)*
 - Semantik sınıflar `input.css` içinde `@layer components` (`.docket`, `.stamp`,
   `.stamp--approved`).
 - Perforasyon saf CSS `radial-gradient` — görsel dosya **yok**.
@@ -1029,7 +1037,107 @@ panel; FLAGGED kuyruğu işliyor, CSV dışa aktarım var.
   kartı md.7 + skill `tappa-brand`. Eski anatomiyi geri koyma.)*
 - Her sayı **mono**; palet dışı renk yok; gradient yok.
 - Dokunma hedefi ≥44px, kontrast AA, `prefers-reduced-motion` saygılı.
+  *(Güncellendi 2026-08-04, kullanıcı kararı — M5-06'nın damga ölçümüyle **aynı
+  disiplinde**. `.docket-label` bu kriteri **M0'dan beri ihlal ediyordu** ve hiçbir
+  test görmüyordu: `text-ink/50` @10px, en kötü zemin `porcelain` üstünde
+  **3,13:1**, AA'nın istediği **4,5:1**'in altında. Ton **`text-ink/70`** yapıldı →
+  en kötü **5,70:1**. `/60` ölçüldü ve **REDDEDİLDİ** (paper 4,36:1 · porcelain
+  4,18:1 — düzeltmeyen bir düzeltme). **12 çağrı yerinin hepsi** aynı anda değişti,
+  çalışanın tap ve onay ekranları dahil; §9'un *"tap ekranı kutsaldır"* kuralı
+  **özellik eklemeye** dairdir, okunmayan bir etiket sadeleştirme değildir.
+  ⚠️ **Damga anatomisine dokunulmadı** — `opacity-80` geri gelmedi.
+  Ağ: `TestBrand_DocketLabelClearsAAOnEveryGroundItSitsOn` — **ürünün kontrast
+  oranı HESAPLAYAN ilk testi**, ve `app.css` değil **`input.css` + `tailwind.config.js`**
+  okuduğu için `TestCompiledCSS_*` ailesinin aksine **CI'da gerçekten koşuyor**.)*
+  *(**Genişletildi 2026-08-04, kullanıcı kararı — denetim `.docket-label`'ın YALNIZ
+  BAŞINA olmadığını ölçtü: altı ton daha AA'nın altında sevk edilmişti**, ve biri
+  (`punchless`) **ürünün her ekranında** render ediliyordu — yani bu görev beş panel
+  ekranı ekleyerek onun **render sayısını artırmıştı**. Altısı da `/70`'e çıkarıldı;
+  ton, boyut, zemin ve hesaplanan oran:*
+  | Yer | Eski ton / boyut | Zemin (denetlendi) | Eski | Yeni |
+  |---|---|---|---|---|
+  | `layout/base.templ` `punchless` | `ink/40` @10px | porcelain | **2,40:1** | **5,70:1** |
+  | `pages/admin.templ` panel notu | `ink/60` @12px | porcelain | **4,18:1** | **5,70:1** |
+  | `pages/activate.templ` config notu | `ink/50` @11px | paper (`Card`) | **3,23:1** | **6,05:1** |
+  | `pages/activate.templ` Wi-Fi notu | `ink/60` @14px | paper (`Card`) | **4,36:1** | **6,05:1** |
+  | `pages/activate.templ` Problem ipucu | `ink/60` | paper (`Notice ToneAlert`) | **4,36:1** | **6,05:1** |
+  | `pages/activate.templ` Confirm ipucu | `ink/60` | paper (`Notice ToneAlert`) | **4,36:1** | **6,05:1** |
+  *⚠️ **Bağlayıcı zemin `porcelain` DEĞİL, `green-lite`** (L=0,8229 < 0,8627) — iki
+  tur boyunca porcelain sanıldı, türetilmiş test düzeltti; `/60` **dört zeminin
+  dördünde de** kalıyor (4,11–4,36), `/70` **dördünde de** geçiyor (5,58–6,05).*
+  *⚠️ **WCAG 1.4.3 logotype istisnası `punchless` için değerlendirildi ve KULLANILMADI**
+  — gerekçe `base.templ`'de yazılı (marka adı "tappa", bu ayrı bir span, veri
+  tipografisinde, ve her ekranda render ediliyor).*
+  *Ağ genişletildi: `TestBrand_EveryInkToneClearsAA` **her** `text-ink/NN` tonunu
+  tarar. Bilinen delik yazılı: zemin eşleştirme yerine **en koyu açık zemin**
+  kullanılıyor; fark yalnız `/61–/63`'te sonucu değiştiriyor ve **standart Tailwind
+  adımlarının hiçbiri** o aralıkta değil (mutasyonla doğrulandı: eşdeğer mutant).)*
 - `make gen` sonrası `*_templ.go` commit edildi.
+
+> **Kart düzeltmesi (2026-08-04, M6-02 uygulaması sırasında).**
+>
+> **Görevin ilk adımı kartı ölçmekti ve kartın yarısı zaten sevk edilmişti — ama
+> devir notundaki tarih de yanlıştı.** Ölçüm (`git log -S`, `git show 7e12f37`):
+> `.docket`, iki perforasyon sözde-elemanı, `.docket-label` **ve beş damga
+> varyantının beşi de** **M0 scaffold'unda** (`7e12f37`) doğdu — M5-06'da değil.
+> M5-06 (`bb7635b`) damganın **anatomisini** değiştirdi (kelime → `ink`, renk →
+> çerçeve, `opacity-80` kaldırıldı), varlığını değil. Perforasyon için **hiçbir
+> zaman görsel dosya olmadı** (`git log --diff-filter=A -- web/static/img/*` → boş),
+> yani *"saf CSS `radial-gradient`, görsel dosya yok"* kriteri **M0'dan beri**
+> karşılanıyordu.
+>
+> **Gerçekten eksik olan dördü:** buton · boş durum · sekme navigasyonu · filtre
+> çubuğu. Üçü bu görevde sevk edildi; **filtre çubuğu sevk EDİLMEDİ** ve gerekçesi
+> aşağıda — kullanıcı kararı bekliyor.
+>
+> **🔴 FİLTRE ÇUBUĞU M6-03'E TAŞINDI — kullanıcı kararı 2026-08-04. Gerekçe:
+> bu kartın kendi kapsamı onu dürüstçe sevk etmeyi imkânsız kılıyor.**
+> Kart *"içeriklerini YAZMA — onlar M6-03…M6-09"* diyor, yani M6-02'de **filtrelenecek
+> hiçbir veri yok**. Bir filtre çubuğu ancak üç hâlde sevk edilebilirdi ve üçü de
+> kötü: (a) kullanılmayan CSS kuralı → *"her kural gerçek bir `class=`'a iz sürmeli"*
+> kuralını çiğner; (b) ekranda **atıl kontroller** → panelin yapamadığı bir şeyi
+> yapabiliyormuş gibi gösterir; (c) *"şu tarihte kayıt yok"* diyen sahte bir sonuç →
+> sistemin **ölçmediği bir şeyi beyan etmek**, bu deponun en pahalı hata sınıfı.
+> **İki okuma, kullanıcıya:**
+> **A — şimdi sevk et (atıl):** kartın maddesi kapanır; bedeli bir ölü kural + çağıranı
+> olmayan bir bileşen + yalan söyleyen kontroller.
+> **B — M6-03'e ertele (KULLANICI SEÇTİ, 2026-08-04):** filtre çubuğu, altı
+> filtresinin (tarih, lokasyon, departman, çalışan, verdict, channel) **var olduğu**
+> yerde yazılır ve orada çalıştığı **kanıtlanabilir** — o altı filtre M6-03 kartının
+> **kendi kriter satırında** zaten sayılı. Bedeli: bu kartın bir maddesi M6-02'de
+> kapanmıyor, ve bu yüzden **düşürülmedi, taşındı**.
+>
+> **🔴 HTMX SEVK EDİLMEDİ — ve bu da bir çatal.** Ölçüm: repoda HTMX'in **kodu yok**
+> (11 eşleşmenin **hepsi düzyazı**: CLAUDE.md §1 tablosu, ADR 0001, marka skill'i,
+> iki bütçe yorumu). Ağ erişilebilir (`unpkg` → 200), yani vendor'lamak **mümkündü**.
+> Yapılmadı çünkü **iskeletin takas edilecek hiçbir parçası yok**: sekmeler düz
+> `<a href>`, yani swap edilecek fragment sıfır. Sevk etseydim `adminCSP`'nin
+> `default-src 'none'`'unu bir **script** için genişletmem gerekirdi — ve
+> `adminlogin.go` tam olarak bunun tersini yazıyor: *"none of these screens loads a
+> script, so naming one would widen the policy for nothing."* **CSP bu görevde
+> DEĞİŞMEDİ** (gerçek yanıttan doğrulandı, aşağıda). **İki okuma:**
+> **A — şimdi vendor'la:** M6-03 hazır bulur; bedeli bugün gerekçesiz bir CSP
+> genişletmesi + kullanılmayan ~48 KB.
+> **B — M6-03'te vendor'la (seçilen):** ilk gerçek fragment ile birlikte gelir,
+> CSP o commit'te **görünür** bir kararla genişler.
+> `TestPanelScreens_LoadNoScriptAndReachNoThirdParty` ilk `<script>`'te **kırmızıya
+> döner**, yani sessiz miras imkânsız.
+>
+> **📏 DEVRALINAN ÜÇ SAYI — ÖLÇÜLDÜ (gerçek sunucu + gerçek Postgres + gerçek oturum).**
+> Yöntem: taze oturum, ardışık 305 × `GET /admin`.
+> **Sonuç: 300 × `200`, 301. istek `429`** — yani **bir sekme görüntülemesi = tam 1
+> ücretlendirilen istek**. Oturum bütçesi tükendikten sonra `GET /static/css/app.css`
+> hâlâ **200** döndü → stylesheet `Protect()`'in **dışında** ve panel bütçesine
+> **yazılmıyor**.
+> | Sayı | Kartın/dosyanın varsayımı | M6-02 iskeletinde ÖLÇÜLEN |
+> |---|---|---|
+> | `adminSessionLimit = 300` | ~10 parça/görüntüleme → ~200 istek/yönetici, pay **1,5×** | **1 istek/görüntüleme** → oturum başına **300 sekme görüntülemesi**/10 dk; 20 görüntülemelik gerçekçi yük için pay **15×** |
+> | `adminFloodLimit = 3000` | 10 yönetici × 20 görüntüleme × **10 parça** = 2000, + 40–60 giriş ≈ **2060** → pay **1,46×** | 10 × 20 × **1** = 200, + 40–60 giriş ≈ **260** → pay **11,5×** (⚠️ *"15×"* yanlıştı: yükü 260 ile, payı 200 ile hesaplıyordu — **iki farklı payda**; 3000/260 = 11,54) |
+> | `sessionGate`'in koruduğu iş | *"bugün BOŞ"* | artık dolu: 5 rota, hepsi `Protect()` grubunda (`TestPanelSections_EveryOneIsRoutedAndBehindTheGate` iki yönde de kanıtlıyor) |
+> **ÜÇÜ DE DEĞİŞTİRİLMEDİ** (brief gereği; `TestPanelConstants_ShippedValuesArePinned`
+> hâlâ yeşil). **Eşik yazılıyor:** 300, görüntüleme başına **≥15 isteğe** çıkıldığında
+> bağlayıcı olur (300 ÷ 20 görüntüleme). HTMX parçaları geldiğinde **yeniden sayılmalı**
+> — sayı bugün değil, o gün dar.
 
 ---
 
@@ -1042,11 +1150,47 @@ panel; FLAGGED kuyruğu işliyor, CSV dışa aktarım var.
 
 **Kabul kriterleri.**
 - Filtreler: tarih, lokasyon, departman, çalışan, verdict, channel.
+- **⬅️ M6-02'den DEVRALINDI: filtre çubuğu bileşeni** (`input.css` →
+  `@layer components` + `web/templates/components/`). Yukarıdaki altı filtre
+  **burada** var olduğu için çubuk burada **çalışır hâlde** yazılabilir; M6-02'de
+  yazılamazdı (aşağıdaki blok).
+- **⬅️ M6-02'den DEVRALINDI: HTMX'i bu görev getirir** ve `adminCSP`
+  genişlemesini **bu görev gerekçelendirir** (bkz. aşağıdaki blok).
 - Her kart: lokasyon, isim, in/out, saat, trust, IP/GPS işaretleri, tag UID + ctr,
   kaşe damgası.
 - `manual` ve `practice` kayıtlar görsel olarak ayırt ediliyor.
 - Sayfalama/lazy yükleme HTMX ile; istemci state'i yok.
 - Sorgular tenant filtreli ve indeksli (`(tenant_id, occurred_at DESC)`).
+
+> **M6-02'den devir (2026-08-04, kullanıcı kararı).**
+>
+> **1. Filtre çubuğu.** M6-02'nin kabul kriterlerinden biriydi ve **sevk edilmedi**;
+> **düşürülmedi, buraya taşındı**. Sebep ölçülebilir: M6-02'nin kendi kapsamı
+> *"sekme içeriklerini YAZMA"* diyor, yani orada **filtrelenecek veri yoktu**.
+> Üç sevk yolunun üçü de bu depoda daha önce **bulgu** sayıldı: (a) çağıranı olmayan
+> **ölü CSS kuralı** — M6-01 A'da 18/18 kural canlıydı, ölü kural yazmak gerileme;
+> (b) ekranda **işlevsiz kontrol** — panelin yapamadığını yapabilir gösterir;
+> (c) *"bu tarihte kayıt yok"* diyen **uydurma sonuç** — sistemin ölçmediğini beyan
+> etmek, M5-11'in kapattığı sınıfın ta kendisi. **Burada üçü de geçersiz**: altı
+> filtre gerçek, veri gerçek, sonuç ölçülebilir.
+>
+> **2. HTMX.** M6-02 ölçtü: repoda HTMX'in **kodu yok** (11 eşleşmenin hepsi düzyazı),
+> ağ erişilebilir olmasına rağmen **vendor'lanmadı**, çünkü iskeletin **takas edilecek
+> parçası yoktu** — sekmeler düz `<a href>`. Vendor'lamak `adminCSP`'yi
+> **`default-src 'none'`**'dan bir **script** için genişletmeyi zorlardı ve
+> `adminlogin.go` tam tersini savunuyor. **Bu görev ilk gerçek fragment'i getiren
+> taraf**, dolayısıyla HTMX'i **bu görev vendor'lar** (CDN YOK — `web/static/`'e
+> gömülür, `web.Static()`) ve CSP genişlemesini **bu görev, sürümüyle ve ne kadar
+> genişlediğiyle birlikte** yazar. ⚠️ `'unsafe-inline'` kabul edilmez.
+> **Ağ hazır:** `TestPanelScreens_LoadNoScriptAndReachNoThirdParty` ilk `<script>`
+> etiketinde **kırmızıya döner** — yani CSP'yi genişletmek **görünür** bir edit olmak
+> zorunda, sessizce miras alınamaz.
+>
+> **3. Bütçe.** M6-02 ölçtü: bir sekme görüntülemesi = **1 ücretli istek**
+> (300 × `200`, 301.'de `429`). `adminFloodLimit`/`adminSessionLimit` türetmesi
+> **~10 parça/görüntüleme** varsayıyor. **Parçalar bu görevle geliyor → sayıyı bu
+> görev yeniden saymalı.** Eşik yazılı: `adminSessionLimit = 300`, görüntüleme başına
+> **≥15 isteğe** çıkıldığında bağlayıcı olur.
 
 ---
 
