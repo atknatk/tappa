@@ -140,7 +140,7 @@ Sen Tappa projesinde ÜÇÜNCÜ GÖZ DENETÇİSİSİN. Repo: <yol> · dal: <dal>
   bir açık, kapatıldığı **iddia edilen** bir açıktan güvenlidir. Ve hiçbir yere *"tamamen / bitmiş /
   complete / exhaustive"* yazma — yazmadan önce **yenmeye çalış**, yenemediysen **nasıl denediğini** yaz.
 
-**Kullanıcıya ne zaman sorulur — 5. oturumda ON kez soruldu, onu da işin şeklini değiştirdi:**
+**Kullanıcıya ne zaman sorulur — 5. oturumda ON YEDİ kez soruldu, on yedisi de işin şeklini değiştirdi:**
 marka token'ı/kontrast (§9) · ekran metninin var olmayan bir şeyi vaat etmesi · **kartın CLAUDE.md ile
 çelişmesi** (kart mı yanlış, §5 mi değişmeli) · karar motorunun semantiğini değiştiren bir düzeltme ·
 o düzeltmenin **yapısal** bir alternatifi (advisory lock) · **sevk edilmiş bir §5 ihlalinin ne zaman
@@ -148,6 +148,8 @@ düzeltileceği** (şimdi mi, devir mi) · bir testin **süre bedeli** (98,5 vs 
 istediği tablonun gereksiz olduğunun ölçülmesi** (migration + retention altyapısı → 13 satır) ·
 **§4.6 eşiğinin nerede duracağı** (kayıtsız 400 bandı) · ve **şemanın sağlamadığı bir önkoşulun nasıl
 kurulacağı** (admin girişinde tenant çözümlemesi).
+**M6-01…M6-03’te eklenen yedi:** `make test-short`’un neyi atlayacağı · zamanlama kapısının `-race` altında nasıl genişleyeceği · **sevk edilmiş bir kontrast hatasının düzeltilip düzeltilmeyeceği** (`.docket-label` 3,13:1, **çalışanın tap ekranı dahil 12 çağrı yeri**) · aynı hatanın **beş ton daha** kapsayıp kapsamayacağı · bir kabul kriterinin **başka göreve taşınması** (filtre çubuğu → M6-03, çünkü orada filtrelenecek veri yoktu) · sayfa boyu sabiti · ve **sayfanın %96’sını yiyen bir kontrolün nasıl değiştirileceği**.
+⚠️ **Yedisinin de ortak şekli: ajan ÜÇ yolu ölçtü, BİRİNİ ELEDİ, kalan ikisini sayılarla önüne koydu.** Örnek: kısa listeleme ölçüldü ve elendi — yalnız aktifler **%9**, *son 90 günde tap’i olanlar* **%0,3** azaltıyor, yani **yalnız sert bir kesme** işe yarar ve o da ayrılmış personeli filtrelenemez kılar (§4.6). **Eleme de ölçümle yapılır**: bir seçeneği *olmaz* diye sunmak, onu **ölçüp göstermekten** farklıdır ve kullanıcının kararını **sessizce daraltır**.
 **Kalıp:** ajan **ölçer ve iki okumayı önüne koyar**, kararı vermez; orkestratör soruyu **ölçümle**
 sorar (seçenek başına somut sayı), cevap `state.md` oturum günlüğüne **tarihiyle** yazılır ve kart/ADR
 ona atıf yapar. **Gözlem:** on sorunun **altısı** ancak bir ajan bir şeyi **ölçtükten sonra** doğdu —
