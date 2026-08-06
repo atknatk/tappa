@@ -798,6 +798,39 @@ type Querier interface {
 	// That is a DISCLOSURE choice, not the isolation decision: whether such a tap is
 	// allowed is sys:tenant-mismatch's answer at POST time (hand-off N5).
 	GetLocationWiFi(ctx context.Context, arg GetLocationWiFiParams) (GetLocationWiFiRow, error)
+	// tenants.sql -- reads of the tenant's own row.
+	//
+	// TENANT SCOPE (CLAUDE.md section 4.5, belt + braces on RLS): the query carries an
+	// explicit tenant_id predicate and runs inside db.(*DB).WithTenant. The tenant id
+	// comes from a resolver or a verified session (ADR 0002 madde 7), never from the
+	// client.
+	//
+	// This file exists because M6-03 needed ONE fact -- what "today" means for this
+	// business -- and there was nowhere honest to put it. The tap path never needed
+	// it: every timestamp it handles is an instant, and CLAUDE.md section 6 keeps
+	// instants in UTC. A DAY is the first thing this product has had to render that
+	// is not an instant, and a day has no meaning without a zone.
+	// The tenant's timezone -- the zone the panel's "day" is measured in.
+	//
+	// 🔴 WHY THE PANEL CANNOT USE THE SERVER'S ZONE, OR THE BROWSER'S. Section 6 says
+	// everything in the database is UTC and conversion happens at render; this query is
+	// the render layer asking WHICH zone to convert to. Using the server's would make
+	// the same business see a different day depending on where the VPS is; using the
+	// browser's would let a client decide which records it is shown, and the client is
+	// not the authority on anything here.
+	//
+	// IT MATTERS MOST FOR THE OVERNIGHT SHIFT, which is the case section 5 keeps
+	// returning to: Rusty Bar works 18:00-02:00, so a 02:00 check-out falls on the
+	// NEXT calendar day in Malta and belongs to the next day's page. That is a
+	// property of the day boundary, not a bug to be corrected -- the shift-aware view
+	// is M6-07's report, and this query is what makes the boundary at least honest
+	// and consistent rather than accidental.
+	//
+	// timezone is NOT NULL DEFAULT 'Europe/Malta' (migration 0001), so this never
+	// returns an empty zone for a row that exists; the caller still falls back to UTC
+	// if the stored name is one the Go runtime cannot load, because an unparseable
+	// zone must not cost the manager their page.
+	GetTenantClock(ctx context.Context, tenantID uuid.UUID) (GetTenantClockRow, error)
 	// THE single write path. id and created_at use DB defaults; every other column
 	// is set by the tap engine, including practice and queued (no silent default is
 	// relied on for those two -- the engine states them). tenant_id is provided
@@ -819,10 +852,161 @@ type Querier interface {
 	// filters on revoked_at, so the history stays visible (section 4.6).
 	// token_hash is NOT selected: nothing outside the resolution path needs it.
 	ListAdminSessionsForAdmin(ctx context.Context, arg ListAdminSessionsForAdminParams) ([]ListAdminSessionsForAdminRow, error)
+	// The tenant's departments, for the panel's DEPARTMENT filter (M6-03).
+	//
+	// It exists beside GetDepartmentShift rather than widening it, which is the split
+	// employees.sql already argues for: that query answers a DECISION question (whose
+	// shift judges lateness) and returns no name it does not need; this one answers a
+	// DISPLAY question and returns the name it exists for. Merging them would make one
+	// query serve two audiences and the stricter one would lose.
+	//
+	// Ordered by location then name so the filter reads the way the business is laid
+	// out -- a venue and the departments inside it -- rather than alphabetically
+	// across venues.
+	ListDepartmentsForTenant(ctx context.Context, tenantID uuid.UUID) ([]ListDepartmentsForTenantRow, error)
 	// GPS fallback path (CLAUDE.md section 5, row 6): when no IP matches, the domain
 	// computes the haversine distance from the tap's GPS to each location and checks
 	// the < 150 m radius. Returns every location in the tenant so that check can run.
 	ListLocationsForTenant(ctx context.Context, tenantID uuid.UUID) ([]Location, error)
+	// The PANEL's read of the day (M6-03). One page of the immutable record, newest
+	// first, filtered by the six things a manager asks about: a day, a location, a
+	// department, a person, a verdict and a channel.
+	//
+	// 🔴 IT IS A READ AND ONLY A READ. transactions is IMMUTABLE (section 4.3); the
+	// correction flow is M6-08 and it writes a NEW ROW plus audit_log, never here.
+	// Filters HIDE rows, they never remove them -- a page that shows nothing has still
+	// asked the database (section 4.6).
+	//
+	// 🔴 SECTION 4.7 -- WHAT THIS QUERY DELIBERATELY DOES NOT SELECT, and the absence is
+	// the point rather than an oversight. The row on disk carries gps_lat, gps_lng and
+	// source_ip; NONE of the three is in the column list. The screen shows the SIGNS
+	// (ip_match, gps_match) because that is what section 5 rows 6-7 actually decided
+	// on, and a coordinate that is never selected is a coordinate that cannot reach a
+	// template, an HTML attribute, a log line or a CSV. policy_context is left out for
+	// the same reason at one remove: it is section 4.7-safe by construction (a
+	// DISTANCE, migration 0008) but it is a decision snapshot for replay, not screen
+	// content, and selecting it would put every future key it gains on a rendered page.
+	//
+	// 🔴 AND NEITHER ARE entered_by, location_id, department_id OR employee_id, which
+	// an audit found this query selecting and NOTHING reading. That is not tidiness:
+	// the paragraph above defends this screen on the ground that a column which is
+	// never SELECTED cannot reach a template, and four columns carried for no reader
+	// weaken exactly that argument -- entered_by identifies an ADMINISTRATOR, and the
+	// three ids are the joins' INPUTS rather than the panel's output. The names below
+	// are what the screen shows; the ids stay in the database. Whoever needs one for a
+	// link (M6-04's review queue will) adds it back WITH its reader, in one edit.
+	//
+	// TENANT SCOPE (section 4.5, belt + braces): the explicit t.tenant_id predicate is
+	// REQUIRED even though RLS is on, and every JOIN re-states tenant_id in its own ON
+	// clause so a joined name can never come from a neighbouring tenant even if a
+	// foreign id somehow reached the column. The tenant comes from the panel session
+	// (httpx.AdminIdentity), never from the request.
+	//
+	// THE JOINS ARE LEFT JOINS BECAUSE THE COLUMNS ARE NULLABLE, and migration 0005
+	// explains why they have to be: a stolen plaque touched with no cookie writes a
+	// reject with NO employee_id, and that is the record we most want to keep. An
+	// INNER JOIN here would silently drop exactly those rows -- a section 4.6 breach
+	// committed by a read.
+	//
+	// KEYSET PAGINATION, NOT OFFSET. transactions is append-only and new rows sort to
+	// the TOP of occurred_at DESC, so an OFFSET page 2 fetched after a fresh tap lands
+	// would repeat a row page 1 already showed. The cursor is the (occurred_at, id)
+	// pair of the last row rendered; the id breaks ties between taps sharing a
+	// timestamp so no row can be skipped or shown twice. It is client-supplied and
+	// that is safe: it can only move the reader within their OWN tenant's timeline,
+	// because the tenant predicate above is not a parameter the client controls.
+	//
+	// THE PERSON FILTER IS A NAME MATCH RATHER THAN AN ID (user decision, 2026-08-06),
+	// and the reason is a measurement rather than a preference. The id form needed the
+	// panel to render every employee of the tenant as an <option> so one could be
+	// picked: measured on a real page, that list was 835 319 of the page's 867 233
+	// bytes -- 96% -- and it grew with the payroll forever, on a page that is
+	// Cache-Control: no-store and therefore re-sent on every view and every filter
+	// change. Matching here instead makes the control a text box and the page ~31 KB,
+	// whatever size the business is.
+	//
+	// 🔴 IT MATCHES REGARDLESS OF STATUS, AND THAT IS §4.6 RATHER THAN AN OVERSIGHT.
+	// The alternative shortlists (active only; anyone who tapped recently) were all
+	// measured and REJECTED for exactly this: they make a person who has left
+	// unfindable through the panel, and their records are the ones a manager most often
+	// needs months later. There is no status predicate below and there must not be one.
+	//
+	// 🔴 THE MATCH RUNS IN A MATERIALIZED CTE, AND THE NUMBER THAT FIRST JUSTIFIED IT
+	// DID NOT REPRODUCE. This block is rewritten because an audit could not confirm it,
+	// and re-measuring showed the original claim was an artefact.
+	//
+	// WHAT WAS OBSERVED, AND IT WAS REAL. With the ILIKE as a filter over the LEFT
+	// JOIN, EXPLAIN ANALYZE showed a NESTED LOOP re-scanning the tenant's employees
+	// once per transaction row -- 318 loops, 107 319 rows removed by the join filter,
+	// 343 443 buffer hits, 14.3 s for one page. That output is real; the CONCLUSION
+	// drawn from it ("the join shape is 27x slower") was not.
+	//
+	// WHY IT DID NOT REPRODUCE, MEASURED RATHER THAN GUESSED. The development database
+	// had NEVER been analysed: pg_stat_user_tables showed last_analyze, last_autoanalyze
+	// and last_autovacuum all NULL, with n_live_tup = 5 326 for a table holding 111 167
+	// rows. The planner was choosing plans from statistics roughly twenty times too
+	// small. After ANALYZE, on the same tenant and the same day, warm cache, 5 repeats:
+	//
+	//	JOIN filter (the original shape)   2.0 - 2.2 ms
+	//	CTE AS MATERIALIZED (this one)     7.6 - 10.0 ms
+	//	CTE AS NOT MATERIALIZED            7.7 - 17.7 ms
+	//
+	// So on correct statistics the shape this replaced is about FOUR TIMES FASTER, and
+	// MATERIALIZED versus NOT MATERIALIZED is indistinguishable. The "27x" and "95x"
+	// figures are withdrawn.
+	//
+	// 🔴 SO WHY KEEP IT. Not for speed -- it costs roughly 6-8 ms per filtered request
+	// on this data, and the gap widens with how many names the pattern matches
+	// (~6 ms for a selective one, ~37 ms for one matching many; and for a pattern
+	// matching NOTHING the CTE is the FASTER of the two) -- but because the two shapes fail differently. The CTE's cost is
+	// BOUNDED: employees is scanned once (verified, loops=1) and the outer query probes
+	// a small id set, so the worst case is O(employees) + O(rows in the day). The join
+	// filter's cost is PLANNER-DEPENDENT, and this repository has one measured instance
+	// of that planner choosing O(rows in the day x employees) and taking 14 s -- on a
+	// surface whose budget is 300 requests per session, sharing a connection pool with
+	// the tap path. Paying 6-8 ms to remove a tail that was observed once is the trade;
+	// it is written down so somebody who disagrees can reverse it knowingly.
+	//
+	// ⚠️ LIMIT: NOTHING TESTS THE KEYWORD. Removing MATERIALIZED leaves the whole suite
+	// green, because with current statistics the planner produces loops=1 either way --
+	// so its absence is invisible to any behavioural test, and a test that grepped for
+	// the word would be a change detector rather than a net. The guarantee here is an
+	// argument about worst cases, not an asserted invariant.
+	//
+	// ⚠️ LIMIT -- UNICODE CASE FOLDING, AND IT MATTERS FOR BOTH OUR MARKETS. ILIKE
+	// folds case with the database collation, which is not the same as language-aware
+	// folding. Measured against real rows:
+	//
+	//	'haddiem'  finds "Haddiem Zammit" (h-bar)          works
+	//	'ZAMMIT' / 'zammit' both find "Zammit" (z-dot)     works
+	//	'istanbul' finds "Istanbul Isik" (dotted I)        works
+	//	'ISIK'     does NOT find "Isik"                    FAILS  (lower('I') is 'i',
+	//	                                                   never dotless 'i')
+	//	NFC "Cafe" does NOT find an NFD-stored "Cafe"      FAILS  (Postgres does not
+	//	                                                   normalise; the accent is a
+	//	                                                   separate code point)
+	//
+	// Malta and Turkey are the two markets, so the Turkish dotless-i case is a real
+	// one rather than a curiosity. NO SECURITY CONSEQUENCE and no §4.6 consequence:
+	// a name that fails to match narrows to nothing, and the UNFILTERED day still
+	// lists every record -- so nothing becomes unreachable, it just is not found by
+	// that spelling. Fixing it properly means a normalising/ICU collation or a
+	// generated normalised column, i.e. a migration.
+	//
+	// NO INDEX IS ADDED. A leading-wildcard ILIKE cannot use a btree, so going faster
+	// means pg_trgm plus a GIN index -- an extension and a migration, which is not this
+	// task's to write. The CTE's employee scan measured on its own is 6.5-8.6 ms for
+	// 7 769 employees (EXPLAIN ANALYZE, warm cache, 3 repeats, after ANALYZE; an
+	// independent audit measured 9.8-11.2 ms on the same shape). That does not justify
+	// an extension plus a migration.
+	//
+	// ⚠️ EVERY NUMBER IN THIS BLOCK CARRIES ITS CONDITIONS because the ones that did
+	// not were withdrawn: they were taken on a database that had never been ANALYZEd,
+	// and the planner was choosing from statistics ~20x too small.
+	//
+	// Uses transactions_tenant_occurred_idx (tenant_id, occurred_at DESC), which
+	// migration 0005 created for exactly this shape.
+	ListPanelTransactions(ctx context.Context, arg ListPanelTransactionsParams) ([]ListPanelTransactionsRow, error)
 	// The invites of one employee that are still usable RIGHT NOW: not consumed and
 	// not expired. Phase B reads this for the "this employee is already active --
 	// is this a new phone or an attack?" decision, and the panel uses it to show

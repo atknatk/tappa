@@ -339,7 +339,8 @@ func Wordmark() templ.Component {
 // It takes no script parameter, and that is deliberate rather than an omission —
 // see the panel's Content-Security-Policy in internal/handler/adminlogin.go, which
 // names no script-src at all. Giving this shell a script slot would make widening
-// that policy a one-word edit somewhere else.
+// that policy a one-word edit somewhere else. PanelWithScript below is that slot,
+// added on purpose and with its own argument.
 func Panel(title string) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -361,11 +362,83 @@ func Panel(title string) templ.Component {
 			templ_7745c5c3_Var10 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
+		templ_7745c5c3_Var11 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+			if !templ_7745c5c3_IsBuffer {
+				defer func() {
+					templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+					if templ_7745c5c3_Err == nil {
+						templ_7745c5c3_Err = templ_7745c5c3_BufErr
+					}
+				}()
+			}
+			ctx = templ.InitializeContext(ctx)
+			templ_7745c5c3_Err = templ_7745c5c3_Var10.Render(ctx, templ_7745c5c3_Buffer)
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			return nil
+		})
+		templ_7745c5c3_Err = PanelWithScript(title, "").Render(templ.WithChildren(ctx, templ_7745c5c3_Var11), templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		return nil
+	})
+}
+
+// PanelWithScript is the panel shell plus at most ONE self-hosted script tag.
+//
+// 🔴 IT WAS ADDED BY M6-03, AND Panel's COMMENT ABOVE PREDICTED THE HAZARD IT
+// CREATES: "giving this shell a script slot would make widening that policy a
+// one-word edit somewhere else". That sentence is why this is a SECOND NAMED
+// COMPONENT rather than a parameter bolted onto Panel — the same shape PageWithScript
+// uses for the tap screen, and for the same reason. Naming a script has to be an act
+// somebody performs, in a template they had to choose, not a default that arrives
+// with the shell.
+//
+// WHAT MAKES IT NECESSARY HERE. M6-03 paginates the transactions section by
+// fetching further dockets rather than reloading the page, which is HTMX's job and
+// HTMX is in the approved stack (CLAUDE.md §1). There is no CDN: htmx.min.js is
+// vendored into web/static/vendor/ with its version, source and sha256 recorded beside
+// it (web/static/vendor/README.md), embedded in the binary, and served from our own
+// origin — the same discipline the brand faces were brought in under (M5-04).
+//
+// WHAT IT COSTS, EXACTLY. internal/handler/adminlogin.go now carries TWO policies
+// derived from ONE base string: the panel's default, unchanged, and a scripted one
+// that adds script-src 'self' and connect-src 'self'. Only the pages that pass a
+// script get the second. Nothing gains 'unsafe-inline' or 'unsafe-eval'.
+//
+// src must be an app-relative path under /static, and "" means no script at all —
+// which is what Panel passes and what four of the five sections still render.
+// Nothing here builds a URL from user input.
+func PanelWithScript(title, src string) templ.Component {
+	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
+			return templ_7745c5c3_CtxErr
+		}
+		templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+		if !templ_7745c5c3_IsBuffer {
+			defer func() {
+				templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+				if templ_7745c5c3_Err == nil {
+					templ_7745c5c3_Err = templ_7745c5c3_BufErr
+				}
+			}()
+		}
+		ctx = templ.InitializeContext(ctx)
+		templ_7745c5c3_Var12 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var12 == nil {
+			templ_7745c5c3_Var12 = templ.NopComponent
+		}
+		ctx = templ.ClearChildren(ctx)
 		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "<!doctype html><html lang=\"en\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = documentHead(title, "").Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = documentHead(title, src).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -373,7 +446,7 @@ func Panel(title string) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templ_7745c5c3_Var10.Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = templ_7745c5c3_Var12.Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

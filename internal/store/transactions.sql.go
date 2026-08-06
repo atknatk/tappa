@@ -318,6 +318,265 @@ func (q *Queries) InsertTransaction(ctx context.Context, arg InsertTransactionPa
 	return i, err
 }
 
+const listPanelTransactions = `-- name: ListPanelTransactions :many
+WITH matched_employees AS MATERIALIZED (
+    -- Empty, cheaply, when no name was typed: the guard below is a one-time filter
+    -- the planner evaluates before touching the table.
+    SELECT e2.id
+    FROM employees e2
+    WHERE e2.tenant_id = $1
+      AND $6::text IS NOT NULL
+      AND e2.full_name ILIKE '%' || $6::text || '%'
+)
+SELECT t.id, t.occurred_at, t.type, t.trust, t.verdict, t.channel, t.practice,
+       t.queued, t.tag_uid, t.ctr, t.ip_match, t.gps_match, t.note,
+       l.name AS location_name,
+       d.name AS department_name,
+       e.full_name AS employee_name
+FROM transactions t
+LEFT JOIN locations   l ON l.tenant_id = t.tenant_id AND l.id = t.location_id
+LEFT JOIN departments d ON d.tenant_id = t.tenant_id AND d.id = t.department_id
+LEFT JOIN employees   e ON e.tenant_id = t.tenant_id AND e.id = t.employee_id
+WHERE t.tenant_id = $1
+  AND t.occurred_at >= $2
+  AND t.occurred_at <  $3
+  AND ($4::uuid IS NULL
+       OR t.location_id = $4::uuid)
+  AND ($5::uuid IS NULL
+       OR t.department_id = $5::uuid)
+  AND ($6::text IS NULL
+       OR t.employee_id IN (SELECT id FROM matched_employees))
+  AND ($7::text IS NULL
+       OR t.verdict = $7::text)
+  AND ($8::text IS NULL
+       OR t.channel = $8::text)
+  AND ($9::timestamptz IS NULL
+       OR (t.occurred_at, t.id) < ($9::timestamptz,
+                                   $10::uuid))
+ORDER BY t.occurred_at DESC, t.id DESC
+LIMIT $11::int
+`
+
+type ListPanelTransactionsParams struct {
+	TenantID     uuid.UUID
+	FromAt       time.Time
+	ToAt         time.Time
+	LocationID   *uuid.UUID
+	DepartmentID *uuid.UUID
+	EmployeeName *string
+	Verdict      *string
+	Channel      *string
+	CursorAt     *time.Time
+	CursorID     *uuid.UUID
+	PageSize     int32
+}
+
+type ListPanelTransactionsRow struct {
+	ID             uuid.UUID
+	OccurredAt     time.Time
+	Type           *string
+	Trust          *int16
+	Verdict        string
+	Channel        string
+	Practice       bool
+	Queued         bool
+	TagUid         *string
+	Ctr            *int32
+	IpMatch        *bool
+	GpsMatch       *bool
+	Note           *string
+	LocationName   *string
+	DepartmentName *string
+	EmployeeName   *string
+}
+
+// The PANEL's read of the day (M6-03). One page of the immutable record, newest
+// first, filtered by the six things a manager asks about: a day, a location, a
+// department, a person, a verdict and a channel.
+//
+// 🔴 IT IS A READ AND ONLY A READ. transactions is IMMUTABLE (section 4.3); the
+// correction flow is M6-08 and it writes a NEW ROW plus audit_log, never here.
+// Filters HIDE rows, they never remove them -- a page that shows nothing has still
+// asked the database (section 4.6).
+//
+// 🔴 SECTION 4.7 -- WHAT THIS QUERY DELIBERATELY DOES NOT SELECT, and the absence is
+// the point rather than an oversight. The row on disk carries gps_lat, gps_lng and
+// source_ip; NONE of the three is in the column list. The screen shows the SIGNS
+// (ip_match, gps_match) because that is what section 5 rows 6-7 actually decided
+// on, and a coordinate that is never selected is a coordinate that cannot reach a
+// template, an HTML attribute, a log line or a CSV. policy_context is left out for
+// the same reason at one remove: it is section 4.7-safe by construction (a
+// DISTANCE, migration 0008) but it is a decision snapshot for replay, not screen
+// content, and selecting it would put every future key it gains on a rendered page.
+//
+// 🔴 AND NEITHER ARE entered_by, location_id, department_id OR employee_id, which
+// an audit found this query selecting and NOTHING reading. That is not tidiness:
+// the paragraph above defends this screen on the ground that a column which is
+// never SELECTED cannot reach a template, and four columns carried for no reader
+// weaken exactly that argument -- entered_by identifies an ADMINISTRATOR, and the
+// three ids are the joins' INPUTS rather than the panel's output. The names below
+// are what the screen shows; the ids stay in the database. Whoever needs one for a
+// link (M6-04's review queue will) adds it back WITH its reader, in one edit.
+//
+// TENANT SCOPE (section 4.5, belt + braces): the explicit t.tenant_id predicate is
+// REQUIRED even though RLS is on, and every JOIN re-states tenant_id in its own ON
+// clause so a joined name can never come from a neighbouring tenant even if a
+// foreign id somehow reached the column. The tenant comes from the panel session
+// (httpx.AdminIdentity), never from the request.
+//
+// THE JOINS ARE LEFT JOINS BECAUSE THE COLUMNS ARE NULLABLE, and migration 0005
+// explains why they have to be: a stolen plaque touched with no cookie writes a
+// reject with NO employee_id, and that is the record we most want to keep. An
+// INNER JOIN here would silently drop exactly those rows -- a section 4.6 breach
+// committed by a read.
+//
+// KEYSET PAGINATION, NOT OFFSET. transactions is append-only and new rows sort to
+// the TOP of occurred_at DESC, so an OFFSET page 2 fetched after a fresh tap lands
+// would repeat a row page 1 already showed. The cursor is the (occurred_at, id)
+// pair of the last row rendered; the id breaks ties between taps sharing a
+// timestamp so no row can be skipped or shown twice. It is client-supplied and
+// that is safe: it can only move the reader within their OWN tenant's timeline,
+// because the tenant predicate above is not a parameter the client controls.
+//
+// THE PERSON FILTER IS A NAME MATCH RATHER THAN AN ID (user decision, 2026-08-06),
+// and the reason is a measurement rather than a preference. The id form needed the
+// panel to render every employee of the tenant as an <option> so one could be
+// picked: measured on a real page, that list was 835 319 of the page's 867 233
+// bytes -- 96% -- and it grew with the payroll forever, on a page that is
+// Cache-Control: no-store and therefore re-sent on every view and every filter
+// change. Matching here instead makes the control a text box and the page ~31 KB,
+// whatever size the business is.
+//
+// 🔴 IT MATCHES REGARDLESS OF STATUS, AND THAT IS §4.6 RATHER THAN AN OVERSIGHT.
+// The alternative shortlists (active only; anyone who tapped recently) were all
+// measured and REJECTED for exactly this: they make a person who has left
+// unfindable through the panel, and their records are the ones a manager most often
+// needs months later. There is no status predicate below and there must not be one.
+//
+// 🔴 THE MATCH RUNS IN A MATERIALIZED CTE, AND THE NUMBER THAT FIRST JUSTIFIED IT
+// DID NOT REPRODUCE. This block is rewritten because an audit could not confirm it,
+// and re-measuring showed the original claim was an artefact.
+//
+// WHAT WAS OBSERVED, AND IT WAS REAL. With the ILIKE as a filter over the LEFT
+// JOIN, EXPLAIN ANALYZE showed a NESTED LOOP re-scanning the tenant's employees
+// once per transaction row -- 318 loops, 107 319 rows removed by the join filter,
+// 343 443 buffer hits, 14.3 s for one page. That output is real; the CONCLUSION
+// drawn from it ("the join shape is 27x slower") was not.
+//
+// WHY IT DID NOT REPRODUCE, MEASURED RATHER THAN GUESSED. The development database
+// had NEVER been analysed: pg_stat_user_tables showed last_analyze, last_autoanalyze
+// and last_autovacuum all NULL, with n_live_tup = 5 326 for a table holding 111 167
+// rows. The planner was choosing plans from statistics roughly twenty times too
+// small. After ANALYZE, on the same tenant and the same day, warm cache, 5 repeats:
+//
+//	JOIN filter (the original shape)   2.0 - 2.2 ms
+//	CTE AS MATERIALIZED (this one)     7.6 - 10.0 ms
+//	CTE AS NOT MATERIALIZED            7.7 - 17.7 ms
+//
+// So on correct statistics the shape this replaced is about FOUR TIMES FASTER, and
+// MATERIALIZED versus NOT MATERIALIZED is indistinguishable. The "27x" and "95x"
+// figures are withdrawn.
+//
+// 🔴 SO WHY KEEP IT. Not for speed -- it costs roughly 6-8 ms per filtered request
+// on this data, and the gap widens with how many names the pattern matches
+// (~6 ms for a selective one, ~37 ms for one matching many; and for a pattern
+// matching NOTHING the CTE is the FASTER of the two) -- but because the two shapes fail differently. The CTE's cost is
+// BOUNDED: employees is scanned once (verified, loops=1) and the outer query probes
+// a small id set, so the worst case is O(employees) + O(rows in the day). The join
+// filter's cost is PLANNER-DEPENDENT, and this repository has one measured instance
+// of that planner choosing O(rows in the day x employees) and taking 14 s -- on a
+// surface whose budget is 300 requests per session, sharing a connection pool with
+// the tap path. Paying 6-8 ms to remove a tail that was observed once is the trade;
+// it is written down so somebody who disagrees can reverse it knowingly.
+//
+// ⚠️ LIMIT: NOTHING TESTS THE KEYWORD. Removing MATERIALIZED leaves the whole suite
+// green, because with current statistics the planner produces loops=1 either way --
+// so its absence is invisible to any behavioural test, and a test that grepped for
+// the word would be a change detector rather than a net. The guarantee here is an
+// argument about worst cases, not an asserted invariant.
+//
+// ⚠️ LIMIT -- UNICODE CASE FOLDING, AND IT MATTERS FOR BOTH OUR MARKETS. ILIKE
+// folds case with the database collation, which is not the same as language-aware
+// folding. Measured against real rows:
+//
+//	'haddiem'  finds "Haddiem Zammit" (h-bar)          works
+//	'ZAMMIT' / 'zammit' both find "Zammit" (z-dot)     works
+//	'istanbul' finds "Istanbul Isik" (dotted I)        works
+//	'ISIK'     does NOT find "Isik"                    FAILS  (lower('I') is 'i',
+//	                                                   never dotless 'i')
+//	NFC "Cafe" does NOT find an NFD-stored "Cafe"      FAILS  (Postgres does not
+//	                                                   normalise; the accent is a
+//	                                                   separate code point)
+//
+// Malta and Turkey are the two markets, so the Turkish dotless-i case is a real
+// one rather than a curiosity. NO SECURITY CONSEQUENCE and no §4.6 consequence:
+// a name that fails to match narrows to nothing, and the UNFILTERED day still
+// lists every record -- so nothing becomes unreachable, it just is not found by
+// that spelling. Fixing it properly means a normalising/ICU collation or a
+// generated normalised column, i.e. a migration.
+//
+// NO INDEX IS ADDED. A leading-wildcard ILIKE cannot use a btree, so going faster
+// means pg_trgm plus a GIN index -- an extension and a migration, which is not this
+// task's to write. The CTE's employee scan measured on its own is 6.5-8.6 ms for
+// 7 769 employees (EXPLAIN ANALYZE, warm cache, 3 repeats, after ANALYZE; an
+// independent audit measured 9.8-11.2 ms on the same shape). That does not justify
+// an extension plus a migration.
+//
+// ⚠️ EVERY NUMBER IN THIS BLOCK CARRIES ITS CONDITIONS because the ones that did
+// not were withdrawn: they were taken on a database that had never been ANALYZEd,
+// and the planner was choosing from statistics ~20x too small.
+//
+// Uses transactions_tenant_occurred_idx (tenant_id, occurred_at DESC), which
+// migration 0005 created for exactly this shape.
+func (q *Queries) ListPanelTransactions(ctx context.Context, arg ListPanelTransactionsParams) ([]ListPanelTransactionsRow, error) {
+	rows, err := q.db.Query(ctx, listPanelTransactions,
+		arg.TenantID,
+		arg.FromAt,
+		arg.ToAt,
+		arg.LocationID,
+		arg.DepartmentID,
+		arg.EmployeeName,
+		arg.Verdict,
+		arg.Channel,
+		arg.CursorAt,
+		arg.CursorID,
+		arg.PageSize,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListPanelTransactionsRow{}
+	for rows.Next() {
+		var i ListPanelTransactionsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.OccurredAt,
+			&i.Type,
+			&i.Trust,
+			&i.Verdict,
+			&i.Channel,
+			&i.Practice,
+			&i.Queued,
+			&i.TagUid,
+			&i.Ctr,
+			&i.IpMatch,
+			&i.GpsMatch,
+			&i.Note,
+			&i.LocationName,
+			&i.DepartmentName,
+			&i.EmployeeName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const lockEmployeeForTap = `-- name: LockEmployeeForTap :exec
 SELECT pg_advisory_xact_lock(hashtextextended(($1::uuid)::text || ':' || ($2::uuid)::text, 0))
 `

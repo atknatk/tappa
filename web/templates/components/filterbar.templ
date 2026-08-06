@@ -1,0 +1,93 @@
+package components
+
+// The FILTER BAR (M6-03, inherited from M6-02).
+//
+// 🔴 WHY IT IS HERE AND NOT IN M6-02, since its card listed it. M6-02 had nothing
+// to filter — its own scope said to leave each section empty — and the
+// three ways to ship it anyway were each a defect this repo has already named: a
+// CSS rule with no `class=` to trace to; controls that look like they work and do
+// not; or a screen saying "no records for that day" without having asked. The
+// filter bar was MOVED rather than dropped (user decision, 2026-08-04), and it
+// lands here because here the six filters are real, the data is real, and each one
+// can be shown to change what the database returns.
+//
+// 🔴 IT IS A PLAIN GET FORM AND CARRIES NO SCRIPT. Every filtered view is an
+// address: bookmarkable, shareable with a colleague, openable in a second tab, and
+// working with JavaScript switched off on a locked-down work laptop. The panel's
+// one script paginates; it does not filter. That also keeps the request cost of
+// filtering at exactly one request, which is the number adminratelimit.go's budget
+// derivation is counted in.
+//
+// THE CURSOR IS DELIBERATELY NOT A FIELD OF THIS FORM. Submitting it means "show
+// me this day again with these filters", which must start at the newest record;
+// carrying the paging position through a filter change would drop the reader into
+// the middle of a list they have not seen the top of.
+//
+// ACCESSIBILITY: every control has a <label for>, the closed vocabularies are
+// <select> rather than free text (so nothing can be typed that the validator would
+// reject), and each control reserves 44px of height — a manager checks this at the
+// pass, on a phone, with one thumb.
+templ FilterBar(v FilterBarView) {
+	<form class="filter-bar" method="get" action={ templ.URL(v.Action) } role="search" aria-label="Filter transactions">
+		<div class="filter-field">
+			<label class="docket-label" for="filter-date">Day</label>
+			<input class="filter-input" id="filter-date" type="date" name="date" value={ v.Date }/>
+		</div>
+		@filterSelect("filter-location", "location", "Location", "All locations", v.LocationID, v.Locations)
+		@filterSelect("filter-department", "department", "Department", "All departments", v.DepartmentID, v.Departments)
+		<div class="filter-field">
+			<label class="docket-label" for="filter-employee">Employee</label>
+			// 🔴 A TEXT BOX RATHER THAN A LIST, and the trade is stated in
+			// FilterBarView.EmployeeName: a roster grows without bound and was
+			// measured at 96% of the page, so the name is matched on the server
+			// instead. The manager has to know the name; "who works here" is the
+			// Employees section's question (M6-05).
+			//
+			// Part of a name is enough, and it finds people who have LEFT -- that
+			// is §4.6 and it is why every shortlisting option was rejected.
+			<input
+				class="filter-input"
+				id="filter-employee"
+				type="text"
+				name="employee"
+				value={ v.EmployeeName }
+				placeholder="Part of a name"
+				autocomplete="off"
+				spellcheck="false"
+			/>
+		</div>
+		@filterSelect("filter-verdict", "verdict", "Verdict", "Any verdict", v.Verdict, v.Verdicts)
+		@filterSelect("filter-channel", "channel", "Channel", "Any channel", v.Channel, v.Channels)
+		<div class="filter-actions">
+			<button type="submit" class="btn btn--primary">Apply</button>
+			if v.Narrowed {
+				// Only offered when something is actually narrowed. A "Clear"
+				// beside an unfiltered list is a control that does nothing, which
+				// is the shape this whole component was deferred to avoid.
+				<a class="btn btn--quiet" href={ templ.URL(v.Action) }>Clear</a>
+			}
+		</div>
+	</form>
+}
+
+// filterSelect is one dropdown.
+//
+// THE EMPTY OPTION IS FIRST AND IS NAMED, so "all locations" is a thing a manager
+// chooses rather than the absence of a choice. Its value is the empty string,
+// which is what the handler reads as "do not narrow".
+templ filterSelect(id, name, label, anyLabel, selected string, options []OptionView) {
+	<div class="filter-field">
+		<label class="docket-label" for={ id }>{ label }</label>
+		<select class="filter-input" id={ id } name={ name }>
+			<option value="" selected?={ selected == "" }>{ anyLabel }</option>
+			for _, o := range options {
+				<option value={ o.Value } selected?={ o.Value == selected }>
+					{ o.Label }
+					if o.Group != "" {
+						{ " — " + o.Group }
+					}
+				</option>
+			}
+		</select>
+	</div>
+}

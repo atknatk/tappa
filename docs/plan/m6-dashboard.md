@@ -1192,6 +1192,405 @@ Ayrıca iş yalnız CSS+bileşen değil — kabuk `pages/` + `handler/`'a da dok
 > görev yeniden saymalı.** Eşik yazılı: `adminSessionLimit = 300`, görüntüleme başına
 > **≥15 isteğe** çıkıldığında bağlayıcı olur.
 
+> **Kart düzeltmesi (2026-08-05, M6-03 uygulaması sırasında).**
+>
+> **Kartın kriterleri doğruydu; eksik olan tek şey okuma yolunun HİÇ var olmamasıydı.**
+> Ölçüm: `db/queries/transactions.sql`'deki beş sorgunun **beşi de** tap YAZMA
+> yolunun (`GetLastOpenTransaction`, `LockEmployeeForTap`,
+> `SecondsSinceLastRecordedTap`, `GetLastTransactionForEmployee`,
+> `InsertTransaction`) — **listeleme sorgusu yoktu**, yani bu görev okuma yolunu
+> sıfırdan yazdı. Kartın *"indeksli `(tenant_id, occurred_at DESC)`"* kriteri ise
+> **zaten karşılanmıştı**: `transactions_tenant_occurred_idx` `00005:173`'te var ve
+> `EXPLAIN` onu kullanıyor (`Index Scan using transactions_tenant_occurred_idx`,
+> 151.970 satırlık dev DB'de). **Migration YAZILMADI ve gerekmedi.**
+>
+> **Üç şey kartın söylemediği şekilde çıktı ve yazılıyor:**
+>
+> **1. Filtre çubuğunun VIEW TİPLERİ `components`'a girmek zorunda kaldı.** Kart
+> bileşenin `web/templates/components/`'e gitmesini istiyor ve gitti — ama `pages`
+> zaten `components`'ı **import ediyor**, dolayısıyla `pages` tipini alan bir bileşen
+> **import döngüsü** kapatıyordu. Çözüm deponun kendi kalıbı: `components.Tab` de
+> orada tanımlı — bileşen kendi girdisinin şeklini sahiplenir. `DocketView`,
+> `FilterBarView`, `OptionView` bu yüzden `components` içinde.
+>
+> **2. 🔴 HTMX'i `web/static/js/`'e vendor'lamak TAILWIND'İ ZEHİRLEDİ.**
+> `tailwind.config.js`'in `content` deseni `./web/static/js/**/*.js` içeriyordu ve
+> Tailwind her içerik dosyasını **ham metin** olarak tarıyor → 51 KB'lık minified
+> kütüphanenin **kendi iç dizgeleri** üç ölü kural doğurdu: `.ease-in`, `.resize`,
+> `.transition`. **Kontrollü deneyle kanıtlandı** (htmx hariç tutulup yeniden
+> derlendi: üçü de kayboldu). `content` artık `'!./web/static/js/*.min.js'` taşıyor —
+> htmx'i adıyla değil, **minified vendor deseni** olarak dışlıyor, ki bir sonraki
+> kütüphane de kapsansın. Kendi düzyazımdan doğan dört ölü kural daha vardı
+> (`.contents`, `.invisible`, `.opacity-80`, `.ring`, sonra `.outline`) — skill
+> `tappa-brand`'in *"yorumda utility'yi tarif et, yazma"* kuralı, ve bu görevde
+> **beş kez** ateşledi. **Sevk edilen ölü kural: 0.**
+>
+> **3. 🔴 AÇIK `tenant_id` YÜKLEMİNİ HİÇBİR DAVRANIŞ TESTİ KORUMUYORDU.** Mutasyon
+> M15: `ListPanelTransactions`'tan `t.tenant_id = @tenant_id` **silindi** ve uçtan
+> uca çapraz-tenant testi **YEŞİL KALDI** — çünkü RLS tek başına yabancı satırları
+> zaten engelliyor. Bu, CLAUDE.md §6'nın uyardığı şeyin **ters yönü**: davranış
+> testi iki savunmanın yalnız **birleşimini** görebilir, biri ayakta olduğu sürece
+> hiçbir şey sızmaz. §4.5 **iki** savunma istiyor, o yüzden ikincisine kendi ağı
+> yazıldı: `internal/domain/ledger/query_test.go` SQL metnini okuyup her panel
+> sorgusunun kendi **kapsam sütununu** (`tenants` için `id`, diğerleri için
+> `tenant_id`) çağıranın parametresine bağladığını doğruluyor. M15 bu ağla
+> **KIRMIZI**. ⚠️ Dürüst kayıt: bu test ürünü tek başına güvenli yapmaz — satırları
+> durduran RLS'tir; yaptığı şey **ikinci savunmayı kırmızı test olmadan
+> silinemez** kılmak.
+>
+> **📏 CSP — GERÇEK TARAYICIDA ÖLÇÜLDÜ, dört kollu deney (Chrome headless, ürünün
+> KENDİ vendor'lanmış htmx'i, sunucu tarafında sayılan istekler):**
+>
+> | # | Politika | script çekildi | fragment çekildi |
+> |---|---|---|---|
+> | 1 | base (`default-src 'none'`, script-src YOK) | **0** | **0** |
+> | 2 | base + `script-src 'self'` | **1** | **0** |
+> | 3 | base + `script-src` + `connect-src` (**SEVK EDİLEN**) | **1** | **1** |
+> | 4 | hiç CSP yok (kontrol) | 1 | 1 |
+>
+> Yani **iki direktifin ikisi de taşıyıcı**: `script-src` olmadan htmx **hiç
+> yüklenmiyor**; `connect-src` olmadan htmx **yükleniyor ama XHR'ı sessizce
+> bloklanıyor** (kol 2 — sayfalama düğmesi hiçbir şey yapmaz). Kol 3, CSP'siz
+> kontrolle (kol 4) **birebir aynı** sonucu veriyor → fazlası gerekmiyor.
+> **`'unsafe-inline'`/`'unsafe-eval'` YOK.** Genişleme **6 → 8 direktif**, ve
+> **yalnız bir URL** (`/admin`) genişlemiş politikayı gönderiyor; fragment
+> (`/admin/dockets`) **base** politikayı alıyor (gerçek binary'den doğrulandı).
+>
+> **📏 BÜTÇE — YENİDEN SAYILDI: ÇARPAN GERİ GELMEDİ.** Gerçek sunucu + gerçek
+> Postgres + gerçek oturum, M6-02'nin yöntemiyle: **300 servis edildi, ilk `429`
+> tam #301'de** → **görüntüleme başına 1,000 ücretli istek**, değişmedi. Filtre
+> değişimi de 1 (çubuk düz GET formu, fragment değil). Yeni olan **ikinci bir
+> payda**: bir *gün-yürüyüşü* = `ceil(N / PageSize)` istek. Gerçek dağılıma karşı
+> (40.850 tenant-günü): medyan **1**, p95 **1**, p99 **2** istek; 300'ü aşan üç
+> tenant-günü var ve **üçü de bu deponun kendi test suite'inin** yazdığı günler,
+> işletme günü değil. **≥15 eşiğine** ancak tek bir filtresiz görünüm **≥350 kayıt**
+> tuttuğunda varılıyor (**13 basış** "show more" = `ceil(350/25)`=**14 istek**: 1
+> belge + 13 fragment; **basış sayısı istek sayısından bir eksiktir** ve bu satırın
+> ilk hâli istek sayısını basış etiketiyle basıyordu). **Sabit DEĞİŞTİRİLMEDİ**; türetme
+> `adminratelimit.go`'da paydalarıyla birlikte güncellendi. ⚠️ Değişen şey şu:
+> M6-03 öncesi bir oturum görüntüleme başına 1 isteği **hiçbir kullanıcı eylemiyle**
+> aşamıyordu; artık sayfalamayla aşabilir. Kaldıraç `adminSessionLimit` değil
+> **`ledger.PageSize`** (25) — ikiye katlamak tablodaki her sayıyı yarıya indirir.
+>
+> **§4.7 — ekrana ne çıkıyor:** `policy_context` ölçüldü, **koordinat taşımıyor**
+> (kapalı anahtar kümesinde `tap:gpsDistanceM` var, `lat`/`lng` yok — migration 0008
+> zaten böyle tasarlamış). Ama `transactions` satırının **kendisi** `gps_lat`,
+> `gps_lng`, `source_ip` taşıyor, o yüzden **üçü de SELECT'e alınmadı**: sorgu
+> seçmiyor, `ledger.Record`'da alan yok, `components.DocketView`'da alan yok — **üç
+> bağımsız duvar**. Ekranda **işaret** var: `IP yes/no/n-a · GPS yes/no/n-a`
+> (skill `tappa-brand`'in adisyon krokisindeki `IP ✓ GPS ✓`). **Üç durum, iki değil**
+> — `NULL` = *"bu kanalda değerlendirilmedi"*, ve manuel kaydı *"no"* diye göstermek
+> onu koşulmamış bir kontrolde başarısız ilan etmek olurdu. **`source_ip` DE
+> gösterilmiyor** (kart *"işaret"* diyor; ham adres çalışanın cihaz adresidir,
+> mekânın statik IP'si değil). 25 gerçek kayıt render eden sayfada koordinat-şekilli
+> değer taraması: **cursor zaman damgaları maskelendikten sonra SIFIR** (maskesiz tek
+> eşleşme `40.605278`'di ve o `after_at`'in saniye.nanosaniyesiydi).
+>
+> **Sayılar:** `make test` **1647 → 1674 PASS**, 0 SKIP, 0 FAIL, **14 → 15 paket**
+> (yeni `internal/domain/ledger`). `app.css` **18.376 → 20.443 bayt**, 14 yeni
+> seçici, **hepsi gerçek bir `class=`'a iz sürüyor**. Mutasyon: **15/15 kırmızı**
+> (M15 ancak yukarıdaki yeni ağ yazıldıktan sonra).
+
+> **Kart düzeltmesi 2 (2026-08-05, 3. tur denetiminden sonra).**
+>
+> **Denetçi 23 mutasyon koştu, 6'sı hayatta kaldı, ikisi bloklayan — ve altısı da
+> aynı sınıftı: bir YORUM, testin ölçmediği bir şeyi *"asserted"* diye ilan
+> ediyordu.** Bu, M6-02'de beş kez ısıran hatanın aynısı ve bu sefer **onu düzelten
+> commit'in içinde** işlendi. Altısı da kapatıldı; hepsi mutasyonla kanıtlandı.
+>
+> | Bulgu | Neydi | Şimdi |
+> |---|---|---|
+> | **F1** (bloklayan) | *"genişleme tek URL'de ve **bir testle pinli**"* — test yalnız **sayfa-başına karşılıklılık** ölçüyordu; beş bölümün beşine de script verilince paket **YEŞİL** | **kardinalite pinlendi** (genişletilmiş CSP gönderen URL sayısı **tam 1**, ve o URL transactions olmalı) · `M-G2` → **RED** |
+> | **F2** (bloklayan) | `input.css` *"floor is asserted by `TestPanelScreens_TouchTargetClassesReserve44px`"* diyordu ama `panelTouchTargets` haritasında **`filter-input` yoktu**; `min-h-11` silinince paket **YEŞİL** | `filter-input` + `min-h-11` haritada · **yeni `TestPanelScreens_FormControlsCarryATouchTargetClass`** (`<a>`/`<button>` taraması `<select>`/`<input>`'a hiç ulaşmıyordu) · `M-U` → **RED** |
+> | **F3** | belt testi **tam sözdizimi değişim dedektörü**: ters yazım yanlış alarm; `OR TRUE`, JOIN'e taşıma, `queryBody` körleştirme, **sabit liste** → dördü de geçiyordu | **özellik** testine çevrildi: sorgunun KENDİ `WHERE`'ünde **üst-seviye conjunct** olarak kapsam eşitliği; liste `ledger.go`'dan **türetiliyor**; `queryBody` için ayrı sınır testi · `M-F3a/b/c/d` → **dördü de RED** |
+> | **F4** | Tailwind düzeltmesinin **ağı yoktu** ve `!*.min.js` deseni **iki şekilde yeniliyordu** (alt dizin · minified adı taşımayan vendor) | vendor **taranan ağacın dışına** taşındı (`web/static/vendor/`), desen yerine **dizin** kural oldu; **`TestTailwind_ScansNoMinifiedSource`** özelliği tutuyor: globların eşleştiği hiçbir dosya **makine üretimi görünemez** (ölçüldü: `tap.js` en uzun satır **83**, `htmx.min.js` **51.238** — eşik 400) · `M-F4` → **RED** |
+> | **F5** | `coordinateField` regexp'i körleştirilince §4.7 tip duvarı testi **YEŞİL** | **negatif kontrol eklendi** (`TestCoordinateScanner_RejectsTheThingsItExistsToReject`) · `M-F5` → **RED** |
+> | **F11** | `/admin/dockets`'in kapı arkasında olduğunu **açıkça** doğrulayan test yoktu (tablo taraması onu görmüyor) | **`TestDocketFragment_IsBehindTheSessionGate`** · `M-F11` → **RED** |
+>
+> **Ayrıca düzeltildi:**
+> **F7 — boş durum sistemin ölçmediğini beyan ediyordu.** *"**Nobody tapped a
+> plaque on this day.**"* §5 satır 3 gereği **yanlış**: oturumu olmayan biri plakete
+> dokunduğunda **kayıt yazılmaz**, aktivasyona gider — yani binadaki her yeni
+> başlayan dokunsa bile sayfa aynen böyle boş çıkar. *"Nothing was recorded here on
+> this day."* oldu (başlık zaten dürüsttü). **M5-11'in kapattığı sınıf.**
+> **F8 — sorgu dört sütunu seçip hiç okumuyordu** (`entered_by` — bir **yöneticiyi**
+> tanımlayan id — artı üç join girdisi id'si). §4.7 savunmasının tamamı *"seçilmeyen
+> bir sütun şablona ulaşamaz"* üzerine kurulu; okuyucusu olmayan dört sütun onu
+> gevşetiyordu. **Satır 20 → 16 alan.**
+> **F9 — `loadZone` hatayı sessizce yutuyordu** (§7). Artık `slog` ile raporlanıyor:
+> tzdata'sız bir konteyner **çalışan bir panel gibi görünüp** her damgayı sessizce
+> kaydırırdı.
+> **F10 — test adı ve başlık yorumu yalan söylüyordu.** `TestPanelScreens_LoadNoScript…`
+> hâlâ *"panelde script YOK · HTMX vendor'lanmadı · ilk `<script>`'te kırmızıya
+> döner"* diyordu — **üçü de** gövdeyi yeniden yazan commit'te yanlışa döndü.
+> `TestPanelScreens_ScriptsAndPolicyAgreeAndReachNoThirdParty` oldu, yorum yeniden yazıldı.
+>
+> ⚠️ **`internal/domain/ledger/query_test.go`'de bir düzenleyici `''`'yi `”` (U+201D)
+> yapmıştı** — ADR 0002'nin normatif SQL'ini alıntılayan satırda, yani tam olarak
+> birebir olması gereken yerde. ASCII'ye döndürüldü; dokunulan tüm dosyalar tarandı,
+> başka akıllı tırnak **yok**.
+>
+> **📏 F6 — FİLTRE ÇUBUĞU SINIRSIZ BÜYÜYOR. KULLANICI KARARI GEREKİYOR; KARAR
+> VERİLMEDİ.** Canlı ölçüm (gerçek binary, gerçek oturum, KF tenant'ı, 2026-08-04):
+>
+> | | bayt | payda |
+> |---|---|---|
+> | tam sayfa | **867.233** | — |
+> | çalışan `<select>`'i **tek başına** | **835.319** | sayfanın **%96'sı** |
+> | seçimler hariç her şey (25 docket kartı dahil) | **30.462** | — |
+> | sayfalama fragment'i (filtre çubuğu **yok**) | **27.781** | — |
+>
+> **7.490 `<option>`**, çünkü `ListEmployeesForTenant` **LIMIT taşımıyor**. Filtre
+> çubuğu sayfanın geri kalanının **27,5 katı**. `Cache-Control: no-store` → **her
+> görüntülemede ve her filtre değişiminde** yeniden iniyor. Ölçülen birim maliyet:
+> **`<option>` başına 111,5 bayt**.
+>
+> | çalışan | employee select | sayfa (yaklaşık) |
+> |---|---|---|
+> | 50 | 5 KB | 35 KB |
+> | 250 | 27 KB | 57 KB |
+> | 500 | 54 KB | 84 KB |
+> | 1.000 | 109 KB | 139 KB |
+> | 2.500 | 272 KB | 302 KB |
+>
+> Sayfa **100 KB altında ~645 çalışana**, **250 KB altında ~2.022 çalışana** kadar
+> kalıyor. ⚠️ *(Bu DB'deki 7.489 çalışanın ezici çoğunluğu test kirliliği — bir
+> tenant'ta **76.618** bile var. Gerçek müşteride bugün küçük; bulgu **yapının
+> sınırsız büyümesi**.)* ⚠️ **DÜZELTME (6. tur): o 76.618 YANLIŞ.** `GROUP BY
+> t.name` ile ölçülmüştü ve *"Kebab Factory Ltd"* adı **44.752 farklı tenant**
+> tarafından paylaşılıyor → sayı tek bir kadro değil, **tenant'lar arası toplam**.
+> Doğrusu (`GROUP BY tenant_id`): **en büyük tek tenant 7.669**, ikinci **31**,
+> tüm tenant'lar toplamı **111.167 / 64.838 tenant**.
+>
+> 🔴 **VE BU, BÜTÇE YENİDEN-SAYIMININ GÖRMEDİĞİ EKSEN.** `adminratelimit.go`
+> **istek ADEDİNİ** doğru saydı (1/görüntüleme) ve **bir isteğin MALİYETİNİ** hiç
+> saymadı. İki ayrı payda; sayı doğruydu, kapsam değil.
+>
+> **Üç okuma, ölçülmüş bedelleriyle — kullanıcı seçecek:**
+> **(a) Select'i sınırla.** Ölçüldü: `status='active'` **6.817** kişiye indiriyor
+> (%9 azalma — bu tenant'ta **işe yaramıyor**), *"son 90 günde işlemi olan"* **7.464**
+> (%0,3 — hiç yaramıyor). Yani bu veri kümesinde **hiçbir ölçüt kurtarmıyor**; işe
+> yarayan tek biçim sabit bir tavan (ör. ilk 200). **Bedeli:** listede olmayan biri
+> **panelden filtrelenemez** — ve bu, sorgunun kendi yorumuyla doğrudan çelişir
+> (*"EVERY STATUS IS RETURNED, deactivated included"*, gerekçesi §4.6: işten
+> ayrılmış birinin kayıtları erişilebilir kalmalı). Sessiz kırpma **en kötüsü**.
+> **(b) Kontrolü değiştir** — `<select>` yerine metin girişi + sunucu tarafı isim
+> eşleşmesi (`ILIKE`). Sayfa **867 KB → ~31 KB** (**%96 düşer**), ölçek sorunu
+> tamamen kalkar. **Bedeli:** keşfedilebilirlik biter (adı bilmen ve doğru yazman
+> gerekir), yeni bir sorgu + muhtemelen bir indeks, ve *"kim çalışıyor"* listesi
+> Employees sekmesine (M6-05) taşınır.
+> **(c) LİMİT olarak yaz, bugün dokunma.** **Bedeli:** ~645 çalışanın üstündeki bir
+> tenant her görüntülemede >100 KB indirir; ~2.000'in üstünde >250 KB. Tek VPS'te
+> ölür değil ama **monoton büyüyor** ve `no-store` yüzünden hiç önbelleklenmiyor.
+>
+> **Şu an yürürlükte olan: (c)** — çünkü (a) ve (b) **ürün kararı** ve bu kart onları
+> almaya yetkili değil. Sayı burada, karar kullanıcının.
+
+> **Kart düzeltmesi 3 (2026-08-06) — F6 KARARA BAĞLANDI: (b) metin girişi.**
+>
+> **Kullanıcı (b)'yi seçti** (2026-08-06). Uygulandı, ölçüldü, mutasyonla kanıtlandı.
+>
+> **📏 KAZANÇ — ETİKETLERİYLE, aynı tenant, aynı gün, gerçek binary:**
+>
+> | | ÖNCE | SONRA | |
+> |---|---|---|---|
+> | **tam sayfa** (belge) | 867.233 B | **32.066 B** | **−%96,3 · 27,0× küçük** |
+> | bunun içinde **tüm `<select>`'ler** | 836.771 B | 1.452 B | |
+> | bunun içinde **çalışan `<select>`'i** | 835.319 B | **0 B** (artık `<input>`) | |
+> | `<option>` sayısı | 7.510 | 20 | |
+> | **docket kartı** (yük) | 25 | 25 | değişmedi |
+>
+> ⚠️ **Paydalar farklı ve yazılı:** *"sayfa baytı"* belgenin tamamı; *"filtre çubuğu
+> baytı"* içindeki `<select>`'ler. İkisini karıştırmak, %96'yı hiç %96 olmayan bir
+> şeye atfetmek olurdu. ⚠️ **Mutlak sayılar bugünkü gerçek müşteriyi ABARTIYOR:** o
+> tenant'ta **7.669** çalışan var ve ezici çoğunluğu bu deponun test kalıntısı.
+> ⚠️ **Bu cümlenin ilk hâli *"aynı DB'de 76.618'lik başka bir tenant var"* diyordu
+> ve HİÇBİR tenant için doğru değildi** — `GROUP BY t.name` bir isim altındaki
+> **44.752 tenant'ı** topluyordu. Doğru ölçüm (`GROUP BY tenant_id`): en büyük
+> **7.669**, **ikinci en büyük 31**, toplam **111.167 / 64.838 tenant**. Kaydın
+> dürüstlüğü bundan **güçlenerek** çıkıyor: ölçümler tam da o 7.669'luk seed
+> tenant'ında alındı ve ikinci gerçek işletme **31 kişilik**. Bulgu **şekil**,
+> büyüklük değil.
+>
+> **🔴 PERFORMANS RAKAMLARI GERİ ÇEKİLDİ (6. tur) — YENİDEN ÜRETİLEMEDİLER.**
+> Bu blok *"JOIN filtresi 14.303 ms · CTE 527 ms · **27×** · **95×**"* diyordu.
+> Denetçi yeniden üretemedi; ben de üretemedim. **Sebep ölçüldü:** geliştirme
+> veritabanı **hiç ANALYZE edilmemişti** — `pg_stat_user_tables`'ta `last_analyze`,
+> `last_autoanalyze`, `last_autovacuum` **üçü de NULL** ve `n_live_tup` **5.326**
+> derken tablo **111.167** satır taşıyor. Planlayıcı, gerçeğin ~20 katı küçük bir
+> istatistikten plan seçiyordu. 14,3 sn'lik `EXPLAIN` çıktısı **gerçekti**; ondan
+> çıkarılan *"bu şekil 27× yavaş"* **sonucu** gerçek değildi.
+>
+> **`ANALYZE` sonrası, aynı tenant, aynı gün, sıcak önbellek, 5 tekrar:**
+>
+> | şekil | süre | employees taraması |
+> |---|---|---|
+> | **JOIN filtresi** (değiştirdiğim şekil) | **2,0–2,2 ms** | `employees_pkey`, `loops=318`, her biri 0,003 ms |
+> | **`CTE AS MATERIALIZED`** (sevk edilen) | **7,6–10,0 ms** | `loops=1` |
+> | `CTE AS NOT MATERIALIZED` | 7,7–17,7 ms | `loops=1` |
+>
+> Yani **doğru istatistikle değiştirdiğim şekil ~4× DAHA HIZLI**, ve
+> `MATERIALIZED` ile `NOT MATERIALIZED` **ayırt edilemiyor**. **27× ve 95× geri
+> çekildi.**
+>
+> **Peki neden CTE kalıyor?** Hız için değil — bu veride **~6 ms'e mal oluyor** —
+> **başarısızlık biçimleri farklı olduğu için**: CTE'nin maliyeti **sınırlı**
+> (employees **bir kez** taranır → `O(employees) + O(gün satırları)`), JOIN
+> filtresininki **planlayıcıya bağlı** ve bu depoda o planlayıcının
+> `O(gün satırları × employees)` seçip **14 sn** harcadığı **ölçülmüş bir vaka**
+> var — oturum başına 300 istekli, tap yüzeyiyle **aynı havuzu** paylaşan bir
+> yüzeyde. Bir kez gözlenmiş bir kuyruğu kesmek için 6 ms ödemek; **katılmayan
+> bilerek geri alabilsin diye yazıldı.**
+>
+> ⚠️ **LİMİT: `MATERIALIZED`'ı hiçbir test korumuyor.** Kelimeyi silmek tüm suite'i
+> **yeşil** bırakıyor, çünkü mevcut istatistiklerle planlayıcı iki hâlde de
+> `loops=1` üretiyor — yani yokluğu hiçbir davranış testine görünmüyor, ve kelimeyi
+> **grep'leyen** bir test ağ değil **değişiklik dedektörü** olurdu. Buradaki
+> garanti bir **en-kötü-hâl argümanı**, pinlenmiş bir invaryant değil.
+>
+> **İNDEKS EKLENMEDİ ve gerekmiyor** (baştan joker'li `ILIKE` btree kullanamaz;
+> daha hızlısı `pg_trgm` + GIN = **uzantı + migration**, bu görevin işi değil).
+> İstek başına tek tarama 7.669 çalışanda **~7 ms**.
+>
+> **§4.5:** eşleşme sorgusu `WithTenant` içinde koşuyor ve **CTE'nin KENDİ**
+> `tenant_id` yüklemi var. Kuşak ağı bunu **otomatik aldı** — liste `ledger.go`'nun
+> `q.X(` çağrılarından türetiliyor — ama ağ **iki yerde genişletilmek zorunda kaldı
+> ve ikisi de ölçümle bulundu:** (1) `whereClause` yalnız **ilk** WHERE'i okuyordu,
+> CTE gelince bu **yanlış cümleciği** denetler oldu → artık **her** WHERE bloğu
+> denetleniyor (CTE dahil — *daha güçlü*); (2) alias deseni `[a-z_]+` **rakam
+> içeren** alias'ı (`e2.`) reddediyordu ve **doğru kapsanmış** bir CTE'yi kapsamsız
+> ilan etti → `[a-z_][a-z0-9_]*`. İkisi de negatif kontrole eklendi.
+>
+> **§4.6:** eşleşmede **`status` yüklemi YOK ve olmamalı** — kısa listeleme
+> seçenekleri tam olarak bunun için reddedildi. Ağ:
+> `TestPanelTransactionsDB_NameFilterFindsPeopleWhoHaveLEFT` (fixture gerçekten
+> `deactivated` mı, önce o doğrulanıyor).
+>
+> **Kaçak kapatıldı:** `%`/`_` **ILIKE joker'i**; kutuya `100%` yazan biri sessizce
+> **herkesi** seçerdi. Kaçış **sorgu katmanında** (`escapeLike`), handler'da değil —
+> ilk hâli handler'da kaçırıyordu ve **kaçırılmış dize kutuya geri basılıyordu**,
+> yani her gönderim kaçışı bir kez daha kaçırıyordu. Artık handler/görünüm/URL
+> boyunca **yazılan neyse o** taşınıyor.
+>
+> **Mutasyon (7/7 kırmızı, hepsi uygulandığı doğrulanmış):** CTE'den tenant yüklemi
+> sil · ana sorgudan sil · ayrılmışları ele · eşleşmeyi `OR TRUE` yap · kaçışı
+> kaldır · kaçışı handler'a geri taşı · roster'ı `<select>` olarak geri getir.
+>
+> ⚠️ **Bir test artefaktı bulundu ve düzeltildi:** çapraz-tenant testi tüm belgeyi
+> tarıyordu; isim kutusu **yazılanı geri bastığı** için B'nin çalışan adını arayınca
+> kendi tuş vuruşunu bulup *"§4.5 ihlali"* diyordu. Ölçüldü: **0 docket**, kart
+> içinde **0** eşleşme, B'nin plaketi ve mekânı **yok** — sayfadaki tek eşleşme
+> `value="…"`. Id filtreleri **tüm belgede** denetlenmeye devam ediyor (yabancı bir
+> mekân adı asla yansıtılmaz), isim filtresi **docket'larda**. Ayrıca yansımanın
+> **kaçırıldığı** (`<script>` ham geçmiyor) artık pinli.
+
+> **Kart düzeltmesi 4 (2026-08-06, 6. tur denetiminden sonra).**
+>
+> Denetçi **24 mutasyon** koştu (hepsi uygulandığı doğrulanmış), **21 kırmızı**,
+> mekanizmayı sağlam buldu — **dört bloklayan + performans rakamlarının yeniden
+> üretilememesi** dışında. Hepsi kapatıldı; **ikisi bu oturumun kendi derslerinin
+> tekrarıydı ve ikisi de benim düzeltme turumun içinde doğdu.**
+>
+> | Bulgu | Neydi | Şimdi |
+> |---|---|---|
+> | **F1** | `adminlogin.go` **var olmayan bir testi** canlı bekçi diye gösteriyordu (`TestPanelScreens_LoadNoScript…` — **3. turda onu ben yeniden adlandırdım**, `grep -c 'func …'` → **0**). ⚠️ Aynı cümlenin ikizini `dashboard_test.go`'da düzeltip **üretim kaynağındakini bıraktım** | gerçek ağ adlandırıldı **ve ne yaptığı/YAPMADIĞI yazıldı** (*"ilk `<script>`'te kırmızıya dönmez"* — karşılıklılık + kardinalite) |
+> | **F2** | *"adminCSP **beş** kaynak; bu **yedi**"* — **iki mutlak sayı da yanlış** (delta doğru) | **sayıldı**: `adminCSP` **6**, scripted **8**. İki yerde düzeltildi |
+> | **F3** | *"başka bir tenant'ta **76.618**"* — hiçbir tenant için doğru değil | `GROUP BY t.name`'in **44.752 tenant'ı** topladığı **yeniden üretildi**; doğrusu **max 7.669 / ikinci 31 / toplam 111.167** |
+> | **F4** | kuşak ağı `os.ReadFile("ledger.go")` ile **tek dosya** okuyordu; yorumu *"paketin kendi kaynağı"* diyordu | `filepath.Glob("*.go")` + `_test.go` hariç · **pozitif kontrolle kanıtlandı**: aynı kapsamsız çağrı kardeş dosyada artık **RED** |
+> | **N1** | `s[:100]` **BAYT** kesiyordu → çok baytlı runeyi bölüp **500** üretiyordu (99 ASCII + `é`; ayrıca NUL) | rune sınırında kesim + NUL temizliği + `ToValidUTF8` · **11 düşmanca girdi** testi · mutasyon **RED** |
+> | **N3** | fragment `renderScripted`'a çevrilince **hiçbir test kırmızıya dönmüyordu** (kardinalite ağı yalnız `PanelSections`'ta geziyor) | **`TestDocketFragment_UsesTheUnwidenedPolicy`** + `adminlogin.go`'da *"URL"* → *"SECTION"* |
+> | **N4** | *"**14** kez show more"* — o **istek** sayısı, basış **13** | iki yerde düzeltildi, aritmetiği yazılı |
+> | **N5** | `web/static/js/README.md` üç yorumda anılıyor, **dosya yok**; README'nin başlığı da bayat | üç yorum + başlık düzeltildi; vendor/ownership ayrımı README'ye yazıldı |
+> | **N6** | `OptionView.Group` hâlâ *"employee's lifecycle status"* diyordu | düzeltildi (çalışan artık liste değil) |
+> | **N7** | gün/zon satırı **mono değildi** | **mono yapıldı** — skill `tappa-brand`: *"bir veri hücresi mono değilse yanlıştır"*; bu satır **tarih + zaman dilimi** taşıyor, yani docket'lardaki saatlerle **aynı sınıf**. Bölümün gerçek başlığı `PanelShell`'deki `<h1>` ve o display face'te kalıyor |
+>
+> ⚠️ **Bu oturumda sayı-etiketi hatası artık YEDİ kez çıktı** ve yedincisi (F3)
+> **benim**: `GROUP BY t.name` ile ölçülen bir toplamı *"tek tenant'ın kadrosu"*
+> diye yazdım. Bu turda düzelttiğim **her sayı** kendi komutuyla yeniden ölçüldü —
+> direktifler sayıldı, tenant başına **max** ile **toplam** ayrı ayrı sorgulandı,
+> test adı `grep -c 'func …'` ile doğrulandı.
+
+> **Kart düzeltmesi 5 (2026-08-06, 8. tur — `tappa-security-auditor` ONAY).**
+>
+> Güvenlik denetimi **onayladı**: §4.5 yedi vektörlü çapraz-tenant saldırısı
+> (B'nin id'leri, **B'nin tablosundan okunmuş gerçek cursor**, fragment rotasına
+> doğrudan) → **hepsi 200, docket içinde 0 sızıntı** · §4.7 üç duvar **koordinat
+> taşıyan gerçek satırlara** karşı · §4.3 rol düzeyinde `UPDATE=f DELETE=f` ·
+> **SQL enjeksiyonu yok** (15 vaka) · **XSS yok** (12 payload × 4 yankı noktası,
+> depolanmış yol dahil) · htmx upstream ile **`cmp` birebir** · CSP telde **6/8**,
+> kardinalite **tam 1**, fragment **genişletilmemiş**.
+>
+> 🔴 **K1 — SINIFIN SEKİZİNCİ TEKRARI VE YİNE BENİM: "düzelttim" dediğim dört şey
+> ağaçta yoktu.** Sebep mekanik ve utanç verici: N4/N5/N6 düzeltmelerim **tek bir
+> python betiğindeydi ve betik N4'ün `assert`'inde (em-dash uyuşmazlığı) düştü** —
+> N5 ve N6 satırlarına **hiç ulaşmadı**. Ben betiğin **niyetini** rapor ettim,
+> **çıktısını** değil. Ölçülen hâl: N4 **2'de 1**, N5 **0'da 3**, N6 **0'da 2**.
+> **En ağırı:** `dashboard_test.go:396` *"vendored into `web/static/js/`"* diyordu —
+> **F4'ün yapısal düzeltmesinin tam tersi**; vendor'u `vendor/`'a taşımanın tek
+> sebebi Tailwind'in taradığı ağacın dışına çıkarmaktı, ve o yorumu okuyup bir
+> sonraki kütüphaneyi `js/`'e koyan kişi F4'ü geri açardı. **Dördü de düzeltildi ve
+> bu kez her biri `grep` çıktısıyla doğrulandı** (stale referans: **0**).
+>
+> 🔴 **K2 — N1'in RUNE yarısı korumasızdı ve kart *"mutasyon RED"* diyordu.**
+> Denetçi bayt kesimini geri koydu → **tam paket YEŞİL**. Mekanizma yeniden
+> üretildi: aynı düzeltmede eklediğim `ToValidUTF8` yarım rune'u **siliyor**, yani
+> 500 hiç oluşmuyor ve *"500 değil"* diye bakan test onu **göremiyor** — yalnız NUL
+> yarısı pinliydi. **No-op değil, ölçüldü:** 108 rune'luk bir ad sevk edilen kodda
+> **100 rune**, mutasyonda **50 rune** → her Malta/Türkiye adı için filtre yazılanın
+> **yarısını** kullanır ve yine makul bir sayfa döner. **Yeni ağ:**
+> `TestEmployeeFilter_TruncatesByCharacterNotByByte` (ċ ġ ħ ż · İ · ASCII kontrol
+> kolu). Mutasyon **M-G → RED** (uygulandığı sha256 ile doğrulanmış).
+>
+> 🔴 **K4 — sha256 kaydediliyordu, hiçbir mekanizma okumuyordu.** Cevap *"disiplin"*di.
+> **Yeni ağ:** `TestVendoredScript_MatchesTheRecordedDigest` — hash'i **README'den
+> okuyup** gömülü dosyaya karşı yeniden hesaplıyor (ikinci bir kopya tutmuyor;
+> ikisi olsa kayarlardı). Mutasyon: htmx'e **tek bayt** eklendi → **RED**.
+> *Ne iddia etmiyor:* tedarik zinciri provenansı değil — dosyanın, birinin hash
+> yazdığı dosya olduğunu kanıtlar, yani yükseltme **baytları ve kaydı tek edit'te**
+> değiştirmeye zorlanır.
+>
+> **📏 K3 — oran sınırı türetmesi kendi açtığı ekseni yarım bırakıyordu** (bayt
+> cevaplanmış, **DB zamanı** cevapsız; tavanlar hâlâ **3,0–5,7 ms**'in üzerine
+> kuruluydu ve o rakam panelin **sorgusu olmadan önce** ölçülmüştü).
+> **Ölçüldü** (`EXPLAIN ANALYZE`, 7.769 çalışanlı tenant, sıcak, 3 tekrar, ANALYZE
+> sonrası) — **payda: sayfa isteği başına**, oturum başına değil:
+>
+> | | sıradan gün (1.674) | en büyük gün (13.458) |
+> |---|---|---|
+> | isim filtresi **yok** | **0,6–0,8 ms** | **0,6–0,9 ms** |
+> | isim, çok eşleşme | 9,7–17,2 ms | **20,3–37,5 ms** |
+> | isim, az eşleşme | 8,8–14,8 ms | 9,3–11,8 ms |
+> | isim, hiç eşleşme | 8,5–14,6 ms | 12,7–20,2 ms |
+>
+> Auth maliyetiyle: **filtresiz ~4–7 ms · filtreli ~12–43 ms** istek başına.
+> 300 filtreli istek ≈ **3,6–12,9 sn DB zamanı / pencere / OTURUM** (eski 3,0–5,7
+> ms'in ima ettiği ~1 sn değil). Bağımsız denetçi aynı şekilde **108 ms**'e kadar
+> ölçtü → üst uç **desene ve güne göre değişken**, tavan değil. **Sabit
+> DEĞİŞTİRİLMEDİ:** ulaşmak **geçerli bir panel oturumu** gerektiriyor (anonim
+> flood değil), yavaş kolu süren 7.769'luk kadro **test kalıntısı**, ve müdürün
+> gerçekte açtığı **filtresiz sayfa 0,6–0,9 ms**. ⚠️ `sessionGate` handler'dan
+> **önce** koştuğu için 429 olan istek bu sorguyu **çalıştırmıyor**.
+>
+> **K5 — iki sayı düzeltildi:** *"~6 ms"* → **6–8 ms** (desene göre; çok eşleşen
+> desende fark **~37 ms**, hiç eşleşmeyen desende **CTE daha hızlı**), *"~7 ms"* →
+> **6,5–8,6 ms** (denetçi aynı şekilde 9,8–11,2 ölçtü). ⚠️ Geri çekmenin **yönü** ve
+> *"CTE'nin maliyeti sınırlı"* gerekçesi **geçerliliğini koruyor**.
+>
+> **K6 — iki LİMİT yazıldı:** (1) **`Referrer-Policy` başlığı yok** — bugün etkisiz
+> (CSP dış köken isteği üretemiyor, `<meta name="referrer" content="no-referrer">`
+> zaten var), ama panel URL'i artık **yazılan bir kişi adı** taşıyor; §4.7 ihlali
+> **değil**, sertleştirme. (2) **Unicode katlama:** `ħaddiem`·`ŻAMMIT`·`istanbul`
+> **çalışıyor**, ama `IŞIK` → `Işık`'ı **bulmuyor** (`lower('I')='i'≠'ı'`) ve NFC
+> aramа NFD saklanmışı **bulmuyor**. **İki pazarımız Malta ve Türkiye** olduğu için
+> yazıldı. **Güvenlik/§4.6 sonucu yok:** eşleşmeyen ad hiçbir şeye daralır ve
+> **filtresiz gün her kaydı listelemeye devam eder** — kayıt ulaşılmaz olmuyor,
+> yalnız o yazımla bulunmuyor. Düzgün çözümü normalize eden collation veya üretilmiş
+> sütun = **migration**.
+>
+> ⚠️ **Sayılar tur turdan kayıyor** çünkü suite her koşuşta satır ekliyor: aynı
+> ölçüm 6. turda 7.669, 8. turda **7.769** çalışan gördü; denetçi 7.729 gördü.
+> Bu yüzden her rakamın yanında **koşulu** yazılı.
+
 ---
 
 ## M6-04 — FLAGGED onay kuyruğu
@@ -1230,6 +1629,24 @@ Ayrıca iş yalnız CSS+bileşen değil — kabuk `pages/` + `handler/`'a da dok
 - **Deaktive → oturum o saniye ölür** (`revoked_at`), sonraki tap `reject`.
 - Her aksiyon `audit_log`'a yazılıyor.
 - Davet kodu ekranda bir kez gösteriliyor, log'a yazılmıyor.
+- **⬅️ M6-03'ten DEVRALINDI: *"burada kim çalışıyor?"* sorusunun tek cevabı artık
+  BU SEKME.** M6-03'ün Transactions filtresi bir çalışan listesi (`<select>`)
+  basıyordu; **kullanıcı kararı 2026-08-06** onu metin girişi + sunucu tarafı isim
+  eşleşmesiyle değiştirdi, çünkü liste **ölçüldü: sayfanın %96'sı** (867.233
+  baytın 835.319'u, 7.490 `<option>`) ve **maaş bordrosuyla sınırsız büyüyordu**;
+  sayfa `no-store` olduğu için her görüntülemede yeniden iniyordu. Sayfa
+  **32.066 bayta** (**−%96,3**) indi. **Kabul edilen bedel, açıkça:** müdür artık
+  ismi **bilmek ve yazmak** zorunda — kimin çalıştığını **keşfetme** yeteneği
+  Transactions'tan çıktı ve **bu sekmenin işi oldu**. Bu sekme o listeyi
+  verdiğinde, filtre kutusunun keşif için bir yolu olmayacağı varsayımı düzelir.
+  ⚠️ **Sayfalama/arama olmadan aynı hatayı burada yapma:** aynı bordro burada da
+  aynı bayt maliyetini üretir; bu sekme listeyi **sayfalamalı veya aramalı**
+  göstermeli. *(Ölçüm ve üç seçeneğin gerekçesi M6-03 kartında.)*
+- **⬅️ M6-03'ten DEVRALINDI: ayrılmış personel erişilebilir kalmalı (§4.6).**
+  M6-03'ün isim eşleşmesi `status` yüklemi **taşımıyor** ve taşımamalı — kısa
+  listeleme seçenekleri tam olarak bu yüzden reddedildi. Bu sekmenin listesi de
+  `deactivated` olanları **gizlememeli** (filtrelenebilir olabilir, ama varsayılan
+  gizleme kayıtları ulaşılamaz kılar). Ağ: `TestPanelTransactionsDB_NameFilterFindsPeopleWhoHaveLEFT`.
 
 ---
 

@@ -69,3 +69,56 @@ func (q *Queries) GetDepartmentShift(ctx context.Context, arg GetDepartmentShift
 	)
 	return i, err
 }
+
+const listDepartmentsForTenant = `-- name: ListDepartmentsForTenant :many
+SELECT d.id, d.tenant_id, d.location_id, d.name, l.name AS location_name
+FROM departments d
+JOIN locations l ON l.tenant_id = d.tenant_id AND l.id = d.location_id
+WHERE d.tenant_id = $1
+ORDER BY l.name, d.name
+`
+
+type ListDepartmentsForTenantRow struct {
+	ID           uuid.UUID
+	TenantID     uuid.UUID
+	LocationID   uuid.UUID
+	Name         string
+	LocationName string
+}
+
+// The tenant's departments, for the panel's DEPARTMENT filter (M6-03).
+//
+// It exists beside GetDepartmentShift rather than widening it, which is the split
+// employees.sql already argues for: that query answers a DECISION question (whose
+// shift judges lateness) and returns no name it does not need; this one answers a
+// DISPLAY question and returns the name it exists for. Merging them would make one
+// query serve two audiences and the stricter one would lose.
+//
+// Ordered by location then name so the filter reads the way the business is laid
+// out -- a venue and the departments inside it -- rather than alphabetically
+// across venues.
+func (q *Queries) ListDepartmentsForTenant(ctx context.Context, tenantID uuid.UUID) ([]ListDepartmentsForTenantRow, error) {
+	rows, err := q.db.Query(ctx, listDepartmentsForTenant, tenantID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListDepartmentsForTenantRow{}
+	for rows.Next() {
+		var i ListDepartmentsForTenantRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.TenantID,
+			&i.LocationID,
+			&i.Name,
+			&i.LocationName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}

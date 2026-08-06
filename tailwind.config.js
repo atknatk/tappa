@@ -2,6 +2,24 @@
 // Palet ve tipografi kaynagı: .claude/skills/tappa-brand/SKILL.md
 /** @type {import('tailwindcss').Config} */
 module.exports = {
+  // 🔴 VENDORED CODE LIVES OUTSIDE THESE GLOBS, and that is structural rather than
+  // a filter. Tailwind scans every content file as RAW TEXT, so a minified library
+  // is 51 KB of identifiers that look like utility names: dropping
+  // web/static/js/htmx.min.js in grew app.css by three rules nothing renders
+  // (.ease-in, .resize, .transition) out of htmx's OWN internal strings. Proven by
+  // building both ways.
+  //
+  // THE FIRST FIX WAS A '!*.min.js' EXCLUSION AND AN AUDIT DEFEATED IT TWICE: a
+  // subdirectory (web/static/js/vendor/htmx.min.js -- '**/*.js' matches, a
+  // single-level '*.min.js' does not) and a vendored file simply not named .min
+  // both brought the three rules back. A pattern that has to predict how the next
+  // library is filed is not a rule, it is a guess.
+  //
+  // SO THE DIRECTORY IS THE RULE: web/static/js/ is OURS and is scanned;
+  // web/static/vendor/ is other people's and is not named here at all. Both are
+  // still embedded and served (web/embed.go embeds all:static) -- this decides only
+  // what Tailwind READS. Guarded by TestTailwind_ScansNoMinifiedSource, which holds
+  // the property rather than the path: nothing these globs match may look minified.
   content: ['./web/templates/**/*.templ', './web/static/js/**/*.js'],
   theme: {
     extend: {

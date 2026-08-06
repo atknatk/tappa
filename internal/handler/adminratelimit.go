@@ -208,8 +208,146 @@ const (
 	//
 	// ⚠️ THE THRESHOLD, so the next person does not have to re-measure to know
 	// whether they are near it: at 20 views per window, 300 becomes binding at
-	// ≥15 requests per view. M6-03 brings HTMX and the first fragments, so it is
-	// the task that has to count them.
+	// ≥15 requests per view.
+	//
+	// ✅ M6-03 BROUGHT HTMX AND COUNTED THEM. THE MULTIPLIER DID NOT COME BACK.
+	//
+	// Measured the same way M6-02 measured it — real server, real Postgres, real
+	// session, sequential GET /admin until refusal:
+	//
+	//	300 served, first 429 at request #301
+	//	=> CHARGED REQUESTS PER SECTION VIEW = 1.000, unchanged
+	//
+	// 🔴 THE DENOMINATOR MATTERS HERE AND IS WRITTEN OUT, because this is exactly
+	// where the old premise went wrong. "Requests per VIEW" is per DOCUMENT LOAD,
+	// and it is still one: opening the section costs one request, and changing a
+	// filter costs one more because the filter bar is a plain GET form rather than
+	// a fragment swap. What M6-03 adds is a SECOND, different denominator:
+	//
+	//	per SECTION VIEW  (one document)             1 charged request
+	//	per FILTER CHANGE (one document)             1 charged request
+	//	per DAY-WALK      (document + every "show     ceil(N / PageSize) charged,
+	//	                   more" to the end of it)    where N is the filtered day
+	//
+	// The fragment IS charged: with the session budget spent, GET /admin/dockets
+	// answers 429 (measured). The static assets are NOT — /static/* is registered
+	// on the root router BEFORE any feature mounts (internal/httpx/router.go), so
+	// htmx.min.js and app.css never enter Protect(). ⚠️ That is a STRUCTURAL fact
+	// plus M6-02's measurement, NOT something re-measured here: the panel test
+	// harness mounts AdminAuth on a bare router, so /static 404s in it, and a 404
+	// means "not mounted in that harness" rather than "not charged".
+	//
+	// WHAT ceil(N / PageSize) IS IN PRACTICE, against the real distribution in the
+	// development database (40 850 tenant-days):
+	//
+	//	median day        1 record    ->  1 request
+	//	95th percentile  20 records   ->  1 request
+	//	99th percentile  30 records   ->  2 requests
+	//	only 3 tenant-days exceed 300 records, and all three are days this
+	//	repository's own test suite wrote into the dev database, not businesses.
+	//
+	// So at the 99th percentile of real data a complete day-walk costs TWO charged
+	// requests, and 300 remains ~150x the load rather than 15x. The ≥15 threshold
+	// is reached only by a single unfiltered view holding ≥350 records — THIRTEEN
+	// deliberate presses of "show more" — which is what the six filters exist to
+	// make unnecessary. (ceil(350/25) = 14 REQUESTS: one document plus thirteen
+	// fragments. The press count is one less than the request count, and an earlier
+	// version of this line printed the request count under the press label.)
+	//
+	// ⚠️ WHAT DID CHANGE, AND IT IS NOT NOTHING: before M6-03 a session had no way
+	// to spend more than one request per view at all, so the ceiling was
+	// unreachable by any sequence of user actions. It is now reachable, by paging.
+	// The number is not lowered and not raised here (this task does not own that
+	// decision); it is counted, and the shape of the new cost is written down.
+	// The lever, if it is ever wanted, is ledger.PageSize rather than this constant:
+	// doubling it halves every figure in the table above.
+	//
+	// 🔴 THE SECOND AXIS: WHAT ONE REQUEST COSTS, WHICH THIS FILE NEVER COUNTED.
+	// Everything above counts REQUESTS. An audit named the gap: a ceiling on how
+	// MANY requests a session may make says nothing about how BIG each one is, and
+	// the panel had a control whose size grew with the customer. Measured on a real
+	// tenant, same day, before and after (user decision, 2026-08-06):
+	//
+	//	                              BEFORE      AFTER
+	//	full page                    867 233 B   32 066 B   -96.3% (27.0x)
+	//	  of which, all <select>     836 771 B    1 452 B
+	//	  of which, the employee one 835 319 B        0 B   (it is an <input> now)
+	//	  docket cards on the page          25         25   (payload unchanged)
+	//
+	// ⚠️ THE DENOMINATORS ARE DIFFERENT AND ARE LABELLED. "Page bytes" is the whole
+	// document; "filter bar bytes" is the <select> elements inside it. Confusing the
+	// two is how the first version of this paragraph would have claimed a 96%
+	// saving on something that was never 96% of anything.
+	//
+	// The roster was the only unbounded one: venues and departments are bounded by
+	// how many places a business has, a payroll is not. At 111.5 B per <option>
+	// the old shape crossed 100 KB at ~645 employees and 250 KB at ~2 022, on a page
+	// that is Cache-Control: no-store and therefore re-sent on EVERY view and EVERY
+	// filter change. The new shape is flat in the size of the business.
+	//
+	// 🔴 THE OTHER HALF OF THE SECOND AXIS: DATABASE TIME. The paragraph above
+	// answers "how big is a request" in BYTES and stops there, which an audit named
+	// as leaving the axis this block itself opened half-answered. The ceilings above
+	// are sized on 3.0-5.7 ms per request -- and that figure is the RESOLVER READ
+	// PLUS TouchAdminSession, measured before this panel had a query behind it.
+	// M6-03 put one there and did not add it to the arithmetic.
+	//
+	// MEASURED (EXPLAIN ANALYZE; tenant with 7 769 employees, warm cache, 3 repeats,
+	// after ANALYZE -- the development database had never been analysed, which is
+	// what made an earlier round's timings unreproducible):
+	//
+	//	                          ordinary day (1 674)   largest day (13 458)
+	//	no name filter               0.6 - 0.8 ms           0.6 - 0.9 ms
+	//	name filter, many matches    9.7 - 17.2 ms         20.3 - 37.5 ms
+	//	name filter, few matches     8.8 - 14.8 ms          9.3 - 11.8 ms
+	//	name filter, no matches      8.5 - 14.6 ms         12.7 - 20.2 ms
+	//
+	// ⚠️ THE DENOMINATOR: those are per PAGE REQUEST -- one document or one paging
+	// fragment -- not per session and not per view-plus-paging. An independent audit
+	// measured up to 108 ms on the same shape, so treat the upper end as variable
+	// with the pattern and the day rather than as a ceiling.
+	//
+	// SO THE HONEST PER-REQUEST COST, adding the auth cost this file already knew:
+	//
+	//	unfiltered page   0.6-0.9 ms  +  3.0-5.7 ms  =   ~4 - 7 ms
+	//	filtered page     8.5-37.5 ms +  3.0-5.7 ms  =  ~12 - 43 ms
+	//
+	// AND WHAT THAT DOES TO adminSessionLimit: 300 filtered requests is roughly
+	// 3.6-12.9 s of database time per window per SESSION, against the ~1 s the old
+	// 3.0-5.7 ms figure implied. The address ceiling is 3000, so an AUTHENTICATED
+	// caller holding several sessions can multiply it, on the connection pool the
+	// tap surface shares.
+	//
+	// IT IS NOT LOWERED HERE, and the reasons are the ones this file already gives
+	// for not lowering anything on measurement alone: reaching it needs a valid
+	// panel session (not an anonymous flood), the 7 769-employee roster driving the
+	// slow arm is this repository's test residue rather than a customer, and the
+	// unfiltered page -- what a manager actually opens -- costs 0.6-0.9 ms. What was
+	// missing was the NUMBER, and the number is now here with its denominator.
+	// ⚠️ sessionGate runs BEFORE the handler, so a refused request does NOT run this
+	// query; the 429s cost the resolver read, not the page.
+	//
+	// ⚠️ THE ABSOLUTE NUMBERS OVERSTATE A REAL CUSTOMER, and the evidence for that
+	// sentence had to be re-measured because the first version of it was WRONG.
+	//
+	// 🔴 IT SAID "another tenant in the same database has 76 618" AND NO TENANT HAS
+	// ANYTHING LIKE THAT. The figure came from a query grouped by tenant NAME, and
+	// "Kebab Factory Ltd" is a name shared by 44 752 different tenants this
+	// repository's own tests created -- so the count summed a roster across all of
+	// them and was then written down as one business's payroll. Same label mistake
+	// as everywhere else in this session: measured over one denominator, reported
+	// under another.
+	//
+	// MEASURED CORRECTLY (GROUP BY tenant_id):
+	//
+	//	largest single tenant      7 669 employees   (the seed tenant)
+	//	next largest                  31 employees
+	//	all tenants together     111 167 employees across 64 838 tenants
+	//
+	// The caveat survives and is STRONGER: the page figures above were taken on the
+	// seed tenant, whose 7 669 employees are almost entirely test residue, and the
+	// second-largest business in this database has 31 people. The SHAPE is the
+	// finding, not the magnitude.
 	//
 	// CONSEQUENCE, STATED PRECISELY: a LEGITIMATE admin having a heavy day meets 429
 	// on their own panel at request 301. It is not a lockout — signing out still

@@ -112,36 +112,54 @@ templ AdminChoose(v AdminChooseView) {
 	}
 }
 
-// AdminDashboard is the panel shell: brand lockup, who is signed in, the five
-// sections, and the section that was asked for.
+// PanelShell is the chrome EVERY panel section renders inside: brand lockup, who
+// is signed in, sign-out, the tab bar, and the section's heading.
 //
-// 🔴 EVERY SECTION IS EMPTY, AND SAYS SO. M6-02 is the skeleton — the layout, the
-// navigation and the repeated components — and the sections are M6-03, M6-05,
-// M6-06, M6-07 and M6-09. An empty state that names its task is the honest shape
-// for that: a manager who opens Reports on a demo deployment learns that the
-// section is coming, rather than concluding that they have no hours.
+// 🔴 IT WAS EXTRACTED BY M6-03 AND THE ALTERNATIVE WAS THE FAILURE THIS REPO KEEPS
+// PAYING FOR. Until M6-03 there was one panel page and this markup lived inside it.
+// Giving Transactions real content meant either a second page carrying a COPY of
+// the lockup, the sign-out form and the navigation — a second representation, two
+// places to drift, and the drift unnoticeable because a page missing sign-out looks
+// exactly like one that has it — or this. The body is the only thing that differs
+// between a built section and an empty one.
 //
-// ONE COMPONENT RENDERS ALL FIVE SECTIONS, keyed by v.Tab. When M6-03 gives
-// Transactions real content it replaces this component's body for that one tab;
-// the chrome above it does not move, and the other four keep working.
-templ AdminDashboard(v AdminDashboardView) {
-	@layout.Panel("Panel — Tappa") {
+// script is a path under /static or "". It is a parameter rather than a fixed
+// choice because exactly one section needs one (Transactions, for HTMX paging) and
+// four do not, and layout.PanelWithScript's own comment explains why naming a
+// script must stay a deliberate act rather than an inherited default.
+templ PanelShell(c PanelChrome, script string) {
+	@layout.PanelWithScript("Panel — Tappa", script) {
 		@layout.Wordmark()
 		<div class="flex flex-wrap items-baseline justify-between gap-3">
 			<div>
 				<p class="docket-label">Signed in as</p>
-				<p class="font-display text-xl font-bold tracking-tight">{ v.FullName }</p>
+				<p class="font-display text-xl font-bold tracking-tight">{ c.FullName }</p>
 			</div>
 			<div class="flex items-center gap-3">
-				<span class="font-mono text-xs uppercase tracking-widest text-ink/70">{ v.Role }</span>
+				<span class="font-mono text-xs uppercase tracking-widest text-ink/70">{ c.Role }</span>
 				<form method="post" action="/admin/logout">
 					<button type="submit" class="btn btn--quiet">Sign out</button>
 				</form>
 			</div>
 		</div>
-		@components.TabBar(panelTabs(), currentHref(v))
-		if s, ok := v.Section(); ok {
+		@components.TabBar(panelTabs(), c.CurrentHref())
+		if s, ok := c.Section(); ok {
 			<h1 class="font-display text-2xl font-bold tracking-tight">{ s.Label }</h1>
+		}
+		{ children... }
+	}
+}
+
+// AdminDashboard is a section that has NOTHING IN IT YET, and says so.
+//
+// 🔴 FOUR OF THE FIVE SECTIONS STILL RENDER THIS. M6-02 built the skeleton and
+// M6-03 filled Transactions; Employees, Locations, Reports and Policies are M6-05,
+// M6-06, M6-07 and M6-09. An empty state that names its task is the honest shape:
+// a manager who opens Reports learns that the section is coming, rather than
+// concluding that they have no hours.
+templ AdminDashboard(v AdminDashboardView) {
+	@PanelShell(v.PanelChrome, "") {
+		if s, ok := v.Section(); ok {
 			@components.EmptyState(s.Label + " is not built yet") {
 				<p>{ s.Blurb }</p>
 				<p class="mt-2">
@@ -164,12 +182,6 @@ func panelTabs() []components.Tab {
 	return out
 }
 
-// currentHref is the href TabBar compares against. An unknown tab yields "", which
-// marks no tab current rather than marking the first one — see Section().
-func currentHref(v AdminDashboardView) string {
-	s, ok := v.Section()
-	if !ok {
-		return ""
-	}
-	return s.Href
-}
+// NOTE — currentHref MOVED to PanelChrome.CurrentHref (adminview.go) in M6-03.
+// Two views now render the same tab bar, and a package-level function taking one
+// of them would have needed a second copy for the other.

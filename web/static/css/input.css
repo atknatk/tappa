@@ -231,4 +231,58 @@
   }
   /* The current tab is named by aria-current as well; the colour only repeats it. */
   .tab-link--current { @apply border-tappa-green text-ink; }
+
+  /* --- filter bar: the panel's six filters (M6-03) ---
+     It was M6-02's card item and was MOVED here rather than dropped: M6-02 had
+     nothing to filter, and shipping a bar over no data would have meant a rule
+     with no `class=` to trace to, or controls that look like they work. Every
+     selector below is rendered by components/filterbar.templ.
+
+     THE CONTROLS RESERVE 44px (min-h-11), which is the touch-target floor rather
+     than a look: the panel is a desktop screen, but a manager checks it on a phone
+     at the pass with one thumb, and a select that is missed is a page they did not
+     ask for.
+
+     🔴 THIS PARAGRAPH CLAIMED THE FLOOR WAS "asserted against the COMPILED
+     stylesheet by TestPanelScreens_TouchTargetClassesReserve44px" BEFORE IT WAS.
+     That test iterates panelTouchTargets, and .filter-input was not in the map —
+     so deleting min-h-11 from the rule below removed the declaration from app.css
+     and left the whole package green (measured). The class is in the map now, and
+     TestPanelScreens_FormControlsCarryATouchTargetClass covers the markup side,
+     which the anchor/button scan never reached.
+
+     ⚠️ THE STYLESHEET HALF SKIPS IN CI. app.css is gitignored and `make check`
+     does not build it, so that half runs locally only — an inherited debt, not a
+     property of these rules. The markup half runs everywhere. */
+  .filter-bar {
+    @apply flex flex-wrap items-end gap-3 border border-line bg-paper px-4 py-3;
+  }
+  .filter-field {
+    @apply flex min-w-[9rem] flex-1 flex-col gap-1;
+  }
+  .filter-input {
+    @apply min-h-11 w-full border border-line bg-paper px-2 py-1 font-mono text-sm text-ink
+           focus:border-tappa-green focus:outline-none focus:ring-1 focus:ring-tappa-green;
+  }
+  .filter-actions {
+    @apply flex items-center gap-2;
+  }
+
+  /* --- tally: a small fact ABOUT a record, printed inside its docket ---
+     It is not a stamp and must not look like one. A stamp is the VERDICT — the
+     engine's judgement, set at an angle, double framed. These two say how the row
+     got here (a manager typed it) and where it is going (a review queue), and
+     giving them the stamp's frame would put four framed words on one card and make
+     the verdict compete with its own footnotes.
+
+     THE TONE MAPPING IS THE BRAND'S FIXED ONE and is not reinvented: `manual`
+     borrows nothing (it is ink on the line colour, deliberately neutral — a manual
+     entry is not a warning), and `queued` is saffron because a queued record IS
+     the FLAGGED state waiting for a person, which the brand maps to saffron.
+     Colour is never the only carrier: both carry their words. */
+  .tally {
+    @apply inline-block border px-2 py-0.5 text-[11px] uppercase tracking-widest text-ink;
+  }
+  .tally--manual { @apply border-line bg-line/10; }
+  .tally--queued { @apply border-saffron bg-saffron-lite; }
 }

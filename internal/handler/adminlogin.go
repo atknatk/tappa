@@ -88,6 +88,16 @@ type AdminAuth struct {
 	// baseURL is this deployment's own origin, for the Origin header check.
 	baseURL string
 
+	// ledger is the panel's READ side (M6-03, internal/domain/ledger). It is on
+	// this type rather than on one of its own for the reason dashboard.go gives:
+	// the section handlers need a.render (which sets the policy, the cache header
+	// and nosniff in ONE place) and the identity the Protect chain resolved, and
+	// AdminAuth already owns both. A second type would either duplicate the header
+	// block — two policies to keep in step, the failure class this repo has paid
+	// for three times — or need render exported, which makes those headers
+	// optional for whoever calls it next.
+	ledger panelLedger
+
 	// See adminratelimit.go for why there are three and what each may refuse.
 	floodLimiter   *limiter
 	attemptLimiter *limiter
@@ -100,12 +110,19 @@ type AdminAuth struct {
 
 // NewAdminAuth wires the flow. Every dependency is required: a nil recorder would
 // silently drop the section 4.6 trail and a nil manager cannot fail safely.
-func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, cfg *config.Config, log *slog.Logger) (*AdminAuth, error) {
+func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLedger, cfg *config.Config, log *slog.Logger) (*AdminAuth, error) {
 	switch {
 	case admins == nil:
 		return nil, errors.New("handler: nil admin authenticator")
 	case rec == nil:
 		return nil, errors.New("handler: nil audit recorder")
+	// A NIL LEDGER IS REFUSED RATHER THAN TOLERATED, and the reason is section
+	// 4.6 rather than tidiness: a panel that cannot read would have to render
+	// SOMETHING for the transactions section, and the only thing it could render
+	// is a page with no records on it — which is indistinguishable from a quiet
+	// day. The wiring bug has to be impossible to construct, not merely unlikely.
+	case records == nil:
+		return nil, errors.New("handler: nil transaction ledger")
 	case cfg == nil:
 		return nil, errors.New("handler: nil config")
 	}
@@ -119,6 +136,7 @@ func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, cfg *config.Conf
 	return &AdminAuth{
 		admins:         admins,
 		audit:          rec,
+		ledger:         records,
 		cookies:        adminauth.NewCookies(cfg),
 		short:          newAdminCookies(cfg),
 		choices:        choices,
@@ -360,6 +378,17 @@ var (
 	problemAdminServer = pages.ProblemView{
 		Title:   "Something went wrong on our side",
 		Message: "You were not signed in and nothing was changed.",
+		Hint:    "Try again in a minute.",
+	}
+	// 🔴 THIS SCREEN EXISTS SO THAT A FAILED READ CANNOT LOOK LIKE A QUIET DAY
+	// (section 4.6, and the class M5-11 closed). When the panel cannot reach the
+	// database the honest answer is "we could not look", never a page listing no
+	// records — those are different facts and only one of them is measured.
+	// The wording says explicitly that nothing is missing FROM THE RECORD, because
+	// the first thing a manager fears on this screen is that a day was lost.
+	problemPanelUnavailable = pages.ProblemView{
+		Title:   "We could not read your records",
+		Message: "The panel could not reach the database, so this page is not showing anything. Nothing has been changed and no record has been lost.",
 		Hint:    "Try again in a minute.",
 	}
 )
@@ -995,10 +1024,39 @@ func ptr(id uuid.UUID) *uuid.UUID { return &id }
 // threat behind it here: a browser that honours it will not let a password form be
 // repointed at another host.
 func (a *AdminAuth) render(w http.ResponseWriter, r *http.Request, status int, c templ.Component) {
+	a.renderWithPolicy(w, r, status, c, adminCSP)
+}
+
+// renderScripted is render for the ONE panel page that loads a script.
+//
+// 🔴 IT IS A SEPARATE ENTRY POINT SO THAT THE WIDENING IS PER-PAGE RATHER THAN
+// PER-PANEL. M6-03 needed a script on the transactions section; giving the whole
+// panel script-src would have let the five screens that load nothing permit one.
+// Both policies are DERIVED FROM ONE BASE STRING below, so this is a parameter on
+// a single representation and not the "two policies to keep in step" shape that
+// this file argues against elsewhere.
+func (a *AdminAuth) renderScripted(w http.ResponseWriter, r *http.Request, status int, c templ.Component) {
+	a.renderWithPolicy(w, r, status, c, adminScriptedCSP)
+}
+
+// ⚠️ LIMIT — NO Referrer-Policy HEADER (M6-03, informational). Measured on the
+// wire across six panel URLs: none of them sends one. It has NO EFFECT TODAY,
+// because the policy above is default-src 'none' with 'self' everywhere else, so
+// these pages cannot generate a cross-origin request for a Referer to ride on --
+// and layout.documentHead already sends <meta name="referrer" content="no-referrer">,
+// which covers navigations.
+//
+// IT IS WRITTEN DOWN BECAUSE THE URL CHANGED SHAPE. Since 2026-08-06 the
+// transactions URL carries a TYPED PERSON'S NAME in ?employee=, so the address of
+// this page is no longer only ids and dates. That is not a §4.7 breach — the name
+// is the reader's own query about their own tenant, not a secret — and nothing
+// leaves the origin. It is hardening that becomes worth doing the first time any
+// panel page links or embeds anything external.
+func (a *AdminAuth) renderWithPolicy(w http.ResponseWriter, r *http.Request, status int, c templ.Component, policy string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
-	w.Header().Set("Content-Security-Policy", adminCSP)
+	w.Header().Set("Content-Security-Policy", policy)
 	w.WriteHeader(status)
 	if err := c.Render(r.Context(), w); err != nil {
 		// The status line is already on the wire, so there is nothing to send but a
@@ -1019,12 +1077,13 @@ func (a *AdminAuth) redirect(w http.ResponseWriter, to string) {
 	w.WriteHeader(http.StatusSeeOther)
 }
 
-// adminCSP is the content policy for the panel auth screens.
+// adminCSP is the content policy for every panel screen that loads NO script,
+// which is all of them except the transactions section.
 //
-// It is tap.go's policy WITHOUT script-src: none of these screens loads a script,
-// so naming one would widen the policy for nothing. default-src 'none' already
-// forbids scripts, and dropping the directive means adding a script later is a
-// visible edit here rather than a silent inheritance.
+// It is tap.go's policy WITHOUT script-src: these screens load no script, so
+// naming one would widen the policy for nothing. default-src 'none' already
+// forbids scripts, and dropping the directive means adding a script is a visible
+// edit here rather than a silent inheritance.
 //
 //	default-src 'none'      nothing loads unless named below
 //	style-src / font-src    our own origin only; there is no CDN to allow
@@ -1033,3 +1092,74 @@ func (a *AdminAuth) redirect(w http.ResponseWriter, to string) {
 //	frame-ancestors 'none'  the panel must not be framed under someone else's page
 const adminCSP = "default-src 'none'; style-src 'self'; font-src 'self'; " +
 	"form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
+
+// adminScriptedCSP is adminCSP plus EXACTLY what HTMX needs, and nothing else.
+//
+// 🔴 THE WIDENING M6-03 OWED, WRITTEN DOWN WITH ITS SIZE. M6-02 shipped the panel
+// with no script and recorded that adding one had to be a deliberate, visible edit
+// rather than an inherited default. This is that edit.
+//
+// ⚠️ THIS PARAGRAPH NAMED A TEST THAT DOES NOT EXIST, and it is worth saying so
+// here because this comment is the one thing somebody reads before widening the
+// policy again. It said "TestPanelScreens_LoadNoScriptAndReachNoThirdParty turns
+// red on the first <script> tag". That test was RENAMED BY THIS VERY TASK (its
+// header had gone stale in the same way), and the round that renamed it fixed the
+// duplicate sentence in dashboard_test.go while leaving THIS one -- a fix that left
+// its own subject stale one file away.
+//
+// WHAT ACTUALLY GUARDS THIS, and what it does NOT guard:
+//
+//	TestPanelScreens_ScriptsAndPolicyAgreeAndReachNoThirdParty (dashboard_test.go)
+//	  - a page names script-src IF AND ONLY IF it loads a script, and connect-src
+//	    comes with it;
+//	  - EXACTLY ONE panel URL sends the widened policy, and it is the transactions
+//	    section.
+//
+// It does NOT "turn red on the first <script> tag" -- a new scripted page whose
+// policy widens correctly is ACCEPTED by the correspondence and then caught by the
+// cardinality. That is the design: adding a second scripted screen is allowed and
+// must be argued for in that test, rather than being impossible.
+//
+// IT GROWS BY TWO DIRECTIVES. adminCSP names six directives; this names eight
+// (counted, not eyeballed -- the earlier "five ... seven" was wrong in both
+// figures, and the only job that number has is letting a reader COUNT the
+// widening):
+//
+//	script-src 'self'   the vendored htmx.min.js, served from our own origin.
+//	                    There is NO CDN entry: the file is in web/static/vendor/ with
+//	                    its version, source URL and sha256 recorded beside it, and
+//	                    embedded in the binary — the same discipline the brand
+//	                    faces came in under (M5-04).
+//	connect-src 'self'  htmx pages with XMLHttpRequest, and XHR is governed by
+//	                    connect-src, which FALLS BACK TO default-src when it is
+//	                    absent. default-src is 'none', so without this directive
+//	                    the script would load and every paging request it made
+//	                    would be blocked by the browser. Measured in a real
+//	                    browser rather than reasoned about — see the M6-03 notes in
+//	                    docs/plan/m6-dashboard.md.
+//
+// 🔴 WHAT IT DOES NOT GAIN, and these are the two that matter: no 'unsafe-inline'
+// and no 'unsafe-eval'. hx-get / hx-target / hx-swap are ATTRIBUTES that htmx's own
+// code reads with getAttribute; the browser never evaluates them, so they are not
+// inline script. htmx does contain one `new Function` and one `eval`, and both are
+// reachable only through syntaxes this product does not use — hx-on:* handlers,
+// the `js:` prefix on hx-vals/hx-headers, and bracketed event filters. That
+// abstinence is asserted rather than assumed (transactions_test.go).
+//
+// ⚠️ THE COST OF THE SPLIT, STATED: two constants exist where there was one. They
+// are not two representations — the second is the first plus a named suffix, on
+// the line below — and exactly one panel SECTION sends the second.
+//
+// 🔴 THAT LAST CLAUSE USED TO SAY "which is itself pinned by a test" AND IT WAS NOT
+// TRUE WHEN IT WAS WRITTEN. The test measured only the per-page correspondence
+// (a page names script-src iff it loads one), which every page satisfies when ALL
+// of them load the script — an audit mutated exactly that and the package stayed
+// green. The CARDINALITY is now asserted, in
+// TestPanelScreens_ScriptsAndPolicyAgreeAndReachNoThirdParty, and this sentence is
+// true because that test counts rather than because this comment says so.
+//
+// ⚠️ "SECTION" IS THE HONEST WORD, NOT "URL". The cardinality check walks
+// pages.PanelSections, and /admin/dockets is deliberately not in that table — so a
+// fragment route that started sending the scripted policy is caught by
+// TestDocketFragment_UsesTheUnwidenedPolicy rather than by the count.
+const adminScriptedCSP = adminCSP + "; script-src 'self'; connect-src 'self'"

@@ -1,0 +1,119 @@
+package pages
+
+import "github.com/atknatk/tappa/web/templates/components"
+
+// The TRANSACTIONS section (M6-03) — the first panel section with real data in it.
+//
+// 🔴 TWO ENTRY POINTS, ONE LIST. AdminTransactions is the whole document;
+// TransactionDockets is the same list of dockets WITHOUT the chrome, which is what
+// the HTMX paging request receives. They share dockets() so a card can never look
+// one way on first load and another way when it arrives by fragment.
+//
+// 🔴 §4.3 — THIS IS A READ. There is no form that posts, no approve button and no
+// edit control anywhere below. transactions is immutable; correcting a record is a
+// NEW record plus audit_log and belongs to M6-08, and reviewing a flagged one
+// writes to transaction_reviews and belongs to M6-04.
+//
+// 🔴 §4.6 — THE EMPTY STATE IS GATED ON HAVING ASKED. "No taps recorded" is a
+// claim about the world, and the product may not make one it has not measured
+// (the class M5-11 closed). v.Queried is set only after the database has answered,
+// and the branch below prints nothing at all without it — a failed read renders an
+// error page in the handler and never reaches here.
+
+// AdminTransactions is the section as a full document.
+//
+// THE SCRIPT IS NAMED HERE AND NOWHERE ELSE. It is the one page in the panel that
+// loads one, and layout.PanelWithScript plus the scripted CSP in
+// internal/handler/adminlogin.go are the two other places that had to change for
+// it. Four sections still render layout.Panel with no script at all.
+templ AdminTransactions(v TransactionsView) {
+	@PanelShell(v.PanelChrome, "/static/vendor/htmx.min.js") {
+		// 🔴 MONO, BECAUSE THIS IS DATA RATHER THAN A HEADING. skill tappa-brand:
+		// "IBM Plex Mono - her sayı: saat, süre, tag UID, sayaç... Bir veri hücresi
+		// mono değilse yanlıştır." This line carries a DATE and a TIMEZONE, and it
+		// is the sentence that says which slice of the record the page is showing --
+		// the same class of fact as the times inside the dockets below it, which are
+		// mono. The section's actual heading is the <h1> in PanelShell, set in the
+		// display face; this is not a second one.
+		<p class="font-mono text-sm text-ink/85">
+			{ v.DayLabel }
+			<span class="text-ink/70">· { v.ZoneLabel }</span>
+		</p>
+		@components.FilterBar(v.Filters)
+		if len(v.Dockets) > 0 {
+			<div class="flex flex-col gap-4">
+				@dockets(v)
+			</div>
+		} else if v.Queried {
+			@components.EmptyState(emptyHeading(v)) {
+				if v.Filters.Narrowed {
+					<p>Nothing on this day matches those filters. Widen them, or clear them to see the whole day.</p>
+				} else {
+					// 🔴 THIS SENTENCE SAYS "NOTHING WAS RECORDED", NOT "NOBODY TAPPED",
+					// and the difference is §5 rather than style. It read "Nobody tapped
+					// a plaque on this day" and that is a claim the system cannot make:
+					// §5 row 3 sends somebody with no session to the activation page and
+					// writes NO RECORD AT ALL, so a plaque touched by every new starter
+					// in the building produces exactly this empty page. Stating their
+					// absence would be reporting on something never measured — the class
+					// M5-11 closed, and the heading above was already careful about it.
+					<p>Nothing was recorded here on this day. Pick another day above.</p>
+				}
+			}
+		}
+	}
+}
+
+// TransactionDockets is the SAME list with no chrome — the HTMX fragment.
+//
+// IT IS NOT A DOCUMENT. It is inserted into a page that already exists, so it has
+// no shell, no navigation and no stylesheet link of its own. A reader who follows
+// the URL by hand gets a bare, inert list; that is behind the session gate and
+// harmless, and the ordinary link they would have followed instead
+// (v.MoreHref, rendered below) goes to the whole page.
+templ TransactionDockets(v TransactionsView) {
+	@dockets(v)
+}
+
+// dockets is the shared body: the cards, then whatever continues the list.
+templ dockets(v TransactionsView) {
+	for _, d := range v.Dockets {
+		@components.TransactionDocket(d)
+	}
+	if v.MoreHref != "" {
+		// 🔴 AN ANCHOR THAT HTMX INTERCEPTS, RATHER THAN A BUTTON.
+		//
+		// With the script: hx-get fetches the next fragment and hx-swap="outerHTML"
+		// on hx-target="this" replaces this very control with it — so the new cards
+		// land exactly where the control was, and the control that comes back with
+		// them continues the chain.
+		//
+		// Without the script: it is an ordinary link to the next page as a whole
+		// document. A panel that stopped paginating when a work laptop blocks
+		// JavaScript would be a panel hiding records, and §4.6 is about records
+		// staying reachable.
+		//
+		// NO hx-on, NO js: PREFIX, NO EVENT FILTER. Those are the three htmx
+		// syntaxes that reach `new Function` / `eval` inside the library, and
+		// avoiding all three is what lets the policy stay free of 'unsafe-inline'
+		// and 'unsafe-eval'.
+		<a
+			class="btn btn--quiet self-start"
+			href={ templ.URL(v.MoreHref) }
+			hx-get={ v.MoreFragmentHref }
+			hx-target="this"
+			hx-swap="outerHTML"
+		>Show more</a>
+	}
+}
+
+// emptyHeading names WHICH claim the empty state is making.
+// The two are different and only one is ever true: a day with no taps at all, and
+// a day whose taps are all filtered out. Saying the first when the second is the
+// case would tell a manager their people did not turn up.
+func emptyHeading(v TransactionsView) string {
+	if v.Filters.Narrowed {
+		return "No records match these filters"
+	}
+	return "No taps recorded on this day"
+}

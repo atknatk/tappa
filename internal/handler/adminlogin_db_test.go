@@ -38,6 +38,7 @@ import (
 	"github.com/atknatk/tappa/internal/audit"
 	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/db"
+	"github.com/atknatk/tappa/internal/domain/ledger"
 	"github.com/atknatk/tappa/web/templates/pages"
 )
 
@@ -118,7 +119,11 @@ func newPanelHarness(t *testing.T) *panelHarness {
 	if err != nil {
 		t.Fatalf("audit.New: %v", err)
 	}
-	h, err := NewAdminAuth(admins, trail, cfg, slog.New(slog.DiscardHandler))
+	records, err := ledger.NewReader(data, slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatalf("ledger.NewReader: %v", err)
+	}
+	h, err := NewAdminAuth(admins, trail, records, cfg, slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}

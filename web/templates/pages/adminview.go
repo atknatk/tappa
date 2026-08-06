@@ -144,17 +144,20 @@ var PanelSections = []PanelSection{
 	},
 }
 
-// AdminDashboardView is the panel shell: who is signed in, and which section they
-// are looking at.
+// PanelChrome is everything the panel draws AROUND a section: who is signed in,
+// and which section they are looking at.
 //
-// 🔴 IT CARRIES NO SECTION CONTENT, and that is M6-02's scope rather than an
-// oversight. Every section renders an empty state naming the task that fills it;
-// the first field that holds a transaction, an employee or a policy belongs to
-// M6-03 and after. A view model with a data field is how a skeleton quietly
-// becomes a half-built dashboard.
+// 🔴 IT WAS EXTRACTED IN M6-03 AND THE REASON IS THE FAILURE CLASS THIS REPO KEEPS
+// PAYING FOR. Until M6-03 there was one panel page, so the wordmark, the "signed
+// in as" block, the sign-out form and the tab bar lived inside it. M6-03 gives ONE
+// of the five sections real content, and the obvious move — a second page template
+// with the same chrome pasted above it — would have made the navigation, the
+// sign-out button and the brand lockup a SECOND REPRESENTATION, i.e. two places
+// for them to drift, with the drift invisible (a page missing sign-out looks
+// exactly like a page that has it). One shell renders both; only the body differs.
 //
 // Tab is a PanelTab, so the template can only be pointed at a section that exists.
-type AdminDashboardView struct {
+type PanelChrome struct {
 	FullName string
 	Role     string
 	Tab      PanelTab
@@ -167,11 +170,35 @@ type AdminDashboardView struct {
 // current page, which looks like a working control and is not. The template
 // renders nothing at all instead, and the handler cannot reach that branch because
 // it only ever passes a tab it read from PanelSections.
-func (v AdminDashboardView) Section() (PanelSection, bool) {
+func (c PanelChrome) Section() (PanelSection, bool) {
 	for _, s := range PanelSections {
-		if s.Tab == v.Tab {
+		if s.Tab == c.Tab {
 			return s, true
 		}
 	}
 	return PanelSection{}, false
+}
+
+// CurrentHref is the href TabBar compares against. An unknown tab yields "",
+// which marks no tab current rather than marking the first one — see Section().
+func (c PanelChrome) CurrentHref() string {
+	s, ok := c.Section()
+	if !ok {
+		return ""
+	}
+	return s.Href
+}
+
+// AdminDashboardView is a section that has NO CONTENT YET: the chrome, and an
+// empty state naming the task that fills it.
+//
+// 🔴 IT STILL CARRIES NO SECTION DATA, and after M6-03 that is a sharper statement
+// than it was. Four of the five sections are still empty and this is the view they
+// render; Transactions has its own view model (TransactionsView) with its own
+// fields. So "a view model with a data field is how a skeleton quietly becomes a
+// half-built dashboard" is enforced by there being no data field HERE — a section
+// cannot half-fill itself, it has to be given a view of its own, which is an edit
+// somebody makes on purpose.
+type AdminDashboardView struct {
+	PanelChrome
 }

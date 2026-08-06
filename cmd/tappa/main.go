@@ -19,6 +19,7 @@ import (
 	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/db"
 	"github.com/atknatk/tappa/internal/domain/checkin"
+	"github.com/atknatk/tappa/internal/domain/ledger"
 	"github.com/atknatk/tappa/internal/domain/tenant"
 	"github.com/atknatk/tappa/internal/handler"
 	"github.com/atknatk/tappa/internal/httpx"
@@ -108,7 +109,14 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	panelAuth, err := handler.NewAdminAuth(admins, trail, cfg, slog.Default())
+	// The panel's READ side (M6-03). It takes the same *db.DB every other service
+	// does, so its queries run inside WithTenant and are subject to RLS as well as
+	// to their own explicit tenant predicate.
+	records, err := ledger.NewReader(data, slog.Default())
+	if err != nil {
+		return err
+	}
+	panelAuth, err := handler.NewAdminAuth(admins, trail, records, cfg, slog.Default())
 	if err != nil {
 		return err
 	}

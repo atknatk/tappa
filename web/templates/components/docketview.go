@@ -1,0 +1,158 @@
+package components
+
+// The TRANSACTION DOCKET and the FILTER BAR's inputs (M6-03).
+//
+// 🔴 WHY THESE TYPES LIVE IN components RATHER THAN IN pages, because the rest of
+// the product's view models are in pages and this looks like an exception. It is
+// the rule this package already follows: components.Tab is defined here too, next
+// to the TabBar that renders it. The reason is mechanical rather than stylistic —
+// pages imports components, so a component taking a pages type would close an
+// import cycle. A component owns the shape of its own input.
+//
+// 🔴 §4.7 — THE ABSENCE OF THREE FIELDS ON DocketView IS THE SPEC, and it is the
+// same discipline AdminLoginView applies to a password: a template cannot render
+// what the view has no field to carry. There is no Latitude, no Longitude and no
+// SourceIP here. The record on disk has all three (migration 0005); the query does
+// not select them (db/queries/transactions.sql, ListPanelTransactions), the domain
+// type has no field for them (internal/domain/ledger), and neither does this.
+// Three independent walls — removing any one still leaves a coordinate unable to
+// reach a screen, an HTML attribute, a log line or a CSV.
+//
+// WHAT IS SHOWN INSTEAD IS THE SIGNS. §5 rows 6-7 decide on "did the IP match" and
+// "was the phone inside the radius", not on the values, so the signs are what a
+// manager needs in order to read a verdict — and they are exactly what skill
+// tappa-brand's docket sketch prints: `TRUST 100  IP ✓ GPS ✓`.
+//
+// EVERY TIME IS A PRE-FORMATTED STRING, as in ResultView: CLAUDE.md §6 keeps
+// instants in UTC everywhere below the render layer, and the conversion into the
+// tenant's zone happens once, in the handler, against the zone the database gave.
+
+// DocketView is one transaction as a kitchen docket — the motif this product is
+// recognised by. It is NOT a table row, and that is a brand rule (skill
+// tappa-brand's "Yapma" list ends with exactly that substitution).
+type DocketView struct {
+	// Venue is the location's name, or "" when the record carries none. Empty is
+	// a legitimate state: §4.6 requires a record to be written even when almost
+	// nothing about it could be resolved.
+	Venue string
+	// Department is the department's name, "" when the person has none.
+	Department string
+	// Who is the employee's full name, or "" for a record written before the
+	// session was resolved — a stolen plaque touched with no cookie (§5 rows 1-2
+	// come BEFORE row 3). The template says so in words rather than leaving a gap.
+	Who string
+	// Direction is "in", "out", or "" for a verdict that carries none (migration
+	// 0005: reject and ignored have a NULL type).
+	Direction string
+	// At is the wall-clock time in the tenant's zone, already formatted.
+	At string
+	// Trust is the confidence score as text ("100"), or "" when the engine
+	// recorded none. A STRING RATHER THAN AN INT because 0 is a real score and
+	// "absent" must not render as one.
+	Trust string
+	// IPSign and GPSSign are the two evidence signs, as text. THREE VALUES, NOT
+	// TWO — migration 0005 keeps both columns three-state, and collapsing "not
+	// assessed on this channel" into "failed" would report a manual entry as
+	// having failed a check nobody ran.
+	IPSign  string
+	GPSSign string
+	// TagUID is the plaque's uid, "" for a manual entry that had no plaque. It is
+	// not a secret: skill tappa-brand records that it is printed on the plaque and
+	// already appears in the address bar, so it is outside §4.7.
+	TagUID string
+	// Ctr is the chip's read counter as text, "" when there is none.
+	Ctr string
+	// Verdict is ok | flag | reject | ignored. It picks the stamp, and the stamp
+	// carries the WORD as well as the colour, so status is never told by colour
+	// alone.
+	Verdict string
+	// Practice marks the post-activation training tap with a TRAINING stamp.
+	//
+	// ⚠️ NOTHING IS CLAIMED HERE ABOUT HOURS. §5 says a practice tap never counts
+	// toward worked time and the employee's own result screen says so — but the
+	// panel has no hours to count yet (totalling is M6-07 and does not exist in
+	// the repo), so a sentence about what this does not add up to would be a
+	// screen describing arithmetic the product has not done.
+	Practice bool
+	// Manual marks a record a manager typed rather than one somebody tapped. §5
+	// requires it to be distinguishable wherever it is reported; this is the
+	// panel's half of that.
+	Manual bool
+	// Queued marks a record waiting in the approval queue (M6-04). It is a FACT
+	// about the record, not a control: nothing on this screen approves anything,
+	// because approving writes and §4.3 makes this view read-only.
+	Queued bool
+	// Note is the deciding rule's sentence, straight from internal/policy. Those
+	// are fixed strings written by us; they carry no coordinate and no secret.
+	Note string
+}
+
+// FilterBarView is the six filters M6-03's card names: what can be picked, and
+// what is picked.
+//
+// THE SELECTED VALUES ARE ECHOED BACK, which the sign-in form deliberately does
+// NOT do — and the difference is worth stating because the two rules look
+// inconsistent. AdminLoginView refuses to echo an email because that form is the
+// one surface an unauthenticated stranger can post to. This form is behind the
+// session gate, its values are ids and closed-vocabulary words the handler has
+// already validated against the tenant's own data, and a filter bar that forgot
+// its own state after every submission would be unusable.
+type FilterBarView struct {
+	// Action is where the form submits — the section's own URL, so filtering is a
+	// plain GET and every filtered view is a bookmarkable address.
+	Action string
+	// Date is the ISO day in the box ("2026-08-05").
+	Date string
+
+	Locations   []OptionView
+	Departments []OptionView
+
+	// The five selected values. Empty means "do not narrow".
+	LocationID   string
+	DepartmentID string
+	// EmployeeName is TYPED, not picked, and it is the one filter that is not a
+	// list (user decision, 2026-08-06).
+	//
+	// 🔴 THE ROSTER IS THE ONLY FILTER THAT GROWS WITHOUT BOUND, and it was
+	// measured doing so: rendering every employee as an <option> made the page
+	// 867 233 bytes, of which that one <select> was 835 319 -- 96% -- with
+	// Cache-Control: no-store, so it was re-sent on every view and every filter
+	// change. Venues and departments are bounded by how many places a business
+	// has, so they stay pickable.
+	//
+	// ⚠️ THE COST IS PAID BY THE MANAGER AND IS WRITTEN DOWN RATHER THAN HIDDEN:
+	// they must KNOW the name and TYPE it. "Who works here?" stops being
+	// answerable from this control, and becomes the Employees section's job
+	// (M6-05). Two alternatives were measured and rejected first -- shortlisting
+	// to active staff saved 9%, to recent tappers 0.3%, and any hard cut makes
+	// somebody who has left unfindable, which §4.6 refuses.
+	EmployeeName string
+	Verdict      string
+	Channel      string
+
+	// Verdicts and Channels are the closed vocabularies, supplied by the handler
+	// from THE SAME LISTS IT VALIDATES AGAINST — so the dropdown cannot offer a
+	// value the validator would reject, and the validator cannot accept one the
+	// dropdown never showed.
+	Verdicts []OptionView
+	Channels []OptionView
+
+	// Narrowed is true when anything beyond the day is set. The empty state uses
+	// it to say "nothing matches these filters" rather than "nothing happened
+	// that day" — different claims, and only one of them is true at a time.
+	Narrowed bool
+}
+
+// OptionView is one <option>: the value that goes in the URL, the label a human
+// reads, and an optional group heading.
+type OptionView struct {
+	Value string
+	Label string
+	// Group is the location a department sits in. Rendered as a suffix so
+	// "Kitchen" from two different venues is not two identical rows.
+	//
+	// It used to read "or an employee's lifecycle status". Employees stopped being
+	// a list on 2026-08-06 (see FilterBarView.EmployeeName), so the department
+	// dropdown is the only caller left.
+	Group string
+}

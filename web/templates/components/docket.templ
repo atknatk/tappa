@@ -1,0 +1,138 @@
+package components
+
+// TransactionDocket renders one record as the kitchen docket (M6-03).
+//
+// 🔴 IT IS A DOCKET AND NOT A TABLE ROW. skill tappa-brand's "Yapma" list ends
+// with "adisyon yerine düz tablo satırı", and its sketch of the motif is what this
+// renders: venue and person top left, direction and time in mono, a line of
+// evidence, the plaque's uid and counter, and the rubber stamp set at an angle in
+// the corner.
+//
+//	┌─◠─◠─◠─◠─◠─◠─◠─◠─◠─◠─┐
+//	│ KF ST JULIANS        │        ╭────────────╮
+//	│ MARIA BORG           │        │ APPROVED   │
+//	│ IN   14:03:22        │        ╰────────────╯
+//	│ TRUST 100  IP ✓ GPS ✓│
+//	│ TAG 91AC-7E55 #000641│
+//	└─◡─◡─◡─◡─◡─◡─◡─◡─◡─◡─┘
+//
+// THE STAMP'S ANATOMY IS NOT TOUCHED. .stamp and its five modifiers were settled
+// by measurement on 2026-08-01 — the word is ink, and the status colour moved into
+// the border, the inset hairline it casts and a tenth-strength ground. The group-level
+// transparency was dropped in the same change because it faded the only carrier of
+// that colour. This component consumes those rules and adds nothing to them.
+//
+// ⚠️ THE UTILITIES ABOVE ARE DESCRIBED RATHER THAN NAMED, on purpose: Tailwind
+// scans this file as raw text, so writing a utility name in a COMMENT compiles a
+// rule nothing renders. Two names in this paragraph did exactly that and were
+// measured out again.
+//
+// EVERY NUMBER IS MONO because .docket sets font-mono for its whole subtree; the
+// docket feel comes from exactly that.
+templ TransactionDocket(d DocketView) {
+	<article class="docket">
+		<div class="flex items-start justify-between gap-3">
+			<div class="min-w-0">
+				<p class="docket-label">Where</p>
+				<p class="truncate font-display text-sm font-bold tracking-tight text-ink">
+					if d.Venue != "" {
+						{ d.Venue }
+					} else {
+						No location recorded
+					}
+				</p>
+				if d.Department != "" {
+					<p class="truncate text-xs text-ink/70">{ d.Department }</p>
+				}
+				<p class="mt-2 docket-label">Who</p>
+				<p class="truncate font-display text-sm font-bold tracking-tight text-ink">
+					if d.Who != "" {
+						{ d.Who }
+					} else {
+						Nobody recognised
+					}
+				</p>
+			</div>
+			<div class="shrink-0 text-right">
+				@verdictStamp(d.Verdict)
+				if d.Practice {
+					<p class="mt-2"><span class="stamp stamp--training">TRAINING</span></p>
+				}
+			</div>
+		</div>
+		<dl class="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 sm:grid-cols-4">
+			<div>
+				<dt class="docket-label">Direction</dt>
+				<dd class="uppercase tracking-widest text-ink">
+					if d.Direction != "" {
+						{ d.Direction }
+					} else {
+						none
+					}
+				</dd>
+			</div>
+			<div>
+				<dt class="docket-label">Time</dt>
+				<dd class="text-ink">{ d.At }</dd>
+			</div>
+			<div>
+				<dt class="docket-label">Trust</dt>
+				<dd class="text-ink">
+					if d.Trust != "" {
+						{ d.Trust }
+					} else {
+						none
+					}
+				</dd>
+			</div>
+			<div>
+				<dt class="docket-label">Evidence</dt>
+				<dd class="text-ink">IP { d.IPSign } · GPS { d.GPSSign }</dd>
+			</div>
+		</dl>
+		<p class="mt-2 text-xs text-ink/85">
+			if d.TagUID != "" {
+				TAG { d.TagUID }
+				if d.Ctr != "" {
+					· #{ d.Ctr }
+				}
+			} else {
+				No plaque on this record
+			}
+		</p>
+		if d.Manual || d.Queued {
+			<p class="mt-2 flex flex-wrap gap-2">
+				if d.Manual {
+					<span class="tally tally--manual">Entered by a manager</span>
+				}
+				if d.Queued {
+					<span class="tally tally--queued">Waiting for review</span>
+				}
+			</p>
+		}
+		if d.Note != "" {
+			<p class="mt-2 text-xs text-ink/85">{ d.Note }</p>
+		}
+	</article>
+}
+
+// verdictStamp renders the rubber stamp for a verdict.
+//
+// THE WORD IS ALWAYS THERE, which is the accessibility half of the brand rule:
+// status is never told by colour alone, so a stamp that lost its tint still says
+// APPROVED. An unrecognised verdict renders NOTHING rather than a bare .stamp — a
+// frame with no word in it would say only "something happened" — and the four
+// words below are a CHECK-constrained closed set (migration 0005), so that branch
+// is unreachable from the database.
+templ verdictStamp(verdict string) {
+	switch verdict {
+		case "ok":
+			<span class="stamp stamp--approved">APPROVED</span>
+		case "flag":
+			<span class="stamp stamp--flagged">FLAGGED</span>
+		case "reject":
+			<span class="stamp stamp--rejected">REJECTED</span>
+		case "ignored":
+			<span class="stamp stamp--ignored">IGNORED</span>
+	}
+}

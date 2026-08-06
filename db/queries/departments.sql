@@ -26,3 +26,21 @@ SELECT id, tenant_id, name, shift_start, shift_end, overnight
 FROM departments
 WHERE tenant_id = @tenant_id
   AND id = @id;
+
+-- name: ListDepartmentsForTenant :many
+-- The tenant's departments, for the panel's DEPARTMENT filter (M6-03).
+--
+-- It exists beside GetDepartmentShift rather than widening it, which is the split
+-- employees.sql already argues for: that query answers a DECISION question (whose
+-- shift judges lateness) and returns no name it does not need; this one answers a
+-- DISPLAY question and returns the name it exists for. Merging them would make one
+-- query serve two audiences and the stricter one would lose.
+--
+-- Ordered by location then name so the filter reads the way the business is laid
+-- out -- a venue and the departments inside it -- rather than alphabetically
+-- across venues.
+SELECT d.id, d.tenant_id, d.location_id, d.name, l.name AS location_name
+FROM departments d
+JOIN locations l ON l.tenant_id = d.tenant_id AND l.id = d.location_id
+WHERE d.tenant_id = @tenant_id
+ORDER BY l.name, d.name;

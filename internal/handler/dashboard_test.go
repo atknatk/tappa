@@ -208,14 +208,49 @@ func TestPanelSections_ShowTheirOwnEmptyStateAndNameTheTaskThatFillsIt(t *testin
 		tasks[s.Task] = s.Label
 	}
 
+	// 🔴 M6-03 BUILT ONE OF THE FIVE, AND THIS TEST WAS WIDENED RATHER THAN EXEMPTED.
+	// It used to demand that EVERY section name its task and render its blurb, which
+	// is a claim about a panel where nothing is built yet. Adding "…except /admin"
+	// would have turned a property into a fixed list with a hole in it. What is
+	// asserted now is the property the old one was a special case of:
+	//
+	//	1. a section is UNBUILT iff it renders the "… is not built yet" heading;
+	//	2. an UNBUILT section names its task AND renders its own blurb;
+	//	3. a BUILT section renders NEITHER — a section still advertising the task
+	//	   that fills it while showing real content is a half-state, and it is the
+	//	   shape a careless M6-05 would ship;
+	//	4. no section, built or not, renders ANOTHER section's blurb or heading.
+	//
+	// (4) is the load-bearing one and it is unchanged: it is what catches a shell
+	// that highlights the right tab while rendering the same body five times.
+	built, unbuilt := 0, 0
 	for _, s := range pages.PanelSections {
 		body := bodies[s.Href]
-		if !strings.Contains(body, s.Task) {
-			t.Errorf("GET %s does not say which task fills it (%s)", s.Href, s.Task)
+		isUnbuilt := strings.Contains(body, htmlText(s.Label+" is not built yet"))
+		namesTask := strings.Contains(body, s.Task)
+		hasBlurb := strings.Contains(body, htmlText(s.Blurb))
+
+		if isUnbuilt {
+			unbuilt++
+			if !namesTask {
+				t.Errorf("GET %s shows its empty state but does not say which task fills it (%s)", s.Href, s.Task)
+			}
+			if !hasBlurb {
+				t.Errorf("GET %s shows its empty state but does not render its own blurb", s.Href)
+			}
+		} else {
+			built++
+			if namesTask {
+				t.Errorf("GET %s renders real content AND still advertises %s as the task "+
+					"that will fill it. One of the two is wrong: either the section is "+
+					"built and should stop naming a task, or it is not and should show "+
+					"its empty state.", s.Href, s.Task)
+			}
+			if hasBlurb {
+				t.Errorf("GET %s renders real content AND its not-built-yet blurb", s.Href)
+			}
 		}
-		if !strings.Contains(body, htmlText(s.Blurb)) {
-			t.Errorf("GET %s does not render its own blurb", s.Href)
-		}
+
 		for _, other := range pages.PanelSections {
 			if other.Href == s.Href {
 				continue
@@ -224,7 +259,25 @@ func TestPanelSections_ShowTheirOwnEmptyStateAndNameTheTaskThatFillsIt(t *testin
 				t.Errorf("GET %s renders the %q section's text -- the shell is not "+
 					"switching sections, only the navigation is", s.Href, other.Label)
 			}
+			if strings.Contains(body, htmlText(other.Label+" is not built yet")) {
+				t.Errorf("GET %s renders the %q section's empty state", s.Href, other.Label)
+			}
 		}
+	}
+
+	// ANTI-VACUITY, BOTH WAYS. Each branch above guards a real shape only while
+	// some section takes it. Today it is 1 built and 4 unbuilt; when M6-09 finishes
+	// the panel the second of these becomes a deliberate edit rather than a
+	// surprise, and the message says so.
+	if unbuilt == 0 {
+		t.Fatal("every section renders real content, so the empty-state half of this test " +
+			"checked nothing. If the panel is genuinely finished, delete that half and " +
+			"say so; do not leave it passing over an empty set.")
+	}
+	if built == 0 {
+		t.Fatal("no section renders real content, so the built-section half of this test " +
+			"checked nothing -- M6-03 filled Transactions, so this means the section " +
+			"regressed to its placeholder.")
 	}
 }
 
@@ -330,26 +383,46 @@ func TestPanelScreens_TouchTargetClassesReserve44px(t *testing.T) {
 	}
 }
 
-// TestPanelScreens_LoadNoScriptAndReachNoThirdParty pins the decision M6-02 made
-// and the header that depends on it.
+// TestPanelScreens_ScriptsAndPolicyAgreeAndReachNoThirdParty.
 //
-// THE PANEL HAS NO SCRIPT TODAY. HTMX is in the approved stack (CLAUDE.md section
-// 1) and is NOT vendored: the tabs are plain links, so there is no fragment to
-// swap and nothing to load. The Content-Security-Policy in adminlogin.go names no
-// script-src for exactly that reason, and this test is what makes adding a script
-// a VISIBLE edit -- it goes red on the first <script> tag, at which point the
-// policy has to be widened deliberately rather than inherited silently.
-func TestPanelScreens_LoadNoScriptAndReachNoThirdParty(t *testing.T) {
+// 🔴 THE NAME AND THIS COMMENT WERE BOTH STALE AND AN AUDIT CAUGHT THEM. Until
+// M6-03 this was TestPanelScreens_LoadNoScriptAndReachNoThirdParty and the header
+// said "THE PANEL HAS NO SCRIPT TODAY. HTMX ... is NOT vendored ... it goes red on
+// the first <script> tag." All three sentences became false in the commit that
+// rewrote the BODY, and the header was not swept -- which is the same defect class
+// this file exists to argue against, committed inside the fix for it.
+//
+// WHAT IS TRUE NOW. The transactions section loads exactly one script: HTMX,
+// vendored into web/static/vendor/ with its version, source and sha256 recorded
+// beside it (web/static/vendor/README.md), served from our own origin.
+//
+// 🔴 THE DIRECTORY IS LOAD-BEARING AND THIS SENTENCE USED TO NAME THE WRONG ONE.
+// Vendored code lives OUTSIDE web/static/js/ for one reason: tailwind.config.js
+// scans web/static/js/**/*.js as raw text and mined three dead rules out of htmx's
+// own strings. Somebody reading "vendored into web/static/js/" and filing the next
+// library there would reopen that defect. See TestTailwind_ScansNoMinifiedSource.
+// The other four
+// sections load none. This test holds three properties over that:
+//
+//  1. every asset reference is same-origin, and every <script> has a src under
+//     /static -- so there is no CDN and no INLINE script;
+//  2. a page names script-src IF AND ONLY IF it loads one, and connect-src comes
+//     with it (htmx uses XHR, and connect-src falls back to default-src 'none');
+//  3. EXACTLY ONE panel URL sends the widened policy.
+//
+// (3) is the one that makes "the widening belongs to M6-03" enforceable. Without
+// it the test measured only the per-page correspondence, and a mutation that gave
+// ALL FIVE sections the script and the scripted policy left the whole package
+// GREEN -- measured, not supposed. The cardinality is what turns "widened for one
+// screen" from a convention into a claim.
+func TestPanelScreens_ScriptsAndPolicyAgreeAndReachNoThirdParty(t *testing.T) {
 	bodies := sectionBodies(t)
 	b := panelBrowser(t)
 
-	seen := 0
+	seen, scripted := 0, map[string]bool{}
 	for href, body := range bodies {
-		if i := strings.Index(strings.ToLower(body), "<script"); i >= 0 {
-			t.Errorf("GET %s loads a script. The panel's CSP names no script-src "+
-				"(adminlogin.go), so this tag does nothing except tell the next reader "+
-				"that scripts are allowed here. If the panel now needs one, widen the "+
-				"policy in the same commit and say how much and why.", href)
+		if strings.Contains(strings.ToLower(body), "<script") {
+			scripted[href] = true
 		}
 		for _, m := range refRE.FindAllStringSubmatch(body, -1) {
 			seen++
@@ -366,17 +439,105 @@ func TestPanelScreens_LoadNoScriptAndReachNoThirdParty(t *testing.T) {
 			"own stylesheet, so this scan is reading the wrong thing")
 	}
 
-	// And the header itself, on a section response rather than on a login page:
-	// section responses go through the same render() and must carry the same policy.
-	rec := b.do(http.MethodGet, pages.PanelSections[0].Href, nil)
-	csp := rec.Header().Get("Content-Security-Policy")
-	switch {
-	case csp == "":
-		t.Fatal("a panel section answers with no Content-Security-Policy")
-	case !strings.Contains(csp, "default-src 'none'"):
-		t.Errorf("panel CSP %q no longer starts from default-src 'none'", csp)
-	case strings.Contains(csp, "unsafe-inline"), strings.Contains(csp, "unsafe-eval"):
-		t.Errorf("panel CSP %q allows unsafe inline code", csp)
+	// 🔴 EVERY SCRIPT IS SERVED FROM OUR OWN ORIGIN, WHICH IS THE HALF THAT SURVIVES
+	// UNCHANGED. The absolute-URL scan above already covers src attributes, so a CDN
+	// <script src="https://unpkg.com/…"> fails there. This adds the positive form:
+	// a script tag must carry a src under /static, so an INLINE script -- the thing
+	// that would force 'unsafe-inline' into the policy -- has nowhere to hide.
+	scriptTagRE := regexp.MustCompile(`(?is)<script\b([^>]*)>`)
+	var widened []string
+	for href := range scripted {
+		for _, m := range scriptTagRE.FindAllStringSubmatch(bodies[href], -1) {
+			src := ""
+			if c := attrValueRE("src").FindStringSubmatch(m[1]); len(c) == 2 {
+				src = c[1]
+			}
+			if !strings.HasPrefix(src, "/static/") {
+				t.Errorf("GET %s carries <script%s>, whose src is %q. Every script in this "+
+					"product is a file under /static served from our own origin; a tag "+
+					"with no src is an INLINE script and would need 'unsafe-inline'.",
+					href, m[1], src)
+			}
+		}
+	}
+
+	// 🔴 THE POLICY MUST MATCH THE PAGE, PER PAGE. This test used to say "no panel
+	// page loads a script" and was designed to turn red on the first <script> tag so
+	// that widening the policy could not be inherited silently. M6-03 is that edit:
+	// the transactions section paginates with vendored HTMX (web/static/vendor/README.md
+	// records the version, source and sha256), so the flat claim is gone and what
+	// replaces it is the correspondence the flat claim was a special case of --
+	// script-src appears IF AND ONLY IF the page has a script, and connect-src comes
+	// with it because htmx uses XMLHttpRequest and connect-src falls back to
+	// default-src 'none'.
+	//
+	// THE WIDENING IS TWO DIRECTIVES ON ONE URL, counted below.
+	if len(scripted) == 0 {
+		t.Fatal("no panel section loads a script at all. M6-03 vendored HTMX for the " +
+			"transactions section, so either it regressed or this scan is reading the " +
+			"wrong bodies -- and every check below it would pass vacuously.")
+	}
+	for _, s := range pages.PanelSections {
+		rec := b.do(http.MethodGet, s.Href, nil)
+		csp := rec.Header().Get("Content-Security-Policy")
+		if csp == "" {
+			t.Fatalf("GET %s answers with no Content-Security-Policy", s.Href)
+		}
+		if !strings.Contains(csp, "default-src 'none'") {
+			t.Errorf("GET %s: CSP %q no longer starts from default-src 'none'", s.Href, csp)
+		}
+		for _, never := range []string{"unsafe-inline", "unsafe-eval"} {
+			if strings.Contains(csp, never) {
+				t.Errorf("GET %s: CSP %q allows %s. HTMX needs neither -- hx-* are "+
+					"attributes its own code reads, not code the browser evaluates.",
+					s.Href, csp, never)
+			}
+		}
+		wantScript := scripted[s.Href]
+		gotScript := strings.Contains(csp, "script-src")
+		if wantScript != gotScript {
+			t.Errorf("GET %s loads a script: %v, but its CSP names script-src: %v.\n"+
+				"CSP: %q\nA page that permits what it does not load widens the policy "+
+				"for nothing; a page that loads what it does not permit is broken in "+
+				"the browser and green here.", s.Href, wantScript, gotScript, csp)
+		}
+		if gotScript != strings.Contains(csp, "connect-src") {
+			t.Errorf("GET %s names exactly one of script-src / connect-src: %q. htmx "+
+				"needs both -- the second because XHR falls back to default-src 'none'.",
+				s.Href, csp)
+		}
+		if gotScript {
+			widened = append(widened, s.Href)
+		}
+	}
+
+	// 🔴 THE CARDINALITY, WHICH IS THE HALF THE CORRESPONDENCE CANNOT SEE.
+	//
+	// Every check above is PER PAGE, so a change that gives all five sections a
+	// script AND the scripted policy satisfies every one of them -- measured: a
+	// mutation doing exactly that left the whole package green. The per-page rule
+	// says "do not widen for a page that loads nothing"; it cannot say "only one
+	// page loads anything", and that second sentence is what adminlogin.go and
+	// layout.PanelWithScript both claim in prose.
+	//
+	// ONE is the number because the panel has one job that needs a script: paging
+	// the transactions list. A second screen wanting one is not forbidden -- it is
+	// required to be a DELIBERATE edit here, with a reason, which is the whole
+	// bargain M6-02 struck when it deferred vendoring HTMX.
+	if len(widened) != 1 {
+		sort.Strings(widened)
+		t.Errorf("%d panel URLs send the widened Content-Security-Policy (%s); want "+
+			"exactly 1.\n"+
+			"The panel widens its policy for ONE screen -- the transactions section, "+
+			"which paginates with HTMX. Adding a second is allowed and must be "+
+			"argued for HERE, in this test and in adminlogin.go's comment, rather "+
+			"than inherited: 'script-src is already in the policy' is how a panel "+
+			"ends up permitting scripts on five screens that load none.",
+			len(widened), strings.Join(widened, ", "))
+	}
+	if len(widened) == 1 && widened[0] != transactionsHref {
+		t.Errorf("the widened policy is sent by %s, not by the transactions section "+
+			"(%s) -- the script belongs to the section that pages", widened[0], transactionsHref)
 	}
 }
 
@@ -562,6 +723,24 @@ var panelTouchTargets = map[string]int{
 	"btn":        44, // .btn      -> min-h-11 = 2.75rem
 	"tab-link":   44, // .tab-link -> min-h-11 = 2.75rem
 	"tap-button": 64, // .tap-button -> min-h-16, the employee-facing target
+	// 🔴 .filter-input WAS MISSING AND input.css CLAIMED IT WAS COVERED. M6-03 added
+	// six form controls (a date box and five selects) and wrote "the floor is
+	// asserted against the COMPILED stylesheet by
+	// TestPanelScreens_TouchTargetClassesReserve44px" into the stylesheet -- while
+	// this map, which is the only thing that test iterates, never learned the class.
+	// Measured: deleting min-h-11 from .filter-input and rebuilding removed the
+	// declaration from app.css and left the whole package green.
+	//
+	// ⚠️ IT IS ALSO THE FIRST ENTRY THAT IS NOT AN <a> OR A <button>, so the MARKUP
+	// half of the pair does not reach it -- pressTargetsOf reads the anchor/button
+	// family only. The stylesheet half below does, which is what this entry buys:
+	// the class cannot lose its height silently. The markup gap is recorded rather
+	// than papered over (see TestPanelScreens_FormControlsCarryATouchTargetClass).
+	"filter-input": 44, // .filter-input -> min-h-11 = 2.75rem
+	// The raw utility, used inline by the sign-in form's two fields rather than
+	// through a semantic class. It is a real compiled rule (min-height:2.75rem), so
+	// the stylesheet half below holds it to the same floor.
+	"min-h-11": 44,
 }
 
 func hasTouchTargetClass(classes string) bool {
@@ -1307,4 +1486,150 @@ func backgroundTokensInUse(t *testing.T, palette map[string][3]float64) map[stri
 		}
 	}
 	return out
+}
+
+// --- the build-input net (M6-03) ------------------------------------------
+
+// maxHandWrittenLine is the longest line a source file this product WROTE may
+// have. Measured rather than guessed: the longest line in tap.js is 83 characters
+// and the longest in any .templ is under 200, while htmx.min.js is a SINGLE line of
+// 51 238. 400 sits ~2x above everything real and ~128x below the thing it excludes,
+// so no ordinary edit can approach it and no minified bundle can hide under it.
+const maxHandWrittenLine = 400
+
+// TestTailwind_ScansNoMinifiedSource guards the build input rather than the output.
+//
+// 🔴 THE DEFECT IT EXISTS FOR SHIPPED IN THIS TASK. Tailwind reads every content
+// file as RAW TEXT, so vendoring htmx.min.js into a scanned directory grew app.css
+// by three rules nothing renders (.ease-in, .resize, .transition) mined out of the
+// library's own strings. The first repair was a '!*.min.js' exclusion, and an audit
+// defeated it twice -- a subdirectory, and a vendored file not named .min.
+//
+// THIS ASSERTS THE PROPERTY INSTEAD OF THE PATH: whatever the content globs match,
+// none of it may look machine-generated. That is what makes the repair survive
+// somebody filing the next library somewhere new, which a pattern listing filenames
+// cannot do.
+//
+// ⚠️ IT DOES NOT PROVE app.css IS FREE OF DEAD RULES. The compiled stylesheet is
+// gitignored and `make check` never builds it, so no test in this product reads it
+// outside a local run. What this closes is the CAUSE that was actually measured;
+// the general dead-rule question is recorded as a limit in docs/plan/m6-dashboard.md.
+func TestTailwind_ScansNoMinifiedSource(t *testing.T) {
+	root := filepath.Join("..", "..")
+	globs := tailwindContentGlobs(t)
+	if len(globs) < 2 {
+		t.Fatalf("read %d content glob(s) from tailwind.config.js; it declares more "+
+			"than that and this test would scan almost nothing", len(globs))
+	}
+
+	scanned := 0
+	for _, g := range globs {
+		for _, f := range expandGlob(t, root, g) {
+			scanned++
+			raw, err := os.ReadFile(f)
+			if err != nil {
+				t.Fatalf("reading %s: %v", f, err)
+			}
+			longest := 0
+			for _, line := range strings.Split(string(raw), "\n") {
+				if len(line) > longest {
+					longest = len(line)
+				}
+			}
+			if longest > maxHandWrittenLine {
+				t.Errorf("%s is matched by the Tailwind content glob %q and has a line of "+
+					"%d characters, which is machine-generated rather than written.\n"+
+					"Tailwind scans content as raw text, so every identifier in it becomes "+
+					"a candidate utility and compiles rules nothing renders. Vendored code "+
+					"belongs in web/static/vendor/, which these globs do not name; it is "+
+					"still embedded and served from there.", f, g, longest)
+			}
+		}
+	}
+	if scanned < 5 {
+		t.Fatalf("the content globs matched %d file(s); this product has more sources "+
+			"than that and the scan is reading the wrong tree", scanned)
+	}
+
+	// POSITIVE CONTROL: the vendor directory really does hold something that WOULD
+	// fail the rule above. Without this the test could pass because vendoring had
+	// quietly stopped happening, and the separation it guards would be untested.
+	vendor := filepath.Join(root, "web", "static", "vendor")
+	entries, err := os.ReadDir(vendor)
+	if err != nil {
+		t.Fatalf("web/static/vendor is missing (%v) -- the separation this test guards "+
+			"only means something while vendored code exists", err)
+	}
+	minified := 0
+	for _, e := range entries {
+		if !strings.HasSuffix(e.Name(), ".js") {
+			continue
+		}
+		raw, err := os.ReadFile(filepath.Join(vendor, e.Name()))
+		if err != nil {
+			t.Fatalf("reading %s: %v", e.Name(), err)
+		}
+		for _, line := range strings.Split(string(raw), "\n") {
+			if len(line) > maxHandWrittenLine {
+				minified++
+				break
+			}
+		}
+	}
+	if minified == 0 {
+		t.Error("no minified file in web/static/vendor -- either nothing is vendored " +
+			"any more, in which case this test guards nothing, or a vendored library " +
+			"moved back under a scanned directory")
+	}
+}
+
+// tailwindContentGlobs reads the content array out of tailwind.config.js.
+func tailwindContentGlobs(t *testing.T) []string {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("..", "..", "tailwind.config.js"))
+	if err != nil {
+		t.Fatalf("reading tailwind.config.js: %v", err)
+	}
+	m := regexp.MustCompile(`(?s)content:\s*\[(.*?)\]`).FindStringSubmatch(string(raw))
+	if m == nil {
+		t.Fatal("tailwind.config.js declares no content array -- this test cannot know " +
+			"what Tailwind reads and would scan nothing")
+	}
+	var out []string
+	for _, q := range regexp.MustCompile(`'([^']+)'`).FindAllStringSubmatch(m[1], -1) {
+		if strings.HasPrefix(q[1], "!") {
+			continue // a negation excludes rather than adds
+		}
+		out = append(out, q[1])
+	}
+	return out
+}
+
+// expandGlob resolves one Tailwind content pattern, including '**'.
+func expandGlob(t *testing.T, root, pattern string) []string {
+	t.Helper()
+	p := strings.TrimPrefix(pattern, "./")
+	var out []string
+	if i := strings.Index(p, "**/"); i >= 0 {
+		base := filepath.Join(root, p[:i])
+		suffix := p[i+len("**/"):]
+		err := filepath.Walk(base, func(path string, info os.FileInfo, err error) error {
+			if err != nil || info.IsDir() {
+				return nil
+			}
+			if ok, _ := filepath.Match(suffix, filepath.Base(path)); ok {
+				out = append(out, path)
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatalf("walking %s: %v", base, err)
+		}
+		return out
+	}
+	matches, err := filepath.Glob(filepath.Join(root, p))
+	if err != nil {
+		t.Fatalf("bad pattern %q: %v", pattern, err)
+	}
+	return matches
 }

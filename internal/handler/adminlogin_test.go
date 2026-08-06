@@ -19,6 +19,7 @@ import (
 	"github.com/atknatk/tappa/internal/adminauth"
 	"github.com/atknatk/tappa/internal/audit"
 	"github.com/atknatk/tappa/internal/config"
+	"github.com/atknatk/tappa/internal/domain/ledger"
 	"github.com/atknatk/tappa/internal/httpx"
 	"github.com/atknatk/tappa/internal/session"
 )
@@ -153,6 +154,79 @@ func (f *fakeTrail) total() int {
 	return len(f.events)
 }
 
+// fakeLedger is the panel's read side without a database.
+//
+// 🔴 IT DEFAULTS TO "QUERIED, AND THE DAY WAS EMPTY", which is a real answer and
+// not the zero value. A fake that returned a zero ledger.Page would have Queried
+// false, and the transactions template deliberately renders NOTHING in that state
+// (§4.6: the product may not say "no taps" without having asked) — so a test using
+// the zero fake would be reading a blank section and would not notice.
+type fakeLedger struct {
+	mu     sync.Mutex
+	page   ledger.Page
+	opts   ledger.Options
+	err    error
+	calls  []ledger.Filter
+	tenant []uuid.UUID
+}
+
+func newFakeLedger() *fakeLedger {
+	return &fakeLedger{page: ledger.Page{Queried: true, Zone: time.UTC}}
+}
+
+func (f *fakeLedger) Screen(_ context.Context, tenantID uuid.UUID, filter ledger.Filter) (ledger.Screen, error) {
+	f.record(tenantID, filter)
+	if f.err != nil {
+		return ledger.Screen{}, f.err
+	}
+	return ledger.Screen{Page: f.snapshot(filter), Options: f.opts}, nil
+}
+
+func (f *fakeLedger) Day(_ context.Context, tenantID uuid.UUID, filter ledger.Filter) (ledger.Page, error) {
+	f.record(tenantID, filter)
+	if f.err != nil {
+		return ledger.Page{}, f.err
+	}
+	return f.snapshot(filter), nil
+}
+
+// snapshot resolves the day the way the real reader does, so the view under test
+// sees a resolved date rather than a zero one.
+func (f *fakeLedger) snapshot(filter ledger.Filter) ledger.Page {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	p := f.page
+	if p.Zone == nil {
+		p.Zone = time.UTC
+	}
+	if p.Day.Zero() {
+		if !filter.Date.Zero() {
+			p.Day = filter.Date
+		} else {
+			now := time.Now().In(p.Zone)
+			p.Day = ledger.Date{Year: now.Year(), Month: now.Month(), Day: now.Day()}
+		}
+	}
+	return p
+}
+
+func (f *fakeLedger) record(tenantID uuid.UUID, filter ledger.Filter) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, filter)
+	f.tenant = append(f.tenant, tenantID)
+}
+
+func (f *fakeLedger) lastFilter(t *testing.T) ledger.Filter {
+	t.Helper()
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.calls) == 0 {
+		t.Fatal("the ledger was never asked anything; the handler answered without querying")
+	}
+	return f.calls[len(f.calls)-1]
+}
+
 func adminTestConfig() *config.Config {
 	return &config.Config{
 		Env:            config.EnvDev,
@@ -166,7 +240,14 @@ func adminTestConfig() *config.Config {
 // that builds its own limiter measures its own limiter).
 func newAdminRouter(t *testing.T, admins *fakeAdmins, trail *fakeTrail) http.Handler {
 	t.Helper()
-	h, err := NewAdminAuth(admins, trail, adminTestConfig(), slog.New(slog.DiscardHandler))
+	return newAdminRouterWithLedger(t, admins, trail, newFakeLedger())
+}
+
+// newAdminRouterWithLedger is the same wiring with a ledger the caller controls,
+// for the tests that care what the transactions section was given.
+func newAdminRouterWithLedger(t *testing.T, admins *fakeAdmins, trail *fakeTrail, records panelLedger) http.Handler {
+	t.Helper()
+	h, err := NewAdminAuth(admins, trail, records, adminTestConfig(), slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}
@@ -977,8 +1058,39 @@ func TestAdminScreens_CarryTheSecurityHeaders(t *testing.T) {
 					t.Fatalf("CSP %q is missing %q", csp, want)
 				}
 			}
-			if strings.Contains(csp, "script-src") {
+			// 🔴 THE CLAIM IS NOW A CORRESPONDENCE, NOT A PROHIBITION, and it is
+			// STRICTLY STRONGER than the sentence it replaces.
+			//
+			// This used to read "script-src must never appear". M6-03 gave the
+			// transactions section a script (vendored HTMX, for paging), so the flat
+			// prohibition had to go — and replacing it with nothing, or with an
+			// exemption for /admin, would have retired the only thing keeping the
+			// policy honest. What is asserted instead is the PROPERTY the flat rule
+			// was a special case of: a page names script-src IF AND ONLY IF it
+			// actually loads a script.
+			//
+			// It catches both directions, which the old one could not: a page that
+			// widens the policy for a script it does not load, AND a page that loads
+			// a script the policy does not permit (which would be a broken page
+			// shipped green).
+			loadsScript := strings.Contains(strings.ToLower(htmlOf(t, rec)), "<script")
+			namesScript := strings.Contains(csp, "script-src")
+			switch {
+			case namesScript && !loadsScript:
 				t.Fatalf("CSP names script-src on a page that loads no script: %q", csp)
+			case loadsScript && !namesScript:
+				t.Fatalf("the page loads a script but its CSP does not permit one: %q", csp)
+			case loadsScript && !strings.Contains(csp, "connect-src"):
+				// htmx pages with XMLHttpRequest and connect-src falls back to
+				// default-src, which is 'none'. A scripted page without it loads the
+				// library and then has every request it makes blocked.
+				t.Fatalf("a scripted panel page names no connect-src, so its own "+
+					"requests would be refused by default-src 'none': %q", csp)
+			}
+			for _, never := range []string{"unsafe-inline", "unsafe-eval"} {
+				if strings.Contains(csp, never) {
+					t.Fatalf("CSP allows %s: %q", never, csp)
+				}
 			}
 			if got := h.Get("Cache-Control"); got != "no-store" {
 				t.Fatalf("Cache-Control %q, want no-store", got)
@@ -1051,7 +1163,7 @@ func TestAdminScreens_NeverRenderACredential(t *testing.T) {
 // route outside that prefix would arrive with no cookie and look permanently
 // signed out. This is a structural tripwire for the next person adding a route.
 func TestAdminRoutes_AreAllUnderTheCookiePath(t *testing.T) {
-	h, err := NewAdminAuth(&fakeAdmins{}, &fakeTrail{}, adminTestConfig(), slog.New(slog.DiscardHandler))
+	h, err := NewAdminAuth(&fakeAdmins{}, &fakeTrail{}, newFakeLedger(), adminTestConfig(), slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}
@@ -1630,7 +1742,7 @@ func TestProtect_CarriesTheBudget(t *testing.T) {
 	admins := &fakeAdmins{verify: func() (adminauth.Resolved, error) {
 		return adminauth.Resolved{}, adminauth.ErrNoSession
 	}}
-	h, err := NewAdminAuth(admins, &fakeTrail{}, adminTestConfig(), discardLogger())
+	h, err := NewAdminAuth(admins, &fakeTrail{}, newFakeLedger(), adminTestConfig(), discardLogger())
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}
