@@ -1084,6 +1084,35 @@ yazılır.
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
 
+### 2026-08-06 (5. oturum, devam) — **M6-02 + M6-03 done** · panel kabuğu ve Transactions · **10 + 8 tur**
+
+**Ne yapıldı.** M6-02 (`6757537`) kabuğu verdi: `layout.Panel`, `TabBar`, `EmptyState`, üç CSS ailesi, ve
+**tek tablodan** `Protect()` içinde mount edilen beş sekme. M6-03 (`37032d0`) Transactions'ı doldurdu:
+docket kartları, altı filtre, keyset sayfalama, HTMX. **M6 3/12.**
+
+**Ne öğrenildi — üç şey, üçü de brief'te.**
+1. **Kartı ölçmek iki görevde de kendini ödedi.** M6-02'de motifin **M0 iskeletinden** geldiği (M5-06'dan değil)
+   ve perforasyon görselinin **hiç var olmadığı** çıktı → üç kriter zaten karşılanmıştı. M6-03'te listeleme
+   sorgusunun **hiç olmadığı**, indeksin ise **zaten var olduğu** çıktı. **İkisinde de orkestratörün brief'i
+   de yanlıştı ve yapıcı ölçümle çürüttü** — bu teşvik edilen davranış.
+2. **Bir performans sayısı, ölçüldüğü DB'nin istatistikleri kadar gerçektir.** M6-03'ün `MATERIALIZED` CTE
+   gerekçesi (**27×**) yeniden üretilemedi: veritabanı **hiç `ANALYZE` edilmemişti** (`n_live_tup` 5.326 /
+   gerçek 111.167). `ANALYZE` sonrası değiştirilen şekil **~4× daha hızlı** çıktı. **27× geri çekildi**, çit
+   **başka bir gerekçeyle** tutuldu ve **geri alınabilir** biçimde yazıldı.
+3. **Sayı/iddia-etiketi sınıfı SEKİZ kez ısırdı ve mekanizması bulundu.** M6-02'de beş, M6-03'te üç. Sonuncuda
+   yapıcı üç düzeltmeyi *"yapıldı"* diye raporladı; ölçüm **2'de 1, 0'da 3, 0'da 2** dedi — sebep: düzeltmeleri
+   yapan **betik ilk `assert`'te ölmüş** ve yapıcı betiğin **niyetini** raporlamış. **Kural: `grep`/`shasum` ile
+   SONUCU doğrula.**
+
+**Sevk edilmiş iki kusur bulundu ve düzeltildi.** `.docket-label` **3,13:1** ile sevk ediliyordu (AA 4,5:1),
+**12 çağrı yerinde**, **çalışanın tap ekranı dahil** — ve yanında beş ton daha. Yıllardır görünmemesinin sebebi
+üründe **otomatik kontrast ağı olmamasıydı**; artık var ve **CI'da koşuyor**. M6-03'te filtre çubuğu sayfanın
+**%96'sıydı** (867 KB'ın 835'i, sınırsız büyüyen) → kullanıcı kararıyla metin kutusuna döndü, **32 KB**.
+
+**Ne kaldı.** M6-04 (FLAGGED onay kuyruğu, **§4.3**) — ve devraldığı en ağır şey: *"düzeltme = yeni kayıt +
+`audit_log`"* kuralının **`audit_log` yarısı hâlâ yok** (ölçüldü: 408 manuel satır, **0** audit satırı, manuel
+giriş rotası **yok**).
+
 ### 2026-08-03 (5. oturum, devam) — **M6-01 KAPANDI (A+B)** · panel girişi · **18 tur, 8 RED — projenin en uzun görevi**
 
 **Ne yapıldı.** M5-09/M5-10/M5-11 ile M5 kapandı (11/11; ayrıntı dosyanın başındaki bloklarda), sonra
