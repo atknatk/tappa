@@ -95,11 +95,7 @@ func (a *AdminAuth) transactionsSection(w http.ResponseWriter, r *http.Request) 
 	}
 
 	v := pages.TransactionsView{
-		PanelChrome: pages.PanelChrome{
-			FullName: id.Admin.FullName,
-			Role:     id.Admin.Role,
-			Tab:      pages.TabTransactions,
-		},
+		PanelChrome: a.chrome(r, pages.TabTransactions),
 	}
 	fillTransactionsView(&v, screen.Page, f)
 	v.Filters.Locations = optionViews(screen.Options.Locations)
@@ -193,6 +189,15 @@ func docketView(rec ledger.Record, zone *time.Location) components.DocketView {
 		Practice:   rec.Practice,
 		Manual:     rec.Manual,
 		Queued:     rec.Queued,
+		// THE ENGINE'S VERDICT AND THE MANAGER'S DECISION TRAVEL SEPARATELY (M6-04).
+		// Verdict above still says what §5 decided at the tap; this says whether a
+		// human has since approved or rejected it, read through a JOIN on
+		// transaction_reviews. Neither overwrites the other, here or anywhere else.
+		Review: rec.Review,
+		// AND THE SENTENCE THAT CAME WITH IT (user decision, 2026-08-06). It is
+		// rendered so that the 500-character boundary in reviewNote stops being a
+		// silent cut — see maxReviewNote.
+		ReviewNote: rec.ReviewNote,
 		Note:       rec.Note,
 	}
 	if rec.Trust != nil {

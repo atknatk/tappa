@@ -41,7 +41,7 @@ import (
 )
 
 // panelBrowserWith is panelBrowser over a ledger the caller controls.
-func panelBrowserWith(t *testing.T, records panelLedger) *browser {
+func panelBrowserWith(t *testing.T, records *fakeLedger) *browser {
 	t.Helper()
 	admins := &fakeAdmins{verify: func() (adminauth.Resolved, error) {
 		return adminauth.Resolved{

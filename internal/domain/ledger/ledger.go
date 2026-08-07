@@ -179,8 +179,34 @@ type Record struct {
 	// not count toward them would be this screen describing work the product
 	// has not done.
 	Practice bool
-	// Queued means the record is waiting in the approval queue (M6-04).
+	// Queued means the tap engine put this record in the approval queue.
 	Queued bool
+	// Review is the MANAGER's decision on this record: "approved", "rejected", or
+	// "" for none yet. It comes from transaction_reviews through a LEFT JOIN
+	// (M6-04), never from transactions.
+	//
+	// 🔴 IT IS A SEPARATE FIELD FROM Verdict AND MUST STAY ONE. Verdict is what the
+	// ENGINE decided at the moment of the tap and §4.3 makes it permanent; this is
+	// what a human decided afterwards. Folding the second into the first -- rendering
+	// an approved flag as if the engine had said "ok" -- would be the exact edit Q20
+	// exists to prevent, done in the read path instead of the write path.
+	Review string
+	// ReviewNote is the sentence the manager typed beside their decision, "" when
+	// they typed none. It comes from transaction_reviews.note through the same
+	// LEFT JOIN as Review.
+	//
+	// 🔴 IT IS RENDERED, AND THAT IS A USER DECISION (2026-08-06) TAKEN ON A
+	// MEASUREMENT. It was write-only when M6-04 first shipped, and the reason it is
+	// not any more is not that showing it is useful: it is that a field nobody ever
+	// reads back is a field the product can TRUNCATE IN SILENCE. The boundary cuts
+	// at 500 characters (internal/handler's maxReviewNote), and with nothing
+	// rendering the note a manager could never see that their sentence had been
+	// cut. Reading it back is what makes that visible.
+	//
+	// IT IS FREE TEXT A HUMAN WROTE, unlike Note above (which is one of our own
+	// policy sentences). templ escapes it on output — proved rather than asserted,
+	// by TestReviewDB_AHostileNoteIsEscapedWhereItIsRendered.
+	ReviewNote string
 	// Manual is derived from the channel rather than from entered_by. §5 pairs
 	// the two ("channel='manual' + entered_by dolu"), and the channel is the
 	// column with a CHECK on it; a manual row with no operator recorded is a
@@ -395,6 +421,8 @@ func record(row store.ListPanelTransactionsRow) Record {
 		Channel:        row.Channel,
 		Practice:       row.Practice,
 		Queued:         row.Queued,
+		Review:         deref(row.ReviewOutcome),
+		ReviewNote:     deref(row.ReviewNote),
 		Manual:         row.Channel == "manual",
 		TagUID:         deref(row.TagUid),
 		Ctr:            row.Ctr,

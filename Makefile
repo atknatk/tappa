@@ -215,7 +215,31 @@ fmt:
 	$(TEMPL) fmt .
 
 ## check: CI'nin calistirdigi her sey
-check: fmt lint test
+# SIRA OLCULDU, VARSAYILMADI (2026-08-07, kullanici karari; M6-04 9. tur):
+#   fmt -> gen   `templ fmt` .templ KAYNAGINI bicimlendirir. Once bicimlendirip
+#                SONRA uretmek, uretilen dosyanin daima commit'lenen kaynakla
+#                eslesmesini saglar; ters sirada bicimlendirme kaynagi uretimden
+#                sonra degistirebilir ve _templ.go bayat kalir.
+#   gen -> test  bayat uretimle test kosulmasin diye.
+#   Olculdu: sqlc ciktisi zaten `gofmt -s` temiz (gofmt -l -s internal/store/ -> bos)
+#   ve `templ fmt` bugun hicbir .templ'i degistirmiyor, yani bu sira bugun ek bir
+#   fark uretmiyor. Bir gun bir ureticinin ciktisi gofmt'e uymazsa bu sira yeniden
+#   dusunulmelidir (o zaman son adim kalici kirmizi verir ve haber verir).
+#
+# NEDEN `gen` BURADA (M6-04 9. tur, KAPSAM GENISLEMESI, kullanici karari 2026-08-07):
+# `check` bugune kadar `gen` KOSMUYORDU, ama son adimi "uretilen dosyalar commit
+# edilmis mi" diye kontrol ediyordu -- yani hicbir zaman uretmeden dogruluyordu.
+# Olculdu: bir .templ degistirilip `make gen` atlanirsa, bayat bir _templ.go ile
+# `make check` VE CI yesil kaliyordu ve urun eski markup'i render ediyordu.
+# MALIYET OLCULDU -- VE ILK SAYIM YANILTICIYDI, o yuzden kosuluyla birlikte yazili:
+#   make gen, sicak onbellek, ayni oturumda   3,34 sn (bir kez) · 9,39 / 13,75 / 14,89 sn (uc kosu)
+#   make fmt gen, soguk onbellek              27,86 sn
+# Fark araclarin kendisidir: templ ve sqlc `go run <mod>@surum` ile kosuyor, yani
+# Go'nun derleme onbellegi bosaldiginda ikililer yeniden derleniyor. Ilk raporlanan
+# 3,34 sn EN SICAK okumaydi ve tek basina yanilticiydi; planlanacak sayi ~10-15 sn.
+# Cikti DETERMINISTIK (iki ardisik kosunun birlesik shasum'i ayni) ve temiz agacta
+# ek diff yok -- yani `git diff --exit-code` sahte kirmizi vermiyor (olculdu).
+check: fmt gen lint test
 	@git diff --exit-code || { echo "gen/fmt ciktisi commit edilmemis"; exit 1; }
 
 ## audit: guvenlik kirmizi cizgi denetimi (bkz. .claude/agents/tappa-security-auditor.md)

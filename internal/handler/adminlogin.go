@@ -55,8 +55,11 @@ const (
 //	POST /admin/login/choose  re-proves membership of the signed set, then issues.
 //	POST /admin/logout        revokes the session and clears the cookie.
 //	GET  /admin               the panel. Transactions is the section sign-in lands
-//	                          on; the other four are mounted beside it from
+//	                          on; every other section is mounted beside it from
 //	                          pages.PanelSections (dashboard.go).
+//	POST /admin/review        the FLAGGED approval queue's decision (M6-04) — the
+//	                          panel's one mutating route, and the only one besides
+//	                          sign-out that carries sameOriginGate.
 //
 // EVERYTHING IS UNDER /admin, and that is a requirement rather than tidiness: the
 // panel cookie is Path=/admin (adminauth.CookiePath), so a route outside that
@@ -98,6 +101,14 @@ type AdminAuth struct {
 	// optional for whoever calls it next.
 	ledger panelLedger
 
+	// queue is the review queue's READ side and reviewer is its WRITE side (M6-04).
+	// They are two fields rather than one because they are two packages: reading the
+	// immutable record is internal/domain/ledger, and the one INSERT that records a
+	// decision is internal/domain/review, which keeps "no store call in ledger is
+	// not a SELECT" a fact grep can check.
+	queue    panelQueue
+	reviewer panelReviewer
+
 	// See adminratelimit.go for why there are three and what each may refuse.
 	floodLimiter   *limiter
 	attemptLimiter *limiter
@@ -110,7 +121,7 @@ type AdminAuth struct {
 
 // NewAdminAuth wires the flow. Every dependency is required: a nil recorder would
 // silently drop the section 4.6 trail and a nil manager cannot fail safely.
-func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLedger, cfg *config.Config, log *slog.Logger) (*AdminAuth, error) {
+func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLedger, queue panelQueue, reviewer panelReviewer, cfg *config.Config, log *slog.Logger) (*AdminAuth, error) {
 	switch {
 	case admins == nil:
 		return nil, errors.New("handler: nil admin authenticator")
@@ -123,6 +134,16 @@ func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLed
 	// day. The wiring bug has to be impossible to construct, not merely unlikely.
 	case records == nil:
 		return nil, errors.New("handler: nil transaction ledger")
+	// THE SAME ARGUMENT, TWICE MORE (M6-04). A nil queue would render "nothing is
+	// waiting for review" — a claim — and a nil reviewer would put an Approve
+	// button on a screen where pressing it panics. The M5-04 lesson is that a
+	// capability can be delivered, tested and DEAD in the wired product because two
+	// halves were never assembled; a constructor that refuses is the only check
+	// that runs before a customer finds out.
+	case queue == nil:
+		return nil, errors.New("handler: nil review queue")
+	case reviewer == nil:
+		return nil, errors.New("handler: nil reviewer")
 	case cfg == nil:
 		return nil, errors.New("handler: nil config")
 	}
@@ -137,6 +158,8 @@ func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLed
 		admins:         admins,
 		audit:          rec,
 		ledger:         records,
+		queue:          queue,
+		reviewer:       reviewer,
 		cookies:        adminauth.NewCookies(cfg),
 		short:          newAdminCookies(cfg),
 		choices:        choices,
@@ -172,6 +195,12 @@ func (a *AdminAuth) Mount(r chi.Router) {
 		r.Use(a.Protect())
 		a.mountSections(r)
 	})
+
+	// 🔴 THE PANEL'S MUTATING ROUTES ARE MOUNTED OUTSIDE THAT GROUP, on purpose.
+	// They need the Origin check ahead of the resolver, and middleware added inside
+	// the group above can only ever run after it. See AdminAuth.ProtectWriting for
+	// the measurement that made this a separate mount rather than one more r.Use.
+	a.mountWriting(r)
 
 	// 🔴 SIGN-OUT IS A SEPARATE GROUP, AND THE REASON IS AN INVARIANT: ENDING YOUR
 	// OWN SESSION MUST NOT BE REFUSABLE BY A THIRD PARTY.
@@ -280,10 +309,17 @@ func (a *AdminAuth) logoutGate(next http.Handler) http.Handler {
 // sameOriginGate refuses a cross-origin request BEFORE the resolver runs, so the
 // refusal is free. Defence in depth only — an attacker who is not a browser sets
 // the header themselves.
+//
+// ⚠️ THE LOG LINE NAMES THE ROUTE, and it did not until M6-04 added a second user
+// of this gate. It said "panel sign-out refused" whatever it had refused, so a
+// cross-origin attack on the decision endpoint would have appeared in the log as a
+// sign-out event and sent an incident response at the wrong route. The method and
+// path are what distinguish them, so both are printed.
 func (a *AdminAuth) sameOriginGate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !a.sameOrigin(r) {
-			a.log.Warn("panel sign-out refused: not same-origin", "ip", clientIP(r))
+			a.log.Warn("panel request refused: not same-origin",
+				"method", r.Method, "path", r.URL.Path, "ip", clientIP(r))
 			a.redirect(w, "/admin")
 			return
 		}
@@ -339,6 +375,43 @@ func (a *AdminAuth) Protect() func(http.Handler) http.Handler {
 		// of an anonymous caller) and the session budget must follow it (it needs
 		// an identity to key on).
 		return a.floodGate("admin_panel")(a.requireAdmin()(a.sessionGate(next)))
+	}
+}
+
+// ProtectWriting is Protect with the Origin check inserted BEFORE the resolver. It
+// is what a state-changing panel route mounts (today: POST /admin/review, M6-04).
+//
+// 🔴 THE POSITION OF sameOriginGate IS THE WHOLE DIFFERENCE, AND THE FIRST VERSION
+// PUT IT IN THE WRONG PLACE. M6-04 shipped the gate INSIDE the protected group,
+// i.e. after requireAdmin and after sessionGate, while its own comment said it was
+// "the same defence POST /admin/logout uses". Measured, it was not — sign-out mounts
+// the gate ahead of the resolver on purpose, and adminlogin.go states the reason in
+// one line: "a FREE refusal, BEFORE the resolver, so a browser-driven cross-site
+// flood costs zero database work".
+//
+// WHAT THE WRONG ORDER COST, MEASURED with a resolver counter on the real router:
+//
+//	cross-origin POST /admin/review  -> 303, resolver calls 1   <- the defect
+//	cross-origin POST /admin/logout  -> 303, resolver calls 0
+//	300 cross-origin POSTs           -> 429 at #301, and then the operator's OWN
+//	                                    GET /admin answered 429 as well
+//
+// So a page on a DIFFERENT ORIGIN OF THE SAME SITE — a subdomain with an XSS, a
+// subdomain takeover, the http twin of the https origin; SameSite=Lax stops a true
+// cross-site page but not these — could spend a signed-in manager's whole session
+// budget and lock them out of their own panel for ten minutes, unable to clear the
+// approval queue, while charging us 301 unbudgeted session lookups.
+//
+// 🔴 IT IS ALSO THE SAME MISTAKE THIS FILE ALREADY RECORDS AT adminFloodLimit:
+// copying a pattern without COUNTING ITS PARTS. tap.go's shape is
+// ByAddress -> Identify -> BySession and round 12 copied only the first stage;
+// M6-04 copied sign-out's gate without copying its POSITION.
+func (a *AdminAuth) ProtectWriting() func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return a.floodGate("admin_panel")(
+			a.sameOriginGate(
+				a.requireAdmin()(
+					a.sessionGate(next))))
 	}
 }
 
@@ -1031,7 +1104,7 @@ func (a *AdminAuth) render(w http.ResponseWriter, r *http.Request, status int, c
 //
 // 🔴 IT IS A SEPARATE ENTRY POINT SO THAT THE WIDENING IS PER-PAGE RATHER THAN
 // PER-PANEL. M6-03 needed a script on the transactions section; giving the whole
-// panel script-src would have let the five screens that load nothing permit one.
+// panel script-src would have let every screen that loads nothing permit one.
 // Both policies are DERIVED FROM ONE BASE STRING below, so this is a parameter on
 // a single representation and not the "two policies to keep in step" shape that
 // this file argues against elsewhere.

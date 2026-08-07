@@ -199,7 +199,8 @@ func newPathHarness(t *testing.T, verified []adminauth.Verified) *pathHarness {
 			}, nil
 		},
 	}
-	h, err := NewAdminAuth(admins, &fakeTrail{}, newFakeLedger(), cfg, discardLogger())
+	fake := newFakeLedger()
+	h, err := NewAdminAuth(admins, &fakeTrail{}, fake, fake, &fakeReviewer{}, cfg, discardLogger())
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}

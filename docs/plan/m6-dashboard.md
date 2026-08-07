@@ -1615,6 +1615,666 @@ Ayrıca iş yalnız CSS+bileşen değil — kabuk `pages/` + `handler/`'a da dok
 - "Sadece verdict sütununu güncelleyelim" en kolay ve en yanlış yol. Mesai kaydı
   hukuki delil olabilir; geçmiş değişmez.
 
+> **Kart düzeltmesi (2026-08-06, M6-04 uygulaması sırasında).**
+>
+> **1. Şema hazır — yeni migration YOK.** `transaction_reviews` 00005'te tam
+> hâliyle duruyor: `UNIQUE (transaction_id)`, bileşik same-tenant FK
+> `(transaction_id, tenant_id) → transactions`, RLS beşlisi + FORCE, append-only
+> trigger, `GRANT SELECT, INSERT` + `REVOKE UPDATE, DELETE`. Ölçüldü:
+> `has_table_privilege('tappa_app', …)` → `transactions`,
+> `transaction_reviews`, `audit_log` üçünde de `SELECT t · INSERT t · UPDATE f ·
+> DELETE f`. Kartın *"bu sekme o kısıta çarpmamalı"* kriteri karşılandı — bu
+> görev hiçbir yerde o iki ifadeyi yazmıyor.
+>
+> **2. 🔴 ORKESTRATÖRÜN *"`transaction_reviews` → 0 satır"* İDDİASI YANLIŞTI.**
+> Ölçüldü (`SELECT count(*) FROM transaction_reviews`): **9 527 satır, 9 130
+> tenant'ta**, hepsi `approved`, ilki 2026-08-02. Kaynağı
+> `internal/db/rls_test.go`'nun izolasyon fixture'ı (`audit_log`'daki
+> `iso.fixture` = 9 130 satır ile aynı sayıda tenant). **İddianın SONUCU yine de
+> doğru:** üretim yolu yoktu — `action LIKE 'review%'` → **0 satır**, review HTTP
+> rotası **yok**, ve `transaction_reviews`'a yazan üretim Go'su **yok**. Yani
+> "audit altyapısını yeniden yazma, kullan" talimatı geçerliydi; yanlış olan
+> tablonun boş olduğu cümlesiydi.
+>
+> **3. 🔴 KUYRUĞUN BÜYÜKLÜĞÜ TENANT BAŞINADIR — ve bu maddenin İLK HÂLİNDEKİ PAYDA
+> UYDURMAYDI.** Brief `verdict='flag'` toplamını *"kuyruk"* diye adlandırıyordu;
+> ben bunu düzeltirken *"64 838 tenant'a yayılı"* yazdım ve **o sayı hiçbir şeyi
+> ölçmüyordu** — denetçi yeniden üretemedi, çünkü flag satırlarının dağıldığı
+> tenant sayısı hiçbir zaman o kadar büyük olmadı (`transactions` append-only
+> olduğu için bu sayı **yalnız büyür**, yani ölçtüğüm anda daha da küçüktü).
+> **Bu, oturumun imza hatasının dokuzuncu tekrarı ve bu kez düzeltmenin İÇİNDE
+> doğdu.** Aşağıdaki her sayı, onu üreten komutla birlikte yazılıdır ve
+> `2026-08-06` tarihinde geliştirme veritabanında ölçülmüştür; **suite her
+> koşuşta satır eklediği için hepsi artar**.
+>
+> ```sql
+> -- Q1
+> SELECT count(*) AS flag_rows, count(DISTINCT tenant_id) AS tenants_with_a_flag
+>   FROM transactions WHERE verdict='flag';
+>   --> flag_rows = 33 087 · tenants_with_a_flag = 14 391
+> -- Q2
+> SELECT tenant_id, count(*) FROM transactions WHERE verdict='flag'
+>  GROUP BY tenant_id ORDER BY 2 DESC LIMIT 2;
+>   --> 10000000-…-0001 = 4 778 · ikinci = 30
+> -- Q3 (komşu büyüklükler — etiket bir daha kaymasın diye)
+> SELECT (SELECT count(*) FROM tenants),
+>        (SELECT count(DISTINCT tenant_id) FROM transactions),
+>        (SELECT count(DISTINCT tenant_id) FROM employees),
+>        (SELECT count(*) FROM transactions);
+>   --> 100 261 · 42 569 · 68 662 · 172 873
+> ```
+>
+> **Kararı süren rakam en büyük TEK tenant'tır** (Q2: **4 778**; ikincisi **30**),
+> çünkü sayaç da liste de tenant kapsamlıdır. Bu bölümdeki performans ölçümleri
+> **4 634 flag** iken alınmıştı — aynı tenant, o andaki hâli.
+>
+> **4. Sayaç PAHALI ve tam sayım REDDEDİLDİ.** `EXPLAIN ANALYZE`, seed tenant
+> (21 419 kayıt / 4 634 flag), sıcak, **`ANALYZE` sonrası**, 3 tekrar:
+> tam `count(*)` **59,4 / 63,6 / 66,4 ms** (parallel seq scan — `(tenant_id,
+> verdict)` indeksi yok) · **100'de sınırlı + `ORDER BY occurred_at DESC`**
+> (mevcut `transactions_tenant_occurred_idx`'i kullanır) **0,7 / 1,0 / 7,1 ms**.
+> ⚠️ **Kuyruk BOŞKEN sınır hiç dolmuyor** ve tarama tenant'ın tüm zaman çizgisini
+> geziyor: **17,8 / 20,3 ms** — ve bu, temiz tutulan bir panelin **kararlı
+> hâlidir**. Sayaç **navigasyonda** olduğu için **her sekme görüntülemesinde**
+> koşuyor; türetme `adminratelimit.go`'da tavanların yanında güncellendi.
+>
+> **5. 🔴 ANTI-JOIN'İN ŞEKLİ ÖLÇÜMLE SEÇİLDİ.** RLS, ilişkili `NOT EXISTS`'i
+> indeks sondasına çeviremiyor (politika alt sorguyu One-Time Filter'lı bir
+> `Result` düğümüne sarıyor) → planlayıcı tenant'ın tüm review indeksini
+> materyalize edip her aday satır için yeniden tarıyor. Kuyruk boşken ölçüldü:
+> `NOT EXISTS` (`r.tenant_id = t.tenant_id`) **1356/1375/1506 ms** ·
+> `NOT EXISTS` (parametreyle) **979/1047 ms** · `LEFT JOIN … IS NULL`
+> **70/100 ms** · **`NOT IN` (sevk edilen) 17,8/20,3 ms** — hashed SubPlan.
+> `NOT IN` **yalnız sütun NOT NULL olduğu için** güvenli; bu, sorgunun içinde
+> yazılı bir LİMİT.
+>
+> **6. Kabul kriteri *"Toplu onay varsa…"* — TOPLU ONAY YAPILMADI**, ve bu
+> bilinçli: her karar ayrı bir hukuki eylem, ve toplu onay hem `UNIQUE
+> (transaction_id)` eşzamanlılık penceresini hem audit yüzeyini çarpar. Gerekçe
+> `internal/handler/review.go`'da yazılı.
+>
+> **7. Kriter *"Liste ve raporlar son onayı JOIN ile okur"* — LİSTE yapıldı,
+> RAPORLAR M6-07.** `ListPanelTransactions`'a `LEFT JOIN transaction_reviews`
+> eklendi (ölçülen maliyet: 0,745/0,622/0,463 ms → 6,084/0,632/0,611 ms; ilk
+> koşu plan/önbellek artefaktı). Docket **FLAGGED kaşesini koruyor** (motorun
+> kararı, §4.3) ve yanına *"Approved/Rejected by a manager"* tally'si düşüyor.
+>
+> **8. Yeni bir SEKME açıldı** (`/admin/review`, altıncı `PanelSection`). Gerekçe:
+> günün listesi bir OKUMA, kuyruk ise günleri aşan ve işlendikçe küçülen bir İŞ
+> LİSTESİ; onay butonlarını gün görünümüne koymak §4.3 sınırını markup'ta
+> görünmez kılardı. **CSP kardinalitesi bozulmadı** — review sayfası **script
+> yüklemiyor**, sayfalama düz link; genişletilmiş politika hâlâ **tam 1 URL'de**
+> (mutasyonla doğrulandı).
+>
+> **9. ⚠️ ÖLÇÜLEN SIRA: TETİKLEYİCİ ÖNCE ATEŞLİYOR — ama FK GÖLGEDE DEĞİL,
+> ÖLÇÜLDÜ.** §4.5 için üç savunma ayrı ayrı ölçüldü: (a) sorgunun açık
+> `tenant_id` yüklemi → `pgx.ErrNoRows`; (b) **RLS** → yüklemsiz bir `SELECT` bile
+> başka tenant'ın satırını **0** görüyor, kendi satırını **1** (pozitif kontrol);
+> (c) **bileşik FK** → ulaşılabilir hiçbir INSERT'te ateşlenmiyor çünkü
+> `tappa_check_transaction_review` BEFORE INSERT tetikleyicisi önce koşuyor ve
+> **onun kendi `SELECT`'i de RLS'e tabi** olduğundan *"review target transaction …
+> not found in tenant …"* (23503) veriyor. **BEN BUNU "GÖZLENEMEDİ" DİYE YAZDIM VE
+> BU FAZLA TEMKİNLİYDİ:** `tappa-security-auditor` tetikleyiciyi **geri alınan bir
+> transaction içinde** devre dışı bırakıp FK'yi **ateşlerken gördü**
+> (`violates foreign key constraint "transaction_reviews_txn_fk"`). Yani üç
+> savunmanın **üçü de** ayrı ayrı kanıtlı; suite'in göremediği tek şey (c)'nin
+> **kendi koşullarında** ateşlenmesi, ve onun sebebi tetikleyicinin sırası — bir
+> eksiklik değil, ölçülmüş bir sıralama.
+
+> **Kart düzeltmesi 2 (2026-08-06, 2. tur — iki denetçi RED).** Dört bloklayan
+> bulgunun dördü de **sevk edilmiş kodda gerçek kusurdu** ve dördü de aynı aileden:
+> *bir cümle, sistemin vermediği/ölçmediği bir şeyi beyan ediyor.*
+>
+> **B1 — KARAR FORMU BÖLÜM TABLOSUNDAN OKUMUYORDU.** `review.go` *"URL bölüm
+> tablosundan okunur … karar formu buraya post eder"* diyordu; `review.templ`
+> `action="/admin/review"` **literalini** yazıyordu. Denetçi yalnız o literali
+> `/admin/nowhere` yaptı → **tüm handler paketi YEŞİL** (gerçek HTTP + gerçek
+> Postgres dahil), yani sevk edilen panelde **her Approve/Reject butonu 404**
+> verirdi. Düzeltme: `ReviewView.Action` (aynı kalıp `FilterBarView.Action`) +
+> `TestReviewForm_PostsToTheRouteThatIsActuallyMounted` — form hedefinin (a) bölüm
+> tablosuyla aynı olduğunu **ve** (b) gerçekten mount edilmiş, gerçekten karar
+> kaydeden bir adres olduğunu türetilmiş biçimde ölçüyor. Testlerin kendi
+> `"/admin/review"` literalleri de `reviewHref`'e çevrildi (8 yer), yoksa ağ
+> bayatlardı. **Mutasyon:** form hedefi boz → **KIRMIZI**; bölüm tablosunun
+> `Href`'ini `/admin/approvals` yap → **suite YEŞİL** (form, rota ve testler
+> birlikte taşınıyor — istenen davranış).
+>
+> **B2 — MADDE 3'ÜN PAYDASI UYDURMAYDI** (*"64 838 tenant"*). Yukarıdaki madde 3
+> tamamen yeniden yazıldı: her sayının yanında **onu üreten SQL** var. Bu, oturumun
+> imza hatasının **dokuzuncu** tekrarı ve bu kez **bir düzeltmenin içinde** doğdu.
+>
+> **B3 — 🔴 `sameOriginGate` OTURUM ÇÖZÜCÜDEN SONRA KOŞUYORDU** ve yorum *"logout
+> ile aynı savunma"* diyordu. Değildi: logout kapıyı çözücüden **önce** mount ediyor
+> ve `adminlogin.go` bunu *"a FREE refusal, BEFORE the resolver"* diye açık bir
+> tasarım kuralı olarak yazıyor. Ölçülen zarar: cross-origin POST başına **1 oturum
+> çözücü okuması**, ve **300 istek müdürün KENDİ 300'lük oturum bütçesini
+> tüketiyordu** (`SameSite=Lax` gerçek cross-*site*'ı keser ama **same-site/farklı
+> origin**'i — alt alan, http ikizi — kesmez). Düzeltme: `AdminAuth.ProtectWriting`
+> (`floodGate → sameOriginGate → requireAdmin → sessionGate`), POST `Protect`
+> grubunun **dışına** taşındı. **Ağ:** `fakeAdmins`'e çözücü sayacı eklendi;
+> `TestReviewDecision_ACrossOriginRefusalCostsNoDatabaseWork` 300 cross-origin
+> POST'tan sonra **çözücü çağrısı = 0** ve müdürün kendi `GET`'i **200** olmasını
+> istiyor. **Mutasyon:** eski sıra → **KIRMIZI** (sayaç kolu ayrıca kısaltılmış
+> döngüyle de doğrulandı: *"5 session lookup(s), want 0"*).
+> ⚠️ Bu, M6-01 B'deki *"kopyaladığın kalıbın parçalarını say"* dersinin aynısı.
+>
+> **B4 — EKRAN ÖLÇMEDİĞİ BİR ÖZNE SÖYLÜYORDU (§4.6).** Çift tıklayan müdüre
+> *"somebody else decided that record first"* deniyordu; **kararı kendisi vermişti**.
+> Düzeltme: `GetTransactionReview` (açık `tenant_id` yüklemi, kuşak ağı kapsamında),
+> `review.DecidedError{ByYou, Outcome}` (`errors.Is(…, ErrAlreadyDecided)` hâlâ
+> doğru), ve *"You already decided this one — you had already recorded it as
+> approved/rejected"*. Okuma **ikinci bir transaction'da** koşar (ilk transaction
+> 23505 ile abort olmuştur). **Mutasyonlar:** okumayı sil → **KIRMIZI**; kayıtlı
+> yerine **denenen** outcome'u raporla → **KIRMIZI**. Eşzamanlılık testi de artık
+> **her yarışçıya ayrı reviewer id** veriyor ve hiçbir kaybedene *"sen karar
+> verdin"* denmediğini ölçüyor.
+>
+> **Bloklamayan beşi de kapatıldı:** notun *"templ kaçırır"* gerekçesi **yanlıştı**
+> (ölçüldü: `transaction_reviews.note` **hiçbir sorguda SELECT edilmiyor**, bugün
+> write-only; ilk tüketici muhtemelen M6-07 CSV'si ve **templ kaçışı almayacak** →
+> `= + - @` ile başlayan hücre formül olur) · marka sınıflandırmasının **gerekçe**
+> cümleleri bayatlamıştı (`tomato` artık `.stamp` içinde değil, `.tally--rejected`
+> de kullanıyor) · `sameOriginGate` log satırı **her reddi sign-out sanıyordu**
+> (artık method+path yazıyor, ağı var, mutasyon **KIRMIZI**) · POST'un **gövde
+> sınırı yoktu** (net/http'nin 10 MB'ı; artık `maxReviewBody = 8 KiB`, kalıp
+> `checkin.go`'dan, ağ + mutasyon **KIRMIZI**) · `adminauth/cookie.go`'nun
+> `SameSite=Lax` gerekçesi **var olmayan bir senkronizasyon token'ına** dayanıyordu.
+>
+> **Notu bugün göstermenin maliyeti ÖLÇÜLDÜ, karar VERİLMEDİ** (kullanıcı kararı
+> bekliyor) — ayrıntı için `internal/handler/review.go`'daki `reviewNote` bloğu:
+> sorgu maliyeti **ayırt edilemez** (`rv.outcome` 0,378–2,156 ms · `rv.outcome` +
+> `rv.note` 0,308–0,406 ms, aynı gün/aynı tenant, 3'er tekrar), bugün **9 940
+> review satırının 20'sinde** not var (en uzunu **24 karakter**), en kötü sayfa
+> etkisi **25 × 500 = 12,5 KB** (~32 KB'lık sayfada **+%39**). Yani seçenek (a)
+> *bugün göster* teknik olarak ucuz; seçenek (b) *write-only bırak* daha az yüzey.
+
+> **Kart düzeltmesi 3 (2026-08-06, 3. tur — KULLANICI KARARI).**
+>
+> **KARAR: `transaction_reviews.note` ARTIK RENDER EDİLİYOR.** 2. turda iki seçenek
+> ölçülüp önüne konmuştu; kullanıcı **(a) bugün göster**'i seçti. Kararı süren
+> sayılar, tekrar bulunabilsin diye burada:
+>
+> | Ölçüm | Değer (**2026-08-06**, karar anı) | Üreten |
+> |---|---|---|
+> | not taşıyan review satırı | **9 940'ta 20** | `SELECT count(*), count(note), max(length(note)) FROM transaction_reviews` |
+> | en uzun not | **24 karakter** | aynı sorgu |
+> | sorgu maliyeti farkı | **ayırt edilemez** — `rv.outcome` 0,378–2,156 ms · `+rv.note` 0,308–0,406 ms | `EXPLAIN (ANALYZE)`, aynı tenant/gün, 3'er tekrar |
+>
+> ⚠️ **İLK İKİ SATIR BİR ANIN FOTOĞRAFIDIR VE ARTIK GEÇERSİZDİR — ONLARI GEÇERSİZ
+> KILAN ŞEY BU GÖREVİN KENDİ TESTİ.** `TestReviewDB_ALongNoteIsCutAndTheManagerIsTold`
+> her koşuda **501 karakterlik** bir not yazıyor, yani *"dev DB'deki en uzun not"*
+> tanımı gereği `maxReviewNote` oldu. Aynı sorgu, düzeltme turunda: **10 189 review ·
+> 55 not · en uzun 500**. Sayılar **kararın alındığı andaki** hâli olarak duruyor
+> (kararı onlar sürdü); **bir daha suite'in kirlettiği bir büyüklüğe yaslanma** —
+> ya sabiti (`maxReviewNote`) referans al ya da ölçümün tarihini yaz. Bu, sayı-etiketi
+> sınıfının **onuncu** vakası ve bu kez hatayı **kendi düzeltmem** üretti.
+>
+> ⚠️ **Ama kararın GERÇEK gerekçesi maliyet değil:** write-only bir alan, ürünün
+> **kullanıcının yazdığını sessizce kestiği** anlamına geliyordu. 500 karakterlik
+> sınır aşıldığında müdür *"Recorded as approved"* görüyor ve **kaybettiğini hiçbir
+> yerde öğrenemiyordu**.
+>
+> **NE YAPILDI.** `rv.note` → `ListPanelTransactions` → `ledger.Record.ReviewNote` →
+> `components.DocketView.ReviewNote` → docket'ta **kararın yanında** (*"Manager's
+> note"*). Kuyruktaki kayıtlar tanım gereği kararsızdır, yani not yalnız
+> **Transactions**'ta görünür — **karar veren ile okuyan aynı yüzeyi paylaşır**.
+> Kırpma artık **görünür**: `reviewNote` `(note, clipped)` döndürüyor, başarı
+> yönlendirmesi `&clipped=1` taşıyor, onay kutusu *"longer than 500 characters, so
+> only the first 500 were saved"* diyor — **ve** kalan metin docket'ta okunabiliyor.
+>
+> **SAYFA BOYU ÖLÇÜLDÜ** (gerçek handler, 25 docket, hepsi karara bağlı):
+> **31 013 B** (notsuz) · **33 663 B** (+%8,5, dev DB'deki en uzun not) ·
+> **45 563 B** (+%46,9, hepsi 500 karakter). ⚠️ **Tahminim 12,5 KB / %39'du, gerçek
+> 14 550 B / %46,9** — çünkü her not etiketini ve markup'ını da taşıyor. Fark
+> M6-03'ün roster'ından ayrı: bu **sınırlı** (işletme büyüklüğüyle değil, yalnız
+> müdürün yazdığıyla büyür, ve sabit onu bağlar).
+>
+> 🔴 **KAÇIŞ İDDİA EDİLMEDİ, KANITLANDI.** Bu paragraf **üçüncü kez** yazıldı ve ilk
+> ikisi başka bir sistemi tarif ediyordu (önce var olmayan bir renderer, sonra
+> write-only bir alan — ikincisi **bir gün içinde** eskidi).
+> `TestReviewDB_AHostileNoteIsEscapedWhereItIsRendered` gerçek POST ile
+> `Maria & "the boss" said <script>alert(1)</script> — ħadd ma kien hemm` saklıyor,
+> DB'de **verbatim** olduğunu, docket'ta **`&lt;script&gt;`** olarak çıktığını,
+> **çift kaçış olmadığını** (`&amp;amp;` yok) ve sayfadaki `<script` sayısının
+> **tam 1** (vendor htmx) kaldığını ölçüyor. ⚠️ Testin **ilk hâli tüm sayfada**
+> `</script>` arıyordu ve **htmx etiketine takıldı** — kapsam karta değil karta
+> ait: ölçüm birimi **notun kendi kartı**.
+>
+> **M6-07 CSV UYARISI DURUYOR:** templ kaçışı CSV'ye geçmez; `= + - @` ile başlayan
+> hücre Excel/Sheets'te formüldür ve önekleme **o görevin işidir**. Notun render
+> ediliyor olması bunu kapatmaz.
+>
+> **Mutasyonlar (hepsi aynı turda):** sorgudan `rv.note` düş → **KIRMIZI** ·
+> docket'tan render'ı sil → **KIRMIZI** (iki test) · `clipped` sinyalini sil →
+> **KIRMIZI** · yeni satırın tonunu `ink/30` yap → `TestBrand_EveryInkToneClearsAA`
+> **KIRMIZI** (1,86:1) · `ListPanelTransactions`'ın `tenant_id` yüklemini sil →
+> kuşak ağı **KIRMIZI**. **Ve mapper-eşlik ağı GÜÇLENDİRİLDİ:** `rv.note` sorgudan
+> düşünce ağ **yeşil kalıyordu** (muafiyet iki tarafı birden mazur görüyordu);
+> artık muaf alan için **gün mapper'ının doldurduğu** da isteniyor → aynı mutasyon
+> **KIRMIZI**.
+
+> **Kart düzeltmesi 4 (2026-08-06, 4. tur — denetçi: *"No behavioural defect was
+> found in this round"*).** Bütün bulgular **yorum katmanındaydı**, ve dördü de bu
+> görevin imza sınıfından: *bir cümle, sistemin vermediği bir şeyi beyan ediyor.*
+>
+> **F1 — 🔴 `layout.Panel`'İN ÜRÜN GENELİNDE SIFIR ÇAĞIRANI VAR**, ama üç yorum
+> bölümlerin onu render ettiğini söylüyordu (biri **bu görevde yazılan** yeni dosya,
+> ikisi **bu görevde düzenlenen** satırlar — yani hatayı ben taze yazdım). Ölçüm:
+> `rg -n '@layout\.Panel\b' --glob '*.templ'` → **hiç eşleşme yok**;
+> `rg -c 'layout\.Panel\(' --glob '*_templ.go'` → **0**. Her bölüm koşulsuz
+> `pages.PanelShell` → `layout.PanelWithScript` yolundan gidiyor. **Neden kusur:**
+> `base.templ` `Panel` için *"bu kabuğa script yuvası vermek, o politikayı
+> genişletmeyi başka bir yerde tek kelimelik bir düzenleme yapar"* diyor — ve review
+> bölümünde **o güvence yok**; denetçi tam o tek kelimelik düzenlemeyi yaptı,
+> **derlendi ve render edildi**, yalnız bir TEST itiraz etti. Dört yorum (üçü +
+> `Panel`'in kendi bloğu) **ölçüldüğüne eşitlendi ve doğrulayan komut yorumun içine
+> yazıldı**.
+>
+> **F1-b — İKİ OKUMA ÖLÇÜLDÜ, KARAR KULLANICININ.** İkisi de gerçekten uygulanıp
+> ölçüldü ve geri alındı (ağaç `ba41b253…`'e döndü):
+>
+> | | **(a) güvenceyi gerçek yap** | **(b) ölü bileşeni sil** |
+> |---|---|---|
+> | değişen el yazısı satır | **+49 / −29**, 3 `.templ` dosyası (`PanelShell` ikiye ayrılır + ortak `panelChrome` çıkarılır) | **−20 satır** (`base.templ`'deki blok), 1 dosya |
+> | test değişikliği | **0** — mevcut suite değişmeden geçiyor (`ok internal/handler 32.213s`) | **0** — hiçbir şey referans vermiyor (`ok … 33.929s`) |
+> | CSP kardinalite pini | etkilenmiyor, ısırmaya devam ediyor | etkilenmiyor |
+> | **denetçinin tek kelimelik düzenlemesi** | 🔴 **DERLENMİYOR** — `too many arguments in call to PanelShell / have (PanelChrome, string) / want (PanelChrome)` | derlenir (bugünkü hâl) |
+> | genişletmenin kalan yolu | `@PanelShellWithScript(...)` yazmak — **derlenir**, ve test **KIRMIZI** verir | dize değiştirmek — derlenir, test **KIRMIZI** verir |
+> | tek savunma silinirse | `PanelShellWithScript` yine adlandırılmak zorunda (ayrı bileşen) | **hiçbir şey kalmaz**: testi etkisizleştirip tek kelimelik düzenlemeyi uyguladım → **derlendi ve tüm paket YEŞİL** |
+>
+> **ÖNERİM (a)** — ama karar kullanıcınındır. Gerekçe: (a) `Page`/`PageWithScript`
+> deseninin aynısını panelde de kurar, mevcut hiçbir ağı bozmaz, ve **string
+> düzenlemesiyle genişletmeyi derleyici seviyesinde imkânsız kılar**. ⚠️ **Fazla
+> iddia etmiyorum:** (a) genişletmeyi **imkânsız kılmıyor**, yalnız *"başka bir
+> bileşen adlandır"* hâline getiriyor — yani ölçülen kazanç **bir dize düzenlemesi
+> ile bir tanımlayıcı düzenlemesi** arasındaki fark, artı derleyicinin ilkini
+> reddetmesi. (b) ucuz ve dürüst ama tek savunmayı bir teste bırakır ve **o testi
+> silen mutasyon her şeyi serbest bırakıyor** (ölçüldü).
+>
+> **F2 — `reviewDecision`'ın başlığı *"IT ANSWERS 303, ALWAYS"* diyordu**, oysa aynı
+> fonksiyonun 75 satır aşağıdaki `default:` dalı **500 render ediyor** (ve doğru
+> yapıyor — bir kesinti reddedilmiş bir karar gibi gösterilemez). Cümle *"çağıranın
+> girdisinin seçebildiği her dal"* olarak daraltıldı.
+>
+> **F3 — `problem=gone` iki erişilebilir dalda ölçülmemiş bir olguyu beyan
+> ediyordu** (§4.6, B4'ün daha hafif ikizi). Aşırı gövde ve ayrıştırılamayan id
+> *"that record is not waiting for a decision any more"* gösteriyordu; **aşırı
+> gövdede kayıt HÂLÂ bekliyor**, ayrıştırılamayan id'de **hiç kayıt yok**. Yeni
+> dördüncü kelime **`unreadable`**: *"We could not read that submission … The record
+> is still in the queue."* ⚠️ **Varlık kehaneti KAPALI KALDI** — üç gerçek KAYIT
+> sorusu (yok / başkasının / flag değil) hâlâ tek cevaba çöküyor ve bunun kendi
+> testi var.
+>
+> **F4 — bir parantez yazıldığı anda bayattı ve onu BENİM KENDİ TESTİM bayatlattı**
+> (bkz. yukarıdaki tabloda ⚠️).
+>
+> **F5 — `TestReviewDB_OnlyFlaggedRecordsAreReviewable` HTTP üzerinden yalnız `ok`'u
+> sürüyordu**; artık **üçü de** (`ok`/`reject`/`ignored`) tablo bazlı, hem panel hem
+> tetikleyici kolunda. Fixture yoksa satırı kendisi yazıyor.
+
+> **Kart düzeltmesi 5 (2026-08-06, 5. tur — KULLANICI KARARI: F1-b → seçenek (a)).**
+>
+> **KARAR: script'siz bölümler artık gerçekten `layout.Panel` render ediyor.**
+> `pages.PanelShell` ikiye ayrıldı — `PanelShell(c)` (script yuvası **yok**) ve
+> `PanelShellWithScript(c, script)` — ortak markup `panelChrome`'a çıkarıldı.
+> Bugün: `@layout.Panel(` **1 çağıran**, `@PanelShellWithScript(` **1 çağıran**
+> (Transactions), `@PanelShell(` **2 çağıran** (Review + dört boş bölümün ortak
+> şablonu). Üreten komut: `grep -rn --include='*.templ' '@PanelShell' web/templates`.
+>
+> **KARARI SÜREN TEK ÖLÇÜM** (4. turda alındı, ikisi de gerçekten uygulanıp geri
+> alındı):
+>
+> | | **(a) seçilen** | (b) ölü bileşeni sil |
+> |---|---|---|
+> | el yazısı satır | +49 / −29, 3 `.templ` | −20, 1 dosya |
+> | test değişikliği | **0** | **0** |
+> | denetçinin tek kelimelik düzenlemesi | 🔴 **derlenmiyor** | derlenir |
+> | **tek savunma (CSP testi) nötralize edilirse** | `PanelShellWithScript` yine adlandırılmak zorunda | 🔴 **hiçbir şey kalmıyor** — ölçüldü: derlendi, **paket yeşil** |
+>
+> **ÖLÇÜM TESTE ÇEVRİLDİ** — 4. turda o kanıt yalnız benim elimdeydi, repoda değildi.
+> İki yeni ağ, **ikisi de türetilmiş** (sabit liste değil, M5-10 dersi):
+> `TestPanelShells_TheScriptlessShellHasNoScriptSlot` sevk edilen **fonksiyon
+> tiplerini** reflection ile okuyor (script'siz kabuk **hiç `string` almamalı**;
+> yuva **tam olarak** ötekinde olmalı) · `TestLayoutShells_EveryOneIsActuallyRendered`
+> `layout/base.templ`'den **kabukları**, üründen **çağıranları** türetip her
+> exported kabuğun gerçekten render edildiğini istiyor — **F1'in kendi kusur sınıfı**
+> (yarın eklenen bir kabuk kendiliğinden kapsama girer).
+>
+> **Mutasyonlar (hepsi aynı turda):** **M-AA** tek kelimelik düzenleme →
+> **DERLENMİYOR** (`too many arguments in call to PanelShell / have (PanelChrome,
+> string) / want (PanelChrome)`) · **M-AB** `PanelShellWithScript` adlandır →
+> **derleniyor**, CSP testi **KIRMIZI** (kalan yol **açıkça yazılı**) · **M-AC**
+> yuvayı geri koy → yeni invaryant **KIRMIZI** · **M-AD** `layout.Panel`'i yeniden
+> öldür → ölü-kabuk ağı **KIRMIZI** · **M-AE** **yedinci** bölüm ekle → türetilmiş
+> ağlar onu **kendiliğinden** görüyor (rota + kapı + politika) · **M-AF** o yedinci
+> bölüm de script yüklesin → kardinalite pini **KIRMIZI** (yani pin **6'da değil,
+> N'de** ısırıyor).
+>
+> ⚠️ **AŞIRI İDDİA YOK, VE BU KASITLI.** (a) genişletmeyi **imkânsız kılmıyor**:
+> `@PanelShellWithScript` yazmak hâlâ derleniyor ve onu durduran şey testtir. Kazanç
+> dar ve gerçek — **en ucuz hamle (bir dizeyi düzenlemek) artık derleyici hatası**.
+> Yorumlara *"imkânsız/tamamen"* yazılmadı; kalan yol adıyla yazıldı ve nasıl
+> denendiği (M-AB) kayıtlı.
+>
+> **BEŞİNCİ YORUM TURU.** (a) uygulanınca 4. turda düzelttiğim cümlelerin bir kısmı
+> yine yanlış oldu (*"layout.Panel'in çağıranı yok"* artık **yanlış**). Beş cümle
+> yeniden yazıldı ve **yazmadan önce grep'lendi**; doğrulayan komut yorumun içinde.
+> Bu görevde yorum katmanı **beş kez** düzeltildi — sınıfın kendisi budur: *bir
+> cümle, sistemin verdiğinden farklı bir şey beyan ediyor.*
+
+> **Kart düzeltmesi 6 (2026-08-06, 6. tur — KAPANIŞ).** `tappa-security-auditor`
+> **ONAY**; genel göz yalnız metin katmanında RED — **ikinci ard arda yalnız-metin
+> turu**, yani mekanizma oturdu.
+>
+> **T1 🔴 — 5. TURUN SİLDİĞİ YOLU ANLATAN BİR BAŞLIK SEVK EDİLMİŞTİ.**
+> `review.templ` *"NO SCRIPT — AND THAT IS A RUNTIME ARGUMENT, NOT A STRUCTURAL
+> GUARANTEE … this section passes `""` to pages.PanelShell, which passes it on to
+> layout.PanelWithScript"* diyordu — **dört yan cümlenin dördü de yanlış** ve başlık
+> tam olarak kullanıcının bir tur önce **satın aldığı güvenceyi inkâr ediyor**.
+> Gerçek: `@PanelShell(v.PanelChrome)`, tek argüman, ve `PanelShell` `layout.Panel`
+> render ediyor. ⚠️ **4. turdaki F1'in tersi, bir tur sonra, 5. turun dokunduğu
+> dosyada** — ve *"yazmadan önce grep'ledim"* iddiasını yanlışlıyor. Bu **altıncı
+> yorum turu**; bu kez **yazdıktan sonra da** grep'lendi ve çıktı raporda.
+>
+> **T2** — `review.go`'nun düzyazısı, **dört satır yukarıdaki kendi uyarısını**
+> çiğneyerek suite'in kirlettiği bir büyüklüğü aktarıyordu (*"20 notes across
+> 9 940 reviews"*; bugün 10 295/64/500). Sayı **kaldırıldı**, yerine neden
+> alıntılanamayacağı yazıldı.
+>
+> **T3** — `base.templ` *"NOTHING PASSES `""` TO THIS COMPONENT ANY MORE"* diyordu;
+> `layout.Panel` **altı satır yukarıda** tam olarak onu yapıyor. ⚠️ **Daha kötüsü:
+> yorumun içine koyduğum doğrulama grep'i (`@layout.PanelWithScript(`) kardeş
+> çağrıyı YAPISAL OLARAK göremez** (kardeş paket öneki kullanmaz) — yani **yanlış
+> cümleyi doğrulayan bir komut** bırakmışım. Grep de düzeltildi
+> (`@(layout\.)?PanelWithScript\(`) ve iki çağıranı da gösteriyor.
+>
+> **T4** — `TestLayoutShells_EveryOneIsActuallyRendered` bir **metin taramasıydı**:
+> `.templ` yorumları bu repoda taşıyıcı metindir, yani bir **yorum** ölü bir kabuğu
+> "canlı" tutabilirdi. **Düzeltildi** (yorum satırları taranmadan önce atılıyor) +
+> `TestStripTemplComments_…` kontrolü. **Mutasyon M-AG:** gerçek çağıranı öldür,
+> onu adlandıran bir yorum bırak → **KIRMIZI**. `Wordmark`'ın "kabuk" sayılması
+> **limit olarak yazıldı** (zararsız aşırı kapsam; muafiyet listesi bu testin
+> kaçındığı sabit liste olurdu).
+>
+> **T5 🔴 (§4.6) — ONAY BANDOSU SORGU DİZESİNDEN BASILIYORDU.**
+> `?done=approved&clipped=1` → *"Recorded as approved"* + kırpma cümlesi, **DB'de 0
+> review satırı**, ve bağlantı olarak gönderilebiliyor. **Seçilen çare: bandoyu
+> ÖLÇÜME çevirmek** — redirect artık `&for=<txn>` taşıyor ve sayfa `ledger.Decision`
+> ile **doğruluyor**. **Neden bu, imzalı flash değil:** kusur bir **yanlış BEYAN**,
+> sahte bir **yetki** değil — burada yetkilendirilecek bir şey yok; ve bu çare **yeni
+> SQL istemiyor** (`GetTransactionReview` zaten vardı), yalnız `?done` taşıyan
+> GET'lerde **bir indeksli okuma** ekliyor. İmzalı flash yeni bir sır taşıyan değer,
+> yeni bir son kullanma ve yeni bir hata yüzeyi demekti. ⚠️ **Ne kanıtlamıyor,
+> yazılı:** kararı **bu operatörün** ya da **az önce** verdiğini değil — yalnız
+> kararın **var olduğunu**. **Mutasyon M-AJ:** dizeyi yine inan → **KIRMIZI** (dört
+> vaka).
+>
+> **T6 🔴 (§4.7) — `ParseForm` hatası ham basılıyordu** ve `net/url` **hatalı girdiyi
+> alıntılıyor**: bozuk yüzde-kaçışlı gövdede log satırına müdürün notundan ~3 bayt
+> düşüyordu — bu dosyanın kendi kuralı *"THE NOTE IS NOT LOGGED"* iken. Artık
+> **sınıflandırılmış sebep** basılıyor (`malformed form` / `body over the limit`),
+> ham hata hiç basılmıyor. **Kanarya testi kalıcı** + pozitif kontrol (reddin
+> **loglanmaya devam ettiği**). **Mutasyon M-AI:** `"err", err` geri koy →
+> **KIRMIZI** (`the log carries "%ZZ"`).
+>
+> **T7 — ADR yazıldı: [`docs/adr/0009-onay-karari-geri-alinamaz.md`](../adr/0009-onay-karari-geri-alinamaz.md).**
+> Verilmiş bir karar **hiçbir yoldan** düzeltilemiyor (ölçüldü, `tappa_owner`
+> superuser olarak: `UPDATE`/`DELETE` **ikisi de trigger'la reddedildi**), yani
+> §4.3'ün kendi telafi yolu (*"yeni kayıt + audit_log"*) bu tabloda **yapısal olarak
+> kullanılamaz** — ve bu **bilinçli** (00005 gerekçeli). **§4.3 ihlali değil**
+> (güvenlik denetçisi); kayda değer olan **hiçbir dosyanın söylememesiydi**. Bugünkü
+> etki **sunumla sınırlı** (`transaction_reviews`'ü okuyan **rapor sorgusu yok**,
+> grep'le doğrulandı); **M6-07'de parasal olur** ve ADR üç düzeltme yolunu, her
+> birinin neyi feda ettiğiyle birlikte yazıyor.
+>
+> **🔴 VE BU TUR BİR AĞIN KENDİSİNDE DELİK BULDU** (T5'in mutasyonu ortaya çıkardı):
+> kuşak ağının türetimi `\bq\.([A-Z]\w+)\(` arıyordu — yani **alıcının `q` ADINDA
+> olmasını** şart koşuyordu. `GetTransactionReview` **iki pakette de**
+> `store.New(tx).GetTransactionReview(...)` diye çağrılıyor, yani sorgu **hiçbir ağ
+> tarafından görülmüyordu**: `(r.tenant_id = @tenant_id OR TRUE)` mutasyonu **iki
+> testi de yeşil bıraktı**. Türetim artık **herhangi bir** büyük harfli metot
+> çağrısını tarayıp `db/queries`'te **gerçekten tanımlı** olanlarla kesişiyor —
+> bir değişken adı seçerek atlatılamaz. **Mutasyon M-AL:** aynı `OR TRUE` →
+> **her iki pakette de KIRMIZI**.
+
+> **Kart düzeltmesi 7 (2026-08-06, 7. tur — İKİ AĞ DA YENİLDİ, ikisi de yapıyla
+> değiştirildi).** Bu turun bulguları **metin değil, gerçek**: kendi yazdığım iki ağ
+> ölçülerek kırıldı.
+>
+> **B1 🔴 — `stripTemplComments` TEK BİR HTML YORUMUYLA YENİLDİ.** Denetçi
+> `layout.Panel`'in gerçek çağrısını öldürüp yerine 5. turun kaldırdığı şekli koydu ve
+> tek satır bıraktı: `<!-- historical note: this used to be @layout.Panel( -->` →
+> `make templ` OK · `go build` OK · **16/16 `ok`**. Yani bileşen ölüyken **ve
+> kullanıcının 2026-08-06 kararı geri alınmışken** hiçbir yerde kırmızı yok.
+> ⚠️ **Bunu "kabul edilmiş limit" sayamam:** yazılı limitim iki şekli *"kapattığı
+> delikten daha dar"* diye nitelemişti; `<!-- -->` **aynı deliktir**, daha darı değil.
+> **Çare yapısal:** ağ artık **üretilen Go'yu `go/ast` ile** okuyor — templ hiçbir
+> yorum biçimini üretilen Go'ya taşımıyor, ve bir dize literali de çağrı değil.
+> Tazelik ayrıca kontrol ediliyor (her `.templ`'in bildirdiği her bileşenin
+> kardeş `_templ.go`'da bir `func`'u olmalı) ve **gövde tazeliğinin bu testin işi
+> olmadığı** açıkça yazıldı (onu `make gen` + `git diff --exit-code` tutar).
+>
+> **B2 🔴 — KUŞAK AĞI SATIR SONUNDAKİ NOKTAYLA ATLATILDI, VE `gofmt` BİRLEŞTİRMİYOR.**
+> `\.([A-Z]\w+)\(` regex'inin üstünde *"finds **ANY** method call"* yazıyordu; denetçi
+> 8 şekil denedi, **3'ü kaçtı**. Uçtan uca: `ListFlaggedForReview`'un
+> `WHERE t.tenant_id = @tenant_id` yüklemi **tamamen silindi**, çağrı `q.`⏎`Method(`
+> yapıldı → `gofmt -l` **boş**, `go vet` OK, `go build` OK, **iki belt de yeşil**.
+> **Ben de yeniden ürettim** (aynı sonuç). **Çare yapısal:** türetim artık
+> `go/parser` + `go/ast` ile **`*ast.SelectorExpr`** geziyor — AST boşluk görmez, ve
+> **selector'ları** (yalnız çağrıları değil) taradığı için metot-değeri şeklini de
+> yakalıyor.
+>
+> **ÜÇ ATLATMA ŞEKLİ, TEK TEK, DÜZELTMEDEN SONRA** (yüklem silinmiş hâlde):
+>
+> | Şekil | `gofmt -l` | `go build` | Belt |
+> |---|---|---|---|
+> | `q.`⏎`ListFlaggedForReview(…)` | boş | OK | 🔴 **KIRMIZI** |
+> | `q.ListFlaggedForReview (…)` (boşluk) | — | OK | 🔴 **KIRMIZI** |
+> | `call := q.ListFlaggedForReview` sonra `call(…)` | — | OK | 🔴 **KIRMIZI** |
+>
+> **B1 için de üç şekil:** denetçinin `<!-- … -->` yorumu → **KIRMIZI** · Go tarzı
+> `//` yorum → **KIRMIZI** · kabuk adı **dize literalinde** → **KIRMIZI**.
+>
+> ⚠️ **KAPATAMADIĞIM — LİMİT.** `reflect.ValueOf(q).MethodByName("X")`: sorgu adı bir
+> **dize**, selector değil, yani AST göremez. ~~**Derlenen bir örnek kuramadım**
+> (denedim, derlemedi), o yüzden bu kaçış **ölçülmedi, savunuldu**.~~
+> 🔴 **BU CÜMLE 8. TURDA ÇÜRÜTÜLDÜ — kaçış DERLENİYOR ve ÖLÇÜLDÜ** (aşağıdaki
+> *Kart düzeltmesi 8* → B2). Benim ilk denemem `err` yeniden bildirimiyle patlamıştı;
+> hata kaçışta değil, denememdeydi. İkinci limit — **başka bir pakette** yapılan
+> çağrı bu paketin AST'sinde yok — geçerliliğini koruyor.
+>
+> **🔴 İKİ CÜMLE GERİ ÇEKİLDİ.** *"ANY method call"* ve *"kapattığı delikten daha
+> dar"* — ikisi de ölçümle yanlışlandı ve ikisi de ölçtüğüne eşitlendi. Yeni
+> cümleler yazılmadan önce **yine yenilmeye çalışıldı** (yukarıdaki altı şekil).
+>
+> **N1 — AĞIN KAPSAMI YAZILDI: 41 sorgunun 8'i (%20).** Üreten komut:
+> `grep -rhoE '^-- name: [A-Za-z_]+' db/queries/*.sql | wc -l` → **41**; iki domain
+> paketinin AST'sinden türetilen küme **8**. Kalan **33** sorgu için (§4.5'in ikinci
+> savunması) **hiçbir ağ yok** — RLS satırları yine durduruyor, korumasız olan
+> **açık yüklem**. Genişletmenin ölçülüp elendiği gerekçe (`LockEmployeeForTap`'ın
+> `WHERE`'i yok) da yanına yazıldı.
+>
+> **N2 · N3 — iki bayat düzyazı** (*"five tabs of navigation"*, *"the five sections
+> are there"*) ölçüme eşitlendi; ikisinin de altındaki kod zaten `PanelSections`'tan
+> türetilmişti.
+>
+> **N4 — C2'nin okuması bütçe aritmetiğine girdi.** `?done` doğrulaması
+> `adminratelimit.go`'da tavanların yanında sayıldı: **0,367 / 0,081 / 0,095 ms**
+> (denetçi) ve **0,427 / 0,190 / 0,106 ms** (burada yeniden üretildi, id'yi bir alt
+> sorgu çözdüğü için biraz yüksek), **ikisi de aynı planda**
+> (`Index Scan using transaction_reviews_tenant_idx`). Panel isteğinin ~4–27 ms'ine
+> karşı düşük uçta **~%0,4**; yalnız `?done` taşıyan GET'te, yani **karar başına bir
+> kez**. `review.go`'daki *"ONE indexed lookup"* artık sayı taşıyor.
+
+> **Kart düzeltmesi 8 (2026-08-06, 8. tur — B1 KAPATILDI; bundan sonra KAPATMA YOK,
+> SAYMA VAR).** Kapanış kuralı (M5-06 md. 11) bu turdan itibaren geçerli: son üç tur
+> aynı desendeydi — her ağ bir sonraki turda yeniliyor.
+>
+> **B1 🔴 KAPATILDI — kuşak ağının OKUYUCUSU başka bir dosyadaki YORUMA çözülüyordu.**
+> `queryBody` sorguyu **satır başına sabitlenmemiş** `strings.Index(raw, "-- name: X ")`
+> ile arıyordu; `declaredQueries` ise **satır-sabitli** `(?m)^-- name: (\w+) `
+> kullanıyordu — **tek bir olgu için iki desen, ve gevşek olan OKUYUCUYA aitti.**
+> Denetçinin üç adımı **birebir yeniden üretildi:** ① `ListFlaggedForReview`'un
+> `WHERE t.tenant_id = @tenant_id`'i **tamamen silindi** ② `admins.sql`'e (alfabetik
+> olarak **önce**, `os.ReadDir` sırası) **tek yorum satırı** ③ çağrı yeri **el
+> değmemiş** → `make sqlc` **sessizce başarılı**, `internal/store` **kapsamsız
+> sorguyla** yeniden üretildi, **`make test` → 16/16 `ok`**. **Pozitif kontrol:**
+> yalnız yorum silinince (yüklem hâlâ silik) → **FAIL**, yani yorum tek sebep.
+> **Çare:** okuyucu artık **türetimle aynı** satır-sabitli deseni kullanıyor
+> (`queryMarker`), ve sonraki başlık araması da sabitli. `TestQueryBody_IsBounded`
+> (iki pakette de) artık **işaretçi kaçırmayı** da kapsıyor + çapa için pozitif
+> kontrol. **Aynı üç adım, düzeltmeden sonra → KIRMIZI.**
+>
+> **B2 🔴 KARTIM YANLIŞTI — yansıma kaçışı DERLENİYOR.** 7. turda *"derlenen bir örnek
+> kuramadım … ölçülmedi, savunuldu"* yazmıştım. Denetçi kurdu, ben de **yeniden
+> ürettim** (ilk denemem `err` yeniden bildirimiyle patladı; denetçinin `err = nil`
+> biçimi doğru): `reflect.ValueOf(q).MethodByName("List" + "FlaggedForReview")` →
+> `gofmt -l` **boş** · `go vet` **OK** · `go build` **OK** · yüklem **silikken iki
+> belt de `ok`** · `TestReviewDB_TheQueueCountIsTheQueue` **`ok`** (kuyruk çalışmaya
+> devam ediyor). Yani bu **ölçülmüş bir delik**. **KAPATILMADI — SAYILDI**
+> (kapanış kuralı): kapatmak bu pakette yansımayı yasaklamak ya da çağrı grafiğini
+> tip-denetlemek demek; ikisi de görev, satır değil. Koddaki *"Neither is closed"*
+> cümlesi ölçüme eşitlendi.
+>
+> **B3 🔴 TAZELİK KAPISI VAR OLMAYAN BİR ÇAREYE HAVALE EDİYORDU.** *"…which `make
+> check` runs"* yazmıştım. **`check: fmt lint test`** ve `fmt` = `gofmt -w` +
+> `templ fmt` — **biçimlendirici**; `gen`/`templ generate`/`sqlc` `check`'te **hiç
+> geçmiyor**, CI de yalnız `make check` + `make audit` koşuyor. **Uçtan uca
+> ölçüldü:** `admin.templ` değişti (`grep -c '@layout.Panel(' → 0`), `make gen`
+> **koşulmadı**, `make fmt` koştu → `admin_templ.go` **değişmedi** (hâlâ
+> `layout.Panel(` **1**), ve üç panel testi de **`ok`**. Cümle **geri çekildi**;
+> boşluk **sayıldı**. ⚠️ **CI dosyasının kendi yorumu da aynı yanlışı yapıyor**
+> (`ci.yml:88-90` *"`make gen`… çıktısının commit edildiğini de doğrular"*) — kapsam
+> dışı, kayda geçti.
+>
+> **B3 — İKİ OKUMA, SAYILARLA (karar KULLANICININ; `Makefile` DEĞİŞTİRİLMEDİ):**
+>
+> | | **(a) `check`'e `gen` ekle** | **(b) limit olarak yaz + backlog** |
+> |---|---|---|
+> | `make gen` süresi | **3,34 sn** (`/usr/bin/time -p make gen`) | 0 |
+> | `check`'in bugünkü süresi | `fmt` **1,13** + `lint` **2,82** + `test` **~110–140 sn** ≈ **115–145 sn** | aynı |
+> | ek maliyet | **+3,34 sn ≈ %2,3–2,9** | yok |
+> | `gen` **deterministik mi** | **EVET** — iki ardışık koşu, üretilen dosyaların birleşik shasum'ı **birebir aynı** (`da7df7fb…`) → `git diff --exit-code` yanlış kırmızı vermez | — |
+> | CI'da `templ`/`sqlc` var mı | **evet**, `go run …@sürüm` ile pinli; CI zaten Go 1.26.5 + modül indiriyor | — |
+> | bir şey kırıyor mu | temiz ağaçta `make gen` sonrası **ek diff yok** | — |
+> | kapattığı şey | bayat `_templ.go`/`*.sql.go` **CI'da kırmızı olur** | hiçbir şey — boşluk sayılı kalır |
+>
+> **ÖNERİM (a)** — 3,34 sn, deterministik, CI'da araçlar zaten var, ve `check`'in
+> **kendi son adımının** (`git diff --exit-code`) bugün ne için var olduğunu ilk kez
+> doğru kılar. ⚠️ **Kapsam dışı: `Makefile`'a dokunmadım.**
+>
+> **B4** — kardeş dosyadaki *"non-deletable without a red test"* başlığı
+> **daraltıldı**; B2 sayesinde o cümle **bugün de** ölçülerek yanlış.
+>
+> **N1 · N3** — iki bayat cümle ölçüme eşitlendi: ağın türetimi artık `q.X(` **metni**
+> değil **AST**'dir (ve `store.New(tx).X(...)` **kapsam içindedir** —
+> `ledger.Decision` tam olarak onu yazıyor) · ve *"templ yorumları üretilen Go'ya
+> taşımıyor"* **yanlıştı**: `<!-- … -->` `templruntime.WriteString`'e **giriyor**
+> (yani **tarayıcıya da gidiyor**); ağı koruyan şey **çıkarma değil ayrıştırma** —
+> bir `BasicLit` asla `SelectorExpr` değildir.
+
+> **Kart düzeltmesi 9 (2026-08-07, 9. tur — KULLANICI KARARI: B3 → seçenek (a)).**
+>
+> ⚠️ **KAPSAM GENİŞLEMESİ, AÇIKÇA İŞARETLİ** (sabit kural 8): `Makefile`'ın `check`
+> hedefini değiştirmek **M6-04'ün kabul kriterlerinde yok**. Kullanıcı kararı
+> (2026-08-07), 8. turda ölçülüp önüne konan iki okumadan (a)'yı seçti. Gerekçe
+> ölçümdü: `check`'in **son adımı** *"üretilen dosyalar commit edilmiş mi"* diye
+> kontrol ediyordu ama `check` **hiç üretmiyordu** — yani hiçbir zaman üretmeden
+> doğruluyordu, ve bayat bir `_templ.go` **CI'dan geçiyordu**.
+>
+> **DEĞİŞİKLİK:** `check: fmt lint test` → **`check: fmt gen lint test`**.
+>
+> **SIRA ÖLÇÜLDÜ, VARSAYILMADI.** `fmt` → `gen`, çünkü `templ fmt` **.templ
+> KAYNAĞINI** biçimlendirir: önce biçimlendirip sonra üretmek, üretilenin daima
+> commit'lenen kaynakla eşleşmesini sağlar. `gen` → `test`, bayat üretimle test
+> koşulmasın diye. İki soru ayrıca ölçüldü: **sqlc çıktısı zaten `gofmt -s` temiz**
+> (`gofmt -l -s internal/store/` → boş) ve **`templ fmt` bugün hiçbir `.templ`'i
+> değiştirmiyor** — yani bu sıra bugün ek fark üretmiyor. Gerekçe `Makefile`'ın
+> içine, hedefin yanına yazıldı.
+>
+> **KANIT 1 — denetçinin senaryosu, YENİ `check`'e karşı.** `admin.templ` değişti
+> (`grep -c '@layout.Panel(' → 0`), `make gen` **elle koşulmadı**, üretilen dosya
+> **bayat** (`grep -c 'layout\.Panel(' → 1`) → **`make check` exit=2**:
+> ```
+> --- FAIL: TestLayoutShells_EveryOneIsActuallyRendered (0.19s)
+>     dashboard_test.go:1869: layout.Panel is exported and documented but
+>     NOTHING outside the layout package renders it.
+> ```
+> ve `check`'in `gen` adımı üretilen dosyayı **tazeledi** (sonra `grep -c` → **0**).
+> 8. turda **aynı senaryo yeşildi**.
+>
+> **KANIT 2 — sahte kırmızı yok.** Temiz ağaçta `make fmt gen` sonrası
+> `git status --short | shasum` **birebir aynı** (`3593b2b7…` → `3593b2b7…`), yani
+> `gen` `git diff --exit-code`'a yeni bir fark **eklemiyor**.
+>
+> ⚠️ **SÜRE İDDİAM DÜZELTİLDİ — VE KARARI SÜREN SAYI BUYDU.** 8. turda `make gen`'i
+> **3,34 sn** diye önünüze koydum. 9. turda yeniden ölçtüm: **9,39 / 13,75 / 14,89 sn**
+> (üç sıcak koşu) ve **27,86 sn** (`fmt gen`, soğuk önbellek). Fark araçların
+> kendisidir — templ ve sqlc `go run <modül>@sürüm` ile koşuyor, yani Go'nun derleme
+> önbelleği boşaldığında ikililer **yeniden derleniyor**. **3,34 sn en sıcak
+> okumaydı ve tek başına yanıltıcıydı**; planlanacak rakam **~10–15 sn**. Kararın
+> yönü değişmiyor (`make check` zaten ~2 dakika ve `test` onun neredeyse tamamı), ama
+> *"%2,3"* rakamı **geri çekiliyor**. Sayı-etiketi sınıfının **on birinci** vakası ve
+> yine **benim kendi ölçümümde** — bu kez *"bir kez ölçüp aralık yazmamak"* biçiminde.
+> Sabit `Makefile`'da koşuluyla birlikte yazılı.
+>
+> ⛔ `.github/workflows/ci.yml` **DEĞİŞTİRİLMEDİ** (kapsam dışı). Düzeltme davranışsal
+> olarak CI'a da geçiyor çünkü CI `make check` çağırıyor; o dosyanın **yorumunun**
+> hâlâ yanlış olması orkestratörün backlog'unda.
+>
+> **Yorum ölçüme eşitlendi (SEKİZİNCİ yorum turu).** `dashboard_test.go`'nun tazelik
+> bloğu artık *"`make check` bunu yakalar"* diyor — **ve bu kez cümle yazılmadan önce
+> mutasyonla kanıtlandı**; doğrulayan komutlar ve gerçek çıktı yorumun içinde.
+> ⚠️ Sınır da yazılı: yakalayan şey **`make check`**, tek başına bu test değil — bayat
+> bir ağaçta elle `go test` koşmak hâlâ yeşil verir.
+
+> **M6-04'ÜN SAYILI LİMİTLERİ — tek yerde, kapanışta (2026-08-07).**
+> Kapanış kuralı gereği bunların hiçbiri *kapatıldı* diye yazılmadı. ⚠️ Orkestratör
+> **13** madde saymıştı; doğrusu **16** — 8. ve 9. turlar iki tanesini *ölçülmüş*
+> hâle getirdi (savunulan → ölçülen) ve üçünü ekledi, hiçbiri kapanmadı. Kısaltmak
+> yerine düzeltildi.
+>
+> **Kuşak ağı (§4.5'in ikinci savunması)**
+> 1. **Yansımayla adlandırılan sorgu ağdan kaçıyor — ÖLÇÜLDÜ** (8. tur, B2): derlenen,
+>    `gofmt`/`vet` temiz bir örnekle yüklem silikken iki belt de yeşil.
+> 2. **Başka bir pakette yapılan çağrı** bu paketin AST'sinde yok.
+> 3. **Kapsam 41 sorgunun 8'i (%20).** Kalan 33 için ikinci savunmanın **hiçbir ağı
+>    yok** (`InsertTransaction`, `GetLastOpenTransaction`, `CreateAdminSession`, …).
+> 4. **Satır-sabitleme teklik kanıtı değil:** başka bir dosyada gerçekten satır başında
+>    duran aynı `-- name:` yine önce bulunur (sqlc bunu kendisi reddeder, ama okuyucu
+>    kontrol etmiyor).
+>
+> **Kabuk / CSP**
+> 5. `@PanelShellWithScript` yazmak **derleniyor**; onu durduran şey **bir test**,
+>    derleyici değil.
+> 6. Tazelik kapısı **bildirimleri** kapsıyor, **gövdeleri** değil; gövdeleri artık
+>    `make check` yakalıyor (9. tur) — ama **elle `go test`** bayat ağaçta hâlâ yeşil.
+> 7. `TestLayoutShells_…` **`Wordmark`'ı da kabuk sayıyor** (zararsız aşırı kapsam).
+> 8. `.templ` içindeki `<!-- … -->` **üretilen Go'ya giriyor ve tarayıcıya gidiyor**.
+>
+> **Ürün davranışı**
+> 9. **Verilen karar geri alınamaz ve ürün içinde telafi yolu yok** — ADR 0009.
+> 10. Onay bandosu kararın **var olduğunu** kanıtlıyor; **kimin** ve **ne zaman**
+>     verdiğini değil.
+> 11. **Toplu onay yok** (bilinçli).
+> 12. Ekran, kararın **kalıcı** olduğunu basmadan önce **söylemiyor** (ADR 0009'un
+>     3. seçeneği).
+>
+> **Veri / sorgu**
+> 13. `NOT IN`'in hash'i **`work_mem`**'e bağlı; review kümesi §4.3 gereği **yalnız
+>     büyür**.
+> 14. **Bileşik FK** ulaşılabilir hiçbir INSERT'te ateşlenmiyor (tetikleyici önce
+>     koşuyor); güvenlik denetçisi onu ancak tetikleyiciyi kapatarak gördü.
+> 15. **CSV kaçışı M6-07'nin işi** — templ kaçışı oraya geçmez (`= + - @` öneki).
+>
+> **Yöntem**
+> 16. **Gerçek tarayıcıda hiçbir şey açılmadı**; tüm kanıt gerçek HTTP + gerçek
+>     Postgres + render edilen markup.
+>
+> ⛔ Kapsam dışı ve orkestratörün backlog'unda: `.github/workflows/ci.yml:88-90`'ın
+> yorumu hâlâ `make check`'in `gen` koştuğunu ima ediyordu — **davranış 9. turda
+> düzeldi, o dosyanın cümlesi düzelmedi.**
+
 ---
 
 ## M6-05 — Employees sekmesi

@@ -1,0 +1,197 @@
+package pages
+
+import "github.com/atknatk/tappa/web/templates/components"
+
+// The REVIEW QUEUE section (M6-04) — the first panel screen that WRITES.
+//
+// 🔴 §4.3 IS WHAT THIS SCREEN IS ABOUT, and the wording carries it. Nothing here
+// says "change", "correct", "fix" or "delete", because none of those happens: the
+// tap record is evidence and stays exactly as the engine wrote it. What a manager
+// adds is a SECOND fact — their own decision — which is stored beside it in
+// transaction_reviews and trailed in audit_log. The card keeps its FLAGGED stamp
+// after the decision, in the Transactions section, which is how the immutability is
+// visible rather than merely promised.
+//
+// 🔴 EACH RECORD IS ITS OWN FORM, exactly as AdminChoose's picker is, and for the
+// same reason: the whole card-plus-buttons is one decision with nothing to select
+// first, and a keyboard user is one tab away from submitting. It is also what makes
+// there be NO BULK ACTION on this screen — see the paragraph in
+// internal/handler/review.go for why that is a decision rather than an omission.
+//
+// NO SCRIPT. This section renders pages.PanelShell — ONE argument, no script string
+// anywhere in the call — and PanelShell renders layout.Panel. The widened
+// Content-Security-Policy therefore stays on exactly one panel URL (the transactions
+// section), and the paragraph below says what does and does not enforce that.
+//
+// ⚠️ THE FOUR CLAUSES THAT USED TO BE HERE WERE ALL FALSE, AND THEY WERE WRITTEN THE
+// ROUND AFTER THE THING THEY DESCRIBED WAS REMOVED. They said this section passed an
+// empty script string to pages.PanelShell, which passed it on to
+// layout.PanelWithScript, and that the policy stayed narrow "because this template
+// says it and for no other reason" — denying, in a heading, exactly the structural
+// guarantee the 2026-08-06 split had bought the round before. Nothing here passes a
+// script string, and PanelShell has no parameter one could go in.
+//
+// 🔴 THE SLOT DOES NOT EXIST ON THIS PATH, WHICH IS A CHANGE THIS SCREEN CAUSED.
+// pages.PanelShell takes a PanelChrome and nothing else, so the widening edit an
+// audit made HERE — filling in a script path — is now a compile error
+// (`too many arguments in call to PanelShell / have (PanelChrome, string) /
+// want (PanelChrome)`), measured. Before 2026-08-06 the same edit compiled and
+// rendered, and only a test objected.
+//
+// ⚠️ IT IS STILL NOT A CLOSED DOOR: writing @PanelShellWithScript here compiles.
+// What refuses that is TestPanelScreens_ScriptsAndPolicyAgreeAndReachNoThirdParty,
+// measured going red on exactly that edit. Two sentences, both true, and the second
+// one is the reason the first must not be written as "impossible".
+templ AdminReview(v ReviewView) {
+	@PanelShell(v.PanelChrome) {
+		if v.Done != "" {
+			@components.Notice(components.ToneOK, doneHeading(v.Done)) {
+				<p>
+					The tap record itself is unchanged — it still shows the flag the engine gave
+					it. Your decision is recorded beside it and appears in the Transactions list.
+				</p>
+				if v.Clipped {
+					// 🔴 SAYING THE NOTE WAS CUT IS THE WHOLE REASON THIS BRANCH EXISTS.
+					// The boundary keeps the first 500 characters and used to keep them
+					// silently, on a field nothing rendered — so the manager lost text and
+					// the product was the only party that knew.
+					<p class="mt-2">
+						Your note was longer than 500 characters, so only the first 500 were
+						saved. You can read what was kept on the record in Transactions.
+					</p>
+				}
+			}
+		}
+		if v.Problem != "" {
+			@components.Notice(components.ToneWarn, problemHeading(v.Problem)) {
+				switch v.Problem {
+					case "unreadable":
+						// 🔴 IT SAYS NOTHING ABOUT THE RECORD, BECAUSE NOTHING WAS LOOKED
+						// UP. These branches used to share "gone"'s sentence — "that record
+						// is not waiting for a decision any more" — which is a claim about
+						// the world on a path where the world was never consulted: on an
+						// oversized body the record IS still waiting.
+						<p>We could not read that submission, so nothing was recorded. The record is still in the queue.</p>
+						<p class="mt-1">If your note was very long, shorten it and try again.</p>
+					case "yours":
+						// 🔴 THIS BRANCH SAYS "YOU", AND SAYING SO REQUIRED MEASURING IT.
+						// The screen used to answer a double click with "somebody else
+						// decided that record first" — a sentence the system had not
+						// checked, about the one person it was certainly wrong about.
+						<p>{ yoursLine(v.Was) }</p>
+						<p class="mt-1">A record is decided once, so the second press changed nothing.</p>
+					case "taken":
+						<p>Somebody else decided that record first. A record is decided once, so nothing was written for yours.</p>
+					default:
+						<p>That record is not waiting for a decision any more. Nothing was written.</p>
+				}
+			}
+		}
+		<p class="font-mono text-sm text-ink/85">
+			{ queueLine(v) }
+			<span class="text-ink/70">· { v.ZoneLabel }</span>
+		</p>
+		if len(v.Items) > 0 {
+			<div class="flex flex-col gap-6">
+				for _, item := range v.Items {
+					<div class="flex flex-col gap-2">
+						@components.TransactionDocket(item.Docket)
+						<form method="post" action={ templ.URL(v.Action) } class="flex flex-wrap items-end gap-3 border border-line bg-paper px-4 py-3">
+							<input type="hidden" name="id" value={ item.ID }/>
+							<div class="flex min-w-[12rem] flex-1 flex-col gap-1">
+								<label for={ "note-" + item.ID } class="docket-label">Note (optional)</label>
+								<input
+									id={ "note-" + item.ID }
+									name="note"
+									type="text"
+									maxlength="500"
+									autocomplete="off"
+									class="filter-input"
+								/>
+							</div>
+							// TWO SUBMIT BUTTONS, ONE FORM, and the outcome travels as the
+							// pressed button's value. That is what makes each press a single
+							// complete decision: there is no radio to choose first and no
+							// default outcome for a stray Enter key to submit.
+							<div class="filter-actions">
+								<button type="submit" name="outcome" value="approved" class="btn btn--primary">Approve</button>
+								<button type="submit" name="outcome" value="rejected" class="btn btn--quiet">Reject</button>
+							</div>
+						</form>
+					</div>
+				}
+			</div>
+			if v.MoreHref != "" {
+				<a class="btn btn--quiet self-start" href={ templ.URL(v.MoreHref) }>Show more</a>
+			}
+		} else if v.Queried {
+			@components.EmptyState("Nothing is waiting for review") {
+				<p>
+					Every flagged tap has been decided. New ones arrive here when the engine
+					records a tap it could not judge on evidence alone.
+				</p>
+				<p class="mt-2">
+					Decided records stay in <span class="font-mono">Transactions</span>, with the
+					flag they were given and the decision beside it.
+				</p>
+			}
+		}
+	}
+}
+
+// queueLine is the sentence above the list.
+// 🔴 IT NEVER PRINTS A NUMBER THE PRODUCT DID NOT MEASURE. PendingBadge.Known is
+// false when the count query failed, and this says so rather than printing "0
+// waiting" — the same rule the empty state follows one branch below.
+func queueLine(v ReviewView) string {
+	p := v.Pending
+	switch {
+	case !p.Known:
+		return "Waiting for review: not counted"
+	case p.Capped:
+		return "Waiting for review: more than " + itoa(p.N)
+	case p.N == 1:
+		return "Waiting for review: 1"
+	default:
+		return "Waiting for review: " + itoa(p.N)
+	}
+}
+
+// doneHeading names what was recorded. The two words are the closed vocabulary
+// migration 00005 constrains, so there is no third branch to write.
+func doneHeading(done string) string {
+	if done == "rejected" {
+		return "Recorded as rejected"
+	}
+	return "Recorded as approved"
+}
+
+func problemHeading(problem string) string {
+	switch problem {
+	case "yours":
+		return "You already decided this one"
+	case "taken":
+		return "Already decided"
+	case "unreadable":
+		return "We could not read that"
+	default:
+		return "Nothing was recorded"
+	}
+}
+
+// yoursLine names WHICH decision is already on record.
+//
+// A MISSING OR UNRECOGNISED `was` DEGRADES TO THE OUTCOME-LESS SENTENCE rather than
+// guessing one. "You already recorded a decision" is true whatever it was;
+// "…as approved" would be a second fabricated fact in the sentence written to stop
+// the first one.
+func yoursLine(was string) string {
+	switch was {
+	case "approved":
+		return "You had already recorded this one as approved."
+	case "rejected":
+		return "You had already recorded this one as rejected."
+	default:
+		return "You had already recorded a decision on this one."
+	}
+}

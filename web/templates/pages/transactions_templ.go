@@ -33,7 +33,20 @@ import "github.com/atknatk/tappa/web/templates/components"
 // THE SCRIPT IS NAMED HERE AND NOWHERE ELSE. It is the one page in the panel that
 // loads one, and layout.PanelWithScript plus the scripted CSP in
 // internal/handler/adminlogin.go are the two other places that had to change for
-// it. Four sections still render layout.Panel with no script at all.
+// it.
+//
+// 🔴 AND IT IS THE ONLY SECTION THAT NAMES THE SCRIPTED SHELL. It renders
+// pages.PanelShellWithScript; the other five render pages.PanelShell, which has no
+// script parameter to fill. Verified with
+// `grep -rn --include='*.templ' '@PanelShell' web/templates` — one
+// PanelShellWithScript (here) and two PanelShell.
+//
+// ⚠️ THIS LINE HAS BEEN WRONG TWICE. It said the others "render layout.Panel" while
+// layout.Panel had no callers at all, and before that it counted them wrongly. What
+// separates this section is now the COMPONENT rather than an argument, which is the
+// point of the 2026-08-06 split — but the separation is still enforced at the end by
+// TestPanelScreens_ScriptsAndPolicyAgreeAndReachNoThirdParty, not by the shape
+// alone.
 func AdminTransactions(v TransactionsView) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -74,7 +87,7 @@ func AdminTransactions(v TransactionsView) templ.Component {
 			var templ_7745c5c3_Var3 string
 			templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinStringErrs(v.DayLabel)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/transactions.templ`, Line: 39, Col: 15}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/transactions.templ`, Line: 52, Col: 15}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var3))
 			if templ_7745c5c3_Err != nil {
@@ -87,7 +100,7 @@ func AdminTransactions(v TransactionsView) templ.Component {
 			var templ_7745c5c3_Var4 string
 			templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(v.ZoneLabel)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/transactions.templ`, Line: 40, Col: 45}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/transactions.templ`, Line: 53, Col: 45}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 			if templ_7745c5c3_Err != nil {
@@ -151,7 +164,7 @@ func AdminTransactions(v TransactionsView) templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = PanelShell(v.PanelChrome, "/static/vendor/htmx.min.js").Render(templ.WithChildren(ctx, templ_7745c5c3_Var2), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = PanelShellWithScript(v.PanelChrome, "/static/vendor/htmx.min.js").Render(templ.WithChildren(ctx, templ_7745c5c3_Var2), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -240,7 +253,7 @@ func dockets(v TransactionsView) templ.Component {
 			var templ_7745c5c3_Var9 string
 			templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.JoinStringErrs(v.MoreFragmentHref)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/transactions.templ`, Line: 103, Col: 30}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/transactions.templ`, Line: 116, Col: 30}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var9))
 			if templ_7745c5c3_Err != nil {

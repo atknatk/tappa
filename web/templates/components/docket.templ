@@ -100,18 +100,41 @@ templ TransactionDocket(d DocketView) {
 				No plaque on this record
 			}
 		</p>
-		if d.Manual || d.Queued {
+		if d.Manual || d.Queued || d.Review != "" {
 			<p class="mt-2 flex flex-wrap gap-2">
 				if d.Manual {
 					<span class="tally tally--manual">Entered by a manager</span>
 				}
-				if d.Queued {
-					<span class="tally tally--queued">Waiting for review</span>
+				// THE THREE STATES OF A REVIEW, and only one of them is ever printed.
+				// "Waiting" is the ABSENCE of a decision, so it is gated on Review
+				// being empty rather than on Queued alone: transactions is immutable,
+				// so the queued column can never be cleared and a decided record would
+				// otherwise go on claiming to be waiting forever.
+				switch d.Review {
+					case "approved":
+						<span class="tally tally--approved">Approved by a manager</span>
+					case "rejected":
+						<span class="tally tally--rejected">Rejected by a manager</span>
+					default:
+						if d.Queued {
+							<span class="tally tally--queued">Waiting for review</span>
+						}
 				}
 			</p>
 		}
 		if d.Note != "" {
 			<p class="mt-2 text-xs text-ink/85">{ d.Note }</p>
+		}
+		// THE MANAGER'S OWN SENTENCE, LABELLED, so it is never mistaken for the
+		// engine's Note above it. One is what the RULE said; this is what a PERSON
+		// said, and a card that ran them together would make the record look as
+		// though the system had reasoned about a shift it knows nothing about.
+		//
+		// The tone is the one the line above already uses, so this adds no new
+		// colour to the palette and nothing to the contrast surface.
+		if d.ReviewNote != "" {
+			<p class="mt-2 docket-label">Manager's note</p>
+			<p class="text-xs text-ink/85">{ d.ReviewNote }</p>
 		}
 	</article>
 }

@@ -5,12 +5,11 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/atknatk/tappa/internal/httpx"
 	"github.com/atknatk/tappa/web/templates/pages"
 )
 
-// The PANEL SHELL — M6-02. Five sections, one layout, and nothing in any of them
-// yet: the sections themselves are M6-03, M6-05, M6-06, M6-07 and M6-09.
+// The PANEL SHELL — M6-02. One layout over every section; the sections themselves
+// are M6-03 (shipped), M6-04 (shipped), M6-05, M6-06, M6-07 and M6-09.
 //
 // 🔴 WHY THIS IS A METHOD ON AdminAuth RATHER THAN ITS OWN TYPE, because "the
 // dashboard is not authentication" is the obvious objection and it was weighed.
@@ -58,13 +57,40 @@ import (
 // the protected group by construction.
 func (a *AdminAuth) mountSections(r chi.Router) {
 	for _, s := range pages.PanelSections {
-		if s.Tab == pages.TabTransactions {
+		switch s.Tab {
+		case pages.TabTransactions:
 			r.Get(s.Href, a.transactionsSection)
-			continue
+		case pages.TabReview:
+			r.Get(s.Href, a.reviewSection)
+		default:
+			r.Get(s.Href, a.section(s.Tab))
 		}
-		r.Get(s.Href, a.section(s.Tab))
 	}
 	r.Get(docketFragmentPath, a.transactionDockets)
+}
+
+// mountWriting registers the panel's state-changing routes. Today there is one:
+// POST /admin/review (M6-04).
+//
+// 🔴 IT IS A SEPARATE FUNCTION FROM mountSections BECAUSE IT NEEDS A DIFFERENT
+// CHAIN, NOT A LONGER ONE. mountSections is called from inside Mount's protected
+// group and everything in it inherits Protect(); a mutating route needs the Origin
+// check to run BEFORE the resolver, which cannot be expressed by adding middleware
+// inside that group — anything added there runs after. AdminAuth.ProtectWriting
+// carries the whole chain and the argument for its order.
+//
+// WHAT THE GATE IS AND IS NOT. It refuses a cross-origin request before any
+// database work happens, which is what a state-changing endpoint behind a cookie
+// needs and a GET does not: every panel read is idempotent, so a cross-origin GET
+// buys an attacker nothing their own browser would not. It is defence in depth
+// rather than a bound — a caller who is not a browser sets an Origin header
+// trivially — and it does not pretend to stop somebody who already holds the
+// session cookie, who could fetch the form and read a synchronizer token too.
+func (a *AdminAuth) mountWriting(r chi.Router) {
+	r.Group(func(r chi.Router) {
+		r.Use(a.ProtectWriting())
+		r.Post(reviewHref, a.reviewDecision)
+	})
 }
 
 // transactionsHref is the transactions section's own URL, READ FROM THE SECTION
@@ -95,13 +121,11 @@ func mustSectionHref(tab pages.PanelTab) string {
 // PanelSections named, and the compiler carries that from the table to the view.
 func (a *AdminAuth) section(tab pages.PanelTab) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		id := httpx.AdminOf(r)
 		a.render(w, r, http.StatusOK, pages.AdminDashboard(pages.AdminDashboardView{
-			PanelChrome: pages.PanelChrome{
-				FullName: id.Admin.FullName,
-				Role:     id.Admin.Role,
-				Tab:      tab,
-			},
+			// a.chrome (review.go) reads the queue badge as well as the identity, so
+			// an unbuilt section shows the same backlog number as a built one. It is
+			// the one place that count is taken; see the cost measured there.
+			PanelChrome: a.chrome(r, tab),
 		}))
 	}
 }

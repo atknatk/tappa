@@ -29,11 +29,15 @@ package handler
 
 import (
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"io/fs"
 	"math"
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"slices"
 	"sort"
@@ -41,6 +45,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/a-h/templ"
 	"github.com/google/uuid"
 
 	"github.com/atknatk/tappa/internal/adminauth"
@@ -64,7 +69,7 @@ func panelBrowser(t *testing.T) *browser {
 }
 
 // sectionBodies renders every panel section once, keyed by href. Several tests
-// need all five and none of them should pay for a second render.
+// need every one of them and none should pay for a second render.
 func sectionBodies(t *testing.T) map[string]string {
 	t.Helper()
 	assertSectionTableIsUsable(t)
@@ -266,7 +271,7 @@ func TestPanelSections_ShowTheirOwnEmptyStateAndNameTheTaskThatFillsIt(t *testin
 	}
 
 	// ANTI-VACUITY, BOTH WAYS. Each branch above guards a real shape only while
-	// some section takes it. Today it is 1 built and 4 unbuilt; when M6-09 finishes
+	// some section takes it. Today it is 2 built and 4 unbuilt; when M6-09 finishes
 	// the panel the second of these becomes a deliberate edit rather than a
 	// surprise, and the message says so.
 	if unbuilt == 0 {
@@ -401,8 +406,8 @@ func TestPanelScreens_TouchTargetClassesReserve44px(t *testing.T) {
 // scans web/static/js/**/*.js as raw text and mined three dead rules out of htmx's
 // own strings. Somebody reading "vendored into web/static/js/" and filing the next
 // library there would reopen that defect. See TestTailwind_ScansNoMinifiedSource.
-// The other four
-// sections load none. This test holds three properties over that:
+// Every other
+// section loads none. This test holds three properties over that:
 //
 //  1. every asset reference is same-origin, and every <script> has a src under
 //     /static -- so there is no CDN and no INLINE script;
@@ -513,7 +518,7 @@ func TestPanelScreens_ScriptsAndPolicyAgreeAndReachNoThirdParty(t *testing.T) {
 
 	// 🔴 THE CARDINALITY, WHICH IS THE HALF THE CORRESPONDENCE CANNOT SEE.
 	//
-	// Every check above is PER PAGE, so a change that gives all five sections a
+	// Every check above is PER PAGE, so a change that gives EVERY section a
 	// script AND the scripted policy satisfies every one of them -- measured: a
 	// mutation doing exactly that left the whole package green. The per-page rule
 	// says "do not widen for a page that loads nothing"; it cannot say "only one
@@ -532,7 +537,7 @@ func TestPanelScreens_ScriptsAndPolicyAgreeAndReachNoThirdParty(t *testing.T) {
 			"which paginates with HTMX. Adding a second is allowed and must be "+
 			"argued for HERE, in this test and in adminlogin.go's comment, rather "+
 			"than inherited: 'script-src is already in the policy' is how a panel "+
-			"ends up permitting scripts on five screens that load none.",
+			"ends up permitting scripts on the screens that load none.",
 			len(widened), strings.Join(widened, ", "))
 	}
 	if len(widened) == 1 && widened[0] != transactionsHref {
@@ -903,8 +908,11 @@ var docketLabelGrounds = map[string]string{
 	// Neither Notice tone carries a docket-label today. They are listed anyway
 	// because they are light SURFACES a label could legitimately land on, and
 	// including them costs nothing: the tone clears AA on all four.
-	"green-lite":   "components.Notice(ToneOK) — listed so a label could be added there without a surprise",
-	"saffron-lite": "components.Notice(ToneWarn) — same",
+	"green-lite": "components.Notice(ToneOK) — listed so a label could be added there without a surprise",
+	// M6-04 gave saffron-lite two more callers: .tally--queued (a docket footnote)
+	// and .tab-count (the navigation's pending badge). It is still a light SURFACE a
+	// docket-label could land on, so it stays here rather than moving.
+	"saffron-lite": "components.Notice(ToneWarn), .tally--queued and .tab-count — light surfaces a label could land on",
 }
 
 // nonSurfaceGrounds are the palette colours used as a background that a
@@ -919,8 +927,12 @@ var nonSurfaceGrounds = map[string]string{
 	"tappa-green": "the primary button and .tap-button; their label is text-paper, and no docket-label is ever placed on one",
 	"ink":         "stamp--training's 10% tint, inside .stamp only",
 	"saffron":     "stamp--flagged's 10% tint, inside .stamp only",
-	"tomato":      "stamp--rejected's 10% tint, inside .stamp only",
-	"line":        "stamp--ignored's 10% tint, inside .stamp only",
+	// ⚠️ NO LONGER "inside .stamp only": M6-04 added .tally--rejected, which uses
+	// bg-tomato/10 in a docket footnote. The CLASSIFICATION is unchanged and still
+	// correct (no docket-label sits on either), but the reason had to be re-measured
+	// rather than left saying something that stopped being true.
+	"tomato": "stamp--rejected's and .tally--rejected's 10% tints; no docket-label sits on either",
+	"line":   "stamp--ignored's 10% tint, inside .stamp only",
 }
 
 // aaSmallText is WCAG 2.1 AA for text below 18pt (or 14pt bold). .docket-label is
@@ -1632,4 +1644,293 @@ func expandGlob(t *testing.T, root, pattern string) []string {
 		t.Fatalf("bad pattern %q: %v", pattern, err)
 	}
 	return matches
+}
+
+// --- the panel shells: the guarantee, and whether it is real ----------------
+//
+// 🔴 THIS PAIR EXISTS BECAUSE THE GUARANTEE WAS PROSE FOR ONE ROUND. M6-04 shipped
+// with layout.Panel documented as the scriptless shell — "giving this shell a script
+// slot would make widening that policy a one-word edit somewhere else" — while
+// NOTHING RENDERED IT: every section reached layout.PanelWithScript through one
+// PanelShell that took a script string, so the one-word edit that comment warns
+// about was available on all six. An audit performed it: it compiled, it rendered,
+// and the only objection came from a test.
+//
+// The user decided (2026-08-06) to make the shape real rather than delete the dead
+// shell, on one measured difference: with the test neutralised, the one-word edit
+// left the whole package GREEN; under the split it does not compile at all.
+//
+// WHAT THESE TWO ASSERT, AND WHAT THEY DO NOT. They pin that the scriptless shell
+// HAS NO SLOT (so the string edit is a compile error) and that no layout shell is
+// dead prose again. They do NOT claim widening is impossible: naming
+// pages.PanelShellWithScript from another section still compiles, and what refuses
+// THAT is TestPanelScreens_ScriptsAndPolicyAgreeAndReachNoThirdParty above —
+// measured, not assumed, by making exactly that edit.
+
+// TestPanelShells_TheScriptlessShellHasNoScriptSlot is the structural half.
+//
+// IT READS THE SHIPPED FUNCTION TYPES rather than a list of names, so it cannot be
+// satisfied by a comment and cannot go stale: adding a script parameter back to
+// PanelShell turns it red at the type level, which is the same place the compiler
+// refuses the edit this is protecting.
+func TestPanelShells_TheScriptlessShellHasNoScriptSlot(t *testing.T) {
+	scriptless := reflect.TypeOf(pages.PanelShell)
+	scripted := reflect.TypeOf(pages.PanelShellWithScript)
+
+	// ANTI-VACUITY: both must really be functions returning a component, or every
+	// arity comparison below is a comparison of nothing.
+	component := reflect.TypeOf((*templ.Component)(nil)).Elem()
+	for name, fn := range map[string]reflect.Type{
+		"PanelShell": scriptless, "PanelShellWithScript": scripted,
+	} {
+		if fn.Kind() != reflect.Func {
+			t.Fatalf("pages.%s is not a function (%s); this test is measuring nothing", name, fn.Kind())
+		}
+		if fn.NumOut() != 1 || !fn.Out(0).Implements(component) {
+			t.Fatalf("pages.%s does not return a templ.Component", name)
+		}
+	}
+
+	// 🔴 THE SCRIPTLESS SHELL TAKES NO STRING. Not "takes one argument" — the
+	// property is that there is nowhere to put a path, so a caller cannot widen the
+	// policy by editing a literal. A second PanelChrome-shaped parameter would be
+	// odd but harmless; a string is the hazard.
+	for i := 0; i < scriptless.NumIn(); i++ {
+		if scriptless.In(i).Kind() == reflect.String {
+			t.Errorf("pages.PanelShell takes a string in position %d (%s). The scriptless "+
+				"shell must have no slot a script path could be written into — that is "+
+				"the only thing making the widening edit a COMPILE ERROR rather than a "+
+				"test failure. If this parameter is not a script, give it a named type.",
+				i, scriptless.In(i))
+		}
+	}
+
+	// AND THE SLOT EXISTS ON THE OTHER ONE, exactly once — so the split is a split
+	// and not a deletion. Without this half, removing the script parameter from both
+	// shells would satisfy the check above while breaking the section that needs it.
+	strs := 0
+	for i := 0; i < scripted.NumIn(); i++ {
+		if scripted.In(i).Kind() == reflect.String {
+			strs++
+		}
+	}
+	if strs != 1 {
+		t.Errorf("pages.PanelShellWithScript takes %d string parameter(s), want exactly 1 "+
+			"(the script path). The pair only means something if one shell has the slot "+
+			"and the other does not.", strs)
+	}
+	if scripted.NumIn() != scriptless.NumIn()+1 {
+		t.Errorf("the two shells take %d and %d parameters; the scripted one should be "+
+			"the scriptless one PLUS the script, or they have drifted into two "+
+			"different components", scripted.NumIn(), scriptless.NumIn())
+	}
+}
+
+// templShellDecl matches a top-level exported templ component in a .templ file.
+var templShellDecl = regexp.MustCompile(`(?m)^templ ([A-Z]\w*)\(`)
+
+// TestLayoutShells_EveryOneIsActuallyRendered is the dead-prose half, and it is the
+// net for the defect class that produced this whole round.
+//
+// 🔴 ITS FIRST TWO VERSIONS WERE BOTH BEATEN, AND THE SECOND ONE CALLED ITS OWN GAP
+// "NARROWER THAN THE HOLE IT CLOSED". That version scanned .templ text with
+// whole-line // comments stripped and recorded two known gaps -- a trailing comment
+// on a markup line, and a shell name in a string literal -- describing them as
+// narrower than what it caught. An audit then killed layout.Panel's caller and left
+// `<!-- historical note: this used to be @layout.Panel( -->` behind: make templ, go
+// build and 16/16 packages green, with the component dead and a user decision
+// silently reverted. An HTML comment is not a narrower shape than a Go comment. It is
+// the SAME shape, and the second most natural way to comment a .templ.
+//
+// The retraction is the reason this reads generated Go through go/ast instead: all
+// three of those shapes were re-tried against the new version and all three are now
+// caught (results recorded in the M6-04 card).
+//
+// ⚠️ IT COUNTS Wordmark AS A SHELL, which is over-reach: Wordmark is a lockup, not a
+// document skeleton. Harmless (it has a caller) and left in rather than
+// special-cased, because the exemption list would be the fixed list this test exists
+// to avoid -- but it means "shell" here reads as "exported component in layout".
+//
+// 🔴 IT IS DERIVED IN BOTH DIRECTIONS. The shells come from layout's own source, and
+// the callers from every .templ in the product — so a shell added tomorrow is
+// checked because it exists, and a shell that loses its last caller goes red on the
+// next run. A fixed list of shell names would be a change detector: it catches a
+// rename and is helpless against an addition, which is exactly how layout.Panel sat
+// uncalled while three comments described sections rendering it.
+func TestLayoutShells_EveryOneIsActuallyRendered(t *testing.T) {
+	root := filepath.Join("..", "..", "web", "templates")
+
+	raw, err := os.ReadFile(filepath.Join(root, "layout", "base.templ"))
+	if err != nil {
+		t.Fatalf("reading layout/base.templ: %v", err)
+	}
+	var shells []string
+	for _, m := range templShellDecl.FindAllStringSubmatch(string(raw), -1) {
+		shells = append(shells, m[1])
+	}
+	if len(shells) < 3 {
+		t.Fatalf("derived %d exported shell(s) from layout/base.templ (%v); the layout "+
+			"package has more than that, so this scan is reading the wrong file",
+			len(shells), shells)
+	}
+
+	// 🔴 THE CALLERS ARE READ FROM THE GENERATED GO, WITH go/ast, AND THE TEXT SCAN
+	// THIS REPLACES WAS BEATEN BY ONE LINE. It concatenated .templ sources with
+	// whole-line // comments stripped, and an audit killed layout.Panel's real caller
+	// while leaving `<!-- historical note: this used to be @layout.Panel( -->` behind:
+	// make templ, go build and all sixteen packages stayed green with the component
+	// dead and the user's 2026-08-06 decision quietly reverted. An HTML comment is not
+	// a narrower version of the hole the strip closed -- it is the same hole, and the
+	// second most natural way to write a comment in a .templ.
+	//
+	// WHY THE GENERATED GO IS IMMUNE -- and the first version of this sentence got the
+	// REASON wrong even though the conclusion held. It said "templ does NOT carry
+	// either comment form into the generated Go". Measured: a Go-style // comment is
+	// indeed dropped, but `<!-- ... -->` IS carried through, as
+	// templruntime.WriteString(..., "<!-- ... -->") -- which also means an HTML
+	// comment in a .templ is SENT TO THE BROWSER. What makes both harmless here is
+	// the parse, not the omission: a string literal is a *ast.BasicLit and never a
+	// *ast.SelectorExpr, so neither comment form -- nor a shell name written inside
+	// any other string -- can look like a call.
+	shellSet := map[string]bool{}
+	for _, sh := range shells {
+		shellSet[sh] = true
+	}
+	called := map[string]bool{}
+	fset := token.NewFileSet()
+	generated := 0
+	err = filepath.Walk(root, func(p string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() || !strings.HasSuffix(p, "_templ.go") ||
+			filepath.Base(filepath.Dir(p)) == "layout" {
+			return nil
+		}
+		f, e := parser.ParseFile(fset, p, nil, 0)
+		if e != nil {
+			return fmt.Errorf("parsing %s: %w", p, e)
+		}
+		generated++
+		ast.Inspect(f, func(n ast.Node) bool {
+			sel, ok := n.(*ast.SelectorExpr)
+			if !ok {
+				return true
+			}
+			pkg, ok := sel.X.(*ast.Ident)
+			if !ok || pkg.Name != "layout" {
+				return true
+			}
+			if shellSet[sel.Sel.Name] {
+				called[sel.Sel.Name] = true
+			}
+			return true
+		})
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walking %s: %v", root, err)
+	}
+	if generated == 0 {
+		t.Fatal("parsed no *_templ.go outside layout/; the caller scan would find nothing " +
+			"and every shell would look dead")
+	}
+
+	// 🔴 THE GENERATED FILES MUST CORRESPOND TO THE CURRENT DECLARATIONS, or a stale
+	// tree could empty this net silently. Every component a .templ declares must exist
+	// as a func in its sibling _templ.go.
+	//
+	// ⚠️ WHAT THIS FRESHNESS CHECK DOES AND DOES NOT COVER. It catches a MISSING or
+	// removed component -- a generated file from before a DECLARATION changed. It does
+	// NOT prove the BODIES are current: a .templ whose body changed while its
+	// declarations did not will pass.
+	//
+	// ✅ WHAT COVERS THE BODIES IS `make check`, AND SINCE 2026-08-07 THAT IS TRUE.
+	// It was not when this test was written, and the sentence here said it was --
+	// which is the failure mode this whole task keeps producing: naming a catcher
+	// that does not exist stops the next reader looking.
+	//
+	// WHAT WAS MEASURED THEN: `check: fmt lint test`, and `fmt` is `gofmt -w` plus
+	// `templ fmt` -- FORMATTERS. Neither `gen`, nor `templ generate`, nor `sqlc`
+	// appeared anywhere in it. Editing admin.templ so PanelShell no longer called
+	// @layout.Panel, skipping `make gen` and running `make fmt` left the generated
+	// file UNCHANGED and this test, TestPanelShells_* and TestPanelScreens_* all
+	// answered ok -- a stale _templ.go beside a changed .templ passed `make check`
+	// and CI, and the product would have rendered the old markup.
+	//
+	// WHAT IS MEASURED NOW, with `check: fmt gen lint test` (user decision, the cost
+	// and the ordering are argued in the Makefile): the SAME edit, `make gen` again
+	// deliberately not run by hand ->
+	//
+	//	$ grep -c '@layout.Panel(' web/templates/pages/admin.templ   -> 0
+	//	$ grep -c 'layout\.Panel(' web/templates/pages/admin_templ.go -> 1  (stale)
+	//	$ make check
+	//	  --- FAIL: TestLayoutShells_EveryOneIsActuallyRendered
+	//	      layout.Panel is exported and documented but NOTHING outside the layout
+	//	      package renders it
+	//	  exit 2
+	//	$ grep -c 'layout\.Panel(' web/templates/pages/admin_templ.go -> 0  (regenerated)
+	//
+	// ⚠️ IT IS `make check` THAT CATCHES IT, NOT THIS TEST ALONE. This test reads
+	// generated Go; what makes that generated Go current is the `gen` step ahead of
+	// it. Running `go test` on a stale tree by hand still passes, and that is the
+	// honest boundary of the claim.
+	assertGeneratedMatchesDeclarations(t, root)
+
+	for _, shell := range shells {
+		if !called[shell] {
+			t.Errorf("layout.%s is exported and documented but NOTHING outside the layout "+
+				"package renders it.\n"+
+				"That is the shape M6-04 shipped: layout.Panel carried the panel's whole "+
+				"script-policy argument while every section reached PanelWithScript "+
+				"instead, so the guarantee its comment described did not exist. Either "+
+				"give it a caller or delete it -- a shell nobody renders is a comment.",
+				shell)
+		}
+	}
+}
+
+// assertGeneratedMatchesDeclarations checks that each .templ's components exist as
+// functions in its generated sibling. See the limit stated at its call site.
+func assertGeneratedMatchesDeclarations(t *testing.T, root string) {
+	t.Helper()
+	checked := 0
+	err := filepath.Walk(root, func(p string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() || !strings.HasSuffix(p, ".templ") {
+			return nil
+		}
+		gen := strings.TrimSuffix(p, ".templ") + "_templ.go"
+		raw, e := os.ReadFile(p)
+		if e != nil {
+			return e
+		}
+		decls := templShellDecl.FindAllStringSubmatch(string(raw), -1)
+		if len(decls) == 0 {
+			return nil
+		}
+		g, e := os.ReadFile(gen)
+		if e != nil {
+			t.Errorf("%s declares %d component(s) and has no generated sibling: %v",
+				p, len(decls), e)
+			return nil
+		}
+		checked++
+		for _, d := range decls {
+			if !strings.Contains(string(g), "func "+d[1]+"(") {
+				t.Errorf("%s declares templ %s but %s has no func for it -- the generated "+
+					"file is stale, and a stale one empties the caller scan above",
+					p, d[1], filepath.Base(gen))
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walking %s: %v", root, err)
+	}
+	if checked == 0 {
+		t.Fatal("checked no .templ/_templ.go pair; the freshness gate is reading nothing")
+	}
 }

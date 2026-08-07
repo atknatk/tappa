@@ -39,6 +39,7 @@ import (
 	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/db"
 	"github.com/atknatk/tappa/internal/domain/ledger"
+	"github.com/atknatk/tappa/internal/domain/review"
 	"github.com/atknatk/tappa/web/templates/pages"
 )
 
@@ -123,7 +124,11 @@ func newPanelHarness(t *testing.T) *panelHarness {
 	if err != nil {
 		t.Fatalf("ledger.NewReader: %v", err)
 	}
-	h, err := NewAdminAuth(admins, trail, records, cfg, slog.New(slog.DiscardHandler))
+	reviewer, err := review.NewReviewer(data, trail, slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatalf("review.NewReviewer: %v", err)
+	}
+	h, err := NewAdminAuth(admins, trail, records, records, reviewer, cfg, slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}
@@ -294,7 +299,7 @@ func TestPanelE2E_SignInAndOut(t *testing.T) {
 	if !strings.Contains(panel, "E2E Owner") {
 		t.Fatalf("the panel does not name the signed-in operator")
 	}
-	// And it lands on the panel shell M6-02 shipped: the five sections are there,
+	// And it lands on the panel shell M6-02 shipped: every section is there,
 	// every one of them empty and saying which task fills it. Asserted through the
 	// SECTION TABLE rather than against a sentence, so this stays true as the
 	// sections are filled in one by one.

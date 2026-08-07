@@ -78,10 +78,38 @@ type DocketView struct {
 	// requires it to be distinguishable wherever it is reported; this is the
 	// panel's half of that.
 	Manual bool
-	// Queued marks a record waiting in the approval queue (M6-04). It is a FACT
-	// about the record, not a control: nothing on this screen approves anything,
-	// because approving writes and §4.3 makes this view read-only.
+	// Queued marks a record the tap engine put in the approval queue. It is a FACT
+	// about the record, not a control: the docket itself approves nothing, because
+	// approving writes and §4.3 makes this view read-only. The review section
+	// (M6-04) renders its own form BESIDE the card rather than inside it.
 	Queued bool
+	// Review is the MANAGER's decision — "approved", "rejected", or "" for none
+	// yet.
+	//
+	// 🔴 IT DOES NOT REPLACE Verdict AND THE TEMPLATE RENDERS BOTH. The stamp is
+	// what the ENGINE decided and §4.3 makes it permanent; this is what a human
+	// decided afterwards, and it lives in transaction_reviews. A card that swapped
+	// FLAGGED for APPROVED would be rewriting the record on screen — the exact edit
+	// Q20 exists to prevent, performed in the read path instead of the write path.
+	Review string
+	// ReviewNote is what the deciding manager typed, "" when they typed nothing.
+	//
+	// 🔴 IT IS THE ONLY FIELD ON THIS TYPE THAT A HUMAN WROTE. Note above is one of
+	// our own policy sentences from internal/policy — a fixed string. This is free
+	// text, so it is the one field whose escaping matters, and templ escapes it on
+	// output: proved by TestReviewDB_AHostileNoteIsEscapedWhereItIsRendered against
+	// a stored note containing a script tag, a quote and an ampersand, rather than
+	// asserted in a comment.
+	//
+	// ⚠️ THE ESCAPING IS templ's AND IT DOES NOT TRAVEL. M6-07's CSV export will
+	// read the same column and get none of it, and a spreadsheet treats a cell
+	// beginning = + - or @ as a formula. That rule belongs to whoever writes the
+	// export; rendering the note here does not discharge it.
+	//
+	// IT IS RENDERED BESIDE THE DECISION IT BELONGS TO, not in a separate panel:
+	// the manager who decides and the manager who reads have to share a surface, or
+	// the note is written into a place nobody looks.
+	ReviewNote string
 	// Note is the deciding rule's sentence, straight from internal/policy. Those
 	// are fixed strings written by us; they carry no coordinate and no secret.
 	Note string

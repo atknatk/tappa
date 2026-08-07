@@ -388,15 +388,43 @@ WITH matched_employees AS MATERIALIZED (
       AND sqlc.narg('employee_name')::text IS NOT NULL
       AND e2.full_name ILIKE '%' || sqlc.narg('employee_name')::text || '%'
 )
+-- 🔴 M6-04 ADDED rv.outcome, AND IT IS THE CARD'S "the list reads the latest
+-- decision through a JOIN". The verdict column keeps saying what the ENGINE decided
+-- and can never say anything else (section 4.3); whether a HUMAN has since approved
+-- or rejected that flag lives in transaction_reviews and is read here. The two are
+-- rendered as two different things -- the stamp is the engine's, the tally is the
+-- manager's -- so a decided record neither hides its flag nor pretends to still be
+-- waiting.
+--
+-- ONE ROW AT MOST, so the LEFT JOIN cannot multiply the page: transaction_reviews
+-- has UNIQUE (transaction_id) (00005, "a record is decided ONCE"). This is the only
+-- join in the query whose absence of a cardinality guarantee would silently change
+-- how many dockets a page holds, which is why the guarantee is named.
+--
+-- COST, MEASURED (EXPLAIN ANALYZE, seed tenant, ordinary day of 1 628 records,
+-- warm cache, after ANALYZE, 3 repeats each after a warm-up run):
+--
+--	without the review join   0.745 / 0.622 / 0.463 ms
+--	with it                   6.084 / 0.632 / 0.611 ms
+--
+-- The 6.084 ms is the first run of the changed shape and is a PLAN/CACHE artefact
+-- rather than the join's price -- the two settle indistinguishably, which is what
+-- an equality probe against a UNIQUE index costs on a 26-row page. The outlier is
+-- printed rather than dropped because a range that excludes its own first
+-- measurement is the kind this repository has had to withdraw before.
 SELECT t.id, t.occurred_at, t.type, t.trust, t.verdict, t.channel, t.practice,
        t.queued, t.tag_uid, t.ctr, t.ip_match, t.gps_match, t.note,
        l.name AS location_name,
        d.name AS department_name,
-       e.full_name AS employee_name
+       e.full_name AS employee_name,
+       rv.outcome AS review_outcome,
+       rv.note AS review_note
 FROM transactions t
 LEFT JOIN locations   l ON l.tenant_id = t.tenant_id AND l.id = t.location_id
 LEFT JOIN departments d ON d.tenant_id = t.tenant_id AND d.id = t.department_id
 LEFT JOIN employees   e ON e.tenant_id = t.tenant_id AND e.id = t.employee_id
+LEFT JOIN transaction_reviews rv
+       ON rv.tenant_id = t.tenant_id AND rv.transaction_id = t.id
 WHERE t.tenant_id = @tenant_id
   AND t.occurred_at >= @from_at
   AND t.occurred_at <  @to_at

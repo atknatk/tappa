@@ -20,6 +20,7 @@ import (
 	"github.com/atknatk/tappa/internal/audit"
 	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/domain/ledger"
+	"github.com/atknatk/tappa/internal/domain/review"
 	"github.com/atknatk/tappa/internal/httpx"
 	"github.com/atknatk/tappa/internal/session"
 )
@@ -52,6 +53,7 @@ type fakeAdmins struct {
 	authCalls   int
 	issuedFor   []adminauth.Verified
 	revokeCalls int
+	verifyCalls int
 }
 
 func (f *fakeAdmins) Authenticate(_ context.Context, email, password string) (adminauth.Authentication, error) {
@@ -108,10 +110,25 @@ func fakeIssuedToken() adminauth.Token {
 }
 
 func (f *fakeAdmins) Verify(_ context.Context, _ adminauth.Token) (adminauth.Resolved, error) {
+	// COUNTED, because "the gate refused" and "the gate refused WITHOUT paying for
+	// the resolver" are different claims and only the second one is the design rule
+	// adminlogin.go states for sign-out ("a FREE refusal, BEFORE the resolver").
+	// A status-only assertion cannot tell them apart.
+	f.mu.Lock()
+	f.verifyCalls++
+	f.mu.Unlock()
 	if f.verify == nil {
 		return adminauth.Resolved{}, adminauth.ErrNoSession
 	}
 	return f.verify()
+}
+
+// verifiedCount is how many times the panel resolved a session — i.e. how many
+// database round trips a sequence of requests cost before any gate refused them.
+func (f *fakeAdmins) verifiedCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.verifyCalls
 }
 
 func (f *fakeAdmins) Revoke(_ context.Context, _, _ uuid.UUID) error {
@@ -168,10 +185,102 @@ type fakeLedger struct {
 	err    error
 	calls  []ledger.Filter
 	tenant []uuid.UUID
+
+	// M6-04's read side. queue/pending default to "asked, and there is nothing
+	// waiting", for the same reason page does: an unqueried zero value renders
+	// nothing at all, so a test using it would be reading a blank section.
+	queue      ledger.QueuePage
+	queueErr   error
+	pending    ledger.Pending
+	pendingErr error
+	// queueTenant and pendingTenant record who was asked, which is what the
+	// isolation assertions read.
+	queueTenant   []uuid.UUID
+	pendingTenant []uuid.UUID
+	queueCursors  []*ledger.Cursor
+
+	// M6-04 round 6: what the database would say a record was decided as. The
+	// confirmation banner is checked against this rather than believed from the URL.
+	decisions      map[uuid.UUID]string
+	decisionErr    error
+	decisionTenant []uuid.UUID
 }
 
 func newFakeLedger() *fakeLedger {
-	return &fakeLedger{page: ledger.Page{Queried: true, Zone: time.UTC}}
+	return &fakeLedger{
+		page:  ledger.Page{Queried: true, Zone: time.UTC},
+		queue: ledger.QueuePage{Queried: true, Zone: time.UTC},
+	}
+}
+
+func (f *fakeLedger) Queue(_ context.Context, tenantID uuid.UUID, after *ledger.Cursor) (ledger.QueuePage, error) {
+	f.mu.Lock()
+	f.queueTenant = append(f.queueTenant, tenantID)
+	f.queueCursors = append(f.queueCursors, after)
+	q, err := f.queue, f.queueErr
+	f.mu.Unlock()
+	if err != nil {
+		return ledger.QueuePage{}, err
+	}
+	if q.Zone == nil {
+		q.Zone = time.UTC
+	}
+	return q, nil
+}
+
+// decisions is what the fake claims is on record, keyed by transaction id. Empty by
+// default, which is the honest zero value: nothing has been decided.
+func (f *fakeLedger) Decision(_ context.Context, tenantID, txnID uuid.UUID) (string, bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.decisionTenant = append(f.decisionTenant, tenantID)
+	if f.decisionErr != nil {
+		return "", false, f.decisionErr
+	}
+	out, ok := f.decisions[txnID]
+	return out, ok, nil
+}
+
+func (f *fakeLedger) decided(txnID uuid.UUID, outcome string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.decisions == nil {
+		f.decisions = map[uuid.UUID]string{}
+	}
+	f.decisions[txnID] = outcome
+}
+
+func (f *fakeLedger) Pending(_ context.Context, tenantID uuid.UUID) (ledger.Pending, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.pendingTenant = append(f.pendingTenant, tenantID)
+	if f.pendingErr != nil {
+		return ledger.Pending{}, f.pendingErr
+	}
+	return f.pending, nil
+}
+
+// fakeReviewer is the write side without a database. It records what it was asked
+// to do and answers with whatever the test set.
+type fakeReviewer struct {
+	mu    sync.Mutex
+	err   error
+	calls []review.Decision
+}
+
+func (f *fakeReviewer) Record(_ context.Context, d review.Decision) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls = append(f.calls, d)
+	return f.err
+}
+
+func (f *fakeReviewer) recorded() []review.Decision {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]review.Decision, len(f.calls))
+	copy(out, f.calls)
+	return out
 }
 
 func (f *fakeLedger) Screen(_ context.Context, tenantID uuid.UUID, filter ledger.Filter) (ledger.Screen, error) {
@@ -245,9 +354,18 @@ func newAdminRouter(t *testing.T, admins *fakeAdmins, trail *fakeTrail) http.Han
 
 // newAdminRouterWithLedger is the same wiring with a ledger the caller controls,
 // for the tests that care what the transactions section was given.
-func newAdminRouterWithLedger(t *testing.T, admins *fakeAdmins, trail *fakeTrail, records panelLedger) http.Handler {
+func newAdminRouterWithLedger(t *testing.T, admins *fakeAdmins, trail *fakeTrail, records *fakeLedger) http.Handler {
 	t.Helper()
-	h, err := NewAdminAuth(admins, trail, records, adminTestConfig(), slog.New(slog.DiscardHandler))
+	return newAdminRouterWithReviewer(t, admins, trail, records, &fakeReviewer{})
+}
+
+// newAdminRouterWithReviewer is the same wiring with the review queue's write side
+// under the caller's control (M6-04). The SAME fakeLedger is passed as the day
+// reader and as the queue reader, which is what production does with the one real
+// *ledger.Reader.
+func newAdminRouterWithReviewer(t *testing.T, admins *fakeAdmins, trail *fakeTrail, records *fakeLedger, reviewer panelReviewer) http.Handler {
+	t.Helper()
+	h, err := NewAdminAuth(admins, trail, records, records, reviewer, adminTestConfig(), slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}
@@ -298,6 +416,24 @@ func (b *browser) do(method, path string, form url.Values) *httptest.ResponseRec
 		}
 		b.cookies[ck.Name] = ck.Value
 	}
+	return rec
+}
+
+// doRaw posts a body this helper does NOT encode, so a test can drive a size the
+// url.Values path would hide. Same cookies, same origin, same address as do().
+func (b *browser) doRaw(method, path, body string) *httptest.ResponseRecorder {
+	b.t.Helper()
+	req := httptest.NewRequest(method, path, strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.RemoteAddr = b.ip
+	if method == http.MethodPost && b.origin != "" {
+		req.Header.Set("Origin", b.origin)
+	}
+	for name, value := range b.cookies {
+		req.AddCookie(&http.Cookie{Name: name, Value: value})
+	}
+	rec := httptest.NewRecorder()
+	b.h.ServeHTTP(rec, req)
 	return rec
 }
 
@@ -1163,7 +1299,8 @@ func TestAdminScreens_NeverRenderACredential(t *testing.T) {
 // route outside that prefix would arrive with no cookie and look permanently
 // signed out. This is a structural tripwire for the next person adding a route.
 func TestAdminRoutes_AreAllUnderTheCookiePath(t *testing.T) {
-	h, err := NewAdminAuth(&fakeAdmins{}, &fakeTrail{}, newFakeLedger(), adminTestConfig(), slog.New(slog.DiscardHandler))
+	nilCfgLedger := newFakeLedger()
+	h, err := NewAdminAuth(&fakeAdmins{}, &fakeTrail{}, nilCfgLedger, nilCfgLedger, &fakeReviewer{}, adminTestConfig(), slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}
@@ -1742,7 +1879,8 @@ func TestProtect_CarriesTheBudget(t *testing.T) {
 	admins := &fakeAdmins{verify: func() (adminauth.Resolved, error) {
 		return adminauth.Resolved{}, adminauth.ErrNoSession
 	}}
-	h, err := NewAdminAuth(admins, &fakeTrail{}, newFakeLedger(), adminTestConfig(), discardLogger())
+	fake := newFakeLedger()
+	h, err := NewAdminAuth(admins, &fakeTrail{}, fake, fake, &fakeReviewer{}, adminTestConfig(), discardLogger())
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}

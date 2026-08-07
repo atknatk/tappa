@@ -330,7 +330,8 @@ func Wordmark() templ.Component {
 // Panel is the THIRD named shell, and it exists for the one reason this package's
 // doc comment demands of a third: the two shells above are ONE NARROW COLUMN sized
 // for a phone held at a plaque, and a manager's dashboard is not that. Page's
-// `max-w-md` would put five tabs of navigation into a 28rem column.
+// `max-w-md` would put the whole tab bar into a 28rem column (pages.PanelSections is
+// the count, and it grows -- M6-04 made it six).
 //
 // WHAT IT DOES NOT CHANGE: the document head (shared, see above), the porcelain
 // ground, the ink text, the absence of a dark theme, and the absence of a script.
@@ -341,6 +342,30 @@ func Wordmark() templ.Component {
 // names no script-src at all. Giving this shell a script slot would make widening
 // that policy a one-word edit somewhere else. PanelWithScript below is that slot,
 // added on purpose and with its own argument.
+//
+// 🔴 THE PARAGRAPH ABOVE WAS PROSE UNTIL 2026-08-06, AND THAT IS WORTH KEEPING IN
+// VIEW. M6-04 shipped with this component UNCALLED: every panel section reached
+// PanelWithScript through one pages.PanelShell that took a script string, so the
+// "one-word edit" warned about here was available on all six, and an audit made it
+// — it compiled and it rendered. A user decision then made the shape real rather
+// than deleting this component, on one measured difference: with the guarding test
+// neutralised the edit left the package green, whereas under the split it does not
+// compile.
+//
+// Measured now, and this is the command that keeps the sentence honest:
+// `grep -rn --include='*.templ' '@layout.Panel(' web/templates` returns
+// pages/admin.templ's PanelShell. pages.PanelShell renders THIS shell and takes no
+// script; pages.PanelShellWithScript renders PanelWithScript and takes one.
+//
+// ⚠️ IT IS NOT A CLOSED DOOR AND MUST NOT BE DESCRIBED AS ONE. Naming
+// PanelShellWithScript from a section that loads nothing still compiles; what
+// refuses THAT is internal/handler's
+// TestPanelScreens_ScriptsAndPolicyAgreeAndReachNoThirdParty, measured going red on
+// exactly that edit. What this shape buys is narrower and real: the CHEAPEST move —
+// editing a string — is now a compile error.
+// TestPanelShells_TheScriptlessShellHasNoScriptSlot pins that, and
+// TestLayoutShells_EveryOneIsActuallyRendered stops this component going back to
+// being a comment.
 func Panel(title string) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -410,9 +435,28 @@ func Panel(title string) templ.Component {
 // that adds script-src 'self' and connect-src 'self'. Only the pages that pass a
 // script get the second. Nothing gains 'unsafe-inline' or 'unsafe-eval'.
 //
-// src must be an app-relative path under /static, and "" means no script at all —
-// which is what Panel passes and what four of the five sections still render.
+// src must be an app-relative path under /static, and "" means no script at all.
 // Nothing here builds a URL from user input.
+//
+// THIS COMPONENT HAS EXACTLY TWO CALLERS AND ONE OF THEM IS Panel ABOVE, which
+// passes "". The other is pages.PanelShellWithScript, and the only section that
+// names it is Transactions. Verified with a grep that can see BOTH — the sibling
+// call has no package prefix, so a search for the qualified name misses it:
+//
+//	grep -rn --include='*.templ' -E '@(layout\.)?PanelWithScript\(' web/templates
+//	  -> layout/base.templ  (Panel, passing "")
+//	  -> pages/admin.templ  (PanelShellWithScript)
+//	grep -rn --include='*.templ' '@PanelShellWithScript(' web/templates
+//	  -> pages/transactions.templ, once
+//
+// ⚠️ AN EARLIER VERSION OF THIS PARAGRAPH SAID "NOTHING PASSES \"\" TO THIS COMPONENT
+// ANY MORE" AND Panel DOES, six lines above it — and the grep it offered as proof
+// was the qualified one, which structurally cannot see a sibling call. A verifying
+// command that cannot observe the counter-example is worse than no command: it
+// launders the wrong sentence.
+//
+// WHAT IS TRUE: no SECTION reaches this shell without naming PanelShellWithScript.
+// Panel reaching it is the pair's implementation, not a route a page can take.
 func PanelWithScript(title, src string) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context

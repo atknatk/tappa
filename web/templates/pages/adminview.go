@@ -1,5 +1,11 @@
 package pages
 
+import "strconv"
+
+// itoa is strconv.Itoa under a shorter name, used by the badge helpers below. It
+// is here rather than inline so the two helpers read as sentences.
+func itoa(n int) string { return strconv.Itoa(n) }
+
 // The PANEL screens' view models (M6-01 phase B).
 //
 // SAME RULE AS THE REST OF THIS PACKAGE, and here it does more work than usual:
@@ -86,6 +92,7 @@ type PanelTab string
 
 const (
 	TabTransactions PanelTab = "transactions"
+	TabReview       PanelTab = "review"
 	TabEmployees    PanelTab = "employees"
 	TabLocations    PanelTab = "locations"
 	TabReports      PanelTab = "reports"
@@ -113,7 +120,7 @@ type PanelSection struct {
 	Blurb string
 }
 
-// PanelSections is the panel's five sections, in the order CLAUDE.md §9 and
+// PanelSections is the panel's sections, in the order CLAUDE.md §9 and
 // docs/handoff.md name them.
 //
 // TRANSACTIONS IS /admin RATHER THAN /admin/transactions, and that is a decision
@@ -121,10 +128,22 @@ type PanelSection struct {
 // giving the default section its own second URL would mean either a redirect on
 // every sign-in or two URLs rendering the same page. The tab's link points at
 // /admin and there is exactly one URL per section.
+//
+// 🔴 M6-04 ADDED A SIXTH, AND IT IS A SECTION RATHER THAN A CONTROL ON THE FIRST
+// ONE. The transactions list is a READ of a day; the review queue is a WORKLIST
+// that spans every day and shrinks as it is worked. Putting approve buttons on the
+// day view would have meant one screen that is read-only for most of its rows and
+// writable for some of them, with the §4.3 boundary invisible in the markup. Two
+// URLs keep it visible: /admin has no form that posts, /admin/review has nothing
+// else.
 var PanelSections = []PanelSection{
 	{
 		Tab: TabTransactions, Label: "Transactions", Href: "/admin", Task: "M6-03",
 		Blurb: "Every tap of the day as a docket card — who, where, in or out, the trust score, and the stamp that says how it was judged.",
+	},
+	{
+		Tab: TabReview, Label: "Review queue", Href: "/admin/review", Task: "M6-04",
+		Blurb: "The taps the engine could not judge on evidence alone, waiting for somebody who was there to say yes or no.",
 	},
 	{
 		Tab: TabEmployees, Label: "Employees", Href: "/admin/employees", Task: "M6-05",
@@ -150,7 +169,7 @@ var PanelSections = []PanelSection{
 // 🔴 IT WAS EXTRACTED IN M6-03 AND THE REASON IS THE FAILURE CLASS THIS REPO KEEPS
 // PAYING FOR. Until M6-03 there was one panel page, so the wordmark, the "signed
 // in as" block, the sign-out form and the tab bar lived inside it. M6-03 gives ONE
-// of the five sections real content, and the obvious move — a second page template
+// of the sections real content, and the obvious move — a second page template
 // with the same chrome pasted above it — would have made the navigation, the
 // sign-out button and the brand lockup a SECOND REPRESENTATION, i.e. two places
 // for them to drift, with the drift invisible (a page missing sign-out looks
@@ -161,6 +180,65 @@ type PanelChrome struct {
 	FullName string
 	Role     string
 	Tab      PanelTab
+
+	// Pending is the approval queue's size, shown as a badge on the review tab so
+	// a manager sees the backlog from whichever section they are in (M6-04).
+	//
+	// 🔴 THE THREE-WAY SHAPE IS §4.6 AND NOT PEDANTRY. "Nothing is waiting" and "we
+	// could not count" are different facts, and a plain int makes them the same
+	// number. Known is false when the count query failed, and the badge then says
+	// so instead of saying zero — the class M5-11 closed: the product may not state
+	// something it has not measured.
+	Pending PendingBadge
+}
+
+// PendingBadge is what the navigation knows about the approval queue.
+type PendingBadge struct {
+	// Known is true only after the database has answered.
+	Known bool
+	// N is the count, exact when Capped is false and a FLOOR when it is true.
+	N int
+	// Capped means the count stopped at its cap, so the badge reads "N+".
+	// internal/domain/ledger.PendingCap says why an exact count is not taken.
+	Capped bool
+}
+
+// Label is what the badge prints: "" when nothing is waiting, "?" when the count
+// could not be taken, "12" or "100+" otherwise.
+//
+// THE EMPTY STRING IS "NOTHING WAITING", WHICH IS A MEASURED CLAIM, and it is only
+// reachable through Known. An unknown count renders "?" rather than disappearing,
+// because a badge that vanishes on a failed read tells the manager the queue is
+// clear.
+func (p PendingBadge) Label() string {
+	switch {
+	case !p.Known:
+		return "?"
+	case p.N <= 0:
+		return ""
+	case p.Capped:
+		return itoa(p.N) + "+"
+	default:
+		return itoa(p.N)
+	}
+}
+
+// Describe is the badge's accessible text — the sentence a screen reader gets
+// instead of a bare number, since the number alone says nothing about what it
+// counts.
+func (p PendingBadge) Describe() string {
+	switch {
+	case !p.Known:
+		return "the number waiting for review could not be read"
+	case p.N <= 0:
+		return ""
+	case p.Capped:
+		return "more than " + itoa(p.N) + " records waiting for review"
+	case p.N == 1:
+		return "1 record waiting for review"
+	default:
+		return itoa(p.N) + " records waiting for review"
+	}
 }
 
 // Section returns the section this view is showing.
@@ -193,7 +271,7 @@ func (c PanelChrome) CurrentHref() string {
 // empty state naming the task that fills it.
 //
 // 🔴 IT STILL CARRIES NO SECTION DATA, and after M6-03 that is a sharper statement
-// than it was. Four of the five sections are still empty and this is the view they
+// than it was. Four of the SIX sections are still empty and this is the view they
 // render; Transactions has its own view model (TransactionsView) with its own
 // fields. So "a view model with a data field is how a skeleton quietly becomes a
 // half-built dashboard" is enforced by there being no data field HERE — a section

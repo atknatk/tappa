@@ -20,6 +20,7 @@ import (
 	"github.com/atknatk/tappa/internal/db"
 	"github.com/atknatk/tappa/internal/domain/checkin"
 	"github.com/atknatk/tappa/internal/domain/ledger"
+	"github.com/atknatk/tappa/internal/domain/review"
 	"github.com/atknatk/tappa/internal/domain/tenant"
 	"github.com/atknatk/tappa/internal/handler"
 	"github.com/atknatk/tappa/internal/httpx"
@@ -116,7 +117,19 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	panelAuth, err := handler.NewAdminAuth(admins, trail, records, cfg, slog.Default())
+	// The panel's WRITE side (M6-04): the FLAGGED approval queue. It takes the SAME
+	// audit recorder every other service does, because the review row and its audit
+	// row have to share one transaction — internal/domain/review says why that is
+	// the opposite of what most callers of internal/audit want.
+	reviewer, err := review.NewReviewer(data, trail, slog.Default())
+	if err != nil {
+		return err
+	}
+	// records is passed TWICE, as the day reader and as the queue reader. Two
+	// parameters rather than one because internal/handler declares two narrow
+	// interfaces over it (§7, the consumer owns the interface); one implementation
+	// satisfies both.
+	panelAuth, err := handler.NewAdminAuth(admins, trail, records, records, reviewer, cfg, slog.Default())
 	if err != nil {
 		return err
 	}

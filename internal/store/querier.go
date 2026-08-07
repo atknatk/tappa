@@ -183,6 +183,73 @@ type Querier interface {
 	// This is the ONLY statement in db/queries that writes employee_invites.used_at
 	// (greppable), which is what makes the un-consume limit in the header hold.
 	ConsumeInviteAndActivate(ctx context.Context, arg ConsumeInviteAndActivateParams) (ConsumeInviteAndActivateRow, error)
+	// reviews.sql -- the FLAGGED approval queue (M6-04): two reads and one write.
+	//
+	// 🔴 SECTION 4.3 IS THE WHOLE DESIGN OF THIS FILE. A manager approving or
+	// rejecting a flagged record does NOT touch `transactions`. There is no UPDATE and
+	// no DELETE here and there cannot be one: tappa_app holds SELECT + INSERT only on
+	// all three tables (measured with has_table_privilege: UPDATE f, DELETE f on
+	// transactions, transaction_reviews and audit_log), and migration 00005 puts a
+	// BEFORE UPDATE OR DELETE trigger on top of that so even tappa_owner is refused.
+	// The decision is a NEW ROW in transaction_reviews plus a NEW ROW in audit_log,
+	// and the tap record keeps saying exactly what the engine decided at the time.
+	//
+	// WHAT "PENDING" MEANS, AND WHY IT IS NOT transactions.queued. The column exists
+	// and the tap engine sets it (checkin.go: queued = verdict is flag), but it is a
+	// SECOND REPRESENTATION of a fact the reviews table already owns, and because
+	// transactions is immutable it can never be cleared -- a reviewed record would go
+	// on claiming to be queued forever. It also already disagrees with the verdict in
+	// the development database: measured, 31 193 rows carry verdict='flag' and only
+	// 8 928 of them carry queued=true (the other 22 265 were written directly by test
+	// fixtures). So the queue is defined as the set the DATABASE will actually accept
+	// a review for -- verdict='flag' AND no review row yet -- which is the same
+	// predicate migration 00005's tappa_check_transaction_review trigger enforces.
+	//
+	// 🔴 THE ANTI-JOIN IS WRITTEN AS `NOT IN`, NOT AS `NOT EXISTS`, AND IT IS A
+	// MEASUREMENT RATHER THAN A STYLE. Under RLS the correlated NOT EXISTS cannot be
+	// turned into an index probe: the policy wraps the subquery in a Result node with
+	// a One-Time Filter, so the planner materialises the tenant's whole review index
+	// and re-scans it once per candidate row -- a nested loop anti join. Measured on
+	// the seed tenant (21 419 rows, 4 634 of them flagged), warm cache, after ANALYZE,
+	// with EVERY flag already reviewed (which is the STEADY STATE of a panel a manager
+	// keeps clear, i.e. the case that matters most):
+	//
+	//	NOT EXISTS, r.tenant_id = t.tenant_id       1356 / 1375 / 1506 ms
+	//	NOT EXISTS, r.tenant_id = <the parameter>    979 / 1047 ms
+	//	LEFT JOIN ... WHERE r.id IS NULL              70 / 100 ms
+	//	NOT IN  (this file)                           17.8 / 20.3 ms
+	//
+	// The first two produce "Rows Removed by Join Filter: 10 734 661" for a query that
+	// returns nothing. NOT IN is planned as a HASHED SubPlan: the tenant's reviewed ids
+	// are collected once and each candidate is one hash probe.
+	//
+	// ⚠️ NOT IN IS ONLY SAFE BECAUSE THE COLUMN IS NOT NULL. `x NOT IN (set)` is
+	// UNKNOWN -- and therefore false -- if the set contains a NULL, which would empty
+	// the queue silently. transaction_reviews.transaction_id is NOT NULL (00005), so
+	// the set cannot contain one. If that ever changes, this shape breaks QUIETLY and
+	// must change with it.
+	//
+	// ⚠️ AND THE HASH IS BOUNDED BY work_mem, WHICH IS THE HONEST LIMIT. If a tenant's
+	// reviewed set outgrows it the planner drops back to a non-hashed SubPlan and the
+	// cost returns to the numbers in the first two rows above. The set grows with every
+	// decision and section 4.3 makes those rows permanent, so this is a real ceiling
+	// rather than a theoretical one. Bounding it properly is an index question (a
+	// partial index on the pending set is not expressible, because "pending" spans two
+	// tables) or a schema question, i.e. a migration -- deliberately not this task's.
+	// How many flagged records are still waiting, COUNTED UP TO A CAP.
+	//
+	// 🔴 IT IS CAPPED BECAUSE AN UNCAPPED COUNT IS A SEQUENTIAL SCAN. There is no index
+	// on (tenant_id, verdict), so `count(*)` over the tenant's flagged rows is a
+	// parallel seq scan of the whole table: measured 59.4 / 63.6 / 66.4 ms warm, against
+	// 0.7 / 0.8 / 1.1 ms for the shape below. The ORDER BY is what makes the difference
+	// -- it lets the planner walk transactions_tenant_occurred_idx (tenant_id,
+	// occurred_at DESC) and stop as soon as the cap is full, so this query never reads
+	// more of the timeline than it has to.
+	//
+	// WHAT THE CAP COSTS, STATED: past it the number is a floor rather than a total, so
+	// the caller renders "100+" and never a wrong exact figure. What it does NOT do is
+	// hide a record -- the list below pages through every one of them.
+	CountPendingFlagged(ctx context.Context, arg CountPendingFlaggedParams) (int32, error)
 	// admins.sql -- the TENANT-SCOPED half of panel authentication (M6-01 phase A):
 	// issuing, refreshing and revoking the ADMIN session, plus the two in-context
 	// reads the login flow needs once the tenant is known.
@@ -831,6 +898,23 @@ type Querier interface {
 	// if the stored name is one the Go runtime cannot load, because an unparseable
 	// zone must not cost the manager their page.
 	GetTenantClock(ctx context.Context, tenantID uuid.UUID) (GetTenantClockRow, error)
+	// WHO decided this record, and how. Read ONLY after a unique violation, to answer
+	// the one question the refusal cannot answer on its own: was it you?
+	//
+	// 🔴 IT EXISTS BECAUSE THE SCREEN WAS SAYING SOMETHING IT HAD NOT MEASURED. Without
+	// it, a manager who double-clicks Approve gets "somebody else decided that record
+	// first" for a decision they made themselves seconds earlier -- a sentence whose
+	// SUBJECT is fabricated. That is the class M5-11 closed, and the diff's own
+	// concurrency test produced the behaviour.
+	//
+	// IT RETURNS THE REVIEWER AND THE OUTCOME AND NOTHING ELSE. The note is not
+	// selected: it is a manager's free text about a named person, the caller only needs
+	// to know who and what, and a column that is never selected cannot reach a screen.
+	//
+	// TENANT SCOPE (section 4.5, belt + braces): explicit predicate on top of RLS. A
+	// foreign transaction id simply matches nothing here, so this cannot become an
+	// oracle for whether an id exists in another business.
+	GetTransactionReview(ctx context.Context, arg GetTransactionReviewParams) (GetTransactionReviewRow, error)
 	// THE single write path. id and created_at use DB defaults; every other column
 	// is set by the tap engine, including practice and queued (no silent default is
 	// relied on for those two -- the engine states them). tenant_id is provided
@@ -847,6 +931,41 @@ type Querier interface {
 	// snapshot). The caller passes them from policy.Decision; passing all four NULL is
 	// valid too (the consistency CHECK permits the all-absent state, section 4.6).
 	InsertTransaction(ctx context.Context, arg InsertTransactionParams) (Transaction, error)
+	// THE decision. One row, append-only, and it is the ONLY write this flow makes to
+	// the record besides audit_log.
+	//
+	// 🔴 IT IS AN INSERT ... SELECT RATHER THAN AN INSERT ... VALUES, and the SELECT is
+	// the point: the row can only come into existence if a transaction in THIS tenant
+	// with verdict='flag' exists to build it from. So three refusals are one predicate:
+	//
+	//	the id belongs to another tenant   -> 0 rows
+	//	the id does not exist              -> 0 rows
+	//	the record is ok/reject/ignored    -> 0 rows
+	//
+	// and the caller sees pgx.ErrNoRows, which it turns into an honest sentence rather
+	// than a 500. WITHOUT the verdict predicate this flow would be an arbitrary
+	// RELABELLING CHANNEL: a manager could post the id of a trust-100 'ok' record and
+	// have it recorded as rejected, which erases hours while section 4.3 looks intact.
+	//
+	// 🔴 IT IS NOT THE ONLY DEFENCE AND MUST NOT BE READ AS ONE. Migration 00005's
+	// tappa_check_transaction_review trigger enforces the same three rules plus
+	// reviewer_id <> employee_id, and the composite FK (transaction_id, tenant_id) ->
+	// transactions makes a cross-tenant review structurally impossible. This predicate
+	// exists so the REFUSAL IS A SENTENCE instead of an exception; the trigger and the
+	// FK are what make it a guarantee.
+	//
+	// @tenant_id APPEARS TWICE ON PURPOSE: once as the column being written (which the
+	// RLS WITH CHECK re-verifies against the transaction context) and once as the
+	// SELECT's own scope predicate. They are the same value and neither is redundant --
+	// the first says which tenant owns the review, the second says which tenant's
+	// records may be read to build it.
+	//
+	// UNIQUE (transaction_id) means a second decision on the same record raises 23505.
+	// That is deliberate (00005: "a record is decided ONCE") and the caller must
+	// translate it, never swallow it: silently treating it as success would tell the
+	// loser of a race that their decision was recorded when somebody else's was
+	// (section 4.6).
+	InsertTransactionReview(ctx context.Context, arg InsertTransactionReviewParams) (InsertTransactionReviewRow, error)
 	// Every session of one admin, newest first: the read side of "sign out everywhere"
 	// and of the panel's device list. Revoked rows are included on purpose; the caller
 	// filters on revoked_at, so the history stays visible (section 4.6).
@@ -864,6 +983,25 @@ type Querier interface {
 	// out -- a venue and the departments inside it -- rather than alphabetically
 	// across venues.
 	ListDepartmentsForTenant(ctx context.Context, tenantID uuid.UUID) ([]ListDepartmentsForTenantRow, error)
+	// One page of the queue, newest first.
+	//
+	// THE COLUMN LIST IS ListPanelTransactions' LIST, and the reason is section 4.7:
+	// gps_lat, gps_lng, source_ip and policy_context are absent here for exactly the
+	// argument that query states at length -- a column that is never selected cannot
+	// reach a template, an attribute, a log line or a CSV. The screen shows the SIGNS
+	// (ip_match, gps_match), which is what section 5 rows 6-7 decided on and is
+	// precisely the evidence a manager is being asked to judge.
+	//
+	// KEYSET PAGINATION on (occurred_at, id), the same as the transactions list and for
+	// the same reason: transactions is append-only and new rows sort to the top, so an
+	// OFFSET page would repeat rows. It is additionally right here because the queue
+	// SHRINKS as decisions are made -- an OFFSET would skip records every time.
+	//
+	// TENANT SCOPE (section 4.5, belt + braces): the explicit t.tenant_id predicate is
+	// required even though RLS is on, every JOIN re-states tenant_id in its own ON
+	// clause, and the anti-join subquery carries its own. The tenant comes from the
+	// panel session, never from the request.
+	ListFlaggedForReview(ctx context.Context, arg ListFlaggedForReviewParams) ([]ListFlaggedForReviewRow, error)
 	// GPS fallback path (CLAUDE.md section 5, row 6): when no IP matches, the domain
 	// computes the haversine distance from the tap's GPS to each location and checks
 	// the < 150 m radius. Returns every location in the tenant so that check can run.
@@ -1006,6 +1144,30 @@ type Querier interface {
 	//
 	// Uses transactions_tenant_occurred_idx (tenant_id, occurred_at DESC), which
 	// migration 0005 created for exactly this shape.
+	// 🔴 M6-04 ADDED rv.outcome, AND IT IS THE CARD'S "the list reads the latest
+	// decision through a JOIN". The verdict column keeps saying what the ENGINE decided
+	// and can never say anything else (section 4.3); whether a HUMAN has since approved
+	// or rejected that flag lives in transaction_reviews and is read here. The two are
+	// rendered as two different things -- the stamp is the engine's, the tally is the
+	// manager's -- so a decided record neither hides its flag nor pretends to still be
+	// waiting.
+	//
+	// ONE ROW AT MOST, so the LEFT JOIN cannot multiply the page: transaction_reviews
+	// has UNIQUE (transaction_id) (00005, "a record is decided ONCE"). This is the only
+	// join in the query whose absence of a cardinality guarantee would silently change
+	// how many dockets a page holds, which is why the guarantee is named.
+	//
+	// COST, MEASURED (EXPLAIN ANALYZE, seed tenant, ordinary day of 1 628 records,
+	// warm cache, after ANALYZE, 3 repeats each after a warm-up run):
+	//
+	//	without the review join   0.745 / 0.622 / 0.463 ms
+	//	with it                   6.084 / 0.632 / 0.611 ms
+	//
+	// The 6.084 ms is the first run of the changed shape and is a PLAN/CACHE artefact
+	// rather than the join's price -- the two settle indistinguishably, which is what
+	// an equality probe against a UNIQUE index costs on a 26-row page. The outlier is
+	// printed rather than dropped because a range that excludes its own first
+	// measurement is the kind this repository has had to withdraw before.
 	ListPanelTransactions(ctx context.Context, arg ListPanelTransactionsParams) ([]ListPanelTransactionsRow, error)
 	// The invites of one employee that are still usable RIGHT NOW: not consumed and
 	// not expired. Phase B reads this for the "this employee is already active --

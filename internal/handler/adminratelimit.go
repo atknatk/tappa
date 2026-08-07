@@ -327,6 +327,27 @@ const (
 	// ⚠️ sessionGate runs BEFORE the handler, so a refused request does NOT run this
 	// query; the 429s cost the resolver read, not the page.
 	//
+	// ✅ M6-04 ROUND 6 ADDED ONE MORE READ AND IT IS COUNTED HERE RATHER THAN LEFT AS
+	// "one indexed lookup". The decision confirmation is verified against the database
+	// instead of believed from the query string (internal/handler's
+	// confirmedDecision), so the GET that follows a decision — the second of the two
+	// requests a decision costs — now also runs GetTransactionReview.
+	//
+	// MEASURED (EXPLAIN ANALYZE, seed tenant, warm, 3 repeats):
+	//
+	//	0.367 / 0.081 / 0.095 ms   an audit's reading
+	//	0.427 / 0.190 / 0.106 ms   reproduced here (the id resolved by a subselect,
+	//	                           which is why the numbers sit slightly higher)
+	//
+	// Both runs chose the same plan: Index Scan using transaction_reviews_tenant_idx.
+	//
+	// Against the ~4-27 ms a panel request already costs that is roughly 0.4% at the
+	// low end and invisible at the high end, and it is paid ONLY on a GET carrying
+	// ?done — i.e. once per decision, never on an ordinary section view. The ceilings
+	// above are unchanged and the arithmetic for "per DECISION = 2 served requests"
+	// is unchanged; what changed is that the second of those two requests is no longer
+	// free of database work, and now says so.
+	//
 	// ⚠️ THE ABSOLUTE NUMBERS OVERSTATE A REAL CUSTOMER, and the evidence for that
 	// sentence had to be re-measured because the first version of it was WRONG.
 	//
@@ -358,6 +379,59 @@ const (
 	// above still holds — a session that spends 300 requests meets 429 on its own
 	// panel — but reaching it now takes 300 section views in ten minutes rather than
 	// the 30 the old estimate implied.
+	//
+	// ✅ M6-04 RE-COUNTED IT AND THE MULTIPLIER STILL DID NOT COME BACK, but it added
+	// the panel's FIRST denominator that is not one request:
+	//
+	//	per SECTION VIEW  (one document)               1 served request
+	//	per FILTER CHANGE (one document)               1 served request
+	//	per DAY-WALK      (document + "show more"s)    ceil(N / PageSize)
+	//	per DECISION      (POST + the 303's GET)       2 served requests   <- NEW
+	//
+	// 🔴 THE DECISION FIGURE IS MEASURED, NOT ARGUED:
+	// TestReviewBudget_ADecisionCostsTwoChargedRequests drives the real router with
+	// the real budgets until it is refused, and prints
+	//
+	//	300 served + 1 refused; 150 complete decisions = 2.000 SERVED per decision
+	//
+	// ⚠️ ITS FIRST VERSION PRINTED 2.007, which was 301/150 — total requests over
+	// completed decisions, i.e. the refused one counted in the numerator and not in
+	// the denominator. The figure is taken over SERVED requests now and the two
+	// counters are separate in the test.
+	//
+	// SO THE ≥15-PER-VIEW THRESHOLD ABOVE IS STILL NOT REACHED, and the honest way to
+	// state the new cost is: clearing a queue of Q records costs 1 + 2Q served
+	// requests, so 300 buys ~149 decisions in a ten-minute window. A manager working
+	// through a genuinely large backlog is the first user of this panel who can meet
+	// the ceiling by doing ORDINARY WORK rather than by paging. If that is ever
+	// reported the levers are this constant, or making the redirect unnecessary — the
+	// 303 is deliberate (a rendered POST re-submits on refresh) and is not traded for
+	// a request here. Counted, not lowered and not raised.
+	//
+	// 🔴 THE OTHER AXIS — DATABASE TIME — GREW FOR EVERY PANEL REQUEST, INCLUDING THE
+	// FOUR SECTIONS THAT PREVIOUSLY MADE NO QUERY AT ALL. M6-04 puts the approval
+	// queue's count in the NAVIGATION, so it is read on whichever section is opened.
+	// Measured (EXPLAIN ANALYZE, seed tenant of 21 419 records with 4 634 flagged,
+	// warm cache, after ANALYZE, 3 repeats):
+	//
+	//	queue NOT empty (the cap fills early)    0.7 /  1.0 /  7.1 ms
+	//	queue EMPTY     (the cap never fills)   17.8 / 20.3 ms
+	//	an exact count(*) instead of a cap      59.4 / 63.6 / 66.4 ms   (rejected)
+	//
+	// ⚠️ THE EMPTY CASE IS THE DEARER ONE AND IT IS ALSO THE STEADY STATE of a panel
+	// somebody keeps clear, so the figure to plan with is the second row. On top of
+	// this file's existing per-request cost:
+	//
+	//	unfiltered page   0.6-0.9 + 3.0-5.7 + 0.7-20.3 ms  =  ~4 - 27 ms
+	//
+	// — up to roughly four times what a panel request cost before this task, in the
+	// steady state. 300 of them is ~1.3-8.1 s of database time per window per
+	// session, inside the range this file already accepts for filtered pages
+	// (3.6-12.9 s), and reaching it still needs a valid panel session rather than an
+	// anonymous flood. It is written down rather than optimised because the obvious
+	// lever — showing the badge only on the review section — trades away the reason
+	// the badge exists, which is a manager seeing the backlog WITHOUT going to look
+	// for it. That is a product decision rather than this task's.
 	adminSessionLimit  = 300
 	adminSessionPeriod = 10 * time.Minute
 

@@ -25,9 +25,22 @@ import "github.com/atknatk/tappa/web/templates/components"
 // THE SCRIPT IS NAMED HERE AND NOWHERE ELSE. It is the one page in the panel that
 // loads one, and layout.PanelWithScript plus the scripted CSP in
 // internal/handler/adminlogin.go are the two other places that had to change for
-// it. Four sections still render layout.Panel with no script at all.
+// it.
+//
+// 🔴 AND IT IS THE ONLY SECTION THAT NAMES THE SCRIPTED SHELL. It renders
+// pages.PanelShellWithScript; the other five render pages.PanelShell, which has no
+// script parameter to fill. Verified with
+// `grep -rn --include='*.templ' '@PanelShell' web/templates` — one
+// PanelShellWithScript (here) and two PanelShell.
+//
+// ⚠️ THIS LINE HAS BEEN WRONG TWICE. It said the others "render layout.Panel" while
+// layout.Panel had no callers at all, and before that it counted them wrongly. What
+// separates this section is now the COMPONENT rather than an argument, which is the
+// point of the 2026-08-06 split — but the separation is still enforced at the end by
+// TestPanelScreens_ScriptsAndPolicyAgreeAndReachNoThirdParty, not by the shape
+// alone.
 templ AdminTransactions(v TransactionsView) {
-	@PanelShell(v.PanelChrome, "/static/vendor/htmx.min.js") {
+	@PanelShellWithScript(v.PanelChrome, "/static/vendor/htmx.min.js") {
 		// 🔴 MONO, BECAUSE THIS IS DATA RATHER THAN A HEADING. skill tappa-brand:
 		// "IBM Plex Mono - her sayı: saat, süre, tag UID, sayaç... Bir veri hücresi
 		// mono değilse yanlıştır." This line carries a DATE and a TIMEZONE, and it

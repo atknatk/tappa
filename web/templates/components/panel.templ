@@ -16,6 +16,19 @@ package components
 type Tab struct {
 	Label string
 	Href  string
+	// Badge is a short count printed beside the label — "12", "100+", "?" — or ""
+	// for no badge at all (M6-04's approval queue).
+	//
+	// IT IS A STRING RATHER THAN AN int BECAUSE ZERO IS NOT A BADGE. An int field
+	// makes "nothing waiting" and "no badge here" the same value, and the caller
+	// would need a second bool to tell them apart. A string says exactly what is
+	// printed and "" says nothing is.
+	Badge string
+	// BadgeLabel is what a screen reader hears instead of the bare number, e.g.
+	// "12 records waiting for review". Required whenever Badge is set: skill
+	// tappa-brand's accessibility rule is that meaning never rides on a visual
+	// token alone, and a number beside a word is exactly such a token.
+	BadgeLabel string
 }
 
 // TabBar is the panel's section navigation.
@@ -34,12 +47,30 @@ templ TabBar(tabs []Tab, currentHref string) {
 	<nav class="tab-bar" aria-label="Panel sections">
 		for _, t := range tabs {
 			if t.Href == currentHref {
-				<a href={ templ.URL(t.Href) } class="tab-link tab-link--current" aria-current="page">{ t.Label }</a>
+				<a href={ templ.URL(t.Href) } class="tab-link tab-link--current" aria-current="page">
+					{ t.Label }
+					@tabBadge(t)
+				</a>
 			} else {
-				<a href={ templ.URL(t.Href) } class="tab-link">{ t.Label }</a>
+				<a href={ templ.URL(t.Href) } class="tab-link">
+					{ t.Label }
+					@tabBadge(t)
+				</a>
 			}
 		}
 	</nav>
+}
+
+// tabBadge prints the count beside a tab's label, or nothing.
+//
+// IT IS INSIDE THE ANCHOR, DELIBERATELY. A badge outside it would be a second
+// element next to a press target, which is how a 44px target quietly becomes two
+// smaller ones; inside, the whole tab remains one target and the badge is part of
+// what a reader announces.
+templ tabBadge(t Tab) {
+	if t.Badge != "" {
+		<span class="tab-count" aria-label={ t.BadgeLabel }>{ t.Badge }</span>
+	}
 }
 
 // EmptyState is what a section shows when it holds nothing.

@@ -217,7 +217,7 @@
            bg-paper px-4 py-8;
   }
 
-  /* --- tab navigation: the panel's five sections ---
+  /* --- tab navigation: the panel's sections ---
      min-h-11 is 44px, which is the touch-target floor rather than a look: the
      panel is a desktop screen but a manager checks it on a phone at the pass. */
   .tab-bar {
@@ -285,4 +285,31 @@
   }
   .tally--manual { @apply border-line bg-line/10; }
   .tally--queued { @apply border-saffron bg-saffron-lite; }
+  /* M6-04: the two decided states. Same fixed mapping — a human approval is
+     tappa-green, a refusal is tomato — and the same rule that the word carries
+     the meaning: the text says "Approved by a manager", not just "Approved", so
+     it can never be confused with the engine's own APPROVED stamp beside it. */
+  .tally--approved { @apply border-tappa-green bg-green-lite; }
+  .tally--rejected { @apply border-tomato bg-tomato/10; }
+
+  /* --- the navigation's pending badge (M6-04) ---
+     It sits inside a .tab-link, so it must not add a second press target and must
+     not change the tab's height. Saffron because the queue is the FLAGGED state
+     waiting for a person, which is the brand's fixed mapping — and the number is
+     mono because it is data. The tab's own label is what a screen reader reads
+     first; the badge carries an aria-label of its own so "12" is announced as
+     twelve records waiting rather than as a bare number. */
+  /* text-ink is stated EXPLICITLY rather than inherited. .tab-link paints its
+     label at ink/70 and marks the current tab at full ink, so a badge that
+     inherited would have two different contrasts against the same ground
+     depending on which section you happen to be looking at. Full ink on
+     saffron-lite is the same pairing the FLAGGED tally already ships, and it is
+     measured rather than assumed: ink on saffron-lite is 13.97:1 (AA wants
+     4.5:1). saffron-lite's relative luminance is 0.8405, which is LIGHTER than
+     green-lite's 0.8229 -- so this ground does not become the binding one and
+     TestBrand_ProseNamesTheGroundTheMeasurementDERIVES keeps naming green-lite. */
+  .tab-count {
+    @apply ml-2 inline-block border border-saffron bg-saffron-lite px-1.5
+           font-mono text-[11px] leading-5 text-ink;
+  }
 }

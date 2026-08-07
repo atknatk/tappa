@@ -130,8 +130,17 @@ func (c Cookies) Secure() bool { return !c.insecure }
 // arrival, and under Strict every one of those lands logged-out and needs a
 // second navigation to work. Lax still withholds the cookie from the cross-site
 // POST shapes that matter, and the panel's state-changing endpoints additionally
-// check Origin and carry a synchronizer token, so the cookie is not the only
-// thing standing between a forged POST and a write.
+// check Origin BEFORE resolving the session, so the cookie is not the only thing
+// standing between a forged POST and a write.
+//
+// ⚠️ THIS USED TO SAY "and carry a synchronizer token" AND THAT IS NOT TRUE OF THE
+// WHOLE PANEL. The token belongs to the sign-in flow (internal/handler's
+// beginPost); POST /admin/review, added by M6-04, carries a record id, an outcome
+// and an optional note and no token at all. The Origin check is what defends it,
+// and a Lax cookie is what keeps a true cross-SITE page from having one to send.
+// The sentence is corrected rather than deleted because the Lax-over-Strict
+// decision leans on what the endpoints actually do, and leaning on a defence that
+// is not there is how the decision stops being reviewable.
 func (c Cookies) Set(w http.ResponseWriter, t Token) error {
 	// reveal() is "" for the zero Token as well as an empty one, so one check
 	// covers both and nothing is dereferenced blindly.
