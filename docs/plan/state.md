@@ -4,7 +4,54 @@
 > güncellenir ([README.md](README.md) → oturum protokolü, adım 6.4).
 > Görev kartlarına durum işareti konmaz.
 
-**Son güncelleme:** 2026-08-07 (6. oturum — **M6-04 done · M6 4/12**)
+**Son güncelleme:** 2026-08-07 (6. oturum — **M6-05 A fazı done · M6 4/12 (+A)**)
+
+> **M6-05 A FAZI done — 2026-08-07 (`1998e89`), iki denetçi ONAY, 6 TUR, 4 RED (biri güvenlik merceğinden).**
+> Employees sekmesinin **listesi**: ad · lokasyon/departman · durum · **oturum durumu** (canlı cihaz var mı, son
+> kullanım) · keyset sayfalama **50**'de · ad/durum filtresi. **Yeni migration YOK.** ⛔ **Aksiyonlar B fazında
+> ve bu diff'te YOK** — buton bile yok.
+>
+> **GÖREV BÖLÜNDÜ, ölçüt kapsam değil DENETİM MERCEĞİ** (agent-brief): okuma yolu §4.5/§4.6 ve **bayt maliyeti**
+> ile denetlenir, yazma yolu §4.7/yetkilendirme/oturum ölümü ile. Ölçüm bölmeyi haklı çıkardı: `employees.sql`'de
+> **yalnız iki sorgu** vardı ve **ikisi de tap yolundan** — okuma yolu M6-03'teki gibi **sıfırdan** yazıldı.
+>
+> **🔴 EN AĞIR BULGU GÜVENLİK MERCEĞİNDEN, VE İKİ GENEL TUR ÜSTÜNDEN GEÇMİŞTİ.** 512 rune'dan uzun bir ad
+> **sayfa sınırına** düşünce imleç **sessizce düşürülüyor**, "Next page" 1. sayfayı yeniden veriyordu →
+> **sonsuz döngü**. Ölçüldü: 60 kişilik kadroda 605 rune'luk ad → **10 kişi gezinerek ULAŞILAMAZ**, 50 kişi
+> iki kez. `employees.full_name` şemada **sınırsız `text`**, CHECK yok. Ve **iki yazılı iddia ölçümle
+> yanlışlandı**: *"düşürmek yalnızca DAHA FAZLASINI gösterir"* (tersi) ve *"filtre çubuğu etkin değerleri
+> yankılar"* (imleç **hiçbir yerde** yankılanmıyor). ⚠️ Kusur bir kod hatası değil, **uygulanmayan bir
+> varsayımdı** — `maxRosterCursorName`'in yorumu başarısızlık modunu **doğru teşhis edip** *"hiçbir bordroda
+> böyle bir isim olmaz"* diyerek duruyordu; şemada CHECK, kodda validator, testte vaka **yoktu**. **Düzeltme
+> sınırı büyütmedi, SİLDİ:** imleç artık yalnız `?after_id=<uuid>` taşıyor, adı sunucu çözüyor (**+0,44–0,99 ms**,
+> yalnız sayfalı isteklerde) — ve bu **ikinci bir bulguyu da kapattı**: artık hiçbir çalışanın tam adı **URL'de
+> yolculuk etmiyor**.
+>
+> **⚠️ BU FAZIN İMZA SINIFI: BİR AĞIN YAKALADIĞI İLE YAKALADIĞINI SÖYLEDİĞİ AYRI İKİ İDDİA.** §4.7'nin tip
+> duvarı gerçekten çalışıyor (`Person`'a nötr adlı bir alan → KIRMIZI) ama *"bir önek de burada kapanır"*
+> **yanlış**: `d.name AS department_name` takma adının altından geçen `left(token_hash,8)` **yeni alan
+> istemiyor**, `Person` değişmiyor, ve **suite 16/16 yeşil** kalıyor. Üründe sızıntı **yok** (sevk edilen sorgu
+> o sütunu seçmiyor); yanlış olan **ağın yazılı kapsamıydı** → *"COVERED ELSEWHERE"* silindi, kapsam **sayıldı**.
+> Aynı sınıf üç kez daha: kuşak ağının kapsam iddiası **kendi bastığı komutla** çelişti (*"8/41"* → gerçek
+> **9/43**) · bir ağın gerekçesi **var olmayan bir rota tablosu** beyan etti (*"mountWriting POST'un tek yeri"* —
+> üç POST başka yerde, ve `/admin/logout` bir **mutasyon**) · ve `unscopedSubqueries` **21 saldırının 7'sinde**
+> yenildi (`UNION` kolu · `JOIN…ON` ×2 · `public.sessions` · `ONLY` · virgül-join) → **kapanış kuralı**
+> uygulandı: kapatılmadı, **adıyla sayıldı**, ve güvenlik denetçisi **RLS'in gerçekten tuttuğunu** canlı ölçtü
+> (yedi şekil de yalnız kendi tenant'ının satırlarını döndürdü; `SET row_security = off` → **ERROR**).
+>
+> **📉 KADRO BOYU ALTI KEZ KAYDI VE HER TURDA DÜZYAZIDA ALINTILANDI** (8.718 → 9.138; bir denetimin **içinde**
+> iki kez). İki tur üst üste **aynı** RED'i aldı çünkü düzeltme **yanlış katmandaydı** — üç sayı tazelendi,
+> alıntılama alışkanlığı sürdü. Yapısal çözüm: **sayı hiçbir gerekçe cümlesinde yazılmıyor**, argüman
+> **eşitsizlikten** kuruluyor (`RosterPageSize × adminSessionLimit ≥ rosterDesignCeiling`), ve bir **tel** şekli
+> arıyor. ⚠️ Tel dürüstçe sınırlı: sözlüğü genişletmek **30 meşru ölçümü** işaretledi ve **geri alındı**
+> (*yanlış alarm veren bir tel, bir sonraki kişinin sileceği teldir*); **altı kaçış** yazılı, ve **bütçe 9→6
+> düştü diye borç azalmadı** — Türkçe ek (`çalışana`) yüzünden **ağın görüşü daraldı**, bu da yazıldı.
+>
+> **İki kullanıcı kararı (2026-08-07).** Sayfa **50**: 25'te bütçeyi aşan **tek tenant** kendi kadrosunu
+> yürüyemiyordu (349 istek, **301'de 429**); 50'de **0 tenant** aşıyor, bedel sayfa **+%82** (22→40 KB, M6-03'ün
+> kaldırdığı 867 KB'ın **1/21'i**). Ve **kart koda yenildi:** deaktivasyon **oturum İPTAL ETMEZ** —
+> `employees.status` + `sys:employee-deactivated` reddi zaten veriyor; iptal etmek kişiyi **sonucun kesin olduğu**
+> daldan (§5 satır 4) **her çağıranın dikkatine bağlı** bir dala taşırdı. **Sıradaki:** "ŞU AN" → **M6-05 B fazı**.
 
 > **M6-04 done — 2026-08-07 (`2e7ec64`), iki denetçi ONAY, 9 TUR, 6 RED — M6-01 B'nin 18 turundan sonra
 > projenin ikinci en uzun görevi.** Altıncı panel bölümü (`/admin/review`) ve **panelin ilk MUTASYON
@@ -283,7 +330,7 @@
 | | |
 |---|---|
 | **Kilometre taşı** | **M0 + M1 + M2 + M3 + M4 + M5 TAMAM** ✅ 🎉 · **[Tap akışı](m5-tap-akisi.md) 11/11 — çalışanın gördüğü ürünün tamamı bitti.** Davet → aktivasyon → mini tur → **NFC veya QR** → karar → kayıt → onay ekranı, **gerçek HTTP + gerçek Postgres üzerinde bir GÜN** olarak kanıtlı (`make simulate-day`: 10 çalışan, 31 kayıt, hepsi **karar motorundan**), tap sayfası **3 dk'lık tazelik penceresine** bağlı, ve §5'in yön kuralı sevk edilmiş kodda **doğru**. **Sıradaki: M6 — müdürün gördüğü taraf.** |
-| **Sıradaki görev** | **M6-05** — Employees sekmesi. **UI → skill `tappa-brand` ZORUNLU.** 🔴 **M6-05'İN BİLMESİ GEREKEN BEŞ ŞEY:** (1) **M6-03'ün DEVRİ: *"burada kim çalışıyor?"* sorusunun tek cevabı artık BU SEKME** — Transactions'ın çalışan `<select>`'i sayfanın **%96'sıydı** ve kullanıcı kararıyla metin girişine çevrildi; müdür artık ismi **bilmek** zorunda, **keşif** bu sekmenin işi oldu. ⚠️ **Aynı hatayı burada yapma:** aynı bordro burada da aynı bayt maliyetini üretir → **sayfalamalı veya aramalı** göster. Ve `deactivated` olanları **gizleme** (§4.6; ağ: `TestPanelTransactionsDB_NameFilterFindsPeopleWhoHaveLEFT`). (2) 🔴 **`admin_users.password_hash` yalnız `adminauth.Hash` çıktısıyla yazılır** — M6-01 B'nin 1. limiti burada **süresi doluyor**: geçerli digest'i olmayan bir satır **154–198 ns**'de cevap veriyor, kukla **297,9 ms** → **~1,5–1,9 milyon×** zamanlama kolu. Şemada format CHECK'i **yok**, `''` şema-geçerli. (3) **Deaktivasyon → oturum O SANİYE ölmeli** (`revoked_at`), sonraki tap `reject`; ⚠️ ölçüldü (M4-03 denetimi): `RevokeAllForEmployee` **çağrılmıyor** — bkz. aşağıdaki devir md. 2. (4) **Kuşak ağı artık `go/ast`** (`*ast.SelectorExpr`, `db/queries`'in tanımladığı adlarla kesişim) ve **41 sorgunun 8'ini** görüyor (**%20**) — bu pakete sorgu eklerken **ağın seni gördüğünü mutasyonla doğrula**; kapsanmayan 33 için §4.5'in ikinci savunmasının **hiçbir ağı yok**. (5) **`make check` artık `gen` koşuyor** (kullanıcı kararı 2026-08-07) → **+10–15 sn**; bayat üretilmiş dosya artık CI'da **kırmızı**. |
+| **Sıradaki görev** | **M6-05 B FAZI** — Employees **aksiyonları**. A fazı (`1998e89`) listeyi verdi; B **davet · yeniden davet · deaktive · lokasyon/departman değiştirme**'yi yazar. **UI → skill `tappa-brand` ZORUNLU.** 🔴 **B'NİN BİLMESİ GEREKEN ALTI ŞEY:** (1) **Deaktivasyon `RevokeSessionsForEmployee`'yi ÇAĞIRMAZ** — kullanıcı kararı 2026-08-07, **kart koda yenildi**: `employees.status` + `sys:employee-deactivated` reddi zaten veriyor; iptal, kişiyi **sonucun kesin olduğu** daldan (§5 satır 4: reddet + kaydet + uyar) **her çağıranın dikkatine bağlı** bir dala taşır. *"Sonraki tap `reject`"* **doğru ve korunuyor** — değişen, onu **neyin sağladığı**. `revoked_at` **kayıp/çalıntı telefon** ve **ikinci aktivasyon** için kalıyor. (2) 🔴 **ON İKİ LİMİT bölümü md.8'i (`admin_users.status='disabled'` + sunucu tarafı panel oturum süresi) M6-05'e VERİYOR ama kartın A/B bölünmesi bunu ANMIYOR** — **üç denetçi de ayrı ayrı işaret etti**; B'nin kartını yazarken **düşürme**. Düzeltmesi bir **migration** → kullanıcıya sor. (3) **Mekanizmalar hazır, müdür yüzeyi yok:** `invite.Manager.IssueAndDeliver` · `session.Manager.RevokeAllForEmployee`/`ListForEmployee` · `ListPendingInvitesForEmployee` · `audit.Recorder`. `tappa_app`'in `employees` üzerinde **UPDATE yetkisi var** → migration beklenmiyor. ⚠️ `UPDATE employees` repoda **tam bir kez** geçiyor (`invites.sql:227`, aktivasyon) ve bu **greplenebilirlik bilinçli** — bozma. (4) 🔴 **Davet kodu ekranda BİR KEZ, log'a ASLA** (§4.7). A fazı bu sayfaya `employee_invites` JOIN'i **koymadı** ve güvenlik denetçisi kanaryayla doğruladı: `code_hash` **ve 10 karakterlik öneki** sayfada yok. (5) **A fazının uzun-ad kusurunu TETİKLEYEN VERİ B'NİN DAVET FORMUNDAN girer** — `full_name` şemada **sınırsız `text`**, CHECK yok; imleç artık ada bağlı değil ama **başka bir yüzey** aynı varsayıma yaslanabilir. (6) **Her aksiyon `audit_log`'a yazılır** ve M6-04'ün dersi geçerli: **kaderi paylaşmalı** (`RecordTx`, tek transaction) — **iki yönü de patlat ve satır say**. ⚠️ Ayrıca A fazından: kuşak ağı kapsamını **koşuda kendisi basıyor** (bugün **9/43, %20,9**; elle sayı yazma — *"8/41"* iddiası kendi komutuyla çeliştiği için silindi) ve **yedi kaçışı SAYILI, kapatılmadı** — RLS'in tuttuğu canlı ölçüldü. |
 | **Çalışma modu** | Orkestrasyon + üçüncü göz — [README.md](README.md) · brief'ler [agent-brief.md](agent-brief.md) |
 | **Dal** | **`main`** — M0 (`m0-bootstrap`) `main`'e fast-forward birleştirildi (`562f021`), dal silindi. **Kullanıcı kararı (2026-07-25): artık doğrudan `main`'de çalışılır, görev başına dal açılmaz** (CLAUDE.md §10 güncellendi). Push/PR yine istemedikçe yok. |
 | **Blokeler** | Yok. **Bekleyen kullanıcı eylemleri → [docs/backlog.md](../backlog.md)** (B1 iPhone/Q11 ölçümü, B2 arm64 Go kurulumu) — **ikisi de hiçbir şeyi bloklamıyor**. Q02 (davet kanalı) M5-02'yi bloklamaz; kart cevapsız hâli için yol gösteriyor. |
@@ -970,7 +1017,7 @@ düzelt**.
 | `docker compose ps` | `tappa-db` ayakta ve `healthy` |
 | `make migrate-status` | **00001–00011 uygulanmış** (00011 = M6-01 A fazı, admin çözümleme). ⚠️ **M6-04 migration EKLEMEDİ** — 00005 `transaction_reviews`'ü zaten tam taşıyordu |
 | `make check` | **exit 0** — ama yalnız **temiz ağaçta** (aşağı). ⚠️ **2026-08-07'den beri `gen` de koşuyor** (`check: fmt gen lint test`, kullanıcı kararı) → **+10–15 sn**; bayat `_templ.go`/`*.sql.go` artık **CI'da kırmızı**. Ölçüldü (`2e7ec64`, temiz ağaç): **244 sn** |
-| `make test` | **16 paket** `ok`, **PASS 1776 / SKIP 0 / FAIL 0** (M6-04 sonrası; üst-seviye **807**) · **gözlenen aralık 92–165 sn** (makine durumuna göre; **hedef değil, gözlem kaydı**) · sayım: `make test GOFLAGS=-v \| grep -c -- '--- PASS:'` · ⚠️ çıplak `go test` DB testlerini **sessizce SKIP eder** (ölçüldü: PASS 1352 / SKIP 221) |
+| `make test` | **16 paket** `ok`, **PASS 1821 / SKIP 0 / FAIL 0** (M6-05 A sonrası; üst-seviye **836**) · **gözlenen aralık 92–165 sn** (makine durumuna göre; **hedef değil, gözlem kaydı**) · sayım: `make test GOFLAGS=-v \| grep -c -- '--- PASS:'` · ⚠️ çıplak `go test` DB testlerini **sessizce SKIP eder** (ölçüldü: PASS 1352 / SKIP 221) |
 | `make test-short` | **gözlenen aralık 51–74 sn**, **TAM 3 SKIP** (`TestAuthenticate_TimingIsFlat`, `TestPanelE2E_TimingIsFlatOverHTTP`, `TestSeedDB_ADayAtKFStJulians`) — iç döngü içindir, **commit öncesi `make test`**. ⚠️ Bu bant **üç kez dar yazılıp üç kez tutmadı**; artık gözlenen aralık ve **hedef değil** |
 | **⚠️ İki bilinen flake** | İkisi de **M6-01 kaynaklı DEĞİL**, ikisi de **önceden var**: (1) `TestPolicySetDB_ConcurrentFirstTapsMaterialiseOnce` — M7-03 devrinin (`EnsureBaselinePolicy` eşzamanlılıkta 23505) test yüzü, ~26 koşuda 2; son 8 kapanış koşusunda **0**. (2) **bağlantı tükenmesi** (`FATAL: sorry, too many clients already`) — `max_connections=100` − 3 rezerve = **97**, ve `internal/db` + `internal/sun`'ın kırmızı-çizgi yarış testleri **54'er** bağlantı açıyor = **108 > 97**, yani **tek başlarına** sınırı aşıyorlar. Goroutine sayısını düşürmek bir **§4.4 testini zayıflatır** → düzeltilmedi. **Sonuç: `make check` yeşilliği bu iki testin zamanlamasına bağlı; kırmızı görürsen ÖNCE hangisi olduğuna bak.** |
 | `make simulate-day` | KF St Julians'ta bir gün: `PASS`, ~64 sn (~62'si ADR 0006 beklemesi). **`make seed` yapılmış olmalı** |
@@ -1097,7 +1144,7 @@ yazılır.
 | M6-02 | Dashboard iskeleti ve docket bileşenleri | **done** | **`6757537`** · üçüncü göz **ONAY** · **10 tur, 5 RED** · `layout.Panel` + `TabBar` + `EmptyState` + üç CSS ailesi; **beş sekme rotası tek tablodan** `Protect()` içinde mount ediliyor (nav da aynı tablodan → *"linki 404 veren sekme"* **üretilemez**) · **kartı ölçmek iki kez kendini ödedi:** docket motifi + beş damga **zaten sevk edilmişti** (**M0 iskeleti** `7e12f37`, M5-06 değil — M5-06 yalnız **anatomiyi** değiştirmiş; perforasyon görseli **hiç var olmamış**) → üç kriter **karşılanmıştı**, iş eksik **dört bileşendi**; ve **M6-01'in bütçe borcu ölçümle kapandı** (bir sekme görüntülemesi = **1 ücretli istek**, `/static` kapı dışında → pay **11,5×**, üç sabit **değişmedi**) · 🔴 **sevk edilmiş kontrast hatası bulundu ve düzeltildi:** `.docket-label` **3,13:1** (AA 4,5:1) **12 çağrı yerinde** — **tap ve onay ekranları dahil** — artı beş ton daha **2,40–4,36:1** → **kullanıcı kararı: hepsi `ink/70`** (en kötü zemin **5,58:1**); `/60` ölçülüp **reddedildi**; wordmark **WCAG 1.4.3 logotype istisnasını REDDETTİ**, gerekçe yazılı · **ürünün İLK kontrast testi** geldi ve üç `TestCompiledCSS_*`'in aksine **CI'da koşuyor** (paleti config'den türetir, WCAG'i yeniden hesaplar, **sıfır çağrı yerinde koşmayı reddeder**, **bağlayıcı zemini pinler** — işaret silinirse de kırmızı) · ⚠️ **bağlayıcı zemin porcelain değil `green-lite`** (L 0,8229 < 0,8627); iki tur **ve** orkestratörün brief'i yanlış varsaymıştı, **türetilmiş test yakaladı** · **filtre çubuğu ve HTMX M6-03'e TAŞINDI** (kullanıcı kararı, iki kartta da yazılı) · **1647 test, 0 SKIP** |
 | M6-03 | Transactions sekmesi | **done** | **`37032d0`** · **iki denetçi ONAY** (genel üçüncü göz ×2 + `tappa-security-auditor`) · **8 tur, 4 RED, 56 mutasyon** · docket kartları + altı filtre + keyset sayfalama + HTMX · **okuma yolu sıfırdan** (beş var olan sorgu tap **yazma** yolundandı) · **yeni migration yok** · M6-02'nin **üç borcu** kapandı (filtre çubuğu · HTMX+CSP **iki direktif, ikisi de tarayıcıda taşıyıcı ölçüldü** · bütçe **yeniden sayıldı, çarpan geri gelmedi**) · 🔴 **filtre çubuğu sayfanın %96'sıydı** (867 KB'ın 835'i, sınırsız büyüyen) → **kullanıcı kararı: metin kutusu + sunucu eşleşmesi** → **32 KB** · §4.5 **yedi vektörlü** çapraz-tenant saldırısında temiz (B'nin gerçek cursor'ı dahil) · §4.7 **üç duvar**, koordinat taşıyan gerçek satırlara karşı · **SQL enjeksiyonu/XSS/joker kaçağı yok** (15+12 vaka, depolanmış yol dahil) · ⚠️ **kuşak ağı tek dosya okuyordu** (pozitif kontrolle bulundu) · ⚠️ **`MATERIALIZED`'ın 27× gerekçesi GERİ ÇEKİLDİ** — DB hiç `ANALYZE` edilmemişti, istatistikler ~20× küçüktü; çit başka gerekçeyle tutuldu · **1698 test, 0 SKIP** |
 | M6-04 | FLAGGED onay kuyruğu | **done** | `2e7ec64` · **iki denetçi ONAY** (`tappa-security-auditor` **VERDICT: ONAY**, genel üçüncü göz kapanışta) · **9 tur, 6 RED** — M6-01 B'den sonra **en uzun ikinci görev** · **yeni migration YOK** (00005 tabloyu + `UNIQUE (transaction_id)` + same-tenant bileşik FK + RLS beşlisini zaten taşıyordu) · karar `transaction_reviews` + `audit_log`'a **tek transaction'da** (`RecordTx`; iki yön de patlatıldı), `transactions`'a **hiç dokunmuyor** — `has_table_privilege('tappa_app')` üç tabloda da `UPDATE f · DELETE f`, `tappa_owner` denemesi bile trigger'la reddediliyor · **🔴 brief'imin ÜÇ sayısı ölçümle çürütüldü:** *"`audit_log` yolu yok"* (paket **vardı**, ~20.000 satır; doğru dar ifade `channel='manual'`-hedefli **0**), *"`transaction_reviews` 0 satır"* (**9.813** — çıktıyı `head` kesmişti, görmeden yazmıştım), *"31.193 = kuyruk"* (DB geneli; en büyük tenant **4.742**) · **🔴 güvenlik: `sameOriginGate` çözücüden SONRAYDI** (review **1** resolver okuması, logout **0**) → same-site bir sayfa 300 POST ile müdürü **10 dk kendi panelinden kilitliyordu**; `ProtectWriting` = `floodGate → sameOriginGate → requireAdmin → sessionGate`, `Protect`'in **üst kümesi**, **resolver sayacıyla** pinli — ⚠️ **M6-01 B'deki orkestratör hatasının aynısı**, kalıbın tek aşaması kopyalanmıştı · **ekran ölçmediğini söylüyordu:** ikinci karar *"başkası karar verdi"* diyordu, **kimin** verdiğini okumadan → çift tıklayan müdür kendi kaydı için o cümleyi görüyordu · **🔴 DÖRT AĞ KENDİ MERKEZÎ CÜMLESİNİ TUTMADI:** karar formu kendi URL'ini yazıyordu (`/admin/nowhere` mutasyonu **tüm paketi yeşil** bıraktı) · `layout.Panel`'in **sıfır çağıranı** vardı ama üç yorum render edildiğini söylüyordu · kuşak ağı regex'i **üç şekilde** yenildi (satır sonunda nokta · parantez öncesi boşluk · metot değeri; yüklem **tamamen silik**, `gofmt` kararlı, iki belt **yeşil**) · AST'ye taşınınca **okuyucusu** kaçırıldı (alfabetik önceki dosyada **tek yorum satırı** → sabitlenmemiş `-- name:` başka gövdeye çözülüyor, `make sqlc` kapsamsız sorguyu **üretime** yazıyor, suite **16/16 yeşil**) · **iki kullanıcı kararı:** notun render edilmesi (write-only'di, 500 karakter kırpması **görünmezdi**; sayfa 31.013 → 33.663 B, en kötü 45.563 B — yapıcının 12,5 KB tahmini **iyimserdi**) ve script'siz kabuğun **yapısal** olması (`pages.PanelShell` script parametresi taşımıyor → string düzenlemesi **derleme hatası**; `PanelShellWithScript` adını vermek hâlâ derleniyor, **yazılı**) · **kapsam genişlemesi (kullanıcı kararı):** `make check` artık `gen` koşuyor (**+10–15 sn**; yapıcının **3,34 sn**'si geri çekildi — *tek ölçümü nokta yazmak*, sayı-etiketi sınıfının **11. örneği**) · **ADR 0009** (verilmiş review geri alınamaz; §4.3'ün telafi yolu bu tabloda **yapısal olarak yok** — ihlal değil, bilinçli, ama yazılı değildi) · **varlık kehaneti kapalı ve GÖVDE BOYUYLA ölçüldü** (var olmayan uuid · başka tenant · `flag` olmayan → üçü de 303, aynı `Location`, **5.723 B**) · not render'ı 10 hasmane yükte temiz, sayfada `<script` **1** (htmx), CSP'de `'unsafe-inline'` yok · kırpma **rune sınırında** (500 kırpılmaz, 501 kırpılır) · eşzamanlılık 10 goroutine → **1 kazanan / 9 `taken` / 0 diğer / 0 yanlış atıf** · `audit_log.detail` tam **4 anahtar**, sızıntı 0 · **16 limit sayıldı, kapatıldı denmedi** · **807 üst-seviye / 1776 toplam PASS, 0 SKIP** |
-| M6-05 | Employees sekmesi | todo | |
+| M6-05 | Employees sekmesi | **A fazı done · B todo** | **A: `1998e89`** · iki denetçi ONAY (`tappa-security-auditor` **§4.6 RED**'i dahil) · **6 tur, 4 RED** · **migration YOK** · görev **denetim merceğine göre** bölündü (okuma yolu §4.5/§4.6/bayt · yazma yolu §4.7/yetkilendirme/oturum) · **okuma yolu sıfırdan** (`employees.sql`'de yalnız iki tap-yolu sorgusu vardı) · **🔴 güvenlik: 512 rune'dan uzun ad sayfa sınırında imleci sessizce düşürüyordu** → sonsuz döngü, **10 kişi ulaşılamaz / 50 kişi iki kez** (60 kişilik kadroda 605 rune ile ölçüldü); `full_name` şemada **sınırsız `text`**, ve **iki yazılı iddia ölçümle yanlışlandı** (*"düşürmek yalnız DAHA FAZLASINI gösterir"* — tersi; *"filtre çubuğu yankılar"* — imleç hiç yankılanmıyor). **Sınır büyütülmedi, SİLİNDİ:** imleç `?after_id=<uuid>`, adı sunucu çözüyor (**+0,44–0,99 ms**, yalnız sayfalı istekte) → **ikinci bulgu da kapandı**, hiçbir çalışan adı **URL'de yolculuk etmiyor** · **§4.7 tip duvarı çalışıyor ama YAZILI KAPSAMI yanlıştı**: `d.name` takma adı altından geçen `left(token_hash,8)` **yeni alan istemiyor** ve suite **16/16 yeşil** kalıyor → *"COVERED ELSEWHERE"* silindi, **sayıldı** (üründe sızıntı yok) · kuşak ağının kapsam iddiası **kendi komutuyla** çeliştiği için **silindi** (koşuda basılıyor: **9/43**), `unscopedSubqueries` **21 saldırının 7'sinde** yenildi → **kapanış kuralı**: adıyla **sayıldı**, RLS'in tuttuğu **canlı ölçüldü** (`SET row_security = off` → **ERROR**) · **kadro boyu ALTI kez kaydı** ve iki tur **aynı RED'i** aldı çünkü düzeltme **yanlış katmandaydı**; sayı artık **hiçbir gerekçe cümlesinde yok**, argüman **eşitsizlikten**, ve bir **tel** şekli arıyor (⚠️ sözlük genişletmesi **30 meşru ölçümü** işaretleyip **geri alındı**; **altı kaçış** yazılı) · **kullanıcı kararları:** sayfa **50** (25'te bütçeyi aşan tek tenant kadrosunu **yürüyemiyordu**: 349 istek, 301'de 429; 50'de **0 tenant**) ve **kart koda yenildi** (deaktivasyon oturum iptal **etmez**) · **1821 PASS / üst düzey 836 / 0 SKIP** |
 | M6-06 | Locations & Wall Tags sekmesi | todo | |
 | M6-07 | Reports ve CSV export | todo | |
 | M6-08 | Manuel kayıt girişi | todo | |
@@ -1147,6 +1194,36 @@ yazılır.
 ## Oturum günlüğü
 
 En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
+
+### 2026-08-07 (6. oturum, devam) — **M6-05 A fazı done** · Employees listesi · **6 tur, 4 RED**
+
+**Ne yapıldı.** `1998e89`. Görev **denetim merceğine göre** A/B'ye bölündü (üçüncü kez; ölçüt kapsam değil,
+**farklı saldırılar**). A fazı listeyi verdi: ad · lokasyon/departman · durum · **oturum durumu** · keyset
+sayfalama **50**'de · ad/durum filtresi. **Migration yok.** Aksiyonlar B'de ve diff'te **buton bile yok**.
+
+**Ne öğrenildi — üç şey, üçü de brief'te.**
+1. **🔴 BİR AĞIN YAKALADIĞI İLE YAKALADIĞINI SÖYLEDİĞİ AYRI İKİ İDDİADIR, VE İKİNCİSİ ÖLÇÜLMEZSE DAHA
+   TEHLİKELİDİR.** §4.7'nin tip duvarı **gerçekten çalışıyor** (yeni alan → kırmızı) ama *"bir önek de burada
+   kapanır"* **yanlıştı**: var olan bir alanın takma adı altından geçen `left(token_hash,8)` yeni alan
+   istemiyor ve **suite 16/16 yeşil** kalıyor. Aynı sınıf üç kez daha (kapsam sayısı kendi komutuyla çelişti ·
+   bir gerekçe **var olmayan bir rota tablosu** beyan etti · alt sorgu tarayıcısı 21 saldırının 7'sinde
+   yenildi). **Kural: bir ağın cümlesini yazmadan önce ağı YEN; yenemediğini SAY.**
+2. **AYNI RED İKİ TUR ÜST ÜSTE GELİYORSA, DÜZELTME YANLIŞ KATMANDADIR.** Kadro boyu **altı kez** kaydı
+   (8.718 → 9.138, bir denetimin **içinde iki kez**); iki turda da yanıt *"daha taze bir sayı yaz"* oldu ve
+   her taze sayı **tur içinde** bayatladı. Çözüm sayıyı tazelemek değil, **alıntılamayı bırakmaktı** — argüman
+   artık **eşitsizlikten** kuruluyor. ⚠️ Ve teli **yanlış alarm verecek kadar** genişletmek reddedildi
+   (30 meşru ölçüm): *yanlış alarm veren bir tel, bir sonraki kişinin sileceği teldir.*
+3. **GÜVENLİK MERCEĞİ, İKİ GENEL TURUN ÜSTÜNDEN GEÇTİĞİ BİR §4.6 KUSURUNU BULDU — ve kusur kodda değil,
+   UYGULANMAYAN BİR VARSAYIMDAYDI.** `maxRosterCursorName`'in yorumu başarısızlık modunu **doğru teşhis
+   edip** *"hiçbir bordroda böyle bir isim olmaz"* diyerek duruyordu; şemada CHECK, kodda validator, testte
+   vaka **yoktu**. **Kural: bir yorum bir varsayıma yaslanıyorsa, o varsayımı UYGULAYAN şeyi göster.**
+
+**İki kullanıcı kararı.** Sayfa **50** (25'te bütçeyi aşan tek tenant kendi kadrosunu yürüyemiyordu) ve
+**kart koda yenildi**: deaktivasyon oturum **iptal etmez**.
+
+**Ne kaldı.** **M6-05 B fazı.** ⚠️ Üç denetçi de ayrı ayrı işaret etti: `admin_users.status='disabled'`
+maddesi ON İKİ LİMİT'te **M6-05'e verilmiş** ama kartın A/B bölünmesinde **anılmıyor** — B'nin kartı
+yazılırken düşmemeli.
 
 ### 2026-08-07 (6. oturum) — **M6-04 done** · FLAGGED onay kuyruğu · **9 tur, 6 RED**
 
