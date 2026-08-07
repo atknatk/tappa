@@ -1119,12 +1119,32 @@ func (a *AdminAuth) renderScripted(w http.ResponseWriter, r *http.Request, statu
 // and layout.documentHead already sends <meta name="referrer" content="no-referrer">,
 // which covers navigations.
 //
-// IT IS WRITTEN DOWN BECAUSE THE URL CHANGED SHAPE. Since 2026-08-06 the
-// transactions URL carries a TYPED PERSON'S NAME in ?employee=, so the address of
-// this page is no longer only ids and dates. That is not a §4.7 breach — the name
-// is the reader's own query about their own tenant, not a secret — and nothing
-// leaves the origin. It is hardening that becomes worth doing the first time any
-// panel page links or embeds anything external.
+// IT IS WRITTEN DOWN BECAUSE THE URL CHANGED SHAPE — THREE TIMES, AND THE THIRD
+// CHANGE UNDID THE SECOND.
+//
+//	2026-08-06  the transactions URL began carrying a TYPED PERSON'S NAME in
+//	            ?employee= — the reader's own query, typed by them about their own
+//	            tenant.
+//	2026-08-07  the employees section's "Next page" link carried
+//	            ?after_name=<a real employee's full name>. A different thing: not
+//	            something the reader typed, but a row the SERVER read out of the
+//	            database and printed into an address — so it reached browser history
+//	            and any shared screen without anybody choosing to put it there.
+//	2026-08-07  ✅ that half is GONE. The roster's paging anchor is an id now
+//	            (?after_id=<uuid>) and the server looks the name up. The change was
+//	            made for a §4.6 defect — an unbounded name in a query string had to
+//	            be length-bounded, and a dropped cursor repeated a page — and this
+//	            disclosure closed with it.
+//	            TestEmployeesSection_NoEmployeeNameTravelsInAPagingLink holds it.
+//
+// WHAT IS LEFT is the 2026-08-06 line: a name the reader typed themselves, about
+// their own tenant, in their own address bar. That is the shape this note was
+// originally comfortable with. No §4.7 breach and nothing leaves the origin — the
+// policy above is default-src 'none' with 'self' everywhere else, so these pages
+// cannot generate a cross-origin request for a Referer to ride on, and
+// layout.documentHead already sends <meta name="referrer" content="no-referrer">.
+// The header remains hardening worth doing the first time any panel page links or
+// embeds anything external.
 func (a *AdminAuth) renderWithPolicy(w http.ResponseWriter, r *http.Request, status int, c templ.Component, policy string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")

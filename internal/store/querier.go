@@ -865,6 +865,46 @@ type Querier interface {
 	// That is a DISCLOSURE choice, not the isolation decision: whether such a tap is
 	// allowed is sys:tenant-mismatch's answer at POST time (hand-off N5).
 	GetLocationWiFi(ctx context.Context, arg GetLocationWiFiParams) (GetLocationWiFiRow, error)
+	// The name of ONE employee, by id -- the anchor a roster page continues from.
+	//
+	// 🔴 IT EXISTS SO THE PAGING CURSOR CAN CARRY AN ID INSTEAD OF A NAME, and that is a
+	// section 4.6 fix rather than a tidy-up. The cursor used to carry the anchor's
+	// full_name in the query string with a length bound on it, because a query string is
+	// not a place to put an unbounded value. full_name IS unbounded (`text`, no CHECK),
+	// so a name past the bound was dropped -- and a dropped cursor makes "next page"
+	// serve the SAME page. Measured by a security audit on real Postgres: a 605-rune
+	// name on a page boundary served page one forever, leaving everybody behind it
+	// unreachable by browsing and listing the first page twice.
+	//
+	// Reading the name here removes the failure at its source: an id is 36 characters
+	// whatever the person is called, so there is nothing left to bound and nothing left
+	// to drop.
+	//
+	// IT ALSO TAKES A PERSON'S NAME OUT OF THE URL, which the Referrer-Policy note in
+	// internal/handler/adminlogin.go had recorded as an open privacy wrinkle: a "next
+	// page" link used to contain a real employee's full name, so it reached browser
+	// history and anything looking at the address bar. That is closed as a side effect
+	// rather than as the goal, and it is the reason this shape was chosen over an opaque
+	// encoded token -- a token still carries the name, just illegibly, so it would have
+	// fixed neither the length nor the disclosure.
+	//
+	// COST: one lookup on the primary key, paid ONLY on a paged request (never on a
+	// section view or a filter change). Measured through tappa_app on the largest
+	// tenant, warm, 5 repeats: 0.44 - 0.51 ms, against a roster page that costs
+	// 19 - 68 ms -- about 2%.
+	//
+	// ⚠️ THAT FIGURE WAS WRITTEN HERE AS "0.6 - 1.9 ms" BEFORE IT WAS MEASURED, and the
+	// correction is left visible because the mistake has a shape worth recognising: the
+	// first timing bound a subquery that FOUND the id into the measurement, which is work
+	// the product never does -- it already has the id, it came from the URL. Timing a
+	// probe instead of the production shape is the M0-04 lesson, and it inflated this
+	// number roughly fourfold.
+	//
+	// TENANT SCOPE (section 4.5, belt + braces): the explicit tenant_id predicate is
+	// required even though RLS is on. A foreign id returns no row, which the caller reads
+	// as "no cursor" and answers with the first page -- more of the caller's OWN roster,
+	// never somebody else's.
+	GetRosterCursorAnchor(ctx context.Context, arg GetRosterCursorAnchorParams) (string, error)
 	// tenants.sql -- reads of the tenant's own row.
 	//
 	// TENANT SCOPE (CLAUDE.md section 4.5, belt + braces on RLS): the query carries an
@@ -1006,6 +1046,167 @@ type Querier interface {
 	// computes the haversine distance from the tap's GPS to each location and checks
 	// the < 150 m radius. Returns every location in the tenant so that check can run.
 	ListLocationsForTenant(ctx context.Context, tenantID uuid.UUID) ([]Location, error)
+	// The PANEL's ROSTER read (M6-05 phase A): one page of the people who work here,
+	// alphabetically, with the two facts the card asks for beside each name -- where
+	// they work, where they are in the employment lifecycle, and whether a phone of
+	// theirs is still signed in.
+	//
+	// 🔴 IT LISTS THE DEACTIVATED BY DEFAULT AND THERE IS NO STATUS PREDICATE UNLESS
+	// THE CALLER ASKS FOR ONE (section 4.6). Somebody who has left is exactly the
+	// person a manager comes looking for months later -- a payroll query, a dispute, a
+	// reference -- and a list that quietly drops them makes their records unreachable
+	// through the only screen that answers "who works here?". M6-03 rejected three
+	// shortlisting options for this reason and handed the question to this section;
+	// the same rule applies here. The status parameter NARROWS on request and defaults
+	// to NULL, which matches every row.
+	//
+	// 🔴 SECTION 4.7 -- WHAT THIS QUERY DELIBERATELY DOES NOT SELECT. The tables it
+	// reads carry secrets and near-secrets, and none of them is in the column list:
+	//
+	//	sessions.token_hash   the HMAC of a live credential. It exists to be MATCHED
+	//	                      (db/queries/sessions.sql says so) and is never handed
+	//	                      back to Go, here least of all -- this row would put it on
+	//	                      a rendered page.
+	//	sessions.device_info  a coarse device label ("iPhone Safari"). Not a secret,
+	//	                      but nothing on this screen needs it: the card asks
+	//	                      whether an ACTIVE DEVICE EXISTS and when it was last
+	//	                      used, and a count plus a timestamp answer both. A column
+	//	                      selected for no reader is the thing that weakens the
+	//	                      argument above, so it stays out (the same finding that
+	//	                      removed four columns from ListPanelTransactions).
+	//	sessions.id           an identifier for a credential. The panel has no per-
+	//	                      session control in phase A, so there is nothing to name.
+	//	employees.email       the invitation address. Phase B (invite / re-invite) is
+	//	                      where an address earns a reader; a roster does not.
+	//	employee_invites.*    NOT JOINED AT ALL. The invite CODE is hashed
+	//	                      (code_hash) and the card's "shown exactly once" rule is
+	//	                      phase B's; a list that touched the invite table would be
+	//	                      one edit away from rendering one.
+	//
+	// WHAT IT DOES SELECT ABOUT SESSIONS IS TWO AGGREGATES, and they are computed in a
+	// LATERAL rather than per row in Go. ListSessionsForEmployee already exists and
+	// answers this for ONE person; calling it once per listed employee is an N+1.
+	//
+	// 🔴 THE TABLE BELOW WAS RE-MEASURED AT THE SHIPPED PAGE SIZE AND THE FIRST VERSION
+	// OF IT WAS WRONG IN THE FLATTERING DIRECTION. It quoted "a page of 26", which is
+	// RosterPageSize+1 for the page size this section had BEFORE the 2026-08-07
+	// decision -- so the numbers described a query the product no longer runs, and they
+	// understated the lateral's cost. Re-measured at LIMIT 51 (50 + the one extra row),
+	// largest tenant, warm cache, ANALYZEd, 5 repeats each:
+	//
+	//	page of 51 WITHOUT the lateral (baseline)       3.7 - 9.2 ms
+	//	page of 51 WITH the lateral (SHIPPED)          16.1 - 18.5 ms
+	//	ONE ListSessionsForEmployee call                0.7 - 1.2 ms
+	//	  => the N+1 shape, 50 rows                    35 - 58 ms  AND 50 extra round
+	//	                                                            trips on a pooled
+	//	                                                            connection shared
+	//	                                                            with the tap path
+	//
+	// 🔴 AND THE MECHANISM IS NOT WHAT "26 INDEX PROBES" IMPLIED. EXPLAIN ANALYZE shows
+	// the probes themselves are nearly free -- loops=51 on an Index Scan using
+	// sessions_tenant_idx, well under a millisecond in total. What the lateral actually
+	// costs is a PLAN CHANGE above it: without it the sort is a `top-N heapsort` that
+	// stops after 51 rows and needs tens of kilobytes; with it the planner sorts the
+	// tenant's WHOLE roster with a `quicksort` needing about a megabyte across its
+	// workers. So the cost is roughly 2-4x the baseline and it scales with the ROSTER,
+	// not with the page.
+	//
+	// ⚠️ THE SORT'S MEMORY IS DELIBERATELY GIVEN AS AN ORDER RATHER THAN A FIGURE. It is
+	// proportional to the roster, which is the magnitude that grows on every `make test`
+	// run (see the drift warning in internal/handler/adminratelimit.go) -- an exact
+	// kilobyte count here would be stale on the same schedule as the headcount it
+	// derives from, which is the defect three audits of this task kept finding.
+	//
+	// THE DECISION IS UNCHANGED AND THE REASON IS UNCHANGED: one round trip at 16-18 ms
+	// beats fifty round trips carrying 35-58 ms of database time. What changed is the
+	// margin, which was overstated. No index is added and none is needed --
+	// sessions_tenant_idx (tenant_id, employee_id) is migration 00003's and it is what
+	// the probe uses.
+	//
+	// ⚠️ THE AGGREGATES ARE OVER LIVE SESSIONS ONLY, and that is a choice with a cost.
+	// revoked_at IS NULL is inside the lateral, so last_used_at is the last use of a
+	// device that is STILL signed in. A person whose phone was revoked yesterday reads
+	// as "no active device" with no date beside it. That is the honest answer to the
+	// card's question ("aktif cihaz var mi, son kullanim") and it is deliberately not
+	// a device HISTORY: revoked rows are never deleted (00003 REVOKEs DELETE on
+	// sessions) and a history view would be its own query with its own screen.
+	//
+	// KEYSET PAGINATION ON (full_name, id), NOT OFFSET. The pair is a total order --
+	// id breaks ties between namesakes, and a roster has plenty -- so no person can be
+	// skipped or shown twice when somebody is invited while a manager is halfway down
+	// the list. It is client-supplied and that is safe for the same reason the
+	// transactions cursor is: it can only move the reader within their OWN tenant,
+	// because the tenant predicate is not a parameter the client contributes to.
+	//
+	// 🔴 THE ORDER IS ALPHABETICAL BECAUSE THE QUESTION IS "WHO WORKS HERE?". Sorting
+	// by created_at (the shape ListPanelTransactions uses) would be cheaper to reason
+	// about and useless to browse: a manager looking for Maria does not know when she
+	// was hired. Measured cost of the sort on the largest tenant: a top-N sort of the
+	// whole roster, 6.1 - 13.3 ms thousands of names deep -- FLAT with depth, which is
+	// what keyset buys, and the flatness is the finding rather than the milliseconds.
+	// No index on (tenant_id, full_name) exists and none is added; adding one is a
+	// migration and the sort does not justify it today.
+	//
+	// TENANT SCOPE (section 4.5, belt + braces): the explicit e.tenant_id predicate is
+	// required even though RLS is on, every JOIN restates tenant_id in its own ON
+	// clause, and the LATERAL carries its own e.tenant_id-independent predicate bound
+	// to the CALLER's parameter rather than to the outer row -- so a lateral that
+	// somehow saw a foreign employees row still could not read that tenant's sessions.
+	//
+	// ⚠️ OF THOSE THREE, ONLY TWO ARE NETTED; THE JOIN ... ON RESTATEMENT IS DISCIPLINE.
+	// Measured rather than assumed: deleting `l.tenant_id = e.tenant_id` from the
+	// locations JOIN below leaves internal/domain/ledger ok AND internal/handler ok --
+	// the whole suite green. internal/domain/ledger/query_test.go excludes JOIN ... ON
+	// structurally and correctly (a condition there constrains the join, not the rows
+	// returned), which is exactly why nothing watches it. RLS still stops foreign rows;
+	// what is unguarded is the second defence on the JOINs specifically. It is written
+	// here rather than netted because the net that would catch it is the same widening
+	// that file has now declined twice, with its reasons.
+	//
+	// THE JOINS ARE LEFT JOINS: department_id is nullable by design (00003 -- a bar
+	// does not model departments), and location_id is NOT NULL but a LEFT JOIN costs
+	// nothing and cannot drop a person if the row is ever repaired badly. Dropping a
+	// person from the roster because a join missed is a section 4.6 breach committed
+	// by a read.
+	// 🔴 THE SHAPE OF THE LATERAL IS DICTATED BY sqlc's NULLABILITY INFERENCE, AND THE
+	// TWO OBVIOUS SPELLINGS BOTH PRODUCE A ROW TYPE THAT IS WRONG AT RUNTIME. Measured
+	// with sqlc v1.28 by generating each one (the M1-08 lesson: a generator's exit code
+	// is not a type check), and RE-MEASURED after an audit could not reproduce them from
+	// the shipped file alone. To re-run: copy db/ and sqlc.yaml into an empty directory,
+	// replace db/queries with the four forms below, and generate.
+	//
+	//	max(s.last_used_at)                 -> `SessionLastUsedAt interface{}`  sqlc
+	//	                                       cannot type an aggregate through a
+	//	                                       LATERAL at all
+	//	max(s.last_used_at)::timestamptz    -> `SessionLastUsedAt time.Time`    the cast
+	//	                                       makes it NOT NULL, and max() over zero
+	//	                                       live sessions IS NULL -- pgx would fail
+	//	                                       to scan for every person with no phone
+	//	                                       signed in, which is the ORDINARY case
+	//	count(*) OVER () (bare)             -> `LiveSessions int64` while the LEFT JOIN
+	//	                                       can yield NULL -- the same scan failure
+	//	                                       in the other column
+	//
+	// What is written below types correctly BECAUSE of its shape rather than in spite
+	// of it: last_used_at is a PLAIN COLUMN of a LEFT-JOINed subquery (so sqlc infers
+	// *time.Time, which is what "nobody signed in" needs), and the count is COALESCEd
+	// in the OUTER select (so it is never NULL and int64 is honest). COALESCE(...,0) is
+	// not a fabricated value here: no lateral row means literally zero live sessions.
+	//
+	// count(*) OVER () COUNTS BEFORE THE LIMIT. Window functions are evaluated after
+	// WHERE and before ORDER BY/LIMIT, so the LIMIT 1 picks the most recently used
+	// device while the count still sees every live one. Verified against ground truth
+	// rather than argued: the same aggregates computed by a GROUP BY over the whole
+	// largest tenant agree row for row -- 0 count mismatches and 0 timestamp mismatches,
+	// re-run twice as that tenant grew. The load-bearing claim is THE TWO ZEROS; how many
+	// rows were compared is a timestamp rather than a fact, because that fixture is hired
+	// into by every `make test` run and employees cannot be deleted, so it is not written
+	// down.
+	//
+	// NULLS LAST is load-bearing: last_used_at is nullable (00003 -- it is stamped on
+	// USE, and a session created seconds ago has never been used), so a freshly issued
+	// device must not sort above one that has actually been used.
+	ListPanelEmployees(ctx context.Context, arg ListPanelEmployeesParams) ([]ListPanelEmployeesRow, error)
 	// The PANEL's read of the day (M6-03). One page of the immutable record, newest
 	// first, filtered by the six things a manager asks about: a day, a location, a
 	// department, a person, a verdict and a channel.

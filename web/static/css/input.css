@@ -283,14 +283,33 @@
   .tally {
     @apply inline-block border px-2 py-0.5 text-[11px] uppercase tracking-widest text-ink;
   }
-  .tally--manual { @apply border-line bg-line/10; }
-  .tally--queued { @apply border-saffron bg-saffron-lite; }
+  .tally--rejected { @apply border-tomato bg-tomato/10; }
   /* M6-04: the two decided states. Same fixed mapping — a human approval is
      tappa-green, a refusal is tomato — and the same rule that the word carries
      the meaning: the text says "Approved by a manager", not just "Approved", so
-     it can never be confused with the engine's own APPROVED stamp beside it. */
-  .tally--approved { @apply border-tappa-green bg-green-lite; }
-  .tally--rejected { @apply border-tomato bg-tomato/10; }
+     it can never be confused with the engine's own APPROVED stamp beside it.
+
+     🔴 M6-05 ADDED THREE LIFECYCLE MODIFIERS AND GROUPED THEM ONTO THE EXISTING
+     DECLARATIONS RATHER THAN COPYING THEM. The brand's status-to-colour mapping is
+     FIXED, so a person who is employed and a record a manager approved are both
+     tappa-green, somebody still to activate and a record still waiting are both
+     saffron, and a deactivated person and a manually entered row are both the
+     neutral `line`. Writing that out three more times would have been three more
+     places for one mapping to drift, with the drift invisible — two chips that
+     should match and quietly do not look like a design choice. Grouping keeps ONE
+     declaration per tone and adds no new ground to the contrast surface: every
+     ground below already appears above.
+
+     THE NAMES STAY SEPARATE ON PURPOSE. A lifecycle state and a review outcome are
+     different facts, and a template writing `tally--approved` on a human being
+     would read as though the person had been through the queue. Separate selectors,
+     one declaration: the mapping is shared, the meaning is not. */
+  .tally--approved,
+  .tally--active   { @apply border-tappa-green bg-green-lite; }
+  .tally--queued,
+  .tally--invited  { @apply border-saffron bg-saffron-lite; }
+  .tally--manual,
+  .tally--deactivated { @apply border-line bg-line/10; }
 
   /* --- the navigation's pending badge (M6-04) ---
      It sits inside a .tab-link, so it must not add a second press target and must

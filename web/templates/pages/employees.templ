@@ -1,0 +1,109 @@
+package pages
+
+import "github.com/atknatk/tappa/web/templates/components"
+
+// The EMPLOYEES section (M6-05 phase A) — the panel's answer to "who works here?".
+//
+// 🔴 IT RENDERS PanelShell, NOT PanelShellWithScript, AND THAT IS THE WHOLE SCRIPT
+// DECISION. PanelShell has no script slot (user decision, 2026-08-06: the split
+// exists so that giving a section a script is a COMPILE error rather than an edit
+// to a string), so this section could not load one without naming a different
+// component on purpose. It does not need to: paging here is an ordinary link to the
+// next page as a whole document, which keeps the panel's widened Content-Security-
+// Policy on exactly ONE url — the cardinality
+// TestPanelScreens_ScriptsAndPolicyAgreeAndReachNoThirdParty pins. What that costs
+// is measured in internal/handler/employees.go.
+//
+// 🔴 §4.3 / §4.7 — THIS IS A READ AND IT SHOWS NO SECRET. There is no form that
+// posts, no invite button, no deactivate control: those are phase B, and a screen
+// offering a control the server does not implement is this repository's most
+// expensive class of mistake. Nothing below renders an invitation code, a session
+// token, a device label or an email address, because EmployeesView has no field for
+// any of them.
+//
+// 🔴 §4.6 — THE EMPTY STATE IS GATED ON HAVING ASKED. "Nobody works here" is a
+// claim about a business and the product may not make one it has not measured;
+// v.Queried is set only after the database answered, and a failed read renders a
+// problem page in the handler rather than an empty list here.
+templ AdminEmployees(v EmployeesView) {
+	@PanelShell(v.PanelChrome) {
+		// MONO, BECAUSE THIS IS DATA rather than a heading — the same rule and the
+		// same line the transactions section carries. It names the zone the dates
+		// inside the dockets are printed in.
+		<p class="font-mono text-sm text-ink/85">
+			Dates shown in <span class="text-ink">{ v.ZoneLabel }</span>
+		</p>
+		@components.RosterFilterBar(v.Filters)
+		if len(v.People) > 0 {
+			<div class="flex flex-col gap-4">
+				for _, p := range v.People {
+					@components.RosterRow(p)
+				}
+				if v.MoreHref != "" {
+					// AN ORDINARY LINK. With no script on this page there is nothing
+					// to intercept it, so it navigates — which is also why it says
+					// "Next" rather than "Show more": nothing is appended, the list
+					// is replaced, and a control naming the wrong behaviour is a
+					// control that lies about what pressing it does.
+					//
+					// THERE IS NO "PREVIOUS", and that is a stated limit rather than
+					// an oversight: a keyset cursor walks one way, and the honest
+					// backward control is the browser's own Back — every page here
+					// is a plain GET with its position in the URL.
+					<a class="btn btn--quiet self-start" href={ templ.URL(v.MoreHref) }>Next page</a>
+				}
+			</div>
+		} else if v.Queried {
+			@components.EmptyState(emptyRosterHeading(v)) {
+				if v.Paged {
+					// 🔴 THE POSITION, NOT THE BUSINESS. This branch exists because
+					// without it a cursor past the last name printed "No people have
+					// been added to this business yet" over a business with staff —
+					// measured, from nothing more exotic than a stale bookmark. A
+					// page that has run off the end knows only where it is.
+					<p>You have reached the end of the list.</p>
+					<p class="mt-2">
+						<a class="btn btn--quiet" href={ templ.URL(v.StartHref) }>Back to the start</a>
+					</p>
+				} else if v.Filters.Narrowed {
+					<p>Nobody on this list matches those filters. Widen them, or clear them to see everybody.</p>
+				} else {
+					// 🔴 THIS SENTENCE IS ABOUT THE RECORDS, NOT ABOUT THE BUSINESS.
+					// "Nobody works here" would be a claim about the world; what the
+					// product actually measured is that this business has no employee
+					// rows yet — which is the ordinary state of a tenant on its first
+					// day, before anybody has been invited.
+					<p>No people have been added to this business yet.</p>
+				}
+			}
+		}
+	}
+}
+
+// emptyRosterHeading names WHICH claim the empty state is making. The three are
+// different and at most one can be true at a time: a page that has run past the last
+// name, a business whose people are all filtered out, and a business with nobody on
+// the books.
+//
+// THE CURSOR IS TESTED FIRST, deliberately — and the reason is narrower than the one
+// that used to be written here, which claimed both sentences were true.
+//
+// ⚠️ THEY ARE NOT ALWAYS BOTH TRUE. Paged AND a filter matching nothing at all is a
+// real combination, and there "you have reached the end of the list" describes a list
+// the reader has never seen a single row of. That is a weaker sentence than it looks
+// but it is not a false one: the page IS past the cursor, and the alternative
+// ("nobody matches those filters") would send a manager to widen filters that are
+// working fine, which is a wrong instruction rather than an imprecise description.
+// The cost is bounded by the control beside it — "Back to the start" keeps the
+// filters, so the honest view is one click away. Ordering by usefulness rather than
+// by truth is the choice, and stating it that way is the point.
+func emptyRosterHeading(v EmployeesView) string {
+	switch {
+	case v.Paged:
+		return "That is the end of the list"
+	case v.Filters.Narrowed:
+		return "Nobody matches these filters"
+	default:
+		return "Nobody on the books yet"
+	}
+}

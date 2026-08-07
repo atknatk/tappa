@@ -36,10 +36,19 @@ import "github.com/atknatk/tappa/web/templates/components"
 // it.
 //
 // 🔴 AND IT IS THE ONLY SECTION THAT NAMES THE SCRIPTED SHELL. It renders
-// pages.PanelShellWithScript; the other five render pages.PanelShell, which has no
-// script parameter to fill. Verified with
-// `grep -rn --include='*.templ' '@PanelShell' web/templates` — one
-// PanelShellWithScript (here) and two PanelShell.
+// pages.PanelShellWithScript; every other BUILT section renders pages.PanelShell,
+// which has no script parameter to fill.
+//
+// ⚠️ THE COUNT THAT USED TO BE HERE IS GONE, AND ITS THIRD WRONG READING IS WHY.
+// This line said "one PanelShellWithScript (here) and two PanelShell" beside the
+// command that disproves it; M6-05 added a third call site (employees.templ) and the
+// sentence was wrong again — under a paragraph already headed "THIS LINE HAS BEEN
+// WRONG TWICE". A count of call sites rises every time a section is built, so it was
+// never a fact about the design, only about the calendar. What IS the design is the
+// cardinality, and that is asserted rather than counted here:
+// TestPanelScreens_ScriptsAndPolicyAgreeAndReachNoThirdParty requires EXACTLY ONE
+// panel url to send the widened policy and requires it to be this one. Run
+// `grep -rn --include='*.templ' '@PanelShell' web/templates` for today's call sites.
 //
 // ⚠️ THIS LINE HAS BEEN WRONG TWICE. It said the others "render layout.Panel" while
 // layout.Panel had no callers at all, and before that it counted them wrongly. What
@@ -87,7 +96,7 @@ func AdminTransactions(v TransactionsView) templ.Component {
 			var templ_7745c5c3_Var3 string
 			templ_7745c5c3_Var3, templ_7745c5c3_Err = templ.JoinStringErrs(v.DayLabel)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/transactions.templ`, Line: 52, Col: 15}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/transactions.templ`, Line: 61, Col: 15}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var3))
 			if templ_7745c5c3_Err != nil {
@@ -100,7 +109,7 @@ func AdminTransactions(v TransactionsView) templ.Component {
 			var templ_7745c5c3_Var4 string
 			templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(v.ZoneLabel)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/transactions.templ`, Line: 53, Col: 45}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/transactions.templ`, Line: 62, Col: 45}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 			if templ_7745c5c3_Err != nil {
@@ -253,7 +262,7 @@ func dockets(v TransactionsView) templ.Component {
 			var templ_7745c5c3_Var9 string
 			templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.JoinStringErrs(v.MoreFragmentHref)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/transactions.templ`, Line: 116, Col: 30}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/transactions.templ`, Line: 125, Col: 30}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var9))
 			if templ_7745c5c3_Err != nil {

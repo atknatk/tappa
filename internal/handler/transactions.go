@@ -43,9 +43,20 @@ import (
 
 // panelLedger is the slice of internal/domain/ledger this handler needs, declared
 // here because CLAUDE.md §7 puts an interface on the consumer's side.
+//
+// 🔴 M6-05 ADDED Roster TO IT RATHER THAN DECLARING A THIRD INTERFACE, and the
+// reason is the one M6-04 gave for splitting panelQueue off, applied honestly.
+// panelQueue is separate because it names a DIFFERENT PACKAGE — the decision write
+// lives in internal/domain/review, and keeping the two apart is what makes "no store
+// call in internal/domain/ledger is not a SELECT" a fact grep can check. The roster
+// is the same package and the same concrete *ledger.Reader, and NewAdminAuth already
+// passes that one value twice; a third identical argument in the same position is
+// the shape where somebody eventually passes the wrong one. See
+// internal/handler/employees.go.
 type panelLedger interface {
 	Screen(ctx context.Context, tenantID uuid.UUID, f ledger.Filter) (ledger.Screen, error)
 	Day(ctx context.Context, tenantID uuid.UUID, f ledger.Filter) (ledger.Page, error)
+	Roster(ctx context.Context, tenantID uuid.UUID, f ledger.RosterFilter) (ledger.RosterScreen, error)
 }
 
 // docketFragmentPath is the URL the HTMX paging request goes to.

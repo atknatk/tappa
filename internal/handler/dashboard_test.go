@@ -932,7 +932,16 @@ var nonSurfaceGrounds = map[string]string{
 	// correct (no docket-label sits on either), but the reason had to be re-measured
 	// rather than left saying something that stopped being true.
 	"tomato": "stamp--rejected's and .tally--rejected's 10% tints; no docket-label sits on either",
-	"line":   "stamp--ignored's 10% tint, inside .stamp only",
+	// ⚠️ THE SAME CORRECTION, ONE ENTRY LATER, AND IT WAS ALREADY DUE WHEN M6-04 MADE
+	// THE ONE ABOVE. "inside .stamp only" was false at that point: .tally--manual
+	// (bg-line/10) had been rendering in a docket footnote since M6-03
+	// (components/docket.templ, "Entered by a manager"). The sweep fixed the tomato
+	// twin and left this one, which is the shape this repository keeps paying for --
+	// a fix that corrects its own instance and not its own class. M6-05 adds a third
+	// caller, .tally--deactivated. The CLASSIFICATION was never wrong: no
+	// docket-label sits on any of them, so this ground stays off the contrast
+	// surface. Only the reason was stale.
+	"line": "stamp--ignored's, .tally--manual's and .tally--deactivated's 10% tints; no docket-label sits on any of them",
 }
 
 // aaSmallText is WCAG 2.1 AA for text below 18pt (or 14pt bold). .docket-label is

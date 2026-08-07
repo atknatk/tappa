@@ -204,13 +204,50 @@ type fakeLedger struct {
 	decisions      map[uuid.UUID]string
 	decisionErr    error
 	decisionTenant []uuid.UUID
+
+	// M6-05 phase A's read side. Same rule as page and queue: it defaults to
+	// "asked, and nobody is on the books", because an unqueried zero value renders
+	// nothing at all and a test using it would be reading a blank section.
+	roster        ledger.RosterScreen
+	rosterErr     error
+	rosterTenant  []uuid.UUID
+	rosterFilters []ledger.RosterFilter
 }
 
 func newFakeLedger() *fakeLedger {
 	return &fakeLedger{
-		page:  ledger.Page{Queried: true, Zone: time.UTC},
-		queue: ledger.QueuePage{Queried: true, Zone: time.UTC},
+		page:   ledger.Page{Queried: true, Zone: time.UTC},
+		queue:  ledger.QueuePage{Queried: true, Zone: time.UTC},
+		roster: ledger.RosterScreen{RosterPage: ledger.RosterPage{Queried: true, Zone: time.UTC}},
 	}
+}
+
+// Roster is M6-05 phase A's read. It records who was asked and with what, which is
+// what the isolation and filter assertions read.
+func (f *fakeLedger) Roster(_ context.Context, tenantID uuid.UUID, filter ledger.RosterFilter) (ledger.RosterScreen, error) {
+	f.mu.Lock()
+	f.rosterTenant = append(f.rosterTenant, tenantID)
+	f.rosterFilters = append(f.rosterFilters, filter)
+	s, err := f.roster, f.rosterErr
+	f.mu.Unlock()
+	if err != nil {
+		return ledger.RosterScreen{}, err
+	}
+	if s.Zone == nil {
+		s.Zone = time.UTC
+	}
+	return s, nil
+}
+
+// lastRosterFilter is the roster twin of lastFilter.
+func (f *fakeLedger) lastRosterFilter(t *testing.T) ledger.RosterFilter {
+	t.Helper()
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.rosterFilters) == 0 {
+		t.Fatal("the roster was never asked anything; the handler answered without querying")
+	}
+	return f.rosterFilters[len(f.rosterFilters)-1]
 }
 
 func (f *fakeLedger) Queue(_ context.Context, tenantID uuid.UUID, after *ledger.Cursor) (ledger.QueuePage, error) {

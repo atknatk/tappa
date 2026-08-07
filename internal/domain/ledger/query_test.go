@@ -54,6 +54,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -61,35 +62,40 @@ import (
 // tenantParam is the parameter every scoped query binds its scope column to.
 const tenantParam = "@tenant_id"
 
-// panelQueries DERIVES the queries to check by reading this package's own source.
+// THE QUERIES TO CHECK ARE DERIVED, NOT LISTED, and that is the fix for the fifth
+// hole. A hand-written list is a change detector: a new panel read with no tenant
+// predicate was simply not in it, so it passed silently -- the failure mode where
+// the natural repair (add the newcomer to the list) is exactly the wrong move. Every
+// store query this package calls is checked because it is CALLED, so adding an
+// unscoped one turns the belt red on the next run.
 //
-// 🔴 IT IS DERIVED RATHER THAN LISTED, and that is the fix for the fifth hole. A
-// hand-written list is a change detector: a new panel read with no tenant predicate
-// was simply not in it, so it passed silently -- the failure mode where the natural
-// repair (add the newcomer to the list) is exactly the wrong move. Now every store
-// query this package calls is checked because it is called, and adding an unscoped
-// one turns this red on the next run.
-func panelQueries(t *testing.T) []string {
-	t.Helper()
-	return storeQueryNames(t, declaredQueries(t))
-}
+// The two halves are declaredQueries (every `-- name:` in db/queries) and
+// storeQueryNames (every one of those this package's AST names); the belt composes
+// them directly, which is also what lets it print its own coverage.
 
-// 🔴 HOW MUCH OF THE PRODUCT THIS BELT ACTUALLY COVERS — 8 QUERIES OF 41, MEASURED.
-// The number is here because "the belt" reads as though it covered the product and
-// it covers two domain packages:
+// 🔴 HOW MUCH OF THE PRODUCT THIS BELT COVERS IS DERIVED AND LOGGED, NOT WRITTEN
+// DOWN — AND THAT IS THE THIRD TIME THE HAND-WRITTEN VERSION ROTTED.
 //
-//	declared in db/queries   41   grep -rhoE '^-- name: [A-Za-z_]+' db/queries/*.sql | wc -l
-//	seen by this net + the
-//	  one in domain/review    8   CountPendingFlagged, GetTenantClock,
-//	                              GetTransactionReview, InsertTransactionReview,
-//	                              ListDepartmentsForTenant, ListLocationsForTenant,
-//	                              ListFlaggedForReview, ListPanelTransactions
-//	                              => 20%
+// This paragraph used to say "8 QUERIES OF 41, MEASURED" and print the command that
+// produced the 41. An audit ran that exact command and got 42; the list of 8 was
+// also missing ListPanelEmployees, which this net demonstrably DOES see (two
+// mutations prove it). So the sentence was wrong in both its numerator and its
+// denominator while carrying a command that disproved it — the "assertion label"
+// class this session has now paid for nine times.
 //
-// So for the other 33 — InsertTransaction, GetLastOpenTransaction,
-// CreateAdminSession and the rest — §4.5's SECOND defence is asserted by NO test at
-// all. RLS still stops the rows; what is unguarded is the explicit predicate beside
-// it, which is the thing this file exists to make non-deletable.
+// It is not restated with better numbers, because better numbers rot on the next
+// commit that adds a query. Both quantities are already computed at run time —
+// declaredQueries() reads every `-- name:` in db/queries, storeQueryNames() collects
+// what this package calls — so the coverage is LOGGED by the belt test below and the
+// figure of the day comes from:
+//
+//	go test ./internal/domain/ledger -run TestPanelQueries_CarryAnExplicitTenantPredicate -v
+//
+// WHAT IS STILL TRUE WITHOUT A NUMBER: this net sees the queries TWO domain packages
+// call, and the product has many more. For all the rest — InsertTransaction,
+// GetLastOpenTransaction, CreateAdminSession and so on — §4.5's SECOND defence is
+// asserted by no test at all. RLS still stops the rows; what is unguarded is the
+// explicit predicate beside it.
 //
 // ⚠️ WIDENING IT WAS MEASURED AND REJECTED, and the reason is recorded in
 // internal/domain/review/query_test.go: running this over every internal/domain
@@ -99,12 +105,31 @@ func panelQueries(t *testing.T) []string {
 //
 // TestPanelQueries_CarryAnExplicitTenantPredicate is the belt.
 func TestPanelQueries_CarryAnExplicitTenantPredicate(t *testing.T) {
-	names := panelQueries(t)
+	declared := declaredQueries(t)
+	names := storeQueryNames(t, declared)
 	// ANTI-VACUITY: an empty derivation would make every assertion pass over nothing.
 	if len(names) < 4 {
 		t.Fatalf("derived %d store call(s) from ledger.go (%v); the panel read path "+
 			"makes more than that, so the scan is reading the wrong file", len(names), names)
 	}
+	// ⚠️ THE COVERAGE IS PRINTED, NOT ASSERTED, AND THAT IS A GAP RATHER THAN A
+	// DESIGN. If this package stopped calling three of these queries the log would
+	// read 5 of 42 and nothing would go red; the only brake is the anti-vacuity
+	// floor above, which is 4. A floor at today's figure was considered and rejected:
+	// coverage falls legitimately whenever a read is deleted or moved, so it would go
+	// red on correct changes, which is the change-detector shape this file has been
+	// bitten by twice. What is NOT available is an assertion that says "every query
+	// this package calls is checked" -- that is true by construction and therefore
+	// proves nothing. So: the number is visible on every run and defended by nobody.
+	// Counted.
+	sorted := append([]string(nil), names...)
+	sort.Strings(sorted)
+	t.Logf("§4.5 belt coverage from THIS package: %d of %d queries declared in "+
+		"db/queries (%.1f%%). internal/domain/review has a second copy over its own "+
+		"calls, so the product-wide figure is higher than this one and lower than 100.\n"+
+		"seen here: %s",
+		len(names), len(declared), 100*float64(len(names))/float64(len(declared)),
+		strings.Join(sorted, ", "))
 
 	for _, name := range names {
 		file, body, ok := findQuery(t, name)
@@ -112,6 +137,19 @@ func TestPanelQueries_CarryAnExplicitTenantPredicate(t *testing.T) {
 			t.Errorf("no query named %q anywhere in db/queries -- ledger.go calls it, so "+
 				"either it was renamed or this scan cannot see it", name)
 			continue
+		}
+		// 🔴 A SUBQUERY THAT READS A TENANT TABLE MUST HAVE A WHERE AT ALL, checked
+		// BEFORE the predicate check below because a block with no WHERE was invisible
+		// to it. See unscopedSubqueries.
+		for _, sub := range unscopedSubqueries(t, body) {
+			t.Errorf("%s (%s) contains a subquery that reads the tenant-scoped table %q "+
+				"and has NO WHERE clause at all, so nothing in it is scoped to the "+
+				"caller's tenant.\n"+
+				"The predicate check below walks WHERE clauses, so a block without one "+
+				"is not merely unscoped -- it is INVISIBLE to it. That hole was measured: "+
+				"a second LEFT JOIN LATERAL reading `sessions` with no WHERE was added to "+
+				"ListPanelEmployees and this package answered ok.\n\nsubquery read:\n%s",
+				name, file, sub.table, sub.text)
 		}
 		blocks := whereBlocks(body)
 		if len(blocks) == 0 {
@@ -140,6 +178,182 @@ func TestPanelQueries_CarryAnExplicitTenantPredicate(t *testing.T) {
 				name, file, blk.column, tenantParam, blk.where)
 		}
 	}
+}
+
+// subqueryRead is one parenthesised block that reads a tenant-scoped table.
+type subqueryRead struct {
+	table string
+	text  string
+}
+
+// unscopedSubqueries finds parenthesised blocks that read a tenant-scoped table and
+// carry NO WHERE clause at all.
+//
+// 🔴 IT EXISTS BECAUSE AN AUDIT WALKED THROUGH THE PREDICATE CHECK BY REMOVING THE
+// THING IT WALKS. whereBlocks iterates WHERE clauses; a subquery with no WHERE
+// contributes no block, so it is not "unscoped" to that check — it is invisible.
+// Measured: adding
+//
+//	LEFT JOIN LATERAL (SELECT s2.last_used_at FROM sessions s2
+//	                   ORDER BY s2.last_used_at DESC LIMIT 1) ls2 ON TRUE
+//
+// to ListPanelEmployees left `go test ./internal/domain/ledger` answering ok, while
+// the error message two functions up said in as many words that "a CTE or subquery
+// reading a tenant table needs its OWN predicate". The sentence was true as an
+// intention and false as a description, and M6-05 is the task that made it
+// reachable: it brought this package its first LATERAL.
+//
+// 🔴 WHAT IT CATCHES AND WHAT WALKS PAST IT — 21 ATTACKS, 14 CAUGHT, 7 ESCAPED, AND
+// THE SEVEN ARE NAMED. An earlier version of this paragraph said a subquery reading a
+// tenant table "MUST have a WHERE"; that is not a property this scanner holds, and
+// three of the escapes below refute it directly. THE SCANNER IS NOT WIDENED TO CLOSE
+// THEM, on purpose: this file is eleven rounds deep and every net it has written was
+// beaten in the next round, so past that point the honest move is to COUNT a channel
+// rather than to claim it shut. A counted hole is safer than one somebody believes
+// is closed.
+//
+// CAUGHT (each verified by mutation): a WHERE-less LATERAL · a WHERE-less scalar
+// subquery in the SELECT list · a WHERE-less CTE · a nested subquery's WHERE trying
+// to mask its parent (maskNested) · EXISTS and IN, both spellings · a subquery inside
+// ORDER BY · a read of audit_log, i.e. a table nobody hand-listed (the table set is
+// derived from CREATE POLICY: 15 policies, 15 tables) · the word WHERE inside a
+// string literal · a lateral whose predicate is neutralised by OR.
+//
+// ESCAPED — measured, not supposed:
+//
+//	UNION ALL branch reading employees/sessions with no WHERE
+//	    the branch is not inside parentheses, so parenSpans never sees it
+//	top-level JOIN ... ON with the tenant condition deleted (two variants)
+//	    whereBlocks excludes JOIN ... ON structurally -- a condition there
+//	    constrains the join, not the rows, which is true and also means the
+//	    ON clause is unpoliced
+//	FROM public.sessions with no WHERE
+//	    fromOrJoinRE captures `public` as the table name, and `public` is not in
+//	    the derived set. THIS IS THE ONE THAT REFUTES THE OLD SENTENCE HARDEST:
+//	    the scanner KNOWS `sessions`, it just did not read that far
+//	FROM ONLY sessions with no WHERE
+//	    same shape -- `only` is captured as the table name
+//	FROM generate_series(1,1) g, sessions s2
+//	    a comma join, which is neither FROM <t> nor JOIN <t>
+//
+// WHAT STILL STOPS THE ROWS IN ALL SEVEN: RLS, which is the FIRST defence and the
+// one that actually blocks. Everything in this file is about the SECOND -- the
+// explicit predicate beside it -- and about making that second defence hard to
+// delete quietly. Seven ways remain to delete it quietly; they are written here so
+// nobody has to rediscover them.
+func unscopedSubqueries(t *testing.T, body string) []subqueryRead {
+	t.Helper()
+	tables := tenantScopedTables(t)
+	var out []subqueryRead
+	for _, span := range parenSpans(body) {
+		// 🔴 AT THIS SPAN'S OWN DEPTH ONLY, and that was the fourth escape rather
+		// than a refinement. The first version asked whether the span CONTAINED the
+		// word WHERE, and a nested subquery's WHERE satisfied it: measured, a
+		// LATERAL reading `sessions` with no predicate of its own passed because it
+		// had `ORDER BY (SELECT count(*) FROM locations WHERE tenant_id = @tenant_id)`
+		// inside it. Blanking the nested spans is what makes "its OWN predicate" mean
+		// what the error message says.
+		own := maskNested(span)
+		if strings.Contains(strings.ToUpper(own), "WHERE") {
+			continue
+		}
+		for _, m := range fromOrJoinRE.FindAllStringSubmatch(own, -1) {
+			if tables[strings.ToLower(m[1])] {
+				out = append(out, subqueryRead{table: strings.ToLower(m[1]), text: strings.TrimSpace(span)})
+				break
+			}
+		}
+	}
+	return out
+}
+
+// maskNested replaces the contents of every nested parenthesis with spaces, leaving
+// the span's own text in place and at its own offsets.
+//
+// SPACES RATHER THAN DELETION, which is the same rule scripts/redline-check.sh's
+// lexer follows: removing text can join two tokens that were never adjacent and
+// invent a keyword that is not there.
+func maskNested(s string) string {
+	out := []byte(s)
+	depth := 0
+	for i := 0; i < len(out); i++ {
+		switch out[i] {
+		case '(':
+			depth++
+			continue
+		case ')':
+			if depth > 0 {
+				depth--
+			}
+			continue
+		}
+		if depth > 0 {
+			out[i] = ' '
+		}
+	}
+	return string(out)
+}
+
+// fromOrJoinRE names the table a FROM or JOIN reads. LATERAL is optional and is
+// skipped rather than captured, which is the form this package's own query uses.
+var fromOrJoinRE = regexp.MustCompile(`(?i)\b(?:FROM|JOIN)\s+(?:LATERAL\s+)?([a-z_][a-z0-9_]*)`)
+
+// parenSpans returns the contents of every parenthesised span in the text,
+// innermost first. A subquery is always inside one.
+func parenSpans(s string) []string {
+	var out []string
+	var stack []int
+	for i := 0; i < len(s); i++ {
+		switch s[i] {
+		case '(':
+			stack = append(stack, i)
+		case ')':
+			if n := len(stack); n > 0 {
+				out = append(out, s[stack[n-1]+1:i])
+				stack = stack[:n-1]
+			}
+		}
+	}
+	return out
+}
+
+// tenantScopedTables DERIVES which tables carry a tenant policy, by reading the
+// migrations rather than by being told.
+//
+// A HAND-WRITTEN LIST IS A CHANGE DETECTOR — this file has been bitten by one
+// already (the query list, closed by deriving it). Every tenant-scoped table in this
+// schema gets a CREATE POLICY, because CLAUDE.md §6 makes that one of the five
+// things a new table is born with, so the policies ARE the list.
+func tenantScopedTables(t *testing.T) map[string]bool {
+	t.Helper()
+	dir := filepath.Join("..", "..", "..", "db", "migrations")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("reading db/migrations: %v", err)
+	}
+	re := regexp.MustCompile(`(?i)CREATE\s+POLICY\s+\w+\s+ON\s+([a-z_][a-z0-9_]*)`)
+	out := map[string]bool{}
+	for _, e := range entries {
+		if !strings.HasSuffix(e.Name(), ".sql") {
+			continue
+		}
+		raw, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			t.Fatalf("reading %s: %v", e.Name(), err)
+		}
+		for _, m := range re.FindAllStringSubmatch(string(raw), -1) {
+			out[strings.ToLower(m[1])] = true
+		}
+	}
+	// ANTI-VACUITY: an empty map makes unscopedSubqueries find nothing, forever.
+	for _, must := range []string{"employees", "sessions", "transactions"} {
+		if !out[must] {
+			t.Fatalf("derived %d tenant-scoped table(s) from db/migrations and %q is not "+
+				"among them; the derivation is reading the wrong thing and every "+
+				"subquery check built on it would pass vacuously", len(out), must)
+		}
+	}
+	return out
 }
 
 // scopeColumnFor DERIVES which column scopes this query's primary table.

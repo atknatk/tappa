@@ -2286,7 +2286,10 @@ Ayrıca iş yalnız CSS+bileşen değil — kabuk `pages/` + `handler/`'a da dok
 - Liste: isim, lokasyon/departman, durum (`invited|active|deactivated`), oturum
   durumu (aktif cihaz var mı, son kullanım).
 - Aksiyonlar: davet et, yeniden davet, deaktive et, lokasyon/departman değiştir.
-- **Deaktive → oturum o saniye ölür** (`revoked_at`), sonraki tap `reject`.
+- **Deaktive → sonraki tap `reject`.** Bunu sağlayan şey `employees.status` yazımı
+  ve `sys:employee-deactivated` guardrail'idir; **oturum İPTAL EDİLMEZ**.
+  `revoked_at` kayıp/çalıntı telefon ve ikinci-aktivasyon içindir.
+  *(Kriter 2026-08-07'de düzeltildi — gerekçe aşağıdaki blokta.)*
 - Her aksiyon `audit_log`'a yazılıyor.
 - Davet kodu ekranda bir kez gösteriliyor, log'a yazılmıyor.
 - **⬅️ M6-03'ten DEVRALINDI: *"burada kim çalışıyor?"* sorusunun tek cevabı artık
@@ -2307,6 +2310,366 @@ Ayrıca iş yalnız CSS+bileşen değil — kabuk `pages/` + `handler/`'a da dok
   listeleme seçenekleri tam olarak bu yüzden reddedildi. Bu sekmenin listesi de
   `deactivated` olanları **gizlememeli** (filtrelenebilir olabilir, ama varsayılan
   gizleme kayıtları ulaşılamaz kılar). Ağ: `TestPanelTransactionsDB_NameFilterFindsPeopleWhoHaveLEFT`.
+
+> **Kart düzeltmesi (2026-08-07, M6-05 A FAZI uygulaması sırasında).**
+>
+> **GÖREV İKİYE BÖLÜNDÜ — A: LİSTE (bu tur, sevk edildi) · B: DÖRT AKSİYON (açık).**
+> Ölçüt kapsam değil **denetim merceği** (agent-brief, M5-02 ve M6-01'de iki kez
+> işe yaradı): okuma yolu §4.5/§4.6 ve **bayt maliyeti** ile denetlenir, yazma yolu
+> §4.7/yetkilendirme/oturum ölümü ile. **A fazının karşıladığı kriterler:** liste
+> (isim · lokasyon/departman · durum · oturum durumu) ve **sınırlanması**.
+> **B fazına kalan, tek tek:** davet et · yeniden davet · deaktive et ·
+> lokasyon/departman değiştir · her aksiyonun `audit_log` satırı · davet kodunun
+> **bir kez** gösterilmesi · *"deaktive → oturum o saniye ölür"*. A fazı bu
+> aksiyonlar için ekrana **buton bile koymadı** ve bu bir testle tutuluyor
+> (`TestEmployeesSection_OffersNoWriteAtAll`: sayfadaki tek POST formu oturum
+> kapatmadır, ve hiçbir basılabilir kontrolün etiketi dört fiilden birini
+> içermez).
+>
+> **1. Okuma yolu HİÇ YOKTU — M6-03'ün durumunun aynısı.** `db/queries/employees.sql`
+> **yalnız iki** sorgu tanımlıyordu (`GetEmployeeActivationContext`,
+> `GetEmployeeForTap`) ve **ikisi de tap yolundan**. Panel listesi sıfırdan yazıldı
+> (`ListPanelEmployees`). **Migration YAZILMADI ve gerekmedi:** `tappa_app`'in
+> `employees` üzerinde SELECT yetkisi var (00003), `sessions_tenant_idx
+> (tenant_id, employee_id)` LATERAL'in aradığı indeks, ve `employees_tenant_idx`
+> listeyi taşıyor.
+>
+> **2. 📏 SINIRLAMA — ÜÇ YOL ÖLÇÜLDÜ, KARAR KULLANICININ.** Kart *"sayfalamalı
+> **veya** aramalı"* diyor; bu bir seçim ve **A fazı ikisini birden sevk etti**,
+> çünkü üçünün de sayıları önce ölçüldü. Gerçek handler, gerçek Postgres, DB'nin
+> **en büyük tenant'ı** (kadro sayısı **bilerek yazılmıyor** — her `make test`'te
+> büyüyor, bkz. §3'ün kayma uyarısı; sorgusu `adminratelimit.go`'da):
+>
+> | Yol | Sayfa boyu | Bordroyu baştan sona gezmek | Keşif |
+> |---|---|---|---|
+> | (a) yalnız keyset sayfalama | **22.028 B** (25/sayfa) | **300'den fazla istek** → #301'de **429** | var (gezerek) |
+> | (b) yalnız arama, hepsini basarak | **6.316.252 B** (6,3 MB) | 1 istek | var ama bedeli 6,3 MB |
+> | (b′) yalnız arama, aramadan önce boş | ~4 KB | — | **YOK — M6-03'ün deliğini yeniden açar** |
+> | (c) ikisi birden **(SEVK EDİLEN)** | **40.103 B** (50/sayfa) | **300'den az istek** veya **1 arama** | var |
+>
+> (b) satırı M6-03'ün kaldırdığı **867.233 B**'lik kontrolün **7,3 katı** ve sayfa
+> `no-store`. (b′) müdürü ismi **bilmeye** zorlar — devralınan borcun ta kendisi.
+> **(c) üstkümedir**, yani kullanıcının kararı bir **silme** olur: sayfalamayı
+> silmek (b) demektir, arama kutusunu silmek (a). **Sayfa boyu levyesi ölçüldü**
+> (aynı sonda, yalnız `ledger.RosterPageSize` değişerek — her satır: belge · kartlar
+> · kabuk · yürüyüş):
+>
+> | `RosterPageSize` | belge | kartlar | kabuk | yürüyüş |
+> |---|---|---|---|---|
+> | 25 | 22.028 B | 18.036 B | 3.992 B | >300 |
+> | **50 (SEVK EDİLEN)** | **40.103 B** | 36.111 B | 3.992 B | **<300** |
+> | 100 | 76.253 B | 72.261 B | 3.992 B | — |
+> | 500 | 365.471 B | 361.478 B | 3.993 B | — |
+>
+> **✅ SAYFA BOYU 50 — KULLANICI KARARI 2026-08-07.** Kararı süren şey tek bir sınır
+> vakası: 25'te en büyük tenant'ın müdürü kendi kadrosunu **bitiremiyor** (bütçeyi aşan istek sayısı → **#301'de 429**, listenin sonuna
+> varılamıyor ve arkadaki herkes gezinerek **ulaşılamaz** kalıyor); 50'de sığıyor. Bedeli açıkça kabul
+> edildi: sayfa **+%82** (22.028 → 40.103 B), yine de 867 KB'lık kontrolün **1/21'i**.
+> ⚠️ `ledger.PageSize = 25` **ayrı sabit kaldı** ve bağlanmadı: bir gün-listesi
+> **trafikle**, bir kadro **bordroyla** sınırlıdır.
+>
+> **3. 📏 BÜTÇE — YENİDEN SAYILDI, ÇARPAN GELMEDİ; ÜÇÜNCÜ PAYDA DOĞDU VE SABİTİ O
+> BELİRLEDİ.** Gerçek sunucu + gerçek oturum, M6-02'nin yöntemiyle: **300 servis
+> edildi, ilk `429` tam #301'de** → **görüntüleme başına 1,000 ücretli istek** (bölüm
+> script yüklemiyor, fragment rotası yok). Yeni payda **bordro-yürüyüşü** =
+> `ceil(E / RosterPageSize)`. Gerçek dağılıma karşı — ⚠️ **payda "DB'deki tüm
+> tenant'lar" DEĞİL**, `GROUP BY tenant_id` gereği **en az bir çalışanı olan**
+> tenant'lar; ikisi arasında ~1,5 kat fark var ve bu satırın ilk hâli tam olarak
+> N7'nin düzelttiği etiketi tekrarlıyordu. Yüzdelikler bu yüzden **koşulludur**.
+> Sayılar bilerek yazılmıyor (ikisi de kayıyor); üreten sorgu `adminratelimit.go`'da:
+>
+> | | 25'te | **50'de (sevk edilen)** |
+> |---|---|---|
+> | medyan · p95 · p99 | 1 · 1 · 1 | 1 · 1 · 1 |
+> | en büyük kadronun yürüyüşü | **>300 istek** → #301'de `429` | **<300 istek** ✅ |
+> | ≥15 eşiğini aşan tenant | 1 | 1 |
+> | **300 bütçesini aşan tenant** | **1** | **0** ✅ |
+>
+> ⚠️ **EN BÜYÜK KADRO BİR SAYI DEĞİL, BİR SAAT:** simüle-gün fixture'ı her
+> `make test`'te o tenant'a işe alım yapıyor (`seedflow_db_test.go` →
+> `insertEmployee`, `fixtures.TenantKF`) ve `employees`'te DELETE yetkisi yok →
+> koşu başına ~10 büyüyor. **M6-05 incelemesi boyunca ALTI kez değişti**, biri tek
+> bir denetimin içinde iki kez. M6-04'ün *"süitin kendi kirlettiği bir büyüklüğe
+> sayı bağlama"* dersi — ve bu görevde **üç ardışık turda bloklayan** oldu, çünkü
+> her turda cevap *"sayıyı tazele"* idi. Dördüncü turda cevap değişti:
+> **sayıyı hiçbir gerekçe cümlesinde yazma.** Ağı:
+> `TestComments_DoNotQuoteTheDriftingRosterSize`.
+> **Sabit `adminSessionLimit` DEĞİŞMEDİ**; türetme `adminratelimit.go`'da tavanların
+> yanında, **paydası ve üreten sorgusuyla** yazılı. **İnvaryant artık pinli:**
+> `RosterPageSize × adminSessionLimit ≥ rosterDesignCeiling` (15.000 ≥ 10.000) —
+> `TestRosterPageSize_KeepsAWholeRosterInsideTheSessionBudget`, ve **25'te kırmızıya
+> döndüğü ölçüldü**. ⚠️ Bu ağ yazılmadan önce sabiti 50'den 25'e çekmek **hiçbir
+> testi kırmıyordu**.
+>
+> **4. CSP — GENİŞLEMEDİ, KARDİNALİTE PİNİ 1'DE KALDI.** Bölüm `pages.PanelShell`
+> render ediyor (script yuvası **yok**, kullanıcı kararı 2026-08-06), sayfa çevirme
+> düz bir `<a href>`. Ölçüldü (gerçek handler, bölüm başına başlık):
+> `/admin` **8 direktif** (`script-src`+`connect-src`), diğer **beş** bölüm — Employees
+> dahil — **6 direktif**, `default-src 'none'` tabanlı. HTMX'in bedeli tartıldı ve
+> **alınmadı**: istek maliyeti iki şekilde de aynı (sayfa başına 1), farkı yalnız
+> **3.992 B**'lik kabuk (sayfanın %18,1'i), karşılığında ikinci bir script'li URL
+> ve ikinci bir CSP olurdu.
+>
+> **5. §4.7 — LİSTENİN GÖRMEDİKLERİ.** Sorgu `sessions.token_hash`,
+> `sessions.device_info`, `sessions.id` ve `employees.email` **seçmiyor**;
+> `ledger.Person` ve `components.RosterRowView`'da alan **yok**;
+> `employee_invites` tablosuna **hiç JOIN yok** (davet kodu B fazının ve *"bir kez"*
+> kuralı var). Oturum hakkında ekrana çıkan tek şey **canlı cihaz SAYISI** ve
+> **son kullanım**. Gerçek Postgres'te gerçek bir `token_hash` ve gerçek bir cihaz
+> etiketi ile ölçüldü (`TestPanelEmployeesDB_ShowsNoSessionSecret`), ve cihaz
+> etiketini uçtan uca sızdıran mutasyon **KIRMIZI**.
+>
+> **6. ✅ ÇELİŞKİ ÇÖZÜLDÜ — KOD HAKLI, KRİTER DÜZELTİLDİ (kullanıcı kararı,
+> 2026-08-07).** A fazı kartın *"Deaktive → oturum o saniye ölür (`revoked_at`)"*
+> kriterinin sevk edilmiş bir kod yorumuyla **doğrudan çeliştiğini** ölçtü:
+> `db/queries/sessions.sql:83` → *"**DEACTIVATION MUST NOT CALL THIS** … Revoking
+> would add nothing to the reject and would push every later tap by that person
+> onto the 'revoked' branch, where a caller taking the obvious shortcut writes NO
+> record — breaking CLAUDE.md section 4.6."*
+>
+> **Kararı süren ölçüm, A fazının bulgusu:** o *"obvious shortcut"* bugün üründe
+> **alınmıyor** — `internal/httpx/identity.go:176` `ErrRevoked`'ı `SessionRevoked`
+> olarak taşıyor ve `Resolved` **dolu** geliyor, yani §5 satır 4 kaydı
+> yazılabiliyor. **Ama bu bir garanti değil, bir gözlem:** doğruluğu her çağıranın
+> dikkatine bağlı. İptal etmek **sonucu değiştirmiyor** (`sys:employee-deactivated`
+> zaten `employees.status`'ü okuyup güvenlik uyarısıyla reddediyor) ama kişiyi
+> **sonucun kesin olduğu** daldan (§5 satır 4: reddet + **kaydet** + uyar)
+> **doğruluğu dikkate bağlı** bir dala taşıyor. Bedava değil, riskli.
+>
+> **Düzeltilmiş kriter (yukarıda):** deaktivasyon **`employees.status`** yazar;
+> reddi **guardrail** verir; `revoked_at` **kayıp/çalıntı telefon ve
+> ikinci-aktivasyon** için kalır. ⚠️ *"Sonraki tap `reject`"* **doğruydu ve
+> kaldı** — değişen, onu **neyin** sağladığı.
+>
+> **↪️ B FAZINA DEVİR — ve bir ölçüm sorusu, karar değil.** B,
+> `RevokeSessionsForEmployee`'yi deaktivasyon yolunda **çağırmayacak**. Bunu
+> **çağırmadığını** bir ağ pinlemeli mi? A fazı ölçtü ve iki okumayı bırakıyor:
+> **(i) Bugün hiçbir şey pinlemiyor.** `RevokeSessionsForEmployee`'nin üretimdeki
+> tek çağıranı `internal/session/manager.go`'nun `RevokeAllForEmployee`'si, onun
+> da tek üretim çağıranı aktivasyon yolu (`internal/handler/activate.go`, ikinci
+> aktivasyon). Deaktivasyon yolu **henüz yok**, yani bugün ihlal edilemez —
+> yasağın maliyeti de sıfır. **(ii) Ağın şekli belli ve ucuz:** M5-05'in
+> *"çağrıyı pinle"* kalıbı — B fazının deaktivasyon domain'ine sayan bir arayüz
+> enjekte et ve *"`Revoke*` **sıfır kez** çağrıldı"* de. Bedeli bir sahte + bir
+> iddia. **(iii) Karşı argüman:** bu bir **negatif** iddiadır ve negatif iddialar
+> bu depoda sessizce boşalır (M6-01 B'de beş koruma silindi ve süit yeşil kaldı) —
+> yani ağ ancak **pozitif kontrolüyle** (aktivasyon yolunun onu **çağırdığını**
+> ayrıca ölçen bir test) birlikte anlamlı. **Karar B fazının/kullanıcınındır; A
+> fazı mekanizmaya dokunmadı.**
+>
+> **7. Sayılar.** `make test` (`.env` yüklü, `-race -count=1 -v`):
+> **1821 PASS · 0 SKIP · 0 FAIL · 16 paket** — ⚠️ bu sayı **alt testler dâhildir**;
+> **üst düzey test sayısı 836** (komut: toplam için
+> `go test -race -count=1 -v ./... | grep -c -- '--- PASS:'`, üst düzey için
+> `grep -cE '^--- PASS:'`). Turlar: 1813 → 1815 → 1816 → 1819 → 1821. `app.css` **21.230 → 21.334 bayt**
+> (**+104**), eklenen **4 seçici** (`.tally--active`, `.tally--invited`,
+> `.tally--deactivated`, `.text-base`) ve **hepsi gerçek bir `class=`'a iz
+> sürüyor**; sevk edilen **ölü kural 0** — ama düzyazıdaki tek bir küçük harfli
+> utility adı bir tanesini **doğurmuştu** ve ölçümle geri alındı (skill
+> `tappa-brand`'in tuzağının bu depoda **beşinci** ateşlemesi).
+>
+> **8. 🔬 MUTASYON GÜNLÜĞÜ — 24 deneme, ÜÇÜ HAYATTA KALDI ve üçü de aynı turda
+> kapatıldı.** Hayatta kalanlar burada, çünkü bu deponun dersi *"kapatıldığı iddia
+> edilen bir açık, sayılmış bir açıktan tehlikelidir"*:
+>
+> | # | Mutasyon | İlk sonuç | Ne yapıldı |
+> |---|---|---|---|
+> | **M4** | iptal edilmiş oturumu **canlı** say (`revoked_at IS NULL` sil) | **YEŞİL** — *"None signed in"* sayfada **başkasının** kartında duruyordu (davetli kişinin hiç oturumu yok) | iddia **kişi bazına** taşındı (`rosterCardFor`) → **KIRMIZI** |
+> | **—** | sayfalama testi yalnız **toplamı** karşılaştırıyordu | adı *"ExactlyOnce"* diyordu, ölçmüyordu | **isim çoklu-kümesi** DB ↔ sayfalar karşılaştırması + alfabetik sıra → `>=` cursor, isim-only cursor, id-sıralaması **üçü de KIRMIZI** |
+> | **L3-b** | **davetlileri** sona sırala | **YEŞİL** — üç kişilik fixture'da davetli zaten alfabetik olarak sonuncuydu | fixture **her durumdan ikişer kişi** (6) ile örüldü → deactivated · invited · active **üçü de KIRMIZI** |
+>
+> Kırmızıya dönenler: kadroyu SQL'de/handler'da/şablonda/varsayılan filtrede gizleme
+> (4) · durum rozetini kaldırma · cihaz etiketini uçtan uca sızdırma · token
+> **önekini** sızdırma (tip duvarı yakaladı) · `templ.Raw` ile kaçırılmamış isim ·
+> *"not used yet"* → *"None signed in"* · `+1` satırın silinmesi · kısa sayfa ·
+> hiç kimseyi döndürmeyen sorgu (pozitif kontrolü kanıtlar) · `tenant_id`
+> yükleminin ana `WHERE`'den ve LATERAL'den silinmesi (§4.5 kuşak ağı) ·
+> **sayfa boyu 25'e düşürme** · **500'e çıkarma** · var olmayan rotaya kontrol ·
+> phase-B POST formu.
+>
+> **8b. 🔬 3. TUR — ÜÇÜNCÜ GÖZ RED VERDİ; ÜÇ BLOKLAYAN + SEKİZ BULGU, hepsi
+> kapatıldı ve İKİSİ MEKANİZMA DEĞİŞTİRDİ.** Denetçi kendi mutasyonlarını üretti ve
+> **iki ağı yendi**; ikisi de aynı turda kapatıldı ve mutasyonla kanıtlandı.
+>
+> | # | Bulgu | Ölçüm | Sonuç |
+> |---|---|---|---|
+> | **B1** | Kuşak ağının *"8 QUERIES OF 41"* kapsam iddiası, **kendi bastığı komutla** çürüyordu (gerçek: 42) ve listede `ListPanelEmployees` **yoktu** | `grep -rhoE '^-- name: …' \| wc -l` → **42** | Sayı **düzyazıdan çıkarıldı**: iki büyüklük de zaten çalışma anında hesaplanıyor → test artık kapsamı **loglar** (`8 of 42, %19,0` + adların listesi). Elle yazılan sayı bir daha çürüyemez. |
+> | **B2** | Bir ağın gerekçesi **var olmayan bir rota tablosu** beyan ediyordu (*"mountWriting is the only place a POST is registered"*) | `grep -rn 'r\.Post('` → **7 rota**, panelin **4**'ü, **3'ü `Mount` içinde** | Envanter komutuyla birlikte yoruma kondu. ⚠️ Ve daha güçlü düzeltme: *"hiçbir panel GET'i mutasyon yapmaz"* **de yanlıştı** — `TouchAdminSession` her istekte `last_used_at` yazar. Doğru cümle: hiçbir panel GET'i **alan (domain) durumunu** değiştirmez. |
+> | **B3** | Aynı büyüklük için **üç dosyada üç farklı sayı**, ve **sabitin hemen üstündeki blok** geri çekilmiş olanı taşıyordu | 8.718 → 8.818 → 8.878 → **8.918** (denetim sırasında bile oynadı) | Sayı **tek eve indirildi** (`adminratelimit.go`, sorgusu + kayma uyarısıyla). `roster.go`'daki blok artık **eşitsizlikle** konuşuyor, ölçülen kadroyla değil; `employees.go`'nun bayt tablosundan **yürüyüş sütunu silindi** (bayt sütunları kaymaz, o kayardı); test mesajlarındaki sabit sayılar **sabitlerden türetildi**. |
+> | **N1** | N+1 gerekçesi **sevk edilmeyen** sayfa boyunda ölçülmüştü (26 = terk edilen 25'in ikizi) ve payı abartıyordu | LIMIT 51'de: taban **3,7–9,2 ms**, LATERAL'li **16,1–18,5 ms**, tek `ListSessionsForEmployee` **0,7–1,2 ms** ×50 = **35–58 ms + 50 gidiş-dönüş** | Tablo yeniden ölçüldü. **Mekanizma da düzeltildi:** sondanın kendisi ucuz (`loops=51`, 0,008 ms), pahalı olan **plan değişimi** — LATERAL'siz `top-N heapsort 36 kB`, LATERAL'li **tüm kadro** `quicksort` (853+224 kB). **Karar değişmedi, payı düzeldi.** |
+> | **N2** | 🔴 Kuşak ağı **WHERE'i HİÇ OLMAYAN** bir alt sorguyu göremiyordu — ve hata mesajı görebildiğini söylüyordu | Denetçinin mutasyonu (`LEFT JOIN LATERAL (… FROM sessions …)`, WHERE yok) → paket **ok** | **KAPATILDI.** `unscopedSubqueries`: tenant kapsamlı bir tabloyu okuyan parantezli her blokta **kendi derinliğinde** WHERE aranıyor; tablo listesi `CREATE POLICY`'den **türetiliyor**. ⚠️ İlk sürümü **dördüncü saldırıda yenildi** (iç içe bir alt sorgunun WHERE'i dıştakini maskeliyordu) → `maskNested` eklendi. **6 saldırı, 6 KIRMIZI.** |
+> | **N3** | *"böyle bir şekil kurulamadı"* cümlesi **tek düzenlemede** yenildi | `ORDER BY (status='deactivated' AND (SELECT count(*) …) > 100)` → iki paket de **ok** | Cümle ölçtüğüne eşitlendi: **ağın dişi fixture ölçeğine bağlı**. Şekil kartta ve testte **birebir yazılı**. §4.6 ihlali değil (durum filtresi tek istekte buluyor) — **keskinlik** boşluğu, sayıldı. |
+> | **N4** | `nonSurfaceGrounds["line"]` gerekçesi bayat (*"inside .stamp only"*) | `.tally--manual` **HEAD'de zaten** `docket.templ:106`'da | Gerekçe düzeltildi. ⚠️ Ve sınıf yazıldı: M6-04 aynı girdinin `tomato` ikizini düzeltip `line`'ı süpürmemişti — *kendi vakasını düzeltip kendi sınıfını düzeltmeyen düzeltme*. |
+> | **N5** | Referrer-Policy limit notu artık **yanlış URL şeklini** anlatıyordu | *"the name is the reader's own query"* — oysa `?after_name=` **sunucunun DB'den bastığı** bir isim | Not iki tarihli satıra bölündü. İhlal yok (`default-src 'none'`), ama *"yalnız okuyucunun kendi sorgusu"* rahatlığı artık geçerli değil: bir panel URL'i **üçüncü bir kişinin adını** taşıyabiliyor. |
+> | **N6** | 🔴 Sonun ötesindeki bir cursor **işletme hakkında YANLIŞ cümle** bastırıyordu | Üç çalışanlı tenant'ta `?after_name=zzz…` → *"No people have been added to this business yet"*, 0 kart | **DÜZELTİLDİ.** Boş duruma **üçüncü dal**: *"That is the end of the list"* + çalışan bir **"Back to the start"**. `Narrowed()` cursor'ı hâlâ saymıyor (konum filtre değildir, testle pinli) — iki doğru cümleyi birbirine karıştırmamak için dal eklendi, ikincisi genişletilmedi. **3 mutasyon, 3 KIRMIZI.** |
+> | **N7** | *"MEASURED ACROSS EVERY TENANT"* aslında **çalışanı olan** tenant'lar | `tenants` = **111.313**, `GROUP BY tenant_id` paydası = **76.233** | Etiket düzeltildi; yüzdelikler **koşullu** olarak yazıldı. ⚠️ Orkestratörün brief'i de aynı hatayı taşıyordu — sınıf bir adım yukarı da yayılmıştı. |
+> | **N8** | *"alfabetik"* **collation'a bağlı**; bu imajda (`postgres:17-alpine`, musl) **bayt sırası** | `datcollate=en_US.utf8` ama `'a' < 'B'` → **f**, `'Zebra' < 'apple'` → **t** | **DÜZELTİLDİ:** sıra iddiası artık **veritabanına soruluyor** (aynı `ORDER BY`), Go'da karşılaştırılmıyor. Sevk edilen keyset her iki collation'da da doğru (satır karşılaştırması ve `ORDER BY` aynı collation'ı kullanır); düzeltilen şey **M8'de yanlış alarm verecek olan testti.** |
+>
+> **8c. 🔬 4. TUR — RED'in GEREKÇESİ 3. TURUNKİYLE AYNIYDI, ve çare artık YAPISAL.**
+> Denetçi 21 saldırı üretti, **7'si kaçtı**; ayrıca F1'in **dördüncü kez** tekrarladığını
+> ölçtü. Kırılma noktası şu: üç turdur cevap *"sayıyı tazele"* idi ve üç turda da
+> tazelenen sayı tur bitmeden bayatladı.
+>
+> | # | Bulgu | Ölçüm | Sonuç |
+> |---|---|---|---|
+> | **F1** | Kayan kadro sayısı **dört dosyada dört değer**; *"tek ev"* kuralını yazan dosya onu **138 satır sonra** kendisi çiğniyordu | inceleme boyunca **ALTI** değer (biri tek denetim içinde iki kez); bugün ölçüm yine farklı | **Sayı hiçbir gerekçe cümlesinde yazılmıyor.** Argüman eşitsizlikten kuruluyor; canlı rakam gerekiyorsa **sorgu** basılıyor, cevap değil. Ağ: **`TestComments_DoNotQuoteTheDriftingRosterSize`** — şekil taraması, pozitif kontrollü, ve **mutasyonla kırmızı**. M6-05'in **beş** ihlali silindi; kalan **9** M6-01/M6-03'ün (her biri `git show HEAD:` ile önceden var olduğu doğrulandı) → **bütçe 9, yalnız düşebilir**, ve her koşuda **loglanıyor**. |
+> | **F2** | N7 yarım düzeltilmişti: kod doğru, **aynı diff'in kartı** aynı etiket hatasını taşıyordu (*"75.274 tenant — DB toplamı"*) | `tenants` ≠ `GROUP BY tenant_id` popülasyonu; aradaki fark ~1,5 kat | Kart düzeltildi; payda **koşullu** olarak yazıldı ve **iki sayı da çıkarıldı** (ikisi de kayıyor). |
+> | **C2** | `unscopedSubqueries` yorumu *"**must** have a WHERE"* diyordu; **7 kaçış** bunu çürütüyor | 21 saldırı → **14 yakalandı, 7 kaçtı**; üçü bağımsız olarak yeniden üretildi (`public.sessions` · `ONLY sessions` · virgül-join) | 🔴 **KAPATILMADI — SAYILDI** (kapanış kuralı). Yedisi de **adıyla** yazıldı; `public.sessions` en sert olanı, çünkü tarayıcı `sessions`'ı **biliyor**, o kadar ileri okumuyor. **RLS'in birinci savunma olduğu** ve satırları hâlâ durdurduğu yazıldı. |
+> | **C2b** | `employees.sql` *"every JOIN restates `tenant_id` in its own ON clause"* — **ağı var mı?** | `locations` JOIN'inden yüklem silindi → `ledger` **ok**, `handler` **ok**, süit **yeşil** | *"Uygulanmıyor — **disiplin**"* olarak yazıldı, mutasyon sonucuyla birlikte. |
+> | **M1** | Kapsam **loglanıyor, iddia edilmiyor**: 8'den 5'e düşse hiçbir şey kırmızı vermez | tek fren `len(names) < 4` | Taban değeri **ölçüldü ve elendi**: kapsam bir okuma silinince **meşru olarak** düşer → taban bir değişiklik dedektörü olurdu. **Limit olarak yazıldı.** |
+> | **M2** | Boş durumun *"iki DOĞRU cümleden"* gerekçesi eksik dayanaklı: filtre+cursor birlikteyken yalnız **biri** doğru | — | Gerekçe *"doğruluk"* yerine **kullanışlılık** üzerine yeniden kuruldu, ve maliyeti (filtreyi koruyan geri linki) yazıldı. |
+> | **M3** | `quicksort 853 kB + 224 kB` kadroyla ölçekleniyor, **kayma etiketi yoktu** | bugün ~1,2 MB | Rakam **mertebeye** çevrildi; F1 sınıfı olduğu yazıldı. |
+> | **M4** | `TestEmployeeStatuses_IsTheSchemaVocabulary` **şemayı okumuyordu** — elle yazılmış listeyle karşılaştırıp *"the schema's CHECK admits"* diyordu | 00003'e 4. durum eklense **yeşil** kalıyordu | **Migration'ın CHECK'i parse ediliyor** (küme eşitliği, sıra değil). **2 mutasyon, 2 KIRMIZI** (şema büyür · Go `deactivated`'ı düşürür). |
+> | **M5** | Dokunma hedefi ağı `Clear` ve `Next page`'i **hiç görmüyordu** (`sectionBodies` yalnız filtresiz href'i çekiyor) | `Clear`'dan sınıf silindi → panel geneli test **yeşil** | Bu iki kontrolü **birlikte** render eden yeni test. **2 mutasyon, 2 KIRMIZI**; panel geneli test aynı mutasyonda **yeşil** kalıyor (ölçüldü) — yani delik ağdaydı, üründe değil. |
+>
+> ⚠️ **Bu turda bir onarım da yapıldı:** mutasyon geri-alma sırasında `employees.templ`
+> eski bir yedekle üzerine yazıldı ve M2 düzeltmesi **kayboldu**; fark `git status`
+> değil **grep** ile yakalandı (dosya izlenmiyor, `git checkout` onu geri getirmez).
+> İkisi de elle geri konuldu ve doğrulandı.
+
+> **8d. 🔬 5. TUR — `tappa-security-auditor` RED: GERÇEK BİR §4.6 KUSURU.** Güvenlik
+> merceği genel gözün dört turda görmediğini buldu (bu projede **dördüncü** kez).
+>
+> | # | Bulgu | Ölçüm | Sonuç |
+> |---|---|---|---|
+> | **R6** | 🔴 **İmleç adı taşıyordu ve ad `maxRosterCursorName`'i aşınca SESSİZCE düşüyordu** → "Next page" 1. sayfayı yeniden veriyor → **sonsuz döngü**, arkadaki herkes gezinerek **ulaşılamaz**. `full_name` canlı şemada **sınırsız `text`**, CHECK yok. | Kendi testimle yeniden üretildi: sayfa sınırındaki **616 rune**'luk ad → **20+ sayfa, 63 kişi için 1050 satır** | **YAPISAL DÜZELTME: imleç artık KİMLİK taşıyor** (`?after_id=<uuid>`), adı sunucu **kendi okuyor** (`GetRosterCursorAnchor`, tenant yüklemli, aynı transaction'da). Uzunluk sorunu **kaynağında** yok oldu — sabit **büyütülmedi, silindi**. |
+>
+> **İki yazılı iddiam ölçümle yanlışlandı ve ikisi de düzeltildi:**
+> *"dropping can only ever show **MORE** of the roster"* → **daha AZ** gösteriyordu
+> (düştüğü sayfa okuyucunun zaten gördüğü sayfaydı) · *"it is visible because the
+> filter bar echoes the values that took effect"* → **filtre çubuğu FİLTRELERİ
+> yankılar, imleci değil**; düşüş tamamen sessizdi. Her ikisi de
+> `parseRosterFilter`'da, yanlışlandıkları ölçümle birlikte yazılı.
+>
+> **Yan kazanç — N5/S3 büyük ölçüde konusuz kaldı:** *"Next page"* linki artık
+> **gerçek bir çalışanın tam adını** taşımıyor; tarayıcı geçmişine ve paylaşılan
+> ekrana düşen ad yok. Ayrı bir testle tutuluyor
+> (`TestEmployeesSection_NoEmployeeNameTravelsInAPagingLink`). Bu, opak/kodlanmış
+> token alternatifinin **neden elendiğinin** de sebebi: token adı taşımaya devam
+> eder, yalnız okunmaz hâlde — ne uzunluğu ne ifşayı çözer. `full_name`'e CHECK
+> eklemek **migration** gerektirirdi ve kullanıcı kararı olurdu; **gerekmedi**.
+>
+> **Maliyet ölçüldü ve bütçeye eklendi:** çapa okuması **0,44–0,51 ms**, yalnız
+> **sayfalı** isteklerde (bölüm görüntülemesi ve filtre değişimi ödemez), ~19–68 ms'lik
+> bir sayfanın **~%2'si**. ⚠️ Bu sayıyı SQL yorumuna **ölçmeden önce** *"0,6–1,9 ms"*
+> diye yazmıştım; fark, ürünün hiç yapmadığı bir işi (id'yi bulan alt sorguyu)
+> ölçüme dahil etmekten geliyordu — **düzeltildi ve hatanın şekli görünür bırakıldı**.
+>
+> **Mutasyonlar:** adı imlece geri koy (eski 512 sınırıyla) → uzun-ad testi **KIRMIZI**,
+> mahremiyet testi **KIRMIZI**. Çapa sorgusundan `tenant_id` yüklemini sil → kuşak ağı
+> **KIRMIZI**. ⚠️ **Bu son mutasyonu ilk koşuşumda YEŞİL raporlayacaktım** — mutasyon
+> aslında **hiç uygulanmamıştı** (heredoc alıntılaması); ikinci koşuda `anchor present:
+> True` + `MUTATION APPLIED` basılıp doğrulandı. M6-03'ün *"betiğin niyetini değil
+> ÇIKTISINI raporla"* dersi, bu turda bana ateşledi.
+>
+> **S2 · İKİNCİ EKSEN (istek başına DB süresi) M6-05 ile güncellendi.** Tablo yalnız
+> Transactions'ı anlatıyordu. Kadro sayfası: **19–68 ms** (`tappa_app`, tenant kapsamlı
+> transaction, satırlar gerçekten döndürülerek, 6 tekrar) ve ⚠️ **sayfayla değil
+> KADROYLA ölçekleniyor** (LATERAL, planlayıcının top-N heapsort'unu tam bir
+> quicksort'a çeviriyor). Kabul gerekçesi yazıldı: `300 × ~35 ms ≈ 10,5 sn/pencere`,
+> dosyanın **zaten kabul ettiği** 3,6–12,9 sn bandının içinde, ve bütçe **oturum
+> UUID'sine** anahtarlı.
+>
+> **S1 · dokunulmadı** — denetçi *"§4.6 ihlali değil, keskinlik boşluğu, doğru
+> yazılmış"* dedi; limit (iii) olduğu gibi duruyor.
+
+> **8e. 🔬 6. TUR — KAPANIŞ. İki bloklayan da düzyazı/kapsam-iddiası katmanında; yeni
+> mekanizma işi YOK.**
+>
+> | # | Bulgu | Ölçüm | Sonuç |
+> |---|---|---|---|
+> | **B1** | §4.7 ağının yazılı kapsamı: *"prefix/transform … **COVERED ELSEWHERE**, the cover is the type wall"* | Tip duvarı yalnız **YENİ ALAN** gerektiren sızıntıda ateşliyor (`Value string` → KIRMIZI ✅). **Var olan bir alanı yeniden kullanan** yol ona **hiç uğramıyor** — `Person` değişmiyor. | *"COVERED ELSEWHERE"* **tümden kaldırıldı**; kapsam **dar ve doğru** hâliyle yazıldı, denetçinin tek satırlık örneğiyle birlikte. ⚠️ **Benim yeniden üretimim SAPTI ve bu da yazıldı:** ifadenin dört yazımı (skaler alt sorgu · `\|\|` · LATERAL · NULLIF/CASE/array) sqlc v1.28'de `string`/`bool`/`interface{}` tipleniyor ve **derlenmiyor**; Go tarafından yönlendirince derlendi ve **tip duvarı sessiz kaldı** (denetçi haklı) ama bu dosyadaki **üç test kırmızı** oldu. Dürüst cümle: *"var olan alan üzerinden sızıntıyı hiçbir şey garanti etmiyor; başka bir testin yakalaması **şansa** bağlı"*. Üründe sızıntı **yok** (sorgu `token_hash` seçmiyor). |
+> | **B2** | Kayan sayı sınıfı, kendini kapattığını ilan eden diff'in **içinde** üç kez tekrar etti | Üçü de bugün bayat (`tenants` 111.313→**114.031**, ≥1 çalışanlı 76.233→**78.232**, kadro 8.918→**9.138**, yürüyüş 353/177→**366/183**) | **Üç alıntı da kaldırıldı**: (a) `adminratelimit.go` payda cümlesi artık *"kabaca üçte iki"* diyor ve **iki sayıyı da yazmıyor**; (b) `employees.sql` *"iki kez yeniden koştu"* ile yetiniyor; (c) karttaki **altı** `353`/`177` yerine `>300`/`<300` (karar zaten eşik geçişiydi). **Dördüncüsünü ben buldum:** `employees.sql`'de *"8 730 rows"* — aynı büyüklük, başka isim; o da kaldırıldı. |
+>
+> **Ağın sözlüğü genişletildi — ve genişletmenin KENDİSİ ölçüldü.** Her ismi eklemek
+> denendi ve **geri alındı**: 30 meşru ölçümü (bir günün kayıtları, pencere başına
+> istek, tenant-günü) işaretliyordu ve *meşru düzyazıda ateşleyen bir teli bir
+> sonraki kişi siler*. Sözlük artık **yalnız kadro isimleri**.
+> 🔴 **ALTI KAÇIŞ ÖLÇÜLDÜ ve yazıldı:** Türkçe ek (`çalışana`/`çalışanı` — Go'nun
+> `\b`'si ASCII olduğu için `çalışanın` yakalanıyor, `çalışana` **kaçıyor**) ·
+> `rows`/`records` gibi başka şeyleri de adlandıran isimler (bilerek dışarıda) ·
+> yazıyla *"nine thousand"* · ismin sayıdan **önce** gelmesi · isimsiz *"tenant: 9138"* ·
+> **iki satıra bölünmüş** sayı+isim.
+> ⚠️ **BÜTÇE 9 → 6 DÜŞTÜ VE HİÇBİR ŞEY DÜZELTİLMEDİ.** M6-03'ün üç kart satırı artık
+> Türkçe ek kaçışıyla **görünmez**. Borç azalmadı, **ağın görüşü değişti** — ve bunu
+> yazmak şart, çünkü sebebi kaydedilmeyen bir bütçe düşüşü, sayılmış bir açığın
+> sessizce sayılmamış bir açığa dönüşme biçimidir.
+>
+> **N1 · Kendi doğrulama komutunu basan yorum ÜÇÜNCÜ kez yanlıştı.**
+> `transactions.templ` *"iki PanelShell"* diyordu; bu diff **üçüncü** çağrı yerini
+> ekledi (`employees.templ`). **Sayı tümden kaldırıldı** — çağrı yeri sayısı her
+> bölüm inşa edilince artar, yani takvim hakkında bir olgu, tasarım hakkında değil.
+> Tasarım olan **kardinalite** ve o zaten testle pinli.
+> **N2 · Uzun-ad testinin gerekçesi düzeltildi.** Denetçi yeniden üretemedi ve haklı:
+> ölçüldü ki `'Lambda P049' < 'Lambda Active Person'` **yanlış**, `'Lambda 0049' <
+> 'Lambda Active Person'` **doğru** — yani kaçırma **P önekli** eski sürümde oldu,
+> bugünkü sayısal adlarla aritmetik tutardı. ⚠️ Ama **yalnız bayt sıralamalı bir
+> collation'da**; bu yüzden ampirik yerleştirme kalıyor (M8'de glibc/ICU'da aritmetik
+> **yanlış sebeple** geçerdi). **N3 ·** boş `//` ayıracı eklendi.
+
+> **9. Kapatılamayan / kapatılmayan LİMİTLER (sayıldı, kapatıldığı iddia edilmiyor).**
+> (i) §4.7 sayfa taraması **tam** sırrı arar; **önek/dönüşüm** onu yenmez —
+> yakalayan `roster_test.go`'daki **kapalı alan kümesi**, ve cümle artık bunu
+> söylüyor. (ii) **Log'a** sızan sır bu dosyaların görüş alanı dışında (R7 + §7).
+> (iii) 🔴 **Alfabetik sırayı KORUYARAK insan gömen sıralama — ŞEKLİ BİLİNİYOR
+> ve açık:** `ORDER BY (status='deactivated' AND (SELECT count(*) …) > 100)`. Süitin
+> her fixture'ı eşiğin altında olduğu için yeşil kalıyor, gerçek her kadroda
+> ayrılmışları sona gömüyor. **Ağın dişi fixture ölçeğine bağlı**; kapatmak
+> saldırganın seçtiği eşiği bilmeyi gerektirir. Satırlar erişilebilir kalıyor
+> (durum filtresi tek istekte buluyor) → §4.6 **ihlali değil, keskinlik boşluğu**.
+> (iv) `phaseBVerb` **sabit listedir** ve *"End employment"* geçer; yük taşıyan iki
+> özellik **türetilmiştir** (POST form aksiyon kümesi = `{/admin/logout}`, ve
+> sayfadaki **her** aynı-köken `href` aynı router'da çözülmeli). (v) **Alan durumunu
+> değiştiren bir GET** hiçbir ağın görüş alanında değil; bugün öyle bir rota **yok**
+> — ama bu, 2. turda basılmış rota envanteri üzerine bir **gözlem**, invaryant
+> değil. ⚠️ *"Hiçbir GET yazmaz"* demek **yanlış olurdu**: `TouchAdminSession` her
+> kimlikli istekte `admin_sessions.last_used_at` yazar. (vi) *"DB'deki EN BÜYÜK
+> kadro bütçeye sığıyor mu"* ölçümü **uygulama rolüyle yapılamaz** (RLS + `db.DB`
+> havuz vermez) — `Pool()` eklemek §4.5 gerilemesi olurdu; o ölçüm düzyazıda, üreten
+> sorgusuyla duruyor, ve yerine tenant içi `ceil(E/RosterPageSize)` **aritmetiği**
+> pinlendi. (vii) 🆕 **Kuşak ağının yeni alt-sorgu taraması SQL anlamıyor**: parantez
+> içinde `FROM <tablo>` metnini arar. Bir view, bir fonksiyon ya da tanımadığı bir
+> ad üzerinden okunan tenant tablosu görünmez; tablo listesi bu yüzden
+> `CREATE POLICY`'den **türetiliyor** ki *"tanımadığı"* küme şema büyüdükçe küçülsün.
+> (ix) 🆕 **`unscopedSubqueries`'i yenen YEDİ şekil** — `UNION ALL` kolu ·
+> üst düzey `JOIN … ON` (iki varyant) · `FROM public.sessions` ·
+> `FROM ONLY sessions` · fonksiyondan sonra virgül-join. Hepsi
+> `internal/domain/ledger/query_test.go`'de **adıyla** yazılı; **kapatılmadı**
+> (kapanış kuralı), satırları durduran **RLS**. (x) 🆕 **JOIN … ON'daki
+> `tenant_id` tekrarının hiçbir ağı yok** — ölçüldü, süit yeşil kalıyor; *disiplin*
+> olarak yazıldı. (xi) 🆕 **Kuşak kapsamı (8/42) loglanıyor, iddia edilmiyor**:
+> düşerse kimse kırmızı vermez; taban değeri ölçüldü ve **meşru düşüşlerde yanlış
+> alarm vereceği için elendi**. (xii) 🆕 **Kayan-sayı ağı ŞEKİL tarar, anlam
+> değil**: *"dokuz bin"* gibi yazılmış ya da isminden iki cümle uzaktaki bir rakam
+> geçer; en ucuz yolda bir tel, kanıt değil. Ayrıca **9 birimlik miras borcu**
+> (M6-01/M6-03) kapatılmadı — bütçe olarak sayıldı, yalnız düşebilir.
+>
+> (xiii) 🆕 **İmleç çözülemezse sessizce 1. sayfa dönüyor.** Artık yalnız ürünün
+> **hiç üretmediği** bir id ile olur (bayat yer imi, elle düzenlenmiş URL, yabancı
+> tenant) ve cevap **daha fazla** veri — §4.6'nın umursadığı yön. Yine de sessiz;
+> `slog.Info` ile sunucu tarafında görünür, ekranda değil. Sayıldı.
+> (xiv) 🆕 **Denetçinin yedi kuşak-ağı kaçışından DÖRDÜ** (UNION kolu, iki
+> `JOIN…ON`, virgül-join) yalnız **canlı RLS ile durdurulduğu** ölçüldü; ağ
+> davranışları tek tek mutasyonla tekrarlanmadı — denetçinin kendi *"doğrulanamadı"*
+> notu, olduğu gibi devralındı.
+>
+> (xv) 🆕 **§4.7 tip duvarı YALNIZ yeni alan gerektiren sızıntıyı yakalar.** Var
+> olan bir alanı yeniden kullanan sızıntı ona hiç uğramaz; başka bir testin
+> yakalaması o alanın değerinin iddia edilip edilmediğine — yani **şansa** —
+> bağlı. Üründe sızıntı yok (sorgu `token_hash` seçmiyor). *"COVERED ELSEWHERE"*
+> ifadesi kaldırıldı.
+> (xvi) 🆕 **Kayan-sayı ağının ALTI kaçışı** ölçüldü ve adıyla yazıldı (Türkçe ek ·
+> `rows`/`records` · yazıyla · isim önce · isimsiz · iki satıra bölünmüş).
+> Sözlüğü genişletmek denendi ve **geri alındı** (30 meşru ölçümü işaretliyordu).
+> **Bütçe 9→6 düştü çünkü ağın görüşü daraldı, borç azalmadı.**
+>
+> (viii) ✅ **ARTIK LİMİT DEĞİL — denetçinin *"doğrulayamadım"* dediği üç
+> sqlc-nullability ölçümü 3. turda yeniden üretildi** (izole dizin, aynı
+> `sqlc.yaml`, sqlc v1.28): `max(...)` → **`interface{}`** · `max(...)::timestamptz`
+> → **`time.Time`** (NOT NULL, yanlış — sıfır canlı oturumda pgx tarayamaz) ·
+> çıplak `count(*) OVER ()` → **`int64`** (LEFT JOIN NULL üretebilirken, aynı
+> arıza) · **sevk edilen şekil** → `int64` + **`*time.Time`** (doğru). Üçü de
+> `employees.sql`'in iddia ettiği gibi.
 
 ---
 

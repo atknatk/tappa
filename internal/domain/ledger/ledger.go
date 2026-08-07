@@ -1,11 +1,22 @@
-// Package ledger reads the immutable record.
+// Package ledger is the panel's READ SIDE.
 //
-// THE NAME IS THE CONSTRAINT. A ledger is a book you add lines to and never
-// rub out, which is exactly what CLAUDE.md §4.3 says transactions is, and this
-// package is deliberately the READING half of it: there is no Insert, no Update
+// THE NAME IS STILL THE CONSTRAINT, but the constraint is narrower than the name
+// suggests and saying so exactly is the point. A ledger is a book you add lines to
+// and never rub out, which is what CLAUDE.md §4.3 says transactions is, and this
+// package began as the READING half of that table alone. What holds for every file
+// in it, transactions or not, is the operative half: there is no Insert, no Update
 // and no Delete here, and there is no store call in this package that is not a
-// SELECT. The write path lives in internal/domain/checkin and the correction
-// flow (a NEW row plus audit_log, never an edit) is M6-08.
+// SELECT. The write path for a record lives in internal/domain/checkin, the
+// correction flow (a NEW row plus audit_log, never an edit) is M6-08, and the write
+// path for a PERSON -- invite, deactivate, move -- is M6-05 phase B and is not here
+// either.
+//
+// ⚠️ IT READS ONE MUTABLE TABLE, AND THAT IS WRITTEN DOWN RATHER THAN ELIDED.
+// roster.go reads employees, whose status changes over a person's employment. The
+// sentence "this package reads the immutable record" was true until M6-05 and is
+// not any more; what replaced it is the sentence above, which is the property the
+// tests and the §4.5 net actually depend on. roster.go's own header says why the
+// roster landed here rather than in a package of its own.
 //
 // 🔴 §4.7 — WHAT A RECORD CANNOT CARRY. The row on disk holds gps_lat, gps_lng
 // and source_ip. Record below has no field for any of them, and the query it is

@@ -262,6 +262,104 @@ const (
 	// The lever, if it is ever wanted, is ledger.PageSize rather than this constant:
 	// doubling it halves every figure in the table above.
 	//
+	// ✅ M6-05 PHASE A ADDED A SECTION AND COUNTED IT. THE PER-VIEW FIGURE DID NOT
+	// MOVE; A THIRD DENOMINATOR APPEARED.
+	//
+	// The employees section loads NO SCRIPT, so it has no fragment route and paging
+	// is a whole-document link. Per VIEW and per FILTER CHANGE it is therefore the
+	// same single charged request as every other section — the multiplier M6-02
+	// feared still has not come back. What is new is the shape of a WALK:
+	//
+	//	per SECTION VIEW   (one document)                   1 charged request
+	//	per FILTER CHANGE  (one document)                   1 charged request
+	//	per ROSTER-WALK    (document + every "Next page")   ceil(E / RosterPageSize)
+	//	                                                    where E is the tenant's
+	//	                                                    FILTERED employee count
+	//
+	// 🔴 AND THIS DENOMINATOR IS THE ONE THAT CROSSED THE CEILING, because E is the
+	// PAYROLL rather than a day's traffic — the one quantity in this product that
+	// grows without limit. It is also the reason ledger.RosterPageSize is 50 rather
+	// than PageSize's 25 (user decision, 2026-08-07).
+	//
+	// 🔴 THIS IS THE ONE PLACE THE ROSTER-WALK FIGURES LIVE. Three files carried three
+	// different values for the same quantity within a day (349 / 353 / 356), because
+	// it drifts — see the warning below. Everything else points here.
+	//
+	// MEASURED OVER THE DEVELOPMENT DATABASE. Command, so the next person re-runs it
+	// rather than trusting it:
+	//
+	//	WITH t AS (SELECT tenant_id, count(*) n FROM employees GROUP BY 1),
+	//	     w AS (SELECT n, ceil(n/25.0)::int p25, ceil(n/50.0)::int p50 FROM t)
+	//	SELECT (SELECT count(*) FROM tenants), count(*), max(n), max(p25), max(p50),
+	//	       percentile_disc(0.5)  WITHIN GROUP (ORDER BY p50),
+	//	       percentile_disc(0.95) WITHIN GROUP (ORDER BY p50),
+	//	       percentile_disc(0.99) WITHIN GROUP (ORDER BY p50),
+	//	       count(*) FILTER (WHERE p50 >= 15),
+	//	       count(*) FILTER (WHERE p50 > 300),
+	//	       count(*) FILTER (WHERE p25 > 300) FROM w;
+	//
+	//	                                        at 25 (was)   at 50 (SHIPPED)
+	//	median tenant                              1 req          1 req
+	//	95th percentile                            1              1
+	//	99th percentile                            1              1
+	//	tenants at or over the ≥15 threshold        1              1
+	//	tenants OVER the 300 budget                 1              0   <- the decision
+	//
+	// 🔴 THE LARGEST ROSTER'S HEADCOUNT IS NOT A ROW IN THAT TABLE, ON PURPOSE. It is
+	// the one quantity here that is a clock rather than a measurement (see the drift
+	// warning below), and every attempt to keep it fresh in prose failed within the
+	// round that made it. What the last two rows say is the part that DECIDED the
+	// page size and the part that does not move: this database contains exactly one
+	// tenant whose roster needs more than 300 page-turns at 25 and none that does at
+	// 50 — which is another way of saying its largest roster sits between
+	// PageSize x adminSessionLimit and RosterPageSize x adminSessionLimit. Run the
+	// query above if you want today's digits.
+	//
+	// ⚠️ THE DENOMINATOR IS NOT "EVERY TENANT" AND THIS LINE USED TO SAY IT WAS. The
+	// query GROUPs BY tenant_id over `employees`, so the population is tenants that
+	// have AT LEAST ONE employee — roughly two thirds of the rows in `tenants`, and
+	// BOTH of those counts drift for the same reason the roster does, so neither is
+	// written here. The percentiles are therefore CONDITIONAL on having staff, which
+	// is the right population for a question about walking a roster and the wrong
+	// label for it. A tenant with nobody on the books needs zero page-turns and would
+	// only have made the median look better.
+	//
+	// 🔴 THE FIRST VERSION OF THIS CORRECTION QUOTED BOTH FIGURES, in the file whose
+	// own heading says this is the one place roster-walk numbers live and whose next
+	// paragraph warns they drift. They were stale by the following audit. The rule
+	// this file now follows applies to every population count on the page, not only
+	// to the headcount: run the query.
+	//
+	// Either way the figure is dominated by this repository's own test residue, so
+	// the TAIL is the finding and the shape is not. At 25 the largest tenant's
+	// manager was refused at request #301, roughly six sevenths of the way down their
+	// own roster, with the remainder unreachable by browsing. At 50 nobody in this
+	// database is out of reach.
+	//
+	// ⚠️ THE LARGEST ROSTER IS NOT A STABLE NUMBER AND MUST NOT BE TREATED AS ONE.
+	// The simulated-day fixture hires into that tenant on every `make test` run
+	// (seedflow_db_test.go's insertEmployee, against fixtures.TenantKF) and employees
+	// has no DELETE grant, so it climbs by roughly ten a run — it moved SIX times
+	// while M6-05 was being reviewed, twice inside one audit. This is the M6-04
+	// lesson about anchoring a number to a magnitude the suite itself pollutes, and
+	// it cost three consecutive blocking findings before the response stopped being
+	// "refresh the number" and became "stop writing it":
+	// TestComments_DoNotQuoteTheDriftingRosterSize now fails on the shapes it was
+	// written in. Nothing in the product is derived from it — rosterDesignCeiling is
+	// a round promise chosen ABOVE the drift, precisely so the invariant does not
+	// move when the fixture does.
+	//
+	// THE INVARIANT IS ASSERTED RATHER THAN REMEMBERED. RosterPageSize x
+	// adminSessionLimit is the largest roster one session can walk end to end —
+	// 15 000 today — and TestRosterPageSize_KeepsAWholeRosterInsideTheSessionBudget
+	// requires it to reach rosterDesignCeiling (10 000). It is MEASURED going red at
+	// 25; before it existed, moving the constant back broke no test at all.
+	//
+	// The walk is still not the intended path: the section ships a NAME BOX beside
+	// the pager, which turns "find Maria" into one request whatever the payroll size.
+	// What the page size buys is that browsing to the END stays possible, which is
+	// §4.6's shape — a person nobody can reach is a person nobody can audit.
+	//
 	// 🔴 THE SECOND AXIS: WHAT ONE REQUEST COSTS, WHICH THIS FILE NEVER COUNTED.
 	// Everything above counts REQUESTS. An audit named the gap: a ceiling on how
 	// MANY requests a session may make says nothing about how BIG each one is, and
@@ -320,10 +418,40 @@ const (
 	//
 	// IT IS NOT LOWERED HERE, and the reasons are the ones this file already gives
 	// for not lowering anything on measurement alone: reaching it needs a valid
-	// panel session (not an anonymous flood), the 7 769-employee roster driving the
-	// slow arm is this repository's test residue rather than a customer, and the
+	// panel session (not an anonymous flood), the oversized roster driving the slow
+	// arm is this repository's test residue rather than a customer, and the
 	// unfiltered page -- what a manager actually opens -- costs 0.6-0.9 ms. What was
 	// missing was the NUMBER, and the number is now here with its denominator.
+	//
+	// ✅ M6-05 ADDED A THIRD ROW TO THIS AXIS, AND IT IS THE MOST EXPENSIVE ONE.
+	// The paragraphs above are the TRANSACTIONS section. The roster is a different
+	// query with a different scaling law, and an audit caught this block still
+	// describing only the first. Measured through tappa_app inside a tenant-scoped
+	// transaction, rows actually returned (not count(*)), warm, 6 repeats:
+	//
+	//	roster page (LIMIT RosterPageSize+1)   19 - 68 ms
+	//	  of which the anchor lookup            0.44 - 0.51 ms   (paged requests only)
+	//
+	// 🔴 IT SCALES WITH THE ROSTER, NOT WITH THE PAGE, and that is the finding rather
+	// than the milliseconds. EXPLAIN shows the LATERAL costing the planner its top-N
+	// heapsort: the whole tenant's employee set is sorted with a quicksort on every
+	// request, so asking for 50 rows out of a large payroll costs what sorting that
+	// payroll costs. db/queries/employees.sql carries the plan detail.
+	//
+	// WHY IT IS STILL ACCEPTED: 300 x ~35 ms is roughly 10.5 s of database time per
+	// window, which sits INSIDE the 3.6-12.9 s band this file already accepted for
+	// the filtered transactions page -- and the session budget is keyed on the
+	// session UUID, so a third party cannot spend it. The anchor lookup adds about
+	// 2% to a paged request and nothing at all to a section view or a filter change,
+	// which is the price of taking an unbounded name out of the URL (§4.6 and the
+	// Referrer-Policy note in adminlogin.go).
+	//
+	// ⚠️ THE FIRST OF THOSE TWO FIGURES WAS WRITTEN BEFORE IT WAS MEASURED, in the
+	// SQL comment, as "0.6 - 1.9 ms". The measurement was 0.44-0.51, and the
+	// difference came from timing a lookup whose id was found by a subquery -- work
+	// the product does not do. Recorded because it is the same class as the roster
+	// count above: a number that arrived before its measurement.
+	//
 	// ⚠️ sessionGate runs BEFORE the handler, so a refused request does NOT run this
 	// query; the 429s cost the resolver read, not the page.
 	//
