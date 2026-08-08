@@ -32,90 +32,24 @@ func panelBrowserWithRoster(t *testing.T, records *fakeLedger) *browser {
 	return panelBrowserWithReviewer(t, records, &fakeReviewer{})
 }
 
-// TestEmployeesSection_OffersNoWriteAtAll is the PHASE BOUNDARY, asserted rather
-// than remembered.
+// 🔴 THE PHASE BOUNDARY TEST THAT USED TO LIVE HERE IS GONE, AND ITS PROPERTY IS
+// NOT. TestEmployeesSection_OffersNoWriteAtAll asserted that the four actions the
+// card names — invite, re-invite, deactivate, move — were ABSENT, because phase A
+// shipped none of them and a control the server does not implement is this
+// repository's most expensive class of mistake. Phase B shipped all four, so the
+// assertion is retired rather than weakened: what replaces it is
+// TestEmployeesSection_EveryControlLeadsSomewhereThatExists
+// (employeeactions_test.go), which reads every posting form and every link OFF THE
+// RENDERED PAGE and drives each one through the SAME router the page came from. The
+// old test could only say "none of these exist"; the new one says "every control
+// this page offers is served", which is the property that was wanted all along.
 //
-// 🔴 THE CARD ASKS FOR FOUR ACTIONS AND PHASE A SHIPS NONE OF THEM. Invite,
-// re-invite, deactivate and move belong to phase B, which is audited through a
-// different lens — authorisation, session death, and the "shown exactly once"
-// invitation rule. The failure this test exists to prevent is the cheap one:
-// somebody adds the button first and the handler later, and for one commit the
-// panel offers a control that does nothing or, worse, one that 404s while looking
-// like it worked. Offering what the server does not implement is this repository's
-// most expensive class of mistake.
-//
-// TWO PROPERTIES, because either alone is beatable. A page can write without a
-// button (a form with no submit is still submittable), and a button can exist
-// without a form (an anchor to a GET that mutates would be a different bug, but a
-// label saying "Deactivate" on a read-only screen is already a lie).
-func TestEmployeesSection_OffersNoWriteAtAll(t *testing.T) {
-	b := panelBrowser(t)
-	rec := b.do(http.MethodGet, employeesHref, nil)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("GET %s: %d, want 200", employeesHref, rec.Code)
-	}
-	body := htmlOf(t, rec)
-
-	// 1. THE ONLY POSTING FORM IS SIGN-OUT, which every panel page carries because
-	// it is in the shared chrome.
-	got := map[string]bool{}
-	for _, m := range postFormRE.FindAllStringSubmatch(body, -1) {
-		action := ""
-		if c := attrValueRE("action").FindStringSubmatch(m[1]); len(c) == 2 {
-			action = c[1]
-		}
-		got[action] = true
-	}
-	if len(got) != 1 || !got["/admin/logout"] {
-		t.Errorf("the employees section posts to %v; phase A is a READ and the only "+
-			"posting form on any panel page is sign-out.\n"+
-			"If this is phase B landing, the four actions arrive WITH their handlers, "+
-			"their authorisation and their audit rows — not before them.", keysOf(got))
-	}
-
-	// 2. 🔴 EVERY CONTROL ON THE PAGE LEADS SOMEWHERE THAT EXISTS. This is the
-	// DERIVED half, and it replaces the fixed verb list below as the load-bearing
-	// one. The failure phase A must not ship is "a control that looks like it worked
-	// and did not", and its commonest form is a button wired to a route somebody
-	// meant to add later. Nothing here is a list: the hrefs come off the rendered
-	// page, and each is driven through the SAME router the page came from.
-	for _, href := range sameOriginHrefs(body) {
-		rec := b.do(http.MethodGet, href, nil)
-		switch rec.Code {
-		case http.StatusOK, http.StatusSeeOther:
-		default:
-			t.Errorf("the employees section offers a link to %s, which answers %d. A "+
-				"control that 404s while looking like it works is the failure this "+
-				"phase boundary exists to prevent.", href, rec.Code)
-		}
-	}
-
-	// 3. NO PRESS TARGET NAMES A PHASE-B VERB. A cheap extra, and it is labelled at
-	// phaseBVerb as the change detector it is.
-	for _, label := range pressTargetLabels(body) {
-		if phaseBVerb.MatchString(label) {
-			t.Errorf("the employees section offers a control labelled %q. Phase A "+
-				"implements no such action, and a control that looks like it works is "+
-				"worse than an absent one.", label)
-		}
-	}
-
-	// 4. AND THE FORM SCAN'S ONE ASSUMPTION IS CHECKED RATHER THAN ASSUMED.
-	//
-	// ⚠️ IT PASSES TRIVIALLY TODAY AND THE REASON IS BETTER THAN THE TEST. A
-	// single-quoted `<form method='post'>` was written into the template and
-	// measured: templ NORMALISED it to double quotes, so the posting-form scan
-	// caught it anyway (it was the form-action assertion that went red, not this
-	// one). The blind spot is therefore not reachable through the generator, which
-	// is a stronger guarantee than this check. It stays as a tripwire for the one
-	// route that bypasses templ's escaping -- raw markup -- and it is labelled as
-	// trivially-true rather than presented as load-bearing.
-	if m := singleQuotedAttr.FindString(body); m != "" {
-		t.Errorf("the rendered page carries a single-quoted attribute (%q). The "+
-			"posting-form scan matches double quotes only, so it would not see a "+
-			"form written this way.", m)
-	}
-}
+// ⚠️ THE FIXED VERB LIST (phaseBVerb) WENT WITH IT, and that is a deliberate
+// deletion rather than an oversight. It matched `invite|deactivate|move|…` as a
+// cheap extra check, and every one of those words is now a legitimate label on this
+// screen — a pattern that flags the correct page is a pattern the next person
+// deletes. Its own negative control lives on below, narrowed to the two scanners
+// that are still load-bearing.
 
 // sameOriginHrefs reads every in-product link off a rendered page.
 //
@@ -146,8 +80,8 @@ var (
 )
 
 // TestEmployeesScanners_RejectTheThingsTheyExistToReject is the negative control for
-// the two scanners above. Without it, a blinded regexp would make the test pass over
-// a page full of Deactivate buttons.
+// the two scanners the phase-B test depends on. Without it, a blinded regexp would
+// make that test pass over a page full of forms it never saw.
 func TestEmployeesScanners_RejectTheThingsTheyExistToReject(t *testing.T) {
 	const hostile = `<form method="post" action="/admin/employees/deactivate">` +
 		`<button type="submit">Deactivate</button></form>` +
@@ -157,40 +91,44 @@ func TestEmployeesScanners_RejectTheThingsTheyExistToReject(t *testing.T) {
 	if n := len(postFormRE.FindAllString(hostile, -1)); n != 1 {
 		t.Errorf("the posting-form scanner found %d form(s) in a page that has one", n)
 	}
+	if got := postFormRE.FindAllStringSubmatch(hostile, -1); len(got) == 1 {
+		if c := attrValueRE("action").FindStringSubmatch(got[0][1]); len(c) != 2 ||
+			c[1] != "/admin/employees/deactivate" {
+			t.Errorf("the form scanner read action %q, want /admin/employees/deactivate", c)
+		}
+	}
+	if hrefs := sameOriginHrefs(hostile); len(hrefs) != 1 || hrefs[0] != "/admin/employees/invite" {
+		t.Errorf("the link scanner read %q from a page with one same-origin link", hrefs)
+	}
+	// AND IT MUST NOT INVENT LINKS OUT OF ABSOLUTE OR FRAGMENT HREFS, or the "every
+	// control resolves" test would drive requests at other people's hosts.
+	if hrefs := sameOriginHrefs(`<a href="https://evil.example/x">x</a><a href="#top">t</a>`); len(hrefs) != 0 {
+		t.Errorf("the link scanner returned %q for a page with no in-product links", hrefs)
+	}
+	// THE FORM SCAN MATCHES DOUBLE QUOTES ONLY, which is safe because templ
+	// normalises single-quoted attributes -- measured in phase A, where writing
+	// `<form method='post'>` into the template still rendered as method="post". This
+	// asserts the scanner's blind spot is real so the tripwire below has a reason.
+	if postFormRE.MatchString(`<form method='post' action='/admin/x'>`) {
+		t.Error("the posting-form scanner matched a single-quoted form; the tripwire " +
+			"in the phase-B test would then be redundant rather than a tripwire")
+	}
+	if !singleQuotedAttr.MatchString(`<form method='post'>`) {
+		t.Error("the single-quote tripwire does not fire on a single-quoted attribute")
+	}
+	if singleQuotedAttr.MatchString(`<form method="post">`) {
+		t.Error("the single-quote tripwire fires on ordinary markup")
+	}
+	// THE LABEL SCANNER READS CONTROLS AND NOT CHIPS. "DEACTIVATED" is a <span>
+	// inside a card, and a scanner that read spans would make the anti-vacuity check
+	// that uses this pass over a page with no controls on it.
 	labels := pressTargetLabels(hostile)
 	if len(labels) != 3 {
-		t.Fatalf("the press-target scanner read %d label(s) from a page with three: %q", len(labels), labels)
+		t.Errorf("the press-target scanner read %d label(s) from a page with three: %q",
+			len(labels), labels)
 	}
-	for _, want := range []string{"Deactivate", "Invite somebody", "Re-invite"} {
-		found := false
-		for _, got := range labels {
-			if got == want {
-				found = true
-			}
-		}
-		if !found {
-			t.Errorf("the press-target scanner did not read %q; it read %q", want, labels)
-		}
-	}
-	for _, label := range labels {
-		if !phaseBVerb.MatchString(label) {
-			t.Errorf("the phase-B verb pattern accepted %q, which names an action phase A "+
-				"does not implement", label)
-		}
-	}
-	// AND IT MUST NOT REJECT THE CONTROLS PHASE A REALLY HAS, or the test would be a
-	// tripwire nobody can walk past.
-	for _, fine := range []string{"Apply", "Clear", "Next page", "Sign out", "Transactions"} {
-		if phaseBVerb.MatchString(fine) {
-			t.Errorf("the phase-B verb pattern rejects %q, which is a phase A control", fine)
-		}
-	}
-	// THE CHIP IS NOT A CONTROL. "DEACTIVATED" is a <span> inside a card, so it is
-	// never a press-target label -- but the word CONTAINS the verb, so if the scanner
-	// ever started reading spans this would fire.
-	if labels := pressTargetLabels(`<span class="tally tally--deactivated">DEACTIVATED</span>`); len(labels) != 0 {
-		t.Errorf("the press-target scanner read %q from a page with no press target; "+
-			"the lifecycle chip is a label, not a button", labels)
+	if got := pressTargetLabels(`<span class="tally tally--deactivated">DEACTIVATED</span>`); len(got) != 0 {
+		t.Errorf("the press-target scanner read %q from a page with no press target", got)
 	}
 }
 
@@ -198,7 +136,10 @@ func TestEmployeesScanners_RejectTheThingsTheyExistToReject(t *testing.T) {
 // submit button: a form with none is still submittable.
 var postFormRE = regexp.MustCompile(`(?is)<form\b([^>]*method="post"[^>]*)>`)
 
-// pressTargetLabelRE reads the visible text of an anchor or a button.
+// pressTargetLabelRE reads the visible text of an anchor or a button, and
+// pressTargetLabels turns a page into that list. It survived the deletion of the
+// phase-A verb list because a second test uses it as an ANTI-VACUITY check: "is the
+// control I am about to measure actually on this page?".
 var pressTargetLabelRE = regexp.MustCompile(`(?is)<(a|button)\b[^>]*>(.*?)</(?:a|button)>`)
 
 // tagStripRE removes any nested markup from a press target's text.
@@ -211,70 +152,6 @@ func pressTargetLabels(body string) []string {
 		if label != "" {
 			out = append(out, label)
 		}
-	}
-	return out
-}
-
-// phaseBVerb names the four actions M6-05's card asks for and phase A does not
-// implement, plus the near-synonyms somebody would reach for.
-//
-// IT MATCHES A WHOLE WORD, which is what keeps the DEACTIVATED chip out of it in the
-// event that the scanner is ever widened: "deactivated" is not "deactivate".
-//
-// ⚠️ IT IS A FIXED LIST, THEREFORE A CHANGE DETECTOR RATHER THAN A NET, AND IT IS
-// NOT THE LOAD-BEARING CHECK. This repository's own written lesson is that a
-// fixed-list test is helpless against ADDITION — a button labelled "End employment",
-// "Turn off" or "Send the link" names none of these words and sails past. It is kept
-// because it is free and catches the careless spelling; what actually holds the
-// phase boundary is the pair of DERIVED properties beside it:
-//
-//	the set of POSTing form ACTIONS on the page must be exactly {/admin/logout}
-//	  -- derived from the page, and every real write has to go through a form
-//	every same-origin HREF on the page must resolve through the SAME router
-//	  -- derived from the page, and it is what catches the commonest shape of the
-//	     failure: a control wired to a route somebody meant to add later
-//
-// ⚠️ WHAT NONE OF THE THREE SEES: a GET link, to a route that exists, that MUTATES,
-// under an innocent label. The size of that hole is stated from a COMMAND rather
-// than from memory, because the sentence that used to be here was measured false and
-// it understated the class. It said "the panel's only mutating endpoint is POST
-// /admin/review and mountWriting is the only place a POST is registered". Both
-// halves were wrong, and the file itself refuted the second one 170 lines above,
-// where the form scan expects /admin/logout.
-//
-//	$ grep -rn 'r\.Post(' internal/handler/ | grep -v _test
-//	adminlogin.go:184  r.Post("/admin/login", a.Login)            in Mount
-//	adminlogin.go:186  r.Post("/admin/login/choose", a.Choose)    in Mount
-//	adminlogin.go:255  r.Post("/admin/logout", a.Logout)          in Mount
-//	dashboard.go:94    r.Post(reviewHref, a.reviewDecision)       in mountWriting
-//	tap.go:213         r.Post("/api/checkin", t.Checkin)          employee surface
-//	activate.go:145    r.Post("/activate", a.Continue)            employee surface
-//	activate.go:148    r.Post("/api/activate", a.Submit)          employee surface
-//
-// So the panel registers FOUR POST routes, THREE of them outside mountWriting, and
-// POST /admin/logout is unambiguously a mutation — it stamps admin_sessions.revoked_at.
-//
-// 🔴 AND THE STRONGER CORRECTION: "no panel GET mutates" would ALSO be false. Every
-// authenticated request, GET included, passes TouchAdminSession, which UPDATEs
-// admin_sessions.last_used_at (internal/adminauth/manager.go says so in as many
-// words: "⚠️ IT WRITES"). What is true is narrower and is what the phase boundary
-// actually needs: no GET the panel serves mutates DOMAIN state — no employee, no
-// transaction, no review. That is an observation over the routing table printed
-// above, not a property this file holds; asserting it would mean proving every panel
-// GET idempotent, which is a task rather than a line.
-//
-// THE FORM SCAN'S DOUBLE-QUOTE ASSUMPTION WAS ATTACKED RATHER THAN FOOTNOTED, and
-// the attack found the assumption is not load-bearing: templ NORMALISES a
-// single-quoted attribute to double quotes, so a `<form method='post'>` written into
-// the template still rendered as `method="post"` and the form-action assertion is
-// what went red. The check at step 4 remains as a tripwire for raw markup, and is
-// labelled there as trivially true today.
-var phaseBVerb = regexp.MustCompile(`(?i)\b(invite|invitation|re-?invite|deactivate|reactivate|activate|remove|delete|move|transfer|edit)\b`)
-
-func keysOf(m map[string]bool) []string {
-	out := make([]string, 0, len(m))
-	for k := range m {
-		out = append(out, k)
 	}
 	return out
 }
@@ -639,7 +516,16 @@ var rosterSizeQuote = regexp.MustCompile(
 		`|` +
 		// "roster (N", "kadro (N", "tenant (N" -- a count in parentheses after the
 		// noun rather than before it.
-		`(roster|kadro|tenant|payroll)\W{0,3}\(\s*\d[ ,.]?\d{3}` +
+		//
+		// ⚠️ THE FIRST DIGIT MAY NOT BE ZERO, AND THAT IS A MEASURED FALSE POSITIVE
+		// RATHER THAN A LOOSENING. `\d` matched `tenant (00002)` -- a MIGRATION
+		// REFERENCE, which is ordinary prose in this repository and which M6-05 phase B
+		// produced on its first run. A headcount never begins with a zero, so requiring
+		// [1-9] removes the whole class without letting a single real quote through;
+		// both directions are controlled in
+		// TestRosterSizeScanner_RejectsTheThingsItExistsToReject. A tel that fires on
+		// legitimate prose is the tel the next person deletes.
+		`(roster|kadro|tenant|payroll)\W{0,3}\(\s*[1-9][ ,.]?\d{3}` +
 		`)`)
 
 // TestComments_DoNotQuoteTheDriftingRosterSize.
@@ -748,6 +634,8 @@ func TestRosterSizeScanner_RejectsTheThingsItExistsToReject(t *testing.T) {
 		"// WHY 10 000 AND NOT THE MEASURED 8 818. The measured figure is the",
 		"// largest tenant (8 718 employees) needs 349 requests",
 		"> **en büyük tenant'ı (8.718 çalışan)**:",
+		// The parenthesised shape must still fire when the number really is a count.
+		"// the tenant (9 138 on the day this was written) walks in 183 requests",
 		"> | en büyük kadro (8.818) | **353 istek** | **177 istek** |",
 		"-- the difference was measured on the largest tenant (8,718 employees)",
 		"// a payroll of 9 138 staff",
@@ -780,6 +668,10 @@ func TestRosterSizeScanner_RejectsTheThingsItExistsToReject(t *testing.T) {
 		"// 40 850 tenant-days measured",
 		"// rosterDesignCeiling = 10000, and RosterPageSize x adminSessionLimit = 15 000",
 		"// dev over http -> NOT Secure (so http://localhost:8080 works)",
+		// A MIGRATION REFERENCE AFTER THE WORD "tenant" -- the false positive that
+		// narrowed the parenthesised alternative to [1-9].
+		"// A department belongs to a location as well as to a tenant (00002), and it",
+		"-- every row of this tenant (00003 makes the column NOT NULL) has one",
 	}
 	for _, s := range mustNotMatch {
 		if m := rosterSizeQuote.FindString(s); m != "" {

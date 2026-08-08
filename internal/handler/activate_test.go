@@ -12,11 +12,17 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
@@ -374,6 +380,125 @@ func TestFailures_AreIndistinguishable(t *testing.T) {
 // TestFailures_AreAudited is the §4.6 half of the same behaviour: the visitor
 // learns nothing, the trail learns everything — except for the one case that
 // genuinely cannot be attributed.
+// TestActivationReasons_CoverEverySentinel DERIVES the sentinel set from
+// internal/invite instead of listing it, which is the difference between a net and a
+// change detector.
+//
+// 🔴 IT EXISTS BECAUSE A CLOSED TABLE LET A SENTINEL SHIP UNTESTED. ErrCodeCancelled
+// — the whole point of migration 00012, the signal that a retired credential was
+// presented — reached production with `grep -rn "ErrCodeCancelled" --include='*_test.go'`
+// returning ZERO matches, because the audited-reason table beside it was a fixed list
+// and nobody had to add to it. The natural repair for a red fixed-list test is to
+// extend the list; the natural repair for THIS one is to give the new sentinel a
+// reason, which is the correct move.
+//
+// ⚠️ WHAT IT CANNOT SEE, named rather than implied: a sentinel declared somewhere
+// other than a top-level `Err… = errors.New(…)` in that package — a wrapped error
+// type, or one built in a function. The scan is a go/ast walk over the package's
+// value declarations, which is the shape internal/invite actually uses for all five.
+func TestActivationReasons_CoverEverySentinel(t *testing.T) {
+	sentinels := inviteSentinelNames(t)
+	// ANTI-VACUITY: a walk that read nothing would pass over everything.
+	if len(sentinels) < 4 {
+		t.Fatalf("found %d sentinel(s) in internal/invite (%v); the package declares "+
+			"more, so this scan is reading the wrong directory", len(sentinels), sentinels)
+	}
+
+	// The reasons the product stores, keyed by the sentinel's NAME so the two sides
+	// can be compared without reflecting over error identity.
+	reasons := map[string]string{
+		"ErrCodeExpired":    "expired",
+		"ErrCodeUsed":       "already_used",
+		"ErrCodeCancelled":  "cancelled",
+		"ErrNotActivatable": "employee_not_activatable",
+	}
+	// THE ONE EXPECTED OMISSION, named here so it cannot be quietly widened:
+	// ErrUnknownCode resolves to no tenant, and audit_log.tenant_id is NOT NULL.
+	const unattributable = "ErrUnknownCode"
+
+	for _, name := range sentinels {
+		if name == unattributable {
+			if _, ok := reasons[name]; ok {
+				t.Errorf("%s is listed as an audited reason, but it resolves to no tenant "+
+					"and cannot be written to audit_log", name)
+			}
+			continue
+		}
+		if _, ok := reasons[name]; !ok {
+			t.Errorf("invite.%s has no audited reason. Every refusal internal/invite can "+
+				"name must reach audit_log with a word of its own (§4.6) — add it to "+
+				"inviteFailureReasons in activate.go and to the table in "+
+				"TestFailures_AreAudited. This test exists because ErrCodeCancelled "+
+				"shipped without either.", name)
+		}
+	}
+	// AND THE PRODUCTION TABLE MUST NOT CARRY A REASON FOR A SENTINEL THAT NO LONGER
+	// EXISTS — a dead entry is a claim about a refusal the product can no longer make.
+	if got := len(inviteFailureReasons); got != len(reasons) {
+		t.Errorf("inviteFailureReasons has %d entries and this test knows %d; the two "+
+			"lists have drifted", got, len(reasons))
+	}
+	for name, want := range reasons {
+		found := false
+		for _, s := range sentinels {
+			if s == name {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("this test expects a reason for invite.%s (%q), which no longer "+
+				"exists in that package", name, want)
+		}
+	}
+}
+
+// inviteSentinelNames reads every top-level `Err… = errors.New(…)` out of
+// internal/invite with go/ast — the same derivation internal/domain/*/query_test.go
+// uses, and for the same reason: a regexp over source is beaten by whitespace.
+func inviteSentinelNames(t *testing.T) []string {
+	t.Helper()
+	fset := token.NewFileSet()
+	pkgs, err := parser.ParseDir(fset, filepath.Join("..", "invite"), func(fi os.FileInfo) bool {
+		return !strings.HasSuffix(fi.Name(), "_test.go")
+	}, 0)
+	if err != nil {
+		t.Fatalf("parsing internal/invite: %v", err)
+	}
+	var out []string
+	for _, pkg := range pkgs {
+		for _, f := range pkg.Files {
+			for _, decl := range f.Decls {
+				gen, ok := decl.(*ast.GenDecl)
+				if !ok || gen.Tok != token.VAR {
+					continue
+				}
+				for _, spec := range gen.Specs {
+					vs, ok := spec.(*ast.ValueSpec)
+					if !ok {
+						continue
+					}
+					for i, name := range vs.Names {
+						if !strings.HasPrefix(name.Name, "Err") || i >= len(vs.Values) {
+							continue
+						}
+						call, ok := vs.Values[i].(*ast.CallExpr)
+						if !ok {
+							continue
+						}
+						sel, ok := call.Fun.(*ast.SelectorExpr)
+						if !ok || sel.Sel.Name != "New" {
+							continue
+						}
+						out = append(out, name.Name)
+					}
+				}
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
 func TestFailures_AreAudited(t *testing.T) {
 	cases := []struct {
 		name       string
@@ -384,8 +509,18 @@ func TestFailures_AreAudited(t *testing.T) {
 	}{
 		{"expired", okContext("invited"), invite.ErrCodeExpired, true, "expired"},
 		{"already used", okContext("invited"), invite.ErrCodeUsed, true, "already_used"},
+		// 🔴 A RETIRED LINK. It shipped with no row here at all, and an audit measured
+		// what that cost: deleting its case dropped a PRESENTED TAKEOVER CREDENTIAL
+		// into the unclassified branch, which wrote nothing. This row is the cheap
+		// half; TestActivationReasons_CoverEverySentinel is the half that catches the
+		// NEXT sentinel somebody adds.
+		{"cancelled", okContext("invited"), invite.ErrCodeCancelled, true, "cancelled"},
 		{"not activatable", okContext("deactivated"), invite.ErrNotActivatable, true, "employee_not_activatable"},
 		{"unknown code has no tenant", invite.Context{}, invite.ErrUnknownCode, false, ""},
+		// 🔴 AND AN UNCLASSIFIED FAILURE IS RECORDED TOO (§4.6). It is not a bad link —
+		// the visitor gets a 500 — but "we could not tell why" is not a reason to lose
+		// the attempt when a tenant is known.
+		{"an unclassified failure", okContext("invited"), errors.New("connection refused"), true, "unclassified"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

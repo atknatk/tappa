@@ -78,6 +78,8 @@ type EmployeeInvite struct {
 	CreatedAt  time.Time
 	ExpiresAt  time.Time
 	UsedAt     *time.Time
+	// Davet gecersizlestirildi (kullanilmadi). used_at ile ASLA karistirilmaz: used_at = "kod harcandi", cancelled_at = "kod artik kullanilamaz". Sorgular ikisini de ayri ayri eler.
+	CancelledAt *time.Time
 }
 
 type Location struct {

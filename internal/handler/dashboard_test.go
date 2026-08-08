@@ -856,6 +856,11 @@ var (
 	panelTestAdmin   = uuid.MustParse("9f1c0a2e-0000-4000-8000-000000000001")
 	panelTestTenant  = uuid.MustParse("9f1c0a2e-0000-4000-8000-000000000002")
 	panelTestSession = uuid.MustParse("9f1c0a2e-0000-4000-8000-000000000003")
+	// panelTestLocation is the venue the employees section's fakes place people at
+	// (M6-05 phase B). It is fixed for the same reason the three above are: a fresh
+	// uuid per test would make "the form pre-selects where they already work"
+	// unassertable.
+	panelTestLocation = uuid.MustParse("9f1c0a2e-0000-4000-8000-000000000004")
 )
 
 // --- the contrast net -----------------------------------------------------

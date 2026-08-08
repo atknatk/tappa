@@ -83,8 +83,14 @@ RETURNING id, tenant_id, employee_id, created_at, expires_at, used_at;
 -- query and NO standalone consume query in this file.
 --
 -- THE SCOPE OF THAT, exactly: this is the only statement in db/queries that writes
--- employees.status (greppable -- `UPDATE employees` appears once in the whole
--- directory, here). It is NOT a privilege-level guarantee: 00003 grants tappa_app
+-- employees.status = 'active'. ⚠️ THE SENTENCE HERE USED TO BE WIDER AND M6-05
+-- PHASE B MADE IT FALSE: it said this was the only statement writing
+-- employees.status at all, and that `UPDATE employees` appeared exactly once in the
+-- whole directory. The panel now deactivates and re-places people, so the count is
+-- three and the header of db/queries/employees.sql lists them with the command that
+-- produces the list. The narrowed claim is the one that was doing the work --
+-- nothing else can turn an employee 'active', so "activated" still implies "an
+-- invite was consumed". It is NOT a privilege-level guarantee: 00003 grants tappa_app
 -- table-wide UPDATE on employees, which it needs for the rest of the employee
 -- lifecycle, so hand-written SQL outside the generated store could still flip the
 -- column. What this buys is that the generated Querier -- the only DB surface
@@ -99,7 +105,12 @@ RETURNING id, tenant_id, employee_id, created_at, expires_at, used_at;
 -- an HMAC under a server-side key, as internal/session does -- only the code's
 -- holder can produce. The binding is exactly as strong as that derivation, which
 -- is why the derivation is not optional.
--- (Cancelling an invite from the panel -- which legitimately knows only the id --
+-- (✅ CANCELLATION EXISTS SINCE 2026-08-08 AND IT DID NOT REUSE used_at, exactly as
+-- this paragraph demanded: migration 00012 added cancelled_at plus its own
+-- column-level GRANT, and CancelPendingInvitesForEmployee below is the only
+-- statement that writes it. Every query that decides whether a code may be spent now
+-- eliminates the two facts SEPARATELY -- `used_at IS NULL AND cancelled_at IS NULL`.
+-- Cancelling an invite from the panel -- which legitimately knows only the id --
 -- is a DIFFERENT operation and must NOT reuse used_at: that stamp means "the code
 -- was used", and overloading it would corrupt the audit answer. Cancellation gets
 -- its own column in a NEW migration when M6 needs it.)
@@ -217,6 +228,7 @@ WITH consumed AS (
     WHERE code_hash = @code_hash
       AND tenant_id = @tenant_id
       AND used_at IS NULL
+      AND cancelled_at IS NULL
       AND now() < expires_at
       AND EXISTS (SELECT 1 FROM employees e
                   WHERE e.id = employee_invites.employee_id
@@ -255,5 +267,59 @@ FROM employee_invites
 WHERE tenant_id = @tenant_id
   AND employee_id = @employee_id
   AND used_at IS NULL
+  AND cancelled_at IS NULL
   AND now() < expires_at
 ORDER BY created_at DESC;
+
+-- name: CancelPendingInvitesForEmployee :many
+-- Retires every invitation of one employee that could still be spent, and returns
+-- the ids it retired (empty when there was nothing to retire -- idempotent).
+--
+-- 🔴 IT EXISTS BECAUSE SPENDING ONE INVITATION DID NOT RETIRE ITS SIBLINGS, and
+-- that was measured end to end over HTTP (M6-05 phase B): two presses of the panel's
+-- Send invite produced two simultaneously valid links, activating with the newer one
+-- left the older one PENDING, and the older one still activated afterwards -- taking
+-- the second-device path, which revokes the real employee's sessions and issues one
+-- to whoever held the stale link. A manager who presses twice because "the first one
+-- did not arrive" leaves a live account-takeover credential in a chat history.
+--
+-- 🔴 cancelled_at IS NOT used_at AND THE TWO ARE NEVER SWAPPED. This file's header
+-- says so from the other side: "Cancelling an invite from the panel ... must NOT
+-- reuse used_at: that stamp means 'the code was used', and overloading it would
+-- corrupt the audit answer." Migration 00012 added the column and the column-level
+-- GRANT precisely so this statement could exist; before it, tappa_app could write
+-- used_at and nothing else (measured: `UPDATE ... SET expires_at` -> permission
+-- denied, DELETE -> permission denied).
+--
+-- THE DIRECTION IS ONE-WAY, AS A PROPERTY OF THIS FILE. cancelled_at moves
+-- NULL -> now() and never back: the WHERE requires IS NULL, so a second run writes
+-- nothing and cannot rewrite the instant. That is discipline rather than
+-- enforcement -- 00012 says the same, and making it structural needs a trigger,
+-- which would have to answer for used_at at the same time.
+--
+-- IT DOES NOT TOUCH used_at OR expires_at, so a cancelled invitation keeps saying
+-- what it always said: never consumed, and it would have died on this date. A
+-- consumed one is left alone too (used_at IS NULL in the WHERE) -- retiring it would
+-- overwrite history with a fact that is not true.
+--
+-- 🔴 AND NEITHER IS AN EXPIRED ONE (now() < expires_at). The first version of this
+-- statement lacked that predicate while its own first line promised "every
+-- invitation that COULD STILL BE SPENT", and an audit measured the gap: two invites
+-- that had died an hour earlier were both stamped cancelled_at by a single press,
+-- and the screen reported "The 2 earlier links no longer work" when the press had
+-- retired ZERO spendable links. Two things were wrong and only one was cosmetic --
+-- the trail was answering "why is this invitation dead?" with "it was cancelled"
+-- about a code that had simply run out, which is the same conflation this file
+-- forbids for used_at. An expired invitation needs no retiring: it is already
+-- unspendable, and expires_at already says why.
+--
+-- TENANT SCOPE (section 4.5, belt + braces): explicit tenant_id predicate on top of
+-- RLS. A foreign employee id retires nothing.
+UPDATE employee_invites
+SET cancelled_at = now()
+WHERE tenant_id = @tenant_id
+  AND employee_id = @employee_id
+  AND used_at IS NULL
+  AND cancelled_at IS NULL
+  AND now() < expires_at
+RETURNING id;

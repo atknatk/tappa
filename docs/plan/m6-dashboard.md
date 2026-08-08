@@ -2286,6 +2286,12 @@ Ayrıca iş yalnız CSS+bileşen değil — kabuk `pages/` + `handler/`'a da dok
 - Liste: isim, lokasyon/departman, durum (`invited|active|deactivated`), oturum
   durumu (aktif cihaz var mı, son kullanım).
 - Aksiyonlar: davet et, yeniden davet, deaktive et, lokasyon/departman değiştir.
+  *(B fazında sevk edildi, 2026-08-07 — gerekçe ve ölçümler aşağıdaki 9b bloğunda.
+  "Yeniden davet" ayrı bir rota değil: aynı POST'un ikinci kez basılması, ve etiket
+  kişinin DURUMUNDAN türetiliyor — sınırı 9b md.11(iii)'te yazılı.)*
+- **⛔ Deaktivasyonun ürün içinde geri dönüşü YOKTUR** →
+  [ADR 0010](../adr/0010-deaktivasyon-tek-yonlu.md). Ekran bunu butondan ÖNCE
+  söylüyor (iki adımlı onay, script yok).
 - **Deaktive → sonraki tap `reject`.** Bunu sağlayan şey `employees.status` yazımı
   ve `sys:employee-deactivated` guardrail'idir; **oturum İPTAL EDİLMEZ**.
   `revoked_at` kayıp/çalıntı telefon ve ikinci-aktivasyon içindir.
@@ -2670,6 +2676,584 @@ Ayrıca iş yalnız CSS+bileşen değil — kabuk `pages/` + `handler/`'a da dok
 > çıplak `count(*) OVER ()` → **`int64`** (LEFT JOIN NULL üretebilirken, aynı
 > arıza) · **sevk edilen şekil** → `int64` + **`*time.Time`** (doğru). Üçü de
 > `employees.sql`'in iddia ettiği gibi.
+
+> **9b. 🔬 B FAZI — DÖRT AKSİYON SEVK EDİLDİ (2026-08-07).**
+>
+> **Ne indi:** üç POST rotası (`/admin/employees/invite`, `/deactivate`, `/move`),
+> kişi başına bir **aksiyon kartı** (`?manage=<id>`), ve her aksiyon için bir
+> `audit_log` satırı. **A fazının bilerek koymadığı butonlar artık var** ve
+> `TestEmployeesSection_OffersNoWriteAtAll` **emekliye ayrıldı**: yerine gelen
+> `TestEmployeesSection_EveryControlLeadsSomewhereThatExists` sayfadaki **her POST
+> hedefini ve her linki** aynı router'dan sürüyor. Sabit fiil listesi
+> (`phaseBVerb`) **silindi** — dört fiilin dördü de artık meşru etiket, ve doğru
+> sayfada ateşleyen bir tel bir sonraki kişinin sileceği teldir.
+>
+> **1. 🔴 DAVET DİKİŞİ ZATEN VARDI VE HİÇBİR ÇAĞIRANI YOKTU.** `invite.Manager.
+> IssueAndDeliver` kodu **döndürmüyor**; bir `Channel`'a veriyor, ve
+> `ManagerVisibleChannel` ifşayı **önce** `audit_log`'a yazıp sonra bir `LinkSink`'e
+> uzatıyor. B fazı **kanal yazmadı**: `panelLinkSink` (istek başına, yığında, tek
+> alan, getter yok) uyguladı ve `cmd/tappa`'da bağladı. Ölçüldü — bu satırdan önce
+> seamin **ÜRETİM çağıranı yoktu**. ⚠️ *"Hiçbir çağıranı yoktu"* **yanlıştı** (bu
+> cümle brief'te de, kartta da, `main.go` yorumunda da öyle yazılmıştı):
+> `git grep NewManagerVisibleChannel` → `internal/handler/e2e_db_test.go`, M5-02'nin
+> uçtan uca sürdüğü yer. Fark önemli: seam **test edilmiş ve monte edilmemişti** —
+> yani M5-04 şekli (yetenek teslim edildi, onaylandı, üründe ölü), kanıtlanmamış bir
+> mekanizma değil.
+>
+> **2. 🔴 DAVET POST'U YÖNLENDİRMİYOR, RENDER EDİYOR — ve bu panelin kendi kalıbını
+> BİLEREK bozuyor.** Diğer her yazma 303 veriyor; link bir `Location` başlığında
+> yolculuk **edemez** (adres çubuğu, geçmiş, paylaşılan ekran, Referer). Bedeli
+> yazıldı: **tarayıcı yenilemesi bir yeniden-POST'tur** ve **yeni bir davet üretir**
+> (yeni kod + ikinci ifşa satırı); eski davet kullanılana ya da süresi dolana kadar
+> geçerli kalır — iptal ETMİYOR, çünkü iptal `used_at`'i **kullanamaz**
+> (`invites.sql` bunu adıyla yasaklıyor) ve kendi işidir.
+>
+> **"Bir kez" ne demek, ölçülerek:** kodu geri okuyabilecek **hiçbir rota yok**
+> (DB hash tutuyor, `Manager` döndürmüyor, hiçbir GET okumuyor).
+> `TestPanelEmployeesDB_TheInviteLinkIsShownOnceAndNeverReadBack` dört yeri birden
+> ölçüyor — cevap gövdesi (**var**), sonraki kadro sayfası (**yok**),
+> `audit_log.detail` (**yok**, ve ifşa satırı **var**), `employee_invites.code_hash`
+> (**yok**) — ve **kanarya kendi kendini kanıtlıyor**: taranan tabloda satır yoksa
+> test *"bu yokluk hiçbir şey kanıtlamıyor"* diye patlıyor.
+>
+> **3. 🔴 DEAKTİVASYON GERİ ALINAMAZ — ve bunu hiçbir dosya söylemiyordu →
+> [ADR 0010](../adr/0010-deaktivasyon-tek-yonlu.md).** Ürün içinde *reactivate*
+> yolu **yok** (üç `UPDATE employees`'in hiçbiri `'active'` yazmaz; davet yolu
+> deaktif kişiyi **reddeder** ve bu bir **güvenlik özelliğidir**, `invites.sql`
+> yazıyor). Bu yüzden yıkıcı aksiyon **iki adımlı**: ilk adım bir cümle, düz bir
+> `GET` linki (script YOK — sunucunun zorlayamadığı bir tarayıcı diyaloğu onay
+> değildir). ⚠️ ADR 0009'dan **farkı** ADR'de tabloyla yazıldı: orada geri
+> alınamazlık **yapısal** (trigger `tappa_owner`'ı da reddediyor), burada **ürün
+> yüzeyinde** (yetki var, sorgu yok).
+>
+> **4. ✅ OTURUM İPTAL EDİLMİYOR — ve bu artık bir GÖZLEM değil, bir TEST.**
+> A fazı iki okumayı bırakmıştı; B fazı **sonucu** pinledi (negatif iddia tek
+> başına sessizce boşalır, M6-01 B'de beş koruma böyle silindi):
+> `TestEmployeeActionsDB_DeactivationMakesTheNextTapARejectThatIsRECORDED` —
+> aktifken tap **kaydediliyor** (pozitif kontrol) → panel deaktive ediyor → **canlı
+> oturum 1'de kalıyor** → aynı telefon tap ediyor → `reject` +
+> `sys:employee-deactivated` + **kayıt** + **güvenlik uyarısı**. Mutasyon:
+> deaktivasyona oturum iptali eklendi → **KIRMIZI**.
+>
+> **5. 🔴 AUDIT SATIRI İLE ALAN YAZIMI KADERİ PAYLAŞIYOR** (`RecordTx`, tek
+> transaction, `internal/domain/tenant/staff.go`). **İki yön de patlatıldı ve satır
+> sayıldı:** iz yazılamazsa çalışan **değişmiyor** ve **0** audit satırı kalıyor;
+> alan yazımı reddedilirse (ikinci basış, aynı yere taşıma) **0** audit satırı
+> yazılıyor. Mutasyon: `RecordTx` hatası yutuldu → **KIRMIZI**.
+>
+> **6. 📐 YAZMA YOLU `internal/domain/tenant`'A KONDU — ve bedeli AĞIN ÜÇÜNCÜ
+> KOPYASI.** CLAUDE.md §3 çalışan iş kurallarını oraya veriyor; `ledger`'a koymak
+> ücretsiz olurdu (ağ orada) ama o paketin *"hiçbir store çağrısı SELECT değil
+> değildir"* olgusunu öldürürdü. Üçüncü kopya `query_test.go` olarak yazıldı ve
+> **taşımadığı şey** (ledger'ın `unscopedSubqueries` taraması) **ölçülerek**
+> limit yazıldı. **Kapsam artışı: bu paket 5 sorgu netliyor** (koşuda basılıyor).
+>
+> **⚠️ VE İLK HÂLİ MUTASYONLA YENİLDİ.** `MoveEmployee`'den **öznenin**
+> (`e.tenant_id`) yüklemi silindiğinde ağ **yeşil** kaldı — çünkü aynı `WHERE`
+> içindeki `l.tenant_id = @tenant_id` eşleşmeyi tatmin ediyordu. Matcher **özneye
+> bağlandı** (`subjectAlias` + alt sorgu maskeleme); aynı mutasyon şimdi
+> **KIRMIZI**. ⚠️ Bu, ledger'ın kopyasının *yanlış* olduğu anlamına **gelmez**:
+> onun sorgularında her tablo kendi `WHERE`'ini taşıyor, tek-`WHERE`'li
+> `UPDATE … FROM` şekli bu görevle geldi.
+>
+> **7. 📏 BÜTÇE — DÖRDÜNCÜ PAYDA DOĞDU: AKSİYON BAŞINA.** Gerçek router, gerçek
+> bütçe, akış ilk 429'a kadar tekrarlandı:
+>
+> | Akış | Tamamlanan akış | Ücretli istek/akış |
+> |---|---|---|
+> | bölüm görüntülemesi | 300 | **1,00** |
+> | kişinin kartını açmak | 300 | **1,00** |
+> | davet / yeniden davet | 300 | **1,00** |
+> | taşıma (POST + 303'ü izle) | 150 | **2,00** |
+> | deaktivasyon (onay linki + POST + izle) | 100 | **3,00** |
+>
+> En pahalı akış **3**, eşik **≥15** — beşte biri. Bütçeyi hâlâ **gezinme**
+> harcıyor, aksiyon değil. ⚠️ Davetin en ucuz olması bir **güvenlik** sonucudur
+> (render, redirect değil), performans değil.
+>
+> **8. CSP ve kabuk — GENİŞLEMEDİ.** Bölüm `pages.PanelShell` render etmeye devam
+> ediyor (**script yuvası yok**); onay adımı ve sayfa çevirme düz `<a href>`,
+> aksiyonlar düz `<form method="post">`. Kardinalite pini **1'de** kaldı.
+> `app.css` **+55 bayt**, **2 yeni seçici** (`.break-all`, `.pt-4`), **ikisi de
+> gerçek bir `class=`'a iz sürüyor**, **ölü kural 0**. Yeni ton **yok** → kontrast
+> ağının çağrı yerleri değişmedi.
+>
+> **9. Aksiyon kartı SATIR BAŞINA DEĞİL SAYFA BAŞINA.** Taşıma formu lokasyon ve
+> departman listelerini ister; satır başına kopyalamak M6-03'ün ölçüp kaldırdığı
+> kontrolü `RosterPageSize` kez çoğaltırdı. Bedeli: kartı açmak **+1 ücretli
+> istek**.
+>
+> **10. 🔬 MUTASYON GÜNLÜĞÜ — 15 deneme, İKİSİ HAYATTA KALDI, biri gerçek bulgu.**
+>
+> | # | Mutasyon | Sonuç |
+> |---|---|---|
+> | M1 | `MoveEmployee`'den **öznenin** tenant yüklemini sil | **YEŞİL** → matcher özneye bağlandı → **KIRMIZI** |
+> | M2 | `RecordTx` hatasını yut | KIRMIZI |
+> | M3 | `sameOriginGate`'i resolver'ın **arkasına** al | KIRMIZI (*3 resolver okuması, 0 bekleniyordu*) |
+> | M4 | aktörü POST gövdesinden oku | KIRMIZI |
+> | M5 | aktivasyon linkini logla | KIRMIZI |
+> | M6 | taşıma hedefini `location` diye adlandır (filtreyle çakışır) | KIRMIZI |
+> | M7 | `done` bandını durumu **kontrol etmeden** bas | KIRMIZI |
+> | M8 | `MaxBytesReader`'ı kaldır | KIRMIZI |
+> | M9 | deaktif kişiye davet üret | KIRMIZI |
+> | M10 | deaktivasyon oturumu da iptal etsin | KIRMIZI |
+> | M11 | `status <> 'deactivated'` guard'ını sil | KIRMIZI |
+> | M12 | aynı-yere-taşıma guard'ını sil | KIRMIZI |
+> | M13 | rota **sabitini** yeniden adlandır | **YEŞİL — ve bu doğru:** form ile rota **tek sabitten** türüyor, ikisi birden taşınır. Gerçek şekil M13b. |
+> | M13b | şablona **düz metin** form action yaz | KIRMIZI (*404*) |
+> | M14 | `GetPanelEmployeeForAction`'dan tenant yüklemini sil | **davranış testi YEŞİL** (RLS tutuyor), **kuşak ağı KIRMIZI** — reponun kendi tezinin yeniden ölçümü |
+> | M15 | kayan-sayı ağının parantezli kolunu `[1-9]`'dan `[0-9]`'a geri gevşet | KIRMIZI (yeni yanlış-alarm kontrolü) |
+>
+> **2. TURUN MUTASYONLARI — denetçinin üç RED'ine karşı, hepsi aynı turda:**
+>
+> | # | Mutasyon | Sonuç |
+> |---|---|---|
+> | B2-a | `MoveEmployee`'yi **`WHERE`'siz `UPDATE`** taşıyan bir CTE'ye çevir | KIRMIZI |
+> | B2-b | `GetPanelEmployeeForAction`'a **`WHERE`'siz alt sorgu** ekle | KIRMIZI |
+> | B2-c | `DeactivateEmployee`'yi **kapsamsız `WHERE`**'li bir CTE'ye çevir | KIRMIZI |
+> | B1 | blok yürüyüşünü tek gövdeye kör et (yani eski sürüme döndür) | yeni kontrolün **üç probe'u KIRMIZI** |
+> | B3-a | `CanInvite: true` | KIRMIZI |
+> | B3-b | `CanDeactivate: true` | KIRMIZI |
+> | N1 | başlığı *"Placement saved"*a geri al | KIRMIZI |
+> | N2 | `invite.DeliverInvite`'a linki loglayan satır ekle | KIRMIZI |
+>
+> **⚠️ VE BU TUR KAYAN-SAYI AĞININ BİR YANLIŞ ALARMINI ÜRETTİ VE DARALTTI.**
+> `(roster|kadro|tenant|payroll)\W{0,3}\(\s*\d…` kolu, *"…as well as to a tenant
+> (00002)…"* yazan bir yorumu — yani bir **migration referansını** — kadro sayısı
+> sandı ve `make check`'i kırdı. Bir kadro sayısı **sıfırla başlamaz**, o yüzden kol
+> `[1-9]` ile daraltıldı: sınıf tümden kalktı, tek bir gerçek alıntı bile
+> kaçmıyor, ve **iki yönü de kontrol altında** (parantezli gerçek sayı hâlâ
+> yakalanıyor · iki migration referansı artık geçiyor). *Meşru düzyazıda ateşleyen
+> bir tel, bir sonraki kişinin sileceği teldir* — bu turda o kişi bendim.
+> **Bütçe 6'da kaldı**, borç azalmadı.
+>
+> **10b. 🔴 3. TUR — `tappa-security-auditor` RED: BİR HESAP DEVRALMA YOLU, BİR
+> DEKORATİF ONAY, BİR §5 BÜTÜNLÜK KUSURU.**
+>
+> **S3 · ✅ KAPATILDI — taşıma BAŞKA BİR LOKASYONA ait departmanı kabul ediyordu.**
+> Ölçüm (denetçi, gerçek router): *"MOVE venueA with deptB (venueB'ye ait) → 303;
+> stored location=venueA department=deptB"*. Tenant sızıntısı **değil**; §5
+> doğruluğu: geç kalma **departmanın vardiyasından** hesaplanıyor ve politikalar
+> `department/<id>` ile kapsanabiliyor, yani yanlış çift kişiyi **başka bir şubenin
+> sabahına** göre yargılatıyordu. Şema engellemiyor (bileşik FK yalnız **tenant**'ı
+> bağlıyor) ve açılır liste **tüm tenant departmanlarını** sunuyor — yani ekran o
+> seçimi **teklif ediyordu**. Çare `MoveEmployee`'nin JOIN'ine tek yüklem:
+> `AND d.location_id = l.id`. Liste **daraltılmadı** (venue seçimiyle birlikte
+> daralmak script ister; liste zaten **venue adına göre gruplu**), sınır **ifadede**.
+> Ekrandaki cümle iki sebebi de adlandırıyor. **Mutasyon:** yüklemi sil →
+> `TestStaffDB_ADepartmentOfAnotherVenueIsRefused` **KIRMIZI**.
+>
+> **S1 · 🛑 KAPATILAMADI — MIGRATION GEREKİYOR, KULLANICI KARARI BEKLİYOR.**
+> Bir daveti harcamak **kardeş daveti emekliye ayırmıyor**, ve kod ayırdığını
+> **yazıyordu**. Denetçinin bulgusunu **HTTP üzerinden** yeniden ürettim (denetçi
+> `/activate`'i sürememişti; artık panel harness'ı aktivasyon akışını da mount
+> ediyor):
+>
+> | adım | ölçüm |
+> |---|---|
+> | iki kez "Send invite" | **2** aynı anda geçerli davet |
+> | en yeni kodla `/activate` + `/api/activate` | çalışan **`active`** |
+> | sonra | **1** davet **hâlâ bekliyor** |
+> | **eski** kodla aktivasyon | **BAŞARILI** — ikinci-cihaz yolu |
+>
+> İkinci-cihaz yolu `RevokeAllForEmployee` çağırır: **gerçek çalışanın telefonu
+> düşer**, linki ele geçiren onun yerine trust 100 ile mesai yazar. Kötü niyetli
+> müdür gerekmiyor — *"link gelmedi, tekrar bas"* yeterli.
+>
+> **Neden kapatamadım — ölçüldü, varsayılmadı:**
+> ```
+> has_column_privilege('tappa_app','employee_invites',<col>,'UPDATE')
+>   → yalnız used_at = true; expires_at/code_hash/... = false
+> UPDATE employee_invites SET expires_at = now()  → permission denied
+> DELETE FROM employee_invites                     → permission denied
+> ```
+> `used_at`'i iptal için kullanmak **`invites.sql`'in açıkça yasakladığı** şey (o
+> damga *"kod kullanıldı"* demek). Yani iptal = **yeni sütun + yeni sütun GRANT'ı**
+> = **migration**, ve brief *"migration gerekiyorsa DUR ve sor"* diyor. **Duruyorum.**
+>
+> **Şimdi sevk edilen (karar gerektirmeyen yarısı):** (1) `employees.go`'daki
+> *"or one is used"* **yanlıştı → ölçtüğüne eşitlendi**; (2) davet ekranındaki
+> *"the old one keeps working until it is used or runs out"* — **rahatlatıcı yarısı
+> yanlıştı** → yerine, linki **üreten ekranda**, açık uyarı: eski linkler iptal
+> **edilmiyor**, onları tutan kişi **bu kişi olarak** giriş yapıp telefonunu
+> düşürebilir; (3) açık risk **sayıldı**:
+> `TestPanelEmployeesDB_ASecondInvitationDoesNotRetireTheFirst` — ve yorumu *"iptal
+> indiğinde bu test SİLİNMEZ, TERSİNE ÇEVRİLİR"* diyor. **Mutasyon:** uyarı cümlesini
+> sil → **KIRMIZI**.
+>
+> **🛑 KULLANICIYA ÜÇ SEÇENEK (ölçüldü, karar verilmedi):**
+> **(a) İptal sütunu** — `employee_invites.cancelled_at` + `GRANT UPDATE (cancelled_at)`
+> + `ConsumeInviteAndActivate`'e `AND cancelled_at IS NULL` + yeni davet üretilirken
+> kardeşleri işaretleyen ifade. **Kapatır.** Bedel: migration (00012), üç sorgu
+> dokunuşu, ve *"iptal edilmiş davet"* için yeni bir ekran cümlesi.
+> **(b) TTL kısaltma** — panel davetleri `IssueParams.TTL` ile ör. 24 sa üretir
+> (aralık `[1sa, 30gün]`, kod tarafı, **migration yok**). **Kapatmaz**, pencereyi
+> 7 günden 1 güne indirir. Bedel: `defaultTTL` yorumunun *"Pazartesi verilen kâğıt
+> davet Pazar günü hâlâ çalışsın"* gerekçesi düşer.
+> **(c) Olduğu gibi bırak** — risk sayılı, ekran uyarıyor, test ledger. Bedel:
+> yukarıdaki devralma yolu **canlı** kalır.
+>
+> **S2 · 🛑 KARAR KULLANICININ — onay adımı SUNUCUDA ZORLANMIYOR.** Denetçi ölçtü:
+> onay GET'i **hiç istenmeden** `POST /admin/employees/deactivate` → **303 +
+> `deactivated`**. Hidden alanlar yalnız id + filtreler; token yok, işaret yok.
+> ⚠️ **Asıl bedel cümleydi:** `employeeactions.go` *"POST yalnızca cümleyi zaten
+> basmış bir sayfadan ulaşılır"* diyordu — **yanlış**, ve sonraki okuyucu korumanın
+> **var olduğunu** sanardı. **Sevk edilen:** iki yorum (handler + `roster.templ`)
+> ölçtüğüne eşitlendi, ve davranış **sayıldı**:
+> `TestEmployeeDeactivate_TheConfirmationStepIsNotEnforced` (yorumu: *"zorlama
+> indiğinde bu test tersine çevrilir"*).
+> **İki okuma, ölçümle:**
+> **(a) Sunucuda zorla** — tek kullanımlık/imzalı bir onay değeri. Altyapı **var**:
+> `logincontext.go` zaten `newCSRFToken` + `adminCookies` ile aynı şekli giriş
+> formunda uyguluyor (çerez + form alanı + `subtle.ConstantTimeCompare`), yani
+> maliyet ≈ o kalıbın ikinci bir örneği: **yeni çerez adı + TTL + iki yeni failure
+> mode** (süresi dolmuş onay → *"tekrar deneyin"*; iki sekme → ikincisi reddedilir).
+> **(b) Cümleyi eşitle ve tek adımlı olduğunu yaz** — *o gün* sevk edilen geçici
+> hâl. Bedeli: **geri alınamaz aksiyon tek POST uzağında**, ve ADR 0010 ile birlikte
+> okunduğunda risk **ikisinin çarpımı**.
+> ⚠️ **SONRAKİ TUR BUNU GEÇERSİZ KILDI:** kullanıcı **(a)**'yı seçti (2026-08-08) ve
+> kapı **sevk edildi** — aşağıdaki **10c** ve **10d** bloklarını oku. Bu satır tarihsel
+> kayıt olarak duruyor; **bugünkü davranış değil**.
+> ⚠️ Not: bu bir CSRF sorunu **değil** (`ProtectWriting` origin'i zaten kontrol
+> ediyor); mesele **kendi müdürünün** yanlışlıkla/otomatikleşmiş bir istekle
+> uyarısız yazması.
+>
+> **S4 · bloklamayan, SAYILDI.** Origin başlığı **yokken** `Sec-Fetch-Site:
+> same-site` kapıyı geçiyor — *"same-site"* tam olarak **aynı sitenin farklı
+> origin'i**, yani `ProtectWriting`'in kendi yorumunun tehdit saydığı şey. Bugün
+> tarayıcıyla sömürülemez (POST'ta Origin daima gider) ama **bu diff üç mutasyon
+> rotasını, biri geri alınamaz, o satırın arkasına monte etti**. Pinlendi:
+> `TestEmployeeActions_SecFetchSiteSameSitePassesTheOriginGate` (iki kontrolüyle).
+> **Sertleştirme yapılmadı** çünkü `sameOrigin` **çıkışı ve onay kuyruğunu da**
+> koruyor — tek kelimelik değişiklik, ama onların turu bu görev değil.
+>
+> **⚠️ VE BRIEF'İMİN BİR VARSAYIMI ÇÜRÜTÜLDÜ (denetçi):** *"A fazının uzun-ad
+> kusurunu tetikleyen veri B'nin davet formundan girer"* — **yanlış**: bu fazda
+> `full_name` yazan **hiçbir form yok**. Davet, var olan bir çalışan satırına
+> gönderilir; isim girişi hiç sevk edilmedi.
+
+> **10c. ✅ 4. TUR — İKİ KULLANICI KARARI GELDİ (2026-08-08), İKİSİ DE (a).**
+>
+> ### Karar 1 — **migration 00012 `cancelled_at`; devralma yolu KAPANDI.**
+>
+> **Kararı süren ölçüm** (3. turda HTTP üzerinden iki uçtan alınmıştı):
+>
+> | adım | ölçüm |
+> |---|---|
+> | iki kez "Send invite" | **2** aynı anda geçerli davet |
+> | en yeni kodla aktivasyon | çalışan **`active`**, **1** davet hâlâ bekliyor |
+> | **eski** kodla aktivasyon | **BAŞARILI** → ikinci-cihaz yolu → gerçek çalışanın telefonu düşer |
+>
+> ve **neden migration şart olduğu**:
+> ```
+> has_column_privilege('tappa_app','employee_invites',<col>,'UPDATE') → yalnız used_at
+> UPDATE employee_invites SET expires_at = now()  → permission denied
+> DELETE FROM employee_invites                     → permission denied
+> ```
+>
+> **Ne indi:** `00012_add_cancelled_at_to_employee_invites.sql` — nullable sütun
+> (geri-doldurma **yok**: bir satırın geçmişte iptal edildiğini iddia etmek uydurma
+> olurdu) · **sütun düzeyi** `GRANT UPDATE (used_at, cancelled_at)` (tabloya toptan
+> UPDATE **verilmedi**) · `resolve_invite_by_code_hash` **DROP + CREATE** ile
+> `cancelled_at`'i de döndürüyor (RETURNS TABLE değiştiği için `CREATE OR REPLACE`
+> yetmez) + sahiplik/`REVOKE PUBLIC`/`GRANT EXECUTE` üçlüsü **yeniden** kuruldu
+> (DROP onları da düşürür — atlanırsa fonksiyon superuser'a ait olur, ADR 0002 md.7'nin
+> yasakladığı genel bypass) · `tappa_resolver`'a `SELECT (cancelled_at)`.
+> **`-- +goose Down` gerçekten çalışıyor** — `make migrate-down` koşuldu: sütun
+> gitti, fonksiyon 5 sütunlu hâline döndü, `GRANT UPDATE (used_at)` tek başına kaldı;
+> sonra `make migrate` ile geri alındı.
+>
+> **Beşli bozulmadı** (bu yeni tablo değil, sütun): `tenant_id NOT NULL`,
+> `(tenant_id, employee_id)` indeksi, `ENABLE`+`FORCE` RLS, `USING`+`WITH CHECK`
+> politikası ve GRANT 00009'da ve **değişmedi** — canlı doğrulandı
+> (`relrowsecurity=t relforcerowsecurity=t`). **Append-only trigger'la çarpışma yok**:
+> 00009 bu tabloya bilerek trigger koymamış (koruma `REVOKE` ile).
+> **İndeks eklenmedi** ve gerekçesi yazıldı (her okuyucu zaten `code_hash` UNIQUE'i ya
+> da `(tenant_id, employee_id)` indeksini kullanıyor).
+>
+> **`used_at` iptal için KULLANILMADI**, ve `cancelled_at` *"kullanıldı"* diye
+> **okunmuyor**: üç sorgu ikisini de **ayrı ayrı** eliyor
+> (`used_at IS NULL AND cancelled_at IS NULL`). Yeni davet, kardeşlerini
+> `IssueAndDeliver`'ın **aynı transaction'ında ve INSERT'ten ÖNCE** emekliye ayırıyor
+> (sonra olsaydı yeni satırı da yakalardı).
+>
+> **🔴 VE BİR MUTASYON İKİ AĞIN ARASINDAN GEÇTİ — ölçüldü, düzeltildi.** Tüketen
+> ifadeden `cancelled_at IS NULL` silindiğinde **uçtan uca test YEŞİL kaldı**: Go
+> tarafındaki `Lookup` iptal edilmiş kodu `GET /activate`'te zaten reddediyor, yani
+> POST hiç ifadeye ulaşmıyor. İki doğru katman, aralarında delik — reponun M5-05'te
+> ödediği şekil. İfadenin kendi ağı `internal/db`'ye kondu
+> (`TestConsumeInvite_DeadInvites/cancelled`, pozitif kontrollü) ve **o mutasyon
+> orada KIRMIZI**.
+>
+> **Mutasyonlar:** iptal ifadesini hiçbir şeyi eşleştirmeyecek hâle getir → HTTP testi
+> **KIRMIZI** *ve* SQL testi **KIRMIZI** (fixture boş kalınca *"vacuous"* diye
+> patlıyor) · tüketen ifadeden `cancelled_at IS NULL` sil → SQL testi **KIRMIZI**.
+> **Ekran ölçtüğüne eşitlendi:** artık *"The previous link … no longer works"*
+> (kaç tanesini emekliye ayırdığını sayarak), ve eski uyarının **yokluğu** da
+> iddia ediliyor. `TestPanelEmployeesDB_ASecondInvitationDoesNotRetireTheFirst`
+> **ters çevrildi** (`…RETIRESTheFirst`), silinmedi.
+> ⚠️ **Yan kazanç:** iptal edilmiş bir kodla gelen istek artık kendi audit sebebini
+> yazıyor (`invite.ErrCodeCancelled` → `"cancelled"`) — devralma denemesinin izi.
+>
+> ### Karar 2 — **onay SUNUCUDA zorlanıyor.**
+>
+> **Kararı süren ölçüm:** onay GET'i **hiç istenmeden** `POST
+> /admin/employees/deactivate` → **303, `status='deactivated'`**; ve ADR 0010 gereği
+> geri dönüş **yok**.
+>
+> **Ne indi:** `logincontext.go` kalıbının **ikinci örneği** — onay ekranı tek
+> kullanımlık bir değer üretir, **o kişiye bağlar** (`<token>.<employee id>`,
+> HttpOnly çerez, `Path=/admin`), form gizli alanda yankılar, handler
+> `subtle.ConstantTimeCompare` ile karşılaştırır. **Tek atımlık**: çerez yazmadan
+> **önce** silinir, yani yeniden gönderim aynı onayı kullanamaz. **10 dakika** sonra
+> tarayıcı göndermeyi bırakır → süre **yokluğa** dönüşüp sunucuda uygulanır.
+>
+> **İki yeni başarısızlık modu, ikisi de ekranda ve ikisi de ayrı kelime:**
+> `confirm-required` (onaysız **veya** süresi geçmiş — sunucudan bakınca **aynı
+> yokluk**, hangisi olduğunu iddia etmiyoruz) · `confirm-stale` (**ikinci sekme**:
+> tarayıcı başka kişiyi onaylıyor). **Reddedilen dalda DB'de hiçbir şey kalmıyor** —
+> ne `employees`, ne `audit_log` (ölçüldü).
+>
+> **Mutasyonlar:** kapıyı sil → **KIRMIZI** (*"an unconfirmed POST reached the domain
+> 1 time(s)"*) · bağlamayı sil → **KIRMIZI** (*"a confirmation bound to another person
+> deactivated somebody"*) · tek-atımlık silmeyi kaldır → **KIRMIZI** (*"a replayed
+> confirmation wrote a second deactivation"*). Pozitif kontrol testin içinde: onaydan
+> **geçen** akış çalışıyor, ve uyarı cümlesi hâlâ ekranda.
+> `TestEmployeeDeactivate_TheConfirmationStepIsNotEnforced` **ters çevrildi**
+> (`…IsENFORCED`, beş dal).
+>
+> ### Dördüncü yorum turu — ve bu kez **grep'le** doğrulandı
+> `employeeactions.go` · `roster.templ` · `employees.go` (davet etiketi) ·
+> `employees.templ` · **ADR 0010** ölçtüğüne eşitlendi. Tarama:
+> *"only ever reached from a page"* · *"courtesy rather than a gate"* ·
+> *"cancel the earlier ones"* · *"both valid until they expire"* → **üründe hiçbir
+> yaşayan iddia kalmadı**; kalan eşleşmelerin hepsi ya **tarihçeyi anlatan**
+> düzeltmenin içinde, ya da eski cümlenin **yokluğunu** iddia eden testte.
+>
+> ⚠️ **Bir limit kapandı, biri kalıyor:** ADR 0010'un *"onay zorlanmıyor"* limiti
+> silindi; yerine kalan dar cümle: kapı uyarının **sunulduğunu** garanti eder,
+> **okunduğunu** etmez.
+
+> **10d. 🔴 5. TUR — ÜÇÜNCÜ GÖZ RED: İKİ BLOKLAYAN, İKİSİ DE "SEVK EDİLEN ŞEY
+> YAZILANI YAPMIYOR".**
+>
+> **R1 · `ErrCodeCancelled` TAMAMEN AĞSIZDI — ve silmek KAYDI kaybediyordu.**
+> Denetçi önce iddianın **doğru** olduğunu ölçtü (emekliye ayrılmış kod → HTTP 400,
+> `activation.failed` / `reason='cancelled'`, kehanet yok), sonra hiçbir şeyin onu
+> tutmadığını: `grep -rn "ErrCodeCancelled" --include='*_test.go'` → **0**.
+> `TestFailures_AreAudited` **kapalı bir tabloydu** ve yeni sebep **satırsız** sevk
+> edilmişti. **Mutasyon:** `case` bloğunu sil → kontrol `default:`e düşüyor, o da
+> **`failAttempt` çağırmıyordu** → sunulmuş bir devralma kimlik bilgisi **kayıtsız bir
+> 500**: `audit_log` satırı yok, davet bütçesi harcanmıyor, ziyaretçiye *"sunucu
+> bozuk"* deniyor. **Tüm paket yeşildi.**
+>
+> **İki katmanlı düzeltme, çünkü kapalı tablo ağ değil değişiklik dedektörüdür:**
+> (1) `switch` bir **tabloya** dönüştü (`inviteFailureReasons`) ve
+> `TestActivationReasons_CoverEverySentinel` sentinel kümesini `internal/invite`'ı
+> **`go/ast` ile ayrıştırarak TÜRETİYOR** — yani sebep verilmeden eklenen bir sentinel
+> **kırmızı**. `ErrUnknownCode` **tek beklenen istisna** olarak adıyla yazılı (tenant
+> yok → `audit_log.tenant_id` NOT NULL). (2) 🔴 **`default:` dalı artık KAYDEDİYOR**
+> (`reason="unclassified"`) — çünkü o dal §4.6'ya göre zaten yanlıştı: bilinmeyen bir
+> hata da kaydedilmeli. Sebep hata **metninden türetilmiyor** (`err.Error()` değer
+> alıntılayabilir); sabit bir kelime yazılıyor, ayrıntı process log'una gidiyor.
+> **Mutasyonlar:** tablodan `cancelled` sil → **iki test birden KIRMIZI** (türetilmiş
+> olan *"listeler ayrıştı"*, tablo satırı *"reason = unclassified, want cancelled"*) ·
+> `default:`ten `failAttempt`'i sil → **KIRMIZI** (*"audit events = [], want exactly
+> one"*).
+>
+> **R2 · ONAY KAPISININ YAZILI GARANTİSİ YANLIŞTI — ve kullanıcı kararı "zorla"ydı.**
+> Sevk ettiğim şey **saf double-submit çerezti**: MAC yok, sunucu kaydı yok, oturuma
+> bağ yok. Denetçi iki satırda forge etti:
+> ```
+> cookie: tappa_admin_confirm=attacker-chosen-value.<employee id>
+> POST /admin/employees/deactivate id=<employee id>&confirm_token=attacker-chosen-value
+> -> 303 ?done=deactivated,  employees.status = "deactivated"
+> ```
+> Yorumum *"logincontext.go'nun ŞEKLİ, BİLEREK"* diyordu — **ve kusur tam olarak
+> buydu: şekil mekanizma değildir.** O dosyanın güvenliği sunucu anahtarı altındaki
+> **HMAC**'ten geliyor; bende **anahtar yoktu**.
+>
+> **⚠️ KALIBI KOPYALARKEN PARÇALARINI SAYDIM — bu depoda üçüncü yarım kopya.**
+> `adminChoices`'ın **on** parçası `deactivateconfirm.go`'da tek tek listelendi ve
+> hepsi uygulandı: kendi etiketiyle **türetilmiş anahtar** · **sıfır değer = hata**
+> (mint **ve** parse) · **zorunlu bağlama** (burada **iki**: çalışan **ve oturum**) ·
+> sürümlü payload · **uzunluk önekli** MAC girdisi · `base64url(payload).base64url(sig)`
+> · sıra **şekil → İMZA → süre → alanlar** · **sabit zamanlı** karşılaştırma ·
+> "authenticated but unreadable" = malformed · **sunucu saatiyle** TTL.
+> Çerez **kaldı ama işi değişti**: artık yalnız **tek-atımlık** defteri; güveni MAC
+> veriyor.
+>
+> **Denetçinin sekiz saldırısı + forge = DOKUZ, hepsini kendim koştum** → hepsi
+> **reddedildi**, alan katmanına **0** çağrı; pozitif kontrol geçiyor.
+> **Mutasyonlar:** imza karşılaştırmasını körleştir → **KIRMIZI** (forge saldırısı
+> `done=deactivated` alıyor) · oturum bağlamasını kaldır → **KIRMIZI** · süre
+> kontrolünü kaldır → **KIRMIZI**. Ayrıca değerin kendi testi: başka oturum · başka
+> çalışan · TTL'in bir saniye içi/dışı · sıfır değer · **başka anahtarla imzalanmış**.
+>
+> ⚠️ **Ve güvenlik kazancı KÜÇÜK — bunu yazmak dürüstlüğün parçası.** Bu kapının
+> karşısındaki aktör panelin **kendi oturumlu müdürü** ve o kişi zaten GET-sonra-POST
+> yapabilir. Kazanılan şey kullanıcının istediği **garanti**: yazmaya ulaşmak,
+> sunucunun uyarıyı **o kişi için, o oturumda, on dakika içinde** render ettiği
+> anlamına geliyor.
+>
+> **Bloklamayanlar (hepsi kapatıldı):** **N1** üç dosyada üç dal sayısı → sayı
+> **tümden kaldırıldı** (F1 sınıfı) · **N2** yorumdaki `grep` çıktısını yanlış
+> aktarıyordu → komut `^` ile **yeniden üretilebilir** hâle getirildi ve altı-satır
+> tuzağı yazıldı · **N3** iptal **süresi dolmuş** davetleri de emekliye ayırıyordu ve
+> ekran onları **sayıyordu** → `now() < expires_at` eklendi; *"süresi doldu"* ile
+> *"iptal edildi"*yi birleştirmek `used_at` için yasaklanan karıştırmanın aynısıydı.
+> **Mutasyon KIRMIZI**, ve ⚠️ o mutasyon **fixture'ımın kendi kusurunu** ortaya
+> çıkardı (deterministik `code_hash`, ikinci koşuda 23505 — *bir kez çalışan fixture,
+> göstermek için kurulduğu sonucu gizler*) → rastgele yapıldı, **iki kez** koşuldu ·
+> **N4** yetim doc comment → yardımcı dosya sonuna taşındı · **N6** kartta bayat
+> şimdiki zaman → 3. tur bloğuna *"sonraki tur bunu geçersiz kıldı"* uyarısı kondu.
+>
+> ⚠️ **Ve orkestratörün bir sayısı düzeltildi:** kuşak paydası **46 değil 47**
+> (koşuda: ledger **9/47**, tenant **5/47**).
+
+> **10e. ✅ 6. TUR — KAPANIŞ. Güvenlik denetçisi RED verdi ve açıkça yazdı:
+> *"üç bulgunun hiçbiri sömürülebilir değil, hiçbiri kırmızı çizgi çiğnemiyor."***
+> **Kapanış kuralı uygulandı: yeni mekanizma YOK; ölçüldü, cümleler düzeltildi,
+> kalan LİMİT olarak sayıldı.**
+>
+> **B1 · ADR'nin *"kanıtlandı"* dediği TEK-ATIMLIKLIK sunucuda tutulmuyor.**
+> `a.short.clear` bir `Set-Cookie … Max-Age=-1`, yani istemciye **rica**; sunucuda
+> harcanmışlığı tutan hiçbir durum yok. Denetçi her POST öncesi çerezi yeniden basan
+> bir istemciyle **tek onayı üç kez** harcadı.
+>
+> 🔴 **ASIL MESELE AĞDAYDI:** replay testi `browser` yardımcısı üzerinden koşuyordu ve
+> **o yardımcı çerez silmeyi uyguluyordu** — assertion sunucunun değil, **test
+> istemcisinin işbirliğinin** ölçümüydü. Bu, `activate_test.go`'nun *"kapalı liste ağ
+> değil"* sınıfının bir kademe küçüğü ve **sonucu ne olursa olsun düzeltilmesi
+> gereken** şey.
+>
+> **Yapılanlar, bu sırayla:**
+> **(1)** İki yeni test **sunucuyu** ölçüyor: `…TheOneShotDependsOnTheClient`
+> (işbirliği yapmayan istemci → **3 mint'ten 3 harcama**, ve *"burada 1 görürsen
+> defter eklenmiş, bu testi sil ve ADR'yi düzelt"* diye yazıyor) ve DB ikizi
+> `TestPanelEmployeesDB_ARepeatedConfirmationWritesOnlyOnce` (ikinci harcama →
+> `problem=already-deactivated`, **audit satırı artmıyor**, `deactivated_at`
+> **oynamıyor**). Harness'a `setCookie` eklendi — *bir istemcinin bilerek işbirliği
+> yapmaması*, sunucunun ne tuttuğunu ölçmenin tek yolu.
+> **(2)** Cümleler ölçtüğüne eşitlendi: **ADR 0010** (dört kanıtlanmış özellikten
+> *"tek-atımlık"* **çıkarıldı**, yerine tutulmayanı ölçen iki test adıyla yazıldı, ve
+> md.3'e ikinci dar cümle eklendi) + `deactivateconfirm.go` + `employeeactions.go`'da
+> **üç ayrı yer**. Grep ile doğrulandı: bu görevin dosyalarında *"one-shot"*u **tutulan
+> bir özellik gibi** anlatan **tek satır kalmadı**.
+> **(3)** ⛔ **Sunucu defteri KURULMADI.** Bir tablo/sütun = altyapı, ve kazanç
+> **ölçülmüş sıfır**: aynı aktör tek GET ile taze onay üretir, 2..N harcamalar
+> `DeactivateEmployee`'nin `status <> 'deactivated'` yüklemine çarpıp **hiçbir şey
+> yazmaz**. **Tutulan** (MAC): *"sunucu bu kişi için, bu oturumda, pencere içinde
+> uyarıyı render etti"*. **Tutulmayan:** tek-atımlıklık **istemciye bağlı**.
+>
+> **B2 · sayılmamış 11. parça — EKLENDİ.** `parse` yalnız `now > issued + ttl` test
+> ediyordu; denetçi **bir yıl ileriye** damgalanmış onayı temiz geçirdi. Saldırgan
+> erişimi yok (damga sunucunun saati, MAC'in içinde) **ama dosyanın manşeti
+> *"parçalar SAYILDI"*** — yani hata tam da dosyanın bitirmek için var olduğu
+> sınıftaydı. `adminConfirmFutureSkew = 1 dk` eklendi (adminChoices'ın figürü), liste
+> **11**'e çıktı, ve pencere artık **TTL + skew = 11 dk** diye yazılı — her yerde 10
+> yazan cümle düzeltildi. **Mutasyon:** skew kolunu kaldır → **KIRMIZI**; tolere
+> edilen yön hâlâ geçiyor.
+>
+> **B3 · teslim başarısız olunca ÇALIŞAN bir link sessizce ölüyor — YORUM DÜZELTİLDİ,
+> SAYILDI.** İptal + INSERT transaction'ı commit ediyor, `DeliverInvite` **dışarıda**
+> koşuyor; o yazma patlarsa çalışanın elindeki link **emekliye ayrılmış** oluyor ve
+> kimse aktive olamıyor. Yorum hâlâ tek sonucun *"davet bekleyen olarak görünür,
+> **kayıp değil**"* olduğunu söylüyordu — **00012'den beri eksik**. §4.6 ihlali
+> **değil** (emeklilik `cancelled_at`'te kayıtlı, DELETE yok, hata enjeksiyonu
+> gerekiyor, ikinci basış **kendini onarıyor**) ve kapatmak teslimi transaction'ın
+> **içine** almayı gerektirirdi — `internal/invite` bunu bilerek reddediyor
+> (*commit edilmemiş ama teslim edilmiş bir kod, teslim edilmemiş ama commit edilmiş
+> bir koddan kötüdür*).
+>
+> **Ve bir cümle AŞIRI DEĞİL, EKSİK ifade olduğu için düzeltildi:** *"IT IS NOT CSRF
+> PROTECTION"*. Token sayfaya render ediliyor, çerez `HttpOnly`+`SameSite=Lax`+
+> `Path=/admin` — çapraz-origin okuma SOP ile kapalı, yani Origin kontrolü **Origin
+> başlığı yokken düşerse** bu fiilen ikinci katman senkronizatör token'ı olarak
+> çalışıyor. Cümle *"panelin CSRF savunması değildir ve öyle kullanılmamalı, ama
+> hiçbir şey de değil"* diye yeniden yazıldı.
+>
+> ⚠️ **Denetçinin MAC'e karşı dokuz forgery denemesinin hiçbiri geçmedi** (anahtar
+> karışımı, ham `SessionHMACKey`, etiketsiz, sürüm 0/2/boş, 5/3 alan, employee↔session
+> yer değiştirmiş) ve **downgrade yolu yok** (sürüm MAC'in içinde).
+
+> **11. Kapatılanlar ve kapatılmayanlar.**
+>
+> **✅ (i)+(ii) KAPATILDI — ve ikisi de 2. turda BLOKLAYAN olarak geri geldi, çünkü
+> yazdığım limitler YANLIŞTI.** (i) *"Bu kopya `unscopedSubqueries` taşımıyor;
+> `TestStaffQueries_ASubqueryWithNoWhereIsInvisible` tarama eklendiği gün kırmızıya
+> döner"* — denetçi taramayı **gerçekten yazdı** ve **iki test de yeşil kaldı**: o
+> test yalnız kendi literal probe'unu ölçüyordu, bir taramanın **var olup olmadığını
+> gözleyecek hiçbir yolu yoktu**. Ölçüm değil, **ölçüm kılığında bir hatıraydı**.
+> (ii) *"`subjectAlias` CTE anlamıyor → CTE'nin `WHERE`'i dıştaki özneye göre
+> denetlenir"* — **yönü tersti**: gerçek davranış **yanlış-kırmızı** değil
+> **yanlış-YEŞİL**di, ve kaçan şey bir **YAZMA**ydı. Denetçinin mutasyonu:
+> `WITH moved AS (UPDATE employees SET location_id = @location_id RETURNING …)` —
+> **hiç `WHERE`'i yok**, yani rolün gördüğü her satır — dış `SELECT`'in yüklemi
+> onun yerine cevap veriyordu → belt **ok**. Üstelik limit *"ledger's copy … handles
+> that shape"* diyordu, yani reponun **yasakladığı** *"başka yerde kapatıldı"*
+> cümlesi.
+>
+> **Kapanış kuralı uygulanmadı çünkü KAPATILABİLDİ.** Kontrolün birimi artık sorgu
+> değil **BLOK**: `statementBlocks` üst düzeyi **ve** her parantezli bloğu ayrı ayrı
+> veriyor (her biri kendi iç parantezleri maskeli), ve tenant tablosuna dokunan her
+> blok **kendi öznesinin** kapsam sütununu `@tenant_id`'ye bağlayan bir `WHERE`
+> taşımak zorunda. Tablo listesi `CREATE POLICY`'den türetiliyor. **Beş şekil kalıcı
+> probe olarak yazıldı** (`TestStaffBlockScan_FlagsTheShapesThatBeatTheOlderCheck`),
+> ve sevk edilen üç sorgu **temiz kalmalı** diye ikinci yönü de kontrol ediliyor.
+> **Mutasyonlar:** CTE-`WHERE`'siz-UPDATE → **KIRMIZI** · CTE-kapsamsız-`WHERE` →
+> **KIRMIZI** · alt sorgu-`WHERE`'siz-okuma → **KIRMIZI** · blok yürüyüşünü tek
+> gövdeye kör et → kontrolün **üç probe'u KIRMIZI**. `TestStaffQueries_ASubqueryWith
+> NoWhereIsInvisible` **silindi**; delik yok, limit cümlesi de yok.
+>
+> **✅ (iia) `CanInvite`/`CanDeactivate` AĞSIZDI — kapatıldı.** Denetçi ikisini de
+> sabit `true` yaptı, **tam paket iki koşuda da YEŞİL** (`-race`). Ürün doğruydu;
+> **üç dosya** (`employees.templ`, `rosterview.go`, `roster.templ`) tutulduğunu
+> iddia ediyordu ve adı geçen test **kesinlikle daha zayıf** bir özelliği tutuyor
+> (form hedefi servis ediliyor mu). Yeni ağ deaktif kişinin kartını **render ediyor**
+> ve üç şeyi birden istiyor: iki kontrol **yok**, iki gerekçe cümlesi **var**, ve
+> **taşıma formu duruyor** (§4.6 — pozitif kontrol + kartın boş olmadığının kanıtı);
+> ayrıca aktif kişinin kartı ikisini de **sunuyor**. **2 mutasyon, 2 KIRMIZI.** Üç
+> cümle ölçtüğüne eşitlendi.
+>
+> **(iii) **Davet butonunun etiketi
+> DURUMDAN türetiliyor**, bekleyen davet olup olmadığından değil — bunu bilmek
+> `employee_invites` JOIN'i ister ve A fazı o tabloyu bilerek listeye sokmadı.
+> Sonuç: *"Send invite"* iki kez basılırsa **iki geçerli davet** olur, ve ekran
+> bunu söylemiyor. (iv) **Deaktivasyonu geri alacak yol yok** → ADR 0010; şema
+> izin veriyor, ürün vermiyor, geri almanın **audit izi olmazdı**. (v) **JOIN … ON
+> içindeki `d.tenant_id` yüklemi netlenmiyor** (ağ ON'ları yapısal olarak dışlıyor,
+> doğru olarak) — orada koruma **bileşik FK**'dir, yani disiplin değil yapı, ve
+> `employees.sql` bunu yazıyor. (vi) **Eşzamanlı iki müdür** ölçüldü: deaktivasyon
+> 8 goroutine → **tam 1** kazanan, **1** audit satırı. **Taşıma da ölçüldü
+> (denetçi)**: 8 → **4 yazma / 4 `no-change`**, **4 audit satırı**, kayıp yok.
+> ⚠️ Bunun **ekrandaki bedeli sayıldı ve kapatılmadı**: yarışı kaybeden müdür
+> *"That is already where they work"* okuyor — **durum hakkında doğru, niyet
+> hakkında yanıltıcı**. Ürün ikisini ayırt **edemez** (form render edildiğinde
+> yerleşimin ne olduğunu hiçbir şey kaydetmiyor), o yüzden cümleye ikinci bir satır
+> eklendi: *"If you had just changed it, check the placement above…"* — tahmin
+> etmiyor, karta işaret ediyor.
+>
+> (vii) 🆕 **`AdminInviteIssued` CSP karşılıklılık testinin görüş alanında DEĞİL.**
+> O test korpusunu `pages.PanelSections`'tan kuruyor; bu ekran bir **POST cevabı**
+> olduğu için orada yok. Bugün doğru (aynı `a.render`, aynı dar politika, script
+> yok), ama *"her panel ekranı pinli"* demek **yanlış olurdu**. Sayıldı.
+>
+> (viii) 🆕 **`"unreadable"` ikiye bölündü** (N5): kartın DB okuması patlayınca
+> ekran artık *"We could not load this person's details…"* diyor, çünkü *"nothing
+> was looked up"* diyen sözlük maddesini paylaşmak müdüre **kendi gönderiminin**
+> bozuk olduğunu söylüyordu — patlayan **bizim** okumamızdı. Ayrıca `employees.go`
+> yorumunun vaat ettiği *"could not be loaded"* cümlesi **üründe hiç yoktu**;
+> artık var.
+>
+> (ix) 🆕 **§4.7 *"loglanmıyor"* İKİ ayrı iddiaydı ve biri ağsızdı** (N2). Handler'ın
+> logger'ı ölçülüydü; ham linki tutan **tek fonksiyon** (`invite.DeliverInvite`)
+> değildi — denetçi oraya bir log satırı ekledi, `internal/invite` ve
+> `internal/handler` **ok**, `redline-check` **temiz**. Kapatıldı: seam'in kendi
+> testi (`TestManagerVisibleChannel_DoesNotLogTheLinkItHolds`, `slog.SetDefault`
+> yakalayıcı + anti-vacuity + iki pozitif kontrol), mutasyonla **KIRMIZI**.
+> **Kalan limit:** kendi `*slog.Logger`'ını taşıyan bir gelecek uygulama görünmez —
+> bugün bu paket logger **enjekte etmiyor**, yani `slog.Default()` tek çıkış.
 
 ---
 

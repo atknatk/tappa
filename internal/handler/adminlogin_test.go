@@ -21,7 +21,9 @@ import (
 	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/domain/ledger"
 	"github.com/atknatk/tappa/internal/domain/review"
+	"github.com/atknatk/tappa/internal/domain/tenant"
 	"github.com/atknatk/tappa/internal/httpx"
+	"github.com/atknatk/tappa/internal/invite"
 	"github.com/atknatk/tappa/internal/session"
 )
 
@@ -163,6 +165,16 @@ func (f *fakeTrail) count(action string) int {
 		}
 	}
 	return n
+}
+
+// eventsSnapshot is a copy of every event recorded so far, for the tests that read
+// the PAYLOAD rather than count the action.
+func (f *fakeTrail) eventsSnapshot() []audit.Event {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]audit.Event, len(f.events))
+	copy(out, f.events)
+	return out
 }
 
 func (f *fakeTrail) total() int {
@@ -320,6 +332,126 @@ func (f *fakeReviewer) recorded() []review.Decision {
 	return out
 }
 
+// fakeStaff is the employees section's write side without a database (M6-05 phase
+// B). It records what it was asked to do and answers with whatever the test set.
+//
+// ⚠️ WHAT A FAKE CAN AND CANNOT PROVE HERE. It proves the BOUNDARY: which command
+// the handler builds from a request, that the tenant and the actor come from the
+// session rather than from the body, and that a refusal reaches the manager as a
+// sentence. It cannot prove anything about §4.5 or about the audit row sharing a
+// transaction — a fake accepts whatever it is told, so those live in
+// employeeactions_db_test.go against real Postgres.
+type fakeStaff struct {
+	mu            sync.Mutex
+	person        *tenant.Person
+	personErr     error
+	deactivateErr error
+	moveErr       error
+	lookups       []uuid.UUID
+	deactivations []tenant.DeactivateCommand
+	moves         []tenant.MoveCommand
+}
+
+func (f *fakeStaff) Person(_ context.Context, _, employeeID uuid.UUID) (tenant.Person, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.lookups = append(f.lookups, employeeID)
+	if f.personErr != nil {
+		return tenant.Person{}, f.personErr
+	}
+	if f.person != nil {
+		p := *f.person
+		p.ID = employeeID
+		return p, nil
+	}
+	return tenant.Person{
+		ID:           employeeID,
+		Name:         "Maria Borg",
+		Status:       ledger.StatusActive,
+		LocationID:   panelTestLocation,
+		LocationName: "KF St Julians",
+	}, nil
+}
+
+func (f *fakeStaff) Deactivate(_ context.Context, c tenant.DeactivateCommand) (tenant.Person, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.deactivations = append(f.deactivations, c)
+	if f.deactivateErr != nil {
+		return tenant.Person{}, f.deactivateErr
+	}
+	return tenant.Person{ID: c.EmployeeID, Name: "Maria Borg", Status: ledger.StatusDeactivated}, nil
+}
+
+func (f *fakeStaff) Move(_ context.Context, c tenant.MoveCommand) (tenant.Person, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.moves = append(f.moves, c)
+	if f.moveErr != nil {
+		return tenant.Person{}, f.moveErr
+	}
+	return tenant.Person{
+		ID: c.EmployeeID, Name: "Maria Borg", Status: ledger.StatusActive,
+		LocationID: c.LocationID, DepartmentID: c.DepartmentID,
+	}, nil
+}
+
+func (f *fakeStaff) commands() ([]tenant.DeactivateCommand, []tenant.MoveCommand) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	d := make([]tenant.DeactivateCommand, len(f.deactivations))
+	copy(d, f.deactivations)
+	m := make([]tenant.MoveCommand, len(f.moves))
+	copy(m, f.moves)
+	return d, m
+}
+
+// fakeInviter mints nothing but DRIVES THE REAL CHANNEL, which is the point.
+//
+// 🔴 IT CALLS ch.DeliverInvite RATHER THAN RETURNING A LINK, because that is the
+// only way the panel can obtain one and the shape under test is exactly that seam:
+// invite.ManagerVisibleChannel writes the disclosure to audit_log and then hands the
+// link to the sink. A fake that returned a string would test a mechanism the product
+// does not have.
+type fakeInviter struct {
+	mu     sync.Mutex
+	err    error
+	link   string
+	issued []invite.IssueParams
+}
+
+const fakeActivationLink = "https://panel.example/activate?code=FAKE-CODE-VALUE"
+
+func (f *fakeInviter) IssueAndDeliver(ctx context.Context, p invite.IssueParams, ch invite.Channel) (invite.Invite, error) {
+	f.mu.Lock()
+	f.issued = append(f.issued, p)
+	err, link := f.err, f.link
+	f.mu.Unlock()
+	if err != nil {
+		return invite.Invite{}, err
+	}
+	if link == "" {
+		link = fakeActivationLink
+	}
+	now := time.Now().UTC()
+	inv := invite.Invite{
+		ID: uuid.New(), TenantID: p.TenantID, EmployeeID: p.EmployeeID,
+		CreatedAt: now, ExpiresAt: now.Add(7 * 24 * time.Hour),
+	}
+	if err := ch.DeliverInvite(ctx, invite.Delivery{Invite: inv, ActivationURL: link}); err != nil {
+		return inv, err
+	}
+	return inv, nil
+}
+
+func (f *fakeInviter) issuedParams() []invite.IssueParams {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]invite.IssueParams, len(f.issued))
+	copy(out, f.issued)
+	return out
+}
+
 func (f *fakeLedger) Screen(_ context.Context, tenantID uuid.UUID, filter ledger.Filter) (ledger.Screen, error) {
 	f.record(tenantID, filter)
 	if f.err != nil {
@@ -402,7 +534,17 @@ func newAdminRouterWithLedger(t *testing.T, admins *fakeAdmins, trail *fakeTrail
 // *ledger.Reader.
 func newAdminRouterWithReviewer(t *testing.T, admins *fakeAdmins, trail *fakeTrail, records *fakeLedger, reviewer panelReviewer) http.Handler {
 	t.Helper()
-	h, err := NewAdminAuth(admins, trail, records, records, reviewer, adminTestConfig(), slog.New(slog.DiscardHandler))
+	return newAdminRouterWithActions(t, admins, trail, records, reviewer, &fakeStaff{}, &fakeInviter{})
+}
+
+// newAdminRouterWithActions is the same wiring with the employees section's two
+// write sides under the caller's control (M6-05 phase B). Every other helper in this
+// file funnels through it, so a test drives the REAL router, the REAL middleware
+// chain and the REAL budgets — the M5-04 lesson, which is that a test building its
+// own limiter measures its own limiter.
+func newAdminRouterWithActions(t *testing.T, admins *fakeAdmins, trail *fakeTrail, records *fakeLedger, reviewer panelReviewer, staff panelStaff, invites panelInviter) http.Handler {
+	t.Helper()
+	h, err := NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, adminTestConfig(), slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}
@@ -1337,7 +1479,7 @@ func TestAdminScreens_NeverRenderACredential(t *testing.T) {
 // signed out. This is a structural tripwire for the next person adding a route.
 func TestAdminRoutes_AreAllUnderTheCookiePath(t *testing.T) {
 	nilCfgLedger := newFakeLedger()
-	h, err := NewAdminAuth(&fakeAdmins{}, &fakeTrail{}, nilCfgLedger, nilCfgLedger, &fakeReviewer{}, adminTestConfig(), slog.New(slog.DiscardHandler))
+	h, err := NewAdminAuth(&fakeAdmins{}, &fakeTrail{}, nilCfgLedger, nilCfgLedger, &fakeReviewer{}, &fakeStaff{}, &fakeInviter{}, adminTestConfig(), slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}
@@ -1917,7 +2059,7 @@ func TestProtect_CarriesTheBudget(t *testing.T) {
 		return adminauth.Resolved{}, adminauth.ErrNoSession
 	}}
 	fake := newFakeLedger()
-	h, err := NewAdminAuth(admins, &fakeTrail{}, fake, fake, &fakeReviewer{}, adminTestConfig(), discardLogger())
+	h, err := NewAdminAuth(admins, &fakeTrail{}, fake, fake, &fakeReviewer{}, &fakeStaff{}, &fakeInviter{}, adminTestConfig(), discardLogger())
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}

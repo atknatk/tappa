@@ -655,7 +655,7 @@ func TestReviewDecision_AMalformedFormNeverLogsWhatWasSubmitted(t *testing.T) {
 	}}
 	records := queueWith(1)
 	reviewer := &fakeReviewer{}
-	h, err := NewAdminAuth(admins, &fakeTrail{}, records, records, reviewer, adminTestConfig(), logger)
+	h, err := NewAdminAuth(admins, &fakeTrail{}, records, records, reviewer, &fakeStaff{}, &fakeInviter{}, adminTestConfig(), logger)
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}
@@ -848,7 +848,7 @@ func TestSameOriginRefusal_NamesTheRouteItRefused(t *testing.T) {
 		}, nil
 	}}
 	records := queueWith(1)
-	h, err := NewAdminAuth(admins, &fakeTrail{}, records, records, &fakeReviewer{},
+	h, err := NewAdminAuth(admins, &fakeTrail{}, records, records, &fakeReviewer{}, &fakeStaff{}, &fakeInviter{},
 		adminTestConfig(), logger)
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)

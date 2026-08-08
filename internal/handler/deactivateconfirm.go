@@ -1,0 +1,285 @@
+package handler
+
+import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/base64"
+	"errors"
+	"fmt"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/google/uuid"
+
+	"github.com/atknatk/tappa/internal/config"
+)
+
+// The DEACTIVATION CONFIRMATION — a value only this server can mint, bound to one
+// employee and one panel session (user decision, 2026-08-08: "enforce it on the
+// server").
+//
+// 🔴 WHY THIS FILE EXISTS: THE FIRST ATTEMPT WAS A PURE DOUBLE-SUBMIT COOKIE AND AN
+// AUDIT FORGED IT IN TWO LINES.
+//
+//	cookie: tappa_admin_confirm=attacker-chosen-value.<employee id>
+//	POST   /admin/employees/deactivate  id=<employee id>&confirm_token=attacker-chosen-value
+//	-> 303 ?done=deactivated,  employees.status = "deactivated"
+//
+// The comment beside it said it was "logincontext.go's SHAPE, DELIBERATELY" — and
+// that was the defect, because a shape is not a mechanism. What makes that file's
+// choice blob unforgeable is an HMAC under a key derived from the server's own
+// secret; the confirmation had a cookie, a form field and a constant-time compare
+// and NO KEY AT ALL, so the two shapes diverged at exactly the point the guarantee
+// comes from. The user decision was "enforce", and what shipped did not.
+//
+// 🔴 COPYING A PATTERN MEANS COUNTING ITS PARTS — this repository has now half-copied
+// one THREE times (M6-01 B's rate-limit chain, M6-04's Origin gate, and this). So
+// adminChoices' parts are counted here, and each is marked present or deliberately
+// absent:
+//
+//	 1. key DERIVED at construction from SessionHMACKey under its own label   ✅
+//	 2. the zero value is an ERROR in both mint and parse, never a default    ✅
+//	 3. a required BINDING the value is useless without                       ✅ (two)
+//	 4. a versioned payload with separators no field can contain              ✅
+//	 5. LENGTH-PREFIXED MAC input, so the encoding is injective               ✅
+//	 6. base64url(payload) "." base64url(signature)                           ✅
+//	 7. parse order: shape -> SIGNATURE -> expiry -> fields                   ✅
+//	 8. constant-time comparison, never == or bytes.Equal (redline R7)        ✅
+//	 9. a version check whose failure is "malformed", never repaired          ✅
+//	10. TTL against the SERVER clock, injectable for tests                    ✅
+//	11. a FUTURE-SKEW bound, so a backwards clock step cannot widen the TTL   ✅
+//
+// ⚠️ PART 11 WAS MISSING FROM BOTH THE LIST AND THE CODE, WHICH IS THIS FILE'S OWN
+// HEADLINE MISTAKE IN MINIATURE. The list above exists to say "the parts were
+// counted"; an audit counted them again and found eleven, not ten — parse tested only
+// `now > issued + ttl`, so a confirmation stamped a YEAR ahead verified cleanly. No
+// attacker can reach it (issuedAt comes from this process's clock and is inside the
+// MAC), which is exactly why it is worth saying out loud: the defect was in the
+// COUNTING, and a file that argues for counting has to survive being counted.
+//
+// ⚠️ WHAT THIS BUYS, STATED HONESTLY AND SMALLER THAN IT SOUNDS. The actor this
+// gate faces is the panel's own signed-in operator, and that actor can always GET
+// the confirmation page and then POST — so the SECURITY difference is close to zero,
+// and the audit that forged the old value said so too. What it buys is the property
+// the user asked for and ADR 0010 depends on: reaching the irreversible write implies
+// the server RENDERED the warning, in response to a request for it, for THIS person,
+// in THIS session, within the window. A script written against the route now has to
+// walk the screen a human walks.
+//
+// 🔴 AND WHAT IT DOES *NOT* BUY IS SINGLE USE — measured, after this file claimed it.
+// The value carries no server-side state, so one minted confirmation can be spent as
+// many times as its holder likes until it expires: an audit re-printed the cookie
+// before each POST and got three deactivations from one mint. Nothing here notices,
+// because there is nothing here to notice with.
+//
+// IT IS COUNTED RATHER THAN CLOSED, and the reason is a measurement rather than
+// effort: single use needs a row somewhere (infrastructure), and the gain is ZERO —
+// the same operator can mint a fresh confirmation with one GET, and every spend after
+// the first meets DeactivateEmployee's own `status <> 'deactivated'` predicate, so it
+// writes no employees row, no audit row and no second stamp.
+// TestEmployeeDeactivate_TheOneShotDependsOnTheClient and its database twin measure
+// both halves, and both say to delete themselves if a ledger ever lands.
+//
+// WHAT IT IS AND IS NOT AGAINST CSRF — AND THE FIRST VERSION UNDERSTATED IT. It said
+// flatly "it is not CSRF protection", on the grounds that ProtectWriting refuses a
+// cross-origin POST before the resolver runs. That is the reason it is not NEEDED for
+// CSRF, and it is not the same as being useless against it: the token is rendered
+// into the page and its twin cookie is HttpOnly, SameSite=Lax and Path=/admin, so a
+// cross-origin document cannot read either (same-origin policy). If the Origin check
+// were ever to fall — most plausibly on a request that carries NO Origin header at
+// all, which is the counted limit at TestEmployeeActions_SecFetchSiteSameSitePasses
+// TheOriginGate — this would still stand in its way as a second layer.
+//
+// SAID AT THE RIGHT STRENGTH: it is not the panel's CSRF defence and must not be
+// relied on as one, but it is not nothing either. Its PURPOSE remains the other
+// question — was the warning served.
+
+// adminConfirmKeyLabel and adminConfirmMACLabel separate this value's key and MAC
+// input from every other keyed thing in the process. Two labels rather than one, for
+// adminChoices' reason: a key derived for one purpose must not be usable to forge
+// another's signature even if a payload were ever made to collide.
+const (
+	adminConfirmKeyLabel = "tappa/admin-deactivate-confirm/key/v1"
+	adminConfirmMACLabel = "tappa/admin-deactivate-confirm/mac/v1"
+	adminConfirmVersion  = "1"
+)
+
+// adminConfirmTTL is how long a rendered warning stays spendable.
+//
+// TEN MINUTES IS THE MIDDLE OF TWO ARGUMENTS. Long enough to read two sentences and
+// think; short enough that a manager who walked away comes back to the warning rather
+// than to a live button. It is enforced against the SERVER clock inside the signed
+// payload — the cookie's Max-Age is a browser hint and is deliberately not the bound.
+const adminConfirmTTL = 10 * time.Minute
+
+// adminConfirmFutureSkew tolerates a confirmation that appears to come from the
+// future. Both stamps are read from THIS process's clock and the value is
+// authenticated, so the only way here is the clock stepping backwards (an NTP
+// correction, a suspended VM). Beyond the tolerance it is treated as invalid rather
+// than believed — the fail-closed direction, and adminChoices' figure.
+//
+// ⚠️ IT WIDENS THE ACCEPTANCE BAND, so the number a threat model should use is
+// TTL + skew = 11 minutes, not the 10 every other sentence here quotes. The same
+// correction is written at adminChoiceFutureSkew and for the same reason.
+const adminConfirmFutureSkew = time.Minute
+
+// adminConfirm mints and verifies the value. The key is derived once and held
+// privately, so a later mutation of the caller's config slice cannot silently change
+// how confirmations sign.
+type adminConfirm struct {
+	key []byte
+	ttl time.Duration
+	// now is injectable for tests only; production leaves it nil.
+	now func() time.Time
+}
+
+func newAdminConfirm(cfg *config.Config) (adminConfirm, error) {
+	if cfg == nil {
+		return adminConfirm{}, errors.New("handler: nil config")
+	}
+	if len(cfg.SessionHMACKey) != 32 {
+		return adminConfirm{}, fmt.Errorf("handler: session hmac key must be 32 bytes, got %d", len(cfg.SessionHMACKey))
+	}
+	m := hmac.New(sha256.New, cfg.SessionHMACKey)
+	_, _ = m.Write([]byte(adminConfirmKeyLabel)) // hash writes never fail (documented)
+	return adminConfirm{key: m.Sum(nil), ttl: adminConfirmTTL}, nil
+}
+
+func (c adminConfirm) clock() time.Time {
+	if c.now != nil {
+		return c.now()
+	}
+	return time.Now()
+}
+
+// payload renders the authenticated fields.
+//
+// The separators are '|' and the fields are a single digit, a decimal timestamp and
+// two UUIDs — none of which can contain one, so splitting back is unambiguous with no
+// escaping. Same reasoning as adminChoices.payload, and the same shape.
+func (c adminConfirm) payload(issuedAt time.Time, employeeID, sessionID uuid.UUID) string {
+	return strings.Join([]string{
+		adminConfirmVersion,
+		strconv.FormatInt(issuedAt.Unix(), 10),
+		employeeID.String(),
+		sessionID.String(),
+	}, "|")
+}
+
+// sign is adminChoices.sign's construction, length prefix included.
+//
+// THE LENGTH PREFIX IS NOT DECORATION. Without it the MAC input is
+// `label || payload` and a future field could make two different payloads produce the
+// same bytes. Writing the payload's length first makes the encoding injective for any
+// shape the payload later takes, which is a guarantee the next person to add a field
+// does not have to know about.
+func (c adminConfirm) sign(payload string) []byte {
+	m := hmac.New(sha256.New, c.key)
+	_, _ = m.Write([]byte(adminConfirmMACLabel))
+	_, _ = m.Write([]byte(strconv.Itoa(len(payload))))
+	_, _ = m.Write([]byte("|"))
+	_, _ = m.Write([]byte(payload))
+	return m.Sum(nil)
+}
+
+// mint returns the value the confirmation form carries.
+//
+// IT REFUSES A ZERO KEY AND A ZERO BINDING. A zero adminConfirm would sign under an
+// empty key — a MAC anybody can compute — and a value bound to no employee or no
+// session would authorise a deactivation of anybody by anybody. Both are errors
+// rather than defaults, which is adminChoices' rule: where a type has no safe zero
+// value, the zero value must fail loudly.
+func (c adminConfirm) mint(employeeID, sessionID uuid.UUID) (string, error) {
+	if len(c.key) == 0 {
+		return "", errors.New("handler: the deactivation confirmation was not configured")
+	}
+	if employeeID == uuid.Nil || sessionID == uuid.Nil {
+		return "", errors.New("handler: refusing to sign a confirmation with no binding")
+	}
+	p := c.payload(c.clock().Truncate(time.Second), employeeID, sessionID)
+	return base64.RawURLEncoding.EncodeToString([]byte(p)) + "." +
+		base64.RawURLEncoding.EncodeToString(c.sign(p)), nil
+}
+
+// The two refusals a caller can act on. They are separate because they are separate
+// mistakes and each gets its own sentence on screen (§4.6).
+var (
+	// errConfirmInvalid: absent, malformed, forged, expired, or minted for another
+	// session. Collapsed on purpose — every one of them means "this browser has not
+	// been shown the warning", and telling them apart would describe the server's
+	// internals to whoever is probing it.
+	errConfirmInvalid = errors.New("handler: the deactivation was not confirmed")
+	// errConfirmOtherPerson: the value is genuine, unexpired and this session's, but
+	// it was minted for a DIFFERENT employee — the second-tab case, which deserves its
+	// own sentence because the manager did nothing wrong.
+	errConfirmOtherPerson = errors.New("handler: that confirmation belongs to another employee")
+)
+
+// parse verifies the value and returns the employee it authorises.
+//
+// ORDER: shape, then SIGNATURE, then expiry, then field decoding, then the bindings.
+// The signature comes before anything that interprets the payload, so no field of an
+// unauthenticated value is ever acted on. This is logincontext.go's order and
+// tapcontext.go's, kept deliberately identical so the three read as one pattern.
+func (c adminConfirm) parse(v string, employeeID, sessionID uuid.UUID) error {
+	if len(c.key) == 0 {
+		return errors.New("handler: the deactivation confirmation was not configured")
+	}
+	if employeeID == uuid.Nil || sessionID == uuid.Nil {
+		return errConfirmInvalid
+	}
+	encoded, sig, ok := strings.Cut(v, ".")
+	if !ok || encoded == "" || sig == "" {
+		return errConfirmInvalid
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(encoded)
+	if err != nil {
+		return errConfirmInvalid
+	}
+	got, err := base64.RawURLEncoding.DecodeString(sig)
+	if err != nil {
+		return errConfirmInvalid
+	}
+	// Constant time, never == or bytes.Equal (redline R7). ConstantTimeCompare
+	// returns 0 for differing lengths, so a truncated signature cannot match.
+	if subtle.ConstantTimeCompare(got, c.sign(string(raw))) != 1 {
+		return errConfirmInvalid
+	}
+
+	parts := strings.Split(string(raw), "|")
+	if len(parts) != 4 || parts[0] != adminConfirmVersion {
+		// Authenticated but unreadable: minted by this deployment under a different
+		// layout. Treated as invalid, never repaired.
+		return errConfirmInvalid
+	}
+	issued, err := strconv.ParseInt(parts[1], 10, 64)
+	if err != nil {
+		return errConfirmInvalid
+	}
+	issuedAt := time.Unix(issued, 0).UTC()
+	now := c.clock()
+	if now.Sub(issuedAt) > c.ttl || issuedAt.Sub(now) > adminConfirmFutureSkew {
+		return errConfirmInvalid
+	}
+	forEmployee, err := uuid.Parse(parts[2])
+	if err != nil {
+		return errConfirmInvalid
+	}
+	forSession, err := uuid.Parse(parts[3])
+	if err != nil {
+		return errConfirmInvalid
+	}
+	// 🔴 THE SESSION BINDING IS CHECKED BEFORE THE EMPLOYEE ONE, so a value minted in
+	// somebody else's session is "not confirmed" rather than "that was for another
+	// employee" — the second sentence would tell a prober which of the two bindings
+	// they missed.
+	if forSession != sessionID {
+		return errConfirmInvalid
+	}
+	if forEmployee != employeeID {
+		return errConfirmOtherPerson
+	}
+	return nil
+}

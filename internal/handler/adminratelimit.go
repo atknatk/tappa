@@ -360,6 +360,38 @@ const (
 	// What the page size buys is that browsing to the END stays possible, which is
 	// §4.6's shape — a person nobody can reach is a person nobody can audit.
 	//
+	// ✅ M6-05 PHASE B ADDED THREE WRITE ROUTES AND COUNTED THEM. THE PER-VIEW FIGURE
+	// STILL DID NOT MOVE, AND A FOURTH DENOMINATOR APPEARED: PER ACTION.
+	//
+	// Measured the same way — real router, real budgets, one session, the flow
+	// repeated until the first 429, then adminSessionLimit / repetitions:
+	//
+	//	section view                                 300 flows  ->  1.00 charged
+	//	open one person's action card                300 flows  ->  1.00 charged
+	//	invite / re-invite (POST renders the link)   300 flows  ->  1.00 charged
+	//	move (POST + follow the 303)                 150 flows  ->  2.00 charged
+	//	deactivate (confirm link + POST + follow)    100 flows  ->  3.00 charged
+	//
+	// 🔴 WHY THE INVITE IS ONE AND THE OTHERS ARE NOT. It is the panel's only write
+	// that RENDERS its response instead of redirecting, because the activation link
+	// must not travel in a Location header (§4.7, internal/handler/employeeactions.go).
+	// So the cheapest route is cheap for a security reason rather than a performance
+	// one, and the deactivation is the dearest because it asks first — a confirmation
+	// step this product cannot skip, since nothing can undo it (docs/adr/0010).
+	//
+	// AGAINST THE ≥15 THRESHOLD recorded above: the worst flow is 3, which is a fifth
+	// of it. A manager who deactivated one person every ten minutes would use 3 of
+	// 300. The budget is still spent by BROWSING (the roster-walk row above), not by
+	// acting: even 100 consecutive deactivations fit inside one window, and a business
+	// that deactivates a hundred people in ten minutes has a different problem.
+	//
+	// ⚠️ WHAT THIS DOES NOT COUNT: the WORK behind each request. A deactivation is a
+	// read plus an UPDATE plus an audit INSERT in one transaction; a move is the same
+	// shape; an invitation is an INSERT plus an audit INSERT in two. They are all
+	// single-row writes on indexed keys, which is why they are not in the millisecond
+	// table below — but "3 charged requests" is a statement about the BUDGET and not
+	// about the database, and the two axes are kept apart deliberately here.
+	//
 	// 🔴 THE SECOND AXIS: WHAT ONE REQUEST COSTS, WHICH THIS FILE NEVER COUNTED.
 	// Everything above counts REQUESTS. An audit named the gap: a ceiling on how
 	// MANY requests a session may make says nothing about how BIG each one is, and

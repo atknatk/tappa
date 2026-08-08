@@ -107,6 +107,21 @@ type ResolvedInvite struct {
 	EmployeeID uuid.UUID
 	ExpiresAt  time.Time
 	UsedAt     *time.Time
+	// CancelledAt is when this invitation was RETIRED WITHOUT BEING USED
+	// (migration 00012), nil while it is still spendable.
+	//
+	// 🔴 IT IS A SECOND, INDEPENDENT FACT AND IS NEVER READ AS UsedAt. "Somebody
+	// spent this code" and "this code was retired because a newer one was issued"
+	// are different events with different investigations behind them, and
+	// db/queries/invites.sql forbids collapsing them. Carried and NOT applied, for
+	// the reason the paragraph above gives about ExpiresAt and UsedAt: a cancelled
+	// invitation still RESOLVES, so a request carrying one can be told apart from an
+	// unknown code and written to audit_log with a tenant to attribute it to.
+	//
+	// THE SAME TOCTOU WARNING APPLIES. Reading this and then deciding to consume is
+	// the tags.last_ctr trap; the authority is ConsumeInviteAndActivate, whose WHERE
+	// carries `cancelled_at IS NULL`.
+	CancelledAt *time.Time
 }
 
 // ResolvedAdmin is one candidate identity for a login attempt: the columns
@@ -175,7 +190,7 @@ FROM resolve_tag_by_uid($1)`
 const getEmployeeBySessionHashSQL = `SELECT id, tenant_id, employee_id, revoked_at
 FROM resolve_session_by_token_hash($1)`
 
-const getInviteByCodeHashSQL = `SELECT id, tenant_id, employee_id, expires_at, used_at
+const getInviteByCodeHashSQL = `SELECT id, tenant_id, employee_id, expires_at, used_at, cancelled_at
 FROM resolve_invite_by_code_hash($1)`
 
 // $1::citext is EXPLICIT, not required -- the earlier comment here claimed the cast
@@ -237,7 +252,7 @@ func (d *DB) GetEmployeeBySessionHash(ctx context.Context, tokenHash string) (Re
 func (d *DB) GetInviteByCodeHash(ctx context.Context, codeHash string) (ResolvedInvite, error) {
 	var i ResolvedInvite
 	err := d.pool.QueryRow(ctx, getInviteByCodeHashSQL, codeHash).Scan(
-		&i.ID, &i.TenantID, &i.EmployeeID, &i.ExpiresAt, &i.UsedAt,
+		&i.ID, &i.TenantID, &i.EmployeeID, &i.ExpiresAt, &i.UsedAt, &i.CancelledAt,
 	)
 	if err != nil {
 		// The message names neither the code nor its hash: the argument is not

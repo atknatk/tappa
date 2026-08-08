@@ -124,9 +124,14 @@ func TestPanelQueries_CarryAnExplicitTenantPredicate(t *testing.T) {
 	// Counted.
 	sorted := append([]string(nil), names...)
 	sort.Strings(sorted)
+	// ⚠️ THE SENTENCE USED TO COUNT THE COPIES ("review has a second copy") AND M6-05
+	// PHASE B MADE IT STALE by adding a third in internal/domain/tenant. A count of
+	// sibling files is a fact about the calendar, so it is gone: what is true without
+	// one is that other domain packages carry their own copies over their own calls.
 	t.Logf("§4.5 belt coverage from THIS package: %d of %d queries declared in "+
-		"db/queries (%.1f%%). internal/domain/review has a second copy over its own "+
-		"calls, so the product-wide figure is higher than this one and lower than 100.\n"+
+		"db/queries (%.1f%%). Other internal/domain packages carry their own copies "+
+		"over their own calls, so the product-wide figure is higher than this one and "+
+		"lower than 100.\n"+
 		"seen here: %s",
 		len(names), len(declared), 100*float64(len(names))/float64(len(declared)),
 		strings.Join(sorted, ", "))

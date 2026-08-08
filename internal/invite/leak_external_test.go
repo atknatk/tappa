@@ -20,13 +20,18 @@ package invite_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/google/uuid"
+
+	"github.com/atknatk/tappa/internal/audit"
 	"github.com/atknatk/tappa/internal/invite"
 )
 
@@ -143,4 +148,99 @@ func reflectValue(c invite.Code) string {
 		return ""
 	}
 	return v.Elem().String()
+}
+
+// --- the DELIVERY seam ----------------------------------------------------------
+
+// recordingSink is a LinkSink that keeps what it was handed, so the assertions below
+// have a positive control: the link really did reach the panel.
+type recordingSink struct{ link string }
+
+func (s *recordingSink) ShowActivationLink(_ context.Context, d invite.Delivery) error {
+	s.link = d.ActivationURL
+	return nil
+}
+
+// countingRecorder is the narrow audit slice ManagerVisibleChannel needs.
+type countingRecorder struct {
+	events []audit.Event
+}
+
+func (r *countingRecorder) Record(_ context.Context, e audit.Event) (uuid.UUID, error) {
+	r.events = append(r.events, e)
+	return uuid.New(), nil
+}
+
+// TestManagerVisibleChannel_DoesNotLogTheLinkItHolds is §4.7 at the ONE function that
+// holds a raw activation URL.
+//
+// 🔴 IT EXISTS BECAUSE THE NET WAS ON THE WRONG SIDE OF THE SEAM. M6-05 phase B put
+// this channel on the production path (cmd/tappa wires the panel to it) and asserted
+// "the link is never logged" — but the assertion lived in internal/handler and drove
+// the HANDLER's logger. An audit added `slog.Default().Info("delivered invitation",
+// "link", d.ActivationURL)` to DeliverInvite itself — the function whose own comment
+// says "NEVER log it" — and measured `go test ./internal/invite ./internal/handler`
+// answering ok with redline-check clean. The product does not leak; the claim was
+// covering somebody else's logger.
+//
+// WHAT IT COVERS AND WHAT IT DOES NOT. It swaps the DEFAULT logger, which is the one
+// a package with no injected logger can reach, and drives the real channel. A future
+// implementation holding its own *slog.Logger would not be seen — that is a limit,
+// and it is smaller than the one it replaces: this package injects no logger at all
+// today, so slog.Default() is the only way out.
+func TestManagerVisibleChannel_DoesNotLogTheLinkItHolds(t *testing.T) {
+	var captured bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&captured, &slog.HandlerOptions{
+		Level: slog.LevelDebug,
+	})))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+
+	sink := &recordingSink{}
+	rec := &countingRecorder{}
+	actor := uuid.New()
+	ch, err := invite.NewManagerVisibleChannel(sink, rec, &actor)
+	if err != nil {
+		t.Fatalf("NewManagerVisibleChannel: %v", err)
+	}
+
+	link := "https://time.tappa.mt/activate?code=" + fakeCodeValue
+	err = ch.DeliverInvite(context.Background(), invite.Delivery{
+		Invite: invite.Invite{
+			ID: uuid.New(), TenantID: uuid.New(), EmployeeID: uuid.New(),
+			ExpiresAt: time.Now().Add(time.Hour),
+		},
+		ActivationURL: link,
+	})
+	if err != nil {
+		t.Fatalf("DeliverInvite: %v", err)
+	}
+
+	// POSITIVE CONTROLS FIRST, or every absence below is the absence of a delivery.
+	if sink.link != link {
+		t.Fatalf("the sink received %q, want the link; nothing was delivered", sink.link)
+	}
+	if len(rec.events) != 1 || rec.events[0].Action != invite.ActionCodeShownToManager {
+		t.Fatalf("the disclosure was not recorded; the channel did not run: %+v", rec.events)
+	}
+
+	if strings.Contains(captured.String(), fakeCodeValue) {
+		t.Errorf("the activation code reached the process log from the delivery seam "+
+			"(§4.7). Captured:\n%s", captured.String())
+	}
+	// AND THE AUDIT PAYLOAD, from this side of the seam as well as the handler's.
+	blob, err := json.Marshal(rec.events[0].Detail)
+	if err != nil {
+		t.Fatalf("marshal detail: %v", err)
+	}
+	if strings.Contains(string(blob), fakeCodeValue) {
+		t.Errorf("the activation code reached audit_log.detail: %s", blob)
+	}
+	// THE ANTI-VACUITY CHECK FOR THE LOG ASSERTION: the capture has to be capable of
+	// holding something, or "the code is not in it" is true of an empty buffer.
+	slog.Default().Info("probe: the capture is live")
+	if !strings.Contains(captured.String(), "the capture is live") {
+		t.Error("the captured logger recorded nothing at all, so the absence of the code " +
+			"in it proves nothing")
+	}
 }

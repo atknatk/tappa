@@ -384,6 +384,54 @@ func TestConsumeInvite_DeadInvites(t *testing.T) {
 		}
 	})
 
+	// 🔴 CANCELLED IS THE THIRD DEAD SHAPE, AND IT IS THE ONE THE STATEMENT ALONE
+	// GUARDS. Migration 00012 added cancelled_at so that issuing a new invitation can
+	// retire the employee's older ones — the account-takeover path M6-05 phase B
+	// measured end to end: a stale link, opened later, took the second-device route
+	// and signed the real employee out.
+	//
+	// ⚠️ IT IS TESTED HERE, AT THE STATEMENT, BECAUSE THE HTTP TEST COULD NOT SEE IT.
+	// A mutation dropped `cancelled_at IS NULL` from this query and the end-to-end
+	// test stayed GREEN: internal/invite's Lookup refuses a cancelled code at GET
+	// /activate, so the POST never reaches the consuming statement. Two correct
+	// layers, and a hole between them — exactly the shape this repository has paid
+	// for before. The Go gate is a courtesy; THIS is the authority.
+	t.Run("cancelled", func(t *testing.T) {
+		_, cancelledHash := newInvite(t, d, tenantID, employeeID, time.Hour)
+		cancelPending(t, d, tenantID, employeeID)
+
+		if _, err := consume(t, d, tenantID, cancelledHash); !errors.Is(err, pgx.ErrNoRows) {
+			t.Fatalf("cancelled consume error = %v, want pgx.ErrNoRows — a retired "+
+				"invitation must not activate anybody", err)
+		}
+		// AND IT IS STILL NOT "USED". Cancelling must not write used_at: the two are
+		// different answers to "what happened to this code" and db/queries/invites.sql
+		// forbids conflating them.
+		var used, cancelled *time.Time
+		if err := d.WithTenant(context.Background(), tenantID, func(ctx context.Context, tx pgx.Tx) error {
+			return tx.QueryRow(ctx,
+				`SELECT used_at, cancelled_at FROM employee_invites
+				 WHERE tenant_id = $1 AND code_hash = $2`, tenantID, cancelledHash).
+				Scan(&used, &cancelled)
+		}); err != nil {
+			t.Fatalf("read stamps: %v", err)
+		}
+		if used != nil {
+			t.Errorf("a CANCELLED invitation carries used_at = %v; cancellation must not "+
+				"be recorded as consumption", used)
+		}
+		if cancelled == nil {
+			t.Fatal("the invitation was not cancelled at all; the refusal above proves nothing")
+		}
+
+		// POSITIVE CONTROL: a fresh invitation for the same employee still consumes,
+		// so the refusal is the cancellation and not something structural.
+		_, liveHash := newInvite(t, d, tenantID, employeeID, time.Hour)
+		if _, err := consume(t, d, tenantID, liveHash); err != nil {
+			t.Fatalf("positive control: a live invite could not be consumed: %v", err)
+		}
+	})
+
 	t.Run("foreign tenant context", func(t *testing.T) {
 		_, codeHash := newInvite(t, d, tenantID, employeeID, time.Hour)
 		otherTenant, _ := newTenant(t, d)
@@ -824,7 +872,15 @@ func TestResolveInvite_SecurityDefinerProperties(t *testing.T) {
 	// --- (iii) no SELECT * surface -----------------------------------------
 	// The declared result IS the column list; pinning it also catches drift
 	// against the hand-written scan order in resolve.go.
-	const wantResult = "TABLE(id uuid, tenant_id uuid, employee_id uuid, expires_at timestamp with time zone, used_at timestamp with time zone)"
+	//
+	// ⚠️ IT GREW BY ONE COLUMN IN 00012 AND THAT IS WHY IT IS PINNED. cancelled_at
+	// joined the list because a retired invitation must be tellable apart from an
+	// unknown code — otherwise the audit trail writes the wrong reason for exactly
+	// the attempt the cancellation exists to expose. The list is still MINIMAL:
+	// code_hash (the input) and created_at (more than the caller needs) are still
+	// absent, and this assertion is what makes adding a fourth column a decision
+	// rather than an edit.
+	const wantResult = "TABLE(id uuid, tenant_id uuid, employee_id uuid, expires_at timestamp with time zone, used_at timestamp with time zone, cancelled_at timestamp with time zone)"
 	if result != wantResult {
 		t.Errorf("(iii) result = %q, want %q (fixed minimal column list; code_hash and created_at must NOT be returned)", result, wantResult)
 	}
@@ -1087,5 +1143,25 @@ func TestConsumeInvite_DeactivatedEmployeeCannotBurnTheInvite(t *testing.T) {
 	}
 	if row.ID != deactivatedID || row.Status != "active" {
 		t.Fatalf("positive control returned %s/%q, want %s/active", row.ID, row.Status, deactivatedID)
+	}
+}
+
+// cancelPending retires every spendable invitation of one employee through the
+// PRODUCTION statement, so this test cannot pass against a fixture the product could
+// not produce.
+func cancelPending(t *testing.T, d *DB, tenantID, employeeID uuid.UUID) {
+	t.Helper()
+	var ids []uuid.UUID
+	if err := d.WithTenant(context.Background(), tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		var e error
+		ids, e = store.New(tx).CancelPendingInvitesForEmployee(ctx,
+			store.CancelPendingInvitesForEmployeeParams{TenantID: tenantID, EmployeeID: employeeID})
+		return e
+	}); err != nil {
+		t.Fatalf("cancel pending invites: %v", err)
+	}
+	if len(ids) == 0 {
+		t.Fatal("nothing was cancelled; the fixture has no spendable invitation and the " +
+			"assertions that follow would be vacuous")
 	}
 }

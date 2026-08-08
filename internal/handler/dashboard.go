@@ -71,8 +71,15 @@ func (a *AdminAuth) mountSections(r chi.Router) {
 	r.Get(docketFragmentPath, a.transactionDockets)
 }
 
-// mountWriting registers the panel's state-changing routes. Today there is one:
-// POST /admin/review (M6-04).
+// mountWriting registers the panel's state-changing routes: POST /admin/review
+// (M6-04) and the employees section's three (M6-05 phase B).
+//
+// 🔴 THE FOUR SHARE ONE CHAIN AND THAT IS THE POINT OF THE FUNCTION. Every mutating
+// panel route needs the Origin check ahead of the resolver, and a route registered
+// anywhere else would silently get the READ chain instead — which is exactly the
+// defect an audit measured on POST /admin/review (a cross-origin flood spending a
+// signed-in manager's session budget, 301 unbudgeted lookups). Adding a route here
+// inherits the order; adding one outside is a visible edit somewhere else.
 //
 // 🔴 IT IS A SEPARATE FUNCTION FROM mountSections BECAUSE IT NEEDS A DIFFERENT
 // CHAIN, NOT A LONGER ONE. mountSections is called from inside Mount's protected
@@ -92,6 +99,9 @@ func (a *AdminAuth) mountWriting(r chi.Router) {
 	r.Group(func(r chi.Router) {
 		r.Use(a.ProtectWriting())
 		r.Post(reviewHref, a.reviewDecision)
+		r.Post(employeeInviteHref, a.employeeInvite)
+		r.Post(employeeDeactivateHref, a.employeeDeactivate)
+		r.Post(employeeMoveHref, a.employeeMove)
 	})
 }
 

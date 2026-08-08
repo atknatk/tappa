@@ -75,7 +75,155 @@ templ RosterRow(p RosterRowView) {
 				<dd class="text-ink">{ p.Devices }</dd>
 			</div>
 		</dl>
+		if p.ManageHref != "" {
+			// A LINK, NOT A CONTROL THAT ACTS. It opens this person's card on the
+			// same screen; everything that changes anything is a POST from there.
+			// The word is deliberately not one of the four verbs: a row does not
+			// invite, deactivate or move anybody, it opens the place where a manager
+			// can.
+			<p class="mt-3">
+				<a class="btn btn--quiet" href={ templ.URL(p.ManageHref) }>Manage</a>
+			</p>
+		}
 	</article>
+}
+
+// RosterActions is the action card for one person (M6-05 phase B): the four things
+// a manager can do, on one screen, with no script.
+//
+// 🔴 EACH ACTION IS ITS OWN FORM, exactly as the review queue's decisions are, and
+// for the same reason: a press is one complete instruction with nothing to select
+// first, so a keyboard user is one tab away from submitting and a stray Enter cannot
+// pick a default action.
+//
+// 🔴 EVERY FORM CARRIES THE ROSTER POSITION BACK, as hidden fields the server
+// re-validates with the SAME parser the address bar goes through. Without it, acting
+// on the fortieth person returns the manager to page one of an unfiltered list —
+// which is not a lie, but it is a screen that loses your place every time you use it.
+//
+// 🔴 THE DESTRUCTIVE ACTION HAS TWO STEPS AND THE FIRST ONE IS A SENTENCE. Nothing
+// in this product can bring a deactivated person back (docs/adr/0010), so the screen
+// says that BEFORE the button appears rather than after it has been pressed. The
+// step is a plain link because this section loads no script.
+//
+// ✅ AND IT IS ENFORCED (user decision, 2026-08-08). This screen mints a one-shot
+// value bound to this person; the form below carries it and the server refuses a
+// deactivation without it, so the write cannot be reached with the sentence unread.
+// It was NOT enforced for one round and this comment claimed it was — a security
+// audit posted straight at the route and deactivated somebody. Both the gate and the
+// sentence are asserted now:
+// TestEmployeeDeactivate_TheConfirmationStepIsENFORCED.
+templ RosterActions(v RosterActionsView) {
+	<section class="docket" aria-label={ "Actions for " + v.Name }>
+		<div class="flex items-start justify-between gap-3">
+			<div class="min-w-0">
+				<p class="docket-label">Managing</p>
+				<p class="truncate font-display text-base font-bold tracking-tight text-ink">{ v.Name }</p>
+				<p class="mt-1 truncate text-xs text-ink/70">
+					if v.Venue != "" {
+						{ v.Venue }
+					} else {
+						Venue could not be read
+					}
+					if v.Department != "" {
+						{ " · " + v.Department }
+					}
+				</p>
+			</div>
+			<div class="shrink-0 text-right">
+				@lifecycleTally(v.Status)
+			</div>
+		</div>
+		<div class="mt-4 flex flex-col gap-4 border-t border-line pt-4">
+			<div class="flex flex-wrap items-center gap-3">
+				if v.CanInvite {
+					<form method="post" action={ templ.URL(v.InviteAction) }>
+						@hiddenFields(v.Hidden)
+						<button type="submit" class="btn btn--primary">{ v.InviteLabel }</button>
+					</form>
+					<p class="text-xs text-ink/70">
+						The link is shown once, on the next screen. Tappa keeps no copy of it.
+					</p>
+				} else {
+					// 🔴 IT SAYS WHY RATHER THAN SHOWING NOTHING. A missing button
+					// reads as a bug; this is a rule the database enforces
+					// (db/queries/invites.sql refuses to spend an invitation for a
+					// deactivated person), so the screen states it.
+					//
+					// ⚠️ BOTH THE ABSENCE AND THE SENTENCE ARE ASSERTED, and they were
+					// not until an audit hard-wired the two conditions to true and
+					// found the package still green:
+					// TestEmployeesSection_OffersNoActionTheServerWouldRefuse.
+					<p class="text-xs text-ink/85">
+						No invitation can be sent to somebody who has been deactivated.
+					</p>
+				}
+			</div>
+			<div class="flex flex-wrap items-center gap-3 border-t border-line pt-4">
+				if v.CanDeactivate {
+					if v.Confirming {
+						<p class="text-sm text-ink">
+							Deactivating { v.Name } stops their taps from being accepted. Tappa has no
+							way to undo it: bringing them back means adding them again as a new person,
+							and their old records stay where they are.
+						</p>
+						<form method="post" action={ templ.URL(v.DeactivateAction) }>
+							@hiddenFields(v.Hidden)
+							// THE ONE-SHOT CONFIRMATION. Its twin is an HttpOnly cookie bound
+							// to this person, so this field alone proves nothing and its
+							// absence refuses the write — which is what turns this screen
+							// into a gate (user decision, 2026-08-08).
+							<input type="hidden" name={ v.ConfirmField } value={ v.ConfirmToken }/>
+							<button type="submit" class="btn btn--quiet">Yes, deactivate</button>
+						</form>
+						<a class="btn btn--quiet" href={ templ.URL(v.CloseHref) }>Cancel</a>
+					} else {
+						<a class="btn btn--quiet" href={ templ.URL(v.ConfirmHref) }>Deactivate</a>
+						<p class="text-xs text-ink/70">Asks first. It cannot be undone afterwards.</p>
+					}
+				} else {
+					<p class="text-xs text-ink/85">
+						Their taps are already being refused. Deactivating again would change nothing.
+					</p>
+				}
+			</div>
+			<form
+				method="post"
+				action={ templ.URL(v.MoveAction) }
+				class="flex flex-wrap items-end gap-3 border-t border-line pt-4"
+			>
+				@hiddenFields(v.Hidden)
+				// THE FIELDS ARE NAMED to_location AND to_department, not location and
+				// department: those two names belong to the FILTERS this form is also
+				// carrying back, and one name for two meanings would make saving a move
+				// silently narrow the list the manager returns to.
+				//
+				// 🔴 THE VENUE HAS NO EMPTY OPTION AND THE DEPARTMENT DOES, WHICH IS THE
+				// SCHEMA SPEAKING. employees.location_id is NOT NULL (00003): everybody
+				// works somewhere, so "no venue" is not a destination, and offering it
+				// would offer a submission the server can only refuse.
+				// department_id IS nullable — a bar does not model departments — so "No
+				// department" is a real choice rather than the absence of one.
+				@placementSelect("move-location", "to_location", "Venue", "", v.LocationID, v.Locations)
+				@placementSelect("move-department", "to_department", "Department", "No department", v.DepartmentID, v.Departments)
+				<div class="filter-actions">
+					<button type="submit" class="btn btn--primary">Save placement</button>
+					<a class="btn btn--quiet" href={ templ.URL(v.CloseHref) }>Close</a>
+				</div>
+			</form>
+		</div>
+	</section>
+}
+
+// hiddenFields writes the roster position back into a form.
+//
+// THE NAMES AND VALUES ARE SERVER-BUILT. The handler produces them from the filter
+// it has already parsed, so nothing a client sent is echoed here unvalidated, and
+// templ escapes both halves on the way out.
+templ hiddenFields(fields []FormField) {
+	for _, f := range fields {
+		<input type="hidden" name={ f.Name } value={ f.Value }/>
+	}
 }
 
 // lifecycleTally renders the chip for one lifecycle state.
@@ -145,4 +293,28 @@ templ RosterFilterBar(v RosterFilterView) {
 			}
 		</div>
 	</form>
+}
+
+// placementSelect is the move form's dropdown. It is NOT filterSelect, and the
+// difference is one line with a rule behind it: a filter's empty option means "do
+// not narrow", which is always a legitimate choice, while a DESTINATION's empty
+// option means "nowhere" — legitimate for a department and impossible for a venue.
+// Passing "" as the empty label omits the option entirely.
+templ placementSelect(id, name, label, emptyLabel, selected string, options []OptionView) {
+	<div class="filter-field">
+		<label class="docket-label" for={ id }>{ label }</label>
+		<select class="filter-input" id={ id } name={ name }>
+			if emptyLabel != "" {
+				<option value="" selected?={ selected == "" }>{ emptyLabel }</option>
+			}
+			for _, o := range options {
+				<option value={ o.Value } selected?={ o.Value == selected }>
+					{ o.Label }
+					if o.Group != "" {
+						{ " — " + o.Group }
+					}
+				</option>
+			}
+		</select>
+	</div>
 }

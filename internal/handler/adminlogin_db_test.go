@@ -40,6 +40,9 @@ import (
 	"github.com/atknatk/tappa/internal/db"
 	"github.com/atknatk/tappa/internal/domain/ledger"
 	"github.com/atknatk/tappa/internal/domain/review"
+	"github.com/atknatk/tappa/internal/domain/tenant"
+	"github.com/atknatk/tappa/internal/invite"
+	"github.com/atknatk/tappa/internal/session"
 	"github.com/atknatk/tappa/web/templates/pages"
 )
 
@@ -109,7 +112,11 @@ func newPanelHarness(t *testing.T) *panelHarness {
 		// proven separately and structurally in adminauth's cookie tests.
 		BaseURL:        srv.URL,
 		SessionHMACKey: []byte("0123456789abcdef0123456789abcdef"),
-		DatabaseURL:    dsn,
+		// The invite key is SEPARATE from the session key in production and is
+		// separate here too: a fixture that shares one key would let a test pass
+		// while the two were conflated.
+		InviteHMACKey: []byte("fedcba9876543210fedcba9876543210"),
+		DatabaseURL:   dsn,
 	}
 
 	admins, err := adminauth.New(data, cfg)
@@ -128,11 +135,39 @@ func newPanelHarness(t *testing.T) *panelHarness {
 	if err != nil {
 		t.Fatalf("review.NewReviewer: %v", err)
 	}
-	h, err := NewAdminAuth(admins, trail, records, records, reviewer, cfg, slog.New(slog.DiscardHandler))
+	// The employees section's two write sides, REAL against this database (M6-05
+	// phase B): the harness exists so a test drives what production drives, and a
+	// fake here would put the one thing these tests are for -- §4.5 and the audit
+	// row's fate -- back behind a mock that agrees with whatever it is told.
+	staff, err := tenant.NewStaff(data, trail, slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatalf("tenant.NewStaff: %v", err)
+	}
+	invites, err := invite.New(data, cfg)
+	if err != nil {
+		t.Fatalf("invite.New: %v", err)
+	}
+	h, err := NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, cfg, slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}
 	h.Mount(r)
+
+	// 🔴 THE ACTIVATION FLOW IS MOUNTED BESIDE THE PANEL (M6-05 phase B, round 3), so
+	// one harness can drive the WHOLE loop a manager and an employee share: press
+	// invite, then open the link. A security audit could not measure what a stale
+	// invitation does because /activate was not on this router and it had to call
+	// invite.Manager.Activate directly -- and it said so rather than presenting the
+	// result as end to end. This closes that gap: the employee side is now HTTP too.
+	sessions, err := session.New(data, cfg)
+	if err != nil {
+		t.Fatalf("session.New: %v", err)
+	}
+	activation, err := NewActivation(invites, sessions, trail, cfg, slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatalf("NewActivation: %v", err)
+	}
+	activation.Mount(r)
 
 	jar, err := cookiejar.New(nil)
 	if err != nil {
@@ -197,6 +232,22 @@ func (p *panelHarness) post(t *testing.T, path string, form url.Values) (*http.R
 		t.Fatalf("POST %s: %v", path, err)
 	}
 	return res, readAll(t, res)
+}
+
+// setCookie puts a cookie back into the jar by hand.
+//
+// 🔴 IT EXISTS TO MAKE A CLIENT UNCOOPERATIVE ON PURPOSE. A test whose client honours
+// every Set-Cookie can only ever measure what a well-behaved browser does; when the
+// question is what the SERVER keeps, the client has to be allowed to misbehave — which
+// is all a script does. Used by
+// TestPanelEmployeesDB_ARepeatedConfirmationWritesOnlyOnce.
+func (p *panelHarness) setCookie(t *testing.T, name, value string) {
+	t.Helper()
+	u, err := url.Parse(p.server.URL)
+	if err != nil {
+		t.Fatalf("parse server url: %v", err)
+	}
+	p.client.Jar.SetCookies(u, []*http.Cookie{{Name: name, Value: value, Path: "/"}})
 }
 
 func readAll(t *testing.T, res *http.Response) string {

@@ -2,7 +2,8 @@ package pages
 
 import "github.com/atknatk/tappa/web/templates/components"
 
-// The EMPLOYEES section (M6-05 phase A) — the panel's answer to "who works here?".
+// The EMPLOYEES section — the panel's answer to "who works here?", and since M6-05
+// phase B the place a manager acts on the answer.
 //
 // 🔴 IT RENDERS PanelShell, NOT PanelShellWithScript, AND THAT IS THE WHOLE SCRIPT
 // DECISION. PanelShell has no script slot (user decision, 2026-08-06: the split
@@ -14,12 +15,32 @@ import "github.com/atknatk/tappa/web/templates/components"
 // TestPanelScreens_ScriptsAndPolicyAgreeAndReachNoThirdParty pins. What that costs
 // is measured in internal/handler/employees.go.
 //
-// 🔴 §4.3 / §4.7 — THIS IS A READ AND IT SHOWS NO SECRET. There is no form that
-// posts, no invite button, no deactivate control: those are phase B, and a screen
-// offering a control the server does not implement is this repository's most
-// expensive class of mistake. Nothing below renders an invitation code, a session
-// token, a device label or an email address, because EmployeesView has no field for
-// any of them.
+// ⚠️ THE PARAGRAPH HERE SAID "THIS IS A READ AND IT SHOWS NO SECRET … no invite
+// button, no deactivate control: those are phase B". Half of it is now false and the
+// half that matters is not, so it is split rather than deleted:
+//
+// 🔴 §4.7 — NOTHING BELOW RENDERS A SECRET, AND THE VIEW MODEL IS WHY. EmployeesView
+// has no field for an invitation code, a session token, a device label or an email
+// address, so this template could not print one if it tried. The activation link
+// reaches exactly ONE template — AdminInviteIssued at the foot of this file, rendered
+// by the POST that mints it — and that is the whole of the panel's exposure to a live
+// credential.
+//
+// 🔴 THE CONTROLS ARE HERE NOW, AND THEY ARRIVED WITH THEIR HANDLERS. A screen
+// offering something the server does not implement is this repository's most
+// expensive class of mistake, and it takes TWO nets because it has two halves — an
+// audit measured the second one missing while this comment named only the first:
+//
+//	does the control lead somewhere SERVED?   TestEmployeesSection_
+//	  EveryControlLeadsSomewhereThatExists drives every form target and every link
+//	  on this page through the real router.
+//	would the server REFUSE what it offers?  TestEmployeesSection_
+//	  OffersNoActionTheServerWouldRefuse renders a DEACTIVATED person's card and
+//	  requires the two controls the database would refuse to be absent — with the
+//	  sentences that explain them present, and an active person's card as the control.
+//
+// The first says nothing about the second: setting CanInvite and CanDeactivate to a
+// constant true left the whole package green (measured, twice, -race).
 //
 // 🔴 §4.6 — THE EMPTY STATE IS GATED ON HAVING ASKED. "Nobody works here" is a
 // claim about a business and the product may not make one it has not measured;
@@ -27,12 +48,96 @@ import "github.com/atknatk/tappa/web/templates/components"
 // problem page in the handler rather than an empty list here.
 templ AdminEmployees(v EmployeesView) {
 	@PanelShell(v.PanelChrome) {
+		if v.Done != "" {
+			@components.Notice(components.ToneOK, doneRosterHeading(v.Done)) {
+				switch v.Done {
+					case "deactivated":
+						// 🔴 THE SENTENCE IS ABOUT WHAT WAS WRITTEN, AND ABOUT WHAT WAS
+						// NOT. Deactivation does not sign a phone out — the refusal comes
+						// from the next tap being judged against the person's status — and
+						// a manager who believes the phone is dead would stop watching for
+						// it. Saying it here is cheaper than the support call.
+						<p>
+							Their taps will be refused from now on, and every refusal is still
+							recorded. Any phone they signed in on stays signed in; it simply
+							cannot record time any more.
+						</p>
+					default:
+						if v.Actions != nil {
+							<p>{ movedLine(v.Actions) }</p>
+						}
+				}
+			}
+		}
+		if v.Problem != "" {
+			@components.Notice(components.ToneWarn, problemRosterHeading(v.Problem)) {
+				switch v.Problem {
+					case "unreadable":
+						<p>We could not read that submission, so nothing was changed.</p>
+					case "confirm-required":
+						// 🔴 THE TWO SENTENCES THIS GATE OWES THE MANAGER (§4.6). This one
+						// covers "never confirmed" and "confirmed too long ago" together,
+						// because from the server they are the same absence — the browser
+						// stops sending an expired cookie — and telling somebody which of
+						// the two it was would be a claim nothing measured.
+						<p>Nothing was changed. Deactivating somebody needs the warning screen first, and this one either was not used or was left open too long.</p>
+						<p class="mt-1">Open the person again and read the warning; the button appears under it.</p>
+					case "confirm-stale":
+						<p>Nothing was changed. This browser is in the middle of confirming a different person, so the button you pressed no longer matches.</p>
+						<p class="mt-1">Open the person you meant again and confirm from there — one confirmation at a time.</p>
+					case "actions-unavailable":
+						// 🔴 A DIFFERENT SENTENCE FROM "unreadable", BECAUSE A DIFFERENT
+						// THING FAILED. That one is about a REQUEST nobody could parse and
+						// says "nothing was looked up"; this one is OUR read failing after
+						// the roster answered. Sharing the word made the screen tell a
+						// manager their submission was malformed when in fact our database
+						// was.
+						<p>We could not load this person's details, so no actions are shown. The list below is current.</p>
+					case "unknown":
+						<p>That person is not on this business's roster. Nothing was changed.</p>
+					case "already-deactivated":
+						<p>They were already deactivated, so nothing was written and nothing was recorded twice.</p>
+					case "unknown-placement":
+						// 🔴 TWO CAUSES, ONE SENTENCE, AND BOTH ARE NAMED. The statement
+						// refuses a venue or department that is not this business's AND a
+						// department that belongs to a DIFFERENT venue — the second was
+						// silently accepted until a security audit measured it, and the
+						// dropdown still offers every department in the business (grouped by
+						// venue, so the pairing is readable). Telling the manager only
+						// "not this business's" would send them looking for a permissions
+						// problem they do not have.
+						<p>
+							Nothing was changed. Either that venue or department is not this
+							business's, or the department belongs to a different venue — a person's
+							department has to be one of the venue they work at.
+						</p>
+					case "no-change":
+						// ⚠️ THE SENTENCE IS TRUE ABOUT THE STATE AND SILENT ABOUT THE
+						// CAUSE, deliberately. Two managers saving the same placement at
+						// once was measured: 8 concurrent saves produced 4 writes and 4 of
+						// these, so the loser of that race reads this after asking for a
+						// real change. The product cannot tell the two apart — nothing
+						// records what the placement was when the form was rendered — so
+						// the second line points at the card rather than guessing.
+						<p>That is already where they work, so there was nothing to save.</p>
+						<p class="mt-1">If you had just changed it, check the placement above — a save you made a moment ago, or somebody else's, may already have applied it.</p>
+					default:
+						<p>
+							An activation link can only be used by somebody who has not been
+							deactivated, so none was created.
+						</p>
+				}
+			}
+		}
 		// MONO, BECAUSE THIS IS DATA rather than a heading — the same rule and the
 		// same line the transactions section carries. It names the zone the dates
 		// inside the dockets are printed in.
 		<p class="font-mono text-sm text-ink/85">
 			Dates shown in <span class="text-ink">{ v.ZoneLabel }</span>
 		</p>
+		if v.Actions != nil {
+			@components.RosterActions(*v.Actions)
+		}
 		@components.RosterFilterBar(v.Filters)
 		if len(v.People) > 0 {
 			<div class="flex flex-col gap-4">
@@ -105,5 +210,137 @@ func emptyRosterHeading(v EmployeesView) string {
 		return "Nobody matches these filters"
 	default:
 		return "Nobody on the books yet"
+	}
+}
+
+// doneRosterHeading names what the page can SHOW, which is not the same thing as what
+// the query string says happened.
+//
+// 🔴 "Placement saved" WAS AN ACTION CLAIM AND AN AUDIT MEASURED IT UNBACKED:
+// `GET /admin/employees?manage=<id>&done=moved`, in a browser that had never posted
+// anything, rendered that heading. It is a sendable URL asserting somebody's act —
+// exactly the M6-04 defect this section's own comment says it is not repeating, in
+// the one branch that was not verified.
+//
+// THE DEACTIVATED BRANCH IS VERIFIED (the handler suppresses it unless the person the
+// card just read IS deactivated, and that is measured going red). "moved" cannot be
+// verified the same way: a placement is a STATE and a move is an EVENT, and nothing
+// re-reads the previous state. So the heading stops claiming the event and names the
+// state instead — a sentence that is true whether the request that produced it was a
+// save or a replayed bookmark, and whose facts (venue, department) come from the read
+// this very request performed.
+//
+// ⚠️ WHAT IS LOST, SAID PLAINLY: a manager who presses Save gets a green notice
+// naming where the person now works rather than the word "saved". That is a weaker
+// receipt and a true one. The alternative — a trail lookup — was weighed and dropped:
+// audit_log would confirm that SOME move happened for this employee, not that this
+// one just did, so it would buy a stronger-sounding sentence with the same hole.
+func doneRosterHeading(done string) string {
+	if done == "deactivated" {
+		return "Deactivated"
+	}
+	return "Where they work now"
+}
+
+// movedLine says WHERE somebody works, from the card the same request read out of
+// the database.
+//
+// 🔴 IT NAMES THE CURRENT PLACEMENT RATHER THAN A CHANGE. "Moved from the bar to the
+// kitchen" would be a claim about a previous state nothing re-reads, and a replayed
+// URL would repeat it about a move that never happened. What this prints is a fact
+// the server measured in this request, so a stale address can only ever restate
+// something true.
+func movedLine(a *components.RosterActionsView) string {
+	where := a.Venue
+	if where == "" {
+		where = "a venue that could not be read"
+	}
+	if a.Department != "" {
+		where += " · " + a.Department
+	}
+	return a.Name + " now works at " + where + "."
+}
+
+func problemRosterHeading(problem string) string {
+	switch problem {
+	case "actions-unavailable":
+		return "We could not load this person"
+	case "confirm-required":
+		return "That deactivation was not confirmed"
+	case "confirm-stale":
+		return "That confirmation was for somebody else"
+	case "unknown":
+		return "We could not find that person"
+	case "already-deactivated":
+		return "Already deactivated"
+	case "unknown-placement":
+		return "That placement does not fit"
+	case "no-change":
+		return "Nothing to change"
+	case "not-invitable":
+		return "No invitation was created"
+	default:
+		return "We could not read that"
+	}
+}
+
+// AdminInviteIssued is the ONE screen an activation link is rendered on, and it is
+// the response to the POST that minted it — never a page with an address of its own.
+//
+// 🔴 §4.7 IS THE WHOLE SHAPE OF THIS SCREEN. The link is a live credential: whoever
+// holds it can turn this employee's account into a signed-in phone. So it is shown
+// as TEXT rather than as a link (a manager clicking it would activate the employee on
+// their own browser and put the code in their history), the page is
+// Cache-Control: no-store like every other panel response, and there is no way back
+// to it — the database keeps only the HMAC, so pressing the button again creates a
+// NEW invitation rather than showing this one.
+//
+// 🔴 IT SAYS WHO IT BELONGS TO. A code handed to the wrong person is an account
+// takeover with no forensic difference from a legitimate activation (ADR 0005 Y-D),
+// so the name is beside it, at the top, before the credential.
+templ AdminInviteIssued(v InviteIssuedView) {
+	@PanelShell(v.PanelChrome) {
+		@components.Notice(components.ToneOK, "Invitation created for "+v.Name) {
+			<p>
+				Give this link to { v.Name } — and only to them. Opening it signs their phone
+				in, so anybody who reads it can record time as them.
+			</p>
+			<p class="mt-2">It works for { v.Expires }.</p>
+		}
+		<section class="docket">
+			<p class="docket-label">Activation link — shown once</p>
+			// MONO AND BREAKING ON ANY CHARACTER, because this is data that must be
+			// copied by eye or by selection. It is deliberately NOT an anchor: see the
+			// block above.
+			<p class="mt-1 break-all font-mono text-sm text-ink">{ v.ActivationURL }</p>
+			<p class="mt-3 text-xs text-ink/85">
+				Tappa keeps no copy of this link. If you lose this page, create another
+				invitation.
+			</p>
+			// 🔴 THIS SENTENCE HAS BEEN WRONG IN BOTH DIRECTIONS AND IS NOW MEASURED.
+			// It first said an earlier link "keeps working until it is used or runs
+			// out", which read as "the new one retires the old" and was false. It was
+			// replaced by a warning that earlier links are NOT cancelled — true at the
+			// time, measured end to end. A user decision (2026-08-08) then made the
+			// first reading true for real: issuing retires the employee's pending
+			// invitations in the same transaction (migration 00012, cancelled_at).
+			// TestPanelEmployeesDB_ASecondInvitationRETIRESTheFirst holds both halves,
+			// including the absence of the old warning.
+			<p class="mt-2 text-xs text-ink/85">
+				if v.Retired == 1 {
+					The previous link for { v.Name } no longer works — creating this one retired
+					it. Only this link will sign them in.
+				} else if v.Retired > 1 {
+					The { itoa(v.Retired) } earlier links for { v.Name } no longer work — creating
+					this one retired them. Only this link will sign them in.
+				} else {
+					This is the only link that will sign { v.Name } in. Creating another one
+					later retires this one.
+				}
+			</p>
+		</section>
+		<p>
+			<a class="btn btn--quiet" href={ templ.URL(v.BackHref) }>Back to the list</a>
+		</p>
 	}
 }

@@ -64,4 +64,93 @@ type EmployeesView struct {
 	// StartHref is this view with its filters kept and the cursor dropped — where
 	// "back to the start" goes. It is only rendered on the paged empty state.
 	StartHref string
+
+	// Actions is the card for the person named by ?manage=, or nil.
+	//
+	// 🔴 A POINTER, AND THE nil CASE IS A STATE RATHER THAN AN ABSENCE. The card is
+	// only built after the database returned a person in THIS tenant, so a template
+	// that renders it is rendering facts that were read in the same request. A
+	// zero-valued struct would render an empty card about nobody, which is the
+	// fabrication shape Queried exists to prevent one level up.
+	Actions *components.RosterActionsView
+
+	// Done is what the last action did: "deactivated", "moved", or "" — and the
+	// handler only sets it after CHECKING what it can check.
+	//
+	// 🔴 M6-04 SHIPPED A BANNER PRINTED FROM THE QUERY STRING ALONE and an audit
+	// measured a URL claiming a decision that did not exist. Here "deactivated" is
+	// shown only when the person the card just read back IS deactivated; "moved" is
+	// not verifiable as a change, so the sentence beside it names the placement the
+	// card read rather than a transition nobody re-checked.
+	Done string
+
+	// Problem is why the last action did nothing:
+	//
+	//	"unreadable"           the REQUEST could not be read — an oversized body, an
+	//	                       id that is not a uuid. Nothing was looked up, so
+	//	                       nothing is claimed about anybody
+	//	"unknown"              no such person in this business
+	//	"already-deactivated"  a second press. Nothing was written and no second
+	//	                       audit row exists
+	//	"unknown-placement"    the venue or department is not this business's
+	//	                       (or no longer exists)
+	//	"no-change"            the requested placement is the one they already have
+	//	"not-invitable"        a deactivated person cannot be sent an activation link
+	//	"confirm-required"     the deactivation arrived without a valid confirmation,
+	//	                       or with one older than ten minutes. Nothing was written
+	//	"confirm-stale"        the confirmation this browser holds is bound to a
+	//	                       DIFFERENT person — the second-tab case
+	//	"actions-unavailable"  OUR read of that person failed. The roster answered, so
+	//	                       the list is current; only the card is missing. It is a
+	//	                       separate word from "unreadable" because that one says
+	//	                       "nothing was looked up", and here something was
+	//
+	// 🔴 §4.6: A REFUSED ACTION IS NEVER SILENT. Six words rather than one because
+	// each is a different instruction to the manager, and the closed set is what
+	// keeps a hand-edited URL from putting a sentence of its own on the screen.
+	Problem string
+}
+
+// InviteIssuedView is the ONE screen an activation link is ever rendered on
+// (M6-05 phase B).
+//
+// 🔴 IT IS THE RESPONSE TO A POST AND HAS NO URL OF ITS OWN, which is §4.7 rather
+// than a routing preference. A GET that could render this would be a GET that hands
+// out a live credential to anybody who can replay an address — including from a
+// browser history, a shared screen or a Referer header. There is nothing to replay:
+// the code is not stored (00009 keeps its HMAC), invite.Manager never returns it,
+// and the panel's only access to one is the per-request sink that fills this struct.
+type InviteIssuedView struct {
+	PanelChrome
+
+	// Name is who the link belongs to. It is here so the manager can check they are
+	// handing it to the right person before they read it out.
+	Name string
+
+	// ActivationURL is the link, in full, shown exactly once.
+	//
+	// ⚠️ THE TEMPLATE RENDERS IT AS TEXT AND NOT AS AN ANCHOR, deliberately. A
+	// clickable link invites the MANAGER to open it, which would move the code into
+	// their own browser's activation cookie and put it in their history; the person
+	// it belongs to needs it typed, messaged or read aloud, not clicked here.
+	ActivationURL string
+
+	// Expires is how long the link lasts, as a LENGTH ("7 days") rather than as an
+	// instant. internal/handler's expiryPhrase says why: this response has no row to
+	// carry a timezone on, and a deadline printed in the wrong zone is a manager
+	// telling somebody the wrong day.
+	Expires string
+
+	// Retired is how many of this person's earlier invitations this one retired.
+	//
+	// 🔴 IT IS ON THE SCREEN BECAUSE THE SCREEN USED TO BE WRONG ABOUT IT, twice and
+	// in opposite directions. Until 2026-08-08 issuing a second invitation left the
+	// first one live — an account-takeover path measured end to end — and the page
+	// implied the opposite. Now the retirement is real (migration 00012), and the
+	// number says how many links stopped working, so a manager reading it aloud knows
+	// which one is current.
+	Retired int
+
+	// BackHref returns to the roster the manager came from, filters and page intact.
+	BackHref string
 }

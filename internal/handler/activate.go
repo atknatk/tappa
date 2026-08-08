@@ -719,21 +719,65 @@ func (a *Activation) rejectCode(w http.ResponseWriter, r *http.Request, ip strin
 		// UNKNOWN budget, which bounds the log instead. Logged WITHOUT the code
 		// and without its hash (§4.7).
 		a.anonFail(ip, where, "unknown code")
-	case errors.Is(err, invite.ErrCodeExpired):
-		a.failAttempt(r.Context(), ip, ictx, "expired", againstInvite)
-	case errors.Is(err, invite.ErrCodeUsed):
-		a.failAttempt(r.Context(), ip, ictx, "already_used", againstInvite)
-	case errors.Is(err, invite.ErrNotActivatable):
-		a.failAttempt(r.Context(), ip, ictx, "employee_not_activatable", againstInvite)
 	default:
-		// A database or internal failure is NOT an invalid link: saying so would
-		// send the employee to their manager for a new code that would fail the
-		// same way, and would hide an outage behind a UX message.
-		a.log.Error("activation lookup failed", "at", where, "err", err)
-		a.renderProblem(w, r, http.StatusInternalServerError, problemServer)
-		return
+		reason, classified := inviteFailureReason(err)
+		if !classified {
+			// 🔴 AN UNCLASSIFIED FAILURE IS STILL RECORDED, AND IT USED TO BE LOST.
+			// This branch is a database or internal failure — NOT an invalid link, so
+			// the visitor gets a 500 rather than "your link is bad", which would send
+			// them to their manager for a code that fails the same way. What changed
+			// (round 5) is that it no longer returns without writing anything: an
+			// audit measured that deleting ONE case above dropped a presented
+			// credential into here, where there was no audit row, no budget charge and
+			// a "server broken" page — a §4.6 record loss produced by a one-line edit.
+			//
+			// The reason is deliberately not invented from the error's text: err.Error()
+			// can quote values (encoding/json does, and net/url does), so what is stored
+			// is a fixed word and the detail goes to the process log.
+			a.failAttempt(r.Context(), ip, ictx, "unclassified", againstInvite)
+			a.log.Error("activation lookup failed", "at", where, "err", err)
+			a.renderProblem(w, r, http.StatusInternalServerError, problemServer)
+			return
+		}
+		a.failAttempt(r.Context(), ip, ictx, reason, againstInvite)
 	}
 	a.renderProblem(w, r, http.StatusBadRequest, problemBadLink)
+}
+
+// inviteFailureReasons maps every REFUSAL internal/invite can name onto the word
+// audit_log stores for it.
+//
+// 🔴 IT IS A TABLE RATHER THAN A SWITCH BECAUSE A TEST HAS TO BE ABLE TO READ IT.
+// The switch that used to be here shipped a new sentinel — ErrCodeCancelled, the one
+// migration 00012 exists to make visible — with NO test of any kind: the audited-
+// reason table in activate_test.go was a closed list, and a closed list is a change
+// detector rather than a net (M5-10's lesson, in the brief). Deleting the case left
+// every package green while a presented takeover credential became an unrecorded 500.
+//
+// TestActivationReasons_CoverEverySentinel now DERIVES the sentinel set by parsing
+// internal/invite for `Err… = errors.New(` and requires each one to appear here, so a
+// sentinel added without a reason is a red test rather than a silent gap.
+//
+// ⚠️ ErrUnknownCode IS NOT IN IT, and that absence is the one exception this file
+// argues for: it resolves to no tenant, so there is nothing to attribute an audit row
+// to (db/queries/audit.sql states the limit). It is handled above and the derivation
+// test names it as the single expected omission.
+var inviteFailureReasons = map[error]string{
+	invite.ErrCodeExpired:    "expired",
+	invite.ErrCodeUsed:       "already_used",
+	invite.ErrCodeCancelled:  "cancelled",
+	invite.ErrNotActivatable: "employee_not_activatable",
+}
+
+// inviteFailureReason resolves err against the table with errors.Is, so a wrapped
+// sentinel still classifies.
+func inviteFailureReason(err error) (string, bool) {
+	for sentinel, reason := range inviteFailureReasons {
+		if errors.Is(err, sentinel) {
+			return reason, true
+		}
+	}
+	return "", false
 }
 
 // budgetScope says which rate-limit windows a failure is charged to.

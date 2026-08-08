@@ -88,6 +88,11 @@ type AdminAuth struct {
 	// the signed verified-candidate set (logincontext.go).
 	short   adminCookies
 	choices adminChoices
+	// confirm mints and verifies the deactivation confirmation (M6-05 phase B, user
+	// decision 2026-08-08). It is a SEPARATE keyed value from choices — its own
+	// label, its own TTL, its own bindings — so a blob minted for one purpose can
+	// never be spent on the other.
+	confirm adminConfirm
 	// baseURL is this deployment's own origin, for the Origin header check.
 	baseURL string
 
@@ -109,6 +114,14 @@ type AdminAuth struct {
 	queue    panelQueue
 	reviewer panelReviewer
 
+	// staff is the employees section's WRITE side and invites mints activation
+	// links (M6-05 phase B). Two more fields for the same reason queue and reviewer
+	// are two: they are two PACKAGES (internal/domain/tenant writes employees,
+	// internal/invite owns the code), and one wide field would let a change to one
+	// break the other's wiring silently.
+	staff   panelStaff
+	invites panelInviter
+
 	// See adminratelimit.go for why there are three and what each may refuse.
 	floodLimiter   *limiter
 	attemptLimiter *limiter
@@ -121,7 +134,7 @@ type AdminAuth struct {
 
 // NewAdminAuth wires the flow. Every dependency is required: a nil recorder would
 // silently drop the section 4.6 trail and a nil manager cannot fail safely.
-func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLedger, queue panelQueue, reviewer panelReviewer, cfg *config.Config, log *slog.Logger) (*AdminAuth, error) {
+func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLedger, queue panelQueue, reviewer panelReviewer, staff panelStaff, invites panelInviter, cfg *config.Config, log *slog.Logger) (*AdminAuth, error) {
 	switch {
 	case admins == nil:
 		return nil, errors.New("handler: nil admin authenticator")
@@ -144,10 +157,24 @@ func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLed
 		return nil, errors.New("handler: nil review queue")
 	case reviewer == nil:
 		return nil, errors.New("handler: nil reviewer")
+	// THE SAME ARGUMENT, TWICE MORE (M6-05 phase B). A nil staff would put Deactivate
+	// and Move buttons on a screen where pressing them panics, and a nil inviter would
+	// offer an invitation the server cannot mint. Both are the M5-04 shape — a
+	// capability delivered, tested and DEAD in the wired product because two halves
+	// were never assembled — and a constructor that refuses is the only check that
+	// runs before a customer finds out.
+	case staff == nil:
+		return nil, errors.New("handler: nil employee staff")
+	case invites == nil:
+		return nil, errors.New("handler: nil inviter")
 	case cfg == nil:
 		return nil, errors.New("handler: nil config")
 	}
 	choices, err := newAdminChoices(cfg)
+	if err != nil {
+		return nil, err
+	}
+	confirm, err := newAdminConfirm(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -160,9 +187,12 @@ func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLed
 		ledger:         records,
 		queue:          queue,
 		reviewer:       reviewer,
+		staff:          staff,
+		invites:        invites,
 		cookies:        adminauth.NewCookies(cfg),
 		short:          newAdminCookies(cfg),
 		choices:        choices,
+		confirm:        confirm,
 		baseURL:        originOf(cfg.BaseURL),
 		floodLimiter:   newLimiter(adminFloodLimit, adminFloodPeriod),
 		attemptLimiter: newLimiter(adminAttemptLimit, adminAttemptPeriod),

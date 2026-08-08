@@ -71,6 +71,19 @@ var (
 	// opened twice. Context POPULATED.
 	ErrCodeUsed = errors.New("invite: code already used")
 
+	// ErrCodeCancelled: the invitation resolves but was RETIRED without being used
+	// — a newer invitation for the same employee replaced it (00012,
+	// CancelPendingInvitesForEmployee). Context POPULATED.
+	//
+	// 🔴 IT IS ITS OWN SENTINEL RATHER THAN FOLDED INTO ErrCodeUsed, and the reason
+	// is the investigation rather than the visitor: the visitor is told the same thing
+	// either way (§4.7, no oracle), but "somebody replayed a spent code" and "somebody
+	// opened a link that was superseded" are different events. The second is the one
+	// this cancellation exists to make visible: before 00012 a stale link simply
+	// WORKED, so an attempt to use one is now the first moment the trail can say a
+	// superseded credential was presented.
+	ErrCodeCancelled = errors.New("invite: code was cancelled")
+
 	// ErrNotActivatable: the invite is fine but the employee is not activatable —
 	// deactivated, or the consuming statement lost the race documented in
 	// db/queries/invites.sql. Context POPULATED.
@@ -169,6 +182,14 @@ type Invite struct {
 	EmployeeID uuid.UUID
 	CreatedAt  time.Time
 	ExpiresAt  time.Time
+	// RetiredSiblings is how many of this employee's other invitations this one
+	// retired. It is a COUNT rather than a list of ids because the only caller is a
+	// screen telling a manager what just happened, and an id would be a handle to a
+	// row they have no other use for.
+	//
+	// It is set only on a SUCCESSFUL issue-and-deliver; a failed delivery leaves it
+	// zero rather than reporting a number nobody was shown.
+	RetiredSiblings int
 }
 
 // IssueParams describes the invitation to create.
@@ -198,6 +219,25 @@ type IssueParams struct {
 // invitation (ListPendingInvitesForEmployee) and can simply be reissued. The
 // error is returned, never swallowed (§7), and it names the invite id rather
 // than anything about the code.
+//
+// 🔴 ISSUING RETIRES THE EMPLOYEE'S OTHER PENDING INVITATIONS (user decision,
+// 2026-08-08), in the SAME transaction and BEFORE the new row is inserted. Until
+// that decision this function left them alive, and the consequence was measured
+// end to end over HTTP rather than argued: two presses of the panel's button
+// produced two simultaneously valid links; activating with the newer one left the
+// older PENDING; and the older one still activated afterwards — down the
+// SECOND-DEVICE path, which revokes the real employee's sessions and issues one to
+// whoever opened it. That is an account takeover that needs no malicious manager,
+// only "the first link did not arrive, press it again".
+//
+// ⚠️ IT IS A CANCELLATION, NOT A CONSUMPTION. The statement writes cancelled_at
+// (migration 00012) and never used_at, because "retired" and "spent" are different
+// answers to an investigator and db/queries/invites.sql forbids conflating them.
+//
+// WHAT THIS DOES NOT DO: it does not retire invitations of OTHER employees, and it
+// does not touch consumed ones. The window it leaves is the ordinary one — a
+// concurrent activation racing this transaction — and that race is settled by the
+// consuming statement, not here: it re-reads cancelled_at inside its own WHERE.
 func (m *Manager) IssueAndDeliver(ctx context.Context, p IssueParams, ch Channel) (Invite, error) {
 	if p.TenantID == uuid.Nil || p.EmployeeID == uuid.Nil {
 		return Invite{}, errors.New("invite: issue: tenant and employee are required")
@@ -223,9 +263,28 @@ func (m *Manager) IssueAndDeliver(ctx context.Context, p IssueParams, ch Channel
 	}
 
 	var row store.CreateInviteRow
+	var retired int
 	err = m.data.WithTenant(ctx, p.TenantID, func(ctx context.Context, tx pgx.Tx) error {
-		var e error
-		row, e = store.New(tx).CreateInvite(ctx, store.CreateInviteParams{
+		q := store.New(tx)
+		// 🔴 THE OLD INVITATIONS ARE RETIRED IN THE SAME TRANSACTION AS THE NEW ONE,
+		// and the ordering is the whole point: cancel first, then insert. The reverse
+		// would let the cancelling statement catch the row that was just created and
+		// retire the code this call is about to hand out.
+		//
+		// WHY IT SHARES A TRANSACTION rather than running beside it: "a new invitation
+		// exists" and "the previous ones are dead" must be one fact. If the cancel
+		// committed and the insert failed, the employee would be left with nothing and
+		// a manager would have to issue again; if the insert committed and the cancel
+		// failed, the takeover window this closes would simply reopen, silently.
+		ids, e := q.CancelPendingInvitesForEmployee(ctx, store.CancelPendingInvitesForEmployeeParams{
+			TenantID:   p.TenantID,
+			EmployeeID: p.EmployeeID,
+		})
+		if e != nil {
+			return e
+		}
+		retired = len(ids)
+		row, e = q.CreateInvite(ctx, store.CreateInviteParams{
 			TenantID:   p.TenantID,
 			EmployeeID: p.EmployeeID,
 			CodeHash:   hash,
@@ -250,6 +309,7 @@ func (m *Manager) IssueAndDeliver(ctx context.Context, p IssueParams, ch Channel
 	}); err != nil {
 		return inv, fmt.Errorf("invite: deliver %s: %w", inv.ID, err)
 	}
+	inv.RetiredSiblings = retired
 	return inv, nil
 }
 
@@ -354,10 +414,14 @@ func (m *Manager) Lookup(ctx context.Context, c Code) (Context, error) {
 	full.ExpiresAt = out.ExpiresAt
 	out = full
 
-	// Order is deliberate: consumed beats expired. A code that was USED and has
-	// since expired is a replay, and the trail should say so.
+	// Order is deliberate: consumed beats cancelled beats expired. A code that was
+	// USED is a replay whatever else is true of it; a code that was CANCELLED and has
+	// since expired is more interestingly a superseded link than an old one.
 	if res.UsedAt != nil {
 		return out, ErrCodeUsed
+	}
+	if res.CancelledAt != nil {
+		return out, ErrCodeCancelled
 	}
 	if !m.clock().Before(res.ExpiresAt) {
 		return out, ErrCodeExpired
@@ -572,6 +636,11 @@ func (m *Manager) classify(res db.ResolvedInvite, priorStatus string) error {
 	switch {
 	case res.UsedAt != nil:
 		return ErrCodeUsed
+	case res.CancelledAt != nil:
+		// A SUPERSEDED LINK. Same order as Lookup's, and the same reason: this is the
+		// label an investigator wants, because it is the only signal that a retired
+		// credential was presented at all.
+		return ErrCodeCancelled
 	case !m.clock().Before(res.ExpiresAt):
 		return ErrCodeExpired
 	case priorStatus == statusDeactivated:

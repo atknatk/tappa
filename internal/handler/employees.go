@@ -1,8 +1,10 @@
 package handler
 
 import (
+	"errors"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -10,21 +12,22 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/atknatk/tappa/internal/domain/ledger"
+	"github.com/atknatk/tappa/internal/domain/tenant"
 	"github.com/atknatk/tappa/internal/httpx"
 	"github.com/atknatk/tappa/web/templates/components"
 	"github.com/atknatk/tappa/web/templates/pages"
 )
 
-// The EMPLOYEES SECTION — M6-05 PHASE A: the LIST, and nothing that changes it.
+// The EMPLOYEES SECTION — the roster READ. Its four WRITES are employeeactions.go
+// (M6-05 phase B).
 //
-// 🔴 WHAT PHASE A DELIBERATELY DOES NOT SHIP, because the absence is the design
-// rather than an unfinished edge. The card names four actions — invite, re-invite,
-// deactivate, and move somebody between locations or departments — and none of them
-// is here: no POST route, no form, no button, not even a disabled one. They are
-// audited through a different lens (§4.7, authorisation, and "deactivation kills
-// the session in the same second"), and a single commit carrying both a read path
-// and a write path gets each of them looked at half as hard. Offering a control the
-// server does not implement is the most expensive mistake this repository makes.
+// ⚠️ THIS BLOCK USED TO SAY "PHASE A: the LIST, and nothing that changes it" AND
+// LISTED THE FOUR ACTIONS AS DELIBERATELY ABSENT. They have landed, so the sentence
+// is replaced rather than left standing. The split it described was real and paid
+// off — a read path and a write path in one commit get each looked at half as hard —
+// but what remains true is narrower: THIS FILE still contains no write. It renders
+// the list, parses the filters, and builds the action card that the three POST
+// handlers in employeeactions.go act on.
 //
 // 🔴 THE TENANT IS NEVER AN INPUT (§4.5). It comes from httpx.AdminOf(r), which the
 // Protect chain resolved from a signed session cookie against the database. The
@@ -176,6 +179,11 @@ func (a *AdminAuth) employeesSection(w http.ResponseWriter, r *http.Request) {
 		// the sentence it stops the product from printing.
 		Paged:     f.AfterID != nil,
 		StartHref: start,
+		// Problem is a CLOSED VOCABULARY read off the query string, so a hand-edited
+		// URL can turn one of six sentences on and cannot put anything in it. Every
+		// one of the six is a statement about the REQUEST or about a row the server
+		// read — none of them describes something that was not looked up.
+		Problem: oneOfWords(r.URL.Query().Get("problem"), rosterProblemWords...),
 		Filters: components.RosterFilterView{
 			Action:       employeesHref,
 			Name:         f.Name,
@@ -190,7 +198,7 @@ func (a *AdminAuth) employeesSection(w http.ResponseWriter, r *http.Request) {
 	}
 	v.People = make([]components.RosterRowView, 0, len(screen.People))
 	for _, p := range screen.People {
-		v.People = append(v.People, rosterRowView(p, zone))
+		v.People = append(v.People, rosterRowView(p, zone, manageHref(f, p.ID)))
 	}
 	if screen.NextID != nil {
 		q := rosterQuery(f)
@@ -198,11 +206,205 @@ func (a *AdminAuth) employeesSection(w http.ResponseWriter, r *http.Request) {
 		v.MoreHref = employeesHref + "?" + q.Encode()
 	}
 
+	// THE ACTION CARD IS PART OF THIS SECTION RATHER THAN A ROUTE OF ITS OWN, and the
+	// cost of the alternative is what decided it. Putting the four controls on every
+	// row would repeat the venue and department dropdowns RosterPageSize times: the
+	// filter bar renders each option list once, and a per-row copy multiplies exactly
+	// the control M6-03 measured at 96% of a page and removed. A page-level card costs
+	// one option list and one extra charged request when a manager opens it.
+	v.Actions, v.Problem = a.rosterActions(w, r, f, screen, v.Problem)
+	v.Done = a.confirmedRosterAction(r, v.Actions)
+
 	a.render(w, r, http.StatusOK, pages.AdminEmployees(v))
 }
 
+// rosterActions builds the card for the person named by ?manage=, or nothing.
+//
+// 🔴 A MANAGE LINK THAT RESOLVES TO NOBODY IS ANSWERED, NOT IGNORED (§4.6). A stale
+// bookmark, a hand-edited URL or another tenant's employee id all land here, and the
+// difference between "no card" and "no card plus a sentence" is whether the manager
+// knows why the screen did not do what they asked. The problem word is only set when
+// the request did not already carry one, so the outcome of an ACTION is never
+// overwritten by the state of the card it returned to.
+func (a *AdminAuth) rosterActions(w http.ResponseWriter, r *http.Request, f ledger.RosterFilter, screen ledger.RosterScreen, problem string) (*components.RosterActionsView, string) {
+	raw := r.URL.Query().Get("manage")
+	if raw == "" {
+		return nil, problem
+	}
+	employeeID, err := uuid.Parse(raw)
+	if err != nil {
+		return nil, firstWord(problem, "unknown")
+	}
+	person, err := a.staff.Person(r.Context(), httpx.AdminOf(r).TenantID(), employeeID)
+	switch {
+	case err == nil:
+	case errors.Is(err, tenant.ErrUnknownEmployee):
+		return nil, firstWord(problem, "unknown")
+	default:
+		// The roster itself answered, so the page is still worth rendering; what is not
+		// acceptable is a card missing with no explanation. The read failed, and the
+		// screen says so IN ITS OWN WORDS — "unreadable" belongs to a request nobody
+		// could parse, and an audit found this branch borrowing it, which told a manager
+		// their submission was malformed when the failure was ours.
+		a.log.Error("panel: could not read the employee for the action card", "err", err)
+		return nil, firstWord(problem, "actions-unavailable")
+	}
+
+	hidden := []components.FormField{{Name: "id", Value: person.ID.String()}}
+	for key, values := range rosterQuery(f) {
+		for _, value := range values {
+			hidden = append(hidden, components.FormField{Name: key, Value: value})
+		}
+	}
+	if f.AfterID != nil {
+		hidden = append(hidden, components.FormField{Name: "after_id", Value: f.AfterID.String()})
+	}
+	sort.Slice(hidden, func(i, j int) bool { return hidden[i].Name < hidden[j].Name })
+
+	// 🔴 THE CONFIRMATION VALUE IS MINTED HERE, WHEN THE SENTENCE IS RENDERED, AND
+	// NOWHERE ELSE. That is what makes the two-step a gate rather than a screen: the
+	// deactivate POST cannot succeed without a value that only this branch produces,
+	// so reaching the write means the warning was served (user decision, 2026-08-08 —
+	// before it, posting straight at the route deactivated somebody).
+	//
+	// A FAILURE TO MINT IS NOT A SILENT ONE. If the random source fails the card still
+	// renders, with the deactivate control suppressed and the problem word set — a
+	// screen offering a button that cannot work is the mistake this section is
+	// watched for.
+	confirming := r.URL.Query().Get("confirm") == "deactivate"
+	confirmToken := ""
+	if confirming && !person.Deactivated() {
+		token, err := a.setDeactivateConfirmation(w, r, person.ID)
+		if err != nil {
+			a.log.Error("panel: could not mint the deactivation confirmation", "err", err)
+			confirming = false
+			problem = firstWord(problem, "actions-unavailable")
+		} else {
+			confirmToken = token
+		}
+	}
+
+	v := &components.RosterActionsView{
+		Name:             person.Name,
+		Status:           person.Status,
+		Venue:            person.LocationName,
+		Department:       person.DepartmentName,
+		Hidden:           hidden,
+		CloseHref:        rosterReturn(f, uuid.Nil, "", ""),
+		CanInvite:        person.Invitable(),
+		InviteLabel:      inviteLabel(person.Status),
+		InviteAction:     employeeInviteHref,
+		CanDeactivate:    !person.Deactivated(),
+		Confirming:       confirming,
+		ConfirmToken:     confirmToken,
+		ConfirmField:     confirmField,
+		ConfirmHref:      confirmDeactivateHref(f, person.ID),
+		DeactivateAction: employeeDeactivateHref,
+		MoveAction:       employeeMoveHref,
+		Locations:        optionViews(screen.Options.Locations),
+		Departments:      optionViews(screen.Options.Departments),
+		LocationID:       person.LocationID.String(),
+		DepartmentID:     uuidParam(person.DepartmentID),
+	}
+	return v, problem
+}
+
+// confirmedRosterAction decides whether the "done" banner may be shown, HAVING
+// CHECKED WHAT IT CAN CHECK.
+//
+// 🔴 M6-04 SHIPPED A BANNER PRINTED FROM THE QUERY STRING ALONE and an audit
+// measured what that meant: a URL that claimed a decision had been recorded with
+// zero rows in the database, and it was sendable to somebody else. The rule this
+// screen follows instead:
+//
+//	deactivated  VERIFIED. The banner appears only if the person the card just read
+//	             back from the database is in fact deactivated, so a hand-edited or
+//	             stale URL says nothing.
+//	moved        NOT verifiable, and the sentence is built so it does not need to be.
+//	             "Moved from X to Y" would be a claim about a previous state nothing
+//	             re-reads; what the screen prints is where the person works NOW, read
+//	             in the same request. A replayed URL therefore repeats a true
+//	             sentence about the current placement rather than inventing a change.
+//
+// Either way the banner is gated on the card existing, so it can never be shown
+// about somebody the reader cannot see.
+func (a *AdminAuth) confirmedRosterAction(r *http.Request, actions *components.RosterActionsView) string {
+	done := oneOfWords(r.URL.Query().Get("done"), rosterDoneWords...)
+	if done == "" || actions == nil {
+		return ""
+	}
+	if done == "deactivated" && actions.Status != ledger.StatusDeactivated {
+		return ""
+	}
+	return done
+}
+
+// inviteLabel names the button.
+//
+// 🔴 THE TWO WORDS ARE THE CARD'S TWO ACTIONS ("davet et, yeniden davet") AND THEY
+// ARE PICKED BY STATUS RATHER THAN BY WHETHER AN INVITATION IS OUTSTANDING. Knowing
+// that would mean joining employee_invites into the roster read, which phase A
+// deliberately did not do — the invitation table holds the code hash, and a list
+// that touched it would be one edit away from rendering one. The status is enough to
+// keep the label honest: somebody still 'invited' has never activated, so the button
+// sends them their first (or another) link; somebody 'active' already has a phone
+// signed in, so a new link is a re-invitation for a new device.
+//
+// ⚠️ WHAT THE LABEL DOES NOT SAY, AND THIS PARAGRAPH HAS BEEN REWRITTEN TWICE
+// BECAUSE THE PRODUCT CHANGED UNDER IT. It first said pressing "Send invite" twice
+// mints two links "both valid until they expire OR ONE IS USED" — false, and measured
+// false end to end: spending one invitation left its siblings live, and opening a
+// stale one later took the second-device path, which signs the real employee out. It
+// then said so plainly, as an open risk.
+//
+// ✅ SINCE 2026-08-08 THE FIRST READING IS TRUE FOR REAL (user decision): issuing
+// retires the employee's pending invitations in the same transaction (migration
+// 00012's cancelled_at, invite.Manager.IssueAndDeliver), so at most ONE link is
+// spendable at a time and the button below cannot multiply a live credential.
+// TestPanelEmployeesDB_ASecondInvitationRETIRESTheFirst holds it end to end; the
+// statement's own guard is held separately in internal/db, because a mutation showed
+// the HTTP test could not see it (Lookup refuses first).
+//
+// WHAT IS STILL TRUE ABOUT THE LABEL: it does not say whether an invitation is
+// currently outstanding, because that would need the employee_invites join phase A
+// kept off this page. The consequence is now cosmetic rather than dangerous — a
+// second press replaces rather than adds — and the invitation screen says how many
+// links it retired.
+func inviteLabel(status string) string {
+	if status == ledger.StatusActive {
+		return "Re-invite"
+	}
+	return "Send invite"
+}
+
+// manageHref is the row's link to its own action card, keeping the filters and the
+// page the manager is on so that closing the card returns them to it.
+func manageHref(f ledger.RosterFilter, employeeID uuid.UUID) string {
+	return rosterReturn(f, employeeID, "", "")
+}
+
+// confirmDeactivateHref is the GET that asks "are you sure", carrying the same
+// position. It is a LINK rather than a script confirm: this section loads no script,
+// and a browser dialog is not something a server can require.
+func confirmDeactivateHref(f ledger.RosterFilter, employeeID uuid.UUID) string {
+	to := rosterReturn(f, employeeID, "", "")
+	if strings.Contains(to, "?") {
+		return to + "&confirm=deactivate"
+	}
+	return to + "?confirm=deactivate"
+}
+
+// firstWord keeps the FIRST problem rather than the last: the outcome of the action
+// a manager just took outranks anything the page discovered while rendering itself.
+func firstWord(existing, fallback string) string {
+	if existing != "" {
+		return existing
+	}
+	return fallback
+}
+
 // rosterRowView maps one person onto one card.
-func rosterRowView(p ledger.Person, zone *time.Location) components.RosterRowView {
+func rosterRowView(p ledger.Person, zone *time.Location, manage string) components.RosterRowView {
 	return components.RosterRowView{
 		Name:       p.Name,
 		Venue:      p.LocationName,
@@ -210,6 +412,7 @@ func rosterRowView(p ledger.Person, zone *time.Location) components.RosterRowVie
 		Status:     p.Status,
 		Since:      rosterDate(p.Since, zone),
 		Devices:    deviceLine(p.LiveDevices, p.LastUsed, zone),
+		ManageHref: manage,
 	}
 }
 
@@ -293,7 +496,21 @@ const rosterDesignCeiling = 10000
 // can only WIDEN the result within the tenant, never escape it — and it is visible
 // because the filter bar echoes the values that actually took effect.
 func parseRosterFilter(r *http.Request) ledger.RosterFilter {
-	q := r.URL.Query()
+	return rosterFilterFrom(r.URL.Query())
+}
+
+// rosterFilterFrom is that validator over ANY set of values, and it is one function
+// rather than two on purpose (M6-05 phase B).
+//
+// 🔴 THE POSTED ACTION FORMS CARRY THE SAME FIELDS AND MUST NOT BE VALIDATED
+// DIFFERENTLY. Every action form on this screen echoes the roster position back so
+// the manager returns to the page they were on, which means the same four filters
+// and the same cursor arrive in a POST body. A second parser for the POST side is
+// the "second representation" shape this repository keeps paying for: it is how a
+// POST comes to accept a status the GET rejects, or to skip the NUL-byte cleaning
+// that makes a name safe for the driver. There is one function and both callers use
+// it.
+func rosterFilterFrom(q url.Values) ledger.RosterFilter {
 	var f ledger.RosterFilter
 
 	// THE NAME BOX SHARES ITS VALIDATOR WITH THE TRANSACTIONS SECTION'S, and it is

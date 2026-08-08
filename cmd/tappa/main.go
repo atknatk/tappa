@@ -125,11 +125,33 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	// The employees section's WRITE side (M6-05 phase B): deactivate, and move
+	// somebody between venues or departments. It takes the SAME audit recorder for
+	// the same reason the reviewer does — the employee change and its trail row have
+	// to share one transaction, which is the opposite of what most callers of
+	// internal/audit want (internal/domain/tenant/staff.go says why).
+	staff, err := tenant.NewStaff(data, trail, slog.Default())
+	if err != nil {
+		return err
+	}
 	// records is passed TWICE, as the day reader and as the queue reader. Two
 	// parameters rather than one because internal/handler declares two narrow
 	// interfaces over it (§7, the consumer owns the interface); one implementation
 	// satisfies both.
-	panelAuth, err := handler.NewAdminAuth(admins, trail, records, records, reviewer, cfg, slog.Default())
+	//
+	// 🔴 `invites` IS PASSED TO THE PANEL AS WELL AS TO THE ACTIVATION FLOW, AND IT IS
+	// THE SAME MANAGER ON PURPOSE. It is what mints the code, and it hands the link to
+	// a Channel rather than returning it — so the panel's access to a raw credential is
+	// the sink internal/invite built for exactly this screen, not a second minting
+	// path. Until this line the seam had no PRODUCTION caller — the type existed and so
+	// did its audit action, and nothing in cmd/ reached them.
+	//
+	// ⚠️ "NO CALLER AT ALL" WOULD BE FALSE and was written that way for one round:
+	// `git grep NewManagerVisibleChannel` finds internal/handler/e2e_db_test.go, where
+	// M5-02 drove the channel end to end. The distinction matters — the seam was
+	// TESTED and unmounted, which is the M5-04 shape (a capability delivered, approved
+	// and dead in the wired product) rather than an unproven one.
+	panelAuth, err := handler.NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, cfg, slog.Default())
 	if err != nil {
 		return err
 	}

@@ -42,6 +42,50 @@ type Querier interface {
 	// prev's outputs (old_uid/old_ctr) removes any bare `uid` and satisfies both
 	// sqlc and Postgres.
 	AdvanceTagCounter(ctx context.Context, arg AdvanceTagCounterParams) (AdvanceTagCounterRow, error)
+	// Retires every invitation of one employee that could still be spent, and returns
+	// the ids it retired (empty when there was nothing to retire -- idempotent).
+	//
+	// 🔴 IT EXISTS BECAUSE SPENDING ONE INVITATION DID NOT RETIRE ITS SIBLINGS, and
+	// that was measured end to end over HTTP (M6-05 phase B): two presses of the panel's
+	// Send invite produced two simultaneously valid links, activating with the newer one
+	// left the older one PENDING, and the older one still activated afterwards -- taking
+	// the second-device path, which revokes the real employee's sessions and issues one
+	// to whoever held the stale link. A manager who presses twice because "the first one
+	// did not arrive" leaves a live account-takeover credential in a chat history.
+	//
+	// 🔴 cancelled_at IS NOT used_at AND THE TWO ARE NEVER SWAPPED. This file's header
+	// says so from the other side: "Cancelling an invite from the panel ... must NOT
+	// reuse used_at: that stamp means 'the code was used', and overloading it would
+	// corrupt the audit answer." Migration 00012 added the column and the column-level
+	// GRANT precisely so this statement could exist; before it, tappa_app could write
+	// used_at and nothing else (measured: `UPDATE ... SET expires_at` -> permission
+	// denied, DELETE -> permission denied).
+	//
+	// THE DIRECTION IS ONE-WAY, AS A PROPERTY OF THIS FILE. cancelled_at moves
+	// NULL -> now() and never back: the WHERE requires IS NULL, so a second run writes
+	// nothing and cannot rewrite the instant. That is discipline rather than
+	// enforcement -- 00012 says the same, and making it structural needs a trigger,
+	// which would have to answer for used_at at the same time.
+	//
+	// IT DOES NOT TOUCH used_at OR expires_at, so a cancelled invitation keeps saying
+	// what it always said: never consumed, and it would have died on this date. A
+	// consumed one is left alone too (used_at IS NULL in the WHERE) -- retiring it would
+	// overwrite history with a fact that is not true.
+	//
+	// 🔴 AND NEITHER IS AN EXPIRED ONE (now() < expires_at). The first version of this
+	// statement lacked that predicate while its own first line promised "every
+	// invitation that COULD STILL BE SPENT", and an audit measured the gap: two invites
+	// that had died an hour earlier were both stamped cancelled_at by a single press,
+	// and the screen reported "The 2 earlier links no longer work" when the press had
+	// retired ZERO spendable links. Two things were wrong and only one was cosmetic --
+	// the trail was answering "why is this invitation dead?" with "it was cancelled"
+	// about a code that had simply run out, which is the same conflation this file
+	// forbids for used_at. An expired invitation needs no retiring: it is already
+	// unspendable, and expires_at already says why.
+	//
+	// TENANT SCOPE (section 4.5, belt + braces): explicit tenant_id predicate on top of
+	// RLS. A foreign employee id retires nothing.
+	CancelPendingInvitesForEmployee(ctx context.Context, arg CancelPendingInvitesForEmployeeParams) ([]uuid.UUID, error)
 	// THE activation statement, and the most critical query in M5-02. ONE statement
 	// does BOTH halves -- consume the invite and flip the employee to 'active' -- so
 	// that "this employee was activated" IMPLIES "an invite was consumed for them".
@@ -54,8 +98,14 @@ type Querier interface {
 	// query and NO standalone consume query in this file.
 	//
 	// THE SCOPE OF THAT, exactly: this is the only statement in db/queries that writes
-	// employees.status (greppable -- `UPDATE employees` appears once in the whole
-	// directory, here). It is NOT a privilege-level guarantee: 00003 grants tappa_app
+	// employees.status = 'active'. ⚠️ THE SENTENCE HERE USED TO BE WIDER AND M6-05
+	// PHASE B MADE IT FALSE: it said this was the only statement writing
+	// employees.status at all, and that `UPDATE employees` appeared exactly once in the
+	// whole directory. The panel now deactivates and re-places people, so the count is
+	// three and the header of db/queries/employees.sql lists them with the command that
+	// produces the list. The narrowed claim is the one that was doing the work --
+	// nothing else can turn an employee 'active', so "activated" still implies "an
+	// invite was consumed". It is NOT a privilege-level guarantee: 00003 grants tappa_app
 	// table-wide UPDATE on employees, which it needs for the rest of the employee
 	// lifecycle, so hand-written SQL outside the generated store could still flip the
 	// column. What this buys is that the generated Querier -- the only DB surface
@@ -70,7 +120,12 @@ type Querier interface {
 	// an HMAC under a server-side key, as internal/session does -- only the code's
 	// holder can produce. The binding is exactly as strong as that derivation, which
 	// is why the derivation is not optional.
-	// (Cancelling an invite from the panel -- which legitimately knows only the id --
+	// (✅ CANCELLATION EXISTS SINCE 2026-08-08 AND IT DID NOT REUSE used_at, exactly as
+	// this paragraph demanded: migration 00012 added cancelled_at plus its own
+	// column-level GRANT, and CancelPendingInvitesForEmployee below is the only
+	// statement that writes it. Every query that decides whether a code may be spent now
+	// eliminates the two facts SEPARATELY -- `used_at IS NULL AND cancelled_at IS NULL`.
+	// Cancelling an invite from the panel -- which legitimately knows only the id --
 	// is a DIFFERENT operation and must NOT reuse used_at: that stamp means "the code
 	// was used", and overloading it would corrupt the audit answer. Cancellation gets
 	// its own column in a NEW migration when M6 needs it.)
@@ -450,6 +505,43 @@ type Querier interface {
 	// token_hash is the HMAC of a token this query never sees; it is written, never
 	// returned. device_info is NULL when the caller has no coarse label.
 	CreateSession(ctx context.Context, arg CreateSessionParams) (CreateSessionRow, error)
+	// Ends somebody's employment as far as this product is concerned (M6-05 phase B):
+	// status -> 'deactivated', with the stamp that matches it.
+	//
+	// 🔴 WHAT MAKES THE NEXT TAP A REJECT IS THIS COLUMN, AND NOTHING ELSE. Section 5
+	// row 4 says a deactivated employee's tap is REJECTED, RECORDED and alerted on;
+	// tap.Decide reads employees.status into the policy context and
+	// sys:employee-deactivated denies on that field alone. This statement is therefore
+	// the whole mechanism, and it is the reason the obvious companion write is absent:
+	//
+	// 🔴 IT DOES NOT REVOKE SESSIONS, AND THAT IS A USER DECISION (2026-08-07) TAKEN
+	// AGAINST THE FIRST DRAFT OF THE CARD. db/queries/sessions.sql states the argument
+	// at RevokeSessionsForEmployee in as many words ("DEACTIVATION MUST NOT CALL
+	// THIS"): revoking adds nothing to the refusal and moves every later tap by that
+	// person onto the "revoked session" branch, where a caller taking the obvious
+	// shortcut writes NO record -- which is the section 4.6 loss the reject branch
+	// exists to avoid. revoked_at stays what it was built for: a lost or stolen phone,
+	// and the second-activation replacement.
+	//
+	// 🔴 THERE IS NO REACTIVATE STATEMENT, AND THE ABSENCE IS THE DECISION. Bringing
+	// somebody back is not a lifecycle transition this product performs: the invite
+	// path refuses a deactivated employee by design (invites.sql: re-activating through
+	// an invite would be a privilege-escalation path around the manager-only
+	// deactivation), so adding a bare status flip here would open exactly that door
+	// from the other side. What a manager can do inside the product after this
+	// statement runs is nothing; docs/adr/0010 records that, its cost, and the two ways
+	// out that were considered.
+	//
+	// THE STATUS TEST IS IN THE WHERE, so a second press writes nothing and the caller
+	// sees zero rows rather than a second stamp. COALESCE keeps the FIRST
+	// deactivated_at for the same reason RevokeSession does: the stamp answers "when
+	// did this end", and rewriting it would edit history (section 4.6). Both together
+	// make a double submission idempotent AND silent in the trail -- the caller writes
+	// its audit row only when this statement returns a row.
+	//
+	// TENANT SCOPE (section 4.5, belt + braces): explicit predicate on top of RLS. A
+	// foreign id matches nothing, so this cannot end another tenant's employment.
+	DeactivateEmployee(ctx context.Context, arg DeactivateEmployeeParams) (DeactivateEmployeeRow, error)
 	// Materialise one managed-baseline policy CONTAINER. layer is fixed to 'baseline'
 	// in the statement rather than taken as a parameter: this query exists for the
 	// Tappa-authored baseline only, and a caller that could pass 'tenant' would be
@@ -607,12 +699,44 @@ type Querier interface {
 	// is NOT COMPUTED for it, which is different from "on time" and is why the domain
 	// carries a nil Shift rather than a zero one.
 	GetDepartmentShift(ctx context.Context, arg GetDepartmentShiftParams) (GetDepartmentShiftRow, error)
-	// employees.sql -- employee reads. NO WRITE QUERY LIVES HERE, and that absence is
-	// load-bearing: db/queries/invites.sql documents that ConsumeInviteAndActivate is
-	// the ONLY statement in db/queries that writes employees.status, so that
-	// "activated" implies "an invite was spent". Adding an activate/deactivate query
-	// to this file would silently break that property (M5-02 phase A, binding
-	// decision 2). Deactivation (M6-05) gets its own query with its own justification.
+	// employees.sql -- the employee reads, AND SINCE M6-05 PHASE B the two writes a
+	// manager can make from the panel.
+	//
+	// 🔴 THIS HEADER USED TO SAY "NO WRITE QUERY LIVES HERE" AND THAT SENTENCE IS NOW
+	// FALSE, so it is replaced rather than left standing. What it was protecting is
+	// still protected, and it is worth restating exactly, because the property was
+	// never "employees is never updated" -- it was "activation cannot happen without
+	// spending an invite" (M5-02 phase A, binding decision 2). ConsumeInviteAndActivate
+	// (db/queries/invites.sql) remains the ONLY statement anywhere in db/queries that
+	// writes status = 'active', and neither query below writes that value.
+	//
+	// 🔴 THE GREPPABILITY THE OLD SENTENCE RELIED ON IS KEPT BY COUNTING RATHER THAN BY
+	// ABSENCE. invites.sql said `UPDATE employees` appears once in the whole directory.
+	// It now appears three times, and a reader can list them:
+	//
+	//	$ grep -rn '^UPDATE employees' db/queries/
+	//	db/queries/employees.sql:...  DeactivateEmployee        status -> 'deactivated'
+	//	db/queries/employees.sql:...  MoveEmployee              location_id / department_id
+	//	db/queries/invites.sql:...    ConsumeInviteAndActivate  status -> 'active'
+	//
+	// ⚠️ THE ANCHOR IS PART OF THE COMMAND. Without `^` the same grep returns SIX lines:
+	// the three statements plus three sentences of prose that name them, one of which is
+	// this paragraph. An audit read that as the comment misreporting its own output --
+	// the claim ("three statements") was right and the reproduction was not, which is
+	// the same defect as a stale number and is corrected the same way: print the command
+	// that actually produces the list
+	//
+	// Each writes a DIFFERENT part of the lifecycle and no two of them overlap:
+	// deactivation never sets 'active', activation never sets 'deactivated', and the
+	// move statement does not name status at all. That is the property; the count is
+	// how a reader checks it.
+	//
+	// ⚠️ WHAT IS NOT CLAIMED: this is not a privilege-level guarantee. 00003 grants
+	// tappa_app table-wide UPDATE on employees, so hand-written SQL outside the
+	// generated store could write anything. What this buys is that the generated
+	// Querier -- the only database surface a handler may touch (CLAUDE.md section 3) --
+	// offers exactly these three transitions and no others. There is deliberately NO
+	// reactivate query: see DeactivateEmployee.
 	//
 	// TENANT SCOPE (CLAUDE.md section 4.5, belt + braces on RLS): every query here
 	// carries an explicit tenant_id predicate and runs inside db.(*DB).WithTenant.
@@ -865,6 +989,33 @@ type Querier interface {
 	// That is a DISCLOSURE choice, not the isolation decision: whether such a tap is
 	// allowed is sys:tenant-mismatch's answer at POST time (hand-off N5).
 	GetLocationWiFi(ctx context.Context, arg GetLocationWiFiParams) (GetLocationWiFiRow, error)
+	// ONE person, with the placement facts a manager needs before acting on them
+	// (M6-05 phase B): who they are, where they are in the lifecycle, and where they
+	// currently work.
+	//
+	// 🔴 IT IS READ INSIDE THE SAME TRANSACTION AS THE WRITE THAT FOLLOWS IT, which is
+	// what makes the audit row describe the row that actually changed. The previous
+	// status and the previous placement are the FROM half of every trail entry this
+	// section writes, and reading them in a separate round trip would let a concurrent
+	// change slip between the two -- the trail would then name a state that was never
+	// the one this action moved away from.
+	//
+	// IT IS ALSO WHAT TELLS "no such person" APART FROM "the write was refused". Both
+	// come back from an UPDATE as zero rows, and section 4.6 needs the manager to be
+	// told which: "that person is not on this roster" and "they are already
+	// deactivated" are different sentences and only one of them is about a mistake.
+	//
+	// 🔴 SECTION 4.7 -- IT DOES NOT SELECT email, AND employee_invites IS NOT JOINED.
+	// The action card names a person and offers three buttons; an address has no reader
+	// on it, and the invitation table holds the code hash. The one place an activation
+	// link is ever rendered is the response to the POST that mints it (internal/invite
+	// Channel), never a row read back from storage.
+	//
+	// TENANT SCOPE (section 4.5, belt + braces): the explicit tenant_id predicate is
+	// required even though RLS is on, and both LEFT JOINs restate it in their own ON
+	// clause. A foreign id returns no row, which the caller reads as "not on this
+	// roster" -- never as another tenant's person.
+	GetPanelEmployeeForAction(ctx context.Context, arg GetPanelEmployeeForActionParams) (GetPanelEmployeeForActionRow, error)
 	// The name of ONE employee, by id -- the anchor a roster page continues from.
 	//
 	// 🔴 IT EXISTS SO THE PAGING CURSOR CAN CARRY AN ID INSTEAD OF A NAME, and that is a
@@ -1513,6 +1664,69 @@ type Querier interface {
 	// it answers "when was the most recent login", not "when was the first". The
 	// history of logins is audit_log's job (phase B writes it), not this column's.
 	MarkAdminLoggedIn(ctx context.Context, arg MarkAdminLoggedInParams) (MarkAdminLoggedInRow, error)
+	// Re-places one person: a different venue, a different department, or both
+	// (M6-05 phase B).
+	//
+	// 🔴 IT NEVER NAMES status, so a move cannot activate, deactivate or resurrect
+	// anybody. That is what keeps the three-statement split in this file's header
+	// meaningful: each write owns one part of the lifecycle and this one owns none of
+	// it. A deactivated person CAN be moved, deliberately -- a payroll correction
+	// months later is exactly the kind of repair section 4.6 wants to stay possible.
+	//
+	// 🔴 THE PLACEMENT IS JOINED RATHER THAN ASSIGNED, and that is what turns "does
+	// this venue belong to this tenant?" into a property of the statement instead of a
+	// check the caller has to remember. The FROM clause matches the location inside the
+	// caller's tenant, so a foreign or invented location_id produces ZERO ROWS -- not a
+	// foreign write and not an error the manager has to be shown as a 500.
+	//
+	// ⚠️ AND IT IS THE SECOND DEFENCE, NOT THE ONLY ONE. Migration 00003 gives
+	// employees a COMPOSITE foreign key on (location_id, tenant_id) -> locations and
+	// (department_id, tenant_id) -> departments, so a cross-tenant placement is
+	// structurally impossible even if every predicate below were deleted: the database
+	// answers 23503. The predicates buy the DIFFERENCE BETWEEN A REFUSAL AND AN ERROR,
+	// which is what section 4.6 asks for on a screen a person is standing in front of.
+	//
+	// THE DEPARTMENT IS OPTIONAL AND ITS ABSENCE IS FIRST CLASS (00003: a bar does not
+	// model departments). NULL means "no department", which is a legitimate destination
+	// and not a missing argument -- so a LEFT JOIN supplies it and the guard in the
+	// WHERE refuses only the case that is genuinely wrong: a department id that was
+	// given and does not resolve inside this tenant. Without that guard the LEFT JOIN
+	// would quietly turn an unknown department into "no department", which is a silent
+	// wrong write rather than a refusal.
+	//
+	// ⚠️ THE DEPARTMENT'S TENANT PREDICATE SITS IN A JOIN ... ON, WHICH THIS REPOSITORY
+	// KNOWS IS UNNETTED. The same note is on ListPanelEmployees above, measured: the
+	// scope check in internal/domain/*/query_test.go excludes ON clauses structurally
+	// and correctly. Here the composite FK is what makes it more than discipline -- a
+	// department from another tenant cannot be written even with the ON clause gone.
+	//
+	// 🔴 AND THE DEPARTMENT MUST BELONG TO THE DESTINATION VENUE (d.location_id = l.id).
+	// That predicate is NOT tenant isolation -- it is section 5 correctness, and it was
+	// missing until a security audit measured what it cost: "MOVE venueA with deptB
+	// (which belongs to venueB) -> 303; stored location=venueA department=deptB". The
+	// schema does not forbid it (departments carries its own location_id and the
+	// composite FK only binds the TENANT), and the panel's dropdown OFFERS every
+	// department in the business, so the screen was proposing the combination.
+	//
+	// WHY IT MATTERS BEYOND TIDINESS: a department is not a label. Lateness is computed
+	// from the DEPARTMENT's shift when there is one (section 5, internal/domain/checkin
+	// via GetDepartmentShift), and a policy can be scoped to `department/<id>`
+	// (internal/policy). So a mismatched pair silently judges somebody against ANOTHER
+	// branch's shift and another branch's rules -- a wrong answer that looks like a
+	// right one, which is the failure this file's own header is about.
+	//
+	// IT IS ENFORCED IN THE STATEMENT rather than by filtering the dropdown, because
+	// the dropdown is a courtesy and this is the boundary: a hand-posted pair, a stale
+	// form, or a department moved between venues after the page rendered all arrive
+	// here. The list is still shown whole, GROUPED BY VENUE NAME
+	// (ListDepartmentsForTenant orders by location) so the pairing is visible; narrowing
+	// it as the venue changes would need a script this section deliberately does not
+	// load. What a mismatch gets is a refusal with a sentence, not a silent write.
+	//
+	// TENANT SCOPE (section 4.5, belt + braces): e.tenant_id and l.tenant_id are both
+	// bound to the caller's parameter as top-level conjuncts of the statement's own
+	// WHERE, on top of RLS.
+	MoveEmployee(ctx context.Context, arg MoveEmployeeParams) (MoveEmployeeRow, error)
 	// audit.sql -- the append-only administrative/domain trail (migration 00005).
 	//
 	// WHY THIS FILE EXISTS NOW (M5-02 phase B): CLAUDE.md section 4.6 says a record is
