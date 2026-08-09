@@ -472,7 +472,7 @@ func newVerifyTag(t *testing.T, d *db.DB, kek, tagKey []byte, startCtr int32, st
 		if _, e := tx.Exec(ctx,
 			`INSERT INTO tenants (id, name, vat_number, business_type, structure)
 			 VALUES ($1, 'sun-verify-test', $2, 'bar', 'single')`,
-			tenantID, "VAT-"+tenantID.String()[:8]); e != nil {
+			tenantID, "VAT-"+tenantID.String()); e != nil {
 			return e
 		}
 		if _, e := tx.Exec(ctx,

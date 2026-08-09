@@ -165,7 +165,7 @@ func TestPanelTransactionsDB_ShowsOwnRecordsAndNeverAnotherTenants(t *testing.T)
 		_, e := tx.Exec(ctx,
 			`INSERT INTO tenants (id, name, vat_number, business_type, structure)
 			 VALUES ($1, 'Bravo Ltd', $2, 'bar', 'single')`,
-			bTenant, "VAT-"+bTenant.String()[:8])
+			bTenant, "VAT-"+bTenant.String())
 		return e
 	}); err != nil {
 		t.Fatalf("insert tenant B: %v", err)

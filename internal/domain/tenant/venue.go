@@ -157,9 +157,17 @@ var (
 // DATA, so quoting it to justify the bound was circular. Department names are still 23
 // at their longest, which is the figure that has not moved.
 //
-// The bound is not written into the schema because phase A adds no migration -- it is
-// enforced at the boundary and pinned by a test, and a CHECK constraint would be the
-// right home for it the next time this schema is touched.
+// ✅ THE SCHEMA NOW CARRIES IT TOO (migration 00013, M6-06 phase B). This comment
+// used to end "a CHECK constraint would be the right home for it the next time this
+// schema is touched" -- that time came, and locations_name_bounded /
+// departments_name_bounded mirror BOTH halves of venueName: trimmed-non-empty and at
+// most 80 runes (char_length counts runes, verified: char_length('ċġħż') = 4 against
+// octet_length 8). Zero existing rows violated either, so both validate.
+//
+// THE NUMBER IS NOW IN TWO PLACES, which is a real cost and is named in the
+// migration too. The boundary stays the stricter of the two by construction -- it
+// trims before counting -- so a disagreement surfaces as a rejected write, never as
+// a stored row this constant says is impossible.
 const MaxVenueNameRunes = 80
 
 // Shift is a wall-clock working window as the panel edits it.

@@ -143,9 +143,19 @@ func (e *ParseError) UserMessage() string { return UserParseError }
 // QR is a VALID state, not an error (CLAUDE.md §5): it simply carries no proof
 // of moment, so sun_valid stays false and base:qr-requires-ip takes over. Any
 // other combination — exactly one of ctr/cmac present — is malformed, because a
-// real NFC tap always emits both. Mixed-case hex is accepted (tags.uid CHECK
-// allows both cases) and canonicalised; an empty-valued parameter (`?ctr=`) is
-// treated the same as an absent one.
+// real NFC tap always emits both. Mixed-case hex in the URL is accepted and
+// CANONICALISED to upper case here; an empty-valued parameter (`?ctr=`) is treated
+// the same as an absent one.
+//
+// ⚠️ THE PARENTHETICAL THAT USED TO JUSTIFY THAT ("tags.uid CHECK allows both
+// cases") IS NO LONGER TRUE and is removed rather than reworded, because it had the
+// dependency backwards. Migration 00013 narrowed the column to a single spelling
+// (tags_uid_canonical_hex, `^[0-9A-F]{14}$`) precisely BECAUSE accepting two
+// spellings let one physical chip exist as two rows with the same wrapped-key AAD
+// and two independent counters (backlog T8). Nothing here changes: this function
+// already emitted upper case, which is exactly why the narrowing was safe. What
+// changes is the reasoning -- the URL is lenient because a URL is typed by hand and
+// printed on a plaque; the DATABASE is strict because a row is an identity.
 func Parse(q url.Values) (Params, error) {
 	uidHex := q.Get(paramTag)
 	if uidHex == "" {

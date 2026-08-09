@@ -596,7 +596,7 @@ func TestPanelEmployeesDB_AnotherBusinessesEmployeeIsUntouched(t *testing.T) {
 		_, e := tx.Exec(ctx,
 			`INSERT INTO tenants (id, name, vat_number, business_type, structure)
 			 VALUES ($1, 'Bravo Ltd', $2, 'bar', 'single')`,
-			other, "VAT-"+other.String()[:8])
+			other, "VAT-"+other.String())
 		return e
 	}); err != nil {
 		t.Fatalf("insert tenant B: %v", err)

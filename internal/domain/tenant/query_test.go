@@ -107,6 +107,133 @@ func TestStaffQueries_CarryAnExplicitTenantPredicate(t *testing.T) {
 	}
 }
 
+// tagsQueryFile is the one query file whose statements have NO non-test caller
+// yet, and therefore no AST-derived belt. See the test below.
+const tagsQueryFile = "tags.sql"
+
+// TestTagsQueries_CarryAnExplicitTenantPredicate closes a HOLE IN THE DERIVATION
+// ITSELF, not in a query.
+//
+// 🔴 THE MEASUREMENT THAT PUT IT HERE (M6-06 phase B, 2026-08-09). Migration 00013
+// shipped four panel statements over `tags` and NONE of the three belt copies
+// counted them -- the printed coverage stayed at 18 while the denominator went
+// 60 -> 64. The cause is not the queries' shape, it is the SCANNER'S SCOPE, and it
+// is two layers deep:
+//
+//	storeQueryNames parses ITS OWN package directory ....... so a query called from
+//	  another package is invisible to this copy by construction; and
+//	it filters out *_test.go (see the parser filter) ....... so a query whose ONLY
+//	  caller today is a test is invisible to EVERY copy.
+//
+// Measured: each of the four is named in exactly one file, internal/db/
+// tagsinventory_test.go, because the panel handlers are a later round. So there was
+// no derivation anywhere that could reach them -- a fourth AST copy in internal/db
+// would have derived ZERO names and printed a green vacuum.
+//
+// 🔴 SO THIS ONE DERIVES FROM THE FILE, NOT FROM A CALLER, and that is the property
+// worth having: a query is checked because it EXISTS, not because something already
+// uses it. The window this closes is exactly the dangerous one -- between "the SQL
+// is merged" and "a handler calls it", which is when nobody is looking.
+//
+// WHY IT LIVES IN THIS FILE INSTEAD OF A FOURTH COPY: the matcher (whereClauses,
+// subjectOf, scopedBySubject, scopeFindings) is already here, already hardened by
+// the mutations recorded above, and this header's own warning is that a fourth copy
+// is a cost. This test adds a second DERIVATION over the existing matcher -- about
+// forty lines -- rather than a fourth scanner. It drives the same scopeFindings the
+// belt drives, exactly as TestStaffBlockScan_... already does over bodies read from
+// db/queries.
+//
+// SCOPE, STATED SO IT IS NOT MISTAKEN FOR MORE: it covers db/queries/tags.sql and
+// nothing else. Widening it to the whole directory is the change this file's header
+// records as MEASURED AND REJECTED -- it turns red on queries that are correct today
+// (LockEmployeeForTap is an advisory lock with no WHERE at all) and needs a
+// per-query opt-out with a reason, which is a task. tags.sql needs no opt-out:
+// EVERY statement in it is tenant-scoped, and the day one is not, this test goes red
+// and somebody has to decide -- which is the point.
+//
+// ⚠️ A MEASURED FALSE ALARM, WRITTEN DOWN BECAUSE IT WILL SURPRISE SOMEBODY. The
+// matcher masks nested parentheses, so a WHERE whose ENTIRE body is parenthesised --
+// `WHERE (g.tenant_id = @tenant_id AND g.uid = @uid)` -- is masked away and reported
+// as "has NO WHERE clause at all". Reproduced on GetTagForTenant. It is not a hole:
+// it fails CLOSED, refusing a correctly scoped query rather than accepting an
+// unscoped one, so the worst it costs is a puzzled author. Written as a limit rather
+// than fixed, because changing the mask is a change to a settled matcher shared by
+// three copies and belongs with its own mutation run.
+//
+// ⚠️ THE SET IS DERIVED, SO THIS COMMENT NAMES NO COUNT. An earlier version said
+// "all five of its statements" and was stale within the same task (the file went to
+// six when ListTagLastSeen landed), while the runtime belt in
+// internal/db/tagsinventory_test.go said "all four" -- two nets describing the same
+// file with two different numbers, neither of which was right. The floor below is
+// the only number, and it is an ANTI-VACUITY floor rather than a description.
+func TestTagsQueries_CarryAnExplicitTenantPredicate(t *testing.T) {
+	declared := declaredQueries(t)
+	names := queriesDeclaredIn(t, tagsQueryFile)
+
+	// ANTI-VACUITY: an empty or shrunken derivation would make everything below pass
+	// over nothing. The floor is 5 -- what 00013 shipped before ListTagLastSeen was
+	// added -- deliberately BELOW today's count, so that deleting a query fails
+	// loudly while adding one never does.
+	if len(names) < 5 {
+		t.Fatalf("derived %d query name(s) from db/queries/%s (%v); this file carries at "+
+			"least five, so this scan is reading the wrong file", len(names), tagsQueryFile, names)
+	}
+	for _, n := range names {
+		if !declared[n] {
+			t.Errorf("%q is declared in %s but declaredQueries did not see it; the two "+
+				"readers disagree, so one of them is misparsing", n, tagsQueryFile)
+		}
+	}
+
+	sorted := append([]string(nil), names...)
+	sort.Strings(sorted)
+	t.Logf("section 4.5 belt coverage over db/queries/%s (file-derived, no caller "+
+		"required): %d of %d queries declared in db/queries (%.1f%%). This package's "+
+		"CALL-derived belt covers %d more; the two sets are disjoint, so together they "+
+		"are %d of %d (%.1f%%).\nseen here: %s",
+		tagsQueryFile, len(names), len(declared),
+		100*float64(len(names))/float64(len(declared)),
+		len(storeQueryNames(t, declared)),
+		len(names)+len(storeQueryNames(t, declared)), len(declared),
+		100*float64(len(names)+len(storeQueryNames(t, declared)))/float64(len(declared)),
+		strings.Join(sorted, ", "))
+
+	scoped := tenantScopedTables(t)
+	for _, name := range names {
+		file, body, ok := findQuery(t, name)
+		if !ok {
+			t.Errorf("no body for %q -- declared in %s but unreadable", name, tagsQueryFile)
+			continue
+		}
+		findings, checked := scopeFindings(body, scoped)
+		for _, f := range findings {
+			t.Errorf("%s (%s) %s", name, file, f)
+		}
+		if checked == 0 {
+			t.Errorf("%s (%s): the scan found no statement touching a tenant-scoped table, "+
+				"so it checked nothing -- every query in this file touches `tags`.", name, file)
+		}
+	}
+}
+
+// queriesDeclaredIn reads every `-- name: X` from ONE file in db/queries, with the
+// same line-anchored regexp declaredQueries uses (a marker inside a comment must not
+// resolve).
+func queriesDeclaredIn(t *testing.T, file string) []string {
+	t.Helper()
+	path := filepath.Join("..", "..", "..", "db", "queries", file)
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading db/queries/%s: %v", file, err)
+	}
+	re := regexp.MustCompile(`(?m)^-- name: (\w+) `)
+	var out []string
+	for _, m := range re.FindAllStringSubmatch(string(raw), -1) {
+		out = append(out, m[1])
+	}
+	return out
+}
+
 // TestStaffScopeCheck_IsNotVacuous is the negative control for the MATCHER.
 // Without it a blinded matcher would make the belt pass over unscoped SQL.
 func TestStaffScopeCheck_IsNotVacuous(t *testing.T) {
@@ -319,7 +446,17 @@ func TestStaffBlockScan_FlagsTheShapesThatBeatTheOlderCheck(t *testing.T) {
 func whereClauses(body string) []string {
 	var out []string
 	whereRE := regexp.MustCompile(`(?is)\bWHERE\b`)
-	stopRE := regexp.MustCompile(`(?is)\b(ORDER\s+BY|GROUP\s+BY|LIMIT|HAVING|RETURNING)\b`)
+	// FOR UPDATE / FOR SHARE ADDED 2026-08-09 (M6-06 phase B), and it was a REAL
+	// blind spot rather than a tidy-up: a locking clause follows the WHERE, so
+	// without it the last conjunct of a locked read is returned as
+	// "p.tenant_id = @tenant_id\n FOR UPDATE" and the equality no longer matches --
+	// the matcher flags a query that IS correctly scoped. Measured on
+	// AdvanceTagCounter, the only locked read in db/queries and, until the
+	// file-derived net above existed, the only one no belt covered. The same three
+	// tokens are added to all three copies of this scanner: copies that DISAGREE are
+	// worse than copies that agree, and this one is a no-op for the other two (no
+	// query they cover takes a row lock -- grepped).
+	stopRE := regexp.MustCompile(`(?is)\b(ORDER\s+BY|GROUP\s+BY|LIMIT|HAVING|RETURNING|FOR\s+NO\s+KEY\s+UPDATE|FOR\s+UPDATE|FOR\s+SHARE)\b`)
 	for _, loc := range whereRE.FindAllStringIndex(body, -1) {
 		rest := body[loc[1]:]
 		depth, end := 0, len(rest)

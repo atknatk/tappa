@@ -3639,6 +3639,420 @@ Ayrıca iş yalnız CSS+bileşen değil — kabuk `pages/` + `handler/`'a da dok
 >   çünkü o noktada bu artık tek bir yorum değil, bir **kalıp** olur. En olası
 >   adaylar: **M6-08** (manuel kayıt) ve **M6-09** (policy `resource` kapsamı).
 
+> **Kart düzeltmesi (2026-08-09, M6-06 B veri katmanı sırasında).** Migration
+> **00013** sevk edildi (`00013_harden_tags_and_add_inventory.sql`). Üç yazılı
+> iddia gerçekle çelişti; üçü de ölçümle düzeltildi.
+>
+> 🔴 **(1) T8'in ÖNCÜLÜ YANLIŞTI — "mevcut satırlar zaten büyük harf, veri
+> taşıması yok" bu veritabanı için doğru değil.** Ölçüm (2026-08-09): **75 438**
+> tag satırının **57 428**'i büyük harf, **18 010**'u **küçük harf**. Doğrulanmış
+> (validated) bir CHECK bu yüzden **eklenemiyor** — `ALTER TABLE … ADD CONSTRAINT`
+> canlı olarak `is violated by some row` veriyor.
+> - **Ve normalleştirme bir KIRMIZI ÇİZGİYE çarpıyor, tercihe değil.** O 18 010
+>   satırın **12 437**'si `transactions`'ın **24 874** satırından
+>   `transactions_tag_fk` ile referanslanıyor (MATCH SIMPLE / NO ACTION), ve
+>   `transactions` veritabanı düzeyinde append-only (00005'in tetikleyicisi
+>   `tappa_owner`'ı da bağlıyor). "Hepsini büyük harfe çevir" = tetikleyiciyi
+>   superuser olarak devre dışı bırakıp **24 874 delil satırını yeniden yazmak**
+>   (§4.3). Yapılmadı.
+> - **Sevk edilen şekil: `NOT VALID`.** Yeni her INSERT ve UPDATE denetleniyor
+>   (ölçüldü: küçük harfli INSERT **reddediliyor**); artık satırlar duruyor ve
+>   **donuyor** (o satırlara yapılan HERHANGİ bir UPDATE de reddediliyor —
+>   fail-closed, ölçüldü). Taze bir veritabanında sıfır satır ihlal ettiği için
+>   üretimde bu kısıt fiilen doğrulanmış doğar; tamamlayan tek satır
+>   `ALTER TABLE tags VALIDATE CONSTRAINT tags_uid_canonical_hex;`.
+> - **18 010'un kaynağı ölçüldü ve KAPATILDI:** ikisi de `\xDEAD` placeholder
+>   yazan **iki test yardımcısı** (`internal/db/store_test.go` ve
+>   `internal/sun/advance_test.go`) `hex.EncodeToString`'i `ToUpper`'sız
+>   kullanıyordu. Handler tarafındaki ikizleri zaten `ToUpper` sarıyordu. İkisi de
+>   düzeltildi → artık satır **birikmiyor**.
+>
+> 🔴 **(2) T9'un ÖNERDİĞİ TRIGGER KOŞULU REPLACE TAG AKIŞINI KİLİTLİYOR.** Backlog
+> `NEW.last_ctr > OLD.last_ctr` yazıyor. **Gereklilik olarak yanlış** — canlı
+> ölçüm: o koşulla, `last_ctr`'a dokunmayan bir retire
+> (`status/retired_at/replaced_by`) **reddediliyor**:
+> `read counter is monotonic … (0 -> 0 refused)`. Sevk edilen koşul geriye gitmeyi
+> yasaklar, ilerlememeyi değil: **`WHEN (NEW.last_ctr < OLD.last_ctr)`**. Aynı
+> retire o koşulla **UPDATE 1**. İkisi de testle pinli, ve yanlış koşul mutasyon
+> olarak koşulup **KIRMIZI** görüldü.
+>
+> 🔴 **(3) T9'un SÜTUN LİSTESİ EKSİKTİ — envanter modeliyle çelişiyordu.** T9
+> `(last_ctr, status, retired_at, replaced_by)` diyor; envanter modeli ise panelin
+> plaketi bir lokasyona **bağlamasını** istiyor ve o bağlama `location_id`'nin
+> UPDATE'idir. İkisi aynı günün kullanıcı kararları, yani biri diğerini
+> uygulanamaz kılıyordu. Sevk edilen grant: **`(location_id, last_ctr, status,
+> retired_at, replaced_by)`**. Yazılmayan dört sütun: `uid` · `tenant_id` ·
+> `aes_key_ref` · `created_at`. Çapraz-tenant taşıma bileşik FK ile yapısal olarak
+> zaten imkânsız.
+> - **Beklenmedik kazanç:** `tenant_id` artık **yetki** düzeyinde reddediliyor
+>   (`permission denied`), eskiden yalnız RLS `WITH CHECK` reddediyordu.
+> - **§4.4 REGRESYON YOK, ölçüldü:** `AdvanceTagCounter`'ın `FOR UPDATE` satır
+>   kilidi **sütun-düzeyi** grant altında çalışıyor (bariz değildi, sondalandı) ve
+>   replay hâlâ `pgx.ErrNoRows` — tetikleyici o ifadeden **erişilemez**, çünkü katı
+>   `prev.old_ctr < @ctr` zaten 0 satır eşleştiriyor.
+>
+> ✅ **ENVANTER MODELİ ŞEMAYA GİRDİ ve kartın `encoded/pending` kriteri artık
+> temsil edilebilir.** `location_id` **nullable**; `status` kümesi
+> **`unassigned`** kazandı; iki CHECK ikisini birbirine bağlıyor
+> (`tags_active_requires_location` · `tags_unassigned_has_no_location`), böylece
+> "hizmette mi" sorusunun iki çelişkili temsili olamıyor. **pending** =
+> `location_id IS NULL`, **encoded** = satırın kendisi (Tappa yüklemeden önce
+> sarmalıyor). `tenant_id` **NOT NULL kaldı** (§4.5) — plaket bir müşteriye sevk
+> edilir, tenant yükleme anında bellidir.
+>
+> 🔴 **VE BU DEĞERİN POLİTİKA MOTORUNDA BİR FAIL-OPEN'I VAR — B'nin uygulama
+> turuna DEVREDİLDİ.** `sys:tag-not-active` bir **denylist**:
+> `s == "retired" || s == "lost"`. `active` **istemiyor**. Yani `unassigned` bir
+> plakete tap §5 satır 1'e **hiç çarpmıyor**, 2–7'ye düşüyor ve `ok` olabiliyor.
+> Düzeltme tek satır (`s != "active"`) ve bugünün sözlüğünde **kanıtlanabilir
+> şekilde eşdeğer**. **Bugün erişilebilir değil:** `db/queries`'te `tags` üzerinde
+> **INSERT yok** (panel plaket yaratmıyor — Tappa yüklüyor), yani `unassigned` bir
+> satırı bugün yalnız `tappa_owner` üretebilir. T8'in "bugün sömürülemiyor"uyla
+> **aynı şekil**, ve o koruma bir sonraki turda sona eriyor.
+>
+> 📊 **T11 İNDEKSİ SEVK EDİLDİ** (`transactions_tenant_location_idx`). Ölçüm
+> (tenant `1000…0001`, 9 lokasyon, **29 087** işlem / tabloda **238 922**, 228 MB):
+> dört sayım **30,3 / 29,8 ms → 8,9 / 6,9 ms**; yalnız `transactions` bacağı
+> **20,5 / 18,3 ms → 0,069 / 0,045 ms** (Bitmap Heap Scan → **Index Only Scan**).
+> Bedeli **4 472 kB** ve **269 ms** kurulum; yazma bedeli 20 000 INSERT'lik üç
+> eşleştirilmiş örnekte **+0,8% / +0,1% / +6,8%** — yani bu makinede **ölçülebilir
+> bir yavaşlama yok**, tek bir sayı yazmak dürüst olmazdı. ⚠️ **Kalan ~7 ms artık
+> `employees` bacağı** (indekssiz) — ayrı bir iş, bilerek paketlenmedi. ⚠️ Bu,
+> 00013'ün **tek performans** parçası: hiçbir test onsuz kırılmıyor, yani onu
+> silen bir mutasyon CI'ya **görünmez** (00011'in `admin_users_email_idx` için
+> yazdığı aynı sınır). Listeye kontrolü geri taşımak artık **uygulanabilir**, ama
+> bu bir ekran kararı ve **verilmedi**.
+>
+> ⛔ **BU MADDE GERİ ALINDI — aşağıdaki 2. tur bloğuna (V2) bakın.** Tarayıcı
+> `scripts/redline-check.sh` **HEAD'in hâlinde**; muafiyet **yok**. Cümle tarihli
+> blok geleneği gereği silinmiyor, ama tek başına okunursa **yanlış** bilgi verir.
+>
+> ⚠️ **`make audit` KIRILDI VE TARAYICI DEĞİŞTİRİLEREK ONARILDI — bilinçli, dar,
+> ve pozitif kontrollü.** Yeni testler sayacı **geriye saran** kosulsuz UPDATE'ler
+> içeriyor (tetikleyicinin çalıştığını kanıtlamanın tek yolu) ve R4 bunları FAIL
+> veriyordu. `_test.go` muafiyeti eklendi — **R3 ve R5'in aynı gerekçeyle zaten
+> taşıdığı** kalıp. `db/` **tam taranmaya devam ediyor**: pozitif kontrol olarak
+> üretim SQL'ine kosulsuz bir sayaç yazımı kondu → R4 **yine FAIL** verdi (exit 1),
+> geri alınınca exit 0. Muafiyet genişletilmedi.
+>
+> 📌 **`transactions` üzerinde geriye dönük etki YOK** (T11 indeksi hariç, o da
+> yalnız okuma planı): 00013 `transactions`'ın ne satırlarına ne şemasına dokunuyor.
+> **ADR gerekmiyor** okuması: bu bir güvenlik sınırının *değişmesi* değil, iki
+> mevcut sınırın (§4.4 atomik sayaç, §4.5 tenant izolasyonu) **daraltılması** —
+> hiçbir yetenek eklenmiyor, dört sütunluk yazma yetkisi ve bir geri sarma
+> yeteneği **kaldırılıyor**. Karar orkestratörün.
+
+> **Kart düzeltmesi (2026-08-09, M6-06 B veri katmanı — 2. tur, üçüncü göz RED
+> sonrası).** Üç bloklayan kapandı; ikisi bir öncekinde **yanlış yazılmış**
+> iddialardı.
+>
+> 🔴 **(V1) KUŞAK DÖRT SORGUDA DA KANITSIZDI VE ONU KANITLADIĞINI SÖYLEYEN TEST
+> YANLIŞTI.** Test sorguları **B'nin bağlamından** koşuyordu; orada RLS zaten 0
+> satır veriyor, yani açık `tenant_id` yükleminin sonuca **hiçbir katkısı yoktu**.
+> Denetçi dördünün de yüklemini `$n::uuid IS NOT NULL` ile değiştirdi → paket
+> **yeşil** kaldı. Yeni test **A'nın bağlamında** koşuyor ve parametre olarak
+> **B'nin tenant id'sini** veriyor: satır görünür, rol yazabilir, dolayısıyla
+> ifadeyi reddedebilecek **tek şey kendi yüklemi**. Aynı mutasyon artık **dört alt
+> testin dördünü de KIRMIZI** yapıyor (mutasyon derlendi, `diff -u` ile kanıtlandı).
+> - **Ağ neden görmüyordu — ölçüldü, ve cevap sorgu şekli değil TARAYICI KAPSAMI:**
+>   `storeQueryNames` (a) yalnız **kendi paket dizinini** ayrıştırıyor ve (b)
+>   `_test.go` dosyalarını **eliyor**. Dört sorgunun tek çağıranı
+>   `internal/db/tagsinventory_test.go` — yani `internal/db`'ye **dördüncü bir AST
+>   kopyası** koysaydım **sıfır** isim türetip yeşil bir boşluk basacaktı.
+> - **Çözüm: dosyadan türeten bir net**, `internal/domain/tenant/query_test.go`
+>   içinde, **mevcut ve sertleştirilmiş matcher'ı** kullanarak (dördüncü tarayıcı
+>   değil, ikinci **türetim**; ~40 satır). Bir sorgu **var olduğu için** denetleniyor,
+>   **çağrıldığı için** değil — kapanan pencere tam olarak "SQL merge edildi, henüz
+>   handler yok" aralığı. **Koşuda basılan sayı: `6 of 65` (dosya-türetimli), bu
+>   paketin çağrı-türetimli 18'iyle birlikte `24 of 65 (%36,9)`.**
+> - ⚠️ **Ve net kurulur kurulmaz gerçek bir kör nokta buldu:** matcher'ın `stopRE`'si
+>   `FOR UPDATE`/`FOR SHARE` içermiyordu, yani **kilitli bir okuma**nın son koşulu
+>   `p.tenant_id = @tenant_id\n FOR UPDATE` olarak okunuyor ve **doğru kapsanmış**
+>   `AdvanceTagCounter` işaretleniyordu. Üç kopyaya da aynı üç token eklendi
+>   (diğer ikisi için **no-op** — kapsadıkları hiçbir sorgu satır kilidi almıyor,
+>   grep'lendi; ölçüm: ledger 9/64 ve review sayıları **değişmedi**).
+> - ⚠️ **Bonus bulgu, düzeltilmedi, YAZILDI:** üç kopyanın "davranışsal olarak
+>   birebir" olduğu iddiası **yanlış** — `ledger`'ın `stopRE`'sinde `RETURNING`
+>   **yok**, diğer ikisinde var. Kapatmak o paketin belt'inin kabul ettiği kümeyi
+>   değiştirir; kendi mutasyon turuyla gelmeli.
+>
+> 🔴 **(V2) R4 MUAFİYETİ GERİ ALINDI.** `scripts/redline-check.sh` artık **HEAD'in
+> hâli** (`git diff` boş). Üç test ifadesi reponun kendi çok satırlı SQL üslubuna
+> çevrildi ve `make audit` **dokunulmamış tarayıcıyla exit 0**. ⚠️ Bir kez daha
+> **kendi yorumum** R4'ü kırdı (yasaklı şekli **alıntılayan** cümle) — M6-06 A'nın
+> R2'de yaşadığının aynısı, ve çözümü yine **metni yeniden yazmak** oldu.
+> - 🔴 **R4'ün gerçek açığı SATIR-YERELLİK ve artık YAZILI** (`tagsinventory_test.go`
+>   başlığı). Ölçüldü, **üretim** konumlarında: tek satır → `rc=1 FAIL`; **aynı ifade
+>   satırlara bölünmüş → `rc=0 SESSİZ`**, hem `db/queries` hem Go const'unda. Üçüncü
+>   şekil **`AdvanceTagCounter`'ın kendi biçimi**.
+> - **Çok satırlı R4 önerisi: ÖNERİLMİYOR, ve gerekçesi bir sayı.** `rg -U` ile
+>   ölçüldü: **11 blok / 3 dosya**, **0 gerçek ihlal**. Yanlış alarmların içinde
+>   `AdvanceTagCounter`'ın **kendisi** var — çünkü bugünkü muafiyet süzgeci
+>   `last_ctr <` arıyor ve o ifadenin koruması CTE'de **`prev.old_ctr <`** diye
+>   yazılı. Yani çok satırlı R4, **ürünün en kritik ifadesini kalıcı yanlış alarma**
+>   çevirir; süzgeci de genişletmek ağa özel-durum biriktirmektir (M6-05 A'da bir tel
+>   genişletmesi **30 meşru ölçümü** işaretleyip geri alınmıştı). **Karar sizin.**
+>
+> 🔴 **(V3) DEVRETTİĞİM 2. YÜKÜMLÜLÜK YANLIŞTI.** *"pointer değil → scan hatası →
+> 500 → §4.6 kaybı"* — **öyle değil.** Bağımsız olarak yeniden ölçüldü:
+> `SELECT NULL::uuid` → `uuid.UUID`'ye **hatasız** `uuid.Nil` olarak taşınıyor
+> (kontrol: `[16]byte` **hata veriyor**). Gerçek zincir, her halkası kodda
+> doğrulanmış: `uuid.Nil` → `GetLocationForTap` **ErrNoRows** →
+> `locationResolved=false` (ele alınan dal) → `p.LocationID` **nil** →
+> `transactions.location_id` nullable → **satır YAZILIR**, IP/GPS kanıtı yok →
+> **`flag`**. Yani 500 yok, §4.6 kaybı yok — **ama §5 satır 1 hiç çalışmıyor ve stok
+> plakete yapılan tap KAYIT ÜRETİYOR**. Bu, 1. yükümlülüğün (denylist) **tek gerçek
+> savunma** olduğunu doğruluyor; pointer düzeltmesi bu deliği **kapatmaz**.
+>
+> 📊 **B3 — "son görülme" kriteri artık KARŞILANIYOR, ve indeks EKLENMEDİ.** Karar
+> kuralı sayılardan **önce** kondu (T11'in profiline yakınsa ekle):
+>
+> | şekil | ölçüm (tenant `1000…0001`, 11 plaket, 24 585 taplı satır / 242 642) |
+> |---|---|
+> | plaket başına correlated subquery, indekssiz | 203,3 / 195,1 / 196,4 ms (Seq Scan) |
+> | **tek `GROUP BY` geçişi, indekssiz — SEVK EDİLEN** | **30,9 / 26,6 / 23,2 ms** |
+> | aynı sorgu + `(tenant_id, tag_uid, occurred_at DESC)` | 7,7 / 7,6 ms (Index Only, **12 MB**) |
+>
+> **Sorgu şekli indeksten daha çok kazandırdı** (195 → 26 ms, bedava). İndeksin
+> kalan katkısı 26 → 7,7 ms için **12 MB** — T11'in profili **4 472 kB / ~400×**
+> iken bu **2,7× boyut / 3-4× hız**, yani **yakın değil** → eklenmedi, gerekçe ve
+> before/after sayıları migration'a yazıldı.
+> - 🔴 **VE last_seen LİSTE SÜTUNU OLARAK KONULAMADI — TİP DÜRÜSTLÜĞÜ yüzünden.**
+>   sqlc v1.28 dört şeklin dördünde de yalan söylüyor: `interface{}` (tipsiz) ya da
+>   cast'le **NON-POINTER `time.Time`** — ki o da derleniyor ve **tam da bu görevin
+>   eklediği satırlarda** çöküyor: `cannot scan NULL into *time.Time` (kendi pozitif
+>   kontrolüm yakaladı). **Sıfır `time.Time`'ı "hiç taplanmadı" saymak, bu görevin
+>   zaten devrettiği `uuid.Nil` hatasının ikizi olurdu.** Bu yüzden yokluk
+>   **YOKLUKLA** temsil ediliyor: `ListTagLastSeen` yalnız **taplanmış** plaket için
+>   satır döndürür, `GROUP BY` sayesinde `time.Time` **gerçekten** NOT NULL, ve
+>   "hiç" bilgisi anahtarın **bulunmamasından** okunur. Testle pinli.
+>
+> 🟠 **B1 — `Down`'ın TARİFİ yanlıştı** (`Down`'ın kendisi doğru). *"bind or
+> **retire** it"* deniyordu; izole DB'de ölçüldü: retire **yetmiyor**
+> (`SET NOT NULL` → **23502**), yalnız **bağlamak** (ya da silmek) işe yarıyor —
+> çünkü iki engel farklı: status CHECK `'unassigned'` kelimesine, `SET NOT NULL` boş
+> lokasyona itiraz ediyor. Metin düzeltildi; ayrıca **başarısız `Down`'ın atomik**
+> olduğu (goose tx'e sarıyor → 7 CHECK, trigger, indeks yerinde, v13) yazıldı.
+>
+> 🟠 **B2 — 1. turdaki mutasyonumdan ÜÇ SATIR KALINTI kalmıştı ve iddia 1'i
+> çürütüyordu.** `EF6A9A125C36AB` / `…Ab` / `ef6a…` — aynı tenant, aynı lokasyon,
+> `created_at` **15:40:40** (migration'dan **önce**), yani T8 testi **M1 mutasyonu
+> altındayken** koşup üçünü de bırakmış: **T8'in tam senaryosu dev DB'de maddi
+> olarak vardı**. 1. turda M5/M6'nın 3 satırını bildirmiş, bunları **bildirmemiştim**.
+> Silindi (0 transaction, 0 `replaced_by` referansı); `upper(uid)` çakışması artık
+> **0**. **Ders yazıldı: bir CHECK mutasyonu paylaşılan DB'de yıkıcıdır — sondalar
+> `BEGIN … ROLLBACK` ya da ayrı DB olmalı.**
+>
+> 🟡 **B4 — `::char(14)` SESSİZCE KIRPIYOR ve bu artık SQL'de kapalı.** Ölçüldü:
+> `'AABBCCDDEEFF01ZZZZZZ'::char(14)` → `AABBCCDDEEFF01`, **hata yok** — yani fazla
+> uzun bir successor uid **başka, muhtemelen GERÇEK** bir plakete dönüşüyor ve
+> self-FK onu kabul ediyor; audit zinciri **yanlış** halefe işaret eder ve kimse
+> söylemez. `RetireTagForReplacement`'a **kırpılmamış** parametre üzerinde
+> (`@replaced_by::text`) kanonik biçim yüklemi eklendi → `pgx.ErrNoRows`. Handler
+> sınırı doğrulaması **hâlâ borç** (§7), ama unutmak artık sessiz değil.
+>
+> 🟡 **B5** — `internal/sun/params.go`'nun *"tags.uid CHECK allows both cases"*
+> parantezi bayatlamıştı; **silindi** (bağımlılığı ters kuruyordu) ve yerine URL'nin
+> neden hoşgörülü, **veritabanının neden katı** olduğu yazıldı.
+>
+> 🟡 **B6 — yeni SESSİZ-SKIP yolu kapatıldı.** `ownerPoolForTest` artık ikisini
+> ayırıyor: **hiç DB yoksa** SKIP, **`DATABASE_URL` var ama migrate URL yoksa
+> FATAL** — yarı yapılandırılmış bir makinede susturulacak şey bir **§4.7 iddiası**
+> (tappa_app `aes_key_ref`'i yazamaz). `-short` skip sayısı **3'te kaldı**.
+>
+> **2198 PASS / 0 FAIL / 0 SKIP · 16 paket** · `fmt`/`gen`/`lint`/`audit` exit 0 ·
+> migration **00013** uygulanmış, `Down` ayrı DB'de 13→12 ve tekrar 13.
+
+> **Kart düzeltmesi (2026-08-09, M6-06 B veri katmanı — 4. tur, ikinci RED sonrası).**
+> İki bloklayan da **kendi yazdığım cümlelerdi**; ikisi de ölçümle kapandı.
+>
+> 🔴 **(W1) SEVK EDİLEN KAYNAKTA VAR OLMAYAN BİR İNDEKSE MALİYET İDDİASI.**
+> `ListTagLastSeen`'in yorumu *"one Index Only Scan over
+> `transactions_tenant_tag_occurred_idx` (00013) — see the index for the numbers"*
+> diyordu; o indeks **yok** (`pg_class` → 0), **aynı migration** onu *"MEASURED AND
+> DELIBERATELY NOT ADDED"* diye yazıyor, ve gönderme indeksin **reddedildiğini**
+> anlatan paragrafa çıkıyordu. İddia, indeksi **ekleyen** bir taslakta yazılmış ve
+> karar dönünce **yeniden ölçülmemişti** — üstelik `internal/store/tags.sql.go`
+> aynasına da sevk edilmişti. **Kendi ölçümüm** (tenant `1000…0001`, **11 plaket**,
+> **29 575** işlem / **24 723**'ü tag'li, **244 512** satır, 238 MB):
+> **HashAggregate → Bitmap Heap Scan on transactions**, sürücü **Bitmap Index Scan
+> on `transactions_tenant_location_idx`** (00013'ün T11 indeksi), **5 047 buffer**,
+> **3 çıktı satırı**, **21,2 / 24,7 / 26,1 ms**. Yorum buna eşitlendi ve `make gen`
+> ile ayna güncellendi. **Bağımlılık da ölçüldü:** T11 indeksi düşürülünce planner
+> `transactions_tenant_occurred_idx`'e düşüyor, **69 575** indeks satırı okuyor ve
+> süre **47,7 ms** — yani T11 bu sorguya da **tenant filtresi** olarak yarıyor.
+>
+> 🔴 **(W2) YAKALAYAMADIĞI MUTASYONU ADLANDIRAN CÜMLE.** `TagUid == nil` iddiası
+> *"IS NOT NULL yüklemi gitti"* diyordu; denetçi yüklemi sildi, **derledi**, koştu →
+> **PASS**. Sebep: fixture taze bir tenant kuruyor ve **`channel='manual'`
+> (tag_uid NULL) satırı hiç yok**, yani NULL grubu **oluşamıyor**. Fixture'a manual
+> satır eklendi; aynı mutasyon artık **KIRMIZI**.
+> - ⚠️ **Ve aynı sınıfı kendi dosyamda taradım — İKİ boşluk daha buldum ve ikisini
+>   de koştum:** (a) *"katı guard ... UPDATE denenmeden reddeder"* → `prev.old_ctr <`
+>   → `<=` (§4.4 replay deliğinin ta kendisi) **KIRMIZI**; (b) *"want SQLSTATE
+>   23503"* → bileşik FK **düşürüldü** → **KIRMIZI**. İkincisi DDL olduğu için
+>   **ayrı bir sonda DB'sinde** koştu (M5/M6 dersi) — çalışma DB'sine dokunulmadı.
+>
+> 🔴 **(N1) `make test` GÜVENİLMEZDİ VE BU BENİM DEĞİŞİKLİĞİM DEĞİLDİ — düzeltildi
+> (onaylı kapsam genişletmesi).** `vat_number` UNIQUE, ve **21 test çağrı yeri**
+> onu uuid'nin **ilk 8 hex hanesinden** üretiyordu (32 bit). Dev DB o uzayda
+> **128 553** değer tutuyor → tek insert için çakışma **2,99e-5**. **Asıl sayı koşum
+> başına:** bir `make test` **379 tenant** yazıyor (tabloyu önce/sonra sayarak
+> ölçüldü) → **%1,13, yani ~89 koşumda bir**, ve payda hiç küçülmediği için
+> **artıyor**. Tam uuid v4 (122 rastgele bit) ile aynı sayı **9,2e-30**. 19 dosyada
+> 21 çağrı yeri düzeltildi (kalan: **0**), `make test` **iki kez** koşuldu, ikisi de
+> **2200 PASS / 0 FAIL / 0 SKIP / 16 paket**.
+>
+> 🟠 **(N2) İKİ AĞ AYNI KÜMEYİ FARKLI SAYIYORDU.** Çalışma-zamanı belt testi
+> *"all four"*, statik net *"all five"* diyordu; gerçekte kapsanmayan
+> `ListTagLastSeen`'di — yüklemini bozunca `internal/db` **yeşil** kalıyordu.
+> Beşinci alt test eklendi (**mutasyon KIRMIZI**), iki başlık aynı kümeyi
+> adlandırıyor, ve statik netin **sayı yazan** cümlesi kaldırıldı (küme türetiliyor;
+> o cümle aynı görev içinde bir kez daha bayatlamıştı).
+>
+> 🟡 **(N3)** Matcher **fail-closed** bir yanlış alarm veriyor: tümü parantezli bir
+> `WHERE (a AND b)` maskelenip *"has NO WHERE clause at all"* oluyor. Delik değil
+> (doğruyu reddediyor, yanlışı kabul etmiyor) — **limit olarak yazıldı**.
+> 🟡 **(N4)** `ledger`'ın eksik `RETURNING`'i **iki yönde de ölçüldü**: tenant bağını
+> yalnız `RETURNING`'de taşıyan **kapsamsız** bir write → **KIRMIZI** (kaçıramıyor);
+> doğru kapsanmış ve `RETURNING` ile biten bir write → **yeşil** (yanlış alarm yok).
+> Yani ayrışma bugün **atıl**; yön yazıldı.
+> 🟡 **(N5)** `tags_replaced_by_canonical_hex`'i **hiçbir test adlandırmıyordu**;
+> testi yazıldı ve mutasyonla kanıtlandı (kısıt düşünce hata 23514 değil **23503**
+> oluyor — yani ateşleyenin FK değil CHECK olduğu da kanıtlandı).
+> 🔴 **(N6) `active → retired` GEÇİŞİNDE LOKASYONU NULL'A ÇEKMEK SERBESTTİ** —
+> migration'ın *"emekli plaket duvarını korur, audit izi bunu ister"* cümlesini
+> tutan tek şey sevk edilen ifadenin **nezaketiydi** (ölçüldü: `UPDATE 1`). Yeni
+> kısıt **`tags_retired_keeps_its_location`**. **Güvenli olduğu ölçüldü:** ihlal eden
+> **0** satır var; hiçbir sevk edilen akış engellenmiyor (retire `status='active'`
+> ister, active zaten lokasyon ister); **`lost` bilinçle dışarıda** — stokta
+> kaybolmuş plaket gerçek bir durum (**8** satır). Mutasyon **KIRMIZI**.
+> 🟡 **(N7)** 1. tur bloğunun *"muafiyet eklendi"* cümlesine **⛔ geri alındı**
+> işareti ve V2'ye ileri gönderme eklendi.
+>
+> 📌 **R4 ÇOK SATIRLI YAPILMIYOR (orkestratör kararı, 2026-08-09).** Satır-yerellik
+> **sayılmış limit** olarak `internal/db/tagsinventory_test.go` başlığında duruyor.
+>
+> **2200 PASS / 0 FAIL / 0 SKIP · 16 paket · iki ardışık koşu** ·
+> `fmt`/`gen`/`lint`/`audit` **exit 0**, tarayıcı **dokunulmamış**.
+
+> **Kart düzeltmesi (2026-08-09, M6-06 B veri katmanı — 6. tur, üçüncü RED sonrası).**
+> İki bloklayan da **bir önceki turdaki kendi düzeltmemin yan etkisiydi** — ve şekil
+> yeni: **bir kısıt eklemek, aynı dosyadaki başka cümleleri geçersiz kıldı.**
+>
+> 🔴 **(X1) `Down` notu "7 CHECK" diyordu; ölçüm 8.** Sayı **N6'ya kadar doğruydu**;
+> `tags_retired_keeps_its_location`'ı 4. turda ben ekledim ve **aynı turda kartıma
+> `v13 checks=8` yazdım** — yani doğru sayıyı ölçüp **ölçtüğüm dosyaya taşımadım**.
+> Taze bir v13 klonunda reddedilen `Down` yeniden sürüldü: **8** CHECK, trigger 1,
+> T11 indeksi 1, goose **v13**. Cümle düzeltildi ve *"bu sayıya güvenme, `pg_constraint`'ten
+> say"* uyarısı eklendi.
+>
+> 🔴 **(X2) BELGELENEN KURTARMA REÇETESİ KENDİ ŞEMAMIN YASAKLADIĞI YOLDU.** Not
+> *"`UPDATE … SET status='retired'` → 23502"* diyordu; ölçüm: o UPDATE **`Down`'a
+> hiç ulaşmıyor**, **23514 `tags_retired_keeps_its_location`** ile düşüyor — yani
+> rollback runbook'unu izleyen operatör **belgelenenden başka** bir hatayla
+> karşılaşıyordu. Blok baştan yazıldı; **her satırı taze bir v13 klonunda üretildi**:
+> - **iki ayrı engel, iki ayrı ifade:** `unassigned` plaket → **23514
+>   `tags_status_check`** · stokta **`lost`** plaket (durumu v12'de yasal, lokasyonu
+>   değil) → **23502** `SET NOT NULL`;
+> - **işe yarayan iki reçete, ikisi de uçtan uca sürüldü:** `unassigned` → **BAĞLA**;
+>   stokta `lost` → **sadece lokasyon ver** (durum `lost` kalabilir — v12 kabul eder,
+>   ve yeni kısıt yalnız `retired`'ı bağlar) → `goose down` **exit 0** → v12;
+> - **başarısız `Down` atomik**: reddedilen koşumdan sonra şema **bozulmamış**.
+> - **Ders dosyaya yazıldı:** *bir kısıt eklerken, o dosyanın kısıt SAYAN ve kısıt
+>   DAVRANIŞI TARİF EDEN her cümlesini yeniden ölç.*
+>
+> 🔴 **(Y3) İKİ RLS ÖZELLİĞİ HİÇBİR TESTLE PİNLİ DEĞİLDİ — pinlendi.** `NO FORCE ROW
+> LEVEL SECURITY` **ve** politikanın `NULLIF`'ini çıplak cast'e çevirmek, ikisi de
+> `internal/db`'yi **yeşil** bırakıyordu. İkisi de 00004'ün, ama ikisi de §6'nın
+> **yazılı** garantileri. Yeni test ikisini de tutuyor; **taze klonlarda iki ayrı
+> mutasyon, ikisi de KIRMIZI**.
+> - ⚠️ **`FORCE` davranışsal olarak test EDİLEMEZ ve bunu söylemek işin kendisi:**
+>   `FORCE` yalnız tablo **sahibini** bağlar, sahip `tappa_owner` **superuser**, o da
+>   RLS'i koşulsuz atlıyor (M0-03). Yani sonucu değişen hiçbir sorgu yok → katalog
+>   iddiası (`relforcerowsecurity`) **doğru** araç.
+> - **`NULLIF` iki yarımla tutuldu:** katalog + **davranış**. Davranışın göründüğü
+>   tek yer GUC'un **yazılıp boşaldığı** bağlantı; taze bağlantıda iki yazım da aynı.
+>   Mekanizma ayrıca çıplak psql ile kanıtlandı: NULLIF → `context-less rows=0`;
+>   çıplak cast → **`ERROR: invalid input syntax for type uuid: ""`**.
+>
+> 🟠 **(Y4) FAZ A'NIN DEVRETTİĞİ AD SINIRI ŞEMAYA GİRDİ.** Ölçüm: `locations`
+> **140 331** satır, 80 rune'u aşan **0** (en uzunu tam 80 — o da bizim pozitif
+> kontrolümüz), boş **0**; `departments` **25 372**, aşan **0**, boş **0** → validated
+> eklendi. Kısıt `venueName`'in **iki** kuralını da yansıtıyor (trim-boş-değil **ve**
+> ≤80 rune); yalnız uzunluğu yazmak `'   '`'ü saklanabilir bırakırdı. **Rune/bayt
+> doğrulandı:** `char_length('ċġħż')=4`, `octet_length=8` — test 80 Malta rune'unu
+> **kabul**, 81'i **ret** ediyor. Mutasyon KIRMIZI. ⚠️ **80 artık iki yerde** — bedel
+> yazıldı, ve `venue.go`'nun *"şemaya yazılmadı"* cümlesi (X2 dersi) güncellendi.
+>
+> 🟡 **(Y1)** Süreler iyimserdi: yazdığım **21,2 / 24,7 / 26,1** tek bir üç-koşumun
+> **sıcak ucu**ydu; bağımsız ölçüm **34,5 / 36,2 / 35,6**. **Altı koşum** yeniden
+> alındı → **31,7–38,1 ms (medyan ~32)**, ve *"plan tekrarlanır, mutlak sayı makinenin
+> özelliğidir"* yazıldı. Şekil/buffer/satır zaten tutuyordu.
+> 🟡 **(Y2)** Kayan mutlaklar tarihe bağlandı: stokta `lost` **8 → 26** (yön, seviye
+> değil) · 2-baytlık `aes_key_ref` **18 038 → 19 580 / 78 803**. Küçük harfli uid
+> **18 010** ise iki tam koşumdan sonra **değişmedi** — kaynağın kapandığının kanıtı.
+> 🟡 **(Y5)** *"three rewind probes"* → *"counter probes"*; ortadaki (501→501)
+> **rewind değil idempotent yeniden yazma** ve **geçmesi** bekleniyor.
+>
+> **2209 PASS / 0 FAIL / 0 SKIP · 16 paket · iki ardışık koşu** · `-short` skip **3**
+> · `fmt`/`gen`/`lint`/`audit` **exit 0**, tarayıcı **dokunulmamış** · `Down` taze
+> klonda: reddediliş **23514** + şema bozulmamış, sonra reçeteyle **13→12→13**.
+
+> **Kart düzeltmesi (2026-08-09, M6-06 B veri katmanı — 7. tur, KAPANIŞ).**
+> `tappa-security-auditor` **ONAY** verdi; bu tur onun beş kalanını kapatıyor.
+>
+> 🔴 **(Z2) GUARDRAIL TERSİNE ÇEVRİLDİ — DEVREDİLMEDİ (kullanıcı/orkestratör kararı).**
+> `sys:tag-not-active` artık **`s != active`** (allow-list), eskiden `retired || lost`
+> (deny-list) idi ve 00013'ün eklediği **dördüncü** değer `unassigned` ondan
+> **kaçıyordu**. **Eşdeğerlik iddia edilmedi, ÖLÇÜLDÜ:** yeni test durum sözlüğünü
+> **`db/migrations`'ın CHECK kümesinden türetiyor** (Up yarısından; Down'daki eski
+> liste bilerek atlanıyor) ve iki formu **dört değerin dördünde** karşılaştırıyor —
+> 00013 öncesi üç değerde **aynı**, `unassigned`'da **farklı**. İki anti-vakum kapısı
+> var: `active` vakası yoksa ve **hiç ayrışma yoksa** test kendini reddediyor
+> (ikincisi tam olarak *"tersine çevirme yürürlükte değil"* demek).
+> **Asıl kazanç bir sonraki değer:** şemaya eklenen beşinci durum, kimse hatırlamasa
+> da **eklendiği gün reddedilir**. Mevcut tablo bazlı vakaya `unassigned` eklendi.
+> **Mutasyon (deny-list'e dönüş) → İKİ test birden KIRMIZI**, ve çıktı düşüşü
+> gösteriyor: `review / default` (fail-to-review).
+>
+> 🔴 **(Z1) MIGRATION KENDİ RİSKİNİ FAZLA İDDİA EDİYORDU, VE SOMUT OLANI YAZMIYORDU.**
+> *"can end as `ok`"* **yanlıştı** — ve şemayı olduğundan kötü gösteren yönde:
+> monte edilmemiş plakette lokasyon çözülmediği için **ne IP ne GPS kanıtı** var →
+> `base:no-evidence-review` → **en kötü `flag`**, ve **§4.6 korunuyor**. Yazılmayan
+> **somut** yol ise QR'dı: **NFC** `preview.go`'nun `status != active` **allow-list**'i
+> ile kapalıydı (ama `sys:sun-invalid` üzerinden, yani gerekçe metni *"imza
+> doğrulanamadı"* diyor — **yanlış**, ve düzeltmesi uygulama katmanının);
+> **`sys:sun-invalid` kanal olarak `nfc`'ye bağlı**, dolayısıyla **QR onu tamamen
+> atlıyordu** → kutudaki plaketin uid'ini okuyan biri evinden **müdürün
+> onaylayabileceği `flag` satırları** üretebiliyordu. Paragraf bu zincire eşitlendi.
+> ⚠️ Z2 bu yolu **her iki kanalda** kapattı (guardrail #2, #3'ten önce).
+> ⚠️ Ve *"koruma bir sonraki turda sona eriyor"* cümlem **yanlıştı**: B **bilerek
+> hiçbir INSERT yolu sevk etmedi**, yani koruma bu fazda **bitmiyor** — bir yükleyici
+> yazıldığı gün bitiyor.
+>
+> 🟡 **(Z3)** Sözlük iki yerde bayattı (`guardrails.go`, `tap/types.go` — ikisi de
+> *"active|retired|lost"* ve **00004**). İkisi de güncellendi (`TagUnassigned`
+> eklendi) ve **neden üç temsil olduğu** yazıldı: policy `store`'u **bilerek** import
+> etmiyor, ikisi de tap sırasında migration okuyamaz → kopyalar **kaynakta disiplin,
+> sınırda TEST** ile hizada tutuluyor (Z2'nin türetimli testi). Üçü de artık
+> *"bilinmeyen değer = ret"* yönünde yazılı.
+> 🟡 **(Z4)** `Down` bloğu ~60 satırını *"ne zaman çalışmaz"*a ayırıp **çalıştığında
+> ne açtığını** söylemiyordu. Yazıldı ve taze klonda ölçüldü: v12'de `tappa_app`
+> yine **9 sütunda UPDATE**, `tags_counter_monotonic` **yok** → `aes_key_ref`
+> ezilebilir, `last_ctr` **geri sarılabilir** (§4.4 replay penceresi).
+> *"Temiz geri alındı"* ile *"güvenli"* ayrı kelimeler.
+> 🟡 **(Z5)** R4'ün satır-yerelliği artık **script'in kendi içinde** de yazılı
+> (okuyan script'i okur). **Yalnız yorum**: davranış değişmedi ve pozitif kontrolle
+> kanıtlandı — üretim SQL'ine kosulsuz sayaç yazımı → **exit 1**, geri alınınca 0.
+> 🟡 **(Z6)** `ResolvedTag.LocationID`'nin yorumu **`uuid.Nil` = "monte edilmemiş"**
+> diyor artık; pgx'in NULL'ı **hatasız** `uuid.Nil` yaptığı ve bunun **beş
+> resolver'ın tek nullable sütunu** olduğu yazılı. Tip değişikliği (→ `*uuid.UUID`)
+> **uygulama turunun**.
+>
+> **2215 PASS / 0 FAIL / 0 SKIP · 16 paket** · `fmt`/`gen`/`lint`/`audit` **exit 0**
+> · `Down` taze klonda **13→12→13**.
+
 ---
 
 ## M6-07 — Reports ve CSV export

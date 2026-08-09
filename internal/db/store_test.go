@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/netip"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -56,15 +57,23 @@ func appDB(t *testing.T) *DB {
 	return d
 }
 
-// randUID returns a fresh 14-hex-char tag uid (7 bytes), matching tags.uid's
-// CHECK (^[0-9A-Fa-f]{14}$). Random so repeated runs never collide.
+// randUID returns a fresh 14-hex-char tag uid (7 bytes) in the CANONICAL UPPER
+// case that migration 00013's tags_uid_canonical_hex requires. Random so repeated
+// runs never collide.
+//
+// ToUpper is not cosmetic and this helper is why backlog T8 had 18 010 rows to
+// name: hex.EncodeToString emits lower case, and until 00013 the schema accepted
+// both spellings as SEPARATE primary keys with the SAME wrapped-key AAD. The
+// helpers on the handler side already wrapped it in strings.ToUpper (the shape
+// internal/sun.Parse produces); these two did not, so every run of this package
+// planted rows the canonical constraint can no longer be validated against.
 func randUID(t *testing.T) string {
 	t.Helper()
 	var b [7]byte
 	if _, err := rand.Read(b[:]); err != nil {
 		t.Fatalf("rand: %v", err)
 	}
-	return hex.EncodeToString(b[:])
+	return strings.ToUpper(hex.EncodeToString(b[:]))
 }
 
 // newTenant creates a committed tenant + one location as tappa_app (inside its
@@ -79,7 +88,7 @@ func newTenant(t *testing.T, d *DB) (tenantID, locationID uuid.UUID) {
 		if _, e := tx.Exec(ctx,
 			`INSERT INTO tenants (id, name, vat_number, business_type, structure)
 			 VALUES ($1, 'store-test', $2, 'bar', 'single')`,
-			tenantID, "VAT-"+tenantID.String()[:8]); e != nil {
+			tenantID, "VAT-"+tenantID.String()); e != nil {
 			return e
 		}
 		_, e := tx.Exec(ctx,

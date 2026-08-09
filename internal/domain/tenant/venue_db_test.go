@@ -97,7 +97,7 @@ func (f *venueFixture) seed(t *testing.T, tenantID, venue, department uuid.UUID)
 		if _, e := tx.Exec(ctx,
 			`INSERT INTO tenants (id, name, vat_number, business_type, structure)
 			 VALUES ($1, 'Kebab Factory Ltd', $2, 'restaurant', 'multi')`,
-			tenantID, "VAT-"+tenantID.String()[:8]); e != nil {
+			tenantID, "VAT-"+tenantID.String()); e != nil {
 			return e
 		}
 		if _, e := tx.Exec(ctx,

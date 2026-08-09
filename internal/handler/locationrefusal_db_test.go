@@ -72,7 +72,7 @@ func newRefusalFixture(t *testing.T, role string) *refusalFixture {
 		_, e := tx.Exec(ctx,
 			`INSERT INTO tenants (id, name, vat_number, business_type, structure)
 			 VALUES ($1, 'Refusal Fixture Ltd', $2, 'restaurant', 'single')`,
-			f.tenantID, "VAT-"+f.tenantID.String()[:8])
+			f.tenantID, "VAT-"+f.tenantID.String())
 		return e
 	}); err != nil {
 		t.Fatalf("seed tenant: %v", err)

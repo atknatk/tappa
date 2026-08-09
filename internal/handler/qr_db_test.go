@@ -48,7 +48,6 @@ import (
 
 	"github.com/a-h/templ"
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 
 	"github.com/atknatk/tappa/internal/domain/checkin"
 	"github.com/atknatk/tappa/internal/httpx"
@@ -910,14 +909,26 @@ func TestQRDB_ABrokenKeyRefBlocksNFCButNotQR(t *testing.T) {
 
 // corruptKeyRef flips one byte of a plaque's wrapped key so the KEK can no longer
 // open it. The value is already opaque ciphertext and nothing is printed.
+//
+// 🔴 IT RUNS AS tappa_owner, AND IT HAD TO CHANGE FOR MIGRATION 00013 (backlog
+// T9). Until then tappa_app held table-wide UPDATE on `tags`, so this helper --
+// the application role -- could rewrite aes_key_ref. That is precisely the
+// capability T9 measured and named: overwrite a plaque's wrapped key and every
+// tap on it answers 500, silently, forever. 00013 revokes the table privilege and
+// grants back only (location_id, last_ctr, status, retired_at, replaced_by), so
+// this statement now fails with 42501 as tappa_app.
+//
+// The failure of this helper IS the proof the grant works end to end, so the fix
+// is NOT to widen the grant: the test wants to simulate a CORRUPTED row, which is
+// an act of the database and not of the application, and the role that can do it
+// is the migration owner. If a future change makes this pass as tappa_app again,
+// T9 has been reopened.
 func (h *tapHarness) corruptKeyRef(t *testing.T, uid string) {
 	t.Helper()
-	err := h.data.WithTenant(context.Background(), h.tenantID, func(ctx context.Context, tx pgx.Tx) error {
-		_, e := tx.Exec(ctx,
-			`UPDATE tags SET aes_key_ref = set_byte(aes_key_ref, 0, get_byte(aes_key_ref, 0) # 255)
-			 WHERE tenant_id = $1 AND uid = $2`, h.tenantID, uid)
-		return e
-	})
+	owner := ownerPoolForTest(t)
+	_, err := owner.Exec(context.Background(),
+		`UPDATE tags SET aes_key_ref = set_byte(aes_key_ref, 0, get_byte(aes_key_ref, 0) # 255)
+		 WHERE tenant_id = $1 AND uid = $2`, h.tenantID, uid)
 	if err != nil {
 		t.Fatalf("corrupt key ref: %v", err)
 	}

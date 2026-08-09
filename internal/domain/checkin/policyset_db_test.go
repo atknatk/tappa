@@ -62,7 +62,7 @@ func newPolicyHarness(t *testing.T) (*db.DB, uuid.UUID, policySets) {
 		_, e := tx.Exec(ctx,
 			`INSERT INTO tenants (id, name, vat_number, business_type, structure)
 			 VALUES ($1, 'Kebab Factory Ltd', $2, 'restaurant', 'multi')`,
-			tenantID, "VAT-"+tenantID.String()[:8])
+			tenantID, "VAT-"+tenantID.String())
 		return e
 	}); err != nil {
 		t.Fatalf("fixture tenant: %v", err)

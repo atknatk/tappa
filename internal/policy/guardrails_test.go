@@ -2,6 +2,10 @@ package policy
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -336,6 +340,19 @@ func TestGuardrails_EachFiresOnItsOwnCondition(t *testing.T) {
 			name:    "2 tag lost -> deny + alert",
 			build:   func() Context { c := cleanTap(tenant); c.Keys[CtxTagStatus] = "lost"; return c },
 			wantSid: "sys:tag-not-active", wantEff: EffectDeny, wantAlert: AlertLostTagTapped,
+		},
+		{
+			// 🔴 THE FOURTH STATUS (migration 00013): a plaque encoded and loaded but
+			// never mounted. It denies with NO alert -- stock sitting in a box is not
+			// a security event, unlike a plaque someone reported LOST.
+			//
+			// Before this guardrail became an allow-list this case reached the
+			// evidence rules instead: an unmounted plaque has no location, so it had
+			// no IP range and no coordinate to be judged against, and a QR-shaped tap
+			// on it was RECORDED as `flag` in a manager's approval queue.
+			name:    "2 tag unassigned (00013 stock) -> deny, NO alert",
+			build:   func() Context { c := cleanTap(tenant); c.Keys[CtxTagStatus] = "unassigned"; return c },
+			wantSid: "sys:tag-not-active", wantEff: EffectDeny,
 		},
 		{
 			name:    "3 sun-invalid (nfc) -> deny",
@@ -766,5 +783,140 @@ func TestParams_Validate(t *testing.T) {
 				t.Fatalf("%s should fail Validate", tc.name)
 			}
 		})
+	}
+}
+
+// --- sys:tag-not-active: the allow-list, and its equivalence -----------------
+
+// tagStatusesFromSchema derives the tag status vocabulary from the MIGRATIONS
+// rather than restating it, so this test cannot drift from the database the way
+// the guardrail itself did.
+//
+// It reads the LAST `status IN (...)` list that any migration declares for `tags`,
+// which is the effective CHECK: 00004 defines three values and 00013 drops that
+// constraint and re-adds it with four. Reading the last one is what "effective"
+// means for a sequence of migrations, and the anti-vacuity check below refuses a
+// result that is empty or suspiciously short.
+func tagStatusesFromSchema(t *testing.T) []string {
+	t.Helper()
+	dir := filepath.Join("..", "..", "db", "migrations")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("reading db/migrations: %v", err)
+	}
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".sql") {
+			names = append(names, e.Name())
+		}
+	}
+	sort.Strings(names) // 00001..00013: later files override earlier ones
+
+	// The constraint is written as: CHECK (status IN ('a', 'b', ...)) on `tags`.
+	re := regexp.MustCompile(`(?is)tags_status_check\s+CHECK\s*\(\s*status\s+IN\s*\(([^)]*)\)`)
+	var last []string
+	for _, n := range names {
+		raw, err := os.ReadFile(filepath.Join(dir, n))
+		if err != nil {
+			t.Fatalf("reading %s: %v", n, err)
+		}
+		// Only the Up half: a Down block restores the OLD list, and reading it
+		// would hand this test the three-value vocabulary 00013 replaced.
+		body := string(raw)
+		if i := strings.Index(body, "-- +goose Down"); i >= 0 {
+			body = body[:i]
+		}
+		for _, m := range re.FindAllStringSubmatch(body, -1) {
+			var vals []string
+			for _, v := range strings.Split(m[1], ",") {
+				vals = append(vals, strings.Trim(strings.TrimSpace(v), "'"))
+			}
+			last = vals
+		}
+	}
+	if len(last) < 3 {
+		t.Fatalf("derived %d tag status(es) from db/migrations (%v); the schema declares "+
+			"at least three, so this reader is not finding the constraint", len(last), last)
+	}
+	return last
+}
+
+// TestGuardrails_TagNotActiveIsAnAllowList is the proof behind the 2026-08-09
+// inversion of sys:tag-not-active from a deny-list to an allow-list.
+//
+// 🔴 IT MEASURES THE EQUIVALENCE INSTEAD OF ASSERTING IT. The claim made when the
+// guardrail changed was "for today's vocabulary the two forms are identical". That
+// is checkable, so it is checked: for every status the SCHEMA declares, the old
+// form (retired OR lost) and the new one (!= active) are compared, and they must
+// agree on every value that existed before 00013 -- and DISAGREE on `unassigned`,
+// which is the entire reason for the change.
+//
+// The vocabulary is derived, so a future migration that adds a fifth status makes
+// this test speak about it automatically: the new value will be denied by the
+// shipped guardrail (that is the point) and the old form will be shown not to.
+func TestGuardrails_TagNotActiveIsAnAllowList(t *testing.T) {
+	statuses := tagStatusesFromSchema(t)
+
+	// The form the guardrail used to have, kept ONLY here, as the thing being
+	// compared against. It is not reachable from production code.
+	oldDenyList := func(s string) bool { return s == tagStatusRetired || s == tagStatusLost }
+
+	tenant := uuid.New()
+	var sawActive, sawDisagreement bool
+	for _, s := range statuses {
+		s := s
+		t.Run(s, func(t *testing.T) {
+			c := cleanTap(tenant)
+			c.Keys[CtxTagStatus] = s
+			d := Evaluate(defaultSet(), c)
+
+			denied := d.Effect == EffectDeny && d.MatchedSid == "sys:tag-not-active"
+			if s == tagStatusActive {
+				sawActive = true
+				if denied {
+					t.Fatalf("an ACTIVE tag was denied by sys:tag-not-active; the allow-list "+
+						"has inverted the wrong way and no tap can ever succeed (%q/%q)",
+						d.Effect, d.MatchedSid)
+				}
+				return
+			}
+			if !denied {
+				t.Fatalf("status %q reached %q/%q instead of being denied by "+
+					"sys:tag-not-active. Every status other than `active` is refused at "+
+					"§5 row 1 -- a guardrail no customer can switch off.", s, d.Effect, d.MatchedSid)
+			}
+			// Equivalence, per value: agreeing means the change was behaviour-
+			// preserving there; disagreeing is only allowed where the OLD form was
+			// blind, which is exactly the value 00013 introduced.
+			if oldDenyList(s) != denied {
+				sawDisagreement = true
+				if s != "unassigned" {
+					t.Fatalf("the two forms disagree on %q, which existed BEFORE 00013. The "+
+						"inversion was justified as behaviour-preserving for the old "+
+						"vocabulary; it is not.", s)
+				}
+			}
+			// The alert stays exclusive to `lost` -- widening the deny must not widen
+			// the alarm, or every routine retirement pages the managers.
+			if s == tagStatusLost && d.SecurityAlert != AlertLostTagTapped {
+				t.Fatalf("a lost tag produced alert %q, want %q", d.SecurityAlert, AlertLostTagTapped)
+			}
+			if s != tagStatusLost && d.SecurityAlert != "" {
+				t.Fatalf("status %q produced alert %q; only `lost` alerts", s, d.SecurityAlert)
+			}
+		})
+	}
+
+	// ANTI-VACUITY: without an `active` case the loop could pass while denying
+	// everything, and without a disagreement the test would be describing a change
+	// that had no effect -- i.e. the guardrail is still a deny-list.
+	if !sawActive {
+		t.Fatal("the derived vocabulary contains no `active`; this test compared nothing useful")
+	}
+	if !sawDisagreement {
+		t.Fatal("the old deny-list and the shipped allow-list agreed on EVERY status the " +
+			"schema declares. That means the fourth status is missing from the schema, or " +
+			"the guardrail is still enumerating bad values -- either way the inversion is " +
+			"not in effect.")
 	}
 }

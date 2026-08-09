@@ -73,7 +73,7 @@ func newFixture(t *testing.T, d *db.DB, status, ssid string) fixture {
 		if _, e := tx.Exec(ctx,
 			`INSERT INTO tenants (id, name, vat_number, business_type, structure)
 			 VALUES ($1, 'Invite Test Ltd', $2, 'restaurant', 'multi')`,
-			f.tenantID, "VAT-"+f.tenantID.String()[:8]); e != nil {
+			f.tenantID, "VAT-"+f.tenantID.String()); e != nil {
 			return e
 		}
 		if _, e := tx.Exec(ctx,

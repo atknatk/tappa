@@ -89,11 +89,21 @@ const (
 // Server-derived value vocabulary the guardrails match on. These mirror the DB
 // CHECK constraints — the source of truth for the values the server places into
 // Context.Keys — so policy stays self-contained and never imports the store.
-//   - tag status:      db/migrations/00004_create_tags.sql            (active|retired|lost)
+//   - tag status:      db/migrations/00004 + 00013 (active|retired|lost|unassigned)
 //   - employee status: db/migrations/00003_create_employees_sessions.sql (invited|active|deactivated)
 //   - channel:         db/migrations/00005_...sql / internal/sun.Channel  (nfc|qr|manual)
 //   - role:            db/migrations/00006_create_admin_users.sql       (owner|manager)
+//
+// 🔴 THE TAG LIST GREW, AND THAT IS WHY sys:tag-not-active IS NOW AN ALLOW-LIST.
+// Migration 00013 added a FOURTH tag status, `unassigned` — a plaque Tappa has
+// encoded and loaded but nobody has mounted yet (the inventory model). The
+// guardrail used to enumerate the BAD values (retired, lost), so the new value
+// matched nothing and a tap on a plaque still in its box fell straight through
+// §5 row 1 into the evidence rules below. See tagStatusActive.
 const (
+	// tagStatusActive is the ONLY status a tap may proceed on. Everything else is
+	// refused by sys:tag-not-active, whatever it is called.
+	tagStatusActive     = "active"
 	tagStatusRetired    = "retired"
 	tagStatusLost       = "lost"
 	employeeDeactivated = "deactivated"
@@ -309,17 +319,41 @@ func Guardrails(p Params) []Guardrail {
 			},
 		},
 
-		// 2. sys:tag-not-active — a retired or lost tag. Both deny; a LOST tag
-		// ALSO raises a security alert (a tag reported lost is in use), a retired
-		// one does not (routine lifecycle). The alert fires only on a real `lost`
-		// match here, after sun-invalid (#3) has already pre-empted any forged SUN.
+		// 2. sys:tag-not-active — the tag is anything other than `active`. A LOST
+		// tag ALSO raises a security alert (a tag reported lost is in use); a
+		// retired one does not (routine lifecycle), and neither does any future
+		// status. The alert fires only on a real `lost` match here, after
+		// sun-invalid (#3) has already pre-empted any forged SUN.
+		//
+		// 🔴 IT ASKS FOR `active` RATHER THAN LISTING THE BAD VALUES, AND THAT
+		// CHANGE HAS A DATE: 2026-08-09, migration 00013. The old form was
+		// `s == tagStatusRetired || s == tagStatusLost`, which was complete for the
+		// three statuses 00004 defined and became INCOMPLETE the moment 00013 added
+		// `unassigned`. A plaque that has been encoded and loaded but never mounted
+		// matched neither arm, so §5 row 1 did not fire for it at all.
+		//
+		// WHAT THE OLD FORM COST, measured rather than imagined (the chain is in
+		// 00013's part 3): an unmounted plaque has location_id NULL, which resolves
+		// to uuid.Nil, so GetLocationForTap finds nothing and the tap has NO IP
+		// range and NO coordinate to be judged against. On NFC the tap still dies at
+		// #3, because preview.go treats a non-active status as an unverifiable CMAC.
+		// On QR there is no #3 to die at: the tap reached the evidence rules with no
+		// evidence and was recorded as `flag` — a real row, in a real approval
+		// queue, for a plaque sitting in a box. Not `ok`, and never silent (§4.6
+		// holds), but a manager could approve it.
+		//
+		// THE POINT OF THE INVERSION IS THE NEXT VALUE, not this one. Whatever a
+		// future migration adds to the status CHECK is refused here on the day it is
+		// added, without anyone remembering to come back. The equivalence for
+		// TODAY's vocabulary is not asserted here -- it is measured in
+		// guardrails_test.go against the status list read out of the migrations.
 		{
 			Sid:    "sys:tag-not-active",
 			Effect: EffectDeny,
 			Reason: "this tag is no longer active",
 			Match: func(c Context) bool {
 				s, ok := c.Keys[CtxTagStatus].(string)
-				return ok && (s == tagStatusRetired || s == tagStatusLost)
+				return ok && s != tagStatusActive
 			},
 			Alert: func(c Context) SecurityAlert {
 				if s, _ := c.Keys[CtxTagStatus].(string); s == tagStatusLost {

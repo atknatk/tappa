@@ -68,6 +68,28 @@ report FAIL R3 "transactions tablosuna UPDATE/DELETE — kayitlar immutable" \
 
 # --- R4: atomik ctr / replay koruması ---------------------------------------
 # Kosulsuz sayac guncellemesi = TOCTOU replay acigi.
+#
+# SINIR (yanlis-NEGATIF; M6-06 B fazinda olculdu, 2026-08-09) -- BU KURAL SATIR
+# YERELDIR. `scan` satir satir okur, yani ayni ifade SATIRLARA BOLUNDUGUNDE bu desen
+# onu GORMEZ. Uretim konumlarinda olculdu:
+#   tek satirda, db/queries/tags.sql ............... rc=1, YAKALANDI
+#   tek satirda, bir Go const'unda ................. rc=1, YAKALANDI
+#   `UPDATE tags t` / `SET last_ctr = @ctr` / ...... rc=0, SESSIZ
+#   ayni bolunme bir Go ham dizesi icinde .......... rc=0, SESSIZ
+# Ucuncu sekil, urunun EN kritik ifadesi olan AdvanceTagCounter'in kendi bicimidir.
+#
+# COK SATIRLI YAPILMADI -- ORKESTRATOR KARARI (2026-08-09), ve gerekcesi bir sayi:
+# `rg -U` ile ayni SRC kumesinde 11 blok / 3 dosya eslesti, GERCEK ihlal 0, ve
+# yanlis alarmlarin icinde AdvanceTagCounter'IN KENDISI vardi -- cunku bu satirdaki
+# muafiyet suzgeci `last_ctr <` arar, o ifadenin korumasi ise CTE'de
+# `prev.old_ctr <` diye yazilidir. Suzgeci de genislemek aga ozel-durum
+# biriktirmektir (M6-05 A'da bir tel genislemesi 30 mesru olcumu isaretleyip geri
+# alinmisti).
+#
+# ⚠️ BU YUZDEN "R4 yakalar" CUMLESI TEK BASINA YAZILMAMALIDIR. §4.4'un gercek
+# garantisi bu grep degil, db/queries/tags.sql'deki kati `prev.old_ctr < @ctr`
+# yuklemi, 00013'un tags_counter_monotonic trigger'i ve onlari kosan yaris
+# testleridir. Ayrintili kayit: internal/db/tagsinventory_test.go dosya basligi.
 bad_ctr=$(scan -i -e 'UPDATE +tags +SET +last_ctr' | grep -viE 'last_ctr *<' || true)
 report FAIL R4 "Kosulsuz last_ctr guncellemesi — 'WHERE last_ctr < \$n' sart" "$bad_ctr"
 

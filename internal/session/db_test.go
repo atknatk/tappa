@@ -57,7 +57,7 @@ func newFixture(t *testing.T, d *db.DB) tenantFixture {
 		if _, e := tx.Exec(ctx,
 			`INSERT INTO tenants (id, name, vat_number, business_type, structure)
 			 VALUES ($1, 'session-test', $2, 'bar', 'single')`,
-			fx.tenantID, "VAT-"+fx.tenantID.String()[:8]); e != nil {
+			fx.tenantID, "VAT-"+fx.tenantID.String()); e != nil {
 			return e
 		}
 		if _, e := tx.Exec(ctx,

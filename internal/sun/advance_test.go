@@ -143,16 +143,20 @@ func appDB(t *testing.T) *db.DB {
 	return d
 }
 
-// randUID returns a fresh 14-hex-char tag uid (7 bytes), matching tags.uid's
-// CHECK (^[0-9A-Fa-f]{14}$). Random so repeated runs never collide (fixtures are
-// intentionally not cleaned up -- tappa_app cannot DELETE tags, redline R5).
+// randUID returns a fresh 14-hex-char tag uid (7 bytes) in the CANONICAL UPPER
+// case migration 00013's tags_uid_canonical_hex requires -- the same spelling
+// Parse produces from a URL (params.go). Random so repeated runs never collide
+// (fixtures are intentionally not cleaned up -- tappa_app cannot DELETE tags,
+// redline R5), which is exactly why the case matters here: every run leaves rows
+// behind, and before 00013 this helper's lower-case output was accepted as a
+// SEPARATE primary key carrying the SAME wrapped-key AAD (backlog T8).
 func randUID(t *testing.T) string {
 	t.Helper()
 	var b [7]byte
 	if _, err := rand.Read(b[:]); err != nil {
 		t.Fatalf("rand: %v", err)
 	}
-	return hex.EncodeToString(b[:])
+	return strings.ToUpper(hex.EncodeToString(b[:]))
 }
 
 // newTagFixture commits a fresh tenant + location + one active tag with the given
@@ -168,7 +172,7 @@ func newTagFixture(t *testing.T, d *db.DB, startCtr int32) (tenantID uuid.UUID, 
 		if _, e := tx.Exec(ctx,
 			`INSERT INTO tenants (id, name, vat_number, business_type, structure)
 			 VALUES ($1, 'sun-advance-test', $2, 'bar', 'single')`,
-			tenantID, "VAT-"+tenantID.String()[:8]); e != nil {
+			tenantID, "VAT-"+tenantID.String()); e != nil {
 			return e
 		}
 		if _, e := tx.Exec(ctx,

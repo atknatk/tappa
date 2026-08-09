@@ -61,8 +61,29 @@ import (
 // is state only and is NEVER compared read-then-write (the atomic advance is
 // store.AdvanceTagCounter, section 4.4).
 type ResolvedTag struct {
-	UID        string
-	TenantID   uuid.UUID
+	UID      string
+	TenantID uuid.UUID
+	// LocationID is the wall this plaque is mounted at.
+	//
+	// 🔴 uuid.Nil HERE MEANS "NOT MOUNTED", NOT "location zero". Migration 00013
+	// made tags.location_id NULLABLE for the inventory model (a plaque Tappa has
+	// encoded and loaded but nobody has bound to a venue yet), and pgx scans SQL
+	// NULL into a uuid.UUID as uuid.Nil WITHOUT AN ERROR -- measured on the pinned
+	// driver: `SELECT NULL::uuid` into uuid.UUID gives err=nil, value
+	// 00000000-0000-0000-0000-000000000000, while the same scan into [16]byte
+	// fails. Of the five hand-written resolvers this is the ONLY struct with a
+	// column that can be NULL.
+	//
+	// SO DO NOT READ THIS FIELD AS A VENUE WITHOUT CHECKING Status FIRST. A reader
+	// who writes `if tag.LocationID != uuid.Nil` is treating stock as a real place;
+	// a reader who passes it straight to a venue lookup gets pgx.ErrNoRows, which
+	// the tap path already handles as "no evidence to judge against" (fail-closed,
+	// and section 5 row 1 refuses the tap before that matters -- sys:tag-not-active
+	// asks for `active`, so every other status is denied).
+	//
+	// IT IS DELIBERATELY NOT *uuid.UUID YET. Changing the type ripples into the
+	// handler layer and belongs to the round that builds the plaque screens; the
+	// meaning is written here so the first reader does not have to infer it.
 	LocationID uuid.UUID
 	AESKeyRef  []byte
 	LastCtr    int32

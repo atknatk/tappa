@@ -403,7 +403,32 @@ type whereBlock struct {
 func whereBlocks(body string) []whereBlock {
 	var out []whereBlock
 	whereRE := regexp.MustCompile(`(?is)\bWHERE\b`)
-	stopRE := regexp.MustCompile(`(?is)\b(ORDER\s+BY|GROUP\s+BY|LIMIT|HAVING)\b`)
+	// FOR UPDATE / FOR SHARE added 2026-08-09 (M6-06 phase B) to keep the three
+	// copies identical; the measurement is recorded in internal/domain/tenant's
+	// copy. No-op for the queries this package covers (none takes a row lock).
+	//
+	// ⚠️ AND WHILE ADDING THEM, A PRE-EXISTING DIVERGENCE WAS MEASURED AND IS
+	// RECORDED RATHER THAN SILENTLY FIXED: this copy's stop list has NO `RETURNING`,
+	// while tenant's and review's do -- so this scanner reads a write's RETURNING
+	// list as part of its WHERE clause. The header of tenant's copy states the three
+	// are "behaviourally identical on purpose"; on this token they are not, and have
+	// not been.
+	//
+	// 🔴 THE DIRECTION, MEASURED BOTH WAYS, BECAUSE "they differ" ON ITS OWN DOES NOT
+	// SAY WHETHER ANYTHING IS AT RISK -- and an earlier version of this note stopped
+	// there. Probed by rewriting a query this package covers (GetTransactionReview):
+	//
+	//   an UNSCOPED write whose only tenant mention is in the RETURNING list
+	//     -> this net goes RED. The divergence does NOT let an unscoped write
+	//        through; it is FAIL-CLOSED.
+	//   a CORRECTLY scoped write that merely ENDS in a RETURNING list
+	//     -> this net stays GREEN, and so does tenant's copy. No false alarm.
+	//
+	// So the divergence is INERT today: it cannot hide an unscoped statement, and it
+	// does not flag a scoped one. That is why it is named rather than closed here --
+	// closing it changes what this package's belt accepts and belongs with its own
+	// mutation run, not with a task about `tags`.
+	stopRE := regexp.MustCompile(`(?is)\b(ORDER\s+BY|GROUP\s+BY|LIMIT|HAVING|FOR\s+NO\s+KEY\s+UPDATE|FOR\s+UPDATE|FOR\s+SHARE)\b`)
 	for _, loc := range whereRE.FindAllStringIndex(body, -1) {
 		rest := body[loc[1]:]
 		// The clause ends at the enclosing block's closing paren -- where a CTE or

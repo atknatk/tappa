@@ -198,7 +198,26 @@ func newPanelHarness(t *testing.T) *panelHarness {
 		_, e := tx.Exec(ctx,
 			`INSERT INTO tenants (id, name, vat_number, business_type, structure)
 			 VALUES ($1, 'Panel E2E Ltd', $2, 'bar', 'single')`,
-			ph.tenantID, "VAT-"+ph.tenantID.String()[:8])
+			// 🔴 THE FULL UUID, NOT THE FIRST 8 HEX DIGITS -- A SEPARATE FIX, MARKED
+			// BECAUSE IT IS NOT PART OF M6-06 (approved scope extension, 2026-08-09).
+			// vat_number is UNIQUE. Every DB test helper in this repo built it from
+			// uuid.String()[:8], i.e. 32 bits, and the development database already
+			// held 128 553 distinct values in that space -- so each insert had a
+			// 1-in-33 410 chance (2.99e-5) of a 23505 birthday collision, and the
+			// odds grow with every suite run because these fixtures are never
+			// cleaned up. It FIRED: an audit run of `make test` went red here with
+			// tenants_vat_number_key, and a re-run was green -- which is the worst
+			// kind of failure, because it makes the suite look flaky rather than
+			// wrong and it poisons the measurement ground every later task stands on.
+			//
+			// PER RUN, which is the number that matters: one `make test` inserts 379
+			// tenants (measured, by counting the table before and after), so the
+			// chance that a run went red somewhere was 1 - (1 - 2.99e-5)^379 = 1.13%,
+			// about ONE RUN IN 89 -- and climbing, because the denominator never
+			// shrinks. The full uuid v4 carries 122 random bits: the same figure
+			// becomes 9.2e-30. Applied at all 21 truncated call sites across 19 files
+			// (measured: 0 left), and `make test` was then run TWICE, both green.
+			ph.tenantID, "VAT-"+ph.tenantID.String())
 		return e
 	}); err != nil {
 		t.Fatalf("insert tenant: %v", err)
@@ -458,7 +477,7 @@ func TestPanelE2E_TenantPickerWithRealRows(t *testing.T) {
 		_, e := tx.Exec(ctx,
 			`INSERT INTO tenants (id, name, vat_number, business_type, structure)
 			 VALUES ($1, 'Second Business Ltd', $2, 'restaurant', 'single')`,
-			secondTenant, "VAT-"+secondTenant.String()[:8])
+			secondTenant, "VAT-"+secondTenant.String())
 		return e
 	}); err != nil {
 		t.Fatalf("insert second tenant: %v", err)
@@ -481,7 +500,7 @@ func TestPanelE2E_TenantPickerWithRealRows(t *testing.T) {
 		_, e := tx.Exec(ctx,
 			`INSERT INTO tenants (id, name, vat_number, business_type, structure)
 			 VALUES ($1, 'VictimCo', $2, 'bar', 'single')`,
-			victimTenant, "VAT-"+victimTenant.String()[:8])
+			victimTenant, "VAT-"+victimTenant.String())
 		return e
 	}); err != nil {
 		t.Fatalf("insert victim tenant: %v", err)

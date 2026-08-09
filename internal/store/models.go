@@ -146,11 +146,13 @@ type Session struct {
 }
 
 type Tag struct {
-	Uid        string
-	TenantID   uuid.UUID
-	LocationID uuid.UUID
+	Uid      string
+	TenantID uuid.UUID
+	// The entrance this plaque is mounted at. NULL = loaded but not yet bound to a wall (inventory/stock; user decision 2026-08-08). An active plaque always has one -- see tags_active_requires_location.
+	LocationID *uuid.UUID
 	AesKeyRef  []byte
 	LastCtr    int32
+	// Lifecycle (skill tappa-sun): unassigned = loaded, not yet mounted; active = in service; retired = replaced, taps reject; lost = reported lost, taps reject plus a security alert.
 	Status     string
 	RetiredAt  *time.Time
 	ReplacedBy *string

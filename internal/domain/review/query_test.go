@@ -104,7 +104,11 @@ func TestReviewQueries_CarryAnExplicitTenantPredicate(t *testing.T) {
 func whereClauses(body string) []string {
 	var out []string
 	whereRE := regexp.MustCompile(`(?is)\bWHERE\b`)
-	stopRE := regexp.MustCompile(`(?is)\b(ORDER\s+BY|GROUP\s+BY|LIMIT|HAVING|RETURNING)\b`)
+	// FOR UPDATE / FOR SHARE added 2026-08-09 (M6-06 phase B) to keep the three
+	// copies identical; the measurement is recorded in internal/domain/tenant's
+	// copy. It is a no-op for the queries this package covers (none takes a row
+	// lock) and stops the matcher mis-reading one that does.
+	stopRE := regexp.MustCompile(`(?is)\b(ORDER\s+BY|GROUP\s+BY|LIMIT|HAVING|RETURNING|FOR\s+NO\s+KEY\s+UPDATE|FOR\s+UPDATE|FOR\s+SHARE)\b`)
 	for _, loc := range whereRE.FindAllStringIndex(body, -1) {
 		rest := body[loc[1]:]
 		depth, end := 0, len(rest)

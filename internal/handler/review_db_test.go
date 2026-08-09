@@ -972,7 +972,7 @@ func seedTenantRow(t *testing.T, p *panelHarness, tenantID uuid.UUID, name strin
 		_, e := tx.Exec(ctx,
 			`INSERT INTO tenants (id, name, vat_number, business_type, structure)
 			 VALUES ($1, $2, $3, 'bar', 'single')`,
-			tenantID, name, "VAT-"+tenantID.String()[:8])
+			tenantID, name, "VAT-"+tenantID.String())
 		return e
 	}); err != nil {
 		t.Fatalf("insert tenant %s: %v", name, err)

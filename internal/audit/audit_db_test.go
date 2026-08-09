@@ -42,7 +42,7 @@ func newTenant(t *testing.T, d *db.DB) uuid.UUID {
 		_, e := tx.Exec(ctx,
 			`INSERT INTO tenants (id, name, vat_number, business_type, structure)
 			 VALUES ($1, 'Audit Test Ltd', $2, 'bar', 'single')`,
-			id, "VAT-"+id.String()[:8])
+			id, "VAT-"+id.String())
 		return e
 	})
 	if err != nil {

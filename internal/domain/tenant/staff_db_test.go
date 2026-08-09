@@ -86,7 +86,7 @@ func (f *staffFixture) seedTenant(t *testing.T, tenantID, venue, otherVenue, dep
 		if _, e := tx.Exec(ctx,
 			`INSERT INTO tenants (id, name, vat_number, business_type, structure)
 			 VALUES ($1, 'Kebab Factory Ltd', $2, 'restaurant', 'multi')`,
-			tenantID, "VAT-"+tenantID.String()[:8]); e != nil {
+			tenantID, "VAT-"+tenantID.String()); e != nil {
 			return e
 		}
 		for _, v := range []struct {

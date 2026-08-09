@@ -101,15 +101,44 @@ const (
 	RedirectActivation Redirect = "activation" // no session -> activation page, no record (§5 line 3)
 )
 
-// TagStatus is the tapped plaque's lifecycle state (tags.status CHECK,
-// migration 0004). retired/lost are §5 line-1 rejects.
+// TagStatus is the tapped plaque's lifecycle state (tags.status CHECK, migrations
+// 00004 and 00013). EVERYTHING EXCEPT TagActive is a §5 line-1 reject — the rule is
+// stated that way round on purpose; see below.
 type TagStatus string
 
 const (
 	TagActive  TagStatus = "active"
 	TagRetired TagStatus = "retired"
 	TagLost    TagStatus = "lost"
+	// TagUnassigned: encoded and loaded by Tappa, not yet mounted on a wall
+	// (migration 00013's inventory model). A tap on one is refused like any other
+	// non-active status.
+	TagUnassigned TagStatus = "unassigned"
 )
+
+// 🔴 THIS VOCABULARY EXISTS IN THREE PLACES AND THAT IS DELIBERATE, BUT IT COST
+// SOMETHING ONCE, SO THE ARRANGEMENT IS WRITTEN DOWN.
+//
+//	db/migrations/00004 + 00013   the CHECK constraint -- the SOURCE OF TRUTH
+//	internal/policy/guardrails.go the value sys:tag-not-active compares against
+//	here                          the typed value the decision engine carries
+//
+// They cannot be derived from one another at run time: policy deliberately does not
+// import the store (it stays a pure, self-contained rule engine), and neither
+// package may read migration files while serving a tap. So the copies are kept in
+// step by DISCIPLINE at the source and by a TEST at the boundary --
+// TestGuardrails_TagNotActiveIsAnAllowList derives the status list from
+// db/migrations and fails if the guardrail's behaviour and the schema's vocabulary
+// disagree.
+//
+// WHAT IT COST: 00013 added the fourth value and only the schema knew. The
+// guardrail was enumerating the BAD statuses (retired, lost), so `unassigned`
+// matched no rule and fell through §5 line 1 entirely. Both the guardrail and this
+// list are now written so that the DEFAULT for an unknown value is refusal: the
+// guardrail asks for `active` rather than listing its opposites, and a status this
+// list has never heard of still arrives here as a plain string that is not
+// TagActive. A fifth status is therefore refused on the day the migration adds it,
+// with or without this constant being updated.
 
 // EmployeeStatus is the tapping employee's lifecycle state (employees.status
 // CHECK, migration 0003). deactivated is the §5 line-4 reject-with-alert. NOTE the
