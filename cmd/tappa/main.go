@@ -134,6 +134,16 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	// The locations section's read and its two writes (M6-06 phase A): venue
+	// configuration and department management. It takes the SAME audit recorder as
+	// the two above, and here the reason is sharper than for either of them —
+	// `locations` has no updated_at, so the trail row written inside the write's own
+	// transaction is the ONLY place a change to the evidence a tap is judged on
+	// leaves a mark (internal/domain/tenant/venue.go).
+	venues, err := tenant.NewVenues(data, trail, slog.Default())
+	if err != nil {
+		return err
+	}
 	// records is passed TWICE, as the day reader and as the queue reader. Two
 	// parameters rather than one because internal/handler declares two narrow
 	// interfaces over it (§7, the consumer owns the interface); one implementation
@@ -151,7 +161,7 @@ func run() error {
 	// M5-02 drove the channel end to end. The distinction matters — the seam was
 	// TESTED and unmounted, which is the M5-04 shape (a capability delivered, approved
 	// and dead in the wired product) rather than an unproven one.
-	panelAuth, err := handler.NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, cfg, slog.Default())
+	panelAuth, err := handler.NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, venues, cfg, slog.Default())
 	if err != nil {
 		return err
 	}

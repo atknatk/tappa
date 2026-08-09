@@ -3272,6 +3272,373 @@ Ayrıca iş yalnız CSS+bileşen değil — kabuk `pages/` + `handler/`'a da dok
 - AES anahtarı ekranda **hiç** gösterilmiyor; yalnızca "encoded/pending" durumu.
 - Departman yönetimi (KM için) aynı sekmede veya ayrı; vardiya alanları dahil.
 
+> **Kart düzeltmesi (2026-08-08, M6-06 A uygulaması sırasında).** Görev kullanıcı
+> kararıyla iki faza bölündü (ölçüt kapsam değil **denetim merceği**; agent-brief'in
+> "Bir görevi A/B fazına bölmek" kaydı). **Faz A** yukarıdaki **1.** ve **6.**
+> kriterleri kapsar (lokasyon yapılandırması + departman yönetimi); kalan dördü —
+> plaket listesi, replace tag, tag geçmişi, `encoded/pending` — **Faz B**'nindir ve
+> kendi migration'ı (00013) + `tappa-db-migrator` turuyla gelir. Faz A `tags`
+> tablosuna **hiç dokunmaz** ve **hiç migration eklemez**.
+>
+> 🔴 **1. kriterin "CRUD"undaki D, ölçüm önüne konduktan SONRA karara bağlandı ve Faz
+> A'da sevk edildi.** Şemada silmenin ne anlama geldiği önce ölçüldü (dev DB,
+> 2026-08-08, `pg_constraint` + satır sayımı):
+>
+> - `locations` ve `departments`'a referans veren **altı FK var ve altısı da
+>   `ON DELETE RESTRICT`** (`departments→locations`, `employees→locations`,
+>   `employees→departments`, `tags→locations`, `transactions→locations`,
+>   `transactions→departments`).
+> - İki tabloda da **`status`/`archived`/`deleted_at` sütunu YOK** — yani
+>   kullanımdaki bir lokasyon ne silinebilir ne de **arşivlenebilir**.
+> - Sayılar — ⚠️ **mutlak satır sayıları KAYIYOR, oran kaymıyor.** Dev DB her suite
+>   koşusunda büyüyor (testler tenant tohumluyor, `audit_log` append-only). Aynı gün
+>   (2026-08-08) **beş** ölçüm: **117 553 · 117 775 · 121 030 · 121 780 · 122 136**
+>   lokasyon. Referanslı oranı **beşinde de %84,1**. Bu yüzden karar **orana** dayanır, mutlak sayıya değil;
+>   ve mutlak sayılar **yalnız burada**, tarihiyle yazılıdır — kodda hiçbir yerde
+>   canlı iddia olarak durmaz.
+>   - **Lokasyon (2026-08-08, 5. ölçüm):** 122 136'nın **102 725'i** referanslı
+>     (**%84,1 — silinemez**), **19 411'i** referanssız (**%15,9 — silinebilir**).
+>     Oran **beş ölçümün beşinde de %84,1** — mutlak sayı 117 553'ten 122 136'ya
+>     çıkarken bile.
+>   - Tablo başına ayrı ayrı referanslanan lokasyon (2. ölçüm anı): `employees`
+>     87 484 · `tags` 68 782 · `transactions` 54 233 · `departments` 15 872.
+>   - **Departman:** ⚠️ bu oran sabit **değil** ve **bant da değil — MONOTON DÜŞEN bir
+>     seri.** Aynı gün beş ölçüm (referanslı payı): **%91,2 → %89,4 → %87,6 → %86,9 →
+>     %86,6**. Yönü belli: **düşüyor**.
+>     - **Sebebi bizim kendi suite'imiz.** `venue_db_test.go` her koşuda departman
+>       yaratıyor (`Bar`, `Real`, `Legit`, `Kitchen 2`…) ve bunlara **hiç çalışan ya
+>       da işlem bağlamıyor** — yani her koşu referanssız departman ekleyip payı
+>       seyreltiyor. Lokasyon oranının sabit kalmasının sebebi de aynı madalyonun öbür
+>       yüzü: fixture lokasyonları **her zaman** bir departman/çalışan alıyor.
+>     - ⚠️ **Bu yüzden bir önceki sürümde yazdığım "%8,8–%12,4 bandı" YANLIŞTI** — 4.
+>       ölçüm (%13,1 referanssız) daha yazıldığı gün bandın dışına çıktı. Monoton bir
+>       serinin üç noktası **sınır gibi okunur ama sınır değildir**; doğru sunum
+>       seriyi **yönüyle** vermektir.
+>     - **Karara giren tek şey bir EŞİTSİZLİK:** kullanımdaki departmanların **büyük
+>       çoğunluğu** `ON DELETE RESTRICT` yüzünden silinemez. Kesin payı bu veritabanı
+>       **ölçemez**, çünkü sayacı biz kirletiyoruz. Son ölçüm: 18 111'in **15 688'i**
+>       referanslı.
+>
+> Yani "D" bugün ya *yalnız yetim satırlar için* mümkün ya da hiç yok. Üç yol da
+> ölçüldü, hiçbiri elenmedi:
+>
+> | Seçenek | Somut sonucu |
+> |---|---|
+> | **(a) Hiç Delete sunma** | Lokasyonların **hepsi** için kontrol yok. Ekran hiçbir zaman reddetmez çünkü hiçbir zaman teklif etmez. |
+> | **(b) Yalnız referanssız satıra Delete** | Lokasyonların **%15,9**'unda çalışır, **%84,1**'inde *niçin* olmadığı sayıyla söylenmeli. Departmanlarda pay ölçülemiyor (yukarı bkz.); söylenebilecek tek şey **çoğunluğun silinemeyeceği**. |
+> | **(c) Migration ile arşiv sütunu iste** | Silme yerine emeklilik: kullanımdaki venue de gizlenebilir. **Faz B'nin 00013'üne** ya da ayrı bir karta gider; §4.3'ün ruhu gereği `transactions`'ın işaret ettiği satır **yok edilmemeli**, bu seçenek onu korur. |
+>
+> ✅ **KULLANICI KARARI (2026-08-08): SEÇENEK (b).** Delete **yalnız referanssız**
+> lokasyona ve departmana sunulur. Faz A bunu uyguladı; aşağıdakiler kararın parçası:
+>
+> - **Referanslı satırda buton HİÇ ÇIKMAZ** ve neden çıkmadığı **sayıyla** söylenir
+>   ("2 departments · 3 employees · 1 plaque · 9 recorded taps" — şablon aynı `·`
+>   ayırıcıyı kullanıyor, testle pinli). Bir kontrolü gösterip
+>   sonra reddetmek, bu görevin dört turdur kapattığı sınıfın ta kendisi.
+> - **Kullanılmış satır asılı kalır ve ekran bunu KURAL gibi söyler, arıza gibi
+>   değil** (§4.3): `transactions` satırları olduğu lokasyona işaret eder; silinebilen
+>   bir lokasyon, kanıtı düzenlenebilen bir mesai kaydı demektir. Arşiv sütunu
+>   olmadığı için "emekliye ayırma" da yok — bu seçenek (c)'ye kalır.
+> - **Departmanlara da aynı kural** (`employees` + `transactions`, ikisi de RESTRICT).
+>   Simetri kasıtlı: müdür iki listede iki farklı mantık öğrenmemeli.
+> - **Sayım EKRANINDIR, FK GUARD'DIR.** Sayım sıfır dedikten sonra biri o lokasyona
+>   çalışan atayabilir → `DELETE` **23503** verir, satır kalır. Bu **doğru sonuç**;
+>   `ErrVenueInUse`'a çevrilir ve ekranda cümle olur, **500 değil**. Yarış gerçekten
+>   tetiklenerek test edildi (`TestVenues_TheRaceBetweenCountingAndDeletingIsRefusedNotCrashed`).
+> - **Onay adımı YENİDEN KULLANILDI, ikinci kalıp icat EDİLMEDİ** — ve bu, **sevk
+>   edilmiş koda dokunmayı** gerektirdi; ayrıntı aşağıdaki tarihli blokta.
+>   `deactivateconfirm.go`'nun jetonu HMAC imzalı, TTL'li ve **artık ÜÇ** şeye bağlı:
+>   **eylem + özne + panel oturumu**. İçinde çalışana özgü bir şey yok, yani lokasyon
+>   id'si özne olarak birebir oturuyor. (Bir kalıbı yarım kopyalamak bu repoda üç kez
+>   oldu; dördüncüyü önlemenin en ucuz yolu aynı kodu çağırmak.) Silme,
+>   deaktivasyondan **daha** geri alınamaz olduğu için onay burada daha da gerekli.
+> - **Maliyet ölçüldü ve kontrolün YERİNİ o belirledi** (2026-08-08, `EXPLAIN (ANALYZE,
+>   BUFFERS)`, dev DB'nin en büyük tenant'ı — 9 lokasyon):
+>
+>   | şekil | üç koşu (ms) |
+>   |---|---|
+>   | dört `count(*)`, listenin **her satırında** | 249,5 / 195,0 / 197,7 |
+>   | dört `count(*)`, **tek** lokasyon (düzenleme kartı — **sevk edilen**) | 31,3 / 29,9 / 27,0 |
+>   | **hiçbir şey** — liste kontrol sunmuyor | **0** |
+>
+>   Süreyi yiyen `transactions` yüklemi: `transactions(tenant_id, location_id)`
+>   üzerinde indeks **yok**, bitmap heap scan oluyor. Kontrol bu yüzden **düzenleme
+>   kartında**: liste **hiç** ödemiyor, ~30 ms yalnız müdürün açtığı lokasyon için.
+>
+>   🔴 **ELENEN alternatifin — satır başına dört `EXISTS` — TEK BİR SAYISI YOK, ve
+>   bunu öğrenmek İKİ yanlış sayıya mal oldu.** `OR` **kısa devre yapar** ve pahalı
+>   olan `transactions` yüklemi, yani maliyet **verinin** özelliği:
+>
+>   | popülasyon | üç koşu (ms) |
+>   |---|---|
+>   | yazılı sıra, **27 987 işlemli** tenant (9 lokasyon) | 8,4 / 6,4 / 7,3 |
+>   | aynı tenant, `transactions` yüklemi **başta** | 241,8 / 150,7 / 143,0 |
+>   | yazılı sıra, **0 işlemli** tenant (8 lokasyon, hepsi referanssız) | 0,55 / 1,26 / 0,34 |
+>
+>   Aynı ifade, **üç büyüklük mertebesi**. İlk satır ucuz çünkü **ikinci** yüklem
+>   (`employees`) 9 satırın hepsinde `TRUE` — `tags` ve `transactions` **hiç
+>   çalışmıyor**. Son satır ucuz çünkü o tenant'ın **hiç işlemi yok**. `count(*)`
+>   veriye bakmadan aynı maliyeti veriyor; seçimin gerekçesi bu.
+>
+>   ⚠️ **Bu bloğun İKİ önceki sürümü de yanlıştı ve ikisi de ETİKETLEME hatasıydı,
+>   ölçüm hatası değil.** İlki *"dört `EXISTS` … 8,154 ms"* diyordu — kısa devre
+>   vakasının gerçek sayısı, şeklin maliyeti gibi sunulmuş. İkincisi bunu *"258,9 /
+>   194,1 / 188,1 ms, **referanssız** satırlarda"* diye "düzeltti" — o da gerçek bir
+>   ölçümdü ama **tenant filtresi OLMAYAN**, 122 000 satırlık tablonun tamamını tarayan
+>   bir sorgunundu, ve cümle referanssız sayısı **SIFIR** olan bir tenant'ı
+>   adlandırıyordu. İkisinde de **sayı doğru, popülasyon uydurma**. Bundan sonraki
+>   kural: bir süre, **tenant'ı + satır sayısı + işlem sayısıyla** yazılır, ya da hiç
+>   yazılmaz.
+>
+>   💡 **Seçenek (c) hâlâ açık ve şimdi bir maliyeti var:** `transactions(tenant_id,
+>   location_id)` indeksi 288 ms'i düşürürdü ve arşiv sütunuyla birlikte **Faz B'nin
+>   00013'üne** doğal olarak sığar.
+>
+> ⚠️ Ayrıca **`locations`'da `updated_at` YOK** (00002 yalnız `created_at` taşır).
+> Bu yüzden Faz A'nın yazmaları `audit_log`'a **aynı transaction'da**
+> (`audit.RecordTx`) kaydedilir: `static_ips`/GPS/vardiya **kararı belirleyen**
+> verilerdir (§5 satır 6–7) ve değişikliğin izi **başka hiçbir yerde kalmaz**.
+> Eylem adları mevcut kalıba uyar ve **altı** tanedir: `location.created` ·
+> `location.updated` · `location.deleted` · `department.created` ·
+> `department.updated` · `department.deleted`. (Son ikisi aynı blokta karara bağlanan
+> silme için; `deleted` satırının `detail`'i **satırın kendisini** taşır — ad, IP
+> aralıkları, koordinat, vardiya — çünkü silmeden sonra bakılacak satır kalmıyor.)
+>
+> ⚠️ Ve **`locations.name`/`departments.name` sınırsız `text`** (UNIQUE de yok).
+> Faz A sınırı **sınırda** zorluyor (`tenant.MaxVenueNameRunes = 80`, rune bazlı) ve
+> testle pinliyor; **şemaya CHECK eklemek** doğru evi olur ve bu şemaya bir daha
+> dokunulduğunda (Faz B'nin 00013'ü) yapılmalı.
+
+
+> **📌 KAYDA GEÇTİ (2026-08-08, M6-06 A denetimi): FK'SİZ BİR BAĞ VAR — Faz B / M6-09
+> yükümlülüğü.** `policy_attachments.resource` **serbest metin** ve `location/<id>` ·
+> `department/<id>` taşıyabiliyor (00007 bunu bilinçli yazıyor: *"grammar is validated
+> in the application, not by a DB CHECK"*); `internal/domain/tap/decide.go:663` istek
+> kaynağını tam bu şekilde kuruyor. **Foreign key YOK**, yani böyle bir satır varken
+> lokasyon silme onu **sessizce yetim bırakır** ve ekran yine *"Nothing belongs to this
+> venue"* der — altı RESTRICT anahtarının hiçbiri bu bağı görmez.
+>
+> **Bugün üretilemiyor, ölçüldü (2026-08-08):** dev DB'de **501** adet
+> `location/<uuid>` satırı var ama **hepsi** `internal/db/rls_test.go`'nun rastgele
+> uuid'leri — **0'ı** gerçek bir lokasyona çözülüyor. Tek üretim yazıcısı
+> (`policyset.go` → `EnsurePolicyAttachment`) yalnız baseline'ın `location/*` ve `*`
+> kalıplarını yazıyor. Yani Faz A'nın silme kararı bugün güvenli.
+>
+> **Onu üretecek olan [M6-09](#m6-09--policy-yönetim-ekranı)** — "kapsam bağlama:
+> politika tüm tenant'a mı, belirli lokasyona/departmana mı (`resource`)" kriteri tam
+> olarak bu satırları yazacak. M6-09 sevk edilmeden **önce** şunlardan biri gerekir:
+> (a) silme yolunda `policy_attachments`'ı da sayan bir kontrol, (b) `resource` için
+> gerçek bir FK/CHECK (migration), ya da (c) kararın *"politika eki silmeyi
+> engellemez, yetim ek zararsızdır"* diye **yazılı** olması. Üçü de bir §4 kararıdır,
+> ajanınki değil.
+
+> **Kart düzeltmesi (2026-08-08, M6-06 A — onay jetonu v2).** Faz A, **M6-05 B'de sevk
+> edilmiş** üç dosyaya dokundu. agent-brief sabit kural 8 gereği açıkça işaretleniyor:
+>
+> | dosya | ne değişti |
+> |---|---|
+> | `internal/handler/deactivateconfirm.go` | payload **v1 → v2**; `mint`/`parse` imzalarına **`action string`** eklendi; üç eylem sabiti (`employee.deactivate` · `location.delete` · `department.delete`); parça listesi **11 → 12** |
+> | `internal/handler/employeeactions.go` | `setDeactivateConfirmation`/`confirmationRefusal` artık eylem-alan `setConfirmation`/`confirmationRefusalFor`'un ince sarmalayıcısı; deaktivasyon davranışı **değişmedi** |
+> | `internal/handler/employeeactions_test.go` | mevcut jeton testleri eylemi taşıyor (hepsi `employee.deactivate`) |
+>
+> **Neden Faz A'da:** silme kapısı **aynı ilkeli** kullanıyor. Bir denetim ölçtü ki
+> eylem bağı yokken, **venue silme için mint edilen jeton `/admin/employees/deactivate`
+> kapısını geçiyordu** — istek yalnız DOMAIN'de düşüyordu, çünkü bir lokasyon id'si bir
+> çalışan id'si değil. Yani kapıyı tutan şey **iki kaza** (uuid uzaylarının çakışmaması
+> ve domain'in kontrol etmesi) idi; jetonun kendisi bunu bilmiyordu. Şema değişikliği
+> o kazayı sessizce kaldırabilir.
+>
+> **v2 ne bağlıyor:** `sürüm | damga | EYLEM | özne | oturum`, uzunluk önekli HMAC
+> altında. Eylem **özneden ÖNCE** kontrol ediliyor ve reddi `errConfirmInvalid`
+> (toplanmış) — ayrı bir cümle, sondalayana hangi bağı kaçırdığını söylerdi.
+> **v1 payload'ı onarılmıyor, "malformed" sayılıyor**; bedeli deploy anında on dakikalık
+> pencere içinde en fazla bir kez yeniden basmak.
+>
+> ⚠️ **KAPANMAYAN limit, sayılıyor:** jeton **hâlâ tek kullanımlık değil** (sunucu
+> tarafı durum yok). Kapatmak bir "harcanmış değer" tablosu + saklama politikası ister;
+> ayrı bir iş. Her kapının bunu neden taşıyabildiği yazılı: deaktivasyonda
+> `status <> 'deactivated'`, silmede ikinci `DELETE` hiçbir satırla eşleşmiyor.
+
+> **Kart düzeltmesi (2026-08-09, M6-06 A — silme onayı: OKUMA C′).** Silmeden sonra
+> müdürün hiçbir şey görmemesi (Okuma A) kullanıcıya üç okumayla soruldu; **C′ seçildi.**
+>
+> **Şekil.** Silme yönlendirmesi `?done=venue-deleted&id=<kaldırılan id>` taşır. Bölüm,
+> başlığı basmadan **önce ve aynı istekte**, `audit_log`'da şu satırı arar:
+> `tenant_id` = oturumun tenant'ı · `actor_id` = **oturumun yöneticisi** · `action` =
+> `location.deleted` (ya da `department.deleted`) · `target` = URL'deki id ·
+> `at > now() - 30s`. Satır **varsa** başlık basılır ve **venue'nun adı O SATIRDAN**
+> gelir; **yoksa hiçbir şey basılmaz — hata değil.** Yabancı/bayat URL sade listeyi
+> görür. Bu, M6-05'in kuralı (2)'nin — *"handler onu aynı isteğin okuduğu satıra karşı
+> doğrular"* — silmeye uygulanmış hâli: satır gitti, ama **audit satırı duruyor**.
+>
+> **Üç okumanın sayıları:**
+>
+> | okuma | maliyet | ne alır | neden seçilmedi / seçildi |
+> |---|---|---|---|
+> | **A — sessizlik** | 0 | hiçbir zaman yanlış cümle | müdür açık onay görmüyor |
+> | **B — imzalı iddia** | 1 MAC | doğrulanabilir cümle | ⛔ **jeton tek kullanımlık DEĞİL** → kusuru **kapatmaz, taşır**; TTL içinde tekrar harcanabilir |
+> | **C′ — audit destekli** | **0,101 / 0,097 / 0,204 ms** | yabancının basamayacağı cümle + **adı** | ✅ **seçildi** |
+>
+> Ölçüm (2026-08-09, kendi kuralımıza uygun: tenant + satır + işlem): tenant
+> `10000000-…-0001`, **9 lokasyon**, **28 042 işlem**, `audit_log`'da bu tenant için
+> **2 019** satır (tabloda toplam **45 670**). Plan: `audit_log_tenant_at_idx` üstünde
+> **Index Scan**, `Buffers: shared hit=3`. **Migration YOK** — indeks zaten var.
+>
+> **Neden C′, düz C değil:** düz C aktörün **en son** silmesini ilan eder; iki sekmede
+> iki silme yapan müdüre **yanlış** venue'yu söyleyebilir. C′ id'yi yönlendirmeye koyup
+> **o satırı** doğrular → her sekme kendi işini ilan eder. Ölçülen fark: **yok**
+> (0,08–0,10 ms vs 0,07–0,41 ms).
+>
+> **Sağlamlık kayıtları.**
+> - **Oracle değil:** sorgu hem `tenant_id` hem `actor_id` kapsamlı. Başka tenant'ın
+>   gerçek silinmiş id'si · **aynı tenant'ta başka bir yöneticinin** sildiği id · var
+>   olmayan uuid · bozuk uuid → **dördü de aynı sayfa, aynı durum kodu** (testle
+>   karşılaştırıldı, bayt bayt).
+> - **Yetkilendirme değil:** bu cevapla hiçbir şeye izin verilmiyor, yalnız bir cümle
+>   basılıyor. Bu yüzden **okuma patlarsa 500 yok** — başlık basılmaz, liste normal
+>   render edilir.
+> - **Sık yol hiçbir şey ödemiyor:** sorgu yalnız iki kelimeden biri **ve** okunabilir
+>   bir id varken koşuyor. Testte **sorgu sayısı** sayılıyor, bayrak değil.
+> - **Ad URL'den ASLA gelmiyor** — id yalnız arama anahtarı; cümle ve ad audit
+>   satırından.
+> - **`actor_id`/`target` cast'leri yük taşıyor:** ikisi de nullable (00005), cast
+>   olmasa sqlc pointer üretiyor ve `nil` bir aktör **her SYSTEM olayını** eşleştirirdi.
+>   (`CountDepartmentReferences`'ın `department_id` kusurunun aynısı.)
+>
+> ⚠️ **TEST EDİLMEMİŞ LİMİT — pencere.** 30 saniyenin **üst** ucu test edilmedi:
+> 31 saniyelik bir satır kurulamıyor. `at` veritabanının `DEFAULT now()`'ı,
+> `RecordAuditEvent` onu parametre almıyor, ve `audit_log` `tappa_app` için
+> **append-only** (yalnız SELECT + INSERT; trigger `tappa_owner`'ı bile durduruyor).
+> Alternatifler daha kötü: 31 sn uyumak her koşuya eklenir, GRANT'ı gevşetmek
+> mekanizmanın dayandığı append-only güvencesini siler. **Test edilen** yön: pencere
+> **sıfır** olduğunda taze bir satır bile bulunmuyor — yani sınır gerçekten uygulanıyor.
+> Bu bir **limit, "kapalı" değil.**
+
+> **Kart düzeltmesi (2026-08-09, M6-06 A — güvenlik denetimi sonrası).**
+> `tappa-security-auditor` **ONAY** verdi; dört bloklamayan bulgunun biri **kullanıcı
+> kararı** oldu.
+>
+> 🔴 **X1 — SİLME ARTIK `owner`-ONLY (kullanıcı kararı, 2026-08-09).** Rol sütunu
+> M6-02'den beri var ve dolu (`00006:66`, dev DB'de **30 359 owner / 7 417 manager**,
+> **2 814** tenant'ta ikisi de) ama panel yazma yollarında **hiçbir satır** okumuyordu.
+> Boşluk eski; **bedeli** değişti: M6-05 geri alınabilir durumlar yazıyordu, bu faz
+> ürünün **ilk geri alınamaz** yolunu açtı ve arşiv yok.
+> - **İki ayrı yükümlülük:** ekranda kontrol **hiç çıkmıyor** + **nedeni yazıyor**
+>   ("owner'a ayrılmış"); ve **sunucuda** `mayRemove` reddediyor. UI'yi atlayan POST
+>   `?problem=not-permitted` alıyor. **Ayrı ayrı** test edildi.
+> - **Jeton da kapsandı:** manager onay jetonunu **mint edemiyor** (kontrol
+>   `removalView`'da, sayımdan bile önce) — yoksa kapı iki aşamalı olur, ilki açık kalır.
+> - **Rol yeni okuma GEREKTİRMİYOR:** `adminauth.Resolved.Role` oturum çözümlemesinde
+>   `admin_users` satırından geliyor → **ek sorgu 0**, ve istemci veremiyor.
+> - **Kapsam yalnız SİLME.** Oluşturma/düzenleme/deaktivasyon değişmedi; manager'ın
+>   `venue`/`department` kaydetmesi testle pinli (sessiz genişleme yasak).
+>
+> 🔵 **X1(3) — REDDEDİLEN DENEME: iki okuma, karar sizin.** Geçici olarak **yalnız
+> yapılandırılmış log** uygulandı.
+>
+> | okuma | lehine | aleyhine |
+> |---|---|---|
+> | **audit_log satırı** (`location.delete_refused`) | Üründe **beş** emsali var: `activation.failed` 6 527 · `admin.login.failed` 2 868 · `tap.rate_limited` 1 177 · `admin.login.tenant_refused` 499 · `admin.login.rate_limited` 16. Müşterinin **kendi** denetçisine görünür, tenant kapsamlı. Şişme sınırlı: `adminSessionLimit` bir oturumu **300 istek / 10 dk** ile bağlıyor. | `audit_log` **append-only** — şekli yanlış çıkarsa geri alınamaz. |
+> | **yalnız log (uygulanan)** | Kalıcı iz bırakmıyor, her an audit satırına **yükseltilebilir**. | Müşterinin denetçisine **görünmez**; süreç log'unun saklama hikâyesi yok. |
+>
+> Geçici seçimin ölçütü **geri alınabilirlik**: bugün yazılmayan bir satır yarın
+> yazılabilir, bugün yazılan geri alınamaz.
+>
+> 🟠 **X2 — `00005:228` ile uzlaştırma.** O migration *"detail'a SIR (token/anahtar/tam
+> GPS) YAZILMAZ"* diyor; bu faz `detail`'a altı ondalıklı **bina** koordinatı yazıyor
+> (508 `location.created`'ın 128'i · 202 `updated`'ın 4'ü · 58 `deleted`'ın 23'ü).
+> **Migration DEĞİŞTİRİLMEDİ** (§3); uzlaştırma değerin yazıldığı yere
+> (`venue.go`) **`00005:228`'e açık atıfla** yazıldı: §4.2/§4.7'nin hedefi **kişi
+> takibi** — tap'in GPS'i bir **insan** hakkındadır; bir lokasyonun koordinatı
+> yapılandırmadır, **aynı tenant'ta, aynı RLS altında zaten duruyor**, yani yeni
+> maruziyet yok. Süreç log'u hâlâ yalnız `has_gps` bool alıyor.
+> - **ADR gerekir mi — ölçüm:** `audit.Event{}` kurulan **26** yer var (8 dosya:
+>   `activate.go` 8 · `adminlogin.go` 7 · `venue.go` 4 · `staff.go` 2 · `checkin.go` 2 ·
+>   `channel.go` · `ratelimit.go` · `review.go`). Bunlardan **koordinat taşıyan
+>   yalnız `venue.go`** (3 alan: `gps`, `from_gps`, `to_gps`). Yani bu bir **sınır
+>   değişikliği değil**, mevcut sınırın **ilk kez uygulanan yorumu** ve bugün
+>   **tekrarlamıyor**. Tekrarlarsa (M6-08 manuel kayıt, M6-09 policy) ADR'ye döner.
+>   **Karar sizin.**
+>
+> 🟡 **X3 — silme izi artık YOKLUĞU da kaydediyor.** `omitempty` yüzünden 58
+> `location.deleted` satırının **37'sinde `static_ips` anahtarı hiç yoktu** — "IP
+> kanıtı yoktu" ile "o sürüm kaydetmiyordu" ayırt edilemiyordu, ve silmeden sonra **bu
+> satır tek hayatta kalan kayıt**. Artık `"static_ips": []` · `"gps": ""` · `"shift":
+> ""` · `"wifi_ssid": ""` açıkça yazılıyor, ve **`created_at` eklendi** (iki `DELETE`
+> de artık onu `RETURNING`'e alıyor) — `locations`'ta `updated_at` olmadığı için
+> silinen satırın kayıt zamanı **başka hiçbir yerde** yoktu. `created`/`updated`
+> izlerinde `omitempty` **korundu**, gerekçesi yazıldı: orada satır hâlâ okunabiliyor,
+> izin işi **değişeni** kaydetmek; silmede satır yok, izin işi **ne olduğunu**
+> kaydetmek.
+>
+> 🟡 **X4 — ekran artık saydığını söylüyor.** *"Nothing belongs to this venue"* →
+> *"No departments, employees, plaques or records belong to this venue"*.
+> `CountLocationReferences` altı FK'yi sayıyor; `policy_attachments.resource`
+> **serbest metin** ve FK'siz. ⚠️ **Yükümlülük M6-09'dur, M7 değil** — ölçüldü:
+> `m7-portal.md`'de policy/resource geçmiyor (1 alakasız eşleşme), M6-09'un kabul
+> kriteri ise birebir bu (*"Kapsam bağlama: politika tüm tenant'a mı, belirli
+> lokasyona/departmana mı (`resource`)"* — **[M6-09 — Policy yönetim ekranı](#m6-09--policy-yönetim-ekranı)**
+> bölümünün kabul kriterleri arasında). Denetçinin M7 işareti yanlış, kartın M6-09'u
+> doğru. ⚠️ **Bu cümle önce "kart satır 3608" diyordu ve kriter 3716'daydı** — satır
+> numarası kayan bir iddia; bu kartta artık **bölüm başlığına** atıf yapılıyor.
+
+> **Kart düzeltmesi (2026-08-09, M6-06 A — X1(3) kapandı + ADR eşiği).**
+>
+> ✅ **KULLANICI KARARI: reddedilen silme denemesi `audit_log`'a YAZILIYOR.** Bir önceki
+> blokta geçici olarak *"yalnız yapılandırılmış log"* uygulanmıştı; karar audit
+> satırından yana verildi. Belirleyici olan **müşterinin kendi denetleyicisine
+> görünürlük**: bir owner, manager'ının tekrar tekrar lokasyon silmeye çalıştığını
+> görebilmeli, ve süreç log'unun ne tenant sınırı ne saklama hikâyesi var. Şekil riski
+> zaten düşüktü — **beş emsal** aynı kalıbı kuruyor.
+> - **Adlar emsallerden türetildi, uydurulmadı:** `location.delete_refused` ·
+>   `department.delete_refused`. `admin.login.tenant_refused`'ın `_refused` sonekini
+>   alıyorlar, çünkü `location.deleted` zaten **başarılı** eylemin adı ve
+>   `action LIKE 'location.%'` tarayan biri ikisini tek bakışta ayırabilmeli.
+> - **`detail` X3'ün dersini uyguluyor:** `omitempty` yok, boş değerler açıkça yazılı.
+>   Taşıdıkları: `outcome` · `reason` · `what` · `role` (aktörün gerçek rolü) ·
+>   `required_role`. `actor_id` denemeyi yapan, `target` hedeflenen satır.
+>   ⚠️ **§4.7: sır yok** — jeton, çerez, koordinat, oturum id'si hiçbiri; onay değeri
+>   ret anında **okunmuyor** bile. ⚠️ **Ve bu artık İZİN VERİLEN ANAHTAR KÜMESİYLE
+>   pinli, yasaklı dize taramasıyla değil** — bir denetim yedi kelimelik denylist'i tek
+>   düzenlemede yendi (`Note` alanına oturum id'si + onay değeri kondu, saklanan jsonb
+>   `"note":"session=… confirm="` oldu, **üç test de yeşil** kaldı; bir uuid o yedi
+>   kelimenin hiçbirine çarpmıyor, base64 bir jeton da çarpmaz). Şimdi `detail`'in
+>   anahtar kümesi **tam olarak** `outcome · reason · what · role · required_role`
+>   olmalı; yeni bir alan, birisi onu listeye **gerekçesiyle** ekleyene kadar testi
+>   kırar.
+> - **Kendi transaction'ı** (`audit.Record`, `RecordTx` değil): silme **olmuyor**, yani
+>   kaderini paylaşacağı bir yazma yok. `audit.Record`'un kendi yorumunun tarif ettiği
+>   vaka bu — *"bu pakete en çok ihtiyacı olan çağıran, ana transaction'ı BAŞARISIZ
+>   olandır"*.
+> - **Audit yazımı patlarsa müdür ret cümlesini görür, 500 GÖRMEZ.** Bu bir **kaydetme**
+>   yolu, **yetkilendirme** yolu değil: ret zaten bir satır önce gerçekleşti, ve bizim
+>   iz arızamızı onların isteği hakkında bir hüküm gibi sunmak yanlış olurdu. Beş
+>   emsalin hepsi `a.record`'un aynı davranışına dayanıyor (log'la, devam et).
+> - **Log satırı DA korundu — iki temsil değil, iki OKUYUCU.** `adminlogin.go`
+>   `ActionAdminLoginRefused`'da aynısını yapıyor: log operatöre anlık ve greplenebilir
+>   bağlam verir (izde sütunu olmayan), audit satırı tenant'ın owner'ına kalıcı ve
+>   kapsamlı kayıt verir. Birini atmak bir okuyucuyu sessizce silmek olurdu.
+> - **Şişme sınırı ölçülü:** `adminSessionLimit` bir oturumu **300 istek / 10 dk** ile
+>   bağlıyor.
+>
+> 📌 **ADR KARARI: GEREKMİYOR (orkestratör, 2026-08-09).** `audit_log.detail`'a
+> koordinat yazan yer sayısı **bugün 1/27** — `audit.Event{}` **27** çağrı yeri / **9**
+> dosya (`activate.go` 8 · `adminlogin.go` 7 · `venue.go` 4 · `staff.go` 2 ·
+> `checkin.go` 2 · `channel.go` · `ratelimit.go` · `locationactions.go` · `review.go`);
+> koordinat taşıyan **yalnız `venue.go`**, 3 alan (`gps`, `from_gps`, `to_gps`).
+> CLAUDE.md §10 ADR'yi *"güvenlik sınırı **değiştiyse**"* istiyor; bu bir sınır
+> değişikliği değil, mevcut sınırın **ilk uygulaması** ve tekrarlamıyor.
+> `venue.go`'daki `00005:228` uzlaştırması + bu kart yeterli.
+> - ⚠️ **DÜZELTME: bu blok önce "26 / 8 dosya" diyordu ve KENDİ EKLEDİĞİ yazıcıyı
+>   saymıyordu** — dokuzuncu dosya, bu bloğun kararlaştırdığı ret satırını yazan
+>   `locationactions.go`'nun ta kendisi. Yük taşıyan iddia (koordinat yazan tek yer
+>   `venue.go`) değişmedi, ama eşiği sayacak bir sonraki okuyucu yeni yazıcıyı
+>   **ikinci koordinat yazıcısı** sanabilirdi.
+> - ⚠️ **EŞİK, bir sonraki kişi görsün diye:** **ikinci bir yer** `audit_log.detail`'a
+>   koordinat yazmaya başlarsa (yani oran **2/27** olursa) bu bir **ADR'yi hak eder** —
+>   çünkü o noktada bu artık tek bir yorum değil, bir **kalıp** olur. En olası
+>   adaylar: **M6-08** (manuel kayıt) ve **M6-09** (policy `resource` kapsamı).
+
 ---
 
 ## M6-07 — Reports ve CSV export

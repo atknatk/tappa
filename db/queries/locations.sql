@@ -113,3 +113,245 @@ SELECT id, tenant_id, name, static_ips, gps_lat, gps_lng,
 FROM locations
 WHERE tenant_id = @tenant_id
   AND id = @id;
+
+-- ---------------------------------------------------------------------------
+-- THE LOCATIONS SECTION (M6-06 phase A). Everything above this line is on the
+-- TAP PATH and its behaviour is unchanged by this task; everything below is the
+-- panel's own read and its two writes.
+--
+-- 🔴 WHY THE SPLIT IS WORTH A HEADER. The four queries above answer DECISION
+-- questions -- which venue owns this address, where are they all, what is the
+-- evidence at the plaque that was touched -- and their column lists are pinned to
+-- the shape sqlc maps onto store.Location (see the file header). The three below
+-- answer an ADMINISTRATIVE question and are free to select what a form needs.
+-- Merging them would make one query serve two audiences and the stricter one
+-- would lose, which is the argument departments.sql already makes for its own
+-- split.
+--
+-- 🔴 THESE WRITES CHANGE HOW LATER TAPS ARE JUDGED, WHICH IS WHY THEY ARE NOT
+-- ORDINARY SETTINGS. static_ips is the IP half of proof of place (section 5 row
+-- 6, 50 of 100 trust points), gps_lat/gps_lng are the backup half, and the shift
+-- columns are what lateness is measured against. Emptying static_ips on a venue
+-- does not fail anything and raises no error -- it silently moves every future
+-- tap there onto the GPS path, and a tap with neither lands on `flag` (row 7).
+-- internal/domain/tenant/venue.go records the before/after of all three in
+-- audit_log for exactly that reason: `locations` carries no updated_at, so the
+-- trail is the only place a change of judgement leaves a mark.
+--
+-- TENANT SCOPE (section 4.5, belt + braces on RLS): every statement below binds
+-- tenant_id to the caller's parameter as a top-level conjunct of its OWN WHERE,
+-- and runs inside db.(*DB).WithTenant.
+
+-- name: ListPanelLocations :many
+-- The venues as the panel lists them, with the number of departments inside each.
+--
+-- IT IS NOT ListLocationsForTenant AND MUST NOT BECOME IT. That query is on the
+-- GPS fallback path of the decision engine and its column list is pinned to
+-- store.Location; this one carries a count the engine has no use for and would
+-- pay for on every tap.
+--
+-- 🔴 THE DEPARTMENT COUNT'S OWN tenant_id IS BOUND TO THE PARAMETER, NOT TO
+-- l.tenant_id. The correlated form (`d.tenant_id = l.tenant_id`) reads as
+-- equivalent and is not: it scopes the subquery to whatever the OUTER row
+-- happens to be rather than to the caller, which is the shape
+-- internal/domain/tenant/query_test.go lists as unscoped ("another column, not
+-- the parameter"). RLS would still block it; the belt is what makes the second
+-- defence visible.
+--
+-- LIMIT/OFFSET, NOT A KEYSET CURSOR, and the difference from the roster is a
+-- measurement rather than a preference. A payroll is unbounded -- the employees
+-- section pages at 50 because walking one is a design promise (rosterDesignCeiling)
+-- -- whereas a venue list is bounded by the buildings a business operates in.
+-- Measured on the development database (2026-08-08): the largest SINGLE tenant has
+-- 9 locations and the largest has 5 departments; across the whole table the mean
+-- per tenant is under 2. (Absolute row counts are deliberately not quoted here:
+-- the development database grows on every suite run -- 117 553, 117 775 and
+-- 121 030 were all measured on 2026-08-08. The PER-TENANT maximum is what this
+-- bound rests on, and it does not move.) The bound below is therefore a CEILING that says
+-- so when it is reached, not a pager.
+SELECT l.id, l.name, l.static_ips, l.gps_lat, l.gps_lng,
+       l.shift_start, l.shift_end, l.overnight, l.wifi_ssid, l.created_at,
+       (SELECT count(*) FROM departments d
+         WHERE d.tenant_id = @tenant_id
+           AND d.location_id = l.id) AS department_count
+FROM locations l
+WHERE l.tenant_id = @tenant_id
+ORDER BY l.name, l.id
+LIMIT @row_limit;
+
+-- name: GetPanelLocation :one
+-- One venue, for the edit form and for the BEFORE half of the audit row.
+--
+-- 🔴 IT IS READ INSIDE THE WRITE'S TRANSACTION so the trail describes the row the
+-- UPDATE is about to change rather than a snapshot taken a round trip earlier --
+-- the shape internal/domain/tenant/staff.go established for employees and for the
+-- same reason: audit_log is append-only, so a trail row that describes a state
+-- that never existed cannot be corrected.
+--
+-- NO ROW is returned for an id belonging to another tenant (explicit predicate +
+-- RLS), which the caller turns into "no such venue in this business" rather than
+-- into a 500 or into an answer about whether that id exists elsewhere.
+SELECT id, tenant_id, name, static_ips, gps_lat, gps_lng,
+       shift_start, shift_end, overnight, wifi_ssid, created_at
+FROM locations
+WHERE tenant_id = @tenant_id
+  AND id = @id;
+
+-- name: CreateLocation :one
+-- Adds a venue.
+--
+-- 🔴 THE TENANT IS SELECTED, NOT ASSIGNED, AND THAT SHAPE WAS CHOSEN BY A TEST
+-- GOING RED. The obvious spelling is `INSERT ... VALUES (@tenant_id, ...)`, and it
+-- is the ONE shape the section 4.5 belt cannot see: an INSERT ... VALUES has no
+-- WHERE and cannot have one, so the scanner in
+-- internal/domain/tenant/query_test.go finds no statement to check and its
+-- per-query anti-vacuity guard reports that it checked NOTHING (measured: that is
+-- exactly what happened when this query was first written that way). The belt's
+-- own comment said "no query this package calls inserts anything", which this task
+-- made false.
+--
+-- Reading the tenant row instead gives the statement a scoped source, so the belt
+-- checks it like any other: subject `tenants`, whose scope column is its own id
+-- (migration 00001's policy says so). It also buys a real guarantee rather than
+-- only a satisfied scanner -- the INSERT cannot happen at all unless the caller's
+-- tenant row is VISIBLE under RLS, which is the same "join it rather than assign
+-- it" argument MoveEmployee and CreateDepartment make for locations.
+--
+-- ⚠️ THIS IS THE SECOND DEFENCE, NOT THE ONLY ONE. The RLS policy's WITH CHECK on
+-- `locations` (migration 00002) is what actually refuses a foreign tenant_id, and
+-- the caller never supplies the value anyway: it comes from the resolved panel
+-- session, never from the request.
+--
+-- 🔴 NULL IS PASSED THROUGH FOR EVERY OPTIONAL COLUMN AND IS NEVER DEFAULTED TO A
+-- ZERO. A shift of NULL means "lateness is NOT COMPUTED for this venue"; 00:00
+-- means "the shift starts at midnight" and would silently make every arrival late.
+-- A GPS of NULL means "no coordinate registered"; 0,0 is a real point in the Gulf
+-- of Guinea that passes the gps_pair CHECK and would put every tap 5 000 km from
+-- its venue. The pair CHECKs (locations_gps_pair, locations_shift_pair) refuse a
+-- half-filled pair; nothing in the schema can refuse a plausible zero, so the
+-- boundary that builds these arguments is the only guard and it is tested.
+INSERT INTO locations (
+    tenant_id, name, static_ips, gps_lat, gps_lng,
+    shift_start, shift_end, overnight, wifi_ssid
+)
+SELECT t.id, @name, @static_ips, sqlc.narg('gps_lat'), sqlc.narg('gps_lng'),
+       sqlc.narg('shift_start'), sqlc.narg('shift_end'), @overnight, sqlc.narg('wifi_ssid')
+FROM tenants t
+WHERE t.id = @tenant_id
+RETURNING id, tenant_id, name, static_ips, gps_lat, gps_lng,
+          shift_start, shift_end, overnight, wifi_ssid, created_at;
+
+-- name: UpdateLocation :one
+-- Rewrites a venue's configuration.
+--
+-- 🔴 EVERY COLUMN IS ASSIGNED, INCLUDING THE ONES BEING CLEARED, and that is the
+-- point rather than an oversight. A partial update ("only write what changed")
+-- would need a way to say "leave this alone" that is distinct from "make this
+-- NULL", and the two states this screen most needs to express are exactly
+-- "clear the coordinates" and "clear the shift". One shape for both is how a
+-- clear becomes a no-op.
+--
+-- 🔴 IT CANNOT MOVE A VENUE BETWEEN TENANTS. tenant_id is not in the SET list at
+-- all, so there is no column here a caller could aim at another business; the
+-- WHERE binds the caller's tenant and RLS refuses the row underneath it.
+--
+-- NO updated_at IS STAMPED because there is no such column (migration 00002 has
+-- created_at only). That is stated rather than silently worked around: it is
+-- precisely why internal/domain/tenant/venue.go writes an audit_log row inside
+-- this statement's transaction -- without it, a change to the evidence a tap is
+-- judged on would leave no trace anywhere.
+UPDATE locations
+SET name        = @name,
+    static_ips  = @static_ips,
+    gps_lat     = sqlc.narg('gps_lat'),
+    gps_lng     = sqlc.narg('gps_lng'),
+    shift_start = sqlc.narg('shift_start'),
+    shift_end   = sqlc.narg('shift_end'),
+    overnight   = @overnight,
+    wifi_ssid   = sqlc.narg('wifi_ssid')
+WHERE tenant_id = @tenant_id
+  AND id = @id
+RETURNING id, tenant_id, name, static_ips, gps_lat, gps_lng,
+          shift_start, shift_end, overnight, wifi_ssid, created_at;
+
+-- name: CountLocationReferences :one
+-- What still points at this venue, so the screen can say WHY it cannot be deleted.
+--
+-- 🔴 IT IS ONE ROW AT A TIME, ON PURPOSE, AND THE COST IS WHY. Measured 2026-08-08 on
+-- the largest tenant in the development database (9 locations), EXPLAIN (ANALYZE,
+-- BUFFERS):
+--
+--   four counts on EVERY row of the venue list ..... 249.5 / 195.0 / 197.7 ms
+--   four counts for ONE venue (this query) .......... 31.3 /  29.9 /  27.0 ms
+--   nothing, because the list offers no control ..... 0
+--
+-- 🔴 THE ELIMINATED ALTERNATIVE -- four EXISTS per row -- HAS NO SINGLE NUMBER, and
+-- finding that out took two wrong ones. An OR of EXISTS SHORT-CIRCUITS, and the
+-- expensive predicate is the transactions one, so the cost depends on the DATA:
+--
+--   written order, tenant with 27 987 transactions ..... 8.4 / 6.4 / 7.3 ms
+--     (the SECOND predicate, employees, is true for all 9 rows -- so `tags` and
+--      `transactions` are never evaluated)
+--   transactions predicate FIRST, same tenant ....... 241.8 / 150.7 / 143.0 ms
+--   written order, tenant with 0 transactions ......... 0.55 / 1.26 / 0.34 ms
+--
+-- Three orders of magnitude over one expression. The counts cost the same whatever
+-- the data does, which is the argument for them.
+--
+-- ⚠️ TWO EARLIER VERSIONS OF THIS BLOCK WERE WRONG AND BOTH WERE LABELLING FAILURES
+-- rather than measurement ones. The first wrote "four EXISTS ... 8.154 ms" as if it
+-- were the shape's cost; the second "corrected" it to "258.9 / 194.1 / 188.1 ms over
+-- UNREFERENCED rows", which was a real timing of a query with NO TENANT FILTER over
+-- the whole 122 000-row table, attributed to a tenant whose unreferenced count is
+-- ZERO. Both times the number was true and the population was invented. The rule this
+-- block now follows: a timing is written with its tenant, its row count and its
+-- transaction count, or it is not written.
+--
+-- WHAT COSTS THE TIME is the transactions predicate: there is no index on
+-- transactions(tenant_id, location_id), so it becomes a bitmap heap scan. So the delete control lives on the venue's
+-- EDIT CARD rather than on every row of the list, where this runs once for the venue
+-- the manager actually opened and the list pays NOTHING.
+--
+-- ⚠️ 9 LOCATIONS IS THE LARGEST TENANT THAT EXISTS HERE, NOT THE WORST CASE. The list
+-- shape is bounded by venuePageLimit+1 = 201 rows; no tenant of that size exists to
+-- measure, so the 288 ms figure is a measurement at loops=9 and the 201-row shape is
+-- INFERRED from it. This query does not scale with the list at all -- it is one venue
+-- however big the estate is -- which is the property that makes the inference safe
+-- here even though it was not safe to skip stating it.
+--
+-- ⚠️ AND THESE COUNTS ARE NOT THE GUARD. They are what the SCREEN says; the guard is
+-- the six ON DELETE RESTRICT foreign keys, which is what makes the race between this
+-- read and the DELETE harmless (internal/domain/tenant/venue.go, DeleteVenue).
+SELECT
+    (SELECT count(*) FROM departments d
+      WHERE d.tenant_id = @tenant_id AND d.location_id = @id) AS department_count,
+    (SELECT count(*) FROM employees e
+      WHERE e.tenant_id = @tenant_id AND e.location_id = @id) AS employee_count,
+    (SELECT count(*) FROM tags t
+      WHERE t.tenant_id = @tenant_id AND t.location_id = @id) AS tag_count,
+    (SELECT count(*) FROM transactions x
+      WHERE x.tenant_id = @tenant_id AND x.location_id = @id) AS transaction_count;
+
+-- name: DeleteLocation :one
+-- Removes a venue that nothing points at.
+--
+-- 🔴 THE FOREIGN KEYS ARE THE GUARD, NOT THE COUNT ABOVE. Six ON DELETE RESTRICT keys
+-- reference locations and departments; between the moment the screen counted zero and
+-- the moment this runs, another manager can hire somebody into this venue. Postgres
+-- then answers 23503 and the row survives -- which is the CORRECT outcome and the
+-- reason this statement carries no NOT EXISTS clause of its own. Adding one would put
+-- a second, weaker copy of the rule in a place that cannot be atomic with the delete.
+--
+-- RETURNING NAMES THE ROW THAT IS ABOUT TO STOP EXISTING, which is the only way the
+-- audit row can describe it: after this statement there is nothing left to read.
+--
+-- ⚠️ created_at IS IN THE LIST BECAUSE IT WAS ONCE MISSING AND THAT LOST IT FOREVER.
+-- `locations` has no updated_at, so created_at is the only timestamp the row ever
+-- carried; a trail entry without it cannot answer "how long did this venue operate".
+-- Every column here exists so the deleted row can be described, not so it can be
+-- restored -- there is no undelete.
+DELETE FROM locations
+WHERE tenant_id = @tenant_id
+  AND id = @id
+RETURNING id, name, static_ips, gps_lat, gps_lng, shift_start, shift_end, overnight,
+          wifi_ssid, created_at;

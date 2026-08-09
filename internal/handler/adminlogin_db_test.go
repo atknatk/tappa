@@ -147,7 +147,14 @@ func newPanelHarness(t *testing.T) *panelHarness {
 	if err != nil {
 		t.Fatalf("invite.New: %v", err)
 	}
-	h, err := NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, cfg, slog.New(slog.DiscardHandler))
+	// THE REAL Venues, for the reason the real staff is used two lines up: a fake
+	// would put §4.5 and the audit row's fate — the two things these tests exist for
+	// — back behind a mock that agrees with whatever it is told.
+	venues, err := tenant.NewVenues(data, trail, slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatalf("tenant.NewVenues: %v", err)
+	}
+	h, err := NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, venues, cfg, slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}

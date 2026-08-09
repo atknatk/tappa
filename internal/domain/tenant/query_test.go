@@ -549,10 +549,23 @@ func maskParens(s string) string {
 // ⚠️ INSERT IS DELIBERATELY NOT IN THE LIST, and the reason is that an
 // `INSERT ... VALUES` has no WHERE and cannot have one. Its belt is a different
 // shape -- tenant_id is supplied as a VALUE and the RLS WITH CHECK refuses a
-// mismatch, which db/queries/invites.sql states at CreateInvite. No query this
-// package calls inserts anything, so nothing here relies on that; it is written down
+// mismatch, which db/queries/invites.sql states at CreateInvite. It is written down
 // because a scanner that flagged every INSERT would be a scanner somebody switches
 // off.
+//
+// ⚠️ THIS PARAGRAPH USED TO END "No query this package calls inserts anything, so
+// nothing here relies on that", AND M6-06 PHASE A MADE THAT FALSE. It now calls
+// two: CreateLocation and CreateDepartment. Neither relies on the exclusion,
+// because neither is an INSERT ... VALUES -- both are INSERT ... SELECT with a
+// scoped source (`tenants` and `locations` respectively), so the block walk sees
+// an ordinary statement and checks it like any other.
+//
+// 🔴 AND THAT SHAPE WAS CHOSEN BY THIS FILE GOING RED RATHER THAN BY TASTE.
+// CreateLocation was first written as INSERT ... VALUES, and the per-query
+// anti-vacuity guard in TestStaffQueries_CarryAnExplicitTenantPredicate reported
+// that it had checked NOTHING -- which is the guard doing exactly its job. The fix
+// was to give the statement a scoped source rather than to add an exemption,
+// because an exemption is a hole that the next INSERT inherits silently.
 var tableRefRE = regexp.MustCompile(
 	`(?is)\b(?:FROM|JOIN|UPDATE|DELETE\s+FROM)\s+(?:ONLY\s+)?(?:public\.)?([a-z_][a-z0-9_]*)`)
 

@@ -572,7 +572,17 @@ const confirmField = "confirm_token"
 // setDeactivateConfirmation mints the value for ONE employee in THIS session and
 // returns what the form must echo.
 func (a *AdminAuth) setDeactivateConfirmation(w http.ResponseWriter, r *http.Request, employeeID uuid.UUID) (string, error) {
-	token, err := a.confirm.mint(employeeID, httpx.AdminOf(r).Admin.SessionID)
+	return a.setConfirmation(w, r, confirmActionDeactivate, employeeID)
+}
+
+// setConfirmation mints a value for ONE ACTION on ONE SUBJECT in THIS session.
+//
+// 🔴 THE ACTION IS PART OF THE SIGNATURE (v2). Before it was, a confirmation minted to
+// remove a venue passed the deactivation gate cleanly and was stopped only by the
+// DOMAIN, because a location id is not an employee id — a binding that held by luck
+// rather than by design. Each gate now names the act it is opening.
+func (a *AdminAuth) setConfirmation(w http.ResponseWriter, r *http.Request, action string, subjectID uuid.UUID) (string, error) {
+	token, err := a.confirm.mint(action, subjectID, httpx.AdminOf(r).Admin.SessionID)
 	if err != nil {
 		return "", err
 	}
@@ -589,13 +599,18 @@ func (a *AdminAuth) setDeactivateConfirmation(w http.ResponseWriter, r *http.Req
 // Checking the cookie first would let a forged value's failure be reported as a
 // replay, which is a sentence about the wrong thing.
 func (a *AdminAuth) confirmationRefusal(r *http.Request, employeeID uuid.UUID) string {
+	return a.confirmationRefusalFor(r, confirmActionDeactivate, employeeID)
+}
+
+// confirmationRefusalFor is the same check for any gated action.
+func (a *AdminAuth) confirmationRefusalFor(r *http.Request, action string, subjectID uuid.UUID) string {
 	sent := strings.TrimSpace(r.PostFormValue(confirmField))
-	switch err := a.confirm.parse(sent, employeeID, httpx.AdminOf(r).Admin.SessionID); {
+	switch err := a.confirm.parse(sent, action, subjectID, httpx.AdminOf(r).Admin.SessionID); {
 	case err == nil:
 	case errors.Is(err, errConfirmOtherPerson):
-		// 🔴 THE SECOND TAB. One cookie per browser, so opening another person's
+		// 🔴 THE SECOND TAB. One cookie per browser, so opening another subject's
 		// warning replaces this one — and the older tab's form now carries a value
-		// minted for somebody else. The signature is genuine, which is why this is a
+		// minted for something else. The signature is genuine, which is why this is a
 		// different sentence rather than "not confirmed".
 		return "confirm-stale"
 	default:

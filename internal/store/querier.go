@@ -86,6 +86,52 @@ type Querier interface {
 	// TENANT SCOPE (section 4.5, belt + braces): explicit tenant_id predicate on top of
 	// RLS. A foreign employee id retires nothing.
 	CancelPendingInvitesForEmployee(ctx context.Context, arg CancelPendingInvitesForEmployeeParams) ([]uuid.UUID, error)
+	// Did THIS admin, in THIS business, remove THIS row, JUST NOW?
+	//
+	// 🔴 IT EXISTS SO THE PANEL CAN ACKNOWLEDGE A DELETION WITHOUT LYING (user decision,
+	// 2026-08-09, reading C'). Every other panel banner survives a replayed URL because
+	// the row it describes is rendered underneath it; a DELETED row cannot be, so a
+	// `?done=venue-deleted` word was measured printing "The venue has been removed" in a
+	// browser that had never posted anything. M6-05's rule for an action claim is that the
+	// handler VERIFIES it against a row the same request read -- and after a delete the
+	// only surviving row is the audit entry. This is that row.
+	//
+	// 🔴 IT IS NOT AN AUTHORISATION AND MUST NEVER BECOME ONE. Nothing is permitted on the
+	// strength of this answer; it decides whether a SENTENCE is printed. That is why a
+	// failure to read it renders the list without a banner rather than a problem page.
+	//
+	// 🔴 AND IT MUST NOT BECOME AN ORACLE. Both the tenant AND the actor are bound, so a
+	// manager cannot learn that some OTHER admin removed something, and no business can
+	// learn anything about another. Four inputs collapse to the same empty answer:
+	// another tenant's genuinely removed id, a colleague's removal inside this tenant, a
+	// uuid that never existed, and a well-formed uuid for a row never deleted.
+	//
+	// 🔴 @actor_id AND @target ARE CAST EXPLICITLY, AND BOTH CASTS ARE LOAD-BEARING.
+	// audit_log.actor_id is NULLABLE by schema decision (00005: the column is polymorphic
+	// and holds NULL for SYSTEM events) and target is nullable too. Without the casts sqlc
+	// infers both PARAMETERS as nullable and emits *uuid.UUID / *string -- so a nil actor
+	// would match every SYSTEM-generated row and a nil target every row with no single
+	// subject, printing an acknowledgement for something the signed-in manager did not do.
+	// Measured: sqlc v1.28 emitted exactly those pointer types before the casts were
+	// added. Same defect CountDepartmentReferences hit on a nullable department_id, which
+	// is why it is written out again rather than assumed learned.
+	//
+	// THE WINDOW IS THE DATABASE'S OWN CLOCK. `now()` is evaluated server-side inside the
+	// statement and nothing a client sends reaches it -- ADR 0006's rule satisfied
+	// structurally rather than by discipline. make_interval keeps the bound a parameter so
+	// one Go constant is its single source.
+	//
+	// RETURNS THE NAME OUT OF THE TRAIL, which is the only place it still exists: the row
+	// itself is gone and the id in the address bar is a CLIENT value, so a heading built
+	// from it would be a sentence the client wrote.
+	//
+	// ⚠️ coalesce(..., '') RATHER THAN A BARE ->>, AND THAT IS ABOUT THE SCAN. sqlc cannot
+	// type a jsonb `->>` at all (it emitted `interface{}`), and casting alone gives a
+	// NON-nullable Go string that would FAIL to scan the moment a trail row had no `name`
+	// key -- a future action with a different detail shape, or an older row. Every
+	// location.deleted row this product writes carries one, so today it is defensive; the
+	// empty string then means "the trail has no name for it" and the heading falls back.
+	ConfirmRecentRemoval(ctx context.Context, arg ConfirmRecentRemovalParams) (string, error)
 	// THE activation statement, and the most critical query in M5-02. ONE statement
 	// does BOTH halves -- consume the invite and flip the employee to 'active' -- so
 	// that "this employee was activated" IMPLIES "an invite was consumed for them".
@@ -238,6 +284,64 @@ type Querier interface {
 	// This is the ONLY statement in db/queries that writes employee_invites.used_at
 	// (greppable), which is what makes the un-consume limit in the header hold.
 	ConsumeInviteAndActivate(ctx context.Context, arg ConsumeInviteAndActivateParams) (ConsumeInviteAndActivateRow, error)
+	// What still points at this department. Two keys rather than the venue's four:
+	// employees_department_fk and transactions_department_fk, both ON DELETE RESTRICT.
+	// 🔴 @id IS CAST EXPLICITLY, AND THE CAST IS LOAD-BEARING RATHER THAN DECORATIVE.
+	// employees.department_id and transactions.department_id are both NULLABLE, so
+	// without the cast sqlc infers the PARAMETER as nullable too and emits *uuid.UUID.
+	// A nil then means "count the rows whose department_id IS NULL" -- every employee in
+	// the business who is not in a department -- which is a different question that would
+	// answer "in use" for a department that is not. Measured: sqlc v1.28 emitted exactly
+	// that before the cast was added.
+	CountDepartmentReferences(ctx context.Context, arg CountDepartmentReferencesParams) (CountDepartmentReferencesRow, error)
+	// What still points at this venue, so the screen can say WHY it cannot be deleted.
+	//
+	// 🔴 IT IS ONE ROW AT A TIME, ON PURPOSE, AND THE COST IS WHY. Measured 2026-08-08 on
+	// the largest tenant in the development database (9 locations), EXPLAIN (ANALYZE,
+	// BUFFERS):
+	//
+	//   four counts on EVERY row of the venue list ..... 249.5 / 195.0 / 197.7 ms
+	//   four counts for ONE venue (this query) .......... 31.3 /  29.9 /  27.0 ms
+	//   nothing, because the list offers no control ..... 0
+	//
+	// 🔴 THE ELIMINATED ALTERNATIVE -- four EXISTS per row -- HAS NO SINGLE NUMBER, and
+	// finding that out took two wrong ones. An OR of EXISTS SHORT-CIRCUITS, and the
+	// expensive predicate is the transactions one, so the cost depends on the DATA:
+	//
+	//   written order, tenant with 27 987 transactions ..... 8.4 / 6.4 / 7.3 ms
+	//     (the SECOND predicate, employees, is true for all 9 rows -- so `tags` and
+	//      `transactions` are never evaluated)
+	//   transactions predicate FIRST, same tenant ....... 241.8 / 150.7 / 143.0 ms
+	//   written order, tenant with 0 transactions ......... 0.55 / 1.26 / 0.34 ms
+	//
+	// Three orders of magnitude over one expression. The counts cost the same whatever
+	// the data does, which is the argument for them.
+	//
+	// ⚠️ TWO EARLIER VERSIONS OF THIS BLOCK WERE WRONG AND BOTH WERE LABELLING FAILURES
+	// rather than measurement ones. The first wrote "four EXISTS ... 8.154 ms" as if it
+	// were the shape's cost; the second "corrected" it to "258.9 / 194.1 / 188.1 ms over
+	// UNREFERENCED rows", which was a real timing of a query with NO TENANT FILTER over
+	// the whole 122 000-row table, attributed to a tenant whose unreferenced count is
+	// ZERO. Both times the number was true and the population was invented. The rule this
+	// block now follows: a timing is written with its tenant, its row count and its
+	// transaction count, or it is not written.
+	//
+	// WHAT COSTS THE TIME is the transactions predicate: there is no index on
+	// transactions(tenant_id, location_id), so it becomes a bitmap heap scan. So the delete control lives on the venue's
+	// EDIT CARD rather than on every row of the list, where this runs once for the venue
+	// the manager actually opened and the list pays NOTHING.
+	//
+	// ⚠️ 9 LOCATIONS IS THE LARGEST TENANT THAT EXISTS HERE, NOT THE WORST CASE. The list
+	// shape is bounded by venuePageLimit+1 = 201 rows; no tenant of that size exists to
+	// measure, so the 288 ms figure is a measurement at loops=9 and the 201-row shape is
+	// INFERRED from it. This query does not scale with the list at all -- it is one venue
+	// however big the estate is -- which is the property that makes the inference safe
+	// here even though it was not safe to skip stating it.
+	//
+	// ⚠️ AND THESE COUNTS ARE NOT THE GUARD. They are what the SCREEN says; the guard is
+	// the six ON DELETE RESTRICT foreign keys, which is what makes the race between this
+	// read and the DELETE harmless (internal/domain/tenant/venue.go, DeleteVenue).
+	CountLocationReferences(ctx context.Context, arg CountLocationReferencesParams) (CountLocationReferencesRow, error)
 	// reviews.sql -- the FLAGGED approval queue (M6-04): two reads and one write.
 	//
 	// 🔴 SECTION 4.3 IS THE WHOLE DESIGN OF THIS FILE. A manager approving or
@@ -395,6 +499,24 @@ type Querier interface {
 	// token_hash is the HMAC of a token this query never sees; it is written, never
 	// returned.
 	CreateAdminSession(ctx context.Context, arg CreateAdminSessionParams) (CreateAdminSessionRow, error)
+	// Adds a department INSIDE a venue.
+	//
+	// 🔴 THE VENUE IS SELECTED, NOT ASSIGNED, which is the shape MoveEmployee argues
+	// for at length in db/queries/employees.sql: the SELECT matches the location
+	// inside the caller's tenant, so a foreign or invented location_id produces ZERO
+	// ROWS -- a refusal the manager can be shown a sentence about, rather than a
+	// 23503 the handler has to translate from a driver error string.
+	//
+	// ⚠️ AND IT IS THE SECOND DEFENCE, NOT THE ONLY ONE. departments_location_fk is a
+	// COMPOSITE key on (location_id, tenant_id) -> locations (id, tenant_id)
+	// (migration 00002), so a cross-tenant pairing is structurally impossible even
+	// with every predicate below deleted. What the predicate buys is the difference
+	// between a refusal and an error, which is what section 4.6 asks for on a screen
+	// somebody is standing in front of.
+	//
+	// NULL SHIFTS PASS THROUGH AS NULL. See CreateLocation: a zero is not an absence,
+	// and departments_shift_pair refuses a half-filled pair but cannot refuse 00:00.
+	CreateDepartment(ctx context.Context, arg CreateDepartmentParams) (Department, error)
 	// invites.sql -- the TENANT-SCOPED half of activation (M5-02): issuing an invite,
 	// consuming it exactly once, and flipping the employee to 'active'.
 	//
@@ -462,6 +584,39 @@ type Querier interface {
 	//
 	// code_hash is written, never returned (section 4.7).
 	CreateInvite(ctx context.Context, arg CreateInviteParams) (CreateInviteRow, error)
+	// Adds a venue.
+	//
+	// 🔴 THE TENANT IS SELECTED, NOT ASSIGNED, AND THAT SHAPE WAS CHOSEN BY A TEST
+	// GOING RED. The obvious spelling is `INSERT ... VALUES (@tenant_id, ...)`, and it
+	// is the ONE shape the section 4.5 belt cannot see: an INSERT ... VALUES has no
+	// WHERE and cannot have one, so the scanner in
+	// internal/domain/tenant/query_test.go finds no statement to check and its
+	// per-query anti-vacuity guard reports that it checked NOTHING (measured: that is
+	// exactly what happened when this query was first written that way). The belt's
+	// own comment said "no query this package calls inserts anything", which this task
+	// made false.
+	//
+	// Reading the tenant row instead gives the statement a scoped source, so the belt
+	// checks it like any other: subject `tenants`, whose scope column is its own id
+	// (migration 00001's policy says so). It also buys a real guarantee rather than
+	// only a satisfied scanner -- the INSERT cannot happen at all unless the caller's
+	// tenant row is VISIBLE under RLS, which is the same "join it rather than assign
+	// it" argument MoveEmployee and CreateDepartment make for locations.
+	//
+	// ⚠️ THIS IS THE SECOND DEFENCE, NOT THE ONLY ONE. The RLS policy's WITH CHECK on
+	// `locations` (migration 00002) is what actually refuses a foreign tenant_id, and
+	// the caller never supplies the value anyway: it comes from the resolved panel
+	// session, never from the request.
+	//
+	// 🔴 NULL IS PASSED THROUGH FOR EVERY OPTIONAL COLUMN AND IS NEVER DEFAULTED TO A
+	// ZERO. A shift of NULL means "lateness is NOT COMPUTED for this venue"; 00:00
+	// means "the shift starts at midnight" and would silently make every arrival late.
+	// A GPS of NULL means "no coordinate registered"; 0,0 is a real point in the Gulf
+	// of Guinea that passes the gps_pair CHECK and would put every tap 5 000 km from
+	// its venue. The pair CHECKs (locations_gps_pair, locations_shift_pair) refuse a
+	// half-filled pair; nothing in the schema can refuse a plausible zero, so the
+	// boundary that builds these arguments is the only guard and it is tested.
+	CreateLocation(ctx context.Context, arg CreateLocationParams) (CreateLocationRow, error)
 	// sessions.sql -- the TENANT-SCOPED half of "proof of person" (CLAUDE.md
 	// section 5): issuing, refreshing, revoking and listing the persistent browser
 	// session that answers "who is this phone?".
@@ -542,6 +697,27 @@ type Querier interface {
 	// TENANT SCOPE (section 4.5, belt + braces): explicit predicate on top of RLS. A
 	// foreign id matches nothing, so this cannot end another tenant's employment.
 	DeactivateEmployee(ctx context.Context, arg DeactivateEmployeeParams) (DeactivateEmployeeRow, error)
+	// Removes a department that nothing points at. Same argument as DeleteLocation: the
+	// foreign keys are the guard, the count is what the screen says.
+	DeleteDepartment(ctx context.Context, arg DeleteDepartmentParams) (DeleteDepartmentRow, error)
+	// Removes a venue that nothing points at.
+	//
+	// 🔴 THE FOREIGN KEYS ARE THE GUARD, NOT THE COUNT ABOVE. Six ON DELETE RESTRICT keys
+	// reference locations and departments; between the moment the screen counted zero and
+	// the moment this runs, another manager can hire somebody into this venue. Postgres
+	// then answers 23503 and the row survives -- which is the CORRECT outcome and the
+	// reason this statement carries no NOT EXISTS clause of its own. Adding one would put
+	// a second, weaker copy of the rule in a place that cannot be atomic with the delete.
+	//
+	// RETURNING NAMES THE ROW THAT IS ABOUT TO STOP EXISTING, which is the only way the
+	// audit row can describe it: after this statement there is nothing left to read.
+	//
+	// ⚠️ created_at IS IN THE LIST BECAUSE IT WAS ONCE MISSING AND THAT LOST IT FOREVER.
+	// `locations` has no updated_at, so created_at is the only timestamp the row ever
+	// carried; a trail entry without it cannot answer "how long did this venue operate".
+	// Every column here exists so the deleted row can be described, not so it can be
+	// restored -- there is no undelete.
+	DeleteLocation(ctx context.Context, arg DeleteLocationParams) (DeleteLocationRow, error)
 	// Materialise one managed-baseline policy CONTAINER. layer is fixed to 'baseline'
 	// in the statement rather than taken as a parameter: this query exists for the
 	// Tappa-authored baseline only, and a caller that could pass 'tenant' would be
@@ -989,6 +1165,9 @@ type Querier interface {
 	// That is a DISCLOSURE choice, not the isolation decision: whether such a tap is
 	// allowed is sys:tenant-mismatch's answer at POST time (hand-off N5).
 	GetLocationWiFi(ctx context.Context, arg GetLocationWiFiParams) (GetLocationWiFiRow, error)
+	// One department, for the edit form and for the BEFORE half of the audit row --
+	// read inside the write's transaction, for the reason GetPanelLocation gives.
+	GetPanelDepartment(ctx context.Context, arg GetPanelDepartmentParams) (GetPanelDepartmentRow, error)
 	// ONE person, with the placement facts a manager needs before acting on them
 	// (M6-05 phase B): who they are, where they are in the lifecycle, and where they
 	// currently work.
@@ -1016,6 +1195,18 @@ type Querier interface {
 	// clause. A foreign id returns no row, which the caller reads as "not on this
 	// roster" -- never as another tenant's person.
 	GetPanelEmployeeForAction(ctx context.Context, arg GetPanelEmployeeForActionParams) (GetPanelEmployeeForActionRow, error)
+	// One venue, for the edit form and for the BEFORE half of the audit row.
+	//
+	// 🔴 IT IS READ INSIDE THE WRITE'S TRANSACTION so the trail describes the row the
+	// UPDATE is about to change rather than a snapshot taken a round trip earlier --
+	// the shape internal/domain/tenant/staff.go established for employees and for the
+	// same reason: audit_log is append-only, so a trail row that describes a state
+	// that never existed cannot be corrected.
+	//
+	// NO ROW is returned for an id belonging to another tenant (explicit predicate +
+	// RLS), which the caller turns into "no such venue in this business" rather than
+	// into a 500 or into an answer about whether that id exists elsewhere.
+	GetPanelLocation(ctx context.Context, arg GetPanelLocationParams) (GetPanelLocationRow, error)
 	// The name of ONE employee, by id -- the anchor a roster page continues from.
 	//
 	// 🔴 IT EXISTS SO THE PAGING CURSOR CAN CARRY AN ID INSTEAD OF A NAME, and that is a
@@ -1197,6 +1388,33 @@ type Querier interface {
 	// computes the haversine distance from the tap's GPS to each location and checks
 	// the < 150 m radius. Returns every location in the tenant so that check can run.
 	ListLocationsForTenant(ctx context.Context, tenantID uuid.UUID) ([]Location, error)
+	// ---------------------------------------------------------------------------
+	// THE DEPARTMENTS HALF OF THE LOCATIONS SECTION (M6-06 phase A).
+	//
+	// The two queries above are the DECISION read (whose shift judges lateness) and
+	// the panel's FILTER read. The four below are the management screen's: they
+	// return the shift columns the filter has no use for, and they write.
+	//
+	// 🔴 A DEPARTMENT'S SHIFT BEATS ITS VENUE'S (section 5, Q17, M4-05), so these
+	// writes decide which wall clock somebody is judged against. NULL means lateness
+	// is NOT COMPUTED, not that the shift starts at midnight -- the same distinction
+	// GetDepartmentShift's comment above makes, now on the write side where it can be
+	// destroyed. internal/domain/tenant/venue.go records before and after in
+	// audit_log inside the same transaction.
+	//
+	// TENANT SCOPE (section 4.5, belt + braces on RLS): every statement below binds
+	// tenant_id to the caller's parameter as a top-level conjunct of its own WHERE.
+	// Every department in the business with its venue and its shift.
+	//
+	// IT IS NOT ListDepartmentsForTenant, which is the panel's FILTER source and is
+	// left exactly as it is: that one returns no shift because a filter has no use for
+	// one, and widening it would make every filtered page in two other sections carry
+	// three columns nobody reads.
+	//
+	// ORDERED BY VENUE THEN NAME, the same order the filter uses, so the management
+	// screen reads the way the business is laid out -- a venue and the departments
+	// inside it -- rather than alphabetically across venues.
+	ListPanelDepartments(ctx context.Context, arg ListPanelDepartmentsParams) ([]ListPanelDepartmentsRow, error)
 	// The PANEL's ROSTER read (M6-05 phase A): one page of the people who work here,
 	// alphabetically, with the two facts the card asks for beside each name -- where
 	// they work, where they are in the employment lifecycle, and whether a phone of
@@ -1358,6 +1576,60 @@ type Querier interface {
 	// USE, and a session created seconds ago has never been used), so a freshly issued
 	// device must not sort above one that has actually been used.
 	ListPanelEmployees(ctx context.Context, arg ListPanelEmployeesParams) ([]ListPanelEmployeesRow, error)
+	// ---------------------------------------------------------------------------
+	// THE LOCATIONS SECTION (M6-06 phase A). Everything above this line is on the
+	// TAP PATH and its behaviour is unchanged by this task; everything below is the
+	// panel's own read and its two writes.
+	//
+	// 🔴 WHY THE SPLIT IS WORTH A HEADER. The four queries above answer DECISION
+	// questions -- which venue owns this address, where are they all, what is the
+	// evidence at the plaque that was touched -- and their column lists are pinned to
+	// the shape sqlc maps onto store.Location (see the file header). The three below
+	// answer an ADMINISTRATIVE question and are free to select what a form needs.
+	// Merging them would make one query serve two audiences and the stricter one
+	// would lose, which is the argument departments.sql already makes for its own
+	// split.
+	//
+	// 🔴 THESE WRITES CHANGE HOW LATER TAPS ARE JUDGED, WHICH IS WHY THEY ARE NOT
+	// ORDINARY SETTINGS. static_ips is the IP half of proof of place (section 5 row
+	// 6, 50 of 100 trust points), gps_lat/gps_lng are the backup half, and the shift
+	// columns are what lateness is measured against. Emptying static_ips on a venue
+	// does not fail anything and raises no error -- it silently moves every future
+	// tap there onto the GPS path, and a tap with neither lands on `flag` (row 7).
+	// internal/domain/tenant/venue.go records the before/after of all three in
+	// audit_log for exactly that reason: `locations` carries no updated_at, so the
+	// trail is the only place a change of judgement leaves a mark.
+	//
+	// TENANT SCOPE (section 4.5, belt + braces on RLS): every statement below binds
+	// tenant_id to the caller's parameter as a top-level conjunct of its OWN WHERE,
+	// and runs inside db.(*DB).WithTenant.
+	// The venues as the panel lists them, with the number of departments inside each.
+	//
+	// IT IS NOT ListLocationsForTenant AND MUST NOT BECOME IT. That query is on the
+	// GPS fallback path of the decision engine and its column list is pinned to
+	// store.Location; this one carries a count the engine has no use for and would
+	// pay for on every tap.
+	//
+	// 🔴 THE DEPARTMENT COUNT'S OWN tenant_id IS BOUND TO THE PARAMETER, NOT TO
+	// l.tenant_id. The correlated form (`d.tenant_id = l.tenant_id`) reads as
+	// equivalent and is not: it scopes the subquery to whatever the OUTER row
+	// happens to be rather than to the caller, which is the shape
+	// internal/domain/tenant/query_test.go lists as unscoped ("another column, not
+	// the parameter"). RLS would still block it; the belt is what makes the second
+	// defence visible.
+	//
+	// LIMIT/OFFSET, NOT A KEYSET CURSOR, and the difference from the roster is a
+	// measurement rather than a preference. A payroll is unbounded -- the employees
+	// section pages at 50 because walking one is a design promise (rosterDesignCeiling)
+	// -- whereas a venue list is bounded by the buildings a business operates in.
+	// Measured on the development database (2026-08-08): the largest SINGLE tenant has
+	// 9 locations and the largest has 5 departments; across the whole table the mean
+	// per tenant is under 2. (Absolute row counts are deliberately not quoted here:
+	// the development database grows on every suite run -- 117 553, 117 775 and
+	// 121 030 were all measured on 2026-08-08. The PER-TENANT maximum is what this
+	// bound rests on, and it does not move.) The bound below is therefore a CEILING that says
+	// so when it is reached, not a pager.
+	ListPanelLocations(ctx context.Context, arg ListPanelLocationsParams) ([]ListPanelLocationsRow, error)
 	// The PANEL's read of the day (M6-03). One page of the immutable record, newest
 	// first, filtered by the six things a manager asks about: a day, a location, a
 	// department, a person, a verdict and a channel.
@@ -1917,6 +2189,42 @@ type Querier interface {
 	// pgx.ErrNoRows instead of silently stamping a dead session as freshly used.
 	// Returns nothing but the row identity and the new stamp -- no hash, no token.
 	TouchSession(ctx context.Context, arg TouchSessionParams) (TouchSessionRow, error)
+	// Rewrites a department's name and shift.
+	//
+	// 🔴 location_id IS NOT IN THE SET LIST, AND THAT IS A DECISION WITH A REASON
+	// RATHER THAN A MISSING FEATURE. Moving a department to another venue would leave
+	// every employee already in it holding a (venue, department) pair that no longer
+	// agrees -- exactly the mismatch a security audit found MoveEmployee accepting,
+	// and which it now refuses with `d.location_id = l.id`. So after such a move those
+	// people could not be saved by the employees screen at all, and until somebody
+	// noticed they would be judged against this venue's shift while working at that
+	// one (section 5). Repairing them would need an UPDATE over employees inside this
+	// statement, which is a different task with its own audit obligations. The screen
+	// says the venue is fixed rather than offering a control that quietly does this.
+	//
+	// EVERY OTHER COLUMN IS ASSIGNED, including the shift being CLEARED -- the reason
+	// UpdateLocation gives: a partial update needs "leave this alone" to be distinct
+	// from "make this NULL", and one shape for both is how a clear becomes a no-op.
+	UpdateDepartment(ctx context.Context, arg UpdateDepartmentParams) (Department, error)
+	// Rewrites a venue's configuration.
+	//
+	// 🔴 EVERY COLUMN IS ASSIGNED, INCLUDING THE ONES BEING CLEARED, and that is the
+	// point rather than an oversight. A partial update ("only write what changed")
+	// would need a way to say "leave this alone" that is distinct from "make this
+	// NULL", and the two states this screen most needs to express are exactly
+	// "clear the coordinates" and "clear the shift". One shape for both is how a
+	// clear becomes a no-op.
+	//
+	// 🔴 IT CANNOT MOVE A VENUE BETWEEN TENANTS. tenant_id is not in the SET list at
+	// all, so there is no column here a caller could aim at another business; the
+	// WHERE binds the caller's tenant and RLS refuses the row underneath it.
+	//
+	// NO updated_at IS STAMPED because there is no such column (migration 00002 has
+	// created_at only). That is stated rather than silently worked around: it is
+	// precisely why internal/domain/tenant/venue.go writes an audit_log row inside
+	// this statement's transaction -- without it, a change to the evidence a tap is
+	// judged on would leave no trace anywhere.
+	UpdateLocation(ctx context.Context, arg UpdateLocationParams) (UpdateLocationRow, error)
 }
 
 var _ Querier = (*Queries)(nil)

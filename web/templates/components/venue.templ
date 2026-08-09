@@ -1,0 +1,578 @@
+package components
+
+// VenueRow renders one venue as the kitchen docket (M6-06 phase A).
+//
+// 🔴 IT IS A DOCKET AND NOT A TABLE ROW, the last line of skill tappa-brand's
+// "Yapma" list. A venue list is another screen where a plain grid is tempting — a
+// handful of records with five attributes each — which is exactly why the motif is
+// written out rather than dropped: it is what the product is recognised by.
+//
+//	┌─◠─◠─◠─◠─◠─◠─◠─◠─◠─┐
+//	│ KF ST JULIANS      │
+//	│ IP  192.168.1.0/24 │
+//	│ GPS 35.917270, …   │
+//	│ SHIFT 08:00–17:00  │
+//	└─◡─◡─◡─◡─◡─◡─◡─◡─◡─┘
+//
+// 🔴 THERE IS NO RUBBER STAMP ON THIS CARD, and the reason is the brand's own: a
+// stamp is a VERDICT — the engine's judgement of a tap — and a venue has not been
+// judged. The one status this card does carry is a WARNING about configuration, and
+// it is a Notice-shaped block with a sentence in it, not a mark.
+//
+// ⚠️ THE UTILITY CLASSES ARE DESCRIBED RATHER THAN NAMED in the prose above and
+// below, on purpose: the Tailwind CLI scans this file as raw text and its candidate
+// extractor is case-sensitive, so a utility name written in a COMMENT compiles a
+// live CSS rule nothing renders. Measured five times in this repository.
+templ VenueRow(v VenueRowView) {
+	<article class="docket">
+		<div class="flex items-start justify-between gap-3">
+			<div class="min-w-0">
+				<p class="docket-label">Venue</p>
+				<p class="truncate font-display text-base font-bold tracking-tight text-ink">{ v.Name }</p>
+			</div>
+			<div class="shrink-0 text-right">
+				<a class="btn btn--quiet" href={ templ.URL(v.EditHref) }>Edit</a>
+			</div>
+		</div>
+		if v.NoProofOfPlace {
+			// 🔴 THE ONE SENTENCE THIS SCREEN EXISTS TO SAY (CLAUDE.md §5, rows 6 and 7).
+			// With neither an address range nor a coordinate there is no proof of place,
+			// so every tap at this venue is still RECORDED — nothing is lost — but it is
+			// judged `flag` and waits for somebody to approve it by hand. That is a
+			// configuration state, not an error, and it is reached by doing nothing at
+			// all, so the card says it rather than leaving a manager to discover it from
+			// a growing approval queue.
+			<div class="mt-3 border-l-4 border-saffron bg-saffron-lite px-3 py-2">
+				<p class="font-display text-sm font-bold tracking-tight text-ink">No proof of place</p>
+				<p class="mt-1 text-xs text-ink/85">
+					This venue has no address range and no coordinate, so taps here cannot be
+					checked against either. They are still recorded — they go to the review
+					queue for approval instead.
+				</p>
+			</div>
+		}
+		<dl class="mt-3 grid grid-cols-2 gap-x-4 gap-y-2">
+			<div class="col-span-2">
+				<dt class="docket-label">Address ranges</dt>
+				<dd class="font-mono text-sm text-ink">
+					if len(v.Ranges) > 0 {
+						for _, r := range v.Ranges {
+							<span class="mr-3 inline-block">{ r }</span>
+						}
+					} else {
+						<span class="text-ink/70">None — taps here fall back to GPS</span>
+					}
+				</dd>
+			</div>
+			<div>
+				<dt class="docket-label">Coordinate</dt>
+				<dd class="font-mono text-sm text-ink">
+					if v.GPS != "" {
+						{ v.GPS }
+					} else {
+						<span class="text-ink/70">None</span>
+					}
+				</dd>
+			</div>
+			<div>
+				<dt class="docket-label">Shift</dt>
+				<dd class="font-mono text-sm text-ink">
+					if v.Shift != "" {
+						{ v.Shift }
+					} else {
+						// 🔴 "None" WOULD READ AS A SHIFT OF ZERO LENGTH. A NULL shift means
+						// lateness is NOT MEASURED, which is a different fact and the one a
+						// manager needs (§5, M4-05).
+						<span class="text-ink/70">Lateness not measured</span>
+					}
+				</dd>
+			</div>
+			<div class="col-span-2">
+				<dt class="docket-label">Wi-Fi shown at activation</dt>
+				<dd class="font-mono text-sm text-ink">
+					if v.WiFi != "" {
+						{ v.WiFi }
+					} else {
+						<span class="text-ink/70">None</span>
+					}
+				</dd>
+			</div>
+			if v.DepartmentCount > 0 {
+				<div class="col-span-2">
+					<dt class="docket-label">Departments ({ departmentCountText(v.DepartmentCount) })</dt>
+					<dd class="text-sm text-ink">
+						for i, d := range v.Departments {
+							if i > 0 {
+								{ " · " }
+							}
+							{ d }
+						}
+						if v.DepartmentsShown < v.DepartmentCount {
+							// 🔴 THE COUNT IS THE DATABASE'S AND THE NAMES ARE A CAPPED SLICE'S,
+							// so when they disagree the card SAYS the list is short rather than
+							// letting a manager read a venue as smaller than it is (§4.6).
+							<span class="text-ink/70">
+								{ " — only " }{ departmentCountText(v.DepartmentsShown) }{ " named here" }
+							</span>
+						}
+					</dd>
+				</div>
+			}
+		</dl>
+	</article>
+}
+
+// DepartmentRow renders one department as a docket.
+templ DepartmentRow(d DepartmentRowView) {
+	<article class="docket">
+		<div class="flex items-start justify-between gap-3">
+			<div class="min-w-0">
+				<p class="docket-label">Department</p>
+				<p class="truncate font-display text-base font-bold tracking-tight text-ink">{ d.Name }</p>
+				<p class="mt-2 docket-label">Venue</p>
+				<p class="truncate font-display text-sm font-bold tracking-tight text-ink">
+					if d.Venue != "" {
+						{ d.Venue }
+					} else {
+						// departments.location_id is NOT NULL, so this is a repair problem
+						// rather than a department with no venue. Saying so beats a blank,
+						// which a reader would take for "none".
+						Venue could not be read
+					}
+				</p>
+			</div>
+			<div class="shrink-0 text-right">
+				<a class="btn btn--quiet" href={ templ.URL(d.EditHref) }>Edit</a>
+			</div>
+		</div>
+		<dl class="mt-3">
+			<dt class="docket-label">Shift</dt>
+			<dd class="font-mono text-sm text-ink">
+				if d.Shift != "" {
+					{ d.Shift }
+				} else {
+					// 🔴 A DEPARTMENT WITH NO SHIFT IS NOT A DEPARTMENT WITH NO RULE — its
+					// people are judged against the VENUE's shift instead (§5, Q17, M4-05).
+					// "None" would hide that and read as "nobody is ever late here".
+					<span class="text-ink/70">Uses the venue's shift</span>
+				}
+			</dd>
+		</dl>
+	</article>
+}
+
+// VenueForm is the add/edit card for one venue.
+//
+// 🔴 IT IS ONE FORM FOR BOTH ACTS. A hidden id decides which; empty means add. Two
+// forms would mean two copies of eight fields, their labels and their sentences —
+// the shape where one of them quietly gains a field the other never got.
+//
+// 🔴 EVERY FIELD THAT CHANGES A VERDICT CARRIES ITS RULE BESIDE IT, and that is the
+// whole design of this card rather than decoration. Emptying the address list, or
+// clearing the coordinate, or clearing the shift, are all silent, valid changes that
+// alter how later taps are judged (CLAUDE.md §5). None of them errors, so the only
+// place a manager can learn what they are doing is here, before they press Save.
+//
+// ACCESSIBILITY: every control has a <label for>, the error message is tied to its
+// input with aria-describedby and marked aria-invalid, and each control reserves
+// 44px of height — a manager checks this at the pass, on a phone, with one thumb.
+templ VenueForm(v VenueFormView) {
+	<section class="docket" aria-label={ v.Heading }>
+		<p class="docket-label">Venue</p>
+		<h2 class="font-display text-lg font-bold tracking-tight text-ink">{ v.Heading }</h2>
+		if v.ErrorMessage != "" && v.ErrorField == "" {
+			@Notice(ToneWarn, "Nothing was saved") {
+				<p>{ v.ErrorMessage }</p>
+			}
+		}
+		<form method="post" action={ templ.URL(v.Action) } class="mt-4 flex flex-col gap-4">
+			if v.ID != "" {
+				<input type="hidden" name="id" value={ v.ID }/>
+			}
+			<div class="filter-field">
+				<label class="docket-label" for="venue-name">Name</label>
+				<input
+					class="filter-input"
+					id="venue-name"
+					type="text"
+					name="name"
+					value={ v.Name }
+					autocomplete="off"
+					spellcheck="false"
+					aria-invalid={ ariaInvalid(v.ErrorField, "name") }
+					aria-describedby="venue-name-help"
+				/>
+				@fieldNote("venue-name-help", v.ErrorField, "name", v.ErrorMessage) {
+					What your staff call this place.
+				}
+			</div>
+			<div class="filter-field">
+				<label class="docket-label" for="venue-ranges">Address ranges</label>
+				// A TEXTAREA, ONE RANGE PER LINE. This section loads no script, so a
+				// repeater with an add button is not available to it — and the trade is
+				// stated in VenueFormView.Ranges rather than felt.
+				<textarea
+					class="filter-input font-mono"
+					id="venue-ranges"
+					name="static_ips"
+					rows="3"
+					autocomplete="off"
+					spellcheck="false"
+					aria-invalid={ ariaInvalid(v.ErrorField, "static_ips") }
+					aria-describedby="venue-ranges-help"
+				>{ v.Ranges }</textarea>
+				@fieldNote("venue-ranges-help", v.ErrorField, "static_ips", v.ErrorMessage) {
+					One per line — a range like 192.168.1.0/24, or a single address like
+					192.168.1.5. This is how Tappa checks somebody is really at this venue.
+					<strong class="font-bold">
+						Leave it empty and taps here are checked against
+						GPS alone; with no coordinate either, every tap goes to the review queue.
+					</strong>
+				}
+			</div>
+			<div class="flex flex-wrap gap-4">
+				<div class="filter-field">
+					<label class="docket-label" for="venue-lat">Latitude</label>
+					<input
+						class="filter-input font-mono"
+						id="venue-lat"
+						type="text"
+						inputmode="decimal"
+						name="gps_lat"
+						value={ v.GPSLat }
+						autocomplete="off"
+						aria-invalid={ ariaInvalid(v.ErrorField, "gps") }
+						aria-describedby="venue-gps-help"
+					/>
+				</div>
+				<div class="filter-field">
+					<label class="docket-label" for="venue-lng">Longitude</label>
+					<input
+						class="filter-input font-mono"
+						id="venue-lng"
+						type="text"
+						inputmode="decimal"
+						name="gps_lng"
+						value={ v.GPSLng }
+						autocomplete="off"
+						aria-invalid={ ariaInvalid(v.ErrorField, "gps") }
+						aria-describedby="venue-gps-help"
+					/>
+				</div>
+			</div>
+			@fieldNote("venue-gps-help", v.ErrorField, "gps", v.ErrorMessage) {
+				The backup check, used when the address does not match. Fill both or
+				leave both empty — empty means this venue has no registered position,
+				which is not the same as a position of zero.
+			}
+			<div class="flex flex-wrap gap-4">
+				<div class="filter-field">
+					<label class="docket-label" for="venue-shift-start">Shift start</label>
+					<input
+						class="filter-input font-mono"
+						id="venue-shift-start"
+						type="time"
+						name="shift_start"
+						value={ v.ShiftStart }
+						aria-invalid={ ariaInvalid(v.ErrorField, "shift") }
+						aria-describedby="venue-shift-help"
+					/>
+				</div>
+				<div class="filter-field">
+					<label class="docket-label" for="venue-shift-end">Shift end</label>
+					<input
+						class="filter-input font-mono"
+						id="venue-shift-end"
+						type="time"
+						name="shift_end"
+						value={ v.ShiftEnd }
+						aria-invalid={ ariaInvalid(v.ErrorField, "shift") }
+						aria-describedby="venue-shift-help"
+					/>
+				</div>
+				<div class="filter-field">
+					<label class="docket-label" for="venue-overnight">Ends next day</label>
+					<input
+						class="mt-2 h-6 w-6"
+						id="venue-overnight"
+						type="checkbox"
+						name="overnight"
+						value="1"
+						checked?={ v.Overnight }
+					/>
+				</div>
+			</div>
+			@fieldNote("venue-shift-help", v.ErrorField, "shift", v.ErrorMessage) {
+				Used to work out who arrived late. Fill both or leave both empty —
+				<strong class="font-bold">empty means lateness is not measured here</strong>,
+				which is not the same as a shift starting at midnight. Tick "ends next day"
+				for a shift that runs past midnight, like 18:00 to 02:00.
+			}
+			<div class="filter-field">
+				<label class="docket-label" for="venue-wifi">Wi-Fi network name</label>
+				<input
+					class="filter-input font-mono"
+					id="venue-wifi"
+					type="text"
+					name="wifi_ssid"
+					value={ v.WiFiSSID }
+					autocomplete="off"
+					spellcheck="false"
+					aria-invalid={ ariaInvalid(v.ErrorField, "wifi_ssid") }
+					aria-describedby="venue-wifi-help"
+				/>
+				@fieldNote("venue-wifi-help", v.ErrorField, "wifi_ssid", v.ErrorMessage) {
+					Shown to staff when they first set up their phone, so they know which
+					network to join. It is not used to check anything — leave it empty if
+					there is nothing to show.
+				}
+			</div>
+			<div class="filter-actions">
+				<button type="submit" class="btn btn--primary">{ v.Submit }</button>
+				<a class="btn btn--quiet" href={ templ.URL(v.CloseHref) }>Cancel</a>
+			</div>
+		</form>
+		if v.Removal != nil {
+			// OUTSIDE the save form: a nested form is invalid HTML and the browser
+			// would drop one of them.
+			@Removal(*v.Removal)
+		}
+	</section>
+}
+
+// DepartmentForm is the add/edit card for one department.
+templ DepartmentForm(v DepartmentFormView) {
+	<section class="docket" aria-label={ v.Heading }>
+		<p class="docket-label">Department</p>
+		<h2 class="font-display text-lg font-bold tracking-tight text-ink">{ v.Heading }</h2>
+		if v.ErrorMessage != "" && v.ErrorField == "" {
+			@Notice(ToneWarn, "Nothing was saved") {
+				<p>{ v.ErrorMessage }</p>
+			}
+		}
+		<form method="post" action={ templ.URL(v.Action) } class="mt-4 flex flex-col gap-4">
+			if v.ID != "" {
+				<input type="hidden" name="id" value={ v.ID }/>
+			}
+			if v.VenueFixed {
+				// 🔴 NO CONTROL, AND A SENTENCE INSTEAD OF A DISABLED ONE. The server has
+				// no statement that moves a department between venues, on purpose
+				// (db/queries/departments.sql), so a control here would offer something
+				// that cannot happen.
+				<div>
+					<p class="docket-label">Venue</p>
+					<p class="font-display text-sm font-bold tracking-tight text-ink">
+						if v.VenueName != "" {
+							{ v.VenueName }
+						} else {
+							Venue could not be read
+						}
+					</p>
+					<p class="mt-1 text-xs text-ink/85">
+						A department cannot be moved to another venue. The people already in it
+						would end up working at one place and counted against another's hours.
+						Add a department at the other venue instead.
+					</p>
+				</div>
+			} else {
+				<div class="filter-field">
+					<label class="docket-label" for="dept-venue">Venue</label>
+					<select
+						class="filter-input"
+						id="dept-venue"
+						name="location_id"
+						aria-invalid={ ariaInvalid(v.ErrorField, "location_id") }
+						aria-describedby="dept-venue-help"
+					>
+						for _, o := range v.Venues {
+							<option value={ o.Value } selected?={ o.Value == v.VenueID }>{ o.Label }</option>
+						}
+					</select>
+					@fieldNote("dept-venue-help", v.ErrorField, "location_id", v.ErrorMessage) {
+						Which place this department is part of. It cannot be changed afterwards.
+					}
+				</div>
+			}
+			<div class="filter-field">
+				<label class="docket-label" for="dept-name">Name</label>
+				<input
+					class="filter-input"
+					id="dept-name"
+					type="text"
+					name="name"
+					value={ v.Name }
+					autocomplete="off"
+					spellcheck="false"
+					aria-invalid={ ariaInvalid(v.ErrorField, "name") }
+					aria-describedby="dept-name-help"
+				/>
+				@fieldNote("dept-name-help", v.ErrorField, "name", v.ErrorMessage) {
+					What your staff call this part of the venue — Kitchen, Bar, Packing.
+				}
+			</div>
+			<div class="flex flex-wrap gap-4">
+				<div class="filter-field">
+					<label class="docket-label" for="dept-shift-start">Shift start</label>
+					<input
+						class="filter-input font-mono"
+						id="dept-shift-start"
+						type="time"
+						name="shift_start"
+						value={ v.ShiftStart }
+						aria-invalid={ ariaInvalid(v.ErrorField, "shift") }
+						aria-describedby="dept-shift-help"
+					/>
+				</div>
+				<div class="filter-field">
+					<label class="docket-label" for="dept-shift-end">Shift end</label>
+					<input
+						class="filter-input font-mono"
+						id="dept-shift-end"
+						type="time"
+						name="shift_end"
+						value={ v.ShiftEnd }
+						aria-invalid={ ariaInvalid(v.ErrorField, "shift") }
+						aria-describedby="dept-shift-help"
+					/>
+				</div>
+				<div class="filter-field">
+					<label class="docket-label" for="dept-overnight">Ends next day</label>
+					<input
+						class="mt-2 h-6 w-6"
+						id="dept-overnight"
+						type="checkbox"
+						name="overnight"
+						value="1"
+						checked?={ v.Overnight }
+					/>
+				</div>
+			</div>
+			@fieldNote("dept-shift-help", v.ErrorField, "shift", v.ErrorMessage) {
+				A department's own hours beat the venue's when working out who was late.
+				Fill both or leave both empty —
+				<strong class="font-bold">
+					empty means this department follows the venue's
+					shift
+				</strong>, not that nobody is ever late.
+			}
+			<div class="filter-actions">
+				<button type="submit" class="btn btn--primary">{ v.Submit }</button>
+				<a class="btn btn--quiet" href={ templ.URL(v.CloseHref) }>Cancel</a>
+			</div>
+		</form>
+		if v.Removal != nil {
+			@Removal(*v.Removal)
+		}
+	</section>
+}
+
+// fieldNote is the help text under a control, or the REFUSAL when this is the field
+// that failed.
+//
+// 🔴 ONE ELEMENT FOR BOTH, WITH ONE id, WHICH IS WHAT MAKES aria-describedby POINT
+// AT THE RIGHT THING IN BOTH STATES. Two elements would mean the described-by id
+// resolves to the help text while the error sits somewhere a screen reader reaches
+// separately, if at all.
+templ fieldNote(id, errorField, field, message string) {
+	<p id={ id } class={ fieldNoteClass(errorField, field) }>
+		if errorField == field && message != "" {
+			{ message }
+		} else {
+			{ children... }
+		}
+	</p>
+}
+
+// fieldNoteClass tints the note when it is carrying a refusal. The class names
+// appear literally so the standalone Tailwind CLI can see them.
+func fieldNoteClass(errorField, field string) string {
+	if errorField == field && field != "" {
+		return "mt-1 text-xs font-bold text-tomato"
+	}
+	return "mt-1 text-xs text-ink/85"
+}
+
+// ariaInvalid marks the control that failed. It answers the attribute's own
+// vocabulary ("true"/"false") rather than a Go bool, because that is what the
+// attribute takes.
+func ariaInvalid(errorField, field string) string {
+	if errorField == field && field != "" {
+		return "true"
+	}
+	return "false"
+}
+
+// Removal renders the delete control on an edit card, or the sentence that replaces
+// it (user decision, 2026-08-08).
+//
+// 🔴 THREE STATES AND NO FOURTH. Blocked -> no button, a counted reason and the rule.
+// Armed -> a link that asks the server for a warning. Confirming -> the warning and
+// the real POST. There is never a button that leads to a refusal, which is the
+// property this whole card exists to hold.
+templ Removal(v RemovalView) {
+	<div class="mt-6 border-t border-ink/15 pt-4">
+		<p class="docket-label">Remove this { v.Kind }</p>
+		if v.Reserved {
+			// 🔴 NO CONTROL AND NO PATH TO ONE. Removal is owner-only (user decision,
+			// 2026-08-09) because it is the product's first irreversible act and there
+			// is no archive to restore from. The server refuses it independently — this
+			// is what stops a manager pressing something that could only fail.
+			<p class="mt-1 text-xs text-ink/85">
+				Removing a { v.Kind } cannot be undone, so it is reserved for an owner.
+				Ask one of your business's owners if this { v.Kind } should go.
+			</p>
+		} else if v.Blocked {
+			// 🔴 A RULE, NOT A FAULT. Nothing is wrong with a venue that has staff and
+			// taps; §4.3 is why it must stay — the transaction rows point at it, and a
+			// record whose venue can be deleted is a record whose evidence can be
+			// edited away.
+			<p class="mt-1 text-xs text-ink/85">
+				This { v.Kind } cannot be removed while anything still belongs to it:
+				for i, reason := range v.Reasons {
+					if i > 0 {
+						{ " · " }
+					}
+					<strong class="font-bold">{ reason }</strong>
+				}
+				— its records point back at it, so removing it would leave hours nobody
+				could account for. Move or deactivate them first.
+			</p>
+		} else if v.Confirming {
+			<div class="mt-2 border-l-4 border-tomato bg-paper px-3 py-2">
+				<p class="font-display text-sm font-bold tracking-tight text-ink">
+					Remove { v.Name }?
+				</p>
+				<p class="mt-1 text-xs text-ink/85">
+					This cannot be undone — there is no archive to restore it from. Nothing
+					belongs to this { v.Kind } right now, so no hours are affected. A record
+					of the removal is kept.
+				</p>
+				<form method="post" action={ templ.URL(v.Action) } class="filter-actions mt-3">
+					<input type="hidden" name="id" value={ v.ID }/>
+					<input type="hidden" name={ v.ConfirmField } value={ v.ConfirmToken }/>
+					<button type="submit" class="btn btn--quiet">Yes, remove it</button>
+					<a class="btn btn--quiet" href={ templ.URL(v.CancelHref) }>Keep it</a>
+				</form>
+			</div>
+		} else {
+			<p class="mt-1 text-xs text-ink/85">
+				// 🔴 THE SENTENCE LISTS WHAT THIS CARD'S QUERY ACTUALLY COUNTED, and the
+				// list comes from the view rather than from the prose because the two
+				// cards count DIFFERENT things: a venue's query looks at four kinds, a
+				// department's at two. A single hard-coded sentence made the department
+				// card name sub-departments and plaques — neither of which can belong to
+				// a department at all — which is a claim about a search that never ran.
+				//
+				// AND IT IS STILL NOT A UNIVERSAL ABSENCE. policy_attachments.resource can
+				// hold "location/&lt;uuid&gt;" as free text with no foreign key (migration
+				// 00007); no production path writes one today, and M6-09's scope binding
+				// will. Naming what was checked is what keeps the sentence true either way.
+				No { countedList(v.Counted) } belong to this { v.Kind }, so it can be
+				removed. This cannot be undone.
+			</p>
+			<a class="btn btn--quiet mt-2 inline-block" href={ templ.URL(v.ConfirmHref) }>
+				Remove this { v.Kind }…
+			</a>
+		}
+	</div>
+}

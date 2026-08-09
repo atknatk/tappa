@@ -16,9 +16,16 @@ import (
 	"github.com/atknatk/tappa/internal/config"
 )
 
-// The DEACTIVATION CONFIRMATION — a value only this server can mint, bound to one
-// employee and one panel session (user decision, 2026-08-08: "enforce it on the
+// The PANEL CONFIRMATION — a value only this server can mint, bound to one ACTION, one
+// SUBJECT and one panel session (user decision, 2026-08-08: "enforce it on the
 // server").
+//
+// ⚠️ IT IS NO LONGER ONLY ABOUT DEACTIVATION, AND THE FILE NAME IS NOW THE OLDEST
+// THING IN IT. M6-06 phase A gates two removals with the same primitive rather than
+// inventing a second one, so the SUBJECT may be an employee, a location or a
+// department, and version 2 of the payload names the ACT as well. The file keeps its
+// name because renaming it would move every line of this argument out of `git log
+// --follow` for the sake of tidiness.
 //
 // 🔴 WHY THIS FILE EXISTS: THE FIRST ATTEMPT WAS A PURE DOUBLE-SUBMIT COOKIE AND AN
 // AUDIT FORGED IT IN TWO LINES.
@@ -50,6 +57,7 @@ import (
 //	 9. a version check whose failure is "malformed", never repaired          ✅
 //	10. TTL against the SERVER clock, injectable for tests                    ✅
 //	11. a FUTURE-SKEW bound, so a backwards clock step cannot widen the TTL   ✅
+//	12. an ACTION binding, so a value minted for one gate cannot open another ✅
 //
 // ⚠️ PART 11 WAS MISSING FROM BOTH THE LIST AND THE CODE, WHICH IS THIS FILE'S OWN
 // HEADLINE MISTAKE IN MINIATURE. The list above exists to say "the parts were
@@ -73,6 +81,23 @@ import (
 // many times as its holder likes until it expires: an audit re-printed the cookie
 // before each POST and got three deactivations from one mint. Nothing here notices,
 // because there is nothing here to notice with.
+//
+// ⚠️ THIS LIMIT IS STILL OPEN AND IS COUNTED RATHER THAN CLOSED. Closing it needs
+// server-side state — a spent-value table or a nonce — with its own retention and its
+// own failure modes, which is a different task. A counted hole is safer than one
+// claimed shut, and what makes this one survivable is stated where each gate consumes
+// it: DeactivateEmployee carries `status <> 'deactivated'`, and a removal is
+// idempotent because the second DELETE matches no row.
+//
+// 🔴 PART 12 WAS ADDED AFTER AN AUDIT SPENT ONE GATE'S VALUE AT ANOTHER'S. Until
+// version 2 the payload named a SUBJECT and a SESSION but not the ACT, so a
+// confirmation minted to remove a venue verified cleanly at
+// /admin/employees/deactivate — the request then failed in the DOMAIN, because a
+// location id is not an employee id. That is a gate held by two accidents (the uuid
+// spaces not overlapping, and the domain checking), neither of which the token knew
+// about. The list above exists precisely so this kind of missing part is COUNTED, and
+// it took an outside eye to count to twelve — the same way it took one to count to
+// eleven. That is the argument for the list, not against it.
 //
 // IT IS COUNTED RATHER THAN CLOSED, and the reason is a measurement rather than
 // effort: single use needs a row somewhere (infrastructure), and the gain is ZERO —
@@ -103,7 +128,19 @@ import (
 const (
 	adminConfirmKeyLabel = "tappa/admin-deactivate-confirm/key/v1"
 	adminConfirmMACLabel = "tappa/admin-deactivate-confirm/mac/v1"
-	adminConfirmVersion  = "1"
+	// VERSION 2 ADDS THE ACTION BINDING. A version-1 value carries four fields and
+	// no action; parse refuses it as malformed rather than repairing it, which costs
+	// at most one re-press inside a ten-minute window at deploy time.
+	adminConfirmVersion = "2"
+)
+
+// The actions a confirmation can authorise. They are CONSTANTS rather than free text
+// so a typo at a call site is a compile error rather than a value that verifies
+// against nothing.
+const (
+	confirmActionDeactivate       = "employee.deactivate"
+	confirmActionDeleteVenue      = "location.delete"
+	confirmActionDeleteDepartment = "department.delete"
 )
 
 // adminConfirmTTL is how long a rendered warning stays spendable.
@@ -159,11 +196,12 @@ func (c adminConfirm) clock() time.Time {
 // The separators are '|' and the fields are a single digit, a decimal timestamp and
 // two UUIDs — none of which can contain one, so splitting back is unambiguous with no
 // escaping. Same reasoning as adminChoices.payload, and the same shape.
-func (c adminConfirm) payload(issuedAt time.Time, employeeID, sessionID uuid.UUID) string {
+func (c adminConfirm) payload(issuedAt time.Time, action string, subjectID, sessionID uuid.UUID) string {
 	return strings.Join([]string{
 		adminConfirmVersion,
 		strconv.FormatInt(issuedAt.Unix(), 10),
-		employeeID.String(),
+		action,
+		subjectID.String(),
 		sessionID.String(),
 	}, "|")
 }
@@ -191,14 +229,19 @@ func (c adminConfirm) sign(payload string) []byte {
 // session would authorise a deactivation of anybody by anybody. Both are errors
 // rather than defaults, which is adminChoices' rule: where a type has no safe zero
 // value, the zero value must fail loudly.
-func (c adminConfirm) mint(employeeID, sessionID uuid.UUID) (string, error) {
+func (c adminConfirm) mint(action string, subjectID, sessionID uuid.UUID) (string, error) {
 	if len(c.key) == 0 {
 		return "", errors.New("handler: the deactivation confirmation was not configured")
 	}
-	if employeeID == uuid.Nil || sessionID == uuid.Nil {
+	if subjectID == uuid.Nil || sessionID == uuid.Nil {
 		return "", errors.New("handler: refusing to sign a confirmation with no binding")
 	}
-	p := c.payload(c.clock().Truncate(time.Second), employeeID, sessionID)
+	// AN EMPTY ACTION IS AS BAD AS AN EMPTY SUBJECT: it would sign a value every gate
+	// accepts, which is the hole the binding exists to close.
+	if action == "" {
+		return "", errors.New("handler: refusing to sign a confirmation with no action")
+	}
+	p := c.payload(c.clock().Truncate(time.Second), action, subjectID, sessionID)
 	return base64.RawURLEncoding.EncodeToString([]byte(p)) + "." +
 		base64.RawURLEncoding.EncodeToString(c.sign(p)), nil
 }
@@ -206,10 +249,10 @@ func (c adminConfirm) mint(employeeID, sessionID uuid.UUID) (string, error) {
 // The two refusals a caller can act on. They are separate because they are separate
 // mistakes and each gets its own sentence on screen (§4.6).
 var (
-	// errConfirmInvalid: absent, malformed, forged, expired, or minted for another
-	// session. Collapsed on purpose — every one of them means "this browser has not
-	// been shown the warning", and telling them apart would describe the server's
-	// internals to whoever is probing it.
+	// errConfirmInvalid: absent, malformed, forged, expired, minted for another
+	// session, or minted for another ACTION. Collapsed on purpose — every one of them
+	// means "this browser has not been shown THIS warning", and telling them apart
+	// would describe the server's internals to whoever is probing it.
 	errConfirmInvalid = errors.New("handler: the deactivation was not confirmed")
 	// errConfirmOtherPerson: the value is genuine, unexpired and this session's, but
 	// it was minted for a DIFFERENT employee — the second-tab case, which deserves its
@@ -217,17 +260,20 @@ var (
 	errConfirmOtherPerson = errors.New("handler: that confirmation belongs to another employee")
 )
 
-// parse verifies the value and returns the employee it authorises.
+// parse verifies the value against the ACTION, SUBJECT and SESSION it must be bound
+// to. It returns only an error: the caller already knows which act and which row it is
+// asking about, and a function that RETURNED the subject would invite a caller to
+// trust the token's copy of it instead of its own.
 //
 // ORDER: shape, then SIGNATURE, then expiry, then field decoding, then the bindings.
 // The signature comes before anything that interprets the payload, so no field of an
 // unauthenticated value is ever acted on. This is logincontext.go's order and
 // tapcontext.go's, kept deliberately identical so the three read as one pattern.
-func (c adminConfirm) parse(v string, employeeID, sessionID uuid.UUID) error {
+func (c adminConfirm) parse(v, action string, subjectID, sessionID uuid.UUID) error {
 	if len(c.key) == 0 {
 		return errors.New("handler: the deactivation confirmation was not configured")
 	}
-	if employeeID == uuid.Nil || sessionID == uuid.Nil {
+	if subjectID == uuid.Nil || sessionID == uuid.Nil || action == "" {
 		return errConfirmInvalid
 	}
 	encoded, sig, ok := strings.Cut(v, ".")
@@ -249,7 +295,7 @@ func (c adminConfirm) parse(v string, employeeID, sessionID uuid.UUID) error {
 	}
 
 	parts := strings.Split(string(raw), "|")
-	if len(parts) != 4 || parts[0] != adminConfirmVersion {
+	if len(parts) != 5 || parts[0] != adminConfirmVersion {
 		// Authenticated but unreadable: minted by this deployment under a different
 		// layout. Treated as invalid, never repaired.
 		return errConfirmInvalid
@@ -263,11 +309,12 @@ func (c adminConfirm) parse(v string, employeeID, sessionID uuid.UUID) error {
 	if now.Sub(issuedAt) > c.ttl || issuedAt.Sub(now) > adminConfirmFutureSkew {
 		return errConfirmInvalid
 	}
-	forEmployee, err := uuid.Parse(parts[2])
+	forAction := parts[2]
+	forEmployee, err := uuid.Parse(parts[3])
 	if err != nil {
 		return errConfirmInvalid
 	}
-	forSession, err := uuid.Parse(parts[3])
+	forSession, err := uuid.Parse(parts[4])
 	if err != nil {
 		return errConfirmInvalid
 	}
@@ -278,8 +325,29 @@ func (c adminConfirm) parse(v string, employeeID, sessionID uuid.UUID) error {
 	if forSession != sessionID {
 		return errConfirmInvalid
 	}
-	if forEmployee != employeeID {
+	// 🔴 THE ACTION BINDING, AND IT IS CHECKED BEFORE THE SUBJECT FOR THE SAME REASON
+	// THE SESSION IS. A value minted to remove a venue must not open the deactivation
+	// gate; reporting that as "that was for another person" would tell a prober which
+	// binding they missed. It is `errConfirmInvalid` — the collapsed refusal.
+	//
+	// ⚠️ WHY IT MATTERS TODAY EVEN THOUGH NOTHING COULD EXPLOIT IT. Before this,
+	// audit measured a venue-removal confirmation passing the /admin/employees/
+	// deactivate gate cleanly; the request then failed in the DOMAIN, because a
+	// location id is not an employee id. That is two accidents deep — the uuid spaces
+	// merely do not overlap — and the token itself knew nothing about it. A binding
+	// that holds by luck is one a schema change can remove.
+	if !hmacEqualString(forAction, action) {
+		return errConfirmInvalid
+	}
+	if forEmployee != subjectID {
 		return errConfirmOtherPerson
 	}
 	return nil
+}
+
+// hmacEqualString compares two action names without leaking which prefix matched.
+// They are server-chosen constants, so this is belt rather than braces — but a
+// comparison on an authenticated field is the habit redline R7 asks for.
+func hmacEqualString(a, b string) bool {
+	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
 }

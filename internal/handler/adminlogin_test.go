@@ -406,6 +406,221 @@ func (f *fakeStaff) commands() ([]tenant.DeactivateCommand, []tenant.MoveCommand
 	return d, m
 }
 
+// fakeVenues stands in for internal/domain/tenant.Venues (M6-06 phase A).
+//
+// 🔴 WHAT A FAKE HERE CAN AND CANNOT PROVE, stated because the same sentence had to
+// be written for fakeStaff. It can prove that the SECTION renders what it is given,
+// that a refusal reaches the manager as a sentence, that the tenant and the actor
+// come from the session rather than from the body, and that a rejected form keeps
+// the manager's typing. It cannot prove anything about §4.5, about NULL shifts
+// actually reaching the column as NULL, or about the audit row sharing a
+// transaction — a fake accepts whatever it is told, so those live in
+// internal/domain/tenant/venue_db_test.go (the domain's writes and reads against real
+// Postgres) and internal/db/venuewrites_test.go (the RLS layer underneath them, with
+// no tenant predicate of its own).
+type fakeVenues struct {
+	mu        sync.Mutex
+	screen    tenant.VenueScreen
+	screenErr error
+	saveErr   error
+	deptErr   error
+	venues    []tenant.VenueCommand
+	depts     []tenant.DepartmentCommand
+
+	// beyondVenues / beyondDepts are rows that EXIST in the business but are not in
+	// the (capped) screen lists. byIDErr makes the fallback read fail; byIDCalls
+	// counts it, so a test can assert the fast path did NOT pay for a round trip.
+	beyondVenues map[uuid.UUID]tenant.Venue
+	beyondDepts  map[uuid.UUID]tenant.Department
+	byIDErr      error
+	byIDCalls    int
+
+	// refs is what still points at each row; deleted records the removals the
+	// section asked for; deleteErr is what the domain answers, so the FK race is
+	// drivable without a database.
+	refs    map[uuid.UUID]tenant.References
+	refsErr error
+	// refCalls counts the reference lookups, because "a manager pays nothing" is a
+	// claim about a NUMBER OF QUERIES and a flag could not see it.
+	refCalls  int
+	deleteErr error
+	deleted   []tenant.DeleteCommand
+
+	// receipts is the trail C' reads, keyed "action|target"; confirmCalls counts the
+	// lookups so the fast path can be measured in QUERIES rather than in flags.
+	receipts     map[string]tenant.RemovalReceipt
+	confirmErr   error
+	confirmCalls int
+	confirmSeen  [][4]string
+}
+
+func (f *fakeVenues) Screen(_ context.Context, _ uuid.UUID) (tenant.VenueScreen, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.screenErr != nil {
+		return tenant.VenueScreen{}, f.screenErr
+	}
+	return f.screen, nil
+}
+
+// Venue and Department are the BY-ID fallback behind the capped screen lists. The
+// fake answers them from a map the test fills, which is what lets a test express
+// "this row exists in the business but is NOT in the (capped) list" -- the state the
+// section used to describe as "not one of this business's".
+// VenueReferences / DepartmentReferences and the two removals (M6-06 phase A, user
+// decision 2026-08-08). refs is what the fake reports; deleteErr is what the domain
+// would answer, so a test can drive the FK race without a database.
+// ConfirmRemoval answers the trail lookup C' depends on. receipts is keyed by
+// action+target so a test can express "this admin removed THAT row" precisely;
+// confirmCalls counts the query, because "the fast path pays nothing" is a claim about
+// a NUMBER OF QUERIES and a boolean flag would not measure it.
+func (f *fakeVenues) ConfirmRemoval(_ context.Context, tenantID, actorID uuid.UUID, action, target string) (tenant.RemovalReceipt, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.confirmCalls++
+	f.confirmSeen = append(f.confirmSeen, [4]string{
+		tenantID.String(), actorID.String(), action, target,
+	})
+	if f.confirmErr != nil {
+		return tenant.RemovalReceipt{}, f.confirmErr
+	}
+	r, ok := f.receipts[action+"|"+target]
+	if !ok {
+		return tenant.RemovalReceipt{}, nil
+	}
+	return r, nil
+}
+
+// confirmations returns the query count and what each call was scoped to.
+func (f *fakeVenues) confirmations() (int, [][4]string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([][4]string, len(f.confirmSeen))
+	copy(out, f.confirmSeen)
+	return f.confirmCalls, out
+}
+
+func (f *fakeVenues) VenueReferences(_ context.Context, _ uuid.UUID, id uuid.UUID) (tenant.References, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.refCalls++
+	if f.refsErr != nil {
+		return tenant.References{}, f.refsErr
+	}
+	return f.refs[id], nil
+}
+
+func (f *fakeVenues) DepartmentReferences(_ context.Context, _ uuid.UUID, id uuid.UUID) (tenant.References, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.refCalls++
+	if f.refsErr != nil {
+		return tenant.References{}, f.refsErr
+	}
+	return f.refs[id], nil
+}
+
+func (f *fakeVenues) DeleteVenue(_ context.Context, c tenant.DeleteCommand) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.deleted = append(f.deleted, c)
+	return f.deleteErr
+}
+
+func (f *fakeVenues) DeleteDepartment(_ context.Context, c tenant.DeleteCommand) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.deleted = append(f.deleted, c)
+	return f.deleteErr
+}
+
+// removals returns copies of the delete commands the section built.
+func (f *fakeVenues) removals() []tenant.DeleteCommand {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]tenant.DeleteCommand, len(f.deleted))
+	copy(out, f.deleted)
+	return out
+}
+
+func (f *fakeVenues) Venue(_ context.Context, _ uuid.UUID, id uuid.UUID) (tenant.Venue, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.byIDCalls++
+	if f.byIDErr != nil {
+		return tenant.Venue{}, f.byIDErr
+	}
+	if v, ok := f.beyondVenues[id]; ok {
+		return v, nil
+	}
+	return tenant.Venue{}, tenant.ErrUnknownVenue
+}
+
+func (f *fakeVenues) Department(_ context.Context, _ uuid.UUID, id uuid.UUID) (tenant.Department, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.byIDCalls++
+	if f.byIDErr != nil {
+		return tenant.Department{}, f.byIDErr
+	}
+	if d, ok := f.beyondDepts[id]; ok {
+		return d, nil
+	}
+	return tenant.Department{}, tenant.ErrUnknownDepartment
+}
+
+func (f *fakeVenues) SaveVenue(_ context.Context, c tenant.VenueCommand) (tenant.Venue, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.venues = append(f.venues, c)
+	if f.saveErr != nil {
+		return tenant.Venue{}, f.saveErr
+	}
+	id := c.VenueID
+	if id == uuid.Nil {
+		id = uuid.New()
+	}
+	return tenant.Venue{
+		ID: id, Name: c.Name, StaticIPs: c.StaticIPs,
+		GPS: c.GPS, Shift: c.Shift, WiFiSSID: c.WiFiSSID,
+	}, nil
+}
+
+func (f *fakeVenues) SaveDepartment(_ context.Context, c tenant.DepartmentCommand) (tenant.Department, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.depts = append(f.depts, c)
+	if f.deptErr != nil {
+		return tenant.Department{}, f.deptErr
+	}
+	id := c.DepartmentID
+	if id == uuid.Nil {
+		id = uuid.New()
+	}
+	return tenant.Department{
+		ID: id, LocationID: c.LocationID, Name: c.Name, Shift: c.Shift,
+	}, nil
+}
+
+// referenceCalls is how many reference lookups the section made.
+func (f *fakeVenues) referenceCalls() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.refCalls
+}
+
+// saved returns copies of what the section asked for, so an assertion reads the
+// COMMAND the handler built rather than the form it was given.
+func (f *fakeVenues) saved() ([]tenant.VenueCommand, []tenant.DepartmentCommand) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	v := make([]tenant.VenueCommand, len(f.venues))
+	copy(v, f.venues)
+	d := make([]tenant.DepartmentCommand, len(f.depts))
+	copy(d, f.depts)
+	return v, d
+}
+
 // fakeInviter mints nothing but DRIVES THE REAL CHANNEL, which is the point.
 //
 // 🔴 IT CALLS ch.DeliverInvite RATHER THAN RETURNING A LINK, because that is the
@@ -544,7 +759,7 @@ func newAdminRouterWithReviewer(t *testing.T, admins *fakeAdmins, trail *fakeTra
 // own limiter measures its own limiter.
 func newAdminRouterWithActions(t *testing.T, admins *fakeAdmins, trail *fakeTrail, records *fakeLedger, reviewer panelReviewer, staff panelStaff, invites panelInviter) http.Handler {
 	t.Helper()
-	h, err := NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, adminTestConfig(), slog.New(slog.DiscardHandler))
+	h, err := NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, &fakeVenues{}, adminTestConfig(), slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}
@@ -1479,7 +1694,7 @@ func TestAdminScreens_NeverRenderACredential(t *testing.T) {
 // signed out. This is a structural tripwire for the next person adding a route.
 func TestAdminRoutes_AreAllUnderTheCookiePath(t *testing.T) {
 	nilCfgLedger := newFakeLedger()
-	h, err := NewAdminAuth(&fakeAdmins{}, &fakeTrail{}, nilCfgLedger, nilCfgLedger, &fakeReviewer{}, &fakeStaff{}, &fakeInviter{}, adminTestConfig(), slog.New(slog.DiscardHandler))
+	h, err := NewAdminAuth(&fakeAdmins{}, &fakeTrail{}, nilCfgLedger, nilCfgLedger, &fakeReviewer{}, &fakeStaff{}, &fakeInviter{}, &fakeVenues{}, adminTestConfig(), slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}
@@ -2059,7 +2274,7 @@ func TestProtect_CarriesTheBudget(t *testing.T) {
 		return adminauth.Resolved{}, adminauth.ErrNoSession
 	}}
 	fake := newFakeLedger()
-	h, err := NewAdminAuth(admins, &fakeTrail{}, fake, fake, &fakeReviewer{}, &fakeStaff{}, &fakeInviter{}, adminTestConfig(), discardLogger())
+	h, err := NewAdminAuth(admins, &fakeTrail{}, fake, fake, &fakeReviewer{}, &fakeStaff{}, &fakeInviter{}, &fakeVenues{}, adminTestConfig(), discardLogger())
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}

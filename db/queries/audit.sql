@@ -52,3 +52,59 @@
 INSERT INTO audit_log (tenant_id, actor_id, action, target, detail)
 VALUES (@tenant_id, @actor_id, @action, @target, @detail)
 RETURNING id, at;
+
+-- name: ConfirmRecentRemoval :one
+-- Did THIS admin, in THIS business, remove THIS row, JUST NOW?
+--
+-- 🔴 IT EXISTS SO THE PANEL CAN ACKNOWLEDGE A DELETION WITHOUT LYING (user decision,
+-- 2026-08-09, reading C'). Every other panel banner survives a replayed URL because
+-- the row it describes is rendered underneath it; a DELETED row cannot be, so a
+-- `?done=venue-deleted` word was measured printing "The venue has been removed" in a
+-- browser that had never posted anything. M6-05's rule for an action claim is that the
+-- handler VERIFIES it against a row the same request read -- and after a delete the
+-- only surviving row is the audit entry. This is that row.
+--
+-- 🔴 IT IS NOT AN AUTHORISATION AND MUST NEVER BECOME ONE. Nothing is permitted on the
+-- strength of this answer; it decides whether a SENTENCE is printed. That is why a
+-- failure to read it renders the list without a banner rather than a problem page.
+--
+-- 🔴 AND IT MUST NOT BECOME AN ORACLE. Both the tenant AND the actor are bound, so a
+-- manager cannot learn that some OTHER admin removed something, and no business can
+-- learn anything about another. Four inputs collapse to the same empty answer:
+-- another tenant's genuinely removed id, a colleague's removal inside this tenant, a
+-- uuid that never existed, and a well-formed uuid for a row never deleted.
+--
+-- 🔴 @actor_id AND @target ARE CAST EXPLICITLY, AND BOTH CASTS ARE LOAD-BEARING.
+-- audit_log.actor_id is NULLABLE by schema decision (00005: the column is polymorphic
+-- and holds NULL for SYSTEM events) and target is nullable too. Without the casts sqlc
+-- infers both PARAMETERS as nullable and emits *uuid.UUID / *string -- so a nil actor
+-- would match every SYSTEM-generated row and a nil target every row with no single
+-- subject, printing an acknowledgement for something the signed-in manager did not do.
+-- Measured: sqlc v1.28 emitted exactly those pointer types before the casts were
+-- added. Same defect CountDepartmentReferences hit on a nullable department_id, which
+-- is why it is written out again rather than assumed learned.
+--
+-- THE WINDOW IS THE DATABASE'S OWN CLOCK. `now()` is evaluated server-side inside the
+-- statement and nothing a client sends reaches it -- ADR 0006's rule satisfied
+-- structurally rather than by discipline. make_interval keeps the bound a parameter so
+-- one Go constant is its single source.
+--
+-- RETURNS THE NAME OUT OF THE TRAIL, which is the only place it still exists: the row
+-- itself is gone and the id in the address bar is a CLIENT value, so a heading built
+-- from it would be a sentence the client wrote.
+--
+-- ⚠️ coalesce(..., '') RATHER THAN A BARE ->>, AND THAT IS ABOUT THE SCAN. sqlc cannot
+-- type a jsonb `->>` at all (it emitted `interface{}`), and casting alone gives a
+-- NON-nullable Go string that would FAIL to scan the moment a trail row had no `name`
+-- key -- a future action with a different detail shape, or an older row. Every
+-- location.deleted row this product writes carries one, so today it is defensive; the
+-- empty string then means "the trail has no name for it" and the heading falls back.
+SELECT coalesce((detail->>'name')::text, '')::text AS removed_name
+FROM audit_log
+WHERE tenant_id = @tenant_id
+  AND actor_id = @actor_id::uuid
+  AND action = @action
+  AND target = @target::text
+  AND at > now() - make_interval(secs => @window_seconds::int)
+ORDER BY at DESC
+LIMIT 1;

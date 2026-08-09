@@ -64,6 +64,8 @@ func (a *AdminAuth) mountSections(r chi.Router) {
 			r.Get(s.Href, a.reviewSection)
 		case pages.TabEmployees:
 			r.Get(s.Href, a.employeesSection)
+		case pages.TabLocations:
+			r.Get(s.Href, a.locationsSection)
 		default:
 			r.Get(s.Href, a.section(s.Tab))
 		}
@@ -72,9 +74,10 @@ func (a *AdminAuth) mountSections(r chi.Router) {
 }
 
 // mountWriting registers the panel's state-changing routes: POST /admin/review
-// (M6-04) and the employees section's three (M6-05 phase B).
+// (M6-04), the employees section's three (M6-05 phase B) and the locations
+// section's four (M6-06 phase A: two saves and two removals).
 //
-// 🔴 THE FOUR SHARE ONE CHAIN AND THAT IS THE POINT OF THE FUNCTION. Every mutating
+// 🔴 THE EIGHT SHARE ONE CHAIN AND THAT IS THE POINT OF THE FUNCTION. Every mutating
 // panel route needs the Origin check ahead of the resolver, and a route registered
 // anywhere else would silently get the READ chain instead — which is exactly the
 // defect an audit measured on POST /admin/review (a cross-origin flood spending a
@@ -102,6 +105,14 @@ func (a *AdminAuth) mountWriting(r chi.Router) {
 		r.Post(employeeInviteHref, a.employeeInvite)
 		r.Post(employeeDeactivateHref, a.employeeDeactivate)
 		r.Post(employeeMoveHref, a.employeeMove)
+		r.Post(venueSaveHref, a.saveVenue)
+		r.Post(departmentSaveHref, a.saveDepartment)
+		// 🔴 THE TWO REMOVALS ARE POSTs AND THEY LIVE HERE, WHICH IS THE WHOLE OF T3.
+		// A delete reachable by GET is one a link, a prefetch or a crawler can fire;
+		// and a POST registered in mountSections would silently take the READ chain,
+		// running the resolver before the Origin check.
+		r.Post(venueDeleteHref, a.deleteVenue)
+		r.Post(departmentDeleteHref, a.deleteDepartment)
 	})
 }
 
