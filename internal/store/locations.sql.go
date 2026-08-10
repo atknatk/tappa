@@ -584,7 +584,7 @@ type ListPanelLocationsRow struct {
 // ---------------------------------------------------------------------------
 // THE LOCATIONS SECTION (M6-06 phase A). Everything above this line is on the
 // TAP PATH and its behaviour is unchanged by this task; everything below is the
-// panel's own read and its two writes.
+// panel's own reads and its writes.
 //
 // 🔴 WHY THE SPLIT IS WORTH A HEADER. The four queries above answer DECISION
 // questions -- which venue owns this address, where are they all, what is the

@@ -4053,6 +4053,589 @@ Ayrıca iş yalnız CSS+bileşen değil — kabuk `pages/` + `handler/`'a da dok
 > **2215 PASS / 0 FAIL / 0 SKIP · 16 paket** · `fmt`/`gen`/`lint`/`audit` **exit 0**
 > · `Down` taze klonda **13→12→13**.
 
+> **Kart düzeltmesi (2026-08-09, M6-06 B — UYGULAMA KATMANI / panel).** Kartın kalan
+> dört kriteri sevk edildi. **Yeni migration YOK** (son: 00013) ve **yeni sorgu da
+> YOK** — beş tag sorgusu + `ConfirmRecentRemoval` + `GetTenantClock`, hepsi zaten
+> vardı. Panelin sözlüğü **listele · oku · bağla · emekliye ayır**; `tags`'a INSERT
+> eden hiçbir şey eklenmedi.
+>
+> 🔴 **KART BİR ŞEYİ EKSİK YAZIYOR VE DÜZELTİLİYOR: "replace tag" TEK BAŞINA
+> YETMİYOR.** Kriter *"yeni UID kaydedilir"* diyor; envanter modelinde panel kayıt
+> **etmez**, **bağlar** — ve bir tenant'ın İLK plaketinin bir duvara çıkması
+> replace değil **MOUNT**'tur. Sevk edilen iki eylem: **mount** (stoktaki plaketi bir
+> lokasyona bağla) ve **replace** (duvardakini emekliye ayır + halefini AYNI duvara
+> bağla, **tek transaction**). Brief'in kendi cümlesi de ikisini adlandırıyor
+> (*"bağlanmamış bir plaketi lokasyona atamak ve eskisini retire etmek"*).
+>
+> 📏 **30 SANİYE ÖLÇÜLDÜ** (gerçek HTTP + gerçek Postgres, `plaquejourney_db_test.go`,
+> üç koşu): **3 ekran, 2 tıklama, sunucu süresi 176 / 184 / 195 ms** (liste → kart →
+> POST → bildirim). Mount: **2 ekran, 2 tıklama, 120–159 ms**. ⚠️ Bu **sunucu**
+> süresidir; müdürün 30 saniyesi merdiveni de içerir. Bu yüzden test **şekli** de
+> pinliyor (ekran ve tıklama sayısı): asıl bütçeyi yiyecek olan, müdüre venue'yu
+> yeniden sordurmak ya da yedek plaketin uid'ini elle buldurmaktır — replace formu
+> duvarı **emekliye ayrılan plaketten** okur ve yedeği açılır listede sunar.
+>
+> ✅ **K3 — GERİ ALINABİLİRLİK ÖLÇÜLDÜ, VE SONUÇ "MAC'li onay + owner-only" DEĞİL.**
+> Canlı ölçüm (2026-08-09, `tappa_app`, geri alınan transaction içinde):
+> `DELETE FROM tags` → **permission denied** · retire → **UPDATE 1** · `retired →
+> active` + damgaların temizlenmesi → **UPDATE 1** · `active → unassigned` +
+> `location_id=NULL` **tek ifadede** → **UPDATE 1** · yeniden mount → **UPDATE 1**;
+> satır sonunda aynı uid, aynı duvar, damga yok, `aes_key_ref` **44 bayt**. Yani
+> **hiçbir satır yok edilmiyor** ve bu eylemlerin yazdığı **her sütun şema düzeyinde
+> geri çevrilebilir**. Faz A'nın onay+owner kapısı **tek bir özellikten**
+> gerekçelendirilmişti — *"DELETE satırı sonsuza dek yok eder, arşiv yok"* — ve
+> ikisi de burada geçerli değil.
+> - ⚠️ **KARŞI OKUMA, GÖMÜLMEDEN YAZILIYOR:** o tersleri **yapan bir ROTA sevk
+>   edilmedi** (`db/queries`'te un-retire ve un-mount yok, bu tur da eklemedi). Yani
+>   *"geri alınabilir"* = **şema izin verir ve hiçbir delil kaybolmaz**, *"müdür
+>   panelden geri alabilir"* **değil**. Onayın yerini tutan şey eylemin **şekli**:
+>   replace **aynı tenant'ın gerçek bir STOK plaketini adlandırmak** zorunda ve her
+>   iki yarı da ön koşulunu **kendi WHERE'inde** taşıyor → tekrar edilen ya da
+>   tahmin edilen bir POST **sıfır satır** eşleştirir ve **hiçbir şey yazmaz**.
+> - 📌 **Karar orkestratörün/kullanıcının:** Faz A'nın kapısı burada da isteniyorsa
+>   sayılar yukarıda. Uygulanması `deactivateconfirm.go`'nun payload'ını **v3**'e
+>   taşımayı gerektirir (özne bir `uuid` değil **14 haneli uid**), yani sevk edilmiş
+>   ve denetlenmiş bir güvenlik primitifine dokunmak demektir — bu turda **bilinçle
+>   yapılmadı**.
+>
+> 🔴 **ON YÜKÜMLÜLÜĞÜN DURUMU.** **(1) KAPANDI** — `preview.go`'nun 3. adımı artık
+> allow-list olduğunu, `cmacOK=false`'un *"CMAC hiç SORULMADI"* demek olduğunu ve
+> gerekçenin **durum** olduğunu yazıyor; ayrıca `sys:tag-not-active`'in metni
+> *"this tag is no longer active"* → **"this tag is not in service"** oldu (eski
+> lafız `unassigned` için **yanlıştı**: hiç aktif olmamış bir plaket). Uçtan uca
+> pinli. **(2) KAPANDI** — `db.ResolvedTag.LocationID` artık **`*uuid.UUID`**;
+> `sun.Preview.Location` ve `sun.Result.Location` da öyle. `tap.Tag.Location`
+> **düz kaldı** ve düzleştirme **paket başına bir tane olmak üzere iki adlandırılmış
+> yerde** (`tappedWall` — internal/domain/checkin, `tappedWallOf` — internal/handler;
+> ikisi ayrı paket olduğu için tek fonksiyon paylaşılamıyor) gerekçesiyle duruyor: §5 satır 1 `active` dışındaki her durumu
+> reddediyor ve `tags_active_requires_location` aktif bir plaketi lokasyonsuz
+> bırakmıyor, yani düzleştirme **yapısal olarak tamdır**. **(3) KAPANDI** —
+> `plaquetap_db_test.go`: **üç durum × iki kanal**, hepsi `verdict=reject`,
+> `matched_sid=sys:tag-not-active`, satır **YAZILIYOR** (§4.6), artı **pozitif
+> kontrol** (aynı bozuk CMAC, **aktif** plakette → `sys:sun-invalid`). Guardrail'i
+> deny-list'e geri çeviren mutasyon **`unassigned`'ın iki alt testini de KIRMIZI**
+> yaptı, `retired`/`lost` yeşil kaldı — deny-list'in kör noktası tam olarak orası.
+> **(4) KAPANDI** — iki okuma raporlandı, **üç liste** seçildi (duvarda · stokta ·
+> hizmet dışı); SQL'in `NULLS FIRST` sırası korunuyor ama monte edilmiş yarıyı
+> **location uuid'ine** göre sıralıyor, yani sayfanın hiç basmadığı bir değere göre.
+> **(5) KAPANDI** — birleştirme **Go'da, anahtar varlığıyla**; `LastSeen *time.Time`,
+> `nil` = *"hiç taplanmadı"*, ekranda **"Never tapped"**. **(6) LİMİT OLARAK
+> SAYILDI** — ekran *"Encoded"* derken **`location_id IS NULL`'a bakıyor**, anahtara
+> **değil**; kelimeyi mümkün kılan şey `aes_key_ref bytea NOT NULL` (00004) ve
+> yükleyicinin tekliği. Zarfın **44 bayt olduğunu hiçbir şey doğrulamıyor** (T7) ve
+> bu ekran doğrulayamaz da — doğrulamak sütunu SELECT etmek olurdu, ki §4.7 tam
+> olarak onu yasaklıyor. Üç yerde yazılı. **(7) KAPANDI + ÖLÇÜLDÜ** — retire+bind
+> **tek `WithTenant`**; ara durumun imkânsızlığı **gerçek başarısızlıkla** sürülüyor
+> (halef stok değil → retire **geri alınıyor**, `audit_log`'a **0 satır**). ⚠️
+> **Mutasyon iki denemede kapandı ve bu ölçüm rapora giriyor:** bind'i **iç içe**
+> bir `WithTenant`'a taşımak testi **KIRMIZI YAPMADI** (dış transaction yine geri
+> alıyor); gerçek şekil — retire'ı **ayrı bir transaction'da COMMIT edip** sonra
+> bind denemek — **KIRMIZI**. **(8) KAPANDI** — `tenant.PlaqueUID` sınırda:
+> `^[0-9A-F]{14}$`, `ToUpper`+trim; `::char(14)`'ün **sessizce kırptığı** şekil
+> (`AABBCCDDEEFF01ZZZZZZ`) handler'da reddediliyor ve **domain hiç çağrılmıyor**
+> (testte çağrı sayısıyla ölçülü). **(9) DEVREDİLDİ (T16)** — bu tur `tags`'a
+> **hiçbir INSERT** eklemedi; koruma bir yükleyici yazıldığı gün biter.
+> **(10) DOKUNULMADI** — `ledger`'ın `stopRE`'si atıl, bilgi olarak duruyor.
+>
+> 🟡 **KENDİ AĞLARIM İKİ YERDE BAYATLADI VE İKİSİ DE DÜZELTİLDİ (kapsam işareti).**
+> (a) `TestVenueVocabulary_HoldsOnlyWordsTheServerEmits` **yalnız
+> `locationactions.go`'yu** okuyordu; sekiz canlı kelimeyi *"ulaşılamaz"* diye
+> bildirdi — ağın **kapsamı bayatlamıştı**, kelimeler değil. Tarayıcı üç dosyaya
+> genişletildi ve `plaqueRefusal`'ın kelimeleri **türetiliyor** (elle listelenmiyor);
+> `same-plaque`'i emitten silen mutasyon **KIRMIZI**. (b) `query_test.go`'nun
+> *"iki küme AYRIK"* cümlesi bu turda **yanlış oldu** (artık bu paket beş tag
+> sorgusunu çağırıyor) → **birleşim hesaplanıyor**: `25 of 65 (%38,5)`.
+>
+> 🟡 **TİP DUVARININ YAZILI KAPSAMI ÖLÇÜLDÜ VE BİR OVERCLAIM DÜZELTİLDİ (K1).**
+> `plaqueview.go` *"şu struct'ları yürüyor"* diyordu ama adlandırdığı test
+> **domain paketindeydi** ve render tiplerine **ulaşamaz** (domain render'ı import
+> edemez). İkinci yürüyüş `internal/handler`'a eklendi (`components.Plaque*` **artı
+> `pages.LocationsView`**), muafiyetler **gerekçeli** ve **ulaşıldığı doğrulanan**
+> bir listede (bayat muafiyet = hata). Üç mutasyon **KIRMIZI**: domain tipine
+> masum adlı `[]byte` · render tipine `AESKeyRef string` · `tags.sql`'de
+> `aes_key_ref` SELECT'i.
+>
+> 🟡 **K8 — DONMUŞ SATIR: DURUM ÖLÇÜLDÜ.** Bir CHECK **her rolü** bağlar, yani
+> küçük harfli yeni satır **`tappa_owner` olarak bile** yazılamıyor (23514, ölçüldü)
+> — donmuş satırlar yalnız 00013 **öncesinden** kalanlar ve başka tenant'lara ait,
+> RLS onları fixture'dan **doğru şekilde** gizliyor. Bu yüzden pinlenen şey
+> **haritalama**: 23514 → `ErrPlaqueFrozen` → cümle (500 değil), ve anti-vakum
+> olarak 23503 → `ErrUnknownVenue`. Ekran tarafında satır **listeleniyor ama
+> kontrol sunulmuyor** ve nedeni yazıyor.
+>
+> **2294 PASS / 0 FAIL / 0 SKIP · 16 paket · iki ardışık koşu** · `-short` skip **3**
+> · `fmt`/`gen`/`lint`/`audit` **exit 0**, tarayıcı (`scripts/redline-check.sh`)
+> **dokunulmamış** · `make simulate-day` **PASS** (10 çalışan, 31 kayıt) ·
+> `make css` sonrası `app.css` **diff yok** (yeni utility gerekmedi).
+
+> **Kart düzeltmesi (2026-08-09, M6-06 B paneli — 2. TUR, üçüncü göz RED sonrası).**
+> Üç bloklayanın üçü de kapandı; ikisi **bu turun kendi cümlelerini** yanlışladı.
+>
+> 🔴 **(A1) FAZ A'NIN KUSURU BİREBİR GERİ AÇILMIŞTI — kaynağı TEK BİR `ToUpper`.**
+> Sınır fonksiyonu bir **arama anahtarını** normalize ediyordu; `tags.uid` `char(14)`
+> ve **harfe duyarlı**, 00013'ün kanonik CHECK'i **NOT VALID** olduğu için **18.010**
+> küçük harfli satır duruyor ve `ListTagsForTenant` onları döndürüyor. Sonuç canlı
+> ölçüldü (tenant `2f2bb0e2…`, plaket `b27188a6d32e49`): liste satırın **kendi**
+> yazımıyla bağlantı basıyor, bağlantı *"bu işletmenin değil"* cevaplıyordu.
+> **Sevk edilen:** sınır **ikiye ayrıldı** — `PlaqueUID` (**YAZILACAK** değer:
+> yalnız kanonik; `@replaced_by`'ın SQL yükleminin istediği biçim) ve `PlaqueRef`
+> (**ARANACAK** anahtar: iki yazım da, **korunarak**). İki farklı soru, iki fonksiyon.
+> - **(c) `plaque-frozen` ARTIK ÖLÜ KOD DEĞİL VE UÇTAN UCA SÜRÜLDÜ.** Denetçinin
+>   adlandırdığı **gerçek kalıntı satırın** üstünde: `tappa_owner` ile bir donmuş satır
+>   **bulunuyor** (üretimde sıfır), o tenant'a bir admin kaydedilip **panelden** giriş
+>   yapılıyor, kart **açılıyor**, POST **`problem=plaque-frozen`** ile dönüyor — **500
+>   değil**. ⚠️ Kalıntı temizlenirse (T15) test **skip etmiyor**: neyin hâlâ pinli
+>   olduğunu yazıp geçiyor.
+> - **Mutasyon:** `PlaqueRef`'e `ToUpper` geri konunca **dört test** kırmızı
+>   (bölüm · POST sınırı · uçtan uca donmuş satır · iki-sınır tablosu).
+> - Yanlışlanan üç cümlenin üçü de düzeltildi (`OpenHref` *"boş olabilir"* iddiası
+>   dahil; **hiç boş olmuyor** ve satırın **kendi** yazımını taşıdığı artık yazılı).
+>
+> 🔴 **(A2) ONAY ADIMI SEVK EDİLDİ (orkestratör kararı, 2026-08-09).** 1. turun K3
+> ölçümü doğruydu ama **yanlış soruyu** cevaplıyordu: Faz A'nın kapısı *"satır yok
+> oluyor"* diye değil, *"müdür geri getiremiyor"* diye vardı — ve benim kendi karşı
+> okumam (*"hiçbir ROTA tersini yapmıyor"*) tam olarak bunu söylüyordu.
+> - **`deactivateconfirm.go` payload v2 → v3**, ikinci kalıp **icat edilmedi**: özne
+>   `uuid`'den **opak dizeye** genişletildi (plaketin kimliği 14-hex uid). Bu bir
+>   **alan genişletmesi**, garanti değil — değer hâlâ MAC içinde, uzunluk önekli,
+>   sabit zamanlı karşılaştırılıyor. `uuid` tipinin bedava verdiği **tek** özellik
+>   (özne ayracı içeremez) artık **açık bir kontrol**.
+> - **`owner`-only UYGULANMADI** ve gerekçesi yazıldı: Faz A'nın rol kapısı **kalıcı
+>   silme** içindi; plaket değişimi sabah altıda kapının önünde duran şube müdürünün
+>   **operasyonel bakımı**.
+> - **Kartın uyarısı:** onay **ikinci bir ekran DEĞİL** — kart **zaten** bir seçim
+>   (hangi yedek) istiyor, o yüzden jeton **kartın kendi GET'inde** basılıyor ve
+>   uyarı kartın içinde. Mekanizmanın satın aldığı özellik aynen korunuyor:
+>   *"yazmaya ulaşmak, sunucunun uyarıyı BU oturuma, BU kişiye, BU pencerede
+>   RENDER ETMİŞ olmasını gerektirir"*. **3 ekran / 2 tıklama değişmedi.**
+> - **Mount onaysız kaldı ve bu ÖLÇÜLDÜ, varsayılmadı:** dört alt test — onaysız
+>   replace **reddediliyor ve domain'e ulaşmıyor** · mount **geçiyor** · mount kartı
+>   **jeton basmıyor** (basan bir kapı, hiç harcanmayan bir kapıdır) · başka plaket
+>   için basılmış jeton **reddediliyor**. **İki yönlü mutasyon:** kapıyı silmek →
+>   replace yarısı KIRMIZI; mount'u da kapılamak → mount yarısı KIRMIZI.
+> - **v2 jetonu reddediliyor** (sunucunun **kendi anahtarıyla** imzalanmış bir v2
+>   payload'ı ile ölçüldü, pozitif kontrolü v3 ile) · **çapraz-eylem matrisi dörde
+>   çıktı** (`plaque.replace` eklendi).
+>
+> 🔴 **(A3) §4.7 DUVARI DENYLIST'TEN ALLOW-LIST'E ÇEVRİLDİ.** Denetçinin üç şekli —
+> `Material [44]byte` (**zarfın tam boyu**, dizi), `Ref string` (nötr ad),
+> `Extras map[string][]byte` — eski duvarın **üçünden de** geçiyordu. Yeni duvar iki
+> allow-list: **alan ADLARI** tip başına **birebir sayılıyor**, ve **alan ŞEKİLLERİ**
+> izinli **kind** kümesine karşı **her derinlikte** yürünüyor → dizi, map, arayüz,
+> kanal ve `[]byte` **şekilden** reddediliyor. `uuid.UUID` **kimlikle** izinli
+> (kendisi `[16]byte`) — `[44]byte`'ı reddedebilmenin tek yolu bu.
+> - **Üç mutasyonun üçü de KIRMIZI**, ve ikisi **hem ad hem şekil** kolundan.
+> - **Var olmayan test adı** düzeltildi; `plaque.go` · `plaqueview.go` ·
+>   `locationsview.go`'daki **mutlak cümleler ölçüye indirildi** ve
+>   *"KAPSAM DIŞI"* listelerine **dördüncü madde** eklendi: **izinli bir alana
+>   KODLANMIŞ anahtar** (dizede hex). Bunu hiçbir tip sistemi reddetmez; onu
+>   erişilemez kılan şey, bu yolda hiçbir sorgunun sütunu **SELECT etmemesi**.
+>
+> 🟡 **BLOKLAMAYANLARIN HEPSİ KAPANDI.** **C1** `VenueUnknown` alanı eklendi —
+> *"monte değil"* ile *"mekân adı okunamadı"* artık iki ayrı cümle (cümleyi
+> yumuşatmak yerine **davranış** eklendi). **C2** mount yolculuğu **listeden
+> başlıyor** ve ekran/tıklama **sayıyor** (sabit dize kaldırıldı): **3 ekran, 2
+> tıklama**. **C3** her süre **popülasyonla**: harness tenant'ı **1 mekân / 1-2
+> plaket / 0 işlem → 137-160 ms**, ve **yeni bir test** aynı yolculuğu **seed'li KF
+> tenant'ında** sürüyor — `10000000-…-0001`, **9 mekân, 11+ plaket, 30.747 işlem →
+> 203 / 246 / 350 ms** (denetçinin 191,9 ms'iyle aynı mertebede). **C4** iki audit
+> yükü **birebir anahtar kümesiyle** pinli (mutasyon: yeni alan → KIRMIZI).
+> **C5** `dashboard.go` sayıları **10 / altı**. **C6** kelime tarayıcısı artık
+> **yalnız `plaqueRefusal`'ın gövdesini** okuyor (parantez sayan yardımcı).
+> **C8** fixture **gerçek 44 baytlık zarf** yazıyor (uzunluğu da doğruluyor) —
+> `'\xDEAD'` kalıntısı artmıyor. **C9** kart artık *"paket başına bir tane, iki
+> adlandırılmış yer"* diyor.
+>
+> ✅ **C7 — KARARINIZ UYGULANDI: GEÇMİŞ ARTIK `audit_log`'DAN DA OKUNUYOR.**
+> **Yeni sorgu var** ve *"bu turda yeni SQL yok"* iddiam **düştü** — doğrusu bu:
+> `ListPlaqueHistory` (migration YOK). Kart artık **iki kaynağı** ve **iki işi**
+> yazıyor: `tags` satırı **NE ve NE ZAMAN**'ı (yüklendi · şundan devraldı · emekli ·
+> şununla değişti) **eksiksiz** veriyor ve **aktör sütunu YOK**; `audit_log`
+> **KİM**'i veriyor — müdürün bir kapı bozulduğunda geldiği asıl soru. Kartta *"Who
+> did what"* bloğu: eylem · zaman · **admin_users'tan JOIN'lenen ad** (izde saklanan
+> ad yazıldığı anın adı olurdu ve kayardı), `actor_id` NULL olan sistem olayı için
+> *"by the system"*. **Liste bunun için hiçbir şey ödemiyor** (sorgu sayısıyla
+> ölçülü: liste **0**, kart **1**), okuma patlarsa **500** (§4.6 — *"bu plakete
+> hiçbir şey yapılmadı"* bir iddiadır). Mutasyon: kart izi okumayı bırakınca KIRMIZI.
+>
+> **2312 PASS / 0 FAIL / 0 SKIP · 16 paket · iki ardışık koşu** · `fmt`/`gen`/
+> `lint`/`audit` **exit 0**, tarayıcı **dokunulmamış** · `make simulate-day` **PASS
+> (64,2 sn)** · kuşak: bu paketin çağrı-türetimli belt'i **25/66**, tags.sql
+> dosya-türetimli **6/66**, **birleşim 26/66 (%39,4)**.
+
+> **Kart düzeltmesi (2026-08-09, M6-06 B paneli — 3. TUR, ikinci üçüncü göz RED sonrası).**
+> İki bloklayan da **bir önceki turun kendi kararının/ağının** yarısıydı.
+>
+> 🔴 **(D1) MOUNT GERİ ALINAMAZDI, VE BUNUN TERSİNİ SÖYLEYEN İKİ CÜMLE *"ÖLÇÜLDÜ"*
+> ETİKETİ TAŞIYORDU.** Denetçi uçtan uca sürdü: yanlış duvara mount → **303**;
+> sonrasında kart **hiçbir form** sunmuyor; doğru kapıya yeniden mount →
+> **`plaque-not-stock`**; stokta yedek yokken ekranın tek cümlesi *"Ask us for one"* —
+> müdür plaketi **elinde tutarken**. Bu arada o kapıdaki her tap **yanlış mekânın**
+> IP/GPS'ine karşı ölçülüyor → **§5 satır 7 → onay kuyruğu**. Şema tersine hep izin
+> veriyordu; **ürünün ifadesi yoktu**.
+> - ✅ **KARARINIZ UYGULANDI: GERİ ALMA YOLU SEVK EDİLDİ.** Yeni sorgu
+>   **`UnmountTagFromWall`** (migration YOK): `location_id = NULL` + `status =
+>   'unassigned'` **tek ifadede** — 00013'ün iki CHECK'i ara durumu zaten yasaklıyor.
+>   **Emeklilik DEĞİL:** `retired_at`/`replaced_by`'a **dokunulmuyor**, yani *"bu
+>   plaket duvarı ne zaman TEMELLİ terk etti"* sorusunun hâlâ **tek** cevabı var ve
+>   bir hatayı düzeltmek **yedek harcamıyor**.
+> - **Geri alma yolu KENDİSİ hizmet dışı bırakıyor** (duvardan inen plaket
+>   `unassigned` → §5 satır 1), o yüzden **replace ile aynı onay kapısını** taşıyor:
+>   aynı ilkel, **beşinci eylem** (`plaque.unmount`), ikinci mekanizma değil.
+> - **MOUNT KAPISIZ KALDI VE CÜMLE ARTIK DOĞRU.** Bir mount tek basışta, yedek
+>   harcamadan geri alınıyor.
+> - **Ekran da düzeldi (kararın "her hâlükârda" maddesi):** mounted bir plaketin
+>   kartı **her zaman** *"On the wrong door? … Take it off the wall…"* sunuyor, ve
+>   yedeksiz hâldeki cümle artık *"take it off the wall below and mount it where it
+>   belongs — that costs no spare"* diyor. **Yedeksiz kartın hiçbir şey sunmaması
+>   sorunu bununla kapandı** (testle sürülü).
+> - **Uçtan uca ölçüldü:** yanlış mount → kart → uyarı → POST → **doğru kapıya**
+>   yeniden mount = **3 ekran, 3 tıklama, 198–207 ms** (tenant + mekân + plaket +
+>   işlem sayısıyla loglanıyor). Mutasyon: un-mount kapısını silmek **iki alt testi**
+>   kırmızı yapıyor.
+>
+> 🔴 **(D2) *"MOUNT KARTI JETON BASMIYOR"* AĞI, BASMAYI DEĞİL RENDER ETMEYİ
+> ÖLÇÜYORDU.** Denetçinin MUT5'i (kartı jeton basar yap) **derlendi, uygulandı** ve
+> `internal/handler` **2312 test yeşil** kaldı: iki assertion da **HTML gövdesini**
+> tarıyordu, `.templ` gizli input'u yalnız `replace` kolunda basıyordu — yani sunucu
+> **imzalayıp çereze yazıp hiç kontrol etmeyebilirdi**. Assertion artık
+> **`Set-Cookie` / `adminConfirmCookieName`** üstünde (`mintedConfirmation`), ve
+> **MUT5 KIRMIZI**. Üstüne bir invaryant eklendi ve testle sürüldü: **render başına
+> TAM BİR onay basılır** — çerez tarayıcı başına tek olduğu için iki silahlı form
+> taşıyan bir kart, gönderilmeyen formu **kullanılamaz** bırakırdı (yalnız
+> başarısız olabilecek kontrol). Un-mount bu yüzden **link + kendi modu**.
+>
+> 🟡 **E1 — `PlaqueUID`/`PlaqueRef` AYRIMI ARTIK TİP.** Denetçi ölçtü: ikisi de
+> `(string, error)` döndürdüğü için çağrı yerinde takas **derleniyor ve tüm suite
+> yeşil** kalıyordu; gerçek mekanizma `Replace`'in domain içinde **yeniden**
+> doğrulaması idi ama yorum **validator seçimini** mekanizma gibi sunuyordu
+> (*"şekil mekanizma değildir"* — bu görevin kendi dersi). `PlaqueUID` artık
+> **`CanonicalUID`** döndürüyor ve `ReplaceCommand.SuccessorUID`'in tipi o.
+> **Denetçinin MUT2'si artık DERLENMİYOR**; derlenen varyantı (arama anahtarını tipe
+> **cast** etmek) **yeni bir test satırıyla KIRMIZI** — küçük harfli bir successor,
+> aranabilir ama **yazılamaz** olan tam vaka. Ve tipin **neyi garanti etmediği**
+> yazıldı: `CanonicalUID("saçma")` bu pakette inşa edilebilir, run-time güvence
+> domain'in yeniden doğrulaması.
+>
+> 🟡 **E5 — BOŞ AD İLE SİSTEM AYRILDI.** `admin_users.full_name` `text NOT NULL` ve
+> **boş-değil CHECK'i yok**, `audit_log.actor_id` ise ayrıca nullable — ikisini `""`
+> üstünden birleştirmek, **adı boş bir yöneticinin eylemini ÜRÜNE** yazardı, hem de
+> müdürün *"bunu kim yaptı"* diye geldiği tek yerde. Sorgu artık
+> **`(a.actor_id IS NULL) AS by_system`** döndürüyor; ekran *"by the system"* ile
+> *"by an administrator with no name set"* diye iki ayrı cümle basıyor, ikisi de
+> testle sürülü.
+>
+> 🟡 **E2/E3/E4 — SAYAN CÜMLELER SAYMAYI BIRAKTI.** Plaket sayıları (11 → **63**,
+> 1,02 → **1,03**, 78.919 → **83.011**) yeniden ölçüldü **ve bozanın kendi
+> testlerimiz olduğu yazıldı** (journey testleri paylaşılan demo tenant'a plaket
+> tohumluyor, `tags` silinemiyor) — sayı **yön**, seviye değil (00013'ün `lost`
+> için yazdığı aynı kayıt). Tip **sayan** iki cümle (*"üç tip"*, *"Plaque,
+> PlaqueScreen ve Replacement"*) **türetime** çevrildi: kök listesi testte yaşıyor.
+> Kartın **`25 of 65`** kopyası da bayattı; bugün **birleşim 27/67 (%40,3)** ve bu
+> **çalışma anında hesaplanıyor** — kart bir daha sayı kopyalamıyor.
+>
+> ⚠️ **RAPORUMUN ZEMİNİ HAKKINDA:** çıplak `go test` bu repoda **328 alt testi
+> sessizce atlıyor** (exit 0). Bu turun bütün ölçümleri `make`/`.env` üzerinden
+> koştu; denetçinin uyarısı karta yazılıyor ki bir sonraki tur aynı zemine
+> basmasın.
+>
+> **2324 PASS / 0 FAIL / 0 SKIP · 16 paket · iki ardışık koşu** · `-short` skip **3**
+> · `fmt`/`gen`/`lint`/`audit` **exit 0**, tarayıcı **dokunulmamış** ·
+> `make simulate-day` **PASS** · `app.css` **diff yok** · migration dizini
+> **dokunulmamış**.
+
+> **Kart düzeltmesi (2026-08-10, M6-06 B paneli — 4. TUR, üçüncü RED sonrası).**
+> Üç bloklayanın **kökü tekti** ve düzeltme tek tek yama değil, **iki türetim**.
+>
+> 🔴 **ORTAK KÖK: ELLE BAKILAN BİR N LİSTESİ, N BÜYÜYÜNCE DELİK AÇIYOR — bu görevde
+> ALTINCI kez.** Önceki beşi: guardrail **denylist**'ti (dördüncü durum altından
+> geçti) · §4.7 taraması **yedi yasaklı kelimeydi** · tip duvarı **denylist**'ti ·
+> `venueDoneWords` **elle sayılmıştı** · ve bu turda **eylem sözlüğü** (iki/üç) ile
+> **rota listesi** (iki/üç). Yamalamak altıncıyı kapatır, yedinciyi kapatmaz.
+>
+> ✅ **TÜRETİM 1 — EYLEM SÖZLÜĞÜ (F1).** Panel müdüre **ham veritabanı kelimesi**
+> basıyordu (*"plaque.unmounted 10 Aug 2026 02:17 · E2E Owner"*), üç yazılı cümle
+> tersini söylerken ve **hiçbir test görmezken**. `switch` yerine tek bir
+> `plaqueActionWords` haritası var; **eksiksizliği** `go/ast` ile
+> `internal/domain/tenant/plaque.go`'nun **kendi const bloğundan** türetilen bir test
+> zorluyor (`ActionPlaque*` sabitlerinin **değerleri**). Fazlalık da yakalanıyor:
+> domain'in yazamayacağı bir eyleme kelime koymak da KIRMIZI. **Mutasyon:** dördüncü
+> bir eylem sabiti eklemek (kelimesiz) → **KIRMIZI**.
+>
+> ✅ **TÜRETİM 2 — YAZMA ROTALARI (F2).** İki ağ da `{mount, replace}` **çiftini elle**
+> dolaşıyordu; `plaqueUnmountHref` **ikisinde de yoktu**, ve denetçinin MUT9'u
+> (rotayı `mountSections`'a = **OKUMA zincirine** taşımak) **derlenip** paketi
+> **tamamen yeşil** bırakıyordu — çapraz-origin POST Origin kapısını geçip **oturum
+> bütçesini harcarken**. Ağlar artık **gerçek router'ı `chi.Walk` ile geziyor** ve
+> `/admin/locations/` altındaki **her POST'u** sürüyor. Bugün **yedi rota**
+> (Faz A'nın dördü **dahil** — onlar da ilk kez bu özellik altında). **Mutasyon:**
+> MUT9 → **KIRMIZI**, ve hata mesajı sebebi söylüyor (`?problem=confirm-required`,
+> yani resolver koştu). **Yeni bir rota eklendiğinde otomatik kapsanıyor.**
+>
+> 🔴 **(F3) VE BU BENİM 3. TURDAKİ YANLIŞ İDDİAMDI.** *"İki paragraf yeniden
+> yazıldı"* dedim; **yazılmamışlardı** — ve ikisi de düzeltmeyi **içeren** dosyalarda,
+> **`(measured)` etiketiyle** duruyordu (`plaque.go`, `Unmount`'un ~200 satır
+> yukarısında; `plaqueactions.go`, rotanın ~60 satır yukarısında). Bu turda her
+> düzeltme `grep` ile doğrulandı; iki paragraf da artık **ne olduğunu ve neyin
+> değiştiğini** yazıyor: bir **RETIRE** hâlâ geri alınamıyor (kapının gerekçesi),
+> bir **MOUNT** artık alınabiliyor (kapısızlığının gerekçesi).
+>
+> 🟡 **N1 — ON BAYAT SAYIM, ÇOĞU SAYMAYI BIRAKARAK KAPATILDI.** *"Two routes, two
+> acts"* · *"THERE IS NO THIRD ACT"* · *"BOTH ROUTES"* · *"five shipped tag queries"*
+> (×2) · *"its two writes"* (×2, biri **Faz A'nın** `locations.go`'sunda ve artık
+> yedi) · *"the two acknowledgement words"* · *"THE TWO PLAQUE ACTS"* · *"THE TWO
+> WORDS"* · sözlük cümleleri (**UN-BIND** eklendi, ×3). Sayı **gereksiz olan her
+> yerde silindi**, gerekli olan yerde **türetime** bağlandı.
+>
+> ✅ **N2 — AÇIK GERİ ÇEKME:** bu kartın *"yeni sorgu da YOK"* cümlesi (bu bloğun
+> üstünde, B panelinin ilk düzeltmesinde) **artık geçerli değil**. **İKİ yeni sqlc
+> sorgusu sevk edildi** — `ListPlaqueHistory` (3. tur, C7) ve `UnmountTagFromWall`
+> (3. tur, D1). **Migration hâlâ YOK** (son: 00013).
+>
+> 🟡 **N3 — `Replace`'in yeniden doğrulaması PİNLENDİ.** Denetçi o satırı sildi:
+> **derlendi**, domain **ve** handler **yeşil** kaldı — yorumu ise *"THE REAL
+> MECHANISM … run time'da reddeden budur"* diyordu. Yeni test küçük harfli bir
+> successor'ı **tipe cast ederek** geçiriyor ve `ErrPlaqueUID` **artı hiçbir yazma**
+> istiyor; pozitif kontrolü kanonik successor. **MUT3 → KIRMIZI**, ve hata mesajı
+> denetçinin teşhisini birebir doğruluyor: satır olmadan **SQL yüklemi** yakalıyor ama
+> müdür *"retire matched no row"* iç hatasını görüyor. İki katman, biri **doğru cümleyi**
+> söylüyor.
+>
+> 🟡 **N4 — TİP DUVARI KOMUT TİPLERİNE UZATILDI.** Denetçi `UnmountCommand`'a
+> `[]byte` + `[44]byte` ekledi, duvar **yeşildi**: testin adı *"NoTypeOnThisPath"*
+> iken kökleri yalnız **okuma** tipleriydi. Komutlar aynı yolu **ters yönde**
+> geziyor, o yüzden kök oldular (liste genişletildi, *"NOT COVERED"* değil).
+> **Mutasyon → KIRMIZI**, hem ad hem şekil kolundan.
+>
+> 🟡 **N6/N7 — SAYILAR YA ARALIK VE POPÜLASYONLA, YA HİÇ.** Undo yolculuğu **beş
+> koşu: 142 / 144 / 145 / 153 / 225 ms** (harness tenant'ı: 2 mekân, 1 plaket, **0
+> işlem**) — kartın eski *"198–207 ms"*'i denetçinin **167,8 ms**'ini kapsamıyordu.
+> Plaket popülasyonu (**63 → 93 bir günde**) artık **hiç yazılmıyor**: sürükleyen şey
+> bu görevin **kendi** journey testleri, ve seviye bir sonraki okur gelmeden bayatlıyor
+> — yorum **şekli** yazıyor (bir plaket kapı pervazına vidalanır, liste **onlarca**),
+> sayıyı isteyen tablodan saysın.
+>
+> ⚠️ **RİTİM NOTU, açıkça:** 3. turda *"yeniden yazıldı"* diye bildirdiğim iki
+> paragraf yazılmamıştı ve bunu **denetçi** ölçtü. Bu turda her *"düzeltildi"* cümlesi
+> `grep` çıktısıyla kanıtlandı ve ağların ikisi de **kendi mutasyonuyla** sürüldü.
+>
+> **2331 PASS / 0 FAIL / 0 SKIP · 16 paket · iki ardışık koşu** · `-short` skip **3**
+> · `fmt`/`gen`/`lint`/`audit` **exit 0**, tarayıcı **dokunulmamış** ·
+> `make simulate-day` **PASS** · kuşak **birleşim 27/67 (%40,3)** · migration dizini
+> **dokunulmamış**.
+
+> **Kart düzeltmesi (2026-08-10, M6-06 B paneli — 5. TUR, dördüncü RED sonrası).**
+> Denetçinin cümlesi tam yerindeydi: ***"F1 üründe kapalı — kapatan ağ değil."***
+>
+> 🔴 **(G1) TÜRETİM 1 İKİ ŞEKİLLE YENİLDİ, VE İKİSİ DE YAZILMAMIŞTI.** Tarayıcı
+> *"tam olarak `internal/domain/tenant`'ın yazabileceği küme"* diyordu — **paket**
+> iddiası, **tek dosya** taraması — ve o paket audit sabitlerini zaten **üç dosyaya**
+> (venue.go'da **420 satır arayla iki blok**) dağıtmış durumda.
+> - **Sevk edilen:** `parser.ParseDir` ile **test dışı tüm paket**; ve `BasicLit`
+>   olmayan bir değer artık **sessizce atlanmıyor, yüksek sesle düşüyor** — çünkü
+>   sessizlik bir türetimin veremeyeceği tek cevap: *"orada bir şey yoktu"*tan
+>   ayırt edilemez. **MUT-A2** (sabit `venue.go`'da) ve **MUT-A4**
+>   (`"plaque." + "lost"`) artık **KIRMIZI**.
+> - **Ve tarayıcının GÖREMEDİĞİ şey için üçüncü bir ağ eklendi:** eylem satır içi bir
+>   dize olarak yazılırsa hiçbir sabit taraması onu duymaz. Yeni test
+>   `audit.Event{Action: …}` alanlarını **AST'den** okuyup literal olanı reddediyor
+>   (**MUT-A5 → KIRMIZI**). Kalan limit yazılı: **adı `ActionPlaque` ile başlamayan**
+>   bir sabit, ve **çalışma anında kurulan** bir eylem dizesi.
+> - 🟡 **VE ANTİ-VAKUM CÜMLEM MEKANİZMAYLA ÇELİŞİYORDU** (ikisinde de): taban
+>   *"bugünün altında, böylece silme yüksek sesle düşer"* diyordu — **taban altı olmak
+>   silmeyi yakalatmaz**. Cümleler mekanizmaya eşitlendi: taban **bozuk taramayı**
+>   korur, silmeyi **fazlalık kolu** yakalar.
+>
+> 🔴 **(G2) *"ARTIK HİÇ YAZILMIYOR"* DEDİĞİM SAYI SEVK EDİLİYORDU VE 9 KAT YANLIŞTI.**
+> `locationsview.go` *"the largest single tenant holds **11**"* diyordu; denetçinin
+> ölçümü **101**. ⚠️ Ve o sayı **yük taşıyordu**: `plaquePageLimit = 200` tavanının
+> *"pratikte karşılanmıyor"* argümanının **tamamı** oydu — yani §4.6'nın *"liste
+> eksik"* uyarısının teorik olduğu iddiasının. Seviye **silindi**, yerine neyin
+> bozduğu (**bu görevin kendi journey testleri**) ve neyin sabit olduğu (**şekil**:
+> plaket kapı pervazına vidalanır) yazıldı — `plaque.go` ile **aynı politika**, artık
+> iki dosya zıt şey söylemiyor.
+>
+> 🔴 **(G3 + SÜPÜRME) MEKANİK KURAL UYGULANDI.** *"Kodun sahip olduğu bir kümeyi
+> tarif eden çıplak bir tamsayı yorumlarda yer almaz."* Dört dizin tarandı
+> (`internal/handler`, `internal/domain/tenant`, `web/templates`, `db/queries`):
+> **169 aday** eşleşti, elle ayıklandı — çoğu *"iki gerçek"*, *"iki sebep"*,
+> *"ikisini ayırt etmek"* gibi **küme tarif etmeyen** düzyazı, ve bir kısmı
+> **şemanın** sahip olduğu sabitler (altı `ON DELETE RESTRICT` anahtarı, beş sütunluk
+> GRANT, beş alanlı payload) — onlar **kalıyor**, çünkü onları büyüten şey bir
+> migration ve o zaten kendi kaydını yazıyor.
+> **Kod-sahipli küme tarif eden 17 yer bulundu ve hepsi kapatıldı:**
+> **11 sayısız kuruldu** (*"the words below"*, *"every write route it mounts"*,
+> *"the Mode values are enumerated at …"*), **4 türetime bağlandı** (eylem sözlüğü,
+> rota kümesi, `plaqueActWords`, `ClaimsARemoval`/`ClaimsAPlaqueAct`), **2 tarihine
+> + yönüne bağlandı** (plaket popülasyonu, ×2 dosya). Denetçinin adlandırdıklarının
+> hepsi bunun içinde: `locationsview.go:180/189` · `locations.go:111/247` ·
+> `plaques.go:503` · `plaque.templ:139` (*"THREE STATES AND NO FOURTH"* — altındaki
+> switch'in **dört** kolu vardı ve `"replace"` diye bir mode **yoktu**) ·
+> `adminlogin.go:125/132` · `db/queries/locations.sql:120` **artı iki üretilmiş
+> kopyası**. Ayrıca kendi dosyalarımda denetçinin görmediği beş tane daha:
+> `plaque.go:126` (*"TWO ACTIONS, NOT THREE"* — üç var), `plaque.go:1112`,
+> `plaques.go:371`, `dashboard.go:82`, `locationactions.go:19`, `plaques_test.go:465`.
+>
+> ⚠️ **HER DÜZELTME `grep` ÇIKTISIYLA KANITLANDI** (4. turda *"düzeltildi"* dediğim
+> iki paragraf düzeltilmemişti ve bunu denetçi ölçtü). Tek kalan eşleşme, retro
+> olarak **alıntılanan** cümlenin kendisi — *"It said 'the largest single tenant holds
+> 11'"* — ve bu bilinçli: bu repo geri çekilen iddiaları siler değil, tarihiyle
+> **yazar**.
+>
+> **2332 PASS / 0 FAIL / 0 SKIP · 16 paket · iki ardışık koşu** · `-short` skip **3**
+> · `fmt`/`gen`/`lint`/`audit` **exit 0**, tarayıcı **dokunulmamış** ·
+> `make simulate-day` **PASS** · `app.css` **diff yok** · migration dizini
+> **dokunulmamış**.
+
+> **Kart düzeltmesi (2026-08-10, M6-06 B paneli — 6. TUR, SON GENEL TUR).** Denetçinin
+> kapanış cümlesi: *"Hiçbir §4 kırmızı çizgi ihlali, hiçbir davranış kusuru
+> bulmadım."* Üç bulgunun **üçü de ağ/metin**; ritmin durma kuralı tetiklendi.
+>
+> 🔴 **(H3) BİR `var` ÜÇ AĞIN DA ALTINDAN GEÇİYORDU — F1'in kendisi.** Denetçi
+> `var ActionPlaqueSeized = "plaque.seized"` yazdı: **doğru önek, doğru dosya, doğru
+> paket**, domain tarafından gerçekten yazılıyor, kelimesi yok → **üç test de yeşil**.
+> Sebep: tarayıcı yalnız `token.CONST` okuyordu — *"hangi anahtar kelimeyi yazdığına
+> bağlı bir sözlük taraması, anahtar-kelime şeklinde bir deliği olan taramadır."*
+> - **Sevk edilen:** `token.VAR` eklendi; **ve kapsam ada değil DEĞERE de bağlandı** —
+>   `plaque.` ile başlayan bir dize sabiti, adı ne olursa olsun toplanıyor.
+> - **Ve yazma tarafındaki ağ denylist'ten allow-list'e çevrildi:** `Action:` alanı
+>   artık **`Ident` ya da `SelectorExpr` olmak zorunda**; `"plaque." + "x"`
+>   (BinaryExpr) eskiden geçiyordu, şimdi **KIRMIZI**.
+> - **Mutasyonlar:** denetçinin `var`'ı → **KIRMIZI**; BinaryExpr yazımı → **KIRMIZI**.
+> - ✅ **VE BURADA DURULDU (ikinci durma kuralı).** Kalan şekiller **ölçülerek**
+>   sayıldı, tahminle değil — testin başında bir **tablo** halinde: yakalanan altı
+>   şekil, yakalanmayan **üç** şekil ve her birinin **neden** yakalanmadığı. İkisi
+>   zararsız olduğu **ölçüldü**: adı da değeri de eşleşmeyen bir eylem (`"plq.seized"`)
+>   **bu ekrana hiç ulaşmıyor**, çünkü `ListPlaqueHistory` `action LIKE 'plaque.%'`
+>   filtreliyor (iki yönde de sürüldü). Gerçekten açık olan biri: **çalışma anında
+>   kurulup bir isme atanan** eylem — bugün kimse yapmıyor, kapatmak yazma anında bir
+>   run-time iddiası ister, o da **başka bir mekanizma**.
+> - ⚠️ **VE LİMİT LİSTESİ YANLIŞ TESTE BAĞLIYDI:** *"bunları
+>   TestPlaqueActions_AreWrittenOnlyFromTheDeclaredConstants tutuyor"* diyordu; o test
+>   **değerin ŞEKLİNİ** zorluyor, **adın nasıl bildirildiğini** değil. İki ağ, iki iş —
+>   yazıldı.
+>
+> 🔴 **(H2) ONAY MATRİSİ BEŞ EYLEMİ DÖRTLE DOLAŞIYORDU — ve atlanan çift, matrisin var
+> olma sebebiydi.** `plaque.unmount` ↔ `plaque.replace`, öznesi **iki tarafta da
+> 14-hex plaket uid'i** olan **tek** çift: yani SUBJECT bağının, ACTION bağının işini
+> kazara yapmadığı tek yer — matrisin doğduğu kusurun (*"kapı yalnızca uuid uzayları
+> çakışmadığı için tutuyordu"*) birebir şekli. **Yedinci** *"elle bakılan N listesi"*
+> vakası, **üstelik o sınıfı yakalamak için var olan testin içinde.**
+> **Sevk edilen:** liste `deactivateconfirm.go`'nun `confirmAction*` bildirimlerinden
+> **türetiliyor** (const **ve** var, okunamayan değerde **yüksek sesle düşerek**).
+> Koşuda basılan: **5 eylem**, `5×5 = 25` çift, **5 köşegen**. **Mutasyon** (eylem
+> bağını `parse`'tan sil) → **20 köşegen-dışı çiftin 20'si KIRMIZI**. İki bayat yorum
+> (*"THE FOURTH ACTION"*, *"the three names"*) da düzeltildi.
+>
+> 🔴 **(H1) SÜPÜRMENİN TAMLIK İDDİASI YANLIŞTI — altı yer daha, biri düzeltmenin
+> yaşadığı dosyada.** Kapatılanlar, her biri **kendi `grep`'iyle 0 eşleşmeye**
+> indirildi: `plaques.go:50` (*"The two POST routes"*, altında üç) ·
+> `locations.go:70` (aynı, altında dört) · `plaques.go:24` (sözlük — **UN-BIND
+> yoktu**, dördüncü vaka) · `plaqueview.go:123` (*"THREE POSSIBLE ACTS"*, ardından
+> iki sayıyor) · `plaqueactions.go:15` (başlık un-mount'u saymıyor, oysa **aynı
+> dosyada**) · `locationsview.go:141` (*"six days later"* → **ertesi gün**;
+> ⚠️ **bayat bir sayıyı geri çeken paragrafın içinde yeni bir yanlış sayı**).
+> **Ve `cmd/` de süpürüldü** (`main.go` ×2).
+> - ✅ **SÜPÜRMENİN SINIRI ARTIK YAZILI, çünkü yazılmamış olması bulgunun yarısıydı:**
+>   taranan yer **beş dizindir** — `internal/handler`, `internal/domain/tenant`,
+>   `web/templates`, `db/queries`, `cmd`. Üretilen dosyalar (`*_templ.go`,
+>   `internal/store/*.sql.go`) **kaynaklarından** düzeltiliyor, elle değil. Taranmayan:
+>   `docs/`, `db/migrations` (uygulanmış migration **değiştirilmez**, §3), ve M6-06
+>   dışındaki paketler — oradaki bayat sayımlar **kendi görevlerinin** işi.
+>
+> 📌 **KURALIN ADI KONDU** (orkestratör, 2026-08-10): *"Kodun sahip olduğu bir kümeyi
+> tarif eden çıplak bir tamsayı yorumlarda yer almaz."* **Şemanın** sahip olduğu
+> sabitler (altı `ON DELETE RESTRICT` anahtarı, beş sütunluk GRANT, beş alanlı
+> payload) **kapsam dışıdır** — onları büyüten şey bir migration, ve migration kendi
+> kaydını yazar.
+>
+> **2332 PASS / 0 FAIL / 0 SKIP · 16 paket · iki ardışık koşu** · `-short` skip **3**
+> · `fmt`/`gen`/`lint`/`audit` **exit 0**, tarayıcı **dokunulmamış** ·
+> `make simulate-day` **PASS** · `app.css` **diff yok** · migration dizini
+> **dokunulmamış** · türetilen kümeler koşuda basılıyor: **7 yazma rotası**,
+> **5 onay eylemi**, **3 plaket eylemi**.
+
+> **Kart düzeltmesi (2026-08-10, M6-06 B paneli — KAPANIŞ TURU).**
+> `tappa-security-auditor` **ONAY**. Bu turun üçü de ucuzdu; biri ölçüm, biri ağ,
+> üçü yazı.
+>
+> 🔴 **(I1) *"BOUNDED"* YANLIŞ ŞEYİ SINIRLI SÖYLÜYORDU.** `ListPlaqueHistory`'nin
+> `@row_limit`'i **ÇIKTIYI** sınırlıyor, **İŞİ** değil. Kendi `EXPLAIN (ANALYZE,
+> `BUFFERS)`'ım (2026-08-10, demo tenant; audit_log'unda **2.566** satır / tabloda
+> **63.624**, 19 MB; geçmişi **sıfır** olan bir plaket, yani hiçbir şeyin kısa devre
+> yapmadığı en kötü hâl): `audit_log_tenant_at_idx` üstünde Bitmap Index Scan
+> (2.566 satır, 25 buffer) → Bitmap Heap Scan, **Rows Removed by Filter: 2.566**,
+> Heap Blocks exact **1.039**, **shared hit 1.064**, **4,174 ms**, **dönen satır 0**.
+> Yani tenant yüklemi indeksli, `target`/`action` **değil**: tenant'ın her satırı
+> okunup atılıyor. Maliyet **işletmenin yaşıyla** doğrusal, plaketin geçmişiyle değil
+> — ve `audit_log` append-only, retention job yok. Cümle ölçüme eşitlendi (SQL'de ve
+> domain'de), **indeks EKLENMEDİ**: o bir migration, 00013 bu fazın yuvasıydı ve
+> harcandı; aday `(tenant_id, target)` ya da `(tenant_id, action, target)` ve
+> **backlog'a orkestratör yazacak** (M6-07 raporları da audit indeksi isteyecek).
+>
+> 🔴 **(I2) BİR YORUM YARIŞI ADLANDIRIYORDU, TEST ARDIŞIKTI.** Üç yeni yazma için
+> N-goroutine/`-race` testi **yoktu**. Üçü de eklendi (**10 goroutine, `-race`**):
+> un-mount → **tam 1 kazanan, 9 tipli ret, 1 audit satırı** · replace → **1 kazanan,
+> ve iki yedekten tam biri hâlâ kutuda** · mount → **1 kazanan**. Bedel ölçüldü:
+> üçü birlikte **0,60 sn**, `make test` **171–181 sn**.
+> - 🔴 **VE MUTASYON İLK ŞEKİLDE KIRMIZI VERMEDİ — bu bir ÖLÇÜM ve karta giriyor.**
+>   `Unmount`'un atomik ön koşulunu *"önce SELECT et"* ile değiştirdim: test **n=10'da
+>   da n=30'da da YEŞİL** kaldı. Sebep: `Unmount` yazmadan **önce satırı okuyor**
+>   (iz satırı için duvara ihtiyacı var, yazma onu yok ediyor), yani READ COMMITTED
+>   altında kazanan commit ettikten sonra başlayan goroutine **o okumada** reddediliyor
+>   ve UPDATE'e hiç varmıyor. Bu, ifadenin `WHERE`'ini süs yapmaz — **pencere içinde
+>   tek muhafız odur** — ama un-mount yarışı **SONUCU** kanıtlıyor, **MEKANİZMAYI**
+>   değil.
+> - ✅ **Mekanizmayı pinleyen ayrı bir test yazıldı: MOUNT'un ön okuması YOK.**
+>   `AssignTagToLocation` eylemin tamamı, her goroutine UPDATE'e varıyor, karar
+>   ifadenin `status = 'unassigned'`'ına kalıyor. Aynı mutasyon orada
+>   **deterministik KIRMIZI** (*"10 of 10 mounts succeeded"*).
+>
+> 🟡 **(I3) ROTA TÜRETİMİNİN ÖNEK SINIRI YAZILDI (kapatılmadı — ikinci durma
+> kuralı).** Başka bir önekte mount edilecek bir plaket yazması ağdan kaçar. Her
+> POST'a genişletmek `/admin/login` ve `/admin/logout`'u içeri alır ve **rota başına
+> muafiyet listesi** gerektirir — bu görevde altı bulgunun konusu olan şeklin ta
+> kendisi. Sınırı yaşanabilir kılan şey yazıldı: bu bölümün **yedi href'inin yedisi
+> de** `locationsHref`'ten kuruluyor (grep'lendi), yani önekten çıkarmak testin kendi
+> paketindeki **görünür bir düzenleme**.
+>
+> 🟡 **(I4, yalnız yazıldı) ONAY JETONU HALEFE BAĞLI DEĞİL.** *"X'i değiştir"* onayı
+> X'i **herhangi bir** yedekle değiştirmeye yetiyor. Mekanizmanın beyan ettiği şeyle
+> (uyarı **X için** gösterildi mi) tutarlı, uyarı zaten X hakkında, hangi yedeğin
+> çıkacağı **aynı ekranda müdürün kendi seçimi**, ve halef yine doğrulanıyor +
+> aynı tenant + `unassigned`. Bağlamak payload'a ikinci bir özne (v4) koymayı
+> gerektirir ve bu kapının karşı karşıya olduğu aktöre karşı **hiçbir şey**
+> kazandırmaz. `plaqueactions.go`'ya yazıldı.
+>
+> 🟡 **(I5, yalnız yazıldı) T7'YE YENİ BİR OLGU — ve §4.6 kaybı.** `aes_key_ref`'i
+> 2 baytlık bir satır kartta **"Encoded by Tappa"** gösteriyor; o plakete NFC tap →
+> **500** ve `transactions`'a **hiçbir satır yazılmıyor** (sayaç ilerlemiyor). Yani
+> gap yalnız kartta yanlış bir kelime değil, **tap yolunda kaydın kaybolması**.
+> **Panelin kusuru değil** (panel öyle bir satır yaratamaz, `tags`'a INSERT yok, ve
+> onaramaz), ama yanıltıcı kelimenin **üretildiği yere** — `keyStateOf`'un yanına —
+> ölçümüyle yazıldı ki T7'yi kapatan kişi maliyetin tamamını tek yerde bulsun.
+>
+> ⚠️ **VE BAŞKA BİR GÖREVİN TELİ BENİM DÜZYAZIMI İKİ KEZ YAKALADI.** M6-05'in
+> `TestComments_DoNotQuoteTheDriftingRosterSize` teli, *"tenant"* kelimesinin hemen
+> ardından parantez içinde dört haneli bir sayı gelmesini **rezerve ediyor** — çünkü
+> bu, sürüklenen bir kadro sayısının aldığı şekil. I1'in ölçümünü önce **kodda**, sonra
+> **bu kartta** tam o şekilde yazdım; bütçe iki kez **6 → 7** oldu.
+> - **Doğru cevap teli gevşetmek değildi:** M6-05 bir genişletmeyi **30 meşru ölçümü**
+>   işaretlediği için geri almıştı, ve *"meşru düzyazıda ateşleyen bir tel, bir
+>   sonrakinin sildiği teldir"* o dosyanın kendi cümlesi.
+> - **İkincisi daha öğretici:** yasak şekli **ALINTILAYARAK** açıklamak da onu taşır —
+>   `employees_test.go`'nun kendini taramadan muaf tutmasının sebebi bu, ve skill
+>   `tappa-brand`'in Tailwind sınıfları için yazdığı kural aynı: **şekli tarif et,
+>   yazma.** Bu paragraf artık öyle yazılmıştır.
+> - Bütçe **6**'ya döndü ve bu turun eklediği **hiçbir dosya** rezerve şekillerin
+>   hiçbirini taşımıyor (kendi tarayıcımla, testin kendi regexp'iyle kontrol edildi).
+>
+> **2335 PASS / 0 FAIL / 0 SKIP · 16 paket · iki ardışık koşu (171 / 181 sn)** ·
+> `-short` skip **3** · `fmt`/`gen`/`lint`/`audit` **exit 0**, tarayıcı
+> **dokunulmamış** · `make simulate-day` **PASS** · `app.css` **diff yok** ·
+> migration dizini **dokunulmamış** · `advanceTagCounter` sabiti **HEAD ile bayt bayt
+> aynı** (359 B, sha256 `bfb75e9d…`) ve `AdvanceTagCounter` gövdesi de.
+
 ---
 
 ## M6-07 — Reports ve CSV export

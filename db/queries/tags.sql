@@ -52,8 +52,8 @@ RETURNING t.uid, (t.last_ctr - prev.old_ctr - 1)::integer AS ctr_gap;
 -- 🔴 THERE IS NO INSERT HERE, AND THAT IS THE DECISION, NOT AN OMISSION. Creating
 -- a plaque means holding its AES key, and the key never passes through the panel
 -- (section 4.7, Q06: the key is produced by the M8-05 runbook). The row is loaded
--- by an operator as tappa_owner. The panel's whole vocabulary is: list, read,
--- bind, retire.
+-- by an operator as tappa_owner. The panel's whole vocabulary is: list, read, bind,
+-- UN-bind and retire -- never create and never delete.
 --
 -- 🔴 AND aes_key_ref IS IN NO COLUMN LIST BELOW. It is a KEK-wrapped envelope,
 -- useless without the KEK, but useless-if-stolen is not a reason to hand it to a
@@ -261,3 +261,41 @@ FROM transactions x
 WHERE x.tenant_id = @tenant_id
   AND x.tag_uid IS NOT NULL
 GROUP BY x.tag_uid;
+
+-- name: UnmountTagFromWall :one
+-- UN-BIND: take a plaque off its wall and put it back in stock.
+--
+-- 🔴 IT EXISTS BECAUSE MOUNTING WAS OTHERWISE IRREVERSIBLE, AND TWO SHIPPED COMMENTS
+-- CLAIMED THE OPPOSITE WITH A "MEASURED" LABEL ON THEM. An audit drove it: a plaque
+-- mounted at the wrong entrance could not be moved, could not be returned to stock,
+-- and — with no spare in the box — its card offered NOTHING at all. Meanwhile every
+-- tap at that door was judged against the WRONG venue's IP and coordinate, so it
+-- reached section 5 row 7 and landed in the approval queue. The schema always
+-- permitted the reverse; the product simply had no statement for it.
+--
+-- BOTH COLUMNS MOVE IN ONE STATEMENT, for the same reason AssignTagToLocation's two
+-- do: 00013's CHECKs bind them. tags_active_requires_location forbids an active row
+-- without a location and tags_unassigned_has_no_location forbids an unassigned row
+-- with one, so "clear the wall" and "return it to stock" cannot be two statements —
+-- the schema refuses the intermediate state, which is the point.
+--
+-- `status = 'active'` IN THE WHERE, the section 4.4 shape applied to a third column:
+-- two managers pressing at once produce ONE winner and one pgx.ErrNoRows, with no
+-- read-then-write window. A second press matches nothing, so "already off the wall"
+-- is distinguishable from "just taken off" rather than silently re-writing the row.
+--
+-- 🔴 IT IS NOT A RETIREMENT AND MUST NOT BECOME ONE. retired_at and replaced_by are
+-- untouched: this plaque is going back in the box to be mounted somewhere else, not
+-- leaving service. The audit answer "when did this plaque leave the wall for good"
+-- belongs to RetireTagForReplacement and stays there.
+--
+-- last_ctr IS NOT TOUCHED, so 00013's tags_counter_monotonic trigger never fires —
+-- it is armed only on a BACKWARDS move (RetireTagForReplacement carries the same
+-- note, and the same earlier proposal would have refused this statement too).
+UPDATE tags
+SET location_id = NULL,
+    status = 'unassigned'
+WHERE tenant_id = @tenant_id
+  AND uid = @uid
+  AND status = 'active'
+RETURNING uid, tenant_id, location_id, last_ctr, status, retired_at, replaced_by, created_at;

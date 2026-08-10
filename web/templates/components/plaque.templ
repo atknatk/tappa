@@ -1,0 +1,310 @@
+package components
+
+// PlaqueRow renders one wall plaque as the kitchen docket (M6-06 phase B).
+//
+// 🔴 IT IS A DOCKET AND NOT A TABLE ROW, the last line of skill tappa-brand's
+// "Yapma" list — and a plaque list is the most tempting grid in the whole panel,
+// because every row really is five short attributes. The motif is what the product
+// is recognised by, so it is written out here rather than dropped for a table.
+//
+//	┌─◠─◠─◠─◠─◠─◠─◠─◠─◠─┐
+//	│ 04AC7E55000601     │
+//	│ IN SERVICE         │
+//	│ WALL  KF ST JULIANS│
+//	│ READS 641          │
+//	│ SEEN  14:03        │
+//	└─◡─◡─◡─◡─◡─◡─◡─◡─◡─┘
+//
+// 🔴 EVERY NUMBER IS MONO AND SO IS THE UID. The counter, the last-seen stamp and
+// the chip id are data; skill tappa-brand's rule is that a data cell which is not
+// mono is wrong, and the plaque id is the value a manager compares against the one
+// printed on the wall.
+//
+// 🔴 NO STAMP. VenueRow argues it and it holds here too: a rubber stamp is a
+// VERDICT the decision engine reached about a tap, and a plaque's lifecycle is not
+// a judgement of anything. The status is a labelled word.
+//
+// 🔴 SECTION 4.7: THERE IS NO KEY ON THIS CARD AND NOTHING THAT STANDS IN FOR ONE.
+// The "Key" field prints the encoded/pending STATE, derived from whether the plaque
+// has a wall; components/plaqueview.go states exactly what backs that word and what
+// does not. The view model has no field a key could arrive in.
+//
+// ⚠️ THE UTILITY CLASSES ARE DESCRIBED RATHER THAN NAMED in the prose here, on
+// purpose: the Tailwind CLI scans this file as raw text and its candidate extractor
+// is case-sensitive, so a utility name written in a COMMENT compiles a live CSS rule
+// nothing renders. Measured five times in this repository.
+templ PlaqueRow(p PlaqueRowView) {
+	<article class="docket">
+		<div class="flex items-start justify-between gap-3">
+			<div class="min-w-0">
+				<p class="docket-label">Plaque</p>
+				<p class="truncate font-mono text-base font-bold text-ink">{ p.UID }</p>
+			</div>
+			<div class="shrink-0 text-right">
+				if p.OpenHref != "" {
+					<a class="btn btn--quiet" href={ templ.URL(p.OpenHref) }>Open</a>
+				}
+			</div>
+		</div>
+		if p.Frozen {
+			// 🔴 A CONTROL THAT COULD ONLY FAIL IS NOT OFFERED, AND THE REASON IS SAID
+			// PLAINLY. This row's id was written in a spelling migration 00013 no longer
+			// accepts, so the database refuses every UPDATE to it. It exists only in
+			// development databases; production has none.
+			<div class="mt-3 border-l-4 border-saffron bg-saffron-lite px-3 py-2">
+				<p class="font-display text-sm font-bold tracking-tight text-ink">This one cannot be changed</p>
+				<p class="mt-1 text-xs text-ink/85">
+					Its id was recorded in a spelling this system no longer accepts, so nothing
+					can be written to it. It is shown because it exists — it cannot be mounted,
+					replaced or retired.
+				</p>
+			</div>
+		}
+		<dl class="mt-3 grid grid-cols-2 gap-x-4 gap-y-2">
+			<div>
+				<dt class="docket-label">Status</dt>
+				<dd class="font-display text-sm font-bold tracking-tight text-ink">{ p.Status }</dd>
+			</div>
+			<div>
+				<dt class="docket-label">Wall</dt>
+				<dd class="text-sm text-ink">
+					if p.Venue != "" {
+						{ p.Venue }
+					} else if p.VenueUnknown {
+						// 🔴 MOUNTED, BUT WE COULD NOT NAME THE WALL. Saying "not mounted"
+						// here would be false about a plaque that is in service, which is
+						// worse than saying we could not read it.
+						<span class="text-ink/70">Venue could not be read</span>
+					} else {
+						// 🔴 "None" WOULD READ AS A FAULT. A plaque with no wall is INVENTORY —
+						// Tappa encoded it and loaded it, and nobody has decided which door it
+						// goes on yet. That is the whole inventory model (00013, part 3).
+						<span class="text-ink/70">Not mounted yet</span>
+					}
+				</dd>
+			</div>
+			<div>
+				<dt class="docket-label">Chip reads</dt>
+				<dd class="font-mono text-sm text-ink">{ p.Counter }</dd>
+			</div>
+			<div>
+				<dt class="docket-label">Last seen</dt>
+				<dd class="font-mono text-sm text-ink">
+					if p.LastSeen != "" {
+						{ p.LastSeen }
+					} else {
+						// 🔴 "NEVER" IS A MEASURED ANSWER, NOT A BLANK. The last-seen query
+						// returns no row at all for a plaque that has not been tapped, so this
+						// says what the database said rather than showing an empty cell a reader
+						// would take for "we did not look".
+						<span class="text-ink/70">Never tapped</span>
+					}
+				</dd>
+			</div>
+			<div class="col-span-2">
+				<dt class="docket-label">Key</dt>
+				<dd class="text-sm text-ink">{ p.KeyState }</dd>
+			</div>
+			<div class="col-span-2">
+				// 🔴 THE HISTORY IS ALWAYS SHOWN, EVEN WHEN IT IS ONE LINE. The M6-06
+				// card asks for a visible tag history, and "Tappa loaded this on the 3rd
+				// and nothing has happened since" IS the history of most plaques. A block
+				// that appeared only for replaced ones would make the ordinary case look
+				// like the product had not recorded anything.
+				<dt class="docket-label">History</dt>
+				<dd class="font-mono text-sm text-ink">
+					<span class="mr-3 inline-block">Loaded { p.Loaded }</span>
+					if p.Replaces != "" {
+						<span class="mr-3 inline-block">Took over from { p.Replaces }</span>
+					}
+					if p.RetiredAt != "" {
+						<span class="mr-3 inline-block">Retired { p.RetiredAt }</span>
+					}
+					if p.ReplacedBy != "" {
+						// 🔴 THE OLD ROW IS STILL HERE AND SO IS ITS SUCCESSOR'S ID — the
+						// card's "the old row is not deleted" criterion, made readable. The
+						// database refuses a DELETE on this table outright, so the chain
+						// cannot be broken from the application at all.
+						<span class="mr-3 inline-block">Replaced by { p.ReplacedBy }</span>
+					}
+				</dd>
+			</div>
+		</dl>
+	</article>
+}
+
+// PlaqueCard is the one plaque a manager opened: the same detail, plus the single
+// act available on it.
+//
+// 🔴 ONE ARM PER MODE AND A DEFAULT THAT OFFERS NOTHING — the shape Removal already
+// holds for venues. The modes are enumerated at components.PlaqueFormView.Mode and
+// nowhere else; the switch below has an arm for each, and anything it does not know
+// falls to the default, which offers NO control and says why.
+//
+// ⚠️ THIS PARAGRAPH SAID "THREE STATES AND NO FOURTH" AND NAMED A MODE ("replace")
+// THAT DOES NOT EXIST — the switch had four arms by then and the replacement form
+// lives under "onwall". A comment that counts a set the code owns goes stale in the
+// edit that grows the set; this one went stale and wrong in the same round.
+templ PlaqueCard(v PlaqueFormView) {
+	<section class="docket" aria-label={ v.Heading }>
+		<p class="docket-label">Plaque</p>
+		<h2 class="font-mono text-lg font-bold text-ink">{ v.Heading }</h2>
+		if v.ErrorMessage != "" {
+			@Notice(ToneWarn, "Nothing was changed") {
+				<p>{ v.ErrorMessage }</p>
+			}
+		}
+		@PlaqueRow(v.Plaque)
+		if len(v.Trail) > 0 {
+			// 🔴 THE AUDIT HALF OF THE HISTORY, AND IT ANSWERS THE ONE QUESTION THE ROW
+			// CANNOT. The docket above already says WHAT happened and WHEN — loaded, took
+			// over from, retired, replaced by — all of it read off the `tags` row, which
+			// has no actor column and never will. "Who took this plaque off the wall?" is
+			// what a manager arrives with when a door has stopped working, and only
+			// audit_log can answer it. Two sources, two jobs.
+			<div class="mt-4 border-t border-ink/15 pt-4">
+				<p class="docket-label">Who did what</p>
+				<ul class="mt-2 flex flex-col gap-1">
+					for _, e := range v.Trail {
+						<li class="font-mono text-sm text-ink">
+							{ e.What } { e.When }
+							if e.Who != "" {
+								{ " · " }{ e.Who }
+							} else if e.BySystem {
+								// audit_log.actor_id is nullable — the column is polymorphic and
+								// holds NULL for SYSTEM events. Saying so beats a blank a reader
+								// would take for "nobody knows".
+								<span class="text-ink/70">{ " · by the system" }</span>
+							} else {
+								// 🔴 AN ADMIN WITH NO NAME IS NOT THE SYSTEM. full_name is
+								// `text NOT NULL` with no non-blank CHECK, so "" is storable —
+								// and calling that act the product's would misattribute it in
+								// the one place a manager comes to ask who did this.
+								<span class="text-ink/70">{ " · by an administrator with no name set" }</span>
+							}
+						</li>
+					}
+				</ul>
+			</div>
+		}
+		switch v.Mode {
+			case "mount":
+				<form method="post" action={ templ.URL(v.Action) } class="mt-4 flex flex-col gap-4">
+					<input type="hidden" name="uid" value={ v.Plaque.UID }/>
+					<div class="filter-field">
+						<label class="docket-label" for="plaque-venue">Mount it at</label>
+						<select class="filter-input" id="plaque-venue" name="location_id" aria-describedby="plaque-venue-help">
+							for _, o := range v.Venues {
+								<option value={ o.Value }>{ o.Label }</option>
+							}
+						</select>
+						<p id="plaque-venue-help" class="mt-1 text-xs text-ink/85">
+							The entrance this plaque is screwed to. From then on, a tap on it is a tap
+							at that place — its address ranges and coordinate are what the tap is
+							checked against.
+						</p>
+					</div>
+					<div class="filter-actions">
+						<button type="submit" class="btn btn--primary">{ v.Submit }</button>
+						<a class="btn btn--quiet" href={ templ.URL(v.CloseHref) }>Cancel</a>
+					</div>
+				</form>
+			case "onwall":
+				// 🔴 TWO SHAPES UNDER ONE MODE: a plaque in service can always be taken
+				// DOWN (the link below the switch), and can be REPLACED only when there is
+				// a spare to put up. With no spare the card says so and still offers the
+				// way out — before that it said "ask us for one" and offered nothing,
+				// which sent a manager to us for a plaque they already had on the wrong
+				// door.
+				if len(v.Successors) > 0 {
+					<div class="mt-4 border-l-4 border-tomato bg-paper px-3 py-2">
+						// 🔴 THE WARNING IS PART OF THE CARD, and the server minted a
+						// confirmation to render it (internal/handler/plaques.go says why it is
+						// one screen rather than two). Pressing the button below is what spends
+						// it; nothing else can.
+						<p class="font-display text-sm font-bold tracking-tight text-ink">
+							This takes { v.Plaque.UID } off the wall
+						</p>
+						<p class="mt-1 text-xs text-ink/85">
+							From the moment you press this, a tap on the old plaque is REJECTED — so
+							take it down and put the new one up. We cannot put it back for you: its
+							record is kept, but there is no undo button here. Nothing that already
+							happened at this door changes.
+						</p>
+					</div>
+					<form method="post" action={ templ.URL(v.Action) } class="mt-4 flex flex-col gap-4">
+						<input type="hidden" name="uid" value={ v.Plaque.UID }/>
+						<input type="hidden" name={ v.ConfirmField } value={ v.ConfirmToken }/>
+						<div class="filter-field">
+							<label class="docket-label" for="plaque-successor">Replace it with</label>
+							<select class="filter-input font-mono" id="plaque-successor" name="successor" aria-describedby="plaque-successor-help">
+								for _, o := range v.Successors {
+									<option value={ o.Value }>{ o.Label }</option>
+								}
+							</select>
+							<p id="plaque-successor-help" class="mt-1 text-xs text-ink/85">
+								// 🔴 THE WALL IS NOT A CONTROL HERE AND THE SENTENCE SAYS WHY. A
+								// replacement is the same door with a different plaque, so the venue is
+								// read from the plaque coming off. Asking for it again would be a second
+								// chance to send the new plaque somewhere else.
+								The new plaque goes on the same wall as this one. The old one stops working
+								the moment you press this — taps on it are rejected — and its record stays,
+								so nothing that already happened there is lost.
+							</p>
+						</div>
+						<div class="filter-actions">
+							<button type="submit" class="btn btn--primary">{ v.Submit }</button>
+							<a class="btn btn--quiet" href={ templ.URL(v.CloseHref) }>Cancel</a>
+						</div>
+					</form>
+				} else if v.Blocked != "" {
+					<p class="mt-4 text-xs text-ink/85">{ v.Blocked }</p>
+				}
+			case "unmount":
+				// 🔴 THE UNDO OF A MOUNT, AND IT IS A SEPARATE STEP RATHER THAN A SECOND
+				// BUTTON ON THE CARD ABOVE. The confirmation cookie is one per browser, so
+				// a card carrying two armed forms would leave whichever one the manager
+				// did not submit unusable — a control that can only fail.
+				<div class="mt-4 border-l-4 border-saffron bg-saffron-lite px-3 py-2">
+					<p class="font-display text-sm font-bold tracking-tight text-ink">
+						Take { v.Plaque.UID } off the wall?
+					</p>
+					<p class="mt-1 text-xs text-ink/85">
+						It goes back into stock, ready to mount somewhere else — nothing is
+						retired and no spare is used. Until you mount something at
+						{ v.Plaque.Venue }, a tap there is REJECTED, so do this when you have the
+						plaque in your hand.
+					</p>
+					<form method="post" action={ templ.URL(v.Action) } class="filter-actions mt-3">
+						<input type="hidden" name="uid" value={ v.Plaque.UID }/>
+						<input type="hidden" name={ v.ConfirmField } value={ v.ConfirmToken }/>
+						<button type="submit" class="btn btn--quiet">{ v.Submit }</button>
+						<a class="btn btn--quiet" href={ templ.URL(v.CloseHref) }>Leave it up</a>
+					</form>
+				</div>
+			default:
+				if v.Blocked != "" {
+					<p class="mt-4 text-xs text-ink/85">{ v.Blocked }</p>
+				}
+				<div class="filter-actions mt-3">
+					<a class="btn btn--quiet" href={ templ.URL(v.CloseHref) }>Close</a>
+				</div>
+		}
+		if v.UnmountHref != "" && v.Mode != "unmount" {
+			// 🔴 ALWAYS ON OFFER FOR A MOUNTED PLAQUE, WITH OR WITHOUT A SPARE. "It is on
+			// the wrong door" is a real state, and before this the card answered it with
+			// "ask us for a spare" — sending a manager to us for something they already
+			// had, while every tap at that door was measured against the wrong venue.
+			<div class="mt-4 border-t border-ink/15 pt-4">
+				<p class="docket-label">On the wrong door?</p>
+				<p class="mt-1 text-xs text-ink/85">
+					Take it off the wall and it goes back into stock, ready to mount where it
+					belongs. Nothing is retired and no spare is spent.
+				</p>
+				<a class="btn btn--quiet mt-2 inline-block" href={ templ.URL(v.UnmountHref) }>
+					Take it off the wall…
+				</a>
+			</div>
+		}
+	</section>
+}

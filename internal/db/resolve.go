@@ -63,28 +63,30 @@ import (
 type ResolvedTag struct {
 	UID      string
 	TenantID uuid.UUID
-	// LocationID is the wall this plaque is mounted at.
+	// LocationID is the wall this plaque is mounted at, or nil for a plaque that is
+	// NOT MOUNTED (inventory/stock -- migration 00013's model).
 	//
-	// 🔴 uuid.Nil HERE MEANS "NOT MOUNTED", NOT "location zero". Migration 00013
-	// made tags.location_id NULLABLE for the inventory model (a plaque Tappa has
-	// encoded and loaded but nobody has bound to a venue yet), and pgx scans SQL
-	// NULL into a uuid.UUID as uuid.Nil WITHOUT AN ERROR -- measured on the pinned
-	// driver: `SELECT NULL::uuid` into uuid.UUID gives err=nil, value
+	// 🔴 IT IS A POINTER BECAUSE THE COLUMN IS NULLABLE AND THE DRIVER WILL NOT SAY
+	// SO. Measured on the pinned driver (pgx v5.10.0): `SELECT NULL::uuid` scanned
+	// into a uuid.UUID gives err=nil and the value
 	// 00000000-0000-0000-0000-000000000000, while the same scan into [16]byte
-	// fails. Of the five hand-written resolvers this is the ONLY struct with a
-	// column that can be NULL.
+	// FAILS. So with a flat uuid.UUID a stock plaque arrived here looking like a
+	// plaque mounted at "location zero", and nothing anywhere could tell the two
+	// apart. Of the five hand-written resolvers this is the ONLY struct with a
+	// column that can be NULL, which is why it is the only one that needed this.
 	//
-	// SO DO NOT READ THIS FIELD AS A VENUE WITHOUT CHECKING Status FIRST. A reader
-	// who writes `if tag.LocationID != uuid.Nil` is treating stock as a real place;
-	// a reader who passes it straight to a venue lookup gets pgx.ErrNoRows, which
-	// the tap path already handles as "no evidence to judge against" (fail-closed,
-	// and section 5 row 1 refuses the tap before that matters -- sys:tag-not-active
-	// asks for `active`, so every other status is denied).
+	// ⚠️ IT WAS FLAT UNTIL M6-06 PHASE B AND THE COMMENT HERE CARRIED THE MEANING
+	// INSTEAD -- "uuid.Nil here means NOT MOUNTED". That is the shape this
+	// repository keeps paying for: a value that is silently valid, comparable and
+	// wrong, with a paragraph asking the next reader to remember. The type now says
+	// it, and a caller that wants a venue id has to decide what to do about nil.
 	//
-	// IT IS DELIBERATELY NOT *uuid.UUID YET. Changing the type ripples into the
-	// handler layer and belongs to the round that builds the plaque screens; the
-	// meaning is written here so the first reader does not have to infer it.
-	LocationID uuid.UUID
+	// WHAT THE CHANGE DID NOT ALTER, measured rather than assumed: the tap path
+	// behaves identically. A nil here reaches GetLocationForTap as "no location",
+	// which answers no row, which the caller already handles as "no evidence to
+	// judge against" -- and section 5 row 1 refuses the tap before that matters,
+	// because sys:tag-not-active asks for `active` and every other status is denied.
+	LocationID *uuid.UUID
 	AESKeyRef  []byte
 	LastCtr    int32
 	Status     string

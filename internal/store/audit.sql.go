@@ -90,6 +90,128 @@ func (q *Queries) ConfirmRecentRemoval(ctx context.Context, arg ConfirmRecentRem
 	return removed_name, err
 }
 
+const listPlaqueHistory = `-- name: ListPlaqueHistory :many
+SELECT a.action, a.at, coalesce(u.full_name, '')::text AS actor_name,
+       (a.actor_id IS NULL)::boolean AS by_system
+FROM audit_log a
+LEFT JOIN admin_users u ON u.id = a.actor_id AND u.tenant_id = $1
+WHERE a.tenant_id = $1
+  AND a.target = $2::text
+  AND a.action LIKE 'plaque.%'
+ORDER BY a.at DESC
+LIMIT $3::int
+`
+
+type ListPlaqueHistoryParams struct {
+	TenantID uuid.UUID
+	Target   string
+	RowLimit int32
+}
+
+type ListPlaqueHistoryRow struct {
+	Action    string
+	At        time.Time
+	ActorName string
+	BySystem  bool
+}
+
+// WHO did WHAT to this plaque, and WHEN -- the audit half of M6-06's "tag history is
+// visible (audit)" criterion.
+//
+// 🔴 IT EXISTS BECAUSE THE `tags` ROW CANNOT ANSWER THE MANAGER'S ACTUAL QUESTION.
+// The row carries created_at, retired_at and the replaced_by chain, so the screen can
+// already say WHAT happened and WHEN. It has no actor column and never will -- 00004
+// gave it none -- so "who took this plaque off the wall?" is answerable only from the
+// trail internal/domain/tenant writes with audit.RecordTx inside the write's own
+// transaction. A history that shows the change but not the person is the half that
+// matters least when something has gone wrong at a door.
+//
+// 🔴 THE ACTION FILTER IS A PREFIX AND THAT IS DELIBERATE. `plaque.%` covers
+// plaque.mounted and plaque.retired today and covers whatever the next plaque act is
+// called on the day it is added -- the same reason venue.go's header gives for
+// `action LIKE 'location.%'`. A hand-listed pair would silently stop describing the
+// product the moment a third act shipped.
+//
+// 🔴 @target IS CAST EXPLICITLY, for ConfirmRecentRemoval's measured reason:
+// audit_log.target is nullable by schema (00005), so without the cast sqlc infers the
+// PARAMETER as nullable and emits *string -- and a nil would then match every row
+// with no single subject, i.e. this plaque's history would include acts on nothing.
+//
+// 🔴 THE ACTOR'S NAME IS JOINED, NOT STORED IN `detail`. A name in the trail row
+// would be the name at the time of writing and would drift from the person; the join
+// answers "who is this now", which is what a manager chasing a door needs. LEFT JOIN
+// because actor_id is nullable (00005: the column is polymorphic and holds NULL for
+// SYSTEM events) -- a system-written act must still appear, with no name rather than
+// with no row. Both sides of the join carry @tenant_id: section 4.5's belt asks the
+// SUBJECT's scope column to be bound, and binding the joined table's as well means a
+// future edit cannot turn this into a cross-tenant name lookup.
+//
+// coalesce(..., ”)::text RATHER THAN A BARE COLUMN, and it is about the scan: a
+// LEFT JOIN's right side is NULL for a SYSTEM event, and a non-nullable Go string
+// would fail to scan on exactly the row this query must not drop.
+//
+// 🔴 by_system IS A SEPARATE COLUMN BECAUSE AN EMPTY NAME HAS TWO CAUSES AND THEY ARE
+// DIFFERENT SENTENCES. admin_users.full_name is `text NOT NULL` with NO non-blank
+// CHECK, so ” is a storable name; actor_id is nullable and holds NULL for SYSTEM
+// events. Reading "" as "the system did it" would attribute a NAMELESS ADMIN'S act to
+// the product — an attribution error in the one place a manager goes to ask who
+// changed the plaque on their door. The screen now says "by the system" only when the
+// ROW says so.
+//
+// 🔴 @row_limit BOUNDS THE OUTPUT, NOT THE WORK, AND THE DIFFERENCE IS THE WHOLE
+// COST OF THIS QUERY. A plaque's history is three rows at most; the SCAN is over
+// every audit row the TENANT has, and audit_log is append-only with no retention job
+// (backlog T6/T13), so the cost grows with the business's age rather than with the
+// plaque's.
+//
+// MEASURED 2026-08-10, with its population as this repo's rule requires -- tenant
+// 10000000-...-0001, 2 566 audit rows of 63 624 in a 19 MB relation, asked for a
+// plaque with NO history (the worst case, because nothing short-circuits):
+//
+//	Bitmap Index Scan on audit_log_tenant_at_idx (2 566 rows, 25 buffers)
+//	  -> Bitmap Heap Scan on audit_log, Rows Removed by Filter: 2 566,
+//	     Heap Blocks: exact=1 039, Buffers: shared hit=1 064
+//	Execution Time: 4.174 ms, rows returned: 0
+//
+// So the tenant predicate is indexed and the `target`/`action` predicates are not:
+// every row of the tenant is fetched and thrown away. At 2 566 rows that is ~4 ms and
+// invisible; the shape is LINEAR in the tenant's audit history, and a manager may
+// open adminSessionLimit (300 per 10 minutes) cards.
+//
+// ⚠️ NO INDEX IS ADDED HERE, deliberately: an index is a MIGRATION, 00013 was this
+// phase's slot and it is spent (CLAUDE.md section 6 -- an applied migration is not
+// edited). The candidate is (tenant_id, target) or (tenant_id, action, target); it is
+// recorded in the backlog rather than smuggled in, and M6-07's reports will want
+// audit indexes too, so the two are cheaper measured together.
+//
+// THE LIMIT STAYS ANYWAY. It bounds what crosses the wire and what a template
+// renders, which is the half a row cap can actually give -- an unbounded read is what
+// M6-03 measured at 867 KB and removed.
+func (q *Queries) ListPlaqueHistory(ctx context.Context, arg ListPlaqueHistoryParams) ([]ListPlaqueHistoryRow, error) {
+	rows, err := q.db.Query(ctx, listPlaqueHistory, arg.TenantID, arg.Target, arg.RowLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListPlaqueHistoryRow{}
+	for rows.Next() {
+		var i ListPlaqueHistoryRow
+		if err := rows.Scan(
+			&i.Action,
+			&i.At,
+			&i.ActorName,
+			&i.BySystem,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const recordAuditEvent = `-- name: RecordAuditEvent :one
 
 INSERT INTO audit_log (tenant_id, actor_id, action, target, detail)

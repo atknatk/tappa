@@ -128,10 +128,24 @@ import (
 const (
 	adminConfirmKeyLabel = "tappa/admin-deactivate-confirm/key/v1"
 	adminConfirmMACLabel = "tappa/admin-deactivate-confirm/mac/v1"
-	// VERSION 2 ADDS THE ACTION BINDING. A version-1 value carries four fields and
-	// no action; parse refuses it as malformed rather than repairing it, which costs
-	// at most one re-press inside a ten-minute window at deploy time.
-	adminConfirmVersion = "2"
+	// VERSION 2 ADDED THE ACTION BINDING; VERSION 3 WIDENS THE SUBJECT FROM A uuid TO
+	// AN OPAQUE STRING. Both older payloads are refused as malformed rather than
+	// repaired, which costs at most one re-press inside a ten-minute window at deploy
+	// time.
+	//
+	// 🔴 WHY THE SUBJECT HAD TO WIDEN (M6-06 phase B). A wall plaque's identity is its
+	// 14-hex chip uid, not a uuid — so gating "replace this plaque" needed either a
+	// SECOND confirmation primitive or this one field loosened. This repository has
+	// half-copied a security shape FOUR times; loosening one field of the shipped
+	// mechanism is the cheaper mistake, and it is a widening of the DOMAIN, not of the
+	// guarantee: the subject is still authenticated, still inside the MAC, still
+	// length-prefixed, and still compared in constant time.
+	//
+	// ⚠️ THE ONE PROPERTY THE uuid TYPE USED TO GIVE FOR FREE was that a subject could
+	// never contain the separator. That is now a CHECK rather than a type
+	// (mint refuses a subject containing "|"), because the payload's fields are split
+	// back by that character.
+	adminConfirmVersion = "3"
 )
 
 // The actions a confirmation can authorise. They are CONSTANTS rather than free text
@@ -141,6 +155,34 @@ const (
 	confirmActionDeactivate       = "employee.deactivate"
 	confirmActionDeleteVenue      = "location.delete"
 	confirmActionDeleteDepartment = "department.delete"
+	// 🔴 REPLACING A WALL PLAQUE (M6-06 phase B). It is gated for a reason phase A's
+	// two are NOT gated for: nothing is destroyed — 00004 revokes DELETE on `tags`
+	// and every column the act writes is schema-reversible (measured) — but the
+	// PRODUCT ships no route that reverses it, so a mis-pressed replacement leaves an
+	// entrance where every tap is refused (§5 row 1) until somebody physically swaps
+	// the plaque. "The row survives" and "the manager can undo it" are different
+	// sentences, and this gate answers the second.
+	//
+	// ⚠️ MOUNTING IS NOT GATED, AND THAT SENTENCE ONLY BECAME TRUE WHEN THE UNDO PATH
+	// SHIPPED. It used to say "nothing stops taking it off again in the same statement
+	// the schema already permits" with a "measured" label on it, and an audit drove
+	// the opposite: the schema permitted it, the PRODUCT had no statement for it, so a
+	// plaque mounted at the wrong door could not be moved, could not go back to stock,
+	// and with no spare in the box its card offered nothing at all. UnmountTagFromWall
+	// is that statement. A mount is now undone in one press, with no spare spent —
+	// which is why it needs no warning and the un-mount does.
+	// TestPlaqueWrites_MountNeedsNoConfirmationAndReplaceDoes pins every half, and it
+	// asserts on the CONFIRMATION COOKIE rather than on the rendered form: an audit
+	// made the card mint a token without rendering one and the whole suite stayed
+	// green.
+	confirmActionReplacePlaque = "plaque.replace"
+	// 🔴 TAKING A PLAQUE OFF A WALL. It is gated for the SAME reason a replacement is,
+	// and NOT for the reason a mount is not: a plaque off the wall is `unassigned`, so
+	// §5 row 1 refuses every tap at that door until something is mounted there. The
+	// act is fully reversible — mount it again, no spare spent — but the DOOR is out
+	// of service while it lasts, and that is a thing a manager should be asked about
+	// once.
+	confirmActionUnmountPlaque = "plaque.unmount"
 )
 
 // adminConfirmTTL is how long a rendered warning stays spendable.
@@ -196,12 +238,12 @@ func (c adminConfirm) clock() time.Time {
 // The separators are '|' and the fields are a single digit, a decimal timestamp and
 // two UUIDs — none of which can contain one, so splitting back is unambiguous with no
 // escaping. Same reasoning as adminChoices.payload, and the same shape.
-func (c adminConfirm) payload(issuedAt time.Time, action string, subjectID, sessionID uuid.UUID) string {
+func (c adminConfirm) payload(issuedAt time.Time, action, subject string, sessionID uuid.UUID) string {
 	return strings.Join([]string{
 		adminConfirmVersion,
 		strconv.FormatInt(issuedAt.Unix(), 10),
 		action,
-		subjectID.String(),
+		subject,
 		sessionID.String(),
 	}, "|")
 }
@@ -229,11 +271,11 @@ func (c adminConfirm) sign(payload string) []byte {
 // session would authorise a deactivation of anybody by anybody. Both are errors
 // rather than defaults, which is adminChoices' rule: where a type has no safe zero
 // value, the zero value must fail loudly.
-func (c adminConfirm) mint(action string, subjectID, sessionID uuid.UUID) (string, error) {
+func (c adminConfirm) mint(action, subject string, sessionID uuid.UUID) (string, error) {
 	if len(c.key) == 0 {
 		return "", errors.New("handler: the deactivation confirmation was not configured")
 	}
-	if subjectID == uuid.Nil || sessionID == uuid.Nil {
+	if subject == "" || sessionID == uuid.Nil {
 		return "", errors.New("handler: refusing to sign a confirmation with no binding")
 	}
 	// AN EMPTY ACTION IS AS BAD AS AN EMPTY SUBJECT: it would sign a value every gate
@@ -241,7 +283,15 @@ func (c adminConfirm) mint(action string, subjectID, sessionID uuid.UUID) (strin
 	if action == "" {
 		return "", errors.New("handler: refusing to sign a confirmation with no action")
 	}
-	p := c.payload(c.clock().Truncate(time.Second), action, subjectID, sessionID)
+	// 🔴 THE SEPARATOR CHECK THE uuid TYPE USED TO MAKE UNNECESSARY. payload joins on
+	// "|" and parse splits on it, so a subject (or an action) carrying one would let
+	// two different bindings encode to the same five fields. Both are server-chosen
+	// today — a uuid string or a 14-hex uid — but "no caller does that" is the
+	// sentence this repository has watched stop being true twice.
+	if strings.Contains(subject, "|") || strings.Contains(action, "|") {
+		return "", errors.New("handler: refusing to sign a confirmation whose fields carry the separator")
+	}
+	p := c.payload(c.clock().Truncate(time.Second), action, subject, sessionID)
 	return base64.RawURLEncoding.EncodeToString([]byte(p)) + "." +
 		base64.RawURLEncoding.EncodeToString(c.sign(p)), nil
 }
@@ -269,11 +319,11 @@ var (
 // The signature comes before anything that interprets the payload, so no field of an
 // unauthenticated value is ever acted on. This is logincontext.go's order and
 // tapcontext.go's, kept deliberately identical so the three read as one pattern.
-func (c adminConfirm) parse(v, action string, subjectID, sessionID uuid.UUID) error {
+func (c adminConfirm) parse(v, action, subject string, sessionID uuid.UUID) error {
 	if len(c.key) == 0 {
 		return errors.New("handler: the deactivation confirmation was not configured")
 	}
-	if subjectID == uuid.Nil || sessionID == uuid.Nil || action == "" {
+	if subject == "" || sessionID == uuid.Nil || action == "" {
 		return errConfirmInvalid
 	}
 	encoded, sig, ok := strings.Cut(v, ".")
@@ -310,10 +360,7 @@ func (c adminConfirm) parse(v, action string, subjectID, sessionID uuid.UUID) er
 		return errConfirmInvalid
 	}
 	forAction := parts[2]
-	forEmployee, err := uuid.Parse(parts[3])
-	if err != nil {
-		return errConfirmInvalid
-	}
+	forSubject := parts[3]
 	forSession, err := uuid.Parse(parts[4])
 	if err != nil {
 		return errConfirmInvalid
@@ -339,7 +386,7 @@ func (c adminConfirm) parse(v, action string, subjectID, sessionID uuid.UUID) er
 	if !hmacEqualString(forAction, action) {
 		return errConfirmInvalid
 	}
-	if forEmployee != subjectID {
+	if !hmacEqualString(forSubject, subject) {
 		return errConfirmOtherPerson
 	}
 	return nil

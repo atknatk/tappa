@@ -621,6 +621,171 @@ func (f *fakeVenues) saved() ([]tenant.VenueCommand, []tenant.DepartmentCommand)
 	return v, d
 }
 
+// fakePlaques stands in for internal/domain/tenant.Plaques (M6-06 phase B).
+//
+// 🔴 WHAT IT CAN AND CANNOT PROVE, said here rather than discovered later. It can
+// prove what the SECTION does — which lists it builds, which control it offers,
+// which word it redirects with, how many trail lookups it makes. It cannot prove
+// anything about §4.5, about the retire and the bind sharing ONE transaction, or
+// about a CHECK constraint firing, because a fake accepts whatever it is told.
+// Those live in internal/domain/tenant/plaque_db_test.go, against real Postgres.
+//
+// 🔴 IT HAS NO KEY FIELD EITHER, and that is not decoration: if a test double
+// could carry an aes_key_ref, a screen test could pass while the production type
+// grew one. The wall is a property of the TYPES, so the double has to obey it too.
+type fakePlaques struct {
+	mu        sync.Mutex
+	screen    tenant.PlaqueScreen
+	screenErr error
+
+	// beyond is the by-uid fallback behind the capped list: rows that EXIST but are
+	// not in screen.Plaques. byUIDErr makes the fallback fail; byUIDCalls counts it,
+	// so a test can assert the fast path did NOT pay for a round trip.
+	beyond     map[string]tenant.Plaque
+	byUIDErr   error
+	byUIDCalls int
+
+	// mountErr / replaceErr are what the domain answers, so every refusal the
+	// section maps can be driven without a database.
+	mountErr   error
+	replaceErr error
+	unmountErr error
+	mounted    []tenant.MountCommand
+	replaced   []tenant.ReplaceCommand
+	unmounted  []tenant.UnmountCommand
+
+	// history is the audit trail the CARD reads, keyed by uid; historyCalls counts
+	// the query, because "the LIST pays nothing for it" is a claim about a NUMBER and
+	// a boolean could not see it.
+	history      map[string][]tenant.PlaqueEvent
+	historyErr   error
+	historyCalls int
+
+	// receipts is the trail C' reads, keyed "action|target"; confirmCalls counts the
+	// lookups so "the fast path pays nothing" is measured in QUERIES rather than in
+	// a flag.
+	receipts     map[string]tenant.RemovalReceipt
+	confirmErr   error
+	confirmCalls int
+	confirmSeen  [][4]string
+}
+
+func (f *fakePlaques) Screen(_ context.Context, _ uuid.UUID) (tenant.PlaqueScreen, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.screenErr != nil {
+		return tenant.PlaqueScreen{}, f.screenErr
+	}
+	return f.screen, nil
+}
+
+func (f *fakePlaques) Plaque(_ context.Context, _ uuid.UUID, uid string) (tenant.Plaque, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.byUIDCalls++
+	if f.byUIDErr != nil {
+		return tenant.Plaque{}, f.byUIDErr
+	}
+	if p, ok := f.beyond[uid]; ok {
+		return p, nil
+	}
+	return tenant.Plaque{}, tenant.ErrUnknownPlaque
+}
+
+func (f *fakePlaques) Mount(_ context.Context, c tenant.MountCommand) (tenant.Plaque, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.mounted = append(f.mounted, c)
+	if f.mountErr != nil {
+		return tenant.Plaque{}, f.mountErr
+	}
+	loc := c.LocationID
+	return tenant.Plaque{
+		UID: c.UID, Status: tenant.PlaqueActive, LocationID: &loc, Canonical: true,
+	}, nil
+}
+
+func (f *fakePlaques) Unmount(_ context.Context, c tenant.UnmountCommand) (tenant.Plaque, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.unmounted = append(f.unmounted, c)
+	if f.unmountErr != nil {
+		return tenant.Plaque{}, f.unmountErr
+	}
+	return tenant.Plaque{UID: c.UID, Status: tenant.PlaqueUnassigned, Canonical: true}, nil
+}
+
+func (f *fakePlaques) Replace(_ context.Context, c tenant.ReplaceCommand) (tenant.Replacement, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.replaced = append(f.replaced, c)
+	if f.replaceErr != nil {
+		return tenant.Replacement{}, f.replaceErr
+	}
+	return tenant.Replacement{
+		Retired: tenant.Plaque{UID: c.RetiringUID, Status: tenant.PlaqueRetired,
+			ReplacedBy: string(c.SuccessorUID), Canonical: true},
+		Mounted: tenant.Plaque{UID: string(c.SuccessorUID), Status: tenant.PlaqueActive,
+			Replaces: c.RetiringUID, Canonical: true},
+	}, nil
+}
+
+func (f *fakePlaques) History(_ context.Context, _ uuid.UUID, uid string) ([]tenant.PlaqueEvent, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.historyCalls++
+	if f.historyErr != nil {
+		return nil, f.historyErr
+	}
+	return f.history[uid], nil
+}
+
+func (f *fakePlaques) ConfirmPlaqueAct(_ context.Context, tenantID, actorID uuid.UUID, action, target string) (tenant.RemovalReceipt, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.confirmCalls++
+	f.confirmSeen = append(f.confirmSeen, [4]string{
+		tenantID.String(), actorID.String(), action, target,
+	})
+	if f.confirmErr != nil {
+		return tenant.RemovalReceipt{}, f.confirmErr
+	}
+	r, ok := f.receipts[action+"|"+target]
+	if !ok {
+		return tenant.RemovalReceipt{}, nil
+	}
+	return r, nil
+}
+
+// plaqueConfirmations returns the query count and what each call was scoped to.
+func (f *fakePlaques) plaqueConfirmations() (int, [][4]string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([][4]string, len(f.confirmSeen))
+	copy(out, f.confirmSeen)
+	return f.confirmCalls, out
+}
+
+// acts returns copies of what the section asked for, so an assertion reads the
+// COMMAND the handler built rather than the form it was given.
+func (f *fakePlaques) acts() ([]tenant.MountCommand, []tenant.ReplaceCommand) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	m := make([]tenant.MountCommand, len(f.mounted))
+	copy(m, f.mounted)
+	r := make([]tenant.ReplaceCommand, len(f.replaced))
+	copy(r, f.replaced)
+	return m, r
+}
+
+func (f *fakePlaques) unmounts() []tenant.UnmountCommand {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]tenant.UnmountCommand, len(f.unmounted))
+	copy(out, f.unmounted)
+	return out
+}
+
 // fakeInviter mints nothing but DRIVES THE REAL CHANNEL, which is the point.
 //
 // 🔴 IT CALLS ch.DeliverInvite RATHER THAN RETURNING A LINK, because that is the
@@ -759,7 +924,7 @@ func newAdminRouterWithReviewer(t *testing.T, admins *fakeAdmins, trail *fakeTra
 // own limiter measures its own limiter.
 func newAdminRouterWithActions(t *testing.T, admins *fakeAdmins, trail *fakeTrail, records *fakeLedger, reviewer panelReviewer, staff panelStaff, invites panelInviter) http.Handler {
 	t.Helper()
-	h, err := NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, &fakeVenues{}, adminTestConfig(), slog.New(slog.DiscardHandler))
+	h, err := NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, &fakeVenues{}, &fakePlaques{}, adminTestConfig(), slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}
@@ -1694,7 +1859,7 @@ func TestAdminScreens_NeverRenderACredential(t *testing.T) {
 // signed out. This is a structural tripwire for the next person adding a route.
 func TestAdminRoutes_AreAllUnderTheCookiePath(t *testing.T) {
 	nilCfgLedger := newFakeLedger()
-	h, err := NewAdminAuth(&fakeAdmins{}, &fakeTrail{}, nilCfgLedger, nilCfgLedger, &fakeReviewer{}, &fakeStaff{}, &fakeInviter{}, &fakeVenues{}, adminTestConfig(), slog.New(slog.DiscardHandler))
+	h, err := NewAdminAuth(&fakeAdmins{}, &fakeTrail{}, nilCfgLedger, nilCfgLedger, &fakeReviewer{}, &fakeStaff{}, &fakeInviter{}, &fakeVenues{}, &fakePlaques{}, adminTestConfig(), slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}
@@ -2274,7 +2439,7 @@ func TestProtect_CarriesTheBudget(t *testing.T) {
 		return adminauth.Resolved{}, adminauth.ErrNoSession
 	}}
 	fake := newFakeLedger()
-	h, err := NewAdminAuth(admins, &fakeTrail{}, fake, fake, &fakeReviewer{}, &fakeStaff{}, &fakeInviter{}, &fakeVenues{}, adminTestConfig(), discardLogger())
+	h, err := NewAdminAuth(admins, &fakeTrail{}, fake, fake, &fakeReviewer{}, &fakeStaff{}, &fakeInviter{}, &fakeVenues{}, &fakePlaques{}, adminTestConfig(), discardLogger())
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}

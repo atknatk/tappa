@@ -91,7 +91,16 @@ type Result struct {
 	// is the location whose static IP / GPS / shift the tap is matched against
 	// (§5 — the TAPPED location, not the employee's profile location). Callers
 	// read it directly rather than reaching through Tag.
-	Location uuid.UUID
+	//
+	// 🔴 nil MEANS THE PLAQUE IS NOT ON A WALL, and it is a pointer for exactly the
+	// reason db.ResolvedTag.LocationID is (M6-06 phase B): migration 00013 made the
+	// column nullable for the inventory model, and pgx scans SQL NULL into a
+	// uuid.UUID as uuid.Nil WITHOUT AN ERROR — so a flat field made a plaque sitting
+	// in a box indistinguishable from one mounted at "location zero". A tap on such
+	// a plaque is refused by §5 line 1 long before this value is used for anything,
+	// which is why the change altered no behaviour; the type is what stops the next
+	// caller from having to know that.
+	Location *uuid.UUID
 
 	// CtrGap is the number of chip reads skipped since we last saw this tag
 	// (ctr - old_last_ctr - 1), returned as DATA for the base:ctr-gap-review

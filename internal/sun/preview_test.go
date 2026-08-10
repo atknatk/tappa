@@ -181,7 +181,14 @@ func TestPreview_CarriesNothingAReplayCheckCouldBeBuiltFrom(t *testing.T) {
 		"CMACValid": reflect.Bool,
 		"TenantID":  reflect.Array, // uuid.UUID
 		"TagStatus": reflect.String,
-		"Location":  reflect.Array, // uuid.UUID
+		// ⚠️ Location IS A POINTER SINCE M6-06 PHASE B, and the change is a widening of
+		// MEANING rather than of surface: migration 00013 made tags.location_id nullable
+		// for the inventory model, and pgx scans a SQL NULL into a uuid.UUID as uuid.Nil
+		// WITHOUT AN ERROR -- so the flat field made a plaque sitting in a box look like
+		// one mounted at "location zero". The guarantee this test exists for is
+		// untouched: a *uuid.UUID is not a counter, not a byte blob and not an embedded
+		// row, and the byte-carrier check below still refuses a []byte behind a pointer.
+		"Location": reflect.Ptr, // *uuid.UUID -- nil means NOT MOUNTED
 	}
 	if pt.NumField() != len(allowed) {
 		t.Fatalf("Preview has %d fields, want exactly %d — a new field on this type "+
@@ -207,7 +214,13 @@ func TestPreview_CarriesNothingAReplayCheckCouldBeBuiltFrom(t *testing.T) {
 		if strings.EqualFold(f.Name, "SUNValid") {
 			t.Fatalf("Preview has a field %q: this path does NOT establish SUN validity", f.Name)
 		}
-		if f.Type != uuidType && (f.Type.Kind() == reflect.Slice || f.Type.Kind() == reflect.Array) {
+		// A POINTER IS FOLLOWED BEFORE THE BYTE CHECK, so `*[]byte` or `*[32]byte`
+		// cannot slip past by being one indirection away from the shape this refuses.
+		elem := f.Type
+		for elem.Kind() == reflect.Ptr {
+			elem = elem.Elem()
+		}
+		if elem != uuidType && (elem.Kind() == reflect.Slice || elem.Kind() == reflect.Array) {
 			t.Fatalf("Preview.%s is a raw byte field: aes_key_ref used to reach the "+
 				"HTTP layer through exactly such a field (§4.7)", f.Name)
 		}
@@ -265,8 +278,8 @@ func TestPreview_CarriesTenantAndLocation(t *testing.T) {
 	if pv.TenantID != s.tag.TenantID || pv.TenantID == uuid.Nil {
 		t.Fatalf("Preview.TenantID = %s, want %s", pv.TenantID, s.tag.TenantID)
 	}
-	if pv.Location != s.tag.LocationID {
-		t.Fatalf("Preview.Location = %s, want %s", pv.Location, s.tag.LocationID)
+	if pv.Location == nil || s.tag.LocationID == nil || *pv.Location != *s.tag.LocationID {
+		t.Fatalf("Preview.Location = %v, want %v", pv.Location, s.tag.LocationID)
 	}
 	if pv.TagStatus != "active" {
 		t.Fatalf("Preview.TagStatus = %q, want it carried for §5 line 1", pv.TagStatus)
@@ -328,8 +341,8 @@ func TestPreview_AgainstPostgresDoesNotMoveTheCounter(t *testing.T) {
 		if !pv.CMACValid {
 			t.Fatalf("open %d: CMACValid = false for a genuine CMAC", i)
 		}
-		if pv.Location != locationID {
-			t.Fatalf("open %d: Location = %s, want %s", i, pv.Location, locationID)
+		if pv.Location == nil || *pv.Location != locationID {
+			t.Fatalf("open %d: Location = %v, want %s", i, pv.Location, locationID)
 		}
 	}
 	if got := finalCtr(t, d, uid); got != startCtr {

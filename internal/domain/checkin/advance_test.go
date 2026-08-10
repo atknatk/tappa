@@ -116,6 +116,12 @@ func (t *tenantRecorder) GetTagByUID(context.Context, string) (db.ResolvedTag, e
 	return db.ResolvedTag{}, errors.New("not used by these tests")
 }
 
+// mountedAt is a plaque's wall as the nullable column returns it. It exists so a
+// fixture has to SAY it is building a mounted plaque rather than getting one by
+// accident: nil means "loaded but not on a wall", which is a real state since
+// migration 00013.
+func mountedAt(id uuid.UUID) *uuid.UUID { return &id }
+
 func advanceService(t *testing.T, data Database, adv counterAdvancer) *Service {
 	t.Helper()
 	return &Service{
@@ -137,7 +143,10 @@ func TestAdvance_IssuesTheAtomicQueryExactlyOnce(t *testing.T) {
 	s := advanceService(t, data, adv)
 
 	tagRow := db.ResolvedTag{
-		UID: "04AC7E55000601", TenantID: tenantID, LocationID: uuid.New(),
+		// LocationID is a POINTER since M6-06 phase B (00013 made tags.location_id
+		// nullable for the inventory model). This fixture is a MOUNTED plaque, so it
+		// is non-nil; a nil here would mean a plaque still in its box.
+		UID: "04AC7E55000601", TenantID: tenantID, LocationID: mountedAt(uuid.New()),
 		Status: string(tap.TagActive),
 		// LastCtr is deliberately populated and deliberately never used: a body
 		// that compared it in Go would be the TOCTOU §4.4 forbids by name, and it

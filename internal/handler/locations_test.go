@@ -33,6 +33,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -55,9 +56,18 @@ import (
 // that ships.
 func newAdminRouterWithVenues(t *testing.T, admins *fakeAdmins, venues panelVenues) http.Handler {
 	t.Helper()
+	return newAdminRouterWithPlaques(t, admins, venues, &fakePlaques{})
+}
+
+// newAdminRouterWithPlaques is the same harness with the PLAQUE side under the
+// caller's control too (M6-06 phase B). It is a second constructor rather than a
+// widened one because every existing caller is about venues and departments, and
+// making them all name a plaque fake would bury the one thing each is testing.
+func newAdminRouterWithPlaques(t *testing.T, admins *fakeAdmins, venues panelVenues, plaques panelPlaques) http.Handler {
+	t.Helper()
 	records := newFakeLedger()
 	h, err := NewAdminAuth(admins, &fakeTrail{}, records, records, &fakeReviewer{},
-		&fakeStaff{}, &fakeInviter{}, venues, adminTestConfig(), discardLogger())
+		&fakeStaff{}, &fakeInviter{}, venues, plaques, adminTestConfig(), discardLogger())
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}
@@ -2067,11 +2077,46 @@ func TestVenueReturn_CannotCarryAnythingTheClientChose(t *testing.T) {
 // would be a second copy of the vocabulary and would agree with whatever somebody
 // added to the first one.
 func TestVenueVocabulary_HoldsOnlyWordsTheServerEmits(t *testing.T) {
-	src, err := os.ReadFile("locationactions.go")
-	if err != nil {
-		t.Fatalf("read locationactions.go: %v", err)
+	// 🔴 THE SCANNER READS FOUR FILES, NOT ONE, AND THAT IS A REPAIR RATHER THAN A
+	// WIDENING. It read locationactions.go alone until M6-06 phase B put the plaque
+	// acts in their own files -- and this net immediately reported EIGHT live words as
+	// unreachable, which is the net doing its job on a scanner whose SCOPE had gone
+	// stale. "A net's coverage is its scanner's coverage" is this repository's own
+	// lesson; the fix is to widen the scan, never to exempt the words.
+	var src []byte
+	for _, name := range []string{"locationactions.go", "plaqueactions.go", "plaques.go"} {
+		part, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatalf("read %s: %v", name, err)
+		}
+		src = append(append(src, part...), '\n')
 	}
 	emitted := map[string]bool{}
+	// THE PLAQUE ACTS' OWN REDIRECT HELPER, read exactly like venueRemovalReturn's.
+	for _, m := range plaqueReturnCallRE.FindAllStringSubmatch(string(src), -1) {
+		if m[1] != "" {
+			emitted[m[1]] = true
+		}
+	}
+	// 🔴 AND THE PLAQUE REFUSALS ARE DERIVED, NOT LISTED. plaqueRefusal maps a typed
+	// domain error onto a word and the handlers pass its RESULT to venueReturn, so the
+	// literals never appear at a call site -- the same blind spot the hand-maintained
+	// list below exists for. Deriving them from the `return "word"` statements keeps
+	// the check honest: a word removed from that function stops being emitted here
+	// too, which is precisely what this test is for.
+	// ⚠️ SCOPED TO plaqueRefusal's OWN BODY, not to the three files. The first version
+	// scanned everything and swept up any `return "word"` it met — which only ever
+	// WEAKENED the assertion (it can add words to `emitted`, never remove them), but a
+	// net that answers a wider question than it claims is the shape this task has
+	// corrected twice already.
+	if body := functionBody(t, string(src), "func plaqueRefusal("); body != "" {
+		for _, m := range plaqueRefusalWordRE.FindAllStringSubmatch(body, -1) {
+			emitted[m[1]] = true
+		}
+	} else {
+		t.Fatal("plaqueRefusal was not found in the scanned sources; the scan is reading " +
+			"the wrong files and every assertion below is vacuous")
+	}
 	for _, m := range venueReturnCallRE.FindAllStringSubmatch(string(src), -1) {
 		if m[1] != "" {
 			emitted[m[1]] = true
@@ -2145,6 +2190,47 @@ var venueReturnCallRE = regexp.MustCompile(`\bvenueReturn\("([^"]*)",\s*"([^"]*)
 
 // venueRemovalReturnCallRE reads the word out of `venueRemovalReturn("x", id)` calls.
 var venueRemovalReturnCallRE = regexp.MustCompile(`\bvenueRemovalReturn\("([^"]*)",`)
+
+// plaqueReturnCallRE reads the word out of `plaqueReturn("x", uid)` calls -- the
+// plaque acts' own redirect helper (M6-06 phase B). A SEPARATE pattern rather than a
+// loosened one, for the reason venueRemovalReturnCallRE gives.
+var plaqueReturnCallRE = regexp.MustCompile(`\bplaqueReturn\("([^"]*)",`)
+
+// plaqueRefusalWordRE reads the words plaqueRefusal RETURNS, because the handlers
+// pass its result through a variable and no literal reaches a venueReturn call site.
+//
+// ⚠️ IT IS DELIBERATELY NARROW: a lower-case hyphenated literal on a `return` line.
+// `return ""` and `return "", false` do not match, so the empty answer -- which means
+// "this is not a refusal" -- cannot smuggle a blank word into the set.
+var plaqueRefusalWordRE = regexp.MustCompile(`\breturn "([a-z][a-z-]+)"\n`)
+
+// functionBody returns the source between `decl` and the next top-level closing
+// brace, or "" when the declaration is absent.
+//
+// IT IS A BRACE COUNT RATHER THAN A REGEXP because a regexp over a function body is
+// the shape this repository has twice had to replace with go/ast; a brace count is
+// what makes "this word is returned by THAT function" checkable without a parser for
+// one call site.
+func functionBody(t *testing.T, src, decl string) string {
+	t.Helper()
+	i := strings.Index(src, decl)
+	if i < 0 {
+		return ""
+	}
+	depth := 0
+	for j := i; j < len(src); j++ {
+		switch src[j] {
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				return src[i : j+1]
+			}
+		}
+	}
+	return ""
+}
 
 // TestLocationsSection_ReflectsNothingFromTheQueryString. A hand-edited URL may turn
 // one of a fixed set of sentences on; it may not put a sentence of its own on the
@@ -2666,15 +2752,27 @@ func TestConfirmation_IsBoundToTheACTIONAndNotOnlyToTheSubject(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newAdminConfirm: %v", err)
 	}
-	subject, session := uuid.New(), uuid.New()
+	subject, session := uuid.NewString(), uuid.New()
 
-	actions := []string{
-		confirmActionDeactivate,
-		confirmActionDeleteVenue,
-		confirmActionDeleteDepartment,
-	}
-	// ANTI-VACUITY: the three names really are distinct, or the matrix below compares
-	// a value with itself and passes for the wrong reason.
+	// 🔴 THE ACTION SET IS DERIVED FROM deactivateconfirm.go'S OWN CONSTANTS, AND THAT
+	// IS THE SEVENTH TIME THIS TASK HAS PAID FOR A HAND-MAINTAINED LIST — this time
+	// INSIDE THE TEST THAT EXISTS TO CATCH EXACTLY THAT CLASS. The slice was written by
+	// hand with three names, grew to four, and stopped there while the file declared
+	// FIVE; the missing one was confirmActionUnmountPlaque.
+	//
+	// ⚠️ AND THE UNCOVERED PAIR WAS THE ONE THE MATRIX EXISTS FOR. plaque.unmount and
+	// plaque.replace are the ONLY two gates whose subject is the same KIND of value (a
+	// 14-hex plaque uid), so they are the only pair where the SUBJECT binding does not
+	// accidentally do the action binding's job — which is precisely the defect that
+	// created this test: a gate held up by uuid spaces merely not overlapping.
+	actions := confirmActionsFromSource(t)
+	sort.Strings(actions)
+	t.Logf("derived %d confirmation action(s): %v", len(actions), actions)
+
+	// ANTI-VACUITY: the names really are distinct, or the matrix compares a value with
+	// itself and passes for the wrong reason. The count is NOT asserted — the set is
+	// derived, and a floor below it could not notice a deletion anyway (the diagonal
+	// would simply shrink).
 	seen := map[string]bool{}
 	for _, a := range actions {
 		if a == "" || seen[a] {
@@ -2683,14 +2781,17 @@ func TestConfirmation_IsBoundToTheACTIONAndNotOnlyToTheSubject(t *testing.T) {
 		seen[a] = true
 	}
 
+	pairs, diagonal := 0, 0
 	for _, minted := range actions {
 		token, err := c.mint(minted, subject, session)
 		if err != nil {
 			t.Fatalf("mint(%s): %v", minted, err)
 		}
 		for _, gate := range actions {
+			pairs++
 			err := c.parse(token, gate, subject, session)
 			if minted == gate {
+				diagonal++
 				// THE POSITIVE CONTROL, inside the same loop: the value must still open
 				// its OWN gate, or the binding is just a way of refusing everything.
 				if err != nil {
@@ -2711,19 +2812,62 @@ func TestConfirmation_IsBoundToTheACTIONAndNotOnlyToTheSubject(t *testing.T) {
 			}
 		}
 	}
+	if pairs != len(actions)*len(actions) || diagonal != len(actions) {
+		t.Fatalf("walked %d pair(s) with %d on the diagonal, want %d and %d",
+			pairs, diagonal, len(actions)*len(actions), len(actions))
+	}
+}
 
-	// AN EMPTY ACTION IS REFUSED AT BOTH ENDS. Signing one would produce a value every
-	// gate accepts, which is the hole the binding exists to close.
-	if _, err := c.mint("", subject, session); err == nil {
-		t.Error("a confirmation was signed with no action")
-	}
-	token, err := c.mint(confirmActionDeleteVenue, subject, session)
+// confirmActionsFromSource reads the confirmation gate names out of
+// deactivateconfirm.go's own const block.
+//
+// 🔴 DERIVED FOR THE REASON THE PLAQUE ACTION VOCABULARY IS: a list a human keeps in
+// step is a list that is correct until somebody is busy. It reads const AND var, and
+// FAILS LOUDLY on a value it cannot evaluate — both lessons measured one layer over,
+// where a `var` declaration and a `"a" + "b"` value each walked through a scan that
+// silently skipped them.
+func confirmActionsFromSource(t *testing.T) []string {
+	t.Helper()
+	const src = "deactivateconfirm.go"
+	file, err := parser.ParseFile(token.NewFileSet(), src, nil, 0)
 	if err != nil {
-		t.Fatalf("mint: %v", err)
+		t.Fatalf("parse %s: %v", src, err)
 	}
-	if err := c.parse(token, "", subject, session); !errors.Is(err, errConfirmInvalid) {
-		t.Errorf("an empty action at the gate answered %v, want errConfirmInvalid", err)
+	var out []string
+	for _, decl := range file.Decls {
+		gen, ok := decl.(*ast.GenDecl)
+		if !ok || (gen.Tok != token.CONST && gen.Tok != token.VAR) {
+			continue
+		}
+		for _, spec := range gen.Specs {
+			vs, ok := spec.(*ast.ValueSpec)
+			if !ok {
+				continue
+			}
+			for i, ident := range vs.Names {
+				if !strings.HasPrefix(ident.Name, "confirmAction") {
+					continue
+				}
+				if i >= len(vs.Values) {
+					t.Fatalf("%s declares %s with no value this scan can read", src, ident.Name)
+				}
+				lit, ok := vs.Values[i].(*ast.BasicLit)
+				if !ok || lit.Kind != token.STRING {
+					t.Fatalf("%s declares %s as a %T rather than a string literal; skipping "+
+						"it silently is how a gate slips out of the matrix", src, ident.Name, vs.Values[i])
+				}
+				out = append(out, strings.Trim(lit.Value, `"`))
+			}
+		}
 	}
+	// ANTI-VACUITY: this floor guards a BROKEN SCAN — a rename, a moved file — not a
+	// deletion, which would simply shrink the matrix and is caught by the tests that
+	// drive each gate.
+	if len(out) < 2 {
+		t.Fatalf("derived %d confirmation action(s) from %s (%v); the scan is reading "+
+			"the wrong file and this matrix is vacuous", len(out), src, out)
+	}
+	return out
 }
 
 // TestVenueRemoval_AConfirmationForOneRowDoesNotOpenAnothersGate.

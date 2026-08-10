@@ -134,8 +134,10 @@ func TestGetTagByUID_ResolvesContextLess(t *testing.T) {
 	if got.TenantID != tenantID {
 		t.Fatalf("tenant_id = %s, want %s (resolution must recover the tenant)", got.TenantID, tenantID)
 	}
-	if got.LocationID != locationID {
-		t.Fatalf("location_id = %s, want %s", got.LocationID, locationID)
+	// A POINTER since M6-06 phase B: nil is "not mounted", which is a real state
+	// (00013's inventory model) and must not be able to satisfy this assertion.
+	if got.LocationID == nil || *got.LocationID != locationID {
+		t.Fatalf("location_id = %v, want %s", got.LocationID, locationID)
 	}
 	if got.UID != uid || got.Status != "active" || got.LastCtr != 3 {
 		t.Fatalf("unexpected tag: %+v", got)

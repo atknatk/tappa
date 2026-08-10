@@ -187,15 +187,33 @@ func TestTagsQueries_CarryAnExplicitTenantPredicate(t *testing.T) {
 
 	sorted := append([]string(nil), names...)
 	sort.Strings(sorted)
+	// 🔴 THE UNION IS COMPUTED, NOT ADDED, AND THAT IS A CORRECTION WITH A DATE.
+	// Until M6-06 phase B this line said "the two sets are DISJOINT, so together they
+	// are N+M" -- true while nothing in this package CALLED a tags query, and false
+	// the moment internal/domain/tenant/plaque.go did. The overlap is now five
+	// (everything in tags.sql except AdvanceTagCounter, whose caller is internal/sun),
+	// so the sum over-counted. A derived union cannot go stale the same way; the
+	// sentence that asserted a relationship between two sets could, and did.
+	called := storeQueryNames(t, declared)
+	union := map[string]bool{}
+	for _, n := range names {
+		union[n] = true
+	}
+	overlap := 0
+	for _, n := range called {
+		if union[n] {
+			overlap++
+		}
+		union[n] = true
+	}
 	t.Logf("section 4.5 belt coverage over db/queries/%s (file-derived, no caller "+
 		"required): %d of %d queries declared in db/queries (%.1f%%). This package's "+
-		"CALL-derived belt covers %d more; the two sets are disjoint, so together they "+
-		"are %d of %d (%.1f%%).\nseen here: %s",
+		"CALL-derived belt covers %d, of which %d are the same statements; the UNION is "+
+		"%d of %d (%.1f%%).\nseen here: %s",
 		tagsQueryFile, len(names), len(declared),
 		100*float64(len(names))/float64(len(declared)),
-		len(storeQueryNames(t, declared)),
-		len(names)+len(storeQueryNames(t, declared)), len(declared),
-		100*float64(len(names)+len(storeQueryNames(t, declared)))/float64(len(declared)),
+		len(called), overlap, len(union), len(declared),
+		100*float64(len(union))/float64(len(declared)),
 		strings.Join(sorted, ", "))
 
 	scoped := tenantScopedTables(t)

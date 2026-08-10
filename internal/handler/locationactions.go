@@ -16,7 +16,7 @@ import (
 	"github.com/atknatk/tappa/web/templates/pages"
 )
 
-// The LOCATIONS section's WRITES — M6-06 PHASE A. Two routes, four acts: add a
+// The LOCATIONS section's VENUE AND DEPARTMENT WRITES — M6-06 PHASE A: add a
 // venue, edit a venue, add a department, edit a department. The create and the
 // edit share a route because they share a form; which one it is comes from whether
 // the form carried an id.
@@ -262,9 +262,15 @@ func (a *AdminAuth) renderVenueFormAgain(w http.ResponseWriter, r *http.Request,
 		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelUnavailable)
 		return
 	}
+	plaques, err := a.locationsPlaques(r)
+	if err != nil {
+		a.log.Error("panel: could not re-read the plaques after a rejected form", "err", err)
+		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelUnavailable)
+		return
+	}
 	form.ErrorField = field
 	form.ErrorMessage = msg
-	v := a.locationsShell(r, screen)
+	v := a.locationsShell(r, screen, plaques)
 	v.VenueForm = &form
 	bindFormTargets(&v)
 	a.render(w, r, http.StatusOK, pages.AdminLocations(v))
@@ -293,6 +299,12 @@ func (a *AdminAuth) renderDepartmentFormAgain(w http.ResponseWriter, r *http.Req
 		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelUnavailable)
 		return
 	}
+	plaques, err := a.locationsPlaques(r)
+	if err != nil {
+		a.log.Error("panel: could not re-read the plaques after a rejected form", "err", err)
+		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelUnavailable)
+		return
+	}
 	form, outcome := a.departmentFormFromSubmission(r, sub, screen)
 	switch outcome {
 	case formOK:
@@ -310,7 +322,7 @@ func (a *AdminAuth) renderDepartmentFormAgain(w http.ResponseWriter, r *http.Req
 	}
 	form.ErrorField = field
 	form.ErrorMessage = msg
-	v := a.locationsShell(r, screen)
+	v := a.locationsShell(r, screen, plaques)
 	v.DepartmentForm = &form
 	bindFormTargets(&v)
 	a.render(w, r, http.StatusOK, pages.AdminLocations(v))
@@ -340,7 +352,12 @@ const (
 // venues and 250 departments was told "only the first 3 departments are shown",
 // which is false and unfalsifiable from the page. The lists are capped
 // independently, so each names its own length.
-func (a *AdminAuth) locationsShell(r *http.Request, screen tenant.VenueScreen) pages.LocationsView {
+//
+// 🔴 IT ALSO FILLS THE PLAQUE LISTS (M6-06 phase B), for the reason the paragraph
+// above gives about the venue count: the moment a second builder existed the two
+// copies drifted, and a re-render path that showed no plaques would tell a manager
+// their stock is empty because their venue name was too long.
+func (a *AdminAuth) locationsShell(r *http.Request, screen tenant.VenueScreen, plaques tenant.PlaqueScreen) pages.LocationsView {
 	v := pages.LocationsView{
 		PanelChrome:       a.chrome(r, pages.TabLocations),
 		Queried:           true,
@@ -355,6 +372,7 @@ func (a *AdminAuth) locationsShell(r *http.Request, screen tenant.VenueScreen) p
 		DepartmentAction:  departmentSaveHref,
 	}
 	v.Venues, v.Departments = venueRowViews(screen)
+	fillPlaques(&v, plaques, screen, plaques.Zone)
 	return v
 }
 
@@ -542,7 +560,7 @@ func (a *AdminAuth) deleteVenue(w http.ResponseWriter, r *http.Request) {
 		a.refuseRemovalByRole(w, r, id, "venue", venueID)
 		return
 	}
-	if why := a.confirmationRefusalFor(r, confirmActionDeleteVenue, venueID); why != "" {
+	if why := a.confirmationRefusalFor(r, confirmActionDeleteVenue, venueID.String()); why != "" {
 		a.log.Warn("panel venue delete refused: not confirmed", "reason", why)
 		a.redirect(w, venueReturn("", why))
 		return
@@ -617,7 +635,7 @@ func (a *AdminAuth) deleteDepartment(w http.ResponseWriter, r *http.Request) {
 		a.refuseRemovalByRole(w, r, id, "department", departmentID)
 		return
 	}
-	if why := a.confirmationRefusalFor(r, confirmActionDeleteDepartment, departmentID); why != "" {
+	if why := a.confirmationRefusalFor(r, confirmActionDeleteDepartment, departmentID.String()); why != "" {
 		a.log.Warn("panel department delete refused: not confirmed", "reason", why)
 		a.redirect(w, venueReturn("", why))
 		return

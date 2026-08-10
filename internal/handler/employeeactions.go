@@ -572,7 +572,9 @@ const confirmField = "confirm_token"
 // setDeactivateConfirmation mints the value for ONE employee in THIS session and
 // returns what the form must echo.
 func (a *AdminAuth) setDeactivateConfirmation(w http.ResponseWriter, r *http.Request, employeeID uuid.UUID) (string, error) {
-	return a.setConfirmation(w, r, confirmActionDeactivate, employeeID)
+	// THE SUBJECT IS A STRING SINCE PAYLOAD v3 (M6-06 phase B, so a plaque uid can be
+	// one too). An employee is still identified by its uuid; only the encoding widened.
+	return a.setConfirmation(w, r, confirmActionDeactivate, employeeID.String())
 }
 
 // setConfirmation mints a value for ONE ACTION on ONE SUBJECT in THIS session.
@@ -581,8 +583,8 @@ func (a *AdminAuth) setDeactivateConfirmation(w http.ResponseWriter, r *http.Req
 // remove a venue passed the deactivation gate cleanly and was stopped only by the
 // DOMAIN, because a location id is not an employee id — a binding that held by luck
 // rather than by design. Each gate now names the act it is opening.
-func (a *AdminAuth) setConfirmation(w http.ResponseWriter, r *http.Request, action string, subjectID uuid.UUID) (string, error) {
-	token, err := a.confirm.mint(action, subjectID, httpx.AdminOf(r).Admin.SessionID)
+func (a *AdminAuth) setConfirmation(w http.ResponseWriter, r *http.Request, action, subject string) (string, error) {
+	token, err := a.confirm.mint(action, subject, httpx.AdminOf(r).Admin.SessionID)
 	if err != nil {
 		return "", err
 	}
@@ -599,13 +601,13 @@ func (a *AdminAuth) setConfirmation(w http.ResponseWriter, r *http.Request, acti
 // Checking the cookie first would let a forged value's failure be reported as a
 // replay, which is a sentence about the wrong thing.
 func (a *AdminAuth) confirmationRefusal(r *http.Request, employeeID uuid.UUID) string {
-	return a.confirmationRefusalFor(r, confirmActionDeactivate, employeeID)
+	return a.confirmationRefusalFor(r, confirmActionDeactivate, employeeID.String())
 }
 
 // confirmationRefusalFor is the same check for any gated action.
-func (a *AdminAuth) confirmationRefusalFor(r *http.Request, action string, subjectID uuid.UUID) string {
+func (a *AdminAuth) confirmationRefusalFor(r *http.Request, action, subject string) string {
 	sent := strings.TrimSpace(r.PostFormValue(confirmField))
-	switch err := a.confirm.parse(sent, action, subjectID, httpx.AdminOf(r).Admin.SessionID); {
+	switch err := a.confirm.parse(sent, action, subject, httpx.AdminOf(r).Admin.SessionID); {
 	case err == nil:
 	case errors.Is(err, errConfirmOtherPerson):
 		// 🔴 THE SECOND TAB. One cookie per browser, so opening another subject's

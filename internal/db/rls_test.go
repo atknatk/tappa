@@ -1288,8 +1288,11 @@ func TestResolveColumns_MatchSchema(t *testing.T) {
 	if tag.TenantID != fx.tenantID {
 		t.Errorf("tag.TenantID = %s, want %s", tag.TenantID, fx.tenantID)
 	}
-	if tag.LocationID != fx.locationID {
-		t.Errorf("tag.LocationID = %s, want %s", tag.LocationID, fx.locationID)
+	// LocationID is a POINTER since M6-06 phase B (00013 made the column nullable
+	// for the inventory model), so "mounted here" is asserted as non-nil AND equal —
+	// a nil that compared equal to nothing would pass a `!=` check silently.
+	if tag.LocationID == nil || *tag.LocationID != fx.locationID {
+		t.Errorf("tag.LocationID = %v, want %s", tag.LocationID, fx.locationID)
 	}
 	if tag.Status != "active" {
 		t.Errorf("tag.Status = %q, want active", tag.Status)

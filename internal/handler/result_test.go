@@ -906,8 +906,12 @@ var tagRE = regexp.MustCompile(`<[^>]*>`)
 const (
 	noteIPMatched = "network proof of place: the source IP matches the location"
 	noteNoPlace   = "neither IP nor GPS could place this tap"
-	noteDeadTag   = "this tag is no longer active"
-	noteDebounce  = "duplicate tap by the same person within the debounce window"
+	// ⚠️ IT WAS "this tag is no longer active" UNTIL M6-06 PHASE B, and the change is
+	// not cosmetic: migration 00013 added `unassigned`, a plaque that has never been
+	// active, so the old wording was a claim about the past that was false for one of
+	// the four statuses this guardrail now covers.
+	noteDeadTag  = "this tag is not in service"
+	noteDebounce = "duplicate tap by the same person within the debounce window"
 	// THE TENTH SHAPE. tap.Decide's appendNote joins the deciding rule's reason to
 	// a direction annotation with "; ", so a Note is not always one sentence — a
 	// check-OUT closing a stale open check-in carries both. The table claimed to

@@ -87,8 +87,18 @@ type Preview struct {
 	// advanced, which only Verify establishes.
 	//
 	// It is false — with a nil error — for every case the flow short-circuits
-	// on: a retired or lost tag (§5 line 1, before any cryptography runs), a QR
-	// URL with no SUN parameters at all, and a CMAC that does not verify.
+	// on, and only ONE of those three is about a signature:
+	//
+	//	a plaque whose status is not `active` — retired, lost, or loaded but not
+	//	  yet mounted (§5 line 1, before any cryptography runs). NOTHING was
+	//	  checked here; the plaque is out of service.
+	//	a QR URL with no SUN parameters at all. There is nothing to check.
+	//	a CMAC that genuinely did not verify.
+	//
+	// 🔴 SO A CALLER MUST NOT TURN THIS FIELD INTO A SENTENCE ABOUT A SIGNATURE.
+	// TagStatus below is what separates the first case from the third, and the
+	// decision engine uses it: sys:tag-not-active is guardrail #2 and
+	// sys:sun-invalid is #3, so a plaque in a box is refused for being in a box.
 	CMACValid bool
 
 	// TenantID is the tenant the TAG resolved to.
@@ -100,9 +110,15 @@ type Preview struct {
 	// engine.
 	TenantID uuid.UUID
 
-	// TagStatus is tags.status (active | retired | lost), passed on so the
-	// decision engine can apply §5 line 1 to a RECORDED attempt rather than the
+	// TagStatus is tags.status (active | retired | lost | unassigned), passed on so
+	// the decision engine can apply §5 line 1 to a RECORDED attempt rather than the
 	// page silently dropping one (§4.6).
+	//
+	// ⚠️ THE FOURTH VALUE ARRIVED IN MIGRATION 00013 and this comment named three
+	// until phase B. That is not a typo worth ignoring: `unassigned` is the value a
+	// deny-list in the policy engine failed to see, and the reason it is carried
+	// here as a STRING rather than as a bool is precisely so a new value travels
+	// without anybody editing this file.
 	//
 	// It is the status as a plain string rather than the row it came from,
 	// deliberately: see measure 3 above for what the row was also carrying.
@@ -113,7 +129,13 @@ type Preview struct {
 	// whose name the page greets the employee with, and the venue the decision
 	// engine matches IP/GPS/shift against — the TAPPED location, not the
 	// employee's profile location (§5).
-	Location uuid.UUID
+	//
+	// 🔴 nil MEANS THE PLAQUE IS NOT ON A WALL — see db.ResolvedTag.LocationID for
+	// the driver measurement that made this a pointer in M6-06 phase B. The page
+	// renders WITHOUT a venue name in that case, which is the same treatment a
+	// plaque belonging to another tenant already gets, and the POST then records the
+	// refusal (§4.6) instead of the page dropping it.
+	Location *uuid.UUID
 }
 
 // PreviewWithoutReplayProtection resolves the tag and checks the chip's CMAC
@@ -174,8 +196,36 @@ func (v *Verifier) inspect(ctx context.Context, p Params) (db.ResolvedTag, bool,
 		return db.ResolvedTag{}, false, fmt.Errorf("resolve tag: %w", err)
 	}
 
-	// Step 3: a retired or lost tag is a §5 line-1 reject. Short-circuit BEFORE
-	// unwrapping any key — a dead tag must not touch cryptography.
+	// Step 3: ANY status other than `active` is a §5 line-1 reject. Short-circuit
+	// BEFORE unwrapping any key — a plaque that is not in service must not touch
+	// cryptography.
+	//
+	// 🔴 IT IS AN ALLOW-LIST AND THE VALUE SET HAS ALREADY GROWN ONCE. Migration
+	// 00013 added a FOURTH status, `unassigned` — a plaque Tappa encoded and loaded
+	// but nobody has mounted yet (the inventory model) — and a deny-list elsewhere
+	// did not see it. Asking for `active` is what makes the next value refused on the
+	// day it is added rather than on the day somebody remembers.
+	//
+	// 🔴 WHAT cmacOK=false MEANS ON THIS BRANCH, because the field's NAME does not
+	// say it and a migration comment once got this wrong in print. It means the CMAC
+	// WAS NEVER ASKED, not that it failed: the key is never unwrapped and no
+	// comparison runs. The distinction is not academic, because it decides which
+	// sentence the employee is shown:
+	//
+	//	the DECISION layer reaches sys:tag-not-active FIRST (guardrail #2, ahead of
+	//	sys:sun-invalid at #3), because internal/domain/checkin puts tags.status into
+	//	the policy context from the row it re-read — so the recorded reason is about
+	//	the plaque's STATE, which is the true one.
+	//	sys:sun-invalid, whose reason is about a SIGNATURE, is reached only by a tap
+	//	whose plaque IS active and whose CMAC genuinely did not verify.
+	//
+	// ⚠️ THAT ORDER IS THE ONLY THING KEEPING THE TWO APART, and it holds because
+	// this function's caller carries the status forward (Preview.TagStatus) rather
+	// than collapsing everything into one boolean. A caller that reported only
+	// CMACValid would make a plaque sitting in a box indistinguishable from a forged
+	// signature — which is exactly what an earlier reading of this branch described,
+	// and it was true while sys:tag-not-active was still a deny-list that `unassigned`
+	// escaped.
 	if tag.Status != tagStatusActive {
 		return tag, false, nil
 	}

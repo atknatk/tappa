@@ -2,15 +2,35 @@ package pages
 
 import "github.com/atknatk/tappa/web/templates/components"
 
-// The LOCATIONS section's view model (M6-06 phase A).
+// The LOCATIONS section's view model (M6-06, both phases).
 //
-// 🔴 WHAT IS DELIBERATELY ABSENT IS THE SPEC OF THE PHASE. The M6-06 card asks for
-// six things and this phase ships two of them — venue configuration and department
-// management. There is no field here for a plaque, a tag UID, a counter, a last-seen
-// stamp, a replace-tag flow or an "encoded/pending" state, so this template could
-// not render one if it tried, and "the screen offers something the server does not
-// do" is not a mistake this phase can make. Phase B adds the fields in the same edit
-// as the handlers and the migration.
+// ⚠️ THIS HEADER USED TO SAY "there is no field here for a plaque, a tag UID, a
+// counter, a last-seen stamp, a replace-tag flow or an encoded/pending state" and
+// every clause of it is now FALSE — phase B added all six, in the same edit as the
+// handlers, exactly as that sentence promised. It is rewritten rather than deleted
+// because the property it was really asserting still holds and is what the next
+// reader needs: THE VIEW MODEL IS THE SPEC OF WHAT THIS SECTION CAN SAY. A screen
+// offering something the server does not do is this repository's most expensive
+// class of mistake, and the cheapest guard against it is that a field has to be
+// added here, in the same change as the handler that fills it.
+//
+// 🔴 WHAT IS STILL DELIBERATELY ABSENT, AND IS THE HEAVIEST RULE ON THIS SCREEN
+// (§4.7): no field on this path has a SHAPE that could hold a plaque's AES key —
+// not here, not on components.PlaqueRowView or PlaqueFormView, not on
+// internal/domain/tenant.Plaque. That is asserted by two walks
+// (TestPlaqueViewModels_CannotCarryAKey and its domain twin) which enumerate the
+// plaque types' field NAMES exactly and refuse any array, map, interface or []byte
+// anywhere beneath them — including beneath THIS type, which is walked for shape.
+//
+// ⚠️ IT IS A SHAPE CLAIM, NOT AN ABSOLUTE ONE. A key HEX-ENCODED into a permitted
+// string would pass both walks; what makes that unreachable is that none of the five
+// shipped tag queries selects aes_key_ref at all, asserted against
+// db/queries/tags.sql itself. An earlier version of this paragraph said "NO FIELD
+// ANYWHERE ... COULD TRAVEL IN", which an audit disproved in three shapes.
+//
+// The card's "encoded/pending" criterion is answered by a WORD derived from whether
+// the plaque has a wall; components/plaqueview.go states precisely what backs that
+// word and what does not.
 //
 // 🔴 THE DELETE IS OFFERED ONLY WHERE IT CAN WORK (user decision, 2026-08-08: option
 // (b) of the three the M6-06 card records). Six foreign keys reference locations and
@@ -76,6 +96,73 @@ type LocationsView struct {
 	VenueForm      *components.VenueFormView
 	DepartmentForm *components.DepartmentFormView
 
+	// --- the WALL PLAQUES (M6-06 phase B) ---------------------------------------
+
+	// Mounted, Stock and OutOfService are the tenant's plaques in THREE lists, and
+	// the split is a decision with a measurement behind it.
+	//
+	// 🔴 THE QUERY'S OWN ORDER WAS THE OTHER READING AND IT WAS NOT KEPT.
+	// ListTagsForTenant sorts `location_id NULLS FIRST, uid`, i.e. stock first and
+	// then the mounted plaques BY LOCATION UUID — which is a deterministic order and
+	// not one any human reads: two plaques at the same door sit together only by
+	// accident of the id. The two readings, both stated because the card leaves the
+	// screen language to this round:
+	//
+	//	ONE LIST, SQL ORDER      stock first, then by location id. Cheapest, and it
+	//	                         does put the plaques that need an action at the top.
+	//	                         Rejected: the mounted half is ordered by a value the
+	//	                         page never shows.
+	//	THREE LISTS BY LIFECYCLE what is on a wall, what is in the box, what has been
+	//	                         taken off. Chosen: each list answers ONE question a
+	//	                         manager actually arrives with, and the section
+	//	                         already reads as a stack of lists (Venues,
+	//	                         Departments).
+	//
+	// The SQL order is still doing work — it is what makes the grouping below
+	// deterministic for two plaques that are otherwise equal.
+	Mounted      []components.PlaqueRowView
+	Stock        []components.PlaqueRowView
+	OutOfService []components.PlaqueRowView
+
+	// PlaquesQueried is set ONLY after the plaque read answered — the anti-fabrication
+	// flag Queried is for the venues, kept separate because the two reads can fail
+	// independently.
+	PlaquesQueried bool
+
+	// PlaquesCapped says the rendered plaque list was cut, and PlaqueLimit is how
+	// many rows are shown.
+	//
+	// ⚠️ THE CAP IS ON THE RENDER, NOT ON THE READ, and that is stated rather than
+	// implied: ListTagsForTenant carries no LIMIT. What bounds it in practice is that
+	// a plaque is screwed to a door frame, so a tenant's list is tens.
+	//
+	// 🔴 NO LEVEL IS QUOTED, AND THE NUMBER THAT USED TO BE HERE WAS CARRYING THE
+	// WHOLE ARGUMENT. It said "the largest single tenant holds 11", measured
+	// 2026-08-09 — an audit read 101 the NEXT DAY, and it climbs on every suite run
+	// because this milestone's own journey tests seed plaques into the shared demo
+	// tenant and `tags` cannot be deleted by the application role. That is exactly the
+	// figure that decided whether the truncation notice below is a theoretical branch,
+	// so a stale one does not merely age: it argues the wrong way. Count the table if
+	// you need a number; internal/domain/tenant/plaque.go states the same policy.
+	PlaquesCapped bool
+	PlaqueLimit   string
+
+	// PlaqueForm is the one plaque card, or nil. Same rule as the two above: at most
+	// ONE card is ever open, and nil is a state rather than an absence.
+	PlaqueForm *components.PlaqueFormView
+
+	// PlaqueReceipt is a plaque act the TRAIL confirmed, or nil. It is what lets
+	// this section acknowledge a mount or a replacement at all — see
+	// components.PlaqueReceiptView for why Done alone is never enough.
+	PlaqueReceipt *components.PlaqueReceiptView
+
+	// 🔴 THERE IS NO "AddPlaqueHref", AND ITS ABSENCE IS THE PRODUCT DECISION. The
+	// panel cannot create a plaque, because creating one means holding its AES key
+	// and the key never passes through the panel (user decision, 2026-08-08: Tappa
+	// encodes the plaque and loads the row; the panel only binds it). A field here
+	// would be the first half of a control nothing could serve; the empty state says
+	// the sentence instead.
+
 	// RemovalReceipt is a removal the TRAIL confirmed, or nil.
 	//
 	// 🔴 IT IS WHAT LETS THIS SECTION ACKNOWLEDGE A DELETION AT ALL. Done alone cannot
@@ -96,15 +183,23 @@ type LocationsView struct {
 	VenueAction      string
 	DepartmentAction string
 
-	// Done is what the last save did: one of four words, or "".
+	// Done is what the last act did: one word from the section's closed set, or "".
+	//
+	// ⚠️ NO COUNT. This line has now gone stale TWICE — "one of four words", then "there
+	// are eight now" written in the same edit that shipped a NINTH — which is the
+	// argument, not an embarrassment: a count beside a slice that owns the count is a
+	// second representation of it. The words are venueDoneWords; read them there.
 	//
 	// ⚠️ IT IS NOT VERIFIED THE WAY THE ROSTER'S "deactivated" IS, and the sentence
 	// is built so it does not need to be. M6-04 shipped a banner printed from the
 	// query string alone and an audit measured a URL claiming a decision that did
-	// not exist. Here the four words describe an act on a row whose CURRENT state is
-	// rendered directly beneath the banner in the same request — so a replayed
+	// not exist. Here the SELF-BACKING words describe an act on a row whose CURRENT
+	// state is rendered directly beneath the banner in the same request — so a replayed
 	// address repeats a heading over a list that is true, rather than inventing a
-	// change. The banner claims no before-state and names no numbers.
+	// change. The banner claims no before-state and names no numbers. The words that
+	// are NOT self-backing (the removals and the plaque acts) are verified against the
+	// trail first; pages.ClaimsARemoval and pages.ClaimsAPlaqueAct are the two lists,
+	// and the handler holds the same ones.
 	Done string
 
 	// Problem is why the last save did nothing:
@@ -114,6 +209,13 @@ type LocationsView struct {
 	//	"unknown-venue"        no such venue in this business (or the venue a new
 	//	                       department was to sit in is not this business's)
 	//	"unknown-department"   no such department in this business
+	//	"unknown-plaque"       no plaque with that id in this business
+	//	"plaque-not-stock"     the new plaque is already on a wall, or retired —
+	//	                       somebody mounted it between the screen and the press
+	//	"plaque-not-active"    the plaque being replaced is not on a wall any more
+	//	"same-plaque"          a plaque cannot replace itself
+	//	"plaque-frozen"        the database refuses to write this row at all (a
+	//	                       development-only state — see PlaqueRowView.Frozen)
 	//
 	// ⚠️ THERE IS NO WORD FOR "OUR READ FAILED", and its absence is the decision. A
 	// failed read renders a PROBLEM PAGE (§4.6) rather than redirecting here, so a

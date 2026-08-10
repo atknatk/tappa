@@ -347,10 +347,20 @@ func Guardrails(p Params) []Guardrail {
 		// added, without anyone remembering to come back. The equivalence for
 		// TODAY's vocabulary is not asserted here -- it is measured in
 		// guardrails_test.go against the status list read out of the migrations.
+		//
+		// 🔴 THE REASON TEXT CHANGED WITH THE INVERSION AND THE OLD ONE WAS A CLAIM
+		// ABOUT THE PAST. "this tag is no longer active" is true of a retired or lost
+		// plaque and FALSE of an `unassigned` one, which has never been active a day in
+		// its life — it is in a box. Once the match became "anything but active", the
+		// reason had to become a statement about the PRESENT, because it is the
+		// sentence the employee reads on the confirmation screen and the note the
+		// record carries (tap.Decide copies it into Decision.Note). A wording that only
+		// fits three of four values is the same defect class as a guardrail that only
+		// enumerates three of four, one layer out.
 		{
 			Sid:    "sys:tag-not-active",
 			Effect: EffectDeny,
-			Reason: "this tag is no longer active",
+			Reason: "this tag is not in service",
 			Match: func(c Context) bool {
 				s, ok := c.Keys[CtxTagStatus].(string)
 				return ok && s != tagStatusActive

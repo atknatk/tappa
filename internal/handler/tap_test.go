@@ -69,12 +69,29 @@ func (f *fakePreviewer) PreviewWithoutReplayProtection(_ context.Context, _ sun.
 
 func okPreview(cmacValid bool) sun.Preview { return previewWithStatus(cmacValid, "active") }
 
+// previewWithStatus builds a MOUNTED plaque's preview.
+//
+// sun.Preview.Location is a *uuid.UUID since M6-06 phase B — nil is a plaque Tappa
+// loaded but nobody has mounted (migration 00013's inventory model) — so a fixture
+// has to SAY which of the two it is building. previewInStock below is the other one.
 func previewWithStatus(cmacValid bool, status string) sun.Preview {
+	wall := tapLocation
 	return sun.Preview{
 		CMACValid: cmacValid,
 		TenantID:  tapTagTenant,
 		TagStatus: status,
-		Location:  tapLocation,
+		Location:  &wall,
+	}
+}
+
+// previewInStock is a plaque that has been encoded and loaded but never mounted:
+// no wall, and a status the decision engine refuses at §5 row 1.
+func previewInStock() sun.Preview {
+	return sun.Preview{
+		CMACValid: false,
+		TenantID:  tapTagTenant,
+		TagStatus: "unassigned",
+		Location:  nil,
 	}
 }
 
@@ -237,6 +254,13 @@ func TestTapPage_RendersEvenWhenThePreCheckSaysNo(t *testing.T) {
 		{"bad cmac", okPreview(false)},
 		{"retired tag", previewWithStatus(false, "retired")},
 		{"lost tag", previewWithStatus(false, "lost")},
+		// 🔴 A PLAQUE STILL IN ITS BOX — the fourth status migration 00013 added, and
+		// the one with NO WALL AT ALL. It is the case that made sun.Preview.Location a
+		// pointer (M6-06 phase B): the page must render WITHOUT a venue name so the
+		// button can be pressed and the refusal RECORDED, exactly as it does for a
+		// plaque belonging to another tenant. A page that refused here would decide the
+		// tap on the page, and decide it without a record.
+		{"a plaque still in its box, with no wall", previewInStock()},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -249,6 +273,12 @@ func TestTapPage_RendersEvenWhenThePreCheckSaysNo(t *testing.T) {
 			}
 			if !strings.Contains(w.Body.String(), `name="ctx"`) {
 				t.Fatal("the page rendered without a tap context, so the button could not produce a recorded decision")
+			}
+			// The venue LOOKUP still ran, with whatever wall the plaque had — uuid.Nil
+			// for a plaque in a box, which tenant.TapPage answers as ErrForeignLocation
+			// and the page renders around without a name.
+			if tc.preview.Location == nil && w.Code != http.StatusOK {
+				t.Fatalf("a plaque with no wall did not render: status %d", w.Code)
 			}
 		})
 	}

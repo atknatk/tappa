@@ -122,18 +122,29 @@ type AdminAuth struct {
 	staff   panelStaff
 	invites panelInviter
 
-	// venues is the locations section's read AND its two writes (M6-06 phase A).
+	// venues is the locations section's venue and department side: its reads and its
+	// writes (M6-06 phase A).
 	//
 	// ⚠️ IT IS A THIRD FIELD ON THE SAME PACKAGE AS staff, WHICH BENDS THE RULE
 	// M6-04 SET ("a different package gets a different field") AND IS THEREFORE
 	// STATED RATHER THAN SMUGGLED. That rule exists so "no store call in ledger is
 	// not a SELECT" stays a fact grep can check — it separates READS from WRITES,
 	// and both of these are internal/domain/tenant writes. What decides it here is
-	// blast radius: one wide interface carrying nine methods would let a change to
+	// blast radius: one wide interface over both sides would let a change to
 	// the venue side break the employee side's wiring with no compile error at the
 	// call site. locationactions.go's panelVenues says the same from the consumer's
 	// end.
 	venues panelVenues
+
+	// plaques is the wall-plaque half of the same section (M6-06 phase B): the
+	// list, the mount and the replace.
+	//
+	// ⚠️ A FOURTH FIELD ON internal/domain/tenant, AND IT IS STATED FOR THE REASON
+	// venues states the third. One wide interface carrying thirteen methods would
+	// let a change to the plaque side break the employee or venue wiring with no
+	// compile error at the call site. plaqueactions.go's panelPlaques says the same
+	// from the consumer's end.
+	plaques panelPlaques
 
 	// See adminratelimit.go for why there are three and what each may refuse.
 	floodLimiter   *limiter
@@ -147,7 +158,7 @@ type AdminAuth struct {
 
 // NewAdminAuth wires the flow. Every dependency is required: a nil recorder would
 // silently drop the section 4.6 trail and a nil manager cannot fail safely.
-func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLedger, queue panelQueue, reviewer panelReviewer, staff panelStaff, invites panelInviter, venues panelVenues, cfg *config.Config, log *slog.Logger) (*AdminAuth, error) {
+func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLedger, queue panelQueue, reviewer panelReviewer, staff panelStaff, invites panelInviter, venues panelVenues, plaques panelPlaques, cfg *config.Config, log *slog.Logger) (*AdminAuth, error) {
 	switch {
 	case admins == nil:
 		return nil, errors.New("handler: nil admin authenticator")
@@ -188,6 +199,14 @@ func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLed
 	// refuses is the only check that runs before a customer finds out.
 	case venues == nil:
 		return nil, errors.New("handler: nil venues")
+	// THE SAME ARGUMENT, ONCE MORE (M6-06 phase B). A nil plaques would put Mount
+	// and Replace buttons on a screen where pressing them panics, and would leave
+	// the section unable to say anything true about which plaque is on which wall —
+	// which is the one thing every tap is authenticated by. The M5-04 lesson is that
+	// a capability can be delivered, tested and DEAD in the wired product because
+	// two halves were never assembled.
+	case plaques == nil:
+		return nil, errors.New("handler: nil plaques")
 	case cfg == nil:
 		return nil, errors.New("handler: nil config")
 	}
@@ -211,6 +230,7 @@ func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLed
 		staff:          staff,
 		invites:        invites,
 		venues:         venues,
+		plaques:        plaques,
 		cookies:        adminauth.NewCookies(cfg),
 		short:          newAdminCookies(cfg),
 		choices:        choices,

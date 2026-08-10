@@ -557,7 +557,7 @@ func TestEmployeeDeactivate_TheConfirmationCannotBeForged(t *testing.T) {
 			// The payload is readable — it is base64, not a secret — so an attacker can
 			// rebuild it for the employee they want. What they cannot do is sign it.
 			forged, err := adminConfirm{key: []byte("not-the-servers-key"), ttl: adminConfirmTTL}.
-				mint(confirmActionDeactivate, employeeID, panelTestSession)
+				mint(confirmActionDeactivate, employeeID.String(), panelTestSession)
 			if err != nil {
 				t.Fatalf("building the forgery: %v", err)
 			}
@@ -620,12 +620,12 @@ func TestAdminConfirm_IsBoundAndExpires(t *testing.T) {
 	}
 	employee, session := uuid.New(), uuid.New()
 
-	token, err := c.mint(confirmActionDeactivate, employee, session)
+	token, err := c.mint(confirmActionDeactivate, employee.String(), session)
 	if err != nil {
 		t.Fatalf("mint: %v", err)
 	}
 	// POSITIVE CONTROL FIRST.
-	if err := c.parse(token, confirmActionDeactivate, employee, session); err != nil {
+	if err := c.parse(token, confirmActionDeactivate, employee.String(), session); err != nil {
 		t.Fatalf("a freshly minted confirmation was refused: %v", err)
 	}
 
@@ -633,11 +633,11 @@ func TestAdminConfirm_IsBoundAndExpires(t *testing.T) {
 	// the same business, cannot spend a confirmation minted elsewhere. It reads as
 	// "not confirmed" rather than as "another employee" on purpose: naming which
 	// binding was missed would describe the mechanism to whoever is probing it.
-	if err := c.parse(token, confirmActionDeactivate, employee, uuid.New()); !errors.Is(err, errConfirmInvalid) {
+	if err := c.parse(token, confirmActionDeactivate, employee.String(), uuid.New()); !errors.Is(err, errConfirmInvalid) {
 		t.Errorf("a confirmation from another session returned %v, want errConfirmInvalid", err)
 	}
 	// ANOTHER EMPLOYEE — genuine, this session, so it earns its own sentence.
-	if err := c.parse(token, confirmActionDeactivate, uuid.New(), session); !errors.Is(err, errConfirmOtherPerson) {
+	if err := c.parse(token, confirmActionDeactivate, uuid.NewString(), session); !errors.Is(err, errConfirmOtherPerson) {
 		t.Errorf("a confirmation for another employee returned %v, want errConfirmOtherPerson", err)
 	}
 
@@ -645,13 +645,13 @@ func TestAdminConfirm_IsBoundAndExpires(t *testing.T) {
 	// client that kept sending the value past the window is refused anyway.
 	aged := c
 	aged.now = func() time.Time { return time.Now().Add(adminConfirmTTL + time.Second) }
-	if err := aged.parse(token, confirmActionDeactivate, employee, session); !errors.Is(err, errConfirmInvalid) {
+	if err := aged.parse(token, confirmActionDeactivate, employee.String(), session); !errors.Is(err, errConfirmInvalid) {
 		t.Errorf("a confirmation past the TTL returned %v, want errConfirmInvalid", err)
 	}
 	// AND THE BOUNDARY IS NOT OFF BY A WINDOW: one second INSIDE it still passes.
 	fresh := c
 	fresh.now = func() time.Time { return time.Now().Add(adminConfirmTTL - time.Second) }
-	if err := fresh.parse(token, confirmActionDeactivate, employee, session); err != nil {
+	if err := fresh.parse(token, confirmActionDeactivate, employee.String(), session); err != nil {
 		t.Errorf("a confirmation one second inside the window was refused: %v", err)
 	}
 
@@ -662,25 +662,25 @@ func TestAdminConfirm_IsBoundAndExpires(t *testing.T) {
 	// suspended VM) from silently widening the window.
 	backwards := c
 	backwards.now = func() time.Time { return time.Now().Add(-adminConfirmFutureSkew - time.Minute) }
-	if err := backwards.parse(token, confirmActionDeactivate, employee, session); !errors.Is(err, errConfirmInvalid) {
+	if err := backwards.parse(token, confirmActionDeactivate, employee.String(), session); !errors.Is(err, errConfirmInvalid) {
 		t.Errorf("a confirmation from beyond the future skew returned %v, want errConfirmInvalid", err)
 	}
 	// The tolerated direction still works, or the guard would refuse a legitimate
 	// second of clock jitter.
 	jitter := c
 	jitter.now = func() time.Time { return time.Now().Add(-adminConfirmFutureSkew + time.Second) }
-	if err := jitter.parse(token, confirmActionDeactivate, employee, session); err != nil {
+	if err := jitter.parse(token, confirmActionDeactivate, employee.String(), session); err != nil {
 		t.Errorf("a confirmation inside the tolerated skew was refused: %v", err)
 	}
 
 	// 🔴 THE ZERO VALUE IS AN ERROR, NEVER A DEFAULT. A zero adminConfirm would sign
 	// under an empty key — a MAC anybody can compute — so both halves refuse.
 	var zero adminConfirm
-	if _, err := zero.mint(confirmActionDeactivate, employee, session); err == nil {
+	if _, err := zero.mint(confirmActionDeactivate, employee.String(), session); err == nil {
 		t.Error("a zero adminConfirm minted a confirmation; it must refuse rather than " +
 			"sign under an empty key")
 	}
-	if err := zero.parse(token, confirmActionDeactivate, employee, session); err == nil {
+	if err := zero.parse(token, confirmActionDeactivate, employee.String(), session); err == nil {
 		t.Error("a zero adminConfirm accepted a confirmation")
 	}
 	// AND A VALUE SIGNED UNDER A DIFFERENT KEY IS REFUSED, which is the property the
@@ -692,11 +692,11 @@ func TestAdminConfirm_IsBoundAndExpires(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newAdminConfirm(other key): %v", err)
 	}
-	foreign, err := otherKey.mint(confirmActionDeactivate, employee, session)
+	foreign, err := otherKey.mint(confirmActionDeactivate, employee.String(), session)
 	if err != nil {
 		t.Fatalf("mint under the other key: %v", err)
 	}
-	if err := c.parse(foreign, confirmActionDeactivate, employee, session); !errors.Is(err, errConfirmInvalid) {
+	if err := c.parse(foreign, confirmActionDeactivate, employee.String(), session); !errors.Is(err, errConfirmInvalid) {
 		t.Errorf("a confirmation signed under a DIFFERENT key was accepted (%v)", err)
 	}
 }
@@ -1281,7 +1281,7 @@ func newAdminRouterLogging(t *testing.T, into *strings.Builder, trail *fakeTrail
 		}, nil
 	}}
 	h, err := NewAdminAuth(admins, trail, newFakeLedger(), newFakeLedger(), &fakeReviewer{},
-		staff, invites, &fakeVenues{}, adminTestConfig(),
+		staff, invites, &fakeVenues{}, &fakePlaques{}, adminTestConfig(),
 		slog.New(slog.NewTextHandler(into, &slog.HandlerOptions{Level: slog.LevelDebug})))
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)

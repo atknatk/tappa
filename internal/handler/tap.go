@@ -362,7 +362,16 @@ func (t *Tap) Page(w http.ResponseWriter, r *http.Request) {
 	// (The only case that cannot work this way is an unknown uid above, which
 	// has no tenant to record against.)
 
-	facts, err := t.directory.TapPage(r.Context(), id.Session.TenantID, id.Session.EmployeeID, pv.Location)
+	// 🔴 THE PLAQUE'S WALL IS NULLABLE AND IS FLATTENED HERE, ONCE, WITH A NAME.
+	// sun.Preview.Location is a *uuid.UUID because migration 00013 made tags.location_id
+	// nullable and the driver reports a SQL NULL as uuid.Nil without an error
+	// (db.ResolvedTag.LocationID carries the measurement). uuid.Nil is exactly what
+	// TapPage already treats as ErrForeignLocation — "render without a venue name" —
+	// so a plaque still in its box takes the path a plaque belonging to another
+	// tenant takes: the page renders, the button is pressed, and the POST RECORDS the
+	// refusal (§4.6) instead of the page silently dropping it.
+	wall := tappedWallOf(pv)
+	facts, err := t.directory.TapPage(r.Context(), id.Session.TenantID, id.Session.EmployeeID, wall)
 	switch {
 	case errors.Is(err, tenant.ErrForeignLocation):
 		// The plaque belongs to another tenant. The page renders WITHOUT a venue
@@ -388,7 +397,7 @@ func (t *Tap) Page(w http.ResponseWriter, r *http.Request) {
 		CMACVerified: pv.CMACValid,
 		// Carried, never compared: the tag half of the N5 hand-off.
 		TagTenantID: pv.TenantID,
-		LocationID:  pv.Location,
+		LocationID:  wall,
 	}, id.Session.ID)
 	if err != nil {
 		t.log.Error("tap page: minting the tap context failed", "tag_uid", p.UID, "err", err)
@@ -404,6 +413,23 @@ func (t *Tap) Page(w http.ResponseWriter, r *http.Request) {
 		LocationName: facts.LocationName,
 		TapContext:   signed,
 	}))
+}
+
+// tappedWallOf is where the plaque's nullable wall becomes a plain id for this
+// page, and it is a named function rather than two dereferences so the answer to
+// "what does the page do with a plaque that has no wall" lives in one place.
+//
+// 🔴 uuid.Nil IS THE ANSWER ON PURPOSE, AND IT IS NOT A HOLE. tenant.TapPage
+// already returns ErrForeignLocation for it — a case that has its own test
+// (TestTapPage_NilLocationIsForeignNotAnError) — so the page renders WITHOUT a
+// venue name and the tap proceeds to the POST, where the decision engine refuses
+// it at §5 row 1 and WRITES the refusal. Refusing to render here would decide the
+// tap on the page, and decide it without a record (§4.6).
+func tappedWallOf(pv sun.Preview) uuid.UUID {
+	if pv.Location == nil {
+		return uuid.Nil
+	}
+	return *pv.Location
 }
 
 // tapCSP is the content policy for this screen.

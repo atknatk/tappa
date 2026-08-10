@@ -154,7 +154,14 @@ func newPanelHarness(t *testing.T) *panelHarness {
 	if err != nil {
 		t.Fatalf("tenant.NewVenues: %v", err)
 	}
-	h, err := NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, venues, cfg, slog.New(slog.DiscardHandler))
+	// THE REAL Plaques, for the same reason (M6-06 phase B). The plaque path is
+	// where §4.7's type wall and the one-transaction replace live; a fake would
+	// agree that both hold.
+	plaques, err := tenant.NewPlaques(data, trail, slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatalf("tenant.NewPlaques: %v", err)
+	}
+	h, err := NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, venues, plaques, cfg, slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}

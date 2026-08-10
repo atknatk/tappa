@@ -178,6 +178,15 @@ func (f *fakeResolver) WithTenant(_ context.Context, _ uuid.UUID, _ db.TxFunc) e
 	return f.wtErr
 }
 
+// newLocationPtr is the tag's wall as the nullable column now returns it.
+//
+// db.ResolvedTag.LocationID became a *uuid.UUID in M6-06 phase B, because
+// migration 00013 made tags.location_id nullable for the inventory model and the
+// driver reports a SQL NULL as uuid.Nil WITHOUT AN ERROR. A fixture that builds a
+// MOUNTED plaque must therefore hand over a non-nil pointer, and this names that
+// rather than scattering &-of-a-temporary through the file.
+func newLocationPtr(id uuid.UUID) *uuid.UUID { return &id }
+
 // fakeActiveTag builds an active ResolvedTag whose aes_key_ref genuinely wraps
 // tagKey under kek, so verifySUN's Unwrap succeeds and the flow reaches verifyMAC.
 func fakeActiveTag(t *testing.T, kek, uidBytes, tagKey []byte, status string) db.ResolvedTag {
@@ -189,7 +198,7 @@ func fakeActiveTag(t *testing.T, kek, uidBytes, tagKey []byte, status string) db
 	return db.ResolvedTag{
 		UID:        strings.ToUpper(hex.EncodeToString(uidBytes)),
 		TenantID:   uuid.New(),
-		LocationID: uuid.New(),
+		LocationID: newLocationPtr(uuid.New()),
 		AESKeyRef:  ref,
 		LastCtr:    0,
 		Status:     status,
@@ -271,7 +280,7 @@ func TestVerify_QRHasNoSUN(t *testing.T) {
 	if res.SUNValid {
 		t.Fatal("QR tap returned SUNValid=true, want false")
 	}
-	if res.Location != f.tag.LocationID {
+	if res.Location == nil || f.tag.LocationID == nil || *res.Location != *f.tag.LocationID {
 		t.Fatal("QR Result must still carry the tag's location for the decision layer")
 	}
 	if f.wtCalls != 0 {
@@ -538,8 +547,8 @@ func TestVerify_VectorsAgainstPostgres(t *testing.T) {
 				if res.CtrGap != vec.WantGap {
 					t.Fatalf("%s: gap = %d, want %d", vec.Name, res.CtrGap, vec.WantGap)
 				}
-				if res.Location != locationID {
-					t.Fatalf("%s: Result.Location = %s, want %s", vec.Name, res.Location, locationID)
+				if res.Location == nil || *res.Location != locationID {
+					t.Fatalf("%s: Result.Location = %v, want %s", vec.Name, res.Location, locationID)
 				}
 				if res.Tag.TenantID != tenantID {
 					t.Fatalf("%s: Result.Tag.TenantID = %s, want %s", vec.Name, res.Tag.TenantID, tenantID)
@@ -603,7 +612,7 @@ func TestVerify_QRAgainstPostgres(t *testing.T) {
 	if res.SUNValid {
 		t.Fatal("QR tap returned SUNValid=true, want false")
 	}
-	if res.Location != locationID || res.Tag.TenantID != tenantID {
+	if res.Location == nil || *res.Location != locationID || res.Tag.TenantID != tenantID {
 		t.Fatal("QR Result must carry the resolved tag's tenant + location")
 	}
 	if got := finalCtr(t, d, uid); got != 42 {

@@ -44,6 +44,7 @@ type refusalFixture struct {
 	data     *db.DB
 	router   http.Handler
 	venues   *fakeVenues
+	plaques  *fakePlaques
 	tenantID uuid.UUID
 	adminID  uuid.UUID
 }
@@ -86,6 +87,7 @@ func newRefusalFixture(t *testing.T, role string) *refusalFixture {
 		t.Fatalf("audit.New: %v", err)
 	}
 	f.venues = twoVenues()
+	f.plaques = &fakePlaques{}
 	admins := &fakeAdmins{verify: func() (adminauth.Resolved, error) {
 		return adminauth.Resolved{
 			SessionID: sessionID, TenantID: f.tenantID, AdminUserID: f.adminID,
@@ -94,7 +96,7 @@ func newRefusalFixture(t *testing.T, role string) *refusalFixture {
 	}}
 	records := newFakeLedger()
 	h, err := NewAdminAuth(admins, trail, records, records, &fakeReviewer{},
-		&fakeStaff{}, &fakeInviter{}, f.venues, adminTestConfig(), discardLogger())
+		&fakeStaff{}, &fakeInviter{}, f.venues, f.plaques, adminTestConfig(), discardLogger())
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}

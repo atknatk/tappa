@@ -19,7 +19,12 @@ import (
 )
 
 // The LOCATIONS SECTION — M6-06 PHASE A: the venues a business operates and the
-// departments inside them. Its two writes are locationactions.go.
+// departments inside them. Its writes are locationactions.go, and the plaque half
+// of the same section is plaques.go / plaqueactions.go (M6-06 phase B).
+//
+// ⚠️ THIS LINE SAID "its TWO writes" until phase B; the section now mounts seven,
+// and the number is dropped rather than corrected — TestPlaqueWrites_AreOnTheWRITINGChain
+// walks the real router for the set, so nothing has to be counted here.
 //
 // 🔴 THIS SECTION EDITS THE EVIDENCE THE DECISION ENGINE JUDGES TAPS ON, WHICH IS
 // WHAT MAKES IT DIFFERENT FROM EVERY OTHER PANEL SCREEN. The employees section
@@ -62,7 +67,9 @@ import (
 // altogether this panics at startup rather than silently building links to nowhere.
 var locationsHref = mustSectionHref(pages.TabLocations)
 
-// The two POST routes, built from the section's own URL.
+// The venue and department POST routes, built from the section's own URL. The
+// plaque half declares its own in plaques.go; every one of them is walked out of the
+// real router by TestPlaqueWrites_AreOnTheWRITINGChain.
 var (
 	venueSaveHref        = locationsHref + "/venue"
 	departmentSaveHref   = locationsHref + "/department"
@@ -103,8 +110,13 @@ var (
 	// removalReceipt below is the whole of it — and venueRemovalWords is what marks
 	// these two as needing that check, so a word added later does not inherit the
 	// exemption by sitting in the same slice.
+	// 🔴 THE PLAQUE WORDS CARRY THE SAME OBLIGATION AS THE REMOVAL ONES AND ARE
+	// MARKED SEPARATELY (plaqueActWords, plaques.go). They announce an EVENT — "this
+	// was replaced" — which the rows beneath cannot back on their own, so each is
+	// verified against the audit action ITS OWN act writes before a word is printed.
 	venueDoneWords = []string{"venue-saved", "venue-added", "department-saved",
-		"department-added", "venue-deleted", "department-deleted"}
+		"department-added", "venue-deleted", "department-deleted",
+		"plaque-mounted", "plaque-replaced", "plaque-unmounted"}
 
 	// venueRemovalWords are the words that MUST be verified against the trail before
 	// they are rendered, and the audit action each one claims.
@@ -132,6 +144,25 @@ var (
 		// deactivation uses, because it is the SAME mechanism (deactivateconfirm.go)
 		// rather than a second one invented for this screen.
 		"confirm-required", "confirm-stale",
+		// The plaque refusals (M6-06 phase B). Each is a DIFFERENT thing for a manager
+		// to do about it, which is why each gets its own word rather than one shared one:
+		//
+		//	"unknown-plaque"     no plaque with that id in this business
+		//	"plaque-not-stock"   the spare was mounted between the screen and the press
+		//	                     — the race, and neither half of the replacement happened
+		//	"plaque-not-active"  the plaque being replaced is not on a wall any more
+		//	"same-plaque"        a plaque cannot replace itself
+		//	"plaque-frozen"      the database refuses to write this row at all. A
+		//	                     DEVELOPMENT-ONLY state: 00013's canonical-uid CHECK is
+		//	                     NOT VALID, so the 18 010 pre-existing lower-case rows
+		//	                     are listed but frozen. Without a word for it a manager
+		//	                     would meet a 500 on a row they can see.
+		"unknown-plaque", "plaque-not-stock", "plaque-not-active", "same-plaque",
+		"plaque-frozen",
+		// "plaque-no-wall" — the plaque a manager tried to take DOWN is not on a wall.
+		// A separate word from "plaque-not-active" because it sends them somewhere
+		// else: that one is about the plaque a replacement would retire.
+		"plaque-no-wall",
 	}
 )
 
@@ -176,7 +207,8 @@ const maxStaticRanges = 32
 // 802.11 field with a 32-OCTET limit, and a Maltese ħ costs two of them.
 const maxSSIDBytes = 32
 
-// locationsSection renders the venues, the departments, and at most one edit card.
+// locationsSection renders the venues, the departments, the plaques, and at most
+// one edit card.
 func (a *AdminAuth) locationsSection(w http.ResponseWriter, r *http.Request) {
 	id := httpx.AdminOf(r)
 
@@ -189,20 +221,33 @@ func (a *AdminAuth) locationsSection(w http.ResponseWriter, r *http.Request) {
 		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelUnavailable)
 		return
 	}
+	// 🔴 THE SAME RULE FOR THE PLAQUES, AND IT IS A SEPARATE READ ON PURPOSE (§4.6).
+	// "This business has no plaques" is as much a claim as "no venues", and the two
+	// reads fail independently — folding a plaque timeout into an empty plaque list
+	// would tell a manager their stock is empty on the strength of a database that
+	// did not answer.
+	plaques, err := a.locationsPlaques(r)
+	if err != nil {
+		a.log.Error("panel: could not read the plaques", "err", err)
+		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelUnavailable)
+		return
+	}
 
 	// 🔴 THE SHELL IS BUILT IN ONE PLACE, WHICH IS A REPAIR RATHER THAN A TIDY-UP.
 	// This function and locationsShell used to fill the same view model separately,
 	// and the copies had already drifted: the re-render path set no count at all, so
 	// a capped list there read "Only the first  venues are shown". One builder is
 	// what makes the two paths one fact.
-	v := a.locationsShell(r, screen)
+	v := a.locationsShell(r, screen, plaques)
 	// Problem is a CLOSED VOCABULARY read off the query string, so a hand-edited URL
-	// can turn one of four sentences on and cannot put anything in it.
+	// can turn one of a fixed set of sentences on and cannot put anything in it.
 	v.Problem = oneOfWords(r.URL.Query().Get("problem"), venueProblemWords...)
 	v.Done = oneOfWords(r.URL.Query().Get("done"), venueDoneWords...)
 	// 🔴 VERIFIED BEFORE IT IS SAID. For the two removal words this is the only thing
 	// that permits a sentence; for every other word it costs nothing and returns nil.
 	v.RemovalReceipt = a.removalReceipt(r, v.Done)
+	// 🔴 AND THE SAME FOR THE PLAQUE WORDS, against the action each act writes.
+	v.PlaqueReceipt = a.plaqueReceipt(r, v.Done)
 	// 🔴 AN UNVERIFIED REMOVAL WORD IS DROPPED ENTIRELY, NOT MERELY LEFT UNPRINTED,
 	// AND THAT IS A §4.6 REPAIR RATHER THAN TIDYING. A removal word survives in v.Done
 	// even when the trail has nothing behind it — and v.Done being non-empty was
@@ -223,6 +268,13 @@ func (a *AdminAuth) locationsSection(w http.ResponseWriter, r *http.Request) {
 	if _, isRemoval := venueRemovalWords[v.Done]; isRemoval && v.RemovalReceipt == nil {
 		v.Done = ""
 	}
+	// 🔴 AND AN UNVERIFIED PLAQUE WORD IS DROPPED FOR THE SAME REASON, not merely
+	// left unprinted. A word that survives in v.Done is enough to SKIP the
+	// unresolved-card check below, so an unbacked one would silence a refusal the
+	// section is required to make — the §4.6 repair the removal words needed.
+	if _, isAct := plaqueActWords[v.Done]; isAct && v.PlaqueReceipt == nil {
+		v.Done = ""
+	}
 
 	var formErr error
 	v.VenueForm, v.DepartmentForm, formErr = a.venueForms(w, r, screen)
@@ -236,11 +288,26 @@ func (a *AdminAuth) locationsSection(w http.ResponseWriter, r *http.Request) {
 	// 🔴 THE FORM'S TARGET IS SET IN ONE PLACE, FROM THE SAME CONSTANT THE ROUTER
 	// REGISTERS. A form whose action is written out again is a form that can post to
 	// a URL nothing mounts — the failure mustSectionHref exists to make impossible
-	// for the section itself, applied to its two write routes.
+	// for the section itself, applied to every write route it mounts.
 	bindFormTargets(&v)
-	// §4.6: a ?venue= or ?department= that resolved to nothing is ANSWERED, not
-	// silently ignored. It is set here rather than in venueForms so that it cannot
-	// overwrite the outcome of an action the manager just took.
+	// 🔴 THE PLAQUE CARD IS THE THIRD AND IT OPENS ONLY WHEN NEITHER OF THE OTHER TWO
+	// DID. At most one card is ever open — the rule venueForms already holds for its
+	// pair — so the precedence (venue, then department, then plaque) is written here
+	// as a condition rather than left to emerge from the order of assignments.
+	if v.VenueForm == nil && v.DepartmentForm == nil {
+		card, err := a.plaqueCard(w, r, plaques, screen, plaques.Zone)
+		if err != nil {
+			// §4.6: OUR read failed. "We could not find that plaque" would be a claim
+			// about the business built on a database that did not answer.
+			a.log.Error("panel: could not resolve the requested plaque", "err", err)
+			a.renderProblem(w, r, http.StatusInternalServerError, problemPanelUnavailable)
+			return
+		}
+		v.PlaqueForm = card
+	}
+	// §4.6: a ?venue=, ?department= or ?plaque= that resolved to nothing is ANSWERED,
+	// not silently ignored. It is set here rather than in venueForms so that it
+	// cannot overwrite the outcome of an action the manager just took.
 	if v.Problem == "" && v.Done == "" {
 		v.Problem = unresolvedCardProblem(r, v)
 	}
@@ -299,6 +366,23 @@ func unresolvedCardProblem(r *http.Request, v pages.LocationsView) string {
 			return "unreadable"
 		}
 		return "unknown-venue"
+	}
+
+	// 🔴 ?plaque= IS ANSWERED LAST AND ONLY WHEN IT WAS ACTUALLY LOOKED FOR. The
+	// section opens at most one card and takes venue, then department, then plaque —
+	// so with a venue or a department in the address the plaque was never searched
+	// for, and complaining that it could not be FOUND would be a claim about a search
+	// that never ran. That is the exact defect the ?venue=new&department=new branch
+	// above records.
+	if department == "" {
+		if plaque := strings.TrimSpace(q.Get("plaque")); plaque != "" && v.PlaqueForm == nil {
+			if _, err := tenant.PlaqueRef(plaque); err != nil {
+				// Not a plaque id at all: nothing was looked up, so the product cannot know
+				// whose plaque it would have been.
+				return "unreadable"
+			}
+			return "unknown-plaque"
+		}
 	}
 
 	if department != "" && v.DepartmentForm == nil {
@@ -1251,7 +1335,7 @@ func (a *AdminAuth) removalView(w http.ResponseWriter, r *http.Request, in remov
 	// mint(action, subjectID, sessionID) exactly.
 	// Half-copying a pattern is a mistake this repository has made three times, and
 	// calling the same code is the cheapest way not to make it four.
-	token, err := a.setConfirmation(w, r, in.ConfirmAction, in.ID)
+	token, err := a.setConfirmation(w, r, in.ConfirmAction, in.ID.String())
 	if err != nil {
 		a.log.Error("panel: could not mint the removal confirmation", "err", err)
 		return v

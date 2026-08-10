@@ -74,10 +74,17 @@ func (a *AdminAuth) mountSections(r chi.Router) {
 }
 
 // mountWriting registers the panel's state-changing routes: POST /admin/review
-// (M6-04), the employees section's three (M6-05 phase B) and the locations
-// section's four (M6-06 phase A: two saves and two removals).
+// (M6-04), the employees section's three (M6-05 phase B), and the locations
+// section's seven — two saves and two removals (M6-06 phase A) plus the mount, the
+// replace and the un-mount (phase B).
 //
-// 🔴 THE EIGHT SHARE ONE CHAIN AND THAT IS THE POINT OF THE FUNCTION. Every mutating
+// ⚠️ THE COUNTS IN THIS COMMENT WENT STALE ONCE ALREADY (they said eight and four
+// after phase B grew the section). They are kept because the ARGUMENT below is
+// about the chain being shared rather than about the number — but a number in a
+// comment beside a list that owns it is a second representation, and this one is
+// on its second correction.
+//
+// 🔴 THE ELEVEN SHARE ONE CHAIN AND THAT IS THE POINT OF THE FUNCTION. Every mutating
 // panel route needs the Origin check ahead of the resolver, and a route registered
 // anywhere else would silently get the READ chain instead — which is exactly the
 // defect an audit measured on POST /admin/review (a cross-origin flood spending a
@@ -113,6 +120,14 @@ func (a *AdminAuth) mountWriting(r chi.Router) {
 		// running the resolver before the Origin check.
 		r.Post(venueDeleteHref, a.deleteVenue)
 		r.Post(departmentDeleteHref, a.deleteDepartment)
+		// 🔴 THE PLAQUE ACTS BELONG HERE FOR THE SAME REASON THE REMOVALS DO, and
+		// one of them is the heaviest write in the panel: replacing a plaque retires
+		// the thing every tap at that entrance is authenticated by (§5 row 1). A POST
+		// registered in mountSections would silently take the READ chain, running the
+		// resolver before the Origin check.
+		r.Post(plaqueMountHref, a.mountPlaque)
+		r.Post(plaqueReplaceHref, a.replacePlaque)
+		r.Post(plaqueUnmountHref, a.unmountPlaque)
 	})
 }
 

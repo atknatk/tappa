@@ -645,7 +645,7 @@ func (s *Service) Record(ctx context.Context, req Request) (Result, error) {
 			return fmt.Errorf("lock employee: %w", e)
 		}
 
-		facts, err = s.gather(ctx, tx, req, tagRow.LocationID)
+		facts, err = s.gather(ctx, tx, req, tappedWall(tagRow.LocationID))
 		if err != nil {
 			return err
 		}
@@ -660,7 +660,7 @@ func (s *Service) Record(ctx context.Context, req Request) (Result, error) {
 			SUN:                  tap.SUNResult{Valid: sunValid, CtrGap: int(ctrGap)},
 			Tag: &tap.Tag{
 				Status:   tap.TagStatus(tagRow.Status),
-				Location: tagRow.LocationID,
+				Location: tappedWall(tagRow.LocationID),
 			},
 			Employee:                    facts.employee,
 			TagTenantID:                 &tagRow.TenantID,
@@ -872,6 +872,33 @@ type tapFacts struct {
 // THE TAPPED LOCATION COMES FROM THE FRESH TAG ROW, not from the signed context,
 // for the same reason the status does: a plaque can be re-mounted, and the venue
 // a tap is judged against must be where the plaque is NOW.
+// tappedWall flattens the plaque's nullable wall for the decision engine, and it
+// is a NAMED FUNCTION rather than two inline dereferences on purpose.
+//
+// 🔴 THE POINTER STOPS HERE, AND WHY IT STOPS HERE IS THE WHOLE COMMENT.
+// db.ResolvedTag.LocationID is a *uuid.UUID because the DRIVER cannot report a SQL
+// NULL any other way: measured on pgx v5.10.0, `SELECT NULL::uuid` into a
+// uuid.UUID gives err=nil and uuid.Nil, so a plaque sitting in its box arrived
+// looking like one mounted at "location zero" (M6-06 phase B closed that at the
+// scan boundary). tap.Tag.Location stays FLAT because the decision engine reads it
+// for exactly two things — building the `location/<id>` policy resource and
+// comparing the tapped venue with the employee's home venue — and BOTH are
+// unreachable for a plaque with no wall: §5 row 1 denies every status but `active`,
+// and tags_active_requires_location (00013) forbids an active plaque from lacking a
+// location. So the flattening is total by construction rather than by hope.
+//
+// ⚠️ WHAT uuid.Nil THEN MEANS DOWNSTREAM, stated because it is the value this
+// function deliberately produces: GetLocationForTap finds no row, locationResolved
+// stays false, no IP range and no coordinate reach the decision, and the tap is
+// RECORDED without a location_id (§4.6) rather than dropped or crashed. That is the
+// same path a plaque belonging to another tenant already takes.
+func tappedWall(id *uuid.UUID) uuid.UUID {
+	if id == nil {
+		return uuid.Nil
+	}
+	return *id
+}
+
 func (s *Service) gather(ctx context.Context, tx pgx.Tx, req Request, tappedLocationID uuid.UUID) (tapFacts, error) {
 	var f tapFacts
 	err := func(ctx context.Context, tx pgx.Tx) error {
@@ -1127,9 +1154,13 @@ func (s *Service) insertParams(req Request, tagRow db.ResolvedTag, f tapFacts, d
 	// tenant (f.locationResolved). The composite FK (location_id, tenant_id) would
 	// refuse a foreign one anyway — and a refused INSERT is a lost record, so the
 	// belt is here and the braces are in the schema.
-	if f.locationResolved {
-		loc := tagRow.LocationID
-		p.LocationID = &loc
+	if f.locationResolved && tagRow.LocationID != nil {
+		// THE SECOND CONDITION IS BELT, NOT BRACES, and it is written out because the
+		// two facts have different sources: locationResolved says GetLocationForTap
+		// found a row, and the pointer says the plaque had a wall at all. They cannot
+		// disagree — a nil wall resolves to nothing — but the belt costs one comparison
+		// and removes any need for the reader to prove that.
+		p.LocationID = tagRow.LocationID
 	}
 	p.DepartmentID = f.departmentID
 	if req.GPS != nil {

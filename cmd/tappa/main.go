@@ -134,13 +134,29 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	// The locations section's read and its two writes (M6-06 phase A): venue
+	// The locations section's venue and department side — its reads and its writes
+	// (M6-06 phase A): venue
 	// configuration and department management. It takes the SAME audit recorder as
 	// the two above, and here the reason is sharper than for either of them —
 	// `locations` has no updated_at, so the trail row written inside the write's own
 	// transaction is the ONLY place a change to the evidence a tap is judged on
 	// leaves a mark (internal/domain/tenant/venue.go).
 	venues, err := tenant.NewVenues(data, trail, slog.Default())
+	if err != nil {
+		return err
+	}
+	// The wall plaques (M6-06 phase B): the list a manager reads, mounting a plaque
+	// Tappa loaded, replacing the one already on a wall, and taking one back off a
+	// wall into stock. Same audit recorder
+	// again, and here the reason is the sharpest of the four — retiring a plaque
+	// takes away the thing every tap at that entrance is authenticated by (§5 row 1),
+	// and `tags` has no updated_at either.
+	//
+	// 🔴 IT CANNOT CREATE A PLAQUE AND THERE IS NOTHING TO WIRE FOR THAT. Creating one
+	// means holding its AES key (user decision, 2026-08-08: Tappa encodes the plaque
+	// and loads the row; the panel only binds it), so db/queries/tags.sql ships no
+	// INSERT and this type exposes no such method.
+	plaques, err := tenant.NewPlaques(data, trail, slog.Default())
 	if err != nil {
 		return err
 	}
@@ -161,7 +177,7 @@ func run() error {
 	// M5-02 drove the channel end to end. The distinction matters — the seam was
 	// TESTED and unmounted, which is the M5-04 shape (a capability delivered, approved
 	// and dead in the wired product) rather than an unproven one.
-	panelAuth, err := handler.NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, venues, cfg, slog.Default())
+	panelAuth, err := handler.NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, venues, plaques, cfg, slog.Default())
 	if err != nil {
 		return err
 	}
