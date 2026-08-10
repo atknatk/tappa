@@ -342,6 +342,34 @@ func (p *panelHarness) tenantSize(t *testing.T) (venues, plaques, taps int) {
 	return venues, plaques, taps
 }
 
+// dropPlaquesAfter removes the plaques a journey seeded into a SHARED tenant, once the
+// test is done with them.
+//
+// 🔴 IT RUNS AS tappa_owner BECAUSE tappa_app CANNOT DELETE FROM `tags` (00004 revokes
+// it), and that revocation is the reason this package's other fixtures are left behind.
+// The rule is "we cannot clean up", not "cleaning up is wrong" — and here NOT cleaning
+// up made a shipped test flaky, which is the more expensive of the two.
+//
+// ⚠️ IT IS NOT A GENERAL FIXTURE CLEANER AND MUST NOT BECOME ONE. It deletes exactly
+// the uids it is given, in the order a replacement leaves them (the retired plaque
+// points at its successor through replaced_by, so the pointer has to go first). It
+// touches NO other table — `transactions` is append-only (§4.3) and a plaque with taps
+// against it would raise 23503 here, which is reported rather than swallowed.
+func (p *panelHarness) dropPlaquesAfter(t *testing.T, uids ...string) {
+	t.Helper()
+	t.Cleanup(func() {
+		owner := ownerPoolForTest(t)
+		for _, uid := range uids {
+			if _, err := owner.Exec(context.Background(),
+				`DELETE FROM tags WHERE uid = $1 AND tenant_id = $2`, uid, p.tenantID); err != nil {
+				t.Errorf("could not remove the seeded plaque %s: %v. The shared tenant now "+
+					"carries one more row than it started with, which is exactly the drift "+
+					"this cleanup exists to stop.", uid, err)
+			}
+		}
+	})
+}
+
 // TestPlaqueJourneyDB_AWrongMountCanBeUNDONE is D1 end to end, over real HTTP: the
 // journey an audit measured as a DEAD END.
 //
@@ -464,8 +492,33 @@ const demoTenant = "10000000-0000-4000-8000-000000000001"
 //
 // ⚠️ IT SEEDS INTO A SHARED FIXTURE TENANT, deliberately and narrowly: one admin
 // (so it can sign in), one plaque on an existing wall and one spare. It writes no
-// venue and no employee, and `tags` cannot be deleted by this role — the same
-// "fixtures are not cleaned up" rule the rest of this package follows.
+// venue and no employee.
+//
+// 🔴 IT USED TO POISON ITSELF, AND THAT MADE EVERY "the suite is green" CLAIM IN THIS
+// MILESTONE PROBABILISTIC. Two plaques per run, `tags` not deletable by tappa_app, and
+// an assertion that the FRESHLY SEEDED one appears in a list capped at
+// plaquePageLimit — so once the demo tenant passed 200 plaques the test's outcome
+// depended on where a random 14-hex uid sorted. Measured before the fix (2026-08-10,
+// 287 plaques in that tenant): 9 solo runs -> 6 PASS / 3 FAIL, and the rate was
+// getting worse on every run. It is the second instance of the class M6-06 phase B
+// found and fixed once already (a vat_number collision, ~1.13% per run).
+//
+// TWO CHANGES CLOSE IT, and neither weakens what the test is FOR:
+//
+//  1. THE LIST ASSERTION IS CAP-INDEPENDENT NOW. It checks the SPARE, which is
+//     `unassigned` and therefore in the query's FIRST group (ORDER BY location_id
+//     NULLS FIRST) — a tenant would need 200 unbound plaques in a box to push it out,
+//     which is not a shape a business has. The BROKEN one is opened by its own uid,
+//     which is how a manager holding a plaque finds it anyway and which
+//     plaqueByUID answers whether or not the row is inside the cap.
+//  2. IT DELETES ITS OWN TWO ROWS AFTERWARDS, as tappa_owner. That breaks this
+//     package's "fixtures are not cleaned up" rule ON PURPOSE, and the reason is that
+//     the rule's own justification does not apply: fixtures are left behind because
+//     tappa_app CANNOT delete them, not because leaving them is desirable — and
+//     plaquePageLimit's comment already names this test as the thing making its
+//     population drift. Nothing in `transactions` is touched (§4.3): these two rows
+//     are seconds old and no tap references them, which is asserted rather than
+//     assumed — a referenced row would raise 23503 and fail the cleanup loudly.
 func TestPlaqueJourneyDB_TheBudgetOnATenantWithHistory(t *testing.T) {
 	p := newPanelHarness(t)
 	tenantID, err := uuid.Parse(demoTenant)
@@ -484,6 +537,10 @@ func TestPlaqueJourneyDB_TheBudgetOnATenantWithHistory(t *testing.T) {
 
 	broken := p.seedPlaque(t, "active", wall)
 	spare := p.seedPlaque(t, "unassigned", uuid.Nil)
+	// THE ROWS GO AWAY AGAIN. Registered before the journey so a failure half way
+	// through still cleans up — a test that poisons the tenant only when it FAILS is
+	// the worst version of the bug it is fixing.
+	p.dropPlaquesAfter(t, broken, spare)
 
 	start := time.Now()
 	screens, clicks := 0, 0
@@ -493,10 +550,17 @@ func TestPlaqueJourneyDB_TheBudgetOnATenantWithHistory(t *testing.T) {
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("GET %s = %d, want 200", locationsHref, res.StatusCode)
 	}
-	openHref := locationsHref + "?plaque=" + broken
-	if !strings.Contains(html, openHref) {
-		t.Fatalf("the list does not offer %s", openHref)
+	// 🔴 THE SPARE, NOT THE BROKEN ONE, AND THE CHOICE IS THE WHOLE FIX. An unassigned
+	// plaque sorts in the list's FIRST group; a wall-mounted one sorts among however
+	// many the tenant has, which is a number this test used to grow itself.
+	spareHref := locationsHref + "?plaque=" + spare
+	if !strings.Contains(html, spareHref) {
+		t.Fatalf("the list does not offer the SPARE at %s — unbound stock is what this "+
+			"screen puts first, so its absence is a real defect rather than a cap", spareHref)
 	}
+	// The plaque a manager is HOLDING is opened by its uid, which is cap-independent
+	// (plaqueByUID falls back to a by-uid read behind the rendered page).
+	openHref := locationsHref + "?plaque=" + broken
 
 	res, html = p.get(t, openHref)
 	screens++

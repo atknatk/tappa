@@ -1928,7 +1928,13 @@ func (h *tapHarness) seedAgedRecord(t *testing.T, employeeID uuid.UUID, age time
 // protects is exactly this one: a row DECLARING yesterday that was WRITTEN a
 // moment ago. Production makes that shape two ways — a manager typing a forgotten
 // shift (channel manual, exempt) and a queued tap syncing late (channel nfc, not
-// exempt) — and no HTTP flow can produce the manual one yet (M6-04).
+// exempt).
+//
+// ⚠️ THIS COMMENT ENDED "no HTTP flow can produce the manual one yet (M6-04)" AND
+// BOTH HALVES WERE WRONG: the task is M6-08, not M6-04, and since 2026-08-10 the flow
+// exists (internal/handler/manualentry.go). The helper stays, because it can place the
+// two clocks anywhere it likes and the real flow cannot — but nothing here is standing
+// in for a capability the product lacks any more.
 func (h *tapHarness) seedRecordWithSplitClocks(t *testing.T, employeeID uuid.UUID, occurredAgo, createdAgo time.Duration, channel, direction string) {
 	t.Helper()
 	err := h.data.WithTenant(context.Background(), h.tenantID, func(ctx context.Context, tx pgx.Tx) error {

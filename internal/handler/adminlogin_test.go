@@ -20,6 +20,7 @@ import (
 	"github.com/atknatk/tappa/internal/audit"
 	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/domain/ledger"
+	"github.com/atknatk/tappa/internal/domain/manual"
 	"github.com/atknatk/tappa/internal/domain/review"
 	"github.com/atknatk/tappa/internal/domain/tenant"
 	"github.com/atknatk/tappa/internal/httpx"
@@ -677,6 +678,94 @@ func (f *fakeVenues) saved() ([]tenant.VenueCommand, []tenant.DepartmentCommand)
 // 🔴 IT HAS NO KEY FIELD EITHER, and that is not decoration: if a test double
 // could carry an aes_key_ref, a screen test could pass while the production type
 // grew one. The wall is a property of the TYPES, so the double has to obey it too.
+// fakeRecorder is the manual record writer as a double (M6-08).
+//
+// 🔴 WHAT IT CAN AND CANNOT PROVE, said here because the temptation with this one is
+// larger than with the others: it can show which screen the panel renders, which word
+// it refuses with, what a form carries and whether a confirmation was demanded. It
+// CANNOT prove anything about what lands in `transactions` — not the literal verdict,
+// not the absent columns, not §4.5's scope, not the audit row's shared fate — because
+// a double writes nothing and agrees with whatever it is told. All of that is measured
+// against real Postgres in manualentry_db_test.go, which is where the second writer of
+// an immutable table has to be measured.
+//
+// 🔴 IT HAS NO FIELD FOR A COORDINATE, AN ADDRESS OR A TAG UID, and that is the same
+// wall the production type has: manual.Entry has none either, so a screen test could
+// not pass while the write path grew one.
+type fakeRecorder struct {
+	mu sync.Mutex
+
+	subject    manual.Subject
+	subjectErr error
+
+	// recordErr is what Record answers, so every refusal the section maps can be
+	// driven without a database.
+	recordErr error
+	recorded  []manual.Entry
+	// boundsErr is what Bounds answers. It is SEPARATE from recordErr because the two
+	// are checked at different moments — the review step and the write — and a test
+	// that could not tell them apart could not see the gate at all.
+	boundsErr error
+	// backdated is what Backdated answers, so the confirmation screen's "this is a
+	// past moment" line can be driven both ways.
+	backdated bool
+}
+
+func (f *fakeRecorder) Subject(_ context.Context, _, employeeID uuid.UUID) (manual.Subject, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.subjectErr != nil {
+		return manual.Subject{}, f.subjectErr
+	}
+	s := f.subject
+	if s.EmployeeID == uuid.Nil {
+		s.EmployeeID = employeeID
+	}
+	if s.Name == "" {
+		s.Name = "Maria Borg"
+	}
+	if s.Zone == "" {
+		s.Zone = "Europe/Malta"
+	}
+	return s, nil
+}
+
+func (f *fakeRecorder) Bounds(time.Time) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.boundsErr
+}
+
+func (f *fakeRecorder) Backdated(time.Time) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.backdated
+}
+
+func (f *fakeRecorder) Record(_ context.Context, e manual.Entry) (manual.Recorded, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.recordErr != nil {
+		return manual.Recorded{}, f.recordErr
+	}
+	f.recorded = append(f.recorded, e)
+	return manual.Recorded{
+		ID:         uuid.New(),
+		At:         e.At,
+		CreatedAt:  time.Now().UTC(),
+		Direction:  e.Direction,
+		Verdict:    "ok",
+		Channel:    "manual",
+		EmployeeID: e.EmployeeID,
+	}, nil
+}
+
+func (f *fakeRecorder) entries() []manual.Entry {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]manual.Entry(nil), f.recorded...)
+}
+
 type fakePlaques struct {
 	mu        sync.Mutex
 	screen    tenant.PlaqueScreen
@@ -968,7 +1057,7 @@ func newAdminRouterWithReviewer(t *testing.T, admins *fakeAdmins, trail *fakeTra
 // own limiter measures its own limiter.
 func newAdminRouterWithActions(t *testing.T, admins *fakeAdmins, trail *fakeTrail, records *fakeLedger, reviewer panelReviewer, staff panelStaff, invites panelInviter) http.Handler {
 	t.Helper()
-	h, err := NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, &fakeVenues{}, &fakePlaques{}, adminTestConfig(), slog.New(slog.DiscardHandler))
+	h, err := NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, &fakeVenues{}, &fakePlaques{}, &fakeRecorder{}, adminTestConfig(), slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}
@@ -1903,7 +1992,7 @@ func TestAdminScreens_NeverRenderACredential(t *testing.T) {
 // signed out. This is a structural tripwire for the next person adding a route.
 func TestAdminRoutes_AreAllUnderTheCookiePath(t *testing.T) {
 	nilCfgLedger := newFakeLedger()
-	h, err := NewAdminAuth(&fakeAdmins{}, &fakeTrail{}, nilCfgLedger, nilCfgLedger, &fakeReviewer{}, &fakeStaff{}, &fakeInviter{}, &fakeVenues{}, &fakePlaques{}, adminTestConfig(), slog.New(slog.DiscardHandler))
+	h, err := NewAdminAuth(&fakeAdmins{}, &fakeTrail{}, nilCfgLedger, nilCfgLedger, &fakeReviewer{}, &fakeStaff{}, &fakeInviter{}, &fakeVenues{}, &fakePlaques{}, &fakeRecorder{}, adminTestConfig(), slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}
@@ -2483,7 +2572,7 @@ func TestProtect_CarriesTheBudget(t *testing.T) {
 		return adminauth.Resolved{}, adminauth.ErrNoSession
 	}}
 	fake := newFakeLedger()
-	h, err := NewAdminAuth(admins, &fakeTrail{}, fake, fake, &fakeReviewer{}, &fakeStaff{}, &fakeInviter{}, &fakeVenues{}, &fakePlaques{}, adminTestConfig(), discardLogger())
+	h, err := NewAdminAuth(admins, &fakeTrail{}, fake, fake, &fakeReviewer{}, &fakeStaff{}, &fakeInviter{}, &fakeVenues{}, &fakePlaques{}, &fakeRecorder{}, adminTestConfig(), discardLogger())
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}

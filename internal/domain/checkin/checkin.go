@@ -28,6 +28,44 @@
 //	      row in another table (M6-04). (The package DOES insert elsewhere:
 //	      audit_log, and the three policy tables when a tenant's baseline is
 //	      materialised — policyset.go. None of them touches transactions.)
+//
+//	      ⚠️ AND SINCE 2026-08-10 THIS PACKAGE IS NO LONGER THE PRODUCT'S ONLY
+//	      WRITER OF THAT TABLE. M6-08 added internal/domain/manual: a manager
+//	      typing a record for somebody with no phone, and the checkout Q18 says
+//	      the system will never invent for itself. The sentence above is still
+//	      true as written — it is scoped to THIS package — but a reader who took
+//	      it as "one writer in the product" would now be wrong, and that reading
+//	      is the one it was written to support. What is still singular here: this
+//	      is the only statement the TAP path writes, and the only one that may set
+//	      tag_uid, ctr, sun_valid, source_ip, ip_match, gps_lat, gps_lng, gps_match
+//	      or the four policy-decision columns. The other writer's statement has no
+//	      parameter for any of them.
+//
+//	      🔴 "A REFUSED RECORD CARRIES NO DIRECTION" IS HELD BY FOUR THINGS, AND
+//	      THIS PARAGRAPH NAMED ONLY THE WEAKEST OF THEM FOR ONE ROUND. insertParams
+//	      below writes the direction from dec.Type, and internal/domain/tap only
+//	      assigns one on ok/flag. That is the first barrier; there are three more:
+//
+//	        1. decide.go's `if` — and it is NOT a bare code invariant, it is the
+//	           subject of internal/domain/tap's
+//	           TestDecide_DirectionNilForNonRecordVerdicts (red in four sub-cases
+//	           under mutation).
+//	        2. The manual writer cannot express the shape at all: its verdict is a
+//	           SQL literal, not a parameter (db/queries/transactions.sql).
+//	        3. internal/domain/ledger's endpointState FAIL-SAFES an unrecognised or
+//	           refused verdict to HoursAwaiting, so such a row would be quarantined
+//	           and reported separately rather than paid.
+//	        4. Migration 00014's transactions_refusal_has_no_direction — the SCHEMA
+//	           now refuses it outright, VALIDATED.
+//
+//	      ⚠️ THIS BLOCK USED TO SAY THE OPPOSITE AND THE CORRECTION IS KEPT VISIBLE:
+//	      it called the rule "a CODE invariant rather than a schema constraint",
+//	      said "the database accepts verdict='reject' with type='in'", and cited a
+//	      test name that no longer exists. All three were true before 00014 and are
+//	      false after it; on a §4.3/§4.6 surface a stale sentence sends the next
+//	      reader looking for a barrier in the wrong place. The live measurement is
+//	      internal/handler's TestManualDB_TheSchemaREFUSESADirectedRefusalNow, which
+//	      drives both refusals and five positive controls.
 //	§4.4  The counter advance is ATOMIC and is the ONLY thing separating a fresh
 //	      touch from a replay. It is one SQL statement with the comparison inside
 //	      it; nothing in this package reads last_ctr and compares it in Go, and a

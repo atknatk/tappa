@@ -608,7 +608,7 @@ func TestReportsSection_MarksManualEntriesAndUnmeasuredArrivals(t *testing.T) {
 		r.Totals = ledger.Totals{Worked: 6 * time.Hour, Shifts: 1}
 		r.People = []ledger.PersonHours{{
 			Name: "Nadia Cassar", Worked: 6 * time.Hour, Shifts: 1, Daily: daily,
-			Manual: 1, Unmeasured: 2, LateShifts: 1, LateBy: 17 * time.Minute,
+			ManualArrivals: 1, Unmeasured: 2, LateShifts: 1, LateBy: 17 * time.Minute,
 		}}
 	})
 	body := reportBrowser(t, records).do(http.MethodGet, reportsHref, nil).Body.String()
@@ -617,7 +617,7 @@ func TestReportsSection_MarksManualEntriesAndUnmeasuredArrivals(t *testing.T) {
 		// §5 + handoff §6: a manager-entered row carries no evidence of a physical
 		// touch, so a report that blended it in would present a typed figure as a
 		// measured one.
-		"1 shift entered by a manager",
+		"1 arrival entered by a manager",
 		// M4-05's third answer. "Not measured" is not "on time": a venue with no
 		// opening hours has no yardstick, and printing 0 minutes late would invent one.
 		"2 arrivals not measured — no shift set",

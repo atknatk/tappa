@@ -1,0 +1,265 @@
+package pages
+
+import "strconv"
+
+import "github.com/atknatk/tappa/web/templates/components"
+
+// MANUAL RECORD ENTRY (M6-08) — the one screen in this panel that WRITES an
+// attendance record, and the only place the product ever puts an hour on somebody's
+// payroll without a physical touch behind it.
+//
+// 🔴 IT RENDERS PanelShell, NOT PanelShellWithScript. This screen loads no script:
+// two steps, two ordinary form posts, no fragment. That keeps the panel's widened
+// Content-Security-Policy on exactly ONE url, which is the cardinality
+// TestPanelScreens_ScriptsAndPolicyAgreeAndReachNoThirdParty pins — and it is why the
+// confirmation is a SERVER step rather than a browser dialog: a dialog is not
+// something a server can require, which is the argument the deactivation flow already
+// makes.
+//
+// 🔴 §4.3 — TWO STEPS, AND THE SECOND ONE EXISTS BECAUSE THE WRITE IS PERMANENT.
+// `transactions` takes no UPDATE and no DELETE. §4.3's own remedy — a correction is a
+// NEW row — was measured against the report engine and only works in half the
+// directions (internal/domain/manual's CorrectionsOnlyShorten): an appended record can
+// make a shift shorter and never longer. So the warning below is not decoration, and
+// the sentence it carries is a measurement rather than a caution.
+//
+// 🔴 THE WRITE BUTTON CANNOT BE RENDERED BEFORE THE WARNING, AND WHAT HOLDS THAT IS
+// THE `if v.Confirming` BRANCH BELOW — measured, after this paragraph claimed
+// otherwise. It said the VIEW held it ("RecordAction is empty on the first step, so
+// there is no address for the button to point at"), and a mutation refuted it: setting
+// RecordAction on the first step changes nothing, because the first step never renders
+// it. The empty field is a consequence, not a barrier.
+//
+// So the barrier is one `if`, and it is asserted as one:
+// TestManualForm_NeverRendersTheWriteFormNoMatterWhatTheViewCarries drives this
+// template with the write address AND a confirmation token set and Confirming false,
+// and requires the write form to be absent. What stands behind it if it ever failed is
+// the SERVER: the write route verifies a confirmation bound to this exact record, so a
+// form rendered early would still be refused.
+//
+// skill tappa-brand governs the surface: the kitchen docket is the record motif, every
+// instant and every identifier is IBM Plex Mono, the status-to-colour mapping is the
+// unchanging one, and nothing is carried by colour alone — the deactivation warning, the
+// permanence warning and every refusal say their own words.
+templ AdminManualEntry(v ManualEntryView) {
+	@PanelShell(v.PanelChrome) {
+		if v.Problem != "" {
+			@components.Notice(components.ToneWarn, manualProblemHeading(v.Problem)) {
+				switch v.Problem {
+					case "direction":
+						<p>A record is either a check-in or a checkout, and nothing was chosen. Nothing was written.</p>
+					case "when":
+						<p>We could not read that date and time, so nothing was written. Both fields are needed, in this venue's own clock.</p>
+					case "future":
+						<p>That moment has not happened yet. A record is a statement about work already done, so nothing was written.</p>
+					case "too-old":
+						// THE BOUND IS DESCRIBED RATHER THAN QUOTED. The number lives in
+						// internal/domain/manual, and a copy of it here is a second
+						// representation that goes stale silently — the class this repository
+						// has paid for repeatedly.
+						<p>That date is further back than this screen accepts, so nothing was written. Check the year first: it is the field that goes wrong most often.</p>
+					case "confirm-required":
+						<p>Nothing was written. Entering a record needs the confirmation screen first, and this one either was not used or was left open too long.</p>
+						<p class="mt-1">Fill the form again; the button appears under the summary.</p>
+					case "confirm-stale":
+						<p>Nothing was written. This browser is in the middle of confirming a different record, so the button you pressed no longer matches.</p>
+						<p class="mt-1">Start this one again and confirm from its own summary — one confirmation at a time.</p>
+					case "unavailable":
+						<p>Nothing was written. We could not prepare the confirmation step, so the record was not offered for confirmation either. Try again in a moment.</p>
+					default:
+						<p>Nothing was written.</p>
+				}
+			}
+		}
+		<section class="docket" aria-label="Enter a record by hand">
+			<p class="docket-label">Attendance record</p>
+			<h2 class="font-display text-lg font-bold tracking-tight text-ink">
+				{ v.Name }
+			</h2>
+			<p class="mt-1 font-mono text-sm text-ink/85">
+				if v.Venue != "" {
+					{ v.Venue }
+				} else {
+					<span class="text-ink/70">venue not recorded</span>
+				}
+				if v.Department != "" {
+					<span class="text-ink/70">· { v.Department }</span>
+				}
+			</p>
+			if v.Deactivated {
+				// 🔴 SAID, NOT REFUSED. Somebody's last shift is often typed after they
+				// have left, and refusing it would create an unpayable shift with no way
+				// back — deactivation is one-way and this table takes no UPDATE. What the
+				// screen owes the manager is the fact, before the button.
+				<div class="mt-3">
+					@components.Notice(components.ToneWarn, "This person has been deactivated") {
+						<p>
+							Their own taps are refused from now on. A record you type here is still
+							written and still counts, which is what makes a final shift payable —
+							so make sure this is the person you mean.
+						</p>
+					}
+				</div>
+			}
+			if v.Confirming {
+				@manualConfirmStep(v)
+			} else {
+				@manualFormStep(v)
+			}
+		</section>
+	}
+}
+
+// manualFormStep is what the manager fills in.
+//
+// THE FIELDS ARE THE WHOLE OF WHAT A CLIENT CONTRIBUTES: a person (carried unseen, and a
+// narrowing value inside their own tenant), a direction from a closed vocabulary, a
+// wall clock and a sentence. The venue and the department are NOT here — the write
+// statement reads them off the employee row, so there is no field a manager could
+// mis-file somebody through.
+templ manualFormStep(v ManualEntryView) {
+	<form method="post" action={ templ.URL(v.Action) } class="mt-4 flex flex-col gap-4">
+		<input type="hidden" name="id" value={ v.EmployeeID }/>
+		<fieldset class="filter-field">
+			<legend class="docket-label">What happened</legend>
+			<div class="mt-1 flex flex-wrap gap-4">
+				for _, d := range v.Directions {
+					<label class="inline-flex min-h-11 items-center gap-2 font-mono text-sm">
+						// THE ACCENT IS THE BRAND'S, NOT THE BROWSER'S (skill tappa-brand: stay
+						// inside the palette). Without it a native control paints itself the
+						// user agent's blue, which is the one colour this product does not use
+						// -- and it is the same class the activation screen already fixed on its
+						// own checkboxes. The size matches theirs so the two read as one system.
+						<input
+							class="h-5 w-5 shrink-0 accent-tappa-green"
+							type="radio"
+							name="direction"
+							value={ d.Value }
+							checked?={ v.Direction == d.Value }
+						/>
+						{ d.Label }
+						<span class="text-ink/70">— { d.Sentence }</span>
+					</label>
+				}
+			</div>
+		</fieldset>
+		<div class="flex flex-wrap gap-4">
+			<div class="filter-field">
+				<label class="docket-label" for="record-date">Date</label>
+				<input
+					class="filter-input font-mono"
+					id="record-date"
+					type="date"
+					name="date"
+					value={ v.Date }
+					autocomplete="off"
+				/>
+			</div>
+			<div class="filter-field">
+				<label class="docket-label" for="record-time">Time</label>
+				<input
+					class="filter-input font-mono"
+					id="record-time"
+					type="time"
+					name="time"
+					value={ v.Time }
+					autocomplete="off"
+				/>
+			</div>
+		</div>
+		// 🔴 THE ZONE IS PRINTED BESIDE THE FIELDS, NOT ASSUMED. This is a person typing
+		// a wall clock and a server deciding which instant that is; a screen that did not
+		// say which clock would be inviting the one mistake it cannot take back.
+		<p class="font-mono text-sm text-ink/85">
+			Times are this business&#39;s own clock: <span class="font-bold">{ v.Zone }</span>
+		</p>
+		<div class="filter-field">
+			<label class="docket-label" for="record-note">Why (optional)</label>
+			<textarea
+				class="filter-input font-mono"
+				id="record-note"
+				name="note"
+				rows="2"
+				maxlength={ strconv.Itoa(v.MaxNote) }
+				autocomplete="off"
+			>{ v.Note }</textarea>
+			<p class="mt-1 text-sm text-ink/85">
+				It is shown on the record itself, next to the mark that says a manager typed
+				it. &#34;Phone was flat&#34; or &#34;forgot to tap out&#34; is enough.
+			</p>
+		</div>
+		<div class="flex flex-wrap items-center gap-3">
+			<button class="btn btn--primary" type="submit">Review this record</button>
+			<a class="btn btn--quiet" href={ templ.URL(v.BackHref) }>Cancel</a>
+		</div>
+	</form>
+}
+
+// manualConfirmStep is the warning and the write.
+//
+// 🔴 IT PRINTS THE INSTANT IN BOTH CLOCKS. The local one, with its weekday, is what a
+// manager checks against their memory of the shift; the ISO one is what the database
+// will hold. Printing one alone is how somebody confirms a time they read in a zone
+// nobody named — the same rule M6-07's CSV follows for the same reason.
+templ manualConfirmStep(v ManualEntryView) {
+	<div class="mt-4 flex flex-col gap-4">
+		<div class="empty-state">
+			<p class="docket-label">About to be recorded</p>
+			<p class="font-mono text-base font-bold text-ink">
+				{ directionLabel(v) } — { v.Name } { directionSentence(v) }
+			</p>
+			<p class="font-mono text-sm text-ink">
+				{ v.WhenLocal } <span class="text-ink/70">· { v.Zone }</span>
+			</p>
+			<p class="font-mono text-sm text-ink/70">{ v.WhenUTC } UTC</p>
+			if v.Backdated {
+				<p class="font-mono text-sm text-ink/85">
+					This is a past moment. The record will say it happened then, and it will
+					also carry the time you wrote it.
+				</p>
+			}
+			if v.Note != "" {
+				<p class="font-mono text-sm text-ink/85">&#34;{ v.Note }&#34;</p>
+			}
+		</div>
+		@components.Notice(components.ToneAlert, "This cannot be edited or removed afterwards") {
+			<p>
+				Attendance records are permanent — nothing in Tappa can change one or take it
+				back, because a record may be needed as evidence.
+			</p>
+			// 🔴 THE MEASURED HALF, AND IT IS THE PART A MANAGER WOULD NOT GUESS. Adding a
+			// later record is the only correction there is, and it can only make a shift
+			// SHORTER: the report pairs somebody's latest check-in with the earliest
+			// checkout after it. A checkout typed too early cannot be undone by typing the
+			// right one afterwards. docs/adr/0011 carries the table.
+			<p class="mt-1">
+				If this is wrong, adding another record later can shorten the shift but never
+				lengthen it. Check the time before you press.
+			</p>
+			// 🔴 THE SECOND MEASURED HALF, AND IT IS SPECIFIC TO A CHECK-IN. Correcting one
+			// leaves the earlier check-in open, and no later checkout can ever close it —
+			// every attempt writes one more permanent record and one more wrong line on the
+			// report (ADR 0011, measured over three attempts). A manager who is told only
+			// about the money would keep pressing.
+			if v.Direction == "in" {
+				<p class="mt-1">
+					And if you are fixing a check-in you already entered, the old one stays in
+					&#34;needs action&#34; for good: nothing you enter afterwards can close it.
+					Rather than correcting one, get this one right.
+				</p>
+			}
+		}
+		<form method="post" action={ templ.URL(v.RecordAction) } class="flex flex-col gap-4">
+			<input type="hidden" name="id" value={ v.EmployeeID }/>
+			<input type="hidden" name="direction" value={ v.Direction }/>
+			<input type="hidden" name="date" value={ v.Date }/>
+			<input type="hidden" name="time" value={ v.Time }/>
+			<input type="hidden" name="note" value={ v.Note }/>
+			<input type="hidden" name={ v.ConfirmField } value={ v.ConfirmToken }/>
+			<div class="flex flex-wrap items-center gap-3">
+				<button class="btn btn--primary" type="submit">Record it</button>
+				<a class="btn btn--quiet" href={ templ.URL(v.BackHref) }>Cancel</a>
+			</div>
+		</form>
+	</div>
+}

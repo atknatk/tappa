@@ -67,7 +67,7 @@ func newAdminRouterWithPlaques(t *testing.T, admins *fakeAdmins, venues panelVen
 	t.Helper()
 	records := newFakeLedger()
 	h, err := NewAdminAuth(admins, &fakeTrail{}, records, records, &fakeReviewer{},
-		&fakeStaff{}, &fakeInviter{}, venues, plaques, adminTestConfig(), discardLogger())
+		&fakeStaff{}, &fakeInviter{}, venues, plaques, &fakeRecorder{}, adminTestConfig(), discardLogger())
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}

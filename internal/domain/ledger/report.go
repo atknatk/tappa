@@ -221,10 +221,31 @@ type PersonHours struct {
 	Refused  time.Duration
 	// Shifts counts the intervals behind Worked.
 	Shifts int
-	// Manual counts how many of this person's attributed check-ins a manager typed
-	// (channel='manual'). §5 and the M6-07 card both ask for those to be visible
+	// ManualArrivals counts how many of this person's attributed CHECK-INS a manager
+	// typed (channel='manual'). §5 and the M6-07 card both ask for those to be visible
 	// rather than blended in: a manual row carries no evidence of a physical touch.
-	Manual int
+	//
+	// 🔴 IT WAS CALLED Manual AND EVERY SURFACE RENDERED IT AS "shifts", WHICH WAS
+	// WRONG IN BOTH DIRECTIONS — measured (2026-08-10, M6-08's audit round), on the
+	// real arithmetic:
+	//
+	//	one typed pair                        Manual 1  Shifts 1   correct by luck
+	//	a typed check-in CORRECTED by another Manual 2  Shifts 1   OVER-counts a payroll column
+	//	a tapped check-in, TYPED checkout     Manual 0  Shifts 1   UNDER-counts, and it is
+	//	                                                            Q18's own scenario
+	//	a typed check-in nobody closed        Manual 1  Shifts 0   not a shift at all
+	//
+	// The arithmetic is NOT changed — it lives in arrival(), which runs for every
+	// attributed check-in, closed or not, and that is the right place for it (lateness
+	// is a property of turning up). What changes is the NAME, on this field and on
+	// every surface, so the number says what it counts. All four rows above are true
+	// statements about ARRIVALS.
+	//
+	// ⚠️ WHAT IT STILL DOES NOT COUNT, said out loud rather than left to be discovered
+	// a third time: a typed CHECKOUT. "How much of this week was typed rather than
+	// tapped" is a different question and would need both ends; this answers "how many
+	// times did somebody's arrival get typed for them".
+	ManualArrivals int
 	// LateShifts and LateBy describe ARRIVALS, not intervals: lateness is a property
 	// of turning up. LateBy is the sum of the positive lateness only, so somebody who
 	// is ten minutes early one day and ten late the next is not "on time on average".
@@ -650,6 +671,23 @@ func worse(a, b HoursState) HoursState {
 //	                        entry nobody closed, its hours are not guessed, and a
 //	                        manager corrects it (Q18, M6-08)
 //
+// 🔴 AND THE CONSEQUENCE OF THAT CHOICE FOR M6-08, WHICH NOTHING SAID UNTIL THE WRITE
+// PATH EXISTED. Keeping the LATEST `in` and (below) the EARLIEST `out` means the engine
+// always builds the SHORTEST interval the records admit -- so a record APPENDED as a
+// correction can make a shift shorter and can never make it longer. Measured, one
+// person, truth 09:00-17:00 = 8h (internal/domain/ledger's correction_test.go):
+//
+//	a checkout typed too EARLY, corrected by a later one   3h  -> 3h   NOT applied
+//	a checkout typed too LATE,  corrected by an earlier    11h -> 8h   applied
+//	a check-in  typed too LATE, corrected by an earlier    7h  -> 7h   NOT applied
+//	a check-in  typed too EARLY, corrected by a later      9h  -> 8h   applied
+//
+// The two that do not apply are the two that would RESTORE pay, and the stranded row
+// is counted rather than lost (StartedEarlier or an OpenEntry) but is not labelled as
+// a correction. Nothing changes here -- each reading above is defended on its own
+// terms -- but internal/domain/manual.CorrectionsOnlyShorten and the confirmation
+// screen both quote this measurement, so a change to the pairing has to move them too.
+//
 // A CHECKOUT WITH NO OPEN CHECK-IN is not an anomaly, it is the seam: the shift began
 // before the period. It is counted (StartedEarlier) and its hours belong to the
 // previous report, which is what "attribute an interval to the day it STARTED" means
@@ -706,7 +744,7 @@ func accumulate(evs []reportEvent, p Period, zone *time.Location, now time.Time)
 		}
 		ph := person(e)
 		if e.Manual {
-			ph.Manual++
+			ph.ManualArrivals++
 		}
 		if e.Shift == nil {
 			ph.Unmeasured++

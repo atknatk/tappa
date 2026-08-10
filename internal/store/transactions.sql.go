@@ -231,6 +231,158 @@ func (q *Queries) GetLastTransactionForEmployee(ctx context.Context, arg GetLast
 	return i, err
 }
 
+const insertManualTransaction = `-- name: InsertManualTransaction :one
+INSERT INTO transactions (
+    tenant_id, employee_id, location_id, department_id, type, occurred_at,
+    trust, verdict, note, channel, entered_by, practice, queued
+)
+SELECT $1, e.id, e.location_id, e.department_id, $2::text, $3,
+       $4::smallint, 'ok', $5::text, 'manual', $6::uuid,
+       false, false
+FROM employees e
+WHERE e.tenant_id = $1
+  AND e.id = $7::uuid
+RETURNING id, occurred_at, created_at, type, verdict, channel, trust, practice, queued
+`
+
+type InsertManualTransactionParams struct {
+	TenantID   uuid.UUID
+	Type       string
+	OccurredAt time.Time
+	Trust      int16
+	Note       *string
+	EnteredBy  uuid.UUID
+	EmployeeID uuid.UUID
+}
+
+type InsertManualTransactionRow struct {
+	ID         uuid.UUID
+	OccurredAt time.Time
+	CreatedAt  time.Time
+	Type       *string
+	Verdict    string
+	Channel    string
+	Trust      *int16
+	Practice   bool
+	Queued     bool
+}
+
+// THE MANAGER'S OWN RECORD (M6-08). Somebody with no phone worked a shift, or an
+// entry was left open and nobody tapped out (Q18: the system produces NO checkout of
+// its own). A named administrator types it, and their id is on the row forever.
+//
+// 🔴 WHY IT IS A SEPARATE STATEMENT AND NOT A SECOND CALLER OF InsertTransaction.
+// That one takes verdict, channel, type, practice, queued, sun_valid, tag_uid, ctr,
+// source_ip and the coordinates AS PARAMETERS, because the tap engine computes all of
+// them. This path computes none of them, and passing constants from Go would put the
+// narrowing in a Go file where the next edit can widen it silently. Here the narrowing
+// IS the statement:
+//
+//	verdict   literal 'ok'      this path cannot produce reject, flag or ignored
+//	channel   literal 'manual'  and therefore cannot masquerade as a tap
+//	practice  literal false     a manager's keystroke is nobody's training tap
+//	queued    literal false     queued is the APPROVAL queue (00005: flag -> true)
+//	tag_uid / ctr / sun_valid / source_ip / ip_match /
+//	gps_lat / gps_lng / gps_match / the four policy columns
+//	                            NOT IN THE COLUMN LIST AT ALL -> NULL
+//
+// 🔴 THE ABSENT COLUMNS ARE THE SECTION 4.7 WALL AND THE SECTION 5 ONE AT THE SAME
+// TIME. A column this statement cannot name is a column this path cannot fill: there
+// is no parameter a coordinate could arrive in, and no parameter that could claim a
+// chip was read. sun_valid stays NULL rather than false because 00005 keeps three
+// states and the third is the true one here -- "not evaluated for this channel".
+// Writing false would say "we checked the chip and it failed" about a check that
+// never applied, and internal/domain/checkin's insertParams already refuses to write
+// it for the same reason.
+//
+// 🔴 verdict = 'ok' IS A DECISION, NOT A DEFAULT, and it is the one thing here worth
+// arguing with. Section 4.6 says a tap with insufficient evidence is flagged, and a
+// manual record has NO machine evidence at all -- so `flag` looks like the careful
+// answer. It is not: Q18 says the record "always rests on a human's declaration", and
+// the declaration IS the evidence, carried by entered_by, which names somebody
+// answerable. A flagged manual record would sit in the approval queue forever (the
+// person who would approve it is the person who wrote it), its hours would stay out
+// of the payroll total (internal/domain/ledger's endpointState), and the manager
+// closing a forgotten checkout would find the total still short -- which is the exact
+// failure Q18 exists to prevent. What makes the row honest is not a worse verdict but
+// the CHANNEL, which every report already separates.
+//
+// 🔴 trust IS PASSED AND IT IS THE BASELINE (section 5: 20 + 50 IP + 30 GPS). It
+// measures EVIDENCE, not outcome (M4-06), so a record with neither place-proof scores
+// the baseline and says so on the docket beside an APPROVED stamp. The number comes
+// from internal/domain/tap.TrustBase; it is a parameter rather than a literal here so
+// section 5's formula has exactly one home.
+//
+// 🔴 IT IS AN INSERT ... SELECT, THE SHAPE db/queries/reviews.sql USES, AND THE SELECT
+// DOES THREE THINGS AT ONCE:
+//
+//	scope        the row can only be built from an employee in THIS tenant, so a
+//	             foreign or invented id produces 0 rows -> pgx.ErrNoRows -> a
+//	             sentence, never a foreign write (section 4.5, belt; the composite
+//	             FK (employee_id, tenant_id) is the braces)
+//	placement    location_id and department_id are READ FROM THE EMPLOYEE ROW rather
+//	             than posted. A manager cannot mis-file somebody into another venue
+//	             by editing a form, and the composite FKs on both columns are
+//	             satisfied by construction because the values came from a row that
+//	             already satisfies them.
+//	              ⚠️ COUNTED LIMIT: somebody covering a shift at ANOTHER venue is
+//	                 recorded against their HOME venue, so the venue breakdown and
+//	                 the lateness shift are their usual branch's. Section 5 wants the
+//	                 TAPPED location -- and there is no tapped location here. The
+//	                 employee row is the only server-derived answer; a posted one
+//	                 would be the manager's guess with a foreign-key check on it.
+//	atomicity    the read and the write are one statement, so the placement cannot
+//	             change between them.
+//
+// @tenant_id APPEARS TWICE ON PURPOSE, exactly as in InsertTransactionReview: once as
+// the column being written (which the RLS WITH CHECK re-verifies) and once as the
+// SELECT's own scope predicate.
+//
+// 🔴 A DEACTIVATED EMPLOYEE IS NOT EXCLUDED, and that is deliberate rather than an
+// oversight. Section 5 row 4 refuses a deactivated person's TAP because their
+// proof-of-person is void; a manual record has no session for them at all -- the
+// proof-of-person is the ADMINISTRATOR. Somebody's last shift is often typed after
+// they leave, and refusing it would create an unpayable shift with no remedy, since
+// deactivation is one-way (docs/adr/0010) and `transactions` takes no UPDATE. The
+// screen says the person is deactivated before the button is pressed.
+//
+// 🔴 type IS A PARAMETER AND IT IS THE ONLY ONE THAT SHAPES THE RECORD'S MEANING.
+// It is cast to text (not sqlc.narg), so Go cannot pass NULL; transactions_type_check
+// refuses anything but 'in'/'out'; and transactions_ok_has_direction refuses a NULL
+// one anyway because verdict is the literal 'ok' above. Three layers, none of them a
+// Go `if`.
+//
+// THE THREE OTHER PARAMETERS ARE CAST FOR THE SAME REASON, and it is a real
+// difference rather than decoration: trust, entered_by and employee_id are nullable
+// (entered_by) or foreign-keyed (employee_id) columns, so without the casts sqlc
+// would hand Go a *int16 and a *uuid.UUID -- i.e. it would make "no administrator on
+// this row" and "no trust score" EXPRESSIBLE from this path. They are not. `note` is
+// the one field that really is optional, and it is the only sqlc.narg here.
+func (q *Queries) InsertManualTransaction(ctx context.Context, arg InsertManualTransactionParams) (InsertManualTransactionRow, error) {
+	row := q.db.QueryRow(ctx, insertManualTransaction,
+		arg.TenantID,
+		arg.Type,
+		arg.OccurredAt,
+		arg.Trust,
+		arg.Note,
+		arg.EnteredBy,
+		arg.EmployeeID,
+	)
+	var i InsertManualTransactionRow
+	err := row.Scan(
+		&i.ID,
+		&i.OccurredAt,
+		&i.CreatedAt,
+		&i.Type,
+		&i.Verdict,
+		&i.Channel,
+		&i.Trust,
+		&i.Practice,
+		&i.Queued,
+	)
+	return i, err
+}
+
 const insertTransaction = `-- name: InsertTransaction :one
 INSERT INTO transactions (
     tenant_id, employee_id, location_id, department_id, tag_uid, ctr, type,
@@ -277,7 +429,22 @@ type InsertTransactionParams struct {
 	PolicyContext   []byte
 }
 
-// THE single write path. id and created_at use DB defaults; every other column
+// THE TAP write path -- and it stopped being THE ONLY one on 2026-08-10.
+//
+// 🔴 THIS COMMENT SAID "THE single write path" UNTIL M6-08 ADDED THE SECOND ONE.
+// InsertManualTransaction (below) is a manager typing a record for somebody with no
+// phone, and it is a DIFFERENT STATEMENT rather than a second caller of this one --
+// see its own header for why the narrowing is done in SQL. Both remain INSERTs and
+// there is still no UPDATE or DELETE of `transactions` anywhere in db/queries
+// (section 4.3), which is the property the old sentence was reaching for; what the
+// sentence actually claimed was a count, and the count changed.
+//
+// WHAT IS STILL SINGULAR: this is the only statement the TAP path writes, and the
+// only one that may set tag_uid, ctr, sun_valid, source_ip, ip_match, gps_lat,
+// gps_lng, gps_match or the four policy-decision columns. A manager-entered record
+// names none of them, and its statement has no parameter for any of them.
+//
+// id and created_at use DB defaults; every other column
 // is set by the tap engine, including practice and queued (no silent default is
 // relied on for those two -- the engine states them). tenant_id is provided
 // explicitly and WITH CHECK confirms it matches the context (section 4.5).

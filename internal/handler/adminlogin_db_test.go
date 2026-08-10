@@ -39,6 +39,7 @@ import (
 	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/db"
 	"github.com/atknatk/tappa/internal/domain/ledger"
+	"github.com/atknatk/tappa/internal/domain/manual"
 	"github.com/atknatk/tappa/internal/domain/review"
 	"github.com/atknatk/tappa/internal/domain/tenant"
 	"github.com/atknatk/tappa/internal/invite"
@@ -161,7 +162,15 @@ func newPanelHarness(t *testing.T) *panelHarness {
 	if err != nil {
 		t.Fatalf("tenant.NewPlaques: %v", err)
 	}
-	h, err := NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, venues, plaques, cfg, slog.New(slog.DiscardHandler))
+	// THE REAL manual Recorder (M6-08), for the reason every other real dependency in
+	// this harness is real: it is the SECOND writer of `transactions` in the product,
+	// and the two things its tests exist for -- section 4.5's scope and the audit
+	// row's shared fate -- are exactly what a fake would agree with regardless.
+	entries, err := manual.NewRecorder(data, trail, slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatalf("manual.NewRecorder: %v", err)
+	}
+	h, err := NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, venues, plaques, entries, cfg, slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}

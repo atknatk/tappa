@@ -285,20 +285,25 @@ func (a *AdminAuth) rosterActions(w http.ResponseWriter, r *http.Request, f ledg
 	}
 
 	v := &components.RosterActionsView{
-		Name:             person.Name,
-		Status:           person.Status,
-		Venue:            person.LocationName,
-		Department:       person.DepartmentName,
-		Hidden:           hidden,
-		CloseHref:        rosterReturn(f, uuid.Nil, "", ""),
-		CanInvite:        person.Invitable(),
-		InviteLabel:      inviteLabel(person.Status),
-		InviteAction:     employeeInviteHref,
-		CanDeactivate:    !person.Deactivated(),
-		Confirming:       confirming,
-		ConfirmToken:     confirmToken,
-		ConfirmField:     confirmField,
-		ConfirmHref:      confirmDeactivateHref(f, person.ID),
+		Name:          person.Name,
+		Status:        person.Status,
+		Venue:         person.LocationName,
+		Department:    person.DepartmentName,
+		Hidden:        hidden,
+		CloseHref:     rosterReturn(f, uuid.Nil, "", ""),
+		CanInvite:     person.Invitable(),
+		InviteLabel:   inviteLabel(person.Status),
+		InviteAction:  employeeInviteHref,
+		CanDeactivate: !person.Deactivated(),
+		Confirming:    confirming,
+		ConfirmToken:  confirmToken,
+		ConfirmField:  confirmField,
+		ConfirmHref:   confirmDeactivateHref(f, person.ID),
+		// M6-08. It is built here rather than in the template for the reason every
+		// other href on this card is: the section owns its own addresses, and a
+		// hand-written target is what M6-04 measured going dead with the whole package
+		// green.
+		RecordHref:       manualEntryHref + "?id=" + person.ID.String(),
 		DeactivateAction: employeeDeactivateHref,
 		MoveAction:       employeeMoveHref,
 		Locations:        optionViews(screen.Options.Locations),

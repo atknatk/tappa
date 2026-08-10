@@ -643,6 +643,54 @@ func TestBrand_NoOffPaletteColourInAnySource(t *testing.T) {
 	}
 }
 
+// TestBrand_EveryNativeCheckboxAndRadioCarriesTheAccent.
+//
+// 🔴 A NATIVE CONTROL WITH NO accent-* PAINTS ITSELF THE USER AGENT'S BLUE, which is
+// the one colour outside the palette that no source scan can see: it is not written
+// anywhere, it is the DEFAULT. TestBrand_NoOffPaletteColourInAnySource looks for hex
+// values in the source and is structurally unable to find it.
+//
+// 🔴 IT WAS ADDED BECAUSE A MUTATION PASSED. M6-08 gave its own radios the accent, and
+// removing the class again left the whole suite green -- there was no net at all. The
+// same sweep then found TWO SHIPPED CONTROLS with the same gap (venue-overnight and
+// dept-overnight, M6-06), which is why this scans EVERY template rather than one
+// screen: a per-screen assertion would have found neither.
+//
+// IT READS THE SOURCE rather than a rendered page, so a control on a screen no test
+// drives is still covered.
+func TestBrand_EveryNativeCheckboxAndRadioCarriesTheAccent(t *testing.T) {
+	sources := brandSources(t)
+	controls := 0
+	for path, text := range sources {
+		if !strings.HasSuffix(path, ".templ") {
+			continue
+		}
+		for _, tag := range strings.Split(text, "<input")[1:] {
+			open := tag
+			if i := strings.Index(tag, ">"); i >= 0 {
+				open = tag[:i]
+			}
+			if !strings.Contains(open, `type="checkbox"`) && !strings.Contains(open, `type="radio"`) {
+				continue
+			}
+			controls++
+			if !strings.Contains(open, "accent-") {
+				t.Errorf("%s: a native control carries no accent-* class, so the browser "+
+					"paints it its own blue -- the one off-palette colour a source scan "+
+					"cannot see:\n    <input%s>", path, strings.TrimRight(open, " \n\t"))
+			}
+		}
+	}
+	// ANTI-VACUITY: a scan that recognised no control would report a clean product.
+	// The templates carry several -- the consent boxes, the shift flags and M6-08's
+	// direction radios -- so a low count means this is reading the wrong thing.
+	if controls < 5 {
+		t.Fatalf("found %d native checkbox/radio input(s) across the templates; there are "+
+			"more, so this scan is not reading them", controls)
+	}
+	t.Logf("native checkbox/radio inputs scanned: %d", controls)
+}
+
 // TestBrand_NoGradientOutsideTheDocketPerforation -- the brand forbids gradients,
 // with exactly one exception, and the exception is not a gradient utility: the
 // perforation is a backgroundImage TOKEN (bg-perf-top / bg-perf-bottom) declared

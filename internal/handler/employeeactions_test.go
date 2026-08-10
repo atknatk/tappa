@@ -1281,7 +1281,7 @@ func newAdminRouterLogging(t *testing.T, into *strings.Builder, trail *fakeTrail
 		}, nil
 	}}
 	h, err := NewAdminAuth(admins, trail, newFakeLedger(), newFakeLedger(), &fakeReviewer{},
-		staff, invites, &fakeVenues{}, &fakePlaques{}, adminTestConfig(),
+		staff, invites, &fakeVenues{}, &fakePlaques{}, &fakeRecorder{}, adminTestConfig(),
 		slog.New(slog.NewTextHandler(into, &slog.HandlerOptions{Level: slog.LevelDebug})))
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)

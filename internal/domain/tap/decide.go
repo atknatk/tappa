@@ -611,13 +611,23 @@ func debounceGap(in Input) *float64 {
 	return &gap
 }
 
-// trustScore is §5's confidence score: a 20-point baseline plus 50 for network
+// TrustBase is §5's baseline confidence: what a record scores when NEITHER piece of
+// "where" evidence is present.
+//
+// 🔴 IT IS EXPORTED SO THAT THE SECOND WRITER OF `transactions` DOES NOT SPELL 20
+// AGAIN (M6-08). A manager-entered record has no IP match and no GPS fix to have
+// matched — there was no request from the person at all — so its score is exactly
+// this number, and internal/domain/manual asks for it rather than carrying a literal.
+// One representation: change the baseline here and every writer moves together.
+const TrustBase = 20
+
+// trustScore is §5's confidence score: a TrustBase baseline plus 50 for network
 // proof of place (an IP match) and 30 for GPS proof, giving exactly 20/50/70/100
 // (M4-06). It is a PURE function of the two "where" facts and is INDEPENDENT of the
 // verdict — it measures EVIDENCE, not outcome, so it is deliberately NOT derived
 // from the verdict (M4-06 trap): a flagged tap can score 70 and a GPS-only ok 50.
 func trustScore(ipMatch, gpsMatch bool) int {
-	score := 20
+	score := TrustBase
 	if ipMatch {
 		score += 50
 	}

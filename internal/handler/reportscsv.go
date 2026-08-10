@@ -38,10 +38,24 @@ import (
 // emailed to an accountant, kept on a laptop and forwarded. Nothing here reaches past
 // ledger.Report, so a coordinate has nothing to travel in.
 //
-// ⚠️ ONE COLUMN IS NAMED manager_entered AND IT IS NOT transactions.entered_by. It is
-// ledger.PersonHours.Manual / ledger.OpenEntry.Manual, a BOOLEAN meaning "the record
-// was typed rather than tapped" (channel='manual'). WHO typed it is the entered_by
-// column §4.7 keeps out of this path, and it is neither selected nor carried.
+// ⚠️ TWO COLUMNS SAY manager_entered AND NEITHER IS transactions.entered_by. WHO typed
+// a record is the entered_by column §4.7 keeps out of this path: it is neither selected
+// by the query nor carried by any type below. What the two columns hold, and they are
+// different shapes:
+//
+//	manager_entered_arrivals  ledger.PersonHours.ManualArrivals — a COUNT of this
+//	                          person's attributed check-ins that were typed rather than
+//	                          tapped (channel='manual'). It counts ARRIVALS, not shifts,
+//	                          and not checkouts; the field's own comment carries the
+//	                          four measured rows that made the older name wrong in both
+//	                          directions.
+//	manager_entered           ledger.OpenEntry.Manual — a BOOLEAN on one unclosed
+//	                          check-in.
+//
+// ⚠️ THIS BLOCK DESCRIBED THE FIRST ONE AS A BOOLEAN CALLED PersonHours.Manual, which
+// was a field that no longer exists and a type it never had. The rename that made it
+// stale is in the same round; a comment naming a dead field sends a reader to look for
+// a shape the code does not have.
 //
 // 🔴 §4.6 — EVERY QUANTITY THE PAYROLL FIGURE EXCLUDES IS WRITTEN INTO THE FILE, in
 // its own block, before the figures. The screen already does this; the file needs it
@@ -851,7 +865,7 @@ func reportCSVPeople(d *reportDoc, s ledger.ReportScreen, zone *time.Location) {
 	head = append(head,
 		"awaiting", "awaiting_minutes", "refused", "refused_minutes",
 		"late_arrivals", "late_by", "late_by_minutes",
-		"arrivals_not_measured", "manager_entered_shifts", "open_check_ins")
+		"arrivals_not_measured", "manager_entered_arrivals", "open_check_ins")
 	d.row(head...)
 
 	for _, p := range s.People {
@@ -876,7 +890,7 @@ func reportCSVPeople(d *reportDoc, s ledger.ReportScreen, zone *time.Location) {
 			hoursMinutes(p.Awaiting), strconv.Itoa(wholeMinutes(p.Awaiting)),
 			hoursMinutes(p.Refused), strconv.Itoa(wholeMinutes(p.Refused)),
 			strconv.Itoa(p.LateShifts), hoursMinutes(p.LateBy), strconv.Itoa(wholeMinutes(p.LateBy)),
-			strconv.Itoa(p.Unmeasured), strconv.Itoa(p.Manual), strconv.Itoa(p.Open))
+			strconv.Itoa(p.Unmeasured), strconv.Itoa(p.ManualArrivals), strconv.Itoa(p.Open))
 		d.row(row...)
 	}
 }

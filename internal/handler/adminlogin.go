@@ -146,6 +146,14 @@ type AdminAuth struct {
 	// from the consumer's end.
 	plaques panelPlaques
 
+	// entries is the manual record writer (M6-08, internal/domain/manual). It is a
+	// FIFTH field rather than a method on one of the four above because it is a fifth
+	// PACKAGE, and this one more than any of them: it is the second writer of
+	// `transactions` in the product, and keeping it behind its own narrow interface is
+	// what stops a change to the roster or the venue side reaching the one table
+	// nobody can clean up.
+	entries panelRecorder
+
 	// See adminratelimit.go for why there are three and what each may refuse.
 	floodLimiter   *limiter
 	attemptLimiter *limiter
@@ -158,7 +166,7 @@ type AdminAuth struct {
 
 // NewAdminAuth wires the flow. Every dependency is required: a nil recorder would
 // silently drop the section 4.6 trail and a nil manager cannot fail safely.
-func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLedger, queue panelQueue, reviewer panelReviewer, staff panelStaff, invites panelInviter, venues panelVenues, plaques panelPlaques, cfg *config.Config, log *slog.Logger) (*AdminAuth, error) {
+func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLedger, queue panelQueue, reviewer panelReviewer, staff panelStaff, invites panelInviter, venues panelVenues, plaques panelPlaques, entries panelRecorder, cfg *config.Config, log *slog.Logger) (*AdminAuth, error) {
 	switch {
 	case admins == nil:
 		return nil, errors.New("handler: nil admin authenticator")
@@ -207,6 +215,16 @@ func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLed
 	// two halves were never assembled.
 	case plaques == nil:
 		return nil, errors.New("handler: nil plaques")
+	// THE SAME ARGUMENT, ONCE MORE (M6-08) — and here the dead-capability cost is the
+	// highest it has been. A nil entries would put "Enter a record by hand" on the
+	// roster and a Record it button under a warning screen, and pressing either would
+	// panic; the manager whose employee has no phone, and the one closing the
+	// forgotten checkout Q18 says the system will never write for itself, would both
+	// find the panel's answer to their problem is a crash. The M5-04 lesson is that a
+	// capability can be delivered, tested and DEAD in the wired product because two
+	// halves were never assembled.
+	case entries == nil:
+		return nil, errors.New("handler: nil manual recorder")
 	case cfg == nil:
 		return nil, errors.New("handler: nil config")
 	}
@@ -231,6 +249,7 @@ func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLed
 		invites:        invites,
 		venues:         venues,
 		plaques:        plaques,
+		entries:        entries,
 		cookies:        adminauth.NewCookies(cfg),
 		short:          newAdminCookies(cfg),
 		choices:        choices,
@@ -535,6 +554,39 @@ var (
 		Title:   "We could not read your records",
 		Message: "The panel could not reach the database, so this page is not showing anything. Nothing has been changed and no record has been lost.",
 		Hint:    "Try again in a minute.",
+	}
+	// problemPanelWriteFailed is the same outage told to somebody who was WRITING.
+	//
+	// 🔴 THE SENTENCE ABOVE IS WRONG ON A WRITE PATH, and an audit measured how wrong:
+	// a manager who pressed a button is told "this page is not showing anything", which
+	// describes a screen they were not reading and says nothing about the act they just
+	// attempted. The two facts they need are whether it happened and whether to press
+	// again.
+	//
+	// ✅ "NOTHING WAS WRITTEN" IS A MEASURED CLAIM, NOT A COMFORT. Every panel write
+	// runs inside db.WithTenant, so a failed statement rolls the whole transaction back
+	// — the record AND its audit row — which is asserted for this task's own path by
+	// TestManualDB_TheRecordAndItsAuditRowSHAREATransaction (it breaks the trail side
+	// and counts rows). A security lens confirmed the same for the shipped sentence's
+	// last clause.
+	//
+	// ⚠️ IT IS USED ON internal/handler/manualentry.go's CALL SITES ONLY, AND THE REST
+	// ARE COUNTED RATHER THAN CONVERTED — by a test, not by this comment. Converting
+	// them is a mechanical edit across five files owned by M6-04/05/06 and belongs to
+	// whoever owns those screens; the pattern is here, ready.
+	//
+	// 🔴 THE CENSUS IS DERIVED AND PRINTED BY
+	// TestPanelProblemPages_CountTheWriteRoutesStillTellingReadersTheirPageIsEmpty,
+	// which parses this package and classifies every call site against the routes
+	// mountWriting registers. An integer written here would be a second representation
+	// of a set the code owns — the exact shape that drifted three times in
+	// mountWriting's own comment, and once already in the first version of this one
+	// (it said 33; the census says 32, because the earlier count had scooped up a
+	// mention inside a comment).
+	problemPanelWriteFailed = pages.ProblemView{
+		Title:   "We could not save that",
+		Message: "The panel could not reach the database, so nothing was written: no record, no change and no trail entry. What you were looking at before is unchanged.",
+		Hint:    "Try again in a minute — pressing again will not enter it twice.",
 	}
 )
 

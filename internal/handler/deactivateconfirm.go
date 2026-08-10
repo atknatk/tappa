@@ -183,6 +183,22 @@ const (
 	// of service while it lasts, and that is a thing a manager should be asked about
 	// once.
 	confirmActionUnmountPlaque = "plaque.unmount"
+	// 🔴 TYPING AN ATTENDANCE RECORD BY HAND (M6-08). It is gated for a reason none of
+	// the five above share, and the reason is MONEY rather than availability: the row
+	// is permanent (`transactions` takes no UPDATE and no DELETE, by privilege and by
+	// trigger) and §4.3's own remedy — "a correction is a new row" — was MEASURED
+	// against the report engine and only works in half the directions. See
+	// manual.CorrectionsOnlyShorten: an appended record can shorten a shift and never
+	// lengthen it, so a checkout typed too early under-pays somebody with no one-row
+	// way back. docs/adr/0009 lists exactly three options for that shape and calls the
+	// third "say it on the screen before the button"; this is that option, taken.
+	//
+	// ⚠️ ITS SUBJECT IS THE ONLY COMPOUND ONE. Every other gate binds a row's identity
+	// — an employee, a venue, a plaque uid. A record has no identity until it exists,
+	// so the binding is the STATEMENT: person, direction and instant together
+	// (manualConfirmSubject). A confirmation bound to the person alone would let the
+	// warning be served for one record and spent on a completely different one.
+	confirmActionRecordManual = "record.manual"
 )
 
 // adminConfirmTTL is how long a rendered warning stays spendable.

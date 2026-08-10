@@ -5008,6 +5008,387 @@ Ayrıca iş yalnız CSS+bileşen değil — kabuk `pages/` + `handler/`'a da dok
 - `audit_log` kaydı zorunlu.
 - Var olan bir kaydı **düzeltmek** = yeni satır + audit; UPDATE yok.
 
+> **Kart düzeltmesi (2026-08-10, M6-08 uygulaması sırasında).** Kart **beş satırdı**
+> ve altındaki iş beş satırdan büyüktü; aşağıdakilerin hiçbiri kriterlerde yazmıyordu.
+>
+> 🔴 **(1) `sun_valid = false` KRİTERİ YANLIŞ — `NULL` yazılıyor, ve gerekçe kartın
+> kendi şemasında.** Migration 00005 `sun_valid`'i **üç durumlu** tutuyor ve üçüncüsü
+> tam olarak bu vaka: *"NULL = bu kanal için değerlendirilmedi"*. `false` yazmak
+> *"çipi kontrol ettik ve tutmadı"* demek olurdu — hiç yapılmamış bir kontrol hakkında.
+> `internal/domain/checkin`'in `insertParams`'ı **zaten** manual kanalda `sun_valid`
+> yazmayı reddediyor (`if req.Channel != tap.ChannelManual`), yani kart kodun
+> bugünkü davranışıyla da çelişiyordu. Sevk edilen: sütun **INSERT'ün sütun
+> listesinde bile yok**.
+>
+> 🔴 **(2) VERDICT KRİTERDE HİÇ YOK, VE EN TARTIŞMALI KARAR O.** İki okuma ölçüldü:
+> - `flag` — §4.6 *"kanıt yetersizse flag"* der. Ölçüldü: bir `flag` manuel kayıt
+>   `endpointState` (M6-07) tarafından **`HoursAwaiting`** sayılır, yani saat
+>   toplamına **girmez**; müdür unutulmuş çıkışı kapatır ve **toplam hâlâ eksik
+>   kalır** — Q18'in var olma sebebinin tam tersi. Onay kuyruğunda sonsuza kadar
+>   oturur (onaylayacak kişi yazan kişidir) ve verilen onay **geri alınamaz**
+>   (ADR 0009).
+> - `ok` — Q18 *"kayıt her zaman bir insanın beyanına dayanır"* der ve beyan
+>   **kanıtın kendisidir**, `entered_by` ile hesap verebilir birine bağlı.
+>   **Seçilen budur.** Kaydı dürüst kılan şey daha kötü bir verdict değil,
+>   **kanaldır** — her rapor onu zaten ayırıyor.
+> - **Verdict Go'da değil SQL'de sabit:** `InsertManualTransaction` `'ok'` literalini
+>   yazıyor, parametresi yok. Mutasyon: `'flag'` → **KIRMIZI**.
+>
+> 🔴 **(3) T1 ÖLÇÜLDÜ: ŞEMADA "reject/ignored ⟹ yön yok" DİYE BİR CHECK YOKTU, VE
+> ARTIK İKİ YAZICI VAR.** Canlı sayım (2026-08-10 akşamı, dev DB — bu sayı suit her
+> koştuğunda büyür): **331 041** satırın **0**'ı ihlal ediyor. Geri alınan bir sondada
+> şema o satırı **kabul etti**. Bu yolu kapatan şey: `internal/domain/tap`'te bir
+> **`if`** (birinci yazıcı) ve bir **SQL literali** (ikinci yazıcı).
+> ✅ **DÜZELTME TURUNDA KAPANDI: migration 00014 sevk edildi** (orkestratör onayı) —
+> `CHECK (verdict IN ('ok','flag') OR type IS NULL)`, **VALIDATED**. Ayrıntı aşağıdaki
+> düzeltme bloğunda.
+>
+> 🔴 **(4) T3 ÖLÇÜLDÜ VE KRİTER 5 EKSİK SPESİFİKASYON: "düzeltmek = yeni satır"
+> BORDROYU ANCAK BİR YÖNDE ONARIR.** M6-07'nin eşleme motoru kişinin **en geç
+> `in`**'ini ve ondan sonraki **en erken `out`**'unu eşliyor — yani hep **en kısa**
+> aralığı. Sonuç: eklenen bir düzeltme satırı bir vardiyayı **kısaltabilir, asla
+> uzatamaz**. Ölçüm (bir kişi, gerçek `accumulate`, doğru = 09:00–17:00 = 8 sa;
+> `internal/domain/ledger/correction_test.go`):
+>
+> | hata | eklenen düzeltme | önce | sonra | uygulandı mı |
+> |---|---|---|---|---|
+> | çıkış çok **ERKEN** (12:00) | `out` 17:00 | 3 sa | **3 sa** | ❌ (fazlalık satır `StartedEarlier`) |
+> | çıkış çok **GEÇ** (20:00) | `out` 17:00 | 11 sa | **8 sa** | ✅ |
+> | giriş çok **GEÇ** (10:00) | `in` 09:00 | 7 sa | **7 sa** | ❌ (fazlalık satır `Open`) |
+> | giriş çok **ERKEN** (08:00) | `in` 09:00 | 9 sa | **8 sa** | ✅ |
+>
+> **Uygulanmayan ikisi tam olarak parayı GERİ GETİRECEK olan ikisi.** Fazlalık satır
+> kaybolmuyor (§4.6) ama *"bu vardiya dönemden önce başladı"* diye etiketleniyor —
+> o satır hakkında **yanlış bir cümle**. Çalışan tek telafi **telafi çifti**
+> (`in` 12:01 + `out` 17:00 → 7 sa 59 dk, ölçüldü) ve o da dünya hakkında **doğru
+> olmayan** bir cümle yazıyor.
+> **📌 ORKESTRATÖRE:** tam bir düzeltme akışı ya rapor tarafında *supersede*
+> semantiği ya da üçüncü bir tablo ister (ADR 0009 aynı üç seçeneği review'lar için
+> sayıyor). **Bu görevde YAPILMADI**; ürün hiçbir yerde *"sonraki kayıt öncekini
+> geçersiz kılar"* demiyor ve onay ekranı ölçümü **kelimesi kelimesine** yazıyor.
+>
+> 🔴 **(5) T2 KARARI: `policy.Evaluate` ÇAĞRILMADI, VE GUARDRAIL'İN CÜMLESİ
+> DÜZELTİLDİ.** `sys:occurred-at-bound`'un yorumu *"manual entry is the separate,
+> **authorized** `record:manual` action"* diyordu; **"authorized" hiç koşmamış bir
+> yetkilendirme adımını** anlatıyordu. İki okuma ölçüldü:
+> - **(a) çağırmak:** `policySets.forTenant` `internal/domain/checkin`'de ve
+>   **unexported**; dahası **yan etkisi var** — baseline yoksa **materialise ediyor**,
+>   yani bir panel POST'u policy tablolarına satır yazardı. Export/taşıma tap yolunun
+>   (doğruluk çekirdeği) içine bir dashboard görevinde dokunmak demek.
+> - **(b) çağırmamak + cümleyi düzeltmek:** seçilen. Muafiyet **gerçek ve
+>   değişmedi** (guardrail `c.Action`'a kapılı), yalnız "authorized" silindi ve
+>   yerine manuel kaydın **gerçek** zaman sınırları yazıldı.
+> - **Ne satın alırdı, ölçüldü:** `record:manual` **hiçbir guardrail'e çarpmıyor**
+>   (10/10, anti-vacuity kontrolüyle) ve baseline onu **owner VE manager**'a veriyor
+>   (`base:authz-owner`, `base:authz-manager`); `admin_users`'ın CHECK'i üçüncü bir
+>   rol tanımıyor → **bugün kimseyi reddetmezdi**.
+>   `TestManualEntryAction_HitsNoGuardrailAndIsGrantedToBothPanelRoles` baseline
+>   daralırsa kırmızıya döner. Gerçek kapı **M6-09**.
+>
+> 🔴 **(6) T6 KARARI: MAC'li onay kapısı GEREKLİ, ve gerekçesi (4)'ün ölçümü.**
+> Deaktivasyondan farklı olarak kayıt *telafi edilebilir* görünüyor — ama ölçüm
+> gösterdi ki **az ödeme yönünde tek satırlık telafi yolu yok**. Bu, ADR 0009'un
+> şekli, parasal biçimde; ADR'nin üçüncü seçeneği (*"hiçbir şey yapma ve ekranda
+> söyle"*) **alındı**. ⚠️ **Ve bu kapının subject'i panelde TEK BİLEŞİK olan:**
+> `employee/direction/instant` — bir kayıt var olana kadar kimliği yok, yani bağlanan
+> şey **beyanın kendisi**. Kişiye bağlı bir onay, "17:00 çıkış" için gösterilen
+> uyarının "04:00 giriş" için harcanmasına izin verirdi (mutasyonla kırmızı).
+>
+> ⚠️ **(7) KRİTERLERDE YAZMAYAN AMA YAZILMASI GEREKEN ALTI ŞEY** (hepsi uygulandı):
+> **zaman sınırları** (`MaxBackdate` 90 gün — yıl yanlış yazımını yakalar;
+> `FutureGrace` 1 dk; guardrail'in 72 saati **bilinçli olarak** kullanılmadı) ·
+> **saat dilimi** (müdür duvar saati yazar, tenant'ın zone'u hangi an olduğuna karar
+> verir — §6) · **yön** (`in|out`, kapalı sözlük, **asla default'lanmaz**) ·
+> **lokasyon/departman** (istekten **gelmiyor**; INSERT ... SELECT bunları çalışan
+> satırından okuyor) · **deaktive çalışan** (reddedilmiyor, **söyleniyor** — son
+> vardiya ödenebilir kalmalı, ADR 0010 geri dönüş yolu bırakmıyor) · **ekranın
+> nereye indiği** (Transactions, kaydın kendi yerel günü + `channel=manual` — M6-04'ün
+> dersi: iddia etme, **satırı göster**).
+>
+> **ÖLÇÜMLER (2026-08-10, dev DB, gerçek `curl -b jar` oturumu, KF owner).** İki kayıt
+> gerçek HTTP ile yazıldı. Yazılan satır: `verdict=ok · channel=manual · type=out ·
+> trust=20 · practice=f · queued=f · entered_by dolu · tag_uid/ctr/sun_valid/source_ip/
+> ip_match/gps_match/gps_lat/gps_lng/policy_* hepsi NULL`; `occurred_at` 2026-08-09
+> 15:00Z (= Malta 17:00), `created_at` yazım anı. Sonra `in` 09:00 girildi ve **CSV
+> satırı** şu oldu: `8h 00m · 480 dk · 1 shift · manager_entered_shifts=1 ·
+> open_check_ins=0`. Q18'in döngüsü uçtan uca kapandı.
+> ⚠️ **SAYILMIŞ LİMİT — iniş sayfası yoğun olabilir.** Yönlendirme doğru günü ve
+> kanalı seçiyor ama liste `occurred_at DESC` sıralı: o gün o tenant'ta **659**
+> `manual` satır vardı (2026-08-10 akşamı) ve yeni kayıt ilk sayfada değildi. ⚠️ **Bu sayı bir işletmenin
+> değil BU DEPONUN özelliği** — 658'in tamamı test süitinin elle eklediği satırlar
+> (`seedRecordWithSplitClocks` ve akrabaları); gerçek bir işletmede bir günde birkaç
+> manuel kayıt olur. İsim ile daraltmak §4.7 gereği yapılmadı (M6-03 sayfalama
+> kursöründen **adı** tam bu sebeple çıkardı).
+>
+> **MUTASYONLAR — 26 uygulandı, hepsi `diff -u` ile uygulandığı VE geri alındığı
+> gösterilerek. Altısı YEŞİL geçti ve altısı da kapatıldı:**
+> 1. *verdict literali* → yeşil çünkü **`.sql` düzenlemesi `make sqlc` olmadan
+>    ölüdür**; harness düzeltildi (artık `.sql`/`.templ` mutasyonundan sonra üretim
+>    koşuyor) → KIRMIZI.
+> 2. *tenant yüklemi düşürüldü* → yeşil çünkü **RLS örtüyor**; §4.5'in kuşağı uçtan
+>    uca testle **görülemiyor** (§6 zaten bunu söylüyor). Yeni **metin** ağı eklendi
+>    (`TestManualQuery_CARRIESTheTenantPredicate…`) → KIRMIZI. ⚠️ Metin iddiası
+>    olduğu **kodda yazılı**.
+> 3. *audit `direction` değeri boşaltıldı* → yeşil çünkü test **anahtarın varlığına**
+>    bakıyordu, değerine değil; JSON parse edilip **değerler** pinlendi → KIRMIZI.
+> 4. *`RecordAction` birinci adıma kondu* → yeşil, ve **kodun iddiası yanlıştı**:
+>    engel "view'in boş alanı" değil şablondaki `if v.Confirming`. Üç yerde cümle
+>    düzeltildi + gerçek engeli süren test eklendi (pozitif kontrollü) → KIRMIZI.
+> 5. *roster'ın bağlantısı silindi* → yeşil çünkü mevcut ağ *"her kontrol bir yere
+>    gidiyor mu"* diye soruyor, *"kontrol var mı"* diye değil — **M5-04'ün ölü
+>    yetenek şekli**; erişilebilirlik testi eklendi → KIRMIZI.
+> 6. *not sınırda temizlenmiyor* → yeşil çünkü test **fonksiyonu** sürüyordu, sınırı
+>    değil; NUL + aşırı uzunluk gerçek POST'tan sürülüyor → KIRMIZI.
+>
+> ⚠️ **KENDİ HATAM (iki tane, ikincisi pahalıydı).** (a) Mutasyon harness'ımın ilk
+> hâli `.sql` düzenlemesinden sonra `sqlc` koşmuyordu, yani ilk mutasyonu **yanlışlıkla
+> yeşil** raporladı — T12'nin *"önce 'uygulanmadı' hipotezini kur"* kuralı işe yaradı.
+> (b) **Aynı harness'ın geri-alma yolu `git checkout` kullanıyordu** ve o dosya
+> **commit edilmemiş iş taşıyan takipli bir dosyaydı**: `db/queries/transactions.sql`
+> HEAD'e döndü ve `InsertManualTransaction` **silindi**. Üretilen
+> `internal/store/transactions.sql.go`'dan **tamamı geri kurtarıldı** ve harness
+> yeniden yazıldı (artık dosyanın kendi anlık görüntüsünü alıyor, `git`'e hiç
+> uzanmıyor). Kayıp yok, ama bu ders yazılıyor: **geri alma HEAD'e değil, ÖNCESİNE
+> olmalı.**
+>
+> ⚠️ **DEV VERİTABANINDA BIRAKILAN İZ (§4.3):** yukarıdaki iki kayıt KF tenant'ının
+> `Ahmed Hassan`'ına gerçek panel oturumuyla yazıldı ve **silinmedi** —
+> `transactions` append-only. Sessizce temizlemek yerine yazılıyor. DB testleri de
+> her koşuda kendi tenant'larını ve kayıtlarını bırakıyor (aynı sebeple).
+>
+> 🔴 **M6-08'İN DEĞİL AMA M6-08 TARAFINDAN BULUNAN BİR BORÇ — `make test` ARTIK
+> DETERMİNİSTİK DEĞİL.** `TestPlaqueJourneyDB_TheBudgetOnATenantWithHistory`
+> (M6-06 B) **kendi kendini zehirliyor**: her koşuda demo tenant'a **iki plaket**
+> ekliyor (`tags`'ten DELETE yok), sonra yeni eklediğinin **200 satırlık** listede
+> (`plaquePageLimit`) görünmesini şart koşuyor. Ölçüldü (2026-08-10): tenant
+> **247** plakete ulaştı (245 atanmış + 2 atanmamış), sıralama `location_id NULLS
+> FIRST, uid`, yani taze **rastgele uid**'in listeye girme olasılığı ≈ 198/246.
+> **Ölçülen:** aynı test tek başına **6 koşuda 5 geçti / 1 kaldı**; tam suit dört
+> kez koşuldu, **üçünde 0 FAIL**, birinde yalnız bu test. Oran her koşuda **kötüleşiyor**.
+> M6-08'in diff'i plaket koduna, `tags` sorgularına ve locations handler'ına
+> **dokunmuyor**. ✅ **DÜZELTME TURUNDA KAPANDI** (E2) — aşağıdaki bloğa bak.
+
+
+> **Kart düzeltmesi 2 (2026-08-10, M6-08 düzeltme turu — iki denetçi ONAY, sekiz madde).**
+>
+> 🔴 **ÖNCE: GÜVENLİK MERCEĞİ HEM BENİM HEM ORKESTRATÖRÜN BİR İDDİASINI ÇÜRÜTTÜ, İYİ
+> YÖNDE.** *"`verdict='reject' + type='in'` satırı rapora çalışılmış saat olarak
+> girerdi"* **yanlıştı**. Gerçek `accumulate` üzerinde ölçüldü ve bağımsız olarak
+> doğrulandı:
+>
+> | satır | worked | awaiting |
+> |---|---|---|
+> | kontrol: iki uç da `ok` | **8 sa** | 0 |
+> | iki uç `reject` + yön | 0 | **8 sa** |
+> | iki uç `ignored` + yön | 0 | **8 sa** |
+> | `in` ok / `out` reject | 0 | **8 sa** |
+> | tanınmayan verdict `'void'` | 0 | **8 sa** |
+>
+> M6-07 A'nın `endpointState` fail-safe'i o satırı **zaten karantinaya alıyor** —
+> asla ödenmiyor, asla kaybolmuyor (§4.6). Yani bariyer **iki değil ÜÇ**, ve
+> `decide.go`'nun `if`'i **çıplak bir kod invariantı değil**:
+> `TestDecide_DirectionNilForNonRecordVerdicts`'in konusu, mutasyonu **dört alt
+> vakada** kırmızı. Düzeltme `manual.go`'nun paket başlığına, `transactions.sql`'e ve
+> 00014'ün kendi başlığına yazıldı.
+>
+> ✅ **E1 — MIGRATION 00014 SEVK EDİLDİ.** `db/migrations/00014_refusal_has_no_direction.sql`,
+> `CHECK (verdict IN ('ok','flag') OR type IS NULL)`, **VALIDATED**. Kendi ölçümüm:
+> 331 041 satır, **0 ihlal**, `ALTER TABLE ... ADD CONSTRAINT` geri alınan bir
+> transaction'da **244 / 200 / 216 / 197 ms**; `convalidated = t`. **Taze bir
+> veritabanında da denendi** (throwaway DB, `goose up` → 4,74 ms, sonra `seed`) ve
+> `Down` + tekrar `Up` çalıştı. Biçim `NOT IN` değil **`IN ('ok','flag')`**: `verdict`
+> NOT NULL (ölçüldü) ve dört değere kısıtlı olduğu için ikisi denk, ama pozitif biçim
+> sütun bir gün nullable olursa üç-değerli mantıkla sessizce bozulmuyor. **`Down` bir
+> güvenlik geriye-gidişi olarak ADIYLA yazıldı** (00013'ün dersi). ⚠️ **Risk cümlesi
+> fazla yazılmadı:** bu bir para sızıntısı düzeltmesi **değil** — *"karantinaya alınan
+> bozuk bir satır"*ı *"hiç satır"*a çeviriyor. Mutasyon: `make migrate-down` →
+> `TestManualDB_TheSchemaREFUSESADirectedRefusalNow` **KIRMIZI** (`accepted=true want
+> false`), `make migrate` → yeşil.
+>
+> ✅ **E2 — `make test` ARTIK DETERMİNİSTİK.** `TestPlaqueJourneyDB_TheBudget…` iki
+> yönden düzeltildi: (1) liste iddiası artık **YEDEK** plakete bakıyor (o `unassigned`,
+> yani sorgunun `NULLS FIRST` ilk grubunda — kapaktan bağımsız); bozuk plaket **kendi
+> uid'siyle** açılıyor, ki `plaqueByUID` zaten kapağın arkasına düşüyor. (2) Test
+> **kendi iki satırını siliyor** (`tappa_owner`, `t.Cleanup`) — paketin *"fixture
+> temizlenmez"* kuralı **tappa_app SİLEMEDİĞİ İÇİN** vardır, ve burada temizlememek
+> sevk edilmiş bir testi zar atmaya çeviriyordu. `transactions`'a **dokunulmuyor**
+> (§4.3). **ÖLÇÜM, aynı makinede, 287 plaketlik tenant'ta:**
+>
+> | | 8 tek-başına koşum | tenant'ın plaket deltası |
+> |---|---|---|
+> | düzeltme **olmadan** | **6 geçti / 2 kaldı** | **+16** |
+> | düzeltme **ile** | **8 geçti / 0 kaldı** | **0** |
+>
+> ⚠️ Ölçüm sırasında biriken 16 satır, aynı seansta `tappa_owner` ile **silindi**
+> (referansı olmayan, dakikalar önce yazılmış satırlar; `transactions` sayımı 0).
+>
+> ✅ **E3 — KAPATILAMAZ AÇIK KAYIT: YAZILDI + ADR.** Denetçilerin bulgusu bağımsız
+> olarak yeniden üretildi (doğru 09:00–17:00, giriş 10:00 diye yazılmış):
+>
+> | adım | worked | open | startedEarlier |
+> |---|---|---|---|
+> | yanlış çift | 7 sa | 0 | 0 |
+> | + düzeltici `in`09 | 7 sa | **1** | 0 |
+> | + kapatma denemesi | 7 sa | **1** | 1 |
+> | + ikinci deneme | 7 sa | **1** | 2 |
+> | + üçüncü deneme | 7 sa | **1** | 3 |
+>
+> ✅ Ve **ürünün asıl senaryosu doğru çalışıyor** (aynı testte, pozitif kontrol):
+> `in`09 tek başına → `open=1`; müdür `out`17 yazınca → **8 sa, open=0**. Yani bu bir
+> *sayılmış limit*, bozuk bir özellik değil.
+> **Nereye yazıldı:** [ADR 0011](../adr/0011-duzeltme-satiri-yalnizca-kisaltir.md)
+> (yeni; ADR 0009'un kardeşi, bu kez **parasal**, üç çıkış yolu sayılı) ·
+> `manual.CorrectionsOnlyShorten` · `report.go`'nun `accumulate` yorumu · **ve onay
+> ekranı**: bir `in` düzeltmesinde artık *"the old one stays in 'needs action' for
+> good: nothing you enter afterwards can close it"* diyor. Davranış **değişmedi**.
+> Mutasyonlar: cümleyi sil → **KIRMIZI**; cümleyi her yön için göster → **KIRMIZI**;
+> `accumulate`'i ilk `in`'i eşleyecek şekilde değiştir → **KIRMIZI**.
+>
+> ✅ **E4 — REDDEDİLEN YAZMA ARTIK MÜDÜRÜN GİRDİSİNİ KORUYOR.** Üçüncü seçenek
+> uygulandı: `renderManualForm` ile **200 ile yeniden render**, not + tarih + saat +
+> yön korunarak. Maliyet **ölçüldü ve sıfıra yakın**: handler zaten `f` ve `subject`
+> tutuyor, ve `renderManualForm` **review adımının kendi fonksiyonu** — ikinci bir
+> render yolu, ikinci bir sözlük yok. Yenilemek güvenli (hiçbir şey yazılmadı, onay
+> çerezi bu dalda **temizlenmiyor**). ⚠️ **Tek istisna sayıldı ve gerekçesi yazıldı:**
+> yönü okunamayan gönderim hâlâ 303 — geri yazılacak geçerli bir yön yok ve `in`
+> tahmin etmek, mislenmiş bir formu kapanmayan bir girişe çevirir. Mutasyon: dalı
+> redirect'e geri al → **KIRMIZI** (`answered 303; it must re-render`).
+>
+> ✅ **E5 — `manager_entered_shifts` YANLIŞ İSİMDİ, İKİ YÖNDE.** Ölçüldü:
+>
+> | vaka | eski `Manual` | `Shifts` | eski isim |
+> |---|---|---|---|
+> | tek yazılmış çift | 1 | 1 | şansa doğru |
+> | yazılmış girişin düzeltilmesi | **2** | 1 | **ŞİŞİRİYOR** (bordro sütunu) |
+> | tap'lenmiş giriş + **yazılmış çıkış** | **0** | 1 | **EKSİK** — ve bu **Q18'in
+> kendi vakası** |
+> | kapanmamış yazılmış giriş | 1 | 0 | vardiya bile değil |
+>
+> Aritmetiğe **dokunulmadı** (`arrival()` doğru yer — geç kalma varışın özelliği);
+> **isim ölçüme eşitlendi**: `PersonHours.ManualArrivals`, CSV sütunu
+> `manager_entered_arrivals`, ekranda *"N arrivals entered by a manager"*. Dört satırın
+> dördü de **arrivals hakkında doğru**. ⚠️ Ve *"yazılmış ÇIKIŞ sayılmıyor"* artık
+> alanın kendi yorumunda yazılı. Mutasyon: sayacı vardiya-bazlı yap → **KIRMIZI**.
+>
+> ✅ **E6 —** radyo düğmeleri `accent-tappa-green` aldı (aktivasyon ekranının kendi
+> onay kutularıyla aynı sınıf; tarayıcı mavisi paletin dışında). CSS **büyümedi**
+> (sınıf zaten derleniyordu). Mutasyon: sınıfı sil → önce **YEŞİL** (ağ yoktu), test
+> eklendi (anti-vacuity: radyo sayısı = kapalı sözlüğün boyu) → **KIRMIZI**. Bayat
+> as-of sayıları tazelendi.
+>
+> ✅ **E7 — ÖLÇÜLDÜ VE UYGULANDI (zorunlu değildi).** Denetçinin mutasyonu
+> (`OR e.tenant_id IS NOT NULL`) benim metin ağımı ve çapraz-tenant DB testimi
+> **ikisini de** yeşil bırakıyordu. `internal/domain/tenant`'ın **türetilmiş**
+> eşleştiricisi ise onu **yakalıyor** — ölçüldü, beş gevşetme mutasyonunun **beşi de**:
+> `OR ... IS NOT NULL` · `OR TRUE` · totoloji · yüklem silinmiş · parametre yerine
+> sabit. **Genişletme maliyeti:** tüm `db/queries` üzerinde **70 sorgunun 2'si** yanlış
+> alarm (%2,9), **ikisi de aynı şekil** (dış takma ada bağlı korelasyonlu alt sorgu).
+> `transactions.sql`'e genişletmek **1** yanlış alarm demek (`GetLastOpenTransaction`).
+> **Seçilen:** dosya bazlı belt `transactions.sql`'e genişletildi, o **tek istisna
+> gerekçesiyle** bir allowlist'e yazıldı (ve *"gereksizleşen istisna silinir"* diye
+> pinlendi). 🔴 **BEKLENMEDİK BULGU:** eşleştirici `INSERT ... VALUES`'ü **hiç
+> göremiyor** — tenant tablosunu yalnız FROM/UPDATE/JOIN üzerinden buluyor. Yani
+> `InsertTransaction` bu belt'in **kör noktasında**, ve `InsertManualTransaction`
+> ancak `INSERT ... SELECT` olduğu için kapsanıyor. Kör nokta **sayıldı, adlandırıldı
+> ve kapatılmadı** (ayrı bir mutasyon turu ister). Mutasyon: yüklemi gevşet →
+> **KIRMIZI**.
+>
+> ✅ **E8 — ÖLÇÜLDÜ VE KISMEN UYGULANDI (zorunlu değildi).** ⚠️ **Sayı artık burada
+> değil, TÜRETİLİYOR:** `TestPanelProblemPages_CountTheWriteRoutesStillTellingReaders
+> TheirPageIsEmpty` paketi `go/ast` ile geziyor, çağrı yerlerini `mountWriting`'in
+> kayıtlı rotalarına göre sınıflandırıyor ve her koşuda basıyor. (Elle yazdığım ilk
+> sayı **yanlıştı** — grep kendi yorumumdaki geçişi de saymıştı.) İkinci bir `ProblemView` eklendi
+> (`problemPanelWriteFailed` — *"nothing was written: no record, no change and no trail
+> entry"*), ve **yalnız bu görevin üç çağrı yeri** çevrildi. İkinci temsil riski
+> **düşük**: aynı olgunun ikinci kopyası değil, **farklı bir olgunun** cümlesi
+> (`problemAdminTooMany` emsali). Kalan 13 + 5 **sayıldı ve fiyatlandırıldı**, sahibi
+> M6-04/05/06. Mutasyon: yazma dalını okuyucunun cümlesine geri al → **KIRMIZI**
+> (pozitif kontrolüyle: okuma yolu kendi cümlesini koruyor).
+>
+> ⚠️ **KENDİ HATALARIM (bu turda iki tane).** (a) E6'nın mutasyonu ilk koşuda
+> **YEŞİL** geçti çünkü marka aksanı için hiç test yazmamıştım — mutasyon önce
+> **ağın yokluğunu** buldu. (b) E4 davranışı değiştirdiği için M6-08'in kendi
+> `TestManualEntryRecord_RefusesWithoutTheConfirmation…` testi 303 bekliyordu ve
+> kırmızıya döndü; iddia **yeni davranışa** taşındı (200 + yeniden render), iki gerçek
+> savı korunarak.
+
+> **Kart düzeltmesi 3 (2026-08-10, M6-08 ikinci düzeltme turu — KIRMIZI verdict:
+> sekiz düzeltmenin sekizi de davranışsal olarak doğruydu, ama tur kendi
+> değişikliklerinin tersini söyleyen dört metin bıraktı).**
+>
+> 🔴 **BU, BU PROJENİN İMZA SINIFININ DÜZELTME TURUNDA GÖRÜNMESİ:** *bir düzeltme,
+> aynı dosyadaki (ya da komşu dosyadaki) başka bir cümleyi geçersiz kılar.* Dördü de
+> kapandı; üçü **§4.3/§4.6 yüzeyindeydi**.
+>
+> 🔴 **B1 · `checkin.go`** — 00014'ten sonra üç şeyi birden yanlış söylüyordu:
+> kuralın *"şema kısıtı değil kod invariantı"* olduğunu, veritabanının o satırı
+> *"kabul ettiğini"*, ve **repoda olmayan bir test adını**. Bariyer artık **dört**
+> ve dördü de adlarıyla yazılı (`decide.go`'nun `if`'i **+ kendi testi** ·
+> manuel yolun SQL literali · `endpointState`'in `HoursAwaiting` karantinası ·
+> **00014**), atıf **var olan** teste (`TestManualDB_TheSchemaREFUSESADirectedRefusalNow`).
+> Eski cümle silinmedi, **düzeltmesiyle birlikte** duruyor.
+>
+> 🔴 **B2 · `manualentry_db_test.go`** — aynı iki iddiayı tekrarlıyordu, üstelik
+> ikincisini (*"rapor bunu çalışılmış saat okur"*) 00014'ün **kendi başlığı FALSE
+> ilan etmişti**. Yani aynı repoda iki dosya birbirini yalanlıyordu. Kapandı.
+>
+> 🔴 **B3 · `manualentry.go`** — *"EVERY OUTCOME ANSWERS 303"* diyordu, oysa aynı
+> turun E4 düzeltmesi **beş dalı 200'e** çevirmişti. Cümlenin gerçekte savunduğu
+> özellik (*"yenileme ikinci bir kalıcı satır yazamaz"*) **yeniden ölçüldü** ve durum
+> kodundan bağımsız çıktı: onay reddi `Record`'dan **önce** ve çerez **temizlenmeden**
+> dönüyor (F5 aynı kapıya çarpıyor); domain reddi çerez **temizlendikten sonra**
+> oluyor (F5 → `confirm-required`). İkisi de uçtan uca pinli:
+> `TestManualEntryRecord_ARefreshOfARefusedWriteCannotAppendASecondRecord`
+> (pozitif kontrolüyle: onaylı yazma **tam olarak bir** satır üretiyor).
+>
+> 🔴 **B4 · 00014'ün gerekçesi ölçümle yanlıştı — kendi sondamla doğruladım.**
+> *"`NOT IN` sütun nullable olursa sessizce bozulur"* **yanlış**: iki biçim de
+> **aynı** şekilde bozuluyor (`NULL` sonuçlu CHECK sağlanmış sayılıyor —
+> `INSERT (NULL,'in')` ikisinde de **KABUL**). Pozitif biçimin gerçek faydası başkaydı
+> ve yazılı değildi, o da ölçüldü: **sözlüğe yeni bir verdict eklenirse**
+> `NOT IN ('reject','ignored')` yönlü bir `'void'`'i **KABUL** ediyor (fail-open),
+> `IN ('ok','flag')` **REDDEDİYOR** (fail-closed). Migration başlığı bu repoda
+> normatif metin; cümle ölçüme eşitlendi ve **iki formun da denendiği** yazıldı.
+>
+> ✅ **B5** — `mountWriting`'in yorumundan **çıplak sayı silindi** (üçüncü kez
+> kaymıştı: "sekiz ve dört" → "on bir" → 13). Kural uygulandı: *kodun sahip olduğu
+> bir kümeyi tarif eden çıplak tamsayı yorumlarda yer almaz.*
+> ✅ **B6** — `reportscsv.go` artık var olmayan `PersonHours.Manual`'a *"a BOOLEAN"*
+> diyordu. İki sütun **ayrı ayrı** tarif edildi: `manager_entered_arrivals` bir
+> **SAYI** (`ManualArrivals`), `manager_entered` bir **BOOLEAN** (`OpenEntry.Manual`).
+> ✅ **B7** — sayı üç yerden **silindi** ve **türetildi** (yukarı bak). Census bugün:
+> **32** kullanım, **14'ü** `mountWriting` rotalarında, **3** yeni yazma cümlesi,
+> M6-08'inkiler listede **yok** (tek assertion bu).
+> ✅ **B8** — kör nokta **ürün geneli** sayıldı: 70 sorgunun **12'si INSERT**, bunların
+> **7'si `INSERT ... VALUES`** ve eşleştiriciye görünmez (`RecordAuditEvent` ·
+> `CreateInvite` · `EnsureBaselinePolicy` · `EnsureBaselinePolicyVersion` ·
+> `EnsurePolicyAttachment` · `CreateSession` · `InsertTransaction`); 5'i
+> `INSERT ... SELECT` ve tutulabiliyor. **Ve iki kaçış yolu daha sayıldı:** (i)
+> eşleştirici INSERT'ün **yazdığı** `tenant_id` değerine hiç bakmıyor, (ii) yalnız
+> işaret edildiği dosyaları kapsıyor. **Üçü de RLS ile kapalı** — belt deliği, canlı
+> açık değil. Yazıldı, kapatılmadı.
+> ✅ **B9** — `venue.templ`'in **iki** checkbox'ı (`venue-overnight`, `dept-overnight`,
+> M6-06) aksansızdı → tarayıcı mavisi. Düzeltildi **ve ürün geneli test yazıldı**
+> (`TestBrand_EveryNativeCheckboxAndRadioCarriesTheAccent`, 5 kontrol tarıyor,
+> anti-vacuity tabanlı) — çünkü F6'da mutasyon **ağ olmadığı için** yeşil geçmişti.
+> Mutasyon: her iki checkbox ayrı ayrı → **KIRMIZI**. CSS büyümedi.
+>
+> 🔴 **B10 — CSV SÜTUN ADI DEĞİŞİMİ BİR SÖZLEŞME KIRILIMIDIR.**
+> `manager_entered_shifts` → **`manager_entered_arrivals`** (E5). Ürün pilotta değil ve
+> bu dosyayı bugüne kadar yalnız bu deponun testleri indirdi — ama **bir CSV sütun adı
+> muhasebecinin makrosuna girer**, ve bir kez bir müşteriye gittikten sonra aynı
+> değişiklik sessizce bir bordro tablosunu boş bırakır. Şimdi yapılmasının sebebi tam
+> olarak bu: eski ad **iki yönde birden yanlıştı** ve yanlış bir adı taşımaya devam
+> etmek daha pahalıydı. ⚠️ **Bir sonraki sütun adı değişikliği pilot sonrası bir sürüm
+> notu ister** — bu satır o kuralın kaydıdır.
+>
+> ⚠️ **KENDİ HATALARIM (bu turda üç).** (a) B7'nin sayısını **elle** yazmıştım ve
+> yanlıştı — grep kendi yorumumdaki geçişi de sayıyordu; artık türetiliyor.
+> (b) B8'i **yanlış kapsamda** yazmıştım (*"bu dosyada tam olarak BİR ifade"* doğru,
+> *"ürün geneli"* değil). (c) B3'ün yeni testinin ilk hâli iki vakayı `c.name[0]`
+> ile ayırıyordu ve **ikisi de 'a' ile başlıyordu**, yani aynı şekli iki kez sürüyordu;
+> açık bir alan (`dropConfirmation`) eklendi.
+
 ---
 
 ## M6-09 — Policy yönetim ekranı

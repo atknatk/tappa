@@ -111,6 +111,92 @@ func TestStaffQueries_CarryAnExplicitTenantPredicate(t *testing.T) {
 // yet, and therefore no AST-derived belt. See the test below.
 const tagsQueryFile = "tags.sql"
 
+// txnQueryFile is the SECOND file-derived belt, added by M6-08 (2026-08-10).
+//
+// 🔴 IT WAS ADDED BECAUSE A MUTATION PROVED THE OTHER TWO NETS CANNOT SEE THIS. M6-08
+// added InsertManualTransaction and guarded its §4.5 belt two ways: a cross-tenant
+// database test, and a TEXT assertion that the predicate is still in the file. An audit
+// beat both in one edit -- `OR e.tenant_id IS NOT NULL` leaves the substring intact, so
+// the text net sees it, and RLS still empties the SELECT, so the database test stays
+// green. Measured here against the SAME matcher (2026-08-10):
+//
+//	as shipped                     0 findings
+//	OR e.tenant_id IS NOT NULL     CAUGHT
+//	a top-level OR TRUE            CAUGHT
+//	a tautology in its place       CAUGHT
+//	the predicate deleted          CAUGHT
+//	bound to a literal, not @param CAUGHT
+//
+// So the matcher already answers the question the other two nets cannot, and pointing
+// it at one more file is forty lines rather than a fourth scanner.
+//
+// ⚠️ THE WHOLE DIRECTORY IS STILL NOT COVERED, and the cost of that was measured
+// rather than guessed before choosing one file: over all of db/queries the matcher
+// flags 2 of 70 declared queries, and BOTH are false alarms of one shape -- a
+// correlated sub-query scoped to the OUTER statement's alias (`o.tenant_id =
+// t.tenant_id`) rather than to the parameter, which this file's own negative control
+// deliberately refuses ("another column, not the parameter"). One of the two is in
+// THIS file and is opted out below with its reason; the other is
+// ConsumeInviteAndActivate in invites.sql. Widening further is therefore cheap in
+// count and expensive in judgement: every opt-out has to be argued, which is a task.
+const txnQueryFile = "transactions.sql"
+
+// txnScopeExemptions are the statements in transactions.sql the matcher flags and a
+// human has cleared, each with the reason. It is an ALLOWLIST THAT MUST SHRINK: adding
+// a name here is the only way to make this belt weaker, so it is an edit somebody has
+// to defend.
+var txnScopeExemptions = map[string]string{
+	// A CORRELATED SUB-QUERY, AND IT IS CORRECTLY SCOPED. The NOT EXISTS binds
+	// `o.tenant_id = t.tenant_id`, and the outer statement binds `t.tenant_id =
+	// @tenant_id` -- so every row the sub-query can see is already inside the caller's
+	// tenant, transitively. The matcher rejects it because it accepts ONLY a direct
+	// binding to the parameter, which is the same strictness that makes it catch a
+	// predicate on a different table; loosening it to follow aliases would weaken the
+	// case its negative control exists to refuse. Fail-closed, in the safe direction.
+	"GetLastOpenTransaction": "correlated NOT EXISTS scoped to the outer alias, which is itself bound to @tenant_id",
+}
+
+// txnScopeUnseen are the statements this matcher STRUCTURALLY CANNOT CHECK, each with
+// the reason. They are listed rather than silently skipped, because a scanner that
+// reports nothing about a statement and a scanner that approves it look identical from
+// the outside.
+//
+// 🔴 THE SECOND ENTRY IS THE FINDING WORTH READING. The matcher looks for a tenant
+// table in a FROM / UPDATE / JOIN and then walks WHERE clauses -- so an
+// `INSERT ... VALUES` is INVISIBLE to it, no matter what it writes. M6-08's
+// InsertManualTransaction is covered only because it happens to be an
+// `INSERT ... SELECT` (the reviews.sql shape), where the SELECT gives the matcher
+// something to hold. A future writer that used VALUES would get zero coverage from
+// this belt and no warning that it had none.
+//
+// ⚠️ THE PRODUCT-WIDE SIZE OF THE BLIND SPOT, BECAUSE THE FIRST VERSION OF THIS
+// PARAGRAPH QUOTED THE WRONG SCOPE. It said "exactly ONE statement is in that blind
+// spot", which is true of THIS FILE and false of the product. Counted over all of
+// db/queries (2026-08-10): 70 declared queries, 12 of them INSERTs, of which SEVEN are
+// `INSERT ... VALUES` and therefore invisible to this matcher wherever it is pointed --
+// RecordAuditEvent, CreateInvite, EnsureBaselinePolicy, EnsureBaselinePolicyVersion,
+// EnsurePolicyAttachment, CreateSession and InsertTransaction. The other five are
+// `INSERT ... SELECT` and can be held.
+//
+// 🔴 AND TWO MORE WAYS PAST THIS BELT WERE MEASURED, so it is not read as a wall:
+//
+//  1. THE MATCHER NEVER LOOKS AT THE TENANT VALUE AN INSERT WRITES. It reads the
+//     SELECT's WHERE; a statement that scoped its SELECT correctly and then wrote
+//     `tenant_id` from a SECOND parameter would pass. Nothing does that today.
+//  2. IT ONLY COVERS THE FILES IT IS POINTED AT. An unscoped read added to any file
+//     other than tags.sql or transactions.sql is seen by none of the three belts.
+//
+// ⚠️ ALL THREE ARE CLOSED BY RLS RATHER THAN BY THIS TEST — they are holes in the
+// BELT, not live openings (§4.5 is belt AND braces, and the braces hold: the policy,
+// the WITH CHECK and the composite foreign keys were each probed). They are counted
+// here rather than fixed: teaching the matcher to read an INSERT's target, and
+// widening it to the whole directory, are each a change to a settled matcher shared by
+// four call sites and belong with their own mutation run.
+var txnScopeUnseen = map[string]string{
+	"LockEmployeeForTap": "an advisory lock (pg_advisory_xact_lock) with no table and no WHERE at all",
+	"InsertTransaction":  "INSERT ... VALUES -- the matcher can only see a tenant table through FROM/UPDATE/JOIN",
+}
+
 // TestTagsQueries_CarryAnExplicitTenantPredicate closes a HOLE IN THE DERIVATION
 // ITSELF, not in a query.
 //
@@ -250,6 +336,76 @@ func queriesDeclaredIn(t *testing.T, file string) []string {
 		out = append(out, m[1])
 	}
 	return out
+}
+
+// TestTransactionsQueries_CarryAnExplicitTenantPredicate is the tags belt pointed at
+// transactions.sql (M6-08). See txnQueryFile for why it exists and what widening
+// further would cost.
+//
+// It is FILE-DERIVED like the tags one: a statement is checked because it EXISTS, not
+// because something calls it -- which is the window that matters, between "the SQL is
+// merged" and "a handler calls it".
+func TestTransactionsQueries_CarryAnExplicitTenantPredicate(t *testing.T) {
+	declared := declaredQueries(t)
+	names := queriesDeclaredIn(t, txnQueryFile)
+
+	// ANTI-VACUITY: a shrunken derivation would pass over nothing. The floor is
+	// deliberately BELOW today's count, so deleting a query fails loudly while adding
+	// one never does.
+	if len(names) < 8 {
+		t.Fatalf("derived %d query name(s) from db/queries/%s (%v); this file carries at "+
+			"least eight, so this scan is reading the wrong file", len(names), txnQueryFile, names)
+	}
+	scoped := tenantScopedTables(t)
+	exempted, flagged, unseen := 0, 0, 0
+	for _, n := range names {
+		if !declared[n] {
+			t.Errorf("%q is declared in %s but declaredQueries did not see it; the two "+
+				"readers disagree, so one of them is misparsing", n, txnQueryFile)
+		}
+		_, body, ok := findQuery(t, n)
+		if !ok {
+			t.Errorf("no query named %q anywhere in db/queries", n)
+			continue
+		}
+		findings, checked := scopeFindings(body, scoped)
+		if why, ok := txnScopeExemptions[n]; ok {
+			exempted++
+			// 🔴 AN EXEMPTION THAT STOPS BEING NEEDED IS DELETED, NOT LEFT. A name here
+			// with nothing to exempt is an allowlist entry protecting nothing, and the
+			// next reader would take it as evidence the query is unscoped.
+			if len(findings) == 0 {
+				t.Errorf("%s is exempted (%q) but the matcher no longer flags it. Remove the "+
+					"entry: an exemption nobody needs is a hole nobody is watching.", n, why)
+			}
+			continue
+		}
+		for _, f := range findings {
+			flagged++
+			t.Errorf("%s (%s) %s", n, txnQueryFile, f)
+		}
+		if checked == 0 {
+			if why, ok := txnScopeUnseen[n]; ok {
+				unseen++
+				_ = why
+				continue
+			}
+			t.Errorf("%s: the scan found no statement touching a tenant-scoped table, so it "+
+				"checked nothing. Either the query stopped reading one, or it is a shape this "+
+				"matcher cannot see -- in which case add it to txnScopeUnseen WITH the reason "+
+				"rather than leaving a silent gap. (%d table names, derived from CREATE POLICY.)",
+				n, len(scoped))
+		}
+	}
+	// AN ENTRY THAT IS NO LONGER NEEDED IS A HOLE NOBODY IS WATCHING, so the blind-spot
+	// list is held to its own size the same way the exemption list is.
+	if unseen != len(txnScopeUnseen) {
+		t.Errorf("txnScopeUnseen names %d statement(s) but only %d were actually invisible "+
+			"to the matcher; remove the stale entries", len(txnScopeUnseen), unseen)
+	}
+	t.Logf("section 4.5 belt over db/queries/%s (file-derived): %d queries, %d exempted "+
+		"with a written reason, %d invisible to the matcher (also written down), %d flagged",
+		txnQueryFile, len(names), exempted, unseen, flagged)
 }
 
 // TestStaffScopeCheck_IsNotVacuous is the negative control for the MATCHER.

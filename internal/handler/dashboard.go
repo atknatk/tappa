@@ -81,20 +81,27 @@ func (a *AdminAuth) mountSections(r chi.Router) {
 	// mountSections that writes anything; reportsExport carries the measurement of
 	// what a GET with that side effect leaves open and what bounds it.
 	r.Get(reportsCSVHref, a.reportsExport)
+	// 🔴 THE MANUAL-ENTRY FORM IS A GET AND IT BELONGS HERE; ITS TWO POSTs DO NOT
+	// (M6-08). This route reads one employee and the tenant's clock and renders a
+	// form — no record, no audit row, no confirmation minted, so a crawler following
+	// the roster's link to it changes nothing. The POST that mints the confirmation
+	// and the POST that appends the record are in mountWriting, because both need the
+	// Origin check AHEAD of the resolver and neither can get it here.
+	r.Get(manualEntryHref, a.manualEntryForm)
 }
 
-// mountWriting registers the panel's state-changing routes: POST /admin/review
-// (M6-04), the employees section's three (M6-05 phase B), and the locations
-// section's seven — two saves and two removals (M6-06 phase A) plus the mount, the
-// replace and the un-mount (phase B).
+// mountWriting registers the panel's state-changing routes: the review decision
+// (M6-04), the employees section's (M6-05 phase B), the locations section's saves,
+// removals and plaque acts (M6-06), and manual record entry (M6-08).
 //
-// ⚠️ THE COUNTS IN THIS COMMENT WENT STALE ONCE ALREADY (they said eight and four
-// after phase B grew the section). They are kept because the ARGUMENT below is
-// about the chain being shared rather than about the number — but a number in a
-// comment beside a list that owns it is a second representation, and this one is
-// on its second correction.
+// 🔴 NO COUNT APPEARS IN THIS COMMENT ANY MORE, AND THAT IS THE RULE RATHER THAN A
+// TIDY-UP. The numbers here went stale THREE times — "eight and four" before phase B,
+// then "eleven" until M6-08 added two, and the opening sentence's own breakdown each
+// time with them. A bare integer describing a set the code below OWNS is a second
+// representation, and this one proved it by drifting on every single change. The
+// function body is the list; read it there.
 //
-// 🔴 THE ELEVEN SHARE ONE CHAIN AND THAT IS THE POINT OF THE FUNCTION. Every mutating
+// 🔴 THEY SHARE ONE CHAIN AND THAT IS THE POINT OF THE FUNCTION. Every mutating
 // panel route needs the Origin check ahead of the resolver, and a route registered
 // anywhere else would silently get the READ chain instead — which is exactly the
 // defect an audit measured on POST /admin/review (a cross-origin flood spending a
@@ -138,6 +145,14 @@ func (a *AdminAuth) mountWriting(r chi.Router) {
 		r.Post(plaqueMountHref, a.mountPlaque)
 		r.Post(plaqueReplaceHref, a.replacePlaque)
 		r.Post(plaqueUnmountHref, a.unmountPlaque)
+		// 🔴 THE TWO MANUAL-ENTRY POSTs (M6-08), AND THE FIRST OF THEM WRITES NO ROW.
+		// It is here anyway: it mints a confirmation and sets its twin cookie, which is
+		// state, and a POST registered in mountSections would silently take the READ
+		// chain — running the resolver before the Origin check, which is the defect an
+		// audit measured on POST /admin/review. The second appends a permanent,
+		// undeletable attendance record, which is the heaviest write this panel has.
+		r.Post(manualEntryHref, a.manualEntryReview)
+		r.Post(manualRecordHref, a.manualEntryRecord)
 	})
 }
 

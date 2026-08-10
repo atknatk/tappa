@@ -292,8 +292,14 @@ templ VenueForm(v VenueFormView) {
 				</div>
 				<div class="filter-field">
 					<label class="docket-label" for="venue-overnight">Ends next day</label>
+					// THE ACCENT IS THE BRAND'S, NOT THE BROWSER'S (skill tappa-brand: stay
+					// inside the palette). A native checkbox with no accent paints itself the
+					// user agent's blue, which is the one colour this product does not use.
+					// The activation screen fixed the same class on its own controls; these
+					// two were simply never counted, and an audit of M6-08's screen found
+					// them while looking at something else.
 					<input
-						class="mt-2 h-6 w-6"
+						class="mt-2 h-6 w-6 accent-tappa-green"
 						id="venue-overnight"
 						type="checkbox"
 						name="overnight"
@@ -437,8 +443,9 @@ templ DepartmentForm(v DepartmentFormView) {
 				</div>
 				<div class="filter-field">
 					<label class="docket-label" for="dept-overnight">Ends next day</label>
+					// The venue form's twin, and the same reason — see there.
 					<input
-						class="mt-2 h-6 w-6"
+						class="mt-2 h-6 w-6 accent-tappa-green"
 						id="dept-overnight"
 						type="checkbox"
 						name="overnight"

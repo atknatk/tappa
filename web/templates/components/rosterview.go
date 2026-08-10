@@ -125,6 +125,17 @@ type RosterActionsView struct {
 	InviteLabel  string
 	InviteAction string
 
+	// RecordHref opens the manual record entry screen for this person (M6-08).
+	//
+	// 🔴 IT IS A LINK TO A GET AND THERE IS NO CanRecord BESIDE IT, WHICH IS THE ONE
+	// UNCONDITIONAL ACTION ON THIS CARD. Every other control here is gated on a state
+	// the database would refuse; this one is not gated because the server refuses
+	// nobody — a deactivated person's last shift still has to be payable, and
+	// deactivation is one-way (docs/adr/0010) so there is no route back if it is not
+	// typed. A boolean that was always true would be the shape
+	// TestEmployeesSection_OffersNoActionTheServerWouldRefuse exists to catch.
+	RecordHref string
+
 	// CanDeactivate is false for somebody already deactivated — pressing it again
 	// writes nothing, and offering it would suggest otherwise.
 	CanDeactivate bool

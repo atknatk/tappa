@@ -440,11 +440,43 @@ func isReviewGone(err error) bool {
 // formula. That rule is still that task's, and rendering the note here does not
 // discharge it.
 func reviewNote(raw string) (note string, clipped bool) {
+	return cleanBoundedText(raw, maxReviewNote)
+}
+
+// cleanBoundedText is the three steps every free sentence this panel stores goes
+// through, in ONE place.
+//
+// 🔴 IT WAS EXTRACTED RATHER THAN COPIED A THIRD TIME (M6-08). employeeNameFilter and
+// reviewNote each carried these steps, and both carry the two 500s that produced them
+// in their own comments; M6-08 needed the same steps for a manual record's note, and a
+// third copy is the "second representation" class this repository has paid for five
+// times. The reasoning stays where it was learned — read reviewNote above and
+// employeeNameFilter in transactions.go — and only the arithmetic lives here.
+//
+// THE TWO 500s, RESTATED ONCE SO THIS FUNCTION IS READABLE ON ITS OWN:
+//
+//	NUL is removed FIRST. A PostgreSQL text column cannot hold a zero byte — the
+//	driver answers "invalid byte sequence for encoding UTF8" and the whole request
+//	becomes a 500. Measured, on the name filter, with "abc\x00def".
+//	TRUNCATION IS BY RUNE, NOT BY BYTE. Slicing bytes cuts a multi-byte character in
+//	half and leaves invalid UTF-8, which the driver refuses. Maltese names carry
+//	ċ ġ ħ ż and Turkish ones ı ş ğ, so this is the ordinary case rather than an
+//	adversarial one.
+//
+// ⚠️ employeeNameFilter IS DELIBERATELY NOT SWITCHED TO IT. Its steps are identical
+// today, but its comment argues about ILIKE escaping and about what a FILTER may do,
+// and it is M6-03's audited surface; folding it in would be a refactor of a shipped
+// screen inside a task about something else. Counted, not done.
+//
+// It reports whether it had to CUT, which is the caller's to surface: silence about a
+// cut is the same class of defect as a screen claiming something it has not measured,
+// only in the opposite direction.
+func cleanBoundedText(raw string, maxRunes int) (out string, clipped bool) {
 	s := strings.ReplaceAll(raw, "\x00", "")
 	s = strings.TrimSpace(s)
-	if utf8.RuneCountInString(s) > maxReviewNote {
+	if utf8.RuneCountInString(s) > maxRunes {
 		runes := []rune(s)
-		s = string(runes[:maxReviewNote])
+		s = string(runes[:maxRunes])
 		clipped = true
 	}
 	// The cut can leave a trailing space, and any invalid sequence the client sent

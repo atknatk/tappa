@@ -592,8 +592,8 @@ func TestAccumulate_MarksManagerEnteredArrivals(t *testing.T) {
 		ev(maria, "Maria Borg", "out", at(t, zone, 2026, time.August, 4, 16, 0)),
 	}
 	m := find(t, accumulate(evs, p, zone, at(t, zone, 2026, time.August, 12, 9, 0)), maria)
-	if m.Manual != 1 {
-		t.Fatalf("manual arrivals = %d, want 1 of the two shifts", m.Manual)
+	if m.ManualArrivals != 1 {
+		t.Fatalf("manual arrivals = %d, want 1 of the two shifts", m.ManualArrivals)
 	}
 	if m.Worked != 12*time.Hour {
 		t.Fatalf("worked = %v, want 12h: marking a row does not exclude it", m.Worked)

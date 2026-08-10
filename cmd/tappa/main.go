@@ -20,6 +20,7 @@ import (
 	"github.com/atknatk/tappa/internal/db"
 	"github.com/atknatk/tappa/internal/domain/checkin"
 	"github.com/atknatk/tappa/internal/domain/ledger"
+	"github.com/atknatk/tappa/internal/domain/manual"
 	"github.com/atknatk/tappa/internal/domain/review"
 	"github.com/atknatk/tappa/internal/domain/tenant"
 	"github.com/atknatk/tappa/internal/handler"
@@ -160,6 +161,19 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	// The manual record writer (M6-08) — the SECOND writer of `transactions` in this
+	// process, and the first that is not a tap. It exists because Q18 decided the
+	// system produces no checkout of its own: an hour the software invented is an hour
+	// that stops being evidence, so somebody has to type it.
+	//
+	// Same audit recorder again, and here the reason is the strongest of the five: the
+	// record and its trail row are ONE act, `transactions` takes no UPDATE and no
+	// DELETE, and a record that appeared with no trail would be an hour on a payslip
+	// that nobody can be shown to have entered.
+	entries, err := manual.NewRecorder(data, trail, slog.Default())
+	if err != nil {
+		return err
+	}
 	// records is passed TWICE, as the day reader and as the queue reader. Two
 	// parameters rather than one because internal/handler declares two narrow
 	// interfaces over it (§7, the consumer owns the interface); one implementation
@@ -177,7 +191,7 @@ func run() error {
 	// M5-02 drove the channel end to end. The distinction matters — the seam was
 	// TESTED and unmounted, which is the M5-04 shape (a capability delivered, approved
 	// and dead in the wired product) rather than an unproven one.
-	panelAuth, err := handler.NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, venues, plaques, cfg, slog.Default())
+	panelAuth, err := handler.NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, venues, plaques, entries, cfg, slog.Default())
 	if err != nil {
 		return err
 	}

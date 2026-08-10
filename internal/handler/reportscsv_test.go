@@ -410,7 +410,7 @@ func TestReportCSV_AgreesWithTheScreenItWasExportedFrom(t *testing.T) {
 			EmployeeID: uuid.MustParse("11111111-2222-4333-8444-555555555555"),
 			Name:       "Maria Borg", Worked: 5 * time.Hour, Shifts: 1, Daily: daily,
 			Awaiting: 3*time.Hour + 30*time.Minute, Refused: time.Hour + 10*time.Minute,
-			LateShifts: 1, LateBy: 17 * time.Minute, Unmeasured: 2, Manual: 1, Open: 2,
+			LateShifts: 1, LateBy: 17 * time.Minute, Unmeasured: 2, ManualArrivals: 1, Open: 2,
 		}, {
 			EmployeeID: uuid.MustParse("99999999-2222-4333-8444-555555555555"),
 			Name:       "Antoine Vella", Worked: 3 * time.Hour, Shifts: 1,
@@ -959,7 +959,7 @@ func TestForbiddenColumn_RefusesTheFiveByNameAndAcceptsTheColumnsThisFileHas(t *
 	for _, name := range []string{
 		"employee_id", "employee", "worked", "worked_minutes", "shifts", "awaiting",
 		"awaiting_minutes", "refused", "refused_minutes", "late_arrivals", "late_by",
-		"late_by_minutes", "arrivals_not_measured", "manager_entered_shifts",
+		"late_by_minutes", "arrivals_not_measured", "manager_entered_arrivals",
 		"open_check_ins", "venue", "opened_local", "opened_utc", "needs_action",
 		"manager_entered", "measure", "value", "minutes", "note", "what",
 		"2026-08-03 (Mon) minutes",

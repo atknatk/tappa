@@ -477,8 +477,36 @@ func Guardrails(p Params) []Guardrail {
 		// 7. sys:occurred-at-bound — a tap whose client-declared occurred_at is in
 		// the future (skew < 0, where skew = created_at - occurred_at) or older
 		// than the max tolerance (ADR 0004 §11; K1). Tap recording only: manual
-		// entry is the separate, authorized record:manual action that may
-		// legitimately backdate, so it is not subject to this bound.
+		// entry is the separate record:manual action that may legitimately
+		// backdate, so it is not subject to this bound.
+		//
+		// ⚠️ THAT SENTENCE SAID "the separate, AUTHORIZED record:manual action" AND
+		// THE WORD WAS ASPIRATIONAL, so it is gone (M6-08). It reads as though
+		// something calls Evaluate with Action = record:manual and is allowed
+		// through. Nothing does: the panel calls the policy engine from NOWHERE
+		// (measured, by parsing internal/handler rather than grepping it —
+		// TestPanel_CallsThePolicyEngineNowhere), and M6-08's write path does not
+		// either. The EXEMPTION is real and unchanged — this guardrail is gated on
+		// c.Action, so a manual record could not trip it even if the engine were
+		// called — but "authorized" described an authorisation step that has never
+		// run.
+		//
+		// 🔴 WHAT ACTUALLY BOUNDS A MANUAL RECORD'S TIME, so the exemption does not
+		// read as an absence of all bounds: internal/domain/manual.MaxBackdate and
+		// FutureGrace, checked twice per record (once before the confirmation screen
+		// is served, once at the write) against the SERVER's clock. They are
+		// deliberately not this guardrail's numbers — a manager reconstructing a
+		// month-old shift is the ordinary case there and impossible here — and the
+		// reasoning for each is written where they are declared.
+		//
+		// 🔴 AND WHAT THE AUTHZ LAYER WOULD DO IF IT WERE CALLED IS MEASURED RATHER
+		// THAN GUESSED. record:manual matches NO guardrail in this list (every one is
+		// gated on tap:record, policy:edit, or a reviewer/subject pair that a panel
+		// admin cannot satisfy), so it would fall to the baseline, which grants it to
+		// BOTH panel roles — owner and manager — and admin_users' own CHECK admits no
+		// third role. So a gate would refuse nobody today. Both halves are pinned:
+		// TestManualEntryAction_HitsNoGuardrailAndIsGrantedToBothPanelRoles. If the
+		// baseline ever narrows, that test goes red and the decision is retaken.
 		//
 		// POSITION: behind #5 (ADR 0007), and this one is the sharper of the two —
 		// its input is a POST form field (occurred_at, internal/handler/checkin.go),

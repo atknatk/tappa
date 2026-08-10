@@ -283,8 +283,10 @@ func reportRowView(p ledger.PersonHours) pages.ReportRowView {
 		// and reporting those arrivals as punctual would be inventing one.
 		row.Unmeasured = plural(p.Unmeasured, "arrival", "arrivals") + " not measured — no shift set"
 	}
-	if p.Manual > 0 {
-		row.Manual = plural(p.Manual, "shift", "shifts") + " entered by a manager"
+	if p.ManualArrivals > 0 {
+		// ARRIVALS, NOT SHIFTS — see ledger.PersonHours.ManualArrivals for the four
+		// measured rows that made the old word wrong in both directions.
+		row.Manual = plural(p.ManualArrivals, "arrival", "arrivals") + " entered by a manager"
 	}
 	if p.Open > 0 {
 		row.Open = plural(p.Open, "check-in", "check-ins") + " with no checkout"

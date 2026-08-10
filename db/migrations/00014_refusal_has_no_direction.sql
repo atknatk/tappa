@@ -1,0 +1,127 @@
+-- 00014 -- a REFUSED record carries no direction, and it is the SCHEMA that says so.
+--
+-- It adds NO table and no column. 00005 created `transactions` and an applied
+-- migration is immutable (CLAUDE.md section 6), so this is one CHECK constraint on an
+-- existing table. The FIVE elements of section 6 are 00005's and are NOT touched:
+-- tenant_id uuid NOT NULL, three tenant-scoped indexes, ENABLE + FORCE ROW LEVEL
+-- SECURITY, the NULLIF tenant policy with USING and WITH CHECK, and the tappa_app
+-- GRANT (SELECT + INSERT only). Verified against pg_catalog after this migration
+-- rather than assumed.
+--
+-- ============================================================================
+-- WHY IT EXISTS NOW AND NOT IN 00005
+-- ============================================================================
+-- 00005 shipped transactions_ok_has_direction, which runs ONE WAY:
+--
+--	CHECK (verdict <> 'ok' OR type IS NOT NULL)      "ok  =>  a direction"
+--
+-- The converse -- "reject or ignored  =>  NO direction" -- was left to the code,
+-- because until 2026-08-10 the product had exactly ONE writer of this table
+-- (internal/domain/checkin) and internal/domain/tap assigns a direction only on
+-- ok/flag. M6-08 added a SECOND writer (internal/domain/manual), and a rule kept by
+-- "the one writer happens not to do that" is a rule with a shorter life than the
+-- table it protects. `transactions` takes no UPDATE and no DELETE, so a row written
+-- in the wrong shape is permanent.
+--
+-- ============================================================================
+-- THE FORM, AND WHY IT IS NOT SPELLED "NOT IN"
+-- ============================================================================
+--	CHECK (verdict IN ('ok','flag') OR type IS NULL)
+--
+-- verdict is NOT NULL (measured: pg_attribute.attnotnull = t) and 00005 already
+-- restricts it to exactly four values, so over this column TODAY `IN ('ok','flag')`
+-- and `NOT IN ('reject','ignored')` are the same predicate.
+--
+-- 🔴 THE POSITIVE FORM IS CHOSEN FOR A MEASURED REASON, AND IT IS NOT THE ONE THIS
+-- BLOCK GAVE FIRST. The withdrawn argument was that `NOT IN` breaks quietly under
+-- three-valued logic "if the column ever becomes nullable". Probed, and it is FALSE --
+-- both forms break IDENTICALLY, because a CHECK whose result is NULL counts as
+-- satisfied:
+--
+--	NULL NOT IN ('reject','ignored')  ->  NULL        NULL IN ('ok','flag')  ->  NULL
+--	CHECK (v NOT IN (...) OR t IS NULL), INSERT (NULL,'in')  ->  ACCEPTED
+--	CHECK (v IN ('ok','flag') OR t IS NULL), INSERT (NULL,'in')  ->  ACCEPTED
+--
+-- THE REAL BENEFIT IS A NEW VERDICT, NOT A NULL ONE, and it is the difference between
+-- failing open and failing closed. Probed the same way, with a value that joins the
+-- vocabulary later:
+--
+--	CHECK (v NOT IN ('reject','ignored') OR t IS NULL), INSERT ('void','in') -> ACCEPTED
+--	CHECK (v IN ('ok','flag') OR t IS NULL),            INSERT ('void','in') -> REFUSED
+--
+-- A denylist silently admits every verdict nobody has thought of yet; an allowlist
+-- refuses them until somebody widens it deliberately. That is worth having on a table
+-- whose rows cannot be corrected, and it is the whole of the argument -- a migration
+-- header is normative text in this repository, so the sentence has to be the one that
+-- was measured rather than the one that sounded right.
+--
+-- ============================================================================
+-- VALIDATED, NOT `NOT VALID` -- AND THE DIFFERENCE FROM 00013 IS THE POINT
+-- ============================================================================
+-- 00013 had to ship `NOT VALID` because 18 010 existing rows violated its constraint
+-- and rewriting them would have meant rewriting evidence (section 4.3). This one has
+-- NOTHING to rewrite. Measured on the development database, 2026-08-10:
+--
+--	rows in transactions                                        329 475
+--	rows violating the predicate                                      0
+--	ALTER TABLE ... ADD CONSTRAINT (VALIDATED), inside a rolled-back
+--	  transaction, warm, three repeats                 244 / 200 / 216 / 197 ms
+--
+-- So the table is scanned once, at deploy, in about a fifth of a second at this size,
+-- and every row already satisfies it. A fresh `make migrate seed` database has fewer
+-- rows and no violations either. There is no reason to leave a permanently unvalidated
+-- constraint behind, which is a state somebody has to remember to finish.
+--
+-- ============================================================================
+-- WHAT IT BUYS -- STATED SMALLER THAN IT SOUNDS, BECAUSE IT WAS MEASURED
+-- ============================================================================
+-- The claim this migration was first argued from was "such a row would enter a report
+-- as worked hours". That is FALSE, and the correction is written here rather than
+-- quietly dropped. There are already THREE barriers, and the third one is a report-side
+-- fail-safe measured on the real arithmetic (internal/domain/ledger, accumulate):
+--
+--	both ends ok                      worked 8h   awaiting 0
+--	both ends reject WITH a direction worked 0    awaiting 8h
+--	both ends ignored WITH a direction worked 0   awaiting 8h
+--	one end ok, one end reject        worked 0    awaiting 8h
+--	an unknown verdict entirely       worked 0    awaiting 8h
+--
+-- endpointState's default is HoursAwaiting rather than payable, so a directed refusal
+-- is QUARANTINED and reported separately -- never paid, never lost (section 4.6).
+--
+-- SO WHAT THIS CONSTRAINT ACTUALLY DOES is turn "a malformed row that gets quarantined
+-- and shown to a manager who cannot act on it" into "no such row". That is worth a
+-- migration and it is NOT a fix for a live money leak; saying otherwise would be the
+-- 00013 mistake in the other direction (its own header once described a risk path that
+-- could not be reached).
+--
+-- ⚠️ THE ONE TENSION, NAMED: section 4.6 says a record is never lost, and 00005
+-- deliberately kept several of its CHECKs loose so that a context-less refusal could
+-- still be written. A refused INSERT IS a lost record. This constraint is safe against
+-- that reading for a measured reason rather than an assumed one: the only INSERT it can
+-- refuse is one that carries BOTH a refusal verdict AND a direction, and no code path
+-- in this product builds one -- the tap engine cannot (barrier 1, pinned by
+-- TestDecide_DirectionNilForNonRecordVerdicts, red in four sub-cases under mutation)
+-- and the manual path cannot (barrier 2, the verdict is a SQL literal). A future writer
+-- that tried would be told at the boundary instead of writing a row nobody can pay.
+
+-- +goose Up
+
+ALTER TABLE transactions
+    ADD CONSTRAINT transactions_refusal_has_no_direction
+    CHECK (verdict IN ('ok', 'flag') OR type IS NULL);
+
+-- +goose Down
+
+-- 🔴 THIS DOWN IS A SECURITY REGRESSION, AND IT IS NAMED AS ONE (00013's lesson: a
+-- reversible migration is not the same as a harmless reversal).
+--
+-- Dropping it does not change any existing row -- nothing here rewrites data, so there
+-- is no data to put back. What it removes is the SCHEMA's refusal of a shape the code
+-- currently cannot produce, returning the guarantee to two code-level barriers plus the
+-- report's fail-safe. That is the state the product shipped in from 00005 to 00014, so
+-- the reversal is survivable; it is a regression because after this point a third
+-- writer of `transactions` could introduce the shape and nothing in the database would
+-- stop it. Anybody running this Down should know they are re-opening exactly that.
+ALTER TABLE transactions
+    DROP CONSTRAINT IF EXISTS transactions_refusal_has_no_direction;

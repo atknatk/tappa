@@ -160,6 +160,23 @@ templ RosterActions(v RosterActionsView) {
 				}
 			</div>
 			<div class="flex flex-wrap items-center gap-3 border-t border-line pt-4">
+				// 🔴 A LINK TO A GET, NOT A CONTROL THAT WRITES (M6-08). Entering a record
+				// is a two-step flow with its own confirmation, so what belongs on this
+				// card is the way IN to it; putting the form here would mean a permanent
+				// attendance record one press away from a list of people. Following this
+				// link changes nothing, which is also why it is safe for a crawler.
+				//
+				// IT IS OFFERED FOR EVERYBODY, INCLUDING SOMEBODY DEACTIVATED, and that
+				// is the one action on this card that is. Their last shift is often typed
+				// after they leave, and the server does not refuse it — so a screen that
+				// hid the control would be hiding something the product supports. The
+				// entry screen says who it is recording for.
+				<a class="btn btn--quiet" href={ templ.URL(v.RecordHref) }>Enter a record by hand</a>
+				<p class="text-xs text-ink/70">
+					For somebody with no phone, or a shift nobody tapped out of.
+				</p>
+			</div>
+			<div class="flex flex-wrap items-center gap-3 border-t border-line pt-4">
 				if v.CanDeactivate {
 					if v.Confirming {
 						<p class="text-sm text-ink">
