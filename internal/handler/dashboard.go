@@ -73,6 +73,14 @@ func (a *AdminAuth) mountSections(r chi.Router) {
 		}
 	}
 	r.Get(docketFragmentPath, a.transactionDockets)
+	// 🔴 THE CSV EXPORT IS REGISTERED HERE FOR THE SAME REASON THE FRAGMENT IS, AND
+	// ITS ONE SIDE EFFECT WAS WEIGHED RATHER THAN OVERLOOKED. It is not a section —
+	// it has no tab — but it reads the same week the reports section does, so it must
+	// inherit the same chain, and putting it inside this function makes that
+	// structural. It DOES write one audit_log row, which is the only thing in
+	// mountSections that writes anything; reportsExport carries the measurement of
+	// what a GET with that side effect leaves open and what bounds it.
+	r.Get(reportsCSVHref, a.reportsExport)
 }
 
 // mountWriting registers the panel's state-changing routes: POST /admin/review

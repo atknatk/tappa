@@ -186,6 +186,11 @@ func fillReportsView(v *pages.ReportsView, s ledger.ReportScreen) {
 	v.ThisWeekHref = reportsHref
 	v.PrevHref = weekHref(days[0].AddDate(0, 0, -1))
 	v.NextHref = weekHref(days[0].AddDate(0, 0, 7))
+	// THE EXPORT LINK NAMES THE WEEK ON THE SCREEN, not the current one. It is built
+	// from the SAME period the figures above came from, so the file and the page can
+	// never be one week apart — see pages.ReportsView.ExportHref for why that would be
+	// a silent failure rather than a visible one.
+	v.ExportHref = weekCSVHref(p.FirstDay.String())
 
 	v.Totals = pages.ReportTotalsView{
 		Worked:   hoursMinutes(s.Totals.Worked),
@@ -196,24 +201,27 @@ func fillReportsView(v *pages.ReportsView, s ledger.ReportScreen) {
 		TooLong:  s.Totals.TooLong,
 	}
 	v.OpenTotal = len(s.Open)
+	// 🔴 ONE CALCULATION POINT, AND IT IS SHARED WITH THE EXPORT. This tally used to be
+	// accumulated by the loop below while reportscsv.go accumulated the identical
+	// quantity over the identical slice -- a second representation of one number, in a
+	// file whose own header forbids exactly that. A review measured the consequence:
+	// inverting the CSV's copy left the screen/file agreement test green, because
+	// nothing compared this quantity across the two surfaces. Both now read
+	// needsActionTotal, so there is no copy left to diverge.
+	v.Totals.NeedsAction = needsActionTotal(s)
 	for _, o := range s.Open {
-		if o.Stale {
-			v.Totals.NeedsAction++
-		}
 		// THE TALLY COUNTS EVERY ENTRY AND THE LIST PRINTS THE FIRST maxOpenRows OF
 		// THEM. ledger.Hours returns them OLDEST FIRST, so a shortened list keeps the
 		// ones that have been waiting longest -- which is the order a manager works a
 		// backlog in.
 		//
-		// 🔴 THE LOOP DOES NOT BREAK EARLY, AND WHAT MAKES THAT NECESSARY IS A LINE ON
-		// THE PAGE: pages.needsActionLine prints how many of the WHOLE backlog have been
-		// open too long, and it is fed by the counter above. An audit found this
-		// justification written here while nothing rendered the count -- an unread field
-		// with a comment defending the cost of filling it. The reader exists now; if it
-		// is ever removed, this loop may break at maxOpenRows and this paragraph goes
-		// with it.
+		// ✅ AND THE LOOP MAY NOW STOP EARLY, WHICH IT COULD NOT BEFORE. It used to run
+		// to the end of the backlog with a `continue`, justified in a long paragraph by
+		// the counter it was carrying; with the counter extracted there is nothing left
+		// to accumulate past the page, so the honest form is a break. The paragraph that
+		// defended the old shape went with it.
 		if len(v.Open) >= maxOpenRows {
-			continue
+			break
 		}
 		v.Open = append(v.Open, pages.ReportOpenView{
 			Who:         personName(o.EmployeeName),
@@ -353,6 +361,16 @@ func weekHref(day time.Time) string {
 	q := url.Values{}
 	q.Set("week", day.Format("2006-01-02"))
 	return reportsHref + "?" + q.Encode()
+}
+
+// weekCSVHref is the export's URL for one week. It takes the ISO day as a STRING
+// because its caller already has the period's first day in that form and re-deriving
+// it from a time.Time would be a second representation of "which week is this" — the
+// one thing the link and the page have to agree about.
+func weekCSVHref(day string) string {
+	q := url.Values{}
+	q.Set("week", day)
+	return reportsCSVHref + "?" + q.Encode()
 }
 
 // parseReportFilter reads the week from the query string.

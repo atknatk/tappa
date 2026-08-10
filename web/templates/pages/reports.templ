@@ -84,8 +84,26 @@ templ reportWeekBar(v ReportsView) {
 			<a class="btn btn--quiet" href={ templ.URL(v.PrevHref) }>Previous week</a>
 			<a class="btn btn--quiet" href={ templ.URL(v.NextHref) }>Next week</a>
 			<a class="btn btn--quiet" href={ templ.URL(v.ThisWeekHref) }>This week</a>
+			// THE EXPORT IS A LINK AND SITS WITH THE WEEK CONTROLS, because that is
+			// what it is: one more thing you do to the week you are looking at. It is
+			// the quiet button rather than the primary one — the primary action on this
+			// bar is choosing a week, and two green buttons side by side would make
+			// neither of them the answer to "what do I press".
+			//
+			// skill tappa-brand: the word carries the meaning, the palette is unchanged,
+			// and the ink-on-paper pair this button uses is the highest-contrast one in
+			// the system.
+			<a class="btn btn--quiet" href={ templ.URL(v.ExportHref) } download>Download CSV</a>
 		</div>
 	</form>
+	// 🔴 THE SENTENCE THE CAPS ON THIS PAGE ARE JUSTIFIED BY. Both listings below stop
+	// at a hundred rows and each says so where it stops; this says what the answer is,
+	// once, next to the control that gives it. A business with more staff than one page
+	// holds is the reason the export exists at all.
+	<p class="font-mono text-xs text-ink/85">
+		The CSV holds every person and every open check-in — the lists below are
+		shortened, the file is not.
+	</p>
 }
 
 // reportTotals is the week in one docket: the payroll figure, and everything that is
@@ -153,7 +171,7 @@ templ reportPeople(v ReportsView) {
 			@components.Notice(components.ToneWarn, "Not everybody is listed") {
 				<p>
 					{ shownOfLine(v.PeopleShown, v.PeopleTotal) } The totals above cover
-					everybody; only this list is shortened.
+					everybody; only this list is shortened. Download the CSV for every row.
 				</p>
 			}
 		}
@@ -263,7 +281,7 @@ templ reportOpen(v ReportsView) {
 			@components.Notice(components.ToneWarn, "Not every open check-in is listed") {
 				<p>
 					{ shownOfOpenLine(v.OpenShown, v.OpenTotal) } The count above is the whole
-					of it; only this list is shortened.
+					of it; only this list is shortened. Download the CSV for every row.
 				</p>
 			}
 		}

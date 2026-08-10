@@ -4693,6 +4693,269 @@ Ayrıca iş yalnız CSS+bileşen değil — kabuk `pages/` + `handler/`'a da dok
 > **reddedilmiş** `flag` girmez ve ayrı gösterilir · `closingTail = tap.StaleOpenIn`
 > (18 sa) hem okuma ufku hem "bu bir vardiya değil" eşiği.
 
+> **Kart düzeltmesi (2026-08-10, M6-07 B uygulaması sırasında).**
+>
+> **SEKİZ YÜKÜMLÜLÜĞÜN KAPANIŞI.** Hepsi `internal/handler/reportscsv.go` +
+> `reportscsv_test.go` + `reportscsv_db_test.go` içinde, her biri **mutasyonla**
+> kırmızıya döndürülerek:
+> **(1)** CSV aynı `ledger.Report`'tan üretiliyor, ikinci toplama yok —
+> `TestReportCSV_AgreesWithTheScreenItWasExportedFrom`. **(2)** Kaçış `= + - @`
+> (aşağıya bak). **(3)** Yeni sorgu/sütun **yok**; CSV sütun adları da `entered_by`
+> dahil beş şema adına karşı taranıyor. **(4)** `audit_log`'a `report.exported`,
+> **bölümün tek yazışı**. **(5)** `report:export` **bağlanmadı** ama gerekçesi artık
+> **ölçülüyor** (aşağıya bak). **(6)** Her an hem yerel hem UTC, ISO 8601, sütun adı
+> hangisi olduğunu söylüyor. **(7)** `Truncated` → dosyanın **ilk** bloğunda
+> `Read complete,NO` + *"EVERY FIGURE IN THIS FILE IS A FLOOR"*. **(8)**
+> `maxReportRows`/`maxOpenRows` CSV'ye **girmiyor** — gerçek indirmede ekran
+> **100/754**, dosya **754** satır.
+>
+> 🔴 **KAÇIŞTA KENDİ AĞIMI YENDİM VE ÜRÜNDE GERÇEK BİR AÇIK BULDUM.** İlk sürüm
+> OWASP'ın altı tetikleyicisini (`= + - @` + TAB + CR) `switch`'e yazmıştı. Mutasyon
+> ölçtü: **TAB ve CR o listede ÖLÜ** — `unicode.IsSpace` ikisi için de doğru, yani
+> döngü zaten üzerlerinden atlayıp `=`'i buluyor; onları silmek **hiçbir cevabı
+> değiştirmedi** ve test yeşil kaldı. Aynı ölçüm gerçek açığı gösterdi: **boşluk
+> OLMAYAN kontrol karakteri** — `unicode.IsSpace('\x01')` **false**, yani
+> `"\x01=1+1"` **kaçırılmadan** dosyaya yazılıyordu. Düzeltme: tetikleyici **dört**
+> karakter, atlama kümesi **`IsSpace || IsControl`**. Testin kendi süpürgesi de
+> hatalıydı — yalnız `rune[0]`'a bakıyordu, yani `" =1+1"`'i de göremezdi; artık
+> **önce soyup sonra bakıyor**.
+>
+> 🔴 **`transaction_reviews.note` TAHMİNİ YANLIŞLANDI.** M6-04'ün 2. tur düzeltme
+> bloğu (kartın ~1774. satırı) *"ilk tüketici muhtemelen M6-07 CSV'si"* diyordu.
+> Ölçüldü: A'nın `ledger.Report`'unda not **yok**, B de **eklemedi** (yeni sütun =
+> yükümlülük 3 ihlali). Notun bugünkü tek tüketicisi **Transactions docket'i**;
+> CSV değil. Uyarının kendisi (`= + - @` kaçışı CSV'nin işidir) **doğruydu ve
+> uygulandı**.
+>
+> ⚠️ **"MONO HİZALI BAŞLIK" KRİTERİ BİR CSV'DE KARŞILIĞI OLMAYAN BİR CÜMLEDİR.** Bir
+> CSV yazı tipi taşımaz; §9'un mono kuralı **ekranın** kuralıdır. Karşılığı olarak
+> uygulanan şey: her süre **iki sütun** (`8h 30m` + `510` tam sayı dakika), her an
+> ISO 8601, her sayı tam sayı — yani "veri hücresi hizalanabilir" niyetinin CSV'deki
+> gerçek biçimi. Ekranda ise indirme kontrolü markanın kendi butonudur.
+>
+> **KARARLAR (üçü de ölçümle, otonom).**
+> - **GET, POST değil.** İki zincir ölçüldü: `Protect()` = `floodGate → requireAdmin
+>   → sessionGate`, `ProtectWriting()` bunlara **`sameOriginGate`** ekliyor. Yani
+>   **adres kalkanı GET'i de kapsıyor** — panelin en ağır okuması korumasız değil.
+>   `sameOriginGate` eklenmedi çünkü **katı**: `Origin` yoksa `Sec-Fetch-Site`'a
+>   düşüyor, o da yoksa **reddediyor** — ve tarayıcı düz bir gezinmede `Origin`
+>   göndermez, yani indirme bağlantısı eski tarayıcılarda tamamen kırılırdı.
+>   **SAYILMIŞ AÇIK:** çapraz-origin bir üst-düzey gezinme bir `audit_log` satırı
+>   yazdırabilir (T14 sınıfı). Sınırları: çerez **SameSite=Lax** olduğu için
+>   `img`/`iframe`/`fetch` **çerezsiz** gelir (yalnız üst-düzey gezinme sayılır,
+>   o da kurbanın sekmesini götürür), `floodGate`+`sessionGate` onu da ücretlendirir,
+>   ve satır **aktörü adlandırır**. `TestReportsExport_InheritsTheREADChainAndTheGapIsCOUNTED`
+>   bunu **iki yönlü** pinliyor.
+> - **UTF-8 BOM: VAR.** Ölçüldü — Go `encoding/csv` ve python `csv`(utf-8) BOM'u
+>   **ilk hücreye taşıyor**, python `utf-8-sig` temiz, `cut|od` baytları gösteriyor.
+>   Karşı taraf: BOM'suz UTF-8 CSV Excel'de sistem kod sayfasıyla açılır ve
+>   **ħ ġ ċ ż / ı ş ğ ç** bozulur — yani **Malta ve Türkiye**, yani ürünün iki pazarı.
+>   Bir **isim** sessizce bozulur, BOM ise **tek bir hücreye** üç bayt ekler; bu
+>   yüzden dosyanın **ilk satırı bilinçli olarak bir başlık cümlesi**, sütun adı
+>   değil — her sütun başlığı satırı boş satırdan sonra başlıyor ve **temiz**.
+>   `TestReportCSV_PutsTheBOMWhereNoColumnHeadingIs` yerleşimi pinliyor.
+> - **Audit `Record` ile, `RecordTx` ile değil.** `Reader.Hours` bir **okuma**dır ve
+>   kendi transaction'ını açıp kapatır; bir okuyucudan `pgx.Tx` sızdırmak okuma
+>   yolunu yazma yoluna çevirirdi. Audit yazımı **indirmeyi reddettirmiyor**, ve
+>   gerekçe ölçüm: **aynı sayılar `GET /admin/reports`'ta zaten audit'siz
+>   erişilebilir** — yani satır *"dosya üretildi"* kaydıdır, veriye açılan kapı değil.
+> - **`report:export` motora BAĞLANMADI (orkestratör kararı) ve gerekçe artık
+>   ölçülüyor:** `TestReportExportAuthority_IsGrantedToBothPanelRolesByTheBaseline`
+>   baseline'ı okuyup eylemin **owner VE manager**'a verildiğini kanıtlıyor (rol
+>   kapısı bugün kimseyi reddetmez), `TestPanel_CallsThePolicyEngineNowhere` paketi
+>   `go/ast` ile tarayıp `policy.Evaluate` sayısının **0** olduğunu kanıtlıyor.
+>   Baseline daralırsa **test kırmızıya döner** ve karar yeniden alınır. Gerçek kapı
+>   **M6-09**.
+> - **Dosya adında tenant adı YOK.** `Content-Disposition` değeri tırnaklı ve tenant
+>   adı serbest metin; ad yalnız **sunucunun** ürettiği ISO günden kuruluyor ve bir
+>   `^\d{4}-\d{2}-\d{2}$` kalıbıyla doğrulanıyor (uymayan her şey sabit ada düşer).
+>   Go'nun `net/http`'si CR/LF'i zaten boşluğa çeviriyor; **tırnağı çevirmiyor**, ki
+>   asıl risk oydu.
+>
+> **ÖLÇÜMLER (2026-08-10, dev DB, gerçek `curl -b jar` oturumu).** Ekran **100/754
+> kişi**, CSV **754**; ikisi de **`4h 32m`** diyor. CSV **114 937 B** / ekran
+> **114 175 B**; istek süresi CSV **0,100–0,136 s**, ekran **0,099–0,127 s** (3'er
+> tekrar) — yani CSV **7,5 kat satırı** ayırt edilemez maliyetle taşıyor. Satır
+> başına: kişi **~125 B**, açık giriş **~82 B**; tavan `ReportEventCap / 2` kişi =
+> **1 252 537 B**, **35 ms**'de üretiliyor — bu yüzden tamponlamak (ve
+> `Content-Length` vermek) karşılanabilir. **Yeni migration yok, yeni sorgu yok**,
+> dolayısıyla `EXPLAIN` gerekmedi.
+>
+> ⚠️ **DEV VERİTABANINDA BIRAKILAN İZ:** kaçış kanıtı için `curl` ile indirilebilen
+> bir **atılabilir tenant** oluşturuldu (`aaaaaaaa-0000-4000-8000-00000000c5a1`, adı
+> bir `=HYPERLINK(...)` formülü, kendi owner'ı var, parolası seed'in belgeli dev
+> parolası). `transactions` **§4.3 gereği silinmedi** — sessizce temizlemek yerine
+> yazılıyor. Aynı sınıfın otomatik karşılığı `TestPanelReportsCSVDB_EscapesAFormulaThatCameOUTOfPostgres`.
+
+> **Kart düzeltmesi 2 (2026-08-10, M6-07 B düzeltme turu — iki denetçi ONAY, altı
+> bloklamayan bulgu).**
+>
+> 🔴 **KAÇIŞ AĞI BİR SINIF DAHA GENİŞ YANLIŞTI VE ÇÖZÜMÜ REPODA HAZIR DURUYORDU.**
+> Bir önceki düzeltmede atlama kümesi `unicode.IsSpace || unicode.IsControl` yazılmıştı.
+> Go'da **`IsControl` yalnız `Cc`'dir** — yani **`Cf` (format) kategorisi tamamen
+> dışarıda kaldı**. Uçtan uca ölçüldü (çalışan adı olarak seed → gerçek handler →
+> gerçek HTTP): `U+FEFF U+200B U+200C U+200D U+00AD U+2060 U+202D U+202E U+200F
+> U+2066 U+2069 U+0600 U+180E` — **on üç rune canlı bir formülün önünde kaçışsız**
+> dosyaya ulaşıyordu. Ve `internal/session/manager.go` **aynı sınıfı zaten ayrı
+> `case` olarak çözmüş** ve kendi doc yorumunda formül nötrleştirmeyi **adıyla bu
+> göreve** devrediyor. Yani bu, *"kalıbın yarısını kopyalama"* sınıfının **beşinci**
+> vakası — ve diğer yarısı **bir dosya ötedeydi**.
+> `Mn`/`Me` de ölçüldü: `U+034F`, `U+0301`, `U+17B4` de kaçışsız geçiyordu; **atlama
+> kümesini genişletmek yanlış alarm ÜRETEMEZ** (atlama tek başına asla kaçış yapmaz,
+> yalnız bakmaya devam eder) — testin "sıradan hücre" listesi bunu kanıtlıyor.
+> `Mc` **bilinçli dışarıda**: boşluk kaplayan bir işaret saklanma yeri değildir.
+> ⚠️ **`U+FF1D` (tam genişlik ＝) ölçülemedi** — makinede hesap tablosu motoru yok, iki
+> denetçi de aynı duvara çarptı. **Karar: tetikleyici listesine eklendi** (dört
+> karakterin tam genişlik ikizleri + `U+2212`), gerekçe **hata maliyetinin
+> asimetrisi**: yanlışsa maliyet zaten metin olan bir hücreye bir apostrof, doğruysa
+> maliyet kod çalıştırma. **Sayılmış limit artık RAPORDA DEĞİL `startsAFormula`'nın
+> kendi yorumunda** — bir önceki turda bunu yalnız rapora yazmıştım, ki *"raporda
+> saymak kodda saymak değildir"*.
+>
+> 🔴 **İKİNCİ KAYIPLI DÖNÜŞÜM: TEK BAŞINA CR SESSİZCE DÜŞÜYOR.** Yorum apostrofu
+> **tek** kayıplı adım gibi sunuyordu. Ölçüldü: `csv.Writer{UseCRLF:true}` CRLF'in
+> parçası olmayan bir CR'yi **siliyor** (`"Maria\rBorg"` → `"MariaBorg"`), `\r\n` de
+> okumada `\n`'e katlanıyor; `full_name` sınırsız `text`, CHECK yok, yani değer
+> **saklanabilir**. **Davranış değiştirilmedi ve gerekçesi yazıldı:** `UseCRLF=false`
+> CR'yi korur (ölçüldü) ama satır sonlarını LF yapar **ve tırnaklı alanın içine çıplak
+> bir CR koyar** — hoşgörülü bir ayrıştırıcının kaydı ikiye böldüğü tam o bayt. Kaydın
+> kendisi §4.3 gereği Postgres'te **aynen duruyor**; kaybolan şey **render**.
+> `TestReportCSV_LosesABareCarriageReturnAndSaysSo` pinliyor.
+>
+> **AUDIT GEREKÇESİ DARALTILDI.** *"Aynı sayılar zaten audit'siz erişilebilir"*
+> **toplamlar için doğru, satırlar için değil**: `maxReportRows`/`maxOpenRows` 100 ve
+> **ekranda kursör yok** (`reports.go` kendi ağzıyla *"this page cannot page"*), yani
+> **101. kişinin satırı yalnızca export'tan** alınabiliyor. Kalan nüans da yazıldı:
+> fark **hesap verebilirlik**, gizlilik değil — altta yatan kayıtlar sayfalanabilir
+> Transactions'tan okunabiliyor ve **o da audit yazmıyor**, ve §4.6 tap kaydıyla
+> ilgilidir, erişim iziyle değil. Daraltılmış cümlenin dayandığı olgu
+> `TestReportsScreen_HasNoCursorSoRowsPastTheCapAreEXPORTOnly` ile pinlendi.
+>
+> **EKRAN/DOSYA ASİMETRİSİ KAPATILDI.** Ekran `needsActionLine` ile *"kaçı çok uzundur
+> açık"* **toplamını** basıyordu, CSV'de yalnız satır başına `needs_action` vardı.
+> Artık dışlama bloğunda **`Open too long to be somebody on shift`** satırı var,
+> aynı `OpenEntry.Stale` alanından sayılıyor (ikinci eşik yok).
+>
+> 🔴 **E5 — İKİ DENETÇİNİN ÇELİŞKİSİ ÇÖZÜLDÜ: GÜVENLİK MERCEĞİ HAKLI.**
+> `ListWorkedShiftEvents`'in **gerçek `WHERE`'i** birebir uygulanarak, `ANALYZE
+> transactions` sonrası, en yoğun tenant/hafta (2026-08-10):
+>
+> | yüklem | satır | tavanın |
+> |---|---|---|
+> | practice filtresi yok, kuyruk yok (**naif şekil**) | 19 134 | %96 |
+> | practice filtresi yok, kuyruk var | 22 144 | **%111** |
+> | `NOT practice`, kuyruk yok | 10 839 | %54 |
+> | `NOT practice`, kuyruk var (**BU SORGU**) | **12 562** | **%63** |
+>
+> **Farkın tamamı `NOT t.practice`:** tabloda `type IS NOT NULL` **152 519** satır,
+> `+ NOT practice` **104 353** — yani filtreyi atlayan bir sayım haftayı **yarı yarıya
+> şişiriyor**. 18 saatlik kuyruk ters yöne çalışıyor ve çok daha küçük. Genel gözün
+> **1,045×**'i bir **popülasyon etiketi hatası** (practice tap'leri sayıyor);
+> **orkestratörün 1,64×'i ise YANLIŞ DEĞİL, BAYAT** — 20 000/12 193 aynı (B)
+> popülasyonundan geliyor, bugün 20 000/12 562 = **1,59×**. Doğru cümle: tavan en
+> yoğun ölçülen haftada bütçesinin **yaklaşık üçte ikisinde**, eşikte değil. Ölçüm ve
+> dört varyantın sorgusu `internal/domain/ledger/report.go`'daki `ReportEventCap`
+> bloğunda.
+>
+> ⚠️ **İKİ BAYAT ÖLÇÜM CÜMLESİ DÜZELTİLDİ.** (a) Bayt tablosu **fixture'ını
+> adlandırmıyordu** ve satır başına bayt **isim uzunluğunun doğrudan fonksiyonu** —
+> denetçi kısa isimle **1 102 537 B** ölçtü, tabloda **1 252 537 B** yazıyordu; fark
+> tam olarak isim uzunluğu farkı, yani **denetçi haklı**. Artık fixture adlandırılıyor
+> ve maliyet **formülle** yazılıyor (**103 B yapı + isim**),
+> `TestReportCSVSize_IsAboutTheNameLengthPlusAFixedRow` her koşuda yeniden türetiyor.
+> (b) *"754 ← dev DB'nin kendi haftası"* günler içinde **814** oldu; üç haneli sayılar
+> tripwire'ın `\d[ ,.]?\d{3}` kalıbına **takılmıyor**, yani kimse yakalamazdı. Mutlak
+> sayı **silindi**, yerine oran kondu.
+>
+> **MUTASYONLAR (hepsi bu turda, uygulandığı ve geri alındığı `git diff --no-index`
+> ile gösterildi):** `Cf`'yi atlama kümesinden düş → **KIRMIZI** (birim **ve** DB
+> testi) · kümeyi `IsSpace||IsControl`'e geri al → **KIRMIZI** · `Mn`/`Me`'yi düş →
+> **KIRMIZI** · tam genişlik ikizlerini düş → **KIRMIZI** · `UseCRLF=false` →
+> **KIRMIZI** · needs-action satırını sil → **KIRMIZI** · sayacı ekran tavanıyla
+> sınırla → **KIRMIZI** · isim sütununu kırp → **KIRMIZI**.
+>
+> ⚠️ **KENDİ HATAM (yine iki tane):** needs-action fixture'ımın ilk hâli **ayırt edici
+> değildi** — bayat girişlerin hepsi ilk sayfadaydı, yani sayacı sayfayla sınırlayan
+> mutasyon **yeşil kaldı**; taze girişler öne alındı ve *"sayfa sınırlı bir sayaç en
+> fazla kaçı görebilir"* koruması eklendi. Ve bayt testinin ilk türetmesi **boş isimli**
+> bir rapordan çıkarıyordu — oysa `personName("")` **"Unknown employee"**, yani boş
+> fixture bu ölçümün sıfırı değil; türetme **aynı isim uzunluğunda iki satır sayısına**
+> çevrildi.
+
+> **Kart düzeltmesi 3 (2026-08-10, M6-07 B son tur — üç onay, altı metin/kapsam bulgusu).**
+>
+> 🔴 **"HER BİRİ TEK BAŞINA KIRMIZIYA DÖNDÜ" İKİ ÖĞE İÇİN YANLIŞTI, VE İDDİA ARTIK
+> TÜMÜYLE ÖLÇÜLÜ.** Denetçi `Me`'nin ve `U+FF0D`'nin **tek başına** düşürülünce yeşil
+> kaldığını ölçtü — kardeşleri vakayı taşıyordu. Doğrulandı ve kapatıldı: her ikisine
+> **kendi test vakası** eklendi (`U+20E0`, `U+FF0D`). Sonra **her tetikleyici ve her
+> atlama sınıfı tek tek** düşürüldü: **26/26 KIRMIZI** (19 tetikleyici + 7 atlama).
+> ⚠️ **Harness'ımın ilk hâli kendi tuzağına düştü:** `unicode.IsSpace` mutasyonu
+> **kodu değil YORUMU** değiştirmişti (dosya iddiayı bir yorumda alıntılıyor), `git
+> diff` boş olmadığı için "uygulandı" göründü ve **YEŞİL** raporladı. Harness'a
+> *"fonksiyon GÖVDESİ değişmeli"* koruması eklendi; düzeltince KIRMIZI.
+>
+> 🔴 **SINIR ARTIK İLKELİ — VE İLKEYİ Go'NUN KENDİSİ VERİYOR.** Denetçi haklıydı:
+> *"sınır bir ilke değil, aramanın durduğu yer"*. `U+3164` HANGUL FILLER kategori
+> **`Lo`** — sıradan bir **harf** — ve çoğu fontta **hiç görünmüyor**; `Cc/Cf/M`
+> üzerine kurulu bir sınıflandırma onu göremez. Çözüm: **`unicode.Properties
+> ["Other_Default_Ignorable_Code_Point"]`** — Unicode'un *"render eden hiçbir şey
+> göstermeyebilir"* özelliğinin ta kendisi, ve Go **ship ediyor**. Dört Hangul
+> filler'ın dördünü de kapsıyor.
+> Ayrıca kapatılanlar: **`Mc`** (artık `unicode.M` — *bir birleşen işaret bir değeri
+> BAŞLATAMAZ, bir tabana tutunur*; eski *"boşluk kaplar"* gerekçesi **`Mc`+`Cf`
+> zinciriyle çürütülmüştü**) · **geçersiz UTF-8** (`range` `U+FFFD` veriyor → atlama
+> kümesine) · **`U+2800` braille blank** (adlandırılmış **istisna**, sınıf değil, ve
+> koda öyle yazıldı) · **uyumluluk ikizleri tetikleyiciye**: `=` `+` `-` `@`'in tam
+> genişlik + small + superscript + subscript formları — **NFKC katlamasının kapalı
+> kümesi**, elle yazıldı çünkü `golang.org/x/text` bu repoda bağımlılık değil.
+> ⚠️ **`Variation_Selector` EKLENDİ, ÖLÇÜLDÜ VE GERİ ÇIKARILDI:** tüm kod uzayında
+> **münhasır rune sayısı 0** — hepsi `unicode.M` veya ODI tarafından zaten yakalanıyor.
+> Tab/CR ile aynı ölü-dal şekli; bu kez **koda girmeden** yakalandı. Diğer limbler:
+> IsSpace **19**, Cc **59**, Cf **170**, ODI **3 773**, M **2 187**, ikisi **1'er**.
+> 🔴 **YANLIŞ ALARM MALİYETİ ÖLÇÜLDÜ:** dev DB'de CSV hücresine ulaşabilen **662 873**
+> serbest metin değeri (çalışan · lokasyon · departman · tenant adları) — genişletilmiş
+> kümeler **tam olarak aynı 74 değeri** kaçırıyor, **delta 0**; 30 dilli elle kurulmuş
+> kontrol (Latin · Malta · Türkçe · CJK · Kiril · Yunan · İbrani · Arap · Devanagari ·
+> Tay) **0** kaçış.
+> ⚠️ **VE AÇIK KALANLAR KODA SAYILDI:** fontta görünmez ama default-ignorable/mark/boşluk
+> **olmayan** rune'lar (`U+2800` bulunanı; property yok, çünkü *"hiç render olmuyor"*
+> bir font sorusu) · NFKC dışı homoglyphler · **East Asian Width hiç bakılmıyor**
+> (Go tablosu yok). ⚠️ **Ve sömürünün yarısı hâlâ ÖLÇÜLEMEZ**: hesap tablosunun bu
+> tetikleyicileri gerçekten **değerlendirip değerlendirmediği** ölçülmedi (makinede motor
+> yok, **üç bağımsız denetim aynı duvara çarptı**) — yazılanlar *"olabilir"* üzerine,
+> **hata maliyetinin ucuz olduğu yönde** uygulanmış akıl yürütme; sömürülebilirlik
+> **iddia edilmiyor**.
+>
+> 🔴 **YENİ BİR İKİNCİ TEMSİL BULUNDU VE KALDIRILDI (kod değişikliği).** `needsActionTotal`
+> (CSV) ile `fillReportsView`'ın döngüsü **aynı slice üzerinde aynı sayıyı** ayrı ayrı
+> topluyordu — dosyanın **kendi başlığının yasakladığı** şey. Denetçi bedelini ölçtü:
+> CSV kopyasını `!o.Stale` yapmak **mutabakat testini yeşil** bırakıyordu. **Tek hesap
+> noktası bırakıldı** (`reports.go` artık `needsActionTotal`'ı çağırıyor) — ve bunun
+> yan etkisi olarak açık-giriş döngüsü **erken durabiliyor** (`continue` → `break`),
+> çünkü onu sonuna kadar koşturmayı savunan gerekçe **sayacın kendisiydi**. Mutabakat
+> testi bu niceliği de kapsıyor. ⚠️ **Ne yakalayıp ne yakalayamadığı yazıldı:** tek
+> hesap noktasıyla mutabakat testi **yanlış cevabı** yakalayamaz (iki yüzey de aynı
+> yanlışı basar) — onu **değer testleri** yakalıyor; mutabakat testinin işi **yeniden
+> ikileşmeyi** yakalamak.
+>
+> **İKİ BAYAT ÖLÇÜM CÜMLESİ DAHA.** (a) Fixture adı **21 değil 22 bayt**
+> (`Employee Number 000001`) — ve fark önemli, çünkü tablo **ancak 22 ile denkleşiyor**:
+> `103 + 22 = 125`. (b) CR tablosunun üçüncü satırı *"quoted, unchanged"* diyordu;
+> ölçüldü: tek başına LF **CRLF'e dönüyor**, yani **baytlar değişiyor**, korunan şey
+> **round-trip**. *"Preserved"* ile *"unchanged"* ayrı iddialar.
+>
+> ⚠️ **KAYAN SAYI UYARAN PARAGRAFIN KENDİSİ KAYAN SAYI TAŞIYORDU** — bu paragrafın
+> **ikinci** kez düzeltilmesi. `~114 KB` ve `~0,1 s` ikisi de aynı kayan kişi sayısının
+> doğrusal fonksiyonuydu. Artık **formül**: `bayt ≈ kişi × (103 + ortalama ad) + açık ×
+> 82 + preamble`; girdilerin ikisi de **işletmenin** özelliği, bu deponun test
+> kalıntısının değil. Geriye yalnız **oran** kaldı: o hafta ekran `maxReportRows` kişi
+> listeliyor, dosya **hepsini**, ve iki istek birlikte ölçüldüğünde **ayrışmıyor**.
+>
+> **MUTASYONLAR:** 19 tetikleyici + 7 atlama sınıfı **tek tek** → **26/26 KIRMIZI** ·
+> paylaşılan sayacı ters çevir → **3 test KIRMIZI** · ekranı yeniden ikileştir →
+> **mutabakat testi KIRMIZI** · isim sütununu kırp → **KIRMIZI**. Hepsi
+> `git diff --no-index` ile uygulandı + geri alındı (**CLEAN**).
+
 **Kabul kriterleri.**
 - Günlük/haftalık çalışılan saat, çalışan ve lokasyon kırılımı.
 - Geç kalmalar çalışanın **kendi** vardiyasına göre (M4-05).

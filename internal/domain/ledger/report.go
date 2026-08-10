@@ -92,6 +92,32 @@ const ReportDays = 7
 // rather than a comfortable margin, and the answer for such a business is the export
 // (phase B) rather than a bigger number here -- raising it raises what a single panel
 // request may cost the tap path's connection pool.
+//
+// 🔴 HOW CLOSE THE CAP IS: THE ANSWER DEPENDS ENTIRELY ON WHICH POPULATION IS COUNTED,
+// AND TWO INDEPENDENT REVIEWS OF PHASE B ANSWERED IT DIFFERENTLY BY A FACTOR OF ONE AND
+// A HALF. The disagreement is settled by counting what ListWorkedShiftEvents' own WHERE
+// counts -- tenant, `type IS NOT NULL`, `NOT practice`, over [local Monday 00:00,
+// +7 local days + closingTail) -- rather than raw directed rows bucketed by calendar
+// week. Measured on the development database's busiest week, one tenant, one week,
+// after ANALYZE (2026-08-10; the four variants are in the M6-07 phase B delivery notes):
+//
+//	predicate                                        rows      of the cap
+//	no practice filter, no tail   (the naive shape)  19 134         96%
+//	no practice filter, with tail                    22 144        111%
+//	NOT practice, no tail                            10 839         54%
+//	NOT practice, with tail       (THIS QUERY)       12 562         63%
+//
+// THE PRACTICE FILTER IS THE WHOLE OF THE GAP and it is not a rounding difference:
+// across the table, `type IS NOT NULL` holds 152 519 rows and `+ NOT practice` holds
+// 104 353, so a count that omits it inflates a week by about half. The tail pushes the
+// other way and is much smaller. The naive figure is therefore a MISLABEL of exactly
+// the kind this file already records twice -- a population quoted under another
+// population's name -- and the honest reading is that this cap sits at roughly two
+// thirds of its budget on the busiest week measured, not at the brink.
+//
+// ⚠️ AND THE ABSOLUTE ROW COUNTS ABOVE DRIFT UPWARD ON EVERY `make test` RUN. The
+// PROPORTIONS and the ORDERING of the four variants are what to re-derive; the query
+// that does it is the one in this block.
 const ReportEventCap = 20000
 
 // closingTail is how far PAST the reporting period a closing tap is looked for.

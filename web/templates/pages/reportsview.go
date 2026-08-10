@@ -47,6 +47,19 @@ type ReportsView struct {
 	NextHref     string
 	ThisWeekHref string
 
+	// ExportHref is the CSV of THIS week (M6-07 phase B).
+	//
+	// 🔴 IT CARRIES THE WEEK, WHICH IS WHY IT IS A FIELD RATHER THAN A CONSTANT IN
+	// THE TEMPLATE. A download control that always exported the CURRENT week while
+	// the reader was looking at a past one would hand somebody the wrong payroll and
+	// look like it worked — the failure is silent on both sides, because the file
+	// says which week it holds and nobody re-reads the screen to compare.
+	//
+	// 🔴 AND IT IS STILL NOT A WRITE FIELD. The absence of a CSRFToken and a form
+	// target above is unchanged: this is a GET link, so the "no control this section
+	// cannot honour" property the view opens with survives phase B.
+	ExportHref string
+
 	// DayHeadings are the period's local days, in order — the columns each row's
 	// Daily entries line up with. They come from the same Period the arithmetic used,
 	// so a row can never have more or fewer columns than the heading claims.
