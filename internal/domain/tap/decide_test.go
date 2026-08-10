@@ -595,7 +595,7 @@ func TestDecide_DirectionMultipleInOutPairsToggle(t *testing.T) {
 }
 
 // TestDecide_DirectionStaleOpenInProducesOutWithNote: an open check-in far older than
-// staleOpenInThreshold (forgotten checkout) still resolves to OUT — never silently in
+// StaleOpenIn (forgotten checkout) still resolves to OUT — never silently in
 // (§5) — but is annotated so the report shows the anomaly.
 func TestDecide_DirectionStaleOpenInProducesOutWithNote(t *testing.T) {
 	t.Parallel()
@@ -616,13 +616,13 @@ func TestDecide_DirectionStaleThresholdBoundary(t *testing.T) {
 	t.Parallel()
 
 	under := onSiteInput()
-	under.LastOpenIn = &Transaction{ID: uuid.New(), OccurredAt: under.Now.Add(-(staleOpenInThreshold - time.Minute)), Direction: TypeIn}
+	under.LastOpenIn = &Transaction{ID: uuid.New(), OccurredAt: under.Now.Add(-(StaleOpenIn - time.Minute)), Direction: TypeIn}
 	if got := Decide(under); strings.Contains(got.Note, staleOpenInNote) {
 		t.Errorf("just under threshold must NOT be stale; Note = %q", got.Note)
 	}
 
 	over := onSiteInput()
-	over.LastOpenIn = &Transaction{ID: uuid.New(), OccurredAt: over.Now.Add(-(staleOpenInThreshold + time.Minute)), Direction: TypeIn}
+	over.LastOpenIn = &Transaction{ID: uuid.New(), OccurredAt: over.Now.Add(-(StaleOpenIn + time.Minute)), Direction: TypeIn}
 	if got := Decide(over); !strings.Contains(got.Note, staleOpenInNote) {
 		t.Errorf("just over threshold must be stale; Note = %q", got.Note)
 	}

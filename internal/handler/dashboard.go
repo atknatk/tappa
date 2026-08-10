@@ -66,6 +66,8 @@ func (a *AdminAuth) mountSections(r chi.Router) {
 			r.Get(s.Href, a.employeesSection)
 		case pages.TabLocations:
 			r.Get(s.Href, a.locationsSection)
+		case pages.TabReports:
+			r.Get(s.Href, a.reportsSection)
 		default:
 			r.Get(s.Href, a.section(s.Tab))
 		}

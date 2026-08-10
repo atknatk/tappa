@@ -1,0 +1,399 @@
+package pages
+
+import "github.com/atknatk/tappa/web/templates/components"
+
+// The REPORTS section (M6-07 phase A) — worked hours, week by week.
+//
+// 🔴 IT RENDERS PanelShell, NOT PanelShellWithScript. This section loads no script:
+// changing week is a link, and there is nothing to append. That keeps the panel's
+// widened Content-Security-Policy on exactly ONE url, which is the cardinality
+// TestPanelScreens_ScriptsAndPolicyAgreeAndReachNoThirdParty pins.
+//
+// 🔴 §4.3 — THIS IS A READ. There is no form that posts, no button that closes an
+// open entry and no control that edits a total. transactions is immutable; the
+// correction a manager makes to an unclosed check-in is a NEW record plus audit_log
+// and belongs to M6-08. The view model has no field a form target could travel in.
+//
+// 🔴 §4.6 — EVERY QUANTITY THIS PAGE EXCLUDES FROM THE PAYROLL FIGURE IS PRINTED
+// SOMEWHERE ON IT. Hours awaiting a decision, hours a manager refused, entries nobody
+// closed, training taps, shifts that began before the week and records with nobody on
+// them: none of them is in the total, and every one of them has its own line. A total
+// that quietly differed from the transactions list would be a total nobody could check.
+//
+// ⚠️ THE HEADING USED TO SAY "EVERY NUMBER THE REPORT HOLDS BACK", WHICH IS WIDER THAN
+// THE LIST UNDER IT. reject and ignored records are not on this page at all -- and they
+// are not "held back" either: migration 0005 gives them no direction, so they pair into
+// no interval and there are no HOURS to withhold. Where they ARE counted is the
+// transactions section, which lists every record the day holds. The claim here is about
+// hours, so it now says so.
+//
+// 🔴 §4.6 — AND THE EMPTY STATE IS GATED ON HAVING ASKED. "Nobody worked this week"
+// is a claim about a business; v.Queried is set only after the database answered, and
+// a failed read renders a problem page in the handler rather than an empty week here.
+//
+// skill tappa-brand governs the surface: the kitchen docket is the record motif, every
+// number is IBM Plex Mono, the status-to-colour mapping is the fixed one (a decision
+// still waiting is saffron, a refusal is tomato, a manager-typed row is the neutral
+// `line`), and no meaning is carried by colour alone — every chip says its own word.
+templ AdminReports(v ReportsView) {
+	@PanelShell(v.PanelChrome) {
+		if v.Incomplete {
+			// 🔴 THE ONE SENTENCE THIS SECTION MUST NEVER SOFTEN. A truncated read makes
+			// every figure below a floor rather than a total, and a floor printed like a
+			// total is how a payroll comes out short with nothing to show for it.
+			@components.Notice(components.ToneAlert, "These totals are incomplete") {
+				<p>
+					This week holds more records than one report reads at once, so the hours
+					below are a floor and not a total. Nothing has been lost — every record is
+					still in Transactions.
+				</p>
+			}
+		}
+		@reportWeekBar(v)
+		// MONO, BECAUSE THIS IS DATA rather than a heading — the same line the other
+		// sections carry. Here it also names the clock the DAYS are counted on, which
+		// is the difference between one week and another.
+		<p class="font-mono text-sm text-ink/85">
+			{ v.WeekLabel }
+			<span class="text-ink/70">· { v.ZoneLabel }</span>
+		</p>
+		if v.Queried {
+			@reportTotals(v)
+			@reportPeople(v)
+			@reportVenues(v)
+			@reportOpen(v)
+		}
+	}
+}
+
+// reportWeekBar is the week picker: a date, and three ways to move.
+//
+// IT IS A PLAIN GET FORM WITH NO SCRIPT, so every week is an address — bookmarkable,
+// shareable, and working on a locked-down laptop. The two arrows are ordinary links
+// for the same reason.
+templ reportWeekBar(v ReportsView) {
+	<form class="filter-bar" method="get" action={ templ.URL(v.ThisWeekHref) } aria-label="Choose a week">
+		<div class="filter-field">
+			// ANY DAY INSIDE THE WEEK IS ACCEPTED, which is why the label says so. A
+			// manager thinking "the week Maria was ill" knows a day, not a Monday.
+			<label class="docket-label" for="report-week">Week containing</label>
+			<input class="filter-input" id="report-week" type="date" name="week" value={ v.WeekValue }/>
+		</div>
+		<div class="filter-actions">
+			<button class="btn btn--primary" type="submit">Show</button>
+			<a class="btn btn--quiet" href={ templ.URL(v.PrevHref) }>Previous week</a>
+			<a class="btn btn--quiet" href={ templ.URL(v.NextHref) }>Next week</a>
+			<a class="btn btn--quiet" href={ templ.URL(v.ThisWeekHref) }>This week</a>
+		</div>
+	</form>
+}
+
+// reportTotals is the week in one docket: the payroll figure, and everything that is
+// deliberately not in it.
+templ reportTotals(v ReportsView) {
+	<section class="docket">
+		<p class="docket-label">Hours worked this week</p>
+		<p class="font-mono text-3xl font-bold tracking-tight text-ink">{ v.Totals.Worked }</p>
+		<p class="mt-1 text-xs text-ink/85">
+			{ shiftCount(v.Totals.Shifts) } across { peopleCount(v.PeopleTotal) }.
+			// 🔴 THE ATTRIBUTION RULE IS ON THE SCREEN, because the alternative reading
+			// gives different daily columns for the same week and a reader cannot tell
+			// which one they are looking at. §5's overnight shift is the case that makes
+			// the two differ.
+			A shift counts on the day it STARTED, so an overnight shift belongs to the
+			evening it began.
+		</p>
+		<div class="mt-3 flex flex-wrap gap-2">
+			if v.Totals.Awaiting != "" {
+				<span class="tally tally--queued">{ v.Totals.Awaiting } waiting for a decision</span>
+			}
+			if v.Totals.Refused != "" {
+				<span class="tally tally--rejected">{ v.Totals.Refused } a manager refused</span>
+			}
+			if v.Totals.Open > 0 {
+				<span class="tally tally--queued">{ openCount(v.Totals.Open) } with no checkout</span>
+			}
+			if v.PracticeTaps > 0 {
+				<span class="tally tally--manual">{ trainingCount(v.PracticeTaps) }</span>
+			}
+		</div>
+		if v.Totals.Awaiting != "" || v.Totals.Open > 0 || v.Totals.Refused != "" {
+			<div class="mt-3 text-xs text-ink/85">
+				// 🔴 THE SENTENCE Q18 REQUIRES, AND IT SAYS "SHORT" RATHER THAN IMPLYING IT.
+				// Counting an unclosed entry as zero hours would silently under-pay
+				// somebody; saying nothing about it would do the same thing more quietly.
+				<p>
+					The figure above is SHORT by whatever these add up to. Nothing here is
+					counted as zero hours — it is simply not counted, and it stays visible
+					until somebody deals with it.
+				</p>
+			</div>
+		}
+		if v.StartedEarlier > 0 || v.Unattributable > 0 || v.Totals.TooLong > 0 {
+			<div class="mt-2 text-xs text-ink/70">
+				if v.StartedEarlier > 0 {
+					<p>{ startedEarlierLine(v.StartedEarlier) }</p>
+				}
+				if v.Totals.TooLong > 0 {
+					<p>{ tooLongLine(v.Totals.TooLong) }</p>
+				}
+				if v.Unattributable > 0 {
+					<p>{ unattributableLine(v.Unattributable) }</p>
+				}
+			</div>
+		}
+	</section>
+}
+
+// reportPeople is one docket per person: the week, then the days it is made of.
+templ reportPeople(v ReportsView) {
+	if len(v.People) > 0 {
+		<h2 class="font-display text-lg font-bold tracking-tight text-ink">Per person</h2>
+		if v.PeopleShown < v.PeopleTotal {
+			@components.Notice(components.ToneWarn, "Not everybody is listed") {
+				<p>
+					{ shownOfLine(v.PeopleShown, v.PeopleTotal) } The totals above cover
+					everybody; only this list is shortened.
+				</p>
+			}
+		}
+		<div class="flex flex-col gap-4">
+			for _, p := range v.People {
+				<section class="docket">
+					<div class="report-head">
+						<p class="report-who">{ p.Name }</p>
+						<p class="report-total">{ p.Worked }</p>
+					</div>
+					<p class="docket-label mt-1">{ shiftCount(p.Shifts) }</p>
+					// THE DAYS. A definition list rather than a table: the columns are
+					// seven small facts about one record, and the docket is a card rather
+					// than a grid — skill tappa-brand's "Yapma" list ends with turning the
+					// docket back into a plain table row.
+					<dl class="report-days">
+						for i, h := range v.DayHeadings {
+							<div>
+								<dt class="docket-label">{ h }</dt>
+								<dd class="report-day">{ dayCell(p.Daily, i) }</dd>
+							</div>
+						}
+					</dl>
+					if p.Late != "" || p.Unmeasured != "" || p.Awaiting != "" || p.Refused != "" || p.Manual != "" || p.Open != "" {
+						<div class="mt-3 flex flex-wrap gap-2">
+							if p.Late != "" {
+								<span class="tally tally--queued">{ p.Late }</span>
+							}
+							if p.Unmeasured != "" {
+								<span class="tally tally--manual">{ p.Unmeasured }</span>
+							}
+							if p.Awaiting != "" {
+								<span class="tally tally--queued">{ p.Awaiting } waiting</span>
+							}
+							if p.Refused != "" {
+								<span class="tally tally--rejected">{ p.Refused } refused</span>
+							}
+							if p.Manual != "" {
+								<span class="tally tally--manual">{ p.Manual }</span>
+							}
+							if p.Open != "" {
+								<span class="tally tally--queued">{ p.Open }</span>
+							}
+						</div>
+					}
+				</section>
+			}
+		</div>
+	} else if v.Queried {
+		@components.EmptyState("No hours were recorded this week") {
+			// 🔴 "NO HOURS WERE RECORDED" IS NOT "NOBODY WORKED". §5 row 3 sends
+			// somebody with no session to the activation page and writes NO RECORD AT
+			// ALL, so a week in which every plaque was touched by new starters produces
+			// exactly this page. Stating their absence would be reporting on something
+			// never measured.
+			<p>Nothing in this week pairs into a worked shift. Pick another week above.</p>
+		}
+	}
+}
+
+// reportVenues is the same week split by where the shifts STARTED.
+templ reportVenues(v ReportsView) {
+	if len(v.Venues) > 0 {
+		<h2 class="font-display text-lg font-bold tracking-tight text-ink">Per venue</h2>
+		<div class="flex flex-col gap-4">
+			for _, l := range v.Venues {
+				<section class="docket">
+					<div class="report-head">
+						<p class="report-who">{ l.Name }</p>
+						<p class="report-total">{ l.Worked }</p>
+					</div>
+					// WHERE THE SHIFT BEGAN, said out loud: somebody who taps in at one
+					// venue and out at another worked the shift they started, and §5 treats
+					// moving down the chain as ordinary rather than suspicious.
+					<p class="docket-label mt-1">{ shiftCount(l.Shifts) } started here</p>
+				</section>
+			}
+		</div>
+	}
+}
+
+// reportOpen is the "needs action" list Q18 requires.
+templ reportOpen(v ReportsView) {
+	if len(v.Open) > 0 {
+		<h2 class="font-display text-lg font-bold tracking-tight text-ink">Open — no checkout</h2>
+		// 🔴 THE TWO SENTENCES THIS LIST OWES ITS READER. The first is the Q18 rule:
+		// the system does not invent a checkout. The second is the limit the M6-07 card
+		// insists on — the row cannot say WHY it is open, so the screen does not guess.
+		<p class="text-sm text-ink/85">
+			Tappa does not invent a checkout. These check-ins are in none of the totals
+			above, and a manager enters the missing record.
+		</p>
+		<p class="text-xs text-ink/70">
+			A row cannot say why it is open. Somebody still on shift and somebody who
+			forgot to tap out look the same here; how long it has been open is all this
+			list measures.
+		</p>
+		// MONO, BECAUSE IT IS A COUNT. It is the one thing the list CAN say about the
+		// whole backlog, and it covers every entry rather than the page: the handler
+		// tallies it before the listing is shortened.
+		if needsActionLine(v.Totals.NeedsAction, v.Totals.Open) != "" {
+			<p class="font-mono text-sm text-ink/85">
+				{ needsActionLine(v.Totals.NeedsAction, v.Totals.Open) }
+			</p>
+		}
+		if v.OpenShown < v.OpenTotal {
+			@components.Notice(components.ToneWarn, "Not every open check-in is listed") {
+				<p>
+					{ shownOfOpenLine(v.OpenShown, v.OpenTotal) } The count above is the whole
+					of it; only this list is shortened.
+				</p>
+			}
+		}
+		<div class="flex flex-col gap-4">
+			for _, o := range v.Open {
+				<section class="docket">
+					<div class="report-head">
+						<p class="report-who">{ o.Who }</p>
+						<p class="report-day">{ o.At }</p>
+					</div>
+					<p class="docket-label mt-1">{ o.Venue }</p>
+					<div class="mt-2 flex flex-wrap gap-2">
+						if o.NeedsAction {
+							<span class="tally tally--rejected">Needs action</span>
+						} else {
+							<span class="tally tally--queued">Still open</span>
+						}
+						if o.Manual {
+							<span class="tally tally--manual">Entered by a manager</span>
+						}
+					</div>
+				</section>
+			}
+		</div>
+	}
+}
+
+// dayCell prints one day's figure, guarding the index rather than trusting that the
+// headings and the row have the same length. They come from the same Period today;
+// an out-of-range read would panic mid-render and lose the whole page.
+func dayCell(daily []string, i int) string {
+	if i < 0 || i >= len(daily) {
+		return "—"
+	}
+	return daily[i]
+}
+
+// The count helpers below exist because "1 shifts" is the kind of thing a reader
+// stops trusting a report over. They are here rather than in the handler for the same
+// reason emptyRosterHeading is: the sentence is a property of the template.
+func shiftCount(n int) string {
+	if n == 1 {
+		return "1 shift"
+	}
+	return itoa(n) + " shifts"
+}
+
+func peopleCount(n int) string {
+	if n == 1 {
+		return "1 person"
+	}
+	return itoa(n) + " people"
+}
+
+// needsActionLine is what the open list says about the WHOLE backlog rather than about
+// the hundred rows under it.
+//
+// 🔴 IT EXISTS BECAUSE THE FIELD DID NOT HAVE A READER, and the handler's loop was
+// justified by one: it refuses to break early "or the count beside the list would be a
+// count of the page" -- and there was no count beside the list. An unread field is the
+// exact thing db/queries/transactions.sql refuses in its own column list ("NOTHING IS
+// SELECTED THAT HAS NO READER"), so it is fixed in the direction that keeps the
+// sentence true.
+//
+// IT NAMES NO THRESHOLD. The number of hours is internal/domain/tap's (StaleOpenIn) and
+// repeating it here would be a second representation of it in prose -- and a manager
+// does not need the figure, they need to know which rows are theirs to fix.
+func needsActionLine(needsAction, open int) string {
+	switch {
+	case open == 0:
+		return ""
+	case needsAction == 0:
+		// A MEASURED "none", which is a different sentence from silence: every entry
+		// here is recent enough to be somebody still on shift.
+		return "None of these has been open long enough to look like a missed checkout."
+	case needsAction == 1:
+		return "1 of these has been open too long to be somebody still on shift."
+	default:
+		return itoa(needsAction) + " of these have been open too long to be somebody still on shift."
+	}
+}
+
+func openCount(n int) string {
+	if n == 1 {
+		return "1 check-in"
+	}
+	return itoa(n) + " check-ins"
+}
+
+func trainingCount(n int) string {
+	if n == 1 {
+		return "1 training tap, not counted"
+	}
+	return itoa(n) + " training taps, not counted"
+}
+
+func shownOfLine(shown, total int) string {
+	return "Showing " + itoa(shown) + " of " + itoa(total) + " people, by name."
+}
+
+// shownOfOpenLine is its twin for the open list, ordered oldest first -- which is the
+// order a manager works a backlog in, so the shortened list keeps the entries that
+// have been waiting longest rather than an arbitrary hundred.
+func shownOfOpenLine(shown, total int) string {
+	return "Showing the " + itoa(shown) + " oldest of " + itoa(total) + " open check-ins."
+}
+
+// startedEarlierLine names the seam between two reports rather than leaving a reader
+// to wonder why the transactions list holds a checkout this week has no hours for.
+func startedEarlierLine(n int) string {
+	if n == 1 {
+		return "1 checkout belongs to a shift that began before this week; its hours are in the previous report."
+	}
+	return itoa(n) + " checkouts belong to shifts that began before this week; their hours are in the previous report."
+}
+
+// tooLongLine explains the pairs the engine itself calls a probable forgotten
+// checkout: they are listed as open rather than paid as very long shifts.
+func tooLongLine(n int) string {
+	if n == 1 {
+		return "1 check-in was closed so much later that it is treated as a missed checkout rather than a shift; it is in the open list below."
+	}
+	return itoa(n) + " check-ins were closed so much later that they are treated as missed checkouts rather than shifts; they are in the open list below."
+}
+
+// unattributableLine covers the record §4.6 requires to exist and no chain can hold:
+// a direction with nobody on it.
+func unattributableLine(n int) string {
+	if n == 1 {
+		return "1 record in this week names no employee, so no hours could be attributed to anybody. It is still in Transactions."
+	}
+	return itoa(n) + " records in this week name no employee, so no hours could be attributed to anybody. They are still in Transactions."
+}

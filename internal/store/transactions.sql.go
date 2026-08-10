@@ -14,6 +14,41 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const countPracticeTaps = `-- name: CountPracticeTaps :one
+SELECT count(*) AS practice_taps
+FROM transactions
+WHERE tenant_id = $1
+  AND practice
+  AND occurred_at >= $2
+  AND occurred_at < $3
+`
+
+type CountPracticeTapsParams struct {
+	TenantID uuid.UUID
+	FromAt   time.Time
+	ToAt     time.Time
+}
+
+// How many TRAINING taps fall in the reporting period (M6-07 phase A).
+//
+// 🔴 IT EXISTS SO THAT "excluded" IS NOT THE SAME AS "invisible". Section 5 says a
+// practice tap never counts toward worked hours and the M6-07 card says practice rows
+// are shown SEPARATELY; ListWorkedShiftEvents drops them from the chain, so without
+// this count the report would silently differ from the transactions list by however
+// many training taps the week held. It answers one number, and the screen prints it
+// beside the sentence that says what it is not part of.
+//
+// IT IS BOUNDED BY THE REPORTING PERIOD, NOT BY THE READ WINDOW: a training tap after
+// the period belongs to the next report.
+//
+// TENANT SCOPE (section 4.5): explicit predicate beside RLS, tenant from the session.
+func (q *Queries) CountPracticeTaps(ctx context.Context, arg CountPracticeTapsParams) (int64, error) {
+	row := q.db.QueryRow(ctx, countPracticeTaps, arg.TenantID, arg.FromAt, arg.ToAt)
+	var practice_taps int64
+	err := row.Scan(&practice_taps)
+	return practice_taps, err
+}
+
 const getLastOpenTransaction = `-- name: GetLastOpenTransaction :one
 
 SELECT id, tenant_id, employee_id, location_id, department_id, tag_uid, ctr,
@@ -598,6 +633,231 @@ func (q *Queries) ListPanelTransactions(ctx context.Context, arg ListPanelTransa
 			&i.EmployeeName,
 			&i.ReviewOutcome,
 			&i.ReviewNote,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listWorkedShiftEvents = `-- name: ListWorkedShiftEvents :many
+SELECT t.employee_id, t.occurred_at, t.type, t.verdict, t.channel, t.location_id,
+       rv.outcome AS review_outcome,
+       e.full_name AS employee_name,
+       l.name AS location_name,
+       l.shift_start AS location_shift_start,
+       l.shift_end   AS location_shift_end,
+       l.overnight   AS location_overnight,
+       d.shift_start AS department_shift_start,
+       d.shift_end   AS department_shift_end,
+       d.overnight   AS department_overnight
+FROM transactions t
+LEFT JOIN transaction_reviews rv
+       ON rv.tenant_id = t.tenant_id AND rv.transaction_id = t.id
+LEFT JOIN employees   e ON e.tenant_id = t.tenant_id AND e.id = t.employee_id
+LEFT JOIN locations   l ON l.tenant_id = t.tenant_id AND l.id = t.location_id
+LEFT JOIN departments d ON d.tenant_id = t.tenant_id AND d.id = t.department_id
+WHERE t.tenant_id = $1
+  AND t.type IS NOT NULL
+  AND NOT t.practice
+  AND t.occurred_at >= $2
+  AND t.occurred_at <  $3
+ORDER BY t.employee_id, t.occurred_at, t.id
+LIMIT $4::int
+`
+
+type ListWorkedShiftEventsParams struct {
+	TenantID uuid.UUID
+	FromAt   time.Time
+	UntilAt  time.Time
+	RowLimit int32
+}
+
+type ListWorkedShiftEventsRow struct {
+	EmployeeID           *uuid.UUID
+	OccurredAt           time.Time
+	Type                 *string
+	Verdict              string
+	Channel              string
+	LocationID           *uuid.UUID
+	ReviewOutcome        *string
+	EmployeeName         *string
+	LocationName         *string
+	LocationShiftStart   pgtype.Time
+	LocationShiftEnd     pgtype.Time
+	LocationOvernight    *bool
+	DepartmentShiftStart pgtype.Time
+	DepartmentShiftEnd   pgtype.Time
+	DepartmentOvernight  *bool
+}
+
+// The REPORTS section's read (M6-07 phase A): the raw material worked hours are
+// computed from. One row per DIRECTION-CARRYING record, ordered so that one pass
+// over the result reconstructs each person's in/out chain.
+//
+// 🔴 IT IS A READ AND ONLY A READ. transactions is IMMUTABLE (section 4.3). This
+// query totals nothing and stores nothing: there is no minutes_late column and no
+// hours column, and there must not be one — a stored total would be a second
+// representation of a sum the record already determines, and correcting it would
+// mean an UPDATE. The arithmetic lives in internal/domain/ledger and is recomputed
+// on every view.
+//
+// 🔴 SECTION 4.7 -- WHAT THIS QUERY DELIBERATELY DOES NOT SELECT. gps_lat, gps_lng
+// and source_ip are on the row and NONE of them is in the column list, for the same
+// reason ListPanelTransactions gives: a coordinate that is never selected cannot
+// reach a template, an HTML attribute, a log line or a CSV, and phase B of this task
+// writes a CSV. policy_context is left out too — it is section 4.7-safe by
+// construction (a DISTANCE, migration 0008) but it is a replay snapshot rather than
+// report content, and selecting it would put every future key it gains into an
+// export. entered_by is left out because it names an ADMINISTRATOR and a report about
+// EMPLOYEES has no reader for one; `channel = 'manual'` is what marks a
+// manager-entered row, which is the pairing section 5 itself uses.
+//
+// 🔴 AND NOTHING IS SELECTED THAT HAS NO READER. t.id orders the result and is NOT
+// in the column list; the department's NAME is not selected either, only its shift,
+// because what the report says about a department is which shift it imposed. An audit
+// found ListPanelTransactions carrying four columns nothing read, and the objection
+// was not tidiness: the paragraph above defends this screen on the ground that an
+// unselected column cannot reach an export, and columns carried for no reader are
+// what weaken it.
+//
+// TENANT SCOPE (section 4.5, belt + braces): the explicit t.tenant_id predicate is
+// REQUIRED even though RLS is on, and every JOIN re-states tenant_id in its own ON
+// clause so a joined name or shift can never come from a neighbouring tenant. The
+// tenant comes from the panel session (httpx.AdminIdentity), never from the request.
+//
+// WHY THE JOINS ARE LEFT JOINS: migration 0005 makes employee_id, location_id and
+// department_id nullable so a context-less record is still written (section 4.6). An
+// INNER JOIN would silently drop exactly those rows, which is a section 4.6 breach
+// committed by a read. A direction-carrying row with no employee cannot join anybody's
+// chain, so the caller counts it separately rather than dropping it silently -- and
+// today there are none. The number is the QUERY rather than a figure, because a figure
+// here goes stale on every `make test` run:
+//
+//	SELECT count(*) FROM transactions WHERE type IS NOT NULL AND employee_id IS NULL;
+//
+// It answered 0 on 2026-08-10, over a table holding 301 819 rows. So this is a guard
+// rather than a workaround -- and a guard whose zero is worth re-checking rather than
+// inheriting.
+//
+// `NOT t.practice` IS THE SAME EXCLUSION GetLastOpenTransaction CARRIES, and the
+// M6-07 card requires this query to carry it too. A practice row is a type='in' that
+// is never followed by an 'out' (ADR 0008), so leaving it in would put every new
+// starter's training tap into the manager's "needs action" queue on their first day,
+// and would open a chain that no checkout ever closes. Practice records are counted
+// separately by CountPracticeTaps below, so nothing is hidden -- they are excluded
+// from the ARITHMETIC and shown as their own tally.
+//
+// `t.type IS NOT NULL` is what excludes reject and ignored without naming them, and
+// the reason it works is a CODE INVARIANT rather than the schema constraint an earlier
+// version of this line claimed.
+//
+// 🔴 THERE IS NO CHECK SAYING "reject/ignored IMPLIES NO DIRECTION". Migration 0005
+// constrains the other direction only (transactions_ok_has_direction), so a directed
+// reject is a row this schema would accept. What keeps one from existing is
+// internal/domain/tap: Decide assigns a direction ONLY inside its
+// `if dec.Verdict == VerdictOK || dec.Verdict == VerdictFlag` gate (decide.go), and
+// internal/domain/checkin is the single write path. Measured on the live database:
+// zero such rows in 301 819 (2026-08-10).
+//
+// So this predicate is exact TODAY and its exactness is somebody else's invariant.
+// M6-08 adds a second writer to this table; internal/domain/ledger's endpointState
+// therefore treats an unrecognised verdict as NOT payable rather than trusting that it
+// can never arrive.
+//
+// THE WINDOW HAS TWO EDGES AND THEY MEAN DIFFERENT THINGS. from_at/until_at bound what
+// is READ; the reporting period the caller attributes hours to ends earlier. The tail
+// between them is how far past the period a closing tap is looked for, so that a shift
+// starting at 18:00 on the last night of the period and ending at 02:00 is a closed
+// interval rather than an anomaly. internal/domain/ledger says how long the tail is
+// and why it is the engine's own tap.StaleOpenIn.
+//
+// ORDERED BY (employee_id, occurred_at, id) so ONE forward pass rebuilds every
+// person's chain: rows arrive grouped by person and in the order the taps happened.
+// The id breaks ties between two taps sharing a timestamp, so the pass is
+// deterministic. NULL employee_id sorts last (Postgres default for ASC), which keeps
+// the unattributable rows out of everybody else's chain.
+//
+// THE LIMIT IS A BOUND ON THE REQUEST, NOT A PAGE. There is no cursor here: a total is
+// not something one can page through, and half a chain is a wrong total rather than a
+// partial one. The caller asks for one row more than it can use and says so on the
+// screen if that row arrives, because a silently truncated total is exactly the "state
+// something you have not measured" failure section 4.6 exists to prevent.
+//
+// 🔴 THIS BLOCK NAMES NO INDEX, AND THAT IS THE CONCLUSION RATHER THAN AN OMISSION.
+// Three successive versions of it asserted which index the planner picks, and all
+// three were disproved -- twice by a re-measurement on a LATER day, and once by an
+// independent reviewer measuring on the SAME day and getting a different answer again.
+// The development database grows on every `make test` run, so its statistics move, and
+// the planner chooses between the tenant-scoped indexes accordingly. "It depends on
+// the statistics" is the honest answer, and writing a name here has only ever produced
+// a fourth wrong one.
+//
+// ⚠️ SO WHAT IS RECORDED IS THE SHAPE AND THE COST, ANCHORED TO A DATE AND CARRYING ITS
+// CONDITIONS. It is one observation, not a property of the query. Re-run it before
+// believing it.
+//
+// MEASURED 2026-08-10 (EXPLAIN ANALYZE, BUFFERS; warm cache; `ANALYZE transactions` run
+// first; seed tenant 10000000-...-0001, whose whole history is nine days long -- 34 061
+// rows in total, of which 24 750 carry a direction and 14 177 carry a direction and are
+// not practice). Each panel request runs THREE statements: GetTenantClock, this one and
+// CountPracticeTaps.
+//
+//	the week reading 12 087 rows   112.0 / 95.2 / 97.0 / 91.1 ms
+//	    -> a tenant-scoped bitmap index scan, then a filter that discards the rest
+//	       of the tenant's history: Rows Removed by Filter 17 323,
+//	       Heap Blocks exact=5 059
+//	a week reading 0 rows          17.5 / 16.7 / 16.6 ms
+//
+// ⚠️ AN INDEPENDENT RUN THE SAME DAY SAW THE OTHER INDEX and correspondingly different
+// counters (34 303 scanned, 22 109 removed). Both are the same plan SHAPE -- scan the
+// tenant, filter the week -- which is why the shape is what is written down.
+//
+// ⚠️ AND A DERIVED CLAIM WENT WITH AN OLDER VERSION: it said one week was "~90% of what
+// the tenant has". Measured, it is 12 087 of 34 061 -- about 35%. The number was a
+// mislabel (a total row count quoted as a direction-carrying non-practice count) and
+// the ratio built on it inherited the error. The first run is printed rather than
+// dropped, because a range that excludes its own first measurement is the kind this
+// repository has had to withdraw before.
+//
+// NO INDEX IS ADDED HERE -- that would be a migration, and nothing measured asks for
+// one: the busy figure is a development-database shape (a tenant whose entire history
+// is one week wide), and a business with a year of records behind a one-week window is
+// the selective case.
+func (q *Queries) ListWorkedShiftEvents(ctx context.Context, arg ListWorkedShiftEventsParams) ([]ListWorkedShiftEventsRow, error) {
+	rows, err := q.db.Query(ctx, listWorkedShiftEvents,
+		arg.TenantID,
+		arg.FromAt,
+		arg.UntilAt,
+		arg.RowLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListWorkedShiftEventsRow{}
+	for rows.Next() {
+		var i ListWorkedShiftEventsRow
+		if err := rows.Scan(
+			&i.EmployeeID,
+			&i.OccurredAt,
+			&i.Type,
+			&i.Verdict,
+			&i.Channel,
+			&i.LocationID,
+			&i.ReviewOutcome,
+			&i.EmployeeName,
+			&i.LocationName,
+			&i.LocationShiftStart,
+			&i.LocationShiftEnd,
+			&i.LocationOvernight,
+			&i.DepartmentShiftStart,
+			&i.DepartmentShiftEnd,
+			&i.DepartmentOvernight,
 		); err != nil {
 			return nil, err
 		}

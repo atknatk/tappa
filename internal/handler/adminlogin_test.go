@@ -224,6 +224,14 @@ type fakeLedger struct {
 	rosterErr     error
 	rosterTenant  []uuid.UUID
 	rosterFilters []ledger.RosterFilter
+
+	// M6-07 phase A's read side. Same rule again: it defaults to "asked, and this
+	// week holds nothing", because an unqueried zero value renders nothing at all and
+	// a test using it would be reading a blank section rather than an empty week.
+	hours        ledger.ReportScreen
+	hoursErr     error
+	hoursTenant  []uuid.UUID
+	hoursFilters []ledger.ReportFilter
 }
 
 func newFakeLedger() *fakeLedger {
@@ -231,7 +239,43 @@ func newFakeLedger() *fakeLedger {
 		page:   ledger.Page{Queried: true, Zone: time.UTC},
 		queue:  ledger.QueuePage{Queried: true, Zone: time.UTC},
 		roster: ledger.RosterScreen{RosterPage: ledger.RosterPage{Queried: true, Zone: time.UTC}},
+		hours: ledger.ReportScreen{Report: ledger.Report{
+			Queried: true,
+			Zone:    time.UTC,
+			// A REAL PERIOD RATHER THAN THE ZERO ONE, because the view builds seven day
+			// headings from it and a zero Period would render seven days of year 1 --
+			// a page that looks broken for a reason no assertion would name.
+			Period: ledger.WeekOf(ledger.Date{Year: 2026, Month: time.August, Day: 5}, time.UTC),
+		}},
 	}
+}
+
+// Hours is M6-07 phase A's read. It records who was asked and for which week, which
+// is what the isolation and week-picker assertions read.
+func (f *fakeLedger) Hours(_ context.Context, tenantID uuid.UUID, filter ledger.ReportFilter) (ledger.ReportScreen, error) {
+	f.mu.Lock()
+	f.hoursTenant = append(f.hoursTenant, tenantID)
+	f.hoursFilters = append(f.hoursFilters, filter)
+	s, err := f.hours, f.hoursErr
+	f.mu.Unlock()
+	if err != nil {
+		return ledger.ReportScreen{}, err
+	}
+	if s.Zone == nil {
+		s.Zone = time.UTC
+	}
+	return s, nil
+}
+
+// lastHoursFilter is the reports twin of lastFilter and lastRosterFilter.
+func (f *fakeLedger) lastHoursFilter(t *testing.T) ledger.ReportFilter {
+	t.Helper()
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.hoursFilters) == 0 {
+		t.Fatal("the reports reader was never asked anything; the handler answered without querying")
+	}
+	return f.hoursFilters[len(f.hoursFilters)-1]
 }
 
 // Roster is M6-05 phase A's read. It records who was asked and with what, which is

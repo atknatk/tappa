@@ -57,6 +57,10 @@ type panelLedger interface {
 	Screen(ctx context.Context, tenantID uuid.UUID, f ledger.Filter) (ledger.Screen, error)
 	Day(ctx context.Context, tenantID uuid.UUID, f ledger.Filter) (ledger.Page, error)
 	Roster(ctx context.Context, tenantID uuid.UUID, f ledger.RosterFilter) (ledger.RosterScreen, error)
+	// Hours is M6-07's, and it is here for the same reason Roster is: same package,
+	// same concrete reader, and one interface is what stops a second identical
+	// argument appearing in the constructor.
+	Hours(ctx context.Context, tenantID uuid.UUID, f ledger.ReportFilter) (ledger.ReportScreen, error)
 }
 
 // docketFragmentPath is the URL the HTMX paging request goes to.

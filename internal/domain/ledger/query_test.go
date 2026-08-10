@@ -109,8 +109,9 @@ func TestPanelQueries_CarryAnExplicitTenantPredicate(t *testing.T) {
 	names := storeQueryNames(t, declared)
 	// ANTI-VACUITY: an empty derivation would make every assertion pass over nothing.
 	if len(names) < 4 {
-		t.Fatalf("derived %d store call(s) from ledger.go (%v); the panel read path "+
-			"makes more than that, so the scan is reading the wrong file", len(names), names)
+		t.Fatalf("derived %d store call(s) from this package's non-test files (%v); the "+
+			"panel read path makes more than that, so the scan is reading the wrong "+
+			"directory", len(names), names)
 	}
 	// ⚠️ THE COVERAGE IS PRINTED, NOT ASSERTED, AND THAT IS A GAP RATHER THAN A
 	// DESIGN. If this package stopped calling three of these queries the log would

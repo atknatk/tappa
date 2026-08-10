@@ -246,3 +246,79 @@ func TestDecide_LatenessNotComputed(t *testing.T) {
 		})
 	}
 }
+
+// TestDecide_LatenessMeasuresTheTapNotTheRecording is §5 row "geç kalma çalışanın
+// KENDİ vardiyasına göre" read exactly: it is the TAP that is late, so the arithmetic
+// runs from the moment the tap says it happened rather than from the moment the
+// server got round to judging it.
+//
+// 🔴 IT IS A REGRESSION TEST FOR A SHIPPED WRONG ANSWER, not a hypothetical. Until
+// M6-07, lateness() used Input.Now. For a live tap the two instants coincide, which
+// is why no case in this file saw it — none of them sets OccurredAt at all. Measured
+// through the real service on the two shapes where they differ (a manager's manual
+// entry, and the offline queue M9-01 will produce): an entry declaring 10:17 against
+// a 10:00 shift reported -520, i.e. "eight and a half hours early", because the
+// server clock stood at 01:20 the next morning.
+//
+// THE TABLE IS THE POINT. One case is not enough to show the value follows the
+// declared time: a single reading could be right by coincidence. Three declared
+// times against ONE fixed server clock must give three different answers, and each
+// must equal the declared offset from the shift start rather than anything derived
+// from Now.
+func TestDecide_LatenessMeasuresTheTapNotTheRecording(t *testing.T) {
+	t.Parallel()
+	shift := &Shift{Start: 10 * time.Hour, End: 22 * time.Hour, Timezone: "Europe/Malta"}
+	// The SERVER is judging this at 01:20 Malta local the NEXT morning, summer
+	// (UTC+2) -> 2026-07-27 23:20 UTC. Every case below shares it, so any answer
+	// that moves with the declared time cannot have come from the clock.
+	now := time.Date(2026, 7, 27, 23, 20, 0, 0, time.UTC)
+	// 10:00 Malta local on the 27th, summer (UTC+2) -> 08:00 UTC.
+	shiftStart := time.Date(2026, 7, 27, 8, 0, 0, 0, time.UTC)
+
+	cases := []struct {
+		name     string
+		declared time.Duration // offset from the shift start
+		want     int
+	}{
+		{name: "seventeen minutes late", declared: 17 * time.Minute, want: 17},
+		{name: "on the minute", declared: 0, want: 0},
+		{name: "a quarter of an hour early", declared: -15 * time.Minute, want: -15},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			in := withShift(now, shift)
+			in.OccurredAt = shiftStart.Add(c.declared)
+			in.OccurredAtFromClient = true
+
+			got := Decide(in)
+			// A declared time this far from Now is queued/backdated, so the baseline
+			// sends it to review (base:queued-window). That is the CORRECT verdict and
+			// it is asserted rather than worked around: a flagged record still joins the
+			// in/out chain and therefore still carries a direction, which is the
+			// precondition lateness needs.
+			if got.Type == nil || *got.Type != TypeIn {
+				t.Fatalf("precondition: a backdated first tap must still be an IN; Type = %v", got.Type)
+			}
+			wantLate(t, got.MinutesLate, c.want)
+		})
+	}
+
+	// THE NEGATIVE CONTROL, and it is what makes the three cases above mean anything.
+	// With NO declared time the same server clock IS the tap's own instant, so the
+	// answer must be the one Now produces — and that answer is -520.
+	//
+	// 🔴 -520 IS THE OLD BUG'S NUMBER, WHICH IS WHY IT IS ASSERTED HERE. 23:20 UTC is
+	// 01:20 Malta local on the 28th, so the shift start resolves to the 28th's 10:00
+	// (08:00 UTC) and the tap reads as eight hours and forty minutes EARLY. That is
+	// the correct answer for a tap that genuinely happens at 01:20; it was the WRONG
+	// answer for the backdated entry above, which is exactly what changed. The same
+	// clock now yields -520 for a live tap and +17 for one declaring 10:17, and the
+	// pair is what proves the value follows the tap rather than the recording.
+	//
+	// It also stops the fix from being read as "lateness ignores Now": with no
+	// declared time there is nothing else to read, and this case would go red if it
+	// did.
+	live := withShift(now, shift)
+	wantLate(t, Decide(live).MinutesLate, -520)
+}

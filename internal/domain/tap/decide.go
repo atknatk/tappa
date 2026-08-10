@@ -319,18 +319,69 @@ func occurredAtFacts(in Input) (skewSeconds float64, queued bool) {
 // when the shift's timezone cannot be resolved. A positive value is minutes late;
 // <= 0 means on time or early. Duration/integer minutes only, so no float touches
 // a time/attendance figure (§6); a pointer so "not computed" is distinct from "0".
+// 🔴 IT MEASURES THE TAP, NOT THE RECORDING, AND IT DID NOT UNTIL M6-07. This
+// function read in.Now — the moment the SERVER was deciding — instead of when the
+// tap says it happened. For a live tap the two are the same instant, which is why
+// nothing caught it for two milestones: lateness_test.go never sets OccurredAt.
+// For the two shapes where they differ it answered a different question entirely.
+// Measured end to end, through the real service, before the fix: a manager's manual
+// entry declaring 10:17 against a 10:00 shift reported -520 minutes — "eight hours
+// early" — because the server clock stood at 01:20 the next morning
+// (internal/handler/day_db_test.go, which pinned the wrong answer on purpose so
+// this change would be loud).
+//
+// WHY IT WAS SAFE TO CHANGE HERE RATHER THAN AT M4-05, measured rather than
+// assumed: MinutesLate reaches NO column (there is no minutes_late), NO screen (no
+// template has a field for it), NO log line and NO policy_context key
+// (policy.CtxTimeMinutesLate is declared and never set, so no rule can read it).
+// Until M6-07 the value existed only inside a Decision that nothing persisted, so
+// there was no stored figure for a corrected one to contradict — which §4.3 would
+// have forbidden fixing by back-filling.
 func lateness(in Input, dir *Type) *int {
 	if in.Shift == nil || dir == nil || *dir != TypeIn {
 		return nil
 	}
-	start, ok := shiftStartInstant(in.Now, *in.Shift)
+	return MinutesLate(tapInstant(in), *in.Shift)
+}
+
+// tapInstant is WHEN THE TAP HAPPENED, which is not always when the server is
+// judging it (Input.OccurredAt vs Input.Now).
+//
+// THE TEST IS THE EXPLICIT FLAG, NEVER "is the value zero", for the reason
+// occurredAtFacts spells out at length: a caller that declared nothing leaves
+// OccurredAt at the zero value, and reading that literally would measure lateness
+// against the year 1.
+func tapInstant(in Input) time.Time {
+	if in.OccurredAtFromClient {
+		return in.OccurredAt
+	}
+	return in.Now
+}
+
+// MinutesLate reports how many minutes late a check-in at `at` is against shift s,
+// or nil when the shift's timezone cannot be resolved. A positive value is minutes
+// late; <= 0 means on time or early.
+//
+// 🔴 IT IS EXPORTED FOR THE REPORTS SECTION (M6-07) AND THAT IS WHAT KEEPS THE
+// PRODUCT TO ONE ANSWER. There is no minutes_late column and §4.3 forbids adding
+// one retrospectively, so the panel has to RECOMPUTE lateness from occurred_at and
+// the resolved shift. Recomputing it with a second implementation is the "second
+// representation" shape this repository has paid for repeatedly — and here the two
+// copies would drift over DST, which is precisely the arithmetic
+// shiftStartInstant exists to get right. internal/domain/ledger calls this one.
+//
+// It stays PURE (no clock, no DB — the package's whole testability argument) and it
+// stays integer: Duration and int minutes only, so no float touches an attendance
+// figure (§6).
+func MinutesLate(at time.Time, s Shift) *int {
+	start, ok := shiftStartInstant(at, s)
 	if !ok {
 		return nil // unknown/empty timezone: do not guess a wall clock (M4-05 trap)
 	}
 	// Signed minutes, truncated toward zero: N full minutes after the shift start.
 	// Both operands are UTC instants (§6) — no local time enters the arithmetic;
 	// the wall-clock/DST resolution happened in shiftStartInstant.
-	m := int(in.Now.Sub(start) / time.Minute)
+	m := int(at.Sub(start) / time.Minute)
 	return &m
 }
 
@@ -352,7 +403,7 @@ func lateness(in Input, dir *Type) *int {
 // (local time-of-day < End, e.g. 01:00 < 02:00) belongs to the shift that STARTED
 // THE PREVIOUS DAY, so the start date is rolled back one day; time.Date normalises
 // the day underflow (month/year and DST included).
-func shiftStartInstant(now time.Time, s Shift) (time.Time, bool) {
+func shiftStartInstant(at time.Time, s Shift) (time.Time, bool) {
 	// An empty zone is treated as unresolvable, NOT as UTC: time.LoadLocation("")
 	// returns UTC without error, which would silently compute lateness against the
 	// wrong wall clock (Malta is UTC+1/+2). Q01 guarantees a non-empty zone in
@@ -364,7 +415,7 @@ func shiftStartInstant(now time.Time, s Shift) (time.Time, bool) {
 	if err != nil {
 		return time.Time{}, false
 	}
-	local := now.In(loc)
+	local := at.In(loc)
 	y, mo, d := local.Date()
 	if s.Overnight && localTimeOfDay(local) < s.End {
 		d-- // the after-midnight tail belongs to the previous day's shift start
@@ -387,11 +438,19 @@ func localTimeOfDay(t time.Time) time.Duration {
 		time.Duration(t.Nanosecond())
 }
 
-// staleOpenInThreshold is how long a check-in may stay OPEN before this engine
-// treats a closing tap as a probable FORGOTTEN CHECKOUT (§5, M4-04). Beyond it the
-// tap is still resolved to out — never silently in — but annotated (staleOpenInNote)
-// so the manager's anomaly report surfaces it for a manual correction (§5: "the
+// StaleOpenIn is how long a check-in may stay OPEN before this engine treats a
+// closing tap as a probable FORGOTTEN CHECKOUT (§5, M4-04). Beyond it the tap is
+// still resolved to out — never silently in — but annotated (staleOpenInNote) so
+// the manager's anomaly report surfaces it for a manual correction (§5: "the
 // system produces NO checkout; the open record is listed as an anomaly").
+//
+// 🔴 IT IS EXPORTED FOR M6-07 AND THAT IS WHAT KEEPS ONE THRESHOLD RATHER THAN TWO.
+// The reports section has to answer the same question from the other side — "is this
+// unclosed check-in still somebody's shift, or is it an anomaly a manager must
+// correct?" — and it also needs a horizon for how far past a reporting period to
+// look for the closing tap. Both are this quantity. A private copy in
+// internal/domain/ledger would be a second representation of a number whose whole
+// job is to make the engine and the report agree about one record.
 //
 // WHY 18h, and why a FIXED duration rather than the resolved Shift length:
 //   - No plausible single continuous work session reaches 18h. A double shift with
@@ -402,10 +461,10 @@ func localTimeOfDay(t time.Time) time.Duration {
 //     resolution that belongs to M4-05 (types.go Shift doc); this M4-04 guard must
 //     also work when Input.Shift is nil. A fixed span keeps direction resolution
 //     pure arithmetic on UTC instants (§6) and out of M4-05's scope.
-const staleOpenInThreshold = 18 * time.Hour
+const StaleOpenIn = 18 * time.Hour
 
 // staleOpenInNote is the docket/report annotation for a closing tap whose open
-// check-in is older than staleOpenInThreshold. It names an anomaly, carries no
+// check-in is older than StaleOpenIn. It names an anomaly, carries no
 // secret and no raw coordinate (§4.7), and is appended to — never replaces — the
 // deciding policy's reason.
 const staleOpenInNote = "stale open check-in (possible forgotten checkout)"
@@ -457,7 +516,7 @@ func resolveDirection(in Input) (dir Type, note string) {
 	}
 	// An open check-in exists -> close it. Toggle, not calendar day.
 	dir = TypeOut
-	if in.Now.Sub(open.OccurredAt) > staleOpenInThreshold {
+	if in.Now.Sub(open.OccurredAt) > StaleOpenIn {
 		note = staleOpenInNote
 	}
 	return dir, note

@@ -4641,7 +4641,57 @@ Ayrıca iş yalnız CSS+bileşen değil — kabuk `pages/` + `handler/`'a da dok
 ## M6-07 — Reports ve CSV export
 
 - **Bağımlılık:** M6-03 · M4-05
-- **Commit:** `feat(dashboard): add reports and csv export`
+- **Commit (FAZ A):** `feat(dashboard): add worked-hours reports`
+- **Commit (FAZ B):** `feat(dashboard): add csv export`
+
+> ⚠️ Tek satırlık `feat(dashboard): add reports and csv export` commit'i **kaldırıldı**
+> (2026-08-10): görev iki faza bölündü ve A fazı dürüstçe *"and csv export"* diyemez —
+> CSV'nin tek satırı yazılmadı. İki satır, iki tur, iki commit.
+
+> **Kart düzeltmesi (2026-08-10, M6-07 A uygulaması sırasında).** Görev **iki faza
+> bölündü** (orkestratör kararı). Ölçüt kapsam değil **denetim merceği**: A'nın
+> merceği *aritmetik doğruluk · §6 float yok · §4.5 tenant · §4.7 ne seçilmiyor ·
+> §5'in rapor cümleleri*; B'ninki *çıktı yüzeyi · enjeksiyon · toplu veri çıkışı ·
+> `audit_log`*. Aynı turda bakılsalardı ikisi de yarım bakılırdı — M6-01/M6-06'da
+> üç parçada da böyle oldu.
+>
+> - **FAZ A (bu tur, kapandı):** çalışılan saat motoru (`internal/domain/ledger/
+>   report.go`) + `/admin/reports` ekranı + sorgular
+>   (`ListWorkedShiftEvents`, `CountPracticeTaps`).
+> - **FAZ B (ayrı tur):** CSV export.
+>
+> **A'nın B'ye devrettiği yükümlülükler — B bunları KAPATMADAN kapanmaz:**
+> 1. **Aritmetiği yeniden yazma.** `ledger.Reader.Hours` bir `Report` döndürür ve
+>    ekran onu yalnızca *biçimlendirir*. CSV aynı `Report`'tan üretilmelidir; ikinci
+>    bir toplama kodu = bu repoda beş kez bedeli ödenmiş "ikinci temsil" sınıfı.
+> 2. **CSV kaçışı (`= + - @`).** templ kaçışı CSV'ye **geçmez**. Çalışan adı, mekân
+>    adı ve `Unknown employee` gibi bizim ürettiğimiz metinler de dahil her hücre.
+>    Kartın 2268. satırındaki uyarı buraya aittir.
+> 3. **§4.7 — sorgu zaten koordinat SEÇMİYOR, ama B yeni sütun EKLEMEMELİ.**
+>    `gps_lat/gps_lng/source_ip/policy_context/entered_by` CSV'ye "raporu
+>    zenginleştirmek için" eklenmeye en açık yerdir. Eklenirse §4.7 duvarı düşer.
+> 4. **`audit_log` kaydı.** Toplu veri çıkışı bir olaydır: kim, ne zaman, hangi
+>    hafta, kaç satır. A hiçbir şey yazmıyor; B'nin **tek yazışı** budur ve
+>    `ProtectWriting` zinciri gerekip gerekmediği B'nin kararıdır (indirme GET mi
+>    POST mu — GET ise `audit_log` yine yazılır).
+> 5. **Yetkilendirme.** `report:export` politikası M6-09'un ekranında adı geçiyor
+>    ama panelde `policy.Evaluate` çağıran **hiçbir handler yok** (ölçüldü). B ya
+>    bu politikayı gerçekten okur ya da okumadığını **açıkça yazar**.
+> 6. **UTC + yerel, ISO 8601, başlıkta hangisi olduğu açık** — kartın kendi
+>    kriteri. A ekranda yalnız **yerel** gösteriyor ve zaman dilimini yazıyor;
+>    CSV'de ikisi de olacak.
+> 7. **Kesilmiş okuma (`ledger.ReportEventCap`) CSV'de de görünmeli.** A ekranda
+>    "bu toplamlar eksik" diyor; sessizce eksik bir CSV **bordroyu eksik çıkarır**.
+> 8. **Sayfalama sınırı CSV'de YOK olmalı.** `maxReportRows` yalnız *listeyi*
+>    kısıtlıyor (toplamlar herkesi kapsıyor); CSV'nin var olma sebebi kadrosu
+>    200'den büyük işletmedir.
+>
+> **A'nın verdiği kararlar** (gerekçeleri kodda, ilgili yorumlarda):
+> gece vardiyası **başladığı güne** sayılır (bölünmez) · hafta **pazartesi**
+> başlar (ISO 8601, iki pazar da öyle) · gün sınırı **yerel** · bekleyen `flag`
+> saate **girmez** ama ayrı sayıyla gösterilir, **onaylanmış** `flag` girer,
+> **reddedilmiş** `flag` girmez ve ayrı gösterilir · `closingTail = tap.StaleOpenIn`
+> (18 sa) hem okuma ufku hem "bu bir vardiya değil" eşiği.
 
 **Kabul kriterleri.**
 - Günlük/haftalık çalışılan saat, çalışan ve lokasyon kırılımı.

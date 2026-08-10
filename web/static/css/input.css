@@ -311,6 +311,41 @@
   .tally--manual,
   .tally--deactivated { @apply border-line bg-line/10; }
 
+  /* --- the report row: a person's week inside a docket (M6-07) ---
+     THESE EXIST FOR TWO REASONS AT ONCE, and the second one is measured. The brand
+     rule is that a repeated Tailwind chain is a component that has not been written
+     yet -- and here the chain repeats ReportDays times PER PERSON, on a page that is
+     Cache-Control: no-store and therefore re-sent on every view. Measured on the real
+     handler (the table is in internal/handler/reports.go): the class attributes alone
+     were most of a row's weight.
+
+     THE GRID IS FOUR COLUMNS ON A PHONE AND SEVEN ON A LAPTOP: a manager checks this
+     at the pass, and seven columns of mono figures on a 390px screen is four
+     characters wide each. */
+  .report-days {
+    @apply mt-2 grid grid-cols-4 gap-x-3 gap-y-1 sm:grid-cols-7;
+  }
+  /* The figure itself is mono because it is data — skill tappa-brand's rule that a
+     data cell which is not mono is wrong. Full-strength ink on paper measures
+     16.17:1 (WCAG relative luminance, sRGB), so the day columns are the
+     highest-contrast text on the card. The rest of the report surface was measured
+     with it and all of it clears AA's 4.5:1: ink/85 on paper 10.14:1, docket-label's
+     ink/70 6.03:1, and the three chips (ink on saffron-lite, on tomato/10 and on
+     line/10 over paper) 13.97 / 13.99 / 15.59:1. */
+  .report-day {
+    @apply font-mono text-sm text-ink;
+  }
+  /* The name-and-total line every report docket opens with. */
+  .report-head {
+    @apply flex flex-wrap items-baseline justify-between gap-2;
+  }
+  .report-who {
+    @apply font-display text-base font-bold tracking-tight text-ink;
+  }
+  .report-total {
+    @apply font-mono text-xl font-bold text-ink;
+  }
+
   /* --- the navigation's pending badge (M6-04) ---
      It sits inside a .tab-link, so it must not add a second press target and must
      not change the tab's height. Saffron because the queue is the FLAGGED state

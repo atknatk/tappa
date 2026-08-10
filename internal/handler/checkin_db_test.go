@@ -1854,7 +1854,7 @@ func TestCheckinDB_ScreenTextIsWhatProductionRenders(t *testing.T) {
 // real tap resolves to a check-OUT against it.
 //
 // It INSERTs directly rather than tapping, and that is the only way to reach the
-// shape: staleOpenInThreshold is 18 hours (internal/domain/tap), and a test cannot
+// shape: tap.StaleOpenIn is 18 hours (internal/domain/tap), and a test cannot
 // wait. The row is otherwise an ordinary decided tap — type 'in', verdict 'ok' —
 // so GetLastOpenTransaction finds it exactly as it would find a real one.
 func (h *tapHarness) openCheckInAgedBy(t *testing.T, age time.Duration) {

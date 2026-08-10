@@ -498,25 +498,21 @@ func TestSeedDB_ADayAtKFStJulians(t *testing.T) {
 	if manual.Decision.MinutesLate == nil {
 		t.Fatal("lateness was not computed for a check-in against a venue with a shift")
 	}
-	// 🔴 A FINDING, PINNED RATHER THAN FIXED. The entry above declares 10:17 against
-	// a 10:00 shift, so the skill's scenario table expects "late 17m". The engine
-	// answers something else entirely, because tap.lateness measures in.Now — the
-	// SERVER clock — and not the record's occurred_at (internal/domain/tap's
-	// lateness()). For a live tap the two coincide, which is why no existing test
-	// sees it: lateness_test.go never sets OccurredAt at all. For a manager's
-	// back-dated entry, or an offline-queued tap (M9-01), it reports how late the
-	// RECORDING was.
+	// ✅ THE FINDING THIS BLOCK USED TO PIN IS FIXED (M6-07). The entry above declares
+	// 10:17 against a 10:00 shift, so the skill's scenario table expects "late 17m" —
+	// and that is now what the engine answers. Until M6-07 it answered how late the
+	// RECORDING was, because tap.lateness measured in.Now (the server clock) rather
+	// than the record's occurred_at; measured on this very entry, at 01:20 the next
+	// morning, it returned -520. The assertion was deliberately written around the
+	// wrong number so the fix would come through here loudly, which is what happened.
 	//
-	// It is not fixed here for two reasons: it changes decision-engine semantics
-	// (M4-05, §5), which is not this task's to decide; and it has no production
-	// consequence yet, because the value is persisted nowhere. It becomes real at
-	// M6-07 (reports). The assertion below pins TODAY'S behaviour so a fix breaks
-	// this test loudly instead of quietly disagreeing with this comment.
-	wantLate := minutesSinceShiftStartOnServerClock(t, stJulians.Timezone, 10, 0)
-	if got := *manual.Decision.MinutesLate; abs(got-wantLate) > 2 {
-		t.Fatalf("MinutesLate = %d, and the server-clock reading is %d. Either the clock moved "+
-			"under the test, or lateness now follows occurred_at — if it is the latter, this "+
-			"assertion becomes `want 17` and the comment above comes out.", got, wantLate)
+	// IT IS AN EXACT COMPARISON NOW, and that is the point: the answer no longer
+	// depends on when the suite runs, so there is no tolerance to allow and no
+	// server-clock helper to reproduce.
+	if got := *manual.Decision.MinutesLate; got != 17 {
+		t.Fatalf("MinutesLate = %d, want 17: the entry declares occurred_at 17 minutes after "+
+			"a 10:00 shift start, and lateness measures the TAP rather than the moment the "+
+			"server recorded it (internal/domain/tap, MinutesLate).", got)
 	}
 	manualRec := f.lastRow(t, nadia.id)
 	if manualRec.Channel != "manual" {
@@ -770,28 +766,6 @@ func shiftStartInPast(t *testing.T, timezone string, hh, mm int) time.Time {
 	return start
 }
 
-// minutesSinceShiftStartOnServerClock reproduces what tap.lateness actually does
-// today: it places the shift's wall-clock start on the SERVER's current local day
-// and measures from there to now. It exists to pin the finding above, and it is
-// the thing that should become unnecessary if lateness ever follows occurred_at.
-func minutesSinceShiftStartOnServerClock(t *testing.T, timezone string, hh, mm int) int {
-	t.Helper()
-	loc, err := time.LoadLocation(timezone)
-	if err != nil {
-		t.Fatalf("tenant timezone %q: %v", timezone, err)
-	}
-	now := time.Now().In(loc)
-	start := time.Date(now.Year(), now.Month(), now.Day(), hh, mm, 0, 0, loc)
-	return int(now.Sub(start) / time.Minute)
-}
-
-func abs(v int) int {
-	if v < 0 {
-		return -v
-	}
-	return v
-}
-
 func ptrUUID(id uuid.UUID) *uuid.UUID { return &id }
 func ptrTime(v time.Time) *time.Time  { return &v }
 
@@ -811,18 +785,21 @@ func ptrTime(v time.Time) *time.Time  { return &v }
 // proves everything about an NFC tap except that the chip's signature verifies;
 // internal/sun proves that against its own vectors, and against real Postgres.
 //
-// L2 — LATENESS HAS NO HTTP-SIDE EVIDENCE HERE, AND CANNOT HAVE ANY TODAY.
-// tap.Decision.MinutesLate is computed on every check-in and persisted nowhere:
-// no column, no policy_context key, no confirmation screen. The only place the
-// day sees a value is the manager's manual entry, where the CALLER holds the
-// Decision — and that reading is the server-clock one this file pins as a
-// finding. An earlier draft added an HTTP-side assertion (the record's instant is
-// after the shift start); it was removed after measurement, because with
-// tap.lateness mutated to `return nil` — a total lateness failure — the day
-// walked straight past it and only died much later, at the manual entry's
-// MinutesLate check. An assertion no engine defect can turn red is worse
-// than no assertion: it reads like coverage. The skill's "late 17m" scenario is
-// therefore NOT produced by this file over HTTP, and skill tappa-seed now says so.
+// L2 — LATENESS STILL HAS NO HTTP-SIDE EVIDENCE HERE, AND THE REASON IS NARROWER
+// THAN IT WAS. tap.Decision.MinutesLate is computed on every check-in and persisted
+// nowhere: no column, no policy_context key, no confirmation screen — §4.3 rules out
+// adding one retrospectively, so the panel RECOMPUTES it from occurred_at and the
+// resolved shift (M6-07, internal/domain/ledger). The only place the day sees a value
+// is the manager's manual entry, where the CALLER holds the Decision, and that
+// reading is now the record's own time rather than the server's.
+//
+// An earlier draft added an HTTP-side assertion (the record's instant is after the
+// shift start); it was removed after measurement, because with tap.lateness mutated
+// to `return nil` — a total lateness failure — the day walked straight past it and
+// only died much later, at the manual entry's MinutesLate check. An assertion no
+// engine defect can turn red is worse than no assertion: it reads like coverage. The
+// skill's "late 17m" scenario is therefore still not produced by this file over HTTP,
+// and skill tappa-seed says so.
 //
 // L3 — ✅ CLOSED (2026-08-02, M5-11, ADR 0008). It is kept, struck through rather
 // than deleted, because the workaround it describes is gone from the file above and
