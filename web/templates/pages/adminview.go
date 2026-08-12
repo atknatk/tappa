@@ -96,6 +96,7 @@ const (
 	TabEmployees    PanelTab = "employees"
 	TabLocations    PanelTab = "locations"
 	TabReports      PanelTab = "reports"
+	TabAnomalies    PanelTab = "anomalies"
 	TabPolicies     PanelTab = "policies"
 )
 
@@ -156,6 +157,14 @@ var PanelSections = []PanelSection{
 	{
 		Tab: TabReports, Label: "Reports", Href: "/admin/reports", Task: "M6-07",
 		Blurb: "Hours worked per person per week, and the CSV your accountant asks for.",
+	},
+	{
+		// 🔴 IT SITS AFTER REPORTS AND BEFORE POLICIES, WHICH IS WHERE ITS READER IS.
+		// This section is a second reading of the same week the reports section totals
+		// — a manager who has just noticed a short total is one click from "why" — and
+		// it is emphatically NOT a rule screen: it changes nothing and decides nothing.
+		Tab: TabAnomalies, Label: "Anomalies", Href: "/admin/anomalies", Task: "M6-11",
+		Blurb: "The week's odd shapes — GPS-only taps, plaque counter gaps, people who always tap together, and check-ins nobody closed.",
 	},
 	{
 		Tab: TabPolicies, Label: "Policies", Href: "/admin/policies", Task: "M6-09",

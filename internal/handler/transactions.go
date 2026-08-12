@@ -61,6 +61,10 @@ type panelLedger interface {
 	// same concrete reader, and one interface is what stops a second identical
 	// argument appearing in the constructor.
 	Hours(ctx context.Context, tenantID uuid.UUID, f ledger.ReportFilter) (ledger.ReportScreen, error)
+	// Anomalies is M6-11's, on the same argument — and it takes the SAME filter type
+	// Hours does, because "any day inside the week I want" is one question and a
+	// second identical struct would be a copy that drifts silently.
+	Anomalies(ctx context.Context, tenantID uuid.UUID, f ledger.ReportFilter) (ledger.AnomalyScreen, error)
 }
 
 // docketFragmentPath is the URL the HTMX paging request goes to.

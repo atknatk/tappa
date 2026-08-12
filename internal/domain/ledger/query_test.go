@@ -401,9 +401,35 @@ type whereBlock struct {
 //
 // JOIN ... ON CLAUSES REMAIN STRUCTURALLY EXCLUDED -- they precede their WHERE and
 // are not one. A condition there constrains the JOIN, not the rows returned.
+//
+// 🔴 AN AGGREGATE'S `FILTER (WHERE ...)` IS NOT A WHERE CLAUSE, AND READING IT AS ONE
+// WAS A FALSE ALARM THIS NET PRODUCED ON CORRECT SQL (measured 2026-08-12, M6-11).
+// PostgreSQL's aggregate FILTER takes a predicate that chooses which ROWS OF AN
+// ALREADY-SCOPED RESULT an aggregate sees -- `count(*) FILTER (WHERE practice)`. It
+// scopes nothing, it can scope nothing, and demanding a tenant predicate inside it is
+// demanding one in the wrong place. The anomalies section is built out of ten such
+// counts in one statement, and this net reported every one of them as an unscoped
+// query while the statement's real WHERE bound the tenant correctly.
+//
+// 🔴 IT IS NARROWED RATHER THAN WEAKENED, and the difference is what the mutation run
+// shows. What is skipped is exactly the token sequence `FILTER (` immediately before a
+// WHERE; the statement's own WHERE, every CTE's and every subquery's are still read.
+// TestWhereBlocks_SkipsAggregateFilterAndStillSeesTheRealClause pins both directions:
+// a query whose only tenant predicate is inside a FILTER is still refused, and a query
+// that uses FILTER correctly beside a scoped WHERE still passes.
+//
+// ⚠️ THE OTHER TWO COPIES OF THIS NET (internal/domain/review, internal/domain/tenant)
+// STILL CARRY THE DEFECT. It is inert for them today -- neither package's queries use
+// an aggregate FILTER -- so the divergence is NAMED here rather than fixed in three
+// places from a task that touches one of them. The header of tenant's copy calls the
+// three "behaviourally identical on purpose"; on this token they are not, and this is
+// the second such divergence that file records.
 func whereBlocks(body string) []whereBlock {
 	var out []whereBlock
 	whereRE := regexp.MustCompile(`(?is)\bWHERE\b`)
+	// The lookbehind for an aggregate FILTER. Go's regexp has no lookbehind, so the
+	// preceding text is matched with its own anchored pattern instead.
+	filterRE := regexp.MustCompile(`(?is)\bFILTER\s*\(\s*$`)
 	// FOR UPDATE / FOR SHARE added 2026-08-09 (M6-06 phase B) to keep the three
 	// copies identical; the measurement is recorded in internal/domain/tenant's
 	// copy. No-op for the queries this package covers (none takes a row lock).
@@ -431,6 +457,10 @@ func whereBlocks(body string) []whereBlock {
 	// mutation run, not with a task about `tags`.
 	stopRE := regexp.MustCompile(`(?is)\b(ORDER\s+BY|GROUP\s+BY|LIMIT|HAVING|FOR\s+NO\s+KEY\s+UPDATE|FOR\s+UPDATE|FOR\s+SHARE)\b`)
 	for _, loc := range whereRE.FindAllStringIndex(body, -1) {
+		if filterRE.MatchString(body[:loc[0]]) {
+			// An aggregate's row filter, not a query's scope. See the block comment.
+			continue
+		}
 		rest := body[loc[1]:]
 		// The clause ends at the enclosing block's closing paren -- where a CTE or
 		// subquery ends -- or at a clause that may follow WHERE.

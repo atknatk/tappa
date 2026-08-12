@@ -1000,10 +1000,10 @@ func TestReadLimit_MakesTruncationDETECTABLE(t *testing.T) {
 	t.Parallel()
 	// 🔴 THE INVARIANT ITSELF: a limit at or below the cap makes truncation
 	// undetectable, whatever truncatedBy says.
-	if int(readLimit()) <= ReportEventCap {
-		t.Fatalf("readLimit() = %d and the cap is %d: the query can never return more rows "+
+	if int(readLimit(ReportEventCap)) <= ReportEventCap {
+		t.Fatalf("readLimit(ReportEventCap) = %d and the cap is %d: the query can never return more rows "+
 			"than can be used, so Truncated is dead code and a lost half of a payroll "+
-			"renders as a week's hours", readLimit(), ReportEventCap)
+			"renders as a week's hours", readLimit(ReportEventCap), ReportEventCap)
 	}
 
 	cases := []struct {
@@ -1014,7 +1014,7 @@ func TestReadLimit_MakesTruncationDETECTABLE(t *testing.T) {
 		{name: "an ordinary week", rows: 1, want: false},
 		{name: "a week that exactly fills the budget", rows: ReportEventCap, want: false},
 		{name: "the first row that did not fit", rows: ReportEventCap + 1, want: true},
-		{name: "everything the limit allows", rows: int(readLimit()), want: true},
+		{name: "everything the limit allows", rows: int(readLimit(ReportEventCap)), want: true},
 		{name: "an empty week", rows: 0, want: false},
 	}
 	for _, c := range cases {

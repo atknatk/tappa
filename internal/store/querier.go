@@ -330,6 +330,109 @@ type Querier interface {
 	// This is the ONLY statement in db/queries that writes employee_invites.used_at
 	// (greppable), which is what makes the un-consume limit in the header hold.
 	ConsumeInviteAndActivate(ctx context.Context, arg ConsumeInviteAndActivateParams) (ConsumeInviteAndActivateRow, error)
+	// anomalies.sql -- the reads behind the ANOMALIES section (M6-11).
+	//
+	// WHAT THIS FILE IS FOR. The panel's other sections answer "what happened".
+	// These answer "is anything here odd" -- detection, never prevention, and never a
+	// judgement: every query below returns counts, names, booleans, one timestamp and two
+	// row ids, so the screen shows data and the manager draws the conclusion.
+	//
+	// ⚠️ THAT LIST USED TO READ "COUNTS AND NAMES" AND IT UNDERCOUNTED WHAT CROSSES THE
+	// BOUNDARY. The generated row types also carry `manager_typed` and `was_maskable`
+	// (booleans on ListOpenCheckIns), an `occurred_at`, and a nullable employee/location id
+	// on the two grouped listings. The security property is unchanged and tested; what was
+	// wrong is the inventory a reader would check it against.
+	//
+	// 🔴 SECTION 4.3 -- EVERY STATEMENT IN THIS FILE IS A SELECT. There is no UPDATE,
+	// no DELETE and no INSERT, and there must not be one: `transactions` is immutable
+	// and this whole section is a read of it. The property is asserted mechanically by
+	// TestAnomalies_IssuesOnlySelects (internal/domain/ledger), which parses anomaly.go,
+	// collects every sqlc query it names and reads each one's first keyword out of this
+	// directory.
+	//
+	// 🔴 SECTION 4.7 -- THE AGGREGATION HAPPENS IN SQL, WHICH IS A STRONGER WALL THAN
+	// THE ONE THE REPORTS SECTION HAS. gps_lat, gps_lng and source_ip are on the row and
+	// none of them is in any column list here; policy_context is READ but never
+	// SELECTED -- it appears only inside FILTER predicates, so the jsonb value itself
+	// never crosses the database boundary. That matters because policy_context legally
+	// carries `tap:gpsDistanceM`: a DISTANCE rather than a coordinate (migration 0008,
+	// and internal/domain/tap's gpsFacts is where the distance is computed), but a
+	// snapshot that gains a key later would travel with it. Counting inside the query
+	// means what Go receives is an integer, a name, a boolean, a timestamp or a row id --
+	// never the snapshot, and never a coordinate or an address.
+	//
+	// ⚠️ AND THE ONE PLACE THAT COULD GO WRONG IS NAMED: `ip_match` and `gps_match` are
+	// BOOLEANS on the row, not addresses or coordinates, and they are selected as
+	// counts only. `ip_match` is "the source address fell inside a range this venue has
+	// registered"; nothing below reveals which address, or how far away a reading was.
+	//
+	// TENANT SCOPE (section 4.5, belt + braces): every statement carries an explicit
+	// tenant_id predicate beside RLS, and every JOIN re-states tenant_id in its own ON
+	// clause so a joined name can never come from a neighbouring tenant. The tenant
+	// comes from the panel session (httpx.AdminIdentity), never from the request.
+	//
+	// 🔴 WHY `tap:ctrGap` IS READ THROUGH A CASE RATHER THAN A BARE CAST. policy_context
+	// is jsonb and NOTHING in the schema constrains its shape: migration 0008 adds the
+	// column, and the only writer is the tap path. A bare `(policy_context->>'tap:ctrGap')::int`
+	// therefore turns one malformed snapshot into a failed panel request for the whole
+	// week -- measured: a bare cast over a text value raises
+	// `invalid input syntax for type integer: "abc"`.
+	//
+	// ⚠️ THE REASON A `jsonb_typeof(...) = 'number' AND (...)::numeric` GUARD IS NOT USED
+	// IS EVALUATION ORDER, NOT SHORT-CIRCUITING, and this comment said the wrong thing
+	// first. Measured 2026-08-12: the AND-guarded form did NOT raise on the same bad row.
+	// That is not a guarantee, though -- PostgreSQL does not promise the order in which
+	// the operands of AND are evaluated, and the planner may reorder them. CASE is the
+	// construct that DOES promise it evaluates only the branch it selects, so the guard is
+	// written as one. The claim is about what is guaranteed, not about what was observed.
+	//
+	// Measured on the development database 2026-08-12: every stored value is an integer.
+	//
+	//      SELECT DISTINCT policy_context->>'tap:ctrGap' FROM transactions
+	//       WHERE policy_context ? 'tap:ctrGap';
+	//
+	// ⚠️ THE OBSERVED VALUES ARE NOT LISTED HERE. This comment enumerated them and the list
+	// went stale inside one working day -- two of the values it named were added by this
+	// section's OWN test fixture. What is durable is the CONCLUSION (every value is a
+	// number) and the QUERY that re-checks it; what is not durable is the set.
+	//
+	// So this is a guard rather than a workaround, and it costs one CASE.
+	// The window in one row: how much was examined, and how many records carry each
+	// signal.
+	//
+	// 🔴 THE DENOMINATOR IS RETURNED BESIDE EVERY NUMERATOR, which is the difference
+	// between a report and an accusation. "47 taps matched on GPS alone" means nothing
+	// without the base it came out of -- and there are TWO bases here, which is exactly
+	// why the example has to use two different numbers: "47 of 2 100 records the engine
+	// judged on evidence", beside "3 of 1 927 records that carry a rule snapshot". The
+	// screen prints both bases and every figure names the one it is out of.
+	//
+	// ⚠️ `judged` IS NOT `examined`. A record with neither ip_match nor gps_match set is
+	// one the engine never gathered address or distance evidence for -- a manager-typed
+	// row is the ordinary case (section 5: channel='manual' carries no evidence of a
+	// physical touch). Counting those in the denominator would quietly dilute every rate
+	// on the page.
+	//
+	// 🔴 `unanswerable` IS THE SECOND DENOMINATOR, NOT A FOOTNOTE, AND THE FIRST DRAFT OF
+	// THIS SECTION GOT IT WRONG IN THE ONE WAY THAT MATTERS. Three of the signals below --
+	// counter_gaps, outside_venue and other_venue -- can only be read out of policy_context,
+	// which exists on a record only since migration 0008 and is written only by the tap
+	// path (M5-05). A record without one is not a record without a counter gap; it is a
+	// record this screen CANNOT ANSWER FOR.
+	//
+	// ⚠️ SO PUTTING IT IN THOSE THREE FIGURES' DENOMINATOR IS, ARITHMETICALLY, COUNTING IT
+	// AS CLEAN -- which is the exact thing the sentence above forbids. The first draft
+	// printed `1 of 22 after a counter gap` on a window where only 18 records could be
+	// asked the question, and printed "they are not counted as clean" directly underneath.
+	// The caller now divides those three by `records - unanswerable`, and divides
+	// distance_only (which comes from COLUMNS, present on every judged row) by `judged`.
+	// Two bases, and the screen names which is which.
+	//
+	// TRAINING TAPS ARE COUNTED HERE. A practice tap is a real physical touch and its
+	// evidence is real evidence, so excluding it from a signal count would hide a
+	// genuine anomaly behind a new starter. They are excluded from ONE thing only -- the
+	// open check-in list -- for the reason the M6-11 card gives.
+	CountAnomalySignals(ctx context.Context, arg CountAnomalySignalsParams) (CountAnomalySignalsRow, error)
 	// What still points at this department. Two keys rather than the venue's four:
 	// employees_department_fk and transactions_department_fk, both ON DELETE RESTRICT.
 	// 🔴 @id IS CAST EXPLICITLY, AND THE CAST IS LOAD-BEARING RATHER THAN DECORATIVE.
@@ -388,6 +491,49 @@ type Querier interface {
 	// the six ON DELETE RESTRICT foreign keys, which is what makes the race between this
 	// read and the DELETE harmless (internal/domain/tenant/venue.go, DeleteVenue).
 	CountLocationReferences(ctx context.Context, arg CountLocationReferencesParams) (CountLocationReferencesRow, error)
+	// The check-ins a practice row could have masked, split by whether the open list can
+	// still see them.
+	//
+	// 🔴 THIS IS THE QUERY THE M6-11 CARD SAYS THE OPEN LIST CANNOT REPLACE, AND THE
+	// REASON IS ONE LINE OF SET LOGIC. "Open" is `NOT EXISTS (an out after it)`, and a
+	// SINGLE `out` satisfies that for EVERY older unclosed check-in at once. So a
+	// check-in that a pre-ADR-0008 practice row masked leaves the open list silently, on
+	// the person's next checkout -- it counts as closed, while the `out` that closed it
+	// was really some other check-in's.
+	//
+	// ⚠️ NO ROW COUNT IS QUOTED HERE ANY MORE. The M6-11 card carried "47 still visible,
+	// 43 no longer visible" from 2026-08-02; re-run on 2026-08-12 the same shape answered
+	// with figures an order of magnitude apart, because `chainFixture` adds rows on every
+	// `make test` and nothing can delete them. The SHAPE is the durable fact and the
+	// number is not, so the number is a query:
+	//
+	//      SELECT count(*) FILTER (WHERE NOT EXISTS (SELECT 1 FROM transactions o
+	//               WHERE o.tenant_id=t.tenant_id AND o.employee_id=t.employee_id
+	//                 AND o.type='out' AND o.occurred_at > t.occurred_at)) AS still_open,
+	//             count(*) - count(*) FILTER (WHERE NOT EXISTS (SELECT 1 FROM transactions o
+	//               WHERE o.tenant_id=t.tenant_id AND o.employee_id=t.employee_id
+	//                 AND o.type='out' AND o.occurred_at > t.occurred_at)) AS closed_later
+	//        FROM transactions t
+	//       WHERE t.type='in' AND NOT t.practice
+	//         AND EXISTS (SELECT 1 FROM transactions p WHERE p.tenant_id=t.tenant_id
+	//                       AND p.employee_id=t.employee_id AND p.practice
+	//                       AND p.occurred_at > t.occurred_at);
+	//
+	// ⚠️ THIS IS NOT A SECTION 4.6 BREACH AND THE DISTINCTION IS WORTH THE SENTENCE. No
+	// row is lost -- `transactions` holds every one of them and the transactions section
+	// lists them. What is lost is the SIGNAL, and recovering it needs this second
+	// question rather than a wider version of the first.
+	//
+	// ⚠️ IT IS A HINT, NOT A DIAGNOSIS. "A practice row of this person's exists after
+	// this check-in" is the shape the defect produced; it is also the shape an ordinary
+	// new starter produces if they ever tap again after training. The screen calls it
+	// what it is.
+	//
+	// ⚠️ AND THE DEVELOPMENT DATABASE WILL ALWAYS HOLD SOME. `chainFixture` leaves two
+	// rows of this shape on every `make test` run and section 4.3 plus `REVOKE DELETE`
+	// mean nothing can clear them. There is no dev-only special case anywhere in this
+	// path -- the number says what it counts and the reader decides.
+	CountMaskedOpenCheckIns(ctx context.Context, arg CountMaskedOpenCheckInsParams) (CountMaskedOpenCheckInsRow, error)
 	// reviews.sql -- the FLAGGED approval queue (M6-04): two reads and one write.
 	//
 	// 🔴 SECTION 4.3 IS THE WHOLE DESIGN OF THIS FILE. A manager approving or
@@ -1621,6 +1767,50 @@ type Querier interface {
 	// filters on revoked_at, so the history stays visible (section 4.6).
 	// token_hash is NOT selected: nothing outside the resolution path needs it.
 	ListAdminSessionsForAdmin(ctx context.Context, arg ListAdminSessionsForAdminParams) ([]ListAdminSessionsForAdminRow, error)
+	// One row per employee who carries at least one signal in the window.
+	//
+	// 🔴 THE `HAVING` IS WHAT KEEPS THIS FROM BEING A ROSTER. A list of everybody with a
+	// zero in every column is the employees section with extra steps, and it would make
+	// the reader hunt. Only rows with something on them are returned -- which is a
+	// FILTER on the data, not a verdict about the person: the columns say what was
+	// counted and the screen adds no word of its own.
+	//
+	// LEFT JOIN, because migration 0005 lets a record name an employee the roster no
+	// longer holds; the caller prints "Unknown employee" rather than dropping the row.
+	ListAnomalyPeople(ctx context.Context, arg ListAnomalyPeopleParams) ([]ListAnomalyPeopleRow, error)
+	// Counter gaps per plaque -- the OTHER half of the ctr-gap signal (A1 / Q21).
+	//
+	// 🔴 A GAP IS A PROPERTY OF THE PLAQUE'S COUNTER, NOT OF THE PERSON. The NTAG chip
+	// increments `ctr` on every read whether or not the resulting page is ever posted,
+	// so a run of unposted reads shows up as a jump the next time somebody does tap
+	// (CLAUDE.md section 4.4, and the atomic advance in tags.sql is where the gap is
+	// measured). Breaking it down by employee alone would attribute one door's collected
+	// URLs to whoever happened to walk through it next.
+	//
+	// `largest_gap` is the biggest single jump rather than a sum: ten taps each one
+	// short is an ordinary busy plaque, one tap forty short is not the same event.
+	ListAnomalyPlaques(ctx context.Context, arg ListAnomalyPlaquesParams) ([]ListAnomalyPlaquesRow, error)
+	// Which rule decided how many records in the window (M3-07).
+	//
+	// 🔴 IT IS THE ONE BREAKDOWN ON THIS SCREEN THAT IS NOT A SUSPICION. A guardrail
+	// firing is the system working; the number is here because a CHANGE in the mix is
+	// the thing worth seeing -- a week where sys:sun-invalid triples is a week where a
+	// plaque is failing or somebody is replaying URLs, and neither is visible in a
+	// verdict count.
+	//
+	// matched_sid IS NULL is kept and named rather than dropped: migration 0008's CHECK
+	// allows a record with no policy decision at all (everything written before M3-07,
+	// and every manager-typed row), and folding those into another bucket would make the
+	// column sum disagree with the record count above it.
+	ListAnomalyPolicySids(ctx context.Context, arg ListAnomalyPolicySidsParams) ([]ListAnomalyPolicySidsRow, error)
+	// The same window split by the venue whose plaque was touched.
+	//
+	// IT IS THE TAPPED LOCATION rather than the employee's home one (section 5, Q17):
+	// the question "is this venue's WiFi failing" is a question about the door somebody
+	// stood at. Every venue with taps in the window is returned, including the clean
+	// ones -- unlike the people list, because a rate of zero at one branch beside a rate
+	// of a third at another is the comparison this section exists to make.
+	ListAnomalyVenues(ctx context.Context, arg ListAnomalyVenuesParams) ([]ListAnomalyVenuesRow, error)
 	// The tenant's departments, for the panel's DEPARTMENT filter (M6-03).
 	//
 	// It exists beside GetDepartmentShift rather than widening it, which is the split
@@ -1656,6 +1846,35 @@ type Querier interface {
 	// computes the haversine distance from the tap's GPS to each location and checks
 	// the < 150 m radius. Returns every location in the tenant so that check can run.
 	ListLocationsForTenant(ctx context.Context, tenantID uuid.UUID) ([]Location, error)
+	// Check-ins in the window that no later checkout closes.
+	//
+	// 🔴 THE DEFINITION IS STATED IN ONE LINE BECAUSE IT IS NOT THE REPORTS SECTION'S.
+	// Here: a non-practice `in` with NO `out` after it, full stop. internal/domain/ledger's
+	// worked-hours arithmetic asks a different question -- it PAIRS the week's records and
+	// additionally treats a checkout more than tap.StaleOpenIn later as a missed checkout
+	// rather than a shift -- so the two numbers can legitimately differ. Neither is wrong;
+	// they answer different questions, and the screen says which one this is.
+	//
+	// ⚠️ `NOT t.practice` IS THE M5-07 AUDIT'S RULE AND IT IS LOAD-BEARING HERE. A
+	// practice row is a type='in' that is never followed by an 'out' (ADR 0008), so
+	// without this predicate the list would produce exactly one false positive per new
+	// starter -- and "the report does not comment, it shows data" would be broken by the
+	// report's own arithmetic.
+	//
+	// 🔴 `was_maskable` IS THE DEVIR NOTE FROM M5-11 MADE VISIBLE. Before ADR 0008 a
+	// practice row could sort on top of a real open check-in and make the next tap resolve
+	// to `in` instead of `out`. Those rows are still on disk (transactions is immutable)
+	// and they cannot be told apart from an ordinary forgotten checkout by their own
+	// columns -- but "does a practice row of this person's sit AFTER this check-in" can be
+	// asked, and that is what this flag answers. It is a HINT rather than a diagnosis, and
+	// the screen says so.
+	//
+	// ⚠️ AND IT IS DELIBERATELY NOT A FILTER. The counterpart query below counts the ones
+	// this list can no longer show at all.
+	//
+	// ORDERED OLDEST FIRST, which is the order a manager works a backlog in, so a
+	// shortened page keeps the entries that have been waiting longest.
+	ListOpenCheckIns(ctx context.Context, arg ListOpenCheckInsParams) ([]ListOpenCheckInsRow, error)
 	// ---------------------------------------------------------------------------
 	// THE DEPARTMENTS HALF OF THE LOCATIONS SECTION (M6-06 phase A).
 	//
@@ -2405,6 +2624,74 @@ type Querier interface {
 	// depends on physical row order.
 	//
 	ListTagsForTenant(ctx context.Context, tenantID uuid.UUID) ([]ListTagsForTenantRow, error)
+	// Pairs of people whose taps land at the same venue within seconds of each other, on
+	// more than one day (the buddy-punching signal).
+	//
+	// 🔴 IT IS ADJACENT PAIRS OVER AN ORDERED STREAM, NOT A SELF-JOIN, AND THE ARGUMENT
+	// IS ABOUT HOW MANY COMPARISONS EACH SHAPE MAKES -- NOT ABOUT MILLISECONDS. The
+	// obvious shape (join the window to itself on "same location, later, within N
+	// seconds") makes a number of comparisons that grows with the SQUARE of the week's
+	// rows, and the query plan reports that number itself:
+	//
+	//      self-join, plain `b.location_id = a.location_id`, week bounds on both sides
+	//        -> Hash Join, then `Rows Removed by Join Filter: 1 560 627`
+	//           over a window holding 1 365 directed non-practice rows (1 365^2 = 1 863 225,
+	//           so the filter is evaluating ~84% of a full cartesian: the venue equality
+	//           becomes a hash key and one venue still holds most of the rows)
+	//      lag() over (PARTITION BY location_id ORDER BY occurred_at, id)
+	//        -> one Sort + one WindowAgg over the same 1 365 rows
+	//
+	// Measured 2026-08-12, tenant Kebab Factory, the seven local days to 2026-08-13,
+	// EXPLAIN (ANALYZE, BUFFERS).
+	//
+	// 🔴 NO SPEED RATIO IS CLAIMED, AND THAT IS A CORRECTION RATHER THAN MODESTY. This
+	// block has now quoted a wall-clock ratio TWICE and been wrong twice: first
+	// "151.3 ms vs 5.6 ms, 27x" (single warm readings, did not survive a re-run), then
+	// "209.8/221.3/252.8 ms vs 11.0-24.7 ms, ten to twenty times" -- which an independent
+	// reviewer could not reproduce, measuring the same shape at 17-19 ms on a comparable
+	// table, roughly six times faster than this machine saw it; a third reading, taken
+	// later again, differed from both. Measurements of one statement disagreeing by that
+	// much mean the timing is a property of the machine and the cache, not of the query.
+	//
+	// ⚠️ AND WHAT IS STABLE IS THE PROPORTION RATHER THAN THE COUNT -- this line claimed
+	// the count itself was "the same on any machine" and it is not. Three readings of this
+	// comparison used THREE DIFFERENT JOIN STRATEGIES (hash, nested loop, merge) over
+	// windows of 1 063, 1 365 and 1 547 directed rows, because the table grows on every
+	// `make test` run. The absolute "rows removed" figure moves with all of that. What does
+	// NOT move is that the join filter evaluates a large FRACTION of n^2 -- 1 560 627 of
+	// 1 863 225, about 84%, in the reading above -- while the window function makes one
+	// pass over n rows. The fraction is the argument; the count is one observation of it.
+	//
+	// ⚠️ WHAT THE CHEAP SHAPE CANNOT SEE, COUNTED RATHER THAN GLOSSED. lag(1) compares
+	// each tap with the ONE before it at that venue, so in a burst A, B, C it reports
+	// (A,B) and (B,C) but never (A,C). The cluster is still visible -- both of its
+	// neighbouring pairs are listed -- but the specific first-to-last pair is not, and a
+	// reader counting pairs will find fewer than a full cross-product would give.
+	//
+	// 🔴 SECTION 5 SAYS A QUEUE IS NORMAL: "different people may touch the same plaque
+	// one after another". So a single burst is not a signal at all, and `min_days` is
+	// what separates the two -- people who arrive together every day, rather than people
+	// who happened to queue once. The threshold is the caller's and is printed on the
+	// screen beside the list.
+	//
+	// PRACTICE AND UNDIRECTED ROWS ARE EXCLUDED. A rejected touch never became an
+	// attendance record, and a training tap is a first-day event; either would put pairs
+	// in this list that describe nothing about a working day.
+	// ⚠️ THE TWO EMPLOYEE IDS ARE GROUPED ON AND ORDERED BY, AND DELIBERATELY NOT
+	// SELECTED. Two reasons, and the first is the file's own rule: nothing is selected
+	// that has no reader, and this screen links nowhere -- it names people, it does not
+	// offer an action on them. The second is measured: `least(uuid, uuid)` is a shape
+	// sqlc v1.28 cannot type, and it emitted `interface{}` for both columns. An
+	// `interface{}` on a view type is precisely the field a coordinate could travel in
+	// that section 4.7's name-based net cannot see, so the honest fix is to not carry
+	// the column rather than to cast it into place.
+	//
+	// ⚠️ `together` IS SELECTED AND IT IS RENDERED. A review found it reaching
+	// ledger.AnomalyPair and stopping there -- selected with no reader, which is the rule
+	// this very paragraph states, broken two lines below where it is written. It is on the
+	// screen now ("together N times"), because "twice on two days" and "forty times on two
+	// days" are different rows and the day count alone cannot tell them apart.
+	ListTapsTakenTogether(ctx context.Context, arg ListTapsTakenTogetherParams) ([]ListTapsTakenTogetherRow, error)
 	// The REPORTS section's read (M6-07 phase A): the raw material worked hours are
 	// computed from. One row per DIRECTION-CARRYING record, ordered so that one pass
 	// over the result reconstructs each person's in/out chain.

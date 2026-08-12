@@ -14,7 +14,7 @@ package ledger
 // int64 nanoseconds -- and lateness is whole minutes as an int. There is no float64
 // hour, no EXTRACT(EPOCH ...)::float and no AVG() anywhere in this path. The
 // separation is asserted rather than asserted-about:
-// TestReport_TotalsAreExactUnderRepeatedOddMinutes adds a quantity that a float
+// TestAccumulate_TotalsAreExactUnderRepeatedOddMinutes adds a quantity that a float
 // accumulator gets wrong and is measured going red when one is used.
 //
 // 🔴 §4.7 -- WHAT A REPORT ROW CANNOT CARRY. The query it is built from selects no
@@ -67,8 +67,14 @@ const ReportDays = 7
 // a red-line notice above the figures saying the hours below are "a floor and not a
 // total", and then the figures. That is the honest shape -- a floor is useful and a
 // blank page is not -- but the notice is the whole of the protection, so it is the
-// thing that must never be softened. TestReportsSection_RefusesToPresentATruncatedRead
-// AsATotal pins it, with a positive control that an untruncated read does NOT carry it.
+// thing that must never be softened. It is pinned by
+// TestReportsSection_RefusesToPresentATruncatedReadAsATotal (internal/handler), with a
+// positive control that an untruncated read does NOT carry it.
+//
+// ⚠️ THAT NAME USED TO BE WRAPPED ACROSS TWO LINES, which made it unfindable by the
+// grep a reader runs to check the guarantee. Same rule as the one M6-11 adopted after
+// citing two tests that did not exist: a name a grep cannot find is a citation that
+// does not work.
 //
 // WHY 20 000, AND THE ANSWER IS STATED AS AN INEQUALITY BECAUSE THE TWO CLAIMS THAT
 // USED TO SIT HERE WERE HEADCOUNTS AND BOTH WERE WRONG.
@@ -392,7 +398,7 @@ func (r *Reader) Hours(ctx context.Context, tenantID uuid.UUID, f ReportFilter) 
 			// ONE ROW MORE THAN CAN BE USED, which is how "was this complete" is
 			// answered without a COUNT over the week -- the same trick the two paged
 			// sections use, applied to a total rather than to a page.
-			RowLimit: readLimit(),
+			RowLimit: readLimit(ReportEventCap),
 		})
 		if err != nil {
 			return fmt.Errorf("list worked shift events: %w", err)
@@ -441,7 +447,10 @@ func (r *Reader) Hours(ctx context.Context, tenantID uuid.UUID, f ReportFilter) 
 // to fill the budget; one more is the first row that could not fit. Both are pinned by
 // TestReadLimit_MakesTruncationDETECTABLE, which is measured going red on `>=` and on a
 // limit equal to the cap.
-func readLimit() int32 { return ReportEventCap + 1 }
+// ⚠️ IT TAKES THE CAP NOW. M6-11 shipped its own `AnomalyRowCap + 1` in anomaly.go --
+// a second copy of one rule, each self-consistent and drifting invisibly, which is the
+// class this file's own comments name three times. One function, two callers.
+func readLimit(cap int32) int32 { return cap + 1 }
 
 func truncatedBy(rowsRead int) bool { return rowsRead > ReportEventCap }
 

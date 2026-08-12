@@ -6565,8 +6565,9 @@ URL biriktirme) görünür kalması buna bağlı.
   sorunu ya kötüye kullanım; ikisi de bilinmeli.
 - **`ctr` boşlukları** (`tap:ctrGap > 0`) — URL biriktirmenin **tek gerçek izi**
   (A1/Q21). Çalışan ve plaket kırılımında.
-- **POST'suz `GET /t` sayısı** — ikincil sinyal. Uçak modu senaryosunda sıfır
-  kalır, bu yüzden tek başına yeterli değildir.
+- ~~**POST'suz `GET /t` sayısı** — ikincil sinyal. Uçak modu senaryosunda sıfır
+  kalır, bu yüzden tek başına yeterli değildir.~~ **DÜŞÜRÜLDÜ (2026-08-12) —
+  gerekçe aşağıdaki düzeltme bloğu, md. 1.**
   - ⚠️ **BU SİNYALİN BUGÜN KAYNAĞI YOK** (eklendi 2026-08-02, M5-10 uygulaması).
     Kriter, M5-10'un `tap_page_views(tag_uid, ctr, first_seen_at, source_ip)`
     tablosunu yazacağını varsayıyordu; o tablo **kullanıcı kararıyla
@@ -6590,11 +6591,19 @@ URL biriktirme) görünür kalması buna bağlı.
     `ctr` boşlukları (bir sonraki madde) M5-05'ten beri **canlı**
     (`base:ctr-gap-review` gerçek bir tap'te ateşlendi). Bu not M6-11'i
     çözmüyor, yalnız sahibine doğru bilgiyi bırakıyor.
-- **"IP eşleşti ama GPS uyuşmuyor"** (`tap:gpsConflict`) — mekânda bırakılmış
-  proxy sinyali (Y-E). Bu saldırı GPS-only oranında **görünmez**; kayıtları
-  tersine "IP ile doğrulanmış" olarak en güvenilir gösterir.
-- **Tek cihaz/oturum kaynağından aktive edilmiş birden fazla çalışan** ve
-  **hiç çapraz-lokasyon göstermeyen çalışan** — müdürün kimlik basması sinyali (Y-D).
+- ~~**"IP eşleşti ama GPS uyuşmuyor"** (`tap:gpsConflict`)~~ — **mekanizma bu
+  DEĞİL; düzeltildi (2026-08-12), aşağıdaki blok md. 3.** `tap:gpsConflict`
+  motorda **yalnız mesafeden** üretilir (`internal/domain/tap/decide.go →
+  gpsFacts`: `return match, !match, …`) ve IP hakkında hiçbir şey söylemez.
+  Kartın kastettiği kombinasyon — mekânda bırakılmış proxy (Y-E) — ekranda
+  **ayrı bir sayı** olarak duruyor: dışarıdan okunan ve **aynı zamanda** mekânın
+  kayıtlı IP aralığından cevap veren kayıtlar. Bu saldırı GPS-only oranında
+  gerçekten **görünmez**.
+- ~~**Tek cihaz/oturum kaynağından aktive edilmiş birden fazla çalışan** ve
+  **hiç çapraz-lokasyon göstermeyen çalışan** — müdürün kimlik basması sinyali (Y-D).~~
+  **İKİSİ DE DÜŞÜRÜLDÜ (2026-08-12) — gerekçe aşağıdaki blok, md. 2.** Yerine
+  çapraz-lokasyon tap'lerinin **sayısı** raporlanıyor (kartın son maddesi zaten
+  istiyordu); "hiç göstermeyen çalışan" listesi ölçülerek elendi.
 - **Eş-zamanlı tap çiftleri** — her gün saniyeler içinde birlikte tap yapan
   kişiler (buddy punching sinyali). Suçlama değil, bakılacak yer.
 - **Çıkışsız açık kayıtlar** ve **çapraz lokasyon tap'leri**.
@@ -6635,6 +6644,281 @@ URL biriktirme) görünür kalması buna bağlı.
 - **Politika kırılımı**: hangi `sid` kaç kayıt üretti (M3-07 sayesinde makine
   tarafından filtrelenebilir).
 - Rapor **yorum yapmaz**, veri gösterir. "Şüpheli çalışan" etiketi yok.
+
+> **Kart düzeltmesi (2026-08-12, M6-11 uygulaması sırasında).** Sekiz kabul
+> kriterinden **altısı** karşılandı, **ikisinin kaynağı yok** ve düşürüldü, **biri**
+> mekanizmayı yanlış tarif ediyordu ve yeniden yazıldı. Ekran `/admin/anomalies`,
+> sekme adı **Anomalies**, `pages.PanelSections`'ta Reports ile Policies arasında.
+>
+> **1. POST'suz `GET /t` — KAYNAK ÜRETİLMEDİ, SİNYAL DÜŞÜRÜLDÜ.** Ölçüldü
+> (2026-08-12): `internal/handler/tap.go` içinde **hiçbir store çağrısı yok**
+> (`grep -n 'q\.\|store\.New\|WithTenant' internal/handler/tap.go` → 0 satır) ve
+> oturumsuz `GET /t` `redirectToActivation` ile **303**'te duruyor. Yani üretilecek
+> kaynak yalnız **oturumlu** istekleri sayabilirdi — yani zaten tanınan kişileri;
+> uçak modundaki saldırgan hiç sayılmazdı. Kaynak üretmek ayrıca (a) bugün
+> **stateless** olan tap sayfasına bir yazma yolu ekler ve o yol kimlik doğrulamadan
+> önce çalışır, (b) yeni tablo + saklama süresi + RLS beşlisi = **migration** demektir
+> (son migration 00015). Kartın kendi cümlesi düşürmeyi zaten kolaylaştırıyor: A1'in
+> **asıl** izi `ctr` boşluklarıdır ve o **canlı**:
+>
+> ```sql
+> SELECT count(*) FROM transactions WHERE (policy_context->>'tap:ctrGap')::int > 0;
+> ```
+>
+> ⚠️ Rakamı buraya YAZMIYORUM ve bu bir ders: ilk yazımda "68 kayıt" yazmıştım; aynı
+> oturumda `make test` + `make simulate-day` koştuktan sonra aynı sorgu **139**
+> döndürdü. Sayı her koşuda büyüyor, sorgu değişmiyor.
+> Ekran bu boşluğu hem çalışan hem **plaket** kırılımında gösteriyor ve *"bu sayfanın
+> göremediği iki şey"* başlığı altında POST'suz `GET /t`'nin **ölçülmediğini** açıkça
+> yazıyor.
+>
+> **2. TEK CİHAZDAN ÇOKLU AKTİVASYON — KAYNAK YOK, ÖLÇÜLEREK DÜŞÜRÜLDÜ.** `sessions`
+> tablosunda `created_ip` **yok** (`\d sessions`: id, tenant_id, employee_id,
+> token_hash, device_info, created_at, last_used_at, revoked_at). Eldeki tek alan
+> `device_info` ve o **kaba bir aile etiketi**. Sayılar burada YAZILMIYOR, komut
+> yazılıyor — bu tablo her `make test` ile büyür ve elle tutulan rakam bayatlar
+> (kural: `TestComments_DoNotQuoteTheDriftingRosterSize`):
+>
+> ```sql
+> SELECT count(*), count(DISTINCT device_info), count(*) FILTER (WHERE device_info IS NULL)
+>   FROM sessions;
+> SELECT device_info, count(DISTINCT employee_id) FROM sessions GROUP BY 1 ORDER BY 2 DESC LIMIT 5;
+> SELECT count(*) FROM (SELECT tenant_id, device_info FROM sessions
+>   WHERE device_info IS NOT NULL GROUP BY 1,2 HAVING count(DISTINCT employee_id) > 1) x;
+> ```
+>
+> 2026-08-12'de ölçülen ŞEKİL: yedi binden fazla oturum, **yirmi beş** farklı
+> `device_info` değeri, beşte biri NULL, ve **en kalabalık tek değer** (`test`)
+> roster'ın büyük çoğunluğunu tek etiket altında topluyor. *"Aynı `device_info` +
+> birden çok çalışan"* sorgusu (üçüncü komut) **yüzlerce grup** döndürüyor — bu bir
+> tespit değil, her cihaz ailesini işaretleyen bir gürültü.
+>
+> ⚠️ Bu cümle ilk yazımında *"273 grup"* diyordu — yani **bir paragraf önce koyduğum
+> kuralı bir paragraf sonra çiğniyordum.** Bugün aynı sorgu **329** döndürüyor. Sayı
+> gitti, komut kaldı. Kaynak üretmek `sessions`'a bir
+> IP sütunu demek: **migration** + §4.7 kapsamında **kişisel veri** + saklama süresi
+> kararı — orkestratöre/kullanıcıya bildirildi, bu görevde yapılmadı.
+>
+> **Y-D'nin ikinci yarısı da düşürüldü, ve o daha net bir ölçüm:** *"hiç
+> çapraz-lokasyon göstermeyen çalışan"* sinyali dev veritabanında Kebab Factory'nin son
+> yedi gününde roster'ın **tamamını** işaretliyor — iki ayrı ölçümde de oran **%100**
+> (aynı gün iki kez koşuldu; mutlak sayı `make test` ile büyüdüğü için burada
+> yazılmıyor, oran yazılıyor):
+>
+> ```sql
+> SELECT count(DISTINCT employee_id) AS employees,
+>        count(DISTINCT employee_id) FILTER (WHERE policy_context->>'employee:crossLocation'='true') AS ever_cross
+>   FROM transactions
+>  WHERE tenant_id='10000000-0000-4000-8000-000000000001'
+>    AND occurred_at >= now() - interval '7 days' AND employee_id IS NOT NULL;
+> ```
+>
+> `ever_cross` her iki koşuda da **0**. Tek şubeli bir işletmede bu **tanım gereği**
+> herkestir.
+> Yerine kartın son maddesinin istediği şey yapıldı: çapraz-lokasyon tap'lerinin
+> **sayısı** hem toplamda hem kişi kırılımında gösteriliyor.
+>
+> **3. `tap:gpsConflict` KARTTA YANLIŞ TARİF EDİLMİŞ.** Kart *"IP eşleşti ama GPS
+> uyuşmuyor"* diyor; motor bayrağı **yalnız mesafeden** üretiyor
+> (`decide.go → gpsFacts`, `match = WithinRadius(...)`, `conflict = !match`) ve IP'ye
+> hiç bakmıyor. Bu iddia **koda dayanıyor**, sayıya değil — ve sayıya dayandırmayı
+> denedim, tutmadı (bkz. aşağıdaki uyarı). Ekran bu yüzden **iki sayı** basıyor:
+> (a) "mekân dışında okunmuş" (bayrağın kendisi), (b) bunların kaçı **aynı zamanda**
+> mekânın kayıtlı IP aralığından cevap vermiş — Y-E'nin gerçek şekli. (b) sıfırsa
+> ekran **sıfır olduğunu söylüyor**, susmuyor.
+>
+> ⚠️ **KENDİ HATAM, YAZIYORUM.** Bu blok ilk yazımında *"bayrağı taşıyan 39 kaydın
+> 39'unda `ip_match = false`, yani kartın tarif ettiği kombinasyon dev veritabanında
+> hiç yok"* diyordu. Bu görevin **kendi DB testi** tam olarak o kombinasyonu eken bir
+> fixture taşıyor; birkaç `make test` koşusundan sonra aynı sorgu 104 çakışmanın
+> **59'unda** `ip_match = true` döndürdü. Yani cümle hem **bayatladı** hem de
+> ölçtüğü şey artık üretim verisi değil **kendi fixture'ım**. Doğru dayanak
+> `decide.go`'nun kendisi; sorgu şu, sayı değil:
+>
+> ```sql
+> SELECT count(*) FILTER (WHERE policy_context->>'tap:gpsConflict'='true') AS conflict,
+>        count(*) FILTER (WHERE policy_context->>'tap:gpsConflict'='true' AND ip_match) AS conflict_on_ip
+>   FROM transactions;
+> ```
+>
+> **4. GPS-only için kaynak seçimi ölçüldü — ve md.3'teki tuzağa BURADA düştüm.**
+> `gps_match`/`ip_match` **sütunları**, `policy_context`'ten **daha geniş** bir kayıt
+> kümesini kapsıyor (snapshot yalnız migration 0008 sonrası tap yolunun yazdığı
+> satırlarda var). Sayım bu yüzden sütunlardan yapılıyor. Şekli veren komut:
+>
+> ```sql
+> SELECT count(*) FILTER (WHERE gps_match IS NOT NULL)      AS column_covered,
+>        count(*) FILTER (WHERE policy_context IS NOT NULL) AS snapshot_covered,
+>        count(*) FILTER (WHERE gps_match AND NOT ip_match) AS gps_only_columns,
+>        count(*) FILTER (WHERE policy_context->>'tap:gpsMatch'='true'
+>                           AND policy_context->>'tap:ipMatch'='false') AS gps_only_snapshot
+>   FROM transactions;
+> ```
+>
+> ⚠️ **KENDİ HATAM.** Bu madde ilk yazımında *"ikisi de 149 … 17.612 / 10.812"*
+> diyordu. Dört sayı da aynı gün kaydı; üstelik iki GPS-only sayımı artık
+> **birbirinden farklı** ve fark tam olarak snapshot'ında `tap:gpsMatch` anahtarı
+> **bulunmayan** satırlar — yani yine **benim kendi fixture'ım**. md.3'te *"kendi
+> fixture'ını üretim verisi sanma"* diye yazdığım tuzağın aynısına bir madde sonra
+> düşmüşüm. Sayılar gitti, komut kaldı; **kalıcı olan gerekçe** şu: sütunlar
+> snapshot'tan geniş, ve snapshot'ı olmayan kaydın sayısı ekranda **ayrı** yazılıyor,
+> çünkü `ctrGap`, `gpsConflict` ve `crossLocation` onlar için **cevaplanamaz** —
+> "cevaplayamıyoruz" ile "temiz" aynı şey değildir (§4.6).
+>
+> **4b. PAYDA DEFEKTİ — ilk turda §4.6 cümlesini aritmetikle yalanlıyordum.** Denetim
+> ölçtü: `CounterGaps` ve `OtherVenue` **`Records`**'a, `OutsideVenue` **`Judged`**'a
+> bölünüyordu; oysa üçü de yalnız snapshot taşıyan kayıtlar için hesaplanabiliyor.
+> Yani "cevaplayamadığımız" kayıtları tam da cevaplayamadığımız üç oranın **paydasına**
+> koyuyordum — aritmetik olarak **temiz saymak** — ve bunu *"They are not counted as
+> clean"* cümlesinin **aynı docket'inde** yapıyordum. Kendi fixture'ımda görünen hâli:
+> 22 kayıt, 4'ü snapshot'sız, ekranda `1 of 22 after a counter gap`; soruyu
+> sorabildiğimiz taban **18**. Düzeltildi: sütunlardan okunan figür `Judged`'a,
+> snapshot'tan okunan üç figür `Records − Unanswerable`'a bölünüyor, venue kırılımında
+> da aynı ayrım var, ve ekran **iki tabanı da adıyla yazıyor** (`BasisLine`). Yanlış
+> tabanlar DB testinde **isimle** yasak.
+>
+> **5. Açık kayıt tanımı Reports'unkinden FARKLI, ve ekran bunu söylüyor.** Buradaki
+> tanım `NOT EXISTS (sonrasında bir 'out')`, nokta. Reports haftanın kayıtlarını
+> **eşleştirir** ve çok geç gelen bir çıkışı vardiya değil unutulmuş çıkış sayar; iki
+> sayı meşru biçimde farklı olabilir. Aynı ada sahip iki sayı bulan okuyucu ikisine de
+> güvenmeyi bırakır, o yüzden fark ekranda yazılı.
+>
+> **6. M5-11 devir notu uygulandı.** Maskelenmiş açık girişler için ayrı bir sorgu var
+> (`CountMaskedOpenCheckIns`) ve **iki** sayı basıyor: listede hâlâ görünenler ve bir
+> sonraki çıkışın listeden sessizce düşürdükleri. Ekranda *"dev artığı"* özel durumu
+> **yok**; sayılar neyi saydıklarını söylüyor.
+>
+> **7. Eş-zamanlı tap çiftleri: sorgu şekli KARŞILAŞTIRMA SAYISIYLA seçildi, süreyle
+> değil.** Self-join'in join filtresi pencere satır sayısının **karesiyle** büyüyor ve
+> bunu planın kendisi yazıyor: `b.location_id = a.location_id` ile yazılmış, iki tarafı
+> da haftaya sınırlanmış bir self-join, 1 365 yönlü satırlık bir pencerede
+> `Rows Removed by Join Filter: 1 560 627` veriyor (1 365² = 1 863 225 — tam
+> kartezyenin ~%84'ü; mekân eşitliği hash anahtarı oluyor ama satırların çoğu tek bir
+> mekânda). `lag()` şekli aynı satırlar üzerinde **tek bir Sort + WindowAgg**.
+>
+> ⚠️ **HIZ ORANI ARTIK İDDİA EDİLMİYOR, ve bu bir düzeltme.** Bu blok duvar saati
+> oranını **iki kez** yazdı ve **iki kez** çürüdü: önce *"151,3 ms / 5,6 ms, 27×"* (tek
+> sıcak okuma, yeniden koşuda durmadı), sonra *"209,8–252,8 ms / 11,0–24,7 ms, on ila
+> yirmi kat"* — bağımsız bir denetçi **aynı şekli** benzer bir tabloda **17–19 ms**
+> ölçtü, yani bu makinenin gördüğünün ~altıda biri. Bir ifadenin iki ölçümü 6×
+> ayrılıyorsa ölçülen şey sorgu değil makine ve önbellektir. **Karşılaştırma sayısı**
+> plandan okunuyor, makineden bağımsız, ve argümanın tamamı o.
+>
+> Sınır sayıldı: `lag(1)` yalnız **komşu** çifti görür, yani A,B,C patlamasında (A,C)
+> listelenmez — küme yine görünür, o çift görünmez. **Bu sınır artık yalnız SQL
+> yorumunda değil, EKRANDA** ("What this page does not see" bloğunun üçüncü maddesi).
+> Eşikler (20 sn, 2 ayrı gün) da ekranda yazılı.
+>
+> **8. Yeni migration ve yeni indeks GEREKMEDİ.** Sekiz sorgunun sekizi
+> `transactions_tenant_occurred_idx` ya da `transactions_tenant_location_idx` üstünde
+> koşuyor; jsonb anahtarları zaten daraltılmış bir hafta üzerinde filtre olarak
+> okunuyor. Backlog **T17** (`audit_log`'da `(tenant_id, target)` indeksi yok) bu
+> ekranı **etkilemiyor** — bu bölüm `audit_log`'a hiç bakmıyor.
+>
+> **8b. §4.7 DUVARLARININ SINIRI ÖLÇÜLDÜ, ÜÇ CÜMLE GERİ ÇEKİLDİ.** Güvenlik denetimi
+> beş katmanlı bir mutasyon koştu (`t.gps_lat::text AS detail` → sqlc `Detail string`
+> → ledger → view → templ): **tip grafı duvarlarının ikisi de geçti**,
+> `redline-check.sh` de geçti; yakalayan tek şey davranışsal sayfa taramasıydı. Yani
+> *"nowhere for one to hide even under a neutral name like `Detail`"* bir **non
+> sequitur**'dü ve *"could not carry one if it tried"* **ölçülebilir biçimde
+> yanlıştı** — denendi, taşıdı. Üç cümle ölçülene indirildi: tip duvarları **açık
+> kapları** reddeder, düz adlı bir `string`'i **reddetmez**; o durumu tutan duvar
+> davranışsal DB testidir.
+>
+> ⚠️ **VE O TEK DUVAR ÖNEMSİZ BİR VARYANTI KAÇIRIYORDU.** `round(gps_lat, 3)::text`
+> ile koordinat **~110 m çözünürlükte** sayfaya basıldı ve tam-literal `Contains`
+> taraması **PASS** verdi. Kapatıldı: yuvarlanmış biçimler literal listesine girdi
+> **ve** sayfada ondalık-derece **şeklinde** hiçbir dizgi olmadığını iddia eden bir
+> desen kontrolü eklendi. Mutasyon birebir tekrarlandı → **kırmızı**
+> (`["35.899"]`). Yanlış-alarm yönü de ölçüldü: sayfanın meşru bastığı her sayısal
+> biçim (sayımlar, tam sayı yüzdeler, saatler, saniyeler, plaket kimlikleri) desene
+> **takılmıyor**, ve bu ayrı bir testle iki yönlü sabitlendi.
+>
+> **8c. Atıf hijyeni.** `anomaly.go` başlığı iki test adını **yanlış** yazıyordu; biri
+> (`TestAnomalies_EveryQueryBindsTheTenant`) repoda **hiç yoktu** ve yanına bir de
+> varlık gerekçesi uydurulmuştu. Özellik gerçekti (`TestPanelQueries_CarryAnExplicit-
+> TenantPredicate` sekiz sorgunun sekizini de kapsıyor), **beyan** kırıktı. Düzeltildi
+> ve dosyada anılan her test adı `grep` ile doğrulandı.
+>
+> **8d. İkinci temsil kapatıldı.** `anomalyReadLimit` kendi `+1`'ini taşıyordu;
+> `report.go`'nun `readLimit`'i artık tavanı parametre alıyor ve iki çağıran da onu
+> kullanıyor.
+>
+> **8e. §4.7 DESENİ COĞRAFYA KÖRÜYDÜ — genişletildi ve yanlış-alarm yönü ÖLÇÜLDÜ.**
+> İlk desen `\b\d{2,3}\.\d{2,}\b` idi ve iki beş-katmanlı mutasyon onu geçti: virgüllü
+> ondalık ayırıcı (`35,898909`) ve **tek tam haneli** derece (`5.898909`). İkincisi
+> ticari olarak önemli: `\d{2,3}` **0°–10° arasındaki hiçbir enlem/boylamı göremez** —
+> Accra, Singapur, Londra, Paris. Malta (35,9/14,5) desenin çalıştığı **tek** coğrafyaydı
+> ve hiçbir yerde yazmıyordu.
+>
+> Genişletmeden **önce** yanlış-alarm yönü ölçüldü: sayfanın üç hâlinden (boş hafta ·
+> fixture haftası · altı listenin altısı da tavanda) **ondalık biçimli dizgi çıkarıldı**
+> → **üçünde de sıfır**. Sayfa hiç ondalık basmıyor (yüzdeler tam sayı, saatler iki
+> nokta üst üste ile). Yani genişletmenin yanlış-alarm maliyeti **ölçülmüş sıfır**.
+> Desen `\b\d{1,3}[.,]\d{2,}\b` oldu; iki mutasyon birebir tekrarlandı → **ikisi de
+> kırmızı** (`["35,898909"]`, `["5.898909"]`). Sayılmış kalan sınırlar (kodda yazılı):
+> tek ondalık basamak (~11 km) · boşluk/derece işareti gibi başka ayırıcılar · kodlanmış
+> biçimler · iki alana bölünmüş koordinat · ve yeni bir yanlış-alarm şekli: üç parçalı
+> sürüm dizgisi (`1.28.17`) — sayfa bugün hiç basmıyor, ölçüldü.
+>
+> **8f. GERİ ÇEKİLEN ORAN ÜÇ YERİN İKİSİNDEN SİLİNMİŞTİ.** `anomalies.go` hâlâ
+> *"209,8 / 221,3 / 252,8 ms … ten to twenty times"*'ı **canlı olgu** olarak kuruyor,
+> üstelik *"The ratio held"* diyordu — SQL'in kendi anlatısı oranın **iki kez** yanlış
+> çıktığıydı. Silindi; Go dosyası artık yalnız kendi sekiz-sorgu tablosunu taşıyor ve
+> onu da *"bir makinenin gözlemi"* olarak etiketliyor (bağımsız denetçi son sorguyu
+> 5,7–6,3 ms ölçtü, bu makinenin gördüğünün dörtte biri). Self-join argümanı tek bir
+> yerde: SQL'de, karşılaştırma **oranıyla**.
+>
+> **8g. 1 063 / 1 365 ÇELİŞKİSİ ÇÖZÜLDÜ.** İki dosya aynı gün, aynı tenant, aynı pencere
+> için iki farklı satır sayısı yazıyordu. İkisi de doğruydu: pencere **gün içinde
+> büyüdü** (`make test` içine yazıyor, §4.3 geri almayı imkânsız kılıyor). Artık sayı
+> değil **sorgu** yazılı, ve iki okuma sebebiyle birlikte kayıtta.
+>
+> **8h. Beş ucuz madde.** (a) *"makineden bağımsız"* iddiası **orana** bağlandı — üç
+> okuma üç farklı join stratejisi (hash · nested loop · merge) ve üç farklı satır sayısı
+> verdi; sabit olan `n²`'nin **oranı** (~%84), sayının kendisi değil. (b) Kişi satırında
+> `Records`'ın *"denominator"* olduğu iddiası geri çekildi — üç çip snapshot türevli ve
+> kişi başına answerable kolonu **döndürülmüyor**; satır oran değil **sayım** basıyor,
+> kırık olan cümleydi. (c) `ctrGap` değer listesi (`0, 2, 5`) silindi — bir iş günü
+> içinde bayatladı ve iki değeri **benim kendi fixture'ım** ekliyordu; sonuç ve sorgu
+> kaldı. (d) Fixture her sid'e `guardrail` yazıyordu; `base:*` için bu ürünün
+> **üretemeyeceği** bir satır. Düzeltildi — ve şema bunu **zorluyor**: 0008'in CHECK'i
+> baseline katmanına **policy_version_id** şart koşuyor, yani fixture artık gerçek bir
+> `policies` + `policy_versions` satırı yazıyor. Katman ekranda teste bağlandı
+> (mutasyon → **kırmızı**). (e) `report.go`'daki bir test atfı yanlıştı
+> (`TestReport_…` → `TestAccumulate_…`); HEAD'den geliyordu, bu turda dokunduğum dosya
+> olduğu için düzeltildi.
+>
+> **8i. SON TUR — bir kaçış sınıfı sayıldı, dört iç metin düzeltildi.** (a) Denetçi
+> `to_char(gps_lat,'9.99999999EEEE')` ile **tam hassasiyetli** bir enlemi
+> `3.58989090e+01` olarak sayfaya bastı ve **bütün ağlar yeşil** kaldı; aynısı
+> `U+FF0E`/`U+066B` ondalık ayırıcılarıyla da geçiyor. Desen **genişletilmedi**, iki
+> sınıf **sayıldı** — ama önce ölçüldü: `\d[.,]\d+[eE][+-]?\d+` ve
+> `\d{1,3}[\x{FF0E}\x{066B}\x{2024}]\d{2,}` üç sayfa şeklinin **hiçbirinde**
+> eşleşmiyor, yani genişletmenin maliyeti de **sıfır**. Sayma kararının gerekçesi
+> maliyet değil kapsam: sevk edilen hiçbir sorgu koordinat seçmiyor, yani bu biçimleri
+> **hiçbir yol üretmiyor**. Ölçüm koda yazıldı ki karar sayı yeniden alınmadan
+> döndürülebilsin. (b) Üç yerdeki *"yalnız sayı ve isim geçiyor"* envanteri eksikti —
+> üretilen tipler ayrıca iki `bool` ve iki nullable id taşıyor; **özellik doğru,
+> envanter kısaydı**, düzeltildi. (c) Şekil taraması yalnız fixture sayfasında
+> koşuyordu; artık **boş** ve **doygun** sayfalarda da koşuyor (ikisi de yalnız o şekle
+> özgü bir cümleyle çapalanmış), pozitif kontrol: ekilen bir ondalık **iki şekilde de
+> kırmızı**. (d) İki unit fixture `Answerable`'ı 0 bırakıp `"1 of 0"` bastırıyordu —
+> ürünün üretemeyeceği bir hafta; hiçbir iddia buna dayanmıyordu ama düzeltildi.
+> (e) Sayfa-baytı tablosu **bant** oldu (113 000–118 000 B): doygun sayfanın boyutu
+> uydurulan **isimlerin uzunluğuna** bağlı ve üç bağımsız ölçüm üç değer verdi. Tabloyu
+> teste bağlamama kararı gerekçesiyle yazıldı: bir bayt iddiası **değişiklik
+> dedektörüdür** ve bu bölümün denetim turları sayfaya üç cümle ekleyip rakamı iki kez
+> oynattı — pinlenmiş bir test üç kez, arkasında kusur olmadan kırmızı olurdu.
+>
+> **9. Bir yan düzeltme, kapsam dışı ama gerekliydi:** `internal/domain/ledger/query_test.go`'nin
+> §4.5 ağı PostgreSQL'in **`FILTER (WHERE …)`** kümeleme yan tümcesini bir sorgu
+> WHERE'i sanıyordu ve **doğru SQL üzerinde yanlış alarm** üretiyordu (bu bölümün on
+> sayacının onu için). Ağ **daraltıldı** (yalnız `FILTER (` hemen öncesindeki WHERE
+> atlanıyor), ve mutasyonla iki yönde de kanıtlandı: tenant yüklemi **yalnız** FILTER
+> içindeyse hâlâ **reddediliyor**. ⚠️ Aynı kusur `internal/domain/review` ve
+> `internal/domain/tenant` kopyalarında **duruyor**; o paketlerin sorguları kümeleme
+> FILTER'ı kullanmadığı için bugün **atıl**, düzeltilmedi, yazıldı.
 
 ---
 

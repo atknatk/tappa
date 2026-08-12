@@ -233,6 +233,15 @@ type fakeLedger struct {
 	hoursErr     error
 	hoursTenant  []uuid.UUID
 	hoursFilters []ledger.ReportFilter
+
+	// M6-11's read side. Same rule again, and it matters most here: an unqueried zero
+	// value renders a page with no signals on it, which reads as "nothing odd happened
+	// this week" — so a test using it would be reading a fabricated all-clear rather
+	// than a measured one.
+	anomalies        ledger.AnomalyScreen
+	anomaliesErr     error
+	anomaliesTenant  []uuid.UUID
+	anomaliesFilters []ledger.ReportFilter
 }
 
 func newFakeLedger() *fakeLedger {
@@ -248,7 +257,46 @@ func newFakeLedger() *fakeLedger {
 			// a page that looks broken for a reason no assertion would name.
 			Period: ledger.WeekOf(ledger.Date{Year: 2026, Month: time.August, Day: 5}, time.UTC),
 		}},
+		anomalies: ledger.AnomalyScreen{Anomalies: ledger.Anomalies{
+			Queried: true,
+			Zone:    time.UTC,
+			// A REAL PERIOD RATHER THAN THE ZERO ONE, for the reason hours gives: the
+			// view builds its week label out of it and a zero Period would render a
+			// week in year 1 — a page that looks broken for a reason no assertion
+			// would name.
+			Period:                ledger.WeekOf(ledger.Date{Year: 2026, Month: time.August, Day: 5}, time.UTC),
+			TogetherWithinSeconds: int(ledger.TogetherWithin / time.Second),
+			TogetherMinDays:       ledger.TogetherMinDays,
+		}},
 	}
+}
+
+// Anomalies is M6-11's read. It records who was asked and for which week, which is what
+// the isolation and week-picker assertions read.
+func (f *fakeLedger) Anomalies(_ context.Context, tenantID uuid.UUID, filter ledger.ReportFilter) (ledger.AnomalyScreen, error) {
+	f.mu.Lock()
+	f.anomaliesTenant = append(f.anomaliesTenant, tenantID)
+	f.anomaliesFilters = append(f.anomaliesFilters, filter)
+	s, err := f.anomalies, f.anomaliesErr
+	f.mu.Unlock()
+	if err != nil {
+		return ledger.AnomalyScreen{}, err
+	}
+	if s.Zone == nil {
+		s.Zone = time.UTC
+	}
+	return s, nil
+}
+
+// lastAnomalyFilter is the anomalies twin of lastHoursFilter.
+func (f *fakeLedger) lastAnomalyFilter(t *testing.T) ledger.ReportFilter {
+	t.Helper()
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.anomaliesFilters) == 0 {
+		t.Fatal("the anomalies reader was never asked anything; the handler answered without querying")
+	}
+	return f.anomaliesFilters[len(f.anomaliesFilters)-1]
 }
 
 // Hours is M6-07 phase A's read. It records who was asked and for which week, which
