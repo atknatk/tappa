@@ -1381,7 +1381,7 @@ yazılır.
 | M9-06 | Policy simülatörü | todo | Q22 — M6-10'dan ertelendi |
 | M9-07 | Ham JSON politika editörü | todo | Q22 — M6-09'dan ayrıldı |
 
-**Özet:** 83 görev · done **61** · **wip 0** · blocked 0 · skipped 1 · todo **20** · **M0+M1+M2+M3+M4+M5 TAMAM 🎉 · M6 9/12** *(M5-11 M5-09'da bulunan §5 ihlali için kullanıcı kararıyla açıldı → toplam 82'den 83'e)*
+**Özet:** 83 görev · done **61** · **wip 0** · blocked 0 · skipped 1 · todo **21** · **M0+M1+M2+M3+M4+M5 TAMAM 🎉 · M6 9/12** *(M5-11 M5-09'da bulunan §5 ihlali için kullanıcı kararıyla açıldı → toplam 82'den 83'e)*
 
 ---
 
