@@ -132,7 +132,7 @@ const tagsQueryFile = "tags.sql"
 //
 // ⚠️ THE WHOLE DIRECTORY IS STILL NOT COVERED, and the cost of that was measured
 // rather than guessed before choosing one file: over all of db/queries the matcher
-// flags 2 of 70 declared queries, and BOTH are false alarms of one shape -- a
+// flags exactly TWO queries, and BOTH are false alarms of one shape -- a
 // correlated sub-query scoped to the OUTER statement's alias (`o.tenant_id =
 // t.tenant_id`) rather than to the parameter, which this file's own negative control
 // deliberately refuses ("another column, not the parameter"). One of the two is in
@@ -171,12 +171,21 @@ var txnScopeExemptions = map[string]string{
 //
 // ⚠️ THE PRODUCT-WIDE SIZE OF THE BLIND SPOT, BECAUSE THE FIRST VERSION OF THIS
 // PARAGRAPH QUOTED THE WRONG SCOPE. It said "exactly ONE statement is in that blind
-// spot", which is true of THIS FILE and false of the product. Counted over all of
-// db/queries (2026-08-10): 70 declared queries, 12 of them INSERTs, of which SEVEN are
-// `INSERT ... VALUES` and therefore invisible to this matcher wherever it is pointed --
-// RecordAuditEvent, CreateInvite, EnsureBaselinePolicy, EnsureBaselinePolicyVersion,
-// EnsurePolicyAttachment, CreateSession and InsertTransaction. The other five are
-// `INSERT ... SELECT` and can be held.
+// spot", which is true of THIS FILE and false of the product.
+//
+// ⚠️ AND THE FIGURE THAT REPLACED IT ROTTED IN ONE TASK. This paragraph said "70
+// declared queries" as of 2026-08-10; M6-09 phase A added two reads and made it 72
+// the same week, with the stale number still sitting here explaining a blind spot.
+// A denominator that changes whenever anybody writes SQL does not belong in prose,
+// so what is written down now is the SHAPE and the command:
+//
+//	grep -c '^-- name: ' db/queries/*.sql        # how many statements there are
+//
+// THE SHAPE, which does not rot: an `INSERT ... VALUES` is INVISIBLE to this
+// matcher wherever it is pointed, because the matcher looks for a tenant table in a
+// FROM / UPDATE / JOIN and then walks WHERE clauses, and such a statement has
+// neither. The INSERTs that ARE held are the `INSERT ... SELECT` ones (the
+// reviews.sql shape), where the SELECT gives the matcher something to hold.
 //
 // 🔴 AND TWO MORE WAYS PAST THIS BELT WERE MEASURED, so it is not read as a wall:
 //

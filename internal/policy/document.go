@@ -136,13 +136,44 @@ const (
 	ActionPolicyEdit         Action = "policy:edit"
 )
 
-var validActions = map[Action]bool{
-	ActionTapRecord: true, ActionTapApprove: true, ActionRecordManual: true,
-	ActionRecordReview: true, ActionEmployeeDeactivate: true,
-	ActionReportExport: true, ActionPolicyEdit: true,
+// allActions is the closed action vocabulary as an ORDERED list, and it is the
+// single source: validActions is built from it rather than repeating it.
+//
+// 🔴 IT USED TO BE A SECOND REPRESENTATION. validActions was a hand-written map
+// literal naming the same identifiers as the const block above, so adding an
+// eighth action meant remembering to name it twice — and the failure mode of
+// forgetting is SILENT in the dangerous direction only half the time: a missing
+// map entry makes Valid() reject a legitimate action loudly, but the panel
+// (M6-09), which now walks this vocabulary to show which authorities exist, would
+// simply not mention it. An action nobody can see is an authority nobody reviews.
+// TestActions_CoverEveryDeclaredActionConstant parses this file and holds the two
+// in step, in both directions.
+//
+// THE ORDER IS THE DECLARATION ORDER of the const block, which is tap-first then
+// the authorization actions. Callers that render it get a stable list; nothing in
+// the evaluator depends on it (Evaluate looks actions up, never walks them).
+var allActions = []Action{
+	ActionTapRecord, ActionTapApprove, ActionRecordManual, ActionRecordReview,
+	ActionEmployeeDeactivate, ActionReportExport, ActionPolicyEdit,
 }
 
-// Valid reports whether a is one of the seven known actions.
+var validActions = func() map[Action]bool {
+	m := make(map[Action]bool, len(allActions))
+	for _, a := range allActions {
+		m[a] = true
+	}
+	return m
+}()
+
+// Actions returns the closed action vocabulary in declaration order.
+//
+// It exists for the PANEL (M6-09): the Policies screen has to list every
+// authority the engine knows about, and a hand-written list on that screen would
+// be a third copy of this vocabulary — the shape where the newest action is the
+// one nobody is shown. A COPY is returned so a caller cannot mutate the source.
+func Actions() []Action { return append([]Action(nil), allActions...) }
+
+// Valid reports whether a is one of the known actions.
 func (a Action) Valid() bool { return validActions[a] }
 
 // ContextKey is a namespaced evaluation input (ADR 0004 §8). Every key is

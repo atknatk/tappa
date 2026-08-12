@@ -7,6 +7,7 @@ package store
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -163,6 +164,56 @@ func (q *Queries) EnsurePolicyAttachment(ctx context.Context, arg EnsurePolicyAt
 	return err
 }
 
+const listPolicyAttachments = `-- name: ListPolicyAttachments :many
+SELECT policy_id, resource
+FROM policy_attachments
+WHERE tenant_id = $1
+ORDER BY policy_id, resource
+LIMIT $2
+`
+
+type ListPolicyAttachmentsParams struct {
+	TenantID uuid.UUID
+	RowLimit int32
+}
+
+type ListPolicyAttachmentsRow struct {
+	PolicyID uuid.UUID
+	Resource string
+}
+
+// Where each of the tenant's policies is bound: 'location/<id>', 'department/<id>',
+// 'employee/<id>' or '*' (tenant-wide).
+//
+// WHAT THESE ROWS DO AND DO NOT DECIDE, because the screen that shows them must
+// not imply the wrong one. policy.Evaluate scopes a statement by the Resource
+// patterns INSIDE its document, NOT by these rows -- EnsurePolicyAttachment's own
+// comment says so and the Set assembled for a tap is identical with or without
+// them. They record where a policy was BOUND at provisioning time; the rules that
+// actually run carry their own resource patterns. The screen prints both and says
+// which one the engine reads.
+//
+// TENANT SCOPE (section 4.5): explicit tenant_id beside RLS, like every other read.
+func (q *Queries) ListPolicyAttachments(ctx context.Context, arg ListPolicyAttachmentsParams) ([]ListPolicyAttachmentsRow, error) {
+	rows, err := q.db.Query(ctx, listPolicyAttachments, arg.TenantID, arg.RowLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListPolicyAttachmentsRow{}
+	for rows.Next() {
+		var i ListPolicyAttachmentsRow
+		if err := rows.Scan(&i.PolicyID, &i.Resource); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listPolicySet = `-- name: ListPolicySet :many
 
 SELECT DISTINCT ON (p.id)
@@ -272,6 +323,126 @@ func (q *Queries) ListPolicySet(ctx context.Context, tenantID uuid.UUID) ([]List
 			&i.VersionID,
 			&i.VersionNo,
 			&i.Document,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPolicyVersions = `-- name: ListPolicyVersions :many
+SELECT p.id AS policy_id, p.name, p.layer, p.enabled,
+       v.id AS version_id, v.version_no, v.created_at AS version_created_at,
+       v.created_by, a.full_name AS author_name,
+       -- COALESCE, NOT A BARE octet_length, AND IT IS THE OUTER JOIN THAT MAKES IT
+       -- NECESSARY. sqlc types ` + "`" + `octet_length(...)::int` + "`" + ` as NOT NULL, but a policy
+       -- with no version produces a NULL here and the generated Scan would fail at
+       -- run time on exactly the half-provisioned row this query was widened to
+       -- see. 0 is unambiguous: version_id is NULL on the same row, and a real
+       -- document can never be 0 bytes (NOT NULL jsonb; the smallest legal value
+       -- is ` + "`" + `{}` + "`" + `, which is 2 -- 18 355 such rows exist in the development
+       -- database, so the floor is measured rather than assumed).
+       COALESCE(octet_length(v.document::text), 0)::int AS document_bytes
+FROM policies p
+LEFT JOIN policy_versions v
+       ON v.tenant_id = $1 AND v.policy_id = p.id
+LEFT JOIN admin_users a
+       ON a.tenant_id = $1 AND a.id = v.created_by
+WHERE p.tenant_id = $1
+ORDER BY p.name, p.id, v.version_no DESC
+LIMIT $2
+`
+
+type ListPolicyVersionsParams struct {
+	TenantID uuid.UUID
+	RowLimit int32
+}
+
+type ListPolicyVersionsRow struct {
+	PolicyID         uuid.UUID
+	Name             string
+	Layer            string
+	Enabled          bool
+	VersionID        *uuid.UUID
+	VersionNo        *int32
+	VersionCreatedAt *time.Time
+	CreatedBy        *uuid.UUID
+	AuthorName       *string
+	DocumentBytes    int32
+}
+
+// The tenant's policy VERSION HISTORY: who wrote which version of which policy,
+// and when. The panel's Policies screen (M6-09 phase A) is the only caller.
+//
+// IT CARRIES NO document COLUMN, AND THAT IS A BOUND RATHER THAN AN OMISSION.
+// ListPolicySet already returns the LATEST document per policy, which is what the
+// screen renders as "the rules in force". Returning every OLD document here would
+// be unbounded in a way a LIMIT cannot fix: internal/policy.DefaultLimits bounds
+// documents per tenant, versions per policy AND bytes per document separately, so a
+// ROW cap still leaves the BYTES uncapped -- a page of the largest legal document is
+// megabytes into one panel request.
+// octet_length is returned instead, so the screen can say how big a version is
+// without carrying it. Reading an OLD version's body needs its own bounded route
+// and is M6-09 phase B (see the delivery note on the card).
+//
+// LEFT JOIN policy_versions, NOT AN INNER ONE, and this is the difference from
+// ListPolicySet. That query inner-joins on purpose (a policy with no document
+// decides nothing, so the decision engine must not see it). The PANEL has the
+// opposite need: a policies row with no version is a HALF-PROVISIONED policy, and
+// it is not hypothetical -- measured against the development database on
+// 2026-08-11, `SELECT count(*) FROM policies p WHERE NOT EXISTS (SELECT 1 FROM
+// policy_versions v WHERE v.policy_id = p.id AND v.tenant_id = p.tenant_id)`
+// returned 2005 rows. Without the outer join the screen would report that state as
+// "never provisioned", which is a different thing and points at a different fix.
+//
+// created_by IS FK-LESS (00007 defers the admin FK to M6/M7), so the author is
+// resolved by an explicit LEFT JOIN rather than by a constraint. THREE outcomes,
+// and the screen tells them apart:
+//
+//	created_by IS NULL                  -> Tappa's system provisioning wrote it.
+//	created_by set, full_name present   -> that admin wrote it.
+//	created_by set, full_name NULL      -> the id resolves to nobody this tenant
+//	                                       can see. RLS is doing its job (a
+//	                                       cross-tenant id CANNOT be resolved
+//	                                       here, by design), and the screen says
+//	                                       "not resolvable" rather than printing
+//	                                       a name it does not have.
+//
+// TENANT SCOPE (section 4.5, belt + braces): the subject and BOTH joined tables
+// bind tenant_id to @tenant_id explicitly, rather than chaining off p.tenant_id.
+// The chained form is equivalent under RLS and is one refactor away from not
+// being: a joined predicate that stands in for the subject's is exactly the shape
+// internal/domain/tenant/query_test.go's block scan was rebuilt to catch.
+//
+// ORDER IS (name, id, version_no DESC) so the newest version of a policy comes
+// first within its policy, and the policies themselves arrive in a stable,
+// human order. Unlike ListPolicySet this order IS meaningful -- but it is a
+// DISPLAY order, never an evaluation order; the evaluator's canonical ordering
+// lives in internal/policy and the panel re-derives it from there.
+func (q *Queries) ListPolicyVersions(ctx context.Context, arg ListPolicyVersionsParams) ([]ListPolicyVersionsRow, error) {
+	rows, err := q.db.Query(ctx, listPolicyVersions, arg.TenantID, arg.RowLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListPolicyVersionsRow{}
+	for rows.Next() {
+		var i ListPolicyVersionsRow
+		if err := rows.Scan(
+			&i.PolicyID,
+			&i.Name,
+			&i.Layer,
+			&i.Enabled,
+			&i.VersionID,
+			&i.VersionNo,
+			&i.VersionCreatedAt,
+			&i.CreatedBy,
+			&i.AuthorName,
+			&i.DocumentBytes,
 		); err != nil {
 			return nil, err
 		}

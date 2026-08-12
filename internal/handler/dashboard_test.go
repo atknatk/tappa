@@ -186,15 +186,21 @@ func TestPanelSections_EachRequestMarksExactlyItsOwnTabCurrent(t *testing.T) {
 	}
 }
 
-// TestPanelSections_ShowTheirOwnEmptyStateAndNameTheTaskThatFillsIt is the
-// property that the shell actually SWITCHES, which the current-tab test above
-// cannot see: a navigation that highlights correctly while rendering the same body
-// five times would pass every other test in this file.
+// TestPanelSections_RenderTheirOwnContentAndNoOthers is the property that the
+// shell actually SWITCHES, which the current-tab test above cannot see: a
+// navigation that highlights correctly while rendering the same body five times
+// would pass every other test in this file.
 //
-// So each section must carry its own blurb AND NOT carry any other section's. The
-// second half is the load-bearing one, and it is stated as a property over the
+// So each section must carry its own content AND NOT carry any other section's.
+// The second half is the load-bearing one, and it is stated as a property over the
 // table rather than as five expected strings.
-func TestPanelSections_ShowTheirOwnEmptyStateAndNameTheTaskThatFillsIt(t *testing.T) {
+//
+// ⚠️ IT WAS CALLED ...ShowTheirOwnEmptyStateAndNameTheTaskThatFillsIt UNTIL
+// 2026-08-11, and the rename is part of retiring the empty-state half (see below).
+// A test whose NAME describes a property it no longer asserts is the drift this
+// repository keeps paying for -- somebody greps for the guarantee, finds the name,
+// and stops looking.
+func TestPanelSections_RenderTheirOwnContentAndNoOthers(t *testing.T) {
 	bodies := sectionBodies(t)
 
 	// The task id is rendered, so it has to look like one. A section whose Task
@@ -228,7 +234,21 @@ func TestPanelSections_ShowTheirOwnEmptyStateAndNameTheTaskThatFillsIt(t *testin
 	//
 	// (4) is the load-bearing one and it is unchanged: it is what catches a shell
 	// that highlights the right tab while rendering the same body five times.
-	built, unbuilt := 0, 0
+	//
+	// 🔴 M6-09 PHASE A BUILT THE LAST ONE, AND THE EMPTY-STATE HALF IS NOW RETIRED
+	// RATHER THAN LEFT PASSING OVER NOTHING (2026-08-11). The anti-vacuity fatal
+	// below said exactly what to do -- "if the panel is genuinely finished, delete
+	// that half and say so; do not leave it passing over an empty set" -- and it
+	// fired on the first run after the policies section got a body. What is deleted
+	// is (2), the assertion about an UNBUILT section, because there is no longer a
+	// section that takes that branch. What is KEPT is everything that still has a
+	// subject: (1) and (3) become one rule -- NO section may render the not-built
+	// heading, its task id or its placeholder blurb -- and (4) is untouched.
+	//
+	// The `unbuilt` counter is gone with it. A counter whose only remaining job is
+	// to be zero is a fact the loop already asserts row by row, and keeping it would
+	// leave a reader looking for the branch that increments it.
+	built := 0
 	for _, s := range pages.PanelSections {
 		body := bodies[s.Href]
 		isUnbuilt := strings.Contains(body, htmlText(s.Label+" is not built yet"))
@@ -236,24 +256,20 @@ func TestPanelSections_ShowTheirOwnEmptyStateAndNameTheTaskThatFillsIt(t *testin
 		hasBlurb := strings.Contains(body, htmlText(s.Blurb))
 
 		if isUnbuilt {
-			unbuilt++
-			if !namesTask {
-				t.Errorf("GET %s shows its empty state but does not say which task fills it (%s)", s.Href, s.Task)
-			}
-			if !hasBlurb {
-				t.Errorf("GET %s shows its empty state but does not render its own blurb", s.Href)
-			}
-		} else {
-			built++
-			if namesTask {
-				t.Errorf("GET %s renders real content AND still advertises %s as the task "+
-					"that will fill it. One of the two is wrong: either the section is "+
-					"built and should stop naming a task, or it is not and should show "+
-					"its empty state.", s.Href, s.Task)
-			}
-			if hasBlurb {
-				t.Errorf("GET %s renders real content AND its not-built-yet blurb", s.Href)
-			}
+			t.Errorf("GET %s renders the not-built-yet heading. Every panel section has a "+
+				"body as of M6-09 phase A; a section that regressed to its placeholder is a "+
+				"section whose handler stopped being wired.", s.Href)
+			continue
+		}
+		built++
+		if namesTask {
+			t.Errorf("GET %s renders real content AND still advertises %s as the task "+
+				"that will fill it. One of the two is wrong: either the section is "+
+				"built and should stop naming a task, or it is not and should show "+
+				"its empty state.", s.Href, s.Task)
+		}
+		if hasBlurb {
+			t.Errorf("GET %s renders real content AND its not-built-yet blurb", s.Href)
 		}
 
 		for _, other := range pages.PanelSections {
@@ -270,20 +286,16 @@ func TestPanelSections_ShowTheirOwnEmptyStateAndNameTheTaskThatFillsIt(t *testin
 		}
 	}
 
-	// ANTI-VACUITY, BOTH WAYS. Each branch above guards a real shape only while
-	// some section takes it. Today it is 2 built and 4 unbuilt; when M6-09 finishes
-	// the panel the second of these becomes a deliberate edit rather than a
-	// surprise, and the message says so.
-	if unbuilt == 0 {
-		t.Fatal("every section renders real content, so the empty-state half of this test " +
-			"checked nothing. If the panel is genuinely finished, delete that half and " +
-			"say so; do not leave it passing over an empty set.")
+	// ANTI-VACUITY. Only one arm is left to guard, because only one shape is left:
+	// every section is built. A run that found none would mean the section table or
+	// the router stopped agreeing, and every containment check above would have run
+	// over nothing.
+	if built != len(pages.PanelSections) {
+		t.Fatalf("%d of %d sections render real content; every one of them has a body as of "+
+			"M6-09 phase A, so a shortfall means a handler is no longer wired",
+			built, len(pages.PanelSections))
 	}
-	if built == 0 {
-		t.Fatal("no section renders real content, so the built-section half of this test " +
-			"checked nothing -- M6-03 filled Transactions, so this means the section " +
-			"regressed to its placeholder.")
-	}
+	t.Logf("panel sections rendering real content: %d of %d", built, len(pages.PanelSections))
 }
 
 // TestPanelScreens_EveryPressTargetCarriesATouchTargetClass -- CLAUDE.md section 9

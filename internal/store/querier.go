@@ -2038,6 +2038,19 @@ type Querier interface {
 	// renders, which is the half a row cap can actually give -- an unbounded read is what
 	// M6-03 measured at 867 KB and removed.
 	ListPlaqueHistory(ctx context.Context, arg ListPlaqueHistoryParams) ([]ListPlaqueHistoryRow, error)
+	// Where each of the tenant's policies is bound: 'location/<id>', 'department/<id>',
+	// 'employee/<id>' or '*' (tenant-wide).
+	//
+	// WHAT THESE ROWS DO AND DO NOT DECIDE, because the screen that shows them must
+	// not imply the wrong one. policy.Evaluate scopes a statement by the Resource
+	// patterns INSIDE its document, NOT by these rows -- EnsurePolicyAttachment's own
+	// comment says so and the Set assembled for a tap is identical with or without
+	// them. They record where a policy was BOUND at provisioning time; the rules that
+	// actually run carry their own resource patterns. The screen prints both and says
+	// which one the engine reads.
+	//
+	// TENANT SCOPE (section 4.5): explicit tenant_id beside RLS, like every other read.
+	ListPolicyAttachments(ctx context.Context, arg ListPolicyAttachmentsParams) ([]ListPolicyAttachmentsRow, error)
 	// policies.sql -- reading a tenant's stored policy layer, and MATERIALISING the
 	// Tappa-managed baseline into it.
 	//
@@ -2108,6 +2121,54 @@ type Querier interface {
 	// re-orders against the canonical list in internal/policy. Relying on this order
 	// would make which sid gets reported depend on uuid generation.
 	ListPolicySet(ctx context.Context, tenantID uuid.UUID) ([]ListPolicySetRow, error)
+	// The tenant's policy VERSION HISTORY: who wrote which version of which policy,
+	// and when. The panel's Policies screen (M6-09 phase A) is the only caller.
+	//
+	// IT CARRIES NO document COLUMN, AND THAT IS A BOUND RATHER THAN AN OMISSION.
+	// ListPolicySet already returns the LATEST document per policy, which is what the
+	// screen renders as "the rules in force". Returning every OLD document here would
+	// be unbounded in a way a LIMIT cannot fix: internal/policy.DefaultLimits bounds
+	// documents per tenant, versions per policy AND bytes per document separately, so a
+	// ROW cap still leaves the BYTES uncapped -- a page of the largest legal document is
+	// megabytes into one panel request.
+	// octet_length is returned instead, so the screen can say how big a version is
+	// without carrying it. Reading an OLD version's body needs its own bounded route
+	// and is M6-09 phase B (see the delivery note on the card).
+	//
+	// LEFT JOIN policy_versions, NOT AN INNER ONE, and this is the difference from
+	// ListPolicySet. That query inner-joins on purpose (a policy with no document
+	// decides nothing, so the decision engine must not see it). The PANEL has the
+	// opposite need: a policies row with no version is a HALF-PROVISIONED policy, and
+	// it is not hypothetical -- measured against the development database on
+	// 2026-08-11, `SELECT count(*) FROM policies p WHERE NOT EXISTS (SELECT 1 FROM
+	// policy_versions v WHERE v.policy_id = p.id AND v.tenant_id = p.tenant_id)`
+	// returned 2005 rows. Without the outer join the screen would report that state as
+	// "never provisioned", which is a different thing and points at a different fix.
+	//
+	// created_by IS FK-LESS (00007 defers the admin FK to M6/M7), so the author is
+	// resolved by an explicit LEFT JOIN rather than by a constraint. THREE outcomes,
+	// and the screen tells them apart:
+	//   created_by IS NULL                  -> Tappa's system provisioning wrote it.
+	//   created_by set, full_name present   -> that admin wrote it.
+	//   created_by set, full_name NULL      -> the id resolves to nobody this tenant
+	//                                          can see. RLS is doing its job (a
+	//                                          cross-tenant id CANNOT be resolved
+	//                                          here, by design), and the screen says
+	//                                          "not resolvable" rather than printing
+	//                                          a name it does not have.
+	//
+	// TENANT SCOPE (section 4.5, belt + braces): the subject and BOTH joined tables
+	// bind tenant_id to @tenant_id explicitly, rather than chaining off p.tenant_id.
+	// The chained form is equivalent under RLS and is one refactor away from not
+	// being: a joined predicate that stands in for the subject's is exactly the shape
+	// internal/domain/tenant/query_test.go's block scan was rebuilt to catch.
+	//
+	// ORDER IS (name, id, version_no DESC) so the newest version of a policy comes
+	// first within its policy, and the policies themselves arrive in a stable,
+	// human order. Unlike ListPolicySet this order IS meaningful -- but it is a
+	// DISPLAY order, never an evaluation order; the evaluator's canonical ordering
+	// lives in internal/policy and the panel re-derives it from there.
+	ListPolicyVersions(ctx context.Context, arg ListPolicyVersionsParams) ([]ListPolicyVersionsRow, error)
 	// All sessions of one employee, newest first: the read side of the optional
 	// device limit (M5-01 card: "config ile kapali gelebilir" -- NOT enforced here)
 	// and of the M5-02 "is this a new phone or an attack?" decision. Revoked rows are

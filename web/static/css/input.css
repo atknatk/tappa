@@ -310,6 +310,21 @@
   .tally--invited  { @apply border-saffron bg-saffron-lite; }
   .tally--manual,
   .tally--deactivated { @apply border-line bg-line/10; }
+  /* M6-09: the LOCK tone, and it is the one chip on the product that is not a
+     status. A guardrail is not a state a rule is in — it is structure, part of the
+     product rather than a setting — and the policies screen has to make that
+     tellable apart from the baseline's on/off language AT A GLANCE, or a customer
+     reads the locked block as another list of things they could switch. So it
+     borrows `ink`: the text colour, the one token the status mapping does not use,
+     which reads as "part of the page" rather than as green/amber/red.
+
+     NO NEW TOKEN AND NO NEW GROUND: ink and ink/10 are both already on this
+     surface (`.stamp--training` is the same pair). Measured on `paper #FFFDF4`
+     (WCAG relative luminance, sRGB composite): the chip's ink text on the ink/10
+     ground is 13.27:1 and its ink border is 16.17:1 — AA for the 11px bold text
+     the chip uses, and past 1.4.11's 3:1 for the frame, which the saffron and
+     line chips do not reach and do not need to (the word carries the meaning). */
+  .tally--locked { @apply border-ink bg-ink/10; }
 
   /* --- the report row: a person's week inside a docket (M6-07) ---
      THESE EXIST FOR TWO REASONS AT ONCE, and the second one is measured. The brand

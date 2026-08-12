@@ -191,7 +191,20 @@ func run() error {
 	// M5-02 drove the channel end to end. The distinction matters — the seam was
 	// TESTED and unmounted, which is the M5-04 shape (a capability delivered, approved
 	// and dead in the wired product) rather than an unproven one.
-	panelAuth, err := handler.NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, venues, plaques, entries, cfg, slog.Default())
+	// 🔴 THE RULEBOOK IS BUILT FROM THE DECIDING SERVICE'S OWN WINDOWS, NOT FROM cfg.
+	// checkins.Params() returns the bounded guardrail windows checkin.New resolved, so
+	// the Policies screen prints the numbers the tap engine actually compares against.
+	// Reading cfg a second time here would be a second construction of that wiring --
+	// hand-off N3 was exactly that defect one layer down, where TAPPA_DEBOUNCE_SECONDS
+	// was range-checked at startup and then never reached the guardrail, so a
+	// deployment that configured 120 s ran 60 s and nothing said so. A screen that
+	// re-derived it could disagree with the engine in the same silent way, and it is
+	// the screen a customer would believe.
+	rules, err := tenant.NewRulebook(data, checkins.Params(), slog.Default())
+	if err != nil {
+		return err
+	}
+	panelAuth, err := handler.NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, venues, plaques, entries, rules, cfg, slog.Default())
 	if err != nil {
 		return err
 	}

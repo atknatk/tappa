@@ -154,6 +154,16 @@ type AdminAuth struct {
 	// nobody can clean up.
 	entries panelRecorder
 
+	// rules is the policies section's READ side (M6-09 phase A,
+	// internal/domain/tenant). It is its own field rather than a method on `venues`
+	// or `staff` -- which are the same package -- for the blast-radius reason those
+	// two already give, and for one more that is specific to this one: the OTHER
+	// assembler of a policy set (internal/domain/checkin) WRITES, and keeping the
+	// panel's reader behind a one-method interface is what makes "the policies
+	// screen cannot materialise anything" a fact the compiler helps with rather
+	// than a promise. See policies.go's panelRules.
+	rules panelRules
+
 	// See adminratelimit.go for why there are three and what each may refuse.
 	floodLimiter   *limiter
 	attemptLimiter *limiter
@@ -166,7 +176,7 @@ type AdminAuth struct {
 
 // NewAdminAuth wires the flow. Every dependency is required: a nil recorder would
 // silently drop the section 4.6 trail and a nil manager cannot fail safely.
-func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLedger, queue panelQueue, reviewer panelReviewer, staff panelStaff, invites panelInviter, venues panelVenues, plaques panelPlaques, entries panelRecorder, cfg *config.Config, log *slog.Logger) (*AdminAuth, error) {
+func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLedger, queue panelQueue, reviewer panelReviewer, staff panelStaff, invites panelInviter, venues panelVenues, plaques panelPlaques, entries panelRecorder, rules panelRules, cfg *config.Config, log *slog.Logger) (*AdminAuth, error) {
 	switch {
 	case admins == nil:
 		return nil, errors.New("handler: nil admin authenticator")
@@ -225,6 +235,14 @@ func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLed
 	// halves were never assembled.
 	case entries == nil:
 		return nil, errors.New("handler: nil manual recorder")
+	// THE SAME ARGUMENT, ONCE MORE (M6-09 phase A), and here the dead capability
+	// would be the rulebook itself. A nil rules would put a Policies tab in the
+	// navigation whose page panics -- on the ONE screen whose job is to tell a
+	// customer which rules their attendance is judged by. The M5-04 lesson is that a
+	// capability can be delivered, tested and DEAD in the wired product because two
+	// halves were never assembled.
+	case rules == nil:
+		return nil, errors.New("handler: nil policy rulebook")
 	case cfg == nil:
 		return nil, errors.New("handler: nil config")
 	}
@@ -250,6 +268,7 @@ func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLed
 		venues:         venues,
 		plaques:        plaques,
 		entries:        entries,
+		rules:          rules,
 		cookies:        adminauth.NewCookies(cfg),
 		short:          newAdminCookies(cfg),
 		choices:        choices,

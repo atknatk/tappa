@@ -999,6 +999,47 @@ func plaqueActionsFromSource(t *testing.T) map[string]string {
 // 🔴 IT READS THE PACKAGE'S OWN SOURCE FOR `Action:` FIELDS in audit.Event literals
 // and requires every plaque one to be a CONSTANT REFERENCE rather than a literal. A
 // string written inline would be an action the completeness check never hears about.
+//
+// ⚠️ THE FALSE ALARM AND THE FIX, AND THE FIRST FIX WAS WRONG (2026-08-11, M6-09
+// phase A). internal/policy's vocabulary is namespaced ACTIONS, so the policies
+// screen's read side has a type with an Action field and writes
+// `Action: string(action)` -- a CallExpr, which this walk flagged as an audit
+// action written as an expression. That is a false alarm, and the kind that gets a
+// real net weakened to silence it.
+//
+// 🔴 THE FIRST ATTEMPT NARROWED THE WALK TO audit.Event LITERALS AND LOST REAL
+// COVERAGE. Measured by an auditor, same run, two defects:
+//
+//	audit.Event{Action: "plaque.mounted"}                      RED  -> RED    kept
+//	plan := struct{ Action string }{Action: "plaque.mounted"}
+//	  ... audit.Event{Action: plan.Action}                     RED  -> GREEN  LOST
+//
+// The second is a real bypass and nothing else in the suite catches it. It also
+// missed `[]audit.Event{{Action: …}}`, whose inner literal has no type of its own.
+// So the walk is BROAD again -- every `Action:` key in the package -- and what
+// changed instead is the ALLOW-LIST OF VALUE SHAPES: a declared name, or a
+// CONVERSION of one, recursively (isDeclaredNameExpr). That admits the policies
+// screen's line, still rejects a bare string literal wherever it is written, still
+// rejects the BinaryExpr an earlier audit used, and rejects
+// `string("plaque.seized")` -- a conversion is accepted only around a NAME.
+//
+// ⚠️ WHAT IT STILL CANNOT SEE, COUNTED RATHER THAN IMPLIED, and the first item is
+// the one that makes the recovered coverage narrower than it looks. All four were
+// measured by an auditor against this walk:
+//
+//	Action: plan.Action  where plan is struct{ Action string }{Action: "…"}   CAUGHT
+//	Action: plan.A       where plan is struct{ A      string }{A:      "…"}   ESCAPES
+//	Action: zzLoose      where `var zzLoose = "plaque.mounted"` is package level ESCAPES
+//	Action: helper()     any function call                                    ESCAPES
+//
+// The struct detour is caught ONLY because the intermediate field is also called
+// Action -- this walk keys on the KEY NAME, so renaming the field to anything else
+// takes it back out of view. That is a real limit, not a technicality, and it is
+// written here rather than left for the next auditor to rediscover: what the walk
+// guarantees is that a bare string cannot sit next to an `Action:` key ANYWHERE in
+// the package, and nothing more. Following a value to its declaration needs type
+// information this test does not load.
+// TestPlaqueTrail_NamesEveryActionTheDOMAINCanWrite is the behavioural half beside it.
 func TestPlaqueActions_AreWrittenOnlyFromTheDeclaredConstants(t *testing.T) {
 	const dir = "../domain/tenant"
 	fset := token.NewFileSet()
@@ -1024,16 +1065,12 @@ func TestPlaqueActions_AreWrittenOnlyFromTheDeclaredConstants(t *testing.T) {
 				// 🔴 AN ALLOW-LIST OF VALUE SHAPES, NOT A BAN ON LITERALS. The first
 				// version rejected *ast.BasicLit and accepted everything else — so
 				// `Action: prefix + "seized"` (a BinaryExpr) passed, which is the same
-				// bypass that beat the vocabulary scan one layer up. A declared name is
-				// an Ident (same package) or a SelectorExpr (another one); anything else
-				// is an expression this test cannot follow to a declaration, and it says
-				// so rather than shrugging.
-				switch kv.Value.(type) {
-				case *ast.Ident, *ast.SelectorExpr:
-				default:
-					t.Errorf("%s writes an audit action as a %T; it must be a declared "+
-						"name, or neither the vocabulary scan nor the render completeness "+
-						"check can see it", name, kv.Value)
+				// bypass that beat the vocabulary scan one layer up. isDeclaredNameExpr
+				// carries the rule and its own negative control.
+				if !isDeclaredNameExpr(kv.Value) {
+					t.Errorf("%s writes an action as a %T; it must be a declared name, or a "+
+						"conversion of one, or neither the vocabulary scan nor the render "+
+						"completeness check can see it", name, kv.Value)
 				}
 				return true
 			})
@@ -1043,6 +1080,54 @@ func TestPlaqueActions_AreWrittenOnlyFromTheDeclaredConstants(t *testing.T) {
 	// the walk is looking at the wrong nodes.
 	if seen < 5 {
 		t.Fatalf("found %d Action: field(s) in %s; the walk is not reading the writes", seen, dir)
+	}
+	t.Logf("Action: fields checked in %s: %d", dir, seen)
+}
+
+// isDeclaredNameExpr reports whether e is a declared name, or a conversion of one.
+//
+// A CONVERSION IS ACCEPTED ONLY AROUND A NAME, which is what keeps
+// `string("plaque.seized")` out while letting `string(action)` in. The recursion is
+// what makes it a rule rather than a special case for one call site.
+func isDeclaredNameExpr(e ast.Expr) bool {
+	switch v := e.(type) {
+	case *ast.Ident, *ast.SelectorExpr:
+		return true
+	case *ast.CallExpr:
+		if len(v.Args) != 1 {
+			return false
+		}
+		switch v.Fun.(type) {
+		case *ast.Ident, *ast.SelectorExpr:
+			return isDeclaredNameExpr(v.Args[0])
+		}
+	}
+	return false
+}
+
+// TestDeclaredNameExpr_AcceptsAConversionAndRefusesALiteral is the matcher's own
+// negative control. Without it, widening the allow-list to silence a false alarm
+// could widen it to everything and nothing would say so.
+func TestDeclaredNameExpr_AcceptsAConversionAndRefusesALiteral(t *testing.T) {
+	for src, want := range map[string]bool{
+		"ActionPlaqueMounted":        true,
+		"audit.ActionPlaqueMounted":  true,
+		"string(action)":             true,
+		"policy.Action(a.Action)":    true,
+		`"plaque.mounted"`:           false,
+		`string("plaque.mounted")`:   false,
+		`prefix + "seized"`:          false,
+		`fmt.Sprintf("%s", a)`:       false,
+		`map[string]string{}["x"]`:   false,
+		`[]string{"plaque.lost"}[0]`: false,
+	} {
+		e, err := parser.ParseExpr(src)
+		if err != nil {
+			t.Fatalf("parsing %q: %v", src, err)
+		}
+		if got := isDeclaredNameExpr(e); got != want {
+			t.Errorf("isDeclaredNameExpr(%s) = %v, want %v", src, got, want)
+		}
 	}
 }
 

@@ -486,6 +486,25 @@ type Result struct {
 	BusinessType string
 }
 
+// Params returns the bounded guardrail windows this service DECIDES with (ADR
+// 0004 §11): the person-debounce window, the tap freshness window and the
+// occurred_at skew tolerance, as New resolved them from configuration.
+//
+// 🔴 IT EXISTS SO THE PANEL PRINTS THE WINDOWS THE ENGINE ACTUALLY HOLDS, NOT A
+// SECOND CONSTRUCTION OF THEM. The Policies screen (M6-09) shows each bounded
+// parameter with its range, and the alternative was for that screen to build a
+// policy.Params from config the way New does — a second copy of the very wiring
+// hand-off N3 was: TAPPA_DEBOUNCE_SECONDS was range-checked at startup and then
+// went nowhere, so a deployment that configured 120 s ran 60 s and nothing said
+// so. A screen that re-derived the value could disagree with the guardrail in
+// exactly that silent way, and it would be the screen a customer trusts. Reading
+// it off the deciding object cannot drift, because there is nothing to drift from.
+//
+// It is a VALUE COPY of a struct of three durations, so a caller cannot reach in
+// and retune a live guardrail. It reports what the engine holds; it is not a way
+// to change it, and there is deliberately no setter.
+func (s *Service) Params() policy.Params { return s.policies.params }
+
 func (s *Service) clock() time.Time {
 	if s.now != nil {
 		return s.now().UTC()

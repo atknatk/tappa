@@ -5432,8 +5432,192 @@ parametrelerini ayarlaması. Policy motorunun kullanıcıya bakan yüzü.
 **Tuzaklar.**
 - Guardrail'i "kapalı görünen bir anahtar" olarak çizme — müşteri açmayı dener,
   açamaz, güven kaybeder. Kilit + gerekçe doğru dil.
-- Politika kaydetmeyi "hemen yürürlüğe girer" yapma; M6-10 simülasyonu önce
-  gösterilmeli.
+- ~~Politika kaydetmeyi "hemen yürürlüğe girer" yapma; M6-10 simülasyonu önce
+  gösterilmeli.~~ — **bu tuzak kendi kartıyla çelişiyordu, aşağıdaki 2026-08-11
+  bloğuna bakın.**
+
+> ### Kart düzeltmesi (2026-08-11, M6-09 faz A uygulaması)
+>
+> **1. Görev iki faza bölündü** (orkestratör kararı). Ölçüt kapsam değil
+> **denetim merceği**: faz A'nın merceği *"görünür ama kapatılamaz" · §4.5 ·
+> §4.7 · marka · yan etkisiz okuma*, faz B'ninki *yazma, yeni sürüm, audit_log,
+> aralık doğrulama, `policy:edit` zorlanması*. Aynı bölünme M6-06 (üç parça) ve
+> M6-07 (iki parça) için de doğru çıkmıştı.
+>
+> - **Faz A (bu tur, tamamlandı):** `/admin/policies` okuma yolu — üç katman,
+>   guardrail sırası, sürüm geçmişi, yetkilendirme bölümü. **Hiçbir şey yazmaz.**
+> - **Faz B (ayrı tur):** baseline aç/kapa · tenant politikası oluştur/düzenle
+>   (**yeni sürüm**, üzerine yazma yok) · `resource` bağlama · `audit_log` ·
+>   aralık doğrulama · `policy:edit` guardrail'inin **gerçekten** zorlanması.
+>
+> **2. 🔴 "M6-10 simülasyonu önce gösterilmeli" tuzağı yürürlükte DEĞİL — kart
+> kendi içinde çelişiyordu.** [M6-10](#m6-10--policy-simülatörü---⛔-ertelendi--m9-06)
+> `skipped`: Q22 simülatörü M9-06'ya erteledi ve bunu bu kartın hemen altındaki
+> blok yazıyor. Yani "kaydetmeden önce simülasyonu göster" v1'de **karşılanamaz**
+> bir koşuldur. Faz B'nin "hemen yürürlüğe girer" endişesine vereceği cevap
+> simülasyon **olamaz**; elde kalan üç seçenek ve maliyetleri:
+> (a) kaydetmeden önce **değişikliğin metnini** gösteren bir onay adımı — ucuz,
+> ama "ne değişir"i söylemez; (b) yazma sonrası **geri alma** — `policy_versions`
+> append-only olduğu için "geri al" da yeni bir sürümdür, yani ucuz **değildir**
+> ama mümkündür; (c) **hiçbiri** — ve bu, sayılmış bir limit olarak yazılır.
+> **Karar faz B'nindir; burada yalnız çelişki kaydedilmiştir.**
+>
+> **3. Faz A'nın karşıladığı kriterler.** Üç katman ayrı ayrı · guardrail'ler
+> kilit + gerekçe (**kapatma kontrolü ekranda yok — model tipinde de alan yok**)
+> · guardrail **sırası** `policy.Guardrails()`'ten **türetiliyor** (elle yazılmış
+> liste yok; ADR 0007 bandı dahil) · sınırlı parametreler **aralıklarıyla ve
+> yürürlükteki değeriyle** (`checkin.Service.Params()`'ten — ikinci bir kurulum
+> yok) · sürüm geçmişi *kim/ne zaman* · yetkilendirme bölümü ayrı ve
+> **fail-closed varsayılan ekranda yazılı**, hem de `policy.Evaluate`'e sorularak
+> **türetilmiş**.
+>
+> **4. 🔴 BOZUK TEK BELGE — denetim bulgusu, faz A'da KAPATILDI (2026-08-12).**
+> Stored bir baseline belgesi parse edilmezse `checkin.forTenant` onu `missing`
+> sayar, materialise **no-op** kalır (`ON CONFLICT DO NOTHING`), yeniden okur ve
+> **yalnız guardrail'lerle** karar verir — baseline'ın *tamamı* ve tenant katmanı
+> düşer. İlk sürüm o **bir** kuralı doğru gösterip diğer sekizini `In force` diye
+> basıyordu, ve *"Who may do what"* bölümü motorun uygulamadığı izinleri
+> *"Granted to"* diye listeliyordu. Kapatma: `PolicyScreen.GuardrailsOnly` +
+> `Unreadable`; bu durumda sayfanın **başında** `ToneAlert` bir uyarı, hiçbir
+> kurala **`In force` etiketi verilmiyor** (`Stored — but not deciding today`),
+> ve yetkilendirme bölümü **aynı bayrağı** taşıyor. Gerçek Postgres'te ölçüldü
+> (`{}` belgeli bir tenant kuruldu): sayfada `In force` **0 kez** geçiyor.
+> Motor tarafındaki yarı zaten pinli:
+> `checkin.TestPolicySetDB_ACorruptStoredDocumentFallsBackToGuardrailsAlone`.
+>
+> **4b. 🔴 "HİÇBİR KONTROL YOK" AĞI ALTI KEZ YENİLDİ — İKİSİ TÜRETİMLE KAPANDI,
+> İKİSİ SAYILDI (2026-08-12).** Her turda **ürün temizdi** (sevk edilen şablonda
+> kontrol yok, view'da alan yok); kırılan **korumaydı**. Kök neden hep aynıydı:
+> ağın *taradığı* bölge, taradığını *söylediği* bölge değildi.
+>
+> **KAPANDI — türetim 1: bölüm DIŞI artık tarif edilmiyor, TÜRETİLİYOR.** Kabuk
+> ayrı bir şablon: `pages.PanelShell` **boş gövdeyle** render ediliyor ve sayfa
+> *bayt bayt* "kabuğun başı + bu bölümün sarmalayıcısı + kabuğun sonu" olmak
+> zorunda. Bundan önceki hâl kabuğun **ölçülmüş 38 token'ı**nı muaf tutuyordu ve
+> denetçi kontrolü **kabuğun kendi çıkış formunun sözcük dağarcığıyla** kurdu
+> (`<form method="post" action=…><button class="btn min-h-11" name type="submit">`)
+> — hiçbir token kümesi ikisini ayıramaz, çünkü fark sözcükte değil **varlıkta**.
+> Token listesi tamamen kaldırıldı. Mutasyon: aynı kontrol → **RED** (sekiz
+> fixture'ın hepsinde); yanlış-alarm yönü: bölüm İÇİNE sıradan bir paragraf →
+> **yeşil**.
+>
+> **KAPANDI — türetim 2: fixture kümesi `.templ`'den.** `policyTemplBranches` her
+> koşullu dalı çıkarıyor, `policyBranchWitness` her dala bir tanık veriyor, test
+> "en az bir fixture render ediyor / en az biri etmiyor" diyor; harita **iki
+> yönlü**. İlk koşuda **sekiz dalı hiçbir fixture'ın sürmediği** ölçüldü —
+> `a.Guardrail != ""` dahil, ki o blok her üretim sayfasında iki kez render
+> ediliyor. Bugün **27 dal / 8 fixture**.
+>
+> **🔴 SAYILDI (kapatılmadı, kapatıldığı da iddia EDİLMİYOR):**
+> 1. **`switch`/`case` ve düz Go fonksiyonu + `templ.Raw` görünmez.** Dal
+>    türetimi **satır** okuyor. ⚠️ Bu madde bir tur boyunca *"repoda **üç**
+>    şablonda"* diyordu; gerçek **üç katı**. Sayı artık **elle yazılmıyor**:
+>    `TestPolicyBranchDerivation_ReportsTheSizeOfItsOwnBlindSpot` aynı `inTempl`
+>    mantığıyla `web/templates` altını tarayıp günün rakamını **basıyor**, boş
+>    çıkarsa limit maddesinin silinmesini istiyor, ve `policies.templ`'in kendisi
+>    bir `switch` kazanırsa **kırmızı** oluyor. Bulunan `switch`lerden biri
+>    (`plaque.templ`) bir `<form>` basıyor — bunlar süs değil, markup üreten
+>    dallar.
+> 2. **Ödünç tanık geçer.** Ayırt etme kontrolü tanığın **fixture'lar arasında**
+>    ayırdığını ölçüyor, **dalın onu ürettiğini** değil: başka bir bloğun bastığı
+>    bir dizeyi tanık yazan yeni bir blok testi geçer.
+>
+> İkisi de gerçek bir templ ayrıştırıcısı ister. Bu ağ **üç kez yamandı ve her
+> seferinde yenildi**; yarım çalışan bir dördüncü yama, okunabilir bir limitten
+> daha kötüdür.
+>
+> **🔴 ALTINCI KAÇIŞ — TARAYICININ KENDİSİ (2026-08-12, kapatıldı).** Etiket
+> regex'i `[^>]*` ile okuyordu, yani bir **öznitelik değerinin içindeki ham `>`**
+> etiketi ortadan kesiyordu: `<p class="docket-label>" contenteditable="true"
+> role="switch" …>` sarmalayıcının **içinde** ve `interactiveMarkup` **boş**
+> dönüyordu — üstelik kullanılan iki öznitelik testin kendi kalıcı negatif
+> kontrolünde tuttuğu iki kaçış. Çözüm **tam ayrıştırıcı değil** (stdlib'de HTML
+> tokenizer yok, §1 yeni bağımlılığa kapalı): tarayıcı **okuyamadığını
+> REDDEDİYOR** — öznitelik parçasında tek sayıda `"` görürse bulgu üretiyor.
+> Yanlış-alarm yönü ölçüldü: templ `>` ve `"` karakterlerini öznitelik değerinde
+> kaçırdığı için (`&gt;`, `&#34;`) dokuz fixture'ın hiçbirinde ateşlemiyor.
+>
+> **EK SAYILMIŞ LİMİTLER (bu tur eklendi):** sarmalayıcının üstüne konan ve
+> kabuğun kapanış baytlarının (`</main></body></html>`) **öneki** olan bir dize
+> karşılaştırmayı kaydırıp geçer — yalnız kapanış etiketiyle kurulabildiği için
+> **kontrol taşımaz**, belge yapısını bozar · **kabuğa** (`panelChrome`) konan bir
+> kontrol bu ağın öznesi değil; onu diğer bölümlerin rota ve dokunma-hedefi ağları
+> koruyor · dal anahtarı `<koşul>@<sıra>` **satır taşımada** stabil, aynı koşuldan
+> birinin **öne eklenmesinde** değil (gürültülü kırılır, sessiz değil).
+>
+> **AĞIN TUTTUKLARI** (her biri kırmızıya giden bir mutasyonla ölçüldü):
+> sarmalayıcının **içinde** her yerde (koşullu bloklar dahil) inert olmayan her
+> eleman/öznitelik · sarmalayıcının **dışında** her şey (kabuğun kendi sözcük
+> dağarcığıyla kurulmuş kontrol dahil) · fixture'sız yeni `if` · `else` dalı ·
+> yalnız üretilen `_templ.go`'ya yazmak · üç öz-fren (ölü allow-list girişi, hiç
+> render edilmeyen tanık, her fixture'ın render ettiği tanık).
+>
+> **5. Faz A'nın SAYILMIŞ limitleri** (kapatılmadı, kapatıldığı da iddia
+> edilmiyor):
+> - **Eski sürümün GÖVDESİ gösterilmiyor.** Geçmiş şeridi sürüm no · tarih ·
+>   yazar · **bayt** verir; belgenin kendisini vermez. Gerekçe: `DefaultLimits`
+>   belge/sürüm/bayt sınırlarını **ayrı ayrı** koyuyor, yani satır sınırı bayt
+>   sınırı değildir ve bir sayfa dolusu azami belge megabaytlarca istek eder.
+>   Sınırlı ayrı bir rota gerekiyor → **faz B**. Ekran bunu **söylüyor**.
+> - **`ListPolicySet`'in LIMIT'i yok** ve bu **düzeltilmedi**: o sorgu tap
+>   yolunun sorgusu, LIMIT eklemek karar setini sessizce budar ve kısmi baseline
+>   *daha zayıf* değil *farklı* bir politikadır. Panel, tap yolunun zaten
+>   taşıdığı bir açıklığı miras alıyor → M7-03/faz B.
+> - **`policy_attachments` karar vermiyor.** Motor ifadenin **içindeki**
+>   `resource` desenine bakıyor; ekran ikisini de basıyor ve **hangisinin
+>   bağladığını** yazıyor.
+> - **Panel motoru KAPI olarak çağırmıyor.** Ölçüm düzeltildi: `internal/handler`
+>   0, ama `internal/domain/tenant/rulebook.go` **her render'da** `policy.Evaluate`
+>   çağırıyor (boş `Set` ile, yalnız fail-closed varsayılanı **basmak** için).
+>   Test artık **iki paketi birden** tarıyor ve gerekçeli bir **allowlist**
+>   tutuyor, yani faz B yetkilendirmeyi o pakete koyarsa test kırmızı olur.
+> - **Sürüm okuması TENANT genelinde sınırlı.** Kesilme, versiyonsuz bir
+>   container'ı düşürüp durumu *"hiç kurulmamış"* gibi gösterebiliyordu; artık
+>   **`VersionsCapped`** iken o durum **`Cannot be determined on this page`**
+>   olarak raporlanıyor (iki durum farklı eylem gerektiriyor). ⚠️ Bu madde bir tur
+>   boyunca *"`Capped` iken"* diyordu ve **aynı bloğun bir sonraki maddesiyle
+>   çelişiyordu**; kod `if out.VersionsCapped` idi, yani yanlış olan madde metniydi.
+> - **GPS yarıçapı** (25–1000 m) sınırlı parametredir ama `policy.Params`'ta
+>   yoktur → faz A'da gösterilmiyor.
+> - **Okuma yetkisi role bakmıyor:** owner da manager da okuyabilir. *Düzenleme*
+>   owner-only kalır (`sys:policy-edit-owner-only`), faz B onu zorlar.
+> - **Kilit iddiası tek yerde.** Eylem kartındaki cümle artık *"the engine would
+>   refuse it"* diyor; *"nobody may do it"* **kaldırıldı** çünkü panel motora
+>   sormuyor ve bir müdür rapor dışa aktarabiliyor. Kilit iddiası **yalnız** bölüm
+>   sonundaki, iki yönlü testli bildirimde.
+> - **İki tavan ayrıldı — domainde VE ekranda.** `AttachmentsCapped` bir kuralın
+>   durumunu bilinmez yapmıyor; yalnız `VersionsCapped` yapıyor (ölçüldü: 401
+>   attachment + eksiksiz versions → eskiden 9/9 *"bilinmiyor"*, şimdi 9/9 doğru
+>   durum). ⚠️ İlk düzeltme **yalnız domaindeydi**: ekran ikisi için tek uyarı
+>   basıyordu ve attachment tavanı tek başına çarptığında **üç yanlış şey**
+>   söylüyordu (*"geçmişiniz uzun"* · *"bazı sürümler listelenmedi"* · *"dışarıda
+>   kalan kural bunu söyler"*), kesilen liste ise **"Bound to"** idi ve tam
+>   sanılacak şekilde basılıyordu. Artık **iki ayrı bildirim**, her biri kendi
+>   kesilen listesini adlandırıyor.
+>
+> **6. Ölçümler — as-of 2026-08-12.** ⚠️ **Bu blok iki kez yeniden ölçüldü ve ilk
+> hâlindeki üç sayı yanlıştı** (KF 34.560 / bozuk 22.998 — sayfa o ölçümden sonra iki kez değişti ve
+> blok güncellenmedi; ayrıca `/admin` için tenant yazılmamıştı). Aşağıdaki tablo
+> **2026-08-12**, geliştirme veritabanı, gerçek imzalı oturumla `curl`, port 8099
+> `lsof` ile doğrulandı — **her satır tenant'ıyla ve koşuluyla**:
+>
+> | sayfa | tenant / koşul | bayt |
+> |---|---|---|
+> | `/admin/policies` | KF — 9 baseline materialise edilmiş, hepsi okunur | **34.593** |
+> | `/admin/policies` | KM — hiç materialise edilmemiş | **18.833** |
+> | `/admin/policies` | demo tenant — bir belge okunamıyor (`{}`) | **23.221** |
+> | `/admin` | KF | 32.276 |
+> | `/admin` | KM | 4.501 |
+>
+> KF'de okuma öncesi/sonrası `policies/policy_versions/policy_attachments` sayımı
+> **9/9/9 → 9/9/9**, KM'de **0/0/0 → 0/0/0**, bozuk tenant'ta **2/2/2 → 2/2/2**.
+>
+> ⚠️ `/admin` KF'de her `make test` koşusuyla büyüyor (paket o tenant'a kayıt
+> yazıyor), bu yüzden o satır bir **gözlem**, bir hedef değil. Tablodaki
+> `/admin/policies` satırları ise sayfanın **yapısına** bağlı: KF'de dokuz kural
+> materialise edilmiş, KM'de sıfır, demo tenant'ta iki (biri okunamaz). Bir sayı
+> tekrar değişirse **sayfa değişmiş demektir** — o zaman yeniden ölçülmeli, tahmin
+> edilmemeli.
 
 ---
 

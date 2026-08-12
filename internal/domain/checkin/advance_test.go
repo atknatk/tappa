@@ -47,6 +47,7 @@ import (
 	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/db"
 	"github.com/atknatk/tappa/internal/domain/tap"
+	"github.com/atknatk/tappa/internal/policy"
 	"github.com/atknatk/tappa/internal/store"
 )
 
@@ -406,5 +407,43 @@ func testConfig() *config.Config {
 		// the test is still red). It stays 120 only so a reader does not mistake the
 		// harness value for the shipped one.
 		Freshness: 120 * time.Second,
+	}
+}
+
+// TestParams_ReportsTheConfiguredWindowsRatherThanTheShippedDefaults.
+//
+// 🔴 THE PANEL PRINTS WHAT THIS RETURNS (M6-09), so a getter that quietly handed
+// back policy.DefaultParams() would put a number on a customer's screen that no
+// guardrail compares against — the hand-off N3 defect, one layer out and with a
+// screen vouching for it. Both configured windows here differ from the shipped
+// fallbacks (90 s vs 60 s debounce, 120 s vs 900 s freshness), so returning the
+// defaults is RED rather than coincidentally right.
+//
+// The third window is asserted the other way round: occurred_at skew has NO config
+// field today, so it MUST be the declared range maximum. If a future config knob
+// appears and is not wired, this is the assertion that notices.
+func TestParams_ReportsTheConfiguredWindowsRatherThanTheShippedDefaults(t *testing.T) {
+	t.Parallel()
+	cfg := testConfig()
+	s, err := New(&tenantRecorder{}, stubRecorder{}, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	got := s.Params()
+	if got.DebounceWindow != cfg.Debounce {
+		t.Errorf("Params().DebounceWindow = %v, want the configured %v (the shipped fallback is %v)",
+			got.DebounceWindow, cfg.Debounce, policy.DefaultParams().DebounceWindow)
+	}
+	if got.FreshnessWindow != cfg.Freshness {
+		t.Errorf("Params().FreshnessWindow = %v, want the configured %v (the shipped fallback is %v)",
+			got.FreshnessWindow, cfg.Freshness, policy.DefaultParams().FreshnessWindow)
+	}
+	if want := time.Duration(policy.OccurredAtSkewMaxSeconds) * time.Second; got.OccurredAtSkewMax != want {
+		t.Errorf("Params().OccurredAtSkewMax = %v, want the declared range maximum %v", got.OccurredAtSkewMax, want)
+	}
+	// Whatever it reports must be a set the guardrails would accept; a screen that
+	// printed an out-of-range window would be describing a service that cannot run.
+	if err := got.Validate(); err != nil {
+		t.Errorf("Params() reported a set the guardrail bounds reject: %v", err)
 	}
 }

@@ -1,0 +1,511 @@
+package pages
+
+import "github.com/atknatk/tappa/web/templates/components"
+
+// The POLICIES section (M6-09 phase A) — the three layers, read only.
+//
+// 🔴 IT RENDERS PanelShell, NOT PanelShellWithScript. This section loads no
+// script: everything on it is text, and the panel's widened Content-Security-Policy
+// stays pinned to exactly ONE url — the cardinality
+// TestPanelScreens_ScriptsAndPolicyAgreeAndReachNoThirdParty asserts.
+//
+// 🔴 THE GUARDRAIL BLOCK HAS NO CONTROL IN IT, AND NOT MERELY A DISABLED ONE. The
+// card's first trap is drawing a guardrail as a switch a customer cannot move:
+// they try it, it does not move, and they stop trusting the rest of the page. So
+// the language here is a LOCK AND A REASON — each rule says which red line it
+// enforces — and the view model has no field a control could be built from
+// (policiesview.go), so this cannot be softened by a later edit that forgets why.
+//
+// 🔴 THE TWO LANGUAGES ARE VISUALLY SEPARATE ON PURPOSE (skill tappa-brand). A
+// guardrail's chip is ink — the text colour, the one tone that is not a status —
+// so it reads as structure. A baseline rule's chip uses the brand's status
+// mapping: running is tappa-green, switched off is the neutral line, waiting to be
+// set up is saffron, unreadable is tomato. Colour never carries the meaning alone:
+// every chip says its own word.
+//
+// 🔴 §4.3 / §4.6 — THIS IS A READ. No form posts from this page, nothing here
+// writes a row, and that is stronger than staging: the OTHER assembler of a policy
+// set (internal/domain/checkin) materialises the managed baseline when it finds it
+// missing, so a screen that borrowed its reader would INSERT a policy, a version
+// and an attachment for every shipped baseline document into a tenant somebody
+// merely looked at — into a
+// table that is append-only, so the rows could never be taken back.
+// 🔴 EVERYTHING THIS SECTION RENDERS IS INSIDE ONE WRAPPER, AND THAT WRAPPER IS A
+// TEST BOUNDARY RATHER THAN A LAYOUT DECISION. The "nothing here is interactive"
+// net (handler.TestPoliciesSection_RendersOnlyInertMarkup) has to scan the SECTION
+// and not the panel shell, which carries a sign-out form this task must not touch.
+// Its first anchor was the intro's heading text — and an auditor put a working
+// control into the degraded notice, which renders ABOVE that heading: 2769 bytes of
+// this section sat OUTSIDE the scanned slice, and the escape came back green. The
+// anchor is this wrapper now, so a block added anywhere in the section is inside
+// the scan by construction rather than by remembering.
+templ AdminPolicies(v PoliciesView) {
+	@PanelShell(v.PanelChrome) {
+		<div class="policy-section">
+			if v.VersionsCapped {
+				@components.Notice(components.ToneWarn, "Some version history is not on this page") {
+					<p>
+						Your policy history is longer than one page reads at once, so some
+						versions are not listed below — and a rule whose row fell outside the
+						page says so rather than guessing which state it is in. Nothing has been
+						lost: every version is still stored, and a policy's history can never be
+						deleted.
+					</p>
+				}
+			}
+			if v.AttachmentsCapped {
+				@components.Notice(components.ToneWarn, "Some scope bindings are not on this page") {
+					<p>
+						This business has more policy bindings than one page reads at once, so the
+						“Bound to” lists below are shortened.
+						// 🔴 THE REASSURANCE IS CONDITIONAL, BECAUSE IT WAS MEASURED CONTRADICTING
+						// THE NOTICE DIRECTLY ABOVE IT. When BOTH ceilings are hit the page printed
+						// "some versions are not listed below" and then, one paragraph later,
+						// "their history … complete". Two independent reads, two independent
+						// ceilings — so the sentence that claims everything else is whole may only
+						// be printed when everything else IS whole.
+						if !v.VersionsCapped {
+							Everything else on this page is complete — the rules, their history and
+							who may do what are all read separately.
+						} else {
+							Your version history is shortened too — see the notice above.
+						}
+					</p>
+				}
+			}
+			if v.Queried {
+				@policyDegraded(v)
+				@policyIntro(v)
+				@policyGuardrails(v)
+				@policyBaseline(v)
+				@policyTenant(v)
+				@policyAuthorities(v)
+			}
+		</div>
+	}
+}
+
+// policyDegraded is the page's loudest sentence, and it is at the TOP because
+// everything below it is conditional on what it says.
+//
+// 🔴 ONE UNREADABLE DOCUMENT SILENCES THE WHOLE POLICY LAYER. The tap engine
+// reports an unparseable stored baseline document as missing, cannot repair it
+// (the policy and its version already exist, so materialising is a no-op) and then
+// decides on the guarantees ALONE — dropping the other baseline rules and the
+// customer's own policies with it. So the rest of this page describes rules that
+// are stored, valid, and deciding nothing, and the authority section describes
+// grants nobody is applying. Marking only the broken rule would have been correct
+// about one line and wrong about every other line on the page.
+templ policyDegraded(v PoliciesView) {
+	if v.GuardrailsOnly {
+		@components.Notice(components.ToneAlert, "Your rules are not being applied right now") {
+			// 🔴 BOTH SENTENCES BELOW WERE MEASURED AND ONE OF THEM USED TO BE TWO
+			// OVERSTATEMENTS. It said "every tap is … then sent to your review queue",
+			// which is false for a tap a guarantee MATCHES — those are refused or sent to
+			// activation, never reviewed. And it said "Nothing is being lost", which is
+			// false of sys:no-session and sys:tenant-mismatch: both write NO record, by
+			// design. A reassurance that is wrong on the screen explaining the problem is
+			// the §4.6 failure one layer out.
+			<p>
+				One of your Tappa baseline rules is stored in a form this release cannot
+				read, and the engine does not run a PART of a rulebook — a half rulebook is
+				a different rulebook, not a safer one. So every tap is currently being
+				judged by the Tappa guarantees alone: whatever one of them settles is
+				settled the same way it always is, and everything else is recorded and sent
+				to your review queue instead of being approved.
+			</p>
+			<p class="mt-1">
+				The rules listed below are stored and valid, and they are
+				<strong>not deciding anything today</strong>. Neither are the permissions
+				further down. This is not something you can fix from this screen — tell us,
+				and it is repaired by shipping a rule your business accepts.
+			</p>
+			<dl class="mt-2">
+				<dt class="docket-label">Cannot be read</dt>
+				for _, name := range v.Unreadable {
+					<dd class="font-mono text-xs text-ink">{ name }</dd>
+				}
+			</dl>
+		}
+	}
+}
+
+// policyIntro says what the three layers are, in one place, before any of them.
+templ policyIntro(v PoliciesView) {
+	<section class="bg-paper border border-line px-4 py-4">
+		<h2 class="font-display text-lg font-bold tracking-tight text-ink">How your rules are decided</h2>
+		<p class="mt-1 text-sm text-ink/85">
+			Every tap is judged in three layers, in this order. <strong>Tappa guarantees</strong>
+			run first and stop everything else — they are part of the product and nobody
+			can switch them off, including us. If none of them applies, your
+			<strong>Tappa baseline</strong> and <strong>your own policies</strong> are weighed
+			together and the most restrictive answer wins. If nothing at all matches, a
+			tap is sent to your review queue rather than quietly approved.
+		</p>
+		<p class="mt-2 font-mono text-xs uppercase tracking-widest text-ink/70">
+			Baseline shipped with this release: { v.ShippedBaseline }
+		</p>
+		<p class="mt-2 text-xs text-ink/85">
+			This page shows your rules; it does not change them yet. Switching a baseline
+			rule off, writing your own and editing the tunable windows below arrive next.
+		</p>
+	</section>
+}
+
+// policyGuardrails is the locked layer.
+templ policyGuardrails(v PoliciesView) {
+	<h2 class="font-display text-lg font-bold tracking-tight text-ink">Tappa guarantees</h2>
+	<p class="text-sm text-ink/85">
+		These are checked in the order shown, and the first one that applies decides on
+		its own. They are part of the product rather than a setting: there is no control to
+		turn one off, on this page or anywhere else, because each of them is a promise
+		the product is sold on. Some of them can be TUNED inside a range — that is
+		marked below.
+	</p>
+	<div class="flex flex-col gap-3">
+		for _, g := range v.Guardrails {
+			<section class="border-l-4 border-ink bg-paper px-4 py-3">
+				<div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+					<span class="font-mono text-sm font-bold text-ink">{ g.Order }</span>
+					<span class="font-mono text-sm text-ink">{ g.Sid }</span>
+					<span class="tally tally--locked">Cannot be switched off</span>
+				</div>
+				<p class="mt-1 text-sm text-ink">{ g.Outcome }</p>
+				<p class="mt-1 text-sm text-ink/85">{ g.Reason }</p>
+				<p class="mt-1 text-xs text-ink/85">{ g.Rule }</p>
+				if g.Tunable != "" {
+					<div class="mt-2 border border-line bg-porcelain px-3 py-2">
+						<p class="docket-label">{ g.Tunable }</p>
+						<p class="font-mono text-sm text-ink">
+							{ g.Current }
+							<span class="text-ink/70">· may be set between { g.Range }</span>
+						</p>
+					</div>
+				}
+			</section>
+		}
+	</div>
+}
+
+// policyBaseline is the layer Tappa ships and maintains.
+templ policyBaseline(v PoliciesView) {
+	<h2 class="font-display text-lg font-bold tracking-tight text-ink">Tappa baseline</h2>
+	<p class="text-sm text-ink/85">
+		The defaults we ship. Unlike the guarantees above, these are yours: each one can
+		be switched off or replaced with your own version, and doing so never touches a
+		guarantee. A rule you switch off is not deleted — its history stays, so a record
+		decided under it can still explain itself years later.
+	</p>
+	<div class="flex flex-col gap-4">
+		for _, r := range v.Baseline {
+			@policyRule(r)
+		}
+	</div>
+}
+
+// policyTenant is the customer's own layer.
+templ policyTenant(v PoliciesView) {
+	<h2 class="font-display text-lg font-bold tracking-tight text-ink">Your own policies</h2>
+	if len(v.Tenant) == 0 {
+		<div class="empty-state">
+			<p>You have not written any policies of your own.</p>
+			// 🔴 THE SECOND SENTENCE USED TO SAY "running on the guarantees and the
+			// baseline above" UNCONDITIONALLY, AND ON A BUSINESS WITH NO BASELINE ROWS
+			// AT ALL THE PAGE THEN CONTRADICTED ITSELF — nine rules marked "Not set up
+			// yet" directly above a line claiming they were carrying the business.
+			// Measured on the seeded Kebab Manufacturing tenant, which has no policy
+			// rows. Reassurance that is false on the exact screen that shows why is
+			// worse than no reassurance.
+			if v.BaselineInForce {
+				<p class="mt-1 text-sm">
+					Your business is running on the guarantees and the baseline above, which is
+					the intended starting point rather than a gap.
+				</p>
+			} else {
+				<p class="mt-1 text-sm">
+					Your business is running on the Tappa guarantees alone — none of the
+					baseline rules above is deciding anything yet. Taps are still recorded;
+					anything the guarantees do not settle goes to your review queue.
+				</p>
+			}
+		</div>
+	} else {
+		<div class="flex flex-col gap-4">
+			for _, r := range v.Tenant {
+				@policyRule(r)
+			}
+		</div>
+	}
+}
+
+// policyRule is one rule: its state, what it says, where it applies, its history.
+//
+// It is a docket, because a policy version is a record in exactly the sense the
+// motif is for — it was written at a time, by somebody, and it can never be edited
+// or deleted afterwards (skill tappa-brand; migration 00007 enforces it twice).
+templ policyRule(r PolicyRuleView) {
+	<section class="docket">
+		<div class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+			<p class="font-display font-bold tracking-tight text-ink">{ r.Name }</p>
+			<span class={ policyToneClass(r.StateTone) }>{ r.StateLabel }</span>
+		</div>
+		<p class="mt-1 font-mono text-xs uppercase tracking-widest text-ink/70">
+			if r.Managed {
+				Managed by Tappa
+			} else {
+				Written by you
+			}
+			if r.Version != "" {
+				· { r.Version }
+			}
+			if r.Stamp != "" {
+				· { r.Stamp }
+			}
+		</p>
+		if r.Outdated != "" {
+			<p class="mt-1 text-xs text-ink/85">{ r.Outdated }</p>
+		}
+		if r.Problem != "" {
+			@components.Notice(components.ToneAlert, "This rule is not being applied") {
+				<p>
+					Its stored document cannot be read by this release, so the engine ignores
+					it and no tap is being judged by it. What the document says is not shown
+					below, because showing part of a rule would describe rules that are not
+					your rules.
+				</p>
+				<p class="mt-1 font-mono text-xs break-words">{ r.Problem }</p>
+			}
+		}
+		for _, s := range r.Statements {
+			<div class="mt-3 border-t border-line pt-2">
+				<div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+					<span class="font-mono text-sm text-ink">{ s.Sid }</span>
+					<span class="font-mono text-xs uppercase tracking-widest text-ink/70">{ s.Effect }</span>
+				</div>
+				<p class="mt-1 text-sm text-ink">{ s.Outcome }</p>
+				if s.Reason != "" {
+					<p class="mt-1 text-sm text-ink/85">{ s.Reason }</p>
+				}
+				<dl class="mt-2 grid grid-cols-1 gap-x-4 gap-y-1 sm:grid-cols-2">
+					<div>
+						<dt class="docket-label">Applies to</dt>
+						<dd class="font-mono text-xs text-ink">{ joinOr(s.Actions, "—") }</dd>
+					</div>
+					<div>
+						<dt class="docket-label">Where</dt>
+						<dd class="font-mono text-xs text-ink">{ joinOr(s.Resources, "everywhere") }</dd>
+					</div>
+				</dl>
+				if len(s.Conditions) > 0 {
+					<dl class="mt-1">
+						<dt class="docket-label">Only when</dt>
+						for _, c := range s.Conditions {
+							<dd class="font-mono text-xs text-ink">{ c }</dd>
+						}
+					</dl>
+				}
+			</div>
+		}
+		if len(r.Attachments) > 0 {
+			<div class="mt-3 border-t border-line pt-2">
+				<p class="docket-label">Bound to</p>
+				<p class="font-mono text-xs text-ink">{ joinOr(r.Attachments, "—") }</p>
+				// 🔴 THE HONEST FOOTNOTE. A binding row and a statement's own scope are two
+				// different facts and only ONE of them decides: the engine reads the `Where`
+				// line above, never these rows (db/queries/policies.sql says so). Printing
+				// them without saying which one bites is how a customer comes to believe
+				// they have narrowed a rule that is still running everywhere.
+				<p class="mt-1 text-xs text-ink/85">
+					Recorded when the rule was set up. What actually decides where a rule
+					applies is the “Where” line on each statement above.
+				</p>
+			</div>
+		}
+		if len(r.History) > 0 {
+			<div class="mt-3 border-t border-line pt-2">
+				<p class="docket-label">History</p>
+				for _, h := range r.History {
+					<p class="font-mono text-xs text-ink">
+						{ h.No } · { h.At } · { h.Author } · { h.Bytes }
+						if h.Marker != "" {
+							<span class={ policyToneClass(h.MarkerTone) }>{ h.Marker }</span>
+						}
+					</p>
+				}
+				if r.HistoryNote != "" {
+					<p class="mt-1 text-xs text-ink/85">{ r.HistoryNote }</p>
+				}
+				// 🔴 WHAT THIS STRIP DOES NOT SHOW, SAID RATHER THAN LEFT TO BE DISCOVERED.
+				// An older version's RULES are not printed here: the size is, so two versions
+				// can be told apart, but the body needs a bounded page of its own —
+				// internal/policy's DefaultLimits bounds versions per policy and bytes per
+				// document SEPARATELY, so a row cap leaves the bytes uncapped and carrying
+				// every body into this page is megabytes of request. Saying the view is
+				// partial is better than a reader assuming it is complete.
+				<p class="mt-1 text-xs text-ink/85">
+					An earlier version's rules are not shown here yet — only that it existed,
+					who wrote it and how big it was.
+				</p>
+			</div>
+		}
+	</section>
+}
+
+// policyAuthorities is the who-may-do-what layer.
+//
+// 🔴 THE FAIL-CLOSED DEFAULT IS ON THE SCREEN, IN WORDS, because it is the whole
+// reason the section can be trusted: an action nothing grants is refused, not
+// allowed. ADR 0004 §3 splits the vocabulary in two, and the split shown here is
+// the ENGINE's own answer rather than a reading of the names.
+templ policyAuthorities(v PoliciesView) {
+	<h2 class="font-display text-lg font-bold tracking-tight text-ink">Who may do what</h2>
+	<p class="text-sm text-ink/85">
+		When no policy grants one of these, the answer is <strong>no</strong>. That is
+		deliberate: a permission nobody wrote down is one nobody decided, and guessing
+		yes on a permission is how a manager quietly acquires an authority you never
+		gave them.
+	</p>
+	if v.GuardrailsOnly {
+		// 🔴 THE SAME FLAG AS THE PAGE HEADER, REPEATED HERE ON PURPOSE. A reader who
+		// scrolls to this section is looking at a list of grants; without this line it
+		// reads as the current permissions, and every one of them is a permission the
+		// engine is not applying today.
+		@components.Notice(components.ToneAlert, "None of these grants is being applied today") {
+			<p>
+				A baseline rule cannot be read, so the engine is running on the guarantees
+				alone (see the top of this page). The grants below are what your rulebook
+				SAYS; they are not what is deciding right now.
+			</p>
+		}
+	}
+	<div class="flex flex-col gap-3">
+		for _, a := range v.Authorities {
+			<section class="bg-paper border border-line px-4 py-3">
+				<div class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+					<span class="font-mono text-sm text-ink">{ a.Action }</span>
+					<span class="tally tally--rejected">{ a.DefaultLabel }</span>
+				</div>
+				if len(a.Grants) > 0 {
+					<dl class="mt-1">
+						<dt class="docket-label">Granted to</dt>
+						for _, g := range a.Grants {
+							<dd class="font-mono text-xs text-ink">{ g }</dd>
+						}
+					</dl>
+				} else {
+					// 🔴 "the engine would refuse it", NOT "nobody may do it". The second is
+					// FALSE today and it was on every action card, above the notice that says
+					// so: the panel asks the engine nowhere (measured — see the notice at the
+					// end of this section), so a manager can in fact export a report, enter a
+					// record by hand and review one. A per-card categorical claim that the
+					// page's own footer contradicts is worse than no claim; the lock is
+					// asserted in exactly ONE place, and that place is tested in both
+					// directions.
+					<p class="mt-1 text-sm text-ink/85">
+						No policy of yours grants this, so the engine would refuse it.
+					</p>
+				}
+				if a.Guardrail != "" {
+					<p class="mt-1 text-xs text-ink/85">
+						Also locked in code by { a.Guardrail } — no policy can widen this one.
+					</p>
+				}
+			</section>
+		}
+	</div>
+	if len(v.Recording) > 0 {
+		<div class="bg-paper border border-line px-4 py-3">
+			<p class="docket-label">The one that works the other way</p>
+			for _, a := range v.Recording {
+				<p class="mt-1 font-mono text-sm text-ink">{ a.Action } · { a.DefaultLabel }</p>
+				// 🔴 THE GUARDRAIL LINE BELONGS HERE TOO, AND ITS ABSENCE WAS A FACT
+				// COMPUTED AND THROWN AWAY. The domain derives an action-scoped guardrail
+				// for BOTH groups; only the fail-closed loop printed it, so
+				// `tap:record → sys:no-session` was worked out on every render and shown
+				// nowhere — which is exactly the "the screen knows and does not say"
+				// shape this section exists to avoid.
+				if a.Guardrail != "" {
+					<p class="text-xs text-ink/85">
+						Also locked in code by { a.Guardrail } — no policy can widen this one.
+					</p>
+				}
+			}
+			<p class="mt-1 text-sm text-ink/85">
+				Recording an employee's tap is the exception, and it is the promise the
+				product is built on: if the evidence is not good enough, the tap is still
+				written down and sent to your review queue. A record is never dropped,
+				never silently approved, and never decided by nobody.
+			</p>
+		</div>
+	}
+	// 🔴 THE SENTENCE THAT MAKES THIS SECTION HONEST TODAY, AND IT IS TIED TO A
+	// MEASUREMENT RATHER THAN TO GOOD INTENTIONS. Nothing in the panel asks the
+	// policy engine before acting — measured by parsing internal/handler rather
+	// than grepping it (TestPanel_CallsThePolicyEngineNowhere), and the panel's ONE
+	// role check is written by hand for venue removal. So the grants above describe
+	// what the engine WOULD answer, and the page must not let a reader take them for
+	// enforcement. TestPoliciesSection_SaysWhetherTheEngineIsConsulted keeps the two
+	// in step in BOTH directions, over internal/handler AND internal/domain/tenant:
+	// the day either package starts asking the engine as a GATE, this paragraph goes
+	// red rather than quietly becoming false.
+	@components.Notice(components.ToneWarn, "What this page describes, and what it does not") {
+		<p>
+			These are the answers the rules engine gives. Today the dashboard does not
+			consult it before an action: signing in already proves which business you
+			belong to, and the only place a role is checked is deleting a venue, which
+			owners alone can do. So treat this as the rulebook your taps are judged by,
+			not yet as the lock on these buttons.
+		</p>
+		<p class="mt-1">
+			The words above are the engine's own — this page asks it what it does when no
+			rule matches, rather than repeating an answer somebody typed here.
+		</p>
+	}
+}
+
+// policyToneClass maps a tone to its chip classes.
+// 🔴 IT IS A SWITCH IN A .templ FILE RATHER THAN A CONCATENATION, AND THAT IS A
+// BUILD FACT RATHER THAN A STYLE PREFERENCE — the same reason components.Notice
+// gives for noticeClass. The Tailwind standalone CLI scans `./web/templates/**/*.templ`
+// and `./web/static/js/**/*.js` as RAW TEXT (tailwind.config.js) and NOT the Go
+// files, so a class assembled from a Go constant is a class the build never sees.
+// It fails in the direction nobody notices: the chip's word is still there, so the
+// page reads correctly and only the difference between a locked rule and a
+// switched-off one quietly disappears.
+//
+// ⚠️ MEASURED, NOT FEARED. Before this switch existed these four tones survived the
+// build ONLY because other screens spell them out — the roster and the docket use
+// the same modifiers. That is not a guarantee, it is a coincidence one unrelated
+// deletion away from ending. The names are literal here now, so this section's
+// chips stand on their own.
+//
+// The default arm is the LOCK tone rather than a status: an unknown tone must not
+// render as "in force" on a screen whose job is to say which rules are running.
+func policyToneClass(tone string) string {
+	switch tone {
+	case PolicyToneRunning:
+		return "tally tally--active"
+	case PolicyToneOff:
+		return "tally tally--deactivated"
+	case PolicyToneWaiting:
+		return "tally tally--queued"
+	case PolicyToneRefusing:
+		return "tally tally--rejected"
+	default:
+		return "tally tally--locked"
+	}
+}
+
+// joinOr renders a list, or a fallback word when it is empty. A blank cell reads
+// as "none", which is a different claim from "everything" — the same reasoning
+// personName uses on the reports section.
+func joinOr(items []string, fallback string) string {
+	if len(items) == 0 {
+		return fallback
+	}
+	out := items[0]
+	for _, s := range items[1:] {
+		out += " · " + s
+	}
+	return out
+}

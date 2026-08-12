@@ -2,6 +2,10 @@ package policy
 
 import (
 	"errors"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"strconv"
 	"testing"
 )
 
@@ -127,4 +131,102 @@ func FuzzParse(f *testing.F) {
 		// Accepted: Validate must also not panic on it, whatever the verdict.
 		_ = Validate(doc, LayerTenant, DefaultLimits())
 	})
+}
+
+// TestActions_CoverEveryDeclaredActionConstant holds allActions (and therefore
+// Actions() and validActions, which are both derived from it) in step with the
+// const block that declares the vocabulary.
+//
+// 🔴 IT PARSES THE SOURCE RATHER THAN LISTING THE NAMES, which is the whole point:
+// a test that repeated the seven identifiers would be a FOURTH copy of the
+// vocabulary and would go green on the day somebody added an eighth constant and
+// updated neither. go/ast asks the file what it declares.
+//
+// BOTH DIRECTIONS ARE CHECKED. A constant missing from the slice is an authority
+// the engine accepts but the panel never shows; a slice entry that is not a
+// declared constant is a name that cannot be produced by a document.
+func TestActions_CoverEveryDeclaredActionConstant(t *testing.T) {
+	declared := declaredConstsOfType(t, "document.go", "Action")
+	// ANTI-VACUITY: a walk that found nothing would agree with any slice at all.
+	if len(declared) < 5 {
+		t.Fatalf("the AST walk found %d Action constant(s) in document.go; there are more, "+
+			"so it is reading the wrong thing", len(declared))
+	}
+	inSlice := map[string]bool{}
+	for _, a := range Actions() {
+		inSlice[string(a)] = true
+	}
+	for name, value := range declared {
+		if !inSlice[value] {
+			t.Errorf("%s (%q) is declared as an Action but is absent from allActions. "+
+				"Valid() would reject it and the panel would never list the authority.",
+				name, value)
+		}
+	}
+	byValue := map[string]bool{}
+	for _, v := range declared {
+		byValue[v] = true
+	}
+	for _, a := range Actions() {
+		if !byValue[string(a)] {
+			t.Errorf("allActions carries %q, which no Action constant in document.go "+
+				"declares", a)
+		}
+	}
+	if got, want := len(Actions()), len(declared); got != want {
+		t.Errorf("Actions() returns %d entries, document.go declares %d Action constants; "+
+			"a duplicate in the slice would satisfy both loops above and still skew a count",
+			got, want)
+	}
+	// The copy must be a copy: a caller that mutates what it gets back must not be
+	// able to reach into the package's own vocabulary.
+	first := Actions()
+	first[0] = "mutated"
+	if Actions()[0] == "mutated" {
+		t.Error("Actions() handed out the package's own slice; a caller can rewrite the " +
+			"action vocabulary")
+	}
+}
+
+// declaredConstsOfType returns name -> string value for every const of the named
+// type declared in one file of this package.
+func declaredConstsOfType(t *testing.T, file, typeName string) map[string]string {
+	t.Helper()
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, file, nil, 0)
+	if err != nil {
+		t.Fatalf("parsing %s: %v", file, err)
+	}
+	out := map[string]string{}
+	for _, decl := range f.Decls {
+		gd, ok := decl.(*ast.GenDecl)
+		if !ok || gd.Tok != token.CONST {
+			continue
+		}
+		for _, spec := range gd.Specs {
+			vs, ok := spec.(*ast.ValueSpec)
+			if !ok {
+				continue
+			}
+			id, ok := vs.Type.(*ast.Ident)
+			if !ok || id.Name != typeName {
+				continue
+			}
+			for i, name := range vs.Names {
+				if i >= len(vs.Values) {
+					continue
+				}
+				lit, ok := vs.Values[i].(*ast.BasicLit)
+				if !ok || lit.Kind != token.STRING {
+					continue
+				}
+				value, err := strconv.Unquote(lit.Value)
+				if err != nil {
+					t.Fatalf("unquoting %s: %v", name.Name, err)
+				}
+				out[name.Name] = value
+			}
+		}
+	}
+	return out
 }

@@ -43,6 +43,7 @@ import (
 	"github.com/atknatk/tappa/internal/domain/review"
 	"github.com/atknatk/tappa/internal/domain/tenant"
 	"github.com/atknatk/tappa/internal/invite"
+	"github.com/atknatk/tappa/internal/policy"
 	"github.com/atknatk/tappa/internal/session"
 	"github.com/atknatk/tappa/web/templates/pages"
 )
@@ -170,7 +171,17 @@ func newPanelHarness(t *testing.T) *panelHarness {
 	if err != nil {
 		t.Fatalf("manual.NewRecorder: %v", err)
 	}
-	h, err := NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, venues, plaques, entries, cfg, slog.New(slog.DiscardHandler))
+	// THE REAL Rulebook (M6-09 phase A), for the reason every other real dependency
+	// here is real -- and for one more that is specific to it: the property its tests
+	// exist to prove is that rendering the policies screen writes NOTHING, and a fake
+	// would agree with that whatever the real reader did. The windows are
+	// policy.DefaultParams(): this harness has no checkin.Service, and what these
+	// tests assert about the screen is its rows rather than its numbers.
+	rules, err := tenant.NewRulebook(data, policy.DefaultParams(), slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatalf("tenant.NewRulebook: %v", err)
+	}
+	h, err := NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, venues, plaques, entries, rules, cfg, slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}

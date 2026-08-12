@@ -54,7 +54,7 @@ func panelBrowserWithRecorder(t *testing.T, rec *fakeRecorder) *browser {
 		}, nil
 	}}
 	h, err := NewAdminAuth(admins, &fakeTrail{}, newFakeLedger(), newFakeLedger(), &fakeReviewer{},
-		&fakeStaff{}, &fakeInviter{}, &fakeVenues{}, &fakePlaques{}, rec, adminTestConfig(),
+		&fakeStaff{}, &fakeInviter{}, &fakeVenues{}, &fakePlaques{}, rec, newFakeRules(), adminTestConfig(),
 		slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)
