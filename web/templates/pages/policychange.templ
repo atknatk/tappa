@@ -1,0 +1,214 @@
+package pages
+
+import "github.com/atknatk/tappa/web/templates/components"
+
+// The POLICY CHANGE screens (M6-09 phase B): the confirmation step, and one stored
+// version read in full.
+//
+// 🔴 THE CONFIRMATION SCREEN IS THE CARD'S "TAKES EFFECT IMMEDIATELY" WORRY
+// ANSWERED, AND IT IS HONEST ABOUT WHICH ANSWER IT IS. The M6-09 card originally
+// said the SIMULATOR had to run before a save; M6-10 is `skipped` (Q22 moved it to
+// M9-06), so "214 taps, 6 would change" cannot be shown in v1. What this shows is
+// the TEXT of the change and a plain sentence about the question it cannot answer.
+// A screen that implied it had checked the consequences would be worse than one
+// that says it has not.
+//
+// 🔴 THE PAGES CARRY NO SCRIPT. Everything is text and forms, so the panel's widened
+// Content-Security-Policy stays pinned to exactly one url.
+
+// PolicyChangeView is the confirmation step.
+type PolicyChangeView struct {
+	PanelChrome
+
+	// Heading and Summary are the change in words, chosen by the handler from the
+	// operation's own closed vocabulary. They are STRINGS rather than a shape the
+	// template picks apart, so the page cannot describe an operation differently from
+	// the way the server will perform it.
+	Heading string
+	Summary string
+	// Detail is the list of specifics: which rule, which scope, which venues.
+	Detail []PolicyChangeLine
+	// Warning is the consequence sentence for this particular change.
+	Warning string
+
+	// Action is where "do it" posts — the write. ConfirmField and ConfirmToken are
+	// the MAC that binds this warning to this exact change.
+	Action       string
+	ConfirmField string
+	ConfirmToken string
+	// Fields are the change's own values, echoed back as hidden inputs so the write
+	// receives exactly what the warning described. They are re-validated at the
+	// write; the MAC is what makes tampering with them useless.
+	Fields []PolicyChangeField
+	// BackHref returns to the section without doing anything.
+	BackHref string
+}
+
+// PolicyChangeLine is one labelled fact about the change.
+type PolicyChangeLine struct {
+	Label string
+	Value string
+}
+
+// PolicyChangeField is one hidden form value.
+type PolicyChangeField struct {
+	Name  string
+	Value string
+}
+
+// AdminPolicyChange renders the confirmation step.
+templ AdminPolicyChange(v PolicyChangeView) {
+	@PanelShell(v.PanelChrome) {
+		<div class="flex flex-col gap-4">
+			<section class="bg-paper border border-line px-4 py-4">
+				<h2 class="font-display text-xl font-bold tracking-tight text-ink">{ v.Heading }</h2>
+				<p class="mt-1 text-sm text-ink/85">{ v.Summary }</p>
+				<dl class="mt-3 grid grid-cols-1 gap-x-4 gap-y-1 sm:grid-cols-2">
+					for _, d := range v.Detail {
+						<div>
+							<dt class="docket-label">{ d.Label }</dt>
+							<dd class="font-mono text-xs text-ink">{ d.Value }</dd>
+						</div>
+					}
+				</dl>
+			</section>
+			@components.Notice(components.ToneWarn, "What this changes, and what nobody can tell you yet") {
+				<p>{ v.Warning }</p>
+				// 🔴 THIS SENTENCE PROMISED SOMETHING MIGRATION 00008 FORBIDS. It said "every
+				// one of them names the exact version of the rule that judged it" — but
+				// transactions_policy_decision_consistent REQUIRES policy_version_id to be NULL
+				// when a guardrail or the built-in default decided (both are code, not stored
+				// rows), and §5's rows 1-5 are guardrail decisions. Worse, this product tells a
+				// customer on the policies page itself that "every tap is currently being
+				// judged by the Tappa guarantees alone" when one stored document cannot be
+				// read — in exactly that state NONE of the new records names a version, and the
+				// page's loudest warning and this reassurance were speaking about the same rows
+				// in opposite directions. What 00008 does guarantee for every decided record is
+				// a matched_sid.
+				<p class="mt-1">
+					// 🔴 THIS SENTENCE HAS NOW BEEN WRONG THREE TIMES, EACH TIME ABOUT A DIFFERENT ARM
+					// OF MIGRATION 00008's CHECK, so it is written against all four of them and pinned
+					// by a test (handler.TestPolicyChange_DescribesEveryShapeOf00008).
+					//
+					//   (a) policy_layer IS NULL          -> NO rule is named at all. The shipped
+					//                                        MANUAL-ENTRY path writes exactly this:
+					//                                        db/queries/transactions.sql leaves the four
+					//                                        policy columns OUT of the column list. It
+					//                                        names the person who entered it instead.
+					//   (b) policy_layer = 'guardrail'    -> matched_sid, and NO version (guarantees
+					//                                        and the built-in default are code).
+					//   (c) baseline / tenant             -> matched_sid AND the exact stored version.
+					//
+					// Version 1 of this text promised a version for EVERY record (false for (a) and
+					// (b)); version 2 fixed the version half and still said every record names a RULE
+					// (false for (a)); this is version 3.
+					Records already written are not touched. Where a rule decided one, it names that
+					rule — and if the rule was a stored one, your own or a Tappa baseline, it names the
+					exact version too, which can never be edited or deleted. Where one of the Tappa
+					guarantees decided there is no stored version to name, and a record you typed in by
+					hand names the person who entered it rather than a rule. What changes here is how
+					the NEXT tap is judged.
+				</p>
+				<p class="mt-1">
+					This release cannot tell you how many of last week&#39;s taps would have come out
+					differently — replaying past taps against a changed rulebook is a separate
+					piece of work and it is not built yet. So treat this as a change you are making
+					with your eyes open rather than one that has been checked for you.
+				</p>
+			}
+			<form method="post" action={ templ.URL(v.Action) } class="flex flex-wrap items-center gap-3">
+				for _, f := range v.Fields {
+					<input type="hidden" name={ f.Name } value={ f.Value }/>
+				}
+				<input type="hidden" name={ v.ConfirmField } value={ v.ConfirmToken }/>
+				<button class="btn btn--primary" type="submit">Make this change</button>
+				<a class="btn btn--quiet" href={ templ.URL(v.BackHref) }>Cancel</a>
+			</form>
+		</div>
+	}
+}
+
+// PolicyVersionPageView is one stored version read in full — the bounded route phase A
+// said it did not have, and said so on the screen.
+type PolicyVersionPageView struct {
+	PanelChrome
+
+	PolicyName string
+	Layer      string
+	Version    string
+	At         string
+	Author     string
+	Bytes      string
+	// Marker says whether this is the version the engine would use, IN WORDS. A
+	// version that is not current is not an error and not a draft: it is what some
+	// records were judged by, which is the reason this page exists.
+	Marker string
+	// State is the sentence about whether the rule is switched on at all.
+	State string
+	// Problem explains a body this release cannot parse. An OLD version that no
+	// longer parses is a real state and it is shown rather than hidden: records
+	// decided under it exist, and "we cannot read it" is what a reader needs.
+	Problem    string
+	Statements []PolicyStatementView
+	BackHref   string
+}
+
+// AdminPolicyVersion renders one version's body.
+templ AdminPolicyVersion(v PolicyVersionPageView) {
+	@PanelShell(v.PanelChrome) {
+		<div class="flex flex-col gap-4">
+			<section class="docket">
+				<div class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+					<p class="font-display font-bold tracking-tight text-ink">{ v.PolicyName }</p>
+					<span class="tally tally--locked">{ v.Marker }</span>
+				</div>
+				<p class="mt-1 font-mono text-xs uppercase tracking-widest text-ink/70">
+					{ v.Version } · { v.At } · { v.Author } · { v.Bytes }
+				</p>
+				<p class="mt-1 text-sm text-ink/85">{ v.State }</p>
+				if v.Problem != "" {
+					@components.Notice(components.ToneAlert, "This version cannot be read by this release") {
+						<p>
+							Its stored document is in a form this release does not understand, so what
+							it says is not shown — showing part of a rule would describe rules that
+							are not your rules. It is still stored, and it can never be edited or
+							deleted.
+						</p>
+						<p class="mt-1 font-mono text-xs break-words">{ v.Problem }</p>
+					}
+				}
+				for _, s := range v.Statements {
+					<div class="mt-3 border-t border-line pt-2">
+						<div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+							<span class="font-mono text-sm text-ink">{ s.Sid }</span>
+							<span class="font-mono text-xs uppercase tracking-widest text-ink/70">{ s.Effect }</span>
+						</div>
+						<p class="mt-1 text-sm text-ink">{ s.Outcome }</p>
+						if s.Reason != "" {
+							<p class="mt-1 text-sm text-ink/85">{ s.Reason }</p>
+						}
+						<dl class="mt-2 grid grid-cols-1 gap-x-4 gap-y-1 sm:grid-cols-2">
+							<div>
+								<dt class="docket-label">Applies to</dt>
+								<dd class="font-mono text-xs text-ink">{ joinOr(s.Actions, "—") }</dd>
+							</div>
+							<div>
+								<dt class="docket-label">Where</dt>
+								<dd class="font-mono text-xs text-ink">{ joinOr(s.Resources, "everywhere") }</dd>
+							</div>
+						</dl>
+						if len(s.Conditions) > 0 {
+							<dl class="mt-1">
+								<dt class="docket-label">Only when</dt>
+								for _, c := range s.Conditions {
+									<dd class="font-mono text-xs text-ink">{ c }</dd>
+								}
+							</dl>
+						}
+					</div>
+				}
+			</section>
+			<p><a class="btn btn--quiet" href={ templ.URL(v.BackHref) }>Back to your rules</a></p>
+		</div>
+	}
+}

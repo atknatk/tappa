@@ -2,7 +2,7 @@ package pages
 
 import "github.com/atknatk/tappa/web/templates/components"
 
-// The POLICIES section (M6-09 phase A) — the three layers, read only.
+// The POLICIES section — the three layers, read AND written (M6-09 phases A and B).
 //
 // 🔴 IT RENDERS PanelShell, NOT PanelShellWithScript. This section loads no
 // script: everything on it is text, and the panel's widened Content-Security-Policy
@@ -23,13 +23,21 @@ import "github.com/atknatk/tappa/web/templates/components"
 // set up is saffron, unreadable is tomato. Colour never carries the meaning alone:
 // every chip says its own word.
 //
-// 🔴 §4.3 / §4.6 — THIS IS A READ. No form posts from this page, nothing here
-// writes a row, and that is stronger than staging: the OTHER assembler of a policy
-// set (internal/domain/checkin) materialises the managed baseline when it finds it
-// missing, so a screen that borrowed its reader would INSERT a policy, a version
-// and an attachment for every shipped baseline document into a tenant somebody
-// merely looked at — into a
-// table that is append-only, so the rows could never be taken back.
+// 🔴 §4.3 / §4.6 — THE GET IS A READ AND THE FORMS ON IT POST SOMEWHERE ELSE. This
+// header said "THIS IS A READ. No form posts from this page" for two rounds after
+// phase B put four of them here, which is the wrong thing to teach the next author:
+// what is true is that RENDERING this page writes nothing, and every control posts to
+// the section's CONFIRMATION step, which also writes nothing — the address that
+// changes a rulebook is reachable only from there, with a MAC bound to the exact
+// change.
+//
+// Why rendering must stay side-effect-free: the OTHER assembler of a policy set
+// (internal/domain/checkin) materialises the managed baseline when it finds it
+// missing, so a screen that borrowed its reader would INSERT a policy, a version and
+// an attachment for every shipped baseline document into a tenant somebody merely
+// looked at — into a table that is append-only, so the rows could never be taken back.
+// The gate the write path uses reads through checkin.Service.StoredSet for exactly
+// that reason.
 // 🔴 EVERYTHING THIS SECTION RENDERS IS INSIDE ONE WRAPPER, AND THAT WRAPPER IS A
 // TEST BOUNDARY RATHER THAN A LAYOUT DECISION. The "nothing here is interactive"
 // net (handler.TestPoliciesSection_RendersOnlyInertMarkup) has to scan the SECTION
@@ -73,12 +81,44 @@ templ AdminPolicies(v PoliciesView) {
 					</p>
 				}
 			}
+			if v.ScopeCapped {
+				@components.Notice(components.ToneWarn, "Some of your venues are not in the scope picker") {
+					<p>
+						This business has more venues and departments than one page reads at once, so
+						the list of places a rule can be applied to is shortened. Rules already bound
+						to a venue that is not listed are unaffected — a binding is stored, not
+						re-read from this list.
+					</p>
+				}
+			}
+			if v.Problem != "" {
+				// 🔴 A REFUSED CHANGE SAYS SO. The alternative — redirecting to the page and
+				// letting the owner work out from the rules whether anything happened — is the
+				// silent-failure shape §4.6 forbids one layer over, and it is worse here than on
+				// a read: the whole point of the confirmation step is that somebody read a
+				// sentence before pressing, so a press that did nothing has to be visible.
+				@components.Notice(components.ToneAlert, v.ProblemHeading) {
+					<p>{ v.Problem }</p>
+				}
+			}
 			if v.Queried {
 				@policyDegraded(v)
 				@policyIntro(v)
-				@policyGuardrails(v)
+				// 🔴 THE WRAPPER IS NOT HERE ANY MORE — IT IS THE FIRST AND LAST BYTE OF THE
+				// COMPONENT ITSELF, AND THAT IS WHAT MAKES THE SCANNED REGION UNAMBIGUOUS. It sat
+				// out here for three rounds so that markup added to the component's first line
+				// could not escape the scan; the isolated render closed that on its own (the
+				// component's bytes are scanned whatever is in them), and leaving the wrapper out
+				// here opened a NEW hole: an auditor put a working off switch BESIDE the call,
+				// inside the wrapper, outside the component's bytes — under the last guardrail row
+				// and the "Cannot be switched off" chip, with every test green.
+				// With the wrapper inside, "the page contains the component's bytes exactly once"
+				// says there is nothing between <div class="policy-guarantees"> and its close but
+				// the component — because those tags are part of what is compared.
+				@PolicyGuarantees(v)
 				@policyBaseline(v)
 				@policyTenant(v)
+				@policyAuthoring(v)
 				@policyAuthorities(v)
 			}
 		</div>
@@ -139,51 +179,171 @@ templ policyIntro(v PoliciesView) {
 			run first and stop everything else — they are part of the product and nobody
 			can switch them off, including us. If none of them applies, your
 			<strong>Tappa baseline</strong> and <strong>your own policies</strong> are weighed
-			together and the most restrictive answer wins. If nothing at all matches, a
-			tap is sent to your review queue rather than quietly approved.
+			together, and where two rules disagree the <strong>more specific one decides</strong>
+			— a rule about one venue beats a rule about all of them, whichever way it goes.
+			Only when two rules are equally specific does the stricter answer win. If nothing
+			at all matches, a tap is sent to your review queue rather than quietly approved.
 		</p>
 		<p class="mt-2 font-mono text-xs uppercase tracking-widest text-ink/70">
 			Baseline shipped with this release: { v.ShippedBaseline }
 		</p>
-		<p class="mt-2 text-xs text-ink/85">
-			This page shows your rules; it does not change them yet. Switching a baseline
-			rule off, writing your own and editing the tunable windows below arrive next.
-		</p>
+		if v.MayEdit {
+			<p class="mt-2 text-xs text-ink/85">
+				You can switch a Tappa baseline rule off, and write your own version of one that
+				applies at the venues you choose. Every change is shown to you in words before it
+				is written, and every change is recorded with your name against it.
+			</p>
+			// 🔴 BINDING IS NAMED SEPARATELY AND SAID TO DECIDE NOTHING. The first version of
+			// this paragraph put all three controls in one sentence ending "and choose where
+			// each applies" — but two of the three (bind, unbind) change no scope at all: the
+			// engine reads the "Where" line inside a statement, never these rows. A customer
+			// who bound a Tappa rule to one venue believing they had narrowed it would have a
+			// rule still running everywhere, which is the card's first trap arriving as a
+			// sentence instead of as a switch. The page said the true thing twice already (the
+			// "Bound to" footnote and the bind confirmation screen) and the opposite here.
+			<p class="mt-1 text-xs text-ink/85">
+				You can also record where a Tappa rule belongs. That is bookkeeping, not scope —
+				what decides where a rule applies is the “Where” line on each of its statements,
+				never the bindings.
+			</p>
+		} else {
+			// 🔴 THIS ARM IS THE ENGINE'S ANSWER, NOT A ROLE. It is shown to a manager AND to
+			// an owner whose rulebook has never been set up, because in both cases the engine
+			// refuses policy:edit — and telling an owner "only owners may change these" when
+			// they ARE the owner would send them looking for the wrong problem.
+			<p class="mt-2 text-xs text-ink/85">
+				You are seeing this page read-only: the rules engine does not currently grant you
+				the <span class="font-mono">policy:edit</span> authority, so no controls are shown.
+				The rules below tell you which of three things it is: your business&#39;s rules may
+				not have been set up yet (every one of them reads “Not set up yet”); one of them
+				may be stored in a form this release cannot read, which stops the whole rulebook
+				and is said at the top of this page; or they are fine and this authority is not
+				yours. Only an organisation owner is ever granted it.
+			</p>
+		}
+		@policySettings(v)
 	</section>
 }
 
-// policyGuardrails is the locked layer.
-templ policyGuardrails(v PoliciesView) {
-	<h2 class="font-display text-lg font-bold tracking-tight text-ink">Tappa guarantees</h2>
-	<p class="text-sm text-ink/85">
-		These are checked in the order shown, and the first one that applies decides on
-		its own. They are part of the product rather than a setting: there is no control to
-		turn one off, on this page or anywhere else, because each of them is a promise
-		the product is sold on. Some of them can be TUNED inside a range — that is
-		marked below.
-	</p>
-	<div class="flex flex-col gap-3">
-		for _, g := range v.Guardrails {
-			<section class="border-l-4 border-ink bg-paper px-4 py-3">
-				<div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-					<span class="font-mono text-sm font-bold text-ink">{ g.Order }</span>
-					<span class="font-mono text-sm text-ink">{ g.Sid }</span>
-					<span class="tally tally--locked">Cannot be switched off</span>
-				</div>
-				<p class="mt-1 text-sm text-ink">{ g.Outcome }</p>
-				<p class="mt-1 text-sm text-ink/85">{ g.Reason }</p>
-				<p class="mt-1 text-xs text-ink/85">{ g.Rule }</p>
-				if g.Tunable != "" {
-					<div class="mt-2 border border-line bg-porcelain px-3 py-2">
-						<p class="docket-label">{ g.Tunable }</p>
-						<p class="font-mono text-sm text-ink">
-							{ g.Current }
-							<span class="text-ink/70">· may be set between { g.Range }</span>
-						</p>
+// policySettings prints the bounded numbers that are NOT policies.
+//
+// 🔴 IT SHOWS THE GPS RING, WHICH PHASE A DID NOT SHOW AT ALL — the M6-09 card's
+// counted gap. ADR 0004 §11 bounds it 25..1000 m and two shipped rules decide on the
+// "GPS matched" it produces, so a customer reading "GPS is enough" had no way to
+// learn what near meant.
+//
+// 🔴 AND IT OFFERS NO BOX TO TYPE ONE INTO — for THESE four numbers, and only for
+// these four. All four come from configuration and the schema has no column for a
+// per-tenant value, so a field here really would be a field the server ignores.
+//
+// ⚠️ WHAT THIS COMMENT USED TO CLAIM, AND WHY IT WAS WRONG. It said the M6-09
+// criterion "an out-of-range value is refused in the interface too" is "NOT met by
+// this release" because "there is nothing behind" such a field. That is false about
+// the product: internal/policy's boundedParams binds THREE document context keys to
+// ranges, validate.go refuses an out-of-range numeric predicate in a TENANT DOCUMENT
+// at write time, and the shipped "queued tap window" document carries exactly such a
+// predicate — which copyOfShipped copies verbatim into a customer's own rule. So a
+// per-tenant, range-ENFORCED number exists and is stored; what is missing is a form
+// field for it. The criterion is NOT MET because it was not built, not because it
+// cannot be.
+templ policySettings(v PoliciesView) {
+	if len(v.Settings) > 0 {
+		<div class="mt-3 border border-line bg-porcelain px-3 py-2">
+			<p class="docket-label">Settings that are not rules</p>
+			for _, s := range v.Settings {
+				<p class="mt-1 font-mono text-sm text-ink">
+					{ s.Label }: { s.Current }
+					// 🔴 "SET BY US" COMES BEFORE THE RANGE, AND THE ORDER IS THE CORRECTION. It
+					// read "may be set between 25 m and 1000 m" with "there is nothing to change
+					// here" three lines below, so the first sentence read as an invitation and the
+					// second as a contradiction. The range is still printed — a customer asking us
+					// to change it needs to know what they may ask for.
+					<span class="text-ink/70">· set by Tappa, within { s.Range }</span>
+				</p>
+				<p class="text-xs text-ink/85">{ s.Uses }</p>
+			}
+			<p class="mt-2 text-xs text-ink/85">
+				These are set for the whole service rather than per business, so there is nothing
+				to change here — and no box that would quietly ignore what you typed. Tell us the
+				value you need; the range above is what it may be.
+				// 🔴 THE SECOND SENTENCE USED TO SAY THAT NUMBERS INSIDE YOUR OWN RULES ARE
+				// "refused when the rule is saved". True of the ENGINE — a numeric predicate
+				// outside its declared range is rejected at write time — and misleading on THIS
+				// screen, because the form offers no way to type one: a customer's own rule is
+				// generated from a shipped document, and choosing a threshold is the part of the
+				// M6-09 criterion this release did not build. Promising a check on a box that
+				// does not exist is the same defect as a box the server ignores.
+			</p>
+		</div>
+	}
+}
+
+// PolicyGuarantees is the locked layer.
+//
+// 🔴 IT IS EXPORTED SO A TEST CAN RENDER IT ALONE, AND THAT IS THE WHOLE OF THE
+// ABSOLUTE REGION'S DEFINITION. handler.TestPoliciesSection_RendersOnlyInertMarkup
+// renders THIS component by itself and scans the bytes it produces, then requires the
+// page to contain exactly those bytes. Nothing is counted, so nothing can be
+// miscounted: markup written anywhere in here — including through templ.Raw, and
+// including sequences a browser swallows — is in the scanned bytes by construction.
+//
+// WHY IT IS NOT A `<div>`-BALANCING SCAN ANY MORE. Three escapes lived in that
+// version, each a different way to make the counter disagree with a browser: markup
+// above the wrapper, a filled DECOY wrapper, and `<!-- </div></div> -->`. The third
+// was patched by blanking comments, and an auditor then wrote
+// `@templ.Raw("<!x </div> >")` — an HTML5 BOGUS COMMENT, which a browser swallows to
+// the first `>` and never turns into a close, while the counter counted it. The
+// region ended early and a working off switch rendered inside this block, outside the
+// scanned slice, with the package green. There is no fourteenth patch: the region is
+// derived instead.
+//
+// 🔴 IT EMITS THE WRAPPER ITSELF, AND THAT IS THE FOURTEENTH ESCAPE'S ANSWER. The
+// wrapper lived in AdminPolicies for three rounds — a defence against markup added to
+// this function's first line, which the isolated render made unnecessary the moment it
+// shipped. What it created instead was a gap the render could not see: markup placed
+// BESIDE the call, inside the wrapper and outside the component's bytes. An auditor
+// put a working off switch there, under the last guardrail row, and every test stayed
+// green. With the wrapper back in here, "the page contains these bytes exactly once"
+// covers the wrapper's own tags, so nothing can sit between them but this component.
+//
+// The scan itself is unchanged: handler.TestPoliciesSection_RendersOnlyInertMarkup
+// reads the bytes between the wrapper's tags with the SAME allow-list phase A used —
+// no form, no input, no button, no link, and no attribute but class, whose VALUE is
+// also checked because in this repository `class="btn min-h-11"` is what makes a
+// thing a button. The rest of the section is held by a different, wider net.
+templ PolicyGuarantees(v PoliciesView) {
+	<div class="policy-guarantees">
+		<h2 class="font-display text-lg font-bold tracking-tight text-ink">Tappa guarantees</h2>
+		<p class="text-sm text-ink/85">
+			These are checked in the order shown, and the first one that applies decides on
+			its own. They are part of the product rather than a setting: there is no control to
+			turn one off, on this page or anywhere else, because each of them is a promise
+			the product is sold on. Some of them can be TUNED inside a range — that is
+			marked below.
+		</p>
+		<div class="flex flex-col gap-3">
+			for _, g := range v.Guardrails {
+				<section class="border-l-4 border-ink bg-paper px-4 py-3">
+					<div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+						<span class="font-mono text-sm font-bold text-ink">{ g.Order }</span>
+						<span class="font-mono text-sm text-ink">{ g.Sid }</span>
+						<span class="tally tally--locked">Cannot be switched off</span>
 					</div>
-				}
-			</section>
-		}
+					<p class="mt-1 text-sm text-ink">{ g.Outcome }</p>
+					<p class="mt-1 text-sm text-ink/85">{ g.Reason }</p>
+					<p class="mt-1 text-xs text-ink/85">{ g.Rule }</p>
+					if g.Tunable != "" {
+						<div class="mt-2 border border-line bg-porcelain px-3 py-2">
+							<p class="docket-label">{ g.Tunable }</p>
+							<p class="font-mono text-sm text-ink">
+								{ g.Current }
+								<span class="text-ink/70">· may be set between { g.Range }</span>
+							</p>
+						</div>
+					}
+				</section>
+			}
+		</div>
 	</div>
 }
 
@@ -191,10 +351,11 @@ templ policyGuardrails(v PoliciesView) {
 templ policyBaseline(v PoliciesView) {
 	<h2 class="font-display text-lg font-bold tracking-tight text-ink">Tappa baseline</h2>
 	<p class="text-sm text-ink/85">
-		The defaults we ship. Unlike the guarantees above, these are yours: each one can
-		be switched off or replaced with your own version, and doing so never touches a
-		guarantee. A rule you switch off is not deleted — its history stays, so a record
-		decided under it can still explain itself years later.
+		The defaults we ship. Unlike the guarantees above, these are yours: one can be
+		switched off or replaced with your own version once it has been set up for your
+		business, and doing so never touches a guarantee. A rule you switch off is not
+		deleted — its history stays, so a record decided under it can still explain itself
+		years later.
 	</p>
 	<div class="flex flex-col gap-4">
 		for _, r := range v.Baseline {
@@ -330,6 +491,9 @@ templ policyRule(r PolicyRuleView) {
 						if h.Marker != "" {
 							<span class={ policyToneClass(h.MarkerTone) }>{ h.Marker }</span>
 						}
+						if h.Href != "" {
+							<a class="btn btn--quiet" href={ templ.URL(h.Href) }>Read it in full</a>
+						}
 					</p>
 				}
 				if r.HistoryNote != "" {
@@ -343,12 +507,174 @@ templ policyRule(r PolicyRuleView) {
 				// every body into this page is megabytes of request. Saying the view is
 				// partial is better than a reader assuming it is complete.
 				<p class="mt-1 text-xs text-ink/85">
-					An earlier version's rules are not shown here yet — only that it existed,
-					who wrote it and how big it was.
+					An earlier version's rules are on a page of their own — this strip carries only
+					that it existed, who wrote it and how big it was, because a page of documents is
+					bounded by nothing a row count can express.
 				</p>
 			</div>
 		}
+		@policyRuleControls(r)
 	</section>
+}
+
+// policyRuleControls is one rule's write side (M6-09 phase B).
+//
+// 🔴 EVERY BLOCK IS BEHIND AN EMPTY-OR-NOT TEST ON DATA THE HANDLER FILLED IN FROM
+// THE ENGINE'S ANSWER, not behind a role test written here. A template that decided
+// who may press what would be a second representation of a decision the engine has
+// already made, and the two would drift on the day a rulebook changes.
+//
+// 🔴 NOTHING HERE POSTS TO THE WRITE. Every form below posts to the CONFIRMATION
+// step, which renders what would happen and writes nothing; the address that changes
+// a rulebook is reachable only from that screen, with a MAC bound to the exact
+// change. That is the card's "takes effect immediately" worry answered with the only
+// instrument v1 has — the simulator it originally asked for is M9-06.
+templ policyRuleControls(r PolicyRuleView) {
+	if r.Switch.Label != "" {
+		<form method="post" action={ templ.URL(r.Action) } class="mt-3 border-t border-line pt-2">
+			<input type="hidden" name="op" value={ r.Switch.Op }/>
+			<input type="hidden" name="policy" value={ r.ID }/>
+			<button class="btn btn--quiet" type="submit">{ r.Switch.Label }</button>
+			<span class="ml-2 text-xs text-ink/85">{ r.Switch.Note }</span>
+		</form>
+	}
+	if len(r.Unbind) > 0 {
+		<div class="mt-2 flex flex-wrap gap-2">
+			for _, b := range r.Unbind {
+				<form method="post" action={ templ.URL(r.Action) }>
+					<input type="hidden" name="op" value="unbind"/>
+					<input type="hidden" name="policy" value={ r.ID }/>
+					<input type="hidden" name="resource" value={ b.Resource }/>
+					<button class="btn btn--quiet" type="submit">Stop recording it at { b.Label }</button>
+				</form>
+			}
+		</div>
+	}
+	if len(r.Bindable) > 0 {
+		<form method="post" action={ templ.URL(r.Action) } class="mt-2 flex flex-wrap items-end gap-2">
+			<input type="hidden" name="op" value="bind"/>
+			<input type="hidden" name="policy" value={ r.ID }/>
+			<label class="text-xs text-ink/85">
+				Also record it as applying at
+				<select name="resource" class="filter-input">
+					for _, o := range r.Bindable {
+						<option value={ o.Value }>{ o.Label }</option>
+					}
+				</select>
+			</label>
+			<button class="btn btn--quiet" type="submit">Record the binding</button>
+		</form>
+	}
+}
+
+// policyAuthoring is "write your own version of a Tappa rule" (M6-09 phase B).
+//
+// 🔴 THE CUSTOMER DOES NOT WRITE A DOCUMENT, AND THAT IS THE WHOLE SAFETY ARGUMENT
+// OF THE v1 EDITOR (Q22: form only; the raw-JSON editor is M9-07). What is posted is
+// a name, ONE shipped rule to copy and a set of venues; the statements come from
+// bytes this binary already ships and has already validated. So a customer document
+// cannot name policy:edit, cannot carry an effect this form does not offer, and
+// cannot be a shape the parser will later refuse — three failure modes a free-text
+// editor would have to defend against one at a time, and the third of which takes
+// the WHOLE policy layer down for that business when it happens.
+//
+// 🔴 THE LIST IS DERIVED, NOT WRITTEN. tenant.AuthorableRules asks the engine which
+// actions fail closed and drops any shipped document that mentions one, so the
+// authorization document is not in it — by derivation rather than by a name nobody
+// will remember to keep out.
+templ policyAuthoring(v PoliciesView) {
+	if len(v.Authorable) > 0 {
+		<section class="bg-paper border border-line px-4 py-4">
+			<h2 class="font-display text-lg font-bold tracking-tight text-ink">Write your own version</h2>
+			<p class="mt-1 text-sm text-ink/85">
+				// 🔴 THIS PARAGRAPH AND THE INTRO HAVE TO AGREE, AND FOR A ROUND THEY DID NOT.
+				// The intro said "the most restrictive answer wins", which is only the tiebreak at
+				// EQUAL specificity; internal/policy/evaluate.go picks the most SPECIFIC first and
+				// compares restrictiveness only when specificity ties. On a read-only page that
+				// was a wrong sentence; once this form shipped it became a wrong PREDICTION about
+				// the very thing the form sells — an owner writing a permissive copy scoped to one
+				// venue would read the intro and expect it not to loosen anything, and the engine
+				// would pick it.
+				Take one of the Tappa rules above and keep it only where you want it. Your copy is
+				your own — it gets its own history, and Tappa never changes it. It does NOT switch
+				the original off: until you do that, both apply, and the more specific one decides
+				— so a copy scoped to one venue can make that venue MORE permissive than the
+				original, not only stricter.
+			</p>
+			<form method="post" action={ templ.URL(v.Action) } class="mt-3 flex flex-col gap-3">
+				<input type="hidden" name="op" value="author"/>
+				// 🔴 THE POLICY PICKER IS WHAT MAKES THIS FORM ABLE TO EDIT AT ALL. Without it
+				// every save took the CREATE branch, so pressing it twice left two rules with the
+				// same name — both deciding, neither in the other's history, and `policies` grants
+				// no DELETE, so neither can ever be removed. It also left the section with no way
+				// to ask for the new VERSION the domain has been able to write since day one.
+				if len(v.Supersedable) > 0 {
+					<label class="flex flex-col gap-1 text-xs text-ink/85">
+						Is this a new rule, or a new version of one of yours?
+						<select name="policy" class="filter-input">
+							<option value="">A new rule of my own</option>
+							for _, o := range v.Supersedable {
+								<option value={ o.Value }>{ o.Label }</option>
+							}
+						</select>
+					</label>
+				}
+				<label class="flex flex-col gap-1 text-xs text-ink/85">
+					What do you want to call it?
+					<input type="text" name="name" maxlength="120" required class="filter-input"/>
+				</label>
+				<label class="flex flex-col gap-1 text-xs text-ink/85">
+					Which Tappa rule is it a version of?
+					<select name="based_on" class="filter-input">
+						for _, o := range v.Authorable {
+							<option value={ o.Value }>{ o.Label }</option>
+						}
+					</select>
+				</label>
+				<fieldset class="border border-line px-3 py-2">
+					<legend class="docket-label">Where does it apply?</legend>
+					// 🔴 IT SAYS "VENUES", AND THAT IS A LIMIT RATHER THAN A WORD CHOICE. The
+					// acceptance criterion asks for a rule to be scoped to a location OR a
+					// department; copyOfShipped only ever writes location resources, so a
+					// department cannot be narrowed to at all. Saying "venue" everywhere is the
+					// honest half; the sentence below is the other half, because the section DOES
+					// offer departments in the "Bound to" control and a customer would otherwise
+					// reasonably read that as scope.
+					<p class="text-xs text-ink/85">
+						Tick nothing and it applies at every venue, which is what the Tappa rule already
+						does. Tick some and it applies only there. A rule cannot be narrowed to a
+						department yet — only to venues. Recording one against a department under
+						“Bound to” is bookkeeping rather than scope.
+					</p>
+					for _, o := range v.ScopeTargets {
+						<label class="mt-1 flex min-h-11 items-center gap-2 text-sm text-ink">
+							// 🔴 44×44 RATHER THAN THE h-6 w-6 THE REST OF THE PRODUCT USES, AND THAT IS A
+							// DECISION WITH A COST. venue.templ and activate.templ draw their checkboxes at
+							// 24px and manualentry.templ its radios at 20px, so this is the only 44px box in
+							// the product — a real inconsistency, raised by an audit.
+							//
+							// IT IS KEPT, for two measured reasons. The touch-target net reads THE CONTROL,
+							// not the label around it: the wrapping label already reserves 44px and the whole
+							// row is the hit area, but no test can see that, and teaching a net shared by four
+							// sections to understand label wrapping would relax the rule for every 24px
+							// control the day one enters a corpus — the others are invisible today only
+							// because their screens render behind a query parameter. And bigger is not the
+							// failure direction: skill tappa-brand sizes the tap button at 64px for gloved and
+							// wet hands, and this list can be long.
+							//
+							// ⚠️ COUNTED: if a later round makes the net label-aware, this should come back
+							// to 24px and read as one system with the other three screens.
+							<input type="checkbox" name="venue" value={ o.Value } class="min-h-11 w-11 accent-tappa-green"/>
+							{ o.Label }
+						</label>
+					}
+				</fieldset>
+				<div>
+					<button class="btn btn--primary" type="submit">Show me what this would do</button>
+				</div>
+			</form>
+		</section>
+	}
 }
 
 // policyAuthorities is the who-may-do-what layer.
@@ -393,14 +719,14 @@ templ policyAuthorities(v PoliciesView) {
 						}
 					</dl>
 				} else {
-					// 🔴 "the engine would refuse it", NOT "nobody may do it". The second is
-					// FALSE today and it was on every action card, above the notice that says
-					// so: the panel asks the engine nowhere (measured — see the notice at the
-					// end of this section), so a manager can in fact export a report, enter a
-					// record by hand and review one. A per-card categorical claim that the
-					// page's own footer contradicts is worse than no claim; the lock is
-					// asserted in exactly ONE place, and that place is tested in both
-					// directions.
+					// 🔴 "the engine would refuse it", NOT "nobody may do it". The second would
+					// be false: the panel consults the engine for `policy:edit` and for nothing
+					// else, so a manager can still export a report, enter a record by hand and
+					// review one. (This comment said "the panel asks the engine NOWHERE" and
+					// cited the notice at the end of this section as the measurement — both went
+					// stale when phase B put a gate in; the notice now says the opposite.) A
+					// per-card categorical claim is worse than no claim; the lock is asserted in
+					// exactly ONE place, and that place is tested in both directions.
 					<p class="mt-1 text-sm text-ink/85">
 						No policy of yours grants this, so the engine would refuse it.
 					</p>
@@ -438,23 +764,38 @@ templ policyAuthorities(v PoliciesView) {
 			</p>
 		</div>
 	}
-	// 🔴 THE SENTENCE THAT MAKES THIS SECTION HONEST TODAY, AND IT IS TIED TO A
-	// MEASUREMENT RATHER THAN TO GOOD INTENTIONS. Nothing in the panel asks the
-	// policy engine before acting — measured by parsing internal/handler rather
-	// than grepping it (TestPanel_CallsThePolicyEngineNowhere), and the panel's ONE
-	// role check is written by hand for venue removal. So the grants above describe
-	// what the engine WOULD answer, and the page must not let a reader take them for
-	// enforcement. TestPoliciesSection_SaysWhetherTheEngineIsConsulted keeps the two
-	// in step in BOTH directions, over internal/handler AND internal/domain/tenant:
-	// the day either package starts asking the engine as a GATE, this paragraph goes
-	// red rather than quietly becoming false.
+	// 🔴 THE SENTENCE BELOW IS TIED TO A MEASUREMENT RATHER THAN TO GOOD INTENTIONS,
+	// AND THE MEASUREMENT HAS SINCE FLIPPED. This comment said "nothing in the panel
+	// asks the policy engine before acting" while the markup three lines down already
+	// said the opposite — phase B put a gate in internal/domain/tenant.RuleWriter and
+	// the page was updated, the comment was not.
+	//
+	// What keeps the two in step is TestPoliciesSection_SaysWhetherTheEngineIsConsulted,
+	// which parses internal/handler AND internal/domain/tenant rather than grepping
+	// them, holds every policy.Evaluate call to a reasoned allowlist, and requires the
+	// page's sentence to match whether any call is NOT on it — in BOTH directions. So
+	// the day the panel stops consulting the engine, or starts consulting it somewhere
+	// new, one of the two goes red instead of quietly becoming false.
 	@components.Notice(components.ToneWarn, "What this page describes, and what it does not") {
 		<p>
-			These are the answers the rules engine gives. Today the dashboard does not
-			consult it before an action: signing in already proves which business you
-			belong to, and the only place a role is checked is deleting a venue, which
-			owners alone can do. So treat this as the rulebook your taps are judged by,
-			not yet as the lock on these buttons.
+			These are the answers the rules engine gives, and the panel now ASKS it: changing anything on this page is refused unless the engine allows you
+			// 🔴 THIS SENTENCE HAS BEEN WRONG TWICE, IN OPPOSITE DIRECTIONS, AND BOTH WERE
+			// MEASURED. It first said EVERY refusal is written down (false: a rule that is not
+			// yours, or a name already in use, changes nothing and records nothing). The
+			// correction then said every OTHER refusal "changes nothing and names nobody" —
+			// also false, on the lockout path: switching off the rule that grants you
+			// policy:edit really disables it, the gate then refuses you, and the writer puts it
+			// back — leaving TWO trail rows (policy.disabled and policy.enabled), both naming
+			// the actor, measured against real Postgres.
+			the policy:edit authority, and that refusal is recorded in your audit trail. So is a
+			change that took your own authority away and had to be put back — that one leaves two
+			entries, because it really happened and was really undone. A change refused before
+			anything happened — a rule that is not yours, a name already in use — leaves nothing,
+			because nothing happened. What
+			is still NOT gated by it is the rest of the dashboard — exporting a report,
+			entering a record by hand and reviewing one are guarded by signing in and, for
+			removing a venue, by a role check written in code. So read the rows above as the
+			rulebook your taps are judged by, and as the lock on THIS page's buttons only.
 		</p>
 		<p class="mt-1">
 			The words above are the engine's own — this page asks it what it does when no

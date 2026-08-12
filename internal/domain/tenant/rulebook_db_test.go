@@ -31,6 +31,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -55,10 +56,32 @@ type rulebookFixture struct {
 }
 
 func newRulebookFixture(t *testing.T) *rulebookFixture {
+	return newRulebookFixtureWithPool(t, 0)
+}
+
+// newRulebookFixtureWithPool is the same fixture with the connection pool widened, for
+// the concurrency probes only. poolMax == 0 leaves the DSN alone (pgx's default of
+// max(4, NumCPU)).
+func newRulebookFixtureWithPool(t *testing.T, poolMax int) *rulebookFixture {
 	t.Helper()
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
 		t.Skip("DATABASE_URL not set; skipping rulebook tests (real Postgres required)")
+	}
+	// 🔴 THE WIDENED POOL IS FOR THE RACE PROBES ONLY, AND SCOPING IT COST A GREEN
+	// SUITE ONCE. The first version applied it to EVERY fixture in this package, which
+	// meant every rulebook test opened a pool of raceRacers+4; run under `make test`,
+	// where packages go in parallel against one Postgres with max_connections=100, the
+	// SUN counter races failed with `sorry, too many clients already` (SQLSTATE 53300).
+	// The failure was in another package and the cause was here. internal/sun does it
+	// the scoped way -- one raceDB helper for the race tests -- which is the pattern
+	// copied here.
+	if poolMax > 0 && !strings.Contains(dsn, "pool_max_conns") {
+		sep := "?"
+		if strings.Contains(dsn, "?") {
+			sep = "&"
+		}
+		dsn += sep + "pool_max_conns=" + strconv.Itoa(poolMax)
 	}
 	data, err := db.New(context.Background(), &config.Config{DatabaseURL: dsn})
 	if err != nil {
@@ -69,7 +92,7 @@ func newRulebookFixture(t *testing.T) *rulebookFixture {
 	// THE WINDOWS ARE THE NON-DEFAULT ONES, so an assertion that the screen shows
 	// the configured value can tell "the parameter arrived" from "the default
 	// happened to match" -- the M5-05 F3 lesson.
-	rules, err := NewRulebook(data, testParams(), slog.New(slog.DiscardHandler))
+	rules, err := NewRulebook(data, testParams(), testGPSRadiusM, slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("NewRulebook: %v", err)
 	}

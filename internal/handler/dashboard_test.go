@@ -35,6 +35,7 @@ import (
 	"io/fs"
 	"math"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -49,6 +50,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/atknatk/tappa/internal/adminauth"
+	"github.com/atknatk/tappa/internal/domain/tenant"
 	"github.com/atknatk/tappa/web"
 	"github.com/atknatk/tappa/web/templates/pages"
 )
@@ -311,6 +313,50 @@ func TestPanelSections_RenderTheirOwnContentAndNoOthers(t *testing.T) {
 // ⚠️ INHERITED LIMIT (M5-07, tour_test.go): this reads MARKUP. An element made
 // pressable purely by stylesheet -- a large ::after over a card -- is invisible to
 // it, and there is no test in this product that measures a rendered pixel.
+// panelNonSectionScreens renders the panel pages that pages.PanelSections cannot
+// reach: one behind a POST, one behind a sub-route with parameters.
+//
+// THEY ARE RENDERED THROUGH THE REAL ROUTER with a real session, not by calling the
+// templates, so what is measured is what a manager's browser receives.
+func panelNonSectionScreens(t *testing.T) map[string]string {
+	t.Helper()
+	out := map[string]string{}
+
+	// The policy CONFIRMATION step: a POST that renders rather than redirecting.
+	scribe := newFakeScribe()
+	b := policyBrowserWith(t, newFakeRules(), scribe)
+	rec := b.do(http.MethodPost, policyChangeHref,
+		url.Values{"op": {opDisable}, "policy": {uuid.NewString()}})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("the policy confirmation step answered %d, want 200; this corpus entry "+
+			"would otherwise be empty and prove nothing", rec.Code)
+	}
+	out["POST "+policyChangeHref] = htmlOf(t, rec)
+
+	// One stored version, read in full.
+	rules := newFakeRules()
+	rules.version = tenant.VersionBody{
+		PolicyID: uuid.New(), PolicyName: "A rule", Layer: "tenant", Enabled: true,
+		VersionNo: 1, Author: tenant.AuthorSystem, Bytes: 120, Current: true,
+	}
+	vb := policyBrowser(t, rules)
+	rec = vb.do(http.MethodGet, policyVersionHref+"?policy="+rules.version.PolicyID.String()+"&no=1", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("the policy version page answered %d, want 200", rec.Code)
+	}
+	out["GET "+policyVersionHref] = htmlOf(t, rec)
+
+	// ANTI-VACUITY: both pages must actually carry press targets, or adding them to the
+	// corpus changes nothing.
+	for where, body := range out {
+		if len(pressTargetsOf(body)) == 0 {
+			t.Fatalf("%s renders no press target at all; it cannot be what this test thinks "+
+				"it is", where)
+		}
+	}
+	return out
+}
+
 func TestPanelScreens_EveryPressTargetCarriesATouchTargetClass(t *testing.T) {
 	assertSectionTableIsUsable(t)
 	b := panelBrowser(t)
@@ -323,6 +369,16 @@ func TestPanelScreens_EveryPressTargetCarriesATouchTargetClass(t *testing.T) {
 	// same button component, so they are held to the same rule.
 	anon := newBrowser(t, newAdminRouter(t, &fakeAdmins{}, &fakeTrail{}))
 	screens["GET /admin/login"] = htmlOf(t, anon.do(http.MethodGet, "/admin/login", nil))
+	// 🔴 AND THE PANEL SCREENS THAT ARE NOT SECTIONS. This corpus is built from
+	// pages.PanelSections' hrefs, so a page reached by a POST or by a sub-route is not
+	// in it — measured: stripping the touch-target class from ALL THREE controls on the
+	// policy confirmation and policy version pages left the whole package green, while a
+	// counted limit in policies_test.go claimed the shell's press-target net held them.
+	// The confirmation screen is the last step before an act with no route back, so it
+	// is the last page that should be outside a 44px check.
+	for where, body := range panelNonSectionScreens(t) {
+		screens[where] = body
+	}
 
 	total := 0
 	for where, body := range screens {

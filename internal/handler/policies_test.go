@@ -43,6 +43,12 @@ type fakeRules struct {
 	err    error
 	calls  int
 	tenant uuid.UUID
+
+	version       tenant.VersionBody
+	versionErr    error
+	versionCalls  int
+	versionPolicy uuid.UUID
+	versionNo     int
 }
 
 func (f *fakeRules) Screen(_ context.Context, tenantID uuid.UUID) (tenant.PolicyScreen, error) {
@@ -54,9 +60,139 @@ func (f *fakeRules) Screen(_ context.Context, tenantID uuid.UUID) (tenant.Policy
 	return f.screen, nil
 }
 
+func (f *fakeRules) Version(_ context.Context, tenantID, policyID uuid.UUID, no int) (tenant.VersionBody, error) {
+	f.versionCalls++
+	f.tenant, f.versionPolicy, f.versionNo = tenantID, policyID, no
+	if f.versionErr != nil {
+		return tenant.VersionBody{}, f.versionErr
+	}
+	return f.version, nil
+}
+
 // newFakeRules is the default one every other section's harness gets: a screen that
 // answers, so a test about the employees section never fails because of this one.
-func newFakeRules() *fakeRules { return &fakeRules{screen: policyScreenFixture()} }
+//
+// 🔴 ITS SCREEN CARRIES STORED POLICY IDS AND SCOPE TARGETS, WHICH IS NOT DECORATION.
+// The brand nets (TestPanelScreens_EveryPressTargetCarriesATouchTargetClass and its
+// stylesheet twin) build their corpus from THIS fixture, and a screen with no
+// PolicyID renders no switch, no bind, no unbind and no version link — measured: one
+// form on the page, all of it the shell's sign-out. Nine of this section's ten press
+// targets were outside the touch-target net's subject while the net reported it had
+// scanned the policies screen. The product was clean (every one carries `btn`, and
+// `.btn` reserves 44px); what was not clean was the reach of the check.
+func newFakeRules() *fakeRules { return &fakeRules{screen: policyScreenWithControls()} }
+
+// policyScreenWithControls is the realistic screen: stored ids, bindings and venues,
+// so a page rendered from it carries the controls a signed-in owner really sees.
+func policyScreenWithControls() tenant.PolicyScreen {
+	s := policyScreenFixture()
+	s.ScopeTargets = []tenant.ScopeTarget{
+		{Kind: "location", ID: uuid.New(), Name: "Rusty Bar"},
+		{Kind: "department", ID: uuid.New(), Name: "Kitchen"},
+	}
+	for i := range s.Baseline {
+		s.Baseline[i].PolicyID = uuid.New()
+		s.Baseline[i].Attachments = []string{"*"}
+	}
+	// ONE RULE SWITCHED OFF, so the enable arm of the switch is in the corpus too.
+	if len(s.Baseline) > 1 {
+		s.Baseline[1].State = tenant.StateOff
+		s.Baseline[1].Statements = nil
+	}
+	return s
+}
+
+// fakeScribe is panelScribe under the test's control. It RECORDS rather than acts,
+// because what the handler owes is a correctly shaped command and a refusal that is
+// not turned into a success -- whether the write is legal is measured against real
+// Postgres in internal/domain/tenant/rulewriter_db_test.go, where the gate lives.
+type fakeScribe struct {
+	may bool
+	// err is returned by whichever act is called next.
+	err error
+	// calls records every act in order, as "<op>", so a test can assert that a
+	// refused request reached NO act at all.
+	calls    []string
+	enable   tenant.EnableCommand
+	bind     tenant.BindCommand
+	author   tenant.AuthorCommand
+	refusals []string
+	actor    tenant.Actor
+}
+
+// newFakeScribe is the default: an admin the engine allows. A harness for another
+// section must not fail because this one refuses.
+func newFakeScribe() *fakeScribe { return &fakeScribe{may: true} }
+
+func (f *fakeScribe) May(_ context.Context, _ uuid.UUID, actor tenant.Actor) bool {
+	f.actor = actor
+	return f.may
+}
+
+// gate mirrors the production writer's FIRST act. Every exported write on
+// tenant.RuleWriter calls authorise before it opens a transaction and answers
+// ErrNotPermitted; this double did not, so an actor it reported as refused could
+// still reach every act.
+//
+// 🔴 THE DIVERGENCE MADE A REAL PROTECTION DELETABLE. policyChangeApply deliberately
+// does NOT re-ask May — it delegates to the domain gate — and maps ErrNotPermitted
+// onto a recorded refusal. With a double that ignored `may`, that arm was dead code:
+// an audit deleted the refusal recording at the apply step and internal/handler stayed
+// green. This is the SECOND double in this task with the same illness (storedAuthority
+// was the first), which is why the fix is to mirror the contract rather than to add
+// one more assertion somewhere.
+func (f *fakeScribe) gate() error {
+	if !f.may {
+		return tenant.ErrNotPermitted
+	}
+	return f.err
+}
+
+func (f *fakeScribe) SetEnabled(_ context.Context, c tenant.EnableCommand) (tenant.SwitchResult, error) {
+	f.actor = c.Actor
+	if err := f.gate(); err != nil {
+		return tenant.SwitchResult{}, err
+	}
+	f.calls = append(f.calls, "setEnabled")
+	f.enable = c
+	return tenant.SwitchResult{PolicyID: c.PolicyID, Now: c.Enabled}, nil
+}
+
+func (f *fakeScribe) Bind(_ context.Context, c tenant.BindCommand) error {
+	f.actor = c.Actor
+	if err := f.gate(); err != nil {
+		return err
+	}
+	f.calls = append(f.calls, "bind")
+	f.bind = c
+	return nil
+}
+
+func (f *fakeScribe) Unbind(_ context.Context, c tenant.BindCommand) error {
+	f.actor = c.Actor
+	if err := f.gate(); err != nil {
+		return err
+	}
+	f.calls = append(f.calls, "unbind")
+	f.bind = c
+	return nil
+}
+
+func (f *fakeScribe) Author(_ context.Context, c tenant.AuthorCommand) (tenant.AuthoredRule, error) {
+	f.actor = c.Actor
+	if err := f.gate(); err != nil {
+		return tenant.AuthoredRule{}, err
+	}
+	f.calls = append(f.calls, "author")
+	f.author = c
+	return tenant.AuthoredRule{PolicyID: c.PolicyID, Name: c.Name, VersionNo: 1}, nil
+}
+
+func (f *fakeScribe) RecordRefusal(_ context.Context, _ uuid.UUID, actor tenant.Actor, act, target string) error {
+	f.refusals = append(f.refusals, act+"/"+target)
+	f.actor = actor
+	return nil
+}
 
 // policyScreenFixture is a realistic screen.
 //
@@ -116,6 +252,11 @@ func policyScreenFixture() tenant.PolicyScreen {
 
 // policyBrowser is the panel browser wired to a rulebook the caller controls.
 func policyBrowser(t *testing.T, rules panelRules) *browser {
+	return policyBrowserWith(t, rules, newFakeScribe())
+}
+
+// policyBrowserWith is the same, with the WRITE side under the test's control too.
+func policyBrowserWith(t *testing.T, rules panelRules, scribe panelScribe) *browser {
 	t.Helper()
 	admins := &fakeAdmins{verify: func() (adminauth.Resolved, error) {
 		return adminauth.Resolved{
@@ -124,7 +265,7 @@ func policyBrowser(t *testing.T, rules panelRules) *browser {
 		}, nil
 	}}
 	h, err := NewAdminAuth(admins, &fakeTrail{}, newFakeLedger(), newFakeLedger(), &fakeReviewer{},
-		&fakeStaff{}, &fakeInviter{}, &fakeVenues{}, &fakePlaques{}, &fakeRecorder{}, rules,
+		&fakeStaff{}, &fakeInviter{}, &fakeVenues{}, &fakePlaques{}, &fakeRecorder{}, rules, scribe,
 		adminTestConfig(), slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)
@@ -141,6 +282,22 @@ func policyPage(t *testing.T, rules panelRules) string {
 	rec := policyBrowser(t, rules).do(http.MethodGet, policiesHref, nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("GET %s: %d, want 200", policiesHref, rec.Code)
+	}
+	return htmlOf(t, rec)
+}
+
+// policyStatePage renders ONE page state: the screen, the engine's answer about
+// editing, and the refusal word the write path would have redirected with.
+func policyStatePage(t *testing.T, st policyPageState) string {
+	t.Helper()
+	href := policiesHref
+	if st.problem != "" {
+		href += "?problem=" + st.problem
+	}
+	b := policyBrowserWith(t, &fakeRules{screen: st.screen}, &fakeScribe{may: st.mayEdit})
+	rec := b.do(http.MethodGet, href, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET %s: %d, want 200", href, rec.Code)
 	}
 	return htmlOf(t, rec)
 }
@@ -184,14 +341,69 @@ func TestPoliciesSection_SaysTheReadFailedRatherThanShowingAnEmptyRulebook(t *te
 	}
 }
 
-// 🔴 WHAT THIS NET HOLDS AND WHAT IT DOES NOT — the honest inventory, because six
-// audits have beaten it and a file that overstates its own guarantee is how the
-// NEXT control gets put where nobody is looking.
+// 🔴 WHAT THIS NET HOLDS AND WHAT IT DOES NOT — the honest inventory. A file that
+// overstates its own guarantee is how the NEXT control gets put where nobody is
+// looking, and this one has been rewritten after every audit that beat it.
+//
+// ⚠️ NO COUNT OF THOSE DEFEATS APPEARS HERE ANY MORE. Four different figures were
+// carried in this file at once ("six audits", "twelve times", "ten times", "three
+// times") plus a "beaten repeatedly" that then listed four — every one of them a
+// hand-kept number in a file whose subject is claims that stop being true. What each
+// escape WAS is written where it is closed; that is the part a reader can act on.
+//
+// 🔴 PHASE B SPLIT THE SUBJECT IN TWO AND DID NOT WEAKEN EITHER HALF. Phase A could
+// say "nothing in this section is interactive" because nothing wrote; phase B adds
+// forms, so that sentence had to become two:
+//
+//	the GUARANTEE BLOCK (<div class="policy-guarantees">) keeps the ABSOLUTE claim,
+//	  with the same allow-list and the same scanner phase A used. Not a disabled
+//	  control, not a link, not an attribute — nothing. That is the card's first
+//	  trap, and it is the one place the answer is still "zero".
+//	the REST OF THE SECTION keeps an ALLOW-LIST TOO — the same scanner, widened by
+//	  exactly the nine element names and eight attributes the write side renders —
+//	  PLUS three derived checks: every form's action and every link's href must be a
+//	  route the real router serves (chi.Walk), every rendered field name must be one
+//	  the handler actually READS (go/ast over policyactions.go), and no control
+//	  anywhere may name a `sys:` sid.
+//
+// 🔴 THE SECOND HALF USED TO BE THE DESTINATION CHECK ALONE AND AN AUDIT BEAT IT
+// TWICE IN ONE ROUND (2026-08-12). Both escapes had ONE root: the net asked "does
+// this control point at something the server honours" and had no answer for a
+// control that pointed at NOTHING.
+//
+//	<div class="btn min-h-11" onclick="turnOff()" role="switch" contenteditable>
+//	  Turn this guarantee off</div>          — no action, no href, in every docket
+//	<form action="/admin/policies/change">
+//	  <input name="gps_radius_m" min=25 max=1000>   — real route, ignored field
+//
+// The first is closed by putting the allow-list back over the whole section (an
+// event handler, an ARIA role or a contenteditable is a finding wherever it is); the
+// second by DERIVING both sides of the field-name question. Neither is a patch on a
+// deny-list: both are the same two mechanisms this file already uses, applied to the
+// region that had lost them.
 //
 // IT HOLDS (each measured by a mutation that goes red):
-//   - any non-inert element or attribute anywhere INSIDE the section wrapper,
-//     including inside a conditional block (the degraded notice, the capped
-//     notices, the per-authority guardrail line);
+//   - ANY non-inert element or attribute inside the GUARANTEE block, including
+//     inside its conditional arm (the tunable window).
+//
+//     🔴 THE BLOCK IS THE COMPONENT'S OWN RENDER, AND EVERY EARLIER SCHEME WAS
+//     BEATEN. It is not a slice of the page: pages.PolicyGuarantees is rendered
+//     alone and the bytes it produces — wrapper tags included — are the region, which
+//     the page must contain exactly once. Each earlier scheme was beaten in a way the
+//     next one had to answer: markup above the wrapper's opening tag; a FILLED DECOY
+//     wrapper; `<!-- </div></div> -->` and then `@templ.Raw("<!x </div> >")`, both of
+//     which made a tag counter disagree with a browser; and finally markup placed
+//     BESIDE the call while the wrapper still lived in AdminPolicies. The counter is
+//     gone (so no spelling can move a boundary) and the wrapper is back inside the
+//     component (so nothing can sit between its tags but the component);
+//   - ANY element or attribute in the section outside its own allow-list — the
+//     auditor's contenteditable/onclick/role="switch" div included;
+//   - a form with NO action at all (it posts to the page it is on — a shape this
+//     section really shipped for a round);
+//   - a control anywhere in the section whose action or href is not a route the
+//     router mounts;
+//   - a rendered field name the handler never reads;
+//   - a control anywhere in the section that names a sys: sid;
 //   - anything AdminPolicies renders outside its own wrapper -- the page must be
 //     the panel shell byte for byte with this section's wrapper in the middle, so
 //     even a control built from the shell's own form/button vocabulary fails;
@@ -214,11 +426,99 @@ func TestPoliciesSection_SaysTheReadFailedRatherThanShowingAnEmptyRulebook(t *te
 //     it silently breaks the document structure instead;
 //   - a control put in the panel SHELL rather than in this section. This net's
 //     subject is AdminPolicies; the shell is other sections' ground too, and what
-//     guards it is their own route and press-target nets.
+//     guards it is their own route and press-target nets;
+//   - 🔴 A CONTROL BUILT LIKE THE SHIPPED ONE, ANYWHERE OUTSIDE THE GUARANTEE
+//     WRAPPER. This is the widest counted limit in this file and it replaces a
+//     narrower sentence that said "specifically an anchor with no fields" — an audit
+//     refuted that by putting a WORKING off switch into the intro's `if v.MayEdit`
+//     arm:
 //
-// Both gaps need a real templ parser and are counted rather than patched -- this net
-// has been patched three times and beaten each time, and a fourth patch that half
-// works is worse than a limit somebody can read.
+//	<form method="post" action="/admin/policies/change">
+//	  <input type="hidden" name="op" value="disable">
+//	  <input type="hidden" name="policy" value="<a real KF baseline uuid>">
+//	  <button class="btn btn--quiet min-h-11" type="submit">Switch this Tappa
+//	    guarantee off</button></form>
+//
+//     Every check passes because every check SHOULD pass: allowed elements, allowed
+//     attributes, a route the router mounts, field names the handler reads, no sys:
+//     sid, a touch-target class, and no new conditional arm — it is byte-for-byte the
+//     shape of the switch this section legitimately ships on every rule.
+//
+//     🔴 IT IS COUNTED RATHER THAN CLOSED, AND THE REASON IS THAT IT CANNOT BE CLOSED
+//     SYNTACTICALLY. Telling the two apart needs to know which PARAGRAPH a form is
+//     allowed to live in, which is semantics; every syntactic rule either rejects both
+//     (the product breaks) or accepts both. Every syntactic patch tried so far has
+//     been beaten by the next audit, and one aimed at this shape would land here.
+//
+//     ⚠️ WHAT ACTUALLY MAKES A GUARANTEE UNSWITCHABLE IS NOT THIS NET. It is the
+//     schema and the engine, and both were measured: `policies.layer` admits only
+//     'baseline' and 'tenant', so `guardrail` cannot be spelled into a row even by a
+//     superuser; and policy.Evaluate returns deny (sys:policy-edit-owner-only) for a
+//     non-owner against a stored document that allows everything. This net is a
+//     REGRESSION BRAKE on what the screen says, not the wall.
+//   - 🔴 A BUTTON-LOOKING ELEMENT INSIDE THE ABSOLUTE REGION THAT USES NO CLASS FROM
+//     THE DERIVED PRESS-TARGET VOCABULARY. Measured:
+//
+//	<span class="inline-block rounded bg-tappa-green px-4 py-3 font-display
+//	  text-paper">Turn this guarantee off</span>
+//
+//     The class check is derived from panelTouchTargets, so it cannot rot — but its
+//     REACH is that vocabulary. Utilities that happen to look like a button are
+//     outside it, and bounding "looks pressable" by utility classes would be a
+//     deny-list over Tailwind.
+//
+//     ⚠️ THIS ONE WAS MEASURED THROUGH THE HANDLER CHAIN (a rendered page from the
+//     real router with a real session), NOT against a live server on a port. The
+//     difference matters for what the measurement can claim: it shows the SERVER
+//     RENDERS such an element without complaint, and it does not show what a browser
+//     paints. Nothing was measured about the latter.
+//   - 🔴 A LINK THAT CARRIES NO FIELDS. Measured by an audit on 2026-08-12, twice:
+//
+//	<a class="btn min-h-11" href="/admin/policies">Turn this guarantee off</a>
+//	<a class="btn min-h-11" href="/admin/reports.csv">Download everything</a>
+//
+//     Both are outside the guarantee block, both point at routes this ROUTER really
+//     serves, and neither posts a field — so the destination check approves them and
+//     the name derivation has nothing to read. The first is a DEAD control (a link
+//     cannot switch anything off; it navigates), which is the card's first trap
+//     without the write. The second reaches ANOTHER section's route, and that route
+//     is a GET that writes one audit_log row.
+//
+//     WHY IT IS COUNTED RATHER THAN CLOSED. The obvious fix is "a control in this
+//     section may only point at this section's own routes", and that is a fourth
+//     patch on a net that keeps being beaten — it
+//     would have to carve out the shell's own links, the section table's tabs and
+//     every legitimate cross-section link the panel already renders, and each
+//     carve-out is where the next escape goes. What DOES catch the dangerous half is
+//     already here: the same link with a FIELD on it (a form to another section's
+//     write route) goes red on the name derivation, measured. So the gap is
+//     specifically "an anchor with no fields", and it is written down rather than
+//     half-closed.
+//   - a field name built from a Go EXPRESSION rather than a literal
+//     (`name={ v.ConfirmField }`, which the confirmation page uses): the template
+//     side of the field derivation reads literals, so such a name is neither checked
+//     nor claimed. The same is true in the other direction for a handler that read a
+//     field name from a variable;
+//   - the CONFIRMATION and VERSION pages (policychange.templ). This net's subject is
+//     AdminPolicies, so their MARKUP is outside it.
+//
+//     ⚠️ THIS ENTRY USED TO ADD "held by their own route tests and by the shell's
+//     press-target net", AND THAT WAS FALSE — measured, by stripping the touch-target
+//     class from all three of their controls and watching the package stay green. The
+//     press-target corpus is built from pages.PanelSections' hrefs, and neither page
+//     is a section: one is behind a POST, the other behind a sub-route. They are in
+//     that corpus now (panelNonSectionScreens), so the 44px rule really does reach
+//     them; what is still true is that no allow-list, route derivation or field
+//     derivation scans their markup;
+//   - an allow-listed attribute carrying a meaningless value — `type="wingding"` is
+//     not a finding. The list bounds which attributes may appear, not what they say.
+//
+// The gaps above are counted rather than patched: this net has been patched and beaten
+// more than once, and a patch that half works is worse than a limit somebody can read.
+//
+// ⚠️ THIS SENTENCE SAID "BOTH GAPS" WHILE THE LIST ABOVE IT HAD GROWN TO FIVE, which
+// is the same hand-kept-count defect the list itself warns about -- so it counts
+// nothing now.
 
 // TestPoliciesSection_RendersOnlyInertMarkup -- the M6-09 card's first trap,
 // measured on the RENDERED page.
@@ -236,9 +536,10 @@ func TestPoliciesSection_SaysTheReadFailedRatherThanShowingAnEmptyRulebook(t *te
 // and the anchor is the section WRAPPER rather than a heading in the middle of it.
 func TestPoliciesSection_RendersOnlyInertMarkup(t *testing.T) {
 	shell := policyShellBaseline(t)
-	for name, screen := range policyScreenStates(t) {
+	for name, st := range policyPageStates(t) {
+		screen := st.screen
 		t.Run(name, func(t *testing.T) {
-			body := policyPage(t, &fakeRules{screen: screen})
+			body := policyStatePage(t, st)
 			// 🔴 BOTH SIDES OF THE BOUNDARY ARE CHECKED, AND THE OUTSIDE IS CHECKED BY
 			// DERIVATION. Three rounds of moving the boundary were each answered by
 			// putting the control on the other side of it, and the fourth answer -- a
@@ -246,11 +547,85 @@ func TestPoliciesSection_RendersOnlyInertMarkup(t *testing.T) {
 			// shell's OWN vocabulary. So the outside is no longer described: it is the
 			// panel shell rendered with an empty body, byte for byte.
 			section := assertNothingOutsideTheSection(t, body, shell)
-			if bad := interactiveMarkup(section); len(bad) > 0 {
-				t.Errorf("the policies section renders %v. Phase A is a read: a control the "+
-					"server does not honour is this repository's most expensive mistake, and "+
-					"on a GUARDRAIL it is the specific trap the card names -- a customer tries "+
-					"it, it does not move, and they stop trusting the rest of the screen.", bad)
+			// 🔴 AND NOTHING MAY SIT BETWEEN THE INTRO AND THE WRAPPER. The wrapper is inside
+			// PolicyGuarantees now, so markup added anywhere in that component is in the
+			// scanned bytes; this closes the other half — markup added in AdminPolicies
+			// itself, one line above the call, which renders directly under the "Tappa
+			// guarantees" heading and reads as part of the block. The assertion is byte
+			// adjacency, the technique that closed the outside-the-section channel in
+			// phase A.
+			if screen.Queried {
+				const wrapper = `<div class="policy-guarantees">`
+				at := strings.Index(section, wrapper)
+				if at < 0 {
+					t.Fatalf("the section carries no %s", wrapper)
+				}
+				if before := strings.TrimSpace(section[:at]); !strings.HasSuffix(before, "</section>") {
+					tail := before
+					if len(tail) > 200 {
+						tail = "…" + tail[len(tail)-200:]
+					}
+					t.Errorf("something is rendered between the intro and the guarantees wrapper.\n"+
+						"Whatever it is renders directly under the “Tappa guarantees” heading and "+
+						"reads as part of the block, while sitting outside the region that is "+
+						"scanned absolutely — which is exactly where an auditor put a working off "+
+						"switch.\n  bytes before the wrapper end with: %q", tail)
+				}
+			}
+			// 🔴 THE ABSOLUTE REGION IS THE COMPONENT'S OWN BYTES, NOT A SLICE OF THE PAGE.
+			// See policyGuaranteeBytes for the escapes that killed the slicing version.
+			// The page must CONTAIN those bytes exactly once — which is both the proof that
+			// what was scanned is what shipped, and the check that no second copy is hiding.
+			if screen.Queried {
+				want := policyGuaranteeBytes(t, screen, st.mayEdit)
+				if n := strings.Count(section, want); n != 1 {
+					t.Fatalf("the guarantee component's own bytes appear %d times in the section, "+
+						"want exactly 1. The region is defined as what that component renders, so a "+
+						"page that does not contain it verbatim is a page this scan cannot speak for.", n)
+				}
+				if bad := pressTargetClassesIn(want); len(bad) > 0 {
+					t.Errorf("the guarantee component renders the press-target class(es) %v. "+
+						"Nothing in this block is pressable, so anything DRESSED as pressable is the "+
+						"card's first trap with the styling done for it.", bad)
+				}
+				if bad := interactiveMarkup(want); len(bad) > 0 {
+					t.Errorf("the guarantee component renders %v.\n"+
+						"These are the bytes the component itself produces, so this covers markup "+
+						"written through templ.Raw as well — which is how an auditor last got a "+
+						"working off switch in here, past a scan that counted <div> tags. What IS "+
+						"structural is the schema and the engine: `guardrail` cannot be spelled into "+
+						"policies.layer even by a superuser, and the guardrail denies regardless of "+
+						"any stored document.", bad)
+				}
+			}
+			// AND THE PAGE'S OWN STRUCTURE AROUND IT: exactly one wrapper, nothing between
+			// it and the intro. Those are about where the component is MOUNTED, which its
+			// own bytes cannot speak to.
+			if _, ok := policyGuaranteeBlock(t, section); ok {
+				// THE WRAPPER IS STILL CHECKED FOR SHAPE — exactly one anchor, and the byte
+				// adjacency above — but nothing is SCANNED out of it any more. What is scanned
+				// is the component's own render, above.
+			} else if screen.Queried {
+				t.Fatal("the section carries no policy-guarantees block, so the absolute half of " +
+					"this net scanned nothing")
+			}
+			// AND THE REST OF THE SECTION KEEPS AN ALLOW-LIST TOO, widened by exactly what
+			// the write side renders. This is what an auditor's second escape needed: an
+			// element with NO action and NO href (a contenteditable div carrying onclick and
+			// role="switch"), which the destination check below has nothing to look at.
+			if bad := markupOutsideTheAllowList(section, policySectionAllowedTags,
+				policySectionAllowedAttrs); len(bad) > 0 {
+				t.Errorf("the policies section renders %v. Phase B added forms, so the list is "+
+					"wider than phase A's -- but nothing on it can make an element BEHAVE: an "+
+					"event handler, an ARIA role, a contenteditable or an hx-* attribute is how "+
+					"a customer comes to press something the server never hears about.", bad)
+			}
+			// AND EVERY DESTINATION MUST BE A ROUTE THE SERVER REALLY MOUNTS, and nothing
+			// may aim at a sys: sid.
+			for _, bad := range undeclaredDestinations(t, section) {
+				t.Errorf("the policies section renders %s. A control has to point at an address "+
+					"this router serves; one that does not is either a dead button or a "+
+					"guardrail-shaped one somebody hoped nobody would press.", bad)
 			}
 			// ANTI-VACUITY: the slice must hold the whole section, not a tail of it.
 			// The `unqueried` fixture renders no body ON PURPOSE (it is what gives the
@@ -300,19 +675,19 @@ type templBranch struct {
 // 🔴 HOW BIG THAT GAP IS, IS COUNTED AT RUN TIME AND NOT WRITTEN DOWN. This comment
 // said "three shipped templates already use one" and the real figure was three
 // TIMES that -- a hand-counted N, which is the exact class this task has now paid
-// for seven times. TestPolicyBranchDerivation_ReportsTheSizeOfItsOwnBlindSpot walks
+// for repeatedly. TestPolicyBranchDerivation_ReportsTheSizeOfItsOwnBlindSpot walks
 // every .templ in web/templates with the SAME inTempl logic and logs the number,
 // so it cannot rot; one of the switches it finds renders a <form>, so these are
 // markup-producing arms rather than decoration.
 //
 // 🔴 THE LIST IS PARSED, NOT WRITTEN DOWN, AND THAT IS THE WHOLE POINT. The
-// inert-markup net was beaten FIVE times, and the last two had one root cause: the
+// inert-markup net was beaten more than once, and the last two had one root cause: the
 // net drove a hand-picked set of fixtures, so a block behind an `if` nobody had
 // thought about was never in the scanned body at all. An auditor put a working
 // control into `if a.Guardrail != ""` -- a block that renders on EVERY production
 // page, twice -- and eighteen policy tests stayed green. A hand-written list of
 // "branches we remember to drive" is the N-list class this repository has been bitten
-// by seven times and has twice closed by DERIVING instead (the action vocabulary
+// by repeatedly and has more than once closed by DERIVING instead (the action vocabulary
 // with go/ast, the routes with chi.Walk). This is the third derivation.
 //
 // It reads the .templ rather than the generated Go because the .templ is what an
@@ -417,6 +792,19 @@ var policyBranchWitness = map[string]string{
 	`a.Guardrail != ""@1`:      "zz-branch-authz-guardrail",
 	"len(v.Recording) > 0@1":   "The one that works the other way",
 	`a.Guardrail != ""@2`:      "zz-branch-recording-guardrail",
+
+	// --- M6-09 phase B: the write side ------------------------------------------
+	"v.ScopeCapped@1":           "Some of your venues are not in the scope picker",
+	`v.Problem != ""@1`:         "has been written to your audit trail",
+	"v.MayEdit@1":               "recorded with your name against it",
+	"else@6":                    "does not currently grant you the",
+	"len(v.Settings) > 0@1":     "Settings that are not rules",
+	`h.Href != ""@1`:            "Read it in full",
+	`r.Switch.Label != ""@1`:    "Switch this rule off",
+	"len(r.Unbind) > 0@1":       "Stop recording it at",
+	"len(r.Bindable) > 0@1":     "Record the binding",
+	"len(v.Authorable) > 0@1":   "Show me what this would do",
+	"len(v.Supersedable) > 0@1": "A new version of",
 }
 
 // TestPolicyFixtures_DriveEveryConditionalBranchOfTheTemplate is the derivation's
@@ -425,8 +813,8 @@ var policyBranchWitness = map[string]string{
 func TestPolicyFixtures_DriveEveryConditionalBranchOfTheTemplate(t *testing.T) {
 	branches := policyTemplBranches(t)
 	rendered := map[string]string{}
-	for name, screen := range policyScreenStates(t) {
-		section, _ := policySectionSlice(t, policyPage(t, &fakeRules{screen: screen}))
+	for name, st := range policyPageStates(t) {
+		section, _ := policySectionSlice(t, policyStatePage(t, st))
 		rendered[name] = section
 	}
 	if len(rendered) < 4 {
@@ -487,7 +875,7 @@ func TestPolicyFixtures_DriveEveryConditionalBranchOfTheTemplate(t *testing.T) {
 // line was being held by an accessibility rule, by accident.
 //
 // A deny-list has to predict the next element; an allow-list does not, and this
-// repository has watched escape-nets get patched three times and beaten a fourth.
+// repository has watched escape-nets get patched and beaten more than once and beaten a fourth.
 // The false-alarm cost was MEASURED before choosing it, on the real rendered
 // section: nine element names and exactly ONE attribute (class). Widening it is
 // therefore a visible, arguable edit rather than a guess about what is dangerous.
@@ -497,12 +885,85 @@ func TestPolicyFixtures_DriveEveryConditionalBranchOfTheTemplate(t *testing.T) {
 // allow-list without anybody arguing for it, and the next author adds a fifth.
 // TestPolicySectionAllowList_HasNoDeadEntry is the brake, and it is deliberately the
 // same brake policyEvaluateAllowed has.
+// 🔴 THERE ARE TWO LISTS NOW, AND THAT IS THE ANSWER TO TWO AUDIT ESCAPES RATHER
+// THAN A WIDENING (2026-08-12, phase B round 2). The first phase-B version applied the
+// allow-list to the GUARANTEE BLOCK only and left the rest of the section to a
+// destination check -- so an auditor put
+//
+//	<div class="btn min-h-11" onclick="turnOff()" role="switch" contenteditable>
+//	  Turn this guarantee off</div>
+//
+// inside every rule's docket, WITH NO action AND NO href, and every policy test
+// stayed green: the destination net had nothing to check. The lists below restore the
+// allow-list over the WHOLE section, widened by exactly what the shipped page renders
+// and by nothing else -- so `onclick`, `role`, `contenteditable`, `aria-*`, `hx-*`
+// and `tabindex` are all findings again, everywhere, and widening the set is a
+// visible edit somebody has to argue for.
+//
+// THE GUARANTEE LIST IS THE SMALLER ONE, and it is the phase-A claim unchanged: no
+// form, no input, no button, no link, no attribute but class. It also fixes a real
+// defect in its own brake -- when one list covered a region that no longer rendered
+// dl/dt/dd/strong, those four became dead entries "protecting" a region nothing
+// scanned. Each list is now held to the region it is APPLIED to.
+var policyGuaranteeAllowedTags = map[string]bool{
+	"section": true, "div": true, "p": true, "span": true, "h2": true,
+}
+
+var policyGuaranteeAllowedAttrs = map[string]bool{"class": true}
+
+// policyGuaranteeForbiddenClasses is the VALUE half of the sentence above, and it
+// closes an escape the attribute half could not see.
+//
+// 🔴 `class` IS THE ONLY ATTRIBUTE THIS REGION MAY CARRY, WHICH MEANT ITS VALUE WAS
+// UNCHECKED — and in this repository the thing that turns an element into a button is
+// exactly a class. An auditor put
+//
+//	<span class="btn btn--quiet min-h-11">Turn this guarantee off</span>
+//
+// inside every guardrail row and the scan reported nothing: `span` is allowed, `class`
+// is allowed, and nothing looked at what the class SAID. The result is the card's
+// first trap rendered in the one region whose answer is claimed to be zero — a
+// customer sees a button, presses it, and nothing happens.
+//
+// THE VOCABULARY IS DERIVED FROM THE TOUCH-TARGET MAP, which dashboard_test.go
+// already keeps in step with the compiled stylesheet in both directions (a class in
+// that map must exist in app.css with its measured min-height). So this cannot rot
+// into a list of class names somebody remembered, and a new press-target class is
+// forbidden here on the day it is added rather than on the day somebody notices.
+// `min-h-11` is added beside them because it is the 44px reservation itself: an
+// element carrying it is dressed as something to press whatever else it says.
+func policyGuaranteeForbiddenClasses() map[string]bool {
+	out := map[string]bool{"min-h-11": true, "min-h-16": true}
+	for name := range panelTouchTargets {
+		out[name] = true
+	}
+	return out
+}
+
+// policySectionAllowedTags is the whole section's list. Every entry is one the
+// shipped page renders (TestPolicySectionAllowList_HasNoDeadEntry), and the write
+// side's nine additions are exactly the ones a no-JS form needs.
 var policySectionAllowedTags = map[string]bool{
 	"section": true, "div": true, "p": true, "span": true,
 	"h2": true, "dl": true, "dt": true, "dd": true, "strong": true,
+	// The write side (M6-09 phase B).
+	"form": true, "input": true, "button": true, "select": true, "option": true,
+	"label": true, "fieldset": true, "legend": true, "a": true,
 }
 
-var policySectionAllowedAttrs = map[string]bool{"class": true}
+// policySectionAllowedAttrs is deliberately SHORT. `type`, `name` and `value` are
+// what a form field is; `method`, `action` and `href` are destinations and are
+// checked AGAINST THE ROUTER separately; `maxlength` is the one constraint the
+// authoring form declares. Nothing here can make an element behave: an event handler,
+// an ARIA role, a contenteditable or an hx-* attribute is a finding.
+var policySectionAllowedAttrs = map[string]bool{
+	"class": true, "method": true, "action": true, "href": true,
+	"type": true, "name": true, "value": true, "maxlength": true,
+	// `required` is a BARE attribute (no value) and is the browser's own "do not
+	// submit this empty", which the server re-checks anyway. It carries no behaviour a
+	// handler does not already own.
+	"required": true,
+}
 
 // TestPolicyInertMarkupCheck_FlagsTheControlsThatBeatTheDenyList is the negative
 // control, and its two cases are the auditor's ACTUAL escapes rather than invented
@@ -528,17 +989,486 @@ func TestPolicyInertMarkupCheck_FlagsTheControlsThatBeatTheDenyList(t *testing.T
 				"in the guardrail block", name)
 		}
 	}
-	// AND IT MUST NOT FLAG THE REAL SECTION'S OWN MARKUP, or the allow-list is a
-	// change detector that the next author widens until it sees nothing.
-	if bad := interactiveMarkup(`<section class="docket"><dl><dt class="docket-label">A</dt>` +
-		`<dd class="font-mono">b</dd></dl><p class="mt-1"><strong>c</strong></p></section>`); len(bad) > 0 {
-		t.Errorf("the scan flagged ordinary inert markup: %v", bad)
+	// EVERY ESCAPE MUST BE FLAGGED BY THE SECTION'S LIST TOO, not only by the
+	// guarantee block's. That is the whole of the 2026-08-12 escape: an auditor moved a
+	// working control OUT of the guarantee block, where the only remaining check was
+	// the destination one, and the control carried no destination.
+	for name, markup := range cases {
+		bad := markupOutsideTheAllowList(markup, policySectionAllowedTags, policySectionAllowedAttrs)
+		bad = append(bad, undeclaredDestinations(t, markup)...)
+		if len(bad) == 0 {
+			t.Errorf("%s: the SECTION-wide checks reported nothing, so the same control works "+
+				"anywhere outside the guarantee block -- which is exactly where an auditor "+
+				"moved one on 2026-08-12", name)
+		}
 	}
+	// AND NEITHER LIST MAY FLAG THE MARKUP ITS OWN REGION REALLY RENDERS, or the
+	// allow-list is a change detector the next author widens until it sees nothing.
+	if bad := markupOutsideTheAllowList(
+		`<section class="docket"><dl><dt class="docket-label">A</dt>`+
+			`<dd class="font-mono">b</dd></dl><p class="mt-1"><strong>c</strong></p></section>`+
+			`<form method="post" action="/admin/policies/change">`+
+			`<input type="hidden" name="op" value="disable"/>`+
+			`<button class="btn btn--quiet" type="submit">Switch this rule off</button></form>`,
+		policySectionAllowedTags, policySectionAllowedAttrs); len(bad) > 0 {
+		t.Errorf("the section scan flagged the page's own inert markup or its own form: %v", bad)
+	}
+	if bad := interactiveMarkup(`<section class="border-l-4"><div class="flex">` +
+		`<span class="tally tally--locked">Cannot be switched off</span></div>` +
+		`<p class="mt-1">why</p></section>`); len(bad) > 0 {
+		t.Errorf("the guarantee scan flagged the guarantee block's own markup: %v", bad)
+	}
+}
+
+// TestPolicySection_EveryFieldNameIsOneTheServerREADS.
+//
+// 🔴 THE SECOND ESCAPE OF 2026-08-12, CLOSED BY DERIVATION. An auditor put
+//
+//	<form action="/admin/policies/change">
+//	  <input type="number" name="gps_radius_m" min="25" max="1000">
+//
+// into policySettings and every test stayed green: the form's DESTINATION was a real
+// route, its markup was ordinary, and nothing anywhere asked whether the server reads
+// a field called gps_radius_m. It does not -- so a customer would type a number into
+// a box, press a button, and be told the change was made. That is the shape this
+// section's own limit-5 paragraph calls the most expensive mistake in the repository,
+// shipped inside the screen that names it.
+//
+// BOTH SIDES ARE DERIVED. The rendered side is every literal `name="…"` in
+// policies.templ; the read side is every string literal passed to PostFormValue or
+// used to index r.PostForm in policyactions.go, parsed with go/ast rather than
+// grepped. The difference must be empty in the direction that matters (rendered but
+// never read); the other direction is REPORTED rather than failed, because a handler
+// may legitimately accept a field an older page still posts.
+//
+// ⚠️ WHAT IT DOES NOT SEE, counted rather than papered over: a name built from a Go
+// expression (`name={ v.ConfirmField }`, which policychange.templ uses) is invisible
+// to the template side, and a form field read through a helper that takes the name as
+// a PARAMETER would be invisible to the handler side. Both are shapes this section
+// does not use today, and both would need a real templ parser or a call-graph walk.
+func TestPolicySection_EveryFieldNameIsOneTheServerREADS(t *testing.T) {
+	rendered := templFieldNames(t, "../../web/templates/pages/policies.templ")
+	read := handlerFormReads(t, "policyactions.go")
+
+	// ANTI-VACUITY, BOTH SIDES: a parser that found nothing on either side would agree
+	// with any page at all.
+	if len(rendered) < 4 || len(read) < 4 {
+		t.Fatalf("derived %d rendered field name(s) %v and %d read name(s) %v; the section "+
+			"has more of both, so one of these scans is reading the wrong file",
+			len(rendered), rendered, len(read), read)
+	}
+	for _, name := range rendered {
+		if !read[name] {
+			t.Errorf("the policies section renders a field called %q and %s never reads it. "+
+				"A box the server ignores is worse than no box: somebody types a value, "+
+				"presses a button, and is told the change was made.", name, "policyactions.go")
+		}
+	}
+	t.Logf("field names rendered: %v", rendered)
+	for name := range read {
+		found := false
+		for _, r := range rendered {
+			if r == name {
+				found = true
+			}
+		}
+		if !found {
+			t.Logf("read but not rendered by this section: %q (a handler may accept a field an "+
+				"older page still posts, so this is reported rather than failed)", name)
+		}
+	}
+}
+
+// templFieldNames returns every LITERAL name="…" in a .templ file.
+func templFieldNames(t *testing.T, path string) []string {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading %s: %v", path, err)
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, m := range regexp.MustCompile(`(?i)\bname\s*=\s*"([^"]*)"`).FindAllStringSubmatch(string(raw), -1) {
+		if !seen[m[1]] {
+			seen[m[1]] = true
+			out = append(out, m[1])
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// handlerFormReads returns every form field name one handler file reads.
+//
+// IT PARSES RATHER THAN GREPS: a grep is answered by every comment that mentions a
+// field, including the ones that exist to keep this honest. It reads two shapes --
+// PostFormValue("x") and r.PostForm["x"] -- which are the two this package uses.
+func handlerFormReads(t *testing.T, path string) map[string]bool {
+	t.Helper()
+	file, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
+	if err != nil {
+		t.Fatalf("parse %s: %v", path, err)
+	}
+	out := map[string]bool{}
+	lit := func(e ast.Expr) {
+		if b, ok := e.(*ast.BasicLit); ok && b.Kind == token.STRING {
+			out[strings.Trim(b.Value, `"`)] = true
+		}
+	}
+	ast.Inspect(file, func(n ast.Node) bool {
+		switch v := n.(type) {
+		case *ast.CallExpr:
+			if sel, ok := v.Fun.(*ast.SelectorExpr); ok &&
+				(sel.Sel.Name == "PostFormValue" || sel.Sel.Name == "FormValue") && len(v.Args) == 1 {
+				lit(v.Args[0])
+			}
+		case *ast.IndexExpr:
+			// r.PostForm["venue"]
+			if sel, ok := v.X.(*ast.SelectorExpr); ok && sel.Sel.Name == "PostForm" {
+				lit(v.Index)
+			}
+		}
+		return true
+	})
+	// The confirmation field is read through a helper that takes the NAME from a
+	// package constant rather than a literal, so it is added from that constant --
+	// which is the same value the template is handed.
+	out[confirmField] = true
+	return out
+}
+
+// pressTargetClassesIn reports every press-target class used in a slice of markup.
+func pressTargetClassesIn(html string) []string {
+	forbidden := policyGuaranteeForbiddenClasses()
+	seen := map[string]bool{}
+	var bad []string
+	for _, m := range regexp.MustCompile(`(?i)\bclass\s*=\s*"([^"]*)"`).FindAllStringSubmatch(html, -1) {
+		for _, word := range strings.Fields(m[1]) {
+			// A MODIFIER COUNTS AS ITS BASE: `btn--quiet` is a button because `btn` is,
+			// and the auditor's escape used exactly that pair.
+			base := word
+			if i := strings.Index(base, "--"); i > 0 {
+				base = base[:i]
+			}
+			if (forbidden[word] || forbidden[base]) && !seen[word] {
+				seen[word] = true
+				bad = append(bad, word)
+			}
+		}
+	}
+	sort.Strings(bad)
+	return bad
+}
+
+// commentsBlanked replaces the CONTENTS of every HTML comment with spaces, keeping
+// byte offsets so a caller can still slice the original.
+//
+// AN UNTERMINATED COMMENT BLANKS TO THE END, which is the fail-closed direction: a
+// scanner that cannot tell where a comment stops must not go on trusting the tags
+// after it.
+func commentsBlanked(html string) string {
+	out := []byte(html)
+	for i := 0; i+3 < len(out); {
+		if out[i] != '<' || out[i+1] != '!' || out[i+2] != '-' || out[i+3] != '-' {
+			i++
+			continue
+		}
+		end := strings.Index(html[i:], "-->")
+		stop := len(out)
+		if end >= 0 {
+			stop = i + end + 3
+		}
+		for j := i; j < stop; j++ {
+			if out[j] != '\n' {
+				out[j] = ' '
+			}
+		}
+		i = stop
+	}
+	return string(out)
+}
+
+// TestPoliciesSection_RendersNoHTMLComment.
+//
+// 🔴 BLANKING THE COMMENTS IS NOT ENOUGH ON ITS OWN, AND THIS IS THE OTHER HALF. The
+// scanners now read past a comment correctly — but a comment in this section has no
+// legitimate job: templ's own `//` comments never reach the output, so an HTML
+// comment is markup somebody wrote ON PURPOSE, and the only thing it can do to these
+// nets is confuse the tag balancing they depend on. It is fail-closed: the shipped
+// page renders none (measured), so the rule costs nothing today and refuses the tool
+// an auditor used.
+//
+// ⚠️ IT IS A RULE ABOUT THIS SECTION, NOT ABOUT THE PANEL. Other sections may carry
+// comments for all this test knows; widening it would be a claim about templates
+// nobody has looked at.
+func TestPoliciesSection_RendersNoHTMLComment(t *testing.T) {
+	for name, st := range policyPageStates(t) {
+		section, _ := policySectionSlice(t, policyStatePage(t, st))
+		if at := strings.Index(section, "<!--"); at >= 0 {
+			end := at + 120
+			if end > len(section) {
+				end = len(section)
+			}
+			t.Errorf("%s: the policies section renders an HTML comment at byte %d: %q\n"+
+				"templ's own comments never reach the output, so this was written as markup. "+
+				"The only thing a comment does to these nets is break the tag balancing that "+
+				"finds the absolutely-scanned region — which is exactly how an auditor hid a "+
+				"working off switch inside it.", name, at, section[at:end])
+		}
+	}
+}
+
+// policyGuaranteeBlock cuts the guarantees region out of the section.
+//
+// 🔴 WHERE THE REGION BEGINS, SAID OUT LOUD, BECAUSE IT USED TO BE THE HOLE. This
+// returns the bytes BETWEEN the wrapper's tags — so for a whole round the "absolute"
+// claim covered everything after the wrapper's OPENING tag, while the test's own
+// error message said "no off switch for a guarantee anywhere in this product". An
+// auditor put a working switch on the line above the opening tag and ten tests stayed
+// green.
+//
+// Two things make the sentence true now, and neither is a patch: pages.PolicyGuarantees
+// emits the wrapper ITSELF, so its tags are part of the bytes policyGuaranteeBytes
+// compares and nothing can sit between them but the component; and the caller of this
+// helper additionally asserts that the bytes before the wrapper end with the intro's
+// own closing tag, so nothing can be slipped in above it either.
+//
+// ⚠️ IT NO LONGER FINDS A SCANNED REGION, AND ITS OLD HEADING SAID IT DID. It used to
+// balance <div> tags to cut the absolute region out of the page; that scheme was
+// beaten by a decoy wrapper, an HTML comment, an HTML5 bogus comment through
+// templ.Raw, and markup beside the call and was replaced by policyGuaranteeBytes,
+// which renders the component alone. Nothing is scanned out of this slice any more.
+// What it is still for is SHAPE: the wrapper must be present, and its caller checks
+// there is exactly one of it and that nothing sits between it and the intro.
+// policyGuaranteeBytes renders the guarantee component ALONE and returns the bytes it
+// produces — which ARE the absolute region, rather than a slice this test works out.
+//
+// ⚠️ THIS DOC OPENED WITH ANOTHER FUNCTION'S NAME FOR TWO ROUNDS, said the region was
+// "the bytes BETWEEN the wrapper's tags" (it includes them) and credited AdminPolicies
+// with emitting the wrapper "AROUND the call to policyGuardrails" — two claims that
+// were already false and an identifier that does not exist in this repository. A doc
+// on the wrong function is worse than none: it is read by somebody looking at the
+// right one.
+//
+// 🔴 IT REPLACES A <div>-BALANCING SCAN THAT WAS BEATEN REPEATEDLY, EACH BY A
+// DIFFERENT WAY OF MAKING THE COUNTER DISAGREE WITH A BROWSER: markup above the
+// wrapper, a filled DECOY wrapper, `<!-- </div></div> -->`, and finally
+// `@templ.Raw("<!x </div> >")` — an HTML5 BOGUS COMMENT. A browser swallows `<!`
+// followed by anything that is not `--`, `DOCTYPE` or `[CDATA[` up to the first `>`
+// and emits no close at all; the counter counted one, ended the region early, and a
+// WORKING off switch rendered inside the block with the whole package green
+// (measured: the switch at section offset 8165, at block offset -1).
+//
+// THE TECHNIQUE IS PHASE A'S, ONE LEVEL DOWN. That round closed the
+// outside-the-section channel by rendering the panel shell with an EMPTY body and
+// requiring the page to be shell-head + section + shell-tail byte for byte; nothing
+// has reopened it since. Here the guarantee component is rendered by itself, its bytes
+// ARE the region, and the page must contain them exactly once. There is no count to
+// get wrong, so no escape sequence can move the boundary — whatever templ.Raw prints
+// inside the component is inside the scanned bytes.
+//
+// ⚠️ WHAT IT DOES NOT COVER: markup rendered by AdminPolicies AROUND the call — after
+// the component's closing bytes, i.e. below the guarantees block on screen. That is
+// not this region and never was; what holds there is the section-wide allow-list plus
+// the route and field derivations, with the counted limit at the top of this file
+// about what all three still accept. Markup placed BETWEEN the wrapper's tags is a
+// different matter and is now impossible to add without being seen: the wrapper is
+// part of the compared bytes, so anything inserted between them turns
+// strings.Count(section, want) from 1 into 0 and this test Fatals.
+func policyGuaranteeBytes(t *testing.T, screen tenant.PolicyScreen, mayEdit bool) string {
+	t.Helper()
+	v := pages.PoliciesView{MayEdit: mayEdit}
+	fillPoliciesView(&v, screen)
+	var buf bytes.Buffer
+	if err := pages.PolicyGuarantees(v).Render(context.Background(), &buf); err != nil {
+		t.Fatalf("rendering the guarantee component alone: %v", err)
+	}
+	out := buf.String()
+	// ANTI-VACUITY: an empty or trivial render would make every page conform, which is
+	// the failure mode this approach exists to remove rather than inherit.
+	if len(out) < 500 || !strings.Contains(out, "Tappa guarantees") {
+		t.Fatalf("the guarantee component rendered %d bytes and does not name itself; the "+
+			"region would then be nothing", len(out))
+	}
+	return out
+}
+
+// policyGuaranteeBlock locates the wrapper and returns what is between its tags.
+//
+// 🔴 IT DOES NOT DEFINE THE SCANNED REGION — policyGuaranteeBytes does, by rendering
+// the component alone. This exists for SHAPE: the wrapper has to be there, there has
+// to be exactly one of it, and (in the caller) nothing may sit between it and the
+// intro. It had no doc of its own for two rounds because the block above it belongs
+// to policyGuaranteeBytes, so a reader arriving here read a description of a different
+// function.
+func policyGuaranteeBlock(t *testing.T, section string) (string, bool) {
+	t.Helper()
+	const anchor = `<div class="policy-guarantees">`
+	// 🔴 EXACTLY ONE, COUNTED — NOT "the first one found". strings.Index took the
+	// FIRST wrapper, so a DECOY built from the five allowed element names and dropped
+	// above the real one made the "absolute" region the decoy, and everything in the
+	// real block went unscanned. Measured: a decoy with content in it turned the whole
+	// guarantee net green while a working, MayEdit-gated off switch sat inside the real
+	// wrapper. (An EMPTY decoy was already red — but only through the dead-entry
+	// brake's anti-vacuity floor, i.e. the net was resting on the decoy being empty.)
+	//
+	// This is not a gate and it cannot open a channel: it removes an AMBIGUITY. A page
+	// with two wrappers has no single answer to "which bytes are the absolute region",
+	// and answering it by position is answering it by luck.
+	// 🔴 COMMENTS ARE BLANKED BEFORE THE WRAPPER IS COUNTED, AND AN AUDIT IS WHY. This
+	// helper no longer finds the scanned region — that is the component's own render —
+	// but it still counts the wrapper, and a tag inside a comment is not a tag. When
+	// the region WAS found by balancing, `<!-- </div></div> -->` closed it three
+	// elements early and a working off switch rendered under the "Cannot be switched
+	// off" chip, inside the real wrapper's DOM, outside the scanned slice: the block
+	// came back 1128 bytes where the real one is ~11 kB, the control at section offset
+	// 3467 and block offset -1, package green.
+	//
+	// See commentsBlanked for why a comment is ALSO a finding rather than merely being
+	// ignored.
+	section = commentsBlanked(section)
+	if n := strings.Count(section, anchor); n > 1 {
+		t.Fatalf("the section renders %d %s wrappers. The absolute region is defined as "+
+			"THE guarantee wrapper, so a second one makes the question ambiguous — and a "+
+			"scan that answers it by taking the first match can be pointed at a decoy.", n, anchor)
+	}
+	start := strings.Index(section, anchor)
+	if start < 0 {
+		return "", false
+	}
+	rest := section[start+len(anchor):]
+	depth := 0
+	for _, m := range regexp.MustCompile(`(?is)<\s*(/?)div\b[^>]*>`).FindAllStringSubmatchIndex(commentsBlanked(rest), -1) {
+		if rest[m[2]:m[3]] == "/" {
+			if depth == 0 {
+				return rest[:m[0]], true
+			}
+			depth--
+			continue
+		}
+		depth++
+	}
+	return "", false
+}
+
+// undeclaredDestinations reports every form action and every link href in the
+// section that the ROUTER does not serve.
+//
+// 🔴 THE ROUTE SET IS DERIVED FROM THE REAL ROUTER WITH chi.Walk, not written down.
+// A list of "addresses this section is allowed to post to" would be the N-list class
+// this repository has been bitten by repeatedly and has more than once closed by
+// deriving instead. Deriving it makes the check say something a vocabulary cannot: a
+// form whose action is a plausible-looking string nothing mounts is a button that
+// silently does nothing.
+//
+// ⚠️ IT DOES NOT DISTINGUISH SECTIONS, AND AN EARLIER VERSION OF THIS PARAGRAPH SAID
+// IT DID ("a form aimed at another section's write route is a control this section
+// has no business offering"). It is not: the set is every route the panel mounts, so
+// a control aimed at the reports export or the review decision passes. What catches
+// the dangerous shape is the FIELD derivation — a cross-section form carrying a field
+// this handler never reads goes red, measured. A cross-section ANCHOR carrying no
+// field does not, and that gap is in the inventory above.
+//
+// 🔴 AND NO CONTROL MAY NAME A sys: SID, ANYWHERE IN THE SECTION. That is the
+// guarantee block's absolute rule restated so it survives a control being moved out
+// of the block: a form, an input, a button or a link whose action, href or value
+// mentions a guardrail is a switch for something that has no switch. It reads
+// ATTRIBUTE VALUES rather than text, so the authority section printing
+// "sys:no-session" as prose is untouched.
+func undeclaredDestinations(t *testing.T, section string) []string {
+	t.Helper()
+	mounted := mountedRoutes(t)
+	var bad []string
+	seen := map[string]bool{}
+	add := func(what string) {
+		if !seen[what] {
+			seen[what] = true
+			bad = append(bad, what)
+		}
+	}
+	for _, m := range regexp.MustCompile(`(?is)<\s*(form|a|input|button|select|option)\b([^>]*)>`).
+		FindAllStringSubmatch(section, -1) {
+		tag, attrs := strings.ToLower(m[1]), m[2]
+		// 🔴 A FORM WITH NO action POSTS TO THE CURRENT URL, and that is not a
+		// hypothetical: this section shipped one for a round (the authoring form's action
+		// was never filled in), which would have posted to GET /admin/policies and
+		// answered 405 -- a button that looks like it works and does nothing. It is also
+		// the shape of the old deny-list escape (`<form method="post"><button>Off</button>`),
+		// which every attribute-based check passes because there is no attribute to read.
+		if tag == "form" && !regexp.MustCompile(`(?is)\baction\s*=`).MatchString(attrs) {
+			add("<form> with no action, which posts to the page it is on")
+		}
+		// FAIL CLOSED ON A TAG THIS SCANNER CANNOT READ -- interactiveMarkup's sixth
+		// escape, restated here because this scanner reads attributes too.
+		if strings.Count(attrs, `"`)%2 != 0 {
+			add("<" + tag + " …> (unreadable: a raw > inside an attribute value)")
+			continue
+		}
+		for _, a := range regexp.MustCompile(`([a-zA-Z][a-zA-Z0-9:_-]*)\s*=\s*"([^"]*)"`).
+			FindAllStringSubmatch(attrs, -1) {
+			name, value := strings.ToLower(a[1]), a[2]
+			if strings.Contains(value, "sys:") {
+				add("<" + tag + " " + name + "=\"" + value + "\">, which names a guardrail")
+			}
+			if name != "action" && name != "href" {
+				continue
+			}
+			path := value
+			if i := strings.IndexAny(path, "?#"); i >= 0 {
+				path = path[:i]
+			}
+			if !mounted[path] {
+				add("<" + tag + " " + name + "=\"" + value + "\">, which no route serves")
+			}
+		}
+	}
+	return bad
+}
+
+// mountedRoutes walks the REAL router and returns every path it serves.
+//
+// The paths are compared as written, so a route with a chi parameter in it would not
+// match a rendered href -- there is none in this panel, and if one is added this goes
+// red rather than quietly passing, which is the safe direction.
+func mountedRoutes(t *testing.T) map[string]bool {
+	t.Helper()
+	r := chi.NewRouter()
+	h, err := NewAdminAuth(&fakeAdmins{}, &fakeTrail{}, newFakeLedger(), newFakeLedger(),
+		&fakeReviewer{}, &fakeStaff{}, &fakeInviter{}, &fakeVenues{}, &fakePlaques{},
+		&fakeRecorder{}, newFakeRules(), newFakeScribe(), adminTestConfig(), discardLogger())
+	if err != nil {
+		t.Fatalf("NewAdminAuth: %v", err)
+	}
+	h.Mount(r)
+	out := map[string]bool{}
+	if err := chi.Walk(r, func(_, route string, _ http.Handler, _ ...func(http.Handler) http.Handler) error {
+		out[route] = true
+		return nil
+	}); err != nil {
+		t.Fatalf("chi.Walk: %v", err)
+	}
+	// ANTI-VACUITY: a walk that found nothing would declare every destination valid.
+	if len(out) < 5 {
+		t.Fatalf("the router walk found %d route(s); the panel mounts more, so this check "+
+			"would pass over any address at all", len(out))
+	}
+	// The static assets the shell links to are served by the OUTER router
+	// (internal/httpx), which this walk does not see. They are named here because the
+	// alternative -- walking the whole application router -- drags the tap and
+	// activation flows into a panel test.
+	out["/static/css/app.css"] = true
+	return out
 }
 
 // interactiveMarkup returns every element or attribute in html that is not on the
 // allow-lists -- i.e. everything by which this section could become interactive.
 func interactiveMarkup(html string) []string {
+	return markupOutsideTheAllowList(html, policyGuaranteeAllowedTags, policyGuaranteeAllowedAttrs)
+}
+
+// markupOutsideTheAllowList is interactiveMarkup with the lists as parameters, so the
+// SAME scanner runs over both regions and neither can quietly get a different one.
+func markupOutsideTheAllowList(html string, tags, allowedAttrs map[string]bool) []string {
 	var bad []string
 	seen := map[string]bool{}
 	add := func(what string) {
@@ -578,28 +1508,27 @@ func interactiveMarkup(html string) []string {
 			add("<" + tag + " …> (unreadable: a raw > inside an attribute value)")
 			continue
 		}
-		if !policySectionAllowedTags[tag] {
+		if !tags[tag] {
 			add("<" + tag + ">")
 		}
-		// EVERY attribute is checked, including on an allowed element: `contenteditable`
-		// on a <p> and `onclick` on a <span> are how the two escapes worked.
-		for _, a := range regexp.MustCompile(`([a-zA-Z][a-zA-Z0-9:_-]*)\s*=`).FindAllStringSubmatch(rest, -1) {
-			attr := strings.ToLower(a[1])
-			if !policySectionAllowedAttrs[attr] {
-				add(attr + "=")
-			}
-		}
-		// ⚠️ THE VALUES ARE STRIPPED BEFORE THE BARE-ATTRIBUTE SWEEP, and the first
-		// draft did not do it: every word of every `class` list came back as a bare
-		// attribute, thirty of them on one page. A tel that fires on `text-sm` is a tel
-		// the next person deletes.
+		// ⚠️ THE VALUES ARE STRIPPED FIRST, AND ONE SWEEP READS WHAT IS LEFT. The first
+		// draft had TWO sweeps -- a `name=` pass over the RAW attribute chunk and a bare
+		// word pass over the stripped one -- and the raw pass fired on the inside of an
+		// attribute VALUE: phase B added an href with a query string
+		// (`?policy=…&no=…`) and the scanner reported `policy=` and `no=` as attributes
+		// of the anchor. It fails in the noisy direction rather than the silent one, but
+		// a check that reports things that are not there is a check the next person
+		// waters down. Stripping first also keeps the original reason for the second
+		// sweep: without it every word of every class list came back as an attribute.
+		//
+		// EVERY attribute is still checked, including on an allowed element:
+		// `contenteditable` on a <p> and `onclick` on a <span> are how two escapes
+		// worked, and both survive the strip because neither is inside a value.
 		bare := regexp.MustCompile(`=\s*("[^"]*"|'[^']*'|[^\s>]+)`).ReplaceAllString(rest, "")
 		for _, word := range strings.Fields(bare) {
 			word = strings.ToLower(strings.Trim(word, `"'/`))
-			if word == "" || !policySectionAllowedAttrs[word] {
-				if word != "" {
-					add(word)
-				}
+			if word != "" && !allowedAttrs[word] {
+				add(word)
 			}
 		}
 	}
@@ -618,9 +1547,12 @@ func interactiveMarkup(html string) []string {
 // ⚠️ AND THAT WAS STILL NOT ENOUGH, WHICH IS WHY THE CALLER NO LONGER TRUSTS THIS
 // FUNCTION ALONE. The same auditor then put the control one line ABOVE the wrapper
 // -- still inside AdminPolicies, still on the page, still outside the slice. A
-// boundary is only as good as what is checked on the other side of it, so
-// policyOutsideTheSection below is checked too, against a list of what the panel
-// SHELL is known to contain.
+// boundary is only as good as what is checked on the other side of it, so the outside
+// is checked too -- by assertNothingOutsideTheSection, which compares it BYTE FOR BYTE
+// against the panel shell rendered with an empty body. (An earlier version of this
+// sentence named a `policyOutsideTheSection` helper that does not exist, and said the
+// outside was checked "against a list": that list was the hole, and removing it is
+// what the shell comparison replaced -- see policyShellBaseline.)
 func policySectionSlice(t *testing.T, body string) (section, outside string) {
 	t.Helper()
 	const anchor = `<div class="policy-section">`
@@ -856,6 +1788,72 @@ func policyScreenStates(t *testing.T) map[string]tenant.PolicyScreen {
 	return out
 }
 
+// policyPageStates returns one PAGE state per fixture, i.e. a screen PLUS the two
+// things the handler adds that do not come from the domain: whether the engine
+// allows this admin to edit, and a refusal sentence from the query string.
+//
+// 🔴 IT EXISTS BECAUSE PHASE B'S BRANCHES ARE NOT ALL REACHABLE FROM A SCREEN. The
+// controls hang off v.MayEdit, which the handler asks panelScribe for -- so a fixture
+// set built only from tenant.PolicyScreen values could never render a single form,
+// and the inert-markup net would have gone on scanning a page with no controls on it
+// while the product shipped seven. That is the same failure the branch derivation
+// exists to prevent, one layer up: a block no fixture reaches is a block nothing
+// scans.
+type policyPageState struct {
+	screen  tenant.PolicyScreen
+	mayEdit bool
+	problem string
+}
+
+func policyPageStates(t *testing.T) map[string]policyPageState {
+	t.Helper()
+	out := map[string]policyPageState{}
+	for name, screen := range policyScreenStates(t) {
+		// READ-ONLY BY DEFAULT, which keeps every phase-A assertion measuring what it
+		// measured before: the manager's page is still a page with no controls on it.
+		out[name] = policyPageState{screen: screen}
+	}
+	// THE EDITABLE PAGE. It carries scope targets and stored policy ids, because a
+	// rule with no id gets no controls at all (policyControls) -- a fixture without
+	// them would render the same page as the read-only one and prove nothing.
+	editable := policyScreenFixture()
+	editable.ScopeTargets = []tenant.ScopeTarget{
+		{Kind: "location", ID: uuid.New(), Name: "zz-branch-venue"},
+		{Kind: "department", ID: uuid.New(), Name: "zz-branch-department"},
+	}
+	editable.Settings = []tenant.Setting{{
+		Label: "zz-branch-setting", Current: "175 m", Min: "25 m", Max: "1000 m",
+		Uses: "zz-branch-setting-use",
+	}}
+	for i := range editable.Baseline {
+		editable.Baseline[i].PolicyID = uuid.New()
+		editable.Baseline[i].Attachments = []string{"*"}
+	}
+	// ONE RULE SWITCHED OFF, so the enable arm of the switch has a subject too.
+	editable.Baseline[1].State = tenant.StateOff
+	editable.Baseline[1].Statements = nil
+	// AND ONE RULE OF THE CUSTOMER'S OWN, WITH AN ID — without it the form can only
+	// ever offer "a new rule", which is the state that produced an unremovable
+	// duplicate for a round.
+	editable.Tenant = []tenant.Rule{{
+		PolicyID: uuid.New(), Name: "zz-branch-own-rule", State: tenant.StateActive, VersionNo: 2,
+		Statements: []tenant.RuleStatement{{Sid: "own:night", Effect: "review", Actions: []string{"tap:record"}}},
+	}}
+	out["editable"] = policyPageState{screen: editable, mayEdit: true}
+
+	// THE CAPPED SCOPE PICKER AND THE REFUSAL SENTENCE, on a page that also has
+	// controls -- both are states a customer reaches by pressing something.
+	refused := editable
+	refused.ScopeCapped = true
+	// THE PROBLEM SENTENCE IS REACHED THE WAY A CUSTOMER REACHES IT -- through the
+	// query word the write path redirects with. A sentinel string cannot be injected
+	// here and that is the point: policyProblemSentence maps a CLOSED list of words
+	// onto sentences this package owns, so a fixture that could inject its own text
+	// would be testing a page the product cannot render.
+	out["refused"] = policyPageState{screen: refused, mayEdit: true, problem: "not-permitted"}
+	return out
+}
+
 // policyEvaluateAllowed names every place the panel MAY call policy.Evaluate, with
 // the reason. It is an ALLOWLIST THAT MUST STAY SMALL: adding a name here is the
 // only way to keep the page's sentence true while a new call appears, so it is an
@@ -990,6 +1988,51 @@ func policyEvaluateCalls(t *testing.T, dir string) []evaluateCall {
 		t.Fatalf("the walk parsed no non-test file in %s", dir)
 	}
 	return out
+}
+
+// TestPolicyProblemWords_EachOneRendersAHeadingAndASentence.
+//
+// 🔴 A WORD WITH NO SENTENCE PRINTS NOTHING AT ALL, WHICH IS THE ONE OUTCOME THE
+// BLOCK FORBIDS. policiesSection renders the refusal notice behind `if v.Problem !=
+// ""`, and its own comment says a press that did nothing has to be visible — so a
+// sixteenth word added to policyProblemWords without a sentence would redirect a
+// customer to a page that silently says nothing happened. Measured: adding one and
+// running the package stayed green.
+//
+// IT COVERS THE HEADING TOO, for the reason the lockout pair exists: the title is the
+// largest sentence on the page, and it was wrong for `lockout-stands` while the body
+// was right.
+func TestPolicyProblemWords_EachOneRendersAHeadingAndASentence(t *testing.T) {
+	// ANTI-VACUITY: an empty vocabulary would make this pass over nothing.
+	if len(policyProblemWords) < 5 {
+		t.Fatalf("policyProblemWords holds %d word(s); the section uses more",
+			len(policyProblemWords))
+	}
+	for _, word := range policyProblemWords {
+		heading, sentence := policyProblem(word)
+		if sentence == "" {
+			t.Errorf("the problem word %q has no sentence, so a refusal that redirects with "+
+				"it renders NO notice at all — the page says nothing happened while something "+
+				"was refused.", word)
+		}
+		if heading == "" {
+			t.Errorf("the problem word %q has no heading; the notice would render with an "+
+				"empty title", word)
+		}
+		// AND IT REACHES THE PAGE, not just the mapping.
+		page := policyStatePage(t, policyPageState{screen: policyScreenFixture(), problem: word})
+		if !strings.Contains(page, htmlText(sentence)) {
+			t.Errorf("the page does not print the sentence for %q", word)
+		}
+		if !strings.Contains(page, htmlText(heading)) {
+			t.Errorf("the page does not print the heading for %q", word)
+		}
+	}
+	// AND A WORD OUTSIDE THE LIST RENDERS NOTHING — the closed-vocabulary half, or a
+	// caller could put text on somebody's page.
+	if h, s := policyProblem("anything-else"); h != "" || s != "" {
+		t.Errorf("a word outside the closed list produced %q / %q", h, s)
+	}
 }
 
 // TestPolicyGuardrailView_CarriesNoSwitch is the presentation-layer half of the
@@ -1343,19 +2386,32 @@ func TestPoliciesSection_ShowsTheActionGuardrailOnTheRecordingRowToo(t *testing.
 // should not have different standards. Widening this list stays possible -- it just
 // has to come with the markup that needs it.
 func TestPolicySectionAllowList_HasNoDeadEntry(t *testing.T) {
-	used := map[string]bool{}
-	for name, screen := range policyScreenStates(t) {
-		_ = name
-		section, _ := policySectionSlice(t, policyPage(t, &fakeRules{screen: screen}))
+	// 🔴 IT DRIVES THE PAGE STATES, NOT THE SCREEN STATES, AND THE DIFFERENCE IS THE
+	// WHOLE WRITE SIDE. policyScreenStates carries no MayEdit, so a scan built on it
+	// renders no form at all -- every one of phase B's nine element names would have
+	// read as a dead entry, and the honest repair for a "dead" entry is to DELETE it.
+	// That is how a brake against over-wide lists turns into a hole.
+	used, guaranteeUsed := map[string]bool{}, map[string]bool{}
+	for _, st := range policyPageStates(t) {
+		section, _ := policySectionSlice(t, policyStatePage(t, st))
 		for _, m := range regexp.MustCompile(`<\s*([a-zA-Z][a-zA-Z0-9-]*)`).FindAllStringSubmatch(section, -1) {
 			used[strings.ToLower(m[1])] = true
 		}
+		if g, ok := policyGuaranteeBlock(t, section); ok {
+			for _, m := range regexp.MustCompile(`<\s*([a-zA-Z][a-zA-Z0-9-]*)`).FindAllStringSubmatch(g, -1) {
+				guaranteeUsed[strings.ToLower(m[1])] = true
+			}
+		}
 	}
 	// ANTI-VACUITY: a scan that found nothing would call every entry dead.
-	if len(used) < 5 {
-		t.Fatalf("the rendered section uses %d element name(s); it uses more, so this scan "+
-			"is reading the wrong thing", len(used))
+	if len(used) < 5 || len(guaranteeUsed) < 3 {
+		t.Fatalf("the rendered section uses %d element name(s) and the guarantee block %d; "+
+			"both use more, so this scan is reading the wrong thing", len(used), len(guaranteeUsed))
 	}
+	// EACH LIST IS HELD TO THE REGION IT IS APPLIED TO. Holding both to the whole
+	// section was the defect the split introduced: dl, dt, dd and strong sat in the
+	// list that guards the GUARANTEE block, which renders none of them, so four
+	// entries were "protecting" a region nothing scanned.
 	for tag := range policySectionAllowedTags {
 		if !used[tag] {
 			t.Errorf("policySectionAllowedTags admits <%s>, which no rendering branch of this "+
@@ -1363,7 +2419,14 @@ func TestPolicySectionAllowList_HasNoDeadEntry(t *testing.T) {
 				"nobody is watching.", tag)
 		}
 	}
-	t.Logf("element names rendered by the section across all branches: %d", len(used))
+	for tag := range policyGuaranteeAllowedTags {
+		if !guaranteeUsed[tag] {
+			t.Errorf("policyGuaranteeAllowedTags admits <%s>, which the guarantee block does "+
+				"not render.", tag)
+		}
+	}
+	t.Logf("element names rendered by the section: %d, by the guarantee block: %d",
+		len(used), len(guaranteeUsed))
 }
 
 // policyGuardrailControlWords is the field-name vocabulary a guardrail view may not

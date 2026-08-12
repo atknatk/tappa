@@ -177,11 +177,11 @@ func newPanelHarness(t *testing.T) *panelHarness {
 	// would agree with that whatever the real reader did. The windows are
 	// policy.DefaultParams(): this harness has no checkin.Service, and what these
 	// tests assert about the screen is its rows rather than its numbers.
-	rules, err := tenant.NewRulebook(data, policy.DefaultParams(), slog.New(slog.DiscardHandler))
+	rules, err := tenant.NewRulebook(data, policy.DefaultParams(), 150, slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("tenant.NewRulebook: %v", err)
 	}
-	h, err := NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, venues, plaques, entries, rules, cfg, slog.New(slog.DiscardHandler))
+	h, err := NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, venues, plaques, entries, rules, newFakeScribe(), cfg, slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}

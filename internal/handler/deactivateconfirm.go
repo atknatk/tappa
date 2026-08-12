@@ -199,6 +199,31 @@ const (
 	// (manualConfirmSubject). A confirmation bound to the person alone would let the
 	// warning be served for one record and spent on a completely different one.
 	confirmActionRecordManual = "record.manual"
+	// 🔴 CHANGING THE RULEBOOK (M6-09 phase B). It is gated for a reason that is
+	// neither "irreversible" nor "destructive", and saying which is the point.
+	// Switching a rule off can be switched back on and a binding can be re-bound —
+	// but the DECISIONS made in between cannot be taken back: every tap judged while
+	// a rule was off is an immutable row pinned to the version that judged it (§4.3),
+	// and the report that pays somebody is built from those rows. So the warning is
+	// about the WINDOW rather than about the row.
+	//
+	// ⚠️ IT IS ALSO THE ANSWER THE M6-09 CARD ASKED FOR AND COULD NOT GET. That card's
+	// original trap said the SIMULATOR had to run before a save; M6-10 is `skipped`
+	// (Q22 moved it to M9-06), so "show what would change" is unavailable in v1. This
+	// gate is the option the card lists as (a) — show the TEXT of the change before
+	// writing it — and the screen says plainly which question it does NOT answer.
+	//
+	// 🔴 ITS SUBJECT IS COMPOUND, like record.manual's and unlike the other five. A
+	// policy change is a STATEMENT (an operation, a policy, a scope), not an act on a
+	// row, so a confirmation bound to the policy alone would let a warning served for
+	// "switch this off" be spent on "bind it everywhere". See policyChange.subject.
+	//
+	// 🔴 IT IS DECLARED HERE AND NOT BESIDE ITS OWN HANDLER, WHICH IS LOAD-BEARING:
+	// TestConfirmation_IsBoundToTheACTIONAndNotOnlyToTheSubject derives the whole
+	// action matrix by parsing THIS FILE, so a gate declared anywhere else is a gate
+	// nothing checks for cross-action reuse. That test is the one that caught a
+	// venue-removal confirmation opening the deactivation gate.
+	confirmActionPolicyEdit = "policy.edit"
 )
 
 // adminConfirmTTL is how long a rendered warning stays spendable.

@@ -1,12 +1,15 @@
 package pages
 
-// The POLICIES section's view model (M6-09 phase A -- the READ side).
+// The POLICIES section's view model (M6-09 -- the read side AND the controls).
 //
-// 🔴 THERE IS NO SWITCH ON THIS SCREEN, AND THE MODEL IS WHERE THAT IS DECIDED.
-// Phase A reads; phase B writes. So there is no CSRFToken here, no form target and
-// no per-rule action href -- a template cannot offer a control whose destination
-// the view has no field to carry, which is the same wall ReportsView describes.
-// One of those absences is more than staging, and it survives phase B:
+// ⚠️ THIS HEADER DESCRIBED A MODEL THAT NO LONGER EXISTED. It said the type carries
+// "no form target and no per-rule action href" while PoliciesView.Action and
+// PolicyRuleView.Action sit in this same file, put there by phase B. That absence was
+// real in phase A and is not the guarantee any more; leaving the sentence would teach
+// the next author that a control cannot be built from this type, which is the opposite
+// of what it now says.
+//
+// 🔴 ONE ABSENCE DOES SURVIVE PHASE B, AND IT IS THE ONE THAT MATTERED:
 // PolicyGuardrailView carries nothing a toggle could be built from, because a
 // guardrail has no off switch anywhere in the product. The M6-09 card's first trap
 // is drawing one as a control that happens to be disabled -- the customer tries it,
@@ -14,9 +17,10 @@ package pages
 // for it cannot be persuaded otherwise later.
 // TestPolicyGuardrailView_CarriesNoSwitch is the mechanical half.
 //
-// 🔴 §4.7 -- NOTHING BELOW COULD CARRY A SECRET. The three queries behind this
-// screen select no token hash, no coordinate, no key reference and no email, the
-// domain types have no field for them, and neither does anything here. What a
+// 🔴 §4.7 -- NOTHING BELOW COULD CARRY A SECRET. The queries behind this screen select
+// no token hash, no coordinate, no key reference and no email (a count sat here saying
+// "three" while the section read six -- the property is what they select, not how many
+// there are), the domain types have no field for them, and neither does anything here. What a
 // policy document holds -- operators, context keys and comparison values -- is
 // authored by the customer and is not secret (validate.go argues the same about
 // its own error messages). The one identity on the page is a version's author, a
@@ -32,9 +36,15 @@ package pages
 //
 // 🔴 NO FIELD HERE IS A CONTROL. Not a bool, not an href, not a form name -- see
 // the file header. The tunable window is three STRINGS: what it is set to and the
-// two ends of its range. Phase B's editor for it will be a form on its own, and it
-// will still not be an on/off switch, because ADR 0004 §11's pattern is "cannot be
-// switched off, MAY be tuned inside a range" and the first half is the product.
+// two ends of its range.
+//
+// ⚠️ IT USED TO SAY "PHASE B's EDITOR FOR IT WILL BE A FORM ON ITS OWN" -- future
+// tense about the phase that shipped. There is no editor: those windows come from
+// configuration and the schema holds no per-tenant value for them, which the card
+// records as an unmet criterion rather than as a plan. What has not changed is that
+// an editor for them, if one is ever built, still would not be an on/off switch:
+// ADR 0004 §11's pattern is "cannot be switched off, MAY be tuned inside a range"
+// and the first half is the product.
 type PolicyGuardrailView struct {
 	// Order is the guardrail's position in the engine's own list, as a string
 	// because it is printed rather than counted. The engine derives it; the panel
@@ -90,6 +100,15 @@ type PolicyVersionView struct {
 	// using. Same class of claim, one element further down.
 	Marker     string
 	MarkerTone string
+	// Href is the address of THIS version's own page, empty when there is none.
+	//
+	// 🔴 IT IS PER ROW BECAUSE THE CARD ASKS FOR "AN OLDER VERSION CAN BE LOOKED AT",
+	// AND THE FIRST PHASE-B ATTEMPT ONLY REACHED THE NEWEST. There was one link per
+	// rule, built from the rule's CURRENT version number, under a paragraph saying an
+	// earlier version's rules are on a page of their own — so the page declared a
+	// capability that needed a hand-edited URL. Announcing a guarantee the screen does
+	// not provide is the class this section has now paid for five times.
+	Href string
 }
 
 // PolicyRuleView is one policy: what it is, whether it is running, what it says.
@@ -119,6 +138,95 @@ type PolicyRuleView struct {
 	History     []PolicyVersionView
 	// HistoryNote is "showing 5 of 23" when the strip is short, else empty.
 	HistoryNote string
+
+	// --- M6-09 phase B: the controls -------------------------------------------
+	//
+	// 🔴 EVERY ONE OF THEM IS EMPTY WHEN THE SERVER WOULD REFUSE THE ACT, AND THAT IS
+	// THE POINT OF PUTTING THEM HERE RATHER THAN BEHIND A `v.MayEdit` TEST IN THE
+	// TEMPLATE. A template that decided for itself which rule gets a switch would be a
+	// second representation of the engine's answer; these are filled in by the handler
+	// from ONE question asked once (panelScribe.May), so the page cannot offer a
+	// control the writer's gate would turn away. Hiding the control is the courtesy;
+	// tenant.RuleWriter.authorise is the guarantee.
+
+	// ID is the stored policy's id, as a string because it is a form value. It is
+	// empty for a shipped rule this business has never had materialised -- which is
+	// exactly the case that gets no controls, because there is no row to change.
+	ID string
+	// Action is where this rule's controls post: the CONFIRMATION step, never the
+	// write. It is carried per rule rather than read from a package variable in the
+	// template so that the address lives in one place (the handler, which reads it
+	// from the section's own route) and a template cannot invent a second one.
+	Action string
+	// Switch is the on/off control, or the zero value when there must not be one.
+	Switch PolicySwitchView
+	// Unbind is one control per existing binding. It is SEPARATE from Attachments
+	// (which is the printed list) because the two have different lengths in the one
+	// case that matters: a manager sees the bindings and gets no buttons.
+	Unbind []PolicyBindingView
+	// Bindable is the scope picker's options, empty when the actor may not bind.
+	Bindable []PolicyScopeOptionView
+}
+
+// PolicySwitchView is one rule's on/off control.
+//
+// 🔴 IT IS A LABEL AND AN OPERATION, NOT A BOOLEAN, so a template cannot render it
+// as a toggle whose meaning depends on a colour. Label == "" means NO CONTROL AT
+// ALL -- not a disabled one, which is the M6-09 card's first trap. It is also why
+// PolicyGuardrailView does not and will never have one of these: a guarantee has no
+// off switch anywhere in the product.
+type PolicySwitchView struct {
+	// Op is the word the form posts: the section's closed vocabulary, never a
+	// sentence.
+	Op string
+	// Label is what the button says. It names the OUTCOME ("Switch this rule off"),
+	// because a button labelled with a state is one people press to reach the state
+	// it is already in.
+	Label string
+	// Note is the one-line consequence shown beside it.
+	Note string
+}
+
+// PolicyBindingView is one existing scope binding, with the value that would remove
+// it.
+type PolicyBindingView struct {
+	// Resource is the engine's own string ("*", "location/<uuid>").
+	Resource string
+	// Label is the same thing in the customer's words -- a venue's NAME where the
+	// resource is a uuid. An id that resolves to nothing keeps its raw form and says
+	// so, because a binding to a venue that was removed is a real state and hiding it
+	// would leave a rule scoped to nowhere with nothing on screen about it.
+	Label string
+}
+
+// PolicyScopeOptionView is one option of the scope picker.
+type PolicyScopeOptionView struct {
+	Value string
+	Label string
+}
+
+// PolicySettingView is a bounded number the product runs on that is NOT a policy and
+// NOT per business.
+//
+// 🔴 IT CARRIES NO CONTROL, AND THAT IS HONEST ABOUT THESE FOUR NUMBERS ONLY. The
+// GPS ring and the three guardrail windows come from configuration -- config.go
+// range-checks them at start-up -- and the schema has no column to hold a per-tenant
+// value for any of them, so a box here would be a box the server ignores, which is
+// the mistake this repository pays for most.
+//
+// ⚠️ IT IS NOT A STATEMENT ABOUT THE M6-09 CRITERION, AND IT USED TO BE ONE. This
+// comment said the criterion "an out-of-range value is refused in the interface too"
+// CANNOT be met "because there is nothing behind" such a field. An audit refuted it:
+// internal/policy's boundedParams binds three document context keys to ranges,
+// validate.go refuses an out-of-range numeric predicate in a TENANT DOCUMENT at write
+// time, and the shipped "queued tap window" document carries one -- which
+// tenant.copyOfShipped copies into a customer's rule. The storage and the validation
+// are there; the form field is not. The criterion is unmet because it was not built.
+type PolicySettingView struct {
+	Label   string
+	Current string
+	Range   string
+	Uses    string
 }
 
 // PolicyAuthorityView is one action of the engine's vocabulary: who may do it and
@@ -199,6 +307,66 @@ type PoliciesView struct {
 	// 0004 §3, a misreading the M3-04 card had to correct in writing).
 	Authorities []PolicyAuthorityView
 	Recording   []PolicyAuthorityView
+
+	// --- M6-09 phase B ------------------------------------------------------------
+
+	// MayEdit is the ENGINE's answer to `policy:edit` for this signed-in admin,
+	// asked once per render through the writer's own gate
+	// (tenant.RuleWriter.May -> policy.Evaluate over the stored rulebook).
+	//
+	// 🔴 IT IS NOT A ROLE TEST AND MUST NOT BECOME ONE. The guardrail
+	// sys:policy-edit-owner-only only DENIES non-owners; the OWNER's permission lives
+	// in the tenant's stored baseline document, so "is this person an owner" is a
+	// DIFFERENT question from "may this person edit the rules" -- an owner whose
+	// rulebook has never been materialised is refused, and the page has to say so
+	// rather than showing controls that would fail.
+	MayEdit bool
+	// Action is where the controls post: the confirmation step, never the write.
+	Action string
+	// ProblemHeading is the notice's TITLE for a refused change, and it is a field
+	// rather than a constant for one measured reason.
+	//
+	// 🔴 THE HEADING WAS "That change was not made" FOR EVERY WORD, INCLUDING THE ONE
+	// WHERE THE CHANGE *WAS* MADE. `lockout-stands` means the change took the author's
+	// own authority away AND putting it back failed — it stands, and there is no route
+	// back through this product. The body said so; the largest sentence on the page
+	// said the opposite. That is exactly why tenant.ErrLockoutStands exists as its own
+	// sentinel ("the customer's line was wrong, which is the worse half of the pair to
+	// get right") — the split was made in the body and forgotten in the title.
+	ProblemHeading string
+	// Problem is the sentence for a refused change, already chosen by the handler
+	// from a closed vocabulary. It is a SENTENCE rather than a code because the page
+	// prints it; the code never reaches the template, so there is nothing here to
+	// escape and nothing a caller can put words into.
+	Problem string
+
+	// ScopeTargets are this business's venues, for the authoring form's picker, and
+	// ScopeCapped says the list was truncated. A THIRD ceiling with its own notice --
+	// the split the two above already paid for, because a single sentence for several
+	// ceilings was measured telling a customer three false things.
+	ScopeTargets []PolicyScopeOptionView
+	ScopeCapped  bool
+
+	// Supersedable are the customer's OWN rules, offered as "write a new version of
+	// this one" beside "a new rule".
+	//
+	// 🔴 WITHOUT IT THE FORM COULD ONLY EVER CREATE, AND CREATING TWICE IS PERMANENT.
+	// The first version of this form carried no policy id at all, so every save took
+	// the CREATE branch: pressing it twice left two rows with the same name, both
+	// deciding, neither in the other's history — and `policies` grants no DELETE, so
+	// nothing in this product can remove either. It also meant the section had no U in
+	// its CRUD: the domain has appended versions since day one (measured), and the
+	// screen had no way to ask for one.
+	Supersedable []PolicyScopeOptionView
+
+	// Authorable are the shipped rules a customer may base their own on. The list is
+	// DERIVED (tenant.AuthorableRules asks the engine which actions fail closed), so
+	// the authorization document -- the one that grants policy:edit -- is not in it
+	// and a customer cannot generate a statement about their own authority.
+	Authorable []PolicyScopeOptionView
+
+	// Settings are the bounded numbers that are not policies. See PolicySettingView.
+	Settings []PolicySettingView
 }
 
 // The chip tones, mirroring the brand's fixed status-to-colour mapping. They are

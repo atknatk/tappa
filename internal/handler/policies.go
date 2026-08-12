@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -13,17 +14,22 @@ import (
 	"github.com/atknatk/tappa/web/templates/pages"
 )
 
-// The POLICIES SECTION — M6-09 phase A: the rulebook, read only.
+// The POLICIES SECTION — M6-09: the rulebook, read here and written in policyactions.go.
 //
 // 🔴 THE TENANT IS NEVER AN INPUT (§4.5). It comes from httpx.AdminOf(r), which the
 // Protect chain resolved from a signed session cookie against the database. This
 // section takes NO parameter at all — there is no week to choose, no page to walk and
 // no id to look up — so the request carries nothing a caller could bend.
 //
-// 🔴 §4.3 / §4.6 — READ ONLY, AND HERE THAT IS MORE THAN STAGING. There is no entry in
-// mountWriting for this section, no ProtectWriting chain, no synchronizer token and no
-// audit_log row, because nothing here writes. The point worth stating is WHY that
-// needed care: the other assembler of a tenant's policy layer (internal/domain/checkin)
+// 🔴 §4.3 / §4.6 — THIS FILE READS; THE WRITES ARE policyactions.go's. Every clause of
+// this paragraph was false for two rounds after phase B shipped: there ARE two entries
+// in mountWriting for this section, they DO take the ProtectWriting chain, they DO
+// carry a synchronizer token (confirmField), and they DO write audit_log rows —
+// including for a refusal. What is true of THIS file is that the section's GET renders
+// and asks the engine one question (panelScribe.May) and changes nothing. The point
+// worth stating is WHY rendering had to stay that way, and the gate reads through
+// checkin.Service.StoredSet — the non-materialising path — so even a REFUSED write
+// provisions nobody: the other assembler of a tenant's policy layer (internal/domain/checkin)
 // MATERIALISES the managed baseline when it finds it missing — a policy, a version and
 // an attachment for every shipped document — because a tap that cannot name a policy_versions row
 // cannot be recorded. A panel screen that reused it would write those rows for any
@@ -37,8 +43,10 @@ import (
 // evidence for it.
 //
 // 🔴 §4.7 — NOTHING SENSITIVE PASSES THROUGH THIS FILE, and there is nothing to strip
-// by hand. The three queries select no token hash, no coordinate and no key reference;
-// the domain types have no field for them; pages.PoliciesView has none either. The one
+// by hand. The queries behind this screen select no token hash, no coordinate and no
+// key reference (the count is deliberately not written here: it was "three" while the
+// section read six); the domain types have no field for them; pages.PoliciesView has
+// none either. The one
 // identity rendered is a policy version's author, a name this tenant already owns.
 //
 // WHO MAY READ IT: any signed-in admin of the business, owner or manager. Editing is
@@ -49,16 +57,28 @@ import (
 
 // panelRules is the policies section's read side, declared HERE at the consumer (§7).
 //
-// 🔴 ONE METHOD, AND IT RETURNS A SCREEN RATHER THAN TAKING A COMMAND. The interface
-// is the narrowest statement of what this section may do: there is no Enable, no
-// Disable, no Save and no Materialise on it, so a handler in this package cannot reach
-// a write on the policy tables even by accident — and the concrete type behind it
+// 🔴 IT RETURNS A SCREEN RATHER THAN TAKING A COMMAND. There is no Enable, no Disable,
+// no Save and no Materialise on this interface, and the concrete type behind it
 // (internal/domain/tenant.Rulebook) makes only SELECT calls, which its own test proves
-// by reading the SQL. Phase B's writer will be a SECOND field on AdminAuth, for the
-// reason `queue` and `reviewer` are two: reading the rulebook and rewriting it are
-// different authorities and should not travel behind one value.
+// by reading the SQL.
+//
+// ⚠️ IT USED TO SAY A HANDLER IN THIS PACKAGE "CANNOT REACH A WRITE ON THE POLICY
+// TABLES EVEN BY ACCIDENT", AND THAT WAS TRUE ONLY WHILE THIS WAS THE ONLY INTERFACE.
+// It also predicted, in the future tense, that "phase B's writer will be a SECOND
+// field on AdminAuth". Phase B shipped: policyactions.go declares panelScribe and
+// AdminAuth carries it, so a write IS reachable from this package — through a second,
+// equally narrow interface whose every method takes an Actor and whose concrete type
+// asks the policy engine before it opens a transaction. The prediction was right and
+// keeping it in the future tense taught the next reader that the wall is still there.
+// Two fields for the reason `queue` and `reviewer` are two: reading the rulebook and
+// rewriting it are different authorities and must not travel behind one value.
 type panelRules interface {
 	Screen(ctx context.Context, tenantID uuid.UUID) (tenant.PolicyScreen, error)
+	// Version reads ONE stored version's body — phase A's counted gap, closed in
+	// phase B. It is on the READ interface because it reads: the bound is the shape
+	// of the query (one version is at most policy.DefaultLimits' byte ceiling) rather
+	// than a LIMIT, which is why a page of versions still does not carry documents.
+	Version(ctx context.Context, tenantID, policyID uuid.UUID, versionNo int) (tenant.VersionBody, error)
 }
 
 // policiesHref is the section's own URL, READ FROM THE SECTION TABLE rather than
@@ -87,14 +107,127 @@ func (a *AdminAuth) policiesSection(w http.ResponseWriter, r *http.Request) {
 	}
 
 	v := pages.PoliciesView{PanelChrome: a.chrome(r, pages.TabPolicies)}
+	// 🔴 THE ENGINE IS ASKED ONCE PER RENDER, AND IT IS THE SAME QUESTION THE WRITE
+	// PATH ASKS. panelScribe.May evaluates `policy:edit` for this admin against the
+	// tenant's STORED rulebook (the non-materialising read), so the controls a page
+	// offers and the acts the server will accept cannot disagree. Hiding a control is
+	// the courtesy; tenant.RuleWriter.authorise is the guarantee, and it runs again on
+	// every POST.
+	//
+	// ⚠️ IT COSTS ONE EXTRA SELECT — the same ListPolicySet the screen already ran, in
+	// its own transaction. That is counted rather than optimised away: the alternative
+	// is re-deriving the answer from the screen's own parsed rules, which would be a
+	// second representation of the engine's decision on the one page whose job is to
+	// show what the engine decides.
+	v.MayEdit = a.scribe.May(r.Context(), id.TenantID(), actorOf(id))
+	v.ProblemHeading, v.Problem = policyProblem(r.URL.Query().Get("problem"))
 	fillPoliciesView(&v, screen)
 	a.render(w, r, http.StatusOK, pages.AdminPolicies(v))
 }
 
+// policyProblemSentence turns a query word into the sentence the page prints, or ""
+// when there is nothing to say.
+//
+// 🔴 THE WORD IS MATCHED AGAINST A CLOSED LIST AND THE SENTENCE IS OURS, so nothing
+// a caller can type reaches the page. An unknown word produces no notice at all
+// rather than a generic one: a banner that fires for any junk in the query string is
+// a banner somebody can make a customer see.
+func policyProblem(raw string) (heading, sentence string) {
+	word := oneOfWords(strings.TrimSpace(raw), policyProblemWords...)
+	sentence = policyProblemSentence(word)
+	if sentence == "" {
+		return "", ""
+	}
+	// 🔴 ONE WORD IS NOT A REFUSAL, AND ITS HEADING MUST NOT SAY IT IS.
+	// `lockout-stands` means the change WAS made, took the author's authority away, and
+	// could not be put back. "That change was not made" over that body is the page's
+	// largest sentence contradicting its own paragraph — and the reason
+	// tenant.ErrLockoutStands is a separate sentinel in the first place.
+	if word == "lockout-stands" {
+		return "That change was made, and it locked you out", sentence
+	}
+	return "That change was not made", sentence
+}
+
+func policyProblemSentence(word string) string {
+	switch word {
+	case "not-permitted":
+		// 🔴 IT DOES NOT NAME A ROLE, AND THE SIBLING SENTENCE ON THIS SCREEN ALREADY
+		// KNEW WHY. policyIntro's read-only arm was corrected in an earlier round for
+		// exactly this: "telling an owner 'only owners may change these' when they ARE
+		// the owner would send them looking for the wrong problem". This one kept the
+		// role sentence, and the state that reaches it is real — checkin's stored-set
+		// read falls back to the guardrails alone when ONE stored baseline document
+		// cannot be parsed, which drops the authorization document with it, so an OWNER
+		// is refused and lands here. The page then said three different things at once:
+		// a document cannot be read (top), there are two reasons (intro), and this is
+		// reserved for owners (here).
+		return "The rules engine does not grant you the policy:edit authority right now, so " +
+			"nothing was changed. There are two reasons that happens and the rules below tell " +
+			"them apart: your business's rules may not be set up yet, or they are and this " +
+			"authority is not yours — only an organisation owner is ever granted it. If every " +
+			"rule below reads “Not set up yet”, or the page says one of them cannot be read, " +
+			"that is the reason rather than your role. The attempt has been written to your " +
+			"audit trail."
+	case "unknown":
+		return "That rule is not one of this organisation's, so nothing was changed."
+	case "confirm-required", "confirm-stale":
+		return "The confirmation step was not completed, or it was left too long — nothing was " +
+			"changed. Start again and the warning will be shown afresh."
+	case "bad-scope":
+		return "That is not a place a rule can be applied to, so nothing was changed."
+	case "already-bound":
+		return "That rule was already recorded as applying there, so nothing changed."
+	case "not-bound":
+		return "That rule was not recorded as applying there, so there was nothing to remove."
+	case "raced":
+		return "Somebody else saved a change to that rule while you were reading it, so yours " +
+			"was not applied — two versions with the same number cannot both exist. Look at the " +
+			"rule as it is now and decide again."
+	case "name-taken":
+		return "You already have a rule with that name, and nothing was written. Two rules " +
+			"with one name cannot be told apart afterwards and neither can be removed — a " +
+			"rule is switched off, never deleted. Either pick a different name, or choose " +
+			"“a new version of” that rule instead of “a new rule”."
+	case "not-yours":
+		return "That is a rule Tappa maintains, so it cannot be rewritten in place. Switch it " +
+			"off and write your own version instead — that way its history stays readable for " +
+			"the records it decided."
+	case "lockout-stands":
+		// 🔴 THE OPPOSITE SENTENCE, AND IT HAS TO BE, because on this path the change was
+		// NOT put back. Saying "it was put back" here is the one message that would send
+		// an owner away believing the reverse of what happened to their rulebook.
+		return "That change took away your own authority to change the rules, and putting it " +
+			"back FAILED — so it is still in force and you may not be able to change anything " +
+			"else from this screen. Nothing here can repair it: a rule cannot be deleted and a " +
+			"version cannot be edited. Tell us, with the time you pressed it."
+	case "lockout":
+		return "That change would have taken away your own authority to change the rules, and " +
+			"there is no way back from that through this product — so it was put back. A rule " +
+			"cannot be deleted and a version cannot be edited, which is exactly why."
+	case "no-such-version":
+		return "There is no such version of that rule."
+	case "unreadable":
+		return "That request could not be read, so nothing was changed."
+	case "unavailable":
+		return "Something went wrong on our side and nothing was changed. Please try again."
+	default:
+		return ""
+	}
+}
+
 // fillPoliciesView maps the domain screen onto the view.
 //
-// EVERY TIME IS CONVERTED HERE AND ONLY HERE (§6: the database is UTC and the render
-// layer converts), against the zone the database supplied for this business.
+// TIMES ON THE SECTION'S OWN PAGE ARE CONVERTED HERE, against the zone the database
+// supplied for this business (§6: the database is UTC and the render layer converts).
+//
+// ⚠️ IT SAID "AND ONLY HERE", WHICH IS NOT TRUE OF THE SECTION AS A WHOLE.
+// tenant.Rulebook.Version converts in the DOMAIN, because that read answers a single
+// version's page and carries its timestamp already localised. Both use the same zone,
+// read in the same transaction as the rows; what §6 forbids is the DATABASE storing
+// local time, not a domain read formatting one. The claim is narrowed rather than the
+// code moved: moving it would mean the version page's handler re-reading the tenant
+// clock for one field.
 func fillPoliciesView(v *pages.PoliciesView, s tenant.PolicyScreen) {
 	zone := s.Zone
 	if zone == nil {
@@ -141,8 +274,57 @@ func fillPoliciesView(v *pages.PoliciesView, s tenant.PolicyScreen) {
 		v.Guardrails = append(v.Guardrails, row)
 	}
 
-	v.Baseline = policyRuleViews(s.Baseline, zone, s.GuardrailsOnly)
-	v.Tenant = policyRuleViews(s.Tenant, zone, s.GuardrailsOnly)
+	// THE CONTROLS ARE BUILT ONCE AND HANDED TO EVERY RULE, so the scope picker and
+	// the label resolver are one construction rather than one per rule.
+	ed := policyEditor{may: v.MayEdit, action: policyChangeHref}
+	v.ScopeCapped = s.ScopeCapped
+	ed.names = map[string]string{"*": "every venue and department"}
+	for _, t := range s.ScopeTargets {
+		option := pages.PolicyScopeOptionView{Value: t.Resource(), Label: t.Name + " (" + t.Kind + ")"}
+		ed.names[option.Value] = option.Label
+		ed.scopes = append(ed.scopes, option)
+		if t.Kind == "location" {
+			v.ScopeTargets = append(v.ScopeTargets, pages.PolicyScopeOptionView{
+				Value: t.ID.String(), Label: t.Name,
+			})
+		}
+	}
+	// "*" IS OFFERED FIRST because it is the binding every shipped rule already has,
+	// and a picker that only listed venues would make tenant-wide look unreachable.
+	ed.scopes = append([]pages.PolicyScopeOptionView{
+		{Value: "*", Label: ed.names["*"]},
+	}, ed.scopes...)
+	if v.MayEdit {
+		// THE CUSTOMER'S OWN RULES, offered as "a new version of this one". A rule with
+		// no stored id cannot be superseded, and a MANAGED rule must not be (that is
+		// ErrNotYours in the domain), so the list is the tenant layer with an id.
+		for _, r := range s.Tenant {
+			if r.PolicyID != uuid.Nil {
+				v.Supersedable = append(v.Supersedable, pages.PolicyScopeOptionView{
+					Value: r.PolicyID.String(), Label: "A new version of “" + r.Name + "”",
+				})
+			}
+		}
+		// 🔴 THE SECTION'S OWN FORM TARGET. Leaving it empty was a REAL DEFECT and the
+		// route net caught it: a <form> with an empty action posts to the CURRENT url,
+		// so the authoring form would have posted to GET /admin/policies and answered
+		// 405 — a button that looks like it works and does nothing, which is the shape
+		// this section's tests exist for.
+		v.Action = policyChangeHref
+		for _, doc := range tenant.AuthorableRules() {
+			v.Authorable = append(v.Authorable, pages.PolicyScopeOptionView{
+				Value: doc.Name, Label: doc.Name,
+			})
+		}
+	}
+	for _, set := range s.Settings {
+		v.Settings = append(v.Settings, pages.PolicySettingView{
+			Label: set.Label, Current: set.Current, Range: set.Min + " and " + set.Max, Uses: set.Uses,
+		})
+	}
+
+	v.Baseline = policyRuleViews(s.Baseline, zone, s.GuardrailsOnly, ed)
+	v.Tenant = policyRuleViews(s.Tenant, zone, s.GuardrailsOnly, ed)
 
 	for _, auth := range s.Authorities {
 		row := pages.PolicyAuthorityView{
@@ -194,16 +376,91 @@ func joinDot(items []string) string {
 	return out
 }
 
-func policyRuleViews(rules []tenant.Rule, zone *time.Location, guardrailsOnly bool) []pages.PolicyRuleView {
+// policyEditor is what the write side contributes to a rule's view: whether the
+// engine allows this admin to change anything, where the controls post, the scope
+// picker's options and the id-to-name resolver for a binding.
+//
+// 🔴 `may` IS THE ENGINE'S ANSWER, ASKED ONCE. It is not a role and it is not
+// recomputed per rule: a per-rule recomputation would be a second representation of
+// one decision, and the two would disagree the moment a rule changed mid-render.
+type policyEditor struct {
+	may    bool
+	action string
+	scopes []pages.PolicyScopeOptionView
+	names  map[string]string
+}
+
+// label resolves a resource to the customer's own words, keeping the RAW string when
+// it resolves to nothing.
+//
+// 🔴 AN UNRESOLVABLE BINDING IS SHOWN, NOT HIDDEN. 00007 puts no foreign key on
+// policy_attachments.resource (the column is free-form text on purpose), so a venue
+// removed after a rule was bound to it leaves a binding that names nothing. Dropping
+// it from the list would leave a rule scoped to a place that does not exist with
+// nothing on screen about it.
+func (e policyEditor) label(resource string) string {
+	if name, ok := e.names[resource]; ok {
+		return name
+	}
+	return resource + " (no longer in this organisation)"
+}
+
+func policyRuleViews(rules []tenant.Rule, zone *time.Location, guardrailsOnly bool, ed policyEditor) []pages.PolicyRuleView {
 	out := make([]pages.PolicyRuleView, 0, len(rules))
 	for _, r := range rules {
-		out = append(out, policyRuleView(r, zone, guardrailsOnly))
+		out = append(out, policyRuleView(r, zone, guardrailsOnly, ed))
 	}
 	return out
 }
 
+// policyControls fills in one rule's write side, or leaves it empty.
+//
+// 🔴 A RULE WITH NO STORED ROW GETS NO CONTROLS, AND THAT IS A COUNTED BOUND. A
+// shipped baseline document this business has never had materialised has no
+// `policies` row, so there is nothing to switch — and the panel deliberately does
+// NOT materialise one (see tenant.RuleWriter.SetEnabled: provisioning is M7-03's
+// job and the tap path's fallback, and a second writer of the managed baseline would
+// need a second copy of the id derivation). The rule reads "Not set up yet" and says
+// so; it does not offer a button that would answer "no such policy".
+func policyControls(row *pages.PolicyRuleView, r tenant.Rule, ed policyEditor) {
+	if r.PolicyID == uuid.Nil {
+		return
+	}
+	row.ID = r.PolicyID.String()
+	if !ed.may {
+		return
+	}
+	row.Action = ed.action
+	// THE LABEL NAMES THE OUTCOME rather than the current state: a button labelled
+	// with the state it is in is one people press to reach that state.
+	if r.State == tenant.StateOff {
+		row.Switch = pages.PolicySwitchView{
+			Op: opEnable, Label: "Switch this rule back on",
+			Note: "It takes part in every decision again, from the next tap.",
+		}
+	} else {
+		row.Switch = pages.PolicySwitchView{
+			Op: opDisable, Label: "Switch this rule off",
+			Note: "It is not deleted — its history stays, so records decided under it can " +
+				"still explain themselves.",
+		}
+	}
+	bound := map[string]bool{}
+	for _, a := range r.Attachments {
+		bound[a] = true
+		row.Unbind = append(row.Unbind, pages.PolicyBindingView{Resource: a, Label: ed.label(a)})
+	}
+	// AN OPTION ALREADY BOUND IS LEFT OUT: offering it would be offering a press whose
+	// only outcome is "that was already true".
+	for _, o := range ed.scopes {
+		if !bound[o.Value] {
+			row.Bindable = append(row.Bindable, o)
+		}
+	}
+}
+
 // policyRuleView maps one rule onto one docket.
-func policyRuleView(r tenant.Rule, zone *time.Location, guardrailsOnly bool) pages.PolicyRuleView {
+func policyRuleView(r tenant.Rule, zone *time.Location, guardrailsOnly bool, ed policyEditor) pages.PolicyRuleView {
 	label, tone := stateWords(r.State)
 	// 🔴 THE ONE OVERRIDE ON THIS PAGE, AND IT IS THE BLOCKING CORRECTION. When one
 	// stored document cannot be read the engine drops the WHOLE layer, so a rule
@@ -259,6 +516,16 @@ func policyRuleView(r tenant.Rule, zone *time.Location, guardrailsOnly bool) pag
 			Author: h.Author,
 			Bytes:  strconv.Itoa(h.Bytes) + " bytes",
 		}
+		// 🔴 EVERY VERSION GETS ITS OWN ADDRESS, NOT JUST THE NEWEST. Rulebook.Version
+		// takes any version number, and the bound is the shape of the query (one row) —
+		// so there is nothing to gain from offering only the current one, and everything
+		// to lose: the strip's own sentence says an earlier version's rules are on a page
+		// of their own, and until this line that page could only be reached by editing
+		// the URL.
+		if r.PolicyID != uuid.Nil {
+			version.Href = policyVersionHref + "?policy=" + r.PolicyID.String() +
+				"&no=" + strconv.Itoa(h.No)
+		}
 		if h.Current {
 			// 🔴 "IN USE" IS A CLAIM ABOUT THE ENGINE, NOT ABOUT THE ROW. When one
 			// document cannot be read the engine is using NO version of anything, so a
@@ -277,6 +544,7 @@ func policyRuleView(r tenant.Rule, zone *time.Location, guardrailsOnly bool) pag
 		row.HistoryNote = "Showing the " + strconv.Itoa(len(r.History)) + " newest of " +
 			strconv.Itoa(r.HistoryTotal) + " versions. None of them can be deleted."
 	}
+	policyControls(&row, r, ed)
 	return row
 }
 
@@ -356,9 +624,14 @@ func defaultSentence(effect string) string {
 
 // conditionVerb turns an operator into a readable comparison.
 //
-// The operator keyword is the document's own vocabulary (M3-03's closed list) and a
-// customer editing a rule in phase B will meet it again, so the word is not hidden —
-// it is translated. An operator this list does not know falls through as itself.
+// The operator keyword is the document's own vocabulary (M3-03's closed list), so the
+// word is translated rather than hidden. An operator this list does not know falls
+// through as itself.
+//
+// ⚠️ IT USED TO SAY A CUSTOMER "editing a rule in phase B WILL meet it again". Phase B
+// shipped and they do not: its form offers a name, a source document and a set of
+// venues, and the operators come from the copied document. A raw editor where they
+// would meet one is M9-07.
 func conditionVerb(op string) string {
 	switch op {
 	case "StringEquals", "NumericEquals", "Bool":

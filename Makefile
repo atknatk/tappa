@@ -221,10 +221,15 @@ fmt:
 #                eslesmesini saglar; ters sirada bicimlendirme kaynagi uretimden
 #                sonra degistirebilir ve _templ.go bayat kalir.
 #   gen -> test  bayat uretimle test kosulmasin diye.
-#   Olculdu: sqlc ciktisi zaten `gofmt -s` temiz (gofmt -l -s internal/store/ -> bos)
-#   ve `templ fmt` bugun hicbir .templ'i degistirmiyor, yani bu sira bugun ek bir
-#   fark uretmiyor. Bir gun bir ureticinin ciktisi gofmt'e uymazsa bu sira yeniden
-#   dusunulmelidir (o zaman son adim kalici kirmizi verir ve haber verir).
+#   Olculdu: sqlc ciktisi zaten `gofmt -s` temiz (gofmt -l -s internal/store/ -> bos).
+#   ⚠️ BU BLOK BIR SURE "ve `templ fmt` bugun hicbir .templ'i degistirmiyor, yani bu
+#   sira bugun ek bir fark uretmiyor" DIYORDU. 2026-08-12'de yanlis cikti: M6-09 faz
+#   B'nin policies.templ'i `templ fmt` ile degisiyordu (changed=1), yani `check`
+#   kaynagi degistirip son adimda kendi degisikligine takiliyordu. Sira DOGRU oldugu
+#   icin tutuyor -- fmt once kosuyor, uretim ondan sonra -- ama "bugun fark
+#   uretmiyor" bir GOZLEMDI ve bayatladi. Yazilmasi gereken kalici cumle: bu sira
+#   formatlayicinin kaynagi degistirdigi durumda DA dogru sonucu verir; degistirdigi
+#   gun `git diff --exit-code` haber verir, ki 2026-08-12'de tam olarak bu oldu.
 #
 # NEDEN `gen` BURADA (M6-04 9. tur, KAPSAM GENISLEMESI, kullanici karari 2026-08-07):
 # `check` bugune kadar `gen` KOSMUYORDU, ama son adimi "uretilen dosyalar commit

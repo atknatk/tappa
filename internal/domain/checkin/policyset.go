@@ -84,13 +84,14 @@ type policySets struct {
 	log    *slog.Logger
 }
 
-// baselineNamespace is the uuid v5 namespace the managed baseline's policy and
-// version ids are derived in.
+// baselinePolicyURN and baselineVersionURN are the uuid v5 namespaces the managed
+// baseline's policy and version ids are derived in. (This doc opened with the name
+// `baselineNamespace`, which no declaration in this file carries.)
 //
 // DETERMINISTIC IDS ARE THE IDEMPOTENCY ANCHOR *FOR policies*, and the precision
 // matters because an earlier version of this comment over-generalised it. Only
-// `policies` needs derived ids: it has no UNIQUE (tenant_id, name), so an ON
-// CONFLICT had to target either a new constraint (a migration) or one that
+// `policies` needed derived ids: at the time it had no UNIQUE (tenant_id, name), so
+// an ON CONFLICT had to target either a new constraint (a migration) or one that
 // already exists — and deriving the id from (tenant, document name) makes its
 // PRIMARY KEY that target, so two concurrent first taps produce one row rather
 // than two policies with the same name. The other two statements conflict on
@@ -98,6 +99,14 @@ type policySets struct {
 // policy_versions_no_key (tenant_id, policy_id, version_no) and
 // policy_attachments_resource_key (tenant_id, policy_id, resource). No migration
 // either way; three different anchors.
+//
+// ⚠️ MIGRATION 00015 HAS SINCE ADDED UNIQUE (tenant_id, layer, name), so the premise
+// of the paragraph above is no longer the state of the schema. The derivation is kept
+// and is still the right anchor -- it makes the PRIMARY KEY a usable conflict target
+// and keeps two concurrent first taps to one row -- but a reader must not take "it has
+// no unique name key" as a present-tense fact. The measured consequence of the new
+// index for THIS statement is none: baseline ids are derived from (tenant, name) and
+// the layer is fixed, so the two indexes have the same collision set (00015's header).
 //
 // It is uuid.NameSpaceURL over a URL-shaped string rather than an invented
 // namespace constant, so the derivation is legible in the one place it matters:
@@ -132,19 +141,7 @@ func baselineVersionID(tenantID uuid.UUID, name string, versionNo int) uuid.UUID
 // on the fail-to-review default, so it is written, flagged, and put in front of a
 // manager — which is what "we could not work out the rules" should look like.
 func (p policySets) forTenant(ctx context.Context, tenantID uuid.UUID) policy.Set {
-	set := policy.Set{
-		Guardrails: policy.Guardrails(p.params),
-		// Eval-time anomalies (a stored document naming an operator this binary no
-		// longer knows — only reachable after a code rollback) are reported through
-		// the tap's own logger instead of the package default, so they arrive with
-		// the rest of this request's logs. The evaluator's own contract is that an
-		// anomaly makes the statement inert; it never changes the Decision.
-		OnAnomaly: func(a policy.Anomaly) {
-			p.log.Warn("policy: eval-time anomaly; statement treated as non-matching",
-				"kind", string(a.Kind), "layer", string(a.Layer), "sid", a.Sid,
-				"operator", string(a.Operator), "contextKey", string(a.Key))
-		},
-	}
+	set := p.guardrailsOnly()
 
 	rows, err := p.load(ctx, tenantID)
 	if err != nil {
@@ -192,6 +189,77 @@ func (p policySets) forTenant(ctx context.Context, tenantID uuid.UUID) policy.Se
 		}
 	}
 
+	set.Baseline = baseline
+	set.Tenant = tenantPolicies(rows, p.log)
+	return set
+}
+
+// guardrailsOnly is the floor every Set is built on: the code-embedded guardrails
+// and nothing else. It is also the ANSWER to every failure below (see forTenant's
+// doc), which is why it is one function rather than a literal in three places.
+func (p policySets) guardrailsOnly() policy.Set {
+	return policy.Set{
+		Guardrails: policy.Guardrails(p.params),
+		// Eval-time anomalies (a stored document naming an operator this binary no
+		// longer knows — only reachable after a code rollback) are reported through
+		// the tap's own logger instead of the package default, so they arrive with
+		// the rest of this request's logs. The evaluator's own contract is that an
+		// anomaly makes the statement inert; it never changes the Decision.
+		OnAnomaly: func(a policy.Anomaly) {
+			p.log.Warn("policy: eval-time anomaly; statement treated as non-matching",
+				"kind", string(a.Kind), "layer", string(a.Layer), "sid", a.Sid,
+				"operator", string(a.Operator), "contextKey", string(a.Key))
+		},
+	}
+}
+
+// StoredSet is forTenant WITHOUT the materialisation — the tenant's rulebook
+// exactly as it is stored today, and nothing written whatever it finds.
+//
+// 🔴 IT EXISTS SO AN AUTHORISATION DECISION CANNOT PROVISION A BUSINESS. M6-09
+// phase B asks the engine "may this admin edit the rules" before it writes
+// anything, and the obvious way to get a Set — forTenant — MATERIALISES the
+// managed baseline when it finds it missing. That is right for a tap (a record
+// that cannot name a policy_versions row cannot be written at all, §4.6) and
+// wrong for a gate: it would mean an admin who is about to be REFUSED still
+// leaves nine policies, nine versions and nine attachments behind in an
+// append-only table, and it would make the panel a second provisioning path
+// nobody asked for. The M6-09 card counted "the panel must not materialise" as
+// the reason the gate was deferred three times; this method is that objection
+// answered rather than argued with.
+//
+// SAME FAIL-SAFE DIRECTION, DIFFERENT COST. Every failure returns the guardrails
+// ALONE, exactly as forTenant does. For a tap that means the record is written and
+// flagged; for an authorisation it means the built-in fail-closed default decides,
+// i.e. the act is REFUSED. Both are the safe direction for their caller.
+//
+// ⚠️ WHAT THAT COSTS, COUNTED RATHER THAN HIDDEN: a business whose baseline has
+// never been materialised — no tap has ever happened — has no stored grant for its
+// OWNER either, so the owner is refused until the first tap provisions the layer.
+// That is visible on the panel (every rule reads "Not set up yet") and it is the
+// same state the tap path is in; the real repair is provisioning at sign-up, which
+// is M7-03's job and is deliberately NOT done from a panel request.
+func (s *Service) StoredSet(ctx context.Context, tenantID uuid.UUID) policy.Set {
+	return s.policies.stored(ctx, tenantID)
+}
+
+func (p policySets) stored(ctx context.Context, tenantID uuid.UUID) policy.Set {
+	set := p.guardrailsOnly()
+	rows, err := p.load(ctx, tenantID)
+	if err != nil {
+		p.log.Error("checkin: loading the stored policy set failed; answering on guardrails alone",
+			"tenant_id", tenantID, "err", err)
+		return set
+	}
+	baseline, missing := assembleBaseline(rows)
+	if len(missing) > 0 {
+		// ALL OR NOTHING, and nothing is written to close the gap. A partial baseline
+		// is a DIFFERENT policy rather than a weaker one (the file header), and that
+		// argument does not stop being true because the caller is a panel.
+		p.log.Warn("checkin: the stored baseline is incomplete; answering on guardrails alone",
+			"tenant_id", tenantID, "missing", len(missing))
+		return set
+	}
 	set.Baseline = baseline
 	set.Tenant = tenantPolicies(rows, p.log)
 	return set
@@ -267,14 +335,21 @@ func assembleBaseline(rows []store.ListPolicySetRow) (out []policy.Policy, missi
 
 // tenantPolicies turns the tenant's OWN stored policies into evaluator policies.
 //
-// ⚠️ NOTHING CAN PRODUCE ONE OF THESE TODAY, and saying so is more useful than
-// pretending otherwise: there is no query in db/queries that writes a policy
-// outside this package's baseline materialisation, and no endpoint that would
-// call one — authoring policies is the panel's job (M6-09). So this returns an
-// empty slice in every deployment as it stands. It is written now anyway because
-// the alternative is a decision engine that silently ignores the customer layer
-// the moment that layer becomes writable, which is the failure ADR 0004 calls
-// the most dangerous one ("my rule works" when it does not).
+// ✅ THE PANEL PRODUCES THESE NOW, AND THIS PARAGRAPH USED TO SAY NOTHING COULD.
+// It read "there is no query in db/queries that writes a policy outside this
+// package's baseline materialisation, and no endpoint that would call one ... this
+// returns an empty slice in every deployment as it stands" — all three clauses were
+// true when written and all three were false the moment M6-09 phase B shipped:
+// CreateTenantPolicy and AppendPolicyVersion are in db/queries/policies.sql,
+// internal/domain/tenant.RuleWriter.Author calls them with layer='tenant', and
+// POST /admin/policies/apply reaches it. A reader of the DECISION path was being told
+// the customer layer is empty in every deployment, which is the last thing to be
+// wrong about here.
+//
+// It was written before anything could reach it for the reason that still holds: a
+// decision engine that silently ignores the customer layer the moment that layer
+// becomes writable is the failure ADR 0004 calls the most dangerous one ("my rule
+// works" when it does not). That day has arrived.
 //
 // A document that does not parse or validate is DROPPED, with an error log,
 // rather than failing the tap. The asymmetry with the baseline is deliberate: a

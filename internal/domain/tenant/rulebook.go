@@ -46,14 +46,15 @@ package tenant
 // off" and "this was never set up" are answered by different buttons.
 //
 // 🔴 §4.5 -- the tenant is never an input. Screen takes it from the caller, which
-// takes it from a resolved admin session, and all three reads bind tenant_id
-// explicitly beside RLS. §4.5's second defence over these queries is asserted by
+// takes it from a resolved admin session, and EVERY read binds tenant_id explicitly
+// beside RLS (the count is deliberately not written down: it said "all three" while
+// the function made six). §4.5's second defence over these queries is asserted by
 // query_test.go in this package, which is the reason the file lives here rather
 // than in a new one (see that file's header for what a fourth copy would cost).
 //
 // 🔴 §4.7 -- there is no field on any type below that a secret could travel in.
-// The three queries select no token hash, no coordinate, no key reference and no
-// email; a policy document is authored by the customer and carries operators,
+// The queries behind this screen select no token hash, no coordinate, no key
+// reference and no email; a policy document is authored by the customer and carries operators,
 // context keys and comparison values, none of which is a secret (validate.go
 // makes the same argument about its error messages). The one identity that
 // appears -- a version's author -- is a name this tenant already owns, resolved
@@ -101,6 +102,24 @@ const (
 	policyRowLimit     = 400
 	attachmentRowLimit = 400
 )
+
+// ScopeTarget is one place a policy can be bound to: a venue or a department of
+// this business. It exists so the section's scope control offers the customer's
+// OWN names rather than asking them to paste a uuid.
+//
+// 🔴 IT CARRIES A NAME AND AN ID AND NOTHING ELSE (§4.7). The locations section's
+// reads carry static IP ranges, GPS coordinates and Wi-Fi SSIDs; a picker needs
+// neither, so the query behind this selects neither.
+type ScopeTarget struct {
+	// Kind is "location" or "department" -- the resource TYPE, written by the query
+	// so the grammar 'location/<id>' is spelled in one place.
+	Kind string
+	ID   uuid.UUID
+	Name string
+}
+
+// Resource renders the target as the engine's own resource string.
+func (s ScopeTarget) Resource() string { return s.Kind + "/" + s.ID.String() }
 
 // versionsShownPerPolicy is how many versions of ONE policy the screen carries.
 //
@@ -349,6 +368,20 @@ type PolicyScreen struct {
 	VersionsCapped    bool
 	AttachmentsCapped bool
 
+	// ScopeTargets are this business's venues and departments, for the control that
+	// binds a policy to one of them (M6-09 phase B). ScopeCapped says the list was
+	// truncated -- a third ceiling, named separately for the reason the two above
+	// are two: they shorten different lists and one sentence for several ceilings was
+	// measured telling a customer three false things.
+	ScopeTargets []ScopeTarget
+	ScopeCapped  bool
+
+	// Settings are the bounded windows that are NOT policies and NOT per business:
+	// the GPS ring, and the three guardrail windows shown on their own rules above.
+	// See Rulebook.settings for why they appear at all and what the screen must not
+	// promise about them.
+	Settings []Setting
+
 	// Unreadable names every SHIPPED baseline document whose stored version this
 	// binary cannot parse, and GuardrailsOnly says what that costs.
 	//
@@ -401,25 +434,85 @@ type Rulebook struct {
 	// one layer down, where TAPPA_DEBOUNCE_SECONDS was range-checked at startup
 	// and then never reached the guardrail.
 	params policy.Params
-	log    *slog.Logger
+	// gpsRadiusM is the proof-of-place ring the deciding service holds
+	// (checkin.Service). It is passed in for the reason params is: rebuilding it from
+	// configuration here is how a screen comes to print a distance nothing compares
+	// against. It is NOT part of policy.Params and must not be moved there -- that
+	// type is the bounded GUARDRAIL windows, and this radius is compared by
+	// tap.Decide through geo.WithinRadius, not by any guardrail.
+	gpsRadiusM float64
+	log        *slog.Logger
+}
+
+// Setting is a bounded number the product runs on that is NOT a policy.
+//
+// 🔴 IT IS A SEPARATE TYPE FROM BoundedParam BECAUSE IT MAKES A WEAKER PROMISE.
+// A BoundedParam hangs off a guardrail and says "this guardrail compares against
+// this window". A Setting says only "this is the value in force and this is the
+// range it may legally take" -- and, crucially, the screen has to add WHERE it is
+// set, because none of these is per business today: all four come from
+// configuration (TAPPA_GPS_RADIUS_M and the three windows config.go range-checks at
+// start-up), and there is no column in the schema to hold a per-tenant value. A
+// control that let a customer type one would be a control the server cannot honour,
+// which is this repository's most expensive mistake.
+type Setting struct {
+	Label   string
+	Current string
+	Min     string
+	Max     string
+	// Uses names the rules this number actually decides, so a reader can tell it
+	// apart from a number that decides nothing.
+	Uses string
 }
 
 // NewRulebook wires a Rulebook. A nil database is refused, and so is a Params
 // outside the ADR 0004 §11 ranges: a screen that printed an out-of-range window
 // would be describing a service that cannot legally run, and the constructor is
-// the last place that can tell.
-func NewRulebook(data Database, params policy.Params, log *slog.Logger) (*Rulebook, error) {
+// the last place that can tell. The GPS radius is range-checked for the same
+// reason, against the same ADR §11 bounds the engine declares.
+func NewRulebook(data Database, params policy.Params, gpsRadiusM float64, log *slog.Logger) (*Rulebook, error) {
 	if data == nil {
 		return nil, errors.New("tenant: nil database")
 	}
 	if err := params.Validate(); err != nil {
 		return nil, fmt.Errorf("tenant: rulebook: %w", err)
 	}
+	if gpsRadiusM < policy.GPSRadiusMinM || gpsRadiusM > policy.GPSRadiusMaxM {
+		return nil, fmt.Errorf("tenant: rulebook: gps radius %.0f m is outside %d..%d",
+			gpsRadiusM, policy.GPSRadiusMinM, policy.GPSRadiusMaxM)
+	}
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Rulebook{data: data, params: params, log: log}, nil
+	return &Rulebook{data: data, params: params, gpsRadiusM: gpsRadiusM, log: log}, nil
 }
+
+// settings lists the bounded numbers this screen has to show and cannot let anybody
+// change.
+//
+// 🔴 THE GPS RING IS HERE BECAUSE PHASE A DID NOT SHOW IT AT ALL, and that was the
+// gap: ADR 0004 §11 bounds it 25..1000 m, two shipped baseline rules
+// (base:gps-only-allow, base:gps-conflict-review) decide on the tap:gpsMatch this
+// number produces, and a customer reading "GPS is enough" had no way to learn what
+// "near" meant. It is not a BoundedParam because it hangs off no guardrail: it is
+// compared in tap.Decide, and attaching it to a guardrail row would say the engine
+// checks something it does not.
+//
+// THE RANGE COMES FROM internal/policy's CONSTANTS, not from config's copy of them:
+// config range-checks the env var against exactly these two, so quoting the numbers
+// here would be a third representation of a bound that has one owner.
+func (r *Rulebook) settings() []Setting {
+	return []Setting{{
+		Label:   "How near the venue a GPS reading has to be",
+		Current: metres(r.gpsRadiusM),
+		Min:     strconv.Itoa(policy.GPSRadiusMinM) + " m",
+		Max:     strconv.Itoa(policy.GPSRadiusMaxM) + " m",
+		Uses: "This is what “GPS matched” means on every tap, and what the two GPS " +
+			"rules below are judged by.",
+	}}
+}
+
+func metres(m float64) string { return strconv.FormatFloat(m, 'f', -1, 64) + " m" }
 
 // loadZone resolves the business's timezone, falling back to UTC LOUDLY.
 //
@@ -446,9 +539,16 @@ func (r *Rulebook) loadZone(name string) *time.Location {
 
 // Screen reads the tenant's whole policy layer and assembles the section.
 //
-// THE THREE READS SHARE ONE TRANSACTION so the history and the attachments belong
-// to the same policies the rules were read from; separate round trips could
-// straddle a write and show a version strip under a rule that is no longer there.
+// EVERY READ SHARES ONE TRANSACTION so the history, the attachments and the scope
+// targets belong to the same policies the rules were read from; separate round trips
+// could straddle a write and show a version strip under a rule that is no longer
+// there, or a venue in the picker that has just been removed.
+//
+// ⚠️ THE COUNT IS NOT WRITTEN DOWN ANY MORE. This said "THE THREE READS" while the
+// function made six (the set, the versions, the attachments, the two scope-target
+// lists and the tenant clock) — a hand-kept number inside a comment about keeping
+// things consistent. The property is that they share ONE transaction, whatever there
+// are of them; the list is the function body.
 func (r *Rulebook) Screen(ctx context.Context, tenantID uuid.UUID) (PolicyScreen, error) {
 	if tenantID == uuid.Nil {
 		return PolicyScreen{}, errors.New("tenant: tenant id is required")
@@ -457,6 +557,8 @@ func (r *Rulebook) Screen(ctx context.Context, tenantID uuid.UUID) (PolicyScreen
 		set      []store.ListPolicySetRow
 		versions []store.ListPolicyVersionsRow
 		attached []store.ListPolicyAttachmentsRow
+		venues   []store.ListPolicyVenueTargetsRow
+		depts    []store.ListPolicyDepartmentTargetsRow
 		zone     *time.Location
 	)
 	err := r.data.WithTenant(ctx, tenantID, func(ctx context.Context, tx pgx.Tx) error {
@@ -495,6 +597,19 @@ func (r *Rulebook) Screen(ctx context.Context, tenantID uuid.UUID) (PolicyScreen
 		}); e != nil {
 			return fmt.Errorf("list policy attachments: %w", e)
 		}
+		// THE SCOPE TARGETS ARE READ IN THE SAME TRANSACTION as the bindings they are
+		// offered beside, so a venue removed mid-request cannot appear in the picker and
+		// be gone from the list under it.
+		if venues, e = q.ListPolicyVenueTargets(ctx, store.ListPolicyVenueTargetsParams{
+			TenantID: tenantID, RowLimit: policyScopeRowLimit + 1,
+		}); e != nil {
+			return fmt.Errorf("list policy venue targets: %w", e)
+		}
+		if depts, e = q.ListPolicyDepartmentTargets(ctx, store.ListPolicyDepartmentTargetsParams{
+			TenantID: tenantID, RowLimit: policyScopeRowLimit + 1,
+		}); e != nil {
+			return fmt.Errorf("list policy department targets: %w", e)
+		}
 		// THE ZONE IS READ IN THE SAME TRANSACTION as the rows it renders, so a
 		// business whose zone is changed mid-request cannot produce stamps in one zone
 		// and a label in another. GetTenantClock is an EXISTING query (M6-03's).
@@ -510,6 +625,23 @@ func (r *Rulebook) Screen(ctx context.Context, tenantID uuid.UUID) (PolicyScreen
 	}
 	out := r.assemble(set, versions, attached)
 	out.Zone = zone
+	// EACH LIST IS CAPPED ON ITS OWN AND ONE FLAG REPORTS EITHER, because the screen
+	// says one thing about them ("the scope picker is shortened") and a second flag
+	// would be a distinction with no reader.
+	if len(venues) > policyScopeRowLimit {
+		out.ScopeCapped = true
+		venues = venues[:policyScopeRowLimit]
+	}
+	if len(depts) > policyScopeRowLimit {
+		out.ScopeCapped = true
+		depts = depts[:policyScopeRowLimit]
+	}
+	for _, t := range venues {
+		out.ScopeTargets = append(out.ScopeTargets, ScopeTarget{Kind: "location", ID: t.ID, Name: t.Name})
+	}
+	for _, t := range depts {
+		out.ScopeTargets = append(out.ScopeTargets, ScopeTarget{Kind: "department", ID: t.ID, Name: t.Name})
+	}
 	return out, nil
 }
 
@@ -531,6 +663,7 @@ func (r *Rulebook) assemble(
 	out := PolicyScreen{
 		Guardrails:      r.guardrails(),
 		ShippedBaseline: policy.BaselineVersion,
+		Settings:        r.settings(),
 	}
 	// 🔴 TWO CEILINGS, TWO FLAGS, AND COLLAPSING THEM COST A KNOWN ANSWER. One flag
 	// meant that hitting the ATTACHMENT ceiling made every rule report "cannot be

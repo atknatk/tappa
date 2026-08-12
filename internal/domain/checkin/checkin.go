@@ -505,6 +505,17 @@ type Result struct {
 // to change it, and there is deliberately no setter.
 func (s *Service) Params() policy.Params { return s.policies.params }
 
+// GPSRadiusM reports the proof-of-place ring this service compares against, for
+// the reason Params exists: the Policies screen has to print the number the ENGINE
+// uses, and re-reading TAPPA_GPS_RADIUS_M on the screen's side would be a second
+// construction of the same wiring — the hand-off N3 defect one layer down.
+//
+// It is NOT part of policy.Params and must not be folded into it: that type is the
+// bounded GUARDRAIL windows the guardrail closures compare against, and this radius
+// is compared in tap.Decide through geo.WithinRadius. Putting it there would make
+// the screen say a guardrail checks something no guardrail checks.
+func (s *Service) GPSRadiusM() float64 { return s.gpsRadiusM }
+
 func (s *Service) clock() time.Time {
 	if s.now != nil {
 		return s.now().UTC()

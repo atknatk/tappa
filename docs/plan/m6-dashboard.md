@@ -5506,7 +5506,11 @@ parametrelerini ayarlaması. Policy motorunun kullanıcıya bakan yüzü.
 > "en az bir fixture render ediyor / en az biri etmiyor" diyor; harita **iki
 > yönlü**. İlk koşuda **sekiz dalı hiçbir fixture'ın sürmediği** ölçüldü —
 > `a.Guardrail != ""` dahil, ki o blok her üretim sayfasında iki kez render
-> ediliyor. Bugün **27 dal / 8 fixture**.
+> ediliyor. ~~Bugün **27 dal / 8 fixture**.~~ — **üstü çizildi:** rakam **karta
+> yazılmıyor.** 5. tur onu *"41 / 11"* diye güncelledi ve test o gün **40 / 11**
+> basıyordu — yani elle tutulan bir sayı, *"sayı elle tutulmuyor"* diyen cümlenin
+> içinde bile bir tur içinde bayatladı. Günün rakamı için
+> `TestPolicyFixtures_DriveEveryConditionalBranchOfTheTemplate`'in log satırına bak.
 >
 > **🔴 SAYILDI (kapatılmadı, kapatıldığı da iddia EDİLMİYOR):**
 > 1. **`switch`/`case` ve düz Go fonksiyonu + `templ.Raw` görünmez.** Dal
@@ -5601,11 +5605,17 @@ parametrelerini ayarlaması. Policy motorunun kullanıcıya bakan yüzü.
 > **2026-08-12**, geliştirme veritabanı, gerçek imzalı oturumla `curl`, port 8099
 > `lsof` ile doğrulandı — **her satır tenant'ıyla ve koşuluyla**:
 >
+> ⚠️ **BU TABLO FAZ B İLE GEÇERSİZLEŞTİ (9. turda işaretlendi).** Faz B aynı sayfaya
+> form, ayarlar bloğu ve kural başına aç/kapa + bağla + bağlamayı-kaldır ekledi; üç
+> `/admin/policies` satırı da bu yüzden **artık geçerli değil**. Tablonun kendi kuralı
+> *"bir sayı değişirse sayfa değişmiş demektir"* — sayfa değişti. Faz B'nin kendi
+> ölçümü aşağıdaki **9. tur** bloğunda. Aşağıdakiler **tarihsel** olarak duruyor:
+>
 > | sayfa | tenant / koşul | bayt |
 > |---|---|---|
-> | `/admin/policies` | KF — 9 baseline materialise edilmiş, hepsi okunur | **34.593** |
-> | `/admin/policies` | KM — hiç materialise edilmemiş | **18.833** |
-> | `/admin/policies` | demo tenant — bir belge okunamıyor (`{}`) | **23.221** |
+> | ~~`/admin/policies`~~ | KF — 9 baseline materialise edilmiş, hepsi okunur | ~~34.593~~ |
+> | ~~`/admin/policies`~~ | KM — hiç materialise edilmemiş | ~~18.833~~ |
+> | ~~`/admin/policies`~~ | demo tenant — bir belge okunamıyor (`{}`) | ~~23.221~~ |
 > | `/admin` | KF | 32.276 |
 > | `/admin` | KM | 4.501 |
 >
@@ -5618,6 +5628,896 @@ parametrelerini ayarlaması. Policy motorunun kullanıcıya bakan yüzü.
 > materialise edilmiş, KM'de sıfır, demo tenant'ta iki (biri okunamaz). Bir sayı
 > tekrar değişirse **sayfa değişmiş demektir** — o zaman yeniden ölçülmeli, tahmin
 > edilmemeli.
+
+> ### Kart düzeltmesi (2026-08-12, M6-09 **faz B** uygulaması)
+>
+> **1. Faz B sevk edildi: `/admin/policies` artık YAZIYOR.** Yeni dosyalar:
+> `internal/domain/tenant/rulewriter.go` (kapı + dört yazma + audit),
+> `internal/handler/policyactions.go` (iki POST + sürüm sayfası),
+> `web/templates/pages/policychange.templ` (onay adımı + tek sürüm gövdesi),
+> `db/queries/policies.sql`'e yeni sorgular (~~on~~ — **rakam karttan kaldırıldı**: 2. turda
+> bir kez düzeltildi, 4. tur `PolicyNameTaken`'ı ekleyince yeniden bayatladı. Günün
+> sayısı için `git diff db/queries/policies.sql | grep -c '^+-- name:'`), ve
+> `internal/domain/checkin.Service.StoredSet` (**materialise etmeyen** set okuma).
+>
+> **2. 🔴 `policy:edit` GERÇEKTEN ZORLANIYOR — üç görevlik borç kapandı.** Seçilen
+> yol **(b)**: `checkin` içinde materialise etmeyen bir Set okuma yolu açıldı
+> (`StoredSet`), kapı `internal/domain/tenant.RuleWriter.authorise` içinde ve
+> **iki aşamalı**:
+> - **Aşama 1 — yalnız guardrail'ler, veritabanına dokunmadan.** `policy.Evaluate`
+>   guardrail'leri önce yürütür ve ilk eşleşmede döner, yani bir guardrail
+>   *deny*'i **terminaldir**: hangi set saklanmış olursa olsun aynı deny. Bu yüzden
+>   bir **manager** hiç sorgu harcamadan reddedilir. Terminallik varsayılmadı,
+>   `TestRuleWriter_AGuardrailDenyIsTerminalWhateverIsStored` üç farklı saklı sete
+>   karşı **ölçüyor** (aralarında "herkese her şeyi veren" bir tenant belgesi de var).
+> - **Aşama 2 — tenant'ın SAKLI kural kitabı.** Owner'ın izni guardrail'de **değil**
+>   baseline belgesindedir (`internal/policy/baseline.go` bunu yazıyor), o yüzden
+>   owner mutlaka saklı belgeden cevaplanır.
+>
+> **Diğer iki yol nasıl elendi (ölçümle):**
+> - **(a) `forTenant` ile gerçek Set** — reddedilen bir çağıranın isteğinde de
+>   baseline'ı materialise eder. Ölçüldü: `TestRuleWriterDB_TheEngineRefusesAManagerAndAllowsTheOwner`
+>   manager'ın POST'undan **önce ve sonra** üç tabloyu sayıyor ve **değişmemesini**
+>   şart koşuyor; (a) ile bu sayım 0/0/0 → 9/9/9 olurdu ve `policy_versions`
+>   append-only olduğu için geri alınamazdı.
+> - **(c) kapıyı bölmek (guardrail deny + rolden owner izni)** — baseline'ın
+>   otoritesini handler'da ikinci kez temsil ederdi. Elendi ve **mutasyonla
+>   ölçüldü**: kapıyı `if actor.Role == "owner" { return nil }` yapmak
+>   `TestRuleWriterDB_AnOwnerWithNoStoredRulebookIsRefused`'ı **kırmızı** yapıyor —
+>   yani (c) sessizce yanlış cevap veren bir kapı olurdu.
+>
+> **Owner kilitlenmesi olmadığı KANITLANDI, gerçek Postgres'te:** aynı testin iki
+> yarısı aynı satırlar üzerinde koşuyor — manager `ErrNotPermitted`, owner
+> **başarılı** ve satır gerçekten değişiyor. Canlı doğrulama da yapıldı (port 8099,
+> gerçek oturum): KF owner bir baseline kuralını kapattı → `policies.enabled=f` +
+> `audit_log` `policy.disabled` satırı `was_enabled: true / now_enabled: false` ile;
+> sonra aynı akışla geri açıldı ve sayfa **tam olarak** eski baytına döndü.
+>
+> **3. ON YÜKÜMLÜLÜĞÜN DURUMU.**
+>
+> | # | Yükümlülük | Durum |
+> |---|---|---|
+> | 1 | Baseline aç/kapa | **karşılandı** — ama yalnız **satırı olan** kural için (aşağıda limit) |
+> | 2 | Tenant politikası = yeni sürüm | **karşılandı** — form belgeyi **üretiyor**; ⚠️ *nereye* seçilebiliyor, *ne yapacağı* seçilemiyor (limit 3) |
+> | 3 | `resource` bağlama CRUD | **karşılandı** — gerçek INSERT/DELETE + audit |
+> | 4 | Her değişiklik `audit_log`'a | **karşılandı** — `RecordTx`, aynı transaction; **reddedilen** deneme de yazılıyor |
+> | 5 | Aralık doğrulaması arayüzde | **YAPILMADI** (karşılanamaz değil — limit 2'ye bakın) |
+> | 6 | `policy:edit` zorlanması | **karşılandı** (yukarıda) |
+> | 7 | Eski sürümün gövdesi | **karşılandı** — her sürüm satırı kendi sayfasına bağlantı (2. tur düzeltmesi) |
+> | 8 | GPS yarıçapı | **yarısı** — artık **gösteriliyor** (25–1000 m aralığıyla), düzenlenemiyor |
+> | 9 | "Hemen yürürlüğe girer" | **(a) seçildi** — onay adımı; (b) reddedildi, gerekçe aşağıda |
+> | 10 | `ListPolicySet` LIMIT'i | **düzeltilmedi**, bilinçli — hâlâ tap yolunun sorgusu |
+>
+> **4. 🔴 SAYILMIŞ LİMİTLER (kapatılmadı, kapatıldığı da iddia EDİLMİYOR).**
+> 1. **Materialise edilmemiş bir baseline kuralı için kontrol YOK.** Panel baseline
+>    satırı **üretmiyor**: bu, `checkin.baselinePolicyID` türetiminin ikinci bir
+>    kopyasını gerektirirdi ve ikisi ayrışırsa işletme aynı adı taşıyan iki satırla
+>    kalırdı. Bedeli ölçüldü: **KM'nin `/admin/policies` sayfasında sıfır kontrol
+>    var** (`grep -o 'policies/change' → 0`), çünkü KM'nin hiç materialise edilmiş
+>    kuralı yok — ve aynı sebeple KM'nin **owner'ı da** reddediliyor (izin saklı
+>    belgede yaşıyor). Gerçek onarım M7-03'ün sign-up provisioning'i.
+> 2. **Sınırlı pencereler bu turda DÜZENLENEBİLİR YAPILMADI.** ⚠️ Bu madde bir tur
+>    boyunca *"kriteri v1'de **karşılanamaz**: reddedilecek bir kutu yok"* diyordu ve
+>    **denetçi çürüttü** — gerekçe ölçümden daha güçlüydü, yani yanlıştı. Gerçek:
+>    - `internal/policy/guardrails.go:206-220` — `boundedParams()` **üç** belge bağlam
+>      anahtarını aralığa bağlıyor (`tap:gpsDistanceM` 25–1000 · `tap:pageAgeSeconds`
+>      · `tap:occurredAtSkewSeconds`), ve `validate.go` bir **tenant belgesindeki**
+>      sayısal yüklem aralık dışıysa **yazma anında reddediyor**.
+>    - `internal/policy/baseline.go:187` — sevk edilen *queued tap window* belgesi tam
+>      olarak böyle bir yüklem taşıyor, ve `copyOfShipped` onu **olduğu gibi**
+>      kopyalıyor.
+>
+>    Yani **tenant başına, aralığı zorlanan bir sayı VARDIR** (belgenin içinde,
+>    `policy_versions`'da); eksik olan onu **forma çıkarmak** — yazma yolu, doğrulama
+>    ve depolama zaten yerinde. **Doğru olan tespit:** `tenants` tablosunda
+>    **konfigürasyon pencereleri** için sütun yok, yani `policy.Params`'ın üç penceresi
+>    ve GPS yarıçapı **süreç genelinde** kalıyor ve **onlar** düzenlenemez.
+>    **Durum: yapılmadı, yapılabilirdi** (belge içi sayısal eşik için bir form alanı
+>    ~ bir seçim kutusu + `copyOfShipped`'e bir parametre). Kapsam kararı
+>    orkestratörün; ledger'a *"karşılanamaz"* diye **girmemeli**.
+> 3. **KABUL KRİTERİ *"sık kullanılan politikalar için FORM"* KARŞILANMADI, ve bu
+>    kartta bugüne kadar yazmıyordu.** Kriterin örneği açık: *"QR ile giriş: IP zorunlu
+>    / GPS yeterli / her zaman onaya düşsün"* — yani müşteri bir **davranış** seçiyor.
+>    Sevk edilen form yalnız `name` · `based_on` · `venue[]` · `policy` taşıyor ve
+>    `copyOfShipped` belgeyi **olduğu gibi** kopyalıyor: effect, action ve condition
+>    sevk edilen belgeden gelir, değiştirilemez. Yani müşteri bir Tappa kuralını
+>    **nereye** uygulayacağını seçebiliyor, **ne yapacağını** seçemiyor.
+>    ⚠️ Yukarıdaki limit 2 yalnız **sayısal eşiği** kapsıyordu; bu madde **effect
+>    seçimini** kapsıyor ve ayrı bir eksiktir. Gerekçe uygulama değil güvenlik değil —
+>    **yapılmadı**: üretilen belgenin doğruluğu (bir effect değişikliğinin motorun
+>    çakışma kuralıyla ne yapacağı) tek başına bir turluk iş. Kapsam kararı
+>    orkestratörün.
+> 4. **Geri alma (seçenek b) genel bir özellik olarak YOK.** `policy_versions`
+>    append-only olduğu için "geri al" da yeni bir sürümdür; buton olarak sunmak
+>    tablonun sahip olmadığı bir geri alınabilirliği ima ederdi. **Tek istisna**
+>    `RuleWriter.lockoutCheck`: yazardan kendi `policy:edit` yetkisini alan bir
+>    değişiklik geri alınır, çünkü ondan geri dönüş yolu **hiç yok** (`policies`
+>    DELETE vermiyor, `policy_versions` UPDATE vermiyor). Bu bir **simülatör
+>    DEĞİL** — tek bir aktör hakkında tek bir soru.
+> 5. **KAPSAM DARALTMA YALNIZ LOKASYONA — DEPARTMANA DEĞİL.** Kabul kriteri
+>    *"politika tüm tenant'a mı, belirli **lokasyona/departmana** mı"* diyor.
+>    `copyOfShipped` — kapsamı **gerçekten** daraltan tek yol — yalnız
+>    `location/<id>` üretiyor, ve seçici de `Kind == "location"` ile filtreli. Departman
+>    yalnız bind/unbind'da görünüyor, o da motorun **okumadığı** `policy_attachments`'a
+>    yazıyor (limit 7). Yani müşteri bir kuralı bir departmana **hiçbir zaman gerçekten
+>    uygulayamıyor**. Ekran bunu artık **söylüyor** (*"Departments cannot be narrowed to
+>    this way yet"*). **Yapılmadı**, gerekçe teknik değil kapsam: `copyOfShipped`'in
+>    `department/<id>` üretmesi ve motorun bunu tap bağlamında çözmesi ayrı bir iş.
+> 6. **`employee/<id>` bağlama sunulmuyor.** Dilbilgisi kabul ediyor
+>    (`tenant.ValidResource`), picker sunmuyor: bir çalışan seçici ikinci bir roster
+>    demek (kendi sayfalaması, kendi §4.7 yüzeyi).
+> 7. **Ağın yeni yarısı MUTLAK DEĞİL.** Guardrail bloğu (`policy-guarantees`
+>    sarmalayıcısı) faz A'nın **aynı** tarayıcısıyla ve **aynı** allow-list'iyle
+>    taranıyor — orada cevap hâlâ **sıfır kontrol**. Bölümün geri kalanı artık
+>    **türetilmiş** bir ağla tutuluyor: her `action`/`href` `chi.Walk`'tan gelen
+>    gerçek rota kümesinde olmak zorunda, ve **hiçbir kontrol `sys:` sid
+>    adlandıramaz**. ~~⚠️ Aradaki boşluk yazıldı: guardrail bloğunun **dışında**, ne
+>    `action` ne `href` taşıyan etkileşimli bir eleman (örn. `contenteditable` bir
+>    paragraf) bu ağın öznesi değil; onu dokunma-hedefi ağı yakalar, ama ikisi
+>    arasında bir aralık var.~~ — **üstü çizildi (3. tur):** allow-list tüm bölüme geri
+>    kondu, yani `contenteditable` **her yerde** bulgu; ve gerçek boşluk bundan çok
+>    daha geniş çıktı (aşağıdaki 3. tur bloğu, *kaçış 11*).
+> 8. **KRİTER (f)'İN *"NE DEĞİŞTİRDİ"* YARISI YOK — DIFF YOK.** Kriter *"kim, ne
+>    zaman, **ne değiştirdi**"* diyor. Sürüm şeridi kim/ne zaman/kaç bayt veriyor,
+>    tek-sürüm sayfası da bir sürümün **tam gövdesini** — ama iki sürüm arasındaki
+>    **farkı** hiçbir yer göstermiyor; okuyucu iki sayfayı yan yana koymak zorunda.
+>    Bayt sayısı iki sürümün **farklı** olduğunu söyler, **neyin** farklı olduğunu
+>    söylemez. Kart bunu bugüne kadar ne karşılandı ne karşılanmadı diye sayıyordu.
+>    **Yapılmadı.**
+> 9. **Faz A'nın sayılmış limitlerinden ikisi aynen duruyor:** `ListPolicySet`'in
+>    LIMIT'i yok (tap yolunun sorgusu; LIMIT kısmi baseline üretir, o da *farklı*
+>    bir politikadır) ve `policy_attachments` **karar vermiyor** (motor ifadenin
+>    içindeki `resource`'a bakıyor). İkincisi artık onay ekranında da yazıyor.
+>
+> **5. ✅ FAZ A'NIN BİR KÖR NOKTASI KAPANDI — türetilmiş §4.5 ağı artık INSERT
+> okuyor.** `internal/domain/tenant/query_test.go`'nun tarayıcısı `WHERE` yürüyordu,
+> yani `INSERT … VALUES` **görünmezdi** (backlog T20). Faz B üç INSERT ekliyor, ve
+> görmeyen bir kemerin altında sevk etmek kemeri yalancı yapardı. Tarayıcı artık
+> kolon listesiyle değer listesini hizalıyor ve `tenant_id`'nin `@tenant_id`'den
+> yazıldığını şart koşuyor. Ölçüm: `txnScopeUnseen`'den `InsertTransaction`
+> **kaldırıldı** (artık kontrol ediliyor), ve mutasyon —
+> `VALUES (@policy_id, @tenant_id, @resource)` — testi **kırmızı** yapıyor.
+>
+> ### Kart düzeltmesi (2026-08-12, faz B **2. tur** — birinci denetim)
+>
+> Genel üçüncü göz **RED** verdi (3 bloklayan) ve ağı **iki kez yendi**;
+> `tappa-security-auditor` **ONAY** verdi (§4 ihlali yok). Kapatılanlar:
+>
+> **B1 — eski bir sürüme BASILARAK ulaşılamıyordu, ve ekran ulaşılabildiğini
+> söylüyordu.** Geçmiş şeridi düz metindi; tek sürüm bağlantısı *"Read the current
+> version in full"* idi ve yalnız **en yeni** sürümü açıyordu — kartın kriteri ise
+> *"eski sürüme bakılabiliyor"*. Bu, faz A'da dört kez çıkan *"sağlamadığı garantiyi
+> beyan etmek"* sınıfının **beşincisiydi**. Düzeltme: `PolicyVersionView.Href` — her
+> geçmiş satırı **kendi** sürümüne bağlanıyor (`Rulebook.Version` zaten herhangi bir
+> `no` alıyor), ve tek-sürüm butonu kaldırıldı. Uçtan uca kanıtlandı: iki sürümlü bir
+> kural yazıldı, sayfada `?no=1` **ve** `?no=2` bağlantıları çıktı, ve `?no=1`
+> *"an earlier version"* diyerek açıldı. ⚠️ O turda bu satır sayfanın *"decides
+> nothing today"* bastığını da söylüyordu; **yanlıştı** — o kural o anda **kapalıydı**,
+> yani kazanan kol `!b.Enabled` idi ve sayfa *"This rule is switched off, so nothing is
+> being judged by any version of it"* basıyordu. `an earlier version` /
+> `the newest stored version` ayrımı doğruydu.
+>
+> **B2 — reddedilen deneme kaydı KALICI olarak yanlış bir gerekçe yazıyordu.**
+> `RefusalDetail` sabit bir cümle ve `required_role: "owner"` taşıyordu, yani taze bir
+> tenant'ın **owner**'ı `role=owner / required_role=owner` diye kendi kendisiyle
+> çelişen, `audit_log` UPDATE almadığı için **asla düzeltilemeyecek** bir satır
+> üretiyordu. Düzeltme: `refusalFor` kapının **hangi aşamasının** reddettiğini
+> döndürüyor, `RefusalDetail` artık `stage` · `matched_sid` · `stored_rules` taşıyor,
+> cümle bunlardan **türetiliyor**, ve `required_role` **kaldırıldı**. `RecordRefusal`
+> ayrıca motorun artık **izin verdiği** bir aktör için satır yazmayı **reddediyor**.
+> İki aşama da canlı üretildi: KM owner → `stage:rulebook / stored_rules:0`,
+> KF manager → `stage:guardrail / sys:policy-edit-owner-only`.
+>
+> **B3 — yükümlülük 5'in gerekçesi ölçümden güçlüydü.** Düzeltildi; yukarıdaki
+> limit 2'ye bakın.
+>
+> **🔴 AĞIN İKİ KAÇIŞI — TÜRETİMLE KAPANDI, YAMAYLA DEĞİL.** İkisinin de kökü tekti:
+> ağ *"bu kontrol sunucunun onurlandırdığı bir şeye işaret ediyor mu"* diye soruyordu
+> ve **hiçbir şeye işaret etmeyen** bir kontrol için cevabı yoktu.
+> - **Kaçış 4b** (`<div class="btn min-h-11" onclick role="switch" contenteditable>`,
+>   guarantees bloğunun dışında, her docket'te): allow-list **tüm bölüme** geri kondu
+>   — sevk edilen sayfanın gerçekten bastığı eleman adı ve öznitelik kadar geniş,
+>   daha fazla değil. `onclick`/`role`/`contenteditable`/`aria-*`/`hx-*` artık **her
+>   yerde** bulgu. Mutasyon birebir → **kırmızı**.
+> - **Kaçış 5** (`<input name="gps_radius_m">` — gerçek rota, **okunmayan alan**):
+>   `.templ`'den `name="…"` kümesi, `policyactions.go`'dan `PostFormValue`/`PostForm`
+>   kümesi **`go/ast` ile** çıkarılıyor; fark boş olmak zorunda. Mutasyon **yalnız
+>   izin verilen özniteliklerle** tekrar kondu → **kırmızı**, ad türetimiyle.
+> - **Üçüncü bir şey de kapandı:** `<form>`'un `action`'ı **olmak zorunda** — eylemsiz
+>   bir form bulunduğu sayfaya POST eder, ve bu bölüm bir tur boyunca **tam olarak
+>   öyle bir form sevk etti**.
+>
+> **Ucuz düzeltmeler (dokuzu da; bu liste 3. turda iki eksikle yeniden kurulmuştu ve
+> tamamlandı):** giriş paragrafı bağlamanın karar vermediğini söylüyor · salt-okunur
+> cümle rolle **başlamıyor** (motorun cevabı, iki sebebi ayırt ediyor) · kart sayıları
+> (on sorgu, `/admin` KF) · `NextPolicyVersionNo` yorumu artık *"ölçüldü"* demiyor,
+> **neyin ölçüldüğünü** söylüyor (invariant 1..N; 23505 kolu tetiklenmedi) · ölü-giriş
+> freni **iki liste**yi **kendi bölgesine** karşı ölçüyor ve **page state**'leri
+> sürüyor · attachment yorumu düzeltildi (ekran ham dize basıyor — ve bu **daha
+> iyi**: varlık oracle'ı yok) · `ErrLockoutStands` ayrı sentinel + ayrı cümle,
+> **tetiklenerek** test edildi · T20'nin davranışsal yarısı **üç tabloyu** ölçüyor ·
+> çapraz-tenant `GET …/version` için test eklendi.
+>
+> ### Kart düzeltmesi (2026-08-12, faz B **11. tur** — onuncu denetim, KAPANIŞ)
+>
+> Onuncu üçüncü göz **RED** (1 bloklayan, müşteri metni). 🔴 **Birinci durma kuralı
+> devreye girdi:** iki tur üst üste **0 ürün mantık kusuru · 0 build kırılması** —
+> mekanizma oturdu, kalan iş belgeyi ölçüme eşitlemekti.
+>
+> **BL — *"Each one names the rule that judged it"*, aynı cümlede ÜÇÜNCÜ kez yanlış.**
+> 10. turda bu cümlenin **sürüm** yarısını 00008'e göre düzelttim ve doğruydu; ama
+> 00008'in **(a) kolunu** atladım: `policy_layer IS NULL` — `matched_sid` de NULL
+> olabilir, ve **sevk edilen manuel kayıt yolu tam olarak bunu üretiyor**
+> (`db/queries/transactions.sql` dört policy kolonunu **kolon listesine hiç almıyor**).
+> Kendi ölçümüm: `channel='manual'` satırlarının **234/546**'sı hiçbir kural
+> adlandırmıyor; veritabanının tamamında **8.869/18.576**. Yani sahip, bir kuralı
+> kapatmadan önce *"geçmiş kendini açıklıyor"* diye okuyor — oysa **kendi elle yazdığı
+> satırlar** hiçbir kural adlandırmıyor. İki yerde de düzeltildi (onay ekranı ve unbind
+> özeti) ve **dördüncüsünü önleyen** bir test eklendi:
+> `TestPolicyChange_DescribesEveryShapeOf00008` üç şeklin **üçünü de** arıyor **ve**
+> üç eski evrensel iddianın **hiçbirinin** dönmediğini kontrol ediyor. Mutasyon
+> (evrensel cümleyi geri koy) → **kırmızı, iki koldan**.
+>
+> **Altı ucuz madde:** 5. turun bayt tablosunun **üstü çizildi** (bir denetçi canlı
+> ölçtü: KF 61.473 · KM 20.649 — KM'de rozet **yok**, yani sayfa gerçekten değişti;
+> **yapısal betimleyici** korundu, çünkü bayatlamayan yarı odur) · `maxPolicyBody`'nin
+> *"review.go'nun sabiti"* iddiası (kalıp aynı, **sayı değil**: 8 KiB ↔ 16 KiB, ve fark
+> bilinçli) · `policies_test.go`'daki bozuk/yinelenmiş yorum bloğu (9. turda işaret
+> edilmiş, kaçmıştı) · baseline paragrafının **koşulsuz** *"her biri kapatılabilir"*
+> vaadi (KM'nin sayfasında dokuz kural *"Not set up yet"* ve **sıfır** kontrol var) ·
+> `lockout-stands`'ın apply-idempotence paragrafındaki **dördüncü dalı** (durum
+> idempotent, **trail değil** — her deneme iki satır bırakıyor, ve bırakmalı) ·
+> ve dal/kör-nokta sayıları **karta yazılmadı**: ikisi de testin log satırında basılıyor
+> (`go test -run 'TestPolicyFixtures_DriveEvery|TestPolicyBranchDerivation' -v
+> ./internal/handler/`), bugün **40 dal / 11 fixture** ve **18 switch / 9 şablon**.
+>
+> ---
+>
+> ### M6-09 faz B — kapanış özeti
+>
+> **Tur sayısı:** 1 uygulama + 10 denetim turu. Her denetim **farklı** bir üçüncü göz.
+> `tappa-security-auditor` iki kez koştu, ikisinde de **ONAY** (§4 ihlali yok).
+>
+> **Sevk edilen üründe geçen kusur sayısı: 0.** Bulunan her ürün kusuru (BL-1'in ad
+> düşürmesi, `make check` kırıklığı, onay kutusunun dokunma hedefi) **sevk edilmeden
+> önce** yakalandı ve düzeltildi. Son iki turda bulunan **her şey** metindi.
+>
+> **Ağ:** on beşten fazla kaçış denendi. **Kapananlar** — sarmalayıcının dışı (bayt-tam
+> kabuk karşılaştırması) · dolu dekoy (tek sarmalayıcı sayımı) · HTML yorumu ·
+> **HTML5 bogus comment** ve üç kardeşi (`<!DOCTYPE`, `<?x>`, `<![CDATA[`) · çağrının
+> yanına konan kontrol (sarmalayıcı bileşenin içine alındı) · buton görünümlü eleman
+> (press-target sözlüğü **türetildi**) · sunucunun okumadığı alan (`go/ast` ile ad
+> türetimi) · eylemsiz form · ve son olarak onay/sürüm sayfalarının dokunma-hedefi
+> ağına **alınması**. **Kapatılmayan, sayılan** — sevk edilen switch formuyla **şekil
+> olarak ayırt edilemeyen** bir kontrol (sözdizimsel her ölçüt ya ikisini reddeder ya
+> ikisini kabul eder; **on üçüncü yama tam buraya düşerdi**) · alan taşımayan bağlantı ·
+> press-target sözlüğünü kullanmayan buton görünümü · `templ.Raw`/`switch` kör noktası ·
+> ödünç tanık.
+>
+> 🔴 **VE EN ÖNEMLİSİ, TEKRAR:** guardrail'in kapatılamazlığını taşıyan şey bu ağ
+> **değil** — şema (`policies.layer` CHECK'i `'guardrail'`ı **superuser'a bile**
+> yazdırmıyor) ve motor (her şeye izin veren bir tenant belgesine karşı **yine**
+> `deny/sys:policy-edit-owner-only`). Ağ bir **regresyon frenidir**.
+>
+> **Karşılanmayan kabul kriterleri (dördü de yukarıda limit olarak yazılı):** aralık
+> dışı değerin **arayüzde** reddi · *"sık kullanılan politikalar için form"*un
+> **davranış seçimi** yarısı · kapsamın **departman** yarısı · ve *"ne değiştirdi"*nin
+> **diff** yarısı.
+>
+> **Migration:** 00015 (`UNIQUE (tenant_id, layer, name)`) — uygulama içi guard'ın
+> **oku-sonra-yaz** olduğu ölçülerek gösterildikten sonra eklendi; `policies` DELETE
+> vermediği için bir ikiz **kalıcı** olurdu.
+>
+> ### Kart düzeltmesi (2026-08-12, faz B **10. tur** — dokuzuncu denetim)
+>
+> Dokuzuncu üçüncü göz **RED** (3 bloklayan) — ve durma kuralı açısından önemli:
+> denetçi **0 ürün mantık kusuru · 0 build kırılması** saydı; üç bloklayanın **üçü de
+> beyandı**. Rename uçtan uca gerçek PG'de doğrulandı, `layer='tenant'` koruması
+> tuttu, `stored()` freni iki alt vakada kırmızı, kaçış 11 hâlâ yeşil, kontrastlar AA,
+> 18/18 paket ok.
+>
+> **BL-1 — `lockout-stands` BAŞLIĞI kendi gövdesinin tersini söylüyordu.** Bildirim
+> başlığı her problem sözcüğü için sabitti: *"That change was not made"* — oysa o
+> sözcük **değişikliğin YAPILDIĞI ve geri alınamadığı** hâli anlatıyor. Ayrımı gövdede
+> yapmış, **başlığı unutmuştum**; ve `ErrLockoutStands`'ın ayrı sentinel olma sebebi
+> tam olarak buydu. Daha kötüsü, bu kusur için kurduğum koruma **başlığı hiç
+> okumuyordu** (`"That change was not made"` dizesi repoda **hiçbir** testte geçmiyordu).
+> `ProblemHeading` alanı eklendi, test **başlığı da** okuyor + iki başlığın **farklı**
+> olduğunu ayrıca kontrol ediyor, mutasyon → **kırmızı**.
+>
+> **BL-2 — *"Other refusals … change nothing and name nobody"* — üç iddia da
+> çürütüldü.** Denetçi gerçek PG'de ölçtü: authz kuralını kapatmak lockout reddine
+> düşüyor ve arkasında **iki audit satırı** bırakıyor (`policy.disabled` +
+> `policy.enabled`), ikisi de aktörü adlandırıyor, ve satır **gerçekten değişti**
+> (kapandı, geri açıldı). ⚠️ Bu, 9. turda düzelttiğim kategorik iddianın **ters
+> yöndeki ikizi** — dar iddia yerine yine kategorik ama **eksiltici** bir cümle
+> koymuşum. Cümle ölçüme eşitlendi (üç durumu ayrı ayrı söylüyor) ve
+> `TestRuleWriterDB_ALockoutLeavesTwoTrailRowsAndTheRuleAsItWas` ile sabitlendi.
+>
+> **BL-3 — sayılmış limit var olmayan bir kapsamı beyan ediyordu.** *"Onay ve sürüm
+> sayfaları kabuğun dokunma-hedefi ağıyla tutuluyor"* diyordu; denetçi üç kontrolün de
+> sınıfını çıkardı ve **paket yeşil** kaldı — çünkü korpus `pages.PanelSections`
+> **href'lerinden** kuruluyor ve iki sayfa da (biri POST, biri alt rota) orada yok.
+> **Seçenek (a):** `panelNonSectionScreens` ile ikisi de korpusa **eklendi** (gerçek
+> router, gerçek oturum, anti-vacuity ile), M14 birebir tekrarlandı → **kırmızı**.
+> Limit de gerçeğe eşitlendi: markup'ları hâlâ hiçbir allow-list/rota/ad türetiminin
+> öznesi değil.
+>
+> **İki koruma boşluğu (bloklamayan, ikisi de mutasyonla):** `RenameTenantPolicy`'den
+> `AND layer = 'tenant'` silinince **hiçbir test kırmızı olmuyordu** — oysa bedeli
+> kozmetik değil: yeniden adlandırılan bir baseline satırı `assembleBaseline`'ın
+> ad-eşleşmesini kaybeder ve hep-ya-hiç kuralı yüzünden **tüm baseline düşer**.
+> Pinlendi, mutasyon → **kırmızı** (*"the managed policy is now called 'hijacked'"*) ·
+> ve `policyProblemWords` ↔ cümle eşleşmesi korunmuyordu (cümlesi olmayan bir sözcük
+> **hiçbir bildirim basmıyor**, yani bloğun kendi yasağı) → tablo testi, **başlık ve
+> cümle ikisini birden** kapsıyor, mutasyon → **kırmızı**.
+>
+> **On iki ucuz madde:** var olmayan `policyChangeAct` · `stubDatabase` yerine
+> `refusingDatabase` (iki yerde) · `policyset.go`'nun `baselineNamespace` doc başlığı
+> **ve** 00015'i bilmeyen *"UNIQUE (tenant_id, name) yok"* argümanı · *"faz B'de bu
+> operatörle karşılaşacak"* (karşılaşmıyor; M9-07) · salt-okunur paragrafın **iki**
+> sebebi (motorun kendi cümlesi **üç** sayıyor — bozuk belge hâli eklendi) · `author`
+> onayının **create** kolunda *"yerine geçtiği sürüm"* demesi (iki kol artık ayrı
+> başlık ve ayrı özet alıyor) · faz A bayt tablosunun **üstü çizildi** (faz B ile
+> geçersizleşti) · bozuk dilbilgisi · ikizin sıralamayı taşımaması · **kriter (f)'in
+> *"ne değiştirdi"* yarısı = diff yok**, yeni limit 8 · anti-vacuity tabanının
+> *"türetilmiş"* diye anlatılması (elle yazılmış, öyle yazıldı) · ve sürüm garantisi
+> cümlesinin **üç yerde** aynı ve doğru hâle getirilmesi (*"saklı bir kural karar
+> verdiyse"* — baseline de dahil, guardrail hariç).
+>
+> ### Kart düzeltmesi (2026-08-12, faz B **9. tur** — sekizinci denetim)
+>
+> Sekizinci üçüncü göz **RED** (6 bloklayan) — ve bu tur öncekilere benzemedi: **iki
+> gerçek ürün kusuru + bir build kırılması**, sekiz turdur ölçülmemiş.
+> `tappa-security-auditor` ayrıca koştu → **ONAY** (yüzeyi sıfırdan ölçtü).
+>
+> **BL-2 — `make check` KIRMIZIYDI ve sekiz tur boyunca öyle sanılmadı.** `make fmt`
+> içindeki `templ fmt` `policies.templ`'i **değiştiriyordu** (`changed=1`), yani
+> `check` kendi kaynağını değiştirip son adımda kendi değişikliğine takılıyordu.
+> ⚠️ **Benim raporlarım bunu maskeledi:** her turda *"exit 2 yalnız `git diff
+> --exit-code`'dan"* dedim — doğru sebep **fmt adımıydı**. `make fmt` koşuldu, `templ
+> fmt` artık **idempotent** (`changed=0`), ve `Makefile`'ın *"`templ fmt` bugün hiçbir
+> `.templ`'i değiştirmiyor"* gözlemi **bayat çıktığı için** kalıcı cümleyle
+> değiştirildi.
+>
+> **BL-1 (ÜRÜN) — supersede yolu, onay ekranının gösterdiği ADI çöpe atıyordu.** Form
+> adı **zorunlu** yapıyor, onay `Called: <name>` **basıyor**, MAC adı **bağlıyor** —
+> ama yeni-sürüm kolu `policies.name`'e dokunmuyordu, yani sahip adı yazıyor, okuyor,
+> basıyor ve ekran **eski adı** göstermeye devam ediyordu. Bu, bölümün **kendi
+> sözleşmesinin** yasakladığı şey (*"onayın bağlamadığı alan, ekranın yanılabileceği
+> alandır"*) — üstelik alan **bağlıydı** ve sonra atılıyordu. **Çözüm: adı yaz.**
+> `RenameTenantPolicy` eklendi (`layer='tenant'` ifadenin içinde — bir baseline satırı
+> yeniden adlandırmak onu tap yolunun ad-eşleşmesinden **koparırdı**), yalnız ad
+> değiştiyse koşuyor, ve 00015'in indeksi **rename'i de** koruyor → 23505 aynı
+> `ErrNameTaken`'a eşleniyor. Testle sabitlendi (ad değişiyor · sürüm ilerliyor ·
+> mevcut bir ada rename **reddediliyor**).
+>
+> **BL-3 (MÜŞTERİYE GÖRÜNEN) — onay ekranı 00008'in CHECK'inin yasakladığını vaat
+> ediyordu.** *"every one of them names the exact version of the rule that judged it"*
+> — oysa `transactions_policy_decision_consistent` guardrail/default kararlarında
+> `policy_version_id`'nin **NULL olmasını ŞART KOŞUYOR**, ve §5'in ilk beş satırı
+> guardrail kararıdır. Dahası aynı ürün, aynı bölümde *"her tap şu anda yalnız Tappa
+> güvenceleriyle yargılanıyor"* diyor — o durumda **yeni kayıtların hiçbiri** sürüm
+> adlandırmıyor. Üç yerde de düzeltildi (onay ekranı · unbind özeti · `Author` doc'u):
+> her karar verilmiş kayıt bir **sid** adlandırır, **saklı** bir kural karar verdiyse
+> **sürümü de**.
+>
+> **BL-4 — kapsamın DEPARTMAN yarısı karşılanmıyor** ve kartta hiç yazmıyordu.
+> `copyOfShipped` yalnız `location/<id>` üretiyor, seçici de lokasyon filtreli; departman
+> yalnız **motorun okumadığı** bind/unbind'da görünüyor. **Limit 5** olarak yazıldı ve
+> **ekran da söylüyor** (*"Departments cannot be narrowed to this way yet"*).
+>
+> **BL-5 — `stored()`'un hep-ya-hiç freni silinebiliyordu, üç paket de yeşil.** Geçen
+> turun BL-A'sıyla **aynı sınıf, bir kat aşağıda**: `StoredSet`'in tek testi **bakir**
+> tenant'a koşuyordu (orada `assembleBaseline` zaten boş döner), kısmi/bozuk durumu
+> üreten test ise **ikize** koşuyordu. Yeni: `TestPolicySetDB_StoredSetIsAllOrNothing`
+> — **eksik belge** ve **saklı ama okunamayan belge**, ikisi de gerçek `StoredSet`'e
+> karşı, ve tam-provisionlu bir işletmeyle **pozitif kontrol**. Mutasyon → **kırmızı**
+> (`returned 8 baseline policies`).
+>
+> **BL-6 — apply adımındaki `refusePolicyEdit` silinebiliyordu.** Sebep bir
+> **ikiz/üretim ayrışması**: `fakeScribe`'ın yazma metotları `may` alanını **hiç
+> okumuyordu**, yani üretimin `ErrNotPermitted` kolu **ölü koddu** ve yükümlülük 4
+> apply adımında **kanıtsızdı**. ⚠️ Bu, D3'ün **ikinci** vakası (`storedAuthority` 8.
+> turda düzeltilmişti) — o yüzden düzeltme bir assertion eklemek değil, **ikizi
+> sözleşmeye uydurmak** oldu. Yeni test + mutasyon → **kırmızı**.
+>
+> **On iki ucuz madde + denetçinin altı *"ölçmedim"*i:** kartın *"dokuz kriter"*
+> cümlesinin üstü çizildi (karşılanmayanlar **üç**e çıktı) · `policies_test.go`'daki
+> **altı** elle tutulan yenilgi sayısı kaldırıldı · `policyGuaranteeBytes`'ın **başka
+> fonksiyonun adıyla** başlayan doc'u · *"panel motora hiç sormuyor"*un iki kalıntısı ·
+> `rulebook.go`'nun *"üç okuma"*sı **ve** `rulebook_test.go`'nun **gerçeğin yarısı olan
+> anti-vacuity tabanı** (3 → türetilmiş, bugün 6 basıyor) · `policiesview.go`'nun
+> *"faz B'nin editörü OLACAK"*ı · *"her zaman burada çevrilir"* iddiası (domain de
+> çeviriyor — iddia daraltıldı, kod taşınmadı) · dört var olmayan atıf · müşteriye
+> görünen **kategorik** *"red audit'e yazılır"* (yalnız motor reddi yazıyor) ·
+> `t.Logf`'in başarısızlıkta da *"(unchanged)"* basması · `%w`+`%v` zinciri · ikinci
+> `<h1>` · müşteri metnindeki **emoji** (skill `tappa-brand`) · `insertFindings`'e
+> **negatif kontrol** (ve o kontrol **gerçek bir boşluk buldu**: kolon/değer sayısı
+> uyuşmazlığı yalnız tenant kolonu sondaysa yakalanıyordu — düzeltildi) · DELETE
+> probu artık **42501** bekliyor · `BasedOn` artık **sevk edilen** bir belge adıyla
+> sorgulanıyor + pozitif kontrol · *"walks every exported write"* iddiası **reflect
+> ile türetildi** (iki gerekçeli muafiyet) · ve çapraz-tenant testinin *"iki işletmeye
+> de yazmadı"* iddiası **daraltıldı** (bir yarısı yapısal olarak imkânsızdı) +
+> çağıranın **kendi** işletmesi için gerçek kontrol eklendi.
+>
+> ### Kart düzeltmesi (2026-08-12, faz B **8. tur** — yedinci denetim)
+>
+> Yedinci bir üçüncü göz **RED** verdi (1 koruma + 3 metin). Sarmalayıcı kararı (a)
+> **yapısal olarak** doğrulandı: sarmalayıcının etiketleri karşılaştırılan baytların
+> parçası olduğu için aralarına konan **her şey** `strings.Count(section, want)`'ı
+> 1'den 0'a düşürüp `Fatal` veriyor.
+>
+> **BL-A — 7. TURDAKİ DÜZELTMEM, KARTIN "ÖLÇÜLDÜ" DEDİĞİ KANITI ÖLDÜRDÜ.** Bu turun
+> en öğretici bulgusu ve **benim açtığım** bir boşluk: BL-2 için `seedAuthzDocument`'ı
+> *"dokuz belgenin hepsi"* yapmak **doğru** düzeltmeydi (saklı set hep-ya-hiç), ama
+> aynı hamle `TestRuleWriterDB_TheEngineRefusesAManagerAndAllowsTheOwner`'ın sayım
+> assertion'ını **boşalttı**: `forTenant` yalnız **eksik** belgeyi materialise eder,
+> dokuzu da varken hiçbir şey yazmaz. Kart o sayımı *"(a) seçeneğini eleyen ölçüm"*
+> diye gösteriyordu. Üstüne, üretim metodunu (`Service.StoredSet`) **hiçbir test
+> koşmuyordu** — kapının her testi bir **ikizden** geçiyor. Denetçi `StoredSet`'i
+> `forTenant`'a **takma ad** yaptı: `make test` **17/17 yeşil**. O tek satırla
+> reddedilen bir manager'ın POST'u 9+9+9 satır yazardı ve **hiçbiri geri alınamazdı**.
+>
+> **Kapatma:** `checkin.TestPolicySetDB_StoredSetProvisionsNobody` — üretim metodunu
+> **provisionsuz** bir tenant'a karşı koşuyor, üç tablonun **0/0/0** kaldığını ve
+> Set'in **guardrail-only** döndüğünü şart koşuyor, ve **pozitif kontrolü** aynı
+> tenant'ta `forTenant` çağırıp sayacın bir yazmayı **gördüğünü** kanıtlıyor
+> (`[0 0 0] -> [0 0 0]` · `forTenant: [9 9 9]`). Mutasyon 13 birebir → **kırmızı**
+> (`StoredSet wrote policy rows: [0 0 0] -> [9 9 9]`). Ve tenant tarafındaki sayımın
+> yorumu artık **neyi ölçtüğünü ve neyi ölçmediğini** söylüyor.
+>
+> **BL-B — ekran motorun çakışma kuralını TERS anlatıyordu.** Giriş paragrafı *"the
+> most restrictive answer wins"* diyordu; `evaluate.go` **önce özgüllüğe** bakıyor ve
+> kısıtlayıcılığı **yalnız eşit özgüllükte** karşılaştırıyor. Faz A'da bu yanlış bir
+> cümleydi; faz B *"bir Tappa kuralını al ve yalnız istediğin yerde tut"* formunu sevk
+> ettiği için **yanlış bir öngörü** hâline geldi: bir venue'ya daraltılmış **izin
+> veren** kopya, motorun tercih ettiği **özgül** kuraldır ve kuralı gerçekten
+> **gevşetir**. Düzeltildi, ve sayfanın kendi doğru cümlesiyle (yazma formunun
+> paragrafı) aynı dile getirildi — artık ikisi de gevşetebileceğini **söylüyor**.
+>
+> **BL-C — tap karar yolunun doc'u faz B'nin sevk ettiği üç şeyin YOKLUĞUNU ilan
+> ediyordu** (*"no query … no endpoint … empty slice in every deployment"*).
+> `CreateTenantPolicy`, `AppendPolicyVersion` ve `POST /admin/policies/apply` üçü de
+> bu turda sevk edildi. Düzeltildi.
+>
+> **BL-D — ağın "dürüst envanteri" altı yerde bayattı** ve **bu turun kendi
+> değişikliğini** yanlış anlatıyordu (*"sarmalayıcı çağrının etrafında"*, *"counting
+> tags"*, *"policyGuardrails"* — repoda **yok** —, *"policyOutsideTheSection"* — böyle
+> bir identifier **yok** —, kaldırılmış bir listeye atıf, ve `policyGuaranteeBlock`'un
+> **doc'suz** kalması). Altısı da ölçüme eşitlendi ve fonksiyon kendi doc'unu aldı.
+>
+> **Dokuz ucuz madde:** `panelRules`'un *"phase B'nin yazarı OLACAK"* geleceği ·
+> *"panel motora hiç sormuyor"* yorumu (markup tersini diyor) · üç bayat okuma sayısı
+> (*"THE THREE READS"* → altı) · aynı dosyadaki **dört farklı** yenilgi sayısı →
+> **rakamlar kaldırıldı** · `policies.sql`'in **yük taşıyan** *"policies İKİ unique
+> indeks taşıyor"* sayımı → **üç** (00015) · var olmayan test adı · `rulewriter.go`'nun
+> *"UNIQUE (tenant_id, name) YOK"* şimdiki zamanı · racer rakamlarının **hedge'siz**
+> kopyası · ve **kabul kriteri *"form"* karşılanmadı**, yeni limit 3 olarak yazıldı
+> (müşteri *nereye* seçebiliyor, *ne yapacağını* seçemiyor).
+>
+> ⚠️ **SÜREÇ (ikinci kez ısırdı):** çıplak `go test ./internal/db/` DB testlerini
+> **sessizce atlıyor**; bir denetçinin `GRANT DELETE` mutasyonu ilk denemede
+> **yanlışlıkla yeşil** göründü. `.env` yüklenmeden ölçülen hiçbir DB sonucu geçerli
+> değil.
+>
+> ### Kart düzeltmesi (2026-08-12, faz B **7. tur** — altıncı (kapanış) denetimi)
+>
+> Altıncı bir üçüncü göz **RED** verdi (4 bloklayan; ikisi davranış, ikisi metin) ve
+> **yazma tarafını açıkça temiz buldu**: *"tap yolu, yazma yolu, RLS, audit ve
+> `policy:edit` zorlaması için hiçbir davranış kusuru bulamadım"* — 12/12 DB testi,
+> `-race`, gerçek Postgres. ~~Kabul kriterlerinin **dokuzu** karşılanıyor, biri
+> (aralık dışı değerin arayüzde reddi) **karşılanmadı**.~~ — **üstü çizildi (9. tur):
+> sayı kaldırıldı.** Karşılanmayanlar limit listesinde tek tek yazılı ve o liste
+> bu turda **üçe** çıktı (aralık doğrulaması · *"form"* kriterinin davranış seçimi ·
+> kapsamın departman yarısı). Elde tutulan bir sayı her turda bayatlıyor.
+>
+> **BL-1 — ON DÖRDÜNCÜ KAÇIŞ: türetim yarım kalmıştı.** 6. turda bölge *"bileşenin
+> baytları"* oldu ama **sarmalayıcı `AdminPolicies`'te bırakıldı**, yani çağrının
+> **yanına** konan markup sarmalayıcının içinde ve baytların dışında kalıyordu.
+> Denetçi oraya çalışan bir off-switch koydu (gövdesi başka pakette), *"Cannot be
+> switched off"* rozetinin bulunduğu blokta render edildi, **paket yeşil** kaldı.
+> **Seçenek (a) uygulandı:** sarmalayıcı **bileşenin içine** geri alındı, yani
+> bileşenin baytları `<div class="policy-guarantees">` ile **başlıyor ve bitiyor**;
+> *"sayfa bu baytları tam bir kez içerir"* şartı artık sarmalayıcının **kendi
+> etiketlerini** de kapsıyor, dolayısıyla ikisinin arasına bileşenden başka bir şey
+> **giremiyor**. (b) — bayt komşuluğu — aynı sonucu verirdi ama bakılacak iki şey
+> bırakırdı. Sarmalayıcı 4. turda tam da *"bileşenin ilk satırı"* kaçışı için dışarı
+> alınmıştı; **izole render onu zaten öldürdüğü** için geri alınması güvenli ve bu
+> **ölçüldü**.
+>
+> **Altı mutasyon** (⚠️ **hangi kolun tuttuğu** da yazılı, çünkü *"kırmızı oldu"* tek
+> başına hangi korumanın çalıştığını söylemiyor): kaçış 14 **birebir** → **kırmızı**,
+> ama **sarmalayıcı-sayım** kuralıyla — sarmalayıcı artık bileşenin içinde olduğu için
+> denetçinin markup'ı kaçınılmaz olarak **ikinci** bir sarmalayıcı üretiyor; aynı
+> kontrol **sarmalayıcısız**, çağrının hemen yanına konursa bölge kuralı onu
+> **tutmuyor** (bileşenin baytlarının dışında, ekranda da blokun **altında** render
+> ediliyor) ve bunu **dal türetimi / manager testi** yakalıyor — bu, kaçış 11 ile aynı
+> sayılmış limit · 4. turun M7'si (bileşenin ilk satırı) → **kırmızı** (iki bulgu) · kaçış 13'ün dört yazımı (`<!x … >`, `<!DOCTYPE`,
+> `<?x >`, `<![CDATA[`) → **dördü de kırmızı, her biri iki bulguyla** · kaçış 12 (dolu
+> dekoy) → **kırmızı** · kaçış 11 (intro'nun `MayEdit` kolu) → **yeşil**, sayım dürüst
+> kaldı · masum markup → **yeşil**.
+>
+> **BL-2 — ekran, motorun reddettiği bir OWNER'a rolünü sebep gösteriyordu.** *"Changing
+> the rules is reserved for the organisation owner"* cümlesi `problem=not-permitted`
+> için basılıyordu, ve o duruma bir **owner** düşebiliyor: `checkin`'in saklı-set
+> okuması **hep ya da hiç**, yani **bir** okunamayan baseline belgesi authz belgesini de
+> düşürüyor. 2. turda kardeş cümle (intro'nun salt-okunur kolu) tam bu sebeple
+> düzeltilmişti; bu atlanmıştı. Artık **iki sebepli** dille aynı. Ve durum **üretildi**:
+> `TestRuleWriterDB_AnOwnerIsRefusedWhenOneStoredDocumentCannotBeRead` bir shipped
+> belgeye `{}` gövdeli **2. sürüm** ekliyor (append-only, üstelik gerçek yol) ve owner
+> reddediliyor.
+> **Bu iki yan bulgu daha çıkardı:** (1) testlerin `storedAuthority` ikizi
+> production'ın **hep-ya-hiç** kuralını uygulamıyordu — bozuk belgeleri tek tek atlıyor,
+> yani ölçtüğü şeyde production'dan **ayrılıyordu**; düzeltildi ve fixture artık
+> **dokuz belgenin hepsini** kuruyor (provisioned bir işletme). (2) Reddin gerekçesi
+> *"rulebook has never been set up"* diyordu; `Stored` **kullanılabilir** kuralları
+> sayar, yani dokuz belgeli ama biri bozuk bir işletme de **0** raporluyor. Cümle artık
+> **iki ihtimali de** söylüyor ve ayrımı **ekrana** havale ediyor (ekran kural kural
+> söylüyor).
+>
+> **BL-3 — üç sevk edilen dosya *"bu ekran yazmaz"* diyordu.** `policies.templ`
+> (*"read only"*, *"No form posts from this page"* — aynı dosyada dört form),
+> `policies.go` (*"no entry in mountWriting, no ProtectWriting chain, no synchronizer
+> token, no audit_log row"* — **dört yan cümlenin dördü de yanlış**), `policiesview.go`
+> (*"no form target, no per-rule action href"* — ikisi de aynı dosyada). Müşteriye
+> görünmüyorlar; **bir sonraki yazarın ilk okuduğu yer** oldukları için bloklayan.
+> Üçü de düzeltildi ve **neyin yanlış olduğu** yazıldı.
+>
+> **BL-4 — kartın kendisi.** *"00015'e dokunmadım, karar sende"* → karar geldi, uygulandı
+> (üstü çizildi) · *"Test 64'e çıkarıldı"* → sevk edilen sabit **32**, bedeli
+> (falsifier olarak kararsız) karta da yazıldı · *"on yeni sorgu"* → **rakam karttan
+> kaldırıldı**, komut bırakıldı · ve denetçinin **lehte** düzeltmesi kaydedildi: **ad
+> yarışının `23505` eşlemesi artık kanıtlı** (erken guard silindi → yine `created=1
+> refused=31`, yani 31 reddin hepsi indeksten). `version_no` yarışının 23505 kolu hâlâ
+> yürümüyor ve öyle yazıyor.
+>
+> **Dört ucuz madde:** `policyGuaranteeBlock`'un *"COUNTING `<div>`s"* tarifi **ölüydü**
+> (fonksiyon artık taramıyor, yalnız şekil kontrol ediyor) → düzeltildi ·
+> `policySettings`'in *"may be set between 25 m and 1000 m"* cümlesi hemen ardından
+> *"there is nothing to change here"* diyordu, sıra düzeltildi · aynı bloğun son cümlesi
+> müşterinin **giremediği** bir sayıyı ima ediyordu → ölçüme eşitlendi ·
+> `TestPolicyTables_Keep…`'in her koşuda bıraktığı silinemez `delete-probe-<uuid>`
+> satırı **sayıldı** (yabancı tenant'a taşındı; `policies` DELETE vermediği için satır
+> yine kalıyor, ama artık seed'lenmiş bir işletmeye değil).
+>
+> ### Kart düzeltmesi (2026-08-12, faz B **6. tur** — beşinci denetim)
+>
+> Beşinci bir üçüncü göz **RED** verdi (2 bloklayan). Migration 00015'in her iddiası
+> ayrı ayrı doğrulandı (Down/Up turu · RLS/GRANT değişmiyor · `simulate-day` PASS ·
+> indeksin **taşıyıcı** olduğu iki yönlü: indeks düşükken SQL 24 racer → 24 satır,
+> guard körelmişken 64 racer → hâlâ 1 satır).
+>
+> **BL-1 — KAÇIŞ 13, ve ağın son yaması yerine TÜRETİM.** Denetçi guarantees
+> sarmalayıcısının içine `@templ.Raw("<!x </div> >")` koydu: bu bir **HTML5 bogus
+> comment** — tarayıcı `<!` ardından `--`/`DOCTYPE`/`[CDATA[` gelmezse ilk `>`'a kadar
+> yutar ve **hiç `</div>` üretmez**, ama benim sayacım sayıyordu. Bölge erken kapandı,
+> **çalışan** bir off-switch (gövdesi başka pakette) blok içinde render edildi ve
+> paket **yeşil** kaldı (bölümde ofset 8165, taranan blokta **-1**).
+>
+> **Yama yazılmadı. Bölge artık HESAPLANMIYOR, İZOLE RENDER'DAN ALINIYOR** — faz A'nın
+> kabuğu boş gövdeyle render edip bayt-tam eşitlik isteyen tekniği, bir seviye aşağıda.
+> `policyGuardrails` → **`pages.PolicyGuarantees`** (dışa açıldı), test onu **tek
+> başına** render ediyor, **ürettiği baytlar mutlak bölgedir**, ve sayfa o baytları
+> **tam bir kez** içermek zorunda. Sayaç yok → sayacın yanılabileceği yazım da yok.
+>
+> **Dört mutasyon + üç yazım:** kaçış 13 birebir → **kırmızı** (hem sınıf hem eleman) ·
+> `<!DOCTYPE html>`, `<?x >`, `<![CDATA[ </div> ]]>` → **üçü de kırmızı** (her birinde
+> 2 bulgu) · kaçış 12 (dolu dekoy) → **hâlâ kırmızı** (sarmalayıcı sayımı korundu) ·
+> kaçış 11 (intro'nun `MayEdit` kolu) → **hâlâ yeşil**, yani sayılmış limit **dürüst
+> kaldı** · pozitif kontrol (masum `<span>`) → **yeşil**.
+>
+> **BL-2 — 00015'in başlığı var olmayan bir denetime atıf yapıyordu** (*"asserted
+> mechanically by internal/db/rls_test.go"*). Olgu doğruydu, **güvence yoktu**: repo
+> bu iddiayı `locations`, `tags`, `employee_invites`, `audit_log` için koşuyor,
+> policy tabloları için **hiç**. Eklendi:
+> `TestPolicyTables_KeepTheirRLSAndPrivilegesAfterTheNameIndex` üç tabloyu tek tek
+> ölçüyor (`policies` S/I/U + **DELETE yok** · `policy_versions` S/I + **UPDATE/DELETE
+> yok** · `policy_attachments` dördü de), her birinde `relrowsecurity` +
+> `relforcerowsecurity` + **tam 1 politika**, ve `policies`'in DELETE reddi **katalogdan
+> okunmakla kalmayıp uygulanıyor** (M1-04 dersi). Mutasyon: `GRANT DELETE ON policies`
+> → **kırmızı**; `NO FORCE ROW LEVEL SECURITY` → **kırmızı**; geri alındı → yeşil.
+>
+> **Dört ucuz madde:** dal/fixture rakamı **karttan kaldırıldı** (5. tur onu *"41/11"*
+> yazdı, test o gün **40/11** basıyordu — *"sayı elle tutulmuyor"* diyen cümlenin içinde
+> bayatladı) · canlı sayım satırı **hedge edildi** (denetçi tabandan 7 dk sonra
+> `policies=780` ölçtü; bayatlamayan ikisi `tenant-layer` ve `unique index`) ·
+> eşzamanlılık probu artık reponun **kendi reçetesini** kullanıyor
+> (`pool_max_conns=raceRacers+4`, `internal/sun/advance_test.go` kalıbı) — böylece
+> probun eşzamanlılığı **makinenin çekirdek sayısı değil testin özelliği** ·
+> ve C3'ün **canlı sunucuda ölçülmediği** envantere yazıldı.
+>
+> ⚠️ ~~**ORKESTRATÖRE — 00015'e DOKUNMADIM.**~~ — **üstü çizildi (7. tur): karar geldi
+> ve uygulandı**, aşağıdaki 7. tur bloğuna bakın. Aşağısı sorunun sorulduğu hâliyle
+> duruyor.
+> ⚠️ **ORKESTRATÖRE — 00015'e DOKUNMADIM.** Başlığındaki *"26 ihlal grubu vardı"*
+> cümlesi artık **doğrulanamaz** (taban o ölçümden sonra iki kez yeniden kuruldu) ve
+> ideal olarak *tarihsel gözlem* diye işaretlenmeli. Kural gereği önce soruyorum.
+> **Ölçtüm:** `goose_db_version` tablosunda **hash sütunu yok** (`id · version_id ·
+> is_applied · tstamp`), yani bir yorum değişikliği goose için görünmez — dosyayı
+> düzeltmek teknik olarak risksiz. Karar sende.
+>
+> ### Kart düzeltmesi (2026-08-12, faz B **5. tur** — dördüncü denetim)
+>
+> Dördüncü bir üçüncü göz **RED** verdi (2 bloklayan) ve bu turda bulgular **metne
+> değil davranışa** dokundu.
+>
+> **BL-A — `ErrNameTaken` bir kilit değil bir bakıştı → MIGRATION 00015.**
+> `PolicyNameTaken` çıplak bir `SELECT EXISTS`, yani **oku-sonra-yaz** — §4.4'ün
+> `ctr` için yasakladığı şeklin aynısı, ve bedeli daha ağır: `policies` **DELETE
+> vermiyor**, yani ikiz satır **kalıcı**. Denetçi 16 racer'da guard'ın çöktüğünü
+> ölçtü.
+>
+> **Üç ön ölçüm yapıldı, sonra yazıldı:**
+> 1. **`EnsureBaselinePolicy` kırılmıyor.** Sevk edilen 9 baseline belgesinin adları
+>    **birbirinden farklı** (ölçüldü: `documents=9 distinct=9 duplicates=0`), ve
+>    baseline id'si uuid v5 ile **(tenant, ad)**'dan türetiliyor — yani aynı ad daima
+>    aynı id, `ON CONFLICT (id)` önce ateşleniyor, iki indeksin bu ifade için
+>    **çarpışma kümesi aynı**. Yeni bir hata yolu eklemiyor.
+> 2. **Mevcut veride ihlal vardı: 26 grup** (en büyüğü denetçinin 16 satırlık
+>    `probe-hard-…` probu). Migration **veri silmez** — `CREATE UNIQUE INDEX` ihlalde
+>    **düşer ve hiçbir şey değiştirmez**; bu, başlığa **ne olacağı** olarak yazıldı.
+>    Taban yeniden kuruldu (`DROP SCHEMA public CASCADE` + migrate + seed) ve **0
+>    ihlal** sayılarak gösterildi.
+> 3. **Kapsam `(tenant_id, layer, name)`** — `(tenant_id, name)` değil. Üç gerekçe:
+>    aynı katmanda iki aynı ad **ayırt edilemez**, katmanlar arasında ekran ve sid
+>    öneki (`base:` / `own:`) **zaten ayırıyor** · tap yolu baseline'ı **katman içinde**
+>    ada göre indeksliyor (`indexByName`, `assembleBaseline`), yani çarpışma yok ·
+>    ve dar biçim **sevk edilen bir kırmızı-çizgi testini** kırardı:
+>    `TestPolicies_LayerCheckRejectsGuardrail`'in pozitif kontrolü aynı tenant'ta
+>    **iki katmana da** `name='ok'` yazıyor.
+>
+> **Kanıt (gerçek Postgres, `-race`):** `racers=64 created=1 refused-as-name-taken=63`.
+> ⚠️ **16 racer BU MAKİNEDE yetmedi** — indeks düşürülüp koşulduğunda yine `created=1`
+> çıktı. Mekanizma ölçüldü: ikiz sayısı **gerçekten eşzamanlı bağlantı** sayısına eşit
+> ve pgx'in varsayılan havuzu `max(4, NumCPU)`; 16 çekirdekli makinede **64 racer → tam
+> 16 satır**, üç koşuda üçü de. Yani denetçinin 16'sı ile benim 64'üm **aynı olayı**
+> ölçüyor. ~~Test 64'e çıkarıldı~~ — **üstü çizildi (7. tur):** sevk edilen sabit
+> **`raceRacers = 32`**. 64, `make test` altında (paketler paralel, Postgres
+> `max_connections=100`) `internal/sun`'ı `too many clients` ile düşürdü, o yüzden
+> 32'ye indirildi. **Bedeli teste yazıldı ve karta da yazılıyor:** 32'de falsifier
+> **kararsız** (indeks düşükken üç koşu 1/1/3), 64'te **16, üç koşuda üçü de** — ve
+> 00015'in gerekçesi o 64'lük ölçüme dayanıyor. Regresyon testi olarak sayı
+> önemsiz: indeks varken her koşuda tam bir satır.
+> **Ve temizlik mümkün olmadı:** o 16 ikiz satır silinemedi (`tappa_app`'e DELETE yok;
+> sahip olarak silmek `policy_versions`'ın bileşik FK'sine takılıyor ve o satırlar
+> **hiç kimse** tarafından silinemiyor) → taban **yeniden kurulmak zorunda kaldı**. Bu,
+> migration'ın gerekçesinin kendisi.
+> **`version_no` yarışı 16'da:** `succeeded=16 refused-as-race=0` — `GetPolicyForUpdate`
+> racer'ları ebeveyn satırında **tamamen sıraya sokuyor**, yani `23505` kolu **hâlâ
+> yürümedi**. Bu **sayılıyor**: `ErrVersionRace` eşlemesi bu probla **kanıtlanmadı**
+> (⚠️ bu, `version_no` yarışı içindir; **ad** yarışının `23505` eşlemesi 6. turda bir
+> denetçi tarafından **kanıtlandı** — erken guard silindi, sonuç yine `created=1
+> refused=31`, yani 31 reddin **hepsi indeksten** geldi);
+> kanıtlanan şey invariant (sürümler 1..N, boşluksuz, tekrarsız).
+> **Canlı:** aynı adı ikinci kez *yeni kural* olarak kaydetmek → `problem=name-taken`,
+> ve tabloda **1 satır**.
+>
+> **BL-B — mutlak bölge tarayıcısı HTML yorumunu okuyamıyordu.** Bölge `<div>`
+> **sayarak** bulunuyordu ve `<!-- </div></div> -->` içindeki kapanışlar da sayılıyordu:
+> blok 11 kB yerine **1.128 bayt** dönüyor, *"Cannot be switched off"* rozetinin hemen
+> altına konan **çalışan** bir off-switch (üstelik `MayEdit` kapısı **başka bir
+> `.templ` dosyasında**, çünkü dal türetimi yalnız `policies.templ` okuyor) taranan
+> dilimin **dışında** kalıyordu. Bu **kaçış 11 değil, kaçış 12 sınıfı** — mekanik,
+> yani kapatılır. İki yarım: taramadan **önce yorumlar boşaltılıyor** (bayt ofsetleri
+> korunarak; kapanmamış yorum **sonuna kadar** boşalır — fail-closed), **ve** bölümde
+> HTML yorumu bulunması **başlı başına bulgu** (`TestPoliciesSection_RendersNoHTMLComment`)
+> çünkü templ'in kendi `//` yorumları çıktıya hiç ulaşmıyor, yani bir HTML yorumu
+> bilerek yazılmış markup'tır ve bu ağlara yapabileceği tek şey etiket dengesini
+> bozmaktır. Mutasyon **birebir** → **kırmızı** (hem sınıf sözlüğü hem eleman
+> taraması); zararsız bir yorum → **kırmızı** (fail-closed, ve öyle olduğu yazılı);
+> yorumsuz masum markup → **yeşil**.
+> **İki yanlış cümle düzeltildi:** envanterin *"THE BLOCK IS THE BYTES BETWEEN … AND
+> ITS MATCHING CLOSE"*'u ve şablonun *"EVERY byte … inside it **by construction**"*'ı
+> artık bölgenin **hesaplandığını** söylüyor ve üç kaçışı da adlandırıyor.
+>
+> **Altı ucuz madde:** ⚡ **onay MAC'i artık adı bağlıyor** — denetçi `name=Alpha` için
+> mint edilip `name=Beta…` ile harcanan token'ın **303** döndüğünü ve Beta'nın
+> yazıldığını ölçmüştü; ad **SHA-256 özetiyle** giriyor (mint, yükün ayıracını içeren
+> bir subject'i reddediyor ve ad **serbest metin**), mutasyon → **kırmızı**,
+> anti-vacuity ile · bayt tablosu **yeniden ölçüldü** · *"27 dal / 8 fixture"*'ın
+> **üstü çizildi** (bugün **41 / 11**) · aynı bloktaki `admins=1` ↔ *gözlem* çelişkisi
+> kaldırıldı · yeni `<select>`/`<input>`'lar artık `input.css`'in **`.filter-input`**
+> sınıfını kullanıyor (utility tekrarı yerine tek sistem; sınıf zaten dokunma-hedefi
+> haritasında) · ve **sayılmış gözlem**: seçici **bugünkü canlı veride hiç render
+> edilmiyordu** (`A new rule of my own` → **0**), çünkü hiçbir işletmenin kendi kuralı
+> yok. Canlı olarak bir tenant kuralı yazılıp **1** olduğu ve *"A new version of
+> «Nights at the Rusty Bar»"* seçeneğinin çıktığı **ölçüldü**, sonra taban yeniden
+> kurularak artık **temizlendi**.
+>
+> ### Kart düzeltmesi (2026-08-12, faz B **4. tur** — üçüncü denetim)
+>
+> Üçüncü bir üçüncü göz **RED** verdi (3 bloklayan) ve ağı **on birinci + on ikinci
+> kez** yendi. Taban doğrulandı (`tappa_app` NOBYPASSRLS · 7 tabloda FORCE RLS ·
+> grant'lar tam · elle yeniden kurulan şema eksiksiz).
+>
+> **BL-2 — GERÇEK ÜRÜN KUSURU: yazma formu `policy` alanını taşımıyordu.** Her kayıt
+> **CREATE** koluna gidiyordu, yani ikinci kez kaydetmek **aynı adlı ikinci bir
+> policy satırı** üretiyordu: `policies`'te `(tenant_id, name)` UNIQUE **yok**,
+> `tappa_app`'e **DELETE verilmiyor** → iki satır da karar kümesinde, hiçbiri
+> diğerinin geçmiş şeridinde, ve **ikisi de asla silinemez**. `policyactions.go`'nun
+> kendi yorumu ise *"reversible by appending a third"* diyordu — **yanlıştı**.
+> **Seçenek (a) uygulandı:** yazma formu artık bir `policy` seçicisi taşıyor
+> (*"A new rule of my own"* ya da *"A new version of «…»"*), yani ekran domainin
+> **başından beri** yazabildiği yeni sürümü **isteyebiliyor** — yükümlülük 2 artık
+> ekranda da karşılanıyor. **(b) de eklendi**, çünkü (a) çift satırı yalnız
+> *kolaylaştırmıyor*: aynı adı ikinci kez **yeni kural** olarak kaydetmek
+> `ErrNameTaken` ile reddediliyor (satır yaratılmadan). Mutasyon: guard kaldırıldı →
+> **kırmızı** (*"this business now holds 2 policies called …, want 1"*); geri kondu →
+> yeşil. Yanlış yorum silindi ve ölçüme eşitlendi.
+>
+> **BL-3 — B3 düzeltmesi yalnız karta girmişti; iki sevk edilen dosyada çürütülmüş
+> gerekçe duruyordu** (`policiesview.go` *"cannot be met … nothing behind one"* ve
+> `policies.templ` *"NOT met by this release"*). İkisi de düzeltildi: kriterin
+> **yapılmadığı** yazılı, **karşılanamaz olmadığı** da. ✅ Ve kontrol edildi: o cümle
+> **hiçbir zaman ekranda basılmıyordu** — templ Go yorumlarını üretilen dosyaya
+> kopyalar, canlı KF sayfasında `grep -c` → **0**. Yani müşteri yanlış cümleyi
+> okumadı; kusur **sevk edilen kaynakta** duran çürütülmüş gerekçeydi.
+>
+> **Kaçış 12 — dekoy sarmalayıcı — KAPATILDI (mekanik).** `policyGuaranteeBlock`
+> `strings.Index` ile **ilk** `<div class="policy-guarantees">`'i alıyordu; izinli beş
+> etiketle kurulmuş **dolu** bir dekoy intro'nun altına konunca "mutlak" bölge dekoy
+> oluyor, gerçek bloğun içi **hiç taranmıyordu**. Düzeltme bir kapı değil, bir
+> **belirsizliğin kaldırılması**: sarmalayıcı sayfada **tam olarak bir kez** geçmeli,
+> 0 veya ≥2 → Fatal. Mutasyon (dolu dekoy) → **kırmızı**; pozitif kontrol
+> (`policy-guarantees-note` sınıflı sıradan blok, bölümün başka yerinde) → **yeşil**.
+>
+> **🔴 KAÇIŞ 11 — KAPATILMADI, SAYILDI. İKİNCİ DURMA KURALI UYGULANDI.** Intro'nun
+> `if v.MayEdit` kolunun içine konan **çalışan** bir `op=disable` formu geçiyor:
+> gerçek KF baseline uuid'i, gerçek rota, handler'ın **okuduğu** alan adları, `sys:`
+> yok, dokunma-hedefi sınıfı var, **yeni dal yok**. Her kontrol geçiyor çünkü her
+> kontrolün geçmesi **gerekiyor** — bu markup, bölümün her kuralda meşru olarak sevk
+> ettiği switch formuyla **şekil olarak birebir aynı**. Ayırt etmek *"bu form hangi
+> paragrafta olmalı"*yı bilmeyi ister; bu **semantiktir**, ve sözdizimsel her ölçüt ya
+> ikisini birden reddeder (ürün kırılır) ya ikisini birden kabul eder. Bu ağ iki fazda
+> **on iki kez** yenildi; on üçüncü yama tam buraya düşerdi.
+>
+> **Nerelere yazıldı (üçü de):** testin **hata mesajı** artık *"anywhere in this
+> product"* demiyor, **taradığı bölgeyi** söylüyor · `policies_test.go`'nun
+> *"NE TUTMAZ"* envanterine markup'ıyla ve *"neden kapatılamaz"* gerekçesiyle girdi ·
+> ve burada. Eski dar cümle (*"specifically an anchor with no fields"*) **çürütüldü**
+> ve genişletildi.
+>
+> **🔴 VE KAYDA GEÇİYOR: guardrail'in kapatılamazlığı bu ağın işi DEĞİL.** Güvenlik
+> merceği ölçtü: `policies.layer` CHECK'i `'guardrail'`ı **superuser'a bile**
+> yazdırmıyor, ve her şeye izin veren bir tenant belgesine karşı motor **yine**
+> `deny (sys:policy-edit-owner-only)` veriyor. Ağ bir **regresyon frenidir**, taşıyıcı
+> duvar değil — ve limit metni bunu söylüyor, yoksa okuyan tersini sanır.
+>
+> **C3 — SAYILDI:** mutlak bölgede, türetilmiş press-target **sözlüğünü kullanmayan**
+> ama buton görünümü veren bir eleman (`<span class="inline-block rounded
+> bg-tappa-green px-4 py-3 …">`) geçiyor. M13 düzeltmesi sözlüğe **rot edemez** ama
+> kapsamı sözlüktür; *"buton gibi duruyor"*u sınırlamak Tailwind üstünde bir deny-list
+> olurdu. Envantere yazıldı.
+>
+> **Yedi ucuz madde:** blok 1'in eskimiş limit maddesinin **üstü çizildi** · 2. tur
+> bloğunun ucuz listesi **dokuza** tamamlandı · `KF admins=1` bir **gözlem** olarak
+> işaretlendi (bugün 3; ikisi `plaquejourney_db_test.go`'nun artığı) · bayt tablosunun
+> *"yapısal/gözlem"* ayrımı **çürütüldü ve düzeltildi** (kabuk her sayfaya inceleme
+> rozetini basıyor, rakam `make test` ile büyüyor → **hepsi** ± rozet genişliği
+> toleransıyla gözlem) · mutlak bölgenin nerede başladığı **envantere** de yazıldı ·
+> *"each rule says so under Bound to"* cümlesi düzeltildi (bağı olmayan kural onu
+> basmıyor) · ve 44×44 onay kutusu **gerekçesiyle bırakıldı** (ağ kontrolün kendisini
+> okuyor; label farkındalığı dört bölümün paylaştığı bir ağı gevşetirdi — sayıldı,
+> ileride label-farkındalığı gelirse 24px'e dönmeli).
+>
+> ### Kart düzeltmesi (2026-08-12, faz B **3. tur** — ikinci denetim)
+>
+> Yeni bir üçüncü göz **RED** verdi (2 bloklayan) ve ağı **dört kez daha** yendi.
+> Doğruladığı şeyler duruyor (iki listeli allow-list, ad türetimi, action'sız form,
+> `ErrLockoutStands`, iki aşamalı red, T20, `make test` 17/17). Kapatılanlar:
+>
+> **B-2 — çalışan bir "guarantee off" butonu sarmalayıcının BİR SATIR ÜSTÜNDE yeşil
+> geçiyordu.** Mutlak bölge sarmalayıcının **açılış etiketinden** başlıyordu, oysa
+> testin hata mesajı *"anywhere in this product"* diyordu. Yapısal kapatma:
+> **sarmalayıcı artık `AdminPolicies` tarafından, çağrının etrafında basılıyor**, yani
+> `policyGuardrails`'in ürettiği **her bayt** inşa gereği içeride — önüne geçilecek
+> bir ilk satır yok. İkinci yarı için bayt-bitişikliği: sarmalayıcıdan önceki baytlar
+> intro'nun `</section>`'ı ile **bitmek zorunda**. Mutasyon, denetçinin markup'ıyla
+> **birebir**, iki yerleşimde de: `policyGuardrails`'in ilk satırı → **kırmızı**
+> (`class` + eleman + öznitelik, üç bulgu), `AdminPolicies` içinde sarmalayıcının bir
+> satır üstü → **kırmızı** (bitişiklik). Pozitif kontrol: guardrail satırına sıradan
+> bir `<span class="font-mono …">` → **yeşil**.
+>
+> **B-1 — sevk edilen ekran sağlamadığı şeyi beyan ediyordu (altıncısı), ve ben bunu
+> "kapandı" diye raporlamıştım.** Giriş paragrafı *"…and **choose where each
+> applies**"* diyordu; oysa üç kontrolden ikisi (`bind`/`unbind`) hiçbir kapsam
+> değiştirmiyor — sayfanın kendi dipnotu ve kendi onay ekranı bunu zaten yazıyordu.
+> ⚠️ **Bir tur önce bu maddeyi düzelttiğimi bildirdim; düzeltmemiştim** — iki
+> değiştirme yapan bir betiğin ikincisi `AssertionError` verdi, betik **dosyayı hiç
+> yazmadı**, ben yalnız ikinciyi tekrar edip birinciyi kapandı sandım. Şimdi ikiye
+> ayrıldı ve **canlı sayfadan** doğrulandı: eski cümle **0 kez**, *"bookkeeping, not
+> scope"* **1 kez**.
+>
+> **M13 — mutlak bölgenin İÇİNDE buton görünümlü eleman.**
+> `<span class="btn btn--quiet min-h-11">` geçiyordu: `span` izinli, `class` izinli, ve
+> **değeri** kimse okumuyordu — oysa bu depoda bir şeyi butona çeviren tam olarak o
+> class. Kapatma: mutlak bölgede press-target class **sözlüğü yasak**, ve sözlük
+> `panelTouchTargets`'tan **türetiliyor** (o harita zaten derlenmiş stylesheet'e iki
+> yönlü bağlı), `btn--quiet` gibi modifier'lar tabanına indirgeniyor. Mutasyon birebir
+> → **kırmızı**; pozitif kontrol (sıradan class) → **yeşil**.
+>
+> **🔴 M5 ve M12 — KAPATILMADI, SAYILDI (ikinci durma kuralı).** İkisi de
+> **alan taşımayan bağlantı**: `<a class="btn min-h-11" href="/admin/policies">Turn
+> this guarantee off</a>` (ölü kontrol, yazma yok) ve
+> `<a href="/admin/reports.csv">` (başka bölümün GET'i, bir `audit_log` satırı yazar).
+> Rota ağı ikisini de onaylıyor çünkü adresler **gerçekten mount**, ad türetiminin
+> okuyacağı alan yok. **Neden yamalanmadı:** *"bölüm yalnız kendi rotalarına işaret
+> etsin"* ağı, kabuğun bağlantıları · sekme tablosu · panelin meşru bölümler arası
+> bağlantıları için istisna isterdi, ve her istisna bir sonraki kaçışın yeri olur —
+> bu ağ iki fazda **on kez** yenildi. **Tehlikeli yarı zaten tutuluyor:** aynı
+> bağlantı bir **alan** taşırsa (başka bölümün yazma rotasına form) ad türetimi
+> **kırmızı** veriyor, ölçüldü. Boşluk tam olarak *"alansız bir `<a>`"* ve
+> `policies_test.go`'nun envanterine **markup'ıyla birlikte** yazıldı.
+>
+> **Ayrıca düzeltildi:** rota ağının *"başka bölümün yazma rotasına nişan alan form"*
+> iddiası **yanlıştı** (mekanizma bölüm ayırt etmiyor) — yorum ölçüme eşitlendi ·
+> çapraz-tenant sürüm testinin *"RLS'in yaptığı budur"* cümlesi **varsayımdı**, artık
+> **rota yarısını** ölçtüğünü söylüyor · marka ağının fixture'ı zenginleştirildi
+> (`newFakeRules` artık `PolicyID` + scope target taşıyor) ve **hemen bir ürün kusuru
+> buldu**: yazma formundaki mekân onay kutuları hiçbir dokunma-hedefi sınıfı
+> taşımıyordu → `min-h-11 w-11` eklendi (eldivenli el, marka §9) · mutlak bölgenin
+> **nerede başladığı** artık envanterde yazılı.
+>
+> **6. Ölçümler — 2026-08-12 (**5. tur**), temiz veritabanında, gerçek imzalı
+> oturumla `curl`, port 8099 `lsof` ile doğrulandı.**
+>
+> **Yeniden üretme tarifi (tabanın tamamı):** `make db-reset` **kırık** (00013'ün
+> Down'u; orkestratörün backlog'u), o yüzden şema düşürülüp kuruldu —
+> `DROP SCHEMA public CASCADE` + `CREATE SCHEMA public` + db-init'in iki uzantısı ve
+> dört GRANT'ı + `make migrate seed` + **`make simulate-day`**. Son adım şart:
+> `seed` policy satırı yazmaz, baseline'ı ilk tap materialise eder.
+>
+> ⚠️ **BU TABLONUN BAYT SÜTUNU DA GEÇERSİZLEŞTİ (11. turda işaretlendi).** Bir denetçi
+> canlı ölçtü: KF **61.473** · KM **20.649** · `change` **4.201** · `version` **3.203**.
+> KM'de bekleyen kayıt **yok**, yani +439 rozetle **açıklanamaz** — tablonun kendi
+> kuralı gereği *"sayfa değişti"* (6–11. turlar cümleleri, başlıkları ve iki formu
+> değiştirdi). **Sayılar üstü çizili; YAPISAL betimleyici hâlâ doğru** ve bayatlamayan
+> yarı odur:
+>
+> | sayfa | tenant / koşul | yapısal | ~~bayt~~ |
+> |---|---|---|---|
+> | `/admin/policies` | KF owner | **9 kural · 29 form · 9 sürüm bağlantısı** | ~~60.864~~ |
+> | `/admin/policies` | KM owner — hiç materialise edilmemiş | **0 kontrol** | ~~20.210~~ |
+> | `/admin/policies/version` | KF — bir sürümün gövdesi | tek sürüm | ~~3.188~~ |
+> | `/admin/policies/change` | KF — kapatma onayı | tek onay | ~~4.031~~ |
+> | `/admin` | KF | gözlem | ~~31.969~~ |
+> | `/admin` | KM | gözlem | 4.501 (birebir tekrar üretildi) |
+>
+> **Ders:** bir bayt sayısı sayfanın **her** cümlesine bağlıdır, yani metin düzeltmesi
+> yapan her tur onu bayatlatır. Yapısal betimleyici (kaç form, kaç kontrol, kaç
+> bağlantı) o turlarda **değişmedi** ve yeniden üretilebilir olan odur.
+>
+> ⚠️ **HİÇBİR SATIR "HEDEF" DEĞİL — HEPSİ GÖZLEM.** 4. turda bu tablo *"`/admin/policies`
+> satırları yapıya bağlıdır, hedeftir"* diyordu; bir denetçi üç KF satırının hepsini
+> **tam +2 bayt** ölçerek çürüttü ve sebebini buldu: **kabuk her sayfada inceleme
+> rozetini basıyor** (`aria-label="N records waiting for review"` + `>N<`) ve N
+> `make test` ile büyüyor. KM satırları birebir tekrar üretiliyor çünkü KM'de bekleyen
+> kayıt yok. Doğru okuma: **± rozet genişliği** toleransıyla hepsi gözlem.
+>
+> ⚠️ **KF manager satırı bu turda YENİDEN ÖLÇÜLMEDİ.** 3. turda 37.864 idi; sayfa o
+> günden beri değişti (`.filter-input`, seçici), ve ölçmek geçici bir manager satırı
+> yazmayı gerektiriyor. Bayat bir sayı yazmaktansa **ölçülmedi** demek doğrusu. Rol
+> ayrımının kendisi testlerde ve 3. turda canlı olarak ölçülü: manager sayfasında
+> **0 kontrol**, 9 sürüm bağlantısı.
+>
+> **Artık bırakılmadı.** BL-A/BL-B kanıtları ve canlı seçici ölçümü için yazılan
+> satırlar taban yeniden kurularak temizlendi. ⚠️ **Ve o doğrulama BİR ANLIK GÖRÜNTÜ**
+> — bu satır bir tur boyunca *"sonrası doğrulandı: `policies=0`"* diye **hedge
+> edilmeden** duruyordu, oysa hemen üstündeki bayt tablosu *"hepsi gözlem, `make test`
+> ile büyür"* diye doğru hedge ediliyor; aynı standart burada da geçerli. Bir denetçi
+> tabandan **yedi dakika sonra**, hiçbir şey koşturmadan `policies=780` ölçtü: paketin
+> kendi testleri fixture tenant'ları yazıyor. **Yapıya bağlı olan ve bayatlamayan
+> ikisi:** `tenant-layer` policy sayısı ve `unique index=1`.
+>
+> **7. ⚠️ ORKESTRATÖRE: `make test` bu turda BİR KEZ kırmızı çıktı ve sebebi kod
+> DEĞİLDİ.** `TestSeedDB_ADayAtKFStJulians` ve
+> `TestSeedDB_WithoutTheWaitTheDayCollapsesIntoIgnoredRows` *"flag, want ok"* dedi.
+> Sebep: canlı bayt ölçümü için KF'nin `IP proof of place` baseline kuralını
+> **aynı geliştirme veritabanında** test suite koşarken kapatmıştım. Kural geri
+> açıldıktan sonra ikisi de **yeşil** (`go test -run 'TestSeedDB_ADayAtKFStJulians|TestSeedDB_WithoutTheWait'
+> ./internal/handler/ → ok, 63,9 sn`). Ders: bu repoda **canlı panel yazma ölçümü
+> ile `make test` aynı anda koşturulamaz** — dev veritabanı paylaşımlı.
 
 ---
 

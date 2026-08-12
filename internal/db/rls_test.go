@@ -1322,3 +1322,118 @@ func TestResolveColumns_MatchSchema(t *testing.T) {
 		t.Errorf("session.RevokedAt = %v, want nil (not revoked)", sess.RevokedAt)
 	}
 }
+
+// TestPolicyTables_KeepTheirRLSAndPrivilegesAfterTheNameIndex is the assertion
+// migration 00015's header CLAIMED existed and did not.
+//
+// 🔴 THE CLAIM WAS THE DEFECT, NOT THE FACT. 00015 adds UNIQUE (tenant_id, layer,
+// name) on `policies` and its header says the change touches no GRANT, no policy and
+// no RLS setting -- "asserted mechanically by internal/db/rls_test.go, which reads
+// relrowsecurity/relforcerowsecurity and the privilege bits rather than trusting this
+// paragraph". An audit measured that this file made no such assertion for ANY of the
+// three policy tables: the repository does it for locations, tags, employee_invites
+// and audit_log, and the policy tables were simply missing. The fact was true; the
+// guarantee was not, so the NEXT migration that broke a grant here would have hit
+// nothing.
+//
+// WHAT IT PINS, per table, is exactly what 00007 installed and what 00015 must not
+// have moved:
+//
+//	policies            SELECT, INSERT, UPDATE   and NO DELETE  (section 4.6: disable, never delete)
+//	policy_versions     SELECT, INSERT           and neither UPDATE nor DELETE (section 4.3: append-only)
+//	policy_attachments  all four                                 (a binding carries no decision history)
+//
+// plus ENABLE + FORCE ROW LEVEL SECURITY and exactly one policy on each -- the "RLS
+// five" section 6 requires, read from the catalog rather than from the migration text.
+//
+// ⚠️ THE CATALOG ANSWER IS NOT ACCEPTED ALONE for the one bit that matters most:
+// `policies` must actually REFUSE a delete, so the privilege is exercised as well
+// (M1-04's lesson, the same reason TestLocations_WiFiSSIDNeedsNoNewGrantOrPolicy
+// exercises its grant).
+func TestPolicyTables_KeepTheirRLSAndPrivilegesAfterTheNameIndex(t *testing.T) {
+	d := appDB(t)
+	assertAppRole(t, d)
+
+	for _, tc := range []struct {
+		table                  string
+		wantSelect, wantInsert bool
+		wantUpdate, wantDelete bool
+		why                    string
+	}{
+		{"policies", true, true, true, false,
+			"section 4.6: a policy is switched off, never deleted -- its version history is evidence"},
+		{"policy_versions", true, true, false, false,
+			"section 4.3: append-only, because every transaction pins the version that decided it"},
+		{"policy_attachments", true, true, true, true,
+			"a binding records where a rule applies today and carries no decision history"},
+	} {
+		t.Run(tc.table, func(t *testing.T) {
+			var sel, ins, upd, del, rowSec, forceSec bool
+			var policies int
+			if err := d.pool.QueryRow(context.Background(), `
+				SELECT has_table_privilege('tappa_app', $1, 'SELECT'),
+				       has_table_privilege('tappa_app', $1, 'INSERT'),
+				       has_table_privilege('tappa_app', $1, 'UPDATE'),
+				       has_table_privilege('tappa_app', $1, 'DELETE'),
+				       (SELECT relrowsecurity    FROM pg_class WHERE oid = $1::regclass),
+				       (SELECT relforcerowsecurity FROM pg_class WHERE oid = $1::regclass),
+				       (SELECT count(*) FROM pg_policies WHERE tablename = $1)`,
+				tc.table,
+			).Scan(&sel, &ins, &upd, &del, &rowSec, &forceSec, &policies); err != nil {
+				t.Fatalf("read catalog for %s: %v", tc.table, err)
+			}
+			if sel != tc.wantSelect || ins != tc.wantInsert || upd != tc.wantUpdate || del != tc.wantDelete {
+				t.Errorf("tappa_app on %s: select=%v insert=%v update=%v delete=%v, want %v/%v/%v/%v.\n%s",
+					tc.table, sel, ins, upd, del,
+					tc.wantSelect, tc.wantInsert, tc.wantUpdate, tc.wantDelete, tc.why)
+			}
+			if !rowSec || !forceSec || policies != 1 {
+				t.Errorf("%s RLS state: rowsecurity=%v force=%v policies=%d, want true/true/1 "+
+					"(00007 installed them; no later migration may disturb them)",
+					tc.table, rowSec, forceSec, policies)
+			}
+		})
+	}
+
+	// AND THE ONE THAT IS EXERCISED RATHER THAN READ: `policies` must refuse a DELETE
+	// even for a row this tenant owns. A catalog bit that says "no privilege" and a
+	// statement that succeeds anyway is the M1-04 shape.
+	// ⚠️ THE PROBE ROW CANNOT BE CLEANED UP, WHICH IS THE POINT AND ALSO THE COST. It is
+	// written into buildFixture's THROWAWAY tenant (a fresh uuid per run) rather than
+	// into a seeded business, so it does not accumulate anywhere a person looks — but it
+	// does accumulate: `policies` GRANTs no DELETE, so every run of this test leaves one
+	// more row in one more fixture tenant, exactly like every other DB test in this
+	// repository leaves its fixtures. Counted rather than solved; `make db-reset` is the
+	// only thing that clears it.
+	fx := buildFixture(t, d)
+	var id uuid.UUID
+	if err := d.WithTenant(context.Background(), fx.tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		return tx.QueryRow(ctx,
+			`INSERT INTO policies (tenant_id, name, layer) VALUES ($1, $2, 'tenant') RETURNING id`,
+			fx.tenantID, "delete-probe-"+uuid.NewString()).Scan(&id)
+	}); err != nil {
+		t.Fatalf("seeding a policy to try deleting: %v", err)
+	}
+	err := d.WithTenant(context.Background(), fx.tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		_, e := tx.Exec(ctx, `DELETE FROM policies WHERE tenant_id = $1 AND id = $2`, fx.tenantID, id)
+		return e
+	})
+	// 🔴 THE REFUSAL MUST BE THE PRIVILEGE ONE, NOT ANY ERROR. A probe that accepts
+	// "something went wrong" would pass on a typo, a dead connection or a constraint
+	// that happens to fire first — and would go on passing the day the GRANT came back.
+	// 42501 is insufficient_privilege, which is what REVOKE DELETE produces.
+	switch {
+	case err == nil:
+		t.Error("tappa_app DELETED a policy row. 00007 revokes DELETE precisely so a rule is " +
+			"switched off rather than removed, and M6-09 phase B's duplicate-name guarantee " +
+			"rests on a duplicate being unremovable rather than merely discouraged.")
+	default:
+		var pg *pgconn.PgError
+		if !errors.As(err, &pg) || pg.Code != "42501" {
+			t.Errorf("the DELETE was refused with %v, want SQLSTATE 42501 "+
+				"(insufficient_privilege). Accepting any error would let this pass for the "+
+				"wrong reason — including on the day the privilege comes back and something "+
+				"else fails first.", err)
+		}
+	}
+}

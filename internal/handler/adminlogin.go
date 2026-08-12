@@ -164,6 +164,14 @@ type AdminAuth struct {
 	// than a promise. See policies.go's panelRules.
 	rules panelRules
 
+	// scribe is the policies section's WRITE side (M6-09 phase B). It is a SECOND
+	// field beside `rules` rather than a widening of it, and policies.go's panelRules
+	// predicted exactly this: reading the rulebook and rewriting it are different
+	// authorities and should not travel behind one value. The narrow read interface is
+	// what keeps "a page view cannot write a policy row" a fact the compiler helps
+	// with; folding the two together would give every reader a Save method.
+	scribe panelScribe
+
 	// See adminratelimit.go for why there are three and what each may refuse.
 	floodLimiter   *limiter
 	attemptLimiter *limiter
@@ -176,7 +184,7 @@ type AdminAuth struct {
 
 // NewAdminAuth wires the flow. Every dependency is required: a nil recorder would
 // silently drop the section 4.6 trail and a nil manager cannot fail safely.
-func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLedger, queue panelQueue, reviewer panelReviewer, staff panelStaff, invites panelInviter, venues panelVenues, plaques panelPlaques, entries panelRecorder, rules panelRules, cfg *config.Config, log *slog.Logger) (*AdminAuth, error) {
+func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLedger, queue panelQueue, reviewer panelReviewer, staff panelStaff, invites panelInviter, venues panelVenues, plaques panelPlaques, entries panelRecorder, rules panelRules, scribe panelScribe, cfg *config.Config, log *slog.Logger) (*AdminAuth, error) {
 	switch {
 	case admins == nil:
 		return nil, errors.New("handler: nil admin authenticator")
@@ -243,6 +251,13 @@ func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLed
 	// halves were never assembled.
 	case rules == nil:
 		return nil, errors.New("handler: nil policy rulebook")
+	// THE SAME ARGUMENT, ONCE MORE (M6-09 phase B), and this one refuses the gate as
+	// well as the buttons. A nil scribe would put an on/off switch and a Save on the
+	// policies screen whose handler panics -- and, worse, it would remove the ONLY
+	// place `policy:edit` is enforced, because the gate lives inside the writer
+	// (internal/domain/tenant.RuleWriter.authorise) rather than in this package.
+	case scribe == nil:
+		return nil, errors.New("handler: nil policy scribe")
 	case cfg == nil:
 		return nil, errors.New("handler: nil config")
 	}
@@ -269,6 +284,7 @@ func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLed
 		plaques:        plaques,
 		entries:        entries,
 		rules:          rules,
+		scribe:         scribe,
 		cookies:        adminauth.NewCookies(cfg),
 		short:          newAdminCookies(cfg),
 		choices:        choices,

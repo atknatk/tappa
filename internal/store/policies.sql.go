@@ -12,6 +12,166 @@ import (
 	"github.com/google/uuid"
 )
 
+const appendPolicyVersion = `-- name: AppendPolicyVersion :one
+INSERT INTO policy_versions (tenant_id, policy_id, version_no, document, created_by)
+VALUES ($1, $2, $3, $4, $5)
+RETURNING id, version_no, created_at
+`
+
+type AppendPolicyVersionParams struct {
+	TenantID  uuid.UUID
+	PolicyID  uuid.UUID
+	VersionNo int32
+	Document  []byte
+	CreatedBy *uuid.UUID
+}
+
+type AppendPolicyVersionRow struct {
+	ID        uuid.UUID
+	VersionNo int32
+	CreatedAt time.Time
+}
+
+// Append a new version of a policy's document. THE ONLY WAY TO "EDIT" A RULE.
+//
+// 🔴 THERE IS NO UPDATE STATEMENT IN THIS FILE AND THERE CANNOT BE ONE (§4.3):
+// policy_versions revokes UPDATE and DELETE from tappa_app and carries a BEFORE
+// UPDATE OR DELETE trigger that stops even the table owner. Every transaction
+// pins the policy_version_id that decided it, so rewriting a version would
+// rewrite why a past, immutable record was flagged.
+//
+// NO ON CONFLICT. The provisioning statements above are idempotent because a
+// second tap must be free; this one is a deliberate act by a named person, and
+// swallowing a duplicate would tell them their edit was saved when the row that
+// exists is somebody else's.
+func (q *Queries) AppendPolicyVersion(ctx context.Context, arg AppendPolicyVersionParams) (AppendPolicyVersionRow, error) {
+	row := q.db.QueryRow(ctx, appendPolicyVersion,
+		arg.TenantID,
+		arg.PolicyID,
+		arg.VersionNo,
+		arg.Document,
+		arg.CreatedBy,
+	)
+	var i AppendPolicyVersionRow
+	err := row.Scan(&i.ID, &i.VersionNo, &i.CreatedAt)
+	return i, err
+}
+
+const attachPolicyResource = `-- name: AttachPolicyResource :one
+INSERT INTO policy_attachments (tenant_id, policy_id, resource)
+VALUES ($1, $2, $3)
+RETURNING id, resource
+`
+
+type AttachPolicyResourceParams struct {
+	TenantID uuid.UUID
+	PolicyID uuid.UUID
+	Resource string
+}
+
+type AttachPolicyResourceRow struct {
+	ID       uuid.UUID
+	Resource string
+}
+
+// Bind a policy to one resource ('*', 'location/<id>', 'department/<id>', ...).
+//
+// NO ON CONFLICT, for AppendPolicyVersion's reason: a duplicate binding means the
+// manager pressed a button for something that was already true, and the honest
+// answer is to say so rather than to report a change that did not happen.
+func (q *Queries) AttachPolicyResource(ctx context.Context, arg AttachPolicyResourceParams) (AttachPolicyResourceRow, error) {
+	row := q.db.QueryRow(ctx, attachPolicyResource, arg.TenantID, arg.PolicyID, arg.Resource)
+	var i AttachPolicyResourceRow
+	err := row.Scan(&i.ID, &i.Resource)
+	return i, err
+}
+
+const createTenantPolicy = `-- name: CreateTenantPolicy :one
+INSERT INTO policies (tenant_id, name, layer, enabled, created_by)
+VALUES ($1, $2, 'tenant', $3, $4)
+RETURNING id, name, layer, enabled
+`
+
+type CreateTenantPolicyParams struct {
+	TenantID  uuid.UUID
+	Name      string
+	Enabled   bool
+	CreatedBy *uuid.UUID
+}
+
+type CreateTenantPolicyRow struct {
+	ID      uuid.UUID
+	Name    string
+	Layer   string
+	Enabled bool
+}
+
+// Create a CUSTOMER-authored policy container.
+//
+// 🔴 layer IS FIXED TO 'tenant' IN THE STATEMENT, NOT TAKEN AS A PARAMETER, for
+// the reason EnsureBaselinePolicy fixes it to 'baseline': a caller that could
+// pass a layer could author a row the tap path reads as Tappa's own shipped
+// rulebook. ('guardrail' is not spellable by either statement -- 00007's CHECK
+// sees to that, which is what keeps a §4 red line out of the database.)
+//
+// created_by IS THE SIGNED-IN ADMIN and it is REQUIRED here, unlike the baseline
+// provisioning path where it is NULL because the author is Tappa's own
+// provisioning. ⚠️ The column is FK-LESS (00007 defers the admin FK to M6/M7),
+// so the database does NOT verify that the id names an admin of this tenant --
+// the caller does, by taking it from a resolved session and never from a form.
+// The screen says "recorded" rather than "verified" for exactly this reason.
+func (q *Queries) CreateTenantPolicy(ctx context.Context, arg CreateTenantPolicyParams) (CreateTenantPolicyRow, error) {
+	row := q.db.QueryRow(ctx, createTenantPolicy,
+		arg.TenantID,
+		arg.Name,
+		arg.Enabled,
+		arg.CreatedBy,
+	)
+	var i CreateTenantPolicyRow
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Layer,
+		&i.Enabled,
+	)
+	return i, err
+}
+
+const detachPolicyResource = `-- name: DetachPolicyResource :one
+DELETE FROM policy_attachments
+WHERE tenant_id = $1 AND policy_id = $2 AND resource = $3
+RETURNING id, resource
+`
+
+type DetachPolicyResourceParams struct {
+	TenantID uuid.UUID
+	PolicyID uuid.UUID
+	Resource string
+}
+
+type DetachPolicyResourceRow struct {
+	ID       uuid.UUID
+	Resource string
+}
+
+// Remove one binding. A REAL DELETE, which 00007 grants on this table alone.
+//
+// 🔴 IT IS NOT A §4.6 VIOLATION AND THE DIFFERENCE IS WORTH STATING, because
+// every other "remove" in this product is a status change. An attachment records
+// where a policy is bound TODAY; it is not evidence about a past decision, and it
+// cannot become one -- a record's explanation is pinned by policy_version_id and
+// policy_context (M3-07), never by these rows. The trail of the removal is the
+// audit_log row the caller writes in the SAME transaction.
+//
+// RETURNING makes "nothing was bound there" distinguishable from "it was removed"
+// without a second SELECT.
+func (q *Queries) DetachPolicyResource(ctx context.Context, arg DetachPolicyResourceParams) (DetachPolicyResourceRow, error) {
+	row := q.db.QueryRow(ctx, detachPolicyResource, arg.TenantID, arg.PolicyID, arg.Resource)
+	var i DetachPolicyResourceRow
+	err := row.Scan(&i.ID, &i.Resource)
+	return i, err
+}
+
 const ensureBaselinePolicy = `-- name: EnsureBaselinePolicy :exec
 INSERT INTO policies (id, tenant_id, name, layer, enabled, created_by)
 VALUES ($1, $2, $3, 'baseline', true, NULL)
@@ -59,11 +219,19 @@ type EnsureBaselinePolicyParams struct {
 //
 // THE RULE IS "A NON-ARBITER UNIQUE INDEX", NOT "THE PRIMARY KEY". ON CONFLICT
 // arbitrates on ONE index; the speculative insertion can still trip any OTHER
-// unique index on the row. policies carries TWO: policies_pkey (id) and
-// policies_id_tenant_key (id, tenant_id) -- the latter added by 00007 as a
-// composite FK target. Arbitrating on either one leaves the other exposed, which
-// is why both columns of the table above fail and why swapping the target only
-// moves the collision. policy_attachments never fails for a structural reason
+// unique index on the row. policies carries THREE now: policies_pkey (id),
+// policies_id_tenant_key (id, tenant_id) -- added by 00007 as a composite FK target
+// -- and policies_tenant_layer_name_key (tenant_id, layer, name), added by 00015.
+// Arbitrating on any ONE leaves the others exposed, which is why both columns of the
+// table above fail and why swapping the target only moves the collision.
+//
+// ⚠️ THE COUNT SAID "TWO" UNTIL 00015 SHIPPED, AND THE WHOLE ARGUMENT OF THIS
+// PARAGRAPH DERIVES FROM IT ("arbitrating on one leaves the OTHER exposed"), so an
+// enumeration that is one short is an argument that is one short. The CONCLUSION does
+// not change and 00015's own header measured why: baseline ids are derived with
+// uuid v5 from (tenant, name) and layer is fixed, so the id index and the name index
+// have the SAME collision set for this statement -- the third index adds no new way
+// for EnsureBaselinePolicy to fail. policy_attachments never fails for a structural reason
 // instead: it does not supply id at all (see its INSERT), so gen_random_uuid()
 // gives every racer a distinct primary key and there is no second index to trip.
 //
@@ -164,6 +332,143 @@ func (q *Queries) EnsurePolicyAttachment(ctx context.Context, arg EnsurePolicyAt
 	return err
 }
 
+const getPolicyForUpdate = `-- name: GetPolicyForUpdate :one
+
+SELECT id, name, layer, enabled
+FROM policies
+WHERE tenant_id = $1 AND id = $2
+FOR UPDATE
+`
+
+type GetPolicyForUpdateParams struct {
+	TenantID uuid.UUID
+	ID       uuid.UUID
+}
+
+type GetPolicyForUpdateRow struct {
+	ID      uuid.UUID
+	Name    string
+	Layer   string
+	Enabled bool
+}
+
+// ============================================================================
+// M6-09 PHASE B — THE WRITE SIDE. Everything above this line is a SELECT or an
+// idempotent provisioning INSERT the TAP path owns; everything below is the
+// PANEL changing a customer's rulebook on purpose.
+//
+// 🔴 WHAT THE SCHEMA ALLOWS EACH TABLE TO DO IS DIFFERENT, AND IT DECIDES THE
+// SHAPE OF THESE STATEMENTS RATHER THAN BEING A DETAIL UNDER THEM (00007):
+//
+//	policies            GRANT SELECT, INSERT, UPDATE  + REVOKE DELETE
+//	                    -> the enabled toggle is legal; a hard delete is not
+//	                       (§4.6: disable, never delete).
+//	policy_versions     GRANT SELECT, INSERT          + REVOKE UPDATE, DELETE
+//	                    + TRIGGER policy_versions_no_mutation (binds the owner
+//	                       too) -> "editing a rule" can ONLY be a new row. The
+//	                       append-only rule is enforced by the database, not by
+//	                       the discipline of whoever writes the next query.
+//	policy_attachments  GRANT SELECT, INSERT, UPDATE, DELETE
+//	                    -> a real DELETE, deliberately: an attachment carries no
+//	                       decision history (a past decision is pinned by
+//	                       transactions.policy_version_id), so unbinding a scope
+//	                       loses no evidence.
+//
+// 🔴 §4.5 (belt + braces) — EVERY statement below carries an explicit tenant_id
+// in its WHERE **or** in its VALUES, beside RLS. The derived §4.5 net in
+// internal/domain/tenant/query_test.go reads BOTH shapes as of M6-09 phase B: it
+// used to walk WHERE clauses only, which made an `INSERT ... VALUES` invisible to it
+// (backlog T20), and shipping three new INSERTs under a belt that could not see them
+// would have made the belt a description of a defence it did not have. It now lines
+// the column list up with the value list and requires the tenant column to come from
+// @tenant_id. Mutation measured: swapping the INSERT's first two values turns it red.
+// Read one policy row and HOLD it for the rest of the transaction.
+//
+// 🔴 FOR UPDATE IS WHY THIS EXISTS AT ALL — the row could be read from
+// ListPolicySet. Two panel requests toggling the same rule would otherwise both
+// read `enabled=true`, both write, and both append an audit row saying they
+// changed it from true; the trail would then contain a change that never
+// happened. The lock makes the read-then-write one atomic step, which is the
+// same argument §4.4 makes about `ctr` in a place where the cost is a wrong
+// audit row rather than a replayed tap.
+//
+// It returns the CURRENT enabled value because the audit row records what the
+// state was before, and only a locked read can claim that honestly.
+func (q *Queries) GetPolicyForUpdate(ctx context.Context, arg GetPolicyForUpdateParams) (GetPolicyForUpdateRow, error) {
+	row := q.db.QueryRow(ctx, getPolicyForUpdate, arg.TenantID, arg.ID)
+	var i GetPolicyForUpdateRow
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Layer,
+		&i.Enabled,
+	)
+	return i, err
+}
+
+const getPolicyVersionDocument = `-- name: GetPolicyVersionDocument :one
+SELECT v.id, v.version_no, v.created_at, v.created_by, v.document,
+       p.name AS policy_name, p.layer, p.enabled,
+       a.full_name AS author_name,
+       octet_length(v.document::text)::int AS document_bytes
+FROM policy_versions v
+JOIN policies p
+  ON p.tenant_id = $1 AND p.id = v.policy_id
+LEFT JOIN admin_users a
+  ON a.tenant_id = $1 AND a.id = v.created_by
+WHERE v.tenant_id = $1 AND v.policy_id = $2 AND v.version_no = $3
+`
+
+type GetPolicyVersionDocumentParams struct {
+	TenantID  uuid.UUID
+	PolicyID  uuid.UUID
+	VersionNo int32
+}
+
+type GetPolicyVersionDocumentRow struct {
+	ID            uuid.UUID
+	VersionNo     int32
+	CreatedAt     time.Time
+	CreatedBy     *uuid.UUID
+	Document      []byte
+	PolicyName    string
+	Layer         string
+	Enabled       bool
+	AuthorName    *string
+	DocumentBytes int32
+}
+
+// ONE version's body -- the bounded route M6-09 phase A said it did not have.
+//
+// 🔴 WHY IT IS ONE ROW AND NOT A PAGE. ListPolicyVersions deliberately carries no
+// document column: internal/policy's DefaultLimits bounds documents per tenant,
+// versions per policy AND bytes per document SEPARATELY, so a ROW cap leaves the
+// BYTES uncapped and a page of the largest legal documents is megabytes into one
+// panel request. A single version is bounded by DefaultMaxDocumentBytes alone,
+// which is the whole of the fix: the bound comes from the shape of the query, not
+// from a LIMIT nobody can size.
+//
+// The author is resolved the same way ListPolicyVersions resolves it, through an
+// explicit same-tenant LEFT JOIN, so an id that names nobody this tenant can see
+// is reported as unresolvable rather than printed (§4.5 doing its job).
+func (q *Queries) GetPolicyVersionDocument(ctx context.Context, arg GetPolicyVersionDocumentParams) (GetPolicyVersionDocumentRow, error) {
+	row := q.db.QueryRow(ctx, getPolicyVersionDocument, arg.TenantID, arg.PolicyID, arg.VersionNo)
+	var i GetPolicyVersionDocumentRow
+	err := row.Scan(
+		&i.ID,
+		&i.VersionNo,
+		&i.CreatedAt,
+		&i.CreatedBy,
+		&i.Document,
+		&i.PolicyName,
+		&i.Layer,
+		&i.Enabled,
+		&i.AuthorName,
+		&i.DocumentBytes,
+	)
+	return i, err
+}
+
 const listPolicyAttachments = `-- name: ListPolicyAttachments :many
 SELECT policy_id, resource
 FROM policy_attachments
@@ -204,6 +509,46 @@ func (q *Queries) ListPolicyAttachments(ctx context.Context, arg ListPolicyAttac
 	for rows.Next() {
 		var i ListPolicyAttachmentsRow
 		if err := rows.Scan(&i.PolicyID, &i.Resource); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listPolicyDepartmentTargets = `-- name: ListPolicyDepartmentTargets :many
+SELECT id, name
+FROM departments
+WHERE tenant_id = $1
+ORDER BY name, id
+LIMIT $2
+`
+
+type ListPolicyDepartmentTargetsParams struct {
+	TenantID uuid.UUID
+	RowLimit int32
+}
+
+type ListPolicyDepartmentTargetsRow struct {
+	ID   uuid.UUID
+	Name string
+}
+
+// The departments a policy can be bound to. ListPolicyVenueTargets' twin; see there
+// for why they are two statements.
+func (q *Queries) ListPolicyDepartmentTargets(ctx context.Context, arg ListPolicyDepartmentTargetsParams) ([]ListPolicyDepartmentTargetsRow, error) {
+	rows, err := q.db.Query(ctx, listPolicyDepartmentTargets, arg.TenantID, arg.RowLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListPolicyDepartmentTargetsRow{}
+	for rows.Next() {
+		var i ListPolicyDepartmentTargetsRow
+		if err := rows.Scan(&i.ID, &i.Name); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -334,6 +679,58 @@ func (q *Queries) ListPolicySet(ctx context.Context, tenantID uuid.UUID) ([]List
 	return items, nil
 }
 
+const listPolicyVenueTargets = `-- name: ListPolicyVenueTargets :many
+SELECT id, name
+FROM locations
+WHERE tenant_id = $1
+ORDER BY name, id
+LIMIT $2
+`
+
+type ListPolicyVenueTargetsParams struct {
+	TenantID uuid.UUID
+	RowLimit int32
+}
+
+type ListPolicyVenueTargetsRow struct {
+	ID   uuid.UUID
+	Name string
+}
+
+// The venues a policy can be bound to.
+//
+// 🔴 IT IS A NARROW PROJECTION ON PURPOSE (§4.7). The locations section's own reads
+// carry static IP ranges, GPS coordinates and Wi-Fi SSIDs; a scope picker needs a
+// name and an id, so it selects a name and an id. Reusing the fatter read would put
+// three things this page has no use for onto a Cache-Control: no-store screen.
+//
+// ⚠️ IT IS TWO QUERIES RATHER THAN ONE UNION, AND THE REASON IS THE §4.5 BELT
+// ITSELF. The first version was one statement with a UNION ALL inside a subquery,
+// and internal/domain/tenant/query_test.go's derived scan could not read it: the
+// WHERE it extracted ran on past the end of the first branch and swept up the second
+// branch's text, so the belt reported a correctly scoped query as unscoped. Two plain
+// statements are readable by the check that has to prove them, and "the checker can
+// see it" is worth more here than one round trip fewer.
+func (q *Queries) ListPolicyVenueTargets(ctx context.Context, arg ListPolicyVenueTargetsParams) ([]ListPolicyVenueTargetsRow, error) {
+	rows, err := q.db.Query(ctx, listPolicyVenueTargets, arg.TenantID, arg.RowLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListPolicyVenueTargetsRow{}
+	for rows.Next() {
+		var i ListPolicyVenueTargetsRow
+		if err := rows.Scan(&i.ID, &i.Name); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listPolicyVersions = `-- name: ListPolicyVersions :many
 SELECT p.id AS policy_id, p.name, p.layer, p.enabled,
        v.id AS version_id, v.version_no, v.created_at AS version_created_at,
@@ -452,4 +849,179 @@ func (q *Queries) ListPolicyVersions(ctx context.Context, arg ListPolicyVersions
 		return nil, err
 	}
 	return items, nil
+}
+
+const nextPolicyVersionNo = `-- name: NextPolicyVersionNo :one
+SELECT COALESCE(MAX(version_no), 0)::int + 1 AS next_no
+FROM policy_versions
+WHERE tenant_id = $1 AND policy_id = $2
+`
+
+type NextPolicyVersionNoParams struct {
+	TenantID uuid.UUID
+	PolicyID uuid.UUID
+}
+
+// The next version number for one policy: max + 1, or 1 when there is none.
+//
+// 🔴 THE APPLICATION ASSIGNS version_no AND THE DATABASE ONLY REFUSES A CLASH.
+// 00007 says so in as many words ("monotonic per policy, assigned by the app")
+// and the uniqueness is UNIQUE (tenant_id, policy_id, version_no). So two
+// concurrent saves BOTH compute N+1 and one of them gets SQLSTATE 23505. That is
+// fail-closed and correct -- the loser's document is not silently renumbered on
+// top of the winner's -- but it is NOT a 500: the caller translates it into "the
+// rule changed while you were reading it", because that is what happened.
+//
+// ⚠️ WHAT IS MEASURED AND WHAT IS NOT, because an earlier version of this line said
+// "measured under real Postgres" and that was an overclaim. What
+// rulewriter_db_test.go's concurrent case measures is the INVARIANT: after N racers
+// the version numbers are exactly 1..N, with no gap and no repeat, and no racer fails
+// with anything other than ErrVersionRace. In practice GetPolicyForUpdate serialises
+// them on the parent row, so the observed run is `racers=8 succeeded=8
+// refused-as-race=0` -- i.e. the 23505 branch is NOT exercised by that test, and the
+// test says so in its own text. The translation itself is covered by the unit path;
+// the RACE that would trigger it is bounded rather than provoked.
+//
+// ⚠️ THIS READ IS INSIDE THE CALLER'S TRANSACTION, AFTER GetPolicyForUpdate has
+// locked the parent row, so two writers to the SAME policy serialise here and the
+// clash is rare rather than routine. It is still possible: a policy created and
+// versioned in one transaction is not locked by anybody until it exists.
+func (q *Queries) NextPolicyVersionNo(ctx context.Context, arg NextPolicyVersionNoParams) (int32, error) {
+	row := q.db.QueryRow(ctx, nextPolicyVersionNo, arg.TenantID, arg.PolicyID)
+	var next_no int32
+	err := row.Scan(&next_no)
+	return next_no, err
+}
+
+const policyNameTaken = `-- name: PolicyNameTaken :one
+SELECT EXISTS (
+    SELECT 1 FROM policies
+    WHERE tenant_id = $1 AND layer = 'tenant' AND name = $2
+) AS taken
+`
+
+type PolicyNameTakenParams struct {
+	TenantID uuid.UUID
+	Name     string
+}
+
+// Does this business already have a policy with this name?
+//
+// 🔴 IT EXISTS BECAUSE A DUPLICATE CANNOT BE UNDONE. `policies` has no
+// UNIQUE (tenant_id, name) -- measured on the development database -- and 00007
+// REVOKES DELETE from tappa_app, so two rows with the same name are permanent: both
+// are in the decision set, and neither appears in the other's version history. The
+// panel's authoring form shipped without a policy id for a round, so pressing save
+// twice produced exactly that pair while the handler's own comment claimed it was
+// "reversible by appending a third".
+//
+// 🔴 IT IS A LOOK, NOT A LOCK, AND SINCE 00015 IT NO LONGER HAS TO BE. This is a
+// read-then-write: two transactions can both read "not taken" and both insert.
+// Measured with -race against real Postgres: 8 concurrent saves gave 1 insert and 7
+// refusals, 16 gave 16 INSERTS.
+//
+// ⚠️ THOSE COUNTS ARE HARDWARE-DEPENDENT AND THE CAVEAT HAS TO TRAVEL WITH THEM --
+// it was in migration 00015's header and not here, which is how a hedged figure
+// becomes a bare fact one file over. The duplicate count tracks the number of TRULY
+// CONCURRENT connections (pgx's default pool is max(4, NumCPU)), so 16 collapsed the
+// guard on one machine and needed 64 on another. What does not move: at sufficient
+// concurrency this admits one row per concurrent connection. What carries the guarantee is migration 00015's
+// UNIQUE (tenant_id, layer, name); the caller maps its 23505 back onto the same
+// refusal. This query is kept because it turns the ordinary case into an early,
+// readable answer instead of a driver error -- the same division of labour
+// AdvanceTagCounter's comment describes for `ctr`, where the atomic statement is the
+// guarantee and everything else is ergonomics.
+//
+// IT IS SCOPED TO THE TENANT LAYER, matching the index. 00015's header carries the
+// three measurements behind that scope; the short version is that two rows with one
+// name in ONE layer cannot be told apart, and across layers the screen and the sid
+// prefix tell them apart already.
+func (q *Queries) PolicyNameTaken(ctx context.Context, arg PolicyNameTakenParams) (bool, error) {
+	row := q.db.QueryRow(ctx, policyNameTaken, arg.TenantID, arg.Name)
+	var taken bool
+	err := row.Scan(&taken)
+	return taken, err
+}
+
+const renameTenantPolicy = `-- name: RenameTenantPolicy :one
+UPDATE policies
+SET name = $1
+WHERE tenant_id = $2 AND id = $3 AND layer = 'tenant'
+RETURNING id, name
+`
+
+type RenameTenantPolicyParams struct {
+	Name     string
+	TenantID uuid.UUID
+	ID       uuid.UUID
+}
+
+type RenameTenantPolicyRow struct {
+	ID   uuid.UUID
+	Name string
+}
+
+// Change a customer policy's NAME, and only a customer's.
+//
+// 🔴 IT EXISTS BECAUSE THE CONFIRMATION SCREEN PROMISED IT. The authoring form makes
+// the name a required field and the confirmation step prints `Called: <name>` before
+// anything is written -- but the supersede branch (a new VERSION of an existing rule)
+// only appended the version, so a customer typed a name, read it back, pressed the
+// button, and the name on the screen, in the picker and on the version page stayed the
+// old one. The section's own contract forbids exactly that: "a field the confirmation
+// does not bind is a field the screen can be wrong about" -- and here the field WAS
+// bound into the MAC and then dropped on the floor.
+//
+// layer = 'tenant' IS IN THE STATEMENT, not left to the caller. A rename is the one
+// mutation `policies` grants besides the enabled toggle, and a shipped baseline row
+// must not be reachable by it: its name is the join the tap path uses to pair a stored
+// row with the document this binary ships (checkin.assembleBaseline), so renaming one
+// would silently unpair it and the business would fall to guardrails alone.
+//
+// IT CAN RAISE 23505 on policies_tenant_layer_name_key (00015) when the new name is
+// already another rule's. That is the same refusal a CREATE gets and the caller maps
+// it the same way -- the index protects the rename as well as the insert.
+func (q *Queries) RenameTenantPolicy(ctx context.Context, arg RenameTenantPolicyParams) (RenameTenantPolicyRow, error) {
+	row := q.db.QueryRow(ctx, renameTenantPolicy, arg.Name, arg.TenantID, arg.ID)
+	var i RenameTenantPolicyRow
+	err := row.Scan(&i.ID, &i.Name)
+	return i, err
+}
+
+const setPolicyEnabled = `-- name: SetPolicyEnabled :one
+UPDATE policies
+SET enabled = $1
+WHERE tenant_id = $2 AND id = $3
+RETURNING id, name, layer, enabled
+`
+
+type SetPolicyEnabledParams struct {
+	Enabled  bool
+	TenantID uuid.UUID
+	ID       uuid.UUID
+}
+
+type SetPolicyEnabledRow struct {
+	ID      uuid.UUID
+	Name    string
+	Layer   string
+	Enabled bool
+}
+
+// The tenant's off switch (00007: disabling is NEVER a delete).
+//
+// IT RETURNS THE ROW so the caller cannot be wrong about what it wrote, and it
+// carries tenant_id in the WHERE beside RLS (§4.5). No row returned means the id
+// belongs to another business or does not exist -- the same answer for both, on
+// purpose: telling those two apart across a tenant boundary is a probe.
+func (q *Queries) SetPolicyEnabled(ctx context.Context, arg SetPolicyEnabledParams) (SetPolicyEnabledRow, error) {
+	row := q.db.QueryRow(ctx, setPolicyEnabled, arg.Enabled, arg.TenantID, arg.ID)
+	var i SetPolicyEnabledRow
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Layer,
+		&i.Enabled,
+	)
+	return i, err
 }

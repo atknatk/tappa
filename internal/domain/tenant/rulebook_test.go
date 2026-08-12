@@ -32,6 +32,11 @@ import (
 // value can tell "the parameter arrived" from "the default happened to match".
 // That is the M5-05 F3 lesson, which is what let the debounce wiring survive an
 // audit while doing nothing.
+// testGPSRadiusM is a value inside ADR 0004 §11's 25..1000 band, and it is NOT the
+// production default: a screen test that used the default could not tell "printed
+// the value it was given" from "printed a constant".
+const testGPSRadiusM = 175
+
 func testParams() policy.Params {
 	return policy.Params{
 		DebounceWindow:    90 * time.Second,
@@ -42,7 +47,7 @@ func testParams() policy.Params {
 
 func testRulebook(t *testing.T) *Rulebook {
 	t.Helper()
-	r, err := NewRulebook(stubDatabase{}, testParams(), slog.New(slog.DiscardHandler))
+	r, err := NewRulebook(stubDatabase{}, testParams(), testGPSRadiusM, slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("NewRulebook: %v", err)
 	}
@@ -62,12 +67,12 @@ func (stubDatabase) WithTenant(_ context.Context, _ uuid.UUID, _ db.TxFunc) erro
 // and the constructor is the last place that can say so.
 func TestNewRulebook_RefusesAnOutOfRangeWindow(t *testing.T) {
 	t.Parallel()
-	if _, err := NewRulebook(nil, testParams(), slog.New(slog.DiscardHandler)); err == nil {
+	if _, err := NewRulebook(nil, testParams(), testGPSRadiusM, slog.New(slog.DiscardHandler)); err == nil {
 		t.Error("NewRulebook accepted a nil database")
 	}
 	bad := testParams()
 	bad.DebounceWindow = time.Duration(policy.DebounceMaxSeconds+1) * time.Second
-	if _, err := NewRulebook(stubDatabase{}, bad, slog.New(slog.DiscardHandler)); err == nil {
+	if _, err := NewRulebook(stubDatabase{}, bad, testGPSRadiusM, slog.New(slog.DiscardHandler)); err == nil {
 		t.Errorf("NewRulebook accepted a debounce window of %v, outside [%d, %d] s",
 			bad.DebounceWindow, policy.DebounceMinSeconds, policy.DebounceMaxSeconds)
 	}
@@ -615,10 +620,19 @@ func TestRulebook_IssuesOnlySelects(t *testing.T) {
 	declared := declaredQueries(t)
 	named := queriesNamedInFile(t, "rulebook.go", declared)
 	// ANTI-VACUITY: a walk that found nothing would report a clean read path.
-	if len(named) < 3 {
-		t.Fatalf("rulebook.go names %d store quer(y/ies) (%v); it makes three reads, so "+
-			"this scan is reading the wrong file", len(named), named)
+	//
+	// ⚠️ THE FLOOR WAS 3 WHILE THE FILE MADE SIX, so three reads could have been deleted
+	// with this still green — a floor at half the truth stops noticing. It is 5 now, and
+	// that number IS hand-written: an earlier version of this comment said it was
+	// "DERIVED from the file itself", which it is not. What is derived is the SET (every
+	// store call the file names must resolve to a query) and the COUNT is logged rather
+	// than asserted; the floor exists only to catch a scan that broke, and it is one
+	// below today's six so a legitimate deletion does not go red.
+	if len(named) < 5 {
+		t.Fatalf("rulebook.go names %d store quer(y/ies) (%v); the section's read path names "+
+			"more than that, so this scan is reading the wrong file", len(named), named)
 	}
+	t.Logf("store queries named by rulebook.go: %d (%v)", len(named), named)
 	for _, name := range named {
 		file, body, ok := findQuery(t, name)
 		if !ok {

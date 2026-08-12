@@ -90,6 +90,13 @@ func (a *AdminAuth) mountSections(r chi.Router) {
 	// and the POST that appends the record are in mountWriting, because both need the
 	// Origin check AHEAD of the resolver and neither can get it here.
 	r.Get(manualEntryHref, a.manualEntryForm)
+	// 🔴 ONE STORED POLICY VERSION, READ IN FULL (M6-09 phase B). It is a GET and it
+	// belongs here: it reads one row and renders it — no policy row written, no
+	// baseline materialised, no confirmation minted — so a crawler following the link
+	// from a rule's history strip changes nothing. The two POSTs that change a
+	// rulebook are in mountWriting, because both need the Origin check AHEAD of the
+	// resolver and neither can get it here.
+	r.Get(policyVersionHref, a.policyVersionPage)
 }
 
 // mountWriting registers the panel's state-changing routes: the review decision
@@ -155,6 +162,14 @@ func (a *AdminAuth) mountWriting(r chi.Router) {
 		// undeletable attendance record, which is the heaviest write this panel has.
 		r.Post(manualEntryHref, a.manualEntryReview)
 		r.Post(manualRecordHref, a.manualEntryRecord)
+		// 🔴 THE TWO POLICY POSTs (M6-09 phase B), AND THE FIRST OF THEM WRITES NO
+		// POLICY ROW. It is here anyway for the reason the manual-entry review step is:
+		// it mints a confirmation and sets its twin cookie, which is state — and it can
+		// write an audit_log row when the engine REFUSES the actor, which is a write in
+		// the one direction that matters most. The second changes a customer's rulebook,
+		// which decides how every later tap in that business is judged.
+		r.Post(policyChangeHref, a.policyChangeReview)
+		r.Post(policyApplyHref, a.policyChangeApply)
 	})
 }
 

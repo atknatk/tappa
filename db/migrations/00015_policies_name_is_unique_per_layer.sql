@@ -1,0 +1,111 @@
+-- +goose Up
+
+-- Migration 0015 -- ONE NAME PER LAYER PER BUSINESS, enforced by the database
+-- (M6-09 phase B, round 5).
+--
+-- 🔴 WHY THIS EXISTS: THE APPLICATION GUARD WAS A LOOK, NOT A LOCK. M6-09 phase B
+-- added `PolicyNameTaken` -- a SELECT EXISTS -- to stop the panel writing a second
+-- policy with a name a business already uses. That is a read-then-write, which is the
+-- exact shape CLAUDE.md section 4.4 forbids for `ctr` ("oku-sonra-yaz replay
+-- acigidir"), and here the cost is worse than a replayed tap: `policies` GRANTs no
+-- DELETE (00007, section 4.6), so a duplicate row can never be removed by anything
+-- this product can do. Both rows sit in the decision set, neither appears in the
+-- other's version history, and the panel's own comment claimed the second save was
+-- "reversible by appending a third" -- it was not.
+--
+-- MEASURED, against real Postgres with -race, before this migration was written:
+--
+--   8 concurrent saves of one name  -> 1 inserted, 7 refused   (the guard holds)
+--   16 concurrent saves of one name -> 16 inserted             (the guard collapses)
+--   two transactions interleaved    -> both read "not taken", both insert -> 2 rows
+--
+-- ⚠️ THE RACER COUNTS ARE HARDWARE-DEPENDENT AND THE ROWS ARE NOT. The three lines
+-- above were measured by an audit on ITS machine; on the machine this migration was
+-- written on, 16 racers did NOT collapse the guard and 64 did -- 16 duplicate rows,
+-- three runs out of three. The mechanism was then measured rather than argued about:
+-- the duplicate count tracks the number of TRULY CONCURRENT connections, and pgx's
+-- default pool is max(4, NumCPU). So "16" and "64" are the same event on two
+-- machines, and a probe below the concurrency level proves only that the failure does
+-- not happen at that level. What does not move is the shape: at sufficient
+-- concurrency the read-then-write admits as many rows as there are concurrent
+-- connections, and every one of them is permanent.
+--
+-- And the product path reaches it with a double click: the confirmation cookie is
+-- cleared as a REQUEST to the client (deactivateconfirm.go counts this), so two POSTs
+-- already in flight both pass the gate and then race the guard.
+--
+-- THE GUARD IS KEPT ANYWAY, and that is deliberate rather than redundant: it turns
+-- the common case into an early, readable refusal ("you already have a rule with that
+-- name") instead of a driver error. What CARRIES the guarantee is this index; the
+-- application maps its 23505 back onto the same refusal.
+--
+-- 🔴 SCOPE IS (tenant_id, layer, name) AND NOT (tenant_id, name). Three measurements
+-- decided it:
+--
+--   1. WITHIN a layer a duplicate name is unresolvable to a human -- that is the whole
+--      defect. ACROSS layers it is not: the screen renders the two in different
+--      sections ("Managed by Tappa" / "Written by you") and a record's matched_sid
+--      carries the layer's own prefix (`base:` vs `own:`), so a manager holding a
+--      docket can still find the rule.
+--   2. The tap path indexes shipped baseline documents by name WITHIN THE BASELINE
+--      LAYER (internal/domain/tenant.indexByName and internal/domain/checkin.
+--      assembleBaseline both filter on layer before keying by name), so a tenant row
+--      sharing a name cannot collide with a baseline lookup.
+--   3. The stricter form would break a SHIPPED test that guards a section 4 red line:
+--      TestPolicies_LayerCheckRejectsGuardrail's positive control inserts name 'ok'
+--      for BOTH allowed layers in one tenant, to prove the layer CHECK admits them.
+--      Refusing that costs a red-line test to buy a rule the product does not need.
+--
+-- ⚠️ IF THE TABLE ALREADY VIOLATES THIS, THE MIGRATION FAILS AND NOTHING IS CHANGED.
+-- CREATE UNIQUE INDEX aborts on a duplicate; it does not delete, merge or rename
+-- anything, and it must not -- a policy row is referenced by policy_versions and
+-- policy_attachments through composite foreign keys, and by transactions through the
+-- version it decided. A deployment that hits this has to decide, per pair, which row
+-- is the real one; that is a human's decision and there is no safe default.
+--
+-- ⚠️ A HISTORICAL OBSERVATION, NOT A REPRODUCIBLE ONE. On 2026-08-12, before this
+-- index existed, the development database held 26 violating (tenant_id, layer, name)
+-- groups -- every one a fixture left by a test or an audit probe, the largest being 16
+-- rows named `probe-hard-…` -- and 0 after the schema was dropped and rebuilt from
+-- migrations plus seed. That count CANNOT BE RE-MEASURED: the base has been rebuilt
+-- twice since, so the number is a record of what was seen, not a check anybody can
+-- run. It is kept because it is the evidence that this migration's failure mode is
+-- reachable in practice; it is marked because presenting an unverifiable figure as a
+-- present-tense fact is the habit this file's own subject is about.
+--
+-- 🔴 IT CHANGES NO GRANT, NO POLICY AND NO RLS SETTING. An index is not a table:
+-- `policies` keeps ENABLE + FORCE ROW LEVEL SECURITY, its tenant-isolation policy,
+-- its tenant-first index and its GRANT SELECT, INSERT, UPDATE with DELETE revoked --
+-- all installed by 00007 and untouched here. Section 6's five requirements are about
+-- new TABLES; this migration adds none.
+--
+-- ⚠️ THIS PARAGRAPH CLAIMED AN ASSERTION THAT DID NOT EXIST WHEN IT WAS WRITTEN. It
+-- said the point was "asserted mechanically by internal/db/rls_test.go" while that
+-- file made no such check for ANY of the three policy tables -- the fact was true and
+-- the guarantee was not, so the next migration to break a grant here would have hit
+-- nothing. The assertion exists now and has a name:
+-- TestPolicyTables_KeepTheirRLSAndPrivilegesAfterTheNameIndex, which reads
+-- relrowsecurity, relforcerowsecurity, the four privilege bits and the policy count
+-- for policies, policy_versions and policy_attachments -- and EXERCISES the one that
+-- matters most by trying a DELETE on `policies` rather than only reading its bit.
+--
+-- WHY NOT A CONSTRAINT INSTEAD OF AN INDEX: an index is what ON CONFLICT can name,
+-- and EnsureBaselinePolicy already arbitrates on one. Its behaviour is unchanged --
+-- baseline ids are derived with uuid v5 from (tenant, name), so the same name always
+-- produces the same id and the id conflict still fires first; the two indexes have
+-- the SAME collision set for that statement, which is why this adds no new failure
+-- mode to the tap path (measured: the shipped baseline's 9 document names are
+-- distinct, so no tenant can hold two baseline rows with one name in the first place).
+CREATE UNIQUE INDEX policies_tenant_layer_name_key
+    ON policies (tenant_id, layer, name);
+
+
+-- +goose Down
+
+-- Dropping the index restores the pre-0015 state exactly: no data is touched, and the
+-- application guard (PolicyNameTaken) keeps refusing the common case on its own -- at
+-- the strength measured above, which is "holds until enough saves are truly
+-- concurrent, then admits one row per concurrent connection". The racer count at which
+-- that happens is a property of the machine, not of the guard; see the caveat under
+-- the measurement table.
+DROP INDEX policies_tenant_layer_name_key;

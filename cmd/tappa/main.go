@@ -200,11 +200,24 @@ func run() error {
 	// deployment that configured 120 s ran 60 s and nothing said so. A screen that
 	// re-derived it could disagree with the engine in the same silent way, and it is
 	// the screen a customer would believe.
-	rules, err := tenant.NewRulebook(data, checkins.Params(), slog.Default())
+	// THE GPS RING COMES FROM THE SAME PLACE FOR THE SAME REASON. It is what
+	// tap.Decide compares against through geo.WithinRadius, so the screen shows the
+	// deciding service's own value rather than re-reading the environment.
+	rules, err := tenant.NewRulebook(data, checkins.Params(), checkins.GPSRadiusM(), slog.Default())
 	if err != nil {
 		return err
 	}
-	panelAuth, err := handler.NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, venues, plaques, entries, rules, cfg, slog.Default())
+	// 🔴 THE WRITER'S AUTHORITY IS THE DECIDING SERVICE ITSELF (M6-09 phase B). The
+	// panel asks the policy engine before it changes a rulebook, and it asks through
+	// checkin.Service.StoredSet — the NON-materialising read — so an admin who is
+	// about to be refused leaves no rows behind in an append-only table. Passing
+	// `checkins` here rather than building a second assembler is what keeps the gate
+	// and the tap path deciding on the same rulebook.
+	ruleWriter, err := tenant.NewRuleWriter(data, trail, checkins, checkins.Params(), slog.Default())
+	if err != nil {
+		return err
+	}
+	panelAuth, err := handler.NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, venues, plaques, entries, rules, ruleWriter, cfg, slog.Default())
 	if err != nil {
 		return err
 	}

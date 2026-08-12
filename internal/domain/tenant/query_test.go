@@ -201,9 +201,18 @@ var txnScopeExemptions = map[string]string{
 // here rather than fixed: teaching the matcher to read an INSERT's target, and
 // widening it to the whole directory, are each a change to a settled matcher shared by
 // four call sites and belong with their own mutation run.
+//
+// ✅ THE SECOND ENTRY IS GONE, AND THAT IS A CLOSURE RATHER THAN A DELETION
+// (2026-08-12, M6-09 phase B). scopeFindings now reads `INSERT ... VALUES` directly:
+// it lines the column list up with the value list and asserts that the tenant column
+// is written from @tenant_id. InsertTransaction is therefore CHECKED rather than
+// unseen, and so are the three INSERTs phase B adds. The paragraphs above are kept
+// as the record of what the blind spot was; what is still true of them is the SECOND
+// numbered way past the belt (an INSERT ... SELECT whose SELECT is scoped correctly
+// and whose tenant column comes from a different parameter -- nothing does that
+// today) and the THIRD (the belt only covers the files it is pointed at).
 var txnScopeUnseen = map[string]string{
 	"LockEmployeeForTap": "an advisory lock (pg_advisory_xact_lock) with no table and no WHERE at all",
-	"InsertTransaction":  "INSERT ... VALUES -- the matcher can only see a tenant table through FROM/UPDATE/JOIN",
 }
 
 // TestTagsQueries_CarryAnExplicitTenantPredicate closes a HOLE IN THE DERIVATION
@@ -680,6 +689,22 @@ func whereClauses(body string) []string {
 // It returns the findings and HOW MANY blocks it actually checked, because a scanner
 // that recognised nothing would otherwise report success.
 func scopeFindings(body string, scoped map[string]bool) (findings []string, checked int) {
+	// 🔴 THE INSERT ARM RUNS FIRST, AND IT CLOSES A BLIND SPOT THIS SCANNER CARRIED
+	// FROM THE DAY IT WAS WRITTEN (backlog T20). Everything below walks WHERE clauses,
+	// and an `INSERT INTO t (...) VALUES (...)` has none -- so the whole statement was
+	// invisible: `tenantTablesIn` finds no table in it either, which meant a pure
+	// INSERT reached the anti-vacuity arm at the bottom as "checked nothing" rather
+	// than as "wrote a row nobody scoped". M6-09 phase B is the first task in this
+	// package to add such statements (three of them), and shipping them under a belt
+	// that cannot see them would have been the belt describing a defence it does not
+	// have.
+	//
+	// WHAT IT ASSERTS is the INSERT's own version of the same sentence: the row being
+	// written must name tenant_id, and the value in that position must be the
+	// caller's parameter -- not a literal, not a column read from somewhere else, not
+	// a default. RLS's WITH CHECK is the braces; this is the belt.
+	ifs, ichecked := insertFindings(body, scoped)
+	findings, checked = append(findings, ifs...), checked+ichecked
 	for _, blk := range statementBlocks(body) {
 		tables := tenantTablesIn(blk, scoped)
 		if len(tables) == 0 {
@@ -713,6 +738,177 @@ func scopeFindings(body string, scoped map[string]bool) (findings []string, chec
 		}
 	}
 	return findings, checked
+}
+
+// insertRE matches `INSERT INTO <table> ( <columns> ) VALUES ( <values> )`.
+//
+// IT DELIBERATELY DOES NOT MATCH `INSERT ... SELECT`: that form HAS a WHERE clause
+// and is already covered by the block walk below, and treating it here would mean
+// re-implementing the walk badly. A column list is required, which is the shape
+// db/queries is written in and the shape sqlc needs to name parameters.
+var insertRE = regexp.MustCompile(`(?is)\bINSERT\s+INTO\s+(?:public\.)?([a-z_][a-z0-9_]*)\s*\(([^)]*)\)\s*VALUES\s*\(`)
+
+// insertFindings checks every INSERT ... VALUES in a query body.
+func insertFindings(body string, scoped map[string]bool) (findings []string, checked int) {
+	for _, loc := range insertRE.FindAllStringSubmatchIndex(body, -1) {
+		table := strings.ToLower(body[loc[2]:loc[3]])
+		if !scoped[table] {
+			continue
+		}
+		checked++
+		cols := splitTopLevel(body[loc[4]:loc[5]])
+		vals, ok := balancedFrom(body, loc[1]-1)
+		if !ok {
+			findings = append(findings, fmt.Sprintf(
+				"has an INSERT into %s whose VALUES list this scan cannot read; that is "+
+					"reported rather than passed over, because a statement a checker cannot "+
+					"parse is a statement nothing is checking", table))
+			continue
+		}
+		values := splitTopLevel(vals)
+		// 🔴 THE LISTS MUST LINE UP BEFORE ANYTHING IS READ OFF THEM. Without this the
+		// checks below index into `values` by the COLUMN's position, so a mismatched
+		// statement is only caught when the tenant column happens to sit past the end --
+		// found by this arm's own negative control, which fed it three columns and one
+		// value and got no finding. Postgres and sqlc would both refuse such SQL, so this
+		// is a scanner that refuses what it cannot read rather than a live hole.
+		if len(cols) != len(values) {
+			findings = append(findings, fmt.Sprintf(
+				"has an INSERT into %s with %d column(s) and %d value(s); this scan cannot line "+
+					"them up, so it refuses to say the row is scoped", table, len(cols), len(values)))
+			continue
+		}
+		// tenants IS the tenant: its own primary key is the scope (00001's policy says
+		// so), which is the same exception newSubject makes.
+		want := "tenant_id"
+		if table == "tenants" {
+			want = "id"
+		}
+		at := -1
+		for i, c := range cols {
+			if strings.EqualFold(strings.TrimSpace(c), want) {
+				at = i
+			}
+		}
+		switch {
+		case at < 0:
+			findings = append(findings, fmt.Sprintf(
+				"has an INSERT into %s that does not name %s at all, so the row it writes is "+
+					"scoped by nothing this statement says. RLS's WITH CHECK would refuse a "+
+					"WRONG tenant, but section 4.5 asks for the predicate to be visible in the "+
+					"query too.\n\ncolumns read:\n%s", table, want, strings.Join(cols, ", ")))
+		case at >= len(values):
+			findings = append(findings, fmt.Sprintf(
+				"has an INSERT into %s with %d column(s) and %d value(s); this scan cannot "+
+					"line them up, so it refuses to say the row is scoped", table, len(cols), len(values)))
+		case strings.TrimSpace(values[at]) != tenantParam:
+			findings = append(findings, fmt.Sprintf(
+				"has an INSERT into %s whose %s is %q rather than %s. A row written with a "+
+					"tenant the CALLER did not name is the one write RLS cannot help with: it "+
+					"refuses another tenant's id, and happily accepts a literal or a value read "+
+					"from somewhere else that happens to be this one.",
+				table, want, strings.TrimSpace(values[at]), tenantParam))
+		}
+	}
+	return findings, checked
+}
+
+// TestInsertFindings_FlagsTheShapesItWasAddedFor is the INSERT arm's negative control.
+//
+// 🔴 A SCANNER WITHOUT ONE IS A SCANNER THAT MAY HAVE STOPPED READING. The arm was
+// added with a mutation on a real query (swapping two VALUES), which proves it fires
+// once; this proves it fires on each shape it claims to cover, and — the half a
+// mutation cannot show — that it does NOT fire on the correct form.
+func TestInsertFindings_FlagsTheShapesItWasAddedFor(t *testing.T) {
+	scoped := map[string]bool{"policies": true}
+
+	for name, sql := range map[string]string{
+		"tenant column written from another parameter": `
+			INSERT INTO policies (tenant_id, name, layer) VALUES (@policy_id, @name, 'tenant');`,
+		"tenant column written from a literal": `
+			INSERT INTO policies (tenant_id, name, layer)
+			VALUES ('00000000-0000-0000-0000-000000000000', @name, 'tenant');`,
+		"tenant column not named at all": `
+			INSERT INTO policies (name, layer) VALUES (@name, 'tenant');`,
+		"a values list this scan cannot line up": `
+			INSERT INTO policies (tenant_id, name, layer) VALUES (@tenant_id);`,
+	} {
+		findings, checked := insertFindings(sql, scoped)
+		if checked == 0 {
+			t.Errorf("%s: the scan checked nothing, so it would pass over the statement", name)
+		}
+		if len(findings) == 0 {
+			t.Errorf("%s: the scan reported nothing.\nSQL: %s", name, sql)
+		}
+	}
+
+	// AND IT MUST NOT FIRE ON THE CORRECT FORM, in either column order — otherwise it
+	// is a change detector the next author waters down.
+	for name, sql := range map[string]string{
+		"tenant first": `
+			INSERT INTO policies (tenant_id, name, layer) VALUES (@tenant_id, @name, 'tenant');`,
+		"tenant last": `
+			INSERT INTO policies (name, layer, tenant_id) VALUES (@name, 'tenant', @tenant_id);`,
+		"with a function call in the list": `
+			INSERT INTO policies (id, tenant_id, name, layer)
+			VALUES (gen_random_uuid(), @tenant_id, @name, 'tenant');`,
+	} {
+		findings, checked := insertFindings(sql, scoped)
+		if checked != 1 {
+			t.Errorf("%s: the scan checked %d statement(s), want 1", name, checked)
+		}
+		if len(findings) > 0 {
+			t.Errorf("%s: the scan flagged a correctly scoped INSERT: %v", name, findings)
+		}
+	}
+}
+
+// balancedFrom returns the contents of the parenthesised span that OPENS at or after
+// i, or false when the parentheses do not balance.
+func balancedFrom(s string, i int) (string, bool) {
+	for i < len(s) && s[i] != '(' {
+		i++
+	}
+	if i >= len(s) {
+		return "", false
+	}
+	depth := 0
+	for j := i; j < len(s); j++ {
+		switch s[j] {
+		case '(':
+			depth++
+		case ')':
+			depth--
+			if depth == 0 {
+				return s[i+1 : j], true
+			}
+		}
+	}
+	return "", false
+}
+
+// splitTopLevel splits a comma-separated list, ignoring commas inside parentheses
+// and inside single-quoted literals. A function call in a VALUES list (now(),
+// gen_random_uuid()) is one item, not two.
+func splitTopLevel(s string) []string {
+	var out []string
+	depth, quoted, start := 0, false, 0
+	for i := 0; i < len(s); i++ {
+		switch {
+		case s[i] == '\'':
+			quoted = !quoted
+		case quoted:
+		case s[i] == '(':
+			depth++
+		case s[i] == ')':
+			depth--
+		case s[i] == ',' && depth == 0:
+			out = append(out, strings.TrimSpace(s[start:i]))
+			start = i + 1
+		}
+	}
+	out = append(out, strings.TrimSpace(s[start:]))
+	return out
 }
 
 // subject is the table a statement is ABOUT: what it updates, or what it selects

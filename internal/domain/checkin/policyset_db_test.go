@@ -412,3 +412,199 @@ func TestPolicySetDB_TenantLayerIsEmptyToday(t *testing.T) {
 		t.Fatalf("wrong tenant policy loaded: %+v", got.Tenant[0].Document)
 	}
 }
+
+// TestPolicySetDB_StoredSetIsAllOrNothing pins the property the PANEL's gate rests on
+// against the REAL method.
+//
+// 🔴 THE BRAKE THIS COVERS IS DELETABLE WITHOUT IT. stored() reports a missing or
+// unparseable SHIPPED document by returning the guardrails ALONE — a partial baseline
+// is a DIFFERENT policy, not a weaker one. Drop that (take assembleBaseline's second
+// return value and use the partial slice anyway) and three packages stay green:
+// StoredSet's only other test runs against a VIRGIN tenant, where assembleBaseline
+// returns nothing regardless, and the panel test that produces the corrupt-document
+// state runs against a DOUBLE. So "an owner is refused when one document cannot be
+// read" was proven only where it was simulated.
+//
+// TWO STATES, because they fail differently: a rulebook with a document MISSING, and
+// one with a document STORED BUT UNREADABLE. The second is the one the panel's screen
+// shouts about, and the one that cannot self-heal (materialising is a no-op once the
+// version exists).
+func TestPolicySetDB_StoredSetIsAllOrNothing(t *testing.T) {
+	shipped := policy.Baseline()
+	if len(shipped) < 2 {
+		t.Fatalf("this binary ships %d baseline document(s); the probe needs at least two",
+			len(shipped))
+	}
+
+	t.Run("one document missing", func(t *testing.T) {
+		data, tenantID, sets := newPolicyHarness(t)
+		svc := &Service{policies: sets}
+		// Everything EXCEPT the last shipped document.
+		for _, doc := range shipped[:len(shipped)-1] {
+			seedPolicyDocument(t, data, tenantID, doc.Name, doc.Document)
+		}
+		set := svc.StoredSet(context.Background(), tenantID)
+		if len(set.Baseline) != 0 {
+			t.Errorf("a rulebook missing one shipped document returned %d baseline policies; "+
+				"a PARTIAL baseline is a different policy, so the answer is the guardrails alone",
+				len(set.Baseline))
+		}
+		if len(set.Guardrails) == 0 {
+			t.Error("no guardrails either; the fallback is guardrails-ALONE, not nothing")
+		}
+	})
+
+	t.Run("one document stored but unreadable", func(t *testing.T) {
+		data, tenantID, sets := newPolicyHarness(t)
+		svc := &Service{policies: sets}
+		for _, doc := range shipped {
+			seedPolicyDocument(t, data, tenantID, doc.Name, doc.Document)
+		}
+		// POSITIVE CONTROL FIRST: with all nine readable, the set is NOT empty. Without
+		// it, "0 baseline policies" below would also be what a broken seed produces.
+		if n := len(svc.StoredSet(context.Background(), tenantID).Baseline); n != len(shipped) {
+			t.Fatalf("a fully provisioned business returned %d baseline policies, want %d; the "+
+				"seed is wrong and the assertion below would pass for the wrong reason",
+				n, len(shipped))
+		}
+		// Now append a LATER version this release cannot validate. It has to be a new
+		// version: policy_versions takes no UPDATE from anybody.
+		corruptLatestVersion(t, data, tenantID, shipped[0].Name)
+		set := svc.StoredSet(context.Background(), tenantID)
+		if len(set.Baseline) != 0 {
+			t.Errorf("a rulebook with ONE unreadable document returned %d baseline policies. "+
+				"This is the state the panel tells a customer about (\"judged by the Tappa "+
+				"guarantees alone\") and the state in which an OWNER is refused policy:edit; "+
+				"if the engine kept the other eight here, both claims would be false.",
+				len(set.Baseline))
+		}
+	})
+}
+
+// seedPolicyDocument stores one baseline document as version 1.
+func seedPolicyDocument(t *testing.T, data *db.DB, tenantID uuid.UUID, name string, doc policy.Document) {
+	t.Helper()
+	raw, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatalf("marshal %q: %v", name, err)
+	}
+	err = data.WithTenant(context.Background(), tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		var id uuid.UUID
+		if e := tx.QueryRow(ctx,
+			`INSERT INTO policies (tenant_id, name, layer) VALUES ($1, $2, 'baseline') RETURNING id`,
+			tenantID, name).Scan(&id); e != nil {
+			return e
+		}
+		_, e := tx.Exec(ctx,
+			`INSERT INTO policy_versions (tenant_id, policy_id, version_no, document)
+			 VALUES ($1, $2, 1, $3)`, tenantID, id, raw)
+		return e
+	})
+	if err != nil {
+		t.Fatalf("seeding %q: %v", name, err)
+	}
+}
+
+// corruptLatestVersion appends a version whose document this release cannot validate.
+func corruptLatestVersion(t *testing.T, data *db.DB, tenantID uuid.UUID, name string) {
+	t.Helper()
+	err := data.WithTenant(context.Background(), tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		var id uuid.UUID
+		if e := tx.QueryRow(ctx,
+			`SELECT id FROM policies WHERE tenant_id = $1 AND layer = 'baseline' AND name = $2`,
+			tenantID, name).Scan(&id); e != nil {
+			return e
+		}
+		_, e := tx.Exec(ctx,
+			`INSERT INTO policy_versions (tenant_id, policy_id, version_no, document)
+			 VALUES ($1, $2, 2, '{}'::jsonb)`, tenantID, id)
+		return e
+	})
+	if err != nil {
+		t.Fatalf("appending an unreadable version to %q: %v", name, err)
+	}
+}
+
+// TestPolicySetDB_StoredSetProvisionsNobody is the measurement the PANEL's own tests
+// were believed to be making and were not.
+//
+// 🔴 IT EXERCISES THE PRODUCTION METHOD. Service.StoredSet is what cmd/tappa wires the
+// policy gate to, and until this test existed NOTHING called it: every test of the
+// gate went through a double in internal/domain/tenant, and a double does not
+// materialise because it was not written to. An audit measured the cost by making
+// StoredSet an alias for forTenant -- a one-line change -- and `make test` stayed
+// 17/17 green with -race against real Postgres. With that regression in place, a
+// REFUSED manager's POST would write 9 policies, 9 policy_versions and 9
+// policy_attachments into a business: policy_versions is append-only (§4.3) and
+// policies GRANTs no DELETE (§4.6), so none of it could ever be taken back.
+//
+// ⚠️ AND THE TEST THAT WAS SUPPOSED TO COVER IT CANNOT.
+// tenant.TestRuleWriterDB_TheEngineRefusesAManagerAndAllowsTheOwner counts the three
+// tables around a refused request -- but its fixture now seeds all nine shipped
+// documents (it has to; the stored set is all-or-nothing), and forTenant only writes
+// what is MISSING. With nine of nine present there is nothing to materialise, so that
+// count cannot fall against the very substitution it was cited as ruling out. The
+// falsifier has to run where the writing would happen, which is here.
+//
+// WHAT IS ASSERTED: a tenant with no policy rows still has none after StoredSet, and
+// the Set that comes back is the guardrails alone -- fail-safe, and provisioning
+// nobody.
+func TestPolicySetDB_StoredSetProvisionsNobody(t *testing.T) {
+	data, tenantID, sets := newPolicyHarness(t)
+	svc := &Service{policies: sets}
+
+	before := [3]int{
+		countRows(t, data, tenantID, "policies"),
+		countRows(t, data, tenantID, "policy_versions"),
+		countRows(t, data, tenantID, "policy_attachments"),
+	}
+	if before != [3]int{0, 0, 0} {
+		t.Fatalf("the fixture tenant already holds %v policy rows; this probe needs a virgin "+
+			"tenant or it cannot tell writing from not writing", before)
+	}
+
+	set := svc.StoredSet(context.Background(), tenantID)
+
+	after := [3]int{
+		countRows(t, data, tenantID, "policies"),
+		countRows(t, data, tenantID, "policy_versions"),
+		countRows(t, data, tenantID, "policy_attachments"),
+	}
+	if after != before {
+		t.Errorf("StoredSet wrote policy rows: %v -> %v.\n"+
+			"It is the read the AUTHORISATION gate uses, so an admin who is about to be "+
+			"REFUSED must not provision the business on the way -- into two tables nothing "+
+			"in this product can clean up.", before, after)
+	}
+	if len(set.Baseline) != 0 || len(set.Tenant) != 0 {
+		t.Errorf("StoredSet returned %d baseline and %d tenant policies for a business with no "+
+			"rows; it must fall back to the guardrails alone",
+			len(set.Baseline), len(set.Tenant))
+	}
+	if len(set.Guardrails) == 0 {
+		t.Error("StoredSet returned no guardrails either; the fallback is guardrails-ALONE, " +
+			"not nothing")
+	}
+
+	// POSITIVE CONTROL: the counter can see a write, and forTenant IS the method that
+	// makes one. Without this, "after == before" would also be what a broken counter
+	// says. It runs second so the assertions above are made against a virgin tenant.
+	sets.forTenant(context.Background(), tenantID)
+	wrote := [3]int{
+		countRows(t, data, tenantID, "policies"),
+		countRows(t, data, tenantID, "policy_versions"),
+		countRows(t, data, tenantID, "policy_attachments"),
+	}
+	if wrote == before {
+		t.Fatalf("forTenant wrote nothing either (%v), so the comparison above proves nothing "+
+			"about StoredSet", wrote)
+	}
+	// THE LABEL IS DERIVED, NOT ASSUMED: this line printed "(unchanged)" even on the run
+	// where the mutation made it [0 0 0] -> [9 9 9], which is a log that argues with its
+	// own numbers.
+	state := "unchanged"
+	if after != before {
+		state = "CHANGED"
+	}
+	t.Logf("StoredSet: %v -> %v (%s); forTenant on the same tenant: %v", before, after, state, wrote)
+}
