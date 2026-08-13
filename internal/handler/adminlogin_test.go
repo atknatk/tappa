@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -2216,13 +2217,36 @@ func TestAdminLogin_FullSizeVerifiedSetReachesThePicker(t *testing.T) {
 			"This is the shape that broke when the handler carried its own copy of the bound",
 			n, rec.Code, rec.Header().Get("Location"))
 	}
-	// The picker really lists all of them.
+	// 🔴 THE PICKER LISTS adminauth.PickerCap OF THEM, NOT ALL — M7-02 round 4. The
+	// display cap is one below the comparison cap, which is what makes the picker's
+	// ROW COUNT independent of whether the address already had an account (see
+	// adminauth.PickerCap for the k = 0..40 measurement). This test used to require
+	// ALL of them and is inverted deliberately rather than deleted: the property that
+	// matters — a full-size verified set reaches the PICKER instead of a 500 — is
+	// unchanged and still asserted above.
 	picker := htmlOf(t, b.do(http.MethodGet, "/admin/login/choose", nil))
+	shown := 0
 	for _, a := range attempts {
-		if !strings.Contains(picker, a.TenantID.String()) {
-			t.Fatalf("the picker omits verified tenant %v", a.TenantID)
+		if strings.Contains(picker, a.TenantID.String()) {
+			shown++
 		}
 	}
+	if shown != adminauth.PickerCap {
+		t.Fatalf("the picker offers %d of %d verified businesses, want adminauth.PickerCap (%d)",
+			shown, n, adminauth.PickerCap)
+	}
+	// AND NEVER WIDER THAN WHAT VERIFIED — obligation 5, from the other side. Every
+	// tenant on the page must be one that was actually compared and matched.
+	offered := map[string]bool{}
+	for _, a := range attempts {
+		offered[a.TenantID.String()] = true
+	}
+	for _, m := range regexp.MustCompile(`name="tenant_id" value="([^"]+)"`).FindAllStringSubmatch(picker, -1) {
+		if !offered[m[1]] {
+			t.Fatalf("the picker offers %s, which did not verify", m[1])
+		}
+	}
+	t.Logf("%d verified -> picker offers %d (PickerCap %d)", n, shown, adminauth.PickerCap)
 }
 
 // TestPanelConstants_ShippedValuesArePinned pins the VALUES of the panel's
@@ -2966,4 +2990,280 @@ func TestLogin_EveryBusinessDisabledLeavesATrail(t *testing.T) {
 	}
 	t.Logf("empty picker after 2 verified businesses -> %d audit row(s), reason=%q",
 		trail.total(), detail.Reason)
+}
+
+// TestAdminLogin_ATruncatedSuccessLeavesATrailAndIsBounded.
+//
+// 🔴 WHAT IT MAKES VISIBLE. ⚠️ THIS USED TO OPEN "THE CHANNEL M7-02 OPENED AND COULD
+// NOT CLOSE", AND THAT IS FALSE TWICE OVER — the same stale sentence an audit found in
+// adminlogin.go and the same defect class that blocked this task three times. The
+// picker count WAS closed (adminauth.PickerCap), and it was not "the" channel either:
+// the wizard's reachability check is a second one, priced and counted in
+// internal/domain/signup. What this records is the OBSERVATION — a truncated candidate
+// list is the mark of an address that has been stuffed, whether or not anything is
+// reading it.
+//
+// Migration 00017's incumbent-first ordering fixed the account lockout and made a
+// count signal deterministic: an attacker who plants exactly adminauth.MaxCandidates
+// rows for an address and signs in with their own password read the picker's row count
+// as an answer to "does this address already have an account" (eight if not, seven if
+// it does — measured three times out of three). ADR 0013 records the closures that
+// were built and why each is
+// worse. What is left is to make the probe OBSERVABLE, which is what this asserts.
+//
+// AND BOUNDED: a successful login charges no attempt budget, so an unbounded row
+// here would be a repeatable write primitive into a table not even tappa_owner can
+// delete from — the M5-02 shape. The account budget is what stops that.
+func TestAdminLogin_ATruncatedSuccessLeavesATrailAndIsBounded(t *testing.T) {
+	t.Parallel()
+	adminID, tenantID := uuid.New(), uuid.New()
+	admins := &fakeAdmins{authenticate: func(string, string) (adminauth.Authentication, error) {
+		// The probe's exact shape: more resolved than compared, and a subset verified.
+		attempts := make([]adminauth.Attempt, 0, adminauth.MaxCandidates)
+		attempts = append(attempts, adminauth.Attempt{
+			AdminUserID: adminID, TenantID: tenantID, PasswordMatched: true, Active: true,
+		})
+		for i := 1; i < adminauth.MaxCandidates; i++ {
+			attempts = append(attempts, adminauth.Attempt{
+				AdminUserID: uuid.New(), TenantID: uuid.New(), PasswordMatched: false, Active: true,
+			})
+		}
+		return adminauth.Authentication{Attempts: attempts, Resolved: adminauth.MaxCandidates + 1}, nil
+	}}
+	trail := &fakeTrail{}
+	b := newBrowser(t, newAdminRouter(t, admins, trail))
+	csrf := csrfFrom(t, htmlOf(t, b.do(http.MethodGet, "/admin/login", nil)))
+	rec := b.do(http.MethodPost, "/admin/login", url.Values{
+		"csrf": {csrf}, "email": {"probe@example.test"}, "password": {"the attacker's own"},
+	})
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("the sign-in answered %d, want 303 — the probe is a SUCCESSFUL login", rec.Code)
+	}
+	if n := trail.count(ActionAdminLoginTruncated); n != 1 {
+		t.Fatalf("%d %s row(s), want 1: a probe that leaves no trace is a probe nobody can "+
+			"investigate", n, ActionAdminLoginTruncated)
+	}
+	// The row must be ATTRIBUTABLE to a tenant whose digest actually verified — never
+	// to one the caller merely named.
+	for _, e := range trail.eventsSnapshot() {
+		if e.Action != ActionAdminLoginTruncated {
+			continue
+		}
+		if e.TenantID != tenantID {
+			t.Errorf("the row was written into %s; it must go into the tenant that "+
+				"authenticated (%s), or an unauthenticated caller gains a way to append to "+
+				"somebody else's audit_log", e.TenantID, tenantID)
+		}
+		d, ok := e.Detail.(adminLoginDetail)
+		if !ok {
+			t.Fatalf("the detail is %T, want adminLoginDetail", e.Detail)
+		}
+		if d.Resolved != adminauth.MaxCandidates+1 || d.Compared != adminauth.MaxCandidates {
+			t.Errorf("the row carries resolved=%d compared=%d; the DIFFERENCE is the event",
+				d.Resolved, d.Compared)
+		}
+	}
+
+	// BOUNDED. Repeating the probe past the account budget must stop writing.
+	for i := 0; i < adminAccountLimit+5; i++ {
+		csrf = csrfFrom(t, htmlOf(t, b.do(http.MethodGet, "/admin/login", nil)))
+		b.do(http.MethodPost, "/admin/login", url.Values{
+			"csrf": {csrf}, "email": {"probe@example.test"}, "password": {"the attacker's own"},
+		})
+	}
+	if n := trail.count(ActionAdminLoginTruncated); n > adminAccountLimit {
+		t.Errorf("%d rows after %d probes; the account budget (%d) must bound writes into an "+
+			"append-only table that cannot be deleted from",
+			n, adminAccountLimit+6, adminAccountLimit)
+	}
+	t.Logf("truncated-success rows written: %d over %d probes (account budget %d)",
+		trail.count(ActionAdminLoginTruncated), adminAccountLimit+6, adminAccountLimit)
+}
+
+// TestAdminLogin_AnOrdinaryLoginLeavesNoTruncationRow — the negative control. A
+// login that resolved everything it compared is not a probe, and a row on every
+// successful sign-in would drown the signal it exists to raise.
+func TestAdminLogin_AnOrdinaryLoginLeavesNoTruncationRow(t *testing.T) {
+	t.Parallel()
+	adminID, tenantID := uuid.New(), uuid.New()
+	admins := &fakeAdmins{authenticate: func(string, string) (adminauth.Authentication, error) {
+		return adminauth.Authentication{
+			Attempts: []adminauth.Attempt{{
+				AdminUserID: adminID, TenantID: tenantID, PasswordMatched: true, Active: true,
+			}},
+			Resolved: 1,
+		}, nil
+	}}
+	trail := &fakeTrail{}
+	b := newBrowser(t, newAdminRouter(t, admins, trail))
+	csrf := csrfFrom(t, htmlOf(t, b.do(http.MethodGet, "/admin/login", nil)))
+	if rec := b.do(http.MethodPost, "/admin/login", url.Values{
+		"csrf": {csrf}, "email": {"owner@example.test"}, "password": {"right"},
+	}); rec.Code != http.StatusSeeOther {
+		t.Fatalf("the sign-in answered %d, want 303", rec.Code)
+	}
+	if n := trail.count(ActionAdminLoginTruncated); n != 0 {
+		t.Errorf("%d truncation row(s) on an ordinary sign-in", n)
+	}
+	if n := trail.count(ActionAdminLoginSucceeded); n != 1 {
+		t.Errorf("%d success row(s), want 1", n)
+	}
+}
+
+// TestAdminLogin_SuccessfulSignInsAreBudgeted — F1.
+//
+// 🔴 THE HOLE THIS CLOSES, AND WHY IT MATTERED MORE AFTER M7-02. adminAttemptLimit is
+// charged in failLogin and nowhere else; completeLogin charges nothing. A security
+// audit drove the shipped stack and measured 18 consecutive SUCCESSFUL sign-ins with
+// zero refusals against 13 failures that were cut off at the 11th. That asymmetry was
+// defensible while a valid credential implied a legitimate user — and the public
+// sign-up wizard ended that, because anybody can now mint one.
+//
+// AND adminauth's padding multiplied the cost of each by MaxCandidates, so the
+// unbudgeted path went from roughly 1.9 cores to roughly 15 from a single address
+// (adminLoginWorkLimit carries the arithmetic). The tap surface shares this process
+// and this connection pool, so that is §4.6 territory: CPU a panel flood has taken is
+// CPU a tap cannot have, and an unserved tap is an unwritten attendance record.
+//
+// IT DRIVES SUCCESSES, which is the case that was unmetered. The password path is
+// faked so the test measures the BUDGET rather than bcrypt.
+func TestAdminLogin_SuccessfulSignInsAreBudgeted(t *testing.T) {
+	t.Parallel()
+	adminID, tenantID := uuid.New(), uuid.New()
+	admins := &fakeAdmins{authenticate: func(string, string) (adminauth.Authentication, error) {
+		return adminauth.Authentication{
+			Resolved: 1,
+			Attempts: []adminauth.Attempt{{
+				AdminUserID: adminID, TenantID: tenantID, PasswordMatched: true, Active: true,
+			}},
+		}, nil
+	}}
+	h := newAdminRouter(t, admins, &fakeTrail{})
+	b := newBrowser(t, h)
+
+	seen := map[int]int{}
+	for i := 0; i < adminLoginWorkLimit+5; i++ {
+		csrf := csrfFrom(t, htmlOf(t, b.do(http.MethodGet, "/admin/login", nil)))
+		rec := b.do(http.MethodPost, "/admin/login", url.Values{
+			"csrf": {csrf}, "email": {"owner@example.test"}, "password": {"right"},
+		})
+		seen[rec.Code]++
+	}
+	t.Logf("%d successful sign-ins from one address: %v (work budget %d per %s)",
+		adminLoginWorkLimit+5, seen, adminLoginWorkLimit, adminLoginWorkPeriod)
+
+	if seen[http.StatusTooManyRequests] == 0 {
+		t.Fatalf("%d consecutive SUCCESSFUL sign-ins from one address were never refused. "+
+			"A valid credential is self-service since M7-02, so a success is not evidence of "+
+			"a legitimate operator — and each one costs adminauth.MaxCandidates bcrypt "+
+			"comparisons on the pool the tap surface shares.", adminLoginWorkLimit+5)
+	}
+	if seen[http.StatusSeeOther] > adminLoginWorkLimit {
+		t.Errorf("%d sign-ins were served against a budget of %d",
+			seen[http.StatusSeeOther], adminLoginWorkLimit)
+	}
+
+	// 🔴 THE REFUSAL MUST HAPPEN **BEFORE** THE PASSWORD LOOP, OR THE BUDGET BOUNDS
+	// NOTHING IT EXISTS FOR. A security audit had to establish this from wall-clock
+	// timings (0.7-3.4 ms for a 429 against 1.9-2.9 s for a served sign-in) because
+	// nothing asserted it: a refactor moving the charge BEHIND Authenticate would leave
+	// this suite green while every refused request still paid MaxCandidates bcrypt
+	// comparisons. The fake counts calls, so the position is now a property of the test
+	// rather than of a stopwatch.
+	served := seen[http.StatusSeeOther]
+	if admins.authCalls > served {
+		t.Errorf("Authenticate ran %d time(s) for %d served sign-in(s): a refused request "+
+			"reached the password loop, so the work budget is behind the expensive call "+
+			"instead of in front of it and bounds no CPU at all", admins.authCalls, served)
+	}
+	t.Logf("Authenticate reached %d time(s) for %d served and %d refused",
+		admins.authCalls, served, seen[http.StatusTooManyRequests])
+	// AND THE BUDGET MUST NOT BE SO TIGHT IT REFUSES AN OFFICE. adminLoginWorkLimit is
+	// derived from this file's own model (10 admins x 2 devices x 2 headroom = 120);
+	// a limit at or below the modelled office would be an outage for a real customer.
+	const largestModelledOffice = 60
+	if adminLoginWorkLimit <= largestModelledOffice {
+		t.Errorf("the work budget (%d) is at or below the largest office adminratelimit.go "+
+			"models (%d successful sign-ins per window)", adminLoginWorkLimit, largestModelledOffice)
+	}
+}
+
+// TestAdminLogin_TheProbeDoesNotSpendTheVictimsAuditBudget — F2.
+//
+// 🔴 recordCandidateProbe USED THE BARE admin_user_id AS ITS KEY, which is the SAME
+// counter failLogin spends to write that account's real `admin.login.failed` rows. An
+// attacker who stuffs a victim's address makes every one of the VICTIM's correct
+// sign-ins truncated, each burning a unit — and after ten in a window, failed sign-in
+// attempts against the victim stop being recorded at all. A third party could suppress
+// somebody else's trail, in the one table nobody can delete from.
+func TestAdminLogin_TheProbeDoesNotSpendTheVictimsAuditBudget(t *testing.T) {
+	t.Parallel()
+	adminID, tenantID := uuid.New(), uuid.New()
+	truncated := func(matched bool) adminauth.Authentication {
+		attempts := []adminauth.Attempt{{
+			AdminUserID: adminID, TenantID: tenantID, PasswordMatched: matched, Active: true,
+		}}
+		for i := 1; i < adminauth.MaxCandidates; i++ {
+			attempts = append(attempts, adminauth.Attempt{
+				AdminUserID: uuid.New(), TenantID: uuid.New(), PasswordMatched: false, Active: true,
+			})
+		}
+		return adminauth.Authentication{Attempts: attempts, Resolved: adminauth.MaxCandidates + 1}
+	}
+	succeed := true
+	admins := &fakeAdmins{authenticate: func(string, string) (adminauth.Authentication, error) {
+		if succeed {
+			return truncated(true), nil
+		}
+		return truncated(false), adminauth.ErrBadCredentials
+	}}
+	trail := &fakeTrail{}
+	h := newAdminRouter(t, admins, trail)
+
+	// Burn the probe budget with the victim's own correct sign-ins.
+	b := newBrowser(t, h)
+	for i := 0; i < adminAccountLimit+3; i++ {
+		csrf := csrfFrom(t, htmlOf(t, b.do(http.MethodGet, "/admin/login", nil)))
+		b.do(http.MethodPost, "/admin/login", url.Values{
+			"csrf": {csrf}, "email": {"victim@example.test"}, "password": {"right"},
+		})
+	}
+	probes := trail.count(ActionAdminLoginTruncated)
+
+	// NOW the victim's real failure trail must still be writable. Each failure comes
+	// from a DIFFERENT address so the address budget is not what is being measured.
+	// ⚠️ COUNT THE VICTIM'S OWN ROWS, NOT EVERY FAILURE ROW. The first version of this
+	// test counted ActionAdminLoginFailed in total and the F2 mutation came back GREEN:
+	// the fake resolves MaxCandidates candidates and the other seven carry FRESH ids on
+	// every call, so their rows are written whatever happens to the victim's budget.
+	// The claim is about ONE account's trail, so the count has to be about one account.
+	victimFailures := func() int {
+		n := 0
+		for _, e := range trail.eventsSnapshot() {
+			if e.Action == ActionAdminLoginFailed && e.Target == adminID.String() {
+				n++
+			}
+		}
+		return n
+	}
+	succeed = false
+	before := victimFailures()
+	for i := 0; i < 3; i++ {
+		fb := newBrowser(t, h)
+		fb.ip = fmt.Sprintf("198.51.100.%d:1234", i+1)
+		csrf := csrfFrom(t, htmlOf(t, fb.do(http.MethodGet, "/admin/login", nil)))
+		fb.do(http.MethodPost, "/admin/login", url.Values{
+			"csrf": {csrf}, "email": {"victim@example.test"}, "password": {"guess"},
+		})
+	}
+	after := victimFailures()
+	t.Logf("probe rows written: %d (budget %d); the VICTIM's own failure rows %d -> %d",
+		probes, adminAccountLimit, before, after)
+
+	if after == before {
+		t.Fatalf("after the probe burnt the account budget, none of the VICTIM's failed "+
+			"sign-ins were recorded (%d probe row(s) written). An attacker who stuffs an "+
+			"address can suppress that account's audit trail from outside — the probe must "+
+			"not spend the same counter as failLogin.", probes)
+	}
 }

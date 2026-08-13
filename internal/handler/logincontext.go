@@ -242,7 +242,13 @@ const (
 	// It cannot drift today — the value is pinned by
 	// TestMaxCandidates_IsTheMeasuredCPUBound — but whoever changes that number owes
 	// this sentence a second look, because nothing here will complain.
-	adminChoiceMaxEntries = adminauth.MaxCandidates
+	// 🔴 IT IS NOW DERIVED FROM THE PICKER CAP RATHER THAN FROM THE BCRYPT CAP
+	// (M7-02 round 4). adminauth.PickerCap is MaxCandidates-1, and the blob carries
+	// exactly what the picker OFFERS — so a bound of MaxCandidates would be one
+	// larger than anything that can legitimately be minted, i.e. a parser bound that
+	// no longer describes the value it parses. Deriving it from the cap keeps the two
+	// equal by construction, which is the property this line's own history is about.
+	adminChoiceMaxEntries = adminauth.PickerCap
 )
 
 // Failure modes, kept apart so the handler can tell a stale picker (say "start

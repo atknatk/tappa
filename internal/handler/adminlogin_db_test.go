@@ -672,18 +672,34 @@ func TestPanelE2E_TimingIsFlatOverHTTP(t *testing.T) {
 	_, page := p.get(t, "/admin/login")
 	csrf := csrfFrom(t, page)
 
-	// ⚠️ SAMPLES ARE 2, AND THE BUDGET IS WHY. adminAttemptLimit is 10 FAILED
-	// logins per address per window, and every cell here is a failure. The first
-	// version used n=3 and the twelfth request came back 429 instead of 401 — the
-	// rate limiter working exactly as designed, and a reminder that a timing probe
-	// is itself abuse-shaped. 4 cells x 2 = 8 stays under the budget rather than
-	// raising it for a test.
+	// ⚠️ SAMPLES WERE 2 AND ARE NOW 1 (M7-02, orchestrator decision 2026-08-13 —
+	// deliberate M6-01 scope). The three things that decision needs on the record:
 	//
-	// The estimator is the MINIMUM, not the median: with two samples a "median" is
-	// meaningless, and the minimum is the standard robust choice for wall-clock
-	// timing because scheduler noise only ever adds. The signal being guarded is
-	// 53x, so two samples are ample.
-	const samples = 2
+	//	WHAT IT WAS   one observation per cell was doubled purely to damp scheduler
+	//	              noise; the four CELLS are the property (known/unknown address x
+	//	              short/over-long password) and none of them is dropped.
+	//	WHY IT MOVED  adminauth now pads every login to MaxCandidates comparisons, so
+	//	              every arm does the SAME work by construction. The unit twin
+	//	              TestAuthenticate_TimingIsFlat measured a spread of 1.01-1.05x
+	//	              against a 2.5x gate after that change, which is where the
+	//	              statistical weight now sits — cheaply. This test's remaining job
+	//	              is narrower: does the property survive the HTTP + Postgres path.
+	//	              At 2 samples it cost 210.13 s of the handler package's 347.9 s.
+	//	WHAT IT LOST  it can no longer make a noise claim stronger than ONE observation
+	//	              per cell supports. A single stall inflates a cell, and the only
+	//	              thing standing between that and a red build is the width of the
+	//	              gate. If this ever flakes, put it back to 2 rather than widening
+	//	              the gate.
+	//
+	// THE BUDGET STILL BINDS AND IS WHY IT CANNOT GO THE OTHER WAY. adminAttemptLimit
+	// is 10 FAILED logins per address per window and every cell here is a failure; an
+	// earlier n=3 made the twelfth request answer 429 instead of 401 — the rate limiter
+	// working as designed, and a reminder that a timing probe is itself abuse-shaped.
+	//
+	// The estimator is the MINIMUM, which at n=1 is the single observation. It stays a
+	// minimum rather than a mean because scheduler noise only ever adds, so the
+	// smallest reading is the closest to the work actually done.
+	const samples = 1
 	median := func(email, password string) time.Duration {
 		var d []time.Duration
 		for i := 0; i < samples; i++ {

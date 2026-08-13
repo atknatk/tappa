@@ -1171,3 +1171,116 @@ func TestRLS_AdminAuthSurface_Isolation(t *testing.T) {
 	})
 	assertWriteBlocked(t, "admin_sessions", blockRLS, errForge)
 }
+
+// ------------------------------------------------- incumbent-first ordering --
+
+// TestGetAdminByEmail_TheIncumbentIsAlwaysCompared — migration 00017's whole
+// content, as a test.
+//
+// 🔴 WHAT IT DEFENDS. Migration 00011 handed M7-02 a bound it could not close in the
+// database: internal/adminauth compares at most MaxCandidates rows per login, so
+// WHICH rows the resolver puts first decides whose password is tested when several
+// tenants hold one address. Under 00011's `ORDER BY tenant_id` that order is a
+// random permutation with respect to when a row was written — a tenant id is
+// gen_random_uuid() — so an attacker registering enough tenants carrying a victim's
+// address pushed the victim out of the compared window and the victim could no
+// longer sign in. Measured on this schema before 00017: with twenty attacker rows
+// the victim landed outside the first eight in three of five runs.
+//
+// 00017 orders by created_at first, so the OLDEST row is compared first and the one
+// thing an attacker cannot do is register earlier than somebody who is already a
+// customer.
+//
+// ⚠️ IT IS NOT A CPU BOUND AND DOES NOT PRETEND TO BE ONE. What bounds the bcrypt
+// work per request is adminauth.MaxCandidates; this decides WHICH rows are spent on.
+//
+// ⚠️ AND IT DOES NOT CLOSE THE PRE-REGISTRATION VARIANT: rows planted BEFORE an
+// address ever signs up still sort first. Migration 00017 states that limit and
+// names what closes it (email verification, which needs a transport this repository
+// does not have — Q02, M7-04). This test measures the half that IS closed.
+func TestGetAdminByEmail_TheIncumbentIsAlwaysCompared(t *testing.T) {
+	d := testDB(t)
+	ctx := context.Background()
+	email := randAdminEmail(t)
+
+	// The incumbent: a paying customer whose admin row was written a year ago.
+	victimTenant, _ := newTenant(t, d)
+	victim := newAdmin(t, d, victimTenant, email, "active", "owner")
+	backdateAdmin(t, d, victimTenant, victim, "365 days")
+
+	// The attack: twenty later registrations carrying the same address. Twenty is
+	// deliberately more than twice adminauth.MaxCandidates, so under a random
+	// ordering the victim would be outside the window most of the time.
+	const attackers = 20
+	for i := 0; i < attackers; i++ {
+		tenantID, _ := newTenant(t, d)
+		newAdmin(t, d, tenantID, email, "active", "owner")
+	}
+
+	rows, err := d.GetAdminByEmail(ctx, email)
+	if err != nil {
+		t.Fatalf("GetAdminByEmail: %v", err)
+	}
+	if len(rows) != attackers+1 {
+		t.Fatalf("resolved %d row(s), want %d; the fixture is not what this test thinks",
+			len(rows), attackers+1)
+	}
+	if rows[0].ID != victim {
+		pos := -1
+		for i, r := range rows {
+			if r.ID == victim {
+				pos = i + 1
+			}
+		}
+		t.Fatalf("the incumbent's row is at position %d of %d rather than first.\n"+
+			"internal/adminauth compares only the first MaxCandidates, so a customer who "+
+			"sorts late CANNOT LOG IN and is told only that the credentials are wrong. "+
+			"Migration 00017 orders by created_at for exactly this.", pos, len(rows))
+	}
+
+	// ANTI-VACUITY: the attackers must genuinely be in the result, or "the victim is
+	// first" would be true of a list of one.
+	if len(rows) < 9 {
+		t.Fatalf("only %d row(s) resolved; with fewer than adminauth.MaxCandidates+1 this "+
+			"test cannot observe a truncation at all", len(rows))
+	}
+}
+
+// backdateAdmin moves an admin row's created_at into the past, which is what makes it
+// the INCUMBENT.
+//
+// 🔴 IT RUNS AS THE OWNER, AND THAT IS THE POINT RATHER THAN A CONVENIENCE. Migration
+// 00017 narrowed tappa_app's UPDATE on admin_users to a column list that deliberately
+// EXCLUDES created_at, because the whole incumbent-first argument rests on that column
+// ("the one thing an attacker cannot do is register earlier"). This helper needed the
+// privilege that was taken away, so it moves to the migration role — which is exactly
+// the right outcome: a test fixture doing something the application is no longer
+// allowed to do should have to say so.
+//
+// ⚠️ IF THIS EVER SUCCEEDS AS tappa_app AGAIN, THE GRANT HAS BEEN WIDENED. That is
+// asserted directly rather than left implicit — see the probe below.
+func backdateAdmin(t *testing.T, d *DB, tenantID, adminID uuid.UUID, interval string) {
+	t.Helper()
+	// THE APPLICATION ROLE MUST NOT BE ABLE TO DO THIS. Checked here, where the
+	// capability is used, so the fixture itself is the tripwire on the grant.
+	appErr := d.WithTenant(context.Background(), tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		_, e := tx.Exec(ctx,
+			`UPDATE admin_users SET created_at = now() - $3::interval
+			 WHERE id = $1 AND tenant_id = $2`, adminID, tenantID, interval)
+		return e
+	})
+	if appErr == nil {
+		t.Fatalf("tappa_app rewrote admin_users.created_at. Migration 00017's incumbent-first " +
+			"ordering — and every argument built on it — assumes the application cannot " +
+			"move a row's position in that order. The column grant has been widened.")
+	}
+	owner := ownerDB(t)
+	if err := owner.WithTenant(context.Background(), tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		_, e := tx.Exec(ctx,
+			`UPDATE admin_users SET created_at = now() - $3::interval
+			 WHERE id = $1 AND tenant_id = $2`, adminID, tenantID, interval)
+		return e
+	}); err != nil {
+		t.Fatalf("backdating the incumbent as the owner: %v", err)
+	}
+}

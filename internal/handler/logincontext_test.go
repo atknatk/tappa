@@ -453,31 +453,43 @@ func TestAdminChoices_LengthPrefixIsWhatRemovesTheAmbiguity(t *testing.T) {
 // i.e. a legitimate operator with nine businesses could not sign in, and no test
 // noticed. The constant is now DERIVED, so this test is a tripwire for anyone who
 // turns it back into a literal.
+// ✅ AND THE NUMBER IT TRACKS MOVED IN M7-02 ROUND 4, WHICH IS WHY THE DERIVATION
+// MATTERED. The blob carries what the picker OFFERS, and the picker is now capped at
+// adminauth.PickerCap (= MaxCandidates-1) so its row count cannot answer "is this
+// address registered". A bound of MaxCandidates would now be one larger than anything
+// that can legitimately be minted — a parser bound that no longer describes its own
+// value. Because the constant was DERIVED rather than copied, that change was one
+// edit; this test is what keeps it one edit.
 func TestAdminChoiceMaxEntries_TracksTheBcryptCap(t *testing.T) {
-	if adminChoiceMaxEntries != adminauth.MaxCandidates {
-		t.Fatalf("adminChoiceMaxEntries = %d but adminauth.MaxCandidates = %d. A verified set "+
-			"can never be larger than the set that was compared, so these must not be two "+
-			"independent numbers — derive one from the other",
-			adminChoiceMaxEntries, adminauth.MaxCandidates)
+	if adminChoiceMaxEntries != adminauth.PickerCap {
+		t.Fatalf("adminChoiceMaxEntries = %d but adminauth.PickerCap = %d. The blob carries "+
+			"exactly what the picker offers, so these must not be two independent numbers "+
+			"— derive one from the other",
+			adminChoiceMaxEntries, adminauth.PickerCap)
+	}
+	if adminauth.PickerCap >= adminauth.MaxCandidates {
+		t.Fatalf("PickerCap (%d) must be strictly below MaxCandidates (%d), or the picker's "+
+			"row count answers whether the address already had an account",
+			adminauth.PickerCap, adminauth.MaxCandidates)
 	}
 	// And a FULL-SIZE verified set really round-trips, so the boundary is exercised
 	// rather than merely asserted.
 	c := newTestChoices(t, nil)
-	full := make([]adminauth.Verified, adminauth.MaxCandidates)
+	full := make([]adminauth.Verified, adminauth.PickerCap)
 	for i := range full {
 		full[i] = adminauth.Verified{AdminUserID: uuid.New(), TenantID: uuid.New()}
 	}
 	blob, err := c.mint(full, "the-binding-value")
 	if err != nil {
 		t.Fatalf("minting a blob at exactly the cap failed: %v — a legitimate operator with "+
-			"%d businesses would get HTTP 500 at the picker", err, adminauth.MaxCandidates)
+			"%d businesses would get HTTP 500 at the picker", err, adminauth.PickerCap)
 	}
 	got, err := c.parse(blob, "the-binding-value")
 	if err != nil {
 		t.Fatalf("parsing a full-size blob failed: %v", err)
 	}
-	if len(got) != adminauth.MaxCandidates {
-		t.Fatalf("round-tripped %d identities, want %d", len(got), adminauth.MaxCandidates)
+	if len(got) != adminauth.PickerCap {
+		t.Fatalf("round-tripped %d identities, want %d", len(got), adminauth.PickerCap)
 	}
 }
 

@@ -51,6 +51,21 @@ func testManager(t *testing.T, d *db.DB) *Manager {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
+	// 🔴 THE DUMMY IS MATCHED TO THE FIXTURES' COST, AND WITHOUT THIS LINE THE
+	// UNKNOWN-EMAIL ARM MEASURES THE MISMATCH RATHER THAN THE PRODUCT.
+	//
+	// Authenticate pads every login to MaxCandidates comparisons (Manager.pad) and
+	// takes the padding's cost from the FIRST CANDIDATE's own digest — so a login that
+	// resolved nothing has no real cost to copy and falls back to the manager's dummy.
+	// newAdminRow writes bcrypt.MinCost digests, so in this file a login WITH a
+	// candidate costs 8 x MinCost while one WITHOUT would cost 8 x the shipped Cost.
+	// Measured under -race, where one cost-12 comparison is ~11 s: that made a single
+	// unknown-email lookup ~88 s and took this package past Go's 10-minute default.
+	//
+	// SETTING IT HERE KEEPS THE ARMS COMPARABLE, which is what these tests are for.
+	// The tests whose subject IS the shipped work factor deliberately do NOT use this
+	// helper: TestAuthenticate_DummyIsReallyRun and TestCost_MatchesTheDummyDigest.
+	m.dummy = fixtureDigest(t, "a discarded padding password")
 	return m
 }
 

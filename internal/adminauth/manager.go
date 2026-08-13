@@ -72,23 +72,40 @@ type Database interface {
 //	8 candidates x 10 failed attempts x ~380 ms = ~30.4 s of CPU
 //	per 10-minute window per source address = ~5% of one core, sustained.
 //
-// Worst-case latency for a single login is 8 x 380 ms = ~3.0 s, and that shape is
-// unreachable today: it needs one email registered in eight businesses. The
-// ORDINARY case is one candidate, ~380 ms.
+// 🔴 AND SINCE M7-02 THAT ARITHMETIC DESCRIBES EVERY LOGIN, NOT THE WORST ONE. This
+// paragraph used to end "worst-case latency for a single login is 8 x 380 ms = ~3.0 s,
+// and that shape is unreachable today: it needs one email registered in eight
+// businesses. The ORDINARY case is one candidate, ~380 ms." padComparisons made the
+// count CONSTANT, so the ordinary case IS the eight-comparison case — measured at
+// ~1.75 s on this machine, ~1.89 s under -race.
+//
+// THE BOUND ABOVE IS UNCHANGED BY THAT, WHICH IS THE WHOLE REASON THE TRADE WAS
+// AFFORDABLE: it was already written for eight comparisons per request. What moved is
+// the TYPICAL cost, not the ceiling — an unregistered address simply stopped getting a
+// discount that told the caller it was unregistered.
 //
 // 🔴 WHAT IT COSTS, NAMED RATHER THAN HIDDEN — A LOCKOUT, NOT A SLOWDOWN. The cap
-// takes the FIRST eight rows in the resolver's ORDER BY tenant_id. If an address
-// is registered in more than eight businesses, the ninth onwards is never
-// compared, so a legitimate owner whose row sorts late CANNOT LOG IN and the
-// screen tells them only that the credentials are wrong (it must — OBLIGATION 1).
-// From M7-02 that becomes reachable on purpose: the sign-up wizard is public, RLS
-// lets a tenant write ANY email into its OWN admin_users, so an attacker who
-// registers nine tenants carrying a victim's address can push the victim's real
-// row past the cap. THE CAP CONVERTS A CPU DoS INTO AN ACCOUNT-LOCKOUT DoS. It is
-// the better trade today (the CPU DoS is remote-triggerable by anyone; the lockout
-// costs the attacker nine tenant registrations) but it is NOT a closed problem,
-// and 00011 already names the thing that closes it: requiring EMAIL VERIFICATION
-// before a tenant's admin row is resolvable at all, which is M7-02's to build.
+// takes the FIRST eight rows the resolver returns. If an address is registered in
+// more than eight businesses, the ninth onwards is never compared, so an owner whose
+// row sorts late CANNOT LOG IN and the screen tells them only that the credentials
+// are wrong (it must — OBLIGATION 1). From M7-02 that is reachable on purpose: the
+// sign-up wizard is public and RLS lets a tenant write ANY email into its OWN
+// admin_users. THE CAP CONVERTS A CPU DoS INTO AN ACCOUNT-LOCKOUT DoS.
+//
+// ✅ TWO THINGS CHANGED IN M7-02 AND THIS PARAGRAPH IS CORRECTED FOR BOTH, because it
+// used to say "ORDER BY tenant_id" and "which is M7-02's to build":
+//
+//   - THE ORDER IS created_at NOW (migration 00017), so the eight compared are the
+//     OLDEST. An EXISTING customer can no longer be displaced by later registrations
+//     — measured 5/5 — which is the half of the lockout that mattered. What remains
+//     is a customer registering INTO an address somebody has already stuffed, and
+//     internal/domain/signup.Provisioner.signInBlocked now tells them so on the
+//     confirmation instead of letting them discover it at a 401.
+//   - EMAIL VERIFICATION WAS **NOT** BUILT. 00011 names it as the thing that closes
+//     the class and this comment used to say it was "M7-02's to build"; M7-02 has no
+//     email transport (Q02 is open, M7-04 owns it), so it is still open and is still
+//     the closure. Saying otherwise would be a sentence declaring a guarantee the
+//     product does not provide, which is the defect that blocked this task twice.
 //
 // THE ALTERNATIVE THAT WAS REJECTED, because it is the one three documents
 // suggest: "stop at the first match". It bounds the work perfectly and it DEFEATS
@@ -99,6 +116,44 @@ type Database interface {
 // a security hole: Verified() would hold exactly one entry and the picker would
 // offer exactly that one. It is a product failure, not a bypass.)
 const MaxCandidates = 8
+
+// PickerCap bounds how many businesses the tenant picker may OFFER — one fewer than
+// the number of candidates a request compares.
+//
+// 🔴 IT IS THE FIFTH CLOSURE, AND IT REFUTES A "GENERAL STATEMENT" M7-02 WROTE AND
+// HAD TO WITHDRAW. Migration 00017 made the resolver incumbent-first, which fixed an
+// account lockout and made a COUNT signal deterministic: an attacker who plants
+// MaxCandidates rows for an address and signs in with their own password sees the
+// picker offer 8 businesses if the address was unknown and 7 if somebody was already
+// there, because the incumbent reliably takes the first slot and reliably fails to
+// verify. M7-02 built four closures, measured all four as worse, and concluded that
+// "any bound the caller can saturate reproduces the signal at the bound". THAT WAS
+// WRONG, and an audit produced the counter-example by bounding the DISPLAY rather
+// than the WINDOW.
+//
+// THE MECHANISM: with a comparison cap C and a display cap P, an unknown address
+// shows min(k, C, P) and a registered one shows min(k, C-1, P), because the
+// incumbent eats exactly one slot of the window. Setting P = C-1 makes the two equal
+// FOR EVERY k. Measured over k = 0..40:
+//
+//	P = C  (no cap)   leaking k: 8, 9, 10, … 40
+//	P = C-1           leaking k: none
+//
+// IT DOES NOT VIOLATE PHASE B OBLIGATION 5. That obligation forbids the picker being
+// WIDER than the set whose hash verified; this makes it NARROWER, which is the
+// direction the obligation is silent about because narrowing can only refuse access,
+// never grant it.
+//
+// ⚠️ IT CLOSES THE COUNT CHANNEL AND NOT THE TIMING ONE. Authenticate's response TIME
+// still varies with the number of candidates unless the comparisons are padded — see
+// the padding note on Authenticate. The two are different channels with different
+// prices and must not be confused.
+//
+// WHAT IT COSTS, NAMED: an operator whose password genuinely verifies in
+// MaxCandidates businesses is offered one fewer and cannot reach the last one from
+// the picker. That is the same class of cost MaxCandidates itself carries and it is
+// reachable only by somebody with eight businesses under one address.
+const PickerCap = MaxCandidates - 1
 
 // Sentinel outcomes.
 var (
@@ -124,6 +179,21 @@ type Manager struct {
 	// hmacKey is this package's DERIVED key (token.go), held privately so a later
 	// mutation of the caller's config slice cannot change how tokens hash.
 	hmacKey []byte
+	// dummy is the digest padComparisons falls back to when a login resolved NO
+	// candidate, i.e. when there is no real stored digest to take the cost from.
+	//
+	// 🔴 IT IS A FIELD RATHER THAN THE PACKAGE CONSTANT BECAUSE THE PADDING'S COST
+	// MUST TRACK THE ENVIRONMENT'S REAL COST, and an audit measured what a hardcoded
+	// one costs: the shipped dummy is $2a$12$, this repository's fixtures are
+	// bcrypt.MinCost, so every test login paid PRODUCTION price. Measured, 8
+	// comparisons: cost 4 -> 10 ms, cost 10 -> 644 ms, cost 12 -> 2.52 s, and the
+	// hardcoded dummy -> 3.42 s. A 342x overcharge on the test path for no security.
+	//
+	// PRODUCTION NEVER SETS IT — New installs dummyDigest, at the package Cost, which
+	// is the cost every digest this repository writes carries (Hash). Only the
+	// package's own test helper substitutes a cheaper one, the same way `now func()`
+	// is injected elsewhere in this repo.
+	dummy string
 }
 
 // New builds a Manager. It refuses a wrong-sized HMAC key rather than degrading:
@@ -140,7 +210,7 @@ func New(data Database, cfg *config.Config) (*Manager, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Manager{data: data, hmacKey: key}, nil
+	return &Manager{data: data, hmacKey: key, dummy: dummyDigest}, nil
 }
 
 // Attempt is ONE candidate identity this request actually compared a password
@@ -225,6 +295,27 @@ type Verified struct {
 	TenantID    uuid.UUID
 }
 
+// Offered is the set the PICKER may show: Verified, truncated to PickerCap.
+//
+// IT IS A SEPARATE METHOD FROM Verified AND THAT IS DELIBERATE. Verified answers
+// "did anything authenticate" — the question Authenticate itself decides on, and the
+// question Issue's parameter type is about. Offered answers "what may be DISPLAYED",
+// which is a narrower thing and the only place the display cap belongs. Folding the
+// cap into Verified would mean a login that verified PickerCap+1 identities reported
+// itself as having verified fewer, which is false and would eventually be read as an
+// authentication fact.
+//
+// THE TRUNCATION TAKES THE FIRST P, i.e. the OLDEST, because the resolver is ordered
+// created_at-first (migration 00017). So the entry an eight-business operator loses
+// is their NEWEST — the one they are most likely to be able to reach another way.
+func (a Authentication) Offered() []Verified {
+	v := a.Verified()
+	if len(v) > PickerCap {
+		return v[:PickerCap]
+	}
+	return v
+}
+
 // Verified returns the candidates whose password verified AND whose account is
 // active.
 //
@@ -259,14 +350,17 @@ func (a Authentication) Verified() []Verified {
 // answer the body refuses to give. Zero candidates costs one full cost-12 bcrypt
 // (~380 ms measured), which is what one candidate with a wrong password costs.
 //
-// ⚠️ THE RESIDUAL TIMING SIGNAL, COUNTED RATHER THAN CLAIMED AWAY. The three
-// outcomes OBLIGATION 1 names are indistinguishable, including in time, because
-// each costs exactly one comparison. What IS distinguishable is the NUMBER of
-// candidates: an email registered in three businesses costs ~1.14 s where an
-// unregistered one costs ~380 ms, so an attacker who can time responses learns
-// "this address is registered in roughly N businesses" — a weaker fact than "this
-// address exists", and one they can only obtain for an address that IS registered
-// more than once.
+// ✅ THE RESIDUAL TIMING SIGNAL IS CLOSED AS OF M7-02, AND THE SENTENCE THAT USED TO
+// STAND HERE WAS AN EXPIRING ASSUMPTION THAT EXPIRED. It read: an attacker "learns
+// this address is registered in roughly N businesses — a weaker fact than 'this
+// address exists', and one they can only obtain for an address that IS registered
+// more than once". The public sign-up wizard lets an attacker CREATE that condition
+// with a single registration, at which point the same measurement answers "does this
+// address exist" outright: measured 216 ms against 437 ms with one planted row, with
+// no overlap between the two ranges.
+//
+// Every login now performs exactly MaxCandidates comparisons — see padComparisons for
+// the measurement, the alternatives and what it costs.
 //
 // A SECOND, SMALLER ASYMMETRY RIDES ALONG, measured and named rather than left
 // for the next audit: a failure against a KNOWN address writes one audit_log row
@@ -296,12 +390,13 @@ func (a Authentication) Verified() []Verified {
 // less than the candidate-COUNT signal above, which is cheaper to read. Counted,
 // bounded by the account budget, not closed.
 //
-// IT COULD BE CLOSED AND DELIBERATELY IS NOT: padding every login to exactly
-// MaxCandidates comparisons would flatten it completely, and would cost
-// 8 x 380 ms = ~3.0 s ON EVERY LOGIN INCLUDING EVERY SUCCESSFUL ONE, plus a 25x
-// increase in the CPU an attacker buys per request — i.e. it would trade a narrow
-// enumeration signal for the DoS bound that MaxCandidates exists to hold. Named as
-// a limit; the numbers are here so the trade can be re-taken with different ones.
+// ✅ AND THE TRADE THIS PARAGRAPH DECLINED HAS BEEN RE-TAKEN WITH THE CORRECTED
+// PREMISE. It used to end "named as a limit; the numbers are here so the trade can be
+// re-taken with different ones" — which is exactly what M7-02 did. padComparisons
+// carries the new measurement and the reasoning; the short version is that the DoS
+// bound MaxCandidates exists to hold is ALREADY sized for eight comparisons per
+// request (internal/handler/adminratelimit.go), so padding spends no headroom that
+// was not already budgeted.
 func (m *Manager) Authenticate(ctx context.Context, email, password string) (Authentication, error) {
 	// An email that cannot be a lookup key is refused HERE, and the dummy is paid
 	// anyway, so the shape AND the timing of the response are identical to every
@@ -330,7 +425,7 @@ func (m *Manager) Authenticate(ctx context.Context, email, password string) (Aut
 	// FREE — reaching this return means failLogin runs, so the attempt budget is
 	// charged like any other failure. Before the fix none of the three held.
 	if email == "" || password == "" || !isLookupableEmail(email) {
-		CompareDummy(password)
+		m.pad(password, "", 0)
 		return Authentication{}, ErrBadCredentials
 	}
 
@@ -349,8 +444,8 @@ func (m *Manager) Authenticate(ctx context.Context, email, password string) (Aut
 	}
 
 	if len(candidates) == 0 {
-		// OBLIGATION 2. A real comparison against a real digest at the real cost.
-		CompareDummy(password)
+		// OBLIGATION 2, generalised — see pad.
+		m.pad(password, "", 0)
 		return auth, ErrBadCredentials
 	}
 
@@ -374,10 +469,119 @@ func (m *Manager) Authenticate(ctx context.Context, email, password string) (Aut
 		})
 	}
 
+	// EVERY LOGIN PAYS FOR EXACTLY MaxCandidates COMPARISONS — see pad. The padding
+	// is done against the FIRST candidate's own digest, so it costs exactly what the
+	// real comparisons in this login cost.
+	m.pad(password, candidates[0].PasswordHash.RevealForPasswordComparison(), len(candidates))
+
 	if len(auth.Verified()) == 0 {
 		return auth, ErrBadCredentials
 	}
 	return auth, nil
+}
+
+// pad brings the number of bcrypt comparisons this request performed up to
+// MaxCandidates, so the total is CONSTANT whatever the resolver returned.
+//
+// 🔴 IT IS PHASE B OBLIGATION 2 GENERALISED, AND IT EXISTS BECAUSE THE PREMISE THAT
+// LET THIS PACKAGE REJECT IT DIED IN M7-02. Authenticate's own comment costed padding
+// and declined it, on the ground that the residual candidate-COUNT timing signal is
+// "one they can only obtain for an address that IS registered more than once". The
+// public sign-up wizard makes an attacker able to CREATE that condition: one
+// registration carrying a victim's address is enough, and then the response time
+// answers the question the body refuses to.
+//
+// MEASURED ON THE SHIPPED CODE, ONE planted row, nine interleaved rounds:
+//
+//	address UNKNOWN     median 216 ms   (208 – 226)
+//	address REGISTERED  median 437 ms   (422 – 478)
+//	delta 220 ms (102%), and the two ranges DO NOT OVERLAP
+//
+// So a single sign-in answered "does this address have a Tappa account", for the
+// price of one sign-up. That is exactly what OBLIGATION 1 spends a dummy to refuse.
+//
+// WHY THE FULL CAP AND NOT A SMALLER FLOOR. A floor of F closes every k below F and
+// leaks at k = F — the attacker simply plants F rows. MaxCandidates is the only value
+// that cannot be saturated, because the WINDOW is capped there too: the comparison
+// count is then min(resolved, 8) real plus the remainder in dummies, i.e. always 8.
+// Measured cost per login on this machine, comparisons -> wall clock:
+// 1 -> 207 ms · 2 -> 463 ms · 3 -> 656 ms · 8 -> ~1.8 s. (The arrow and two
+// significant figures are deliberate: written as a bare count-then-duration pair, a
+// sub-second figure reads as a thousands-separated number, which is the habit
+// TestComments_DoNotQuoteTheDriftingRosterSize exists to break — and the digits past
+// the second are machine state rather than a property of the code.)
+//
+// 🔴 THE TRADE, WITH BOTH READINGS, BECAUSE IT IS A REAL ONE:
+//
+//	LEAVE IT OPEN  an ordinary sign-in stays ~216 ms, and one sign-up buys a
+//	               reliable answer to "is this address registered" — a question this
+//	               product spends a full dummy bcrypt per failed login refusing.
+//	CLOSE IT       every sign-in costs ~1.75 s, including every successful one.
+//
+// CLOSING IS CHOSEN, and the deciding measurement is that it needs NO NEW DoS
+// HEADROOM: internal/handler/adminratelimit.go already sizes the attempt budget on
+// "10 failures x 8 candidates x ~380 ms = ~30 s of CPU per window per address =
+// ~5% of one core". Padding makes the TYPICAL request cost what that budget was
+// already written for; it does not widen the ceiling, it removes the discount an
+// unregistered address used to get. The latency lands on an administrative act
+// performed once or twice a day, never on the tap path.
+//
+// ⚠️ WHAT IS STILL NOT CLOSED, so this is not read as more than it is: the audit_log
+// WRITE asymmetry this file already documents (a failure against a KNOWN address
+// writes a row per candidate, an unknown one writes none — measured at ~1-3% of the
+// response). Against a ~1.75 s response that residual is proportionally smaller than
+// it was against ~300 ms, but it is not gone, and it is bounded by the account budget
+// rather than removed.
+// 🔴 IT PADS AGAINST A **REAL** DIGEST WHEN THERE IS ONE, AND THE FIRST VERSION DID
+// NOT — it always called CompareDummy, which carries a hardcoded $2a$12$. An audit
+// measured the consequence on the test path: this repository's fixtures are
+// bcrypt.MinCost, so a login whose real comparisons cost 1.3 ms each was padded with
+// comparisons costing 315 ms each. Eight of them: 10 ms of real work followed by
+// 3.42 s of padding.
+//
+// THE INVARIANT IS "THE PADDING COSTS WHAT A REAL COMPARISON HERE COSTS", not "the
+// padding costs Cost". Deriving it from the digest actually being compared makes that
+// true by construction in every environment, and it is the same technique Compare
+// already uses for an over-long password ("pay exactly what an in-range comparison
+// against THIS digest costs").
+//
+// digest == "" means the resolver returned nothing, so there is no real cost to copy
+// and the package dummy is used: with zero candidates the only honest reference is
+// what a real comparison WOULD have cost, which is Cost.
+//
+// ⚠️ THE PROPERTY HOLDS WHEN THE STORED DIGESTS SHARE A COST, which is what Hash
+// guarantees for everything this product writes.
+//
+// 🔴 AND WHERE THEY DO NOT, THIS FUNCTION MAKES THE PRE-EXISTING MISMATCH CHANNEL
+// EIGHT TIMES LOUDER — an earlier version of this paragraph said it "neither creates
+// it nor closes it", which is wrong in the second half. Deriving the padding from the
+// candidate's own digest means the whole login is priced at that digest's cost, so a
+// MinCost row against the shipped cost-12 dummy measures about 7 ms for ONE candidate
+// against about 1.7 s for zero — a ratio of roughly 240x, where a single unpadded
+// comparison would have shown about 30x. (Two significant figures, for the reason
+// given at the cost table above.)
+//
+// IT IS NOT REACHABLE TODAY and the reason is the same one Compare gives for the
+// digest-side arm: adminauth.Hash is the only writer and it always uses Cost, so every
+// stored digest shares a cost. It becomes reachable the moment anything writes a
+// digest at another work factor — which is the shape migration 00017 declined to close
+// with a CHECK constraint, and it is now one more reason that constraint is worth
+// having.
+func (m *Manager) pad(password, digest string, done int) {
+	if digest == "" {
+		digest = m.dummy
+		if digest == "" {
+			// A zero Manager would pad with nothing, i.e. not pad at all. Refuse to be
+			// silently free: fall back to the package constant.
+			digest = dummyDigest
+		}
+	}
+	for i := done; i < MaxCandidates; i++ {
+		// The result is discarded: for a real candidate this repeats a comparison
+		// already recorded in Attempts, and for the dummy there is no account behind
+		// it. What is wanted is the WORK, not the answer.
+		_ = Compare(digest, password)
+	}
 }
 
 // isLookupableEmail reports whether an address can be sent to Postgres at all.

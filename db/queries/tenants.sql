@@ -35,3 +35,55 @@
 SELECT id, name, timezone
 FROM tenants
 WHERE id = @tenant_id;
+
+-- name: CreateTenant :one
+-- Creates a business. THE FIRST WRITE INTO `tenants` THAT ANY APPLICATION PATH IN
+-- THIS PRODUCT HAS EVER MADE (M7-02): until this query, `INSERT INTO tenants`
+-- appeared only in test/fixtures/seed.sql and in test helpers, which is the fact
+-- migration 00011 built a risk boundary on and said would expire here.
+--
+-- 🔴 THE CALLER SUPPLIES `id`, AND IT IS NOT A STYLE CHOICE -- IT IS THE ONLY SHAPE
+-- THAT CAN WORK. `tenants` is the one table whose RLS policy scopes on `id` rather
+-- than on `tenant_id` (migration 00001, ADR 0002 madde 5), so the WITH CHECK compares
+-- the inserted `id` against app.tenant_id. A row taking the column DEFAULT
+-- gen_random_uuid() would produce an id the transaction's context has never heard
+-- of, and every such INSERT fails the policy. Migration 00016 says the same from the
+-- privilege side and is why `id` is in the INSERT grant at all: "without INSERT on
+-- `id` the application could not create a tenant".
+--
+-- ⚠️ SO THE TENANT CONTEXT IS SET TO A ROW THAT DOES NOT EXIST YET, which reads
+-- alarming and is the safest possible thing to do with an unauthenticated caller.
+-- The whole transaction runs under app.tenant_id = <the new id>, and under that
+-- context RLS makes EVERY table in the schema empty: there is no row anywhere whose
+-- tenant_id equals a uuid nothing has ever used. The wizard therefore runs with
+-- strictly LESS reach than any authenticated panel request, not more.
+--
+-- 🔴 AND THE VALUE IS NEVER THE CALLER'S. internal/domain/signup mints it with
+-- uuid.NewRandom (crypto/rand) inside the provisioning call; no field of the sign-up
+-- form, no cookie and no query parameter reaches it. That is what stops the obvious
+-- attack on the paragraph above -- a stranger naming somebody else's tenant id and
+-- getting a transaction scoped to it. TestSignupProvision_TenantIDIsNeverTakenFromTheRequest
+-- asserts it at the boundary.
+--
+-- THREE COLUMNS ARE ABSENT FROM THE INSERT LIST AND TAKE THEIR DEFAULTS: `plan`
+-- ('founding'), `price_per_employee_month` (1.50) and `created_at` (now()). That is
+-- migration 00016's decision, enforced by privilege rather than by this file --
+-- tappa_app has no INSERT on any of the three, so naming one here would not compile
+-- against the database. A new customer gets the founding offer and the published
+-- price, which is exactly what the landing page sells.
+--
+-- vat_number is globally UNIQUE (migration 00001), so a second registration of the
+-- same business fails with 23505 rather than creating a duplicate tenant. The
+-- boundary turns that into a plain sentence on the form; it is NOT an enumeration
+-- concern worth hiding, because a VAT number is public data that anyone can put into
+-- VIES.
+INSERT INTO tenants (
+    id, name, vat_number, business_type, structure, timezone,
+    vat_verified, vat_checked_at
+)
+VALUES (
+    @id, @name, @vat_number, @business_type, @structure, @timezone,
+    sqlc.narg('vat_verified'), sqlc.narg('vat_checked_at')
+)
+RETURNING id, name, vat_number, business_type, structure, plan, timezone,
+          price_per_employee_month, vat_verified, vat_checked_at, created_at;

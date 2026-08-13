@@ -36,6 +36,10 @@ const (
 	ActionAdminLoginLimited   = "admin.login.rate_limited"
 	ActionAdminLoginRefused   = "admin.login.tenant_refused"
 	ActionAdminLoggedOut      = "admin.logout"
+	// ActionAdminLoginTruncated marks a SUCCESSFUL sign-in whose candidate list was
+	// cut by the per-request cap — the signature of the probe recordCandidateProbe
+	// documents, and a channel M7-02 opened and counted rather than closed.
+	ActionAdminLoginTruncated = "admin.login.candidates_truncated"
 )
 
 // AdminAuth serves panel authentication: the login screen, the "which business?"
@@ -193,6 +197,10 @@ type AdminAuth struct {
 	// See adminratelimit.go for why there are three and what each may refuse.
 	floodLimiter   *limiter
 	attemptLimiter *limiter
+	// workLimiter bounds every login that reaches the password loop, whatever its
+	// outcome — see adminLoginWorkLimit for why the attempt budget alone was not
+	// enough once M7-02 made a valid credential self-service.
+	workLimiter    *limiter
 	accountLimiter *limiter
 	sessionLimiter *limiter
 	logoutLimiter  *limiter
@@ -319,6 +327,7 @@ func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLed
 		baseURL:        originOf(cfg.BaseURL),
 		floodLimiter:   newLimiter(adminFloodLimit, adminFloodPeriod),
 		attemptLimiter: newLimiter(adminAttemptLimit, adminAttemptPeriod),
+		workLimiter:    newLimiter(adminLoginWorkLimit, adminLoginWorkPeriod),
 		accountLimiter: newLimiter(adminAccountLimit, adminAccountPeriod),
 		sessionLimiter: newLimiter(adminSessionLimit, adminSessionPeriod),
 		logoutLimiter:  newLimiter(adminLogoutLimit, adminLogoutPeriod),
@@ -729,6 +738,25 @@ func (a *AdminAuth) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 🔴 THE WORK BUDGET, CHARGED WHATEVER THE OUTCOME. The attempt budget above is
+	// charged only by FAILURES (failLogin), which left a successful sign-in bounded
+	// solely by the flood ceiling — 3000 per window, each costing MaxCandidates bcrypt
+	// comparisons since the padding landed. A security audit measured 18 consecutive
+	// successful sign-ins with zero refusals. See adminLoginWorkLimit for the
+	// arithmetic and for why this is keyed on the address rather than the account.
+	//
+	// IT IS CHECKED HERE, BEFORE Authenticate, because the password loop is the
+	// expensive thing it exists to bound — the same position the attempt budget takes.
+	if !a.workLimiter.Allowed(ip) {
+		if n := a.workLimiter.Charge(ip); a.workLimiter.FirstOverLimit(n) {
+			a.log.Warn("panel sign-in rate limited", "scope", "work", "ip", ip,
+				"limit", adminLoginWorkLimit, "period", adminLoginWorkPeriod.String())
+		}
+		a.renderProblem(w, r, http.StatusTooManyRequests, problemAdminTooMany)
+		return
+	}
+	a.workLimiter.Charge(ip)
+
 	// The email is normalised only by trimming surrounding whitespace. CASE IS NOT
 	// touched here: admin_users.email is citext and migration 00011's resolver
 	// compares with OPERATOR(public.=), so the DATABASE is the single authority on
@@ -752,8 +780,15 @@ func (a *AdminAuth) Login(w http.ResponseWriter, r *http.Request) {
 		// The one signal that keeps the lockout named at adminauth.MaxCandidates
 		// from being invisible. No email in the line (section 4.7 spirit: an address
 		// is personal data and this line is written on an unauthenticated path).
+		//
+		// 🔴 IT NOW SAYS WHETHER THE ATTEMPT SUCCEEDED, and the difference is the whole
+		// value of the line. Truncation with a FAILURE is an operator with too many
+		// businesses, or noise. Truncation with a SUCCESS is the signature of the
+		// probe documented at recordCandidateProbe below, and the two used to be
+		// indistinguishable in the log.
 		a.log.Warn("panel sign-in: candidate list was truncated by the per-request cap",
-			"ip", ip, "resolved", auth.Resolved, "compared", len(auth.Attempts))
+			"ip", ip, "resolved", auth.Resolved, "compared", len(auth.Attempts),
+			"authenticated", err == nil)
 	}
 	if err != nil {
 		a.failLogin(w, r, ip, st, auth)
@@ -761,13 +796,31 @@ func (a *AdminAuth) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	verified := auth.Verified()
+	if auth.Truncated() {
+		a.recordCandidateProbe(r, ip, auth, verified)
+	}
 	if len(verified) == 1 {
 		// The ordinary path, and the reason the signed blob is off it entirely.
 		a.completeLogin(w, r, ip, verified[0])
 		return
 	}
 
-	blob, err := a.choices.mint(verified, st.bind)
+	// 🔴 THE PICKER IS BUILT FROM Offered(), NOT Verified() — adminauth.PickerCap.
+	// Offering one fewer business than the window compares is what makes the picker's
+	// ROW COUNT independent of whether the address already had an account, which is a
+	// channel migration 00017 opened and four other closures failed to shut. It is
+	// still a SUBSET of the verified set, so PHASE B OBLIGATION 5 (never wider than
+	// what verified) holds by construction — narrowing can only refuse access.
+	offered := auth.Offered()
+	if len(offered) == 1 {
+		// Capping can reduce a two-entry picker to one only if PickerCap were 1, which
+		// it is not; the branch exists so a future cap cannot silently produce a
+		// one-row picker that the ordinary path would have handled better.
+		a.completeLogin(w, r, ip, offered[0])
+		return
+	}
+
+	blob, err := a.choices.mint(offered, st.bind)
 	if err != nil {
 		a.log.Error("panel sign-in: minting the business choice failed", "err", err)
 		a.renderProblem(w, r, http.StatusInternalServerError, problemAdminServer)
@@ -1068,6 +1121,120 @@ func (a *AdminAuth) failLogin(w http.ResponseWriter, r *http.Request, ip string,
 	a.renderLoginFailure(w, r, st)
 }
 
+// recordCandidateProbe leaves a trail for a SUCCESSFUL login whose candidate list
+// was truncated.
+//
+// 🔴 WHAT IT IS FOR. ⚠️ THIS PARAGRAPH USED TO OPEN "THE ONE CHANNEL M7-02 OPENED AND
+// COULD NOT CLOSE", AND THAT IS NOW FALSE IN TWO DIRECTIONS: the picker count WAS
+// closed (adminauth.PickerCap — "THE FIFTH CLOSURE", and migration 00017's "✅ AND THE
+// PICKER COUNT IS CLOSED TOO"), and it is not "the one" channel either — the sign-up
+// wizard's reachability check is a second, priced and counted in
+// internal/domain/signup. What survives, and what this function is actually for, is
+// the OBSERVATION: a truncated candidate list is the SIGNATURE of an address that has
+// been stuffed, whether or not any channel is reading it.
+//
+// (The word is "signature" and not the other one on purpose. redline-check.sh's R1
+// rule matches that word literally and line-locally, and ADR 0012's exemption is
+// scoped to the marketing files — so a metaphor here would redden CI. activate.go and
+// password.go set the precedent: REWORD rather than widen the net, because "CI reddens
+// on an innocent line" is how a red-line scanner gets relaxed under pressure and the
+// real branch goes with it.) Migration
+// 00017 made the resolver incumbent-first so an existing customer can no longer be
+// pushed out of the compared window. That fixed the LOCKOUT and, in doing so, made a
+// different signal DETERMINISTIC: an attacker who plants exactly
+// adminauth.MaxCandidates rows for an address and signs in with their own password
+// sees the picker offer 8 businesses if the address was unknown and 7 if somebody
+// was already there — because the incumbent now reliably occupies the first slot and
+// reliably fails to verify. Measured on this stack, 3 of 3 runs: 8 / 7.
+//
+// That answers the question migration 00011's OBLIGATION 1 spends a dummy bcrypt
+// refusing to answer. Four closures were built and measured, and every one is worse
+// (the numbers are in ADR 0013 and in migration 00017); the honest position is
+// therefore to COUNT the channel rather than claim it closed — and a counted channel
+// should at least be VISIBLE.
+//
+// 🔴 THE SIGNATURE IS NOT WHAT THIS COMMENT FIRST CLAIMED, AND THE CORRECTION MATTERS
+// BECAUSE IT IS WRONG IN EXACTLY THE CASE THE MECHANISM EXISTS FOR. It said the shape
+// "has almost no legitimate occurrence — a real operator would need nine businesses".
+// Measured: with eight rows planted against a victim's address, THE VICTIM'S OWN
+// CORRECT SIGN-IN produces truncated=true with one verified identity — their own. So
+// the row is written on every one of the victim's logins, into the VICTIM's tenant.
+//
+// WHAT THAT MEANS, STATED PLAINLY RATHER THAN LEFT AS AN INFERENCE:
+//
+//   - THE SIGNATURE IS "THIS ADDRESS IS OVER-SUBSCRIBED", NOT "SOMEBODY IS PROBING".
+//     Both the attacker's probe and the victim's ordinary sign-in produce it, and
+//     nothing here can tell them apart. What it is good for is noticing that an
+//     address has been stuffed AT ALL, which is the condition every channel M7-02
+//     counted depends on.
+//   - AN ATTACKER CAN THEREFORE CAUSE PERMANENT ROWS IN A THIRD PARTY'S audit_log,
+//     INDIRECTLY, by stuffing that party's address and letting them log in. It is the
+//     weak form of the shape the next paragraph forbids: the caller cannot DIRECT a
+//     row anywhere (the tenant comes from a verified digest, never from a request),
+//     and the account budget bounds it at adminAccountLimit per window, but "a
+//     stranger's action puts rows in your trail" is true and is not claimed away.
+//   - THE FORENSIC CHAIN RUNS THE OTHER WAY IN THAT CASE. "It ties the probe to a
+//     tenant id" is true when the ATTACKER is the one authenticating; when the victim
+//     is, the row names the victim. An investigator reads it as "this address was
+//     over-subscribed at this time", never as "this tenant did something".
+//
+// WHERE THE ROW GOES: into a tenant whose digest ACTUALLY VERIFIED. Never into a
+// tenant the caller merely named, which would hand an unauthenticated caller a way to
+// append rows to any tenant's undeletable audit_log; ChoosePage's refusal branch draws
+// the same line.
+//
+// IT IS BOUNDED BY THE ACCOUNT BUDGET, and it had to be. A successful login charges
+// no attempt budget, so an unbounded row here would be a write primitive into an
+// append-only table repeatable at will — the M5-02 shape, in the one table not even
+// tappa_owner can delete from. adminAccountLimit already bounds exactly this kind of
+// write; using it here widens what that budget meters (failures, and now this) and
+// not what it protects (audit_log alone, never a request).
+//
+// ⚠️ WHAT IT IS NOT: a defence. It does not slow the probe down, does not refuse it
+// and does not narrow it. It makes it observable.
+func (a *AdminAuth) recordCandidateProbe(r *http.Request, ip string, auth adminauth.Authentication, verified []adminauth.Verified) {
+	if len(verified) == 0 {
+		return
+	}
+	// 🔴 A SEPARATE KEY, NOT THE ACCOUNT'S OWN — AND THE INTERACTION IS NAMED BECAUSE
+	// IT WAS NOT. This used to charge adminAccountLimit under the bare admin_user_id,
+	// which is the SAME counter failLogin spends to write that account's real
+	// `admin.login.failed` rows. A security audit followed it through: an attacker
+	// stuffs a victim's address (about three hours, see internal/domain/signup), after
+	// which EVERY correct sign-in by the victim is truncated and burns one unit — and
+	// once ten are gone in a window, failed sign-in attempts AGAINST THE VICTIM stop
+	// being written to audit_log at all. A third party could suppress somebody else's
+	// trail from outside, which is the M5-02 shape pointed at the one table nobody can
+	// delete from.
+	//
+	// THE PREFIX MAKES IT A DIFFERENT BUCKET WITH THE SAME CEILING AND THE SAME
+	// SEMANTICS: still per-account, still bounding audit_log alone, still never
+	// refusing a request. What it no longer does is spend a budget that something else
+	// depends on. No new mechanism — the same limiter, a namespaced key.
+	key := "probe:" + verified[0].AdminUserID.String()
+	if !a.accountLimiter.Allowed(key) {
+		return
+	}
+	a.accountLimiter.Charge(key)
+	a.record(r.Context(), audit.Event{
+		TenantID: verified[0].TenantID,
+		ActorID:  &verified[0].AdminUserID,
+		Action:   ActionAdminLoginTruncated,
+		Target:   verified[0].AdminUserID.String(),
+		Detail: adminLoginDetail{
+			Outcome: "ok",
+			Reason: "the address is registered in more businesses than one sign-in compares, " +
+				"and this attempt authenticated against a subset",
+			VerifiedBusiness: len(verified),
+			Resolved:         auth.Resolved,
+			Compared:         len(auth.Attempts),
+		},
+	})
+	a.log.Warn("panel sign-in: an address resolved past the per-request cap AND authenticated",
+		"ip", ip, "resolved", auth.Resolved, "compared", len(auth.Attempts),
+		"verified", len(verified), "admin_user_id", verified[0].AdminUserID)
+}
+
 // renderLoginFailure writes THE one failure response. It is a separate function
 // with no parameters carrying an outcome, so there is no argument through which a
 // caller could vary what a failure looks like.
@@ -1138,6 +1305,12 @@ type adminLoginDetail struct {
 	SuppressedFrom int `json:"suppressed_from,omitempty"`
 	// VerifiedBusiness is how many businesses the password verified against.
 	VerifiedBusiness int `json:"verified_businesses,omitempty"`
+	// Resolved and Compared are how many candidate identities the address resolved
+	// to and how many this request was willing to test. They are present only on
+	// ActionAdminLoginTruncated, where the DIFFERENCE between them is the event.
+	// Neither is a secret: both are counts, and the address they count is not here.
+	Resolved int `json:"resolved,omitempty"`
+	Compared int `json:"compared,omitempty"`
 }
 
 // beginPost runs the checks every state-changing panel auth POST shares: Origin,

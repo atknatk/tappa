@@ -48,9 +48,27 @@ import (
 // TrustedProxies), and passing nil is the strongest available statement that this
 // feature reads no configuration — if it ever starts to, this stops compiling or
 // starts panicking rather than quietly picking up a default.
+// marketingRouter is the REAL router with the public surface on it.
+//
+// ✅ IT MOUNTS THE SIGN-UP WIZARD AS WELL AS OF M7-02, and that is what keeps
+// TestMarketing_EveryInternalLinkResolves meaningful rather than merely green: the
+// landing page's "Start free" button now points at signupPath, and a router without
+// the wizard would answer 404 there. M7-01's card named this as one of the two
+// things M7-02 owed ("rotayı mount etmek ve handler.Marketing.signupHref'i
+// doldurmak"), and the link test is the mechanism that would have caught either half
+// being skipped.
+//
+// The provisioner is a stub because NOTHING ON THE MARKETING SURFACE POSTS. These
+// tests drive GETs; the wizard's own behaviour is driven in signup_test.go against
+// the same real handler.
 func marketingRouter(t *testing.T) http.Handler {
 	t.Helper()
-	return httpx.NewRouter(nil, NewMarketing(slog.New(slog.NewTextHandler(os.Stderr, nil))))
+	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	wizard, err := NewSignup(&fakeProvisioner{}, nil, signupTestConfig(), log)
+	if err != nil {
+		t.Fatalf("NewSignup: %v", err)
+	}
+	return httpx.NewRouter(nil, NewMarketing(log), wizard)
 }
 
 // marketingURLs is every URL this feature serves, derived from the same table the
@@ -790,39 +808,52 @@ func TestClaimScanners_RejectTheThingsTheyExistToReject(t *testing.T) {
 	}
 }
 
-// TestLanding_OffersNoLinkToAWizardThatIsNotMounted.
+// TestLanding_OffersTheWizardItMounts.
 //
-// The M7-02 sign-up flow does not exist. The landing page says so in words instead
-// of rendering a button that answers 404 -- and the OTHER branch is driven here as
-// well, because a branch nothing renders is a branch that stops compiling correctly
-// without anybody noticing.
-func TestLanding_OffersNoLinkToAWizardThatIsNotMounted(t *testing.T) {
+// 🔴 THIS TEST WAS INVERTED BY M7-02 AND THAT IS THE POINT OF IT. Until this
+// milestone it was TestLanding_OffersNoLinkToAWizardThatIsNotMounted: the sign-up
+// flow did not exist, so the landing page said so in words and rendered no button,
+// and this test held the page to that. M7-01's card named the two things that had to
+// change together — "rotayı mount etmek VE handler.Marketing.signupHref'i doldurmak
+// — ikisi de yapılmazsa ... kırmızıya döner" — and the inversion is what makes that
+// prediction true rather than decorative.
+//
+// SO IT NOW ASSERTS BOTH HALVES AND THE ABSENCE OF THE OLD SENTENCE. Half a change
+// is the failure this file exists to catch: a button pointing at an unmounted route
+// is a 404 on the most public URL in the product, and a mounted route with the page
+// still apologising for not having one is a feature nobody can reach.
+func TestLanding_OffersTheWizardItMounts(t *testing.T) {
 	t.Parallel()
 	body := mustFetchMarketing(t, marketingRouter(t), "/")
-	if strings.Contains(body, `href="/signup"`) {
-		t.Error("the landing page links to /signup, which is M7-02 and is not mounted")
+	if !strings.Contains(body, `href="`+signupPath+`"`) {
+		t.Errorf("the landing page carries no link to %s, so the wizard M7-02 mounted is "+
+			"unreachable from the page that sells it", signupPath)
 	}
 	text := screenText(t, body)
-	if !strings.Contains(text, "Self-service sign-up is not open yet") {
-		t.Error("the landing page neither offers sign-up nor says that it cannot; a visitor " +
-			"is left looking for a button that is not there")
+	// THE APOLOGY MUST BE GONE. A page that offers the button AND still says
+	// self-service sign-up is closed contradicts itself, and the sentence is the half
+	// a careless edit leaves behind.
+	if strings.Contains(text, "Self-service sign-up is not open yet") {
+		t.Error("the landing page still says self-service sign-up is not open while linking " +
+			"to the wizard; the two halves of M7-02 disagree on the same page")
 	}
 
-	// The branch M7-02 turns on. Rendered directly, since the handler cannot yet
-	// produce it.
+	// The OTHER branch is driven too, because a branch nothing renders is a branch
+	// that stops compiling correctly without anybody noticing. It is what a
+	// deployment that ever unmounts the wizard would fall back to.
 	var sb strings.Builder
 	v := pages.LandingView{
-		SignupHref:            "/signup",
+		SignupHref:            "",
 		SignInHref:            adminLoginPath,
 		PricePerEmployeeMonth: publishedPricePerEmployeeMonth,
 		FreeMonths:            foundingFreeMonths,
 	}
 	if err := pages.Landing(v).Render(t.Context(), &sb); err != nil {
-		t.Fatalf("rendering the landing page with a sign-up href: %v", err)
+		t.Fatalf("rendering the landing page without a sign-up href: %v", err)
 	}
-	if !strings.Contains(sb.String(), `href="/signup"`) {
-		t.Error("setting LandingView.SignupHref does not produce a link, so M7-02 would have " +
-			"to change this template as well as mount its route")
+	if strings.Contains(sb.String(), `href="`+signupPath+`"`) {
+		t.Error("an empty LandingView.SignupHref still produces a link, so a deployment " +
+			"without the wizard would ship a button that answers 404")
 	}
 }
 
@@ -1476,6 +1507,11 @@ var cookieWriters = map[string]cookieWriter{
 	"tappa_admin_login":   {[]string{"internal", "handler", "logincontext.go"}, "set"},
 	"tappa_admin_choice":  {[]string{"internal", "handler", "logincontext.go"}, "set"},
 	"tappa_admin_confirm": {[]string{"internal", "handler", "logincontext.go"}, "set"},
+	// The two the sign-up wizard sets (M7-02). They share a setter for the same
+	// reason the three above do: signupCookies.set takes the name as a parameter and
+	// applies the same attributes to both.
+	"tappa_signup":       {[]string{"internal", "handler", "signupstate.go"}, "set"},
+	"tappa_signup_state": {[]string{"internal", "handler", "signupstate.go"}, "set"},
 }
 
 var (
@@ -1566,6 +1602,9 @@ func TestCookieNotice_FlagsAndScopeMatchTheCookieTheCodeWrites(t *testing.T) {
 			`"/"`:                  "/",
 			"CookiePath":           adminauth.CookiePath,
 			"adminauth.CookiePath": adminauth.CookiePath,
+			// M7-02. The wizard's two cookies are scoped away from both the tap
+			// surface and the panel, which is the property the Scope column discloses.
+			"signupCookiePath": signupCookiePath,
 		}[attrs["Path"]]
 		if wantPath == "" {
 			t.Errorf("%s: %s writes Path: %s, which this test cannot resolve. Resolve it here "+

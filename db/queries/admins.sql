@@ -50,11 +50,25 @@
 --
 -- ⚠️ WHAT CLOSED IS THE PATH, NOT THE CAPABILITY -- the sentence above used to be
 -- read the other way and the correction is worth spelling out, because it changes
--- who has to be careful. admin_users keeps a TABLE-WIDE UPDATE grant, deliberately
--- (00011 argues it, correctly: nearly every column there is legitimately writable,
--- so a column grant would merely enumerate the table). The consequence is that two
--- of the three effects 00011 closed on admin_sessions remain reachable ONE TABLE
--- OVER. Measured live as tappa_app, inside its OWN tenant context:
+-- who has to be careful.
+--
+-- ✅ AND admin_users NO LONGER KEEPS A TABLE-WIDE UPDATE GRANT. This paragraph said it
+-- did, "deliberately (00011 argues it, correctly: nearly every column there is
+-- legitimately writable, so a column grant would merely enumerate the table)" --
+-- migration 00017 took that back and refuted the reason. The list 00011 called an
+-- enumeration IS the grant now (full_name, email, password_hash, role, status,
+-- last_login_at), and the three columns it OMITS are the point: `id` and `tenant_id`
+-- (identity) and `created_at` (the ordering 00017's whole security argument rests on
+-- -- a row whose created_at can be rewritten can be moved in front of an existing
+-- customer, which is the account lockout that file exists to close). Measured after
+-- 00017: relacl `tappa_app=ar`, and has_column_privilege for UPDATE on those three is
+-- false.
+--
+-- THE EFFECTS BELOW WERE MEASURED BEFORE THAT NARROWING AND TWO OF THEM SURVIVE IT,
+-- which is why they are still here: `status` and `password_hash` and `role` are all in
+-- the new grant, because a panel that manages admins has to write them. So the
+-- reachability claim is unchanged -- only the columns it can reach through are.
+-- Measured live as tappa_app, inside its OWN tenant context:
 --   UPDATE admin_users SET status = 'active'        WHERE ... -> UPDATE 1
 --       the disable kill switch, undone.
 --   UPDATE admin_users SET role = 'owner'           WHERE ... -> UPDATE 1
@@ -249,3 +263,48 @@ WHERE id = @id
   AND tenant_id = @tenant_id
   AND status = 'active'
 RETURNING id, last_login_at;
+
+-- name: CreateAdminUser :one
+-- Creates a panel operator. THE FIRST INSERT INTO admin_users ANY APPLICATION PATH
+-- IN THIS PRODUCT HAS EVER MADE (M7-02) -- internal/adminauth/password.go names this
+-- task as one of the three that open the write path, and states the rule it must
+-- keep: "admin_users.password_hash is only ever written with the output of
+-- adminauth.Hash".
+--
+-- 🔴 WHY IT IS AN INSERT ... SELECT RATHER THAN AN INSERT ... VALUES. CreateLocation
+-- learned this the hard way and says so at length: an INSERT ... VALUES has no WHERE
+-- and cannot have one, so the section 4.5 belt scanner
+-- (internal/domain/*/query_test.go) finds no predicate to check and reports that it
+-- verified NOTHING. Selecting the tenant row gives the statement a scoped source, so
+-- the belt reads it like any other query -- subject `tenants`, whose scope column is
+-- its own id (migration 00001's policy).
+--
+-- IT ALSO BUYS A REAL GUARANTEE and not merely a satisfied scanner: the INSERT cannot
+-- happen unless the caller's tenant row is VISIBLE under RLS. In the sign-up flow that
+-- row was written moments earlier in the SAME transaction under the SAME context, so
+-- this is a genuine check that the two writes agree on which business they are for --
+-- if provisioning ever passed two different ids, this query inserts nothing and the
+-- whole registration rolls back rather than producing an admin belonging to a tenant
+-- that is not theirs.
+--
+-- password_hash IS WRITTEN AND IS NEVER RETURNED. This file's header makes the
+-- grep-checkable claim that password_hash is selected by no query here; that stays
+-- true -- the value appears once, as a parameter of the INSERT's select-list, exactly
+-- as @token_hash does in CreateAdminSession, and the RETURNING list below does not
+-- name it. The generated *Row struct therefore has no PasswordHash field, so a row
+-- read cannot leak the digest into a log.
+--
+-- email IS NOT RETURNED EITHER, for a smaller reason: nothing in the sign-up flow
+-- needs it back (the boundary already holds the value it just sent) and an address is
+-- personal data that would otherwise travel through a log line at the one moment the
+-- request is still unauthenticated.
+--
+-- role IS A PARAMETER RATHER THAN A LITERAL 'owner', even though the sign-up wizard
+-- is the only caller today and always passes 'owner'. M7-04's admin invitation is the
+-- second caller and passes 'manager'; migration 00006's CHECK is the authority on
+-- which values exist, so a Go-side literal here would be a second one.
+INSERT INTO admin_users (tenant_id, full_name, email, password_hash, role)
+SELECT t.id, @full_name, @email, @password_hash, @role
+FROM tenants t
+WHERE t.id = @tenant_id
+RETURNING id, tenant_id, full_name, role, status, created_at;

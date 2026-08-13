@@ -631,8 +631,15 @@ const (
 	//	per 10-minute window per address = ~5% of one core, sustained.
 	//	Worst case across a fixed-window boundary: 20 failures, ~61 s, ~10%.
 	//
-	// The ORDINARY figure is far below that: one candidate per email today, so ten
-	// failures cost ~3.8 s.
+	// 🔴 THE "ORDINARY FIGURE" SENTENCE IS RETIRED (M7-02 round 4). It read: "one
+	// candidate per email today, so ten failures cost ~3.8 s". adminauth now pads every
+	// login to MaxCandidates comparisons (padComparisons) to close a timing channel
+	// that answered "is this address registered" for the price of one sign-up, so the
+	// ORDINARY figure IS the arithmetic above — the discount an unregistered address
+	// used to get is exactly what was leaking.
+	//
+	// THE CEILING IS UNCHANGED AND WAS ALREADY WRITTEN FOR THIS. That is what made the
+	// trade affordable: this budget was sized on "10 x 8 candidates", not on "10 x 1".
 	//
 	// ONLY FAILURES ARE CHARGED, and that is what keeps a shared office address
 	// safe: ten people signing in correctly spend nothing here, so the budget
@@ -642,6 +649,69 @@ const (
 	// link (which M7-04 will provide; today they ask another owner).
 	adminAttemptLimit  = 10
 	adminAttemptPeriod = 10 * time.Minute
+
+	// adminLoginWorkLimit / adminLoginWorkPeriod: every login that REACHES the password
+	// loop, whatever its outcome.
+	//
+	// 🔴🔴 IT EXISTS BECAUSE THE BUDGET ABOVE MEASURES ONLY HALF THE WORK, AND M7-02
+	// BOUGHT A SECURITY DECISION WITH THE OTHER HALF. adminAttemptLimit is charged in
+	// failLogin and nowhere else — completeLogin charges nothing — so a SUCCESSFUL
+	// sign-in was bounded only by adminFloodLimit (3000 per 10 minutes). Measured by a
+	// security audit on the shipped stack:
+	//
+	//	18 consecutive SUCCESSFUL sign-ins -> 18 x 303, median 2.39 s, zero 429
+	//	13 consecutive FAILED sign-ins     -> 10 x 401, then 429 from the 11th
+	//
+	// That asymmetry was harmless while a valid credential implied a legitimate user.
+	// 🔴 M7-02 ENDED THAT: the sign-up wizard is public, so anybody can mint themselves
+	// a valid credential in a couple of minutes. "Successful login" stopped being a
+	// proxy for "real operator" and became just another way to buy CPU.
+	//
+	// AND THE PADDING MULTIPLIED IT BY EIGHT. adminauth.padComparisons makes every
+	// login cost MaxCandidates comparisons, which is what closed the timing channel —
+	// and M7-02 justified that trade with "the attempt budget was already sized for
+	// eight comparisons per request". THAT SENTENCE WAS TRUE OF THE FAILURE PATH AND
+	// FALSE OF THIS ONE, which nothing was measuring. The arithmetic, at the repo's own
+	// ~380 ms per cost-12 comparison:
+	//
+	//	failure path  10 x 8 x 0.38 s =    30.4 CPU-s per window = ~0.05 cores (as
+	//	                                   documented; unchanged)
+	//	success path  3000 x 8 x 0.38 s = 9120   CPU-s per 600 s = ~15 CORES, from ONE
+	//	                                   address — against ~1.9 cores before padding
+	//
+	// 🔴 AND IT REACHES §4.6. The tap surface shares this process and this connection
+	// pool (httpx.TapLimiter says so from its side); CPU that a panel flood has taken
+	// is CPU a tap cannot have, and a tap that cannot be served is an attendance record
+	// that is not written — the one thing §4.6 forbids losing.
+	//
+	// THE NUMBER IS DERIVED FROM OPERATOR BEHAVIOUR, the way every other budget in this
+	// file is, and NOT from the CPU ceiling — the ceiling is then reported rather than
+	// chosen:
+	//
+	//	10 admins behind one NAT, one sign-in each per window   10   (this file's own
+	//	                                                             office model)
+	//	x2 for a second device (phone and laptop)               20
+	//	a large office of 30 admins on two devices              60
+	//	x2 headroom over that                                  120   <- the limit
+	//
+	// RESULTING CEILING: 120 x 8 x 0.38 s = ~365 CPU-s per 600 s window per address,
+	// i.e. ~0.61 of one core. That is BELOW the ~1.9 cores the success path could reach
+	// before padding existed, so this closes a hole that predates M7-02 as well as the
+	// one M7-02 widened.
+	//
+	// ⚠️ IT CAN REFUSE A CORRECT PASSWORD, WHICH adminAttemptLimit DELIBERATELY CANNOT.
+	// That is the same trade adminFloodLimit already makes and is keyed the same way —
+	// on the ADDRESS, never on the account — so it is not an account lockout: nobody
+	// can spend a named operator's budget from somewhere else. Reaching it needs 120
+	// sign-ins from one address in ten minutes, which is twice the largest office this
+	// file models and is not a shape a person produces.
+	//
+	// WHY NOT SIMPLY CHARGE adminAttemptLimit ON SUCCESS: that budget is 10, sized for
+	// wrong passwords, and ten is fewer than one busy office does legitimately. Reusing
+	// it would lock real operators out of their own panel — the harm this file spends
+	// its longest paragraph refusing.
+	adminLoginWorkLimit  = 120
+	adminLoginWorkPeriod = 10 * time.Minute
 
 	// adminAccountLimit / adminAccountPeriod: 10 attributable failures in 10
 	// minutes against ONE admin account, bounding audit_log ONLY.

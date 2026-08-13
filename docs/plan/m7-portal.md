@@ -105,6 +105,124 @@ location + dinamik lokasyon listesi → admin hesabı → APPROVED damgalı done
 - Sunucu tarafı doğrulama tam; istemci doğrulaması yalnızca kolaylık.
 - Bot koruması (rate limit + basit challenge), CAPTCHA üçüncü parti değil.
 
+> **Kart düzeltmesi (2026-08-13, M7-02 uygulaması sırasında).** On bir madde;
+> altısı 1. turda, **6.–7. 2. turun**, **9.–11. 4. turun** bloklayan bulgularından.
+>
+> 1. **🔴 M7-02 / M7-03 SINIRI ÖLÇÜLDÜ VE M7-02 YAZIYOR.** İki kart aynı yazmayı
+>    tarif ediyordu (bu kart *"admin hesabı → APPROVED damgalı done ekranı"*,
+>    M7-03 *"Tek transaction: tenant + lokasyonlar + … + admin kullanıcı"*).
+>    **Karar: M7-02 provision eder, M7-03 sertleştirir.** Eleyen ölçüm iki tane:
+>    (a) **APPROVED damgası bir iddiadır** — hiçbir şey yaratmamış bir ekranda
+>    basılırsa M7-01 kartının 6. maddesinin adlandırdığı *"mount edilmemiş bir
+>    yetenek ilan eden cümle"* kusuru, markanın en vurgulu bileşeninde basılmış
+>    olur; (b) **toplayıp devretmenin bedeli sıfır değil** — durum ya §6 beşlisini
+>    dolduramayan (tenant_id **yok**, çünkü tenant henüz yaratılmadı) bir
+>    `signup_drafts` tablosu, ya da zaten yazılması gereken imzalı çerez olurdu;
+>    ikincisi seçildiği için M7-02'nin son adımda yazmasının **ek maliyeti yok**.
+>    **M7-03'e kalan:** `multi` için departman adımı · *"plaket bekleniyor"*
+>    durumu · bu turda LİMİT olarak yazılan provisioning kenar durumları.
+> 2. **Q09 uygulandı ve şema gerektirdi.** `tenants`'ta `vat_verified` **yoktu**
+>    → **migration 00017**. Sütun **NULLABLE** (`boolean NOT NULL` bir VIES
+>    kesintisini *"bu numara geçersiz"* diye yazmak zorunda kalırdı) ve yanına
+>    `vat_checked_at` kondu; dört durum: hiç sorulmadı · soruldu cevap yok ·
+>    geçerli · geçersiz. VIES çağrısı **1. adımda, senkron, 3 sn timeout**;
+>    başarısızlık kayıt akışını **durdurmuyor** ve `Check` **hata döndürmüyor**,
+>    yani bir dal unutularak reddetmeye çevrilemiyor.
+> 3. **🔴 "Basit challenge" GÖRÜNÜR BİR BULMACA DEĞİL, ve bu ölçülmüş bir
+>    karardır.** Uygulanan: **honeypot alanı** + **asgari doldurma süresi (8 sn)**
+>    + imzalı üç adımlı sıra + dört bütçe. Görünür aritmetik soru **reddedildi**:
+>    ürünün tek dönüşüm adımına sürtünme koyar ve dört satır script'le çözülür,
+>    yani gerçek müşteriye bedel, saldırgana değil. **İddia sınırlıdır:**
+>    tarayıcı otomasyonu + adres havuzu olan biri geçer; bunu kapatan şey üçüncü
+>    parti CAPTCHA'dır ve hem §1 hem kart onu yasaklıyor.
+> 4. **🔴 KART BİLMİYORDU: BU GÖREV SEVK EDİLMİŞ BİR HESAP-KİLİTLEME AÇIĞINI
+>    CANLI HÂLE GETİRİYORDU.** `internal/adminauth` `MaxCandidates = 8` ile
+>    bcrypt'i sınırlıyor; `resolve_admin_by_email` ise `ORDER BY tenant_id`
+>    (rastgele) sıralıyordu. **Ölçüldü:** 20 saldırgan kaydı, beş koşu →
+>    **üçünde** mevcut müşteri karşılaştırılan pencerenin dışında kaldı.
+>    **00017 sırayı `created_at, tenant_id` yaptı** (önce gelen önce): 5/5 koşuda
+>    kurban 1. sırada, 500 satırlık sondada da 1. sırada. Gerekçe, ölçümler,
+>    kabul edilen ön-kayıt varyantı ve yeni müşteri için doğan gerileme
+>    **[ADR 0013](../adr/0013-kayit-sihirbazi-ve-ilk-gelen-sirasi.md)**'te.
+> 5. **Sihirbaz kimseyi OTURUM AÇMIYOR** — handoff §9'un *"Go to my dashboard"*u
+>    yerine done ekranı `/admin/login`'e bağlanıyor. Gerekçe: oturum vermek
+>    `adminauth.Manager`'ı (token üreteci + çerez codec'i + yazma) ürünün
+>    **yazan tek kimliksiz yüzeyine** takmak demekti ve `handler.Signup`'ın
+>    güvenlik argümanının yarısı o alanlara **sahip olmaması**. Bedel bir tık.
+> 6. **🔴 DÜZELTMENİN KENDİSİ BİR KANAL AÇTI, VE SAYILDI (2. tur, BLOKLAYAN).**
+>    İlk-gelen sıralaması yerleşiği pencerenin ilk sırasına kilitliyor, dolayısıyla
+>    tam `MaxCandidates` satır ekip **kendi** parolasıyla giren saldırgan seçicinin
+>    satır sayısından *"bu adres kayıtlı mı?"* sorusunu cevaplıyor (**8'e karşı 7**,
+>    3/3 koşu). Sıralama kanalı yaratmadı, **deterministik** yaptı — eskisi 8/9
+>    olasılıkla sızıyordu. **Dört kapatma denendi ve ÖLÇÜLDÜ**, dördü de daha kötü:
+>    hepsini karşılaştır (**200 aday = 45,2 sn CPU tek istekte**, 500'de ~1 dk 53 sn) ·
+>    e-posta başına işletme sınırı (aynı kehanet **fiyatın üçte birine**: 3'e karşı 2) ·
+>    en eskiyi ek al (doyma noktasını **bir** kaydırıyor) · rastgele örnek (yerleşik
+>    **%10,1**'inde hiç karşılaştırılmıyor = **aralıklı** kilitlenme).
+>    **Genel ifade:** çağıranın *doyurabildiği* her sınır sinyali sınırın kendisinde
+>    yeniden üretir ve **sınırı düşürmek sondayı ucuzlatır**; kaçış yalnız sınırsız
+>    pencere (DoS) ya da satır ekleyememe (**e-posta doğrulaması, taşıyıcı yok**).
+>    Bedel: sondalanan **adres başına** 8 kayıt = `signupCreateLimit`'te **iki saat**.
+>    Kapatılamadığı için **görünür ve sınırlı** kılındı:
+>    `admin.login.candidates_truncated`, doğrulanmış tenant'a yazılıyor, hesap
+>    bütçesiyle ölçülü. Tümü **[ADR 0013](../adr/0013-kayit-sihirbazi-ve-ilk-gelen-sirasi.md)**'te.
+> 7. **🔴 DONE EKRANI OLMAYAN BİR PANEL YETENEĞİNİ VAAT EDİYORDU (2. tur, BLOKLAYAN).**
+>    *"check the number on your dashboard"* + *"it will show as unverified on your
+>    dashboard"*. Ölçüldü: `vat_verified`/`vat_checked_at` **hiçbir sorgu tarafından
+>    okunmuyor**, panelde VAT ekranı/satırı **yok**, ve 00017 UPDATE grant'ini de
+>    bilerek vermiyor. **M7-01'in bloklayan bulgusunun bir görev sonra tekrarı**,
+>    üstelik APPROVED damgasının hemen altında — damga doğruydu, **not yanlıştı**.
+>    Cümleler ürünün bugün yaptığına indirildi ve kısıt **türetilmiş** bir testle
+>    tutuluyor (`TestSignupDone_PromisesNoPanelSurfaceForTheVATCheck`: üretilen sqlc
+>    satır tiplerini tarar, bir ekran sütunu okumaya başlayınca kısıt kendiliğinden
+>    kalkar). Paneli göstermenin iki adayı **ölçülüp reddedildi**: paylaşılan chrome
+>    **her panel isteğine bir okuma** ekliyor (adminratelimit.go'nun sayfalarca
+>    hesapladığı maliyet), billing ekranı M6-12'nin çitli yüzeyine altı dosya + M7-05'in
+>    sonra taşıması. **Panel yüzeyi M7-05'e devredildi** (o kartta not var).
+> 8. **`tenants.vat_number` GLOBAL UNIQUE olduğu için "bu VAT zaten kayıtlı"
+>    cevabı veriliyor — ve bu bilinçli bir sızıntıdır.** Giriş yolu e-posta
+>    varlığını asla söylemez (00011 YÜKÜMLÜLÜK 1); VAT numarası ise **VIES'te
+>    herkese açık** bir kayıttır, saklamak müşteriye ne yapacağını söyleyen tek
+>    cümleyi kaybettirir ve saldırgana hiçbir şey kazandırmaz.
+> 9. **🔴 6. MADDENİN "GENEL İFADE"Sİ ÇÜRÜTÜLDÜ — BEŞİNCİ KAPATMA VAR (4. tur).**
+>    *"Doyurulabilir her sınır sinyali yeniden üretir"* **geri çekildi**. Denetim
+>    karşılaştırılan **pencereyi** değil **gösterilen listeyi** sınırladı:
+>    `adminauth.PickerCap = MaxCandidates − 1` yerleşiğin işgal ettiği yuvayı tam
+>    olarak soğuruyor (`min(k,C,P)` vs `min(k,C−1,P)`, `P=C−1` ile her k'de eşit).
+>    k = 0…40: **kapaksız sızdıran k = [8…40], kapaklı = hiçbiri.** YÜKÜMLÜLÜK 5
+>    ihlal edilmiyor — küme **daralıyor**. Bedel: 8 işletmede doğrulanan operatör
+>    bir girdi kaybeder. **Dört kapatmanın aynı şekilde başarısız olması, hepsinin
+>    aynı mekanizmaya nişan aldığının kanıtıydı.**
+> 10. **🔴 VE ASIL KANAL SEÇİCİ DEĞİL ZAMANLAMAYDI — SONDA 8 KAYIT DEĞİL, 1 (4. tur).**
+>    6. madde *"doyma altında sinyal yok"* diyordu; **yalnız sayı kanalı** için
+>    doğruydu. `Authenticate` penceredeki her adayı karşılaştırıyor, **dolgu yok**:
+>    tek ekili satırla, 9 çapraz tur → **216 ms'ye karşı 437 ms, %102 delta, hiç
+>    örtüşme yok**. Yani ilan edilen bedel (*"8 kayıt, iki saat"*) **yanlış kanala**
+>    fiyatlanmıştı ve **8× fazlaydı**. **Kapatıldı:** `adminauth.padComparisons` her
+>    girişi **tam `MaxCandidates`** karşılaştırmaya dolduruyor. **Bedel: giriş başına
+>    ~216 ms → ~1,75 sn** — ve **yeni DoS payı YOK**, çünkü `adminratelimit.go`
+>    deneme bütçesini zaten *"10 × 8 aday × ~380 ms = ~30 sn"* üzerinden
+>    boyutlandırıyor. `manager.go`'nun süresi dolan cümlesi (*"only for an address
+>    that IS registered more than once"*) **adıyla emekliye ayrıldı**.
+> 11. **🔴 SIRALAMA TAKASININ YARISI ÜRÜNDE YOKTU (4. tur).** 00017 ve ADR
+>    *"kaydını tamamlayamayan müşteri bunu bizim sayfamızdayken öğrenir"* diyordu;
+>    ölçüldü: **303 → APPROVED → "Sign in" → 401**, ve giriş ekranı açıklama
+>    **yapamaz**. **Eksik yarı inşa edildi:** `Provisioner.signInBlocked` commit'ten
+>    sonra adresi çözüp az önce yazdığı satırın pencerede olup olmadığını ölçüyor,
+>    onay ekranı da davet etmek yerine **gerçeği** söylüyor. ⚠️ **VE BU BİT DE BİR KANAL** (6. tur):
+>    *"1/2/7 hesaplı bir adres bilinmeyenle aynı cevabı verir"* yalnız saldırgan
+>    **hiç satır ekmezse** doğruydu. Ölçüldü: 7 satır ek + bir kayıt daha →
+>    bilinmiyorsa 8 → `false`, bir hesap varsa 9 → `true`; ekleme sayısı
+>    değiştirilirse `k` **tam** öğrenilir. **Kapatılmadı, SAYILDI:** fiyat adres
+>    başına **8 tamamlanmış kayıt ≈ 3 saat** (kapatılan zamanlama kanalından 8×
+>    pahalı), iz `signup.sign_in_unreachable`, ve kaldırmak C1'i geri getirir.
+> 12. **🔴 VE KÖK NEDEN — "sağlamadığı garantiyi beyan eden cümle" ÜÇÜNCÜ KEZ çıktı**
+>    (M7-01 · B2 · C1). Artık **taranıyor**: `signupClaims` yetenek kelimelerinin her
+>    birini ürüne karşı **türetiyor**, ve `TestSignupSurface_UsesNoUnanchoredCapabilityWord`
+>    dokuz ekranı tarayıp sözlükte olup **çapası olmayan** her kelimeyi kırmızıya
+>    çeviriyor. Komut: `go test ./internal/handler/ -run 'TestSignupSurface_' -v`.
+>    ⚠️ Sınırı yazılı: yetenek **kelimelerini** denetler, **doğruluğu** değil.
+
 ---
 
 ## M7-03 — Tenant provisioning
@@ -119,6 +237,36 @@ location + dinamik lokasyon listesi → admin hesabı → APPROVED damgalı done
   için de koşuyor).
 - İlk plaket kaydı için "tag bekleniyor" durumu; UID sonradan bağlanıyor.
 - Başarısızlıkta yarım tenant kalmıyor (rollback).
+
+> **Kart düzeltmesi (2026-08-13, M7-02 uygulaması sırasında).** **Bu kartın
+> ilk, ikinci ve dördüncü kriteri M7-02'de KARŞILANDI** — gerekçesi ve ölçümü
+> M7-02 kartının düzeltme bloğunun 1. maddesinde. Sevk edileni tekrar etmemek
+> için burada ne kaldığı yazılıyor:
+>
+> - ✅ **Tek transaction** — `internal/domain/signup.Provisioner.Provision`:
+>   tenant + lokasyonlar + ilk admin + `audit_log` satırı, hepsi bir
+>   `db.WithTenant` içinde (`RecordTx`, `Record` değil).
+> - ✅ **RLS izolasyonu** — `TestSignupProvision_IsInvisibleToEveryOtherTenant`,
+>   **açık `tenant_id` filtresi TAŞIMAYAN** sondalarla ve pozitif kontrolüyle.
+> - ✅ **Rollback** — üç test. `…ADuplicateVATLeavesNothingBehind` ve
+>   `…RefusesADraftThatDidNotValidateAndWritesNothing` "yazmadı"yı sayımla değil
+>   **global UNIQUE VAT numarasının hâlâ boş olmasıyla** kanıtlıyor (RLS'e bağlı bir
+>   rol global sayım yapamaz).
+>   🔴 **VE ÜÇÜNCÜSÜ 2. TURDA EKLENDİ, ÇÜNKÜ İLK İKİSİ YANLIŞ VAKAYI KANITLIYORDU:**
+>   ikisi de **ilk ifadede** patlıyor, yani geri alınacak bir şey **hiç yazılmamış**
+>   oluyor — kartın kriteri o değil.
+>   `TestSignupProvision_AFailureInTheMiddleLeavesNothingBehind` transaction'ı **son
+>   ifadesine kadar** götürüyor (tenant + lokasyonlar + admin yazılıyor, sonra trail
+>   yazımı patlıyor) ve dördünün de geri alındığını gösteriyor — `locations` ve
+>   `admin_users` dahil, ki uygulama ikisini de DELETE edemez.
+> - ⬜ **DEPARTMANLAR HÂLÂ M7-03'ÜN.** Sihirbaz departman **sormuyor**;
+>   `structure='multi'` onları açar ve panel ekranı M6-06'da sevk edildi.
+> - ⬜ **"tag bekleniyor" HÂLÂ M7-03'ÜN.** Yeni tenant `tags` satırı olmadan
+>   doğuyor — doğrusu da bu (plaketi Tappa encode edip gönderiyor, kullanıcı
+>   kararı 2026-08-08) — ama bugün müşteriye bunu **söyleyen bir durum yok**.
+>   Done ekranı yalnız düzyazıyla *"plaket gelene kadar dokunulacak bir şey
+>   yok"* diyor; panelde karşılığı yok.
+> - ⬜ **M7-02'nin LİMİT olarak devrettiği kenar durumlar** görev raporunda.
 
 ---
 
@@ -148,3 +296,19 @@ location + dinamik lokasyon listesi → admin hesabı → APPROVED damgalı done
 - Marka mesajları görünür (düzenleme editörü M9-04); varsayılanlar KF/KM
   metinleri.
 - Her değişiklik `audit_log`'a yazılıyor.
+
+> **Kart eklemesi (2026-08-13, M7-02 uygulaması sırasında).** **VAT DOĞRULAMA
+> DURUMU BU KARTIN İŞİ.** M7-02 `tenants.vat_verified` + `vat_checked_at`
+> sütunlarını yazıyor (migration 00017, dört durum: hiç sorulmadı · soruldu cevap
+> yok · geçerli · geçersiz) ama **hiçbir panel ekranı okumuyor** — kayıt
+> sihirbazının onay ekranı müşteriye bunu söyleyen **tek** yer ve o ekran bir kez
+> gösterilip siliniyor. Yani bugün VIES'in **reddettiği** bir numara veritabanında
+> `false` olarak duruyor ve müşteri onu bir daha hiçbir yerde göremiyor.
+> **Bu kart açarken üç şey birlikte gelmeli:** sütunları okuyan bir sorgu · "firma
+> bilgileri" ekranında görünen bir satır · ve **00017'de bilerek verilmemiş olan
+> `UPDATE (vat_verified, vat_checked_at)` grant'i** (yeniden kontrol için — kimin,
+> ne sıklıkla tetikleyebileceği bu kartın kararı, çünkü müşterinin istediği zaman
+> tetiklediği bir dış çağrı farklı bir tehdit modelidir).
+> ⚠️ Onay ekranının metni `TestSignupDone_PromisesNoPanelSurfaceForTheVATCheck` ile
+> ürüne bağlı: bir sorgu sütunu okumaya başladığı gün test kısıtı **kendiliğinden**
+> kaldırıyor, yani cümleyi geri yazmak serbest kalıyor.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 	"testing"
@@ -16,6 +17,20 @@ import (
 	"github.com/atknatk/tappa/internal/db"
 )
 
+// WHY THIS PACKAGE TAKES ~130 s UNDER -race, IN ONE SENTENCE FOR WHOEVER ASKS:
+// Authenticate pads every login to adminauth.MaxCandidates bcrypt comparisons to keep
+// the candidate count out of the response time (Manager.pad), so the handful of tests
+// that must run at the SHIPPED work factor — TestAuthenticate_DummyIsReallyRun and
+// TestAuthenticate_TimingDoesNotCountTheCandidates — each pay eight cost-12
+// comparisons per login instead of one, and under the race detector one of those is
+// ~11 s.
+//
+// EVERY OTHER TEST HERE RUNS AT bcrypt.MinCost ON PURPOSE, with its dummy matched to
+// its fixtures (newCheapFakeManager, testManager): the padding takes its cost from the
+// digest it is padding against, so a mismatched dummy makes a test measure the fixture
+// rather than the product. Before that was matched this package reported
+// "FAIL ... 601.242s" — Go's 10-minute default, not a deadlock.
+//
 // fakeResolver drives Authenticate without a database, so the three outcomes of
 // PHASE B OBLIGATION 1 can be timed against each other with nothing but bcrypt in
 // the measurement. A real Postgres is used for the behavioural proofs
@@ -51,6 +66,28 @@ func newFakeManager(t *testing.T, rows []db.ResolvedAdmin) *Manager {
 	return m
 }
 
+// newCheapFakeManager is newFakeManager with a MinCost dummy, for the tests whose
+// subject is BEHAVIOUR rather than cost.
+//
+// 🔴 WHY IT EXISTS. Authenticate pads every login to MaxCandidates comparisons to
+// close a timing channel (Manager.pad). The padding takes its cost from the digest it
+// is padding against, so a test whose fixtures are cheap gets cheap padding — EXCEPT
+// when the resolver returns nothing, where there is no real digest to copy and the
+// package dummy is used. That dummy is $2a$12$, so a zero-candidate test login cost
+// 3.42 s. Measured across the suite that was the difference between a package that
+// runs in seconds and one that runs in minutes.
+//
+// IT DOES NOT WEAKEN WHAT THE TESTS PROVE. The security property is that the COUNT is
+// constant, and that is asserted structurally (TestAuthenticate_PadsEveryExitToTheCap)
+// and behaviourally at the SHIPPED cost by TestAuthenticate_TimingDoesNotCountTheCandidates,
+// which deliberately does NOT use this helper.
+func newCheapFakeManager(t *testing.T, rows []db.ResolvedAdmin) *Manager {
+	t.Helper()
+	m := newFakeManager(t, rows)
+	m.dummy = cheapDigest(t, "a discarded padding password")
+	return m
+}
+
 func stats(d []time.Duration) (min, med, max time.Duration) {
 	s := append([]time.Duration(nil), d...)
 	sort.Slice(s, func(i, j int) bool { return s[i] < s[j] })
@@ -59,6 +96,54 @@ func stats(d []time.Duration) (min, med, max time.Duration) {
 
 // TestAuthenticate_TimingIsFlat is CORROBORATION for PHASE B OBLIGATION 2 — no
 // longer its proof.
+//
+// 🔴🔴 RE-AIMED IN M7-02 (2026-08-13), AND THIS IS A DELIBERATE CHANGE TO AN M6-01
+// TEST — i.e. SCOPE EXPANSION, flagged rather than slipped in. Read this before the
+// history below it.
+//
+// WHAT CHANGED IN THE PRODUCT. Authenticate now pads every login to MaxCandidates
+// comparisons (Manager.pad), because the candidate COUNT was observable in the
+// response time: measured with one planted row, 216 ms for an unknown address against
+// 437 ms for a registered one, with no overlap. That closed the leak STRUCTURALLY —
+// the comparison count is now a constant, by construction.
+//
+// WHY THAT MAKES A SAMPLING TEST THE WRONG INSTRUMENT, AND WHY IT ALSO MAKES IT
+// UNAFFORDABLE. This test drives 5 arms x timingSamples logins, and each login went
+// from ONE comparison to EIGHT. Under -race, where this file's own note puts one
+// cost-12 comparison at ~11 s:
+//
+//	before  5 x 3 x 1 =  15 comparisons  ~165 s
+//	after   5 x 3 x 8 = 120 comparisons  ~1320 s   -> past Go's 10-minute default
+//
+// Measured consequence before the re-aim: `go test -race ./internal/adminauth/`
+// reported "FAIL ... 601.242s" with user=596.93s — burning CPU, not deadlocked.
+//
+// WHAT IT MEASURES NOW: the five arms still have to be indistinguishable from each
+// other, but at a CHEAP, SHARED work factor (bcrypt.MinCost fixtures AND a MinCost
+// dummy — see newCheapFakeManager). The RATIO between arms is what this test has
+// always asserted, and padding adds the same constant to every arm, so the signal is
+// untouched; only the price is.
+//
+// ⚠️ WHAT IT CAN NO LONGER SEE, stated exactly because that is the cost of the
+// re-aim: it no longer corroborates that the SHIPPED work factor is in use. A build
+// whose dummy or whose stored digests dropped to a cheap cost would still look flat
+// here. THREE things cover that, all of them exact rather than statistical:
+//
+//	TestCost_MatchesTheDummyDigest       reads bcrypt.Cost out of the shipped dummy
+//	TestSeedDigests_UseTheDeclaredCost   reads it out of the digests that exist
+//	TestAuthenticate_DummyIsReallyRun    a wall-clock FLOOR at the shipped cost, so a
+//	                                     login that did no real bcrypt is caught
+//
+// and TestAuthenticate_TimingDoesNotCountTheCandidates drives the SHIPPED cost end to
+// end to show the padded arms track each other (measured RATIO 0.97; the absolute
+// wall-clock figures are deliberately not quoted — they are machine state, and this
+// repository has a tripwire for exactly that habit).
+//
+// ⚠️ NO LOGIN COUNT IS QUOTED HERE ANY MORE. This said "6 logins, not a sample" while
+// that test ran TWO — it was written when the loop was three rounds and was not
+// updated when the round count was cut to one. In the file whose whole subject is
+// sample size, a stale sample size is the worst possible sentence, so the number is
+// gone rather than corrected: read the loop.
 //
 // 🔴 WHY THE DEMOTION (user decision, 2026-08-03). This test used to be the
 // load-bearing evidence, with a 1.50x ratio gate. On a clean tree it went RED in
@@ -115,7 +200,7 @@ func TestAuthenticate_TimingIsFlat(t *testing.T) {
 	if testing.Short() {
 		// -short skips the SAMPLE, never the obligation: the two structural tests
 		// named in this file's header run in every mode, including this one.
-		t.Skip("-short: skipping the bcrypt wall-clock SAMPLE (5 arms x N cost-12 " +
+		t.Skip("-short: skipping the bcrypt wall-clock SAMPLE (5 arms x N padded " +
 			"comparisons). PHASE B OBLIGATION 2 is still proven under -short by FOUR " +
 			"structural tests covering THREE failure shapes: " +
 			"TestAuthenticate_DummyIsReallyRun (the dummy runs) · " +
@@ -123,19 +208,25 @@ func TestAuthenticate_TimingIsFlat(t *testing.T) {
 			"right cost) · TestAuthenticate_OverLongPasswordStillPaysBcrypt (an over-long " +
 			"password against a KNOWN candidate pays too).")
 	}
-	// The digest is built at the SHIPPED cost -- this is the one measurement where
-	// the work factor IS the subject, so cheapDigest must not be used here.
-	digest, err := Hash("the-real-password")
-	if err != nil {
-		t.Fatalf("Hash: %v", err)
-	}
+	// 🔴 THE DIGEST IS CHEAP NOW, AND IT USED TO BE THE SHIPPED COST. This line read
+	// "the work factor IS the subject, so cheapDigest must not be used here" — see the
+	// RE-AIMED block in this test's header for why that is no longer this test's
+	// subject, what still checks it exactly, and what this arm can no longer see.
+	//
+	// EVERY ARM MUST SHARE ONE COST, INCLUDING THE PADDING. Authenticate pads to
+	// MaxCandidates comparisons and takes the padding's cost from the first candidate's
+	// own digest — so an arm with NO candidate pads against the manager's dummy
+	// instead. newCheapFakeManager makes that dummy cheap too; without it the
+	// unknown-email arm would pay cost 12 while the others paid cost 4 and this test
+	// would measure the fixture, not the product.
+	digest := cheapDigest(t, "the-real-password")
 	tenantID, adminID := uuid.New(), uuid.New()
 
-	unknown := newFakeManager(t, nil)
-	wrong := newFakeManager(t, []db.ResolvedAdmin{{
+	unknown := newCheapFakeManager(t, nil)
+	wrong := newCheapFakeManager(t, []db.ResolvedAdmin{{
 		ID: adminID, TenantID: tenantID, PasswordHash: db.NewPasswordHash(digest), Status: "active",
 	}})
-	disabled := newFakeManager(t, []db.ResolvedAdmin{{
+	disabled := newCheapFakeManager(t, []db.ResolvedAdmin{{
 		ID: adminID, TenantID: tenantID, PasswordHash: db.NewPasswordHash(digest), Status: "disabled",
 	}})
 
@@ -362,11 +453,18 @@ func TestAuthenticate_VerifiedIsTheAndOfMatchedAndActive(t *testing.T) {
 // reached it with an empty address, this would succeed. It must not — and it must
 // still pay the dummy, which the elapsed-time assertion checks.
 func TestAuthenticate_RefusesEmptyInput(t *testing.T) {
-	digest, err := Hash("the-real-password")
-	if err != nil {
-		t.Fatalf("Hash: %v", err)
-	}
-	m := newFakeManager(t, []db.ResolvedAdmin{{
+	// 🔴 CHEAP FIXTURES AND A CHEAP DUMMY (M7-02). This test's subject is that an empty
+	// field is refused AND that a real bcrypt still ran — not the WORK FACTOR of that
+	// bcrypt. Since padding, each of these three refusals costs MaxCandidates
+	// comparisons rather than one, which at the shipped cost measured 87.4 s under
+	// -race for a test whose assertion is a floor.
+	//
+	// THE FLOOR STILL CATCHES WHAT IT EXISTS FOR. It fires on "no bcrypt happened at
+	// all", which is ~609 ns; a MinCost comparison is ~1.3 ms, still three orders of
+	// magnitude above it. The SHIPPED-cost floor is kept, deliberately and separately,
+	// by TestAuthenticate_DummyIsReallyRun.
+	digest := cheapDigest(t, "the-real-password")
+	m := newCheapFakeManager(t, []db.ResolvedAdmin{{
 		ID: uuid.New(), TenantID: uuid.New(), PasswordHash: db.NewPasswordHash(digest), Status: "active",
 	}})
 
@@ -386,7 +484,10 @@ func TestAuthenticate_RefusesEmptyInput(t *testing.T) {
 			if len(auth.Verified()) != 0 {
 				t.Fatalf("an empty field authenticated somebody")
 			}
-			if elapsed < dummyRunFloor {
+			// cheapDummyFloor rather than dummyRunFloor: the fixtures here are MinCost
+			// (see the note at the top of this test), so the shipped floor would be
+			// asserting a work factor this test no longer uses.
+			if elapsed < cheapDummyFloor {
 				t.Fatalf("answered in %v without a dummy comparison", elapsed)
 			}
 		})
@@ -501,6 +602,18 @@ const (
 	// real bcrypt must have happened. Measured margin: a cost-12 comparison is
 	// 190-880 ms depending on -race and load; the branch with no bcrypt is ~600 ns.
 	dummyRunFloor = 20 * time.Millisecond
+
+	// cheapDummyFloor is dummyRunFloor's twin for the tests whose fixtures are
+	// bcrypt.MinCost (M7-02). It exists because padding made a shipped-cost refusal
+	// cost MaxCandidates comparisons rather than one, and the tests whose subject is
+	// "a bcrypt ran at all" should not pay a production work factor to say so.
+	//
+	// 200 MICROSECONDS, and the headroom is the argument: the failure it catches is a
+	// comparison that did not happen, measured at ~609 ns, and one MinCost comparison
+	// is ~1.3 ms. The floor sits between them with three orders of magnitude on the
+	// failure side and 6.5x on the safe side — the same shape dummyRunFloor has
+	// against the shipped cost, at the cost these tests actually use.
+	cheapDummyFloor = 200 * time.Microsecond
 	// overLongFloor: same idea for the over-long-password shape, against a cost-4
 	// FIXTURE digest so it stays cheap in every mode. Measured: honest ~1.4 ms,
 	// broken ~66 ns.
@@ -739,3 +852,138 @@ func TestTimingConfig_RejectsTheKnownBadTuples(t *testing.T) {
 // manager_db_test.go, which drives real Postgres and goes red on the same mutation.
 // Removing it also returned ~10.7 s to `make test-short` (measured, -race), which
 // it was spending on five cost-12 dummy comparisons that proved nothing.
+
+// TestAuthenticate_TimingDoesNotCountTheCandidates — the M7-02 round-4 closure.
+//
+// 🔴 THE CHANNEL IT CLOSES, MEASURED ON THE SHIPPED CODE BEFORE THE FIX. Authenticate
+// compared every candidate in the window and padded nothing, so the response time was
+// linear in how many identities the address resolved to. With ONE planted row, nine
+// interleaved rounds:
+//
+//	address UNKNOWN     median 216 ms   (208 – 226)
+//	address REGISTERED  median 437 ms   (422 – 478)   — the ranges do not overlap
+//
+// That answered "does this address have an account" for the price of one sign-up,
+// which is the question PHASE B OBLIGATION 1 spends a dummy bcrypt refusing to answer.
+// The premise that let this package decline padding — "one they can only obtain for an
+// address that IS registered more than once" — died when M7-02 made an attacker able
+// to CREATE that condition.
+//
+// IT IS A RATIO ASSERTION, NOT A DELTA. The two arms now do the same NUMBER of
+// comparisons (MaxCandidates), so their times track each other whatever the machine is
+// doing; a mutation that removes the padding makes the unknown arm 8x faster, which no
+// amount of load can imitate.
+func TestAuthenticate_TimingDoesNotCountTheCandidates(t *testing.T) {
+	if testing.Short() {
+		t.Skip("-short: skipping the bcrypt wall-clock SAMPLE. The COUNT this measures is " +
+			"also asserted structurally by TestAuthenticate_PadsEveryExitToTheCap.")
+	}
+	// SHIPPED cost on both arms: the work factor is the subject here.
+	digest, err := Hash("the-real-password")
+	if err != nil {
+		t.Fatalf("Hash: %v", err)
+	}
+	one := newFakeManager(t, []db.ResolvedAdmin{{
+		ID: uuid.New(), TenantID: uuid.New(),
+		PasswordHash: db.NewPasswordHash(digest), Status: "active",
+	}})
+	none := newFakeManager(t, nil)
+
+	measure := func(m *Manager) time.Duration {
+		start := time.Now()
+		_, _ = m.Authenticate(context.Background(), "probe@example.test", "not-the-password")
+		return time.Since(start)
+	}
+	// Interleaved, so load moves both arms together; the minimum is the cleanest
+	// estimator of the work actually done.
+	// ⚠️ ONE ROUND PER ARM, NOT THREE (M7-02, after measurement). At three it cost
+	// 200.1 s under -race — 6 logins x MaxCandidates cost-12 comparisons — which is a
+	// quarter of the whole package for a check whose signal is an 8x ratio. Shrunk to
+	// the smallest sample that still exercises both arms at the SHIPPED cost; the
+	// five-arm comparison at a cheap shared cost is TestAuthenticate_TimingIsFlat's
+	// job, and the exact, sample-free statement is
+	// TestAuthenticate_PadsEveryExitToTheCap.
+	//
+	// WHAT THE SHRINK COSTS: with one round there is no min-of-N smoothing, so a
+	// single scheduler stall can move a reading. The gate is a factor of TWO against a
+	// mutation that produces a factor of EIGHT, so there is 4x of headroom for that
+	// noise — and the anti-vacuity floor below independently catches "the padding did
+	// not run at all".
+	var minNone, minOne time.Duration
+	for i := 0; i < 1; i++ {
+		if d := measure(none); minNone == 0 || d < minNone {
+			minNone = d
+		}
+		if d := measure(one); minOne == 0 || d < minOne {
+			minOne = d
+		}
+	}
+	t.Logf("0 candidates: %v · 1 candidate: %v (both must be %d comparisons)",
+		minNone.Round(time.Millisecond), minOne.Round(time.Millisecond), MaxCandidates)
+
+	ratio := float64(minOne) / float64(minNone)
+	if ratio < 0.5 || ratio > 2.0 {
+		t.Errorf("an unregistered address takes %v and a registered one %v (ratio %.2f). "+
+			"They must be within a factor of two: a variable comparison count is a timing "+
+			"oracle for 'is this address registered', measured at 216 ms vs 437 ms before "+
+			"padComparisons existed.", minNone, minOne, ratio)
+	}
+	// ANTI-VACUITY: both arms must really be doing the full padded work. One
+	// comparison alone cannot take this long at the shipped cost.
+	if floor := time.Duration(MaxCandidates/2) * 100 * time.Millisecond; minNone < floor {
+		t.Errorf("an unregistered address took %v, which is below the floor %d cost-%d "+
+			"comparisons can take (%v) — the padding is not running",
+			minNone, MaxCandidates, Cost, floor)
+	}
+}
+
+// TestAuthenticate_PadsEveryExitToTheCap is the structural half. It reads the source
+// rather than the clock: EVERY return path out of Authenticate must have paid
+// MaxCandidates comparisons, and there are three of them (the unlookupable-email
+// guard, the zero-candidate branch, and the ordinary path).
+//
+// ⚠️ IT IS A TEXT SCANNER, AND THE LIMIT OF THAT IS NARROWER THAN THIS COMMENT USED TO
+// CLAIM. It said "so the property is still checked under -short", full stop. Measured:
+// reducing pad's loop to pre-M7-02 behaviour leaves every `m.pad(` call site in place,
+// so this test stays GREEN and `go test -short ./...` is green with the channel
+// reopened. What catches that mutation is the wall-clock pair
+// (TestAuthenticate_TimingDoesNotCountTheCandidates, TestAuthenticate_TimingIsFlat),
+// both of which -short skips.
+//
+// SO THE HONEST STATEMENT IS: under -short this checks that the CALLS are present and
+// that the loop's bound is spelled MaxCandidates; it does NOT check that the padding
+// runs. That is not a hole in CI — `make check` runs `make test`, which is -race and
+// includes both timing tests — but -short alone must not be read as covering this.
+func TestAuthenticate_PadsEveryExitToTheCap(t *testing.T) {
+	t.Parallel()
+	src, err := os.ReadFile("manager.go")
+	if err != nil {
+		t.Fatalf("reading manager.go: %v", err)
+	}
+	s := string(src)
+	// 🔴 THE ANCHOR IS `m.pad(`, AND THIS TEST CAUGHT ITS OWN STALENESS. It was written
+	// against a free function called padComparisons; the Ö1 fix made padding a METHOD
+	// (it needs the manager's dummy), and this assertion went red on the rename — which
+	// is the behaviour wanted from a source-level tripwire, but it is also the reason
+	// the anchor is now the CALL rather than a name that can drift silently.
+	if n := strings.Count(s, "m.pad("); n < 3 {
+		t.Fatalf("m.pad is called %d time(s); Authenticate has THREE return paths that must "+
+			"each have paid MaxCandidates comparisons (the unlookupable-email guard, the "+
+			"zero-candidate branch and the ordinary path). A path that skips it is a login "+
+			"whose comparison count reveals how many identities the address resolved to", n)
+	}
+	if !strings.Contains(s, "for i := done; i < MaxCandidates; i++ {") {
+		t.Error("padComparisons no longer pads up to MaxCandidates, so the total is not " +
+			"constant and the count is observable in the response time")
+	}
+	// CompareDummy must not be reachable outside the padding: a bare call would be a
+	// second, unpadded exit.
+	body := s
+	if i := strings.Index(body, "func (m *Manager) pad("); i >= 0 {
+		body = body[:i]
+	}
+	if strings.Contains(body, "CompareDummy(") {
+		t.Error("Authenticate calls CompareDummy directly; every dummy must go through " +
+			"padComparisons or the total stops being constant")
+	}
+}

@@ -23,6 +23,7 @@ import (
 	"github.com/atknatk/tappa/internal/domain/ledger"
 	"github.com/atknatk/tappa/internal/domain/manual"
 	"github.com/atknatk/tappa/internal/domain/review"
+	"github.com/atknatk/tappa/internal/domain/signup"
 	"github.com/atknatk/tappa/internal/domain/tenant"
 	"github.com/atknatk/tappa/internal/handler"
 	"github.com/atknatk/tappa/internal/httpx"
@@ -254,9 +255,41 @@ func run() error {
 	// registration order, and these paths overlap with nothing above.
 	marketing := handler.NewMarketing(slog.Default())
 
+	// 🔴 THE SIGN-UP WIZARD (M7-02) — THE FIRST PATH IN THIS PROCESS THAT CREATES A
+	// TENANT. Until this line, `INSERT INTO tenants` existed only in the seed fixture
+	// and in test helpers, which is the fact migration 00011 built a risk boundary on
+	// and said in writing would expire here.
+	//
+	// IT TAKES THE SAME audit RECORDER EVERY OTHER WRITER TAKES, and the reason is
+	// the strongest of the eight: a registration is tenant + venues + first operator
+	// in ONE transaction, and internal/domain/signup uses RecordTx so the trail row
+	// shares that transaction. A registration that half-happened would leave a
+	// `tenants` row nobody can sign into, cannot be deleted (§4.6) and holds the VAT
+	// number against the customer's own second attempt.
+	provisioner, err := signup.NewProvisioner(data, trail, slog.Default())
+	if err != nil {
+		return err
+	}
+	// THE VIES CHECKER IS BUILT HERE AND IS THE ONLY OUTBOUND HTTP CLIENT IN THIS
+	// PROCESS. Q09 (2026-08-13) made the check BEST EFFORT: a timeout or an outage
+	// records "not verified" and never stops a registration, so this dependency
+	// cannot take the sign-up flow down with it. It is net/http and nothing else
+	// (§1: no new dependency), it is pointed at a constant URL, and the endpoint that
+	// calls it carries its own outbound budget (internal/handler/signupratelimit.go).
+	//
+	// ⚠️ IT IS PASSED EVEN IN DEVELOPMENT, deliberately: a checker that only exists
+	// in production is a code path that is first exercised on a customer. What makes
+	// that safe is the shape rather than the environment — the wizard's tests drive a
+	// local server through the same seam, and a machine with no route to the
+	// Commission simply records "not verified", which is a state the product handles.
+	signupFlow, err := handler.NewSignup(provisioner, signup.NewChecker(), cfg, slog.Default())
+	if err != nil {
+		return err
+	}
+
 	srv := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           httpx.NewRouter(cfg, activation, tap, panelAuth, marketing),
+		Handler:           httpx.NewRouter(cfg, activation, tap, panelAuth, marketing, signupFlow),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       90 * time.Second,
 	}

@@ -88,20 +88,34 @@ import (
 // true, and that endpoint arrives with its own budget and its own bot challenge
 // (the M7-02 card requires both). This type is not where that goes.
 type Marketing struct {
-	// signupHref is where "Start free" points, or "" while the wizard is not
-	// mounted. It is "" today: M7-02 has not landed, and a button that answers 404
-	// is the exact class of defect this page was written to avoid.
+	// signupHref is where "Start free" points.
+	//
+	// ✅ IT IS signupPath AS OF M7-02, AND UNTIL THEN IT WAS "". M7-01 shipped this
+	// field empty on purpose — the wizard did not exist and a button that answers
+	// 404 is the exact class of defect that page was written to avoid — and its card
+	// named the two things M7-02 owed: "rotayı mount etmek ve
+	// handler.Marketing.signupHref'i doldurmak". This is the second.
+	//
+	// IT IS THE ROUTE CONSTANT, NOT A STRING. handler.Signup.Mount registers
+	// signupPath, so the link and the route are the same value at compile time
+	// rather than two strings a test has to notice have diverged — the shape
+	// adminLoginPath already uses for "Sign in".
 	signupHref string
 	log        *slog.Logger
 }
 
 // NewMarketing builds the public surface. There is nothing to inject: the pages
 // are static, and the ABSENCE of parameters is the guarantee described above.
+//
+// ⚠️ signupHref IS SET HERE RATHER THAN PASSED IN, and that is what keeps the
+// reflection test above meaningful. A parameter would make "does this deployment
+// offer sign-up" a caller's decision, i.e. a second place the landing page's button
+// could be wrong; a constant means the button exists exactly when the route does.
 func NewMarketing(log *slog.Logger) *Marketing {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Marketing{log: log}
+	return &Marketing{signupHref: signupPath, log: log}
 }
 
 // Mount registers the routes on r.
@@ -387,6 +401,27 @@ func cookieNotice() []pages.CookieRow {
 				"that one action.",
 			Lifetime: humanSeconds(adminConfirmMaxAge),
 			Scope:    adminauth.CookiePath,
+			Flags:    flags,
+		},
+		// THE TWO M7-02 ADDED. They are scoped to /signup, so they never accompany a
+		// tap, a panel request or a view of this very page — which is also what keeps
+		// the marketing responses identical for every visitor and therefore cacheable.
+		{
+			Name: signupCookieName,
+			Purpose: "Protects the registration form against being submitted from another site. " +
+				"Exists only while somebody is filling the form in.",
+			Lifetime: humanSeconds(signupCookieMaxAge),
+			Scope:    signupCookiePath,
+			Flags:    flags,
+		},
+		{
+			Name: signupStateCookieName,
+			Purpose: "Carries the answers already given — the business name, the VAT number and " +
+				"the places — from one step of the registration form to the next, signed by " +
+				"this server. It never holds a password. Cleared as soon as the business is " +
+				"created.",
+			Lifetime: humanSeconds(signupCookieMaxAge),
+			Scope:    signupCookiePath,
 			Flags:    flags,
 		},
 	}

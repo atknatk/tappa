@@ -188,6 +188,8 @@ type Tenant struct {
 	Timezone              string
 	CreatedAt             time.Time
 	PricePerEmployeeMonth pgtype.Numeric
+	VatVerified           *bool
+	VatCheckedAt          *time.Time
 }
 
 type Transaction struct {

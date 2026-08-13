@@ -1,0 +1,470 @@
+package pages
+
+import (
+	"strconv"
+
+	"github.com/atknatk/tappa/web/templates/components"
+	"github.com/atknatk/tappa/web/templates/layout"
+)
+
+// The PUBLIC sign-up wizard (M7-02) — handoff §9's three steps, rewritten in templ
+// per ADR 0001.
+//
+// 🔴 READ signupview.go BEFORE EDITING ANYTHING HERE. This family sits under both of
+// this package's rules at once: it takes a PASSWORD (so no view carries one) and it
+// is the page that closes a sale (so no sentence may promise something the product
+// does not do).
+//
+// IT USES THE MARKETING CHROME, NOT THE PANEL SHELL AND NOT THE PHONE SHELL. A
+// visitor arrives here from the landing page and has no identity yet, so the
+// navigation and the legal footer they were looking at a moment ago must still be
+// there — a sign-up form is exactly where somebody goes looking for the privacy
+// policy.
+//
+// ⚠️ layout.RobotsPrivate ON EVERY SCREEN, unlike the landing page's RobotsPublic.
+// The wizard carries form state and its URLs are steps in a flow rather than
+// destinations; a crawler indexing /signup/account would put a step nobody can enter
+// from cold into search results. layout.Robots is a closed vocabulary precisely so
+// this had to be a decision.
+//
+// NO NEW CSS CLASS IS INTRODUCED BY THIS FILE. Every class below already exists in
+// app.css because another screen renders it (the input chain is admin.templ's, the
+// docket and the stamp are the shared motif, .btn/.btn--primary/.btn--quiet are the
+// panel's). That is deliberate — skill tappa-brand's rule is that a repeated pattern
+// is a component rather than a new rule, and it also means this task adds nothing to
+// the stylesheet that `make css` would have to compile.
+
+// signupShell is the chrome every step shares: the marketing navigation and footer,
+// a step counter and a heading.
+//
+// THE STEP COUNTER IS RENDERED FROM signupSteps RATHER THAN TYPED, for the reason
+// pages.TourSteps gives about the mini tour: a slide that counts itself out loud
+// ("Step 2 of 3") and a number typed into prose are two sources of truth, and the
+// second one drifts the moment a step is added.
+templ signupShell(title string, step int, heading, blurb string) {
+	@layout.Marketing(title, layout.RobotsPrivate) {
+		@marketingChrome("") {
+			<section class="px-4 py-8 sm:py-12">
+				<div class="mx-auto w-full max-w-2xl">
+					<p class="docket-label">Step { strconv.Itoa(step) } of { strconv.Itoa(signupSteps) }</p>
+					<h1 class="mt-2 font-display text-2xl font-bold leading-tight tracking-tight sm:text-3xl">
+						{ heading }
+					</h1>
+					if blurb != "" {
+						<p class="mt-3 max-w-xl text-sm text-ink/85">{ blurb }</p>
+					}
+					<div class="mt-8">
+						{ children... }
+					</div>
+				</div>
+			</section>
+		}
+	}
+}
+
+// signupSteps is how many steps the wizard has. See signupShell for why it is a
+// constant rather than a number in the prose.
+const signupSteps = 3
+
+// fieldError renders the one sentence attached to a field, or nothing.
+//
+// IT IS role="alert" SO A SCREEN READER IS TOLD, and it carries the tomato token in
+// its BORDER and ground with the text in ink — skill tappa-brand's settled anatomy
+// after the stamp measurement: colour reinforces, the words carry the meaning, and
+// ink on paper clears AA where a coloured sentence would not.
+templ fieldError(errs map[string]string, field string) {
+	if msg, ok := errs[field]; ok {
+		<p role="alert" class="mt-1 border-l-2 border-tomato bg-tomato/10 px-2 py-1 text-xs text-ink">
+			{ msg }
+		</p>
+	}
+}
+
+// SignupBusiness is step one: the business name, the VAT number, the trade and
+// whether there is one place or several.
+templ SignupBusiness(v SignupBusinessView) {
+	@signupShell("Start free — Tappa", 1, "Tell us about the business",
+		"Three short steps. Nothing is created until the last one, and you can go back at any point.") {
+		if v.SignInHref != "" {
+			@components.Notice(components.ToneAlert, "This business is already with Tappa") {
+				<p>
+					Sign in with the address you registered, or use a different VAT number if this is
+					a second company.
+				</p>
+				<p class="mt-2">
+					<a href={ templ.URL(v.SignInHref) } class="underline">Go to sign in</a>
+				</p>
+			}
+		}
+		<form method="post" action="/signup" class="flex flex-col gap-6">
+			<input type="hidden" name="csrf" value={ v.CSRFToken }/>
+			<div class="flex flex-col gap-1">
+				<label for="signup-name" class="docket-label">Business name</label>
+				<input
+					id="signup-name"
+					name="name"
+					type="text"
+					autocomplete="organization"
+					required
+					autofocus
+					value={ v.Name }
+					class="min-h-11 w-full border border-line bg-paper px-3 py-2 font-mono text-sm text-ink focus:border-tappa-green focus:outline-none focus:ring-1 focus:ring-tappa-green"
+				/>
+				<p class="mt-1 text-xs text-ink/70">As it appears on your invoices.</p>
+				@fieldError(v.Errors, "name")
+			</div>
+			<div class="flex flex-col gap-1">
+				<label for="signup-vat" class="docket-label">VAT number</label>
+				<input
+					id="signup-vat"
+					name="vat_number"
+					type="text"
+					inputmode="text"
+					autocomplete="off"
+					spellcheck="false"
+					required
+					value={ v.VATNumber }
+					class="min-h-11 w-full border border-line bg-paper px-3 py-2 font-mono text-sm uppercase text-ink focus:border-tappa-green focus:outline-none focus:ring-1 focus:ring-tappa-green"
+				/>
+				<p class="mt-1 text-xs text-ink/70">
+					With the country letters in front — MT12345678 for Malta. Tappa is for registered
+					businesses, so this one is required.
+				</p>
+				@fieldError(v.Errors, "vat_number")
+			</div>
+			<fieldset class="flex flex-col gap-2">
+				<legend class="docket-label">What kind of business</legend>
+				<div class="mt-1 flex flex-wrap gap-2">
+					for _, t := range v.Types {
+						<label class="cursor-pointer">
+							<input
+								type="radio"
+								name="business_type"
+								value={ t.Value }
+								checked?={ v.BusinessType == t.Value }
+								class="peer sr-only accent-tappa-green"
+							/>
+							<span class="inline-block border border-line bg-paper px-3 py-2 font-mono text-xs uppercase tracking-widest text-ink peer-checked:border-tappa-green peer-checked:bg-green-lite peer-focus:ring-1 peer-focus:ring-tappa-green">
+								{ t.Label }
+							</span>
+						</label>
+					}
+				</div>
+				@fieldError(v.Errors, "business_type")
+			</fieldset>
+			<fieldset class="flex flex-col gap-2">
+				<legend class="docket-label">How many places</legend>
+				<div class="mt-1 grid gap-3 sm:grid-cols-2">
+					@structureCard(v.Structure, "single", "One place",
+						"A single door where your team taps.")
+					@structureCard(v.Structure, "multi", "Several places",
+						"Branches, sites or floors. You can add departments under them later.")
+				</div>
+				@fieldError(v.Errors, "structure")
+			</fieldset>
+			<div>
+				<button type="submit" class="btn btn--primary w-full sm:w-auto sm:px-8">Continue</button>
+			</div>
+		</form>
+	}
+}
+
+// structureCard is one of the two choices in the "how many places" step.
+//
+// IT IS A CARD RATHER THAN A RADIO IN A LIST because the choice decides the venue
+// and department model for the life of the tenant (internal/domain/signup states
+// that), so it deserves a sentence of explanation rather than a word. The input is
+// still a radio — the card is its label — so it works with the keyboard and with no
+// JavaScript at all.
+templ structureCard(current, value, title, body string) {
+	<label class="cursor-pointer">
+		<input
+			type="radio"
+			name="structure"
+			value={ value }
+			checked?={ current == value }
+			class="peer sr-only accent-tappa-green"
+		/>
+		<span class="block h-full border border-line bg-paper px-4 py-3 peer-checked:border-tappa-green peer-checked:bg-green-lite peer-focus:ring-1 peer-focus:ring-tappa-green">
+			<span class="block font-display text-sm font-bold tracking-tight text-ink">{ title }</span>
+			<span class="mt-1 block text-xs text-ink/70">{ body }</span>
+		</span>
+	</label>
+}
+
+// SignupPlaces is step two: the doors a plaque will go beside.
+//
+// ⚠️ IT ASKS FOR NAMES AND NOTHING ELSE, and that is a product decision worth
+// keeping. The evidence a venue is judged on — its IP ranges, its coordinate, its
+// shift, its Wi-Fi name — is configured from the dashboard afterwards (M6-06's
+// screen), where somebody can look the values up. Asking a stranger for a CIDR block
+// on a sign-up form produces wrong data at the one moment nobody can check it, and
+// wrong proof-of-place is what turns a good tap into a FLAGGED one.
+templ SignupPlaces(v SignupPlacesView) {
+	@signupShell("Your places — Tappa", 2, "Where does your team tap?",
+		"One line per door. You can rename them and add the rest from your dashboard.") {
+		<form method="post" action="/signup/places" class="flex flex-col gap-6">
+			<input type="hidden" name="csrf" value={ v.CSRFToken }/>
+			<div class="flex flex-col gap-3">
+				for i, name := range v.Venues {
+					<div class="flex flex-col gap-1">
+						<label for={ "signup-venue-" + strconv.Itoa(i) } class="docket-label">
+							if v.Multi {
+								{ "Place " + strconv.Itoa(i+1) }
+							} else {
+								Place
+							}
+						</label>
+						<input
+							id={ "signup-venue-" + strconv.Itoa(i) }
+							name="venue"
+							type="text"
+							required?={ i == 0 }
+							value={ name }
+							placeholder="Front door"
+							class="min-h-11 w-full border border-line bg-paper px-3 py-2 font-mono text-sm text-ink focus:border-tappa-green focus:outline-none focus:ring-1 focus:ring-tappa-green"
+						/>
+						@fieldError(v.Errors, "venue_"+strconv.Itoa(i))
+					</div>
+				}
+			</div>
+			@fieldError(v.Errors, "venues")
+			if v.Multi {
+				// 🔴 THE EXTRA ROWS ARE RENDERED BY THE SERVER, NOT BY A SCRIPT. The
+				// marketing surface loads no JavaScript at all (its policy names no
+				// script-src and layout.Marketing has no slot for one), so "add another"
+				// is a plain submit that re-renders the form with one more line. It works
+				// on a locked-down work phone, and it keeps this flow's whole state on the
+				// server side where it is already signed.
+				<p class="text-xs text-ink/70">
+					Fill a line and press Continue to save it. You can name up to { strconv.Itoa(v.MaxVenues) }
+					places here and add more later.
+				</p>
+			}
+			<div class="flex flex-wrap items-center gap-3">
+				<button type="submit" class="btn btn--primary sm:px-8">Continue</button>
+				<a href={ templ.URL(v.BackHref) } class="btn btn--quiet">Back</a>
+			</div>
+		</form>
+	}
+}
+
+// SignupAccount is step three: the person who will manage it.
+templ SignupAccount(v SignupAccountView) {
+	@signupShell("Your account — Tappa", 3, "Create your sign-in",
+		"This is the account you will manage "+v.BusinessName+" with. You can invite the rest of your managers later.") {
+		<form method="post" action="/signup/account" class="flex flex-col gap-6">
+			<input type="hidden" name="csrf" value={ v.CSRFToken }/>
+			// THE HONEYPOT. It is hidden from people three ways at once — off-screen,
+			// out of the tab order and out of the accessibility tree — because a field
+			// that is merely `display:none` is skipped by some form fillers and a field
+			// that is merely off-screen is read aloud by a screen reader.
+			// internal/handler/signupratelimit.go owns the NAME and passes it in, so the
+			// server's check and this input cannot drift apart.
+			<div class="absolute left-[-9999px]" aria-hidden="true">
+				<label for="signup-internal-ref">Reference</label>
+				<input
+					id="signup-internal-ref"
+					name={ v.HoneypotField }
+					type="text"
+					tabindex="-1"
+					autocomplete="off"
+					data-1p-ignore="true"
+					data-lpignore="true"
+				/>
+			</div>
+			<div class="flex flex-col gap-1">
+				<label for="signup-fullname" class="docket-label">Your name</label>
+				<input
+					id="signup-fullname"
+					name="full_name"
+					type="text"
+					autocomplete="name"
+					required
+					autofocus
+					value={ v.FullName }
+					class="min-h-11 w-full border border-line bg-paper px-3 py-2 font-mono text-sm text-ink focus:border-tappa-green focus:outline-none focus:ring-1 focus:ring-tappa-green"
+				/>
+				@fieldError(v.Errors, "full_name")
+			</div>
+			<div class="flex flex-col gap-1">
+				<label for="signup-email" class="docket-label">Email</label>
+				<input
+					id="signup-email"
+					name="email"
+					type="email"
+					autocomplete="username"
+					required
+					value={ v.Email }
+					class="min-h-11 w-full border border-line bg-paper px-3 py-2 font-mono text-sm text-ink focus:border-tappa-green focus:outline-none focus:ring-1 focus:ring-tappa-green"
+				/>
+				<p class="mt-1 text-xs text-ink/70">This is what you sign in with.</p>
+				@fieldError(v.Errors, "email")
+			</div>
+			<div class="flex flex-col gap-1">
+				<label for="signup-password" class="docket-label">Password</label>
+				// NO value ATTRIBUTE, EVER. A refused submission comes back with this
+				// field empty and the person types it again — see signupview.go's header
+				// for why a password is never echoed into a body.
+				<input
+					id="signup-password"
+					name="password"
+					type="password"
+					autocomplete="new-password"
+					required
+					minlength="12"
+					class="min-h-11 w-full border border-line bg-paper px-3 py-2 font-mono text-sm text-ink focus:border-tappa-green focus:outline-none focus:ring-1 focus:ring-tappa-green"
+				/>
+				<p class="mt-1 text-xs text-ink/70">
+					At least 12 characters. A few words you will remember beats a short one you will not.
+				</p>
+				@fieldError(v.Errors, "password")
+			</div>
+			// THE READ-BACK. `transactions` is immutable and a business cannot be
+			// deleted (§4.6), so this is the cheapest moment in the whole product to
+			// catch a typo in a company name.
+			<div class="border border-line bg-paper px-4 py-3">
+				<p class="docket-label">You are creating</p>
+				<p class="mt-1 font-display text-sm font-bold tracking-tight text-ink">{ v.BusinessName }</p>
+				if len(v.Venues) > 0 {
+					<p class="mt-2 docket-label">Places</p>
+					<ul class="mt-1 flex flex-col gap-0.5">
+						for _, name := range v.Venues {
+							<li class="font-mono text-xs text-ink">{ name }</li>
+						}
+					</ul>
+				}
+				<p class="mt-3 text-xs text-ink/70">
+					<a href="/signup/places" class="underline">Change these</a>
+				</p>
+			</div>
+			<div>
+				<button type="submit" class="btn btn--primary w-full sm:w-auto sm:px-8">Create my account</button>
+			</div>
+		</form>
+	}
+}
+
+// SignupDone is the confirmation — the APPROVED docket the M7-02 card asks for.
+//
+// 🔴 THE STAMP IS TRUE HERE AND ONLY HERE. This screen is reachable only after the
+// provisioning transaction has COMMITTED (internal/handler/signup.go redirects to it
+// and nothing else routes here), so the business, its places and its first operator
+// exist. The brand's most emphatic component is not spent on a promise.
+//
+// THE DOCKET MOTIF IS THE PRODUCT'S SIGNATURE and this is the first record the
+// customer ever sees. Every card in the panel will look like this one.
+templ SignupDone(v SignupDoneView) {
+	@layout.Marketing("You're set up — Tappa", layout.RobotsPrivate) {
+		@marketingChrome("") {
+			<section class="px-4 py-8 sm:py-12">
+				<div class="mx-auto w-full max-w-2xl">
+					<p class="docket-label">Registration</p>
+					<h1 class="mt-2 font-display text-2xl font-bold leading-tight tracking-tight sm:text-3xl">
+						{ v.BusinessName } is set up
+					</h1>
+					<div class="mt-6 docket-print">
+						<article class="docket">
+							<div class="flex items-start justify-between gap-3">
+								<div class="min-w-0">
+									<p class="docket-label">Business</p>
+									<p class="truncate font-display text-sm font-bold tracking-tight text-ink">
+										{ v.BusinessName }
+									</p>
+									<p class="mt-2 docket-label">VAT</p>
+									<p class="font-mono text-sm uppercase text-ink">{ v.VATNumber }</p>
+								</div>
+								<div class="shrink-0 text-right">
+									<span class="stamp stamp--approved">APPROVED</span>
+								</div>
+							</div>
+							if len(v.Venues) > 0 {
+								<p class="mt-3 docket-label">Places</p>
+								<ul class="mt-1 flex flex-col gap-0.5">
+									for _, name := range v.Venues {
+										<li class="font-mono text-sm text-ink">{ name }</li>
+									}
+								</ul>
+							}
+						</article>
+					</div>
+					<p class="mt-4 text-xs text-ink/70">{ v.VATNote() }</p>
+					if v.SignInBlocked {
+						// 🔴 THE ONE STATE IN WHICH THIS SCREEN MUST NOT SAY "SIGN IN".
+						// signupview.go carries the whole argument: the business EXISTS,
+						// and it was measured that this address cannot reach the sign-in
+						// path. Sending them to a form that answers 401 without an
+						// explanation — which it must not give — is the defect this
+						// branch was added to stop.
+						<div class="mt-6">
+							@components.Notice(components.ToneAlert, "This email address cannot sign in") {
+								<p>
+									{ v.BusinessName } is set up and nothing about it is lost. But this
+									email address is already in use by more accounts than we can check at
+									once, so signing in with it will not work.
+								</p>
+								<p class="mt-2">
+									Write to us and we will move the business onto an address you can use.
+									Please do not register it a second time — it already exists.
+								</p>
+							}
+						</div>
+					}
+					<div class="mt-8 border-t border-line pt-6">
+						<p class="docket-label">What happens next</p>
+						<ol class="mt-2 flex flex-col gap-3 text-sm text-ink/85">
+							if !v.SignInBlocked {
+								<li>
+									<span class="font-display font-bold tracking-tight text-ink">Sign in.</span>
+									Use the email address and password you just chose.
+								</li>
+							}
+							<li>
+								<span class="font-display font-bold tracking-tight text-ink">Invite your team.</span>
+								Each person opens their own link once, on their own phone.
+							</li>
+							<li>
+								<span class="font-display font-bold tracking-tight text-ink">Your plaques.</span>
+								Tappa encodes them and posts them to you. Until one is mounted there is
+								nothing to tap at.
+							</li>
+						</ol>
+					</div>
+					if !v.SignInBlocked {
+						<div class="mt-8">
+							<a href={ templ.URL(v.SignInHref) } class="btn btn--primary inline-block sm:px-8">
+								Sign in to your dashboard
+							</a>
+						</div>
+					}
+				</div>
+			</section>
+		}
+	}
+}
+
+// SignupProblem is every "this did not work" screen in the wizard. See
+// signupview.go for why it is separate from pages.Problem.
+templ SignupProblem(v SignupProblemView) {
+	@layout.Marketing("Tappa", layout.RobotsPrivate) {
+		@marketingChrome("") {
+			<section class="px-4 py-8 sm:py-12">
+				<div class="mx-auto w-full max-w-2xl">
+					@components.Notice(components.ToneAlert, v.Title) {
+						<p>{ v.Message }</p>
+						if v.Hint != "" {
+							<p class="mt-2 text-ink/70">{ v.Hint }</p>
+						}
+					}
+					if v.Retry != "" {
+						<div class="mt-6">
+							<a href={ templ.URL(v.Retry) } class="btn btn--primary inline-block sm:px-8">
+								Start again
+							</a>
+						</div>
+					}
+				</div>
+			</section>
+		}
+	}
+}

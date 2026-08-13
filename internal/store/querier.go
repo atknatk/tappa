@@ -702,11 +702,25 @@ type Querier interface {
 	//
 	// ⚠️ WHAT CLOSED IS THE PATH, NOT THE CAPABILITY -- the sentence above used to be
 	// read the other way and the correction is worth spelling out, because it changes
-	// who has to be careful. admin_users keeps a TABLE-WIDE UPDATE grant, deliberately
-	// (00011 argues it, correctly: nearly every column there is legitimately writable,
-	// so a column grant would merely enumerate the table). The consequence is that two
-	// of the three effects 00011 closed on admin_sessions remain reachable ONE TABLE
-	// OVER. Measured live as tappa_app, inside its OWN tenant context:
+	// who has to be careful.
+	//
+	// ✅ AND admin_users NO LONGER KEEPS A TABLE-WIDE UPDATE GRANT. This paragraph said it
+	// did, "deliberately (00011 argues it, correctly: nearly every column there is
+	// legitimately writable, so a column grant would merely enumerate the table)" --
+	// migration 00017 took that back and refuted the reason. The list 00011 called an
+	// enumeration IS the grant now (full_name, email, password_hash, role, status,
+	// last_login_at), and the three columns it OMITS are the point: `id` and `tenant_id`
+	// (identity) and `created_at` (the ordering 00017's whole security argument rests on
+	// -- a row whose created_at can be rewritten can be moved in front of an existing
+	// customer, which is the account lockout that file exists to close). Measured after
+	// 00017: relacl `tappa_app=ar`, and has_column_privilege for UPDATE on those three is
+	// false.
+	//
+	// THE EFFECTS BELOW WERE MEASURED BEFORE THAT NARROWING AND TWO OF THEM SURVIVE IT,
+	// which is why they are still here: `status` and `password_hash` and `role` are all in
+	// the new grant, because a panel that manages admins has to write them. So the
+	// reachability claim is unchanged -- only the columns it can reach through are.
+	// Measured live as tappa_app, inside its OWN tenant context:
 	//   UPDATE admin_users SET status = 'active'        WHERE ... -> UPDATE 1
 	//       the disable kill switch, undone.
 	//   UPDATE admin_users SET role = 'owner'           WHERE ... -> UPDATE 1
@@ -740,6 +754,45 @@ type Querier interface {
 	// token_hash is the HMAC of a token this query never sees; it is written, never
 	// returned.
 	CreateAdminSession(ctx context.Context, arg CreateAdminSessionParams) (CreateAdminSessionRow, error)
+	// Creates a panel operator. THE FIRST INSERT INTO admin_users ANY APPLICATION PATH
+	// IN THIS PRODUCT HAS EVER MADE (M7-02) -- internal/adminauth/password.go names this
+	// task as one of the three that open the write path, and states the rule it must
+	// keep: "admin_users.password_hash is only ever written with the output of
+	// adminauth.Hash".
+	//
+	// 🔴 WHY IT IS AN INSERT ... SELECT RATHER THAN AN INSERT ... VALUES. CreateLocation
+	// learned this the hard way and says so at length: an INSERT ... VALUES has no WHERE
+	// and cannot have one, so the section 4.5 belt scanner
+	// (internal/domain/*/query_test.go) finds no predicate to check and reports that it
+	// verified NOTHING. Selecting the tenant row gives the statement a scoped source, so
+	// the belt reads it like any other query -- subject `tenants`, whose scope column is
+	// its own id (migration 00001's policy).
+	//
+	// IT ALSO BUYS A REAL GUARANTEE and not merely a satisfied scanner: the INSERT cannot
+	// happen unless the caller's tenant row is VISIBLE under RLS. In the sign-up flow that
+	// row was written moments earlier in the SAME transaction under the SAME context, so
+	// this is a genuine check that the two writes agree on which business they are for --
+	// if provisioning ever passed two different ids, this query inserts nothing and the
+	// whole registration rolls back rather than producing an admin belonging to a tenant
+	// that is not theirs.
+	//
+	// password_hash IS WRITTEN AND IS NEVER RETURNED. This file's header makes the
+	// grep-checkable claim that password_hash is selected by no query here; that stays
+	// true -- the value appears once, as a parameter of the INSERT's select-list, exactly
+	// as @token_hash does in CreateAdminSession, and the RETURNING list below does not
+	// name it. The generated *Row struct therefore has no PasswordHash field, so a row
+	// read cannot leak the digest into a log.
+	//
+	// email IS NOT RETURNED EITHER, for a smaller reason: nothing in the sign-up flow
+	// needs it back (the boundary already holds the value it just sent) and an address is
+	// personal data that would otherwise travel through a log line at the one moment the
+	// request is still unauthenticated.
+	//
+	// role IS A PARAMETER RATHER THAN A LITERAL 'owner', even though the sign-up wizard
+	// is the only caller today and always passes 'owner'. M7-04's admin invitation is the
+	// second caller and passes 'manager'; migration 00006's CHECK is the authority on
+	// which values exist, so a Go-side literal here would be a second one.
+	CreateAdminUser(ctx context.Context, arg CreateAdminUserParams) (CreateAdminUserRow, error)
 	// Adds a department INSIDE a venue.
 	//
 	// 🔴 THE VENUE IS SELECTED, NOT ASSIGNED, which is the shape MoveEmployee argues
@@ -901,6 +954,47 @@ type Querier interface {
 	// token_hash is the HMAC of a token this query never sees; it is written, never
 	// returned. device_info is NULL when the caller has no coarse label.
 	CreateSession(ctx context.Context, arg CreateSessionParams) (CreateSessionRow, error)
+	// Creates a business. THE FIRST WRITE INTO `tenants` THAT ANY APPLICATION PATH IN
+	// THIS PRODUCT HAS EVER MADE (M7-02): until this query, `INSERT INTO tenants`
+	// appeared only in test/fixtures/seed.sql and in test helpers, which is the fact
+	// migration 00011 built a risk boundary on and said would expire here.
+	//
+	// 🔴 THE CALLER SUPPLIES `id`, AND IT IS NOT A STYLE CHOICE -- IT IS THE ONLY SHAPE
+	// THAT CAN WORK. `tenants` is the one table whose RLS policy scopes on `id` rather
+	// than on `tenant_id` (migration 00001, ADR 0002 madde 5), so the WITH CHECK compares
+	// the inserted `id` against app.tenant_id. A row taking the column DEFAULT
+	// gen_random_uuid() would produce an id the transaction's context has never heard
+	// of, and every such INSERT fails the policy. Migration 00016 says the same from the
+	// privilege side and is why `id` is in the INSERT grant at all: "without INSERT on
+	// `id` the application could not create a tenant".
+	//
+	// ⚠️ SO THE TENANT CONTEXT IS SET TO A ROW THAT DOES NOT EXIST YET, which reads
+	// alarming and is the safest possible thing to do with an unauthenticated caller.
+	// The whole transaction runs under app.tenant_id = <the new id>, and under that
+	// context RLS makes EVERY table in the schema empty: there is no row anywhere whose
+	// tenant_id equals a uuid nothing has ever used. The wizard therefore runs with
+	// strictly LESS reach than any authenticated panel request, not more.
+	//
+	// 🔴 AND THE VALUE IS NEVER THE CALLER'S. internal/domain/signup mints it with
+	// uuid.NewRandom (crypto/rand) inside the provisioning call; no field of the sign-up
+	// form, no cookie and no query parameter reaches it. That is what stops the obvious
+	// attack on the paragraph above -- a stranger naming somebody else's tenant id and
+	// getting a transaction scoped to it. TestSignupProvision_TenantIDIsNeverTakenFromTheRequest
+	// asserts it at the boundary.
+	//
+	// THREE COLUMNS ARE ABSENT FROM THE INSERT LIST AND TAKE THEIR DEFAULTS: `plan`
+	// ('founding'), `price_per_employee_month` (1.50) and `created_at` (now()). That is
+	// migration 00016's decision, enforced by privilege rather than by this file --
+	// tappa_app has no INSERT on any of the three, so naming one here would not compile
+	// against the database. A new customer gets the founding offer and the published
+	// price, which is exactly what the landing page sells.
+	//
+	// vat_number is globally UNIQUE (migration 00001), so a second registration of the
+	// same business fails with 23505 rather than creating a duplicate tenant. The
+	// boundary turns that into a plain sentence on the form; it is NOT an enumeration
+	// concern worth hiding, because a VAT number is public data that anyone can put into
+	// VIES.
+	CreateTenant(ctx context.Context, arg CreateTenantParams) (CreateTenantRow, error)
 	// Create a CUSTOMER-authored policy container.
 	//
 	// 🔴 layer IS FIXED TO 'tenant' IN THE STATEMENT, NOT TAKEN AS A PARAMETER, for
