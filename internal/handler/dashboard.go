@@ -72,6 +72,8 @@ func (a *AdminAuth) mountSections(r chi.Router) {
 			r.Get(s.Href, a.anomaliesSection)
 		case pages.TabPolicies:
 			r.Get(s.Href, a.policiesSection)
+		case pages.TabBilling:
+			r.Get(s.Href, a.billingSection)
 		default:
 			r.Get(s.Href, a.section(s.Tab))
 		}
@@ -99,6 +101,15 @@ func (a *AdminAuth) mountSections(r chi.Router) {
 	// rulebook are in mountWriting, because both need the Origin check AHEAD of the
 	// resolver and neither can get it here.
 	r.Get(policyVersionHref, a.policyVersionPage)
+	// 🔴 THE BILLING EXPORT IS REGISTERED HERE AND IT WRITES NOTHING AT ALL — one
+	// fewer side effect than the hours export above, which is why it needs none of
+	// that route's four paragraphs about what a cross-origin navigation can inflate.
+	// It is not a section (it has no tab) but it reads the same month the billing
+	// section does, so it must inherit the same chain, and putting it inside this
+	// function makes that structural. The two POSTs that FREEZE a month are in
+	// mountWriting, because both need the Origin check AHEAD of the resolver and
+	// neither can get it here.
+	r.Get(billingCSVHref, a.billingExport)
 }
 
 // mountWriting registers the panel's state-changing routes: the review decision
@@ -172,6 +183,19 @@ func (a *AdminAuth) mountWriting(r chi.Router) {
 		// which decides how every later tap in that business is judged.
 		r.Post(policyChangeHref, a.policyChangeReview)
 		r.Post(policyApplyHref, a.policyChangeApply)
+		// 🔴 THE TWO BILLING POSTs (M6-12 phase B), AND THE SECOND IS THE MOST PERMANENT
+		// WRITE IN THIS PRODUCT. `transactions` is immutable but §4.3 names its remedy —
+		// a correction is a new row — and internal/domain/manual implements it;
+		// billing_periods has none: migration 0016 revokes UPDATE and DELETE from
+		// tappa_app, binds the table owner with a trigger, AND refuses a second row for
+		// the same month. So a month frozen wrongly cannot be edited, removed or
+		// superseded. The first POST writes no billing row — it mints a confirmation and
+		// sets its twin cookie, which is state — and it is here for the reason the
+		// manual-entry and policy review steps are: a POST registered in mountSections
+		// would silently take the READ chain, running the resolver before the Origin
+		// check.
+		r.Post(billingCloseHref, a.billingCloseReview)
+		r.Post(billingFreezeHref, a.billingCloseApply)
 	})
 }
 

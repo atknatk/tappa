@@ -18,6 +18,7 @@ import (
 	"github.com/atknatk/tappa/internal/audit"
 	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/db"
+	"github.com/atknatk/tappa/internal/domain/billing"
 	"github.com/atknatk/tappa/internal/domain/checkin"
 	"github.com/atknatk/tappa/internal/domain/ledger"
 	"github.com/atknatk/tappa/internal/domain/manual"
@@ -217,7 +218,23 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	panelAuth, err := handler.NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, venues, plaques, entries, rules, ruleWriter, cfg, slog.Default())
+	// 🔴 THE BILLING REGISTER (M6-12 phase B). It takes the same trail every other
+	// writer takes, and for a reason that is stronger here than anywhere else:
+	// billing.NewBook REFUSES a nil audit sink, because Close writes the frozen row and
+	// the `billing.period_closed` row in ONE transaction — if the trail cannot be
+	// written the freeze rolls back with it. Everywhere else a lost audit row would
+	// hide a FAILURE; here it would hide a permanent, irreversible SUCCESS, and an
+	// invoice nobody can attach to a person is worse than no invoice.
+	//
+	// NO PRICE AND NO MONTH BOUNDARY IS PASSED IN. Both live in migration 0016's
+	// functions, called by db/queries/billing.sql, so there is ONE definition shared by
+	// the live preview and the statement that freezes — a Go copy here would be a
+	// second one that drifts.
+	books, err := billing.NewBook(data, trail, slog.Default())
+	if err != nil {
+		return err
+	}
+	panelAuth, err := handler.NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, venues, plaques, entries, rules, ruleWriter, books, cfg, slog.Default())
 	if err != nil {
 		return err
 	}

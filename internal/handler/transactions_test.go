@@ -229,6 +229,62 @@ func TestPanelScript_IsVendoredAndServedFromOurOwnOrigin(t *testing.T) {
 	}
 }
 
+// TestPanelStylesheet_IsVendoredAndServedFromOurOwnOrigin is the twin of the scan
+// above, for the tag it never covered.
+//
+// ⚠️ SCOPE: THIS IS NOT A DEFECT M6-12 INTRODUCED, AND SAYING SO IS PART OF THE TEST.
+// The gap has been open since M0 — layout/base.templ has carried
+// `<link rel="stylesheet" href="/static/css/app.css">` the whole time and nothing ever
+// asserted the file was in the embedded tree, while the SCRIPT half of exactly the
+// same failure class has been pinned since M6-03. M6-12 only made it visible: adding
+// one Tailwind utility (`.underline`) meant `make css` had to run, and noticing that
+// led here. What is closed is a LATENT trap, not a live break.
+//
+// 🔴 WHAT MAKES IT A TRAP RATHER THAN A THEORY: web/static/css/app.css is GITIGNORED
+// (.gitignore:16) because it is a build artefact, and `go:embed all:static` compiles
+// perfectly happily when it is absent. So a clean clone plus a bare `go build ./...`
+// produces a binary whose every page requests /static/css/app.css and gets a 404 —
+// unstyled, and green in the whole test suite. The shipping paths are sound today
+// (`make build` and `make dev` both run `css` first); this is the net for the one that
+// is not.
+//
+// A href under /static is necessary and not sufficient — a path pointing at nothing
+// renders identically and fails only in a browser. Same sentence as the script scan,
+// same reason.
+func TestPanelStylesheet_IsVendoredAndServedFromOurOwnOrigin(t *testing.T) {
+	bodies := sectionBodies(t)
+	hrefRE := regexp.MustCompile(`(?is)<link\b[^>]*\bhref="([^"]+)"`)
+
+	found := 0
+	for where, body := range bodies {
+		for _, m := range hrefRE.FindAllStringSubmatch(body, -1) {
+			href := m[1]
+			// Only OUR OWN assets are in scope. A <link> to a fragment or an external
+			// document is a different question and this scan does not pretend to answer it.
+			if !strings.HasPrefix(href, "/static/") {
+				continue
+			}
+			found++
+			// The embedded tree is what the binary actually ships.
+			if _, err := web.Static().Open(strings.TrimPrefix(href, "/static/")); err != nil {
+				t.Errorf("%s links %s but that file is not in the embedded static tree: %v.\n"+
+					"A stylesheet link pointing at nothing looks correct in the markup and "+
+					"fails only in a browser — every page would render unstyled. If this is "+
+					"a fresh clone, run `make css`; the file is a gitignored build artefact.",
+					where, href, err)
+			}
+		}
+	}
+	// ANTI-VACUITY, and it is the half that matters here: with no <link> found this
+	// scan would pass on a panel that had lost its stylesheet altogether, which is the
+	// exact failure it exists to catch.
+	if found == 0 {
+		t.Fatal("no <link href> under /static on any panel section -- layout/base.templ " +
+			"carries the panel's stylesheet, so this scan is reading the wrong bodies and " +
+			"would accept a page with no styles at all")
+	}
+}
+
 // --- §4.6: a screen may not claim what it has not measured -----------------
 
 // TestTransactions_AFailedReadIsAnErrorAndNeverAnEmptyDay is the §4.6 net, and the

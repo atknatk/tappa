@@ -82,6 +82,18 @@ type AdminChooseView struct {
 	Businesses []AdminBusiness
 }
 
+// adminRoleOwner is the role a PanelSection's OwnerOnly flag is compared against.
+//
+// ⚠️ IT IS A SECOND SPELLING OF A WORD internal/handler ALSO SPELLS, AND THAT IS
+// STATED RATHER THAN SMUGGLED. The authority is the SCHEMA — migration 00006's
+// CHECK (role IN ('owner','manager')) — and this package cannot import internal/handler
+// (the dependency runs the other way), so the choice was a constant here or a bool
+// computed by every handler and passed in. The constant is narrower: a section's
+// visibility rule lives beside the section table it applies to, and this value is
+// compared against PanelChrome.Role, which internal/adminauth filled from the
+// admin_users row during session resolution — never from a form.
+const adminRoleOwner = "owner"
+
 // PanelTab identifies one section of the dashboard.
 //
 // IT IS A NAMED TYPE RATHER THAN A string so a handler cannot pass a section that
@@ -98,6 +110,7 @@ const (
 	TabReports      PanelTab = "reports"
 	TabAnomalies    PanelTab = "anomalies"
 	TabPolicies     PanelTab = "policies"
+	TabBilling      PanelTab = "billing"
 )
 
 // PanelSection is one row of the panel's navigation AND one route.
@@ -119,6 +132,24 @@ type PanelSection struct {
 	// Blurb is what will be here, in the brand's voice. It is NOT a promise the
 	// system already keeps — the empty state says "not built yet" beside it.
 	Blurb string
+	// OwnerOnly hides this section's TAB from a manager (M6-12).
+	//
+	// 🔴 IT CHANGES WHAT IS DRAWN AND NOT WHAT IS ROUTED, WHICH IS THE WHOLE OF THE
+	// DESIGN. internal/handler mounts by RANGING over the full PanelSections, so every
+	// row still gets a route and "a tab whose link 404s" stays structurally
+	// unavailable — the property this table exists for. What this flag removes is the
+	// LINK, and the server refuses the route on its own (billingactions.go's
+	// mayManageBilling). Both halves are required and neither substitutes for the
+	// other, which is the argument locationactions.go's mayRemove already makes for
+	// the panel's other role gate.
+	//
+	// ⚠️ THE ALTERNATIVE WAS WEIGHED: leave the tab and let the section explain
+	// itself. It was rejected because a tab a manager can see and cannot open is
+	// "clickable but forbidden" — it teaches somebody a control exists, costs them a
+	// page load to find out it does not apply to them, and does it on every visit. The
+	// refusal page still exists for anybody who arrives by a shared link or a stale
+	// bookmark, and §4.6 makes it say why rather than 404.
+	OwnerOnly bool
 }
 
 // PanelSections is the panel's sections, in the order CLAUDE.md §9 and
@@ -169,6 +200,24 @@ var PanelSections = []PanelSection{
 	{
 		Tab: TabPolicies, Label: "Policies", Href: "/admin/policies", Task: "M6-09",
 		Blurb: "The rules this business is allowed to change — shown beside the ones no business can.",
+	},
+	{
+		// 🔴 IT IS LAST, AND THE ORDER IS AN ARGUMENT RATHER THAN AN APPEND. Every one
+		// of the seven rows above is about the BUSINESS's own operations — its taps, its
+		// queue, its people, its places, its hours, its odd shapes, its rules. This one
+		// is the only row about the arrangement BETWEEN the business and Tappa, and it is
+		// read once a month rather than once a shift. Dropping it between two operational
+		// sections would break a run a manager navigates by habit; last keeps that run
+		// intact and puts the once-a-month screen where a once-a-month screen belongs.
+		//
+		// ⚠️ IT IS NOT PLACED HERE BECAUSE IT IS "THE OWNER'S TAB". Its READ is every
+		// admin's — a manager may look at what the month costs — and only the one
+		// irreversible control on it is owner-only (billingactions.go's mayCloseBilling).
+		// Ordering by who may WRITE would have put Policies here too, and Policies is
+		// sixth.
+		Tab: TabBilling, Label: "Billing", Href: "/admin/billing", Task: "M6-12",
+		Blurb:     "What each month costs: how many people were on the books, at what price, and the figure you can freeze once the month has ended.",
+		OwnerOnly: true,
 	},
 }
 

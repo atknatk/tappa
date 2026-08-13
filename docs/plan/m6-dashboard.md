@@ -7004,3 +7004,109 @@ gelmesin.
 >    PDF üretecek hiçbir şey yok ve §1 Node'u yasaklıyor, yani PDF **yeni bir Go
 >    bağımlılığı** demek — §1 gereği önce sorulur. CSV'nin engeli yok
 >    (M6-07 B'de `internal/handler` CSV yazıyor, kalıp mevcut).
+
+> **Kart düzeltmesi (2026-08-13, M6-12 B uygulaması sırasında).** B fazı bitti:
+> bölüm, fatura taslağı, CSV, founding uyarısı ve "dönemi kapat" POST'u.
+> Kartın metniyle çelişen ya da kartın söylemediği beş şey:
+>
+> 1. **🔴 PDF TESLİM EDİLMEDİ — kriter "CSV/PDF" yerine "CSV" olarak okunmalı.**
+>    A fazının 4. maddesi bunu blokeli işaretlemişti; B fazı doğruladı ve
+>    **sormadan üretmedi**. Ölçüm: repoda PDF üreten hiçbir şey yok
+>    (`go list -m all | grep -ci pdf` → **0**), §1 Node'u yasaklıyor, dolayısıyla
+>    tek yol **yeni bir Go bağımlılığıdır** ve §1 *"Yeni bağımlılık eklemeden önce
+>    sor"* diyor. **Karar kullanıcınındır**; istenirse ayrı bir görev olur.
+>    Bugün teslim edilen CSV, ekrandaki her rakamı **ve** ekranın taşıdığı her
+>    çekinceyi taşıyor, yani PDF'in yokluğu bir bilgi kaybı değil bir **biçim**
+>    kaybıdır.
+> 2. **Faturalanabilir tanımı artık EKRANDA** (kartın 1. kriteri). Metin kartın
+>    parantezini değil **uygulanan** tanımı söylüyor — A fazının 1. maddesindeki
+>    ek koşul dâhil — ve `unstamped_employees > 0` olduğunda sayının bir **taban**
+>    olduğu ekranda da CSV'de de yazılı. ⚠️ Sayının kendisi bir **ÜST SINIR**
+>    olarak sunuluyor, "eksik olan kişi sayısı" olarak değil (00016'nın ölçümü).
+> 3. **"Dönemi kapat" İKİ POST'tur, biri hiçbir şey yazmaz.** Kart tek bir
+>    dışa aktarımdan söz ediyordu ve kapatmanın **şeklini** söylemiyordu.
+>    Geri alınamazlık MAC'li onayı zorunlu kıldı: `confirmActionCloseBillingPeriod`
+>    sekizinci `confirmAction*` sabitidir ve türetilmiş matris bozulmadı.
+> 4. **Dönemi KİM kapatabilir: rol kontrolü, policy eylemi DEĞİL.** Kart bunu
+>    söylemiyordu. `billing:close`'u `internal/policy`'nin kapalı sözlüğüne
+>    eklemek **ölçülerek elendi**: (a) sözlük kapalı, `Validate` bilinmeyen eylemi
+>    reddediyor ve ADR 0004 §8 yeni ADR istiyor; (b) kapı **saklanan** kural
+>    kitabını okur ve `baseline.go` mevcut tenant'ların otomatik güncellenmediğini
+>    yazıyor — geliştirme veritabanındaki `base:authz-owner` bugün **altı** eylem
+>    taşıyor, yani sahip **kendi ekranından kilitlenirdi** (ölçüldü:
+>    `effect=deny sid=default`); (c) `base:*` bir **baseline** ifadesidir, tenant
+>    kapatabilir/geçebilir ve billing için **guardrail yok** — yani Tappa'nın kendi
+>    tahsilat kapısı müşterinin eline geçerdi. Uygulanan yol
+>    `locationactions.go`'nun `mayRemove`'u: ürünün diğer geri alınamaz eylemi de
+>    aynı alana bakıyor.
+> 5. **Kapatma için ikinci bir `audit_log` BAŞARI satırı yazılmadı; REDDEDİLEN
+>    deneme ise yazılıyor.** A fazının `Book.Close`'u `billing.period_closed`'ı
+>    frozen satırla **aynı transaction'da** yazıyor; handler'dan yazılacak ikinci
+>    bir **başarı** satırı, UPDATE ve DELETE almayan bir tabloda **kalıcı bir
+>    kopya** olurdu.
+>
+>    ⚠️ **Bu maddenin ilk hâli reddedişi de "sayılmış limit" ilan ediyordu ve bu
+>    yanlıştı (denetim, 1. tur).** Yükümlülük 5 *"`Book.Close` zaten yazıyor,
+>    İKİNCİ BİR BAŞARI SATIRI yazma"* diyordu — bir **REDDİN** kaydı hakkında
+>    hiçbir şey söylemiyordu; ikisi farklı olay. Emsalin kendi gerekçesi
+>    (`locationactions.go`, **kullanıcı kararı 2026-08-09**) buraya kelimesi
+>    kelimesine uyuyor: *structured log'un tenant sınırı ve operatör dışında okuru
+>    yok; bunu en çok bilmesi gereken **SAHİPTİR**.* Ölçüldü: `policy.edit_refused`
+>    **326** · `location.delete_refused` **100** · `department.delete_refused`
+>    **100** · `billing.*_refused` **0** — bu bölüm kapılı tek trail'siz eylemdi.
+>    `billing.period_close_refused` eklendi, **her iki POST'ta da** (emsal iki
+>    adımlı policy bölümü: o da iki adımda da yazıyor), `detail.step` ile
+>    ayırt edilerek. Reddediş satırı **tutar taşımıyor** — gerçekleşmeyen bir
+>    eylemin rakamı yoktur.
+> 6. **`DRAFT` cümlesi fazla oynaklık beyan ediyordu (denetim, 1. tur).** *"today's
+>    roster … hired olursa değişir"* diyordu; **bitmiş** bir ay için bu **yanlış**.
+>    Sayım `tappa_employee_is_billable` ile **ayın kendi penceresiyle örtüşmedir**,
+>    yani bugün işe alınan biri kapanmış bir döneme **giremez**. Canlı şema üzerinde
+>    ölçüldü: bugün işe alınan → **billable değil** · yıllardır çalışan → billable ·
+>    **aynı kişi bugün çıkarılınca → hâlâ billable** (şaşırtan satır bu). Cümle
+>    `HasEnded`'e göre **ikiye ayrıldı**; bitmiş ay için gerçekten değiştirebilecek
+>    olanlar yazıldı ve bunlar da ölçüldü (tappa_app'in sütun yetkileri):
+>    `employees.activated_at/deactivated_at` **UPDATE** · `tenants.timezone`
+>    **UPDATE** · `tenants.price_per_employee_month` **yalnız SELECT**.
+> 7. **🔴 Bölümün TAMAMI owner-only — okuma dahil (denetim, 3. tur; kullanıcı
+>    kararı).** Kart bunu söylemiyordu ve ilk uygulama yalnız *kapatma*yı
+>    kilitlemişti. `tappa-security-auditor` ölçtü: bir **manager**
+>    `GET /admin/billing` ve `/admin/billing.csv` ile işletmenin **Tappa'ya olan
+>    borcunu** okuyabiliyordu. §4 ihlali **değil** (kırmızı çizgiler tenant**lar
+>    arası** sızıntıyı yasaklar; o taraf temiz ölçüldü) ama panelin daha önce hiç
+>    göstermediği ticari bilgi. Üç gerekçeyle kapatıldı: (a) faz A `plan` ve
+>    `price_per_employee_month`'u `tappa_app`'ten **hem INSERT hem UPDATE**'te
+>    almıştı — okuma tarafını açık bırakmak o duruşu yarım bırakıyordu; (b) tek
+>    eylemi yasak olan bir rakamı göstermek tutarsız; (c) maliyet tek satır.
+>
+>    **Sekme kararı: manager'a GİZLENİYOR** (`PanelSection.OwnerOnly`).
+>    ⚠️ Filtre **yalnız navigasyona** uygulanıyor, **rota tablosuna değil**:
+>    `mountSections` hâlâ tablonun **tamamını** dolaşıyor, yani *"linki 404 veren
+>    sekme"* imkânsızlığı korunuyor ve manager'ın aldığı cevap **handler'dan 403**
+>    (chi'den 404 değil). Mutasyonla iki yönde de kanıtlandı: filtreyi kaldırınca
+>    sekme testi, filtreyi **rotaya** taşıyınca **dört** test kırmızı. Reddediş
+>    §4.6 gereği **sebebini söylüyor** (`problemBillingOwnerOnly`), ve bir GET
+>    reddi **audit satırı yazmıyor** — okuma yolu yazmaz, log yeter.
+>
+>    Yan sonuç: `fillBillingControl`'ün *"yalnız sahip kapatabilir"* dalı artık
+>    **ulaşılamaz** olduğu için **silindi** — daima açık ölçülen bir kapıyı kapı
+>    diye çizmek `reportscsv.go`'nun adını koyduğu kusur.
+> 8. **`/admin/billing.csv` bir `audit_log` erişim satırı yazıyor
+>    (`billing.exported`).** Denetçi ölçtü: `before=743 · billing_csv=743 ·
+>    reports_csv=744` — kardeş rota yazıyordu, bu yazmıyordu. Sebep **gizlilik
+>    değil tutarlılık**: aynı repoda iki kardeş CSV rotasının *"toplu dışa aktarım
+>    iz bırakır mı?"* sorusuna farklı cevap vermesi, emsal cümlesini bir sonraki
+>    bölümde yine çekiştirir. ⚠️ Bu bir **GET'in yazması** — M6-07 B tam bu
+>    istisnayı yapmıştı; gerekçesi `reportsExport`'tan okundu ve taşındı.
+>    `TestBillingRead_WritesNothing`'in iddiası **daraltıldı ve yazıldı**: kanıtlanan
+>    şey *"hiçbir GET bir dönem DONDURAMAZ"* (`billing_periods`), *"hiçbir GET
+>    hiçbir tabloya yazmaz"* değil.
+> 9. **Kapsam genişlemesi (işaretli): CSS embed tuzağı.** `web/static/css/app.css`
+>    **gitignore'lu** bir yapı artefaktı ve `go:embed all:static` dosya yokken de
+>    derleniyor — temiz bir klondan çıplak `go build` alan biri **her sayfası
+>    stilsiz** bir ikili sevk ederdi. Emsal test **yalnız `<script src>`** için
+>    vardı (`TestPanelScript_IsVendoredAndServedFromOurOwnOrigin`); `<link href>`
+>    ikizi yazıldı. ⚠️ **Bu M6-12'nin getirdiği bir kusur değil — M0'dan beri
+>    açıktı**; M6-12'nin tek katkısı bir Tailwind yardımcı sınıfı ekleyip
+>    `make css`'i zorunlu kılarak onu **görünür** yapmaktı. Sevkiyat yolu (`make
+>    build`/`make dev`) bugün de sağlamdı; kapatılan şey **latent** bir tuzak.

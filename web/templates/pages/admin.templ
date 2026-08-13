@@ -218,9 +218,17 @@ templ AdminDashboard(v AdminDashboardView) {
 // what a badge looks like; which section has one is the panel's business, and
 // binding it by TAB rather than by position means reordering the sections cannot
 // move the number onto the wrong link.
+// 🔴 AN OwnerOnly SECTION IS FILTERED OUT HERE AND NOWHERE ELSE (M6-12). This is the
+// NAVIGATION, not the routing table: internal/handler still ranges over the whole of
+// PanelSections when it mounts, so every section keeps its route and a tab whose link
+// 404s remains impossible to introduce. Hiding the link is the courtesy half; the
+// server refuses the route itself, and neither substitutes for the other.
 func panelTabs(c PanelChrome) []components.Tab {
 	out := make([]components.Tab, 0, len(PanelSections))
 	for _, s := range PanelSections {
+		if s.OwnerOnly && c.Role != adminRoleOwner {
+			continue
+		}
 		t := components.Tab{Label: s.Label, Href: s.Href}
 		if s.Tab == TabReview {
 			t.Badge = c.Pending.Label()

@@ -38,6 +38,7 @@ import (
 	"github.com/atknatk/tappa/internal/audit"
 	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/db"
+	"github.com/atknatk/tappa/internal/domain/billing"
 	"github.com/atknatk/tappa/internal/domain/ledger"
 	"github.com/atknatk/tappa/internal/domain/manual"
 	"github.com/atknatk/tappa/internal/domain/review"
@@ -181,7 +182,17 @@ func newPanelHarness(t *testing.T) *panelHarness {
 	if err != nil {
 		t.Fatalf("tenant.NewRulebook: %v", err)
 	}
-	h, err := NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, venues, plaques, entries, rules, newFakeScribe(), cfg, slog.New(slog.DiscardHandler))
+	// THE REAL billing Book (M6-12 phase B), for the reason every other real
+	// dependency here is real -- and for one more that is specific to it: the property
+	// its tests exist to prove is that rendering the billing screen FREEZES NOTHING,
+	// and a fake would agree with that whatever the real register did. It also takes
+	// the harness's real trail, which is what makes "the handler writes no second audit
+	// row" a countable claim against audit_log rather than against a double.
+	books, err := billing.NewBook(data, trail, slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatalf("billing.NewBook: %v", err)
+	}
+	h, err := NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, venues, plaques, entries, rules, newFakeScribe(), books, cfg, slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}

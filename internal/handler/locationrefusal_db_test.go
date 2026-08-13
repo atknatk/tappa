@@ -96,7 +96,7 @@ func newRefusalFixture(t *testing.T, role string) *refusalFixture {
 	}}
 	records := newFakeLedger()
 	h, err := NewAdminAuth(admins, trail, records, records, &fakeReviewer{},
-		&fakeStaff{}, &fakeInviter{}, f.venues, f.plaques, &fakeRecorder{}, newFakeRules(), newFakeScribe(), adminTestConfig(), discardLogger())
+		&fakeStaff{}, &fakeInviter{}, f.venues, f.plaques, &fakeRecorder{}, newFakeRules(), newFakeScribe(), newFakeBooks(), adminTestConfig(), discardLogger())
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}

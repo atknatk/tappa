@@ -1,0 +1,239 @@
+package pages
+
+import "github.com/atknatk/tappa/web/templates/components"
+
+// The BILLING section (M6-12 phase B) — what a month costs, and the frozen record of
+// what it cost.
+//
+// 🔴 THE PAGE'S WHOLE JOB IS TO MAKE ONE DISTINCTION VISIBLE: a FROZEN month and a
+// LIVE DRAFT are different documents that carry the same five figures. The draft is
+// computed from today's roster and today's price and will move if either does; the
+// frozen one was read from billing_periods, where nothing may ever update it.
+// billing.Draft's own comment calls rendering them identically "the failure this
+// whole task exists to prevent", so the difference is carried three times over — a
+// rubber stamp, a sentence, and the presence or absence of the one control that
+// freezes.
+//
+// 🔴 IT LOADS NO SCRIPT and renders PanelShell rather than PanelShellWithScript.
+// Choosing a month is a link, freezing one is a form, and there is nothing to append
+// — which keeps the panel's widened Content-Security-Policy pinned to exactly one
+// url, the cardinality TestPanelScreens_ScriptsAndPolicyAgreeAndReachNoThirdParty
+// measures.
+//
+// 🔴 §4.7 — NOTHING ON THIS PAGE NAMES A PERSON. The only name is the BUSINESS's.
+// The headcount is a count and there is no control that turns it back into a list;
+// billingview.go's header says why that is a promise the data cannot keep.
+//
+// skill tappa-brand governs the surface: the kitchen docket is the record motif,
+// every figure is IBM Plex Mono, the palette is untouched, and no meaning is carried
+// by colour alone — the stamp says its own word and every notice puts its meaning in
+// its heading.
+templ AdminBilling(v BillingView) {
+	@PanelShell(v.PanelChrome) {
+		if v.Problem != "" {
+			@components.Notice(components.ToneAlert, "That did not happen") {
+				<p>{ v.Problem }</p>
+			}
+		}
+		if v.Founding != "" {
+			// 🔴 THE FOUNDING WARNING IS FIRST, WHICH IS ITS ENTIRE POINT. The M6-12 card
+			// asks for a visible warning at the end of the free window "or the free period
+			// quietly extends itself" — and quiet is what a notice under a table is.
+			@components.Notice(components.ToneWarn, v.FoundingHeading) {
+				<p>{ v.Founding }</p>
+			}
+		}
+		@billingMonthBar(v)
+		if v.Queried {
+			@billingDraft(v)
+			@billingHistory(v)
+		}
+	}
+}
+
+// billingMonthBar is the month picker: a month, and three ways to move.
+//
+// IT IS A PLAIN GET FORM WITH NO SCRIPT, so every month is an ADDRESS —
+// bookmarkable, shareable inside the business and working on a locked-down laptop.
+// The same decision reportWeekBar takes, for the same reasons.
+templ billingMonthBar(v BillingView) {
+	<form class="filter-bar" method="get" action={ templ.URL(v.SectionHref) } aria-label="Choose a month">
+		<div class="filter-field">
+			<label class="docket-label" for="billing-month">Month</label>
+			<input class="filter-input" id="billing-month" type="month" name="month" value={ v.MonthValue }/>
+		</div>
+		<div class="filter-actions">
+			<button class="btn btn--primary" type="submit">Show</button>
+			<a class="btn btn--quiet" href={ templ.URL(v.PrevHref) }>Previous month</a>
+			<a class="btn btn--quiet" href={ templ.URL(v.NextHref) }>Next month</a>
+			// "Last finished month" rather than "This month", because a month that is
+			// still running can never be frozen and is not the answer to "what do we
+			// owe" — it is the answer to "what are we running at".
+			<a class="btn btn--quiet" href={ templ.URL(v.LatestHref) }>Last finished month</a>
+			<a class="btn btn--quiet" href={ templ.URL(v.ExportHref) } download>Download CSV</a>
+		</div>
+	</form>
+	<p class="font-mono text-sm text-ink/85">
+		{ v.MonthLabel }
+		<span class="text-ink/70">· { v.ZoneLabel }</span>
+	</p>
+}
+
+// billingDraft is the month in one docket: the stamp, the figures, and every
+// admission that goes with them.
+templ billingDraft(v BillingView) {
+	<section class="docket">
+		<div class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+			<p class="font-display font-bold tracking-tight text-ink">{ v.TenantName }</p>
+			// THE STAMP IS THE FIRST OF THE THREE PLACES Frozen IS SAID. Its WORD carries
+			// the meaning — a reader with no colour still reads FROZEN or DRAFT — and the
+			// class only tints the frame, which is the anatomy skill tappa-brand settled.
+			<span class={ "stamp " + v.StampClass }>{ v.Stamp }</span>
+		</div>
+		<p class="mt-1 font-mono text-xs uppercase tracking-widest text-ink/70">
+			{ v.MonthLabel } · { v.PlanLabel }
+		</p>
+		// THE SECOND PLACE, IN WORDS. A stamp is a label; this is the claim about
+		// whether the number below can still change.
+		<p class="mt-1 text-sm text-ink/85">{ v.StateLine }</p>
+		<p class="mt-3 font-mono text-3xl font-bold tracking-tight text-ink">{ v.Amount }</p>
+		if v.FreeLine != "" {
+			// 🔴 A ZERO WITH NO SENTENCE BESIDE IT IS AN AMBIGUOUS ZERO. "The founding
+			// offer covers it" and "nobody was employed" are the same figure and
+			// completely different facts.
+			<p class="mt-1 text-sm text-ink/85">{ v.FreeLine }</p>
+		}
+		<dl class="mt-3 grid grid-cols-1 gap-x-4 gap-y-1 sm:grid-cols-2">
+			<div>
+				<dt class="docket-label">People counted</dt>
+				<dd class="font-mono text-sm text-ink">{ v.EmployeeCount }</dd>
+			</div>
+			<div>
+				<dt class="docket-label">Price per person</dt>
+				<dd class="font-mono text-sm text-ink">{ v.UnitPrice }</dd>
+			</div>
+			<div>
+				<dt class="docket-label">Period starts (UTC)</dt>
+				<dd class="font-mono text-xs text-ink">{ v.FromUTC }</dd>
+			</div>
+			<div>
+				<dt class="docket-label">Period ends (UTC, exclusive)</dt>
+				<dd class="font-mono text-xs text-ink">{ v.ToUTC }</dd>
+			</div>
+			if v.ClosedLine != "" {
+				<div>
+					<dt class="docket-label">Frozen</dt>
+					<dd class="font-mono text-xs text-ink">{ v.ClosedLine }</dd>
+				</div>
+			}
+		</dl>
+		// THE DEFINITION IS ON THE SCREEN, which is the M6-12 card's first criterion.
+		// A headcount whose rule lives only in a migration is a figure nobody can check.
+		<p class="mt-3 border-t border-line pt-2 text-sm text-ink/85">{ v.CountLine }</p>
+		<p class="mt-1 text-sm text-ink/85">{ v.Itemisation }</p>
+	</section>
+	if v.Unstamped != "" {
+		// 🔴 §4.6 APPLIED TO MONEY: excluded is not the same as invisible. A non-zero
+		// honesty column makes the headcount above a FLOOR, and the figure is worth
+		// nothing unless the screen says which direction it moves the answer in.
+		@components.Notice(components.ToneWarn, "The count above is a floor") {
+			<p>{ v.Unstamped }</p>
+			<p class="mt-1 font-mono text-xs text-ink">{ v.UnstampedCount }</p>
+		}
+	}
+	if v.CanClose {
+		// 🔴 IT IS A POST TO A CONFIRMATION STEP, NOT TO THE WRITE. Freezing a month is
+		// irreversible — billing_periods takes no UPDATE and no DELETE from anybody —
+		// so the act is gated by a MAC'd warning the server has to have rendered first.
+		// This form writes nothing at all: it asks for the warning.
+		<form method="post" action={ templ.URL(v.CloseHref) }>
+			<button class="btn btn--primary" type="submit">{ v.CloseLabel }</button>
+		</form>
+	} else if v.WhyNotClose != "" {
+		// A CONTROL THAT SIMPLY VANISHES TELLS NOBODY ANYTHING. Whichever of the four
+		// conditions is unmet, the screen says which.
+		<p class="text-sm text-ink/85">{ v.WhyNotClose }</p>
+	}
+}
+
+// billingHistory lists the frozen months, newest first.
+templ billingHistory(v BillingView) {
+	<section class="flex flex-col gap-2">
+		<h2 class="font-display text-lg font-bold tracking-tight text-ink">Frozen months</h2>
+		if v.HistoryCapped {
+			// 🔴 A BOUNDED LIST SAYS IT IS BOUNDED (M6-07's and M6-11's rule). A list that
+			// simply stops looks exactly like a business with no older months.
+			@components.Notice(components.ToneWarn, "Older months are not on this page") {
+				<p>{ v.HistoryCapLabel }</p>
+			}
+		}
+		if len(v.History) == 0 {
+			<p class="text-sm text-ink/85">{ v.HistoryEmpty }</p>
+		}
+		for _, h := range v.History {
+			<article class="docket">
+				<div class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+					<a class="font-display font-bold tracking-tight text-ink underline" href={ templ.URL(v.SectionHref + "?month=" + h.MonthValue) }>{ h.MonthLabel }</a>
+					<span class="font-mono text-lg font-bold tracking-tight text-ink">{ h.Amount }</span>
+				</div>
+				<p class="mt-1 font-mono text-xs uppercase tracking-widest text-ink/70">
+					{ h.Employees } · { h.UnitPrice } · frozen { h.ClosedAt }
+				</p>
+				if h.Free {
+					<p class="mt-1 text-sm text-ink/85">Inside the founding offer&#39;s free window, so nothing was charged.</p>
+				}
+				if h.Unstamped != "" {
+					<p class="mt-1 text-sm text-ink/85">{ h.Unstamped }</p>
+				}
+			</article>
+		}
+	</section>
+}
+
+// AdminBillingClose is the confirmation step: the last screen before a permanent row.
+templ AdminBillingClose(v BillingCloseView) {
+	@PanelShell(v.PanelChrome) {
+		<div class="flex flex-col gap-4">
+			<section class="bg-paper border border-line px-4 py-4">
+				<h2 class="font-display text-xl font-bold tracking-tight text-ink">{ v.Heading }</h2>
+				<p class="mt-1 text-sm text-ink/85">{ v.Summary }</p>
+				<dl class="mt-3 grid grid-cols-1 gap-x-4 gap-y-1 sm:grid-cols-2">
+					for _, d := range v.Detail {
+						<div>
+							<dt class="docket-label">{ d.Label }</dt>
+							<dd class="font-mono text-xs text-ink">{ d.Value }</dd>
+						</div>
+					}
+				</dl>
+			</section>
+			@components.Notice(components.ToneAlert, "This cannot be undone, and the figures are counted again when you press it") {
+				<p>{ v.Warning }</p>
+				<p class="mt-1">
+					// 🔴 THE PAGE MUST NOT CLAIM THE FIGURES ABOVE ARE THE ONES THAT WILL FREEZE.
+					// They are today's live count; the statement that writes the row recounts inside
+					// its own transaction, and it takes no amount from this form — there is no
+					// parameter an invoice figure could be posted into. Between this screen and the
+					// press, somebody can be hired or deactivated, and the row would then differ
+					// from what is printed here.
+					The figures above are a live count taken when this page was drawn. Freezing
+					counts again at that moment, from the same definition, so a person hired or
+					deactivated in between changes what is stored. Nothing you can type here sets
+					the amount.
+				</p>
+				<p class="mt-1">
+					// THE ONE PROMISE THE ROW CANNOT KEEP, SAID BEFORE IT IS WRITTEN RATHER THAN
+					// DISCOVERED AFTERWARDS.
+					What is frozen is the NUMBER of people, not which people. Nothing stored here
+					can reconstruct the list later, and after somebody is anonymised the question
+					has no answer at all — so this figure is an invoice, never an itemised one.
+				</p>
+			}
+			<form method="post" action={ templ.URL(v.Action) } class="flex flex-wrap items-center gap-3">
+				<input type="hidden" name="month" value={ v.Month }/>
+				<input type="hidden" name={ v.ConfirmField } value={ v.ConfirmToken }/>
+				<button class="btn btn--primary" type="submit">Freeze this month</button>
+				<a class="btn btn--quiet" href={ templ.URL(v.BackHref) }>Cancel</a>
+			</form>
+		</div>
+	}
+}

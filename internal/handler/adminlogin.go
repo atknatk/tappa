@@ -172,6 +172,24 @@ type AdminAuth struct {
 	// with; folding the two together would give every reader a Save method.
 	scribe panelScribe
 
+	// books is the billing register (M6-12 phase B, internal/domain/billing). It is a
+	// field of its own because it is a seventh PACKAGE, and this one carries the
+	// heaviest write in the product: internal/domain/manual appends to a table §4.3
+	// gives a correction shape for, while billing_periods has none — 0016 revokes
+	// UPDATE and DELETE and refuses a second row per month, so a wrong figure is
+	// permanent and uncorrectable.
+	//
+	// ⚠️ UNLIKE rules/scribe IT IS ONE FIELD OVER BOTH THE READS AND THE WRITE, AND
+	// THAT IS STATED RATHER THAN SMUGGLED. The policies section split its two because
+	// the split bought a compiler-checkable fact: the OTHER assembler of a policy set
+	// materialises rows, so a narrow read interface made "a page view cannot write a
+	// policy row" structural. There is no such second assembler here — one small
+	// register, four methods, one table — so a split would put two fields on this
+	// struct pointing at the same *billing.Book. billing.go's panelBooks says the same
+	// from the consumer's end, and the property that matters (the read path freezes
+	// nothing) is measured by a static call-graph test rather than implied by a type.
+	books panelBooks
+
 	// See adminratelimit.go for why there are three and what each may refuse.
 	floodLimiter   *limiter
 	attemptLimiter *limiter
@@ -184,7 +202,7 @@ type AdminAuth struct {
 
 // NewAdminAuth wires the flow. Every dependency is required: a nil recorder would
 // silently drop the section 4.6 trail and a nil manager cannot fail safely.
-func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLedger, queue panelQueue, reviewer panelReviewer, staff panelStaff, invites panelInviter, venues panelVenues, plaques panelPlaques, entries panelRecorder, rules panelRules, scribe panelScribe, cfg *config.Config, log *slog.Logger) (*AdminAuth, error) {
+func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLedger, queue panelQueue, reviewer panelReviewer, staff panelStaff, invites panelInviter, venues panelVenues, plaques panelPlaques, entries panelRecorder, rules panelRules, scribe panelScribe, books panelBooks, cfg *config.Config, log *slog.Logger) (*AdminAuth, error) {
 	switch {
 	case admins == nil:
 		return nil, errors.New("handler: nil admin authenticator")
@@ -258,6 +276,14 @@ func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLed
 	// (internal/domain/tenant.RuleWriter.authorise) rather than in this package.
 	case scribe == nil:
 		return nil, errors.New("handler: nil policy scribe")
+	// THE SAME ARGUMENT, ONCE MORE (M6-12 phase B), and here the dead capability
+	// would be the invoice. A nil books would put a Billing tab in the navigation
+	// whose page panics, on the ONE screen that says what this product costs — and it
+	// would put a "Freeze this month" button on it whose handler crashes. The M5-04
+	// lesson is that a capability can be delivered, tested and DEAD in the wired
+	// product because two halves were never assembled.
+	case books == nil:
+		return nil, errors.New("handler: nil billing register")
 	case cfg == nil:
 		return nil, errors.New("handler: nil config")
 	}
@@ -285,6 +311,7 @@ func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLed
 		entries:        entries,
 		rules:          rules,
 		scribe:         scribe,
+		books:          books,
 		cookies:        adminauth.NewCookies(cfg),
 		short:          newAdminCookies(cfg),
 		choices:        choices,

@@ -224,6 +224,31 @@ const (
 	// nothing checks for cross-action reuse. That test is the one that caught a
 	// venue-removal confirmation opening the deactivation gate.
 	confirmActionPolicyEdit = "policy.edit"
+	// 🔴 FREEZING A BILLING MONTH (M6-12 phase B). It is the eighth gate and the
+	// FIRST one whose act is irreversible by the SCHEMA rather than by the absence of
+	// a route. The five before it are held by what the product does not ship: a plaque
+	// can be re-mounted, a rule can be switched back on, a venue's row is gone but the
+	// act is destructive rather than permanent. billing_periods is different in kind —
+	// migration 0016 REVOKEs UPDATE and DELETE from tappa_app AND binds the table owner
+	// with a trigger, so a wrong month cannot be edited, cannot be removed, and cannot
+	// be superseded either: UNIQUE (tenant_id, period_month) refuses a second answer.
+	// A mis-pressed close is a permanent, uncorrectable statement about what somebody
+	// was charged.
+	//
+	// ⚠️ THE ONE-SHOT ARGUMENT THIS FILE MAKES FOR THE OTHER SEVEN HOLDS HERE TOO, AND
+	// FOR A DIFFERENT REASON. A re-printed cookie can spend one mint repeatedly; what
+	// makes that harmless elsewhere is a predicate on the write (DeactivateEmployee's
+	// `status <> 'deactivated'`), and here it is the UNIQUE constraint: the second
+	// close of the same month raises 23505 and the caller reports "already closed". So
+	// a replay writes no billing row, no audit row and no second figure.
+	//
+	// ITS SUBJECT IS THE MONTH, and that is the whole statement rather than a part of
+	// it. Unlike record.manual and policy.edit — whose subjects are compound because
+	// their acts have several posted fields — this act has exactly one input. Every
+	// figure is derived by the statement that writes the row; db/queries/billing.sql
+	// says there is no parameter an amount could be posted into, so there is no second
+	// field for a warning to be served about and spent on.
+	confirmActionCloseBillingPeriod = "billing.close"
 )
 
 // adminConfirmTTL is how long a rendered warning stays spendable.
