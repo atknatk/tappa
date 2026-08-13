@@ -26,6 +26,67 @@ fiyat (€1.50 + 3 ay ücretsiz) · FAQ · CTA → portal.
 - Animasyon `prefers-reduced-motion` saygılı, sallanan/gradient efekt yok.
 - Tek binary'ye gömülü (`web/embed.go`), ayrı statik host gerekmiyor.
 
+> **Kart düzeltmesi (2026-08-13, M7-01 uygulaması sırasında).** Dört madde kart
+> gerçekle çeliştiği ya da eksik kaldığı için burada kayda geçiyor.
+>
+> 1. **"Fontlar self-host" kriteri BU GÖREVDEN ÖNCE karşılanıyordu.** M5-04
+>    `web/static/fonts/` altına altı woff2 koydu (92 KB, latin + latin-ext) ve
+>    `input.css`'teki altı `@font-face` kendi origin'imize bakıyor. M7-01'in işi
+>    kurmak değil **bozmamak ve ölçmek**ti: render edilen beş sayfada mutlak/
+>    protokol-göreli referans **sıfır** (`TestMarketing_ReachesNoThirdParty`,
+>    pozitif kontrolüyle birlikte).
+> 2. **"CTA → portal" BUGÜN MÜMKÜN DEĞİL.** Sihirbaz M7-02'de; M7-01 tek başına
+>    sevk edilince "Start free" düğmesinin gideceği yer yok. Sayfa bunu
+>    **kelimeyle** söylüyor ve ölü bağlantı **basmıyor**;
+>    `pages.LandingView.SignupHref` boş kaldığı sürece düğme render edilmiyor.
+>    **M7-02'nin işi:** rotayı mount etmek **ve** `handler.Marketing.signupHref`'i
+>    doldurmak — ikisi de yapılmazsa `TestMarketing_EveryInternalLinkResolves`
+>    ya da `TestLanding_OffersNoLinkToAWizardThatIsNotMounted` kırmızıya döner.
+> 3. **Kart `robots` meta'sından söz etmiyor ve bu bir tuzaktı.** `layout`'un ortak
+>    `<head>`'i M7-01'e kadar HER sayfaya `noindex, nofollow` basıyordu — aktivasyon
+>    linki bir tarayıcı botuna düşmesin diye doğru bir karar, ama bulunmak için var
+>    olan bir sayfa için tam ters. Değer artık `layout.Robots` (kapalı sözcük
+>    dağarcığı) ile veriliyor: landing `index, follow`, **yasal iskeletler
+>    `noindex`** (yayımlanmamış bir politikanın arama sonucunda yayımlanmış gibi
+>    görünmesi kabul edilemez), diğer her ekran değişmeden `noindex`.
+> 4. **Yasal metinler YAZILMADI, iskele kuruldu (Q23 açık kalıyor).** Dördünün de
+>    rotası, footer bağlantısı ve görünür "bu metin henüz yayımlanmadı" bloğu var;
+>    her sayfa **neyi beklediğini madde madde basıyor**. Gerçek şirket künyesi,
+>    veri sorumlusu, saklama süresi ve iletişim adresi bu repoda yok ve
+>    uydurulmuş bir belge hukuken yanlış **ve bitmiş görünümlü** olurdu.
+>    **Tek istisna çerez bilgilendirmesi:** hangi çerezlerin konduğu **kodda**, o
+>    yüzden tablo çerez sabitlerinden **türetiliyor** ve
+>    `TestCookieNotice_ListsExactlyTheCookiesTheProductSets` yedinci bir çerez
+>    eklendiğinde kırmızıya döner.
+> 5. **🔴 KIRMIZI ÇİZGİ TARAYICISI DEĞİŞTİ — [ADR 0012](../adr/0012-r1-tarayicisinin-pazarlama-muafiyeti.md).**
+>    Kart bir parmak izi terminaliyle karşılaştırma tablosu istiyor, yani sayfa
+>    §4.1'i **inkâr etmek için adlandırmak** zorunda. `redline-check.sh`'in R1
+>    kuralına **tek ifadelik, yola sınırlı, her koşuda WARN basan** bir muafiyet
+>    eklendi; ikinci ifade `activate.templ`'in kalıbı kullanılarak **gereksiz
+>    kılındı**. Kabul edilen risk ve koşturulan beş sonda ADR'de.
+> 6. **🔴 SAYFAYA YENİ CÜMLE EKLEYEN HERKES İÇİN — `pages.Claim` + `pages.Anchor`.**
+>    2. turda denetim, sayfada **mount edilmemiş bir yetenek ilan eden** bir cümle
+>    buldu: *"Reports and the monthly headcount split by department"* — iki yarısı
+>    da yanlıştı (`reports.templ`'de `department` **0** kez; `ledger.Report`'ta
+>    departman boyutu yok; billing yüzeyinin **beş** dosyasında da **0**). Yapısal
+>    sebep cümle değil **pin yokluğuydu**: fiyat, bedava ay, çerez listesi, slogan
+>    ve karşılaştırma tablosu pinliydi, bu blok değildi.
+>    **Kural artık:** "iki şekil" bloğundaki her cümle bir `Anchor` **adlandırmak
+>    zorunda**, ve `internal/handler`'ın `anchorDerivations` fonksiyonu her
+>    anchor'ı **şemadan / üretilen sorgu tiplerinden / policy baseline'ından /
+>    domain kaynağından TÜRETİR** — metin karşılaştırması **yok** (elle tutulan
+>    liste bu repoda her seferinde bayatladı). Anchor'ı olmayan cümle **derlenir
+>    ama testi kırar**; türetilemeyen cümle **yazılmaz**. M7-02 fiyat/VAT/kayıt
+>    metni eklerken aynı disiplini sürdürmeli.
+>    > 🔴 **AMA ÇAPA CÜMLEYİ DOĞRU YAPMAZ — bunu okumadan cümle ekleme.** Mekanizma
+>    > yalnız **yeteneği KAYBOLAN** iddiayı yakalar; **hiç var olmamış** bir yeteneği
+>    > ya da **ilgisiz bir çapaya iliştirilmiş** bir cümleyi yapısal olarak göremez.
+>    > Denetim ikisini birden kanıtladı: geçen bir çapaya uydurma bir cümle
+>    > (*"Tappa emails every manager a nightly summary…"*) iliştirdi, paket **yeşil**
+>    > kaldı. Çapa **sürüklenmeye karşı bir cırcır**, doğruluk kanıtı değil — yeni
+>    > cümleyi yine **bir insan üründe doğrulamak zorunda**. B1'de olmayan tam olarak
+>    > buydu.
+
 ---
 
 ## M7-02 — Kayıt sihirbazı ve VAT

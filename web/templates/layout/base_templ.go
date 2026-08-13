@@ -151,6 +151,10 @@ func PageWithScript(title, src string) templ.Component {
 //     URL in a Referer header.
 //   - <meta name="robots" content="noindex, nofollow"> because an activation link
 //     that reaches a crawler is an activation link that reaches a log somewhere.
+//     THAT VALUE IS NOW AN ARGUMENT rather than a literal in the head — see Robots
+//     — because M7-01 added the first page in the product whose whole purpose is
+//     to be found. This shell still passes RobotsPrivate and always will: every
+//     screen it renders is reached from a personal link.
 func shell(title, script string) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -176,7 +180,7 @@ func shell(title, script string) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = documentHead(title, script).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = documentHead(title, script, RobotsPrivate).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -211,8 +215,10 @@ func shell(title, script string) templ.Component {
 // `referrer` looks exactly like a page that has it.
 //
 // script is a path under /static or the empty string. Nothing builds it from
-// user input.
-func documentHead(title, script string) templ.Component {
+// user input. robots is a CLOSED VOCABULARY rather than a free string — see the
+// Robots type — so the one page that asks to be indexed had to say so in a named
+// value that a test can count, not by editing a string literal in this head.
+func documentHead(title, script string, robots Robots) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -233,43 +239,56 @@ func documentHead(title, script string) templ.Component {
 			templ_7745c5c3_Var6 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "<head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1, viewport-fit=cover\"><meta name=\"robots\" content=\"noindex, nofollow\"><meta name=\"referrer\" content=\"no-referrer\"><title>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "<head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1, viewport-fit=cover\"><meta name=\"robots\" content=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var7 string
-		templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinStringErrs(title)
+		templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinStringErrs(string(robots))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/layout/base.templ`, Line: 89, Col: 16}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/layout/base.templ`, Line: 93, Col: 46}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var7))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "</title><link rel=\"stylesheet\" href=\"/static/css/app.css\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "\"><meta name=\"referrer\" content=\"no-referrer\"><title>")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		var templ_7745c5c3_Var8 string
+		templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs(title)
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/layout/base.templ`, Line: 95, Col: 16}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var8))
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "</title><link rel=\"stylesheet\" href=\"/static/css/app.css\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		if script != "" {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "<script src=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "<script src=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var8 string
-			templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs(script)
+			var templ_7745c5c3_Var9 string
+			templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.JoinStringErrs(script)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/layout/base.templ`, Line: 92, Col: 23}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/layout/base.templ`, Line: 98, Col: 23}
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var8))
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var9))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "\" defer></script>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "\" defer></script>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 8, "</head>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "</head>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -314,12 +333,12 @@ func Wordmark() templ.Component {
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var9 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var9 == nil {
-			templ_7745c5c3_Var9 = templ.NopComponent
+		templ_7745c5c3_Var10 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var10 == nil {
+			templ_7745c5c3_Var10 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "<header class=\"flex items-baseline justify-between\"><span class=\"font-display text-lg font-bold tracking-tight text-tappa-green\">tappa</span> <span class=\"font-mono text-[10px] uppercase tracking-widest text-ink/70\">punchless</span></header>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "<header class=\"flex items-baseline justify-between\"><span class=\"font-display text-lg font-bold tracking-tight text-tappa-green\">tappa</span> <span class=\"font-mono text-[10px] uppercase tracking-widest text-ink/70\">punchless</span></header>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -382,12 +401,12 @@ func Panel(title string) templ.Component {
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var10 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var10 == nil {
-			templ_7745c5c3_Var10 = templ.NopComponent
+		templ_7745c5c3_Var11 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var11 == nil {
+			templ_7745c5c3_Var11 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Var11 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+		templ_7745c5c3_Var12 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 			if !templ_7745c5c3_IsBuffer {
@@ -399,13 +418,13 @@ func Panel(title string) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templ_7745c5c3_Var10.Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = templ_7745c5c3_Var11.Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = PanelWithScript(title, "").Render(templ.WithChildren(ctx, templ_7745c5c3_Var11), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = PanelWithScript(title, "").Render(templ.WithChildren(ctx, templ_7745c5c3_Var12), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -473,28 +492,130 @@ func PanelWithScript(title, src string) templ.Component {
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var12 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var12 == nil {
-			templ_7745c5c3_Var12 = templ.NopComponent
+		templ_7745c5c3_Var13 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var13 == nil {
+			templ_7745c5c3_Var13 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "<!doctype html><html lang=\"en\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "<!doctype html><html lang=\"en\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = documentHead(title, src).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = documentHead(title, src, RobotsPrivate).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "<body class=\"min-h-screen bg-porcelain text-ink antialiased\"><main class=\"mx-auto flex w-full max-w-5xl flex-col gap-6 px-4 py-6\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, "<body class=\"min-h-screen bg-porcelain text-ink antialiased\"><main class=\"mx-auto flex w-full max-w-5xl flex-col gap-6 px-4 py-6\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templ_7745c5c3_Var12.Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = templ_7745c5c3_Var13.Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, "</main></body></html>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "</main></body></html>")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		return nil
+	})
+}
+
+// Robots is the vocabulary of the robots meta tag. TWO VALUES, AND IT IS A TYPE
+// RATHER THAN A STRING because the difference between them is a product decision
+// somebody has to make on purpose.
+//
+// 🔴 UNTIL M7-01 THIS WAS A LITERAL IN documentHead AND EVERY PAGE WAS PRIVATE,
+// which was correct while every page was reached from a personal link: an
+// activation URL that reaches a crawler is an activation URL that reaches a log
+// somewhere. The marketing surface inverts that requirement — a landing page
+// nobody can find is a landing page that does not work — so the value had to
+// become an argument.
+//
+// ⚠️ AND THE INVERSION IS NOT "THE MARKETING SURFACE IS PUBLIC". It is per PAGE.
+// The four legal pages ship as SKELETONS with placeholder bodies (Q23: the real
+// texts need a real company, a real controller and real retention periods, none of
+// which this repository has), and an unpublished policy in a search index reads as
+// the published one. So a legal page asks to be indexed only once it carries a
+// text, and pages.LegalPageView derives its value from that rather than declaring
+// it — see LegalPageView.Robots.
+type Robots string
+
+const (
+	// RobotsPrivate keeps a page out of indexes. Every employee-facing screen and
+	// every panel screen, forever.
+	RobotsPrivate Robots = "noindex, nofollow"
+	// RobotsPublic asks to be indexed. Only the marketing surface, and only the
+	// parts of it that carry a finished text.
+	RobotsPublic Robots = "index, follow"
+)
+
+// Marketing is the FOURTH named shell: the product's PUBLIC face — the landing
+// page and the legal pages under it.
+//
+// It is a separate shell for three measured reasons, and none of them is width:
+//
+//  1. INDEXING. It is the only shell that can send RobotsPublic. Adding a robots
+//     parameter to Page or Panel instead would have made "let this be indexed" an
+//     edit a caller of the ACTIVATION shell could make.
+//  2. NO SCRIPT SLOT, and no sibling with one. Page has PageWithScript and Panel
+//     has PanelWithScript because the tap screen needs a location read and the
+//     transactions section needs HTMX. A marketing page needs neither, so there is
+//     nowhere here to write a path — the same shape that makes
+//     pages.PanelShell's guarantee a compile error rather than a test failure.
+//  3. NO SESSION IS IN VIEW. Page and Panel render for somebody the server has
+//     already identified; this renders the same bytes for every visitor, which is
+//     what lets handler.Marketing send a cacheable response instead of the panel's
+//     Cache-Control: no-store.
+//
+// WHAT IT DOES NOT CHANGE: the porcelain ground, the ink text, the absence of a
+// dark theme, and the shared document head — including no-referrer, which is inert
+// on a page with no external link and is kept because the day one is added is not
+// the day anybody re-reads this file.
+//
+// THE CHROME IS NOT HERE. The navigation and the footer's legal links live in
+// pages (marketingChrome), because their hrefs come from pages.LegalPages and this
+// package cannot import pages — pages imports layout. A route table copied into
+// layout would be a second list to keep in step with the routes the handler
+// actually mounts.
+func Marketing(title string, robots Robots) templ.Component {
+	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
+			return templ_7745c5c3_CtxErr
+		}
+		templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+		if !templ_7745c5c3_IsBuffer {
+			defer func() {
+				templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+				if templ_7745c5c3_Err == nil {
+					templ_7745c5c3_Err = templ_7745c5c3_BufErr
+				}
+			}()
+		}
+		ctx = templ.InitializeContext(ctx)
+		templ_7745c5c3_Var14 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var14 == nil {
+			templ_7745c5c3_Var14 = templ.NopComponent
+		}
+		ctx = templ.ClearChildren(ctx)
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, "<!doctype html><html lang=\"en\">")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = documentHead(title, "", robots).Render(ctx, templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 15, "<body class=\"min-h-screen bg-porcelain text-ink antialiased\">")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templ_7745c5c3_Var14.Render(ctx, templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 16, "</body></html>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

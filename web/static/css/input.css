@@ -381,4 +381,37 @@
     @apply ml-2 inline-block border border-saffron bg-saffron-lite px-1.5
            font-mono text-[11px] leading-5 text-ink;
   }
+
+  /* --- the landing page's ONE animation (M7-01): a docket coming off the printer ---
+     The M7-01 card asks the hero for "canlı plaket + basılan adisyon animasyonu"
+     and requires it to respect prefers-reduced-motion. It is a single downward
+     slide that runs once, which is the motion a printed docket actually makes; the
+     brand forbids anything that sways or repeats.
+
+     🔴 THE MOTION IS DECLARED ONLY INSIDE `no-preference`, WHICH IS THE OPPOSITE
+     WAY ROUND FROM .tap-button ABOVE, AND THE DIFFERENCE IS SAFETY RATHER THAN
+     STYLE. .tap-button animates a transform on an element that is fully visible
+     either way, so declaring it and switching it off under `reduce` is harmless.
+     This one animates OPACITY. Written the same way it would need
+     `animation: none` under `reduce` to undo an `animation-fill-mode` that starts
+     the element at zero — and if that second rule were ever dropped, renamed or
+     ordered after something else, the reduced-motion reader would be left looking
+     at an invisible card. Declared this way there is nothing to undo: a reader who
+     asks for less motion, and every browser that does not support the query at
+     all, gets the element in its ordinary painted state and no animation exists to
+     go wrong. Pinned by TestLanding_ReducedMotionLeavesTheDocketVisible, which
+     reads the compiled stylesheet.
+
+     THE CLASS WRAPS THE CARD, IT IS NOT ON IT: .docket already owns transform-free
+     positioning for its perforation pseudo-elements, and animating a transform on
+     the same element would move them with it. */
+  @media (prefers-reduced-motion: no-preference) {
+    @keyframes docket-print {
+      from { transform: translateY(-0.75rem); opacity: 0; }
+      to   { transform: none;                 opacity: 1; }
+    }
+    .docket-print {
+      animation: docket-print 600ms ease-out both;
+    }
+  }
 }

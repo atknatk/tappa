@@ -49,9 +49,86 @@ echo "${DIM}tappa redline-check${OFF}"
 echo
 
 # --- R1: biyometrik veri -----------------------------------------------------
-report FAIL R1 "Biyometrik veri izi — Tappa biyometri toplamaz/saklamaz" \
-  "$(scan -i -e 'fingerprint' -e 'biometric' -e 'face[_-]?id' -e 'touch[_-]?id' -e 'webauthn' \
-      | grep -viE 'no.?fingerprint|biyometri|not stored|asla' || true)"
+#
+# MUAFIYET: TEK IFADE, YOLA SINIRLI, VE HER KOSUDA RAPORLANIR (M7-01, 2026-08-13).
+# Tam gerekce, elenen alternatifler ve kabul edilen risk: docs/adr/0012-*.md.
+#
+# NE OLDU: M7-01 urunun ILK KAMUYA ACIK sayfasini ekledi ve o sayfa, kartin
+# istedigi gibi, bir parmak izi terminaliyle KARSILASTIRMA tablosu tasiyor
+# (handoff §9). Yani urunde ilk kez, §4.1'i IHLAL ETMEYEN degil, §4.1'i ILAN EDEN
+# metin bu terimi kullaniyor. Olculdu: M7-01 oncesi agac bu taramada temizdi.
+#
+# 🔴 ILK HALI IKI IFADEYI TUM AGACA UYGULUYORDU VE GORUNMEZDI. Bir guvenlik
+# denetcisi bunu kirdi: `internal/handler/marketing.go`'ya
+# `// PROBE: fingerprint terminal -- keep the webauthn attestation` eklemek taramayi
+# exit 0 birakiyordu, R1 hic raporlanmadan. Uc sey degisti:
+#
+#   1. IKI IFADE DEGIL BIR IFADE. `no biometric` KALDIRILDI cunku GEREKMIYORDU:
+#      pages/activate.templ M5-02'den beri "no biometric data of any kind: no
+#      fingerprints, no face, no voice" diyor ve bu, AYNI SATIRDAKI `no fingerprints`
+#      sayesinde MEVCUT `no.?fingerprint` girdisinden gecer. Pazarlama metni de o
+#      kaliba getirildi -> genisletme yariya indi. Geriye kalan `fingerprint
+#      terminal` kacinilmazdir: kartin istedigi tablonun OZNESIDIR.
+#   2. YOLA SINIRLI. Muafiyet yalnizca pazarlama yuzeyinin dosyalarinda gecerli.
+#      Baska her yerde ayni ifade FAIL uretir.
+#   3. GORUNUR. R5'in ilkesi (satir ~153: "muafiyet gorunmez olamaz") artik R1'e de
+#      uygulaniyor: kullanilan her muafiyet HER KOSUDA WARN olarak basilir.
+#
+# ⚠️ SINIR, ACIKCA: `grep -v` SATIR bazlidir, yani muaf yollardaki bir dosyada, bu
+# ifadeyi tasiyan bir satirdaki GERCEK bir ihlal de muaf kalir. Bu, mevcut
+# `not stored` ve `asla` girdilerinin de tasidigi ayni zayifliktir — `asla` Turkce
+# yorumlarda cok yaygin oldugu icin ikisinden DAHA GENISTIR. Bu betigin kendi
+# basligindaki cumlenin sebebi budur: MEKANIK bir agdir, kanit degildir.
+# Derin denetim: agent `tappa-security-auditor`.
+#
+# ⚠️ MUAF SATIRLAR BURADA SAYILMAZ — asagidaki WARN blogu CANLI LISTEDIR. Bu
+# dosyada elle yazilan bir sayi bir kez zaten bayatladi ("kalan dordu sayfanin
+# GORUNEN metnidir" derken gercekte dokuz satirdi ve ucu gorunen metin degildi);
+# ureten komut `./scripts/redline-check.sh`'in kendisidir.
+# TETIKLEYICILER TEK YERDE TANIMLI: hem taramaya hem de muafiyetin "artik baska
+# tetikleyici kalmadi mi" kontrolune AYNI ifade gider. Iki kopya olsaydi biri
+# digerinden sapabilir ve muafiyet tanimadigi bir terimi sessizce affederdi.
+R1_TRIGGERS='fingerprint|biometric|face[_-]?id|touch[_-]?id|webauthn'
+R1_WAIVER_PHRASE='fingerprint terminal'
+R1_WAIVER_PATHS='^(web/templates/pages/landing[^:]*\.(templ|go)|internal/handler/marketing[^:]*\.go):'
+
+r1_raw="$(scan -i -e "$R1_TRIGGERS" \
+    | grep -viE 'no.?fingerprint|biyometri|not stored|asla' || true)"
+
+# r1_select <waived|fail>
+#
+# 🔴 BIR SATIR UC KOSUL BIRDEN SAGLANIRSA MUAFTIR, ve ucuncusu bir guvenlik
+# denetcisinin sondasindan ogrenildi:
+#   1. yol muaf kumede,
+#   2. satir `fingerprint terminal` iceriyor,
+#   3. VE O IFADE CIKARILDIGINDA GERIYE HICBIR TETIKLEYICI KALMIYOR.
+#
+# Ucuncusu olmadan muafiyet SATIRIN TAMAMINI affediyordu, satirin muaf OLAN
+# parcasini degil. Denetcinin sondasi tam olarak bunu kullandi:
+#   `// PROBE: fingerprint terminal -- keep the webauthn attestation`
+# — muaf ifadeyi bir tasiyici olarak kullanip ayni satirda `webauthn` gizliyordu ve
+# tarama exit 0 donuyordu. Simdi ifade cikarilir, kalan metin yeniden sinanir ve
+# `webauthn` FAIL uretir. Muafiyet artik "bu satiri gormezden gel" degil, "bu
+# ifadenin KENDISI bir ihlal degil" demektir.
+r1_select() {
+  awk -v mode="$1" -v ph="$R1_WAIVER_PHRASE" -v paths="$R1_WAIVER_PATHS" -v trig="$R1_TRIGGERS" '
+    length($0) == 0 { next }
+    {
+      w = 0
+      if ($0 ~ paths) {
+        rest = tolower($0)
+        if (index(rest, ph) > 0) {
+          gsub(ph, " ", rest)          # muaf ifadeyi cikar
+          if (rest !~ trig) w = 1      # geriye tetikleyici kalmadiysa muaf
+        }
+      }
+      if ((mode == "waived") == w) print
+    }' <<<"$r1_raw"
+}
+
+report FAIL R1 "Biyometrik veri izi — Tappa biyometri toplamaz/saklamaz" "$(r1_select fail)"
+report WARN R1 "R1 muafiyeti kullanildi (yola sinirli, ADR 0012) — muafiyet sessiz kalamaz" \
+  "$(r1_select waived)"
 
 # --- R2: surekli konum takibi ------------------------------------------------
 report FAIL R2 "Surekli konum takibi — GPS yalnizca tap aninda okunur" \

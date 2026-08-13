@@ -326,6 +326,18 @@ func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLed
 	}, nil
 }
 
+// adminLoginPath is where the panel's sign-in page is mounted.
+//
+// 🔴 IT BECAME A CONSTANT IN M7-01 BECAUSE A SECOND SURFACE STARTED LINKING TO IT.
+// The string appeared four times in this file — two route registrations and two
+// redirects — which was survivable while every user of it was in this file. The
+// landing page's "Sign in" link is the fifth use and the first one in a different
+// feature, and a marketing page pointing at a route somebody renamed is a dead
+// button on the most public URL in the product. handler.Marketing reads this
+// constant, so the link and the route are the same string at compile time rather
+// than two strings a test has to notice have diverged.
+const adminLoginPath = "/admin/login"
+
 // Mount registers the routes on r.
 //
 // The protected group carries httpx.RequireAdmin, which is what M6-02 mounts the
@@ -333,8 +345,8 @@ func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLed
 // per request (adminauth.Manager.Verify), so it is applied to the group and never
 // globally.
 func (a *AdminAuth) Mount(r chi.Router) {
-	r.Get("/admin/login", a.LoginPage)
-	r.Post("/admin/login", a.Login)
+	r.Get(adminLoginPath, a.LoginPage)
+	r.Post(adminLoginPath, a.Login)
 	r.Get("/admin/login/choose", a.ChoosePage)
 	r.Post("/admin/login/choose", a.Choose)
 
@@ -579,7 +591,7 @@ func (a *AdminAuth) requireLogin(w http.ResponseWriter, r *http.Request) {
 	if err := httpx.AdminOf(r).Err; err != nil {
 		a.log.Error("panel: could not resolve the admin session", "err", err)
 	}
-	a.redirect(w, "/admin/login")
+	a.redirect(w, adminLoginPath)
 }
 
 // The failure screens. problemAdminRestart is ONE value used for several internal
@@ -1100,7 +1112,7 @@ func (a *AdminAuth) Logout(w http.ResponseWriter, r *http.Request) {
 		Target:   id.Admin.AdminUserID.String(),
 		Detail:   adminLoginDetail{Outcome: "ok", SessionID: id.Admin.SessionID.String()},
 	})
-	a.redirect(w, "/admin/login")
+	a.redirect(w, adminLoginPath)
 }
 
 // adminLoginDetail is the audit payload for this flow.

@@ -55,10 +55,14 @@ templ PageWithScript(title, src string) {
 //     URL in a Referer header.
 //   - <meta name="robots" content="noindex, nofollow"> because an activation link
 //     that reaches a crawler is an activation link that reaches a log somewhere.
+//     THAT VALUE IS NOW AN ARGUMENT rather than a literal in the head — see Robots
+//     — because M7-01 added the first page in the product whose whole purpose is
+//     to be found. This shell still passes RobotsPrivate and always will: every
+//     screen it renders is reached from a personal link.
 templ shell(title, script string) {
 	<!DOCTYPE html>
 	<html lang="en">
-		@documentHead(title, script)
+		@documentHead(title, script, RobotsPrivate)
 		<body class="min-h-screen bg-porcelain text-ink antialiased">
 			<main class="mx-auto flex w-full max-w-md flex-col gap-6 px-4 py-8">
 				@Wordmark()
@@ -79,12 +83,14 @@ templ shell(title, script string) {
 // `referrer` looks exactly like a page that has it.
 //
 // script is a path under /static or the empty string. Nothing builds it from
-// user input.
-templ documentHead(title, script string) {
+// user input. robots is a CLOSED VOCABULARY rather than a free string — see the
+// Robots type — so the one page that asks to be indexed had to say so in a named
+// value that a test can count, not by editing a string literal in this head.
+templ documentHead(title, script string, robots Robots) {
 	<head>
 		<meta charset="utf-8"/>
 		<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
-		<meta name="robots" content="noindex, nofollow"/>
+		<meta name="robots" content={ string(robots) }/>
 		<meta name="referrer" content="no-referrer"/>
 		<title>{ title }</title>
 		<link rel="stylesheet" href="/static/css/app.css"/>
@@ -214,11 +220,78 @@ templ Panel(title string) {
 templ PanelWithScript(title, src string) {
 	<!DOCTYPE html>
 	<html lang="en">
-		@documentHead(title, src)
+		@documentHead(title, src, RobotsPrivate)
 		<body class="min-h-screen bg-porcelain text-ink antialiased">
 			<main class="mx-auto flex w-full max-w-5xl flex-col gap-6 px-4 py-6">
 				{ children... }
 			</main>
+		</body>
+	</html>
+}
+
+// Robots is the vocabulary of the robots meta tag. TWO VALUES, AND IT IS A TYPE
+// RATHER THAN A STRING because the difference between them is a product decision
+// somebody has to make on purpose.
+//
+// 🔴 UNTIL M7-01 THIS WAS A LITERAL IN documentHead AND EVERY PAGE WAS PRIVATE,
+// which was correct while every page was reached from a personal link: an
+// activation URL that reaches a crawler is an activation URL that reaches a log
+// somewhere. The marketing surface inverts that requirement — a landing page
+// nobody can find is a landing page that does not work — so the value had to
+// become an argument.
+//
+// ⚠️ AND THE INVERSION IS NOT "THE MARKETING SURFACE IS PUBLIC". It is per PAGE.
+// The four legal pages ship as SKELETONS with placeholder bodies (Q23: the real
+// texts need a real company, a real controller and real retention periods, none of
+// which this repository has), and an unpublished policy in a search index reads as
+// the published one. So a legal page asks to be indexed only once it carries a
+// text, and pages.LegalPageView derives its value from that rather than declaring
+// it — see LegalPageView.Robots.
+type Robots string
+
+const (
+	// RobotsPrivate keeps a page out of indexes. Every employee-facing screen and
+	// every panel screen, forever.
+	RobotsPrivate Robots = "noindex, nofollow"
+	// RobotsPublic asks to be indexed. Only the marketing surface, and only the
+	// parts of it that carry a finished text.
+	RobotsPublic Robots = "index, follow"
+)
+
+// Marketing is the FOURTH named shell: the product's PUBLIC face — the landing
+// page and the legal pages under it.
+//
+// It is a separate shell for three measured reasons, and none of them is width:
+//
+//  1. INDEXING. It is the only shell that can send RobotsPublic. Adding a robots
+//     parameter to Page or Panel instead would have made "let this be indexed" an
+//     edit a caller of the ACTIVATION shell could make.
+//  2. NO SCRIPT SLOT, and no sibling with one. Page has PageWithScript and Panel
+//     has PanelWithScript because the tap screen needs a location read and the
+//     transactions section needs HTMX. A marketing page needs neither, so there is
+//     nowhere here to write a path — the same shape that makes
+//     pages.PanelShell's guarantee a compile error rather than a test failure.
+//  3. NO SESSION IS IN VIEW. Page and Panel render for somebody the server has
+//     already identified; this renders the same bytes for every visitor, which is
+//     what lets handler.Marketing send a cacheable response instead of the panel's
+//     Cache-Control: no-store.
+//
+// WHAT IT DOES NOT CHANGE: the porcelain ground, the ink text, the absence of a
+// dark theme, and the shared document head — including no-referrer, which is inert
+// on a page with no external link and is kept because the day one is added is not
+// the day anybody re-reads this file.
+//
+// THE CHROME IS NOT HERE. The navigation and the footer's legal links live in
+// pages (marketingChrome), because their hrefs come from pages.LegalPages and this
+// package cannot import pages — pages imports layout. A route table copied into
+// layout would be a second list to keep in step with the routes the handler
+// actually mounts.
+templ Marketing(title string, robots Robots) {
+	<!DOCTYPE html>
+	<html lang="en">
+		@documentHead(title, "", robots)
+		<body class="min-h-screen bg-porcelain text-ink antialiased">
+			{ children... }
 		</body>
 	</html>
 }

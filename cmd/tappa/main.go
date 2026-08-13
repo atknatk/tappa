@@ -239,9 +239,24 @@ func run() error {
 		return err
 	}
 
+	// The PUBLIC surface (M7-01): the landing page at / and the four legal documents
+	// under /legal. Until this line the root of the site answered 404 — the router
+	// registered /healthz and /static/* at the top level and nothing else.
+	//
+	// 🔴 IT TAKES NOTHING BUT A LOGGER, AND THAT IS THE SECURITY DECISION RATHER
+	// THAN A CONVENIENCE. Every other feature above is handed a pool, a session
+	// manager and an audit sink; this one is handed none, so no handler on it can
+	// reach the database, read a cookie or write a row. internal/handler.Marketing
+	// records why that shape is what replaces the panel's protections on a surface
+	// that has no identity to protect.
+	//
+	// IT IS MOUNTED LAST for readability only — chi matches on the pattern, not on
+	// registration order, and these paths overlap with nothing above.
+	marketing := handler.NewMarketing(slog.Default())
+
 	srv := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           httpx.NewRouter(cfg, activation, tap, panelAuth),
+		Handler:           httpx.NewRouter(cfg, activation, tap, panelAuth, marketing),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       90 * time.Second,
 	}
