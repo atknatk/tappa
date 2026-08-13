@@ -410,10 +410,31 @@ func (f *seedFlow) insertEmployee(t *testing.T, name string, venueID uuid.UUID, 
 		if activated {
 			activatedAt = time.Now().Add(-30 * 24 * time.Hour)
 		}
+		// 🔴 deactivated_at IS WRITTEN WHEN THE STATUS SAYS SO, and it was not until
+		// M6-12 phase A found out the hard way. This helper is the ONLY thing in the
+		// repository that produces employees whose status contradicts their lifecycle
+		// stamps: the two product statements both COALESCE their stamp
+		// (DeactivateEmployee, ConsumeInviteAndActivate) and test/fixtures/seed.sql
+		// derives both from the status it inserts, so a `deactivated` row with a NULL
+		// deactivated_at could only ever come from here.
+		//
+		// It cost two rounds of an audit: those rows accumulate in the development
+		// database -- day_db_test.go hires one deactivated person per run -- and both
+		// an implementer and an orchestrator read the pile as evidence about the SEED,
+		// which then appeared in a migration comment as a claim about production data.
+		// A fixture that produces a shape the product cannot produce is a fixture that
+		// will be mistaken for evidence.
+		//
+		// The stamp does not change what this file tests: §5 row 4 keys on `status`,
+		// which tap.Decide reads and sys:employee-deactivated denies on.
+		var deactivatedAt any
+		if status == "deactivated" {
+			deactivatedAt = time.Now().Add(-7 * 24 * time.Hour)
+		}
 		_, e := tx.Exec(ctx,
-			`INSERT INTO employees (id, tenant_id, location_id, full_name, status, invited_at, activated_at)
-			 VALUES ($1, $2, $3, $4, $5, now() - interval '60 days', $6)`,
-			id, f.tenantID, venueID, stamped, status, activatedAt)
+			`INSERT INTO employees (id, tenant_id, location_id, full_name, status, invited_at, activated_at, deactivated_at)
+			 VALUES ($1, $2, $3, $4, $5, now() - interval '60 days', $6, $7)`,
+			id, f.tenantID, venueID, stamped, status, activatedAt, deactivatedAt)
 		return e
 	})
 	if err != nil {

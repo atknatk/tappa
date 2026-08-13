@@ -6951,3 +6951,56 @@ gelmesin.
 **Tuzaklar.**
 - Ödeme sağlayıcısı entegrasyonuna girme — Q24 kararı bu değil. Üçüncü müşteriden
   sonra ayrı bir görev olarak değerlendirilir.
+
+> **Kart düzeltmesi (2026-08-12, M6-12 A fazı uygulaması sırasında).** Görev
+> A/B'ye bölündü (ölçüt: veri katmanı ile uygulama katmanı farklı denetim
+> mercekleri ister). **A fazı** = migration 00016 · `db/queries/billing.sql` ·
+> `internal/domain/billing`. **B fazı** = ekran, CSV, founding uyarısının
+> metni, "dönemi kapat" POST'u ve rotası. Kartın beş kriterinden A'ya düşenler
+> ve uygulanırken düzelen dört madde:
+>
+> 1. **"Faturalanabilir çalışan" tanımı kartın parantezinden DAR.** Kart *"ayın
+>    herhangi bir gününde `active` olan"* diyor; uygulanan tanım buna bir koşul
+>    ekliyor: **`status` ile yaşam döngüsü damgaları çelişmiyorsa**. Çelişen
+>    satır naif aralık okumasında **sonsuza dek** faturalanır; uygulanan tanımda
+>    faturalanmaz ve `billing_periods.unstamped_employees`'e **sayılır** (§4.6:
+>    dışarıda bırakmak görünmez kılmak değildir).
+>
+>    ⚠️ **KOŞUL DÜZELTİCİ DEĞİL SAVUNMACIDIR — ve bu maddenin ilk hâli bunu
+>    yanlış yazıp suçu seed'e attı (denetim, 2. tur).** Ölçüldü: `seed.sql`
+>    her iki damgayı da yazdığı statüden türetir, `DeactivateEmployee`
+>    `COALESCE(deactivated_at, now())` ve `ConsumeInviteAndActivate`
+>    `COALESCE(activated_at, now())` yazar — yani **hiçbir ürün yolu damgasız
+>    satır üretemez**. Üreten şey bir **test fikstürüdür**
+>    (`internal/handler/seedflow_db_test.go` `hire()` `deactivated_at` yazmıyor;
+>    `day_db_test.go` koşu başına bir tane ekliyor), dolayısıyla sayı **kalıcı
+>    değildir, her koşuda büyür** ve hiçbir yere yazılmamıştır. Üreten komut
+>    migration 00016'nın `tappa_employee_is_billable` başlığındadır. Üretimde
+>    beklenen davranış **no-op**; kazandırdığı şey demo/fixture/elle onarım
+>    verisinin faturaya **hayalet çalışan** sokamamasıdır.
+> 2. **Founding penceresi AY HİZALI.** Kart *"ilk 3 ay ücretsiz; 3. ayın
+>    sonunda uyarı"* diyor. Uygulanan okuma: **ilk 3 fatura dönemi** (kayıt ayı
+>    + iki ay). `created_at + 3 ay` okuması kaydın gününe göre **rastgele bir
+>    güne** düşer; ayın 1'i değilse bir fatura döneminin **ortasına** iner ve bu
+>    üründe yarım fatura yoktur. Ay hizalı okuma o sınırı **bilerek yukarı
+>    yuvarlar** — müşteri hiçbir zaman üç tam bedava faturadan azını almaz. İki
+>    okuma yalnız ay ortası kayıtlarda ayrışır; ayın 1'inde çakışırlar.
+>
+>    ⚠️ **Bu maddenin ilk hâli seed'li KF'nin tarihini olgu diye yazıyordu
+>    (denetim, 4. tur).** `test/fixtures/seed.sql:95` design partner'ların
+>    `created_at`'ini `now() - interval '90 days'` yazıyor — yani kayıt tarihi,
+>    bedava aylar ve ilk fatura **veritabanının seed edildiği güne** bağlı,
+>    repoya değil. Gerçek pencere sabit değil, sorgudur:
+>    `SELECT name, tappa_first_chargeable_month(plan, created_at, timezone) FROM tenants;`
+>    Uyarının kendisi B fazı.
+> 3. **Dondurulmuş satırı KİM yazıyor: açık bir kapatma eylemi, tembel dondurma
+>    DEĞİL.** Kart bunu söylemiyordu ve boşluk gerçek bir seçim gizliyordu.
+>    Bitmiş bir ayı ilk okuyanın dondurması (a) panelin M6-07/M6-09/M6-11'de üç
+>    kez ölçülmüş *"okuma yolu hiçbir şey yazmaz"* özelliğini kırar, (b) geri
+>    alınamaz bir kararı sayfayı ilk açana — bir crawler'a, bir prefetch'e —
+>    verir. `CloseBillingPeriod` üç kapıyı **ifadenin içinde** taşır: ay bitmiş
+>    olacak · kayıt ayından önce olmayacak · `UNIQUE (tenant_id, period_month)`.
+> 4. **PDF dışa aktarımı B fazında BLOKELİ.** Kart "CSV/PDF" diyor; bu repoda
+>    PDF üretecek hiçbir şey yok ve §1 Node'u yasaklıyor, yani PDF **yeni bir Go
+>    bağımlılığı** demek — §1 gereği önce sorulur. CSV'nin engeli yok
+>    (M6-07 B'de `internal/handler` CSV yazıyor, kalıp mevcut).

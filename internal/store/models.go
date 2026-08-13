@@ -44,6 +44,25 @@ type AuditLog struct {
 	At       time.Time
 }
 
+type BillingPeriod struct {
+	ID                 uuid.UUID
+	TenantID           uuid.UUID
+	PeriodMonth        pgtype.Date
+	PeriodFrom         time.Time
+	PeriodTo           time.Time
+	Timezone           string
+	Plan               string
+	FreePeriod         bool
+	EmployeeCount      int32
+	UnstampedEmployees int32
+	UnitPrice          pgtype.Numeric
+	Currency           string
+	AmountDue          pgtype.Numeric
+	ClosedBy           uuid.UUID
+	ClosedAt           time.Time
+	CreatedAt          time.Time
+}
+
 type Department struct {
 	ID         uuid.UUID
 	TenantID   uuid.UUID
@@ -160,14 +179,15 @@ type Tag struct {
 }
 
 type Tenant struct {
-	ID           uuid.UUID
-	Name         string
-	VatNumber    string
-	BusinessType string
-	Structure    string
-	Plan         string
-	Timezone     string
-	CreatedAt    time.Time
+	ID                    uuid.UUID
+	Name                  string
+	VatNumber             string
+	BusinessType          string
+	Structure             string
+	Plan                  string
+	Timezone              string
+	CreatedAt             time.Time
+	PricePerEmployeeMonth pgtype.Numeric
 }
 
 type Transaction struct {

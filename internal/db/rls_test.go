@@ -52,7 +52,7 @@ import (
 // append-only -- to TestRLS_OwnerMutationsHitAppendOnlyTrigger (case 5). Currently
 // covered: tenants, locations, departments, employees, sessions, tags, transactions,
 // audit_log, transaction_reviews, admin_users, admin_sessions, password_resets,
-// policies, policy_versions, policy_attachments, employee_invites.
+// policies, policy_versions, policy_attachments, employee_invites, billing_periods.
 
 // ---------------------------------------------------------------- pools -----
 
@@ -160,6 +160,7 @@ type fixture struct {
 	policyAttachID uuid.UUID // policy_attachments (resource = '*')
 	inviteID       uuid.UUID // employee_invites (M5-02), live and unconsumed
 	inviteCodeHash string    // employee_invites.code_hash (never a code, section 4.7)
+	billingID      uuid.UUID // billing_periods (M6-12), APPEND-ONLY, one frozen month
 }
 
 func buildFixture(t *testing.T, d *DB) fixture {
@@ -188,6 +189,7 @@ func buildFixture(t *testing.T, d *DB) fixture {
 		policyAttachID: uuid.New(),
 		inviteID:       uuid.New(),
 		inviteCodeHash: randCodeHash(t),
+		billingID:      uuid.New(),
 	}
 	fx.vatNumber = "VAT-" + fx.tenantID.String()
 
@@ -262,6 +264,16 @@ func buildFixture(t *testing.T, d *DB) fixture {
 		{`INSERT INTO employee_invites (id, tenant_id, employee_id, code_hash, expires_at)
 		  VALUES ($1, $2, $3, $4, now() + interval '1 hour')`,
 			[]any{fx.inviteID, fx.tenantID, fx.employeeID, fx.inviteCodeHash}},
+		// billing_periods (M6-12) -- one FROZEN month, APPEND-ONLY like transactions
+		// and policy_versions. Composite FK (closed_by, tenant_id) -> admin_users
+		// proves the closer is same-tenant. The period is deliberately in the past
+		// and the amount is GENERATED, so it is absent from the column list here.
+		{`INSERT INTO billing_periods
+		    (id, tenant_id, period_month, period_from, period_to, timezone, plan,
+		     free_period, employee_count, unit_price, closed_by)
+		  VALUES ($1, $2, '2025-01-01', '2024-12-31 23:00+00', '2025-01-31 23:00+00',
+		          'Europe/Malta', 'standard', false, 1, 1.50, $3)`,
+			[]any{fx.billingID, fx.tenantID, fx.adminUserID}},
 	}
 
 	err := d.WithTenant(context.Background(), fx.tenantID, func(ctx context.Context, tx pgx.Tx) error {
@@ -395,6 +407,7 @@ func TestRLS_ReadIsolation_AllTables(t *testing.T) {
 		{"policy_versions", `SELECT count(*) FROM policy_versions WHERE id = $1`, a.policyVersID},
 		{"policy_attachments", `SELECT count(*) FROM policy_attachments WHERE id = $1`, a.policyAttachID},
 		{"employee_invites", `SELECT count(*) FROM employee_invites WHERE id = $1`, a.inviteID},
+		{"billing_periods", `SELECT count(*) FROM billing_periods WHERE id = $1`, a.billingID},
 	}
 
 	for _, tc := range tables {
@@ -579,6 +592,20 @@ func TestRLS_WriteWithCheck_AllTables(t *testing.T) {
 			},
 			func(ctx context.Context, tx pgx.Tx) error {
 				_, e := tx.Exec(ctx, `INSERT INTO employee_invites (id, tenant_id, employee_id, code_hash, expires_at) VALUES ($1, $2, $3, $4, now() + interval '1 hour')`, uuid.New(), b.tenantID, b.employeeID, randCodeHash(t))
+				return e
+			}},
+		{"billing_periods", blockRLS,
+			func(ctx context.Context, tx pgx.Tx) error {
+				// tenant_id = A (fails WITH CHECK under B); the composite FK to A's
+				// admin resolves because FK checks bypass RLS, so only WITH CHECK
+				// stands in the way. period_month differs from the fixture's so the
+				// (tenant_id, period_month) UNIQUE cannot mask it -- RLS is evaluated
+				// before the unique index, but a clash would make the reason ambiguous.
+				_, e := tx.Exec(ctx, `INSERT INTO billing_periods (id, tenant_id, period_month, period_from, period_to, timezone, plan, free_period, employee_count, unit_price, closed_by) VALUES ($1, $2, '2025-02-01', '2025-01-31 23:00+00', '2025-02-28 23:00+00', 'Europe/Malta', 'standard', false, 999, 0.01, $3)`, uuid.New(), a.tenantID, a.adminUserID)
+				return e
+			},
+			func(ctx context.Context, tx pgx.Tx) error {
+				_, e := tx.Exec(ctx, `INSERT INTO billing_periods (id, tenant_id, period_month, period_from, period_to, timezone, plan, free_period, employee_count, unit_price, closed_by) VALUES ($1, $2, '2025-02-01', '2025-01-31 23:00+00', '2025-02-28 23:00+00', 'Europe/Malta', 'standard', false, 1, 1.50, $3)`, uuid.New(), b.tenantID, b.adminUserID)
 				return e
 			}},
 	}
@@ -1182,6 +1209,11 @@ func TestRLS_OwnerMutationsHitAppendOnlyTrigger(t *testing.T) {
 		{"audit_log", "audit_log", "action = 'x'", fx.auditID},
 		{"transaction_reviews", "transaction_reviews", "note = 'x'", fx.reviewID},
 		{"policy_versions", "policy_versions", "version_no = 2", fx.policyVersID},
+		// M6-12 (migration 0016): a frozen invoice line that can be edited is not
+		// frozen, so billing_periods joins the same family. employee_count rather
+		// than a text column because the row has no free-text one, and because
+		// changing the count is exactly the mutation that would change a bill.
+		{"billing_periods", "billing_periods", "employee_count = 999", fx.billingID},
 	}
 
 	for _, tc := range targets {
