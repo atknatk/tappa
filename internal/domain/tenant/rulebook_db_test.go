@@ -41,6 +41,7 @@ import (
 	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/db"
 	"github.com/atknatk/tappa/internal/policy"
+	"github.com/atknatk/tappa/test/fixtures"
 )
 
 // rulebookFixture is one tenant, plus a SECOND to attack it from.
@@ -117,8 +118,8 @@ func (f *rulebookFixture) seedTenant(t *testing.T, tenantID, adminID uuid.UUID) 
 		}
 		_, e := tx.Exec(ctx,
 			`INSERT INTO admin_users (id, tenant_id, full_name, email, password_hash, role)
-			 VALUES ($1, $2, 'Rita Camilleri', $3, 'x', 'owner')`,
-			adminID, tenantID, "rita-"+adminID.String()+"@example.test")
+			 VALUES ($1, $2, 'Rita Camilleri', $3, $4, 'owner')`,
+			adminID, tenantID, "rita-"+adminID.String()+"@example.test", fixtures.UnusablePasswordHash)
 		return e
 	})
 	if err != nil {

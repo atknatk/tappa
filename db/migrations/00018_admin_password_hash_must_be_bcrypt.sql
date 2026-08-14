@@ -1,0 +1,362 @@
+-- +goose Up
+
+-- Migration 0018 -- M7-03 phase A: admin_users.password_hash stops being `text`.
+--
+-- It adds NO table, so CLAUDE.md section 6's five-fold rule has nothing to apply to,
+-- and it TOUCHES NO GRANT -- said explicitly because the two migrations before this
+-- one both had to, and both recorded the same trap while doing it (00016 and 00017:
+-- db-init's ALTER DEFAULT PRIVILEGES hands tappa_app all four DMLs, so narrowing a
+-- GRANT does nothing until the TABLE privilege is REVOKEd first). That trap is about
+-- privileges. A CHECK is not a privilege: it is evaluated after the privilege check,
+-- on every INSERT and UPDATE, for every role including the table owner. So there is
+-- no REVOKE here and none is needed -- 00017's column grants on admin_users
+-- (INSERT on id, tenant_id, full_name, email, password_hash, role, status; UPDATE on
+-- full_name, email, password_hash, role, status, last_login_at) are left exactly as
+-- they are, and this constraint narrows what those grants may CARRY rather than who
+-- holds them.
+--
+-- ============================================================================
+-- WHAT IT CLOSES: internal/adminauth's FOURTH TIMING ARM
+-- ============================================================================
+-- internal/adminauth/password.go (Compare, the 🔴 block) measured four arms through
+-- Authenticate and wrote down that the reason they were not exploitable WOULD EXPIRE:
+--
+--   unknown email (the cost-12 dummy)        297.9 ms        1x
+--   a valid cost-12 digest                   294.6 ms        1x
+--   a cost-4 digest                            1.42 ms      210x
+--   password_hash = ''                          198 ns  1504663x
+--   a malformed digest                          154 ns  1934567x
+--
+-- The cause is bcrypt's own: given an empty, short, non-base64 or out-of-range
+-- digest, CompareHashAndPassword errors in tens to hundreds of NANOSECONDS without
+-- ever building the key schedule. An admin row without a processable digest therefore
+-- answers "is this address a panel administrator?" about a million times faster than
+-- an unregistered address -- the exact enumeration oracle PHASE B OBLIGATION 2 exists
+-- to close, reopened from the storage side and pointing the other way.
+--
+-- THE REASON EXPIRED, AND THIS IS THE FILE THAT SAYS SO. password.go named the tasks
+-- that would open a write path -- "M6-05, M7-04 (password reset), M7-02 (public
+-- sign-up)" -- and M7-02 shipped. There is now an INSERT (store/admins.sql.go:161,
+-- CreateAdminUser, reached from internal/domain/signup) and password_hash sits in
+-- BOTH of 00017's column grants. Measured on this database BEFORE this migration, as
+-- tappa_app, inside its own tenant context, inside BEGIN..ROLLBACK:
+--
+--   INSERT ... password_hash = ''                   -> INSERT 0 1
+--   INSERT ... password_hash = 'not-a-real-hash'    -> INSERT 0 1
+--   INSERT ... password_hash = '$2a$04$' || 53 'c'  -> INSERT 0 1
+--   UPDATE admin_users SET password_hash = ''       -> UPDATE 158
+--
+-- The UPDATE arm is the one worth reading twice: ONE statement, legal for the
+-- application role, turns every existing administrator of that tenant into a
+-- nanosecond-speed oracle. password.go's own sentence for the fix is the one taken
+-- here: "A CHECK constraint on the column would make it structural rather than
+-- disciplinary."
+--
+-- ============================================================================
+-- WHERE THE LINE IS DRAWN, AND WHY IT IS NOT WHERE IT LOOKS LIKE IT SHOULD BE
+-- ============================================================================
+-- 🔴 "FORMAT ONLY" IS NOT A COHERENT OPTION, AND THE OBVIOUS SPELLING OF IT IS
+-- VACUOUS. The natural first draft is `^\$2[aby]\$[0-9]{2}\$[./A-Za-z0-9]{53}$` --
+-- prefix, two digits of cost, 53 characters of salt+digest, 60 in total. Measured
+-- against x/crypto (scratchpad, one comparison per cost, 00..99):
+--
+--   costs 04..31   PAY the key schedule      (1 ms at cost 4 ... 214 ms at cost 12;
+--                                              the reference measurement below)
+--   costs 00..03   error in 0-2 us           ("cost 3 is outside allowed range (4,31)")
+--   costs 32..99   error in 2 us             ("cost 99 is outside allowed range (4,31)")
+--
+-- So `[0-9]{2}` admits 72 of the 100 two-digit costs THAT TAKE THE FAST PATH. A
+-- constraint written that way would refuse '' and 'not-a-real-hash' and then accept
+-- `$2a$99$cccc...` -- 60 characters, correct shape, and 2 us to reject, i.e. the same
+-- 1.9-million-fold arm under a different spelling. The cost range is not a strength
+-- knob here; it is part of what makes a digest PROCESSABLE AT ALL.
+--
+-- THE INVARIANT THIS CONSTRAINT ACTUALLY ENCODES, therefore, is not "looks like
+-- bcrypt" but: EVERY VALUE THIS COLUMN CAN ACCEPT FROM NOW ON MAKES bcrypt PAY THE
+-- FULL KEY SCHEDULE. That is a property with a test
+-- (TestPasswordHashCheck_EverythingItAdmitsIsProcessableByBcrypt in
+-- internal/db/adminpasswordhash_test.go), not a spelling with a comment.
+--
+-- ⚠️ "CAN ACCEPT FROM NOW ON" IS NOT "CAN HOLD", and the difference is 20 232 rows.
+-- This constraint is NOT VALID (see below), so the fast-answering digests already in
+-- the development database keep existing and keep answering in nanoseconds. The test
+-- is named EverythingItAdmits for exactly that reason. What is true without
+-- qualification: the PRODUCT data is clean (both seeded rows are $2a$12$), and no
+-- new violating row can be written by any role.
+--
+-- WHY THE MINOR VERSION IS [aby] WHEN x/crypto ACCEPTS MORE. Measured: `$2a$`,
+-- `$2b$`, `$2y$` and even `$2x$` all pay the key schedule -- x/crypto does not
+-- validate the minor byte. [aby] is therefore a DELIBERATE NARROWING to the three
+-- spellings bcrypt implementations actually emit; it cannot let a fast arm through
+-- (it is a subset of what is slow) and it keeps the column readable. Hash produces
+-- `$2a$`; `$2y$` is kept because it is the spelling PHP's password_hash emits, which
+-- is what an import from another system would carry.
+--
+-- WHAT IS PROCESSABLE BUT STILL REJECTED, named because this file names its other
+-- residues. These all make bcrypt pay in full and the constraint refuses them anyway:
+-- `$2x$` (a real minor byte x/crypto tolerates), `$2$` with no minor letter, any
+-- digest longer than 60 characters (bcrypt reads the first 60 and ignores the tail),
+-- and costs 15..31 (the ceiling below). The direction is conservative -- refusing
+-- something safe costs a hypothetical import, admitting something unsafe reopens the
+-- oracle -- so the asymmetry is deliberate rather than an oversight.
+--
+-- ============================================================================
+-- WHY THE COST FLOOR IS 04 AND NOT 10 -- THE OPTION THAT WAS MEASURED AND DROPPED
+-- ============================================================================
+-- The stricter constraint on the table was `^\$2[aby]\$(1[0-9]|2[0-9]|3[01])\$...`,
+-- i.e. cost >= 10, which would ALSO close the 210x cost-4 arm. It is not taken, and
+-- the number that eliminated it is a test-suite number rather than a preference.
+--
+-- `make test` runs with -race, and the race detector instruments every memory access
+-- in blowfish's key schedule. Measured on this machine, one comparison, min-of-3,
+-- load average 4.77 (the -race column) and 5.54 (the plain column):
+--
+--            without -race      with -race
+--   cost  4       1 ms             15 ms
+--   cost 10      52 ms            722 ms      <- 48x cost 4
+--   cost 12     214 ms          2 837 ms      <- 187x cost 4
+--
+-- ⚠️ THE RATIO IS LOAD-DEPENDENT AND IS WRITTEN AS A BAND FOR THAT REASON: single-shot
+-- readings at load 7.7 earlier the same day gave cost 10 = 1 068 ms (67x) and cost 12
+-- = 4 962 ms (310x). So cost 10 costs the suite 48-67x what cost 4 does. The
+-- CONCLUSION does not depend on which end of that band is right, and the number that
+-- actually eliminated the option is not a ratio at all but a whole-package wall
+-- clock -- see below.
+--
+-- Cost 10 is the CHEAPEST digest a >=10 constraint would admit, so that band is the
+-- FLOOR of what such a constraint costs the suite, not an estimate of it. Measured
+-- END TO END rather than extrapolated: internal/adminauth's fixtures were switched to
+-- cost 10 and the package went from 138.647 s to 295.054 s (+156.4 s, 2.13x) -- and
+-- that is ONE package of nineteen. Two test files
+-- already record paying that bill and reverting it: internal/adminauth/manager_db_test.go
+-- ("internal/adminauth hit Go's 10-minute per-package timeout at 609 s -- a real
+-- failure, caused by this file") and internal/handler/adminlogin_db_test.go ("this
+-- package went from ~140 s to 571 s"). Both switched their fixtures to bcrypt.MinCost
+-- for exactly this reason, and a cost-floor CHECK would make that switch ILLEGAL AT
+-- THE DATABASE.
+--
+-- WHAT IS LEFT OPEN BY STOPPING AT 04, STATED PLAINLY: a cost-4 row still answers
+-- 210x faster than the dummy, so if a cost-4 digest ever reaches this column in
+-- production, the oracle is back -- narrower, but real. That arm is closed ELSEWHERE
+-- and the two places are named so this is checkable rather than reassuring:
+--   * adminauth.Cost = 12 is the only cost this repo's Hash will produce, and
+--     internal/domain/signup/signup.go:621 is the only production writer;
+--   * internal/domain/signup/signup_db_test.go asserts the STORED row begins
+--     `$2a$12$` -- it reads the digest back out of the database, so it fails if the
+--     wizard is ever rewired to store something cheaper.
+-- So the cost floor is disciplinary and the PROCESSABILITY floor is structural. That
+-- is a smaller claim than "the column is safe", and it is the true one.
+--
+-- ============================================================================
+-- NOT VALID -- MEASURED, NOT ASSUMED (the 00013 pattern, for a different reason)
+-- ============================================================================
+-- Counted on this development database, 2026-08-13. THE FIGURE IS DATED BECAUSE IT
+-- MOVES: every suite run adds fixtures, and this same count read 35 780 rows / 20 230
+-- violations a few hours earlier in the same session. 00013 records the identical
+-- caveat for tags, and for the same reason -- what is stable is the SHAPE of the
+-- population, not its size.
+--
+--   admin_users                                 37 873 rows
+--     'x'                          (1 char)     15 391      <- RLS/domain fixtures
+--     '$2a$04$' + 53 chars        (60 chars)    15 074      <- MinCost fixtures, LEGAL
+--     'not-a-real-hash'           (15 chars)     4 549      <- db/admins_test.go
+--     '$2a$12$' real              (60 chars)     2 553      <- adminauth + seed, LEGAL
+--     '$2a$12$' + 22 'a'          (29 chars)       290      <- plaque_db_test.go
+--     '$2a$10$' + 53 chars        (60 chars)        14      <- ADR 0014's cost experiment, LEGAL
+--     ''                          (0 chars)          2      <- the arm this file exists to close
+--
+--   20 232 rows violate this constraint, so a VALIDATED constraint cannot be added
+--   here -- measured, not assumed:
+--     ALTER TABLE admin_users ADD CONSTRAINT ... CHECK (...);
+--     -> ERROR: check constraint "admin_users_password_hash_is_bcrypt" is violated
+--        by some row
+--
+-- ⚠️ NOTE THE TWO EMPTY-STRING ROWS. They are the exact arm the table at the top of
+-- this file prices at 1 504 663x, sitting in a real database, written by something
+-- before this constraint existed. They are the reason this is a migration and not a
+-- code review comment.
+--
+-- 🔴 THE PRODUCT DATA IS CLEAN AND THE RESIDUE IS TEST RESIDUE -- and the difference
+-- matters because it decides whether this is a data problem or a fixture problem.
+-- test/fixtures/seed.sql writes exactly TWO admin_users rows and BOTH are `$2a$12$`
+-- 60-character digests (verified by id). Every violating row was written by a test
+-- helper that needed a NOT-NULL string and had no reason to care what was in it.
+-- Those helpers are corrected in this change set, so the population is bounded and
+-- stops growing.
+--
+-- ⚠️ THE RESIDUE ROWS ARE NOW FROZEN, which must be said out loud rather than
+-- discovered: a CHECK is evaluated on every INSERT and UPDATE of a row, and NOT VALID
+-- skips ONLY the initial table scan. So an UPDATE of ANY column on a row whose digest
+-- is 'x' is refused from here on -- including MarkAdminLoggedIn's last_login_at. That
+-- is fail-closed and harmless (every test builds its own fixture; nothing reads these
+-- rows), and it is the same trade 00013 recorded for tags.
+--
+-- ✅ AND THE FREEZE IS REVERSIBLE, WHICH THE 00013 WORDING DOES NOT SAY AND WHICH
+-- MATTERS IF THIS EVER HAPPENS IN PRODUCTION. "Refused from here on" reads like a
+-- one-way door; it is not. Measured on a frozen row:
+--
+--   UPDATE admin_users SET full_name = 'renamed'      WHERE id = <frozen> -> ERROR
+--   UPDATE admin_users SET password_hash = <a legal digest> WHERE id = <frozen> -> UPDATE 1
+--
+-- The constraint judges the NEW row, so a statement that FIXES the digest satisfies
+-- it and unfreezes the row in the same breath. The operational remedy for a frozen
+-- administrator is therefore an ordinary PASSWORD RESET, not a schema intervention.
+--
+-- ⚠️ AND UNLIKE 00013, THE ROWS *COULD* HAVE BEEN DELETED -- so the reason they are
+-- not is a decision, not an impossibility. 00013's residue was pinned by a foreign key
+-- into append-only `transactions` (section 4.3). Nothing pins these. They are left
+-- because a migration that DELETEs from an identity table would run that DELETE on
+-- production too, where a row this constraint rejects is an administrator who cannot
+-- log in -- an incident to investigate, not a row to drop. Section 4.6's habit
+-- ("records are never silently discarded") is the same instinct. Rewriting them to a
+-- placeholder digest was rejected for the stronger version of the same reason: a
+-- migration that sets somebody's password_hash is indistinguishable, in the audit
+-- trail, from an account takeover.
+--
+-- THE ONE-LINER THAT FINISHES IT on a database where zero rows violate (a fresh
+-- deployment, or after `make db-reset`):
+--   ALTER TABLE admin_users VALIDATE CONSTRAINT admin_users_password_hash_is_bcrypt;
+--
+-- ⚠️ AND "BORN VALIDATED" IS NOT TRUE OF THE CATALOG, ONLY OF THE ENFORCEMENT --
+-- a distinction an earlier draft of this file blurred. NOT VALID is a property of the
+-- CONSTRAINT, not of the data: on a completely empty table this migration still
+-- produces `convalidated = f` (measured), and pg_dump carries the NOT VALID marker
+-- forward into every restore. What IS true on a fresh database is that enforcement is
+-- total from the first row, because the only rows the scan would have checked are
+-- rows that do not exist.
+--
+-- SO NOTHING EVER RUNS THE VALIDATE, and that is the honest state: no migration, no
+-- make target and no deploy step issues it, so the catalog will keep saying NOT VALID
+-- indefinitely. The cost of that is one thing only -- the planner and any future tool
+-- that reads convalidated cannot treat the constraint as a proven invariant over
+-- existing rows. WHO SHOULD RUN IT AND WHEN: whoever next resets the development
+-- database (`make db-reset`, which drops the residue), and a production deployment at
+-- any point after cutover, where it is an instantaneous no-op on an empty table. It
+-- is deliberately NOT put in this migration, because on THIS database it would fail
+-- and take the migration with it.
+--
+-- ============================================================================
+-- ⚠️ TWO SECTION 4.7 SIDE EFFECTS, BOTH MEASURED, AND THE FIRST DRAFT OF THIS
+-- SECTION OVERSTATED THE GOOD NEWS
+-- ============================================================================
+-- (A) THE CHECK FAILURE ITSELF. Postgres attaches "DETAIL: Failing row contains
+-- (...)" to a check violation, and that row includes password_hash. Measured, same
+-- statement, same table, both roles:
+--
+--   as tappa_app     ERROR 23514 ... violates check constraint "..."   -- NO DETAIL
+--   as tappa_owner   ERROR ... DETAIL: Failing row contains (..., <value>, ...)
+--
+-- The application role is safe because Postgres suppresses the row description for a
+-- role that cannot read the whole row unconditionally, and RLS makes tappa_app such
+-- a role. THE MIGRATION/SEED ROLE IS NOT.
+--
+-- 🔴 AND THE RISK OF THAT OWNER-SIDE DETAIL IS NOT PRICED BY THE DIGEST ALONE, which
+-- is how the first draft priced it. The measured line dumps ALL NINE COLUMNS:
+--
+--   DETAIL: Failing row contains (<id>, <tenant_id>, Leak Probe Owner,
+--           leak-owner@probe.example, secret-looking-value, manager, active, <ts>, null)
+--
+-- The rejected VALUE is by definition not a working digest, so that part leaks
+-- nothing usable -- but the rest of the row is REAL: the administrator's full name
+-- and email address, i.e. personal data, in a server log, for every row a bulk load
+-- trips over. That is the accepted risk, stated over the whole payload.
+--
+-- (B) 🔴 AND SEPARATELY, THIS REPO LOGS THE PARAMETER ANYWAY -- WHICH IS OLDER AND
+-- WIDER THAN THIS MIGRATION. docker-compose.yml runs postgres with
+-- `-c log_statement=all -c log_min_duration_statement=0`, so every bind parameter is
+-- written out. Measured, as tappa_app, one INSERT with a canary in password_hash:
+--
+--   DETAIL:  Parameters: $1 = '...', $2 = '...', $3 = '<CANARY>'      <- bind
+--   DETAIL:  Parameters: $1 = '...', $2 = '...', $3 = '<CANARY>'      <- execute
+--
+-- TWICE, on the successful path AND on the rejected one. The ERROR line stays clean
+-- (log_parameter_max_length_on_error defaults to 0, i.e. do not log parameters on
+-- error) -- so the sentence "the server log carries none either", which an earlier
+-- draft of this file wrote, is TRUE ONLY OF THE ERROR LINE and false of the log.
+--
+-- ⚠️ THE CONSEQUENCE IS NOT ABOUT THIS CONSTRAINT: the same mechanism writes the REAL
+-- cost-12 digest that sign-up stores, on every registration, to the same log. That is
+-- a section 4.7 exposure that PREDATES this migration and is not created by it; it is
+-- recorded here because this is where it got measured. It belongs to the development
+-- compose file (a production deployment does not run log_statement=all), and it is
+-- carried as debt rather than fixed inside a CHECK-constraint migration.
+-- ============================================================================
+-- THE CEILING: 14, AND IT IS A DENIAL-OF-SERVICE BOUND RATHER THAN A FORMAT ONE
+-- ============================================================================
+-- 🔴 THE FIRST VERSION OF THIS CONSTRAINT ENDED AT 31, bcrypt's own maximum, on the
+-- reasoning that the range check exists to match the library. That is right at the
+-- BOTTOM and wrong at the TOP, because the two ends fail differently: a cost below 4
+-- makes a comparison too FAST (the enumeration oracle above), while a cost near 31
+-- makes it unboundedly SLOW.
+--
+-- ⚠️ THE REFERENCE MEASUREMENT, WITH ITS LOAD CONDITION -- which the Makefile requires
+-- ("HER SAYI BIR YUK KOSULUYLA BIRLIKTE YAZILIR") after a narrow single-machine band
+-- proved wrong three times in this repo. darwin/amd64, go1.26.5, NO -race, min-of-3,
+-- load average 5.54 at start / 5.79 at end, 2026-08-13. Every figure in this file, in
+-- ADR 0014 and in internal/adminauth/password.go's 00018 note comes from THIS run:
+--
+--   cost  4                 1 ms         1x
+--   cost 10                52 ms        52x
+--   cost 12 (shipped)     214 ms       214x       8 candidates:  1.7 s
+--   cost 13               423 ms       423x       8 candidates:  3.4 s
+--   cost 14 (ceiling)     892 ms       892x       8 candidates:  7.1 s
+--   cost 15              1.78 s       1780x       8 candidates: 14.2 s
+--   cost 31 (derived)  ~31 HOURS    524288x       8 candidates: ~249 HOURS
+--
+-- ⚠️ AND THE BAND, BECAUSE ONE NUMBER WOULD BE THE MISTAKE THE MAKEFILE WARNS ABOUT.
+-- Four independent readings of cost 12 without -race in this session and an
+-- independent audit: 210 / 214 / 307 / 312 ms, i.e. a 1.5x spread driven by machine
+-- load alone (the audit's 312 ms was taken at load 7.36). Taking the SLOWEST as the
+-- basis instead moves the derived figures to: cost 14 ~1.25 s and ~10 s for a padded
+-- login, cost 15 ~2.5 s and ~20 s, cost 31 ~45 hours. THE DECISION IS UNCHANGED
+-- ACROSS THE WHOLE BAND -- it gets stronger at the slow end -- which is the only
+-- property a load-dependent number has to have to be load-bearing here.
+--
+-- 🔴 AND THE BLAST RADIUS IS NOT THE ROW'S OWN OWNER, which is what makes this worth
+-- a constraint instead of a note. internal/adminauth/manager.go:475 pads every login
+-- to MaxCandidates comparisons and takes the padding's cost FROM THE FIRST
+-- CANDIDATE'S DIGEST, and the loop above it compares EVERY candidate, disabled ones
+-- included. Candidates are all the admin rows sharing one email address (00017's
+-- incumbent-first resolver). So ONE row carrying a high cost stalls every login
+-- attempt for THAT ADDRESS -- including the legitimate owner's, in a different
+-- tenant, who did nothing.
+--
+-- WHY 14 AND NOT 12 OR 20. 14 is the highest cost at which this product still
+-- FUNCTIONS: at 8 candidates a login already costs 7.1 s on the reference measurement
+-- and ~10 s at the slow end of the band, and 15 doubles that past any usable login on
+-- either basis. It leaves TWO doublings of headroom above the shipped
+-- adminauth.Cost = 12, which is the room a future hardening actually needs. Raising
+-- Cost past 14 then requires a migration -- correct, not an obstacle: that change
+-- makes every login eight times more expensive and is a deliberate, reviewed event
+-- rather than a constant edit.
+--
+-- WHAT IT COSTS TODAY: nothing. The whole repo produces exactly two costs -- 4
+-- (bcrypt.MinCost fixtures) and 12 (adminauth.Cost) -- and the dev database holds
+-- only 04, 10 and 12. Counted, not assumed.
+--
+-- ⚠️ AND IT IS NOT REACHABLE FROM AN APPLICATION PATH TODAY: nothing lets a caller
+-- CHOOSE a cost, because signup hands adminauth.Hash's output to CreateAdminUser and
+-- Hash always uses Cost. The bound is here for the same reason the bottom one is --
+-- 00017 grants tappa_app UPDATE(password_hash), so the next write path (M7-04's
+-- reset) is one mistake away from storing a digest it did not generate.
+ALTER TABLE admin_users
+    ADD CONSTRAINT admin_users_password_hash_is_bcrypt
+    CHECK (password_hash ~ '^\$2[aby]\$(0[4-9]|1[0-4])\$[./A-Za-z0-9]{53}$')
+    NOT VALID;
+
+
+-- +goose Down
+
+-- 🔴 THIS DOWN IS A SECURITY REGRESSION, NOT A NEUTRAL UNDO. Dropping the constraint
+-- restores the state measured at the top of this file: `UPDATE admin_users SET
+-- password_hash = ''` becomes legal for tappa_app again and every administrator of
+-- that tenant becomes a nanosecond-speed enumeration oracle. It is written and it
+-- works because CLAUDE.md section 6 requires a migration to be reversible, and
+-- because a Down that is never exercised is a Down that does not work. Running it
+-- outside a rollback of this whole change set is a decision somebody has to own.
+--
+-- It is exact: the constraint is the only object this migration creates, so DROP
+-- CONSTRAINT returns the schema to its pre-0018 shape byte for byte (verified by
+-- comparing pg_catalog before Up and after Down).
+ALTER TABLE admin_users
+    DROP CONSTRAINT admin_users_password_hash_is_bcrypt;

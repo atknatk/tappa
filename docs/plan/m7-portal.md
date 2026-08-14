@@ -268,6 +268,51 @@ location + dinamik lokasyon listesi → admin hesabı → APPROVED damgalı done
 >   yok"* diyor; panelde karşılığı yok.
 > - ⬜ **M7-02'nin LİMİT olarak devrettiği kenar durumlar** görev raporunda.
 
+> **Faz A sevk edildi (2026-08-13) — migration 00018, ADR 0014.** M7-02'nin
+> devrettiği **(b) `password_hash` format CHECK'i yok** limiti kapandı.
+> `adminauth`'un *"gerekçesi süresi dolacak"* diye yazdığı dördüncü zamanlama kolu
+> artık **yapısal** olarak kapalı: `admin_users.password_hash`, bcrypt'in gerçekten
+> **işleyebildiği** değerlerle sınırlı.
+>
+> - ✅ **Ölçülen açık, ölçülen kapanış.** Migration ÖNCESİ, `tappa_app` rolüyle,
+>   `BEGIN … ROLLBACK` içinde: `''` → `INSERT 0 1` · `'not-a-real-hash'` →
+>   `INSERT 0 1` · **`UPDATE admin_users SET password_hash = ''` → `UPDATE 158`**.
+>   SONRASI: dördü de `23514 check_violation`; işlenebilir bir digest'le pozitif
+>   kontrol hâlâ `INSERT 0 1`.
+> - 🔴 **KARTA DEĞİL, BRIEF'E DÜZELTME — *"yalnız biçim"* diye bir seçenek YOK.**
+>   Önerilen `$2[aby]$NN$` + 60 karakter taslağı `NN`'i iki serbest haneye
+>   bırakıyordu; **ölçüldü:** bcrypt yalnız **04–31** maliyetlerinde anahtar
+>   programını öder, **00–03 ve 32–99** ise **0–2 µs**'de hata verir. O taslak
+>   `$2a$99$cccc…`'yi kabul ederdi — 60 karakter, doğru şekil, ve **aynı 1,9 milyon
+>   kat kol**. Sevk edilen kısıt maliyeti bcrypt'in kendi aralığına bağlıyor.
+> - ⚖️ **Maliyet tabanı 04, ve 10 elenirken sayısı yazıldı.** `-race` altında tek
+>   karşılaştırma (min-of-3, yük 4,77): cost 4 **15 ms** · cost 10 **722 ms** (48×) ·
+>   cost 12 **2 837 ms** (187×); yük 7,7'deki tek atışlarda oran **67×/310×** —
+>   yani bant **48–67×**. **Şıkkı eleyen sayı oran değil, uçtan uca duvar saati:**
+>   `internal/adminauth` fixture'ları cost 10'a alınınca paket
+>   **138,6 s → 295,1 s** (+156,4 s, 2,13×) — ve bu tek paket.
+>   210× cost-4 kolu bu yüzden **disiplinsel** kalıyor (`adminauth.Cost = 12` +
+>   signup'ın *saklanan satırı geri okuyan* `$2a$12$` testi). Gerekçe: **ADR 0014**.
+> - 🔴 **VE BİR TAVAN VAR: 14.** 2. turda eklendi. Kısıt önce bcrypt'in maksimumunda
+>   (31) bitiyordu; bu **altta doğru, üstte yanlıştı**. `manager.go:475` dolguyu
+>   **ilk adayın digest'inden** fiyatlıyor ve döngü **her** adayı karşılaştırıyor,
+>   yani **tek** yavaş satır o e-postanın bütün girişlerini durduruyor — başka bir
+>   tenant'taki meşru sahibininki dahil. **Referans ölçüm** (min-of-3, `-race` yok,
+>   yük **5,54**): cost 12 **214 ms** · cost 14 **892 ms** (8 adayda **7,1 s**) ·
+>   cost 31 **~31 SAAT** (8 adayda ~249 saat). ⚠️ Cost 12 yüke bağlı, dört bağımsız
+>   okuma **210–312 ms**; yavaş uç taban alınırsa cost 14 ~1,25 s / 8 adayda ~10 s —
+>   **karar bandın her yerinde aynı, yavaş uçta güçleniyor**. Tavan 14 = ürünün hâlâ
+>   çalıştığı en yüksek maliyet, `Cost = 12`'nin üstünde iki katlama payı. Bugünkü
+>   bedeli **sıfır** (repo yalnız 4 ve 12 üretiyor).
+> - ⚠️ **`NOT VALID`** — **20 232 / 37 873** satır ihlal ediyor (2026-08-13; sayı
+>   her koşuda büyür, 00013'ün kaydettiği aynı uyarı). **Ürün verisi temiz:** seed'in
+>   admin satırı **2/2** `$2a$12$`. ⚠️ state.md'nin *"seed'in **140/140** satırı"*
+>   ifadesi **yanlış** — seed `admin_users`'a **iki** satır yazar.
+>   ✅ Donma **geri alınabilir** (ölçüldü): donmuş satıra yasal digest yazan UPDATE
+>   başarılı → çaresi **parola sıfırlaması**. ⚠️ `VALIDATE`'i **hiçbir şey
+>   koşturmuyor**; boş tabloda bile `convalidated = f`.
+> - ⬜ **Faz B'ye kalan:** departman adımı · *"plaket bekleniyor"* durumu.
+
 ---
 
 ## M7-04 — Admin daveti, şifre sıfırlama, e-posta

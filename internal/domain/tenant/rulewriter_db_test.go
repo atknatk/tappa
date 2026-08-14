@@ -29,6 +29,7 @@ import (
 	"github.com/atknatk/tappa/internal/audit"
 	"github.com/atknatk/tappa/internal/policy"
 	"github.com/atknatk/tappa/internal/store"
+	"github.com/atknatk/tappa/test/fixtures"
 )
 
 // storedAuthority is the PolicyAuthority a RuleWriter gets in these tests: the
@@ -204,8 +205,8 @@ func (f *writerFixture) seedManager(t *testing.T, tenantID uuid.UUID) uuid.UUID 
 	err := f.data.WithTenant(context.Background(), tenantID, func(ctx context.Context, tx pgx.Tx) error {
 		_, e := tx.Exec(ctx,
 			`INSERT INTO admin_users (id, tenant_id, full_name, email, password_hash, role)
-			 VALUES ($1, $2, 'Joe Manager', $3, 'x', 'manager')`,
-			id, tenantID, "joe-"+id.String()+"@example.test")
+			 VALUES ($1, $2, 'Joe Manager', $3, $4, 'manager')`,
+			id, tenantID, "joe-"+id.String()+"@example.test", fixtures.UnusablePasswordHash)
 		return e
 	})
 	if err != nil {

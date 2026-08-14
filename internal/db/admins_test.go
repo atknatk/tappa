@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/atknatk/tappa/internal/store"
+	"github.com/atknatk/tappa/test/fixtures"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 )
@@ -60,8 +61,8 @@ func newAdmin(t *testing.T, d *DB, tenantID uuid.UUID, email, status, role strin
 	if err := d.WithTenant(context.Background(), tenantID, func(ctx context.Context, tx pgx.Tx) error {
 		_, e := tx.Exec(ctx,
 			`INSERT INTO admin_users (id, tenant_id, full_name, email, password_hash, role, status)
-			 VALUES ($1, $2, 'Admin Test', $3, 'not-a-real-hash', $4, $5)`,
-			id, tenantID, email, role, status)
+			 VALUES ($1, $2, 'Admin Test', $3, $4, $5, $6)`,
+			id, tenantID, email, fixtures.UnusablePasswordHash, role, status)
 		return e
 	}); err != nil {
 		t.Fatalf("newAdmin(%s/%s): %v", status, role, err)

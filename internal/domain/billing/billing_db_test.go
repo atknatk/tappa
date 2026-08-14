@@ -41,6 +41,7 @@ import (
 	"github.com/atknatk/tappa/internal/audit"
 	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/db"
+	"github.com/atknatk/tappa/test/fixtures"
 )
 
 const maltaZone = "Europe/Malta"
@@ -104,8 +105,8 @@ func newFixture(t *testing.T, signedUp time.Time, zone, plan string) *fixture {
 		// same-tenant composite FK: a period is somebody's deliberate act.
 		_, e := tx.Exec(ctx,
 			`INSERT INTO admin_users (id, tenant_id, full_name, email, password_hash, role)
-			 VALUES ($1, $2, 'Owner', $3, 'x', 'owner')`,
-			f.adminID, f.tenantID, "owner-"+uuid.NewString()+"@billing.example")
+			 VALUES ($1, $2, 'Owner', $3, $4, 'owner')`,
+			f.adminID, f.tenantID, "owner-"+uuid.NewString()+"@billing.example", fixtures.UnusablePasswordHash)
 		return e
 	})
 	if err != nil {

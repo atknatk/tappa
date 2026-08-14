@@ -263,10 +263,20 @@ func TestSignupProvision_CreatesTheWholeBusinessInOneTransaction(t *testing.T) {
 		t.Errorf("the first operator is role=%q status=%q, want owner/active", role, status)
 	}
 
-	// 🔴 THE DIGEST'S SHAPE — internal/adminauth's fourth timing arm, closed at the
-	// write path because the schema cannot enforce it today (migration 00017 measures
-	// why). A row with an empty or malformed password_hash answers about a million
-	// times faster than an unregistered address.
+	// 🔴 THE DIGEST'S SHAPE — internal/adminauth's fourth timing arm. A row with an
+	// empty or malformed password_hash answers about a million times faster than an
+	// unregistered address, which is a one-request enumeration oracle.
+	//
+	// ⚠️ THIS ASSERTION IS NARROWER THAN THE SCHEMA'S, AND IT IS THE HALF THE SCHEMA
+	// CANNOT MAKE. Migration 00018 now constrains the column to digests bcrypt will
+	// actually PROCESS, so the '' and malformed arms are closed structurally and this
+	// line no longer carries them. What 00018 deliberately does NOT enforce is the
+	// COST: a cost-4 digest is a perfectly valid bcrypt digest and still answers 210x
+	// faster than the dummy, but excluding it would outlaw the bcrypt.MinCost fixtures
+	// this repo's DB tests depend on (+156 s on internal/adminauth alone — ADR 0014).
+	// So the cost floor is held HERE, by reading the digest back out of the database
+	// and checking what the wizard actually stored. Deleting this check would reopen
+	// the 210x arm silently.
 	if !strings.HasPrefix(digest, "$2a$12$") {
 		t.Errorf("password_hash does not begin $2a$12$ (it begins %q); the wizard must only "+
 			"ever write adminauth.Hash output", safePrefix(digest))

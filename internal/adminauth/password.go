@@ -40,7 +40,7 @@ const (
 	// in the body — the response time would split "unknown email" (dummy) from
 	// "wrong password" (a real cost-12 row) by roughly a factor of four.
 	//
-	// MEASURED ON THIS MACHINE (darwin/arm64, 20 comparisons per row, three runs,
+	// MEASURED ON THIS MACHINE (darwin/amd64, 20 comparisons per row, three runs,
 	// bcryptbench in the scratchpad; match and mismatch reported separately
 	// because a mismatch that returned early would be the timing oracle):
 	//
@@ -51,6 +51,42 @@ const (
 	// Match and mismatch agree at every cost, which is the property the dummy
 	// comparison depends on: bcrypt pays the whole key schedule BEFORE it compares,
 	// so a wrong password costs what a right one costs.
+	//
+	// ⚠️ THE ARCH ABOVE SAID darwin/arm64 UNTIL 2026-08-14 AND THAT WAS SIMPLY WRONG.
+	// It has been there since 4bc2e72 (2026-08-03). Measured: hw.model MacBookPro16,1,
+	// Intel i9-9980HK, uname x86_64, the OIDs hw.optional.arm64 and
+	// sysctl.proc_translated DO NOT EXIST (so neither Apple Silicon nor Rosetta), and
+	// `go` is a Mach-O x86_64 binary with GOARCH=amd64. There is no arm64 here and
+	// never was. Corrected to darwin/amd64.
+	//
+	// ⚠️ AND THE NUMBERS ABOVE DO NOT REPRODUCE TODAY -- THE DIFFERENCE IS METHOD AND
+	// LOAD, NOT HARDWARE, which is what an earlier version of this note got wrong when
+	// it explained the gap by "they measure different hardware". Re-measured with THIS
+	// BLOCK'S OWN METHOD (median of 20, three runs), load average 3.71 -> 4.94:
+	//
+	//	cost 10   match med 57-74 ms    mismatch med 58-74 ms
+	//	cost 11   match med 116 ms      mismatch med 116 ms
+	//	cost 12   match med 225-231 ms  mismatch med 225-231 ms
+	//
+	// i.e. about 1.6x below the band recorded above, on the same machine with the same
+	// method. An independent audit reading the same way at load 5.40 got 288 ms for
+	// cost 12, and migration 00018's reference run (min-of-3, load 5.54) got 214 ms.
+	// All four readings are the same quantity under different load, and the Makefile's
+	// rule is the one they all obey: a bcrypt timing figure is quoted WITH its method
+	// and load, never on its own.
+	//
+	// WHAT IS STABLE ACROSS EVERY READING, and is the part this block actually relies
+	// on: each cost step DOUBLES, and match tracks mismatch to within noise at every
+	// cost. Both reproduce exactly.
+	//
+	// 🔴 THE 376-427 BAND IS DELIBERATELY LEFT AS RECORDED rather than lowered to
+	// today's figure. It is the source of `msPerComparison = 380`, a PINNED LITERAL in
+	// manager_timing_test.go that sizes PHASE B OBLIGATION 4's CPU bound
+	// (MaxCandidates x failuresPerWindow x 380 ms against a 40 s ceiling), and it is
+	// quoted again in manager.go's amplification arithmetic. Replacing it with 231 ms
+	// would move that bound in the CHEAP direction -- it would make the budget look
+	// safer than the worst case this machine has actually produced. A safety margin is
+	// not re-derived downward from a quieter afternoon.
 	//
 	// ⚠️ THIS CORRECTS A NUMBER IN MIGRATION 00011, in the expensive direction.
 	// That file sizes the amplification bound with "at cost 10 one comparison is
@@ -220,24 +256,65 @@ func Hash(password string) (string, error) {
 // times faster than an unregistered address — the oracle this function was
 // reshaped to close, reopened from the other side and pointing the other way.
 //
-// WHY IT IS NOT A HOLE TODAY, verified rather than assumed: nothing in this repo
-// can write such a row. There is no INSERT INTO admin_users and no UPDATE of
-// password_hash in db/queries or in production Go — the single UPDATE admin_users
-// is MarkAdminLoggedIn, which touches last_login_at alone. Both seeded rows are
-// $2a$12$. Hash refuses the empty password and anything over MaxPasswordBytes, so
-// it cannot produce one either.
+// ✅ THE SCHEMA NOW ENFORCES IT — MIGRATION 00018, AND THIS NOTE IS THE RECORD OF
+// AN EXPIRY DATE BEING REACHED RATHER THAN A STANDING CLAIM.
 //
-// ⚠️ AND THE SCHEMA DOES NOT ENFORCE IT: password_hash is `text NOT NULL` with NO
-// format CHECK, so an empty string is schema-valid. The tasks that open a write path are named
-// — M6-05 (panel-side admin management), M7-04 (password reset), M7-02 (public
-// sign-up). This is the same structure migration 00011 used for its amplification
-// bound: "not exploitable today, and the reason is worth naming because it
-// expires."
+// The paragraph that used to sit here said "not a hole today, because nothing in
+// this repo can write such a row: there is no INSERT INTO admin_users and no UPDATE
+// of password_hash". BOTH HALVES EXPIRED, exactly as predicted and via the task this
+// comment named: M7-02 shipped a public sign-up wizard, so db/queries/admins.sql now
+// carries CreateAdminUser, and 00017 grants tappa_app both INSERT(password_hash) and
+// UPDATE(password_hash). Measured before 00018, as tappa_app, inside BEGIN..ROLLBACK:
+// `INSERT ... password_hash = <the empty string>` -> INSERT 0 1, and
+// `UPDATE admin_users SET password_hash = <the empty string>` -> UPDATE 158.
 //
-// THE RULE THOSE TASKS INHERIT, in one sentence: admin_users.password_hash is only
-// ever written with the output of adminauth.Hash. A CHECK constraint on the column
-// would make it structural rather than disciplinary; that is a migration and is
-// deliberately NOT done here, but it is the option on the table.
+// So the protection is no longer "no query in this repo does it". It is a CHECK
+// constraint, which is what the previous version of this comment nominated:
+//
+//	CHECK (password_hash ~ '^\$2[aby]\$(0[4-9]|1[0-4])\$[./A-Za-z0-9]{53}$')
+//
+// 🔴 WHAT THE CONSTRAINT ACTUALLY GUARANTEES, because it is narrower than "the column
+// is safe" and the difference is the whole of what is left to inherit. The cost bound
+// is 4..14: the FLOOR is bcrypt's own minimum (costs 00-03 and 32-99 error in 0-2 us
+// without building the key schedule, so admitting them would have reopened this very
+// arm under a well-formed 60-character spelling), and the CEILING is a
+// denial-of-service bound rather than a format one. Therefore:
+//
+//   - CLOSED, structurally: the empty-string arm and the malformed arm (the ~1.5M x
+//     and ~1.9M x rows in the table above). No role, tappa_app or owner, can write
+//     one. ⚠️ "CLOSED" IS ABOUT THE WRITE PATH, NOT ABOUT WHAT IS ALREADY STORED: the
+//     constraint is NOT VALID, so the 20 232 rows the development database accumulated
+//     before it existed are still there and still answer in nanoseconds. Product data
+//     is clean (both seeded rows are $2a$12$); the residue is test fixtures and is
+//     frozen rather than removed. 00018 counts it.
+//   - CLOSED, structurally: the SLOW end, which is this file's own problem and not
+//     an abstract one. pad below takes its cost from the FIRST candidate's digest and
+//     the loop above compares every candidate, so ONE row with a high cost stalls
+//     every login for that email address — including the legitimate owner's, in
+//     another tenant. Measured (min-of-3, no -race, load average 5.5, 2026-08-13 --
+//     the reference run 00018 tabulates): cost 12 = 214 ms, cost 14 = 892 ms, and
+//     cost 31 ~31 HOURS per comparison. The column stops at 14, the highest cost at
+//     which a padded 8-candidate login still completes in single-digit seconds
+//     (7.1 s), leaving two doublings of headroom above Cost. ⚠️ The cost-12 figure
+//     is load-dependent -- readings across this machine and an independent audit span
+//     210-312 ms -- and the ceiling holds across that whole band.
+//   - STILL OPEN, by decision: the cost-4 arm, 210x. A cost-4 digest is a VALID
+//     bcrypt digest, so no format constraint can exclude it without also excluding
+//     the MinCost fixtures this package's own DB tests depend on — measured at
+//     +156 s on internal/adminauth alone (ADR 0014). That arm is held by discipline:
+//     Cost below is the only cost Hash produces, and internal/domain/signup's DB test
+//     reads the STORED row back and asserts it begins $2a$12$.
+//
+// ⚠️ AND RAISING Cost ABOVE 14 NOW NEEDS A MIGRATION. That is deliberate: such a
+// change makes every login eight times more expensive and should be a reviewed schema
+// event, not a constant edit. If you raise it, raise the CHECK in the same change set.
+//
+// THE RULE THE REMAINING WRITE-PATH TASKS INHERIT (M6-05 panel-side admin management,
+// M7-04 reset), unchanged in wording and now only partly load-bearing:
+// admin_users.password_hash is only ever written with the output of adminauth.Hash.
+// The schema will stop you storing something bcrypt cannot process; it will NOT stop
+// you storing something bcrypt processes cheaply. A task that introduces its own
+// digest generation needs signup's "the stored row begins $2a$12$" assertion too.
 //
 // ⚠️ THIS REPO ALREADY USES THE FAST PATH ON PURPOSE, which is why the note has to
 // exist rather than being obvious: TestAuthenticate_CapsTheCandidateLoop says its

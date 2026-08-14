@@ -47,6 +47,7 @@ import (
 	"github.com/atknatk/tappa/internal/audit"
 	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/db"
+	"github.com/atknatk/tappa/test/fixtures"
 )
 
 // plaqueFixture is one tenant with two venues, plus a SECOND tenant to attack it
@@ -399,8 +400,8 @@ func (f *plaqueFixture) namedAdmin(t *testing.T, id uuid.UUID, name string) {
 	if err := f.data.WithTenant(context.Background(), f.tenantID, func(ctx context.Context, tx pgx.Tx) error {
 		_, e := tx.Exec(ctx,
 			`INSERT INTO admin_users (id, tenant_id, full_name, email, password_hash, role, status)
-			 VALUES ($1, $2, $3, $4, '$2a$12$aaaaaaaaaaaaaaaaaaaaaa', 'owner', 'active')`,
-			id, f.tenantID, name, "plaque-"+id.String()+"@m6.example")
+			 VALUES ($1, $2, $3, $4, $5, 'owner', 'active')`,
+			id, f.tenantID, name, "plaque-"+id.String()+"@m6.example", fixtures.UnusablePasswordHash)
 		return e
 	}); err != nil {
 		t.Fatalf("register the admin: %v", err)

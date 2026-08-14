@@ -126,3 +126,42 @@ var (
 // customer credential ever lives in the repo. Production owners (M8-07) never use
 // it. Named here so a future admin-auth test can log in without a magic string.
 const AdminDevPassword = "tappa-dev-only-changeme"
+
+// UnusablePasswordHash is the placeholder for a test that needs an admin_users row
+// but does not log in through it.
+//
+// IT IS NOT A SECRET AND IT IS NOT A HASH OF ANYTHING. It is a hand-written string
+// in bcrypt's SHAPE -- `$2a$04$` followed by 53 characters of the bcrypt base64
+// alphabet -- whose salt and digest bytes are the letter 'c'. No password produces
+// it, so nothing can authenticate against it and no test can accidentally come to
+// depend on one that does. Section 4.7's rule ("test vectors are separate and fake")
+// is satisfied by construction here rather than by documentation: there is no secret
+// to leak because there is no password.
+//
+// 🔴 WHY IT IS NOT SIMPLY 'x', WHICH IS WHAT THESE FIXTURES USED TO WRITE. Migration
+// 00018 constrains this column to values bcrypt will actually PROCESS, because a
+// digest bcrypt refuses to parse is rejected in ~150 ns while a real one costs
+// ~214 ms -- a 1.9-million-fold timing oracle that answers "is this address a panel
+// administrator?" in one request (measured; internal/adminauth/password.go, Compare).
+// 'x' is exactly such a value, so it is no longer writable.
+//
+// 🔴 THE COST THIS COLUMN ACCEPTS IS 04..14, AND THE TWO ENDS ARE DIFFERENT
+// PROPERTIES -- worth knowing before writing a new fixture, because a cost outside
+// that window earns an unexplained 23514.
+//
+//   - THE FLOOR (04) IS PROCESSABILITY. Below bcrypt's own minimum a digest is
+//     rejected in nanoseconds without the key schedule ever running, which IS the
+//     timing oracle described above. It is not a strength floor: cost 04 is
+//     deliberately allowed so fixtures like this one stay free.
+//   - THE CEILING (14) IS BLAST RADIUS. adminauth pads every login to MaxCandidates
+//     comparisons and prices the padding from the FIRST candidate's digest, so one
+//     slow row stalls every login for that email address -- including the legitimate
+//     owner's, in another tenant. 14 is the highest cost at which a padded login
+//     still completes in single-digit seconds; cost 31 would take over a day.
+//
+// COST 04 IS THEREFORE DELIBERATE AND IS THE CHEAP END ON PURPOSE: nothing here ever
+// runs the key schedule, and the tests that DO verify a password build their own real
+// MinCost digest. A digest that must be VERIFIED cannot use this constant -- it will
+// never match.
+const UnusablePasswordHash = "$2a$04$" +
+	"ccccccccccccccccccccccccccccccccccccccccccccccccccccc" // 53

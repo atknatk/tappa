@@ -10,6 +10,7 @@ import (
 
 	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/store"
+	"github.com/atknatk/tappa/test/fixtures"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -230,10 +231,12 @@ func buildFixture(t *testing.T, d *DB) fixture {
 		  VALUES ($1, $2, 'iso.fixture')`,
 			[]any{fx.auditID, fx.tenantID}},
 		// admin_users (M1-11) -- panel identity, separate from employees. password_hash
-		// is any non-null text here (not a real hash; this fixture never authenticates).
+		// is a SHAPE-VALID placeholder that hashes nothing (fixtures.UnusablePasswordHash);
+		// this fixture never authenticates. It used to be 'x', which migration 00018 no
+		// longer permits -- the column must hold a digest bcrypt will actually process.
 		{`INSERT INTO admin_users (id, tenant_id, full_name, email, password_hash, role)
-		  VALUES ($1, $2, 'iso-admin', $3, 'x', 'owner')`,
-			[]any{fx.adminUserID, fx.tenantID, fx.adminEmail}},
+		  VALUES ($1, $2, 'iso-admin', $3, $4, 'owner')`,
+			[]any{fx.adminUserID, fx.tenantID, fx.adminEmail, fixtures.UnusablePasswordHash}},
 		// admin_sessions (M1-11) -- separate from employee sessions; composite FK to
 		// admin_users(id, tenant_id) proves the session's admin is same-tenant.
 		{`INSERT INTO admin_sessions (id, tenant_id, admin_user_id, token_hash)
@@ -521,13 +524,28 @@ func TestRLS_WriteWithCheck_AllTables(t *testing.T) {
 				_, e := tx.Exec(ctx, `INSERT INTO transaction_reviews (id, tenant_id, transaction_id, reviewer_id, outcome) VALUES ($1, $2, $3, $4, 'approved')`, uuid.New(), b.tenantID, b.txUnreviewedID, uuid.New())
 				return e
 			}},
+		// THE DIGEST MUST BE ONE MIGRATION 00018 ACCEPTS, AND THE ARM THAT ENFORCES
+		// THAT IS THE POSITIVE CONTROL -- measured, because the obvious guess is wrong.
+		//
+		// The guess is that a rejected digest would make the FORGE arm fail with 23514
+		// instead of 42501 and be caught by assertWriteBlocked. It would not: Postgres
+		// evaluates the RLS WITH CHECK BEFORE the table's CHECK constraints, so a row
+		// that is wrong in BOTH ways reports only the RLS violation (measured directly:
+		// cross-tenant tenant_id + password_hash 'x' -> "new row violates row-level
+		// security policy", never the check constraint). Mutation-tested: putting 'x'
+		// back in the forge arm alone leaves this test GREEN.
+		//
+		// It is the SECOND closure -- B writing its OWN row -- that fails loudly, with
+		// "positive control: B could not insert its OWN admin_users row ... 23514". So
+		// the fixture is pinned by the arm that is supposed to SUCCEED, which is exactly
+		// what a positive control is for.
 		{"admin_users", blockRLS,
 			func(ctx context.Context, tx pgx.Tx) error {
-				_, e := tx.Exec(ctx, `INSERT INTO admin_users (id, tenant_id, full_name, email, password_hash, role) VALUES ($1, $2, 'Forge', $3, 'x', 'manager')`, uuid.New(), a.tenantID, "forge-"+uuid.NewString()+"@iso.example")
+				_, e := tx.Exec(ctx, `INSERT INTO admin_users (id, tenant_id, full_name, email, password_hash, role) VALUES ($1, $2, 'Forge', $3, $4, 'manager')`, uuid.New(), a.tenantID, "forge-"+uuid.NewString()+"@iso.example", fixtures.UnusablePasswordHash)
 				return e
 			},
 			func(ctx context.Context, tx pgx.Tx) error {
-				_, e := tx.Exec(ctx, `INSERT INTO admin_users (id, tenant_id, full_name, email, password_hash, role) VALUES ($1, $2, 'Own', $3, 'x', 'manager')`, uuid.New(), b.tenantID, "own-"+uuid.NewString()+"@iso.example")
+				_, e := tx.Exec(ctx, `INSERT INTO admin_users (id, tenant_id, full_name, email, password_hash, role) VALUES ($1, $2, 'Own', $3, $4, 'manager')`, uuid.New(), b.tenantID, "own-"+uuid.NewString()+"@iso.example", fixtures.UnusablePasswordHash)
 				return e
 			}},
 		{"admin_sessions", blockRLS,
