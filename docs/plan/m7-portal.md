@@ -611,11 +611,29 @@ location + dinamik lokasyon listesi → admin hesabı → APPROVED damgalı done
 
 ---
 
-## M7-04 — Admin daveti, şifre sıfırlama, e-posta
+## M7-04 — Şifre sıfırlama ve e-posta taşıyıcısı
 
 - **Bağımlılık:** M7-03 · Q02
 - **Kırmızı çizgi:** §4.7
-- **Commit:** `feat(auth): add admin invite and password reset`
+- **Commit:** `feat(auth): add admin password recovery`
+
+> **🏷️ KAPSAM DARALTILDI — 2026-08-14, B fazının kapanış ölçümünde.** Bu kartın adı
+> *"**Admin daveti**, şifre sıfırlama, e-posta"* idi ve **beş kabul kriterinin hiçbiri
+> daveti istemiyordu**. İki faz, altı tur, üç farklı üçüncü göz ve iki güvenlik geçişi
+> boyunca kimse sormadı — çünkü hiçbir brief'te yoktu. Kapanışta tek bir grep ölçtü:
+> `CreateAdminUser`'ın **tek üretim çağrı yeri** `internal/domain/signup/signup.go:719`
+> ve `Role: "owner"` yazıyor, yani **bir işletmenin bugün tam olarak bir yöneticisi
+> olabiliyor** ve `admin_users.role` sözlüğünün `manager` değeri **üründe ulaşılamaz**.
+>
+> Davet **M7-07**'ye taşındı, ve ayırmanın gerekçesi de ölçüm: davet **farklı bir
+> mekanizma** — var olan bir kimliği tek durum geçişinden geçiren değil, **yeni bir
+> kimlik yaratan** bir kimlik bilgisi; [ADR 0015](../adr/0015-sifirlama-tokeni-tek-gecislik-yetkidir.md)'in
+> *"oturum vermez, tek geçişlik yetkidir"* argümanının **hiçbiri** onu kapsamıyor. Ve
+> aynı **Q02**'ye bloke (davet, davetlinin **kendi** adresine gitmek zorunda), yani
+> bugün yapılsa **ikinci bir ölü özellik** sevk edilirdi.
+>
+> Bu daraltma, kartın **komut satırını** da değiştiriyor: beklenen commit artık
+> `feat(auth): add admin invite and password reset` değil, yalnız kurtarma.
 
 **Kabul kriterleri.**
 - Magic link ve/veya şifre ile giriş (handoff §9).
@@ -1110,3 +1128,72 @@ tek yolu Go kaynağını düzenlemekti.
 >    kopyalama"* kusurunun bir başka örneğiydi. **Genel kural:** bir izin listesi
 >    eklerken *"anahtarı kim atıyor"* sorusu *"anahtarı nereden okuyorum"* sorusundan
 >    önce gelir.
+
+---
+
+## M7-07 — Admin daveti: bir işletmenin ikinci yöneticisi
+
+- **Bağımlılık:** M7-04 (`internal/adminauth`, `password_resets` kalıbı) · **Q02 (BLOKE)**
+- **Kırmızı çizgi:** §4.5 (davet **tenant'a** kimlik ekliyor) · §4.6 · §4.7
+- **Commit:** `feat(auth): add admin invitations`
+
+> **Neden ayrı bir kart — 2026-08-14, M7-04 B'nin kapanış ölçümünde doğdu.** Bu iş
+> M7-04'ün **başlığında** vardı ama **beş kabul kriterinin hiçbirinde** yoktu, ve iki
+> faz boyunca hiç yapılmadı. Ayırma kararının gerekçesi kapsam değil **mekanizma**:
+> sıfırlama var olan bir kimliği **tek durum geçişinden** geçirir ve **oturum vermez**;
+> davet **yeni bir kimlik yaratır**. ADR 0015'in bütün argümanı (*"tek geçişlik yetki"*)
+> ikincisini kapsamıyor, yani davet **kendi ADR'siyle** gelir — `password_resets`'e
+> bindirmek, halihazırda dağıtılmış her sıfırlama token'ını bir **hesap yaratma**
+> yetkisine yükseltirdi.
+
+**Amaç.** Bir işletmenin sahibinin **ikinci bir yönetici** (`role='manager'`)
+davet edebilmesi.
+
+🔴 **BUGÜNKÜ DURUM, ÖLÇÜLDÜ.** `CreateAdminUser`'ın **tek üretim çağrı yeri**
+`internal/domain/signup/signup.go:719` ve `Role: "owner"` yazıyor (grep). Yani:
+
+- bir işletmenin **tam olarak bir** yöneticisi olabiliyor, ve o kişi kayıt sihirbazını
+  dolduran kişi;
+- `admin_users.role`'un kapalı sözlüğü `('owner','manager')` (00006:66) ama
+  **`manager` değeri üründe ulaşılamaz** — yalnız seed ve test fikstürleri yazıyor;
+- dolayısıyla **policy motorunun `actor:role` ayrımı**, M3-06'nın `authz-manager`
+  ifadesi, M6-09'un rol kapısı ve M6-12'nin owner-only fatura bölümü **gerçek
+  müşteride atıl** — hepsi yalnız test verisinde çalışıyor.
+
+⚠️ Bu, *"eksik özellik"*ten daha geniş bir olgu: **sevk edilmiş dört mekanizma**
+kendisini kanıtlayan girdiyi üründe hiç görmüyor.
+
+**Kabul kriterleri.**
+- Sahip, panelden bir e-posta adresine **manager** daveti gönderebiliyor; davet
+  **tek kullanımlık, süreli, hash'i saklanıyor** (`employee_invites` kalıbı, M5-02).
+- Davet **davetlinin kendi adresine** gidiyor — panelde **gösterilmiyor**. ⚠️ Bu,
+  ADR 0005'in **Y-D** riskinin (*"müdürün kimlik basması"*) yönetici tarafındaki
+  ikizi ve ondan **daha ağır**: basılan kimlik bir çalışan değil bir **yönetici**.
+- Davet kabul edilirken parola **davetli tarafından** belirleniyor; sahip hiçbir
+  aşamada davetlinin parolasını bilmiyor.
+- Davet **iptal edilebiliyor** (`cancelled_at`, migration 00012 kalıbı) ve iptal
+  edilmiş davet kabul edilemiyor.
+- Her davet/kabul/iptal `audit_log`'a düşüyor; **token/kod hiçbir log'a yazılmıyor**.
+- Rol kapısı: daveti **yalnız owner** gönderebiliyor, ve kapı **policy motorundan**
+  geliyor. ⚠️ M6-12 B'nin ölçtüğü tuzağı tekrarlama: **veritabanında saklı** baseline'a
+  karşı yeni bir eylem, var olan tenant'larda `deny sid=default` alır (baseline
+  materyalize edilmiş tenant'lar **güncellenmiyor**) — yani kapı **sahibi kilitler**.
+  Önce ölç.
+
+**Tuzaklar.**
+- 🔴 **Q02 BLOKE EDİYOR VE BU KEZ GERÇEKTEN.** M7-04 B taşıyıcısız sevk edilebildi
+  çünkü sıfırlama **var olan** bir hesabın kurtarma yolu — kullanılamaması bir
+  gerilemedir, bir yalan değil. Davet ise **taşıyıcı olmadan hiç işe yaramaz**: linki
+  panelde göstermek, kriterin ikinci maddesinin tam tersi. **Bugün yapılırsa ikinci
+  bir ölü özellik sevk edilir** — M7-04 B'nin defterine yazdığı durumun aynısı.
+- **`resolve_admin_by_email` penceresi.** Yeni bir `admin_users` satırı, o adresin
+  `MaxCandidates` penceresine girer. 00017 sırayı `created_at`'e bağladı, yani
+  **sonradan** eklenen davetli yerleşiği itemez — ama davetli **kendisi** pencerenin
+  dışında kalabilir. M7-04 B bu artığı ölçtü ve *"penceresi dışındaki kimlik zaten
+  giriş yapamıyor"* diye sayıldı; **davet o cümleyi yanlışlar**, çünkü giriş
+  yapamayacak bir kimlik yaratmak daveti anlamsız kılar.
+- **`admin_users` INSERT grant'ı sütun düzeyinde** (00017): `(id, tenant_id,
+  full_name, email, password_hash, role, status)` — **`created_at` KAPALI** ve bu
+  00017'nin tüm argümanının dayanağı. **Açma.**
+- **`password_hash` şema düzeyinde işlenebilir bcrypt olmak zorunda** (00018,
+  ADR 0014): davetin yazdığı digest `adminauth.Hash` çıktısından başka bir şey olamaz.
