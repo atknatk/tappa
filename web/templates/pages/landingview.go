@@ -537,6 +537,23 @@ type LegalPageView struct {
 	// Cookies is the measured inventory. Only the cookie notice has one; for the
 	// other three it is nil and the template renders none.
 	Cookies []CookieRow
+
+	// Body is the PUBLISHED text, already split into paragraphs by
+	// internal/domain/legal.Paragraphs (M7-06). Empty means this document has no
+	// text yet and the skeleton renders instead.
+	//
+	// 🔴 IT IS []string AND NOT HTML, AND THAT IS THE WHOLE SAFETY ARGUMENT. Every
+	// element goes through templ's `{ }` interpolation, i.e. html.EscapeString, so a
+	// legal text containing <script> renders as the characters somebody typed. The
+	// alternative — building <p> tags in Go and passing them to templ.Raw — is
+	// measured as a blind spot in this repository: templ.Raw has zero call sites and
+	// not one of the twelve tests that scan .templ files would see a first one
+	// appear.
+	Body []string
+	// PublishedAt is when the current version was published, already formatted, or
+	// "" when there is none. It is shown because a legal document with no date is a
+	// legal document nobody can cite.
+	PublishedAt string
 }
 
 // Robots decides whether this page asks to be indexed, and it DERIVES the answer
@@ -544,20 +561,37 @@ type LegalPageView struct {
 //
 // 🔴 THE DERIVATION IS THE POINT. A skeleton in a search index is an unpublished
 // policy presented as the published one, so the rule is "a document is indexable
-// once it has a text". Today no legal page has one and all four are private; the
-// day somebody pastes the privacy policy in, this returns the other value without
-// anybody remembering to flip a bool. TestLegalPages_SkeletonsAreNotIndexed pins
-// both directions.
+// once it has a text". Before M7-06 no legal page could have one and all four were
+// private; now the day somebody pastes the privacy policy into the operator screen,
+// this returns the other value for THAT page without anybody remembering to flip a
+// bool. TestLegalPages_SkeletonsAreNotIndexed pins both directions.
+//
+// ⚠️ IT IS PER DOCUMENT, WHICH IS WHAT A PARTLY-FILLED DEPLOYMENT NEEDS. Publishing
+// the privacy policy makes /legal/privacy indexable and leaves /legal/terms private
+// in the same request — there is no "the legal pages are live" state, because there
+// is no moment at which one exists.
 func (v LegalPageView) Robots() layout.Robots {
-	if v.Page.Published() {
+	if v.Published() {
 		return layout.RobotsPublic
 	}
 	return layout.RobotsPrivate
 }
 
-// Published reports whether this document carries its finished text.
+// Published reports whether THIS RENDER carries a finished text.
 //
-// IT IS DEFINED AS "the list of things it is waiting for is empty". That is the
-// only definition that cannot be satisfied by editing a flag: to publish a
-// document somebody has to remove the facts it needs, which means having them.
-func (p LegalPage) Published() bool { return len(p.Needs) == 0 }
+// 🔴 THE DEFINITION MOVED IN M7-06 AND THE OLD ONE IS WORTH RECORDING, because it
+// was right for a product that had no way to publish. It used to be
+// `len(p.Needs) == 0` on LegalPage — "to publish a document somebody has to remove
+// the facts it needs, which means having them" — which was the only definition that
+// could not be satisfied by flipping a bool while the texts lived in Go source.
+// They no longer do (migration 00020), so the definition is now the stronger one it
+// was standing in for: A DOCUMENT IS PUBLISHED WHEN SOMEBODY HAS PUBLISHED A TEXT.
+// Needs survives as what the skeleton PRINTS while waiting, which is the job it was
+// always doing on the page.
+//
+// ⚠️ THE LIMIT, STATED: this is "somebody deliberately published something", not
+// "the text is adequate". Nothing in this product can judge a privacy policy, and a
+// page that claimed otherwise would be making exactly the kind of guarantee it does
+// not hold. What it does guarantee is that the page stops saying "not in force"
+// only because a person went to the operator screen and published.
+func (v LegalPageView) Published() bool { return len(v.Body) > 0 }

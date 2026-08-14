@@ -21,6 +21,7 @@ import (
 	"github.com/atknatk/tappa/internal/domain/billing"
 	"github.com/atknatk/tappa/internal/domain/checkin"
 	"github.com/atknatk/tappa/internal/domain/ledger"
+	"github.com/atknatk/tappa/internal/domain/legal"
 	"github.com/atknatk/tappa/internal/domain/manual"
 	"github.com/atknatk/tappa/internal/domain/review"
 	"github.com/atknatk/tappa/internal/domain/signup"
@@ -235,7 +236,35 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	panelAuth, err := handler.NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, venues, plaques, entries, rules, ruleWriter, books, cfg, slog.Default())
+	// 🔴 TAPPA'S OWN LEGAL TEXTS (M7-06). It is the eighth writer and the only one
+	// whose rows belong to NO tenant: legal_documents has no tenant_id at all
+	// (migration 00020), so nothing this store does can name a business. It takes the
+	// same trail as the others because §4.3 applies here too — a publication changes
+	// what every visitor to /legal reads — and legal.NewStore REFUSES a nil sink for
+	// the same reason billing.NewBook does: the row is written with RecordTx, inside
+	// the transaction that publishes, so a trail that cannot be written rolls the
+	// publication back with it.
+	texts, err := legal.NewStore(data, trail)
+	if err != nil {
+		return err
+	}
+	// 🔴 THE SNAPSHOT IS FILLED HERE AND A FAILURE IS NOT FATAL, WHICH IS A DECISION.
+	// The public pages serve from memory precisely so /legal/* never touches the pool
+	// (internal/domain/legal says why), and this is the read that fills it. If the
+	// database is unreachable at boot the four pages fall back to exactly what they
+	// printed before M7-06 — "this text has not been published yet" — which
+	// UNDER-claims rather than over-claims, and is the direction this product is
+	// required to be wrong in. Refusing to start would take the whole marketing site
+	// down over a document nobody had published yet.
+	//
+	// IT NAMES NO TENANT, because there is none to name: legal.readContext runs the
+	// read under a uuid that matches no tenant, so every RLS-scoped table is empty for
+	// its duration and the only thing reachable is the one table whose policy is
+	// `USING (true)`.
+	if err := texts.Refresh(ctx); err != nil {
+		slog.Default().Error("the published legal texts could not be read at start-up; /legal will show its placeholders until the next publication", "err", err)
+	}
+	panelAuth, err := handler.NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, venues, plaques, entries, rules, ruleWriter, books, texts, cfg, slog.Default())
 	if err != nil {
 		return err
 	}
@@ -244,16 +273,21 @@ func run() error {
 	// under /legal. Until this line the root of the site answered 404 — the router
 	// registered /healthz and /static/* at the top level and nothing else.
 	//
-	// 🔴 IT TAKES NOTHING BUT A LOGGER, AND THAT IS THE SECURITY DECISION RATHER
-	// THAN A CONVENIENCE. Every other feature above is handed a pool, a session
-	// manager and an audit sink; this one is handed none, so no handler on it can
-	// reach the database, read a cookie or write a row. internal/handler.Marketing
-	// records why that shape is what replaces the panel's protections on a surface
-	// that has no identity to protect.
+	// 🔴 IT TAKES NO POOL, NO SESSION MANAGER AND NO AUDIT SINK, AND THAT IS THE
+	// SECURITY DECISION RATHER THAN A CONVENIENCE. Every other feature above is handed
+	// all three; this one is handed none, so no handler on it can reach the database,
+	// read a cookie or write a row. internal/handler.Marketing records why that shape
+	// is what replaces the panel's protections on a surface that has no identity to
+	// protect.
+	//
+	// ⚠️ M7-06 GAVE IT ONE READER AND THE SENTENCE ABOVE STILL HOLDS. `texts` is the
+	// legal-document SNAPSHOT, whose only method takes no context and returns no
+	// error — it cannot query, so the pool stays out of reach of the one surface that
+	// is deliberately unmetered.
 	//
 	// IT IS MOUNTED LAST for readability only — chi matches on the pattern, not on
 	// registration order, and these paths overlap with nothing above.
-	marketing := handler.NewMarketing(slog.Default())
+	marketing := handler.NewMarketing(texts, slog.Default())
 
 	// 🔴 THE SIGN-UP WIZARD (M7-02) — THE FIRST PATH IN THIS PROCESS THAT CREATES A
 	// TENANT. Until this line, `INSERT INTO tenants` existed only in the seed fixture

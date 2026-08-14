@@ -11,6 +11,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/atknatk/tappa/internal/adminauth"
+	"github.com/atknatk/tappa/internal/domain/legal"
 	"github.com/atknatk/tappa/internal/session"
 	"github.com/atknatk/tappa/web/templates/pages"
 )
@@ -102,6 +103,37 @@ type Marketing struct {
 	// adminLoginPath already uses for "Sign in".
 	signupHref string
 	log        *slog.Logger
+	// texts is where the four legal documents' published bodies come from (M7-06).
+	//
+	// 🔴 IT IS THE THIRD FIELD ON THIS TYPE AND IT ARRIVED WITH ITS OWN ARGUMENT,
+	// WHICH IS WHAT THE RULE ABOVE ASKS FOR. The list of permitted field types in
+	// TestMarketing_HandlerHoldsNoStatefulDependency is deliberately short so that a
+	// dependency cannot be added quietly; adding this one to it IS the visible edit,
+	// and this is the argument.
+	//
+	// WHAT IT DOES NOT BREAK, and this is the whole point of its shape. The rate-limit
+	// reasoning above rests on one sentence — "A request here renders a fixed
+	// component tree and returns; it touches no pool, takes no lock and appends to no
+	// table" — and a legalReader cannot make that false: its ONE method takes no
+	// context.Context, returns no error, and reads an in-memory snapshot
+	// (internal/domain/legal.Store). A method that cannot be cancelled and cannot fail
+	// is not doing I/O. TestLegalReader_CannotReachTheDatabase asserts the signature
+	// by reflection, so the guarantee survives somebody later implementing this
+	// interface with something that queries — they would have to change the signature,
+	// and the signature is what the test reads.
+	//
+	// ⚠️ THE ALTERNATIVE WAS A *db.DB HERE AND IT WAS REJECTED ON A MEASUREMENT, not
+	// on taste: /legal/* is unmetered by the argument above, and a per-request SELECT
+	// would have put an unauthenticated, unbudgeted path onto the pool that check-in
+	// shares. What the snapshot costs instead is written down in internal/domain/legal.
+	texts legalReader
+}
+
+// legalReader is the slice of internal/domain/legal.Store the PUBLIC surface needs.
+// One method, no context, no error — see the field above for why that signature is
+// the guarantee rather than a convenience.
+type legalReader interface {
+	Published() map[string]legal.Doc
 }
 
 // NewMarketing builds the public surface. There is nothing to inject: the pages
@@ -111,11 +143,16 @@ type Marketing struct {
 // reflection test above meaningful. A parameter would make "does this deployment
 // offer sign-up" a caller's decision, i.e. a second place the landing page's button
 // could be wrong; a constant means the button exists exactly when the route does.
-func NewMarketing(log *slog.Logger) *Marketing {
+// texts may be nil, and that is the honest default rather than a hole: a nil reader
+// means every legal page renders exactly what it rendered before M7-06 — the
+// skeleton, saying nothing is in force. A constructor that refused nil would make
+// this surface unbuildable for the twenty tests that do not care about legal texts,
+// to protect against a failure mode whose worst outcome is under-claiming.
+func NewMarketing(texts legalReader, log *slog.Logger) *Marketing {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Marketing{signupHref: signupPath, log: log}
+	return &Marketing{signupHref: signupPath, texts: texts, log: log}
 }
 
 // Mount registers the routes on r.
@@ -181,10 +218,28 @@ func (m *Marketing) Landing(w http.ResponseWriter, r *http.Request) {
 }
 
 // legal serves one document under /legal.
+//
+// 🔴 THE TEXT COMES FROM A MAP LOOKUP AND NOTHING ELSE HAPPENS HERE (M7-06). No
+// query, no transaction, no cookie: the body is whatever the snapshot held when this
+// request arrived, so this handler is as cacheable and as unmetered as it was when
+// the pages were skeletons. A document with no text renders the skeleton, which is
+// the state the whole of pages.legal.templ was designed around.
 func (m *Marketing) legal(w http.ResponseWriter, r *http.Request, p pages.LegalPage) {
 	v := pages.LegalPageView{Page: p, SignInHref: adminLoginPath}
 	if p.Path == cookieNoticePath {
 		v.Cookies = cookieNotice()
+	}
+	if m.texts != nil {
+		if d, ok := m.texts.Published()[legalSlugOf(p.Path)]; ok {
+			// ALREADY SPLIT. The paragraphs are computed once when a publication installs
+			// the snapshot, not per request — this page is unmetered, so per-request work
+			// here is work an anonymous caller can ask for as often as they like.
+			v.Body = d.Paragraphs
+			// The date a document was published is shown UTC, spelled out, because
+			// "12/08/26" means two different days on two sides of an ocean and this is
+			// the one page where that matters.
+			v.PublishedAt = d.PublishedAt.UTC().Format("2 January 2006")
+		}
 	}
 	m.render(w, r, pages.Legal(v))
 }

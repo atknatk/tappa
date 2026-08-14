@@ -74,6 +74,15 @@ func (a *AdminAuth) mountSections(r chi.Router) {
 			r.Get(s.Href, a.policiesSection)
 		case pages.TabBilling:
 			r.Get(s.Href, a.billingSection)
+		// 🔴 THE OPERATOR'S LEGAL SCREEN IS MOUNTED FOR EVERYBODY AND REFUSES ALMOST
+		// EVERYBODY (M7-06). It is here rather than behind a conditional mount for the
+		// reason PanelSection.OwnerOnly already gives: the routing table is complete or
+		// it is not, and a route that exists only in some deployments is a route whose
+		// absence is indistinguishable from a 404 for a mistyped URL. The gate is
+		// legaladmin.go's mayPublishLegal, which runs before this handler reads
+		// anything.
+		case pages.TabLegal:
+			r.Get(s.Href, a.legalSection)
 		default:
 			r.Get(s.Href, a.section(s.Tab))
 		}
@@ -196,6 +205,23 @@ func (a *AdminAuth) mountWriting(r chi.Router) {
 		// check.
 		r.Post(billingCloseHref, a.billingCloseReview)
 		r.Post(billingFreezeHref, a.billingCloseApply)
+		// 🔴 THE ONE POST THAT CHANGES WHAT A STRANGER READS (M7-06). Every other route
+		// in this group rewrites something belonging to the tenant whose session sent
+		// it; this one replaces a document on Tappa's PUBLIC pages, for every visitor
+		// and every business at once. It needs this chain for the ordinary reason —
+		// the Origin check has to run AHEAD of the resolver, which mountSections cannot
+		// express — and it needs it more than most, because the identity a
+		// cross-origin POST would spend here is an operator's.
+		//
+		// ⚠️ WHICH STAGES ARE LOAD-BEARING, MEASURED RATHER THAN COPIED WHOLE:
+		// sameOriginGate is the CSRF defence (this form carries no synchronizer token
+		// because no panel write does — see pages.LegalAdminView.PostHref);
+		// requireAdmin is what produces the address the allow-list is checked against,
+		// so without it mayPublishLegal has nothing to compare; floodGate and
+		// sessionGate bound an authenticated caller who holds the cookie, and this
+		// endpoint is one INSERT into an append-only table nobody can clean up, so the
+		// budget is what stops a stuck script filling it. All four earn their place.
+		r.Post(legalHref, a.legalPublish)
 	})
 }
 

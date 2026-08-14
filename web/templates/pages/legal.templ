@@ -2,13 +2,22 @@ package pages
 
 import "github.com/atknatk/tappa/web/templates/layout"
 
-// The four LEGAL documents under /legal (M7-01, Q23).
+// The four LEGAL documents under /legal (M7-01, Q23; publishable since M7-06).
 //
-// 🔴 THREE OF THE FOUR ARE SKELETONS AND THE PAGE SAYS SO IN LARGE TYPE. That is
-// the decision recorded on LegalPages: a privacy policy names a controller, an
-// imprint names a registered company, and retention periods are commitments — none
-// of those facts is in this repository, and writing plausible ones would produce a
-// document that is legally wrong and looks finished.
+// 🔴 EACH DOCUMENT IS A SKELETON UNTIL SOMEBODY PUBLISHES A TEXT FOR IT, AND THE
+// PAGE SAYS SO IN LARGE TYPE WHILE IT IS ONE. M7-01 shipped all four as skeletons
+// because a privacy policy names a controller, an imprint names a registered
+// company and retention periods are commitments — none of those facts was in this
+// repository, and writing plausible ones would have produced a document that is
+// legally wrong and looks finished. M7-06 did not change that judgement; it built
+// the form (/admin/legal, migration 00020) so the facts can arrive from the person
+// who has them instead of from a developer editing Go source.
+//
+// ⚠️ THE STATE IS PER DOCUMENT AND THERE IS NO "THE LEGAL PAGES ARE LIVE" MOMENT.
+// Publishing the privacy policy replaces the skeleton on /legal/privacy, makes that
+// one page indexable, and leaves the other three saying exactly what they said
+// before — in the same request. Anything else would need a page to speak for
+// documents it is not.
 //
 // WHAT A SKELETON MUST NOT LOOK LIKE, and this is the whole of the design: it must
 // not look EMPTY (a reader cannot tell an unfinished page from a broken one) and it
@@ -32,16 +41,46 @@ templ Legal(v LegalPageView) {
 					<p class="docket-label">Legal</p>
 					<h1 class="mt-2 font-display text-3xl font-bold tracking-tight">{ v.Page.Title }</h1>
 					<p class="mt-4 max-w-xl text-base text-ink/85">{ v.Page.Lede }</p>
+					if v.Published() {
+						@legalBody(v)
+					}
 					if len(v.Cookies) > 0 {
 						@legalCookieTable(v.Cookies)
 					}
-					if !v.Page.Published() {
+					if !v.Published() {
 						@legalDraftNotice(v.Page)
 					}
 				</div>
 			</article>
 		}
 	}
+}
+
+// legalBody is the PUBLISHED text (M7-06).
+//
+// 🔴 EVERY PARAGRAPH GOES THROUGH `{ }`, WHICH IS html.EscapeString. Nothing here
+// reaches templ.Raw, and that is not a preference: this repo has zero call sites of
+// it and none of the twelve tests that scan .templ files would notice a first one
+// appearing (internal/handler/policies_test.go documents that blind spot about
+// itself). So the ONE screen where a person pastes free text into a page a stranger
+// loads is the one screen that must not be the exception. The paragraph split
+// happens in Go, in internal/domain/legal.Paragraphs, and arrives here as strings.
+//
+// THE DATE IS SHOWN BECAUSE A LEGAL DOCUMENT WITH NO DATE CANNOT BE CITED. It is
+// mono, which is this brand's rule for anything that is data rather than prose.
+templ legalBody(v LegalPageView) {
+	<section class="mt-8">
+		<div class="flex flex-col gap-4 text-base leading-relaxed text-ink/85">
+			for _, p := range v.Body {
+				<p>{ p }</p>
+			}
+		</div>
+		if v.PublishedAt != "" {
+			<p class="mt-8 border-t border-line pt-4 text-xs text-ink/70">
+				Published <span class="font-mono">{ v.PublishedAt }</span>.
+			</p>
+		}
+	</section>
 }
 
 // legalDraftNotice is the visible "this is not in force yet" block.

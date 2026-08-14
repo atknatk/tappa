@@ -978,9 +978,9 @@ func TestSignup_MountsExactlyTheRoutesTheLandingPageOffers(t *testing.T) {
 	if rec := d.get(signupPath); rec.Code != http.StatusOK {
 		t.Fatalf("GET %s = %d; this is where the landing page's button points", signupPath, rec.Code)
 	}
-	if NewMarketing(nil).signupHref != signupPath {
+	if NewMarketing(nil, nil).signupHref != signupPath {
 		t.Errorf("handler.Marketing points at %q and the wizard is mounted at %q",
-			NewMarketing(nil).signupHref, signupPath)
+			NewMarketing(nil, nil).signupHref, signupPath)
 	}
 }
 

@@ -1088,6 +1088,14 @@ func adminTestConfig() *config.Config {
 		Env:            config.EnvDev,
 		BaseURL:        testBaseURL,
 		SessionHMACKey: []byte("0123456789abcdef0123456789abcdef"),
+		// 🔴 THE DEFAULT PANEL IDENTITY IS AN OPERATOR (M7-06), FOR THE REASON IT IS
+		// ALREADY AN OWNER. pages.PanelSections carries one OperatorOnly row, and the
+		// suite's section sweeps assert that every row answers 200 when signed in; a
+		// fixture that could not reach one of them would have to special-case it, and a
+		// special case in a sweep is how a section stops being swept. The refusal path
+		// gets its own fixtures in legaladmin_test.go, which is where an assertion
+		// about being refused belongs.
+		OperatorAdminIDs: []uuid.UUID{panelTestAdmin},
 	}
 }
 
@@ -1122,7 +1130,7 @@ func newAdminRouterWithReviewer(t *testing.T, admins *fakeAdmins, trail *fakeTra
 // own limiter measures its own limiter.
 func newAdminRouterWithActions(t *testing.T, admins *fakeAdmins, trail *fakeTrail, records *fakeLedger, reviewer panelReviewer, staff panelStaff, invites panelInviter) http.Handler {
 	t.Helper()
-	h, err := NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, &fakeVenues{}, &fakePlaques{}, &fakeRecorder{}, newFakeRules(), newFakeScribe(), newFakeBooks(), adminTestConfig(), slog.New(slog.DiscardHandler))
+	h, err := NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, &fakeVenues{}, &fakePlaques{}, &fakeRecorder{}, newFakeRules(), newFakeScribe(), newFakeBooks(), newFakeTexts(), adminTestConfig(), slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}
@@ -2057,7 +2065,7 @@ func TestAdminScreens_NeverRenderACredential(t *testing.T) {
 // signed out. This is a structural tripwire for the next person adding a route.
 func TestAdminRoutes_AreAllUnderTheCookiePath(t *testing.T) {
 	nilCfgLedger := newFakeLedger()
-	h, err := NewAdminAuth(&fakeAdmins{}, &fakeTrail{}, nilCfgLedger, nilCfgLedger, &fakeReviewer{}, &fakeStaff{}, &fakeInviter{}, &fakeVenues{}, &fakePlaques{}, &fakeRecorder{}, newFakeRules(), newFakeScribe(), newFakeBooks(), adminTestConfig(), slog.New(slog.DiscardHandler))
+	h, err := NewAdminAuth(&fakeAdmins{}, &fakeTrail{}, nilCfgLedger, nilCfgLedger, &fakeReviewer{}, &fakeStaff{}, &fakeInviter{}, &fakeVenues{}, &fakePlaques{}, &fakeRecorder{}, newFakeRules(), newFakeScribe(), newFakeBooks(), newFakeTexts(), adminTestConfig(), slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}
@@ -2660,7 +2668,7 @@ func TestProtect_CarriesTheBudget(t *testing.T) {
 		return adminauth.Resolved{}, adminauth.ErrNoSession
 	}}
 	fake := newFakeLedger()
-	h, err := NewAdminAuth(admins, &fakeTrail{}, fake, fake, &fakeReviewer{}, &fakeStaff{}, &fakeInviter{}, &fakeVenues{}, &fakePlaques{}, &fakeRecorder{}, newFakeRules(), newFakeScribe(), newFakeBooks(), adminTestConfig(), discardLogger())
+	h, err := NewAdminAuth(admins, &fakeTrail{}, fake, fake, &fakeReviewer{}, &fakeStaff{}, &fakeInviter{}, &fakeVenues{}, &fakePlaques{}, &fakeRecorder{}, newFakeRules(), newFakeScribe(), newFakeBooks(), newFakeTexts(), adminTestConfig(), discardLogger())
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}

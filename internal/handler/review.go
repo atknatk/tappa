@@ -530,6 +530,13 @@ func (a *AdminAuth) chrome(r *http.Request, tab pages.PanelTab) pages.PanelChrom
 		FullName: id.Admin.FullName,
 		Role:     id.Admin.Role,
 		Tab:      tab,
+		// 🔴 THE ANSWER TRAVELS, NOT THE IDENTIFIER (M7-06). This is a slice walk over a
+		// handful of uuids against a field the session already carries, so it adds no
+		// query to any panel render; and the templates receive a bool, so no careless
+		// interpolation can put an admin id on a page. It decides ONE thing — whether
+		// the "Tappa legal texts" link is drawn — and legaladmin.go asks the same
+		// question again for itself before it does anything.
+		Operator: mayPublishLegal(id, a.operators),
 	}
 	p, err := a.queue.Pending(r.Context(), id.TenantID())
 	if err != nil {

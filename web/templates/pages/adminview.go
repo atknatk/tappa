@@ -111,6 +111,11 @@ const (
 	TabAnomalies    PanelTab = "anomalies"
 	TabPolicies     PanelTab = "policies"
 	TabBilling      PanelTab = "billing"
+	// TabLegal is the ONLY section that is not about a customer's business (M7-06):
+	// it publishes TAPPA's own privacy policy, terms, company details and cookie
+	// notice. See PanelSection.OperatorOnly for why it is a tab here rather than a
+	// separate application.
+	TabLegal PanelTab = "legal"
 )
 
 // PanelSection is one row of the panel's navigation AND one route.
@@ -150,6 +155,27 @@ type PanelSection struct {
 	// refusal page still exists for anybody who arrives by a shared link or a stale
 	// bookmark, and §4.6 makes it say why rather than 404.
 	OwnerOnly bool
+
+	// OperatorOnly hides this section's TAB from everybody who is not on the
+	// deployment's operator allow-list (M7-06).
+	//
+	// 🔴 IT IS A SECOND FLAG RATHER THAN A WIDENING OF OwnerOnly, BECAUSE IT ASKS A
+	// DIFFERENT QUESTION. OwnerOnly asks "which role within THIS BUSINESS" —
+	// admin_users.role, a per-tenant fact, and every tenant has an owner.
+	// OperatorOnly asks "is this person one of the handful who run the deployment",
+	// which no column answers and no tenant grants: it comes from
+	// TAPPA_OPERATOR_ADMIN_IDS, an allow-list of admin_users.id values. Folding them
+	// into one bool would have made "the owner of
+	// any business" and "the person who runs Tappa" the same permission, which is the
+	// widest possible reading of the narrowest possible flag.
+	//
+	// 🔴 AND IT CHANGES WHAT IS DRAWN, NOT WHAT IS ROUTED — the same design OwnerOnly
+	// documents above, and for the same reason: the route stays mounted so a tab
+	// whose link 404s remains structurally unavailable, and the handler refuses on
+	// its own (legaladmin.go's mayPublishLegal). Hiding the link is the courtesy
+	// half; the server refusing the route is the guarantee, and neither substitutes
+	// for the other.
+	OperatorOnly bool
 }
 
 // PanelSections is the panel's sections, in the order CLAUDE.md §9 and
@@ -219,6 +245,18 @@ var PanelSections = []PanelSection{
 		Blurb:     "What each month costs: how many people were on the books, at what price, and the figure you can freeze once the month has ended.",
 		OwnerOnly: true,
 	},
+	{
+		// 🔴 IT IS AFTER BILLING BECAUSE IT IS NOT THIS BUSINESS'S AT ALL. Billing is
+		// the last row about the arrangement between the customer and Tappa; this one
+		// is about TAPPA, and almost nobody signed into this panel will ever see it.
+		// Putting it anywhere among the operational sections would suggest a customer
+		// has something to do here.
+		Tab: TabLegal, Label: "Tappa legal texts", Href: "/admin/legal", Task: "M7-06",
+		Blurb: "The privacy policy, terms, company details and cookie notice that /legal publishes — Tappa's own documents, not this business's.",
+		// The route is mounted for everybody and the handler refuses everybody who is
+		// not on the allow-list; this only decides whether the link is drawn.
+		OperatorOnly: true,
+	},
 }
 
 // PanelChrome is everything the panel draws AROUND a section: who is signed in,
@@ -238,6 +276,16 @@ type PanelChrome struct {
 	FullName string
 	Role     string
 	Tab      PanelTab
+
+	// Operator is true when this session's admin id is on the deployment's operator
+	// allow-list (M7-06). It decides whether the "Tappa legal texts" link is drawn and
+	// NOTHING else — the handler asks the same question again for itself.
+	//
+	// 🔴 IT IS A BOOL AND NOT AN IDENTIFIER. This package renders whatever it is given
+	// into HTML, so carrying the id here would put it one careless `{ c.OperatorID }`
+	// away from every panel page. The answer is computed in internal/handler and only
+	// the answer travels.
+	Operator bool
 
 	// Pending is the approval queue's size, shown as a badge on the review tab so
 	// a manager sees the backlog from whichever section they are in (M6-04).

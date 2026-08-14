@@ -1466,6 +1466,7 @@ yazılır.
 | M7-03 | Tenant provisioning | **done** — **A** `81ce4d5` (migration **00018**, ADR **0014**, 5 tur / 2 RED) · **B** `8a985eb` (5 tur / **2 RED**). Kartın dört kriterinden **üçü M7-02'de** sevk edilmişti; A M7-02'nin **(b) limitini** kapattı (`password_hash` artık şema düzeyinde işlenebilir bcrypt), B **ilk inilen ekranı** ve **departman cümlesini**. **Beş denetim** (üç genel göz + iki güvenlik geçişi) | `81ce4d5` · `8a985eb` |
 | M7-04 | Admin daveti, şifre sıfırlama, e-posta | **wip** — **FAZ A done** (`b039ef3`, migration **00019**, ADR **0015**, 3 tur / 1 RED, üçüncü göz + `tappa-security-auditor`). Veri katmanı: `password_resets` sertleştirildi (**00006'dan beri açık olan aynı-tenant yetki yükseltmesi kapatıldı**), altıncı SECURITY DEFINER çözümleyici, `internal/adminauth/reset.go`. **Magic link kapsam dışı bırakıldı, gerekçesi ölçülü.** ⚠️ **FAZ B AÇIK** — handler · ekran · **e-posta taşıyıcısı (Q02)** · oran sınırı | Q02 |
 | M7-05 | Hesap ve marka mesajı ayarları | todo | |
+| M7-06 | **Operatör içerik ekranı — yasal metinler panelden düzenlenir** *(kullanıcı kararı 2026-08-14: "benden beklenenleri panelden girilebilir yap")* | todo | |
 
 ### M8 — [Deploy & pilot](m8-deploy-pilot.md)
 
@@ -1490,6 +1491,7 @@ yazılır.
 | M9-05 | Çalışan self-service saat görünümü | todo | MVP dışı |
 | M9-06 | Policy simülatörü | todo | Q22 — M6-10'dan ertelendi |
 | M9-07 | Ham JSON politika editörü | todo | Q22 — M6-09'dan ayrıldı |
+| M9-08 | **Operatör paneli** *(kullanıcı kararı 2026-08-14: "operatör paneli yapılır oradan kontrol edilir")* | todo | **§4.5 — tenant sınırını bilerek aşan ilk yüzey.** M7-06 dar sürümü sevk etti (tek ekran, tenant verisine bakmaz); borçlar M9-08 kartında |
 
 **Özet:** 83 görev · done **66** · **wip 1** (M7-04, Faz A done) · blocked 0 · skipped 1 · todo **15** · **M0+M1+M2+M3+M4+M5+M6 TAMAM 🎉🎉 · M7 3/5** — **ürünün fonksiyonel boşluğu kapandı: artık herkes kayıt olabiliyor** *(M5-11 M5-09'da bulunan §5 ihlali için kullanıcı kararıyla açıldı → toplam 82'den 83'e)*
 

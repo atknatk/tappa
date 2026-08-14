@@ -192,7 +192,7 @@ func newPanelHarness(t *testing.T) *panelHarness {
 	if err != nil {
 		t.Fatalf("billing.NewBook: %v", err)
 	}
-	h, err := NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, venues, plaques, entries, rules, newFakeScribe(), books, cfg, slog.New(slog.DiscardHandler))
+	h, err := NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, venues, plaques, entries, rules, newFakeScribe(), books, newFakeTexts(), cfg, slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}
@@ -419,6 +419,19 @@ func TestPanelE2E_SignInAndOut(t *testing.T) {
 	// SECTION TABLE rather than against a sentence, so this stays true as the
 	// sections are filled in one by one.
 	for _, sec := range pages.PanelSections {
+		// 🔴 AN OperatorOnly SECTION IS THE ONE THING A CUSTOMER'S PANEL MUST *NOT*
+		// OFFER (M7-06), so the assertion is INVERTED for it rather than skipped. This
+		// admin signed up through the product and is on nobody's operator allow-list;
+		// a panel that showed them "Tappa legal texts" would be offering a customer the
+		// controls for Tappa's own published documents. Turning the loop's one lost
+		// case into an asserted absence keeps the sweep total.
+		if sec.OperatorOnly {
+			if strings.Contains(panel, htmlText(sec.Label)) {
+				t.Fatalf("a real signed-up customer's panel offers the %q section, which "+
+					"publishes TAPPA's own legal documents", sec.Label)
+			}
+			continue
+		}
 		// htmlText, not the raw label: "Locations & Wall Tags" reaches the page as
 		// "Locations &amp; Wall Tags", and the first version of this loop compared the
 		// unescaped string and failed on exactly that section.

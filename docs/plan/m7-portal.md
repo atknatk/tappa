@@ -742,3 +742,253 @@ karşılamaz ve karşıladığını iddia etmez.
 > ⚠️ Onay ekranının metni `TestSignupDone_PromisesNoPanelSurfaceForTheVATCheck` ile
 > ürüne bağlı: bir sorgu sütunu okumaya başladığı gün test kısıtı **kendiliğinden**
 > kaldırıyor, yani cümleyi geri yazmak serbest kalıyor.
+
+---
+
+## M7-06 — Yasal metinlerin operatör formu
+
+- **Bağımlılık:** M7-01 (dört iskelet + `pages.LegalPages`) · M6-02 (panel kabuğu) ·
+  M6-01 (`adminauth` oturumu)
+- **Kırmızı çizgi:** §4.3 (append-only + `audit_log`) · §4.5 (çapraz-tenant yeteneği
+  doğmamalı) · §4.7 (adres loglanmaz)
+- **Commit:** `feat(legal): publish Tappa's own legal texts from the panel`
+
+**Amaç.** M7-01'in **dört yasal metnini** (şirket künyesi · veri sorumlusu +
+iletişim · saklama süreleri · sözleşme/fatura şartları) **bir formdan** girilebilir
+kılmak. Bugün `web/templates/pages/legal.templ` onları iskelet olarak basıyor ve
+*"Nothing on this page is in force. It is a placeholder…"* diyor; üç oturumdur
+kullanıcı bekleniyor ve beklemenin sebebi unutkanlık değil **yapı**: metni girmenin
+tek yolu Go kaynağını düzenlemekti.
+
+**Kapsam dışı.** Metinlerin **içeriğini** yazmak (kullanıcının işi) · zengin editör ·
+önizleme/taslak durumu · sürüm karşılaştırma ekranı · tenant düzeyi ayarlar (M7-05).
+
+**Kabul kriterleri.**
+- Panelden dört belgenin her biri ayrı ayrı **yayımlanabiliyor**; yayımlanan metin
+  herkese açık `/legal/<slug>` sayfasında görünüyor ve o sayfa *"yayımlanmadı"*
+  demeyi bırakıyor.
+- **Kısmi durum doğru:** birini yayımlamak diğer üçünün sayfasında **tek kelimeyi**
+  değiştirmiyor, ve `robots` değeri **belge başına** türetiliyor.
+- Yazan kişi bir **izin listesinden** doğrulanıyor; liste **boşken hiç kimse**
+  giremiyor (fail-closed), ve reddediş hem gezinmede hem **rotada** var.
+- Her yayımlama `audit_log`'a düşüyor, yazma yolunda **`RecordTx` ile aynı
+  transaction'da**.
+- Metin **HTML olarak yorumlanmıyor**; `templ.Raw`'a gidilmiyor.
+- Yeni tablo §6'nın beşlisini karşılamıyorsa **ADR** ile gerekçelendiriliyor ve
+  `redline-check` muafiyeti gürültülü.
+
+**Tuzaklar.**
+- 🔴 **Bu projede süper admin YOK ve icat edilmemeli.** `admin_users.role` kapalı
+  sözlüğü `('owner','manager')` (00006:66) ve ikisi de **tenant kapsamlı**; o sözlüğü
+  **policy motoru** okuyor (`actor:role`). Üçüncü bir değer, motorun kuralı olmayan
+  bir değerdir — üstelik her tap'in nasıl yargılandığına karar veren yolda.
+- 🔴 **"Tappa'nın kendi tenant'ı" §4.5'i ihlal eder.** Operatörün hesabı bir
+  **müşteri** tenant'ında; içerik başka bir tenant'ta olsaydı yazma yolu
+  `WithTenant(başkasınınTenantı, …)` olmak zorundaydı. Bu yetenek doğmamalı.
+- 🔴 **Herkese açık `/legal/*` bir OKUMA yolu ve `Marketing` yapısal olarak
+  havuzsuz.** O tipin *"no `*db.DB` → it cannot make a database query,
+  structurally"* iddiası ve **oran sınırı olmaması** aynı cümleye dayanıyor: *"it
+  touches no pool"*. Oraya istek başına bir `SELECT` koymak, ürünün en çok taranan
+  URL'ini check-in'in paylaştığı havuza bağlar.
+- ⚠️ **`templ.Raw` bu repoda ölçülmüş bir kör nokta** — sıfır çağrı yeri, ve `.templ`
+  tarayan **on iki** testin hiçbiri bir ilkini görmez.
+- ⚠️ **Metin girilmemişken sayfanın söylediği şey DOĞRU.** *"Nothing on this page is
+  in force"* dürüst bir cümledir; kaldırılacağı tek an, o belge için biri metin
+  yayımladığı andır.
+
+> **Sevk edildi (2026-08-14) — migration 00020, [ADR 0016](../adr/0016-tenant-kapsamsiz-operator-icerigi.md).**
+> Üç ölçüm karara bağlandı; her birinde **elenen şıkkın fiyatı** yazılı.
+>
+> 0. **🔴 2. TURDA GERİ ÇEKİLEN CÜMLE: *"EKRAN HİÇBİR TENANT'IN VERİSİNE BAKMAZ"*.**
+>    Bağımsız göz tek adımda çürüttü: `legalView → a.chrome() → a.queue.Pending(ctx,
+>    id.TenantID())` **gerçek bir sorgudur** ve cevabı sayfanın Review sekmesinde basılı
+>    (denetçi `100+` gördü). **§4.5 ihlali DEĞİL** — okunan tenant çağıranın **kendisi**.
+>    Ama görevin bütün kırmızı-çizgi argümanı o cümleye dayandırılmıştı, yani bu tam
+>    olarak bu projenin **imza kusuru**: sağlanmayan bir garantiyi beyan etmek.
+>    **Sevk edilen dar cümle:** *"düzenlenen BELGELERİN `tenant_id`'si yok; ekranın
+>    adlandırdığı tek tenant — audit satırında ve panel kabuğunda — çağıranın kendisidir."*
+>    Üç yerde düzeltildi (`legaladmin.go` iki yer, `m9-sonrasi.md`).
+>
+> 1. **🔴 METİNLER TENANT KAPSAMSIZ BİR TABLODA — VE ELEYEN ÖLÇÜM §4.5.**
+>    `legal_documents` (`id · slug · body · published_at · published_by`), `tenant_id`
+>    **yok**. Elenen şık *"Tappa'nın kendi tenant'ı"*ydı ve fiyatı bir tercih değil bir
+>    **yetenek**: operatörün admin hesabı bir müşteri tenant'ında yaşıyor, dolayısıyla
+>    yazma yolu müşteri kimliğiyle ulaşılabilen bir handler'da
+>    `WithTenant(başkasınınTenantı, …)` çağırmak zorunda kalırdı. Kaçınmanın tek yolu
+>    **ikinci bir hesap ve ikinci bir giriş**ti. Seçilen şıkta çağıran **hiçbir zaman**
+>    kendi tenant'ından başkasını adlandırmıyor. **Yapısal kanıt üretilen tiplerin
+>    üstünde:** `store.PublishLegalDocumentParams`'ta `TenantID` alanı **yok**,
+>    `ListPublishedLegalDocuments` yalnız `ctx` alıyor
+>    (`TestLegalStore_CannotNameATenantAtAll`, **bağımsız** pozitif kontrolüyle —
+>    `RecordAuditEventParams` bir tenant alanı taşımak **zorunda**, taşımıyorsa tarama
+>    yanlış yere bakıyordur).
+>    §6 istisnası **gürültülü**: muafiyet `redline-check.sh`'in kendi sözdizimiyle
+>    (`-- redline: no-tenant-scope(legal_documents) — …`) yazıldı ve her koşuda
+>    **WARN** basıyor. **Bu, o mekanizmanın repodaki İLK kullanımı** — script yazıldığından
+>    beri muaf edecek bir şey yoktu. ⚠️ Muafiyet **beşli denetimin tamamını atlar**, o
+>    yüzden RLS (`ENABLE`+`FORCE`+`USING (true)`) **gönüllü** yazıldı ve **canlı
+>    katalogda** test ediliyor. Tablo append-only: `REVOKE UPDATE, DELETE` + 0005'in
+>    trigger'ı; `published_by`'da **FK yok** (FK denetimi RLS'i görmez → çapraz-tenant
+>    varlık kehaneti olurdu, `audit_log.actor_id` emsali).
+>    🔴 **VE MUAFİYETİN GERÇEK FİYATI 2. TURDA ÖLÇÜLDÜ: YAZMA TARAFINDA DB DERİNLİĞİ
+>    YOK.** Yabancı bir tenant bağlamında, `tappa_app` olarak, `INSERT INTO
+>    legal_documents` **başarılı** (50→51→ROLLBACK); aynı bağlamda `admin_users` ve
+>    `tenants` **0 satır**. Yani ürünün her yerindeki **kuşak+kemer** (RLS + açık tenant
+>    filtresi) burada **yok ve olamaz** — *"kim yazabilir"* sorusunun **tek** cevabı
+>    uygulama izin listesidir. Migration'ın *"yazma yetkisi GRANT'ta"* cümlesi
+>    **yanıltıcıydı** (GRANT kimseyi ayırmıyor) ve düzeltildi. Ayakta kalan koruma:
+>    **append-only** (yanlış yazılan satır gizlenemez) ve `slug` CHECK'i.
+>
+> 2. **🔴 KİM YAZABİLİR: `TAPPA_OPERATOR_ADMIN_IDS` — VE ORKESTRATÖRÜN KARARININ YARISI
+>    ÖLÇÜMLE ÇÜRÜTÜLDÜ.** *"Env izin listesi"* yarısı **ayakta**; *"e-posta"* yarısı
+>    **kırıldı**. Bunu bulan şey benim ölçümüm değil, `tappa-security-auditor`'un uçtan
+>    uca sömürüsü oldu ve bu kayda geçiyor: **`admin_users` e-posta tekilliği TENANT
+>    BAŞINADIR** (`UNIQUE (tenant_id, email)`), `/signup` **herkese açıktır**, ve repoda
+>    **hiçbir e-posta doğrulaması yoktur**. Yani izin listesindeki bir adresi bilen
+>    herkes o adresle **kendi işletmesini kaydedip** ekrana girebiliyordu. **Ölçüldü:**
+>    yabancı tenant, rol *manager*, `GET /admin/legal` → **200**, `POST` → **303**,
+>    yayımlanmış gizlilik politikası **değiştirildi**. Genel ifade: **bir izin listesi
+>    ancak anahtarının tekilliği kadar değerlidir.**
+>    **Sevk edilen anahtar `admin_users.id`:** PRIMARY KEY, **global tekil**, ve değeri
+>    **veritabanı** atıyor (`gen_random_uuid()`; `signup` onu INSERT'ten *geri okuyor*,
+>    seçmiyor) — hiçbir form/başlık/kayıt akışı **beyan edemez**. Regresyon:
+>    `TestOperatorGate_IsNotJoinableByRegisteringABusiness`.
+>    ✅ **Rekey bir yan fayda getirdi:** `AdminUserID` çözümlenen kimlikte **zaten
+>    vardı**, dolayısıyla ilk sürümün ölçülmüş *"`TouchAdminSession`'a bir sütun ekle"*
+>    takası **tamamen geri alındı** — `db/queries/admins.sql`, `internal/store/admins.sql.go`
+>    ve `adminauth.Resolved` bu görevden **hiç etkilenmiyor** (`git diff` boş), ve
+>    panelde kişisel veri genişlemesi olmadı.
+>    ⚠️ **ERGONOMİ KAPATILDI:** reddetme sayfası **çağıranın KENDİ** admin id'sini basıyor
+>    (*"TAPPA_OPERATOR_ADMIN_IDS bunu alır"*), yani kullanıcı veritabanına inmiyor. Bir
+>    admin id'si sır değildir; sayfa izin listesini, boş olup olmadığını ya da başka bir
+>    admin'i **asla** basmıyor (`TestOperatorRefusal_ShowsTheCallerTheirOWNIdAndNobodyElses`).
+>    **Gate iki kez soruluyor ve ikisi birbirinin yerine geçmiyor** (M6-12'nin dersi):
+>    sekme `PanelSection.OperatorOnly` ile gizleniyor, rota **mount edilmiş kalıyor** ve
+>    handler **403** veriyor (chi'den 404 **değil**). **Fail-closed mutasyonla
+>    kanıtlandı.**
+>
+> 2b. **🔴 DENETİMİN İKİNCİ BULGUSU: YAZMA YOLU PANELİN GÖVDE SINIRI OLMAYAN TEK POST'UYDU.**
+>    Diğer sekiz panel POST'u 4–16 KiB bağlıyor; bu `r.ParseForm()`'u çıplak çağırıyordu,
+>    yani Go'nun 10 MiB'ı. **Ölçüldü:** 1/4/9 MiB gövdeler **kabul edildi ve saklandı**;
+>    tablo append-only olduğu için **temizlik yolu yok** (yalnız yeni migration), ve
+>    `adminSessionLimit` ile oturum başına **~2,7 GB/pencere**. İkinci yarısı **herkese
+>    açık sayfaydı**: 9 MB'lık gövde **anonim GET başına 253 ms** CPU (9 MB düzyazı
+>    9,5 ms — fark `normalizeNewlines`'ın `for strings.Contains(…)` döngüsü).
+>    **Üç düzeltme:** `http.MaxBytesReader` **256 KiB** (diğer sekizle aynı desen,
+>    `MaxBytesError` dalı ve kendi cümlesiyle) · paragraf bölme **yayım anında bir kez**
+>    (anlık görüntüde saklanıyor) · `normalizeNewlines` **tek geçiş**.
+>
+> 2c. **⚠️ VE İKİ KÜÇÜK BULGU DAHA KAPATILDI.** (a) `published_by` **her tenant'ın
+>    bağlantısı tarafından okunabiliyordu** (tablo tenant kapsamsız, politika
+>    `USING (true)`; denetim yabancı bağlamda 37 satır okudu, aynı bağlamda `admin_users`
+>    0) — ADR 0016 §4'ün FK'yi reddettiği kehanetin zayıf bir sürümü. 00020 artık **sütun
+>    düzeyinde** yetki veriyor: `INSERT (slug, body, published_by)` ama
+>    `SELECT (id, slug, body, published_at)` — uygulama yazar, **hiç okuyamaz**.
+>    (b) `Publish` anlık görüntüyü commit'ten sonra kuruyordu, yani eşzamanlı iki
+>    yayımlama **geriye** gidebiliyordu; yayımlama artık bir mutex altında seri
+>    (yol ömürde birkaç kez koşuyor, `Published()` kilitsiz atomic kalıyor).
+
+> 3. **🔴 RENDER: `[]string` + `for` + `{ }`. `templ.Raw`'a GİDİLMEDİ.** Ölçüldü:
+>    `{ expr }` → `templ.EscapeString` → `html.EscapeString` (beş karakter), ve satır
+>    sonlarına **hiçbir şey yapmıyor** — yani metin escape'li ama tek paragraf olurdu.
+>    `internal/domain/legal.Paragraphs` boş satırlarda bölüp **string** döndürüyor;
+>    şablon üstünde dönüyor. `templ.Raw` bu repoda **sıfır** çağrı yerine sahip ve
+>    `.templ` tarayan **on iki** testin **hiçbiri** bir ilkini görmez
+>    (`policies_test.go` kendi kör noktasını yazıyor). ⚠️ **CRLF tuzağı gerçek:**
+>    tarayıcı `<textarea>`'yı CRLF ile gönderir, yani yalnız `\n\n` bilen bir bölücü
+>    tam da hizmet ettiği tek girdide **hiç paragraf bulamaz**. Mutasyonla doğrulandı.
+>    Markdown **reddedildi**: bağımlılık ister (go.mod'da beş var, sanitizer yok) ve her
+>    ciddi renderer HTML üretir — yani fazladan adımlı bir `templ.Raw`.
+>
+> 4. **⚠️ HERKESE AÇIK YOL HAVUZA DOKUNMUYOR — VE BU BİR KARARDI.** `handler.Marketing`
+>    üçüncü bir alan aldı (`legalReader`) ve `TestMarketing_HandlerHoldsNoStatefulDependency`'nin
+>    izin listesine **gerekçesiyle** eklendi. Alan bir **anlık görüntü okuyucusu**:
+>    tek metodu **`context.Context` almıyor ve `error` döndürmüyor** — iptal edilemeyen
+>    ve başarısız olamayan bir metot I/O yapmıyordur. `TestLegalReader_CannotReachTheDatabase`
+>    imzayı reflection'la okuyor, **bağımsız pozitif kontrolüyle** (`panelTexts.Publish`
+>    hem argüman hem `error` taşımak zorunda). **Elenen şık:** `/legal/*`'a istek başına
+>    `SELECT`. Fiyatı sayıldı: o sayfaların **oran sınırı yok** ve bu, `marketing.go`'nun
+>    *"it touches no pool"* cümlesine dayanıyor; oraya bir sorgu koymak ürünün en çok
+>    taranan URL'ini **check-in'in paylaştığı havuza** bağlardı.
+>    ⚠️ **ANLIK GÖRÜNTÜNÜN FİYATI, kapatılmadan sayıldı:** yayımlayan **süreç**
+>    tazeliyor. **İkinci bir süreç** yeniden başlayana kadar eski metni sunar. Bugün tek
+>    VPS (§1) → tek süreç; ikinci süreç bunu **yanlış** yapar ve çaresi `Store.Refresh`'i
+>    bir zamanlayıcıya bağlamaktır. Boot okuması **ölümcül değil**: başarısızsa dört sayfa
+>    M7-06 öncesi hâllerine düşer (*"yayımlanmadı"*) — **eksik iddia** eder, ki bu ürünün
+>    yanılması gereken yön.
+>
+> 5. **⚠️ BOOT OKUMASI HİÇBİR TENANT ADLANDIRMIYOR.** `WithTenant` nil uuid'i reddediyor
+>    ve açılışta doğal bir tenant yok. İki aday vardı: **gerçek bir tenant** (callback
+>    canlı bir müşterinin satırlarını görürdü) ve **hiçbir tenant'la eşleşmeyen bir
+>    uuid**. İkincisi seçildi: o bağlamda RLS kapsamlı **her** tablo sıfır satır döner,
+>    yani ulaşılabilen tek şey politikası `USING (true)` olan tablodur.
+>    `TestLegalDB_RefreshNeedsNoTenantAndSeesNothingElse` iki yönü de ölçüyor (metin
+>    okunuyor; `admin_users` sayımı **0**).
+>
+> 6. **⚠️ SAYFANIN SÖYLEDİĞİ HER CÜMLE, VE KISMİ DURUM.** *"Nothing on this page is in
+>    force"* **belge başına** kalkıyor; `Published()` tanımı `len(Needs)==0`'dan
+>    **`len(Body)>0`**'a taşındı (eski tanım, metinler Go kaynağındayken doğruydu).
+>    `robots` aynı olgudan türüyor, yani biri yayımlanınca **o sayfa** indekslenebilir
+>    olur, diğer üçü **noindex** kalır.
+>    `TestLegalPages_PublishingOneDocumentChangesThatDocumentAndNoOther` diğer üç sayfayı
+>    **bayt bayt** karşılaştırıyor.
+>    ⚠️ **İDDİA EDİLMEYEN ŞEY:** metnin **yeterli** olduğu. Ürün bir gizlilik politikasını
+>    yargılayamaz; garanti dar — sayfa *"yayımlanmadı"* demeyi **ancak biri kasten
+>    yayımladığı için** bırakır. Operatör *"TODO"* yapıştırırsa sayfa onu basar.
+>
+> 7. **⬜ KAPATILMAYAN, FİYATIYLA.** (a) **Sürüm geçmişi ekranı yok** — tablo append-only,
+>    yani her sürüm duruyor, ama onu **gösteren** hiçbir sorgu/ekran yok; ayrıca
+>    `published_by` **uygulama rolü tarafından okunamıyor** (00020 sütun yetkisi), yani
+>    *"bu metni kim yayımladı"* sorusu ürün içinde cevaplanamaz — cevabı `tappa_owner`
+>    ile bir adli okuma ya da tenant başına `audit_log`. Fiyatı: bir sorgu + bir ekran
+>    (+ okumanın istenip istenmediği kararı). (b) **Yayımlamanın geri alması yok** —
+>    düzeltme yeni satırdır ve doğrusu budur, ama *"yanlışlıkla yayımladım, iskelete
+>    dönsün"* yolu **yok**; fiyatı ya bir `withdrawn_at` sütunu (append-only'yi bozar)
+>    ya da *"boş metin"* kavramı (00020'nin CHECK'i bilerek reddediyor).
+>    (c) **Yayımlama oran sınırlı değil** — panelin `sessionGate`'i (10 dk'da 300) ve
+>    artık **256 KiB gövde tavanı** iki fren; en kötü hâl oturum başına ~75 MB/pencere
+>    (öncesi ~2,7 GB) ve tablo hâlâ temizlenemiyor. (d) `TestLegalScreen_*` **ekran
+>    metnini** denetler, **doğruluğunu** değil. (e) **Anlık görüntü tek süreç
+>    varsayar** — 4. maddedeki sınır.
+>
+> 7b. **🔴 MUTASYON SAYISI 2. TURDA DÜZELTİLDİ: "10/10" YANLIŞTI, GERÇEĞİ 9/10 İDİ.**
+>    Bağımsız göz sağ kalan mutasyonu buldu: `marketing.go`'da `v.Body =
+>    legal.Paragraphs(d.Body)` (render'da **yeniden bölme**) — çıktı **birebir aynı**
+>    olduğu için hiçbir davranış testi göremez, ve iki paket de yeşil kalıyordu. Yani
+>    ADR 0016 §6'nın üç düzeltmesinden biri (**precompute**) render ağında tutulmuyordu.
+>    **Kapatıldı, sınır olarak yazılmadı:** iddia davranışsal değil **yapısal** olduğu
+>    için kanıtı da yapısal — `TestLegalPublicPath_WritesNothing`'in zaten `marketing.go`'yu
+>    gezen go/ast taraması artık `.Publish` yanında **`.Paragraphs`** çağrısını da
+>    reddediyor (aynı anti-vacuity kancası: tarama `.Published`'ı görmezse zaten
+>    `t.Fatal`). **Mutasyonla doğrulandı:** eski satır geri konunca test
+>    `marketing.go:237` diyerek kırmızıya dönüyor. **Sayı artık 11 mutasyon / 11
+>    yakalandı** — ve bu satır, elle tutulan bir sayının bu repoda kaçıncı kez
+>    bayatladığının kaydıdır.
+>
+> 7c. **⬜ ÖLÇÜLDÜ, KARAR KOORDİNATÖRÜN: `REVOKE INSERT (id) ON admin_users`.**
+>    İzin listesinin anahtarı artık `admin_users.id`, ve `tappa_app` **ayrıcalık
+>    düzeyinde** hâlâ seçtiği id ile satır ekleyebiliyor (denetçi ölçtü). **Bugün
+>    kapalı ama sorgu metniyle kapalı:** üretimde `admin_users`'a **tek** INSERT var
+>    (`CreateAdminWithTenant`, `db/queries/admins.sql:306`) ve `id` sütununu
+>    **adlandırmıyor** — başka üretim yolu yok.
+>    **Kapatmanın ölçülen fiyatı:** `id`'yi açıkça yazan **~20 test dosyası** var
+>    (`internal/db`, `internal/adminauth`, `internal/handler`, `internal/domain/`
+>    signup/billing/tenant/legal) ve hepsi `tappa_app` olarak koşuyor → bir REVOKE
+>    hepsini kırar, yani M7-06'nın kapsamından çok daha geniş bir fixture yeniden
+>    yazımı.
+>    **Ve kazancı ölçülünce küçülüyor:** `INSERT (id)`'yi sömürebilen saldırgan zaten
+>    `tappa_app` olarak keyfî SQL koşturabiliyordur, ve o saldırgan `legal_documents`'a
+>    **doğrudan** yazabilir (1. maddedeki *"yazma tarafında DB derinliği yok"* ölçümü) —
+>    yani REVOKE o tehdit modeline karşı **artımlı hiçbir şey** kazandırmıyor.
+>    **Önerim: migration DEĞİL, M9-08'e limit.** Kapsam kararı koordinatörün; migration
+>    00021 istenirse yazılır.
+>
+> 8. **🔴 GÜVENLİK DENETİMİ İKİ BLOKLAYAN BULGU ÇIKARDI VE İKİSİ DE BU GÖREVDE
+>    KAPANDI** — ayrıntı 2. ve 2b/2c maddelerinde. Ders olarak yazılıyor çünkü ikisi de
+>    **benim ölçtüğüm şeyin yanındaki** şeydi: (i) anahtarın **maliyetini** ölçtüm
+>    (e-posta çözümlenen kimlikte yok → bir sütun), **tekilliğini** ölçmedim; (ii) yazma
+>    yolunun **yetkisini** ve **transaction'ını** ölçtüm, **gövde boyutunu** ölçmedim —
+>    oysa diğer sekiz panel POST'unun hepsinde o sınır var, yani bu *"kalıbın yarısını
+>    kopyalama"* kusurunun bir başka örneğiydi. **Genel kural:** bir izin listesi
+>    eklerken *"anahtarı kim atıyor"* sorusu *"anahtarı nereden okuyorum"* sorusundan
+>    önce gelir.

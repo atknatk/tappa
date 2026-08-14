@@ -229,6 +229,13 @@ func panelTabs(c PanelChrome) []components.Tab {
 		if s.OwnerOnly && c.Role != adminRoleOwner {
 			continue
 		}
+		// 🔴 THE SAME FILTER, THE SAME PLACE, THE SECOND QUESTION (M7-06). OperatorOnly
+		// asks whether this person runs the deployment rather than which role they hold
+		// in a business; see PanelSection.OperatorOnly for why that is a separate flag.
+		// Filtering here and nowhere else keeps the routing table whole.
+		if s.OperatorOnly && !c.Operator {
+			continue
+		}
 		t := components.Tab{Label: s.Label, Href: s.Href}
 		if s.Tab == TabReview {
 			t.Badge = c.Pending.Label()

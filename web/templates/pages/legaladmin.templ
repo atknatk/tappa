@@ -1,0 +1,145 @@
+package pages
+
+import "github.com/atknatk/tappa/web/templates/components"
+
+// The OPERATOR's legal-text screen (M7-06) — four textareas and a Publish button.
+//
+// 🔴 WHAT THIS SCREEN IS NOT: it is not a rich editor, not a preview and not a
+// staging area. A legal document is published or it is not, and anything between
+// those two states is a state the public page would have to describe. So there is
+// one control per document and pressing it changes what a stranger reads.
+//
+// 🔴 EVERY VALUE ON THIS PAGE GOES THROUGH `{ }` — including the text the operator
+// typed, which is re-shown in the textarea. That is the same escaping the public
+// page relies on, applied on the way back in, so a document containing markup
+// cannot break this form either.
+//
+// skill tappa-brand governs the surface: the paper card frame, docket labels in
+// small uppercase, mono for anything that is data (dates), and the fixed
+// status-to-colour mapping — a document that is live is tappa-green, one that is
+// still waiting is saffron. Neither state is carried by colour alone: each says its
+// own word.
+templ AdminLegal(v LegalAdminView) {
+	@PanelShell(v.PanelChrome) {
+		@legalAdminIntro(v)
+		if v.Problem != "" {
+			@components.Notice(components.ToneAlert, "That was not published") {
+				<p>{ v.Problem }</p>
+			}
+		}
+		if v.Saved != "" {
+			@components.Notice(components.ToneOK, "Published") {
+				<p>
+					{ v.Saved } is now the text on its page. It replaced whatever was
+					there before; the previous version is kept and nothing was deleted.
+				</p>
+			}
+		}
+		for _, d := range v.Docs {
+			@legalAdminEditor(v, d)
+		}
+	}
+}
+
+// legalAdminIntro says whose documents these are and what pressing Publish does.
+//
+// 🔴 IT NAMES THE AUDIENCE IN THE FIRST SENTENCE. This is the only panel section
+// whose subject is not the signed-in business, and an operator who forgets that for
+// one moment publishes Tappa's privacy policy from a customer's dashboard. The
+// screen says so rather than relying on the tab label.
+templ legalAdminIntro(v LegalAdminView) {
+	<section class="bg-paper border border-line px-4 py-4">
+		<p class="docket-label">Tappa's own documents</p>
+		<h2 class="mt-1 font-display text-xl font-bold tracking-tight">
+			What /legal publishes
+		</h2>
+		<p class="mt-2 max-w-2xl text-sm text-ink/85">
+			These four texts belong to Tappa, not to this business, and everyone who
+			opens the site reads them. Nothing here is scoped to the business you are
+			signed in to and nothing here reads its records.
+		</p>
+		<p class="mt-2 max-w-2xl text-sm text-ink/85">
+			Type or paste the finished text and press Publish. The page it belongs to
+			stops saying "not published yet" the moment you do, and starts being
+			offered to search engines. Each document is separate: publishing one leaves
+			the other three exactly as they were.
+		</p>
+		<p class="mt-3 font-mono text-sm">
+			{ legalProgress(v) }
+		</p>
+	</section>
+}
+
+// legalProgress is the one-line count, DERIVED from the rows below it so the two
+// cannot disagree. It is a sentence rather than a bare fraction because "2 / 4" on
+// its own does not say which two are live.
+func legalProgress(v LegalAdminView) string {
+	switch {
+	case len(v.Docs) == 0:
+		return "No documents."
+	case v.AllPublished():
+		return "All four documents are published."
+	case v.PublishedCount() == 0:
+		return "None of the four is published yet — every page still shows its placeholder."
+	default:
+		return itoa(v.PublishedCount()) + " of " + itoa(len(v.Docs)) +
+			" published; the rest still show their placeholder."
+	}
+}
+
+// legalAdminEditor is one document: its state, what it is waiting for, and the box.
+templ legalAdminEditor(v LegalAdminView, d LegalEditor) {
+	<section class="bg-paper border border-line px-4 py-4">
+		<div class="flex flex-wrap items-baseline justify-between gap-2">
+			<h3 class="font-display text-lg font-bold tracking-tight">{ d.Title }</h3>
+			@legalAdminState(d)
+		</div>
+		<p class="mt-1 max-w-2xl text-sm text-ink/85">{ d.Lede }</p>
+		if !d.Published && len(d.Needs) > 0 {
+			<p class="mt-4 docket-label">This page currently tells the reader it is waiting for</p>
+			<ul class="mt-2 flex flex-col gap-2 text-sm text-ink/85">
+				for _, n := range d.Needs {
+					<li class="border-l-2 border-saffron pl-3">{ n }</li>
+				}
+			</ul>
+		}
+		<form method="post" action={ templ.URL(v.PostHref) } class="mt-4 flex flex-col gap-2">
+			<input type="hidden" name="slug" value={ d.Slug }/>
+			<label class="docket-label" for={ "legal-body-" + d.Slug }>The text</label>
+			<textarea
+				class="filter-input"
+				id={ "legal-body-" + d.Slug }
+				name="body"
+				rows="12"
+				spellcheck="true"
+				aria-describedby={ "legal-help-" + d.Slug }
+			>{ d.Body }</textarea>
+			<p class="text-xs text-ink/70" id={ "legal-help-" + d.Slug }>
+				Leave a blank line between paragraphs. Everything is shown as plain
+				text — no formatting is interpreted, so anything you paste appears
+				exactly as you typed it.
+			</p>
+			<div>
+				<button class="btn" type="submit">Publish { d.Title }</button>
+			</div>
+		</form>
+	</section>
+}
+
+// legalAdminState is the small "live" / "not published" marker.
+//
+// It is NOT a docket stamp. The stamp motif belongs to a RECORD of something that
+// happened (skill tappa-brand: "islem kayitlari perforeli fis karti"), and a
+// document's current state is not an event. The colour follows the same fixed
+// mapping and the word carries the meaning on its own.
+templ legalAdminState(d LegalEditor) {
+	if d.Published {
+		<span class="border border-tappa-green bg-tappa-green/10 px-2 py-1 docket-label text-ink">
+			Live since <span class="font-mono">{ d.PublishedAt }</span>
+		</span>
+	} else {
+		<span class="border border-saffron bg-saffron/10 px-2 py-1 docket-label text-ink">
+			Not published
+		</span>
+	}
+}

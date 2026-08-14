@@ -114,3 +114,61 @@ kaynak eşleme) müşteriye açar — pilot öncesi gereksiz risk ve iş.
 - Nicel sınırlar (belge boyutu, ifade sayısı, kota) editörde gösteriliyor.
 - Kaydetmeden önce **M9-06 simülasyonu** zorunlu adım.
 - Sürüm geçmişi ve geri alma; düzenleme yeni sürüm üretiyor.
+
+---
+
+## M9-08 — Operatör paneli
+
+- **Bağımlılık:** M7-06 (dar sürüm sevk edildi) · M8 (pilot)
+- **Kırmızı çizgi:** **§4.5** — bu görev, ürünün tenant izolasyonunu **bilerek aşan ilk yüzeyi** olur.
+- **Commit:** `feat(operator): add the operator console`
+
+**Neden var.** Kullanıcı kararı (2026-08-14): *"operatör paneli yapılır oradan kontrol edilir."*
+M7-06 **dar** bir sürüm sevk etti — `.env`'deki `TAPPA_OPERATOR_ADMIN_IDS` listesi, var olan
+admin girişi, ve **tek** bir ekran (yasal metinler). O sürümün bilinçli sınırı şudur:
+**başka hiçbir tenant'ı adlandıramaz** — düzenlediği belgelerin `tenant_id`'si yoktur ve
+yazdığı `audit_log` satırı **çağıranın kendi** tenant'ınadır.
+⚠️ *"Hiçbir tenant'ın verisine bakmaz"* diye yazılmıştı ve **yanlıştı** (M7-06 2. tur):
+ekran panel kabuğunu render ediyor, kabuk da `queue.Pending(ctx, id.TenantID())` ile
+**çağıranın kendi** kuyruk sayısını okuyor — Review sekmesindeki rakam odur. §4.5 ihlali
+değil, ama iddia dar olanla değiştirildi. Operatörün gerçekten ihtiyaç duyduğu işler bunun
+dışında ve **her biri §4.5'i aşar**.
+
+**Kapsam — M7-06'nın ve diğer görevlerin bu karta yazdığı borçlar.**
+- **Yasal metin sürüm geçmişi.** M7-06 `published_by`'ı **yazıyor ama uygulama rolü okuyamıyor**
+  (sütun düzeyi GRANT, çapraz-tenant okunabildiği için kapatıldı) → *"kim yayımladı"* bugün
+  ürün içinde **cevapsız**. Bir sürüm listesi ve okuma kararı burada.
+- **Geri alma.** M7-06'da yok: `withdrawn_at` append-only'yi bozar, boş metni CHECK reddeder.
+- **Tenant listesi / arama / askıya alma.** Bugün hiçbir yerde yok.
+- **Faturalama operatör tarafı** — M6-12 `price_per_employee_month` ve `plan`'ı `tappa_app`'e
+  **kapattı** (00016), yani onları **yalnız operatör** yazabilir ve bugün o yol **psql**.
+- **VAT doğrulamasının yeniden koşturulması** — M7-02'nin (c) limiti: VAT sütunlarında UPDATE
+  yetkisi yok, zaman aşımına uğrayan kontrol tekrarlanamıyor (M7-05'e de yazılıydı).
+- **Plaket envanteri.** Plaketi Tappa encode edip yüklüyor (kullanıcı kararı 2026-08-08) ve
+  `tags` satırını bugün **operatör elle** yazıyor; `unassigned` statüsü (00013) bunun için var.
+
+🔴 **Bu kartın en önemli maddesi kapsam değil, SINIRIN NASIL KURULACAĞI.**
+Bir operatör paneli tanımı gereği tenant sınırını aşar, ve bu ürünün **varlık sebebi** o sınır
+(§4.5). M7-06'nın ölçtüğü üç şey burada başlangıç noktasıdır:
+1. **Bir izin listesi, anahtarının tekilliği kadar değerlidir.** M7-06'nın ilk sürümü e-postayı
+   anahtar aldı ve **sömürüldü**: `admin_users` e-posta tekilliği **tenant başına**, `/signup`
+   herkese açık, e-posta doğrulaması **yok** → adresi bilen herkes o adresle kendi işletmesini
+   kaydedip girdi (uçtan uca ölçüldü). Anahtar `admin_users.id`'ye taşındı (PK, global, **veritabanı
+   atıyor**). **Aynı hata rol tabanlı bir tasarımda tekrarlanabilir.**
+2. **Rota mount edilmiş kalır, handler 403 verir** — 404 filtrenin routera taşındığı anlamına
+   gelir ve M6-12'nin dersi bunun tersini söylüyor: *"gezinmede gizlemek nezaket yarısıdır;
+   sunucu rotayı kendisi reddeder, ve ikisi birbirinin yerine geçmez."*
+3. **Boş liste = hiç kimse** (fail-closed), ve bu **ölçülerek** kanıtlanır.
+
+⚠️ **Ve bir rol eklemek serbest değil:** `admin_users.role` **kapalı bir sözlük**
+(`'owner','manager'`, 00006:66) ve onu **policy motoru okuyor** (`actor:role`). Yeni bir rol,
+motorun o rol karşısında ne yapacağı kararını da beraberinde getirir — M3-06'nın fail-closed
+varsayılanı burada bir **özellik**, ama sessizce miras alınamaz.
+
+**Kabul kriterleri.**
+- Operatörün her eylemi `audit_log`'a, ve **hangi tenant adına** yapıldığı okunabilir.
+- Tenant sınırının aşıldığı **her** yer, kodda ve ekranda **adıyla** görünür — sessiz bir çapraz-tenant
+  okuma yok.
+- İzin listesi boşken panel **kimseye** açılmıyor, ve bu bir testle sabitlenmiş.
+- Operatör yüzeyi, müşterinin gördüğü panelden **ayrı bir rota ağacında** (`/operator/*`), ve
+  bir müşteri oturumu oraya **hiçbir koşulda** giremiyor.

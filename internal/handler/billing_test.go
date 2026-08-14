@@ -58,7 +58,7 @@ func billingBrowserWithTrail(t *testing.T, books panelBooks, trail *fakeTrail, r
 	}}
 	h, err := NewAdminAuth(admins, trail, newFakeLedger(), newFakeLedger(), &fakeReviewer{},
 		&fakeStaff{}, &fakeInviter{}, &fakeVenues{}, &fakePlaques{}, &fakeRecorder{}, newFakeRules(),
-		newFakeScribe(), books, adminTestConfig(), slog.New(slog.DiscardHandler))
+		newFakeScribe(), books, newFakeTexts(), adminTestConfig(), slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}
@@ -718,7 +718,7 @@ func billingHandlerFor(t *testing.T, books panelBooks) *AdminAuth {
 	t.Helper()
 	h, err := NewAdminAuth(&fakeAdmins{}, &fakeTrail{}, newFakeLedger(), newFakeLedger(), &fakeReviewer{},
 		&fakeStaff{}, &fakeInviter{}, &fakeVenues{}, &fakePlaques{}, &fakeRecorder{}, newFakeRules(),
-		newFakeScribe(), books, adminTestConfig(), slog.New(slog.DiscardHandler))
+		newFakeScribe(), books, newFakeTexts(), adminTestConfig(), slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}

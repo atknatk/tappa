@@ -18,6 +18,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/atknatk/tappa/internal/policy"
 )
 
@@ -39,6 +41,38 @@ type Config struct {
 	// SEPARATE key from SessionHMACKey on purpose — see keySeparation below for
 	// the measurement and the reasoning.
 	InviteHMACKey []byte // 32 bytes
+
+	// OperatorAdminIDs is who may publish Tappa's OWN legal texts (M7-06): the
+	// privacy policy, the terms, the company details and the cookie notice. It is an
+	// allow-list of admin_users.id values.
+	//
+	// 🔴 IT IS AN id AND NOT AN EMAIL, AND THE FIRST VERSION OF THIS FIELD WAS THE
+	// EMAIL. A security audit broke it end to end, and the break is worth writing out
+	// because it is not obvious: admin_users.email is unique PER TENANT
+	// (admin_users_tenant_email_key is UNIQUE (tenant_id, email)), sign-up is PUBLIC,
+	// and nothing verifies an address. So anybody who knew an allow-listed address
+	// could register their own business with that same address, sign in as its owner,
+	// and reach this screen. Measured: a stranger tenant holding the operator's
+	// address got 200 on GET /admin/legal and 303 on POST, and rewrote the published
+	// privacy policy. An allow-list is only worth the uniqueness of its key, and an
+	// email address in this schema has none.
+	//
+	// admin_users.id is the table's PRIMARY KEY — globally unique — and it is assigned
+	// by the database (gen_random_uuid()), never by a caller: internal/domain/signup
+	// reads it back off the INSERT. There is no registration, form or header that lets
+	// somebody choose it, which is the whole property the old key lacked.
+	//
+	// 🔴 IT IS FAIL-CLOSED AND THE EMPTY LIST IS THE PROOF. Unset means NOBODY may
+	// reach the screen — not everybody. There is no "unconfigured means open" branch
+	// anywhere on this path, and internal/handler's
+	// TestOperatorGate_EmptyAllowListAdmitsNobody drives an admin who IS on the list,
+	// empties the list, and drives them again.
+	//
+	// ⚠️ AN ADMIN id IS NOT A SECRET AND NOT A CREDENTIAL. It is already in every
+	// audit_log row that admin caused, and holding it gets nobody past the password —
+	// which is why the refusal page may show a signed-in admin their OWN id, so the
+	// person who runs this deployment can configure it without a database session.
+	OperatorAdminIDs []uuid.UUID
 
 	GPSRadiusMeters float64
 	Debounce        time.Duration
@@ -150,6 +184,12 @@ func Load() (*Config, error) {
 		push(err)
 	} else {
 		push(trustedProxySanity(c.TrustedProxies, c.IsProd()))
+	}
+	// Unset is the inert value, not an error: a deployment that publishes no legal
+	// text is a deployment where nobody needs the screen. It is inert in the
+	// FAIL-CLOSED direction — see the field comment.
+	if c.OperatorAdminIDs, err = operatorAdminIDs(env("TAPPA_OPERATOR_ADMIN_IDS", "")); err != nil {
+		push(err)
 	}
 	// GPS radius and debounce are BOUNDED parameters (ADR 0004 §11): they read the
 	// SAME min/max the policy engine declares, so a red line cannot be widened
@@ -412,6 +452,51 @@ func prefixes(s string) ([]netip.Prefix, error) {
 				strings.TrimSpace(part), p.Addr().Unmap(), max(p.Bits()-96, 0))
 		}
 		out = append(out, p)
+	}
+	return out, nil
+}
+
+// operatorAdminIDs parses TAPPA_OPERATOR_ADMIN_IDS, the allow-list for the screen
+// that publishes Tappa's own legal texts (M7-06).
+//
+// IT FOLLOWS prefixes ABOVE DELIBERATELY, INCLUDING THE PART THAT HURTS: empty means
+// the inert value rather than an error, one element is parsed at a time, and ONE BAD
+// ELEMENT FAILS THE WHOLE LOAD naming the variable and the element. A list that
+// silently dropped the entry with the typo would hand the operator a screen they
+// cannot reach and no reason why.
+//
+// 🔴 A uuid, NOT AN EMAIL, AND THE REASON IS A MEASURED BREAK — see
+// Config.OperatorAdminIDs. Parsing here is what makes "the caller cannot declare
+// this value" true at start-up rather than at the gate: a malformed entry is a
+// startup failure, so the running server's list contains only real uuids.
+//
+// THE NIL uuid IS REFUSED. It is a valid uuid literal, so a stray placeholder would
+// parse; and while no admin_users row can carry it (the column defaults to
+// gen_random_uuid() and is the PK), refusing it here means the list cannot contain a
+// value whose only possible meaning is "somebody left this unfinished".
+func operatorAdminIDs(s string) ([]uuid.UUID, error) {
+	if strings.TrimSpace(s) == "" {
+		return nil, nil // nobody: the screen exists and admits no one
+	}
+	seen := make(map[uuid.UUID]bool)
+	var out []uuid.UUID
+	for _, part := range strings.Split(s, ",") {
+		raw := strings.TrimSpace(part)
+		if raw == "" {
+			return nil, fmt.Errorf("TAPPA_OPERATOR_ADMIN_IDS: %q: empty entry (a stray comma?)", part)
+		}
+		id, err := uuid.Parse(raw)
+		if err != nil {
+			return nil, fmt.Errorf("TAPPA_OPERATOR_ADMIN_IDS: %q: %w (this is an admin_users.id, not an email address: an email is unique only within one business, so an address-keyed allow-list can be joined by registering a business with that address)", raw, err)
+		}
+		if id == uuid.Nil {
+			return nil, fmt.Errorf("TAPPA_OPERATOR_ADMIN_IDS: %q: the nil uuid names no admin", raw)
+		}
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		out = append(out, id)
 	}
 	return out, nil
 }

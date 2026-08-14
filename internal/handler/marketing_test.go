@@ -63,12 +63,24 @@ import (
 // the same real handler.
 func marketingRouter(t *testing.T) http.Handler {
 	t.Helper()
+	// 🔴 NIL TEXTS, WHICH IS THE STATE THE PRODUCT SHIPS IN AND THE STATE EVERY
+	// ASSERTION IN THIS FILE IS ABOUT (M7-06). Nothing has been published, so all four
+	// legal pages render their skeleton and their "not in force" block — exactly what
+	// M7-01 built and what these tests were written against. A helper that quietly
+	// pre-published four documents would have silently deleted the skeleton coverage.
+	// The published case has its own router below.
+	return marketingRouterWithTexts(t, nil)
+}
+
+// marketingRouterWithTexts is marketingRouter with a legal-document snapshot.
+func marketingRouterWithTexts(t *testing.T, texts legalReader) http.Handler {
+	t.Helper()
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	wizard, err := NewSignup(&fakeProvisioner{}, nil, signupTestConfig(), log)
 	if err != nil {
 		t.Fatalf("NewSignup: %v", err)
 	}
-	return httpx.NewRouter(nil, NewMarketing(log), wizard)
+	return httpx.NewRouter(nil, NewMarketing(texts, log), wizard)
 }
 
 // marketingURLs is every URL this feature serves, derived from the same table the
@@ -139,6 +151,16 @@ func TestMarketing_HandlerHoldsNoStatefulDependency(t *testing.T) {
 	allowed := map[string]bool{
 		"string":       true,
 		"*slog.Logger": true,
+		// 🔴 handler.legalReader, ADDED BY M7-06, AND THIS LINE IS THE ARGUMENT THE
+		// COMMENT ABOVE DEMANDS. The four legal documents are published from the panel
+		// into legal_documents (migration 00020) and this surface has to render them,
+		// so it needs SOMETHING. What it was given is an interface with one method that
+		// takes no context.Context and returns no error, reading an in-memory snapshot;
+		// TestLegalReader_CannotReachTheDatabase asserts that signature, which is what
+		// keeps "it touches no pool" true and therefore keeps the rate-limit reasoning
+		// on this type intact. A *db.DB here would have retired that argument and put an
+		// unmetered, unauthenticated path onto the pool check-in shares.
+		"handler.legalReader": true,
 	}
 	if typ.NumField() == 0 {
 		t.Fatal("handler.Marketing has no fields at all; this test would pass over anything")
@@ -374,7 +396,7 @@ func TestMarketing_AVisitorLeavingIsNotAnError(t *testing.T) {
 		{"a genuine failure this server caused", errors.New("template blew up"), slog.LevelError},
 	} {
 		var buf bytes.Buffer
-		m := NewMarketing(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+		m := NewMarketing(nil, slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
 		rec := httptest.NewRecorder()
 		m.render(failingWriter{ResponseWriter: rec, err: tc.err},
 			httptest.NewRequest(http.MethodGet, "/", nil), pages.Landing(pages.LandingView{}))
@@ -1313,22 +1335,28 @@ func TestLegalPages_SkeletonsAreNotIndexedAndSayWhatTheyAreWaitingFor(t *testing
 
 	// 1. THE DERIVATION ITSELF, on values this test builds. Nothing about the
 	//    product's current state can make these vacuous.
-	waiting := pages.LegalPage{Path: "/legal/x", Title: "X", Needs: []string{"a fact somebody has to supply"}}
-	finished := pages.LegalPage{Path: "/legal/x", Title: "X"}
+	//
+	// ⚠️ THE DEFINITION MOVED IN M7-06 AND THIS BLOCK MOVED WITH IT. It used to read
+	// LegalPage.Needs — "a document is published when nothing is left to supply" —
+	// which was the only definition available while the texts lived in Go source.
+	// They now live in legal_documents, so publication is "a text was published" and
+	// the fact lives on the VIEW rather than on the route table.
+	waiting := pages.LegalPageView{Page: pages.LegalPage{Path: "/legal/x", Title: "X", Needs: []string{"a fact somebody has to supply"}}}
+	finished := pages.LegalPageView{Page: pages.LegalPage{Path: "/legal/x", Title: "X"}, Body: []string{"The finished text."}}
 	if waiting.Published() {
-		t.Error("a document that still names facts it is waiting for reports itself as " +
-			"published. Published() is defined as \"nothing left to supply\" precisely so " +
-			"that publishing requires having the facts rather than editing a flag.")
+		t.Error("a document with no published text reports itself as published. Publication " +
+			"is defined as \"somebody published a text\" precisely so that it cannot be " +
+			"reached by editing a flag.")
 	}
 	if !finished.Published() {
-		t.Error("a document with nothing left to supply reports itself as unpublished, so " +
+		t.Error("a document that carries a published text reports itself as unpublished, so " +
 			"no legal text could ever be indexed")
 	}
-	if got := (pages.LegalPageView{Page: waiting}).Robots(); got != "noindex, nofollow" {
-		t.Errorf("an unfinished document renders robots %q, want noindex", got)
+	if got := waiting.Robots(); got != "noindex, nofollow" {
+		t.Errorf("an unpublished document renders robots %q, want noindex", got)
 	}
-	if got := (pages.LegalPageView{Page: finished}).Robots(); got != "index, follow" {
-		t.Errorf("a finished document renders robots %q, want index", got)
+	if got := finished.Robots(); got != "index, follow" {
+		t.Errorf("a published document renders robots %q, want index", got)
 	}
 
 	// 2. THE LANDING PAGE IS THE ONE PAGE THAT ASKS TO BE FOUND.
@@ -1339,22 +1367,12 @@ func TestLegalPages_SkeletonsAreNotIndexedAndSayWhatTheyAreWaitingFor(t *testing
 			"personal link and stays private.")
 	}
 
-	// 3. EVERY DOCUMENT, BOTH ARMS. No `continue`: a published document has its own
-	//    obligations (be indexable, and stop claiming to be a placeholder), so
-	//    neither branch is a hole the way skipping one was.
+	// 3. NOTHING PUBLISHED: every document is a skeleton and says so. This is the
+	//    state a fresh deployment is in and the state marketingRouter builds.
 	const draftNotice = "This text has not been published yet"
 	for _, p := range pages.LegalPages {
 		body := mustFetchMarketing(t, r, p.Path)
 		text := screenText(t, body)
-		if p.Published() {
-			if !strings.Contains(body, `content="index, follow"`) {
-				t.Errorf("%s carries its text and still asks not to be indexed", p.Path)
-			}
-			if strings.Contains(text, draftNotice) {
-				t.Errorf("%s carries its text and still says it is a placeholder", p.Path)
-			}
-			continue
-		}
 		if !strings.Contains(body, `content="noindex, nofollow"`) {
 			t.Errorf("%s is a skeleton and asks to be indexed. A policy that is not in force "+
 				"must not appear in a search result as though it were.", p.Path)
@@ -1372,6 +1390,97 @@ func TestLegalPages_SkeletonsAreNotIndexedAndSayWhatTheyAreWaitingFor(t *testing
 					"the person who can supply the facts can see them.", p.Path, n)
 			}
 		}
+	}
+}
+
+// TestLegalPages_PublishingOneDocumentChangesThatDocumentAndNoOther is the other
+// arm, and it is the one the M7-06 brief asks for by name: what does the page say
+// when the texts are PARTLY entered?
+//
+// 🔴 THE ANSWER IS "EACH PAGE SPEAKS ONLY FOR ITSELF", AND IT IS ASSERTED RATHER
+// THAN CLAIMED. Exactly one of the four documents is published; that page must lose
+// the "not in force" block and become indexable, and the OTHER THREE must be
+// byte-for-byte what they were before — because a page that changed its language
+// because a different document was published would be speaking for a document it is
+// not.
+func TestLegalPages_PublishingOneDocumentChangesThatDocumentAndNoOther(t *testing.T) {
+	t.Parallel()
+	const draftNotice = "This text has not been published yet"
+	const published = "Kebab Factory Ltd is the controller of this fictional example."
+
+	before := marketingRouter(t)
+	texts := newFakeTexts()
+	texts.put("privacy", published)
+	after := marketingRouterWithTexts(t, texts)
+
+	for _, p := range pages.LegalPages {
+		was := mustFetchMarketing(t, before, p.Path)
+		now := mustFetchMarketing(t, after, p.Path)
+		if p.Path != "/legal/privacy" {
+			if was != now {
+				t.Errorf("%s changed when a DIFFERENT document was published. Each legal page "+
+					"speaks for one document; publishing the privacy policy must not alter a "+
+					"word of the terms.", p.Path)
+			}
+			continue
+		}
+		text := screenText(t, now)
+		if !strings.Contains(text, published) {
+			t.Errorf("%s was published and does not print its text", p.Path)
+		}
+		if strings.Contains(text, draftNotice) {
+			t.Errorf("%s carries its text and still says it is a placeholder. That sentence was "+
+				"honest while there was nothing to show; leaving it up over a published "+
+				"policy is the product claiming less than it does, on the one page where a "+
+				"reader has to know which it is.", p.Path)
+		}
+		for _, n := range p.Needs {
+			if strings.Contains(text, n) {
+				t.Errorf("%s is published and still prints %q as something it is waiting for", p.Path, n)
+			}
+		}
+		if !strings.Contains(now, `content="index, follow"`) {
+			t.Errorf("%s carries its text and still asks not to be indexed", p.Path)
+		}
+	}
+}
+
+// TestLegalPage_PublishedTextIsEscapedAndNeverRaw is the injection half.
+//
+// 🔴 THE ONE SCREEN IN THIS PRODUCT WHERE A PERSON PASTES FREE PROSE INTO A PAGE A
+// STRANGER LOADS. templ escapes `{ }` through html.EscapeString, and the whole
+// paragraph design exists so that this text never reaches templ.Raw — measured:
+// templ.Raw has ZERO call sites here and not one of the twelve tests that scan
+// .templ files would notice a first one appearing. So the guarantee is asserted on
+// the rendered bytes rather than trusted to a comment.
+func TestLegalPage_PublishedTextIsEscapedAndNeverRaw(t *testing.T) {
+	t.Parallel()
+	const attack = `<script>alert(1)</script> and an "attribute" break & an <img src=x onerror=1>`
+	texts := newFakeTexts()
+	texts.put("terms", attack)
+	body := mustFetchMarketing(t, marketingRouterWithTexts(t, texts), "/legal/terms")
+
+	// ⚠️ THE PATTERNS ARE THE ONES THAT ONLY EXIST UNESCAPED. `onerror=` was in the
+	// first draft of this list and it is a FALSE POSITIVE: escaping turns
+	// `<img src=x onerror=1>` into `&lt;img src=x onerror=1&gt;`, so the attribute
+	// NAME survives as harmless text and the assertion would have failed on correct
+	// output. What cannot survive escaping is the angle bracket that opens a tag.
+	for _, raw := range []string{"<script>", "</script>", "<img ", "<img src=x"} {
+		if strings.Contains(body, raw) {
+			t.Fatalf("the published legal text put %q into the page verbatim. This is the one "+
+				"screen where somebody types prose that a stranger's browser executes; it "+
+				"must go through templ's escaping and never through templ.Raw.", raw)
+		}
+	}
+	if !strings.Contains(body, "&lt;script&gt;alert(1)&lt;/script&gt;") {
+		t.Error("the escaped form of the pasted text is not on the page, so the assertion above " +
+			"may be passing because the text never rendered at all")
+	}
+	// Single escaping: a body that arrived double-escaped would be safe and WRONG,
+	// and a legal document whose ampersands read `&amp;amp;` is not the text somebody
+	// published.
+	if strings.Contains(body, "&amp;amp;") {
+		t.Error("the published text was escaped twice; the document a reader sees is not the one that was published")
 	}
 }
 

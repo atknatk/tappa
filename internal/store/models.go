@@ -101,6 +101,14 @@ type EmployeeInvite struct {
 	CancelledAt *time.Time
 }
 
+type LegalDocument struct {
+	ID          uuid.UUID
+	Slug        string
+	Body        string
+	PublishedAt time.Time
+	PublishedBy *uuid.UUID
+}
+
 type Location struct {
 	ID         uuid.UUID
 	TenantID   uuid.UUID
