@@ -4,7 +4,19 @@
 > güncellenir ([README.md](README.md) → oturum protokolü, adım 6.4).
 > Görev kartlarına durum işareti konmaz.
 
-**Son güncelleme:** 2026-08-14 (10. oturum — **M7-03 DONE · M7-04 FAZ A DONE · migration 00019 · ADR 0015 · sıradaki M7-04 FAZ B**)
+**Son güncelleme:** 2026-08-14 (10. oturum — **M7-03 DONE · M7-04 FAZ A DONE · M7-06 DONE · migration 00020 · ADR 0016 · sıradaki M7-04 FAZ B**)
+
+> **M7-06 DONE — 2026-08-14 (`c8e763a`), MIGRATION 00020, ADR 0016.** 🔴 **KULLANICI TALİMATIYLA DOĞDU:** *"benden beklenenleri admin panelden girilebilir yap… bunu bekleyip durma benden"* + *"süper admin girsin güncelleyebilsin, bu kadar basit"*. M7-01'in dört yasal metni **üç oturumdur** kullanıcı bekliyordu; artık `.env`'e admin id yazılıyor, normal hesapla girilip `/admin/legal`'den yayımlanıyor.
+>
+> **SÜPER ADMIN YOKTU VE YAPILMADI.** `admin_users.role` kapalı sözlüğü `('owner','manager')` ve onu **policy motoru okuyor** (`actor:role`) — yeni bir rol, motorun o rol karşısındaki kararını da getirir. Ayrı bir operatör girişi ise **yeni bir kimlik doğrulama yüzeyi**. Dört belge için ikisi de pahalı → **var olan giriş + `.env` izin listesi + tek ekran**. **Gerçek operatör paneli M9-08'e** yazıldı, borçlarıyla.
+>
+> **🔴 ORKESTRATÖRÜN ÖNERİSİNİN YARISI SÖMÜRÜLDÜ.** İzin listesini **e-posta** ile anahtarlamayı önerdim; güvenlik denetçisi uçtan uca kırdı: `admin_users` e-posta tekilliği **tenant başına** (`UNIQUE (tenant_id, email)`), `/signup` **herkese açık**, **e-posta doğrulaması yok** → listedeki adresi bilen herkes o adresle **kendi işletmesini** kaydedip girdi (**GET 200 · POST 303 · yayımlanmış politika değişti**). Anahtar **`admin_users.id`**'ye taşındı — PK, global tekil, **veritabanı atıyor**, hiçbir form beyan edemiyor. **Ders: bir izin listesi, ANAHTARININ TEKİLLİĞİ kadar değerlidir.**
+>
+> **§6'YA GEREKÇELİ İSTİSNA:** `legal_documents` **`tenant_id` taşımıyor** (ADR 0016). Eleyen ölçüm: operatörün admin hesabı bir **müşteri tenant'ında** yaşıyor, yani içerik *"Tappa'nın tenant'ında"* olsaydı yazma yolu **müşteri kimliğiyle ulaşılabilen bir handler'da** `WithTenant(başkasınınTenantı)` çağırmak zorunda kalırdı. ⚠️ **Fiyatı gizlenmedi, ölçülüp yazıldı:** RLS olmadığı için yazma tarafında **kuşak+kemer yok** (yabancı tenant bağlamında INSERT **başarılı**, ölçüldü) — tek kontrol **uygulama izin listesi**; ayakta kalan koruma **append-only** + `slug` CHECK'i. `redline-check.sh`'in muafiyet sözdizimi **repoda ilk kez** kullanıldı, **her koşuda WARN**.
+>
+> **3345 PASS / 0 FAIL / 0 SKIP · 20 paket** · `make check` **exit 0** (`9124dcb` sonrası) · 11 mutasyon, 11'i yakalandı (**biri ancak taşındıktan sonra**: render yolu paragrafları yeniden bölmekte serbestti).
+>
+> 🔴 **VE `make check` BU DOĞRULAMADA ÜÇÜNCÜ BİR FLAKE YAKALADI — ÖLÇÜLÜP KAPATILDI (`9124dcb`).** `TestTags00013_ConstraintsNoOtherTestNames` bir `randUID`'i küçük harfe çevirip 00013'ün kanonik-hex CHECK'inin reddetmesini bekliyordu; `randUID` **14 büyük-harf hex hanesi** üretiyor ve **tamamı rakam olduğunda** `ToLower` bir **no-op** oluyor → ifade haklı olarak kabul ediliyor ve test, kusursuz davranan bir kısıtı **adıyla suçlayarak** kırmızı veriyor. **Ölçüldü: 200.000 çekilişte 298 = 1/671** (öngörü `(10/16)^14` = 1/721); düzeltmeyle **0/200.000**. **Ders: bir YAZILIŞ iddiası, yazılışı farklı olabilen bir değer ister — "rastgele" onu garanti etmez.**
 
 > **M7-04 FAZ A DONE — 2026-08-14 (`b039ef3`), MIGRATION 00019, ADR 0015, 3 TUR / 1 RED.** Üçüncü göz + `tappa-security-auditor`. **Kartı ölçmek ON ÜÇ MIGRATION BOYUNCA AÇIK KALMIŞ CANLI BİR YETKİ YÜKSELTMESİ buldurdu.**
 >
@@ -1466,7 +1478,7 @@ yazılır.
 | M7-03 | Tenant provisioning | **done** — **A** `81ce4d5` (migration **00018**, ADR **0014**, 5 tur / 2 RED) · **B** `8a985eb` (5 tur / **2 RED**). Kartın dört kriterinden **üçü M7-02'de** sevk edilmişti; A M7-02'nin **(b) limitini** kapattı (`password_hash` artık şema düzeyinde işlenebilir bcrypt), B **ilk inilen ekranı** ve **departman cümlesini**. **Beş denetim** (üç genel göz + iki güvenlik geçişi) | `81ce4d5` · `8a985eb` |
 | M7-04 | Admin daveti, şifre sıfırlama, e-posta | **wip** — **FAZ A done** (`b039ef3`, migration **00019**, ADR **0015**, 3 tur / 1 RED, üçüncü göz + `tappa-security-auditor`). Veri katmanı: `password_resets` sertleştirildi (**00006'dan beri açık olan aynı-tenant yetki yükseltmesi kapatıldı**), altıncı SECURITY DEFINER çözümleyici, `internal/adminauth/reset.go`. **Magic link kapsam dışı bırakıldı, gerekçesi ölçülü.** ⚠️ **FAZ B AÇIK** — handler · ekran · **e-posta taşıyıcısı (Q02)** · oran sınırı | Q02 |
 | M7-05 | Hesap ve marka mesajı ayarları | todo | |
-| M7-06 | **Operatör içerik ekranı — yasal metinler panelden düzenlenir** *(kullanıcı kararı 2026-08-14: "benden beklenenleri panelden girilebilir yap")* | todo | |
+| M7-06 | **Operatör içerik ekranı — yasal metinler panelden düzenlenir** *(kullanıcı kararı 2026-08-14: "benden beklenenleri panelden girilebilir yap")* | **done** — migration **00020**, ADR **0016**, 2 tur, üçüncü göz **ONAY** + yapıcının çağırdığı `tappa-security-auditor` **bir sömürü buldu ve kapattırdı**. `.env`'deki `TAPPA_OPERATOR_ADMIN_IDS` + var olan admin girişi + **tek** ekran. **Üç oturumluk kullanıcı beklemesi bitti** | `c8e763a` |
 
 ### M8 — [Deploy & pilot](m8-deploy-pilot.md)
 
@@ -1493,7 +1505,7 @@ yazılır.
 | M9-07 | Ham JSON politika editörü | todo | Q22 — M6-09'dan ayrıldı |
 | M9-08 | **Operatör paneli** *(kullanıcı kararı 2026-08-14: "operatör paneli yapılır oradan kontrol edilir")* | todo | **§4.5 — tenant sınırını bilerek aşan ilk yüzey.** M7-06 dar sürümü sevk etti (tek ekran, tenant verisine bakmaz); borçlar M9-08 kartında |
 
-**Özet:** 83 görev · done **66** · **wip 1** (M7-04, Faz A done) · blocked 0 · skipped 1 · todo **15** · **M0+M1+M2+M3+M4+M5+M6 TAMAM 🎉🎉 · M7 3/5** — **ürünün fonksiyonel boşluğu kapandı: artık herkes kayıt olabiliyor** *(M5-11 M5-09'da bulunan §5 ihlali için kullanıcı kararıyla açıldı → toplam 82'den 83'e)*
+**Özet:** **85 görev** · done **67** · **wip 1** (M7-04, Faz A done) · blocked 0 · skipped 1 · todo **16** · **M0+M1+M2+M3+M4+M5+M6 TAMAM 🎉🎉 · M7 4/6** *(2026-08-14: kullanıcı kararıyla **M7-06** ve **M9-08** açıldı → 83'ten 85'e)* — **ürünün fonksiyonel boşluğu kapandı: artık herkes kayıt olabiliyor** *(M5-11 M5-09'da bulunan §5 ihlali için kullanıcı kararıyla açıldı → toplam 82'den 83'e)*
 
 ---
 
