@@ -74,6 +74,33 @@ type Config struct {
 	// person who runs this deployment can configure it without a database session.
 	OperatorAdminIDs []uuid.UUID
 
+	// ResetDelivery names the transport that carries an admin password-reset link
+	// to the administrator's own address (M7-04 phase B, TAPPA_RESET_DELIVERY).
+	//
+	// 🔴 TODAY THE ONLY LEGAL VALUE IS "none", AND THAT IS AN HONEST STATE RATHER
+	// THAN A PLACEHOLDER. Q02 — which mail provider, in which region, under which
+	// processing agreement — is unanswered, so this repository has no mail
+	// transport at all. What this field must NOT do is imply one: a value naming a
+	// provider, or a second field carrying an API endpoint, would be choosing Q02
+	// by the back door (the M7-04 card's correction 5 makes the same point about
+	// the schema, which is why 00019 has no delivery column either).
+	//
+	// 🔴 AND THERE IS NO INTERIM CHANNEL, WHICH IS THE DIFFERENCE FROM invites.
+	// internal/invite ships ManagerVisibleChannel — an uncomfortable name for
+	// showing an activation link on the manager's own screen — because a manager
+	// seeing an employee's code is an ACCEPTED risk (ADR 0005 Y-D). The equivalent
+	// here would be showing the reset link to whoever typed the address into a
+	// PUBLIC form, and ADR 0015 says in one line what that is: "ele geçirmeyle
+	// arasında duran şey SQL değil, ham token'ın yöneticinin kendi satırındaki
+	// adrese teslim edilip çağırana asla döndürülmemesidir". A visible reset link
+	// is an account takeover with a button on it. So the honest interim state is
+	// "this deployment cannot send the link", and the screen says exactly that.
+	//
+	// AN UNKNOWN VALUE IS A STARTUP FAILURE, never a silent fallback: an operator
+	// who writes TAPPA_RESET_DELIVERY=smtp must find out at boot that nothing
+	// implements it, rather than from a customer who never received a link.
+	ResetDelivery string
+
 	GPSRadiusMeters float64
 	Debounce        time.Duration
 
@@ -189,6 +216,9 @@ func Load() (*Config, error) {
 	// text is a deployment where nobody needs the screen. It is inert in the
 	// FAIL-CLOSED direction — see the field comment.
 	if c.OperatorAdminIDs, err = operatorAdminIDs(env("TAPPA_OPERATOR_ADMIN_IDS", "")); err != nil {
+		push(err)
+	}
+	if c.ResetDelivery, err = resetDelivery(env("TAPPA_RESET_DELIVERY", ResetDeliveryNone)); err != nil {
 		push(err)
 	}
 	// GPS radius and debounce are BOUNDED parameters (ADR 0004 §11): they read the
@@ -499,6 +529,27 @@ func operatorAdminIDs(s string) ([]uuid.UUID, error) {
 		out = append(out, id)
 	}
 	return out, nil
+}
+
+// ResetDeliveryNone is the only transport this repository implements for admin
+// password-reset links: there isn't one. See Config.ResetDelivery.
+const ResetDeliveryNone = "none"
+
+// resetDelivery parses TAPPA_RESET_DELIVERY.
+//
+// EMPTY IS "none", AND AN UNKNOWN VALUE IS A STARTUP FAILURE. The package doc's rule
+// is "never a silent default"; the value with a default here is the one that does
+// LESS, and the one that must never be guessed at is a transport nothing implements.
+// Naming the open question in the error is the point of the message: whoever set this
+// variable is trying to make the product send mail, and the answer they need is which
+// decision is missing rather than which string is invalid.
+func resetDelivery(s string) (string, error) {
+	v := strings.ToLower(strings.TrimSpace(s))
+	if v == "" || v == ResetDeliveryNone {
+		return ResetDeliveryNone, nil
+	}
+	return "", fmt.Errorf("TAPPA_RESET_DELIVERY: %q is not implemented; the only value this build accepts is %q, because no mail transport has been chosen yet (docs/plan/open-questions.md Q02: provider, region and processing agreement). While it is %q the panel's recovery form says so on screen instead of pretending a link was sent",
+		s, ResetDeliveryNone, ResetDeliveryNone)
 }
 
 // intEnvRequiredRange reads an integer env var that has NO DEFAULT: unset or

@@ -418,3 +418,51 @@ func loadErr(t *testing.T) error {
 	_, err := config.Load()
 	return err
 }
+
+// TestLoad_ResetDeliveryIsAClosedSetAndFailsClosed covers M7-04 phase B's one
+// configuration knob.
+//
+// 🔴 THE POINT IS THE UNKNOWN VALUE, not the default. An operator who writes
+// TAPPA_RESET_DELIVERY=smtp is trying to make the product send recovery mail; if
+// that silently fell back to "no delivery", the panel would go on telling every
+// visitor that nothing can be sent while the person who configured it believed
+// otherwise — and the first evidence would be a customer who never received a link.
+// So it is a startup failure, and the message names the OPEN QUESTION rather than
+// the invalid string, because the missing thing is a decision (Q02) rather than a
+// spelling.
+func TestLoad_ResetDeliveryIsAClosedSetAndFailsClosed(t *testing.T) {
+	setRequired(t)
+
+	// Unset is the inert value.
+	t.Setenv("TAPPA_RESET_DELIVERY", "")
+	c, err := config.Load()
+	if err != nil {
+		t.Fatalf("an unset TAPPA_RESET_DELIVERY must load: %v", err)
+	}
+	if c.ResetDelivery != config.ResetDeliveryNone {
+		t.Errorf("ResetDelivery = %q, want %q", c.ResetDelivery, config.ResetDeliveryNone)
+	}
+
+	// The one legal value, in the spelling an operator is most likely to use.
+	for _, spelling := range []string{"none", "NONE", "  none  "} {
+		t.Setenv("TAPPA_RESET_DELIVERY", spelling)
+		c, err := config.Load()
+		if err != nil {
+			t.Fatalf("TAPPA_RESET_DELIVERY=%q must load: %v", spelling, err)
+		}
+		if c.ResetDelivery != config.ResetDeliveryNone {
+			t.Errorf("TAPPA_RESET_DELIVERY=%q gave %q", spelling, c.ResetDelivery)
+		}
+	}
+
+	for _, bad := range []string{"smtp", "ses", "sendgrid", "true", "yes"} {
+		t.Setenv("TAPPA_RESET_DELIVERY", bad)
+		if _, err := config.Load(); err == nil {
+			t.Errorf("TAPPA_RESET_DELIVERY=%q loaded; nothing in this build implements it, so "+
+				"the server would start and quietly send nothing", bad)
+		} else if !strings.Contains(err.Error(), "Q02") {
+			t.Errorf("TAPPA_RESET_DELIVERY=%q: the error does not point at the open question "+
+				"that has to be answered first: %v", bad, err)
+		}
+	}
+}

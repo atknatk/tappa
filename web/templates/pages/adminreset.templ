@@ -1,0 +1,155 @@
+package pages
+
+import (
+	"github.com/atknatk/tappa/web/templates/components"
+	"github.com/atknatk/tappa/web/templates/layout"
+)
+
+// The PANEL RECOVERY screens (M7-04 phase B). skill tappa-brand governs every class
+// below: palette tokens only, Space Grotesk for display, IBM Plex Mono for anything
+// that is data, touch targets at least 44px, no dark theme.
+//
+// THEY USE layout.Page FOR THE REASON THE SIGN-IN FORM DOES: one narrow column is
+// what a form with one or two fields wants, and every screen here is that. No script
+// on any of them, which is why layout.Page and not layout.PageWithScript — a recovery
+// that works with JavaScript disabled works on a locked-down work laptop too, and the
+// policy the handler sets omits script-src entirely for the same reason.
+//
+// THE TONE IS THE BRAND'S: an error says what to do next and never blames. Somebody
+// reaching these pages is already locked out of their own panel; every sentence here
+// is written for that person rather than for a security document.
+
+// AdminResetRequest is the "I cannot get in" form.
+//
+// 🔴 THE PAGE PROMISES NOTHING IT CANNOT DELIVER. When this deployment has no way to
+// send a link, the notice says so BEFORE the address box — not after the submit, and
+// not in smaller type. The alternative is a form that accepts an address and quietly
+// does nothing, which is the silent-swallow §4.6 forbids and the M7-04 card names
+// outright ("gönderim başarısızlığı kullanıcıya dürüstçe bildiriliyor, sessiz
+// yutulmuyor").
+templ AdminResetRequest(v AdminResetRequestView) {
+	@layout.Page("Recover your password — Tappa") {
+		<h1 class="font-display text-2xl font-bold tracking-tight">Can't get in?</h1>
+		<p class="text-sm text-ink/70">
+			Give us the email address you sign in with and we'll send a link that lets you set a new password.
+		</p>
+		if !v.CanDeliver {
+			@components.Notice(components.ToneWarn, "This Tappa cannot send email yet") {
+				<p>
+					No recovery link will arrive, whatever address you enter — sending is not switched
+					on for this server. Ask another owner of your business to set a new password for
+					you from the panel.
+				</p>
+			}
+		}
+		<form method="post" action="/admin/reset" class="flex flex-col gap-4">
+			<input type="hidden" name="csrf" value={ v.CSRFToken }/>
+			<div class="flex flex-col gap-1">
+				<label for="reset-email" class="docket-label">Email</label>
+				<input
+					id="reset-email"
+					name="email"
+					type="email"
+					autocomplete="username"
+					required
+					autofocus
+					class="min-h-11 w-full border border-line bg-paper px-3 py-2 font-mono text-sm text-ink focus:border-tappa-green focus:outline-none focus:ring-1 focus:ring-tappa-green"
+				/>
+			</div>
+			<button type="submit" class="btn btn--primary w-full">Send me a link</button>
+		</form>
+		<p class="text-xs text-ink/70">
+			<a href={ templ.SafeURL(v.SignInHref) } class="inline-flex min-h-11 items-center underline">Back to sign in</a>
+		</p>
+	}
+}
+
+// AdminResetSent is what every submitted address gets.
+//
+// 🔴 THE SENTENCE IS CONDITIONAL AND THAT IS THE MECHANISM, not politeness. "If that
+// address belongs to a Tappa administrator" is true whether it does or not, which is
+// what lets one page answer both — migration 00011's OBLIGATION 1 in a sentence. The
+// page says nothing else about the address, shows nothing that was typed, and offers
+// no way to ask again from here, because a second attempt starts from the form.
+templ AdminResetSent(v AdminResetSentView) {
+	@layout.Page(v.title()) {
+		if v.CanDeliver {
+			<h1 class="font-display text-2xl font-bold tracking-tight">Check your email</h1>
+			<p class="text-sm text-ink/85">
+				If that address belongs to a Tappa administrator, a recovery link is on its way to it.
+				The link works once and expires in an hour.
+			</p>
+			<p class="text-sm text-ink/70">
+				Nothing has changed yet: your current password still works until you use the link.
+			</p>
+			<p class="text-sm text-ink/70">
+				If several emails arrive, use the newest — asking again replaces the earlier links.
+			</p>
+		} else {
+			<h1 class="font-display text-2xl font-bold tracking-tight">Nothing was sent</h1>
+			@components.Notice(components.ToneWarn, "This Tappa cannot send email yet") {
+				<p>
+					Sending is not switched on for this server, so no recovery link was created and
+					none will arrive. Nothing about your account was changed.
+				</p>
+			}
+			<p class="text-sm text-ink/85">
+				Ask another owner of your business to set a new password for you from the panel.
+			</p>
+		}
+		<p class="text-xs text-ink/70">
+			<a href={ templ.SafeURL(v.SignInHref) } class="inline-flex min-h-11 items-center underline">Back to sign in</a>
+		</p>
+	}
+}
+
+// AdminResetNew is the form a recovery link opens: choose the new password twice.
+//
+// THE PAGE NAMES NOBODY. There is no address, no person and no business on it, and
+// the view model has no field for one — see adminresetview.go for why the lookup that
+// would be needed is itself the thing this flow refuses to do.
+templ AdminResetNew(v AdminResetNewView) {
+	@layout.Page("Set a new password — Tappa") {
+		<h1 class="font-display text-2xl font-bold tracking-tight">Set a new password</h1>
+		<p class="text-sm text-ink/70">
+			Choose something you will remember. At least { itoa(v.MinPasswordChars) } characters — a few
+			words beats a short one.
+		</p>
+		if v.Error != "" {
+			@components.Notice(components.ToneAlert, "That didn't work") {
+				<p>{ v.Error }</p>
+			}
+		}
+		<form method="post" action="/admin/reset/new" class="flex flex-col gap-4">
+			<input type="hidden" name="csrf" value={ v.CSRFToken }/>
+			<div class="flex flex-col gap-1">
+				<label for="reset-password" class="docket-label">New password</label>
+				<input
+					id="reset-password"
+					name="password"
+					type="password"
+					autocomplete="new-password"
+					required
+					autofocus
+					class="min-h-11 w-full border border-line bg-paper px-3 py-2 font-mono text-sm text-ink focus:border-tappa-green focus:outline-none focus:ring-1 focus:ring-tappa-green"
+				/>
+			</div>
+			<div class="flex flex-col gap-1">
+				<label for="reset-password-confirm" class="docket-label">Type it again</label>
+				<input
+					id="reset-password-confirm"
+					name="password_confirm"
+					type="password"
+					autocomplete="new-password"
+					required
+					class="min-h-11 w-full border border-line bg-paper px-3 py-2 font-mono text-sm text-ink focus:border-tappa-green focus:outline-none focus:ring-1 focus:ring-tappa-green"
+				/>
+			</div>
+			<button type="submit" class="btn btn--primary w-full">Set the password</button>
+		</form>
+		<p class="text-xs text-ink/70">
+			Setting a new password signs you out of Tappa everywhere, on every device — including this
+			one. You will sign in again straight afterwards.
+		</p>
+	}
+}

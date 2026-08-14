@@ -53,7 +53,23 @@ func ownerPoolForTest(t *testing.T) *pgxpool.Pool {
 			"privilege from tappa_app (backlog T9). Skipping here would silently drop a " +
 			"section 4.7 assertion on a machine that HAS a database, so it fails instead.")
 	}
-	pool, err := pgxpool.New(context.Background(), raw)
+	// 🔴 THE POOL IS CAPPED, AND THE UNCAPPED VERSION WAS MEASURED TAKING THE SUITE
+	// DOWN (M7-04 phase B). pgxpool's default max_conns is max(4, NumCPU) — SIXTEEN on
+	// this machine — and Postgres is configured with max_connections=100, so two
+	// concurrent users of this fixture plus the package pools of the other test
+	// binaries `go test ./...` runs in parallel is enough to exhaust it. Observed, in a
+	// `make check` run that had been green twice before this fixture acquired a second
+	// caller:
+	//
+	//	internal/db     FATAL: remaining connection slots are reserved for roles
+	//	                with the SUPERUSER attribute (SQLSTATE 53300)
+	//	internal/domain/tenant  FATAL: sorry, too many clients already (53300)
+	//
+	// Neither failure was in the package that opened the connections, which is what
+	// makes this worth a comment rather than a quiet edit: the symptom appears
+	// somewhere else and reads as a flake. withSmallPool is the same cap every other
+	// pool in this package already takes.
+	pool, err := pgxpool.New(context.Background(), withSmallPool(raw))
 	if err != nil {
 		t.Fatalf("owner pool: %v", err)
 	}

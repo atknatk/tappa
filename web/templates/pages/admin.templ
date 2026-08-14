@@ -36,6 +36,13 @@ templ AdminLogin(v AdminLoginView) {
 	@layout.Page("Sign in — Tappa") {
 		<h1 class="font-display text-2xl font-bold tracking-tight">Sign in</h1>
 		<p class="text-sm text-ink/70">The Tappa panel for your business.</p>
+		if v.Recovered {
+			@components.Notice(components.ToneOK, "Your new password is set") {
+				<p>
+					Every Tappa session was signed out, on every device. Sign in with the new password.
+				</p>
+			}
+		}
 		if v.Failed {
 			@components.Notice(components.ToneAlert, "We could not sign you in") {
 				<p>Check the email address and the password, then try again.</p>
@@ -68,6 +75,15 @@ templ AdminLogin(v AdminLoginView) {
 			</div>
 			<button type="submit" class="btn btn--primary w-full">Sign in</button>
 		</form>
+		if v.ResetHref != "" {
+			<p class="text-sm">
+				// The touch-target class is not decoration here: this is the link somebody
+				// reaches for after a failed sign-in, often on a phone, and
+				// TestPanelScreens_EveryPressTargetCarriesATouchTargetClass measures every
+				// anchor on a panel screen against the brand's 44px floor.
+				<a href={ templ.SafeURL(v.ResetHref) } class="inline-flex min-h-11 items-center underline">Can't get in?</a>
+			</p>
+		}
 		<p class="text-xs text-ink/70">
 			This is the manager panel. Employees do not sign in — they tap the plaque.
 		</p>

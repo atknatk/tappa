@@ -281,6 +281,16 @@ type ResetDatabase interface {
 	// RESULT. It reaches its row through a SECURITY DEFINER function owned by
 	// tappa_resolver whose blast radius is a fixed column list on one table.
 	GetPasswordResetByTokenHash(ctx context.Context, tokenHash string) (db.ResolvedPasswordReset, error)
+	// GetAdminByEmail is the SECOND context-less lookup this flow needs, and it is
+	// the SAME function panel login resolves through (migration 00011/00017).
+	//
+	// 🔴 IT IS ADDED IN PHASE B BECAUSE PHASE A COULD NOT ANSWER "WHO GETS THE LINK".
+	// Issue takes uuids, deliberately; the mapping from a typed-in address to
+	// candidate administrators is 00011's OBLIGATION 1 territory and phase A wrote it
+	// down as this phase's hardest question. It is answered in IssueForEmail
+	// (resetrequest.go), in THIS package rather than in a handler, because the answer
+	// is a rule about identities and not about HTTP.
+	GetAdminByEmail(ctx context.Context, email string) ([]db.ResolvedAdmin, error)
 }
 
 // The one implementation, bound AT COMPILE TIME rather than in a test. An audit found

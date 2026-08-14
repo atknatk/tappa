@@ -732,7 +732,15 @@ func (a *AdminAuth) LoginPage(w http.ResponseWriter, r *http.Request) {
 	// Any choice blob from an abandoned attempt is dead the moment a new login
 	// starts: leaving it would let a stale verified set survive into a new attempt.
 	a.short.clear(w, adminChoiceCookieName)
-	a.render(w, r, http.StatusOK, pages.AdminLogin(pages.AdminLoginView{CSRFToken: st.csrf}))
+	a.render(w, r, http.StatusOK, pages.AdminLogin(pages.AdminLoginView{
+		CSRFToken: st.csrf,
+		ResetHref: adminResetPath,
+		// 🔴 THE QUERY IS READ, NOT BELIEVED. It decides one sentence and nothing
+		// else — no cookie is cleared, no row is read, no state changes — which is
+		// why a value anybody can type is safe to act on here. See
+		// adminResetDoneQuery.
+		Recovered: r.URL.Query().Get("recovered") == "1",
+	}))
 }
 
 // Login serves POST /admin/login.
@@ -1278,6 +1286,12 @@ func (a *AdminAuth) renderLoginFailure(w http.ResponseWriter, r *http.Request, s
 	a.render(w, r, http.StatusUnauthorized, pages.AdminLogin(pages.AdminLoginView{
 		CSRFToken: st.csrf,
 		Failed:    true,
+		// THE RECOVERY LINK IS ON THE FAILURE PAGE TOO, which is where somebody
+		// actually needs it: adminratelimit.go's own sentence is "three is the usual
+		// human maximum before they use the reset link (which M7-04 will provide;
+		// today they ask another owner)". Leaving it off this render would hide it at
+		// the one moment it is wanted.
+		ResetHref: adminResetPath,
 	}))
 }
 

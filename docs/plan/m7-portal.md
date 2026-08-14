@@ -653,6 +653,124 @@ karşılamaz ve karşıladığını iddia etmez.
   bakımından aynı. Aday daraltma kararı buradadır ve yanlış verilirse 00017'nin
   artık-kilidini bu yüzeyde yeniden üretir.
 
+> **Kart düzeltmesi (2026-08-14, M7-04 B fazı uygulaması sırasında).** Beş kabul
+> kriterinin **üçü** uygulanırken gerçekle çeliştiği ölçüldü; her biri ölçümle.
+>
+> 1. **🔴 "TEK BİR SAYI İKİ ZARARI BİRDEN KAPATIYOR" İKİ AYRI YERDEN YANLIŞ — ve
+>    ikisi de kapanmıyor, biri *sınırlanıyor*.**
+>    **(i) İki zarar İKİ AYRI UÇ NOKTADA.** (a) `Issue`'nun ürettiği zarardır ve
+>    **istek** uç noktasındadır; (b) `Consume`'un ödediği bcrypt'tir ve **yeni parola**
+>    uç noktasındadır. Tek bir sayı ikisini birden sınırlayamaz, ve tek bir **kova**
+>    paylaştırmak ikisinden de kötüdür: istek bütçesini tüketen saldırgan kurbanın
+>    kurtarmayı **tamamlamasını** da engellerdi — yani (a) ikinci bir yoldan geri
+>    gelirdi. **Sevk edilen: iki tavan, iki anahtar** (`adminResetRequestLimit=20`,
+>    `adminResetSubmitLimit=10`). Ölçüm: iki bütçeyi TEK bir limiter'a bağlayan
+>    mutasyon `TestAdminResetBudgets_RefuseAtTheCeilingAndDoNotShareABucket`'i
+>    **kırmızıya** çevirdi.
+>    **(ii) "Kapatıyor" fiili (a) için yanlış.** Zarar **TEK istekte** tamamlanır
+>    (`retired_count=1`); 1'in üstündeki hiçbir tavan ilkini engellemez. Tavanın
+>    aldığı şey **tekrar**: bir adres pencere başına en çok 20 bekleyen linki
+>    öldürebilir, sınırsız değil. Kapatan tasarım "kardeşleri emekliye ayırmamak"tı
+>    ve ADR 0015 onun fiyatını ölçüp reddetti. Kodda ve kartta artık *sınırlıyor*
+>    yazıyor.
+>    **(iii) "ADRES BAŞINA" = ÇAĞIRAN ADRES.** E-posta anahtarlı bir **kapı** ölçümle
+>    elendi: N istekle tüketilen bir e-posta bütçesi, hesap sahibinin **kendi**
+>    isteğini reddeder — yani (a)'nın ta kendisidir, üstelik yarışmadan.
+>    `adminratelimit.go`'nun hesap-kilidi argümanının birebir kardeşi. E-posta
+>    anahtarı yalnız **audit_log'u ölçen, hiçbir şeyi reddetmeyen** bir sayaç olarak
+>    kaldı (`adminResetAccountLimit`).
+> 2. **🔴 KARTIN İKİ KRİTERİ BİRBİRİYLE ÇELİŞİYOR ve çözüm bölmektir.** Üst
+>    listedeki *"gönderim başarısızlığı kullanıcıya dürüstçe bildiriliyor"* ile B
+>    fazının *"kayıtlı ve kayıtsız adres için yanıt aynı"* aynı anda sağlanamaz:
+>    kayıtsız adres için gönderilecek bir şey **yoktur**, dolayısıyla hiç
+>    başarısız olamaz — *"gönderemedik"* diyen bir ekran tam olarak numaralandırma
+>    sorusunu yanıtlar. **Sevk edilen bölme:** *dağıtım düzeyi* başarısızlık
+>    (bu kurulumun taşıyıcısı yok) **adresten bağımsızdır**, çözümlemeden **önce**
+>    bilinir ve kullanıcıya söylenir; *alıcı düzeyi* başarısızlık `audit_log`'a
+>    (`admin.recovery.undelivered`) ve süreç log'una gider, yanıta **asla**.
+>    Ölçüm: taşıyıcı yokken `IssueForEmail`'i yine de çağıran mutasyon
+>    `TestAdminReset_WithoutAChannelNothingIsIssuedAndTheScreenSaysSo`'yu kırmızıya
+>    çevirdi — ve o çağrı, kimseye teslim edilemeyecek bir link için kurbanın
+>    bekleyen linkini öldürürdü.
+> 3. **Aday penceresi = GİRİŞ penceresi (`ResetWindow = MaxCandidates`), ve kartın
+>    "00017'nin artık-kilidini yeniden üretir" uyarısı KABUL EDİLDİ, kaçınılmadı.**
+>    ⚠️ **AŞAĞIDAKİ SAYILAR HAREKETLİ HEDEFTİR — komutu ve tarihi yanlarında.** Bu
+>    sayılar geliştirme veritabanından okunur ve **her `make test` koşusu onları
+>    büyütür** (fixture'lar tenant/admin ekler ve §4.3 gereği hiçbir şey silinmez), o
+>    yüzden bir sonraki okuyucu farkı **gerileme sanmamalı**. Denetçinin aynı gün
+>    aldığı okuma (50.235 / 1.772 / 423) ile benimki arasındaki fark tam olarak budur;
+>    tekrar oku:
+>    ```sql
+>    WITH k AS (SELECT email, count(*) n FROM admin_users GROUP BY 1)
+>    SELECT count(*), count(*) FILTER (WHERE n > 1),
+>           count(*) FILTER (WHERE n > 8), max(n) FROM k;
+>    ```
+>    | okuma | farklı adres | >1 satır | >8 satır (pencere dışı) | en büyük |
+>    |---|---|---|---|---|
+>    | 2026-08-14, ilk yazım | 48.273 | 1.675 | 378 | 500 |
+>    | 2026-08-14, denetçi | 50.235 | 1.772 | 423 | — |
+>    | 2026-08-14, 2. tur sonu | **50.838** | **1.807** | **440** | **500** |
+>
+>    **Kararı süren şey büyüklük sırası, digitler değil:** **sınırsız** — bir adres en
+>    çok **500** kimliğe çözülüyor, yani tek bir genel POST 500 INSERT + 1000
+>    transaction; elendi. **Tek aday (incumbent)** — sabit iş, ama binlerce adres
+>    birden çok satıra çözülüyor ve ikinci işletmesi olan gerçek müşteri kurtarmayı
+>    hiç yapamaz; elendi. **MaxCandidates (sevk edildi)** — pencerenin *dışındaki* bir
+>    kimlik zaten **giriş yapamaz** (kartın 4. düzeltme maddesi: *"parolayı
+>    değiştirmek satırı pencereye taşımaz"*), yani ona link basmak **işe yaramayacak
+>    bir kimlik bilgisi** üretmek olurdu. Artık: yüzlerce adres pencereyi aşıyor ve
+>    onların dışındaki satırlar link almıyor — 00017'nin yazılı sınırı, bu yüzeye
+>    **değişmeden** ulaşıyor; kapatan şey aynı: adres doğrulama (Q02).
+> 4. **Zamanlama eşitliği bir *taban* ile sağlanıyor, ve tabanın sınırı yazılı.**
+>    Kayıtsız kol 1 çözümleyici okuması, kayıtlı kol kimlik başına 2 transaction
+>    ödüyor; iş eşitlenemez, o yüzden **yanıt** `resetRequestFloor = 250 ms`
+>    tabanına tutuluyor. **Ölçüm** (taban 0'a çekilip gerçek HTTP + gerçek Postgres
+>    üzerinden, kol başına 6 örnek, 3 koşu, yük 3,8–4,6): kayıtsız **1,4 / 1,6 /
+>    2,6 ms**, tek kimlik **9,9 / 10,7 / 14,4 ms**, dolu pencere (8) **60,4 / 62,8 /
+>    63,5 ms** → taban, en yavaş kolun medyanının **~4 katı**.
+>    ⚠️ *Bu paragrafın ilk hâli **ölçülmemiş** üç sayı taşıyordu (2,1 / 6,4 /
+>    36,7 ms); ikisi 1,7x ve 2,3x düşüktü ve teslimden önce gerçek ölçümle
+>    değiştirildi.* **Ne vaat etmiyor:** tabanı aşan iş yine sızar — gerçek bir posta
+>    taşıyıcısı geldiğinde gönderim istek yolundan **çıkarılmalıdır** (ayrık bir
+>    işçi), ve bu ardıl adıyla yazıldı.
+> 5. **Yeni migration GEREKMEDİ** (kartın *"yeni tablo gerekmiyor"* maddesi ayakta):
+>    B fazı 00001–00020'ye dokunmadı, `db/queries` değişmedi, `make sqlc` üretimi
+>    aynı kaldı. Alıcı adresi mevcut `GetAdminByID` ile yöneticinin **kendi
+>    satırından** okunuyor.
+> 6. **🔴 SEVK EDİLEN YAPILANDIRMADA BEŞ KRİTERİN ÜÇÜ ÖLÜ KODDA — tek cümle olarak.**
+>    `TAPPA_RESET_DELIVERY=none` (Q02 cevapsız olduğu için **tek yasal değer**) ile
+>    hiçbir link basılmıyor, dolayısıyla **kriter 1'in (a) yarısı** (kurtarma reddi:
+>    basılmayan link emekliye ayırmıyor), **kriter 2'nin `audit_log` kolu** ve
+>    **kriter 3'ün tamamı** üründe **tetiklenemez**. Kanıtları
+>    testtir — sahteler ve `panelHarness`'ın `recordingChannel`'ı — çalışan ürünün
+>    gözlemi değil. Kriter 4 ve 5 her hâlükârda canlı. **Sayılmış bir açık,
+>    kapatıldığı iddia edilen bir açıktan güvenlidir**; Q02'yi cevaplayan kişi
+>    `main.go`'daki switch'e tek bir case ekleyerek üçünü birden açar ve sahtelere
+>    karşı yapılmış denetimleri **yeniden koşma** yükümlülüğünü devralır.
+>    (Aynı cümle `internal/handler/adminreset.go`'nun tip yorumunda da yazılı.)
+>
+>    ⚠️ **Defter iki savunmayı daha saymıyordu; 6. turda eklendi.** Sevk edilen
+>    yapılandırmada `Submit`'in fail-closed 404'ü ilk ifade olduğu için **arkasındaki
+>    iki koruma da ölü**: `adminResetSubmitLimit` kapısı (ölçüldü: 25 × `POST
+>    /admin/reset/new` → `codes=map[404:25]`, `Consume=0`, `scope=submit` satırı **0**)
+>    ve `cookieSafe` reddi (ölçüldü: `?t=aaa%3Bbbb` → **404**, kapı değil kısa devre).
+>    **Açık değil** — 404, ikisinin de sınırladığı şeyden (bcrypt ve çerez yazımı)
+>    **daha dar** bir sınırdır ve ikisini de kapsar; teslimat açıldığı gün üçü birden
+>    canlanır.
+>
+>    ⚠️ **BU DEFTERİN İLK HÂLİ BİR SATIRI YANLIŞ SAYIYORDU ve düzeltilme şekli
+>    kaydediliyor.** Kriter 2 için *"`audit_log` kolu ölü, **süreç log'u kolu
+>    canlı**"* yazıyordu; 4. turun denetçisi **gerçek ikili** üzerinde ölçtü ve
+>    **yanlış** çıktı — 3. turda `Submit`'e eklenen fail-closed kısa devresi, süreç
+>    log'unu yazan **iki** çağrının ikisini birden ulaşılamaz kılmıştı
+>    (`TAPPA_LOG_LEVEL=debug`, dört istek → **0 satır**). **Cümle küçültülmedi,
+>    DOĞRU YAPILDI:** 404'ten önce, mevcut `unknownLimiter`'dan geçen sınırlı bir
+>    süreç-log satırı yazılıyor (`logUndeliverableAttempt`). Gerekçe ölçümdür — §4.6
+>    bir belgeleme kuralı değil, ve 404 *"özellik yok"* demek değil: rota mount
+>    edilmiş, değerin şekli inceleniyor, kimliksiz çağrılabiliyor. **Ders:** yanlış
+>    sayılmış bir açık, ikinci durma kuralının değerini sıfırlar — defterin tek işi
+>    doğru olmaktır.
+
 > **Kart düzeltmesi (2026-08-14, M7-04 A fazı uygulaması sırasında).** Beş nokta
 > kartla gerçek arasında ayrıştı; her biri ölçümle.
 >

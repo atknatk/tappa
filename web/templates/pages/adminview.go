@@ -37,6 +37,26 @@ type AdminLoginView struct {
 	// Failed re-renders the form after a refused sign-in, with one fixed sentence
 	// that names no cause.
 	Failed bool
+
+	// ResetHref points at the recovery form (M7-04 phase B). It is passed in rather
+	// than written into the template so the route and the link are the same string
+	// at compile time — the reason internal/handler's adminLoginPath became a
+	// constant, applied in the other direction.
+	//
+	// ⚠️ ITS ABSENCE HIDES THE LINK, and that is a THIRD state rather than a bug:
+	// a deployment that does not mount the recovery routes must not put a dead
+	// button on the one screen an operator reaches when they are already stuck.
+	ResetHref string
+
+	// Recovered says the visitor has just set a new password and needs to sign in
+	// again (internal/handler's adminResetDoneQuery).
+	//
+	// 🔴 IT IS NOT A CLAIM ABOUT THE VISITOR AND CANNOT BE ONE. Anybody can put that
+	// query on this URL; all it does is put one sentence on the page. The reason it
+	// exists is that the alternative — landing on a bare form after a completed
+	// recovery — leaves somebody unsure whether it worked, on the screen where
+	// guessing wrong spends an attempt budget.
+	Recovered bool
 }
 
 // AdminBusiness is one row of the "which business?" picker.

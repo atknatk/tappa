@@ -7,6 +7,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -321,9 +322,49 @@ func run() error {
 		return err
 	}
 
+	// PANEL PASSWORD RECOVERY (M7-04 phase B) — the flow that lets an operator who
+	// cannot sign in get back in without another owner doing it for them.
+	//
+	// 🔴 THE DELIVERY CHANNEL IS nil, AND THAT IS THE SHIPPED STATE RATHER THAN A
+	// MISSING WIRE. Q02 — which mail provider, in which region, under which processing
+	// agreement — is unanswered, so this process has no mail transport; and unlike
+	// invitations there is no interim channel available, because the interim channel
+	// would be "show the link to whoever typed the address into a public form", which
+	// ADR 0015 identifies as the one thing standing between minting and account
+	// takeover. config.ResetDelivery carries the argument in full.
+	//
+	// WHAT nil DOES: the request form says, before anything is typed, that this
+	// deployment cannot send a link — and the POST answers without resolving the
+	// address, minting a row or retiring anybody's pending link. The alternative
+	// (mint and fail to send) would manufacture the harm ADR 0015 accepts, for no
+	// benefit at all.
+	//
+	// THE VALUE IS SWITCHED ON A CONFIG STRING rather than hardcoded so that the day a
+	// transport exists it is one case in this switch and nothing else moves. An
+	// unknown value never reaches here: config.Load refuses to boot on it.
+	var resetChannel handler.ResetChannel
+	switch cfg.ResetDelivery {
+	case config.ResetDeliveryNone:
+		resetChannel = nil
+	default:
+		// Unreachable: config.Load validates the value. It is written anyway because
+		// an unreachable branch that fails CLOSED is what stops the next person's new
+		// case from silently defaulting to "no delivery, but the screen says a link is
+		// on its way".
+		return fmt.Errorf("main: TAPPA_RESET_DELIVERY=%q passed config validation but nothing implements it", cfg.ResetDelivery)
+	}
+	resets, err := adminauth.NewResets(data, cfg)
+	if err != nil {
+		return err
+	}
+	resetFlow, err := handler.NewAdminReset(resets, resetChannel, trail, cfg, slog.Default())
+	if err != nil {
+		return err
+	}
+
 	srv := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           httpx.NewRouter(cfg, activation, tap, panelAuth, marketing, signupFlow),
+		Handler:           httpx.NewRouter(cfg, activation, tap, panelAuth, marketing, signupFlow, resetFlow),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       90 * time.Second,
 	}

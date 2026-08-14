@@ -458,6 +458,28 @@ func cookieNotice() []pages.CookieRow {
 			Scope:    adminauth.CookiePath,
 			Flags:    flags,
 		},
+		// THE TWO M7-04 ADDED. Both are scoped to the dashboard, and the second is the
+		// only cookie in this table that carries a CREDENTIAL rather than a form
+		// token — which is exactly why it is a cookie at all: it keeps the recovery
+		// link out of the address bar, out of browser history and out of any link
+		// that leaves this site (internal/handler/adminreset.go).
+		{
+			Name: adminResetCookieName,
+			Purpose: "Protects the 'I cannot get in' form against being submitted from another " +
+				"site. Exists only while somebody is on that page.",
+			Lifetime: humanSeconds(adminResetCookieMaxAge),
+			Scope:    adminauth.CookiePath,
+			Flags:    flags,
+		},
+		{
+			Name: adminResetLinkCookieName,
+			Purpose: "Carries a recovery link while a new password is being chosen, so the link " +
+				"stays out of the address bar and out of browser history. Cleared as soon as " +
+				"the link is used or refused.",
+			Lifetime: humanSeconds(adminResetLinkCookieMaxAge),
+			Scope:    adminResetLinkCookiePath,
+			Flags:    flags,
+		},
 		// THE TWO M7-02 ADDED. They are scoped to /signup, so they never accompany a
 		// tap, a panel request or a view of this very page — which is also what keeps
 		// the marketing responses identical for every visitor and therefore cacheable.

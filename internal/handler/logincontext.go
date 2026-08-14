@@ -333,6 +333,54 @@ func (c adminCookies) clear(w http.ResponseWriter, name string) {
 	})
 }
 
+// setResetLink writes the ONE cookie in this product that carries a §4.7 secret,
+// and it is a SEPARATE writer from set because it needs a NARROWER Path.
+//
+// 🔴 WHY IT IS NOT adminauth.CookiePath LIKE EVERY OTHER PANEL COOKIE. That path is
+// /admin, so a cookie scoped to it accompanies EVERY /admin/* request for as long as
+// it lives — and this one lives adminauth.ResetTTL (an hour) and contains the raw
+// recovery token. A security audit named the consequence: the token rode along on
+// authenticated panel requests that have no use for it, multiplying the number of
+// requests, proxies and access logs it could appear in, for an hour, to no benefit.
+//
+// THE PATH IS MEASURED, NOT GUESSED. Every read and every clear of this cookie is in
+// AdminReset.NewPage, AdminReset.Submit and AdminReset.refused (grep for readLink and
+// clearLink: five call sites, three functions), and all three are served at
+// adminResetNewPath. So the narrowest path that still works is that route itself —
+// narrower than the /admin/reset the audit suggested, and sufficient for the same
+// reason. If a second route ever needs to read it, this constant moves up one
+// segment and this paragraph is why.
+//
+// ⚠️ THE CLEARER MUST CARRY THE SAME PATH OR THE COOKIE CANNOT BE DELETED — a browser
+// matches Set-Cookie against name AND path, so a mismatch leaves the credential in
+// place until it expires on its own. The two functions below take the path from ONE
+// constant for exactly that reason.
+func (c adminCookies) setResetLink(w http.ResponseWriter, value string) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     adminResetLinkCookieName,
+		Value:    value,
+		Path:     adminResetLinkCookiePath,
+		MaxAge:   adminResetLinkCookieMaxAge,
+		HttpOnly: true,
+		Secure:   c.secure(),
+		SameSite: http.SameSiteLaxMode,
+	})
+}
+
+// clearResetLink expires the recovery-link cookie. Attributes must match
+// setResetLink exactly — see the note there.
+func (c adminCookies) clearResetLink(w http.ResponseWriter) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     adminResetLinkCookieName,
+		Value:    "",
+		Path:     adminResetLinkCookiePath,
+		MaxAge:   -1,
+		HttpOnly: true,
+		Secure:   c.secure(),
+		SameSite: http.SameSiteLaxMode,
+	})
+}
+
 // setLogin writes the synchronizer token and the binding value.
 func (c adminCookies) setLogin(w http.ResponseWriter, st adminLoginState) {
 	c.set(w, adminLoginCookieName, st.csrf+"."+st.bind, adminLoginCookieMaxAge)

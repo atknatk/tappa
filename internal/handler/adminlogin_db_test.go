@@ -83,6 +83,12 @@ type panelHarness struct {
 	adminID  uuid.UUID
 	email    string
 	password string
+	// mail is the recovery flow's delivery channel (M7-04 phase B). It is mounted on
+	// this harness rather than on one of its own for the reason the activation flow
+	// is: the loop a person actually walks crosses two features — sign in, discover
+	// you cannot, recover, sign in again — and a harness that only serves half of it
+	// can only measure half of it.
+	mail *recordingChannel
 }
 
 func newPanelHarness(t *testing.T) *panelHarness {
@@ -214,21 +220,53 @@ func newPanelHarness(t *testing.T) *panelHarness {
 	}
 	activation.Mount(r)
 
+	// THE RECOVERY FLOW (M7-04 phase B), mounted beside the panel for the reason the
+	// activation flow is: the loop it belongs to crosses features.
+	//
+	// ⚠️ THE Resets IS THE REAL ONE, AT THE SHIPPED COST, and that is a deliberate
+	// price rather than an oversight. cheapResets exists inside internal/adminauth
+	// (its `digest` field is unexported), so from here every Consume costs a full
+	// cost-12 bcrypt.
+	//
+	// MEASURED HERE RATHER THAN QUOTED FROM manager_db_test.go, whose "~11 s under
+	// -race" belongs to a different machine state and would have been a number this
+	// file did not take: TestPanelRecoveryDB_EndToEnd performs TWO Consume calls (one
+	// spent, one replayed) and runs in 8.1-8.4 s of package time against 9.4-9.8 s of
+	// wall clock, twice, at load average 3.0-3.5. So the whole end-to-end loop — two
+	// digests, a sign-in, a revocation and the audit reads — costs about eight
+	// seconds, and that is why exactly ONE test in this package walks it. Everything
+	// that does not need a real digest is measured against fakes in
+	// adminreset_test.go, and the digest's own properties are measured in
+	// internal/adminauth at the shipped cost.
+	//
+	// THE CHANNEL IS A RECORDER RATHER THAN nil, because these tests are about the
+	// path that exists when a deployment CAN deliver. The nil path — today's shipped
+	// configuration — is measured in adminreset_test.go, where its whole point is
+	// that no database work happens at all.
+	resets, err := adminauth.NewResets(data, cfg)
+	if err != nil {
+		t.Fatalf("adminauth.NewResets: %v", err)
+	}
+	ph := &panelHarness{mail: &recordingChannel{}}
+	resetFlow, err := NewAdminReset(resets, ph.mail, trail, cfg, slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatalf("NewAdminReset: %v", err)
+	}
+	resetFlow.Mount(r)
+
 	jar, err := cookiejar.New(nil)
 	if err != nil {
 		t.Fatalf("cookiejar: %v", err)
 	}
 
-	ph := &panelHarness{
-		server: srv,
-		data:   data,
-		client: &http.Client{
-			Jar: jar,
-			// Redirects are followed by hand so each hop's status can be asserted.
-			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
-		},
-		password: ownerPassword,
-		email:    "panel-e2e-" + uuid.NewString() + "@m6.example",
+	ph.server = srv
+	ph.data = data
+	ph.password = ownerPassword
+	ph.email = "panel-e2e-" + uuid.NewString() + "@m6.example"
+	ph.client = &http.Client{
+		Jar: jar,
+		// Redirects are followed by hand so each hop's status can be asserted.
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
 
 	ph.tenantID = uuid.New()

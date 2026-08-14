@@ -1621,6 +1621,16 @@ var cookieWriters = map[string]cookieWriter{
 	// applies the same attributes to both.
 	"tappa_signup":       {[]string{"internal", "handler", "signupstate.go"}, "set"},
 	"tappa_signup_state": {[]string{"internal", "handler", "signupstate.go"}, "set"},
+	// The two the recovery flow sets (M7-04 phase B), and they name DIFFERENT
+	// writers, which is the disclosure this map exists to keep honest. The
+	// synchronizer cookie goes through the shared adminCookies.set like the three
+	// above; the one carrying the recovery LINK has its own writer because it has a
+	// NARROWER Path — /admin/reset/new rather than /admin — so the raw token does not
+	// ride along on every authenticated panel request for an hour. If both had stayed
+	// on one writer the Scope column would have disclosed the wrong path for one of
+	// them, silently.
+	"tappa_admin_reset":      {[]string{"internal", "handler", "logincontext.go"}, "set"},
+	"tappa_admin_reset_link": {[]string{"internal", "handler", "logincontext.go"}, "setResetLink"},
 }
 
 var (
@@ -1714,6 +1724,10 @@ func TestCookieNotice_FlagsAndScopeMatchTheCookieTheCodeWrites(t *testing.T) {
 			// M7-02. The wizard's two cookies are scoped away from both the tap
 			// surface and the panel, which is the property the Scope column discloses.
 			"signupCookiePath": signupCookiePath,
+			// M7-04. The recovery LINK cookie is narrower than every other panel
+			// cookie: it is the only one carrying a §4.7 secret, so it is scoped to
+			// the single route that reads it.
+			"adminResetLinkCookiePath": adminResetLinkCookiePath,
 		}[attrs["Path"]]
 		if wantPath == "" {
 			t.Errorf("%s: %s writes Path: %s, which this test cannot resolve. Resolve it here "+
