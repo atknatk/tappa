@@ -60,18 +60,37 @@ Doğru değer öğrenilince tek yapılacak `.env`'i güncellemek; sürüm çıkm
 maddeyi "Kapananlar"a taşı. Q13 ayrıca "GDPR silme talebi × immutable `transactions`"
 sorusunu da taşıyor (M8-06) — saklama süresi onun bir parçası, tamamı değil.
 
-### B2 — arm64 Go toolchain kurulumu (Q26)
+### B2 — ~~arm64 Go toolchain kurulumu~~ → **DÜŞTÜ: BU MAKİNE arm64 DEĞİL** (Q26)
 
-**Durum:** açık · **Bloklar:** hiçbir şeyi · **İlgili:** Q26, M0-07
+**Durum:** 🔴 **geçersiz, 2026-08-13'te ölçüldü** · **Bloklar:** hiçbir şeyi ·
+**İlgili:** Q26, M0-07 · **Yerine geçen iş:** T31 (`go1.26.5 → 1.26.6`, güvenlik)
 
-**Ne yapılacak.** Yerel Go toolchain'i arm64'e geçir. Tarball indirildi ve checksum'ı
-go.dev ile **birebir doğrulandı** (`efb87ff2…`), ama `/usr/local`'a kurulum **sudo
-parolası** istiyor — kullanıcı çalıştırmalı. Komutlar
-[state.md](plan/state.md) oturum notunda.
+**Neden düştü.** Maddenin dayandığı önerme yanlıştı. Ölçüm (M7-03 A, 5. tur denetimi,
+sonra orkestratör tarafından doğrulandı):
 
-**Kazanç yalnız hız.** Her şey bugün amd64 Go 1.26.5 ile yeşil; Rosetta altında derleme
-~2-3x yavaş. Kurulunca `go version` → `darwin/arm64` olur ve ilk `make gen` bir kez
-uzun sürer (build cache + pinli CLI önbellekleri tazelenir — bozukluk değil).
+```
+uname -m                      -> x86_64
+hw.model                      -> MacBookPro16,1
+machdep.cpu.brand_string      -> Intel(R) Core(TM) i9-9980HK CPU @ 2.40GHz
+kernel                        -> RELEASE_X86_64
+hw.optional.arm64 / sysctl.proc_translated  -> OID MEVCUT DEĞİL
+file $(which go)              -> Mach-O 64-bit executable x86_64
+go env GOARCH                 -> amd64
+```
+
+Yani makine **Apple Silicon değil** ve **Rosetta altında da değil** — Intel bir
+MacBook Pro. `go` zaten **yerel** koşuyor. *"Rosetta altında ~2-3× yavaş"* gerekçesi
+ölçülmemiş bir varsayımdı; kurulacak arm64 tarball'ı bu donanımda **hiç çalışmaz**.
+
+⚠️ **Aynı yanlış inanç iki yerde daha yazılı ve düzeltilmeli:**
+`docs/plan/m0-bootstrap.md:704-706` (*"`uname -m` → arm64"*, *"toolchain tamamen
+Rosetta altında"*) ve `internal/adminauth/password.go:43`'ün zamanlama tablosunun
+`darwin/arm64` etiketi (`4bc2e72`, 2026-08-03'ten beri). Sonuncusu M7-03 A'da
+düzeltildi; ilki hâlâ açık.
+
+**Ders.** Donanım iddiası da bir **ölçümdür**. Bu madde beş oturum boyunca *"kullanıcı
+şunu kurmalı"* diye taşındı ve kimse `uname -m` yazmadı — maddeyi kapatan komut
+**tek satır** ve **sıfır saniye** sürdü.
 
 ---
 
@@ -116,6 +135,10 @@ uzun sürer (build cache + pinli CLI önbellekleri tazelenir — bozukluk değil
 | **T28** | **HSTS ürün genelinde YOK — ve M7-01 bunun ilk gerçek kurbanı olabilecek yüzeyi açtı.** `Strict-Transport-Security` hiçbir rotada set edilmiyor (üretim kodunda **0 eşleşme**, güvenlik denetimi 2026-08-13). **M7-01'in getirdiği bir kusur DEĞİL** — ama bugüne kadar her rota ya oturum ya davet kodu ya SUN istiyordu; `/` ve dört yasal sayfa **herkese açık** ve bir downgrade saldırısının hedefleyebileceği ilk yüzey. TLS büyük olasılıkla **ters vekilde** sonlanıyor, yani başlığı orada mı yoksa uygulamada mı set edeceğimiz bir **dağıtım kararı** — ve `includeSubDomains`/`preload` ayrı kararlar, geri alınması **aylar** sürer. Pilot öncesi karara bağlanmalı. | M7-01 güvenlik denetimi | M8 (pilot öncesi) |
 | **T29** | **`HEAD` ürün genelinde 405 veriyor — M7-01 yalnız pazarlama yüzeyini düzeltti.** chi'nin `r.Get`'i **yalnız GET** kaydediyor; ölçüldü: `HEAD /healthz`, `HEAD /admin/login`, `HEAD /activate`, `HEAD /t` → **405 `Allow: GET`** (`/static/*` istisna, `http.FileServer` kendi hallediyor). M7-01 `/` ve dört yasal rotaya `r.Head` ekledi ve **bilinçli olarak router geneline yaymadı**: tap ve panel uçları oran ölçüyor ve kimlik çözüyor, yani **farklı patlama yarıçapı**. **En güçlü kalan aday `/healthz`** — uptime monitörleri onu HEAD'ler ve 405 *"servis bozuk"* diye okunur. ⚠️ Ve bu sınıfı test ederken **gerçek `httptest.NewServer` gerekir**: `ResponseRecorder` net/http'nin HEAD gövde bastırmasını **uygulamıyor**, yani aynı iddia recorder'da gerçek istemcilerin **hiç almadığı** bir gövde raporlar (M7-01 bunu ölçtü). | M7-01, 2. tur (U3) | M8 |
 | **T30** | **`TAPPA_TRUSTED_PROXIES` boşken panel giriş bütçesi 25× SIKILAŞTI — ve o kurulumda anahtar TÜM ürün için tek adrese çöker.** M7-02 `adminLoginWorkLimit = 120/10dk/**adres**` ekledi (gerekçe: dolgu her girişi 8 bcrypt'e çıkardı ve başarılı giriş yolunda **hiçbir bütçe yoktu** — ölçüldü: 18/18 başarılı giriş, 0 adet 429, ~15 çekirdek). Ters vekil arkasında `TAPPA_TRUSTED_PROXIES` **boş** bırakılırsa `realip` gerçek istemciyi çözemez ve anahtar tek adrese çöker — **o kurulumda panel giriş tavanı tüm müşteriler için 120/10 dk** olur; değişiklik öncesi aynı çöküş `adminFloodLimit`'te **3000** idi, yani **25× daha gevşekti**. ⚠️ **Yeni bir SINIF değil** (aynı yetenek flood bütçesinde zaten vardı ve `adminratelimit.go` takası *"IT CAN REFUSE A CORRECT PASSWORD"* diye **ilan ediyor**; `.env.example` de diğer bütçeler için uyarıyor) — ama sıkılık 25× arttığı için **dağıtım belgesinde artık zorunlu bir adım**. Ayrıca paylaşılan çıkış adresi (CGNAT) ardındaki bir saldırgan, **kendi kaydettiği** geçerli bir hesapla 120'yi doldurup pencerenin kalanında ofisi dışarıda bırakabilir. Pilot dağıtımı yapılmadan karara bağlanmalı. | M7-02 güvenlik denetimi (2. tur) | M8 (pilot öncesi) |
+| **T31** | 🔴 **`make audit` BUGÜN KIRMIZI VE SEBEBİ ARAÇ ZİNCİRİ: govulncheck 6 stdlib açığı sayıyor, hepsi `go1.26.5 → 1.26.6` ile kapanıyor** (GO-2026-6088, GO-2026-5972, GO-2026-5026 ve üç tanesi daha; `make audit` **exit 3**). `./scripts/redline-check.sh` tek başına **exit 0**, yani kırmızı çizgi taraması temiz — kırılan yalnız güvenlik açığı taraması. ⚠️ **Bu bir repo değişikliği değil, kullanıcının Go kurulumu** — bu yüzden ajanlara yaptırılmadı. Ve şu an `state.md` sağlık tablosu `make audit`'in yeşil olmasını bekliyor, yani **her oturum bu satırda takılacak**. Kullanıcı `go1.26.6`'ya çıkana kadar `make check`/`make audit` kırmızılığının sebebini bilerek okumak gerekiyor. | M7-03 A güvenlik denetimi (2026-08-13) | Kullanıcı — sonra M8 |
+| **T32** | **`log_statement=all` GELİŞTİRME COMPOSE'UNDA AÇIK VE BIND PARAMETRELERİNİ İKİ KEZ LOG'A YAZIYOR — signup'ın yazdığı GERÇEK cost-12 digest dahil.** Ölçüldü (`tappa_app`, extended protocol): `LOG: bind … DETAIL: Parameters: $1 = '<değer>'` ve ardından `LOG: execute … DETAIL: Parameters: $1 = '<değer>'`. Hata satırının kendisi **temiz** (`log_parameter_max_length_on_error=0`), sızdıran şey normal ifade log'u. **00018'in getirdiği bir kusur DEĞİL** — o migration'ın reddettiği değerler tanım gereği hiçbir şeyi doğrulamıyor; asıl mesele **aynı mekanizmanın `CreateAdminUser`'ın yazdığı geçerli digest'i de** yazması, ve bu M7-02'den beri böyle. Kapsam **dev/CI** (üretimde yönetilen Postgres). İki çare: compose'ta `log_statement`'ı `ddl`'e indir, ya da `admin_users`'a yazan yolları parametresiz say. §4.7'ye değiyor. | M7-03 A güvenlik denetimi (F2) | M8 (pilot öncesi) |
+| **T33** | **`redline-check.sh` R5 bloğu ALTER-only migration'ları GÖREMİYOR — ve ölçülerek gösterildi.** R5 yeni tabloların beşlisini (`tenant_id` · `ENABLE RLS` · `FORCE RLS` · politika · indeks) yalnız **`CREATE TABLE` ile doğan** tablolarda arıyor. Denetçi geçici bir `db/migrations/99999_zzz_audit_probe.sql` koydu — içinde `ALTER TABLE admin_users NO FORCE ROW LEVEL SECURITY;` + `ALTER TABLE transactions DISABLE ROW LEVEL SECURITY;` + `GRANT ALL ON admin_users TO tappa_app;` → **tarama exit 0, tek satır uyarı yok** (dosya hemen silindi). Yani §4.5'i **geri alan** bir migration mekanik ağdan geçer; bugün onu tutan tek şey `internal/db/rls_test.go`'nun kendi sondaları (onlar RLS kapatılınca **kırmızıya dönüyor**, mutasyonla doğrulandı). Ağı ALTER ifadelerini de görecek şekilde genişletmek gerekiyor. ⚠️ Ayrıca R7 ağı `.pem/.key/.aes` dosyalarına bakıyor; `test/fixtures/ids.go`'ya giren 60 karakterlik digest biçimli sabiti **mekanik olarak hiçbir şey elemedi** (sahte olduğu elle kanıtlandı). | M7-03 A güvenlik denetimi (madde 9) | M8 |
+| **T34** | 🔴 **`state.md`'nin "bağlantı tükenmesi" flake'inin MEKANİZMASI bulundu — ve bu bir tükenme değil, KİLİTLENME.** Üçüncü göz `internal/db`'de `53300 too many clients` ve `internal/domain/signup`'ta **10 dakikalık paket zaman aşımı** gördü; goroutine dökümü zinciri gösterdi: `newBusinessVAT` (`internal/domain/signup/signup_db_test.go:386`) **dıştaki `WithTenant` işlemi bir bağlantı tutarken** ikinci bir `WithTenant` açıyor → bağlantı alamayınca `t.Fatalf` → `Goexit` → `t.Cleanup` → `DB.Close()` → `puddle.Pool.Close()` **aynı goroutine'in hâlâ tuttuğu bağlantıyı bekleyerek sonsuza kadar bloke oluyor**. Yani havuz doyduğunda suite **hata vermiyor, ASILIYOR** — ve 10 dk'lık Go paket zaman aşımına kadar bekliyor. `newBusinessVAT` **M7-02'den**, M7-03 A'da değişmedi; temiz koşularda yeşil. ⚠️ Bu, `state.md` sağlık tablosundaki *"iki bilinen flake"* satırının ikincisinin gerçek sebebi olabilir — orada *"`internal/db` + `internal/sun` 54'er bağlantı açıyor = 108 > 97"* yazıyor ve **doğru**, ama asılmanın sebebi bağlantı sayısı değil **iç içe `WithTenant` + `Cleanup` sırası**. Çare bağlantı sayısını düşürmek değil (o bir §4.4 testini zayıflatır): iç içe `WithTenant`'ı kaldırmak ya da `Cleanup`'ta bağlantıyı önce bırakmak. | M7-03 A, 3. tur üçüncü göz (N1) | M8 |
 
 ---
 
