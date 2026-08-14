@@ -497,7 +497,17 @@ func TestTags00013_ConstraintsNoOtherTestNames(t *testing.T) {
 	// is refused for its SPELLING and not merely for pointing at a row that does not
 	// exist -- the assertion checks which constraint fired, because the composite
 	// self-FK would also refuse it and would prove something else entirely.
-	successor := randUID(t)
+	//
+	// 🔴 THE SUCCESSOR MUST CONTAIN A HEX LETTER, AND A PLAIN randUID DOES NOT ALWAYS.
+	// randUID is 7 random bytes rendered as 14 upper-case hex digits, so with
+	// probability (10/16)^14 = 1/721 every character is 0-9 and strings.ToLower below
+	// is a NO-OP: the statement then carries a canonical value, is correctly accepted,
+	// and this test fails for a reason that has nothing to do with the constraint it
+	// names. Measured -- it fired during an M7-06 verification run of `make check`
+	// ("lower-case replaced_by: statement SUCCEEDED"). An assertion about SPELLING
+	// needs a value whose spelling can differ, so the letter is forced rather than
+	// hoped for. Forced here and not inside randUID: other tests want it uniform.
+	successor := uidWithALetter(t)
 	addPlaque(t, app, fx, successor, fx.locationID, "active", 0)
 	old := randUID(t)
 	addPlaque(t, app, fx, old, fx.locationID, "active", 0)

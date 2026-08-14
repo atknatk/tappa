@@ -304,3 +304,22 @@ func TestAdvanceTagCounter_SuccessReplayAndConcurrency(t *testing.T) {
 		t.Fatalf("final last_ctr = %d, want %d", got.LastCtr, ctr)
 	}
 }
+
+// uidWithALetter is randUID constrained to contain at least one hex letter, so a
+// caller that lower-cases it gets a value that actually DIFFERS. randUID alone
+// yields 14 upper-case hex digits and is all-numeric with probability
+// (10/16)^14 = 1/721, which is rare enough to survive review and common enough to
+// turn an assertion about spelling into an assertion about nothing.
+//
+// The retry loop terminates for the same reason the flake is rare: each draw has a
+// 720/721 chance of containing a letter.
+func uidWithALetter(t *testing.T) string {
+	t.Helper()
+	for range 64 {
+		if u := randUID(t); strings.ContainsAny(u, "ABCDEF") {
+			return u
+		}
+	}
+	t.Fatal("uidWithALetter: 64 draws without a hex letter -- randUID is not random")
+	return ""
+}
