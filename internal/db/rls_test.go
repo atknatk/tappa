@@ -184,7 +184,10 @@ func buildFixture(t *testing.T, d *DB) fixture {
 		adminSessionID: uuid.New(),
 		adminTokenHash: "admin-hash-" + uuid.NewString(),
 		resetID:        uuid.New(),
-		resetTokenHash: "reset-hash-" + uuid.NewString(),
+		// 64 random hex chars: the shape internal/adminauth's HMAC produces and the
+		// shape 00019's CHECK enforces. It was "reset-hash-<uuid>" until that
+		// migration, and it is a pre-image of nothing -- no test holds a reset token.
+		resetTokenHash: randTokenHash(t),
 		policyID:       uuid.New(),
 		policyVersID:   uuid.New(),
 		policyAttachID: uuid.New(),
@@ -559,13 +562,18 @@ func TestRLS_WriteWithCheck_AllTables(t *testing.T) {
 				_, e := tx.Exec(ctx, `INSERT INTO admin_sessions (id, tenant_id, admin_user_id, token_hash) VALUES ($1, $2, $3, $4)`, uuid.New(), b.tenantID, b.adminUserID, "own-"+uuid.NewString())
 				return e
 			}},
+		// 🔴 BOTH ARMS CARRY A HASH-SHAPED token_hash SINCE 00019, and that is what
+		// keeps this case measuring RLS. The values used to be "forge-<uuid>" /
+		// "own-<uuid>"; migration 00019 added a CHECK requiring ^[0-9a-f]{64}$, and a
+		// negative arm that trips a CHECK proves nothing about row-level security --
+		// it would go green with RLS switched off.
 		{"password_resets", blockRLS,
 			func(ctx context.Context, tx pgx.Tx) error {
-				_, e := tx.Exec(ctx, `INSERT INTO password_resets (id, tenant_id, admin_user_id, token_hash, expires_at) VALUES ($1, $2, $3, $4, now() + interval '1 hour')`, uuid.New(), a.tenantID, a.adminUserID, "forge-"+uuid.NewString())
+				_, e := tx.Exec(ctx, `INSERT INTO password_resets (id, tenant_id, admin_user_id, token_hash, expires_at) VALUES ($1, $2, $3, $4, now() + interval '1 hour')`, uuid.New(), a.tenantID, a.adminUserID, randTokenHash(t))
 				return e
 			},
 			func(ctx context.Context, tx pgx.Tx) error {
-				_, e := tx.Exec(ctx, `INSERT INTO password_resets (id, tenant_id, admin_user_id, token_hash, expires_at) VALUES ($1, $2, $3, $4, now() + interval '1 hour')`, uuid.New(), b.tenantID, b.adminUserID, "own-"+uuid.NewString())
+				_, e := tx.Exec(ctx, `INSERT INTO password_resets (id, tenant_id, admin_user_id, token_hash, expires_at) VALUES ($1, $2, $3, $4, now() + interval '1 hour')`, uuid.New(), b.tenantID, b.adminUserID, randTokenHash(t))
 				return e
 			}},
 		{"policies", blockRLS,

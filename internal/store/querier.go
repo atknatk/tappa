@@ -365,6 +365,87 @@ type Querier interface {
 	// This is the ONLY statement in db/queries that writes employee_invites.used_at
 	// (greppable), which is what makes the un-consume limit in the header hold.
 	ConsumeInviteAndActivate(ctx context.Context, arg ConsumeInviteAndActivateParams) (ConsumeInviteAndActivateRow, error)
+	// THE reset statement, and the most critical query in M7-04. ONE statement does all
+	// three halves -- spend the token, retire its siblings, write the new digest -- so
+	// that "this administrator's password changed by reset" IMPLIES "a reset token was
+	// spent for them".
+	//
+	// WHY THEY ARE FUSED. Separate queries would make that implication a property of the
+	// CALL ORDER, not of the schema: a code path could call a standalone "set password"
+	// for ANY administrator in the tenant without spending anything, which is a
+	// privilege-escalation path around the entire flow. There is deliberately NO
+	// standalone set-password query and NO standalone consume query in this file. (When
+	// M7-05 adds "change my own password from the panel" it needs its OWN statement with
+	// its OWN authority -- the current session's identity -- and must not reuse this one.)
+	//
+	// KEYED BY token_hash, NOT BY reset id -- ON PURPOSE, the ConsumeInviteAndActivate
+	// argument verbatim. An id-keyed consumption would make KNOWING THE TOKEN
+	// UNNECESSARY: ListLivePasswordResetsForAdmin hands the id to any caller in the
+	// tenant, so an endpoint taking an id from a request body would let one administrator
+	// reset another's password. Matching on the hash means the caller must present a value
+	// only the token's holder can produce -- as strong as the HMAC derivation in
+	// internal/adminauth, which is why that derivation is not optional.
+	//
+	// WHY ATOMICITY MATTERS (section 4.4's shape in another costume). A read ("is used_at
+	// NULL?") followed by a write ("stamp it") is a race: two requests carrying the SAME
+	// token -- the link opened twice, or replayed deliberately -- can both read NULL and
+	// both stamp, so two different passwords get written and the later one wins silently.
+	// The consumed CTE is a single UPDATE whose WHERE carries the state test, so under
+	// READ COMMITTED the second blocks on the row lock, re-reads the committed row, finds
+	// `used_at IS NULL` false, updates 0 rows and returns nothing. EXACTLY ONE caller can
+	// win, proven with N concurrent goroutines under -race in
+	// internal/db/passwordresets_test.go next to a negative control.
+	//
+	// THE EXISTS GUARD, again for 00009's reason: a data-modifying CTE runs
+	// unconditionally, so without it a token belonging to a DISABLED administrator would
+	// be BURNED while nothing was reset -- and unlike an invite, a burned reset token
+	// cannot be re-issued by anyone but the person who can no longer log in.
+	//
+	// THE STATUS IS TESTED TWICE AND THAT IS NOT A DUPLICATE (the invites precedent, and
+	// it earns its place the same way): the EXISTS guards THE STAMP against an
+	// administrator who is ALREADY disabled when the statement runs; the outer
+	// `status = 'active'` guards THE WRITE against one who is disabled BETWEEN the CTE and
+	// the outer UPDATE -- under READ COMMITTED the outer statement re-evaluates its WHERE
+	// against the row version a concurrent transaction committed. Drop either and
+	// something real is lost.
+	//
+	// THE WINDOW THAT REMAINS, named rather than waved away: in exactly that race the
+	// stamp is written while the password write is refused, so a caller that commits
+	// anyway has spent the token for nothing. The failure mode is a wasted link, never a
+	// password written for a disabled account, and propagating the error (WithTenant's
+	// rollback) still saves the token.
+	//
+	// ALL FAILURE MODES COLLAPSE INTO 0 ROWS ON PURPOSE -- unknown token, spent token,
+	// expired token, retired token, disabled administrator. The caller MUST NOT be able to
+	// tell them apart from this outcome; that would be an oracle on a page reachable
+	// without credentials. When the difference matters for the AUDIT TRAIL it comes from
+	// the resolver, which returns used_at, expires_at and cancelled_at as FACTS without
+	// filtering (00019), and the caller decides what to record.
+	//
+	// THE NEW DIGEST IS BOUNDED BY THE DATABASE TOO: 00018's CHECK on
+	// admin_users.password_hash accepts only a digest bcrypt will fully process, so a
+	// caller that passed something else gets 23514 and the WHOLE statement rolls back --
+	// token unspent, password unchanged, fail-closed. internal/adminauth.Hash is the only
+	// producer this repository has.
+	//
+	// WHAT IT DOES **NOT** DO: revoke the administrator's live panel sessions. That is a
+	// second statement (RevokeAdminSessionsForAdmin, db/queries/admins.sql, whose own
+	// comment names "the password was changed or reset (M7-04)") and it belongs in the
+	// SAME transaction as this one -- internal/adminauth.Resets.Consume runs the pair.
+	// It is not fused here because it is a different table with a different cardinality
+	// (:many), and because a reset that could not revoke would still need to fail the
+	// whole transaction, which sharing the transaction already achieves.
+	// The UPDATE target is ALIASED (`r`) and every column reference is qualified. Not
+	// style: sqlc v1.28's analyzer flattens the CTE scopes of this statement, so a bare
+	// `token_hash` is "ambiguous" against the `retired` CTE's copy of the same table
+	// (measured -- the generator refused the unaliased form outright).
+	// 🔴 BOTH ids ARE ALIASED, AND THE FIRST ONE IS A CORRECTION. The outer statement's
+	// subject is admin_users, so a bare `a.id` generates a field called `ID` on a Row type
+	// whose name begins "ConsumePasswordReset..." -- a reader (and the next caller) reads
+	// that as the reset's id, which is the value sitting right next to it under a
+	// DIFFERENT name. An audit named it as a trap. Naming both columns for what they are
+	// makes the generated struct say it instead of a comment asking somebody to remember.
+	ConsumePasswordResetAndSetPassword(ctx context.Context, arg ConsumePasswordResetAndSetPasswordParams) (ConsumePasswordResetAndSetPasswordRow, error)
 	// anomalies.sql -- the reads behind the ANOMALIES section (M6-11).
 	//
 	// WHAT THIS FILE IS FOR. The panel's other sections answer "what happened".
@@ -958,6 +1039,127 @@ type Querier interface {
 	// half-filled pair; nothing in the schema can refuse a plausible zero, so the
 	// boundary that builds these arguments is the only guard and it is tested.
 	CreateLocation(ctx context.Context, arg CreateLocationParams) (CreateLocationRow, error)
+	// passwordresets.sql -- the TENANT-SCOPED half of the admin password reset
+	// (M7-04 phase A): issuing a single-use token, spending it exactly once, and
+	// listing what is still live.
+	//
+	// Every query below is TENANT-SCOPED: each names tenant_id explicitly (CLAUDE.md
+	// section 4.5, belt + braces on top of RLS) and each is meant to run inside
+	// db.(*DB).WithTenant, i.e. with app.tenant_id established. There is exactly ONE
+	// reset lookup in the codebase that carries no tenant scope -- the context-less
+	// GetPasswordResetByTokenHash (db/queries/resolve.sql, ADR 0002 madde 7, migration
+	// 00019) -- because a reset LINK carries only a token and the tenant is the RESULT.
+	// It is deliberately NOT duplicated here.
+	//
+	// KIRMIZI CIZGI (section 4.7): the raw reset TOKEN appears nowhere in this file and
+	// is not stored. Only token_hash -- a hex HMAC-SHA256 computed by internal/adminauth
+	// under a derived key, SHAPE-enforced by a CHECK in 00019 -- is written or matched,
+	// and NO query below RETURNS it. The precise, grep-checkable form of that claim,
+	// because a looser one is the kind this repository has had to withdraw: `token_hash`
+	// appears in NO RETURNING or select list in this file; it occurs exactly twice, as
+	// the INSERT column list entry and as the value being inserted in
+	// CreatePasswordReset, and once as a WHERE predicate in
+	// ConsumePasswordResetAndSetPassword. The property that actually matters is measured
+	// on the GENERATED code, not on this comment: no *Row struct in
+	// internal/store/passwordresets.sql.go carries a TokenHash field -- the only
+	// TokenHash there is a Params field, i.e. an INPUT. So a row read cannot leak the
+	// hash into a log, and the guarantee survives a regeneration.
+	//
+	// IN THIS DESIGN THE HASH IS ITSELF A BEARER CREDENTIAL: hash -> resolver -> tenant
+	// -> consumption. Logging the hash is exactly as bad as logging the token (the
+	// sentence 00009 wrote for invite codes, true here for the same mechanical reason).
+	//
+	// NO DELETE QUERIES BY DESIGN: 00006 REVOKEs DELETE on password_resets, so no
+	// application code path can destroy a reset row (section 4.6). A spent token keeps
+	// its used_at as the audit answer to "when was this reset link used, and for whom" --
+	// the first question an account-takeover investigation asks. The scope of that
+	// guarantee, stated precisely: it binds tappa_app, i.e. every code path that serves
+	// a request. It does NOT bind tappa_owner, the migration superuser, which keeps
+	// DELETE and bypasses RLS by definition. Closing that too would need a BEFORE DELETE
+	// trigger in a new migration; deliberate non-goal, matching employee_invites.
+	//
+	// WHICH COLUMN may be written is enforced by the DATABASE since 00019 (UPDATE is
+	// granted on used_at and cancelled_at ALONE, INSERT on five columns that exclude
+	// created_at); WHAT VALUE it may take is not. `SET used_at = NULL` (replay a spent
+	// token) remains permitted by the privilege system, and against it the protection is
+	// that NO QUERY IN THIS FILE DOES IT -- used_at and cancelled_at only ever move from
+	// NULL to now(), and every statement that writes them requires IS NULL in its WHERE.
+	// That is this file's discipline. Anyone adding a query here must keep it.
+	//
+	// ⚠️ THIS FILE DOES NOT DECIDE **WHO** GETS A RESET LINK, and that is phase B's
+	// hardest question rather than an omission. CreatePasswordReset takes an
+	// admin_user_id, so the mapping from a typed-in EMAIL to a set of candidate admin
+	// rows is made outside it -- and that mapping is the one 00011's OBLIGATION 1 spends
+	// a dummy bcrypt refusing to answer. Phase B must keep the response to "send me a
+	// reset link" identical for a registered and an unregistered address, in status,
+	// body, wording AND timing.
+	// Issues a single-use reset token for ONE administrator, and RETIRES every reset of
+	// that administrator that could still be spent.
+	//
+	// 🔴 THE RETIREMENT IS THE HALF THAT IS EASY TO LEAVE OUT, and this repository has
+	// already measured what leaving it out costs. Migration 00012 exists because two
+	// presses of the panel's "Send invite" produced two simultaneously valid links, and
+	// the OLDER one still worked after the newer one had been spent -- so "the mail did
+	// not arrive, press it again" left a live account-takeover credential in whatever
+	// inbox or chat history the first link reached. A password reset is that button with
+	// a bigger prize. Fusing the two halves into ONE statement means "a new reset exists"
+	// IMPLIES "the previous ones are dead", as a property of the statement rather than of
+	// the call order -- the same reason ConsumeInviteAndActivate is fused.
+	//
+	// 🔴 THE EXISTS GUARD IN THE CTE IS NOT DECORATION -- it is 00009's measured lesson.
+	// A data-modifying CTE runs UNCONDITIONALLY, even when the outer statement matches
+	// nothing. Without the guard, a reset request naming a DISABLED (or foreign, or
+	// non-existent) administrator would still retire that person's live tokens: the
+	// INSERT would insert nothing and the caller would see pgx.ErrNoRows, while the
+	// database had silently invalidated links somebody was about to use. With it, both
+	// halves are conditional on the same fact.
+	//
+	// WHY status = 'active'. A disabled administrator has no panel to reach, and
+	// CreateAdminSession already refuses them in SQL; handing them a token that rewrites
+	// their password_hash would be a write to an account somebody deliberately switched
+	// off. 0 rows -> pgx.ErrNoRows -> the caller says nothing different to the user
+	// (OBLIGATION 1) and writes an audit row (section 4.6).
+	//
+	// WHY INSERT ... SELECT RATHER THAN INSERT ... VALUES. Two reasons, and the second is
+	// the real one.
+	//
+	// (a) The section 4.5 belt scanner needs a predicate to read; an INSERT ... VALUES has
+	// no WHERE and the scanner reports that it verified NOTHING -- CreateLocation and
+	// CreateAdminUser both record learning this. ⚠️ THAT REASON WAS FALSE FOR THIS FILE
+	// WHEN IT WAS WRITTEN, and an audit measured it: the three copies of that scanner
+	// (internal/domain/{ledger,review,tenant}/query_test.go) each derive the queries THEIR
+	// OWN package names, and this file's only Go caller is internal/adminauth -- which had
+	// no copy. `grep -rn 'passwordresets.sql' --include='*_test.go' .` returned 0. It is
+	// true NOW because internal/adminauth/query_test.go was written to make it true, and
+	// that copy is STRICTER than the three siblings: it requires EVERY where clause to be
+	// scoped or to inherit scope, because "at least one clause" is hollow for the
+	// multi-statement CTEs in this file (measured -- deleting the predicate from the INSERT
+	// half below left the weaker rule green).
+	//
+	// (b) It makes the administrator's existence, tenancy and ACTIVE
+	// status conditions of the INSERT ITSELF, and it takes tenant_id FROM THE ADMIN ROW,
+	// so a token cannot be stamped with a tenant its administrator does not belong to
+	// even if this query were called with a mismatched pair. The explicit @tenant_id
+	// predicate is the belt and the RLS WITH CHECK independently refuses a row whose
+	// tenant disagrees with the transaction context.
+	//
+	// expires_at IS THE CALLER'S VALUE AND THE DATABASE BOUNDS IT. 00019's CHECK refuses
+	// anything beyond created_at + 24 h, so 'infinity' and a ten-year link are
+	// unrepresentable; the product TTL (internal/adminauth.ResetTTL) is chosen in Go, one
+	// hour, well inside that ceiling.
+	//
+	// token_hash is written and never returned (section 4.7).
+	//
+	// ⚠️ THE CONCURRENCY LIMIT, measured rather than claimed away: two reset requests for
+	// the SAME administrator that overlap in time can both retire "nothing live" (neither
+	// sees the other's uncommitted row under READ COMMITTED) and both insert, leaving TWO
+	// live tokens. The SEQUENTIAL case -- the one a human produces by pressing a button
+	// twice -- is fully closed. The concurrent case leaves two tokens created in the same
+	// instant, both delivered to the same address, which is a materially smaller harm than
+	// the stale-link case above. Closing it too would need a per-administrator advisory
+	// lock at the call site (the shape ADR 0006 uses for tap debounce); it is not taken
+	// here and is named so phase B can decide with the cost in view.
+	CreatePasswordReset(ctx context.Context, arg CreatePasswordResetParams) (CreatePasswordResetRow, error)
 	// sessions.sql -- the TENANT-SCOPED half of "proof of person" (CLAUDE.md
 	// section 5): issuing, refreshing, revoking and listing the persistent browser
 	// session that answers "who is this phone?".
@@ -2044,6 +2246,25 @@ type Querier interface {
 	// clause, and the anti-join subquery carries its own. The tenant comes from the
 	// panel session, never from the request.
 	ListFlaggedForReview(ctx context.Context, arg ListFlaggedForReviewParams) ([]ListFlaggedForReviewRow, error)
+	// The resets of one administrator that could still be spent RIGHT NOW: not consumed,
+	// not retired, not expired.
+	//
+	// "Live" is defined by exactly the three conditions ConsumePasswordResetAndSetPassword
+	// tests, so a row listed here is one that could be spent at this instant -- a VIEW,
+	// not an authority (a row can be spent or expire between the two statements; the
+	// consume statement is the authority). Spent, retired and expired rows are excluded on
+	// purpose; they are NOT lost (nothing deletes them, section 4.6) and a history view
+	// gets its own query rather than a flag on this one.
+	//
+	// WHAT IT IS FOR: the invariant "at most one live reset link per administrator" is
+	// what CreatePasswordReset buys, and an invariant nothing can observe is an invariant
+	// nothing can defend -- internal/db/passwordresets_test.go reads it through this
+	// query. Phase B's panel ("a reset link was sent, it expires at ...") is the second
+	// reader.
+	//
+	// token_hash is NOT selected (section 4.7); used_at and cancelled_at are not selected
+	// either, because the WHERE pins both to NULL for every returned row.
+	ListLivePasswordResetsForAdmin(ctx context.Context, arg ListLivePasswordResetsForAdminParams) ([]ListLivePasswordResetsForAdminRow, error)
 	// GPS fallback path (CLAUDE.md section 5, row 6): when no IP matches, the domain
 	// computes the haversine distance from the tap's GPS to each location and checks
 	// the < 150 m radius. Returns every location in the tenant so that check can run.

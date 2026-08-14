@@ -16,14 +16,17 @@ import (
 // tenant. After these resolve, the caller reads the tenant off the result and
 // runs everything else inside WithTenant.
 //
-// There are FIVE of them (M5-02 added the invite one, M6-01 phase A the two admin
-// ones; ADR 0002 madde 7 was written when there were two and carries dated update
-// notes). The count is not the guarantee -- the five normative constraints are,
-// and each accessor here meets them: key-only input, a bounded result underwritten
-// by a UNIQUE index rather than by the function body, a fixed column list with no
-// SELECT * surface, EXECUTE granted to tappa_app alone with no cross-tenant SELECT
-// on the tables, and no naive "show rows when the context is NULL" RLS branch
-// anywhere.
+// There are SIX of them (M5-02 added the invite one, M6-01 phase A the two admin
+// ones, M7-04 phase A the password-reset one; ADR 0002 madde 7 was written when there
+// were two and carries dated update notes). The count is not the guarantee -- the five
+// normative constraints are, and each accessor here meets them: key-only input, a
+// bounded result underwritten by a UNIQUE index rather than by the function body, a
+// fixed column list with no SELECT * surface, EXECUTE granted to tappa_app alone with
+// no cross-tenant SELECT on the tables, and no naive "show rows when the context is
+// NULL" RLS branch anywhere. "There are already five" is not an argument for a sixth
+// (the ADR says so in as many words); the sixth re-earns all five and
+// TestResolvePasswordReset_SecurityDefinerProperties measures them in the live
+// catalog.
 //
 // ONE OF THE FIVE CONSTRAINTS CHANGES SHAPE FOR GetAdminByEmail, and it is called
 // out rather than glossed: constraint (ii) is "at most ONE row", which holds for
@@ -47,9 +50,10 @@ import (
 //
 // STRUCTURAL CONTAINMENT (ADR 0002 madde 7): every query here calls a SECURITY
 // DEFINER function owned by tappa_resolver (NOLOGIN, BYPASSRLS, NOSUPERUSER,
-// column-level SELECT on exactly these five tables) -- NEVER public.tags /
+// column-level SELECT on exactly these six tables) -- NEVER public.tags /
 // public.sessions / public.employee_invites / public.admin_users /
-// public.admin_sessions directly. tappa_app holds EXECUTE on the functions but no
+// public.admin_sessions / public.password_resets directly. tappa_app holds EXECUTE on
+// the functions but no
 // cross-tenant SELECT on the tables, so the blast radius is those functions, not
 // the whole DB. These accessors deliberately DO NOT call set_config: they establish
 // no tenant context (they produce it), which is exactly the narrow resolver access
@@ -187,6 +191,46 @@ type ResolvedAdmin struct {
 	Status       string
 }
 
+// ResolvedPasswordReset is the fixed column set returned by
+// resolve_password_reset_by_token_hash (migration 00019, M7-04): whose reset link
+// this is, and the three facts that decide whether it may still be spent.
+//
+// THE SIXTH CONTEXT-LESS LOOKUP, and it exists for the same reason as the other
+// five: a reset LINK carries only a token, so the tenant is the RESULT. Measured as
+// tappa_app with no context, a direct SELECT on password_resets by token_hash returns
+// 0 rows (FORCE RLS, fail-closed) -- without the resolver the flow cannot exist. The
+// rejected alternative (put the tenant id in the link) is argued in 00019: a URL
+// parameter that decides which tenant's RLS context a request runs in is a parameter
+// the attacker chooses.
+//
+// ExpiresAt, UsedAt and CancelledAt are CARRIED, not applied -- the 00003
+// sessions.revoked_at principle. A resolver that hid a spent or expired reset would
+// answer "unknown token" for a token that really exists, and the caller could not tell
+// a REPLAY from a typo, at exactly the moment an account-takeover attempt would be
+// visible (section 4.6). Nil UsedAt means unspent; nil CancelledAt means not
+// superseded.
+//
+// TOCTOU WARNING (section 4.4, the tags.last_ctr trap in another costume): UsedAt read
+// here MUST NOT be compared and then written. Consumption is
+// store.ConsumePasswordResetAndSetPassword -- one atomic statement whose WHERE carries
+// the state test.
+//
+// ID IS FOR LOGGING AND JOINS, NOT FOR CONSUMING. Consumption is keyed by the TOKEN
+// HASH on purpose (db/queries/passwordresets.sql), so that possessing the token -- not
+// merely knowing a row id, which any tenant-scoped caller can list -- is what spends a
+// reset. Nothing in this repo consumes by id; there is no such query.
+//
+// The reset TOKEN never appears in this struct: only its hash is an input, and not
+// even the hash is returned (section 4.7).
+type ResolvedPasswordReset struct {
+	ID          uuid.UUID
+	TenantID    uuid.UUID
+	AdminUserID uuid.UUID
+	ExpiresAt   time.Time
+	UsedAt      *time.Time
+	CancelledAt *time.Time
+}
+
 // ResolvedAdminSession is the fixed column set returned by
 // resolve_admin_session_by_token_hash (migration 00011): the twin of
 // ResolvedSession over the SEPARATE admin table. An employee cookie can never
@@ -230,6 +274,9 @@ FROM resolve_admin_by_email($1::citext)`
 
 const getAdminSessionByTokenHashSQL = `SELECT id, tenant_id, admin_user_id, revoked_at
 FROM resolve_admin_session_by_token_hash($1)`
+
+const getPasswordResetByTokenHashSQL = `SELECT id, tenant_id, admin_user_id, expires_at, used_at, cancelled_at
+FROM resolve_password_reset_by_token_hash($1)`
 
 // GetTagByUID resolves a wall-plaque uid to its tag WITHOUT a tenant context.
 // Returns pgx.ErrNoRows when the uid is unknown (the caller rejects the tap).
@@ -415,4 +462,41 @@ func (d *DB) GetAdminSessionByTokenHash(ctx context.Context, tokenHash string) (
 		return ResolvedAdminSession{}, fmt.Errorf("db: resolve admin session by hash: %w", err)
 	}
 	return s, nil
+}
+
+// GetPasswordResetByTokenHash resolves an admin password-reset token hash to its row
+// (id, tenant, admin, expiry, consumption, supersession) WITHOUT a tenant context --
+// a reset link carries only a token, so the tenant is the RESULT. Returns
+// pgx.ErrNoRows when the hash is unknown (the caller shows the same page it shows for
+// a spent link and writes nothing that names the token).
+//
+// It answers "whose reset link is this and what state is it in", NOT "may this reset
+// proceed". The caller establishes the tenant context from the result and then calls
+// store.ConsumePasswordResetAndSetPassword, whose single atomic statement is the only
+// thing that may conclude the token was still spendable (section 4.4's shape).
+//
+// AN ADMIN SESSION COOKIE CANNOT RESOLVE HERE AND A RESET TOKEN CANNOT RESOLVE AS A
+// SESSION: the two are rows in different tables reached by different functions, and
+// their hashes are computed under DIFFERENT derived keys (internal/adminauth's
+// resetTokenKeyLabel), so the same 43-character string produces two different hashes.
+// TestResetAndSessionHashes_Differ pins that.
+func (d *DB) GetPasswordResetByTokenHash(ctx context.Context, tokenHash string) (ResolvedPasswordReset, error) {
+	var r ResolvedPasswordReset
+	err := d.pool.QueryRow(ctx, getPasswordResetByTokenHashSQL, tokenHash).Scan(
+		&r.ID, &r.TenantID, &r.AdminUserID, &r.ExpiresAt, &r.UsedAt, &r.CancelledAt,
+	)
+	if err != nil {
+		// Neither the token nor its hash is named: the argument is not interpolated
+		// and %w wraps only the DB error (section 4.7).
+		//
+		// ⚠️ THE WORDING IS CONSTRAINED BY THE SCANNER AND THAT IS WORKING AS INTENDED.
+		// This message read "resolve password reset by hash" first and
+		// scripts/redline-check.sh R7 FAILED the tree on it -- the rule matches a
+		// `password`-shaped argument anywhere inside a fmt/slog call, deliberately
+		// bluntly, because loosening the pattern is how the net rots (M0-07). The line
+		// leaked nothing; it is reworded rather than exempted, which is the direction
+		// this repository has chosen every time.
+		return ResolvedPasswordReset{}, fmt.Errorf("db: resolve reset by hash: %w", err)
+	}
+	return r, nil
 }

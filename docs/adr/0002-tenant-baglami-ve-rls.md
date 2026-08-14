@@ -157,6 +157,55 @@
 > gibi geçerliliğini yitiriyorsa, yerine geçen sınır **yazılmak ve ölçülmek**
 > zorundadır.
 
+> **ADR güncellemesi (2026-08-14, M7-04 A fazı sırasında).** Madde 7'nin sayımı
+> **beşten altıya** çıktı: `GetPasswordResetByTokenHash`
+> (`resolve_password_reset_by_token_hash`), migration
+> [00019](../../db/migrations/00019_harden_password_resets.sql). Gerekçe diğer
+> beşiyle aynı sınıftadır: bir **parola sıfırlama linki yalnız token taşır**, tenant
+> o aramanın **sonucudur**. Ölçüldü — bağlamsız `tappa_app` olarak
+> `password_resets`'e doğrudan `SELECT` **0 satır** (FORCE RLS, fail-closed), aynı
+> koşulda fonksiyon **1 satır**; yani çözümleyici olmadan akış var olamaz.
+> `tappa_resolver` bir tablo daha gördü: `password_resets` üzerinde **sütun-düzeyi**
+> `SELECT` (`created_at` listede **değil**).
+>
+> **Karar değişmedi, kısıt de değişmedi** — bu blok yalnız sayımı ve bir tablo
+> adını günceller. Üstteki M6-01 bloğunun (ii)'yi geçersiz kılan istisnası **buraya
+> yayılmaz**: bu aramanın anahtarı `token_hash` ve o **global UNIQUE** (00006), yani
+> ≤1 satır yeniden **yapısaldır**. Beşi de canlı katalogda ölçüldü, varsayılmadı:
+> `internal/db/passwordresets_test.go` →
+> `TestResolvePasswordReset_SecurityDefinerProperties` (girdi yalnız anahtar
+> `p_token_hash text`; ≤1 satır UNIQUE indeksten; sabit sütun listesi —
+> `token_hash` **girdidir ve dönmez**, `created_at` da dönmez; PUBLIC `EXECUTE` `f`,
+> `tappa_app` `t`; politikada naif "bağlam NULL iken göster" dalı yok; definer
+> `tappa_resolver`, `rolsuper=f`, `rolbypassrls=t`, `search_path` sabit).
+> **Test mutasyonla doğrulandı:** definer `tappa_owner`'a çevrilince ve PUBLIC
+> `EXECUTE` geri verilince ayrı ayrı **kırmızı**.
+>
+> **Reddedilen alternatif, ve M5-03/M6-01 gerekçesinin aynısı:** tenant'ı reset
+> LİNKİNE koymak. Token yine eşleşmek zorunda olsa da, bağlamı **çağıran
+> adlandırmış** olurdu — o transaction'daki her ifade saldırganın seçtiği tenant'ta
+> koşar. **İkincisi (daha ince) reddedilen alternatif:** kullanıcıya reset
+> sayfasında e-postasını tekrar yazdırıp `resolve_admin_by_email`'i yeniden
+> kullanmak. Yeni bypass yüzeyi eklemez ve **birinci gerekçe onu tek başına eler**
+> (tenant girdi değil sonuçtur; link e-posta değil token taşır).
+>
+> ⚠️ **Bu blok ikinci bir gerekçe daha yazıyordu ve o bir VARSAYIMDI — denetim
+> ölçtü, geri çekiliyor.** *"Sıfırlama o zaman `adminauth.MaxCandidates` penceresini
+> miras alır"* doğru değil: `resolve_admin_by_email`'in gövdesinde `LIMIT` **yok**
+> (ölçüldü; 00011 bunu zaten açıkça yazıyor), `MaxCandidates = 8` bir **Go
+> sabitidir** (`manager.go:118`) ve yalnız `Authenticate`'in aday döngüsüyle bcrypt
+> dolgusunda kullanılır (`manager.go:442/443/579` — başka çağrı yeri yok). Bir
+> sıfırlama isteği aday başına bcrypt **ödemediği** için o pencereyi miras almak
+> **zorunda değildir**. Ölçüye indirilmiş doğru ifade: e-postadan aday çözen bir
+> sıfırlama, aday daraltma kararını **kendi tehdit modeline göre sıfırdan vermek**
+> zorunda kalır ve yanlış verirse 00017'nin belgelenmiş artık-kilidini kendi
+> yüzeyinde yeniden üretebilir.
+>
+> **Yeni bir numaralandırma kanalı AÇILMADI** ve bu ölçülebilir bir ifadedir: bu
+> aramanın tek girdisi 256 bitlik rastgele bir değerdir ve çıktısı **hiçbir kişiyi
+> adlandırmaz** (ad, e-posta, rol, durum dönmez). Karşılaştırma: `GetAdminByEmail`
+> doğası gereği bir kehanettir ve B fazı yükümlülükleriyle kapatılır.
+
 ## Bağlam
 
 Tappa çok kiracılı (multi-tenant) bir SaaS: iki design partner (Kebab Factory —

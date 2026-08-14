@@ -624,6 +624,95 @@ location + dinamik lokasyon listesi → admin hesabı → APPROVED damgalı done
 - Gönderim başarısızlığı kullanıcıya dürüstçe bildiriliyor, sessiz yutulmuyor.
 - Token/kod log'a **yazılmıyor**.
 
+**Kabul kriterleri — B FAZI (A fazının ölçümlerinden doğdu, 2026-08-14).** Bunlar
+kod yorumlarında ve [ADR 0015](../adr/0015-sifirlama-tokeni-tek-gecislik-yetkidir.md)'te
+de yazılı ama **denetlenecek liste burasıdır**; A fazı bunların hiçbirini
+karşılamaz ve karşıladığını iddia etmez.
+
+- **Sıfırlama isteği uç noktası ADRES BAŞINA oran sınırlı.** Tek bir sayı iki ayrı
+  zararı birden kapatıyor ve ikisi de ölçüldü: (a) **kurtarma reddi** — saldırgan
+  kurbanın adresini genel forma yazarak kurbanın bekleyen linkini iptal ettirir
+  (`retired_count=1` → kurbanın `Consume`'u 0 satır), tekrar edilirse hesap sahibi
+  kurtarmayı hiç tamamlayamaz; (b) **CPU tükenmesi** — `Consume` token'ın varlığına
+  bakmadan tam bcrypt öder (**212,8 ms**, kimlik doğrulamasız sayfa). Sıra
+  değiştirilerek çözülemez: önce çözümlemek bir **zamanlama kehaneti** açar.
+- **Başarısız her sıfırlama denemesi bir yere düşüyor (§4.6).** Token **çözümlenen**
+  denemede `audit_log` satırı (`Consume` gerekli olguları hataya ek olarak
+  döndürür); **çözümlenmeyen** denemede süreç log'u — çünkü `audit_log.tenant_id`
+  NOT NULL'dur (00005) ve o vakada tenant yoktur. Hiçbirinde token ya da hash
+  **yazılmaz**.
+- **Link yalnızca yöneticinin KENDİ satırındaki adrese gider.** Veri katmanı
+  MINTING'i kapatmaz ve kapatamaz (ölçüldü: `tappa_app` kendi tenant'ında istediği
+  yönetici için token basıp tüketebilir); ele geçirmeyle arasında duran tek şey ham
+  token'ın çağırana **asla dönmemesi** ve tek bir alıcıya gitmesidir.
+- **Bir store `*Params` değeri asla yazdırılmıyor.** Ham token redakte eder, **hash
+  etmez** (`store.*Params.TokenHash`/`.PasswordHash` düz `string` — depo geneli
+  desen).
+- **E-postadan adaya eşleme bir numaralandırma kehaneti değil** (00011 md.1):
+  kayıtlı ve kayıtsız adres için yanıt durum, gövde, ifade **ve zamanlama**
+  bakımından aynı. Aday daraltma kararı buradadır ve yanlış verilirse 00017'nin
+  artık-kilidini bu yüzeyde yeniden üretir.
+
+> **Kart düzeltmesi (2026-08-14, M7-04 A fazı uygulaması sırasında).** Beş nokta
+> kartla gerçek arasında ayrıştı; her biri ölçümle.
+>
+> 1. **"Şifre sıfırlama" YENİ TABLO GEREKTİRMİYOR — tablo 2026-07'den beri
+>    duruyor.** Migration **00006** `password_resets`'i (id, tenant_id,
+>    admin_user_id, token_hash, created_at, expires_at, used_at) RLS beşlisi ve
+>    `REVOKE DELETE` ile birlikte yarattı. Eksik olan tablo değildi: `db/queries`
+>    altında `password_resets` **hiçbir dosyada geçmiyordu** (grep), bir reset
+>    LİNKİNDEN satıra ulaşmanın yolu yoktu (link yalnız token taşır → tenant
+>    aramanın **sonucu**), ve yetkiler `tappa_app`'e **tablo geneli UPDATE**
+>    veriyordu. **00019 bu yüzden bir sertleştirme migration'ı**, `CREATE TABLE`
+>    değil — §6'nın beşli kuralının uygulanacağı yeni tablo yok.
+> 2. **🔴 KARTIN GÖRMEDİĞİ ASIL AÇIK: tablo geneli UPDATE bir HESAP ELE GEÇİRME
+>    ilkeliydi.** 00019 öncesi, `tappa_app` olarak kendi tenant bağlamında,
+>    `BEGIN…ROLLBACK` içinde ölçüldü (yük 7.71): **A1** canlı bir sıfırlama
+>    token'ının `admin_user_id`'sini **aynı tenant'ın owner'ına** çevirmek →
+>    `UPDATE 1`. Yani kendisi için sıfırlama isteyen bir *manager*, elindeki linkle
+>    **owner'ın parolasını** yazabiliyordu; RLS bunu göremez, çünkü aynı tenant.
+>    A2 (süreyi 10 yıl uzatma), A3 (harcanmışı geri alma), A4 (bilinen hash'i
+>    başkasının satırına yamama), A5 (`expires_at='infinity'`), A6 (gelecek
+>    `created_at`), A7 (`token_hash='plaintext-reset-token'`) hepsi çalışıyordu.
+>    **00019 sonrası aynı yedi ifade:** A1/A2/A4/A6 → `42501`, A5 → `23514`
+>    (`password_resets_ttl_ceiling`), A7 → `23514`
+>    (`password_resets_token_hash_shape`). **A3 KAPANMADI** — sütun grant'i hangi
+>    sütunun yazılacağını söyler, hangi **değeri** değil; koruma `db/queries`
+>    disiplinidir, yapı değil (00009/00012 aynı sınırı kaydediyor).
+> 3. **"Magic link ve/veya şifre" bir karar boşluğuydu; A fazı kapsamı DARALTTI.**
+>    Ayrık koşulun sağ kolu **M6-01'de sevk edildi** (`adminauth.Authenticate`),
+>    yani kriter bugün zaten karşılanıyor; sol kol **ikinci bir kimlik doğrulama
+>    yolu** = ikinci saldırı yüzeyi. Eleyen fark veri katmanında: bu tablodaki bir
+>    satır **tek bir durum geçişine** izin verir (`admin_users.password_hash`'i bir
+>    kez yaz) ve **oturum vermez**. Çalınan bir sıfırlama linki kurbana *gördüğü*
+>    bir parola değişikliğine mal olur (kendi parolası çalışmaz, oturumları iptal
+>    edilir, audit satırı vardır); çalınan bir magic link **sessiz** bir girişdir —
+>    §4.6'nın reddettiği şekil. Magic link istenirse **kendi tablosu ve kendi
+>    ADR'si** ile gelir; `password_resets`'e bindirmek, halihazırda dağıtılmış her
+>    sıfırlama token'ını bir oturum token'ına **yükseltirdi**.
+> 4. **Sıfırlama, M7-02'nin `signInBlocked` kanalının çaresi DEĞİL** — ve bunu
+>    yazmak gerekiyor, çünkü öyleymiş gibi okunuyor. O kusur, müşterinin satırının
+>    `created_at` sırasında `adminauth.MaxCandidates` penceresinin **dışında**
+>    kalmasıdır; parolayı değiştirmek satırı pencereye **taşımaz**.
+>    ⚠️ **Bu madde ikinci bir cümle daha taşıyordu ve ölçümle geri çekildi:**
+>    *"sıfırlama e-postadan aday çözerse aynı kilidi miras alır."* Miras **otomatik
+>    değil** — `resolve_admin_by_email`'de `LIMIT` yok (00011 açıkça yazıyor),
+>    `MaxCandidates` bir Go sabiti (`manager.go:118`) ve yalnız `Authenticate`'in
+>    aday döngüsü/dolgusunda kullanılıyor (442/443/579). Sıfırlama aday başına
+>    bcrypt ödemez, yani o pencereyi almak zorunda değildir; **alıp almayacağı B
+>    fazının kararıdır ve yanlış verilirse kilidi yeniden üretir.** Bu yüzden
+>    `CreatePasswordReset` e-posta değil `admin_user_id` alır ve "hangi adaya link
+>    gider" sorusu bilinçli olarak B fazındadır.
+> 5. **Q02 BU FAZI BLOKLAMADI ve hiçbir parçası sağlayıcıya bağlanmadı** — kısıt
+>    olarak uygulandı: veri katmanında sağlayıcı adı, API şekli ya da taşıyıcıya
+>    özgü alan **yok**. *"Gönderim başarısızlığı"* için **sütun eklenmedi ve bu bir
+>    karardır**: senkron SMTP hatayı hâlâ açık olan isteğe **döndürür**, kuyruklu
+>    bir sağlayıcı dakikalar sonra **webhook**'la bildirir — iki farklı sütun, iki
+>    farklı yaşam döngüsü, ve birini seçmek sağlayıcıyı **ima yoluyla** seçmek
+>    olurdu. Repo bu soruyu zaten sütunsuz yanıtlıyor: `internal/invite.Channel`
+>    hatayı çağırana döndürür ve ifşayı `audit_log`'a yazar; `employee_invites`'ta
+>    da teslimat sütunu yoktur. B fazı bu emsali sürdürür.
+
 ---
 
 ## M7-05 — Hesap ve marka mesajı ayarları

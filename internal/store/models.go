@@ -123,6 +123,8 @@ type PasswordReset struct {
 	CreatedAt   time.Time
 	ExpiresAt   time.Time
 	UsedAt      *time.Time
+	// Sifirlama token'i gecersizlestirildi (kullanilmadi). used_at ile ASLA karistirilmaz: used_at = "token harcandi", cancelled_at = "token artik kullanilamaz". Sorgular ikisini de ayri ayri eler.
+	CancelledAt *time.Time
 }
 
 type Policy struct {

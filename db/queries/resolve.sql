@@ -5,13 +5,15 @@
 -- the URL) or a session token hash (from the cookie), an activation with only an
 -- invite code hash (from the link) -- none of the three carries a tenant.
 --
--- THERE ARE FIVE (M5-02 added GetInviteByCodeHash; M6-01 phase A added the two
--- admin ones; ADR 0002 madde 7 was written when there were two and now carries
--- dated update notes). The count was never the guarantee: the ADR's FIVE normative
--- constraints are -- key-only input, a bounded result underwritten by a UNIQUE
--- index, a fixed column list with no SELECT * surface, EXECUTE to tappa_app alone
--- with no cross-tenant table SELECT, and no naive "context is NULL -> show rows"
--- RLS branch. A sixth would have to earn the same.
+-- THERE ARE SIX (M5-02 added GetInviteByCodeHash; M6-01 phase A added the two
+-- admin ones; M7-04 phase A added GetPasswordResetByTokenHash; ADR 0002 madde 7 was
+-- written when there were two and now carries dated update notes). The count was
+-- never the guarantee: the ADR's FIVE normative constraints are -- key-only input, a
+-- bounded result underwritten by a UNIQUE index, a fixed column list with no SELECT *
+-- surface, EXECUTE to tappa_app alone with no cross-tenant table SELECT, and no naive
+-- "context is NULL -> show rows" RLS branch. The sixth had to earn the same and its
+-- five are measured in the live catalog
+-- (TestResolvePasswordReset_SecurityDefinerProperties), not asserted here.
 --
 -- ONE CONSTRAINT CHANGES SHAPE FOR ONE OF THEM, and it is written here rather than
 -- left for a reader to notice. Constraint (ii) is "AT MOST ONE row". Four of the
@@ -213,3 +215,27 @@
 -- signature proves WE minted the value, not WHICH session it belongs to.
 --   SELECT id, tenant_id, admin_user_id, revoked_at
 --   FROM resolve_admin_session_by_token_hash($1);
+
+-- GetPasswordResetByTokenHash (hand-written:
+-- internal/db.(*DB).GetPasswordResetByTokenHash, M7-04 phase A). Context-less; calls
+-- resolve_password_reset_by_token_hash (00019), never public.password_resets. At most
+-- one row (token_hash is globally UNIQUE, 00006). Fixed columns: id, tenant_id,
+-- admin_user_id, expires_at, used_at, cancelled_at.
+--   * expires_at, used_at and cancelled_at are returned but NOT filtered -- the same
+--     principle as the invite lookup. A resolver that hid a spent, expired or
+--     superseded reset would answer "unknown token" for a token that really exists,
+--     and the caller could not tell a REPLAY (worth an audit row, and worth telling
+--     apart from a typo -- section 4.6) from noise. The ATOMIC single-use enforcement
+--     is a separate statement (store.ConsumePasswordResetAndSetPassword); reading
+--     used_at here and writing later is the TOCTOU race section 4.4 forbids.
+--   * token_hash is the INPUT and is never returned; created_at is not returned
+--     either (more than the caller needs). The reset TOKEN never reaches the
+--     database at all.
+--   * NOT returned and deliberately so: nothing about the ADMIN (name, email, role,
+--     status). Consumption tests status in SQL, so a pre-authentication surface has
+--     no reason to carry an identity -- ADR 0002 madde 7 constraint (iii) forbids
+--     widening it for a value nothing pre-auth reads. It is also why this lookup is
+--     not an enumeration oracle in any direction: its only input is a 256-bit random
+--     value nobody can guess, and its output names no person.
+--   SELECT id, tenant_id, admin_user_id, expires_at, used_at, cancelled_at
+--   FROM resolve_password_reset_by_token_hash($1);
