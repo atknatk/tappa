@@ -57,6 +57,7 @@ templ AdminTransactions(v TransactionsView) {
 		// the same class of fact as the times inside the dockets below it, which are
 		// mono. The section's actual heading is the <h1> in PanelShell, set in the
 		// display face; this is not a second one.
+		@plaqueNotice(v)
 		<p class="font-mono text-sm text-ink/85">
 			{ v.DayLabel }
 			<span class="text-ink/70">· { v.ZoneLabel }</span>
@@ -79,10 +80,103 @@ templ AdminTransactions(v TransactionsView) {
 					// in the building produces exactly this empty page. Stating their
 					// absence would be reporting on something never measured — the class
 					// M5-11 closed, and the heading above was already careful about it.
-					<p>Nothing was recorded here on this day. Pick another day above.</p>
+					//
+					// 🔴 AND THE SECOND HALF IS WITHHELD FROM A BUSINESS WITH NO RECORDS
+					// AT ALL. "Pick another day above" is advice, and advice that cannot
+					// work is worse than silence: a customer on their first afternoon was
+					// being sent through a date picker whose every other day is empty for
+					// exactly the same reason. Measured on a tenant provisioned end to
+					// end (M7-03 phase B).
+					//
+					// 🔴 IT KEYS OFF THE RECORDS, NOT OFF THE PLAQUES, AND AN AUDIT IS
+					// WHY. The first version withdrew the advice when no plaque had been
+					// loaded — which is the ONE state in which a manager may well have
+					// typed last week in by hand, because a manual record needs no plaque
+					// (proved with a real INSERT into a zero-plaque tenant). The advice
+					// was being taken away from the only person whose records really were
+					// on another day. OffersAnotherDay asks the records themselves.
+					if v.OffersAnotherDay() {
+						<p>Nothing was recorded here on this day. Pick another day above.</p>
+					} else {
+						<p>Nothing was recorded here on this day.</p>
+					}
 				}
 			}
 		}
+	}
+}
+
+// plaqueNotice says why nobody can tap yet, on the ONE screen a new customer lands
+// on. It renders nothing at all for a business whose plaques work.
+//
+// 🔴 IT IS HERE BECAUSE THIS IS WHERE PEOPLE ARRIVE, AND THAT WAS MEASURED RATHER
+// THAN ASSUMED. A tenant was provisioned through the wizard end to end and every
+// panel screen it landed on was read back in order (M7-03 phase B): the sign-up
+// wizard's last screen explains the plaques, /admin/locations explains the plaques,
+// and the screen in between — the one the "Sign in to your dashboard" button
+// actually opens — said only "Nothing was recorded here on this day. Pick another
+// day above." A business forty seconds old was being told to try a different date.
+//
+// 🔴 IT IS A CLAIM ABOUT OUR RECORDS, NEVER ABOUT A COURIER. "Your plaques are on
+// the way" is the sentence this notice was NOT allowed to print: nothing in this
+// product knows whether anything has been ordered, packed or posted — there is no
+// order, no shipment and no date anywhere in the schema — so the words would be an
+// invention at the exact moment the customer is deciding whether to trust us. What
+// IS derivable is how many plaque rows this business has and what state they are
+// in, and every sentence below is built from those three counts and nothing else.
+// locations.templ made the same choice on 2026-08-08 (a user decision) and its
+// wording is reused here rather than reinvented.
+//
+// ⚠️ "NOBODY CAN TAP IN OR OUT" IS THE STRONGEST CLAIM PERMITTED, and the weaker
+// "nothing can appear on this page" is refused, twice over: a manager can type a
+// record by hand (channel='manual', reached from the Employees roster), and a tap
+// on a plaque that is in stock or retired is REJECTED AND STILL WRITTEN DOWN (§4.6
+// — evidence never disappears). Both land on this very page. "Tap" is the product's
+// own verb for a physical touch and ADR 0006 is explicit that a typed row is not
+// one, so the sentence stays true in both cases.
+templ plaqueNotice(v TransactionsView) {
+	switch v.PlaqueState() {
+		case PlaqueStateNoneLoaded:
+			@components.Notice(components.ToneWarn, "No plaques have been loaded yet") {
+				<p>
+					No plaques have been loaded for this business yet, so nobody can tap in or
+					out. Tappa encodes each plaque and loads it here; ask us for the ones you
+					need and they will appear in stock, ready to mount.
+				</p>
+				@plaqueNoticeLink(v)
+			}
+		case PlaqueStateInStock:
+			@components.Notice(components.ToneWarn, "No plaque is on a wall yet") {
+				<p>
+					None of this business's plaques is mounted, so nobody can tap in or out.
+					In stock, ready to mount: <span class="font-mono">{ v.InStockCount() }</span>.
+				</p>
+				@plaqueNoticeLink(v)
+			}
+		case PlaqueStateOutOfService:
+			@components.Notice(components.ToneWarn, "No plaque is in service") {
+				<p>
+					Every plaque this business has is out of service — retired, or reported
+					lost — so nobody can tap in or out. Ask us for a replacement and it will
+					appear in stock, ready to mount.
+				</p>
+				@plaqueNoticeLink(v)
+			}
+	}
+}
+
+// plaqueNoticeLink sends the reader to the section that can do something about it.
+//
+// THE HREF AND THE WORDS COME FROM PanelSections, so the sentence names the tab the
+// way the navigation names it and cannot outlive a section that moves. An unknown
+// tab yields "" and NO LINK IS PRINTED — M7-01's rule, applied inside the panel: a
+// dead href looks like a working control.
+templ plaqueNoticeLink(v TransactionsView) {
+	if v.PlaquesHref() != "" {
+		<p class="mt-2">
+			<a href={ templ.URL(v.PlaquesHref()) } class="underline">{ v.PlaquesLabel() }</a>
+			{ " " }shows every plaque this business has.
+		</p>
 	}
 }
 

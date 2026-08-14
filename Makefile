@@ -247,10 +247,41 @@ fmt:
 check: fmt gen lint test
 	@git diff --exit-code || { echo "gen/fmt ciktisi commit edilmemis"; exit 1; }
 
-## audit: guvenlik kirmizi cizgi denetimi (bkz. .claude/agents/tappa-security-auditor.md)
+## audit: guvenlik denetimi — IKI TARAMA DA KOSAR, ikisinin de cikisi raporlanir
+# 🔴 IKI TARAMA BIRBIRINDEN BAGIMSIZ KOSAR, VE BU BIR HATA DUZELTMESIDIR (2026-08-14).
+# Onceki hali iki ayri recipe satiriydi; make bir satir sifirdan farkli donunce DURUR,
+# yani govulncheck kirmiziyken `./scripts/redline-check.sh` HIC KOSMUYORDU. Olculdu:
+# `make audit` exit 2, ve ciktinin tamaminda "redline"/"mekanik tarama" gecmiyor (0
+# esleme) -- kirmizi cizgi taramasinin sonucu hicbir yerde yok.
+#
+# BUNU TEHLIKELI YAPAN SEY BILINEN KIRMIZI: govulncheck bugun T31 yuzunden zaten
+# kirmizi (go1.26.5 -> 1.26.6, kullanicinin isi). "make audit zaten kirmizi"
+# aliskanligi, ikinci taramanin hic calismadigini gizliyordu -- yani bir guvenlik
+# aginin sessizce kapali olmasi, agin kendisinden daha buyuk bir sorun.
+#
+# TEK SHELL, IKI CIKIS, BIRLESIK SONUC. Recursive make yerine tek recipe secildi:
+# `$(MAKE)` cagrisi her tarama icin bir alt-make surecidir ve `-` onekiyle yazilan
+# `-$(GOVULNCHECK)` sonucu YUTAR (make yalnizca uyarir), yani ikisi de raporlanan
+# bir cikis vermez. Burada iki cikis da degiskene alinir, ikisi de BASILIR, ve
+# recipe ikisinden biri sifir degilse basarisiz olur -- bilgi kaybi yok.
+#
+# Tek tarama ayri kosulacaksa: `./scripts/redline-check.sh` (tek basina exit 0
+# vermeli) ya da `$(GOVULNCHECK) ./...`.
+#
+# 🔴 VE OZET SATIRI "ATLANDI"YI "TEMIZ"DEN AYIRIR (2026-08-14). Ilk hali yalnizca
+# cikis kodunu basiyordu; rg kurulu degilken redline-check `exit 0` verdigi icin
+# ozet "redline-check exit=0" diyor ve make yesil doniyordu -- yani KOSMAYAN bir
+# taramayi TEMIZ gibi raporluyordu, ustelik basligi "iki tarama da kosar" diyen bir
+# hedefte. Script artik o durumda 2 donuyor ve burada AYRI bir kelimeyle basiliyor.
 audit:
-	$(GOVULNCHECK) ./...
-	./scripts/redline-check.sh
+	@vuln=0; red=0; \
+	echo "--- govulncheck ---"; $(GOVULNCHECK) ./... || vuln=$$?; \
+	echo "--- redline-check ---"; ./scripts/redline-check.sh || red=$$?; \
+	redword="exit=$$red"; \
+	if [ $$red -eq 2 ]; then redword="SKIPPED(no rg) exit=2"; fi; \
+	echo ""; \
+	echo "audit: govulncheck exit=$$vuln - redline-check $$redword"; \
+	test $$vuln -eq 0 && test $$red -eq 0
 
 .PHONY: help tools gen templ sqlc css up down dev build migrate migrate-down \
         migrate-status migrate-new seed db-reset simulate-day test test-short \

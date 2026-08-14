@@ -1239,21 +1239,16 @@ func TestSignupSurface_EveryCapabilityClaimHoldsToday(t *testing.T) {
 	}
 }
 
-// TestSignupSurface_UsesNoUnanchoredCapabilityWord renders every screen this feature
-// serves and refuses a capability word that is not in the table above.
-func TestSignupSurface_UsesNoUnanchoredCapabilityWord(t *testing.T) {
-	t.Parallel()
-	// The vocabulary. Each entry is a way a screen tells the reader that something
-	// EXISTS; they are the words that carried all three findings.
-	vocabulary := []string{
-		"sign in", "dashboard", "invite", "plaque", "vat register", "free",
-		"we will email", "we email", "report", "export", "notification",
-	}
-	anchored := map[string]bool{}
-	for _, c := range signupClaims() {
-		anchored[c.word] = true
-	}
-
+// signupSurfaceScreens renders EVERY screen this feature serves, by name.
+//
+// IT IS A HELPER RATHER THAN A LOOP INSIDE ONE TEST because two different scans now
+// read the same surface: the capability-word scan below, and the delivery-claim scan
+// (TestSignupSurface_MakesNoDeliveryClaim). A second copy of this walk would be a
+// second list of screens, and the one that is forgotten is the one the next bad
+// sentence lands on — which is exactly how "posts them to you" survived on the done
+// screen while a tripwire for those very words ran next door on the panel.
+func signupSurfaceScreens(t *testing.T) map[string]string {
+	t.Helper()
 	p := &fakeProvisioner{}
 	d, _ := newSignupDriver(t, p, nil)
 	screens := map[string]string{}
@@ -1290,8 +1285,51 @@ func TestSignupSurface_UsesNoUnanchoredCapabilityWord(t *testing.T) {
 	screens["done-blocked"] = blocked.String()
 
 	if len(screens) < 9 {
-		t.Fatalf("collected %d screen(s); this scan is not covering the surface", len(screens))
+		t.Fatalf("collected %d screen(s); a scan over these is not covering the surface",
+			len(screens))
 	}
+	return screens
+}
+
+// TestSignupSurface_MakesNoDeliveryClaim points the panel's delivery tripwire at the
+// sign-up surface, WHICH IS WHERE THE CLAIM ACTUALLY WAS.
+//
+// 🔴 THE PRODUCT WAS FORBIDDING A PROMISE ON ONE SCREEN AND SELLING IT ON ANOTHER,
+// ONE CLICK APART. The done screen said "Tappa encodes them and posts them to you"
+// while /admin's landing notice was under a test refusing exactly those words —
+// which the panel's literal list could not see anyway, because it held "posted to
+// you" and the wizard used "posts". pages/locations.templ has said "loads it here"
+// since 2026-08-08 for precisely this reason (a user decision), and the done screen
+// now says the same.
+//
+// ⚠️ WHAT IT DOES NOT COVER: the rest of the panel. /admin/policies legitimately
+// says "Baseline shipped with this release" — software, not plaques — so pointing
+// these patterns at every panel screen would need a second, weaker vocabulary. The
+// two surfaces that talk about PLAQUES ARRIVING are the two scanned.
+func TestSignupSurface_MakesNoDeliveryClaim(t *testing.T) {
+	t.Parallel()
+	for name, body := range signupSurfaceScreens(t) {
+		assertNoDeliveryClaim(t, "the sign-up "+name+" screen", screenText(t, body))
+	}
+	assertDeliveryScannerWorks(t)
+}
+
+// TestSignupSurface_UsesNoUnanchoredCapabilityWord renders every screen this feature
+// serves and refuses a capability word that is not in the table above.
+func TestSignupSurface_UsesNoUnanchoredCapabilityWord(t *testing.T) {
+	t.Parallel()
+	// The vocabulary. Each entry is a way a screen tells the reader that something
+	// EXISTS; they are the words that carried all three findings.
+	vocabulary := []string{
+		"sign in", "dashboard", "invite", "plaque", "vat register", "free",
+		"we will email", "we email", "report", "export", "notification",
+	}
+	anchored := map[string]bool{}
+	for _, c := range signupClaims() {
+		anchored[c.word] = true
+	}
+
+	screens := signupSurfaceScreens(t)
 	hits := 0
 	for name, body := range screens {
 		text := strings.ToLower(screenText(t, body))

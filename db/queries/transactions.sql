@@ -741,3 +741,43 @@ WHERE tenant_id = @tenant_id
   AND practice
   AND occurred_at >= @from_at
   AND occurred_at < @to_at;
+
+-- name: TenantHasAnyTransaction :one
+-- Does this business have a record -- ANY record, on ANY day (M7-03 phase B)?
+--
+-- 🔴 IT EXISTS TO DECIDE WHETHER ONE PIECE OF ADVICE IS WORTH GIVING, and the advice
+-- is "Pick another day above" on the panel's landing section. That sentence is only
+-- useful if another day could hold something; for a business with no records at all
+-- it is a date picker offered as the answer to "why is this empty".
+--
+-- 🔴 IT IS NOT "HAS THIS BUSINESS A WORKING PLAQUE", AND THE DIFFERENCE IS A DEFECT
+-- AN AUDIT MEASURED. The first version keyed the withdrawal off the plaque count, on
+-- the assumption that no plaque means no record. That is false: a manager can type a
+-- record by hand (channel='manual', tag_uid NULL) and an audit proved it with a real
+-- INSERT into a tenant holding zero plaques. So the manager who types last week in
+-- and then opens the panel would have been told nothing about the other day their
+-- records are actually on. The question is asked of the records themselves.
+--
+-- EXISTS RATHER THAN count(*): the answer is one bit and the scan stops at the first
+-- index entry, so the cost does not grow with a busy tenant's history.
+--
+-- COST (measured 2026-08-14, EXPLAIN ANALYZE BUFFERS, 5 runs, load 2.6-4.1; the
+-- table held 128,067 rows across 25,954 tenants): Index Only Scan using
+-- transactions_tenant_location_idx, shared hit=4 for the seeded KF tenant (10,193 of
+-- those rows) and shared hit=3 for a tenant with none. Execution 0.069-0.184 ms (KF)
+-- and 0.063-0.203 ms (empty).
+--
+-- ⚠️ `Heap Fetches: 0` IS AN OBSERVATION, NOT A PROPERTY, AND IT DEPENDS ON VACUUM.
+-- The index-only scan can skip the heap only for pages the visibility map marks
+-- all-visible, so a row nobody has vacuumed yet still costs one fetch. Measured both
+-- ways on the same day: the settled KF tenant gave Heap Fetches 0 / shared hit=4,
+-- and a tenant inserted seconds earlier (inside BEGIN … ROLLBACK) gave
+-- **Heap Fetches: 1 / shared hit=5**. What is stable is the PLAN NODE and the bound:
+-- EXISTS stops at the first row, so it is at most ONE heap page whatever the vacuum
+-- state, and the cost does not grow with a busy tenant's history. That bound is what
+-- makes it cheaper than the plaque count beside it, which fetched five heap blocks.
+--
+-- TENANT SCOPE (section 4.5): explicit predicate beside RLS.
+SELECT EXISTS (
+    SELECT 1 FROM transactions x WHERE x.tenant_id = @tenant_id
+) AS any_record;

@@ -315,6 +315,36 @@ func (c PanelChrome) Section() (PanelSection, bool) {
 	return PanelSection{}, false
 }
 
+// SectionHref is one section's URL, READ FROM THE SECTION TABLE.
+//
+// IT EXISTS SO A TEMPLATE CAN SEND A READER TO ANOTHER SECTION WITHOUT TYPING ITS
+// PATH. A literal "/admin/locations" in a .templ file is a second representation of
+// something PanelSections already owns, and the copy does not move when the section
+// does — it becomes a link to nothing, which looks like a working control.
+//
+// AN UNKNOWN TAB YIELDS "", NOT A GUESS, and callers are expected to render no link
+// at all in that case (M7-01's rule: a dead href is worse than a missing button).
+func SectionHref(tab PanelTab) string {
+	for _, s := range PanelSections {
+		if s.Tab == tab {
+			return s.Href
+		}
+	}
+	return ""
+}
+
+// SectionLabel is one section's tab label, read from the same table SectionHref
+// reads. A sentence that names another section must name it the way the navigation
+// does, or the reader is sent looking for a tab that is not there.
+func SectionLabel(tab PanelTab) string {
+	for _, s := range PanelSections {
+		if s.Tab == tab {
+			return s.Label
+		}
+	}
+	return ""
+}
+
 // CurrentHref is the href TabBar compares against. An unknown tab yields "",
 // which marks no tab current rather than marking the first one — see Section().
 func (c PanelChrome) CurrentHref() string {

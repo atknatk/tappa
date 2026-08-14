@@ -200,6 +200,22 @@ type fakeLedger struct {
 	calls  []ledger.Filter
 	tenant []uuid.UUID
 
+	// plaques is M7-03 phase B's read: what the landing section knows about this
+	// business's wall plaques.
+	//
+	// IT DEFAULTS TO THE ZERO VALUE — Queried false — WHICH IS "NOT MEASURED", and
+	// that is the default a fake should have. A fake that quietly claimed a working
+	// plaque would let a screen make a claim about the world that no test set up,
+	// which is the exact class the Queried flag exists to stop. Tests that want a
+	// state say so.
+	plaques ledger.Plaques
+
+	// history is the second reading the landing section takes: whether this
+	// business has any record at all. Zero value = not measured, which KEEPS the
+	// date-picker advice (the opposite safe direction from plaques -- see
+	// pages.TransactionsView.OffersAnotherDay).
+	history ledger.History
+
 	// M6-04's read side. queue/pending default to "asked, and there is nothing
 	// waiting", for the same reason page does: an unqueried zero value renders
 	// nothing at all, so a test using it would be reading a blank section.
@@ -1019,7 +1035,7 @@ func (f *fakeLedger) Screen(_ context.Context, tenantID uuid.UUID, filter ledger
 	if f.err != nil {
 		return ledger.Screen{}, f.err
 	}
-	return ledger.Screen{Page: f.snapshot(filter), Options: f.opts}, nil
+	return ledger.Screen{Page: f.snapshot(filter), Options: f.opts, Plaques: f.plaques, History: f.history}, nil
 }
 
 func (f *fakeLedger) Day(_ context.Context, tenantID uuid.UUID, filter ledger.Filter) (ledger.Page, error) {

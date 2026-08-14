@@ -313,6 +313,302 @@ location + dinamik lokasyon listesi → admin hesabı → APPROVED damgalı done
 >   koşturmuyor**; boş tabloda bile `convalidated = f`.
 > - ⬜ **Faz B'ye kalan:** departman adımı · *"plaket bekleniyor"* durumu.
 
+> **Faz B sevk edildi (2026-08-14) — yeni migration YOK, yeni ADR YOK.** Kartın son
+> iki ⬜ maddesi kapandı, ama **ikisi de kartın tarif ettiği şekilde değil** —
+> ikisinin de gerekçesi ölçümle değişti. Yeni sorgu **iki** tane
+> (`CountTenantPlaques`, `TenantHasAnyTransaction`), yeni sütun/tablo yok.
+>
+> 1. **🔴 DEPARTMAN ADIMI EKLENMEDİ, VE ELEYEN ÖLÇÜM KARTIN KENDİ CÜMLESİNİ
+>    ÇÜRÜTTÜ.** Kart *"`structure='multi'` onları açar"* diyor; `internal/domain/
+>    signup/signup.go` de aynı şeyi yazıyordu (*"`multi` is several venues, and
+>    departments under them"*). **Üç ölçüm bunun tersini söyledi:**
+>    - **Ürünün kendi demo verisi ters yönde.** Kebab Factory `multi`, dokuz
+>      lokasyon, **0 departman**; Kebab Manufacturing `single`, tek lokasyon,
+>      **5 departman** ve **beşi de kendi vardiyasını taşıyor** (04:00/05:00/06:00/
+>      08:00/09:00). Yani departmanı gerçekten kullanan tek tenant `single`.
+>      Komut: `docker compose exec -T db psql -U tappa_owner -d tappa -c "SELECT
+>      t.name, t.structure, count(d.*) FILTER (WHERE d.id IS NOT NULL) AS deps,
+>      count(d.shift_start) AS own_shift FROM tenants t LEFT JOIN departments d ON
+>      d.tenant_id=t.id WHERE t.id IN ('10000000-0000-4000-8000-000000000001',
+>      '20000000-0000-4000-8000-000000000001') GROUP BY 1,2;"`
+>    - **`tenants.structure` yazıldıktan sonra HİÇBİR ŞEY okumuyor.** `CreateTenant`
+>      sütunu adlandıran tek ifade; hiçbir ekran, sorgu ya da policy ona dallanmıyor.
+>      `TestSignupStructure_DecidesNothingAfterSignUp` (go/ast, iki pozitif kontrol)
+>      bunu tutuyor — bir gün gerçekten dallanırsa test kırmızıya döner ve sihirbazın
+>      metni **o anda** yeniden ele alınır.
+>    - **Panel iki şekle de aynı kontrolü veriyor.** Sihirbazdan uçtan uca iki tenant
+>      provision edildi (`single` ve `multi`); `/admin/locations` ikisinde de
+>      *"Add a department"* düğmesini ve *"This business does not use departments,
+>      which is perfectly normal…"* boş durumunu basıyor. Departman ekranı iniş
+>      ekranından **1 tık** uzakta (tab çubuğu → Locations & Wall Tags).
+>
+>    **Yani sorulan soru (*"`multi` seçen departmanların varlığını nasıl öğreniyor?"*)
+>    yanlış yarıya bakıyordu: `multi` zaten öğreniyordu** — adım 1'deki kart
+>    *"You can add departments under them later"* diyordu. **Öğrenmeyen `single`'dı**,
+>    ve ürünün elindeki tek veride departmanı kullanan şekil o. Sevk edilen düzeltme
+>    bir **adım değil bir cümle**: departman cümlesi karttan çıkarılıp fieldset'in
+>    altına, **iki şekle birden** ait olacak şekilde taşındı. Sihirbazın adım sayısı
+>    **3** kaldı; **kullanıcının doldurduğu** alan sayıları **4 / 1
+>    (tekrarlanabilir) / 3**. Sayılmayan: her adımdaki `csrf` gizli alanı ve adım
+>    3'teki honeypot (`internal_ref`).
+>    ⚠️ **HAM SAYIM YAZILMADI, çünkü hiçbir tek kuralla üretilemiyordu.** İlk hali
+>    *"5/1/4"* diyordu; csrf+honeypot dahil edilirse **5/2/5**, yalnız düz `name="`
+>    aranırsa (honeypot `name={ v.HoneypotField }` yazıldığı için kaçar) **5/2/4** —
+>    ikinci adım her iki okumada da **2**. *"Neyin sayılmadığını"* söylemesi gereken
+>    bir cümlenin içinde **üçüncü, yazılmamış bir kural** vardı. Ham sayıya ihtiyaç
+>    olursa okuma kuralı da yazılmalı.
+>
+>    ⚠️ **SINIR: n = 1'e karşı n = 1.** *"`single` departmanı daha çok kullanır"*
+>    İDDİA EDİLMEDİ ve edilemez — elde iki seed tenant var. İddia edilen dar olan:
+>    **kuplaj yok** (şema, sorgu ve panel üçü de bunu söylüyor) ve **cümle kuplaj
+>    varmış gibi yazılmıştı**.
+>
+> 2. **🔴 "TAG BEKLENİYOR" — KARTIN *"panelde karşılığı yok"* CÜMLESİ YANLIŞTI, AMA
+>    BOŞLUK BAŞKA YERDEYDİ.** `locations.templ:246` zaten basıyor ve buton
+>    koymamayı gerekçesiyle yazıyor (kullanıcı kararı, 2026-08-08). **Gerçek boşluk
+>    İLK İNİLEN EKRANDI ve uçtan uca sürülerek bulundu:** sihirbazdan çıkan tenant
+>    *"Sign in to your dashboard"* düğmesiyle `/admin`'e (Transactions) iniyor ve
+>    orada şunu okuyordu — *"Nothing was recorded here on this day. **Pick another
+>    day above.**"* Kırk saniyelik bir işletme tarih seçiciye yollanıyordu.
+>
+>    Sevk edilen: `/admin`'in başına, **işletme hakkında** (gün hakkında değil) bir
+>    `Notice`. Üç durum, üç cümle, hepsi **`tags` üzerindeki üç sayımdan türetiliyor**
+>    (`CountTenantPlaques`: `in_service` / `in_stock` / `loaded`). `in_service`
+>    yüklemi **tap yolunun kendi yüklemi** (`status='active'`, §5 satır 1) — ekran
+>    reddedecek koşulun ikinci bir kopyasını değil, koşulun kendisini okuyor.
+>    `in_stock` **çıkarmayla türetilmiyor**: kalan `retired`+`lost`'tur, ve son
+>    plaketi emekli olmuş bir işletmeye *"kutuda bekliyor"* demek onu boş bir çekmeceye
+>    yollardı (`TestPlaqueState_IsNotInferredFromASubtraction`).
+>
+>    ⚠️ **YAZILMASI YASAKLANAN CÜMLE: *"plaketiniz yolda."*** Şemada sipariş, sevkiyat
+>    ya da tarih **yok**; bu cümle müşterinin bize güvenip güvenmeyeceğine karar
+>    verdiği anda uydurma olurdu. `TestPanelLanding_MakesNoDeliveryClaim` on iki
+>    **regex** kalıbını (kendi pozitif kontrolüyle) sayfanın **görünür metninde**
+>    tarıyor.
+>    ⚠️ **VE İKİNCİ BİR CÜMLE TASLAKTA ÖLDÜ:** *"bu sayfaya hiçbir şey düşemez"*
+>    **yanlış** — müdürün elle yazdığı kayıt plaket istemez, ve kutudaki/emekli
+>    plakete yapılan tap **reddedilir ama yine de yazılır** (§4.6). İzin verilen en
+>    güçlü iddia *"nobody can tap in or out"*; ADR 0006 yazılan satırın dokunuş
+>    olmadığını zaten söylüyor. `TestPanelLanding_ClaimsOnlyThatNOBODYCANTAP`.
+>
+>    🔴 **VE AYNI CÜMLE ÜRÜNÜN KENDİ SİHİRBAZINDA SATILIYORDU (2. tur bulgusu).**
+>    `signup.templ` onay ekranı *"Tappa encodes them and **posts them to you**"*
+>    diyordu — panelde yasaklanan iddianın ta kendisi, bir tık ötede. Kalıp listesi
+>    düz metin (*"posted to you"*) olduğu için **çekim farkı** (`posts`) içinden
+>    geçiyordu ve o sayfa zaten taranmıyordu. Üçü birden düzeltildi: cümle
+>    `locations.templ`'in *"loads it here"* biçimine indirildi, kalıplar **regex**
+>    oldu, ve `TestSignupSurface_MakesNoDeliveryClaim` aynı kalıpları **dokuz
+>    sihirbaz ekranına** çeviriyor.
+>
+>    🔴 ***"Pick another day above"* GERİ ÇEKMESİ 1. TURDA YANLIŞ OLGUYA BAĞLIYDI
+>    (2. tur, denetçi gerçek `INSERT`'le kanıtladı).** Geri çekme *"hiç plaket
+>    yüklenmemiş"*e bağlıydı — **oysa manuel kayıt plaket İSTEMEZ**: sıfır plaketli
+>    bir tenant'a `channel='manual'`, `tag_uid` NULL bir satır yazılabiliyor. Yani
+>    tavsiye, **kayıtları gerçekten başka günde olan tek kişiden** alınıyordu.
+>    Artık **`TenantHasAnyTransaction`** olgusuna bağlı: kaydı olan işletme her
+>    zaman tarih seçiciye yönlendirilir, olmayandan tavsiye çekilir, **ölçülmemişse
+>    tavsiye KALIR**. Regresyon: `TestPanelLandingDB_ManualRecordsKeepTheDatePickerOffered`.
+>
+> 3. **⚠️ MALİYET, VE NEREYE KONMADIĞI.** İki okuma da `ledger.Screen`'in **zaten
+>    açık olan** transaction'ına biniyor: **ek bağlantı ve ek transaction yok — ama
+>    ek İFADE var, ve bir ifade bir gidiş-dönüştür.** Ölçüldü (`EXPLAIN ANALYZE
+>    BUFFERS`, 5 koşu, yük 2,6–4,1; `tags` 40.544 satır/34.545 tenant, `transactions`
+>    128.067 satır/25.954 tenant):
+>    - `CountTenantPlaques` **indeks-only DEĞİL** — `status` indekste yok →
+>      `Bitmap Heap Scan`, **Heap Blocks: exact=5**, `shared hit=8`,
+>      **0,209/0,217/0,232/0,358/1,433 ms** (15 plaketli KF tenant'ı).
+>    - `TenantHasAnyTransaction` **Index Only Scan** — `shared hit=4` (10.193
+>      satırlı KF) / `3` (kaydı olmayan tenant), **0,063–0,203 ms**. İlk satırda
+>      durduğu için **tenant büyüklüğüyle büyümüyor**.
+>      ⚠️ **`Heap Fetches: 0` bir GÖZLEMDİR, özellik değil — VACUUM'a bağlı.**
+>      Aynı gün iki yönde de ölçüldü: oturmuş KF tenant'ında **0** (`hit=4`), saniyeler
+>      önce yazılmış bir tenant'ta (`BEGIN … ROLLBACK`) **1** (`hit=5`). Kalıcı olan
+>      **plan düğümü** ve **sınır**: EXISTS ilk satırda durduğu için vacuum durumundan
+>      bağımsız olarak **en fazla bir heap sayfası** — plaket sayımının beş bloğuna
+>      karşı asıl fark bu.
+>
+>    **Paylaşılan chrome'a KONMADI** — M7-02'nin 7. maddesinin ölçtüğü bedel bu
+>    (her panel isteğine bir okuma × sekiz bölüm); müşteri **Transactions**'a iniyor,
+>    okuma da orada.
+>
+> 3b. **🔴 `make audit`'İN İKİNCİ TARAMASI HİÇ KOŞMUYORDU (2. tur, kapsam dışı ama
+>    bilinçli).** `audit:` iki ayrı recipe satırıydı; govulncheck sıfırdan farklı
+>    dönünce make **duruyor** ve `./scripts/redline-check.sh` **hiç çalışmıyordu**.
+>    Ölçüldü — **ÖNCE:** `make audit` exit 2, çıktının tamamında *"redline"/"mekanik
+>    tarama"* **0 eşleşme**. **SONRA:** aynı exit, **4 eşleşme** ve son satır
+>    `audit: govulncheck exit=1 - redline-check exit=0`. Tehlikeli yapan şey T31'in
+>    **bilinen kırmızı** olması: *"make audit zaten kırmızı"* alışkanlığı, ikinci
+>    güvenlik ağının sessizce kapalı olduğunu gizliyordu. Tek shell, iki çıkış da
+>    basılıyor, ikisi de sıfır değilse hedef başarısız.
+>
+> 4. **⬜ KAPATILMAYAN, FİYATIYLA:** `/admin/review`'un boş durumu hâlâ *"Every
+>    flagged tap has been decided."* diyor — hiç flag almamış bir tenant için boşuna
+>    doğru, ama **yapılmamış bir işi yapılmış gibi** okutuyor. `/admin/reports` da
+>    *"Pick another week above"* diyor — ve artık **`TenantHasAnyTransaction` bu
+>    cümleyi de düzeltebilecek olguyu taşıyor**, yani fiyat sorgu yazmak değil o
+>    bölüme bir ifade daha eklemek. **Fiyatı: bölüm başına bir ifade** (ya da
+>    chrome'a taşınırsa sekiz bölüm × bir ifade).
+>
+> 5. **⚠️ 2. TURDA DÜZELTİLEN ÜÇ CÜMLE — hepsi "ölçmeden kopyalama"nın izi.**
+>    (a) *"ONE SNAPSHOT"* — `WithTenant` `pool.Begin` ile açıyor, izolasyon **READ
+>    COMMITTED**, **her ifade kendi snapshot'ını alır**; denetçi tek transaction
+>    içinde iki özdeş sayımın 0→1 döndüğünü ölçtü. Cümle *"aynı transaction ve aynı
+>    tenant bağlamı"*na indirildi (`REPEATABLE READ`'in bedeli var, alınmadı). Bu
+>    iddia **option sorguları için önceden de** yazılıydı ve kopyalanmıştı — ikisi
+>    de düzeltildi.
+>    (b) *"three counts over tags_tenant_idx"* — **indeks-only ima ediyordu, değil**
+>    (yukarıdaki ölçüm). Aynı dosyanın `ListTagLastSeen` için taşıdığı düzeltmenin
+>    tekrarıydı.
+>    (c) `PlaqueStateWorking`'in *"taps can be recorded"* gerekçesi — **sayımdan
+>    türetilemez**: duvarda plaketi olan ama aktive olmuş çalışanı olmayan tenant
+>    §5 satır 3'e düşer ve **hiç kayıt yazılmaz**. Ekran o durumda zaten susuyordu;
+>    yanlış olan yalnız gerekçeydi.
+>
+> 6. **⚠️ SİLİNEN ÖLÜ KOD:** `TransactionsView.NoTapCanBeRecorded()` — hiçbir şablon
+>    çağırmıyordu, yalnız kendi testi için vardı (`PlaqueState()`'in ikinci bir
+>    temsili). Silindi; yerinde yalnız mezar taşı yorumu var.
+>
+> 7. **🔴 3. TUR — TESLİMAT TARAYICISI, YERİNE GEÇTİĞİ CÜMLEYİ KAÇIRIYORDU; VE ASIL
+>    KUSUR POZİTİF KONTROLDEYDİ.** Denetçi 12 regex'i sekiz bilinen-kötü cümleye
+>    uyguladı: **altısı geçti**, aralarında **kaldırdığım literalin edilgen hâli**
+>    (*"Your plaques will be posted to you next week"*). Sebep: bir desen **nesne
+>    zamirini zorunlu kılıyordu**, edilgen *"posted TO you"* vermiyor.
+>    **Asıl ders:** `assertDeliveryScannerWorks` örnek cümleyi **desenlerden**
+>    üretip *"her desen eşleşti mi"* diye soruyordu — **inşa gereği doğru** bir soru.
+>    Bu yüzden **delik açıkken yeşil kaldı.** Bu projenin **beşinci** vacuous testi
+>    ve şekli yeni: **kendi kendini doğrulayan pozitif kontrol.**
+>    **Sevk edilen:** (a) 16 desen, fiil + yakındaki alıcı kalıbıyla (`send/sent`,
+>    `mail`, `en route`, `expect …`, edilgen `post…to you`); (b) **kontrol ters
+>    çevrildi** — desenlerden cümle üretilmiyor, **18 bilinen-kötü cümlelik sabit bir
+>    corpus** (ilk sekizi denetçinin, kelimesi kelimesine) tutuluyor ve **her birinin
+>    en az bir desene takıldığı** iddia ediliyor; (c) **negatif kontrol** eklendi —
+>    ürünün gerçekten sevk ettiği dokuz cümlenin **hiçbiri** eşleşmemeli, yoksa
+>    tarayıcı bir tripwire değil **düzyazı yasağı** olur.
+>    **Mutasyon:** eski desen geri konunca corpus testi **denetçinin iki cümlesini
+>    adıyla** kırmızıya döndürüyor; tek desen silinince de; bir desen genişletilince
+>    negatif kontrol düşüyor.
+>
+>    🔴 **4. TUR: DESENLER HÂLÂ ZAMİR DAYATIYORDU.** Yeni bir denetim 20 bilinen-kötü
+>    cümle yazdı, **16'sı kaçtı** — ikisi doğrudan bu deliğin devamı: *"We are posting
+>    **your plaques** tomorrow"*, *"We will send **the plaques** on Monday"*. Yorum
+>    *"fiil + yakındaki alıcı"* diyordu; alıcı listesi hâlâ **yalnız zamirdi**, isim
+>    nesnesi geçiyordu. Ve 3. turun *"genişletmek negatif kontrolü düşürür"*
+>    savunması **yalnız çıplak `plaques?` için** doğruymuş: `(the|your|our|their)
+>    plaques?` ile **çıpalanınca** iki kaçak da yakalanıyor ve negatif kontrol
+>    **9/9 temiz** kalıyor. **Sevk edilen:** 20 desen (kurye adları, `carrier`,
+>    `consignment`, `parcel`, `packed`, `warehouse`/`depot`, `despatch`,
+>    `should be with you`, `has been sent`), corpus **30 cümle** — ölçüm:
+>    **30/30 yakalandı, 0 yanlış pozitif.** Mutasyon: zamir-listesi geri konunca
+>    corpus testi *"We are posting your plaques tomorrow."* diye kırmızıya dönüyor.
+>
+>    🔴 **5. TUR: ÇIPA ÜRÜNÜN KENDİ İKİNCİ ADINI KAÇIRIYORDU.** Çıpa
+>    `(the|your|our|their) plaques?` idi; oysa ürün aynı şeye **"Wall Tags"** diyor
+>    (panel bölümünün adı `PanelSections`'ta *"Locations & Wall Tags"*) ve **bu
+>    ifade negatif kontrolde birebir duruyor**. Yani isim-nesnesi deliği ürünün
+>    **kendi kelimesiyle** hâlâ açıktı: *"We are printing and posting **the wall
+>    tags** this week."* geçiyordu. Çıpa `(plaques?|wall tags?|tags?)`'e genişletildi;
+>    ayrıca `en[- ]route` (tire), `(leaves?|left|leaving)`, `tracking\s*:`.
+>    **Ölçüm: 35 cümlelik corpus → 35/35 yakalandı; negatif kontrol 9/9 temiz.**
+>    **Mutasyon:** `wall tags` çıpası kaldırılınca corpus testi o cümleyi **adıyla**
+>    kırmızıya döndürüyor (hem panel hem sihirbaz tarafında).
+>
+>    ⚠️ **KAPSAM — KAPATILMADI, SAYILDI.** Desenler **çıpalı**; çıpasız teslimat
+>    iddiaları geçmeye devam eder: *"Your kit is with the postman."*, *"Yours goes
+>    out tomorrow."*, *"Allow 3-5 days."*, *"It should turn up in a few days."*,
+>    *"They're already in the mailbag."* Çıpasız desenler (`\bout\b`, `\bdays?\b`,
+>    `\bpost\w*\b`) negatif kontrolü düşürür — **ölçüldü**. Fiyat: ya yanlış pozitif,
+>    ya bu sınıf. Sınıf seçildi.
+>
+> 8. **🔴 3. TUR — `redline-check.sh` `rg` YOKKEN YEŞİL GEÇİYORDU.**
+>    `env PATH=/usr/bin:/bin ./scripts/redline-check.sh` → *"tarama atlaniyor"* +
+>    **EXIT=0**; `make audit` (govulncheck yeşil sahte) → **exit 0** ve
+>    *"redline-check exit=0"*. Yani **koşmayan** tarama **temiz** taramadan ayırt
+>    edilemiyordu — üstelik 3b'de başlığına *"iki tarama da koşar"* yazdığım hedefte.
+>    Delik diff'imden eski ve **CI'da kapalı** (`ci.yml` rg'yi kurup `rg --version`
+>    ile kanıtlıyor) — kör olan yerel döngüydü. **Sevk edilen:** script artık
+>    **exit 2** (1 değil: 1 *"ihlal bulundu"*, 2 *"araç eksik"* — çağıran ucunu
+>    ayırt edebilsin) ve `make audit` özeti ayrı kelimeyle basıyor:
+>    `redline-check SKIPPED(no rg) exit=2`. **2×2 ölçüldü:** rg var + govulncheck
+>    yeşil → **exit 0**; rg yok → **exit 2**.
+>
+>    🔴 **4. TUR: AYRIMIN YARISI EKSİKTİ — BOZUK `rg` HÂLÂ "TEMİZ" GÖRÜNÜYORDU.**
+>    `command -v` yalnız *"dosya var mı"* diye sorar; bozuk bir `rg` shim'inde
+>    (exit 2) ve `chmod -x` edilmiş bir dosyada (exit 126) **başarılı** döner, ve
+>    `scan()` rg'nin stderr'ini `2>/dev/null` ile yutup çıkış kodunu hiç okumaz →
+>    *"✓ mekanik tarama temiz"* + **EXIT 0**. Yani ayrım yalnız *"rg yok"* için
+>    vardı, *"rg çalışmıyor"* için yoktu. **Sevk edilen tek satır:**
+>    `have_rg() { command -v rg … && rg --version …; }`. **Beş yol ölçüldü:**
+>    yok → **2** · bozuk → **2** · çalıştırılamaz → **2** · sağlam+temiz → **0** ·
+>    sağlam+ihlal → **1** (ikisi karışmıyor). Mutasyon: `command -v`'ye dönülünce
+>    bozuk rg yine *"✓ mekanik tarama temiz" exit=0*.
+>
+>    🔴 **5. TUR: SINIF KAPANMAMIŞTI, DARALMIŞTI — `scan()` rg'nin ÇIKIŞ KODUNU HİÇ
+>    OKUMUYORDU.** Denetçi **gerçek rg** ile yendi: geçersiz bayrak içeren
+>    `RIPGREP_CONFIG_PATH` altında `rg --version` **exit 0** (yapılandırma
+>    okunmuyor) ama her arama **exit 2**; script *"✓ mekanik tarama temiz"* + exit 0
+>    basıyordu — **ağaçta gerçek bir R7 ihlali dururken**. rg'de `0`=eşleşme var,
+>    `1`=eşleşme yok, `≥2`=hata. **İki bağımsız koruma kondu:** (a) `have_rg` artık
+>    `--version` değil **gerçek bir tarama** koşuyor; (b) `scan()` çıkış kodunu
+>    okuyup `≥2`'de bir işaretçi dosyasına yazıyor, script sonda onu okuyup
+>    **exit 2** veriyor — `exit` doğrudan çalışmaz, çünkü `scan` daima `$(…)` içinde,
+>    yani **alt kabukta** koşuyor (ölçüldü). **Yedi yol:** yok·bozuk·çalıştırılamaz·
+>    **tarama patlıyor** → **2** · temiz → **0** · gerçek ihlal → **1** · tarama
+>    patlıyor **ihlal varken** → **2**. **Mutasyon:** korumaların biri kaldırılınca
+>    diğeri hâlâ **2** veriyor; **ikisi de** kaldırılınca (4. turun hâli) ihlal
+>    varken *"temiz" + exit 0*.
+>
+> 9. **🔴 3. TUR — `TenantHasAnyTransaction`'ın çalışma-zamanı kemeri eklendi.**
+>    Kardeşi `CountTenantPlaques` aynı fazda almıştı, bu almamıştı — denetçi
+>    **üretilmiş** ifadeyi bilerek mutasyona uğratıp (çünkü ölçtüğü şey **üreten ağ
+>    değil çalışma-zamanı ağı**) tam suite'i koştu: **tek test kırmızı olmadı.**
+>    `TestBelt_Tags00013_…/TenantHasAnyTransaction` eklendi (A'nın bağlamı + B'nin
+>    id'si → `false`; A'nın id'si → `true`). **Mutasyonla doğrulandı.**
+>
+> 10. **⚠️ 3. TUR — İKİ TAVSİYE OKUMASI ARTIK SAYFAYI DÜŞÜRMÜYOR.** `Plaques.Queried`
+>    ve `History.Queried` tam da *"ölçmedik"* hâli için yazılmıştı, **ama tek üretici
+>    ya `true` yazıyor ya sayfayı 500'e düşürüyordu** — yani bayrakların tasarlandığı
+>    bozulma yolu **ulaşılamazdı**. §4.6 ihlali değildi ama **kullanılabilirlik
+>    bağlantısıydı**: bir *tavsiye* sayımının hatası, bir ifade önce **başarıyla
+>    okunmuş** delil sayfasını müdürden alıyordu. Yeni `Reader.advisories` **hata
+>    döndürmüyor**: her iki hata **ERROR olarak loglanıyor** (§7 — yutulan yok),
+>    okuma `Queried=false` kalıyor, ekran susuyor / tavsiye kalıyor. İki okuma
+>    transaction'ın **son iki ifadesi**, yani buradaki bir hata kayıtları kaybetmiş
+>    bir hata olamaz (ulaşılamaz veritabanı **`pool.Begin`'de**, tek bir ifade
+>    koşmadan patlar → doğru 500).
+>
+>    🔴 **VE 4. TUR BUNU BLOKLAYAN OLARAK REDDETTİ: KADEMELENDİRME ÜRETİMDE
+>    ETKİSİZDİ.** Go hatasını yutmak yetmiyor — **Postgres transaction'ı ifade
+>    hatasında ABORT eder**, dolayısıyla `db.WithTenant`'ın `tx.Commit()`'i
+>    `pgx.ErrTxCommitRollback` veriyor → `Screen` hata → **handler yine 500**.
+>    Yorumun saydığı üç sebebin (yetki, zaman aşımı, sayımdaki hata) **üçü de**
+>    ifade hatasıdır. Ve testin bunu görememesinin sebebi **3. turda kendi
+>    bildirdiğim kusurun tekrarıydı**: test `Screen`'i hiç çağırmıyor, callback'ten
+>    sentinel dönüp **rollback** ediyordu — yani **commit yolu hiç koşmuyordu**.
+>    **Sevk edilen (i): her advisory okuması kendi `SAVEPOINT`'inde** (`pgx.Tx.Begin`
+>    → SAVEPOINT; hatada `ROLLBACK TO`, başarıda `RELEASE`). **Fiyat: istek başına
+>    dört ekstra ifade**, zaten açık bağlantıda, disk/WAL yok.
+>    **Elenen iki şık:** *(ii) ayrı transaction* — **ikinci bağlantı** demek, backlog
+>    **T34**'ün sınıfı ve önceki denetimin `pool_max_conns=1` kanıtını çökertirdi;
+>    *(iii) geri al* — sayılmış bir sınır dürüst olurdu ama iki savepoint bundan
+>    ucuz. **İki savepoint tek yerine ayrı:** `tags` kilitlenirse `transactions`'tan
+>    okunan tarih cevabı da kaybolurdu.
+>    Kanıt artık **`Screen` üzerinden, commit dahil**:
+>    `TestAdvisoriesDB_AFailedAdviceCostsTheSentenceAndNeverTheRecords` — oturuma
+>    özel bir `TEMP TABLE tags` gerçek tabloyu gölgeliyor (42703; **tablo kilidi
+>    değil** — kilit paralel koşan diğer paketleri de bloke ederdi), `Screen`
+>    **nil** dönüyor, kayıtlar duruyor, `Plaques.Queried=false`, `History.Queried=
+>    **true**` (ayrık savepoint kanıtı), **tam bir ERROR** loglanıyor; sağlıklı
+>    okumada ikisi de `true` ve sıfır log.
+>
+> 11. **⚠️ 3. TURDA DÜZELTİLEN ÜÇ KÜÇÜK ŞEY.** (a) `signup.go`'daki *"Reproduce:"*
+>    komutu (`grep -c … -A20`) **hiçbir şeyi göstermiyordu** — `-c`, `-A20`'yi yutuyor
+>    ve çıktı `1`; yerine olguyu gerçekten basan **üç dosya-içi komut** kondu
+>    (KF=multi/KM=single · 5 vardiyalı departman · beşinin de tenant_id'si KM).
+>    (b) `panelstart_db_test.go`'daki *"all three"* sayısı **bir turda bayatladı**
+>    (dört var) — türeten komut yazıldı. (c) Karttaki **ham alan sayımı atıldı**:
+>    *"5/1/4"* hiçbir tek kuralla üretilemiyordu (csrf+honeypot → **5/2/5**; düz
+>    `name="` → **5/2/4**; ikinci adım her iki okumada **2**).
+
 ---
 
 ## M7-04 — Admin daveti, şifre sıfırlama, e-posta

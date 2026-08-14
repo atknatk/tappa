@@ -650,6 +650,53 @@ type Querier interface {
 	//
 	// TENANT SCOPE (section 4.5): explicit predicate beside RLS, tenant from the session.
 	CountPracticeTaps(ctx context.Context, arg CountPracticeTapsParams) (int64, error)
+	// HOW MANY PLAQUES THIS BUSINESS HAS, AND HOW MANY OF THEM A TAP CAN ACTUALLY USE.
+	//
+	// IT EXISTS FOR ONE SENTENCE ON ONE SCREEN (M7-03 phase B): the panel's landing
+	// section could not tell "a quiet day" apart from "this business has never been
+	// able to record anything", so it told a customer on their first afternoon to pick
+	// another day. Answering that needs a fact about the BUSINESS, and the day query
+	// next door only knows about the day.
+	//
+	// 🔴 THREE COUNTS RATHER THAN ONE, BECAUSE "CANNOT RECORD" HAS THREE CAUSES AND
+	// THEY NEED THREE DIFFERENT SENTENCES. 00013's four statuses split them: nothing
+	// loaded at all, loaded but still in the box ('unassigned'), and every plaque out
+	// of service ('retired' or 'lost'). A single "no plaque works" count would tell a
+	// manager with three in a drawer that Tappa had sent nothing, and would tell a
+	// business whose last plaque was retired that its replacement is in the box.
+	// in_stock is counted rather than inferred from loaded - in_service for exactly
+	// that reason: the leftover is retired and lost, which is a third thing.
+	//
+	// 🔴 `status = 'active'` IS NOT A SYNONYM FOR "HAS A WALL" AND THAT IS WHY IT IS
+	// THE PREDICATE. It is the same test the tap path applies (section 5 row 1: lost,
+	// retired and unassigned all reject), so the screen's claim "no tap can be recorded
+	// yet" is derived from the condition that would actually reject the tap rather than
+	// from a second opinion about it. 00013's tags_active_requires_location makes the
+	// wall implied by it.
+	//
+	// 🔴 NO uid, NO location_id, NO aes_key_ref -- SEE THIS FILE'S HEADER. The caller
+	// needs two integers and a query that returned rows would put a plaque identifier
+	// into template data for a screen that renders none of it.
+	//
+	// 🔴 COST, MEASURED -- AND IT IS **NOT** AN INDEX-ONLY SCAN. `status` is not in
+	// tags_tenant_idx (tenant_id, location_id), so the two FILTERs force the heap. This
+	// line first read "three counts over tags_tenant_idx", which implies index-only and
+	// is the SAME MISTAKE this file already carries a correction for on ListTagLastSeen.
+	//
+	// EXPLAIN (ANALYZE, BUFFERS) as tappa_app with app.tenant_id set, 5 runs, load
+	// 2.6-4.1, 2026-08-14. The table held 40,544 rows across 34,545 tenants (12 MB); the
+	// tenant asked for was the seeded KF, with 15 of them:
+	//
+	//   Aggregate <- Result (One-Time Filter: the RLS policy) <- Bitmap Heap Scan on tags
+	//     <- Bitmap Index Scan on tags_tenant_idx
+	//   Heap Blocks: exact=5   Buffers: shared hit=8   (3 index + 5 heap)
+	//   Execution Time: 0.209 / 0.217 / 0.232 / 0.358 / 1.433 ms
+	//
+	// The scanned set is still the size of ONE customer's estate -- tens of plaques, not
+	// thousands -- so the heap access is five pages rather than a table scan. What is
+	// being recorded here is that it IS heap access, at that tenant size and that row
+	// count, and not a claim that it is free.
+	CountTenantPlaques(ctx context.Context, tenantID uuid.UUID) (CountTenantPlaquesRow, error)
 	// admins.sql -- the TENANT-SCOPED half of panel authentication (M6-01 phase A):
 	// issuing, refreshing and revoking the ADMIN session, plus the two in-context
 	// reads the login flow needs once the tenant is known.
@@ -3495,6 +3542,42 @@ type Querier interface {
 	// belongs to another business or does not exist -- the same answer for both, on
 	// purpose: telling those two apart across a tenant boundary is a probe.
 	SetPolicyEnabled(ctx context.Context, arg SetPolicyEnabledParams) (SetPolicyEnabledRow, error)
+	// Does this business have a record -- ANY record, on ANY day (M7-03 phase B)?
+	//
+	// 🔴 IT EXISTS TO DECIDE WHETHER ONE PIECE OF ADVICE IS WORTH GIVING, and the advice
+	// is "Pick another day above" on the panel's landing section. That sentence is only
+	// useful if another day could hold something; for a business with no records at all
+	// it is a date picker offered as the answer to "why is this empty".
+	//
+	// 🔴 IT IS NOT "HAS THIS BUSINESS A WORKING PLAQUE", AND THE DIFFERENCE IS A DEFECT
+	// AN AUDIT MEASURED. The first version keyed the withdrawal off the plaque count, on
+	// the assumption that no plaque means no record. That is false: a manager can type a
+	// record by hand (channel='manual', tag_uid NULL) and an audit proved it with a real
+	// INSERT into a tenant holding zero plaques. So the manager who types last week in
+	// and then opens the panel would have been told nothing about the other day their
+	// records are actually on. The question is asked of the records themselves.
+	//
+	// EXISTS RATHER THAN count(*): the answer is one bit and the scan stops at the first
+	// index entry, so the cost does not grow with a busy tenant's history.
+	//
+	// COST (measured 2026-08-14, EXPLAIN ANALYZE BUFFERS, 5 runs, load 2.6-4.1; the
+	// table held 128,067 rows across 25,954 tenants): Index Only Scan using
+	// transactions_tenant_location_idx, shared hit=4 for the seeded KF tenant (10,193 of
+	// those rows) and shared hit=3 for a tenant with none. Execution 0.069-0.184 ms (KF)
+	// and 0.063-0.203 ms (empty).
+	//
+	// ⚠️ `Heap Fetches: 0` IS AN OBSERVATION, NOT A PROPERTY, AND IT DEPENDS ON VACUUM.
+	// The index-only scan can skip the heap only for pages the visibility map marks
+	// all-visible, so a row nobody has vacuumed yet still costs one fetch. Measured both
+	// ways on the same day: the settled KF tenant gave Heap Fetches 0 / shared hit=4,
+	// and a tenant inserted seconds earlier (inside BEGIN … ROLLBACK) gave
+	// **Heap Fetches: 1 / shared hit=5**. What is stable is the PLAN NODE and the bound:
+	// EXISTS stops at the first row, so it is at most ONE heap page whatever the vacuum
+	// state, and the cost does not grow with a busy tenant's history. That bound is what
+	// makes it cheaper than the plaque count beside it, which fetched five heap blocks.
+	//
+	// TENANT SCOPE (section 4.5): explicit predicate beside RLS.
+	TenantHasAnyTransaction(ctx context.Context, tenantID uuid.UUID) (bool, error)
 	// THE per-request authority for the panel, and the reason the session resolver
 	// does not need to carry the admin's status. It does three things in one
 	// statement, so no code path can perform two of them and skip the third:

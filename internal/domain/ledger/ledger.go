@@ -293,10 +293,66 @@ type Page struct {
 	Day Date
 }
 
+// Plaques is what this business's wall plaques amount to, as two counts.
+//
+// 🔴 IT IS A FACT ABOUT THE BUSINESS, NOT ABOUT THE DAY, and that is the whole
+// reason it rides on Screen rather than on Page. Page answers "what happened on
+// this date"; a business that has never had a plaque in service is not having a
+// quiet day, it is a business no tap can reach yet, and no amount of looking at
+// other dates changes that. The panel's landing section told a first-afternoon
+// customer to "pick another day" because the only fact it held was the day's.
+//
+// 🔴 Queried IS HERE FOR THE SAME REASON Page.Queried IS. Two zero counts and "we
+// never asked" are the same struct otherwise, and the difference decides whether a
+// screen may say "nothing can be recorded yet" — which is a claim about the world
+// (§4.6, the class M5-11 closed). Day() leaves this false and the fragment it
+// serves prints nothing that depends on it.
+type Plaques struct {
+	Queried bool
+	// InService is the number of plaques a tap could actually use — the same
+	// `status = 'active'` test §5 row 1 applies, so this is not a second opinion
+	// about what would be rejected.
+	InService int
+	// InStock is how many are loaded but not yet mounted ('unassigned').
+	//
+	// IT IS COUNTED RATHER THAN INFERRED FROM Loaded - InService, and the
+	// difference is a wrong sentence: the leftover also contains retired and lost
+	// plaques, so a business whose last plaque was retired would be told its
+	// replacement is waiting in the box.
+	InStock int
+	// Loaded is every plaque row this business has, whatever its status. It
+	// separates "Tappa has not loaded any" from "every one of them is out of
+	// service", which would otherwise be one silence.
+	Loaded int
+}
+
+// History is whether this business has any record at all, on any day.
+//
+// 🔴 IT IS A SEPARATE FACT FROM Plaques AND AN AUDIT IS WHY. The first version
+// decided "is there any point offering another day" from the plaque counts, on the
+// assumption that a business with no plaque can have no records. That is false: a
+// manager types records by hand (channel='manual', no plaque), and the audit proved
+// it with a real INSERT into a tenant holding zero plaques. Advice was therefore
+// being withdrawn from exactly the manager who needed it — the one whose records are
+// on another day.
+//
+// ⚠️ IT MAY NEVER BE PRINTED. "This business has no records" is a claim about the
+// world; this bit only decides whether a piece of ADVICE is offered, and withdrawing
+// advice makes no claim at all.
+type History struct {
+	// Queried is the anti-fabrication flag. Unmeasured means the advice STAYS —
+	// never withdraw on the strength of something nobody asked.
+	Queried bool
+	// Any is true when at least one transactions row exists for this tenant.
+	Any bool
+}
+
 // Screen is a Page plus the things only the full document needs.
 type Screen struct {
 	Page
 	Options    Options
+	Plaques    Plaques
+	History    History
 	TenantName string
 }
 
@@ -324,10 +380,19 @@ func (r *Reader) Day(ctx context.Context, tenantID uuid.UUID, f Filter) (Page, e
 
 // Screen loads the full section: the same page plus the filter dropdowns.
 //
-// THE THREE OPTION QUERIES RIDE IN THE SAME TRANSACTION as the page, so the
-// dropdown a manager is offered and the rows they are shown come from one
-// consistent snapshot. A location created mid-render cannot appear in one and
-// not the other.
+// THE OPTION QUERIES RIDE IN THE SAME TRANSACTION AND THE SAME TENANT CONTEXT as
+// the page, so every statement is answered with one `SET LOCAL app.tenant_id` in
+// force and one connection's view of the schema, and a failure anywhere abandons
+// the whole read rather than half of it.
+//
+// ⚠️ THAT IS NOT THE SAME AS ONE SNAPSHOT, AND THIS COMMENT USED TO SAY IT WAS.
+// db.WithTenant opens the transaction with pool.Begin, so the isolation level is
+// READ COMMITTED and EACH STATEMENT TAKES ITS OWN SNAPSHOT. An audit measured it:
+// two identical counts inside one of these transactions, with another session
+// committing in between, returned different numbers. Genuine cross-statement
+// stability would need REPEATABLE READ, which costs a serialisation failure this
+// read has no retry for — so it was not taken, and the sentence was corrected
+// instead of the isolation level.
 func (r *Reader) Screen(ctx context.Context, tenantID uuid.UUID, f Filter) (Screen, error) {
 	var out Screen
 	err := r.data.WithTenant(ctx, tenantID, func(ctx context.Context, tx pgx.Tx) error {
@@ -343,12 +408,149 @@ func (r *Reader) Screen(ctx context.Context, tenantID uuid.UUID, f Filter) (Scre
 		if out.Options, err = options(ctx, q, tenantID); err != nil {
 			return err
 		}
+		out.Plaques, out.History = r.advisories(ctx, tx, tenantID)
 		return nil
 	})
 	if err != nil {
 		return Screen{}, fmt.Errorf("ledger: screen: %w", err)
 	}
 	return out, nil
+}
+
+// advisories takes the landing section's two ADVISORY readings, and IT RETURNS NO
+// ERROR ON PURPOSE.
+//
+// 🔴 A FAILED ADVICE MUST NOT COST A MANAGER THE EVIDENCE PAGE. Both readings decide
+// prose: one whether to explain that no plaque is in service, the other whether
+// "Pick another day above" is worth offering. Neither is a record. Returning their
+// error from Screen would send the whole section to problemPanelUnavailable — so a
+// permission slip, a statement timeout or a bug in either count would take away the
+// day's transactions, which had already been read successfully one statement
+// earlier. §4.6's rule is that evidence stays reachable; this is that rule applied
+// to a read.
+//
+// 🔴 AND IT IS WHAT MAKES THE Queried FLAGS REACHABLE. Plaques.Queried and
+// History.Queried were written for exactly the state "we did not measure", with two
+// deliberately OPPOSITE safe directions (say nothing about plaques; keep the date
+// advice) — and until this function existed the only producer either wrote `true` or
+// failed the page, so the degradation they were designed for could not be entered.
+// A designed path nothing can reach is a claim the types make and the code does not.
+//
+// 🔴 EACH READ RUNS INSIDE ITS OWN SAVEPOINT, AND WITHOUT THAT THE WHOLE THING IS
+// DECORATION. Swallowing the Go error is not enough: Postgres ABORTS the transaction
+// on any statement error, so the outer tx.Commit() in db.WithTenant then answers
+// pgx.ErrTxCommitRollback ("commit unexpectedly resulted in rollback"), WithTenant
+// returns non-nil, Screen returns an error, and the handler renders the 500 this
+// function exists to prevent. An audit reproduced exactly that chain against real
+// Postgres. All three failures this comment names — a permission slip, a statement
+// timeout, a bug in either count — are STATEMENT errors, so all three abort.
+// pgx.Tx.Begin issues a SAVEPOINT; rolling back to it clears the aborted state and
+// leaves the outer transaction committable.
+//
+// COST: two extra statements per advisory read (SAVEPOINT + RELEASE), four per
+// request, against a connection that is already open. They touch no disk and write
+// no WAL. That is the price of not converting an advisory read into a 500.
+//
+// ⚠️ THE TWO SAVEPOINTS ARE INDEPENDENT, NOT ONE AROUND BOTH. One would make the
+// readings all-or-nothing again at a finer grain: a failure on `tags` would take
+// away the date-picker answer too, which is read from a different table and had
+// nothing wrong with it. An audit's fixture produces exactly that split.
+//
+// "Independent" rather than "sibling": ROLLBACK TO SAVEPOINT does not DESTROY the
+// savepoint, so on the failure path the second one is opened while the first still
+// stands — pgx names them sp_1 and sp_2 and they nest two deep. Both are released by
+// the outer COMMIT and nothing else depends on the depth.
+//
+// ⚠️ THE QUERY ERRORS ARE NOT SWALLOWED (§7): each is logged at ERROR with the
+// tenant, and what is dropped is the SENTENCE. The one error that IS discarded is
+// sp.Rollback's — deliberately, and with the same idiom db.WithTenant uses for its
+// own rollback: it runs on the failure path, there is no second remedy to try, and
+// surfacing it would replace a precise "this read failed" with a vaguer one. If the
+// rollback really did not take, the outer COMMIT fails and the caller gets its 500.
+//
+// ⚠️ THE ORDER MATTERS AND IS DELIBERATE. These are the LAST two reads in the
+// transaction, so the page and the filter options are already in hand when they run.
+// WHAT THAT BUYS IS NARROW, and the narrowness is the honest part: a STATEMENT error
+// here (a permission slip, a timeout, a bug in either count) cannot cost the records.
+// A CONNECTION LOSS still can — the savepoint, the release and the outer COMMIT all
+// fail together, and Screen returns an error however far the read had got. An
+// unreachable database is the easy case: it fails at pool.Begin before any statement
+// runs at all, which is the correct 500.
+//
+// 🔴 FOR WHOEVER MOVES THE TENANT CONTEXT: `SET LOCAL app.tenant_id` is issued by
+// db.WithTenant BEFORE any of this, so it is OUTSIDE both savepoints and survives a
+// ROLLBACK TO (verified against Postgres). That is why this is safe today. If the
+// tenant context is ever established INSIDE a savepoint, rolling back would unset it
+// and §4.5 would open silently — RLS reads the GUC, and NULLIF makes an unset one a
+// policy that matches nothing rather than an error.
+func (r *Reader) advisories(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID) (Plaques, History) {
+	var plaques Plaques
+	// IN THE SAME TRANSACTION AND TENANT CONTEXT AS EVERYTHING ELSE — see Screen's
+	// doc comment for what that does and does not buy.
+	//
+	// ⚠️ IT IS AN EXTRA STATEMENT, NOT A FREE ONE. An earlier version of this comment
+	// said "costs no second round trip"; a statement IS a round trip. What it costs
+	// no second of is a CONNECTION and a TRANSACTION — WithTenant is already open, so
+	// there is no second pool checkout and no second `SET LOCAL`. The statement's own
+	// price is measured in db/queries/tags.sql (heap access, ~0.2 ms at 15 plaques).
+	if err := inSavepoint(ctx, tx, func(q *store.Queries) error {
+		row, err := q.CountTenantPlaques(ctx, tenantID)
+		if err != nil {
+			return err
+		}
+		plaques = Plaques{
+			Queried:   true,
+			InService: int(row.InService),
+			InStock:   int(row.InStock),
+			Loaded:    int(row.Loaded),
+		}
+		return nil
+	}); err != nil {
+		plaques = Plaques{}
+		r.log.Error("ledger: could not read the plaque state; the landing section will "+
+			"say nothing about plaques", "err", err, "tenant_id", tenantID)
+	}
+
+	var history History
+	// The cheaper of the two: an index-only EXISTS that stops at the first row
+	// (db/queries/transactions.sql measures it, and says what its heap fetch depends
+	// on). It answers whether "Pick another day above" is worth saying.
+	if err := inSavepoint(ctx, tx, func(q *store.Queries) error {
+		any, err := q.TenantHasAnyTransaction(ctx, tenantID)
+		if err != nil {
+			return err
+		}
+		history = History{Queried: true, Any: any}
+		return nil
+	}); err != nil {
+		history = History{}
+		r.log.Error("ledger: could not read whether this business has any record; the "+
+			"landing section will keep offering another day",
+			"err", err, "tenant_id", tenantID)
+	}
+	return plaques, history
+}
+
+// inSavepoint runs one advisory read inside a SAVEPOINT and rolls back to it on
+// failure, so a failed statement cannot abort the transaction it is riding on.
+//
+// THE ROLLBACK USES A BACKGROUND CONTEXT, for the reason db.WithTenant's does: ctx
+// may already be cancelled, and a skipped ROLLBACK TO SAVEPOINT would leave the
+// outer transaction aborted — which is the exact failure this function exists to
+// prevent, arriving by a different door.
+func inSavepoint(ctx context.Context, tx pgx.Tx, fn func(*store.Queries) error) error {
+	sp, err := tx.Begin(ctx) // SAVEPOINT
+	if err != nil {
+		return fmt.Errorf("savepoint: %w", err)
+	}
+	if err := fn(store.New(sp)); err != nil {
+		_ = sp.Rollback(context.Background()) // ROLLBACK TO SAVEPOINT
+		return err
+	}
+	if err := sp.Commit(ctx); err != nil { // RELEASE SAVEPOINT
+		return fmt.Errorf("release savepoint: %w", err)
+	}
+	return nil
 }
 
 // page is the shared body of Day and Screen.

@@ -26,13 +26,75 @@ GEN_EXCLUDE=(
   --glob '!scripts/redline-check.sh' # bu script desenleri tanimi geregi icerir
 )
 
-have_rg() { command -v rg >/dev/null 2>&1; }
+# 🔴 rg YOKSA BU SCRIPT BASARISIZ OLUR — ESKIDEN `exit 0` VERIYORDU (2026-08-14).
+# Olculdu: `env PATH=/usr/bin:/bin ./scripts/redline-check.sh` uyariyi basip
+# EXIT=0 donuyordu, yani "tarama atlandi" ile "tarama temiz" cagirana AYNI
+# gorunuyordu. `make audit`in ozet satiri bunu daha da gizliyordu: govulncheck
+# yesilken cikti "audit: govulncheck exit=0 - redline-check exit=0" ve make exit 0.
+#
+# CI'DA BU DELIK KAPALIYDI (.github/workflows/ci.yml rg'yi kurar ve `rg --version`
+# ile kanitlar), yani UYGULAMA KAPISI tutuyordu; kor olan yerel donguydu -- ve
+# kritik olan sey su: agin KENDISI degil, ag HAKKINDAKI IDDIA yanlisti.
+#
+# EXIT 2 SECILDI, 1 DEGIL. 1 "ihlal bulundu" demek ve alt tarafta $fail ile
+# donuluyor; ikisini ayni sayiya bindirmek "tarayamadim"i "ihlal var" gibi
+# raporlardi. 2 = ARAC EKSIK; cagiran ucunu ayirt edebilir. Basari yolunda
+# davranis degismedi.
+# 🔴 `command -v` YETMEZ — BOZUK VE CALISTIRILAMAZ rg DE "TEMIZ" GORUNUYORDU.
+# Olculdu: PATH'e bozuk bir `rg` shim'i konunca `command -v rg` BASARILI donuyor,
+# scan() rg'nin stderr'ini `2>/dev/null` ile yutuyor ve cikis kodunu hic okumuyor,
+# sonuc "✓ mekanik tarama temiz" + EXIT=0. `chmod -x rg` de ayni: bash'in
+# `command -v`'si X bitini dogrulamıyor. `rg --version` ikisini de ayirt eder --
+# bozuk shim'de exit 2, calistirilamayan dosyada exit 126.
+# ⚠️ UCUNCU SONDA `rg --version` DEGIL, GERCEK BIR TARAMA. Bir denetim gercek rg ile
+# gosterdi: gecersiz bir bayrak iceren RIPGREP_CONFIG_PATH altinda `rg --version`
+# EXIT 0 verir (yapilandirma okunmaz) ama her arama exit 2 doner. Sonda scan()'in
+# kullandigi bayrak kumesini kosar, yani "surum yazdirabiliyor" degil "arama
+# yapabiliyor" olcusu.
+have_rg() {
+  command -v rg >/dev/null 2>&1 || return 1
+  rg --version >/dev/null 2>&1 || return 1
+  rg -n --no-heading "${GEN_EXCLUDE[@]}" -e 'package' scripts >/dev/null 2>&1
+  local rc=$?
+  [[ $rc -le 1 ]]
+}
 if ! have_rg; then
-  echo "${YEL}uyari${OFF}: ripgrep (rg) bulunamadi — tarama atlaniyor."
-  exit 0
+  echo "${RED}ATLANDI${OFF}: ripgrep (rg) yok ya da CALISMIYOR — TARAMA KOSMADI." >&2
+  echo "  Kur: brew install ripgrep  (CI bunu kurar ve rg --version ile kanitlar)" >&2
+  echo "  Bu bir 'temiz' sonucu DEGILDIR." >&2
+  exit 2
 fi
 
-scan() { rg -n --no-heading "${GEN_EXCLUDE[@]}" "$@" "${SRC[@]}" 2>/dev/null; }
+# 🔴 rg'NIN CIKIS KODU OKUNUR — ESKIDEN OKUNMUYORDU (2026-08-14).
+# rg: 0 = eslesme var, 1 = eslesme yok, >=2 = HATA. Eski hali stderr'i yutup kodu
+# hic okumuyordu, yani CALISAN ama her cagrisi patlayan bir rg "eslesme yok" gibi
+# gorunuyordu. Olculdu (gercek rg, shim degil): gecersiz bir bayrak iceren
+# RIPGREP_CONFIG_PATH ile `rg --version` exit 0 verip have_rg'yi geciyor, her scan()
+# exit 2 doner, ve script agacta GERCEK bir R7 ihlali dururken "✓ mekanik tarama
+# temiz" + exit 0 basiyordu.
+#
+# 🔴 VE `exit` BURADAN ISE YARAMAZ: scan her zaman `$(...)` icinde cagriliyor, yani
+# ALT KABUKTA kosuyor ve `exit 2` yalnizca o alt kabugu bitirir -- olculdu, script
+# yine "temiz" + exit 0 basiyordu. Bu yuzden iki mekanizma var: asagidaki ON-UCUS
+# (have_rg icinde, ana kabukta) ve her cagrida yazilan SCAN_ERR isaretcisi; ikincisi
+# sonda okunuyor.
+SCAN_ERR=$(mktemp -t tappa-redline-scan-err)
+trap 'rm -f "$SCAN_ERR"' EXIT
+scan() {
+  local out rc
+  out=$(rg -n --no-heading "${GEN_EXCLUDE[@]}" "$@" "${SRC[@]}" 2>&1)
+  rc=$?
+  if [[ $rc -gt 1 ]]; then
+    { echo "${RED}ATLANDI${OFF}: ripgrep taramasi hata verdi (exit $rc) — TARAMA GUVENILIR DEGIL."
+      sed 's/^/    /' <<<"$out"
+      echo "  Bu bir 'temiz' sonucu DEGILDIR."
+    } >&2
+    echo "$rc" >>"$SCAN_ERR"
+    return 0
+  fi
+  [[ $rc -eq 0 ]] && printf '%s\n' "$out"
+  return 0
+}
 
 report() { # report <seviye> <kod> <baslik> <bulgular>
   local level=$1 code=$2 title=$3 hits=$4
@@ -456,6 +518,13 @@ report WARN R6 "Sessizce yutulan hata — kayit kaybina yol acabilir" \
 # --- Node yasagi (bkz. CLAUDE.md §1) ----------------------------------------
 node_files=$(git ls-files 'package.json' 'package-lock.json' 'pnpm-lock.yaml' 'yarn.lock' 2>/dev/null || true)
 report FAIL N1 "Node artefakti — bu repo Node'suzdur" "$node_files"
+
+# 🔴 BIR TARAMA PATLADIYSA SONUC "TEMIZ" DE "IHLAL VAR" DA DEGILDIR. Isaretci
+# dolduysa hicbir bulgu guvenilir degil -- gorulmeyen ihlal gorulmemis sayilamaz.
+if [[ -s "$SCAN_ERR" ]]; then
+  echo "${RED}✗${OFF} $(wc -l <"$SCAN_ERR" | tr -d ' ') tarama HATA verdi — sonuc guvenilir degil (bkz. yukarisi)." >&2
+  exit 2
+fi
 
 if [[ $fail -eq 0 ]]; then
   echo "${GRN}✓${OFF} mekanik tarama temiz. ${DIM}(kanit degil — derin denetim icin tappa-security-auditor)${OFF}"

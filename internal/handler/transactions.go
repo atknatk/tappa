@@ -119,6 +119,22 @@ func (a *AdminAuth) transactionsSection(w http.ResponseWriter, r *http.Request) 
 	fillTransactionsView(&v, screen.Page, f)
 	v.Filters.Locations = optionViews(screen.Options.Locations)
 	v.Filters.Departments = optionViews(screen.Options.Departments)
+	// THE COUNTS ARE CARRIED ACROSS, NOT INTERPRETED HERE. Which sentence they mean
+	// is pages.TransactionsView.PlaqueState()'s job, so the mapping exists once —
+	// this handler and the fragment handler below cannot disagree about it, because
+	// only one of them fills the field and the other leaves Queried false.
+	v.Plaques = pages.PlaqueCounts{
+		Queried:   screen.Plaques.Queried,
+		InService: screen.Plaques.InService,
+		InStock:   screen.Plaques.InStock,
+		Loaded:    screen.Plaques.Loaded,
+	}
+	// Whether another day is worth offering — a fact about the RECORDS, deliberately
+	// not derived from the plaque counts above (see ledger.History).
+	v.History = pages.HistoryReading{
+		Queried: screen.History.Queried,
+		Any:     screen.History.Any,
+	}
 
 	// THE SCRIPTED POLICY IS NAMED HERE, on the one page that loads a script.
 	a.renderScripted(w, r, http.StatusOK, pages.AdminTransactions(v))

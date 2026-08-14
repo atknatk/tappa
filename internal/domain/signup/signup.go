@@ -196,9 +196,40 @@ func ValidBusinessType(v string) bool {
 
 // The two structures a business can have — migration 00001's other CHECK list.
 //
-// THE CHOICE IS NOT COSMETIC: it decides the venue/department model for the rest of
-// the tenant's life. `single` is one venue and no departments; `multi` is several
-// venues, and departments under them (M7-03 adds the department step).
+// WHAT IT DECIDES IS HOW MANY VENUES STEP TWO ACCEPTS, and nothing else. `single`
+// takes exactly one; `multi` takes one to MaxVenues. ValidateVenues is the only
+// function in this package that reads it.
+//
+// 🔴 IT DECIDES NOTHING AFTER THE ROW IS WRITTEN, AND THIS COMMENT USED TO CLAIM
+// THE OPPOSITE — "it decides the venue/department model for the rest of the
+// tenant's life ... `multi` is several venues, and departments under them". Three
+// measurements retired that (M7-03 phase B):
+//
+//   - the product's own demo data goes the other way. Kebab Factory is `multi`
+//     with nine venues and ZERO departments; Kebab Manufacturing is `single` with
+//     one venue and FIVE, each carrying its own shift. Reproduce from the fixture
+//     alone, no database (an earlier version of this line offered
+//     `grep -c … -A20`, which prints "1" because -c swallows -A and shows none of
+//     the facts above):
+//
+//     which tenant is which shape:
+//     grep -A6 'INSERT INTO tenants' test/fixtures/seed.sql | grep -E "Kebab|'(single|multi)'"
+//     how many departments carry a shift, and whose they are:
+//     awk '/INSERT INTO departments/,/ON CONFLICT/' test/fixtures/seed.sql | grep -cE "TIME '[0-9]"
+//     awk '/INSERT INTO departments/,/ON CONFLICT/' test/fixtures/seed.sql | grep -oE "'[0-9]0000000-0000-4000-8000-000000000001'" | sort | uniq -c
+//
+//     They print, in order: KF=multi / KM=single; 5; and "5 '20000000-…-0001'" —
+//     every department row belongs to KM, the `single` tenant.
+//
+//   - CreateTenant is the only statement in the repo that names the column, and no
+//     screen, query or policy reads it back. Pinned by
+//     TestSignupStructure_DecidesNothingAfterSignUp.
+//
+//   - the panel offers "Add a department" to both shapes — measured on two tenants
+//     provisioned end to end through this wizard.
+//
+// A wizard step gated on `multi` would therefore have aimed the feature at the half
+// of our customers that, in the only data we have, does not use it.
 const (
 	StructureSingle = "single"
 	StructureMulti  = "multi"
@@ -325,15 +356,21 @@ func ValidateBusiness(b Business) (Business, Errors) {
 
 // ValidateVenues checks step two against the structure chosen in step one.
 //
-// THE STRUCTURE DECIDES THE SHAPE, which is the card's own criterion ("`structure`
-// (`single|multi`) seçimi lokasyon/departman modelini belirliyor"):
+// THE STRUCTURE DECIDES THE VENUE SHAPE. The M7-02 card asks for more than that
+// ("`structure` (`single|multi`) seçimi lokasyon/departman modelini belirliyor")
+// and the department half of it is wrong — see the const block above; the card was
+// corrected in docs/plan/m7-portal.md rather than obeyed.
 //
 //	single  EXACTLY ONE venue. More than one is not a typo to be trimmed — it means
 //	        the earlier answer was wrong, and silently keeping the first would give
 //	        the business a model it did not choose.
 //	multi   ONE OR MORE, up to MaxVenues. One is legitimate here: a chain that opens
-//	        its second branch next month registers as multi with one venue today,
-//	        and departments (M7-03) are the other thing multi unlocks.
+//	        its second branch next month registers as multi with one venue today.
+//
+// ⚠️ IT IS THE ONLY THING THE STRUCTURE DECIDES. This line used to end "and
+// departments (M7-03) are the other thing multi unlocks"; departments are open to
+// both shapes and always were — see the const block above for the three
+// measurements that retired the claim.
 func ValidateVenues(structure string, venues []Venue) ([]Venue, Errors) {
 	errs := Errors{}
 	out := make([]Venue, 0, len(venues))

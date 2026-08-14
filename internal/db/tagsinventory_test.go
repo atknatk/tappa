@@ -1176,6 +1176,83 @@ func TestBelt_Tags00013_PanelQueriesCarryTheirOwnTenantPredicate(t *testing.T) {
 		}
 	})
 
+	t.Run("CountTenantPlaques", func(t *testing.T) {
+		// M7-03 phase B's read, and it is HERE rather than only in the static net for
+		// the reason ListTagLastSeen's sub-test above records: a statement whose belt
+		// is watched statically and nowhere at runtime is the shape an auditor already
+		// neutralised once in this package without turning anything red.
+		//
+		// A COUNT ALWAYS RETURNS A ROW, so the assertion is on the NUMBERS. Inside A's
+		// context, asking for B's id must count nothing: A's three plaques are visible
+		// to RLS here, so any non-zero answer is the query counting rows it was not
+		// asked about.
+		var got store.CountTenantPlaquesRow
+		if err := inA(func(ctx context.Context, q *store.Queries) error {
+			var e error
+			got, e = q.CountTenantPlaques(ctx, b.tenantID)
+			return e
+		}); err != nil {
+			t.Fatalf("count with B's id from A's context: %v", err)
+		}
+		if got.Loaded != 0 || got.InService != 0 || got.InStock != 0 {
+			t.Fatalf("counted %+v for B's tenant id while inside A's context, want all zero -- "+
+				"those are A's plaques, counted because the query has no tenant predicate", got)
+		}
+		// Positive control, and it also pins the three FILTERs against a fixture whose
+		// shape is known: A holds two active plaques and one in stock.
+		if err := inA(func(ctx context.Context, q *store.Queries) error {
+			var e error
+			got, e = q.CountTenantPlaques(ctx, a.tenantID)
+			return e
+		}); err != nil {
+			t.Fatalf("control: %v", err)
+		}
+		if got.Loaded != 3 || got.InService != 2 || got.InStock != 1 {
+			t.Fatalf("control counted %+v, want loaded=3 in_service=2 in_stock=1 -- without "+
+				"it the zeroes above prove nothing, and the three FILTERs are unmeasured", got)
+		}
+	})
+
+	t.Run("TenantHasAnyTransaction", func(t *testing.T) {
+		// M7-03 phase B's SECOND read, and it is here because its sibling
+		// CountTenantPlaques got a runtime belt in the same change and this one did
+		// not — the exact asymmetry this file's header records as a shipped defect
+		// for ListTagLastSeen. An audit measured the gap the same way: with the
+		// predicate neutralised in the generated statement, the whole suite stayed
+		// green.
+		//
+		// A BOOLEAN CANNOT RETURN "NO ROWS", so the assertion is on the ANSWER. The
+		// fixture above inserted ONE transaction, and it belongs to A. Asking for B's
+		// id from inside A's context must therefore be false: A's row is visible to
+		// RLS here, so `true` means the query counted a row it was not asked about.
+		var any bool
+		if err := inA(func(ctx context.Context, q *store.Queries) error {
+			var e error
+			any, e = q.TenantHasAnyTransaction(ctx, b.tenantID)
+			return e
+		}); err != nil {
+			t.Fatalf("probe with B's id from A's context: %v", err)
+		}
+		if any {
+			t.Fatalf("answered true for B's tenant id while inside A's context -- B has no "+
+				"records at all, so that is A's tap, seen because the query has no tenant "+
+				"predicate of its own (tenant A=%s B=%s)", a.tenantID, b.tenantID)
+		}
+		// Positive control: A's own id finds A's row. Without it the false above
+		// would also be produced by a fixture that never inserted anything.
+		if err := inA(func(ctx context.Context, q *store.Queries) error {
+			var e error
+			any, e = q.TenantHasAnyTransaction(ctx, a.tenantID)
+			return e
+		}); err != nil {
+			t.Fatalf("control: %v", err)
+		}
+		if !any {
+			t.Fatal("control answered false for A's own id, but A has a recorded tap -- " +
+				"the false above proves nothing")
+		}
+	})
+
 	t.Run("AssignTagToLocation", func(t *testing.T) {
 		// A WRITE fails differently from a read: no error, no rows. Both are asserted
 		// through the :one shape, which turns "no rows" into ErrNoRows.
