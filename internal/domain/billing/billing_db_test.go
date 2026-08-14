@@ -606,9 +606,27 @@ func TestBillingDB_ClosingRefusesWhatItMust(t *testing.T) {
 	f := newFixture(t, *at("2025-03-10T09:00:00Z"), maltaZone, "standard")
 	ctx := context.Background()
 
-	// 1. A month that has not ended. "Now" is used rather than a literal so this
-	// does not rot; the current month is by definition still running.
-	nowMonth := MonthOf(time.Now(), time.UTC)
+	// 1. A month that has not ended. "Now" is used rather than a literal so this does
+	// not rot; the current month is by definition still running.
+	//
+	// 🔴 IT IS RESOLVED IN THE TENANT'S ZONE AND NOT IN UTC, AND THE UTC VERSION WAS A
+	// LATENT FLAKE OF A CLASS THAT FIRED ELSEWHERE IN THIS SUITE. CloseBillingPeriod
+	// decides "has this month ended" as `to_at <= now()`, where
+	// to_at = tappa_local_month_start(month + 1 month, tenants.timezone) — i.e. in THIS
+	// fixture's zone (Europe/Malta), not UTC. For the last two hours of the last UTC day
+	// of a month, Malta is already in the next month, so "the current UTC month" is a
+	// month that has ENDED in Malta and Close would answer nil instead of
+	// ErrPeriodNotEnded. Two hours a month rather than two hours a day, which is only a
+	// difference in how long it hides — CLAUDE.md §6 names the class either way.
+	//
+	// Found while fixing the daily version of the same defect in
+	// internal/domain/ledger/advisories_db_test.go; the sweep for siblings is recorded
+	// there.
+	tenantZone, err := time.LoadLocation(maltaZone)
+	if err != nil {
+		t.Fatalf("loading %s: %v", maltaZone, err)
+	}
+	nowMonth := MonthOf(time.Now(), tenantZone)
 	if _, err := f.book.Close(ctx, f.tenantID, nowMonth, f.adminID); !errors.Is(err, ErrPeriodNotEnded) {
 		t.Errorf("closing the CURRENT month gave %v, want ErrPeriodNotEnded -- the headcount "+
 			"is still moving and an append-only row could never be corrected", err)
