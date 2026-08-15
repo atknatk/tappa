@@ -156,10 +156,15 @@ test:
 #                    (b) sahte-DB'li ve KANITLAMAYAN unlookupable testi silindi
 #                    (~10,7 sn, yerine gercek Postgres'li ikizi).
 #
-# ⚠️ -short SUITTE TAM UC SKIP URETIR, ve ucu de burada ADIYLA sayilir. Sayiyi
-# dogrulayan komut: `go test -race -count=1 -short -v ./... | grep -c -- "--- SKIP:"`
-# -> 3. Dorduncu bir skip eklenirse bu yorum da guncellenmelidir (M5-09'da bu blok
+# ⚠️ -short SUITTE TAM DORT SKIP URETIR, ve dordu de burada ADIYLA sayilir. Sayiyi
+# dogrulayan komut: `make test-short GOFLAGS=-v | grep -c -- "--- SKIP:"` -> 4.
+# Besinci bir skip eklenirse bu yorum da guncellenmelidir (M5-09'da bu blok
 # uc zamanlama sayisini tasiyordu; ayni standart).
+# 🔴 BU SAYI "UC" DIYORDU VE YANLISTI — M8-01'de olculdu (2026-08-15): dorduncu
+# skip TestAuthenticate_TimingDoesNotCountTheCandidates'ti, yani listede adi HIC
+# gecmeyen bir test. M8-01'in getirdigi bir skip YOK (yeni testlerin hicbiri
+# testing.Short okumuyor); sayi zaten bayatti. Ayni sinifin ikinci vakasi: bu blok
+# "iki yapisal test" derken de yanlisti ve o da duzeltilmisti.
 #   1. TestSeedDB_ADayAtKFStJulians (internal/handler/day_db_test.go) — simule
 #      edilen gun; ~62 sn'si gercek time.Sleep.
 #   2. TestAuthenticate_TimingIsFlat (internal/adminauth/manager_timing_test.go) —
@@ -184,6 +189,11 @@ test:
 #      karsilastirma ~1,4 ms, bozuk dal ~66 ns -> dort buyukluk mertebesi pay,
 #      duvar saati ornegi GEREKMEZ.
 #      Atlanan yalnizca ISTATISTIKSEL ornektir; (a)-(c) olcum degil TAM kontrol.
+#   4. TestAuthenticate_TimingDoesNotCountTheCandidates
+#      (internal/adminauth/manager_timing_test.go) — 2.'nin COK ADAYLI kolu: her
+#      kol sekiz cost-12 karsilastirma oduyor, yani ayni duvar saati ornegi. Bu
+#      satir M8-01'de EKLENDI cunku test vardi ve listede yoktu (yukaridaki
+#      duzeltme notu).
 #   t.Parallel()     ELENDI         paketin tum ust duzey testlerine eklendi;
 #                                   art arda UC kosu, UC FARKLI testte kirmizi.
 #                                   Koku tek: bu testler AYNI seed'li plakete

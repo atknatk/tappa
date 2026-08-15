@@ -56,10 +56,25 @@ func NewRouter(cfg *config.Config, features ...Mounter) http.Handler {
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(30 * time.Second))
 
-	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		_, _ = w.Write([]byte("ok"))
-	})
+	// LIVENESS. It lives HERE, on the router, rather than in a feature, and that
+	// placement is the guarantee (M8-01): NewRouter is handed no database, no
+	// session codec and no audit sink, so this endpoint CANNOT touch any of them —
+	// which is precisely what liveness means. "Is this process running and
+	// answering HTTP?" must stay answerable while every dependency is down, or a
+	// deployment restarts a healthy process because its database is unreachable.
+	// READINESS is the opposite question and is a different endpoint with a
+	// different owner: /readyz, internal/handler.Health, which is given a pool.
+	r.Get(healthPath, live)
+	// 🔴 HEAD, BECAUSE THE CLIENTS THAT WATCH THIS URL SEND HEAD. Measured before
+	// this line: chi's r.Get registers GET alone, so HEAD /healthz answered 405
+	// with `Allow: GET`, and an uptime monitor reads 405 as "the service is
+	// broken" — an alert about the check rather than about the service. M7-01 fixed
+	// the same defect for the marketing surface and deliberately left the rest of
+	// the product alone (backlog T29) because the tap and panel routes meter and
+	// resolve identity, so admitting a method there has a blast radius. This one
+	// does not: it is the same two bytes to anyone who asks, with no identity, no
+	// budget and no query behind it.
+	r.Head(healthPath, live)
 
 	r.Handle("/static/*", http.StripPrefix("/static/", http.FileServer(noListing{http.FS(web.Static())})))
 
@@ -82,6 +97,30 @@ func NewRouter(cfg *config.Config, features ...Mounter) http.Handler {
 	// belongs in that same group when it lands.
 
 	return r
+}
+
+// healthPath is the liveness endpoint. It is a constant so the route and every
+// test that drives it are the same string at compile time.
+const healthPath = "/healthz"
+
+// live answers the liveness probe.
+//
+// ⚠️ THE BODY IS TWO BYTES AND CARRIES NO BUILD IDENTITY, WHICH IS A DECISION. This
+// process knows exactly which commit it is running (internal/buildinfo, logged at
+// start-up), and printing that here would be genuinely convenient for a deploy
+// script. It is not printed because this URL is unauthenticated and unmetered: a
+// commit hash tells a stranger precisely which code — and therefore which known
+// defects — is deployed, and this is the one endpoint every scanner finds. The
+// operator has two channels that do not publish it: the start-up log line, and
+// `go version -m` on the artifact itself.
+//
+// no-store, because a cached "ok" answers for a process that has since died — the
+// one failure a liveness probe exists to catch.
+func live(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	_, _ = w.Write([]byte("ok"))
 }
 
 // noListing serves files and refuses DIRECTORIES.

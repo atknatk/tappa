@@ -15,8 +15,33 @@ import (
 	"syscall"
 	"time"
 
+	// 🔴 THE TIMEZONE DATABASE IS EMBEDDED BY THE COMMAND ITSELF (M8-01), so the
+	// deployable artifact owns the guarantee rather than inheriting it.
+	//
+	// It was already linked in before this line — internal/domain/tap imports it, and
+	// `go list -deps ./cmd/tappa` found exactly one copy — but that made the shipped
+	// binary's correctness depend on ONE blank import in a package this command
+	// merely happens to reach. Deleting that line, or changing which packages
+	// cmd/tappa pulls in, would drop the database silently: nothing fails to compile
+	// and no test on a developer machine notices, because a developer machine HAS
+	// /usr/share/zoneinfo.
+	//
+	// WHAT IT COSTS IF IT IS MISSING, measured by this session twice over: the deploy
+	// target is a single static binary on a scratch/distroless image with no system
+	// tzdata, where time.LoadLocation returns an error — and every shift start, every
+	// lateness verdict (CLAUDE.md §5) and eleven customer-visible dates resolve
+	// through it. The failure is not a wrong minute, it is the whole product falling
+	// back to UTC while looking healthy.
+	//
+	// The embed is idempotent: the linker includes one copy however many packages
+	// import it (measured — the binary's size is unchanged by this line, and the
+	// control binaries in cmd/tappa's packaging test show the ~400 KB the database
+	// itself costs).
+	_ "time/tzdata"
+
 	"github.com/atknatk/tappa/internal/adminauth"
 	"github.com/atknatk/tappa/internal/audit"
+	"github.com/atknatk/tappa/internal/buildinfo"
 	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/db"
 	"github.com/atknatk/tappa/internal/domain/billing"
@@ -50,6 +75,12 @@ func run() error {
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
 		Level: parseLevel(cfg.LogLevel),
 	})))
+
+	// 🔴 WHICH BUILD THIS IS, SAID BEFORE ANYTHING ELSE HAPPENS (M8-01). It is the
+	// FIRST line this process writes, ahead of the database dial, because the moment
+	// somebody most needs to know which commit is running is the moment the boot
+	// FAILS — a process that cannot reach its database must still be identifiable.
+	logBuild(slog.Default(), buildinfo.Read())
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -373,9 +404,32 @@ func run() error {
 		return err
 	}
 
+	// READINESS (M8-01). /healthz is registered by the router itself and is given
+	// nothing; this is the endpoint that IS given the pool, because "can this process
+	// serve a tap?" cannot be answered without one.
+	//
+	// 🔴 IT TAKES THE POOL AND NOT ONE OF THE NINE SERVICES ABOVE, deliberately. Every
+	// service here reads or writes tenant data, and a readiness check that called one
+	// would need a tenant to name — internal/db.Ping records why a tenant-scoped read
+	// cannot answer this question at all (0 rows on a healthy database, because
+	// tappa_app is NOBYPASSRLS outside WithTenant).
+	//
+	// 🔴 AND IT IS `data.Ping`, A BOUND METHOD, RATHER THAN `data`. A security audit
+	// measured what the earlier spelling did: the parameter was a one-method interface
+	// (correct on its own terms) but the VALUE was the pool wrapper, so *db.DB entered
+	// internal/handler for the first time — and that wrapper also carries the six
+	// context-less resolvers, in a package that already imports internal/db. Handing
+	// over the method value hands over one call and no object: there is nothing to
+	// type-assert back to. Passing `data` here no longer compiles, which is the same
+	// class of guarantee as goose not being a module dependency.
+	ready, err := handler.NewHealth(data.Ping, slog.Default())
+	if err != nil {
+		return err
+	}
+
 	srv := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           httpx.NewRouter(cfg, activation, tap, panelAuth, marketing, signupFlow, resetFlow),
+		Handler:           httpx.NewRouter(cfg, activation, tap, panelAuth, marketing, signupFlow, resetFlow, ready),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       90 * time.Second,
 	}
@@ -399,6 +453,33 @@ func run() error {
 		defer cancel()
 		return srv.Shutdown(shutdownCtx)
 	}
+}
+
+// logBuild states which commit is serving.
+//
+// 🔴 THE LOG IS THE SURFACE, AND CHOOSING IT WAS THE DECISION IN THIS HALF OF
+// M8-01. The alternatives were an HTTP header, a /healthz body and a /readyz body,
+// and all three publish the running commit to anybody who asks: a revision tells an
+// attacker exactly which code — and therefore which known defects — this deployment
+// runs. It is not on §4.7's secret list and it is not a credential, but it is not
+// free either, and nothing needed it to be public. Both channels that DO need it are
+// already privileged: this line (the operator has the log) and `go version -m` on
+// the artifact (the operator has the file). No flag was added for the same reason —
+// `go version -m bin/tappa` already prints every field of this struct, and a
+// -version flag would have been a second implementation of one fact.
+//
+// ⚠️ A MODIFIED TREE IS A WARNING, NOT AN INFO LINE. The revision in a binary built
+// from a dirty checkout names a state that binary is NOT, so the deploy cannot be
+// traced back to any commit at all. It is not refused — `make dev` and every
+// developer build is modified, and a tool that refuses to run in development is a
+// tool nobody runs — but a production process must be visibly different from one
+// that can be traced, and severity is the field an operator filters on.
+func logBuild(log *slog.Logger, b buildinfo.Build) {
+	if b.Modified {
+		log.Warn("build: this binary was compiled from a MODIFIED working tree, so its revision does not identify it", b.LogArgs()...)
+		return
+	}
+	log.Info("build", b.LogArgs()...)
 }
 
 func parseLevel(s string) slog.Level {

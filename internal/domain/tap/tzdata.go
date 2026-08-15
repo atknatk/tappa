@@ -14,6 +14,22 @@ package tap
 // correct in EVERY environment it is compiled into — tests, tools and the deploy
 // binary — without depending on a caller (or the deferred M8 deploy task,
 // docs/plan/m8-deploy-pilot.md) remembering to embed it. It is stdlib
+// ✅ AS OF M8-01 THIS IS NO LONGER THE ONLY IMPORT, AND THAT CHANGES WHAT IT IS
+// FOR. cmd/tappa imports time/tzdata itself, so the DEPLOYED artifact owns its own
+// guarantee and no longer inherits it from this file. Measured (2026-08-15):
+// deleting the line below on its own leaves both packaging tests green, because the
+// command supplies the data; deleting the command's leaves this one supplying it.
+// Which test measures which claim:
+//
+//	TestPackaging_TheCommandOwnsTheTimezoneEmbedItself   cmd/tappa imports it ITSELF
+//	TestPackaging_TheArtifactCarriesTheTimezoneDatabase  the BINARY contains the data
+//	                                                     (from whichever import)
+//
+// This line stays because the sentence below is still true and is about THIS
+// package rather than about the deploy: the engine is correct in every binary it is
+// compiled into — tests and tools included — without depending on a caller. What it
+// is not, any more, is the single thread the product hangs from.
+//
 // (time/tzdata), so it adds NO new dependency and no clock/DB/HTTP — the tap
 // package's purity proof (go list -deps has no DB/HTTP; no time.Now) is unchanged;
 // this only makes time.LoadLocation's data self-contained. If cmd/tappa (or M8)

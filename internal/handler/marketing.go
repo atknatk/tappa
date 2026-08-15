@@ -49,6 +49,16 @@ import (
 // this class — /healthz and /static/* — are unmetered for the same reason and have
 // been since M0.
 //
+// ⚠️ M8-01 ADDED A THIRD UNMETERED ROUTE THAT IS **NOT** IN THIS CLASS, AND SAYING
+// SO HERE IS THE POINT. /readyz does touch the pool — that is what readiness means —
+// so the sentence above would have been quietly false about the product if this
+// paragraph had been left to describe "the unmetered routes". It is not metered by a
+// limiter either, for the memory reason argued below; what bounds it instead is a
+// cached outcome, so any number of callers cost at most one query per second and at
+// most two log lines per outage. The argument lives with the endpoint
+// (internal/handler/health.go), and the class this paragraph describes still has
+// exactly two members.
+//
 // 🔴 THE PROCESS LOG IS THE FOURTH SCARCE THING AND THIS PARAGRAPH USED TO OMIT IT,
 // WHILE NAMING IT TWO LINES ABOVE AS SOMETHING THE ACTIVATION BUDGET PROTECTS. A
 // security audit measured the omission: 200 cancelled page loads wrote 200 ERROR
@@ -188,6 +198,14 @@ func NewMarketing(texts legalReader, log *slog.Logger) *Marketing {
 // with a different blast radius (it would newly admit HEAD to the tap endpoint and
 // the panel, each of which meters and resolves identity), and it belongs to
 // whoever owns that surface. It is reported for the backlog rather than taken here.
+//
+// ✅ /healthz ANSWERS HEAD AS OF M8-01, so the measurement above is a record of
+// what was true on 2026-08-13 rather than a description of the product. The same
+// reasoning decided it — the route is unauthenticated, unmetered and touches
+// nothing, and the only clients it has are uptime monitors, which HEAD — and the
+// same reasoning still leaves /t, /activate and the panel answering 405 (backlog
+// T29). The two health endpoints and this surface are the ones with the exposure;
+// the rest are reached from a personal message or behind a sign-in.
 //
 // WHAT IT COSTS: nothing per request that GET does not already cost, and net/http
 // discards the body for a HEAD response itself — asserted on a real server, not a

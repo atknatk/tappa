@@ -47,6 +47,31 @@ func New(ctx context.Context, cfg *config.Config) (*DB, error) {
 // Close drains and closes the pool. Call it once during graceful shutdown.
 func (d *DB) Close() { d.pool.Close() }
 
+// Ping acquires a connection and asks the server whether it is answering. It is
+// what GET /readyz is built on (M8-01, internal/handler/health.go).
+//
+// 🔴 IT READS NO TABLE, AND THAT IS A TENANT-ISOLATION DECISION RATHER THAN
+// LAZINESS (CLAUDE.md §4.5). This pool connects as tappa_app, which is NOBYPASSRLS
+// and not the table owner, and every tenant-scoped policy resolves
+// NULLIF(current_setting('app.tenant_id', true), ”)::uuid — so OUTSIDE a
+// WithTenant transaction there is no tenant context and every such table is empty.
+// A readiness probe that did `SELECT count(*) FROM transactions` would therefore
+// answer 0 on a perfectly healthy, fully populated database and could not tell that
+// apart from an empty one; it would be a check whose success proves nothing.
+// pgxpool.Ping executes the empty query on a real connection instead, so what it
+// proves is exactly what readiness means here: a connection can be acquired from
+// the pool and the server answers on it.
+//
+// ⚠️ IT IS A NARROW ACCESSOR, NOT A DOOR TO THE POOL. It returns an error and
+// nothing else — no pgx.Conn, no pgx.Tx, no rows — so it cannot become the
+// context-less bypass ADR 0002 forbids. Anything that wants to read data still has
+// to go through WithTenant.
+//
+// The caller owns the deadline: this method does not invent one, because the
+// readiness handler bounds it (a probe that can hang is a probe that holds a
+// connection while the deployment waits for an answer).
+func (d *DB) Ping(ctx context.Context) error { return d.pool.Ping(ctx) }
+
 // Tenant resolution (ADR 0002 madde 7) is intentionally NOT provided here.
 //
 // The two context-less lookups (resolve_session_by_token_hash, resolve_tag_by_uid)

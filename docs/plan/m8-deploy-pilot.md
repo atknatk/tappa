@@ -22,6 +22,133 @@ tablosu çıkmış durumda (satış slaytı da olur).
 - Sağlık uçları: `/healthz` (canlı) + `/readyz` (DB'ye bağlı).
 - `time/tzdata` gömülü — sistem tzdata'sı olmayan imajda vardiya hesabı çökmesin.
 
+> **Kart düzeltmesi (2026-08-15, M8-01 uygulaması sırasında).** Beş kriterin **üçü
+> zaten sevk edilmişti** ve kart bunu bilmiyordu; ölçümler (hepsi `5a86f9b`'de,
+> uygulamadan **önce**):
+>
+> | Kriter | Ölçüm | Kartın bilmediği |
+> |---|---|---|
+> | `CGO_ENABLED=0` · `-trimpath` | `Makefile:72-73` | — |
+> | sürüm/commit gömülü | `go version -m bin/tappa` → `vcs.revision=5a86f9b9…`, `vcs.time`, `vcs.modified` | **Zaten gömülüydü.** Go'nun `-buildvcs`'i yapıyor ve `-s -w` onu **soymuyor**; eksik olan **okuma**ydı (`grep -rn "Version\|BuildCommit" cmd/ internal/config/` → **0 eşleşme**). `-ldflags -X` **gereksiz**. |
+> | runtime dosya bağımlılığı yok | üretim kodunda `os.ReadFile`/`os.Open`/`http.Dir` → **0 eşleşme** | Karşılanıyordu, ama **hiçbir şey tutmuyordu**. |
+> | otomatik migrate yok | `go list -deps ./cmd/tappa \| grep -c goose` → **0** | Aynı: karşılanıyordu, tutan yoktu. |
+> | `time/tzdata` gömülü | `go list -deps ./cmd/tappa \| grep -c '^time/tzdata$'` → **1** | 🔴 Ama import **`internal/domain/tap/tzdata.go:23`**'teydi — yani *tap karar motorunun* bir dosyası. `cmd/tappa`'nın bağımlılıkları değişse ya da o satır silinse **sessizce kaybolurdu**. |
+>
+> **Bu yüzden görevin ağırlığı "yapmak" değil, "bozulunca kırmızı vermesini
+> sağlamak" oldu** (`cmd/tappa/packaging_test.go`, `cmd/tappa/serving_test.go`).
+> Gerçekten yeni olan üç şey: **(a)** `cmd/tappa` `time/tzdata`'yı **kendi** import
+> ediyor (idempotent; artık artefaktın kendi garantisi), **(b)** derleme kimliği
+> `internal/buildinfo` ile **okunuyor** ve **açılışta tek satır** log'lanıyor —
+> kirli ağaçtan derlenmişse **WARN** (bir commit'e geri izlenemez), **(c)**
+> `/readyz` var (`internal/handler/health.go`) ve `/healthz` artık **HEAD**
+> cevaplıyor.
+>
+> **Kartın söylemediği üç karar, ölçümleriyle:**
+> 1. **Sürüm/commit nereye çıkacak?** Ölçüldü ve **herkese açık uca konmadı**:
+>    `/healthz` gövdesi tam olarak `ok`, `/readyz` gövdesi `ready`/`not ready` —
+>    ikisini de **tam eşitlikle** tutan testler `TestHealthz_AnswersGetAndHead` ve
+>    `TestReadyz_AnswersTheDatabasesAnswer`. Commit hash'i kimliksiz bir uçta basmak,
+>    saldırgana **hangi kodun** koştuğunu söyler; §4.7'nin sır listesinde değil ama
+>    bedava da değil. Operatörün **iki ayrıcalıklı** kanalı zaten var: açılış log
+>    satırı ve artefaktın kendisi (`go version -m`). Aynı gerekçeyle `-version`
+>    bayrağı **eklenmedi** — `go version -m` aynı beş alanı zaten basıyor.
+>    ⚠️ **Sürüm ≠ commit:** `git tag` **boş**, yani semver yok; toolchain'in
+>    türettiği sözde-sürüm (`v0.0.0-20260815011242-5a86f9b9bb53`) dürüst cevaptır.
+> 2. **`/readyz` `marketing.go`'nun "ölçümsüz" argümanını kırıyor mu?** Evet, ve
+>    argüman **yeniden yazıldı** (o dosyada dipnot): `/healthz` ve `/static/*`'ın
+>    sınıfı *"hiçbir şeye dokunmuyor"*, `/readyz` ise **havuza dokunuyor**. Limiter
+>    **konmadı** (adres başına harita, 100k'da tamamen sıfırlanıyor — kimliksiz bir
+>    uçta saldırgan sayısıyla büyüyen bellek); yerine **önbellek**: 200 eşzamanlı
+>    istek → **tam 1** `Ping` (pozitif kontrol: pencere sıfırlanınca 200 → 200;
+>    `TestReadyz_ABurstCostsOneQuery`), ve kesinti başına **1 ERROR + 1 INFO** satır
+>    — durum **değişimi** log'lanıyor, durum değil (`TestReadyz_AnOutageCostsTwoLogLines`).
+>    Ayrıca çağıranın iptali probe'a **geçmiyor** (`context.WithoutCancel`): aksi
+>    halde sekmesini kapatan biri bu sürecin hazır-değil kanısını çevirip log'unu
+>    doldurabilirdi (`TestReadyz_ACallerWhoHangsUpCannotFlipReadiness`).
+> 3. **§4.5: hangi rol, hangi tenant bağlamı?** `pgxpool.Ping` **hiçbir tablo
+>    okumuyor**. Ölçüldü (`TestReadyz_ATableReadCouldNotAnswerThisQuestion`, gerçek
+>    Postgres): `SELECT count(*) FROM transactions` → **owner 200 473 satır**,
+>    `tappa_app` **tenant bağlamı olmadan 0**. Yani tablo okuyan bir readiness
+>    kontrolü **sağlıklı** bir veritabanında da 0 döner — başarısı hiçbir şey
+>    kanıtlamaz. §4.7: 503 gövdesi **sabit**; sürücünün gerçek hatası (ölçüldü:
+>    ``failed to connect to `user=… database=…`: 127.0.0.1:1 …``) yalnız **süreç
+>    log'una** gidiyor.
+>
+> **2. tur — denetim yirmi mutasyon koşturdu, yedisi yeşil döndü ve altısı aynı
+> sınıftı: argüman taşıyan bir sabiti/sırayı hiçbir şey tutmuyordu.** Kapatıldı ve
+> her biri için mutasyonun artık kırmızı verdiği gösterildi: `defaultReadyTTL`
+> (1 sa yapılınca ölü DB'de bir saat `ready` derdi) ve `defaultProbeTimeout` (20 dk
+> yapılınca asılı DB'de her çağıran kilitte beklerdi — eski test **kendi** 50 ms'ini
+> set ettiği için varsayılanı hiç sürmüyordu) artık **davranışla** pinli;
+> `db.Ping`'in tablo okumadığı **bakım veritabanına** (`postgres`) karşı ölçülüyor —
+> orada `transactions` **yok**, yani tablo okuyan bir ping 42P01 ile düşer;
+> `logBuild`'in **DB dial'ından önce** koşması, bozuk DSN'li bir açılışın çıktısında
+> kimlik satırının bulunmasıyla tutuluyor; `nosniff` artık **karşılaştırılmıyor,
+> iddia ediliyor** (GET==HEAD karşılaştırması iki boş dizeyi eşit sayıyordu).
+>
+> **Ve tzdata kriteri "binary'de var"dan "gerçekten çözüyor"a yükseldi
+> (2026-08-15, ölçüm):** `/usr/share/zoneinfo` **olmayan** `alpine:3` içinde, yalnız
+> blank import'la ayrılan iki program — importsuz **üç zone'da da FAIL** (`unknown
+> time zone Europe/Malta`, exit=3), importlu **hepsi OK** (`04:00 local = 02:00 UTC`,
+> exit=0). Komut ve çıktının tamamı `cmd/tappa/packaging_test.go`'da, ilgili testin
+> yanında **yeniden üretilebilir** biçimde yazılı. **Süite eklenmedi**, ve gerekçe
+> ölçüm: bu repoda hiçbir test docker çalıştırmıyor (`grep` → 0), macOS'ta üretilen
+> artefakt darwin/amd64 olduğu için **ikinci bir çapraz derleme** gerekiyor ve
+> `alpine:3` **çekilmek zorunda kaldı** — `make test`'in bugün hiç taşımadığı bir ağ
+> bağımlılığı. (CI docker koşuyor — `make up` — yani ileride eklenebilir; bu bilinçli
+> bir genişletme kararı olur.)
+>
+> **3. tur — `tappa-security-auditor` ONAY; kapatılan tek madde yapısaldı.** Denetçi
+> ölçtü: `handler.NewHealth(data, …)` ile **somut `*db.DB`** ilk kez
+> `internal/handler`'a giriyordu. Tüketici arayüzü tek metotluydu ama **arayüz değeri
+> nesnenin tamamını taşır**, ve o sarmalayıcı **tenant bağlamsız çözücüleri** de
+> sunuyor (`internal/db/resolve.go`) — üstelik paket `internal/db`'yi zaten import
+> ediyor (`adminreset.go`), yani `h.probe.(*db.DB).GetAdminSessionByTokenHash(…)`
+> yazmanın önünde yalnız **disiplin** vardı. Çözüm: `readinessProbe` artık bir
+> **fonksiyon tipi**, wiring `handler.NewHealth(data.Ping, …)`. Bağlı metot **tek bir
+> çağrı** taşır, geri dönülecek bir dinamik tip yok. **İki ağ, ölçüldü (2026-08-15):**
+> havuzu geri geçirmek **derlenmiyor** (`cannot use data (variable of type *db.DB) as
+> handler.readinessProbe value`, `go build` exit=1) · `Health`'e bir `*db.DB` **alanı**
+> eklemek derleniyor ama `TestHealth_HoldsACapabilityAndNotAPool` kırmızı veriyor.
+>
+> ### Devir — bu kartta kapatılmayanlar (ölçümleriyle)
+>
+> 1. **`Allow` iki ayrı başlık satırı olarak gidiyor, ve `OPTIONS` cevaplanmıyor.**
+>    Ölçüm (2026-08-15, **gerçek artefakt**, `curl -s -o /dev/null -D -`):
+>    `POST|PUT|OPTIONS|DELETE /readyz` ve `POST /healthz` → **405**, gövde 0 bayt,
+>    başlıklar **`Allow: GET`** *ve ayrı satırda* **`Allow: HEAD`**.
+>    ⚠️ **Denetim raporu bunu *"`Allow: GET`, HEAD'i saymıyor"* diye kaydetmişti;
+>    yeniden ölçüm bunu düzeltti** — HEAD **ilan ediliyor**, yalnızca virgülle
+>    birleştirilmiş tek satır olarak değil. Kusur bu yüzden daha dar: *"ilk `Allow`
+>    başlığını oku"* diyen istemciler (Go'nun `Header.Get`'i dahil) yalnız `GET`
+>    görür, ve `OPTIONS` 405 alır (204 + `Allow` değil). chi'nin varsayılan davranışı;
+>    **bu diff'in ürettiği bir kusur değil** — `/` de aynı iki satırı veriyor (M7-01).
+>    → **M8-02**: router'a virgüllü tek `Allow` üreten ve `OPTIONS`'ı cevaplayan bir
+>    `MethodNotAllowed` handler'ı.
+> 2. **`vcs.modified=true` bir binary üretilebiliyor ve tek sinyal bir WARN.** Bu
+>    turun kendi artefaktı öyle: `version=v0.0.0-…+dirty … modified=true`. Sinyal
+>    **var, filtrelenebilir ve testle tutuluyor**, ama `TAPPA_ENV=prod` ile kirli bir
+>    binary'yi **reddeden ne bir kod ne bir test** var. → **M8-02** runbook adımı ya da
+>    `make build` kapısı.
+> 3. **Kilit probe boyunca tutuluyor.** 3. tur denetimi ölçtü (asılı DB, soğuk
+>    önbellek, **300 eşzamanlı istek**): hepsi 503, **maks 2,001 sn** — yani
+>    `defaultProbeTimeout` fiilen bağlıyor — ve aynı anda `/healthz` **0,0008 sn**.
+>    Tetikleyici **gerçek bir kesinti**; saldırgan üretemez (önbellek + `WithoutCancel`)
+>    ve pencere kapanınca herkes önbellekten anında döner. → **M8-03** (alarm/
+>    gözlemlenebilirlik), davranış değişikliği değil.
+> 4. **⚠️ DOĞRULANAMADI, ne bulgu ne temiz:** *"havuz doyduğunda `/readyz` 503 verip
+>    tüm replikaları rotasyondan düşürür"* zinciri **ölçülemedi**. Denetçi
+>    `pool_max_conns=1` + `LOCK TABLE` ile denedi; **kimliksiz hiçbir istek yolu havuz
+>    bağlantısını ≥2 sn tutmuyor** (`/t` → 400/303, ikisi de <2 ms, DB'ye hiç
+>    gitmeden). Yani bugün bu senaryoyu **kurmanın yolu bulunamadı**; kapasite
+>    planlaması yapılırken (M8-02) yeniden bakılmalı.
+>
+> **T29'un `/healthz` yarısı bu kartta kapatıldı** (uptime monitörleri HEAD'ler ve
+> 405'i *"servis bozuk"* okur). `/t`, `/activate` ve panel **hâlâ 405** — farklı
+> patlama yarıçapı, T29'da açık kalıyor. **T28 (HSTS) ve T30 (`TAPPA_TRUSTED_PROXIES`)
+> bu kartta ele alınmadı:** ikisi de **dağıtım** kararı (TLS'i nerede sonlandırdığımız,
+> ters vekilin CIDR'i) ve yeri **M8-02**'nin runbook'u.
+
 ---
 
 ## M8-02 — Barındırma
