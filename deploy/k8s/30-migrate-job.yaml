@@ -66,8 +66,12 @@ spec:
       # anyway hands any code that runs in this pod a cluster credential it has
       # no use for -- the smallest hardening still on the table (audit B10).
       automountServiceAccountToken: false
-      # Same private registry, same long-lived credential as the server (20-app.yaml
-      # carries the reasoning).
+      # Same private registry, same Secret as the server — written by deploy.yml from
+      # the job's own GITHUB_TOKEN, with the same stated expiry (20-app.yaml carries
+      # the reasoning and the failure mode).
+      #
+      # This Job is the easy case of the two: it is created by the very job that just
+      # wrote the credential and pushed the image, and it never restarts a week later.
       imagePullSecrets:
         - name: ghcr
       securityContext:
@@ -79,6 +83,10 @@ spec:
       containers:
         - name: goose
           image: ghcr.io/atknatk/tappa-migrate:deploy-placeholder
+          # Immutable `sha-<12hex>` tag, substituted by deploy.yml — see 20-app.yaml
+          # for why IfNotPresent is only correct against a tag that cannot move.
+          # backoffLimit: 2 above means a retry also reuses the node's copy, so a
+          # transient DB dial failure does not become a registry round trip.
           imagePullPolicy: IfNotPresent
           # GOOSE_DRIVER and GOOSE_MIGRATION_DIR are baked into the image; `up` is
           # its CMD. Nothing here needs overriding, and spelling the command out

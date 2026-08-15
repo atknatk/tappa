@@ -18,6 +18,7 @@ Hedef: `https://tappa.everva.com.tr` · küme: k3s v1.35.4, tek node
 | `k8s/00-namespace.yaml` | namespace + `pod-security enforce=restricted` | `deploy.yml` |
 | `k8s/05-config.yaml` | sırsız ortam değişkenleri | `deploy.yml` |
 | `examples/secret.example.yaml` | **şablon**, değer yok, adı **canlıyla çakışmaz** | **operatör** (kopyasını) |
+| *(dosyasız)* `secret/ghcr` | GHCR çekme kimliği — `docker-registry` tipi | `deploy.yml` (kendi `GITHUB_TOKEN`'ıyla, **ömürlü** → adım 3 + sınır 12) |
 | `examples/externalsecret.example.yaml` | **önerilen** yol: Infisical + external-secrets | **operatör** |
 | `k8s/12-networkpolicy.yaml` | 5432'ye yalnız Tappa pod'ları | `deploy.yml` |
 | `k8s/10-postgres.yaml` | StatefulSet + PVC (`local-path`) + headless Service | `deploy.yml` |
@@ -59,9 +60,10 @@ Yani boş kümede **asla açılmayan** bir kurulum, dolu kümede bir **kesinti**
 temizlendi (bozuk StatefulSet + `ImagePullBackOff` + Failed Job + bağlı 20Gi PVC).
 
 **Elle deploy etmek gerekiyorsa** `.github/workflows/deploy.yml`'in adımlarını sırayla
-izle: namespace → Secret (elle) → ConfigMap'ler (`--from-file` dahil) → Postgres →
-NetworkPolicy → migration Job (**bekle**) → Deployment → Ingress. Tek tek `apply`
-etmek güvenlidir; **dizini toptan** `apply` etmek değildir.
+izle: namespace → `tappa-secrets` (elle) → **`ghcr` sırrı** → ConfigMap'ler
+(`--from-file` dahil) → Postgres → NetworkPolicy → migration Job (**bekle**) →
+Deployment → Ingress. Tek tek `apply` etmek güvenlidir; **dizini toptan** `apply`
+etmek değildir.
 
 ---
 
@@ -109,19 +111,55 @@ openssl rand -hex 32      # POSTGRES_PASSWORD / TAPPA_APP_PASSWORD  (URI'ye giri
 `TAPPA_INVITE_HMAC_KEY`, `TAPPA_SESSION_HMAC_KEY`'den **farklı** üretilmeli —
 `config.Load` eşitlerse açılışta reddeder.
 
-**3. GHCR çekme kimliği (imaj private).**
+**3. GHCR çekme kimliği (imaj private) — ELLE ADIM DEĞİL, ama sınırı var.**
+
+`deploy.yml` `ghcr` sırrını **her koşuda kendisi yazar**, kümeye bir şey uygulamadan
+önce, kendi `GITHUB_TOKEN`'ından:
+
+```yaml
+kubectl -n tappa create secret docker-registry ghcr \
+  --docker-server=ghcr.io --docker-username="$GHCR_USER" --docker-password="$GHCR_TOKEN" \
+  --dry-run=client -o yaml | kubectl apply -f -
+```
+
+Çalışmasının sebebi dar: iş akışının `permissions:` bloğu `packages: write` veriyor
+(read'i kapsar) ve bir workflow'un GHCR'a push ettiği paket **push eden depoya
+bağlanır**, yani o deponun kendi token'ı geri çekebilir. İki imajı da bu iş, dakikalar
+önce, bu token'la push etti.
+
+🔴 **BU KALICI BİR ÇÖZÜM DEĞİL VE ÖYLE OKUNMAMALI. `GITHUB_TOKEN` iş bitince iptal
+edilir.** Yürüyen şey token'ın yaşaması değil, iki ayrı olgunun üst üste binmesi:
+
+| | |
+|---|---|
+| **çalıştığı koşul** | ilk çekme sır yazıldıktan **saniyeler sonra**, aynı işin rollout'unda olur · her iki manifest de `imagePullPolicy: IfNotPresent` ve etiket **değişmez** `sha-<12hex>` · tek node, yani imaj **düğümde önbellekli** kalır → sonraki her yeniden başlatma kayda **hiç** gitmez |
+| **çalışmadığı koşul** | deploy bittikten **sonra** düğüm imajı düşürürse — kubelet imaj GC'si (disk baskısı), `crictl rmi`, düğüm yeniden kurulumu — kubelet çekmeyi **ölü bir kimlikle** dener: `ImagePullBackOff`, pod açılmaz. Bu ürün için maliyeti sıradan değil: 04:00 vardiyası tap sayfasını **hiç** yükleyemez ve çevrimdışı kuyruk (M9-01) bile devreye giremez |
+
+**Kalıcı çare iki tane ve ikisi de kullanıcının işi.** Biri yapılana kadar yukarıdaki
+sınır geçerlidir:
 
 ```bash
-# read:packages yetkili bir PAT ile, BİR KEZ.
+# (a) UZUN ÖMÜRLÜ PAT — aynı sır adı, aynı şekil. Yazılırsa deploy.yml onu her koşuda
+#     kendi token'ıyla EZER; bu yolu seçersen deploy.yml'deki adımı kaldır.
 # ⚠️ PAT KOMUT SATIRINA YAZILMAZ: kabuk geçmişine ve `ps`'e düşer. `read -rs` ile al.
 read -rs -p "GHCR PAT (read:packages): " GHCR_PAT; echo
 kubectl -n tappa create secret docker-registry ghcr \
-  --docker-server=ghcr.io --docker-username=atknatk --docker-password="$GHCR_PAT"
+  --docker-server=ghcr.io --docker-username=atknatk --docker-password="$GHCR_PAT" \
+  --dry-run=client -o yaml | kubectl apply -f -
 unset GHCR_PAT
 ```
 
-Deploy iş akışının `GITHUB_TOKEN`'ı kullanılamaz: iş bitince ölür, bir saat sonra
-yeniden zamanlanan pod imajı çekemez.
+**(b) Paketleri public yapmak.** ghcr.io/atknatk/tappa ve
+ghcr.io/atknatk/tappa-migrate → Package settings → *Change visibility* → Public.
+Sonrası çekme kimliği gerektirmez. 🔴 **Bunun API'si YOK — ölçüldü (2026-08-15):**
+`PATCH /user/packages/container/tappa` → **404, böyle bir uç nokta yok**. Yalnız
+arayüzden yapılır, yani hiçbir otomasyon bunu senin yerine kapatamaz. ⚠️ Public
+paket, imajın **herkesçe indirilebilir** olması demektir; imaj `scratch` + iki dosya
+ve sır taşımıyor (`deploy.yml` push öncesi bunu kapılıyor), ama karar yine de bilinçli
+verilmeli.
+
+`--docker-username` **kimlik doğrulamıyor**: ölçüldü (2026-08-15) — geçerli bir
+token'la uydurma bir kullanıcı adı da `Login Succeeded` veriyor. Doğrulayan token.
 
 **4. GitHub secret'ı — `KUBE_CONFIG`.**
 
@@ -225,3 +263,15 @@ kubectl -n tappa rollout undo deployment/tappa      # bir önceki imaja
     role"*, `pg_stat_activity` üzerinden), yani **deploy anına** özgü; deploy sonrası
     değiştirilen bir değeri yakalamaz. Süreç içi kontrol bilinçli olarak
     **yapılmadı** — gerekçesi kartta, ölçümüyle.
+12. 🔴 **GHCR çekme kimliği ÖMÜRLÜ. "Çözüldü" değil, "şu koşulda çalışır".**
+    `deploy.yml` `ghcr` sırrını her koşuda kendi `GITHUB_TOKEN`'ıyla tazeliyor ve o
+    token **iş bitince iptal edilir**. **Çalışır:** ilk çekme sır yazıldıktan saniyeler
+    sonra olur; `imagePullPolicy: IfNotPresent` + değişmez `sha-<12hex>` etiketi + tek
+    node sayesinde imaj düğümde kalır, sonraki her pod yeniden başlatması kayda hiç
+    gitmez. **Çalışmaz:** düğüm imajı deploy'dan sonra düşürürse (kubelet imaj GC'si,
+    `crictl rmi`, düğüm yeniden kurulumu) çekme ölü kimlikle denenir →
+    `ImagePullBackOff`, pod açılmaz ve bunu düzeltmenin tek yolu yeni bir deploy
+    koşusu ya da elle bir kimlik yazmaktır. **Kalıcı çare iki tane ve ikisi de
+    kullanıcının işi:** `read:packages` yetkili uzun ömürlü bir PAT, ya da paketleri
+    public yapmak (**API'si yok**, yalnız arayüz — ölçüldü). Adım 3'te ikisi de yazılı.
+    Bu madde, biri yapılana kadar açık kalır.

@@ -446,6 +446,69 @@ tablosu çıkmış durumda (satış slaytı da olur).
 > GitHub'ın kendi runner'ında GitHub'ın kendi action'ı; `kubectl` ise ağdan inen
 > üçüncü parti bir ikili, o yüzden **sha256 pinli**. Farklı tehdit, farklı muamele —
 > gerekçe `deploy.yml`'de yazılı.
+>
+> ---
+>
+> **3. TUR — İLK GERÇEK DEPLOY KOŞUSU (`31908808548`) TEK BİR YERDE DURDU: KÜMENİN
+> İMAJI ÇEKECEK KİMLİĞİ YOKTU.** Öncesindeki her kapı geçti (iki imaj kapısı, push,
+> Cloudflare preflight, kubeconfig); `Preflight — the Secret …` adımı
+> `secret/ghcr (image pull credential) is missing` ile düştü. Depo private, dolayısıyla
+> paketler de: `ghcr.io/atknatk/tappa` ve `…/tappa-migrate` anonim çekmede **403**.
+>
+> **🔴 ELENEN ÇÖZÜM, ÖLÇÜMÜYLE: paketleri API'den public yapmak MÜMKÜN DEĞİL.**
+> `PATCH /user/packages/container/tappa` → **404, böyle bir uç nokta yok**; okuma →
+> **403** (orkestratörün `gh auth token`'ında `read:packages` yok). GitHub bunun için
+> API sunmuyor, yalnız arayüz — yani otomasyonla kapatılamaz, **kullanıcı işi**.
+>
+> **SEÇİLEN: CI kendi çekme kimliğini yazıyor.** `deploy.yml`'e yeni bir adım
+> (`Write the GHCR pull credential`) girdi; `kubectl create secret docker-registry …
+> --dry-run=client -o yaml | kubectl apply -f -` kalıbı, yani idempotent, her koşuda
+> tazeleniyor. Dayandığı olgu dar ve yazıldı: iş akışının `permissions:` bloğu
+> `packages: write` veriyor (read'i kapsar) ve **bir workflow'un push ettiği paket push
+> eden depoya bağlanır**, yani o deponun kendi token'ı geri çekebilir. İki imajı da
+> **bu iş, dakikalar önce, bu token'la** push etti.
+>
+> **Var olan preflight KALDI ve sınır yazıldı: `tappa-secrets` operatörün, `ghcr` CI'ın.**
+> Ayıran şey *kimin kimliği olduğu*: `tappa-secrets` **ürünün** sırlarını taşıyor
+> (`TAPPA_TAG_KEK` parktaki her plaketin AES anahtarını sarmalıyor, §4.7) — CI'ın
+> yaratması, o değeri bir workflow'un blast radius'una sokmaktı. `ghcr` ise **bu iş
+> akışının kendi push ettiği imajlar için bir kayıt kimliği**; onu bir insanın PAT
+> üretmesine bağlamak, yalnızca bir sonraki adımı kimse yazmadığı için var olan bir
+> adımdı.
+>
+> **Kullanıcı adı ÖLÇÜLDÜ, tahmin edilmedi.** `docker login ghcr.io -u
+> definitely-not-a-real-user-9x7q` geçerli bir token'la → **`Login Succeeded`**. Yani
+> doğrulayan token, kullanıcı adı değil. Yine de `${{ github.actor }}` seçildi
+> (koşuda ölçülen değeri: `atknatk`), çünkü üstteki `Log in to GHCR` adımı zaten onu
+> kullanıyor ve **bu registry'ye karşı çalıştığı kanıtlı** (`31908808548`, iki imaj da
+> push edildi). Aynı kimlik iki yerde iki türlü yazılmasın.
+>
+> **`imagePullPolicy` — ÖLÇÜLDÜ VE `IfNotPresent` KALDI; ELEYEN ÖLÇÜM ETİKET
+> STRATEJİSİYDİ.** `deploy.yml` dört etiket push ediyor (`sha-<12hex>` ve `main`, iki
+> imaj için) ama manifestlere **yalnız `sha-<12hex>`** ikame ediliyor
+> (`sed "s|:deploy-placeholder|:sha-$SHORT|g"`); `:main` **hiçbir manifestte, hiçbir
+> README komutunda referans edilmiyor** (`grep -rn ':main\b' deploy/ scripts/` → yalnız
+> `deploy.yml`'in build/push satırları). Etiket **değişmez**, dolayısıyla `IfNotPresent`
+> *"eski imajın sessizce koşması"* kusurunu **üretemez** — bu kusur `IfNotPresent` +
+> hareketli etiket bileşiminden doğar ve o bileşim burada yok. Ters yönde: `Always`
+> **yanlış** olurdu, bant genişliği yüzünden değil — çekme kimliği iş biter bitmez
+> iptal edilen `GITHUB_TOKEN` olduğu için `Always` her yeniden başlatmada **ölü bir
+> kimlikle** kayda giderdi. Değer zaten `IfNotPresent`'tı; değişen, artık **taşıyıcı
+> olduğunun yazılması**.
+>
+> **🔴 VE SINIR — "ÇÖZÜLDÜ" DEĞİL.** `deploy/README.md` adım 3 + kabul edilmiş sınır
+> **12**: **çalışır** — ilk çekme sır yazıldıktan saniyeler sonra, aynı işin
+> rollout'unda olur; `IfNotPresent` + değişmez etiket + tek node sayesinde imaj
+> **düğümde önbellekli** kalır ve sonraki her pod yeniden başlatması kayda hiç gitmez.
+> **çalışmaz** — düğüm imajı deploy'dan **sonra** düşürürse (kubelet imaj GC'si /
+> disk baskısı, `crictl rmi`, düğüm yeniden kurulumu) çekme ölü kimlikle denenir →
+> **`ImagePullBackOff`, pod açılmaz**. Bu ürün için maliyeti sıradan değil: 04:00
+> vardiyası tap sayfasını hiç yükleyemez, çevrimdışı kuyruk (M9-01) bile devreye
+> giremez. **Kalıcı çare iki tane, ikisi de kullanıcının:** `read:packages` yetkili
+> uzun ömürlü bir PAT (aynı sır adı, aynı şekil) ya da paketleri public yapmak
+> (arayüzden — API yok, yukarıda ölçüldü). Madde 12 biri yapılana kadar açık kalır.
+>
+> `ci.yml`'e dokunulmadı (`git diff --stat .github/workflows/ci.yml` → boş).
 
 ---
 

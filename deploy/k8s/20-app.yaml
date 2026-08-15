@@ -83,11 +83,21 @@ spec:
       # no use for -- the smallest hardening still on the table (audit B10).
       automountServiceAccountToken: false
       # 🔴 THE IMAGE IS PRIVATE BECAUSE THE REPOSITORY IS (user decision), so the
-      # kubelet needs a credential of its own. It CANNOT be the deploy workflow's
-      # GITHUB_TOKEN: that token dies when the job ends, so the first pod rescheduled
-      # an hour later would fail to pull and the outage would look like a node
-      # problem. This references a long-lived docker-registry Secret the operator
-      # creates ONCE with a read:packages PAT — deploy/README.md, step 3.
+      # kubelet needs a credential of its own. secret/ghcr is written by
+      # .github/workflows/deploy.yml on every run, from that job's own GITHUB_TOKEN
+      # (`packages: write` implies read, and a package pushed by a workflow is linked
+      # to the pushing repository). No human step, nothing to remember.
+      #
+      # ⚠️ AND THAT TOKEN IS DEAD BY THE TIME THE POD IS OLD. It is revoked when the
+      # job ends. What makes this work is not the token surviving but the pull
+      # happening seconds after it is written, plus imagePullPolicy: IfNotPresent
+      # below — a restart a week later reuses the node's cached layers and asks the
+      # registry nothing. THE FAILURE THAT REMAINS: if the node ever loses the image
+      # (kubelet image GC under disk pressure, crictl rmi, node rebuild) after the
+      # deploy job ended, the pull is retried with a revoked credential and this pod
+      # does not start. The durable fixes are the operator's — a long-lived
+      # read:packages PAT in this same Secret, or public packages. deploy/README.md
+      # step 3 and its accepted-limits list carry both, and say so plainly.
       imagePullSecrets:
         - name: ghcr
       securityContext:
@@ -102,6 +112,21 @@ spec:
           # is a syntactically valid tag so that `kubectl apply --dry-run` on the
           # unmodified file is still a real check.
           image: ghcr.io/atknatk/tappa:deploy-placeholder
+          # 🔴 IfNotPresent IS LOAD-BEARING HERE, NOT A DEFAULT — AND IT IS ONLY SAFE
+          # BECAUSE THE TAG ABOVE IS IMMUTABLE. deploy.yml pushes four tags
+          # (`sha-<12hex>` and `main` for each image) but substitutes ONLY the
+          # `sha-<12hex>` one into this file, so a tag never names two different
+          # images. IfNotPresent plus a moving tag (`:main`, `:latest`) is how a node
+          # silently keeps serving last week's binary — this repository's signature
+          # defect class, and the reason `:main` is pushed for humans and referenced
+          # by nothing.
+          #
+          # ⚠️ Always would be WRONG here, and not for bandwidth: the pull credential
+          # is the deploy job's GITHUB_TOKEN (see imagePullSecrets above), which is
+          # revoked when that job ends. Always would re-contact GHCR on every restart,
+          # eviction and node reboot with a dead credential, turning every pod restart
+          # after the deploy into an ImagePullBackOff. IfNotPresent asks the registry
+          # nothing once the node has the layers.
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

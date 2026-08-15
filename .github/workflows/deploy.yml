@@ -212,7 +212,21 @@ jobs:
       - name: Preflight — the hostname must NOT be proxied by Cloudflare
         run: scripts/verify-deployment.sh cloudflare tappa.everva.com.tr
 
-      - name: Preflight — the Secret is the operator's and must already exist
+      # 🔴 THE APPLICATION SECRET STAYS THE OPERATOR'S — THIS GATE DOES NOT MOVE.
+      # tappa-secrets holds TAPPA_TAG_KEK, the session HMAC key and both DSNs. CI
+      # creating those would mean a value that wraps every wall plaque's AES key
+      # (§4.7) passes through a workflow log's blast radius and through whoever can
+      # push to main. It is created out of band, once, and this step only proves it
+      # is there before anything tries to mount it.
+      #
+      # ⚠️ THE ghcr BRANCH USED TO BE CHECKED HERE TOO AND WAS MOVED OUT — deliberately,
+      # and the line the two fall on either side of is WHOSE IDENTITY THE CREDENTIAL IS.
+      # tappa-secrets is the PRODUCT's secrets: only the operator can know them.
+      # secret/ghcr is a REGISTRY credential for images this very workflow just
+      # pushed, i.e. CI's own identity — and requiring a human to mint a PAT so that
+      # CI can read back what CI itself wrote is a step that exists only because
+      # nobody wrote the next one. The next step writes it.
+      - name: Preflight — the application Secret is the operator's and must already exist
         run: |
           set -euo pipefail
           kubectl apply -f deploy/k8s/00-namespace.yaml
@@ -220,10 +234,53 @@ jobs:
             echo "::error::secret/tappa-secrets is missing. It is created out of band and never by CI — see deploy/examples/externalsecret.example.yaml (recommended) or deploy/examples/secret.example.yaml."
             exit 1
           fi
-          if ! kubectl -n tappa get secret ghcr >/dev/null 2>&1; then
-            echo "::error::secret/ghcr (image pull credential) is missing — see deploy/README.md step 3."
-            exit 1
-          fi
+
+      # 🔴 CI WRITES ITS OWN PULL CREDENTIAL, AND THE REASON IT CAN IS NARROW AND
+      # WORTH STATING: GITHUB_TOKEN carries `packages: write` (declared at the top of
+      # this file, which implies read), and a package pushed to GHCR by a workflow is
+      # linked to the pushing repository, so that repository's own token may pull it
+      # back. Both images were pushed by this job, minutes ago, with this token.
+      #
+      # ⚠️ THIS IS NOT A PERMANENT FIX AND MUST NOT BE READ AS ONE. GITHUB_TOKEN IS
+      # REVOKED WHEN THE JOB ENDS. It works because of a second fact, not because the
+      # token lives on: the pull happens seconds later, inside the same job's rollout,
+      # and both manifests are `imagePullPolicy: IfNotPresent` against an IMMUTABLE
+      # `sha-<12hex>` tag — so once the single node has the layers, every later restart
+      # is served from the node and needs no credential at all.
+      #
+      # 🔴 WHERE IT BREAKS, STATED RATHER THAN DISCOVERED AT 04:00: if the node loses
+      # the image (kubelet image GC under disk pressure, `crictl rmi`, a node rebuild)
+      # AFTER the deploy job finished, the kubelet retries the pull with a dead token
+      # and the pod does not start — ImagePullBackOff, on a product whose 04:00 shift
+      # cannot load the tap page at all while the server is down. The durable fixes are
+      # a long-lived read:packages PAT or making the packages public, and BOTH ARE THE
+      # USER'S TO DO (GitHub exposes no API for the second — measured: PATCH
+      # /user/packages/container/tappa → 404, no such endpoint). deploy/README.md
+      # step 3 carries both, and the limit is written down in its accepted-limits list.
+      #
+      # The username is not what authenticates: measured 2026-08-15,
+      # `docker login ghcr.io -u definitely-not-a-real-user-9x7q` with a valid token
+      # returned "Login Succeeded". github.actor is used anyway, for one reason — the
+      # `Log in to GHCR` step above already uses it and pushed both images with it in
+      # run 31908808548, so this credential is spelled exactly like the one already
+      # proven against this registry.
+      - name: Write the GHCR pull credential (CI's own identity, refreshed every deploy)
+        env:
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # create|apply rather than plain create: idempotent, so a re-deploy refreshes
+          # the token in place instead of failing with AlreadyExists.
+          kubectl -n tappa create secret docker-registry ghcr \
+            --docker-server=ghcr.io \
+            --docker-username="$GHCR_USER" \
+            --docker-password="$GHCR_TOKEN" \
+            --dry-run=client -o yaml | kubectl apply -f -
+          # Report the SHAPE and never the value: .dockerconfigjson holds a live token,
+          # so this prints the type and the key NAMES only.
+          echo "secret/ghcr type=$(kubectl -n tappa get secret ghcr -o jsonpath='{.type}')"
+          echo "secret/ghcr keys=$(kubectl -n tappa get secret ghcr -o go-template='{{range $k, $v := .data}}{{$k}} {{end}}')"
 
       - name: Apply configuration and database
         run: |
