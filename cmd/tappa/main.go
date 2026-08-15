@@ -265,7 +265,18 @@ func run() error {
 	if err := texts.Refresh(ctx); err != nil {
 		slog.Default().Error("the published legal texts could not be read at start-up; /legal will show its placeholders until the next publication", "err", err)
 	}
-	panelAuth, err := handler.NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, venues, plaques, entries, rules, ruleWriter, books, texts, cfg, slog.Default())
+	// 🔴 THE BUSINESS'S OWN ROW (M7-05). It is the ninth writer and the only one that
+	// can UPDATE `tenants` — the row every other tenant-scoped query in the product is
+	// anchored to. It takes the same trail as the others and REFUSES a nil sink, for a
+	// reason sharper than most: `tenants` has no updated_at column at all (migration
+	// 00001), so the audit row written with RecordTx inside the same transaction is the
+	// ONLY record anywhere that this business's timezone — the wall clock every shift
+	// and every lateness verdict is resolved against — ever moved.
+	accounts, err := tenant.NewAccounts(data, trail, slog.Default())
+	if err != nil {
+		return err
+	}
+	panelAuth, err := handler.NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, venues, plaques, entries, rules, ruleWriter, books, texts, accounts, cfg, slog.Default())
 	if err != nil {
 		return err
 	}

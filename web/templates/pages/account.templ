@@ -1,0 +1,341 @@
+package pages
+
+import "github.com/atknatk/tappa/web/templates/components"
+
+// The ACCOUNT section (M7-05) — the business's own facts, the three it may change,
+// what the VAT register said, and the sentence its staff read after a good tap.
+//
+// 🔴 THE BRAND SENTENCES ARE RENDERED BY THE TAP SCREEN'S OWN COMPONENT, not copied.
+// `@brandMessage(...)` below is the same templ component result.templ renders to an
+// employee, called with this business's type — so the preview cannot drift from what
+// is actually shown, because it IS what is actually shown. A copy of those four
+// sentences here would be the "second representation" failure class this repository
+// has paid for repeatedly, and it would be the worst possible one: a settings screen
+// that tells a customer their staff read something they do not.
+//
+// 🔴 IT CHANGES NOTHING ON THE SACRED SCREEN (CLAUDE.md §9). result.templ is not
+// edited by this task — the call goes the other way.
+//
+// 🔴 IT LOADS NO SCRIPT and renders PanelShell rather than PanelShellWithScript.
+// Everything here is a link or a form post; there is nothing to append and nothing to
+// swap, which keeps the panel's widened Content-Security-Policy pinned to exactly one
+// url.
+//
+// 🔴 §4.7 — NOTHING ON THIS PAGE NAMES A PERSON. The only names are the BUSINESS's own
+// and the signed-in admin's, which the panel shell already prints on every section.
+//
+// skill tappa-brand governs the surface: the kitchen docket is the record motif, every
+// stored value is IBM Plex Mono, the palette is untouched, and no meaning is carried by
+// colour alone — the VAT marker says its own word.
+templ AdminAccount(v AccountView) {
+	@PanelShell(v.PanelChrome) {
+		if v.Problem != "" {
+			@components.Notice(components.ToneAlert, "That was not saved") {
+				<p>{ v.Problem }</p>
+			}
+		}
+		if v.Saved != "" {
+			@components.Notice(components.ToneOK, "Saved") {
+				<p>{ v.Saved }</p>
+			}
+		}
+		@accountFacts(v)
+		@accountVAT(v)
+		if v.CanEdit {
+			@accountForm(v)
+		} else {
+			@accountNoForm(v)
+		}
+		@accountMessages(v)
+	}
+}
+
+// accountFacts is what is on file, as a docket. Everything here is READ ONLY — the
+// three fields that can move are in the form below, so a reader can see at a glance
+// which facts are theirs to change and which are not.
+//
+// 🔴 EVERY VALUE HERE COMES FROM v.OnFile AND NEVER FROM v.Form, WHICH IS THE WHOLE
+// POINT OF THE BLOCK AND WAS THE BUG IT SHIPPED WITH. On a render answering a refused
+// save, Form holds what the customer typed; printing that under a heading reading "On
+// file" states a fact about the business that is not true and hides the one that is.
+// See AccountView.OnFile for the measurement.
+templ accountFacts(v AccountView) {
+	<section class="docket">
+		// 🔴 THE BUSINESS NAME IS THIS BLOCK'S HEADING, AND IT WAS A BARE <p>. Two
+		// things were wrong with that and only one is cosmetic: every other block on
+		// this screen opens with an <h2> (the VAT register, what you can change, what
+		// your staff read) so this one was the sole section a screen reader could not
+		// jump to — and, measured, the cell was the only one of the docket's four with
+		// no way for a test to name it. A test that searched the whole document for the
+		// stored name was satisfied by the form's own value= attribute, so emptying
+		// this cell left the entire handler package green.
+		<div class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+			<h2 class="font-display text-lg font-bold tracking-tight text-ink">{ v.OnFile.Name }</h2>
+			<p class="font-mono text-xs uppercase tracking-widest text-ink/70">On file</p>
+		</div>
+		<dl class="mt-3 grid grid-cols-1 gap-x-4 gap-y-2 sm:grid-cols-2">
+			<div>
+				<dt class="docket-label">VAT number</dt>
+				<dd class="font-mono text-sm text-ink">{ v.VATNumber }</dd>
+			</div>
+			<div>
+				<dt class="docket-label">Registered on</dt>
+				<dd class="font-mono text-sm text-ink">{ v.RegisteredOn }</dd>
+			</div>
+			<div>
+				<dt class="docket-label">Timezone</dt>
+				<dd class="font-mono text-sm text-ink">{ v.OnFile.Timezone }</dd>
+			</div>
+		</dl>
+		<p class="mt-3 text-sm text-ink/85">
+			The VAT number is what your invoice is made out to and it cannot be changed
+			from here: it is unique across every business on Tappa, and the record of
+			what the tax register said about it belongs to the number it was asked
+			about. If it is wrong, tell us and we will correct both together.
+		</p>
+		if v.ShowBilling() {
+			// 🔴 IT IS A BUTTON-SHAPED LINK RATHER THAN A WORD INSIDE A SENTENCE, AND THE
+			// FIRST DRAFT WAS THE SENTENCE. TestPanelScreens_EveryPressTargetCarriesATouchTargetClass
+			// turned RED on it: an inline <a> is a press target with no 44px minimum, which
+			// is the accessibility floor skill tappa-brand states and the panel enforces
+			// through .btn / .filter-input / .tab-link. The btn--quiet modifier is the
+			// panel's existing vocabulary for a link that leads somewhere else.
+			<p class="mt-3 text-sm text-ink/85">
+				What this business is charged, month by month, is not here.
+			</p>
+			<p class="mt-2">
+				<a class="btn btn--quiet" href={ templ.URL(v.BillingHref) }>Open Billing</a>
+			</p>
+		}
+	</section>
+}
+
+// accountVAT is the VAT register's answer — the first screen in the product that
+// reads migration 00017's two columns back.
+//
+// 🔴 IT IS A MARKER AND NOT A DOCKET STAMP. The stamp motif belongs to a record of a
+// tap (skill tappa-brand); this is the current state of a lookup, which is what
+// legalAdminState settled the shape for. The colour follows the fixed mapping and the
+// WORD carries the meaning on its own.
+templ accountVAT(v AccountView) {
+	<section class="bg-paper border border-line px-4 py-4">
+		<div class="flex flex-wrap items-baseline justify-between gap-2">
+			<h2 class="font-display text-lg font-bold tracking-tight">The VAT register</h2>
+			@accountVATMarker(v)
+		</div>
+		<p class="mt-2 max-w-2xl text-sm text-ink/85">{ v.VATLine }</p>
+		if v.VATCheckedAt != "" {
+			<p class="mt-2 font-mono text-sm text-ink/85">Asked { v.VATCheckedAt }</p>
+		}
+	</section>
+}
+
+// accountVATMarker is the state's word inside the state's frame.
+//
+// 🔴 THE CLASS LITERALS LIVE HERE AND NOT IN GO, AND THAT IS A MEASURED RULE RATHER
+// THAN A STYLE PREFERENCE. Tailwind's content globs are web/templates/**/*.templ and
+// web/static/js/**/*.js — it does not read Go — so a class name assembled in
+// internal/handler is compiled OUT of app.css. Measured while building this screen: the
+// neutral tint for the "not checked" state produced zero rules, so that marker rendered
+// with a border and no fill while the other three looked right, because their colours
+// happen to be used by other templates. view.go records the same failure costing the tap
+// screen every one of its stamps.
+//
+// ⚠️ THE UTILITIES ARE DESCRIBED HERE AND NOT SPELLED, which is skill tappa-brand's own
+// rule and it has teeth on this file: Tailwind scans a .templ as PLAIN TEXT, comments
+// included, so a class named in prose keeps its rule alive after the markup below stops
+// using it — measured, `make css` still emitted the neutral tint's rule when it existed
+// only in this paragraph. Naming them here would also make the class names appear in
+// this file whether or not any element carries them, which is exactly what
+// TestAccount_TheVATMarkersClassesLiveWhereTailwindLooks has to be able to tell apart.
+//
+// 🔴 THE WORD CARRIES THE STATE AND THE COLOUR ONLY PLEDGES IT (skill tappa-brand):
+// the text is `ink` in all four, and the fixed mapping supplies the frame —
+// tappa-green for a confirmation, tomato for a refusal, saffron for "we could not
+// tell", line for "nobody has asked".
+templ accountVATMarker(v AccountView) {
+	switch v.VATState {
+		case "valid":
+			<span class="border border-tappa-green bg-tappa-green/10 px-2 py-1 docket-label text-ink">
+				{ v.VATStateWord }
+			</span>
+		case "invalid":
+			<span class="border border-tomato bg-tomato/10 px-2 py-1 docket-label text-ink">
+				{ v.VATStateWord }
+			</span>
+		case "no-answer":
+			<span class="border border-saffron bg-saffron/10 px-2 py-1 docket-label text-ink">
+				{ v.VATStateWord }
+			</span>
+		default:
+			// "never checked", and every value this template does not own. A switch on a
+			// value from another package must end somewhere, or an unanticipated one
+			// renders NOTHING where a state belongs.
+			<span class="border border-line bg-line/10 px-2 py-1 docket-label text-ink">
+				{ v.VATStateWord }
+			</span>
+	}
+}
+
+// accountForm is the three fields a business may change about itself.
+//
+// 🔴 EVERY VALUE GOES THROUGH `{ }`, including what the customer typed and is being
+// shown again after a refusal, so a name containing markup cannot break this form.
+//
+// 🔴 THE WARNING ABOVE THE ZONE IS NOT DECORATION. Changing it moves this panel's day
+// boundary, the wall clock every shift and every lateness verdict is resolved
+// against, and both ends of every billing month that has not been frozen yet. The one
+// half that is permanent is named: a month frozen while the zone is wrong keeps that
+// zone for ever, because nothing may update that table.
+templ accountForm(v AccountView) {
+	<form method="post" action={ templ.URL(v.PostHref) } class="bg-paper border border-line px-4 py-4">
+		<h2 class="font-display text-lg font-bold tracking-tight">What you can change</h2>
+		<div class="mt-4 flex flex-col gap-1">
+			<label class="docket-label" for="account-name">Business name</label>
+			<input
+				class="filter-input"
+				id="account-name"
+				type="text"
+				name="name"
+				value={ v.Form.Name }
+				maxlength={ itoa(v.NameMaxLength) }
+				required
+				aria-describedby={ v.DescribedBy("name") }
+			/>
+			<p class="text-xs text-ink/70" id="account-name-help">
+				This is what appears on your invoice, on the exports your accountant
+				gets, and on every confirmation screen in the panel.
+			</p>
+			if v.ErrorFor("name") != "" {
+				<p class="text-sm text-tomato" id="account-name-error">{ v.ErrorFor("name") }</p>
+			}
+			if v.Unsaved("name") != "" {
+				@accountStillOnFile(v.Unsaved("name"))
+			}
+		</div>
+		<div class="mt-4 flex flex-col gap-1">
+			<label class="docket-label" for="account-business_type">Kind of business</label>
+			<select class="filter-input" id="account-business_type" name="business_type" aria-describedby={ v.DescribedBy("business_type") }>
+				for _, t := range v.Types {
+					if t.Value == v.Form.BusinessType {
+						<option value={ t.Value } selected>{ t.Label }</option>
+					} else {
+						<option value={ t.Value }>{ t.Label }</option>
+					}
+				}
+			</select>
+			<p class="text-xs text-ink/70" id="account-business_type-help">
+				This picks the send-off your staff see after a good tap — the two
+				sentences at the bottom of this page change with it.
+			</p>
+			if v.ErrorFor("business_type") != "" {
+				<p class="text-sm text-tomato" id="account-business_type-error">{ v.ErrorFor("business_type") }</p>
+			}
+			if v.Unsaved("business_type") != "" {
+				@accountStillOnFile(v.Unsaved("business_type"))
+			}
+		</div>
+		<div class="mt-4 flex flex-col gap-1">
+			<label class="docket-label" for="account-timezone">Timezone</label>
+			<input
+				class="filter-input"
+				id="account-timezone"
+				type="text"
+				name="timezone"
+				value={ v.Form.Timezone }
+				list="account-timezone-options"
+				required
+				aria-describedby={ v.DescribedBy("timezone") }
+			/>
+			<datalist id="account-timezone-options">
+				for _, z := range v.ZoneSuggestions {
+					<option value={ z }></option>
+				}
+			</datalist>
+			<p class="text-xs text-ink/70" id="account-timezone-help">
+				An IANA zone name, such as Europe/Malta. The suggestions are only
+				suggestions — any name the server can load is accepted.
+			</p>
+			if v.ErrorFor("timezone") != "" {
+				<p class="text-sm text-tomato" id="account-timezone-error">{ v.ErrorFor("timezone") }</p>
+			}
+			if v.Unsaved("timezone") != "" {
+				@accountStillOnFile(v.Unsaved("timezone"))
+			}
+		</div>
+		@components.Notice(components.ToneWarn, "What the timezone moves") {
+			<p>
+				Every date in the panel is worked out in this zone: which day a tap
+				belongs to, when a shift starts, and therefore who was late. Changing
+				it also moves both ends of every billing month that has not been frozen
+				yet.
+			</p>
+			<p class="mt-2">
+				A month that has already been frozen does not move — it stored its own
+				dates and its own zone when it was closed. That is also the part that
+				cannot be undone: a month frozen while this is set wrongly keeps this
+				zone for ever.
+			</p>
+		}
+		<div class="mt-4">
+			<button class="btn btn--primary" type="submit">Save these details</button>
+		</div>
+	</form>
+}
+
+// accountStillOnFile names the gap between the box and the file, for ONE field.
+//
+// 🔴 IT IS THE OTHER HALF OF KEEPING THE CUSTOMER'S TYPING. The box holds what they
+// wrote so a correction is one field rather than three; this says, in the same place,
+// that the write did not happen and what the row still holds. Without it a refused save
+// leaves somebody looking at their own words in every box, which is what a SUCCESSFUL
+// save also looks like.
+//
+// THE STORED VALUE IS PRINTED IN MONO because it is data, not prose (skill
+// tappa-brand), and it goes through `{ }` like everything else on this page.
+templ accountStillOnFile(stored string) {
+	<p class="text-sm text-ink/85">
+		Not saved — on file this is still <span class="font-mono">{ stored }</span>.
+	</p>
+}
+
+// accountNoForm is what a manager reads where the form would be.
+//
+// 🔴 §4.6 — THE REFUSAL IS NOT SILENT AND IT IS NOT A 404. A control that simply
+// disappears tells nobody anything, and a manager who cannot find the timezone field
+// would reasonably conclude the product does not have one.
+templ accountNoForm(v AccountView) {
+	<section class="bg-paper border border-line px-4 py-4">
+		<h2 class="font-display text-lg font-bold tracking-tight">Changing these details</h2>
+		<p class="mt-2 max-w-2xl text-sm text-ink/85">{ v.WhyNotEdit }</p>
+	</section>
+}
+
+// accountMessages shows the two sentences this business's staff actually read.
+//
+// 🔴 THEY ARE RENDERED, NOT DESCRIBED. @brandMessage is result.templ's own component,
+// so what is drawn here is byte for byte what an employee sees — which is the only
+// version of "the brand messages are visible" that stays true when somebody edits the
+// tap screen.
+//
+// 🔴 AND IT IS KEYED ON v.OnFile, NOT v.Form. The question this block answers is what
+// this business's staff read RIGHT NOW; a refused save that typed a different kind of
+// business must not change the answer, because nothing about the staff's screen
+// changed. The first draft read Form and, on a refused save, showed a restaurant its
+// production send-off.
+templ accountMessages(v AccountView) {
+	<section class="bg-paper border border-line px-4 py-4">
+		<h2 class="font-display text-lg font-bold tracking-tight">What your staff read</h2>
+		<p class="mt-2 max-w-2xl text-sm text-ink/85">{ v.BrandNote }</p>
+		<div class="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+			<div class="docket">
+				<p class="docket-label">After tapping in</p>
+				@brandMessage(ResultView{BusinessType: v.OnFile.BusinessType, Direction: "in"})
+			</div>
+			<div class="docket">
+				<p class="docket-label">After tapping out</p>
+				@brandMessage(ResultView{BusinessType: v.OnFile.BusinessType, Direction: "out"})
+			</div>
+		</div>
+	</section>
+}

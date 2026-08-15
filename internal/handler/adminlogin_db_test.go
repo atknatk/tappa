@@ -198,7 +198,7 @@ func newPanelHarness(t *testing.T) *panelHarness {
 	if err != nil {
 		t.Fatalf("billing.NewBook: %v", err)
 	}
-	h, err := NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, venues, plaques, entries, rules, newFakeScribe(), books, newFakeTexts(), cfg, slog.New(slog.DiscardHandler))
+	h, err := NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, venues, plaques, entries, rules, newFakeScribe(), books, newFakeTexts(), newFakeAccount(), cfg, slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}

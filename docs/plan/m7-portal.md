@@ -879,6 +879,359 @@ karşılamaz ve karşıladığını iddia etmez.
 > ürüne bağlı: bir sorgu sütunu okumaya başladığı gün test kısıtı **kendiliğinden**
 > kaldırıyor, yani cümleyi geri yazmak serbest kalıyor.
 
+> **Kart düzeltmesi (2026-08-14, M7-05 uygulaması sırasında).** Beş ölçüm karara
+> bağlandı; her birinde **elenen şıkkın fiyatı** yazılı. Sevk edilen yüzey:
+> `/admin/account` — okuması iki role de açık, **yazması owner-only**. Migration
+> **YOK** (gerekmedi, gerekçe 3 ve 4).
+>
+> 1. **🔴 "FATURA VERİLERİ, PLAN GÖRÜNÜMÜ" KRİTERİ ZATEN SEVK EDİLMİŞTİ — ve tekrar
+>    etmek bir kapıyı geri açardı.** `/admin/billing` (M6-12 B) işletme adı · ay ·
+>    zaman dilimi · **plan** · kişi sayısı · birim fiyat · tutar · founding uyarısı
+>    basıyor (`billingactions.go:451-467`, `billing.go:307-310`). O bölüm **owner-only,
+>    okuma dahil** ve gerekçesi 00016: ticari şartlar operatörün, müşterinin değil.
+>    **Elenen şık:** planı/tutarı bu ekrana kopyalamak — ekranın okuması **müdüre de
+>    açık** olduğu için o kapıyı her müdüre açardı. **Sevk edilen:** hesap ekranı
+>    *kimliği* taşır, paraya **link verir**, ve link **yalnız owner'a çizilir**
+>    (`mayManageBilling`, çünkü Billing sekmesi `OwnerOnly`). Negatif test bunu
+>    pinliyor: `TestAccount_NeverPrintsTheCommercialTerms` (`founding customer` ·
+>    `standard plan` · `per person` · `€`).
+>
+> 2. **🔴 DÜZENLENEBİLİR ALAN BEŞ DEĞİL ÜÇ: `name` · `business_type` · `timezone`.**
+>    00016'nın UPDATE grant'ı beş sütun veriyor; ikisi bilinçle dışarıda:
+>    - `vat_number` **global UNIQUE** (00001) → düzenlemesi **tenant dışına** uzanan
+>      tek yazı olurdu: kimsenin almadığı bir numarayı alan işletme, gerçek sahibinin
+>      **kaydını reddettirir** (sihirbaz 23505 → "bu işletme zaten kayıtlı").
+>      ⚠️ Ve daha keskini: tappa_app'in `vat_verified`/`vat_checked_at` üzerinde
+>      **UPDATE'i yok** (00017 yalnız INSERT verdi), yani numara değişince satır
+>      "VIES bunu doğruladı" demeye **devam ederdi** — VIES'in hiç görmediği bir
+>      numara hakkında. Bu §4.6'nın *ölçülmemiş iddia* yasağı.
+>    - `structure` → **ekranda hiç yok, ve sorguda bile seçilmiyor.** İlk taslak onu
+>      salt-okunur gösteriyordu; `TestSignupStructure_DecidesNothingAfterSignUp`
+>      **KIRMIZI** verdi ve tripwire haklı: o test `Structure` adlı her selector'ü
+>      sign-up yolu dışında **yasaklıyor**, çünkü sihirbazın kendi metni cevabın satır
+>      yazıldıktan sonra **önemsizleştiğini** vaat ediyor. Göstermek bu paketi o alanın
+>      **ilk okuyucusu** yapardı, üstelik yanına "hiçbir şeye karar vermiyor" cümlesi
+>      yazmak zorunda kalırdık — ki bu cümlenin kendisi alanın o ekranda işi olmadığının
+>      itirafı. `GetTenantAccount`/`UpdateTenantAccount` sütunu **seçmiyor**.
+>    Ölçüm: `TestAccountDB_SavesTheThreeFieldsAndLeavesTheRestAlone` (üç sütun oynar,
+>    `vat_number`/`structure`/`plan`/`price` oynamaz) ·
+>    `TestAccount_NeverShowsTheStructureAnswer` (ekranda dört kelimenin hiçbiri yok).
+>
+> 3. **🔴 ZAMAN DİLİMİ: KAPANMIŞ AY ETKİLENMİYOR — ve ekran ikisini de söylüyor.**
+>    Ölçüldü: `billing_periods` `period_from`, `period_to` **ve zone'u** satırda
+>    donduruyor (00016: *"a later timezone change cannot silently redefine a
+>    period"*), ve `Book.Period` donmuş satır varsa onu okuyor. **Kapanmamış** ay ise
+>    okuma anında `tenants.timezone`'dan hesaplanıyor → **oynar**. Ekran her iki yarıyı
+>    da yazıyor, ve **kalıcı olanı** adıyla: *zone yanlışken dondurulan ay o zone'u
+>    sonsuza dek taşır*. Aynı cümle vardiya/geç kalma için de geçerli
+>    (`checkin.go:1007` **tenant** zone'unu `tap.Shift`'e veriyor).
+>    Ölçüm: `TestAccountSave_StoresTheZoneAndSaysWhatItMoves`.
+>
+> 4. **🔴 `locations.timezone` EKLENMEDİ — VE BU KARTIN "tenant/lokasyon seviyesinde"
+>    İFADESİ DÜZELTİLİYOR: yalnız TENANT seviyesinde.** Q01 lokasyon override'ını
+>    karara bağlamıştı ama *"alan bugün eklenirse bedeli sıfır"* penceresi 00002'de
+>    kaçırıldı (ölçüldü: `timezone` migration 00002'de **0 eşleşme**), yani artık bir
+>    migration. **Elenen şık — sütunu eklemek:** §5 vardiya çözümü **tap edilen**
+>    lokasyonun zone'unu istiyor ve bugün onu veren tek satır
+>    `checkin.go:1007/1023` → `emp.TenantTimezone`. Nullable bir sütun eklemek, o satır
+>    değişmeden, **yalan söyleyen bir sütun** üretirdi (lokasyon `Europe/Istanbul`
+>    derken geç kalma Malta'ya göre hesaplanır) — M7-03 B'nin `structure` için ölçtüğü
+>    sınıfın **tehlikeli** versiyonu. Üstelik `billing_periods` **tenant kapsamlı** ve
+>    **tek** `timezone` sütunu taşıyor: lokasyon başına zone, bir fatura ayı için
+>    tanımsız. Q01'in kendi gerekçesi de *"aynı firmanın farklı ülkedeki şubesi
+>    **MVP'de yok**"* diyor. **Sevk edilen:** tenant seviyesi, ve limit yazılı
+>    (`account.go` başlığı). Sütun gerektiğinde **beş tüketiciyi birlikte** taşıyan
+>    ayrı bir görev olmalı.
+>
+> 5. **🔴 VAT YENİDEN KONTROLÜ SEVK EDİLMEDİ — grant hâlâ yok, ve bu ölçülerek
+>    düşürüldü.** Kartın üç isteğinin **ikisi** sevk edildi: sütunları okuyan sorgu
+>    (`GetTenantAccount`) ve ekranda görünen satır (dört durum, dört cümle, dört
+>    ölçüm — `TestAccount_VATStateSaysItsOwnWord`). **Üçüncüsü — `UPDATE (vat_verified,
+>    vat_checked_at)` grant'i — verilmedi.** Eleyen ölçüm: `vat_number` bu ekranda
+>    **salt-okunur** (gerekçe 2), yani bir yeniden kontrol register'a **aynı soruyu**
+>    sormaktan başka bir şey yapamaz; ve müşterinin tetiklediği dış çağrı
+>    `signupratelimit.go`'nun bütçelediğinden **farklı bir tehdit modeli** (o bütçe
+>    *kimliksiz ziyaretçi, adres başına, kayıt anında*). Bugünkü `adminSessionLimit`
+>    (10 dk / 300 istek) bir dış çağrı bütçesi **değildir**. Ekran bunun yerine durumu
+>    ve *ne yapılacağını* söylüyor. Grant'ın yokluğu **testle sabitlendi**:
+>    `TestAccountDB_TheAppRoleHoldsNoUpdateOnTheVATColumnsOrTheTerms` — bir migration
+>    o yetkiyi verirse test kırmızıya döner ve yazanın bütçeyi tarif etmesi gerekir.
+>    ⚠️ Ölçülen ikinci sınır: `signup.checkedAt` **VATUnknown için iki sütunu da NULL**
+>    bırakıyor, yani "hiç sorulmadı" ile "soruldu cevap yok" bugün **ürün tarafından
+>    ayırt edilmiyor**; şema dördünü de taşıyor ve ekran dördüne de cevap veriyor.
+>
+> 6. **Marka mesajları — salt-okunur, ve önizleme tap ekranının KENDİ bileşeni.**
+>    Ölçüldü: şemada `brand`/`message` **0 eşleşme**; cümleler `result.templ`'de sabit
+>    ve `business_type`'a göre seçiliyor. KF `restaurant`, KM `production` → **farklı
+>    cümleler** görüyorlar (seed.sql:93-97). Hesap ekranı cümleleri **kopyalamıyor**,
+>    `@brandMessage(...)` ile aynı bileşeni çağırıyor — kopya, sessizce bayatlayıp
+>    müşteriye *personelinin okumadığı* bir cümleyi gösterirdi. `result.templ`
+>    **değişmedi** (§9). Ölçüm: `TestAccount_TheBrandPreviewIsTheTapScreensOwnComponent`
+>    — gerçek `POST /t` çıktısındaki cümleyi ayrıştırıp hesap ekranında arıyor.
+>
+> 7. **Rol kapısı policy motoruna BAĞLANMADI** — M6-12 B'nin ölçümü burada birebir
+>    geçerli (kapalı sözlük · materyalize edilmemiş tenant'larda `deny sid=default` ·
+>    guardrail olmadan tenant'ın ezebilmesi). `locationactions.go`'nun
+>    `adminRoleOwner` sabiti okunuyor, ikinci bir sabit yazılmadı.
+>
+> 8. **⚠️ İKİ MEVCUT TRIPWIRE BU GÖREVDE ATEŞLENDİ ve ikisi de haklıydı** — yani bu
+>    kartın iki kararı **ölçümle** değişti, iddiayla değil:
+>    `TestSignupStructure_DecidesNothingAfterSignUp` (yukarıda, madde 2) ve
+>    `TestPanelScreens_EveryPressTargetCarriesATouchTargetClass` — Billing'e giden
+>    satır-içi `<a>` 44px'lik dokunma hedefi sınıfı taşımıyordu (skill tappa-brand);
+>    `btn btn--quiet` bağımsız bir bağlantıya dönüştü.
+>    ➕ Üçüncü bir kusur **ölçümle** bulundu ve testle sabitlendi: VAT işaretçisinin
+>    sınıfları önce **Go'da** kuruluyordu; Tailwind Go taramıyor → taze `app.css`'te
+>    `bg-line/10` **0 kural** (diğer üç renk başka şablonlarda geçtiği için hayatta
+>    kaldı, yani kusur **dört durumdan üçünde görünmezdi**). Sınıflar `.templ`'e
+>    taşındı; `TestAccount_TheVATMarkersClassesLiveWhereTailwindLooks` pinliyor.
+>    (`view.go` aynı kusuru tap ekranının damgaları için kaydediyor.)
+>
+> ---
+>
+> **6. tur.** Bir bloklayan (kartın kendi düzeltmesi) ve dört bulgu. Bu turun dersi
+> tek cümlede: **ölçüm iddiası ölçümden geniş olamaz** — dört bulgunun üçü tam olarak
+> o sınıftı.
+>
+> 22. **🔴 BLOKLAYAN — madde 9'un düzeltmesini AYNI TURUN kendi değişikliği yanlışladı.**
+>     3. tur madde 9 ↔ madde 11 çelişkisini **kodu alıntılayarak** kapattı; **4. turun
+>     C6 değişikliği** (madde 19) o cümleyi bilerek düşürdü ve alıntı bayatladı —
+>     üstelik alıntılanan dize artık `account_test.go`'nun **yasakladığı** dize, yani
+>     geri konsa suite kırmızı olurdu. **Kural yazıldı: karta kod ALINTILAMA**, testin
+>     adını yaz. Kart baştan sona tarandı: şimdiki zamanda ürün dizesi alıntılayan
+>     **altı** yer açıklamaya + test adına çevrildi; kalan alıntıların sınıfı yazıldı
+>     (geçmiş zaman kayıtları · commit mesajı · kartın kendi metni — hiçbiri kod
+>     değişince bayatlamaz).
+>
+> 23. **C9 — "On file" doketinin İŞLETME ADI hücresini hiçbir şey pinlemiyordu.**
+>     Denetçinin mutasyonu (hücreyi boşalt) → **tüm `internal/handler` paketi yeşil**
+>     (218 s, 0 hata), çünkü saklanan adı arayan her iddia belgenin **tamamını**
+>     tarıyordu ve formun `value=`'su onu karşılıyordu. 🔴 Bu, 4. turda tarih için
+>     **kendi bildirdiğim** sınıf — ama düzeltmeyi **dört hücreden yalnız birine**
+>     uygulamıştım. Dördü de artık **kendi hücresinden** okunuyor (`docketName`,
+>     `docketCell`); ad bir `<p>` iken **`<h2>` oldu** (ekrandaki diğer üç blokun
+>     hepsinde başlık vardı, bu tek istisnaydı — erişilebilirlik de kazandı).
+>     Mutasyon: dört hücre tek tek → **dördü de KIRMIZI**.
+>
+> 24. **C10 — üç alan-başına hata mesajının ÜÇÜ DE silinebiliyordu, `TestAccount*`
+>     yeşil kalıyordu.** Yerine geçtiği sanılan iddia `strings.Contains(html,
+>     "timezone")` idi — o kelime etikette, `name=`'de, datalist id'sinde, yardım
+>     metninde ve uyarı notunda, yani **her render'da**. Ve `accountactions.go` uzun
+>     uzun *"sınır ALANI döndürüyor ki mesaj ait olduğu input'un yanında render
+>     edilsin"* diye tartışıyordu — **hiçbir şey ölçmeden** (dersler tablosu 377).
+>     **Düzeltme mesajı input'a BAĞLADI:** her hata `id="account-<alan>-error"` taşıyor
+>     ve input `aria-describedby` ile onu **gösteriyor** — yani ilişki artık tarayıcının
+>     izlediği ve testin adlandırabildiği bir değer, "yakınında" değil. Yeni test üç
+>     alanı da sürüyor, **yalnız yanlış olanın** işaretlendiğini ve düz yüklemede
+>     **hiçbirinin** işaretlenmediğini ölçüyor. Mutasyonlar: mesajları sil → **KIRMIZI**;
+>     mesajı bırak ama `aria-describedby`'ı kopar → **KIRMIZI**.
+>
+> 25. **C11 — yanlış test adı** (`…OnTheVATColumns`, gerçeği `…OnTheVATColumnsOrTheTerms`).
+>     ⚠️ Ve **tek tek düzeltmek yerine mekanik taradım**: yeni dosyalarda yorumda geçen
+>     her `Test…` adı, gerçekten var olan bir fonksiyona karşı denetlendi — **dört**
+>     bayat ad çıktı (üçü daha: `…TailwindLOOKS`, `RefusesAnEmptyName`,
+>     `ShowsTheROWAndWritesNothing`). Dördü de düzeltildi; tarama artık temiz.
+>
+> 26. **C12 — sekiz kelimelik ölçüm iddiasının yalnız dördü mekanikti** (madde 14 ve
+>     `accountview.go`). Kalan dördü bugün doğruydu ama hiçbir şeye dayanmıyordu.
+>     Korpus **iddianın kendisi** oldu: sekiz terim, `Billing` yalnız müdür tarafında
+>     (owner o bağlantıyı bilerek görüyor). Mutasyon: `plan`/`price`/`amount` sızdır →
+>     **üçü de KIRMIZI**; müdürü Billing'e yönlendir → **KIRMIZI**.
+>
+> ---
+>
+> **4. tur (yeni üçüncü göz RED sonrası).** Bir bloklayan kusur, kartın kendi
+> çelişkisi ve beş bulgu kapatıldı.
+>
+> 15. **🔴 BLOKLAYAN — `RegisteredOn` müşterinin kendi zone'u yerine UTC'de basılıyordu**
+>     (`account.go`). Malta'da **2026-02-02 00:30**'da (= `2026-02-01T23:30:00Z`)
+>     kaydolan işletmeye ekran **"1 February 2026"** diyordu — henüz müşteri olmadığı
+>     bir gün — ve **üç satır aşağıda** kendi `Europe/Malta` zone'u yazıyordu, ikisi de
+>     **"On file"** başlığı altında. Ev kuralı ölçüldü: müşteriye görünen **11** panel
+>     tarihi zaten `In(zone)` kullanıyor; UTC basanlar ya RFC3339/"UTC" damgalı ya
+>     **Tappa'nın kendi** tarihleri. Bu satır tek istisnaydı.
+>     🔴 **Sınıfı: `fadd9a7` ile birebir aynı** — bu oturumda düzeltilen ve başlığı
+>     *"resolve the day in the tenant's zone, not in UTC"* olan commit. §6.
+>     **Düzeltme:** `accountZone()` bir kez çözüyor, ekrandaki **her** tarih ondan
+>     geçiyor; yüklenemeyen zone için **gürültülü UTC fallback** (her diğer okuyucunun
+>     yaptığı — ve bu, o değeri düzeltebilecek **tek** ekran, render'ı reddetmek
+>     müşteriyi kilitlerdi).
+>     **Mutasyon zamandan bağımsız kuruldu:** fixture'daki her an bir **literal** ve
+>     zone öyle seçildi ki UTC takvimiyle **yapısal olarak** ayrışıyor (Malta gece
+>     yarısını geçmiş, New York hâlâ önceki gün, UTC ikisi aynı). M23 → Malta alt-vakası
+>     **KIRMIZI**, saat kaç olursa olsun.
+>     ⚠️ **Ve testin ilk hâli kendi mutasyonunu kaçırdı:** `strings.Contains(html, "2
+>     February 2026")` iki blok aşağıdaki VAT damgası ("2 February 2026, 00:30")
+>     tarafından **karşılanıyordu**, yani M23 yeşil kalıyordu; yalnız ayırt edici çift
+>     yakaladı. Tarih artık **kendi hücresinden** okunuyor (`registeredCell`), yani
+>     iddia adını verdiği alan hakkında.
+>
+> 16. **🔴 BLOKLAYAN — kart kendisiyle çelişiyordu (madde 9 ↔ madde 11).** Madde 9,
+>     1. turda *"bu kartta yapılmadı (kapsam), sıradaki oturumun kararı"* diye yazıldı;
+>     2. tur o işi **yaptı** (madde 11) ve o satır güncellenmedi. Somut sonucu: sıradaki
+>     oturum **verilmiş bir kararı açık sanacaktı**. Madde 9 düzeltildi ve **madde 11
+>     tek doğru kaynak** olarak işaretlendi. Ders yazıldı: bir turda *"yapılmadı"* diyen
+>     her satır, o iş yapıldığı **aynı** turda düzeltilir.
+>
+> 17. **C4 — öksüz yorum satırı** (`signupview.go`, 2. turun yeniden yazdığı paragrafın
+>     artığı, üstündeki paragrafı yalanlıyordu) **silindi**.
+>
+> 18. **C5 — aynı görevin iki dosyası `CreatedAt`'in NEDEN orada olduğu konusunda
+>     çelişiyordu.** `account.go` (domain) hâlâ 2. turda **açıkça reddedilen** gerekçeyi
+>     taşıyordu (*"founding penceresinin hesaplandığı tarih… bu yüzden ayarlar ekranı
+>     gösterir"*) — yani alanı **faturaya**, dolayısıyla M6-12 B'nin kapattığı bölgeye
+>     bağlıyordu, üstelik alan **müdüre açık**. Domain yorumu `accountview.go`'nun 2.
+>     turda verdiği türetmeyle uzlaştırıldı ve **hangisinin yanlış olduğu** yazıldı.
+>
+> 19. **C6 — cevapsız kohort için iki ekran birbirini yalanlıyordu.** Kayıt ekranı
+>     register'a **ulaşılamadığını** söylüyordu; hesap ekranı aynı müşteriye
+>     *"**Nothing has asked** …"* diyordu — çünkü `signup.checkedAt` `VATUnknown` için
+>     **iki sütunu da NULL** bırakıyor ve o müşteri "hiç sorulmadı" dalına düşüyor.
+>     **Uzlaştırıldı:** hesap ekranı artık kohortu kayıt ekranının adıyla çağırıyor
+>     (*"…we asked when this business registered and could not reach the register — if
+>     your sign-up screen said we could not reach it, this is that"*) ve kaydın **ayırt
+>     edemediğini** açıkça söylüyor; kayıt ekranı da register'ın **söylediği şeyi**
+>     vaat etmeyi bırakıp numaranın **nerede durduğunu** vaat ediyor (o kohort için
+>     register **hiçbir şey** söylemedi). **Bağlayan test yazıldı**
+>     (`TestAccount_TheNoAnswerCohortIsCalledTheSameThingOnBothScreens`) ve kohort
+>     **üründen türetiliyor** (`signup.VATUnknown.Verified()` → nil →
+>     `tenant.VATNeverChecked`), yazılı bir nil'den değil.
+>
+> 20. **C7 — "unsaved" notu makine token'ını basıyordu.** `cafe` yazıyordu, üstündeki
+>     `<select>` ise **etiketi** gösteriyordu. Etiket, formun çizildiği **aynı**
+>     listeden okunuyor (`AccountView.typeLabel`), ikinci bir sözlük yok; pin:
+>     `TestAccount_TheUnsavedNoticeSpeaksTheCUSTOMERsWords`, ve o test etiketi
+>     `signup.BusinessTypes`'tan **türetiyor**.
+>
+> 21. **C8 — müşteriye ham makine zamanı** (`Asked 2026-05-03T11:15:00Z`) — paneldeki
+>     müşteriye görünen tek ham RFC3339'du. Dürüsttü (Z damgalı) ama dürüstlük bir
+>     insanın okuduğu tarih için ölçü değil; bloklayan 1 ile **aynı aile**, birlikte
+>     çözüldü: `3 May 2026, 13:15`, işletmenin kendi saatinde.
+>
+> ---
+>
+> **2. tur (üçüncü göz RED sonrası).** Bloklayan bir kusur ve üç bulgu kapatıldı;
+> hepsi ölçümle.
+>
+> 10. **🔴 BLOKLAYAN — "On file" doketi KULLANICININ YAZDIĞINI basıyordu.**
+>     `renderAccountFormAgain` satırı doğru okuyup sonra `v.Form = form` ile olgu
+>     bloğunu eziyordu, ve dokedi `Form`'dan okuyordu. Bağımsız olarak yeniden ölçüldü
+>     (owner · `name=NOT THE STORED NAME Ltd` · `business_type=production` ·
+>     `timezone=Europe/Maltaa` → reddedilir, **`saves=0`**):
+>     `typed name=true · stored name=FALSE · typed zone=true · stored zone=FALSE ·
+>     production send-off=true · restaurant send-off=FALSE`. Yani hiçbir şey
+>     yazılmamışken ekran **üç yanlış olguyu** `On file` başlığı altında beyan ediyordu
+>     — biri **zaman dilimi** — ve doğrular sayfada **hiç yoktu**. Üstelik kodun kendi
+>     yorumu tersini iddia ediyordu (*"would either omit them or invent them"* — icat
+>     ediyordu). Bu, bu oturumda aynı sınıfın **üçüncüsü**: sağlanmayan bir şeyi beyan
+>     etmek.
+>     **Çözüm — iki soru, iki alan:** `AccountView.OnFile` **daima** satır (tek kaynağı
+>     veritabanı), `AccountView.Form` **daima** gönderim (kullanıcı yazdığını kaybetmez),
+>     ve fark **alan bazında adlandırılıyor** (`AccountView.Unsaved` + `accountStillOnFile`;
+>     pin: `TestAccountSave_TheUnsavedNoticeNamesOnlyTheFieldsThatDIFFER`).
+>     Marka cümlesi önizlemesi de `OnFile.BusinessType`'a bağlandı — personelin okuduğu
+>     cümle reddedilen bir formla değişmez. Aynı ölçüm sonrası: **altı satırın altısı
+>     doğru**.
+>     ⚠️ **Testin neden yakalamadığı da kapatıldı:** reddedilen yolu süren testler vardı
+>     ama hepsi *"yazdığım korundu mu"* diye soruyordu, hiçbiri *"olgu bloğu ne
+>     basıyor"* demiyordu. Yeni testler **dört yarıyı birden** ölçüyor (dosya · yazı ·
+>     personel cümlesi · farkın adlandırılması) ve ikincisi farkı **ayırt ediyor** (tek
+>     alan değiştiğinde satır **1** olmalı, 3 değil).
+>     ⚠️ **Ve bir alan ölçülüp SİLİNDİ:** ilk düzeltme bir `Refused bool` bayrağı
+>     taşıyordu; onu kaldıran mutasyon **yeşil** kaldı — çünkü `accountView` iki alanı da
+>     aynı `Settings`'ten dolduruyor, yani ikisi **yalnız** reddedilen yolda ayrışabilir.
+>     Daima açık ölçülen bir kapıyı kapı diye çizmemek için kaldırıldı (`reportscsv.go`
+>     kuralı).
+>
+> 11. **C1 — `signupview.go`'nun yorumu geniş zamanda YALAN olmuştu, ve müşteri
+>     cümlesindeki boşluk kapatıldı.** *"NO PANEL SCREEN READS …"* / *"The panel has no
+>     account screen"* artık yanlış (üç üretilmiş satır tipi sütunları okuyor,
+>     `/admin/account` VAT satırını basıyor); paragraf yeniden yazıldı ve **hâlâ doğru**
+>     olan yarım korundu (yeniden kontrol yok, çünkü grant yok).
+>     ⚠️ `00017`'nin aynı paragrafı **değiştirilmedi** — uygulanmış migration (§6), o
+>     tarihli bir kayıt.
+>     **Karar (ölçümle):** onay ekranının cümlesi **artık `/admin/account`'a işaret
+>     ediyor**. Gerekçe — boşluk gerçekti: VAT'ı reddedilen müşteri bunu **bir kez**
+>     görüyor, ekran siliniyordu ve bakacak yer yoktu; bu kartın sevk ettiği ekran tam
+>     olarak o yer. Maliyet ölçüldü ve küçüktü: `signup_test.go`'da **iki** alt-dize
+>     iddiası (ikisi de korundu), **bir** şablon çağrı yeri (değişmedi), ve tripwire
+>     zaten kendiliğinden açılmıştı. Bölüm adı **`SectionLabel(TabAccount)`** ile
+>     yazılıyor, düz metinle değil — sekme yeniden adlandırılırsa cümle de adlanır.
+>     Doğrulandı: yalnız *refused* ve *no-answer* cümleleri işaret ediyor, *confirmed*
+>     etmiyor (yapacak bir şey yok), ve hiçbiri **yeniden kontrol vaat etmiyor**.
+>
+> 12. **C2 — Tailwind testinin `.templ` yarısı `bg-line/10` için ayırt ETMİYORDU.** Sınıf
+>     yalnız markup'tan silinip yorumda bırakıldığında o yarım yeşil kalıyordu. ⚠️ Ve
+>     denetçinin ölçtüğü daha keskin olgu doğrulandı: **Tailwind `.templ`'i düz metin
+>     tarıyor, yorumlar dahil** — sınıf yalnız yorumdayken `make css` kuralı **yine
+>     üretti** (`app.css`'te 1 eşleşme). Yani stil doğruydu, **test yanlıştı**: bir
+>     ELEMENTIN sınıfı taşıdığını ölçtüğünü sanıyordu. İki taraf da kapatıldı:
+>     (a) `account.templ` yorumları artık hiçbir utility'yi **yazmıyor** (skill
+>     tappa-brand kuralı), (b) test artık `class="…"` **özniteliklerini** yürüyor
+>     (anti-vacuity: en az 10 öznitelik bulunmalı). Denetçinin mutasyonu tekrarlandı →
+>     **KIRMIZI**.
+>
+> 13. **C3 — hesap bölümünün HTTP tarafı artık GERÇEK POSTGRES'e karşı sürülüyor**
+>     (`accountsection_db_test.go`, emsal `locationrefusal_db_test.go`): gerçek
+>     `tenant.Accounts` + gerçek `audit.Recorder` router'ın arkasında. Dört test —
+>     reddedilen kayıt (sütunlar oynamıyor **ve** sayfa satırı basıyor) · başarılı kayıt
+>     (sütunlar + trail + jsonb anahtarları + yönlendirme sonrası sayfa) · müdürün
+>     reddedilen kaydı (gerçek audit satırı, RLS altında, **gönderilen metin satırda
+>     yok**) · VAT verdict'inin ekrana ulaşması. Bloklayan kusur **tam olarak bu
+>     boşlukta** yaşıyordu ve mutasyonla burada da yakalanıyor.
+>
+> 14. **Ürün kararı — `Registered on` KALIYOR, gerekçesi faturadan koparıldı.** Eski
+>     gerekçe (*"founding penceresinin hesaplandığı tarih, ilk faturada kontrol
+>     edilsin"*) bir **müdüre açık** sayfadaki alanı faturaya dayandırıyordu, yani
+>     M6-12 B'nin kapattığı bölgeye. Yeni türetme: bu bir **künye olgusu** — ad ve VAT
+>     numarasıyla aynı sınıf, *"Tappa bu işletmeyi ne zamandan beri dosyalıyor"* — ve
+>     bloğu bir **kayıt** yapan şey o; hiçbir plan/fiyat/tutar adlandırmıyor ve işletme
+>     ne öderse ödesin aynı tarih. Founding penceresi **billing ekranında** kalıyor
+>     (`fillBillingFounding`), yani ikinci bir temsil de doğmuyor. Ölçüm: müdür
+>     gövdesinde `founding`·`standard`·`per person`·`€`·`plan`·`price`·`amount`·`Billing`
+>     → **sekizi de yok**; `TestAccount_NeverPrintsTheCommercialTerms` korpusu **iki rol
+>     için birden** koşuyor ve owner'ın Billing bağlantısını görüp müdürün görmediğini
+>     de pinliyor.
+>     ⚠️ **6. TUR DÜZELTMESİ: bu satır "sekiz ölçüldü" diyordu, korpus ise DÖRT kelime
+>     taşıyordu.** Kalan dördü (`plan`·`price`·`amount`·`Billing`) bir denetçi tarafından
+>     kaynaktan yeniden ölçüldü ve **bugün doğru** çıktı — ama üçü **hiçbir mekanik şeye**
+>     dayanmıyordu. Korpus artık iddianın kendisi: sekiz terim, `Billing` yalnız müdür
+>     tarafında. Dördü de mutasyonla kırmızı (M31 ×3, M32). *"Ölçüldü"* demenin
+>     ölçümden geniş olması bu projenin imza kusuru ve bu, onun kartın içindeki hâliydi.
+>
+> 9. **✅ M7-02'NİN TRIPWIRE'I KENDİLİĞİNDEN AÇILDI.**
+>    `TestSignupDone_PromisesNoPanelSurfaceForTheVATCheck` artık **3 satır tipi** VAT
+>    sütunu okuduğunu görüyor ve kısıtın **kalktığını** log'luyor.
+>    Kayıt onay ekranının cümlesini `/admin/account`'a işaret edecek şekilde yeniden
+>    yazmak böylece **serbest kaldı**.
+>    ⚠️ **BU MADDE 1. TURDA YAZILDI VE 2. TURDA GEÇERSİZLEŞTİ.** *"Bu kartta yapılmadı
+>    (kapsam), sıradaki oturumun kararı"* diyordu; **2. tur o işi yaptı** (madde 11) ve
+>    bu satır güncellenmedi — yani kart iki turdur kendi kendisiyle çelişiyordu ve
+>    sıradaki oturum **zaten verilmiş bir kararı açık sanacaktı**. Karar için **madde
+>    11 tek doğru kaynaktır**; ürünün bugünkü metnini `TestAccount_TheSignUpConfirmation
+>    PointsAtThisScreen` ve `TestAccount_TheNoAnswerCohortIsCalledTheSameThingOnBothScreens`
+>    pinliyor.
+>    🔴 **VE BU MADDE 3. TURDA BİR KEZ DAHA YANLIŞLANDI — KENDİ DÜZELTMESİYLE.** 3. tur
+>    çelişkiyi **kodu alıntılayarak** kapatmıştı; 4. turun C6 değişikliği (madde 19) o
+>    cümleyi **bilerek** değiştirdi ve alıntı bayatladı — üstelik alıntılanan dize artık
+>    `account_test.go`'nun **yasakladığı** dize, yani geri konsa suite kırmızı olurdu.
+>    **Kural: karta kod ALINTILAMA.** Bir plan belgesindeki dize, kodun **ikinci
+>    temsilidir** ve onu senkron tutan hiçbir şey yoktur; bu görevde bu sınıf **üç kez**
+>    bulgu oldu (M6-12'nin *"IT IS LAST"*i · madde 9'un iki kuşağı). Yerine **testin
+>    adını** yaz: test kodla birlikte hareket eder, bir cümle etmez.
+>    ✅ **Kart bu gözle baştan sona tarandı (6. tur).** ŞİMDİKİ ZAMANDA ürün dizesi
+>    alıntılayan **altı** yer vardı; altısı da açıklamaya + test adına çevrildi
+>    (madde 9 · 11 · 12 · 19 · 20 · bu blok). **Kalan alıntılar bilerek kalıyor ve
+>    sınıfları farklı:** (a) **geçmiş zaman kayıtları** — *"Nothing has asked"*,
+>    *"would either omit them or invent them"*, *"NO PANEL SCREEN READS …"*, kartın
+>    kendi eski cümleleri — bunlar bir **tarihsel** iddiadır ve kod değişince
+>    yanlışlanmaz, zaten değiştiği için yazılmışlardır; (b) **commit mesajı**
+>    (`fadd9a7`), değişmez; (c) **kartın kendi metni**. Bayatlayabilen tek sınıf
+>    şimdiki zamandı ve o sınıf artık kartta yok.
+>    **Ders (dersler tablosunun 375. satırının sınıfı):** bir turda *"yapılmadı"* yazan
+>    her satır, o iş yapıldığı **aynı** turda düzeltilmeli — yoksa kart, kodun
+>    çürüttüğü bir cümleyi taşımaya devam eder.
+
 ---
 
 ## M7-06 — Yasal metinlerin operatör formu

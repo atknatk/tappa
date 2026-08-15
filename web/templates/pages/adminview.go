@@ -131,6 +131,10 @@ const (
 	TabAnomalies    PanelTab = "anomalies"
 	TabPolicies     PanelTab = "policies"
 	TabBilling      PanelTab = "billing"
+	// TabAccount is the business's own facts (M7-05): its name, its VAT number and
+	// what the register said about it, its kind, its timezone, and the sentence its
+	// staff read after a good tap. It is NOT the money — that is TabBilling.
+	TabAccount PanelTab = "account"
 	// TabLegal is the ONLY section that is not about a customer's business (M7-06):
 	// it publishes TAPPA's own privacy policy, terms, company details and cookie
 	// notice. See PanelSection.OperatorOnly for why it is a tab here rather than a
@@ -248,13 +252,19 @@ var PanelSections = []PanelSection{
 		Blurb: "The rules this business is allowed to change — shown beside the ones no business can.",
 	},
 	{
-		// 🔴 IT IS LAST, AND THE ORDER IS AN ARGUMENT RATHER THAN AN APPEND. Every one
-		// of the seven rows above is about the BUSINESS's own operations — its taps, its
-		// queue, its people, its places, its hours, its odd shapes, its rules. This one
-		// is the only row about the arrangement BETWEEN the business and Tappa, and it is
-		// read once a month rather than once a shift. Dropping it between two operational
-		// sections would break a run a manager navigates by habit; last keeps that run
-		// intact and puts the once-a-month screen where a once-a-month screen belongs.
+		// 🔴 IT COMES AFTER THE OPERATIONAL RUN, AND THE ORDER IS AN ARGUMENT RATHER THAN
+		// AN APPEND. Every one of the seven rows above is about the BUSINESS's own
+		// operations — its taps, its queue, its people, its places, its hours, its odd
+		// shapes, its rules. This one is the first row about the arrangement BETWEEN the
+		// business and Tappa, and it is read once a month rather than once a shift.
+		// Dropping it between two operational sections would break a run a manager
+		// navigates by habit; putting it after that run keeps it intact and puts the
+		// once-a-month screen where a once-a-month screen belongs.
+		//
+		// ⚠️ THIS COMMENT SAID "IT IS LAST" UNTIL M7-05, AND IT HAD ALREADY BEEN FALSE
+		// SINCE M7-06 ADDED THE LEGAL ROW BELOW IT. Two rows now follow it and each
+		// argues its own position; a claim about being last is a claim about the rows
+		// after this one, which is not a fact this entry can own.
 		//
 		// ⚠️ IT IS NOT PLACED HERE BECAUSE IT IS "THE OWNER'S TAB". Its READ is every
 		// admin's — a manager may look at what the month costs — and only the one
@@ -264,6 +274,22 @@ var PanelSections = []PanelSection{
 		Tab: TabBilling, Label: "Billing", Href: "/admin/billing", Task: "M6-12",
 		Blurb:     "What each month costs: how many people were on the books, at what price, and the figure you can freeze once the month has ended.",
 		OwnerOnly: true,
+	},
+	{
+		// 🔴 IT IS AFTER BILLING AND ITS TAB IS DRAWN FOR EVERYBODY, WHICH IS THE
+		// DIFFERENCE BETWEEN THE TWO ROWS. Billing is the money and M6-12 phase B closed
+		// even READING it to owners; this row is the business's own identity — its name,
+		// its VAT number and what the register said about it, its kind, its zone — none
+		// of which is a commercial term. A manager who needs to know which zone their
+		// panel measures a day in should be able to look, and the SAVE is refused on its
+		// own (accountactions.go's mayEditAccount) rather than by hiding the tab.
+		//
+		// ⚠️ IT IS NOT AN OPERATIONAL ROW, WHICH IS WHY IT IS NOT IN THE RUN ABOVE. A
+		// manager opens it when something about the business changed, not during a
+		// shift; putting it between Reports and Anomalies would break a run navigated by
+		// habit for a screen read twice a year.
+		Tab: TabAccount, Label: "Account", Href: "/admin/account", Task: "M7-05",
+		Blurb: "This business as Tappa has it on file: its name, its VAT number and what the register said about it, its timezone, and the send-off your staff read after a good tap.",
 	},
 	{
 		// 🔴 IT IS AFTER BILLING BECAUSE IT IS NOT THIS BUSINESS'S AT ALL. Billing is

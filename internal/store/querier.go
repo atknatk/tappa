@@ -1946,12 +1946,38 @@ type Querier interface {
 	// tenant's plaque row by guessing nothing at all -- just by typing a uid they
 	// read off a wall in another building. RLS refuses it too; this is the belt.
 	GetTagForTenant(ctx context.Context, arg GetTagForTenantParams) (GetTagForTenantRow, error)
-	// tenants.sql -- reads of the tenant's own row.
+	// The business's own facts, for the account settings screen (M7-05).
+	//
+	// 🔴 IT IS A SEPARATE QUERY FROM GetTenantClock RATHER THAN A WIDENING OF IT, AND THE
+	// REASON IS THE CALLER LIST. GetTenantClock is read on EVERY panel render that needs a
+	// day boundary -- the transactions section, the review queue, the reports, the plaque
+	// stamps, the policy history -- and widening it would put the VAT number and the VAT
+	// verdict into every one of those code paths for the sake of one screen. Two queries
+	// keep "which columns can reach which screen" a fact grep can answer.
+	//
+	// ⚠️ `plan` AND `price_per_employee_month` ARE DELIBERATELY ABSENT. They are the
+	// commercial terms, which migration 00016 made the operator's rather than the
+	// customer's, and M6-12 phase B closed the READ side of them to owners only at
+	// /admin/billing. A settings screen that printed them would re-open that side door for
+	// every manager, which is the widest possible reading of the narrowest possible gate.
+	//
+	// vat_verified and vat_checked_at (migration 00017) ARE selected, and this is the first
+	// statement anywhere in the product that reads them back. Their four states are
+	// described where they are declared; the display sentence lives in internal/handler.
+	GetTenantAccount(ctx context.Context, tenantID uuid.UUID) (GetTenantAccountRow, error)
+	// tenants.sql -- reads of the tenant's own row, and the ONE write a customer may
+	// make to it (M7-05).
 	//
 	// TENANT SCOPE (CLAUDE.md section 4.5, belt + braces on RLS): the query carries an
 	// explicit tenant_id predicate and runs inside db.(*DB).WithTenant. The tenant id
 	// comes from a resolver or a verified session (ADR 0002 madde 7), never from the
 	// client.
+	//
+	// ⚠️ ON THIS TABLE THE SCOPE KEY IS `id`, NOT `tenant_id` (migration 00001, ADR 0002
+	// madde 5), so `WHERE id = @tenant_id` IS the section 4.5 predicate here rather than
+	// a lookup by primary key that happens to look like one. The RLS policy compares the
+	// same column against app.tenant_id, which is what makes the belt and the braces
+	// agree.
 	//
 	// This file exists because M6-03 needed ONE fact -- what "today" means for this
 	// business -- and there was nowhere honest to put it. The tap path never needed
@@ -3933,6 +3959,40 @@ type Querier interface {
 	// this statement's transaction -- without it, a change to the evidence a tap is
 	// judged on would leave no trace anywhere.
 	UpdateLocation(ctx context.Context, arg UpdateLocationParams) (UpdateLocationRow, error)
+	// Rewrites the three facts a business may change about itself (M7-05).
+	//
+	// 🔴 THREE COLUMNS OF THE FIVE tappa_app MAY UPDATE, AND THE TWO ABSENCES ARE THE
+	// DECISION RATHER THAN AN OVERSIGHT. Migration 00016 grants
+	// UPDATE (name, vat_number, business_type, structure, timezone); this statement names
+	// name, business_type and timezone.
+	//
+	//   vat_number  ABSENT. It is globally UNIQUE (migration 00001), so a self-service
+	//               edit is the one write on this screen with a CROSS-TENANT effect: a
+	//               business can take a number no tenant holds yet and thereby refuse
+	//               another business its registration (measured -- the wizard answers
+	//               23505 and tells the visitor the business is already registered).
+	//               And it would strand the pair beside it: tappa_app holds no UPDATE on
+	//               vat_verified / vat_checked_at at all (migration 00017 granted INSERT
+	//               only), so the row would keep saying "VIES confirmed this" about a
+	//               number VIES has never seen -- a claim the product has not measured,
+	//               which is section 4.6 read as a statement rather than as a verdict.
+	//   structure   ABSENT FROM THE SET LIST *AND* FROM RETURNING, AND THE SECOND HALF IS
+	//               A CORRECTION. Nothing reads it after CreateTenant -- pinned by
+	//               TestSignupStructure_DecidesNothingAfterSignUp, which bans the READ
+	//               outside the sign-up path and turned red when this screen tried to print
+	//               it. So the column is not selected at all: an editable control would
+	//               have been a control over nothing, and a read-only one would have made
+	//               this the first reader of a field the wizard's wording promises decides
+	//               nothing.
+	//
+	// 🔴 THE UPDATE CARRIES ITS OWN section 4.5 PREDICATE (`id = @tenant_id`) AND IS NOT
+	// LEFT TO RLS. Belt and braces: without it a statement that reached this file with the
+	// wrong context would rewrite whatever row the policy did allow.
+	//
+	// RETURNING is the FULL row, not the three columns, because the screen re-renders from
+	// what was stored rather than from what was posted -- so a value the database
+	// normalised, or a column somebody else changed in between, is what the customer sees.
+	UpdateTenantAccount(ctx context.Context, arg UpdateTenantAccountParams) (UpdateTenantAccountRow, error)
 }
 
 var _ Querier = (*Queries)(nil)

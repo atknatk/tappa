@@ -205,6 +205,18 @@ type AdminAuth struct {
 	// audience — see legaladmin.go.
 	texts panelTexts
 
+	// accounts is the business's own row: the settings section's read and its one
+	// write (M7-05, internal/domain/tenant).
+	//
+	// ⚠️ A SIXTH FIELD ON internal/domain/tenant, AND IT IS STATED FOR THE REASON venues
+	// STATES THE THIRD. One wide interface over that package would let a change to the
+	// settings side break the employee, venue or plaque wiring with no compile error at
+	// the call site. What this one adds to the argument: it is the ONLY value on this
+	// struct that can write to `tenants`, the row every other tenant-scoped query in the
+	// product is anchored to — so keeping it behind its own two-method interface is what
+	// stops a change to the roster or the venue side reaching it.
+	accounts panelAccounts
+
 	// operators is the allow-list that gates `texts` (config.OperatorAdminIDs). It is
 	// a plain slice rather than a set because it has a handful of entries and is
 	// walked once per panel render; a map would be a second representation of two or
@@ -235,7 +247,7 @@ type AdminAuth struct {
 
 // NewAdminAuth wires the flow. Every dependency is required: a nil recorder would
 // silently drop the section 4.6 trail and a nil manager cannot fail safely.
-func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLedger, queue panelQueue, reviewer panelReviewer, staff panelStaff, invites panelInviter, venues panelVenues, plaques panelPlaques, entries panelRecorder, rules panelRules, scribe panelScribe, books panelBooks, texts panelTexts, cfg *config.Config, log *slog.Logger) (*AdminAuth, error) {
+func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLedger, queue panelQueue, reviewer panelReviewer, staff panelStaff, invites panelInviter, venues panelVenues, plaques panelPlaques, entries panelRecorder, rules panelRules, scribe panelScribe, books panelBooks, texts panelTexts, accounts panelAccounts, cfg *config.Config, log *slog.Logger) (*AdminAuth, error) {
 	switch {
 	case admins == nil:
 		return nil, errors.New("handler: nil admin authenticator")
@@ -326,6 +338,14 @@ func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLed
 	// halves were never assembled.
 	case texts == nil:
 		return nil, errors.New("handler: nil legal texts")
+	// THE SAME ARGUMENT, ONCE MORE (M7-05). A nil accounts would put an Account tab in
+	// every navigation whose page panics, on the ONE screen that says which timezone
+	// every date in this panel is worked out in — and it would put a Save button under
+	// a form whose handler crashes. The M5-04 lesson is that a capability can be
+	// delivered, tested and DEAD in the wired product because two halves were never
+	// assembled.
+	case accounts == nil:
+		return nil, errors.New("handler: nil business accounts")
 	case cfg == nil:
 		return nil, errors.New("handler: nil config")
 	}
@@ -355,6 +375,7 @@ func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLed
 		scribe:         scribe,
 		books:          books,
 		texts:          texts,
+		accounts:       accounts,
 		operators:      cfg.OperatorAdminIDs,
 		cookies:        adminauth.NewCookies(cfg),
 		short:          newAdminCookies(cfg),

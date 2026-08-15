@@ -83,6 +83,11 @@ func (a *AdminAuth) mountSections(r chi.Router) {
 		// anything.
 		case pages.TabLegal:
 			r.Get(s.Href, a.legalSection)
+		// THE ACCOUNT SECTION'S READ IS OPEN TO BOTH ROLES (M7-05), which is why it is
+		// an ordinary row here with no gate ahead of it. Its SAVE is owner-only and is
+		// in mountWriting; account.go carries the argument for the asymmetry.
+		case pages.TabAccount:
+			r.Get(s.Href, a.accountSection)
 		default:
 			r.Get(s.Href, a.section(s.Tab))
 		}
@@ -222,6 +227,13 @@ func (a *AdminAuth) mountWriting(r chi.Router) {
 		// endpoint is one INSERT into an append-only table nobody can clean up, so the
 		// budget is what stops a stuck script filling it. All four earn their place.
 		r.Post(legalHref, a.legalPublish)
+		// 🔴 THE ONE POST THAT REWRITES THE BUSINESS'S OWN ROW (M7-05). It needs this
+		// chain for the ordinary reason — the Origin check has to run AHEAD of the
+		// resolver, which mountSections cannot express — and one of its three fields
+		// reaches further than any other panel edit: `tenants.timezone` is the wall
+		// clock every shift and every lateness verdict is resolved against, and it moves
+		// both ends of every billing month that has not been frozen yet.
+		r.Post(accountHref, a.accountSave)
 	})
 }
 

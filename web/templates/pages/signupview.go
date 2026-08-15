@@ -162,38 +162,45 @@ type SignupDoneView struct {
 // like either. The "could not check" wording is deliberately about US — it is our
 // outbound call that failed, not the customer's number.
 //
-// 🔴 NEITHER SENTENCE MENTIONS THE DASHBOARD ANY MORE, AND THE FIRST VERSION OF BOTH
-// DID. They said "check the number on your dashboard before your first invoice" and
-// "it will show as unverified on your dashboard" — and NO PANEL SCREEN READS
-// tenants.vat_verified OR tenants.vat_checked_at. Measured: no query in db/queries
-// selects either column (the only mention is CreateTenant's INSERT), there is no VAT
-// row anywhere in the panel, and migration 00017 deliberately withholds the UPDATE
-// grant so a re-check is not possible either.
+// 🔴 THE FIRST VERSION OF BOTH SENTENCES POINTED AT A DASHBOARD THAT COULD NOT ANSWER,
+// AND THE HISTORY IS KEPT BECAUSE IT IS THE REASON THIS PARAGRAPH EXISTS. They said
+// "check the number on your dashboard before your first invoice" and "it will show as
+// unverified on your dashboard" while NO PANEL SCREEN READ tenants.vat_verified or
+// tenants.vat_checked_at — M7-01's blocking finding (a screen declaring a capability
+// that is not mounted) repeated one task later, under the brand's most emphatic
+// component. The stamp was right; the note was not. So the sentences were rewritten to
+// describe only what the product did that day.
 //
-// That is precisely M7-01's blocking finding — a screen declaring a capability that
-// is not mounted — repeated one task later, under the brand's most emphatic
-// component. The stamp was right; the note was not.
+// ✅ AND M7-05 BUILT THE SURFACE, SO THEY POINT AT IT AGAIN — this time measured.
+// /admin/account reads both columns and prints one of four states permanently;
+// db/queries/tenants.sql's GetTenantAccount is the query, and three generated row types
+// in internal/store now carry the columns (up from one, which was CreateTenant's
+// RETURNING echoing its own INSERT).
 //
-// ⚠️ SURFACING IT IN THE PANEL WAS COSTED AND NOT TAKEN, and the reason is a
-// measurement rather than reluctance. The panel has no account screen (M7-05 owns
-// "firma bilgileri, fatura verileri"), so the two candidate homes were:
+// THE CONSTRAINT RELEASED ITSELF, WHICH IS WHAT IT WAS BUILT TO DO.
+// TestSignupDone_PromisesNoPanelSurfaceForTheVATCheck derives the count from the
+// GENERATED queries rather than from a hand list: while nothing read the columns it
+// forbade these sentences naming a panel, and the moment something did it logged "this
+// test no longer constrains the wording" and stood down. If a later change removes that
+// query, the count falls and the tripwire re-arms against exactly this paragraph.
 //
-//	the shared chrome   ONE hook exists (AdminAuth.chrome, rendered on every
-//	                    section) and putting a tenant read behind it costs A
-//	                    DATABASE READ ON EVERY PANEL REQUEST — the exact cost
-//	                    internal/handler/adminratelimit.go spends pages accounting
-//	                    for, for a fact that changes about once in a tenant's life.
-//	the billing screen  a query, a domain method, a view field, a template block and
-//	                    its tests, across internal/domain/billing — a package whose
-//	                    own doc calls itself "one small register, four methods, one
-//	                    table" — and M7-05 would then have to move it.
+// ⚠️ WHAT IS STILL NOT TRUE, AND IS THEREFORE STILL NOT PROMISED: a RE-CHECK. Migration
+// 00017 withholds UPDATE on both columns and M7-05 measured that the grant should stay
+// withheld, so the sentences say where the answer can be READ and never that it can be
+// asked again. TestAccountDB_TheAppRoleHoldsNoUpdateOnTheVATColumnsOrTheTerms pins the
+// privilege side of that.
 //
-// So the sentences say what the product does TODAY: the check happened (or did not),
-// here is the number, and the actionable half is about the customer's own invoices
-// rather than about a screen that does not exist. The debt is recorded on the M7-05
-// card, and TestSignupDone_PromisesNoPanelSurfaceForTheVATCheck derives the
-// constraint from the generated queries — so the day a panel screen DOES read the
-// column, the sentence is free to mention it again.
+// THE SECTION IS NAMED THROUGH SectionLabel RATHER THAN AS A LITERAL, so a renamed tab
+// renames it here too; a customer sent looking for a tab that no longer exists is the
+// same defect in a smaller size.
+//
+// ⚠️ THE "COULD NOT REACH" SENTENCE PROMISES WHERE THE NUMBER STANDS AND NOT WHAT THE
+// REGISTER SAID, WHICH IS A CORRECTION. It read "always shows what the register last
+// said" — but for THIS cohort the register said nothing, and checkedAt stores NULL in
+// both columns for VATUnknown, so the account screen shows "not checked". The two
+// screens described one event in contradictory words until the account sentence was
+// made to name this cohort explicitly; TestAccount_TheNoAnswerCohortIsCalledTheSameThing
+// OnBothScreens is what holds them together.
 func (v SignupDoneView) VATNote() string {
 	switch {
 	case v.VATVerified:
@@ -201,11 +208,14 @@ func (v SignupDoneView) VATNote() string {
 	case v.VATRefused:
 		return "The EU VAT register did not recognise this number. Your account works either " +
 			"way, and we have recorded that the check did not pass — but the number is what " +
-			"your invoices will carry, so it is worth checking against your VAT certificate."
+			"your invoices will carry, so it is worth checking against your VAT certificate. " +
+			"The " + SectionLabel(TabAccount) + " page of your dashboard shows what the " +
+			"register said, whenever you want to look."
 	default:
 		return "We could not reach the EU VAT register just now, so this number has not been " +
 			"checked yet. Nothing is blocked and nothing is wrong with your account; the " +
-			"number is stored exactly as you typed it."
+			"number is stored exactly as you typed it. The " + SectionLabel(TabAccount) +
+			" page of your dashboard always shows where this number stands."
 	}
 }
 

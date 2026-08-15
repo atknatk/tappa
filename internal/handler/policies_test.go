@@ -266,7 +266,7 @@ func policyBrowserWith(t *testing.T, rules panelRules, scribe panelScribe) *brow
 	}}
 	h, err := NewAdminAuth(admins, &fakeTrail{}, newFakeLedger(), newFakeLedger(), &fakeReviewer{},
 		&fakeStaff{}, &fakeInviter{}, &fakeVenues{}, &fakePlaques{}, &fakeRecorder{}, rules, scribe,
-		newFakeBooks(), newFakeTexts(), adminTestConfig(), slog.New(slog.DiscardHandler))
+		newFakeBooks(), newFakeTexts(), newFakeAccount(), adminTestConfig(), slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}
@@ -1435,7 +1435,7 @@ func mountedRoutes(t *testing.T) map[string]bool {
 	r := chi.NewRouter()
 	h, err := NewAdminAuth(&fakeAdmins{}, &fakeTrail{}, newFakeLedger(), newFakeLedger(),
 		&fakeReviewer{}, &fakeStaff{}, &fakeInviter{}, &fakeVenues{}, &fakePlaques{},
-		&fakeRecorder{}, newFakeRules(), newFakeScribe(), newFakeBooks(), newFakeTexts(), adminTestConfig(), discardLogger())
+		&fakeRecorder{}, newFakeRules(), newFakeScribe(), newFakeBooks(), newFakeTexts(), newFakeAccount(), adminTestConfig(), discardLogger())
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}
