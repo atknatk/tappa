@@ -43,6 +43,22 @@ jobs:
       # migration rolu ayri — rol ayrimi korunur (CLAUDE.md §4.5, §6).
       DATABASE_URL: postgres://tappa_app:tappa@localhost:5432/tappa?sslmode=disable
       DATABASE_MIGRATE_URL: postgres://tappa_owner:tappa@localhost:5432/tappa?sslmode=disable
+      # IS SEVIYESINDE, cunku IKI ADIM AYNI DEGERI GORMEK ZORUNDA: `make seed`
+      # demo plaketlerin per-tag anahtarlarini bu KEK ile SARMALAR (scripts/seed.sh
+      # 2. adim -> test/fixtures/seedkeys) ve internal/handler/seedflow_db_test.go
+      # ayni degerle ACAR. Farkli olsalardi seed sessizce gecer, testler cozulemeyen
+      # zarflarla patlardi. Testteki kontrol de yumusak degil: seed YUKLUYSE ve
+      # degisken bossa t.Fatal (seedflow_db_test.go:227).
+      #
+      # 🔴 BU BIR SIR DEGIL, ACIKCA SAHTE BIR CI-ONLY DEGERDIR ve degerin kendisi
+      # bunu soyler: base64("CI-ONLY-fake-KEK-not-a-secret!!!"). Sardigi tek sey bu
+      # is akisinin kendi gecici konteynerindeki demo fixture'idir; hicbir uretim
+      # plaketi, hicbir musteri verisi buna bagli degil. Gercek KEK repoda ASLA yer
+      # almaz (CLAUDE.md §4.7): uretimde Secret'tan gelir (deploy.yml). Yani buraya
+      # `secrets.*` yazmak dogru degil, TERSI olurdu — CI'nin at gozlugu takmis
+      # demo verisine uretim anahtari verirdi.
+      # .env.example ile ayni sinifta: orada da parola 'tappa' duz yazili.
+      TAPPA_TAG_KEK: Q0ktT05MWS1mYWtlLUtFSy1ub3QtYS1zZWNyZXQhISE=
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -52,7 +68,27 @@ jobs:
         with:
           # govulncheck'in temiz kalmasi icin >=1.26.5 (dort stdlib CVE 1.26.5'te
           # kapandi). go.mod'daki 1.26.2 asgaridir; CI surumu acikca pinlenir.
-          go-version: "1.26.5"
+          #
+          # 🔴 1.26.5 -> 1.26.6, VE PIN'IN VAR OLMA SEBEBI TAM OLARAK BUDUR. Yukaridaki
+          # cumle bayatladi: 1.26.5 artik govulncheck'i temiz BIRAKMIYOR, yani
+          # `make audit` adimi bu is akisinda KIRMIZI ve semayi duzeltmek CI'yi tek
+          # basina yesile dondurmezdi. Olculdu (govulncheck@v1.6.0, ayni agac,
+          # 2026-08-15):
+          #   go1.26.5  exit 1 — 6 stdlib acigi, ALTISI DA cagriliyor (symbol results):
+          #             GO-2026-6218 net/url · GO-2026-6090 crypto/tls ·
+          #             GO-2026-6089 net/http · GO-2026-6088 encoding/xml ·
+          #             GO-2026-5972 encoding/asn1 · GO-2026-5026 idna
+          #             hepsinin "Fixed in" satiri go1.26.6
+          #   go1.26.6  exit 0 — "No vulnerabilities found."
+          # Yani KOD DEGISIKLIGI GEREKMIYOR; acigin tamami stdlib'de ve yama
+          # surumunde kapaniyor. Bu, Makefile'in audit blogunda T31 diye anilan
+          # bilinen kirmizinin ta kendisi.
+          #
+          # DAVRANIS DEGISMEDIGI OLCULDU: taze bir veritabaninda (up -> migrate ->
+          # seed) tum suit go1.26.6 ile kosuldu — 3506 PASS / 0 FAIL / 1 SKIP /
+          # 22 paket, exit 0; 1.26.5 ile birebir ayni sonuc. go.mod'da `toolchain`
+          # yonergesi yok (yalniz `go 1.26.2`), yani bu pin tek karar noktasidir.
+          go-version: "1.26.6"
           # Modul onbellegi go.sum'a gore (setup-go varsayilani; "modul onbellegi"
           # kart adim 1).
           cache: true
@@ -72,6 +108,28 @@ jobs:
         # tailwindcss-linux-x64. Indirdikten sonra ikiliyi calistirip dogrular.
         run: make tools
 
+      - name: Build the stylesheet (make css)
+        # ⚠️ BU ADIM YOKKEN UC TEST DAIMA SKIP EDIYORDU — ve ucunun de skip mesaji
+        # "THIS IS NOT A PASS." diyor. Sebep yapisal: /web/static/css/app.css bir
+        # yapi urunudur ve .gitignore:38 onu checkout'un DISINDA tutar, `go:embed
+        # all:static` ise DERLEME ZAMANINDA okur — yani dosya yoksa testler onu
+        # calisma aninda bulamaz.
+        #   TestCompiledCSS_GeneratesNoText          (result_test.go)
+        #   TestCompiledCSS_StampWordIsInk           (result_test.go)
+        #   TestPanelScreens_TouchTargetClassesReserve44px (dashboard_test.go)
+        # OLCULDU (app.css gecici olarak kenara alinip bu uc test kosuldu,
+        # 2026-08-15): UCU DE SKIP. Testlerin kendi yorumlari bu adimi ADIYLA
+        # istiyor ("Adding a `make css` step to CI would fix it") ve M5-06'nin
+        # yazili dersi de bu: atlanan test gecmis sayilmaz.
+        #
+        # NEDEN BURADA: ikili hemen yukaridaki `make tools` ile indi, ek maliyet
+        # ~1 sn. `make check`ten ONCE olmasi ZORUNLU (embed derleme zamanindadir);
+        # `make gen`e gore sirasi ONEMSIZ, cunku tailwind .templ KAYNAKLARINI
+        # tarar, uretilen _templ.go'yu degil (tailwind.config.js content globu).
+        # `check`in son adimi (`git diff --exit-code`) etkilenmez: app.css
+        # gitignore'da, yani uretilmesi diff uretmez.
+        run: make css
+
       - name: Start Postgres (make up)
         # Q04 = yerel Postgres. `services:` bloku CHECKOUT'TAN ONCE baslar,
         # dolayisiyla repodaki scripts/db-init/*.sql'i (tappa_app rolu +
@@ -82,6 +140,62 @@ jobs:
         # M1-09 DB testleri geldiginde ayni `make check` icinden localhost:5432'ye
         # baglanabilsin diye test adimindan ONCE ayaga kaldirilir.
         run: make up
+
+      - name: Apply the schema (make migrate)
+        # 🔴 BU ADIM YOKTU VE ILK GERCEK CI KOSUSUNU (31902969589) TEK BASINA
+        # DUSURDU. `make up` sunucuyu, rolleri ve uzantilari getirir; SEMAYI goose
+        # kurar ve goose HIC kosmuyordu, yani CI'nin veritabaninda TABLO YOKTU.
+        # Hata siniflandirmasi olculdu:
+        #   460 x SQLSTATE 42P01  (448'i relation "tenants" does not exist,
+        #                          6'si relation "tags", ...)
+        #     7 x SQLSTATE 42883  (fonksiyon yok — resolver'lar)
+        #     0 x password authentication failed
+        # Son satir onemli: GIRIS CALISIYORDU. Yani 01-roles.sql'in tappa_app'i
+        # NOLOGIN yapmasi ve girisi 02-dev-only-password.sh'in acmasi CI'da DOGRU
+        # kosuyor; eksik olan TEK sey semaydi.
+        #
+        # Bu borc ongorulmustu: docs/plan/state.md sekiz oturumdur "CI etkilenmiyor
+        # — workflow make migrate/make seed KOSMUYOR" diye tasiyordu. Repo ilk kez
+        # push edilince vadesi geldi.
+        #
+        # SIRA ZORUNLU: `make check` kendi icinde `test` kosar (Makefile: check ->
+        # fmt gen lint test), dolayisiyla migrate ondan ONCE olmak zorunda.
+        # Rol ayrimi korunur: goose DATABASE_MIGRATE_URL, yani tappa_owner ile
+        # baglanir; uygulama/testler tappa_app ile (CLAUDE.md §4.5, §6).
+        run: make migrate
+
+      - name: Load the demo fixture (make seed)
+        # SEED SUS DEGIL, YEDI TESTIN VARLIK SARTI — VE BU ELEYEREK OLCULDU. Taze
+        # bir veritabaninda (ayri compose projesi, 2026-08-15), ayni agac:
+        #   yalniz migrate    3498 PASS / 0 FAIL / 7 SKIP / 22 paket   (exit 0)
+        #   migrate + seed    3506 PASS / 0 FAIL / 1 SKIP / 22 paket   (exit 0)
+        # Yani migrate TEK BASINA CI'yi yesile dondurur; bu adimin aldigi sey yedi
+        # SKIP'in ALTISI (+2 alt test), hepsi "the KF demo fixture is not in this
+        # database" diyen seed testleri: TestSeedDB_ADayAtKFStJulians ·
+        # ...WithoutTheWaitTheDayCollapsesIntoIgnoredRows ·
+        # ...APracticeRowNeverHidesAnOlderOpenCheckIn ·
+        # ...ASecondActivationIsNotASecondPracticeRun ·
+        # ...EveryDemoPlaqueOpensUnderTheConfiguredKEK ·
+        # ...ANFCTapOnASeededPlaqueReachesTheDecisionEngine.
+        # "Atlanan test gecmis sayilmaz" bu repoda YAZILI bir derstir (M5-06,
+        # Makefile test-short blogu) — o yuzden yesil yetmiyor, KOSMASI isteniyor.
+        #
+        # ⚠️ KALAN 1 SKIP ci.yml ILE KAPANMAZ, ve kapandigi iddia EDILMIYOR:
+        # TestPlaqueJourneyDB_TheBudgetOnATenantWithHistory >=1000 islem ister,
+        # taze seed demo tenant'a 101 islem koyar (olculdu, testin kendi mesaji).
+        # Gelistirici makinesindeki 0 SKIP aylarca birikmis ~18k satirdan gelir;
+        # taze bir veritabani onu UREteMEZ. Bu bir fixture buyuklugu sorusudur,
+        # workflow sorusu degil.
+        #
+        # MALIYET ~63 sn ve neredeyse tamami UYKUDUR: TestSeedDB_ADayAtKFStJulians
+        # ADR 0006 geregi debounce'u SUNUCU saatiyle olcer, yani sikistirilamaz.
+        # Duvar saati olculdu: migrate 3:51, migrate+seed 4:53 — 20 dk'lik
+        # timeout-minutes bunu rahat tasir.
+        #
+        # TAPPA_TAG_KEK yukarida, is seviyesinde: seed onunla SARMALAR, test onunla
+        # ACAR (bos birakilirsa scripts/seed.sh 1 ile durur — sessiz bozuk plaket
+        # birakmaz).
+        run: make seed
 
       - name: make check (fmt + lint + test + uretilen-dosya kontrolu)
         # fmt + vet + staticcheck + `go test -race` + `git diff --exit-code`.
