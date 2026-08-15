@@ -1,0 +1,42 @@
+# Tappa — docker build context.
+#
+# 🔴 THIS FILE EXCLUDES ONLY PATHS GIT ALREADY IGNORES, AND THAT RESTRAINT IS THE
+# WHOLE POINT. The build identity M8-01 shipped comes from Go's own -buildvcs, which
+# reads .git INSIDE the builder; and `go build` decides vcs.modified from
+# `git status --porcelain`. Excluding a TRACKED path here would make git see it as
+# DELETED in the build context, so every image — including one built by CI from a
+# clean checkout of a tagged commit — would stamp vcs.modified=true and log the
+# "compiled from a MODIFIED working tree" WARN that cmd/tappa/main.go reserves for
+# untraceable builds. Measured both ways; see the control build in this task's report.
+#
+# For the same reason .git itself is NOT excluded. Without it the toolchain omits
+# vcs.revision entirely (no error, no warning) and the shipped artifact stops being
+# traceable to a commit at all — silently undoing the one thing M8-01 added that
+# nothing else in the product can reconstruct.
+
+# --- build artifacts (gitignored) ---
+bin/
+dist/
+*.exe
+*.test
+coverage.*
+
+# --- local tooling downloaded by `make tools` (gitignored) ---
+# The builder fetches its own linux/amd64 Tailwind binary; a macOS one copied in
+# would be the wrong architecture and `make css` would fail confusingly.
+.tools/
+
+# --- generated CSS (gitignored; `make css` regenerates it in the builder) ---
+web/static/css/app.css
+
+# --- secrets: NEVER in an image layer (CLAUDE.md §4.7) ---
+.env
+.env.local
+*.pem
+*.key
+secrets/
+*.aes
+
+# --- local editor/agent overrides (gitignored) ---
+.claude/settings.local.json
+.DS_Store

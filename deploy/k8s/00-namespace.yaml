@@ -1,0 +1,32 @@
+# Tappa — namespace (M8-02).
+#
+# WHY deploy/k8s/ AND NOT k8s/, manifests/ OR charts/. `deploy/` is the noun for
+# "things that put this repository somewhere"; `k8s/` under it leaves room for the
+# targets this product may still grow (a plain-VPS systemd unit is still the
+# fallback CLAUDE.md §1 names) without either of them having to be renamed. No Helm
+# and no kustomize overlay: there is ONE environment today, and a templating layer
+# whose only instantiation is itself is a second representation of the manifests —
+# the defect class this repo has paid for three times. The two values that DO vary
+# per deploy (the image tag) are substituted by the workflow with sed, in one place.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: tappa
+  labels:
+    app.kubernetes.io/name: tappa
+    # 🔴 POD SECURITY IS ENFORCED, NOT MERELY AUDITED. Every workload in this
+    # namespace is written to satisfy `restricted`: non-root numeric uid, no
+    # privilege escalation, all capabilities dropped, RuntimeDefault seccomp. A
+    # namespace that only WARNS is a namespace where the next person's pod runs as
+    # root and nobody finds out, which is the "silent default" this repository's
+    # config package forbids one layer down.
+    #
+    # ⚠️ IF THE FIRST ROLLOUT IS REJECTED, the API server names the exact field in
+    # its error and the escape hatch is one command — but read the message first,
+    # because it is far more likely to be a real defect in the pod spec than in
+    # this label:
+    #   kubectl label ns tappa pod-security.kubernetes.io/enforce=baseline --overwrite
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted

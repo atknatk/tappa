@@ -1,0 +1,69 @@
+# Tappa — who may open a socket to the database (M8-02, audit finding C1).
+#
+# 🔴 WHAT THIS CLOSES. Postgres listens on 0.0.0.0:5432 and the pg_hba the entrypoint
+# generates ends with `host all all all scram-sha-256` — every address, every
+# database, every role. This cluster has 31 namespaces. Without a policy, ANY pod in
+# ANY of them can reach tappa's database and start guessing, and it is what turns the
+# password finding above it (01-roles.sql's fail-open, fixed this round) from
+# "reachable from inside the pod" into "reachable from anywhere in the cluster".
+#
+# 🔴 WHY ONLY POSTGRES, AND WHY THE APP'S :8080 IS A COUNTED LIMIT INSTEAD.
+# Measured, not preferred:
+#
+#   - Postgres' probes are `exec` (pg_isready inside the container), so the kubelet
+#     opens NO network connection to this pod. A tight ingress rule therefore cannot
+#     break its health checking. That is what makes this policy risk-free.
+#   - The SERVER's probes are httpGet, which the kubelet performs FROM THE NODE. A
+#     policy tight enough to be worth writing (ingress only from the ingress
+#     controller) can also refuse those probes, and the failure mode is the kubelet
+#     declaring the pod unready and then killing it — an outage caused by a hardening
+#     step. Whether it does depends on the NetworkPolicy implementation, and this
+#     cluster's could NOT be verified without applying something, which this task may
+#     not do. A rule loose enough to be certainly safe on ONE node (allow the whole
+#     10.42.0.0/24 pod CIDR) would permit every pod on the cluster and protect
+#     nothing.
+#   - So the app's :8080 stays reachable in-cluster and is written down as a limit
+#     rather than claimed as closed. Its severity is genuinely lower: it serves the
+#     same content the internet gets, the session cookie is Secure in prod, and the
+#     panel's same-origin gate already refuses a plain-HTTP sign-in (backlog T38).
+#     What it does bypass is TLS and HSTS for an in-cluster caller.
+#
+# This also matches what the cluster already does: the only NetworkPolicies present
+# (`kubectl get netpol -A`) are infisical/postgresql and infisical/redis — datastores,
+# not HTTP frontends.
+#
+# ⚠️ ENFORCEMENT IS UNVERIFIED. k3s runs its NetworkPolicy controller inside the
+# server process rather than as a pod, so `kubectl -n kube-system get pods` (coredns,
+# local-path-provisioner, metrics-server — no kube-router) neither proves nor
+# disproves it. If the controller is disabled (`--disable-network-policy`) this object
+# is accepted and ignored, and nothing reports that. Verify once, after the first
+# deploy, from a pod in another namespace:
+#   kubectl -n default run np-probe --rm -it --restart=Never --image=postgres:17-alpine \
+#     -- pg_isready -h tappa-postgres.tappa.svc.cluster.local -t 5
+#   # "no response" = enforced. "accepting connections" = NOT enforced, and this
+#   # file is decoration; say so rather than believing it.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: tappa-postgres-ingress
+  namespace: tappa
+  labels:
+    app.kubernetes.io/name: tappa
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: tappa
+      app.kubernetes.io/component: postgres
+  policyTypes: ["Ingress"]
+  ingress:
+    # Same namespace, and carrying this product's name label: that is the server
+    # Deployment and the migration Job, and nothing else. A podSelector with no
+    # namespaceSelector is scoped to THIS namespace by definition, so no other
+    # namespace can satisfy it by copying the label.
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: tappa
+      ports:
+        - protocol: TCP
+          port: 5432

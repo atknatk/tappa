@@ -29,7 +29,42 @@
 --                 alternatifi degil de bu secildi: ADR 0002 madde 7 (cevreleme
 --                 disipline degil YAPIYA dayanmali).
 
-CREATE ROLE tappa_app LOGIN PASSWORD 'tappa' NOBYPASSRLS NOSUPERUSER NOCREATEDB NOCREATEROLE;
+-- 🔴 NOLOGIN VE PAROLASIZ YARATILIR -- ve bu, OLCULMUS BIR FAIL-OPEN'IN
+-- DUZELTMESIDIR (2026-08-15, M8-02 guvenlik denetimi).
+--
+-- ESKI HALI: `LOGIN PASSWORD 'tappa'`. Uretimde bir sonraki init script'i
+-- (deploy/k8s/postgres-init/02-app-password.sh) parolayi degistiriyordu. Ama o
+-- script HERHANGI bir sebeple duserse (bos TAPPA_APP_PASSWORD, OOM kill, eviction,
+-- node reboot) konteyner exit 1 verir -- PGDATA ise ARTIK DOLUDUR. Pod yeniden
+-- baslar, postgres entrypoint'i init'i TAMAMEN atlar, sunucu normal servise girer
+-- ve tappa_app REPODA YAZILI parolayla yasar. Kalici ve sessiz.
+--
+-- Manifestin birebir replikasiyla olculdu:
+--   1. TAPPA_APP_PASSWORD="" -> "is empty" -> exit=1
+--   2. docker start            (k8s'in yaptigi) -> running
+--   3. AYRI BIR KONTEYNERDEN (agdan, yani uygulamanin bagladigi bicimde):
+--      PGPASSWORD=tappa psql -U tappa_app -h <db> -Atc "SELECT current_user"
+--      -> tappa_app            <-- BAGLANDI, repo parolasiyla
+--
+-- ⚠️ 3. ADIM ONCE KONTEYNER ICI 127.0.0.1 ILE OLCULMUSTU VE O OLCUM GECERSIZDI:
+-- initdb'nin varsayilan pg_hba'si loopback'i `trust` eder, yani orada HER parola
+-- calisir ve sonuc hicbir sey kanitlamaz. Sonuc dogruydu, komut onu kanitlamiyordu.
+-- Bir dogrulama, tukettigi seyin GORDUGU bicimi gormek zorundadir -- bu repoda ayni
+-- ders uc kez bedel odetti (internal/config/config.go, prefixes).
+--
+-- ⚠️ RLS bunu DURDURMAZ: politikalar tenant GUC'unu okur ve o GUC her rolun KENDI
+-- atayabildigi bir session degeridir (ADR 0002). Kimlik bilgisini ele geciren onu
+-- kendi oturumunda atar ve o tenant'in tum satirlarini okur. (§4.3 ayakta kalir:
+-- transactions'ta UPDATE/DELETE REVOKE'lu ve trigger'li, yani mesai kaydi yine de
+-- DEGISTIRILEMEZ.)
+--
+-- SIMDIKI HALI FAIL-CLOSED: parolayi veren script duserse tappa_app HIC giris
+-- yapamaz. Uygulama acilista olur (gurultulu), bilinen bir parolayla yasamaz
+-- (sessiz). Girisi acan iki yer var ve ikisi de bu dosyanin DISINDA:
+--   uretim     deploy/k8s/postgres-init/02-app-password.sh   (Secret'tan)
+--   gelistirme scripts/db-init/02-dev-only-password.sh       (sabit 'tappa')
+-- Ikincisi, uretimde mount edilirse ACILISTA REDDEDER -- bkz. o dosyadaki koruma.
+CREATE ROLE tappa_app NOLOGIN NOBYPASSRLS NOSUPERUSER NOCREATEDB NOCREATEROLE;
 
 -- Cozumleme fonksiyonlarinin en-az-ayricalikli sahibi. LOGIN yok; blast radius
 -- yalnizca kendisine ACIKCA GRANT'lanan tablolarla sinirli (ASAGIDA default

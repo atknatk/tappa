@@ -1,0 +1,99 @@
+# Tappa — the NON-SECRET half of the server's environment (M8-02).
+#
+# Everything here is safe in a public git history. The four values that are not
+# (DATABASE_URL and the three 32-byte keys) live in a Secret this repository never
+# contains — see deploy/examples/.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tappa-config
+  namespace: tappa
+  labels:
+    app.kubernetes.io/name: tappa
+data:
+  # internal/config refuses anything outside {dev, staging, prod}; "production"
+  # would be a startup failure rather than a silent downgrade. It is what makes the
+  # session cookie Secure (internal/session reads IsProd).
+  TAPPA_ENV: "prod"
+  TAPPA_ADDR: ":8080"
+  TAPPA_BASE_URL: "https://tappa.everva.com.tr"
+  TAPPA_LOG_LEVEL: "info"
+
+  # 🔴 TAPPA_TRUSTED_PROXIES — backlog T30, AND THE VALUE BELOW WAS MEASURED IN THIS
+  # CLUSTER ON 2026-08-15 RATHER THAN GUESSED.
+  #
+  # What breaks if this is wrong, in the product's own terms: internal/httpx walks
+  # X-Forwarded-For from the RIGHT and stops at the first address that is not in this
+  # list. Too narrow (or empty) and the walk never starts — every caller in the world
+  # resolves to the ingress hop, so §5's "IP eşleşti" (50 of 100 trust points) can
+  # never be true for anyone, and the panel's login budget (adminLoginWorkLimit =
+  # 120 per 10 min PER ADDRESS, T30) collapses onto ONE address shared by every
+  # customer. Too wide and the walk runs off the left end and returns whatever the
+  # CLIENT wrote — proof of place becomes caller-chosen. config.Load refuses a
+  # default route outright in prod, which catches only the crudest spelling of that.
+  #
+  # THE MEASUREMENT. ingress-nginx here is a DaemonSet with hostNetwork: true
+  # (`kubectl -n ingress-nginx get pods -o jsonpath='{...spec.hostNetwork}'` → true,
+  # podIP 10.0.0.10, hostPorts 80/443), so it proxies from the NODE's network
+  # namespace into the pod network. The source address it uses is the route's, not
+  # the node's public one:
+  #
+  #   $ kubectl -n ingress-nginx exec ds/ingress-nginx-controller -- ip route get 10.42.0.5
+  #   10.42.0.5 dev cni0  src 10.42.0.1
+  #
+  # 10.42.0.1 is cni0 itself — the bridge address. Flannel allocates pod addresses
+  # from 10.42.0.2 upward (podCIDR 10.42.0.0/24), so NO POD CAN EVER HOLD THIS
+  # ADDRESS. A /32 here therefore trusts exactly one thing: this node's own
+  # forwarding path. The alternative that "works" — trusting the whole 10.42.0.0/24
+  # pod CIDR — would extend the trust to every pod of the ~30 other namespaces on
+  # this cluster, any of which could then forge a client address for Tappa.
+  #
+  # ⚠️ VERIFY AFTER THE FIRST DEPLOY, because a value that is only reasoned about is
+  # the failure T30 describes. Tap once from a phone on mobile data and read the row:
+  #   SELECT ip_match, source_ip FROM transactions ORDER BY created_at DESC LIMIT 1;
+  # source_ip must be the PHONE's public address. If it is 10.42.0.1 the list is too
+  # narrow; if it is anything a caller could have chosen, it is too wide.
+  TAPPA_TRUSTED_PROXIES: "10.42.0.1/32"
+
+  # 🟡 TAPPA_RETENTION_YEARS — TEMPORARY, AND IT IS A LEGAL STATEMENT RATHER THAN A
+  # SETTING (backlog B3 / open question Q13).
+  #
+  # This number is printed verbatim to an employee in the GDPR Art. 13 notice on the
+  # activation screen. internal/config gives it no default on purpose: a figure that
+  # appeared out of a Go constant would be this repository inventing a legal claim on
+  # a customer's behalf (user decision, 2026-07-31). The value below is the same
+  # DEVELOPMENT PLACEHOLDER .env.example carries and it has NOT been through a
+  # lawyer. It is written here because the process will not boot without one, not
+  # because two years is the answer.
+  #
+  # 🔴 THE PILOT GATE ALREADY DEPENDS ON THIS. M8-06's gate lists "saklama süresi ve
+  # silme/anonimleştirme akışı karara bağlı (Q13)" as one of six boxes that must be
+  # ticked BEFORE real employees tap. Deploying with this placeholder is fine;
+  # PILOTING with it is not, and this comment is where that distinction is recorded.
+  TAPPA_RETENTION_YEARS: "2"
+
+  # The only value this build implements. An unknown value is a startup failure
+  # rather than a silent no-delivery (internal/config.resetDelivery); Q02 — which
+  # mail provider, in which region, under which processing agreement — is unanswered,
+  # so the panel's recovery form says on screen that this deployment cannot send a
+  # link instead of pretending it did.
+  TAPPA_RESET_DELIVERY: "none"
+
+  # The decision-engine windows (CLAUDE.md §5). They are the shipped defaults,
+  # written out rather than left implicit because the Policies screen shows a
+  # customer these exact numbers and an operator changing one should find it here.
+  TAPPA_GPS_RADIUS_M: "150"
+  TAPPA_DEBOUNCE_SECONDS: "60"
+  # Below 900 deliberately: at 900 the recorded sys:tap-freshness band is EXACTLY
+  # empty, because the signed tap context's own 15-minute TTL refuses first.
+  TAPPA_FRESHNESS_SECONDS: "180"
+
+  # 🔴 EMPTY MEANS NOBODY, AND THAT IS THE CORRECT FIRST-DEPLOY VALUE. This is the
+  # allow-list for /admin/legal, the screen that publishes TAPPA's own privacy
+  # policy and terms. There is no "unconfigured, therefore open" branch. Fill it
+  # AFTER the first sign-in: open /admin/legal, and the refusal page prints your own
+  # admin_users.id to paste here. It is an id and never an email — an email is
+  # unique only within one business and sign-up is public, so an address-keyed
+  # allow-list can be joined by registering a business with that address (measured;
+  # internal/config.OperatorAdminIDs carries the break in full).
+  TAPPA_OPERATOR_ADMIN_IDS: ""

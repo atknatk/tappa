@@ -1,0 +1,300 @@
+# Tappa — build, push and deploy (M8-02).
+#
+# 🔴 THIS RUNS ONLY AFTER `ci` HAS GONE GREEN ON main, AND workflow_run WAS CHOSEN
+# OVER A JOB INSIDE ci.yml FOR A SECURITY REASON, NOT A STYLISTIC ONE.
+#
+# The two candidates were measured against each other:
+#
+#   (a) `deploy` as a job in ci.yml with `needs: check`. Strongest possible
+#       ordering — same run, same SHA, cannot start unless check succeeded. But
+#       ci.yml is `on: push` for EVERY branch and `on: pull_request`. The workflow
+#       file holding a kubeconfig and packages:write would then be the same file
+#       that any branch push evaluates, guarded only by an `if:` on the ref. An `if:`
+#       is one edit away from not being there.
+#
+#   (b) `on: workflow_run`. GitHub always runs the DEFAULT BRANCH's copy of a
+#       workflow_run workflow, regardless of which commit triggered it. A pull
+#       request therefore cannot modify this file and have its modification run —
+#       the credentials below are unreachable from any branch but main. And ci.yml
+#       is not touched at all, so the gate everything else depends on carries none
+#       of this risk. CHOSEN.
+#
+# ⚠️ THE COST OF (b), STATED: workflow_run's default checkout is the default
+# branch's HEAD, NOT the commit that was tested. That is the classic footgun and
+# every step below pins github.event.workflow_run.head_sha explicitly.
+name: deploy
+
+on:
+  workflow_run:
+    workflows: ["ci"]
+    types: [completed]
+    branches: [main]
+  # Manual re-deploy of whatever is on main, for a rollback or a cluster-side fix.
+  workflow_dispatch:
+
+# Never cancel a deploy: cancel-in-progress would be able to kill the workflow
+# between `goose up` finishing and the new image rolling out, leaving a schema ahead
+# of the binary that serves it.
+concurrency:
+  group: deploy-main
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  deploy:
+    # workflow_run fires on failure too; only a green ci may deploy.
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      APP_IMAGE: ghcr.io/atknatk/tappa
+      MIGRATE_IMAGE: ghcr.io/atknatk/tappa-migrate
+      # The cluster is k3s v1.35.4 (measured). kubectl's supported skew is one minor
+      # either way; pinning to the server's own minor removes the question.
+      KUBECTL_VERSION: v1.35.4
+      KUBECTL_SHA256: b529430df69a688fd61b64ad2299edb5fd71cb58be2a4779dba624c7d3510efd
+
+    steps:
+      - name: Resolve the commit to deploy
+        id: sha
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            sha="${{ github.sha }}"
+          else
+            sha="${{ github.event.workflow_run.head_sha }}"
+          fi
+          echo "full=$sha"           >> "$GITHUB_OUTPUT"
+          echo "short=${sha:0:12}"   >> "$GITHUB_OUTPUT"
+          echo "deploying $sha"
+
+      # ⚠️ PINNED BY TAG, NOT BY COMMIT SHA — a decision, stated rather than left to
+      # be noticed. A moving major tag means the action's code can change under this
+      # workflow, and this workflow holds a kubeconfig. It is kept because ci.yml
+      # already states the repository's rule (Q25(b)): first-party actions only,
+      # pinned by major tag. Two consequences follow, and the second is why the
+      # inconsistency with KUBECTL_SHA256 below is not an oversight: `checkout` is
+      # published by GitHub itself and runs on GitHub's own runner, whereas kubectl
+      # is a third-party download over the network, where a sha256 is the only thing
+      # standing between a swapped binary and the cluster. Different threat, different
+      # treatment. Changing this to a sha is a repo-wide decision (ci.yml pins the
+      # same way), not one this file should make on its own.
+      - name: Checkout that exact commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.sha.outputs.full }}
+          # 🔴 .git MUST SURVIVE INTO THE DOCKER CONTEXT. Go's -buildvcs stamps
+          # vcs.revision/vcs.modified from it inside the builder, internal/buildinfo
+          # reads them back, and cmd/tappa logs one line naming the running commit
+          # before it dials the database. A build with no .git loses that silently —
+          # no error, no warning, and a deployment that cannot say what it is running.
+          # actions/checkout leaves a CLEAN tree, so vcs.modified comes out false;
+          # verified in this task with a clean-clone control build.
+          fetch-depth: 1
+          # 🔴 persist-credentials: false IS NOT COSMETIC HERE. With the default,
+          # actions/checkout writes the job's token into .git/config as an
+          # http.extraheader — and .git is deliberately part of the docker build
+          # context (above), so that token would be copied into a build-stage layer.
+          # The final image is `scratch` and carries only two files, so it would not
+          # be published; but a credential that reaches a layer at all is a
+          # credential in a place nobody is auditing (CLAUDE.md §4.7).
+          persist-credentials: false
+
+      # Only first-party actions are used in this repository (ci.yml states the rule
+      # and the reason: Q25(b)). Everything below is the plain CLI that ubuntu-latest
+      # already ships, so no docker/login-action, no docker/build-push-action and no
+      # third-party kubectl installer appears here.
+      # 🔴 B8: scripts/verify-image.sh RUNS `go version -m`, AND UNTIL THIS STEP THAT
+      # WAS AN UNDECLARED DEPENDENCY ON WHATEVER GO THE RUNNER IMAGE HAPPENED TO SHIP.
+      # The failure mode was fail-closed (no go → the gate errors → no push), so it was
+      # never going to ship a bad artifact; but "works because the runner image happens
+      # to include it" is exactly the kind of unstated assumption this repository keeps
+      # paying for. Pinned to the version the Dockerfile builds with, and setup-go is
+      # first-party like every other action here (ci.yml, Q25(b)).
+      - name: Set up Go (verify-image.sh reads buildinfo with it)
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.6"
+          cache: false
+
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Build both images
+        env:
+          SHORT: ${{ steps.sha.outputs.short }}
+        run: |
+          set -euo pipefail
+          # The two targets share the `build` stage, so the second build is a cache
+          # hit on everything expensive (measured locally: 3 min 58 s for the app,
+          # then 8 s for the migrator).
+          docker build --target app \
+            -t "$APP_IMAGE:sha-$SHORT" -t "$APP_IMAGE:main" .
+          docker build --target migrate \
+            -t "$MIGRATE_IMAGE:sha-$SHORT" -t "$MIGRATE_IMAGE:main" .
+
+      - name: Prove the artifact identifies itself before it is pushed
+        env:
+          SHORT: ${{ steps.sha.outputs.short }}
+          FULL: ${{ steps.sha.outputs.full }}
+        # 🔴 THE GATE LIVES IN scripts/verify-image.sh, NOT HERE, AND THAT MOVE IS
+        # ITSELF A FINDING'S FIX. The first version of this step was inline shell and
+        # parsed `go version -m` with awk on the wrong field; it produced two empty
+        # variables, compared them against the deploy sha, and therefore FAILED EVERY
+        # RUN — before `Push`, so nothing could be deployed at all. A security audit
+        # measured it. The deeper problem is that a gate which only exists inside a
+        # workflow cannot be pointed at a known-good and a known-bad image by the
+        # person writing it; the script can, and this task's report shows all three
+        # runs (clean+correct → pass, clean+wrong-sha → fire, dirty → fire).
+        run: scripts/verify-image.sh "$APP_IMAGE:sha-$SHORT" "$FULL"
+
+      - name: Prove the MIGRATION image carries this commit's migrations
+        env:
+          SHORT: ${{ steps.sha.outputs.short }}
+        # 🔴 THE OTHER ARTIFACT, WHICH SHIPPED UNGATED UNTIL NOW (audit B7) — and it is
+        # the more dangerous of the two: the server cannot touch the schema, this image
+        # runs DDL as tappa_owner, the bootstrap SUPERUSER that bypasses RLS. It cannot
+        # be checked by buildinfo (goose is built from its own module and stamps goose's
+        # revision), so the gate checks the PAYLOAD: the migrations inside it must be
+        # byte-identical to db/migrations at this commit.
+        run: scripts/verify-image.sh --migrate "$MIGRATE_IMAGE:sha-$SHORT"
+
+      - name: Push
+        env:
+          SHORT: ${{ steps.sha.outputs.short }}
+        run: |
+          set -euo pipefail
+          docker push "$APP_IMAGE:sha-$SHORT"
+          docker push "$APP_IMAGE:main"
+          docker push "$MIGRATE_IMAGE:sha-$SHORT"
+          docker push "$MIGRATE_IMAGE:main"
+
+      - name: Install kubectl (pinned, checksum-verified)
+        run: |
+          set -euo pipefail
+          curl -fsSLo kubectl "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/amd64/kubectl"
+          echo "${KUBECTL_SHA256}  kubectl" | sha256sum -c -
+          chmod +x kubectl
+          sudo mv kubectl /usr/local/bin/kubectl
+          kubectl version --client
+
+      - name: Write kubeconfig
+        run: |
+          set -euo pipefail
+          # 🔴 THE SECRET IS NAMED KUBE_CONFIG AND IT IS BASE64. A raw YAML value
+          # survives GitHub's secret store fine, but `printf` of a multi-line secret
+          # is where trailing-newline and CRLF problems live; base64 has neither.
+          # Create it with:
+          #   base64 -w0 ~/.kube/config | gh secret set KUBE_CONFIG --repo atknatk/tappa
+          # ⚠️ Scope it. A full cluster-admin kubeconfig in a CI secret is a
+          # cluster-admin credential for anyone who can push to main. See
+          # deploy/README.md step 4 for the ServiceAccount this deploy actually needs.
+          mkdir -p "$HOME/.kube"
+          echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > "$HOME/.kube/config"
+          chmod 600 "$HOME/.kube/config"
+          kubectl config current-context
+
+      # 🔴 B6: THIS RUNS BEFORE ANYTHING IS APPLIED, AND THE MOVE IS THE POINT.
+      # It used to run AFTER the rollout, with no rollback — so a proxied hostname
+      # would take LIVE TAP TRAFFIC before the gate fired, and every one of those taps
+      # would be judged against a Cloudflare edge address and written into an
+      # IMMUTABLE transactions row claiming "network proof of place" it does not have
+      # (§4.3 forbids correcting it; backlog T40 is the same defect from the other
+      # side). A gate that only reports after the harm is a report, not a gate.
+      #
+      # It can run this early because it depends on DNS and the shared ingress
+      # controller, both of which exist before this deploy touches anything. On a
+      # genuinely first deploy the hostname does not resolve yet and the check says so
+      # and passes; every other curl failure is now an error rather than a shrug (B5).
+      - name: Preflight — the hostname must NOT be proxied by Cloudflare
+        run: scripts/verify-deployment.sh cloudflare tappa.everva.com.tr
+
+      - name: Preflight — the Secret is the operator's and must already exist
+        run: |
+          set -euo pipefail
+          kubectl apply -f deploy/k8s/00-namespace.yaml
+          if ! kubectl -n tappa get secret tappa-secrets >/dev/null 2>&1; then
+            echo "::error::secret/tappa-secrets is missing. It is created out of band and never by CI — see deploy/examples/externalsecret.example.yaml (recommended) or deploy/examples/secret.example.yaml."
+            exit 1
+          fi
+          if ! kubectl -n tappa get secret ghcr >/dev/null 2>&1; then
+            echo "::error::secret/ghcr (image pull credential) is missing — see deploy/README.md step 3."
+            exit 1
+          fi
+
+      - name: Apply configuration and database
+        run: |
+          set -euo pipefail
+          kubectl apply -f deploy/k8s/05-config.yaml
+          # 🔴 THE INIT ConfigMap IS BUILT FROM THE REPOSITORY'S OWN FILE, so there
+          # is exactly ONE definition of the role split anywhere. A hand-written
+          # production copy of 01-roles.sql would be a second spelling of the rules
+          # that make RLS mean anything (NOBYPASSRLS, NOSUPERUSER, which tables
+          # tappa_resolver may see) — and drift between them is invisible until a
+          # tenant reads another tenant's rows.
+          kubectl -n tappa create configmap tappa-db-init \
+            --from-file=01-roles.sql=scripts/db-init/01-roles.sql \
+            --from-file=02-app-password.sh=deploy/k8s/postgres-init/02-app-password.sh \
+            --dry-run=client -o yaml | kubectl apply -f -
+          kubectl apply -f deploy/k8s/10-postgres.yaml
+          kubectl apply -f deploy/k8s/12-networkpolicy.yaml
+          kubectl -n tappa rollout status statefulset/tappa-postgres --timeout=300s
+
+      - name: Migrate (its own step, its own role, before any new binary serves)
+        env:
+          SHORT: ${{ steps.sha.outputs.short }}
+        run: |
+          set -euo pipefail
+          # A Job's pod template is immutable, so the previous one is removed rather
+          # than applied over. --wait makes the delete synchronous.
+          kubectl -n tappa delete job tappa-migrate --ignore-not-found --wait=true
+          sed "s|:deploy-placeholder|:sha-$SHORT|g" deploy/k8s/30-migrate-job.yaml | kubectl apply -f -
+          # ⚠️ `kubectl wait --for=condition=complete` BLOCKS UNTIL TIMEOUT WHEN THE
+          # JOB FAILS — it waits for a condition that will never arrive, so a broken
+          # migration would cost the full ten minutes and then report a timeout
+          # rather than the failure. Polling both outcomes reports the real one.
+          deadline=$(( $(date +%s) + 600 ))
+          while :; do
+            ok=$(kubectl -n tappa get job tappa-migrate -o jsonpath='{.status.succeeded}' 2>/dev/null || true)
+            bad=$(kubectl -n tappa get job tappa-migrate -o jsonpath='{.status.failed}' 2>/dev/null || true)
+            [ "${ok:-0}" -ge 1 ] 2>/dev/null && { echo "migration complete"; break; }
+            if [ "${bad:-0}" -ge 3 ] 2>/dev/null; then
+              echo "::error::the migration Job failed; the deployment is NOT rolled out"
+              kubectl -n tappa logs job/tappa-migrate --tail=200 || true
+              exit 1
+            fi
+            if [ "$(date +%s)" -ge "$deadline" ]; then
+              echo "::error::the migration Job did not finish within 600 s"
+              kubectl -n tappa logs job/tappa-migrate --tail=200 || true
+              exit 1
+            fi
+            sleep 5
+          done
+          kubectl -n tappa logs job/tappa-migrate --tail=200 || true
+
+      - name: Roll out the server
+        env:
+          SHORT: ${{ steps.sha.outputs.short }}
+        run: |
+          set -euo pipefail
+          sed "s|:deploy-placeholder|:sha-$SHORT|g" deploy/k8s/20-app.yaml | kubectl apply -f -
+          kubectl apply -f deploy/k8s/40-ingress.yaml
+          # maxUnavailable is 0, so the old pod keeps serving until the new one has
+          # passed /readyz — i.e. until it has proved it can reach the database.
+          kubectl -n tappa rollout status deployment/tappa --timeout=300s
+
+      - name: Gate — the running server must not be connected as the migration role
+        # internal/config only refuses DATABASE_URL == DATABASE_MIGRATE_URL. An owner
+        # DSN typed into DATABASE_URL alone passes every check the product has, and
+        # voids RLS entirely. pg_stat_activity is where that becomes visible.
+        run: scripts/verify-deployment.sh db-role tappa
+
+      - name: Report what is running
+        if: always()
+        run: |
+          kubectl -n tappa get pods,svc,ingress -o wide || true
+          # The build-identity line cmd/tappa writes before anything else.
+          kubectl -n tappa logs deployment/tappa --tail=5 || true

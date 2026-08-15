@@ -11,6 +11,28 @@
 # NTAG AES keys must NEVER be committed. See CLAUDE.md "Kirmizi Cizgiler".
 secrets/
 *.aes
+# The FILLED copy of deploy/examples/secret.example.yaml. That file carries the
+# session key, the invite key and TAPPA_TAG_KEK -- the key that unwraps every
+# plaque's NTAG AES key in the park, and the one value in this product whose loss is
+# unrecoverable (deploy/examples/secret.example.yaml, ESCROW).
+#
+# 🔴 THE RULE IS "ANY secret-ish yaml UNDER deploy/, EXCEPT the .example ones", AND
+# THE NARROW FORM WAS MEASURED TO BE INSUFFICIENT (2026-08-15, audit round 4). It
+# used to list two exact paths, /deploy/secret.yaml and /deploy/k8s/secret.yaml. The
+# template then MOVED to deploy/examples/, where the natural thing to type is
+# `cp secret.example.yaml secret.yaml` -- and `git check-ignore -v
+# deploy/examples/secret.yaml` came back COMMITTABLE. The guarantee this block
+# claimed was true only for the directory the file no longer lived in.
+#
+# The pattern below is deliberately WIDER than any single filename, because the
+# second mechanical net does not exist either: scripts/redline-check.sh does not scan
+# deploy/ at all (that gap is a recorded open finding). This is the only automatic
+# protection a filled copy has.
+/deploy/**/*secret*.yaml
+/deploy/*secret*.yaml
+# ...but the value-free templates ARE committed, and must stay committed.
+!/deploy/**/*.example.yaml
+!/deploy/*.example.yaml
 
 # --- generated CSS (built by make css) ---
 /web/static/css/app.css

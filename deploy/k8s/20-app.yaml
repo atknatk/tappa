@@ -1,0 +1,218 @@
+# Tappa — the server (M8-02).
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tappa
+  namespace: tappa
+  labels:
+    app.kubernetes.io/name: tappa
+    app.kubernetes.io/component: server
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: tappa
+    app.kubernetes.io/component: server
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tappa
+  namespace: tappa
+  labels:
+    app.kubernetes.io/name: tappa
+    app.kubernetes.io/component: server
+spec:
+  # 🔴 ONE REPLICA, AND IT IS A MEASURED DECISION RATHER THAN A DEFAULT.
+  #
+  # internal/domain/legal states the invariant in its own package doc: the published
+  # legal texts (privacy policy, terms, imprint, cookie notice) are served from an
+  # IN-PROCESS snapshot, refreshed at boot and again by the process that publishes.
+  # "A SECOND process would serve the previous text until it restarted. Tappa
+  # deploys to ONE VPS (CLAUDE.md §1) so there is one process today; a second one
+  # makes this wrong." Two steady-state replicas would therefore serve two different
+  # privacy policies from the same hostname, indefinitely, with nothing reporting it
+  # — on a product sold on its GDPR posture.
+  #
+  # Everything else in the process is already safe to run more than once: sessions
+  # are database-backed, and the debounce guardrail is enforced by a per-person
+  # advisory lock inside one transaction (ADR 0006), not by process memory. The
+  # snapshot is the single obstacle, and internal/domain/legal names the fix — a
+  # Refresh on a timer. Until that exists, this is 1.
+  #
+  # ⚠️ THE ROLLOUT WINDOW IS THE ONE MOMENT TWO PROCESSES EXIST, and it is bounded
+  # and self-correcting: the new pod boots with a FRESH snapshot and the old one is
+  # gone seconds later. The failure above needs a long-lived second reader.
+  #
+  # ⚠️ WHAT ONE REPLICA COSTS, stated: a pod that dies is a full outage until it is
+  # rescheduled. On a single-node cluster that is true of two replicas as well.
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      # 🔴 THIS PAIR IS WHAT MAKES M8-02's "kesintisiz deploy" TRUE, and the card
+      # explains why it matters more here than for most products: KM Pastry & Bakery
+      # taps in at 04:00 and Meat Production at 05:00. If the server is down the tap
+      # page does not load at all — the offline queue (M9-01) cannot even engage, so
+      # §4.6 ("kayıt asla kaybolmaz") goes unhonoured at the infrastructure layer.
+      # maxUnavailable: 0 means the old pod keeps serving until the new one has
+      # passed its readiness probe, i.e. until it has proved it can reach the
+      # database.
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: tappa
+      app.kubernetes.io/component: server
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: tappa
+        app.kubernetes.io/component: server
+    spec:
+      # Longer than the server's own 20 s shutdown drain (cmd/tappa: "a dropped
+      # request is a lost attendance record"), so the kubelet never SIGKILLs a pod
+      # that is still finishing a tap.
+      terminationGracePeriodSeconds: 30
+      # No pod here calls the Kubernetes API. Mounting a ServiceAccount token
+      # anyway hands any code that runs in this pod a cluster credential it has
+      # no use for -- the smallest hardening still on the table (audit B10).
+      automountServiceAccountToken: false
+      # 🔴 THE IMAGE IS PRIVATE BECAUSE THE REPOSITORY IS (user decision), so the
+      # kubelet needs a credential of its own. It CANNOT be the deploy workflow's
+      # GITHUB_TOKEN: that token dies when the job ends, so the first pod rescheduled
+      # an hour later would fail to pull and the outage would look like a node
+      # problem. This references a long-lived docker-registry Secret the operator
+      # creates ONCE with a read:packages PAT — deploy/README.md, step 3.
+      imagePullSecrets:
+        - name: ghcr
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: tappa
+          # The tag is substituted by .github/workflows/deploy.yml. The placeholder
+          # is a syntactically valid tag so that `kubectl apply --dry-run` on the
+          # unmodified file is still a real check.
+          image: ghcr.io/atknatk/tappa:deploy-placeholder
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: tappa-config
+          # 🔴 THE SECRET IS PULLED IN KEY BY KEY AND NOT WITH envFrom, AND THAT IS
+          # THE MECHANISM BEHIND M8-02's "uygulama ASLA migration rolüyle
+          # bağlanmıyor". `envFrom: secretRef` would put EVERY key of tappa-secrets
+          # into this process's environment — including DATABASE_MIGRATE_URL, whose
+          # role (tappa_owner) is initdb's bootstrap SUPERUSER and bypasses RLS
+          # unconditionally. A compromised server process would then hold a
+          # ready-made credential for reading every tenant's rows. Listing the four
+          # it needs means there is nothing to reach for.
+          #
+          # internal/config does read DATABASE_MIGRATE_URL, but only to REFUSE a
+          # deployment where the two DSNs are equal; unset skips the comparison.
+          # Measured 2026-08-15 with the shipped image and the variable absent: the
+          # process passed config validation and went on to dial the database.
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: tappa-secrets
+                  key: DATABASE_URL
+            - name: TAPPA_SESSION_HMAC_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: tappa-secrets
+                  key: TAPPA_SESSION_HMAC_KEY
+            - name: TAPPA_TAG_KEK
+              valueFrom:
+                secretKeyRef:
+                  name: tappa-secrets
+                  key: TAPPA_TAG_KEK
+            - name: TAPPA_INVITE_HMAC_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: tappa-secrets
+                  key: TAPPA_INVITE_HMAC_KEY
+          # ------------------------------------------------------------ probes --
+          #
+          # 🔴 LIVENESS IS /healthz AND READINESS IS /readyz, NEVER THE OTHER WAY
+          # ROUND. /readyz touches the pool; if it were the liveness probe, a
+          # database outage would restart every pod, turning a recoverable outage
+          # into a crash-loop that also destroys the in-flight requests the server's
+          # own drain exists to protect. /healthz touches nothing and answers in
+          # microseconds (M8-01 measured 0.0008 s while /readyz was blocked on a
+          # hung database for 2 s), so it answers exactly one question: is this
+          # process alive.
+          #
+          # THE NUMBERS COME FROM M8-01's MEASURED CONSTANTS, not from habit:
+          #   defaultReadyTTL     1 s   /readyz caches its answer for this long
+          #   defaultProbeTimeout 2 s   the DB ping inside /readyz gives up here
+          #                             (measured under a hung DB with 300
+          #                             concurrent callers: max 2.001 s)
+          #
+          # timeoutSeconds: 3 is deliberately ABOVE that 2 s. If the kubelet gave up
+          # first, every DB stall would be reported as a probe TIMEOUT — no status
+          # code, no body, and the application's own distinction between "I answered
+          # 503 because the database is unreachable" and "I did not answer" would be
+          # erased at exactly the moment somebody needs it.
+          #
+          # periodSeconds: 5 is above the 1 s cache, so no two probes can share one
+          # cached answer: every probe is a fresh measurement. It also leaves 3 s of
+          # slack after the worst-case 2 s so probes cannot overlap.
+          #
+          # failureThreshold: 3 → out of rotation after ~15 s of sustained failure,
+          # which on ONE replica means the Service has no endpoint and callers get a
+          # connection refusal rather than a wrong answer.
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 5
+            # 60 s of grace. The process cannot legitimately take longer: config
+            # validation is synchronous and the pool dial has its own 10 s ceiling,
+            # after which the process EXITS rather than serving without a database
+            # (measured: exit 1, "db: ping: context deadline exceeded").
+            failureThreshold: 12
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+            successThreshold: 1
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            # The image is `scratch` plus two files and the process opens nothing at
+            # runtime (M8-01 measured os.ReadFile/os.Open/http.Dir → 0 matches in
+            # production code). Verified against the built image on 2026-08-15:
+            # `docker run --read-only --cap-drop=ALL` boots, logs its build identity
+            # and reaches the database dial.
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            # See 10-postgres.yaml for the node measurement these are sized against.
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "2"
+              memory: 512Mi

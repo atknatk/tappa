@@ -1,0 +1,110 @@
+# Tappa — schema migration (M8-02).
+#
+# 🔴 A JOB, NOT AN initContainer, AND THE CHOICE WAS MADE ON THREE MEASURABLE
+# DIFFERENCES RATHER THAN ON TASTE:
+#
+#  1. WHO HOLDS tappa_owner. An initContainer lives in the SERVER's pod spec, so
+#     that pod would reference the migration Secret key. Containers do not share an
+#     environment, so the server process still would not read it — but the
+#     credential would be materialised into the pod that is exposed to the internet,
+#     and M8-02's criterion is that the application never connects as the migration
+#     role. A Job keeps DATABASE_MIGRATE_URL inside a pod that exists for ninety
+#     seconds and answers no traffic. (See 20-app.yaml for the other half of this:
+#     the server's env is listed key by key so the migration DSN is not in it.)
+#
+#  2. HOW OFTEN IT RUNS. An initContainer runs on EVERY pod start — every rollout,
+#     eviction, node reboot and CrashLoopBackOff cycle. A server crash-looping for
+#     an unrelated reason would hammer DDL attempts at the database in a tight loop.
+#     A Job runs once per deploy, and the workflow WAITS for it before touching the
+#     Deployment, so a failed migration stops the deploy instead of shipping a
+#     binary against a schema that never moved.
+#
+#  3. WHAT HAPPENS WITH MORE THAN ONE REPLICA. N replicas means N concurrent goose
+#     runs racing for the same version table. Today replicas is 1 (20-app.yaml says
+#     why), so this is the argument that would still be true after that changes.
+#
+# 🔴 AND THE APPLICATION STILL CANNOT DO THIS ITSELF. M8-01 made that structural:
+# goose is not a module dependency of the server (`go list -deps ./cmd/tappa |
+# grep -c goose` → 0, held by cmd/tappa/packaging_test.go). The Dockerfile keeps it
+# that way — goose is installed with `go install pkg@version`, which cannot add a
+# require line, and lands in a SEPARATE image. Measured on the built app image
+# 2026-08-15: `grep -c pressly/goose` → 0.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  # 🔴 A FIXED NAME, DELETED AND RE-CREATED BY THE WORKFLOW. A Job's pod template is
+  # immutable, so `kubectl apply` over an existing Job with a new image fails. The
+  # two ways out are a name that carries the commit (which leaves one dead Job per
+  # deploy and makes `kubectl apply -f deploy/k8s/` on its own wrong) and
+  # delete-then-create. The second keeps every file in this directory applicable by
+  # hand, which is what an operator needs at 04:00.
+  name: tappa-migrate
+  namespace: tappa
+  labels:
+    app.kubernetes.io/name: tappa
+    app.kubernetes.io/component: migrate
+spec:
+  # goose records what it has applied, so a retry re-runs only what did not land.
+  # Two attempts covers a transient dial failure while the database finishes
+  # starting; it does not paper over a migration that is genuinely wrong, because a
+  # broken statement fails identically the second time and the deploy stops.
+  backoffLimit: 2
+  # A migration that has not finished in ten minutes is stuck (most likely behind a
+  # lock), and a deploy hanging forever is worse than a deploy that fails.
+  activeDeadlineSeconds: 600
+  # Keep the finished Job and its log for a day so `kubectl logs job/tappa-migrate`
+  # still answers "what did this deploy change".
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: tappa
+        app.kubernetes.io/component: migrate
+    spec:
+      restartPolicy: Never
+      # No pod here calls the Kubernetes API. Mounting a ServiceAccount token
+      # anyway hands any code that runs in this pod a cluster credential it has
+      # no use for -- the smallest hardening still on the table (audit B10).
+      automountServiceAccountToken: false
+      # Same private registry, same long-lived credential as the server (20-app.yaml
+      # carries the reasoning).
+      imagePullSecrets:
+        - name: ghcr
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: goose
+          image: ghcr.io/atknatk/tappa-migrate:deploy-placeholder
+          imagePullPolicy: IfNotPresent
+          # GOOSE_DRIVER and GOOSE_MIGRATION_DIR are baked into the image; `up` is
+          # its CMD. Nothing here needs overriding, and spelling the command out
+          # again would be a second definition of it.
+          env:
+            # 🔴 THE DSN ARRIVES AS AN ENVIRONMENT VARIABLE AND NEVER AS AN ARGUMENT.
+            # goose's positional form (`goose postgres "<dsn>" up`) would put the
+            # migration role's password into argv, where `kubectl describe pod`, the
+            # container runtime's own records and any `ps` inside the pod would carry
+            # it (CLAUDE.md §4.7). Measured 2026-08-15 against a real Postgres: the
+            # image reads GOOSE_DBSTRING and `goose status` listed all 20
+            # migrations with no DSN on the command line.
+            - name: GOOSE_DBSTRING
+              valueFrom:
+                secretKeyRef:
+                  name: tappa-secrets
+                  key: DATABASE_MIGRATE_URL
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: "1"
+              memory: 256Mi

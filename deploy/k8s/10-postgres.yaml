@@ -1,0 +1,235 @@
+# Tappa — Postgres (M8-02).
+#
+# 🔴 READ THIS BEFORE ANYTHING ELSE: THIS IS A SINGLE, UNREPLICATED, UNBACKED-UP
+# DATABASE, AND THAT IS A USER DECISION TAKEN AFTER BEING WARNED (2026-08-15). It is
+# written here rather than only in a plan document because the manifest is what an
+# operator reads at 04:00, and because TWO STATED REQUIREMENTS ARE NOT MET BY IT:
+#
+#   CLAUDE.md §1 says "tek VPS (AB bölgesi) + MANAGED Postgres". This is not managed.
+#   M8-02's acceptance criteria say "Yedek: otomatik, geri yükleme DENENMİŞ
+#   (denenmemiş yedek yedek değildir)". There is no backup here at all, so there is
+#   nothing to have tried restoring.
+#
+# WHAT THAT MEANS CONCRETELY, measured against this cluster on 2026-08-15:
+#   - ONE node (k8s-1.fsn1.private). ONE StorageClass, local-path, which is a
+#     hostPath directory on that node's disk. `kubectl get sc` shows no other.
+#   - local-path has no replication. If the node's disk fails, every attendance
+#     record ever written is gone, and CLAUDE.md §4.3 makes those records legal
+#     evidence that cannot be reconstructed from anywhere else.
+#   - reclaimPolicy is Delete. Deleting this PVC deletes the data.
+#   - A pod reschedule is pinned to that node by the PV's node affinity, which on a
+#     one-node cluster changes nothing, but would on a second.
+#
+# 🔴 THE PILOT GATE DEPENDS ON CLOSING THIS. M8-06 runs real employees' hours in
+# parallel with BioTime for a week. Losing that week loses the comparison table the
+# whole milestone exists to produce. The smallest honest fix is a CronJob running
+# pg_dump to off-node storage plus ONE REHEARSED RESTORE; until that exists, this
+# criterion is open and this comment is the record that it is open.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tappa-postgres
+  namespace: tappa
+  labels:
+    app.kubernetes.io/name: tappa
+    app.kubernetes.io/component: postgres
+spec:
+  # Headless: the StatefulSet's stable identity, and no kube-proxy hop for a
+  # connection that never leaves this node anyway.
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: tappa
+    app.kubernetes.io/component: postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: tappa-postgres
+  namespace: tappa
+  labels:
+    app.kubernetes.io/name: tappa
+    app.kubernetes.io/component: postgres
+spec:
+  serviceName: tappa-postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: tappa
+      app.kubernetes.io/component: postgres
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: tappa
+        app.kubernetes.io/component: postgres
+    spec:
+      terminationGracePeriodSeconds: 60
+      # No pod here calls the Kubernetes API. Mounting a ServiceAccount token
+      # anyway hands any code that runs in this pod a cluster credential it has
+      # no use for -- the smallest hardening still on the table (audit B10).
+      automountServiceAccountToken: false
+      securityContext:
+        # Measured 2026-08-15 against postgres:17-alpine with `docker run --user
+        # 999:999`: the entrypoint runs initdb and the server as uid 999 with no
+        # root step, PROVIDED PGDATA is a SUBDIRECTORY of the mount (below) — the
+        # mount point itself is created by the volume plugin and the server cannot
+        # chmod it to 0700.
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: postgres
+          # The SAME image tag docker-compose.yml uses for development. Drift
+          # between the database a change is tested against and the one it runs
+          # against is not a risk worth taking for a minor version.
+          image: postgres:17-alpine
+          imagePullPolicy: IfNotPresent
+          # ⚠️ NOTE WHAT IS *NOT* HERE: docker-compose.yml passes
+          # `-c log_statement=all -c log_min_duration_statement=0`. Those are
+          # development aids and they would be a §4.7 problem in production — every
+          # statement, with its parameters, into the pod log: session token hashes,
+          # invite code hashes, source IPs, GPS coordinates.
+          args: []
+          ports:
+            - name: postgres
+              containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              value: tappa_owner
+            - name: POSTGRES_DB
+              value: tappa
+            # 🔴 PGDATA IS A SUBDIRECTORY OF THE MOUNT, NOT THE MOUNT. Postgres
+            # refuses a data directory it cannot chmod to 0700, and a volume mount
+            # point is created by the kubelet. Pointing PGDATA one level in lets
+            # initdb create and own the directory itself. This is the single most
+            # common reason a non-root Postgres pod never starts.
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+            # 🔴 initdb's DEFAULT pg_hba TRUSTS 127.0.0.1 WITH NO PASSWORD, and that
+            # was measured here rather than assumed (2026-08-15). Without these args
+            # the generated pg_hba.conf carries `host all all 127.0.0.1/32 trust`
+            # ABOVE the entrypoint's appended scram line, so a loopback connection
+            # inside the container authenticates as ANY role with ANY password —
+            # measured: `psql -U tappa_app -h 127.0.0.1` succeeded with the
+            # development password after it had been replaced. With these args every
+            # line of pg_hba.conf is scram-sha-256 and the same probe fails with
+            # "password authentication failed". Nothing else runs in this container
+            # today, so the hole is not reachable from outside the pod — but "not
+            # reachable today" is a property of the pod spec, and an ephemeral debug
+            # container shares that loopback.
+            - name: POSTGRES_INITDB_ARGS
+              value: "--auth-local=scram-sha-256 --auth-host=scram-sha-256"
+            # Determinism: everything in the database is timestamptz in UTC
+            # (CLAUDE.md §6). Same two variables docker-compose.yml sets.
+            - name: TZ
+              value: UTC
+            - name: PGTZ
+              value: UTC
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: tappa-secrets
+                  key: POSTGRES_PASSWORD
+            # Consumed by postgres-init/02-app-password.sh on FIRST start only.
+            - name: TAPPA_APP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: tappa-secrets
+                  key: TAPPA_APP_PASSWORD
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+            - name: init
+              mountPath: /docker-entrypoint-initdb.d
+              readOnly: true
+            # The image writes its unix socket and a lock file here, and the
+            # entrypoint writes to /tmp, so the root filesystem stays writable
+            # unless these are provided. They are, so it does not.
+            - name: run
+              mountPath: /var/run/postgresql
+            - name: tmp
+              mountPath: /tmp
+            # Postgres' default 64 MiB /dev/shm in a container is a classic source
+            # of "could not resize shared memory segment" under parallel query.
+            - name: dshm
+              mountPath: /dev/shm
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          # pg_isready is the image's own liveness answer and takes no lock.
+          startupProbe:
+            exec:
+              command: ["pg_isready", "-U", "tappa_owner", "-d", "tappa"]
+            periodSeconds: 5
+            # initdb + 20 migrations' worth of grace on a cold volume.
+            failureThreshold: 60
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "tappa_owner", "-d", "tappa"]
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "tappa_owner", "-d", "tappa"]
+            periodSeconds: 30
+            timeoutSeconds: 5
+            # Deliberately slack. A database that is slow to answer is a database
+            # doing work; restarting it during a long recovery turns a delay into an
+            # outage, and there is no replica to fail over to.
+            failureThreshold: 10
+          resources:
+            # Sized against the node as measured on 2026-08-15: 16 CPU / 63.4 GiB
+            # allocatable, already 12671m (79%) of CPU and 36899Mi (58%) of memory
+            # REQUESTED by the ~30 other namespaces. Requests are what the scheduler
+            # subtracts, so they are kept small enough to fit that headroom; limits
+            # are where the burst lives.
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+      volumes:
+        - name: init
+          configMap:
+            name: tappa-db-init
+            # 🔴 EXECUTABLE, NOT SOURCED. postgres's entrypoint runs a .sh file with
+            # `exec` when it is executable and SOURCES it into its own shell when it
+            # is not. 02-app-password.sh sets `set -eu`, and -u leaking into the
+            # entrypoint's remaining code would break it on an unrelated unset
+            # variable. 0555 keeps the script in its own process.
+            defaultMode: 0555
+        - name: run
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 256Mi
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          app.kubernetes.io/name: tappa
+          app.kubernetes.io/component: postgres
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        # The only StorageClass on this cluster (`kubectl get sc` → local-path
+        # (default), WaitForFirstConsumer, no replication). See the warning at the
+        # top of this file.
+        storageClassName: local-path
+        resources:
+          requests:
+            storage: 20Gi

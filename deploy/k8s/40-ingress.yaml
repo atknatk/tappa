@@ -1,0 +1,119 @@
+# Tappa — TLS ingress (M8-02).
+#
+# 🔴 THIS HOSTNAME MUST NOT BE PROXIED BY CLOUDFLARE, AND THAT IS THE SINGLE MOST
+# CONSEQUENTIAL LINE IN THIS DIRECTORY. Measured 2026-08-15, before anything was
+# written:
+#
+#   $ dig +short tappa.everva.com.tr        → 104.21.72.109, 172.67.181.173
+#   $ dig +short NS everva.com.tr           → bryce.ns.cloudflare.com, magdalena...
+#   $ curl -sS -o /dev/null -D - https://argocd.everva.com.tr/
+#     server: cloudflare        cf-ray: a2b98ed718d0bc94-MXP
+#
+# everva.com.tr is on Cloudflare with a PROXIED WILDCARD: an invented subdomain
+# resolves to the same two Cloudflare addresses, so tappa.everva.com.tr already
+# answers today, through Cloudflare, before any record is created for it. Another
+# Ingress in this cluster (optiway-stg-api-ws) hashes on $http_cf_connecting_ip,
+# which is the same fact from the other side.
+#
+# WHY THAT BREAKS THIS PRODUCT SPECIFICALLY. ingress-nginx here runs with an EMPTY
+# ConfigMap (`kubectl -n ingress-nginx get cm ingress-nginx-controller -o
+# jsonpath='{.data}'` → empty), so use-forwarded-headers is at its default of false
+# and nginx SETS X-Forwarded-For to $remote_addr — discarding whatever the hop in
+# front wrote. With Cloudflare in front, $remote_addr is a Cloudflare edge address,
+# so:
+#
+#   - §5's proof of place (an IP match is 50 of 100 trust points) could never be
+#     true for anybody. Every tap would fall to GPS-only or to `flag`.
+#   - The panel's login budget is keyed by address (adminLoginWorkLimit = 120 per
+#     10 min, backlog T30). Every customer in the product would share one key.
+#   - And the mirror image of backlog T40: a venue configured with a Cloudflare
+#     range would make `ip_match=t` true for the entire internet, written into an
+#     immutable transactions row as "network proof of place".
+#
+# THE THREE WAYS OUT WERE WEIGHED AND ONLY ONE IS IN SCOPE:
+#   (a) DNS-only (grey cloud) for this host. Nothing shared changes, no third party
+#       is trusted for the client address, and the GDPR surface SHRINKS — routing
+#       employees' tap traffic (IP + GPS) through a US processor would add a
+#       sub-processor to the DPA that M8-02's Q23 criterion requires. CHOSEN.
+#   (b) Set use-forwarded-headers=true plus proxy-real-ip-cidr on the SHARED
+#       ingress-nginx ConfigMap. That changes the client-address handling of ~20
+#       other applications on this cluster, and if proxy-real-ip-cidr is wrong,
+#       anyone reaching the origin IP directly can forge XFF for all of them.
+#   (c) Read CF-Connecting-IP in the application. New code, and a header that is
+#       only trustworthy if the origin refuses non-Cloudflare traffic.
+#
+# ⚠️ HOW TO VERIFY (a) AFTER THE RECORD IS CREATED — one command, and it is not
+# optional, because this is a property nothing in the cluster will report:
+#   curl -sS -o /dev/null -D - https://tappa.everva.com.tr/ | grep -i 'cf-ray\|server'
+# A `cf-ray` header means the record is still proxied and proof-of-place is dead.
+#
+# ---------------------------------------------------------------------------
+# TLS AND HSTS (backlog T28), MEASURED RATHER THAN ASSUMED.
+#
+# T28 recorded that Strict-Transport-Security is set nowhere in the product's own
+# code (0 matches) and that where it belongs is a deployment decision. Measured on
+# this cluster, against the ORIGIN directly so the answer is the ingress's and not
+# Cloudflare's:
+#
+#   $ curl -sS -o /dev/null -D - -k --resolve argocd.everva.com.tr:443:144.76.158.60 \
+#         https://argocd.everva.com.tr/
+#     strict-transport-security: max-age=31536000; includeSubDomains
+#
+# So ingress-nginx already sends HSTS for every host it serves, at one year with
+# includeSubDomains, and this Ingress inherits it. Two things follow, and both are
+# stated because a header that arrives by inheritance is a header nobody owns:
+#
+#   - includeSubDomains here scopes to *.tappa.everva.com.tr, NOT to
+#     everva.com.tr — this Ingress cannot affect the apex or its siblings.
+#   - preload is NOT set and must not be set casually: it is submitted to a browser
+#     list and takes months to undo. Out of scope for M8-02.
+#   - HSTS is per-CONTROLLER (a ConfigMap option), not per-Ingress: there is no
+#     annotation here that could turn it off or on for this host alone, and snippet
+#     annotations are disabled by default in ingress-nginx ≥1.9. The application-side
+#     half of T28 — the product setting its own header so it does not depend on a
+#     shared controller's default — is therefore still open.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: tappa
+  namespace: tappa
+  labels:
+    app.kubernetes.io/name: tappa
+  annotations:
+    # cert-manager solves HTTP-01 against this host. Verified reachable: the origin
+    # answers on :80 directly (404 from the default backend, which is what an
+    # un-routed host should give), so the challenge path will route once the DNS
+    # record points here.
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    # 🔴 PLAIN HTTP IS NOT MERELY UNTIDY FOR THIS PRODUCT, IT IS BROKEN — and both
+    # halves were measured on 2026-08-15 (backlog T38 and T39):
+    #   T39  getCurrentPosition refuses a non-secure origin outright ("Only secure
+    #        origins are allowed", code 1 — no permission prompt at all), so GPS,
+    #        one of §5's four evidences, is silently absent and the only trace is
+    #        gps_lat IS NULL in the record.
+    #   T38  Sec-Fetch-* headers are withheld from non-secure origins, and the
+    #        panel's same-origin gate has no lenient mode, so NOBODY can sign in
+    #        over plain HTTP from anything but localhost.
+    # A redirect is what keeps a mistyped http:// link from producing either.
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    # Every request this product accepts is a form post or a small JSON body. The
+    # largest is a legal document body typed into /admin/legal.
+    nginx.ingress.kubernetes.io/proxy-body-size: "1m"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - tappa.everva.com.tr
+      secretName: tappa-tls
+  rules:
+    - host: tappa.everva.com.tr
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: tappa
+                port:
+                  name: http
