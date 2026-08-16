@@ -4,7 +4,21 @@
 > güncellenir ([README.md](README.md) → oturum protokolü, adım 6.4).
 > Görev kartlarına durum işareti konmaz.
 
-**Son güncelleme:** 2026-08-15 (11. oturum — **M7-04 KAPANDI · M7-05 DONE · M7-07 AÇILDI (Q02'ye bloke) · 🎉 M7 KULLANICI DIŞINDA BİTTİ · M8-01 DONE · migration YOK · sıradaki M8-02**)
+**Son güncelleme:** 2026-08-16 (11. oturum — 🟢 **ÜRÜN CANLI: https://tappa.everva.com.tr** · M8-02 yarım · repo **PUBLIC oldu (kullanıcı)** · T31 kapandı · sıradaki M8-02'nin kalanı)
+
+> 🟢 **ÜRÜN CANLIYA ÇIKTI — 2026-08-16, `1194e23`.** `https://tappa.everva.com.tr` → `/healthz` **`ok`**, `/readyz` **`ready`**, `/` pazarlama sayfası. TLS Let's Encrypt, DNS **gri bulut**, migration **version 20**, tek pod `1/1 Running`. Küme: k3s tek node, Hetzner fsn1, `144.76.158.60`.
+>
+> **Q08 ve Q12 KULLANICI TARAFINDAN CEVAPLANDI** (domain + barındırma), yani M8-02 bloke değil. **CI üç kez yeşil**; ilk koşu ~140 testi düşürdü ve sebebi `state.md`'nin sekiz oturumdur yazdığı şeydi (`make migrate` hiç koşmuyordu) — kapandı. **T31 de kapandı**: `go1.26.6` ile govulncheck temiz, **kod değişikliği olmadan**.
+>
+> 🔴 **AMA ÜÇ ŞEY ELLE HALLEDİLDİ VE KÜME ŞU AN "OLMASI GEREKEN" HÂLİNDE DEĞİL — backlog T41/T42/T43.** En ağırı **T41**: `NetworkPolicy` migration'ı kesiyor (etiket eşleşmesine rağmen; k3s **RST** gönderdiği için belirti `connection refused` ve *"Postgres hazır değil"* diye okunuyor — ilk teşhizim de oydu, yanlıştı). **Kural şu an kümede YOK, elle silindi**, yani Postgres'e küme içi erişim **kısıtsız**; ve `deploy.yml:300` onu **her koşuda yeniden uyguluyor**, yani sonraki deploy migration'ı **yine kesecek**. ⚠️ **Bu, M8-02 denetçisinin "doğrulanamadı" dediği tam maddeydi** — statik olarak doğruydu, uygulanınca kesti.
+>
+> 🔴 **VE REPO PUBLIC OLDU.** Kullanıcı paketleri public yapmaya çalışırken **repoyu** public yaptı (`gh repo view` → `PUBLIC`); paketler **hâlâ private** (anonim çekme 403), yani hedeflenen sonuç da olmadı. Baştaki kararı private'dı ve gerekçesi ölçülmüştü: repo `docs/backlog.md`'de **T1–T43**'ü, 16 ADR'yi ve her kabul edilmiş riskin gerekçesini taşıyor — **ürünün zayıflık haritası artık kamuya açık**. Geri alma tek komut (`gh repo edit --visibility private`), **kullanıcıya soruldu, cevap bekleniyor**. Bu arada çekme sorunu **başka türlü çözüldü**: deploy kendi `GITHUB_TOKEN`'ıyla `ghcr` sırrını yazıyor.
+>
+> 🔴 **VE ÜRÜNÜ İLK KEZ GERÇEKTEN ÇALIŞTIRMAK ÜÇ KUSUR BULDURDU — HİÇBİRİNİ HİÇBİR DENETİM BULAMAMIŞTI** (T38/T39/T40, hepsi 2026-08-15). Sebebi ortak: testler `httptest` ve `localhost` üzerinde koşuyor, yani **gerçek bir tarayıcının gerçek bir ağ üzerinden dayattığı kuralları hiç görmüyorlar**. **T38** — panelin origin kapısı, sayfanın kendi `<meta name="referrer" content="no-referrer">`'ı yüzünden `Origin: null` alıyor ve düz HTTP'de `Sec-Fetch-*` gelmediği için **localhost dışında hiç kimse giriş yapamıyor**. **T39** — aynı sebeple tarayıcı **konumu hiç vermiyor** (`isSecureContext=false`), yani §5'in dört kanıtından biri düşüyor. **İkisi de TLS ile kapandı** ve canlıda artık geçerli değil. **T40** — bir mekâna `0.0.0.0/0` verilebiliyor ve kayıt *"network proof of place"* diye yazıyor; **değişmez satırda yanlış bir kanıt beyanı**, hâlâ açık.
+>
+> **Bugün 12 commit.** M7-04 · M7-05 · M8-01 kapandı, ölçüm aracı onarıldı (`fadd9a7`), M8-02'nin paketleme yarısı çıktı, CI kuruldu. **`make check` exit 0**, **3507 PASS / 0 FAIL / 0 SKIP · 22 paket**.
+
+**Önceki güncelleme:** 2026-08-15 (11. oturum — **M7-04 KAPANDI · M7-05 DONE · M7-07 AÇILDI (Q02'ye bloke) · 🎉 M7 KULLANICI DIŞINDA BİTTİ · M8-01 DONE · migration YOK · sıradaki M8-02**)
 
 > **M8-01 DONE — 2026-08-15 (`4ddd11f`), 3 TUR / 0 RED.** Üçüncü göz **ONAY** + `tappa-security-auditor` **ONAY**. **M8 başladı: ürün artık paketlenebiliyor.**
 >
