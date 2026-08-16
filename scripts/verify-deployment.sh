@@ -4,9 +4,31 @@
 # Usage:
 #   scripts/verify-deployment.sh cloudflare [host]        default: tappa.everva.com.tr
 #   scripts/verify-deployment.sh db-role    [namespace]   default: tappa
-#   scripts/verify-deployment.sh pull-credential [namespace]   default: tappa
-#          ^ EVIDENCE ONLY -- prints timestamps, renders no verdict; exit 0 != "safe"
 #   scripts/verify-deployment.sh all        [host] [ns]
+#
+# 🔴 THE `pull-credential` MODE WAS REMOVED (M8-02 FAZ D). Its whole subject was
+# `secret/ghcr` -- it printed that Secret's managedFields timestamps beside the server
+# pods' start times so an operator could tell whether a running pod would survive a
+# restart under the kubelet's pull credential verification.
+#
+# WHY IT WENT, STATED AS A CONDITION RATHER THAN AS A FACT ABOUT TODAY -- because the
+# unconditional version of this paragraph was WRONG when it was written, and the file
+# it belongs to is the last place that should carry a stale claim:
+#
+#   ONCE a cluster pulls both images anonymously (a public repository, no
+#   imagePullSecrets), no credential is recorded, so nothing can expire or be
+#   overwritten and this mode would print "UNREADABLE -- no evidence printed" on every
+#   healthy cluster forever -- a diagnostic alarming about a condition that cannot
+#   arise, which is the shape this card keeps paying for.
+#
+#   WHILE a cluster still pulls with a credential, the condition IS live, and what this
+#   mode used to print has to be read by hand. deploy/README.md carries the two
+#   commands under "Olay müdahalesi" (secret/ghcr managedFields times vs server pod
+#   start times) and states the rule: a pod that started BEFORE the newest write cannot
+#   restart. The cure is a fresh, successful deploy.
+#
+# 🔴 WHICH OF THE TWO A GIVEN CLUSTER IS IN IS NOT ANSWERED HERE. The single record,
+# with the command that measures it, is deploy/README.md, "Elle deploy / rollback".
 #
 # 🔴 WHY THIS IS A FILE. Twice in this task a gate written directly into
 # .github/workflows/deploy.yml was wrong in a way that only running it could reveal:
@@ -17,7 +39,7 @@
 # embedded in YAML cannot have done to it. Same reasoning as scripts/verify-image.sh.
 set -euo pipefail
 
-mode=${1:?usage: verify-deployment.sh <cloudflare|pull-credential|db-role|all> [host] [namespace]}
+mode=${1:?usage: verify-deployment.sh <cloudflare|db-role|all> [host] [namespace]}
 
 # CF_OUTCOME records WHICH of the three things happened, because the return code
 # cannot: this gate returns 0 both when the host is clean AND when the name does not
@@ -159,119 +181,9 @@ check_db_role() {
   echo "db-role: every network connection to the database is tappa_app"
 }
 
-# secret/ghcr vs the running pods: EVIDENCE ONLY. This renders NO VERDICT, and that
-# is the finding of four review rounds rather than a design preference.
-#
-# 🔴 WHY THERE IS NO "ok" HERE ANY MORE. This check was written three times and was
-# wrong three times, always in the same shape -- it answered "safe" on a path nobody
-# had exercised:
-#   v1  `[ "$a" \> "$b" ]`; zsh rejects it ("condition expected: >"), the failed test
-#       fell through to else, and an AT-RISK cluster was reported ok.
-#   v2  sort/tail; with secret/ghcr ABSENT the empty value made the equality test
-#       fail and it printed ok -- for a state WORSE than at-risk. It also inverted on
-#       unequal precision (…44Z vs …44.500Z: '.' sorts below 'Z').
-#   v3  claimed to be "fail-closed by construction" and was falsified forty lines
-#       below that sentence: an unparseable managedFields entry was SILENTLY SKIPPED
-#       (`continue`), so when the NEWEST entry was the unreadable one an older stamp
-#       won and an at-risk cluster came out ok. A second channel: the normaliser took
-#       the first fourteen digits, so `2026-08-16T09:00:00+02:00` (= 07:00Z) was read
-#       as 09:00 and inverted the answer again.
-#
-# So the second stopping rule in docs/plan/agent-brief.md applies: "Yeni kanal
-# KAPATILMAZ, sayılır ... Bir noktadan sonra her koruma bir sonraki turda yeniliyorsa:
-# kapatmayı bırak, dürüstçe LİMİT olarak yaz. Sayılmış bir açık, kapatıldığı İDDİA
-# EDİLEN bir açıktan güvenlidir." Three renewals of the same protection is past that
-# point. The verdict is therefore REMOVED rather than repaired a fourth time.
-#
-# WHAT THAT BUYS, AND WHY IT IS NOT A RETREAT. The dangerous output was never the
-# timestamps, it was the word "ok": a wrong verdict makes an operator STOP LOOKING.
-# The comparison itself is one glance once both stamps are on screen in the same
-# form. And the correctness claim for this version is MECHANICAL rather than argued --
-# `grep -c` on the function shows zero paths that can emit a safety verdict, which is
-# the property the previous three versions each claimed by reasoning and lost.
-#
-# This is not wired into deploy.yml and must not be: after the Secret is rewritten,
-# any pod predating it is legitimately "at risk" until the rollout replaces it, so a
-# gate here would fail healthy deploys.
-#
-#   exit 0  both readings succeeded and are printed below -- NOT a statement of safety
-#   exit 2  something could not be read, so no evidence is printed at all
-report_pull_credential() {
-  local ns=${1:-tappa}
-  # Kubernetes serialises metav1.Time as RFC3339 in UTC. Anything else is refused
-  # rather than normalised -- v3's normaliser silently accepted a +02:00 offset and
-  # read it as UTC. Refusing is the only handling that cannot be subtly wrong.
-  local stamp_re='^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?Z$'
-  local fail="::error::pull-credential: UNREADABLE -- no evidence printed. This is NOT a clean result."
-
-  local markers entries_n secret_rows pods_rows line mgr t name start
-  # 🔴 STDERR IS DISCARDED, NOT CAPTURED AND ECHOED, AND THAT IS A §4.7 FIX RATHER
-  # THAN TIDYING. kubectl's jsonpath writer dumps THE WHOLE OBJECT to stderr when a
-  # template fails to execute -- measured on a harmless ConfigMap so that no Secret
-  # was touched:
-  #   $ kubectl -n tappa get configmap kube-root-ca.crt -o jsonpath='{.data[0]}'
-  #   error: ... Printing more information for debugging the template:
-  #     object given to jsonpath engine was:
-  #       map[...]{"apiVersion":"v1", "data":map[...]{"ca.crt":"-----BEGIN CERT...
-  # For secret/ghcr that payload is .dockerconfigjson -- the live pull token. Echoing
-  # a captured stderr would therefore break the rule deploy.yml states two hundred
-  # lines away: "Report the SHAPE and never the value". The operator loses nothing:
-  # re-running the same kubectl by hand prints the real error to a terminal, which is
-  # not a CI log. Reachability was NOT proven (a real Secret's managedFields is always
-  # an array, so the type mismatch that triggers the dump is not obviously reachable)
-  # -- but the durable fix in deploy/README.md is a long-lived read:packages PAT, and
-  # on that day this channel would carry a LIVING credential instead of a job token.
-  markers=$(kubectl -n "$ns" get secret ghcr \
-              -o jsonpath='{range .metadata.managedFields[*]}{"x"}{end}' 2>/dev/null) || {
-    echo "$fail Cannot read secret/ghcr in ns/$ns. Re-run that kubectl yourself to see why; its stderr is deliberately not reproduced here." >&2; return 2; }
-  entries_n=${#markers}
-  [[ $entries_n -gt 0 ]] || { echo "$fail secret/ghcr has no managedFields entries in ns/$ns." >&2; return 2; }
-
-  # One line per entry, tab-separated, so an entry whose .time is MISSING still
-  # produces a line and cannot vanish the way v3's word-splitting let it.
-  secret_rows=$(kubectl -n "$ns" get secret ghcr \
-                  -o jsonpath='{range .metadata.managedFields[*]}{.manager}{"\t"}{.time}{"\n"}{end}' 2>/dev/null) || {
-    echo "$fail Cannot read secret/ghcr managedFields in ns/$ns. Re-run that kubectl yourself; stderr is not reproduced here (see above)." >&2; return 2; }
-  [[ $(printf '%s\n' "$secret_rows" | grep -c '' ) -eq $entries_n ]] || {
-    echo "$fail secret/ghcr returned $entries_n managedFields entries but a different number of rows." >&2; return 2; }
-  while IFS=$'\t' read -r mgr t; do
-    [[ $t =~ $stamp_re ]] || {
-      echo "$fail secret/ghcr managedFields entry '${mgr:-<no manager>}' has an unusable time '${t:-<empty>}'." >&2; return 2; }
-  done <<< "$secret_rows"
-
-  pods_rows=$(kubectl -n "$ns" get pod -l app.kubernetes.io/component=server \
-                -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.status.startTime}{"\n"}{end}' 2>/dev/null) || {
-    echo "$fail Cannot list server pods in ns/$ns. Re-run that kubectl yourself; stderr is not reproduced here. A pod object carries no Secret VALUES, but this file keeps ONE rule for captured stderr rather than two." >&2; return 2; }
-  pods_rows=$(printf '%s\n' "$pods_rows" | sed '/^[[:space:]]*$/d')
-  [[ -n $pods_rows ]] || { echo "$fail No pod carries app.kubernetes.io/component=server in ns/$ns." >&2; return 2; }
-  while IFS=$'\t' read -r name start; do
-    [[ -n $name ]] || { echo "$fail A pod row has an empty name." >&2; return 2; }
-    [[ $start =~ $stamp_re ]] || {
-      echo "$fail Pod '$name' has an unusable startTime '${start:-<empty>}'." >&2; return 2; }
-  done <<< "$pods_rows"
-
-  echo "secret/ghcr writes in ns/$ns ($entries_n managedFields entries):"
-  while IFS=$'\t' read -r mgr t; do printf '    %s  by %s\n' "$t" "$mgr"; done <<< "$secret_rows"
-  echo "server pods in ns/$ns:"
-  while IFS=$'\t' read -r name start; do printf '    %s  %s\n' "$start" "$name"; done <<< "$pods_rows"
-  cat <<'RULE'
-Read it yourself -- this command does not decide for you:
-  a pod whose start time is EARLIER than the LATEST secret/ghcr write pulled its
-  image with a credential the Secret no longer holds. On this cluster the kubelet
-  re-verifies pull credentials, so that pod CANNOT RESTART: it would re-pull with a
-  revoked token and land in ImagePullBackOff. The cure is a fresh, successful deploy.
-  All times above are UTC and in one format; anything else is refused above.
-  Background: deploy/README.md, accepted limit "[GHCR çekme kimliği ömürlü]".
-RULE
-}
-
 case $mode in
   cloudflare)      check_cloudflare       "${2:-}" ;;
   db-role)         check_db_role          "${2:-}" ;;
-  # NOT part of `all`, and the omission is deliberate: `all` runs GATES (pass/fail),
-  # and this one renders no verdict -- see the block above it. Putting a report under
-  # a name that means "every gate ran" would promise an assurance it does not give.
-  pull-credential) report_pull_credential "${2:-}" ;;
   # 🔴 BOTH GATES RUN, ALWAYS, AND THE RESULTS ARE COLLECTED. The previous spelling
   # was `check_cloudflare ...; check_db_role ...` under `set -e`, which meant a
   # failing FIRST gate skipped the second entirely -- measured: with a proxied host
@@ -303,5 +215,5 @@ case $mode in
     if [[ $cfw == VIOLATION || $db -eq 1 ]]; then exit 1; fi
     if [[ $cfw == UNCHECKED || $db -ne 0 ]]; then exit 2; fi
     ;;
-  *) echo "unknown mode: $mode (expected cloudflare, db-role, pull-credential or all)" >&2; exit 2 ;;
+  *) echo "unknown mode: $mode (expected cloudflare, db-role or all)" >&2; exit 2 ;;
 esac

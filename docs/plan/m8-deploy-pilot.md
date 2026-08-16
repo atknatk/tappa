@@ -1072,6 +1072,583 @@ tablosu çıkmış durumda (satış slaytı da olur).
 > (açılışta hemen DB'ye bağlan, başarısızsa çık) ama **goose ikilisinin kendisini
 > kanıtlamıyor** — o zaten 2026-08-15'te kural silindiğinde 20 migration'ı geçmişti.
 > `40-ingress.yaml` kum havuzunda **uygulanmadı** (canlı host ile çakışırdı).
+>
+> ---
+>
+> **KART DÜZELTMESİ (2026-08-16, FAZ D — "deploy YOLU doğru olsun"): T44 KAPANDI,
+> T43 KÖKÜNDEN KALDIRILDI, VE BU BLOK YUKARIDAKİ ÜÇ CÜMLEYİ ADIYLA İPTAL EDİYOR.**
+> Değişen dosyalar: **yeni** `deploy/k8s/01-rbac.yaml` · `.github/workflows/deploy.yml` ·
+> `deploy/k8s/{20-app,30-migrate-job}.yaml` · `deploy/README.md` ·
+> `scripts/verify-deployment.sh` · `Dockerfile` (yalnız başlık yorumu). **Go kodu
+> değişmedi** (`git status --short` → 0 adet `.go`), `ci.yml` **değişmedi**. Canlı ürün
+> üç ayrı anda ölçüldü: `/healthz` **200**, `/readyz` **200**. Küme mutasyonu yalnız
+> kum havuzu `tappa-verify`'de yapıldı ve namespace iş sonunda **silindi** (artık
+> kalıntı: `ns` → NotFound, `clusterrole|clusterrolebinding` eşleşmesi **0**);
+> `ns/tappa`'ya hiçbir yazma yapılmadı.
+>
+> **İŞ 1 — T44: RBAC ARTIK BİR DOSYA, VE ÖLÇEREK DARALTILDI.**
+> Elle yaratılmış (yalnız kümede yaşayan) beş nesne repoya alındı. ⚠️ **Orkestratörün
+> ölçümü eksikti ve düzeltiliyor: üç değil BEŞ nesne var** — brief `Role`, `RoleBinding`
+> ve `ServiceAccount`'u sayıyordu; kümede ayrıca `ClusterRole/tappa-namespace-only` ve
+> onun `ClusterRoleBinding`'i de vardı (`namespaces`, `resourceNames: [tappa]`,
+> `get,patch,update`). Beşi de `01-rbac.yaml`'a girdi.
+>
+> **Daraltma, satır satır ve ölçümle.** Yöntem: kum havuzunda **yalnız önerilen
+> kurallara** bağlı bir ServiceAccount yaratıldı ve `deploy.yml`'in küme çağrıları
+> o kimlikle (`--as=...`) baştan sona koşuldu.
+> ⚠️ **Burada bir tur boyunca *"deploy.yml'in on beş küme çağrısı"* yazdı ve bu iki
+> şeyi karıştırıyordu.** **15**, benim prova betiğimde numaralandırdığım **adım
+> sayısıydı** (`01`…`15`), `deploy.yml`'in çağrı sayısı değil. Doğru sayı, yöntemiyle
+> birlikte: her `run:` gövdesi ayrıştırılıp yorumlar atılarak, **API sunucusuna giden**
+> `kubectl` çağrıları sayıldı — `kubectl version --client`, `kubectl config
+> current-context` ve `--dry-run=client` ile yerelde render edilenler **hariç**;
+> `verify-deployment.sh db-role`'un `exec`'i **dahil**. Sonuç **19**: adım 14→2 ·
+> 15→5 · 16→5 · 17→3 · 18→1 · 19→3. (Bağımsız denetçi de aynı 19'u saydı.) Prova
+> betiğinin 15 adımı bu 19 çağrının **hepsinin şeklini** kapsıyordu — bir `for`
+> döngüsündeki iki `logs` çağrısı ve iki `get job` yoklaması provada birer kez
+> koşuldu — ama *"on beş çağrı"* demek yanlıştı. Kaldırılanlar ve *neden gerekmediği*:
+>
+> | Çıkarılan | Neden — hangi adım istemiyor |
+> |---|---|
+> | `secrets` create/update/patch/delete/**list**/watch | Secret yazan adım (**"Write the GHCR pull credential"**) kalktı; geriye tek varlık kontrolü kaldı → `get` + `resourceNames: [tappa-secrets]`. Ölçüm: `get tappa-secrets` → NotFound (yetkili) · `get some-other-secret` → **Forbidden** · `get secrets` (list) → **Forbidden** |
+> | `pods` create/update/patch/watch/**get** | Hiçbir adım Pod yaratmıyor (Pod'ları denetleyiciler yaratır, kendi kimlikleriyle). `get` de gereksiz çıktı: `logs job/…`, `exec statefulset/…` ve `get pods` **üçü de LIST üzerinden** çözüyor — yalnız `list` bırakılıp üçü de koşturuldu, üçü de exit 0 |
+> | `pods` **delete** | Onu kullanan adım (takılmış-pod kurtarma) kalktı. `delete job --wait=true` yine de çalışıyor: Job'ın pod'larını **çöp toplayıcı** siliyor (ölçüldü, kimlikte pod-delete yokken exit 0) |
+> | `persistentvolumeclaims` (yedi fiil) | PVC `volumeClaimTemplates`'ten doğar, statefulset denetleyicisi yaratır. Kum havuzunun StatefulSet'i volumeClaimTemplate taşıyordu ve **hiç PVC yetkisi olmadan** uygulandı |
+> | `serviceaccounts` (yedi fiil) | `deploy.yml` hiçbir ServiceAccount'a dokunmuyor |
+> | `events` (yedi fiil) | Hiçbir adım event okumuyor; `kubectl describe` dosyada **geçmiyor** |
+> | `replicasets` (yedi fiil) | `rollout history`/`undo` içindir, ikisi de iş akışında yok. `rollout status deployment` ve `logs deployment/…` **replicaset yetkisi olmadan** koştu |
+> | `deployments/status`, `statefulsets/status` | Status alt kaynağını denetleyiciler yazar; `rollout status` `.status`'ü **ana kaynaktan** okur |
+> | `external-secrets.io/externalsecrets` | `deploy/examples/externalsecret.example.yaml` **örnektir**; `deploy.yml` yalnız `deploy/k8s/` altındaki adlı dosyaları uyguluyor ve hiçbiri ExternalSecret değil |
+> | `jobs` **patch** | Migration adımı Job'ı **önce siliyor** (`--wait=true`), yani apply daima `create`. Kaldırmanın bedeli ölçüldü ve **sonucu değiştirmiyor**: Job silinemeden kalmışsa `patch`'siz *"cannot patch resource jobs"* (exit 1), `patch`'liyse API'nin *"spec.template … is immutable"*'ı (exit 1) |
+> | `namespaces` **create** | Namespace operatörün (RBAC onun içine giriyor). `deploy.yml` 00-namespace.yaml'ı **var olan** nesneye yamalıyor |
+>
+> **Bırakılan her yetkinin sahibi bir adım var** ve dosyada her kuralın üstünde adıyla
+> yazılı. İkisi kolay kaçırılıyor, o yüzden burada da:
+> **(1) `apps` üzerinde `watch` ZORUNLU ve yokluğu FAIL-OPEN.** Üç ölçüm, sağlıklı ve
+> bitmiş bir rollout üstünde: `get,create,patch` → `rollout status` **exit 1, "timed out
+> waiting for the condition"** (sağlıklı deployment'ta!) · `get,list,create,patch` →
+> **exit 0 ama** stderr'de `Failed to watch … is forbidden` — yani **hiçbir şey
+> izlemeden** ilk LIST ile "başarılı" dedi · `get,list,watch,create,patch` → exit 0,
+> gerçek. Ortadaki satır tehlikeli olan.
+> **(2) `namespaces` üzerinde `patch` ZORUNLU, ve saf test bunu GİZLİYOR.** Değişmemiş
+> bir `00-namespace.yaml`'ı yalnız `get` ile apply etmek **"unchanged", exit 0** verir
+> (kubectl boş yama hesaplayıp hiç göndermez). Gerçekten değişen bir etiketle: `get`
+> tek başına **exit 1**, `get,patch` → **"configured", exit 0**.
+>
+> **`pods/exec` KARARI — ölçümle verildi, ve verilen karar (i)'dir.**
+> Kapı doğduğu günden beri **hiç koşmamıştı**: `pods/exec` ayrı bir alt kaynak ve elle
+> yazılmış rolde yoktu; önceki her deploy migration'da düştüğü için 19. adıma hiç
+> ulaşılmamıştı. **Elenen (ii) — kapıyı exec'siz yeniden yazmak:** hiçbir yetki
+> kaldırmıyor (kimlik zaten `jobs: create` taşıyor, migration'ın kendisi budur) ve
+> bedeli somut: iş akışının içinde yazılmış yeni bir pod spec'i, veritabanı parolasının
+> **CI'ın yazdığı bir manifestten** geçmesi (bugün olmayan **yeni** bir §4.7 kanalı —
+> exec biçimi `PGPASSWORD`'ü Postgres konteynerinin **kendi ortamından** okuyor ve ona
+> hiç dokunmuyor), bir bekleme döngüsü, log okuma ve temizlik: **beş RED'i kabuk
+> dalları yüzünden almış** bir dosyada ~40 satır yeni kabuk. **Seçilen (i)** ama
+> `resourceNames: ["tappa-postgres-0"]` ile: exec **tek pod adına** kilitli. Ölçüldü:
+> `exec statefulset/tappa-postgres` → **exit 0**; `exec deployment/tappa` →
+> **Forbidden** — yani `TAPPA_TAG_KEK`'i ortamında taşıyan uygulama pod'una kabuk
+> **yok**. Set ölçeklenirse yeni ordinal reddedilir ve kapı **fail-closed** olur.
+>
+> 🔴 **MARJİNAL-YETKİ ARGÜMANI HİSSİYAT DEĞİL, UÇTAN UCA ÖLÇÜLDÜ — ve sonucu bir
+> SINIR olarak yazıldı.** Kum havuzunda, **yalnız** daraltılmış kurallara bağlı
+> kimlikle: `secretKeyRef` ile bir Secret'a bakan bir `Job` yaratıldı ve o Secret'ın
+> değeri `pods/log` üzerinden **okundu** — üstelik aynı kimlik o Secret'ı
+> **listeleyemiyor**. Yani bir Job'ın pod şablonu kendi namespace'indeki her Secret'a
+> referans verebiliyor (bu referansın RBAC'i yok, kubelet çözüyor) ve deploy,
+> başarısız migration'ı raporlamak için o logu okumak **zorunda**. **Sonuç:
+> `secrets: get` (tek isim) ve `pods/exec: create` (tek pod) yeni bir erişim
+> AÇMIYOR;** daraltmanın kazandırdığı, yıkıcı yarının kalkmasıdır — kimlik artık
+> `tappa-secrets`'ı yaratamaz, ezemez, silemez, yani **yeniden üretilemeyen** tek
+> değeri yok edemez. `deploy/README.md` sınır
+> **[deploy kimliği namespace'in sırlarını okuyabilir]**.
+>
+> 🔴 **VE BU TURUN KENDİ ÖLÇÜM TUZAĞI, DEFTERE:** `kubectl auth can-i` **alt
+> kaynakları görmüyor** ve "yes" diyor. `can-i create pods/exec` → **yes** ·
+> `pods/portforward` → **yes** · **`pods/nonsense` → yes** (kontrol: öyle bir alt
+> kaynak yok). Doğrusu `can-i create pods --subresource=exec` → **no**, kontrolü
+> `--subresource=nonsense` → **no**. İlk ölçümüm eğik çizgili biçimdeydi ve *"yetki
+> zaten var"* diyordu — kontrol sorusu olmasa **yanlış bir sonuca** varacaktım. Bu
+> yüzden `deploy.yml`'e `auth can-i` ön kontrolü **eklenmedi** (README sınır
+> **[`kubectl auth can-i` alt kaynakları GÖRMÜYOR]**); yokluğun teşhisi bunun yerine
+> ilk küme çağrısının **mesajına** kondu (namespace apply'ı artık düşerse
+> `01-rbac.yaml`'ı adıyla söylüyor). ⚠️ Kural değiştirmek deploy'un yetkisinde
+> **değil** ve öyle kalıyor: bu dosya **operatörün**, `tappa-secrets` gibi.
+>
+> **İŞ 2 — T43 KÖKÜNDEN KALKTI: DOCKER HUB, PUBLIC.**
+> FAZ C'nin **ayırt edici kontrolü** zaten cevaptı: **public** imaj + `imagePullPolicy:
+> Never` → **düğüm önbelleğinden açıldı, exit 0**, oysa private imaj kimlik yokken
+> **401**. Public depoda **kaydedilecek kimlik yoktur**, yani KEP-2535 kusuru tanım
+> gereği oluşamaz. Kazanılanlar tek tek: *"Write the GHCR pull credential"* adımı
+> **tamamen kalktı** (bir Secret yaratma yolu daha az, §4.7) · iki pod spec'inden
+> `imagePullSecrets` **kalktı** (render edilmiş spec'lerde alan **ABSENT**) ·
+> `secret/ghcr` yok → bayat kimlik penceresi yok, `kubectl rollout undo` **401
+> almıyor** · `permissions: packages: write` **kalktı** · `:main` etiketi artık
+> **build de push da edilmiyor** (hiçbir şey referans etmiyordu; public bir registry'de
+> hareketli etiket, reponun kendi adını koyduğu kusur sınıfı).
+> **Takılmış-pod kurtarma adımı: ÖLÇÜLDÜ, GEREKMİYOR, KALDIRILDI.** Adımın yazılı
+> öncülü *"sır tazelendi ama kubelet'in geri çekilme aralığı büyüdü"*ydü; sır yoksa o
+> pencere de yok. Kalan `ImagePullBackOff` sebepleri (depo private kalmış · `429` ·
+> etiket yok) bu adımla **düzelmiyor** ve zaten adım `apply`'lardan **önce** koştuğu
+> için yalnız **önceki** deploy'un pod'larını görüyordu — yeni sha zaten yeni bir
+> ReplicaSet ve yeni bir pod demek. Premisi yanlış olan **yıkıcı** bir adımı tutmak
+> kartın imza kusuru olurdu. Bununla birlikte README sınırı
+> **[kurtarma adımı kubectl'e bağlı ve FAIL-CLOSED]** de kalktı.
+> **`scripts/verify-deployment.sh pull-credential` de kaldırıldı** — konusu var olmayan
+> bir Secret'tı, yani her sağlıklı kümede *"UNREADABLE"* basacaktı: var olmayan bir
+> arıza hakkında alarm. `cloudflare` ve `db-role` modlarının sözleşmeleri
+> **değişmedi**.
+> ⚠️ **YERİNE GEÇEN SAYILMIŞ SINIR:** Docker Hub anonim çekme bütçesi
+> (`x-ratelimit-limit: 100;w=3600`, IP başına) artık **ürün imajlarını da** kapsıyor →
+> README sınır **[Docker Hub anonim çekme bütçesi]**.
+>
+> **🔴 BU BLOK ÜÇ CÜMLEYİ ADIYLA İPTAL EDİYOR** (kartın iki yerinde çelişik metin
+> kalmasın):
+> 1. FAZ C'nin *"Hafifletme (çare değil): `deploy.yml`'e **Recover pods stuck on a
+>    stale pull credential** adımı"* cümlesi — **o adım artık YOK**. FAZ C'de doğruydu
+>    ve orada doğru kalıyor; bugünkü dosyayı tarif etmiyor.
+> 2. FAZ C'nin *"`verify-deployment.sh pull-credential` iki damgayı kanıt olarak
+>    basıyor"* cümlesi — **o mod artık YOK**.
+> 3. T43'ün *"kalıcı çare hâlâ kullanıcının: paketleri public yap ya da `read:packages`
+>    PAT"* cümlesi — **çare uygulandı, ama GHCR'da değil**: GHCR görünürlüğünün API'si
+>    yok (üç kez ölçüldü: `PATCH /user/packages/container/tappa` → **404**;
+>    `gh api /user/packages/container/tappa` → **403**) ve kullanıcı arayüzden iki kez
+>    denedi. Kullanıcı kararı **Docker Hub public** oldu; AWS ECR elendi (private ECR
+>    aynı kimlik sorununu dönen bir IAM token'ıyla geri getirir, ECR Public yalnız
+>    `us-east-1`'den push kabul eder ve bir AWS hesabı ister).
+> 🔴 **EMEKLİ EDİLEN İKİ SINIR ANAHTARI — grep'in bir yere düşmesi için burada.**
+> `deploy/README.md`'nin sınır listesinde artık **YOK**: **[GHCR çekme kimliği
+> ömürlü]** (yerine → **[Docker Hub anonim çekme bütçesi]**, aynı 12. sırada) ve
+> **[kurtarma adımı kubectl'e bağlı ve FAIL-CLOSED]** (tarif ettiği adım silindi;
+> madde kaldırıldı, liste `1..17` ardışık kaldı). Bu defterin **yukarıdaki FAZ C
+> blokları** ikisini de hâlâ adıyla anıyor ve **öyle kalıyor** — onlar tarihli
+> kayıtlar ve yazıldıkları gün doğruydular; bugünkü listeyi tarif etmiyorlar. Yeni
+> eklenenler: **[deploy kimliği namespace'in sırlarını okuyabilir]** (16),
+> **[`kubectl auth can-i` alt kaynakları GÖRMÜYOR]** (17); 8. madde
+> **[kubeconfig'in kimliği doğrulanmadı]** adını kazandı.
+>
+> **DEĞİŞMEYENLER, açıkça:** ölçülmüş karar #2 (**migration `Job`, initContainer
+> değil**) ayakta — `DATABASE_MIGRATE_URL` uygulama pod'unun spec'inde **yok**
+> (render edilmiş spec'te env anahtarları: `DATABASE_URL`, `TAPPA_SESSION_HMAC_KEY`,
+> `TAPPA_TAG_KEK`, `TAPPA_INVITE_HMAC_KEY`), sır **anahtar anahtar** veriliyor
+> (`envFrom: secretRef` **yok**); değişmez `sha-<12hex>` etiketi **tek** etiket;
+> `verify-image.sh`'in **iki kapısı da** push'tan **önce** çağrılıyor (adım 7, 8 →
+> adım 9); `wait-for-postgres` initContainer'ları ve `12-networkpolicy.yaml`
+> **aynen** duruyor (`git diff --stat deploy/k8s/12-networkpolicy.yaml` → boş).
+>
+> 🔴 **KULLANICI EYLEMİ GEREKİYOR — üç madde, deploy bunlarsız koşmaz:**
+> **(a)** `deploy/k8s/00-namespace.yaml` + `deploy/k8s/01-rbac.yaml`'ı **cluster-admin**
+> kubeconfig ile bir kez `apply` et (deploy kendi rolünü değiştiremez — ve bu doğru).
+> **(b)** GitHub deposuna **`DOCKERHUB_USERNAME`** ve **`DOCKERHUB_TOKEN`** secret'ları
+> (Docker Hub → Account Settings → Personal access tokens, **Read & Write**). Ajan
+> bunları **oluşturamaz** ve denemedi; bugün depoda **yalnız `KUBE_CONFIG`** var
+> (`gh secret list` ile ölçüldü).
+> **(c)** İlk push'tan sonra `atknatk/tappa` ve `atknatk/tappa-migrate` depolarını
+> Docker Hub'da **Public** yap — ilk push depoyu **private** yaratır ve private kalırsa
+> KEP-2535 kusuru olduğu gibi geri gelir.
+> ⚠️ **Secret yokluğu yolu ölçüldü:** tanımsız bir GitHub secret'ı **boş dizeye**
+> dönüşür, hata vermez; `docker login` o değerle **rc=1** ve `username is empty` /
+> `password is empty` diyor — hangi secret'ın eksik olduğunu da nereden alınacağını da
+> **söylemiyor**. Bu yüzden iş akışının **birinci** adımı ikisini de sayıyor ve eksikse
+> **hiçbir şey inşa etmeden** duruyor. Sekiz dejenere girdi koşuldu (ikisi de tanımsız ·
+> ikisi de boş · yalnız biri · **tek boşluk** · **sekme+satırsonu** · sondaki satırsonu ·
+> ikisi de dolu) → **altısı exit 1 ve adıyla mesaj, ikisi exit 0**.
+>
+> **🔴 [FAZ D · 2026-08-16] 2. TUR — YENİ ÜÇÜNCÜ GÖZ RED. BİR SAYI YANLIŞTI, VE ASIL
+> İŞ BİR GARANTİYE MEKANİZMA VERMEKTİ.**
+>
+> **B1 (bloklayan) — `deploy/README.md`'de ÖLÇÜLMÜŞ BİR SAYI YANLIŞTI, ve aynı
+> cümlede ikinci kez.** *"14 nesne … ve **beşi küme kapsamlı RBAC**"* yazmıştım.
+> `kubectl api-resources`'ın kendi kapsam alanıyla ölçüldü: **14 nesnenin 3'ü** küme
+> kapsamlı (`Namespace/tappa`, `ClusterRole/tappa-namespace-only`,
+> `ClusterRoleBinding/tappa-namespace-only`); `01-rbac.yaml`'ın getirdiği **beş**
+> nesnenin **yalnız ikisi** küme kapsamlı, **dördü** `rbac.authorization.k8s.io/v1`
+> grubunda ve `ServiceAccount` düz `v1`. *"Beş yeni nesne"* ile *"beş küme-kapsamlı
+> nesne"* birbirine karışmıştı. ⚠️ **Kusurun ağırlığı sayıda değil yerinde:** o
+> paragrafın **var olma sebebi** bir önceki yanlış sayıydı (2026-08-15 denetimi), yani
+> aynı hata aynı paragrafta tekrarlandı. Düzeltildi ve gerekçesi paragrafın içine
+> ölçümüyle yazıldı.
+>
+> **B2 — MEKANİZMASI OLMAYAN GARANTİYE MEKANİZMA VERİLDİ: yeni kapı,
+> *"Gate — both images must be pullable with NO credential"*.** Denetçi ölçtü:
+> `hub.docker.com/v2/repositories/atknatk/tappa/` → **404**, `…/tappa-migrate/` →
+> **404** — **iki depo da yok**, yani ilk push ikisini de **private** yaratacak ve
+> KEP-2535 kusuru aynen geri gelecekti. Bugünkü hâl **fail-closed**'du (migration
+> pod'u `ImagePullBackOff`'a düşer, `.status.failed` artmaz, anket 600 sn'yi harcar,
+> `rollout`'a hiç varılmaz) ama benim raporumda *"önce Public yarat"* diye
+> **kullanıcıya talimat** olarak duruyordu — kartın imza kusuru. Artık kapı: push'tan
+> hemen sonra, `kubectl` kurulmadan **önce**, iki imaj da **kimliksiz** çekilebiliyor
+> mu diye bakılıyor.
+> **Anonimlik `docker logout` ile DEĞİL, `DOCKER_CONFIG`'i boş bir dizine çevirerek
+> sağlandı** — ve gerekçesi ölçüm: bu makinede `~/.docker/config.json` →
+> `credsStore: desktop`, yani `logout` bir *credential helper* üzerinden gider ve
+> runner'daki düz dosya davranışını **temsil etmez**. **Ayırt edici kontrol:** boş
+> `DOCKER_CONFIG` + `library/postgres:17-alpine` → **rc 0**; **uydurma** bir docker.io
+> kimliği taşıyan `DOCKER_CONFIG` + aynı imaj → **rc 1, `unauthorized: incorrect
+> username or password`**. İkincisi olmasa birincinin anonim olduğu kanıtlanamazdı.
+> Kapının docker'a verdiği dizin doğrudan basıldı: `entries=[]`.
+> **Dejenere yol sayımı — 10 hücre, YALNIZ BİRİ GEÇİYOR:** depo yok ×2 (bugünkü
+> gerçek hedefler) → **rc 1, 2 hata** · public depo/etiket yok → **rc 1, 2** · registry
+> ulaşılamıyor (DNS) → **rc 1, 2** · `docker` ikilisi yok (coreutils var) → **rc 1, 2**
+> · **ikisi de çekilebiliyor → rc 0, 2 ok** · biri OK biri `denied` → **rc 1, 1 hata +
+> 1 ok** (atıf doğru) · `429 toomanyrequests` → **rc 1, 2** · sessizce düşüyor → **rc
+> 1, 2** · **çıkış 0 ama HİÇ çıktı yok → rc 1, 2** · çıkış 0 ama manifest olmayan
+> çıktı → **rc 1, 2**. Yani **1 geçer, 9 fail-closed, 0 fail-open**.
+> 🔴 **VE SONDAN İKİNCİ HÜCRE İLK TASLAKTA FAIL-OPEN'DI — kendi matrisim yakaladı.**
+> Kapı yalnız çıkış koduna bakıyordu; sıfır dönüp **hiçbir şey basmayan** bir istemci
+> *"anonymous pull OK"* diye geçiyordu: reponun adını koyduğu tuzağın en saf hâli
+> (*sağlıklı cevap ile BOŞ cevap aynı şey değildir*). Kapı artık **kanıta** bakıyor —
+> çıktı `"schemaVersion"` taşımak zorunda; üç public referansta ölçüldü
+> (`postgres:17-alpine`, `alpine:3`, `hello-world:latest` → rc 0, 5000–6339 bayt, üçünde
+> de var). Taşımazsa **fail-closed**.
+> ⚠️ **Bu turda kendi ölçüm harnessimde iki hata yaptım, ikisi de deftere:**
+> (a) ilk matriste *"her ikisi de PUBLIC"* diye etiketlediğim hücre aslında *"public
+> depo, etiket yok"*tu — kapı `"$IMAGE:sha-$SHORT"` kuruyor ve hiçbir public deponun
+> `sha-x` diye bir etiketi yok, yani **yanlış hücreyi ölçüp doğru sandım**; stub'la
+> ayrıca koşuldu. (b) *"docker ikilisi yok"*u `PATH=/nonexistent` ile denedim ve
+> `mktemp` de kayboldu, yani ölçtüğüm şey docker'ın yokluğu değil coreutils'in
+> yokluğuydu (rc 127, çıktı yok); coreutils'i sembolik bağlarla koruyan bir PATH ile
+> yeniden koşuldu → **rc 1, 2 adlandırılmış hata**.
+> (c) 🔴 **VE ÜÇÜNCÜSÜ SINIFIN TAM ORTASINDAN: sarkan-atıf TARAYICIM FAIL-OPEN'DI.**
+> Üç alternatifli bir regex yazıp `k = m.group(1) or m.group(2)` diye okuyordum ve
+> `if not k: continue` ile devam ediyordum — yani **üçüncü** gruba düşen her eşleşme
+> sessizce atlanıyordu. Tarayıcı *"sarkan atıf = 0"* diyordu; aynı dosyayı tek
+> parça okuyan düzeltilmiş sürüm `deploy.yml`'in hata mesajındaki
+> **ASCII'ye indirgenmiş** bir sınır anahtarını (`[Docker Hub anonim cekme butcesi]`,
+> README'de `[Docker Hub anonim çekme bütçesi]`) **hemen** buldu — yani operatörün
+> grep'leyip **hiç bulamayacağı** bir atıf. Anahtar mesajdan çıkarıldı (CLAUDE.md §7:
+> hata mesajları ASCII İngilizce; bölüm **adıyla** gösteriliyor) ve `Dockerfile`'daki
+> atıf README anahtarına **byte-byte eşit** olduğu doğrulandı. **Ders, bu turun kendi
+> cümlesiyle: bir doğrulama aracı da bir kod yoludur ve dejenere girdisi vardır —
+> benimkinin dejenere girdisi kendi regex'imin üçüncü grubuydu.**
+>
+> **U1 — `batch/jobs`'ta `watch` YOK, bugün doğru, ve artık YAZILI.** Denetçinin
+> uyarısı kendi ölçümümle yeniden üretildi, iki dalın ikisi de: finalizer **yokken**
+> (bugünkü hâl) `kubectl delete job --wait=true -v=8` → `DELETE`, sonra `GET .../jobs/
+> tappa-migrate` → **404**, `watch=true` isteği **0**; kum havuzunda Job'a bir
+> finalizer takıp aynı komut → `DELETE`, `GET` (nesne duruyor), sonra
+> `GET .../jobs?fieldSelector=metadata.name%3Dtappa-migrate&…&watch=true`,
+> `watch=true` isteği **1**. Canlı Job `{.metadata.finalizers}` → **boş**. Yani ikinci
+> dal bugün oluşmuyor; oluşursa **Forbidden → adım kırmızı → migration'sız şemaya
+> ikili sevk edilmez**, yani fail-closed. Kural yorumu bu ölçümle genişletildi;
+> **fiil eklenmedi**, çünkü kimsenin görmediği bir vaka için verilen yetki kimsenin
+> denetlemediği yetkidir.
+>
+> **U2 — `tr -d '[:space:]'` BAYT YÖNELİMLİYDİ, VE YEREL ÖLÇÜMÜM RUNNER'I TEMSİL
+> ETMİYORDU.** Denetçi ölçtü: yalnız **U+00A0** (`c2 a0`) ya da **U+3000**
+> (`e3 80 80`) içeren bir değer GNU coreutils'te (yani `ubuntu-latest`'te) kırpılmadan
+> **geçiyor**. Bu makinede BSD `tr` ikisini de kırpıyor, yani **benim yerel ölçümüm
+> tam tersini söylüyordu** — ve `gtr` bu makinede kurulu değil, yani runner'ın davranışı
+> burada **hiç** ölçülemezdi. Sonucu ağır değildi (bir adım sonra `docker login`
+> düşer, fail-closed) ama adımın **var olma sebebini** — eksik secret'ı **adıyla**
+> söylemek — o girdide karşılamıyordu.
+> **Çözüm aracı değiştirmek değil, testi ÇEVİRMEK oldu:** *"yalnız boşluk mu"* yerine
+> *"kullanılabilir bir karakter içeriyor mu"* — `case $u in *[0-9A-Za-z]*)`. Harici
+> araç yok, yani yerel/runner ayrımı da yok. Beş locale'de ölçüldü (`C`, `C.UTF-8`,
+> `en_US.UTF-8`, **`tr_TR.UTF-8`**, `POSIX`): U+00A0 ve U+3000 **beşinde de REDDEDİLDİ**,
+> `alice` beşinde de kabul; Türkçe locale'in noktasız-i tuzağı ayrıca sınandı
+> (`ıstanbul9` → kabul) ve yalnız rakamdan oluşan `12345` → kabul. Geçerli hiçbir
+> girdi elenmiyor: Docker Hub kullanıcı adı `[a-z0-9]`, PAT `dckr_pat_<base64url>`.
+> **16 hücre koşuldu → 11 fail-closed (hepsi eksik secret'ı adıyla söylüyor), 5 geçiş**
+> (hepsinde gerçek bir alfanümerik var), ve değer **hiçbir yolda echo edilmiyor**
+> (`::error::PWNED-MARKER` girdisi → çıktıda **0** eşleşme; yalnız `${#u}` basılıyor).
+>
+> **🔴 [FAZ D · 2026-08-16] 3. TUR — `tappa-security-auditor` RED. İKİ BLOKLAYANIN
+> İKİSİ DE §4.6'NIN ALTYAPI YÜZÜ, VE İKİSİ DE BU TURDA BENİM YAZDIĞIM METİNDEYDİ.**
+> Kod değil, **runbook**. Ders keskin: *"ürün temiz"* ile *"runbook operatörü doğru
+> yere gönderiyor"* ayrı sorulardır ve ikincisi de bloklayabilir.
+>
+> **B1 — REÇETE EDİLEN EYLEM GARANTİLİ BAŞARISIZDI.** Baştan yazdığım *"Olay
+> müdahalesi §2"*, üç satırlık tablodan sonra **"Çare (her üçünde de) yeni bir deploy
+> koşusudur"* diyordu — ve bu, tablonun **kendi çare sütunuyla iki satırda
+> çelişiyordu**. Ölçüldü: depo private iken yeni koşu, bu turda **benim eklediğim
+> kapıda** ölür — kapı `deploy.yml`'de **10. adım**, `Install kubectl` **11. adım**,
+> yani `kubectl` runner'a daha kurulmamıştır; kapı rc 1 verir ve *"Nothing has been
+> applied to the cluster"* der. Yani operatörün yaptığı tek şey kümeye dokunmadan
+> durmak olur ve **uygulama pod'u açılmamaya devam eder**. `429` satırında da
+> geçersiz: kapı runner'ın adresinden geçse bile çeken taraf **düğüm**dür.
+> 🔴 **Neden §4.6:** bu bölümün müdahale ettiği hâl pod'un **hiç açılmadığı** hâldir —
+> 04:00 vardiyası tap sayfasını yükleyemez ve **kaydedilemeyen dokunuş kaybolan
+> kayıttır**. Genel cümle **kaldırıldı**; tablo başlığı artık *"satır bazında; genel
+> bir çare YOK"* diyor ve her satır kendi doğru sırasını taşıyor (*"önce Public,
+> SONRA yeni koşu"* · *"bekle, yeni koşu düzeltmez"* · *"yeni koşu"*).
+>
+> **B2 — AYNI DOSYA KENDİNİ YALANLIYORDU.** Birinci satırın yanına *"bunu kümede
+> görüyorsan iş akışının kapısı atlanmıştır … buraya ancak **elle `apply` edilmiş**
+> bir manifestle gelinir"* yazmıştım. **Yanlış**, ve çürüten cümle **aynı dosyanın
+> sınır 12'sinde** duruyordu (*"kapı bir depoyu sonradan private'a çeviren kimseyi
+> engelleyemez"*). Elle apply olmadan dört adımda üretilir ve **dördü de sınır 12'de
+> sayılı**: deploy N yeşil → depo sonradan private → düğüm imajı düşürür
+> (`imageMinimumGCAge: 2m0s`, `crictl rmi`, düğüm yeniden kurulumu) → pod yeniden
+> başlar. Operatör **hiç olmamış** bir olayı ararken pod kapalı kalırdı. Cümle
+> *"kapı bir **deploy anı** ölçümüdür, süregelen bir garanti değil"* ile değiştirildi.
+>
+> **U1 — 18. SINIR: sevk edilen commit'in kimliği herkese açık (§4.7).** Liste 1..17
+> ardışıktı ama **hiçbir maddesi ürün ikililerinin herkese açık olmasını
+> adlandırmıyordu**; 12. madde yalnız çekme bütçesini sayıyordu. Denetçinin ölçtüğü
+> gibi bedelin **büyük kısmı sıfır** ve bunu kendi ölçümümle doğruladım: depo zaten
+> **PUBLIC** (`gh repo view` → `PUBLIC`), imaj içerikleri `Dockerfile`'ın son iki
+> aşamasından birebir okunuyor — uygulama = CA paketi + `/tappa`; migration = CA
+> paketi + `/goose` + `/migrations` (**20 `.sql`**, `find db/migrations -name '*.sql'`
+> ile sayıldı, hepsi zaten public depoda). 🔴 **Ama sayılmayan gerçek bir delta var
+> ve kontrol ölçümüyle doğrulandı:** public bir Docker Hub deposunun etiket listesi
+> **kimliksiz okunuyor** (`library/alpine`: anonim token → `/v2/…/tags/list`
+> **HTTP 200**; `hub.docker.com/v2/repositories/library/alpine/tags` → etiket adları
+> düz döndü). Etiketler `sha-<12hex>` olduğu için **üretimdeki commit ve bir
+> düzeltmenin sevk edilip edilmediği dışarıdan okunabilir**. Bunu başka hiçbir yüzey
+> vermiyor — ölçüldü: `grep -rn buildinfo internal/handler web/templates` → **0**;
+> `buildinfo` yalnız `cmd/tappa/main.go:83`'te log'a yazılıyor. Yani M8-01'in
+> *"derleme kimliği herkese açık bir uç noktaya çıkmıyor"* kararı **yeni bir
+> kanaldan** deliniyor. 18. madde yazıldı (ne açılıyor · ne açılmıyor, ölçülmüş dosya
+> listesiyle · neden kabul edildi · kapatmanın bedeli). Ayrıca operatör adımı 4'ün
+> *"imaj `scratch` + iki dosya"* cümlesi **iki artefaktın yalnız birini** anlatıyordu;
+> düzeltildi.
+>
+> **U2 — DOSYADAKİ SON SATIR-İÇİ SIR GENİŞLETMESİ KALKTI (§4.7).**
+> `echo "${{ secrets.KUBE_CONFIG }}" | base64 -d` — bir `run:` gövdesindeki ifade
+> kabuk başlamadan **önce** yerine konur, yani runner diskindeki render edilmiş adım
+> betiğinde **düz metin** durur. Bu, dosyanın **en değerli** kimliğiydi (sınır 8'e
+> göre hâlâ cluster-admin olabilir) ve bu turda **benim eklediğim iki adım** zaten
+> doğrusunu yapıyordu. Artık `env: KUBE_CONFIG_B64` + `printf '%s' "$KUBE_CONFIG_B64"`
+> (`echo` değil: başında `-` olan ya da ters bölü taşıyan bir değerde davranışı
+> kabuğa bağlı). Ölçüm: `grep -n 'secrets\.'` → **5 eşleşme, beşi de `env:`
+> bloğunda, `run:` gövdesinde 0**. Sızmadığı da ölçüldü: her `run:` gövdesi
+> ayrıştırılıp yorumlar atılarak → **17 gövde, yorum-dışı `set -x` sayısı 0**.
+> ⚠️ Ve bozuk bir secret'ın nerede yakalandığı ölçüldü: `base64 -d` **hoşgörülü**
+> (boş değer → 0 baytlık dosya, exit 0; base64 olmayan değer → 6 bayt çöp, exit 0);
+> yakalayan şey adımın **son satırı**: `kubectl config current-context` → ikisinde de
+> **exit 1**, kümeye hiçbir istek gitmeden.
+>
+> **🔴 BU TURDA KENDİ DOĞRULAMA ARAÇLARIM İKİ KEZ DAHA YANLIŞ SAYDI — sınıfın
+> yedinci ve sekizinci örneği, ikisi de kendi ölçüm harness'imde.**
+> (a) *"secrets satır-içi mi"* sınıflandırıcım `[A-Z_]+` yazıyordu ve **yeni değişken
+> `KUBE_CONFIG_B64` rakam içerdiği için** `env:` bloğundaki satırı *"INLINE"* saydı —
+> yani düzelttiğim şeyi düzeltilmemiş gösterdi. `[A-Z0-9_]+` ile yeniden koşuldu:
+> **5 env: / 0 inline**. (b) *"`set -x` bu dosyada hiç geçmiyor"* diye yazdığım
+> cümleyi `grep -c 'set -x'` **1** ile yalanladı — tek eşleşme **cümlenin kendisiydi**.
+> İddia ölçülebilir hâle çevrildi: yorumlar atılarak, `run:` gövdelerinde **0**.
+> **Ders, 2. turun (c) maddesinin devamı: bir doğrulama aracı da bir kod yoludur; ve
+> bir iddiayı ölçülebilir yazmazsan, kendi metnin onu yalanlayabilir.**
+>
+> **🔴 [FAZ D · 2026-08-16] 5. TUR — YENİ ÜÇÜNCÜ GÖZ RED, ÜÇ BLOKLAYAN. VE BULGU
+> SINIFIN DOKUZUNCU ÖRNEĞİ, YENİ BİR YERDE: AĞACI ÖLÇTÜM, RUNBOOK'UN KONUSU OLAN
+> KÜMEYİ HİÇ ÖLÇMEDİM.** Dört tur boyunca `git diff`, `bash -n`, `--dry-run=client`
+> ve stub matrisleri koşturdum; **`kubectl -n tappa get deployment -o jsonpath` bir
+> kez bile koşmadı**. Runbook'un doğruluğu ağaca değil **kümeye** göredir.
+>
+> **KÜMENİN BUGÜNKÜ HÂLİ (kendi ölçümüm, salt okuma, 2026-08-16):**
+> `secret/ghcr` **VAR** (18 sa, `dockerconfigjson`) · `deployment/tappa` →
+> `ghcr.io/atknatk/tappa:sha-353897c6d5f6`, `imagePullSecrets: ghcr` · **üç
+> ReplicaSet'in üçü de** `ghcr.io/...` + `ps=ghcr` · Job → `ghcr.io/atknatk/
+> tappa-migrate:...` + `ps=ghcr` · `gh secret list` → **yalnız `KUBE_CONFIG`** ·
+> `hub.docker.com/v2/repositories/atknatk/{tappa,tappa-migrate}/` → **404, 404**.
+> Yani **ağaç Docker Hub'ı tarif ediyor, küme GHCR koşuyor**, ve operatör adımı 4
+> yapılmadan hiçbir Docker Hub deploy'u koşamaz (1. adımda durur). ✅ Yan bulgu:
+> FAZ C **inmiş** — Deployment ve Job'ın ikisi de `wait-for-postgres` taşıyor.
+>
+> **B1 — RUNBOOK BİR DURUMU ŞİMDİKİ ZAMANDA ANLATIYORDU VE BİR KOMUTU ÜRÜNÜ
+> DÜŞÜRÜRDÜ.** *"Elle deploy / rollback"*taki
+> `set image ... tappa=docker.io/atknatk/tappa:sha-<12hex>` bugün koşulsa **çekilemeyen
+> bir imajı** `1/1 Running` bir pod'un yerine koyardı → `ImagePullBackOff`. **3. turun
+> RED'i *garantili başarısız* içindi; bu *garantili zararlı*.** Ve aynı kökten dört
+> yanlış cümle daha: *"`rollout undo` artık ayrıcalıklı risk taşımıyor"* (üç RS de
+> `ghcr` + `ps=ghcr` → tam da kaldırdığım 401 senaryosu) · *"'ayağa kalkabilir miyim'
+> sorusu ARTIK YOK"* (oluşabilir, ve onu ölçen `pull-credential` **silindi**) ·
+> *"`secret/ghcr` arayan biri var olmayan bir nesneyi arar"* (**var**) · sınır 12'nin
+> *"kaldırıldı"*sı (ağaçta evet, kümede hayır).
+> 🔴 **Ve dosya doğru kalıbı ZATEN BİLİYORDU:** bölüm 1'de *"Ağaçtaki manifestler
+> taşıyor; KÜMEDEKİ nesneler henüz taşımıyor"* + doğrulama komutu duruyor. Aynı kalıp
+> şimdi **dört yere daha** kondu: rollback bölümünün başına (ön koşul + ölçüm komutu,
+> ve komuttaki registry `<registry>` ile parametrik hâle geldi), olay önsözüne, bölüm
+> 2'ye ve sınır 12'ye. `rollout undo` uyarısı **geri getirildi** ve hangi koşulda
+> düşeceği yazıldı.
+>
+> **B2 — BÖLÜM 2'NİN BAŞLIĞI KENDİ BÖLÜMÜNÜ YALANLIYORDU.** *"artık kimlik sorunu
+> DEĞİL, **iki başka sebep**"* — tablo **üç** satır taşıyordu ve bölümün kendi metni
+> *"üç satırda da"* diyordu; üstelik kimlik sorunu bu kümede **hâlâ canlı**. Başlık
+> *"dört sebep, ve hangisinin geçerli olduğu KÜMEYE bağlı"* oldu ve **dördüncü satır**
+> eklendi (bugünkü GHCR 401'i, 2026-08-15'te **4 dk 39 sn** olarak ölçülmüştü).
+> 🔴 **Kendi hatam, sınıfın onuncu örneği:** 9. iddiamda *"1 başlık, 1 ayraç, 3 veri
+> satırı"* diye **doğru** saydım — ama sayımı **hiç başlığın kendisiyle
+> karşılaştırmadım**. Tarayıcı bir önceki kusurun şekline (fazladan başlık satırı)
+> göre yazılmıştı; o turun ürettiği şekle (başlıktaki sayı sözcüğü) göre değil.
+>
+> **B3 — SEVK EDİLEN BİR YORUMDA *ÖLÇÜM OLARAK DURAN* YANLIŞ BİR OLGU, VE ÖLÇÜM YİNE
+> YEREL ARAÇLA YAPILMIŞTI.** `deploy.yml`'in kubeconfig adımı *"`base64 -d` lenient,
+> gerçek kapı son satır"* diyordu. **Runner'da ölçüldü** (`docker run --rm
+> ubuntu:24.04`, GNU coreutils **9.4**) ve yerelle yan yana kondu:
+>
+> | girdi | ubuntu:24.04 (GNU 9.4) | yerel BSD |
+> |---|---|---|
+> | boş | rc 0, 0 bayt | rc 0, 0 bayt |
+> | base64 olmayan | **rc 1, `base64: invalid input`** | rc 0, 6 bayt |
+> | yalnız boşluk | **rc 1** | rc 0, 0 bayt |
+> | `-` ile başlayan | **rc 1** | rc 0, 3 bayt |
+> | geçerli | rc 0, 15 bayt | rc 0, 15 bayt |
+>
+> Yani runner'da `base64 -d` **hoşgörülü değil**, *"6 bayt çöp"* **oluşmuyor**, ve son
+> satır dört bozuk girdiden **yalnız birinin** (boş) kapısı. Yön hâlâ fail-closed, yani
+> güvenlik değil **doğruluk ve teşhis** kusuru: yorum bir bakımcıya *"son satır
+> gereksiz, silinebilir"* diye **yanlış bir nedensellik modeli** veriyordu — oysa boş
+> girdiyi yakalayan **yalnız o satır**. 🔴 **Ağırlığı yerinde: bu, aynı dosyanın 118-128.
+> satırlarında ADIYLA anılan kusurun (`tr -d '[:space:]'`, yerel-aracı-runner-aracı
+> yerine koymak) AYNI TURDA, üç paragraf aşağıda tekrarı.** §4.7 temiz: GNU `base64`
+> yalnız `base64: invalid input` basıyor, değeri basmıyor (markör sondası → **0**).
+>
+> **U1** `429` satırı Deployment pod'u için doğruydu ama **migration Job'ını
+> kurtarmıyor**: `activeDeadlineSeconds: 600` + `backoffLimit: 2`, saatlik pencereden
+> çok önce kalıcı `Failed` → yine yeni bir koşu gerekir. Satıra yazıldı.
+> **U2** *"SADECE `ImagePullBackOff` olanı sil"* **pod tipini ayırmıyordu**; üç satırlık
+> bir tablo eklendi: Deployment pod'u **zararsız** · **Job pod'u** `.status.failed`'ı
+> artırır ve `backoffLimit: 2` ile **üç silme kalıcı `Failed`** yapar ·
+> **`tappa-postgres-0`** *veritabanını yeniden başlatır*.
+> **U3** olay önsözünün *"her satır bu kümede fiilen ölçüldü"* garantisi, altına
+> **ölçülmemiş** Docker Hub satırları eklendiği için fazla iddia hâline gelmişti —
+> cümle daraltıldı ve ölçülmemiş satırlar **satırında işaretlendi** (B1'le aynı kök:
+> değişmemiş bir garanti cümlesinin altına yeni satır eklemek).
+> **U4** *"`deploy.yml`'in on beş küme çağrısı"* yanlıştı: **15** benim prova betiğimin
+> **adım numarasıydı**. Yeniden sayıldı, yöntemi yazıldı (yorumlar atılarak, API'ye
+> giden `kubectl` çağrıları; `version --client`, `config current-context` ve
+> `--dry-run=client` hariç, `db-role`'un `exec`'i dahil): **19** — adım 14→2 · 15→5 ·
+> 16→5 · 17→3 · 18→1 · 19→3, denetçinin sayısıyla **birebir**.
+> **U5** `dnscheck` sondası `postgres:17-alpine` istiyor, yani `429` olayında ters
+> tepebilir; bir cümlelik uyarı eklendi.
+>
+> **🔴 [FAZ D · 2026-08-16] 7. TUR — YENİ ÜÇÜNCÜ GÖZ RED, TEK BLOKLAYAN, SINIFIN
+> ON BİRİNCİ ÖRNEĞİ: DÜZELTMEYİ README'YE UYGULADIM, AYNI TURDA YENİDEN YAZDIĞIM
+> DİĞER ÜÇ DOSYAYA UYGULAMADIM.** 5. turda kümeyi ölçüp README'yi gerçeğe eşitledim;
+> ama `20-app.yaml`, `30-migrate-job.yaml` ve `deploy.yml`'de **aynı commit'te
+> eklediğim** dört cümle, README'nin **adıyla geri çektiği** cümlelerdi. Repo aynı
+> commit'te hem geri çekmeyi hem geri çekilen cümlenin iki kopyasını taşıyordu, ve
+> bağ kopmuştu: sildiğim eski yorum *"deploy/README.md carries the warning in BOTH
+> places"* diye README'ye işaret ediyordu, yenisinde o işaret **yoktu** — oysa README
+> sınır 5 ve 12 okuru açıkça `20-app.yaml`'a **gönderiyor**. Olay anında oraya bakan
+> operatör *"undo artık 401 almıyor"* okuyup `rollout undo` koşar ve **şu an
+> `1/1 Running` olan üretim pod'unu** düşürürdü.
+>
+> 🔴 **VE ÇARE ÜÇ DOSYAYA DAHA UYARI EKLEMEK DEĞİLDİ — İDDİANIN BİÇİMİYDİ.** Sınıf on
+> bir kez tekrarladı ve her seferinde çare *"bir yer daha düzelt"* oldu; FAZ C'yi kıran
+> şey buydu ve burada da o geçerli: **savunulan bir cümleyi, bayatlayamayacak bir
+> cümleyle değiştir.** *"The repository **is** public"* dünya hakkında bir iddiadır ve
+> bayatlar; *"**WHILE** the image was pulled with a credential, X; **ONCE** it is
+> pulled anonymously, Y"* mekanizma hakkındadır ve bayatlayamaz. Üç dosyadaki dört
+> cümle **koşullu** hâle getirildi, hepsi *"bugünkü durumun tek kaydı
+> `deploy/README.md` → Elle deploy / rollback"* diye **tek yere** işaret ediyor (eski
+> yorumun yaptığı gibi). ⚠️ **Ve bu iddia gerçeğe indiriliyor:** *"bir sonraki geçişte
+> tek bir yer güncellenecek"* fazla iddiaydı — ölçüldü, bugünkü küme durumu
+> `deploy/README.md` içinde **altı ayrı bölgede** tekrarlıyor. Doğru cümle: **tek
+> DOSYA, altı bölge, ve altısının da kendi düşme koşulu yazılı** — yani hiçbiri
+> sessizce bayatlayamaz.
+> **Ölçüm — istenen hedef ve sonucu:** `deploy/` + `.github/` altındaki *bugünkü küme
+> hakkında şimdiki-zaman iddiası* sayısı → **0**. Kalan dört eşleşmenin hepsi elle
+> tasnif edildi: 2 **koşullu** (WHILE/ONCE) · 1 **bu dosya hakkında** (*"a pod born
+> from THIS spec"*) · 1 **genel mekanizma** (*"a public repository … by definition"*).
+>
+> **🔴 VE DETEKTÖRÜM İKİ KEZ YANILDI — sınıfın on ikinci ve on üçüncü örneği, ikisi de
+> benim doğrulama aracımda, ikisi de kendi matrisimde yakalandı.**
+> (a) İlk sürüm niteleyiciyi **±2 satırlık komşulukta** aradı; `30-migrate-job.yaml`'da
+> üç satır ötedeki alakasız bir *"used to"*, çıplak bir dünya iddiasını **temize
+> çıkardı** — yani detektör *"0 çıplak iddia"* dedi, oysa vardı. Cümle kapsamına
+> daraltıldı ve iddia gerçekten koşullu yazıldı.
+> (b) İkinci sürüm cümleyi `;` ve `:`'de de böldü, böylece *"ONCE …:"* koşulu
+> **kendi sonucundan koparıldı** ve yönetilen bir yan cümle **çıplak** göründü. Tam
+> nokta ile bölmeye çevrildi. **Ders (2. ve 3. turun devamı): bir detektörün kapsam
+> penceresi de bir dejenere girdidir.**
+>
+> **VE 5. TURUN İKİ KENDİ HATASI DEFTERE GEÇMEMİŞTİ — buraya yazılıyor** (denetçi
+> `grep` ile gösterdi; bu repoda kayıt sohbette değil defterde yaşar):
+> (a) bölüm 2'nin satır sayımını ilk yeniden koşuşumda seçici **iki tabloyu birden**
+> süpürdü ve `DATA ROWS: 7` dedi (doğrusu: sebep tablosu **4**, pod-tipi tablosu
+> **3**); (b) *"canlı prose iddiası"* regex'im `**Dört satırda`yı **büyük harf**
+> yüzünden kaçırdı, sonra büyük/küçük harfe duyarsız koşuldu.
+> ✅ **VE SINIFI KIRAN ARAÇ DA DEFTERE YAZILIYOR, çünkü kayıtsız bir araç yoktur:**
+> 5. turda yazılan **başlık↔tablo kontrolü** — bir başlıktaki sayı sözcüğünü (*"dört
+> sebep"*) başlığın yönettiği tablonun **gerçek satır sayısıyla** karşılaştırır,
+> bölümdeki her tabloyu ayrı sayar ve düzyazıdaki sayı iddialarını da tarar. Bağımsız
+> denetçi onu yeniden koşturdu: **6 tablo**, *"dört sebep"*↔4 · *"Dört satırda"*↔4 ·
+> *"üç tipin üçü"*↔3 · *"Üç ayrı taze koşu"*↔3, iki yanlış pozitif (artikel *"bir"*),
+> **gerçek uyumsuzluk 0**. Bu kontrol, 4. turda *"1 başlık, 1 ayraç, 3 veri satırı"*
+> diye **doğru** sayıp **hiç başlıkla karşılaştırmadığım** kusurun yerine geçiyor.
+>
+> **N1** `kubectl set image` yer tutucuyu **sessizce kabul ediyor** — çevrimdışı
+> ölçüldü (`--local`): çıktı birebir `<registry>/atknatk/tappa:sha-<12hex>`, istemci
+> tarafında imaj doğrulaması **yok**. Komut bloğuna yazıldı. **N2** `rollout undo`
+> uyarısı kod bloğunun **ardındaydı** ve bloğu toptan kopyalayan onu okumadan koşardı;
+> blok **öncesine** bir uyarı ve **üçüncü komutun üstüne** bir işaret kondu. **N4** bir
+> sınır anahtarı satır sonunda **bölünmüştü** (`**[Docker Hub anonim çekme\n>
+> bütçesi]**`) — render doğru, **arama** değil: altı görünümünün yalnız dördü literal
+> `grep`'le bulunuyordu; ikisi birleştirildi → **6/6**. 2. turun ASCII-katlanmış
+> anahtar bulgusuyla aynı sınıf, farklı mekanizma. **N5** *"İki tanesi ölçüldü, biri
+> yapısal"* **üç** sebep vaat edip **iki** veriyordu → *"İki tane, biri ölçülmüş biri
+> yapısal"*.
+> ⚠️ Denetçinin eklediği eksik de yazıldı: GNU `base64` hata vermeden **2 bayt kısmi
+> çıktı** yazıyor, yani `config` yarım yazılıp adım kırmızıya düşüyor — yön
+> fail-closed, sonucu değiştirmiyor.
+>
+> **🔴 [FAZ D · 2026-08-16] 9. TUR — SON. ÜÇÜNCÜ GÖZ RED, TEK BLOKLAYAN, VE SINIFIN
+> ON DÖRDÜNCÜ ÖRNEĞİ: KAPSAMI YİNE BEN SEÇMİŞTİM.**
+> Mekanizma her seferinde aynı: **taramayı bir önceki kusurun bulunduğu yere göre
+> kapsamlıyorum.** 5. tur: README'yi ölçtüm, **kümeyi** ölçmedim. 7. tur: README'yi
+> düzelttim, **aynı turda yeniden yazdığım üç manifesti** düzeltmedim. 9. tur: üç
+> manifesti düzelttim, **`scripts/` ve `Dockerfile`'ı** taramadım — üstelik
+> `verify-deployment.sh` bu turda **127 satır** kaybetmiş, yani aynı commit'te
+> yeniden yazılmış bir dosya.
+>
+> **BLOKLAYAN — `scripts/verify-deployment.sh:13-18`.** `pull-credential` modunun
+> silinme gerekçesi **koşulsuz şimdiki zamanda** yazılmıştı: *"There is no
+> `secret/ghcr` any more … nothing records, expires or overwrites a pull credential …
+> a diagnostic that says something alarming about a condition that **cannot occur**"*.
+> Üç cümlenin üçü de yanlış ve *"cannot occur"* dediği koşul **canlı** (bugün yeniden
+> ölçüldü: `secret/ghcr` **var** · `deployment/tappa` → `ghcr.io/…` + `ps=ghcr` ·
+> Docker Hub **404, 404**). Kaldırılan teşhisi arayan kişi, **aracın kendi dosyasında**
+> *"bu koşul oluşamaz"* okuyacaktı — ve tarif ettiği arıza pod'un **hiç açılamaması**
+> (§4.6). Blok WHILE/ONCE biçimine çevrildi ve *"WHILE bir küme hâlâ kimlikle
+> çekiyorsa koşul canlıdır; elle okunacak iki komut README'de"* bilgisi eklendi.
+>
+> **BEŞ DOSYADA ALTI CÜMLE DAHA AYNI BİÇİME ÇEVRİLDİ:** `Dockerfile:11` (*"THE
+> REGISTRY MOVED … TO A PUBLIC …"* → *"bu depo Docker Hub'a push ediyor; WHILE
+> private … ONCE public …"*) · `deploy.yml:43` (*"The images live on Docker Hub now"*
+> → *"this workflow pushes to Docker Hub … a property of THIS FILE"*) ·
+> `deploy.yml:475` (*"With the images on a public … there is no pull credential at
+> all"* → *"this workflow no longer writes one; whether one still exists in a cluster
+> is not a question this file answers"*) · `deploy.yml:295` (*"NEITHER REPOSITORY
+> EXISTS"* → **tarihli snapshot** + *"ilk başarılı push'ta bayatlar; adım buna
+> dayanmıyor"*) · `01-rbac.yaml:38` (*"is gone with the move to a public …"* → *"gone
+> from THIS REPOSITORY … bir küme hâlâ o Secret'ı tutuyor olabilir"*) ·
+> `20-app.yaml:135` (*"The image is downloadable by anyone"* → *"ONCE the repository
+> is public …"*).
+>
+> **KAPSAM BU KEZ SEÇİLMEDİ: `git status --short`'un TAMAMI tarandı** (on dosya,
+> orkestratörün `backlog.md`/`state.md`'si dahil — okundu, **değiştirilmedi**).
+> **76 aday cümle**, dosya dosya: `deploy.yml` 9 · `Dockerfile` 4 · `README` 10 ·
+> `20-app.yaml` 8 · `30-migrate-job.yaml` 5 · `01-rbac.yaml` 4 ·
+> `verify-deployment.sh` 4 · `backlog.md` 1 · kart 19 · `state.md` 12. Tasnif:
+> **15 koşullu · 9 bu-dosya-hakkında · 32 tarihli defter kaydı · 20 elle okundu**.
+> Yirmisinin yirmisi de ya bu dosya/derleme hakkında (Dockerfile'ın `CGO_ENABLED=0`'ı,
+> `01-rbac.yaml`'ın *"this identity can no longer …"*'ı), ya geri çekme alıntısı, ya
+> genel mekanizma, ya da regex'in yakaladığı YAML/kod bloğu. **Bugünkü küme hakkında
+> kalan şimdiki-zaman iddiası: 0.**
+>
+> **C6 — İDDİA GERÇEĞE İNDİRİLDİ.** `20-app.yaml`'ın *"a later transition needs one
+> edit, not four"*'ı ve kartın *"tek bir yer güncellenecek"*i fazla iddiaydı: ölçüldü,
+> bugünkü küme durumu `deploy/README.md` içinde **altı ayrı bölgede** tekrarlıyor.
+> Doğrusu **tek DOSYA, altı bölge** — ve altısının da **kendi düşme koşulu yazılı**,
+> yani hiçbiri sessizce bayatlayamaz. İkisi de düzeltildi.
+>
+> **🔴 VE BU TURUN KENDİ HATASI, GÜNÜN ÜÇÜNCÜSÜ AYNI SEBEPTEN:** tasnif edicim yine
+> **büyük/küçük harfe duyarlıydı** — *"If this says …"* ve *"This workflow no longer
+> …"* yalnızca baş harfleri büyük olduğu için *"sınıflandırılamadı"* kovasına düştü.
+> Aynı sebep bugün üç kez ısırdı (5. turda `**Dört satırda`, 7. turda `grep -i`'nin
+> Türkçe `İ`'yi katlamaması, şimdi bu). `IGNORECASE` ile yeniden koşuldu ve **kalan
+> her madde elle okundu** — regex hükmüne değil.
+>
+> **AÇIK KALAN, DOĞRULANAMADI DİYE YAZILIYOR:** `KUBE_CONFIG` secret'ının **içindeki
+> kimlik** okunamadı (ajanın secret okuma yolu yok). Hâlâ cluster-admin bir kubeconfig
+> ise `01-rbac.yaml`'daki daraltma **hiçbir şeyi sınırlamaz** — cluster-admin RBAC'e
+> bakmaz. README sınır **[kubeconfig'in kimliği doğrulanmadı]**, ve operatör adımı 5
+> onu kapatan komutu taşıyor. Ayrıca `pods/exec`'in `resourceNames` daraltması **canlı
+> `ns/tappa`'da koşturulmadı** (salt-okuma sınırı) — kum havuzunda birebir kurulumla
+> ölçüldü.
 
 ---
 

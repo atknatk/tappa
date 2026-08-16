@@ -82,51 +82,66 @@ spec:
       # anyway hands any code that runs in this pod a cluster credential it has
       # no use for -- the smallest hardening still on the table (audit B10).
       automountServiceAccountToken: false
-      # 🔴 THE IMAGE IS PRIVATE BECAUSE THE REPOSITORY IS (user decision), so the
-      # kubelet needs a credential of its own. secret/ghcr is written by
-      # .github/workflows/deploy.yml on every run, from that job's own GITHUB_TOKEN
-      # (`packages: write` implies read, and a package pushed by a workflow is linked
-      # to the pushing repository). No human step, nothing to remember.
+      # 🔴 THERE IS NO imagePullSecrets HERE ANY MORE, AND ITS ABSENCE IS THE FIX FOR
+      # BACKLOG T43 RATHER THAN A TIDY-UP (M8-02 FAZ D, 2026-08-16).
       #
-      # ⚠️ AND THAT TOKEN IS DEAD BY THE TIME THE POD IS OLD. It is revoked when the
-      # job ends. The pull that matters happens seconds after the credential is
-      # written, in the same workflow run.
+      # WHAT USED TO STAND HERE. The image was private, so the kubelet needed a
+      # credential; .github/workflows/deploy.yml wrote `secret/ghcr` on every run from
+      # that job's own GITHUB_TOKEN, and that token is revoked when the job ends.
       #
-      # 🔴 THE SENTENCE THAT USED TO STAND HERE — "a restart a week later reuses the
-      # node's cached layers and asks the registry nothing" — IS FALSE ON THIS
-      # CLUSTER, AND IT WAS MEASURED FALSE ON 2026-08-16 RATHER THAN DOUBTED. This
-      # node's kubelet reports
+      # 🔴 WHY THAT COULD NOT BE MADE TO WORK, MEASURED 2026-08-16. This node's kubelet
+      # reports
       #     imagePullCredentialsVerificationPolicy: NeverVerifyPreloadedImages
-      # (`kubectl get --raw /api/v1/nodes/<node>/proxy/configz`), which is KEP-2535,
-      # on by default from 1.35. Under it an image the kubelet pulled WITH a
-      # credential is only usable by a pod that presents a credential already
-      # recorded as having pulled it; to anyone else the kubelet behaves as though
-      # the image is not on the node at all. Three probes, same node, same tag the
-      # live pod was running at the time:
+      # (`kubectl get --raw /api/v1/nodes/<node>/proxy/configz`), which is KEP-2535, on
+      # by default from 1.35. Under it an image the kubelet pulled WITH a credential is
+      # only usable by a pod that presents a credential already recorded as having
+      # pulled it; to anyone else the kubelet behaves as though the image is not on the
+      # node at all. Three probes, same node, same tag the live pod was running:
       #     no imagePullSecret at all        -> Pulling ... 401 Unauthorized
       #     an imagePullSecret it never used -> Pulling ... 401 Unauthorized
       #     imagePullPolicy: Never           -> ErrImageNeverPull, "not present"
-      # and the control that separates the two explanations: postgres:17-alpine,
-      # PUBLIC and pulled anonymously, with imagePullPolicy: Never -> started from
-      # the node's cache and exited 0. So the cache works; credential verification is
-      # what refuses.
+      # and the control that separates cache from credential: postgres:17-alpine,
+      # PUBLIC and pulled anonymously, with imagePullPolicy: Never -> started from the
+      # node's cache and exited 0.
       #
-      # WHAT THAT CHANGES IN PRACTICE. A restart is safe while the Secret still holds
-      # the token that pulled THIS pod's image — same credential, recorded hash,
-      # cache reused. It is NOT safe once a later deploy has rewritten the Secret
-      # with a new token: the recorded hash no longer matches, the kubelet re-pulls,
-      # and the new token is revoked too. That makes rolling BACK to a previous image
-      # the sharpest case, and `kubectl rollout undo` is exactly what an operator
-      # reaches for in an incident. deploy/README.md carries the warning in BOTH
-      # places that command appears — under "Elle deploy / rollback", beside the
-      # command itself, and again under "Olay müdahalesi" — because an operator who
-      # opens the rollback section is not reading the incident section.
-      # The old failure mode (node loses the image to kubelet image
-      # GC, crictl rmi or a rebuild) still applies and is now the smaller half.
-      # The durable fixes are unchanged and both the operator's: a long-lived
-      # read:packages PAT in this same Secret, or public packages.
-      imagePullSecrets:
-        - name: ghcr
+      # 🔴 THAT CONTROL IS THE WHOLE ARGUMENT FOR THIS CHANGE, AND IT IS STATED AS A
+      # MECHANISM RATHER THAN AS A FACT ABOUT TODAY — a sentence about the world goes
+      # stale in a file nobody re-reads, and this repository has now paid for that
+      # eleven times. So, conditionally:
+      #
+      #   WHILE a pod's image was pulled WITH a credential (a private repository, an
+      #   imagePullSecrets entry), the kubelet's recorded-credential check applies:
+      #   a restart after the Secret has been rewritten re-pulls with a dead token,
+      #   and `kubectl rollout undo` to an older ReplicaSet hits the same wall at the
+      #   exact moment an operator needs it.
+      #
+      #   ONCE the same pod's image is pulled ANONYMOUSLY (a public repository, no
+      #   imagePullSecrets), there is no credential to record, so none of that can
+      #   happen: restarts and rollbacks reuse the node's copy.
+      #
+      # 🔴 WHICH OF THE TWO APPLIES IS A PROPERTY OF THE RUNNING CLUSTER, NOT OF THIS
+      # FILE, AND THIS FILE DELIBERATELY DOES NOT ANSWER IT. The single record of
+      # today's state — with the command that measures it — is deploy/README.md, under
+      # "Elle deploy / rollback" and in the accepted limit
+      # "[Docker Hub anonim çekme bütçesi]". Read it before you roll back. Keeping the
+      # answer in ONE FILE is what makes a later transition tractable. ⚠️ Stated
+      # honestly rather than generously: it is one FILE, not one spot — deploy/README.md
+      # repeats today's cluster state in six regions, and each of the six carries its
+      # own lapse condition, so none of them can go stale silently.
+      #
+      # What this manifest DOES assert, because it is about this file rather than the
+      # cluster: it declares no imagePullSecrets, so a pod born from THIS spec pulls
+      # anonymously. Also true of the file: the deploy no longer deletes pods to work
+      # around a kubelet backoff, and there is one fewer path in this repository that
+      # creates a Secret (CLAUDE.md §4.7).
+      #
+      # ⚠️ WHAT IS TRADED FOR IT, COUNTED. ONCE the repository is public the image is
+      # downloadable by anyone. It is a
+      # `scratch` image with exactly two files (the static binary and a CA bundle) and
+      # deploy.yml gates its contents before push, but "public" is a decision and it is
+      # written here rather than implied. And anonymous Docker Hub pulls are rate
+      # limited — measured from this network as `x-ratelimit-limit: 100;w=3600` — a
+      # budget the product images now share with postgres:17-alpine.
       securityContext:
         runAsNonRoot: true
         runAsUser: 65532
@@ -267,27 +282,26 @@ spec:
           # The tag is substituted by .github/workflows/deploy.yml. The placeholder
           # is a syntactically valid tag so that `kubectl apply --dry-run` on the
           # unmodified file is still a real check.
-          image: ghcr.io/atknatk/tappa:deploy-placeholder
+          image: docker.io/atknatk/tappa:deploy-placeholder
           # 🔴 IfNotPresent IS LOAD-BEARING HERE, NOT A DEFAULT — AND IT IS ONLY SAFE
-          # BECAUSE THE TAG ABOVE IS IMMUTABLE. deploy.yml pushes four tags
-          # (`sha-<12hex>` and `main` for each image) but substitutes ONLY the
-          # `sha-<12hex>` one into this file, so a tag never names two different
-          # images. IfNotPresent plus a moving tag (`:main`, `:latest`) is how a node
-          # silently keeps serving last week's binary — this repository's signature
-          # defect class, and the reason `:main` is pushed for humans and referenced
-          # by nothing.
+          # BECAUSE THE TAG ABOVE IS IMMUTABLE. deploy.yml builds and pushes exactly
+          # ONE tag per image, `sha-<12hex>`, and substitutes it into this file, so a
+          # tag never names two different images. IfNotPresent plus a moving tag
+          # (`:main`, `:latest`) is how a node silently keeps serving last week's
+          # binary — this repository's signature defect class, which is also why
+          # `:main` is no longer built or pushed at all: it was referenced by nothing
+          # and, on a public registry, is a moving tag a human could reach for.
           #
-          # ⚠️ Always would be WRONG here, and not for bandwidth: the pull credential
-          # is the deploy job's GITHUB_TOKEN (see imagePullSecrets above), which is
-          # revoked when that job ends. Always would re-contact GHCR on every restart,
-          # eviction and node reboot with a dead credential, turning every pod restart
-          # after the deploy into an ImagePullBackOff.
-          #
-          # ⚠️ BUT IfNotPresent DOES NOT MEAN "never asks the registry" ON THIS
-          # CLUSTER — see the measurement above imagePullSecrets. The kubelet's
-          # credential verification can force a pull of an image that is physically
-          # on the node. IfNotPresent is still the right value (it is the one that
-          # asks LEAST), it is simply not the guarantee this comment used to claim.
+          # ⚠️ Always would be wrong here for the ordinary reason — it makes every
+          # restart depend on a registry round trip, and this product's failure story
+          # is a 04:00 shift that cannot load the tap page. Whether it is ALSO wrong
+          # for the CREDENTIAL reason depends on the registry the running pods were
+          # pulled from, which is a fact about the cluster and is recorded in exactly
+          # one place (deploy/README.md, "Elle deploy / rollback"): while the pull
+          # needs a credential, Always re-contacts the registry on every restart with
+          # a token that may already be revoked; once it is anonymous, that reason
+          # lapses. See the block above the securityContext. IfNotPresent stays
+          # because it is the policy that asks the registry LEAST.
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

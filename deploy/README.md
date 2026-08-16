@@ -15,10 +15,10 @@ Hedef: `https://tappa.everva.com.tr` · küme: k3s v1.35.4, tek node
 | Dosya | Ne | Kim uygular |
 |---|---|---|
 | `../Dockerfile` | iki imaj: `--target app` ve `--target migrate` | `deploy.yml` |
-| `k8s/00-namespace.yaml` | namespace + `pod-security enforce=restricted` | `deploy.yml` |
+| `k8s/00-namespace.yaml` | namespace + `pod-security enforce=restricted` | `deploy.yml` (**ilk kez** operatör) |
+| `k8s/01-rbac.yaml` | 🔴 **deploy'un kendi kimliği** — SA + Role + RoleBinding + tek adlı ClusterRole/Binding | **operatör** (bir kez; deploy **kendi rolünü değiştiremez**) |
 | `k8s/05-config.yaml` | sırsız ortam değişkenleri | `deploy.yml` |
 | `examples/secret.example.yaml` | **şablon**, değer yok, adı **canlıyla çakışmaz** | **operatör** (kopyasını) |
-| *(dosyasız)* `secret/ghcr` | GHCR çekme kimliği — `docker-registry` tipi | `deploy.yml` (kendi `GITHUB_TOKEN`'ıyla, **ömürlü** → adım 3 + sınır **[GHCR çekme kimliği ömürlü]**) |
 | `examples/externalsecret.example.yaml` | **önerilen** yol: Infisical + external-secrets | **operatör** |
 | `k8s/12-networkpolicy.yaml` | 5432'ye yalnız Tappa pod'ları | `deploy.yml` |
 | `k8s/10-postgres.yaml` | StatefulSet + PVC (`local-path`) + headless Service | `deploy.yml` |
@@ -44,13 +44,26 @@ kalıyordu** (denetimde ölçüldü).
 🔴 **`kubectl apply -f deploy/k8s/` ÇALIŞTIRMA. Bir deploy yolu DEĞİLDİR.**
 
 Bu cümle bir tur boyunca *"artık güvenlidir"* diyordu ve **iki şekilde yanlıştı** —
-denetim ölçtü (2026-08-15). Sayı yanlıştı (NetworkPolicy'den sonra sekiz değil
-**dokuz** nesne) ve daha kötüsü *"güvenli"* kelimesi Secret'tan **fazlasını** iddia
-ediyordu. O komutun gerçekte yaptığı:
+denetim ölçtü (2026-08-15). Sayı yanlıştı ve daha kötüsü *"güvenli"* kelimesi
+Secret'tan **fazlasını** iddia ediyordu. O komutun bugün gerçekte yaptığı
+(`kubectl apply --dry-run=client -f deploy/k8s/`, ölçüldü 2026-08-16: **14 nesne,
+hiçbiri Secret** — `01-rbac.yaml` geldiği için sayı 9'dan 14'e çıktı):
+
+> ⚠️ **Burada bir tur boyunca *"ve beşi küme kapsamlı RBAC"* yazdı ve BU YANLIŞTI**
+> — üstelik bu paragrafın var olma sebebi **bir önceki yanlış sayıydı**, yani aynı
+> kusur aynı cümlede ikinci kez doğdu. `kubectl api-resources`'ın kendi kapsam
+> alanıyla ölçüldü: **14 nesnenin 3'ü küme kapsamlı** (`Namespace/tappa` ·
+> `ClusterRole/tappa-namespace-only` · `ClusterRoleBinding/tappa-namespace-only`),
+> 11'i namespace'li. `01-rbac.yaml`'ın getirdiği **beş** nesnenin **yalnız ikisi**
+> küme kapsamlı; **dördü** `rbac.authorization.k8s.io/v1` grubunda ve `ServiceAccount`
+> düz `v1`. Yani *"beş yeni nesne"* ile *"beş küme-kapsamlı nesne"* birbirine
+> karışmıştı. Bu listenin kendi cümlesi geçerli: **yanlış sayılmış bir açık,
+> kapanmadığı sanılan bir açıktır.**
 
 | | |
 |---|---|
 | örnek `Secret`'ı ezer mi | **hayır** — örnekler `deploy/examples/`'da (bu doğruydu) |
+| RBAC | **uygular** — ve bunu yapabilmesi için **cluster-admin** kubeconfig gerekir; deploy'un kendi kimliğinde `rbac.authorization.k8s.io` yetkisi **yoktur** |
 | `tappa-db-init` ConfigMap'i | **üretmez** — onu yalnız `deploy.yml` `--from-file` ile kurar → `tappa-postgres-0` kalıcı `ContainerCreating` (`configmap "tappa-db-init" not found`) |
 | imaj etiketleri | **`:deploy-placeholder`** kalır → `ImagePullBackOff`, migration Job'ı **Failed** |
 | çalışan bir kurulumda | rollout'u **kilitler** — Deployment'ı olmayan bir etikete geri alır |
@@ -60,10 +73,10 @@ Yani boş kümede **asla açılmayan** bir kurulum, dolu kümede bir **kesinti**
 temizlendi (bozuk StatefulSet + `ImagePullBackOff` + Failed Job + bağlı 20Gi PVC).
 
 **Elle deploy etmek gerekiyorsa** `.github/workflows/deploy.yml`'in adımlarını sırayla
-izle: namespace → `tappa-secrets` (elle) → **`ghcr` sırrı** → ConfigMap'ler
-(`--from-file` dahil) → Postgres → NetworkPolicy → migration Job (**bekle**) →
-Deployment → Ingress. Tek tek `apply` etmek güvenlidir; **dizini toptan** `apply`
-etmek değildir.
+izle: namespace → **`01-rbac.yaml`** (bir kez, cluster-admin ile) → `tappa-secrets`
+(elle) → ConfigMap'ler (`--from-file` dahil) → Postgres → NetworkPolicy → migration
+Job (**bekle**) → Deployment → Ingress. Tek tek `apply` etmek güvenlidir; **dizini
+toptan** `apply` etmek değildir.
 
 ---
 
@@ -120,84 +133,133 @@ openssl rand -hex 32      # POSTGRES_PASSWORD / TAPPA_APP_PASSWORD  (URI'ye giri
 `TAPPA_INVITE_HMAC_KEY`, `TAPPA_SESSION_HMAC_KEY`'den **farklı** üretilmeli —
 `config.Load` eşitlerse açılışta reddeder.
 
-**3. GHCR çekme kimliği (imaj private) — ELLE ADIM DEĞİL, ama sınırı var.**
-
-`deploy.yml` `ghcr` sırrını **her koşuda kendisi yazar**, kümeye bir şey uygulamadan
-önce, kendi `GITHUB_TOKEN`'ından:
-
-```yaml
-kubectl -n tappa create secret docker-registry ghcr \
-  --docker-server=ghcr.io --docker-username="$GHCR_USER" --docker-password="$GHCR_TOKEN" \
-  --dry-run=client -o yaml | kubectl apply -f -
-```
-
-Çalışmasının sebebi dar: iş akışının `permissions:` bloğu `packages: write` veriyor
-(read'i kapsar) ve bir workflow'un GHCR'a push ettiği paket **push eden depoya
-bağlanır**, yani o deponun kendi token'ı geri çekebilir. İki imajı da bu iş, dakikalar
-önce, bu token'la push etti.
-
-🔴 **BU KALICI BİR ÇÖZÜM DEĞİL VE ÖYLE OKUNMAMALI. `GITHUB_TOKEN` iş bitince iptal
-edilir.** Yürüyen şey token'ın yaşaması değil, iki ayrı olgunun üst üste binmesi:
-
-| | |
-|---|---|
-| **çalıştığı koşul** | ilk çekme sır yazıldıktan **saniyeler sonra**, aynı işin rollout'unda olur · her iki manifest de `imagePullPolicy: IfNotPresent` ve etiket **değişmez** `sha-<12hex>` · yeniden başlatma, Secret hâlâ **o pod'un imajını çeken** token'ı taşırken güvenlidir |
-| **çalışmadığı koşul (a)** | sonraki bir deploy Secret'ı **yeni** bir token'la ezdikten sonra o pod yeniden başlarsa — ya da `kubectl rollout undo` ile **eski** bir imaja dönülürse — kubelet kayıtlı kimliği bulamaz, çekmeyi yeniden dener ve **ölü token'la 401** alır |
-| **çalışmadığı koşul (b)** | deploy bittikten **sonra** düğüm imajı düşürürse — kubelet imaj GC'si (`imageMinimumGCAge: 2m0s`, disk baskısı), `crictl rmi`, düğüm yeniden kurulumu — aynı sonuç |
-| **her ikisinin bedeli** | `ImagePullBackOff`, pod açılmaz. Bu ürün için maliyeti sıradan değil: 04:00 vardiyası tap sayfasını **hiç** yükleyemez ve çevrimdışı kuyruk (M9-01) bile devreye giremez |
-
-> 🔴 **BURADA ESKİDEN *"tek node, yani imaj düğümde önbellekli kalır → sonraki her
-> yeniden başlatma kayda hiç gitmez"* YAZIYORDU. ÖLÇÜLDÜ, YANLIŞ (2026-08-16).** Bu
-> node'un kubelet'i `imagePullCredentialsVerificationPolicy: NeverVerifyPreloadedImages`
-> ile koşuyor (KEP-2535): kubelet'in **kimlikle** çektiği bir imaj, yalnız o imaj için
-> **kayıtlı** kimlik sunabilen pod'a veriliyor. Üç ölçüm: kimlik yok → `401` · hiç
-> kullanılmamış kimlik → `401` · `imagePullPolicy: Never` → `ErrImageNeverPull`.
-> Ayırt eden kontrol: **public** `postgres:17-alpine` + `Never` → **önbellekten
-> açıldı, exit 0**. Tam gerekçe sınır **[GHCR çekme kimliği ömürlü]**'de.
-
-**Kalıcı çare iki tane ve ikisi de kullanıcının işi.** Biri yapılana kadar yukarıdaki
-sınır geçerlidir:
+**3. Deploy'un kendi kimliği — `k8s/01-rbac.yaml` (bir kez, cluster-admin ile).**
 
 ```bash
-# (a) UZUN ÖMÜRLÜ PAT — aynı sır adı, aynı şekil. Yazılırsa deploy.yml onu her koşuda
-#     kendi token'ıyla EZER; bu yolu seçersen deploy.yml'deki adımı kaldır.
-# ⚠️ PAT KOMUT SATIRINA YAZILMAZ: kabuk geçmişine ve `ps`'e düşer. `read -rs` ile al.
-read -rs -p "GHCR PAT (read:packages): " GHCR_PAT; echo
-kubectl -n tappa create secret docker-registry ghcr \
-  --docker-server=ghcr.io --docker-username=atknatk --docker-password="$GHCR_PAT" \
-  --dry-run=client -o yaml | kubectl apply -f -
-unset GHCR_PAT
+kubectl apply -f deploy/k8s/00-namespace.yaml    # namespace önce; RBAC onun içine giriyor
+kubectl apply -f deploy/k8s/01-rbac.yaml
 ```
 
-**(b) Paketleri public yapmak.** ghcr.io/atknatk/tappa ve
-ghcr.io/atknatk/tappa-migrate → Package settings → *Change visibility* → Public.
-Sonrası çekme kimliği gerektirmez. 🔴 **Bunun API'si YOK — ölçüldü (2026-08-15):**
-`PATCH /user/packages/container/tappa` → **404, böyle bir uç nokta yok**. Yalnız
-arayüzden yapılır, yani hiçbir otomasyon bunu senin yerine kapatamaz. ⚠️ Public
-paket, imajın **herkesçe indirilebilir** olması demektir; imaj `scratch` + iki dosya
-ve sır taşımıyor (`deploy.yml` push öncesi bunu kapılıyor), ama karar yine de bilinçli
-verilmeli.
+🔴 **Bunu `deploy.yml` YAPAMAZ ve yapmamalı.** Bir Role'ü değiştirmek
+`rbac.authorization.k8s.io` üzerinde yetki ister; deploy kimliğinde o yetki **yok**.
+Kendi rolünü genişletebilen bir deploy kimliği sınır değil, formalitedir.
 
-`--docker-username` **kimlik doğrulamıyor**: ölçüldü (2026-08-15) — geçerli bir
-token'la uydurma bir kullanıcı adı da `Login Succeeded` veriyor. Doğrulayan token.
+⚠️ **`apply` et, `delete` + yeniden yaratma.** `KUBE_CONFIG` secret'ı **bu**
+ServiceAccount için üretilmiş bir token taşıyor; SA'yı silmek o token'ı geçersiz kılar
+ve sıradaki deploy ilk küme çağrısında düşer. `apply` mevcut nesneleri **yamalar**.
 
-**4. GitHub secret'ı — `KUBE_CONFIG`.**
+⚠️ **Bu dosya var olan BEŞ nesnenin yerini alıyor** (backlog T44 üç tane sayıyordu;
+ölçüm beş dedi). `ServiceAccount`, `Role`, `RoleBinding`, **`ClusterRole`** ve
+**`ClusterRoleBinding`** (`tappa-namespace-only`; `namespaces`,
+`resourceNames: [tappa]`) bugüne kadar **yalnız kümede**
+vardı (elle, `2026-08-15T20:15:45Z`) — repoda hiçbir izi yoktu, yani taze bir küme
+deploy'u koşturamazdı ve **hiçbir denetim bu rolü görmedi**. Dosyanın başındaki blok
+her yetkinin **hangi `deploy.yml` adımı** için orada olduğunu, ve çıkarılan her
+yetkinin **hangi ölçümle** gereksiz bulunduğunu yazıyor (backlog T44).
+
+🔴 **Elle rol, dosyaya göre GENİŞTİ ve bu §4.7'ye değiyordu:** `ns/tappa`'da
+`secrets`'a **tam CRUD** veriyordu, yani `tappa-secrets` — içinde `TAPPA_TAG_KEK` —
+bir iş akışının patlama yarıçapındaydı ve bunu yazan bir dosya yoktu. Yeni dosyada
+`secrets` yetkisi **tek isim üzerinde tek fiil** (`get` / `tappa-secrets`).
+**Ne KAPANMADI, sayılıyor:** deploy kimliği bir `Job` yaratabilir (migration'ın
+kendisi budur) ve bir Job'ın pod şablonu **kendi namespace'indeki her Secret'a**
+referans verebilir — bu referans RBAC istemez. Kum havuzunda uçtan uca ölçüldü:
+bu kurallarla yaratılan bir Job, listeleyemediği bir Secret'ın değerini okuyup
+loguna bastı. Yani daraltma **okumayı** değil, **yıkıcı yarıyı** kaldırıyor
+(artık `tappa-secrets`'ı yaratamaz, ezemez, silemez). Ayrıntı: sınır
+**[deploy kimliği namespace'in sırlarını okuyabilir]**.
+
+**4. Docker Hub — iki depo PUBLIC, iki GitHub secret'ı.**
+
+🔴 **Bu adım kullanıcının işi ve deploy onsuz koşmaz.** İmajlar GHCR'dan Docker
+Hub'a taşındı; gerekçesi ölçüm: bu node'un kubelet'i
+`imagePullCredentialsVerificationPolicy: NeverVerifyPreloadedImages` ile koşuyor
+(KEP-2535), yani **kimlikle** çekilmiş bir imaj, kayıtlı kimliği olmayan bir pod'a
+**düğümde dururken bile** verilmiyor (kimlik yok → `401` · kullanılmamış kimlik →
+`401` · `imagePullPolicy: Never` → `ErrImageNeverPull`). Ayırt eden kontrol:
+**public** bir imaj + `Never` → **önbellekten açıldı, exit 0**. **Public depo bu
+kusuru tanım gereği yok ediyor** — kaydedilecek bir kimlik yoktur.
+
+1. Docker Hub → **Account Settings → Personal access tokens** → **Read & Write**
+   yetkili bir token üret.
+2. GitHub deposuna iki secret yaz:
 
 ```bash
-base64 -w0 ~/.kube/config | gh secret set KUBE_CONFIG --repo atknatk/tappa
+gh secret set DOCKERHUB_USERNAME --repo atknatk/tappa     # Docker Hub kullanıcı adın
+gh secret set DOCKERHUB_TOKEN    --repo atknatk/tappa     # yukarıdaki token
 ```
 
-> ⚠️ **Bunu daraltın.** Tam cluster-admin bir kubeconfig'i CI secret'ına koymak,
-> `main`'e push edebilen herkese cluster-admin vermektir. Doğrusu `tappa`
-> namespace'inde bir ServiceAccount + Role (deployments/statefulsets/jobs/
-> configmaps/services/ingresses üzerinde `get,list,create,patch,apply`, ve
-> `namespaces` üzerinde yalnız `get`/`create`) ve o SA'nın token'ıyla üretilmiş bir
-> kubeconfig. Bu iş **yapılmadı** ve M8-02'nin runbook yarısına devrediliyor.
+3. `atknatk/tappa` ve `atknatk/tappa-migrate` depoları **Public** olmalı. İki yol
+   var ve **birincisi tercih edilir**: (a) ilk deploy'dan **önce** Docker Hub'da
+   *Create repository* ile ikisini **Public** olarak aç — böylece hiç private
+   olmazlar; (b) ilk push'tan **sonra** Repository → Settings → Visibility → Public.
+   ⚠️ **Bugün iki depo da YOK** (ölçüldü 2026-08-16: `hub.docker.com/v2/repositories/
+   atknatk/tappa/` → **404**, `…/tappa-migrate/` → **404**), yani ilk push ikisini de
+   **private** yaratacaktır.
 
-**5. İlk deploy.** `main`'e push → `ci` yeşil → `deploy` kendiliğinden koşar.
+   🔴 **AMA BU BİR TALİMAT DEĞİL, BİR KAPI — ve fark önemli.** `deploy.yml`,
+   push'tan hemen sonra ve kümeye **hiçbir şey uygulamadan önce**, iki imajı da
+   **kimliksiz** çekmeyi deniyor (*"Gate — both images must be pullable with NO
+   credential"*). Depo private kaldıysa adım orada kırmızı olur, mesajı bu maddeyi
+   adıyla gösterir ve **küme hiç değişmez**. Böylece *"public yap"* sağlanmayan bir
+   garanti olmaktan çıkıp **mekanizması olan** bir koşula dönüşüyor — bu kartın imza
+   kusurunun tam tersi.
+   Kapı anonimliği `DOCKER_CONFIG`'i **boş bir dizine** çevirerek elde ediyor
+   (`docker logout` değil: logout geliştirici makinesinde bir *credential helper*
+   üzerinden gider — bu dosya yazılırken ölçüldü, `credsStore: desktop` — yani
+   runner'dakinden farklı bir mekanizmayı sınardı). Ayırt edici kontrol: boş
+   `DOCKER_CONFIG` + public imaj → **rc 0**; içinde **uydurma** bir docker.io kimliği
+   olan `DOCKER_CONFIG` + aynı imaj → **rc 1, `unauthorized`**. İkincisi olmasa
+   birincinin gerçekten anonim olduğu **kanıtlanamazdı**.
+
+⚠️ **İki secret yokken ne oluyordu, ölçüldü:** tanımsız bir GitHub secret'ı **boş
+dizeye** dönüşür, hata vermez. `docker login` o boş değerle **rc=1** ve
+`username is empty` / `password is empty` diyor — hangi GitHub secret'ının eksik
+olduğunu, nereden alınacağını **söylemiyor**. Bu yüzden `deploy.yml`'in **birinci**
+adımı artık ikisini de sayıyor ve eksikse **hiçbir şey inşa etmeden** duruyor.
+
+⚠️ **Public depo, İKİ imajın da herkesçe indirilebilir olması demektir.** İkisi de
+`scratch` üzerine kurulu ve içerikleri `Dockerfile`'ın son iki aşamasından birebir
+okunuyor: **uygulama** = CA paketi + `/tappa`; **migration** = CA paketi + `/goose` +
+`/migrations` (20 `.sql`, hepsi zaten public depoda). Sır taşımıyorlar ve `deploy.yml`
+push'tan **önce** içeriği kapılıyor (`scripts/verify-image.sh`).
+⚠️ Burada bir tur boyunca *"imaj `scratch` + iki dosya"* yazdı — o cümle **iki
+artefaktın yalnız birini** anlatıyordu. Karar yine de bilinçli verilmeli: açığa çıkan
+şey kod değil ama **etiket listesi** herkese açık ve etiketler `sha-<12hex>`, yani
+üretimde hangi commit'in koştuğu dışarıdan okunabilir hâle geliyor — sınır
+**[sevk edilen commit'in kimliği herkese açık]**. Anonim çekme oran limiti de sınır
+listesinde sayılıyor.
+
+**Elenen iki seçenek ve gerekçeleri:** **GHCR public** — istenmediği için değil,
+**ulaşılamadığı** için: paket görünürlüğünün **API'si yok** (üç kez ölçüldü:
+`gh api -X PATCH /user/packages/container/tappa -f visibility=public` → **404, böyle
+bir uç nokta yok**), yalnız arayüzden yapılıyor ve kullanıcı iki kez denedi.
+**AWS ECR** — private ECR aynı kimlik sorununu dönen bir IAM token'ıyla geri
+getirirdi; ECR Public yalnız `us-east-1`'den push kabul ediyor ve bir AWS hesabı
+istiyor.
+
+**5. GitHub secret'ı — `KUBE_CONFIG`.**
+
+```bash
+# 🔴 ADIM 3'TEKİ ServiceAccount'un TOKEN'IYLA üret, cluster-admin kubeconfig'inle DEĞİL.
+# ⚠️ İstenen süre apiserver'ın üst sınırıyla KIRPILIR ve kubectl bunu bir uyarıyla
+#    söyler ("requested expiration of ..., but the token will expire at ...").
+#    Kırpılmışsa süre dolmadan yenilemek gerekir — takvime yaz, yoksa deploy sessizce
+#    401 almaya başlar.
+kubectl -n tappa create token github-deployer --duration=8760h
+# ...bu token'ı bir kubeconfig'e yaz (cluster/server/CA aynı kalır, user değişir), sonra:
+base64 -w0 ~/.kube/tappa-deployer.config | gh secret set KUBE_CONFIG --repo atknatk/tappa
+```
+
+> ⚠️ **Bugün bu secret'ın hangi kimliği taşıdığı BU DOSYADAN doğrulanamaz** ve öyle
+> yazılıyor. Eğer içindeki kubeconfig cluster-admin ise `01-rbac.yaml`'daki daraltma
+> **hiçbir şeyi sınırlamaz** — cluster-admin bir kimlik Role'ü zaten aşar. Sınır
+> **[kubeconfig'in kimliği doğrulanmadı]**.
+
+**6. İlk deploy.** `main`'e push → `ci` yeşil → `deploy` kendiliğinden koşar.
 Elle: Actions → `deploy` → Run workflow.
 
-**6. İlk deploy sonrası — üç doğrulama (hiçbiri isteğe bağlı değil).**
+**7. İlk deploy sonrası — üç doğrulama (hiçbiri isteğe bağlı değil).**
 
 ```bash
 # (a) TAPPA_TRUSTED_PROXIES doğru mu: mobil veriyle bir tap at, satırı oku
@@ -218,7 +280,7 @@ curl -sS -o /dev/null -D - https://tappa.everva.com.tr/healthz | \
   grep -i 'strict-transport\|^HTTP'
 ```
 
-**7. `/signup`'tan ilk işletmeyi aç.** İlk deploy **boş şemadır**, seed yoktur
+**8. `/signup`'tan ilk işletmeyi aç.** İlk deploy **boş şemadır**, seed yoktur
 (kullanıcı kararı). Sonra `/admin/legal`'e gir, reddetme sayfasının bastığı kendi
 `admin_users.id`'ni `05-config.yaml` → `TAPPA_OPERATOR_ADMIN_IDS`'e yaz ve
 `kubectl -n tappa rollout restart deployment/tappa`.
@@ -227,26 +289,70 @@ curl -sS -o /dev/null -D - https://tappa.everva.com.tr/healthz | \
 
 ## Elle deploy / rollback
 
+> 🔴 **ÖNCE ŞUNU ÖLÇ: BU BÖLÜM DOCKER HUB'I TARİF EDİYOR, KÜME BUGÜN HÂLÂ GHCR
+> KOŞUYOR.** Aşağıdaki `set image` komutu, **kümenin bugünkü hâlinde koşulursa
+> ÜRÜNÜ DÜŞÜRÜR**: `docker.io/atknatk/tappa` deposu **yok** (ölçüldü 2026-08-16:
+> `hub.docker.com/v2/repositories/atknatk/tappa/` → **404**), yani `1/1 Running` bir
+> pod'un yerine **çekilemeyen** bir imaj konur → `ImagePullBackOff` → 04:00 vardiyası
+> tap sayfasını **hiç** yükleyemez.
+>
+> **Ön koşul — bu üçü doğru olana kadar aşağıdaki `docker.io/...` komutunu KOŞMA:**
+> operatör adımı 4 tamamlanmış (iki GitHub secret'ı + iki depo **Public**) **ve**
+> ondan sonra en az bir `deploy` koşusu yeşil olmuş olmalı. Ölç, iddia etme:
+> ```bash
+> kubectl -n tappa get deployment tappa \
+>   -o jsonpath='{.spec.template.spec.containers[0].image}{"  ps="}{.spec.template.spec.imagePullSecrets[*].name}{"\n"}'
+> # ghcr.io/... + ps=ghcr   -> küme HÂLÂ GHCR'da: aşağıdaki komutta etiketi ghcr.io/... yaz
+> # docker.io/... + ps yok  -> geçiş inmiş: aşağıdaki komut olduğu gibi doğru
+> ```
+> **Bugünkü gerçek ölçüm (2026-08-16, salt okuma):** `deployment/tappa` →
+> `ghcr.io/atknatk/tappa:sha-353897c6d5f6`, `imagePullSecrets: ghcr`; üç ReplicaSet'in
+> **üçü de** `ghcr.io/...` + `ps=ghcr`; `secret/ghcr` **var** (18 sa). Yani geçiş
+> **henüz inmedi**. Bu, bölüm 1'in *"Ağaçtaki manifestler taşıyor; KÜMEDEKİ nesneler
+> henüz taşımıyor"* uyarısının aynısıdır — orada yazılıydı, burada yazılı değildi.
+
+> 🔴 **AŞAĞIDAKİ BLOĞU TOPTAN KOPYALAMA — ÜÇÜNCÜ KOMUT AYRI BİR KARAR.** İlk komut
+> yer tutucu taşıdığı için kopyalayanı **durdurur**, `rollout undo` **durdurmaz**;
+> onu koşmadan önce bloğun **altındaki** uyarıyı oku. (Bu üçlü bilerek tek blokta
+> duruyor, çünkü sırayla okunmalı — ama `undo` bir kurtarma değil, koşullu bir
+> harekettir.)
+
 ```bash
-kubectl -n tappa set image deployment/tappa tappa=ghcr.io/atknatk/tappa:sha-<12hex>
+# ⚠️ ETİKETİN KAYNAĞINI YUKARIDAKİ ÖLÇÜMDEN AL: küme GHCR'daysa ghcr.io/atknatk/tappa,
+#    Docker Hub geçişi indiyse docker.io/atknatk/tappa.
+# 🔴 YER TUTUCU SESSİZCE KABUL EDİLİR — ölçüldü (çevrimdışı, --local):
+#    `kubectl set image ... tappa='<registry>/atknatk/tappa:sha-<12hex>'` çıktısı
+#    BİREBİR `<registry>/atknatk/tappa:sha-<12hex>`; istemci tarafında imaj
+#    referansının doğrulaması YOKTUR. Yani yanlış yazılmış bir etiket buradan geçer
+#    ve arızayı ancak kubelet bildirir (`ImagePullBackOff`).
+kubectl -n tappa set image deployment/tappa tappa=<registry>/atknatk/tappa:sha-<12hex>
 kubectl -n tappa rollout status deployment/tappa
+
+# 🔴 ÜÇÜNCÜ KOMUTU KOŞMADAN ÖNCE ALTTAKİ UYARIYI OKU.
 kubectl -n tappa rollout undo deployment/tappa      # bir önceki imaja
 ```
 
-> 🔴 **`rollout undo` BU KÜMEDE SESSİZCE ÇALIŞMAYABİLİR — ve tam olarak ona ihtiyaç
-> duyduğun anda.** Önceki imaj, **önceki** deploy'un `GITHUB_TOKEN`'ıyla çekilmişti;
-> `secret/ghcr` o günden beri en az bir kez **yeni** bir token'la ezildi. Kubelet
-> kimlik doğrulaması yaptığı için (KEP-2535, ölçüldü) bu bir **yeniden çekme**
-> tetikler ve o token artık **ölüdür** → `401` → `ImagePullBackOff`, yani rollback
-> **kesintiyi uzatır**. Ayrıntı ve ölçümler: sınır **[GHCR çekme kimliği ömürlü]**.
+> 🔴 **`rollout undo` HÂLÂ RİSKLİ — ÇÜNKÜ KÜME HÂLÂ GHCR'DA.** Burada bir tur boyunca
+> *"o uyarı artık geçersiz"* yazdı; **ağaç için** doğruydu, **küme için değil**, ve bu
+> tam olarak bu kartın imza kusurudur — sağlanmayan bir garantiyi ilan etmek.
+> Bugünkü ölçüm: üç ReplicaSet'in **üçü de** `ghcr.io/...` + `imagePullSecrets: ghcr`,
+> yani `rollout undo` bugün **tam olarak** kaldırdığım uyarının tarif ettiği duruma
+> düşer: kubelet kimlik doğruluyor (KEP-2535), eski imaja dönmek yeniden çekme
+> tetikliyor, `secret/ghcr`'ın token'ı ise sonraki deploy'da ezilmiş → **401 →
+> `ImagePullBackOff`**, tam da olay anında.
+> ✅ **Uyarı yalnız şu koşulda düşer:** Docker Hub geçişi kümeye inip **hem
+> Deployment hem de dönmek istediğin ReplicaSet** `docker.io/...` gösterdiğinde —
+> public depoda kaydedilecek kimlik yoktur (ölçülmüş kontrol: public imaj +
+> `imagePullPolicy: Never` → **düğüm önbelleğinden açıldı, exit 0**). O gün gelene
+> kadar bu satır **geçerlidir**.
 >
-> **Geri almadan önce iki satırla kontrol et** — hedef imajın hâlâ çekilebilir olup
-> olmadığını `--dry-run=server` söylemez, o yüzden rollout'u izle ve takılırsa
-> **ileri** git (yeni bir deploy koşusu), geri değil:
+> ⚠️ **Her hâlükârda rollout'u izle** — geri alma başka sebeplerle de takılabilir
+> (düğüm imajı düşürmüştür ve Docker Hub'ın anonim bütçesi tükenmiştir: sınır
+> **[Docker Hub anonim çekme bütçesi]**):
 > ```bash
 > kubectl -n tappa rollout undo deployment/tappa
 > kubectl -n tappa rollout status deployment/tappa --timeout=120s || \
->   kubectl -n tappa get pod -o wide   # ImagePullBackOff görüyorsan yukarıdaki sınır
+>   kubectl -n tappa get pod -o wide
 > ```
 
 > 🔴 **Rollback şemayı geri almaz.** `goose down` bu iş akışında **yoktur** ve
@@ -259,9 +365,28 @@ kubectl -n tappa rollout undo deployment/tappa      # bir önceki imaja
 
 ## Olay müdahalesi — belirti → sebep
 
-> **Bu tablodaki her satır bu kümede fiilen ölçüldü.** Uydurma senaryo yok; bir
-> belirti burada yoksa, o belirti **bu repoda henüz görülmedi** demektir ve teşhis
-> ölçümle başlamalıdır, bu listeyi zorlayarak değil.
+> **Bu bölümdeki satırların ÇOĞU bu kümede fiilen ölçüldü** — ve ölçülmemiş olanlar
+> **satırında işaretlidir**. Uydurma senaryo yok; bir belirti burada yoksa, o belirti
+> **bu repoda henüz görülmedi** demektir ve teşhis ölçümle başlamalıdır, bu listeyi
+> zorlayarak değil.
+>
+> 🔴 **BU CÜMLE BİR TUR BOYUNCA *"her satır fiilen ölçüldü"* DİYORDU VE ALTINA
+> ÖLÇÜLMEMİŞ SATIRLAR EKLENDİ** (bölüm 2'nin Docker Hub satırları: depolar bu kümede
+> hiç var olmadı, oran limiti yalnız **başlık** olarak ölçüldü). Değişmemiş bir
+> garanti cümlesinin altına yeni satır eklemek, garantiyi sessizce yalanlar —
+> bu dosyanın imza kusurunun bir başka yüzü.
+>
+> 🔴 **VE BÜTÜN BÖLÜM İÇİN GEÇERLİ TEK ÖN KOŞUL: AĞAÇ İLE KÜME AYNI ŞEY DEĞİL.**
+> Ağaç Docker Hub'ı ve `imagePullSecrets`'sız pod'ları tarif ediyor; **küme bugün
+> hâlâ GHCR koşuyor** (ölçüldü 2026-08-16: `deployment/tappa` →
+> `ghcr.io/atknatk/tappa:sha-353897c6d5f6` + `imagePullSecrets: ghcr`, üç
+> ReplicaSet'in üçü de aynı, `secret/ghcr` **var**). Teşhise başlamadan **kümeye
+> sor**, ağaca değil:
+> ```bash
+> kubectl -n tappa get deployment tappa \
+>   -o jsonpath='{.spec.template.spec.containers[0].image}{"  ps="}{.spec.template.spec.imagePullSecrets[*].name}{"\n"}'
+> kubectl -n tappa get secret ghcr --ignore-not-found -o name   # boşsa geçiş inmiştir
+> ```
 >
 > **Önce ölç, sonra dokun.** Kesintinin var olup olmadığının tek dış kanıtı:
 > ```bash
@@ -272,43 +397,26 @@ kubectl -n tappa rollout undo deployment/tappa      # bir önceki imaja
 > ürün çalışıyor; **200/503** = süreç ayakta ama veritabanı yok; **ikisi de yok** =
 > pod ya da ingress.
 >
-> 🔴 **AMA BU İKİSİ *"ŞU AN AYAKTA MIYIM"* DER, *"AYAĞA KALKABİLİR MİYİM"* DEMEZ —
-> ve ikisi bu kümede farklı sorulardır.** Sınır **[GHCR çekme kimliği ömürlü]**
-> gereği, çalışan pod'un imajı **kayıtlı** bir kimlikle çekilmiştir; `secret/ghcr` o
-> pod doğduktan sonra bir deploy tarafından ezildiyse, o pod **yeniden başlarsa geri
-> gelmez** ve bu sürerken hiçbir belirti vermez.
+> 🔴 **ÜÇÜNCÜ BİR SORU VAR — *"ayağa KALKABİLİR miyim"* — VE BU KÜMEDE HÂLÂ
+> GEÇERLİ.** Kaynağı `secret/ghcr`: çalışan pod'un imajı **kayıtlı** bir kimlikle
+> çekilmiştir ve sonraki bir deploy o Secret'ı ezdiğinde pod **yeniden başlayamaz**
+> hâle gelir, üstelik hiçbir belirti vermeden.
+> ⚠️ **Burada bir tur boyunca *"o soru ARTIK YOK, bu durum oluşamıyor"* yazdı. Ağaç
+> için doğruydu, KÜME için değil** — ölçüldü 2026-08-16: `secret/ghcr` **var** (18 sa),
+> Deployment ve üç ReplicaSet'in üçü de `imagePullSecrets: ghcr`. Soru ancak Docker
+> Hub geçişi kümeye indiğinde düşer (public depoda kaydedilecek kimlik yoktur).
+> ⚠️ **Ve onu ölçen komut (`scripts/verify-deployment.sh pull-credential`)
+> KALDIRILDI** — bugün elde olan tek kanıt elle okumaktır:
 > ```bash
-> scripts/verify-deployment.sh pull-credential tappa
+> kubectl -n tappa get secret ghcr -o jsonpath='{range .metadata.managedFields[*]}{.time}{"  by "}{.manager}{"\n"}{end}'
+> kubectl -n tappa get pod -l app.kubernetes.io/component=server \
+>   -o jsonpath='{range .items[*]}{.status.startTime}{"  "}{.metadata.name}{"\n"}{end}'
+> # En yeni secret/ghcr yazımından ÖNCE başlamış bir pod yeniden başlayamaz.
+> # Çare: yeni ve BAŞARILI bir deploy koşusu. (Komut hüküm vermez, kanıt basar.)
 > ```
-> **Bu komut KANIT basar, HÜKÜM VERMEZ** — iki zaman damgası kümesini tek biçimde
-> yan yana koyar ve kuralı yazar; karşılaştırmayı **sen** yaparsın. Çıkış kodu
-> yalnızca *okuyabildim mi* sorusunu cevaplar: **`0` = kanıt basıldı (güvendesin
-> DEMEK DEĞİL)** · **`2` = okunamadı, hiçbir kanıt basılmadı**.
->
-> ⚠️ **NEDEN HÜKÜM YOK — bu bir tasarım tercihi değil, dört denetim turunun
-> sonucu.** Aynı kontrol **üç kez** yazıldı ve **üçü de** koşulmamış bir yolda
-> *"güvendesin"* dedi: v1 `zsh`'in reddettiği bir karşılaştırma yüzünden at-risk
-> kümeye `ok` dedi · v2 `secret/ghcr` **hiç yokken** `ok` dedi (at-risk'ten **daha
-> kötü** bir durum) · v3 *"yapısal olarak fail-closed"* diye **ilan edildi** ve
-> **kırk satır aşağıda** çürüdü: ayrıştırılamayan bir `managedFields` girdisi sessizce
-> **atlanıyordu**, yani en yeni damga okunamazsa eski bir damga kazanıyor ve sonuç
-> yine `ok` çıkıyordu; ayrıca damga normalleştirici `+02:00` ofsetini **UTC sanıyordu**.
-> `docs/plan/agent-brief.md`'nin ikinci durma kuralı burada devreye giriyor:
-> *"Sayılmış bir açık, kapatıldığı İDDİA EDİLEN bir açıktan güvenlidir."*
-> Tehlikeli olan zaman damgaları değil, **`ok` kelimesiydi** — yanlış bir hüküm
-> operatörü **aramayı bırakmaya** ikna eder. Bu sürümün doğruluk iddiası da
-> tartışmayla değil **sayımla** kanıtlanıyor: fonksiyonda hüküm basabilen yol sayısı
-> **sıfır** (`ok`/`AT RISK`/`safe` geçişi: **0**), dokuz `return`'ün **dokuzu da**
-> `return 2`, ve iki damga arasında **hiç** karşılaştırma yok.
-> On altı vaka koşuldu: v3'ü düşüren iki kanal · Secret yok · `managedFields` boş ·
-> girdi/satır sayısı uyuşmuyor · pod yok · yalnız boşluk · `kubectl` düşüyor ·
-> zaman aşımı `rc=124` · `startTime` boş · pod adı boş · iki haneli yıl · `Z`
-> taşımayan damga · üç pod'un ortası okunamaz → **on dördü de exit 2, hiçbiri kanıt
-> basmadı**; iki okunabilir girdi kanıt bastı.
->
-> **Bugünkü canlı çıktı** (pod `2026-08-15T22:20:44Z`, en yeni Secret yazımı
-> `2026-08-16T08:38:41Z` — pod **daha erken**, yani o pod yeniden başlayamaz):
-> çare bir sonraki **başarılı** deploy koşusudur.
+> Silinme gerekçesi kayıtta: mod, geçiş indikten sonra konusu var olmayan bir Secret
+> olacağı için her sağlıklı kümede *"UNREADABLE"* diyecekti. **Geçiş inene kadar
+> yukarıdaki iki satır onun yerini tutar.** Ders defterde: kart düzeltmesi, FAZ C 6. tur.
 
 ### 1. `connection refused` — bu bir **RST**'tir, "port kapalı" demek DEĞİLDİR
 
@@ -363,6 +471,11 @@ ya da `pg_isready ... - no response`. Postgres `1/1 Running` ve loglarında
 > # takıldığı bir olayda koşulur, yani Ctrl-C ihtimali yüksek. Her hâlükârda:
 > kubectl -n tappa delete pod dnscheck --ignore-not-found
 > ```
+> ⚠️ **BU SONDA `postgres:17-alpine` İSTİYOR, yani sınır
+> **[Docker Hub anonim çekme bütçesi]**'nden bir çekme daha harcayabilir** — ve tam olarak `429` gördüğün bir
+> olayda **ters teper**. `imagePullPolicy: IfNotPresent` ve bu imaj Postgres ayaktayken
+> düğümde **zaten** duruyor, yani normalde çekme olmaz; ama düğüm imajı düşürmüşse bu
+> sonda da açılmaz. Bölüm 2'nin `429` satırını gördüysen önce onu çöz.
 > Ölçüldü, iki yönde de: Service yokken `NXDOMAIN`, varken
 > `10.43.184.140  tappa-postgres.<ns>.svc.cluster.local …`.
 > ⚠️ **Ve çıkan adresi karşılaştır** — `kubectl -n tappa get pod tappa-postgres-0
@@ -396,27 +509,75 @@ kubectl -n tappa get job/tappa-migrate deployment/tappa \
 `init=` boş çıkıyorsa bu dosyalar kümeye **henüz inmemiştir** (FAZ C bir deploy
 koşusu bekliyor) ve yukarıdaki yarış hâlâ canlıdır.
 
-### 2. `ImagePullBackOff` — kimlik düzeltilince **kendiliğinden toparlanmaz**
+### 2. `ImagePullBackOff` — dört sebep, ve hangisinin geçerli olduğu KÜMEYE bağlı
 
-**Belirti.** `Failed to pull image ... 401 Unauthorized`, ya da
-`ErrImageNeverPull: not present`. İmaj o node'da fiilen dururken bile olur.
+> 🔴 **ÖNCE HANGİ DÜNYADASIN: bu bölümün ilk üç satırı DOCKER HUB dünyasına,
+> dördüncüsü bugünkü GHCR kümesine ait.** Ağaç geçişi tarif ediyor, küme henüz
+> inmedi (yukarıdaki önsözdeki iki komutla ölç). ⚠️ Burada bir tur boyunca başlık
+> *"artık kimlik sorunu DEĞİL, iki başka sebep"* diyordu ve **iki şeyi birden**
+> yanlış söylüyordu: tablo o an **üç** satır taşıyordu (bölümün kendi metni de
+> *"üç satırda da"* diyordu; bugün **dört** satır ve metin de dört diyor), ve kimlik
+> sorunu **bu kümede hâlâ canlı** — `secret/ghcr` **var**
+> (ölçüldü 2026-08-16, 18 sa), Deployment ve üç ReplicaSet'in üçü de
+> `imagePullSecrets: ghcr`. Yani *"`secret/ghcr` arayan biri var olmayan bir nesneyi
+> arar"* cümlesi de **yanlıştı** ve kaldırıldı.
 
-**Sebep.** Sınır **[GHCR çekme kimliği ömürlü]**: kubelet kimlikle çekilmiş bir
-imajı, **kayıtlı bir kimlik
-sunamayan** pod'a vermez. Üstüne kubelet'in geri çekilme aralığı her denemede büyür,
-yani sır tazelense bile pod dakikalarca fark etmez — **2026-08-15'te ölçülen süre
-4 dk 39 sn** ve elle `kubectl delete pod` gerekti.
+**Belirti.** `Failed to pull image ...`, `ErrImagePull`, `ImagePullBackOff`.
 
-**Çare.** Yeni bir deploy koşusu (adım *"Recover pods stuck on a stale pull
-credential"* bunu artık kendisi yapıyor). Deploy koşamıyorsan, kimlik tazeyken
-pod'u yeniden yarat:
+**Sebep — `kubectl -n tappa describe pod <pod>` mesajı hangisini söylüyor:**
+
+| mesaj | sebep | çare — **satır bazında; genel bir çare YOK** |
+|---|---|---|
+| `pull access denied` / `repository does not exist` | Docker Hub deposu **private** | **Docker Hub → Repository → Settings → Public** (operatör adımı 4, madde 3). **Sonra** yeni bir deploy koşusu. 🔴 **Sırayı ters çevirme:** depo private iken yeni koşu `deploy.yml`'in *"Gate — both images must be pullable with NO credential"* adımında (push'tan sonra, `kubectl` daha kurulmadan) **tanımı gereği** durur ve *"Nothing has been applied to the cluster"* der — yani pod açılmamaya **devam eder** |
+| `toomanyrequests` / `429` ⚠️ *bu kümede hiç görülmedi; yalnız başlık ölçüldü* | anonim çekme bütçesi doldu — sınır **[Docker Hub anonim çekme bütçesi]** (ölçüldü: `x-ratelimit-limit: 100;w=3600`, IP başına) | **Pencerenin dolmasını bekle** — Deployment pod'u kendiliğinden toparlar. Yeni deploy koşusu bunu **düzeltmez**: kapı runner'ın adresinden geçse bile çeken taraf **düğüm**dür. 🔴 **Ama migration `Job`'ı beklemeyle KURTULMAZ:** `activeDeadlineSeconds: 600` + `backoffLimit: 2`, yani saatlik pencereden **çok önce** kalıcı `Failed` olur → Job için **yine de yeni bir koşu** gerekir (pencere dolduktan sonra). Çalışan bir pod etkilenmez (imaj düğümde) |
+| `manifest unknown` / `not found` | etiket yok — `:deploy-placeholder` kalmış (dizini toptan `apply` etmişsin) ya da push başarısız olmuş | **Yeni bir deploy koşusu** — doğru etiketi o yazar. `deploy.yml`'in `Push` adımını da oku; manifestleri elle `apply` etme |
+| `401 Unauthorized` **(BUGÜNKÜ KÜME)** | `secret/ghcr`'ın token'ı ölü — kubelet kimlik doğruluyor (KEP-2535) ve pod'un imajını çeken token sonraki deploy'da ezilmiş. **Bu satır bu kümede 2026-08-15'te fiilen ölçüldü: 4 dk 39 sn** | **Yeni ve BAŞARILI bir deploy koşusu** (sırrı tazeler). Koşamıyorsan takılmış pod'u yeniden yarat — aşağıdaki uyarıyı okuyarak. ⚠️ Bu satır Docker Hub geçişi kümeye indiğinde **düşer**; o güne kadar geçerlidir |
+
+> 🔴 **BURADA BİR TUR BOYUNCA *"Çare (her üçünde de) yeni bir deploy koşusudur"*
+> YAZDI VE İLK İKİ SATIRDA **GARANTİLİ BAŞARISIZDI** — güvenlik denetimi bunu §4.6'nın
+> altyapı yüzü olarak bloklayan saydı, haklı olarak: bu bölümün müdahale ettiği hâl
+> uygulama pod'unun **hiç açılmadığı** hâldir, 04:00 vardiyası tap sayfasını
+> yükleyemez, ve **kaydedilemeyen dokunuş kaybolan kayıttır**. Bir runbook'un
+> operatörü tek ve **kesin işe yaramayacak** bir eyleme yönlendirmesi, hiçbir şey
+> yazmamaktan kötüdür. Doğru cevap **satır bazındadır** ve zaten tablonun kendi
+> sütununda duruyordu; genel cümle kaldırıldı.
+
+> 🔴 **VE BİRİNCİ SATIRIN YANINDA *"bunu kümede görüyorsan iş akışının kapısı
+> atlanmıştır, yani buraya ancak elle `apply` edilmiş bir manifestle gelinir"*
+> YAZIYORDU — BU DA YANLIŞTI, ve bu dosya kendini sınır
+> **[Docker Hub anonim çekme bütçesi]** maddesinde zaten yalanlıyordu.** Elle hiçbir `apply` olmadan üretilebilir,
+> dört adımda ve **hepsi o maddede sayılı**: (1) deploy N yeşil — depolar public,
+> kapı geçti, pod çalışıyor; (2) depo **sonradan** private'a çevrilir — kapı yalnız
+> **deploy anını** ölçer ve bunu yapan kimseyi engelleyemez; (3) düğüm imajı düşürür
+> — kubelet imaj GC'si (bu node'da `imageMinimumGCAge: 2m0s`), `crictl rmi`, ya da
+> düğüm yeniden kurulumu; (4) pod yeniden başlar → `pull access denied`.
+> **Doğru cümle:** kapı bir **deploy anı** ölçümüdür, süregelen bir garanti değil;
+> bu satırı elle apply olmadan da görebilirsin ve o zaman aranacak şey *"kim elle
+> apply etti"* değil, **deponun bugünkü görünürlüğüdür**. Yanlış cümle operatörü
+> hiç olmamış bir olayı ararken pod'u kapalı bırakırdı.
+
+**Dört satırda da ortak olan tek şey:** takılmış pod'u yeniden yaratmak kubelet'in
+büyüyen geri çekilme aralığını sıfırlar — yani **satırın kendi çaresi uygulandıktan
+sonra** pod'un dakikalarca beklemesini engeller.
+
+🔴 **AMA HANGİ POD OLDUĞUNA BAK — üç tipin üçü de farklı sonuç veriyor, ve
+*"SADECE `ImagePullBackOff` olanı"* bunları AYIRMIYOR:**
+
+| pod | `delete` sonucu |
+|---|---|
+| `tappa-<hash>-<hash>` (Deployment) | **zararsız** — ReplicaSet yerine yenisini koyar, `maxUnavailable: 0` ile diğer replika servis verir |
+| `tappa-migrate-<hash>` (**Job**) | 🔴 **`.status.failed`'ı ARTIRIR.** `backoffLimit: 2` olduğu için **üç silme Job'ı kalıcı `Failed`** yapar; sonra yalnız yeni bir deploy koşusu (Job'ı silip yeniden yaratır) kurtarır |
+| `tappa-postgres-0` (**StatefulSet**) | 🔴 **VERİTABANINI YENİDEN BAŞLATIR.** Açık bağlantılar kopar, uygulama `/readyz` 503 verir. Bunu yalnız Postgres'in kendi imajı çekilemiyorsa yap |
+
 ```bash
+kubectl -n tappa get pod -o wide            # ÖNCE hangi tip olduğuna bak (ada göre)
 kubectl -n tappa delete pod <stuck-pod>     # SADECE ImagePullBackOff/ErrImagePull olanı
 ```
-🔴 **`kubectl rollout undo` bu sınıra çarpar.** Önceki imaj, önceki deploy'un
-token'ıyla çekilmişti; Secret o günden beri değişti, yani geri alma yeni bir çekme
-tetikler ve **ölü token'la 401 alır**. Rollback'e güvenmeden önce sınır
-**[GHCR çekme kimliği ömürlü]**'yü oku.
+⚠️ `deploy.yml`'de bunu otomatik yapan bir adım **vardı ve kaldırıldı** — dayandığı
+öncül (bayat çekme kimliği) **ağaçta** artık yok, ve premisi yanlış olan yıkıcı bir
+adımı tutmak bu kartın imza kusurudur. ⚠️ **Kümede o öncül hâlâ geçerli** (yukarıdaki
+dördüncü satır), yani geçiş inene kadar bu işi **elle** ve yukarıdaki tabloya bakarak
+yapmak gerekiyor.
 
 ### 3. `pg_isready ... - no attempt` — ağ değil, **kullanıcı adı**
 
@@ -457,7 +618,7 @@ ağ değil.
 RESOLVE"*, ya da elle: `getent hosts tappa-postgres` **boş**. `pg_isready` yine
 `no response` diyor — bölüm 1'in tablosu bunun neden yanıltıcı olduğunu anlatıyor.
 
-**Sebep.** İki tanesi ölçüldü, biri yapısal:
+**Sebep.** İki tane, biri ölçülmüş biri yapısal:
 - **Geçici (taze kurulum, ölçüldü):** headless Service kendi DNS kaydını **hazır bir
   pod olana kadar yayımlamaz**, ve o kayıt `kubectl rollout status` döndükten
   **~3 sn sonra** doğuyor (taze volume ölçümü: TCP `08:50:35.2` açıldı · kubelet
@@ -533,11 +694,22 @@ değil, *"bir şey takıldı mı"* sorusuna kaba bir cevaptır.
 7. **`sslmode=disable`** — bağlantı bu node'un kendi köprüsünden çıkmıyor
    (tek node, pod↔pod `cni0`). Yönetilen bir Postgres'e taşınırsa `verify-full`
    gerekir; CA paketi imajda **zaten var**.
-8. **Kubeconfig secret'ı daraltılmadı** — gerekçe ve devir notu *"Operatörün
-   yapması gerekenler"* bölümünün **4. adımında** (`KUBE_CONFIG`). ⚠️ Burada
-   eskiden yalnız *"madde 4 yukarıda"* yazıyordu; bu listenin içinde okunduğunda
-   **sınır 4**'e (HSTS) işaret ediyor gibi görünüyordu — B1'in kapattığı sınıfın
-   aynısı, o yüzden hedefi adıyla yazıldı.
+8. **[kubeconfig'in kimliği doğrulanmadı]** — 🔴 **Daraltmanın YARISI yapıldı ve
+   hangi yarı olduğu burada yazılıyor.** ✅ **Yapılan:** deploy'un ihtiyaç duyduğu
+   kimlik artık bir **dosya** — `k8s/01-rbac.yaml` — ve her yetkisi ölçülerek
+   daraltıldı (`secrets` tam CRUD → tek isim üzerinde `get`; `pods` yedi fiil → tek
+   `list`; `pods/exec` tek pod adına kilitli; `serviceaccounts`, `events`,
+   `replicasets`, `persistentvolumeclaims`, `externalsecrets` ve `*/status`
+   **tamamen** çıktı). ❌ **Yapılmayan ve BU DOSYADAN DOĞRULANAMAYAN:** GitHub
+   secret'ı `KUBE_CONFIG`'in **içinde hangi kimliğin durduğu**. İçindeki kubeconfig
+   hâlâ cluster-admin ise `01-rbac.yaml` **hiçbir şeyi sınırlamaz** — cluster-admin
+   bir kimlik Role'ü aşar ve RBAC ona bakmaz bile. Bu ajanın secret'ı okuma yolu
+   yok, yani *"daraltıldı"* demek ölçülmemiş bir iddia olurdu. Kapatan adım
+   operatörün: token'ı `kubectl -n tappa create token github-deployer` ile üret,
+   kubeconfig'i ondan kur, secret'ı öyle yaz (*"Operatörün yapması gerekenler"*
+   **5. adım**). ⚠️ Buradaki atıf **adım numarasıyla** verilmiş olsa da hedefin
+   **adı** da yazılı (`KUBE_CONFIG`), çünkü bu listede numara kaymaları daha önce
+   beş çapraz atfı yanlış maddeye düşürmüştü.
 9. **KEK döndürme aracı YOK.** M8-02 *"KEK dönme prosedürü yazılı **ve
    yürütülebilir**: tüm parkın `tags.aes_key_ref` değerlerini yeniden sarmalayan araç
    var"* diyor. Böyle bir araç bu repoda yok, yani bugün bir KEK sızıntısının
@@ -567,36 +739,46 @@ değil, *"bir şey takıldı mı"* sorusuna kaba bir cevaptır.
     role"*, `pg_stat_activity` üzerinden), yani **deploy anına** özgü; deploy sonrası
     değiştirilen bir değeri yakalamaz. Süreç içi kontrol bilinçli olarak
     **yapılmadı** — gerekçesi kartta, ölçümüyle.
-12. **[GHCR çekme kimliği ömürlü]** — 🔴 **"Çözüldü" değil, "şu koşulda çalışır".**
-    `deploy.yml` `ghcr` sırrını her koşuda kendi `GITHUB_TOKEN`'ıyla tazeliyor ve o
-    token **iş bitince iptal edilir**. **Çalışır:** ilk çekme sır yazıldıktan saniyeler
-    sonra, aynı koşunun rollout'unda olur.
-    🔴 **BURADA YAZAN İKİNCİ YARIM YANLIŞTI VE 2026-08-16'DA ÖLÇÜLEREK ÇÜRÜTÜLDÜ.**
-    *"imaj düğümde kalır, sonraki her pod yeniden başlatması kayda hiç gitmez"*
-    **doğru değil.** Bu node'un kubelet'i
-    `imagePullCredentialsVerificationPolicy: NeverVerifyPreloadedImages` ile koşuyor
-    (KEP-2535, 1.35'ten beri varsayılan): kubelet'in **kimlikle** çektiği bir imaj,
-    yalnız o imaj için **kayıtlı** bir kimlik sunabilen pod'lar tarafından
-    kullanılabilir; başkasına imaj **düğümde yokmuş gibi** davranır. Canlı pod'un o
-    sırada koştuğu etiketle üç ölçüm: kimlik yok → `401` · hiç kullanılmamış bir
-    kimlik → `401` · `imagePullPolicy: Never` → `ErrImageNeverPull, "not present"`.
-    Ayırt eden kontrol: **public** `postgres:17-alpine`, `imagePullPolicy: Never` →
-    düğüm önbelleğinden **açıldı, exit 0**. Yani önbellek çalışıyor; reddeden şey
-    kimlik doğrulaması. **Sonuç:** yeniden başlatma yalnız Secret **o pod'un imajını
-    çeken** token'ı hâlâ taşırken güvenli. Sonraki bir deploy Secret'ı **yeni** bir
-    token'la ezdikten sonra, eski imaja dönmek (`kubectl rollout undo`) çekmeyi
-    yeniden tetikler ve **ölü token'la 401 alır** — yani en çok ihtiyaç duyulan anda,
-    olay anında. **Çalışmaz'ın eski hâli de duruyor:** düğüm imajı düşürürse (kubelet
-    imaj GC'si, `crictl rmi`, düğüm yeniden kurulumu) aynı sonuç.
-    **Hafifletme (çare değil):** `deploy.yml` artık *"Recover pods stuck on a stale
-    pull credential"* adımıyla, kimlik tazelendikten hemen sonra **yalnız kubelet'in
-    `ImagePullBackOff`/`ErrImagePull` bildirdiği** pod'ları yeniden yaratıyor —
-    `Running` bir pod'a asla dokunmaz. Bu, 2026-08-15'te elle `kubectl delete pod`
-    gerektiren 4 dk 39 sn'yi kapatır; **alttaki sınırı kapatmaz.**
-    **Kalıcı çare iki tane ve ikisi de
-    kullanıcının işi:** `read:packages` yetkili uzun ömürlü bir PAT, ya da paketleri
-    public yapmak (**API'si yok**, yalnız arayüz — ölçüldü). Adım 3'te ikisi de yazılı.
-    Bu madde, biri yapılana kadar açık kalır.
+12. **[Docker Hub anonim çekme bütçesi]** — 🔴 **BU MADDE ESKİ
+    *[GHCR çekme kimliği ömürlü]* MADDESİNİN YERİNDE DURUYOR, VE O SINIR SAYILARAK
+    DEĞİL KÖKÜNDEN KAPATILDI.** Eski madde şunu diyordu: `deploy.yml` `ghcr` sırrını
+    her koşuda kendi `GITHUB_TOKEN`'ıyla yazıyor, o token iş bitince iptal ediliyor,
+    ve bu node'un kubelet'i `imagePullCredentialsVerificationPolicy:
+    NeverVerifyPreloadedImages` (KEP-2535) ile koştuğu için **kimlikle çekilmiş** bir
+    imaj, kayıtlı kimliği olmayan bir pod'a **düğümde dururken bile** verilmiyor —
+    yani her yeniden başlatma ve özellikle `kubectl rollout undo` bir `401` riskiydi.
+    ✅ **Kapatan ölçüm zaten o maddenin içindeydi:** ayırt edici kontrol **public**
+    bir imaj + `imagePullPolicy: Never` → **düğüm önbelleğinden açıldı, exit 0**.
+    Public depoda kaydedilecek bir kimlik yoktur, yani kusur **tanım gereği**
+    oluşamaz. İmajlar Docker Hub'a taşındı; `secret/ghcr`, onu yazan adım, iki pod
+    spec'indeki `imagePullSecrets` ve takılmış-pod kurtarma adımı **AĞAÇTAN
+    kaldırıldı** (backlog T43).
+    🔴 **AĞAÇTAN — KÜMEDEN DEĞİL, VE BU AYRIM BU MADDENİN EN ÖNEMLİ SATIRIDIR.**
+    Burada bir tur boyunca yalnız *"kaldırıldı"* yazdı; ölçüm (2026-08-16, salt
+    okuma) bunu yalanlıyor: `secret/ghcr` **var** (18 sa), `deployment/tappa` →
+    `ghcr.io/atknatk/tappa:sha-353897c6d5f6` + `imagePullSecrets: ghcr`, ve **üç
+    ReplicaSet'in üçü de** `ghcr.io/...` + `ps=ghcr`. Geçiş kümeye ancak operatör
+    adımı 4 tamamlandıktan **sonraki başarılı bir `deploy` koşusuyla** iner; o güne
+    kadar **eski sınır (bayat çekme kimliği, `rollout undo` → 401) yürürlüktedir** ve
+    *"Olay müdahalesi"* bölüm 2'nin dördüncü satırı onu taşır. Aynı ayrımın kalıbı
+    bölüm 1'de zaten vardı (*"Ağaçtaki manifestler taşıyor; KÜMEDEKİ nesneler henüz
+    taşımıyor"*) — burada yoktu.
+    🔴 **YERİNE GEÇEN SAYILMIŞ SINIR — anonim çekme oran limiti.** Bu ağdan ölçüldü:
+    `x-ratelimit-limit: 100;w=3600`, yani IP başına saatte 100 çekme. Tek node için
+    geniş (bir deploy iki çekme harcar) ama artık **ürün imajları da** aynı bütçeden
+    harcıyor, `postgres:17-alpine`'ın yanında. Düğüm imajı kaybederse — kubelet imaj
+    GC'si, `crictl rmi`, düğüm yeniden kurulumu — bu bütçe pod'un açılmasıyla arasına
+    girebilir. Belirtisi `toomanyrequests`/`429`'dur; *"Olay müdahalesi"* bölüm 2 onu
+    ayrı bir satır olarak taşıyor. **Kapatılmadı, bilinçli:** kimlikli çekme limiti
+    yükseltir ama `imagePullSecrets`'ı — yani bu maddenin kapattığı kusuru — geri
+    getirir; pull-through önbelleği ise tek-node kurulum için ayrı bir bileşendir.
+    ✅ **Depoların public OLMASI artık ilan değil, kapı.** `deploy.yml` push'tan
+    hemen sonra — kümeye hiçbir şey uygulamadan — iki imajı da **kimliksiz** çekmeyi
+    deniyor ve başaramazsa deploy orada durur (operatör adımı 4.3). On dejenere yol
+    koşuldu, **yalnız biri geçiyor**: ikisi de gerçekten anonim çekilebiliyorsa.
+    ⚠️ **Public KALMASI yine de operatörün elinde** — kapı her koşuda yeniden ölçer,
+    ama bir depoyu sonradan private'a çeviren kimseyi engelleyemez; sonraki deploy'da
+    kırmızı görünür.
 13. **[her yeni iş yükü kendi beklemesini taşır]** — 🔴 **Bu namespace'te Postgres'e
     bağlanan HER YENİ İŞ YÜKÜ kendi bekleme adımını taşımak zorunda.**
     `12-networkpolicy.yaml` uygulanıyor, ama k3s yeni bir pod'un adresini kuralın izin
@@ -640,35 +822,7 @@ değil, *"bir şey takıldı mı"* sorusuna kaba bir cevaptır.
     **Ayrıca sayılan ikinci kanal:** Docker Hub anonim bütçesi, bu ağdan ölçüldü →
     `x-ratelimit-limit: 100;w=3600`. Düğüm imajı kaybederse bu bütçe pod'un
     açılmasıyla arasına girebilir.
-15. **[kurtarma adımı kubectl'e bağlı ve FAIL-CLOSED]** — `deploy.yml`'in *"Recover
-    pods stuck on a stale pull credential"* adımı `kubectl get pod`'a dayanıyor; o
-    çağrı düşerse (RBAC, apiserver 5xx, zaman aşımı) adım **kırmızı olur ve deploy
-    orada durur**.
-    ✅ **Bu maddenin ikinci yarısı KAPATILDI, sayılmadı:** `get` ile `delete` arasında
-    pod kaybolursa (Job'ın `ttlSecondsAfterFinished` toplayıcısı, ya da yerine koyan
-    bir denetleyici) `delete` **NotFound ile exit 1** veriyordu ve `set -e` adımı
-    öldürüyordu — yani deploy, *"kurtarmak istediğim pod zaten gitmiş"* gibi **iyi
-    huylu** bir sebeple ölüyordu. Ölçüldü: bayraksız `Error from server (NotFound)`,
-    **exit 1**; `--ignore-not-found` ile **exit 0**. Bayrak eklendi (aynı dosya
-    `delete job tappa-migrate`'te onu zaten kullanıyordu). **`get`'in düşmesi hâlâ
-    kırmızı ve bu doğru** — aşağıdaki gerekçe onun içindir. Bu **doğru varsayılan** — kubectl okuyamıyorsa alttaki `apply`
-    adımları da koşamaz, ve *"kurtarılacak bir şey yok"* diye devam etmek tam olarak
-    bu turda kapatılan fail-open kusurudur. ⚠️ **Ama artık riski sayılıyor:** adım
-    `secret/ghcr` **ezildikten sonra**, hiçbir `apply`'dan **önce** duruyor, yani
-    orada düşen bir deploy kümeyi *"yeni token, eski iş yükü"* durumunda bırakır —
-    sınır **[GHCR çekme kimliği ömürlü]**'nün tarif ettiği pencerenin ta kendisi.
-    Böyle bir koşudan sonra `scripts/verify-deployment.sh pull-credential tappa`
-    koş. 🔴 **O komut HÜKÜM VERMEZ — `AT RISK` diye bir çıktı YOKTUR**; iki zaman
-    damgası kümesini basar, karşılaştırmayı sen yaparsın: **en yeni `secret/ghcr`
-    yazımından ÖNCE başlamış her pod yeniden başlayamaz**, ve çare yeni bir
-    **başarılı** deploy koşusudur. ⚠️ Burada eskiden *"`AT RISK` diyorsa"* yazıyordu
-    ve bu **sınıfın beşinci örneğiydi**: hüküm koddan kaldırıldı ama **runbook'ta
-    yaşamaya devam etti**, yani operatör hiç gelmeyecek bir kelimeyi bekleyip
-    *"demek ki sorun yok"* diye kümeyi at-risk hâlde bırakabilirdi — üstelik bu
-    komutun **en çok işe yaradığı** anda. Bu turda yazdığım mekanik tarama da
-    yakalayamazdı: tarayıcı **anahtar atıflarını** sayıyordu, **hüküm sözcüklerini**
-    değil — yani tarayıcıyı bir önceki kusurun şekline göre yazmıştım.
-16. **[migration arızası artık ~10× geç bildiriliyor]** — `wait-for-postgres` her
+15. **[migration arızası artık ~10× geç bildiriliyor]** — `wait-for-postgres` her
     denemede **120 sn**'ye kadar bekliyor ve Job `backoffLimit: 2` (üç deneme,
     aralarında 10 + 20 sn backoff), yani **gerçekten ulaşılamaz** bir veritabanında
     deploy'un *"migration Job failed"* diyebilmesi ~**390 sn** sürüyor. Ölçülen
@@ -679,3 +833,71 @@ değil, *"bir şey takıldı mı"* sorusuna kaba bir cevaptır.
     pay **~565 sn'den ~210 sn'ye** düştü. Bedel: gerçek bir kesintide teşhis altı
     dakika geç başlıyor. Kazanç: bölüm 1 ve 5'teki geçici pencerelerin **hiçbiri**
     artık deploy'u düşürmüyor. Bilinçli takas, burada sayılıyor.
+16. **[deploy kimliği namespace'in sırlarını okuyabilir]** — 🔴 **KAPATILAMADI,
+    SAYILIYOR (§4.7).** `k8s/01-rbac.yaml` deploy kimliğinin `secrets` yetkisini tam
+    CRUD'dan **tek isim üzerinde tek fiile** indirdi (`get` / `tappa-secrets`), yani
+    `tappa-secrets` artık bu kimlik tarafından **yaratılamaz, ezilemez, silinemez** —
+    ve yeniden üretilemeyen tek değer (`TAPPA_TAG_KEK`; kaybı parktaki her plaketin
+    fiziksel olarak yeniden encode edilmesi demek) bu yolla yok edilemez.
+    **Ama OKUMA kapanmadı ve buradaki hiçbir RBAC düzeni kapatamaz.** Gerekçe
+    yapısal: deploy'un merkezî eylemi bir `Job` yaratmaktır (migration'ın kendisi),
+    bir Job'ın pod şablonu **kendi namespace'indeki her Secret'a** referans verebilir
+    — bu referansın RBAC'i yoktur, kubelet çözer — ve deploy başarısız bir
+    migration'ı raporlamak için o Job'ın pod **logunu okumak zorundadır**. Kum
+    havuzunda uçtan uca ölçüldü: bu kurallarla (`jobs: create` + `pods/log: get`)
+    yaratılan bir Job, aynı kimliğin **listeleyemediği** bir Secret'ın değerini
+    `secretKeyRef` ile alıp loguna bastı. **İki cümlelik sonucu:** `secrets: get`
+    (tek isim) ve `pods/exec: create` (tek pod adı) **yeni bir erişim açmıyor**;
+    daraltmanın kazandırdığı şey yıkıcı yarının kaldırılmasıdır. Gerçekten daraltmanın
+    tek yolu deploy kimliğini `tappa-secrets` ile **aynı namespace'ten çıkarmaktır**
+    (ayrı bir migration namespace'i) — yapılmadı, çünkü tek-node tek-namespace bir
+    kurulumu ikiye bölmek yeni bir sınır kümesi doğurur.
+17. **[`kubectl auth can-i` alt kaynakları GÖRMÜYOR]** — 🔴 **Ürünün değil, bir
+    DOĞRULAMA ARACININ sınırı — ve tam da bu yüzden burada.** T44'ün kökündeki kusur
+    `pods/exec`'in **ayrı bir alt kaynak** olması ve elle yazılmış rolde
+    bulunmamasıydı; bunu kontrol etmenin en doğal yolu `kubectl auth can-i`'dir ve o
+    yol **yanlış cevap veriyor** (ölçüldü, kubectl v1.36.1 / k3s v1.35.4, deploy
+    SA'sını impersonate ederek): `can-i create pods/exec` → **yes** ·
+    `can-i create pods/portforward` → **yes** · `can-i create pods/nonsense` →
+    **yes** (kontrol — böyle bir alt kaynak yok), yani eğik çizgili biçim **ana
+    kaynağa çöküyor**. Doğru biçim `can-i create pods --subresource=exec` → **no**,
+    kontrolü `--subresource=nonsense` → **no**. **Bu ölçüm yüzünden `deploy.yml`'e
+    bir `auth can-i` ön kontrolü EKLENMEDİ:** deploy'un sahip olmadığı bir yetki için
+    *"yes"* diyebilen bir kapı fail-open bir kapıdır ve bu kart o sınıftan beş örnek
+    üretti. Rolün gerçeğini `kubectl -n tappa get role github-deployer -o yaml` ya da
+    `kubectl auth can-i --list -n tappa --as=system:serviceaccount:tappa:github-deployer`
+    ile oku — ikincisi alt kaynakları **adıyla** listeler (`pods/log` görünür,
+    `pods/exec` görünmüyorsa gerçekten yoktur).
+18. **[sevk edilen commit'in kimliği herkese açık]** — 🔴 **§4.7 merceğiyle sayılan
+    YENİ bir yüzey: ürün ikilileri artık herkesin indirebileceği bir yerde.** Karar
+    operatör adımı 4'te ve `k8s/20-app.yaml`'da yazılıydı, **ama bu listede yoktu** —
+    ve bu listenin varlık sebebi tam olarak budur.
+    **ÖNCE NE AÇILMIYOR, ölçülerek (yani kaygının büyük kısmı sıfır):** depo
+    (`atknatk/tappa`) **zaten public**, yani kaynak kodu açığa çıkarma **sıfır**;
+    imajlar `scratch` üzerine kurulu ve içerikleri `Dockerfile`'ın son iki
+    aşamasından birebir okunabiliyor — **uygulama imajı** = CA paketi + `/tappa`
+    (statik ikili), **migration imajı** = CA paketi + `/goose` + `/migrations`
+    (**20 `.sql`**, hepsi zaten public depoda). Sır yok; `deploy.yml` push'tan
+    **önce** içeriği kapılıyor (`scripts/verify-image.sh` — tzdata, `vcs.revision`,
+    goose'un uygulama imajında **bulunmaması**, non-root uid).
+    ⚠️ **Adım 4'te bir tur boyunca *"imaj `scratch` + iki dosya"* yazdı ve bu iki
+    artefaktın yalnız **birini** anlatıyordu**; migration imajı üç şey taşıyor.
+    🔴 **AMA GERÇEK VE YENİ BİR DELTA VAR:** public bir Docker Hub deposunun **etiket
+    listesi kimliksiz okunabilir** (kontrol ölçümü, `library/alpine` üzerinde:
+    anonim registry token → `GET /v2/library/alpine/tags/list` **HTTP 200**;
+    `hub.docker.com/v2/repositories/library/alpine/tags` → etiket adları düz döndü).
+    Etiketlerimiz `sha-<12hex>` olduğu için **üretimde hangi commit'in koştuğu ve bir
+    düzeltmenin sevk edilip edilmediği dışarıdan okunabilir hâle geliyor.**
+    **Bunu başka hiçbir yüzey vermiyor** — ölçüldü: `buildinfo` yalnız sürecin
+    log'una yazılıyor (`cmd/tappa/main.go:83`) ve
+    `grep -rn buildinfo internal/handler web/templates` → **0**. Yani bu, M8-01'in
+    *"derleme kimliği herkese açık bir uç noktaya çıkmıyor"* kararının **yeni bir
+    kanaldan** delinmesidir.
+    **Neden kabul edildi:** alternatifi private depo, o da KEP-2535 kimlik doğrulama
+    kusurunu — yani **pod'un hiç açılamaması** riskini — geri getiriyor (sınır
+    **[Docker Hub anonim çekme bütçesi]**). Açığa çıkan şey bir sır değil, bir
+    **zamanlama sinyali**: saldırgan hangi commit'in canlıda olduğunu okur, kaynağı
+    zaten okuyabildiği için. Takas bilinçli. **Kapatmak isteyen** için tek gerçek yol
+    etiketi commit'ten ayırmaktır (ör. içeriğe göre türetilen opak bir etiket) — ama
+    o zaman `sha-<12hex>`'in verdiği şey, yani *"kümedeki etiketten commit'i okuyup
+    `git show` yapabilmek"*, kaybolur; olay müdahalesinde en çok kullanılan bağ budur.

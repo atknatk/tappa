@@ -1,0 +1,318 @@
+# Tappa — the identity .github/workflows/deploy.yml runs as (M8-02 FAZ D, backlog T44).
+#
+# 🔴 THIS FILE EXISTS BECAUSE THESE FIVE OBJECTS LIVED ONLY IN THE CLUSTER.
+# They were created by hand on 2026-08-15T20:15:45Z and `grep -rln 'github-deployer'
+# deploy/` returned NOTHING, which had three consequences and all three were measured
+# rather than argued:
+#   (a) a fresh cluster could not run this repository's deploy at all — the workflow's
+#       first API call would be Forbidden and no file in the tree said what to create;
+#   (b) NO REVIEW HAD EVER SEEN THIS ROLE. It is the credential that anyone who can
+#       push to main gets, and it was outside the diff;
+#   (c) it granted FULL CRUD ON secrets IN ns/tappa — i.e. `tappa-secrets`, which holds
+#       TAPPA_TAG_KEK (CLAUDE.md §4.7), was inside a workflow's blast radius with
+#       nothing written down about it.
+# T41, T42 and T43 were all born the same way: "fixed in the cluster, the manifest does
+# not know". This is that class, applied to the permission boundary itself.
+#
+# 🔴 WHO APPLIES THIS, AND WHY IT CANNOT BE deploy.yml. Changing a Role requires verbs
+# on rbac.authorization.k8s.io, and this Role deliberately has none — a deploy identity
+# that can widen its own Role is not a boundary, it is a formality. So this file is the
+# OPERATOR's, exactly like `tappa-secrets`: applied once, out of band, with a
+# cluster-admin kubeconfig. deploy/README.md carries it as step 3 of "Operatörün
+# yapması gerekenler".
+#
+# ⚠️ APPLY IT, DO NOT DELETE-AND-RECREATE IT. The GitHub secret KUBE_CONFIG holds a
+# token minted for THIS ServiceAccount; destroying the ServiceAccount invalidates that
+# token and the next deploy fails at `kubectl config current-context`'s first real call.
+# `kubectl apply -f deploy/k8s/01-rbac.yaml` on the existing objects is a patch, not a
+# replacement.
+#
+# ─────────────────────────────────────────────────────────────────────────────────
+# 🔴 EVERY VERB BELOW IS THERE BECAUSE A NUMBERED STEP OF deploy.yml FAILS WITHOUT IT,
+# AND EVERY VERB THAT USED TO BE HERE AND IS GONE WAS MEASURED UNNECESSARY. The
+# measurement was a sandbox namespace (`tappa-verify`, created and deleted in the same
+# task) carrying a ServiceAccount bound to exactly these rules, with the whole deploy
+# sequence replayed by that identity and nothing else. Removed, with the reason:
+#
+#   secrets create/update/patch/delete/list/watch — NO step writes a Secret any more.
+#       The step that did ("Write the GHCR pull credential") is gone from THIS
+#       REPOSITORY. What remains is one existence check, so what remains is `get` on
+#       ONE resourceName. (A cluster that has not yet run this workflow may still hold
+#       the Secret that step wrote; that is a fact about the cluster, recorded in
+#       deploy/README.md, not here.)
+#   pods create/update/patch/watch/get — no step creates a Pod (Pods come from the
+#       Deployment, StatefulSet and Job controllers, which use their OWN credentials).
+#       `get` measured unnecessary too: `kubectl logs job/...`, `kubectl exec
+#       statefulset/...` and `kubectl get pods` all resolve through LIST.
+#   pods delete — the step that used it ("Recover pods stuck on a stale pull
+#       credential") is gone; its premise was a stale pull credential and there is no
+#       pull credential now.
+#   persistentvolumeclaims (all seven) — the PVC comes from the StatefulSet's
+#       volumeClaimTemplates and is created by the statefulset controller. Measured:
+#       the sandbox StatefulSet carried a volumeClaimTemplate and applied fine with no
+#       PVC permission at all.
+#   serviceaccounts (all seven) — deploy.yml never touches a ServiceAccount. This very
+#       file is the operator's.
+#   events (all seven) — no step reads events; `kubectl describe` appears nowhere.
+#   replicasets (all seven) — needed by `rollout history`/`rollout undo`, neither of
+#       which is in the workflow. `rollout status deployment` and `kubectl logs
+#       deployment/...` both ran with no replicaset permission.
+#   deployments/status, statefulsets/status — status subresources are written by
+#       controllers. `rollout status` READS `.status` through the main resource.
+#   external-secrets.io/externalsecrets (all seven) — `deploy/examples/
+#       externalsecret.example.yaml` is an EXAMPLE for the operator; deploy.yml applies
+#       only named files under deploy/k8s/ and none of them is an ExternalSecret.
+#   jobs patch — the migration step DELETES the Job (--wait=true) before applying it,
+#       so apply always creates. Measured consequence of the removal, honestly: if the
+#       delete ever fails to complete, apply hits an existing Job and is refused with
+#       "cannot patch resource jobs" instead of the API server's "spec.template ... is
+#       immutable". BOTH are exit 1 and both stop the deploy — measured both ways — so
+#       the verb buys a better message, not an outcome, and this file prefers the
+#       smaller grant.
+#   namespaces create — the namespace is the operator's (this file has to live in it).
+#       deploy.yml re-applies 00-namespace.yaml to keep the Pod Security labels honest,
+#       which is a patch of an existing object.
+# ─────────────────────────────────────────────────────────────────────────────────
+#
+# 🔴 THE LIMIT THIS FILE DOES **NOT** CLOSE, STATED RATHER THAN IMPLIED (§4.7).
+# This identity can still read every Secret in ns/tappa, and no arrangement of RBAC
+# available here changes that. The reason is structural: the deploy's central action is
+# creating a Job, a Job's pod template may reference ANY Secret in its own namespace
+# (that reference needs no RBAC at all — the kubelet resolves it), and the deploy must
+# read that Job's pod logs to report a failed migration. Measured end to end in the
+# sandbox with the rules below and nothing else: a Job created by this identity, with
+# `secretKeyRef` into a Secret this identity may not list, printed the value into a log
+# this identity may read.
+#   So `secrets: get` on one name and `pods/exec: create` on one pod DO NOT widen what
+# is reachable. What the narrowing removes is the DESTRUCTIVE half — this identity can
+# no longer create, overwrite or delete `tappa-secrets`, i.e. it cannot destroy the one
+# value in this system that cannot be regenerated (losing TAPPA_TAG_KEK means physically
+# re-encoding every wall plaque). deploy/README.md counts the remainder as a limit.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: github-deployer
+  namespace: tappa
+  labels:
+    app.kubernetes.io/name: tappa
+    app.kubernetes.io/component: deploy
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: github-deployer
+  namespace: tappa
+  labels:
+    app.kubernetes.io/name: tappa
+    app.kubernetes.io/component: deploy
+rules:
+  # STEP "Preflight — the application Secret is the operator's and must already exist":
+  #   kubectl -n tappa get secret tappa-secrets
+  # `resourceNames` is the tightest shape RBAC has for a get, and it is used: without
+  # it this would be `get` on every Secret in the namespace. Measured in the sandbox:
+  # `get secret tappa-secrets` -> NotFound (i.e. authorised), `get secret
+  # some-other-secret` -> Forbidden, `get secrets` (list) -> Forbidden.
+  # ⚠️ resourceNames CANNOT restrict list or watch — that is a Kubernetes rule, not a
+  # choice here, and it is why neither verb appears.
+  - apiGroups: [""]
+    resources: ["secrets"]
+    resourceNames: ["tappa-secrets"]
+    verbs: ["get"]
+
+  # STEP "Apply configuration and database":
+  #   kubectl apply -f deploy/k8s/05-config.yaml                 -> get + create/patch
+  #   kubectl create configmap tappa-db-init --from-file ... | kubectl apply -f -
+  # `get` is not decoration: measured with it removed, apply fails before it patches.
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "create", "patch"]
+
+  # STEP "Apply configuration and database" (Service in 10-postgres.yaml) and
+  # STEP "Roll out the server" (Service in 20-app.yaml)  -> get + create/patch
+  # `list` is for the last step, `kubectl get pods,svc,ingress -o wide`; measured with
+  # it removed that command exits 1 with "services is forbidden".
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get", "list", "create", "patch"]
+
+  # STEPS "Migrate", "Gate — db-role" and "Report what is running". Every one of them
+  # reaches a Pod through a LIST: `kubectl logs job/tappa-migrate -c ...` resolves the
+  # Job's pods, `kubectl exec statefulset/tappa-postgres` picks the first pod of the
+  # set, `kubectl get pods -o wide` lists them. Measured: with `get` removed and only
+  # `list` left, all three still work.
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["list"]
+
+  # STEP "Migrate" (migrate_logs, both containers by name) and STEP "Report what is
+  # running". This is the log of the container that runs DDL as tappa_owner; without
+  # it a failed migration reports only that it failed.
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+
+  # STEP "Gate — the running server must not be connected as the migration role":
+  #   scripts/verify-deployment.sh db-role -> kubectl exec -i statefulset/tappa-postgres
+  #
+  # 🔴 THIS IS THE PERMISSION T44 WAS OPENED ABOUT, AND THE CHOICE BETWEEN GRANTING IT
+  # AND REWRITING THE GATE WAS MEASURED, NOT ASSUMED.
+  #
+  # The gate had NEVER RUN in production. `pods/exec` is a separate subresource and was
+  # absent from the hand-made Role; every earlier deploy died in the migration step, so
+  # the last step was never reached. The gate behaved correctly when it finally was
+  # ("the pg_stat_activity query did not run, so NOTHING was checked. This is not a
+  # pass.", exit 2) — the fault was the permission, not the gate.
+  #
+  # WHAT WAS ELIMINATED: rewriting the gate to run its SQL from a short-lived Job
+  # instead of an exec. It removes NO privilege — this identity can already create
+  # Jobs, which is how the migration runs — and it costs, concretely: a new pod spec
+  # authored inside the workflow, the database password routed through a CI-written
+  # manifest (a NEW §4.7 handling path where there is none today; the exec form reads
+  # PGPASSWORD from the Postgres container's own environment and never touches it), a
+  # wait loop, a log read and a cleanup — roughly forty lines of new shell in the file
+  # whose review record is five REDs caused by new shell branches. Strictly more
+  # secret-handling surface for strictly zero privilege removed.
+  #
+  # WHAT GRANTING IT COSTS, COUNTED: exec is a shell inside a container. Scoped by
+  # `resourceNames` it is a shell in EXACTLY ONE pod — the database. It is NOT a shell
+  # in the application pod, whose environment holds TAPPA_TAG_KEK; measured in the
+  # sandbox, `kubectl exec deployment/tappa` under these rules is refused with
+  # "cannot create resource pods/exec", while `kubectl exec statefulset/tappa-postgres`
+  # succeeds. The StatefulSet's pod name is deterministic (`tappa-postgres-0`,
+  # replicas: 1); if the set is ever scaled, exec on the new ordinal is refused and the
+  # gate fails CLOSED, which is the correct direction.
+  #
+  # ⚠️ AND THE ONE MEASUREMENT THAT MAKES THE ABOVE HONEST RATHER THAN COMFORTING:
+  # `kubectl auth can-i` CANNOT ANSWER THIS QUESTION AND SAYS "yes" ANYWAY.
+  #   kubectl auth can-i create pods/exec       --as=<sa> -n tappa   -> yes
+  #   kubectl auth can-i create pods/portforward --as=<sa> -n tappa  -> yes
+  #   kubectl auth can-i create pods/nonsense    --as=<sa> -n tappa  -> yes   (!)
+  #   kubectl auth can-i create pods --subresource=exec --as=<sa>    -> no
+  #   kubectl auth can-i create pods --subresource=nonsense --as=<sa> -> no  (control)
+  # The slash form collapses to the parent resource, so it answers about `pods`. That
+  # is why no `kubectl auth can-i` preflight was added to deploy.yml: a gate built on a
+  # command that says "yes" about a permission the deploy does not have is a fail-open
+  # gate, and this card has produced five of those. Use --subresource, or read this file.
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    resourceNames: ["tappa-postgres-0"]
+    verbs: ["create"]
+
+  # STEPS "Apply configuration and database" and "Roll out the server":
+  #   apply -> get + create/patch ; rollout status -> list + watch
+  #
+  # 🔴 `watch` IS LOAD-BEARING AND ITS ABSENCE IS FAIL-OPEN, WHICH IS WHY IT IS
+  # SPELLED OUT. Measured three ways on a healthy, finished rollout:
+  #   verbs get,create,patch            -> `rollout status` EXIT 1, "timed out waiting
+  #                                        for the condition" on a HEALTHY deployment
+  #   verbs get,list,create,patch       -> EXIT 0, but stderr carries
+  #                                        'Failed to watch ... deployments.apps "tappa"
+  #                                        is forbidden' — it passed on the initial LIST
+  #                                        without watching anything
+  #   verbs get,list,watch,create,patch -> EXIT 0, "deployment tappa successfully rolled out"
+  # The middle row is the dangerous one: a gate that reports success because it never
+  # observed the thing it claims to have waited for.
+  - apiGroups: ["apps"]
+    resources: ["deployments", "statefulsets"]
+    verbs: ["get", "list", "watch", "create", "patch"]
+
+  # STEP "Migrate": delete the previous Job (its pod template is immutable), apply this
+  # commit's, then poll `.status.succeeded` / `.status.failed`.
+  # `delete` does not need `pods: delete`: the Job's pods are removed by the garbage
+  # collector through their owner reference. Measured — the sandbox identity has no
+  # pod-delete permission at all and `kubectl delete job --wait=true` still returned 0.
+  #
+  # 🔴 THERE IS NO `watch` HERE AND THAT IS CORRECT ONLY BECAUSE OF A FACT ABOUT THIS
+  # JOB, SO THE FACT IS WRITTEN DOWN RATHER THAN RELIED ON SILENTLY. `--wait=true`
+  # runs kubectl's IsDeleted condition, which takes ONE of two paths, and both were
+  # measured on a real cluster with `-v=8`:
+  #   Job has no finalizers (today)  -> DELETE, then GET -> 404, done.
+  #                                     watch=true requests: 0
+  #   Job's deletion is BLOCKED      -> DELETE, GET (still there), then
+  #   (reproduced by adding a           GET /apis/batch/v1/namespaces/.../jobs
+  #    finalizer in a sandbox)          ?fieldSelector=metadata.name%3D...&watch=true
+  #                                     watch=true requests: 1
+  # The live Job carries no finalizers (`{.metadata.finalizers}` -> empty) and
+  # background propagation makes the first GET a 404, so the second path does not
+  # occur. If it ever did — a mutating webhook or an operator adding a finalizer to
+  # batch/v1 Jobs — the watch would be Forbidden, the migration step would go red, and
+  # the deploy would stop BEFORE rolling out a binary against an unmigrated schema.
+  # That is fail-CLOSED, which is why the verb is left out rather than added
+  # defensively; a grant added for a case nobody has seen is a grant nobody reviews.
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["get", "create", "delete"]
+
+  # STEP "Roll out the server" (apply 40-ingress.yaml) + the final report's
+  # `kubectl get pods,svc,ingress`. Measured with `list` removed: exit 1,
+  # "ingresses.networking.k8s.io is forbidden".
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["get", "list", "create", "patch"]
+
+  # STEP "Apply configuration and database" (12-networkpolicy.yaml). Nothing lists or
+  # watches it, so nothing more than apply needs.
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["networkpolicies"]
+    verbs: ["get", "create", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: github-deployer
+  namespace: tappa
+  labels:
+    app.kubernetes.io/name: tappa
+    app.kubernetes.io/component: deploy
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: github-deployer
+subjects:
+  - kind: ServiceAccount
+    name: github-deployer
+    namespace: tappa
+---
+# 🔴 THE ONLY CLUSTER-SCOPED GRANT, AND IT IS PINNED TO ONE NAME.
+# `Namespace` is a cluster-scoped kind, so the permission to touch ns/tappa cannot live
+# in a Role. `resourceNames: ["tappa"]` keeps it from being a permission over every
+# namespace on a cluster that has roughly thirty of them belonging to other products.
+#
+# `create` is deliberately NOT granted: the namespace has to exist before this file can
+# be applied into it, so it is the operator's, and a deploy identity that can create
+# namespaces is a deploy identity with somewhere to hide.
+#
+# `patch` IS required, and the naive test hides that. Measured: re-applying an
+# UNCHANGED 00-namespace.yaml with `get` alone returns "unchanged" and exit 0 — because
+# kubectl computes an empty patch and never sends it. With a manifest that genuinely
+# changes a label, `get` alone gives exit 1 and `get,patch` gives "configured", exit 0.
+# The first measurement is the trap: a permission test run against an unchanged object
+# proves nothing, and this repository has paid for that shape before.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: tappa-namespace-only
+  labels:
+    app.kubernetes.io/name: tappa
+    app.kubernetes.io/component: deploy
+rules:
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    resourceNames: ["tappa"]
+    verbs: ["get", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: tappa-namespace-only
+  labels:
+    app.kubernetes.io/name: tappa
+    app.kubernetes.io/component: deploy
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: tappa-namespace-only
+subjects:
+  - kind: ServiceAccount
+    name: github-deployer
+    namespace: tappa

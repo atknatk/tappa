@@ -39,9 +39,14 @@ concurrency:
   group: deploy-main
   cancel-in-progress: false
 
+# 🔴 `packages: write` IS GONE, AND ITS ABSENCE IS PART OF THIS ROUND'S WORK.
+# This workflow pushes to Docker Hub (see the env block below), so it does not write
+# to GitHub's package registry and does not need a token that can. That is a property
+# of THIS FILE and stays true whatever a given cluster is currently running.
+# GITHUB_TOKEN's remaining scope is `contents: read`, which is what `actions/checkout`
+# uses and nothing else.
 permissions:
   contents: read
-  packages: write
 
 jobs:
   deploy:
@@ -50,14 +55,113 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      APP_IMAGE: ghcr.io/atknatk/tappa
-      MIGRATE_IMAGE: ghcr.io/atknatk/tappa-migrate
+      # 🔴 DOCKER HUB, PUBLIC — AND THIS IS A FIX FOR A ROOT CAUSE, NOT A PREFERENCE.
+      #
+      # Backlog T43 said pods land in a permanent ImagePullBackOff. Its measured root
+      # cause is this node's kubelet running
+      #   imagePullCredentialsVerificationPolicy: NeverVerifyPreloadedImages
+      # (KEP-2535, default since 1.35): an image the kubelet pulled WITH a credential
+      # is usable only by a pod presenting a credential already recorded against that
+      # image. Three probes on this node against the tag the live pod was running: no
+      # secret -> 401 · a secret it had never used -> 401 · imagePullPolicy Never ->
+      # "not present". The control that separates cache from credential: a PUBLIC image
+      # with imagePullPolicy Never started straight from the node's cache, exit 0.
+      #
+      # A PUBLIC REPOSITORY THEREFORE DELETES THE DEFECT BY DEFINITION — there is no
+      # credential to record, to go stale, or to be overwritten by the next deploy.
+      #
+      # WHAT THIS FILE REMOVES — all four are properties of the file and stay true
+      # whatever the cluster is running: the "Write the GHCR pull credential" step (one
+      # fewer path that creates a Secret, CLAUDE.md §4.7) · `imagePullSecrets` in both
+      # pod specs · the Secret that step wrote · the "Recover pods stuck on a stale
+      # pull credential" step, whose premise was that very credential.
+      #
+      # ⚠️ WHAT IT DOES NOT REMOVE IS THE STALE-CREDENTIAL WINDOW IN A CLUSTER THAT HAS
+      # NOT YET RUN THIS WORKFLOW, and this sentence is conditional on purpose: WHILE
+      # the running pods were pulled with a credential, `kubectl rollout undo` still
+      # meets a revoked token; ONCE they were pulled anonymously, it cannot. Which one
+      # holds is a fact about the cluster, recorded — with the command that measures
+      # it — in exactly one place: deploy/README.md, "Elle deploy / rollback". An
+      # earlier revision of this comment asserted the second half as though it were
+      # already true everywhere; that is the defect this repository keeps paying for.
+      #
+      # ELIMINATED, WITH REASONS. GHCR-public: unreachable, not undesirable — package
+      # visibility has NO API (measured three times: `gh api -X PATCH
+      # /user/packages/container/tappa -f visibility=public` -> 404, no such endpoint;
+      # `gh api /user/packages/container/tappa` -> 403), it is a web-UI-only action and
+      # the user attempted it twice without success. AWS ECR private: reintroduces the
+      # same credential problem with a rotating IAM token, which is worse. ECR Public:
+      # accepts pushes only from us-east-1 and requires an AWS account.
+      #
+      # ⚠️ THE COST, COUNTED: anonymous Docker Hub pulls are rate limited, measured from
+      # this network for postgres:17-alpine as `x-ratelimit-limit: 100;w=3600`. The
+      # product images now spend from that same per-IP budget. It is wide for one node
+      # that pulls twice per deploy, and it is written into deploy/README.md's
+      # accepted-limits list rather than left to be discovered.
+      APP_IMAGE: docker.io/atknatk/tappa
+      MIGRATE_IMAGE: docker.io/atknatk/tappa-migrate
       # The cluster is k3s v1.35.4 (measured). kubectl's supported skew is one minor
       # either way; pinning to the server's own minor removes the question.
       KUBECTL_VERSION: v1.35.4
       KUBECTL_SHA256: b529430df69a688fd61b64ad2299edb5fd71cb58be2a4779dba624c7d3510efd
 
     steps:
+      # 🔴 FIRST STEP ON PURPOSE, AND THE MESSAGE IS THE WHOLE POINT.
+      # An UNDEFINED GitHub secret renders as an EMPTY STRING, it is not an error, so
+      # without this step the run continues to `docker login` and fails there. Measured
+      # what that failure actually looks like, with the real client:
+      #   printf '' | docker login docker.io -u ""        --password-stdin -> rc 1, "username is empty"
+      #   printf '' | docker login docker.io -u "someuser" --password-stdin -> rc 1, "password is empty"
+      #   printf 'x' | docker login docker.io -u "someuser" --password-stdin -> rc 1,
+      #       'unauthorized: incorrect username or password'
+      # None of those three names a GitHub secret, says which one is missing, or says
+      # where to make it. That is the gap this step closes; it does not "protect"
+      # anything, it explains.
+      #
+      # ⚠️ DEGENERATE INPUTS WERE ENUMERATED AND RUN, because this file's review record
+      # is five REDs caused by shell that was only ever tried on the input somebody
+      # imagined: both unset · both empty · only the username · only the token · a
+      # single space · a tab and a newline · a trailing newline · both set. `${VAR:-}`
+      # keeps `set -u` from firing on an unset variable.
+      #
+      # 🔴 THE TEST IS POSITIVE ("does it contain a usable character") AND NOT NEGATIVE
+      # ("is it only whitespace"), AND THAT CHANGE IS A MEASURED FIX RATHER THAN A
+      # STYLE PREFERENCE. The first version trimmed with `tr -d '[:space:]'` and then
+      # tested for emptiness. `tr` is BYTE oriented in GNU coreutils, which is what
+      # ubuntu-latest ships: a value consisting only of U+00A0 (c2 a0) or U+3000
+      # (e3 80 80) survives the trim there and the step PASSES. It does not survive on
+      # the BSD `tr` of the machine this was written on, so the author's own local
+      # measurement said the opposite of what the runner does — the same
+      # local-tool-substituted-for-runner-tool error this task was already caught by
+      # once, in the same file. The consequence was mild (docker login fails one step
+      # later, fail-closed) but it defeated the ONE thing this step exists for: naming
+      # the missing secret.
+      #
+      # A `case` glob has no such split: it is bash's own matcher, no external tool, and
+      # `*[0-9A-Za-z]*` was measured to REJECT U+00A0 and U+3000 and ACCEPT "alice"
+      # under LC_ALL of C, C.UTF-8, en_US.UTF-8, tr_TR.UTF-8 and POSIX — five for five,
+      # including the Turkish locale whose dotless-i collation is the usual trap
+      # ("ıstanbul9" is accepted; a digits-only "12345" is accepted). No valid input is
+      # excluded: a Docker Hub username is [a-z0-9] and a PAT is dckr_pat_<base64url>,
+      # so both always contain an ASCII alphanumeric.
+      - name: Preflight — the Docker Hub credentials must exist
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          missing=""
+          # Report the SHAPE, never the value: a length, never a character.
+          u=${DOCKERHUB_USERNAME:-}
+          t=${DOCKERHUB_TOKEN:-}
+          case $u in *[0-9A-Za-z]*) ;; *) missing="$missing DOCKERHUB_USERNAME" ;; esac
+          case $t in *[0-9A-Za-z]*) ;; *) missing="$missing DOCKERHUB_TOKEN" ;; esac
+          if [ -n "$missing" ]; then
+            echo "::error::missing GitHub repository secret(s):$missing. This deploy pushes to Docker Hub. Create a token at Docker Hub -> Account Settings -> Personal access tokens with Read & Write, then: gh secret set DOCKERHUB_USERNAME --repo atknatk/tappa ; gh secret set DOCKERHUB_TOKEN --repo atknatk/tappa. Nothing has been built and nothing in the cluster has been touched."
+            exit 1
+          fi
+          echo "docker hub credentials present (username ${#u} chars, token ${#t} chars)"
+
       - name: Resolve the commit to deploy
         id: sha
         run: |
@@ -120,8 +224,13 @@ jobs:
           go-version: "1.26.6"
           cache: false
 
-      - name: Log in to GHCR
-        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      # The token is piped, never passed as an argument: an argument reaches `ps` and
+      # the process table of a shared runner.
+      - name: Log in to Docker Hub
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: printf '%s' "$DOCKERHUB_TOKEN" | docker login docker.io -u "$DOCKERHUB_USERNAME" --password-stdin
 
       - name: Build both images
         env:
@@ -131,10 +240,17 @@ jobs:
           # The two targets share the `build` stage, so the second build is a cache
           # hit on everything expensive (measured locally: 3 min 58 s for the app,
           # then 8 s for the migrator).
-          docker build --target app \
-            -t "$APP_IMAGE:sha-$SHORT" -t "$APP_IMAGE:main" .
-          docker build --target migrate \
-            -t "$MIGRATE_IMAGE:sha-$SHORT" -t "$MIGRATE_IMAGE:main" .
+          #
+          # 🔴 ONE TAG PER IMAGE, AND `:main` IS GONE. It used to be built and pushed
+          # "for humans" and was referenced by nothing — no manifest, no rollback path,
+          # no runbook command. On a PRIVATE registry that was merely useless; on a
+          # PUBLIC one it is a moving tag anybody can pull and mistake for the current
+          # release, which is this repository's named defect class (a moving tag next to
+          # imagePullPolicy: IfNotPresent is how a node silently serves last week's
+          # binary). Rollback uses the immutable `sha-<12hex>` tag, which is the only
+          # thing 20-app.yaml and 30-migrate-job.yaml have ever named.
+          docker build --target app     -t "$APP_IMAGE:sha-$SHORT" .
+          docker build --target migrate -t "$MIGRATE_IMAGE:sha-$SHORT" .
 
       - name: Prove the artifact identifies itself before it is pushed
         env:
@@ -167,10 +283,102 @@ jobs:
           SHORT: ${{ steps.sha.outputs.short }}
         run: |
           set -euo pipefail
+          # ⚠️ A FIRST PUSH TO A REPOSITORY THAT DOES NOT EXIST YET CREATES IT AS
+          # PRIVATE, and Docker Hub exposes no way to set visibility at push time. The
+          # NEXT step is the mechanism that refuses to continue in that state; this
+          # comment used to point at an instruction in the README instead, which is
+          # this card's signature defect (announcing a guarantee with no mechanism).
           docker push "$APP_IMAGE:sha-$SHORT"
-          docker push "$APP_IMAGE:main"
           docker push "$MIGRATE_IMAGE:sha-$SHORT"
-          docker push "$MIGRATE_IMAGE:main"
+
+      # 🔴 THE WHOLE POINT OF MOVING REGISTRIES IS THAT THE IMAGES ARE PULLABLE WITH NO
+      # CREDENTIAL, AND UNTIL THIS STEP THAT WAS AN INSTRUCTION IN A README RATHER THAN
+      # A MECHANISM. A snapshot, dated because it goes stale on the first successful
+      # push: on 2026-08-16 hub.docker.com/v2/repositories/atknatk/tappa/ -> 404 and
+      # .../tappa-migrate/ -> 404, i.e. neither repository existed yet. The step below
+      # does not depend on that reading. The durable statement is the mechanism: WHILE
+      # a repository is absent or private, a push creates or leaves it private and the
+      # KEP-2535 defect this change exists to remove comes straight back; ONCE it is
+      # public the gate below passes. The gate is what refuses, not this comment.
+      #
+      # WHY IT RUNS HERE. After the push (there is nothing to inspect before it) and
+      # before kubectl is even installed, so a failure changes NOTHING in the cluster.
+      #
+      # 🔴 HOW IT IS MADE ANONYMOUS, AND WHY NOT `docker logout`. `docker logout` edits
+      # config.json on a runner but goes through a credential HELPER on a developer
+      # machine (measured on the machine this was written on: `credsStore: desktop`),
+      # so a gate built on it would be verified against a different mechanism than the
+      # one it runs on — the same local-vs-runner substitution this task was already
+      # caught by once. Pointing DOCKER_CONFIG at an EMPTY directory has no such
+      # split: the docker CLI reads auths, credsStore and credHelpers only from
+      # $DOCKER_CONFIG/config.json, and an empty directory has none of the three.
+      #
+      # THE CONTROL THAT PROVES IT IS ANONYMOUS, rather than merely believed to be:
+      #   empty DOCKER_CONFIG   + docker.io/library/postgres:17-alpine  -> rc 0
+      #   DOCKER_CONFIG holding a BOGUS docker.io auth + the same image -> rc 1,
+      #       'unauthorized: incorrect username or password'
+      # The second row is the discriminating one: if DOCKER_CONFIG were ignored, a
+      # deliberately wrong credential could not have changed the outcome. It also
+      # proves the machine's real credential store was bypassed. And the directory is
+      # still EMPTY afterwards (`ls -a` -> only . and ..), so no token is cached.
+      #
+      # ⚠️ WHICH DIRECTION IT FAILS, ENUMERATED RATHER THAN ASSUMED. It exits 0 ONLY
+      # when the registry hands over the manifest with no credential. Every other
+      # outcome is red, and each was measured with the real client:
+      #   repository private or absent -> rc 1, 'denied: requested access to the
+      #                                   resource is denied / unauthorized'
+      #   tag missing                  -> rc 1, 'no such manifest: ...'
+      #   registry unreachable / DNS   -> rc 1, 'error pinging v2 registry ... no such host'
+      #   rate limited (429)           -> rc 1, toomanyrequests (same branch as above)
+      #   docker binary absent         -> rc 127, caught by the same `|| rc=$?`
+      #                                   (measured with a PATH holding coreutils but
+      #                                   no docker: rc 1, two named errors)
+      #
+      # 🔴 AND THE EXIT CODE ALONE IS NOT THE TEST, BECAUSE THE FIRST DRAFT OF THIS
+      # STEP HAD A FAIL-OPEN CELL AND ITS OWN MATRIX FOUND IT. A stub that exits 0 and
+      # prints NOTHING was waved through as "anonymous pull OK" — the repository's
+      # named trap in its purest form: a healthy answer and an empty answer are not the
+      # same thing, and only one of them was being looked at. The evidence this gate
+      # exists to obtain IS the manifest, so the manifest is what is checked: the
+      # output must carry `"schemaVersion"`. Measured on three public references
+      # (postgres:17-alpine, alpine:3, hello-world:latest): rc 0, 5000-6339 bytes of
+      # JSON, `"schemaVersion"` present in all three. If a future client ever stopped
+      # emitting it, this gate would fail CLOSED, which is the correct direction.
+      #
+      # Its stderr is PRINTED rather than discarded, and that is safe here for a reason
+      # specific to this command rather than to the cluster: it runs against an EMPTY
+      # DOCKER_CONFIG created two lines above, so that invocation has no credential
+      # store to read from and nothing to echo out of one.
+      - name: Gate — both images must be pullable with NO credential
+        env:
+          SHORT: ${{ steps.sha.outputs.short }}
+        run: |
+          set -euo pipefail
+          anon=$(mktemp -d)
+          trap 'rm -rf "$anon"' EXIT
+          bad=0
+          for ref in "$APP_IMAGE:sha-$SHORT" "$MIGRATE_IMAGE:sha-$SHORT"; do
+            rc=0
+            out=$(DOCKER_CONFIG="$anon" docker manifest inspect "$ref" 2>&1) || rc=$?
+            # A manifest, not merely a zero. See the block above for the fail-open cell
+            # this closes and the three references the marker was measured on.
+            case $out in *'"schemaVersion"'*) ;; *) rc=${rc:-0}; [ "$rc" -eq 0 ] && rc=90 ;; esac
+            if [ "$rc" -eq 0 ]; then
+              echo "anonymous pull OK: $ref"
+            else
+              bad=1
+              # 🔴 THE README'S LIMIT KEY IS NOT QUOTED HERE, AND THAT IS DELIBERATE.
+              # The key is spelled in Turkish with diacritics; CLAUDE.md §7 keeps error
+              # messages ASCII English, so writing it here would either violate that or
+              # produce a MIS-SPELLED key an operator could grep for and never find.
+              # The section is named instead. (An earlier draft of this line did quote
+              # an ASCII-folded copy of the key, which is precisely that broken
+              # reference; it was caught by byte-comparing it against the README.)
+              echo "::error::$ref is NOT pullable without a credential (docker manifest inspect exit $rc). If this says 'denied'/'unauthorized', the Docker Hub repository is PRIVATE — a first push creates it that way. Set it to Public (Docker Hub -> Repository -> Settings -> Visibility) and re-run; deploy/README.md, operator step 4, item 3. Leaving it private brings back the kubelet credential-verification defect this registry move exists to remove. Nothing has been applied to the cluster."
+              printf '%s\n' "$out" | tail -3
+            fi
+          done
+          [ "$bad" -eq 0 ]
 
       - name: Install kubectl (pinned, checksum-verified)
         run: |
@@ -182,6 +390,48 @@ jobs:
           kubectl version --client
 
       - name: Write kubeconfig
+        # 🔴 THE VALUE ARRIVES THROUGH env:, NOT THROUGH `${{ }}` INSIDE THE SCRIPT,
+        # AND THAT WAS THE LAST INLINE EXPANSION IN THIS FILE. An expression inside a
+        # `run:` body is substituted BEFORE the shell starts, so the rendered step
+        # script written to the runner's disk contains the secret in clear text.
+        # This is the most valuable credential in the workflow — accepted limit
+        # "[kubeconfig'in kimliği doğrulanmadı]" says it may still be a cluster-admin
+        # kubeconfig — and it was the only one still spelled the old way, while the two
+        # Docker Hub steps above already do it correctly and say why. Measured after
+        # the change: `grep -n 'secrets\.' .github/workflows/deploy.yml` -> five hits,
+        # ALL FIVE inside `env:` blocks, ZERO inside a `run:` body.
+        # It did not leak today — measured by parsing every `run:` body and stripping
+        # comments: 17 run bodies, ZERO non-comment occurrences of `set -x` — so this
+        # is a shape fix, not an incident. But one shape for one rule.
+        #
+        # ⚠️ WHERE A BROKEN SECRET IS CAUGHT — MEASURED ON THE RUNNER'S PLATFORM,
+        # BECAUSE THE FIRST VERSION OF THIS COMMENT WAS MEASURED ON A MAC AND SAID THE
+        # OPPOSITE. It claimed `base64 -d` is "lenient" and that the last line is the
+        # real gate. That is BSD base64. GNU coreutils, which is what ubuntu-latest
+        # ships, rejects malformed input. Both matrices, same script, same inputs:
+        #
+        #   input        ubuntu:24.04 (GNU coreutils 9.4)   this repo author's mac (BSD)
+        #   empty        rc 0, 0 bytes                      rc 0, 0 bytes
+        #   non-base64   rc 1, "base64: invalid input"      rc 0, 6 bytes
+        #   spaces only  rc 1, "base64: invalid input"      rc 0, 0 bytes
+        #   leading "-"  rc 1, "base64: invalid input"      rc 0, 3 bytes
+        #   valid        rc 0, 15 bytes                     rc 0, 15 bytes
+        #
+        # So on the runner THIS LINE is the gate for three of the four bad inputs
+        # (`set -euo pipefail` turns rc 1 into a red step), and the ONLY case that
+        # reaches the bottom of this script is an EMPTY secret — for which
+        # `kubectl config current-context` exits 1 with "current-context is not set".
+        # ⚠️ GNU base64 writes PARTIAL output before it errors (2 bytes on the
+        # non-base64 input above), so the config file can be left half-written on a red
+        # step. Direction is unchanged — the step fails and nothing reaches the cluster
+        # — but do not read "rc 1" as "wrote nothing".
+        # 🔴 THE PRACTICAL CONSEQUENCE, WHICH IS WHY THE WRONG VERSION MATTERED: it
+        # handed a maintainer a false causal model in which the last line could be
+        # deleted as redundant. It cannot — it is the sole guard for the empty case.
+        # (§4.7: GNU base64 prints only "base64: invalid input" and never the value —
+        # probed with a marker: 0 occurrences.)
+        env:
+          KUBE_CONFIG_B64: ${{ secrets.KUBE_CONFIG }}
         run: |
           set -euo pipefail
           # 🔴 THE SECRET IS NAMED KUBE_CONFIG AND IT IS BASE64. A raw YAML value
@@ -190,10 +440,15 @@ jobs:
           # Create it with:
           #   base64 -w0 ~/.kube/config | gh secret set KUBE_CONFIG --repo atknatk/tappa
           # ⚠️ Scope it. A full cluster-admin kubeconfig in a CI secret is a
-          # cluster-admin credential for anyone who can push to main. See
-          # deploy/README.md step 4 for the ServiceAccount this deploy actually needs.
+          # cluster-admin credential for anyone who can push to main. The identity this
+          # deploy actually needs is now a FILE — deploy/k8s/01-rbac.yaml — applied once
+          # by the operator (deploy/README.md step 3). Until KUBE_CONFIG holds THAT
+          # ServiceAccount's token, the narrowing in 01-rbac.yaml constrains nothing,
+          # because a cluster-admin kubeconfig ignores it.
           mkdir -p "$HOME/.kube"
-          echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > "$HOME/.kube/config"
+          # printf, not echo: echo's handling of a value beginning with `-` or holding
+          # a backslash is shell-dependent, and base64 -d is unforgiving about both.
+          printf '%s' "$KUBE_CONFIG_B64" | base64 -d > "$HOME/.kube/config"
           chmod 600 "$HOME/.kube/config"
           kubectl config current-context
 
@@ -219,155 +474,34 @@ jobs:
       # push to main. It is created out of band, once, and this step only proves it
       # is there before anything tries to mount it.
       #
-      # ⚠️ THE ghcr BRANCH USED TO BE CHECKED HERE TOO AND WAS MOVED OUT — deliberately,
-      # and the line the two fall on either side of is WHOSE IDENTITY THE CREDENTIAL IS.
-      # tappa-secrets is the PRODUCT's secrets: only the operator can know them.
-      # secret/ghcr is a REGISTRY credential for images this very workflow just
-      # pushed, i.e. CI's own identity — and requiring a human to mint a PAT so that
-      # CI can read back what CI itself wrote is a step that exists only because
-      # nobody wrote the next one. The next step writes it.
+      # ⚠️ THERE IS NO LONGER A SECOND, CI-OWNED SECRET TO CHECK. A registry pull
+      # credential used to be written a few lines below this one, and the line the two
+      # fell on either side of was WHOSE IDENTITY THE CREDENTIAL IS. This workflow no
+      # longer writes a pull credential at all, so tappa-secrets is the only Secret it
+      # has an opinion about — and its opinion is that it must already exist and must
+      # never be written from here. (Whether a pull credential still exists in a given
+      # cluster is a different question, and not one this file answers; the single
+      # record is deploy/README.md, "Elle deploy / rollback".)
+      #
+      # ⚠️ THIS STEP IS ALSO THE FIRST CALL THE DEPLOY IDENTITY MAKES AGAINST THE
+      # CLUSTER, so it is where a missing or narrowed RBAC surfaces. That is why the
+      # apply carries a message: without one, an operator who has not yet applied
+      # deploy/k8s/01-rbac.yaml reads a bare 'namespaces "tappa" is forbidden' and has
+      # nothing to connect it to. No `kubectl auth can-i` preflight is used, and that is
+      # a measured refusal rather than an omission: `kubectl auth can-i create
+      # pods/exec` answers about `pods` and returns "yes" for this identity — so does
+      # `pods/nonsense` — which makes it a gate capable of passing on a permission the
+      # deploy does not have. 01-rbac.yaml carries the full measurement.
       - name: Preflight — the application Secret is the operator's and must already exist
         run: |
           set -euo pipefail
-          kubectl apply -f deploy/k8s/00-namespace.yaml
-          if ! kubectl -n tappa get secret tappa-secrets >/dev/null 2>&1; then
-            echo "::error::secret/tappa-secrets is missing. It is created out of band and never by CI — see deploy/examples/externalsecret.example.yaml (recommended) or deploy/examples/secret.example.yaml."
+          kubectl apply -f deploy/k8s/00-namespace.yaml || {
+            echo "::error::could not apply the namespace. If the message above says 'forbidden', the deploy ServiceAccount is missing or out of date: apply deploy/k8s/01-rbac.yaml with a cluster-admin kubeconfig (deploy/README.md, 'Operatörün yapması gerekenler' step 3). Nothing in the cluster has been changed."
             exit 1
-          fi
-
-      # 🔴 CI WRITES ITS OWN PULL CREDENTIAL, AND THE REASON IT CAN IS NARROW AND
-      # WORTH STATING: GITHUB_TOKEN carries `packages: write` (declared at the top of
-      # this file, which implies read), and a package pushed to GHCR by a workflow is
-      # linked to the pushing repository, so that repository's own token may pull it
-      # back. Both images were pushed by this job, minutes ago, with this token.
-      #
-      # ⚠️ THIS IS NOT A PERMANENT FIX AND MUST NOT BE READ AS ONE. GITHUB_TOKEN IS
-      # REVOKED WHEN THE JOB ENDS. It works because of a second fact, not because the
-      # token lives on: the pull happens seconds later, inside the same job's rollout,
-      # and both manifests are `imagePullPolicy: IfNotPresent` against an IMMUTABLE
-      # `sha-<12hex>` tag — so once the single node has the layers, every later restart
-      # is served from the node and needs no credential at all.
-      #
-      # 🔴 WHERE IT BREAKS, STATED RATHER THAN DISCOVERED AT 04:00: if the node loses
-      # the image (kubelet image GC under disk pressure, `crictl rmi`, a node rebuild)
-      # AFTER the deploy job finished, the kubelet retries the pull with a dead token
-      # and the pod does not start — ImagePullBackOff, on a product whose 04:00 shift
-      # cannot load the tap page at all while the server is down. The durable fixes are
-      # a long-lived read:packages PAT or making the packages public, and BOTH ARE THE
-      # USER'S TO DO (GitHub exposes no API for the second — measured: PATCH
-      # /user/packages/container/tappa → 404, no such endpoint). deploy/README.md
-      # step 3 carries both, and the limit is written down in its accepted-limits list.
-      #
-      # The username is not what authenticates: measured 2026-08-15,
-      # `docker login ghcr.io -u definitely-not-a-real-user-9x7q` with a valid token
-      # returned "Login Succeeded". github.actor is used anyway, for one reason — the
-      # `Log in to GHCR` step above already uses it and pushed both images with it in
-      # run 31908808548, so this credential is spelled exactly like the one already
-      # proven against this registry.
-      - name: Write the GHCR pull credential (CI's own identity, refreshed every deploy)
-        env:
-          GHCR_USER: ${{ github.actor }}
-          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          # create|apply rather than plain create: idempotent, so a re-deploy refreshes
-          # the token in place instead of failing with AlreadyExists.
-          kubectl -n tappa create secret docker-registry ghcr \
-            --docker-server=ghcr.io \
-            --docker-username="$GHCR_USER" \
-            --docker-password="$GHCR_TOKEN" \
-            --dry-run=client -o yaml | kubectl apply -f -
-          # Report the SHAPE and never the value: .dockerconfigjson holds a live token,
-          # so this prints the type and the key NAMES only.
-          echo "secret/ghcr type=$(kubectl -n tappa get secret ghcr -o jsonpath='{.type}')"
-          echo "secret/ghcr keys=$(kubectl -n tappa get secret ghcr -o go-template='{{range $k, $v := .data}}{{$k}} {{end}}')"
-
-      # 🔴 BACKLOG T43, AND ITS SHAPE CHANGED WHEN IT WAS MEASURED (2026-08-16).
-      #
-      # WHAT T43 SAID: a pod created before the Secret above is refreshed sits in
-      # ImagePullBackOff forever. That is real and was lived through — 4 min 39 s on
-      # 2026-08-15, cured only by a hand-typed `kubectl delete pod`. What the backlog
-      # got wrong is the CAUSE, so it also got the scope wrong. Ordering is not the
-      # problem: the Secret is already written above, before anything is applied.
-      #
-      # WHAT IS ACTUALLY GOING ON: this node's kubelet runs
-      # imagePullCredentialsVerificationPolicy=NeverVerifyPreloadedImages (KEP-2535,
-      # default from 1.35). A private image the kubelet pulled WITH a credential is
-      # usable only by a pod presenting a credential already recorded against it;
-      # to anyone else the image counts as absent even with imagePullPolicy:
-      # IfNotPresent. Measured three ways on this node against the tag the live pod
-      # was running: no secret -> 401; a secret it had never used -> 401;
-      # imagePullPolicy Never -> "not present". Control: a PUBLIC image with
-      # imagePullPolicy Never started straight from the node's cache. So the node's
-      # cache is not the safety net 20-app.yaml used to claim it was, and a pod can
-      # need a live credential at any restart — not only on a first pull.
-      #
-      # WHAT THIS STEP DOES ABOUT IT, AND WHAT IT DELIBERATELY DOES NOT. Once a pod
-      # has failed a pull the kubelet's retry interval grows without bound, so it
-      # will not notice the fresh credential written above for minutes. Recreating
-      # the pod resets that and the replacement pulls immediately with the new
-      # Secret. It only ever deletes pods the kubelet has REPORTED as stuck pulling
-      # (ImagePullBackOff / ErrImagePull); a Running pod is never touched, so this
-      # cannot interrupt the shift that is currently tapping. It is not a fix for the
-      # underlying limit: deploy/README.md's accepted limit
-      # "[GHCR çekme kimliği ömürlü]" stays open until the packages are public or a
-      # read:packages PAT replaces this token. (The key is kept on ONE line on
-      # purpose — a reference split across a wrap is a reference nothing can check.)
-      - name: Recover pods stuck on a stale pull credential (backlog T43)
-        run: |
-          set -euo pipefail
-          # 🔴 initContainerStatuses IS SCANNED TOO, AND LEAVING IT OUT WAS A REAL
-          # BUG IN THE FIRST DRAFT OF THIS STEP. Both pod specs in deploy/k8s now
-          # carry a wait-for-postgres initContainer that pulls postgres:17-alpine, so
-          # a pod can be wedged on an image pull WITHOUT ever populating
-          # containerStatuses — the main container has not been created yet. A
-          # selector that reads only containerStatuses would walk straight past
-          # exactly the pods this step exists to rescue.
-          # 🔴 THE TEMPLATE EMITS ONE NAME PER LINE AND THIS PIPELINE CONTAINS NO
-          # `grep`, AND THAT IS THE WHOLE POINT — NOT A STYLE CHOICE.
-          #
-          # The first version of this step piped through `grep -v '^$'`. On a HEALTHY
-          # cluster the selector matches nothing, kubectl writes ZERO bytes, grep
-          # selects no line and therefore EXITS 1 — that is grep doing its job, not an
-          # error. Under `set -o pipefail` that 1 becomes the pipeline's status, the
-          # assignment inherits it, and `set -e` kills the step. Measured with the
-          # step body extracted verbatim and run the way GitHub Actions runs it
-          # (`bash -e`, no `shell:` override anywhere in this file): STEP-EXIT=1 with
-          # no output at all. The `if [ -z "$stuck" ]` branch below was UNREACHABLE
-          # and its "nothing to recover" line could never print.
-          #
-          # 🔴 AND IT WOULD HAVE FAILED EVERY HEALTHY DEPLOY, DESTRUCTIVELY, because
-          # of WHERE it sits: the GHCR Secret is overwritten with a fresh token in the
-          # step above, and everything that applies manifests comes BELOW. A red step
-          # here means the cluster keeps yesterday's workload while its recorded pull
-          # credential has already been replaced — precisely the state that makes a
-          # restart unrecoverable under the kubelet's credential verification (see
-          # 20-app.yaml). It would have delivered nothing and lowered the running
-          # product's restart-resilience on every attempt.
-          #
-          # `|| true` would also have worked and was rejected: it would silence a
-          # genuine grep failure just as happily as the empty case. Removing the
-          # command that cannot distinguish "no matches" from "broke" is the fix.
-          # `sort -u` on empty input exits 0, and so does `tr`. Verified both ways.
-          sel='{{range .items}}{{$n := .metadata.name}}{{range .status.initContainerStatuses}}{{if .state.waiting}}{{if or (eq .state.waiting.reason "ImagePullBackOff") (eq .state.waiting.reason "ErrImagePull")}}{{$n}}{{"\n"}}{{end}}{{end}}{{end}}{{range .status.containerStatuses}}{{if .state.waiting}}{{if or (eq .state.waiting.reason "ImagePullBackOff") (eq .state.waiting.reason "ErrImagePull")}}{{$n}}{{"\n"}}{{end}}{{end}}{{end}}{{end}}'
-          # A pod stuck on BOTH would be named twice; delete tolerates that, but
-          # de-duplicating keeps the log honest about how many pods were touched.
-          stuck=$(kubectl -n tappa get pod -o go-template="$sel" | sort -u | tr '\n' ' ')
-          if [ -z "$stuck" ]; then
-            echo "no pod is stuck pulling; nothing to recover"
-          else
-            echo "recreating pods stuck on a stale pull credential: $stuck"
-            # --ignore-not-found because a pod can vanish between the `get` above and
-            # this line -- the Job's own ttlSecondsAfterFinished collector, or a
-            # controller replacing it. Without it, delete exits 1 on NotFound, `set -e`
-            # kills the step, and the deploy dies for the most BENIGN reason there is:
-            # the pod we wanted to rescue is already gone. That matters because of
-            # WHERE this step sits -- after secret/ghcr has been overwritten with a new
-            # token and before anything is applied -- so a benign failure here leaves
-            # the cluster in exactly the "new token, old workload" state this file
-            # spends so many lines describing. The same flag is already used 68 lines
-            # below on `delete job tappa-migrate`; this line simply did not get it.
-            kubectl -n tappa delete pod $stuck --ignore-not-found --wait=false
+          }
+          if ! kubectl -n tappa get secret tappa-secrets >/dev/null 2>&1; then
+            echo "::error::secret/tappa-secrets is missing (or unreadable by the deploy identity). It is created out of band and never by CI — see deploy/examples/externalsecret.example.yaml (recommended) or deploy/examples/secret.example.yaml."
+            exit 1
           fi
 
       - name: Apply configuration and database

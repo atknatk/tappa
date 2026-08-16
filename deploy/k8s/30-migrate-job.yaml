@@ -66,14 +66,16 @@ spec:
       # anyway hands any code that runs in this pod a cluster credential it has
       # no use for -- the smallest hardening still on the table (audit B10).
       automountServiceAccountToken: false
-      # Same private registry, same Secret as the server — written by deploy.yml from
-      # the job's own GITHUB_TOKEN, with the same stated expiry (20-app.yaml carries
-      # the reasoning and the failure mode).
-      #
-      # This Job is the easy case of the two: it is created by the very job that just
-      # wrote the credential and pushed the image, and it never restarts a week later.
-      imagePullSecrets:
-        - name: ghcr
+      # 🔴 NO imagePullSecrets, FOR THE SAME MEASURED REASON AS 20-app.yaml: this spec
+      # declares none, so a pod born from THIS file presents no credential and the
+      # kubelet pulls anonymously — which works exactly while the referenced repository
+      # is public, and fails with 401 while it is not. Which one holds for a given
+      # cluster is recorded in one place, deploy/README.md ("Elle deploy / rollback"),
+      # not here. This block used to name `secret/ghcr`, written by deploy.yml from its
+      # own GITHUB_TOKEN; that Secret, the step that wrote it and the step that cleaned
+      # up after it are gone FROM THIS REPOSITORY (backlog T43) — which is not the same
+      # as gone from a cluster that has not yet run this workflow. 20-app.yaml carries
+      # the full measurement.
       securityContext:
         runAsNonRoot: true
         runAsUser: 65532
@@ -125,8 +127,11 @@ spec:
       # WHY postgres:17-alpine AND NOT THE MIGRATE IMAGE: both shipped images are
       # FROM scratch (Dockerfile lines 78 and 98) — no shell, no pg_isready, nothing
       # to loop with. This tag is already required by 10-postgres.yaml in this same
-      # namespace, so it adds no image this deployment did not already need, and it
-      # is a public Docker Hub tag, so it needs none of secret/ghcr. pg_isready is
+      # namespace, so it adds no image this deployment did not already need. (It used
+      # to be noted here that this tag is public and therefore needs no pull secret,
+      # unlike the product images. Whether that distinction still holds depends on the
+      # registry the product images come from — deploy/README.md is the single record;
+      # either way this initContainer needs no credential.) pg_isready is
       # the right probe rather than a bare TCP poke: it resolves the name, opens the
       # socket AND completes a startup packet, so it answers the one question the
       # next container asks.
@@ -205,16 +210,21 @@ spec:
               memory: 64Mi
       containers:
         - name: goose
-          image: ghcr.io/atknatk/tappa-migrate:deploy-placeholder
+          image: docker.io/atknatk/tappa-migrate:deploy-placeholder
           # Immutable `sha-<12hex>` tag, substituted by deploy.yml — see 20-app.yaml
           # for why IfNotPresent is only correct against a tag that cannot move.
-          # ⚠️ "a retry reuses the node's copy so a transient dial failure does not
-          # become a registry round trip" USED TO STAND HERE AND IT IS NOT TRUE ON
-          # THIS CLUSTER — the kubelet re-verifies credentials against a cached
-          # private image (20-app.yaml carries the measurement). It happens to be
-          # harmless here, because the credential is written by the very run that
-          # creates this Job and is therefore still the recorded one; it would not be
-          # harmless if this Job were ever re-created out of band.
+          # ⚠️ WHETHER A RETRY CAN COUNT ON THE NODE'S COPY IS CONDITIONAL, AND SAYING
+          # SO IS THE FIX FOR A SENTENCE THAT STOOD HERE ASSERTING IT OUTRIGHT.
+          # WHILE this Job's image is pulled with a credential, the kubelet re-verifies
+          # it against the cached copy (KEP-2535) and a Job re-created out of band —
+          # after the Secret has been rewritten — fails to pull. ONCE it is pulled
+          # anonymously, there is nothing to verify and the node's copy is reused;
+          # measured on this node with the control image: public +
+          # `imagePullPolicy: Never` started from the node's cache, exit 0.
+          # Which case a given cluster is in is recorded in ONE place, with the command
+          # that measures it: deploy/README.md, "Elle deploy / rollback".
+          # This Job is the easier of the two workloads either way: it is created by
+          # the same run that pushed the image, so its first pull is never the stale one.
           imagePullPolicy: IfNotPresent
           # GOOSE_DRIVER and GOOSE_MIGRATION_DIR are baked into the image; `up` is
           # its CMD. Nothing here needs overriding, and spelling the command out

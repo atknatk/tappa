@@ -5,8 +5,17 @@
 # Two deployable artifacts come out of this one file, and they are SEPARATE on
 # purpose:
 #
-#   --target app       ghcr.io/atknatk/tappa           the server
-#   --target migrate   ghcr.io/atknatk/tappa-migrate   goose + db/migrations
+#   --target app       docker.io/atknatk/tappa           the server
+#   --target migrate   docker.io/atknatk/tappa-migrate   goose + db/migrations
+#
+# ⚠️ THIS REPOSITORY BUILDS AND PUSHES TO DOCKER HUB (M8-02 FAZ D); the tags above are
+# what .github/workflows/deploy.yml publishes. It is not a preference: this cluster's
+# kubelet runs KEP-2535 credential verification, under which a PRIVATELY pulled image
+# is unusable by a pod without a recorded credential even when the layers are on the
+# node — so WHILE a repository is private that defect is live, and ONCE it is public
+# there is no credential to record. Which state a given cluster and its registry are
+# in is recorded in one place: deploy/README.md, "Elle deploy / rollback"; the accepted
+# limit "[Docker Hub anonim çekme bütçesi]" carries the measurements and the cost.
 #
 # 🔴 WHY TWO IMAGES AND NOT ONE WITH BOTH BINARIES. M8-01's structural guarantee is
 # that the application CANNOT run a migration: goose is not a module dependency
