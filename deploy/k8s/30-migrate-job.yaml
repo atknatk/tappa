@@ -80,13 +80,141 @@ spec:
         runAsGroup: 65532
         seccompProfile:
           type: RuntimeDefault
+      # 🔴 THIS initContainer IS THE FIX FOR BACKLOG T41 AND T42, AND BOTH ROOT
+      # CAUSES WERE MEASURED IN A SANDBOX NAMESPACE ON 2026-08-16 RATHER THAN
+      # REASONED ABOUT. It exists because goose's very first action is to dial the
+      # database and it does not retry, so it loses two DIFFERENT races that a
+      # newborn pod cannot win:
+      #
+      #  T41 — THE NetworkPolicy RACE. 12-networkpolicy.yaml admits pods carrying
+      #  app.kubernetes.io/name=tappa, and this pod does carry it, which is why the
+      #  label theory in the backlog was wrong. What actually happens is that k3s
+      #  programs a NEW pod's address into the policy's allow-set ASYNCHRONOUSLY,
+      #  and the container is already running and dialling before that lands.
+      #  Measured with five fresh pods carrying the admitted label: every one was
+      #  refused on its first attempt and admitted 0.2-1.0 s later. Control with the
+      #  policy deleted: three of three connected on attempt zero. The refusal is a
+      #  TCP RST, so it surfaces as "connection refused" and reads like a database
+      #  that is not up yet — that misreading is what sent the first diagnosis wrong.
+      #
+      #  🔴 AND THIS IS WHY THE FIX HAS TO BE IN THE POD AND CANNOT BE IN
+      #  deploy.yml. restartPolicy is Never, so each backoff attempt is a BRAND NEW
+      #  POD WITH A BRAND NEW ADDRESS that re-runs the same race from zero — three
+      #  attempts, three losses, deterministically. Measured: five one-shot pods
+      #  shaped like goose, five failures. A wait in the workflow cannot help,
+      #  because the thing that is too young is the pod the workflow just created.
+      #  An initContainer retries inside the SAME pod, so it keeps ONE address and
+      #  wins on its second attempt. Measured with restartPolicy Always for
+      #  contrast: one crash, then success on the same address.
+      #
+      #  T42 — THE HEADLESS SERVICE'S DNS RECORD LAGS THE ROLLOUT GATE. The backlog
+      #  says the workflow has no readiness wait; it does (deploy.yml runs `kubectl
+      #  rollout status statefulset/tappa-postgres`). What that gate does not cover
+      #  was measured on a FRESH volume: Postgres opened 0.0.0.0:5432 at 08:50:35.2,
+      #  the kubelet marked the pod ready at 08:50:38, `rollout status` returned at
+      #  08:50:39 — and `tappa-postgres` was still NXDOMAIN until 08:50:42. A Job
+      #  created the instant the gate returns can therefore fail to RESOLVE the name
+      #  for about three seconds, which is not what "rollout complete" suggests.
+      #  ⚠️ A THIRD window exists and was NOT the one that fired: the entrypoint runs
+      #  the init scripts against a temporary server with listen_addresses='' , so
+      #  TCP is shut while the exec probe (`pg_isready` over the unix socket, no -h)
+      #  would answer yes. Measured width on this node: 0.22 s, against a 5 s probe
+      #  period — latent, not observed. A slower node or a longer init widens it, and
+      #  the same wait below covers it, because pg_isready HERE goes over TCP.
+      #
+      # WHY postgres:17-alpine AND NOT THE MIGRATE IMAGE: both shipped images are
+      # FROM scratch (Dockerfile lines 78 and 98) — no shell, no pg_isready, nothing
+      # to loop with. This tag is already required by 10-postgres.yaml in this same
+      # namespace, so it adds no image this deployment did not already need, and it
+      # is a public Docker Hub tag, so it needs none of secret/ghcr. pg_isready is
+      # the right probe rather than a bare TCP poke: it resolves the name, opens the
+      # socket AND completes a startup packet, so it answers the one question the
+      # next container asks.
+      initContainers:
+        - name: wait-for-postgres
+          image: postgres:17-alpine
+          imagePullPolicy: IfNotPresent
+          # The short Service name, resolved through the pod's own search domain, so
+          # this file stays namespace-agnostic and matches the DSN spelling in
+          # deploy/examples/secret.example.yaml. One name, one spelling.
+          # 🔴 -U IS MANDATORY HERE AND ITS ABSENCE IS A SILENT, PERMANENT FAILURE.
+          # Measured 2026-08-16, the first draft of this file omitted it and the Job
+          # failed for 120 s with "tappa-postgres:5432 - no attempt" while the name
+          # resolved perfectly (`getent hosts tappa-postgres` → the pod address).
+          # The reason is that this pod runs as uid 65532 (pod securityContext) and
+          # that uid is NOT in postgres:17-alpine's /etc/passwd, so libpq cannot
+          # derive a default user name and never opens a socket at all. psql prints
+          # it plainly where pg_isready hides it: "local user with ID 65532 does not
+          # exist". No credential is involved — pg_isready sends a startup packet and
+          # reads the auth challenge, it never authenticates — so this name only has
+          # to exist as a string. It is spelled exactly like 10-postgres.yaml's own
+          # probes so there is one spelling of it in this directory.
+          # 🔴 THE FAILURE BRANCH RESOLVES THE NAME ITSELF, BECAUSE pg_isready's OWN
+          # MESSAGE CANNOT TELL AN OPERATOR WHICH THING BROKE. Measured against
+          # pg_isready (PostgreSQL) 17.10: a closed port (RST), a black-holed address
+          # (drop) AND A NAME THAT DOES NOT RESOLVE all print the SAME
+          # "no response" with exit 2. That last one is not hypothetical here — this
+          # deployment's own measured defect was NXDOMAIN, the headless Service's DNS
+          # record appearing about three seconds after `kubectl rollout status`
+          # returned. A message that named only the NetworkPolicy would send an
+          # operator to the wrong file at exactly the moment (120 s in) when a
+          # PERSISTENT DNS or Service fault is the likeliest cause. So the branch
+          # below splits the two the only way that is reliable: it asks the resolver.
+          command:
+            - sh
+            - -ceu
+            - |
+              deadline=$(( $(date +%s) + 120 ))
+              until pg_isready -h tappa-postgres -p 5432 -U tappa_owner -d tappa -t 3 >/dev/null 2>&1; do
+                if [ "$(date +%s)" -ge "$deadline" ]; then
+                  echo "tappa-postgres:5432 unreachable from this pod after 120 s" >&2
+                  echo "pg_isready says: $(pg_isready -h tappa-postgres -p 5432 -U tappa_owner -d tappa -t 3 2>&1)" >&2
+                  if addr=$(getent hosts tappa-postgres 2>/dev/null); then
+                    echo "the NAME RESOLVES to: $addr" >&2
+                    echo "COMPARE that address with the pod's own:" >&2
+                    echo "  kubectl -n <ns> get pod tappa-postgres-0 -o wide" >&2
+                    echo "If they DIFFER the name resolves to the wrong place - a stale" >&2
+                    echo "EndpointSlice or a cached CoreDNS answer (default TTL 30 s) - and" >&2
+                    echo "this is still DNS, not the policy. If they MATCH it is the socket:" >&2
+                    echo "look at 12-networkpolicy.yaml (a denial there arrives as a TCP RST," >&2
+                    echo "not a timeout), then at whether tappa-postgres-0 is Running and" >&2
+                    echo "listening on 0.0.0.0:5432." >&2
+                  else
+                    echo "the NAME tappa-postgres DOES NOT RESOLVE." >&2
+                    echo "This is DNS or the Service, NOT the NetworkPolicy: check that" >&2
+                    echo "Service/tappa-postgres exists, that it has an EndpointSlice" >&2
+                    echo "(a headless Service publishes no record until a pod is Ready)," >&2
+                    echo "and that CoreDNS in kube-system is answering." >&2
+                  fi
+                  exit 1
+                fi
+                sleep 1
+              done
+              echo "tappa-postgres:5432 reachable from this pod; goose may dial"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 200m
+              memory: 64Mi
       containers:
         - name: goose
           image: ghcr.io/atknatk/tappa-migrate:deploy-placeholder
           # Immutable `sha-<12hex>` tag, substituted by deploy.yml — see 20-app.yaml
           # for why IfNotPresent is only correct against a tag that cannot move.
-          # backoffLimit: 2 above means a retry also reuses the node's copy, so a
-          # transient DB dial failure does not become a registry round trip.
+          # ⚠️ "a retry reuses the node's copy so a transient dial failure does not
+          # become a registry round trip" USED TO STAND HERE AND IT IS NOT TRUE ON
+          # THIS CLUSTER — the kubelet re-verifies credentials against a cached
+          # private image (20-app.yaml carries the measurement). It happens to be
+          # harmless here, because the credential is written by the very run that
+          # creates this Job and is therefore still the recorded one; it would not be
+          # harmless if this Job were ever re-created out of band.
           imagePullPolicy: IfNotPresent
           # GOOSE_DRIVER and GOOSE_MIGRATION_DIR are baked into the image; `up` is
           # its CMD. Nothing here needs overriding, and spelling the command out

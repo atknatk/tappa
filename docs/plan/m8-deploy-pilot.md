@@ -281,7 +281,7 @@ tablosu çıkmış durumda (satış slaytı da olur).
 >
 > ---
 >
-> **2. TUR — `tappa-security-auditor` RED verdi; dört bloklayan kapatıldı, ikisi
+> **[PAKETLEME yarısı · 2026-08-15] 2. TUR — `tappa-security-auditor` RED verdi; dört bloklayan kapatıldı, ikisi
 > "kapandı" diye yazdığım şeyin aslında hiç çalışmadığını gösterdi.**
 >
 > **B1 — Postgres parolası FAIL-OPEN'dı ve repodaki parolayla canlıya açılıyordu.**
@@ -370,7 +370,12 @@ tablosu çıkmış durumda (satış slaytı da olur).
 >
 > ---
 >
-> **4. TUR — YENİ üçüncü göz RED; üç bloklayan, yedi ek madde, VE BİR SÜREÇ İHLALİ.**
+> **[PAKETLEME yarısı · 2026-08-15] 4. TUR — YENİ üçüncü göz RED; üç bloklayan,
+> yedi ek madde, VE BİR SÜREÇ İHLALİ.**
+> ⚠️ *Bu bloklar YAZILDIKLARI sırada duruyor, numara sırasında değil: aşağıdaki
+> "3. TUR" bundan sonra eklendi. Ve FAZ C'nin turları (aşağıda) numaralarını
+> SIFIRDAN saymıyor, yani "4. TUR" defterde iki kez geçiyor — bu yüzden her başlık
+> artık hangi yarıya ait olduğunu ve tarihini taşıyor.*
 >
 > **🔴 SÜREÇ İHLALİ, KÖK NEDENİYLE.** Brief *"kümeye `kubectl apply` yok"* diyordu ve
 > **47 dakika boyunca kümede bozuk bir deploy durdu** (namespace `17:52:30Z`,
@@ -449,7 +454,7 @@ tablosu çıkmış durumda (satış slaytı da olur).
 >
 > ---
 >
-> **3. TUR — İLK GERÇEK DEPLOY KOŞUSU (`31908808548`) TEK BİR YERDE DURDU: KÜMENİN
+> **[PAKETLEME yarısı · 2026-08-15] 3. TUR — İLK GERÇEK DEPLOY KOŞUSU (`31908808548`) TEK BİR YERDE DURDU: KÜMENİN
 > İMAJI ÇEKECEK KİMLİĞİ YOKTU.** Öncesindeki her kapı geçti (iki imaj kapısı, push,
 > Cloudflare preflight, kubeconfig); `Preflight — the Secret …` adımı
 > `secret/ghcr (image pull credential) is missing` ile düştü. Depo private, dolayısıyla
@@ -506,9 +511,567 @@ tablosu çıkmış durumda (satış slaytı da olur).
 > vardiyası tap sayfasını hiç yükleyemez, çevrimdışı kuyruk (M9-01) bile devreye
 > giremez. **Kalıcı çare iki tane, ikisi de kullanıcının:** `read:packages` yetkili
 > uzun ömürlü bir PAT (aynı sır adı, aynı şekil) ya da paketleri public yapmak
-> (arayüzden — API yok, yukarıda ölçüldü). Madde 12 biri yapılana kadar açık kalır.
+> (arayüzden — API yok, yukarıda ölçüldü). Sınır **[GHCR çekme kimliği ömürlü]**
+> biri yapılana kadar açık kalır.
 >
 > `ci.yml`'e dokunulmadı (`git diff --stat .github/workflows/ci.yml` → boş).
+
+> ---
+>
+> **KART DÜZELTMESİ (2026-08-16, FAZ C — "küme manifestlerin tarif ettiği hâle
+> gelsin"). T41 ÇÖZÜLDÜ, T42'NİN SEBEBİ DEĞİŞTİ, T43 DARALMADI — GENİŞLEDİ.**
+> Bu tur bir kum havuzu namespace'inde (`tappa-verify`, iş sonunda silindi) ölçüm
+> yaptı. Değişen dosyalar: `deploy/k8s/{12,20,30}`, `.github/workflows/deploy.yml`,
+> `deploy/README.md`. Canlı `tappa` namespace'ine hiçbir mutasyon uygulanmadı.
+>
+> **T41 — "ETİKET UYUŞMAZLIĞI" AÇIKLAMASI ZATEN ELENMİŞTİ; GERÇEK SEBEP BİR YARIŞ.**
+> Kural doğru, etiketler doğru, uygulanıyor. k3s yeni bir pod'un adresini kuralın
+> izin kümesine **eşzamansız** yazıyor ve pod o sırada zaten bağlanmayı deniyor.
+> Ölçüm: izin verilen etiketi taşıyan **beş taze pod, beşi de** ilk denemesinde
+> reddedildi, **0,2–1,0 sn** sonra kabul edildi. Kontrol (kural silinmiş): üç pod,
+> üçü de **sıfırıncı** denemede bağlandı. Ret bir **RST**, o yüzden
+> `connection refused` görünüyor — 2026-08-15'teki ilk teşhisin yanılma sebebi bu.
+> 🔴 **Ve asıl mesele `restartPolicy: Never`:** her yeniden deneme **yeni adresli
+> yeni bir pod**, yani yarış sıfırdan koşuyor ve Job **hiç** kazanamıyor. goose
+> şeklinde beş tek-atışlık pod → **beşi de** düştü. Bu yüzden çare `deploy.yml`'e
+> konulamaz: geç kalan şey, workflow'un henüz yaratmadığı pod'un kendisi. Çare
+> **pod içinde**: `wait-for-postgres` initContainer'ı (aynı pod, aynı adres).
+>
+> **KURAL YA DOĞRU YA YOK → DOĞRU SEÇİLDİ, VE İKİ KONTROLLE ÖLÇÜLDÜ.** Tek pod, tek
+> an, izin verilen etiketle: kendi namespace'ine **`accepting connections` (exit 0)**,
+> canlı `tappa` namespace'ine **`no response` (exit 2)** — üstelik adı önce
+> `10.42.0.228`'e çözülerek, yani DNS değil kural reddediyor. Bu ikinci ölçüm aynı
+> zamanda **çıplak `podSelector`'ın namespace'e kapalı** olduğunu kanıtlıyor: etiketi
+> başka namespace'ten kopyalamak hiçbir şey kazandırmıyor. Elenen seçenek: kuralı
+> `ipBlock: 10.42.0.0/24`'e çevirmek yarışı bitirirdi ama kümedeki **her namespace'in her pod'unu** kabul ederdi, yani hiçbir şeyi korumazdı.
+>
+> **🔴 BU BLOK YUKARIDAKİ İKİ CÜMLEYİ ADIYLA İPTAL EDİYOR — kartın iki yerinde
+> çelişik metin kalmasın.**
+> 1. **C1'in** *"NetworkPolicy'nin bu kümede **uygulandığı** bile `apply` etmeden
+>    doğrulanamıyor"* cümlesi **artık geçersizdir.** Uygulandı, ölçüldü, uygulanıyor
+>    (yukarıdaki iki yönlü kontrol). C1'in geri kalanı — *"Postgres'in probe'ları
+>    `exec`, o yüzden bu kural risksiz"* ve *"uygulamanınki sayılmış limit"* — **hâlâ
+>    doğrudur**; yalnız *"doğrulanamıyor"* yarısı düştü.
+> 2. **Ölçülen karar #2** (*"Migration `Job`, initContainer DEĞİL"*) **GERİ
+>    ALINMADI ve bu blok onunla çelişmiyor.** Karışmaması için: #2, *migration'ın
+>    kendisinin* nereye konacağıyla ilgiliydi ve üç gerekçesi de ayakta —
+>    `DATABASE_MIGRATE_URL` hâlâ sunucu pod'unun spec'ine girmiyor · eklenen
+>    initContainer **DDL koşturmuyor**, yalnız bir sokete bakıyor (`env`, `envFrom`
+>    ve `volumeMount` taşımıyor, yani hiçbir sırra erişmiyor) · `replicas: 1`
+>    değişmedi. Bu turda eklenen şey bir **bekleme adımı**, migration'ın taşınması
+>    **değil**. goose hâlâ kendi Job'ında, kendi rolüyle, kendi pod'unda koşuyor.
+>
+> **T42 — BACKLOG METNİNİN YANLIŞ YARISI VE DOĞRU YARISI.** *"arada `kubectl wait`
+> YOK"* **yanlış** (`deploy.yml` `rollout status statefulset/tappa-postgres`
+> koşuyor). Brief'in önerdiği hipotez — probe'un `-h` taşımaması yüzünden geçici
+> sunucu fazında yeşile dönmesi — **yapısal olarak gerçek ama BU KOŞUDA ATEŞLEMEDİ**:
+> geçici sunucu penceresi taze volume'de **0,22 sn** ölçüldü (`listening on Unix
+> socket` → `shutting down`), probe periyodu ise 5 sn, yani latent. **Fiilen ateşleyen
+> pencere başkaydı ve ölçüldü:** headless Service'in **DNS kaydı** `rollout status`'tan
+> **3 sn sonra** doğuyor. Taze volume: TCP 08:50:35.2'de açıldı · kubelet 08:50:38'de
+> ready dedi · `rollout status` 08:50:39'da döndü · `tappa-postgres` **08:50:42'ye
+> kadar NXDOMAIN**. Üç pencerenin üçünü de aynı initContainer kapatıyor.
+>
+> **T43 — DARALMADI, GENİŞLEDİ; VE `20-app.yaml` İLE `README`'NİN
+> **[GHCR çekme kimliği ömürlü]** MADDESİNDEKİ TAŞIYICI
+> CÜMLE YANLIŞ ÇIKTI.** İkisi de *"`IfNotPresent` + değişmez etiket sayesinde imaj
+> düğümde önbellekli kalır, sonraki pod başlatmaları kayda hiç gitmez"* diyordu.
+> **Ölçüldü, yanlış.** Bu node'un kubelet'i
+> `imagePullCredentialsVerificationPolicy: NeverVerifyPreloadedImages` ile koşuyor
+> (KEP-2535, 1.35'ten beri varsayılan): kubelet'in **kimlikle** çektiği bir imaj,
+> yalnız o imaj için **kayıtlı** kimlik sunabilen pod'a veriliyor; başkasına imaj
+> **düğümde yokmuş gibi** davranıyor. Canlı pod'un o an koştuğu etiketle üç ölçüm:
+> kimlik yok → **401** · hiç kullanılmamış kimlik → **401** · `imagePullPolicy: Never`
+> → **`ErrImageNeverPull, "not present"`**. Ayırt eden kontrol: **public**
+> `postgres:17-alpine` + `Never` → **düğüm önbelleğinden açıldı, exit 0**. Yani
+> önbellek çalışıyor, reddeden şey kimlik doğrulaması.
+> 🔴 **Sonuç ve en keskin hâli:** yeniden başlatma yalnız Secret **o pod'un imajını
+> çeken** token'ı hâlâ taşırken güvenli; sonraki bir deploy Secret'ı yeni token'la
+> ezdikten sonra **`kubectl rollout undo` ölü token'la 401 alır** — yani rollback,
+> tam da olay anında, sınırın kendisine çarpıyor. `README` sınırı
+> **[GHCR çekme kimliği ömürlü]** ve
+> `20-app.yaml`'ın iki yorumu düzeltildi. **Bu, kartın imza kusuru** (*sağlanmayan
+> bir garantiyi ilan etmek*), bu kez **iki yerde birden**, ve düzeltilirken ölçümü de
+> yazıldı. Hafifletme (çare değil): `deploy.yml`'e *"Recover pods stuck on a stale
+> pull credential"* adımı — yalnız kubelet'in `ImagePullBackOff`/`ErrImagePull`
+> bildirdiği pod'ları yeniden yaratır, `Running` bir pod'a **asla** dokunmaz
+> (seçici negatif kontrolle ölçüldü: takılmış pod'u seçti, çalışanları seçmedi).
+> ⚠️ Brief'in *"taze kurulumda üretilebiliyor mu"* sorusunun cevabı: **sıralama zaten
+> doğru**, yani T43'ün *ordering* yarısı taze kurulumda yok; ama *kimlik doğrulaması*
+> yarısı **her yeniden başlatmada ve her rollback'te** var.
+>
+> **ÖLÇÜLEN VE DÜZELTİLEN ÜÇÜNCÜ BİR KUSUR — KENDİ İLK DÜZELTMEM BOZUKTU.**
+> initContainer'ın ilk hâli `pg_isready -h tappa-postgres` yazıyordu ve Job **120 sn
+> boyunca** `no attempt` ile düştü, oysa `getent hosts tappa-postgres` adresi
+> **düzgün çözüyordu**. Sebep ağ değil: pod uid **65532** ile koşuyor, o uid
+> `postgres:17-alpine`'ın `/etc/passwd`'ında **yok**, libpq varsayılan kullanıcı adını
+> türetemiyor ve **soketi hiç açmıyor**. `psql` açıkça söylüyor: `local user with ID
+> 65532 does not exist`. Çare `-U tappa_owner -d tappa` (kimlik doğrulaması değil,
+> yalnız startup paketi). Belirti runbook'a girdi.
+>
+> **TAZE KURULUM — ELLE MÜDAHALESİZ, ÖLÇÜLDÜ.** Boş namespace'ten, `deploy.yml`'in
+> adım sırası birebir taklit edilerek, **hiçbir `kubectl delete pod` ve hiçbir elle
+> netpol silme olmadan**: `rollout status` **14 sn** → migration Job **Complete
+> 21 sn** → sunucu Deployment **Ready 30 sn, `RESTARTS=0`**. Sayilar `apply`'dan
+> itibaren **kümülatif**, yani toplam **30 sn**.
+> Öncesi (aynı gün, düzeltmeden önce): migration **383 sn sonra Failed** (3 deneme,
+> 3 ret), sunucu `RESTARTS=1`.
+>
+> **SUNUCU POD'U İÇİN CEVAP — "BİLMİYORUM" DEĞİL.** *Çalışan* pod kesilmiyor:
+> kuraldan **önce** doğmuş bir pod yeni TCP bağlantılarını açmaya devam ediyor
+> (ölçüldü) ve kural canlıda uygulanmışken `/readyz` **200** verdi. *Taze* pod ise
+> yarışı **kaybediyor**: ilk konteyner dial'ı düşürüp çıkıyor (gerçek satır
+> `msg=fatal err="db: ping: … connection refused"` — *"db: ping failed"* diye bir
+> dize ağaçta **yok**, bu yorumun ilk hâli onu uydurmuştu), aynı adreste
+> **yerinde** yeniden başlıyor ve bağlanıyor — `RESTARTS=1`, `rollout status`
+> başarılı, `maxUnavailable: 0` sayesinde eski pod boyunca servis veriyor. Yani
+> **kesinti değil, yanlış belirti**. `20-app.yaml`'a da aynı initContainer eklendi;
+> gerekçesi kesinti değil, 04:00'te bir operatörün *"veritabanına ulaşamıyorum"*
+> satırını görmezden gelmeyi öğrenmemesi. Sonuç: `RESTARTS=0`.
+>
+> **ÜÇÜNCÜ GÖZ RED VERDİ (2026-08-16); DÖRT BLOKLAYAN + YEDİ UCUZ KAPATILDI, VE
+> İKİSİ BU TURUN KENDİ İŞİNİ ÇÜRÜTTÜ.**
+> - **B1 — Markdown sıralı listeyi yeniden numaralıyor.** Yeni sınırı kaynakta 10 ile
+>   11'in arasına `13.` diye koymuştum; render `1..13` üretiyor, yani **kaynak 11 →
+>   render 12** kayması **beş çapraz atfı yanlış maddeye** düşürüyordu — 04:00'te
+>   `ImagePullBackOff` gören operatöre *"sınır 12'yi oku"* deniyor, render'da 12
+>   **owner DSN** maddesi. Düzeltme iki katmanlı: yeni maddeler **listenin sonuna**
+>   taşındı **ve** bütün atıflar numara yerine **köşeli parantezli anahtar adla**
+>   veriliyor (*"sınır **[GHCR çekme kimliği ömürlü]**"*).
+>   ⚠️ **Buraya *"yani bu sınıf bir daha doğamaz"* yazmıştım ve İKİ KEZ yanlışlandı**
+>   — 4. turda G2 (`README`'de hayatta kalan numaralı bir atıf), 6. turda U2 (kartın
+>   **kendi** içinde numaralı bir atıf, üstelik bu cümlenin birkaç satır ötesinde).
+>   Doğru olan dar cümle şu: dosya-içi ve dosyalar-arası atıflar **adla** verildiği
+>   sürece numara kayması onları bozamaz; *"bir daha doğamaz"* ise bir tahmindi.
+> - **B2 — çürüttüğüm garanti README'nin başka bir yerinde hâlâ ilan ediliyordu**
+>   (adım 3 tablosu, *"imaj düğümde önbellekli kalır → sonraki her yeniden başlatma
+>   kayda hiç gitmez"*). Aynı cümle. Tablo üç satıra bölündü ve iptal notu yanına
+>   kondu. **Kartın imza kusuru kapanmamış, YER DEĞİŞTİRMİŞTİ.**
+> - **B3** `20-app.yaml` var olmayan bir uyarıya atıf yapıyordu (*"README'nin
+>   rollback bölümü söylüyor"* — söylemiyordu). Uyarı artık `rollout undo`
+>   komutunun **yanında**.
+> - 🔴 **B4 — EN AĞIRI, VE BENİM KENDİ T42 BULGUMU GİZLİYORDU.** `pg_isready`
+>   **üç ayrı arızayı** aynı `no response`/exit 2 ile basıyor: kapalı port (RST),
+>   düşürülen paket, **ve çözülemeyen ad**. initContainer'ın hata dalı ile runbook
+>   bunu tek sebebe — NetworkPolicy'ye — bağlıyordu; oysa bu turda ölçtüğüm kusur
+>   **NXDOMAIN**'di, ve hata dalı **120 sn** sonra, yani tam da kalıcı bir DNS/Service
+>   arızasının en olası olduğu anda ateşliyor. Artık dal **adı kendisi çözüyor** ve
+>   ikisini ayırıyor. Kum havuzunda **her iki dal da gerçek script'le** ölçüldü:
+>   Service yokken → *"the NAME tappa-postgres DOES NOT RESOLVE … NOT the
+>   NetworkPolicy"* (exit 1) · ad çözülüp soket reddedilirken → *"the NAME RESOLVES
+>   to: 10.42.0.246 … so this is the socket, not DNS"* (exit 1). README'ye
+>   ayırt-etme tablosu ve yeni bir **5. olay bölümü** (DNS/Service) girdi.
+> - **U1** kurtarma seçicisi `initContainerStatuses`'ı taramıyordu — yani **bu turda
+>   eklediğim initContainer'ın** imaj arızasını kurtaramazdı. Ölçüldü: init'inde
+>   takılı bir pod'a karşı eski seçici **boş** döndü, yenisi `initstuck` seçti ve
+>   `Running`/`Completed` pod'lara dokunmadı.
+> - **U2** `postgres:17-alpine` digest'siz + `IfNotPresent` = reponun kendi adını
+>   koyduğu kusur bileşimi. Digest ölçüldü (`sha256:18cfe3ef5e6815…`) ama pinlemek
+>   **reddedildi** (aynı dizinde iki yazım; `10-postgres.yaml` etiketi
+>   `docker-compose.yml` ile bilinçli paylaşıyor) — **sayılmış sınır** olarak yazıldı,
+>   Docker Hub anonim bütçesi ölçümüyle birlikte (`x-ratelimit-limit: 100;w=3600`).
+> - **U3** çürütülen cümlenin dördüncü örneği (`30-migrate-job.yaml`, *"registry round
+>   trip"*) süpürüldü. **U4** alıntıladığım log satırı **kodda yoktu** (`db: ping
+>   failed` → `grep` sıfır); gerçek satır `msg=fatal err="db: ping: …"`, düzeltildi ve
+>   uydurulduğu yazıldı. **U5** üç bayat sayı: kümülatif tablo ile metin çelişiyordu
+>   (metin **31** diyordu, tablonun son satırı **30**) — tablo iki koşu olarak
+>   yeniden yazıldı ve metin **~30-35 sn**'ye çevrildi; *"31 namespace"* →
+>   canlı sayı yazmak yerine **şekil**, *"4 pod"* iddiası kaldırıldı. **U6** sınır
+>   **[`:8080` küme içinden açık]**'ın gerekçesi *"ölçemedik"*ten *"ölçtük,
+>   uygulanıyor"*a çevrildi ve **geriye kalan tek bilinmeyen** (kubelet'in `httpGet`
+>   probe kaynağı) **ölçülmedi diye açıkça yazıldı**. **U7** C1'in
+>   *"doğrulanamıyor"* cümlesi bu blokta **adıyla** iptal edildi ve ölçülmüş karar #2
+>   ile çelişki olmadığı ayrıca söylendi.
+>
+> **YENİDEN ÖLÇÜM (denetçinin doğrulayamadıkları, kum havuzu silinmişti).** Kum
+> havuzu yeniden kuruldu ve yine silindi. Taze kurulum **ikinci kez**: 17 sn →
+> 25 sn → **33 sn, `RESTARTS=0`**. İlk koşu 14/21/30'du, yani README artık **tek sayı
+> değil iki koşu** yazıyor. NetworkPolicy'nin negatif kontrolü de tazelendi: izin
+> verilmeyen etiketli pod **120 sn boyunca** reddedildi, aynı anda migration Job'ı
+> ~1 sn'de bağlandı.
+>
+> **🔴 [FAZ C · 2026-08-16] 4. TUR — GENEL ÜÇÜNCÜ GÖZ ONAY, AMA `tappa-security-auditor` RED: EKLEDİĞİM
+> KURTARMA ADIMI HER SAĞLIKLI DEPLOY'U ÖLDÜRÜYORDU.** Genel gözün merceği görmedi;
+> iki denetçinin ayrı koşmasının bedelini bu tur ödedi.
+>
+> **MEKANİZMA, VERBATİM GÖVDEYLE ÖLÇÜLDÜ.** Adım `kubectl … | tr | grep -v '^$' |
+> sort -u | tr` yazıyordu. **Sağlıklı** bir kümede seçici hiçbir şeyle eşleşmez,
+> kubectl **sıfır bayt** yazar, `grep` hiçbir satır seçmediği için **exit 1** verir —
+> bu grep'in doğru davranışıdır, hata değil. `set -o pipefail` onu boru hattının
+> durumu yapar, atama devralır, `set -e` adımı öldürür. Adımın gövdesi workflow'dan
+> **birebir çıkarılıp** GitHub Actions'ın koştuğu gibi (`bash -e`; dosyada `shell:`
+> override **yok**) koşuldu: **STEP-EXIT=1, sıfır çıktı**. `if [ -z "$stuck" ]` dalına
+> hiç ulaşılmıyordu, *"no pod is stuck pulling"* satırı **basılamazdı**.
+> ⚠️ **Neden benim kendi doğrulamam kaçırdı:** yalnız **dolu** girdiyi test etmiştim
+> (`initstuck` seçiliyor mu). Dolu yolda adım exit 0 veriyor — ölçüldü, eski gövde de
+> geçiyor. Test edilmemiş olan **boş yoldu**, yani normal durum.
+> 🔴 **Ve sırası bunu yıkıcı yapıyordu:** adım, `secret/ghcr`'ın **yeni bir token'la
+> ezildiği** adımdan sonra, manifestleri uygulayan her şeyden **önce**. Yani her
+> sağlıklı deploy: imajlar push → Secret ezilir → adım kırmızı → **hiçbir şey apply
+> edilmez**. Kendi KEP-2535 ölçümüme göre bu, canlı pod'u *"yeniden başlarsa geri
+> gelmez"* durumuna sokan şeyin ta kendisi — yani adım **hiçbir şey teslim etmeden**
+> her denemede ürünün restart-dayanıklılığını düşürüyordu, ve FAZ C kümeye **asla**
+> inemiyordu.
+> **Düzeltme `|| true` DEĞİL:** o, gerçek bir grep arızasını da aynı sessizlikle
+> yutardı. `grep` **tamamen kaldırıldı** — go-template artık satır başına bir ad
+> basıyor (`{{"\n"}}`), boru hattı `sort -u | tr` oldu; ikisi de boş girdide **exit 0**.
+> Ölçüldü, iki yol: boş → *"no pod is stuck pulling"*, **STEP-EXIT=0** · dolu (biri
+> init'inde, biri ana konteynerinde takılı iki pod) → ikisini de seçti, **exit 0**.
+> **Aynı sınıf taraması:** `deploy.yml`'deki her `run:` bloğu tarandı; kalan iki
+> `grep|jq|awk|sed` boru hattı (`sed … | kubectl apply`) **aynı sınıf değil** —
+> izlenen dosya daima var ve daima çıktı üretiyor (taşıyıcı özellik: **boş değil**,
+> exit 0, ikame **1/1 eşleşiyor**). ⚠️ Buraya ilk yazdığım *"14408 / 20930 bayt"*
+> **yeniden üretilemedi** — aynı komut bugün **14818 / 21340** veriyor, çünkü o
+> dosyalar bu tur boyunca büyümeye devam etti. Bayat bir mutlak sayı, ölçümü
+> doğrulamak isteyen bir sonraki okuru yanıltır; sayı kaldırıldı, ölçüt bırakıldı.
+>
+> **S1 — README'nin *"önce bunu koştur"* komutu ÜÇ ayrı yerden düşüyormuş, denetçi
+> birini ölçmüştü, ben üçünü de ölçtüm.** `kubectl debug` bu namespace'te
+> kullanılamaz: varsayılan profil → **`Forbidden … violates PodSecurity
+> "restricted:latest"`** · `--profile=restricted` API'den geçiyor ama konteyner
+> **açılmıyor** (`CreateContainerConfigError: container has runAsNonRoot and image
+> will run as root` — `postgres:17-alpine` root çalışır, profil `runAsUser` yazmaz) ·
+> ve teşhis edilecek pod tipik olarak **terminal fazda** (`Failed`), orada ephemeral
+> konteyner **hiç koşmuyor** (`ephemeralContainerStatuses` **boş** kaldı; Running
+> pod'da dolu). Komut kaldırıldı; yerine (a) initContainer'ın kendi logu — ayrımı
+> zaten o yapıyor — ve (b) uyumlu bir `kubectl run` tek-atışlığı, **iki yönde de
+> ölçülmüş** (Service yokken `NXDOMAIN`, varken adres).
+>
+> **S2 — bu turun eklediği teşhis dalı CI logunda GÖRÜNMÜYORDU.** `kubectl logs
+> job/tappa-migrate` init container'ı **asla** seçmez, ve yeni başarısızlık modunda
+> `goose` konteyneri **hiç yaratılmamış** olur → `PodInitializing` BadRequest →
+> satır sonundaki `|| true` onu yutar. Üç çağrı da konteyneri **adıyla** isteyen tek
+> bir `migrate_logs()` yardımcısına çevrildi; *"Report what is running"* adımı da
+> `-c tappa` **ve** `-c wait-for-postgres` okuyor.
+>
+> **S3 — sınır [GHCR çekme kimliği ömürlü]'nün durumu ölçülemiyordu, ve ürün ŞU AN
+> o durumda.** `/healthz`+`/readyz` *"ayakta mıyım"* der, *"ayağa kalkabilir miyim"*
+> demez. Ölçen komut runbook'a girdi (Secret'ın **değerine dokunmadan**, yalnız
+> `managedFields[].time` ile pod `startTime`): canlı sonuç **`AT RISK`** — pod
+> `2026-08-15T22:20:44Z`, Secret `2026-08-16T08:38:41Z`.
+> ⚠️ **Ve bu kontrolün İLK yazımı yanlıştı ve tam ters cevabı verdi:** `[ "$a" \> "$b" ]`
+> zsh'de `condition expected: >` ile düştü, else dalına düşüp `AT RISK` olan kümeye
+> **`ok`** dedi. `sort` tabanlı, `sh` ve `bash` altında ayrı ayrı **ve ters kontrolüyle**
+> doğrulanmış hâliyle değiştirildi. Aynı sınıf: *"yeşil raporlayan bozuk kapı"*.
+>
+> **S4** `verify-deployment.sh`'in *"bu noktada bir ağ bağlantısı YALNIZCA sunucu
+> olabilir"* gerekçesi bu turda bayatladı (initContainer da 5432'ye TCP açıp startup
+> paketinde `tappa_owner` taşıyor). **Bugün yanlış ateşlemiyor** ve sebebi zamanlama:
+> initContainer ana konteyner doğmadan biter, kapı `rollout status` sonrası koşar,
+> `pg_stat_activity` yalnız **canlı** backend listeler. Cümle daraltıldı ve neyin
+> bozacağı yazıldı. **S5** migration arızasının bildirilme süresi ~37 sn'den ~390 sn'ye
+> çıktı (3 × 120 + backoff); 600 sn deadline yetiyor ama pay ~565→~210 sn — sınır **[migration arızası artık ~10× geç bildiriliyor]**
+> olarak sayıldı (o madde 5. turda bir numara kaydı — atıf **numarayla değil adla**
+> verildiği sürece kaymanın önemi yok, ve numarayla verildiği için bir kez kaydı). **S6** sınır **[`postgres:17-alpine` hareketli etiket]** artık denetçinin doğruladığı ölçümü taşıyor (kubelet
+> imaj GC'si **kullanımdaki** imajı geri alamaz).
+>
+> **Genel gözün 11 metin bulgusu da kapatıldı.** Öne çıkanlar: **G1** sınır **[`make audit` yerelde kırmızı]**
+> *"CI'nin Go'su 1.26.5"* diyordu — `ci.yml:91` **`1.26.6`**, yani kapanmış bir açık
+> açık sanılıyordu; madde düzeltildi (kırmızı olan yalnız geliştiricinin yerel Go'su).
+> **G2** B1'in *"bu sınıf bir daha doğamaz"* iddiası yanlıştı: numaralı bir atıf
+> (*"Sınır 12"*) hayatta kalmıştı, 13 satır altında doğru biçim kullanılırken —
+> düzeltildi. **G3** sınır **[`postgres:17-alpine` hareketli etiket]**'in (c) gerekçesi yanlış soruyu cevaplıyordu (digest
+> pinleme oran limiti için değil **içerik kimliği** için yapılır) **ve** (a)'nın
+> *"iki yazım doğar"* kısmı yalnız benim değerlendirdiğim varyant için doğruydu:
+> ölçüldü, `grep 'image:'` **üçünü de** `postgres:17-alpine`'da buluyor, yani üçünü
+> birden pinlemek **tek yazım** bırakırdı. Taşıyıcı gerekçe (blast radius bir sağlık
+> sondası) öne alındı, digest **açık sertleştirme** olarak duruyor. **G4** ayırt
+> edici adresi basıyordu ama *"pod'un kendi adresiyle karşılaştır"* demiyordu (bayat
+> EndpointSlice / CoreDNS 30 sn önbelleği bir DNS arızasını *"soket"* diye
+> etiketletirdi) — her iki manifeste ve README'ye eklendi. **G5** *"Migration Job'ı ve
+> sunucu bugün taşıyor"* **kümede yanlıştı** (canlı şablonlarda `initContainers` yok);
+> cümle bir **ölçüm komutuyla** değiştirildi. **G7** dosyanın *"kümedeki tek iki
+> NetworkPolicy"* cümlesi kendi kuralı listeye girince yanlışlandı (bugün **üç**).
+> **G8** kartın *"toplam 31→30"* özeti ağaçtaki hiçbir değişikliğe karşılık gelmiyordu.
+> **G6/G9** kozmetik ve *"tek bilinmeyen"* aşırı iddiası.
+> ✅ Genel gözün **zamanlama saldırısı tutmadı** ve denetçi bunu kendisi söyledi:
+> hata dalı 120 sn'de ateşliyor, T42'nin penceresi ~3 sn, o senaryoda dal hiç çalışmaz.
+>
+> **YENİDEN ÖLÇÜM.** Kum havuzu yeniden kuruldu ve yine silindi. Taze kurulum
+> **üçüncü kez**: 17 → 26 → **33 sn, `RESTARTS=0`**. Her iki initContainer script'i
+> `sh -n` temiz ve **hâlâ birebir aynı** (yalnız son kelime farklı). Her iki hata dalı
+> düzenlemeden **sonra** yeniden koşuldu ve doğru dalı bastı.
+>
+> **🔴 [FAZ C · 2026-08-16] 5. TUR — YENİ ÜÇÜNCÜ GÖZ RED. AYNI KUSUR SINIFININ ÜÇÜNCÜ TEKRARI, VE BU KEZ
+> O SINIFI KAPATMAK İÇİN YAZDIĞIM KONTROLÜN İÇİNDE.**
+> Sıra şu: (1) kurtarma adımı yalnız **dolu** yolda test edildi, **boş** yol normal
+> olandı → KRİTİK. (2) S3'ün v1'i at-risk kümede `ok` diyordu (`zsh` karşılaştırması).
+> (3) S3'ün **v2'si dejenere girdide** `ok` diyor. **Üçünün şekli aynı: ölçülmeyen
+> yol, gerçekte en olası olan yol.**
+>
+> **B1 — S3 v2, `secret/ghcr` HİÇ YOKKEN `ok` basıyordu.** Denetçi birebir koşturdu:
+> `sec_t=""` → `newest`=`pod_t` → eşitlik testi false → `|| echo 'ok'`. Üç kabukta da
+> aynı. **Ve bu, `AT RISK`'ten daha kötü bir durumu yeşil gösteriyordu:** Secret hiç
+> yoksa pod yeniden çekemez, ezilmiş bir token bile yoktur. İki ek zayıflık da
+> doğrulandı: **hassasiyet farkı cevabı ters çeviriyordu** (`…44Z` vs `…44.500Z` →
+> `.` < `Z` → `ok`, yanlış) ve **`managedFields[-1:]` "en yeni" değil**, apiserver o
+> diziyi önce Operation'a göre sıralıyor (bugün iki giriş de `Update` olduğu için
+> doğru satırı okuyordu — *doğru çıkmak* ile *doğru olmak* aynı şey değil).
+> **Çare README parçacığı değil, bir kapı:** `scripts/verify-deployment.sh
+> pull-credential`, **tasarım gereği fail-closed** — okunamayan her girdi `UNKNOWN`
+> (exit 2), ve `ok` yalnız iki damga da sabit biçime ayrıştırıldıktan sonra basılıyor.
+> `managedFields`'ın **tümü** taranıp en yenisi seçiliyor; karşılaştırma
+> `YYYYMMDDHHMMSS`'e indirgeniyor, yani hassasiyet farkı cevabı çeviremiyor.
+> **On beş vaka gerçek script'e karşı koşuldu** (kubectl stub'ı ile): Secret yok ·
+> `managedFields` yok · yalnız boş satır · pod yok · pod listesi boşluk · kubectl
+> düşüyor · `startTime` boş · **her iki taraf da okunamıyor** → **sekizi de exit 2**,
+> hiçbiri `ok` değil; Secret yeni/eski/eşit · karışık hassasiyet **iki yönde** ·
+> `managedFields` ters sırada · iki pod'dan biri riskli → yedisi de doğru.
+> Canlı: **`AT RISK`, exit 1**. Sayılmış kalıntı: **aynı saniye** içindeki fark `ok`
+> sayılıyor (k8s damgaları zaten saniye hassasiyetinde, ölçüldü).
+>
+> **B2 — canlı bir deploy kapısı, sorgusu patladığında YEŞİL geçiyordu.**
+> `psql`, `-v ON_ERROR_STOP=1` olmadan stdin'den okurken SQL hatasında **exit 0**
+> veriyor. Gerçek PostgreSQL **17.10**'a karşı ölçüldü — bozuk sorgu: bayrak yokken
+> **exit 0**, bayrakla **exit 3**; sağlıklı sorgu ikisinde de **exit 0**. Yani
+> `pg_stat_activity`'nin şeması ya da izni değişseydi kapı **hiçbir şey
+> karşılaştırmadan** *"her ağ bağlantısı tappa_app"* diyecekti. Bayrak eklendi **ve
+> başarısızlık açıkça yakalanıyor** (`set -e`'ye bırakılmadı): uçtan uca ölçüldü —
+> sağlıklı şema → all-clear + exit 0 · sorguyu kasten bozunca → *"NOTHING was
+> checked. This is not a pass."* + **exit 2**, ve all-clear satırı **basılmıyor**.
+> Bu, dosyanın **kendi başlığının** tarif ettiği kusurun üçüncü örneğiydi.
+>
+> **D1** kurtarma adımının `kubectl` düşünce deploy'u durdurması **doğru varsayılan**
+> ama sayılmamıştı → sınır **[kurtarma adımı kubectl'e bağlı ve FAIL-CLOSED]**. **D2** kartın *"14408 / 20930 bayt"* ölçümü
+> **yeniden üretilemiyor** (bugün 14818 / 21340; dosyalar tur boyunca büyüdü) — bayat
+> mutlak sayı kaldırıldı, taşıyıcı ölçüt bırakıldı. **D3** *"`tappa.everva.com.tr`
+> bugün zaten Cloudflare üzerinden cevap veriyor"* artık **yanlış**: `dig` →
+> `144.76.158.60`, kapı → **exit 0 "not proxied"**; joker **hâlâ** proxy'li, yani
+> uyarının özü ayakta, düzeltilen yalnız bu host hakkındaki şimdiki zaman.
+> **D4** Cloudflare kapısının başarı özeti `^(HTTP|…):` arıyordu ama durum satırı
+> `HTTP/2 200` — iki nokta yok, yani **hiçbir zaman basılmıyordu**; `^HTTP/` oldu ve
+> canlıda artık görünüyor. **D5** `dnscheck` için temizleme komutu eklendi (`--rm`
+> yalnız kubectl bağlıyken siler, komut ise Ctrl-C ihtimali yüksek bir olayda
+> koşulur). **D6** README tablosu elimdeki **üç** koşunun **ikisini** gösteriyordu;
+> üçü de yazıldı.
+>
+> **🔴 [FAZ C · 2026-08-16] 6. TUR — YENİ ÜÇÜNCÜ GÖZ RED. AYNI SINIFIN DÖRDÜNCÜ ÖRNEĞİ, AYNI KONTROLÜN
+> ÜÇÜNCÜ SÜRÜMÜNDE — VE KAPATMAYI BIRAKIP SAYMAYA GEÇTİM.**
+>
+> **BULGU.** `check_pull_credential`'ın Secret tarafı, ayrıştıramadığı bir
+> `managedFields` girdisini **sessizce atlıyordu** (`continue`), oysa pod tarafı aynı
+> girdi sınıfında `return 2` veriyordu. En yeni girdi okunamazsa **eski bir damga
+> kazanıyor** ve at-risk küme `ok` çıkıyordu. Yeniden ürettim:
+> `SEC_OUT=$'2026-08-14T00:00:00Z\\n\\n'` → **`ok … EXIT=0`**. İkinci kanal: `_norm`
+> ilk 14 rakama kestiği için **saat dilimi ofsetini UTC sanıyordu** — pod
+> `2026-08-16T09:00:00+02:00` (= 07:00Z) vs secret `08:38:41Z` → gerçek cevap
+> **AT RISK**, script **`ok`**. 🔴 **Ve bunların ikisi de, bir önceki turda kendi
+> yazdığım *"fail-closed by construction — okuyamadığı HER girdi için UNKNOWN"*
+> cümlesini, o cümlenin KIRK SATIR AŞAĞISINDA çürütüyordu.**
+>
+> **KARAR: 3. YOL — HÜKÜM KALDIRILDI, KANIT KALDI.** Gerekçe brief'in ikinci durma
+> kuralı: *"Bir noktadan sonra her koruma bir sonraki turda yeniliyorsa: kapatmayı
+> bırak, dürüstçe LİMİT olarak yaz. Sayılmış bir açık, kapatıldığı İDDİA EDİLEN bir
+> açıktan güvenlidir."* Aynı korumanın **üç kez** yenilenmesi o noktanın ötesidir.
+> Elenen iki yol ve nedenleri: **(1) yapısal kapatma** — bunu bir önceki turda
+> **yazdım** ve çürüdü; aynı iddiayı dördüncü kez üretmek, kanıtı değil özgüveni
+> tekrarlamak olurdu. **(2) daraltma** — iddiayı gerçeğe indirmek doğru olurdu ama
+> tehlikeli olan şey damgalar değil **`ok` kelimesi**: yanlış bir hüküm operatörü
+> *aramayı bırakmaya* ikna eder, ve daraltılmış bir hüküm de hâlâ bir hükümdür.
+> **Seçilen (3):** komut iki damga kümesini tek biçimde basıyor, kuralı yazıyor,
+> karşılaştırmayı **operatöre bırakıyor**. Çıkış kodu yalnız *okuyabildim mi* der
+> (`0` = kanıt basıldı, **güvendesin demek değil**; `2` = okunamadı, **hiç kanıt
+> basılmadı**). Komut zaten `deploy.yml`'e bağlı değil (19 adımın hiçbiri çağırmıyor),
+> yani kaybedilen bir kapı yok.
+>
+> **VE BU SÜRÜMÜN DOĞRULUK İDDİASI TARTIŞMAYLA DEĞİL SAYIMLA VERİLİYOR** — önceki üç
+> sürümün her biri iddiasını akıl yürütmeyle kurmuştu ve her biri kaybetti:
+> fonksiyonda `ok`/`AT RISK`/`safe` geçişi **0** · dokuz `return`'ün **dokuzu da**
+> `return 2` · iki damga arasında karşılaştırma **yok** (tek `-gt`, `managedFields`
+> **girdi sayısı** kontrolü). Bunlar `grep -c` ile doğrulanabilir, savunulması
+> gereken cümleler değil.
+> **On altı vaka gerçek script'e karşı koşuldu:** v3'ü düşüren iki kanal · Secret yok ·
+> `managedFields` boş · girdi/satır sayısı uyuşmuyor · pod yok · yalnız boşluk ·
+> `kubectl` düşüyor · zaman aşımı `rc=124` · `startTime` boş · pod adı boş · iki
+> haneli yıl · `Z` taşımayan damga · üç pod'un ortası okunamaz → **on dördü de
+> exit 2 ve hiçbiri kanıt basmadı**; iki okunabilir girdi kanıt bastı. Ayrıştırma
+> artık normalleştirme değil **kabul/ret**: `Z` ile bitmeyen hiçbir damga geçmiyor,
+> yani ofset kanalı bir daha *sessizce yanlış* olamaz — reddediliyor.
+>
+> **U1** README *"İki ayrı taze koşu"* diyordu, tablo **üç** sütun taşıyordu (5. turun
+> D6'sı sütunu ekleyip cümleyi bırakmıştı) — 4. turun U5'inin **aynı bölümde** yeniden
+> doğuşu; düzeltildi. **U2** kartın kendi içinde numaralı bir sınır atıfı kalmıştı
+> (*"sınır 15"*, bugün 16) ve dördü daha bulundu; hepsi **anahtar adla** verildi.
+> 🔴 **Ve *"yani bu sınıf bir daha doğamaz"* cümlesi geri çekildi** — iki kez
+> yanlışlandı (4. turda G2, 6. turda U2), yani bir ölçüm değil bir tahmindi. Yerine
+> dar ve doğru olan yazıldı: adla verilen atıflar numara kaymasından etkilenmez.
+> Mekanik kontrol eklendi: dokuz anahtarın tamamı var olan maddeye düşüyor, **sıfır
+> sarkan atıf** — bu tarama iki gerçek kusur buldu (`deploy.yml`'de satır sarması
+> yüzünden **ikiye bölünmüş** bir anahtar, ve script'te **harf çevrilmiş** bir
+> anahtar), ikisi de düzeltildi. **U3** `all` modu `pull-credential` koşmuyordu ve
+> hata mesajı onu listelemiyordu: mesaj düzeltildi, `all`'a **eklenmedi** — `all`
+> kapıları koşar, bu bir kapı değil, ve *"hepsi koştu"* anlamına gelen bir ada
+> vermediği güvenceyi vaat ettirmek bu kartın imza kusurudur.
+>
+> **🔴 [FAZ C · 2026-08-16] 7. TUR — SINIFIN BEŞİNCİ ÖRNEĞİ: HÜKÜM KODDAN KALKTI,
+> RUNBOOK'TA YAŞIYORDU.** Denetçi kod tarafını bağımsız olarak yeniden ölçüp
+> kapandığını doğruladı (kendi `grep`'i, kendi fonksiyon sınırı, kendi 10 vakası:
+> 8'i exit 2 ve hiç kanıt basmadan). **Tek bloklayan metindi ve ağırdı.**
+>
+> `README`'nin sınır **[kurtarma adımı kubectl'e bağlı ve FAIL-CLOSED]** maddesi
+> operatöre *"`pull-credential` koş; **`AT RISK` diyorsa** çare yeni bir deploy"*
+> diyordu. O çıktı bu turda **kaldırıldı** — ve **aynı dosya** kırk satır yukarıda
+> *"`ok`/`AT RISK`/`safe` geçişi: 0"* diye kendi ölçümünü yazıyordu. Yani README
+> kendi içinde çelişiyordu, ve **bekleme kelimesi hiç gelmeyeceği için** operatör
+> *"demek ki sorun yok"* deyip kümeyi at-risk hâlde bırakabilirdi — üstelik sınır 
+> **[kurtarma adımı …]**'nın tarif ettiği *"yeni token, eski iş yükü"* anında, yani
+> komutun **en çok işe yaradığı** anda.
+>
+> 🔴 **VE ÖNEMLİ OLAN ŞU: bu turda yazdığım mekanik tarama bunu YAKALAYAMAZDI.**
+> Tarayıcı *köşeli parantezli anahtar atıflarını* sayıyordu, **hüküm sözcüklerini**
+> değil — yani tarayıcıyı **bir önceki kusurun şekline** göre yazmıştım, o turun
+> **ürettiği** şekle göre değil. Sınıfın beş tur boyunca hayatta kalma mekanizması
+> tam olarak bu. Doğru tarama (`grep -rn 'AT RISK\|AT-RISK'`, operatörün okuduğu
+> **her** dosyada) koşuldu: `README:298` ölçümün kendisi ✔ · `verify-deployment.sh`
+> ve kartta tarih anlatımı ✔ · `deploy.yml` ve manifestlerde **0** ✔ · tek talimat
+> `README:639`'daydı ve **kaldırıldı**. Sayım da README'ye taşındı — sayılan bir
+> açığın güvenli olması, sayımın **operatörün okuduğu yerde** durmasına bağlı.
+>
+> **C1 — `all` modu ilk kapı düşünce ikinciyi hiç koşmuyordu.** `set -e` altında
+> `check_cloudflare …; check_db_role …`. Ölçüldü: proxy'li host sahtelenince
+> `db-role` **hiç çalışmadı**. Fail-open değil (koşu kırmızı) ama *"hepsi"* adı
+> sağlamadığı bir bütünlük vaat ediyordu. İkisi de koşuyor, sonuçlar toplanıyor,
+> özet satırı basılıyor; çıkış kodu **ihlal (1) > okunamadı (2) > temiz (0)**.
+> Dördü de ölçüldü: `VIOLATION+pass→1` · `pass+pass→0` · `pass+UNCHECKED→2` ·
+> `VIOLATION+UNCHECKED→1`. ⚠️ İlk yazımım bozuktu — `"$( )"` içine gömülü `case`
+> çevreleyen `case`'i bozdu ve özet satırı **kendi kaynak metnini** bastı; ölçüm
+> yakaladı, adlandırılmış bir yardımcıya çevrildi.
+> **C5** `db-role`'ün özet sorgusu düşerse mesajsız `exit 3` ile ölüyordu (fail-closed
+> ama açıklamasız); artık *"the offender query passed but the summary query did not
+> run, so this result is NOT trustworthy"* + **exit 2**. İki yol da ölçüldü.
+> **C2** *"kartın içindeki numaralı atıfların hepsi çevrildi"* iddiam eksikti — iki
+> tane daha vardı (`:509`, `:569`), ikisi de çevrildi; kalan dört geçiş **geri çekme
+> metninin kendisi**. **C3** emsal 1 sn kayıktı: canlı Job'dan okundu
+> (`startTime 08:38:54Z` → `Failed 08:39:32Z`) = **38 sn**, 37 değil.
+> **C4** defterde **iki blok aynı numarayı** taşıyordu (*"4. TUR"*) ve 3/4 sırasız
+> görünüyordu; her başlık artık **hangi yarıya ait olduğunu ve tarihini** taşıyor
+> (`[PAKETLEME yarısı · 2026-08-15]` / `[FAZ C · 2026-08-16]`), ve sıranın neden
+> böyle olduğu yazıldı — bu defteri sıfır hafızalı bir ajan okuyacak.
+>
+> **✅ [FAZ C · 2026-08-16] 8. TUR — `tappa-security-auditor` ONAY.** (2. turun
+> kritiğini bulan mercek.) Üç bulgu, üçü de tek satırlık, üçü de kapatıldı.
+>
+> **§4.7 (ORTA) — yakalanan stderr basılıyordu.** `kubectl`'in jsonpath yazıcısı bir
+> **şablon çalıştırma hatasında** şablonu değil **nesnenin tamamını** stderr'e döküyor.
+> Mekanizma zararsız bir ConfigMap üzerinde ölçüldü (Secret'a **dokunulmadan**):
+> `-o jsonpath='{.data[0]}'` → *"object given to jsonpath engine was: …
+> "ca.crt":"-----BEGIN CERT…"*. `secret/ghcr` için o içerik `.dockerconfigjson`, yani
+> **canlı çekme token'ı**, ve basıldığı an `deploy.yml`'in kendi koyduğu *"Report the
+> SHAPE and never the value"* kuralı delinirdi. **Ulaşılabilirlik kanıtlanamadı**
+> (gerçek bir Secret'ın `managedFields`'ı daima dizidir, yani dökümü tetikleyen tip
+> uyuşmazlığı bariz biçimde erişilebilir değil) — ama `README`'nin kalıcı çaresi
+> *"uzun ömürlü `read:packages` PAT"*, ve **o gün geldiğinde bu kanal iptal edilmiş
+> bir iş token'ı değil YAŞAYAN bir kimlik taşır**. Üç `kubectl` çağrısının **üçü de**
+> (denetçi ikisini işaretlemişti; üçüncüsü pod listesi, aynı kalıp, aynı muamele —
+> dosyada tek kural olsun diye) `2>/dev/null` + sabit metne çevrildi. Ölçüldü, sahte
+> bir token döken stub ile: **eski yazım 1 kez sızdırıyor, yeni yazım 0**; canlı yol
+> hâlâ çalışıyor ve çıktısında `dockerconfigjson` **0**. Taranan dördüncü yakalama
+> (`curl`) **değiştirilmedi ve gerekçesi yazıldı**: farklı araç, nesne dökümü değil
+> mesaj basıyor, ve bu turun eklediği bir satır değil.
+>
+> **§4.6 (DÜŞÜK) — `delete pod` bayrağı.** `get` ile `delete` arasında pod kaybolursa
+> NotFound → exit 1 → `set -e` → adım kırmızı; ve adım tam olarak 2. turun kritiğinin
+> durduğu yerde, `secret/ghcr` ezildikten **sonra**, hiçbir `apply`'dan **önce**. Yani
+> deploy **iyi huylu** bir sebeple kümeyi *"yeni token, eski iş yükü"* durumunda
+> bırakıyordu. Ölçüldü: bayraksız `Error from server (NotFound)` **exit 1**,
+> `--ignore-not-found` ile **exit 0**. Aynı dosya bu sınıfı 68 satır aşağıda zaten
+> tanıyordu. `README` sınırı da güncellendi: **`delete` yarısı kapatıldı**, `get`
+> yarısı sayılmış kalmaya devam ediyor (orada kırmızı olmak doğru).
+>
+> **§4.5 (DÜŞÜK) — uygulama pod'u artık `tappa_owner` adını ağa yazmıyor.** Kriter
+> ihlal edilmiyordu (kimlik doğrulaması yok, DSN yok, parola yok) ama iki bedeli
+> vardı ve ikincisi ağırdı: `verify-deployment.sh`'in `db-role` kapısı
+> `usename='tappa_owner' AND client_addr NOT NULL` üzerine kurulu ve mesajı *"tenant
+> isolation is void"* diyor — yani **ürünün kendi sağlık sondası**, §4.5'i bekleyen
+> tek kapıya bir yanlış alarm kanalı açıyordu. Rol adı yalnız bir dize olduğu için
+> `-U tappa_app` bedava aynı işi görüyor. **Ölçüldü** (docker, `tappa_app` rolü o
+> veritabanında **hiç yokken**): `-U tappa_app` → **`accepting connections`, exit 0** ·
+> `-U tappa_owner` → aynı · **`-U` hiç yokken, uid 65532** → `no attempt`, **exit 3**
+> (yani bayrağın kendisi hâlâ zorunlu) · ve hiçbir sonda arkasında **backend
+> bırakmıyor**. `30-migrate-job.yaml` **`tappa_owner` ile kaldı** — o pod gerçekten o
+> rol. İki script bunun dışında hâlâ birebir aynı.
+>
+> **VE DENETÇİ KARTIN AÇIK BİR BULGUSUNU DARALTTI — buraya yazılıyor.** Kartın
+> *"`redline-check.sh`'in `SRC` listesi `deploy/`'u görmüyor"* maddesi bu turda
+> **yanlış yeri** işaret ediyor: bu turun tek gerçek §4.7 kanalı **zaten taranan**
+> bir yolda (`scripts/`) duruyordu ve tarayıcı **yine de göremezdi**, çünkü R7 deseni
+> Go'ya özgü (`(slog|log|fmt)\\.[A-Za-z]+\\(`) ve bir kabuğun
+> `echo "$captured_stderr"` şeklini **hiç tanımıyor**. **Eksik olan dizin değil,
+> desen şekli** — **ve bu cümle YALNIZ R7 İÇİN geçerlidir, kapsamı burada yazılıyor.**
+> Ölçüldü: `deploy/`'a R7 deseninin eşleşmesi **0**, yani bu turun kanalı `SRC`
+> genişletilse de görünmezdi. **Ama `SRC`'ye `deploy/` eklemek "hiçbir şey bulmaz"
+> DEĞİLDİR:** R5'in `DATABASE_MIGRATE_URL` deseni `deploy/` + `Dockerfile`'da **11**,
+> N1'in Node deseni **1** eşleşme veriyor — yani bu kartın **700 satır yukarıdaki**
+> *"naif bir genişletme 12 yanlış pozitif üretiyor"* ölçümünün **aynısı**, ve o
+> ölçüm hâlâ geçerli. İki cümle çelişmesin diye: R7 için genişletme yetmez (desen
+> Go'ya özgü ve bir kabuğun `echo "$captured_stderr"` şeklini tanımıyor); R5/N1 için
+> genişletme **erken**, çünkü önce o 12 yanlış pozitifin ne anlama geldiğine karar
+> verilmeli. Orkestratöre devredilen madde bu iki cümleyle birlikte okunmalı.
+>
+> **🔴 8. TURUN İKİ KENDİ HATASI — DEFTERE, SOHBETE DEĞİL.** Kartın kendi emsali
+> (*"SÜREÇ İHLALİ, KÖK NEDENİYLE"* ve 4. turun `B4`'ü) bunları kaydediyor; bu tur da
+> kaydetmeli, yoksa defter yalnız başarıyı taşır.
+> **(a) SALT-OKUMA SINIRI AŞILDI.** `--ignore-not-found`'un davranışını ölçmek için
+> `ns/tappa`'ya **iki kez `kubectl delete pod`** koşturdum. Ad kasten var olmayan bir
+> addı (`definitely-not-a-real-pod-9x7q`), yani **hiçbir şey mutasyona uğramadı** —
+> orkestratör kümeyi doğruladı (5 pod, 1 netpol, canlı 200/200, zarar yok) — ama
+> `delete` fiili o namespace için **yasaktı** ve ölçüm bir kum havuzunda yapılmalıydı.
+> Kural, sonucun iyi çıkmasıyla değil, fiilin kendisiyle ilgilidir.
+> **(b) BİR DOĞRULAMA GEÇERSİZDİ VE ÖNCE FARK EDİLMEDİ.** İlk `-U tappa_app` ölçümümde
+> konteyner IP'sini `{{.NetworkSettings.IPAddress}}` ile aradım, boş döndü, ve **iki
+> sonda da boş bir host'a** gitti: ikisi de `no response`/exit 2 verdi, yani *"her iki
+> rol de çalışmıyor"* gibi görünen simetrik ve **anlamsız** bir sonuç. Simetri beni
+> uyardı; olmasaydı bu, ölçmediğim bir şeyi ölçtüm sanacağım bir sonuçtu. Ayrı bir
+> docker ağıyla yeniden koşuldu. **Ders 4. turun B4'ünün aynısı: bir ölçümün ÇIKTI
+> ÜRETMESİ, doğru şeyi ölçtüğü anlamına gelmez.**
+>
+> **✅ [FAZ C · 2026-08-16] 9. TUR — SON. Üçüncü göz ONAY, güvenlik denetçisi ONAY,
+> birinci durma kuralı karşılandı** (art arda iki tur davranış kusuru yok; denetçi
+> §4.7 sınıfının **altıncı örneğini kodda aradı ve bulamadı**, ve en olası adayı —
+> `deploy.yml`'in `secret/ghcr` üzerindeki yönlendirilmemiş `go-template` çağrıları —
+> **ölçümle eledi**: go-template yazıcısı nesne dökmüyor). Altı metin/kabuk maddesi:
+> **B1** bu turda eklediğim teşhis komutu **yazıldığı gibi çalışmıyordu** —
+> `get svc tappa-postgres endpointslice` her iki adı da `svc` kaynağında arıyor →
+> `services "endpointslice" not found`, **exit 1**, yani bölüm 5'in *"EndpointSlice
+> boş"* teşhisi hiç yapılamıyordu **ve hata aranan arızanın kendisi gibi
+> okunabiliyordu** — üstelik bölümün başında *"her satır fiilen ölçüldü"* yazıyor.
+> İki ayrı çağrıya bölündü (ölçüldü: ikisi de exit 0).
+> **B2** `all` modu **ölçemediği kapıyı `pass` diye etiketliyordu**: ad çözülmediğinde
+> cloudflare *"Nothing about Cloudflare could be checked"* deyip 0 dönüyor, `all` de
+> `cloudflare=pass`, **exit 0** basıyordu — kendi yorumu *"2 if any gate could not
+> CHECK"* derken. Aynanın öteki yüzü: curl zaman aşımı (rc=28) → `VIOLATION`, oysa o
+> da ölçememe. Artık kelime **`CF_OUTCOME`**'dan geliyor, çıkış kodundan değil; altı
+> kombinasyon ölçüldü (`pass/pass→0` · `VIOLATION/pass→1` · `UNCHECKED/pass→2` ·
+> `timeout→UNCHECKED/2` · `pass/UNCHECKED→2` · `UNCHECKED/UNCHECKED→2`) ve
+> **`cloudflare` modunun kendi sözleşmesi değişmedi** (0/1/0/1 — `deploy.yml` ona
+> bağlı, özellikle *"ad çözülmüyor → 0"* ilk deploy için).
+> **U3** `-c wait-for-postgres` komutları bugünkü kümede `container … is not valid
+> for pod … out of: goose` veriyor (FAZ C henüz inmedi); uyarı 50 satır ötedeydi ve
+> bölüm 4'te hiç yoktu — **her iki komut bloğunun yanına** taşındı.
+> **U4** `README:95`'in doğrulama komutu sağlıklı durumda **sıfır çıktı + exit 1**
+> veriyordu (origin `server` başlığı göndermiyor, durum satırında `HTTP` sonrası iki
+> nokta yok) — `^HTTP/` biçimine hizalandı, ölçüldü: `HTTP/2 200`, exit 0.
+> **U1** kart kendi ölçümüyle çelişiyordu ve **cümle R7'ye daraltıldı** (yukarıda).
+> **U2** bu iki kendi hatam yukarıya yazıldı.
+> ⚠️ **Denetçinin doğrulayamadığı tek şey kayda geçsin:** `--ignore-not-found`'un
+> bayrak semantiği salt-okuma sınırı yüzünden **denetçi tarafından koşturulmadı**;
+> akış stub matrisiyle doğrulandı, bayrağın kendisi yalnız benim ölçümümle.
+>
+> **KAPSAM DIŞI BIRAKILAN, BİLİNÇLİ:** kartın *"Yedek: otomatik, geri yükleme
+> denenmiş"* ve *"KEK dönme aracı"* kriterleri **hâlâ açık** (FAZ D); `README`'nin
+> sınır listesinde **[yedek YOK]** ve *"KEK döndürme aracı YOK"* olarak duruyorlar
+> ve **kaldırılmadılar**.
+>
+> **KUM HAVUZU SAPMALARI (dördü de yazılı):** namespace `tappa-verify` · PVC
+> 20Gi→2Gi (node diski; ölçülen şey ağ ve sıra, depolama değil) · atılabilir sırlar
+> (`openssl rand`, değerler hiç basılmadı) · 🔴 **iki ürün imajı `postgres:17-alpine`
+> stand-in'leriyle değiştirildi**, çünkü yukarıdaki KEP-2535 ölçümü gereği kum havuzu
+> pod'ları düğümdeki private imajları **kullanamıyor** ve `read:packages` yetkili bir
+> token yok (yerel `gh` token'ının kapsamları: `gist, read:org, repo, workflow`;
+> GHCR manifest isteği → **401**). Stand-in'ler test edilen özelliği koruyor
+> (açılışta hemen DB'ye bağlan, başarısızsa çık) ama **goose ikilisinin kendisini
+> kanıtlamıyor** — o zaten 2026-08-15'te kural silindiğinde 20 migration'ı geçmişti.
+> `40-ingress.yaml` kum havuzunda **uygulanmadı** (canlı host ile çakışırdı).
 
 ---
 

@@ -89,15 +89,42 @@ spec:
       # to the pushing repository). No human step, nothing to remember.
       #
       # ⚠️ AND THAT TOKEN IS DEAD BY THE TIME THE POD IS OLD. It is revoked when the
-      # job ends. What makes this work is not the token surviving but the pull
-      # happening seconds after it is written, plus imagePullPolicy: IfNotPresent
-      # below — a restart a week later reuses the node's cached layers and asks the
-      # registry nothing. THE FAILURE THAT REMAINS: if the node ever loses the image
-      # (kubelet image GC under disk pressure, crictl rmi, node rebuild) after the
-      # deploy job ended, the pull is retried with a revoked credential and this pod
-      # does not start. The durable fixes are the operator's — a long-lived
-      # read:packages PAT in this same Secret, or public packages. deploy/README.md
-      # step 3 and its accepted-limits list carry both, and say so plainly.
+      # job ends. The pull that matters happens seconds after the credential is
+      # written, in the same workflow run.
+      #
+      # 🔴 THE SENTENCE THAT USED TO STAND HERE — "a restart a week later reuses the
+      # node's cached layers and asks the registry nothing" — IS FALSE ON THIS
+      # CLUSTER, AND IT WAS MEASURED FALSE ON 2026-08-16 RATHER THAN DOUBTED. This
+      # node's kubelet reports
+      #     imagePullCredentialsVerificationPolicy: NeverVerifyPreloadedImages
+      # (`kubectl get --raw /api/v1/nodes/<node>/proxy/configz`), which is KEP-2535,
+      # on by default from 1.35. Under it an image the kubelet pulled WITH a
+      # credential is only usable by a pod that presents a credential already
+      # recorded as having pulled it; to anyone else the kubelet behaves as though
+      # the image is not on the node at all. Three probes, same node, same tag the
+      # live pod was running at the time:
+      #     no imagePullSecret at all        -> Pulling ... 401 Unauthorized
+      #     an imagePullSecret it never used -> Pulling ... 401 Unauthorized
+      #     imagePullPolicy: Never           -> ErrImageNeverPull, "not present"
+      # and the control that separates the two explanations: postgres:17-alpine,
+      # PUBLIC and pulled anonymously, with imagePullPolicy: Never -> started from
+      # the node's cache and exited 0. So the cache works; credential verification is
+      # what refuses.
+      #
+      # WHAT THAT CHANGES IN PRACTICE. A restart is safe while the Secret still holds
+      # the token that pulled THIS pod's image — same credential, recorded hash,
+      # cache reused. It is NOT safe once a later deploy has rewritten the Secret
+      # with a new token: the recorded hash no longer matches, the kubelet re-pulls,
+      # and the new token is revoked too. That makes rolling BACK to a previous image
+      # the sharpest case, and `kubectl rollout undo` is exactly what an operator
+      # reaches for in an incident. deploy/README.md carries the warning in BOTH
+      # places that command appears — under "Elle deploy / rollback", beside the
+      # command itself, and again under "Olay müdahalesi" — because an operator who
+      # opens the rollback section is not reading the incident section.
+      # The old failure mode (node loses the image to kubelet image
+      # GC, crictl rmi or a rebuild) still applies and is now the smaller half.
+      # The durable fixes are unchanged and both the operator's: a long-lived
+      # read:packages PAT in this same Secret, or public packages.
       imagePullSecrets:
         - name: ghcr
       securityContext:
@@ -106,6 +133,135 @@ spec:
         runAsGroup: 65532
         seccompProfile:
           type: RuntimeDefault
+      # 🔴 THE SAME WAIT AS THE MIGRATION JOB, FOR A MEASURED REASON RATHER THAN
+      # SYMMETRY. cmd/tappa dials the database before it serves anything and EXITS
+      # if the dial fails (internal/db.New pings; main returns the error). A pod born
+      # under 12-networkpolicy.yaml loses that dial, because k3s programs a new pod's
+      # address into the policy's allow-set asynchronously and the process is already
+      # dialling — see 30-migrate-job.yaml for the full measurement.
+      #
+      # WITHOUT THIS initContainer THE DEPLOYMENT STILL RECOVERS, and that was
+      # measured rather than assumed: a fresh server pod under the policy failed its
+      # first dial, exited, restarted IN PLACE keeping the same address, connected,
+      # and reported Ready — restartCount 1, `rollout status` succeeded, and
+      # maxUnavailable: 0 meant the old pod served throughout. So this is NOT fixing
+      # an outage.
+      #
+      # ⚠️ WHAT THAT FIRST CONTAINER ACTUALLY WRITES, so an operator can grep for it:
+      # cmd/tappa logs through slog and the dial error is wrapped, so the line reads
+      #   level=ERROR msg=fatal err="db: ping: ... connect: connection refused"
+      # (internal/db/pool.go wraps it as "db: ping: %w"; cmd/tappa/main.go logs it as
+      # msg=fatal). There is no "db: ping failed" string anywhere in the tree — an
+      # earlier revision of this comment invented one, which would have sent an
+      # operator grepping for a phrase that does not exist.
+      #
+      # What it fixes is a FALSE SYMPTOM. That first container leaves a crash and a
+      # "cannot reach the database" line in the log of a deployment that is in fact
+      # healthy, at 04:00, on the product whose whole failure story is a shift that
+      # cannot load the tap page. deploy/README.md's incident section would otherwise
+      # have to teach an operator to ignore a database error — and an operator who
+      # has learned to ignore that line will ignore the real one too.
+      #
+      # ⚠️ WHAT IT COSTS, COUNTED HONESTLY — AND ONE PART OF IT IS THIS REPOSITORY'S
+      # OWN NAMED DEFECT CLASS. This pod now needs postgres:17-alpine as well as its
+      # own image, and that reference is a MOVING TAG combined with
+      # imagePullPolicy: IfNotPresent — exactly the pairing the note further down
+      # refuses for the product image, on the grounds that it is how a node silently
+      # keeps serving last week's copy. It is written here rather than quietly
+      # accepted, and deploy/README.md counts it in the accepted-limits list.
+      #
+      # WHY IT IS TOLERATED HERE, IN THREE MEASURED PIECES:
+      #  1. The blast radius is a health probe. This container runs pg_isready and
+      #     nothing else; an older cached copy resolves a name and opens a socket
+      #     exactly like a newer one. The defect class bites when a STALE BINARY
+      #     SERVES USERS, and nothing here serves anyone.
+      #  2. It adds no dependency this namespace did not already have.
+      #     10-postgres.yaml runs this same tag, so on this one-node cluster the
+      #     image is present whenever the database is. If it could not be fetched,
+      #     there would be no database for this pod to wait for.
+      #  3. Digest pinning was considered and rejected, not overlooked. The index
+      #     digest was measured (registry-1.docker.io, 17-alpine ->
+      #     sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73),
+      #     so it was available. Pinning only these two initContainers would put TWO
+      #     spellings of one image in this directory while 10-postgres.yaml keeps the
+      #     tag it deliberately shares with docker-compose.yml, and it would not fix
+      #     the channel that actually matters: Docker Hub's anonymous budget, MEASURED
+      #     from this network as `x-ratelimit-limit: 100;w=3600`. A digest pull spends
+      #     that budget too.
+      # The wait itself cost about a second on a healthy cluster.
+      initContainers:
+        - name: wait-for-postgres
+          image: postgres:17-alpine
+          imagePullPolicy: IfNotPresent
+          # -U is mandatory: this pod runs as uid 65532, that uid is not in the
+          # image's /etc/passwd, and libpq refuses to guess a default user name —
+          # without it pg_isready never opens a socket and reports "no attempt"
+          # while DNS resolves perfectly. 30-migrate-job.yaml carries the full
+          # measurement and psql's plainer error message.
+          #
+          # 🔴 AND THE NAME IS tappa_app, NOT tappa_owner, IN THIS POD. pg_isready
+          # never authenticates -- it sends a startup packet and reads the auth
+          # challenge -- so the name is only a string and either one works. But it is
+          # a string this pod WRITES ONTO THE NETWORK, and two things follow from
+          # which string it is. First, the internet-facing pod should not be naming
+          # the migration role at all. Second, and this is the one that bites:
+          # scripts/verify-deployment.sh's db-role gate fires on a backend with
+          # usename='tappa_owner' AND client_addr NOT NULL, and its message says
+          # "tenant isolation is void". With tappa_owner here, THE PRODUCT'S OWN
+          # HEALTH PROBE could raise that alarm. The timing does not overlap today
+          # (an initContainer finishes before the main container is created, and the
+          # gate runs after rollout status) and the gate's own comment counts that --
+          # but a false-alarm channel into the one gate that guards §4.5 is not worth
+          # a string. 30-migrate-job.yaml keeps tappa_owner, because that pod really
+          # does connect as that role.
+          # The failure branch resolves the name itself rather than trusting
+          # pg_isready's wording: a closed port, a dropped packet AND an unresolvable
+          # name all print "no response" with exit 2 (measured against pg_isready
+          # 17.10). 30-migrate-job.yaml carries the full reasoning; this is the same
+          # text so an operator meets one message, not two.
+          command:
+            - sh
+            - -ceu
+            - |
+              deadline=$(( $(date +%s) + 120 ))
+              until pg_isready -h tappa-postgres -p 5432 -U tappa_app -d tappa -t 3 >/dev/null 2>&1; do
+                if [ "$(date +%s)" -ge "$deadline" ]; then
+                  echo "tappa-postgres:5432 unreachable from this pod after 120 s" >&2
+                  echo "pg_isready says: $(pg_isready -h tappa-postgres -p 5432 -U tappa_app -d tappa -t 3 2>&1)" >&2
+                  if addr=$(getent hosts tappa-postgres 2>/dev/null); then
+                    echo "the NAME RESOLVES to: $addr" >&2
+                    echo "COMPARE that address with the pod's own:" >&2
+                    echo "  kubectl -n <ns> get pod tappa-postgres-0 -o wide" >&2
+                    echo "If they DIFFER the name resolves to the wrong place - a stale" >&2
+                    echo "EndpointSlice or a cached CoreDNS answer (default TTL 30 s) - and" >&2
+                    echo "this is still DNS, not the policy. If they MATCH it is the socket:" >&2
+                    echo "look at 12-networkpolicy.yaml (a denial there arrives as a TCP RST," >&2
+                    echo "not a timeout), then at whether tappa-postgres-0 is Running and" >&2
+                    echo "listening on 0.0.0.0:5432." >&2
+                  else
+                    echo "the NAME tappa-postgres DOES NOT RESOLVE." >&2
+                    echo "This is DNS or the Service, NOT the NetworkPolicy: check that" >&2
+                    echo "Service/tappa-postgres exists, that it has an EndpointSlice" >&2
+                    echo "(a headless Service publishes no record until a pod is Ready)," >&2
+                    echo "and that CoreDNS in kube-system is answering." >&2
+                  fi
+                  exit 1
+                fi
+                sleep 1
+              done
+              echo "tappa-postgres:5432 reachable from this pod; the server may dial"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 200m
+              memory: 64Mi
       containers:
         - name: tappa
           # The tag is substituted by .github/workflows/deploy.yml. The placeholder
@@ -125,8 +281,13 @@ spec:
           # is the deploy job's GITHUB_TOKEN (see imagePullSecrets above), which is
           # revoked when that job ends. Always would re-contact GHCR on every restart,
           # eviction and node reboot with a dead credential, turning every pod restart
-          # after the deploy into an ImagePullBackOff. IfNotPresent asks the registry
-          # nothing once the node has the layers.
+          # after the deploy into an ImagePullBackOff.
+          #
+          # ⚠️ BUT IfNotPresent DOES NOT MEAN "never asks the registry" ON THIS
+          # CLUSTER — see the measurement above imagePullSecrets. The kubelet's
+          # credential verification can force a pull of an image that is physically
+          # on the node. IfNotPresent is still the right value (it is the one that
+          # asks LEAST), it is simply not the guarantee this comment used to claim.
           imagePullPolicy: IfNotPresent
           ports:
             - name: http

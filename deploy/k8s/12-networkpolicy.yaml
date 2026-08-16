@@ -2,8 +2,10 @@
 #
 # 🔴 WHAT THIS CLOSES. Postgres listens on 0.0.0.0:5432 and the pg_hba the entrypoint
 # generates ends with `host all all all scram-sha-256` — every address, every
-# database, every role. This cluster has 31 namespaces. Without a policy, ANY pod in
-# ANY of them can reach tappa's database and start guessing, and it is what turns the
+# database, every role. This cluster carries dozens of unrelated namespaces (31 on
+# 2026-08-15, 32 the next day — the count is a live number and is deliberately not
+# relied on here). Without a policy, ANY pod in ANY of them can reach tappa's
+# database and start guessing, and it is what turns the
 # password finding above it (01-roles.sql's fail-open, fixed this round) from
 # "reachable from inside the pod" into "reachable from anywhere in the cluster".
 #
@@ -28,20 +30,44 @@
 #     panel's same-origin gate already refuses a plain-HTTP sign-in (backlog T38).
 #     What it does bypass is TLS and HSTS for an in-cluster caller.
 #
-# This also matches what the cluster already does: the only NetworkPolicies present
-# (`kubectl get netpol -A`) are infisical/postgresql and infisical/redis — datastores,
-# not HTTP frontends.
+# This also matches what the cluster already does. Before this file there were two
+# NetworkPolicies on the cluster, infisical/postgresql and infisical/redis — both
+# datastores, no HTTP frontend among them. `kubectl get netpol -A` now returns THREE,
+# because this rule joined them; the point stands, the count moved.
 #
-# ⚠️ ENFORCEMENT IS UNVERIFIED. k3s runs its NetworkPolicy controller inside the
-# server process rather than as a pod, so `kubectl -n kube-system get pods` (coredns,
-# local-path-provisioner, metrics-server — no kube-router) neither proves nor
-# disproves it. If the controller is disabled (`--disable-network-policy`) this object
-# is accepted and ignored, and nothing reports that. Verify once, after the first
-# deploy, from a pod in another namespace:
-#   kubectl -n default run np-probe --rm -it --restart=Never --image=postgres:17-alpine \
-#     -- pg_isready -h tappa-postgres.tappa.svc.cluster.local -t 5
-#   # "no response" = enforced. "accepting connections" = NOT enforced, and this
-#   # file is decoration; say so rather than believing it.
+# ✅ ENFORCEMENT IS NO LONGER UNVERIFIED — IT WAS MEASURED ON 2026-08-16, and both
+# halves were measured, because a positive result alone cannot be told apart from a
+# policy that is never applied. One pod, one instant, carrying the admitted label,
+# dialling two namespaces:
+#
+#   POSITIVE  tappa-postgres.tappa-verify.svc:5432 -> "accepting connections", exit 0
+#   NEGATIVE  tappa-postgres.tappa.svc:5432        -> "no response", exit 2
+#             (its name resolved to 10.42.0.228 first, so this is the policy
+#              refusing and not a DNS failure)
+#
+# The negative case is the one worth reading twice: that pod carried
+# app.kubernetes.io/name=tappa, the exact label this rule admits, and was still
+# refused — because a podSelector with no namespaceSelector is scoped to the
+# policy's OWN namespace, and k3s honours that. Copying the label from another
+# namespace buys nothing.
+#
+# 🔴 AND IT ENFORCES BY REJECTING, WHICH IS WHY IT WAS MISDIAGNOSED. A denied
+# connection comes back as a TCP RST, so the caller reports "connection refused" —
+# the phrase everyone reads as "the database is not up yet". A NetworkPolicy is
+# usually expected to time out. The first live diagnosis went down that path and was
+# wrong; deploy/README.md's incident section now names the symptom.
+#
+# 🔴 THE RULE HAS A RACE, AND CONSUMERS MUST TOLERATE IT — 30-migrate-job.yaml IS
+# WHERE THAT IS DONE. k3s programs a NEW pod's address into this rule's allow-set
+# asynchronously, so for the first fraction of a second of its life an admitted pod
+# is refused. Measured on five fresh pods carrying the admitted label: every one was
+# refused on its first attempt and admitted 0.2-1.0 s later; control with this file
+# deleted, three of three connected on attempt zero. Anything whose first action is
+# to dial the database therefore loses, and a Job with restartPolicy: Never loses
+# FOREVER, because every backoff attempt is a new pod with a new address. That is
+# backlog T41, and the fix is an in-pod wait rather than a change here: this file
+# cannot be made race-free without widening it to an ipBlock over the whole pod
+# CIDR, which would admit every pod on the cluster and protect nothing.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
