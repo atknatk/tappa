@@ -1649,6 +1649,514 @@ tablosu çıkmış durumda (satış slaytı da olur).
 > onu kapatan komutu taşıyor. Ayrıca `pods/exec`'in `resourceNames` daraltması **canlı
 > `ns/tappa`'da koşturulmadı** (salt-okuma sınırı) — kum havuzunda birebir kurulumla
 > ölçüldü.
+>
+> ---
+>
+> **KART DÜZELTMESİ (2026-08-16, FAZ E — "yedek + PROVALI geri yükleme").
+> KRİTER *"Yedek: otomatik, geri yükleme DENENMİŞ"* AĞAÇTA KARŞILANDI, KÜMEDE
+> OPERATÖRÜ BEKLİYOR — VE PROVA KARTIN HİÇ ÖNGÖRMEDİĞİ BİR KUSURU BULDU.**
+> Değişen dosyalar: **yeni** `deploy/k8s/50-backup.yaml` · **yeni**
+> `scripts/pg-backup.sh` · **yeni** `scripts/pg-backup-ship.sh` · **yeni**
+> `scripts/pg-restore-verify.sh` · `.github/workflows/deploy.yml` (tek adım, +17
+> satır) · `deploy/README.md`. **Go kodu değişmedi** (`git status --short` → **0**
+> adet `.go`), `ci.yml` **değişmedi** (`git diff --stat` → boş). **Kümeye hiçbir
+> mutasyon uygulanmadı** — kum havuzu bile açılmadı (`kubectl get ns tappa-verify` →
+> boş); bütün prova **Docker'da**, ayrı konteynerlerde koştu ve konteynerler silindi.
+> Canlı ürün dört ayrı anda ölçüldü: `/healthz` **200**, `/readyz` **200**.
+>
+> **🔴 KARTIN TUZAK #1'İ (RLS'in sessiz boş yedeği) GERÇEK ÇIKTI AMA MEKANİZMASI
+> BRIEF'İN TARİF ETTİĞİNDEN FARKLI — VE FARK ÖNEMLİ.** Brief *"`app.tenant_id` set
+> edilmemiş bir bağlantıyla alınan dump sıfır satır üretebilir ve `pg_dump` exit 0
+> verir"* diyordu. Ölçüm (bu reponun kendi veritabanı, 231 832 `transactions` satırı):
+>
+> | komut | sonuç |
+> |---|---|
+> | `psql` `tappa_owner` (rolsuper=t, rolbypassrls=t) | 231832 satır |
+> | `psql` `tappa_app` (f/f), GUC yok | **0 satır** — tuzağın önkoşulu **doğru** |
+> | `pg_dump -U tappa_app --data-only -t transactions` | **exit 1**, `ERROR: query would be affected by row-level security policy` — **FAIL-CLOSED** |
+> | ...`--enable-row-security` ile | **exit 0**, 966 bayt, **0 satır** — *sessizce boş yedek* |
+> | ...GUC bir tenant'a set edilmişken | **exit 0**, 231832'nin **17 262'si** — *sessizce KISMİ yedek* |
+>
+> Yani `pg_dump` **varsayılan olarak** `row_security = off` kuruyor ve bypass edemeyen
+> rol **hata alıyor**; tehlikeli artefakt **tek bir bayrağın** arkasında. Ve üçüncü
+> satır brief'te hiç yoktu: kısmi bir yedek, boş olandan **daha** tehlikeli, çünkü
+> boyutu makul görünür. `pg-backup.sh` üç katmanda kapatıyor, ikisi **yapısal**:
+> bayrak hiç geçilmiyor · rol `rolsuper`/`rolbypassrls` değilse iş `pg_dump`'a **hiç
+> ulaşmadan** duruyor (ölçüldü: `tappa_app` ile exit 1 ve adıyla mesaj) · ve bitmiş
+> dump'ın satırları canlıyla karşılaştırılıp *"canlıda dolu, dump'ta boş"* olan her
+> tablo işi kırmızıya çekiyor.
+>
+> **🔴 VE PROVANIN BULDUĞU, KARTTA DA BRIEF'TE DE OLMAYAN KUSUR: DÜZ BİR GERİ YÜKLEME
+> `tappa_app`'E 31 FAZLA YETKİ VERİYOR — `transactions` ÜZERİNDE **UPDATE VE DELETE
+> DAHİL** (§4.3).** Brief'in uyarısı *"geri yüklenmiş bir veritabanı RLS'siz ya da
+> GRANT'sız doğabilir"* idi; ölçüm **tam tersini** buldu — GRANT'sız değil,
+> **GRANT-FAZLASI**. Sayılar: kaynak **45** tablo yetkisi (sahip hariç), taze bir
+> pod'a geri yükleme **76**. Fazlalar arasında `audit_log` DELETE, `admin_users`
+> INSERT/UPDATE, `legal_documents` tam CRUD.
+> **Mekanizma:** `01-roles.sql` initdb'de `ALTER DEFAULT PRIVILEGES … TO tappa_app`
+> koşuyor → geri yüklemedeki her `CREATE TABLE` dördünü de otomatik veriyor →
+> `pg_dump` ACL'i **yerleşik** varsayılana göre hesapladığı için fazlalığı geri alan
+> `REVOKE`'ları hiç yazmıyor. Dump doğru; hedef boş değil.
+> ⚠️ **VE ÜRÜN BOZULMUYOR — kusurun görünmez olmasının sebebi bu.**
+> `transactions_no_mutation` tetikleyicisi UPDATE'i **yine** reddediyor. Elle bakan
+> biri *"satırı değiştirebiliyor muyum? hayır"* deyip temiz sanar. Fark **yalnız hata
+> kodunda**: doğru geri yüklemede `permission denied for table transactions`
+> (**42501**), bozukta `append-only table transactions` (**P0001**).
+> **Çözüm ölçülerek seçildi, ve seçilen şey bir yama değil bir PROSEDÜR:** geri
+> yükleme artık **aynı instance'ta yeni bir veritabanına** yapılıyor — çünkü
+> `pg_default_acl` **veritabanı başına** bir katalog (ölçüldü: `tappa`'da 2 satır,
+> yeni veritabanında **0**, geri yükleme sonrası dump'ın kendi son iki satırıyla yine
+> **2**, yani sonraki migration'lar da doğru davranıyor). Taze pod'a mecbur kalanlar
+> için iki satırlık askıya alma adımı yazıldı ve **ölçüldü** (76 → **45**).
+>
+> **PROVA — ÜÇ KONTROLLÜ KOŞU, BİRİ KASITLI NEGATİF.** Gerçek bir yedekle
+> (19 tablo, **2 118 896** satır, 546 MiB düz / **120 MiB** gzip):
+>
+> | Koşu | Yetki | Doğrulama aracı |
+> |---|---|---|
+> | taze pod, düzeltme **yok** (negatif kontrol) | **76** (31 fazla) | **exit 1**, 31'ini adıyla listeledi |
+> | taze pod, düzeltme **var** | **45** (fazla 0, eksik 0) | **exit 0** |
+> | aynı instance'ta yeni DB + `RENAME` takası | **45** | **exit 0** |
+>
+> Üçünde de: `psql` **exit 0**, stderr **0 satır**, 19/19 tablo, satır sayıları
+> manifest ile **birebir**, 18 politika / 18 `FORCE RLS` / 9 tetikleyici / 56 indeks /
+> 98 fonksiyon / `goose 20` — hepsi kaynakla aynı. Ve **§4.5 geri yüklemeden sağ
+> çıkıyor**: `tappa_app` olarak **TCP üzerinden** (loopback değil — bu reponun
+> `01-roles.sql`'inin kendi dersi), GUC'suz **0** satır, GUC'lu **17 262** satır.
+> Kaybolan tek şey §4.3'ün **yetki kemeriydi** ve onu yalnız hata kodunu assert eden
+> bir kontrol gördü.
+> **Süreler:** `pg_dump` 85 sn · doğrulama + gzip ~3 dk · toplam **4 dk 33 sn** ·
+> `psql` geri yükleme **37–39 sn** · doğrulama aracı **23 sn** · iki
+> `ALTER DATABASE RENAME` **399 ms** · boş bir şemanın yedeği **< 1 sn**.
+>
+> **DEJENERE GİRDİLER — KENDİ LİSTEM, KOŞTURULDU.** `pg-backup.sh` dokuz yol
+> (**boş ama sağlıklı veritabanı → exit 0** · `tappa_app` ile → rol kapısı · **tablosu
+> olmayan** veritabanı → adıyla ret · ulaşılamayan host · yanlış parola · `PGPASSWORD`
+> yok · staging yok · staging salt-okunur · **staging dolu (8 MiB tmpfs)** →
+> `No space left on device` ve hiçbir şey sevk edilmiyor). `pg-backup-ship.sh` on iki
+> yol (config yok/boş/`RCLONE_CONFIG` yok · `BACKUP_REMOTE` yok/çıplak/sondaki eğik
+> çizgi/remote değil/tanınmayan · staging boş · manifest'siz dump · saklama süresi
+> sayı değil / 7'nin altında). **Hepsi adıyla mesaj verdi.**
+> 🔴 **VE BU BATARYA KENDİ KODUMDA GERÇEK BİR HATA BULDU:** `: > "$probe" || fail …`
+> salt-okunur bir mount'ta **kendi mesajını hiç basmıyordu** — `:` bir POSIX **özel
+> builtin**'i ve yönlendirme hatası kabuğu **anında** sonlandırıyor, yani `||` hiç
+> koşmuyor. `touch`'a çevrildi ve yeniden ölçüldü. Aynı sınıfın bir başka örneği
+> baştan kaçınılarak yazıldı: sayımların **hiçbiri** `grep -c` kullanmıyor, çünkü
+> `grep` sıfır eşleşmede exit 1 verir ve o, **sağlıklı boş veritabanı** yoludur.
+>
+> **ŞİFRELEME VE HEDEF — ÖLÇÜLDÜ, GERÇEK BİR `crypt` REMOTE'A KARŞI.** rclone'un
+> `crypt` remote'u yerel bir backing store üzerinde koşturuldu: hedef diskteki dosya
+> **adları** okunamaz (`uopkhhceg3gu…/e4cqqtph…`), **içerik** `RCLONE\0\0` sihirli
+> baytıyla başlıyor, aynı hedef `rclone lsl` ile açık adlarla listeleniyor. Saklama
+> süresi de izole edilerek ölçüldü: 2026-01-01 damgalı bir yedek **silindi**, o
+> geceninki **kaldı**, boş dizin `rmdirs` ile toplandı.
+> ⚠️ **`rclone check` bir crypt remote'ta `ERROR : No common hash found` basıyor ve
+> bu bir arıza DEĞİL** (aynı çıktıda `0 differences found`, exit 0;
+> `--ignore-checksum` bastırmıyor) — gecelik logda `ERROR` arayan operatörü
+> yanıltmasın diye script'te ve README'de yazılı.
+>
+> **HEDEF SEÇİMİ: ÖLÇÜLDÜ, VE KÜMEDE HİÇBİR SEÇENEK YOK.** `kubectl get nodes` → tek
+> node · `get sc` → yalnız `local-path` · `get csidrivers` → **boş** · `get pv` →
+> 20/20 `local-path` · `get cronjob -A` → hiçbir namespace'te yedek işi **yok** (emsal
+> de yok). Yani off-node hedef **kaçınılmaz olarak operatörün kimliğini** istiyor.
+> **Elenenler, gerekçesiyle:** kümedeki bir PVC (aynı node'un diski — sınır 1'in
+> tarif ettiği arızada hiçbir şey kurtarmaz) · GitHub Actions'ın dump'ı çekmesi
+> (mesai kayıtları AB dışına ve DPA'sız bir işleyene — Q23) · ikinci bir Postgres
+> replikası (tek node'da aynı disk; ayrıca yanlış bir `DELETE` replikaya **anında**
+> kopyalanır — replika yedek değildir). **Seçilen:** AB bölgesinde S3 uyumlu nesne
+> depolama ya da SFTP, ikisi de **tek bir `rclone.conf`** ile.
+>
+> **NEDEN CronJob OPERATÖRÜN, `deploy.yml`'in DEĞİL — ve bu FAZ D'nin dersinin
+> uygulaması.** `01-rbac.yaml` deploy kimliğine `batch` grubunda yalnız `jobs`
+> veriyor. `cronjobs` eklemek, **önce** cluster-admin ile 01-rbac.yaml'ın yeniden
+> uygulanmasını gerektirirdi ve o ana kadar **her deploy kırmızı** olurdu — yani
+> kartın imza kusurunun bir başka yüzü. Script'ler ise commit yolunda kalıyor:
+> `deploy.yml` ConfigMap'i `--from-file` ile her koşuda yeniden kuruyor
+> (`tappa-db-init` kalıbının aynısı), yani **tek tanım**, `scripts/` altında, ve
+> `redline-check.sh`'in `SRC` listesinin **içinde** — `deploy/`'un dışarıda kalması
+> (C4) bu sefer bir boşluk üretmedi.
+> ⚠️ **Ve tam da o tarayıcı benim dosyamda bir bulgu üretti:** `pg-restore-verify.sh`
+> ilk hâlinde çıplak `SET app.tenant_id` yazıyordu (R5 · WARN). Tek atışlık bir
+> `psql` oturumunda havuz kirlenmesi **olamaz**, ama kural izlendi ve
+> `BEGIN; SET LOCAL …; ROLLBACK;` yapıldı: bir sondanın uygulamayı modellemesi
+> gerekiyorsa tenant bağlamını da uygulamanın yazdığı gibi yazmalı, ve tartışılması
+> gereken bir tarayıcı görmezden gelinen bir tarayıcıdır.
+>
+> **SINIR LİSTESİ: 1 YENİDEN YAZILDI, 3 YENİ, 2 GÜNCELLENDİ — ve liste `1..21`
+> ardışık, **0 sarkan anahtar atfı** (ölçüldü: tanımlı 15 anahtar, atıf yapılan 15,
+> fark **boş**).** **[yedek YOK]** anahtarı **emekli edildi** çünkü artık yalan
+> olurdu; yerine **[yedek kümede HENÜZ YOK]**, ve madde ağaç/küme ayrımını **adıyla**
+> yazıyor (`kubectl -n tappa get cronjob` → **`No resources found`**, ölçüldü
+> 2026-08-16). Yeni: **[yedeğin hedefi ve şifresi KÜME DIŞINDA yaşar…]** (19),
+> **[yedek saklama süresi 30 gün…]** (20), **[geri yükleme AYRICALIK ARTIĞI üretir…]**
+> (21). Güncellenen: **13** (yeni CronJob kuralın üçüncü tüketicisi ve `wait-for-postgres`
+> taşıyor — kural **kapanmadı**, uyuldu) ve **14** (`rclone/rclone:1.71` hareketli
+> etiketin **üçüncü** yazımı; digest pinleme artık dört yazım demek).
+>
+> **KARTIN HÂLÂ AÇIK KRİTERLERİ, açıkça:** *"managed Postgres"* (kullanıcı kararı) ·
+> **KEK döndürme aracı** (sınır 9, **bu turda yapılmadı** — FAZ F) · **DPA/Q23 +
+> saklama süresi** (hukuki, backlog B3). Ve *"geri yükleme denenmiş"* kriteri için
+> dürüst cümle şu: **prosedür provalı, araç var, kümede yedek yok** — üçüncüsü
+> operatör adımı 9'da.
+>
+> ---
+>
+> **🔴 [FAZ E · 2026-08-16] 2. TUR — GENEL ÜÇÜNCÜ GÖZ ONAY, `tappa-security-auditor`
+> RED. BULDUĞUM KUSUR SANDIĞIMDAN AĞIRMIŞ: §4.3 DEĞİL, §4.4 + §4.7.**
+>
+> **B1 — 31 fazla yetkinin ikisi `tags` üzerinde, ve `tags`'te İKİNCİ KEMER YOK.**
+> 1. turda *"§4.3'ün iki kemerinden biri düştü, tetikleyici hâlâ reddediyor, ürün
+> bozulmuyor"* yazdım ve bunu **üç yerde** tekrarladım. Denetçi ölçtü:
+> `tags_counter_monotonic` yalnız `BEFORE UPDATE … WHEN (new.last_ctr < old.last_ctr)`,
+> yani **INSERT'te hiç ateşlemiyor**. Kendi yeniden üretimim, geri yüklenmiş gerçek
+> şemada, `tappa_app` ile TCP üzerinden, tap kaydı olmayan bir plakette:
+> ```
+> A  ctr before                        5100
+> DELETE FROM tags WHERE uid=...    -> DELETE 1     (yetki YALNIZ artıktan geliyor)
+> INSERT ... last_ctr 0             -> INSERT 0 1
+> C  ctr AFTER delete+reinsert         0
+> D  a REPLAYED ctr=7 now advances to  7
+> E  aes_key_ref is now                forged-key-ref
+> ```
+> **§4.4'ün replay koruması çalınmış bir `tappa_app` kimliğiyle tamamen sıfırlanıyor**,
+> ve tablo düzeyi UPDATE sütun kısıtını ezdiği için `aes_key_ref` **yazılabilir**
+> (`has_column_privilege`: kaynakta false, geri yüklemede **true**). `01-roles.sql`
+> bu tehdit modelini adıyla yazıp *"§4.3 ayakta kalır"* diyordu — `tags` için
+> kalmıyordu.
+>
+> **KALICI ÇARE ÖLÇÜLDÜ VE UYGULANDI — VE ÖLÇÜM DENETÇİNİN İDDİASINI HEM DOĞRULADI
+> HEM DARALTTI.** Denetçi *"iki satırlık askıya alma 76 → 45 yapıyor"* dedi; o ölçüm
+> **askıya alma adımına** aitti, önerdiği **daraltmaya** değil. İkisini ayrı ölçtüm:
+>
+> | kurulum | tablo yetkisi | `tags` UPDATE/DELETE | `aes_key_ref` UPDATE |
+> |---|---|---|---|
+> | kaynak (canlı şema) | **45** | false / false | false |
+> | geniş varsayılan + geri yükleme (bugünkü ağaç) | **76** | **true / true** | **true** |
+> | **dar varsayılan** + geri yükleme | **50** | false / false | false |
+> | dar varsayılan + askıya alma + geri yükleme | **45** | false / false | false |
+>
+> Yani **daraltma ağır yarıyı yapısal olarak kapatıyor** (replay zinciri artık ilk
+> adımda `permission denied for table tags` ile duruyor) ama **sıfıra indirmiyor**:
+> 5 fazla kalıyor, aralarında `legal_documents` üzerinde tablo düzeyi SELECT — o da
+> kendi sütun listesini ezer. **İkisi birlikte 45/0/0.**
+>
+> **DARALTMA TAZE KURULUMU BOZMUYOR — GERÇEK goose İLE ÖLÇÜLDÜ, İDDİA EDİLMEDİ.**
+> `Dockerfile --target migrate` ile gerçek migration imajı derlendi ve iki taze
+> kurulum (geniş / dar varsayılan) üzerinde 20 migration koştu; **ikisi de başarılı**,
+> ve tablo yetkileri arasındaki **TEK fark** `goose_db_version` üzerindeki
+> UPDATE+DELETE (goose'un kendi defteri, uygulama ona dokunmaz). Uygulama
+> tablolarının hepsi **birebir**: 45 = 45, ve geniş kurulum canlı seed'lenmiş
+> veritabanıyla da birebir (harness'ın kendisi böyle doğrulandı). `go test -race
+> -count=1 ./...` dar veritabanına karşı (kullanıcının `tappa-db`'sine
+> **dokunmadan**, ayrı bir konteynere `DATABASE_URL`/`DATABASE_MIGRATE_URL` ile):
+> **exit 0, 22 paket ok, 0 FAIL, 0 atlanan DB testi**, ve testlerin gerçekten oraya
+> yazdığı 700 tenant satırıyla kanıtlandı. Sebep de zaten yapıda: her migration
+> istemediğini **açıkça REVOKE ediyor** (`REVOKE DELETE ON tags`,
+> `REVOKE UPDATE, DELETE ON transactions`, … 23 ifade), yani hiçbiri varsayılana
+> dayanmıyordu. ⚠️ `01-roles.sql` bir **init script'idir**, migration değil: yalnız
+> boş `PGDATA` üzerinde koşar, yani **canlı veritabanını değiştirmez** — kazancı taze
+> kurulumlar ve taze pod'a geri yüklemelerdir. Üç metin (araç başlığı, sınır 21, bu
+> defter) *"yalnız §4.3"*ten **§4.4 + §4.7**'ye çekildi.
+>
+> **B2 — TEK KESİN *"EVET"* SENARYOSUNUN NUMARALI PROSEDÜRÜ YOKTU.** Karar tablosunun
+> tek kesin EVET'i *"node'un diski gitti"*, ama sekiz adımın tamamı hasarlı
+> instance'ın var olmasını varsayıyordu; taze pod yolu adım 4'ün içinde bir ⚠️ notuydu.
+> Artık **A YOLU / B YOLU** ayrımı iki komutla başlıyor ve **B YOLU ayrıca numaralı**
+> (B1–B6): **askıya alma B2, yani birinci sınıf bir adım**, doğrulama aracı B4'te
+> **zorunlu** (*"çıkmazsa exit 0, uygulamayı açma"* — o yolda karşılaştırılacak bozuk
+> bir veritabanı **yok**, yani tek kanıt odur), ve B5 kayıp aralığının **ilan
+> edilmesini** istiyor çünkü orada ölçülecek kaynak yok. G1 ve G2 de bununla kapandı.
+>
+> **YEDİ UCUZ — hepsi ölçümle.**
+> **S1** Doğrulayıcı **91 `ON TABLE` GRANT satırının 73'ünü** atlıyordu (sütun düzeyi),
+> ve atlanan kümede `aes_key_ref`'i UPDATE dışında tutan **tek mekanizma** vardı.
+> Artık iki düzey de karşılaştırılıyor: dump'ın sütun grant'ları **artı** tablo
+> grant'larının sütunlara yayılmışı, `information_schema.column_privileges` ile
+> birebir. 🔴 **Ve ilk hâli 39 YANLIŞ POZİTİF üretti** (*"missing"*), çünkü SQL'de
+> **sütun düzeyi DELETE yoktur**; yayılım artık yalnız SELECT/INSERT/UPDATE/REFERENCES
+> için yapılıyor (ölçüldü: `column_privileges` yalnız bu dördünü raporluyor).
+> Sonuç: doğru geri yüklemede **45 tablo + 454 sütun**, exit 0; artıklı olanda
+> **5 tablo + 11 sütun** fazlası adıyla, exit 1.
+> **S2** Kayıp aralığı komutlarında `-v ON_ERROR_STOP=1` **yoktu**; ölçüldü: bozuk bir
+> `COPY` bayraksız **exit 0**, bayrakla **exit 3** — yani boş bir CSV *"kayıp yok"*
+> diye okunup adım 8 atlanabilirdi. İki `psql`'e de eklendi.
+> **S3** 🔴 CSV `SELECT *` idi ve `gps_lat`/`gps_lng numeric(9,6)` **tam koordinat**
+> dışa aktarıyordu (§4.2/§4.7). Artık 13 sütun **adıyla**; dışarıda bırakılanlar ve
+> neden yazılı (GPS · `source_ip` · `tag_uid`/`ctr`/`sun_valid` · `trust`/`*_match`/
+> `policy_*`). Yeniden giriş `channel='manual'` olduğu için hiçbirine ihtiyaç yok.
+> Ölçüldü: 745 satırlık gerçek çıktıda **koordinat şeklinde tek alan yok** (17 *"gps"*
+> eşleşmesinin hepsi §5'in `note` metni).
+> **S4** İki Secret'a bölmenin gerekçesi **iddia ettiği özelliği sağlamıyordu** —
+> ikisi de aynı namespace/etcd/node'da. Gerekçe *"ayrı okuyucu kümesi"*ne indirildi,
+> ve emanet artık **kanıtlanıyor**: adım 9(b) küme içi ve emanetteki `rclone.conf`'un
+> sha256 **öneklerini** karşılaştırıyor (değer basılmadan).
+> **S5** `redline-check.sh` R3 şema nitelemesini **tanımıyordu** (`UPDATE
+> public.transactions` → eşleşmiyor), ve nitelemeli ilk mutasyonu bu turun kendi aracı
+> getirdi — yani kural **yanlış sebeple** yeşildi. Desen düzeltildi (istege bağlı şema
+> öneki + tırnaklı tanımlayıcı); **mutasyon testiyle** doğrulandı: ekilmiş bir
+> `UPDATE public.transactions` → **exit 1**, kaldırılınca **exit 0**; kontroller
+> (`transaction_reviews`, `transactions_archive`, `SELECT`, `INSERT`) eşleşmiyor.
+> Doğrulama aracına **dosya adıyla** dar bir muafiyet verildi ve bedeli sayıldı.
+> ⚠️ **Kapatılmayan, sayılan:** R7'nin sır-log deseni **Go biçimli**, yani bu üç kabuk
+> script'inde bir `echo "$PGPASSWORD"` **hiçbir kuralca yakalanmaz** (bugün temiz).
+> **S6** `BACKUP_REMOTE` (kova + yol) iş loguna basılıyordu; `pods/log` yetkisi olan
+> herkes okur. Artık yalnız **remote adı**, yol *redacted*.
+> **S7** *"nothing left behind"* **bilinenden fazlasını iddia ediyordu**:
+> `failedJobsHistoryLimit: 3` ve TTL yok, yani düşen Job'ın pod'u **tutuluyor**; pod
+> nesnesi dururken kubelet'in `emptyDir`'i söküp sökmediği **ölçülmedi** ve öyle
+> yazıldı, temizlik komutuyla birlikte.
+> **G3** `kept="$(rclone lsf … 2>/dev/null | awk …)"` — listeleme düşerse **başarılı
+> bir yüklemeden sonra** `done: 0 backup(s) retained` + exit 0 basıyordu; en
+> ürkütücü cümle, en zararsız sebepten. Artık exit kodu ayrılıyor ve *"UNKNOWN (not
+> zero)"* deniyor.
+> **G4** awk sayacının `^COPY public\.` çapası **sayılmış limit** olarak yazıldı
+> (bugün ulaşılamaz: hiçbir tablonun ilk sütunu serbest metin değil; olsaydı arıza
+> yine **gürültülü** olurdu, çünkü 4b o tabloyu *"veri bölümü yok"* diye bildirir).
+> **G5** Boş config korumasının **mekanizması yanlıştı** (*"rclone yerel yol sayıp pod
+> içine yazar"*); ölçüldü (v1.71.2): tanımsız remote → `CRITICAL … didn't find section
+> in config file`, exit ≠ 0, **dizin yaratılmıyor**. Koruma doğru, gerekçe düzeltildi.
+> **G6** `grep -q 'a\|b'` BRE alternasyonu iki düz `grep -qF`'ye çevrildi.
+>
+> **DEĞİŞMEYENLER:** kümeye hâlâ **hiçbir mutasyon** uygulanmadı
+> (`kubectl -n tappa get cronjob` → `No resources found`), kullanıcının `tappa-db`'si
+> **yalnız okundu** (231 832 satır, başta ve sonda aynı), `ci.yml` **değişmedi**,
+> `git status --short` → **0 adet `.go`**, canlı ürün `/healthz` `/readyz` **200**.
+> **Yeni dosya sayısı değişmedi**; değişen: `scripts/db-init/01-roles.sql` (tek satır
+> + gerekçe) ve `scripts/redline-check.sh` (R3 deseni).
+>
+> ---
+>
+> **✅ [FAZ E · 2026-08-16] 4. TUR — `tappa-security-auditor` ONAY. ÜÇ UCUZ, VE İKİSİ
+> "SAĞLANMAYAN BİR GARANTİYİ İLAN ETMEK" SINIFININ YENİ ÖRNEKLERİYDİ.**
+>
+> **S1 — DARALTMA, İHLALİN EN PAHALI OLACAĞI İKİ VERİTABANINDA YÜRÜRLÜKTE DEĞİL.**
+> `01-roles.sql`'e yazdığım *"unutulursa gürültülü `permission denied` alınır
+> (fail-closed)"* cümlesi **koşulsuzdu** ve iki yerde yanlıştı. (a) Dosya bir **init
+> script'i**: çalışan veritabanlarının `pg_default_acl`'i hâlâ `tappa_app=arwd`.
+> (b) 🔴 **Ve dump'ın kendi son satırı varsayılanı yeniden GENİŞLETİYOR** —
+> `GRANT SELECT,INSERT,DELETE,UPDATE ON TABLES TO tappa_app`, yani **her geri
+> yüklemenin sonunda** hedef yine geniş. Dört adımda ölçüldü: dar init → **`ar`** ·
+> geri yükleme sonrası → **`arwd`** · o anda yaratılan yeni tablo `tappa_app`'e
+> **`arwd`** veriyor · var olan tablolar **etkilenmiyor** (45 yetki, `tags`
+> UPDATE/DELETE false). **Somut sonuç: doğrulama ortamı üretimden KATI, ve ayrım
+> kusuru GİZLER yönde** — `REVOKE` satırını unutan bir migration yerelde hiçbir fark
+> üretmez, üretimde sessizce `arwd` verir; `pg-restore-verify.sh` de göremez, çünkü
+> referansı dump'ın kendisi ve dump geniş varsayılanı **ilan ediyor**.
+> ✅ **Orkestratörün *"değerlendir"* dediği çare ÖLÇÜLDÜ VE UYGULANDI:** geri
+> yüklemenin **son adımı** tek ifadeyle geri daraltıyor
+> (`REVOKE UPDATE, DELETE ON TABLES` — `SELECT, INSERT` bilerek kalıyor). Ölçüm:
+> varsayılan `ar`'a dönüyor, yeni bir tablo `ar` alıyor, ve **var olan tablolar
+> değişmiyor** (45 yetki · `tags` false/false · `aes_key_ref` false · sekans
+> varsayılanı `rU` sabit). A YOLU 7. adıma ve B YOLU B3'e girdi, heredoc biçimi
+> **birebir koşularak** sınandı (exit 0). ❌ **Çalışan veritabanında dayatılmadı** —
+> canlı bir DB'yi migration dışında değiştirmek bir karardır; sınır **22** olarak
+> sayılıyor, komutuyla birlikte. Üç metin (`01-roles.sql`, README'nin iki *"doğru
+> davranır"* cümlesi) kapsamı artık **açıkça** yazıyor.
+>
+> **S2 — MASKE YALNIZ BAŞARI YOLUNDAYDI.** `BACKUP_REMOTE`'un kova+yolu iki **arıza**
+> dalında maskesiz basılıyordu — üstelik biri script'in kendi yorumunun *"en olası uzun
+> vadeli arıza"* dediği dal. Tek bir `REMOTE_SAFE` yazımı tanımlandı ve **her** mesajda
+> kullanılıyor. ⚠️ **Ve kalan kısmı sayılıyor, yarım kapatılmıyor:** `rclone`'un
+> **kendi** tanılama satırları remote'u adıyla basıyor (ölçüldü:
+> `NOTICE: Encrypted drive 'enc:db/<damga>' …`). Maskeleyen bir filtreye **borulanmadı**,
+> çünkü `set -eu` borunun solundaki hatayı göremez ve bir §4.7 sıyrığını fail-open bir
+> çıkış koduyla takas etmek bu reponun iki kez bedelini ödediği takastır.
+>
+> **S3 — HEDEFİN GERÇEKTEN `crypt` OLDUĞUNU DOĞRULAYAN HİÇBİR ŞEY YOKTU** (kelime
+> yalnız bir yorumda geçiyordu). Düz bir S3 kovası verilseydi her tap'in **tam
+> GPS'i**, her plaketin **sarmalanmış AES anahtarı** ve her **oturum token hash'i**
+> şifresiz node dışına çıkar, iş **yeşil** kalırdı. Artık remote'un **tipi
+> sorgulanıyor**, `alias` zinciri izleniyor (5 sıçrama sınırı), ve `crypt` değilse
+> **hiçbir şey gönderilmeden** duruluyor. **Dokuz dejenere yol koşuldu:** `crypt` ✓ ·
+> `local` ✗ · `s3` ✗ · `alias→crypt` ✓ · `alias→local` ✗ · tanımsız ✗ · hedefsiz alias
+> ✗ · alias döngüsü ✗ · `crypt`→`crypt` ✓; artı iki kontrol: önek karışması
+> (`enc` vs `enc2`) **yok**, ve dört koşuda parola/markör çıktıda **0 kez**.
+> 🔴 **§4.7 ölçümü aracın seçimini belirledi:** markörlü bir parolayla
+> `rclone config show` **`password = *** ENCRYPTED ***`** basıyor (obscure değer 0,
+> düz metin markör 0) ama `config dump` obscure değeri **2 kez** döküyor — bu yüzden
+> `config show`, ve section'dan **yalnız `type` satırı** okunuyor. Sınır **19** artık
+> dört ölçülemeyen özelliğin yanına **ölçülen beşinciyi** yazıyor.
+>
+> **🔴 VE BU TURUN İKİ KENDİ HATASI, DEFTERE.**
+> **(1) §4.7 ölçümümün İLKİ GEÇERSİZDİ.** *"config show parolayı sızdırıyor mu"* diye
+> baktım ve `grep -c "$OBS"` **19** dedi — oysa test config'imde `password` satırı
+> **hiç yoktu**, yani `$OBS` boştu ve `grep -c ""` her satırı saydı. Markörlü bir
+> parolayla yeniden kurdum. **Bu, bu reponun `01-roles.sql`'inde yazılı olan dersin
+> aynısı** (*"bir doğrulama, tükettiği şeyin GÖRDÜĞÜ biçimi görmek zorundadır"*) — ve
+> sayının büyüklüğü onu ele verdi, cevabın kendisi değil.
+> **(2) Dejenere bataryam gerçek bir kusur buldu: `rclone check` YANLIŞ KAPSAMLIYDI.**
+> İki damga taşıyan bir staging dizininde, doğru yüklenmiş bir yedekten sonra
+> *"2 differences found"* deyip iş **kırmızı** oluyordu — çünkü karşılaştırma **tüm
+> dizini** tek bir damganın hedefiyle eşliyordu. CronJob'da staging taze bir
+> `emptyDir` olduğu için orada **oluşamaz**; elle koşan biri için oluşur. `--include
+> "tappa-$stamp.*"` ile kapatıldı ve **iki biçimde de** ölçüldü: iki damgalı dizin
+> **yeşil**, tek damgalı dizin **yeşil**. ⚠️ Kusuru bulan şey, testimin kendi
+> dağınıklığıydı — ve bu tam olarak *"dejenere girdileri kendin say ve koştur"*un ne
+> için olduğudur.
+>
+> **DEĞİŞMEYENLER:** kümeye **hiçbir mutasyon**, kullanıcının `tappa-db`'si yalnız
+> okundu, `ci.yml` **değişmedi**, **0 adet `.go`**, canlı ürün **200/200**. Sınır
+> listesi **1..22 ardışık**, **0 sarkan anahtar** (16 tanımlı / 16 atıf).
+>
+> ---
+>
+> **🔴 [FAZ E · 2026-08-16] 5. TUR — YENİ ÜÇÜNCÜ GÖZ RED. BLOKLAYAN: `crypt`
+> KONTROLÜM ŞİFRELEMEYİ DEĞİL, `type` SATIRINI ÖLÇÜYORDU — VE BU, OTURUMUN İMZA
+> SINIFININ BENİM ELİMDEN ÇIKMIŞ HÂLİ.**
+> Denetçi sevk edilen imajla ölçtü: **gerçekten `type = crypt`** olan bir remote'a tek
+> bir seçenek eklemek yetiyordu — `no_data_encryption = true` ile script *"destination
+> is an encrypted (crypt) remote"* deyip yüklüyor, doğruluyor ve **exit 0** veriyordu,
+> oysa hedefteki dump **düz gzip** (`037 213 \b`) ve manifest **`cat` ile okunabilir**.
+> 🔴 **Kendi dokuz dejenere yolumun dokuzu da yalnız `type` DEĞERİNİ değiştiriyordu;
+> crypt'in KENDİ seçeneklerini bir kez bile değiştirmemiştim** — yani dedektör, bir
+> önceki kusurun şekline göre yazılmıştı. Defterin kendi cümlesi, üçüncü kez.
+>
+> **SEÇİLEN ÇARE (2): BEYAN DEĞİL ÖZELLİK ÖLÇÜLÜYOR.** Yüklemeden **önce** crypt
+> remote'una bir kanarya yazılıyor, **altındaki** remote'tan geri okunuyor ve iki şey
+> assert ediliyor: saklanan baytlar rclone'un `RCLONE\0\0` sihirli baytıyla başlamalı,
+> ve saklanan **ad** kanaryanın düz metin markörünü içermemeli. Neden yüklemeden önce:
+> sonra koşan bir kontrol, hedefin şifresiz olduğunu ancak **çalışan kayıtlarını oraya
+> yazdıktan sonra** kanıtlardı.
+>
+> **DEJENERE YOLLAR, BU KEZ CRYPT'İN KENDİ SEÇENEKLERİ ÜZERİNDE — on beşi de
+> fail-closed, çıkış kodlarıyla:**
+>
+> | yol | rc | yol | rc |
+> |---|---|---|---|
+> | varsayılan crypt | **0** | `no_data_encryption = true` | **1** |
+> | `filename_encryption = standard` | **0** | `filename_encryption = off` | **1** |
+> | `filename_encryption = obfuscate` | **0** | ikisi birden | **1** |
+> | alias → iyi crypt | **0** | `no_data_encryption = TRUE` (büyük harf) | **1** |
+> | | | `no_data_encryption =␣true␣` (boşluklu) | **1** |
+> | | | crypt, `remote =` yok | **1** |
+> | | | alias → `nodata` crypt | **1** |
+> | | | düz `local` · tanımsız remote | **1** |
+> | | | bağlantı dizgisi · on-the-fly `:local:` | **1** |
+>
+> 🔴 **Büyük harf ve boşluklu varyantlar bu yaklaşımın neden seçildiğinin kanıtı:**
+> özellik, seçeneğin nasıl **yazıldığını** umursamıyor. Bir `config show` ayrıştırıcısı
+> (seçenek 1) o ikisinde kolayca yanılırdı.
+> **Ve "kanıtlanamadı" ile "şifresiz" AYRI iki mesaj:** kanarya yazılamazsa /
+> `cryptdecode` boş dönerse / alttaki remote okunamazsa iş *"COULD NOT BE PROVEN …
+> this is NOT a claim that the destination is unencrypted"* diyor ve **yine hiçbir şey
+> yüklemiyor**. ⚠️ Bu üçünden ikisi (kanarya yazımı, `cryptdecode`) fiilen tetiklendi;
+> *"yazıldı ama alttan okunamadı"* dalı yerel bir backing store ile **üretilemedi** →
+> **doğrulanamadı**, ve öyle yazıldı.
+>
+> **B1 — YENİ KONTROL, EN OLASI OPERATÖR HATASINDA TAMAMEN SESSİZ ÖLÜYORDU.**
+> `rclone config show "$1" 2>/dev/null` + `set -eu` altında `||`'siz atama: elle
+> yapıştırılmış bir Secret'ın **tek bozuk satırı** rclone'u `CRITICAL: Failed to load
+> config file … could not parse line` ile düşürüyor, `2>/dev/null` sebebi yutuyor ve
+> script **sıfır satır çıktıyla** ölüyordu (`rclone` ikilisi yoksa exit 127, aynı
+> sessizlik). ⚠️ **Benim test ettiğim yol — tanımsız remote — `config show`'un exit 0
+> verdiği yoldu**, yani sessiz olmayan tek yol. Artık stderr saklanıyor, çıkış kodu
+> kontrol ediliyor ve rclone'un kendi cümlesi mesaja giriyor; bozuk config ile
+> **ölçüldü**.
+>
+> **B2 — DOĞRULAYICI, BAĞLANTI HATASINI *"FORCE RLS yürürlükte değil"* DİYE TEŞHİS
+> EDİYORDU.** Guard **iki dizeyi** sayıyordu; `CONNECT` alınmış bir DB'de gerçek hata
+> `FATAL: permission denied for database "tappa"` ve o listede yok. Yapısal biçime
+> çevrildi: sonda ilk ifadesinde bir **markör satırı** basıyor; markör yoksa oturum
+> **hiç koşmamıştır**, sebebi ne olursa olsun. Ölçüldü — `CONNECT` alınmış DB:
+> *"the tappa_app probe produced no answer … neither a pass nor an RLS finding. Fix the
+> connection first. psql said: … permission denied for database"*; `CONNECT` geri
+> verilince aynı komut **ok / ok / 42501**.
+>
+> **B3 — BÜTÜNLÜK KOMUTU OPERATÖRÜN KENDİ MAKİNESİNDE ÇALIŞMIYORDU.**
+> `sha256sum -c <<<"…"` bu makinede (`sha256sum (Darwin) 1.0`) **`usage:` + exit 1**,
+> Debian+GNU'da `OK` — yani **sağlıklı bir yedek**, kesinti anında *"yedek bozuk"* gibi
+> okunan bir hata üretiyordu. Bu, README'nin 118–121. satırlarında **bedeli zaten
+> ödenmiş** kalıp (*yerel araç ≠ hedef araç*), ve provam Linux konteynerlerinde
+> koştuğu için o satır operatörün platformunda **hiç koşulmamıştı**. İki değişkeni
+> karşılaştıran biçime çevrildi ve **iki lezzette de** ölçüldü. ⚠️ Ayrıca `$STAMP`
+> artık elle veriliyor: `./restore/*.manifest` glob'u **iki damga** varsa iki hash
+> basıp sessizce yanlış eşleştiriyordu (ölçüldü).
+>
+> **B4 — SAYILMIŞ SINIR DAR SAYILMIŞTI.** *"rclone'un kendi çıktısı yolu basıyor —
+> **arızalı koşuda**"* yazmıştım; ölçüm: **exit 0 olan sağlıklı koşuda da** iki satır
+> (`0 differences found` / `2 matching files`). Yani **her gece**. Yön doğruydu,
+> kapsam yanlış; düzeltildi.
+>
+> **B5 — kapsam dışı, sayıldı:** `pg-backup.sh`'te `||`'siz komut-ikamesi atamaları
+> **bilerek** duruyor ve gerekçesi dosyada: hepsi rol kapısının **kanıtlanmış**
+> bağlantısından sonra koşuyor, ilk temasın kırılabildiği dört yol ise adlandırılmış
+> mesaj taşıyor. Aynı şekil ship script'inde **kabul edilmedi**, çünkü orada config
+> dosyasının kendisini koruyordu.
+>
+> **🔴 BU TURUN KENDİ HATALARI, DEFTERE.** (1) Özet harness'ım `cut -c` ile emoji'li
+> satırları kırpıp **boş** gösterdi ve üç FAIL'i bir an *"mesajsız"* sandım — çıktının
+> kendisi doğruydu, **ölçüm aracım** yanlıştı. (2) İlk doğrulama tablomda `set -- $c`
+> kullandım; **zsh tırnaksız parametreyi kelimelere bölmez**, yani *beklenen* sütunu
+> boş kaldı ve dört satır sahte *"MISMATCH"* gösterdi. İkisi de yalnızca raporlama
+> katmanındaydı ve ikisi de temiz komutlarla yeniden koşuldu — ama ikisi de aynı
+> dersin küçük hâli: **ölçüm aracının kendisi bir iddiadır.**
+>
+> **DEĞİŞMEYENLER:** kümeye hiçbir mutasyon, `tappa-db` yalnız okundu, `ci.yml`
+> değişmedi, **0 adet `.go`**, canlı **200/200**.
+>
+> ---
+>
+> **🔴 [FAZ E · 2026-08-16] 7. TUR — YENİ ÜÇÜNCÜ GÖZ RED. BLOKLAYAN: KANARYANIN
+> GERİ-OKUMA YOLU YANLIŞ ADRESE BAKIYORDU — VE BU, BİR TUR ÖNCE *"ÜRETİLEMEDİ"*
+> DEDİĞİM DALIN TA KENDİSİYDİ.**
+> `rclone cat "$crypt_under/$canary_stored"`. Crypt'in `remote =` değeri iki nokta
+> üst üsteden sonra **yol taşımıyorsa** (`remote = back:`) bu ifade **`back:/<ad>`**
+> üretiyor — **mutlak** bir yol; oysa kanarya remote'un **köküne** yazılmıştı.
+> Sevk edilen imajla, kusursuz şifreleyen bir depoda ölçüldü:
+> ```
+> rclone cat back:<ad>    ->  R C L O N E \0 \0    rc=0     (gerçek)
+> rclone cat back:/<ad>   ->  ERROR: error listing: directory not found, rc=3
+> ```
+> **Somut sonucu:** hedef **doğru şifrelerken** iş **her gece kırmızı**, **hiç yedek
+> çıkmıyor**, ve mesaj operatörü **kimlik/ağ** aramaya gönderiyor — sebep
+> `rclone.conf`'un tek satırıyken. 🔴 **Ve `remote = <ad>:` marjinal değil:** rclone'un
+> **kendi sihirbazının belgelediği** biçim, ve README'nin önerdiği iki hedeften biri
+> olan **SFTP** için **doğal** yazım.
+> 🔴 **İKİ KENDİ HATAM BURADA BİRLEŞİYOR.** (1) Geçen tur *"'yazıldı ama alttan
+> okunamadı' dalı yerel bir backing store ile üretilemedi"* yazmıştım — **üretildi**,
+> tek config satırıyla. *Bir şeyin üretilemez olduğu iddiası da bir ölçümdür, ve o
+> ölçüm yanlıştı.* (2) Aynı bloğun yorumu *"no alias arithmetic, **one code path**"*
+> diyordu; `"$crypt_under/…"` **bir yol aritmetiğidir** ve bir yazımda yanlıştı — yani
+> yorum, kodun yapmadığı bir şeyi ilan ediyordu.
+> **Düzeltme bir `rjoin` yardımcısı:** sondaki `/` kırpılır, taban `:` ile bitiyorsa
+> ad **doğrudan** eklenir, aksi hâlde `/` ile. **`remote =` yazımları üzerinde yedi
+> dejenere yol, hepsi rc=0:** `back:` · `back:sub` · `back:sub/` · `back:sub/deeper` ·
+> `/mutlak` · `/mutlak/` · alias arkasında; ve `back:` + `no_data_encryption=true`
+> hâlâ **rc=1**. Kalıcı bir backing store'la tekrarlandı: hedefte gerçek nesneler
+> **`RCLONE\0\0`** ile başlıyor, reddedilen koşuda hedef **0 nesne** (yani
+> *"yüklemeden önce"* kararı yine kanıtlandı), ve **hiçbir yerde kanarya kalmıyor**.
+> ⚠️ İlk bataryamda üç vaka **0 nesne** yazdı çünkü `local` backend'inde `root =`
+> diye bir seçenek **yok** — sondam kendi kurgusuyla yanılmıştı; alias'lı kurulumla
+> yeniden koşuldu.
+>
+> **SEKİZ MADDE.**
+> **B1** Doğrulayıcının *"yapısal"* guard'ı yapısal değildi: markör satırı
+> `SELECT … FROM public.transactions` idi, yani **ölçtüğü şeye bağlıydı**. Ölçüldü —
+> `REVOKE SELECT ON transactions` ile oturum **açılıyor**, psql **bağlanıyor**, ve yine
+> *"Fix the connection first"* diyordu. Artık ilk ifade **`SELECT 'PROBE-RAN'`** (hiçbir
+> tabloya, politikaya, yetkiye dokunmuyor) ve **üç ayrı** sonuç var: oturum hiç
+> açılmadı · açıldı ama tabloyu okuyamadı · gerçek RLS hükmü. İkisi de ölçüldü.
+> **B2** `cryptdecode --reverse … 2>/dev/null` + çıkış kodu kontrolsüz — B1'in kendi
+> gerekçesi 70 satır sonra uygulanmamıştı. rclone'un cümlesi artık mesaja giriyor.
+> **B3** 🔴 **İDDİA 16'YI YANLIŞ ÖLÇMÜŞÜM.** *"`base64 -w0` bu makinede çalışıyor"*
+> demiştim; **stdin** biçimini ölçmüştüm, README ise **dosya argümanı** kullanıyor.
+> Gerçek: `base64 -w0 <dosya>` → **`invalid argument`, rc=64, STDOUT BOŞ**, yani
+> `| gh secret set KUBE_CONFIG` **BOŞ BİR SECRET** yazardı. Portatif biçime çevrildi ve
+> iki lezzette **aynı bayt** olduğu md5 ile doğrulandı.
+> **B4** Kanarya, işin sahip olduğu önekin **dışına** (crypt kökü) yazılıyor ve silme
+> `|| true` idi; artık başarısız silme **uyarı basıyor** ve dosyanın nerede kaldığını
+> söylüyor. ⚠️ Silme hatası **üretilemedi** → doğrulanamadı, ve öyle yazıldı.
+> **B5** Sabit kanarya adı + elle yaratılan Job'lar yarışabiliyordu (`Forbid` yalnız
+> denetleyicinin Job'larını kapsar). Ad artık **koşu başına benzersiz** — yarış
+> belgelenmedi, **kaldırıldı**.
+> **B6** `[ "$live" -gt 0 ]` boş değişkenle **hata** verir ve `&&` zinciri tabloyu
+> *"blind"* listesine **almaz** — fail-open. Sayısal guard eklendi.
+> **B7** `psql … | sort -u > have.grants` borusu: psql düşse durum `sort`'un (0) olur,
+> dosya boş kalır ve `comm` **45 yetkinin hepsini "MISSING"** diye raporlardı. Her
+> sorgu artık durumu kontrol edilen bir dosyaya iniyor.
+> **B8** `obfuscate` geçiyor — **sayılmış seçim** olarak sınır 19'a yazıldı: rclone'un
+> kendi belgesine göre şifreleme değil geri çevrilebilir karıştırma; kalan maruziyet
+> **yalnız adlar**, içerik bayt kontrolüyle şifreli.
 
 ---
 

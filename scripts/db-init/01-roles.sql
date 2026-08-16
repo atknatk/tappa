@@ -75,9 +75,78 @@ GRANT CONNECT ON DATABASE tappa TO tappa_app;
 GRANT USAGE ON SCHEMA public TO tappa_app;
 GRANT USAGE ON SCHEMA public TO tappa_resolver;
 
--- Migration'larin bundan sonra yaratacagi her tabloda tappa_app'e DML yetkisi.
+-- Migration'larin bundan sonra yaratacagi her tabloda tappa_app'e taban yetki.
+--
+-- 🔴 UPDATE VE DELETE BILEREK YOK, VE BU M8-02 FAZ E'DE OLCULMUS BIR GUVENLIK
+-- DUZELTMESIDIR. Eskiden `GRANT SELECT, INSERT, UPDATE, DELETE` yaziyordu ve her
+-- migration istemedigini ACIKCA REVOKE ediyordu (`REVOKE DELETE ON tags`,
+-- `REVOKE UPDATE, DELETE ON transactions`, ...). Bu kalip migration'lar icin
+-- calisiyor ama BIR GERI YUKLEMEDE COKUYOR:
+--
+--   Bir pg_dump geri yuklenirken her CREATE TABLE bu varsayilani otomatik uygular,
+--   ve pg_dump ACL'i PostgreSQL'in YERLESIK varsayilanina (yalniz sahip) gore
+--   hesapladigi icin fazlaligi geri alan REVOKE'lari HIC YAZMAZ. Sonuc olculdu
+--   (taze pod, 2026-08-16): kaynak 45 tablo yetkisi, geri yukleme 76 -- yani
+--   tappa_app'e 31 FAZLA yetki, ve icinde su ucu vardi:
+--
+--     tags UPDATE  = true   (kaynakta false)
+--     tags DELETE  = true   (kaynakta false)
+--     tags.aes_key_ref UPDATE = true (kaynakta false; tablo duzeyi UPDATE sutun
+--                                     kisitini EZER -> sarmalanmis AES anahtarlari
+--                                     UZERINE YAZILABILIR, section 4.7)
+--
+--   Ve bu, section 4.3'ten fazlasini dusuruyordu: `tags` uzerinde DELETE + INSERT
+--   ile calinmis bir tappa_app kimligi bir plaketi silip last_ctr=0 ile yeniden
+--   ekleyebiliyor -- yani section 4.4'un REPLAY korumasi SIFIRLANIYOR.
+--   `tags_counter_monotonic` bunu durdurmuyor: yalniz BEFORE UPDATE ve yalniz
+--   `new.last_ctr < old.last_ctr` icin ates ediyor, INSERT'te hic calismiyor.
+--   (transactions_tag_fk ON DELETE RESTRICT bir sinir koyuyor: yalniz henuz tap
+--   kaydi olmayan plaketler silinebilir. Yeni encode edilmis her plaket oyledir.)
+--
+-- OLCUM, TAHMIN DEGIL -- daraltmanin taze bir kurulumu bozup bozmadigi sinandi:
+--   gercek goose imaji ile iki taze kurulum (genis varsayilan / dar varsayilan),
+--   20 migration ikisinde de basarili, ve tablo yetkileri ARASINDAKI TEK FARK
+--   `goose_db_version` uzerindeki UPDATE+DELETE (goose'un kendi defteri; uygulama
+--   ona hic dokunmaz). UYGULAMA TABLOLARININ HEPSI BIREBIR AYNI: 45 = 45.
+--   `go test -race -count=1 ./...` dar veritabanina karsi: exit 0, 22 paket ok,
+--   0 FAIL, 0 atlanan DB testi.
+--
+-- ⚠️ SONRAKI MIGRATION'LARI YAZAN ICIN: yeni bir tablo UPDATE ya da DELETE
+-- istiyorsa artik ACIKCA GRANT etmek zorunda.
+--
+-- 🔴 VE BU VAADIN KAPSAMI DARDIR -- BU CUMLE BIR TUR BOYUNCA KOSULSUZ YAZILDI VE
+-- ONE FAZLASINI SOYLUYORDU. "Unutulursa gurultulu permission denied alinir
+-- (fail-closed)" YALNIZ dar varsayilanin YURURLUKTE OLDUGU veritabanlarinda dogru,
+-- ve iki yerde yururlukte DEGIL (ikisi de olculdu, 2026-08-16):
+--
+--   (a) HALIHAZIRDA CALISAN BIR VERITABANI. Bu bir init script'idir, migration
+--       degil: yalniz BOS PGDATA uzerinde kosar. Uretimin ve gelistirme
+--       veritabaninin pg_default_acl'i bugun hala `tappa_app=arwd/tappa_owner`.
+--
+--   (b) 🔴 HER GERI YUKLEMENIN SONU. pg_dump'in URETTIGI DUMP, kendi son
+--       satirlarinda varsayilani YENIDEN GENISLETIYOR:
+--         ALTER DEFAULT PRIVILEGES FOR ROLE tappa_owner IN SCHEMA public
+--           GRANT SELECT,INSERT,DELETE,UPDATE ON TABLES TO tappa_app;
+--       Olculdu: dar init -> `ar`, geri yukleme sonrasi -> `arwd`, ve o anda
+--       yaratilan yeni bir tablo `tappa_app=arwd` aliyor. VAR OLAN tablolar
+--       etkilenmiyor (geri yukleme sonunda tags UPDATE/DELETE hala false, 45 yetki).
+--       Etkiledigi tek sey SONRAKI DDL'dir.
+--
+--   SOMUT SONUC VE NEDEN ONEMLI: dev/CI dar, uretim ve her geri yuklenmis
+--   veritabani genis. Yani DOGRULAMA ORTAMI URETIMDEN KATI, ve ayrim kusuru
+--   GIZLER yonde -- REVOKE satirini unutan bir migration yerelde hicbir fark
+--   uretmez, uretimde sessizce `arwd` verir. `pg-restore-verify.sh` de bunu
+--   goremez: referansi dump'in kendisi, dump ise genis varsayilani ILAN ediyor.
+--
+--   ⚠️ CARE VAR VE OLCULDU: geri yukleme prosedurunun SON adimi tek bir ifadeyle
+--   varsayilani yeniden daraltiyor (`REVOKE UPDATE, DELETE ON TABLES`), var olan
+--   tablolara dokunmadan (45 yetki, tags false/false, sekans varsayilani `rU`
+--   degismeden). deploy/README.md'nin A YOLU 7. adimi ve B YOLU B3'u onu tasiyor.
+--   CALISAN veritabani icin ayni ifade istege bagli bir sertlestirmedir ve
+--   deploy/README.md'de sinir olarak sayiliyor -- burada dayatilmiyor, cunku canli
+--   bir veritabanini migration disinda degistirmek bir karardir.
 ALTER DEFAULT PRIVILEGES FOR ROLE tappa_owner IN SCHEMA public
-  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO tappa_app;
+  GRANT SELECT, INSERT ON TABLES TO tappa_app;
 ALTER DEFAULT PRIVILEGES FOR ROLE tappa_owner IN SCHEMA public
   GRANT USAGE, SELECT ON SEQUENCES TO tappa_app;
 

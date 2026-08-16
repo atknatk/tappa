@@ -202,8 +202,34 @@ report FAIL R2 "Surekli konum takibi — GPS yalnizca tap aninda okunur" \
 # uzerinde UPDATE/DELETE'i BILEREK calistirir — amaci bu ifadelerin REVOKE/trigger
 # ile REDDEDILDIGINI kanitlamak (CLAUDE.md §4.3, §8 "RLS testi zorunlu"). Test
 # dosyasini taramak yanlis-pozitif uretirdi; uretim kodundaki ihlal hala yakalanir.
+# 🔴 SEMA NITELEMESI: DESEN ESKIDEN `public.transactions` YAZIMINI GORMUYORDU ve bu
+# olculdu (M8-02 FAZ E denetimi, 2026-08-16):
+#   UPDATE transactions SET x=1;          -> eslesti
+#   UPDATE public.transactions SET x=1;   -> ESLESMEDI
+#   DELETE FROM public.transactions;      -> ESLESMEDI
+# Agacta o ana kadar nitelemeli tek bir yazim yoktu, yani kural YANLIS SEBEPLE
+# yesildi; ilk nitelemeli mutasyonu bu turun kendi dogrulama araci getirdi. Yeni
+# desen istege bagli bir sema onekini ve tirnakli tanimlayiciyi da aliyor. Kontrol
+# olarak `transaction_reviews`, `transactions_archive`, `SELECT ... FROM
+# transactions` ve `INSERT INTO transactions` DENENDI: dordu de eslesMIYOR.
+#
+# _test.go MUAFIYETI (DAR — yalniz bu tarama, yalniz test dosyalari): bu kural
+# URETIM kodu icindir. RLS izolasyon testi (internal/db/rls_test.go) transactions
+# uzerinde UPDATE/DELETE'i BILEREK calistirir — amaci bu ifadelerin REVOKE/trigger
+# ile REDDEDILDIGINI kanitlamak (CLAUDE.md §4.3, §8 "RLS testi zorunlu").
+#
+# ⚠️ IKINCI MUAFIYET, TEK DOSYA ADIYLA: scripts/pg-restore-verify.sh. Ayni gerekce,
+# uretim kodu yerine bir OPERATOR ARACI icin: o dosya geri yuklenmis bir veritabaninda
+# `UPDATE/DELETE public.transactions ... WHERE false` deneyip reddin SQLSTATE'inin
+# 42501 (yetki) oldugunu assert ediyor -- yani bu kuralin korudugu seyi KANITLIYOR.
+# `WHERE false` hicbir satira dokunmuyor ve ifadeler ROLLBACK'li bir islemin icinde.
+# Muafiyeti dosya ADIYLA vermek, deseni gevsetmekten (ornegin `WHERE false`'u suzmek)
+# bilerek tercih edildi: bir suzgec genisletmesi agin kendisini asindirir, dosya adi
+# ise bir kez yazilir ve gozden gecirilir. Bedeli sayiliyor: o dosyadan `WHERE false`
+# kaldirilirsa R3 ARTIK GORMEZ -- onu goren sey, ayni dosyanin kendi 42501 assert'idir.
 report FAIL R3 "transactions tablosuna UPDATE/DELETE — kayitlar immutable" \
-  "$(scan -i -e '(UPDATE|DELETE +FROM) +transactions\b' --glob '!**/*_test.go' || true)"
+  "$(scan -i -e '(UPDATE|DELETE +FROM) +([a-zA-Z_][a-zA-Z0-9_]*\.)?"?transactions"?\b' \
+        --glob '!**/*_test.go' --glob '!scripts/pg-restore-verify.sh' || true)"
 
 # --- R4: atomik ctr / replay koruması ---------------------------------------
 # Kosulsuz sayac guncellemesi = TOCTOU replay acigi.

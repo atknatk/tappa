@@ -518,6 +518,23 @@ jobs:
             --from-file=01-roles.sql=scripts/db-init/01-roles.sql \
             --from-file=02-app-password.sh=deploy/k8s/postgres-init/02-app-password.sh \
             --dry-run=client -o yaml | kubectl apply -f -
+          # 🔴 THE BACKUP SCRIPTS TRAVEL WITH THE COMMIT; THE SCHEDULE DOES NOT.
+          # deploy/k8s/50-backup.yaml (the CronJob) is the OPERATOR's — this identity
+          # has no verbs on batch/cronjobs and deliberately gets none, because a
+          # schedule that never changes per commit does not belong on the per-commit
+          # path and widening the Role would make every deploy red until a cluster-admin
+          # re-applied 01-rbac.yaml. But the SCRIPTS the CronJob runs do change, and
+          # they live in exactly one place (scripts/pg-backup*.sh, inside the tree
+          # scripts/redline-check.sh already scans). Rebuilding the ConfigMap here is
+          # the same argument as tappa-db-init above: no second copy to drift.
+          # ⚠️ Harmless before the operator has applied 50-backup.yaml — this creates a
+          # ConfigMap nothing mounts yet — and it is what keeps a CronJob applied ONCE
+          # from running last month's script forever.
+          kubectl -n tappa create configmap tappa-backup-scripts \
+            --from-file=pg-backup.sh=scripts/pg-backup.sh \
+            --from-file=pg-backup-ship.sh=scripts/pg-backup-ship.sh \
+            --from-file=pg-restore-verify.sh=scripts/pg-restore-verify.sh \
+            --dry-run=client -o yaml | kubectl apply -f -
           kubectl apply -f deploy/k8s/10-postgres.yaml
           kubectl apply -f deploy/k8s/12-networkpolicy.yaml
           # WHAT THIS GATE MEASURES: the StatefulSet has a ready replica, i.e. the

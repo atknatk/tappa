@@ -1,0 +1,294 @@
+# Tappa — the nightly backup (M8-02; deploy/README.md limit [yedek kümede HENÜZ YOK]).
+#
+# 🔴 WHAT THIS REPLACES: NOTHING. Measured on this cluster on 2026-08-16, before this
+# file existed: `kubectl -n tappa get cronjob` -> "No resources found in tappa
+# namespace". There was no backup of any kind, and CLAUDE.md §4.3 makes public.
+# transactions immutable legal evidence that cannot be reconstructed from anywhere
+# else. M8-06's pilot runs a week of real attendance in parallel with BioTime; losing
+# that week loses the comparison the whole milestone exists to produce.
+#
+# 🔴 WHO APPLIES THIS FILE: THE OPERATOR, NOT deploy.yml — and that is a consequence
+# of a measurement, not a preference. deploy/k8s/01-rbac.yaml grants the deploy
+# identity nothing on the `batch` group except `jobs` (get/create/delete), so it
+# cannot create a CronJob. Widening the Role to let it would mean re-applying
+# 01-rbac.yaml with a cluster-admin kubeconfig FIRST, and every deploy between now and
+# that moment would go red on a resource it had never needed before. A schedule that
+# does not change per commit does not belong on the per-commit path. deploy/README.md
+# carries the two commands as an operator step.
+#
+#   The scripts DO travel on the per-commit path: deploy.yml rebuilds the ConfigMap
+#   below from scripts/pg-backup*.sh with --from-file on every run, exactly as it does
+#   for tappa-db-init from scripts/db-init/01-roles.sql. One definition of each script,
+#   in a directory scripts/redline-check.sh already scans, and no second copy to drift.
+#
+# 🔴 THE THREE THINGS THIS FILE DELIBERATELY DOES NOT DECIDE, because they are not the
+# manifest's to decide and pretending otherwise is how this card's signature defect
+# (announcing a guarantee that is not provided) gets written:
+#
+#   1. WHERE the backup goes. No off-node storage exists in this cluster — measured:
+#      one node, one StorageClass (local-path, a directory on that node's disk),
+#      `kubectl get csidrivers` empty, 20 of 20 PVs on local-path, and no backup
+#      operator of any kind cluster-wide. So the destination needs a credential only
+#      the operator has. It arrives as secret/tappa-backup-target, and this file names
+#      no provider, no bucket and no key.
+#   2. WHETHER AND HOW it is encrypted. rclone's `crypt` remote does it inside that
+#      same config, so the passphrase is in tappa-backup-target and not in
+#      tappa-secrets.
+#      🔴 THE REASON WRITTEN HERE FOR ONE ROUND WAS WRONG, AND IS CORRECTED RATHER
+#      THAN DELETED. It said: "the only scenario a backup exists for is 'the cluster
+#      is gone', and a backup key stored beside TAPPA_TAG_KEK is a key that is gone in
+#      exactly that scenario." That argues for off-cluster escrow, NOT for a second
+#      Secret — the two Secrets share a namespace, an etcd and a single node, so when
+#      the cluster is gone they are both gone. What the split actually buys, stated
+#      precisely: a smaller reader set. The dump container gets POSTGRES_PASSWORD and
+#      never TAPPA_TAG_KEK; the ship container gets the destination and neither.
+#      The property the old sentence claimed comes from ESCROW ALONE — deploy/README.md
+#      operator step 9(b), which now carries a check that proves escrow happened,
+#      because limit 19 says an unescrowed backup key is worse than no backup and an
+#      unverified instruction is exactly how that state is reached.
+#   3. HOW LONG copies are kept. BACKUP_RETENTION_DAYS below is a counted limit, not a
+#      legal opinion — a backup keeps a deleted record alive, so this number is bound
+#      to the same unanswered question as TAPPA_RETENTION_YEARS (deploy/README.md
+#      limit 2, backlog B3).
+#
+# 🔴 A STAGING PVC WAS ELIMINATED, NOT OVERLOOKED. The only StorageClass is local-path,
+# so a retained local copy would die in the same event as the database it copies —
+# and worse, it would sit in the namespace looking like a backup for whoever reaches
+# for one at 04:00. The dump is staged in an emptyDir, which the kubelet removes when
+# the POD is removed, and if it cannot be shipped the job goes red.
+#   ⚠️ THIS SENTENCE USED TO END "with nothing left behind", AND THAT WAS MORE THAN IS
+# KNOWN. failedJobsHistoryLimit is 3 and ttlSecondsAfterFinished is deliberately unset
+# so a failure stays visible, which means a failed Job's Pod object is RETAINED.
+# Whether the kubelet has already torn down that pod's emptyDir — holding a plain-text
+# dump with every aes_key_ref, every session token hash and every GPS row — while the
+# Pod object still exists WAS NOT MEASURED and is not claimed here. What is true: the
+# volume is not a PVC, so it cannot survive the pod's deletion, and after an incident
+# is understood `kubectl -n tappa delete job -l app.kubernetes.io/component=backup`
+# removes both.
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: tappa-backup
+  namespace: tappa
+  labels:
+    app.kubernetes.io/name: tappa
+    app.kubernetes.io/component: backup
+spec:
+  # 02:30 Malta, which is a gap and not a guess: KM Pastry & Bakery clocks in at
+  # 04:00 and Meat Production at 05:00, and Rusty Bar's night shift runs 18:00–02:00.
+  # 02:30 is after the latest clock-out and ninety minutes before the earliest
+  # clock-in. pg_dump takes only ACCESS SHARE and blocks no writer, so this is about
+  # CPU and disk on a node shared with ~30 other namespaces, not about correctness.
+  # ⚠️ timeZone, NOT a UTC schedule: Malta moves between UTC+1 and UTC+2, so a fixed
+  # UTC time would drift into the 04:00 shift for half the year. Supported since
+  # Kubernetes 1.27; this cluster is v1.35.4.
+  schedule: "30 2 * * *"
+  timeZone: "Europe/Malta"
+  # One at a time. A backup that overruns must not be joined by the next one competing
+  # for the same emptyDir and the same database.
+  concurrencyPolicy: Forbid
+  # If the controller was down at 02:30, still run when it comes back within the hour.
+  startingDeadlineSeconds: 3600
+  # 🔴 KEEP FAILURES VISIBLE. `kubectl -n tappa get job` is the only place an operator
+  # sees that last night did not work, so failed Jobs are retained and no
+  # ttlSecondsAfterFinished is set — a TTL would delete the evidence on a schedule.
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      # One retry. A transient dial failure is already handled inside the pod by the
+      # wait below; a second full attempt covers a restart of the database, and a
+      # third would only mean three copies of a dump nobody can ship.
+      backoffLimit: 1
+      activeDeadlineSeconds: 3600
+      template:
+        metadata:
+          labels:
+            # 🔴 app.kubernetes.io/name=tappa IS LOAD-BEARING AND ITS ABSENCE IS A
+            # SILENT, PERMANENT FAILURE. 12-networkpolicy.yaml admits exactly the pods
+            # in this namespace carrying this label to port 5432. A backup pod without
+            # it would be refused by a TCP RST and report "connection refused", which
+            # reads like a database that is down.
+            app.kubernetes.io/name: tappa
+            app.kubernetes.io/component: backup
+        spec:
+          restartPolicy: Never
+          # This pod calls no Kubernetes API. Mounting a token would hand a cluster
+          # credential to a process whose whole job is to read every row in the
+          # database — the two worst things to have in one place.
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+            fsGroup: 65532
+            seccompProfile:
+              type: RuntimeDefault
+          initContainers:
+            # 🔴 THIS IS NOT OPTIONAL AND deploy/README.md's limit
+            # [her yeni iş yükü kendi beklemesini taşır] SAYS SO BY NAME. k3s programs
+            # a new pod's address into 12-networkpolicy.yaml's allow-set
+            # ASYNCHRONOUSLY; measured on five fresh pods carrying the admitted label,
+            # all five were refused on their first attempt and admitted 0.2–1.0 s
+            # later. A restartPolicy: Never pod whose first action is to dial the
+            # database loses that race every time, because each backoff attempt is a
+            # new pod with a new address. This is the same container 30-migrate-job.yaml
+            # carries, for the same reason, spelled the same way — including -U, whose
+            # absence makes pg_isready print "no attempt" forever because uid 65532 is
+            # not in postgres:17-alpine's /etc/passwd and libpq never opens a socket.
+            - name: wait-for-postgres
+              image: postgres:17-alpine
+              imagePullPolicy: IfNotPresent
+              command:
+                - sh
+                - -ceu
+                - |
+                  deadline=$(( $(date +%s) + 120 ))
+                  until pg_isready -h tappa-postgres -p 5432 -U tappa_owner -d tappa -t 3 >/dev/null 2>&1; do
+                    if [ "$(date +%s)" -ge "$deadline" ]; then
+                      echo "tappa-postgres:5432 unreachable from this pod after 120 s" >&2
+                      echo "pg_isready says: $(pg_isready -h tappa-postgres -p 5432 -U tappa_owner -d tappa -t 3 2>&1)" >&2
+                      if addr=$(getent hosts tappa-postgres 2>/dev/null); then
+                        echo "the NAME RESOLVES to: $addr - so this is the socket, not DNS." >&2
+                        echo "See deploy/README.md, 'Olay mudahalesi' section 1." >&2
+                      else
+                        echo "the NAME tappa-postgres DOES NOT RESOLVE - this is DNS or the" >&2
+                        echo "Service, NOT the NetworkPolicy. See deploy/README.md section 5." >&2
+                      fi
+                      exit 1
+                    fi
+                    sleep 1
+                  done
+                  echo "tappa-postgres:5432 reachable from this pod"
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              resources:
+                requests: { cpu: 10m, memory: 16Mi }
+                limits:   { cpu: 200m, memory: 64Mi }
+
+            # 🔴 AN initContainer AND NOT A SIDECAR, SO THAT SHIPPING CANNOT HAPPEN
+            # UNLESS VERIFICATION PASSED. Kubernetes runs initContainers to completion
+            # in order; if this one exits non-zero the main container never starts, so
+            # there is no path on which an empty, short or row-level-security-blinded
+            # dump reaches the destination. scripts/pg-backup.sh carries the
+            # measurements behind that (a dump taken by a non-bypassing role is either
+            # a hard error or, with one extra flag, a silent 966-byte "success").
+            - name: dump-and-verify
+              image: postgres:17-alpine
+              imagePullPolicy: IfNotPresent
+              command: ["/bin/sh", "/scripts/pg-backup.sh"]
+              # Invoked through `sh` on purpose: the ConfigMap's defaultMode then
+              # cannot matter. A 0644 script that the entrypoint tries to exec is a
+              # failure this repository has already paid for once (audit round 4, B1).
+              env:
+                - name: PGHOST
+                  value: tappa-postgres
+                - name: PGUSER
+                  value: tappa_owner
+                - name: PGDATABASE
+                  value: tappa
+                - name: BACKUP_STAGE_DIR
+                  value: /staging
+                # 🔴 KEY BY KEY, NEVER envFrom — the same measured decision as
+                # 20-app.yaml's. This pod gets ONE value out of tappa-secrets and
+                # therefore cannot be handed TAPPA_TAG_KEK by a future edit to the
+                # Secret. It is the OWNER password, and that is not a hedge: a role
+                # that cannot bypass FORCE ROW LEVEL SECURITY produces an empty or
+                # partial dump, so a backup credential that reads everything is
+                # inherent to backups. What is contained is the rest — no ServiceAccount
+                # token, no ingress, no KEK, and a pod that lives for a minute a day.
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: tappa-secrets
+                      key: POSTGRES_PASSWORD
+              volumeMounts:
+                - { name: scripts, mountPath: /scripts, readOnly: true }
+                - { name: stage,   mountPath: /staging }
+                - { name: tmp,     mountPath: /tmp }
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              resources:
+                requests: { cpu: 100m, memory: 128Mi }
+                limits:   { cpu: "1",  memory: 512Mi }
+
+          containers:
+            - name: ship
+              # Pinned to a minor tag rather than :latest. ⚠️ This is a mutable tag and
+              # therefore the same class deploy/README.md counts as limit
+              # [`postgres:17-alpine` hareketli etiket]; the same reasoning carries it:
+              # the blast radius is a file copy, not a binary served to anyone.
+              image: rclone/rclone:1.71
+              imagePullPolicy: IfNotPresent
+              command: ["/bin/sh", "/scripts/pg-backup-ship.sh"]
+              env:
+                - name: BACKUP_STAGE_DIR
+                  value: /staging
+                - name: RCLONE_CONFIG
+                  value: /config/rclone.conf
+                # rclone writes a cache and reads $HOME; the root filesystem is
+                # read-only, so both are pointed at the tmp emptyDir.
+                - name: HOME
+                  value: /tmp
+                - name: RCLONE_CACHE_DIR
+                  value: /tmp
+                # A counted limit, deliberately literal in the manifest: changing how
+                # long employees' attendance data survives outside the database is a
+                # decision, and decisions live where they can be reviewed in a diff.
+                - name: BACKUP_RETENTION_DAYS
+                  value: "30"
+                # NOT a secret, but it travels with the credential it belongs to, so
+                # that a change of destination is one object and not two. Key by key.
+                - name: BACKUP_REMOTE
+                  valueFrom:
+                    secretKeyRef:
+                      name: tappa-backup-target
+                      key: BACKUP_REMOTE
+              volumeMounts:
+                - { name: scripts,  mountPath: /scripts, readOnly: true }
+                - { name: stage,    mountPath: /staging }
+                - { name: tmp,      mountPath: /tmp }
+                - { name: rclone,   mountPath: /config,  readOnly: true }
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              resources:
+                requests: { cpu: 100m, memory: 128Mi }
+                limits:   { cpu: "1",  memory: 512Mi }
+
+          volumes:
+            - name: scripts
+              configMap:
+                name: tappa-backup-scripts
+                defaultMode: 0555
+            - name: stage
+              emptyDir:
+                # Sized for headroom, not for today: the production database is empty
+                # until the first signup, while this repository's own seeded database
+                # dumps to 546 MiB plain / 120 MiB gzipped at 2.1 million rows. The
+                # plain file and its gzip coexist for a moment, so this is roughly
+                # four times the largest dump seen anywhere. If it is ever exceeded the
+                # job fails LOUDLY — measured against an 8 MiB volume: pg_dump exits
+                # non-zero with "No space left on device" and nothing is shipped.
+                sizeLimit: 8Gi
+            - name: tmp
+              emptyDir:
+                sizeLimit: 64Mi
+            - name: rclone
+              secret:
+                secretName: tappa-backup-target
+                # Enumerated, so this mount cannot pick up a key added to the Secret
+                # later. The file-shaped equivalent of "key by key".
+                items:
+                  - key: rclone.conf
+                    path: rclone.conf
+                defaultMode: 0400
