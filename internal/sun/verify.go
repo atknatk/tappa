@@ -130,14 +130,32 @@ type tagResolver interface {
 // long-lived secret this package references and it is never copied elsewhere.
 type Verifier struct {
 	tags tagResolver
-	kek  []byte
+	// keks is ordered: keks[0] is the primary (Config.TagKEK) and is tried first.
+	// It has more than one entry only during a KEK rotation; see UnwrapAny.
+	keks [][]byte
 }
 
 // NewVerifier wires a Verifier. tags is normally *db.DB; kek is Config.TagKEK
 // (32 bytes, validated by internal/config). The KEK is held by reference, exactly
 // as keys.go's contract expects — the package caches no unwrapped tag key.
-func NewVerifier(tags tagResolver, kek []byte) *Verifier {
-	return &Verifier{tags: tags, kek: kek}
+//
+// previous is the OPTIONAL rotation fallback (Config.TagKEKPrevious). It is
+// variadic so that the twenty-eight existing call sites keep compiling unchanged
+// — churning them would have been twenty-eight chances to pass the wrong slice in
+// a change whose whole point is that the read path must not break.
+//
+// EMPTY ENTRIES ARE DROPPED, and that is safe rather than lenient: an unset
+// previous KEK is nil, which is the ordinary steady state, so main can pass
+// cfg.TagKEKPrevious straight through without a branch. A previous KEK that is
+// SET but malformed never arrives here at all — internal/config refuses to start.
+func NewVerifier(tags tagResolver, kek []byte, previous ...[]byte) *Verifier {
+	keks := [][]byte{kek}
+	for _, p := range previous {
+		if len(p) > 0 {
+			keks = append(keks, p)
+		}
+	}
+	return &Verifier{tags: tags, keks: keks}
 }
 
 // Verify runs the fixed SUN flow for an already-parsed tap (p comes from Parse at
@@ -226,7 +244,10 @@ func (v *Verifier) Verify(ctx context.Context, p Params) (Result, error) {
 // our own corrupt storage or a wrong KEK, i.e. a server problem, never the
 // tapper's fault (ADR 0003 madde 4, the portability guard).
 func (v *Verifier) verifySUN(tag db.ResolvedTag, p Params) (bool, error) {
-	key, err := Unwrap(v.kek, p.UIDBytes, tag.AESKeyRef)
+	// UnwrapAny, not Unwrap: during a KEK rotation the park is mixed and a row may
+	// still be sealed under the previous KEK. With one KEK configured this is
+	// Unwrap with one extra slice bounds check.
+	key, err := UnwrapAny(v.keks, p.UIDBytes, tag.AESKeyRef)
 	if err != nil {
 		return false, fmt.Errorf("unwrap tag key: %w", err)
 	}

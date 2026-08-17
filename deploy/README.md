@@ -971,6 +971,586 @@ yalnız hata kodunu assert eden bir kontrol gördü.
 
 ---
 
+## KEK döndürme — `TAPPA_TAG_KEK` sızdıysa
+
+> **Bu bölüm bir prosedürdür, bir açıklama değil.** Panikteyken okunacak diye
+> yazıldı: önce ne döndürdüğü, sonra ön koşullar, sonra sırayla komutlar, sonra
+> doğrulama, sonra **geri alma**, sonra **ne zaman durulacağı**.
+
+### Ne döndürülüyor — ve ne döndürülMÜyor
+
+| | |
+|---|---|
+| **Döner** | **KEK.** Her plaketin AES anahtarı **yeni KEK altında yeniden sarmalanır**. `tags.aes_key_ref` değişir. |
+| **Dönmez** | **Plaketin kendi AES anahtarı.** O çipe yazılıdır (**ADR 0003 md. 5 — "Anahtar döndürme"**; md. 3 anahtarın nasıl ÜRETİLDİĞİNİ anlatır). Değiştirmek **her duvardaki her plaketi fiziksel olarak yeniden encode etmek** demektir; ⚠️ ve md. 5 şüpheli bir plaket anahtarı için normatif yolu **`retire + replace`** olarak adlandırıp yerinde **`ChangeKey`'i MVP DIŞI** bırakıyor — yani bu satırın tarif ettiği şey ADR'nin **bilerek ertelediği** mekanizmadır. Bu prosedürün kapsamı DIŞINDA, bir saha operasyonudur. |
+| **Değişmeyen** | **Duvardaki çip.** Kimse bir mekâna gitmez. |
+
+Yani: **sızan bir KEK bir terminalden kurtarılır; sızan bir PLAKET ANAHTARI merdivenle
+kurtarılır.** İkisini karıştırma — sızıntının hangisi olduğunu önce belirle.
+
+### Bu iş neden tek adım değil — karışık park
+
+Parkın hangi satırının hangi KEK'le sarıldığını **şemada hiçbir şey yazmıyor**
+(`tags`'te KEK sürüm sütunu **yok**, bilinçli: eklenseydi de her iki anahtarın süreçte
+**mevcut** olması yine gerekirdi, yani bir migration alır bir güvenlik vermezdi).
+Dolayısıyla yeniden sarmalama **anlık değildir** ve sürerken park **karışıktır**:
+bir kısmı yeni KEK altında, bir kısmı eski.
+
+🔴 **Tek KEK tutan bir süreç, karışık parkın öteki yarısındaki her tap'e 500 döner.**
+Bu §4.6'nın (*"kayıt asla kaybolmaz"*) ürünün ALTINDA çökmesidir: kayıt `flag`'lenmez,
+**hiç alınmaz**. Bu yüzden sıra şudur ve **atlanamaz**:
+
+```
+1. İKİ KEK'İ DE YÜKLE      (TAPPA_TAG_KEK_PREVIOUS = eski, TAPPA_TAG_KEK = yeni) → rollout
+2. PARKI YENİDEN SARMALA   (cmd/rotatekek)
+3. ESKİ KEK'İ DÜŞÜR        (TAPPA_TAG_KEK_PREVIOUS'u kaldır) → rollout
+```
+
+**Adım 3 rotasyonun kendisidir.** 1 ve 2 bittiğinde sızmış KEK **hâlâ açıyor**;
+3 koşulana kadar hiçbir şey kazanılmamıştır.
+
+### Ön koşullar
+
+**0. `OWNER_DSN`'i TANIMLA.** Aşağıdaki her komut onu kullanır ve tanımsız bir
+kabuk değişkeni `psql ""` demektir — libpq **sessizce** kendi varsayılanlarına
+düşer (yerel soket, `$USER`, `$USER` adlı veritabanı) ve komut bambaşka bir yerde
+koşar. Bu reponun owner DSN'i **`DATABASE_MIGRATE_URL`**'dir (migration'ın
+`tappa_owner` ile bağlandığı değer; `deploy/examples/secret.example.yaml`).
+
+🔴 **PAROLAYI DSN'E KOYMA — bu bölüm KEK'i argv'den yasaklarken owner parolasını
+argv'ye koyuyordu, ve tehdit modeli aynı** (`ps` argv'yi görür, kabuk geçmişi de).
+`tappa_owner` **yerelde ölçülen** hâliyle `rolsuper=t rolbypassrls=t` ve üretimde de
+öyle **olması beklenir** (`10-postgres.yaml` `POSTGRES_USER: tappa_owner` veriyor ve
+imajın giriş betiği onu initdb'nin bootstrap süper kullanıcısı yapar) — **üretimde
+doğrudan sorulmadı**. Hangi hâlde olursa olsun sızması KEK'ten aşağı kalmaz. Parola **DSN'de değil** — ve bu bölümde **tek bir** parola mekanizması var:
+`PGPASSFILE`, adım 2'de `mktemp` ile yaratılan ve `trap` ile silinen **geçici** bir
+dosya.
+
+🔴 **`~/.pgpass` YOLU KALDIRILDI, ve sebebi ölçüldü.** Burada eskiden kalıcı
+`~/.pgpass`'e yazdıran bir blok vardı ve temizliği literal `HOST` dizesini arayan
+bir `sed`'di — gerçek bir dosyada **hiçbir zaman eşleşmez**, yani süper kullanıcı
+parolası diskte kalırken runbook *"kalan owner satiri: 0"* basıyordu: koşulsuz bir
+no-op, kendi beklentisini doğrulayan. İki mekanizma yerine bir tane olması bu
+sınıfı ortadan kaldırıyor — silinecek şey tek bir dosya ve onu `trap` siliyor.
+
+**1. İKİ dosyayı da hazırla: bugünkü KEK ve yeni KEK.** Adım 2 ikisini de ister.
+```bash
+umask 077                                   # yeni dosyalar 0600 doğsun
+# 🔴 install -m 600 /dev/null ÖNCE: umask VAR OLAN bir dosyanın iznini
+#    değiştirmez ve > bir symlinki İZLER. /tmp bu makinelerde drwxrwxrwt, ad
+#    öngörülebilir ve dosya rotasyondan önce yok — yani ad önceden yaratılabilir.
+#    Ölçüldü: çıplak > ile hedef mode 666 ve symlink KALIYOR; install ile
+#    symlink düz 0600 dosyayla DEĞİŞİYOR. Aynı teknik iki satır aşağıda eski KEK
+#    için zaten kullanılıyordu; yalnız birine uygulanmıştı.
+install -m 600 /dev/null /tmp/kek_new.b64
+openssl rand -base64 32 > /tmp/kek_new.b64  # YENİ KEK — ekrana bakma
+# ESKİ KEK: bugün kümede duran değer. Emanetten/sır deposundan al ve dosyaya yaz;
+# terminale yazdırma. (Küme kopyasının parmak izini operatör adımı 2deki sha256
+# önekiyle karşılaştırabilirsin — değerin kendisini basmadan.)
+# 🔴 cat > KULLANMA: etkileşimli tty girdiyi EKRANA YANKILAR. Ama read -rs -p
+#    DE KULLANMA — ölçüldü, zsh'te -p "coprocess'ten oku" demek: read anında
+#    1 dönüyor, && zinciri kırılıyor, printf hiç koşmuyor (dosya 0 BAYT kalıyor)
+#    ve girdi TÜKETİLMEDİĞİ için yapıştırılan KEK bir komut olarak çalışıp
+#    command not found: <KEK> ile EKRANA BASILIYOR. Aşağıdaki biçim POSIXtir ve
+#    bash ile zshte AYNI davranır (ikisinde de ölçüldü).
+install -m 600 /dev/null /tmp/kek_old.b64
+printf 'ESKI KEK (yapistir, Enter): '
+stty -echo; IFS= read -r K; stty echo; printf '\n'
+printf '%s' "$K" > /tmp/kek_old.b64
+unset K
+wc -c < /tmp/kek_old.b64      # 44 (base64) olmalı; 0 ise DUR, yankı riski var
+```
+🔴 Yeni KEK de **yeniden üretilemez**. Emanet adımı (operatör adımı 2) eskisi için
+neyse yenisi için de odur. **Eski KEK'i adım 3 doğrulanana kadar SİLME.**
+
+**2. Sırlar dosyadan geçsin, komut satırından değil.** `ps` argv'yi görür, kabuk
+geçmişi de. ⚠️ **Ve `export` de bedava değil:** ihraç edilen bir değişken o
+oturumdaki **her** alt sürece miras geçer ve `/proc/<pid>/environ` üzerinden aynı
+UID'ye (ve root'a) okunur. Bitince **temizle** — adım 3'ün sonundaki blok bunu
+yapıyor.
+
+**3. Yazma yetkisi.** Migration 00013 `UPDATE(aes_key_ref)`'i `tappa_app`'ten
+**kaldırdı**, yani bu prosedür owner ile koşar:
+```bash
+psql -X "$OWNER_DSN" -At -c "SELECT has_column_privilege(current_user,'tags','aes_key_ref','UPDATE');"
+```
+🔴 **BU KONTROL YETMEZ VE TEK BAŞINA GÜVEN VERMESİN.** Ölçüldü (2026-08-16,
+73 100 satırlık kopya): `NOSUPERUSER NOBYPASSRLS` bir rol bu sorguya **`t`**
+cevabı verir ve `tags`'i **hiç göremez** (`FORCE ROW LEVEL SECURITY`, politika
+PUBLIC'e yazılı). Asıl kontrol şu — ve aracın ürettiği SQL bunu **kendi içinde
+zorunlu kılar**, yani unutulamaz:
+```bash
+psql -X "$OWNER_DSN" -At -c "SELECT rolsuper OR rolbypassrls FROM pg_roles WHERE rolname=current_user;"
+# t olmalı. f ise DUR: o oturum parkın tamamını ne görebilir ne yazabilir.
+```
+
+**4. Plaket yüklemeyi DURDUR.** Araç okuma ile yazma arasında parkın büyüklüğünün
+değişmediğini doğruluyor; koşu sırasında panelden tek bir plaket eklenirse
+rotasyon **fail-closed** iptal olur (ölçüldü: `72860 rows were read but tags holds
+72861 … Nothing written`). Doğru davranış ama sürekli yükleme yapılan bir
+işletmede rotasyon **hiç tamamlanamaz**. Yükleme penceresini kapat, sonra başla.
+
+**5. Derlemeyi ve geçici dizini SCRIPT yapar — burada elle bir adım YOK.**
+
+🔴 **BU ÖN KOŞUL BİR TUR BOYUNCA ÖLÜ KOD TAŞIDI, ve bir yan etkisi vardı.** Burada
+`mktemp -d` + `trap` + `go build -o "$WORK/rotatekek"` yazan bir blok duruyordu ve
+`$WORK/rotatekek` **hiçbir yerde çalıştırılmıyordu** — prosedür `scripts/rotate-kek.sh`
+çağırıyor, o da kendi `mktemp -d`'sini ve kendi derlemesini yapıyor. Üstelik o
+bloğun `trap ... EXIT`'i, adım 2'deki `PGPASSFILE` trap'i tarafından **eziliyordu**
+(bash'te ikinci `trap ... EXIT` birincinin yerine geçer), yani operatörün kabuğunda
+o geçici dizin **koşulsuz sızıyordu**. Blok kaldırıldı.
+
+Gereken tek şey: **`bash` ve bir Go araç zinciri**. Derlemeyi, `mktemp -d`'yi,
+`trap`'i, `ON_ERROR_STOP`'u ve çıkış kodu haritalamasını script yapıyor —
+`TestRotateScript_KeepsItsStructuralGuards` bunları tutuyor.
+
+**5a. Aracın koşacağı yer.** `Dockerfile` yalnız `bin/tappa`'yı, migration imajı
+yalnız goose'u taşır: **`cmd/rotatekek` hiçbir imajda yok** ve `go run` bir Go
+araç zinciri ister. Yani araç bir **checkout + Go** olan bir makinede koşar ve o
+makine `OWNER_DSN`'e ulaşabilmelidir.
+
+> ⚠️ **BU KÜMEDE `tappa-postgres:5432`'YE NEREDEN ULAŞILDIĞI ÖLÇÜLMEDİ.**
+> `k8s/12-networkpolicy.yaml` 5432'yi yalnız **`tappa` namespace'inde
+> `app.kubernetes.io/name: tappa` etiketli pod'lara** açıyor. Operatörün
+> dizüstünden `kubectl port-forward` bu kuralın **etrafından dolaşır mı**, bu
+> repoda **hiç ölçülmedi**. Ön koşul 0'daki komut cevap vermiyorsa rotasyona
+> başlama; önce ulaşımı çöz.
+
+**5b. BU PROSEDÜR RLS'İ ATLAYAN BİR OTURUM AÇAR — kapsamını, ömrünü ve kapanışını
+bil.** Ön koşul 3 `rolsuper OR rolbypassrls` istiyor ve üretilen SQL bunu **zorunlu**
+kılıyor; yani bu oturum **her tenant politikasını atlar** (§4.5'in kuşağı bu oturumda
+yoktur, yalnız kemer — açık `tenant_id` yüklemleri — kalır). Yeni bir delik değil
+(migration zaten `tappa_owner` ile koşuyor) ama kural aynı: **aç, koş, kapat.**
+Rotasyon bitince `psql` oturumunu kapat, uzun ömürlü bir shell'de tutma, ve bu
+oturumu paylaşılan bir makinede açma. Bu oturumun izi `audit_log`'a **düşmez** —
+aşağıdaki sayılmış açık.
+
+**5c. KAPININ ÇALIŞMASI, İÇİNDE DUYURU OLAN BİR İMAJIN SEVK EDİLMİŞ OLMASINA
+BAĞLI — ve bugün sevk edilmiş DEĞİL.** Ölçüldü (2026-08-17, salt okunur):
+
+```
+kubectl -n tappa get deploy tappa -o jsonpath='{range .spec.template.spec.containers[0].env[*]}{.name}{"\n"}{end}'
+  -> DATABASE_URL · TAPPA_INVITE_HMAC_KEY · TAPPA_SESSION_HMAC_KEY · TAPPA_TAG_KEK     (DÖRT)
+kubectl -n tappa get deploy tappa -o jsonpath='{.spec.template.metadata.annotations}'
+  -> (boş: reloader/checksum YOK)
+kubectl -n tappa get externalsecrets -n tappa    -> No resources found   (CRD'ler kurulu, nesne yok)
+```
+
+Yani **canlı Deployment bu değişikliğin öncesindedir**: beşinci `secretKeyRef`
+orada yok ve çalışan ikili `kek_rotation_window=` satırını **yazmıyor**. Adım 1'in
+(c) kapısı ancak `20-app.yaml` + yeni imaj sevk edildikten **sonra** anlamlıdır.
+Bu sırayla: önce normal deploy (manifest + imaj), **sonra** rotasyon.
+⚠️ Bunu böyle yazmanın sebebi: kapı `0 / 0` okursa sebebi *"pencere kapalı"* değil
+**"bu ikili o satırı hiç yazmıyor"** olabilir — ve tablo seni zaten durdurur.
+
+**6. SUNUCU TARAFI İFADE LOG'UNU KAPAT — bu adım atlanırsa rotasyon sırların
+kopyasını üretir.** Araç 88 hex haneli sarmalı ref'leri SQL olarak yazar; ifade
+log'u açıksa bunlar **kalıcı bir dosyaya** düşer. Ölçüldü: bu reponun geliştirme
+Postgres'i (`docker-compose.yml`, `-c log_statement=all
+-c log_min_duration_statement=0`) 21 satırlık koşularda **105 sarmalı ref
+literalini** konteyner log'una yazdı. Üretimin `10-postgres.yaml`'ı `args: []`
+ile temiz — ama bu bir **yapılandırma**dır, bir garanti değil, ve §1'in hedefi
+olan **managed Postgres**'te sorgu-içgörü boru hatları yaygın olarak açıktır ve
+**üçüncü taraf bir log deposuna akar**.
+```bash
+psql -X "$OWNER_DSN" -At -c "SELECT name||' = '||setting FROM pg_settings WHERE name IN ('log_statement','log_min_duration_statement','log_min_error_statement');"
+# log_statement = none  ve  log_min_duration_statement = -1  olmalı.
+```
+Değilse rotasyondan önce kapat (`ALTER SYSTEM SET log_statement='none'; SELECT
+pg_reload_conf();`), sonra eski hâline getir. **`pg_stat_statements` ayrı bir
+sorudur:** o ifadeleri **normalize eder**, ama bu araç literaller yazar —
+yüklüyse rotasyon sonrası `pg_stat_statements_reset()` çağır.
+
+### Adım 1 — iki KEK'i de yükle, rollout et
+
+`tappa-secrets`'a **`TAPPA_TAG_KEK_PREVIOUS`** ekle (değeri: **bugünkü, sızmış**
+KEK) ve `TAPPA_TAG_KEK`'i **yeni** değerle güncelle.
+
+🔴 **SIRRA EKLEMEK YETMEZ — İKİ AYRI SEBEPTEN.**
+
+**(a) Manifest o adı ADIYLA çekmek zorunda.** `20-app.yaml` sırrı **anahtar
+anahtar** çekiyor (`envFrom` bilinçli değil: `DATABASE_MIGRATE_URL`'i de sürece
+sokardı). Bu dosyanın ilk sürümü *"sırra ekle ve rollout et"* diyordu ve manifestte
+o ad **yoktu** → rollout yeşil, değişken **hiç** enjekte edilmez, adım 2 parkı
+sunucunun tutmadığı anahtarın altına taşır, her tap **500**, hiç işlem satırı
+yazılmadan (§4.6). Bugün `20-app.yaml` onu `optional: true` ile listeliyor.
+**⚠️ Ve `optional: true` bir yazım hatasını SESSİZCE YUTAR:** sırra
+`TAPPA_TAG_KEK_PREV` yazarsan kubelet pod'u başlatır, değişken enjekte edilmez,
+pencere kapalı kalır. Bunu yakalayan tek şey aşağıdaki **(c)** kapısıdır.
+
+⚠️ **`tappa-secrets` bugün ELLE yönetiliyor:** kümede `external-secrets` CRD'leri
+**kurulu**, ama `tappa` namespace'inde **hiç `ExternalSecret` yok** (ölçüldü). Yani
+"sırra ekle" = `kubectl edit secret` / yeniden apply. **ESO'ya geçilirse adım 1 ve
+adım 3 yeniden yazılmalı** (`refreshInterval` da pod'u yeniden başlatmaz —
+`examples/externalsecret.example.yaml` bunu zaten söylüyor).
+
+**(b) SIRRI DÜZENLEMEK ÇALIŞAN POD'U YENİDEN BAŞLATMAZ.** `secretKeyRef` ile gelen
+env yalnız konteyner **doğarken** okunur, ve bu Deployment'ta `reloader`/`checksum`
+annotation'ı **yok** (ölçüldü). Yeniden başlatmayı **sen** yaptırırsın — bu bilgi
+repoda `examples/externalsecret.example.yaml`'da zaten yazılıydı, bu bölümde
+değildi:
+
+```bash
+kubectl -n tappa rollout restart deployment/tappa
+kubectl -n tappa rollout status  deployment/tappa --timeout=180s
+```
+⚠️ `rollout status` **beklenmeden** devam etme: `maxSurge: 1` / `maxUnavailable: 0`
+ile yeni pod Ready olduktan sonra bile **eski pod** birkaç saniye servis edebilir ve
+onun `TAPPA_TAG_KEK`'i **eskidir**. O saniyelerde adım 2'yi koşarsan eski pod'a düşen
+her tap 500 döner.
+
+**(c) KAPI: sürecin KENDİ söylediği POZİTİF olguyu oku.**
+
+```bash
+kubectl -n tappa logs deployment/tappa | grep -c 'kek_rotation_window=open'     # >= 1 OLMALI
+kubectl -n tappa logs deployment/tappa | grep -c 'kek_rotation_window=closed'   # 0 OLMALI
+```
+
+🔴 **BU KAPININ BİÇİMİ BİLİNÇLİ, ÇÜNKÜ ÖNCEKİ BİÇİM YANLIŞTI.** Önceki sürüm
+`--since=5m` ile **OPEN satırının YOKLUĞUNU** okuyordu. Uyarı açılışta bir kez,
+sonra 15 dakikada bir düşüyor, yani beş dakikalık pencere onu ancak
+`(uptime mod 15dk) < 5dk` iken görürdü — **5/15 = %33 doğru**, kalan %67'de
+*"pencere kapalı"* derdi. Üstelik bir **yokluk**, şunlardan da doğar: log seviyesi
+yükseltilmiş · log dönmüş · yanlış pod'a bakılmış · henüz bakılmamış. *"Kapalı"*
+ile *"bilemiyorum"* aynı okumaydı — ve bu kapı, operatörün sızmış KEK'in **emanet
+kopyasını imha etmesinden** önceki tek kapıdır.
+
+Artık **bu depodaki ikili** açılışta **iki durumdan tam birini** yazıyor, yani kapı
+bir **olgu** okuyor ve üç sonucu birbirinden ayırıyor. ⚠️ **AĞAÇ/KÜME AYRIMI ÖN
+KOŞUL 5c'DEKİYLE AYNI VE BURADA DA GEÇERLİ:** *çalışan* ikili bu satırı henüz
+yazmıyor (ölçüldü), yani tablo ancak yeni imaj sevk edildikten sonra anlamlıdır —
+o zamana kadar okuma **`0/0`** olur ve tablo seni zaten durdurur.
+
+| `open` | `closed` | Anlam |
+|---|---|---|
+| ≥1 | 0 | pencere **AÇIK** |
+| 0 | ≥1 | pencere **KAPALI** |
+| 0 | 0 | 🔴 **BİLİNMİYOR — DUR.** Log seviyesi, log dönmesi ya da yanlış pod. Cevap alana kadar ilerleme. |
+
+⚠️ `--since` **kullanma**: satır açılışta düşer ve saatler önce olabilir.
+`rollout status` tamamlandıysa `logs deployment/tappa` yeni ReplicaSet'in pod'unu
+okur. ⚠️ Kapı `TAPPA_LOG_LEVEL`'a bağlı (`05-config.yaml` = `info`); `error`'a
+çekilirse **iki sayı da 0** olur ve tablo seni **durdurur** — güvenli yön.
+
+Uygulama açılışta ikisini de doğrular: `TAPPA_TAG_KEK_PREVIOUS` **isteğe
+bağlıdır**, ama **set edildiyse geçerli olmak zorundadır** (32 bayt, base64) ve
+`TAPPA_TAG_KEK`'e **eşit olamaz**.
+
+### Adım 2 — parkı yeniden sarmala
+
+🔴 **PROSEDÜRÜN GÖVDESİ ARTIK BU DOSYADA DEĞİL — `scripts/rotate-kek.sh`'TE.**
+Sebebi ölçüldü: **bir runbook, belirtilmemiş bir dilde yazılmış bir programdır**
+(operatörün kabuğu). Gerçek bir pty'de `zsh -f -i` ile bu bölümün blokları
+yapıştırıldığında bir **`#` yorum satırındaki backtick'in içeriği ÇALIŞIYOR** — en
+keskin örnekte yorumun uyardığı **saldırgan ikilisinin yolunu yorumun kendisi
+koşturuyordu** — ve tek sayıda apostrof taşıyan bir yorum zsh'i `quote>` moduna
+sokup **bir sonraki gerçek komutu yutuyordu**. `bash` 3.2'de ikisi de olmuyor,
+yani *"bash ve zsh'te aynı"* cümlesi yalnız test edilen blok için doğruydu.
+
+Bir **dosya** bu kategoriyi ortadan kaldırır: kabuk artık **belirtilmiştir**, kimse
+yapıştırmaz, ve `ON_ERROR_STOP`/`mktemp`/`trap` operatörün parmaklarında değil
+sürecin içindedir. Emsal bu repoda: `scripts/pg-backup.sh`,
+`pg-backup-ship.sh`, `pg-restore-verify.sh`.
+
+```bash
+# Parola DSN'de değil, PGPASSFILE'da. Böylece temizlik bir DESEN EŞLEŞTİRMESİ
+# değil, tek bir dosyanın silinmesi olur (eski sürüm ~/.pgpasste literal "HOST"
+# arıyordu ve gerçek bir dosyada HİÇBİR ZAMAN eşleşmiyordu — yani temizlik
+# koşulsuz bir no-optu ve yine de "kalan owner satiri: 0" basıyordu).
+umask 077
+export PGPASSFILE="$(mktemp)"
+trap 'rm -f "$PGPASSFILE"' EXIT INT TERM HUP
+printf '%s:5432:tappa:tappa_owner:%s\n' "<host>" "<parola>" > "$PGPASSFILE"
+export OWNER_DSN="postgres://tappa_owner@<host>:5432/tappa?sslmode=disable"   # parola YOK
+
+export TAPPA_TAG_KEK_FILE=/tmp/kek_old.b64      # bugünkü (sızmış) KEK
+export TAPPA_TAG_KEK_NEW_FILE=/tmp/kek_new.b64  # yeni KEK
+
+./scripts/rotate-kek.sh              # DRY RUN: hiçbir şey uygulamaz, planı ve sayıları gösterir
+echo "rc=$?"
+
+# 🔴 YAZMAK ICIN --apply ZORUNLU. Ciplak cagri bir DRY RUN yapar. Bu satir bir tur
+#    boyunca "uygular" yorumuyla ciplak duruyordu ve OLCULDU: rc=0, hicbir sey
+#    uygulanmadi, 77.215 satirin tamami ESKI KEK altinda kaldi -- ve tablo o
+#    sifiri "uygulandi" diye okuyordu. Operator Adim 3e gecerse her tap 500 doner.
+./scripts/rotate-kek.sh --apply      # UYGULAR (geri alinamaz)
+echo "rc=$?"
+```
+
+| Kod | Anlamı |
+|---|---|
+| `0` | Okunan **her** satır yeni KEK altında. **`--apply` ile koşulduysa uygulandı; çıplak çağrıda (DRY RUN) HİÇBİR ŞEY uygulanmadı** — `stderr` hangisi olduğunu yazar. |
+| `1` | **REDDETTİ ya da başarısız — hiçbir şey uygulanmadı.** Sebep `stderr`'de. |
+| `3` | Uygulandı **ama park tam dönmedi**. **Eski KEK YOK EDİLEMEZ**, adım 3'e geçme. |
+
+Bu üç sayı `TestExitCodes_TheCOMPILEDBinaryReallyDeliversThem` (derlenmiş ikilide)
+ve `TestRotateScript_NeverPipesTheToolIntoPsql` (script'in onları maskelememesi)
+tarafından tutuluyor.
+
+**Açılamayan satırlar sessizce ATLANMAZ.** Araç sayar, tenant kırılımı ve uzunluk
+histogramıyla raporlar ve **varsayılan olarak reddeder**. Devam için sayıyı birebir
+beyan et:
+
+```bash
+export TAPPA_ROTATE_ALLOW_UNOPENABLE="<raporun verdiği tam sayi>"   # TIRNAK ŞART
+./scripts/rotate-kek.sh --apply; echo "rc=$?"
+```
+
+> 🔴 Bu bir **hız kesicidir, KAYIT DEĞİLDİR**. Onay bir ortam değişkeni; sayılar
+> yalnız `stderr`'de kalır. **`audit_log` satırı yok, dosyada iz yok, DB'de iz
+> yok** — adım 3'ten sonra *"kaç satır sızmış KEK altında kaldı"* sorusunun ürün
+> içinde cevabı yoktur; cevap istiyorsan script'i yeniden koş ve çıktısını **sen**
+> sakla.
+
+**Üretilen SQL kendi ön ve son koşullarını taşır**, hepsi veritabanında koşar:
+oturumun gerçekten RLS'i atladığı (`app.tenant_id` boş **ve**
+`rolsuper OR rolbypassrls`) · okunan satır sayısı = `count(*) FROM tags` · eşleşen
+satır sayısı = planlanan. **Üçü de sarmallar gönderilmeden ÖNCE** koşar.
+
+🔴 **Ve sarmallar ifade metninde DEĞİL, `COPY` VERİSİNDE gider.** Postgres hata
+veren bir ifadenin **tam metnini** log'lar (`log_min_error_statement` varsayılanı
+`error`); rotasyon tek bir ~19 MB'lık ifade olduğu sürece **her başarısız koşu**
+parkın sarmallarını — yeni KEK altındakiler dahil, yani rotasyondan **sonra da**
+hassas olanları — sunucu log'una yazıyordu (ölçüldü: ön koşul 6 sağlanmışken bile
+**40 ayrı ref**). Yeni şekilde aynı abort **0 ref** bırakıyor.
+
+### Doğrulama — **ADIM 3'TEN ÖNCE KOŞ**
+
+🔴 **SIRA BİLİNÇLİ VE ÖNCEKİ SÜRÜMDE YANLIŞTI.** Doğrulama adım 3'ten *sonra*
+yazılmıştı; tek gerçekten bağımsız kapı olan fiziksel tap, yedek KEK **zaten
+düşürüldükten** sonra koşuyordu — yani arıza ancak geri dönüşü olmayan noktadan
+sonra görünüyordu.
+
+```bash
+# (a) Parkta eski KEK altında satır kaldı mı — hiçbir şey UYGULAMADAN.
+#     İKİ KEK de hâlâ ortamda olmalı (araç ikisini de ister; biri boşsa exit 1).
+#     Açılamayan satırı olan bir parkta TAPPA_ROTATE_ALLOW_UNOPENABLE de gerekir.
+./scripts/rotate-kek.sh --dry-run; echo "rc=$?   # 0 beklenir, hiçbir şey uygulanmaz"
+# Beklenen: re-sealed under the new KEK ..... 0 ve already under the new KEK
+#           = toplam satır sayısı. (Eskiden burada "re-sealed 0" yazıyordu; araç
+#            o dizeyi HİÇ basmıyor, yani literal bir grep her zaman boş dönerdi.)
+
+# (b) Sarmal uzunlukları — 44 dışındaki her sayı bir zarf DEĞİLDİR.
+psql -X "$OWNER_DSN" -c "SELECT octet_length(aes_key_ref) AS len, count(*) FROM tags GROUP BY len ORDER BY count DESC;"
+
+# (c) GERÇEK BİR TAP — tek uçtan uca kanıt, ve HÂLÂ İKİ KEK YÜKLÜYKEN koşulur.
+#     Bir plakete dokun; kayıt düşmeli. Bu aşamada 500 alıyorsan adım 3e GEÇME.
+#     Önce rolloutun oturduğundan emin ol, yoksa eski poda düşen bir tapi
+#     yeni podun kusuru sanarsın:
+kubectl -n tappa rollout status deployment/tappa --timeout=180s
+```
+
+### Adım 3 — eski KEK'i düşür (ROTASYON BUDUR)
+
+Yalnız **adım 2 exit 0** verdiyse **ve** doğrulama (a)(b)(c) temizse.
+`tappa-secrets`'tan **`TAPPA_TAG_KEK_PREVIOUS`'u kaldır**, sonra:
+
+```bash
+kubectl -n tappa rollout restart deployment/tappa      # sır düzenlemek POD'U YENİDEN BAŞLATMAZ
+kubectl -n tappa rollout status  deployment/tappa --timeout=180s
+```
+
+**KAPI — yine POZİTİF olgu, aynı tablo:**
+
+```bash
+kubectl -n tappa logs deployment/tappa | grep -c 'kek_rotation_window=closed'   # >= 1 OLMALI
+kubectl -n tappa logs deployment/tappa | grep -c 'kek_rotation_window=open'     # 0 OLMALI
+```
+
+| `closed` | `open` | Ne yap |
+|---|---|---|
+| ≥1 | 0 | Pencere **KAPANDI**. Devam. |
+| 0 | ≥1 | Pencere hâlâ **AÇIK** — sır ya da rollout eksik. **DUR.** |
+| 0 | 0 | 🔴 **BİLİNMİYOR — DUR.** Hiçbir şey imha etme. |
+
+🔴 **`0 / 0` OKUMASINDA HİÇBİR ŞEY SİLME.** Önceki sürüm bu noktada sırları
+shred'letiyor **ve emanet kopyasını da hedef gösteriyordu**, kapı ise %33 doğruydu:
+operatör *"kapandı"* deyip sızmış KEK'in **emanetteki tek kopyasını** yok ederken
+süreç o KEK'i kabul etmeye devam edebilirdi — geri alma için gereken kopya da
+gitmiş olurdu. §4.7'nin vaadi tam tersine dönüyordu.
+
+```bash
+# YALNIZ yukarıdaki tablo "KAPANDI" dediyse: operatörün kabuğu ve diski temizlenir.
+unset TAPPA_TAG_KEK TAPPA_TAG_KEK_PREVIOUS
+# 🔴 "ÜZERİNE YAZARAK SİL" DİYE BİR ADIM YOK — bu satır eskiden öyle diyordu ve
+#    YANLIŞTI. Bu platformda rm -P belgeli bir NO-OPtur ve **0 döner**
+#    (man rm: "This flag has no effect."), yani || shred dalına HİÇ geçilmez;
+#    shred de bu makinede yok. Ölçüldü. Dosyalar UNLINK ediliyor, üzerine
+#    yazılmıyor. scripts/rotate-kek.sh kendi geçici dosyaları için bunu
+#    sondalayıp söylüyor; burada da doğrusu yazılıyor.
+#    Gerçekten üzerine yazmak istiyorsan: şifreli bir birim ya da RAM disk kullan.
+rm -f /tmp/kek_old.b64 /tmp/kek_new.b64
+command -v shred >/dev/null && echo "not: shred var, istersen kullanabilirsin" || \
+  echo "not: bu makinede shred YOK ve rm -P bir no-op; dosyalar unlink edildi, uzerine yazilmadi"
+# $PGPASSFILE adım 2deki trap tarafından zaten silindi; kalıcı bir parola dosyası
+# bu prosedürde HİÇ yaratılmıyor (tek mekanizma kuralı).
+```
+
+⚠️ **ESKİ KEK'İN EMANET KOPYASINI BURADA SİLME.** Adım 4 bitene kadar dur: geri
+alma onu gerektirir, ve rotasyon öncesi yedekler hâlâ onun altındadır.
+
+### 🔴 Adım 4 — ROTASYON ÖNCESİ YEDEKLER HÂLÂ SIZMIŞ KEK'İN ALTINDA
+
+**Rotasyon yedekleri döndürmez, ve bunu bilmeden rotasyon tamamlanmış sayılmaz.**
+🔴 **BU ADIM KOŞULLUDUR — VE CÜMLE ÜÇ TUR BOYUNCA GENİŞ ZAMANDA KALDI.** Ölçüm
+(2026-08-17): `kubectl -n tappa get cronjob` → **`No resources found`**. Yani bu
+kümede gönderilen dump **yok**, ve aynı dosya bunu **sınır 1**'de zaten söylüyor.
+Mekanizma kipiyle:
+
+> **Yedek CronJob'ı ÇALIŞIYORSA** `50-backup.yaml` her gece tüm veritabanının
+> dump'ını küme dışına gönderir ve `BACKUP_RETENTION_DAYS` kadar saklar; aşağıdakiler
+> o zaman geçerlidir. **Çalışmıyorsa** (bugünkü ölçüm) imha edilecek dump yoktur ve
+> bu adım bugün **boştur** — ama ilk yedek alındığı gün geçerli hâle gelir.
+
+```bash
+kubectl -n tappa get cronjob      # boşsa bu adım bugün için geçersiz
+```
+
+**Yedek çalışıyorken rotasyondan önce alınmış her dump**,
+`aes_key_ref`'i **eski KEK altında** taşır — ve içindeki plaket anahtarı, bu
+aracın açıkça döndürmediği **aynı** anahtardır. Yani:
+
+> **sızmış KEK + saklanan herhangi bir rotasyon-öncesi dump = parkın tamamının düz
+> NTAG anahtarı**, ve bu rotasyondan **sonra** da geçerlidir.
+
+İki seçenekten birini **yap ve hangisini yaptığını yaz**:
+- **İmha:** rotasyon öncesi dump'ları sil (hedefte ve varsa yerel kopyalarda), ya da
+- **Say:** sızmış KEK'in **`BACKUP_RETENTION_DAYS` boyunca canlı kaldığını** kabul
+  et, tarihi not düş ve o tarihe kadar plaket anahtarlarını yanmış say.
+
+Bunu yapmadan *"KEK döndürüldü"* demek, karşılığı olmayan bir garantidir.
+
+### Geri alma
+
+**Adım 3'ten önce** (pencere hâlâ açık): iki değişkeni **yer değiştir** ve boruyu
+yeniden koş — araç simetriktir. Okuma yolu ikisini de kabul ettiği için park geri
+dönerken de karışık olabilir ve hiçbir tap düşmez
+(`TestUnwrapAny_TableOfRotationStates` → *"rollback window, order reversed"*).
+
+**Adım 3'ten sonra**: eski KEK süreçte yok. Geri dönmek onu **yeniden**
+`TAPPA_TAG_KEK_PREVIOUS` olarak yüklemeyi gerektirir — **bu yüzden emanette tut.**
+
+### 🔴 MANAGED POSTGRES'TE BU PROSEDÜRÜN YÜRÜTÜLEBİLİR YOLU YOK — SAYILMIŞ LİMİT
+
+Üretilen SQL `rolsuper OR rolbypassrls` **zorunlu** kılıyor (ön koşul 3, ve §4.5
+gereği doğru). Ama **`BYPASSRLS`'i yalnız bir süper kullanıcı verebilir** ve §1'in
+hedefi olan managed Postgres'te müşteri rolü **süper değildir**. Yani o dünyada
+prosedür ön koşul 3'te **durur ve devamı yoktur**.
+
+**Bu bilinçli olarak açık bırakılıyor ve adlandırılıyor**, çünkü bilinen iki çıkış
+yolunun ikisi de bu kartta kararı verilmemiş bir şeyi değiştirir:
+- `ALTER TABLE tags NO FORCE ROW LEVEL SECURITY` (sahibi RLS'ten muaf tutar) — §4.5'in
+  ikinci kemerini rotasyon süresince kaldırır;
+- rotasyonu ürünün **kendi** rolüyle koşacak bir yol açmak — 00013'ün
+  `UPDATE(aes_key_ref)`'i `tappa_app`'ten almasını geri alır.
+
+Hangisi seçilirse seçilsin bir **ADR** ister. Bugün: **managed Postgres'e taşınırsa
+bu prosedür yeniden yazılmalıdır**; bugünkü tek-node kurulumda `tappa_owner` süper
+olduğu için yol açıktır.
+
+### Ne zaman DUR
+
+- **Ön koşul 0 cevap vermiyorsa** → dur, `OWNER_DSN` yanlış ya da ulaşım yok.
+- **`rolsuper OR rolbypassrls` `f` ise** → dur. O oturum parkı göremez.
+- **Adım 1'in log kontrolü 0 sayıyorsa** → dur. Değişken pod'a ulaşmamış.
+- **Araç exit 1 verdiyse** → dur. Hiçbir şey yazılmadı; `stderr`'i oku.
+- **`psql` ön/son koşulda `ERROR` verdiyse** → dur. Transaction geri alındı. Yeniden
+  **oku** ve yeniden koş — eski çıktıyı tekrar uygulama.
+- **Exit 3 aldıysan** → adım 3'e **geçme**.
+- **Park büyüklüğü uyuşmuyorsa** → plaket yüklemesi açık kalmış (ön koşul 4).
+- **Koşu ortasında öldüyse** → **güvenli**. Araç idempotenttir: yeni KEK'i **önce**
+  dener, zaten dönmüş satırları *"already"* sayar. Baştan koş.
+
+### Script kararından sonra: NE YAPISAL OLARAK İMKÂNSIZ, NE HÂLÂ OPERATÖRÜN MAKİNESİNDE
+
+Prosedürün gövdesi `scripts/rotate-kek.sh`'e taşındı. **Taşımak kapatmak değildir**,
+o yüzden ikisi ayrı ayrı yazılıyor.
+
+**Yapısal olarak imkânsız hâle gelenler** (operatörün kabuğuna, parmaklarına ya da
+hafızasına bağlı değil):
+
+| Ne | Neden artık imkânsız |
+|---|---|
+| Rotasyonun **gövdesinde** yorumdaki backtick'in çalışması | Gövde artık yapıştırılmıyor: `scripts/rotate-kek.sh`'i **bash bir dosya olarak** yorumluyor (`bash -n` süitte) |
+| Kalan **yapıştırılan** bloklarda aynı tehlike | 🔴 **SAYILDI, İMKÂNSIZ DEĞİL:** bu bölümde hâlâ **13 yapıştırılan `bash` bloğu** var (sır girişi, `kubectl` adımları, doğrulama). Tehlike **karakter düzeyinde** kaldırıldı — yorumlarda **0 backtick, 0 tek apostrof** — ve `TestRunbook_PasteableBlocksCarryNoShellHazardInComments` bunu tutuyor. ⚠️ Ama bu bir **özellik**, yapısal bir imkânsızlık değil: yeni bir blok yeni bir backtick getirebilir, ve o testi geçersiz bir yorum hâlâ yapıştırılabilir. Kontrol: gerçek `zsh -f -i`'de README şeklindeki backtick'li bir yorum **çalıştı** (işaret dosyası yazıldı); temizlenmiş blokların **hepsi** `bash -n` **ve** `zsh -n` altında 0 veriyor |
+| `ON_ERROR_STOP` unutulması → 40 ref sunucu log'una + `psql rc=0` | Bayrak script'in içinde; `TestRotateScript_AlwaysPassesOnErrorStop` her `psql` çağrısında arıyor |
+| Aracın çıkış kodunun `psql`'inkiyle maskelenmesi | Boru yok; `TOOL_RC` yakalanıp `exit` ediliyor, `TestRotateScript_NeverPipesTheToolIntoPsql` tutuyor |
+| Öngörülebilir yola derleme (symlink/dizin/eski ikili) | `mktemp -d` + `chmod 700` + `go build || die` + `-x` kontrolü |
+| Geçici dosyaların kalması | `trap cleanup EXIT` — etkileşimli bir yapıştırmada değil, gerçek bir süreçte |
+| *"üzerine yazarak sildim"* yalanı | Yetenek **sondalanıyor** (`shred` var mı, `rm -P` gerçekten yazıyor mu) ve yoksa **söyleniyor** |
+| `.pgpass` deseninin hiçbir zaman eşleşmemesi | Desen yok: `PGPASSFILE` **tek bir geçici dosya**, temizliği `rm` |
+
+**Hâlâ operatörün makinesine bağlı olanlar — sayılmış limitler:**
+
+1. **Script operatörün makinesinde koşuyor.** `bash` ve bir **Go araç zinciri**
+   gerekiyor (`cmd/rotatekek` hiçbir imajda yok). `sh -n` uyumluluğu **iddia
+   edilmiyor** — shebang `bash`.
+2. **`$TMPDIR` operatörün diski.** Bu platformda `shred` yok ve `rm -P` belgeli bir
+   no-op, yani geçici dosyalar **unlink ediliyor, üzerine yazılmıyor**; script bunu
+   çalışırken **söylüyor**. Şifreli bir birim ya da RAM disk operatörün kararı.
+3. **`OWNER_DSN`'e ulaşım** ölçülmedi (ön koşul 5a; NetworkPolicy 5432'yi yalnız
+   etiketli pod'lara açıyor, `port-forward` bu repoda hiç ölçülmedi).
+4. **Emanet ve imha** — eski KEK'in kasadaki kopyasını silmek bir insan adımı;
+   hiçbir mekanizma onu zorlamıyor ya da engellemiyor.
+5. **Adım 1 ve 3'ün `kubectl` adımları** hâlâ elle: sırrı düzenlemek ve
+   `rollout restart`. Script bunları **yapmıyor** (bilerek: `tappa-secrets`'a
+   dokunan bir otomasyon bu görevin kapsamı dışında ve ayrı bir karar).
+
+### Bu prosedürün NESİ ölçüldü, NESİ ölçülmedi
+
+**Ölçüldü** (2026-08-16, bu reponun geliştirme veritabanının **atılabilir bir
+kopyasında** — `CREATE DATABASE … TEMPLATE tappa`, koşuldu, doğrulandı, `DROP`landı):
+
+| Koşu | Sonuç |
+|---|---|
+| 72 380 satırın tamamı eski KEK altına konup döndürüldü | araç **0,89 sn**, SQL 18,5 MB, `psql` **3,6 sn**, iki son koşul da yeşil |
+| dönüşün doğruluğu, **bağımsız** bir uygulamayla | 72 380/72 380 yeni KEK'le açılıyor **ve aynı plaket anahtarını veriyor**; eski KEK'le açılan **0** |
+| gerçek karışık park (33 318 açılabilir + 39 062 açılamaz) | varsayılan **ret**; beyanla exit **3**, 33 318 döndü, 39 062 rapor edildi |
+| RLS ile daraltılmış okuma + **süper** yazıcı (15 satır) | araç *"15/15 ✓"* dedi, **veritabanı reddetti**, `psql` exit 3, **0 satır yazıldı** |
+| 🔴 RLS ile daraltılmış okuma + **daraltılmış yazıcı** (tek `$OWNER_DSN`'in ürettiği kurulum) | **ÖNCE:** araç exit 0, `psql` **COMMIT** exit 0, 73 100'ün **15'i** döndü, doğrulama (a) ve (b) *"başarı"* dedi. **SONRA** (oturum kontrolleri eklendi): `ERROR … app.tenant_id set … Nothing written` ve `ERROR … neither is a superuser nor has BYPASSRLS … Nothing written` |
+| `NOSUPERUSER NOBYPASSRLS` bir rolün ön koşul 3'e cevabı | `has_column_privilege(…) = **t**` iken `count(*) FROM tags` = **0** — yani o kontrol tek başına hiçbir şey söylemiyor |
+| `20-app.yaml`'ın enjekte ettiği adlar | `TAPPA_TAG_KEK_PREVIOUS` listede **yoktu**; eklendi ve `TestPackaging_EverySecretConfigReadsIsInjectedByTheManifest` sınıfı kapattı (manifest satırı silinince test **kırmızı**) |
+| geliştirme Postgres'inin ifade log'u | `log_statement=all` ile 21 satırlık koşularda **105 sarmalı ref literali** konteyner log'una yazıldı → ön koşul 6 |
+| rotasyon sürerken **canlı tap** (§4.4 `last_ctr`) | 12/12 tap başarılı, en kötü bekleme **0,76 sn**; sayaç ilerledi **ve** sarmal değişti — kayıp güncelleme yok |
+| yarıda kesilmiş koşunun tekrarı | 72 380 *"already"*, 0 yeniden sarmalama, exit 0 |
+
+**Ölçülmedi, ve bilerek yazılıyor:**
+
+- **Bu prosedür KÜMEYE karşı hiç koşulmadı.** Yerel bir Postgres konteynerine karşı
+  koşuldu. Yukarıdaki iddiaların hepsi **mekanizma** hakkındadır (araç, SQL, son
+  koşullar, RLS davranışı) — küme hakkında **tek** iddia yoktur, çünkü ölçülmedi.
+- **`tappa-postgres:5432`'ye operatörün nereden ulaşacağı** (yukarıdaki uyarı).
+- **Üretimde `tappa_owner`'ın süper kullanıcı olup olmadığı doğrudan sorulmadı.**
+  `k8s/10-postgres.yaml` `POSTGRES_USER: tappa_owner` veriyor ve `postgres` imajının
+  giriş betiği `POSTGRES_USER`'ı **initdb'nin bootstrap süper kullanıcısı** yapar; bu
+  bir **mekanizma** iddiasıdır ve yerelde aynı mekanizmayla doğrulandı
+  (`rolsuper = t`). Üretimde `SELECT rolsuper` koşulmadı — **ve artık koşulmasına
+  gerek yok**: ön koşul 3 operatöre sordurur, ve aracın ürettiği SQL bunu kendi
+  içinde **zorunlu** kılar, yani cevap ne olursa olsun yanlış bir oturumda rotasyon
+  koşamaz. §1'in hedefi olan **managed Postgres**'te owner'ın süper OLMAMASI
+  yaygındır; kontrol tam olarak o dünyada işe yarar.
+- **Adım 4 (rotasyon öncesi yedekler) KOŞULMADI.** Bu kümede yedek CronJob'ı yok
+  (**sınır 1** — *[yedek kümede HENÜZ YOK]*; ölçüm: `kubectl -n tappa get cronjob`
+  → `No resources found`. ⚠️ Burada eskiden **sınır 13** yazıyordu; 13
+  bekleme-kabı kuralıdır ve bu ölçümü taşımaz — sınır 8'in kendi uyardığı
+  çapraz-atıf kayması), yani imha edilecek bir dump da yok. Adım bir **prosedür** olarak
+  yazıldı; ilk gerçek rotasyonda ilk kez koşacak.
+- **SAYILMIŞ AÇIK — rotasyonun `audit_log`'da izi YOK.** Park geneli bir
+  `aes_key_ref` yeniden yazımı **hiçbir** denetim satırı üretmiyor: araç bir filtre,
+  yazan `psql`, ve `audit_log`'a yazan tek yol ürünün kendi kod yollarıdır. Yani
+  *"KEK ne zaman, kim tarafından, kaç satırda döndürüldü"* sorusunun ürün içinde
+  cevabı yok — cevap operatörün sakladığı çıktıdadır. Aynı şey ön koşul 5b'nin
+  BYPASSRLS oturumu için de geçerli.
+- **SAYILMIŞ AÇIK — iki-KEK yolunun son kullanma tarihi, sayacı ve göstergesi yok.**
+  Süreç pencerenin açık olduğunu söyler, ama *"kaç plaket hâlâ eski KEK'te"*
+  sorusunu cevaplamaz; tek cevap tüm parkı yeniden `COPY`layıp araçtan geçirmektir
+  (doğrulama adımı (a)). Pencereyi kapatan mekanik bir zamanlayıcı da yok — kapatan
+  şey operatörün adım 3'ü koşmasıdır.
+- **Ön koşul 6'nın `ALTER SYSTEM` yolu üretimde denenmedi** — geliştirme
+  Postgres'inde ifade log'unun sırları yazdığı ölçüldü, kapatma komutu ölçülmedi.
+
+---
+
 ## Olay müdahalesi — belirti → sebep
 
 > **Bu bölümdeki satırların ÇOĞU bu kümede fiilen ölçüldü** — ve ölçülmemiş olanlar
@@ -1337,10 +1917,39 @@ değil, *"bir şey takıldı mı"* sorusuna kaba bir cevaptır.
    **5. adım**). ⚠️ Buradaki atıf **adım numarasıyla** verilmiş olsa da hedefin
    **adı** da yazılı (`KUBE_CONFIG`), çünkü bu listede numara kaymaları daha önce
    beş çapraz atfı yanlış maddeye düşürmüştü.
-9. **KEK döndürme aracı YOK.** M8-02 *"KEK dönme prosedürü yazılı **ve
-   yürütülebilir**: tüm parkın `tags.aes_key_ref` değerlerini yeniden sarmalayan araç
-   var"* diyor. Böyle bir araç bu repoda yok, yani bugün bir KEK sızıntısının
-   **yürütülebilir bir karşılığı yok**. Kartın açık kriteri.
+9. **[KEK döndürme KÜMEYE karşı hiç koşulmadı]** — 🔴 **ARAÇ VAR; AÇIK KALAN
+   ŞEY İKİ SAYILMIŞ KALEM.**
+   ⚠️ **AĞAÇ/KÜME AYRIMI (sınır 1 bunu yapıyor, bu madde YAPMIYORDU):** aşağıdaki
+   *"kapandı"* kalemlerinin hepsi **bu depodaki ağaç** hakkındadır. **Küme bugün bu
+   değişikliğin ÖNCESİNDE**: canlı Deployment **dört** env adı enjekte ediyor ve
+   çalışan ikili `kek_rotation_window=` satırını **yazmıyor** (ölçüldü, ön koşul
+   5c). Yani manifest + imaj sevk edilene kadar kapı `0/0` okur ve **durdurur**.
+   ✅ **Kapandı (ağaçta):** `cmd/rotatekek` · **`scripts/rotate-kek.sh`** (prosedür
+   artık yapıştırılan bir metin değil, belirtilmiş bir kabukta koşan bir dosya) ·
+   iki-KEK okuma yolu (`TAPPA_TAG_KEK_PREVIOUS`,
+   `sun.UnwrapAny`) · `20-app.yaml` o adı `optional: true` ile **enjekte ediyor**
+   ve `TestPackaging_EverySecretConfigReadsIsInjectedByTheManifest` sınıfı
+   kapatıyor (`internal/config`'in okuduğu her ad bir manifestte olmak zorunda) ·
+   üretilen SQL, oturumun **gerçekten RLS'i atladığını** kendi içinde zorunlu
+   kılıyor · açık pencere kendini **her 15 dakikada** log'a yazıyor ·
+   prosedür *"KEK döndürme"* bölümünde, ön koşul/komut/**adım 3'ten ÖNCE**
+   doğrulama/geri alma/durma kuralıyla.
+   ❌ **KAPANMAYAN 1 — prosedür bu kümeye karşı hiç koşulmadı.** Yerel bir
+   Postgres konteynerine karşı koşuldu. Ölçülen her şey **mekanizma**
+   hakkındadır; **küme hakkında tek iddia yoktur.** Kapatan tek ölçüm:
+   operatörün `tappa-postgres:5432`'ye **nereden** ulaştığı —
+   `12-networkpolicy.yaml` 5432'yi yalnız `tappa` namespace'inde etiketli
+   pod'lara açıyor, `kubectl port-forward`'un bu kuralı aşıp aşmadığı **hiç
+   ölçülmedi**, ve **`cmd/rotatekek` hiçbir imajda yok** (`Dockerfile` yalnız
+   `bin/tappa`), yani araç bir checkout + Go olan bir makinede koşar.
+   ❌ **KAPANMAYAN 2 — rotasyon YEDEKLERİ döndürmez.** Rotasyon öncesi her dump
+   `aes_key_ref`'i **eski KEK altında** taşır ve içindeki plaket anahtarı aynı
+   anahtardır, yani *"sızmış KEK + saklanan herhangi bir eski dump = parkın
+   tamamının düz NTAG anahtarı"*, rotasyondan **sonra** da. Runbook'un **adım
+   4'ü** iki seçeneği (imha / `BACKUP_RETENTION_DAYS` boyunca sızmış KEK'i canlı
+   say) adıyla yazıyor, ama bu kümede yedek CronJob'ı **yok** (**sınır 1**, ölçüm:
+   `kubectl -n tappa get cronjob` → `No resources found`; burada da eskiden
+   yanlışlıkla **sınır 13** yazıyordu), yani adım **hiç koşulmadı**.
 10. **[`:8080` küme içinden açık]** — **Uygulamanın `:8080`'i küme içinden
     erişilebilir.** NetworkPolicy yalnız Postgres'e yazıldı. Şiddeti düşük (aynı
     içerik zaten internete açık, prod'da çerez `Secure`, panel düz HTTP girişini T38

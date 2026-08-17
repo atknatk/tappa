@@ -37,6 +37,23 @@ type Config struct {
 	SessionHMACKey []byte // 32 bytes
 	TagKEK         []byte // 32 bytes, wraps per-tag NTAG AES keys
 
+	// TagKEKPrevious is the KEK a plaque's wrapped key may ALSO be sealed under:
+	// OPTIONAL, nil when unset, and 32 bytes when set.
+	//
+	// It exists for exactly one situation — a KEK rotation (cmd/rotatekek, and
+	// the "KEK döndürme" runbook in deploy/README.md). Re-sealing the park is not
+	// instantaneous, so for a while some rows are under the new KEK and some
+	// under the old one. A process that knows only ONE of them answers 500 to
+	// every tap on the other half, which is §4.6 ("kayıt asla kaybolmaz") failing
+	// underneath the product rather than inside it. Holding both makes the mixed
+	// park readable IN BOTH DIRECTIONS — while the rotation runs, and while a
+	// rollback un-runs it.
+	//
+	// 🔴 IT IS A ROTATION WINDOW, NOT A SETTING. While this is set, a LEAKED KEK
+	// still opens rows, so the rotation has not actually bought anything yet. The
+	// runbook's last step is to unset it and roll out; that step is the rotation.
+	TagKEKPrevious []byte
+
 	// InviteHMACKey keys the activation-code MAC (internal/invite). It is a
 	// SEPARATE key from SessionHMACKey on purpose — see keySeparation below for
 	// the measurement and the reasoning.
@@ -198,6 +215,20 @@ func Load() (*Config, error) {
 	if c.TagKEK, err = key32("TAPPA_TAG_KEK"); err != nil {
 		push(err)
 	}
+	// TAPPA_TAG_KEK_PREVIOUS is OPTIONAL, but an optional value that is SET must
+	// still be valid: unset means nil, and anything else must decode to 32 bytes
+	// or the process refuses to start. Treating a malformed previous KEK as "not
+	// set" would be the worst of both — the operator believes the rotation window
+	// is open, every tap on a not-yet-re-sealed plaque answers 500, and nothing
+	// says why.
+	if c.TagKEKPrevious, err = optionalKey32("TAPPA_TAG_KEK_PREVIOUS"); err != nil {
+		push(err)
+	}
+	// Equal KEKs are refused for the same reason cmd/rotatekek refuses them: the
+	// only realistic way to get here is one value pasted into both variables, and
+	// it would leave the fallback doing nothing while every surface reports a
+	// rotation in progress.
+	push(kekSeparation(c.TagKEK, c.TagKEKPrevious))
 	if c.InviteHMACKey, err = key32("TAPPA_INVITE_HMAC_KEY"); err != nil {
 		push(err)
 	}
@@ -346,6 +377,38 @@ func keySeparation(sessionKey, inviteKey []byte) error {
 		return errors.New("TAPPA_INVITE_HMAC_KEY must differ from TAPPA_SESSION_HMAC_KEY: they key two different credential types and sharing one key removes the independence the separation is for (generate: openssl rand -base64 32)")
 	}
 	return nil
+}
+
+// kekSeparation refuses a previous KEK that is byte-identical to the primary.
+//
+// It is deliberately SILENT when previous is unset (nil), because unset is the
+// steady state and by far the most common one — this must not become an error
+// every deployment sees. The comparison is constant-time for the same reason
+// keySeparation's is: it compares two secrets, and a startup path is still a
+// path.
+func kekSeparation(kek, previous []byte) error {
+	if len(previous) == 0 {
+		return nil
+	}
+	if len(kek) != 32 || len(previous) != 32 {
+		return nil // the length errors above already say this; do not say it twice
+	}
+	if subtle.ConstantTimeCompare(kek, previous) == 1 {
+		return errors.New("TAPPA_TAG_KEK_PREVIOUS must differ from TAPPA_TAG_KEK: it is the key the park is " +
+			"being rotated AWAY from, so setting it to the current key opens a rotation window that rotates " +
+			"nothing. Unset it when no rotation is in progress")
+	}
+	return nil
+}
+
+// optionalKey32 is key32 for a variable that may legitimately be absent: unset
+// yields (nil, nil), and anything present must still be a valid 32-byte base64
+// key.
+func optionalKey32(name string) ([]byte, error) {
+	if os.Getenv(name) == "" {
+		return nil, nil
+	}
+	return key32(name)
 }
 
 func env(k, def string) string {

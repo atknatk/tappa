@@ -129,7 +129,15 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	tap, err := handler.NewTap(sun.NewVerifier(data, cfg.TagKEK), directory, sessions, checkins, trail, cfg, slog.Default())
+	// cfg.TagKEKPrevious is nil unless a KEK rotation is in progress, and
+	// NewVerifier drops empty entries — so this is the one-KEK wiring in the
+	// steady state and the two-KEK wiring during the rotation window, with no
+	// branch here to get wrong.
+	//
+	// An open window is ANNOUNCED, repeatedly, for the whole time it stays open:
+	// see announceKEKRotationWindow.
+	go announceKEKRotationWindow(ctx, len(cfg.TagKEKPrevious) > 0, slog.Default())
+	tap, err := handler.NewTap(sun.NewVerifier(data, cfg.TagKEK, cfg.TagKEKPrevious), directory, sessions, checkins, trail, cfg, slog.Default())
 	if err != nil {
 		return err
 	}
@@ -488,4 +496,71 @@ func parseLevel(s string) slog.Level {
 		return slog.LevelInfo
 	}
 	return l
+}
+
+// kekRotationWarnEvery is how often an OPEN rotation window re-announces itself.
+//
+// It repeats rather than firing once because the state it describes is open-ended
+// and dangerous in proportion to how long it lasts. A single line at start-up is
+// invisible to the failure that matters: a pod that booted three weeks ago, mid
+// rotation, on a step 3 nobody ever ran.
+//
+// ⚠️ THE RUNBOOK'S GATE MUST NOT DEPEND ON THIS INTERVAL, and an earlier version
+// did: it grepped a five-minute log window for the OPEN line, so for a pod older
+// than five minutes it only saw one when (uptime mod 15 min) < 5 min — right
+// 5/15 = 33% of the time, and silently "closed" the other 67%. The gate now reads
+// the START-UP line, which is always in the container's log, so this interval is
+// a nagging cadence and nothing keys off it.
+var kekRotationWarnEvery = 15 * time.Minute
+
+// The two MUTUALLY EXCLUSIVE tokens the start-up line carries. They are the
+// runbook's gate, and their whole design is that the gate reads a POSITIVE FACT
+// instead of an absence.
+//
+// 🔴 WHY BOTH STATES ARE ANNOUNCED. The previous version logged only when the
+// window was OPEN, so the operator's check was "grep finds nothing" — and nothing
+// is what you also get from a raised log level, a rotated log, a log query typed
+// against the wrong pod, or simply not having looked yet. "Closed" and "I cannot
+// tell" were the same reading, on the one gate standing between an operator and
+// destroying the escrow copy of a leaked KEK. Now exactly one of these appears at
+// start-up, so:
+//
+//	kekWindowClosed present, kekWindowOpen absent -> genuinely closed
+//	kekWindowOpen present                         -> genuinely open
+//	NEITHER present                               -> UNKNOWN, and the runbook stops
+//
+// The closed line is INFO and fires once: it is a boot fact, like a version line,
+// not an alarm. Making it a warning would train the operator to ignore the family
+// of lines that includes the real one.
+const (
+	kekWindowOpen   = "kek_rotation_window=open"
+	kekWindowClosed = "kek_rotation_window=closed"
+)
+
+func announceKEKRotationWindow(ctx context.Context, open bool, log *slog.Logger) {
+	if !open {
+		// The POSITIVE "closed" fact. Without it the runbook's gate would be
+		// reading an absence, which is indistinguishable from not having looked.
+		log.Info("KEK rotation window is CLOSED: this process accepts only the current tag KEK ("+
+			kekWindowClosed+")",
+			"variable", "TAPPA_TAG_KEK_PREVIOUS", "accepts_previous_kek", false)
+		return
+	}
+	warn := func() {
+		log.Warn("KEK rotation window is OPEN: this process still accepts the PREVIOUS tag KEK, "+
+			"so a leaked key has not been retired yet ("+kekWindowOpen+"). Finish the rotation by "+
+			"unsetting the variable and rolling out (deploy/README.md, KEK dondurme, step 3)",
+			"variable", "TAPPA_TAG_KEK_PREVIOUS", "accepts_previous_kek", true)
+	}
+	warn()
+	t := time.NewTicker(kekRotationWarnEvery)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			warn()
+		}
+	}
 }

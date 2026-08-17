@@ -634,7 +634,7 @@ tablosu çıkmış durumda (satış slaytı da olur).
 > - **B1 — Markdown sıralı listeyi yeniden numaralıyor.** Yeni sınırı kaynakta 10 ile
 >   11'in arasına `13.` diye koymuştum; render `1..13` üretiyor, yani **kaynak 11 →
 >   render 12** kayması **beş çapraz atfı yanlış maddeye** düşürüyordu — 04:00'te
->   `ImagePullBackOff` gören operatöre *"sınır 12'yi oku"* deniyor, render'da 12
+>   `ImagePullBackOff` gören operatöre *"sınır **[Docker Hub anonim çekme bütçesi]**'ni oku"* deniyor, render'da 12
 >   **owner DSN** maddesi. Düzeltme iki katmanlı: yeni maddeler **listenin sonuna**
 >   taşındı **ve** bütün atıflar numara yerine **köşeli parantezli anahtar adla**
 >   veriliyor (*"sınır **[GHCR çekme kimliği ömürlü]**"*).
@@ -1376,8 +1376,8 @@ tablosu çıkmış durumda (satış slaytı da olur).
 > **B2 — AYNI DOSYA KENDİNİ YALANLIYORDU.** Birinci satırın yanına *"bunu kümede
 > görüyorsan iş akışının kapısı atlanmıştır … buraya ancak **elle `apply` edilmiş**
 > bir manifestle gelinir"* yazmıştım. **Yanlış**, ve çürüten cümle **aynı dosyanın
-> sınır 12'sinde** duruyordu (*"kapı bir depoyu sonradan private'a çeviren kimseyi
-> engelleyemez"*). Elle apply olmadan dört adımda üretilir ve **dördü de sınır 12'de
+> sınırının **[Docker Hub anonim çekme bütçesi]** maddesinde** duruyordu (*"kapı bir depoyu sonradan private'a çeviren kimseyi
+> engelleyemez"*). Elle apply olmadan dört adımda üretilir ve **dördü de sınır **[Docker Hub anonim çekme bütçesi]**'nde
 > sayılı**: deploy N yeşil → depo sonradan private → düğüm imajı düşürür
 > (`imageMinimumGCAge: 2m0s`, `crictl rmi`, düğüm yeniden kurulumu) → pod yeniden
 > başlar. Operatör **hiç olmamış** bir olayı ararken pod kapalı kalırdı. Cümle
@@ -1454,13 +1454,13 @@ tablosu çıkmış durumda (satış slaytı da olur).
 > yanlış cümle daha: *"`rollout undo` artık ayrıcalıklı risk taşımıyor"* (üç RS de
 > `ghcr` + `ps=ghcr` → tam da kaldırdığım 401 senaryosu) · *"'ayağa kalkabilir miyim'
 > sorusu ARTIK YOK"* (oluşabilir, ve onu ölçen `pull-credential` **silindi**) ·
-> *"`secret/ghcr` arayan biri var olmayan bir nesneyi arar"* (**var**) · sınır 12'nin
+> *"`secret/ghcr` arayan biri var olmayan bir nesneyi arar"* (**var**) · sınır **[Docker Hub anonim çekme bütçesi]**'nin
 > *"kaldırıldı"*sı (ağaçta evet, kümede hayır).
 > 🔴 **Ve dosya doğru kalıbı ZATEN BİLİYORDU:** bölüm 1'de *"Ağaçtaki manifestler
 > taşıyor; KÜMEDEKİ nesneler henüz taşımıyor"* + doğrulama komutu duruyor. Aynı kalıp
 > şimdi **dört yere daha** kondu: rollback bölümünün başına (ön koşul + ölçüm komutu,
 > ve komuttaki registry `<registry>` ile parametrik hâle geldi), olay önsözüne, bölüm
-> 2'ye ve sınır 12'ye. `rollout undo` uyarısı **geri getirildi** ve hangi koşulda
+> 2'ye ve sınır **[Docker Hub anonim çekme bütçesi]**'ne. `rollout undo` uyarısı **geri getirildi** ve hangi koşulda
 > düşeceği yazıldı.
 >
 > **B2 — BÖLÜM 2'NİN BAŞLIĞI KENDİ BÖLÜMÜNÜ YALANLIYORDU.** *"artık kimlik sorunu
@@ -2157,6 +2157,580 @@ tablosu çıkmış durumda (satış slaytı da olur).
 > **B8** `obfuscate` geçiyor — **sayılmış seçim** olarak sınır 19'a yazıldı: rclone'un
 > kendi belgesine göre şifreleme değil geri çevrilebilir karıştırma; kalan maruziyet
 > **yalnız adlar**, içerik bayt kontrolüyle şifreli.
+
+---
+
+> **Kart düzeltmesi (2026-08-16, M8-02 FAZ F uygulaması sırasında — KEK DÖNDÜRME
+> ARACI).** FAZ E'nin kapanışı bu işi *"sınır 9, bu turda yapılmadı — FAZ F"* diye
+> bırakmıştı. Bu tur getirdi: **`cmd/rotatekek`** · okuma yolunda **iki KEK**
+> (`TAPPA_TAG_KEK_PREVIOUS`, `internal/config` + `sun.UnwrapAny`) · `deploy/README.md`
+> → *"KEK döndürme"* prosedürü · sınır 9 yeniden yazıldı.
+>
+> **🔴 KARTIN KRİTERİ YETERSİZDİ, VE EKSİĞİ ÖLÇÜLDÜ.** Kriter yalnız *"tüm parkın
+> `aes_key_ref` değerlerini yeniden sarmalayan araç var"* diyor. Yalnız o araç
+> yazılsaydı **ürün kırılırdı**: park hangi satırın hangi KEK'le sarıldığını
+> **kaydetmiyor** (`tags`'te sürüm sütunu yok), yani yeniden sarmalama sürerken park
+> **karışıktır** ve tek KEK tutan bir süreç öteki yarıdaki her tap'e **500** döner —
+> §4.6 ürünün ALTINDA çöker: kayıt `flag`'lenmez, **hiç alınmaz**. Kriterin
+> gerektirdiği ama söylemediği şey **okuma yolunun değişmesiydi**.
+>
+> **ÜÇ YOL ÖLÇÜLDÜ, BİRİ SEÇİLDİ — ve elenenler sayıyla elendi:**
+>
+> | Yol | Ölçüm | Karar |
+> |---|---|---|
+> | **(A) iki-KEK okuma yolu** | pencereyi **iki yönde** kapatıyor (koşu **ve** geri alma); maliyeti bir isteğe bağlı env + `UnwrapAny` | **SEÇİLDİ** |
+> | **(B) tek atomik transaction** | orkestratörün okuması **doğrulandı ve genişledi**: pencereyi kapatmıyor, **taşıyor** (pod COMMIT'ten sonra da eski KEK'i tutar) — üstelik **yeni bir arıza üretiyor**: 72 380 satırı tek transaction'da tutan bir koşuda ürünün kendi replay guard'ı (`AdvanceTagCounter`, satırda `FOR UPDATE`) **10,32 sn blokladı** | elendi |
+> | **(C) `tags`'e KEK sürüm sütunu** | en ağırı (migration + §6 beşlisi) **ve tek başına yetmiyor**: satır hangi KEK'le sarılı olduğunu söylese bile o KEK'in **süreçte mevcut** olması gerekir, yani (A)'yı **yine** gerektirir | elendi |
+>
+> **(B) tamamen atılmadı — faydalı yarısı alındı.** Araç **tek set-tabanlı `UPDATE`**
+> yazıyor, yani kilit penceresi ifade süresi kadar: aynı parkta **3,6 sn** (72 380
+> satır) ve rotasyon sürerken atılan **12 canlı tap'in 12'si başarılı, en kötü bekleme
+> 0,76 sn** — sayaç ilerledi **ve** sarmal değişti, kayıp güncelleme yok.
+>
+> **ARAÇ BİR FİLTREDİR** (bağlantı açmaz, DSN tutmaz, sürücü linklemez;
+> `test/fixtures/seedkeys`'in emsali). Gerekçe kozmetik değil: `aes_key_ref`'i yalnız
+> `tappa_owner` yazabilir (00013 `UPDATE(aes_key_ref)`'i `tappa_app`'ten aldı), ve
+> *"hangi rol yazıyor"* sorusu `psql` çağrısında **bir kez** cevaplanıyor. Yan fayda:
+> `cmd/tappa/packaging_test.go`'nun *"owner DSN'i `internal/config` dışında geçmez"*
+> kapısı **genişletilmedi** — yeni kodu almak için bir kapıyı gevşetmek, kapıyı
+> kaybetmektir.
+>
+> **§4.6'YA DEĞEN ÜÇ KARAR, ölçümleriyle:**
+> ⚠️ **AŞAĞIDAKİ İKİ SAYI FARKLI KURULUMLARA AİTTİR VE BU SÖYLENMEMİŞTİ:** *"72 380
+> satırın 39 062'si açılmıyor"* **gerçek geliştirme parkını** anlatır (çoğu satır
+> test artığı, hiçbir KEK'le açılmaz); *"72 380/72 380 açılıyor"* ise **provanın
+> sentetik ön-durumunu** anlatır (tüm park önce bilinen bir KEK altına konur).
+> İkisi çelişmiyor, farklı deneyler — kartın onları ayırmaması bir kusurdu.
+>
+> 1. **Açılmayan satır sessizce ATLANMIYOR.** Gerçek parkta ölçüldü: 72 380 satırın
+>    **39 062'si** hiçbir KEK'le açılmıyor (1/2/12 baytlık test artığı, **31 320
+>    tenant**). Araç **varsayılan olarak reddediyor**; devam için operatörün sayıyı
+>    **birebir** beyan etmesi gerekiyor, ve o koşunun çıkış kodu **3** — başarıdan
+>    ayrı. ⚠️ **Sayılmış limit:** sayı hata mesajında yazıyor, yani beyan bir **hız
+>    kesicidir — KAYIT DEĞİLDİR.** (Bu cümle *"hız kesici ve kayıt"* diyordu; 8.
+>    turda README'de ve `main.go`'da düzeltildi, burada eski hâliyle kaldı ve 10.
+>    turda yakalandı. `audit_log` satırı yok, dosyada iz yok, DB'de iz yok.)
+> 2. **Sıfır satır fail-open DEĞİL.** Ölçüldü: `tappa_app`, `app.tenant_id` set
+>    edilmeden, 72 380 satırın **0'ını** görür — **hatasız**. Araç 0 satırı
+>    reddediyor ve mesajı **iki sebebi de** adlandırıyor.
+> 3. **RLS'in DARALTMASI aracın göremediği yerde yakalanıyor** — ⚠️ **BU MADDE 1.
+>    TURDA YARIM ÖLÇÜLMÜŞTÜ; 2. TUR DÜZELTTİ, ayrıntısı aşağıdaki F2 bloğunda.**
+>    Ölçülen kurulum *daraltılmış okuyucu + **süper** yazıcı*'ydı: araç
+>    *"15/15 ✓, EXIT 0"* dedi, son koşul yakaladı (`ERROR … 15 rows were read but
+>    tags holds 72380 … Nothing written`, `psql` exit 3, park değişmedi).
+>    **Runbook o kurulumu üretmiyordu** — tek `$OWNER_DSN` ile okuyan ve yazan aynı
+>    daraltılmış oturumdu, ve o yolda son koşul **15'i 15'le karşılaştırıp
+>    GEÇİYORDU**. Koruma 2. turda gerçek oldu: SQL artık saymadan önce oturumun
+>    RLS'i **gerçekten atladığını** doğruluyor.
+>
+> **KAPSAM: `retired` + `lost` DAHİL** (5 853 + 1 812). Gerekçe araçtan değil buradan
+> okunmalı: `lost` bir plaket **fiziksel olarak birinin elinde** ve anahtarı sızmış
+> KEK'in altından **en çok çıkması gereken** anahtar; ayrıca **her dışlama sızmış
+> KEK'i kalıcı olarak GEREKLİ kılar** (bir satır hâlâ yalnız onunla açılır), yani eski
+> KEK'i yok etmeye izin vermeyen bir rotasyon rotasyon değildir. Maliyeti sıfır: aynı
+> ifade.
+>
+> **KAPSAM DIŞI, açıkça:** **plaketin kendi AES anahtarı dönmüyor.** O çipe yazılıdır
+> (ADR 0003 **md. 5 — "Anahtar döndürme"**; md. 3 anahtar ÜRETİMİDİR, ve md. 5 yerinde `ChangeKey`'i **MVP dışı** bırakır); döndürmek parktaki her NTAG 424 DNA çipini **fiziksel olarak
+> yeniden encode etmek** demektir — saha operasyonu, bu görevin dışında, ve araçta +
+> runbook'ta + burada üç kez yazılı.
+>
+> **DOĞRULAMA — provası atılabilir bir kopyada koşuldu** (`CREATE DATABASE …
+> TEMPLATE tappa` → koş → doğrula → `DROP`; `tappa` veritabanına **0 yazma**).
+> Dönüşün doğruluğu **bağımsız bir uygulamayla** ölçüldü (repo dışı, `internal/sun`'ı
+> import **edemeyen** bir modül — yani kanıt formatın uyuştuğunu söylüyor, kodun
+> kendisiyle tutarlı olduğunu değil): **72 380/72 380** yeni KEK'le açılıyor **ve aynı
+> plaket anahtarını** veriyor (sha256 karşılaştırması, değer basılmadan), eski KEK'le
+> açılan **0**. Yarıda kesilen koşu **idempotent**: yeniden koşulunca 72 380 *"already"*,
+> 0 yeniden sarmalama.
+>
+> **19 mutasyon, 19'u kırmızı** (bir yirmincisi **davranışsal olarak etkisizdi** —
+> `for i, kek` + `_ = i` — ve yeşil dönmesi hiçbir şey söylemez; ders **"DERLENMEYEN BİR MUTASYON YAKALANDI DEĞİLDİR"** gereği
+> ayrıldı ve sayılmadı). `internal/sun` kapsamı **%96,7 → %97,0**.
+>
+> **🔴 KAPANMAYAN, VE SINIR 9'A YAZILDI: prosedür KÜMEYE karşı hiç koşulmadı.**
+> Yerel bir Postgres konteynerine karşı koşuldu; ölçülen her şey **mekanizma**
+> hakkındadır, küme hakkında **tek iddia yoktur** (ders **"BİR RUNBOOK'UN DOĞRULUĞU AĞACA GÖRE DEĞİL, KÜMEYE GÖRE YARGILANIR"**). Kapatan tek ölçüm,
+> operatörün `tappa-postgres:5432`'ye **nereden** ulaştığıdır —
+> `12-networkpolicy.yaml` 5432'yi yalnız `tappa` namespace'inde
+> `app.kubernetes.io/name: tappa` etiketli pod'lara açıyor ve `kubectl port-forward`'un
+> bu kuralın etrafından dolaşıp dolaşmadığı bu repoda **hiç ölçülmedi** (bu ajan küme
+> üzerinde mutasyon fiili koşmuyor). ⚠️ İkinci sayılmış açık: rotasyonun **üçüncü
+> adımı rotasyonun kendisidir** (`TAPPA_TAG_KEK_PREVIOUS`'u kaldırmak) ve onu zorlayan
+> **mekanik bir kapı yok** — tutan tek şey prosedürün metni.
+>
+> **🔴 [FAZ F · 14. TUR] 12. TURUN KENDİ DÜZELTMESİ RUNBOOK'U KIRDI — VE BU, ON ÜÇ
+> TURDUR TEKRAR EDEN SINIFIN SAF HÂLİYDİ. BİÇİM MEKANİKLEŞTİRİLDİ.**
+>
+> **B1 — `--apply` RUNBOOK'TA HİÇ GEÇMİYORDU.** 12. tur script'in varsayılanını ters
+> çevirdi (yazmak `--apply` ister); runbook güncellenmedi ve
+> `./scripts/rotate-kek.sh   # uygular` satırı **çıplak** kaldı. 77.215 satırlık
+> kopyada **birebir o satır** koşuldu: **rc=0**, *"DRY RUN — nothing applied"*, ve
+> **77.215 satırın tamamı ESKİ KEK altında** — üstelik runbook'un tablosu o sıfırı
+> *"uygulandı"* diye okuyordu. Operatör adım 3'e geçseydi sunucu yalnız yeni KEK'i
+> tutar, park tamamen eski KEK altında kalırdı: **her tap 500, hiç mesai kaydı
+> yok**, ve sızmış KEK tek çalışan anahtar. Kartın *"yazılı **ve yürütülebilir**"*
+> kriteri doğrudan yanlışlanmıştı.
+>
+> 🔴 **SINIF: bir artefakttaki düzeltme başka bir artefakttaki cümleyi sessizce
+> yanlışlıyor ve ikisini bağlayan mekanik bir şey yok** (kart↔README beş kez,
+> manifest↔config bir, kod↔test-adı iki, şimdi README↔script). **Çare bu görevde bir
+> katman aşağıda zaten bulunmuştu** — *"script'i koşturarak pinlendi, tarayarak
+> değil"* — ve bu turda **bir katman yukarı** uygulandı:
+>
+> **RUNBOOK'UN KOMUTLARI ARTIK TARANMIYOR, KOŞULUYOR.**
+> `TestRunbook_ItsOwnCommandsAreRUNNotSCANNED` rotasyon bölümünden
+> `./scripts/rotate-kek.sh …` satırlarını **çıkarıyor** ve her birini **gerçek
+> script'e** stub psql ile **koşturuyor**, sonra yıkıcı adıma ulaşıp ulaşmadığını
+> ölçüyor: `--apply` taşıyan satır **ulaşmalı**, taşımayan **ulaşmamalı**, ve **en az
+> bir** satır ulaşmalı (yoksa runbook hiçbir şey döndüremez). Ölçüm: **4 çağrı, 2'si
+> uygulama adımına ulaşıyor**; README çıplak hâline döndürülünce test *"NONE of the 4
+> … reaches the apply step"* ile **kırmızı**. Çıkış kodu tablosunun satırları da
+> **gerçek koşularla** eşleştirildi (1 ve 3; **0 sayılmış limit** — her satırın
+> açıldığı bir park ister, o prova atılabilir kopyada).
+>
+> **B2 — BYPASS SONDASI psql'İN KODUNU OLDUĞU GİBİ SIZDIRIYORDU.** `set -e` altında
+> korumasız bir komut ikamesiydi: sonda 3 dönerse **script 3** — ve 3 yayımlanmış
+> bir anlam (*"uygulandı ama park tam dönmedi, eski KEK yok edilemez"*), oysa park
+> **hiç okunmamıştı**. Ölçüldü ve haritalandı: **3/2/4/127 → 1**, her biri psql'in
+> kendi durumunu adlandırarak. ⚠️ **Ve script'in kendi yorumu *"bu, korumasız kalan
+> son çağrıydı"* diyordu — YANLIŞTI**, düzelttiğini söylediğinin **59 satır
+> yukarısındaydı**; yorum düzeltildi. Stub artık başarısızlık yolunu **gerçekten
+> sürüyor** (eskiden `*rolsuper*`'a koşulsuz `echo t; exit 0` diyordu, yani koruma
+> **yapı gereği test edilemezdi**).
+>
+> **NB3 — dedektör iki KARAKTERİ kapsıyordu, sınıfı değil.** Gerçek pty'de ölçüldü:
+> **backtick ÇALIŞIYOR · `$( )` ÇALIŞIYOR** (ikisi de işaret dosyası yazdı) ·
+> `!` `~` `*` `${}` **yan etki üretmedi**. `$( )` eklendi, ve testin **kapsamı
+> dürüstçe yazıldı**: iki yapı ölçülüp reddediliyor, üçü ölçülüp zararsız bulundu,
+> gerisi **sayılmış limit** (bu bir denylist).
+>
+> **NB4 — `danglingBudget` bir SU-SEVİYESİ İŞARETİYDİ.** `>` ile: bir atıfı onar +
+> satırı sil → 26/27 yeşil; sonra **yepyeni bir sarkan atıf + yeni satır** → 27/27
+> **yeşil**, yani hiçbir Go dosyası düzenlenmeden kalıcı bir muafiyet satın
+> alınıyordu — ve dosyanın kendi yorumu ile **kartın 13. turdaki cümlesi** bunu
+> *"mevcut boyut"* diye tarif ediyordu (bu görevde *"düzeltildi"* iddiasının
+> **altıncı** yanlışı). Tek satır: `>` → **`!=`**.
+>
+> **NB5 — yoruma alınmış bir test hâlâ *"tanımlı"* sayılıyordu** (`^func Test…(`
+> `/* */` içinde de eşleşiyor), yani *"silinen test, hayatta kalan atıf"* sınıfı
+> **silmek yerine yoruma almakla** erişilebilirdi. Blok yorumlar artık soyuluyor.
+>
+> **AÇIK İKİ KALEM KAPANDI.** `README`'nin `$WORK`/`go build` bloğu **ölüydü** —
+> `$WORK/rotatekek` hiçbir yerde çalıştırılmıyordu — **ve bir yan etkisi vardı:**
+> o bloğun `trap … EXIT`'i adım 2'nin `PGPASSFILE` trap'i tarafından **eziliyordu**,
+> yani geçici dizin **koşulsuz sızıyordu**. Blok kaldırıldı; `go build -o` iddiası
+> README'den **script'e taşındı** (README'de tutmak ölü kodu canlı tutardı). Ve
+> *"2 restart, 5 status"* sayımı düzeltildi: **çalıştırılabilir** satırlarda
+> **2 `rollout restart`, 3 `rollout status`**.
+>
+> **🔴 [FAZ F · 10.–12. TUR] MERKEZÎ KARAR: PROSEDÜR ARTIK BİR SCRIPT —
+> `scripts/rotate-kek.sh`. VE 12. TURDA O SCRIPT'İN KENDİSİ KRİTİK BİR KUSUR
+> ÜRETTİ.**
+>
+> **10. TURUN KARARI.** Bulguların dördü tek sınıftandı: **bir runbook, belirtilmemiş
+> bir dilde yazılmış bir programdır** (operatörün kabuğu). Gerçek pty'de `zsh -f -i`
+> ile yapıştırılan bloklarda bir **`#` yorumundaki backtick ÇALIŞIYOR** — en keskin
+> örnekte yorumun uyardığı ikilinin yolunu yorumun kendisi koşturuyordu — ve tek
+> apostrof **sonraki komutu yutuyordu**. Prosedür FAZ E'nin üç script'inin şeklinde
+> bir dosyaya taşındı; kabuk **belirtildi** (`bash`, shebang + `bash -n` süitte).
+> Bununla `ON_ERROR_STOP` (yokluğunda **40 ref sunucu log'una + psql rc=0**),
+> `mktemp -d`, `trap`, ve aracın çıkış kodunun maskelenmemesi **operatörün
+> parmaklarından çıkıp sürecin içine** girdi.
+>
+> **🔴 12. TUR — VE EN AĞIR KUSURU BEN ÜRETTİM: `--help` BÜTÜN PARKI DÖNDÜRÜYORDU.**
+> Argüman okuma tek bir tam-dize karşılaştırmasıydı, yani `--dry-run` DIŞINDAKİ
+> **her** girdi yıkıcı dalı seçiyordu. Atılabilir 75 662 satırlık kopyada, park
+> parmak izi önce/sonra: `--dryrun` · `--help` · `-n` · `--dry-run=true` ·
+> `x --dry-run` — **hepsi rc 0, hepsi PARKI YENİDEN YAZDI.** Rotasyon eski KEK ve
+> ikinci bir koşu olmadan geri alınamaz; sunucular iki KEK'i tutmuyorsa sonuç her
+> tap'te 500 ve **hiç kayıt yazılmaması**. Ders **"sağlıklı sistem BOŞTUR, arızalı
+> sistem EKSİKTİR"**in tam şekli, ve bu kez sonucu geri alınamaz.
+> **İki okuma ölçüldü ve ikincisi seçildi:** (a) yıkıcı varsayılanı koruyup katı
+> `case` yazmak — geriye yine tek yıkıcı girdi kalır (**boş** olan), yani gelecekteki
+> her ayrıştırma hatasının düşeceği yer *"parkı yeniden yaz"*tır; (b) **tersine
+> çevirmek** — yazmak `--apply` ister, ve bir yazım hatasının, bilinmeyen bayrağın ya
+> da ayrıştırma hatasının düşeceği yer **güvenli** daldır. Geri alınamaz bir işlem
+> için soru budur. **(b) uygulandı**, ve on argv şekli park parmak iziyle ölçüldü:
+> **hepsi değişmedi**, `--apply` pozitif kontrolde uygulama adımına **ulaştı**.
+>
+> **psql'İN ÇIKIŞ KODU HARİTALANDI.** Uygulama adımı `|| die` taşımayan tek psql
+> çağrısıydı: stub psql 3 ile çıkınca **script 3** veriyordu — ve **3 yayımlanmış bir
+> anlam**: *"uygulandı ama park tam dönmedi, eski KEK yok edilemez"*. Oysa hiçbir şey
+> uygulanmamıştı. Artık psql'in her sıfırdan farklı kodu **1**'e (hiçbir şey
+> uygulanmadı) haritalanıyor ve psql'in kendi kodu mesajda **adlandırılıyor**;
+> ölçüldü: 3→1, 2→1, 1→1, ve psql başarılıyken aracın **kendi** 3'ü korunuyor.
+>
+> **SINIF ÇATALLANMIŞTI, İKİNCİ UCU DA KAPATILDI.** Bölümde hâlâ **13 yapıştırılan
+> `bash` bloğu** var (sır girişi, `kubectl` adımları, doğrulama). Tehlike **karakter
+> düzeyinde** kaldırıldı: yorumlarda **0 backtick, 0 tek apostrof**, ve bloklar
+> `bash -n` **ve** `zsh -n` altında temiz. 🔴 **Ama *"imkânsız"* iddiası
+> **SAYIYA İNDİRİLDİ** — tablo artık 14 yapıştırmayı adıyla söylüyor ve bunun bir
+> **özellik** olduğunu, yapısal bir imkânsızlık **olmadığını** yazıyor. Kontrol:
+> README şeklindeki backtick'li bir yorum gerçek zsh'te **çalıştı** (işaret dosyası).
+>
+> **`$PGPASSFILE` ARTIK SİLİNİYOR VE TEK MEKANİZMA.** `~/.pgpass` yolu **elendi**:
+> temizliği literal `HOST` arayan bir `sed`'di, gerçek bir dosyada **hiç
+> eşleşmiyordu**, süper kullanıcı parolası diskte kalırken *"kalan owner satiri: 0"*
+> basıyordu — kendi beklentisini doğrulayan koşulsuz bir no-op. Ve **`rm -P` yalanı
+> runbook'tan da kalktı** (script'te zaten sondalanıyordu): bu platformda `rm -P`
+> belgeli bir no-op ve **0 döner**, `shred` yok, yani `|| shred` dalına hiç
+> geçilmiyordu.
+>
+> **MANDAL DÜZELTİLDİ.** Envanter **taranan bir `.go` dosyasındaydı**, yani her
+> girdi **kendini alıntılıyordu**: bayatlama kontrolü hiç ateşleyemezdi ve bir atıfı
+> onarmak **sıfır sinyal** üretiyordu. Envanter `cmd/tappa/testdata/`'ya taşındı
+> (taranmıyor), bütçe **mevcut boyuta** mandallandı (bir satır eklemek insan
+> düzenlemesi ister), *"tarihli"* yorum iddiası kaldırıldı, ve kapsam **`docs/adr/`
+> + `CLAUDE.md` + `.yml`** ile genişletildi — üçü de daha önce **yeşil** geçiyordu,
+> `docs/adr/` üstelik CLAUDE.md §10'un ADR zorunlu kıldığı yer.
+>
+> **⚠️ VE BİR PROTOKOL KUSURU ORKESTRATÖRÜN ÖLÇÜMÜYLE DÜZELDİ:** on bir turdur
+> mühürlenen `git diff | shasum` yalnız **tracked** dosyalardı; bu işin çekirdeği
+> (`cmd/rotatekek/`, `scripts/rotate-kek.sh`, üç test dosyası) **untracked** olduğu
+> için bütünlük kontrolünün **dışındaydı**. Tam kapsamlı hash artık kullanılıyor.
+> Bu, tam olarak bu görevde beş turdur kovalanan sınıf: **bir doğrulama aracının
+> kendi kapsamı ölçülmemişti.**
+>
+> **🔴 [FAZ F · 8. TUR] İKİ YENİ DENETÇİ DE RED — VE BU TURUN DÖRT BULGUSUNUN
+> DÖRDÜ DE KODUN DIŞINDAKİ BİR VARSAYIMDI: KABUK · DOSYA SİSTEMİ · SUNUCU
+> YAPILANDIRMASI · BORU ANLAMBİLİMİ.**
+>
+> **B1 (KRİTİK, §4.7) — BAŞARISIZ HER ROTASYON PARKIN SARMALLARINI SUNUCU LOG'UNA
+> DÖKÜYORDU.** Üretilen SQL tek bir ~19 MB'lık `DO` ifadesiydi ve `VALUES` listesi
+> onun **içindeydi**; Postgres hata veren bir ifadenin **tam metnini** log'lar
+> (`log_min_error_statement` varsayılanı `error`). Kendi ölçümüm, 20 satırlık
+> sondada, **ön koşul 6 birebir sağlanmışken** (`log_statement='none'`,
+> `log_min_duration_statement=-1`): **40 ayrı 88-hex sarmalı ref** log'da — 20
+> eski, **20 YENİ**. Yeni KEK altındakiler rotasyondan **sonra da** hassas, ve
+> runbook abortları **rutin** sayıyor.
+> **Biçim kararı: (a) ön koşula üçüncü bir değer yazmak bir YAPILANDIRMA
+> iddiasıdır** — operatör ya da managed sağlayıcı düşürünce düşer. **(b) seçildi:
+> ifadeyi küçült.** Sarmallar artık `CREATE TEMP TABLE` + `COPY … FROM STDIN` ile
+> **COPY VERİSİ** olarak gidiyor; COPY verisi ifade metni **değildir**. Üstelik
+> guard'lar (tenant GUC · `rolsuper` · park büyüklüğü) artık **COPY'den ÖNCE**
+> koşuyor, yani runbook'un *"rutin"* dediği abort tek bir ref bile göndermeden
+> düşüyor. Temp tablo ayrıca **WAL'a yazılmaz** — aynı baytlar yedeklere ve
+> replikalara da girmiyor.
+> **Kontrollü ölçüm (aynı oturum ayarları, aynı DB, işaretlenmiş log penceresi):**
+> **eski şekil 40 ref · yeni şekil 0 ref.**
+>
+> **B2 (KRİTİK, §4.7) — ZSH'TE EMANET SATIRI ESKİ KEK'İ EKRANA YANKILIYORDU.**
+> `read -rs -p` zsh'te *"coprocess'ten oku"* demek: `read` anında 1 dönüyor, `&&`
+> zinciri kırılıyor, dosya **0 bayt** kalıyor, ve girdi **tüketilmediği** için
+> yapıştırılan KEK bir komut olarak çalışıp `command not found: <KEK>` ile ekrana
+> basılıyor — **iki satır yukarıdaki uyarının tam olarak engellemek için yazıldığı
+> sonuç**. Yerine POSIX biçim: ayrı `printf` + `stty -echo` + `IFS= read -r`.
+> **İkisinde de ölçtüm: bash ve zsh — 21 bayt, mode 600, yankı 0.**
+>
+> **B3 (§4.7) — `/tmp/kek_new.b64` çıplak `>` ile yazılıyordu ve önceden konmuş
+> symlink'i İZLİYORDU** (`umask` var olan dosyanın iznini değiştirmez). Teknik
+> **zaten dosyadaydı**: kardeş satır `install -m 600 /dev/null` kullanıyor ve
+> saldırıyı yeniyor; yalnız birine uygulanmıştı. İkisine de uygulandı.
+>
+> **B4 (§4.7+§4.5) — `go build -o /tmp/rotatekek` başarısızlığı hiç kontrol
+> edilmiyordu**, ve o yolda symlink/dizin/eski-ikili varken `go build` **0
+> dönüyor**. Sonraki adım iki KEK'i ortama koyup o yoldaki şeyi koşuyor ve
+> **çıktısını süper kullanıcı psql'e** veriyordu. Artık `mktemp -d` (0700) +
+> `trap … EXIT` + `|| exit 1` + `-x` kontrolü.
+>
+> **B5 — YAYIMLANAN ÇIKIŞ KODU TABLOSU KENDİ BORUSUNDAN OKUNAMIYORDU.** `refuse()`
+> zehir ifadesi basıyor, `psql` 3 ile ölüyor, `pipefail` **en sağdakini** veriyor
+> ve aracın **1**'i maskeleniyor — yani *"REDDETTİ, hiçbir şey yazılmadı"* kodu bu
+> boruda **erişilemezdi**. 6. turda `go run` için düzelttiğim şeyin **bir katman
+> yukarısı**. **Biçim kararı: boruyu bıraktım.** Araç koşuyor → **kendi kodu
+> kapılanıyor** (`rc=$?` + `case`) → sonra dosya psql'e veriliyor. Bedeli yazıldı:
+> SQL artık `mktemp -d` içinde `install -m 600` bir dosyaya spool ediliyor, ve bu
+> ancak B1 sayesinde kabul edilebilir.
+>
+> **B6** onay değişkeninde `export` yoktu (düz atama araca ulaşmıyor: exit 1 vs 3).
+> **B7 — `50-backup` iddiası DÖRDÜNCÜ turda da yanlıştı, ve kök nedeni buldum:**
+> 6. turdaki betikte `open(...).write(s)` **bütün düzenlemelerden SONRA** duruyordu;
+> ikinci `assert` patlayınca dosya **hiç yazılmadı** ve **başarılı olan ilk
+> düzenleme de onunla birlikte çöpe gitti**. Yani eklediğim `assert` sessiz
+> no-op'u yakalıyor ama **iptal edilen bir toplu düzenlemeyi** yakalamıyordu. Bu
+> turda her düzenleme **kendi yazımını** yapıyor ve her iddia yazılmadan **önce**
+> `grep` ile doğrulanıyor. ⚠️ Ve aynı sınıfın ikinci örneği bu turda çıktı: *"kalan
+> çıplak ders numarası 0"* iddiam **satır-bazlı** bir grep'le doğrulanmıştı ve
+> **satır sonuna sarılmış** bir `(ders\n> 395)` atfını göremiyordu — kontrol artık
+> **sarma-duyarlı**.
+>
+> **DENETÇİLERİN ALTI YEŞİLİ:** initContainer/sidecar `envFrom` **kırmızı**
+> (kapı **pod düzeyine** genişletildi — iddia zaten pod düzeyinde yazılıydı) ·
+> `env:` kaynak **cinsi** **kırmızı** (anahtarlar `secretKeyRef` olmak zorunda) ·
+> config tarama regex'inin daraltılması **kırmızı** (sayı değil, **ada göre**
+> pinlendi: bir sayım kapsam değildir) · `exactly-one-configMapRef` **kırmızı** ·
+> `go run` varyantı **kırmızı** · boru **kırmızı**. ⚠️ **Kendi yeni kapımda iki
+> yeşil buldum ve söylüyorum:** biri **etkisiz bir mutasyondu** (hiçbir şeyi
+> yeniden sıralamıyordu, yeşili anlamsız), diğeri **gerçek bir boşluktu** —
+> yalnız AÇILIŞ dolar-tırnak etiketini yeniden adlandırmak **geçersiz SQL**
+> üretiyor ve hiçbir test görmüyordu; artık etiket **dengesi** pinli.
+>
+> **UCUZLAR:** `readAck` ham ortam değerini **stderr'e basıyordu** (ölçüldü: yanlış
+> değişkene yapıştırılan bir KEK raporda görünüyordu, ve runbook o raporu
+> **saklatıyor**) → artık yalnız **uzunluk**. `main.go`'daki *"and a record"*
+> cümlesi README'nin kendi düzelttiği yanlıştı → düzeltildi. `.pgpass` deseni
+> daraltıldı ve kapanış sayımı `|| true` ile bitiyor. `rolsuper` cümlesi olgu
+> kipinden **ölçüm+beklenti** kipine çevrildi.
+> 🔴 **MANAGED POSTGRES: adlandırılmış sayılmış limit yazıldı** — `BYPASSRLS`'i
+> yalnız süper kullanıcı verebildiği için prosedür o dünyada ön koşul 3'te **durur
+> ve devamı yoktur**; bilinen iki çıkış yolu da (`NO FORCE ROW LEVEL SECURITY` ya
+> da ürün rolüne yazma hakkı) **bir ADR ister**, o yüzden sessiz bırakılmadı.
+>
+> **🔴 [FAZ F · 6. TUR] ÜÇÜNCÜ GÖZ RED — VE DENETÇİNİN KENDİ SAYIMI ŞUYDU:
+> DAVRANIŞ 5 · METİN 6. BLOKLAYANLARIN İKİSİ DAVRANIŞ.**
+>
+> **B1 — SINIF KAPATICI, KAPATTIĞINI İDDİA ETTİĞİ SINIFA KARŞI SAVUNMASIZDI.**
+> `20-app.yaml`'ın **mevcut `envFrom:` listesine iki satır** (`- secretRef: {name:
+> tappa-secrets}`) eklemek `tappa-secrets`'ın **tamamını** sunucu sürecine enjekte
+> ediyordu — içinde `DATABASE_MIGRATE_URL`, yani `rolsuper=t rolbypassrls=t` bir
+> DSN — ve `go test ./cmd/tappa/` **exit 0** kalıyordu. Kendi yeniden üretimim
+> aynısını verdi. 🔴 **Ve `20-app.yaml`'ın kendi yorumu tam olarak bunun
+> olamayacağını, üstelik bu testin engellediğini yazıyordu.**
+> **Sınıfın dördüncü örneği, ve sebebi hep aynı: kapı bir YOKLUK okuyordu**
+> (*"`DATABASE_MIGRATE_URL` adı listede yok"*) — oysa **`envFrom` hiç ad taşımayan
+> bir enjeksiyondur**. Bir ad listesi, enjeksiyonun sonsuz biçiminden yalnız birini
+> kapatır.
+> **Biçim düzeltmesi:** kapı artık yorumun iddia ettiği **mekanizmayı** iddia
+> ediyor — *"servis eden konteynerin ortamı yalnızca açık `env:` girdilerinden
+> gelir, ve `envFrom` **yalnız `configMapRef`** taşır"* — pozitif bir cümle, bir
+> komutun çözdüğü. Enjeksiyon biçimlerini **saydım** (env: literal + 5 `valueFrom`
+> türü, envFrom: `configMapRef`/`secretRef`) ve kapıyı listeye değil **kategoriye**
+> bağladım. `envFrom` ayrıştırıcısının kendi dejenere girdileri de var (yalnız
+> ConfigMap · listeye eklenmiş Secret · tek başına Secret · akış stili · hiç
+> `envFrom` yok).
+>
+> **B2 — YAYIMLANAN ÇIKIŞ KODU TABLOSU, RUNBOOK'UN KENDİ KOMUTUYLA TESLİM
+> EDİLEMİYORDU.** Ölçtüm (Go 1.26.5 + beş satırlık kontrol programı): `go run`
+> altında **3 → 1**'e çöküyor, derlenmiş ikili **3** veriyor. Tabloda **1 ve 3 zıt
+> anlamda** (*"hiçbir şey yazılmadı"* ↔ *"SQL yazıldı, park YARIM döndü, eski KEK
+> imha EDİLEMEZ"*), yani operatör tam tersini okurdu — `main.go`'nun kendi
+> gerekçesinin (*"the whole failure this program exists to prevent is an operator
+> believing a rotation finished"*) tersi. **Ve bu, 4. turda kendi düzelttiğim
+> *"test edilmiş ama kimsenin çağırmadığı fonksiyon"* şeklinin bir katman
+> yukarısıydı:** sabitler pinliydi, **teslim** pinsizdi.
+> **Düzeltme:** runbook artık **`scripts/rotate-kek.sh`'i çağırıyor**; derleme ve
+> ikiliyi koşturma script'in içinde, `$WORK/rotatekek` yolunda (10. tur), ve iki yeni pin var:
+> `TestExitCodes_TheCOMPILEDBinaryReallyDeliversThem` üç kodu **gerçekten derlenmiş
+> ikiliyi çalıştırarak** ölçüyor, `TestRunbook_InvokesTheToolSoEveryExitCodeIsReadable` ise
+> README'nin `go run`'a ya da boruya geri dönmesini engelliyor. İkincisi yazıldığı anda
+> **kırmızıydı** (runbook hâlâ `go run` diyordu), yani ateşlediği gösterildi.
+>
+> **B3 — KARTIN *"YERİNDE DÜZELTİLDİ"* İDDİASI ÜÇÜNCÜ KEZ YANLIŞTI.** 4. tur
+> *"ADR atfı md. 3 → md. 5 yazıldı"* diyordu; **üç yerin üçü de hâlâ `madde 3`**'tü.
+> Sebebini buldum ve utanç verici: o turdaki `replace()` çağrısı **`assert`
+> taşımıyordu**, yani hedef eşleşmeyince **sessizce hiçbir şey yapmadı** — bu turda
+> her düzenleme `assert old in s` + `count==1` ile koşuyor ve bu blok yazılmadan
+> **önce** `grep` ile doğrulandı: kalan `madde 3` atfı ölçüldü (bu iddia 12. turda yeniden
+> koşuldu), üç dosya da `md. 5`
+> ve **`ChangeKey`'in MVP dışı** olduğunu adıyla yazıyor.
+>
+> **DENETÇİNİN ÜÇ YEŞİLİ — üçü de kırmızı:** **M-C** (`closed` satırı `Info` →
+> `Debug`) — sebebi bendeydi: test yardımcım `slog.LevelDebug` kuruyor, yani **sevk
+> edilen seviyeyi hiç sürmüyordu** (M8-01'in ölçtüğü kalıp). Yeni test seviyeyi
+> **`05-config.yaml`'dan okuyup** ürünün kendi `parseLevel`'ından geçiriyor;
+> sonucu kritikti çünkü sevk edilen `info` altında `closed` düşerse kapı **kalıcı
+> `0/0`** okur ve **her rotasyon adım 3'te durur**. **M-K** (jeton DEĞERLERİ
+> yeniden adlandırıldı) — Go tarafındaki her iddia **sembolikti**, README'nin dört
+> `grep`'iyle arasında hiçbir şey yoktu; yeni test iki temsili **değere göre**
+> bağlıyor ve her jetonun **iki** kapı tablosunda da bulunmasını istiyor.
+> **M-B**'nin ortaya çıkardığı **tırnak körlüğü** de kapatıldı (`- name: "X"`).
+>
+> **RUNBOOK GERÇEĞE ÇEKİLDİ:** *"`50-backup.yaml` her gece dump gönderiyor"* geniş
+> zamandaydı ve **ölçtüm: `kubectl -n tappa get cronjob` → `No resources found`**;
+> cümle **koşullu mekanizma** kipine çevrildi (*"CronJob çalışıyorsa …; çalışmıyorsa
+> bu adım bugün boştur"*) + kontrol komutu. **İki yanlış sınır atfı** (13 → **1**)
+> düzeltildi. `:1189` ↔ `:1111` çelişkisi çözüldü (kapı cümlesi artık *"bu depodaki
+> ikili"* diyor ve ağaç/küme ayrımını 5c'ye bağlıyor). **`~/.pgpass` temizliği artık
+> yorum değil komut** — geçici dosyalar için tam bir imha zinciri varken kalıcı bir
+> dosyadaki SUPERUSER parolasını yorumla geçmek asimetriydi. Kartın **"ders NNN"
+> satır-numarası atıfları ADA çevrildi** (ders *"satır numarası yazma, adım adını
+> yaz"*), kalan çıplak numara **0**.
+>
+> **HAK TESLİMİ (denetçinin ölçümü):** jeton kapısı 16 log-seviyesi kombinasyonunda
+> **hiçbir yanlış cevap** vermedi, yalnız `warn`/`error` altında kullanılamaz
+> (`0/0 → DUR`) — güvenli yön; çoklu pod'da tehlikeli yön **kurulamadı**; log
+> rotasyonu bu deployment'ta **üretilemez**; karşılıklı dışlama kaçamadı; ve kapının
+> **hüküm basmayıp sayması** FAZ C'nin *"kapatma, say"* dersinin doğru uygulaması
+> sayıldı.
+>
+> **🔴 [FAZ F · 4. TUR] İKİ YENİ DENETÇİ DE RED — VE ÜÇ BLOKLAYANIN ÜÇÜ DE 2.
+> TURUN KENDİ DÜZELTMELERİNİN ÜSTÜNDEYDİ. SINIF ADLANDIRILDI VE BİÇİM DEĞİŞTİ.**
+>
+> **ORTAK KUSUR, ve bu bir yama listesi değil bir BİÇİM hatasıydı: eklediğim her
+> kapı bir YOKLUĞU okuyordu.** *"OPEN satırı yok"* · *"ad listede yok"*. Bir yokluk
+> hiçbir zaman *"kapalı"* kanıtı değildir — *"henüz bakmadım"*, *"log seviyesi
+> yükseltilmiş"*, *"yanlış pod"*, *"log dönmüş"* ile **aynı görünür**. Ders **"BİR SINIF DÖRT TUR ÜST ÜSTE ÜRETİYORSA YAMA İSTEME, KARAR İSTE"**'in
+> ölçütü uygulandı: kapı **pozitif bir olgu** okumalı ve doğruluğu **savunulmamalı,
+> bir komut tarafından çözülmeli**.
+>
+> **B1 — ADIM 3'ÜN TEK KAPISI ÜÇ KEZDEN İKİSİNDE YANLIŞ CEVAP VERİYORDU.** Uyarı
+> açılışta bir, sonra 15 dk'da bir; kapı `--since=5m` okuyordu → doğru cevap oranı
+> `5/15 = %33`. Ve zincir daha ağırdı: `20-app.yaml`'da **`reloader`/`checksum`
+> annotation'ı yok** (kendi ölçümüm: canlı Deployment'ta `annotations` **boş**),
+> yani **sırrı düzenlemek pod'u yeniden başlatmaz**; bölümde *"rollout"* 7 kez
+> geçiyordu ve **hiçbiri komut değildi** (`rollout restart` 0, `rollout status` 0)
+> — oysa repo bu bilgiyi `externalsecret.example.yaml`'da zaten taşıyordu. Sonuç:
+> operatör *"pencere kapandı"* deyip sızmış KEK'in **emanet kopyasını imha
+> ediyordu**, süreç o KEK'i kabul etmeye devam ederken ve geri alma kopyası da
+> gitmişken.
+> **Kapatıldı — BİÇİM DEĞİŞTİRİLEREK:** süreç artık açılışta **iki durumdan tam
+> birini** yazıyor (`kek_rotation_window=open` / `=closed`; açık olan ayrıca 15
+> dk'da bir nag). Kapı iki sayıyı okuyor ve **üç** sonucu ayırıyor: açık · kapalı ·
+> **`0/0` = BİLİNMİYOR, DUR**. `--since` kaldırıldı (satır açılışta düşer).
+> `rollout restart` + `rollout status` adım 1 ve adım 3'ün **gövdesine** yazıldı
+> (ölçüldü, YALNIZ çalıştırılabilir satırlar: **2 `rollout restart`, 3 `rollout
+> status`** — önceki *"2 restart, 5 status"* sayımı düzyazıdaki geçişleri de
+> sayıyordu). Ve `0/0` okumasında **hiçbir şey imha edilmiyor**.
+> Sabit de pinlendi: `15 * time.Minute` → 30 gün mutasyonu artık **kırmızı**
+> (`TestKEKRotationWarnEvery_IsShortEnoughToBeANag`) — 2. turun testi kendi
+> `time.Millisecond`'ını atıp sevk edilen değeri hiç sürmüyordu, **M8-01'in ölçtüğü
+> kalıbın aynısı**.
+>
+> **B2 — "SINIFI KAPATAN TEST" BİR DİZGİ ARIYORDU, ENJEKSİYON DEĞİL.** Regex dosyanın
+> **tamamında** `- name: X` eşliyordu ve girdinin `value`/`valueFrom` **taşıdığını
+> sormuyordu**. İki mutasyon yeşil geçiyordu: `valueFrom` bloğunu **silmek**
+> (Kubernetes EnvVar'a `""` verir → `optionalKey32` **nil** → pencere sessizce
+> kapalı) ve girdiyi **initContainer'a taşımak** (o konteyner sunucudan önce ölür).
+> **Kapatıldı:** parse artık `containers:` altındaki **`tappa` adlı** konteynerin
+> `env:` listesine **kapsanmış** ve her girdinin **kaynak taşıdığını** istiyor.
+> **M2 ve M2b'nin ikisi de artık KIRMIZI** (kendi ölçümüm). ⚠️ Ve kapsam daraltmasının
+> **kendisi** pinsizdi (kapsamı dosyaya geri genişleten mutasyon **yeşildi**): parser
+> artık **kendi dejenere manifestleriyle** test ediliyor — initContainer'daki ad ·
+> sidecar'daki ad · `ports:` altındaki `- name: http` · kaynaksız girdi · yalnız
+> yorumda geçen ad. 🔴 **Ve o test yazılırken parser'ın İLK hâli sıfır girdi
+> döndürdü** — `- name: http` konteyner sınırı sanılıyordu — **yakalayan şey testin
+> kontrolüydü**. Aracın kendi dejenere girdileri, aracın kendisi kadar önemliymiş.
+>
+> **B3 — ADIM 1'İN "ROLLOUT İŞE YARADI MI" KAPISI TOTOLOJİYDİ.** Deployment
+> **SPEC**'ini okuyordu; girdi koşulsuz ve kalıcı olduğu için sır boşken de yeşildi,
+> ve `optional: true` bir **yazım hatasını** (`TAPPA_TAG_KEK_PREV`) sessizce yutuyordu.
+> Kapatıldı: o komut kaldırıldı, yerine B1'in pozitif log kapısı geldi — yazım
+> hatasında süreç `closed` yazar, tablo *"pencere AÇILMADI"* der ve operatör durur.
+>
+> **B4 — `optional: true` pinsizdi.** Pinlendi
+> (`TestPackaging_TheRotationKEKIsOptionalSoTheSteadyStateStarts`, kontrolü de var:
+> `TAPPA_TAG_KEK` **optional olmamalı**). Denetçilerin ayrıldığı yerde güvenlik
+> gözü haklıydı ve kartın dili ona göre: bayraksız hâl bir **kesinti değil**,
+> `maxUnavailable: 0` sayesinde **takılı bir rollout**.
+>
+> **UCUZLAR KAPATILDI:** owner parolası artık argv'de değil (`~/.pgpass` + parolasız
+> DSN — *"KEK'i argv'den yasaklayıp owner DSN'ini argv'ye koymak"* aynı tehdit
+> modeline zıt muameleydi) · `cat >` yerine `read -rs` (etkileşimli tty girdiyi
+> **ekrana yankılıyordu**, bir satır yukarıda *"terminale yazdırma"* yazarken) ·
+> `20-app.yaml`'ın *"dört"* yorumu **beş** oldu · ADR atfı **md. 3 → md. 5**, ve md.
+> 5'in `ChangeKey`'i **MVP dışı** bıraktığı yazıldı · kartın 2. turdaki *"`make
+> audit` çıkışı 1'dir"* düzeltmesi **kendisi yanlıştı** (make **2** döner;
+> `govulncheck` 1) · `writeAll` yorumu kendi test dosyamla **çelişiyordu**
+> (`1>&-` bugün de exit 0 verir **ve** yazar: Go runtime kapalı standart fd'lere
+> `/dev/null` açıyor) — yorum düzeltildi, testin ölçümü doğruydu.
+>
+> **YENİ SAYILMIŞ AÇIKLAR:** rotasyonun **`audit_log`'da izi yok** (araç bir filtre,
+> yazan `psql`) — *"kaç satır sızmış KEK altında kaldı"* sorusunun **ürün içinde
+> cevabı yok**; `TAPPA_ROTATE_ALLOW_UNOPENABLE`'ı *"bir kayıttır"* diyen cümle
+> **indirildi**, artık yalnız *"hız kesici"* · iki-KEK yolunun **son kullanma
+> tarihi/sayacı/göstergesi yok** · ön koşul 5b BYPASSRLS oturumunun **kapsamı,
+> ömrü ve izsizliği** yazıldı · `tappa-secrets` **elle** yönetiliyor (ölçtüm: 23 ESO
+> CRD kurulu, `tappa` namespace'inde **0** ExternalSecret) · ve 🔴 **canlı Deployment
+> bu değişikliğin ÖNCESİNDE**: env listesi hâlâ **dört** ad taşıyor ve çalışan ikili
+> `kek_rotation_window=` satırını yazmıyor, yani kapı ancak manifest + imaj sevk
+> edildikten sonra anlamlı — ön koşul 5c bunu ölçümüyle söylüyor.
+>
+> **🔴 [FAZ F · 2. TUR] İKİ DENETÇİ DE RED. ÜÇ BLOKLAYAN, VE 1. TURUN RAPORU
+> BUNLARDAN İKİSİNİ *"kapandı"* DİYE YAZMIŞTI.**
+>
+> **F1 — RUNBOOK'UN 1. ADIMI ÜRETİMDE HİÇBİR ŞEY YAPMIYORDU.** `20-app.yaml` sırrı
+> **anahtar anahtar** çekiyor (`envFrom` bilinçli olarak kullanılmıyor) ve listede
+> **dört** ad vardı. 1. turun diff'i üç manifeste de dokunmadı. Zincir: operatör
+> sırra ekler → rollout **yeşil** → değişken pod'a **hiç** enjekte edilmez →
+> `config.Load` boş okur → süreç **tek** KEK tutar → adım 2 parkı sunucunun
+> tutmadığı anahtarın altına taşır → **her plakete her tap 500, hiç işlem satırı
+> yazılmadan** (§4.6), ve **geri alma yolu da aynı eksik enjeksiyona bağlı**.
+> Kapatıldı: beşinci `secretKeyRef` (`optional: true`) + iki örnek manifest +
+> **sınıfı kapatan test** — `TestPackaging_EverySecretConfigReadsIsInjectedByTheManifest`,
+> `internal/config`'in okuduğu **her** adın bir manifestte bulunmasını istiyor
+> (manifest satırı silinince **kırmızı**, ölçüldü). Testin kendi kontrolü de var:
+> `DATABASE_MIGRATE_URL` `20-app.yaml`'da **yalnız yorumda** geçtiği için, yorum
+> ayıklayıcı bozulursa ikinci test kırmızı veriyor — çıplak bir `grep` onu
+> *"enjekte ediliyor"* sanırdı.
+>
+> **F2 — SON KOŞUL YANLIŞ ÖZELLİĞİ ADLANDIRIYORDU, VE 1. TURUN "KANITI" DA O
+> YÜZDEN EKSİKTİ.** Gerekçe *"yazan oturum `tappa_owner`'dır, sayısı doğru
+> olandır"* diyordu. Sayımı doğru yapan **owner olmak değil, RLS'i atlamaktır**:
+> `tags` FORCE RLS taşıyor ve politikası **PUBLIC**'e yazılı (`polroles={0}`), yani
+> `NOSUPERUSER NOBYPASSRLS` bir sahip de filtrelenir. 1. tur *daraltılmış okuma +
+> **süper** yazıcı*'yı ölçmüştü; ölçülmeyen yol *daraltılmış okuma + **daraltılmış**
+> yazıcı*'ydı — **ve runbook tek `$OWNER_DSN` ile tam o kurulumu üretiyordu.**
+> Kendi yeniden üretimim, 73 100 satırlık kopyada:
+> ```
+> has_column_privilege(...,'aes_key_ref','UPDATE')  ->  t     (runbook'un kapısı "doğru rol" diyor)
+> SELECT count(*) FROM tags                          ->  0     (aynı rol parkı HİÇ görmüyor)
+> araç                                               ->  EXIT 0: every row read is accounted for
+> psql                                               ->  re-sealed 15 rows, COMMIT, exit 0
+> gerçek                                             ->  73 100'ün 15'i döndü; %99,98'i sızmış KEK altında
+> ```
+> Kapatıldı: üretilen SQL artık saymadan **önce oturumu bağlıyor** —
+> `app.tenant_id` set edilmiş olamaz **ve** `rolsuper OR rolbypassrls` doğru olmalı;
+> ikisi de ayrı ayrı `RAISE EXCEPTION`. Aynı repro artık iki farklı `ERROR` ile
+> düşüyor, **0 satır yazılarak**. ⚠️ Ders **"DÜNYA HAKKINDA İDDİA BAYATLAR, MEKANİZMA HAKKINDA İDDİA BAYATLAYAMAZ"** uygulandı: iddia **dünya** hakkında
+> olmaktan (*"yazan oturum owner'dır"*) **mekanizma** hakkında olmaya geçti
+> (*"oturum RLS'i gerçekten atlıyor, yoksa reddediyorum"*).
+>
+> **F3 — AÇIK ROTASYON PENCERESİNİN SIFIR SİNYALİ VARDI.** Kapatıldı: açık pencere
+> **her 15 dakikada** bir `slog.Warn` yazıyor (anahtar değil, **olgu**). ⚠️ Ve
+> denetçinin önerdiği `/readyz` **bilinçli olarak seçilmedi**: o uç nokta
+> kimliksizdir ve gövdesi *"hiçbir sebep adlandırmaz"* diye belgelidir; *"bir KEK
+> rotasyonu sürüyor"*, tam olarak **sızmış KEK'i elinde tutana** yarayan bilgidir
+> (anahtarının hâlâ canlı olduğunu söyler). Sapma ve gerekçesi kodda yazılı.
+>
+> **YEŞİL KALAN MUTASYONLAR — denetçinin 6'sı, benim sonucum.** B2 (çıkış kodu
+> sabitleri kendi kendilerine iddia ediliyordu) · T1 (§4.5 tenant kemeri) ·
+> T6 (`sun.Zero`) · T5 (`bufio` gerekçesi) **pinlendi**; F2/F3/F6/F1 için yeni
+> pinler eklendi ve **hepsi kırmızı** doğrulandı. **T2 BİLEREK YEŞİL BIRAKILDI:**
+> `UnwrapAny`'nin sırası *"load-bearing"* diye yazılmıştı ve aynı yorum iki satır
+> altta *"a cost decision, not a security one"* diyordu. Ölçüm ikincisini
+> doğruluyor — bir ref **tam olarak bir** anahtarla açılır, yani döngüyü ters
+> çevirmek hiçbir sonucu değiştirmez. **Pinlemek yerine İDDİA DÜZELTİLDİ** (ders
+> **"BİR YORUMUN İLAN ETTİĞİ ÖZELLİĞİ KODUN TAŞIDIĞINI DOĞRULA"**); yeşil mutasyon
+> artık bir boşluk değil, doğru cevap.
+>
+> **1. TURUN ÜÇ CÜMLESİ DÜZELTİLDİ:** (a) yukarıdaki *"RLS'in DARALTMASI …
+> yakalanıyor"* ölçümü **daraltılmış okuyucu + süper yazıcı** kurulumuna aitti ve
+> runbook o kurulumu üretmiyordu — artık iki kurulum da tabloda, ayrı satırlarda;
+> (b) `make audit`'in **kendi** çıkışı **2**'dir (make'in
+> başarısız recipe kuralı); **1** olan `govulncheck`'tir — özet satır
+> `govulncheck exit=1 - redline-check exit=0`. ⚠️ Bu maddenin 2. turdaki hâli
+> *"çıkış 1'dir, 2 değil"* diyordu, yani **bir düzeltme cümlesi düzelttiğini iddia
+> ettiği sayıyı yanlış yazdı**; ölçüm: `make audit; echo $?` → **2**; (c) *"adım 3'ün mekanik kapısı yok"* hâlâ doğru, ama
+> artık **gözlemlenebilir** — sessiz değil.
+>
+> **YENİ SAYILMIŞ AÇIKLAR (sınır 9'a yazıldı):** rotasyon **yedekleri döndürmez**
+> — rotasyon öncesi her dump plaket anahtarını sızmış KEK altında taşır, yani
+> *"sızmış KEK + eski dump = parkın tamamı"*, rotasyondan sonra da; runbook'a
+> **adım 4** (imha **ya da** `BACKUP_RETENTION_DAYS` boyunca sızmış KEK'i canlı
+> say) eklendi ama bu kümede yedek CronJob'ı yok, yani **hiç koşulmadı**. Ayrıca
+> **sunucu tarafı ifade log'u**: geliştirme Postgres'i 21 satırlık koşularda
+> **105 sarmalı ref literalini** log'a yazdı (üretim `args: []` ile temiz —
+> *tesadüfen*), ön koşul 6 bunu kapatmayı **adım** yapıyor. Ve
+> **`cmd/rotatekek` hiçbir imajda yok**.
+>
+> **Orkestratörün ölçümlerinden ÇÜRÜTÜLEN bir madde:** *"üretimde `tappa_owner` süper
+> değilse FORCE RLS onu da bağlar"* endişesi ölçülerek daraldı —
+> `k8s/10-postgres.yaml` `POSTGRES_USER: tappa_owner` veriyor ve `postgres` imajının
+> giriş betiği `POSTGRES_USER`'ı **initdb'nin bootstrap süper kullanıcısı** yapar. Taze
+> bir `postgres:17-alpine` konteynerinde aynı değişkenle ölçüldü: **`rolsuper=true`,
+> `rolbypassrls=true`**. Bu bir **mekanizma** kanıtıdır; üretimde `SELECT rolsuper`
+> **koşulmadı** ve koşulmadığı runbook'ta yazılı.
+>
+> ⚠️ **VE 2. TUR BU MADDEYİ KISMEN GERİ ALDI: orkestratörün endişesi ÇÜRÜK
+> DEĞİLMİŞ, YALNIZCA YANLIŞ YERE BAKIYORMUŞ.** *"Süper olmayan bir rolde FORCE RLS
+> ısırır"* cümlesi **doğruydu**; yanlış olan, onu yalnız **üretimdeki
+> `tappa_owner`'ın kimliği** sorusu sanmamdı. Gerçek isabet noktası
+> **prosedürün kendisiydi**: runbook tek `$OWNER_DSN` ile okuyup yazıyordu, yani
+> süper olmayan **herhangi** bir rol (ve §1'in hedefi olan **managed
+> Postgres**'te owner çoğu zaman süper **değildir**) sessiz kısmi rotasyon
+> üretiyordu. Bir endişeyi *"o değişken şu değeri alıyor"* diye kapatmak, endişenin
+> **sınıfını** kapatmaz.
 
 ---
 

@@ -22,6 +22,11 @@ func setRequired(t *testing.T) {
 	t.Setenv("DATABASE_MIGRATE_URL", "") // must NOT equal DATABASE_URL
 	t.Setenv("TAPPA_SESSION_HMAC_KEY", key)
 	t.Setenv("TAPPA_TAG_KEK", key)
+	// The KEK rotation fallback is OPTIONAL and unset is the steady state, so the
+	// fixture clears it explicitly rather than inheriting whatever the developer's
+	// shell happens to hold — an ambient value would make these tests pass or fail
+	// depending on whose machine ran them.
+	t.Setenv("TAPPA_TAG_KEK_PREVIOUS", "")
 	// The invite key must DIFFER from the session key (Load rejects equality), so
 	// this fixture cannot reuse `key` the way TAPPA_TAG_KEK does.
 	t.Setenv("TAPPA_INVITE_HMAC_KEY", otherKey)
@@ -464,5 +469,87 @@ func TestLoad_ResetDeliveryIsAClosedSetAndFailsClosed(t *testing.T) {
 			t.Errorf("TAPPA_RESET_DELIVERY=%q: the error does not point at the open question "+
 				"that has to be answered first: %v", bad, err)
 		}
+	}
+}
+
+// ---------------------------------------------------------- KEK rotation --
+
+// TestLoad_PreviousTagKEKIsOptionalButValidatedWhenSet covers the whole matrix
+// for TAPPA_TAG_KEK_PREVIOUS (M8-02 phase F), because the variable is OPTIONAL
+// and an optional variable is where "unset" and "wrong" get confused.
+//
+// The failure that matters is the quiet one: if a malformed value were treated as
+// "not set", the operator would believe the rotation window is open, every tap on
+// a not-yet-re-sealed plaque would answer 500, and nothing would say why. So a
+// value that is PRESENT must be valid or the process refuses to start.
+func TestLoad_PreviousTagKEKIsOptionalButValidatedWhenSet(t *testing.T) {
+	tagKEK := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{3}, 32))
+	prevKEK := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{4}, 32))
+
+	tests := []struct {
+		name     string
+		previous string
+		wantErr  string // "" means it must LOAD
+		wantLen  int
+	}{
+		{name: "unset is the steady state and must load", previous: "", wantLen: 0},
+		{name: "a valid 32-byte key opens the rotation window", previous: prevKEK, wantLen: 32},
+		{name: "16 bytes is refused", previous: base64.StdEncoding.EncodeToString(make([]byte, 16)),
+			wantErr: "want 32 bytes, got 16"},
+		{name: "24 bytes is refused", previous: base64.StdEncoding.EncodeToString(make([]byte, 24)),
+			wantErr: "want 32 bytes, got 24"},
+		{name: "33 bytes is refused", previous: base64.StdEncoding.EncodeToString(make([]byte, 33)),
+			wantErr: "want 32 bytes, got 33"},
+		{name: "not base64 is refused", previous: "!!!nope!!!", wantErr: "not valid base64"},
+		{name: "equal to the primary is refused", previous: tagKEK,
+			wantErr: "TAPPA_TAG_KEK_PREVIOUS must differ"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			setRequired(t)
+			t.Setenv("TAPPA_TAG_KEK", tagKEK)
+			t.Setenv("TAPPA_TAG_KEK_PREVIOUS", tc.previous)
+
+			c, err := config.Load()
+			if tc.wantErr != "" {
+				if err == nil {
+					t.Fatalf("a %s previous KEK must be refused at startup", tc.name)
+				}
+				if !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("error should say %q, got %v", tc.wantErr, err)
+				}
+				// §4.7: the refusal names the VARIABLE, never the value.
+				if strings.Contains(err.Error(), tc.previous) && tc.previous != "" {
+					t.Error("the startup error quotes the key material back")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("this configuration must load: %v", err)
+			}
+			if len(c.TagKEKPrevious) != tc.wantLen {
+				t.Fatalf("TagKEKPrevious is %d bytes, want %d", len(c.TagKEKPrevious), tc.wantLen)
+			}
+			// The primary is never disturbed by the optional one.
+			if len(c.TagKEK) != 32 {
+				t.Fatalf("TagKEK is %d bytes, want 32", len(c.TagKEK))
+			}
+		})
+	}
+}
+
+// TestLoad_UnsetPreviousKEKIsNilNotEmptySlice pins the exact value main.go passes
+// through to sun.NewVerifier without a branch. A zero-length non-nil slice would
+// behave the same today only because NewVerifier drops empties; asserting nil
+// here keeps the two ends of that contract from drifting apart independently.
+func TestLoad_UnsetPreviousKEKIsNilNotEmptySlice(t *testing.T) {
+	setRequired(t)
+	c, err := config.Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if c.TagKEKPrevious != nil {
+		t.Fatalf("an unset rotation KEK must be nil, got %d bytes", len(c.TagKEKPrevious))
 	}
 }

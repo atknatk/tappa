@@ -315,8 +315,12 @@ spec:
           # into this process's environment — including DATABASE_MIGRATE_URL, whose
           # role (tappa_owner) is initdb's bootstrap SUPERUSER and bypasses RLS
           # unconditionally. A compromised server process would then hold a
-          # ready-made credential for reading every tenant's rows. Listing the four
-          # it needs means there is nothing to reach for.
+          # ready-made credential for reading every tenant's rows. Listing only the
+          # names it needs means there is nothing to reach for. (There are FIVE
+          # now: the fifth, TAPPA_TAG_KEK_PREVIOUS, is optional and present only
+          # during a KEK rotation. The count is stated here because it was stale
+          # once; what actually keeps this list honest is
+          # TestPackaging_EverySecretConfigReadsIsInjectedByTheManifest.)
           #
           # internal/config does read DATABASE_MIGRATE_URL, but only to REFUSE a
           # deployment where the two DSNs are equal; unset skips the comparison.
@@ -343,6 +347,33 @@ spec:
                 secretKeyRef:
                   name: tappa-secrets
                   key: TAPPA_INVITE_HMAC_KEY
+            # 🔴 OPTIONAL, AND `optional: true` IS LOAD-BEARING: this key is ABSENT
+            # from tappa-secrets except during a KEK rotation, and without the flag
+            # kubelet refuses to start the pod on a missing Secret key. So the
+            # steady state needs it optional, and the rotation needs it listed.
+            #
+            # LISTING IT IS NOT OPTIONAL, AND THAT WAS MEASURED THE HARD WAY. The
+            # secret is pulled key by key (see above), so a key nobody names here
+            # never reaches the process no matter what the Secret holds. The first
+            # version of the rotation runbook said "add TAPPA_TAG_KEK_PREVIOUS to
+            # tappa-secrets and roll out" while this list had four entries: the
+            # rollout would go GREEN, the variable would never be injected,
+            # config.Load would see it unset and carry on with ONE KEK, and the
+            # first step of the rotation would put the entire park behind a key the
+            # server does not hold — every tap answering 500 and no transaction row
+            # written at all (CLAUDE.md §4.6, at the infrastructure layer). The
+            # rollback path depended on the same missing injection, so it would not
+            # have worked either.
+            #
+            # WHAT KEEPS THIS LIST HONEST is not this comment: it is
+            # TestPackaging_EverySecretConfigReadsIsInjectedByTheManifest, which
+            # fails if internal/config reads a variable this file does not name.
+            - name: TAPPA_TAG_KEK_PREVIOUS
+              valueFrom:
+                secretKeyRef:
+                  name: tappa-secrets
+                  key: TAPPA_TAG_KEK_PREVIOUS
+                  optional: true
           # ------------------------------------------------------------ probes --
           #
           # 🔴 LIVENESS IS /healthz AND READINESS IS /readyz, NEVER THE OTHER WAY

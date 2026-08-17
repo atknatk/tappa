@@ -1,0 +1,71 @@
+# Dangling test-name citations that ALREADY EXISTED when TestEveryNamedTestExists
+# was written (M8-02 phase F). One name per line.
+#
+# THIS IS A .txt AND NOT A .go ON PURPOSE. The inventory used to be a map in a
+# SCANNED _test.go file, so every entry CITED ITSELF on every run: the entry kept
+# its own name 'live', the staleness check could never fire, and repairing a
+# citation elsewhere produced no signal at all. A data file is not scanned, so an
+# entry here is a claim about OTHER files and nothing else.
+#
+# It may only SHRINK: delete a name once it no longer dangles, and lower
+# danglingBudget to match.
+# ⚠️ 2026-08-17: this list GREW from 27 to 53, and the reason is a STRICTER CHECK,
+# not new bad citations. The resolver used to accept ANY prefix match, which made
+# the commonest rename (TestX -> TestX_v2) invisible; prefix matching is now limited
+# to explicit family citations ending in "_". Tightening it revealed pre-existing
+# truncated citations in other milestones' comments. None were introduced by the KEK
+# rotation work and none are fixed by it — correcting each means deciding what it
+# MEANT to cite, which is not this task's call. From here the list may only SHRINK.
+TestAccount
+TestAccount_TheSignUpConfirmation
+TestAdminReset_TheUndeliverableLineClaimsOnly
+TestAnomalies_EveryQueryBindsTheTenant
+TestBilling_FoundingWarning
+TestBilling_SaysTheCountIsAFloor
+TestCheckinDB_PracticeThenDirection
+TestCheckinDB_Row4
+TestCode_NoExportedAccessor
+TestConfirmation_IsBoundToTheACTIONAndNotOnlyToThe
+TestCookieSeparation
+TestEmployeeActions_CrossOriginCostsNoResolverRead
+TestEmployeeActions_SecFetchSiteSameSitePasses
+TestEmployeeDeactivate_TheConfirmationStepIsNotEnforced
+TestEmployeesSection_OffersNoWriteAtAll
+TestForbiddenColumn_RefusesTheFiveByName
+TestGetAdminByEmail
+TestLanding_OffersNoLinkToAWizardThatIsNotMounted
+TestManualEntryRecord_RefusesWithoutTheConfirmation
+TestManualQuery_CARRIESTheTenantPredicate
+TestManualQuery_CARRIESTheTenantPredicateItselfIsAText
+TestMarketing_PolicyNamesWhatThePageLoads
+TestMoney_ScaleMatchesTheSchema
+TestPanelEmployeesDB_ASecondInvitationDoesNotRetireTheFirst
+TestPanelLandingDB_ManualRecordsKeepTheDate
+TestPanelProblemPages_CountTheWriteRoutesStillTellingReaders
+TestPanelQueries_CarryAnExplicit
+TestPanelScreens_LoadNoScript
+TestPanelScreens_LoadNoScriptAndReachNoThirdParty
+TestPlaqueActions_Are
+TestPlaqueJourneyDB_TheBudget
+TestPolicyBranchDerivation
+TestPolicyFixtures_DriveEvery
+TestPolicyTables_Keep
+TestPreview_HasNoSUNValidField
+TestRealIP_StripsEveryKnownForwardingHeader
+TestReportExportAuthority
+TestReviewBadge_AFailedCountNeverReadsAsZERO
+TestReviewBadge_PrintsNothingWhenTheQueueIsMEASUREDEmpty
+TestReviewDB_ALongNoteIsCutAndTheManagerIsTOLD
+TestReviewDecision_ADoubleClickSaysYOU
+TestReviewDecision_AMalformedREQUESTSaysNothingAboutTheRECORD
+TestReviewDecision_ConfirmsWhatWasRecordedAndSaysTheRecordIsUNCHANGED
+TestReviewDecision_RefusesAnUnknownOutcomeWithoutTOUCHINGTheDatabase
+TestReviewDecision_TheYoursScreenNeverGUESSESTheOutcome
+TestScreens_CarryNoFormControls
+TestSeedDB_WithoutTheWait
+TestSignupHandler_
+TestSignupProvision_ADuplicateVATLeavesNOTHINGBEHIND
+TestStaffQueries_ASubqueryWith
+TestStaffQueries_ASubqueryWithNoWhereIsInvisible
+TestStripTemplComments_
+TestTourDB_Skipping

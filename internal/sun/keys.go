@@ -137,6 +137,56 @@ func Unwrap(kek, uid, ref []byte) ([]byte, error) {
 	return key, nil
 }
 
+// UnwrapAny opens ref under the FIRST of keks that authenticates it, and exists
+// for exactly one situation: a KEK rotation (cmd/rotatekek, and the "KEK
+// döndürme" runbook in deploy/README.md).
+//
+// WHY IT HAS TO EXIST. Nothing in the schema records which KEK a row is sealed
+// under — there is no version column on tags, deliberately (adding one would
+// still require both keys to be present in the process, so it buys a migration
+// and no safety). Re-sealing 33 000 rows is therefore a period during which the
+// park is MIXED, and a process holding one KEK answers 500 to every tap on the
+// other half. That is §4.6 failing beneath the product: the record is not
+// flagged, it is never taken.
+//
+// ORDER IS A COST DECISION AND NOTHING MORE, and this paragraph used to claim
+// otherwise in its own first sentence while denying it in its last. The claim was
+// tested and removed rather than reworded: a given ref authenticates under exactly
+// ONE key, so reversing this loop changes which attempt succeeds first and changes
+// no outcome — an auditor's mutation that reversed it left every test green, and
+// correctly so. keks[0] is simply the key the caller expects to win (during a
+// rotation, the NEW one), which saves one GCM open per tap once most of the park
+// has moved.
+//
+// WHAT IS LOAD-BEARING is the CONTENT of the list, not its order: every key in it
+// is equally trusted, so a leaked key stays valid for exactly as long as it stays
+// in this slice. That is why the rotation's last step is to empty it again, and
+// why cmd/tappa announces an open window for as long as one is configured.
+//
+// The error names NO key and does not say WHICH position failed: a caller learns
+// "no configured KEK opened this", never "the second one nearly worked" (§4.7).
+// An empty list is an error rather than a silent failure — a caller that lost its
+// keys must not look like a caller holding a corrupt ref.
+func UnwrapAny(keks [][]byte, uid, ref []byte) ([]byte, error) {
+	if len(keks) == 0 {
+		return nil, fmt.Errorf("sun: unwrap: no KEK configured")
+	}
+	var firstErr error
+	for _, kek := range keks {
+		key, err := Unwrap(kek, uid, ref)
+		if err == nil {
+			return key, nil
+		}
+		if firstErr == nil {
+			// The FIRST error is kept rather than the last, so a caller reading a
+			// log sees the failure of the key that was supposed to work. Which
+			// position produced it is not reported.
+			firstErr = err
+		}
+	}
+	return nil, firstErr
+}
+
 // Zero wipes a plaintext key buffer once the caller is done with it (§4.7). The
 // unwrapped key must live only for a single verification; the caller MUST Zero
 // it afterwards so it does not linger in memory (a dump must not yield the park).
