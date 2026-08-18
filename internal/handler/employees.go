@@ -147,15 +147,44 @@ func statusOptions() []components.OptionView {
 // Cache-Control: no-store and therefore re-sent on every view. It is why this
 // section paginates at all.
 func (a *AdminAuth) employeesSection(w http.ResponseWriter, r *http.Request) {
+	v, ok := a.employeesView(w, r, nil)
+	if !ok {
+		return
+	}
+	a.render(w, r, http.StatusOK, pages.AdminEmployees(v))
+}
+
+// employeesView builds the whole section. It answers (view, true), or writes a
+// response itself and answers false.
+//
+// 🔴 IT IS A SEPARATE FUNCTION FROM THE ROUTE BECAUSE A REJECTED ADD RE-RENDERS THIS
+// PAGE RATHER THAN REDIRECTING TO IT (M6-13), and the two must be the SAME page. The
+// alternative — a second view builder for the failure path — is the "second
+// representation" shape this repository has paid for repeatedly: the copy drifts, and
+// the version a manager sees after a mistake is the one nobody looks at.
+//
+// `rejected` is the add form as it was posted, or nil. When it is set the form is
+// forced open with the manager's own typing in it, so a correction costs one field
+// rather than five.
+func (a *AdminAuth) employeesView(w http.ResponseWriter, r *http.Request, rejected *components.StaffFormView) (pages.EmployeesView, bool) {
 	id := httpx.AdminOf(r)
+	// 🔴 A REJECTED FORM CARRIES ITS POSITION IN THE BODY, NOT IN THE URL, because the
+	// request that reaches here is the POST to the add route — its query string is
+	// empty. Reading parseRosterFilter on that path would silently drop the manager's
+	// filters and page, so the form would come back correct and the list underneath it
+	// would be somebody else's view. Both readers are the SAME validator over
+	// url.Values, which is what keeps a POST from accepting what a GET rejects.
 	f := parseRosterFilter(r)
+	if rejected != nil {
+		f = rosterFilterFrom(r.PostForm)
+	}
 
 	screen, err := a.ledger.Roster(r.Context(), id.TenantID(), f)
 	if err != nil {
 		// §4.6: say the read failed. Do NOT fall through to an empty roster.
 		a.log.Error("panel: could not read the employee roster", "err", err)
 		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelUnavailable)
-		return
+		return pages.EmployeesView{}, false
 	}
 
 	zone := screen.Zone
@@ -214,9 +243,174 @@ func (a *AdminAuth) employeesSection(w http.ResponseWriter, r *http.Request) {
 	// one option list and one extra charged request when a manager opens it.
 	v.Actions, v.Problem = a.rosterActions(w, r, f, screen, v.Problem)
 	v.Done = a.confirmedRosterAction(r, v.Actions)
+	v.Add = a.rosterAdd(r, f, screen, rejected)
 
-	a.render(w, r, http.StatusOK, pages.AdminEmployees(v))
+	return v, true
 }
+
+// addParam is the disclosure that opens the add form, and addOpenValue is the one
+// value it responds to.
+//
+// IT IS A QUERY PARAMETER RATHER THAN A ROUTE OF ITS OWN, which is the locations
+// section's shape (?venue=new) and for the same reason: the form needs the roster's
+// filters and cursor beside it so Cancel and the eventual save return to the list the
+// manager came from. A separate route would have to carry all of that anyway.
+const (
+	addParam     = "add"
+	addOpenValue = "new"
+)
+
+// rosterAdd builds the add control, the form, or the sentence that replaces both.
+//
+// 🔴 Possible IS COMPUTED FROM THE BUSINESS'S OWN VENUES AND IS THE WHOLE OF THE
+// EMPTY PATH. employees.location_id is NOT NULL, so a business with no venue cannot
+// have employees at all — and the option list this form would render is exactly the
+// list that is empty in that state. Offering the control anyway would offer a
+// submission the server can only refuse, which is the defect this section carries two
+// tests against. The locations section makes the identical call one table over.
+//
+// ⚠️ THE OPTIONS COME FROM THE ROSTER READ THAT ALREADY HAPPENED, not from a second
+// query. The filter bar renders the same two lists, so the add form costs no extra
+// round trip — the cost M6-03 measured and removed was rendering option lists PER ROW,
+// not rendering them twice on one page.
+func (a *AdminAuth) rosterAdd(r *http.Request, f ledger.RosterFilter, screen ledger.RosterScreen, rejected *components.StaffFormView) components.RosterAddView {
+	locations := optionViews(screen.Options.Locations)
+
+	q := rosterQuery(f)
+	if f.AfterID != nil {
+		q.Set("after_id", f.AfterID.String())
+	}
+	closeHref := employeesHref
+	if len(q) > 0 {
+		closeHref = employeesHref + "?" + q.Encode()
+	}
+	// THE OPEN LINK IS BUILT FROM ITS OWN QUERY RATHER THAN FROM `q`.
+	//
+	// ⚠️ IT USED TO COPY `q` INTO A NEW map AND THE COMMENT EXPLAINED WHY THAT COPY
+	// MATTERED -- that aliasing would make Set below mutate the values closeHref is
+	// built from. An audit measured the honest version of that: the copy was
+	// behaviour-equivalent, because closeHref is computed ABOVE, so nothing could tell
+	// the two apart and no test could pin it. A described hazard with no test is what
+	// this file's own standard calls a defect waiting for the comment to be deleted as
+	// noise.
+	//
+	// Asking rosterQuery for a fresh value removes the hazard instead of documenting
+	// it: there is no shared map, so there is no ordering to get right and nothing to
+	// pin. It is also what the hidden fields below already do -- the previous comment
+	// claimed they were built from `q`, which was wrong.
+	open := rosterQuery(f)
+	if f.AfterID != nil {
+		open.Set("after_id", f.AfterID.String())
+	}
+	open.Set(addParam, addOpenValue)
+
+	v := components.RosterAddView{
+		Href:       employeesHref + "?" + open.Encode(),
+		Open:       r.URL.Query().Get(addParam) == addOpenValue || rejected != nil,
+		Possible:   len(locations) > 0,
+		VenuesHref: locationsHref,
+	}
+	if !v.Possible {
+		// 🔴 THE REFUSAL SURVIVES EVEN THOUGH THE FORM DOES NOT (§4.6). A business with
+		// no venue still reaches the add route — by a stale tab, a replayed POST, or a
+		// venue removed since the page rendered — and the domain refuses it. Before
+		// this line the message was attached to a form this branch does not render, so
+		// it was dropped: the manager got 200, a page about venues, and no word that
+		// anything had been refused. An audit measured exactly that.
+		if rejected != nil {
+			v.Refusal = rejected.ErrorMessage
+		}
+		return v
+	}
+	if !v.Open {
+		return v
+	}
+
+	// THE POSITION TRAVELS WITH THE FORM. Same mechanism as the action card's forms:
+	// the roster's filters and cursor are posted back as hidden fields, re-validated
+	// on the way in by the same rosterFilterFrom the URL uses, so a save returns to
+	// the list the manager was actually looking at.
+	hidden := make([]components.FormField, 0, len(q))
+	for key, values := range rosterQuery(f) {
+		for _, value := range values {
+			hidden = append(hidden, components.FormField{Name: key, Value: value})
+		}
+	}
+	if f.AfterID != nil {
+		hidden = append(hidden, components.FormField{Name: "after_id", Value: f.AfterID.String()})
+	}
+	sort.Slice(hidden, func(i, j int) bool { return hidden[i].Name < hidden[j].Name })
+
+	form := components.StaffFormView{}
+	if rejected != nil {
+		form = *rejected
+	}
+	form.Action = employeeAddHref
+	form.Hidden = hidden
+	form.CloseHref = closeHref
+	form.Locations = locations
+	form.Departments = optionViews(screen.Options.Departments)
+	form.BillingNote = addBillingNote
+	if form.LocationID == "" && len(locations) == 1 {
+		// ONE VENUE IS THE COMMON CASE AND PRE-SELECTING IT REMOVES A DECISION THAT HAS
+		// ONLY ONE ANSWER.
+		//
+		// 🔴 WITH MORE THAN ONE IT IS LEFT UNSET, AND THAT ONLY MEANS SOMETHING BECAUSE
+		// THE TEMPLATE OFFERS AN EMPTY PLACEHOLDER. This comment used to claim that
+		// leaving it unset stopped a manager being defaulted into a venue; an audit
+		// measured that it did not, because HTML submits a select's FIRST option when
+		// none is marked selected. Omitting `selected` changes nothing about what is
+		// sent. The placeholder is the mechanism; this line is only the convenience.
+		form.LocationID = locations[0].Value
+	}
+	v.Form = form
+	return v
+}
+
+// The two things this screen can truthfully say about the bill, and the CLAIM PHRASE
+// inside each that decides which one it is.
+//
+// 🔴 THERE ARE TWO OF THEM BECAUSE ONE OF THEM WAS UNFALSIFIABLE. This used to be a
+// single constant asserted with `strings.Contains(body, addBillingNote)` — a
+// TAUTOLOGY: any text at all satisfies it, including the exact opposite of the truth.
+// An audit measured it by rewriting the sentence to "Adding somebody puts them on your
+// bill immediately, at the full monthly rate." and the whole suite stayed GREEN,
+// including a test called ...TheBillingNoteMatchesThePredicate. The test was measuring
+// the PREDICATE and never comparing the SENTENCE to it, which is the difference
+// between a claim a command settles and a claim somebody defends.
+//
+// 🔴 WHAT MAKES IT FALSIFIABLE NOW: the DATABASE picks which sentence is correct.
+// TestEmployeeAddDB_TheBillingNoteMatchesThePredicate asks
+// tappa_employee_is_billable about a row it just created through the panel, and then
+// requires the page to carry the matching CLAIM PHRASE and NOT the opposing one. The
+// phrases it looks for are declared in the TEST, deliberately not imported from here —
+// so rewriting either sentence, or swapping which one is used, turns it red.
+//
+// WHY THE ANSWER IS "not yet" TODAY (measured 2026-08-17 against this schema, and
+// re-measured by that test on every run):
+//
+//	tappa_employee_lifecycle_status(NULL, NULL)                 -> 'invited'
+//	tappa_employee_is_billable('invited', NULL, NULL, from, to) -> false
+//
+// migration 0016's predicate requires `p_activated_at IS NOT NULL`, and somebody added
+// here is born 'invited' with that column NULL. The first line matters as much as the
+// second: it is what keeps a freshly added row OUT of `unstamped_employees`, the count
+// the billing screen surfaces as an anomaly.
+//
+// ⚠️ IF THE PREDICATE EVER STARTS BILLING ON CREATION, the repair is to point
+// addBillingNote at the other constant — not to edit the words of either. The test
+// will name which one it expected.
+const (
+	billingNoteNotYetBillable = "Adding somebody does not change your bill on its own — " +
+		"people start counting towards it when they activate, not when they are added."
+	billingNoteBillableOnAdd = "Adding somebody starts charging for them straight away, " +
+		"at your plan's monthly rate — they are counted from the moment they are added."
+)
+
+// addBillingNote is the one this product currently ships, chosen by the measurement
+// above. It is a var rather than a const so that the test can state the alternative
+// without the compiler folding the two into one string.
+var addBillingNote = billingNoteNotYetBillable
 
 // rosterActions builds the card for the person named by ?manage=, or nothing.
 //
@@ -325,20 +519,38 @@ func (a *AdminAuth) rosterActions(w http.ResponseWriter, r *http.Request, f ledg
 //	deactivated  VERIFIED. The banner appears only if the person the card just read
 //	             back from the database is in fact deactivated, so a hand-edited or
 //	             stale URL says nothing.
+//	added        VERIFIED, SINCE M6-13 ROUND 4. See below -- it was NOT, and the
+//	             consequence was a screen telling a manager that somebody who is
+//	             already tapping cannot record time.
 //	moved        NOT verifiable, and the sentence is built so it does not need to be.
 //	             "Moved from X to Y" would be a claim about a previous state nothing
 //	             re-reads; what the screen prints is where the person works NOW, read
 //	             in the same request. A replayed URL therefore repeats a true
 //	             sentence about the current placement rather than inventing a change.
 //
-// Either way the banner is gated on the card existing, so it can never be shown
-// about somebody the reader cannot see.
+// 🔴 WHY `added` NEEDED A GATE AND `moved` DOES NOT, WHICH IS THE DISTINCTION M6-13
+// GOT WRONG. The rule is not "was this word verifiable" but "does the BODY beside it
+// assert something nobody re-read". The moved body is only movedLine -- a STATE the
+// same request read back. The added body goes further: it says "They cannot record
+// time yet. Send them their activation link", which is a claim about the person's
+// LIFECYCLE, and nothing was checking it.
+//
+// An audit measured the cost end to end -- add, activate, then reopen the same
+// address: the page told the manager that somebody who is already tapping cannot
+// record time, and offered the re-invite control beside it, which for an ACTIVE
+// person means issuing a link for a new device. A stale tab or a shared URL is enough.
+//
+// The repair is the gate its sibling already had: somebody who is no longer 'invited'
+// has moved past the state this receipt describes, so the receipt is not shown.
 func (a *AdminAuth) confirmedRosterAction(r *http.Request, actions *components.RosterActionsView) string {
 	done := oneOfWords(r.URL.Query().Get("done"), rosterDoneWords...)
 	if done == "" || actions == nil {
 		return ""
 	}
 	if done == "deactivated" && actions.Status != ledger.StatusDeactivated {
+		return ""
+	}
+	if done == "added" && actions.Status != ledger.StatusInvited {
 		return ""
 	}
 	return done

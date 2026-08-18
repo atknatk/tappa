@@ -263,9 +263,22 @@ type fakeLedger struct {
 
 func newFakeLedger() *fakeLedger {
 	return &fakeLedger{
-		page:   ledger.Page{Queried: true, Zone: time.UTC},
-		queue:  ledger.QueuePage{Queried: true, Zone: time.UTC},
-		roster: ledger.RosterScreen{RosterPage: ledger.RosterPage{Queried: true, Zone: time.UTC}},
+		page:  ledger.Page{Queried: true, Zone: time.UTC},
+		queue: ledger.QueuePage{Queried: true, Zone: time.UTC},
+		// 🔴 THE ROSTER'S OPTIONS CARRY ONE VENUE, AND THAT IS THE ORDINARY STATE
+		// RATHER THAN A CONVENIENCE (M6-13). A business with no venue cannot have
+		// employees at all — employees.location_id is NOT NULL — so a fake with an
+		// empty option list models a business that cannot use this section, and the
+		// add form correctly refuses to render for it. Leaving the default empty made
+		// every add test exercise the EMPTY path by accident while appearing to test
+		// the ordinary one. The empty path is tested deliberately instead, by
+		// clearing this: TestEmployeeAdd_ABusinessWithNoVenueIsToldWhatToDo.
+		roster: ledger.RosterScreen{
+			RosterPage: ledger.RosterPage{Queried: true, Zone: time.UTC},
+			Options: ledger.Options{
+				Locations: []ledger.Option{{ID: panelTestLocation, Label: "KF St Julians"}},
+			},
+		},
 		hours: ledger.ReportScreen{Report: ledger.Report{
 			Queried: true,
 			Zone:    time.UTC,
@@ -457,9 +470,36 @@ type fakeStaff struct {
 	personErr     error
 	deactivateErr error
 	moveErr       error
+	addErr        error
+	added         *tenant.Person
 	lookups       []uuid.UUID
 	deactivations []tenant.DeactivateCommand
 	moves         []tenant.MoveCommand
+	adds          []tenant.AddCommand
+}
+
+// Add records the command and answers with the person it would have created
+// (M6-13). The default answer is deliberately 'invited' with the placement the
+// caller asked for: that is what the real statement produces, and a fake that
+// answered 'active' would let a handler test pass while the product skipped
+// activation.
+func (f *fakeStaff) Add(_ context.Context, c tenant.AddCommand) (tenant.Person, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.adds = append(f.adds, c)
+	if f.addErr != nil {
+		return tenant.Person{}, f.addErr
+	}
+	if f.added != nil {
+		return *f.added, nil
+	}
+	return tenant.Person{
+		ID:           panelTestEmployee,
+		Name:         c.FullName,
+		Status:       ledger.StatusInvited,
+		LocationID:   c.LocationID,
+		DepartmentID: c.DepartmentID,
+	}, nil
 }
 
 func (f *fakeStaff) Person(_ context.Context, _, employeeID uuid.UUID) (tenant.Person, error) {
@@ -504,6 +544,16 @@ func (f *fakeStaff) Move(_ context.Context, c tenant.MoveCommand) (tenant.Person
 		ID: c.EmployeeID, Name: "Maria Borg", Status: ledger.StatusActive,
 		LocationID: c.LocationID, DepartmentID: c.DepartmentID,
 	}, nil
+}
+
+// addCommands is the M6-13 twin of commands(). It is separate rather than a third
+// return value so that adding it did not have to touch every existing caller.
+func (f *fakeStaff) addCommands() []tenant.AddCommand {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	a := make([]tenant.AddCommand, len(f.adds))
+	copy(a, f.adds)
+	return a
 }
 
 func (f *fakeStaff) commands() ([]tenant.DeactivateCommand, []tenant.MoveCommand) {

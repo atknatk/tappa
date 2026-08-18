@@ -39,6 +39,63 @@ func panelBrowserWithActions(t *testing.T, staff *fakeStaff, invites *fakeInvite
 	return panelBrowserWithActionsAndTrail(t, staff, invites, &fakeTrail{})
 }
 
+// panelBrowserWithLedger drives the section against a CALLER-SUPPLIED ledger, so a
+// test can model a business in a state the default fixture is not in -- above all a
+// business with NO VENUE, which is the state the add form must refuse to render for
+// (M6-13). Without this every add test would silently exercise the same one business.
+func panelBrowserWithLedger(t *testing.T, records *fakeLedger, staff *fakeStaff, invites *fakeInviter) *browser {
+	t.Helper()
+	admins := &fakeAdmins{verify: func() (adminauth.Resolved, error) {
+		return adminauth.Resolved{
+			SessionID: panelTestSession, TenantID: panelTestTenant, AdminUserID: panelTestAdmin,
+			Role: "owner", FullName: "KF Owner",
+		}, nil
+	}}
+	b := newBrowser(t, newAdminRouterWithActions(t, admins, &fakeTrail{}, records, &fakeReviewer{}, staff, invites))
+	b.cookies[adminauth.CookieName] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+	return b
+}
+
+// panelBrowserWithLogsAndLedger captures what the section writes to its logger, with a
+// CALLER-SUPPLIED ledger so a test can drive the outcomes that only happen when a READ
+// fails. It returns the buffer rather than a matcher: the assertion belongs in the
+// test, and a helper that decided what counted as a secret would be a second place to
+// get that wrong.
+//
+// 🔴 THE LEDGER IS A PARAMETER BECAUSE THE §4.7 TABLE COULD NOT REACH ONE OF ITS OWN
+// OUTCOMES WITHOUT IT. Every refusal path re-renders through employeesView, which logs
+// when a.ledger.Roster fails -- and with a fixed fake that never fails, that line was
+// unreachable and a leak on it stayed green through three packages. An audit measured
+// exactly that. A net whose fixture cannot produce an outcome is not covering it,
+// however the comment above it is worded.
+//
+// ⚠️ THERE IS NO LEDGER-LESS CONVENIENCE WRAPPER. One existed for a round and
+// staticcheck found it unused the moment the last caller moved over -- a helper kept
+// "in case" is the same dead weight as an unreachable branch, and this section deleted
+// one of those in round 2 rather than finding it a caller.
+func panelBrowserWithLogsAndLedger(t *testing.T, records *fakeLedger, staff *fakeStaff, invites *fakeInviter) (*browser, *strings.Builder) {
+	t.Helper()
+	var buf strings.Builder
+	admins := &fakeAdmins{verify: func() (adminauth.Resolved, error) {
+		return adminauth.Resolved{
+			SessionID: panelTestSession, TenantID: panelTestTenant, AdminUserID: panelTestAdmin,
+			Role: "owner", FullName: "KF Owner",
+		}, nil
+	}}
+	h, err := NewAdminAuth(admins, &fakeTrail{}, records, records, &fakeReviewer{},
+		staff, invites, &fakeVenues{}, &fakePlaques{}, &fakeRecorder{}, newFakeRules(), newFakeScribe(),
+		newFakeBooks(), newFakeTexts(), newFakeAccount(), adminTestConfig(),
+		slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	if err != nil {
+		t.Fatalf("NewAdminAuth: %v", err)
+	}
+	r := chi.NewRouter()
+	h.Mount(r)
+	b := newBrowser(t, r)
+	b.cookies[adminauth.CookieName] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+	return b, &buf
+}
+
 func panelBrowserWithActionsAndTrail(t *testing.T, staff *fakeStaff, invites *fakeInviter, trail *fakeTrail) *browser {
 	t.Helper()
 	admins := &fakeAdmins{verify: func() (adminauth.Resolved, error) {
@@ -104,11 +161,16 @@ func TestEmployeesSection_EveryControlLeadsSomewhereThatExists(t *testing.T) {
 	// route as unoffered, and one that looked only at the confirmation would miss the
 	// other two.
 	confirmed := htmlOf(t, b.do(http.MethodGet, managedRosterHref(employeeID)+"&confirm=deactivate", nil))
+	// 🔴 THE ADD FORM IS BEHIND A DISCLOSURE TOO (M6-13), so it needs its own page in
+	// this net. Without this line the newest control on the section would be the only
+	// one nothing drove through the router — which is precisely how M6-04 shipped a
+	// form target that 404ed with the whole package green.
+	adding := htmlOf(t, b.do(http.MethodGet, managedRosterHref(employeeID)+"&add=new", nil))
 
-	// 1. THE POSTING FORMS ARE EXACTLY THE FOUR THIS PANEL REGISTERS. Sign-out comes
-	// from the shared chrome; the other three are this section's actions.
+	// 1. THE POSTING FORMS ARE EXACTLY THE ONES THIS PANEL REGISTERS. Sign-out comes
+	// from the shared chrome; the rest are this section's actions.
 	got := map[string]bool{}
-	for _, page := range []string{body, confirmed} {
+	for _, page := range []string{body, confirmed, adding} {
 		for _, m := range postFormRE.FindAllStringSubmatch(page, -1) {
 			if c := attrValueRE("action").FindStringSubmatch(m[1]); len(c) == 2 {
 				got[c[1]] = true
@@ -117,6 +179,7 @@ func TestEmployeesSection_EveryControlLeadsSomewhereThatExists(t *testing.T) {
 	}
 	want := map[string]bool{
 		"/admin/logout":        true,
+		employeeAddHref:        true,
 		employeeInviteHref:     true,
 		employeeDeactivateHref: true,
 		employeeMoveHref:       true,

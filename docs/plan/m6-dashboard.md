@@ -7110,3 +7110,176 @@ gelmesin.
 >    açıktı**; M6-12'nin tek katkısı bir Tailwind yardımcı sınıfı ekleyip
 >    `make css`'i zorunlu kılarak onu **görünür** yapmaktı. Sevkiyat yolu (`make
 >    build`/`make dev`) bugün de sağlamdı; kapatılan şey **latent** bir tuzak.
+
+---
+
+## M6-13 — Çalışan ekleme (roster'ın doğurma yolu)
+
+- **Bağımlılık:** M6-05 (roster) · M6-06 (davet akışı)
+- **Commit:** `feat(dashboard): let a manager add an employee`
+
+> **Neden bu kart vardı (ölçüm, 2026-08-17, kart yazılırken, canlı üretimde):**
+> Kullanıcı `/signup`'tan kaydoldu, panele girdi ve *"employee'i nasıl ekleyeceğim"*
+> diye sordu. Cevap: **ekleyemiyordu.** O gün `db/queries/` içinde
+> `INSERT INTO employees` **sıfırdı**; üretim kodunda `CreateEmployee`/`AddEmployee`
+> **sıfırdı**; `web/templates/pages/employees.templ` içinde `<form>` **sıfırdı**.
+> `employees.sql`'in sorguları `Get…` · `ListPanel…` · `Deactivate` · `Move` idi —
+> **yaratma yoktu**. Çalışanları yaratan tek yer `test/fixtures/seed.sql`'di, yani
+> **ürünün dışı**.
+>
+> > **Kip düzeltmesi (2026-08-17, 11. tur denetimi).** Bu blok **geniş zamanda**
+> > yazılmıştı ve beş sıfır-iddiasının beşi de **bu kartın kendi uygulamasıyla aynı
+> > gün** yanlışlandı: bugün `db/queries/employees.sql` bir `INSERT INTO employees`
+> > taşıyor, `CreateEmployee` `staff.go`/`employees.sql.go`/`querier.go`'da, ve
+> > `staffform.templ` bir `<form>`. 🔴 Bir kartın *"neden var"* bloğu, kart
+> > **uygulanınca** yanlışlanacak cümlelerle yazılırsa, sonraki okuyucuya **ölçüm
+> > iddiası taşıyan yanlış bir dünya tarifi** bırakır — bu deponun en pahalı metin
+> > dersi, ve tam da bu bloğun on beş satır altındaki düzeltme bloğunun alıntıladığı
+> > ders. Cümleler **geçmiş zamana** çevrildi: bir *kayıt* olarak doğru kalırlar,
+> > çünkü kod değiştiği İÇİN yazıldılar.
+>
+> 🔴 **Bu, bu projenin imza kusur sınıfının ürün tarafındaki hâli: VAR OLMAYAN BİR ŞEYİ
+> YÖNETEN BİR EKRAN.** M6-05 roster'ı, M6-06 daveti getirdi; **hiçbir kart oluşturmayı
+> istemedi**, iki denetim turu da görmedi — çünkü brief'lerinde yoktu. Aynı şekil
+> M7-04'te yaşandı (*"Admin daveti"* başlıktaydı, beş kabul kriterinin hiçbirinde
+> yoktu, ve hiç yapılmamıştı).
+>
+> ⚠️ **Ve `/admin/employees/invite` bunu ÇÖZMÜYOR:** `internal/handler`'daki
+> `employeeInvite` bir **`employeeID` alıyor**, yani **var olan** bir satırı davet
+> ediyor; yoksa `not-invitable` ile geri dönüyor.
+>
+> > **Düzeltme (2026-08-17, M6-13 2. tur).** Bu satır bir `dosya:satır` atfı
+> > taşıyordu ve **bu kartın kendi uygulaması onu bayatlattı**: M6-13'ün eklediği
+> > satırlar `employeeInvite`'ı aşağı itti, atıf verilen numara ise başka bir
+> > fonksiyonun yorumunun içinde kaldı. **agent-brief.md'nin *"BİR RUNBOOK'UN DOĞRULUĞU AĞACA GÖRE DEĞİL,
+> > KÜMEYE GÖRE YARGILANIR"* dersi** birebir: **plan metnine satır numarası yazma,
+> > fonksiyon adını yaz** — ad kodla birlikte hareket eder, numara
+> > etmez.
+> >
+> > ⚠️ **Ve bu blok ilk yazıldığında kendi dersini çiğniyordu:** düzeltmeyi
+> > anlatırken **iki yeni satır numarası daha** yazmıştı (eskisinin nereye gittiği
+> > ve yenisinin nerede olduğu), ikisi de geniş zamanda. 7. turun denetçisi bunu
+> > diff'teki **tek** `dosya:satır` atfı olarak buldu. Numaralar kaldırıldı;
+> > mekanizma kaldı.
+>
+> **Kapsam sınırı, ölçülerek çizildi:** `/admin/locations` **var** (canlı: 303) ve
+> `venue.go` `CreateLocation`/`CreateDepartment` taşıyor — yani **mekân eksik değil**.
+> `/admin/departments` **yok** (canlı: 404) ama bu **ayrı bir boşluk**, bu kartın işi
+> değil; departman `NULL` olabildiği için çalışan eklemeyi bloklamıyor.
+
+**Kabul kriterleri.**
+- `/admin/employees` üzerinden bir yönetici **yeni çalışan ekleyebiliyor**; satır
+  `status='invited'` doğuyor (şemanın varsayılanı) ve **hemen davet edilebilir** oluyor
+  — yani ekleme→davet zinciri **tek ekranda kapanıyor**.
+- **Zorunlu alanlar şemadan türüyor, tahminden değil:** `full_name` (NOT NULL) ·
+  `location_id` (**NOT NULL** — mekân seçilmeden çalışan yaratılamaz) · `email` ve
+  `department_id` **isteğe bağlı**, `role` isteğe bağlı.
+- **§4.5:** yazma `tappa_app` ile, RLS altında, sorguda **açık `tenant_id` filtresi**;
+  `location_id`/`department_id` **kendi tenant'ına** ait olmalı — şema bunu bileşik FK
+  ile zorluyor (`employees_location_fk (location_id, tenant_id)`), test bunu
+  **çapraz-tenant bir id ile** kanıtlamalı.
+- **Tekillik dürüstçe ele alınıyor:** `employees_tenant_email_key` **kısmi** bir UNIQUE
+  (`WHERE email IS NOT NULL`), yani **e-postasız iki çalışan yasal**, aynı e-postalı iki
+  çalışan değil. Çakışma **kullanıcıya anlaşılır** dönmeli, 500 değil.
+- **Sayım ve fatura etkisi bilinçli:** M6-12 çalışan sayımını faturaya bağlıyor —
+  ekleme ekranı **ne yaptığını söylemeli** (kaç çalışan, planın neresinde).
+- `make check` yeşil · yeni sorgu `make sqlc` ile üretilmiş · `.templ` sonrası
+  `make fmt gen`.
+
+**Tuzaklar.**
+- 🔴 **`status` sözlüğü kapalı:** CHECK `('invited','active','deactivated')`. Ekleme
+  **`invited`** doğurmalı; `active` doğurmak **aktivasyonu atlar** ve §5'in *"practice
+  tap"* / oturum zincirini bozar.
+- 🔴 **`location_id` NOT NULL ve tenant'ın hiç mekânı olmayabilir.** Bugün signup bir
+  tane yaratıyor — adı **kullanıcı girdisinden** gelir (`signup.go`: *"Name at least
+  one place — the door your team will tap at."*) — ama bu **garanti değil**; mekânsız tenant'ta
+  ekran **ne diyor**? Boş bir seçici ile 500 vermek bu projenin defalarca düzelttiği
+  şekildir (*"sağlıklı sistem BOŞTUR"*).
+- **`email` `citext`** — büyük/küçük harf **farkı yok**, yani `A@x` ile `a@x` **aynı
+  satır**. Ekran bunu söylemeli.
+- **Roster sayfa boyu 50** (M6-05 A'da ölçülerek seçildi); ekleme sonrası dönüş, yeni
+  satırın **görünür olduğu** sayfaya olmalı.
+- Marka: skill `tappa-brand`, ve **çalışan tap ekranına dokunma** (§9).
+
+> **Bu kartın ilk adımı yine KARTI ÖLÇMEK.** Yukarıdaki her ölçüm 2026-08-17'de
+> alındı; **yapıcı hepsini kendi komutuyla yeniden üretmeli** — bu projede kart
+> ölçümü altı kez yazılı olanı çürüttü.
+
+> **Kart düzeltmesi (2026-08-17, M6-13 uygulaması sırasında).** Kartın tuzak
+> listesindeki *"ekleme sonrası dönüş **yeni satırın görünür olduğu** sayfaya
+> olmalı"* maddesi, ölçüldüğünde **genel olarak sağlanamaz** çıktı ve olduğu gibi
+> uygulanmadı. Sebep roster'ın kendi sıralaması:
+>
+> ```
+> $ awk '/-- name: ListPanelEmployees/,0' db/queries/employees.sql | grep 'ORDER BY'
+> ORDER BY e.full_name ASC, e.id ASC
+> ```
+>
+> Yani yeni kişi listeye **alfabetik** düşer, sona değil. 50'lik sayfa boyunda
+> (M6-05 A) uzun bir roster'da yeni satır **herhangi bir sonraki sayfada** olabilir;
+> üstelik müdürün `status=active` filtresi `invited` doğan yeni kişiyi **tamamen**
+> dışarıda bırakır. Satırı garanti etmenin iki yolu vardı ve ikisi de reddedildi:
+> roster'ı yeniden sıralamak (bu kartın işi değil, ve `after_id` keyset imleci
+> `full_name`'e bağlı), ya da müdürün filtrelerini sessizce ezmek — ki bu tam olarak
+> `employeeMove`'un *"kaydetmek listeyi sessizce daraltmasın"* gerekçesiyle
+> reddettiği şekil.
+>
+> **Bunun yerine uygulanan, ve kriterin gerçekte istediği:** dönüşte **imleç
+> düşürülür** (`after_id` atılır) ve URL `?manage=<yeni id>` taşır. Aksiyon kartı
+> kişiyi **id ile** okur, yani sayfalamadan da filtreden de **bağımsızdır** —
+> dolayısıyla kişi ve **davet butonu her hâlükârda ekranda**. Kriter 1'in istediği
+> *"ekleme→davet zinciri tek ekranda kapanıyor"* böyle sağlanıyor;
+> `TestEmployeeAddDB_AddThenInviteClosesOnOneScreen` ekle→davet'i uçtan uca koşturup
+> `not-invitable` **almadığını** ve dönülen sayfada davet formunun **bulunduğunu**
+> ayrı ayrı ölçüyor. **Sayılmış limit:** yeni **satır** uzun bir roster'da görünür
+> olmayabilir; yeni **kişi** her zaman görünür.
+
+> **Sapma (2026-08-17, M6-13 9. tur denetimi sonrası).** Kabul kriteri 5'in
+> parantezi — *"ekran ne yaptığını söylemeli **(kaç çalışan, planın neresinde)**"* —
+> **uygulanmadı**, ve bu şimdiye kadar hiçbir yerde kayıtlı değildi. Denetçi haklı
+> olarak bunu bir sapma değil bir **boşluk** olarak buldu.
+>
+> **Sevk edilen:** `addBillingNote`, faturanın **kıpırdayıp kıpırdamadığını** söylüyor
+> ve bunu `tappa_employee_is_billable`'a **sorarak** söylüyor
+> (`TestEmployeeAddDB_TheBillingNoteMatchesThePredicate` cümleyi yüklemle karşılaştırır;
+> yüklem değişirse test kırmızı). **Sevk edilmeyen:** baş sayısı ve planın neresinde
+> olunduğu.
+>
+> **Gerekçe, ÜÇÜNCÜ kez ölçüldü:** `ledger.RosterScreen` ne planı ne sayımı taşıyor
+> (`RosterPage` + `Options` + `TenantName`). İkisini de veren tek şey
+> `PreviewBillingPeriod`: **71 satır** (70'i boş olmayan), **3 CTE**
+> (`scope`/`bounds`/`counted`), `employees` üzerinde **2 adet `count(*)`** alt
+> sorgusu, **0 `transactions`**, **0 `sum(`**. Onu roster'a bağlamak, **M6-03'ün
+> 867 KB ölçüp kaldırdığı** ve `Cache-Control: no-store` olan bir sayfaya **her
+> görüntülemede** bir tenant'ın tüm bordrosu üzerinde iki sayım eklemek olurdu —
+> bir ekleme formu için ödenecek bedel bu değil.
+>
+> **Sayıları üreten komut (sonlanır):**
+>
+> ```
+> awk '/-- name: PreviewBillingPeriod/{f=1} f&&/-- name:/&&!/PreviewBillingPeriod/{exit} f' \
+>   db/queries/billing.sql
+> ```
+>
+> > **Düzeltme 1 (11. tur denetimi).** Bu paragraf ilk yazıldığında sorguyu
+> > *"`transactions` toplamları içeren"* diye tarif ediyordu. **Yanlıştı.** 🔴 Sevk
+> > edilmeyen bir kabul kriterini **yanlış bir olguyla** gerekçelendirmek, sapmayı
+> > kaydetmemekten daha kötüdür.
+> >
+> > **Düzeltme 2 (13. tur denetimi) — ve bu daha öğreticidir.** Birinci düzeltme
+> > *"sayılar sorgunun kendisinden sayıldı"* diyordu; **sayılmamışlardı.** Bastığı
+> > komut `awk '…/,/^;/'` idi ve **`billing.sql`'de `^;` ile başlayan hiçbir satır
+> > yok** (`grep -c '^;'` → **0**), yani aralık hiç kapanmıyor: 90. satırdan
+> > **dosyanın sonuna** kadar uzanıp `CloseBillingPeriod`, `GetBillingPeriod` ve
+> > `ListBillingPeriods`'ı da yutuyordu. Böylece 197/6/4 çıkıyordu; gerçek 71/3/2.
+> >
+> > 🔴 **Ve kusur kendini ele vermedi, çünkü düzeltmenin doğruladığı iki sayı
+> > (`transactions` 0, `sum(` 0) bozuk aralıkta da 0 veriyordu** — tesadüfen doğru
+> > iki cevap, üç yanlış cevabı gizledi. Bir sayıyı bir komuta dayandırmak yetmez;
+> > **komutun sonlandığını da ölçmek gerekir.** Yukarıdaki komut sonlanıyor ve
+> > çıktısı bizzat koşturularak yazıldı. **Karar değişmiyor** — iki `count(*)` de
+> > `no-store` bir sayfa için gerçek bedeldir — yalnız sayılar ve komut düzeldi.
+>
+> **Karar:** sayım/plan cümlesi **fatura bölümüne** aittir (orada veri zaten okunuyor),
+> ekleme formuna değil. 10. turda uygulanmadı çünkü yeni bir okuma yolu açmak
+> onuncu turun işi değildir. **Backlog satırı orkestratörün.**

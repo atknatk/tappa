@@ -65,6 +65,18 @@ type EmployeesView struct {
 	// "back to the start" goes. It is only rendered on the paged empty state.
 	StartHref string
 
+	// Add is the "put somebody on the roster" control, the form behind it, or the
+	// sentence that explains why neither is available (M6-13).
+	//
+	// 🔴 IT IS A VALUE RATHER THAN A POINTER, WHICH IS THE OPPOSITE OF Actions BELOW,
+	// AND THE DIFFERENCE IS REAL. A nil Actions means "the manager did not ask about
+	// anybody" — an ordinary state with nothing to say. There is no equivalent state
+	// here: this section ALWAYS has something to say about adding somebody, even when
+	// the answer is "you cannot yet, because you have no venue". A pointer would make
+	// "say nothing about it" representable, and saying nothing is how this capability
+	// went missing from the product for two milestones.
+	Add components.RosterAddView
+
 	// Actions is the card for the person named by ?manage=, or nil.
 	//
 	// 🔴 A POINTER, AND THE nil CASE IS A STATE RATHER THAN AN ABSENCE. The card is

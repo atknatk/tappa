@@ -1,0 +1,204 @@
+package components
+
+// The ADD-SOMEBODY control and form (M6-13). The view models and the arguments for
+// their shape are in staffformview.go; this file is the markup.
+//
+// BRAND (skill tappa-brand): the form is a DOCKET like every other card in the
+// panel: the paper ground, one hairline border, perforated edges from the shared
+// class, uppercase small-caps field labels. Nothing here invents a colour: the refusal
+// note takes its warning colour from the shared fieldNoteClass helper, and the only
+// accent is the primary button. No script, no dark theme, touch targets inherited
+// from the shared button and field rules.
+//
+// ACCESSIBILITY: every control has a <label for>, each error is tied to its input
+// with aria-describedby and marked aria-invalid, and every field reserves its note
+// line so a refusal does not reflow the form. It is VenueForm's shape, deliberately —
+// two forms in one product that behave differently under refusal is how one of them
+// quietly loses its accessibility.
+
+// RosterAdd renders either the control that opens the form, the form itself, or the
+// sentence that explains why neither is available.
+//
+// 🔴 THE THIRD BRANCH IS THE ONE WORTH READING. A business with no venue cannot have
+// employees — employees.location_id is NOT NULL — so the screen states the rule and
+// links to the place it is fixed, instead of rendering a venue picker with nothing in
+// it. A picker with no options is a control that can only produce a refusal, and this
+// repository's most expensive lesson is that the EMPTY path is the one nobody builds.
+templ RosterAdd(v RosterAddView) {
+	if !v.Possible {
+		<section class="docket">
+			<p class="docket-label">Add somebody</p>
+			<h2 class="font-display text-lg font-bold tracking-tight text-ink">Add a venue first</h2>
+			if v.Refusal != "" {
+				// 🔴 THE REFUSAL COMES FIRST, BECAUSE SOMETHING WAS JUST REFUSED (§4.6).
+				// This branch also renders on an ordinary GET, where nothing was
+				// attempted and there is nothing to refuse — so the notice is
+				// conditional. Without it a manager who pressed Add got a page about
+				// venues and no acknowledgement that their submission had been rejected.
+				@Notice(ToneWarn, "Nobody was added") {
+					<p>{ v.Refusal }</p>
+				}
+			}
+			<p class="mt-2 text-sm text-ink/85">
+				Everybody on this list works somewhere, so there has to be a venue before there
+				can be a person. Add the place your staff tap in at, then come back here.
+			</p>
+			<p class="mt-3">
+				<a class="btn btn--primary" href={ templ.URL(v.VenuesHref) }>Go to venues</a>
+			</p>
+		</section>
+	} else if v.Open {
+		@StaffForm(v.Form)
+	} else {
+		<div class="flex flex-wrap items-center gap-3">
+			<a class="btn btn--primary" href={ templ.URL(v.Href) }>Add somebody</a>
+			<p class="text-xs text-ink/70">
+				They are added as invited — you send them their activation link afterwards.
+			</p>
+		</div>
+	}
+}
+
+// StaffForm is the new-employee form.
+//
+// 🔴 TWO REQUIRED CONTROLS AND THREE OPTIONAL ONES, AND THE SCREEN SAYS WHICH. The
+// split comes from migration 00003 (full_name and location_id are NOT NULL; role,
+// email and department_id are not), so marking a label optional is a fact about the
+// database rather than a house style. Marking the wrong one would either refuse a
+// legitimate shift worker who has no email, or accept a person with no name.
+//
+// ⚠️ THE WORD THIS COMMENT USES IS DESCRIBED RATHER THAN QUOTED, deliberately. An
+// audit found it quoting a bare "Optional" in the present tense while the shipped
+// labels read "Department (optional)", "Job title (optional)" and "Email (optional)" —
+// a sentence asserting today's product string, which lesson 380 says goes stale by
+// definition and which nothing keeps in step. The three labels below are the only
+// copy that matters.
+templ StaffForm(v StaffFormView) {
+	<section class="docket" aria-label="Add somebody to this business">
+		<p class="docket-label">Add somebody</p>
+		<h2 class="font-display text-lg font-bold tracking-tight text-ink">New person</h2>
+		// ⚠️ THERE IS NO FORM-LEVEL NOTICE HERE, AND ITS ABSENCE IS A DELETION RATHER
+		// THAN AN OVERSIGHT. This template carried an `ErrorMessage != "" && ErrorField
+		// == ""` branch which no caller could reach: all seven addFormAgain call sites
+		// name a field, so the message always has a control to sit beside. An audit
+		// counted them. M6-12 made the same call one card earlier on
+		// fillBillingControl — an unreachable branch is deleted, not given a caller —
+		// and the venueless case, which genuinely has no form, is answered by
+		// RosterAddView.Refusal above instead.
+		<form method="post" action={ templ.URL(v.Action) } class="mt-4 flex flex-col gap-4">
+			@hiddenFields(v.Hidden)
+			<div class="filter-field">
+				<label class="docket-label" for="add-full-name">Name</label>
+				<input
+					class="filter-input"
+					id="add-full-name"
+					type="text"
+					name="full_name"
+					value={ v.FullName }
+					autocomplete="off"
+					spellcheck="false"
+					aria-invalid={ ariaInvalid(v.ErrorField, "full_name") }
+					aria-describedby="add-full-name-help"
+				/>
+				@fieldNote("add-full-name-help", v.ErrorField, "full_name", v.ErrorMessage) {
+					What your team calls them. This is the only thing we need.
+				}
+			</div>
+			<div class="filter-field">
+				<label class="docket-label" for="add-location">Venue</label>
+				// 🔴 THE PLACEHOLDER IS WHAT MAKES "NOBODY CHOOSES BY ACCIDENT" TRUE, and
+				// it was added because the comment here used to claim that property
+				// without having it. The claim was: with several venues the control is
+				// left unset "deliberately", so a manager cannot be defaulted into one.
+				// An audit measured the opposite — no <option> carried `selected`, and
+				// HTML says a select with no selected option submits its FIRST one. A
+				// manager who never touched the control hired into whichever venue sorts
+				// first alphabetically, silently, which is exactly what the comment said
+				// could not happen. Omitting `selected` changes nothing about what is
+				// SENT.
+				//
+				// So the empty choice is real: it is selected when nothing has been
+				// picked, it submits "", and the boundary refuses "" with a sentence that
+				// names the field. That is a different thing from the MOVE form, where no
+				// empty option is offered — moving somebody to "no venue" is not a
+				// destination, whereas creating somebody without having chosen one yet is
+				// an ordinary half-filled form.
+				<select class="filter-input" id="add-location" name="location_id" required aria-invalid={ ariaInvalid(v.ErrorField, "location_id") } aria-describedby="add-location-help">
+					<option value="" selected?={ v.LocationID == "" }>Choose a venue…</option>
+					for _, o := range v.Locations {
+						<option value={ o.Value } selected?={ o.Value == v.LocationID }>{ o.Label }</option>
+					}
+				</select>
+				@fieldNote("add-location-help", v.ErrorField, "location_id", v.ErrorMessage) {
+					Where they normally work. They can still tap in at any of your venues.
+				}
+			</div>
+			<div class="filter-field">
+				<label class="docket-label" for="add-department">Department (optional)</label>
+				// AN EMPTY CHOICE IS OFFERED AND IS FIRST CLASS (00003: a bar does not
+				// model departments), unlike the venue above.
+				<select class="filter-input" id="add-department" name="department_id" aria-invalid={ ariaInvalid(v.ErrorField, "department_id") } aria-describedby="add-department-help">
+					<option value="" selected?={ v.DepartmentID == "" }>No department</option>
+					for _, o := range v.Departments {
+						<option value={ o.Value } selected?={ o.Value == v.DepartmentID }>{ o.Label }</option>
+					}
+				</select>
+				@fieldNote("add-department-help", v.ErrorField, "department_id", v.ErrorMessage) {
+					Only if some of your staff work different hours from the rest of the venue.
+					It has to be one of the chosen venue's.
+				}
+			</div>
+			<div class="filter-field">
+				<label class="docket-label" for="add-role">Job title (optional)</label>
+				<input
+					class="filter-input"
+					id="add-role"
+					type="text"
+					name="role"
+					value={ v.Role }
+					autocomplete="off"
+					spellcheck="false"
+					aria-invalid={ ariaInvalid(v.ErrorField, "role") }
+					aria-describedby="add-role-help"
+				/>
+				@fieldNote("add-role-help", v.ErrorField, "role", v.ErrorMessage) {
+					Waiter, chef, floor manager — whatever you call it. Nothing depends on it.
+				}
+			</div>
+			<div class="filter-field">
+				<label class="docket-label" for="add-email">Email (optional)</label>
+				<input
+					class="filter-input font-mono"
+					id="add-email"
+					type="email"
+					name="email"
+					value={ v.Email }
+					autocomplete="off"
+					spellcheck="false"
+					aria-invalid={ ariaInvalid(v.ErrorField, "email") }
+					aria-describedby="add-email-help"
+				/>
+				// 🔴 THE CASE SENTENCE IS ON THE SCREEN RATHER THAN ONLY IN THE REFUSAL.
+				// `email` is citext, so two addresses differing only in capitalisation are
+				// the SAME address — a manager who hits the duplicate refusal will
+				// otherwise try changing a letter's case, and it will fail again.
+				@fieldNote("add-email-help", v.ErrorField, "email", v.ErrorMessage) {
+					Leave it blank if they do not have one — an activation link can be handed
+					over instead. Capitals make no difference: two people here cannot share an
+					address.
+				}
+			</div>
+			if v.BillingNote != "" {
+				// 🔴 M6-12 BILLS ON A HEADCOUNT, SO THIS FORM OWES THE MANAGER THE TRUTH
+				// ABOUT WHAT PRESSING SAVE COSTS. The sentence is built by the handler from
+				// the billing predicate rather than written here, so it cannot drift away
+				// from what the database actually charges for.
+				<p class="text-xs text-ink/85">{ v.BillingNote }</p>
+			}
+			<div class="filter-actions">
+				<button type="submit" class="btn btn--primary">Add them</button>
+				<a class="btn btn--quiet" href={ templ.URL(v.CloseHref) }>Cancel</a>
+			</div>
+		</form>
+	</section>
+}

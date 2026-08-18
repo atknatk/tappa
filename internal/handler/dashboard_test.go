@@ -977,6 +977,11 @@ var (
 	// uuid per test would make "the form pre-selects where they already work"
 	// unassertable.
 	panelTestLocation = uuid.MustParse("9f1c0a2e-0000-4000-8000-000000000004")
+	// panelTestEmployee is the person fakeStaff.Add answers with (M6-13). Fixed for
+	// the same reason: the redirect after a successful add carries this id as
+	// ?manage=, and asserting that the new person's action card is the one that opens
+	// needs a value the test can name.
+	panelTestEmployee = uuid.MustParse("9f1c0a2e-0000-4000-8000-000000000005")
 )
 
 // --- the contrast net -----------------------------------------------------

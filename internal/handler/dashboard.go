@@ -162,6 +162,12 @@ func (a *AdminAuth) mountWriting(r chi.Router) {
 	r.Group(func(r chi.Router) {
 		r.Use(a.ProtectWriting())
 		r.Post(reviewHref, a.reviewDecision)
+		// 🔴 THE ROUTE THAT CREATES A PERSON (M6-13). It belongs here for the reason
+		// every other write does — the Origin check must run AHEAD of the resolver —
+		// and it is the first one in this section whose absence was a PRODUCT gap
+		// rather than a security one: until it existed the panel managed employees it
+		// had no way to bring into existence.
+		r.Post(employeeAddHref, a.employeeAdd)
 		r.Post(employeeInviteHref, a.employeeInvite)
 		r.Post(employeeDeactivateHref, a.employeeDeactivate)
 		r.Post(employeeMoveHref, a.employeeMove)

@@ -564,7 +564,7 @@ type LegalPageView struct {
 // once it has a text". Before M7-06 no legal page could have one and all four were
 // private; now the day somebody pastes the privacy policy into the operator screen,
 // this returns the other value for THAT page without anybody remembering to flip a
-// bool. TestLegalPages_SkeletonsAreNotIndexed pins both directions.
+// bool. TestLegalPages_SkeletonsAreNotIndexedAndSayWhatTheyAreWaitingFor pins both directions.
 //
 // ⚠️ IT IS PER DOCUMENT, WHICH IS WHAT A PARTLY-FILLED DEPLOYMENT NEEDS. Publishing
 // the privacy policy makes /legal/privacy indexable and leaves /legal/terms private

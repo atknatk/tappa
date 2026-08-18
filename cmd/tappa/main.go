@@ -302,7 +302,21 @@ func run() error {
 	// its duration and the only thing reachable is the one table whose policy is
 	// `USING (true)`.
 	if err := texts.Refresh(ctx); err != nil {
-		slog.Default().Error("the published legal texts could not be read at start-up; /legal will show its placeholders until the next publication", "err", err)
+		// 🔴 THE LOGGER IS BOUND TO A NAME FIRST, AND THAT IS §4.7 PLUMBING RATHER THAN
+		// STYLE. redline-check.sh's R7b scans for personal data inside a log call by
+		// matching `log.`/`slog.`/`fmt.` followed by the call -- so a logger reached
+		// through a CALL EXPRESSION (`slog.Default().Error(...)`) is invisible to it: the
+		// closing paren ends the pattern before the arguments are read. An audit measured
+		// it by injecting a name and an address here and watching redline-check return
+		// exit 0, while the identical leak written as `slog.Error(...)` returned exit 1.
+		//
+		// This was the ONLY line in the production tree with that shape -- every other
+		// logger is either injected into a constructor or bound to a `log` variable
+		// first, which is the form used in every internal/domain package. Binding it
+		// here removes the shape rather than documenting it, so R7b covers this file the
+		// way it covers the rest.
+		log := slog.Default()
+		log.Error("the published legal texts could not be read at start-up; /legal will show its placeholders until the next publication", "err", err)
 	}
 	// 🔴 THE BUSINESS'S OWN ROW (M7-05). It is the ninth writer and the only one that
 	// can UPDATE `tenants` — the row every other tenant-scoped query in the product is

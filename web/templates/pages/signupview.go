@@ -199,8 +199,9 @@ type SignupDoneView struct {
 // said" — but for THIS cohort the register said nothing, and checkedAt stores NULL in
 // both columns for VATUnknown, so the account screen shows "not checked". The two
 // screens described one event in contradictory words until the account sentence was
-// made to name this cohort explicitly; TestAccount_TheNoAnswerCohortIsCalledTheSameThing
-// OnBothScreens is what holds them together.
+// made to name this cohort explicitly, and
+// TestAccount_TheNoAnswerCohortIsCalledTheSameThingOnBothScreens is what holds the two
+// screens together.
 func (v SignupDoneView) VATNote() string {
 	switch {
 	case v.VATVerified:

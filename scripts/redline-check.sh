@@ -531,6 +531,64 @@ report WARN R5 "SET LOCAL degil duz SET — havuzdaki baglantiyi kirletir" \
 report FAIL R7 "Sir loglanıyor olabilir (token / cmac / anahtar / davet kodu / kod hash'i / parola hash'i)" \
   "$(scan -i -e '(slog|log|fmt)\.[A-Za-z]+\([^)]*(token|cmac|aes_?key|secret|invite_?code|code[_a-z]*hash|password|"code"[[:space:]]*,)' || true)"
 
+# --- R7b: KISISEL VERI (ad / adres) LOG'A DUSUYOR OLABILIR --------------------
+#
+# 🔴 NEDEN BU KURAL VAR. CLAUDE.md §4.7'nin "asla loglanmaz" listesi token/CMAC/
+# anahtar/davet kodu/tam GPS sayar; §4.1 ve §7 ise bir KISININ adini ve adresini ayni
+# muameleye tabi tutar -- surec log'unun saklama suresi yok, tenant siniri yok, ve
+# GDPR silme (Q13) `employees` uzerinde bir UPDATE'tir, log'a hic ulasmaz. M6-13'te
+# ayni sizinti UC KEZ farkli bir yoldan geri geldi (domain logger'i -> handler'in RET
+# satirlari -> handler'in BASARI satiri) ve UCUNDE DE bu script EXIT 0 verdi: §4
+# "make audit bu maddeleri mekanik olarak tarar" diyordu, bu madde icin taramiyordu.
+#
+# 🔴 BU KURALIN CUMLESI BIR KEZ ZATEN YANLISTI VE DUZELTILDI. Ilk hali "KAYNAGI okur,
+# yani girdi uzayindan bagimsizdir -- EKSEN KAYMAZ" diyordu. Bir denetim onu TEK
+# KOMUTLA curuttu: eksen kaybolmamis, girdi uzayindan SATIR DUZENI ve TANIMLAYICI
+# ADLANDIRMASINA tasinmisti. Sekiz mutasyonun BESI exit 0 dondu. Bu yuzden asagidaki
+# blok artik ne yakaladigini SAYAR, ve neyi yakalamadigini ADIYLA yazar.
+#
+# --- OLCULEN: NE YAKALAR (2026-08-17, temiz agacta 0 YANLIS POZITIF) --------------
+#   * caller degeri log cagrisinin argumaninda:  r.PostFormValue( / r.FormValue(
+#   * kisisel alan adiyla:                       .FullName / .Email / posted.
+#   * kisinin ADI, DAR bir alici kumesiyle:      (f|person|out|p|emp|employee|staff|
+#                                                 subject).Name
+#   * ve bunlarin hepsi COK SATIRLI cagrilarda da (rg -U).
+#
+# --- OLCULEN: NEYI YAKALAMAZ (hepsi yanlis-NEGATIF; ag mekaniktir, KANIT DEGILDIR) --
+#   1. ARA DEGISKEN. `qq := posted.FullName` sonra `log.Info("x","q",qq)` -- gorunmez.
+#      Olculdu ve gosterildi; R7'nin kendi listesindeki ayni sinir, ayni sebep.
+#   2. TANIMLAYICI BAGIMLILIGI, DARALTILDI AMA YOK EDILMEDI. Kapsam hala YEREL
+#      DEGISKEN ADLARININ bir fonksiyonu: `row.Name`, `q.Name`, `x.Name` gecer.
+#      ⚠️ CIPLAK `\.Name` OLCULDU VE SECILMEDI: temiz agacta 4 YANLIS POZITIF veriyor
+#      (internal/domain/checkin/policyset.go'da `d.Name` bir POLITIKA BELGESININ adi,
+#      kisisel veri degil). Gurultulu bir ag gevsetilir (M0-07), o yuzden dar kume
+#      secildi ve genisligi burada yaziyor.
+#   3. YAPI ICINDE TASINAN DEGER. `log.Info("x", "cmd", c)` -- desen yapinin ADINA
+#      bakar, alanlarina degil.
+#   4. TETIKLEYICIDEN ONCE KAPANAN PARANTEZ. `[^)]*` ic ice bir cagri kapandiginda
+#      durur.
+# Bu dort yol icin kalan ag: internal/handler'daki surulen-yol tablosu ve DENETIM.
+#
+# 🔴 COK SATIRLILIK BEYAN EDILMEMISTI VE KAPATILDI. Onceki hali satir tabanliydi ve
+# limit blogu bunu SAYMIYORDU -- oysa ayni dosya R4 icin birebir "BU KURAL SATIR
+# YERELDIR" diye yaziyor. Olculdu: `internal/handler` + `internal/domain` icinde
+# COK SAYIDA log cagri yeri (sayma sekline gore ~130) zaten sonraki satira devam
+# ediyor, ve bunlarin arasinda tarihsel axis-1'in TAM KENDISI vardi.
+#
+# ⚠️ BURAYA KESIN BIR SAYI YAZILMIYOR, BILINCLI OLARAK. Ilk hali "126" diyordu; bir
+# denetim sekiz farkli sayma sekliyle 129-138 aldi. Sayi KARARI ETKILEMIYOR -- `rg -U`
+# ile kapatmanin maliyeti sifir olculdu (temiz agacta 0 yanlis pozitif), yani kac tane
+# oldugu degil SIFIRDAN COK oldugu onemliydi. Karari tasimayan bir sayiyi yazmak, onu
+# bayatlatmaktan baska bir sey yapmaz. Ucuzdu, kapatildi.
+#
+# 🔴 TIP DUZEYI HALA DOGRU CEVAP VE HALA BU KARTIN ISI DEGIL. Degeri loglanamaz bir
+# tipe sarmak (session.Token / invite.Code kalibi) ya da handler'a dar bir logger
+# arayuzu vermek bu agin tamamini gereksiz kilar. Olculdu: internal/handler'da 224
+# `a.log.*` cagri yeri / 22 dosya, internal/domain'de 46 daha -- paket capinda bir
+# donusum. Backlog satiri; bu ag onun YERINE GECMEZ, once gelir.
+report FAIL R7b "Kisisel veri (ad/adres) log cagrisinda — §4.7/§7: surec log'unun saklama suresi ve tenant siniri yoktur" \
+  "$(scan -U -e '(slog|log|fmt)\.[A-Za-z]+\([^)]*(r\.(Post)?FormValue\(|\.FullName\b|\.Email\b|\bposted\.|\b(f|person|out|p|emp|employee|staff|subject)\.Name\b)' || true)"
+
 report FAIL R7 "Repoda gomulu anahtar dosyasi" \
   "$(git ls-files '*.pem' '*.key' '*.aes' 'secrets/*' 2>/dev/null || true)"
 

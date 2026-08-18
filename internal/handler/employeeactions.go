@@ -15,6 +15,7 @@ import (
 	"github.com/atknatk/tappa/internal/domain/tenant"
 	"github.com/atknatk/tappa/internal/httpx"
 	"github.com/atknatk/tappa/internal/invite"
+	"github.com/atknatk/tappa/web/templates/components"
 	"github.com/atknatk/tappa/web/templates/pages"
 )
 
@@ -74,6 +75,7 @@ import (
 // SELECT" a fact grep can check rather than a sentence to trust.
 type panelStaff interface {
 	Person(ctx context.Context, tenantID, employeeID uuid.UUID) (tenant.Person, error)
+	Add(ctx context.Context, c tenant.AddCommand) (tenant.Person, error)
 	Deactivate(ctx context.Context, c tenant.DeactivateCommand) (tenant.Person, error)
 	Move(ctx context.Context, c tenant.MoveCommand) (tenant.Person, error)
 }
@@ -95,6 +97,7 @@ type panelInviter interface {
 // again — the rule employeesHref and reviewHref already follow. If the section
 // moves, its actions move with it.
 var (
+	employeeAddHref        = employeesHref + "/add"
 	employeeInviteHref     = employeesHref + "/invite"
 	employeeDeactivateHref = employeesHref + "/deactivate"
 	employeeMoveHref       = employeesHref + "/move"
@@ -115,7 +118,25 @@ const maxEmployeeActionBody = 8 << 10
 // parameter is a value somebody can put anything into, and the answer is not to
 // escape it more carefully but to have nothing to escape (oneOfWords, review.go).
 var (
-	rosterDoneWords    = []string{"deactivated", "moved"}
+	// "added" (M6-13) joins the two lifecycle words. Like "moved" and unlike
+	// "deactivated" it is NOT independently verifiable — a replayed URL cannot be
+	// told from a fresh save — so the sentence beside it is built the way the moved
+	// one is: it names the state the SAME request read back from the database
+	// (who, and where they work), never the event.
+	rosterDoneWords = []string{"added", "deactivated", "moved"}
+	// 🔴 M6-13 ADDED FIVE WORDS HERE AND THEY WERE DELETED IN THE SAME MILESTONE,
+	// BECAUSE NO CODE PATH COULD PRODUCE ONE. `bad-name`, `bad-email`, `bad-role`,
+	// `email-taken` and `no-venue` arrived with sentences and headings on the roster
+	// template — and every M6-13 refusal answers 200 through addFormAgain with the
+	// message beside the offending control, so not one of them was ever written into a
+	// query string. An audit counted the rosterReturn call sites: zero produced any of
+	// them, and zero tests drove them.
+	//
+	// THE PRECEDENT IS THIS SECTION'S OWN, ONE CARD EARLIER: M6-12 deleted
+	// fillBillingControl's unreachable branch rather than inventing a caller for it. A
+	// word nothing produces is a sentence nobody can read, and it is not free — a
+	// closed vocabulary reads as a map of what can go wrong, which is exactly what the
+	// next person will trust it for.
 	rosterProblemWords = []string{
 		"unreadable", "unknown", "already-deactivated", "unknown-placement",
 		"no-change", "not-invitable",
@@ -133,6 +154,171 @@ var (
 		"confirm-required", "confirm-stale",
 	}
 )
+
+// employeeAdd puts somebody on the roster (M6-13).
+//
+// 🔴 THIS IS THE ROUTE THE PRODUCT SHIPPED WITHOUT. Until now the panel could invite,
+// deactivate and move employees and could not create one; the gap was found by a
+// customer, in production, who signed up and asked how. `/admin/employees/invite`
+// does not close it — employeeInvite takes an employeeID and invites an EXISTING row,
+// answering `not-invitable` when there is none.
+//
+// 🔴 A REJECTED FORM RE-RENDERS INSTEAD OF REDIRECTING, WHICH IS THE OTHER SHAPE THIS
+// SECTION USES AND IS DELIBERATE. The three existing actions here are single-button
+// acts on somebody already on the list: a redirect with a problem word loses nothing,
+// because there was nothing to type. This form has five fields, and answering a
+// mistyped address with a 303 would throw the other four away. saveVenue argues the
+// same trade and this follows it, so the two forms in this panel behave alike under
+// refusal.
+//
+// 🔴 AND THE SUCCESS PATH STILL REDIRECTS, so a refresh cannot add the same person
+// twice. That asymmetry is the point of POST-redirect-GET and it is why the failure
+// path is safe to render inline: nothing was written, so there is nothing a re-POST
+// could duplicate.
+func (a *AdminAuth) employeeAdd(w http.ResponseWriter, r *http.Request) {
+	id := httpx.AdminOf(r)
+	r.Body = http.MaxBytesReader(w, r.Body, maxEmployeeActionBody)
+	if err := r.ParseForm(); err != nil {
+		// 🔴 THE PARSE ERROR IS CLASSIFIED, NOT PRINTED. net/url's failure QUOTES THE
+		// OFFENDING INPUT, and an audit measured three bytes of a manager's note
+		// reaching the process log through exactly this branch in M6-04. A name and an
+		// email address travel through this form, so nothing a caller sent is logged.
+		reason := "malformed form"
+		var tooBig *http.MaxBytesError
+		if errors.As(err, &tooBig) {
+			reason = "body over the limit"
+		}
+		a.log.Warn("panel employee add refused: the form could not be read",
+			"limit_bytes", maxEmployeeActionBody, "reason", reason)
+		a.redirect(w, employeesHref+"?problem=unreadable")
+		return
+	}
+	f := rosterFilterFrom(r.PostForm)
+
+	// THE FORM IS REBUILT FROM WHAT WAS POSTED BEFORE ANYTHING IS VALIDATED, so every
+	// refusal below can hand the manager their own typing back. The values are echoed
+	// through templ's escaping on the way out, exactly like the venue form's.
+	posted := components.StaffFormView{
+		FullName:     r.PostFormValue("full_name"),
+		Role:         r.PostFormValue("role"),
+		Email:        r.PostFormValue("email"),
+		LocationID:   strings.TrimSpace(r.PostFormValue("location_id")),
+		DepartmentID: strings.TrimSpace(r.PostFormValue("department_id")),
+	}
+
+	locationID, err := uuid.Parse(posted.LocationID)
+	if err != nil {
+		// A MISSING VENUE AND AN UNREADABLE ONE ARE THE SAME INSTRUCTION ("choose a
+		// venue"), so they share a sentence. employees.location_id is NOT NULL, so
+		// there is no "nowhere" this could mean instead.
+		a.log.Warn("panel employee add refused: the posted venue is not a uuid")
+		a.addFormAgain(w, r, posted, "location_id", "Choose the venue this person works at.")
+		return
+	}
+	var departmentID *uuid.UUID
+	if posted.DepartmentID != "" {
+		parsed, err := uuid.Parse(posted.DepartmentID)
+		if err != nil {
+			// Anything that is neither empty nor a uuid IS an error. Silently treating it
+			// as "no department" would file somebody outside their department because a
+			// form field was mangled — the same argument employeeMove makes.
+			a.log.Warn("panel employee add refused: the posted department is not a uuid")
+			a.addFormAgain(w, r, posted, "department_id", "Choose one of this venue's departments, or none.")
+			return
+		}
+		departmentID = &parsed
+	}
+
+	person, err := a.staff.Add(r.Context(), tenant.AddCommand{
+		TenantID: id.TenantID(),
+		// 🔴 THE ACTOR COMES FROM THE SIGNED SESSION. There is no field on this form for
+		// it and there could not be: audit_log.actor_id may only hold an admin resolved
+		// from a cookie, never a value a request supplied.
+		ActorID:      id.Admin.AdminUserID,
+		FullName:     posted.FullName,
+		Role:         posted.Role,
+		Email:        posted.Email,
+		LocationID:   locationID,
+		DepartmentID: departmentID,
+	})
+	switch {
+	case err == nil:
+	case errors.Is(err, tenant.ErrEmployeeName):
+		a.log.Warn("panel employee add refused: the name cannot be stored")
+		a.addFormAgain(w, r, posted, "full_name",
+			"A person needs a name we can store, and it has to be shorter than that.")
+		return
+	case errors.Is(err, tenant.ErrEmployeeEmail):
+		a.log.Warn("panel employee add refused: the email cannot be stored")
+		a.addFormAgain(w, r, posted, "email",
+			"That does not look like an email address. Correct it, or leave it blank.")
+		return
+	case errors.Is(err, tenant.ErrEmployeeRole):
+		a.log.Warn("panel employee add refused: the role cannot be stored")
+		a.addFormAgain(w, r, posted, "role", "That job title is too long. Shorten it, or leave it blank.")
+		return
+	case errors.Is(err, tenant.ErrEmailTaken):
+		// 🔴 THE CASE SENTENCE IS PART OF THE REFUSAL, NOT A FOOTNOTE. `email` is
+		// citext: a manager who retypes the address with a different capital gets
+		// refused again and has no way to know why unless the product says so.
+		a.log.Warn("panel employee add refused: that email is already used in this tenant")
+		a.addFormAgain(w, r, posted, "email",
+			"Somebody in this business already has that address — and capitals make no "+
+				"difference, so changing them will not help. Leave it blank if they do not need one.")
+		return
+	case errors.Is(err, tenant.ErrUnknownPlacement):
+		// THE VENUE OR THE DEPARTMENT DID NOT RESOLVE INSIDE THIS BUSINESS. That covers
+		// another tenant's id, an invented one, one removed since the page rendered, and
+		// a department belonging to a DIFFERENT venue. They are one sentence because
+		// they are one instruction, and none of them may be told apart for the reason
+		// ErrUnknownEmployee gives: telling them apart answers "does this id exist
+		// elsewhere?" for anybody who can post a form.
+		a.log.Warn("panel employee add refused: the venue or department is not this tenant's")
+		a.addFormAgain(w, r, posted, "location_id",
+			"Choose a venue that belongs to this business. A department has to be one of that venue's.")
+		return
+	default:
+		a.log.Error("panel: could not add the employee", "err", err)
+		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelUnavailable)
+		return
+	}
+
+	// 🔴 THE REDIRECT OPENS THE NEW PERSON'S CARD, AND THAT IS WHAT CLOSES THE
+	// ADD → INVITE CHAIN ON ONE SCREEN. Somebody added here is 'invited' and cannot
+	// tap until an activation link is spent, so the very next thing a manager needs is
+	// the invite button — which lives on the action card. Carrying ?manage=<new id>
+	// means it is already open when the page comes back, rather than asking them to
+	// find a person they have just created in a list of fifty.
+	//
+	// ⚠️ THE CURSOR IS DROPPED AND THE FILTERS ARE KEPT, and the limit of that is
+	// worth stating rather than hiding. The roster is ORDER BY full_name, so a new
+	// person lands ALPHABETICALLY, not at the top: on a long roster their ROW may be
+	// on a later page, and a filter the manager set (status = active, say) will not
+	// match somebody who is 'invited'. What is guaranteed is that the PERSON is on
+	// screen — the action card is loaded by id and does not care about either — so the
+	// receipt and the next action are always visible even when the row is not.
+	a.log.Info("panel employee added", "employee_id", person.ID, "actor_id", id.Admin.AdminUserID)
+	f.AfterID = nil
+	a.redirect(w, rosterReturn(f, person.ID, "added", ""))
+}
+
+// addFormAgain re-renders the roster with the add form open, filled in, and carrying
+// the refusal beside the control that caused it.
+//
+// 🔴 NOTHING WAS WRITTEN ON ANY PATH THAT REACHES HERE, so the 200 is honest: the page
+// is the same page, in the same state, with one field marked. It answers 200 rather
+// than 400 for the reason accountactions.go gives at the same fork — a form a person
+// is looking at is not an API, and the status code a browser acts on here is the one
+// that renders the correction.
+func (a *AdminAuth) addFormAgain(w http.ResponseWriter, r *http.Request, form components.StaffFormView, field, msg string) {
+	form.ErrorField = field
+	form.ErrorMessage = msg
+	v, ok := a.employeesView(w, r, &form)
+	if !ok {
+		return
+	}
+	a.render(w, r, http.StatusOK, pages.AdminEmployees(v))
+}
 
 // employeeInvite mints an activation link for one person and SHOWS IT, once.
 //

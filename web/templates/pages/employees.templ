@@ -62,6 +62,20 @@ templ AdminEmployees(v EmployeesView) {
 							recorded. Any phone they signed in on stays signed in; it simply
 							cannot record time any more.
 						</p>
+					case "added":
+						// 🔴 THE NEXT STEP IS NAMED HERE BECAUSE THIS IS WHERE THE CHAIN
+						// WOULD OTHERWISE BREAK. Adding somebody creates an 'invited' row —
+						// they cannot tap until an activation link is spent — so a manager
+						// who stops at "added" has a person who can do nothing. The card
+						// for that person is directly below with the button on it, which is
+						// what makes add → invite one screen rather than two.
+						if v.Actions != nil {
+							<p>{ movedLine(v.Actions) }</p>
+							<p class="mt-1">
+								They cannot record time yet. Send them their activation link with the
+								button below — until they open it, there is nothing to tap with.
+							</p>
+						}
 					default:
 						if v.Actions != nil {
 							<p>{ movedLine(v.Actions) }</p>
@@ -122,6 +136,10 @@ templ AdminEmployees(v EmployeesView) {
 						<p>That is already where they work, so there was nothing to save.</p>
 						<p class="mt-1">If you had just changed it, check the placement above — a save you made a moment ago, or somebody else's, may already have applied it.</p>
 					default:
+						// "not-invitable". It is the DEFAULT rather than a case because it was
+						// the section's original single problem word; the M6-13 words above are
+						// explicit so that adding one can never silently inherit this sentence,
+						// which is exactly what happened the first time they were added.
 						<p>
 							An activation link can only be used by somebody who has not been
 							deactivated, so none was created.
@@ -135,6 +153,12 @@ templ AdminEmployees(v EmployeesView) {
 		<p class="font-mono text-sm text-ink/85">
 			Dates shown in <span class="text-ink">{ v.ZoneLabel }</span>
 		</p>
+		// 🔴 THE WAY IN IS ABOVE THE LIST, NOT BURIED UNDER IT (M6-13). The question
+		// that reached live production was "how do I add an employee", asked by
+		// somebody looking straight at this page, so the answer is the first control
+		// after the section's own heading rather than something to scroll for. It is
+		// a LINK when closed, so the ordinary visit costs one anchor.
+		@components.RosterAdd(v.Add)
 		if v.Actions != nil {
 			@components.RosterActions(*v.Actions)
 		}
@@ -235,11 +259,32 @@ func emptyRosterHeading(v EmployeesView) string {
 // receipt and a true one. The alternative — a trail lookup — was weighed and dropped:
 // audit_log would confirm that SOME move happened for this employee, not that this
 // one just did, so it would buy a stronger-sounding sentence with the same hole.
+// 🔴 "added" WAS PUT IN THE SAME CLASS AS "moved" AND THAT WAS MEASURED WRONG.
+// This comment used to claim the heading "names a STATE the same request read back …
+// so a replayed URL restates something true". An audit falsified it end to end: add
+// somebody, activate them, reopen the same address, and the page said "They cannot
+// record time yet. Send them their activation link" beside a person who was already
+// tapping — and offered the re-invite control, which for an active person issues a
+// link for a new device.
+//
+// THE HEADING WAS NEVER THE PROBLEM; THE BODY WAS. "On the roster" is true whenever
+// the card renders. What was untrue is the sentence under it, which asserts a
+// LIFECYCLE nothing re-read — the one thing `moved` deliberately never does, because
+// movedLine prints only what the same request measured.
+//
+// The fix is a gate rather than a rewording: confirmedRosterAction now suppresses this
+// receipt unless the person is still 'invited', which is the check `deactivated`
+// already had. TestEmployeeAddDB_TheAddedReceiptIsNotShownAfterActivation is what
+// turns red if it is removed.
 func doneRosterHeading(done string) string {
-	if done == "deactivated" {
+	switch done {
+	case "deactivated":
 		return "Deactivated"
+	case "added":
+		return "On the roster"
+	default:
+		return "Where they work now"
 	}
-	return "Where they work now"
 }
 
 // movedLine says WHERE somebody works, from the card the same request read out of

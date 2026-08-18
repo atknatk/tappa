@@ -1,5 +1,15 @@
--- employees.sql -- the employee reads, AND SINCE M6-05 PHASE B the two writes a
--- manager can make from the panel.
+-- employees.sql -- the employee reads, the two lifecycle writes a manager can make
+-- from the panel (M6-05 phase B), AND SINCE M6-13 the statement that puts somebody
+-- on the roster in the first place.
+--
+-- 🔴 UNTIL M6-13 THIS FILE COULD CHANGE AN EMPLOYEE AND NEVER CREATE ONE, and the
+-- gap was measured in live production rather than reasoned about: a customer signed
+-- up, reached the panel and asked how to add an employee. The answer was that they
+-- could not -- `INSERT INTO employees` appeared ZERO times in this whole directory,
+-- and the only thing in the repository that created an employee was
+-- test/fixtures/seed.sql, which is outside the product. The roster listed, invited,
+-- deactivated and moved people that nothing in the product could bring into
+-- existence.
 --
 -- 🔴 THIS HEADER USED TO SAY "NO WRITE QUERY LIVES HERE" AND THAT SENTENCE IS NOW
 -- FALSE, so it is replaced rather than left standing. What it was protecting is
@@ -7,7 +17,47 @@
 -- never "employees is never updated" -- it was "activation cannot happen without
 -- spending an invite" (M5-02 phase A, binding decision 2). ConsumeInviteAndActivate
 -- (db/queries/invites.sql) remains the ONLY statement anywhere in db/queries that
--- writes status = 'active', and neither query below writes that value.
+-- writes status = 'active' ON employees, and no query below writes that value.
+--
+-- ⚠️ THE TABLE IS PART OF THE CLAIM AND IT WAS MISSING. Without it the sentence is
+-- literally false: db/queries/tags.sql sets status = 'active' too, on `tags`, where
+-- it means a plaque is in service and has nothing to do with an employee lifecycle.
+-- A reader checking the claim with a bare grep finds that line and concludes the
+-- comment is wrong, which is worse than saying less. The command that settles it:
+--
+--	$ grep -rn "^SET status.*'active'" db/queries/
+--	db/queries/invites.sql:...  ConsumeInviteAndActivate  employees.status -> 'active'
+--
+-- ONE LINE. Both halves of that pattern are load-bearing and were measured: the
+-- anchor drops the prose that NAMES the statement (including this paragraph), and
+-- the 'active' literal drops the two other status writes in this directory --
+-- tags.sql sets 'retired' and employees.sql sets 'deactivated'. Without them the
+-- same grep returns three lines and none of the extras are about activation.
+--
+-- 🔴 AND CreateEmployee KEEPS THAT PROPERTY BY NOT NAMING status AT ALL, which is
+-- stronger than naming it 'invited'. The column's DEFAULT (00003) supplies the
+-- value, so there is no literal in this file an edit could widen into 'active' --
+-- a new employee is born 'invited' because the SCHEMA says so, not because this
+-- statement remembered to. Being born 'active' would skip activation entirely and
+-- break the session/practice-tap chain section 5 rests on: an employee with no
+-- session has nothing to tap with, and the invite is what mints one.
+--
+-- ⚠️ IT DOES NOT WRITE invited_at EITHER, AND THAT ABSENCE IS DELIBERATE. That column
+-- stamps "an invitation was sent"; adding somebody to the roster sends nothing, because
+-- the invite is a separate act (employeeInvite). Filling it here would put a date on
+-- the screen for an invitation that does not exist -- and the invite flow does not read
+-- it either, it reads employee_invites.
+--
+-- NO STATEMENT IN THIS PRODUCT HAS EVER WRITTEN THE COLUMN:
+--
+--	$ grep -rnE "invited_at *=" db/queries/     # 0 lines
+--
+-- ⚠️ AND THE COMMAND IS THE CLAIM, WHICH TOOK TWO CORRECTIONS. It was first a bare
+-- `grep -n invited_at`, which does not settle anything: it matches this very paragraph.
+-- The replacement then QUOTED that grep's line count -- and the count moved the moment
+-- the sentence quoting it was added, because the sentence contains the pattern. Lesson
+-- 380 in miniature, produced by the repair for lesson 380. What is written now is a
+-- command whose answer is ZERO and therefore cannot be inflated by prose about it.
 --
 -- 🔴 THE GREPPABILITY THE OLD SENTENCE RELIED ON IS KEPT BY COUNTING RATHER THAN BY
 -- ABSENCE. invites.sql said `UPDATE employees` appears once in the whole directory.
@@ -29,6 +79,19 @@
 -- deactivation never sets 'active', activation never sets 'deactivated', and the
 -- move statement does not name status at all. That is the property; the count is
 -- how a reader checks it.
+--
+-- 🔴 THE CREATION SIDE IS COUNTED THE SAME WAY, and it is a SEPARATE count because
+-- an INSERT is a different verb with a different risk. It is the whole of how a row
+-- can enter this table from the product:
+--
+--	$ grep -rn '^INSERT INTO employees' db/queries/
+--	db/queries/employees.sql:...  CreateEmployee            status -> (schema default)
+--
+-- ONE, and the anchor matters here for the same reason it does above: unanchored,
+-- the prose in this header that NAMES the statement is matched too. If that list
+-- ever grows, the question to ask of the newcomer is the one this file already
+-- answers three times over -- which column of the lifecycle does it write, and does
+-- it name `status`.
 --
 -- ⚠️ WHAT IS NOT CLAIMED: this is not a privilege-level guarantee. 00003 grants
 -- tappa_app table-wide UPDATE on employees, so hand-written SQL outside the
@@ -487,6 +550,16 @@ RETURNING id, full_name, status, deactivated_at;
 -- answers 23503. The predicates buy the DIFFERENCE BETWEEN A REFUSAL AND AN ERROR,
 -- which is what section 4.6 asks for on a screen a person is standing in front of.
 --
+-- ⚠️ COUNTED LIMIT: d.tenant_id = @tenant_id IS A SECOND BELT THAT NOTHING PINS,
+-- AND IT IS BEHAVIOUR-EQUIVALENT TODAY. Removing it leaves every test green, and an
+-- audit checked why before reporting it: departments_location_fk is COMPOSITE, so
+-- `d.location_id = l.id` together with `l.tenant_id = @tenant_id` already implies
+-- the department's tenant. There is no input that can tell the two versions apart,
+-- so this is an unpinned belt rather than an unmeasured risk -- and it stays,
+-- because §4.5 asks for the explicit predicate whether or not another clause
+-- happens to imply it, and the implication depends on a foreign key that a future
+-- migration could narrow.
+--
 -- THE DEPARTMENT IS OPTIONAL AND ITS ABSENCE IS FIRST CLASS (00003: a bar does not
 -- model departments). NULL means "no department", which is a legitimate destination
 -- and not a missing argument -- so a LEFT JOIN supplies it and the guard in the
@@ -541,3 +614,101 @@ WHERE e.tenant_id = @tenant_id
   AND l.id = @location_id
   AND (sqlc.narg('department_id')::uuid IS NULL OR d.id IS NOT NULL)
 RETURNING e.id, e.full_name, e.location_id, e.department_id;
+
+-- name: CreateEmployee :one
+-- Puts somebody on the roster (M6-13). It is the ONLY way a row enters `employees`
+-- from inside the product.
+--
+-- 🔴 IT DOES NOT NAME status, SO THE SCHEMA'S DEFAULT DECIDES IT: 'invited'. The
+-- header states the argument in full; the short version is that a literal here
+-- would be a second place the lifecycle's starting value is written, and the one
+-- value that must never appear ('active') then becomes one edit away. What this
+-- statement CAN produce is exactly one status, and it produces it by omission.
+--
+-- 🔴 THE VENUE IS SELECTED, NOT ASSIGNED -- the shape MoveEmployee and
+-- CreateDepartment already argue for. The SELECT matches the location inside the
+-- caller's tenant, so a foreign or invented location_id produces ZERO ROWS, which
+-- the caller turns into a sentence for the manager rather than a 23503 read out of
+-- a driver error string.
+--
+-- ⚠️ AND IT IS THE SECOND DEFENCE, NOT THE ONLY ONE. employees_location_fk is a
+-- COMPOSITE key on (location_id, tenant_id) -> locations (id, tenant_id), and
+-- employees_department_fk the same for departments (00003), so a cross-tenant
+-- placement is structurally impossible even with every predicate below deleted --
+-- the database answers 23503. The predicates buy the DIFFERENCE BETWEEN A REFUSAL
+-- AND AN ERROR (section 4.6), on a screen somebody is standing in front of. The
+-- composite key is what a test must exercise with a real cross-tenant id, because
+-- the predicate alone would be satisfied by a caller who forged the tenant.
+--
+-- THE DEPARTMENT IS OPTIONAL AND ITS ABSENCE IS FIRST CLASS (00003: a bar does not
+-- model departments). NULL means "no department" -- a legitimate placement, not a
+-- missing argument -- so a LEFT JOIN supplies it and the guard in the WHERE refuses
+-- only the case that is genuinely wrong: a department id that WAS given and does
+-- not resolve inside this tenant, or resolves to a department of a DIFFERENT venue.
+-- Without that guard the LEFT JOIN would quietly turn an unknown department into
+-- "no department" -- a silent wrong write rather than a refusal.
+--
+-- 🔴 THE DEPARTMENT MUST BELONG TO THE CHOSEN VENUE (d.location_id = l.id), for the
+-- reason MoveEmployee records at length after a security audit measured the pair
+-- being accepted: a department is not a label. Lateness is computed from the
+-- DEPARTMENT's shift when there is one (section 5), and a policy can be scoped to
+-- `department/<id>`, so a mismatched pair judges somebody against another branch's
+-- shift and another branch's rules -- a wrong answer that looks like a right one.
+-- Creating such a pair would be worse than moving into one, because there is no
+-- earlier correct state to notice the change from.
+--
+-- ⚠️ email IS citext AND ITS UNIQUE INDEX IS PARTIAL. employees_tenant_email_key is
+-- UNIQUE (tenant_id, email) WHERE email IS NOT NULL, so TWO EMPLOYEES WITH NO
+-- ADDRESS ARE LEGAL and two with the same address -- differing only in case -- are
+-- not. That makes the difference between NULL and the empty string load-bearing in
+-- a way no other optional column here has: '' is NOT NULL, so it enters the index,
+-- and a SECOND employee saved with an empty address would collide with the first.
+-- The boundary converts "" to NULL before it reaches this statement and
+-- TestStaffDB_TwoPeopleWithNoEmailAreLegal is what turns red if that stops
+-- happening. A 23505 from here is a REFUSAL with a sentence, never a 500.
+--
+-- NOT RETURNED: email. The roster never renders an address (GetPanelEmployeeForAction
+-- makes the same choice and states why), and a column that is not selected is one a
+-- later view model cannot accidentally carry. The caller needs the id, the placement
+-- and the status it was born with; it already knows the address it just sent.
+--
+-- TENANT SCOPE (section 4.5, belt + braces on RLS): the explicit tenant_id predicate
+-- binds the venue's scope column to the caller's parameter as a top-level conjunct,
+-- and the INSERT's own tenant_id is the same parameter -- which the RLS policy's
+-- WITH CHECK on `employees` (00003) independently refuses to let differ from the
+-- session's. The value never comes from the request: it is the resolved panel
+-- session's tenant.
+--
+-- 🔴 WHERE THAT PREDICATE IS PINNED, AND WHERE IT IS NOT -- BOTH MEASURED, because an
+-- audit asked exactly this and the two answers are different:
+--
+--	THIS FILE          internal/domain/tenant/query_test.go derives the queries it
+--	                   checks from the package's own calls with go/ast and requires a
+--	                   top-level `l.tenant_id = @tenant_id` conjunct. Deleting the
+--	                   predicate here turns it RED and names CreateEmployee.
+--	internal/store/    NOT pinned by any test, and it does not need to be: it is
+--	                   GENERATED. Hand-editing the predicate out of employees.sql.go
+--	                   survives a targeted `go test` -- an audit measured that -- but
+--	                   `make check` runs `gen` before `test` and ends in
+--	                   `git diff --exit-code`, and regeneration rewrites the file from
+--	                   THIS one. Measured 2026-08-17: the edited file's sha changes
+--	                   back on `make sqlc`, so the diff is non-empty and check fails.
+--
+-- Which is to say the belt lives in this file and the generated copy cannot drift
+-- from it without the build saying so. The braces (RLS) are asserted separately, and
+-- an audit confirmed them independently: an INSERT with a forged tenant_id is refused
+-- by the policy's WITH CHECK, not merely by the predicate above.
+INSERT INTO employees (
+    tenant_id, location_id, department_id, full_name, role, email
+)
+SELECT @tenant_id, l.id, d.id, @full_name,
+       sqlc.narg('role'), sqlc.narg('email')::citext
+FROM locations l
+LEFT JOIN departments d
+       ON d.tenant_id = @tenant_id
+      AND d.id = sqlc.narg('department_id')::uuid
+      AND d.location_id = l.id
+WHERE l.tenant_id = @tenant_id
+  AND l.id = @location_id
+  AND (sqlc.narg('department_id')::uuid IS NULL OR d.id IS NOT NULL)
+RETURNING id, tenant_id, location_id, department_id, full_name, role, status, created_at;
