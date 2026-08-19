@@ -4,8 +4,22 @@
     "READ BEFORE TRUSTING THESE VECTORS.",
     "Every `cmac` below was produced by Tappa's OWN pipeline (sv2 + RFC-4493 cmac + truncateSDMMAC in internal/sun) keyed by the FAKE test keys in this file. All key material here is FAKE (never a real per-tag K_sdmfileread, never the real TAPPA_TAG_KEK); real keys are random (ADR 0003 madde 3) and live only KEK-wrapped in the DB.",
     "WHAT THESE PROVE: the Verify wiring end to end — resolve, retired/lost short-circuit, QR short-circuit, KEK unwrap, truncated-CMAC compare, the verify-BEFORE-advance order, monotonic replay ordering (accept / replay / backward / forward-gap), and the reject paths (wrong key, bit flip, malformed input, unknown uid). They pin the internal layout against regressions.",
-    "WHAT THEY DO NOT PROVE (self-consistency ceiling): because the same code both mints and checks these MACs, they CANNOT externally validate (a) the absolute byte/endian order a physical chip emits SDMReadCtr, nor (b) that the full SV2 + session-key + truncation chain matches real NTAG 424 DNA silicon. Only the RFC 4493 primitive is externally anchored — by the official RFC vectors in cmac_test.go, NOT here. A real-chip known-answer vector is REQUIRED before the M8 pilot (M8-05 encode runbook). Do NOT read a green run of these vectors as proof of real-chip correctness.",
-    "The counter VALUE endianness (Params.Ctr, big-endian per ADR 0003) used for replay ordering shares this ceiling; the SV2 counter bytes are used VERBATIM and are structurally proven (verify_mac_test.go TestSV2_CtrVerbatim), but the absolute value-endian is confirmed only by that same M8 real-chip vector."
+    "WHAT THEY DO NOT PROVE (self-consistency ceiling): because the same code both mints and checks these MACs, a defect present in that code is present on BOTH sides of every comparison here and stays invisible. THIS IS NOT HYPOTHETICAL — it is what happened. From M2-04 until M2-08 (2026-08-18) sv2() appended the read counter in the WRONG BYTE ORDER, every vector in this file was minted with that defect, and the whole suite was green. A real chip's first 255 taps would all have been rejected.",
+    "⚠️ THE CEILING IS NOW LOWER, BUT IT IS STILL THERE. M2-08 added EXTERNALLY SOURCED known-answer vectors in internal/sun/an12196_kat_test.go, transcribed from NXP AN12196's published worked examples (rev. 1.8 §4.3 Table 2 p.10 -- rev. 2.0 renumbers it Table 1, p.9 -- and rev. 1.8 §4.4.4.2.1 Table 5 p.15). Those DO externally anchor the SV2 byte layout, the session-key derivation, the empty MAC input and the odd-indexed truncation — the chain this file cannot anchor. The AES-CMAC primitive under it is anchored separately by the official RFC 4493 vectors in cmac_test.go.",
+    "⚠️ ONE ANCHOR, NOT TWO, ON THE URL BYTE-ORDER AXIS (section and table numbers below are rev. 1.8's). Read the previous bullet narrowly: the counter's URL spelling rests ONLY on Table 2's SV2 counter 010000 read against §4.4.1's plain URL ctr=000001 for the same UID. Table 5 does NOT independently re-pin it — Table 5 is the ENCRYPTED-PICCData example, its UID and counter come out of decrypting PICCENCData (step 3), and the URL published for it (§4.4.2.1) carries ?e=...&c=... with no plain ctr= at all. The MSB-first URL counter used in that test (00003D) appears NOWHERE in either revision as laid out: it is Tappa's derivation. (A whitespace-collapsed search shows one apparent hit in rev 2.0; that is two table cells joined -- the all-zero key's trailing 0000 plus the next row's step number 3 and D( -- not an occurrence.) What Table 5 adds is that sv2() really reverses (3D0000 is non-palindromic), which is a property of our code, not a second reading of the wire.",
+    "WHAT REMAINS UNPROVEN AFTER M2-08: no physical NTAG 424 DNA has been read. AN12196 anchors our DECODE side to NXP's description of the chip; it cannot prove our ENCODE side (M8-05 runbook) mirrors the counter into the URL MSB-first, which ADR 0003 §1 decides and the vectors assume. A real-chip capture is still wanted before the M8 pilot. Do NOT read a green run of THIS file as proof of real-chip correctness.",
+    "The counter VALUE endianness (Params.Ctr, big-endian per ADR 0003 §1) is no longer a separate open axis: AN12196 §4.4.1 (p.11) publishes the plain URL `ctr=000001` for the same UID whose SDMReadCtr §4.3 Table 2 gives as `010000 (LSB first)`, so the URL is MSB-first and SV2 is LSB-first — one value, two spellings, reversed exactly once in sv2(). See verify_mac_test.go TestSV2_CounterIsReversedIntoLSBFirstOrder and the KAT file above."
+  ],
+  "_regenerate": [
+    "HOW TO REGENERATE THE `cmac` FIELDS BELOW (last done: M2-08, 2026-08-18, after the sv2 byte-order fix).",
+    "Regenerate ONLY when the algorithm intentionally changes. If these go red without an intended change, the CODE is wrong — do not refresh the values to make the suite green. Check an12196_kat_test.go first: if the external KATs are also red, the chain broke; if only this file is red, the fixture is stale.",
+    "The recipe below uses openssl, deliberately NOT the Go code under test, so regenerating is a second implementation rather than a copy of the first. Chain: SV2 = 3CC300010080 || UID || reverse(ctr_hex); K_ses = AES-CMAC(tag_key, SV2); full = AES-CMAC(K_ses, <empty>); cmac = odd-indexed bytes 1,3,5,7,9,11,13,15 of full.",
+    "🔴 NEVER RUN THIS RECIPE WITH A REAL PLAQUE KEY — NOT ONCE, NOT 'just to check a tap'. It puts the key on the COMMAND LINE (`openssl mac ... hexkey:\"$1\"`), where every process on the box can read it out of `ps`, and it lands in the shell history file. That is safe here only because every key in this file is FAKE (CLAUDE.md §4.7). The shape is the danger: the day someone wants to hand-verify a real tag's MAC, this is the ready-made tool sitting in their editor, and using it leaks a per-tag K_sdmfileread that lives KEK-wrapped everywhere else. If you need to verify a real plaque, do it in a process that reads the key from a file or the environment and never as an argv element — the operator rules in deploy/README.md ('Anahtar hijyeni — iddia değil, mekanizma', and the KEK rotation section's argv/xtrace refusals) already state the same rule for the KEK and are the reference for how it is done.",
+    "cm() { if [ -z \"$2\" ]; then printf '' | openssl mac -macopt cipher:AES-128-CBC -macopt hexkey:\"$1\" CMAC; else printf '%s' \"$2\" | xxd -r -p | openssl mac -macopt cipher:AES-128-CBC -macopt hexkey:\"$1\" CMAC; fi | tr 'A-Z' 'a-z'; }",
+    "rev3() { echo \"${1:4:2}${1:2:2}${1:0:2}\"; }",
+    "sdmmac() { sv=\"3CC300010080$2$(rev3 $3)\"; sk=$(cm $1 $sv); f=$(cm $sk ''); o=''; for i in 1 3 5 7 9 11 13 15; do o=\"$o${f:$((i*2)):2}\"; done; echo $o; }",
+    "Then per vector: sdmmac <tag_key> <uid> <ctr_hex>. The `wrong_key` row is minted with tag_key_B_wrong (so it must NOT verify against tag_key_A), and `single_bit_flip` is a valid MAC for its row with the LOW BIT OF BYTE 0 flipped. Verify with: go test -run 'TestVerify_VectorsSelfConsistent|TestSDMKAT_' ./internal/sun/",
+    "The `malformed` queries carry a cmac only so the string is well-formed; their values are never verified, but they are kept consistent with valid_consecutive so no stale value looks meaningful."
   ],
   "kek": "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff",
   "tag_key_A": "000102030405060708090a0b0c0d0e0f",
@@ -18,7 +32,7 @@
       "tag_key": "000102030405060708090a0b0c0d0e0f",
       "last_ctr": 100,
       "ctr_hex": "000065",
-      "cmac": "83c0104d8ac39077",
+      "cmac": "6ad26fcbb2b9a9c3",
       "cmac_verifies": true,
       "want_sun_valid": true,
       "want_gap": 0
@@ -30,7 +44,7 @@
       "tag_key": "000102030405060708090a0b0c0d0e0f",
       "last_ctr": 200,
       "ctr_hex": "0000C8",
-      "cmac": "d430e38da9ad663c",
+      "cmac": "92be32cde8af2147",
       "cmac_verifies": true,
       "want_sun_valid": false,
       "want_gap": 0
@@ -42,7 +56,7 @@
       "tag_key": "000102030405060708090a0b0c0d0e0f",
       "last_ctr": 200,
       "ctr_hex": "0000C7",
-      "cmac": "6b161cbf0d7d8ef3",
+      "cmac": "52cebea5f91d2d28",
       "cmac_verifies": true,
       "want_sun_valid": false,
       "want_gap": 0
@@ -54,7 +68,7 @@
       "tag_key": "000102030405060708090a0b0c0d0e0f",
       "last_ctr": 100,
       "ctr_hex": "0013EC",
-      "cmac": "c47eee350d31b7b0",
+      "cmac": "007acc42596dade6",
       "cmac_verifies": true,
       "want_sun_valid": true,
       "want_gap": 4999
@@ -66,33 +80,33 @@
       "tag_key": "000102030405060708090a0b0c0d0e0f",
       "last_ctr": 100,
       "ctr_hex": "000065",
-      "cmac": "7510154e89b04870",
+      "cmac": "76fa684af471cb2b",
       "cmac_verifies": false,
       "want_sun_valid": false,
       "want_gap": 0
     },
     {
       "name": "single_bit_flip",
-      "description": "valid CMAC with one bit flipped (d7b7... -> d6b7...) -> reject, no advance",
+      "description": "valid CMAC with one bit flipped (09fa... -> 08fa...) -> reject, no advance",
       "uid": "04AC7E55000606",
       "tag_key": "000102030405060708090a0b0c0d0e0f",
       "last_ctr": 100,
       "ctr_hex": "000065",
-      "cmac": "d6b71c96ebc13f19",
+      "cmac": "08faa077954d6511",
       "cmac_verifies": false,
       "want_sun_valid": false,
       "want_gap": 0
     }
   ],
   "malformed": [
-    { "name": "uid_too_short",    "query": "tag=04AC7E55&ctr=000065&cmac=83c0104d8ac39077" },
-    { "name": "uid_bad_hex",      "query": "tag=04AC7E5500060Z&ctr=000065&cmac=83c0104d8ac39077" },
-    { "name": "ctr_too_short",    "query": "tag=04AC7E55000601&ctr=0065&cmac=83c0104d8ac39077" },
-    { "name": "ctr_bad_hex",      "query": "tag=04AC7E55000601&ctr=0000GG&cmac=83c0104d8ac39077" },
-    { "name": "cmac_too_short",   "query": "tag=04AC7E55000601&ctr=000065&cmac=83c0104d" },
+    { "name": "uid_too_short",    "query": "tag=04AC7E55&ctr=000065&cmac=6ad26fcbb2b9a9c3" },
+    { "name": "uid_bad_hex",      "query": "tag=04AC7E5500060Z&ctr=000065&cmac=6ad26fcbb2b9a9c3" },
+    { "name": "ctr_too_short",    "query": "tag=04AC7E55000601&ctr=0065&cmac=6ad26fcbb2b9a9c3" },
+    { "name": "ctr_bad_hex",      "query": "tag=04AC7E55000601&ctr=0000GG&cmac=6ad26fcbb2b9a9c3" },
+    { "name": "cmac_too_short",   "query": "tag=04AC7E55000601&ctr=000065&cmac=6ad26fcb" },
     { "name": "cmac_bad_hex",     "query": "tag=04AC7E55000601&ctr=000065&cmac=zzzzzzzzzzzzzzzz" },
     { "name": "ctr_without_cmac", "query": "tag=04AC7E55000601&ctr=000065" },
-    { "name": "cmac_without_ctr", "query": "tag=04AC7E55000601&cmac=83c0104d8ac39077" },
-    { "name": "missing_tag",      "query": "ctr=000065&cmac=83c0104d8ac39077" }
+    { "name": "cmac_without_ctr", "query": "tag=04AC7E55000601&cmac=6ad26fcbb2b9a9c3" },
+    { "name": "missing_tag",      "query": "ctr=000065&cmac=6ad26fcbb2b9a9c3" }
   ]
 }

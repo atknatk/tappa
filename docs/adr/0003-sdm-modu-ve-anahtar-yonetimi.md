@@ -237,6 +237,94 @@ mac       = full[1], full[3], full[5], … full[15]   // tek-indeksli 8 byte
 karar     = subtle.ConstantTimeCompare(mac, gelen_cmac)
 ```
 
+> **Ek not (2026-08-18, M2-08 — NORMATİF).** Yukarıdaki `SV2` satırındaki `ctr`
+> **LSB-first** yazılır; URL'deki `ctr` ise (madde 1) **MSB-first**'tür. İkisi aynı
+> değerin iki farklı yazılışıdır ve **birbirinin bayt-tersidir**. Bu satır orijinal
+> hâlinde bayt sırasını söylemiyordu; karar değişmedi, **eksik olan sıra eklendi**.
+>
+> Kaynak — NXP **AN12196 rev. 1.8, §4.3 Tablo 2, s. 10** (rev. 2.0'da §3.3 **Tablo
+> 1**, s. 9 — tablo iki revizyon arasında yalnız taşınmadı, **yeniden numaralandı**;
+> revizyonu belirtmeden "Tablo 2" demek yanlış tabloyu gösterir), UID
+> `04C767F2066180` için:
+>
+> - adım 4: `SDMReadCtr = 010000` — belgenin kendi notu: *"(LSB first as per
+>   [Section 3.1])"*
+> - adım 7: `SV2 = 3CC3 0001 0080 04C767F2066180 010000`
+>
+> ve aynı UID için **§4.4.1, s. 11** düz SUN URL örneği:
+> `…?uid=04C767F2066180&ctr=000001&c=…` — yani URL'de `000001`, SV2'de `010000`.
+>
+> 🔴 **Bir sonraki geliştiricinin İKİNCİ en olası hatası** (madde 2'deki boş-mesaj
+> tuzağıyla aynı sınıfta): URL'den gelen 3 baytı SV2'ye **olduğu gibi** eklemek.
+> Bu tam olarak yapıldı ve aylarca fark edilmedi — `internal/sun/verify_mac.go`
+> içindeki `sv2()` baytları verbatim ekliyordu ve bunu bir *yapısal garanti* diye
+> yorumluyordu ("çip URL'ye SV2'ye verdiği sırayla yazar"). **Yanlıştır.**
+>
+> Neden görünmedi: 3 baytlık sayaçların yalnız **1/256**'sı palindromdur ve
+> **1–255 aralığında hiç palindrom yoktur**, yani gerçek bir çipin **ilk 255
+> tap'inin tamamı** reddedilirdi. Test paketi yeşildi çünkü tüm vektörler aynı
+> hatalı `sv2()` ile üretiliyordu (`test/fixtures/sun_vectors.json` bunu kendi
+> uyarısında itiraf ediyordu). Kusur **sevk edildi ama tetiklenemezdi** — ve bunun
+> gerekçesi bir satır sayısı değil, bir **yokluk zinciri**: M8-05 encode runbook'u
+> FAZ B'de duruyor, encode aracı **hiç yazılmadı** (`cmd/` altında yok; `internal`
+> içinde `AuthenticateEV2First`/`ChangeFileSettings`/`ChangeKey` uygulayan tek satır
+> yok) ve panelin plaket yaratma yolu da yok (`db/queries/tags.sql` **hiç INSERT
+> taşımıyor**, bunu kendi yorumunda *karar* olarak söylüyor). Encode edilmiş tek bir
+> plaket yoksa gerçek bir tap da olamaz.
+>
+> 🔴 **DÖRDÜNCÜ HALKA — VE ZİNCİRİ KENDİ BAŞINA DOĞRULAYAN OKUR ONU MUTLAKA BULUR.**
+> Yukarıdaki üç halka *"`tags` tablosuna satır yazan bir yol yok"* **demiyor** ve
+> öyle okunmamalı: böyle bir yol **vardır**. `test/fixtures/seed.sql` doğrudan
+> `INSERT INTO tags` yapar, `scripts/seed.sh`'ın ikinci yarısı (`test/fixtures/
+> seedkeys`) o satırların `aes_key_ref`'ini **operatörün gerçek `TAPPA_TAG_KEK`'i
+> ile** sarmalar, ve yerelde bu tablo bugün altı haneli bir satır sayısı taşır. Bu
+> dördüncü yol yazılmadığı sürece zincir eksik görünür ve okur ona güvenmekte
+> haklı olarak tereddüt eder. **Sonuç yine de ayakta** — üç ölçülmüş sebeple:
+>
+> 1. **Sarmalanan düz anahtar SAHTEDİR.** `seed.sql`'in yazdığı `aes_key_ref` düz
+>    bir `PLACEHOLDER-UNTIL-seedkeys-WRAPS-IT-<uid>` metnidir; `seedkeys` onun
+>    yerine `fixtures.SeedTagKey(uid)` değerlerini sarmalar ve bunlar **public,
+>    bilerek gürültülü bir etiketten türetilir** (dosyanın kendi ifadesi: *"makes
+>    these keys self-evidently fake"*). Gerçek bir çipin `K_SDMFileRead`'i hiçbir
+>    aşamada ortada yoktur. Sarmalayan KEK gerçektir, **sarmalanan şey değildir**.
+> 2. **Yol yalnız YEREL.** `scripts/seed.sh` psql'i `docker compose exec -T db` ile
+>    çağırır — üretim veritabanına giden bir kolu yoktur.
+> 3. **Ve asıl sebep: bir SATIR bir PLAKET DEĞİLDİR.** Geçerli bir SUN, URL'yi
+>    imzalayan **fiziksel bir çip** ister (madde 6'daki CMAC'i o hesaplar).
+>    `tags`'taki satır yalnızca *"bu UID için bu anahtarı bekliyoruz"* der; duvarda
+>    o UID'yi taşıyan bir çip yokken hiçbir tap doğrulanamaz — bu satırlar sayacı
+>    bile ilerletemez.
+>
+> Yani ilk üç halka **encode aracının yokluğunu** kanıtlar; dördüncüsü de
+> *"öyleyse veritabanındaki satırlar ne?"* sorusunu kapatır.
+>
+> ⚠️ **Bunu `tags` satır sayısıyla ölçmeye kalkma** — o ölçüm yanıltır ve nedeni
+> M2-08'de ölçüldü: `tappa_app` rolüyle `select count(*) from tags` **0** döner,
+> `tappa_owner` rolüyle aynı sorgu **altı haneli** bir sayı döner; fark RLS'tir
+> (`app.tenant_id` kurulmamış bir bağlantı hiçbir satır görmez, tablo doluyken bile).
+> Yani boş bir tablo ile dolu bir tablo, uygulama rolünden **aynı görünür**.
+> Ayrıntı: [m2-sun.md](../plan/m2-sun.md) → M2-08 tuzakları.
+>
+> Bunun tekrarını engelleyen şey artık **dış kaynaklı** known-answer vektörleridir:
+> `internal/sun/an12196_kat_test.go` beklenen değerleri AN12196'nın yayımladığı
+> tablolardan alır, bizim zincirimizden değil (§4.4.4.2.1 Tablo 5, s. 15 — SV2
+> **düzeni**, oturum anahtarı, **boş girdi**, tek-indeksli kısaltma).
+> ⚠️ **URL bayt sırası bu tabloya dayanmaz:** Tablo 5 şifreli-PICCData örneğidir,
+> yayımlanan URL'i `?e=…&c=…` biçimindedir ve düz `ctr=` taşımaz. O eksenin **tek**
+> çapası yukarıdaki Tablo 2 + §4.4.1 aynı-UID eşleşmesidir.
+> **O dosyadaki beklenen değerler bizim koda göre güncellenmez**; ters yönde
+> çalışır.
+>
+> **Değer ekseni de bu notla kapanır:** URL metni MSB-first olduğu için
+> `params.go`'daki `beUint24` (big-endian) **doğrudur** — madde 1'in "big-endian"
+> ifadesi URL için geçerlidir ve değişmemiştir. Bağımsız teyit: `icedevml/sdm-backend`
+> → `validate_plain_sun` URL baytlarını SV2 için **ters çevirir**, değeri ise
+> `'>I'` (big-endian) okur.
+>
+> **M8-05 encode runbook'u için sonuç:** encode tarafı sayacı URL'ye **MSB-first**
+> mirror'lamak zorundadır (madde 1). Bu vektörlerin **doğrulayamadığı** tek şey
+> budur — encode tarafı ancak gerçek plaketle kanıtlanır.
+
 Kısaltma (`full` içinden **tek indeksli** baytlar) M2-04'ün en kritik ve en çok
 zaman kaybettiren adımıdır: NTAG 424 tam 16 baytlık CMAC'i değil, bu 8 baytlık
 kısaltılmış hali yayar (skill `tappa-sun`). Karşılaştırma `crypto/subtle.

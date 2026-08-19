@@ -70,19 +70,24 @@ type Params struct {
 	// separate from the canonical text UID above.
 	UIDBytes []byte
 	// Ctr is the read counter as a NUMERIC VALUE, decoded BIG-ENDIAN (ADR 0003
-	// §1). This VALUE axis is used ONLY for replay ordering (M2-06 monotonic
-	// last_ctr < ctr); it is NOT used to build the CMAC. The CMAC uses CtrBytes
-	// verbatim (see below), so the crypto is independent of this endian choice.
-	// Whether big-endian is the correct value interpretation for replay ordering
-	// is still pending an external vector (M2-07). Zero for QR (no counter).
+	// §1), used for replay ordering (M2-06 monotonic last_ctr < ctr).
+	//
+	// BIG-ENDIAN IS NOW CONFIRMED, not assumed. AN12196 rev. 1.8 §4.4.1 (page 11)
+	// publishes the plain-SUN URL `ctr=000001` for the very UID whose SDMReadCtr
+	// §4.3 Table 2 (page 10) gives as `010000 (LSB first)` — one read, written
+	// MSB-first in the URL and LSB-first in SV2. So reading the URL text
+	// big-endian yields the true counter. M2-08 closed this; it used to be flagged
+	// here as pending an external vector. Zero for QR (no counter).
 	Ctr uint32
 	// CtrBytes is the RAW 3-byte read counter exactly as it appears (hex-decoded)
-	// in the URL, in URL order. The CMAC's SV2 uses these bytes VERBATIM
-	// (verify_mac.go sv2), never a re-serialised value: the NTAG 424 mirrors
-	// SDMReadCtr into the URL with the SAME byte order it feeds into SV2, so
-	// copying the URL bytes unchanged is correct regardless of the chip's absolute
-	// endianness — and structurally rules out a parse/serialise reversal (an
-	// earlier M2-04 bug). All-zero for QR (no counter present).
+	// in the URL, in URL order — i.e. BIG-ENDIAN, matching Ctr above.
+	//
+	// ⚠️ THESE BYTES ARE NOT THE SV2 BYTES. verify_mac.go sv2 REVERSES them into
+	// SDMReadCtr's LSB-first order before deriving the session key. This comment
+	// used to claim the opposite ("the NTAG 424 mirrors SDMReadCtr into the URL
+	// with the SAME byte order it feeds into SV2"), which was false and rejected
+	// every non-palindromic counter — the M2-08 defect. Keep the raw URL order
+	// here and let sv2 own the single reversal. All-zero for QR (no counter).
 	CtrBytes [3]byte
 	// CMAC is the raw 8-byte truncated SDM MAC from the chip. Nil for QR. It is a
 	// value to verify, never to log (CLAUDE.md §4.7).
@@ -199,8 +204,10 @@ func Parse(q url.Values) (Params, error) {
 
 	p.Channel = ChannelNFC
 	p.Ctr = beUint24(ctrBytes)
-	// Keep the raw counter bytes verbatim for the CMAC (SV2), separate from the
-	// numeric value above. decodeFixedHex validated exactly 3 bytes.
+	// Store the URL-order bytes UNCHANGED — do not read this as "these are the SV2
+	// bytes", which is the refuted claim that caused M2-08. sv2() owns the single
+	// reversal into SDMReadCtr's LSB-first order; see the CtrBytes field doc above.
+	// decodeFixedHex validated exactly 3 bytes.
 	copy(p.CtrBytes[:], ctrBytes)
 	p.CMAC = cmacBytes
 	return p, nil

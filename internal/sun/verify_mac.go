@@ -18,7 +18,7 @@ import (
 //
 // The algorithm is the five normative steps of ADR 0003 madde 6:
 //
-//	1. SV2       = 3C C3 00 01 00 80 || UID(7) || ctr(3)
+//	1. SV2       = 3C C3 00 01 00 80 || UID(7) || ctr(3, LSB-first — see sv2)
 //	2. K_session = AES-CMAC(K_sdmfileread, SV2)
 //	3. full      = AES-CMAC(K_session, sdmMacInput)   // sdmMacInput empty
 //	4. mac       = full[1], full[3], full[5], … full[15]   // odd-indexed 8 bytes
@@ -35,8 +35,8 @@ var sdmSV2Prefix = [6]byte{0x3C, 0xC3, 0x00, 0x01, 0x00, 0x80}
 // kSDMFileRead is the 16-byte AES-128 per-tag key (ADR 0003 madde 3), already
 // unwrapped in memory by M2-05. uid is the RAW 7-byte UID (Params.UIDBytes), not
 // the hex text. ctrBytes is the RAW 3 counter bytes exactly as they appeared in
-// the URL (Params.CtrBytes), used VERBATIM in SV2 — NOT the numeric Params.Ctr,
-// which exists only for replay ordering (see sv2). chipCMAC is the raw 8-byte
+// the URL (Params.CtrBytes), i.e. in the URL's BIG-ENDIAN order — sv2 reverses
+// them into SV2's LSB-first order, so do NOT pre-reverse them here. chipCMAC is the raw 8-byte
 // truncated MAC from the tap (Params.CMAC) — a value to verify, never to log
 // (CLAUDE.md §4.7).
 //
@@ -75,28 +75,60 @@ func verifyMAC(kSDMFileRead, uid, ctrBytes, chipCMAC []byte) (bool, error) {
 // sv2 builds the SDM session-key derivation input (AN12196 §SDM, ADR 0003
 // madde 6):
 //
-//	SV2 = 3C C3 00 01 00 80 || UID(7 bytes) || SDMReadCtr(3 bytes)
+//	SV2 = 3C C3 00 01 00 80 || UID(7 bytes) || SDMReadCtr(3 bytes, LSB FIRST)
 //
-// SDMReadCtr goes in VERBATIM: ctrBytes is the raw 3-byte counter exactly as it
-// appeared (hex-decoded) in the tap URL, appended in URL order without any
-// re-serialisation. This is correct regardless of the chip's absolute
-// endianness, because the NTAG 424 mirrors SDMReadCtr into the URL with the SAME
-// byte order it feeds into SV2 — so the URL bytes ARE the SV2 bytes. Building SV2
-// from the numeric Params.Ctr instead would reintroduce a parse-then-serialise
-// reversal (the original M2-04 defect: URL big-endian parse + little-endian
-// re-serialise flipped every non-palindromic counter and rejected valid taps).
+// 🔴 THE COUNTER IS REVERSED ON THE WAY IN, AND THAT IS THE WHOLE POINT OF THIS
+// FUNCTION. ctrBytes is the counter as it appears in the tap URL, which ADR 0003
+// §1 fixes as BIG-ENDIAN text (`ctr=000001` means one). SV2 wants the SAME value
+// spelled LSB-FIRST. The two spellings are byte-reverses of each other, so the
+// URL bytes must be reversed before they enter SV2.
 //
-// FLAG — this fixes the URL<->SV2 REVERSAL structurally. A SEPARATE axis remains
-// open: whether the counter's numeric VALUE (Params.Ctr, decoded big-endian) is
-// interpreted with the right endianness for M2-06's monotonic replay ordering.
-// That value-endian question does NOT affect this CMAC (which is verbatim) and is
-// still to be pinned by a real-chip / AN12196 vector in M2-07. Do not conflate
-// the two axes: SV2 is verbatim here; value-endian is confirmed in M2-07.
+// AN12196 says both halves of that in one place — rev. 1.8 §4.3 Table 2, page 10
+// (rev. 2.0 §3.3 Table 1, page 9 — the table is RENUMBERED across revisions, not
+// merely moved, so a citation without its revision points at a different table),
+// for UID 04C767F2066180:
+//
+//	step 4: SDMReadCtr = 010000   "(LSB first as per [Section 3.1])"
+//	step 7: SV2        = 3CC3 0001 0080 04C767F2066180 010000
+//
+// and §4.4.1's plain-URL example for that same UID (rev. 1.8 page 11) publishes
+// the counter as `ctr=000001` — MSB-first. Same read, two byte orders: the URL
+// text is big-endian, the SV2 input is little-endian.
+//
+// WHY THE PREVIOUS VERSION WAS WRONG, in the exact words it used. It appended
+// ctrBytes VERBATIM and justified that with a STRUCTURAL claim: "the NTAG 424
+// mirrors SDMReadCtr into the URL with the SAME byte order it feeds into SV2 — so
+// the URL bytes ARE the SV2 bytes." That sentence is false, and the document above
+// is the refutation: 010000 into SV2, 000001 into the URL. Feeding the URL bytes
+// verbatim reproduces the published session key for NO counter except a
+// palindrome.
+//
+// HOW BADLY, MEASURED. A 3-byte counter is a palindrome in 65 536 of 16 777 216
+// cases (1/256), and NONE of the values 1..255 qualify — so a real chip's FIRST
+// 255 TAPS would every one of them have been rejected. Nothing caught it because
+// every test vector in this package was minted by this same sv2(), so the bug
+// signed its own homework (test/fixtures/sun_vectors.json _warning). The external
+// known-answer vectors in an12196_kat_test.go — a SEPARATE file, not the one this
+// package's other MAC tests live in — are the fix for THAT, not just for this
+// line: they come from AN12196's published numbers and cannot move with us.
+//
+// The value axis that used to be flagged here is now CLOSED, not merely untested.
+// Reading the URL's counter big-endian (params.go beUint24) is correct, because
+// the URL text is MSB-first — the same §4.4.1-vs-Table-2 pair above establishes
+// it, and icedevml/sdm-backend's validate_plain_sun independently agrees: it
+// reverses the URL bytes for SV2 and reads their VALUE with '>I' (big-endian).
+// The two axes are therefore no longer independent — one byte order, read one way
+// for the value and reversed once for the crypto.
 func sv2(uid, ctrBytes []byte) []byte {
 	buf := make([]byte, 0, len(sdmSV2Prefix)+len(uid)+len(ctrBytes))
 	buf = append(buf, sdmSV2Prefix[:]...)
 	buf = append(buf, uid...)
-	buf = append(buf, ctrBytes...) // verbatim: same bytes, same order as the URL
+	// Reverse the URL's big-endian counter into SV2's LSB-first order. Written as
+	// an explicit descending copy rather than an in-place swap because ctrBytes is
+	// the caller's slice (Params.CtrBytes) and must not be mutated.
+	for i := len(ctrBytes) - 1; i >= 0; i-- {
+		buf = append(buf, ctrBytes[i])
+	}
 	return buf
 }
 

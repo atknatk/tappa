@@ -35,7 +35,9 @@ davranışını belgele ve tag ömrü boyunca aşılmayacağını doğrula.
    status != active → reject (lost / retired)
 2. Etiketin AES anahtarını KEK ile aç (aes_key_ref → plaintext key, bellekte).
 3. SDM session MAC anahtarını türet: CMAC(K_sdmfileread, SV2)
-   SV2 = 3C C3 00 01 00 80 || UID || ctr   (NXP AN12196 §SDM)
+   SV2 = 3C C3 00 01 00 80 || UID(7) || SDMReadCtr(3, LSB-FIRST)
+   ⚠️ SDMReadCtr, URL'deki `ctr`'ın BAYT-TERSİDİR. URL MSB-first, SV2 LSB-first.
+      (AN12196 rev. 1.8 §4.3 Tablo 2 adım 4/7, s. 10 + §4.4.1 s. 11 aynı UID)
 4. Mesajı hesapla: full = AES-CMAC(K_session, sdmMacInput)
    SDMMACInputOffset yoksa (yalnız UID+ctr mirroring) mesaj boştur.
 5. Kısalt: mac = full[1], full[3], full[5], … full[15]   (tek indeksli 8 byte)
