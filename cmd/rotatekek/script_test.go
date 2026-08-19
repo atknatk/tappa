@@ -247,7 +247,11 @@ func runScript(t *testing.T, stubRC string, env []string, args ...string) (int, 
 		"PATH=" + dir + ":" + os.Getenv("PATH"),
 		"HOME=" + os.Getenv("HOME"),
 		"STUB_RC=" + stubRC,
-		"OWNER_DSN=stub",
+		// A URI DSN, because the script now REFUSES a keyword DSN (T49): a bare
+		// `dbname=` form takes its host and user from the environment and from
+		// PGSERVICE, so the whole run could be redirected to another server and
+		// pass every guard there. TestRotateScript_RefusesANonURIDSN drives that.
+		"OWNER_DSN=postgres://stub@127.0.0.1:5432/stub",
 		"TAPPA_TAG_KEK_FILE=" + kek,
 		"TAPPA_TAG_KEK_NEW_FILE=" + kekNew,
 		"TAPPA_ROTATE_ALLOW_UNOPENABLE=1",
@@ -427,15 +431,29 @@ func TestRunbook_PasteableBlocksCarryNoShellHazardInComments(t *testing.T) {
 	// net was not verifying the existence of what it protects. minLines + anchors
 	// below close that; see the mutation evidence in the M8-05 round notes.
 	//
-	// 🔴 WHY TWO SLICES AND NOT THE WHOLE FILE — MEASURED, NOT PREFERRED. On this
-	// tree deploy/README.md carries 45 pasteable bash blocks in total; 13 are in the
-	// rotation slice, 0 in the encode slice, and the remaining 32 live in the deploy/
-	// rollback, backup and incident-response sections. Those 32 contain 21 comment
-	// lines with 26 hazard hits. Scanning the whole file would therefore go RED on 21
+	// 🔴 WHY THREE SLICES AND NOT THE WHOLE FILE — MEASURED, NOT PREFERRED. Re-measure
+	// any of these numbers with:
+	//
+	//	grep -c '^[`][`][`]bash' deploy/README.md          # total pasteable blocks
+	//	go test ./cmd/rotatekek/ -run PasteableBlocks -v   # per-slice, from this test
+	//
+	// On this tree deploy/README.md carries 50 pasteable bash blocks in total; 13 are
+	// in the rotation slice, 0 in the encode slice, 5 in the M8-03 observability
+	// slice, and the remaining 32 live in the deploy/rollback, backup and
+	// incident-response sections. Those 32 hold 43 comment lines, of which 21 carry
+	// 26 hazard hits. Scanning the whole file would therefore go RED on 21
 	// pre-existing lines owned by other cards — a runbook-wide rewrite smuggled into
-	// an M8-05 correction round (CLAUDE.md §10: no unrelated refactor in one commit).
+	// a correction round (CLAUDE.md §10: no unrelated refactor in one commit).
 	// THAT REMAINDER IS COUNTED, NOT CLOSED, and it is written down where a reader
 	// will meet it: deploy/README.md → "Kabul edilmiş sınırlar".
+	//
+	// 🔴 THE THIRD SLICE IS HERE BECAUSE THE CLASS RECURRED WHILE THE NET WATCHED THE
+	// WRONG TWO SECTIONS. M8-03 added five pasteable blocks to "## Gözlemlenebilirlik"
+	// and two of their comments shipped with an unbalanced apostrophe — M8-02'de and
+	// POD'U — each of which opens `quote>` in zsh and swallows the NEXT command. Both
+	// slices this test already read were green through that whole round. A net is only
+	// as wide as the sections somebody remembered to list, so a section that ships
+	// paste-able operator commands joins the list in the same change.
 	sections := []struct {
 		name  string
 		start string
@@ -470,6 +488,24 @@ func TestRunbook_PasteableBlocksCarryNoShellHazardInComments(t *testing.T) {
 			// No floor or anchors here: this slice's block count is PINNED, so
 			// emptying it already fails on `blocks != pasteableBlockCount`. Adding a
 			// second mechanism where the first is exact would be noise.
+		},
+		{
+			// The M8-03 observability slice. want == -1 for the same reason the encode
+			// slice has it: this section is still growing (the pilot gate adds
+			// measurement commands), so pinning today's 5 would fail for being RIGHT.
+			// The floor is set well under today's 366 lines, and the anchors are the
+			// three claims the section exists to publish.
+			name: "M8-03 observability", start: "## Gözlemlenebilirlik", end: "## Kabul edilmiş sınırlar",
+			want: -1, minLines: 250,
+			anchors: []string{
+				// The honesty claim: the rules compute, nothing delivers them (Q28a).
+				"TESLİMAT KANALI YOK, VE BU DÜRÜSTÇE YAZILIYOR",
+				// The precondition without which every rule below matches zero rows.
+				"BU KURALLARIN HEPSİ `TAPPA_LOG_FORMAT=json` VARSAYAR",
+				// The §4.6 trade that keeps a readiness outage visible after the
+				// access record for a designed probe answer was dropped.
+				"SAĞLIK SONDALARI `http.request` KAYDININ DIŞINDADIR",
+			},
 		},
 		{
 			name: "plaque encode", start: "## Plaket encode", end: "## KEK döndürme",
@@ -1027,7 +1063,7 @@ func TestRotateScript_RefusesToRunUnderXtrace(t *testing.T) {
 	}
 	cmd := exec.Command("bash", "-x", scriptPath(t), "--apply")
 	cmd.Env = []string{
-		"PATH=" + os.Getenv("PATH"), "HOME=" + dir, "OWNER_DSN=stub",
+		"PATH=" + os.Getenv("PATH"), "HOME=" + dir, "OWNER_DSN=postgres://stub@127.0.0.1:5432/stub",
 		"TAPPA_TAG_KEK_FILE=" + kek, "TAPPA_TAG_KEK_NEW_FILE=" + kek,
 	}
 	out, err := cmd.CombinedOutput()
@@ -1055,4 +1091,476 @@ const pasteableBlockCount = 13
 type invocation struct {
 	args    []string
 	comment string
+}
+
+// TestRotateScript_ClearsTheLoaderInjectionChannels — backlog T49, half one.
+//
+// 🔴 WHAT WAS WRONG. The script cleared five libpq variables and headed the block
+// "TWO CHANNELS SURVIVE -X" — a COUNT, presented as an enumeration, that had not
+// counted the strongest channel in the list. LD_PRELOAD reaches `go build` and, far
+// worse, reaches the ONE process in the whole procedure that holds BOTH KEKS in its
+// environment ($WORK/rotatekek). A preloaded object there reads the old key and the
+// new key out of a live process — strictly stronger than the PGOPTIONS channel that
+// WAS being closed, and free.
+//
+// DYLD_INSERT_LIBRARIES was dismissed because this machine's OS drops it for
+// protected binaries. That is a property of the MEASURER's platform, not the
+// operator's: on Linux there is no such protection.
+//
+// This test asserts the clearing BY RUNNING: the stub psql dumps its own
+// environment, and neither variable may survive into it.
+func TestRotateScript_ClearsTheLoaderInjectionChannels(t *testing.T) {
+	if testing.Short() {
+		t.Skip("executes the script")
+	}
+	b, err := os.ReadFile(scriptPath(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The claim that was wrong must not come back.
+	if strings.Contains(string(b), "TWO CHANNELS SURVIVE") {
+		t.Error("the script again counts the surviving channels; the count was wrong once " +
+			"(it omitted LD_PRELOAD, the only one that reaches the two-KEK process) and a number " +
+			"doing the work of a guarantee is what backlog T49 was about")
+	}
+
+	dir := t.TempDir()
+	envDump := filepath.Join(dir, "env.txt")
+	const preloadProbe = "/probe/rotate-kek-t49.so"
+	code, out := runScriptWithHome(t, dir, "0", []string{
+		"DUMP_ENV_TO=" + envDump,
+		"LD_PRELOAD=" + preloadProbe,
+		"DYLD_INSERT_LIBRARIES=" + preloadProbe,
+		"DYLD_LIBRARY_PATH=/probe/lib",
+	}, "--apply")
+
+	data, err := os.ReadFile(envDump)
+	if err != nil {
+		t.Fatalf("the stub psql never recorded its environment (exit %d)\n%s", code, out)
+	}
+	// POSITIVE CONTROL: the dump really is this run's environment. Without it, an
+	// empty or stale file would make every absence below meaningless.
+	if !strings.Contains(string(data), "DUMP_ENV_TO="+envDump) {
+		t.Fatalf("the environment dump is not from this run; the absences below prove nothing:\n%s", data)
+	}
+	for _, name := range []string{"LD_PRELOAD=", "DYLD_INSERT_LIBRARIES=", "DYLD_LIBRARY_PATH="} {
+		if strings.Contains(string(data), name) {
+			t.Errorf("%s survived into a child process (exit %d). It reaches `go build` and the "+
+				"rotatekek process, which is the only one holding both KEKs.", name, code)
+		}
+	}
+	if strings.Contains(string(data), preloadProbe) {
+		t.Errorf("the preload path survived under some other name (exit %d)", code)
+	}
+}
+
+// TestRotateScript_ClearsTheGoToolchainInjectionChannels — M8-03 round 4, S4.
+//
+// 🔴 THE LIST ABOVE FAILED ITS OWN CRITERION. It declared LD_PRELOAD "the one that
+// matters most" and gave as the reason that it reaches `go build`. GOFLAGS reaches
+// the same `go build`, the same way, and was not cleared. Measured on this tree:
+//
+//	GOFLAGS=-toolexec=<script> go build -a -o <work>/rotatekek ./cmd/rotatekek
+//	  -> the script ran 303 times, and all 303 invocations saw the rotation's
+//	     environment (TAPPA_TAG_KEK_FILE was readable in every one).
+//
+// It is strictly easier to use than LD_PRELOAD: no compiled object, identical on
+// Linux and Darwin, unaffected by SIP. GOTOOLCHAIN redirects which toolchain binary
+// runs at all, and GOENV names a config file that can set GOFLAGS — so clearing
+// GOFLAGS alone would leave the same channel one level down.
+//
+// THIS TEST IS THE AUDITOR'S PROBE, RUN AGAINST THE REAL SCRIPT: the toolexec
+// recorder must not fire even once, and the same three variables must not survive
+// into a child's environment either.
+func TestRotateScript_ClearsTheGoToolchainInjectionChannels(t *testing.T) {
+	if testing.Short() {
+		t.Skip("executes the script, which builds cmd/rotatekek")
+	}
+
+	dir := t.TempDir()
+	log := filepath.Join(dir, "toolexec.log")
+	recorder := filepath.Join(dir, "toolexec.sh")
+	body := "#!/bin/sh\n" +
+		"echo invoked >> " + log + "\n" +
+		"exec \"$@\"\n"
+	if err := os.WriteFile(recorder, []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// GOCACHEPROG, added in round 5 alongside GOROOT: the go command EXECUTES this
+	// as its build-cache backend, so it is the same channel with a different name.
+	// It gets its own recorder because the two must be told apart in a failure.
+	cacheLog := filepath.Join(dir, "cacheprog.log")
+	cacheProg := filepath.Join(dir, "cacheprog.sh")
+	if err := os.WriteFile(cacheProg,
+		[]byte("#!/bin/sh\necho invoked >> "+cacheLog+"\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// 🔴 POSITIVE CONTROL FOR THAT ONE, because "it never ran" is also what a typo in
+	// the variable name looks like. With GOCACHEPROG honoured, a bare `go build`
+	// executes it — measured here rather than asserted.
+	ctlCmd := exec.Command("go", "build", "-o", filepath.Join(dir, "ctl.bin"), repoRoot(t)+"/cmd/rotatekek")
+	ctlCmd.Env = []string{
+		"PATH=" + os.Getenv("PATH"),
+		"HOME=" + os.Getenv("HOME"),
+		"GOCACHEPROG=" + cacheProg,
+	}
+	ctlOut, _ := ctlCmd.CombinedOutput()
+	if invocationCount(t, cacheLog) == 0 {
+		t.Fatalf("GOCACHEPROG did not run even when it WAS honoured; the probe is dead and the "+
+			"absence asserted below would mean nothing\n%s", ctlOut)
+	}
+	if err := os.Remove(cacheLog); err != nil {
+		t.Fatal(err)
+	}
+
+	envDump := filepath.Join(dir, "env.txt")
+	code, out := runScriptWithHome(t, dir, "0", []string{
+		"DUMP_ENV_TO=" + envDump,
+		"GOFLAGS=-toolexec=" + recorder,
+		"GOTOOLCHAIN=go1.0.0",
+		"GOENV=" + filepath.Join(dir, "hostile-goenv"),
+		"GOCACHEPROG=" + cacheProg,
+	}, "--apply")
+
+	// 🔴 THE SHARP HALF: the recorder must never have run. Its absence is what says
+	// the injection did not reach the toolchain, rather than that it reached it and
+	// was harmless.
+	if b, err := os.ReadFile(log); err == nil && len(b) > 0 {
+		t.Errorf("GOFLAGS=-toolexec survived into `go build`: the recorder ran %d time(s) "+
+			"(exit %d). Every invocation sees the rotation's environment.\n%s",
+			bytes.Count(b, []byte("invoked")), code, out)
+	}
+	if n := invocationCount(t, cacheLog); n != 0 {
+		t.Errorf("GOCACHEPROG survived into `go build`: the go command executed it %d time(s) "+
+			"(exit %d). It sees the rotation's environment and it decides what the build links.\n%s",
+			n, code, out)
+	}
+
+	// POSITIVE CONTROL on the environment dump, for the reason its sibling above
+	// gives: without it an empty or stale file makes every absence meaningless.
+	data, err := os.ReadFile(envDump)
+	if err != nil {
+		t.Fatalf("the stub psql never recorded its environment (exit %d)\n%s", code, out)
+	}
+	if !strings.Contains(string(data), "DUMP_ENV_TO="+envDump) {
+		t.Fatalf("the environment dump is not from this run; the absences below prove nothing:\n%s", data)
+	}
+	for _, name := range []string{"GOFLAGS=", "GOTOOLCHAIN=", "GOENV=", "GOCACHEPROG="} {
+		if strings.Contains(string(data), name) {
+			t.Errorf("%s survived into a child process (exit %d). It reaches `go build`, whose "+
+				"output is the ONE process that holds both KEKs.", name, code)
+		}
+	}
+
+	// GOTOOLCHAIN=go1.0.0 is the second control: had it survived, the `go` command
+	// would have tried to fetch a toolchain that does not exist and the build would
+	// have failed rather than succeeded quietly.
+	if strings.Contains(out, "go1.0.0") {
+		t.Errorf("the run mentions the hostile GOTOOLCHAIN, so it was consulted (exit %d):\n%s", code, out)
+	}
+}
+
+// fakeGoroot builds a GOROOT whose ONLY non-symlink is pkg/tool/<plat>/compile,
+// replaced by a recorder that appends one line per invocation and then execs the
+// real compiler, so the build still succeeds. It returns the tree and the log path.
+//
+// Everything else is a symlink into the real GOROOT, which is what makes this a
+// realistic attack rather than a broken toolchain: `compile -V=full` reports the
+// REAL compiler's version, so the build cache does not even notice.
+func fakeGoroot(t *testing.T, dir string) (root, log string) {
+	t.Helper()
+	realRoot := goEnv(t, "GOROOT")
+	if realRoot == "" {
+		t.Skip("go env GOROOT is empty; nothing to shadow")
+	}
+	plat := goEnv(t, "GOOS") + "_" + goEnv(t, "GOARCH")
+	root = filepath.Join(dir, "goroot")
+	log = filepath.Join(dir, "compile-invocations.log")
+
+	toolDir := filepath.Join(root, "pkg", "tool", plat)
+	if err := os.MkdirAll(toolDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Mirror one directory level, symlinking every entry except the one name that
+	// has to be traversed further.
+	mirror := func(realDir, fakeDir, except string) {
+		entries, err := os.ReadDir(realDir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, e := range entries {
+			if e.Name() == except {
+				continue
+			}
+			if err := os.Symlink(filepath.Join(realDir, e.Name()), filepath.Join(fakeDir, e.Name())); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	mirror(realRoot, root, "pkg")
+	mirror(filepath.Join(realRoot, "pkg"), filepath.Join(root, "pkg"), "tool")
+	mirror(filepath.Join(realRoot, "pkg", "tool"), filepath.Join(root, "pkg", "tool"), plat)
+	mirror(filepath.Join(realRoot, "pkg", "tool", plat), toolDir, "compile")
+
+	body := "#!/bin/sh\n" +
+		"echo invoked >> " + log + "\n" +
+		"exec " + filepath.Join(realRoot, "pkg", "tool", plat, "compile") + " \"$@\"\n"
+	if err := os.WriteFile(filepath.Join(toolDir, "compile"), []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return root, log
+}
+
+// TestRotateScript_AHostileGOROOTNeverReachesTheBuild — M8-03 round 5.
+//
+// 🔴 THE SAME DEFECT AS ROUND 4'S, ONE ROUND LATER. The list above declares its own
+// criterion — "clear every inherited variable that can inject code or arguments into
+// a process this script starts" — and GOROOT was in neither the list nor the
+// knowingly-left block; `grep -c GOROOT scripts/rotate-kek.sh` returned 0.
+//
+// MEASURED against the real script, after its own unset line, with the tree
+// fakeGoroot builds: the attacker's `compile` ran 213 times, all 213 saw
+// TAPPA_TAG_KEK_FILE, and `go build` SUCCEEDED. It is worse than -toolexec in one
+// specific way: -toolexec wraps the toolchain, whereas replacing `compile` puts the
+// attacker's code INTO the produced binary — the one process that holds BOTH KEKs.
+//
+// ⚠️ THE MARGINAL CAPABILITY IS ~ZERO AND THAT IS SAID PLAINLY: `go` is resolved
+// through PATH, PATH is knowingly left, and anyone who can set GOROOT can set PATH.
+// The finding is about the LIST failing its own criterion for a third round running,
+// which is why the fix is not only this variable but the enumeration test below.
+func TestRotateScript_AHostileGOROOTNeverReachesTheBuild(t *testing.T) {
+	if testing.Short() {
+		t.Skip("executes the script, which builds cmd/rotatekek")
+	}
+
+	dir := t.TempDir()
+	root, log := fakeGoroot(t, dir)
+
+	// 🔴 POSITIVE CONTROL FIRST, so a green result cannot mean "the probe is dead".
+	// A throwaway package with a unique constant cannot be in the build cache, so
+	// its compile MUST go through the shadowed tool.
+	ctl := filepath.Join(dir, "ctl")
+	if err := os.MkdirAll(ctl, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	unique := "rotatekek-goroot-probe-" + filepath.Base(dir)
+	if err := os.WriteFile(filepath.Join(ctl, "go.mod"), []byte("module rotatekekprobe\n\ngo 1.26\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ctl, "main.go"),
+		[]byte("package main\n\nconst unique = \""+unique+"\"\n\nfunc main() { println(unique) }\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ctlCmd := exec.Command("go", "build", "-o", filepath.Join(dir, "ctl.bin"), ".")
+	ctlCmd.Dir = ctl
+	ctlCmd.Env = []string{
+		"PATH=" + os.Getenv("PATH"),
+		"HOME=" + os.Getenv("HOME"),
+		"GOROOT=" + root,
+		"GOCACHE=" + goEnv(t, "GOCACHE"),
+		"GOMODCACHE=" + goEnv(t, "GOMODCACHE"),
+		"GOPATH=" + goEnv(t, "GOPATH"),
+		"GOFLAGS=-mod=mod",
+	}
+	if ctlOut, err := ctlCmd.CombinedOutput(); err != nil {
+		t.Fatalf("the positive control could not build at all, so this test proves nothing: %v\n%s", err, ctlOut)
+	}
+	before := invocationCount(t, log)
+	if before == 0 {
+		t.Fatalf("the shadowed compiler did not run even when GOROOT WAS honoured; the probe is "+
+			"dead and the absence asserted below would mean nothing (control package %s)", unique)
+	}
+	if err := os.Remove(log); err != nil {
+		t.Fatal(err)
+	}
+
+	// AND NOW THE SCRIPT, with the same hostile GOROOT.
+	envDump := filepath.Join(dir, "env.txt")
+	code, out := runScriptWithHome(t, dir, "0", []string{
+		"DUMP_ENV_TO=" + envDump,
+		"GOROOT=" + root,
+	}, "--apply")
+
+	if after := invocationCount(t, log); after != 0 {
+		t.Errorf("a hostile GOROOT survived into `go build`: the attacker's compiler ran %d time(s) "+
+			"(control: %d, exit %d). Replacing `compile` puts attacker code INTO $WORK/rotatekek, "+
+			"the one process that holds both KEKs.\n%s", after, before, code, out)
+	}
+
+	data, err := os.ReadFile(envDump)
+	if err != nil {
+		t.Fatalf("the stub psql never recorded its environment (exit %d)\n%s", code, out)
+	}
+	if !strings.Contains(string(data), "DUMP_ENV_TO="+envDump) {
+		t.Fatalf("the environment dump is not from this run; the absence below proves nothing:\n%s", data)
+	}
+	if strings.Contains(string(data), "GOROOT=") {
+		t.Errorf("GOROOT survived into a child process (exit %d)", code)
+	}
+}
+
+// invocationCount reports how many lines the recorder wrote, treating "no file" as
+// zero — the recorder only creates it when it actually runs.
+func invocationCount(t *testing.T, log string) int {
+	t.Helper()
+	b, err := os.ReadFile(log)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return 0
+		}
+		t.Fatal(err)
+	}
+	return bytes.Count(b, []byte("invoked"))
+}
+
+// TestRotateScript_AccountsForEveryGoToolchainVariable — M8-03 round 5, the part
+// that is meant to end the series rather than add one more name to it.
+//
+// 🔴 THREE ROUNDS IN A ROW THE UNSET LIST WAS SHORT, AND EACH TIME IT WAS FOUND BY
+// A HUMAN RUNNING ONE GREP: round 3/4 found GOFLAGS (`grep -c GOFLAGS` -> 0), round
+// 5 found GOROOT and, once someone looked at the toolchain's own list rather than at
+// their memory, GOCACHEPROG as well. The defect is not any single variable; it is
+// that the criterion was a SENTENCE and nothing executed it.
+//
+// So this executes it. The names come from `go env` — the installed toolchain's own
+// enumeration — and every one of them must be MENTIONED in scripts/rotate-kek.sh,
+// either in the unset list or in the block that says why it is knowingly left. A new
+// Go release that invents a variable turns this red until somebody decides which it
+// is, which is exactly the review that did not happen three times.
+//
+// ⚠️ WHAT IT DOES NOT CLAIM. "Mentioned" is not "cleared", and `go env` is not the
+// set of all variables the toolchain reads (nothing here would catch a psql or bash
+// variable). It converts SILENCE into a failure; the behavioural probes above are
+// what show a specific channel is shut.
+func TestRotateScript_AccountsForEveryGoToolchainVariable(t *testing.T) {
+	t.Parallel()
+
+	out, err := exec.Command("go", "env").Output()
+	if err != nil {
+		t.Skipf("go env unavailable: %v", err)
+	}
+	b, err := os.ReadFile(scriptPath(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(b)
+
+	// A name counts as mentioned only on a whole-word match: without the boundary,
+	// GOTELEMETRY would be "found" inside GOTELEMETRYDIR and a genuine gap would
+	// read as covered.
+	mentions := func(name string) bool {
+		for i := 0; ; {
+			j := strings.Index(text[i:], name)
+			if j < 0 {
+				return false
+			}
+			j += i
+			startOK := j == 0 || !isNameByte(text[j-1])
+			end := j + len(name)
+			endOK := end == len(text) || !isNameByte(text[end])
+			if startOK && endOK {
+				return true
+			}
+			i = j + 1
+		}
+	}
+
+	// CONTROL: the matcher must be able to say no, or every "yes" below is noise.
+	if mentions("GOTOTALLYFICTIONALVARIABLE") {
+		t.Fatal("the matcher reports a name that cannot be in the file; it is measuring nothing")
+	}
+
+	var names, missing []string
+	for _, line := range strings.Split(string(out), "\n") {
+		k, _, ok := strings.Cut(strings.TrimSpace(line), "=")
+		if !ok || k == "" {
+			continue
+		}
+		names = append(names, k)
+		if !mentions(k) {
+			missing = append(missing, k)
+		}
+	}
+	if len(names) < 20 {
+		t.Fatalf("`go env` yielded only %d names; the enumeration has gone blind", len(names))
+	}
+	if len(missing) > 0 {
+		t.Errorf("scripts/rotate-kek.sh does not mention %d of the %d variables `go env` reports: %s\n"+
+			"Each must be either in the unset list or in the block that records why it is knowingly "+
+			"left. This is the check that a human ran by hand in rounds 3, 4 and 5, and it found a "+
+			"hole every time.", len(missing), len(names), strings.Join(missing, " "))
+	}
+}
+
+// isNameByte reports whether c can appear inside an environment variable name.
+func isNameByte(c byte) bool {
+	return c == '_' || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')
+}
+
+// TestRotateScript_RefusesANonURIDSN — backlog T49, half two.
+//
+// 🔴 WHY A KEYWORD DSN IS NOT A STYLE QUESTION. `dbname=tappa` omits host, port and
+// user, so libpq takes them from PGHOST/PGPORT/PGUSER — and from PGSERVICE, whose
+// redirection the script's own comment measures as effective against EXACTLY this
+// shape and ineffective against a URI. So an inherited environment could send the
+// entire run to a different server; the bypass probe, the park-size guard and both
+// post-conditions would all pass THERE, the script would report success, and the
+// real park would never have been touched.
+//
+// The refusal must happen BEFORE anything is read, so the failure is "nothing
+// happened" rather than "something happened somewhere else".
+func TestRotateScript_RefusesANonURIDSN(t *testing.T) {
+	if testing.Short() {
+		t.Skip("executes the script")
+	}
+	dir := t.TempDir()
+	good := filepath.Join(dir, "kek.b64")
+	if err := os.WriteFile(good,
+		[]byte(base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{0x33}, 32))), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// ⚠️ THE EMPTY STRING IS NOT IN THIS LIST, and leaving it out is measured
+	// rather than lazy: `: "${OWNER_DSN:?...}"` refuses an unset/empty DSN sixty
+	// lines EARLIER, so an empty case never reaches the URI guard and would fail
+	// this test for the wrong reason. TestRotateScript_RefusesDegenerateInputs
+	// covers it where it is actually enforced.
+	for _, dsn := range []string{"dbname=tappa", "stub", "host=/tmp dbname=tappa"} {
+		t.Run("dsn="+dsn, func(t *testing.T) {
+			cmd := exec.Command("bash", scriptPath(t), "--apply")
+			cmd.Env = []string{
+				"PATH=" + os.Getenv("PATH"), "HOME=" + dir,
+				"OWNER_DSN=" + dsn,
+				"TAPPA_TAG_KEK_FILE=" + good,
+				"TAPPA_TAG_KEK_NEW_FILE=" + good,
+			}
+			out, err := cmd.CombinedOutput()
+			if err == nil {
+				t.Fatalf("a non-URI DSN was accepted; the run could be redirected by the environment\n%s", out)
+			}
+			// 🔴 THE ASSERTION IS ON THE URI REFUSAL SPECIFICALLY, NOT ON "it failed".
+			// Measured: with the guard mutated away, all four cases STILL exited
+			// non-zero — the connection probe fails when no stub psql is on PATH —
+			// and its die message happens to contain the string "OWNER_DSN". So both
+			// of the obvious assertions ("non-zero exit", "mentions OWNER_DSN")
+			// passed on a script with NO guard at all. This one does not.
+			if !strings.Contains(string(out), "must be a URI") {
+				t.Errorf("the run failed, but NOT at the URI guard — so nothing here shows the "+
+					"guard exists. Output:\n%s", out)
+			}
+			// And it must refuse BEFORE reaching the database, or the failure is
+			// "something happened somewhere else" rather than "nothing happened".
+			if strings.Contains(string(out), "read ") || strings.Contains(string(out), "rows") {
+				t.Errorf("the script got as far as reading the park before refusing:\n%s", out)
+			}
+		})
+	}
+
+	// AND THE POSITIVE CONTROL: a URI DSN is not refused for this reason. Without
+	// it, a guard that rejected everything would pass the loop above.
+	code, out := runScriptWithHome(t, t.TempDir(), "0", nil, "--apply")
+	if strings.Contains(out, "must be a URI") {
+		t.Errorf("a URI DSN was refused by the URI guard (exit %d)\n%s", code, out)
+	}
 }

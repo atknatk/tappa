@@ -556,12 +556,23 @@ func writeSQL(out io.Writer, rows []row, t tally) error {
 		" · already done " + strconv.Itoa(t.already) +
 		" · opens under neither KEK " + strconv.Itoa(t.unopenable) + "\n")
 	b.WriteString("BEGIN;\n")
-	// 🔴 A MECHANICAL CEILING ON HOW LONG A LIVE TAP CAN BE HELD BEHIND THIS
-	// ROTATION. The UPDATE takes row locks on tags and the product's own replay
-	// guard (AdvanceTagCounter) takes FOR UPDATE on the same rows, so a tap queues
-	// behind it. Measured worst-case waits ranged from 0.76 s to 13.19 s across
-	// rounds — the wait was a property of machine load, with NO bound at any layer
-	// (neither lock_timeout nor statement_timeout was set anywhere).
+	// 🔴 A MECHANICAL CEILING ON HOW LONG *THIS ROTATION* WILL WAIT FOR ITS OWN
+	// LOCKS — NOT ON HOW LONG A TAP IS HELD BEHIND IT.
+	//
+	// ⚠️ THE HEADING ABOVE USED TO CLAIM THE SECOND THING AND IT WAS FALSE
+	// (backlog T47, closed 2026-08-19). lock_timeout bounds only the waiting of the
+	// session that SETS it. This rotation holds row locks on `tags`; the product's
+	// own replay guard (AdvanceTagCounter) takes FOR UPDATE on the same rows, so a
+	// tap queues behind us and lock_timeout does nothing for that tap. Measured, in
+	// the round that produced this correction: with the rotation holding, a live tap
+	// waited 10.07 s, while the positive control — rotation as the WAITING side —
+	// was cancelled at 5.05 s, i.e. by this very setting. Earlier rounds measured
+	// tap waits of 0.76 s to 13.19 s; the wait is a property of machine load.
+	//
+	// SO THE HONEST STATEMENT IS: there is NO ceiling on how long a tap can be held
+	// (statement_timeout is 0 on the server and is set at no layer), and this line
+	// buys something narrower and still worth having — the rotation FAILS FAST
+	// rather than queueing indefinitely for locks it cannot get.
 	//
 	// TWO READINGS: (a) no timeout — the rotation always finishes, but a tap can be
 	// held for an unbounded time and the person at the plaque cannot know; (b) a

@@ -123,12 +123,19 @@ func run(out *os.File) error {
 		// quoting here.
 		//
 		// R7 LESSON, MEASURED, and the same one nfcURL states for itself: the
-		// Fprintf below does NOT trip redline R7 ("secret logged"), whose pattern is
-		// `(slog|log|fmt)\.[A-Za-z]+\([^)]*(token|cmac|aes_?key|…)`, only because
-		// `aes_key_ref` sits on the NEXT source line and rg matches line by line
-		// (`rg -U` does flag it). The verdict is right — this writes SQL and logs
-		// nothing — but it is right by accident of formatting. Do not join these
-		// two lines to "tidy" them.
+		// Fprintf below used to escape redline R7 ("secret logged") only because
+		// `aes_key_ref` sits on the NEXT source line and the rule matched line by
+		// line — the verdict was right (this writes SQL and logs nothing) but it was
+		// right by accident of formatting.
+		//
+		// 🔴 THAT ACCIDENT IS GONE (M8-03 round 4): R7 now scans with `rg -U` and a
+		// balanced-paren window, so this region IS matched, and it is exempted BY
+		// NAME instead — scripts/redline-check.sh's R7_WAIVERS lists this path with
+		// the single benign token `aes_key_ref`, and the exemption is printed as a
+		// WARN on every run. Two consequences worth knowing before editing this
+		// block: joining the lines changes nothing any more, and adding a REAL
+		// never-log value here (a token, a cmac, a raw key) still fails the scan,
+		// because the waiver only forgives the named token and re-tests what is left.
 		fmt.Fprintf(&b,
 			"UPDATE tags SET aes_key_ref = '\\x%s'::bytea WHERE uid = '%s' AND tenant_id = '%s'::uuid;\n",
 			hex.EncodeToString(ref), tag.UID, tag.TenantID)

@@ -144,21 +144,164 @@ DRY_RUN=$(( APPLY == 1 ? 0 : 1 ))
 # both keys into the environment of every child — `go build` and its toolchain, and
 # all four psql invocations — which is how a `\!` line in a stray ~/.psqlrc could
 # have read them (measured: a psqlrc `\!` runs even on a plain `psql -c`).
-# 🔴 THE libpq ENVIRONMENT IS PART OF THE INPUT, AND TWO CHANNELS SURVIVE -X.
+# 🔴 THE INHERITED ENVIRONMENT IS PART OF THE INPUT, AND -X CLOSES ONLY THE psqlrc
+# HALF OF IT.
 #
-#   PGOPTIONS  reaches the SERVER session and -X does not stop it. Measured:
-#              PGOPTIONS="-c app.tenant_id=…" set the GUC, the generated SQL's
-#              FIRST guard fired, psql returned 3 and this script returned 1 —
-#              fail-closed, nothing written. It is cleared anyway: defence in
-#              depth costs one line, and relying on a guard to catch what an
-#              input could simply not carry is the shape this task keeps fixing.
-#   PGSERVICE  can redirect a connection, but only for a bare `dbname=` DSN;
-#              measured ineffective against the URI form the runbook uses. The
-#              runbook's shape protected it; this script did not. Now both do.
+# ⚠️ THIS BLOCK'S HEADING USED TO STATE A COUNT OF THE SURVIVING CHANNELS -- it said
+# there were two -- AND THAT COUNT WAS WRONG (backlog T49, closed 2026-08-19). It
+# counted the two libpq variables it had thought of and presented that as an
+# enumeration. The channel it had NOT counted
+# was the strongest one in the list, so a wrong number was doing the work of a
+# guarantee. No number is written here now: the list below is what is cleared and
+# why, and it does not claim to be complete.
+#
+#   LD_PRELOAD              🔴 THE ONE THAT MATTERS MOST, AND IT WAS MISSING. It
+#                           reaches `go build` AND -- the part that makes it worse
+#                           than every libpq variable -- the ONE process in this
+#                           script that holds BOTH KEKS in its environment
+#                           ($WORK/rotatekek). A preloaded object there reads the
+#                           old key and the new key out of a live process. Strictly
+#                           stronger than the PGOPTIONS channel that WAS closed.
+#   DYLD_INSERT_LIBRARIES   the Darwin twin. On THIS machine the OS already drops
+#                           it for protected binaries -- which is exactly why it
+#                           has to be cleared here rather than relied on: on Linux
+#                           there is no such protection, and this script's target
+#                           platform is the operator's, not the measurer's.
+#   DYLD_LIBRARY_PATH       same family, same reason.
+#   PGOPTIONS               reaches the SERVER session and -X does not stop it.
+#                           Measured: PGOPTIONS="-c app.tenant_id=..." set the GUC,
+#                           the generated SQL's FIRST guard fired, psql returned 3
+#                           and this script returned 1 -- fail-closed, nothing
+#                           written. Cleared anyway: relying on a guard to catch
+#                           what an input could simply not carry is the shape this
+#                           task keeps fixing.
+#   PGSERVICE               can redirect a connection, but only for a bare
+#                           `dbname=` DSN; measured ineffective against the URI
+#                           form the runbook uses -- and the DSN check below is
+#                           what makes that shape a REQUIREMENT rather than a habit.
 #
 # PGSYSCONFDIR / PSQLRC / ~/.psqlrc are already closed by -X (measured: rc=3 on
-# all three).
-unset PGOPTIONS PGSERVICE PGSERVICEFILE PSQLRC PGSYSCONFDIR 2>/dev/null || true
+# all three); they are cleared as well because it costs one word.
+#
+# 🔴 THE GO TOOLCHAIN FAMILY, ADDED IN M8-03 ROUND 4 AFTER THE LIST WAS MEASURED
+# AGAINST ITS OWN CRITERION AND FAILED IT. The block above declares LD_PRELOAD "the
+# one that matters most" and gives as the reason that it reaches `go build`.
+# GOFLAGS reaches the same `go build`, the same way, and was not in the list:
+#
+#   GOFLAGS=-toolexec=<script>   inherited from the environment, ran the operator's
+#                                (or the attacker's) script 303 times during
+#                                `go build -o "$WORK/rotatekek"` — measured — and
+#                                EVERY invocation saw the rotation's environment,
+#                                TAPPA_TAG_KEK_FILE included.
+#
+# It is strictly easier than LD_PRELOAD: no compiled object, no platform quirk,
+# identical on Linux and Darwin, and untouched by SIP. GOTOOLCHAIN can point the
+# `go` command at a DIFFERENT toolchain to download and run; GOENV names a config
+# file that can set GOFLAGS, so clearing GOFLAGS without it leaves the same channel
+# one level down; CC/CXX and the CGO_* flags are handed to a compiler; BASH_ENV and
+# ENV are read by the shells `go` and this script start.
+#
+# 🔴 THE CRITERION, WRITTEN DOWN BECAUSE THE LAST LIST DID NOT HAVE ONE: clear every
+# inherited variable that can INJECT CODE OR ARGUMENTS into a process this script
+# starts — `go build` and its toolchain, the four psql invocations, and
+# $WORK/rotatekek, the one process that holds BOTH KEKS.
+#
+# 🔴 AND IN ROUND 5 THE LIST FAILED THAT CRITERION AGAIN — TWICE, WHICH IS WHY THE
+# CRITERION IS NOW MECHANISED INSTEAD OF RE-READ. `grep -c GOROOT` on this file
+# returned 0: neither cleared nor knowingly left, exactly the shape GOFLAGS had one
+# round earlier. Both new holes were MEASURED against the real script, after this
+# very unset line:
+#
+#   GOROOT=<tree>   a GOROOT whose only non-symlink is pkg/tool/<plat>/compile makes
+#                   the go command run the ATTACKER'S compiler: 213 invocations
+#                   during `go build -o "$WORK/rotatekek"`, all 213 with
+#                   TAPPA_TAG_KEK_FILE readable in their environment, and the build
+#                   still SUCCEEDED (the wrapper execs the real compiler). Worse
+#                   than -toolexec: replacing the compiler puts attacker code INTO
+#                   the produced binary, i.e. into the one process that holds both
+#                   KEKs at once.
+#   GOCACHEPROG=<program>   the go command EXECUTES it as the build-cache backend.
+#                   Measured: fired, with TAPPA_TAG_KEK_FILE visible. (The probe's
+#                   stub then failed the build, but only because it does not speak
+#                   the protocol — a working one lets the build succeed.)
+#
+# Measured and found INERT, and named here so the next reader does not have to
+# re-measure: GOTOOLDIR (`go env` prints it, `go build` does not read it — GOROOT is
+# the real handle), AR / GCCGO / PKG_CONFIG (never executed for this import graph,
+# which has no cgo and no gccgo). The three are cleared anyway, with CGO_FFLAGS,
+# because they name programs or flags handed to a compiler and "the import graph
+# has no cgo today" is a fact about today. GODEBUG / GOEXPERIMENT / GOFIPS140 are
+# cleared for the same one-word reason: they are inherited by $WORK/rotatekek and
+# they change what its runtime and its crypto do.
+#
+# THE MECHANISATION (cmd/rotatekek/script_test.go):
+#   TestRotateScript_AccountsForEveryGoToolchainVariable takes the name list from
+#   `go env` — the TOOLCHAIN'S own enumeration, not this author's memory — and fails
+#   if any name is absent from this file. That is precisely the check that caught
+#   GOFLAGS in round 4 and GOROOT in round 5, run automatically instead of by hand.
+#   TestRotateScript_ClearsTheGoToolchainInjectionChannels drives the -toolexec
+#   recorder and TestRotateScript_AHostileGOROOTNeverReachesTheBuild drives the
+#   shadowed compiler — BEHAVIOURAL probes, the second with a positive control that
+#   builds a throwaway package through the same hostile tree first, so a green
+#   result cannot mean "the probe is dead".
+#
+# ⚠️ AND, AGAIN, NO COMPLETENESS CLAIM. A generated list is still only as wide as
+# `go env`, and nothing here covers a variable psql or bash reads that nobody has
+# thought of. What is knowingly LEFT, each with its reason:
+#   PATH        a hostile PATH gives a hostile `psql` and a hostile `go`, and no
+#               unset list fixes that. Limit 1 in deploy/README.md.
+#   HOME        ~/.pgpass is where the runbook REQUIRES the password to live, so
+#               this variable is load-bearing rather than incidental.
+#   TMPDIR      mktemp -d honours it; the workspace is created 0700 and shredded.
+#   GOPROXY / GOMODCACHE / GOPATH / GOAUTH / GOPRIVATE / GONOPROXY / GONOSUMDB /
+#   GOSUMDB / GOINSECURE / GOVCS   a hostile module source is still pinned by
+#               go.sum, so substituting one fails the build rather than silently
+#               compiling into the two-KEK process. NOT probed here; recorded as
+#               reasoned-but-unmeasured rather than as closed.
+#   GOCACHE     🔴 THE HONEST ONE. go.sum pins module CONTENT; it does not pin the
+#               build cache's compiled OBJECTS, so a poisoned cache is a real and
+#               UNMEASURED hole of the same class. It is left anyway because
+#               clearing it sends the cache under $HOME, which the test harness
+#               overrides — the cost is known and the risk is not, so it is written
+#               down rather than traded blind.
+#   GOBIN / GOTMPDIR   `go build -o <path>` chooses its own output path and ignores
+#               GOBIN; GOTMPDIR only moves scratch files, like TMPDIR above.
+#   GO111MODULE / GOWORK / GOMOD   they choose WHICH build runs, not what runs
+#               inside it; a wrong one fails the build rather than redirecting it.
+#   GOOS / GOARCH / GOEXE / GOHOSTOS / GOHOSTARCH / GOVERSION / GOGCCFLAGS /
+#   GOTELEMETRY / GOTELEMETRYDIR / GOAMD64 / GOARM / GOARM64 / GO386 / GOPPC64 /
+#   GORISCV64 / GOMIPS / GOMIPS64 / GOWASM / GOLOONG64 / GOS390X   informational,
+#               derived, or target selection: the worst case is a binary that does
+#               not run on this machine, which fails CLOSED at the `-x` check below.
+unset LD_PRELOAD LD_AUDIT LD_LIBRARY_PATH \
+      DYLD_INSERT_LIBRARIES DYLD_LIBRARY_PATH DYLD_FRAMEWORK_PATH DYLD_FALLBACK_LIBRARY_PATH \
+      GOFLAGS GOTOOLCHAIN GOENV GOROOT GOCACHEPROG GOTOOLDIR \
+      GODEBUG GOEXPERIMENT GOFIPS140 \
+      CC CXX AR GCCGO PKG_CONFIG \
+      CGO_ENABLED CGO_CFLAGS CGO_CPPFLAGS CGO_CXXFLAGS CGO_LDFLAGS CGO_FFLAGS \
+      BASH_ENV ENV \
+      PGOPTIONS PGSERVICE PGSERVICEFILE PSQLRC PGSYSCONFDIR 2>/dev/null || true
+
+# 🔴 THE DSN MUST BE A URI, AND THIS IS A GUARD RATHER THAN A STYLE RULE
+# (backlog T49). The runbook's DSN is postgres://...; nothing checked that.
+#
+# WHAT A BARE `dbname=tappa` DSN DOES: every connection parameter it omits falls
+# back to PGHOST / PGPORT / PGUSER / PGDATABASE from the environment -- and to
+# PGSERVICE, whose redirection is measured above as effective ONLY against this
+# shape. So an inherited environment could point the whole run at a DIFFERENT
+# SERVER. Every guard downstream would then pass THERE: the bypass probe, the
+# park-size check, the two post-conditions. The run would report success and the
+# real park would never have been touched.
+#
+# The check is deliberately crude -- a prefix, not a parser. A DSN this script
+# cannot vouch for is refused rather than interpreted.
+case "$OWNER_DSN" in
+  postgres://*|postgresql://*) ;;
+  *) die "OWNER_DSN must be a URI (postgres:// or postgresql://). A keyword DSN such as
+  'dbname=tappa' takes its host, port and user from the ENVIRONMENT -- and from PGSERVICE, which
+  redirects exactly that shape. The whole rotation could then run against a different server, pass
+  every guard there, and report success while the real park was never touched. Nothing was read." ;;
+esac
 
 KEK_OLD_VALUE="$(cat "$TAPPA_TAG_KEK_FILE")"
 KEK_NEW_VALUE="$(cat "$TAPPA_TAG_KEK_NEW_FILE")"
