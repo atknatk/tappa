@@ -183,7 +183,7 @@ func newTagFixture(t *testing.T, d *db.DB, startCtr int32) (tenantID uuid.UUID, 
 		}
 		_, e := tx.Exec(ctx,
 			`INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, last_ctr, status)
-			 VALUES ($1, $2, $3, '\xDEAD', $4, 'active')`,
+			 VALUES ($1, $2, $3, decode(repeat('dead', 22), 'hex'), $4, 'active')`,
 			uid, tenantID, locationID, startCtr)
 		return e
 	})

@@ -2943,6 +2943,30 @@ tablosu çıkmış durumda (satış slaytı da olur).
 - **Kırmızı çizgi:** §4 (tamamı)
 - **Commit:** `chore(security): address pre-pilot audit findings`
 
+> **Kart düzeltmesi (2026-08-19, M8-04 FAZ B1 uygulaması sırasında).** Kart tek
+> parça yazılmıştı; **FAZ A** (denetim) bulguları iki farklı denetim merceği
+> istiyor — veri katmanı (migration · RLS · GRANT · indeks) ile uygulama katmanı
+> (handler · ekran) — bu yüzden düzeltme fazı **B1 (veri katmanı)** ve **B2
+> (uygulama katmanı)** olarak bölündü (agent-brief'in mercek ölçütü).
+>
+> **FAZ B1'in kapsadığı beş bulgu ve sevk edilen mekanizma — hepsi `00021`:**
+> **F2 (YÜKSEK)** altı append-only tabloda `BEFORE TRUNCATE ... FOR EACH
+> STATEMENT`; ölçüldü ki bir CASCADE zincirinde **çocuğun** tetikleyicisi de
+> ateşliyor, yani `TRUNCATE tenants CASCADE` artık adını hiç anmadığı
+> `transactions` tarafından reddediliyor · **T7** `tags_aes_key_ref_is_kek_envelope`
+> (`octet_length = 44`, ADR 0003 md. 4) — 61 033 satır ihlal ettiği için
+> **`NOT VALID`**, ve fikstürlerle `seed.sql` yer değiştiren yer tutucuya
+> geçirildi · **T15** `tags_uid_canonical_hex` **VALIDATE** edildi (küçük harfli
+> satır: **0**, ölçüldü) · **T17** `audit_log (tenant_id, target)` — Bitmap Heap
+> Scan → Index Scan, 1 216 → 6 buffer · **T22** `make db-reset` artık
+> `goose reset` değil: `scripts/db-reset.sh` konteyneri ve volume'u silip
+> `db-init`'i yeniden koşturuyor (gerekçe ve elenen iki alternatif o dosyanın
+> başlığında; `00013`'ün `Down`'ı §6 gereği **değiştirilmedi**).
+>
+> ⚠️ **T7'nin panel yarısı FAZ B1'e ait DEĞİL** ve açık kalıyor: `plaques.go`
+> hâlâ *"Encoded by Tappa"* etiketini `location_id`'ye bakarak basıyor, anahtara
+> değil. Şema artık şekli zorluyor, **ekranın cümlesi** B2'nin işi.
+
 **Kabul kriterleri.**
 - agent `tappa-security-auditor` tam repo üzerinde koştu; R1–R8 için kanıtlı rapor.
 - `make audit` temiz: `govulncheck` + `scripts/redline-check.sh`.

@@ -93,7 +93,7 @@ func seedPanelTenant(t *testing.T, p *panelHarness, tenantID uuid.UUID, label st
 		}
 		if _, e := tx.Exec(ctx,
 			`INSERT INTO tags (uid, tenant_id, location_id, status, last_ctr, aes_key_ref)
-			 VALUES ($1, $2, $3, 'active', 0, 'test-key-ref')`,
+			 VALUES ($1, $2, $3, 'active', 0, decode(repeat('dead', 22), 'hex'))`,
 			f.tagUID, tenantID, f.locationID); e != nil {
 			return fmt.Errorf("tag: %w", e)
 		}

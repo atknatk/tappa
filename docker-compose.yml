@@ -1,3 +1,12 @@
+# Proje adi DOSYADA DECLARE EDILIR, dizin adindan TURETILMEZ. Sebep:
+# scripts/db-reset.sh `-p tappa` ile hedefini sabitliyor (o dosyanin basligindaki
+# olcum), ve bu ad dizin adina baglı kalsaydi checkout dizinini yeniden
+# adlandirmak db-reset'i baska bir projeye — yani `make up`'in kurdugundan BASKA
+# bir volume'e — dogrultacakti. Olculdu: bu makinede dizin zaten `tappa`, bu
+# yuzden satir mevcut projeyi/volume'u DEGISTIRMEZ (`docker compose ls` -> tappa).
+# Onceligi hatirlat: -p bayragi > COMPOSE_PROJECT_NAME > bu satir > dizin adi.
+name: tappa
+
 services:
   db:
     image: postgres:17-alpine

@@ -146,17 +146,55 @@ func run(out *os.File) error {
 	// to tap it gets a 500 — days later, far from the change. This makes that
 	// mistake fail here instead, loudly, at seed time.
 	//
+	// 🔴 IT ASKS ABOUT BYTES, NOT LENGTH — AND THAT IS A CORRECTION, MEASURED.
+	// Migration 00021's tags_aes_key_ref_is_kek_envelope demands
+	// octet_length(aes_key_ref) = 44 of every row, so seed.sql's placeholder label
+	// was padded to 30 characters (30 + a 14-hex uid = 44). A length-only guard
+	// therefore stopped seeing the ONE mistake it was written for. Probed on the
+	// development database, a plaque added to the KF tenant with its placeholder
+	// intact, running the emitted DO block verbatim:
+	//
+	//	04AC7E55009901 | placeholder_len = 44
+	//	NOTICE: seedkeys guard PASSED -- forgotten plaque NOT detected
+	//
+	// Nothing else covered it either: internal/handler/seedflow_db_test.go's key
+	// loop walks fixtures.SeedTags, and a plaque that was forgotten in SeedTags is
+	// by definition not in that list, so it is never visited. seed.sql's plaque
+	// list is a hand-written VALUES block and is not derived from SeedTags, so the
+	// drift is real rather than theoretical.
+	//
+	// THE THREE PREDICATES, and why it is three and not one:
+	//   * octet_length <> 44 — the original. Still the only thing that catches a
+	//     plaque loaded by some path the CHECK does not police.
+	//   * the placeholder's BYTES — seed.sql's exact label, single-sourced as
+	//     fixtures.SeedPlaceholderKeyLabel. This is what closes the measured hole,
+	//     and it names the mistake precisely in the message.
+	//   * "is the value ASCII TEXT at all" — encode(...,'escape') expands any
+	//     non-printable byte to a backslash escape, so length(encode(v,'escape'))
+	//     equals octet_length(v) only when every byte is printable. This is the
+	//     net under the previous predicate: seed.sql cannot import a Go constant,
+	//     so if somebody reworded the label there and not here, the label match
+	//     would go quiet and this would not. MEASURED on the real column: the
+	//     44-byte placeholder -> true; 44 bytes from gen_random_bytes -> false;
+	//     and across the 26 tag rows the two demo tenants currently hold, 0 match
+	//     it (i.e. no genuine envelope is a false positive). A real envelope is
+	//     ciphertext, so the odds of one being 44 printable bytes are about
+	//     (94/256)^44, which is 1e-19.
+	//
 	// IT IS SCOPED TO THE TWO DEMO TENANTS, and the reason is a LENGTH, not a key.
 	// An earlier version of this comment said an unscoped guard would trip over
 	// test-created plaques "already wrapped under a different KEK"; MEASURED, that
 	// names the half of the population that does NOT matter. Rows wrapped under a
 	// test KEK really are 44 bytes and sail straight through a length check. What
-	// would trip it is the two-byte marker `'\xDEAD'` the DB fixtures insert
+	// used to trip it was the two-byte marker `'\xDEAD'` the DB fixtures inserted
 	// wholesale (internal/db/rls_test.go, internal/db/store_test.go,
 	// internal/sun/advance_test.go). Measured on a freshly reset dev database, one
 	// `make test` later: 68 tag rows at 2 bytes and 184 at 44 (12 of them seeded).
 	// So an unscoped guard would refuse to seed any database a developer has run
-	// the suite against even once. The verdict was right; the reason was not.
+	// the suite against even once. Those fixtures now write 44 bytes of nonsense
+	// (00021 refuses anything else), so the residue stops growing — but 45 728
+	// two-byte rows written before that change still exist on this machine, which
+	// is why the scope stays where it is.
 	//
 	// 🔴 THE SCOPE IS THE FIXED TENANT PAIR, NOT "whatever tenants SeedTags
 	// mentions", and the difference was MEASURED rather than reasoned about. The
@@ -170,18 +208,38 @@ func run(out *os.File) error {
 		"'" + fixtures.TenantKF.String() + "'::uuid",
 		"'" + fixtures.TenantKM.String() + "'::uuid",
 	}
+	// The placeholder comparison is built ONCE and used TWICE below (as a
+	// predicate and as the diagnosis), so the row that trips the guard and the
+	// sentence explaining why cannot disagree. The label is a compile-time
+	// constant of this repository, never caller input, so the interpolation
+	// boundary written above still holds.
+	placeholderBytes := fmt.Sprintf(
+		"substring(aes_key_ref from 1 for %d) = convert_to('%s', 'UTF8')",
+		len(fixtures.SeedPlaceholderKeyLabel), fixtures.SeedPlaceholderKeyLabel)
+
 	fmt.Fprintf(&b, `DO $$
 DECLARE stragglers text;
 BEGIN
-    SELECT string_agg(uid, ', ' ORDER BY uid) INTO stragglers
-      FROM tags
-     WHERE tenant_id IN (%s)
-       AND octet_length(aes_key_ref) <> 44;
+    SELECT string_agg(uid || ' [' || reason || ']', ', ' ORDER BY uid) INTO stragglers
+      FROM (
+        SELECT uid,
+               CASE WHEN octet_length(aes_key_ref) <> 44
+                         THEN 'wrong length: ' || octet_length(aes_key_ref) || ', want 44'
+                    WHEN %[1]s
+                         THEN 'still carries the seed.sql placeholder'
+                    ELSE 'value is printable text, not an encrypted envelope'
+               END AS reason
+          FROM tags
+         WHERE tenant_id IN (%[2]s)
+           AND (octet_length(aes_key_ref) <> 44
+                OR %[1]s
+                OR octet_length(aes_key_ref) = length(encode(aes_key_ref, 'escape')))
+      ) s;
     IF stragglers IS NOT NULL THEN
-        RAISE EXCEPTION 'seedkeys: demo plaque(s) left without a 44-byte wrapped key: %%. Add them to fixtures.SeedTags.', stragglers;
+        RAISE EXCEPTION 'seedkeys: demo plaque(s) left without a real KEK-wrapped key: %%. Add them to fixtures.SeedTags and re-run the seed.', stragglers;
     END IF;
 END $$;
-`, strings.Join(quoted, ", "))
+`, placeholderBytes, strings.Join(quoted, ", "))
 
 	b.WriteString("COMMIT;\n")
 	_, err = out.WriteString(b.String())

@@ -104,12 +104,22 @@ func newTenant(t *testing.T, d *DB) (tenantID, locationID uuid.UUID) {
 }
 
 // addTag inserts a tag with the given starting counter, as tappa_app in context.
+//
+// THE KEY REF IS 44 BYTES OF NONSENSE, NOT TWO. Migration 00021's
+// tags_aes_key_ref_is_kek_envelope demands octet_length(aes_key_ref) = 44 (ADR
+// 0003 article 4: nonce 12 || ciphertext 16 || tag 16), so the old two-byte
+// '\xDEAD' marker is now a 23514 on INSERT. decode(repeat('dead', 22), 'hex')
+// keeps the marker recognisable in a byte dump AND satisfies the shape; the bytes
+// are still not a real envelope, which is fine because none of these fixtures taps
+// the plaque (the ones that do use a genuine wrap from test/fixtures/tagkeys.go).
+// This helper is the reason backlog T7 counted 45 728 two-byte rows: it and its
+// siblings planted one per run.
 func addTag(t *testing.T, d *DB, tenantID, locationID uuid.UUID, uid string, lastCtr int32) {
 	t.Helper()
 	err := d.WithTenant(context.Background(), tenantID, func(ctx context.Context, tx pgx.Tx) error {
 		_, e := tx.Exec(ctx,
 			`INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, last_ctr, status)
-			 VALUES ($1, $2, $3, '\xDEAD', $4, 'active')`,
+			 VALUES ($1, $2, $3, decode(repeat('dead', 22), 'hex'), $4, 'active')`,
 			uid, tenantID, locationID, lastCtr)
 		return e
 	})

@@ -168,7 +168,7 @@ func seedAnomalyTenant(t *testing.T, p *panelHarness, tenantID uuid.UUID, label 
 		}
 		if _, e := tx.Exec(ctx,
 			`INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, last_ctr, status)
-			 VALUES ($1, $2, $3, '\x00'::bytea, 100, 'active')`,
+			 VALUES ($1, $2, $3, decode(repeat('dead', 22), 'hex'), 100, 'active')`,
 			f.tagUID, tenantID, f.locationID); e != nil {
 			return fmt.Errorf("tag: %w", e)
 		}

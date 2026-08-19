@@ -40,6 +40,26 @@ import (
 // depends on a reader being able to see at a glance that these keys are fake.
 const SeedTagKeyLabel = "tappa-fake-seed-tag-key-do-not-use|"
 
+// SeedPlaceholderKeyLabel is the ASCII text test/fixtures/seed.sql writes into
+// tags.aes_key_ref BEFORE seedkeys rewrites it, as `label || uid`. It is exactly
+// 30 characters so that 30 + a 14-hex uid is exactly the 44 bytes migration
+// 00021's tags_aes_key_ref_is_kek_envelope demands.
+//
+// 🔴 IT IS DECLARED HERE BECAUSE A LENGTH IS NO LONGER A DETECTOR. seedkeys'
+// drift guard used to ask only `octet_length(aes_key_ref) <> 44`, which stopped
+// working the moment the placeholder was padded to 44 bytes for that CHECK --
+// measured: a plaque added to seed.sql and forgotten in SeedTags sailed through
+// the guard that exists for exactly that mistake. The guard now compares BYTES,
+// and this is the value it compares against.
+//
+// ⚠️ THE COUPLING TO seed.sql IS REAL AND IS NOT LOAD-BEARING. seed.sql is plain
+// SQL loaded by psql, so it cannot import this constant; the literal exists in
+// both places and a reader who changes one must change the other (seed.sql's own
+// comment says so). That drift is survivable rather than silent: the guard's
+// second predicate asks whether the value is ASCII TEXT at all, which catches any
+// placeholder whatever its wording, so this constant only sharpens the message.
+const SeedPlaceholderKeyLabel = "NOT-A-KEY-seedkeys-REWRITES-IT"
+
 // SeedTagKey returns the 16-byte AES-128 FAKE per-tag key for one demo plaque:
 //
 //	SHA-256(SeedTagKeyLabel || <uppercase 14-hex uid>)[:16]

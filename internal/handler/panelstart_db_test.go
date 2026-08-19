@@ -76,7 +76,7 @@ func TestPanelLandingDB_ReadsThePlaqueStateFromTheDatabase(t *testing.T) {
 	uid := newPlaqueUID()
 	mustExec(t, p, p.tenantID,
 		`INSERT INTO tags (uid, tenant_id, location_id, status, last_ctr, aes_key_ref)
-		 VALUES ($1, $2, NULL, 'unassigned', 0, 'test-key-ref')`, uid, p.tenantID)
+		 VALUES ($1, $2, NULL, 'unassigned', 0, decode(repeat('dead', 22), 'hex'))`, uid, p.tenantID)
 
 	_, body = p.get(t, transactionsHref)
 	if !strings.Contains(body, inStock) {
@@ -169,7 +169,7 @@ func TestPanelLandingDB_AnotherTenantsPlaquesAnswerNothing(t *testing.T) {
 	otherLocation := seedStartupTenant(t, p, other, "Neighbour")
 	mustExec(t, p, other,
 		`INSERT INTO tags (uid, tenant_id, location_id, status, last_ctr, aes_key_ref)
-		 VALUES ($1, $2, $3, 'active', 0, 'test-key-ref')`,
+		 VALUES ($1, $2, $3, 'active', 0, decode(repeat('dead', 22), 'hex'))`,
 		newPlaqueUID(), other, otherLocation)
 
 	p.signIn(t)
@@ -278,7 +278,7 @@ func TestPanelLandingDB_TheLandingSectionWritesNothing(t *testing.T) {
 	// returned the same number would make this test pass forever.
 	mustExec(t, p, p.tenantID,
 		`INSERT INTO tags (uid, tenant_id, location_id, status, last_ctr, aes_key_ref)
-		 VALUES ($1, $2, NULL, 'unassigned', 0, 'test-key-ref')`, newPlaqueUID(), p.tenantID)
+		 VALUES ($1, $2, NULL, 'unassigned', 0, decode(repeat('dead', 22), 'hex'))`, newPlaqueUID(), p.tenantID)
 	control := tenantRowCounts(t, p, tables)
 	if control["tags"] != after["tags"]+1 {
 		t.Fatalf("the row counter did not notice a row that was definitely inserted "+

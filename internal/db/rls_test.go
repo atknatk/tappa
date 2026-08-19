@@ -219,7 +219,7 @@ func buildFixture(t *testing.T, d *DB) fixture {
 		  VALUES ($1, $2, $3, $4)`,
 			[]any{fx.sessionID, fx.tenantID, fx.employeeID, fx.tokenHash}},
 		{`INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, last_ctr, status)
-		  VALUES ($1, $2, $3, '\xDEAD', 0, 'active')`,
+		  VALUES ($1, $2, $3, decode(repeat('dead', 22), 'hex'), 0, 'active')`,
 			[]any{fx.tagUID, fx.tenantID, fx.locationID}},
 		{`INSERT INTO transactions (id, tenant_id, employee_id, location_id, tag_uid, occurred_at, verdict, channel)
 		  VALUES ($1, $2, $3, $4, $5, now(), 'flag', 'nfc')`,
@@ -490,11 +490,11 @@ func TestRLS_WriteWithCheck_AllTables(t *testing.T) {
 			}},
 		{"tags", blockRLS,
 			func(ctx context.Context, tx pgx.Tx) error {
-				_, e := tx.Exec(ctx, `INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref) VALUES ($1, $2, $3, '\xDEAD')`, randUID(t), a.tenantID, a.locationID)
+				_, e := tx.Exec(ctx, `INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref) VALUES ($1, $2, $3, decode(repeat('dead', 22), 'hex'))`, randUID(t), a.tenantID, a.locationID)
 				return e
 			},
 			func(ctx context.Context, tx pgx.Tx) error {
-				_, e := tx.Exec(ctx, `INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref) VALUES ($1, $2, $3, '\xDEAD')`, randUID(t), b.tenantID, b.locationID)
+				_, e := tx.Exec(ctx, `INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref) VALUES ($1, $2, $3, decode(repeat('dead', 22), 'hex'))`, randUID(t), b.tenantID, b.locationID)
 				return e
 			}},
 		{"transactions", blockRLS,
@@ -1358,9 +1358,24 @@ func TestResolveColumns_MatchSchema(t *testing.T) {
 	if tag.LastCtr != 0 {
 		t.Errorf("tag.LastCtr = %d, want 0", tag.LastCtr)
 	}
-	// aes_key_ref was inserted as bytea '\xDEAD' (two bytes 0xDE 0xAD).
-	if len(tag.AESKeyRef) != 2 || tag.AESKeyRef[0] != 0xDE || tag.AESKeyRef[1] != 0xAD {
-		t.Errorf("tag.AESKeyRef = % X, want DE AD", tag.AESKeyRef)
+	// aes_key_ref was inserted as decode(repeat('dead', 22), 'hex') -- 44 bytes of
+	// alternating DE AD. The LENGTH is asserted first and separately because it is
+	// the schema rule migration 00021 added (tags_aes_key_ref_is_kek_envelope, ADR
+	// 0003 article 4); the bytes are asserted after it because this test's job is
+	// to prove the resolver returns the column it was handed, byte for byte, and a
+	// length-only check would pass on any 44-byte value.
+	if len(tag.AESKeyRef) != 44 {
+		t.Errorf("len(tag.AESKeyRef) = %d, want 44 (nonce 12 || ciphertext 16 || tag 16)", len(tag.AESKeyRef))
+	}
+	for i, b := range tag.AESKeyRef {
+		want := byte(0xDE)
+		if i%2 == 1 {
+			want = 0xAD
+		}
+		if b != want {
+			t.Errorf("tag.AESKeyRef[%d] = %02X, want %02X (fixture is DE AD repeated)", i, b, want)
+			break
+		}
 	}
 
 	sess, err := app.GetEmployeeBySessionHash(context.Background(), fx.tokenHash)

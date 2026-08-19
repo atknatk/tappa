@@ -157,7 +157,7 @@ func (f *plaqueFixture) loadUID(t *testing.T, tenantID uuid.UUID, uid, status st
 	err := f.data.WithTenant(context.Background(), tenantID, func(ctx context.Context, tx pgx.Tx) error {
 		_, e := tx.Exec(ctx,
 			`INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, last_ctr, status)
-			 VALUES ($1, $2, $3, '\xDEAD'::bytea, 41, $4)`,
+			 VALUES ($1, $2, $3, decode(repeat('dead', 22), 'hex'), 41, $4)`,
 			uid, tenantID, location, status)
 		return e
 	})

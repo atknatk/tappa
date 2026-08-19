@@ -405,9 +405,115 @@ else
   fi
 fi
 
+# =================================================================================
+# 5. APPEND-ONLY, THE OTHER HALF — TRUNCATE (migration 00021 part 1)
+#
+# Section 4 above proves the UPDATE/DELETE belt survived the restore. That was the
+# whole checklist until 00021, and the checklist was a item short: TRUNCATE is
+# neither UPDATE nor DELETE, so none of the triggers section 4 exercises has any
+# say in it, and `TRUNCATE audit_log` as tappa_owner emptied section 4.3's own
+# table. 00021 added six BEFORE TRUNCATE ... FOR EACH STATEMENT triggers; a
+# restore that lost them would pass every check above.
+#
+# 🔴 THIS IS A CATALOG CHECK AND NOT A BEHAVIOURAL ONE, DELIBERATELY. Every other
+# probe in this file is behavioural because it can be made harmless (WHERE false,
+# ROLLBACK). A TRUNCATE cannot: it is DDL-ish, it ignores WHERE, and the one
+# outcome this script must never risk is being the thing that empties a database
+# somebody is in the middle of restoring. The trigger's BEHAVIOUR is proven where
+# it is safe to prove -- internal/db/appendonly_truncate_test.go, against a
+# development database -- and what a restore can plausibly lose is the OBJECT,
+# which is exactly what a catalog read sees.
+#
+# 🔴 AND "THE OBJECT EXISTS" IS NOT THE SAME QUESTION AS "THE OBJECT FIRES". The
+# first version of this check asked only whether a row was in pg_trigger, and an
+# audit measured the consequence on a real table (every probe inside
+# BEGIN ... ROLLBACK, so the rows survived the measurement):
+#
+#   ALTER TABLE audit_log DISABLE TRIGGER audit_log_no_truncate
+#     -> the catalog row is STILL THERE, tgenabled = 'D'
+#     -> TRUNCATE audit_log SUCCEEDED, rows_left = 0
+#     -> and this section still printed "all 6 tables carry a guard"
+#
+# That is not a hypothetical state for a restore to be in: `pg_restore
+# --disable-triggers` is the standard way to load data-only, it issues
+# `ALTER TABLE ... DISABLE TRIGGER ALL` (measured: that is what sets 'D'), and a
+# restore killed halfway through does not put it back. The operator would read
+# PASS, put the database into service, and tappa_owner -- the identity every
+# deploy authenticates as -- could then delete section 4.3's own evidence.
+#
+# TWO MORE STATES WERE MEASURED, AND BOTH ARE WHY THE PREDICATES BELOW ARE WHAT
+# THEY ARE rather than the narrower `tgenabled <> 'D'`:
+#
+#   tgenabled = 'R'  (ALTER TABLE ... ENABLE REPLICA TRIGGER) -- a replica-only
+#     trigger does NOT fire while session_replication_role is 'origin', which is
+#     what every ordinary session and every deploy runs as. Measured on the
+#     disposable copy: session_replication_role=origin, TRUNCATE SUCCEEDED,
+#     rows_left = 0. So the accepted set is ('O','A') -- fires on origin -- and
+#     not "anything but disabled".
+#   the trigger bound to a DIFFERENT FUNCTION. A restore can keep the trigger and
+#     lose or replace what it calls. Measured: a BEFORE TRUNCATE ... FOR EACH
+#     STATEMENT trigger of the same NAME on the same table, bound to a no-op
+#     function, is tgenabled='O' and TRUNCATE SUCCEEDED. The name proves nothing;
+#     the function does, so tgfoid is resolved through pg_proc and compared.
+#
+# pg_proc IS JOINED RATHER THAN CASTING 'tappa_forbid_mutation'::regproc: if the
+# function is the thing the restore lost, the cast raises and psql_to's `die`
+# turns a FAILED CHECK into "no verdict", which is the wrong answer to "is the
+# guard there". A join simply matches nothing, and nothing is reported as missing.
+# =================================================================================
+trunc_tables="transactions audit_log transaction_reviews billing_periods policy_versions legal_documents"
+psql_to "$TMP/have.truncguards" "SELECT c.relname
+  FROM pg_trigger g JOIN pg_class c ON c.oid = g.tgrelid
+  JOIN pg_namespace n ON n.oid = c.relnamespace
+  JOIN pg_proc p ON p.oid = g.tgfoid
+  WHERE n.nspname = 'public' AND NOT g.tgisinternal
+    AND (g.tgtype & 32) <> 0        -- TRUNCATE
+    AND (g.tgtype & 2)  <> 0        -- BEFORE
+    AND g.tgenabled IN ('O', 'A')   -- fires on origin: NOT 'D', NOT replica-only 'R'
+    AND p.proname = 'tappa_forbid_mutation';"
+# The same triggers WITHOUT the two state predicates, so a failure can say WHY and
+# not only WHICH: "the guard is gone" and "the guard is sitting there disabled"
+# need different remedies from the operator.
+psql_to "$TMP/have.truncstate" "SELECT c.relname || ' tgenabled=' || g.tgenabled::text || ' calls=' || p.proname
+  FROM pg_trigger g JOIN pg_class c ON c.oid = g.tgrelid
+  JOIN pg_namespace n ON n.oid = c.relnamespace
+  JOIN pg_proc p ON p.oid = g.tgfoid
+  WHERE n.nspname = 'public' AND NOT g.tgisinternal
+    AND (g.tgtype & 32) <> 0
+    AND (g.tgtype & 2)  <> 0;"
+missing=""
+for t in $trunc_tables; do
+  grep -qx "$t" "$TMP/have.truncguards" || missing="$missing $t"
+done
+if [ -z "$missing" ]; then
+  ok "append-only: all 6 tables carry an ENABLED BEFORE TRUNCATE guard bound to tappa_forbid_mutation"
+else
+  bad "these append-only tables have NO BEFORE TRUNCATE guard THAT WOULD FIRE, so tappa_owner can empty them (and reach the others by CASCADE):$missing
+        every BEFORE TRUNCATE trigger this database does have, with its state: $(tr '\n' ' ' < "$TMP/have.truncstate")
+        tgenabled 'D' means a restore left ALTER TABLE ... DISABLE TRIGGER ALL in place; 'R' means the trigger only fires for a replica session, which a deploy is not."
+fi
+
+# The privilege belt for the same statement. tappa_app must not hold TRUNCATE on
+# any of the six; db-init grants SELECT+INSERT and a restore is what re-widens
+# privileges, which is the whole subject of section 3.
+psql_to "$TMP/have.truncpriv" "SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+  WHERE n.nspname = 'public' AND c.relkind = 'r'
+    AND has_table_privilege('tappa_app', c.oid, 'TRUNCATE');"
+if [ ! -s "$TMP/have.truncpriv" ]; then
+  ok "append-only: tappa_app holds TRUNCATE on no table"
+else
+  bad "tappa_app holds the TRUNCATE privilege on: $(tr '\n' ' ' < "$TMP/have.truncpriv")"
+fi
+
 echo
 if [ "$fails" -eq 0 ]; then
-  echo "pg-restore-verify: PASS — the restored database matches $(basename "$DUMP") in rows, schema, policies, and BOTH table- and column-level privileges."
+  # THE SENTENCE CLAIMS WHAT WAS MEASURED AND NOT ONE WORD MORE. Section 4 sees the
+  # UPDATE/DELETE PRIVILEGE (deliberately: `WHERE false`, so the trigger cannot fire
+  # and cannot mask the answer) and section 5 reads the TRUNCATE trigger out of the
+  # catalog, including whether it would fire. Neither one executes a TRUNCATE, so
+  # "the guards are present and would fire" is the claim, not "TRUNCATE was tried
+  # and refused" -- that one is internal/db/appendonly_truncate_test.go's.
+  echo "pg-restore-verify: PASS — the restored database matches $(basename "$DUMP") in rows, schema, policies, BOTH table- and column-level privileges, the UPDATE/DELETE privilege belt, and an enabled TRUNCATE guard on each of the six append-only tables."
   exit 0
 fi
 echo "pg-restore-verify: $fails CHECK(S) FAILED — do not put this database into service." >&2

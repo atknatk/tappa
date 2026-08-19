@@ -115,7 +115,7 @@ func addPlaque(t *testing.T, d *DB, fx tagFixture, uid string, location uuid.UUI
 	if err := d.WithTenant(context.Background(), fx.tenantID, func(ctx context.Context, tx pgx.Tx) error {
 		_, e := tx.Exec(ctx,
 			`INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, last_ctr, status)
-			 VALUES ($1, $2, $3, '\xDEAD', $4, $5)`,
+			 VALUES ($1, $2, $3, decode(repeat('dead', 22), 'hex'), $4, $5)`,
 			uid, fx.tenantID, loc, ctr, status)
 		return e
 	}); err != nil {
@@ -206,7 +206,7 @@ func TestTags00013_UIDHasOneCanonicalSpelling(t *testing.T) {
 			uid := tc.uid
 			_, err := execAs(t, app, fx.tenantID,
 				`INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref)
-				 VALUES ($1, $2, $3, '\xDEAD')`,
+				 VALUES ($1, $2, $3, decode(repeat('dead', 22), 'hex'))`,
 				uid, fx.tenantID, fx.locationID)
 			if tc.ok {
 				if err != nil {
@@ -462,7 +462,7 @@ func TestTags00013_StockPlaqueHasNoWallAndActivePlaqueMustHaveOne(t *testing.T) 
 			}
 			_, err := execAs(t, app, fx.tenantID,
 				`INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, status)
-				 VALUES ($1, $2, $3, '\xDEAD', $4)`,
+				 VALUES ($1, $2, $3, decode(repeat('dead', 22), 'hex'), $4)`,
 				randUID(t), fx.tenantID, loc, tc.status)
 			if tc.ok {
 				if err != nil {
@@ -547,7 +547,7 @@ func TestTags00013_ConstraintsNoOtherTestNames(t *testing.T) {
 	// still in stock, which is why the constraint names 'retired' alone.
 	if _, e := execAs(t, app, fx.tenantID,
 		`INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, status)
-		 VALUES ($1, $2, NULL, '\xDEAD', 'lost')`,
+		 VALUES ($1, $2, NULL, decode(repeat('dead', 22), 'hex'), 'lost')`,
 		randUID(t), fx.tenantID); e != nil {
 		t.Fatalf("lost-in-stock plaque was refused: %v -- the constraint is too wide", e)
 	}
@@ -780,7 +780,7 @@ func TestRLS_Tags00013_StockIsolation(t *testing.T) {
 	// (3) INSERT -- B must not be able to forge a plaque stamped with A's tenant.
 	_, err = execAs(t, app, b.tenantID,
 		`INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, status)
-		 VALUES ($1, $2, NULL, '\xDEAD', 'unassigned')`,
+		 VALUES ($1, $2, NULL, decode(repeat('dead', 22), 'hex'), 'unassigned')`,
 		randUID(t), a.tenantID)
 	wantSQLSTATE(t, err, sqlstateInsufficientPrivi, "B forging a plaque into A's tenant")
 }

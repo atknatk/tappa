@@ -24,6 +24,21 @@ GOVULNCHECK := go run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
 # Seed fixture yolu — CI veya tek seferlik bir sondaj baska dosya verebilir.
 SEED_FILE ?= test/fixtures/seed.sql
 
+# 🔴 COMPOSE HEDEFI SABITLENIR, VARSAYILMAZ. Asagidaki `-include .env` + ciplak
+# `export` ikilisi, gelistiricinin kabugundaki ve .env'deki HER degiskeni bu
+# dosyanin calistirdigi her komuta tasir — COMPOSE_FILE ve COMPOSE_PROJECT_NAME
+# dahil. Olculdu (bkz. scripts/db-reset.sh basligi): sabitlenmemis bicimde
+# COMPOSE_FILE baska bir dosyayi, COMPOSE_PROJECT_NAME baska bir projeyi secebilir
+# (`project=evil`, `volumes=['decoy-data']`) ve mutlak bir COMPOSE_FILE `cd`'yi de
+# yok sayar. Buradaki hedefler icin patlama yaricapi olculdu ve DUSUK: `up`/`down`
+# volume SILMEZ (olculdu: `docker compose down` yabanci decoy volume'u sag
+# birakti), en kotu hal yabanci bir projenin konteynerlerini durdurmak. Yine de
+# duzeltmesi iki bayrak, ve `seed` hedefi ayni sizintiyla YABANCI BIR VERITABANINA
+# YAZABILIR — bu yuzden scripts/seed.sh de ayni cifti kullanir.
+# Oncelik: `-f`/`-p` bayraklari > COMPOSE_FILE/COMPOSE_PROJECT_NAME > dosyadaki
+# `name:` > dizin adi. `tappa` tahmin degil — docker-compose.yml onu declare eder.
+COMPOSE := docker compose -f docker-compose.yml -p tappa
+
 -include .env
 export
 
@@ -56,13 +71,13 @@ css: $(TAILWIND)
 # --------------------------------------------------------------------- dev --
 ## up: postgres'i ayaga kaldir
 up:
-	docker compose up -d db
-	@until docker compose exec -T db pg_isready -U tappa_owner -d tappa >/dev/null 2>&1; do sleep 1; done
+	$(COMPOSE) up -d db
+	@until $(COMPOSE) exec -T db pg_isready -U tappa_owner -d tappa >/dev/null 2>&1; do sleep 1; done
 	@echo "postgres hazir"
 
 ## down: dev servislerini durdur
 down:
-	docker compose down
+	$(COMPOSE) down
 
 ## dev: gen + css + calistir
 dev: gen css
@@ -95,9 +110,39 @@ migrate-new:
 seed:
 	./scripts/seed.sh "$(SEED_FILE)"
 
-## db-reset: SIFIRDAN kur — TUM VERIYI SILER
+## db-reset: SIFIRDAN kur — TUM VERIYI SILER (yerel compose veritabani)
+# 🔴 `goose reset` DEGIL — VE BU BIR HATA DUZELTMESIDIR (backlog T22, 2026-08-19).
+# Olculdu: `goose reset` bitmiyor. 00013'un Down'i 00004'un uc degerli
+# tags_status_check'ini ve location_id NOT NULL'unu geri kuruyor, biriken
+# gelistirme verisi ikisini de ihlal ediyor (unassigned plaketler; stokta
+# kaybolmus plaketler). 00013 bunu kendi Down basliginda 2026-08-09'da ongormus.
+# Uygulanmis migration DEGISTIRILEMEZ (§6) ve YENI bir migration da kurtaramaz:
+# `goose reset` Down'lari yeniden eskiye dogru yuruyor, yani 00013 yine sirada.
+# Bu yuzden hedef artik migration'lardan GECMIYOR — konteyneri ve VOLUME'u silip
+# db-init'i yeniden kosturuyor. Gerekce, elenen iki alternatif ve olcumleri:
+# scripts/db-reset.sh dosya basligi.
+#
+# 🔴 RISK YOK OLMADI, YER DEGISTIRDI — VE BU YORUMUN ILK HALI BUNU YANLIS
+# SOYLUYORDU ("Simdi gosterecek bir dize yok"). OLCULDU 2026-08-19: script'in
+# eski hali, repo dizininden ve repo'nun kendi docker-compose.yml'ini HIC ACMADAN,
+# yalnizca ortamdan devralinan COMPOSE_FILE ile YABANCI bir compose projesinin
+# veri volume'unu sildi. `goose reset`'in tehlikesi bir baglanti dizesiydi; bunun
+# tehlikesi compose'un ortam yapilandirmasi (COMPOSE_FILE, COMPOSE_PROJECT_NAME,
+# DOCKER_HOST, DOCKER_CONTEXT) — ve YUKARIDAKI `-include .env` + `export` ikilisi
+# bu degiskenlerin hepsini bu hedefe tasiyan yoldur. Script artik hedefini
+# `-f docker-compose.yml -p tappa` ile sabitliyor ve yerel olmayan bir docker
+# daemon'inda CALISMAYI REDDEDIYOR. Olcum ve iki sondaj: scripts/db-reset.sh basligi.
+#
+# ⚠️ SAYILMIS LIMIT — BU HEDEF ONAY SORMUYOR, ve bu bilincli bir tercih.
+# Tartildi: bir onay istemi yalnizca TTY'de anlamlidir, `[ -t 0 ]` ile korunan bir
+# istem ise gozetimsiz kosumlarda (CI, ajan, `make db-reset` iceren bir zincir)
+# sessizce atlanir — yani kazanin geri alinamaz oldugu tam da o kosumda hicbir sey
+# yapmaz. "Bazen sorar" bir guvenlik siniri degil, guven duygusudur. Bunun yerine
+# koruma YAPISAL: hedef sabitlenmis (yukari), daemon yerel olmak zorunda, ve script
+# silmeden once hangi proje/dosya/daemon'i hedefledigini TEK degiskenden basiyor.
+# Kalan risk: dogru makinede, dogru projede, yanlis komutu yazmak.
 db-reset:
-	$(GOOSE) -dir db/migrations postgres "$(DATABASE_MIGRATE_URL)" reset
+	./scripts/db-reset.sh
 	$(MAKE) migrate seed
 
 ## simulate-day: KF St Julians'ta bir gun uret (skill tappa-seed, M5-09)
@@ -129,7 +174,24 @@ test:
 #                                             114,7 / 114,9)
 #                    120-121 sn 4 CEKIRDEK MESGUL (iki kosu: 120,5 / 121,1)
 #                    bagimsiz olcumler: 92-112 · 115,7 · 120,6-149,3
-#                    -> makine durumuna gore 92-150 sn araliginda gorulur;
+#                    236-242 sn YEDI YABANCI KONTEYNER CALISIRKEN — 🔴 BU SATIR
+#                       BANDIN KENDI KURALININ IHLALINDEN DOGDU. Bagimsiz bir
+#                       denetci 238,26 sn olctu ve bu sayi 92-150 bandina HIC
+#                       uymuyordu; kural ("her sayi bir yuk kosuluyla yazilir")
+#                       yazilmisti ama bu kosul yazilmamisti. Yeniden olculdu
+#                       (2026-08-19, 16 cekirdek, load avg 2,55, ayni anda 9
+#                       konteyner calisiyor — 7'si bu repoya AIT DEGIL):
+#                         make test ................. 242,40 sn
+#                         go test -race -v ./... .... 236,61 sn
+#                       ve ucu de ayni yerde: 236-242.
+#                    ⚠️ SEBEP YENI IS DEGIL, OLCULDU: 00021'in testlerinin hepsi
+#                       0,04-0,30 sn. Yuk DB'ye biniyor — ayni kosumda .env'siz
+#                       (yani DB testleri atlanarak) 90,88 sn, bos makinede
+#                       DB'li tam kosum 113-115 sn, yuklu makinede 236-242 sn.
+#                       Yani buyuyen sey CPU'da gecen sure degil, Postgres'e
+#                       gidip gelen testlerin suresi; yabanci konteynerler ayni
+#                       docker daemon'ini paylasiyor.
+#                    -> makine durumuna gore 92-242 sn araliginda gorulur;
 #                       bant bir HEDEF degil, bir gozlem kaydidir.
 #                                   84,7-138 sn idi; M6-01 B fazi bcrypt getirdi.
 #                                   Gunun ~62 sn'si time.Sleep'tir: ADR 0006

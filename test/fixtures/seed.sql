@@ -67,11 +67,19 @@
 --   key is recomputable by anyone reading the repo -- which is precisely what
 --   makes them self-evidently fake. Real NTAG AES keys never live here.
 --   ⚠️ RUNNING THIS FILE ALONE (psql < seed.sql) LEAVES BROKEN PLAQUES: the
---   placeholder below is 50 bytes (36-character label + 14 hex uid; measured with
---   octet_length), sun.Unwrap demands exactly 44, and every NFC tap on such a
---   plaque answers 500. The length is incidental -- ANY length other than 44 ends
---   the same way. Use `make seed` / scripts/seed.sh, which runs both halves; the
---   second half also RAISEs if any demo plaque was left behind.
+--   placeholder below is 44 bytes (30-character label + 14 hex uid; measured with
+--   octet_length) and is the RIGHT LENGTH but the WRONG BYTES -- sun.Unwrap gets
+--   past its length check and fails GCM authentication instead, so every NFC tap
+--   on such a plaque still answers 500. Use `make seed` / scripts/seed.sh, which
+--   runs both halves; the second half also RAISEs if any demo plaque was left
+--   behind.
+--   🔴 THE LENGTH IS NO LONGER FREE, AND THAT IS WHY THE LABEL WAS SHORTENED
+--   (migration 00021, backlog T7). It used to be 50 bytes and the schema had no
+--   opinion; tags_aes_key_ref_is_kek_envelope now demands octet_length = 44
+--   (ADR 0003 article 4: nonce 12 || ciphertext 16 || tag 16), so a 50-byte
+--   placeholder makes this INSERT fail with 23514 and `make seed` dies at its
+--   first half. Editing the label means COUNTING it: 30 characters, no more, no
+--   less.
 --   admin_users.password_hash is a bcrypt $2a$ hash of the DOCUMENTED dev-only
 --   password "tappa-dev-only-changeme" (see the admin_users section below). Same
 --   principle as the fake tag key: NOT a real secret, the demo login must work,
@@ -383,13 +391,25 @@ ON CONFLICT (id) DO NOTHING;
 -- 44-byte KEK-wrapped envelope written by the second half of scripts/seed.sh (see
 -- SECRETS above). The text says so in the value itself, so a byte dump taken
 -- between the two halves explains its own state instead of looking like a corrupt
--- key. last_ctr keeps its DEFAULT 0 (untapped in master data; taps advance it
+-- key. The label is exactly 30 characters so that label || uid is exactly 44
+-- bytes, which is what migration 00021's tags_aes_key_ref_is_kek_envelope demands
+-- of every row -- see the SECRETS note above before touching it.
+--
+-- 🔴 THE LABEL BELOW IS ALSO DECLARED IN GO, as fixtures.SeedPlaceholderKeyLabel,
+-- and seedkeys' drift guard compares tags.aes_key_ref against it BYTE FOR BYTE --
+-- because since the padding to 44 bytes a length check can no longer tell a
+-- forgotten plaque from a wrapped one (measured; the guard's own comment carries
+-- the probe). This file is loaded by psql and cannot import a Go constant, so
+-- CHANGING THE TEXT HERE MEANS CHANGING IT THERE. Forgetting is survivable but
+-- not free: the guard's third predicate still catches any all-printable value,
+-- so the plaque is still refused, only with a vaguer reason.
+-- last_ctr keeps its DEFAULT 0 (untapped in master data; taps advance it
 -- atomically). retired_at is stamped only on the retired plaque.
 INSERT INTO tags
     (uid, tenant_id, location_id, aes_key_ref, status, retired_at, replaced_by, created_at)
 SELECT
     t.uid, t.tenant_id, t.location_id,
-    convert_to('PLACEHOLDER-UNTIL-seedkeys-WRAPS-IT-' || t.uid, 'UTF8'),
+    convert_to('NOT-A-KEY-seedkeys-REWRITES-IT' || t.uid, 'UTF8'),
     t.status,
     CASE WHEN t.status = 'retired' THEN now() - interval '20 days' ELSE NULL END,
     t.replaced_by,
