@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -16,6 +18,9 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+
+	"github.com/atknatk/tappa/internal/httpx"
 )
 
 // health_test.go — the readiness endpoint (M8-01).
@@ -452,8 +457,17 @@ func TestReadyz_AnOutageCostsTwoLogLines(t *testing.T) {
 		_, _ = io.Copy(io.Discard, res.Body)
 		_ = res.Body.Close()
 	}
-	if got := strings.Count(logged.String(), "readiness regained"); got != 1 {
+	// Asserted through the CONSTANT, not through a sentence. Since M8-03 round 2
+	// these two events are the only log signal a readiness outage produces —
+	// httpx.AccessLog no longer writes an http.request record for /readyz's designed
+	// 200 and 503 — so a rule in deploy/README.md filters on this exact literal, and
+	// a prose edit that used to be harmless now silences the alert.
+	if got := strings.Count(logged.String(), EventReadinessRegained); got != 1 {
 		t.Errorf("recovery was logged %d times, want exactly 1:\n%s", got, logged.String())
+	}
+	if got := strings.Count(logged.String(), EventReadinessLost); got != 1 {
+		t.Errorf("the outage was logged %d times as %q, want exactly 1:\n%s",
+			got, EventReadinessLost, logged.String())
 	}
 	if got := strings.Count(logged.String(), "level=ERROR"); got != 1 {
 		t.Errorf("the ERROR count changed after recovery (%d); the outage is one event", got)
@@ -498,10 +512,124 @@ func TestReadyz_TheAnswerSaysNothingAboutTheDeployment(t *testing.T) {
 	}
 
 	// POSITIVE CONTROL, and it is what makes the assertion above non-vacuous: the
-	// detail exists and reached the OPERATOR. Without this, an error that was empty
-	// all along would pass the loop above.
-	if !strings.Contains(logged.String(), "db.internal.example") {
-		t.Errorf("the cause did not reach the process log either, so the response test proves nothing:\n%s", logged.String())
+	// outage really was detected and really was reported. Without it, an error that
+	// was empty all along would pass the loop above.
+	if !strings.Contains(logged.String(), EventReadinessLost) {
+		t.Errorf("the outage was not reported at all, so the response test proves nothing:\n%s", logged.String())
+	}
+	if !strings.Contains(logged.String(), LogErrClassKey) {
+		t.Errorf("the record carries no %s, so an operator learns nothing from it:\n%s",
+			LogErrClassKey, logged.String())
+	}
+
+	// 🔴 AND THE SAME BOUNDARY ON THE LOG (M8-03 round 4). For one round this test
+	// asserted the OPPOSITE — that "db.internal.example" DID reach the process log —
+	// while health.go argued three paragraphs above that the same text was "a free
+	// map of the deployment's private side". One of the two had to give; the log is
+	// shipped to a collector this product does not operate, so it was the log.
+	for _, s := range secretish {
+		if strings.Contains(logged.String(), s) {
+			t.Errorf("the readiness record carries %q from the driver error. The 503 body "+
+				"withholds it on §4.7 grounds; the record must not hand it to a log collector "+
+				"instead:\n%s", s, logged.String())
+		}
+	}
+}
+
+// TestReadinessFailure_ClassifiesWithoutNamingTheDeployment is the unit half of the
+// boundary above: every shape this product's own pgx actually produces, reduced to
+// a class and an address-free cause.
+//
+// The four cases are MEASURED, not invented — a probe drove the real driver at a
+// closed port, at an unresolvable name, at a blackholed address and at a live
+// server with the wrong password, and these are the error shapes it returned.
+func TestReadinessFailure_ClassifiesWithoutNamingTheDeployment(t *testing.T) {
+	t.Parallel()
+
+	// The deployment's private side, as a real pgx message spells it.
+	const (
+		role = "tappa_app"
+		dbn  = "tappa_production"
+		host = "db.internal.example"
+		port = "5432"
+	)
+	wrap := func(inner error) error {
+		return fmt.Errorf("failed to connect to `user=%s database=%s`: %s:%s (%s): %w",
+			role, dbn, host, port, host, inner)
+	}
+
+	for _, tc := range []struct {
+		name       string
+		err        error
+		wantClass  string
+		wantCause  string
+		causeEmpty bool
+	}{
+		{
+			name:      "wrong password, wrapped the way pgx wraps it",
+			err:       wrap(&pgconn.PgError{Code: "28P01", Severity: "FATAL", Message: "password authentication failed for user \"tappa_app\""}),
+			wantClass: errClassServer,
+			wantCause: "28P01",
+		},
+		{
+			name:      "database does not exist",
+			err:       wrap(&pgconn.PgError{Code: "3D000", Severity: "FATAL"}),
+			wantClass: errClassServer,
+			wantCause: "3D000",
+		},
+		{
+			name:      "socket refused",
+			err:       wrap(&net.OpError{Op: "dial", Net: "tcp", Err: errors.New("connect: connection refused")}),
+			wantClass: errClassDial,
+			wantCause: "connect: connection refused",
+		},
+		{
+			name:      "name does not resolve",
+			err:       wrap(&net.DNSError{Err: "no such host", Name: host}),
+			wantClass: errClassDNS,
+			wantCause: "no such host",
+		},
+		{
+			name:       "the probe outlived its own deadline",
+			err:        context.DeadlineExceeded,
+			wantClass:  errClassTimeout,
+			causeEmpty: true,
+		},
+		{
+			name:       "the caller went away",
+			err:        context.Canceled,
+			wantClass:  errClassCanceled,
+			causeEmpty: true,
+		},
+		{
+			name:       "something nothing above matches",
+			err:        errors.New("the pool is closed"),
+			wantClass:  errClassOther,
+			causeEmpty: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			class, cause := readinessFailure(tc.err)
+			if class != tc.wantClass {
+				t.Errorf("class = %q, want %q", class, tc.wantClass)
+			}
+			if tc.causeEmpty {
+				if cause != "" {
+					t.Errorf("cause = %q, want empty", cause)
+				}
+			} else if cause != tc.wantCause {
+				t.Errorf("cause = %q, want %q", cause, tc.wantCause)
+			}
+			// THE POINT: whatever it says, it must not be a map. Note the DNS case —
+			// net.DNSError.Name IS the hostname, and reading Err rather than Error()
+			// is what keeps it out.
+			for _, secret := range []string{role, dbn, host, port} {
+				if strings.Contains(class+" "+cause, secret) {
+					t.Errorf("the classified failure carries %q: class=%q cause=%q", secret, class, cause)
+				}
+			}
+		})
 	}
 }
 
@@ -568,4 +696,26 @@ func TestNewHealth_RefusesToBeBuiltWithoutAProbe(t *testing.T) {
 	if _, err := NewHealth((&fakeProbe{}).Ping, nil); err != nil {
 		t.Errorf("NewHealth with a nil logger: %v — a nil logger is a default, not an error", err)
 	}
+}
+
+// TestReady_TheProbeRouteIsTheOneHttpxExcludes is a cross-package pin, and it is
+// the cheapest possible guard on a decision that is otherwise held together by two
+// separate string literals in two packages.
+//
+// Since M8-03 round 2, internal/httpx.AccessLog writes NO access record for this
+// route's designed answers (200 and 503), because the kubelet drives it every 5 s
+// and its designed 503 was firing the "server is broken" 5xx rule. httpx cannot
+// import this package — it declares Mounter precisely so it does not have to — so
+// it repeats the pattern. If somebody renames the route here, the exclusion stops
+// applying and 17 280 records a day come back with nothing reporting it.
+func TestReady_TheProbeRouteIsTheOneHttpxExcludes(t *testing.T) {
+	t.Parallel()
+	for _, route := range httpx.ProbeRoutes() {
+		if route == readyPath {
+			return
+		}
+	}
+	t.Fatalf("handler.readyPath = %q but httpx.ProbeRoutes() = %v — the access record no longer "+
+		"knows this route's 503 is a design, so every readiness probe is logged again and its "+
+		"503 counts towards the 5xx alert", readyPath, httpx.ProbeRoutes())
 }

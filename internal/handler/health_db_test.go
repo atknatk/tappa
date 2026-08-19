@@ -50,6 +50,27 @@ func TestReadyz_ARealDriverErrorNamesTheDeployment(t *testing.T) {
 	if strings.Contains(err.Error(), "pw") && strings.Contains(err.Error(), "password=") {
 		t.Errorf("the driver error carries the password: %v", err)
 	}
+
+	// 🔴 AND THE SAME REAL ERROR, THROUGH THE REDUCTION THE RECORD ACTUALLY WRITES
+	// (M8-03 round 4). Everything above measures what the DRIVER says; this measures
+	// what an operator's log collector receives. It runs on the genuine article
+	// rather than on a hand-built error, which is the difference that matters: a
+	// future pgx release can change its wrapping, and a classifier tested only
+	// against synthetic errors would keep passing while quietly falling through to
+	// `other` — or, worse, start carrying the message.
+	class, cause := readinessFailure(err)
+	t.Logf("classified as: %s = %q, %s = %q", LogErrClassKey, class, LogErrCauseKey, cause)
+	if class == errClassOther {
+		t.Errorf("a refused connection classified as %q with cause %q — the record now tells the "+
+			"operator nothing at all about the most ordinary readiness failure there is", class, cause)
+	}
+	for _, detail := range []string{"readyz_probe_user", "readyz_probe_db", "127.0.0.1", ":1"} {
+		if strings.Contains(class+" "+cause, detail) {
+			t.Errorf("the classified failure still carries %q (class=%q cause=%q). health.go refuses "+
+				"to hand this to an unauthenticated HTTP caller; it must not hand it to a log "+
+				"collector either.", detail, class, cause)
+		}
+	}
 }
 
 // TestReadyz_AgainstARealPool drives the endpoint against the development database

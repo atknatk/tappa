@@ -1815,6 +1815,19 @@ olduğu için yol açıktır.
 - **Araç exit 1 verdiyse** → dur. Hiçbir şey yazılmadı; `stderr`'i oku.
 - **`psql` ön/son koşulda `ERROR` verdiyse** → dur. Transaction geri alındı. Yeniden
   **oku** ve yeniden koş — eski çıktıyı tekrar uygulama.
+- 🔴 **`ERROR: canceling statement due to lock timeout` (SQLSTATE `55P03`) gördüysen
+  → BU BEKLENEN BİR SONUÇTUR VE YENİDEN KOŞMAK GÜVENLİDİR.** Üretilen SQL
+  `SET LOCAL lock_timeout = '5s'` ile başlar; rotasyonun `UPDATE`'i 5 saniye içinde
+  satır kilitlerini alamazsa **kendisi** iptal edilir. Tek transaction olduğu ve
+  guard'lar en başta koştuğu için **hiçbir satır yazılmamıştır**; script bunu
+  `psql` çıkışını haritalayarak **exit 1** ("refused/failed, nothing applied") diye
+  bildirir — **asla exit 3 değil**. Sebep neredeyse her zaman aynı: o anda o
+  plaketlere **canlı tap'lar** giriyor (replay guard'ı aynı satırlara `FOR UPDATE`
+  alır). Yapılacak: daha sakit bir pencerede yeniden koş. Bu, prosedürün
+  **fail-closed** tarafıdır — bkz. `cmd/rotatekek/main.go`'daki `lock_timeout`
+  bloğu, ve ⚠️ **oradaki tavanın bir TAP'ı değil, ROTASYONU sınırladığı**
+  (backlog T47, 2026-08-19'da düzeltildi: rotasyon tutarken bir tap **10,07 sn**
+  bekledi; pozitif kontrol — bekleyen taraf rotasyon — **5,05 sn**'de iptal oldu).
 - **Exit 3 aldıysan** → adım 3'e **geçme**.
 - **Park büyüklüğü uyuşmuyorsa** → plaket yüklemesi açık kalmış (ön koşul 4).
 - **Koşu ortasında öldüyse** → **güvenli**. Araç idempotenttir: yeni KEK'i **önce**
@@ -1831,8 +1844,9 @@ hafızasına bağlı değil):
 | Ne | Neden artık imkânsız |
 |---|---|
 | Rotasyonun **gövdesinde** yorumdaki backtick'in çalışması | Gövde artık yapıştırılmıyor: `scripts/rotate-kek.sh`'i **bash bir dosya olarak** yorumluyor (`bash -n` süitte) |
-| Kalan **yapıştırılan** bloklarda aynı tehlike | 🔴 **SAYILDI, İMKÂNSIZ DEĞİL:** bu bölümde hâlâ **13 yapıştırılan `bash` bloğu** var (sır girişi, `kubectl` adımları, doğrulama). Tehlike **karakter düzeyinde** kaldırıldı — yorumlarda **0 backtick, 0 tek apostrof** — ve `TestRunbook_PasteableBlocksCarryNoShellHazardInComments` bunu tutuyor. ⚠️ Ama bu bir **özellik**, yapısal bir imkânsızlık değil: yeni bir blok yeni bir backtick getirebilir, ve o testi geçersiz bir yorum hâlâ yapıştırılabilir. Kontrol: gerçek `zsh -f -i`'de README şeklindeki backtick'li bir yorum **çalıştı** (işaret dosyası yazıldı); temizlenmiş blokların **hepsi** `bash -n` **ve** `zsh -n` altında 0 veriyor. ⚠️ **Testin kapsamı M8-05'te genişledi ve hâlâ dosyanın tamamı DEĞİL:** artık iki dilim taranıyor — bu bölüm **ve** *"Plaket encode"* (bugün orada 0 blok var, yani tarama bir sürüklenme freni). Dosyanın kalan **32** yapıştırılabilir bloğu taranmıyor; sayısı ve içindeki tehlike satırları **"Kabul edilmiş sınırlar"** listesinde yazılı |
+| Kalan **yapıştırılan** bloklarda aynı tehlike | 🔴 **SAYILDI, İMKÂNSIZ DEĞİL:** bu bölümde hâlâ **13 yapıştırılan `bash` bloğu** var (sır girişi, `kubectl` adımları, doğrulama). Tehlike **karakter düzeyinde** kaldırıldı — yorumlarda **0 backtick, 0 tek apostrof** — ve `TestRunbook_PasteableBlocksCarryNoShellHazardInComments` bunu tutuyor. ⚠️ Ama bu bir **özellik**, yapısal bir imkânsızlık değil: yeni bir blok yeni bir backtick getirebilir, ve o testi geçersiz bir yorum hâlâ yapıştırılabilir. Kontrol: gerçek `zsh -f -i`'de README şeklindeki backtick'li bir yorum **çalıştı** (işaret dosyası yazıldı); temizlenmiş blokların **hepsi** `bash -n` **ve** `zsh -n` altında 0 veriyor. ⚠️ **Testin kapsamı M8-05'te genişledi, M8-03'te bir kez daha genişledi, ve hâlâ dosyanın tamamı DEĞİL:** artık **üç** dilim taranıyor — bu bölüm · *"Plaket encode"* (bugün orada 0 blok var, yani tarama bir sürüklenme freni) · *"Gözlemlenebilirlik — M8-03"* (5 blok; iki tehlikeli yorum satırı orada sevk edildi ve iki dilimlik ağ onları görmemişti). Dosyanın kalan **32** yapıştırılabilir bloğu taranmıyor; sayısı ve içindeki tehlike satırları **"Kabul edilmiş sınırlar"** listesinde yazılı |
 | `ON_ERROR_STOP` unutulması → 40 ref sunucu log'una + `psql rc=0` | Bayrak script'in içinde; `TestRotateScript_AlwaysPassesOnErrorStop` her `psql` çağrısında arıyor |
+| Rotasyonun kilit kuyruğunda **süresiz** beklemesi | `SET LOCAL lock_timeout = '5s'` üretilen SQL'in ilk ifadesi; 5 sn'de alamazsa `55P03` ile iptal, tek transaction geri alınır, **0 satır yazılır**, script **exit 1** der. ⚠️ Bu bir **rotasyon** tavanıdır; **TAP tarafında hiçbir tavan yoktur** (`statement_timeout` sunucuda 0 ve hiçbir katmanda set edilmiyor) — ölçüldü, backlog T47 |
 | Aracın çıkış kodunun `psql`'inkiyle maskelenmesi | Boru yok; `TOOL_RC` yakalanıp `exit` ediliyor, `TestRotateScript_NeverPipesTheToolIntoPsql` tutuyor |
 | Öngörülebilir yola derleme (symlink/dizin/eski ikili) | `mktemp -d` + `chmod 700` + `go build || die` + `-x` kontrolü |
 | Geçici dosyaların kalması | `trap cleanup EXIT` — etkileşimli bir yapıştırmada değil, gerçek bir süreçte |
@@ -2208,6 +2222,484 @@ Boş namespace'ten çalışan ürüne **~30–35 saniye**, elle hiçbir müdahal
 ⚠️ Bu sayılar **boş bir node ve önbellekli imajlarla** ölçüldü; ilk gerçek çekme,
 yüklü bir node ve `local-path` üzerinde initdb bunları büyütür. Mutlak bir bütçe
 değil, *"bir şey takıldı mı"* sorusuna kaba bir cevaptır.
+
+---
+
+## Gözlemlenebilirlik — M8-03
+
+> **Bu bölümün her sayısı bu kümede ölçüldü (2026-08-19, salt okuma), ve ölçülemeyen
+> her şey satırında `DOĞRULANAMADI` diye işaretli.** Ölçüm komutları satırların
+> yanında; hiçbiri kümeyi değiştirmez.
+
+### Log nereden çıkar, nereye gider
+
+| Katman | Ne | Ölçüm |
+|---|---|---|
+| Süreç | `log/slog`, stdout | `TAPPA_LOG_FORMAT` — `text` (varsayılan) veya `json`; ConfigMap prod'da `json` verir |
+| Node | kubelet, `/var/log/pods/<ns>_<pod>_<uid>/<container>/*.log` | `kubectl logs` bunu okur; yol, otel ajanının `varlog -> /var/log` hostPath'i ve `include: /var/log/pods/*/*/*.log` globuyla doğrulandı |
+| Toplayıcı | **SigNoz otel ajanı bu log'ları TOPLUYOR** | `kubectl -n signoz get ds k8s-infra-otel-agent`; `filelog/k8s` alıcısının `exclude` listesi `tappa` namespace'ini **saymıyor** |
+| Depo | ClickHouse, **aynı node** | ajanın dışa aktarıcısı `http://signoz-otel-collector.signoz.svc.cluster.local:4318` — küme içi, dışarı çıkış yok |
+
+**Yani prod log'unun İKİ kopyası var** ve ikisi de aynı fiziksel makinede.
+
+🔴 **VE TOPLAYICIYA GİDEN ŞEY BİR SÜREÇ DEĞİL, ÜÇ KONTEYNERDİR — bu tablo bir tur
+boyunca yalnız uygulamayı sayıyordu.** Ajanın `filelog` globu
+`/var/log/pods/*/*/*.log`'dur, yani namespace'teki **her** konteyner. Ölçüldü
+(2026-08-19, salt okuma):
+
+| Konteyner | Satır | İçinde ne var |
+|---|---|---|
+| `tappa` (uygulama) | 3 | `log/slog`, yukarıdaki tablonun konusu |
+| `tappa-postgres-0` → `postgres` | 92 | 4'ü `ERROR`/`STATEMENT`. 🔴 **Postgres bir hata satırında İFADENİN METNİNİ basar**, ve tap insert'i `gps_lat`/`gps_lng` taşır |
+| `tappa-migrate-*` → `goose` | 1 | migration çıktısı |
+
+⚠️ **BU BUGÜN BİR SIZINTI DEĞİL, SAYILMAMIŞ BİR KAPSAM.** Ölçüldü: bugünkü
+postgres log'unda `gps_lat`/`gps_lng` geçen satır sayısı **0** — çünkü henüz
+gerçek tap yok ve `log_statement=none` / `log_min_duration_statement=-1`
+ayarları yürürlükte (KEK bölümündeki ön koşul bunu zaten kontrol ediyor). Ama
+**§4.7'nin mekanizması buraya uzanmıyor**: `scripts/redline-check.sh` Go kaynağını
+tarar, `geo.Point.LogValue` Go tipini kapatır; ikisi de Postgres'in kendi hata
+satırına dokunamaz. Yani başarısız bir tap insert'i, veritabanı ayarları
+değişirse, koordinatı **uygulamanın hiç görmediği bir yoldan** aynı toplayıcıya
+yazabilir. **Kapatmak bu kartın işi değil — sayılıyor, susulmuyor** (M8-04
+kapsamı; `log_statement`/`log_min_duration_statement`'ın manifestle sabitlenmesi
+ve pilot öncesi doğrulanması).
+
+```bash
+# node ve bölge
+kubectl get nodes -o wide
+# -> k8s-1.fsn1.private  Ready  control-plane  v1.35.4+k3s1  10.0.0.10  Ubuntu 24.04.4
+# ⚠️ topology.kubernetes.io/region ETİKETİ YOK (ölçüldü: boş). Bölge kanıtı
+#    node ADI (fsn1 = Hetzner Falkenstein, Almanya) ve M8-02 kartında kaydedilen
+#    144.76.158.60 adresidir — bir etiket değil.
+kubectl get nodes -o jsonpath='{.items[0].metadata.labels}'
+
+# toplayıcı gerçekten bizi okuyor mu
+kubectl -n signoz get cm k8s-infra-otel-agent -o jsonpath='{.data.otel-agent-config\.yaml}' \
+  | grep -A 20 'filelog'
+kubectl -n signoz get ds k8s-infra-otel-agent \
+  -o jsonpath='{range .spec.template.spec.containers[*].env[*]}{.name}{"="}{.value}{"\n"}{end}' \
+  | grep OTLP
+```
+
+**AB kriteri:** node **fsn1 (Falkenstein, Almanya)**, toplayıcı ve ClickHouse
+**aynı node**. Log AB'den çıkmıyor. ✅
+
+### 🔴 SAKLAMA SÜRESİ — ÖLÇÜLDÜ, VE BUGÜN BİR SÜRE DEĞİL, BİR BOYUT
+
+```bash
+kubectl get --raw "/api/v1/nodes/k8s-1.fsn1.private/proxy/configz" | tr ',' '\n' \
+  | grep -i containerLog
+# -> "containerLogMaxSize":"10Mi"
+#    "containerLogMaxFiles":5
+#    "containerLogMaxWorkers":1
+#    "containerLogMonitorInterval":"10s"
+```
+
+**Node kopyası: konteyner başına 10 MiB × 5 dosya = 50 MiB, sonra en eskisi silinir.**
+Bu bir **boyut** sınırıdır; hiçbir katmanda **zaman** sınırı yoktur.
+
+Bugünkü hacimle bu ne demek:
+
+```bash
+kubectl -n tappa logs $(kubectl -n tappa get pod -l app.kubernetes.io/component=server \
+  -o jsonpath='{.items[0].metadata.name}') | wc -lc
+# ⚠️ BURAYA BEKLENEN BİR ÇIKTI YAZILMIYOR, BİLEREK. Bu sayı pod her yeniden
+#    başladığında sıfırlanır ve pod yaşıyla birlikte büyür; bir tur onu
+#    "3 satır, 489 bayt" diye dondurdu, sonraki ölçüm 4 satır / 557 bayt verdi.
+#    Yapıştırıp kendi çıktını oku; karşılaştırılacak bir referans YOK.
+```
+
+🔴 **VE BU ÖLÇÜM SEVK EDİLEN İKİLİYE AİT DEĞİL — bir tur boyunca öyleymiş gibi
+okundu.** Kümede duran pod `sha-97537336af03` imajını koşuyor, yani **M8-03
+öncesi** ikiliyi; ölçüldü: o pod'un log'unda `http.request` kaydı sayısı **0**.
+Yani 489 bayt, **erişim kaydı olmayan** bir sürümün rakamıdır ve bu koddaki hacim
+hakkında hiçbir şey söylemez. Bir tur *"489 bayt / 19 saat hızında 50 MiB asla
+dolmaz, fiilî saklama süresi sınırsıza yakındır"* yazdı; **o cümle yanlıştı.**
+
+**Doğru hesap, ölçülmüş parçalarla:**
+
+| Ne | Değer | Nasıl ölçüldü |
+|---|---|---|
+| Bir `http.request` kaydının boyutu | **195–200 bayt** (JSON, üretim şeklinde bir `request_id` ile 200) | `internal/httpx` içinde gerçek `slog.JSONHandler` çıktısı sayıldı |
+| 50 MiB kaç kayıt alır | **≈ 262.000 yanıt** | 52.428.800 / 200 |
+| Sağlık sondalarının katkısı | 🔴 **0** (kararlı durumda) | Sondalar tasarlandığı gibi cevap verirken kayıt yazılmıyor — üstteki bölüm |
+| …düzeltmeden ÖNCE olsaydı | 25.920 istek/gün × 197 B = **5,1 MB/gün** → 50 MiB **≈ 10,3 günde** dolardı, ve bu hacmin **~%100'ü sonda** olurdu | `deploy/k8s/20-app.yaml`: `/readyz` 5 sn, `/healthz` 10 sn |
+| Gerçek pilot hacmi | **DOĞRULANAMADI** | Bir tap'ın kaç HTTP yanıtı ürettiği (sayfa + statik varlıklar + `POST /api/checkin`) tarayıcıya bağlıdır ve bu turda ölçülmedi |
+
+**Yani "sınırsıza yakın" bir süre değil, bir SAYIMDIR:** node kopyası
+konteyner başına ~262.000 erişim kaydından sonra en eskisini atar. Sonda trafiği
+artık o sayacı ilerletmiyor; ilerleten şey **gerçek kullanıcı trafiğidir** ve
+onun hızı pilot başlayana kadar bilinmiyor. **Bir sayıyı buraya dondurmak yerine
+ölçüm komutu yazılıyor** — pilot açıldıktan sonra koş:
+
+```bash
+# Erişim kaydı hizi: iki olcum arasindaki fark / gecen sure.
+# (Once bir kez, 10 dakika sonra bir kez; ikisinin farki gunluk hizi verir.)
+POD=$(kubectl -n tappa get pod -l app.kubernetes.io/component=server \
+  -o jsonpath='{.items[0].metadata.name}')
+kubectl -n tappa logs "$POD" | wc -lc
+kubectl -n tappa logs "$POD" | grep -c http.request
+# 50 MiB / (kayit boyutu) = kac yanit sigar; hiz x gun = ne zaman dolar.
+```
+
+Ve GDPR açısından önemli olan yarı bu **değil**, şu: log satırları IP ve çalışan
+id'si taşır (§4.2, §4.7), Q13'ün silme akışı `employees` üzerinde bir UPDATE'tir
+ve **log'a hiç ulaşmaz** — dolayısıyla saklama süresi ne kadar uzunsa o kadar
+kötüdür, ne kadar bilinmezse o kadar kötüdür.
+
+⚠️ **VE BU SINIRSIZLIK YANILTICI, ÇÜNKÜ İKİNCİ BİR SİLİCİ VAR: DEPLOY.** Pod
+silindiğinde kubelet `/var/log/pods/<uid>` dizinini kaldırır, yani her rollout
+öncekinin log'unu atar. Ölçüldü:
+
+```bash
+kubectl -n tappa get rs        # 7 ReplicaSet = 7 rollout
+kubectl -n tappa get pods -o name
+# -> pod/tappa-6fd5489dcb-q5b4l      <- UYGULAMA: bundan YALNIZ BİRİ var
+#    pod/tappa-migrate-rq76l          (tamamlanmış Job)
+#    pod/tappa-postgres-0             (StatefulSet)
+# ⚠️ ÇIKTI ÜÇ SATIR. Bir tur burada "(YALNIZ BİRİ)" yazıp tek satır gösteriyordu;
+#    "yalnız biri" olan şey UYGULAMA POD SATIRIDIR, komutun çıktısı değil. Diğer
+#    ikisi aşağıdaki §4.7 kapsam notunun konusu.
+```
+
+**Son yedi deploy'un altısının log'u node'da yok.** Yani node kopyası için gerçek
+saklama süresi *"50 MiB dolana kadar"* değil, **"bir sonraki deploy'a kadar"**dır —
+ki bu bugün ~günlerdir. İki sınırın **küçüğü** geçerlidir.
+
+### Politika — ve neyin operatör eylemi olduğu
+
+1. **Node kopyası: 50 MiB / konteyner, üst sınır bir sonraki deploy.** Bugünkü
+   ayar budur ve **manifestle sabitlenemez** — `containerLogMaxSize` /
+   `containerLogMaxFiles` **kubelet** ayarlarıdır, pod'un değil. Değiştirmek
+   **operatör eylemi**dir:
+   **OPERATÖR EYLEMİ — `log-retention-kubelet`:** `/etc/systemd/system/k3s.service`
+   içindeki k3s server satırına
+   `--kubelet-arg=container-log-max-size=10Mi --kubelet-arg=container-log-max-files=5`
+   (veya istenen değerler) eklenir, `systemctl daemon-reload && systemctl restart k3s`.
+   ⚠️ Bu **node'daki her namespace'i** etkiler; Tappa'ya özel değildir.
+2. **Toplayıcı kopyası (SigNoz/ClickHouse): saklama süresi DOĞRULANAMADI.** SigNoz'un
+   TTL'i ClickHouse'ta durur ve okumak için ya ClickHouse'a `exec` ya SigNoz API'si
+   gerekir; bu turda **yalnız `get`/`describe`/`logs`/`--raw` kullanıldı**, ikisi de
+   yapılmadı. **Varsayılana güvenilmedi ve buraya bir sayı yazılmadı.**
+   **OPERATÖR EYLEMİ — `log-retention-signoz`:** SigNoz arayüzünde
+   *Settings → Retention* açılır, **logs** için bir süre okunur/ayarlanır ve **bu
+   satıra yazılır**. Sahibi: kümeyi işleten operatör (Tappa değil — SigNoz kurulumu
+   başka bir ürünün altyapısı ve `tappa` namespace'i ona **rıza vermeden** dahil
+   edilmiş durumda).
+3. **🔴 M8-06 PİLOT KAPISI.** Yukarıdaki 2. madde kapanmadan gerçek çalışan tap
+   atmamalı: Tappa'nın kendi kayıtları için `TAPPA_RETENTION_YEARS` bir beyan taşıyor
+   (Q13), ama **log'lar o beyanın kapsamında değil** ve bugün süreleri bilinmiyor.
+   Bilinmeyen bir saklama süresi, GDPR Art. 13 metninde verilen sayıyı yalanlayabilir.
+
+### 🔴 M8-03 — UYARI KURALLARI
+
+> **TESLİMAT KANALI YOK, VE BU DÜRÜSTÇE YAZILIYOR.** Bu kurallar bugün bir yere
+> **gönderilmiyor**: uyarının **nereye gideceği** `Q28 (a)`'da açık, ve SigNoz'un
+> uyarı kurulumu bu repodaki bir dosyaya değil, o kümedeki başka bir ürünün
+> konfigürasyonuna bağlı.
+> **Sevk edilen şey şudur: altı sinyalin altısı da log'dan HESAPLANABİLİR, alan adları
+> testle pinlenmiştir, ve eşikler yazılıdır.** Kuralı bir hedefe bağlamak
+> operatörün işi ve aşağıdaki sorgular olduğu gibi yapıştırılabilir.
+>
+> **Sahibi:** kümeyi işleten operatör. **Neye bağlı:** `Q28 (a)` — uyarı hedefi
+> (**teslimat**) · `Q28 (b)` — log saklama süresi (**saklama**; bir uyarıyı
+> araştırmak için log'un hâlâ orada olması gerekir) · operatör eylemi
+> `log-retention-signoz` (SigNoz'un logları gerçekten tuttuğu süre, `Q28 (b)`'nin
+> ölçülmemiş yarısı).
+>
+> ⚠️ **BURADA BİR TUR BOYUNCA `Q12` YAZIYORDU VE ÜÇ YERDE YANLIŞTI.** `Q12`
+> ***barındırma*** sorusudur (VPS sağlayıcı, managed Postgres, AB bölgesi, yedek
+> politikası); `open-questions.md`'de *"uyarı"*, *"alarm"*, *"bildirim"* geçen tek
+> satır yoktu — yani atıf, **var olmayan bir kararı** devrediyordu. Soru M8-03'ün
+> 2. tur denetiminde açıldı: **`Q28` — uyarı hedefi ve log saklama süresi.**
+> ⚠️ `Q12` **saklama tarafında hâlâ kısmen ilgili**, ama sahibi değil: barındırma
+> kararı log'ların **fiziksel olarak nerede durduğunu** belirler (bugün k3s node'u +
+> aynı node'daki SigNoz), `Q28 (b)` ise **ne kadar** durduklarını. Sağlayıcı
+> değişirse node kopyasının rotasyon ayarı ve toplayıcının varlığı **birlikte**
+> değişir — bu yüzden ikisi de anılıyor, ve karıştırılmıyor.
+>
+> ⚠️ **BU KURALLARIN HEPSİ `TAPPA_LOG_FORMAT=json` VARSAYAR.** `text` ile gövde
+> toplayıcıya **tek bir opak dize** olarak varır — ajanın `filelog` alıcısı yalnız
+> `container` operatörünü koşuyor, logfmt ayrıştırıcısı **yok** (ölçüldü). O
+> durumda aşağıdaki alan filtreleri **hiçbir satırla eşleşmez**, ki bu ekranda
+> *"hiç reject yok, hiç 5xx yok"* diye görünür — sessiz ölüm.
+
+**Altı sinyal**, dört olaydan hesaplanır (aşağıdaki tablo altı satırdır; bir tur
+boyunca burada *"beş"* yazıyordu ve 6. kural eklendikten sonra belge kendisiyle
+çelişiyordu):
+
+| # | Sinyal | Olay (`msg`) | Filtre | Eşik / pencere | Ne anlama gelir | İlk bakılacak yer |
+|---|---|---|---|---|---|---|
+| 1 | **`reject` oranı sıçraması** | `tap.decision` | `verdict = "reject"` | 15 dk'lık pencerede `reject` / toplam **> %10** **ve** en az 5 reject | Ya bir plaket `lost`/`retired`/`unassigned` (§5 satır 1), ya SUN doğrulaması düşüyor (satır 2), ya bir hesap deaktive (satır 4). Üçü de farklı arıza. | `matched_sid` alanı hangi satır olduğunu söyler — `sys:tag-not-active`, `sys:sun-invalid`, `sys:employee-deactivated` |
+| 2 | **`flag` kuyruğu birikmesi** | `tap.decision` | `verdict = "flag"` | 60 dk'lık pencerede **> 20** flag, **veya** aynı `matched_sid` ile **> 10** | Kanıt yetersiz kalıyor ve §4.6 gereği kayıtlar müdür kuyruğuna düşüyor. En sık sebebi bir lokasyonun statik IP'sinin değişmesi. | `matched_sid`; sonra panelin onay kuyruğu ve `locations.static_ips` |
+| 3 | **güvenlik olayı — İKİ AYRI SEBEP** | `tap.security_alert` | olayın kendisi | **≥ 1** olay = uyarı. Pencere yok. | 🔴 **Bu olay İKİ yoldan doğar ve ikisi farklı işler.** (a) §5 satır 4 — canlı bir oturum, **kapatılmış bir hesapla** plakete dokundu (`matched_sid = sys:employee-deactivated`): ya ayrılan biri telefonunu kullanıyor, ya bir oturum çalınmış. (b) §5 satır 1 — **kayıp bildirilen bir plakete** dokunuldu (`matched_sid = sys:tag-not-active`, tag durumu `lost`): plaket duvardan sökülmüş ya da kopyalanmaya çalışılıyor. ⚠️ `retired` ve `unassigned` **uyarı üretmez** — o ikisi rutin yaşam döngüsü. | **Önce `matched_sid`'e bak, hangi yol olduğunu O söyler.** (a) için `employee_id`; (b) için `tag_uid` ve `plaques` ekranındaki plaket geçmişi. Her iki durumda `audit_log`'da aynı adla kanıt satırı var (`tap.security_alert`) |
+| 4 | **şüpheli `ctr` sıçraması** | `tap.decision` | `ctr_gap > 10` | tek olay bile bakılmaya değer; **> 50** acil | Çip, sunucunun görmediği kadar okundu — URL biriktirmenin (A1) tek gözlemlenebilir izi (Q21). | `tag_uid` yok bu olayda: `matched_sid = base:ctr-gap-review` ile `transactions` satırını bul |
+| 5 | **5xx oranı** | `http.request` | `level = "ERROR"` (yani `status >= 500`) | 5 dk'lık pencerede **> 5** olay **veya** toplam isteğin **%1**'i | Sunucu bozuk. Panik `middleware.Recoverer` tarafından 500'e çevrilir ve **bu olayda görünür**. 🔴 **Sağlık sondaları bu olayın DIŞINDADIR** — aşağıdaki bloğa bak; `/readyz`'in 503'ü tasarımdır ve bu kuralı ateşlemez, ama `/readyz`'den gelen bir **500** ateşler. | `route` + `request_id`; aynı `request_id` ile o isteğin diğer satırları |
+| 6 | **hazırlık kaybı** | `readiness.lost` | olayın kendisi | **≥ 1** olay = uyarı. Pencere yok. Kapanışı `readiness.regained`'dir. | Veritabanı cevap vermiyor, `/readyz` 503 dönüyor ve pod rotasyondan düşüyor (M8-01). 🔴 **M8-03 4. TUR: kayıt artık sürücünün METNİNİ taşımıyor.** Bir tur boyunca taşıyordu ve bu, `health.go`'nun aynı metni kimliksiz bir HTTP çağıranından esirgeme gerekçesiyle çelişiyordu (rol · veritabanı · host · port · TLS duruşu — ölçüldü; **parola yok**). Yerine iki alan geçti: `err_class` **kapalı kümedir** (`server` · `timeout` · `canceled` · `dns` · `dial` · `other`) ve `err_cause` adres taşımayan en özgül sebeptir — `server` için **SQLSTATE** (yanlış parola `28P01`, olmayan veritabanı `3D000`), `dial` için çağrının kendi kelimesi (`connect: connection refused`), `dns` için `no such host`. **Kaybedilen:** sürücünün cümlesi; `other` sınıfı sebep taşımaz. | `err_class`, sonra `err_cause`; ardından bölüm 1'deki `connection refused` ve bölüm 5'teki DNS akışı |
+
+**Yapıştırılabilir SigNoz/ClickHouse tarzı filtreler** (alan adları koddaki
+sabitlerdir ve `TestObservability_AlertSignalNames` ikisinin aynı kaldığını
+denetler; **filtrelerde geçen her `sys:`/`base:` adının `internal/policy`'de
+gerçekten var olduğunu** `TestObservability_EverySidInTheAlertRulesExists`
+denetler — aşağıdaki nota bak):
+
+```
+# 1 — reject oranı
+body.msg = "tap.decision" AND body.verdict = "reject"
+
+# 2 — flag kuyruğu
+body.msg = "tap.decision" AND body.verdict = "flag"      # group by body.matched_sid
+
+# 3 — guvenlik olayi (tek satir bile uyaridir) — sebebi matched_sid soyler
+body.msg = "tap.security_alert"
+
+# 4 — ctr sicramasi
+body.msg = "tap.decision" AND body.ctr_gap > 10
+
+# 5 — 5xx (saglik sondalari zaten bu olayin disinda)
+body.msg = "http.request" AND body.status >= 500          # group by body.route
+
+# 6 — hazirlik kaybi
+body.msg = "readiness.lost"
+```
+
+> 🔴 **BU TABLODA BİR ZAMANLAR OLMAYAN BİR SID YAZIYORDU, VE ONU KURALI YAZAN TUR
+> YAZDI.** 1. satırın *"İlk bakılacak yer"* sütunu operatöre, sonu `tag-lost` olan
+> `sys:` önekli bir `matched_sid` değerini yapıştırmasını söylüyordu. Ölçüldü: o ad
+> ağaçta **hiç yok** — tek isabeti bu dosyanın kendi satırıydı. Gerçeği
+> `sys:tag-not-active`; migration 00013 dördüncü bir plaket durumu (`unassigned`)
+> ekleyince guardrail kara listeden **izin listesine** çevrildi ve adı değişti
+> (`internal/policy/guardrails.go`). Yapıştırılan filtre **sıfır satır** dönerdi —
+> yani bu bölümün kendi açılış cümlesinde tarif edilen arıza, tam da uyarı
+> tablosunun içinde.
+>
+> **Düzeltmek yetmedi, mekanizma kondu.** `TestObservability_EverySidInTheAlertRulesExists`
+> bu bölümde geçen **her** `sys:`/`base:` adını çıkarır ve `internal/policy`'nin
+> **string sabitlerinde** (yorumlarında değil) aramak zorundadır; bulamazsa derleme
+> kırmızıya döner. ⚠️ **Sayılmış iki sınır:** (i) kapsam **bu bölümdür**, dosyanın
+> tamamı değil — sınır **23** bu belgedeki atıfların denetlenmediğini sayarken
+> kanıt olarak **kasıtlı bir uydurma politika adı** tutuyor ve onu muaf tutmak,
+> çürüyen bir muafiyet listesi başlatırdı; (ii) test sid'in **var olduğunu**
+> kanıtlar, **doğru sid olduğunu** değil — 2. kurala başka bir gerçek sid yazılsa
+> geçerdi. Yanlış-ama-gerçek bir sid bir gözden geçirme sorunudur; olmayan bir sid
+> **sessiz** bir sorundur, ve kapanan ikincisidir.
+>
+> ⚠️ **VE BU TESTİN KENDİ KAPSAMI BU NOTU DA İÇERİR** — yani bu paragrafa örnek
+> olsun diye gerçek olmayan bir sid yazılamaz. Kasıtlıdır: kural ne kadar dar
+> olursa, istisnası o kadar az olur.
+
+### 🔴 SAĞLIK SONDALARI `http.request` KAYDININ DIŞINDADIR — ve neden
+
+**Bu kararın üç ayrı ölçümü var, üçü de M8-03'ün 1. turuna karşı alındı (2026-08-19).**
+O turda `AccessLog` her yanıtı yazıyordu, sondalar dahil. Yanlıştı:
+
+1. **Canlılık, log hedefine bağlandı.** `Handle`'ı 2 sn uyutan bir `slog.Handler`
+   ile `GET /healthz` **2,001 sn**'de 200 döndü. Üretimde `os.Stdout` bir konteyner
+   log borusudur; node onu boşaltamazsa yazma **bloklar**, `livenessProbe`
+   (`timeoutSeconds: 2`, `failureThreshold: 3`) düşer ve kubelet **sağlıklı bir
+   süreci öldürür.** Bu, `TestHealthz_CannotDependOnAnything`'in adını taşıdığı
+   arızanın gözlemlenebilirlik kartı eliyle geri getirilmesiydi. Düzeltmeden sonra
+   aynı sonda log hedefine **hiç dokunmuyor**: 2 sn takılan bir hedefe karşı 21
+   ardışık istekte **0,23–0,82 ms** ölçüldü.
+   ⚠️ **Buraya TEK bir sayı DONDURULMUYOR, ve bu ölçülmüş bir sürüklenmenin
+   düzeltmesidir:** aynı olgu için bu satır **1,1 ms**, `internal/httpx/requestlog.go`
+   **0,6 ms**, bağımsız bir üçüncü ölçüm **0,711 ms** yazıyordu — bir olgu, üç sayı,
+   çünkü bir geliştirici makinesindeki duvar saati gecikmesi sabit değildir. Duran
+   kanıt bir sayı değil, `TestHealthz_AnswersWhileTheLogTargetIsUnavailable`
+   testidir: karşılaştırmayı (cevap süresi < 2 sn takılma) her koşuda yeniden hesaplar.
+2. **`/readyz`'in TASARLANMIŞ 503'ü "sunucu bozuk" kuralını ateşliyordu.**
+   `status >= 500` → `level=ERROR`, ve 5. kural budur. kubelet `/readyz`'i **5
+   sn'de bir** yokluyor → geçici bir DB dalgalanması **5 dakikada 60 ERROR**
+   üretiyordu, eşik **5**: alarm ~**25 saniyede** çalıyor ve yanlış sebebi
+   söylüyordu.
+3. **Hacim.** Günde 17.280 `/readyz` + 8.640 `/healthz` = **25.920 istek**, kayıt
+   başına ölçülen ~197 bayt → **~5,1 MB/gün**, ve bu **sıfır kullanıcı
+   trafiğiyle**. Yani log'un neredeyse tamamı sonda olurdu.
+
+**Bugünkü davranış:** bir sonda **tasarlandığı gibi** cevap veriyorsa kayıt
+**yazılmaz** — `/healthz` → 200, `/readyz` → 200 **ve** `/readyz` → 503. Bunun
+dışındaki her durum **normal şekilde** kaydedilir; `/readyz`'den gelen bir **500**
+(örneğin handler'ın paniklemesi) `level=ERROR` ile 5. kurala düşer. Tablo
+`internal/httpx/requestlog.go` içinde (`probeDesignedStatus`) ve
+`TestAccessLog_AHealthyProbeIsNotAnEvent` ile
+`TestAccessLog_AnUndesignedProbeStatusIsStillRecorded` iki yarıyı da tutar.
+
+🔴 **VE GERÇEK BİR HAZIRLIK ARIZASI GÖRÜNÜR KALIR — kayıt kaybolmuyor, YERİ
+DEĞİŞİYOR (§4.6).** Uç noktanın **kendi sahibi** olan `internal/handler.Health`
+durum değişimini zaten yazıyor: `readiness.lost` ve `readiness.regained`,
+**geçiş başına bir kayıt**, sürücünün hatasının **sınıflandırılmış** hâliyle
+birlikte (`err_class` + `err_cause`; ham metin M8-03 4. turda çıkarıldı — 6.
+kuralın satırı sebebini yazıyor). Bu, yerini aldığı
+erişim kaydından **iki bakımdan daha iyi ve bir bakımdan daha dardır** — üçü de
+yazılı, çünkü tek yönlü bir "daha iyi" bir takası gizler. **Daha iyi:** dakikada
+12 satır yerine olay başına 1 satır, ve yanıt gövdesinin bilinçli olarak
+söylemediği sebep (başlangıç **ve** bitiş kaydı var). **Daha dar:** sinyal olayın
+**başladığı ana** bağlıdır, süresine değil — devam eden bir arıza, başlangıcı
+sorgu penceresinin dışında kaldıysa **hiç görünmez**, ve o tek satır rotasyonla
+düşerse sinyal tümüyle kaybolur. Tam muhasebe **sınır 28**'de. 6. kural onu okur,
+eşik **1**. Aynı yolu iki ağla kapatmamak
+bu repoda zaten yazılı bir ilkedir (`scripts/redline-check.sh` → R7c).
+
+`/healthz` için kayıp yok, çünkü kaydedilecek bir şey yok: HTTP'ye cevap
+veremeyen bir süreç log da yazamaz. O arızayı kubelet bildirir.
+
+⚠️ **1. VE 4. SİNYAL SESSİZCE `TAPPA_LOG_LEVEL`'A BAĞLIDIR.**
+`internal/domain/checkin.decisionLevel` `ok` ve `ignored` kararlarını **INFO**,
+yalnız `reject`/`flag`'i WARN yazar. 1. sinyal bir **orandır** ve paydası INFO'da
+durur; 4. sinyalin `ctr_gap`'i çoğunlukla `ok` tap'larda taşınır. `warn`'a
+çekilirse **payda çöker (oran sonsuza dek %100 görünür)** ve **`ctr_gap` sinyali
+tamamen kaybolur** — ikisi de ekranda "sakin ve sağlıklı" diye okunur. `format`
+için kapalı küme testi vardı, **seviye için yoktu**; artık
+`TestObservability_TheShippedLogLevelAdmitsTheSignals` sevk edilen ConfigMap
+değerini okuyup INFO'yu kabul ettiğini doğruluyor. Seviye bir **geri düşüştür**
+(yazım hatası sessizce `info` demektir), yani kasıtlı bir `warn`'ı yakalayan tek
+şey budur.
+
+**Korelasyon:** her satır `request_id` taşır — **eğer** o satır bir `*Context`
+çağrısından geldiyse. M8-03 tap karar zincirini (`internal/handler/tap.go`,
+`internal/handler/checkin.go`, `internal/domain/checkin`) ve HTTP sınırını
+dönüştürdü; **ağacın geri kalanı dönüştürülmedi** (backlog T51: yalnız
+`internal/handler`'da 224 çağrı yeri, paket çapında bir dönüşüm). Bir satırda
+`request_id` yoksa bu bir arıza değil, **hiç ulaşılamamış** demektir; o satır
+`http.request` kaydına zamanla ve `route` ile bağlanır.
+
+⚠️ Bir logger `WithGroup(...)` ile türetilirse `request_id` o grubun **içine**
+düşer ve yukarıdaki üst-seviye filtre onu **bulamaz**. Bugün repoda `WithGroup`
+çağıran hiçbir yer yok (ölçüldü) ve
+`TestWithRequestID_WithGroupNestsTheID` bunu ilk ekleyene söyler.
+
+🔴 **`request_id` GELEN `X-Request-Id` BAŞLIĞINDAN GELEBİLİR — VE M8-03 4. TURA
+KADAR SINIRSIZDI.** chi'nin `middleware.RequestID`'si gelen başlığı **olduğu gibi**
+kullanıyordu; bu kart o alanı **her erişim kaydına** bağlayınca kimliksiz bir
+yazma kanalı açıldı. Ölçüldü (gerçek dinleyici, üretim router'ı, üretim şeklinde
+sarmalanmış `slog.JSONHandler`):
+
+| sonda | önce | sonra |
+|---|---|---|
+| 900 KB'lik `X-Request-Id` + `GET /nope` | **921 757 bayt** tek kayıt | **183 bayt** |
+| aynısı, 30 istek (~0,2 sn) | **27 652 710 bayt** (26,4 MiB) | **5 490 bayt** |
+
+Saklama penceresi **10 MiB × 5 = 50 MiB**, yani ~57 istek pencereyi siliyordu —
+`tap.security_alert` ve **veritabanı kopyası olmayan** `readiness.lost` dahil.
+
+Yerine `internal/httpx.RequestID` geçti: gelen değer **kabul edilir ama
+sınırlanır** — karakter kümesi `[A-Za-z0-9._-]`, uzunluk tavanı
+**`httpx.MaxRequestIDLen` = 64**; uymayan değer **sessizce** kendi ürettiğimizle
+değiştirilir (istek reddedilmez — reddetmek log hijyenini bir erişilebilirlik
+kaldıracına çevirirdi). ⚠️ **Reddetmek yerine sınırlamak bilinçli:** ölçüldü ki
+ingress-nginx erişim kaydının **son alanı** `$req_id`'dir ve gelen değeri
+**aynen** yazıyor — yani nginx satırı, Tappa'nın §4.7 gereği **hiç yazmadığı**
+istemci adresiyle aynı satırda aynı id'yi taşıyor. Gelen başlığı büsbütün atmak,
+bir selin **tek** atfedilebilirlik kanalını yok ederdi.
+
+⚠️ **KALAN, SAYILMIŞ:** filtreden geçen bir id hâlâ **çağıranın seçtiğidir**;
+saldırgan kendi yol açtığı kayıtlara istediği (kısa, sade) değeri yazdırabilir ve
+bir operatörün filtrelediği id ile çakışabilir. Bu bir **rahatsızlık**, sel değil,
+ve nginx birleştirmesini korumanın bedelidir.
+
+🔴 **VE `MaxHeaderBytes` ARTIK AYARLI** (`httpx.MaxHeaderBytes` = **16 KiB**;
+Go'nun varsayılanı 1 MiB idi). Tek başına S1'i kapatmaz — 1 MiB'lik bir id yine
+1 MiB'lik satır demekti — ama kural yazılmamış **başka** başlık kanallarını da
+sınırlar. Ölçüldü: sevk edilen ingress bir başlık satırında ~**8 KB**'ı geçiriyor
+(8 000 → 404, 12 000 → HTTP/1.1'de 400, HTTP/2'de framing hatası), yani 16 KiB
+onun iki katı ve ürünün kendi en kötü hâlinin (çerez kavanozu; en uzun değer
+43 karakterlik token) çok üstünde. ⚠️ **Sınır:** bu tavanı aşan istek `net/http`
+tarafından **başlık ayrıştırma sırasında** 431 ile kesilir, yani **hiç erişim
+kaydı üretmez** (ölçüldü: 0 bayt). Tavanı zorlayan bir çağıran bu süreçte
+**görünmez**; isteğin adresi ingress log'unda kalır.
+
+### §4.7 — log'a asla düşmeyenler, ve bugün onları ne tutuyor
+
+| §4.7 sınıfı | Tip düzeyi (derlenmez / basılamaz) | Mekanik tarama |
+|---|---|---|
+| oturum token'ı | `session.Token`, `adminauth.Token`, `adminauth.ResetToken` → `LogValue`/`String`/`GoString`/`Format`/`MarshalText` | R7 (`token`) |
+| `token_hash` | — (dize/bayt) | R7 (`token`) |
+| CMAC | — | R7 (`cmac`) |
+| AES anahtarı | `sun.Zero` ile silinir; `internal/sun` hata metinleri yalnız uzunluk basar | R7 (`aes_?key`, `secret`) |
+| davet kodu | `invite.Code` → aynı beşli | R7 (`invite_?code`, `code[_a-z]*hash`) |
+| **tam GPS koordinatı** | **`geo.Point` ve `tenant.GPS` → aynı beşli** (`Format`/`String`/`GoString`/`LogValue`/`MarshalText`; M8-03'te eklendi, 4. turda **beşe tamamlandı**) | **R7c** (M8-03'te eklendi) |
+
+🔴 **GPS satırı M8-03'ten önce TAMAMEN BOŞTU** — ne tip düzeyi bir koruma, ne bir
+tarama kuralı vardı. Ölçüldü: bir log çağrısına `"latitude", 35.8997` eklemek
+`scripts/redline-check.sh`'i **exit 0** bırakıyordu.
+
+🔴 **VE İLK HALİ YALNIZ `LogValue` İDİ — TABLONUN "aynı beşli" DEDİĞİ ŞEY DEĞİL.**
+4. turda ölçüldü: `%v` · `%+v` · `%#v` · işaretçi üzerinde `%v` · `json.Marshal` ·
+**değerle bir struct alanının içinde** · `[]Point` · `map[string]Point` — sekizi de
+tam koordinatı basıyordu. İkisi **iki ağı birden** deliyordu (`fmt.Sprintf("%v",
+*fix)` ve struct-içinde-değerle), çünkü R7c bir eksen ADI arar ve ikisinde de yok.
+`Format` ikisini de kapatır. Kalan tek delik yazılı ve **testle sabitlendi**: başka
+bir struct'ın **dışa açık olmayan** alanındaki bir `Point`, `%v`/`%+v` altında hâlâ
+sızar — `fmt` orada `Formatter`'a hiç danışmaz. `session.Token`'ın çözümü (alanı
+`*string` yapmak) burada yok, çünkü `Lat`/`Lng` aritmetik girdidir.
+
+⚠️ **NE TUTMUYOR, SAYILMIŞ HALDE:** R7/R7b/R7c **metin** taramalarıdır. Üçünün de
+eşleşme penceresi **bir seviye** dengeli parantez taşır (R7 4. turda hizalandı);
+**iki seviye** iç içe parantezin arkasındaki bir tetikleyici hâlâ görünmez. Ara
+değişkene kopyalanmış bir değer üç kuralın üçünde de görünmez. **Gerçek çözüm tip
+düzeyi logger redaksiyonudur** (backlog T51, M8-04) ve bu ağlar onun **yerine
+geçmez**.
+
+🔴 **R7 GENİŞLETİLDİ (M8-03, 4. TUR) — VE ÖNCEKİ TURDA "YAPILMADI" DİYE
+YAZILMASI BİR HATAYDI.** R7 §4.7'nin **en sert beş sınıfını** taşıyor (oturum
+token'ı · `token_hash` · CMAC · AES anahtarı · davet kodu) ve R7b/R7c'ye ödenen
+bedelin **ikisini de** ödememişti: `-U` yoktu ve pencere ilk `)` karakterinde
+duruyordu. Bir güvenlik denetçisi beş sınıfın **beşini de** tek yazımla geçirdi —
+tetikleyiciyi `id.EmployeeID()` gibi bir çağrının **arkasına** koymak yetti, ki bu
+`internal/domain/checkin/checkin.go`'daki tap karar kaydının **bugünkü** yazımı.
+**Ölçek — ve YÖNTEMİYLE, çünkü sayının kendisi bir tur yanlış yazıldı.**
+*"Çok satırlı"* burada tek bir şey demek: bir logger çağrısının **açılış** parantezi
+ile **kapanış** parantezi farklı kaynak satırlarında. Ölçüm, bu reponun kendi tarama
+kapsamıyla aynı AST yürüyüşüdür (`_test.go` · `*_templ.go` · `internal/store/` dışarıda;
+alıcı adında *"log"* geçen `Info|Warn|Error|Debug|Log|*Context|LogAttrs` çağrıları —
+`cmd/tappa/observability_test.go`'nin kapsamı). **Kart öncesi ağaçta 346 çağrı yerinin
+137'si** çok satırlı, yani argümanları R7'ye **tanımı gereği** görünmezdi. (Kart
+sonrası ağaçta **349'un 141'i**.)
+⚠️ **[GERİ ÇEKİLDİ — bu cümle bir tur boyunca **131** dedi ve yöntemini yazmadı.]**
+Yöntem yazılmadığı için sayı *"yanlış"* değil **yeniden üretilemez**di; 5. turda beş
+makul tanım denendi ve **hiçbiri 131 vermiyor**: paren aralığı **137** · düğüm aralığı
+**137** · yalnız `internal/` **135** · alıcısı `log`/`slog`/`fmt` olanlar **137** ·
+ilk argümanı alt satırda olanlar **0**. Yazılan sayı **137**'dir ve yöntemi yukarıda.
+
+Ölçülen bedel (2026-08-19, `SRC`/`GEN_EXCLUDE` aynı):
+
+| R7'ye ne uygulanırsa | Yanlış pozitif | Hangileri |
+|---|---|---|
+| eski hali (dar pencere, `-U` yok) | **0** | — ama beş sınıfın beşi de kaçıyordu |
+| yalnız **`-U`** | **2** | `test/fixtures/seedkeys/main.go`'nun seed `UPDATE`'ini yazan `fmt.Fprintf` bölgesi · `internal/domain/signup/signup.go`'nun `MinPasswordRunes`'u biçimleyen `errs.add("password", …)` bölgesi |
+| **`-U` + dengeli parantez penceresi** (sevk edilen) | **3** | yukarıdakilere ek: `internal/adminauth/password.go`'nun `ErrPasswordTooLong`'u saran `fmt.Errorf` bölgesi |
+
+⚠️ **Bu tablo satır numarası TAŞIMIYOR, ve bu bilinçli.** Önceki hâli
+`seedkeys/main.go:132` diyordu; o satır bugün bir **yorum**, gerçek bölge
+`fmt.Fprintf` çağrısında. Bu dosyanın `deploy.yml` dersi aynen geçerli: **satır
+numarası yerine sembol/adım adı**. Muafiyetlerin bugünkü konumu her koşuda
+`scripts/redline-check.sh`'in kendi WARN çıktısında basılıyor — canlı kaynak orası,
+bu tablo değil.
+
+Üçü de **muaf edildi ve BİREBİR ADLA yazıldı** (`R7_WAIVERS`), toplu bir
+`--glob !` ile değil, ve **her koşuda WARN olarak basılır** — R1'in 2026-08-13'te
+öğrendiği kural. Muafiyet *"bu satırı görmezden gel"* değil: bir bölge ancak
+(1) yolu listelenmişse, (2) o girdinin **adı geçen** masum belirteçleri
+çıkarıldığında (3) geriye **hiçbir** tetikleyici kalmıyorsa muaftır — yani muaf
+dosyaya gerçek bir `token`/`cmac` eklenirse bölge yine FAIL üretir.
+
+| muafiyet | belirteç | neden yanlış pozitif |
+|---|---|---|
+| `test/fixtures/seedkeys/main.go` | `aes_key_ref` | bir **sütun adı**. Bölge `fmt.Fprintf(&b, ...)` ile bir string buffer'a **seed SQL'i** yazar; basılan değer `hex.EncodeToString(ref)`, yani KEK ile sarmalanmış **referans**, ham anahtar değil. Hedef log değil. |
+| `internal/adminauth/password.go` | `ErrPasswordTooLong` | bir **sentinel hata değişkeni**. `fmt.Errorf("%w (got %d bytes)", ErrPasswordTooLong, n)` — biçime giren tek şey sentinel ve bir **uzunluk**; parola `n`'e kasıtla hoisted edilmiş. |
+| `internal/domain/signup/signup.go` | `"password"`, `MinPasswordRunes` | biri **form alanı anahtarı** (hata haritasının anahtarı), diğeri bir **sabit int**. Eşleşen çağrı `fmt.Sprintf("Use at least %d characters...", MinPasswordRunes)`; `a.Password` bu çağrıya hiç girmiyor. |
+
+⚠️ **INVARYANT TESTİ `_test.go` DOSYALARINI GÖRMÜYOR, R7/R7b/R7c GÖRÜYOR — SAYILMIŞ
+SINIR.** `TestObservability_EveryLoggerCallSiteIsSpelledLog` yürüyüşü `_test.go`
+ile biten her dosyayı atlar; `scripts/redline-check.sh`'in `SRC` listesi ise
+`_test.go`'ları **kapsar** (`GEN_EXCLUDE` yalnız `*_templ.go` ve
+`internal/store/*.go` çıkarır). Sonuç: bir test dosyasına yazılan
+`a.logger.Error(..., r.PostFormValue(...))` **hem** üç metin kuralının **hem de**
+invaryantın kör noktasındadır. Kapatılmadı, çünkü kapatmak testlerdeki alıcı
+adlandırmasını bir kurala bağlamak demek ve bu kartın işi değil; **sınır olarak
+yazıldı**. ⚠️ Bir test dosyasındaki bir sızıntı üretime çıkmaz, ama gerçek bir
+kişisel veriyle koşan bir DB testi aynı süreç log'una yazar.
 
 ---
 
@@ -2675,9 +3167,191 @@ değil, *"bir şey takıldı mı"* sorusuna kaba bir cevaptır.
     örneklemek, testlerin yeşil olmasına güvenmekten daha bilgilendiricidir.
     ⚠️ **İkinci sıfır kapı, aynı sınıftan ve aynı şekilde sayılıyor:**
     `cmd/rotatekek/script_test.go` yapıştırılabilir blokların yorumlarını tarıyor ama
-    **tüm dosyayı değil, iki dilimi** okuyor ("KEK döndürme" ve "Plaket encode").
-    Ölçüldü: dosyada **45** yapıştırılabilir `bash` bloğu var; **13**'ü döndürme
-    diliminde, **0**'ı encode diliminde, kalan **32**'si taranmıyor ve o 32 blokta
-    **21 yorum satırı / 26 tehlike isabeti** var. Taramayı dosyanın tamamına açmak o
+    **tüm dosyayı değil, üç dilimi** okuyor ("KEK döndürme", "Plaket encode" ve
+    M8-03'te eklenen "Gözlemlenebilirlik").
+    Ölçüldü: dosyada **50** yapıştırılabilir `bash` bloğu var; **13**'ü döndürme
+    diliminde, **0**'ı encode diliminde, **5**'i gözlemlenebilirlik diliminde, kalan
+    **32**'si taranmıyor ve o 32 blokta **43 yorum satırı** var; bunların **21**'i
+    **26 tehlike isabeti** taşıyor. Taramayı dosyanın tamamına açmak o
     21 satırı **kırmızıya** çevirirdi — başka kartlara ait bir düzeltme işi; bu yüzden
     **kapatılmadı, sayıldı**. Kapatan tur, o 21 satırı düzelten turdur.
+    ⚠️ **BU SAYILAR CANLI — donduruldukları için ölçüm komutları yanlarında duruyor.**
+    2. turda **ikisi de yanlıştı**: toplam **45** yazıyordu, ölçüm **50** verdi
+    (M8-03 beş blok ekledi); ve *"kalan 32"* yazıyordu, oysa o an yalnız iki dilim
+    taranıyordu, yani taranmayan **37**'ydi. Bugün 32 **doğru**, çünkü üçüncü dilim
+    o beş bloğu kapsıyor — ama **aynı sayı, farklı sebeple**. Yanlış toplam tam
+    olarak üçüncü dilimin **hiç taranmadığını** gizliyordu; bu yüzden artık ölçümü
+    yeniden üretecek komut da burada:
+
+    ````bash
+    # toplam yapıştırılabilir blok
+    grep -c '^```bash' deploy/README.md
+    # dilim başına dağılım (satır sayısı, blok, tehlike) — testin kendi logu
+    go test ./cmd/rotatekek/ -run PasteableBlocks -v
+    ````
+
+24. **[log saklama süresi: node'da BOYUT, toplayıcıda BİLİNMİYOR]** — M8-03, ölçüldü.
+    ✅ **Bilinen:** node kopyası `containerLogMaxSize=10Mi` × `containerLogMaxFiles=5`
+    = konteyner başına **50 MiB**, ve her deploy öncekinin log'unu atar (7 ReplicaSet,
+    **1** pod). ❌ **Bilinmeyen:** SigNoz/ClickHouse kopyasının TTL'i — okumak `exec`
+    ya da SigNoz API'si ister, bu turda ikisi de yapılmadı. **Varsayılana güvenilmedi,
+    sayı yazılmadı.** Kapatan eylem `log-retention-signoz` (yukarıda) ve kararın
+    kendisi `Q28 (b)` — **saklama** yarısı. 🔴 **M8-06 pilot
+    kapısı:** log satırları IP ve çalışan id'si taşır ve Q13'ün silme akışı onlara
+    ulaşmaz, yani bilinmeyen bir süre GDPR Art. 13 metnindeki sayıyı yalanlayabilir.
+    ⚠️ `Q12` (barındırma) bu maddeye **dolaylı** bağlıdır: nerede barındığımız node
+    kopyasının rotasyon ayarını ve toplayıcının varlığını belirler. Ama *"ne kadar
+    saklanacak"* sorusu `Q28 (b)`'dir, `Q12` değil.
+25. **[uyarıların TESLİMAT KANALI yok]** — M8-03'ün üçüncü kriteri **hesaplanabilirlik**
+    olarak sevk edildi: **altı** sinyalin altısı da log'dan bir filtre ile çıkıyor, alan
+    adları `TestObservability_AlertSignalNames` ile, filtrelerdeki politika adları
+    `TestObservability_EverySidInTheAlertRulesExists` ile pinlendi, eşikler yazılı.
+    **Hiçbiri bir yere gönderilmiyor** — hedef `Q28 (a)`'da (**teslimat**) açık ve
+    kurulum bu repodaki bir dosyada değil. Sahibi: kümeyi işleten operatör.
+    ⚠️ Bu madde bir tur boyunca `Q12`'ye atıf veriyordu; `Q12` **barındırmadır** ve
+    uyarı hedefi hakkında hiçbir şey söylemez. Sorunun kendisi (`Q28`) o yanlış atıf
+    ölçülünce açıldı.
+26. **[request id korelasyonu TAP ZİNCİRİYLE SINIRLI]** — M8-03. `slog.Handler`
+    sarmalayıcısı yalnız `*Context` çağrılarını damgalayabilir.
+    🔴 **HANGİ AĞACIN SAYISI OLDUĞU HER SAYININ YANINDA YAZIYOR** — bir tur bu maddede
+    **346**, `internal/httpx/requestlog.go` içinde **347** yazdı ve aynı paragraf
+    `323 = 346 − 23` hesabını çelişkiye düştüğü sayıdan türetti. Yeniden ölçüldü (bu
+    reponun kendi tarama kurallarını taklit eden bir AST yürüyüşüyle;
+    `cmd/tappa/observability_test.go`):
+    **KART ÖNCESİ ağaç (kararın verildiği ağaç): 346** çağrı yeri — **51**'i `ctx`
+    taşıyan bir fonksiyonun içinde, **272**'si yalnız `*http.Request` taşıyanın,
+    **23**'ü hiçbirinin (başlangıç/arka plan satırları; **hiçbir şekilde** korele
+    edilemezler) · 46 dosya · **0** `*Context` çağrısı.
+    **KART SONRASI ağaç: 349** — **54** · **272** · **23** · 47 dosya · **32**
+    `*Context` çağrısı.
+    ⚠️ **BU İKİ SAYI 2. TURDA YANLIŞTI** (`53 · 273` yazıyordu) ve yanlışlığın yönü
+    tesadüf değildi: ağaç **3** çağrı yeri kazandı ve **üçü de** `ctx` taşıyan bir
+    fonksiyonun içinde. Üçü **adlarıyla** (satır numarasıyla değil; bu dosyanın
+    `deploy.yml` dersi): `internal/domain/checkin`'de `Service.Record`'un
+    `s.log.WarnContext(ctx, EventTapSecurityAlert, …)` satırı · yine `Service.Record`'un
+    `s.log.Log(ctx, decisionLevel(…), EventTapDecision, …)` satırı ·
+    `internal/httpx`'te `writeAccessRecord`'un `log.LogAttrs(ctx, …, EventHTTPRequest, …)`
+    satırı (her yanıt için bir `http.request` kaydı). Yalnız `*http.Request` taşıyan
+    kova **hiç değişemez** (o üç fonksiyonun hiçbiri o şekilde değil), yani doğru
+    hesap `51 + 3 = 54` ve `272` sabittir.
+    ⚠️ **5. TURDA DÜZELTİLDİ — bu üçü bir tur boyunca ÜÇ GEÇERSİZ SATIR NUMARASIYLA
+    (`checkin.go:800` · `:823` · `requestlog.go:301`) ve `Log` önce gelecek şekilde
+    yazılıydı; gerçek sıra kaynakta `WarnContext` → `Log`'dur.** Yani belge, tam
+    olarak **kaldırılmış** düzeni belgeliyordu. Satır numarası bu dosyada defalarca
+    bayatladı; artık sembol adı yazılıyor.
+    **`*Context` sonekli 32 çağrının dağılımı** — `internal/handler/tap.go` 9 ·
+    `internal/handler/checkin.go` 9 · `internal/domain/checkin/policyset.go` 8 ·
+    `internal/domain/checkin/checkin.go` 5 · `internal/handler/health.go` **1**.
+    Bunların **31'i var olan bir çağrının dönüştürülmesidir** (`Error` →
+    `ErrorContext` vb.: tap.go 9 · handler/checkin.go 9 · policyset.go 8 ·
+    domain/checkin.go 4 · health.go 1), **1'i yenidir** (`Service.Record`'un
+    `EventTapSecurityAlert` satırı). `31 + 1 = 32`.
+    ⚠️ **[GERİ ÇEKİLDİ — bu paragraf iki tur boyunca 33 dedi ve ikisinde de aynı
+    sebeple yanlıştı.]** Önceki metin *"dönüştürülen 32 + 1 erişim kaydı"* ile ölçülen
+    `*Context` sayısını eşitliyordu; 3. tur bunu *"tek bir 33"*e indirerek düzelttiğini
+    yazdı ama **aynı hatayı tekrarladı** — dökümü `internal/handler/health.go`'ya **2**
+    veriyordu, oysa o dosyadaki iki kayıttan biri `LogAttrs`'tır ve `LogAttrs`
+    `*Context` **değildir** (`EventReadinessLost`; `*Context` olan tek çağrı
+    `EventReadinessRegained`). Erişim kaydı da (`writeAccessRecord`) aynı sebeple
+    sayının dışındadır. Ölçüm (AST, `cmd/tappa/observability_test.go`'nin kapsamıyla):
+    **32**. Doğru sayı `31 + 1`'dir ve `LogAttrs` hiçbir yarıya girmez.
+    Geri kalanı backlog **T51**'in ölçtüğü paket çapında dönüşümdür
+    (`internal/handler`'da 224 çağrı yeri) ve bir kartın işi değildir.
+    `request_id` taşımayan bir satır bozuk değil, **erişilemez**.
+    ⚠️ Dönüştürülmeyen **bir** çağrı bilinçli: `policyset.go`'nun `OnAnomaly`
+    geri çağrısı `tap.Decide`'ın içinden çağrılıyor ve `tap.Decide` **saf**
+    (§5) — oraya bir `context.Context` sokmak ürünün karar çekirdeğinin imzasını
+    bir log satırı için değiştirmek olurdu.
+27. **[`slog.Default()` 43 yerde okunuyor — ve 20'si `cmd/tappa` DIŞINDA]** — M8-03,
+    yeniden sayıldı. `cmd/tappa/main.go`'daki sarmalama yorumu bir tur boyunca
+    *"aşağıdaki **44** `slog.Default()` okuması"* diyordu ve **her iki yarısı da
+    yanlıştı**: dosyada **23** gerçek okuma var ve **hepsi** `SetDefault` satırının
+    altında. ⚠️ Çıplak `grep -c 'slog\.Default()' cmd/tappa/main.go` bugün **27**
+    der; aradaki **4** satır **yorumdur** ve üçünü bu kart ekledi — yani bu sayı
+    canlıdır, kart eklendikçe büyür. Bir tur burada **26** yazdı ve o rakam
+    yorumların eklendiği turda zaten bayatlamıştı; sayı yerine **ölçüm komutu**
+    yazmanın sebebi bu. **Dışarıda 20 tane daha var** ve
+    hepsi bir yapıcıdaki `if log == nil { log = slog.Default() }` geri düşüşü —
+    `internal/domain` 12, `internal/handler` 7, `internal/httpx` 1. Toplam **43**.
+    ⚠️ **Bu bir §7 ihlali DEĞİL ve bu turun getirdiği bir şey değil:** geri düşüşler
+    kartlardan önce vardı ve enjekte edilen logger'ı ezmiyor, yalnızca `nil`
+    geçildiğinde devreye giriyor. Sayı buraya, argümanın doğru zemine oturması için
+    yazılıyor: sarmalama **varsayılan handler'a** yapıldığı için o 20 yol da
+    `request_id` damgasını aynı kapıdan alıyor. **SAYILDI, kapatılmadı** — geri
+    düşüşleri kaldırmak (ve her yapıcıyı zorunlu bir logger'a bağlamak) ayrı bir iş.
+28. **[sağlık sondaları erişim kaydının DIŞINDA — kayıt yer değiştirdi]** — M8-03
+    2. tur. `/healthz` → 200 ve `/readyz` → 200/503 için `http.request` kaydı
+    **yazılmıyor** (gerekçe ve üç ölçüm: *"SAĞLIK SONDALARI"* bölümü). Hazırlık
+    arızası `readiness.lost` / `readiness.regained` ile, geçiş başına bir kayıt
+    olarak görünür kalıyor ve 6. kural onu okuyor. ⚠️ **Ne kaybedildi, açıkça:**
+    `/readyz`'in **kaç kez** 503 döndüğü artık log'dan sayılamaz — yalnız **ne zaman
+    başlayıp ne zaman bittiği** bilinir. Bu bilinçli: sayının kendisi sonda periyodunun
+    yeniden söylenmesinden ibaretti.
+    🔴 **TAKASIN İKİNCİ YARISI, ÖLÇÜLDÜ: `readiness.lost` "daha iyi" DEĞİL, DAHA
+    DAR — bir kapsam takasıdır.** **Kalıcı** bir arıza kaç istek sürerse sürsün
+    **tam 1** kayıt üretir: `TestReadyz_AnOutageCostsTwoLogLines` **200** başarısız
+    sondaya karşı **tam 1** `ERROR` satırı olduğunu koşuda doğruluyor. Yani sinyal
+    olayın **başladığı ana** bağlıdır, süresine değil. İki somut sonucu var. **(a)** Operatörün sorgu
+    penceresinden **önce** başlamış bir arıza o pencerede **görünmez** — devam eden
+    kesinti, sessiz bir sistemden ayırt edilemez. **(b)** O tek satır rotasyonla
+    düşerse (madde 24: node kopyası boyut sınırlı, üst sınır bir sonraki deploy)
+    sinyal **tamamen** yok olur; 12 satır/dk'lık eski kayıtta bunun için tüm
+    pencerenin dolması gerekirdi.
+    ⚠️ **Karşı örnek aynı repoda ve bilinçli olarak farklı davranıyor:**
+    `announceKEKRotationWindow` (`cmd/tappa/main.go`) tam bu sebeple **15 dakikada
+    bir tekrarlıyor** — açık bir KEK penceresi devam eden bir durumdur ve tek bir
+    açılış satırı onu göstermez. `readiness.lost` bugün **tekrarlamıyor**. Tekrar
+    eklemek yeni bir davranıştır ve bu turun kapsamı dışıdır; **sayılmamış bir
+    sessizlik bırakmamak** için burada yazıyor.
+    ⚠️ Ve `/healthz` için **hiçbir** kayıt yok; o uç
+    noktanın arızası yalnızca kubelet tarafında görünür (`kubectl -n tappa describe
+    pod`, `RESTARTS`).
+29. **[log hedefi panikleyince ERİŞİM KAYDI DÜŞÜYOR — ve düştüğü söyleniyor]** — M8-03
+    2. tur. `httpx.AccessLog`, `middleware.Recoverer`'ın **dışında** duruyor (bir 5xx'i
+    görebilmesi için) — yani kaydı yazan `slog.Handler` **paniklerse** onu aşağıda
+    kurtaracak bir ağ yok ve `writeAccessRecord` kendi `recover`'ını taşıyor. **Bu
+    kurtarma bir kaybı gizler:** o istek için `http.request` kaydı **yazılmadı ve
+    yeniden denenmiyor**. İkinci bir hedef **yok** — panikleyen şey sürecin log'unun
+    ta kendisi.
+    ⚠️ **§4.6 muhasebesi, tam:** kayıt sessizce atılmıyor, `stderr`'e bir uyarı
+    basılıyor; ve o uyarı **panik değerini basmıyor** (yarı biçimlenmiş bir kaydın
+    içeriğini taşıyabilir — §4.7). ⚠️ **Uyarının kapsamı SÜREÇ BAŞINA DEĞİL,
+    `AccessLog` KURULUMU BAŞINA:** ölçüldü, tek süreçte iki kurulum uyarıyı **iki
+    kez** basıyor. Süreç başına tek `sync.Once` bir paket seviyesi singleton olurdu
+    ve §7 onu yasaklıyor; `cmd/tappa` tek router mount ettiği için bu ikili pratikte
+    çakışıyor, ama bu **çağıranın** özelliğidir ve öyle yazılıyor.
+    `TestAccessLog_ADroppedRecordIsAnnouncedOnce` iki yarıyı da ölçüyor. **SAYILDI,
+    kapatılmadı** — kaydı bir yere kuyruklayıp yeniden denemek, tam da bu maddenin
+    reddettiği ikinci bir log yolu inşa etmek olurdu.
+    ⚠️ Bu maddenin **diğer yarısı** (tasarlanmış sonda cevaplarının hiç
+    kaydedilmemesi) **28**'dedir; ikisi aynı takasın iki ucudur ve bir tur boyunca
+    yalnız biri yazılıydı.
+30. **[`httpx.NewRouter`'a `nil` logger vermek ERİŞİM KAYDINI SESSİZCE KAPATIR]** —
+    M8-03, 5. tur, ölçüldü. `AccessLog(log)` ilk iş olarak `if log == nil { return next }`
+    yapıyor: `nil` verilen bir router **hiç** `http.request` kaydı yazmaz, hiçbir uyarı
+    basmaz ve `NewRouter` yine sorunsuz döner. Bugün **doğru**, ama **kaza eseri
+    doğru**: üretimde tek çağıran var (`cmd/tappa`, `slog.Default()` veriyor) ve
+    geri kalan çağıranların hepsi test. Yapısal bir engel **yok** — imza `nil`'i
+    kabul ediyor, derleyici bir şey demiyor, ve kaybolan şey **5. uyarı kuralının
+    tek girdisi** (5xx oranı). Davranışın kendisi `TestAccessLog_NilLoggerIsSilent`
+    ile **pinli** — yani sessizlik kaza değil, sözleşme; sayılan şey sözleşmenin
+    **yanlışlıkla** tetiklenebilir olması. ⚠️ **Kapatmak yeni davranıştır** (panik, zorunlu
+    parametre ya da sessiz `slog.Default()` geri düşüşü — üçü de ayrı bir karar) ve
+    bu turun kapsamı dışında; **sayıldı, kapatılmadı**. Not: `nil`'i kabul etmek
+    testler için bilinçli bir kolaylıktı ve bir router'ı sessize almanın **tek**
+    yolu bu — yani riskin adı *"unutulmuş argüman"*tır, kötü niyet değil.
+31. **[`/readyz` durum değişimini `h.mu` TUTARKEN logluyor]** — M8-03, 5. tur,
+    ölçüldü. `internal/handler.Health`'in `check` fonksiyonu kilidi sonda boyunca
+    tutuyor (bilinçli: eşzamanlı çağıranlar tek bir sorgunun arkasına diziliyor) ve
+    `EventReadinessLost` / `EventReadinessRegained` kayıtları **o kilidin içinde**
+    yazılıyor. Tıkanan bir log hedefi, **yalnız durum değiştiği anda**, `/readyz`'i
+    kilit süresince **bloklar**. ⚠️ **ŞEKİL BU TURUN GETİRDİĞİ DEĞİL** — kilit de,
+    kilit altındaki kayıt da kart öncesinden geliyor; bu turda değişen tek şey
+    satırların **adlandırılmasıydı**. Buraya yazılmasının sebebi bir tutarsızlık:
+    `/healthz`'in **aynı** tehlikesi (log borusuna bağlanmış sonda) **28**'de ve
+    *"SAĞLIK SONDALARI"* bölümünde ölçümüyle yazılıyken, iki dosya ötedeki bu ikizi
+    hiçbir yerde sayılmıyordu. ⚠️ Fark, tehlikenin **sıklığında**: `/healthz`
+    her sondada yazıyordu (o yüzden kaldırıldı), bu yalnız **geçişte** yazıyor — yani
+    dar, ama sıfır değil. Kaydı kilidin dışına almak yeni davranıştır (kayıt sırası
+    ve `h.failing` okumasının atomikliği değişir) ve bu turun kapsamı dışındadır;
+    **sayıldı, kapatılmadı**.

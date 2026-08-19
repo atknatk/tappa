@@ -7,6 +7,9 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"io"
 	"log/slog"
 	"net"
@@ -47,7 +50,7 @@ func TestPackaging_AssetsAndTemplatesComeFromTheBinary(t *testing.T) {
 	}
 
 	marketing := handler.NewMarketing(nil, slog.New(slog.DiscardHandler))
-	srv := httptest.NewServer(httpx.NewRouter(&config.Config{}, marketing))
+	srv := httptest.NewServer(httpx.NewRouter(&config.Config{}, nil, marketing))
 	t.Cleanup(srv.Close)
 
 	get := func(path string) (int, string) {
@@ -385,5 +388,72 @@ func TestLogBuild_SaysWhichCommitAndHowTrustworthy(t *testing.T) {
 				t.Errorf("the line does not carry modified=%v: %q", tc.build.Modified, got)
 			}
 		})
+	}
+}
+
+// TestServer_BoundsTheRequestHeader — M8-03 round 4, S1's second half.
+//
+// 🔴 WHY A SOURCE TEST AND NOT A BEHAVIOURAL ONE. The value lives on the
+// http.Server this file's run() builds, and run() dials a database, opens a
+// listener and installs signal handlers — a test that constructed it would be
+// testing the boot, not the ceiling. The ceiling is one field, and losing it is a
+// deletion rather than a subtle change, so the parser is enough.
+//
+// 🔴 WHAT IT PROTECTS. Go's default is 1 MiB, and it is what made a 900 KB
+// X-Request-Id — and therefore a 921 757-byte access record from ONE unauthenticated
+// request — possible at all (measured; internal/httpx/requestlog.go carries the
+// numbers). httpx.MaxRequestIDLen bounds that one header; this bounds the ones no
+// rule has been written for, and neither substitutes for the other.
+func TestServer_BoundsTheRequestHeader(t *testing.T) {
+	t.Parallel()
+
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "main.go", nil, 0)
+	if err != nil {
+		t.Fatalf("parsing main.go: %v", err)
+	}
+
+	var found, correct bool
+	ast.Inspect(file, func(n ast.Node) bool {
+		lit, ok := n.(*ast.CompositeLit)
+		if !ok {
+			return true
+		}
+		sel, ok := lit.Type.(*ast.SelectorExpr)
+		if !ok || sel.Sel.Name != "Server" {
+			return true
+		}
+		for _, elt := range lit.Elts {
+			kv, ok := elt.(*ast.KeyValueExpr)
+			if !ok {
+				continue
+			}
+			key, ok := kv.Key.(*ast.Ident)
+			if !ok || key.Name != "MaxHeaderBytes" {
+				continue
+			}
+			found = true
+			// It must be the package constant, not an inline number: the arithmetic
+			// behind 16 KiB is written where the constant is declared, and an inline
+			// literal here would let the two drift apart silently.
+			if v, ok := kv.Value.(*ast.SelectorExpr); ok && v.Sel.Name == "MaxHeaderBytes" {
+				correct = true
+			}
+		}
+		return true
+	})
+
+	if !found {
+		t.Fatalf("the http.Server in main.go sets no MaxHeaderBytes, so the ceiling is Go's 1 MiB "+
+			"default. Every header this process reads is caller-supplied and unauthenticated; that "+
+			"default is what let one request write %d bytes of access record.", 921757)
+	}
+	if !correct {
+		t.Errorf("MaxHeaderBytes is set to something other than httpx.MaxHeaderBytes. The reasoning " +
+			"behind the number lives with the constant; an inline literal here drifts from it silently.")
+	}
+	if httpx.MaxHeaderBytes <= 0 || httpx.MaxHeaderBytes > 64<<10 {
+		t.Errorf("httpx.MaxHeaderBytes = %d. Zero or negative means Go's 1 MiB default, and anything "+
+			"this large stops being a bound.", httpx.MaxHeaderBytes)
 	}
 }

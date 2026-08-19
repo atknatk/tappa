@@ -145,7 +145,7 @@ func (p policySets) forTenant(ctx context.Context, tenantID uuid.UUID) policy.Se
 
 	rows, err := p.load(ctx, tenantID)
 	if err != nil {
-		p.log.Error("checkin: loading the tenant policy set failed; deciding on guardrails alone",
+		p.log.ErrorContext(ctx, "checkin: loading the tenant policy set failed; deciding on guardrails alone",
 			"tenant_id", tenantID, "err", err)
 		return set
 	}
@@ -153,15 +153,15 @@ func (p policySets) forTenant(ctx context.Context, tenantID uuid.UUID) policy.Se
 	baseline, missing := assembleBaseline(rows)
 	if len(missing) > 0 {
 		if err := p.materialise(ctx, tenantID, missing); err != nil {
-			p.log.Error("checkin: materialising the managed baseline failed; deciding on guardrails alone",
+			p.log.ErrorContext(ctx, "checkin: materialising the managed baseline failed; deciding on guardrails alone",
 				"tenant_id", tenantID, "missing", len(missing), "err", err)
 			return set
 		}
-		p.log.Info("checkin: materialised the managed baseline for a tenant that had none",
+		p.log.InfoContext(ctx, "checkin: materialised the managed baseline for a tenant that had none",
 			"tenant_id", tenantID, "documents", len(missing), "baseline_version", policy.BaselineVersion,
 			"note", "provisioning at sign-up is M7-03; this is the first-need fallback")
 		if rows, err = p.load(ctx, tenantID); err != nil {
-			p.log.Error("checkin: re-loading the tenant policy set failed; deciding on guardrails alone",
+			p.log.ErrorContext(ctx, "checkin: re-loading the tenant policy set failed; deciding on guardrails alone",
 				"tenant_id", tenantID, "err", err)
 			return set
 		}
@@ -169,7 +169,7 @@ func (p policySets) forTenant(ctx context.Context, tenantID uuid.UUID) policy.Se
 			// Written, re-read, still not all there. Something is wrong that this
 			// path cannot fix, and a PARTIAL baseline is a different policy rather
 			// than a weaker one (see the file header), so it is not used.
-			p.log.Error("checkin: the managed baseline is incomplete after materialising; deciding on guardrails alone",
+			p.log.ErrorContext(ctx, "checkin: the managed baseline is incomplete after materialising; deciding on guardrails alone",
 				"tenant_id", tenantID, "missing", len(missing))
 			return set
 		}
@@ -183,7 +183,7 @@ func (p policySets) forTenant(ctx context.Context, tenantID uuid.UUID) policy.Se
 			// flagged), so it is not an error — but it is worth seeing, because the
 			// flow that resolves it (surface, accept, append version 2) is M7-03 and
 			// does not exist yet.
-			p.log.Info("checkin: tenant baseline is older than the shipped one; M7-03 owns the upgrade",
+			p.log.InfoContext(ctx, "checkin: tenant baseline is older than the shipped one; M7-03 owns the upgrade",
 				"tenant_id", tenantID, "stored", b.Document.Version, "shipped", policy.BaselineVersion)
 			break
 		}
@@ -206,6 +206,14 @@ func (p policySets) guardrailsOnly() policy.Set {
 		// the rest of this request's logs. The evaluator's own contract is that an
 		// anomaly makes the statement inert; it never changes the Decision.
 		OnAnomaly: func(a policy.Anomaly) {
+			// ⚠️ NO REQUEST ID ON THIS ONE, AND IT IS THE ONE EXCEPTION IN THIS
+			// PACKAGE (M8-03). Every other call here was converted to a *Context
+			// variant so httpx.WithRequestID can stamp it; this callback is invoked
+			// by the evaluator from inside tap.Decide, which is PURE and takes no
+			// context by design (§5). Threading one in to satisfy a log line would
+			// put a context.Context into the signature of the product's pure
+			// decision core — the wrong trade. It is correlated by time and by the
+			// tap.decision record that follows it, not by id.
 			p.log.Warn("policy: eval-time anomaly; statement treated as non-matching",
 				"kind", string(a.Kind), "layer", string(a.Layer), "sid", a.Sid,
 				"operator", string(a.Operator), "contextKey", string(a.Key))
@@ -247,7 +255,7 @@ func (p policySets) stored(ctx context.Context, tenantID uuid.UUID) policy.Set {
 	set := p.guardrailsOnly()
 	rows, err := p.load(ctx, tenantID)
 	if err != nil {
-		p.log.Error("checkin: loading the stored policy set failed; answering on guardrails alone",
+		p.log.ErrorContext(ctx, "checkin: loading the stored policy set failed; answering on guardrails alone",
 			"tenant_id", tenantID, "err", err)
 		return set
 	}
@@ -256,7 +264,7 @@ func (p policySets) stored(ctx context.Context, tenantID uuid.UUID) policy.Set {
 		// ALL OR NOTHING, and nothing is written to close the gap. A partial baseline
 		// is a DIFFERENT policy rather than a weaker one (the file header), and that
 		// argument does not stop being true because the caller is a panel.
-		p.log.Warn("checkin: the stored baseline is incomplete; answering on guardrails alone",
+		p.log.WarnContext(ctx, "checkin: the stored baseline is incomplete; answering on guardrails alone",
 			"tenant_id", tenantID, "missing", len(missing))
 		return set
 	}

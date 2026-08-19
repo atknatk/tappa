@@ -4,6 +4,7 @@ package httpx
 
 import (
 	"io/fs"
+	"log/slog"
 	"net/http"
 	"net/netip"
 	"time"
@@ -24,10 +25,22 @@ type Mounter interface {
 }
 
 // NewRouter builds the HTTP surface. Features are mounted in the order given.
-func NewRouter(cfg *config.Config, features ...Mounter) http.Handler {
+//
+// log is the process logger the access record is written to (M8-03). It is a
+// PARAMETER rather than slog.Default() because §7 forbids the package-level
+// singleton, and nil is accepted and means "no access record" — the shape every
+// unit test that only wants routing uses.
+func NewRouter(cfg *config.Config, log *slog.Logger, features ...Mounter) http.Handler {
 	r := chi.NewRouter()
 
-	r.Use(middleware.RequestID)
+	// 🔴 THIS PACKAGE'S RequestID, NOT chi's middleware.RequestID, AND THE
+	// DIFFERENCE IS A MEASURED SECURITY BOUNDARY (M8-03 round 4). chi's version uses
+	// an inbound X-Request-Id header verbatim, with no length or character bound —
+	// and this card is what connected that field to every access record, so a 900 KB
+	// header produced a 921 757-byte log line and 30 unauthenticated requests wrote
+	// 26.4 MiB. requestlog.go carries the numbers, the three shapes that were weighed
+	// and why the inbound value is bounded rather than refused.
+	r.Use(RequestID)
 	// The client address is resolved ONCE, here, for the whole surface, and
 	// bounded by cfg.TrustedProxies (realip.go). It is deliberately NOT chi's
 	// middleware.RealIP, which believes X-Forwarded-For / True-Client-IP /
@@ -53,6 +66,19 @@ func NewRouter(cfg *config.Config, features ...Mounter) http.Handler {
 		trusted = cfg.TrustedProxies
 	}
 	r.Use(RealIP(trusted))
+	// 🔴 OUTSIDE Recoverer, AND THE ORDER IS THE WHOLE POINT. AccessLog reports the
+	// status from a deferred read. If it were mounted INSIDE Recoverer, a panicking
+	// handler would unwind through that defer before anything had written a header,
+	// so the one class of failure the 5xx rule exists to catch — a panic — would be
+	// logged as 200 and the alert would be silent exactly when it mattered. Mounted
+	// here, Recoverer writes the 500 first and this reads it.
+	//
+	// ⚠️ AND THE ORDER HAS A PRICE, WHICH WAS MEASURED RATHER THAN ARGUED AWAY: what
+	// AccessLog itself raises is outside the net too. A slog.Handler whose Handle
+	// panicked used to take the connection down on every route (probed: `EOF`, stack
+	// ending in net/http.(*conn).serve). writeAccessRecord now contains that, so the
+	// ordering keeps its guarantee without buying it with a dropped connection.
+	r.Use(AccessLog(log))
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(30 * time.Second))
 
@@ -64,7 +90,13 @@ func NewRouter(cfg *config.Config, features ...Mounter) http.Handler {
 	// deployment restarts a healthy process because its database is unreachable.
 	// READINESS is the opposite question and is a different endpoint with a
 	// different owner: /readyz, internal/handler.Health, which is given a pool.
-	r.Get(healthPath, live)
+	//
+	// 🔴 AND SINCE M8-03 ROUND 2 THE GUARANTEE IS ALSO ABOUT THE LOG. A healthy
+	// answer here writes NO access record (requestlog.go's probeDesignedStatus has
+	// the measurement), because the first round put a synchronous write to the
+	// process log on this path and a 2 s stall in the log target made GET /healthz
+	// take 2.001 s — which the livenessProbe reads as a dead process.
+	r.Get(HealthPath, live)
 	// 🔴 HEAD, BECAUSE THE CLIENTS THAT WATCH THIS URL SEND HEAD. Measured before
 	// this line: chi's r.Get registers GET alone, so HEAD /healthz answered 405
 	// with `Allow: GET`, and an uptime monitor reads 405 as "the service is
@@ -74,7 +106,7 @@ func NewRouter(cfg *config.Config, features ...Mounter) http.Handler {
 	// resolve identity, so admitting a method there has a blast radius. This one
 	// does not: it is the same two bytes to anyone who asks, with no identity, no
 	// budget and no query behind it.
-	r.Head(healthPath, live)
+	r.Head(HealthPath, live)
 
 	r.Handle("/static/*", http.StripPrefix("/static/", http.FileServer(noListing{http.FS(web.Static())})))
 
@@ -99,11 +131,11 @@ func NewRouter(cfg *config.Config, features ...Mounter) http.Handler {
 	return r
 }
 
-// healthPath is the liveness endpoint. It is a constant so the route and every
-// test that drives it are the same string at compile time.
-const healthPath = "/healthz"
-
 // live answers the liveness probe.
+//
+// (HealthPath, the constant this route is registered under, lives in requestlog.go
+// beside ReadyPath and the table that keeps both out of the access record — the
+// route and the logging decision about it are one fact and drifted apart once.)
 //
 // ⚠️ THE BODY IS TWO BYTES AND CARRIES NO BUILD IDENTITY, WHICH IS A DECISION. This
 // process knows exactly which commit it is running (internal/buildinfo, logged at

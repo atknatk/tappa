@@ -135,7 +135,7 @@ func newSignupDriver(t *testing.T, p signupProvisioner, vat vatChecker) (*wizard
 	// past signupMinFillSeconds in microseconds instead of eight seconds x every case.
 	now := time.Now()
 	wizard.state.now = func() time.Time { return now }
-	d := &wizardDriver{t: t, router: httpx.NewRouter(nil, wizard), jar: map[string]string{}, clock: &now}
+	d := &wizardDriver{t: t, router: httpx.NewRouter(nil, nil, wizard), jar: map[string]string{}, clock: &now}
 	return d, wizard
 }
 
@@ -800,7 +800,7 @@ func TestSignup_TheCreateBudgetBoundsHowManyBusinessesOneAddressMakes(t *testing
 	}
 	now := time.Now()
 	wizard.state.now = func() time.Time { return now }
-	router := httpx.NewRouter(nil, wizard)
+	router := httpx.NewRouter(nil, nil, wizard)
 
 	register := func() int {
 		d := &wizardDriver{t: t, router: router, jar: map[string]string{}, clock: &now}
@@ -834,7 +834,7 @@ func TestSignup_TheAttemptBudgetBoundsTheExpensiveRequest(t *testing.T) {
 	}
 	now := time.Now()
 	wizard.state.now = func() time.Time { return now }
-	router := httpx.NewRouter(nil, wizard)
+	router := httpx.NewRouter(nil, nil, wizard)
 
 	d := &wizardDriver{t: t, router: router, jar: map[string]string{}, clock: &now}
 	csrf := d.walkToAccount(t)
@@ -998,7 +998,7 @@ func TestSignup_HoldsNoSessionCodec(t *testing.T) {
 	}
 	// Driven rather than reflected: a completed registration must not set the panel
 	// session cookie.
-	d := &wizardDriver{t: t, router: httpx.NewRouter(nil, wizard), jar: map[string]string{}}
+	d := &wizardDriver{t: t, router: httpx.NewRouter(nil, nil, wizard), jar: map[string]string{}}
 	now := time.Now()
 	wizard.state.now = func() time.Time { return now }
 	d.clock = &now

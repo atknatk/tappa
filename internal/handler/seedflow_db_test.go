@@ -41,6 +41,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -152,6 +153,54 @@ type seedFlow struct {
 	kek      []byte
 	tenantID uuid.UUID
 	runStamp string
+	// logs holds every record the wired services wrote during this test, as one
+	// JSON object per line (M8-03). It replaced io.Discard so the alert signals in
+	// deploy/README.md can be asserted where they are PRODUCED — the decision
+	// engine's own write path — rather than only where their names are declared.
+	logs *syncBuffer
+}
+
+// syncBuffer is a bytes.Buffer that survives -race.
+//
+// slog serialises its own writes, but this repository's suite drives concurrent
+// taps on purpose (the debounce and advisory-lock tests), and a second writer
+// reaching the same buffer from another goroutine would be a data race in the
+// TEST rather than in the product — the kind of failure that gets "fixed" by
+// deleting the assertion.
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+	// panicOn makes this writer raise when a record containing the string is
+	// written, which is the ONLY way to model a panicking slog.Handler from
+	// outside slog (M8-03 round 5). checkin.go's own comment already grants that a
+	// handler CAN panic — internal/httpx/requestlog.go contains a recover for
+	// exactly that, measured — so the hazard is stated in the tree; until this
+	// field existed nothing DROVE it. Empty means "behave like a buffer", which is
+	// every other test in this package.
+	panicOn string
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.panicOn != "" && bytes.Contains(p, []byte(b.panicOn)) {
+		panic("syncBuffer: the log handler raised on " + b.panicOn)
+	}
+	return b.buf.Write(p)
+}
+
+// panicWhenWriting arms the writer. It is set AFTER the services are wired,
+// because the pointer — not the value — is what the handler holds.
+func (b *syncBuffer) panicWhenWriting(marker string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.panicOn = marker
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
 }
 
 // seedVenue is what a seeded location actually says about itself, read from the
@@ -250,7 +299,12 @@ func newSeedFlow(t *testing.T) *seedFlow {
 	if err != nil {
 		t.Fatalf("audit.New: %v", err)
 	}
-	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
+	// 🔴 CAPTURED, NOT DISCARDED (M8-03). It used to be io.Discard, which meant the
+	// only end-to-end harness in the repository threw away the one thing M8-03's
+	// alert rules are computed from. Nothing else reads it, so a test that does not
+	// look at seedFlow.logs behaves exactly as before.
+	logs := &syncBuffer{}
+	quiet := slog.New(slog.NewJSONHandler(logs, nil))
 	checkins, err := checkin.New(data, trail, cfg, quiet)
 	if err != nil {
 		t.Fatalf("checkin.New: %v", err)
@@ -264,7 +318,7 @@ func newSeedFlow(t *testing.T) *seedFlow {
 		t.Fatalf("NewActivation: %v", err)
 	}
 
-	srv := httptest.NewServer(httpx.NewRouter(cfg, tp, act))
+	srv := httptest.NewServer(httpx.NewRouter(cfg, nil, tp, act))
 	t.Cleanup(srv.Close)
 	base, err := url.Parse(srv.URL)
 	if err != nil {
@@ -275,7 +329,7 @@ func newSeedFlow(t *testing.T) *seedFlow {
 		server: srv, baseURL: base, cfg: cfg, tap: tp, checkins: checkins,
 		data: data, sessions: sessions, cookies: session.NewCookies(cfg),
 		invites: invites, trail: trail, kek: kek, tenantID: fixtures.TenantKF,
-		runStamp: newRunStamp(),
+		runStamp: newRunStamp(), logs: logs,
 	}
 }
 

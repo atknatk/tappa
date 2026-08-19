@@ -18,7 +18,7 @@ import (
 // in there, so this is surface reduction rather than a leak — but a listing is a
 // free inventory of what a deployment ships, and the directory only grows.
 func TestStatic_ServesFilesButNotDirectoryListings(t *testing.T) {
-	srv := httptest.NewServer(httpx.NewRouter(&config.Config{}))
+	srv := httptest.NewServer(httpx.NewRouter(&config.Config{}, nil))
 	t.Cleanup(srv.Close)
 
 	get := func(path string) (int, string) {

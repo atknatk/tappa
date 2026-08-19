@@ -171,6 +171,24 @@ type Config struct {
 	RetentionYears int
 
 	LogLevel string
+
+	// LogFormat is "text" or "json" and it is a DEPLOYMENT decision rather than a
+	// taste, because the two readers of this process's output want opposite things
+	// (M8-03, measured on the live cluster 2026-08-19).
+	//
+	//	dev        a person, through `go run` or `kubectl logs`. logfmt is readable.
+	//	prod       an OpenTelemetry collector. The signoz k8s-infra-otel-agent
+	//	           DaemonSet tails /var/log/pods/*/*/*.log and its exclude list does
+	//	           NOT exclude this namespace, so every line here is already being
+	//	           shipped. Its filelog receiver runs ONE operator, `container`,
+	//	           which unwraps the CRI envelope and nothing else — there is no
+	//	           logfmt parser in the pipeline, so a `key=value` body arrives as
+	//	           one opaque string and the M8-03 alert rules would have to be
+	//	           substring matches on it.
+	//
+	// The DEFAULT IS text, so nothing about a developer's terminal changes; the
+	// ConfigMap sets json for the deployment that has a collector.
+	LogFormat string
 }
 
 func Load() (*Config, error) {
@@ -179,6 +197,14 @@ func Load() (*Config, error) {
 		Addr:     env("TAPPA_ADDR", ":8080"),
 		BaseURL:  env("TAPPA_BASE_URL", "http://localhost:8080"),
 		LogLevel: env("TAPPA_LOG_LEVEL", "info"),
+		// 🔴 UNLIKE TAPPA_LOG_LEVEL, A TYPO HERE IS A STARTUP FAILURE. parseLevel
+		// falls back to info on an unparseable level, which is the right shape for a
+		// verbosity knob. It is the WRONG shape here: TAPPA_LOG_FORMAT=jsn would
+		// silently give a prod deployment logfmt again, the collector would index
+		// nothing, and every alert rule in deploy/README.md would match zero rows —
+		// reading exactly like "no rejects, no 5xx, all healthy". A closed set makes
+		// that a refusal to boot instead of a silent all-clear.
+		LogFormat: env("TAPPA_LOG_FORMAT", LogFormatText),
 	}
 
 	var errs []error
@@ -197,6 +223,7 @@ func Load() (*Config, error) {
 	// failure instead. The set is closed rather than open-with-a-warning: a new
 	// environment name should be a deliberate edit here, next to IsProd.
 	push(validEnv(c.Env))
+	push(validLogFormat(c.LogFormat))
 
 	c.DatabaseURL = os.Getenv("DATABASE_URL")
 	if c.DatabaseURL == "" {
@@ -294,6 +321,24 @@ const (
 
 // envValues is the closed set, in the order the error message lists them.
 var envValues = []string{EnvDev, EnvStaging, EnvProd}
+
+// The closed set for TAPPA_LOG_FORMAT (M8-03).
+const (
+	LogFormatText = "text"
+	LogFormatJSON = "json"
+)
+
+// logFormatValues is the closed set, in the order the error message lists them.
+var logFormatValues = []string{LogFormatText, LogFormatJSON}
+
+func validLogFormat(v string) error {
+	for _, ok := range logFormatValues {
+		if v == ok {
+			return nil
+		}
+	}
+	return fmt.Errorf("TAPPA_LOG_FORMAT: must be one of %s, got %q", strings.Join(logFormatValues, ", "), v)
+}
 
 func validEnv(v string) error {
 	for _, ok := range envValues {

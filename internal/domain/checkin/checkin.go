@@ -610,7 +610,7 @@ func (s *Service) Record(ctx context.Context, req Request) (Result, error) {
 			// no location, so there is nothing to attribute an attendance record to
 			// — but there IS a tenant (the session's), so unlike the anonymous case
 			// internal/sun describes, the attempt can and does leave a trail.
-			s.log.Warn("checkin: signed context names a tag that no longer resolves",
+			s.log.WarnContext(ctx, "checkin: signed context names a tag that no longer resolves",
 				"tag_uid", req.TagUID, "employee_id", req.EmployeeID, "tenant_id", req.SessionTenantID)
 			s.record(ctx, audit.Event{
 				TenantID: req.SessionTenantID,
@@ -630,7 +630,7 @@ func (s *Service) Record(ctx context.Context, req Request) (Result, error) {
 		// guardrail must judge. Recorded as an anomaly rather than a refusal: a
 		// refusal here would drop the tap, and §4.6 does not trade a record for an
 		// oddity we can log.
-		s.log.Error("checkin: the tag changed tenant between the page and the tap",
+		s.log.ErrorContext(ctx, "checkin: the tag changed tenant between the page and the tap",
 			"tag_uid", req.TagUID, "context_tenant_id", req.TagTenantID, "resolved_tenant_id", tagRow.TenantID)
 	}
 
@@ -773,7 +773,7 @@ func (s *Service) Record(ctx context.Context, req Request) (Result, error) {
 		}
 		if dec.MatchedSid == sidTenantMismatch {
 			out.Outcome = OutcomeForeignTenant
-			s.log.Warn("checkin: a session tapped another organisation's plaque; no record written",
+			s.log.WarnContext(ctx, "checkin: a session tapped another organisation's plaque; no record written",
 				"tag_uid", req.TagUID, "employee_id", req.EmployeeID,
 				"session_tenant_id", req.SessionTenantID, "tag_tenant_id", tagRow.TenantID)
 		}
@@ -784,6 +784,22 @@ func (s *Service) Record(ctx context.Context, req Request) (Result, error) {
 		// §5 row 4: the attempt is rejected, RECORDED, and raised. The audit row
 		// comes after the transaction row on purpose — the trail refers to a record
 		// that exists.
+		//
+		// 🔴 AND IT IS NOW ALSO SAID OUT LOUD (M8-03). Until this line the ONLY place
+		// a tap on a deactivated account left a mark an operator could see was a row
+		// in audit_log — a table with no alerting attached to it, read by opening the
+		// panel and looking. §5 row 4 calls this a "güvenlik uyarısı"; an entry
+		// nobody is told about is not one. The audit row still carries the evidence;
+		// this carries the notification.
+		// 🔴 THE AUDIT ROW IS WRITTEN FIRST AND THE NOTIFICATION SECOND — the order
+		// was the other way round for one round and it contradicted the sentence
+		// two lines above (M8-03 round 4). The audit row is the EVIDENCE (§4.6) and
+		// the log line is the notification about it; a panic between them must cost
+		// the notification, never the record. With the shipped logger the hazard is
+		// UNREACHABLE — slog does not panic on a write error — so this is hardening
+		// rather than a live defect, and it is done because a slog.Handler CAN panic
+		// (internal/httpx/requestlog.go had to contain exactly that, measured) and
+		// this call, unlike that one, sits inside no recovery of its own.
 		s.record(ctx, audit.Event{
 			TenantID: req.SessionTenantID,
 			Action:   ActionTapSecurityAlert,
@@ -795,7 +811,63 @@ func (s *Service) Record(ctx context.Context, req Request) (Result, error) {
 				TagUID:   req.TagUID,
 			},
 		})
+		s.log.WarnContext(ctx, EventTapSecurityAlert,
+			LogMatchedSid, dec.MatchedSid,
+			LogVerdict, string(dec.Verdict),
+			LogTenantID, req.SessionTenantID.String(),
+			LogEmployeeID, req.EmployeeID.String(),
+			LogTagUID, req.TagUID,
+		)
 	}
+
+	// 🔴 ONE STRUCTURED RECORD PER DECIDED TAP (M8-03). Three of the six M8-03 alert
+	// signals are computed from this ONE line (reject rate, flag queue, ctr gap); the
+	// security signal comes from the EventTapSecurityAlert record above, the 5xx one
+	// from httpx.EventHTTPRequest and the readiness one from
+	// handler.EventReadinessLost — the alert rules and their thresholds are in
+	// deploy/README.md, keyed on the constant names below.
+	//
+	// 🔴 IT COMES AFTER THE SECURITY BLOCK, AND THAT IS THE SAME RULE THE BLOCK
+	// ABOVE STATES ABOUT ITSELF (M8-03 round 5). It used to run FIRST, which meant
+	// a slog.Handler raising here cost the audit_log row entirely — by exactly the
+	// mechanism the comment above already concedes ("a slog.Handler CAN panic"), two
+	// statements away. Measured on the seeded end-to-end harness with a writer that
+	// raises on this record: rows for tap_security_alert went 530 -> 530 before the
+	// move and 530 -> 531 after it.
+	//
+	// The ATTENDANCE record was never at risk: db.WithTenant has already committed
+	// the transaction by the time any of this runs, so what the order protects is the
+	// security event's evidence, not the timesheet. Saying otherwise would overstate
+	// it. Moving beats wrapping this call in a recover(): a recover adds a path that
+	// swallows a panic the process should probably die on, and it would have to be
+	// repeated at every log site, whereas ordering states one rule — everything that
+	// writes EVIDENCE runs before anything that only writes a MESSAGE.
+	// Pinned by TestSecurityAlert_TheDecisionLineComesAfterTheEvidence (structure)
+	// and handler.TestSeedDB_APanickingLoggerCannotCostTheSecurityAuditRow (running).
+	//
+	// 🔴 IT WRITES NOTHING. The §4.6 trap in "make a signal observable" is to reach
+	// for a row: `transactions` takes no UPDATE and no DELETE and `audit_log` is a
+	// legal trail, so a counter maintained for a dashboard would be permanent
+	// evidence that a dashboard invented. A log line is enough and is the only thing
+	// this does.
+	//
+	// §4.7, ON EVERY FIELD: verdict/sid/layer/trust/channel are enums and integers;
+	// ctr_gap is a COUNT of skipped reads, never the counter and never the CMAC; the
+	// two ids are uuids. There is no coordinate here — the GPS the decision used
+	// reached tap.Decide as a DISTANCE and the coordinate itself goes only to the
+	// gps_lat/gps_lng columns (insertParams says the same thing about the same
+	// values). geo.Point.LogValue would redact one if it ever arrived anyway.
+	s.log.Log(ctx, decisionLevel(dec.Verdict), EventTapDecision,
+		LogVerdict, string(dec.Verdict),
+		LogChannel, string(req.Channel),
+		LogMatchedSid, dec.MatchedSid,
+		LogPolicyLayer, string(dec.Layer),
+		LogTrust, dec.Trust,
+		LogCtrGap, int(ctrGap),
+		LogPractice, dec.Practice,
+		LogTenantID, req.SessionTenantID.String(),
+		LogEmployeeID, req.EmployeeID.String(),
+	)
 
 	return Result{
 		Outcome:       OutcomeRecorded,
@@ -1253,7 +1325,7 @@ func (s *Service) insertParams(req Request, tagRow db.ResolvedTag, f tapFacts, d
 // written means §4.6 is not being kept even when the record is.
 func (s *Service) record(ctx context.Context, e audit.Event) {
 	if _, err := s.trail.Record(ctx, e); err != nil {
-		s.log.Error("checkin: audit write failed", "action", e.Action, "err", err)
+		s.log.ErrorContext(ctx, "checkin: audit write failed", "action", e.Action, "err", err)
 	}
 }
 

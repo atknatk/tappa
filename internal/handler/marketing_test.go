@@ -80,7 +80,7 @@ func marketingRouterWithTexts(t *testing.T, texts legalReader) http.Handler {
 	if err != nil {
 		t.Fatalf("NewSignup: %v", err)
 	}
-	return httpx.NewRouter(nil, NewMarketing(texts, log), wizard)
+	return httpx.NewRouter(nil, nil, NewMarketing(texts, log), wizard)
 }
 
 // marketingURLs is every URL this feature serves, derived from the same table the

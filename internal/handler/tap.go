@@ -263,13 +263,14 @@ var (
 
 // Page serves GET /t.
 func (t *Tap) Page(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context() // see internal/handler/checkin.go: since round 4 this buys R7/R7b/R7c one extra level of paren depth, not visibility itself.
 	// The SUN URL is validated at the HTTP boundary, so the domain layer below
 	// only ever sees valid data (§7). sun.Parse never panics on hostile input
 	// (FuzzParse) and its error names a parameter and a failure KIND, never a
 	// value — safe to log (§4.7).
 	p, err := sun.Parse(r.URL.Query())
 	if err != nil {
-		t.log.Info("tap page: unusable url", "err", err)
+		t.log.InfoContext(ctx, "tap page: unusable url", "err", err)
 		t.renderProblem(w, r, http.StatusBadRequest, tapProblemBadURL)
 		return
 	}
@@ -285,7 +286,7 @@ func (t *Tap) Page(w http.ResponseWriter, r *http.Request) {
 		// with a stream of activation redirects. Unresolved means "nobody
 		// looked, or looking failed"; both are conditions under which we do not
 		// know who this is, so we say so loudly instead of guessing.
-		t.log.Error("tap page: no resolved identity on the request",
+		t.log.ErrorContext(ctx, "tap page: no resolved identity on the request",
 			"hint", "mount httpx.Identify in front of GET /t",
 			"err", id.Err, "path", r.URL.Path)
 		// Retryable: one of the two things this state means is "looking FAILED",
@@ -317,7 +318,7 @@ func (t *Tap) Page(w http.ResponseWriter, r *http.Request) {
 		// A SessionState this file does not know cannot be reasoned about, so it
 		// is not guessed at. Unreachable today; the branch exists so that adding
 		// a state does not silently pick a behaviour.
-		t.log.Error("tap page: unknown session state", "state", int(id.State))
+		t.log.ErrorContext(ctx, "tap page: unknown session state", "state", int(id.State))
 		// NO retry: this is a code path that does not exist yet being taken, which
 		// re-fetching reproduces exactly. Offering a button here would be the fake
 		// affordance renderRetryableProblem's comment refuses.
@@ -339,11 +340,11 @@ func (t *Tap) Page(w http.ResponseWriter, r *http.Request) {
 			// holding a URL that names a plaque we do not have — so it is
 			// logged, with the uid, which is not a secret: the chip prints it in
 			// the address bar.
-			t.log.Warn("tap page: unknown plaque", "tag_uid", p.UID, "employee_id", id.EmployeeID())
+			t.log.WarnContext(ctx, "tap page: unknown plaque", "tag_uid", p.UID, "employee_id", id.EmployeeID())
 			t.renderProblem(w, r, http.StatusNotFound, tapProblemUnknownTag)
 			return
 		}
-		t.log.Error("tap page: sun pre-check failed", "tag_uid", p.UID, "err", err)
+		t.log.ErrorContext(ctx, "tap page: sun pre-check failed", "tag_uid", p.UID, "err", err)
 		// Retry offered on a MIXED error class — an outage and a corrupt key ref
 		// arrive here identically (internal/sun/preview.go). Stated at
 		// renderRetryableProblem rather than claimed away.
@@ -379,11 +380,11 @@ func (t *Tap) Page(w http.ResponseWriter, r *http.Request) {
 		// and the tap proceeds to the POST, where sys:tenant-mismatch is the
 		// authority once M5-05 feeds it both tenants (hand-off N5). Refusing
 		// here would decide it, and would decide it without a record.
-		t.log.Warn("tap page: plaque belongs to another tenant",
+		t.log.WarnContext(ctx, "tap page: plaque belongs to another tenant",
 			"tag_uid", p.UID, "employee_id", id.EmployeeID(),
 			"session_tenant_id", id.TenantID(), "tag_tenant_id", pv.TenantID)
 	case err != nil:
-		t.log.Error("tap page: loading the employee failed", "employee_id", id.EmployeeID(), "err", err)
+		t.log.ErrorContext(ctx, "tap page: loading the employee failed", "employee_id", id.EmployeeID(), "err", err)
 		t.renderRetryableProblem(w, r, http.StatusInternalServerError, tapProblemServer)
 		return
 	}
@@ -400,7 +401,7 @@ func (t *Tap) Page(w http.ResponseWriter, r *http.Request) {
 		LocationID:  wall,
 	}, id.Session.ID)
 	if err != nil {
-		t.log.Error("tap page: minting the tap context failed", "tag_uid", p.UID, "err", err)
+		t.log.ErrorContext(ctx, "tap page: minting the tap context failed", "tag_uid", p.UID, "err", err)
 		// NO retry: mint fails on exactly two DETERMINISTIC conditions (an
 		// unconfigured signing key, a nil session id — tapcontext.go), and a second
 		// fetch changes neither. Same reasoning as the unknown-session-state branch.
@@ -622,6 +623,7 @@ func (t *Tap) renderRetryableProblem(w http.ResponseWriter, r *http.Request, sta
 // back button must not resurrect either from a cache, and no intermediary
 // should keep a copy.
 func (t *Tap) render(w http.ResponseWriter, r *http.Request, status int, c templ.Component) {
+	ctx := r.Context() // see internal/handler/checkin.go: since round 4 this buys R7/R7b/R7c one extra level of paren depth, not visibility itself.
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
@@ -630,6 +632,6 @@ func (t *Tap) render(w http.ResponseWriter, r *http.Request, status int, c templ
 	if err := c.Render(r.Context(), w); err != nil {
 		// The status line is already on the wire, so there is nothing to send
 		// but a log line. Never swallowed (§7).
-		t.log.Error("rendering the tap page failed", "err", err)
+		t.log.ErrorContext(ctx, "rendering the tap page failed", "err", err)
 	}
 }

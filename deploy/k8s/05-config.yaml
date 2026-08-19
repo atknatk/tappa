@@ -19,6 +19,27 @@ data:
   TAPPA_BASE_URL: "https://tappa.everva.com.tr"
   TAPPA_LOG_LEVEL: "info"
 
+  # 🔴 json HERE AND text EVERYWHERE ELSE, BECAUSE THE READER IS DIFFERENT AND IT
+  # WAS MEASURED IN THIS CLUSTER (M8-03, 2026-08-19).
+  #
+  # A developer reads logfmt with their eyes; THIS deployment's logs are read by a
+  # machine. The signoz `k8s-infra-otel-agent` DaemonSet tails
+  # /var/log/pods/*/*/*.log and its exclude list does NOT name this namespace, so
+  # every line this process writes is already being shipped to ClickHouse
+  # (in-cluster: http://signoz-otel-collector.signoz.svc.cluster.local:4318 — it
+  # does not leave the node, which is the AB half of M8-03's fourth criterion).
+  #
+  # WHAT BREAKS WITH text: that agent's filelog receiver runs exactly ONE operator,
+  # `container`, which unwraps the CRI envelope and stops. There is no logfmt
+  # parser anywhere in the pipeline, so a `key=value` body arrives as a single
+  # opaque string and every alert rule in deploy/README.md — all six signals —
+  # matches zero rows. That renders as "no rejects, no security attempts, no 5xx",
+  # which is exactly what a healthy system looks like.
+  #
+  # A TYPO HERE IS A STARTUP FAILURE, not a downgrade: internal/config keeps this
+  # to a closed set for the same reason TAPPA_ENV is closed.
+  TAPPA_LOG_FORMAT: "json"
+
   # 🔴 TAPPA_TRUSTED_PROXIES — backlog T30, AND THE VALUE BELOW WAS MEASURED IN THIS
   # CLUSTER ON 2026-08-15 RATHER THAN GUESSED.
   #

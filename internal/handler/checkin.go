@@ -75,6 +75,34 @@ const occurredAtField = "occurred_at"
 
 // Checkin serves POST /api/checkin.
 func (t *Tap) Checkin(w http.ResponseWriter, r *http.Request) {
+	// 🔴 THE REQUEST CONTEXT IS BOUND TO A NAME BEFORE ANY LOG CALL USES IT, AND
+	// THAT IS §4.7 PLUMBING RATHER THAN STYLE (M8-03, measured). redline-check.sh's
+	// R7/R7b/R7c match personal data or a secret inside a log call by scanning
+	// forward from the opening paren, and that scan has a DEPTH LIMIT.
+	//
+	// ⚠️ THE ORIGINAL REASON FOR THIS BINDING NO LONGER HOLDS, AND THE CORRECTED ONE
+	// IS NARROWER (round 5, re-measured). Until round 4 the window was `[^)]*` — a run
+	// of NON-PAREN characters — so `r.Context()` closed a paren before the arguments
+	// were reached and the whole call was invisible to all three rules. Round 4 gave
+	// every one of the three a window that spans ONE level of balanced parens, which
+	// closed exactly that hole: measured on this tree, an injected InfoContext call
+	// that passes `r.Context()` first and then one of R7's never-log keys now FAILS
+	// R7 and is printed with its file and line. So the leak this comment was written
+	// about is caught today whether or not the context is bound first. (The example
+	// is described rather than spelled out, because spelling it out here made R7 fail
+	// on this comment — which is itself the proof.)
+	//
+	// What the binding still buys is one more level of depth. Measured the same way:
+	// the identical leak written behind TWO levels — `f(r.Context())` in the first
+	// argument — is invisible to R7 again, because the window spans one level and no
+	// more (two levels were tried in round 4 and rejected: exponential regex growth
+	// for 0 new hits on this tree; scripts/redline-check.sh states it). Binding here
+	// spends nothing and keeps this file one level clear of that edge — the same
+	// repair cmd/tappa/main.go made when a `slog.Default().Error(...)` call expression
+	// hid a line from R7b. The real answer to all of it is type-level redaction of
+	// the logger (backlog T51, M8-04); these are text scans and text scans have a
+	// depth.
+	ctx := r.Context()
 	id := httpx.IdentityOf(r)
 	switch id.State {
 	case httpx.SessionUnresolved:
@@ -83,7 +111,7 @@ func (t *Tap) Checkin(w http.ResponseWriter, r *http.Request) {
 		// Live() == false, so treating it as a session-less tap would answer a
 		// database outage, or a route that forgot the middleware, with a redirect
 		// to activation. We do not know who this is, so we say so.
-		t.log.Error("checkin: no resolved identity on the request",
+		t.log.ErrorContext(ctx, "checkin: no resolved identity on the request",
 			"hint", "mount httpx.Identify in front of POST /api/checkin",
 			"err", id.Err, "path", r.URL.Path)
 		t.renderProblem(w, r, http.StatusInternalServerError, tapProblemServer)
@@ -109,7 +137,7 @@ func (t *Tap) Checkin(w http.ResponseWriter, r *http.Request) {
 		// fall through
 
 	default:
-		t.log.Error("checkin: unknown session state", "state", int(id.State))
+		t.log.ErrorContext(ctx, "checkin: unknown session state", "state", int(id.State))
 		t.renderProblem(w, r, http.StatusInternalServerError, tapProblemServer)
 		return
 	}
@@ -133,14 +161,14 @@ func (t *Tap) Checkin(w http.ResponseWriter, r *http.Request) {
 	// off a cross-site POST so the MAC cannot be checked at all.
 	if origin := r.Header.Get("Origin"); origin != "" && origin != "null" &&
 		!strings.EqualFold(strings.TrimRight(origin, "/"), strings.TrimRight(t.baseURL, "/")) {
-		t.log.Warn("checkin: refusing a cross-origin post", "employee_id", id.EmployeeID())
+		t.log.WarnContext(ctx, "checkin: refusing a cross-origin post", "employee_id", id.EmployeeID())
 		t.renderProblem(w, r, http.StatusForbidden, tapProblemBadURL)
 		return
 	}
 
 	r.Body = http.MaxBytesReader(w, r.Body, checkinMaxBody)
 	if err := r.ParseForm(); err != nil {
-		t.log.Info("checkin: unusable form body", "err", err)
+		t.log.InfoContext(ctx, "checkin: unusable form body", "err", err)
 		t.renderProblem(w, r, http.StatusBadRequest, tapProblemBadURL)
 		return
 	}
@@ -152,9 +180,9 @@ func (t *Tap) Checkin(w http.ResponseWriter, r *http.Request) {
 		// us and not for whoever sent it (tapcontext.go).
 		switch {
 		case errors.Is(err, errTapContextExpired):
-			t.log.Info("checkin: expired tap context", "employee_id", id.EmployeeID())
+			t.log.InfoContext(ctx, "checkin: expired tap context", "employee_id", id.EmployeeID())
 		default:
-			t.log.Warn("checkin: unusable tap context", "employee_id", id.EmployeeID(), "err", err)
+			t.log.WarnContext(ctx, "checkin: unusable tap context", "employee_id", id.EmployeeID(), "err", err)
 		}
 		t.renderProblem(w, r, http.StatusBadRequest, tapProblemStale)
 		return
@@ -162,7 +190,7 @@ func (t *Tap) Checkin(w http.ResponseWriter, r *http.Request) {
 
 	occurredAt, ok := parseOccurredAt(r.PostFormValue(occurredAtField))
 	if !ok {
-		t.log.Info("checkin: unusable occurred_at", "employee_id", id.EmployeeID())
+		t.log.InfoContext(ctx, "checkin: unusable occurred_at", "employee_id", id.EmployeeID())
 		t.renderProblem(w, r, http.StatusBadRequest, tapProblemBadURL)
 		return
 	}
@@ -214,6 +242,7 @@ func (t *Tap) Checkin(w http.ResponseWriter, r *http.Request) {
 // error — so the two halves of every branch here are a truthful page and a log
 // line. The person is never blamed and never told about our internals.
 func (t *Tap) renderCheckinFailure(w http.ResponseWriter, r *http.Request, id httpx.Identity, err error) {
+	ctx := r.Context() // see Checkin: since round 4 this buys R7/R7b/R7c one extra level of paren depth, not visibility itself.
 	switch {
 	case errors.Is(err, checkin.ErrUnknownTag):
 		// The signed context named a plaque that no longer resolves. The domain has
@@ -222,13 +251,13 @@ func (t *Tap) renderCheckinFailure(w http.ResponseWriter, r *http.Request, id ht
 		t.renderProblem(w, r, http.StatusNotFound, tapProblemUnknownTag)
 	case errors.Is(err, checkin.ErrInvalidRequest), errors.Is(err, checkin.ErrEnteredByRequired):
 		// A request this handler built wrong — our bug, not the caller's.
-		t.log.Error("checkin: refused an invalid request", "employee_id", id.EmployeeID(), "err", err)
+		t.log.ErrorContext(ctx, "checkin: refused an invalid request", "employee_id", id.EmployeeID(), "err", err)
 		t.renderProblem(w, r, http.StatusInternalServerError, tapProblemServer)
 	default:
 		// The database was unreachable, the insert failed, the counter could not be
 		// advanced. NOT recorded, said plainly, and loud in the log — this is the
 		// case where an hour goes missing if we are quiet about it.
-		t.log.Error("checkin: recording the tap failed; NOTHING was written",
+		t.log.ErrorContext(ctx, "checkin: recording the tap failed; NOTHING was written",
 			"employee_id", id.EmployeeID(), "err", err)
 		t.renderProblem(w, r, http.StatusInternalServerError, tapProblemServer)
 	}

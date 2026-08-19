@@ -76,6 +76,7 @@ package tenant
 
 import (
 	"context"
+	"encoding"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -219,6 +220,58 @@ type GPS struct {
 	Lat float64
 	Lng float64
 }
+
+// redactedGPS is what a venue coordinate looks like anywhere it is rendered. It
+// is deliberately the same text geo.Point uses: an operator grepping a log for a
+// leaked coordinate should not have to know which of the two carriers produced the
+// line, and the two types stay separate for the reason below.
+const redactedGPS = "[REDACTED gps]"
+
+// The FIVE redaction methods for a venue coordinate (§4.7, M8-03 round 4), the
+// same set geo.Point carries for the tap-side coordinate — the two carriers are
+// separate types, so a redaction on one says nothing about the other, and a
+// difference in COVERAGE between them would be a hole nobody could see.
+//
+// 🔴 IT WAS LogValue ALONE FOR ONE ROUND, AND THAT WAS MEASURED TO BE WEAKER THAN
+// THE COMMENT CLAIMED. `%v`, `%+v`, `%#v`, a pointer under `%v`, json.Marshal, a
+// GPS held by value inside a printed struct, a []GPS and a map[string]GPS all
+// printed the full coordinate while the file said the shape matched
+// session.Token's. geo.go carries the full accounting and the one hole that stays
+// open (an unexported field of somebody else's struct under `%v`/`%+v`).
+//
+// ⚠️ NONE OF THE FIVE AFFECTS THE SCREEN OR THE TRAIL, AND BOTH WERE CHECKED
+// RATHER THAN ASSUMED. The panel prints a venue's coordinate on the locations form
+// and the audit trail stores it as a string — both build that text from the FIELDS
+// with strconv.FormatFloat (internal/handler/locations.go's gpsText, this file's
+// gpsText and numericFrom), never by formatting the struct. An operator configuring
+// proof-of-place still sees the number they typed, and a deleted venue's row still
+// records the coordinate it had.
+var (
+	_ fmt.Formatter          = GPS{}
+	_ fmt.Stringer           = GPS{}
+	_ fmt.GoStringer         = GPS{}
+	_ slog.LogValuer         = GPS{}
+	_ encoding.TextMarshaler = GPS{}
+)
+
+// Format is the widest hook: fmt consults it before Stringer, for every verb.
+func (GPS) Format(f fmt.State, _ rune) { _, _ = f.Write([]byte(redactedGPS)) }
+
+// String covers direct .String() calls and the conversions fmt does not route
+// through Format.
+func (GPS) String() string { return redactedGPS }
+
+// GoString covers %#v where it reaches GoStringer without going through Format.
+func (GPS) GoString() string { return redactedGPS }
+
+// LogValue is what log/slog consults. Value receiver for the reason geo.Point's
+// twin gives: Go gives *GPS every method GPS has, not the reverse, and this type
+// IS carried by value — Venue.GPS is a *GPS but locations.go's parseGPS builds one
+// on the stack and venueSnapshot holds it.
+func (GPS) LogValue() slog.Value { return slog.StringValue(redactedGPS) }
+
+// MarshalText is what encoding/json prefers for a value type.
+func (GPS) MarshalText() ([]byte, error) { return []byte(redactedGPS), nil }
 
 // Venue is one location as the panel reads it.
 type Venue struct {

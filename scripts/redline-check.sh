@@ -528,8 +528,178 @@ report WARN R5 "SET LOCAL degil duz SET — havuzdaki baglantiyi kirletir" \
 #   * sir bir ara degiskene kopyalanip nötr bir adla loglanirsa yakalanmaz;
 #   * sir bir YAPININ icinde tasiniyorsa (ResolvedAdmin, store.AdminUser) desen
 #     yalnizca yapinin degisken adina bakar -- yukaridaki alti yol tam olarak budur.
+#
+# 🔴 M8-03 TUR 4: R7 §4.7'NIN EN SERT BES SINIFINI TASIYORDU VE KORDU -- AYNI
+# COMMIT'IN R7b VE R7c'YE ODEDIGI BEDELI ONA ODEMEMISTI. Iki eksik vardi:
+# `-U` YOKTU (kural SATIR YERELDI) ve pencere `[^)]*` idi (ilk `)` karakterinde
+# duruyordu). Bir guvenlik denetcisi bes sinifin BESINI de tek yazimla gecirdi:
+#
+#   s.log.Log(ctx, decisionLevel(dec.Verdict), EventTapDecision,
+#       ...
+#       LogEmployeeID, req.EmployeeID.String(),
+#       "cmac", req.CMAC,                          <-- YAKALANMADI
+#
+# Iki eksen ayri ayri olculdu: ayni satir + onunde parantez yok -> yakalaniyordu ·
+# ayni satir + bir cagri parantezinden SONRA -> kaciyordu · devam satiri ->
+# kaciyordu. Ve bu, `internal/domain/checkin/checkin.go`'daki tap kararinin
+# BUGUNKU yazimidir; yani en sert bes sinif icin ag, urunun en hassas log
+# cagrisinin uzerinde acikti.
+#
+# OLCEK -- VE YONTEMIYLE BIRLIKTE, CUNKU SAYININ KENDISI BIR TUR YANLIS YAZILDI.
+# "Cok satirli" TANIMI: bir logger cagrisinin ACILIS parantezi ile KAPANIS
+# parantezi farkli kaynak satirlarinda. Olcum, bu reponun kendi tarama kapsamiyla
+# ayni AST yuruyusudur (`_test.go` · `*_templ.go` · `internal/store/` disarida;
+# alici adinda "log" gecen `Info|Warn|Error|Debug|Log|*Context|LogAttrs` cagrilari):
+# KART ONCESI agacta 346 cagri yerinin 137'si cok satirlidir, yani argumanlari
+# R7'ye TANIMI GEREGI gorunmezdi. (Kart sonrasi agacta 349'un 141'i.)
+# ⚠️ Bir tur burada 131 yazdi ve yontemini yazmadigi icin yeniden uretilemedi;
+# denenen bes tanimin hicbiri 131 vermiyor (paren-araligi 137 · dugum-araligi 137 ·
+# yalnizca internal/ 135 · alicisi log/slog/fmt olanlar 137 · ilk argumani alt
+# satirda olanlar 0). 137 olculdu ve yontemi yukarida yaziyor.
+#
+# --- OLCULEN BEDEL: TEMIZ AGACTA 3 YANLIS POZITIF ---------------------------
+# `-U` tek basina 2, `-U` + bir seviye dengeli parantez 3 bolge dondurur. Ucu de
+# BIREBIR ADIYLA muaf edilir (asagidaki tablo), toplu bir `--glob !` ile degil, ve
+# kullanilan her muafiyet HER KOSUDA WARN olarak basilir -- R1'in 2026-08-13'te
+# ogrendigi kural: gorunmeyen muafiyet, olmayan denetimdir.
+#
+# ⚠️ MUAFIYET "BU SATIRI GORMEZDEN GEL" DEGIL. R1'in sondasindan ogrenilen sekil
+# burada da gecerli: bir bolge ancak (1) yolu adiyla listelenmisse, (2) o girdinin
+# ADI GECEN masum belirtecleri cikarildiginda (3) geriye HICBIR tetikleyici
+# kalmiyorsa muaftir. Yani muaf dosyaya gercek bir `token`/`cmac` eklenirse bolge
+# yine FAIL uretir.
+#
+# --- KALAN SINIR, ADIYLA ----------------------------------------------------
+# Pencere BIR seviye dengeli parantez tasir (R7c ile ayni). `log.Info("x", f(g()),
+# "cmac", v)` gibi TETIKLEYICIDEN ONCE IKI SEVIYE kapanan bir yazim hala gorunmez.
+# Iki seviye denendi ve secilmedi: rg'nin regex motorunda her seviye pencereyi
+# ustel olarak buyutuyor ve bu agacta yeni bir sey yakalamiyor (0 ek isabet).
+R7_TRIGGERS='token|cmac|aes_?key|secret|invite_?code|code[_a-z]*hash|password|"code"[[:space:]]*,'
+# Pencere: bir seviye dengeli parantez, tekrar edebilir -> `f(a(), b(), TETIK`.
+R7_PATTERN="(slog|log|fmt)\\.[A-Za-z]+\\((?:[^()]|\\([^()]*\\))*($R7_TRIGGERS)"
+
+# MUAFIYET TABLOSU -- her satir: <yol deseni>;;<masum belirtec>[;;<masum belirtec>...]
+#
+# W1 test/fixtures/seedkeys/main.go -- `aes_key_ref` bir SUTUN ADIDIR. Bolge bir
+#    UPDATE ifadesini `fmt.Fprintf(&b, ...)` ile bir string BUFFER'ina yazar;
+#    yazilan deger `hex.EncodeToString(ref)`, yani KEK ile sarmalanmis referans,
+#    ham anahtar degil -- ve hedef bir log degil, seed SQL'i. Dosyanin kendi
+#    yorumu bu bolgenin R7'den yalnizca SATIR KIRILIMI sayesinde kactigini zaten
+#    yaziyordu; bu tur o kazayi kaldirdi, bu yuzden muafiyet ADIYLA yaziliyor.
+# W2 internal/adminauth/password.go -- `ErrPasswordTooLong` bir SENTINEL HATA
+#    degiskenidir. Cagri `fmt.Errorf("%w (got %d bytes)", ErrPasswordTooLong, n)`:
+#    bicimde yalnizca sentinel ve bir UZUNLUK var; parola degeri kasitla `n`'e
+#    hoisted edilmis (fonksiyonun kendi yorumu sebebini yaziyor). Deger hicbir
+#    bicime girmiyor.
+# W3 internal/domain/signup/signup.go -- `"password"` bir FORM ALANI ANAHTARI
+#    (hata haritasinin anahtari, kullaniciya gosterilen alan adi) ve
+#    `MinPasswordRunes` bir SABIT INT. Eslesen cagri
+#    `fmt.Sprintf("Use at least %d characters...", MinPasswordRunes)` -- bicime
+#    giren tek deger o sabittir; `a.Password` bu cagriya hic girmiyor.
+#
+# ⚠️ TEK SATIR, `##` ile ayrilmis: BSD awk (`-v`) deger icinde SATIR SONU KABUL
+# ETMEZ ("newline in string" ile patlar ve tarama sessizce yarim kalir -- olculdu,
+# bu tur, macOS). R1'in tablosu tek degerli oldugu icin bu sorunu hic gormemisti.
+R7_WAIVERS='test/fixtures/seedkeys/main[.]go;;aes_key_ref##internal/adminauth/password[.]go;;ErrPasswordTooLong##internal/domain/signup/signup[.]go;;"password";;MinPasswordRunes'
+
+r7_raw="$(scan -U -i -e "$R7_PATTERN" || true)"
+
+# r7_select <waived|fail>
+#
+# rg -U bir eslesmenin HER FIZIKSEL SATIRINI ayri ayri `yol:no:metin` olarak
+# basar, oysa muafiyet karari BOLGENIN tamamina bakmalidir (tetikleyici bir
+# satirda, masum belirtec digerinde olabilir). awk bu yuzden ardisik satir
+# numarali ayni-dosya satirlarini once BIR BOLGEDE birlestirir.
+# ⚠️ Iki AYRI bolge tesadufen bitisikse birlesirler; bu HATA YONU GUVENLIDIR --
+# birlesmis metinde muaf olmayan tetikleyici kalir ve bolgenin tamami FAIL olur.
+r7_select() {
+  awk -v mode="$1" -v waivers="$R7_WAIVERS" -v trig="$R7_TRIGGERS" '
+    function flush(   i, m, rest, w) {
+      if (nlines == 0) return
+      w = 0
+      for (i = 1; i <= wcount; i++) {
+        if (path ~ wpath[i]) {
+          rest = tolower(text)
+          gsub(wtok[i], " ", rest)      # ADI GECEN masum belirtecleri cikar
+          if (rest !~ trig) { w = 1; break }
+        }
+      }
+      if ((mode == "waived") == w) for (i = 1; i <= nlines; i++) print lines[i]
+      nlines = 0; text = ""
+    }
+    BEGIN {
+      n = split(waivers, W, "##")
+      for (i = 1; i <= n; i++) {
+        if (W[i] == "") continue
+        m = split(W[i], F, ";;")
+        wcount++
+        wpath[wcount] = F[1]
+        for (j = 2; j <= m; j++)
+          wtok[wcount] = wtok[wcount] (j == 2 ? "" : "|") tolower(F[j])
+      }
+      nlines = 0; text = ""
+    }
+    length($0) == 0 { next }
+    {
+      # `yol:no:` onekini ayir. En soldaki `:<sayi>:` yolun sonudur; metnin
+      # icindeki `bar.go:12:` gibi bir yazim daha sagda kalir ve etkilemez.
+      p = $0; sub(/:[0-9]+:.*$/, "", p)
+      no = $0; sub(/^[^:]*:/, "", no); sub(/:.*$/, "", no)
+      # 🔴 TETIKLEYICI TESTI YALNIZ KAYNAK METNE BAKAR, `yol:no:` onekine DEGIL.
+      # Olculdu: onek dahil edilince `internal/adminauth/password.go` YOLUNUN
+      # kendisi `password` tetikleyicisini eslestiriyor ve o dosyadaki hicbir
+      # muafiyet asla gecerlilesemiyordu -- muafiyet sessizce olu kaliyordu.
+      c = $0; sub(/^[^:]*:[0-9]+:/, "", c)
+      if (nlines > 0 && (p != path || no + 0 != prevno + 1)) flush()
+      path = p; prevno = no + 0
+      lines[++nlines] = $0
+      text = text " " c
+    }
+    END { flush() }' <<<"$r7_raw"
+}
+
 report FAIL R7 "Sir loglanıyor olabilir (token / cmac / anahtar / davet kodu / kod hash'i / parola hash'i)" \
-  "$(scan -i -e '(slog|log|fmt)\.[A-Za-z]+\([^)]*(token|cmac|aes_?key|secret|invite_?code|code[_a-z]*hash|password|"code"[[:space:]]*,)' || true)"
+  "$(r7_select fail)"
+report WARN R7 "R7 muafiyeti kullanildi (yola VE belirtece sinirli) — muafiyet sessiz kalamaz" \
+  "$(r7_select waived)"
+
+# --- R7c: TAM GPS KOORDINATI LOG'A DUSUYOR OLABILIR --------------------------
+#
+# 🔴 NEDEN AYRI BIR KURAL VAR: §4.7'NIN ALTI SINIFINDAN BESI ICIN MEKANIZMA
+# VARDI, GPS ICIN HICBIRI YOKTU (M8-03, 2026-08-19, olculdu). §4.7 "tam GPS
+# koordinati" der; R7'nin deseni token/cmac/aes_key/secret/invite_code/
+# code_hash/password sayar ve koordinatla ilgili TEK bir ifade tasimaz. Kanit
+# bir mutasyondu: internal/handler/checkin.go'daki bir log cagrisina
+# ("gps", gps) ve iki gercek ondalik derece eklendi -> bu script EXIT 0 verdi.
+# Yani alti siniftan biri icin "dogrulandi" iddiasinin arkasinda hicbir sey
+# yoktu.
+#
+# 🔴 ASIL MEKANIZMA BU DEGIL, TIP DUZEYIDIR ve o da bu turda kondu:
+# geo.Point.LogValue ve tenant.GPS.LogValue koordinati slog uzerinden
+# BASILAMAZ yapar (session.Token / invite.Code / db.PasswordHash kalibi).
+# Bu desen, tipin ARKASINDAN dolasan tek olculmus yazimi kapatir: eksenleri
+# struct'tan cikarip iki ciplak float64 olarak, eksen adli anahtarlarla
+# loglamak. LogValue o yolda hic devreye girmez.
+#
+# --- OLCULEN: TEMIZ AGACTA 0 YANLIS POZITIF (uc desenin ucu de) --------------
+# Denenen ve SECILMEYEN dorduncu desen: ciplak `\bgps\b`. Ayni agacta 2 yanlis
+# pozitif veriyor (internal/domain/tenant/rulebook.go'da "gps radius %.0f m"
+# bir HATA MESAJI, ve venue.go'daki redaksiyonun kendi metni). Gurultulu bir ag
+# gevsetilir (M0-07), o yuzden dar ucu secildi ve genisligi burada yaziyor.
+#
+# --- OLCULEN: NEYI YAKALAMAZ (hepsi yanlis-NEGATIF) -------------------------
+#   1. BASKA ANAHTAR ADI. `log.Info("x", "a", p.Lat)` -> "a" tetiklemez; ama
+#      `.Lat` ucu bunu yine de yakalar. `log.Info("x","a",v)` (v onceden
+#      kopyalanmis) -> gorunmez. R7'nin ara-degisken siniri, ayni sebep.
+#   2. YAPI ICINDE TASINAN DEGER — LogValue'nun kapattigi yol tam olarak budur,
+#      yani burada bosluk birakilmasi bilincli: iki ag ayni yolu iki kez
+#      kapatmaz.
+#   3. IC ICE IKI SEVIYE PARANTEZ. Pencere BIR seviye dengeli parantez tasiyor
+#      (R7b'nin uzerindeki blok neden degistigini olcumleriyle anlatiyor), yani
+#      `log.Info("x", f(g()), "lat", v)` gibi bir satirda tetikleyiciden once iki
+#      seviye kapanirsa yine gorunmez. R7 ile ayni sinif, bir seviye ileride.
+report FAIL R7c "Tam GPS koordinati log cagrisinda — §4.7: konum yalniz tap aninda okunur ve kaydedilir, loglanmaz" \
+  "$(scan -U -i -e '(slog|log|fmt)\.[A-Za-z]+\((?:[^()]|\([^()]*\))*("(gps|lat|lng|latitude|longitude)"[[:space:]]*,|\b(gps_?lat|gps_?lng|latitude|longitude)\b|\.(Lat|Lng)\b)' || true)"
 
 # --- R7b: KISISEL VERI (ad / adres) LOG'A DUSUYOR OLABILIR --------------------
 #
@@ -586,8 +756,51 @@ report FAIL R7 "Sir loglanıyor olabilir (token / cmac / anahtar / davet kodu / 
 # arayuzu vermek bu agin tamamini gereksiz kilar. Olculdu: internal/handler'da 224
 # `a.log.*` cagri yeri / 22 dosya, internal/domain'de 46 daha -- paket capinda bir
 # donusum. Backlog satiri; bu ag onun YERINE GECMEZ, once gelir.
+# 🔴 EŞLEŞME PENCERESİ `[^)]*` DEĞİL, BİR SEVİYE DENGELİ PARANTEZ (M8-03, olculdu).
+# NEDEN DEGISTI: eski pencere ilk `)` karakterinde duruyordu, ve bu agactaki log
+# cagrilarinin cogunda ARGUMANLARDAN ONCE bir cagri kapaniyor —
+# `id.EmployeeID()`, `int(id.State)`, `r.Context()`. Yani tetikleyici bu
+# kapanistan SONRA geliyorsa kural onu HIC gormuyordu. Iki mutasyonla olculdu:
+# ayni sizinti duz bir ilk argumanla YAKALANIYOR, `r.Context()`in arkasinda
+# YAKALANMIYOR. Limit bloğunun 4. maddesi bunu zaten "yanlis-negatif" diye
+# yaziyordu; ucuz oldugu olculdukten sonra yazmak yerine kapatildi.
+# MALIYET OLCULDU: temiz agacta R7b icin 0, R7c icin 0 yanlis pozitif.
+#
+# 🔴 [GERI CEKILDI — bu blok bir tur boyunca "R7'YE UYGULANMADI" ve "R7 hala ilk
+# kapanan parantezde duruyor" diyordu; IKISI DE ARTIK YANLIS.] R7 4. turda
+# GENISLETILDI: yukaridaki R7_PATTERN dengeli parantez penceresini tasiyor ve
+# `r7_raw` taramasi `-U` ile kosuyor. Bu blok o degisikligin ONCESINDE yazilmisti
+# ve guncellenmedigi icin ayni dosya kendi koduyla celisik kaldi. Dogru hikaye
+# tek: "AYNI GENISLETME" IKI PARCALIDIR — (a) dengeli parantez penceresi,
+# (b) rg -U cok satirlilik — R7b/R7c'de (b) zaten vardi, R7'de ikisi de yoktu, ve
+# 4. turda R7'ye IKISI BIRDEN verildi. Ayri ayri olculdu (2026-08-19, ayni
+# SRC/GEN_EXCLUDE):
+#     eski hali (dar pencere, -U yok) ..................... 0 yanlis pozitif
+#     YALNIZ dengeli parantez penceresi ................... 1
+#         internal/adminauth/password.go, ErrPasswordTooLong bolgesi (HATA ADI)
+#     pencere + -U (SEVK EDILEN) .......................... 3
+#         + test/fixtures/seedkeys/main.go, seed UPDATE'ini yazan fmt.Fprintf
+#           bolgesi (aes_key_ref bir SUTUN ADI)
+#         + internal/domain/signup/signup.go, MinPasswordRunes'u bicimleyen
+#           errs.add("password", ...) bolgesi ("password" bir FORM ALANI adi)
+# Yani ucuz yarisi 1'e, pahali yarisi 3'e mal oldu; ucu de R7_WAIVERS'ta ADIYLA
+# muaf ve her kosuda WARN olarak basiliyor. Gurultulu bir ag gevsetilir (M0-07),
+# ve R7'nin TETIKLEYICILERINI daraltmak bir GUVENLIK kuralinin anlamini
+# degistirmektir — M8-04'un isi, bu kartin degil.
+# ⚠️ SATIR NUMARASI YAZILMIYOR, SEMBOL YAZILIYOR: bu blogun onceki hali
+# `seedkeys/main.go:132` diyordu ve o satir bugun bir YORUM; gercek bolge
+# fmt.Fprintf cagrisinda. Satir atfi bu depoda defalarca bayatladi.
+# SAYILMIS SINIR, KAPATILMADI: pencere BIR seviye dengeli parantez tasir, iki
+# seviye tasimaz (olculdu: iki seviye bu agacta 0 ek isabet, ustel regex buyumesi).
+#
+# ⚠️ KAPSAM FARKI, SAYILMIS: bu uc kural `_test.go` dosyalarini DA tarar (SRC
+# listesi onlari iceriyor, GEN_EXCLUDE yalnizca *_templ.go ve internal/store/*.go
+# cikariyor). cmd/tappa'daki TestObservability_EveryLoggerCallSiteIsSpelledLog
+# invaryanti ise `_test.go`'lari ATLAR. Yani bir test dosyasindaki
+# `a.logger.Error(..., r.PostFormValue(...))` hem bu uc kuralin hem invaryantin
+# kor noktasindadir. deploy/README.md §4.7 bolumu bunu sinir olarak yaziyor.
 report FAIL R7b "Kisisel veri (ad/adres) log cagrisinda — §4.7/§7: surec log'unun saklama suresi ve tenant siniri yoktur" \
-  "$(scan -U -e '(slog|log|fmt)\.[A-Za-z]+\([^)]*(r\.(Post)?FormValue\(|\.FullName\b|\.Email\b|\bposted\.|\b(f|person|out|p|emp|employee|staff|subject)\.Name\b)' || true)"
+  "$(scan -U -e '(slog|log|fmt)\.[A-Za-z]+\((?:[^()]|\([^()]*\))*(r\.(Post)?FormValue\(|\.FullName\b|\.Email\b|\bposted\.|\b(f|person|out|p|emp|employee|staff|subject)\.Name\b)' || true)"
 
 report FAIL R7 "Repoda gomulu anahtar dosyasi" \
   "$(git ls-files '*.pem' '*.key' '*.aes' 'secrets/*' 2>/dev/null || true)"

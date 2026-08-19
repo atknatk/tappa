@@ -228,6 +228,7 @@ func TestNewRouter_ResolvesTheClientAddress(t *testing.T) {
 			var got seen
 			r := httpx.NewRouter(
 				&config.Config{TrustedProxies: tc.trusted},
+				nil,
 				mountFunc(func(r chi.Router) { r.Get("/probe", probe(&got)) }),
 			)
 			w := httptest.NewRecorder()
@@ -249,7 +250,7 @@ func TestNewRouter_ResolvesTheClientAddress(t *testing.T) {
 func TestNewRouter_NilConfigTrustsNothing(t *testing.T) {
 	t.Parallel()
 	var got seen
-	r := httpx.NewRouter(nil, mountFunc(func(r chi.Router) { r.Get("/probe", probe(&got)) }))
+	r := httpx.NewRouter(nil, nil, mountFunc(func(r chi.Router) { r.Get("/probe", probe(&got)) }))
 	r.ServeHTTP(httptest.NewRecorder(), request(t, "10.0.0.1:9000", map[string][]string{
 		"X-Forwarded-For": {"203.0.113.9"},
 	}))
@@ -285,7 +286,7 @@ func resolveThroughRealWiring(t *testing.T, peer, xff string) (string, error) {
 		return "", err
 	}
 	var got string
-	r := httpx.NewRouter(cfg, mountFunc(func(r chi.Router) {
+	r := httpx.NewRouter(cfg, nil, mountFunc(func(r chi.Router) {
 		r.Get("/probe", func(_ http.ResponseWriter, req *http.Request) { got = httpx.ClientIP(req).String() })
 	}))
 	req := request(t, peer, map[string][]string{"X-Forwarded-For": {xff}})

@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -72,9 +73,43 @@ func run() error {
 		return err
 	}
 
-	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-		Level: parseLevel(cfg.LogLevel),
-	})))
+	// 🔴 THE HANDLER IS WRAPPED SO A CONTEXT-CARRYING RECORD GAINS ITS REQUEST ID
+	// (M8-03). It is wrapped HERE, at the one place the process logger is built,
+	// rather than at each of the 23 slog.Default() reads below: every service in
+	// this file is handed slog.Default(), so wrapping the default handler reaches
+	// all of them and there is no injected logger that could miss it.
+	//
+	// ⚠️ 23, RE-COUNTED. A first round wrote 44 and said all of them were in this
+	// file; both halves were wrong, and the second half mattered because it made the
+	// §7 argument rest on a tree that does not exist.
+	//
+	// ⚠️ THE MEASUREMENT IS WRITTEN AS A COMMAND, NOT AS A BARE NUMBER, BECAUSE THE
+	// BARE NUMBER HAS NOW GONE STALE TWICE. This block wrote 44 in one round and 26
+	// in another; 26 was already wrong when it was typed, because the same round
+	// added three of the comment mentions it was supposed to be excluding. Run it:
+	//
+	//     grep -c 'slog[.]Default()' cmd/tappa/main.go     ->  27
+	//
+	// 27 = 23 real reads + 4 mentions inside comments (three in this block, one in
+	// the legal-texts branch below). The bracket spelling is deliberate: it matches
+	// the same lines as the escaped-dot form while NOT matching itself, so writing
+	// the command here does not change the number the command reports.
+	//
+	// So: 23 real reads in this file, ALL of them below this line — and 20 more OUTSIDE
+	// it, every one a `if log == nil { log = slog.Default() }` fall-back in a
+	// constructor (12 under internal/domain, 7 under internal/handler, 1 in
+	// internal/httpx). 43 in the production tree altogether.
+	//
+	// Those 20 do not weaken the sentence above, they widen it, and that is the
+	// honest way to put it: the wrap is on the DEFAULT handler, so a service built
+	// with a nil logger picks up the same wrapped handler by the same route. They
+	// pre-date this card and none of them is a §7 violation being introduced here.
+	//
+	// httpx.WithRequestID carries the counted limit — only *Context calls can be
+	// stamped, and M8-03 converted the tap decision chain rather than all 346 call
+	// sites (backlog T51 measured why; 346 is the count on the tree BEFORE this
+	// card, which is the tree the choice was made against).
+	slog.SetDefault(slog.New(httpx.WithRequestID(logHandler(os.Stdout, cfg))))
 
 	// 🔴 WHICH BUILD THIS IS, SAID BEFORE ANYTHING ELSE HAPPENS (M8-01). It is the
 	// FIRST line this process writes, ahead of the database dial, because the moment
@@ -451,9 +486,17 @@ func run() error {
 
 	srv := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           httpx.NewRouter(cfg, activation, tap, panelAuth, marketing, signupFlow, resetFlow, ready),
+		Handler:           httpx.NewRouter(cfg, slog.Default(), activation, tap, panelAuth, marketing, signupFlow, resetFlow, ready),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       90 * time.Second,
+		// 🔴 SET, RATHER THAN LEFT AT GO'S 1 MiB DEFAULT (M8-03 round 4). Every
+		// header this process reads is caller-supplied and unauthenticated, and the
+		// default ceiling is what made a 900 KB X-Request-Id — and therefore a
+		// 921 757-byte log line — possible at all. httpx.MaxRequestIDLen bounds THAT
+		// header; this bounds the ones no rule has been written for. Neither
+		// substitutes for the other, and httpx.MaxHeaderBytes carries the arithmetic
+		// behind 16 KiB.
+		MaxHeaderBytes: httpx.MaxHeaderBytes,
 	}
 
 	errCh := make(chan error, 1)
@@ -502,6 +545,19 @@ func logBuild(log *slog.Logger, b buildinfo.Build) {
 		return
 	}
 	log.Info("build", b.LogArgs()...)
+}
+
+// logHandler builds the process's base slog handler from the configuration.
+//
+// config.Load has already refused anything outside the closed set, so the switch
+// below has no "unknown format" branch to get wrong: text is the default and json
+// is the only alternative.
+func logHandler(w io.Writer, cfg *config.Config) slog.Handler {
+	opts := &slog.HandlerOptions{Level: parseLevel(cfg.LogLevel)}
+	if cfg.LogFormat == config.LogFormatJSON {
+		return slog.NewJSONHandler(w, opts)
+	}
+	return slog.NewTextHandler(w, opts)
 }
 
 func parseLevel(s string) slog.Level {

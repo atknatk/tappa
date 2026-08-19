@@ -2748,6 +2748,193 @@ tablosu çıkmış durumda (satış slaytı da olur).
   hesap denemesi, şüpheli ctr sıçraması, 5xx oranı.
 - Prod log'ları AB'de, saklama süresi belirli.
 
+> **Kart düzeltmesi (2026-08-19, M8-03 uygulaması sırasında).** Dört kriterin
+> **ikisi kartın yazdığı şekilde sevk edilemiyordu** ve bu ölçülerek bulundu; ikisi
+> sevk edildi. Kart bunları saymadığı için burada sayılıyor.
+>
+> **1. "request id korelasyonlu" — KAPSAM DARALTILDI, GEREKÇESİYLE.**
+> `middleware.RequestID` M5-03'ten beri bağlı ve **hiçbir şey onu okumuyordu**
+> (üretim ağacında `RequestID|request_id|requestID|X-Request-Id` → **tek isabet**,
+> o da onu üreten satır). Üç şekil ölçüldü, maliyetleri raporda; seçilen
+> `slog.Handler` sarmalayıcısıdır ve o **yalnız `*Context` çağrılarını**
+> damgalayabilir. **Kart öncesi** ağaçta **346** logger çağrı yeri vardı (2. turda
+> yeniden ölçüldü — bu blok bir tur boyunca 347 yazdı ve `deploy/README.md` aynı
+> olguya 346 diyordu); hepsini dönüştürmek backlog **T51**'in ölçüp reddettiği
+> paket çapında dönüşümdür (`internal/handler`'da 224).
+> **Sevk edilen: 32 çağrı yeri (tap karar zinciri) + her yanıt için bir
+> `http.request` kaydı.** Geri kalanı korele **edilemez** ve bu `deploy/README.md`
+> **sınır 26**'da sayıldı.
+>
+> **2. "asla loglanmayanlar doğrulandı" — ALTI SINIFTAN BİRİNİN HİÇBİR MEKANİZMASI
+> YOKTU.** Ölçüldü: bir log çağrısına `"latitude", 35.8997` eklemek
+> `scripts/redline-check.sh`'i **exit 0** bırakıyordu — R7'nin deseni koordinatla
+> ilgili tek bir ifade taşımıyor.
+>
+> ⚠️ **[GERİ ÇEKİLDİ — bu paragrafın kalanındaki üç cümle de sevk edilen kodun
+> TERSİNİ söylüyor. Doğrusu aşağıdaki *"3.–5. tur"* bloğundadır; iki cümleyi
+> birden okuyacaksan aşağıdakine güven.]** Geri çekilen hâli şunu diyordu:
+> *"Eklenen: `geo.Point.LogValue` + `tenant.GPS.LogValue` (tip düzeyi) ve yeni R7c
+> kuralı. Ayrıca R7b/R7c'nin eşleşme penceresi bir seviye dengeli parantez
+> taşıyacak şekilde genişletildi (temiz ağaçta 0 yanlış pozitif); **R7
+> genişletilmedi**. 2. turda bu cümle düzeltildi: 'aynı genişletme' iki ayrı şeydi
+> (dengeli parantez penceresi ve `rg -U`), **R7'de ikisi de yok**, ve ölçüldü —
+> yalnız pencere: 1 yanlış pozitif, pencere + `-U`: 3."*
+> Üç cümlenin üçü de 4. turda geçersizleşti: her iki tipte **birer değil BEŞER**
+> metot var, R7 **genişletildi**, ve R7'de bugün **ikisi de** var. Ölçümler ve
+> ne kaldığı aşağıda. `deploy/README.md` bunu zaten *"R7 GENİŞLETİLDİ … ve önceki
+> turda 'yapılmadı' diye yazılması BİR HATAYDI"* diye yazıyor; iki belge artık
+> aynı şeyi söylüyor.
+>
+> **3. "uyarı kuralları" — TESLİMAT KANALI YOK, HESAPLANABİLİRLİK SEVK EDİLDİ.**
+> Altı sinyalin **hiçbirinin filtrelenebilir bir olayı yoktu:** karar motoru bugüne
+> kadar **tek bir verdict satırı bile loglamıyordu**, 5xx için erişim kaydı yoktu, ve
+> hazırlık kaybı bir **düzyazı cümlesi** olarak yazılıyordu (`"readiness lost: the
+> database did not answer…"`) — yani bir kural onu bir olay adıyla arayamazdı. Eklendi:
+> `tap.decision` (1., 2. ve 4. sinyal), `tap.security_alert` (3.),
+> `http.request` (5.), `readiness.lost`/`readiness.regained` (6.). Eşikler ve
+> sorgular `deploy/README.md` → *"M8-03 — UYARI
+> KURALLARI"*. **Gönderim yok** — kararı `Q28 (a)` (**teslimat**: uyarı nereye
+> gidecek), ve bu **sınır 25**'te yazılı. ⚠️ Bu cümle bir tur boyunca *"Q12 açık"*
+> diyordu; `Q12` **barındırmadır** ve uyarı hedefi hakkında hiçbir şey söylemez —
+> yani devir hedefi **var olmayan bir karardı**. `Q28` tam bu ölçüm üzerine açıldı
+> (2. tur denetimi, 2026-08-19). Saklama yarısı `Q28 (b)`'dir ve 4. maddededir.
+>
+> **4. "prod log'ları AB'de, saklama süresi belirli" — AB YARISI DOĞRU, SAKLAMA
+> SÜRESİ YARIM.** Node **fsn1 (Almanya)**; ⚠️ ve `topology.kubernetes.io/region`
+> etiketi **yok** (ölçüldü), yani bölge kanıtı node ADI. **İkinci bir kopya
+> bulundu ve kart bilmiyordu:** SigNoz otel ajanı `/var/log/pods/*/*/*.log`
+> topluyor ve exclude listesi `tappa`'yı **saymıyor** — ClickHouse aynı node'da,
+> yani AB'den çıkmıyor. Saklama: node'da `10Mi × 5 = 50 MiB` (**boyut, süre
+> değil**) ve fiilen *"bir sonraki deploy'a kadar"* (7 ReplicaSet, **1** pod).
+> **SigNoz kopyasının TTL'i DOĞRULANAMADI** — `exec`/API gerekiyordu, bu turda
+> yalnız salt-okuma fiilleri kullanıldı. Operatör eylemleri adlandırıldı
+> (`log-retention-kubelet`, `log-retention-signoz`) ve M8-06 pilot kapısına bağlandı.
+> Kararın kendisi `Q28 (b)` — **saklama** yarısı. ⚠️ `Q12` (barındırma) buna
+> **dolaylı** bağlıdır (nerede barındığımız node rotasyonunu ve toplayıcının
+> varlığını belirler), ama *"ne kadar saklanacak"* sorusu `Q12` değildir.
+>
+> **Kart düzeltmesi — 2. TUR (2026-08-19, üçüncü göz RED verdikten sonra).**
+> Denetim beş bloklayan buldu; üçünün **tek bir kökü** vardı ve o kök burada
+> yazılıyor, çünkü kart bunu da saymamıştı.
+>
+> 🔴 **KÖK: erişim kaydı SAĞLIK SONDALARINI da kapsıyordu**, ve bu üç ayrı şeyi
+> aynı anda bozuyordu. (a) `Handle`'ı 2 sn uyutan bir log hedefiyle `GET /healthz`
+> **2,001 sn** sürüyordu — yani canlılık sondası log borusuna bağlanmıştı ve
+> boşaltılamayan bir boru kubelet'e **sağlıklı süreci öldürtüyordu**; tam olarak
+> `TestHealthz_CannotDependOnAnything`'in adını taşıdığı arıza, gözlemlenebilirlik
+> kartının eliyle geri gelmiş. (b) `/readyz`'in **tasarlanmış** 503'ü `level=ERROR`
+> yazıyordu, kubelet onu 5 sn'de bir yokladığı için 5 dakikada **60 olay** oluyordu
+> ve *"sunucu bozuk"* kuralının eşiği **5**'ti — geçici bir DB dalgalanması ~25
+> saniyede yanlış alarmı çalıyordu. (c) sıfır kullanıcı trafiğiyle **25.920
+> istek/gün × ~197 B ≈ 5,1 MB/gün**, yani log'un ~%100'ü sonda.
+>
+> **Karar:** bir sonda **tasarlandığı gibi** cevap veriyorsa (`/healthz`→200,
+> `/readyz`→200 **ve** 503) erişim kaydı **yazılmaz**; **tasarım dışı** her durum
+> normal şekilde kaydedilir — `/readyz`'den gelen bir **500** hâlâ `level=ERROR`
+> ile 5. kurala düşer, yani paniklemiş bir hazırlık handler'ı sessiz kalmaz.
+> **Tam dışlama seçilmedi** tam da bu yüzden. Ve gerçek bir hazırlık arızası
+> görünür kalıyor: `internal/handler.Health` durum değişimini zaten yazıyordu —
+> artık `readiness.lost` / `readiness.regained` adıyla pinli ve **6. uyarı kuralı**
+> onu okuyor. Kayıt kaybolmadı, **yeri değişti** (§4.6) ve sayısı 12/dakikadan
+> olay başına 1'e indi.
+>
+> 🔴 **İKİNCİ DAVRANIŞ HATASI, aynı yerden:** `AccessLog` `Recoverer`'ın **dışında**
+> (bu bilinçli — panik 500 olarak kaydedilsin diye), dolayısıyla **kendi** paniğini
+> kimse yakalamıyordu. Ölçüldü: paniklerken `Handle` ile `/healthz` **ve** sıradan
+> bir rota **`EOF`** dönüyordu; yığın `net/http.(*conn).serve`'de bitiyordu,
+> `Recoverer`'da değil. `writeAccessRecord` artık kendi paniğini kapsıyor ve bunun
+> handler paniğini **yutmadığı** ölçüldü (Go'nun kuralı burada sezgiye aykırı:
+> normal dönen bir yardımcının `defer`'indeki `recover`, dışarıda süren bir paniği
+> durdurmaz — üç kombinasyon da sondalandı). `TestAccessLog_PanicIsRecordedAsA5xx`
+> yerinde duruyor.
+>
+> **Metin tarafında düzeltilenler:** uyarı tablosundaki **olmayan bir sid**
+> (`…tag-lost`; gerçeği `sys:tag-not-active`) — düzeltildi **ve** bölümdeki her
+> sid'in `internal/policy`'de var olduğunu doğrulayan bir test kondu ·
+> *"Kabul edilmiş sınırlar"* listesindeki **17/18/19 çiftlenmesi** → 24/25/26 ve
+> numaraların tekilliği artık testle tutuluyor · saklama hesabı **M8-03 ÖNCESİ**
+> bir ikilinin log'u üzerinden yapılmıştı (o pod'da `http.request` sayısı **0**),
+> yeniden hesaplandı · `tap.security_alert`'in **ikinci yolu** (kayıp plaket)
+> belgeye yazıldı ve testle sürüldü · toplayıcıya giden **üç** konteynerin
+> §4.7 kapsamı sayıldı · `slog.Default()` (44 → **23** + dışarıda 20) ve logger
+> çağrı yeri (347 → **346**, ağacı adıyla) sayıları düzeltildi.
+>
+> **Ek olarak kapatılan iki backlog borcu:** **T47** (rotasyonun `lock_timeout`
+> başlığı bir TAP tavanı ilan ediyordu — düzeltildi; `55P03` runbook'a girdi;
+> `defer sun.Zero` için var olduğu iddia edilen test **yazıldı** ve mutasyonla
+> kanıtlandı) ve **T49** (`LD_PRELOAD`/`DYLD_*` temizleme listesine eklendi; DSN'in
+> URI biçimi zorunlu kılındı; yanlış kanal sayımı kaldırıldı).
+
+> **Kart düzeltmesi — 3.–5. TUR (2026-08-19).** Bu kart, yukarıdaki 2. tur bloğuna
+> kadar yazılmıştı ve **sonraki üç turda sevk edilenlerin hiçbirini saymıyordu**;
+> ölçüldü: `git diff --stat docs/plan/m8-deploy-pilot.md` = **108 ekleme, hepsi 2.
+> tur bloğuna kadar**. Sonuç, kartın sevk edilen kodun **tersini** söylemesiydi.
+> Bir sonraki oturumun ilk okuduğu belge bu olduğu için, eksik olan burada
+> sayılıyor.
+>
+> 🔴 **KÖK DÜZELTME — R7 GENİŞLETİLDİ (4. tur), ve kartın *"genişletilmedi"*
+> demesi bir hataydı.** R7 §4.7'nin **en sert beş sınıfını** taşıyor (oturum
+> token'ı · `token_hash` · CMAC · AES anahtarı · davet kodu) ve R7b/R7c'ye ödenen
+> bedelin **ikisini de** ödememişti: `-U` yoktu, pencere ilk `)` karakterinde
+> duruyordu. Bir güvenlik denetçisi beş sınıfın **beşini de** tek yazımla geçirdi —
+> tetikleyiciyi `id.EmployeeID()` gibi bir çağrının **arkasına** koymak yetti, ki bu
+> tap karar kaydının **bugünkü** yazımıdır. Bugün R7'de **hem `-U` hem dengeli
+> parantez penceresi** var. Ölçülen bedel: eski hâli **0** yanlış pozitif (ama beş
+> sınıfın beşi de kaçıyordu) · yalnız pencere **1** · pencere + `-U` **3** (sevk
+> edilen). Üçü de `R7_WAIVERS`'ta **birebir adla** muaf ve **her koşuda WARN** olarak
+> basılıyor. Adları ve gerekçeleri: `scripts/redline-check.sh` ve
+> `deploy/README.md` §4.7 bölümü.
+> **Kanıt (5. turda yeniden koşuldu):** aynı sızıntı sevk edilen R7 ile **exit 1**,
+> kart öncesi desenle **exit 0**.
+>
+> 🔴 **İKİNCİ KÖK DÜZELTME — GPS redaksiyonu BİRER değil BEŞER metot.**
+> Kart *"`geo.Point.LogValue` + `tenant.GPS.LogValue`"* diyordu; sevk edilen
+> `geo.Point` ve `tenant.GPS` tiplerinin **her birinde beş** metot var:
+> `Format` · `String` · `GoString` · `LogValue` · `MarshalText`. 4. turda ölçüldü:
+> yalnız `LogValue` ile `%v` · `%+v` · `%#v` · işaretçi üzerinde `%v` ·
+> `json.Marshal` · **değerle bir struct alanının içinde** · `[]Point` ·
+> `map[string]Point` — sekizi de tam koordinatı basıyordu, ve ikisi **iki ağı
+> birden** deliyordu (R7c bir eksen **adı** arar, o iki yazımda yok). Kalan tek
+> delik yazılı ve testle sabitlenmiş: başka bir struct'ın **dışa açık olmayan**
+> alanındaki bir `Point`, `%v` altında hâlâ sızar — `fmt` orada `Formatter`'a hiç
+> danışmaz.
+>
+> **Kartta HİÇ yazılı olmayan ve sevk edilen altı şey daha:**
+> 1. **Kendi `RequestID` middleware'i** — chi'nin `middleware.RequestID`'si gelen
+>    `X-Request-Id` başlığını **olduğu gibi**, uzunluk ve karakter sınırı olmadan
+>    kullanıyordu; bu kart o alanı **her** erişim kaydına bağladığı için 900 KB'lık
+>    bir başlık 921 757 baytlık bir log satırı üretiyordu (ölçüldü: 30 kimliksiz
+>    istek = 26,4 MiB). Gelen değer artık **sınırlandırılıyor**, reddedilmiyor.
+> 2. **`MaxHeaderBytes` = 16 KiB** (Go'nun varsayılanı 1 MiB idi) — tek başına (1)'i
+>    kapatmaz, kural yazılmamış **başka** başlık kanallarını sınırlar. ⚠️ Bu tavanı
+>    aşan istek başlık ayrıştırma sırasında 431 ile kesilir ve **hiç erişim kaydı
+>    üretmez** (ölçüldü: 0 bayt) — `deploy/README.md`'de sınır olarak yazılı.
+> 3. **Beşli redaksiyon deseni** (yukarıdaki ikinci kök düzeltme).
+> 4. **R7 genişletmesi + üç muafiyet** (yukarıdaki kök düzeltme).
+> 5. **`rotate-kek` Go toolchain listesi + envanter testi** — temizleme listesine
+>    `GOFLAGS`/`GOTOOLCHAIN`/`GOENV`/`GOROOT`/`GOCACHEPROG`/`GOTOOLDIR` eklendi, ve
+>    liste artık elle değil `go env`'in **kendi** sayımına karşı doğrulanıyor
+>    (`TestRotateScript_AccountsForEveryGoToolchainVariable`). Bu test 4. turda
+>    `GOFLAGS`'ı, 5. turda `GOROOT`'u yakaladı — yani ağ, yazıldıktan sonra iki kez
+>    iş gördü.
+> 6. **Logger çağrı yerinin adlandırılmasının invaryanta çevrilmesi** —
+>    `TestObservability_EveryLoggerCallSiteIsSpelledLog`: R7/R7b/R7c yalnız alıcısı
+>    `log`/`slog`/`fmt` yazılmış bir çağrıyı görüyor, ve bu ağaçta **kaza eseri**
+>    hepsi öyle yazılmıştı. Artık kaza değil.
+>
+> **Sayılar (5. turda yeniden ölçüldü, AST):** kart öncesi ağaç **346** logger çağrı
+> yeri / 46 dosya / **0** `*Context`; kart sonrası **349** / 47 dosya / **32**
+> `*Context`. Dönüştürülen **31** + yeni **1** = 32. ⚠️ `deploy/README.md` **sınır
+> 26** bir tur boyunca **33** dedi (dökümü `internal/handler/health.go`'ya 2
+> veriyordu; o dosyadaki iki kayıttan biri `LogAttrs`'tır ve `LogAttrs` `*Context`
+> **değildir**) — 5. turda **32**'ye indirildi. Çok satırlı çağrı yeri:
+> kart öncesi **137**/346, kart sonrası **141**/349; *"131"* yeniden üretilemedi ve
+> geri çekildi.
+>
+> ⚠️ **Bu tur yalnızca METİN düzeltti** — hiçbir `.go` davranışı değişmedi, yalnız
+> yorum metni ve `.md`/`.sh` yorumları. Bu kart artık `deploy/README.md` ile aynı
+> hikâyeyi anlatıyor; ikisi çeliştiğinde **ölçüm komutu yazılı olan** kazanır.
+
 ---
 
 ## M8-04 — Güvenlik denetimi
