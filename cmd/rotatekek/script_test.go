@@ -402,15 +402,159 @@ func TestRunbook_PasteableBlocksCarryNoShellHazardInComments(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(b)
-	start := strings.Index(text, "## KEK döndürme")
-	end := strings.Index(text, "## Olay müdahalesi")
-	if start < 0 || end < 0 || end <= start {
-		t.Fatal("could not locate the KEK rotation section")
+
+	// 🔴 THE SCAN READS TWO SLICES, AND THE SECOND ONE IS A MEASURED HOLE BEING
+	// CLOSED. Until M8-05 this test read ONLY the rotation section, so the whole
+	// "Plaket encode" section — which sits BEFORE it in the same file — was outside
+	// the net entirely. Proven by mutation, both directions, same file and same run:
+	// a bash block whose comment carried `$( … )` and a backtick was PASS (13 blocks
+	// scanned, 0 hazards) when planted in the encode section, and FAIL when planted
+	// inside the rotation slice. A net whose edge nobody measured is a net with an
+	// unmeasured edge.
+	//
+	// ⚠️ THE SIZE OF THAT SLICE IS NOT FROZEN IN THIS PROSE, AND IT USED TO BE. This
+	// paragraph said "the 271-line Plaket encode section"; re-measuring gave 348
+	// lines, so the sentence had already rotted into a false claim while the test
+	// around it stayed green. A live number belongs in an assertion that recomputes
+	// it every run, never in a comment — the only number about this slice now lives
+	// in minLines below, where it is COMPARED.
+	//
+	// 🔴 AND THE SLICE'S EXISTENCE IS NOW ASSERTED, WHICH IT WAS NOT. Measured on
+	// this tree: renaming the "## Plaket encode" HEADING made this test FAIL (the
+	// locator fatals), but KEEPING the heading and deleting the 348 lines under it
+	// left the test GREEN — because want == -1 pins no block count for that slice,
+	// so "scan it" degenerated to "scan nothing" without a word of complaint. The
+	// net was not verifying the existence of what it protects. minLines + anchors
+	// below close that; see the mutation evidence in the M8-05 round notes.
+	//
+	// 🔴 WHY TWO SLICES AND NOT THE WHOLE FILE — MEASURED, NOT PREFERRED. On this
+	// tree deploy/README.md carries 45 pasteable bash blocks in total; 13 are in the
+	// rotation slice, 0 in the encode slice, and the remaining 32 live in the deploy/
+	// rollback, backup and incident-response sections. Those 32 contain 21 comment
+	// lines with 26 hazard hits. Scanning the whole file would therefore go RED on 21
+	// pre-existing lines owned by other cards — a runbook-wide rewrite smuggled into
+	// an M8-05 correction round (CLAUDE.md §10: no unrelated refactor in one commit).
+	// THAT REMAINDER IS COUNTED, NOT CLOSED, and it is written down where a reader
+	// will meet it: deploy/README.md → "Kabul edilmiş sınırlar".
+	sections := []struct {
+		name  string
+		start string
+		end   string
+		// want is the pinned block count, or -1 for "scan it, do not pin it".
+		// Pinning the encode slice at today's 0 would fight FAZ B: the moment a
+		// real encode procedure ships a block there, the pin would fail for being
+		// RIGHT. Scanning is the point; counting is the rotation slice's contract.
+		want int
+		// minLines is a FLOOR on the slice's size, not a pin — 0 disables it. It
+		// exists because want == -1 makes a slice silently emptiable (measured, see
+		// the comment above). A floor is the shape that survives FAZ B: the encode
+		// section can only GROW when a real procedure ships, so a floor well under
+		// today's measurement never fires for being right, while an emptied section
+		// fails immediately.
+		//
+		// ⚠️ COUNTED LIMIT, STATED RATHER THAN HIDDEN: a floor tolerates partial
+		// deletion. At 200 against today's 348, roughly 140 lines could still be
+		// removed without tripping this alone. That is what the anchors are for —
+		// the two mechanisms cover different halves of the same mutation, and
+		// neither is claimed to cover all of it.
+		minLines int
+		// anchors are load-bearing sentences the slice must still carry. They are
+		// NOT structural headings by accident: each one is a normative claim the
+		// section exists to publish, so deleting the body without deleting them is
+		// not a shape the mutation can take.
+		anchors []string
+	}{
+		{
+			name: "KEK rotation", start: "## KEK döndürme", end: "## Olay müdahalesi",
+			want: pasteableBlockCount,
+			// No floor or anchors here: this slice's block count is PINNED, so
+			// emptying it already fails on `blocks != pasteableBlockCount`. Adding a
+			// second mechanism where the first is exact would be noise.
+		},
+		{
+			name: "plaque encode", start: "## Plaket encode", end: "## KEK döndürme",
+			want: -1, minLines: 200,
+			anchors: []string{
+				// ADR 0003 md. 2 — the encode setting the whole section is normative
+				// about, and the one an operator is most likely to "fix".
+				"SDMMACInputOffset == SDMMACOffset",
+				// The trap warning that stops that fix (CLAUDE.md §5, ADR 0003 md. 2).
+				"BOŞ MAC GİRDİSİNİ BİR BUG SANIP UID/ctr EKLEMEYİN",
+				// The obligation list FAZ B inherits; losing it loses the handover.
+				"### FAZ B'ye devredilenler",
+			},
+		},
 	}
-	section := text[start:end]
 
 	blocks := 0
 	hazards := 0
+	scanned := 0
+	for _, sec := range sections {
+		start := strings.Index(text, sec.start)
+		end := strings.Index(text, sec.end)
+		if start < 0 || end < 0 || end <= start {
+			t.Fatalf("could not locate the %s section (%q .. %q)", sec.name, sec.start, sec.end)
+		}
+		// Absolute file line of the slice's first line, so a failure names a line
+		// number the reader can open rather than one relative to a moving slice.
+		base := strings.Count(text[:start], "\n")
+		slice := text[start:end]
+		lines := strings.Count(slice, "\n")
+		if sec.minLines > 0 && lines < sec.minLines {
+			t.Errorf("the %s section is %d lines, below the floor of %d. Either it was gutted — in which "+
+				"case this scan is protecting nothing and the failure is correct — or the section was "+
+				"deliberately restructured, in which case lower the floor in the same commit and say why.",
+				sec.name, lines, sec.minLines)
+		}
+		for _, a := range sec.anchors {
+			if !strings.Contains(slice, a) {
+				t.Errorf("the %s section no longer carries the anchor %q. It is a normative claim, not "+
+					"decoration; if it genuinely moved, move the anchor with it.", sec.name, a)
+			}
+		}
+		n, h := scanPasteableComments(t, sec.name, slice, base)
+		scanned += n
+		hazards += h
+		if sec.want >= 0 {
+			blocks = n
+		}
+		t.Logf("section %q: %d lines, %d pasteable bash blocks, %d hazards", sec.name, lines, n, h)
+	}
+	// CONTROL: blocks were actually found, so silence means safety and not blindness.
+	// 🔴 THE COUNT IS COMPARED, NOT JUST COMPUTED. `blocks < 5` was green anywhere
+	// from 13 down to 5, and three artefacts published "14" while this very test
+	// logged 13 in the same run — the number went 14 -> 13 when round 14 deleted a
+	// dead block, i.e. the class produced its seventh instance in the round that
+	// declared it closed. The artefacts now derive their number from this one.
+	if blocks != pasteableBlockCount {
+		t.Errorf("the rotation section has %d pasteable bash blocks but pasteableBlockCount is %d. "+
+			"Update the constant AND the three places that publish it (deploy/README.md's structural "+
+			"table, the M8-02 card, and this file's own comment).", blocks, pasteableBlockCount)
+	}
+	for _, art := range []struct{ path, label string }{
+		{filepath.Join(repoRoot(t), "deploy", "README.md"), "deploy/README.md"},
+		{filepath.Join(repoRoot(t), "docs", "plan", "m8-deploy-pilot.md"), "the M8-02 card"},
+	} {
+		ab, err := os.ReadFile(art.path)
+		if err != nil {
+			t.Fatalf("reading %s: %v", art.label, err)
+		}
+		if !strings.Contains(string(ab), fmt.Sprintf("%d yapıştırıl", pasteableBlockCount)) {
+			t.Errorf("%s does not publish the measured count (%d pasteable blocks); an artefact that "+
+				"names a different number is the same drift this test exists to stop",
+				art.label, pasteableBlockCount)
+		}
+	}
+	t.Logf("%d pasteable bash blocks scanned across %d sections, %d hazards",
+		scanned, len(sections), hazards)
+}
+
+// scanPasteableComments walks one README slice and reports every shell hazard in a
+// comment inside a ```bash block. It returns the number of blocks seen and the
+// number of hazards reported; base is the slice's zero-based offset in the file so
+// reported line numbers are absolute.
+func scanPasteableComments(t *testing.T, name, section string, base int) (blocks, hazards int) {
+	t.Helper()
 	inBlock := false
 	for i, ln := range strings.Split(section, "\n") {
 		if strings.HasPrefix(ln, "```bash") {
@@ -438,41 +582,18 @@ func TestRunbook_PasteableBlocksCarryNoShellHazardInComments(t *testing.T) {
 		// that swallows the next command".
 		for _, bad := range commentHazards(ln) {
 			hazards++
-			t.Errorf("line %d: a comment inside a pasteable block contains %q. Pasted into zsh this "+
-				"EXECUTES the enclosed text (measured on a real pty):\n  %s", i+1, bad, strings.TrimSpace(ln))
+			t.Errorf("deploy/README.md:%d (%s): a comment inside a pasteable block contains %q. Pasted "+
+				"into zsh this EXECUTES the enclosed text (measured on a real pty):\n  %s",
+				base+i+1, name, bad, strings.TrimSpace(ln))
 		}
 		if strings.Count(ln, "'")%2 == 1 {
 			hazards++
-			t.Errorf("line %d: a comment inside a pasteable block has an unbalanced apostrophe. Pasted "+
-				"into zsh this opens quote> and swallows the NEXT command:\n  %s", i+1, strings.TrimSpace(ln))
+			t.Errorf("deploy/README.md:%d (%s): a comment inside a pasteable block has an unbalanced "+
+				"apostrophe. Pasted into zsh this opens quote> and swallows the NEXT command:\n  %s",
+				base+i+1, name, strings.TrimSpace(ln))
 		}
 	}
-	// CONTROL: blocks were actually found, so silence means safety and not blindness.
-	// 🔴 THE COUNT IS COMPARED, NOT JUST COMPUTED. `blocks < 5` was green anywhere
-	// from 13 down to 5, and three artefacts published "14" while this very test
-	// logged 13 in the same run — the number went 14 -> 13 when round 14 deleted a
-	// dead block, i.e. the class produced its seventh instance in the round that
-	// declared it closed. The artefacts now derive their number from this one.
-	if blocks != pasteableBlockCount {
-		t.Errorf("the rotation section has %d pasteable bash blocks but pasteableBlockCount is %d. "+
-			"Update the constant AND the three places that publish it (deploy/README.md's structural "+
-			"table, the M8-02 card, and this file's own comment).", blocks, pasteableBlockCount)
-	}
-	for _, art := range []struct{ path, label string }{
-		{filepath.Join(repoRoot(t), "deploy", "README.md"), "deploy/README.md"},
-		{filepath.Join(repoRoot(t), "docs", "plan", "m8-deploy-pilot.md"), "the M8-02 card"},
-	} {
-		ab, err := os.ReadFile(art.path)
-		if err != nil {
-			t.Fatalf("reading %s: %v", art.label, err)
-		}
-		if !strings.Contains(string(ab), fmt.Sprintf("%d yapıştırıl", pasteableBlockCount)) {
-			t.Errorf("%s does not publish the measured count (%d pasteable blocks); an artefact that "+
-				"names a different number is the same drift this test exists to stop",
-				art.label, pasteableBlockCount)
-		}
-	}
-	t.Logf("%d pasteable bash blocks scanned, %d hazards", blocks, hazards)
+	return blocks, hazards
 }
 
 // runbookInvocations extracts every executable `./scripts/rotate-kek.sh …` line

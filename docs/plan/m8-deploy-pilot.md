@@ -2775,16 +2775,117 @@ tablosu çıkmış durumda (satış slaytı da olur).
 
 **Amaç.** Fiziksel plaketleri üretime hazır hale getirmek.
 
-**Kabul kriterleri.**
-- Encode ayarları yazılı: UID mirror + counter mirror açık, SDM MAC input offset,
-  dosya okuma izni açık, **yazma izni anahtarla kilitli**.
-- Geliştirme akışı: 10'luk NTAG 424 DNA paketi (~30 €) + NXP TagWriter.
-- **En az bir fiziksel etiketle uçtan uca doğrulama yapıldı** — test vektörleri
-  yeşil ama gerçek çip kırmızı olabilir; bu adım atlanamaz.
-- Anahtar teslimi ve döndürme prosedürü (tedarikçiden gelen anahtarlar üretimde
-  değiştirilir).
-- Anahtarlar repoya, sohbete, e-postaya **yazılmadı**; KEK ile sarmalı DB'de.
-- Plaket baskısı: A5, NFC + QR birlikte, kamera görüş alanına montaj notu.
+> **Kart düzeltmesi (2026-08-18, M8-05 FAZ A uygulaması sırasında).** Altı kriter
+> tek tek ölçüldü: **dördü** (1, 4, 5, 6) bugün donanımsız yapılabiliyor, **biri**
+> (3) fiziksel çipe tamamen bloke, **biri** (2) ikiye bölünüyor — çipler
+> kullanıcıda **var**, yazıcı **yok**, yani ölçüm bugün yapılır ama **seçim**
+> donanıma bakar. Aşağıdaki tablo bunu satır satır gösteriyor.
+> Kart bu yüzden **FAZ A / FAZ B** olarak bölündü (mercek ölçütü — agent-brief:
+> bir görev iki farklı saldırıyla denetleniyorsa tek commit'te ikisi de yüzeysel
+> kalır). Üç ayrı çelişki de düzeltildi:
+>
+> **(1) "SDM MAC input offset" bir SEÇİM DEĞİL, KARAR.** Kriter onu ayarlanacak
+> bir alan gibi sunuyordu; [ADR 0003](../adr/0003-sdm-modu-ve-anahtar-yonetimi.md)
+> madde 2 zaten sabitliyor: `SDMMACInputOffset == SDMMACOffset` → MAC girdisi
+> **boş**. Kaynakta doğrulandı: NXP **AN12196 rev. 1.8** §4.4.4.2.1 tam olarak bu
+> yapılandırmayı *"SDMMAC = MACt(KSesSDMFileReadMAC; **zero length input**)"*
+> diye tanımlıyor. Kriter "yazılı olsun" değil "**ADR'den türetilmiş olsun**"
+> demeli; runbook öyle yazıldı.
+>
+> **(2) "NXP TagWriter" dev akışı olarak YANLIŞ — ve yerine konacak şey bir uygulama
+> değil, bir MİMARİ KISIT.** Ölçüldü: NTAG 424 DNA'da `ChangeFileSettings` (0x5F)
+> ve `ChangeKey` (0xC4) **kimliği doğrulanmış bir oturum** ister (AN12196 **rev. 1.8**
+> §6.9 tablo 19 / §6.16 tablo 26-27 — rev. 2.0'da **§5.9 tablo 18 / §5.16 tablo
+> 25-26**; ikisi de `KSesAuthENC` + `KSesAuthMAC` + `TI` + `CmdCtr` taşır), ve o
+> oturumun anahtarları çipin **canlı** ürettiği `RndB`'den doğar (rev. 1.8 §6.6
+> tablo 14 — rev. 2.0'da **§5.6, tablo numarası yine 14**; bölüm kayıyor, tablo
+> kaymıyor, ikisi ayrı aranmalı).
+> Dolayısıyla **"offline APDU script'i üret, sonra çipe yapıştır" mümkün değildir**;
+> encode aracı canlı bir taşıma katmanı taşımak zorundadır — yani
+> `test/fixtures/seedkeys` + `cmd/rotatekek` emsalinin (saf filtre, sürücü yok)
+> bu görevde **uygulanamayacağı** anlamına gelir.
+>
+> ⚠️ **Bu maddedeki iki cümlenin kanıt gücü AYRIDIR ve karıştırılmamalıdır.**
+> APDU/oturum kısıtı **güçlü**: AN12196'nın ilgili tablolarından birebir okundu ve
+> sayfa numaralarıyla runbook'ta duruyor. Buna karşılık **araç iddiaları zayıf** —
+> TagWriter'ın anahtar değiştirmediği ve TagXplorer'ın desteklenmediği yalnızca
+> **arama sonucu özetlerinden** okundu, ilgili sayfaların bir kısmı **403**
+> döndürdüğü için birincil kaynaktan **doğrulanamadı**. Kriter "TagWriter" yerine
+> **araç yolu FAZ B'de seçilir** diye yazıldı.
+>
+> 🔴 **VE BU TUR BİR YANLIŞ ATIF DÜZELTİYOR:** bu blok daha önce *"iki yol ve
+> maliyetleri runbook'ta ölçülü duruyor"* diyordu. **Ölçüldü, yanlıştı** —
+> `grep -nEi "yol a|yol b|tagwriter|tagxplorer|nfc\.cool|rfiddiscover|pegoda|euro"`
+> runbook'ta **sıfır** isabet veriyordu: ne karşılaştırma, ne maliyet, ne araç adı.
+> Bugün runbook'ta **iki yolun ŞEKLİ** yazılı (*"Araç yolu — KARAR DEĞİL, KARAR
+> ÖNERİSİ"*), zayıf iddialar **zayıf diye etiketli**, ve **maliyet hâlâ ölçülmedi**
+> — ölçülmediği de orada yazıyor. Seçim **kullanıcınındır** (yeni bağımlılık,
+> CLAUDE.md §1).
+>
+> **(3) "Uçtan uca doğrulama"nın NEYİ kanıtlaması gerektiği eksikti — ve bu artık
+> boş bir uyarı değil, ADLANDIRILMIŞ bir şüphe.** ⚠️ **Bu bloktaki bölüm/tablo
+> numaraları AN12196 rev. 1.8'indir; rev. 2.0 karşılıkları parantezde.** FAZ A'da
+> AN12196'nın **yayımlanmış known-answer vektörü** (rev. 1.8 §4.4.4.2.1 — rev. 2.0:
+> **§3.4.4.2.1**) Tappa'nın zincirine karşı koşuldu ve
+> **birebir tuttu** — SV2 düzeni, boş mesaj CMAC'i ve tek-indeksli 8 baytlık
+> kısaltma, belgenin yayımladığı `SDMMAC` değerini **üretti** (değer buraya
+> yazılmıyor; §4.7 ruhu — kaynak: AN12196 rev. 1.8 §4.4.4.2.1 **tablo 5** adım 14;
+> rev. 2.0'da aynı örnek **§3.4.4.2.1 tablo 4**, adım numarası aynı).
+> Ama aynı belge **plain** mirroring için `SDMReadCtr`'ın SV
+> girdisine **LSB-first** girdiğini söylüyor (rev. 1.8 §4.3 tablo 2, adım 4 —
+> rev. 2.0: **§3.3 tablo 1**) ve aynı UID
+> için rev. 1.8 §4.4.1'in (rev. 2.0: **§3.4.1**) URL'i `ctr=000001` gösteriyor —
+> yani **URL metni ile SV baytları
+> ters sırada**, oysa `sv2()` o gün URL baytlarını **verbatim** kullanıyordu.
+>
+> ✅ **BU ÇELİŞKİ ARTIK KAPANDI — M2-08, donanımsız.** FAZ A bunu *"FAZ B'nin ilk
+> işi"* diye devretmişti; devir **gerçekleşmedi çünkü gerekmedi**. `sv2()` düzeltildi
+> ve dış kaynaklı KAT vektörleriyle çivilendi (`internal/sun/an12196_kat_test.go`).
+> Ayrıntı: [m2-sun.md](m2-sun.md) → M2-08 · ADR 0003 ek notu · runbook'un
+> *"`ctr` bayt sırası"* kutusu.
+>
+> ⚠️ **Ve kapanış FAZ B'nin KAPSAMINI değiştirdi — bu, kaydedilmeden geçmemeli.**
+> FAZ A metni vektörlerin kusuru *"göremediğini"* söylüyordu; M2-08'de ölçülen
+> daha ağır: `internal/sun/verify_mac_test.go` içinde adında *verbatim* geçen bir
+> SV2 testi vardı, kendini *"the load-bearing anti-reversal test"* diye tanıtıyordu
+> ve **doğru düzeltmeyi yapısal olarak yasaklıyordu**. Yani gerçek çip gelseydi bile
+> doğru yamayı yazan kişi kırmızı bir test görecekti — **donanım tek başına bu
+> maddeyi kapatmazdı**. Sonuç olarak FAZ B devir listesinin **1. maddesi silinmedi,
+> DARALTILDI**: kalan iş yalnız **encode** tarafının (URL'ye MSB-first yazma)
+> gerçek silikonla doğrulanmasıdır ve artık **ilk sırada koşulması gerekmiyor**.
+>
+> Ek olarak **Q10 karara bağlandı** (orkestratör, 2026-08-18): plaketleri
+> **kendimiz encode ederiz**. Gerekçe runbook'ta (`deploy/README.md` → "Plaket
+> encode"), `open-questions.md`'de değil — orası orkestratörün.
+
+**FAZ A — donanımsız yarı (bu tur).**
+
+| # | Kriter | Durum |
+|---|---|---|
+| 1 | Encode ayarları yazılı: UID mirror + counter mirror açık, **MAC girdisi boş** (ADR 0003 md. 2), dosya okuma izni açık, **yazma izni anahtarla kilitli** | ✅ bugün yapılabilir — runbook'ta, ADR'den normatif türetildi |
+| 2 | Geliştirme akışı: 10'luk NTAG 424 DNA paketi (~30 €) + **araç yolu** | ⚠️ **yarısı** — paket kullanıcıda **VAR**, yazıcı **YOK**. Runbook iki yolun **ŞEKLİNİ** ve **kısıtını** yazıyor; **maliyet ölçülmedi**, araç iddiaları **zayıf kanıt** diye etiketli. **Seçim FAZ B'de ve kullanıcınındır** (§1). |
+| 3 | **En az bir fiziksel etiketle uçtan uca doğrulama** | 🔴 **donanıma bloke** → FAZ B |
+| 4 | Anahtar teslimi ve döndürme prosedürü | ✅ bugün yapılabilir — runbook'ta; `retire + replace` ile KEK rotasyonu **ayrı tutuldu** |
+| 5 | Anahtarlar repoya/sohbete/e-postaya yazılmadı; KEK ile sarmalı DB'de | ✅ bugün yapılabilir — **mekanizma olarak** yazıldı (`sun.Wrap`/`sun.Zero`, R7 kuralları, `seedkeys` emsali) |
+| 6 | Plaket baskısı: A5, NFC + QR birlikte, kamera görüş alanına montaj notu | ✅ bugün yapılabilir — skill `tappa-brand` → "Plaket baskısı"na atıfla; QR'ın §5 sonucu yazıldı. ⚠️ **A5 skill'de YOK** (ölçüldü: `A5`/`148`/`210` sıfır isabet); kâğıt boyu **handoff.md**'den gelir, skill yerleşim/QR ölçüsü verir. |
+
+**FAZ B — fiziksel çip gerektiren yarı (devir).** Sekiz maddelik yükümlülük
+listesi runbook'un sonundadır: `deploy/README.md` → **"FAZ B'ye devredilenler"**.
+Kriter 2'nin araç seçimi ve kriter 3'ün tamamı oraya aittir.
+⚠️ **Listenin 1. maddesi M2-08 ile DARALDI ve sıra ayrıcalığını kaybetti.** Eskiden
+*"`ctr` bayt sırası — diğer yedisinden önce koşulur"* diyordu; o gerekçe (*yanlış
+tarafta duran kod her tap'i reddeder*) **decode** tarafı içindi ve decode tarafı
+artık kapalı. Kalan iş **encode** tarafının doğrulanmasıdır: encode aracı sayacı
+URL'ye gerçekten **MSB-first** yazıyor mu. Bu, kalan yedi maddeyle **aynı turda**
+ölçülebilir; ayrıca `ctr` palindrom olmadığı için sinyal gürültüsüzdür.
+
+**Tuzaklar.**
+- **Yanlış host'la encode edilmiş plaket = sahada plaket değişimi.** SUN URL'si
+  domaini taşır ve **Q08 hâlâ açık** (`tappa.mt`/`tappa.io` alınmadı). Encode
+  edilen host **geri alınamaz**.
+- Encode edilen satırın doğru durumu **`unassigned`**'dır (`active` değil):
+  migration 00013'ün envanter modelinde plaket önce **yüklenir**, duvara sonra
+  **bağlanır**. `active` yazmak, kutudaki plaketi hizmette göstermek demektir.
 
 ---
 

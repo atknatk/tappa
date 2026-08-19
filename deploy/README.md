@@ -971,6 +971,365 @@ yalnız hata kodunu assert eden bir kontrol gördü.
 
 ---
 
+## Plaket encode — boş çipten duvara
+
+> ### 🔴 BU BÖLÜM BİR PROSEDÜR DEĞİLDİR — BUGÜN ENCODE ARACI YOK
+>
+> Aşağıdaki "KEK döndürme" bölümü *"bu bölüm bir prosedürdür"* diye açar; **bu
+> bölüm bunun tersidir ve fark kasıtlıdır.** Ölçüldü: `cmd/` altında bir encode
+> aracı yok, repoda `AuthenticateEV2First` / `ChangeFileSettings` / `ChangeKey`
+> uygulayan tek satır Go yok (bu adlar yalnız yorumlarda geçiyor), okuyucu
+> donanımı da yok. Yani **bugün bu bölümü açıp adım adım izleyerek plaket encode
+> edemezsiniz.** Burada olan şey **kararların ve kısıtların** yazılmasıdır: hangi
+> ayar hangi ADR maddesinden geliyor, aracın hangi şekli **alamayacağı**, anahtarın
+> süreç içinde nasıl davranmak **zorunda olduğu**. Araç yazıldığında bu bölüm
+> onun **kabul kriteri** olur; o zamana kadar aşağıdaki *"Encode aracı …"* cümleleri
+> bir davranış tarifi değil, bir **şartname**dir.
+>
+> **Bu bölüm M8-05'in donanımsız yarısıdır (FAZ A).** Encode ayarları, anahtar
+> teslimi, anahtar hijyeni ve baskı **burada, bugün** karara bağlı. Çipe dokunan
+> her şey — okuyucu seçimi, gerçek APDU akışı, uçtan uca doğrulama — bölümün
+> sonundaki **"FAZ B'ye devredilenler"** listesindedir ve **yazılmadan yapılmaz**.
+>
+> **Neden bu dosyada.** Aşağıdaki "KEK döndürme" bölümüyle bu bölüm **aynı iki
+> nesneyi** anlatıyor (plaketin AES anahtarı · onu saran KEK) ve tarihsel olarak
+> tam da bu ikisi birbirine karıştırıldı. Ayrı dosyalara koymak, iki metnin
+> sessizce ayrışmasına izin verirdi; aynı dosyada bir bakım turu ikisini birden
+> görür. Çapraz atıf tek yönlü değil: aşağıdaki *"Ne döndürülüyor — ve ne
+> döndürülMÜyor"* tablosunun **"Dönmez"** satırı buraya, bu bölümün *"Anahtar
+> teslimi ve döndürme"* başlığı oraya bakar.
+
+### Q10 — plaketleri KENDİMİZ encode ederiz (karar: 2026-08-18)
+
+**Karar.** Encode'lu tedarikçiden plaket **satın alınmaz**; boş NTAG 424 DNA
+çipleri alınır ve anahtar üretimi + SDM yapılandırması **Tappa tarafında** yapılır.
+
+**Gerekçe.** Tedarikçi encode ederse **park geneli anahtarları tedarikçi bilir**.
+Bu, [ADR 0003](../docs/adr/0003-sdm-modu-ve-anahtar-yonetimi.md) madde 3'ün
+(Q06 — plaket-başına rastgele) açıkça reddettiği **tek-nokta felaketinin** bir kat
+yukarı taşınmış hâlidir: master anahtar yerine *tedarikçinin listesi* sızarsa yine
+tüm park düşer, üstelik bizim kontrolümüz dışında bir yerde. ADR 0003 madde 5 zaten
+*"tedarikçiden gelen varsayılan anahtar üretimde **asla** kullanılmaz"* diyor;
+tedarikçinin ürettiği bir anahtar da aynı cümlenin kapsamındadır — bizim
+üretmediğimiz anahtar, bizim bilmediğimiz kadar başkasının bildiği anahtardır.
+
+**Bedeli sayılmıştır.** Kendimiz encode etmek bir okuyucu donanımı + bir araç yolu
+gerektiriyor (aşağıda) ve plaket başına elle iş ekliyor. Bugünkü ölçek bunu
+taşınabilir kılıyor: pilot **tek şube**, tam yayılım KF 9 lokasyon + KM 5
+departman mertebesinde. Binlerce plaketlik bir ölçek geldiğinde bu karar yeniden
+ölçülür — ama o zaman bile cevap "tedarikçi anahtarı bilsin" değil, "encode
+otomasyonu hızlansın" olmalıdır.
+
+### 🔴 Neden "offline script üret, sonra çipe yapıştır" DİYE BİR YOL YOK
+
+Bu, araç seçiminden **önce** gelen bir kısıttır ve emsale aykırıdır: bu repodaki
+diğer iki anahtar aracı (`test/fixtures/seedkeys`, `cmd/rotatekek`) **saf
+filtrelerdir** — sürücü yok, ağ yok, kimlik bilgisi yok, stdin → stdout. Encode
+aracı **bu şekli alamaz.** Ölçüldü, NXP **AN12196 rev. 1.8** üzerinden:
+
+| Adım | Belge | Ne gerektiriyor |
+|---|---|---|
+| `Cmd.AuthenticateEV2First` (0x71 / 0xAF) | §6.6 tablo 14 | İki geçişli **canlı** challenge: çip `E(K, RndB)` döner, okuyucu `E(K, RndA‖RndB')` gönderir, çip `TI` döner. Oturum anahtarları `RndA` **ve çipin ürettiği** `RndB`'den türer. |
+| `Cmd.ChangeFileSettings` (0x5F) | §6.9 tablo 19 | `CommMode.Full`: veri `KSesAuthENC` ile, IV `TI` + `CmdCtr`'den; ardından `KSesAuthMAC` ile MAC. |
+| `Cmd.ChangeKey` (0xC4) | §6.16 tablo 26/27 | Aynı oturum anahtarları + `TI` + `CmdCtr`; yeni anahtar `Old ⊕ New ‖ KeyVer ‖ CRC32` olarak **şifreli** gider. |
+
+`RndB` ve `TI` çipten gelir ve her oturumda değişir. Dolayısıyla bir C-APDU
+dizisi **önceden hesaplanamaz**; encode aracı okuyucuyla **canlı** konuşmak
+zorundadır. Bu, aracın "hangi rolle bağlanıyor" sorusunu **filtre şekliyle
+kaçamayacağı** tek anahtar aracımız olduğu anlamına gelir.
+
+⚠️ **Bunun bir sonucu daha var:** araç düz anahtarı **kendi süreci içinde** üretip
+kullanmak zorunda (çipe yazmak için lazım), yani `sun.Wrap` ile sarmalayıp
+`sun.Zero` ile silmek **aynı süreçte** olmalı. Anahtarın süreç dışına çıktığı her
+tasarım, aşağıdaki "Anahtar hijyeni"ni ihlal eder.
+
+### Araç yolu — KARAR DEĞİL, KARAR ÖNERİSİ (FAZ B, ve kararı kullanıcı verir)
+
+> 🔴 **BU BAŞLIK ALTINDA HİÇBİR ŞEY SEÇİLMEDİ.** Yeni bir taşıma bağımlılığı
+> CLAUDE.md §1 gereği **kullanıcı onayı** ister; bir ajan onu kendi başına
+> seçemez. Burada yazılı olan şey **seçenekler ve bilinme dereceleri**dir.
+
+Yukarıdaki kısıt (canlı oturum zorunlu) iki şekle izin veriyor:
+
+| Yol | Şekli | Bugünkü bilgi derecesi |
+|---|---|---|
+| **A — kendi yazıcımız** | Go içinde PC/SC benzeri bir okuyucu katmanı + `AuthenticateEV2First` / `ChangeFileSettings` / `ChangeKey` akışının kendi uygulamamız. Anahtar süreçten hiç çıkmaz, `sun.Wrap`/`sun.Zero` aynı süreçte. | **Kısıtı biliyoruz, maliyeti bilmiyoruz.** APDU akışının şartları AN12196'dan **birebir** okundu (yukarıdaki tablo). Okuyucu donanımı, sürücü katmanı ve yeni bağımlılık **ölçülmedi**. |
+| **B — üçüncü parti yazıcı + ayrı yükleyici** | Encode'u hazır bir araçla yap, satırı ayrı bir filtreyle DB'ye yükle. | **En zayıf halka burada: anahtar araçtan çıkar.** Araç düz anahtarı üretiyor/gösteriyorsa "Anahtar hijyeni" maddesi 1 **ihlal edilir**; ihlal etmeyen bir araç bulunmadan bu yol yoldur denemez. |
+
+⚠️ **Aşağıdaki araç iddiaları ZAYIF KANIT — ölçüm değil, okuma.** Bunlar arama
+sonucu özetlerinden derlendi; ilgili sayfaların bir kısmı **403** döndürdüğü için
+birincil kaynaktan **doğrulanamadı**. AN12196 atıflarıyla **aynı sınıfta
+değildir** ve öyle okunmamalıdır:
+
+- **NXP TagWriter** — anahtar değiştirmediği, yani `ChangeKey` yapmadığı
+  *okundu*; aynı okumada bu iş için RFIDDiscover + PEGODA okuyucu işaret ediliyor.
+  **Doğrulanamadı.**
+- **TagXplorer** — artık desteklenmediği *okundu*. **Doğrulanamadı.**
+- **Maliyetler hiç ölçülmedi.** Ne okuyucu fiyatı, ne lisans, ne teslim süresi.
+  Bu bölüm bir maliyet karşılaştırması **taşımıyor**; taşıdığını iddia eden bir
+  cümle görürsen o cümle yanlıştır.
+
+**Karar için gereken ölçüm (FAZ B'nin ilk adımı):** eldeki 10'luk NTAG 424 DNA
+paketiyle, seçilen okuyucu üzerinde **tek bir çipi** kişiselleştirmek — ve bunu
+yaparken anahtarın süreç dışına **çıkmadığını** göstermek. O ölçüm yapılmadan
+A/B karşılaştırması fiyat listesi okumaktan ibarettir.
+
+### Encode ayarları — ADR 0003'ten NORMATİF türetilmiştir
+
+Bu tablo bir tercih listesi değildir. Her satırın kaynağı yazılıdır; bir satırı
+değiştirmek **ADR değişikliğidir**, ayar değişikliği değil.
+
+> 🔴 **AŞAĞIDAKİ AN12196 ATIFLARI rev. 1.8 NUMARALANDIRMASIYLADIR; rev. 2.0
+> karşılığı her satırda parantez içindedir.** Bu alt bölüm daha önce **altı** atıf
+> taşıyıp **hiçbirine** revizyon yazmıyordu, ve o eksiklik masum değil: rev. 2.0
+> (4 Mart 2025) §1 "Abbreviations"ı belgenin **sonuna** taşıdı, bu yüzden §2–§10
+> arası her üst bölüm **bir aşağı kayıyor** (§4 → §3, §6 → §5). Yani revizyonsuz
+> bir "§6.9" rev. 2.0'da **başka bir bölümü** gösterir — rev. 2.0'ın §6'sı
+> "Personalization example" değil **"Special functionalities"**tir. Alt bölüm
+> derinliği korunuyor ama **tablo numaraları korunmuyor**; ikisi ayrı ayrı
+> aranmalıdır. Kuralın ölçülmüş tam hâli ve tablo eşleşmeleri:
+> `internal/sun/an12196_kat_test.go` dosya başlığı.
+
+| Ayar | Değer | Kaynak / neden |
+|---|---|---|
+| Mirroring modu | **plain** (şifreli PICC **değil**) | ADR 0003 md. 1 (Q05). UID zaten public; şifreli PICC **paylaşılan meta-read anahtarı** ister ve Q06 ile çelişir. |
+| UID mirror | **açık**, 7 bayt → 14 hane | ADR 0003 md. 1. AN12196 rev. 1.8 §4.4.1 (rev. 2.0: §3.4.1): `UIDOffsetLength: 14`. |
+| SDM read counter mirror | **açık**, 3 bayt → 6 hane | ADR 0003 md. 1. AN12196 rev. 1.8 §4.4.1 (rev. 2.0: §3.4.1): `SDMReadCtrOffsetLength: 6`. |
+| **SDM MAC girdisi** | **BOŞ** — `SDMMACInputOffset == SDMMACOffset` | ADR 0003 md. 2. AN12196 rev. 1.8 §4.4.4.2.1 tablo 5 (rev. 2.0: §3.4.4.2.1 tablo **4**) bunu birebir tanımlıyor: *"SDMMAC = MACt(KSesSDMFileReadMAC; **zero length input**)"*. |
+| SDM MAC | 8 bayt → 16 hane, URL'nin **sonunda** | ADR 0003 md. 1/6. AN12196 rev. 1.8 §4.4.1 (rev. 2.0: §3.4.1): *"CMAC shall be appended to the end of NDEF."* |
+| Dosya okuma izni | **açık** (kimlik doğrulamasız okuma) | Tap akışı anonim bir tarayıcıdan gelir; okuma kapalıysa SUN hiç yayılmaz. AN12196 rev. 1.8 §6.9 tablo 19 (rev. 2.0: §5.9 tablo **18**) örneğinde `FileAR.Read = 0xE` (serbest). |
+| Dosya **yazma** izni | **anahtarla kilitli** | Aynı örnekte (rev. 1.8 §6.9 / rev. 2.0 §5.9) `FileAR.Write = 0x0` (anahtar 0). Yazma serbest kalırsa duvardaki plaketin NDEF'ini herkes değiştirebilir. |
+| `K_SDMFileRead` | plaket-başına **rastgele** AES-128 | ADR 0003 md. 3 (Q06). `crypto/rand`; hiçbir şeyden türetilmez. |
+| Fabrika varsayılan anahtarı | **değiştirilir** | ADR 0003 md. 5: *"Bu varsayılan anahtar üretimde **asla** kullanılmaz"*; `K_SDMFileRead` varsayılandan değiştirilir. ⚠️ ADR **yalnız bunu** emrediyor; kalan uygulama anahtarlarının da kişiselleştirilmesi AN12196 rev. 1.8 §6.16'nın (rev. 2.0: §5.16) **tavsiyesidir** (*"highly recommended to configure all the Application Keys during personalization"*) — FAZ B'de karara bağlanır. |
+| URL parametre adları | **tam olarak** `tag`, `ctr`, `cmac` | ADR 0003 md. 1. Kodda tek yerde sabit: `internal/sun/params.go` (`paramTag`/`paramCtr`/`paramCMAC`). Başka bir ad = ayrıştırma hatası. |
+| URL biçimi | `https://<host>/t?tag=<14 hane>&ctr=<6 hane>&cmac=<16 hane>` | ADR 0003 md. 1. |
+
+> ### 🔴 BOŞ MAC GİRDİSİNİ BİR BUG SANIP UID/ctr EKLEMEYİN
+>
+> ADR 0003 madde 2'nin uyarısı buraya **taşınıyor**, çünkü hatanın yapılacağı yer
+> burasıdır: encode ekranında "MAC input" alanını boş bırakmak yanlış görünür.
+> **Boş doğrudur.** Tazelik ve kimlik MAC mesajından değil **session key
+> türetiminden** gelir — `SV2` içinde hem UID hem `ctr` vardır. Girdiye veri
+> eklerseniz çip yine boş mesajın CMAC'ini yayar, doğrulama **her zaman**
+> başarısız olur ve hata *"anahtar yanlış"* gibi görünür — yani günlerce yanlış
+> yerde aranır.
+
+> ### ✅ `ctr` BAYT SIRASI — DECODE TARAFI KAPANDI (M2-08), ENCODE TARAFI AÇIK
+>
+> ADR 0003 madde 1 URL'deki `ctr`'ı **big-endian** olarak sabitler ve sebebini
+> yazar: little-endian okumak *sessizce yanlış ama makul* sayılar üretir.
+> `internal/sun/params.go` bunu böyle okur.
+>
+> **SV2'ye giren baytlar ayrı bir eksendir, ve bu eksen artık kapalıdır — donanım
+> beklemeden.** AN12196 §4.3 tablo 2 adım 4 (rev. 1.8 s. 10; rev. 2.0'da §3.3
+> **tablo 1**, s. 9) `SDMReadCtr`'ı session-key girdisine **LSB-first** koyuyor
+> (`010000`) ve **aynı UID** için §4.4.1'in (s. 11) plain SUN URL'i `ctr=000001`
+> gösteriyor: tek bir değer, iki yazılış, birbirinin bayt-tersi. `sv2()` bugün URL
+> baytlarını **tam bir kez** ters çeviriyor. Kanıt kendi zincirimizden gelmiyor:
+> `internal/sun/an12196_kat_test.go` beklenen değerleri belgeden **transkribe
+> ediyor** ve kırmızı olduğunda kodu suçluyor, değerleri değil. Bağımsız teyit:
+> `icedevml/sdm-backend` plain yolunda sayacı ters çeviriyor, şifreli yolunda
+> çevirmiyor. Ayrıntı: **M2-08** — `docs/plan/m2-sun.md` · ADR 0003 ek notu.
+>
+> ⚠️ **Tek çapa, iki değil.** URL sırasını çivileyen şey **yalnız** Tablo 2 +
+> §4.4.1 aynı-UID eşleşmesidir. Belgenin §4.4.4.2.1 tablosu (rev. 1.8 Tablo 5)
+> **şifreli-PICCData** örneğidir; UID ve sayacı çözülmüş PICC'ten gelir ve onun
+> URL'i `?e=…&c=…` biçiminde, düz `ctr=` **hiç taşımaz**. O tablo zincirin geri
+> kalanını (SV2 düzeni, türetme, boş girdi, kısaltma) çiviler — URL sırasını değil.
+>
+> 🔴 **VE BU KUTUNUN ESKİ HÂLİ KUSURU HAFİFE ALIYORDU — FAZ B'NİN KAPSAMI BU
+> YÜZDEN DEĞİŞTİ.** Eski metin vektörlerin hatayı *"göremediğini"* söylüyordu.
+> Ölçüldü, gerçek daha ağır: `internal/sun/verify_mac_test.go` içinde adında
+> *verbatim* geçen bir SV2 testi vardı, kendi yorumunda *"the load-bearing
+> anti-reversal test"* diyordu ve **doğru düzeltmeyi adıyla yasaklıyordu**
+> (*"a reversal would make SV2's counter bytes differ from the URL's here"*).
+> (Ölü adı buraya **yazmıyoruz**: `cmd/tappa/testnames_test.go` var olmayan test
+> adlarına yapılan atıfları sayar ve bu cümle yazılırken **ölçüldü** — adı anmak
+> ratchet'i 53'ten 54'e çıkarıp testi kırmızıya çeviriyor. Yerine geçen ad
+> `TestSV2_CounterIsReversedIntoLSBFirstOrder`.) Yani
+> gerçek çip gelseydi bile doğru yamayı yazan kişi **kırmızı bir test** görecek ve
+> büyük ihtimalle yamayı geri alacaktı — donanım tek başına bunu çözmezdi. Ders:
+> bir testin **adı** bir iddiadır ve yanlış iddia, eksik testten pahalıdır.
+>
+> **Geriye kalan ENCODE tarafıdır.** AN12196 bizim **decode** tarafımızı çipin
+> tarifine bağlar; encode aracımızın sayacı URL'ye **MSB-first** mirror'ladığını
+> kanıtlayamaz. Bu yüzden aşağıdaki FAZ B listesinin 1. maddesi **silinmedi,
+> daraltıldı**.
+
+### Anahtar teslimi ve döndürme
+
+**Teslim.** Çipler tedarikçiden **fabrika varsayılanı** anahtarlarla gelir. Encode
+sırasında en azından `K_SDMFileRead` bizim ürettiğimiz rastgele anahtarla değiştirilir
+(ADR 0003 md. 5); kalan uygulama anahtarları için yukarıdaki tablonun *"Fabrika
+varsayılan anahtarı"* satırına bak.
+Varsayılan anahtarla hiçbir plaket üretime çıkmaz — bu, Q10 kararının (kendimiz encode
+ederiz) **operasyonel karşılığıdır**.
+
+**Döndürme — ve burada iki AYRI şey var, karıştırmayın.** Bu ayrım bu dosyanın
+"KEK döndürme" bölümündeki *"Ne döndürülüyor — ve ne döndürülMÜyor"* tablosuyla
+**birebir aynı** olmak zorundadır:
+
+| Sızan ne? | Yol | Nerede yazılı |
+|---|---|---|
+| **KEK** (`TAPPA_TAG_KEK`) | Park yeniden sarmalanır; **duvara kimse gitmez**. `cmd/rotatekek` + üç adımlı prosedür. | Bu dosya → **"KEK döndürme"** |
+| **Plaketin kendi AES anahtarı** | **`retire + replace`** — ilgili plaket `status='retired'` olur, **yeni UID + yeni rastgele anahtar** taşıyan yeni bir plaketle **fiziksel olarak** değiştirilir. | ADR 0003 **md. 5** |
+
+🔴 **Yerinde `ChangeKey` ile plaket anahtarı döndürmek MVP DIŞIDIR.** ADR 0003
+madde 5 bunu *"teknik olarak mümkün ama MVP kapsamı dışı"* diye adlandırıyor ve
+normatif yolu **`retire + replace`** olarak veriyor. Encode aracı (yazıldığında)
+`ChangeKey`'i **yalnız boş çipi kişiselleştirmek için** kullanacaktır (fabrika
+varsayılanından bizim anahtarımıza); bu, **sahadaki bir plaketi yeniden
+anahtarlamak** ile aynı şey değildir. Aynı komut, iki farklı operasyon — ve
+ikincisi yazılı değil.
+
+Toplu yeniden-anahtarlama **yoktur ve olamaz**: park geneli bir master anahtar
+yok (ADR 0003 md. 3), bu yüzden şüphe daima **tekil** ele alınır. Patlama yarıçapı
+tek plakettir; bedeli ise merdivendir.
+
+### Anahtar hijyeni — iddia değil, mekanizma
+
+*"Anahtarlar repoya, sohbete, e-postaya yazılmadı"* bir söz değil, **kontrol
+edilebilir bir zincir** olmalı. Bugün yürürlükte olan mekanizmalar:
+
+1. **Düz anahtar hiç kalıcılaşmaz.** `internal/sun`'da `Wrap(kek, uid, key)`
+   AES-256-GCM zarfını üretir (AAD = **ham 7 baytlık UID**, yani sarmalı anahtar
+   kendi satırına **bağlıdır**, başka satıra taşınamaz) ve `Zero(key)` düz
+   kopyayı siler. Encode aracı bu ikisini **aynı süreçte, art arda** çağırmak
+   **zorundadır** (araç yazıldığında; bugün yok — bölüm başındaki uyarı).
+2. **Veritabanı yalnız sarmalıyı görür.** `tags.aes_key_ref` = 44 bayt
+   (`nonce(12) ‖ ciphertext(16) ‖ gcm_tag(16)`), ADR 0003 md. 4.
+3. **Uygulama rolü onu yazamaz.** Migration 00013 `tappa_app`'e `tags` üzerinde
+   **sütun listeli** UPDATE veriyor (`location_id`, `last_ctr`, `status`,
+   `retired_at`, `replaced_by`) — `aes_key_ref` **listede yok**. Satırı
+   `tappa_owner` yükler.
+4. **Panel plaket yaratamaz.** `db/queries/tags.sql` **hiç INSERT taşımıyor** ve
+   bu bir eksiklik değil karardır (kullanıcı kararı 2026-08-08: *"Tappa encodes
+   the plaque and loads the row; the panel only binds it"*). Plaket doğuran tek
+   yol, bu runbook'un tarif ettiği encode akışıdır — **ve o akışı koşan araç henüz
+   yazılmadı**, yani bugün üretimde encode edilmiş plaket **yoktur**.
+5. **Mekanik tarama.** `scripts/redline-check.sh` R7 iki şeyi arıyor: repoda
+   gömülü anahtar dosyası (`*.pem`, `*.key`, `*.aes`, `secrets/*`) ve sır taşıyan
+   log çağrısı. ⚠️ Geçmesi ihlal olmadığını **kanıtlamaz** (CLAUDE.md §4).
+6. **Emsal: yalnız SARMALI blob çıktıya çıkar.** `test/fixtures/seedkeys` KEK'i
+   ortamdan okur, asla basmaz; stdout'a yalnız sarmalı değeri taşıyan SQL yazar.
+   Encode aracının çıktısı **aynı şekli** almalıdır.
+
+**Operatör kuralları (mekanizmanın kapatamadığı yarı).**
+- Düz anahtar **hiçbir zaman** ekrana basılmaz, panoya kopyalanmaz, sohbete/
+  e-postaya yapıştırılmaz, ticket'a eklenmez.
+- Encode aracı çalışırken çıktısı bir dosyaya **yönlendirilmez**; SQL doğrudan
+  yükleyiciye gider ya da 0600 izinli geçici bir dosyaya yazılır ve iş biter
+  bitmez silinir.
+- Doğrulama **değer göstermeden** yapılır: uzunluk (44 bayt), satır sayısı,
+  eşitlik boolean'ı — hex dökümü değil.
+
+### Plaket baskısı
+
+**Tasarımın tek yetkili kaynağı skill `tappa-brand` → "Plaket baskısı — NFC + QR
+(fiziksel yüzey)".** Palet, tipografi, yerleşim oranları, QR kenar uzunluğu,
+sessiz alan ve metinler orada; burada **tekrarlanmaz** (iki yerde duran bir ölçü
+er geç iki farklı ölçü olur). ⚠️ O bölüm kendi başlığında *"bu bir TASARIM
+ÖNERİSİDİR, ölçüm değil"* diyor — milimetreler **baskı provasında** doğrulanacak.
+
+⚠️ **Kâğıt boyu O SKILL'DE YAZMIYOR — atfı doğru yere ver.** Ölçüldü:
+`.claude/skills/tappa-brand/SKILL.md` içinde `A5`, `148` ve `210` **hiç geçmiyor**
+(0 isabet). Skill'in gerçekten söyledikleri şunlar: plaketin **dikey ~%60/%40**
+bölünmesi, **QR kenarı ≥ 30 mm** (20–40 cm tarama mesafesinin 1/10'u), **4 modül
+sessiz alan**, `ink` on `paper` kontrast ve metinler. **A5 kararı skill'den değil
+üründen gelir**: [handoff.md](../docs/handoff.md) → *"markalı, **A5 boyutlu**,
+kameranın gördüğü bir noktaya monte edilen pasif bir plaket"*; M8-05 kartının 6.
+kriteri onu tekrarlar. `148 × 210 mm` ise A5'in ISO 216 tanımıdır, bu repoda bir
+kaynağı yoktur ve **prova ile doğrulanacaktır**.
+
+Kartın istediği üç şey ve bugünkü durumları:
+
+| Kriter | Durum |
+|---|---|
+| **A5** (ISO 216: 148 × 210 mm) — kaynak **handoff.md**, skill değil | Skill'in dikey **%60/%40** bölünmesiyle uyumlu; kâğıt boyunun kendisi **prova ile doğrulanacak**. |
+| **NFC + QR birlikte** | Zorunlu, ve QR *"yedek"* değildir — iPhone X ve öncesi arka planda NFC okuyamaz, o çalışan için QR **her günkü** yoldur. |
+| **Kamera görüş alanına montaj** | QR **kamerayla** okunur: plaket, telefonun kamerasının **engelsiz** göreceği yükseklik ve açıda monte edilir; NFC anteni QR'ı kapatmayacak şekilde ayrı bölgede durur. |
+
+> #### 🔴 AYNI PLAKETTE QR OLMASININ §5'TE BİR BEDELİ VAR — VE BASKI BUNU BİLMELİ
+>
+> QR **statiktir**: `ctr` ve `cmac` taşımaz, çip onu her okumada yeniden yazmaz.
+> Yani QR'da **proof of moment yoktur**. `internal/sun.Parse` bu ikisinin
+> **ikisinin birden** yokluğunu `Channel=qr` olarak okur ve karar baseline
+> politikası **`base:qr-requires-ip`** ile ilerler: QR tap'inde **IP zorunludur**,
+> GPS tek başına yetmez → aksi hâlde `flag`.
+>
+> **Sebebi doğrudan baskıyla ilgilidir:** duvardaki QR **fotoğraflanabilir** ve o
+> fotoğraf **süresiz geçerli** bir bağlantıdır. NFC'de bir sonraki tap yeni bir
+> fiziksel dokunuş ister; QR'da istemez. Baskı bunu ortadan kaldıramaz — bu
+> yüzden mekânın **statik IP'si** QR yolunun tek gerçek çıpasıdır ve M8-07'nin
+> "statik IP'ler müşteriden teyitli" kriteri QR basılan her lokasyon için
+> **kritiktir**.
+>
+> **İzleme parametresi eklenmez.** Baskı sağlayıcısı `?src=qr` benzeri bir işaret
+> önerirse cevap **hayır**: kanal, `ctr`/`cmac`'in **yokluğundan sunucuda**
+> türetiliyor; URL'e istemcinin taşıdığı bir kanal işareti eklemek o türetimi
+> ikinci bir kaynakla yarıştırırdı.
+
+> #### 🔴 Q08 AÇIK — ENCODE EDİLEN HOST GERİ ALINAMAZ
+>
+> SUN URL'si **domaini taşır** ve domain **henüz alınmadı** (`tappa.mt` /
+> `tappa.io`, EUIPO taraması da yapılmadı — `open-questions.md` Q08).
+>
+> Çipe yazılan NDEF, o çipin anahtarı olmadan **değiştirilemez**; anahtarı olsa
+> bile her plaket için **tek tek, fiziksel olarak** yeniden yazmak demektir. Yani
+> **yanlış host'la encode edilmiş bir plaket = sahada plaket değişimi.** ADR 0003
+> girişinde bu maliyeti *"yanlış modda veya yanlış anahtar stratejisiyle"* encode
+> için adlandırıyor; **host üçüncü hâlidir** ve ADR'de yazmıyor — burada yazıyor.
+>
+> **Kural: Q08 kapanmadan üretim plaketi encode edilmez.** Deneme/geliştirme
+> plaketleri encode edilebilir, ama duvara **çıkmaz** ve `status='unassigned'`
+> kalır.
+
+### Encode edilen satırın durumu
+
+Encode biten bir plaketin satırı **`status='unassigned'`** ile yüklenir,
+`location_id` **NULL**. Bu, migration 00013'ün envanter modelidir: Tappa plaketi
+**encode eder ve yükler**, müdür panelden **duvara bağlar**. `active` yazmak,
+kutuda duran bir plaketi hizmette göstermek olur — ve `internal/sun`'ın akışı
+`active` olmayan her plaketi §5 satır 1'den reddeder, yani yanlış durum sessiz
+kalmaz ama **yanlış yönde** de yanılmaz.
+
+### FAZ B'ye devredilenler — yükümlülük listesi
+
+Donanım (bir NTAG 424 DNA yazıcı/okuyucu) geldiğinde yapılacaklar. Bu liste
+**M8-05'in kapanma koşuludur**; FAZ A tek başına kartı kapatmaz.
+
+1. **`ctr` bayt sırasının ENCODE yarısı gerçek çiple doğrulanır.** ⚠️ **Bu madde
+   M2-08 ile DARALDI, kalkmadı.** Kapanan yarı: **decode** — `sv2()` URL baytlarını
+   tam bir kez ters çeviriyor ve bu artık dış kaynaklı known-answer vektörleriyle
+   çivili (`internal/sun/an12196_kat_test.go`, AN12196'dan transkribe). Bu yüzden
+   madde **artık diğerlerinden önce koşulmak zorunda değil**. Kalan yarı: encode
+   aracının sayacı URL'ye gerçekten **MSB-first** yazdığını **silikonla** görmek —
+   ADR 0003 madde 1 bunu karar olarak sabitliyor, vektörler ise **varsayıyor**.
+   Gerçek çipten alınan **tek bir** tap URL'si yeter ve sinyal gürültüsüzdür:
+   sayaçların 255/256'sı palindrom değil, yani encode tarafı ters yazıyorsa
+   doğrulama **her tap'te** başarısız olur.
+2. **Araç yolu seçilir ve kurulur** (tam Go yazıcı vs üçüncü parti yazıcı +
+   yükleyici). Taşıma katmanı yeni bir bağımlılık gerektiriyorsa **CLAUDE.md §1
+   gereği onay alınır**; FAZ A hiçbir bağımlılık eklemedi.
+3. **En az bir fiziksel etiketle uçtan uca doğrulama** (kart kriteri 3): encode →
+   duvara benzet → gerçek telefonla tap → kayıt panelde görülür.
+4. **Gerçek çiple replay denemesi** (M8-04 kartı bunu istiyor): aynı tap URL'si
+   ikinci kez gönderilir → **reject** beklenir; `tags.last_ctr` tek adım ilerlemiş
+   olmalıdır.
+5. **Q11 — iPhone Safari çerez ömrü** (`open-questions.md`: *"gerçek cihaz turu
+   M8-05'te"*). Ölçülecek olan: **sunucunun yazdığı httpOnly** çerez ITP altında
+   1 yıl yaşıyor mu (7 günlük kırpma **JS ile yazılan** çerezlere ait — doğrulanması
+   gereken tam olarak bu ayrım). *"Telefon seni tanır"* vaadi buna dayanıyor.
+6. **Fabrika varsayılanlarının gerçekten değiştiği doğrulanır**: encode sonrası
+   varsayılan anahtarla kimlik doğrulama **başarısız** olmalı.
+7. **Yazma izninin gerçekten kilitli olduğu doğrulanır**: kimlik doğrulamasız bir
+   NDEF yazma denemesi **reddedilmeli**.
+8. **Baskı provası** — A5 ölçüleri, QR kenar uzunluğu ve sessiz alan **fiziksel
+   provada** doğrulanır; doğrulanınca skill `tappa-brand`'in ilgili bloğu
+   *"ölçüldü"* olarak güncellenir.
+
+---
+
 ## KEK döndürme — `TAPPA_TAG_KEK` sızdıysa
 
 > **Bu bölüm bir prosedürdür, bir açıklama değil.** Panikteyken okunacak diye
@@ -982,7 +1341,7 @@ yalnız hata kodunu assert eden bir kontrol gördü.
 | | |
 |---|---|
 | **Döner** | **KEK.** Her plaketin AES anahtarı **yeni KEK altında yeniden sarmalanır**. `tags.aes_key_ref` değişir. |
-| **Dönmez** | **Plaketin kendi AES anahtarı.** O çipe yazılıdır (**ADR 0003 md. 5 — "Anahtar döndürme"**; md. 3 anahtarın nasıl ÜRETİLDİĞİNİ anlatır). Değiştirmek **her duvardaki her plaketi fiziksel olarak yeniden encode etmek** demektir; ⚠️ ve md. 5 şüpheli bir plaket anahtarı için normatif yolu **`retire + replace`** olarak adlandırıp yerinde **`ChangeKey`'i MVP DIŞI** bırakıyor — yani bu satırın tarif ettiği şey ADR'nin **bilerek ertelediği** mekanizmadır. Bu prosedürün kapsamı DIŞINDA, bir saha operasyonudur. |
+| **Dönmez** | **Plaketin kendi AES anahtarı.** O çipe yazılıdır (**ADR 0003 md. 5 — "Anahtar döndürme"**; md. 3 anahtarın nasıl ÜRETİLDİĞİNİ anlatır). Değiştirmek **her duvardaki her plaketi fiziksel olarak yeniden encode etmek** demektir; ⚠️ ve md. 5 şüpheli bir plaket anahtarı için normatif yolu **`retire + replace`** olarak adlandırıp yerinde **`ChangeKey`'i MVP DIŞI** bırakıyor — yani bu satırın tarif ettiği şey ADR'nin **bilerek ertelediği** mekanizmadır. Bu prosedürün kapsamı DIŞINDA, bir saha operasyonudur. Anahtarın nasıl ÜRETİLİP çipe yazıldığı ve `retire + replace`'in operasyonel karşılığı: bu dosya → **"Plaket encode — boş çipten duvara"**. |
 | **Değişmeyen** | **Duvardaki çip.** Kimse bir mekâna gitmez. |
 
 Yani: **sızan bir KEK bir terminalden kurtarılır; sızan bir PLAKET ANAHTARI merdivenle
@@ -1472,7 +1831,7 @@ hafızasına bağlı değil):
 | Ne | Neden artık imkânsız |
 |---|---|
 | Rotasyonun **gövdesinde** yorumdaki backtick'in çalışması | Gövde artık yapıştırılmıyor: `scripts/rotate-kek.sh`'i **bash bir dosya olarak** yorumluyor (`bash -n` süitte) |
-| Kalan **yapıştırılan** bloklarda aynı tehlike | 🔴 **SAYILDI, İMKÂNSIZ DEĞİL:** bu bölümde hâlâ **13 yapıştırılan `bash` bloğu** var (sır girişi, `kubectl` adımları, doğrulama). Tehlike **karakter düzeyinde** kaldırıldı — yorumlarda **0 backtick, 0 tek apostrof** — ve `TestRunbook_PasteableBlocksCarryNoShellHazardInComments` bunu tutuyor. ⚠️ Ama bu bir **özellik**, yapısal bir imkânsızlık değil: yeni bir blok yeni bir backtick getirebilir, ve o testi geçersiz bir yorum hâlâ yapıştırılabilir. Kontrol: gerçek `zsh -f -i`'de README şeklindeki backtick'li bir yorum **çalıştı** (işaret dosyası yazıldı); temizlenmiş blokların **hepsi** `bash -n` **ve** `zsh -n` altında 0 veriyor |
+| Kalan **yapıştırılan** bloklarda aynı tehlike | 🔴 **SAYILDI, İMKÂNSIZ DEĞİL:** bu bölümde hâlâ **13 yapıştırılan `bash` bloğu** var (sır girişi, `kubectl` adımları, doğrulama). Tehlike **karakter düzeyinde** kaldırıldı — yorumlarda **0 backtick, 0 tek apostrof** — ve `TestRunbook_PasteableBlocksCarryNoShellHazardInComments` bunu tutuyor. ⚠️ Ama bu bir **özellik**, yapısal bir imkânsızlık değil: yeni bir blok yeni bir backtick getirebilir, ve o testi geçersiz bir yorum hâlâ yapıştırılabilir. Kontrol: gerçek `zsh -f -i`'de README şeklindeki backtick'li bir yorum **çalıştı** (işaret dosyası yazıldı); temizlenmiş blokların **hepsi** `bash -n` **ve** `zsh -n` altında 0 veriyor. ⚠️ **Testin kapsamı M8-05'te genişledi ve hâlâ dosyanın tamamı DEĞİL:** artık iki dilim taranıyor — bu bölüm **ve** *"Plaket encode"* (bugün orada 0 blok var, yani tarama bir sürüklenme freni). Dosyanın kalan **32** yapıştırılabilir bloğu taranmıyor; sayısı ve içindeki tehlike satırları **"Kabul edilmiş sınırlar"** listesinde yazılı |
 | `ON_ERROR_STOP` unutulması → 40 ref sunucu log'una + `psql rc=0` | Bayrak script'in içinde; `TestRotateScript_AlwaysPassesOnErrorStop` her `psql` çağrısında arıyor |
 | Aracın çıkış kodunun `psql`'inkiyle maskelenmesi | Boru yok; `TOOL_RC` yakalanıp `exit` ediliyor, `TestRotateScript_NeverPipesTheToolIntoPsql` tutuyor |
 | Öngörülebilir yola derleme (symlink/dizin/eski ikili) | `mktemp -d` + `chmod 700` + `go build || die` + `-x` kontrolü |
@@ -2295,3 +2654,30 @@ değil, *"bir şey takıldı mı"* sorusuna kaba bir cevaptır.
     varsayılana dayanmıyor. Bu bir **metin ve kapsam** meselesidir — ve bu kartın imza
     kusuru tam olarak odur: **sağlanmayan bir garantiyi ilan etmek.**
 
+23. **[BU BELGEDEKİ ATIFLAR MEKANİK OLARAK DOĞRULANMIYOR — ve bu bir SAYIM, kapatma
+    değil]** — 🔴 **Bu dosyadaki hiçbir atıf bir test tarafından okunmuyor:** ADR
+    madde numaraları, NXP AN12196 bölüm/tablo/sayfa numaraları, migration numaraları,
+    dosya ve sorgu adları, politika adları (`base:*`), durum değerleri (`unassigned`
+    vb.) ve `open-questions.md` soru numaraları — hiçbiri. Aynısı
+    `docs/plan/m8-deploy-pilot.md` için de geçerli. Ağaçtaki tek mekanik atıf kontrolü
+    `cmd/tappa/testnames_test.go`'dur ve o **yalnız `Test` ile başlayan test adlarını**
+    çözer; bir belge cümlesinin adını andığı ADR maddesinin var olup olmadığını
+    **hiçbir şey** sormuyor.
+    **Ölçüldü (M8-05, 3. tur denetimi).** Bu iki `.md` dosyasına sekiz uydurma
+    yerleştirildi — var olmayan bir dosya adı · var olmayan bir politika adı
+    (`base:qr-requires-gps`) · yanlış bir durum değeri (`status='active'`) · var
+    olmayan bir doküman revizyonu (`rev. 9.9`) · bir GRANT listesine `aes_key_ref`
+    eklenmesi · var olmayan bir ADR (`0099-hayali-adr.md`) · yanlış bir bayt uzunluğu
+    (44 → 48) · yanlış bir madde sayısı. **Sekizinin sekizi de yakalanmadı:**
+    `scripts/redline-check.sh` **rc=0**, dört Go paketi yeşil.
+    ⚠️ **Sonuç neyi DEĞİŞTİRİR:** bu belgedeki bir atıf, onu **açıp okuyan** bir insanın
+    ya da ajanın kontrolü kadar güvenilirdir. Bir gözden geçirme turunda atıfları
+    örneklemek, testlerin yeşil olmasına güvenmekten daha bilgilendiricidir.
+    ⚠️ **İkinci sıfır kapı, aynı sınıftan ve aynı şekilde sayılıyor:**
+    `cmd/rotatekek/script_test.go` yapıştırılabilir blokların yorumlarını tarıyor ama
+    **tüm dosyayı değil, iki dilimi** okuyor ("KEK döndürme" ve "Plaket encode").
+    Ölçüldü: dosyada **45** yapıştırılabilir `bash` bloğu var; **13**'ü döndürme
+    diliminde, **0**'ı encode diliminde, kalan **32**'si taranmıyor ve o 32 blokta
+    **21 yorum satırı / 26 tehlike isabeti** var. Taramayı dosyanın tamamına açmak o
+    21 satırı **kırmızıya** çevirirdi — başka kartlara ait bir düzeltme işi; bu yüzden
+    **kapatılmadı, sayıldı**. Kapatan tur, o 21 satırı düzelten turdur.
