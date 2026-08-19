@@ -86,7 +86,7 @@ A/Y maddelerine ek olarak çıkanlar ve nereye işlendikleri:
 | Q07 | **`locations.static_ips` tipi.** `inet[]` (tek IP = /32) mi `cidr[]` (aralık) mi? Müşteri ISS'i /29 blok verirse aralık gerekir. | M1-03 | A | **cidr[]** (2026-07-25) — aşağı bak |
 | Q08 | **Domain + marka tescili.** `tappa.mt` / `tappa.io` alınmadı, EUIPO taraması yapılmadı. SUN URL'sinde geçiyor. | M8-05, M5-01 (ölçüm), M8-02 | A | açık |
 | Q09 | **VIES doğrulaması MVP'de zorunlu mu?** Servis sık kesilir. Öneri: format zorunlu + VIES "en iyi çaba", başarısızsa `vat_verified=false` ve panelde uyarı. | M7-02 | C→A | açık |
-| Q10 | **Etiket tedarikçisi ve encode akışı.** Ölçekte encode'lu tedarikçi mi, kendimiz mi? Anahtar teslimi ve döndürme nasıl? | M0 (sipariş), M8-05 | A | açık |
+| Q10 | **Etiket tedarikçisi ve encode akışı.** Ölçekte encode'lu tedarikçi mi, kendimiz mi? Anahtar teslimi ve döndürme nasıl? | M0 (sipariş), M8-05 | A | **kendimiz encode ederiz** (2026-08-19) — aşağı bak. ⚠️ **Aracın kendisi hâlâ seçilmedi** ve seçim kullanıcının (§1). |
 | Q11 | **iOS Safari çerez ömrü.** Oturum 1 yıl hedefleniyor; Safari ITP altında gerçek bir iPhone'da NFC → Safari akışıyla **ölçülmeli**. "Telefon seni tanır" vaadi buna dayanıyor. **M5-01 (`a71e1b2`) kodu tamamlandı ve bunu BLOKLAMIYOR:** sunucu tarafı ölçümden bağımsız (`Set-Cookie`, `httpOnly`, `SameSite=Lax`, `Max-Age=31536000`) ve sonuç kod tasarımını değiştirmez, o yüzden kabul kriteri olamaz (kart düzeltmesi, 2026-07-31). Ölçülecek olan: **sunucunun yazdığı httpOnly** çerez ITP altında 1 yıl yaşıyor mu (7 günlük kırpma JS ile yazılan çerezlere ait — doğrulanması gereken bu ayrım). Gerçek cihaz turu M8-05'te. | hiçbir şeyi bloklamıyor (bilgi: M8-05) | C | **açık — kullanıcı ölçümü bekliyor** |
 | Q12 | **Barındırma.** VPS sağlayıcı ve managed Postgres, AB bölgesi, yedek politikası, ~€30-50 bütçe. | M8-02 | A | açık |
 | Q13 | **GDPR silme talebi × immutable `transactions`.** Öneri: `employees` üzerinde anonimleştir, `transactions` korunur — hukuki onay ister. Saklama süresi de burada. | M8-06 | A | açık |
@@ -108,7 +108,38 @@ moment) + monoton ctr (replay) 'den gelir. Kullanıcı plain'i seçti.
 
 **Etkilenen:** [M2-01](m2-sun.md) ADR 0003 · [M2-03](m2-sun.md) URL ayrıştırma
 (`tag`/`ctr`/`cmac` parametreleri, 7-byte UID hex / 3-byte ctr big-endian / 8-byte cmac) ·
-[M2-04](m2-sun.md) (SV2 = `3C C3 00 01 00 80 || UID || ctr`).
+[M2-04](m2-sun.md) (SV2 = `3C C3 00 01 00 80 || UID(7) || SDMReadCtr(3)`).
+
+🔴 **Sayacın SV2'deki bayt sırası: LSB-first — URL'nin taşıdığının TERSİ** (M2-08, 2026-08-19).
+Bu satır 2026-07-26'dan beri `|| ctr` diyordu ve **sırayı hiç söylemiyordu**; aynı belirsizlik
+`.claude/skills/tappa-sun/SKILL.md`'de de vardı ve ikisi birlikte, `internal/sun`'a dokunan her
+ajanın okuduğu iki kaynağı da sessiz bıraktı — sevk edilmiş bir kusur tam buradan doğdu.
+Normatif kaynak: NXP AN12196 rev. 1.8 s.10 (§4.3 tablo 2 adım 4 `SDMReadCtr = 010000 (LSB
+first)`; §4.4.1 aynı UID için URL'de `ctr=000001`). ADR 0003 md. 6'nın eki ve
+`internal/sun/an12196_kat_test.go` bunu artık belgeden transkribe edilmiş vektörle çiviliyor.
+
+### Q10 — Encode akışı: kendimiz encode ederiz (2026-08-19)
+
+**Karar:** plaketleri **Tappa encode eder**; tedarikçiden encode'lu etiket alınmaz.
+
+**Gerekçe — Q06'nın kendisi.** Tedarikçi encode ederse park geneli anahtarları **tedarikçi
+bilir**; bu, Q06'nın açıkça reddettiği tek-nokta riskinin bir kat yukarı taşınmış hâlidir
+(*"master sızarsa tüm park düşer"*). Ayrıca ADR 0003 md. 3 anahtarın `crypto/rand` ile
+üretilmesini, md. 4 `TAPPA_TAG_KEK` altında sarmalanmasını şart koşuyor — üçüncü bir tarafın
+ürettiği anahtar `tags.aes_key_ref`'e **hiç** giremez, yani o plaket üründe kullanılamaz.
+Kullanıcının 2026-08-08 kararı zaten bunu söylüyordu (`cmd/tappa/main.go`, `NewPlaques`
+yorumu: *"Tappa encodes the plaque and loads the row; the panel only binds it"*), bu satır onu
+Q10'a bağlıyor. Bu **orkestratör kararıdır** ve kullanıcıya gerekçesiyle raporlandı.
+
+⚠️ **AÇIK KALAN YARIM: aracın kendisi.** Encode için ya kendi Go yazıcımız (yeni PC/SC
+bağımlılığı — **§1 gereği kullanıcı onayı ister**) ya da üçüncü parti bir yazıcı + bizim
+yükleyicimiz gerekiyor; ikincisi düz anahtarı süreç dışına çıkarır ve **ADR 0003 md. 5'in
+açık cümlesini ihlal eder** (*"Düz anahtar bu adımdan sonra hiçbir yerde kalıcılaşmaz"*), yani
+bir ADR tadili olmadan seçilemez. İki şekil ve bilgi dereceleri `deploy/README.md` →
+*Plaket encode* bölümünde **karar önerisi** olarak duruyor; **maliyetler ölçülmedi**.
+
+**Etkilenen:** [M8-05](m8-deploy-pilot.md) FAZ A (runbook, karar yazıldı) ve FAZ B (araç +
+fiziksel çip) · [M0](m0-bootstrap.md) sipariş kalemi.
 
 ### Q06 — Etiket anahtar stratejisi: plaket-başına rastgele (2026-07-26)
 
