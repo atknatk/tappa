@@ -55,7 +55,7 @@ gözlemlenebilir sinyalle tespit ederiz, o sinyalin hangi görevde uygulandığ�
 | 1 | **Buddy punching** (A4/Q19) | Tek çözümü biyometri (§4.1) **veya** uygulama kurulumu — ikisi de ürünün varlık sebebine aykırı | Eş-zamanlı tap çiftleri raporu | [M6-11](../plan/m6-dashboard.md) |
 | 2 | **Sahte GPS** (A3) | Web'de konum doğrulaması yok; attestation **uygulama** ister (app-less vaadi) | GPS-only tap oranı, çalışan kırılımında | [M6-11](../plan/m6-dashboard.md) |
 | 3 | **URL biriktirme** (A1/Q21) | SUN payload'ında **zaman yok**; uçak modunda dokunup URL toplamak mümkün, sunucu o okumaları hiç görmez | `tap:ctrGap` → `base:ctr-gap-review`; boşluk metriği | baseline [M3-06](../plan/m3-policy-motoru.md) · metrik [M6-11](../plan/m6-dashboard.md) |
-| 4 | **Mekânda bırakılmış proxy** (Y-E) | IP taşınabilir; mekânın WiFi'ında proxy+VPN, uzaktaki tap'i mekânın IP'sinden gösterir. Kriptografik çözümü yok | `tap:gpsConflict` → `base:gps-conflict-review`; "IP eşleşti ama GPS uyuşmuyor" metriği | baseline [M3-06](../plan/m3-policy-motoru.md) · metrik [M6-11](../plan/m6-dashboard.md) |
+| 4 | **Mekânda bırakılmış proxy** (Y-E) ⚠️ *2026-08-19'da DARALTILDI — §4'ün ek notu* | IP taşınabilir; mekânın WiFi'ında proxy+VPN, uzaktaki tap'i mekânın IP'sinden gösterir. Kriptografik çözümü yok. ⚠️ Bunun altındaki **ayrı** bir yüzey — panelden `/0` vererek **yapılandırmayla üretilen** sahte IP kanıtı — kabul edilmiş DEĞİLDİR ve M8-04'te kapatıldı | `tap:gpsConflict` → `base:gps-conflict-review`; "IP eşleşti ama GPS uyuşmuyor" metriği | baseline [M3-06](../plan/m3-policy-motoru.md) · metrik [M6-11](../plan/m6-dashboard.md) |
 | 5 | **Müdürün kimlik basması** (Y-D) | Davet kodunu üreten ve gören kişi = bordroyu şişirmede en güçlü teşviği olan kişi | Tek cihaz/oturumdan aktive N çalışan + hiç çapraz-lokasyon göstermeyen çalışan | rapor [M6-11](../plan/m6-dashboard.md) · davet kanalı [M5-02](../plan/m5-tap-akisi.md) (Q02) |
 | 6 | **Fiziksel plaket devri** | Plaket duvardan sökülüp taşınabilir; pasif çipin "yerini" doğrulayan bir bağı yok | Lokasyon–IP/GPS uyumsuzluğu → `flag`; müdür `lost` işaretler | baseline [M3-06](../plan/m3-policy-motoru.md) · guardrail [M3-05](../plan/m3-policy-motoru.md) |
 
@@ -207,6 +207,184 @@ metriği [M6-11](../plan/m6-dashboard.md)'de.
 > ayrı bir baseline ifadesi olarak vardır ve bu risk kendi metriğiyle
 > ([M6-11](../plan/m6-dashboard.md)) izlenir; GPS-only metriğine güvenmek onu
 > gizler.
+
+> 🔴 **EK NOT — 2026-08-19, M8-04 güvenlik denetimi (FAZ B2). Yukarıdaki kabul
+> DARALTILDI, iptal edilmedi.** Bu bölüm silinmiyor (append kuralı); eklenen şey,
+> risk 4'ün altında **ayrı bir yüzey** olduğunun ve o yüzeyin **kabul edilmediğinin**
+> yazıya geçmesidir.
+>
+> **Ölçülen.** Kabul yukarıda *"20 €'luk bir telefon gerekir"* diye gerekçelendirilmiş.
+> Denetim bunu çürüttü: **donanım gerekmiyordu.** Bir müdür panelden mekânın adres
+> aralığını `0.0.0.0/0` yapabiliyordu ve sonraki **her** dokunuş — dünyanın herhangi
+> bir yerinden — şu satırı yazıyordu: `verdict=ok trust=70 ip_match=t`,
+> `note="network proof of place: the source IP matches the location"`. Eşleşmeyecek
+> adres yok; yani cümle bir olguyu **beyan ediyor**, arkasında hiçbir kanıt yok. Ve
+> `transactions` [CLAUDE.md](../../CLAUDE.md) §4.3 gereği **değişmez**, yani o satırlar
+> sonradan düzeltilemez. Üstelik GPS izni verilmemişse `tap:gpsConflict`
+> **tetiklenmez** → bu bölümün "tespit sinyali" olarak saydığı tek şey **sessiz** kalır.
+>
+> **Neden ayrı bir yüzey.** Bu ADR'nin kabul ettiği şey **taşınabilir bir IP
+> kanıtıydı**: saldırganın mekâna fiziksel bir cihaz bırakması, yani bir maliyet ve
+> bir fiziksel iz gerektiren bir saldırı. `/0` ise **yapılandırmayla üretilen sahte
+> bir IP kanıtı** — sıfır maliyet, sıfır fiziksel iz, tek bir panel alanı. İkisi aynı
+> kefeye konamaz.
+>
+> **Kapatıldı.** M8-04'te venue doğrulaması artık **her adresi eşleştiren** bir aralığı
+> reddediyor: tek girdilik `/0` **ve** boşluk bırakmayan **birleşim**
+> (`0.0.0.0/1,128.0.0.0/1`). Kural `netx.TooWideForProofOfPlace`'te (saf bir paket:
+> `net/netip` + `math/big`, DB/HTTP/saat yok), hem alan sınırında
+> (`internal/handler/locations.go`) hem etki alanında (`internal/domain/tenant/venue.go`)
+> hem de **okuma tarafında** (`internal/domain/tap`'ın `ipMatches`'i) uygulanıyor;
+> ölçüm ve sayılmış sınırlar o fonksiyonun başlığında.
+>
+> 🔴 **VE BU PARAGRAF BİR DÜZELTME TAŞIYOR — İLK HÂLİ ÜÇ GÜN DEĞİL, BİRKAÇ SAAT
+> DAYANDI.** Şöyle diyordu: *"gelişim veritabanında `/0` taşıyan satır **0** ölçüldü
+> (196 561 aralıklı mekân), bu yüzden **migration gerekmedi**"*. Adını verdiği
+> veritabanında **2026-08-19 21:40 UTC** itibarıyla yeniden ölçüldü:
+>
+> | ölçüm (2026-08-19 21:40 UTC) | değer |
+> |---|---|
+> | aralık taşıyan mekân | 199 562 (309 518 mekânın içinde) |
+> | maske uzunluğuna göre girdi | `/0`: 3 · `/1`: 2 · `/24`: 199 549 · `/29`: 12 · `/32`: 9 |
+> | **evrensel aralık taşıyan mekân** | **4** (üçü tek `/0`, biri `/1 + /1` birleşimi) |
+>
+> 🔴 **VE BU TABLO DA BİR GÜN SONRA BAYATLADI — sayı 0 → 4 → 15 → 30 diye gitti.**
+> Aynı veritabanında, **2026-08-20 son ölçüm**: aralık taşıyan mekân **208 476**
+> (323 914 içinde); girdiler v4 `/0`: 23 · `/1`: 10 · `/24`: 208 437 · `/29`: 33 ·
+> `/32`: 9, v6 `/0`: 2; **evrensel listeli mekân 30** (22'si tek `0.0.0.0/0`, 2'si
+> `::/0`, 5'i `/1 + /1`, 1'i `/24`'ün yanında bir `/0`). Hepsi bu kartın **kendi
+> mutasyon ve denetim koşularının kalıntısı** — ve ad sayısı da yanlış yazılmıştı:
+> **iki değil ÜÇ ad** (`universal` 15, `St Julians` 11, `Everywhere` 4), ve
+> *"on üç saniye"* diye yazılan ilk küme gerçekte **on üç MİLİSANİYE** içindeydi
+> (2026-08-19 21:01:37.404–.417). **Silinmediler** — paylaşılan bir veritabanında
+> satır sayısı bir belgeyi düzeltmek için azaltılmaz. **Bu satırlardaki hiçbir sayıyı
+> bir kapı korumuyor**; tarihli birer gözlemdir, hedef değil — **ve adlar da öyle**,
+> ki bu 4. turda öğrenildi: sayılar için kurulan "tarihli gözlem" çerçevesi
+> **adları kapsamıyordu** ve tam orada yanlış çıktı.
+>
+> ⚠️ **"Erişilemezler" cümlesi ARTIK DOĞRU DEĞİL, ve kopyalanmak yerine yeniden
+> ölçüldü.** Önceki hâli o lokasyonlarda 0 plaket, o tenant'larda 0 işlem diyordu.
+> Bugün: o mekânlarda **11 aktif plaket**, orada kaydedilmiş **11 işlem**, ve
+> bunların **4'ü `ip_match = TRUE`**. O dört satır tam olarak bu onarımın var olma
+> sebebidir: *"network proof of place"* yazıyorlar, açık pencerede yazıldılar ve
+> §4.3 gereği **hiçbir zaman düzeltilemezler**.
+>
+> 🔴 **Ama asıl düzeltme sayı değil, ÇIKARIM.** *"0 satır → migration gerekmedi"*
+> yanlış bir gerekçeydi **sayı gerçekten 0 iken bile**, çünkü eksik olan yazma değil
+> **okuma** tarafıydı: zaten yazılmış bir satır her yeni tap'te `ip_match=t, trust=70`
+> üretmeye devam eder ve `transactions` **değişmezdir** (§4.3) — yani yalnız yazmayı
+> kapatmak geçmişi **sonsuza kadar** açık bırakır. O yarı da kapatıldı:
+> `tap.ipMatches` artık **yazma tarafının bugün reddedeceği** bir listeyi kanıt
+> saymıyor. Bir migration yalnızca **ölü satırları temizlerdi**; güvenlik eklemezdi,
+> bu yüzden yazılmadı.
+>
+> 🔴 **BİRLEŞİM YAZIMI DA KAPATILDI — VE ÖNCE "SAYILMIŞ LİMİT" DİYE SEVK EDİLMİŞTİ.**
+> Bir tur boyunca burada *"birleşim yalnız yazma tarafında kapalı; kapsamı toplamak
+> karar motorunun depolama katmanını içe aktarması demek"* yazıyordu. İtiraz doğruydu
+> (§3: `internal/domain/tap` saf bir fonksiyondur, depolamayı bilmez) ama **ihtiyaç
+> duyulan şey paket değil algoritmaydı**: `TooWideForProofOfPlace` saf önek aritmetiğidir
+> ve kendi paketine (`internal/netx`) taşındı — iki taraf da oradan çağırıyor, tap
+> hâlâ hiçbir depolama paketini içe aktarmıyor.
+>
+> **Limitin bedeli ölçüldü ve iddia ettiğinden büyüktü.** Sevk edilmiş `ipMatches`
+> geri alınıp mutasyon koşuldu: yalnız `0.0.0.0/1 + 128.0.0.0/1` taşıyan bir mekânda
+> **QR** kanalından, **GPS olmadan** bir tap → `verdict=ok, ip_match=TRUE, trust=70`.
+> Yani yazılı limit, sahte bir IP kanıtı üretmekle kalmıyor, **`base:qr-requires-ip`
+> baseline kuralını tümden devre dışı bırakıyordu** — oysa §5: *"QR: IP zorunlu, GPS
+> tek başına yetmez → flag"*. Bugün aynı iki şekil: GPS'siz `flag`
+> (`base:no-evidence-review`, §5 satır 7), GPS eşleşmesiyle `flag`
+> (`base:qr-requires-ip`); **her ikisinde de kayıt yazılıyor** (§4.6). Kilit testler:
+> `TestDecide_AStoredRangeTooWideForProofOfPlaceDoesNotMatch` ve
+> `TestDecide_AStoredRangeTooWideForProofDoesNotBuyAPassAroundQRRequiresIP`
+> (ikisi de 5. turda yeniden adlandırıldı; gerekçe aşağıda).
+>
+> ⚠️ **DAVRANIŞ DEĞİŞİKLİĞİ, ADIYLA:** kural artık **listenin**, tek girdinin değil.
+> `203.0.113.0/24` **yanında** bir `0.0.0.0/0` taşıyan bir mekân eskiden `/24`
+> üzerinden eşleşiyordu; o liste bugün **kaydedilemiyor**, dolayısıyla okuma tarafı da
+> aynı cevabı veriyor. Yön **fail-closed**: tap GPS'e ya da §5 satır 7'ye düşer, kayıt
+> her hâlükârda yazılır (§4.6). Bedeli ölçüldü ve **yeniden** ölçüldü (2026-08-20):
+> evrensel aralık taşıyan **30** mekânın **1'i** ayrıca sıradan bir aralık taşıyor
+> (`192.168.1.0/24` + `0.0.0.0/0`). İlk hâli *"4 mekânın hiçbiri"* diyordu; sayı da,
+> "hiçbiri" de bayatladı — bu satır o yüzden tarihli.
+>
+> 🔴 **VE 4. TURDA YÜKLEMİN KENDİSİ TAŞINDI: "HER ADRES" DEĞİL, "BİR İSTEMCİNİN
+> SUNABİLECEĞİ HER ADRES".** Denetim panele **sekiz satır** yapıştırdı —
+> `11.0.0.0/8 · 8.0.0.0/7 · 12.0.0.0/6 · 0.0.0.0/5 · 16.0.0.0/4 · 32.0.0.0/3 ·
+> 64.0.0.0/2 · 128.0.0.0/1` (sınır 32 girdi, yani **dörtte biri**) — yazma tarafı
+> **kabul etti** (`n=8 universal=false`), ve `203.0.113.7`'den gelen bir tap
+> **iki kanalda da** `verdict=ok · ip_match=true · trust=70` döndü; QR satırı 3. turun
+> kapattığı çıktının **birebir aynısıydı**, yani `base:qr-requires-ip` yine devre
+> dışıydı. Dışarıda bırakılan tek blok `10.0.0.0/8`: **RFC 1918**, hiçbir istemcinin
+> public bir ingress'e sunamayacağı adresler. Yani liste **hiç kimseyi elemiyordu**,
+> toplam ise 16 777 216 adres elendiğini söylüyordu. Doğrudan bir `/1` kabul etmek
+> **meşrudur** (gerçek istemcilerin yarısını gerçekten eler); bu liste **sıfırını**
+> eliyordu — derece değil **cins** farkı.
+>
+> **Yüklem artık istemci uzayında hesaplanıyor** (`netx.TooWideForProofOfPlace`):
+> RFC 1918 · loopback · link-local · CGNAT · multicast · ayrılmış · `0.0.0.0/8` ve
+> IPv6 karşılıkları toplamdan **düşülüyor**. **Yanlış pozitif ölçüldü:** 323 914
+> mekânın sakladığı **19 farklı liste** yeni yüklemden geçirildi — **eskiden reddedilen
+> 30, bugün reddedilen 30, yeni reddedilen 0**. Aynı oturumun sonunda yeniden koşuldu
+> (326 397 mekân, yine **19** liste): reddedilen **36**, ama **reddedilen LİSTELER
+> aynı dört şekil**. Sayı büyüdü, **küme büyümedi** — ki bu, "kalıntı üretiliyor"
+> açıklamasının öngördüğü şeydir, "yanlış pozitif" açıklamasının değil.
+>
+> ⚠️ **VE BU ÇERÇEVENİN KENDİ BEDELİ, SAYILMIŞ HÂLDE:** uzay **public** istemci
+> uzayıdır. Tüm istemcileri özel adreslerden gelen bir kurulum (bu veride
+> **66 329** mekân `192.168.1.0/24`, **467** mekân bir `10.x` aralığı kaydetmiş) bu
+> ölçünün kapsamında **değil**: `10/8 + 172.16/12 + 192.168/16`'nın tamamını kapsayan
+> bir liste orada kimseyi elemez ve **kabul edilir**. Kapatılmadı, çünkü bir tenant'ın
+> hangi kurulum şekli olduğunu bu paket bilemez. Aynanın öbür yüzü de yazıldı:
+> public uzayı kapsayıp özel bir bloğu dışarıda bırakan bir liste, tamamen özel bir
+> kurulumda herkesi elese de **reddedilir** — 323 914 mekânın **0**'ı böyle bir liste
+> yazmış, ve o şekil zaten bu onarımın var olma sebebi.
+>
+> 🔴 **VE 5. TURDA YÜKLEM ÜÇÜNCÜ KEZ AŞILDI — BU KEZ AD LİSTESİ BIRAKILDI.** Yukarıdaki
+> "istemci uzayı" çerçevesi bir **ad listesine** (13 blok) bağlıydı, ve bir uzayı
+> **isim sayarak** tanımlayan her yüklem gibi, listede olmayan her blok bir kaçış
+> üretiyordu. Ölçüldü, aynı ağaçta, aynı boyda iki yeni yazımla:
+>
+> | yazım | eski yüklem | kaç adres |
+> |---|---|---|
+> | `10.0.0.0/8` tümleyeni (8 satır) | reddediyor (10/8 listede) | 4 278 190 080 |
+> | `25.0.0.0/8` tümleyeni (8 satır) | **kabul ediyor** | 4 278 190 080 |
+> | `192.0.2.0/24` tümleyeni (24 satır) | **kabul ediyor** | 4 294 967 040 |
+>
+> Son satır hiç kimseyi elemiyor: `192.0.2.0/24` **RFC 5737 TEST-NET-1**'dir, hiç
+> yönlendirilmez. Üçü de `verdict=ok · ip_match=true · trust=70` üretiyordu, **QR
+> dahil** — yani `base:qr-requires-ip` yine devre dışıydı.
+>
+> **Yüklem artık bir BÜYÜKLÜK kuralı** (`netx.TooWideForProofOfPlace`; ad da değişti,
+> çünkü "her istemci adresini kapsıyor" bu üç yazımın ikisi için **yanlıştı**): bir
+> liste, aile başına **bir ISP tahsisinin iki katından** fazlasını kapsıyorsa yer
+> kanıtı değildir — IPv4'te bir `/7` (2^25 adres, birim bir `/8`), IPv6'da bir `/31`
+> (2^97, birim bir `/32` = bir RIR'ın LIR'a verdiği asgari tahsis). İkiye katlama
+> süs değil: tamamen özel bir kurulum (`10/8` + `192.168/16`) çıplak bir `/8`'i
+> **65 536 adresle** aşıyor ve bir yuvarlama yüzünden reddedilemez.
+>
+> **Yanlış pozitif ölçüldü, tüm mekânlara karşı** (2026-08-20): sevk edilen fonksiyon
+> **her farklı listeye** koşuldu, mekân sayısıyla ağırlıklandırıldı — **332 855**
+> mekân, **214 115**'i aralıklı, aralarında **19 farklı liste**. En geniş **gerçek**
+> liste `{81.240.16.8/29, 192.168.1.0/24}` = **264 adres** (44 mekân); limit onun
+> **127 100 katı**. Reddedilen **4 liste / 48 mekân**, ve 48'inin **48'i** bu kartın
+> kendi kalıntısı (`{0.0.0.0/0}`×40, `{0.0.0.0/1,128.0.0.0/1}`×5, `{::/0}`×2,
+> `{192.168.1.0/24,0.0.0.0/0}`×1; adları da söylüyor: *universal* 33, *St Julians* 11,
+> *Everywhere* 4). **Gerçek mekân reddi: 0.** ⚠️ Sayılar her koşuda büyüyor (aynı tur
+> içinde 331 499 → 332 855); **küme** büyümüyor — 4. turun reddettiği aynı dört şekil.
+>
+> ⚠️ **KALAN RİSK, SAYILMIŞ HÂLDE.** Limite tam oturan bir liste IPv4'ün **1/128**'ini
+> kapsar — yani dünyanın herhangi bir yerinden gelen 128 istemciden biri yine
+> eşleşir. Bu, paketin **söyleyebileceği** bir sınırdır, kapatabileceği bir delik
+> değil: bir mekânın ağının ne kadar dar olduğu **binaya** dair bir olgudur. Kapanan
+> şey, cevabın "esasen herkes" olduğu sınıfın tamamı (yukarıdaki üç yazım 5 alakasız
+> public kaynağın 5'ini eşliyordu; limitteki bir liste beklenen değerde 640'ta 5).
+>
+> **Kalan risk DEĞİŞMEDİ.** Fiziksel proxy hâlâ kabul edilmiş durumda ve yukarıdaki
+> tespit sinyali hâlâ onun sinyali. Bir `/8` — bir ISP'nin tüm tahsisi — hâlâ
+> **kabul ediliyor**; değişen, artık bunun bir **cümle** değil bir **eşik** olması.
+> ⚠️ Bir önceki tur bu satırda *"mekânın gerçek ağından çok daha geniş bir aralık da
+> hâlâ kabul ediliyor"* ve *"T40'ın bu iki alt sorusu karara bağlanmadı"* diyordu;
+> 5. turda **bağlandı** — eşik yukarıdadır.
 
 ### 5. Müdürün kimlik basması (Y-D)
 

@@ -860,3 +860,379 @@ func TestDebounceGap_TakesTheSmallerDistance(t *testing.T) {
 		})
 	}
 }
+
+// TestDecide_AStoredRangeTooWideForProofOfPlaceDoesNotMatch is the READING half of
+// backlog T40: netx.TooWideForProofOfPlace refuses such a list at save time, and this
+// proves a list that was ALREADY stored cannot manufacture "network proof of place"
+// either.
+//
+// 🔴 WHY BOTH HALVES ARE NEEDED. transactions are IMMUTABLE (§4.3). A write guard
+// alone leaves every row written before it existed producing `ip_match=t, trust=70`
+// and the note "network proof of place: the source IP matches the location" for a
+// tap taken anywhere on earth — permanently, with no way to correct the record.
+//
+// 🔴 THE UNION SPELLING IS PART OF WHAT IS CLOSED, NOT A LIMIT BESIDE IT. An earlier
+// version of this test asserted the opposite in its last row — the union read as a
+// match, "the limit, asserted" — while the function name promised the behaviour that
+// row denied. A test name that names a behaviour is a LOCK (M2-08); this one was
+// wound the wrong way, and it was locking a hole open: measured on this tree, a QR
+// tap at a venue holding only "0.0.0.0/1" and "128.0.0.0/1", with no GPS, came back
+// verdict=ok / ip_match=TRUE / trust=70 — a pass around base:qr-requires-ip, which
+// §5 states as "QR: IP is required, GPS alone is not enough → flag". The name is
+// unchanged; the body now agrees with it.
+//
+// 🔴 AND IN THE 5th ROUND THE NAME MOVED, BECAUSE THE PROPERTY DID. It used to say
+// "a universal stored range", and "universal" was true of
+// strictly fewer lists than the function refuses: two further spellings (everything
+// but 25.0.0.0/8; everything but RFC 5737's 192.0.2.0/24) are not universal by any
+// definition and were read here as a match from anywhere on earth. Three rows below
+// flipped with the predicate, each one kept rather than deleted, because a row that
+// disappears is a property nobody can see was traded away.
+func TestDecide_AStoredRangeTooWideForProofOfPlaceDoesNotMatch(t *testing.T) {
+	t.Parallel()
+
+	src := netip.MustParseAddr("203.0.113.7")
+	for _, tc := range []struct {
+		name  string
+		store []netip.Prefix
+		want  bool
+	}{
+		{"a real range still matches", []netip.Prefix{netip.MustParsePrefix("203.0.113.0/24")}, true},
+		{"a stored 0.0.0.0/0 is no proof", []netip.Prefix{netip.MustParsePrefix("0.0.0.0/0")}, false},
+		{"a stored ::/0 is no proof", []netip.Prefix{netip.MustParsePrefix("::/0")}, false},
+		{
+			// THE RULE IS THE LIST'S, NOT THE ENTRY'S. This list is refused at save
+			// time today (a real range next to a default route is still a refusal),
+			// so the reading side answers the same way rather than letting the /24
+			// stand on its own merits. Fail-closed: the tap falls to GPS or to §5
+			// row 7, and a record is written either way (§4.6).
+			name:  "a real range beside a 0.0.0.0/0 is no proof either — the whole list is the claim",
+			store: []netip.Prefix{netip.MustParsePrefix("203.0.113.0/24"), netip.MustParsePrefix("0.0.0.0/0")},
+			want:  false,
+		},
+		{
+			name:  "a 0.0.0.0/0 beside a range this address is NOT in stays false",
+			store: []netip.Prefix{netip.MustParsePrefix("198.51.100.0/24"), netip.MustParsePrefix("0.0.0.0/0")},
+			want:  false,
+		},
+		{
+			// THE UNION, CLOSED. Two halves of the address space are two ordinary /1
+			// prefixes; only a coverage sum can tell they leave nothing out, and that
+			// sum is netx.TooWideForProofOfPlace — the same call the save path makes.
+			name:  "the UNION spelling is no proof either",
+			store: []netip.Prefix{netip.MustParsePrefix("0.0.0.0/1"), netip.MustParsePrefix("128.0.0.0/1")},
+			want:  false,
+		},
+		{
+			// 🔴 FLIPPED IN THE 5th ROUND, AND THE FLIP IS THE REPAIR. This row used to
+			// read "one half alone is wide and still matches", on the argument that the
+			// rule was a COVERAGE judgement and not a width one. That argument is what
+			// the 5th round retired: half of IPv4 is 2 147 483 648 addresses, 8 million
+			// times the widest range any of 331 499 venues actually stores, and calling
+			// it "the source IP matches the location" in an immutable row is a false
+			// sentence whether or not the other half is left out.
+			name:  "one half of IPv4 alone is no proof either",
+			store: []netip.Prefix{netip.MustParsePrefix("128.0.0.0/1")},
+			want:  false,
+		},
+		{
+			// AND THE POSITIVE CONTROL THAT ROW USED TO CARRY, WITH A WITNESS THAT STILL
+			// HOLDS. A /8 is an ISP's whole allocation — the widest single thing
+			// netx.TooWideForProofOfPlace is willing to call a venue — and a source
+			// inside it must still match, or the guard would be refusing venues rather
+			// than claims.
+			name:  "an ISP-sized /8 the source sits inside still matches",
+			store: []netip.Prefix{netip.MustParsePrefix("203.0.0.0/8")},
+			want:  true,
+		},
+		{
+			// 🔴 THE 4th-ROUND SHAPE. Eight entries that leave out only 10.0.0.0/8 —
+			// RFC 1918, an address no client presents to a public ingress. The sum
+			// said 16 777 216 addresses were excluded; the number of CLIENTS excluded
+			// was zero, and this row is the reading half of that repair.
+			name: "the eight-line paste that leaves out only RFC 1918 is no proof",
+			store: []netip.Prefix{
+				netip.MustParsePrefix("11.0.0.0/8"), netip.MustParsePrefix("8.0.0.0/7"),
+				netip.MustParsePrefix("12.0.0.0/6"), netip.MustParsePrefix("0.0.0.0/5"),
+				netip.MustParsePrefix("16.0.0.0/4"), netip.MustParsePrefix("32.0.0.0/3"),
+				netip.MustParsePrefix("64.0.0.0/2"), netip.MustParsePrefix("128.0.0.0/1"),
+			},
+			want: false,
+		},
+		{
+			// 🔴 FLIPPED, AND FOR THE SAME REASON AS THE HALF ABOVE. The same eight
+			// lines with 64.0.0.0/2 removed still cover 3.2 billion addresses; that the
+			// source happens to sit outside them is luck, not evidence. Under the
+			// coverage question this row asserted "an ordinary (absurdly wide) range",
+			// which is the sentence the width rule exists to stop anyone writing.
+			name: "the same paste minus a block that holds clients is STILL no proof",
+			store: []netip.Prefix{
+				netip.MustParsePrefix("11.0.0.0/8"), netip.MustParsePrefix("8.0.0.0/7"),
+				netip.MustParsePrefix("12.0.0.0/6"), netip.MustParsePrefix("0.0.0.0/5"),
+				netip.MustParsePrefix("16.0.0.0/4"), netip.MustParsePrefix("32.0.0.0/3"),
+				netip.MustParsePrefix("128.0.0.0/1"),
+			},
+			want: false,
+		},
+		{
+			// 🔴 EXPLOIT 2 OF 3, THE ONE THAT SURVIVED THE 4th ROUND. The same eight
+			// lines as above with ONE DIGIT changed: they leave out 25.0.0.0/8 instead
+			// of 10.0.0.0/8, and 25/8 was not one of the thirteen block names the
+			// coverage predicate carried. Measured on this tree before the width rule,
+			// with this list stored and this source: verdict=ok ip_match=true trust=70,
+			// on NFC and on QR.
+			name: "the eight lines that leave out only 25.0.0.0/8 are no proof",
+			store: []netip.Prefix{
+				netip.MustParsePrefix("128.0.0.0/1"), netip.MustParsePrefix("64.0.0.0/2"),
+				netip.MustParsePrefix("32.0.0.0/3"), netip.MustParsePrefix("0.0.0.0/4"),
+				netip.MustParsePrefix("16.0.0.0/5"), netip.MustParsePrefix("28.0.0.0/6"),
+				netip.MustParsePrefix("26.0.0.0/7"), netip.MustParsePrefix("24.0.0.0/8"),
+			},
+			want: false,
+		},
+		{
+			// 🔴 EXPLOIT 3 OF 3, THE ONE THAT ELIMINATES NOBODY AT ALL. Twenty-four
+			// lines leaving out only 192.0.2.0/24 — RFC 5737 TEST-NET-1, never routed,
+			// presented by no client on earth. No "/0" anywhere in it, and the panel's
+			// cap is 32 (handler.maxStaticRanges), so the field holds it with room to
+			// spare.
+			name: "the 24 lines that leave out only TEST-NET-1 are no proof",
+			store: []netip.Prefix{
+				netip.MustParsePrefix("0.0.0.0/1"), netip.MustParsePrefix("128.0.0.0/2"),
+				netip.MustParsePrefix("224.0.0.0/3"), netip.MustParsePrefix("208.0.0.0/4"),
+				netip.MustParsePrefix("200.0.0.0/5"), netip.MustParsePrefix("196.0.0.0/6"),
+				netip.MustParsePrefix("194.0.0.0/7"), netip.MustParsePrefix("193.0.0.0/8"),
+				netip.MustParsePrefix("192.128.0.0/9"), netip.MustParsePrefix("192.64.0.0/10"),
+				netip.MustParsePrefix("192.32.0.0/11"), netip.MustParsePrefix("192.16.0.0/12"),
+				netip.MustParsePrefix("192.8.0.0/13"), netip.MustParsePrefix("192.4.0.0/14"),
+				netip.MustParsePrefix("192.2.0.0/15"), netip.MustParsePrefix("192.1.0.0/16"),
+				netip.MustParsePrefix("192.0.128.0/17"), netip.MustParsePrefix("192.0.64.0/18"),
+				netip.MustParsePrefix("192.0.32.0/19"), netip.MustParsePrefix("192.0.16.0/20"),
+				netip.MustParsePrefix("192.0.8.0/21"), netip.MustParsePrefix("192.0.4.0/22"),
+				netip.MustParsePrefix("192.0.0.0/23"), netip.MustParsePrefix("192.0.3.0/24"),
+			},
+			want: false,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := ipMatches(src, tc.store); got != tc.want {
+				t.Errorf("ipMatches(%v, %v) = %v, want %v", src, tc.store, got, tc.want)
+			}
+		})
+	}
+
+	// AND THE WHOLE DECISION, not just the helper: a venue whose ranges leave no
+	// address out must not reach §5 row 6. With no GPS either, §5 row 7 applies —
+	// the record is still written (§4.6), it just is not called proven. Both
+	// spellings are driven, because the single entry and the union reached
+	// ipMatches by different paths before they were unified.
+	for _, tc := range []struct {
+		name  string
+		store []netip.Prefix
+	}{
+		{"the single-entry spelling", []netip.Prefix{netip.MustParsePrefix("0.0.0.0/0")}},
+		{
+			"the union spelling",
+			[]netip.Prefix{netip.MustParsePrefix("0.0.0.0/1"), netip.MustParsePrefix("128.0.0.0/1")},
+		},
+		{
+			// The 4th-round spelling, on the NFC channel: the audit measured
+			// `NFC -> verdict=ok sid=base:ip-or-gps-ok ip_match=true trust=70` for
+			// this list, and an NFC tap has a valid SUN, so nothing else was going to
+			// stop it.
+			"the eight-line spelling",
+			[]netip.Prefix{
+				netip.MustParsePrefix("11.0.0.0/8"), netip.MustParsePrefix("8.0.0.0/7"),
+				netip.MustParsePrefix("12.0.0.0/6"), netip.MustParsePrefix("0.0.0.0/5"),
+				netip.MustParsePrefix("16.0.0.0/4"), netip.MustParsePrefix("32.0.0.0/3"),
+				netip.MustParsePrefix("64.0.0.0/2"), netip.MustParsePrefix("128.0.0.0/1"),
+			},
+		},
+	} {
+		in := baseInput()
+		in.SourceIP = src
+		in.LocationIPs = tc.store
+		got := Decide(in)
+		if got.IPMatch {
+			t.Errorf("%s: a tap against a venue whose ranges leave no address out was recorded with "+
+				"ip_match=true (verdict %q, trust %d) — that sentence declares a fact with nothing "+
+				"behind it, and §4.3 means the row can never be corrected", tc.name, got.Verdict, got.Trust)
+		}
+		if got.Verdict != VerdictFlag {
+			t.Errorf("%s: verdict = %q via %q, want flag (§5 row 7: no IP proof and no GPS)",
+				tc.name, got.Verdict, got.MatchedSid)
+		}
+	}
+}
+
+// TestDecide_AStoredRangeTooWideForProofDoesNotBuyAPassAroundQRRequiresIP is the finding
+// that made the union worth closing rather than counting, driven end to end.
+//
+// 🔴 WHAT WAS MEASURED WHILE THE UNION STILL READ AS A MATCH (mutation run on this
+// tree, the shipped ipMatches reverted to its per-entry form):
+//
+//	QR + union + no GPS ..... verdict=ok  sid=base:ip-or-gps-ok  ip=true  trust=70
+//	QR + union + GPS match .. verdict=ok  sid=base:ip-or-gps-ok  ip=true  trust=100
+//
+// §5 says the opposite in as many words — "QR channel: no SUN, so an IP match is
+// REQUIRED and GPS alone is not enough -> flag" (translated; §7 keeps Turkish
+// characters out of code) — so the union was not merely manufacturing evidence, it was
+// switching off a named baseline policy. A written limit that quietly opens one more
+// baseline rule than it admits to is worse than no limit, which is why this shipped
+// as a repair rather than as a counted limit.
+//
+// ⚠️ WHICH REVIEW SID WINS DEPENDS ON THE GPS, AND BOTH SHAPES ARE DRIVEN BECAUSE OF
+// IT. base:qr-requires-ip and base:no-evidence-review are BOTH review statements and
+// both match a QR tap with no IP; with no GPS at all the more specific description of
+// that state (§5 row 7, "neither IP nor GPS could place this tap") is what the
+// evaluator returns. So the row that isolates the QR rule is the one WITH a GPS
+// match — which is also §5's own sentence, "GPS alone is not enough".
+//
+// The record is asserted too (§4.6): a flag is a RECORD in the approval queue, not a
+// refusal, so Redirect must stay RedirectNone on both shapes.
+func TestDecide_AStoredRangeTooWideForProofDoesNotBuyAPassAroundQRRequiresIP(t *testing.T) {
+	t.Parallel()
+
+	here := geo.Point{Lat: 35.8989, Lng: 14.5146}
+	union := []netip.Prefix{
+		netip.MustParsePrefix("0.0.0.0/1"),
+		netip.MustParsePrefix("128.0.0.0/1"),
+	}
+	// 🔴 THE 4th-ROUND SHAPE, DRIVEN THROUGH THE SAME DOOR. Eight entries — a quarter
+	// of the panel's 32-line cap (handler.maxStaticRanges) — leaving out only
+	// 10.0.0.0/8, which is RFC 1918 and
+	// therefore nobody. Measured on this tree before the client-space repair, with
+	// this exact list stored and this exact source address:
+	//
+	//	NFC -> verdict=ok sid=base:ip-or-gps-ok ip_match=true trust=70
+	//	QR  -> verdict=ok sid=base:ip-or-gps-ok ip_match=true trust=70
+	//
+	// The QR line is byte for byte the output the 3rd round closed for the "/1 + /1"
+	// union, which is why the shape belongs HERE and not only in netx's table: a
+	// coverage sum that moved universe has to be shown switching base:qr-requires-ip
+	// back on, at the level where the policy actually runs.
+	eightLines := []netip.Prefix{
+		netip.MustParsePrefix("11.0.0.0/8"), netip.MustParsePrefix("8.0.0.0/7"),
+		netip.MustParsePrefix("12.0.0.0/6"), netip.MustParsePrefix("0.0.0.0/5"),
+		netip.MustParsePrefix("16.0.0.0/4"), netip.MustParsePrefix("32.0.0.0/3"),
+		netip.MustParsePrefix("64.0.0.0/2"), netip.MustParsePrefix("128.0.0.0/1"),
+	}
+	// 🔴 THE 5th-ROUND SHAPES, DRIVEN THROUGH THE SAME DOOR, AND THE REASON THIS TEST
+	// IS NOT SATISFIED BY THE TWO ABOVE. eightLinesBut25 is eightLines with a single
+	// digit changed — it omits 25.0.0.0/8 rather than 10.0.0.0/8 — and the round-4
+	// predicate refused the first only because 10/8 was one of THIRTEEN block names it
+	// carried. twentyFourLines is the shape that omits nothing anyone can present:
+	// RFC 5737's TEST-NET-1 is never routed. Measured on this tree before the width
+	// rule, both lists stored, source 203.0.113.7:
+	//
+	//	NFC -> verdict=ok sid=base:ip-or-gps-ok ip_match=true trust=70
+	//	QR  -> verdict=ok sid=base:ip-or-gps-ok ip_match=true trust=70
+	//
+	// A QR code is photographed and never expires and has no counter (§5); this rule
+	// is its only brake. Each shape is driven on BOTH GPS shapes below, so the sid the
+	// tap lands on is asserted rather than assumed.
+	eightLinesBut25 := []netip.Prefix{
+		netip.MustParsePrefix("128.0.0.0/1"), netip.MustParsePrefix("64.0.0.0/2"),
+		netip.MustParsePrefix("32.0.0.0/3"), netip.MustParsePrefix("0.0.0.0/4"),
+		netip.MustParsePrefix("16.0.0.0/5"), netip.MustParsePrefix("28.0.0.0/6"),
+		netip.MustParsePrefix("26.0.0.0/7"), netip.MustParsePrefix("24.0.0.0/8"),
+	}
+	twentyFourLines := []netip.Prefix{
+		netip.MustParsePrefix("0.0.0.0/1"), netip.MustParsePrefix("128.0.0.0/2"),
+		netip.MustParsePrefix("224.0.0.0/3"), netip.MustParsePrefix("208.0.0.0/4"),
+		netip.MustParsePrefix("200.0.0.0/5"), netip.MustParsePrefix("196.0.0.0/6"),
+		netip.MustParsePrefix("194.0.0.0/7"), netip.MustParsePrefix("193.0.0.0/8"),
+		netip.MustParsePrefix("192.128.0.0/9"), netip.MustParsePrefix("192.64.0.0/10"),
+		netip.MustParsePrefix("192.32.0.0/11"), netip.MustParsePrefix("192.16.0.0/12"),
+		netip.MustParsePrefix("192.8.0.0/13"), netip.MustParsePrefix("192.4.0.0/14"),
+		netip.MustParsePrefix("192.2.0.0/15"), netip.MustParsePrefix("192.1.0.0/16"),
+		netip.MustParsePrefix("192.0.128.0/17"), netip.MustParsePrefix("192.0.64.0/18"),
+		netip.MustParsePrefix("192.0.32.0/19"), netip.MustParsePrefix("192.0.16.0/20"),
+		netip.MustParsePrefix("192.0.8.0/21"), netip.MustParsePrefix("192.0.4.0/22"),
+		netip.MustParsePrefix("192.0.0.0/23"), netip.MustParsePrefix("192.0.3.0/24"),
+	}
+	for _, tc := range []struct {
+		name    string
+		store   []netip.Prefix
+		gps     bool
+		wantSid string
+	}{
+		{
+			name:    "QR, a union range and no GPS at all — §5 row 7",
+			store:   union,
+			wantSid: policy.SidNoEvidenceReview,
+		},
+		{
+			name:    "QR, a union range and a GPS match — GPS alone is not enough",
+			store:   union,
+			gps:     true,
+			wantSid: policy.SidQRRequiresIP,
+		},
+		{
+			name:    "QR, the eight-line paste and no GPS at all — §5 row 7",
+			store:   eightLines,
+			wantSid: policy.SidNoEvidenceReview,
+		},
+		{
+			name:    "QR, the eight-line paste and a GPS match — GPS alone is not enough",
+			store:   eightLines,
+			gps:     true,
+			wantSid: policy.SidQRRequiresIP,
+		},
+		{
+			name:    "QR, the eight lines that omit only 25.0.0.0/8 and no GPS — §5 row 7",
+			store:   eightLinesBut25,
+			wantSid: policy.SidNoEvidenceReview,
+		},
+		{
+			name:    "QR, the eight lines that omit only 25.0.0.0/8 and a GPS match",
+			store:   eightLinesBut25,
+			gps:     true,
+			wantSid: policy.SidQRRequiresIP,
+		},
+		{
+			name:    "QR, the 24 lines that omit only TEST-NET-1 and no GPS — §5 row 7",
+			store:   twentyFourLines,
+			wantSid: policy.SidNoEvidenceReview,
+		},
+		{
+			name:    "QR, the 24 lines that omit only TEST-NET-1 and a GPS match",
+			store:   twentyFourLines,
+			gps:     true,
+			wantSid: policy.SidQRRequiresIP,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			in := baseInput()
+			in.Channel = ChannelQR
+			in.SUN = SUNResult{Valid: false} // QR carries no SUN
+			in.SourceIP = netip.MustParseAddr("203.0.113.7")
+			in.LocationIPs = tc.store
+			if tc.gps {
+				in.GPS = &here
+				in.LocationGPS = &here
+			}
+			got := Decide(in)
+
+			if got.IPMatch {
+				t.Errorf("ip_match=true for a QR tap whose venue ranges leave no address out "+
+					"(verdict %q, trust %d)", got.Verdict, got.Trust)
+			}
+			if got.Verdict != VerdictFlag {
+				t.Errorf("verdict = %q via %q, want flag — §5: a QR tap needs an IP match and "+
+					"GPS alone is not enough", got.Verdict, got.MatchedSid)
+			}
+			if got.MatchedSid != tc.wantSid {
+				t.Errorf("matched %q, want %q — the union bought a pass around a baseline rule",
+					got.MatchedSid, tc.wantSid)
+			}
+			if got.Redirect != RedirectNone {
+				t.Errorf("Redirect = %q, want %q: a flag is a RECORD in the approval queue, not a "+
+					"non-recording outcome (§4.6)", got.Redirect, RedirectNone)
+			}
+		})
+	}
+}

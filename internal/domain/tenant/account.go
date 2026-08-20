@@ -122,6 +122,10 @@ var (
 	// business's whole panel, every shift boundary and every unfrozen invoice month
 	// to UTC, and the only trace would be a warning in the operator's log.
 	ErrTimezone = errors.New("tenant: timezone is not a zone this product can load")
+
+	// ErrTimezoneMovesBilling: the zone is a valid one, but adopting it would move
+	// the first month this business can be billed for. See the guard in Save.
+	ErrTimezoneMovesBilling = errors.New("tenant: that timezone would move the first chargeable month")
 )
 
 // VATState is what the product knows about this business's VAT number.
@@ -356,6 +360,53 @@ func (a *Accounts) Save(ctx context.Context, c AccountCommand) (Settings, error)
 			}
 			return fmt.Errorf("read account before save: %w", err)
 		}
+		// 🔴 A ZONE EDIT MAY NOT MOVE THE FIRST MONTH THIS BUSINESS CAN BE BILLED FOR
+		// (backlog T37, closed 2026-08-19). tappa_first_chargeable_month reads
+		// tenants.timezone, and PreviewBillingPeriod / CloseBillingPeriod derive
+		// `free_period` as `month < first_chargeable` -- so for a business that signed
+		// up within about fourteen hours of a local month boundary, retyping the zone
+		// moved its first PAID month a month later. Measured before this guard, as
+		// tappa_app, on created_at = 2026-01-31T23:30Z: UTC gives 2026-04-01 and
+		// Europe/Malta gives 2026-05-01. billing_periods is append-only, so once the
+		// shifted month is frozen the discount is permanent.
+		//
+		// IT IS CHECKED HERE RATHER THAN AT CLOSING TIME because closing is the wrong
+		// end: by then the row is about to be frozen and the only honest options are
+		// "refuse to close" or "bill something the customer will dispute". Here the
+		// answer is a sentence on the form, before anything is written.
+		//
+		// ⚠️ WHAT IT DOES NOT DO, AND THE DIFFERENCE MATTERS. It does not FREEZE the
+		// zone at signup -- that would be a stored signup_timezone column, i.e. a
+		// migration, and this is the application layer. It removes the LEVER: the
+		// first chargeable month is derived from a value that can no longer move it.
+		// A business that genuinely relocates across a date line still can, unless it
+		// is one of the boundary cases; those must ask Tappa, which is an operator
+		// acting deliberately rather than a form field acting silently.
+		//
+		// ⚠️ IT IS DELIBERATELY NOT CONDITIONAL ON "the month is still open". Whether
+		// a shift is harmless depends on which of the months between the old and new
+		// answers are already frozen, and a guard whose safety depends on a second,
+		// time-varying fact is a guard nobody can reason about. Refusing whenever the
+		// answer MOVES over-refuses in a rare, already-closed case, and over-refusing
+		// here costs a support conversation rather than an invoice.
+		if zone != before.Timezone {
+			shift, err := q.FirstChargeableMonthShift(ctx, store.FirstChargeableMonthShiftParams{
+				TenantID: c.TenantID,
+				Timezone: zone,
+			})
+			if err != nil {
+				if errors.Is(err, pgx.ErrNoRows) {
+					return ErrUnknownTenantAccount
+				}
+				return fmt.Errorf("read the first chargeable month: %w", err)
+			}
+			// A NULL on either side means the function could not answer, which is not
+			// the same as "they agree" -- it is refused rather than passed over.
+			if !shift.CurrentMonth.Valid || !shift.ProposedMonth.Valid ||
+				!shift.CurrentMonth.Time.Equal(shift.ProposedMonth.Time) {
+				return ErrTimezoneMovesBilling
+			}
+		}
 		row, err := q.UpdateTenantAccount(ctx, store.UpdateTenantAccountParams{
 			TenantID:     c.TenantID,
 			Name:         name,
@@ -532,7 +583,8 @@ func wrapAccount(op string, err error) error {
 	case errors.Is(err, ErrUnknownTenantAccount),
 		errors.Is(err, ErrAccountName),
 		errors.Is(err, ErrBusinessType),
-		errors.Is(err, ErrTimezone):
+		errors.Is(err, ErrTimezone),
+		errors.Is(err, ErrTimezoneMovesBilling):
 		return err
 	default:
 		return fmt.Errorf("%s: %w", op, err)

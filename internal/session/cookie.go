@@ -21,6 +21,13 @@ const (
 	// __Host-, so it would either break http://localhost development or force the
 	// cookie name to differ between environments — a name that changes per
 	// environment is its own class of bug. Revisit at deployment (M8).
+	//
+	// 🔴 REVISITED AT M8-04 (2026-08-19, backlog T3): STILL NOT ADOPTED, and the
+	// three measurements behind that — including the one that makes the risk
+	// REAL rather than theoretical (the product is served from a subdomain of a
+	// registrable domain it does not own alone) — are written out in
+	// internal/handler/cookies.go, beside the shadowing limit they belong to.
+	// This line is the pointer so the two sides cannot drift apart.
 	CookieName = "tappa_session"
 
 	// cookieMaxAgeSeconds is ~1 year (the card's "uzun Max-Age"). The whole

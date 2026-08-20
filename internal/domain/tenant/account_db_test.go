@@ -514,3 +514,85 @@ func TestAccountDB_TheAppRoleHoldsNoUpdateOnTheVATColumnsOrTheTerms(t *testing.T
 }
 
 func boolPtr(b bool) *bool { return &b }
+
+// TestAccountDB_ATimezoneEditMayNotMoveTheFirstChargeableMonth is backlog T37's
+// positive control, and it asserts BOTH directions on the SAME business.
+//
+// 🔴 WHAT IT GUARDS. tappa_first_chargeable_month reads tenants.timezone, M7-05 made
+// that column editable from the panel, and billing derives `free_period` as
+// `month < first_chargeable` -- so a business that signed up within about fourteen
+// hours of a local month boundary could retype its zone and push its first PAID month
+// a month later. billing_periods is append-only, so once that month freezes the
+// discount is permanent. Measured on this fixture before the guard existed:
+// created_at 2026-01-31T23:30Z gives 2026-04-01 under UTC and 2026-05-01 under
+// Europe/Malta.
+//
+// THE SECOND HALF IS NOT OPTIONAL: a guard that refused every zone edit would pass
+// the first half perfectly and break a legitimate feature (M7-05 exists to let a
+// business fix its zone). The control below moves a business whose signup instant is
+// nowhere near a boundary, and that edit must still be saved.
+func TestAccountDB_ATimezoneEditMayNotMoveTheFirstChargeableMonth(t *testing.T) {
+	f := newAccountFixture(t)
+	ctx := context.Background()
+
+	// created_at is NOT writable by the application role (migration 00016), which is
+	// itself a red line -- so the boundary case is planted with the owner role, the
+	// way internal/db/rls_test.go's ownerDB and signup's ownerData do it.
+	raw := os.Getenv("DATABASE_MIGRATE_URL")
+	if raw == "" {
+		t.Skip("DATABASE_MIGRATE_URL not set; the boundary case needs the owner role to plant created_at")
+	}
+	owner, err := db.New(ctx, &config.Config{DatabaseURL: raw})
+	if err != nil {
+		t.Fatalf("db.New(owner): %v", err)
+	}
+	t.Cleanup(owner.Close)
+
+	// 23:30 UTC on the last day of a month: Europe/Malta is already in the NEXT
+	// month, UTC is not. That single hour is the whole attack surface.
+	boundary := uuid.New()
+	f.seed(t, boundary)
+	if err := owner.WithTenant(ctx, boundary, func(ctx context.Context, tx pgx.Tx) error {
+		_, e := tx.Exec(ctx, `UPDATE tenants SET created_at = $2 WHERE id = $1`,
+			boundary, time.Date(2026, 1, 31, 23, 30, 0, 0, time.UTC))
+		return e
+	}); err != nil {
+		t.Fatalf("planting the boundary signup instant: %v", err)
+	}
+
+	if _, err := f.accounts.Save(ctx, AccountCommand{
+		TenantID: boundary, ActorID: f.actorID,
+		Name: "Kebab Factory Ltd", BusinessType: "restaurant", Timezone: "UTC",
+	}); !errors.Is(err, ErrTimezoneMovesBilling) {
+		t.Fatalf("a zone edit that moves the first chargeable month answered %v, want "+
+			"ErrTimezoneMovesBilling", err)
+	}
+
+	// AND IT WAS NOT WRITTEN ANYWAY. The refusal happens inside the transaction, so a
+	// guard that returned the error after the UPDATE would pass the line above and
+	// still have changed the row.
+	var stored string
+	if err := f.data.WithTenant(ctx, boundary, func(ctx context.Context, tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SELECT timezone FROM tenants WHERE id = $1`, boundary).Scan(&stored)
+	}); err != nil {
+		t.Fatalf("reading the zone back: %v", err)
+	}
+	if stored != "Europe/Malta" {
+		t.Errorf("the refused zone was stored anyway (timezone = %q); billing_periods is "+
+			"append-only, so a month frozen after this would carry it forever", stored)
+	}
+
+	// THE CONTROL. The default fixture signed up at now(), which is not within a
+	// month boundary's reach of any zone, so an ordinary correction must still work.
+	out, err := f.accounts.Save(ctx, AccountCommand{
+		TenantID: f.tenantID, ActorID: f.actorID,
+		Name: "Kebab Factory Ltd", BusinessType: "restaurant", Timezone: "Europe/Rome",
+	})
+	if err != nil {
+		t.Fatalf("an ordinary timezone correction was refused: %v -- the guard is too wide "+
+			"and M7-05's whole screen stops working", err)
+	}
+	if out.Timezone != "Europe/Rome" {
+		t.Errorf("the accepted zone stored %q, want Europe/Rome", out.Timezone)
+	}
+}

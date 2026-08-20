@@ -130,6 +130,39 @@ func TestBaseline_GPSOnlyCarriesNote(t *testing.T) {
 	}
 }
 
+// TestBaseline_GPSConflictReasonDescribesTheTestAndNotAnAttackStory is backlog
+// T23's guard.
+//
+// 🔴 THE REASON IS NOT DOCUMENTATION, IT IS PRODUCT COPY. internal/handler's
+// policies screen prints a statement's Reason to the customer verbatim, so a reason
+// describing a condition the statement does not test is the product explaining a
+// mechanism it does not have. The shipped one said "IP matched but GPS places the
+// device away from the location"; the condition is one key, and tap.gpsFacts derives
+// it from DISTANCE ALONE — a far GPS fires this statement whether or not any IP
+// matched.
+//
+// It asserts the SHAPE rather than the exact sentence: the reason must speak about
+// GPS (what it tests) and must not claim an IP match (what it does not).
+func TestBaseline_GPSConflictReasonDescribesTheTestAndNotAnAttackStory(t *testing.T) {
+	set := Set{Guardrails: DefaultGuardrails(), Baseline: baselineDocFor(t, SidGPSConflictReview)}
+	d := Evaluate(set, benignTap(map[ContextKey]any{CtxTapGPSConflict: true}))
+	if d.MatchedSid != SidGPSConflictReview {
+		t.Fatalf("matched %q, want %q", d.MatchedSid, SidGPSConflictReview)
+	}
+	reason := strings.ToLower(d.Reason)
+	if !strings.Contains(reason, "gps") {
+		t.Errorf("the reason does not mention GPS, which is the only thing it tests: %q", d.Reason)
+	}
+	// The condition carries no address key at all, so any sentence about the IP is a
+	// claim about a narrowing that is not there.
+	for _, claim := range []string{"ip matched", "ip match", "the ip"} {
+		if strings.Contains(reason, claim) {
+			t.Errorf("the reason claims %q, but the statement's condition is %v — the customer "+
+				"reads this string on the policies screen: %q", claim, CtxTapGPSConflict, d.Reason)
+		}
+	}
+}
+
 // --- (2) full baseline composes correctly -----------------------------------
 
 // TestBaseline_Composition proves several statements pooled together resolve to

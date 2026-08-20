@@ -155,8 +155,72 @@ simulate-day:
 	go test -race -count=1 -v -run TestSeedDB_ADayAtKFStJulians ./internal/handler
 
 # ------------------------------------------------------------------- kalite --
+# 🔴 DB ORTAMI YOKSA BU HEDEFLER KOSMAZ — ESKIDEN SESSIZCE YARIM KOSUYORDU
+# (M8-04 F1..F8 turu, 2026-08-19). Olculdu, `-v` ile: env YOKKEN yuzlerce test
+# SKIP ediyor ve `go test` yine exit 0 donuyor; `.env` ile SKIP SIFIR.
+#
+# ⚠️ BURAYA RUN/SKIP SAYILARI YAZILMIYOR, VE BU BIR DERSIN UYGULAMASIDIR. Onceki
+# hali dort tane kesin sayi tasiyordu ve DORDU DE AYNI AGACTA bayatladi: sayilar
+# olculdukten SONRA test eklendi ve yeniden olculmedi (yazili 3 659/507 · 4 027/0,
+# ayni agacta gercek 3 671/510 · 4 043/0). Hicbir kapi o sayilari korumuyordu.
+# Kural: bir sayi ya MEKANIK OLARAK BAGLANIR (ratchet/test), ya TARIHIYLE yazilir,
+# ya SILINIR. Burada karari tasiyan olgu "sifirdan cok"tur, basamaklari degil, ve
+# guncel degeri iki komut uretiyor:
+#   env yok  ->  go test -count=1 -v ./... | grep -cE '^[[:space:]]*--- SKIP'
+#   .env ile ->  make test  (bu kapi zaten env'siz kosmayi reddediyor)
+#
+# ⚠️ `^--- SKIP` YAZMAK ALT TESTLERI SAYMIYOR, VE FARK KUCUK DEGIL. `go test -v`
+# alt test satirlarini GIRINTILI yazar; capasiz desen yalnizca ust duzey
+# fonksiyonlari yakalar. Olculdu (2026-08-20, ayni agac): `^--- SKIP` -> 469,
+# girintiyi de kabul eden desen -> 516, yani 47 atlanmis alt test gorunmuyordu.
+# Ustteki desen duzeltildi; sayilar burada TARIHLIDIR, hedef degil.
+#
+# Asagida ADI gecen dort test, sayinin yerine gecen BAGLI olgudur: bir ad
+# aranabilir, bir sayi aranamaz.
+#
+# Atlananlar susturulabilir testler DEGIL: §4.4'un tek calisma-ani kaniti
+# (TestAdvanceCounter_ConcurrentRaceExactlyOneWinner), capraz-tenant tap reddi
+# (TestCheckinDB_ForeignTenantTapIsRefusedAndWritesNOTHING), append-only kaniti
+# (TestAuditLog_IsAppendOnlyForTheApp) ve panel giris atlatmasi
+# (TestAuthenticate_RefusesTheCrossTenantBypass) bunlarin arasindaydi. Yani
+# `make test` §4'un yarisini kosmadan exit 0 veriyordu.
+#
+# --- NEDEN "SKIP -> FAIL" DEGIL DE BU (olculerek secildi) --------------------
+# Iki secenek vardi. (a) her DB testinin `t.Skip`ini `t.Fatal` yapmak: 32 yardimci
+# fonksiyona dokunur, ve daha kotusu, Postgres'i GERCEKTEN olmayan bir ortamda
+# (taze klon, Docker'siz makine) "uygulanamaz"i "basarisiz"a cevirir -- cikis yolu
+# olmayan bir kirmizi. (b) REPONUN KENDI KAPISININ kor kalmasini engellemek:
+# CLAUDE.md §2 `make test`i "hicbir sey atlanmaz" diye tanimlar ve `make check` onu
+# kosar; kor olan dongu tam olarak buydu. (b) tek yerde durur, mesaji cozumu
+# soyler, ve ciplak `go test ./...` yolunu ACIK BIRAKIR -- o yol SKIP satirlarini
+# yazdirir, yani gelistiriciyi yanlis yonlendirmez.
+#
+# ⚠️ CI'DA BU KAPI ZATEN KAPALIYDI ve oyle kaliyor: ci.yml ikisini de env olarak
+# veriyor, `make up/migrate/seed` kosuyor. Degisen yalnizca YEREL dongu.
+#
+# `-include .env` + `export` (dosyanin basi) bu degiskenleri buraya tasiyan yoldur;
+# yani `.env` varsa kapi hicbir sey yapmaz.
+require-db-env:
+	@test -n "$$DATABASE_URL" && test -n "$$DATABASE_MIGRATE_URL" || { \
+	  echo ""; \
+	  echo "  DATABASE_URL ve/veya DATABASE_MIGRATE_URL yok — bu hedef KOSMAYACAK."; \
+	  echo "  Sebep: veritabani testleri SESSIZCE atlanir ve go test yine exit 0 verir."; \
+	  echo "  Kac tanesi:  go test -count=1 -v ./... | grep -cE '^[[:space:]]*--- SKIP'"; \
+	  echo "  Atlananlar ARASINDA su dort test var — TARIFI degil ADI yaziliyor,"; \
+	  echo "  cunku bir tarif aranamaz ve bir ad aranabilir:"; \
+	  echo "    TestAdvanceCounter_ConcurrentRaceExactlyOneWinner        (4.4 yaris)"; \
+	  echo "    TestCheckinDB_ForeignTenantTapIsRefusedAndWritesNOTHING  (4.5 capraz-tenant)"; \
+	  echo "    TestAuditLog_IsAppendOnlyForTheApp                       (4.3 append-only)"; \
+	  echo "    TestAuthenticate_RefusesTheCrossTenantBypass             (4.5 panel girisi)"; \
+	  echo "  Yani yesil bir cikti, denetlenmemis bir kirmizi cizgidir."; \
+	  echo ""; \
+	  echo "  Cozum:  make up && make migrate && make seed   (ve .env.example -> .env)"; \
+	  echo "  Yalniz DB'siz testler icin:  go test -race ./...  (SKIP satirlarini OKU)"; \
+	  echo ""; \
+	  exit 1; }
+
 ## test: tum testler + yaris dedektoru (CI bunu kosar — hicbir sey atlanmaz)
-test:
+test: require-db-env
 	go test -race -count=1 ./...
 
 ## test-short: gelistirici ic dongusu — SIMULE EDILEN GUN + BCRYPT ORNEKLEMI atlanir
@@ -268,11 +332,11 @@ test:
 # "atlanan bir test gecmis sayilmaz" yazili bir derstir (M5-06 md.4: CI `make
 # css` kosmadigi icin iki test DAIMA skip ediyordu). -short yalnizca ELDE, ic
 # donguda kullanilir; zincirin gercekten kosuldugu yer `make test`tir.
-test-short:
+test-short: require-db-env
 	go test -race -count=1 -short ./...
 
 ## cover: kapsam raporu
-cover:
+cover: require-db-env
 	go test -race -coverprofile=coverage.out ./...
 	go tool cover -func=coverage.out | tail -1
 
@@ -357,4 +421,4 @@ audit:
 
 .PHONY: help tools gen templ sqlc css up down dev build migrate migrate-down \
         migrate-status migrate-new seed db-reset simulate-day test test-short \
-        cover lint fmt check audit
+        cover lint fmt check audit require-db-env

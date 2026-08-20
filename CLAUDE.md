@@ -63,6 +63,9 @@ internal/sun/         NTAG 424 DNA SDM doğrulama: AES-CMAC + ctr. Kriptografi
 internal/session/     oturum token üretimi/doğrulama (hash saklanır, token değil)
 internal/store/       sqlc ÜRETİMİ — elle dokunma
 internal/geo/         haversine, GPS yarıçap kontrolü
+internal/netx/        adres aralığı aritmetiği (bir liste yer kanıtı olamayacak
+                      kadar geniş mi). Saf: `net/netip` + `math/big`, başka hiçbir
+                      şey — bu yüzden hem tenant hem tap ondan çağırabilir.
 db/migrations/        goose SQL. Uygulanmış migration DEĞİŞTİRİLMEZ, yenisi yazılır.
 db/queries/           sqlc kaynak SQL
 web/templates/        .templ dosyaları
@@ -109,6 +112,28 @@ değildir.
 
 **Dört kanıt:** SUN = *şu an fiziksel dokunuş* · oturum çerezi = *kim* ·
 statik IP = *nerede* · GPS = *yedek nerede*.
+
+Kanıt **anlamıyla** tanımlıdır, biçimiyle değil: bir lokasyonun kayıtlı adres
+aralıkları **bir mekânın ağının olabileceğinden geniş** ise o liste *"nerede"*
+hakkında hiçbir şey söylemez, bu yüzden **IP eşleşmesi sayılmaz**. Ama satır 6
+bir **AYRIK**tır (*"IP eşleşti **veya** GPS < 150 m"*), dolayısıyla düşen yalnız
+**IP yarısıdır** ve sonucu kanal ile GPS belirler — dört şeklin dördü de ölçüldü
+(2026-08-20; liste `{0.0.0.0/1, 128.0.0.0/1}`, kaynak `203.0.113.7`):
+**NFC + GPS eşleşmesi** satır 6'yı GPS yarısıyla **sağlar** → `ok`, `trust=50`,
+not *"verified via GPS only"* (`base:gps-only-allow`) · **NFC + GPS yok** →
+satır 7 → `flag`, `trust=20` (`base:no-evidence-review`) · **QR + GPS eşleşmesi**
+→ GPS tek başına yetmez (§5'in kendi QR cümlesi) → `flag`
+(`base:qr-requires-ip`) · **QR + GPS yok** → `flag` (`base:no-evidence-review`).
+**Dördünde de kayıt yazılır** (§4.6). Ölçü **büyüklüktür**,
+kapsama değil: aile başına en çok **bir ISP tahsisinin iki katı** — IPv4'te bir `/7`
+(2^25 adres), IPv6'da bir `/31` (2^97). *"Dışarıda bir şey bırakıyor mu"* diye sormak
+üç turda üç kez aşıldı, çünkü bir uzayı **isim sayarak** tanımlıyordu: `10.0.0.0/8`
+tümleyeni kapatıldıktan sonra `25.0.0.0/8` tümleyeni (tek hane farkla) ve
+`192.0.2.0/24` tümleyeni (24 satır, dışarıda kalan blok hiç yönlendirilmez) hâlâ
+kabul ediliyordu. Kural **yazma** tarafında (mekân kaydedilemez) ve **okuma**
+tarafında (böyle bir liste kanıt sayılmaz) aynı fonksiyonla uygulanır; okuma tarafı
+gerekli çünkü `transactions` **değişmezdir** (§4.3) — yazma kapısı geçmişte
+kaydedilmiş bir aralığı düzeltemez. (`internal/netx`, backlog T40.)
 
 **Karar sırası — ilk eşleşen kazanır:**
 

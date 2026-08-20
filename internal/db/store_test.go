@@ -237,6 +237,80 @@ func TestGetLocationByIP_CidrMatch(t *testing.T) {
 	}
 }
 
+// TestGetLocationByIP_MatchesEverybodyWhenARangeDoes is a COUNTED LIMIT PINNED AS A
+// TEST, not a guarantee. It asserts the hazard so that a future caller meets it here
+// rather than in production (backlog T40, M8-04 phase B2).
+//
+// 🔴 WHAT IT SAYS. `@src::inet <<= ANY(static_ips)` is pure containment, so a stored
+// "0.0.0.0/0" makes this query answer "yes, that address belongs to this venue" for
+// EVERY address on earth — and the union spelling ("0.0.0.0/1" + "128.0.0.0/1") does
+// the same across two entries. netx.TooWideForProofOfPlace refuses such a list at save
+// time and tap.ipMatches refuses to read one as evidence, but neither of those runs
+// inside SQL.
+//
+// 🔴 WHY NO PREDICATE WAS ADDED HERE, MEASURED RATHER THAN PREFERRED. The cheap SQL
+// fix (`AND NOT EXISTS (SELECT 1 FROM unnest(static_ips) q WHERE masklen(q) = 0)`)
+// closes the single-entry spelling and NOT the union — nor the two wider spellings
+// the 5th round measured, which carry no "/0" at all (everything but 25.0.0.0/8 in
+// eight entries; everything but RFC 5737's 192.0.2.0/24 in twenty-four). SQL would
+// therefore carry a rule strictly weaker than the Go one, and this card exists partly
+// because a second, weaker copy of exactly this predicate was what let the union
+// through (tap.ipMatches had its own per-entry rule). Summing widths in SQL would be a
+// second full implementation of netx.TooWideForProofOfPlace; two predicates drift.
+//
+// 🔴 AND THE REACH IS MEASURED: this query has NO production caller. Measured on
+// this tree, the only caller of store.GetLocationByIP is this file; the tap path
+// uses GetLocationForTap, which is keyed by the RESOLVED TAG and hands static_ips to
+// Go, where the one predicate lives. So this is a sleeping surface, and the test
+// below is the sign hung on it: wiring this query into a decision without the Go
+// check would put "the source IP matches the location" into an IMMUTABLE row (§4.3)
+// for a tap from anywhere.
+func TestGetLocationByIP_MatchesEverybodyWhenARangeDoes(t *testing.T) {
+	d := appDB(t)
+	tenantID := uuid.New()
+	universalID := uuid.New()
+
+	err := d.WithTenant(context.Background(), tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		if _, e := tx.Exec(ctx,
+			`INSERT INTO tenants (id, name, vat_number, business_type, structure)
+			 VALUES ($1, 'store-test-universal', $2, 'bar', 'single')`,
+			tenantID, "VAT-"+tenantID.String()); e != nil {
+			return e
+		}
+		// ONE of the spellings netx.TooWideForProofOfPlace refuses — the plainest,
+		// "0.0.0.0/0" — stored directly, which is what a row written before that
+		// refusal existed looks like. The across-entry spellings it also refuses
+		// ("0.0.0.0/1"+"128.0.0.0/1", and the 8- and 24-line complements) are driven
+		// where the predicate itself is under test, in internal/netx and
+		// internal/domain/tap; what THIS test pins is that the SQL alone does not care.
+		if _, e := tx.Exec(ctx,
+			`INSERT INTO locations (id, tenant_id, name, static_ips)
+			 VALUES ($1, $2, 'universal', '{0.0.0.0/0}')`,
+			universalID, tenantID); e != nil {
+			return e
+		}
+		q := store.New(tx)
+		for _, addr := range []string{"203.0.113.10", "10.0.0.1", "198.51.100.200"} {
+			loc, e := q.GetLocationByIP(ctx, store.GetLocationByIPParams{
+				TenantID: tenantID, Src: mustAddr(t, addr),
+			})
+			if e != nil {
+				t.Fatalf("GetLocationByIP(%s): %v — the limit this test pins has CHANGED; if the "+
+					"query now excludes universal ranges, say so here and check whether it also "+
+					"excludes the union spelling, which netx.TooWideForProofOfPlace does", addr, e)
+			}
+			if loc.ID != universalID {
+				t.Fatalf("GetLocationByIP(%s) returned %s, want the universal venue %s",
+					addr, loc.ID, universalID)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("WithTenant: %v", err)
+	}
+}
+
 // TestAdvanceTagCounter_SuccessReplayAndConcurrency proves the replay guard
 // (CLAUDE.md section 4.4) through the generated store:
 //   - a strictly greater ctr advances and returns the correct gap;

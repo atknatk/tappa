@@ -1518,6 +1518,26 @@ type Querier interface {
 	// apply" -- a question that would otherwise get the wrong answer for every tenant
 	// provisioned by this path.
 	EnsurePolicyAttachment(ctx context.Context, arg EnsurePolicyAttachmentParams) error
+	// Would changing this tenant's time zone MOVE the first month it can be billed for?
+	//
+	// 🔴 IT EXISTS BECAUSE THE ZONE IS AN EDITABLE FIELD AND THE FREE WINDOW IS DERIVED
+	// FROM IT (backlog T37). tappa_first_chargeable_month reads tenants.timezone, M7-05
+	// made that column editable from the panel, and PreviewBillingPeriod /
+	// CloseBillingPeriod derive `free_period` as `month < first_chargeable` -- so a
+	// business that signed up near a local month boundary could push its first paid
+	// month a month later by changing its zone, and billing_periods is APPEND-ONLY, so
+	// the effect is permanent. Measured (tappa_app, created_at 2026-01-31T23:30Z):
+	// UTC -> 2026-04-01, Europe/Malta -> 2026-05-01.
+	//
+	// IT DECIDES NOTHING. It returns the two dates and internal/domain/tenant compares
+	// them; the refusal is a domain rule with a sentence attached, not a constraint,
+	// because the honest answer to the manager is "this would change your billing" and
+	// a CHECK cannot say that.
+	//
+	// BOTH VALUES COME FROM THE SAME ROW AND THE SAME FUNCTION, which is the point: a
+	// Go-side reimplementation of the month arithmetic would be a second answer that can
+	// disagree with the one the invoice is built from.
+	FirstChargeableMonthShift(ctx context.Context, arg FirstChargeableMonthShiftParams) (FirstChargeableMonthShiftRow, error)
 	// The in-context identity read: who am I, what may I do, am I still enabled.
 	// This is where `role` comes from -- authorization is decided with a tenant
 	// context established, never from the pre-authentication resolver (00011).
@@ -1877,6 +1897,22 @@ type Querier interface {
 	// falls inside any configured range (a single IP is a /32, an ISP block a /29,
 	// etc.). An unconfigured location has static_ips = '{}', so <<= ANY('{}') is
 	// cleanly FALSE and it never matches (proof falls back to GPS).
+	//
+	// 🔴 COUNTED LIMIT, AND IT IS PINNED BY A TEST RATHER THAN ONLY WRITTEN (backlog
+	// T40): `<<=` is pure containment, so a stored "0.0.0.0/0" makes this query answer
+	// "yes, that address belongs to this venue" for EVERY address on earth, the union
+	// spelling ("0.0.0.0/1" + "128.0.0.0/1") does the same across two entries, and 24
+	// entries can spell it while omitting only RFC 5737's never-routed 192.0.2.0/24.
+	// The one predicate that refuses such a list lives in Go (netx.TooWideForProofOfPlace):
+	// the write side refuses to STORE it and tap.ipMatches refuses to READ it as
+	// evidence. Neither runs inside SQL, and a partial SQL copy was deliberately NOT
+	// added -- `masklen(q) = 0` would close the single-entry spelling and none of the
+	// others, i.e. a second, WEAKER rule, which is precisely the drift that let the
+	// union through in the first place. Measured: this query has no production caller (the tap
+	// path uses GetLocationForTap, which is keyed by the resolved tag and hands
+	// static_ips to Go). internal/db/store_test.go's
+	// TestGetLocationByIP_MatchesEverybodyWhenARangeDoes is the sign hung on this
+	// sleeping surface.
 	GetLocationByIP(ctx context.Context, arg GetLocationByIPParams) (Location, error)
 	// PROOF OF PLACE FOR ONE LOCATION -- the TAPPED one (M5-05). This is the third
 	// proof-of-place query and the three do not overlap: GetLocationByIP asks "which

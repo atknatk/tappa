@@ -13,9 +13,12 @@
 //     tapped location's IPs/GPS, the person's last taps, the shift — is supplied by
 //     the caller, already resolved on the SERVER (never a client-declared body
 //     flag; see Channel and Employee.ActivatedAt below).
-//   - It IMPORTS internal/geo and internal/policy (both pure — no DB/HTTP/clock)
-//     for geo.Point and the policy Set/Context/Layer it delegates the decision to
-//     (M4-03), but it does NOT import internal/sun, internal/store or internal/db:
+//   - It IMPORTS internal/geo, internal/netx and internal/policy (all three pure —
+//     no DB/HTTP/clock) for geo.Point, netx.TooWideForProofOfPlace (the address-range
+//     predicate the storage side applies at save time and decide.go's ipMatches
+//     applies to rows stored before it existed) and the policy Set/Context/Layer it
+//     delegates the decision to (M4-03), but it does NOT import
+//     internal/domain/tenant, internal/sun, internal/store or internal/db:
 //     pulling in sun would drag database/sql + pgx + store into this package's
 //     dependency graph and destroy the purity proof. That is exactly why SUNResult
 //     is tap's OWN domain type rather than sun.Result (see SUNResult) — the caller

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/atknatk/tappa/internal/geo"
+	"github.com/atknatk/tappa/internal/netx"
 	"github.com/atknatk/tappa/internal/policy"
 	"github.com/google/uuid"
 )
@@ -691,8 +692,64 @@ func isPracticeTap(in Input) bool {
 // static IP ranges — the "where" evidence (§5). An invalid/zero src (no client IP
 // resolved) never matches. src is Unmap()'d so a 4-in-6 address compares against
 // v4 prefixes as expected (mirrors policy's toAddr).
+//
+// 🔴 A STORED RANGE TOO WIDE TO TELL THIS VENUE APART IS NOT EVIDENCE, AND THIS IS
+// THE READING HALF OF THAT REFUSAL (backlog T40, M8-04). netx.TooWideForProofOfPlace
+// stops such a list being SAVED, but a row written before that guard existed keeps
+// producing `ip_match=t, trust=70` and the note "network proof of place" for every
+// tap on earth — and transactions are IMMUTABLE (§4.3), so those rows can never be
+// corrected. A write guard alone therefore leaves the past open forever, which is
+// why the check is also here, where the evidence is READ.
+//
+// 🔴 IT IS THE SAME FUNCTION, NOT A SECOND PREDICATE, and that is the repair this
+// round shipped. The earlier version carried its own rule — skip an entry whose
+// prefix has no bits — which closed the single "0.0.0.0/0" spelling and left the
+// UNION spelling ("0.0.0.0/1" plus "128.0.0.0/1") reading as a match. Measured on
+// the development database while that hole was open: a QR tap from a venue holding
+// only those two entries, with no GPS at all, was recorded `verdict=ok
+// ip_match=TRUE trust=70` — so the union did not merely manufacture proof, it
+// bought a pass around base:qr-requires-ip, which §5 states as "QR: IP is required,
+// GPS alone is not enough → flag". Two predicates drift; there is now one, and the
+// rule it states is exact: WHAT THE WRITE SIDE WOULD REFUSE TODAY IS NOT EVIDENCE.
+//
+// 🔴 AND THE SHARED PREDICATE IS A WIDTH RULE NOW, WHICH CHANGED WHAT THIS FUNCTION
+// READS. Two further spellings survived a coverage-based version of it — the eight
+// prefixes covering everything but 25.0.0.0/8, and the twenty-four covering
+// everything but RFC 5737's 192.0.2.0/24 — and both were read here as a match for a
+// source anywhere on earth, on QR as well as NFC. The limit and its derivation are on
+// netx.TooWideForProofOfPlace; what matters at this call site is that a list wide
+// enough to match essentially everybody now answers "no proof" whether or not it
+// happens to leave some block out.
+//
+// ⚠️ THE RULE IS THE WHOLE LIST'S, NOT THE ENTRY'S, AND ONE ROW CHANGED VERDICT
+// BECAUSE OF IT. A venue holding "203.0.113.0/24" beside a "0.0.0.0/0" used to
+// yield a match for a source inside the /24 (the /0 was skipped, the /24 was left
+// to stand on its own merits). That list is REFUSED at save time today, so the
+// reading side now answers "no proof" for it as well. The change is fail-closed —
+// such a tap falls to GPS, or to §5 row 7 (flag), and a record is written either
+// way (§4.6) — and it is the price of having one rule instead of two.
+//
+// 🔴 THIS PACKAGE STILL IMPORTS NO STORAGE. internal/netx is prefix arithmetic and
+// nothing else (net/netip + math/big, no DB, no HTTP, no clock), which is why the
+// shared predicate lives there rather than in internal/domain/tenant: §3 requires
+// this package to know nothing about storage, and it still does not.
+//
+// Measured on the development database (2026-08-20 — a DATED observation that grows
+// with every audit run, not a bound): 48 venues of 332 855 carry a list this guard
+// refuses, all of them residue from this card's own mutation and audit runs. 11
+// transactions were recorded at those venues and 4 of them carry ip_match = TRUE.
+// Those four are precisely what this half of the guard is for: they say "network
+// proof of place", they were written while the hole was open, and §4.3 means no
+// correction is possible. The full figures and the query live on
+// netx.TooWideForProofOfPlace.
 func ipMatches(src netip.Addr, prefixes []netip.Prefix) bool {
 	if !src.IsValid() {
+		return false
+	}
+	// "No proof" is the truthful answer when the stored list cannot tell this venue
+	// apart from anywhere else, and it is not a rejection: the tap falls back to
+	// GPS or lands on §5 row 7 (flag), and a record is written either way (§4.6).
+	if _, tooWide := netx.TooWideForProofOfPlace(prefixes); tooWide {
 		return false
 	}
 	addr := src.Unmap()

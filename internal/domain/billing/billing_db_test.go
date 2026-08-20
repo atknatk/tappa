@@ -875,6 +875,30 @@ func TestBillingDB_TheFrozenRowCannotBeChangedByTheOWNEREither(t *testing.T) {
 // 'founding', 0.00)` succeeded and produced a tenant that is free forever. A
 // self-service signup is the natural shape that reaches an INSERT here, and it does
 // not exist yet -- which is why the list is closed now rather than after it does.
+//
+// 🔴 THIS TEST IS ALSO WHERE BACKLOG T27 IS ACCEPTED, AND THE ACCEPTANCE IS
+// MEASURED RATHER THAN ASSUMED (M8-04, 2026-08-19). T27's worry: billing_periods
+// derives free_period from the tenant's plan AT CLOSING TIME, and nothing forces
+// months to be closed in order or on time -- so a tenant moved from `founding` to
+// `standard` while it still has UNCLOSED free months would have those months close
+// as CHARGEABLE. The backlog recorded the mitigation as "plan is closed to
+// tappa_app"; that sentence was VERIFIED here rather than trusted:
+//
+//	information_schema.table_privileges  tappa_app on tenants  -> DELETE, SELECT
+//	column_privileges, tenants.plan                            -> SELECT only
+//	columns tappa_app may UPDATE  business_type, name, structure, timezone, vat_number
+//	columns tappa_app may INSERT  business_type, id, name, structure, timezone,
+//	                              vat_checked_at, vat_verified, vat_number
+//
+// So no request, no panel screen and no signup can move a plan; it takes the owner
+// role, which is an OPERATOR with the migration credentials. The residue is
+// therefore a BILLING PROCEDURE question ("close the free months before you change
+// somebody's plan"), not an application surface -- and it touches no section 4 red
+// line: transactions stay immutable and billing_periods stays append-only, so the
+// worst case is an invoice an operator produced and an operator can see, with the
+// audit trail naming who closed each month. The mechanical guard against the
+// measurement going stale is the table below: widening the grant makes "UPDATE the
+// plan" stop failing, and this test go red.
 func TestBillingDB_TheAppCannotWriteTheTerms(t *testing.T) {
 	f := newFixture(t, *at("2020-01-01T00:00:00Z"), maltaZone, "founding")
 	ctx := context.Background()

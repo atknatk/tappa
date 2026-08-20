@@ -14,6 +14,7 @@ import (
 
 	"github.com/atknatk/tappa/internal/domain/tenant"
 	"github.com/atknatk/tappa/internal/httpx"
+	"github.com/atknatk/tappa/internal/netx"
 	"github.com/atknatk/tappa/web/templates/components"
 	"github.com/atknatk/tappa/web/templates/pages"
 )
@@ -690,6 +691,24 @@ func parseRanges(raw string) ([]netip.Prefix, string) {
 		}
 		seen[p] = true
 		out = append(out, p)
+	}
+	// 🔴 A LIST TOO WIDE TO BE PROOF OF PLACE IS REFUSED, AND IT IS CHECKED ON THE
+	// WHOLE LIST BECAUSE ONE ENTRY IS NOT THE ONLY WAY TO SPELL IT (backlog T40).
+	// The limit, its derivation and the three measured exploit spellings live on
+	// netx.TooWideForProofOfPlace; here there is only the sentence a manager reads.
+	// The message names WHY rather than which syntax is banned: the field's whole
+	// purpose is to distinguish this venue from everywhere else.
+	if p, tooWide := netx.TooWideForProofOfPlace(out); tooWide {
+		if p.IsValid() {
+			return nil, quoteless(p.String()) + " covers far more of the internet than one venue's " +
+				"network can, so it cannot tell this venue apart from anywhere else. Every tap " +
+				"would be recorded as proven by the network even when nobody is here. Give the " +
+				"ranges your venue actually uses."
+		}
+		return nil, "Together, those ranges cover far more of the internet than one venue's network " +
+			"can, so they cannot tell this venue apart from anywhere else. Every tap would be " +
+			"recorded as proven by the network even when nobody is here. Give the ranges your " +
+			"venue actually uses."
 	}
 	return out, ""
 }

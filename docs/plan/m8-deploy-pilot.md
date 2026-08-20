@@ -2967,6 +2967,212 @@ tablosu çıkmış durumda (satış slaytı da olur).
 > hâlâ *"Encoded by Tappa"* etiketini `location_id`'ye bakarak basıyor, anahtara
 > değil. Şema artık şekli zorluyor, **ekranın cümlesi** B2'nin işi.
 
+> **Kart düzeltmesi (2026-08-19, M8-04 FAZ B2 2. turu sırasında).**
+>
+> 🔴 **FAZ A'NIN BULGU LİSTESİ (F1–F8) HİÇBİR YERE YAZILMAMIŞ, VE BU ÖLÇÜLDÜ.**
+> Kartın kabul kriteri *"ORTA/DÜŞÜK olanlar ya kapandı ya gerekçesiyle kabul edildi
+> **ve yazıldı**"* diyor; o kriter **F7 için sağlanamıyor, çünkü F7'nin ne olduğu
+> repoda yazmıyor**.
+>
+> 🔴 **VE BU BLOĞUN İLK HÂLİ ARAMASINI YANLIŞ RAPORLADI. ÜÇ TUR BOYUNCA.**
+> 1. hâli *"`F2`–`F7` hiçbir dosyada geçmiyor"* diyordu; 2. ve 3. hâlleri onu bir
+> **sayı tablosuyla** düzeltmeye çalıştı ve **her ikisi de yanlış çıktı** (3. tur
+> `F1`=15 `F4`=4 `F5`=4 yazıyordu; yeniden ölçüldüğünde **F1=14, F4=5, F5=5** —
+> fazlalar o turda hiç dokunulmamış Go dosyalarındaydı).
+>
+> 🔴 **BU YÜZDEN SAYI TABLOSU SİLİNDİ, DÜZELTİLMEDİ (4. tur).** Üç kez yanlış çıkan
+> bir sayı, sayının kendisinin **taşınmaması** gerektiğini kanıtlar: hiçbir kapı onu
+> korumuyor, ağaç her commit'te değişiyor, ve okur **yanlış** bir sayıya güveniyor.
+> `D19`'un kuralı — *bir sayı ya bağlanır, ya tarihlenir, ya silinir* — burada
+> **silinir** tarafına düşüyor. Kalan üç şey:
+>
+> **(a) SONUÇ, ki karar bunun üzerine kuruluydu:** ağaçtaki `F<n>` etiketlerinin
+> **hiçbiri M8-04 FAZ A'ya bağlanmıyor**. Hepsi başka görevlerin bulgu numaraları
+> (`docs/plan/m6-dashboard.md`'nin F2/F7'leri, `docs/backlog.md` T32'nin
+> *"M7-03 A güvenlik denetimi (F2)"* atfı, `internal/handler/employeeadd_test.go`'nun
+> kendi F7'si). Bu görevle **ilişkilendirilebilen tek iki kayıt** şunlardır ve ikisi
+> de tek satırdır: `Makefile`'ın *"M8-04 F1..F8 turu"* satırı (aralığın tamamına atıf,
+> tek bir bulguya değil) ve `scripts/redline-check.sh`'in R4 bloğundaki `F8` atfı.
+> ⚠️ 3. turun bu cümlesi de yanlıştı: `redline-check.sh` **`F1`'i hiç içermiyor**,
+> yani *"bağlayabilen tek iki yer redline-check.sh + Makefile"* ifadesinin
+> `redline-check.sh` yarısı `F1` için **boştaydı**.
+>
+> **(b) ONU ÜRETEN KOMUT**, sayının yerine:
+> ```sh
+> for t in F1 F2 F3 F4 F5 F6 F7 F8; do printf '%s %s\n' "$t" "$(rg -l -w "$t" . -g '!.git' | wc -l)"; done
+> rg -n -w 'F1|F8' Makefile scripts/redline-check.sh
+> ```
+>
+> **(c) ⚠️ VE BU KARTIN KENDİSİ `F1`'İ İKİ KEZ, İKİ FARKLI ŞEY OLARAK TANIMLIYOR.**
+> Yukarıda (M8-02 FAZ F bloğu) *"F1 — RUNBOOK'UN 1. ADIMI ÜRETİMDE HİÇBİR ŞEY
+> YAPMIYORDU"*; aşağıda *"F1 = veritabanı rolü açılış kapısı"*. İkisi **ayrı fazların
+> ayrı numaralandırmaları**dır ve kart bunu hiçbir yerde söylemiyordu. Bir `F<n>`
+> okunurken **hangi fazın listesinden geldiği** yazılmadıkça belirsizdir; bu, sayı
+> tablosunun neden yanlış olduğunun da yarısıdır.
+>
+> ⚠️ **İddianın özü hiç değişmedi, ölçümü üç kez değişti** — ve fark önemli:
+> *"hiç geçmiyor"* bir sonraki okuru **aramaktan alıkoyar**, oysa aranacak şey vardır
+> ve **yanlış göreve aittir**. Liste orkestratörün oturumunda kaldı ve bağlam
+> sıkıştığında kayboldu — `agent-brief.md`'nin *"kalıcı olmak zorunda"* dersinin bu
+> görevdeki tekrarı.
+>
+> **Bugün doğrulanabilen ne varsa, etiketiyle:** F1 = veritabanı rolü açılış kapısı
+> (§4.5; `internal/db`'nin `New`'i üretimde ayrıcalıklı rolü reddediyor) ·
+> F8 = R4 deseninin tek yöne körlüğü (`ctr > tag.LastCtr` sessizdi). FAZ B2'nin
+> sevk ettiği geri kalan değişiklikler **F numarası değil backlog numarası**
+> taşıyor: **T3** (`__Host-` çerez öneki — yeniden tartıldı, **alınmadı**, üç ölçüm
+> `internal/handler/cookies.go`'da) · **T23** (`base:gps-conflict-review`'in
+> müşteriye basılan gerekçesi yanlıştı) · **T37** (saat dilimi düzenlemesi ilk
+> ücretli ayı kaydırıyordu) · **T40** (`/0` aralığı sahte IP kanıtı üretiyordu).
+> Ayrıca `make test`/`test-short`/`cover` artık DB env'i olmadan **koşmuyor**
+> (öncesinde DB testlerinin **tamamı** sessizce atlanıyor ve `go test` yine exit 0
+> veriyordu). ⚠️ **Buraya bir SAYI yazılmıyor, bilinçli olarak:** bu turda yazılan
+> her SKIP sayısı **aynı ağaçta** bayatladı, çünkü sayıyı ölçtükten sonra test
+> eklendi ve yeniden ölçülmedi. Bir sayıyı hiçbir kapı korumuyorsa ya **bağlanır**
+> ya **tarihiyle** yazılır ya **silinir**; kararı taşıyan olgu *"sıfırdan çok"*tur,
+> basamakları değil. Güncel değeri üreten komut: `.env`'siz `go test -count=1 -v
+> ./... | grep -cE '^[[:space:]]*--- SKIP'`. 🔴 **Çapa girintiyi kabul etmek
+> ZORUNDA, yoksa alt testler sayılmıyor:** `go test -v` alt test satırlarını
+> girintili yazar, `^--- SKIP` yalnız üst düzey fonksiyonları yakalar. Ölçüldü
+> (2026-08-20, aynı ağaç): `^--- SKIP` → 469, girintiyi kabul eden desen → 516;
+> 47 atlanmış alt test görünmüyordu. Desen `Makefile`'ın yazdığıyla birebir
+> aynıdır (satır 169 ve kapının kullanıcıya bastığı satır 208) — iki yerde iki
+> farklı desen, bayat bir sayıdan beterdir.
+>
+> ⚠️ **F7'nin metni bu ajandan çıkarılamaz** ve uydurulmayacak: yukarıdaki eşleme
+> bir **kanıt**, bir **tahmin listesi değil**. F7'nin ne olduğunu ve akıbetini
+> yazacak olan, FAZ A'nın raporunu elinde tutan **orkestratördür**; bu blok o
+> boşluğun yerini ve büyüklüğünü kaydediyor, doldurmuyor.
+>
+> 🔴 **T40'IN ÜÇ SORUSUNDAN İKİSİ HÂLÂ AÇIK — ÖLÇÜLDÜ, KARARA BAĞLANMADI**
+> (karar orkestratörün; bu blok yalnızca iki okumayı ölçüyor).
+>
+> **(ii) `/0`'dan dar ama hâlâ geniş bir aralık: reddedilsin mi, yoksa uyarılıp
+> `trust`'a mı yansısın?** Ölçüm (gelişim DB'si, 2026-08-19 21:40 UTC — mekânlar
+> taşıdıkları **en geniş** aralığa göre): `/0` → **3** · `/1` → **1** · `/24` →
+> **199 548** · `/29` → **1** · `/32` → **9**. İlk dördü bu kartın kendi mutasyon
+> kalıntısı; onları çıkarınca `/24`'ten geniş bir aralık taşıyan **gerçek mekân
+> yok**, yani *"/16'dan geniş reddedilsin"* bugün **sıfır** yanlış pozitif verirdi.
+> ⚠️ Ama 199 548 satır **aynı tohumlanmış `/24`**, yani bu veri gerçek bir kurulumun
+> ne sakladığı hakkında **zayıf kanıt**. **`trust`'a yansıtmanın maliyeti ise
+> zayıf değil, yapısal:** `CLAUDE.md` §5 güven puanını *"20 (taban) + 50 (IP
+> eşleşti) + 30 (GPS eşleşti)"* diye **normatif** olarak sabitliyor ve
+> `trustScore` iki boolean'ın saf fonksiyonu. Dereceli bir IP ağırlığı §5'i
+> **değiştirmek** demektir — bir kod değişikliği değil, bir **§5 tadili + ADR**.
+>
+> **(iii) `ip_match` notu aralık genişliğini taşımalı mı?** Ölçüm: `Decision.Note`
+> eşleşen politika ifadesinin `reason`'ından **birebir** geliyor
+> (`internal/domain/tap/decide.go`), ve o metin tenant başına `policy_versions`'ta
+> **donmuş** (append-only; 48 763 tenant version 1'i tutuyor). Yani **belgeyi**
+> değiştirmek M7-03'ün akışını ister. **Ucuz yol var ve zaten mevcut:** M4-04'ün
+> `appendNote` mekanizması notun sonuna hesaplanmış bir ek yazıyor
+> (`stale open check-in` böyle basılıyor) — genişlik eki ~5 satır + test, migration
+> yok, politika belgesi değişmiyor. Bedeli: değişmez bir satıra bir sayı daha
+> girer (§4.7 açısından sorun değil, önek uzunluğu sır değil).
+
+> **Kart düzeltmesi (2026-08-20, M8-04 FAZ B2 4. turu sırasında).**
+>
+> 🔴 **BU TURUN İKİ BLOKLAYANI DA "KAPI SANILAN AMA KAPI OLMAYAN" SINIFINDANDI.**
+>
+> **(1) `NO FORCE ROW LEVEL SECURITY`'nin hiçbir kapısı yoktu, ama script kapı
+> gösteriyordu.** Güvenlik denetimi mutasyonu sevk edilmiş şemaya uyguladı: sahibin
+> bağlantısı **yabancı** bir `app.tenant_id` altında **404 335 satır / 80 961 tenant**
+> okudu ve `internal/db` suiti **tamamen yeşil** kaldı (8.802 s). Sebep yapısal:
+> izolasyon suiti `tappa_app` ile koşar, `tappa_app` **hiçbir tablonun sahibi
+> değildir** (ADR 0002 md. 1 bunu şart koşar) ve `FORCE`'un tek işlevi politikaları
+> tablonun **sahibine** de uygulamaktır. Üstelik `relforcerowsecurity` iddiası yalnız
+> **5** tabloda vardı; **17** tenant kapsamlı tablonun **11'inde** — `transactions`
+> dahil — hiç yoktu. Kapatıldı: `internal/db/rlsforce_test.go`, listeyi
+> `db/migrations`'tan **türetir** (ad listesi yok, taban 17), her tablo için
+> `relrowsecurity` **ve** `relforcerowsecurity` okur. Pozitif kontrol iki yönlü ve
+> ölçüldü — `ALTER TABLE password_resets NO FORCE …` ve
+> `ALTER TABLE employee_invites DISABLE …` sevk edilmiş şemaya uygulanıp geri alındı;
+> ikisinde de kapı **kırmızıya döndü ve tabloyu adıyla söyledi**.
+>
+> **(2) "Tam kapsama" yüklemi yanlış uzayda soruluyordu.** Panele sekiz CIDR
+> yapıştırıldı (`11.0.0.0/8 · 8.0.0.0/7 · 12.0.0.0/6 · 0.0.0.0/5 · 16.0.0.0/4 ·
+> 32.0.0.0/3 · 64.0.0.0/2 · 128.0.0.0/1`; sınır 32, yani **dörtte biri**), yazma
+> tarafı **kabul etti** ve `203.0.113.7`'den gelen tap **NFC ve QR'da** `verdict=ok ·
+> ip_match=true · trust=70` verdi — QR satırı 3. turun kapattığı çıktının birebir
+> aynısı, yani `base:qr-requires-ip` yine kapalı. Dışarıda kalan tek blok
+> `10.0.0.0/8`'di: liste **hiç kimseyi** elemiyordu. Yüklem **istemci uzayına**
+> taşındı (`netx.CoversEveryClientAddress`; ad da değişti, çünkü eski ad bu girdi
+> için artık yanlış olurdu). **Yanlış pozitif ölçümü: 323 914 mekânın 19 farklı
+> listesi, eskiden reddedilen 30 · bugün reddedilen 30 · yeni 0.** Sayılmış bedeli
+> ADR 0005'te (public uzay ≠ tamamen özel kurulum).
+>
+> **Ayrıca bu turda:** `scripts/redline-check.sh`'e **tek bir normalizasyon adımı**
+> (noktalama etrafını boşluklandırma) — dokuz sözlüksel kaçış **birden** kapandı ve
+> desen sayısı **artmadı**; sınıf→kapı haritasının **her satırı** birer mutasyonla
+> ölçüldü (RLS DISABLE · DROP POLICY · trigger sökme · GRANT ALL · rol üyeliği ·
+> `OWNER TO` → hepsi kırmızıya döndü, hepsi geri alındı); `R5b`'nin ne olduğu
+> dürüstçe yazıldı (**uyarı sistemi**, kapı değil); `viewsecurity_test.go` kendi
+> sınırını yazdı (`SECURITY DEFINER` + `RETURNS TABLE(...)` üzerinden view **katalog
+> testinde de görünmüyor** — doğrudan 0 satır, view'den 408 188 satır / 81 777
+> tenant); ve W4 muafiyetinin kalanı **dördüncü kez daraltılmak yerine sayıldı**
+> (markdown kod işareti ile Go ham dize sınırlayıcısı **aynı karakterdir**; ayırt
+> edebilecek tek şey bir ayrıştırıcıdır).
+
+> **Kart düzeltmesi (2026-08-20, M8-04 FAZ B2 5. turu sırasında).**
+>
+> 🔴 **AYNI KUSUR SINIFININ ÜÇÜNCÜ TEKRARI: BİR UZAYI İSİM SAYARAK TANIMLAMAK.**
+> 4. turun *"istemci uzayı"* onarımı yüklemi **13 adlandırılmış bloğa** bağlamıştı;
+> listede olmayan her artık blok bir kaçış üretiyordu. İki yeni yazım ölçüldü,
+> ikisi de **aynı boyda, aynı biçimde**:
+>
+> | yazım | 4. tur yüklemi | kapsanan adres |
+> |---|---|---|
+> | `10.0.0.0/8` tümleyeni (8 satır) | reddediyor | 4 278 190 080 |
+> | `25.0.0.0/8` tümleyeni (8 satır, **tek hane farkla**) | **kabul ediyor** | 4 278 190 080 |
+> | `192.0.2.0/24` tümleyeni (24 satır) | **kabul ediyor** | 4 294 967 040 |
+>
+> Sonuncusu **hiç kimseyi elemiyor**: `192.0.2.0/24` RFC 5737 TEST-NET-1'dir, hiç
+> yönlendirilmez. Üçü de `verdict=ok · ip_match=true · trust=70` üretiyordu,
+> **QR dahil** — yani `base:qr-requires-ip` üçüncü kez devre dışıydı.
+>
+> **Karar: ad listesi silindi, yüklem BÜYÜKLÜĞE çevrildi**
+> (`netx.TooWideForProofOfPlace` — üçüncü ad, ve ilk kez davranışı anlatıyor). Bir
+> liste, aile başına **bir ISP tahsisinin iki katından** fazlasını kapsıyorsa yer
+> kanıtı değildir: IPv4'te bir `/7` (2^25; birim bir `/8`), IPv6'da bir `/31`
+> (2^97; birim bir `/32` = RIR'ın LIR'a verdiği asgari tahsis — `/8` v6'ya prefix
+> uzunluğuyla da oranla da taşınmaz, o yüzden **anlamından** yeniden türetildi).
+> İkiye katlama ölçümden geliyor: tamamen özel bir kurulum (`10/8` + `192.168/16`)
+> çıplak bir `/8`'i **65 536 adresle** aşıyor.
+>
+> **Yanlış pozitif ölçümü, tüm gerçek mekânlara karşı:** 332 855 mekân, 214 115'i
+> aralıklı, **19 farklı liste**. En geniş **gerçek** liste 264 adres
+> (`{81.240.16.8/29, 192.168.1.0/24}`, 44 mekân) — limit onun **127 100 katı**.
+> Reddedilen **4 liste / 48 mekân**, 48'inin **48'i** bu kartın kendi kalıntısı
+> (adları söylüyor: *universal* 33, *St Julians* 11, *Everywhere* 4);
+> **gerçek mekân reddi 0**. ⚠️ Sayı her koşuda büyüyor (aynı tur içinde
+> 331 499 → 332 855), **küme** büyümüyor.
+> Eşik iki uçtan **teste bağlandı** (`TestProofWidthLimitsSitBetweenTheMeasuredExtremes`):
+> meşru tavanın altına inerse de, sömürü tabanının üstüne çıkarsa da kırmızı.
+>
+> **(2) `ADD COLUMN tenant_id` yönünü hiçbir kapı görmüyordu.** `rlsforce_test.go`
+> listeyi yalnız `CREATE TABLE` gövdesinden türetiyordu; ölçüldü:
+> `CREATE TABLE zz_late_scoped (id uuid); ALTER TABLE … ADD COLUMN tenant_id …` →
+> türetme 17'de kaldı, tablo hiçbir listede yok, dosya **yeşil**. Kapatıldı: kapının
+> listesi artık **canlı katalogdan** geliyor (`pg_attribute`'ta `tenant_id` taşıyan
+> tablolar), migration türetmesi **boşluk-karşıtı çapraz kontrol** olarak duruyor ve
+> ikisi ayrışırsa test **yönü adıyla** kırmızıya dönüyor. Yeni pozitif kontrol:
+> `TestRLS_TheGateSeesATableScopedAfterItWasCreated` (BEGIN … ROLLBACK içinde).
+>
+> **(3) `BaselineVersion`'ın ne işaretlediği** `baseline.go`'da gerçeğe eşitlendi:
+> damga aynı tarihle artık iki farklı `Reason` metnini işaretliyor, hiçbir kapı
+> bunu görmüyor (`TestBaseline_VersionStamp` yalnız damganın **tutarlılığını**
+> sınıyor), ve **bilerek yükseltilmedi** — yükseltme bir *duyurudur*, M7-03'ün
+> kabul akışı yok. Geçmiş kayıtlar `policy_versions.document` sayesinde kendi
+> metinleriyle açıklanıyor (§4.3/§4.6 ihlali yok).
+>
+> **(4) Ucuz kapanışlar.** `Makefile`'ın SKIP komutu **alt testleri saymıyordu**
+> (`^--- SKIP` → 469, girintiyi kabul eden desen → **516**; 47 atlanmış alt test
+> görünmüyordu); harf çevirisi tamamlandı (`calisma-anı` → `calisma-ani`);
+> `rlsforce_test.go`'nun başlığı artık iki yönü de (`ADD`/`DROP COLUMN`) sayıyor.
+> ⚠️ `billing_periods`'ta `employee_count=999` taşıyan **1 kalıntı satır** var
+> (tenant `bad47dbe-…`, `iso-fixture`, sentetik) — **silinmedi**, satır sayısı
+> azaltılmaz; tarihli bir gözlem olarak yazıldı.
+
 **Kabul kriterleri.**
 - agent `tappa-security-auditor` tam repo üzerinde koştu; R1–R8 için kanıtlı rapor.
 - `make audit` temiz: `govulncheck` + `scripts/redline-check.sh`.

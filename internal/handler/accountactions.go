@@ -180,6 +180,20 @@ func (a *AdminAuth) accountSave(w http.ResponseWriter, r *http.Request) {
 		a.renderAccountFormAgain(w, r, id, form, "timezone",
 			"That is not a timezone this product can load. It needs an IANA name, such as Europe/Malta.")
 		return
+	case errors.Is(err, tenant.ErrTimezoneMovesBilling):
+		// backlog T37. The zone is valid; adopting it would move the first month this
+		// business can be billed for, and billing_periods is append-only, so the
+		// change would be permanent. The sentence says what it would do rather than
+		// what is forbidden, and it names the way out — an operator can still make
+		// the change deliberately.
+		a.log.Warn("panel account save refused: the timezone would move the first chargeable month",
+			"tenant_id", id.Admin.TenantID)
+		a.renderAccountFormAgain(w, r, id, form, "timezone",
+			"That timezone would move the first month you can be billed for, so we cannot "+
+				"change it from this screen. Your business signed up close to a month boundary, "+
+				"which is why the zone decides which month is your first paid one. Ask Tappa and "+
+				"we will change it with you.")
+		return
 	case errors.Is(err, tenant.ErrUnknownTenantAccount):
 		// A SIGNED SESSION WHOSE OWN TENANT IS NOT VISIBLE IS OUR PROBLEM, NOT THE
 		// OWNER'S. Under RLS this is the same answer for "does not exist" and "belongs

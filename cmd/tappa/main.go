@@ -130,6 +130,52 @@ func run() error {
 	}
 	defer data.Close()
 
+	// 🔴 WHICH ROLE DID WE ACTUALLY CONNECT AS? Until M8-04 nothing asked, and the
+	// product would serve happily on a DSN that voids tenant isolation entirely.
+	//
+	// THE REFUSAL IS NOT HERE, AND ITS ABSENCE FROM THIS FILE IS THE FIX. db.New
+	// measures the role and returns an error instead of a pool when that role could
+	// reach past row level security in production, so `data` above cannot exist on
+	// such a connection and nothing in run() can forget to check. The first attempt
+	// put the gate on these lines and guarded it with an AST scan of this function;
+	// reducing the call to `_ = rlsRoleRefusal(…)` left the gate dead and the tests
+	// green. See internal/db.New for the measurement and for why no opt-in escape
+	// hatch ships with it.
+	//
+	// What remains here is the DEVELOPMENT warning, which is deliberately the half
+	// that is safe to forget: on a developer's machine everything legitimately runs
+	// as the owner, and the cost of losing this line is a missing log entry rather
+	// than a tenant boundary.
+	//
+	// ⚠️ COUNTED LIMIT, MEASURED RATHER THAN ASSUMED (M8-04 phase B2, 3rd round):
+	// NOTHING TESTS THESE LINES. The wiring test that used to parse this function's
+	// AST was deleted this round — rightly, because scanning for identifiers left the
+	// gate itself dead and stayed green — and the last thing looking at this file went
+	// with it. Mutation run on this tree: deleting this whole `if` block and running
+	// the full suite with both DSNs present gave ZERO failures. So the warning is
+	// unpinned, and saying so is the point.
+	//
+	// (The deleted test is described rather than named: a citation to a test that no
+	// longer exists is itself a finding here, and cmd/tappa's own citation ratchet
+	// fails on one — which is how this very sentence was caught being written.)
+	//
+	// It was left that way rather than pinned, and the reason is a cost measurement
+	// rather than a preference. A real test would have to boot run() — config,
+	// listener, graceful shutdown — to observe one log line; an extracted-and-unit-
+	// tested helper would prove the DECISION and still not prove this file CALLS it,
+	// which is precisely the gap the deleted AST test used to hide. What matters is
+	// pinned elsewhere and pinned behaviourally: internal/db's
+	// TestNewRefusesAPrivilegedRoleInProduction drives the real constructor against a
+	// real server, so the REFUSAL cannot be forgotten. This line is the developer
+	// courtesy, and its failure mode is silence on one machine.
+	if role := data.RoleFacts(); role.Privileged() {
+		slog.Warn("database role can reach past row level security; this would be a startup failure in production",
+			"role", role.User, "rolsuper", role.Super, "rolbypassrls", role.BypassRLS,
+			"owns_or_can_become_owner_of_an_rls_table", role.OwnsScopedTable,
+			"member_of_a_superuser_or_bypassrls_role", role.InheritsPrivilege,
+			"why", db.RoleRiskWhy)
+	}
+
 	sessions, err := session.New(data, cfg)
 	if err != nil {
 		return err

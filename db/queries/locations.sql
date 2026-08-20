@@ -21,6 +21,22 @@
 -- falls inside any configured range (a single IP is a /32, an ISP block a /29,
 -- etc.). An unconfigured location has static_ips = '{}', so <<= ANY('{}') is
 -- cleanly FALSE and it never matches (proof falls back to GPS).
+--
+-- 🔴 COUNTED LIMIT, AND IT IS PINNED BY A TEST RATHER THAN ONLY WRITTEN (backlog
+-- T40): `<<=` is pure containment, so a stored "0.0.0.0/0" makes this query answer
+-- "yes, that address belongs to this venue" for EVERY address on earth, the union
+-- spelling ("0.0.0.0/1" + "128.0.0.0/1") does the same across two entries, and 24
+-- entries can spell it while omitting only RFC 5737's never-routed 192.0.2.0/24.
+-- The one predicate that refuses such a list lives in Go (netx.TooWideForProofOfPlace):
+-- the write side refuses to STORE it and tap.ipMatches refuses to READ it as
+-- evidence. Neither runs inside SQL, and a partial SQL copy was deliberately NOT
+-- added -- `masklen(q) = 0` would close the single-entry spelling and none of the
+-- others, i.e. a second, WEAKER rule, which is precisely the drift that let the
+-- union through in the first place. Measured: this query has no production caller (the tap
+-- path uses GetLocationForTap, which is keyed by the resolved tag and hands
+-- static_ips to Go). internal/db/store_test.go's
+-- TestGetLocationByIP_MatchesEverybodyWhenARangeDoes is the sign hung on this
+-- sleeping surface.
 SELECT id, tenant_id, name, static_ips, gps_lat, gps_lng, shift_start, shift_end,
        overnight, created_at, wifi_ssid
 FROM locations

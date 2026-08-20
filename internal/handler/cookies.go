@@ -111,6 +111,35 @@ import (
 // (cookie.go says so from its side). Closing it properly is a deployment-time
 // decision about which hosts exist under this domain — M8 — and is out of scope
 // here. Stated so nobody reads the paragraphs above as covering it.
+//
+// 🔴 REVISITED AT M8-04 (2026-08-19, backlog T3) AND STILL NOT ADOPTED — BUT THE
+// RECORD ABOVE WAS TOO KIND AND IS CORRECTED HERE. Three things were measured.
+//
+//  1. THE PRECONDITION IS SATISFIED BY THE ACTUAL DEPLOYMENT, NOT HYPOTHETICALLY.
+//     The product is served from a SUBDOMAIN of a registrable domain it does not
+//     own alone (deploy/k8s/05-config.yaml, 40-ingress.yaml). Any other host under
+//     that registrable domain can set a Domain-scoped cookie with any of this
+//     product's ten cookie names, and net/http's r.Cookie returns the FIRST match
+//     with no way to tell which. So "a page on a subdomain" is not a thought
+//     experiment here; it is the shape of the deployment.
+//  2. __Host- IS NOT A UNIFORM OPTION, and that is a schema fact rather than a
+//     preference: the prefix REQUIRES Path=/, and internal/adminauth deliberately
+//     scopes the panel cookie to /admin — that narrower path is the structural half
+//     of "an admin cookie cannot reach the tap surface" and is pinned by a test
+//     (internal/handler/admincookiepath_test.go). Adopting __Host- would either
+//     undo that decision or apply the prefix to some cookies and not others.
+//  3. THE FAILURE MODE OF DOING IT WRONG IS PRODUCTION-ONLY. Browsers require
+//     Secure for __Host-, so the prefix has to be conditional on TAPPA_ENV — which
+//     means a single missed read site breaks sign-in ONLY in production, where no
+//     test and no `make dev` can see it.
+//
+// WHAT THIS MEANS FOR THE RISK, honestly: SameSite=Lax, HttpOnly and Secure-in-prod
+// are in place and a planted SESSION value is not a session (it must resolve against
+// the database), but neither of those stops session FIXATION — an attacker planting
+// a cookie for a session they own. The narrowing that would actually close it is a
+// deployment decision (serve from a registrable domain of the product's own, or from
+// a host with no siblings), and it is a decision for the operator rather than a
+// change to make inside a security-fix round.
 
 const (
 	// activationCookieName is separate from the session cookie so that clearing

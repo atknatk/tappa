@@ -143,6 +143,49 @@ func (q *Queries) CloseBillingPeriod(ctx context.Context, arg CloseBillingPeriod
 	return i, err
 }
 
+const firstChargeableMonthShift = `-- name: FirstChargeableMonthShift :one
+SELECT tappa_first_chargeable_month(t.plan, t.created_at, t.timezone)::date       AS current_month,
+       tappa_first_chargeable_month(t.plan, t.created_at, $1::text)::date  AS proposed_month
+FROM tenants t
+WHERE t.id = $2
+`
+
+type FirstChargeableMonthShiftParams struct {
+	Timezone string
+	TenantID uuid.UUID
+}
+
+type FirstChargeableMonthShiftRow struct {
+	CurrentMonth  pgtype.Date
+	ProposedMonth pgtype.Date
+}
+
+// Would changing this tenant's time zone MOVE the first month it can be billed for?
+//
+// 🔴 IT EXISTS BECAUSE THE ZONE IS AN EDITABLE FIELD AND THE FREE WINDOW IS DERIVED
+// FROM IT (backlog T37). tappa_first_chargeable_month reads tenants.timezone, M7-05
+// made that column editable from the panel, and PreviewBillingPeriod /
+// CloseBillingPeriod derive `free_period` as `month < first_chargeable` -- so a
+// business that signed up near a local month boundary could push its first paid
+// month a month later by changing its zone, and billing_periods is APPEND-ONLY, so
+// the effect is permanent. Measured (tappa_app, created_at 2026-01-31T23:30Z):
+// UTC -> 2026-04-01, Europe/Malta -> 2026-05-01.
+//
+// IT DECIDES NOTHING. It returns the two dates and internal/domain/tenant compares
+// them; the refusal is a domain rule with a sentence attached, not a constraint,
+// because the honest answer to the manager is "this would change your billing" and
+// a CHECK cannot say that.
+//
+// BOTH VALUES COME FROM THE SAME ROW AND THE SAME FUNCTION, which is the point: a
+// Go-side reimplementation of the month arithmetic would be a second answer that can
+// disagree with the one the invoice is built from.
+func (q *Queries) FirstChargeableMonthShift(ctx context.Context, arg FirstChargeableMonthShiftParams) (FirstChargeableMonthShiftRow, error) {
+	row := q.db.QueryRow(ctx, firstChargeableMonthShift, arg.Timezone, arg.TenantID)
+	var i FirstChargeableMonthShiftRow
+	err := row.Scan(&i.CurrentMonth, &i.ProposedMonth)
+	return i, err
+}
+
 const getBillingPeriod = `-- name: GetBillingPeriod :one
 SELECT b.id, b.tenant_id, t.name AS tenant_name, b.period_month, b.period_from,
        b.period_to, b.timezone, b.plan, b.free_period, b.employee_count,

@@ -19,7 +19,48 @@ fail=0
 # temiz dondu, sifir yanlis pozitif. DIKKAT: asagidaki `_test.go` muafiyetleri
 # (R3/R5, uretim-kodu kurallari) korunur; test/fixtures/*.go `_test.go` DEGILDIR,
 # yani gercekten taranir — istenen budur.
-SRC=(cmd internal db web/templates web/static/js scripts test)
+#
+# `deploy` ve `.github` M8-04'te EKLENDI (guvenlik denetimi olctu, 2026-08-19).
+# ONCESINDE HICBIR R KURALI ORALARA BAKMIYORDU ve bu ucu birden ispatlandi: sonda
+# dosyalarina `cmac` / `aes_key` / `webauthn` / `watchPosition` konuldu, tarama UC
+# YOLDA DA `exit 0` verdi. Bu iki dizin urun manifestlerini, operator script'lerini
+# ve SIR SABLONLARINI (deploy/examples/secret.example.yaml) tasiyor — yani §4.7'nin
+# konusu tam olarak orada duruyor. M8-02 kartinin C4 maddesi bunu "acik bulgu" diye
+# birakmisti.
+SRC=(cmd internal db web/templates web/static/js scripts test deploy .github)
+
+# SRC_CODE = URUN KAYNAGI, dagitim yapilandirmasi HARIC. Tek bir kural bunu okur:
+# "uygulama migration rolu ile baglaniyor". Sebep olculdu — SRC'ye deploy/.github
+# eklenince o kural 15 isabet verdi ve ONBESI DE mesru: migration Job'unun kendisi
+# (30-migrate-job.yaml), CI'nin goose adimi (ci.yml), sir SABLONLARININ tanimlamak
+# ZORUNDA oldugu anahtar (secret.example.yaml, externalsecret.example.yaml), ve
+# degiskenin uygulama pod'una BILEREK verilmedigini anlatan yorumlar (20-app.yaml).
+#
+# 🔴 VE BU BIR GEVSETME DEGIL, DEGISTIRME: o sinifin mekanik agi artik bir GREP
+# DEGIL, ACILIS SONDASI. Iki parca, ve IKISININ ADI AYRI (4. turda duzeltildi —
+# onceki hali her ikisini `roleRefusal`a yaziyordu):
+#   `internal/db/pool.go`, `func readRole` ...... OLCEN taraf. `roleFactsQuery`i
+#       kosar ve DORT olguyu okur: `rolsuper` · `rolbypassrls` · rolun bir RLS'li
+#       tablonun SAHIBI olup olamayacagi (sahip FORCE'u geri alabilir) · ve
+#       SUPERUSER/BYPASSRLS bir rolun UYESI olup olmadigi (bir SET ROLE uzagi).
+#   `internal/db/pool.go`, `func roleRefusal` ... KARAR veren taraf. Yalnizca
+#       reddeder; hicbir sey okumaz. Kapinin kendisi `New`'in icindedir, yani bir
+#       *DB elde etmenin baska yolu yoktur.
+# Bu ayrim asagidaki SINIF -> KAPI tablosunda da ayni sekilde yazilidir; ikisi
+# birbirinden sapmamalidir.
+#
+# ⚠️ BU ATIF BIR KEZ ZATEN BAYATLADI VE 3. TURDA DUZELTILDI. Onceki hali
+# "cmd/tappa/main.go rlsRoleRefusal" diyordu; o tanimlayici AYNI TURDA silindi
+# (kapi main.go'nun run()'indan constructor'a tasindi, cunku AST tarayan test
+# `_ = rlsRoleRefusal(...)` mutasyonunu yesil birakiyordu). Ve "iki olgu" da
+# yanlisti — yukaridaki dortlu onun duzeltilmis halidir. Bir manifest'in owner
+# DSN'ini uygulama pod'una vermesi, bir env degiskeninin YAZILISINDAN degil GERCEK
+# ROLDEN yakalanir — grep'in hic ulasamadigi olcu.
+#
+# Toplu bir `--glob !deploy` SECILMEDI: diger sekiz kural (R1/R2/R3/R4/R6/R7/R7b/R7c)
+# deploy ve .github uzerinde TAM olarak kosar, cunku §4.7'nin konusu (sir sablonlari)
+# tam olarak orada.
+SRC_CODE=(cmd internal db web/templates web/static/js scripts test)
 GEN_EXCLUDE=(
   --glob '!*_templ.go'          # templ ciktisi
   --glob '!internal/store/*.go' # sqlc ciktisi
@@ -80,9 +121,17 @@ fi
 # sonda okunuyor.
 SCAN_ERR=$(mktemp -t tappa-redline-scan-err)
 trap 'rm -f "$SCAN_ERR"' EXIT
-scan() {
+scan() { scan_in SRC "$@"; }
+
+# scan_in <dizi-adi> <rg argumanlari...> — scan()'in kapsami secilebilen hali.
+# Yalnizca migration-rolu kurali SRC_CODE ile cagirir; gerekcesi SRC_CODE'un
+# tanimindadir. Hata isaretcisi ve cikis-kodu okumasi ORTAK, yani dar kapsamli bir
+# tarama patlarsa da sonuc "temiz" sayilmaz.
+scan_in() {
+  local arr=$1; shift
   local out rc
-  out=$(rg -n --no-heading "${GEN_EXCLUDE[@]}" "$@" "${SRC[@]}" 2>&1)
+  eval "local -a paths=(\"\${${arr}[@]}\")"
+  out=$(rg -n --no-heading "${GEN_EXCLUDE[@]}" "$@" "${paths[@]}" 2>&1)
   rc=$?
   if [[ $rc -gt 1 ]]; then
     { echo "${RED}ATLANDI${OFF}: ripgrep taramasi hata verdi (exit $rc) — TARAMA GUVENILIR DEGIL."
@@ -258,8 +307,64 @@ report FAIL R3 "transactions tablosuna UPDATE/DELETE — kayitlar immutable" \
 bad_ctr=$(scan -i -e 'UPDATE +tags +SET +last_ctr' | grep -viE 'last_ctr *<' || true)
 report FAIL R4 "Kosulsuz last_ctr guncellemesi — 'WHERE last_ctr < \$n' sart" "$bad_ctr"
 
+# 🔴 DESEN IKI YONE DE BAKAR — ONCEDEN YALNIZ BIR YONE BAKIYORDU (M8-04, olculdu).
+# Eski hali sayaci SOLDA arıyordu, yani operand sirasina duyarliydi:
+#
+#   if tag.LastCtr < ctr ....... 1 isabet, YAKALANDI
+#   if ctr > tag.LastCtr ....... 0 isabet, SESSIZ
+#
+# Ikincisi, CLAUDE.md §4.4'un "oku-sonra-yaz replay acigidir" diye ADIYLA uyardigi
+# yazimdir; yani ag, uyarinin en dogal Go cumlesini gormuyordu. Simdi sayac
+# karsilastirmanin HANGI TARAFINDA olursa olsun eslesiyor.
+#
+# 🔴 VE `lastCtr` (camelCase YEREL DEGISKEN) DE EKLENDI — 2. turda olculdu: eski
+# alternasyon `LastCtr|last_ctr` idi, yani `if ctr > t.lastCtr` yazimi SESSIZ
+# geciyordu. Pozitif kontrol: o satiri iceren bir sonda dosyasi eski desenle
+# rc=1 (isabet yok), yeni desenle YAKALANIYOR. BEDELI OLCULDU VE SIFIR: ucuncu
+# alternatifle birlikte agactaki isabet sayisi 9'da KALDI (asagidaki liste), yani
+# bu bir gevsetme degil, bedelsiz bir genisletme.
+#
+# --- WARN'DA BIRAKILDI, VE BU OLCULMUS BIR KARAR (FAIL'e YUKSELTILMEDI) -------
+# ⚠️ ASAGIDAKI UC SAYIYI HICBIR KAPI KORUMUYOR: bir test onlari dogrulamiyor, ve
+# bir sonraki dosya eklendiginde sessizce bayatlarlar. Bu yuzden TARIHLI yaziliyor
+# ve iddia degil OLCUM olarak okunmalidir. (Ilk yazimlarinda ikisi zaten yanlisti:
+# "7" ve "5" yaziyordu, gercek 9 ve 4 idi.)
+#
+# OLCULDU 2026-08-19, ayni SRC/GEN_EXCLUDE kumesinde:
+#   yalniz sol taraf ......................... 5 isabet
+#   iki taraf (SEVK EDILEN) .................. 9 isabet
+#   iki taraf, `_test.go` ve `.md` haric ..... 4 isabet
+#
+# VE ISABETLERIN TAM DOKUMU (9'un 9'u; "hicbiri gercek bir karsilastirma degil"
+# CUMLESI YANLISTI, geri alindi):
+#   5 Go YORUMU ......... internal/sun/{advance.go, preview.go, params.go},
+#                         internal/sun/preview_test.go (INGILIZCE bir yorum),
+#                         internal/db/tagsinventory_test.go:268
+#   1 JSON fikstur ACIKLAMASI ... test/fixtures/sun_vectors.json:54
+#   1 Turkce BELGE metni ........ deploy/README.md:3082 (bir tane, iki degil)
+#   1 t.Fatalf MESAJI ........... internal/db/tagsinventory_test.go:312
+#   1 CANLI SQL YUKLEMI ......... internal/db/tagsinventory_test.go:288 —
+#       `UPDATE tags SET last_ctr = 501 WHERE … AND last_ctr < 501`, yani bir
+#       yorum degil, testin KENDI ifadesi. Ve bu isabet KURALIN ISTEDIGI SEYI
+#       yapiyor: kosullu bir sayac guncellemesi. Dogru cumle "hicbiri gercek
+#       degil" degil, "GO tarafinda tek bir gercek sayac karsilastirmasi yok"tur.
+#
+# FAIL yapmak icin bu satirlarin BIREBIR muaf edilmesi gerekirdi -- yani bir
+# guvenlik kuralini, cogunlukla yalnizca kendisini ANLATAN metinler icin delmek.
+# M0-07'nin kaydettigi sey tam olarak budur: gurultulu bir ag gevsetilir. Denenen
+# dar varyant (`if` ile capalanmis) temiz agacta 0 isabet veriyor (olculdu, 2. tur)
+# ama KEYFI -- `ok := ctr > last_ctr` yazimi kacar, yani kurali yazan kisi onu
+# nasil asacagini da yazmis olur.
+#
+# ⚠️ VE ASIL SEBEP: WARN/FAIL BU KURALDA YANLIS KOLDUR. §4.4'un mekanik kapisi
+# yukaridaki FAIL'dir (kosulsuz `UPDATE tags SET last_ctr`), gercek garantisi ise
+# db/queries/tags.sql:33-44'un tek ifadedeki `prev.old_ctr < @ctr` yuklemi,
+# 00013'un `tags_counter_monotonic` trigger'i ve 50 goroutine x 5 turluk yaris
+# testidir -- ucu de bagimsiz olarak dogrulandi (2026-08-19). Bu satir bir
+# HATIRLATMADIR; F8'in bulgusu "WARN yetersiz" degil, "desen bir yone kor" idi ve
+# kapatilan o.
 report WARN R4 "Go tarafinda sayac karsilastirmasi — atomikligi SQL'e birak" \
-  "$(scan -e '(LastCtr|last_ctr) *(<|>|>=|<=) ' --glob '!*.sql' || true)"
+  "$(scan -e '(LastCtr|lastCtr|last_ctr) *(<|>|>=|<=)' -e '(<|>|>=|<=) *[A-Za-z0-9_.]*(LastCtr|lastCtr|last_ctr)' --glob '!*.sql' || true)"
 
 # --- R5: tenant izolasyonu / RLS --------------------------------------------
 # CLAUDE.md §6: her yeni tablo BES unsurla dogar (+ GRANT):
@@ -291,10 +396,18 @@ report WARN R4 "Go tarafinda sayac karsilastirmasi — atomikligi SQL'e birak" \
 missing_rls=""
 waiver_report=""
 unverified=""
+rls_mutations=""
 
 # `-- +goose Down` ve sonrasini atar: yalnizca Up denetlenir.
 goose_up() {
   awk 'tolower($0) ~ /^[ \t]*--[ \t]*[+]goose[ \t]+down/ { exit } { print }' "$1"
+}
+
+# `-- +goose Down` ONCESINI atar: yalnizca Down denetlenir. R5b'nin bir kismi
+# icin var (asagida, kapsam gerekcesiyle birlikte); tablo besligi hala YALNIZ
+# Up'a bakar.
+goose_down() {
+  awk 'skip { print } tolower($0) ~ /^[ \t]*--[ \t]*[+]goose[ \t]+down/ { skip = 1 }' "$1"
 }
 
 # SQL sozcuk ayiricisi (stdin → stdout). Uc isi birden yapar:
@@ -333,21 +446,210 @@ sql_lex() {
     }'
 }
 
-# Bir migration'in Up bolumunu tek satirlik, kucuk harfli ifadelere ayirir.
-# Boylece cok satirli CREATE POLICY / GRANT tek grep ile denetlenebilir.
+# Bir migration'in Up bolumunu tek satirlik, kucuk harfli, NORMALIZE ifadelere
+# ayirir. Boylece cok satirli CREATE POLICY / GRANT tek grep ile denetlenebilir.
 # NOT: ifade ayirmak icin `tr` kullanilir, `sed s/;/;\n/` DEGIL — BSD sed
 # (macOS) degistirme tarafinda \n'i yeni satir saymaz, harfi harfine 'n' yazar
 # ve tum dosya tek satira cokerdi.
-sql_statements() {
-  goose_up "$1" \
-    | sql_lex \
+#
+# ==========================================================================
+# 🔴 NORMALIZASYON — 4. TURDA EKLENDI, VE DESEN EKLEMEK YERINE EKLENDI.
+# ==========================================================================
+# Uc turdur her yeni koruma bir sonraki turda SOZLUKSEL bir yazimla atlatildi.
+# 4. turda dokuz atlatma olculdu ve DOKUZUNUN DA tek bir ortak sebebi vardi:
+# desenler bir bosluk bekliyordu, PostgreSQL beklemiyordu. Olculdu (her biri
+# gecici bir migration ile, `./scripts/redline-check.sh` cikis kodu):
+#
+#   CREATE POLICY zz ON transactions ... USING(true);          exit=0  (bosluklu: 1)
+#   ALTER TABLE"transactions"NO FORCE ROW LEVEL SECURITY;      exit=0  (bosluklu: 1)
+#   ALTER TABLE"transactions"DISABLE ROW LEVEL SECURITY;       exit=0
+#   CREATE VIEW"zz"AS SELECT * FROM transactions;              exit=0
+#   CREATE MATERIALIZED VIEW"zz"AS SELECT * FROM transactions; exit=0
+#   ALTER ROLE"tappa_app"BYPASSRLS;                            exit=0  (bosluklu: 1)
+#   GRANT ALL ON transactions TO"tappa_app";                   exit=0
+#   GRANT tappa_owner TO"tappa_app";                           exit=0
+#
+# PostgreSQL bunlarin hepsini kabul eder; `ALTER TABLE"transactions"NO FORCE …`
+# canli olarak kosuldu ve `relforcerowsecurity=false` verdi.
+#
+# 🔴 DESEN DESEN KAPATMAK YANLIS CEVAPTI: sekiz yazim icin sekiz desen yazmak,
+# dokuzuncusunu 5. turda getirir. Sebep tek oldugu icin CARE de tek: ifade
+# EslesTIRILMEDEN ONCE noktalama ISARETLERININ ETRAFI BOSLUKLA ACILIR. Boylece
+# `USING(true)`, `TABLE"transactions"`, `TO"tappa_app"` HEPSI BIRDEN kapanir ve
+# mevcut 21 desenin HICBIRI degismez.
+#
+# Uc adim, ve ucunun de gerekcesi ayri:
+#   (1) `"` -> BOSLUK. Tanimlayici tirnagi bir AYIRICI'dir, bir karakter degil:
+#       `TABLE"x"NO` uc token'dir. Silmek `tablexno` uretirdi (daha kotu),
+#       bosluk `table x no` uretir. Yan etki: tref desenlerindeki `"?` artik hic
+#       eslesmiyor ama zarari yok, cunku tirnak zaten kalmadi.
+#   (2) `(` `)` `,` etrafina BOSLUK. `using(true)` -> `using ( true )`.
+#   (3) NITELENMIS AD YENIDEN BIRLESTIRILIR (` . ` -> `.`). (1) `"public"."t"`yi
+#       ` public . t ` yapardi ve `public.t` bekleyen her desen bozulurdu; bu
+#       adim tirnakli ve tirnaksiz yazimi AYNI metne indirger.
+#
+# ⚠️ SAYILMIS LIMIT: bu bir SOZCUK duzeyi normalizasyonudur, bir ayristirici
+# degil. Dize sabitlerinin ICI de normalize edilir (`'a,b'` -> `'a , b'`) —
+# eslestirme icin zararsiz, ama bir dize sabitine dayanan bir muafiyet yazilirsa
+# bunu bilmek gerekir. Ve normalizasyon SOZDIZIMSEL esanlamlilari (ALTER USER =
+# ALTER ROLE gibi) kapatmaz; onlar hala desen desen yazilir.
+lex_statements() {
+  sql_lex \
     | tr '[:upper:]' '[:lower:]' \
     | tr '\n' ' ' \
     | tr ';' '\n' \
     | tr '\001' ';' \
-    | sed -E 's/[[:space:]]+/ /g; s/^ //; s/ $//' \
+    | tr '"' ' ' \
+    | sed -E 's/([(),])/ \1 /g; s/[[:space:]]+/ /g; s/ ?\. ?/./g; s/^ //; s/ $//' \
     | grep -v '^$'
 }
+sql_statements() { goose_up "$1" | lex_statements; }
+sql_statements_down() { goose_down "$1" | lex_statements; }
+
+# --- R5b'nin iki YAPISAL ayristiricisi ---------------------------------------
+#
+# 🔴 NEDEN AYRISTIRICI, NEDEN ALT DIZE DEGIL. Iki muafiyet/istisna alt dize
+# aramasiyla yazilmisti ve IKISI DE TAKLIT EDILDI (3. tur denetimi, 2026-08-19):
+#
+#   CREATE VIEW zz AS SELECT 'security_invoker = true' AS n, t.* FROM transactions t;
+#     -> ifadenin METNINDE `security_invoker = true` geciyor, ama bu bir DIZE
+#        SABITI; view DEFINER haklariyla okunuyor ve muafiyeti kazaniyordu.
+#   CREATE POLICY zz_legal_documents_public_bait ON transactions ... USING (true);
+#     -> muafiyet `*legal_documents_public*` alt dizesini ariyordu, yani adin
+#        ICINE gomunce baska bir tabloya izin veren politika muaf oluyordu.
+#
+# Cozum ikisinde de ayni sekilde: karari veren seyi AYRISTIR (depolama parametre
+# listesi · yuklem agaci), metinde arama.
+
+# opt_clause <ifade> <giris> — bir ifadenin depolama-parametre listesini DENGELI
+# parantezle cikarir. <giris> "with (" ya da "set (" olur.
+#
+# Tanimlayici ve dize ICERIKLERI notrlestirilir: bir view'in ADI bir depolama
+# parametresi gibi yazilarak karari degistirememeli (olculdu — `CREATE VIEW
+# "as with (security_invoker = true)" AS ...` yazimi ham metinde muaf gorunuyor).
+# `with (` icin arama ` as `den ONCE kalan basa sinirlanir: depolama parametreleri
+# sozdizimsel olarak yalniz orada durur.
+opt_clause() {
+  awk -v intro="$2" '
+    {
+      s = $0
+      gsub(/"[^"]*"/, "\"x\"", s)
+      gsub(/\047[^\047]*\047/, "\047x\047", s)
+      if (intro == "with (") { i = index(s, " as "); if (i > 0) s = substr(s, 1, i - 1) }
+      j = index(s, intro)
+      if (j == 0) exit
+      s = substr(s, j + length(intro))
+      d = 1; out = ""
+      for (k = 1; k <= length(s); k++) {
+        c = substr(s, k, 1)
+        if (c == "(") d++
+        else if (c == ")") { d--; if (d == 0) break }
+        out = out c
+      }
+      print out
+    }' <<<"$1"
+}
+
+# invoker_on <parametre-listesi> — `security_invoker` CAGIRAN haklarina ayarlanmis
+# mi. Postgres'in tam boolean sozlugu kabul edilir (true/on/1/yes ve CIPLAK ad,
+# ki o da true demektir); `= false` ve `reset` bu suzgecten GECMEZ. Kontrol ile
+# sunucunun uzerine hareket ettigi deger AYNI olmalidir — bu depo o sinifin
+# bedelini uc kez odedi (M5-01/02/03).
+invoker_on() {
+  grep -qE -e '(^|[,[:space:]])security_invoker[[:space:]]*=[[:space:]]*(true|on|1|yes)([,[:space:]]|$)' \
+           -e '(^|[,[:space:]])security_invoker[[:space:]]*(,|$)' <<<"$1"
+}
+
+# policy_tautology <ifade> — CREATE/ALTER POLICY'nin USING / WITH CHECK
+# yuklemlerinden HER SATIRI eslestiren birini basar (yoksa hicbir sey basmaz).
+#
+# `(true)` alt dizesini aramak yetmiyordu; olculen dort yazim da tenant yuklemini
+# yerine koyuyor ve tabloyu tum tenant'lara aciyordu:
+#   USING (true) · USING ((true)) · USING (1=1) · USING (tenant_id = tenant_id)
+# Yuklem DENGELI parantezle cikarilir, dis parantezler soyulur, ve bir totoloji
+# ya `true`dur ya da UST SEVIYE bir `=`in iki yani BIREBIR ayni metindir.
+# `<=`, `>=`, `!=`, `<>` ve parantez icindeki `=` (ornegin gercek politikalarin
+# `current_setting('app.tenant_id', true)` cagrisi) ust seviye sayilmaz.
+policy_tautology() {
+  awk '
+    function trim(x) { gsub(/^[ \t]+|[ \t]+$/, "", x); return x }
+    function peel(x,   y, d, i, c, ok) {
+      x = trim(x)
+      while (length(x) > 1 && substr(x, 1, 1) == "(" && substr(x, length(x), 1) == ")") {
+        y = substr(x, 2, length(x) - 2); d = 0; ok = 1
+        for (i = 1; i <= length(y); i++) {
+          c = substr(y, i, 1)
+          if (c == "(") d++
+          else if (c == ")") { d--; if (d < 0) { ok = 0; break } }
+        }
+        if (!ok || d != 0) break
+        x = trim(y)
+      }
+      return x
+    }
+    function tautology(e,   i, c, prev, nxt, l, r, d) {
+      e = peel(e)
+      if (e == "true") return 1
+      # BILESIK TOTOLOJI (4. tur): bir AYRIK BAGLACIN bir dali totolojiyse bagin
+      # KENDISI totolojidir -- `USING (true OR tenant_id IS NULL)` tenant yuklemini
+      # aynen `USING (true)` gibi yerine koyar ve olculdu: ikisi de exit=0 veriyordu.
+      # Bu bir DESEN degil bir CEBIR kurali; UST SEVIYE ` or ` de bolunur, iki yan
+      # ozyinelemeyle sinanir, yani `a or b or c` da kapsanir.
+      d = 0
+      for (i = 1; i <= length(e); i++) {
+        c = substr(e, i, 1)
+        if (c == "(") { d++; continue }
+        if (c == ")") { d--; continue }
+        if (d != 0) continue
+        if (substr(e, i, 4) == " or ") {
+          if (tautology(substr(e, 1, i - 1))) return 1
+          return tautology(substr(e, i + 4))
+        }
+      }
+      d = 0
+      for (i = 1; i <= length(e); i++) {
+        c = substr(e, i, 1)
+        if (c == "(") { d++; continue }
+        if (c == ")") { d--; continue }
+        if (d != 0 || c != "=") continue
+        prev = (i > 1) ? substr(e, i - 1, 1) : ""
+        nxt = substr(e, i + 1, 1)
+        if (prev == "<" || prev == ">" || prev == "!" || nxt == "=") continue
+        l = peel(substr(e, 1, i - 1)); r = peel(substr(e, i + 1))
+        if (l != "" && l == r) return 1
+      }
+      return 0
+    }
+    function balanced(s, start,   d, out, k, c) {
+      d = 1; out = ""
+      for (k = start; k <= length(s); k++) {
+        c = substr(s, k, 1)
+        if (c == "(") d++
+        else if (c == ")") { d--; if (d == 0) return out }
+        out = out c
+      }
+      return out
+    }
+    {
+      s = $0
+      split("using (,with check (", intro, ",")
+      for (n = 1; n <= 2; n++) {
+        pos = 1
+        while ((j = index(substr(s, pos), intro[n])) > 0) {
+          at = pos + j - 1 + length(intro[n])
+          body = balanced(s, at)
+          if (tautology(body)) print intro[n] body ")"
+          pos = at
+        }
+      }
+    }' <<<"$1"
+}
+
+# APPEND_ONLY — CLAUDE.md §4.3'un bagladigi `transactions` ve onunla ayni
+# muameleyi goren bes tablo. Liste `00021`in TRUNCATE korumasindan BIREBIR alindi
+# (ayni alti tablo, ayni gerekce); bir yedincisi eklenirse iki yer birden
+# guncellenmelidir ve bu cumle o baglantiyi soyluyor.
+APPEND_ONLY='(transactions|audit_log|transaction_reviews|policy_versions|billing_periods|legal_documents)'
 
 for f in db/migrations/*.sql; do
   [[ -e $f ]] || continue
@@ -413,10 +715,15 @@ for f in db/migrations/*.sql; do
 
       idx_ok=0
       # (a) CREATE INDEX ... ON <t> (tenant_id, ...)
+      # `${cols# }` NORMALIZASYON YUZUNDEN VAR (4. tur): lex_statements artik
+      # parantezin etrafini bosluklandiriyor, yani sutun listesi ` tenant_id , x`
+      # diye basliyor. Olculdu: bu satir olmadan 13 GERCEK migration yanlis pozitif
+      # veriyordu ("eksik → tenant_id ONDE olan indeks"). Tirnak yazimi da normalize
+      # edildigi icin artik ayri bir kola gerek yok.
       while IFS= read -r s; do
         [[ -n $s ]] || continue
-        after=${s#* on }; cols=${after#*\(}
-        [[ $cols == tenant_id* || $cols == '"tenant_id"'* ]] && idx_ok=1
+        after=${s#* on }; cols=${after#*\(}; cols=${cols# }
+        [[ $cols == tenant_id* ]] && idx_ok=1
       done < <(grep -E "^create (unique )?index .* on (only )?${tref}[ (]" <<<"$stmts" || true)
       # (b) tablo govdesindeki PRIMARY KEY / UNIQUE kisiti da indeks yaratir
       grep -qE "(primary key|unique)[^(]*\( *\"?tenant_id\"?[ ,)]" <<<"$create" && idx_ok=1
@@ -444,7 +751,11 @@ for f in db/migrations/*.sql; do
       # icerir; cikarilmazsa kural her gercek migration'da kendiliginden gecer,
       # yani OLU olur. Ayrica sutunun bir KARSILASTIRMANIN operandi olmasi
       # istenir — salt gecmesi yetmez.
-      polprobe=$(sed -E "s/current_setting\([^)]*\)//g" <<<"$polbody" | tr -d '"')
+      # `current_setting *\(` — bosluk 4. TURDA EKLENDI. Normalizasyon parantezin
+      # etrafini acar (`current_setting ( 'app.tenant_id' , true )`), yani bosluksuz
+      # yazilan eski desen artik HIC eslesmiyordu ve bu kuralin kendisi OLU kalirdi:
+      # cikarilmayan cagri aranan `tenant_id` dizesini zaten iceriyor.
+      polprobe=$(sed -E "s/current_setting *\([^)]*\)//g" <<<"$polbody" | tr -d '"')
       if ! grep -qE "(^|[^a-z0-9_])${col}(::[a-z0-9_]+)? ?(=|<>|!=|in |any )" <<<"$polprobe" \
          && ! grep -qE "(=|<>|!=|in|any) ?\(? ?${col}([^a-z0-9_]|$)" <<<"$polprobe"; then
         missing_rls+="$f [$qual]: politika kapsam sutununu ($col) bir karsilastirmada kullanmiyor"$'\n'
@@ -468,8 +779,502 @@ for f in db/migrations/*.sql; do
     done < <(grep -E '^grant .* on .* to ' <<<"$stmts" || true)
     (( grant_ok )) || missing_rls+="$f [$qual]: eksik → tappa_app GRANT'i"$'\n'
   done
+
+  # --- R5b: §4.5'i BOZAN migration ifadeleri (M8-04, 2026-08-19) --------------
+  #
+  # 🔴 NEDEN VAR: R5 YALNIZ TABLONUN DOGUMUNU DENETLIYORDU, OLUMUNU DEGIL.
+  # Yukaridaki besli kontrol `create table` ile BASLAYAN ifadelerden tablo adi
+  # cikarir; bir migration mevcut bir tablonun korumasini SOKERSE hicbir tablo
+  # "yaratilmadigi" icin dongu hic donmez. Bir guvenlik denetcisi bunu uc
+  # mutasyonla gosterdi ve UCU DE `exit 0` verdi (2026-08-19):
+  #
+  #   ALTER TABLE transactions NO FORCE RLS + DISABLE RLS + GRANT ALL ... -> exit 0
+  #   DROP POLICY transactions_tenant_isolation ON transactions;          -> exit 0
+  #   ALTER ROLE tappa_app BYPASSRLS;                                     -> exit 0
+  #
+  # 🔴 VE ILK HALI DORT DESENLE YAZILDI, ONBES SEKIL SESSIZ GECIYORDU (2. tur,
+  # 2026-08-19). Ikinci bir denetim onlari saydi. En utandiricisi `ALTER USER`:
+  # PostgreSQL'de `ALTER ROLE`un BIREBIR ESANLAMLISI, yani yukaridaki ucuncu
+  # mutasyon tek kelime degistirilerek atlatiliyordu -- ve desen bunu tam da
+  # "urunun TUM tenant izolasyonunu tek ifadeyle kapatir" diye anarken. Bu turda
+  # kapatilanlar ve OLCULEN etkileri (hepsi `BEGIN … ROLLBACK` icinde, yerel
+  # gelistirme veritabaninda, 2026-08-19):
+  #
+  #   ALTER USER … BYPASSRLS / SUPERUSER ....... `role` -> `(role|user)`
+  #   GRANT tappa_owner TO tappa_app ........... ayni baglantida 0 -> 327 866 tenant
+  #                                              (`SET ROLE tappa_owner` ile)
+  #   GRANT tappa_resolver TO tappa_app ........ 0 -> 120 975 plaket / 103 422 tenant,
+  #                                              ve 120 975 sarmalanmis AES anahtar
+  #                                              referansi (§4.7)
+  #   CREATE VIEW … AS SELECT * FROM transactions
+  #                        ... AYNI baglantida: tablo 0 satir, view 392 197 satir
+  #                            / 78 406 tenant. `WITH (security_invoker = true)`
+  #                            ile ayni view 0 satir -- muafiyet OLCULDU, varsayilmadi
+  #   CREATE/ALTER POLICY … USING (true) ....... 0 -> 392 197 satir / 78 406 tenant
+  #
+  # ⚠️ BU SAYILAR TARIHLIDIR VE BUYURLER: test suiti her kosumda satir yaziyor, yani
+  # ayni sonda yarin daha buyuk bir sayi verir. Buradaki islev sayinin KENDISI degil,
+  # "0 ile karsilastirildiginda ne kadar" oldugudur.
+  #   ALTER DEFAULT PRIVILEGES … GRANT ......... sonraki her tabloya kalici yetki
+  #   GRANT UPDATE|DELETE ON <append-only> ..... tek basina yetmez, ama ↓ ile
+  #   DROP TRIGGER / DISABLE TRIGGER ........... birlikte UPDATE 1 / DELETE 1 (§4.3)
+  #   ALTER TABLE … OWNER TO ................... sahip FORCE'u geri alabilir
+  #
+  # ⚠️ `rg -U` GEREKMEDI, VE BU OLCULDU. M8-03'te R7 tam bu yuzden kordu, ama
+  # burada girdi `rg` degil `sql_statements`: cok satirli her ifade zaten TEK
+  # satira indirgeniyor (yorumlar silinmis, kucuk harfe cevrilmis, bosluklar
+  # daraltilmis). Uc mutasyonun ucu de cok satirli yazildiginda da yakalaniyor.
+  #
+  # ⚠️ KAPSAM `db/migrations/*.sql` ILE SINIRLI, VE BU BIR SECIM: scripts/db-init/
+  # 01-roles.sql `CREATE ROLE tappa_resolver ... BYPASSRLS` iceriyor ve bu MESRU
+  # (SECURITY DEFINER cozucunun rolu, ADR 0002). O dosyayi taramak tek bir gercek
+  # yanlis pozitif uretirdi; migration'lar ise bu rolu hic yaratmaz.
+  #
+  # --- OLCULEN BEDEL: 21 MIGRATION, TEK MUAFIYET --------------------------------
+  # Her desen temiz agacta tek tek sayildi. 3. TURDA EKLENENLER DE SAYILDI ve
+  # tamami sifir yanlis pozitif verdi (2026-08-19; `./scripts/redline-check.sh`
+  # temiz agacta exit 0):
+  #   rol/kullanici/GRUP BYPASSRLS-SUPERUSER ... up=0 down=0
+  #   rol UYELIGI GRANT'i (ON'suz grant) ....... up=0 down=0
+  #   rol UYELIGI: ALTER GROUP … ADD USER ...... up=0 down=0   <-- 3. tur
+  #   rol UYELIGI: CREATE ROLE … IN ROLE ....... up=0 down=0   <-- 3. tur
+  #   ALTER DEFAULT PRIVILEGES … GRANT ......... up=0 down=0
+  #   CREATE [MATERIALIZED] VIEW ............... up=0 down=0
+  #   ALTER VIEW … security_invoker / OWNER .... up=0 down=0   <-- 3. tur
+  #   CREATE RULE .............................. up=0 down=0   <-- 3. tur
+  #   append-only tabloya UPDATE/DELETE ........ up=0 down=0
+  #   GRANT … ON ALL TABLES IN SCHEMA .......... up=0 down=0   <-- 3. tur
+  #   DROP TRIGGER (yalniz Up) ................. up=0 down=8 (hepsi mesru geri alma)
+  #   DISABLE/ENABLE ALWAYS TRIGGER ............ up=0 down=0
+  #   ALTER TABLE … OWNER TO ................... up=0 down=0
+  #   RLS SOKME (disable / no force), Up+Down ... up=0 down=0   <-- kapsam 3. turda
+  #   DROP POLICY, Up+Down ..................... up=0 down=0   <-- kapsam 3. turda
+  #   TOTOLOJIK politika yuklemi ............... up=1 down=0  <-- TEK YANLIS POZITIF
+  # O tek isabet `00020`in `legal_documents_public` politikasidir: o tablo bilerek
+  # tenant kapsamsizdir (migration 00020 gerekcesini uzun uzun yaziyor). TAM
+  # POLITIKA ADI + TAM TABLO ADI ile muaf edildi, desen gevsetilerek DEGIL -- ayni
+  # tabloya YENI bir izin veren politika yazilirsa kural yine ateslenir ve bir karar
+  # ister.
+  #
+  # --- NEDEN FARKLI KAPSAMLAR (Down'da yalniz `drop trigger` muaf) ------------
+  # Bir Down bolumu `DROP TRIGGER`i MESRU olarak icerir: Up'ta yaratilan
+  # tetikleyiciyi geri alir, ve bedel olculdu (Down'da 8 mesru isabet). `DROP
+  # POLICY` ve RLS kapatma icin ayni gerekce ONCEDEN DE YAZILIYDI ama BEDELI HIC
+  # OLCULMEMISTI: 107 Down ifadesinde ucunun de isabeti 0, cunku her tablo RLS'i
+  # ACIK DOGAR (§6) ve Down onu tabloyu DROP ederek geri alir. Yani yalniz-Up
+  # kisiti o iki desen icin uretimde kosacak bir ifadeyi BEDAVA gorunmez
+  # kiliyordu. Digerlerinin MESRU BIR TERSI YOKTUR: hicbir Up BYPASSRLS vermiyor,
+  # hicbir Up rol uyeligi vermiyor, bir Down'un GRANT ALL yazmasi REVOKE'un
+  # tersidir. Rollback'te kosan bir ifade de uretimde kosar.
+  #
+  # ==========================================================================
+  # 🔴 SAYILMIS LIMIT — BU BIR ANAHTAR KELIME TARAMASIDIR VE SQL'IN ESANLAMLI
+  # UZAYINI ENUMERATE EDEMEZ.
+  # YASAK, UYGULANABILIR HALIYLE (4. turda daraltildi): asagidaki KAPATILANLAR ve
+  # KAPATILAMAYANLAR listelerinde bu kuralin KAPSAMI icin "tamamen / bitmis /
+  # complete / exhaustive" yazilmaz. Yasak BIR KAPSAM IDDIASI hakkindadir, kelime
+  # hakkinda degil: "bu grep'in kapsaminin tamamen disinda" gibi bir cumle
+  # kapsamin DAR oldugunu soyler ve serbesttir. Onceki hali ("buraya … YAZILMAZ")
+  # dosyanin tamamini kastediyor gibi okunuyordu ve dosyanin kendisi o kelimeyi
+  # uc yerde kullaniyordu — yani uygulanamaz bir yasakti.
+  # ==========================================================================
+  #
+  # ==========================================================================
+  # 🔴 R5b NE OLDUGU — 4. TURDA DURUSTCE YAZILDI, CUNKU KURALIN DEGERI BUNA BAGLI.
+  # ==========================================================================
+  # R5b BIR UYARI SISTEMIDIR, BIR KAPI DEGIL. Ucuza, commit'ten once, bir
+  # migration'in metnine bakarak ates eder. §4.5'in BAGLAYICI kapisi sinif sinif
+  # asagidaki tabloda durur ve o kapilarin hepsi CALISMA ANINDA, gercek bir
+  # Postgres'e karsi olcer. Bu ayrimin ampirik dayanagi var: 4. turun guvenlik
+  # denetimi SEKIZ kacisi olctu ve YEDISINDE baglayici kapi kirmiziya dondu —
+  # yalnizca `NO FORCE ROW LEVEL SECURITY` kapisiz cikti (o da bu turda yazildi,
+  # internal/db/rlsforce_test.go). Yani R5b'nin bir yazimi kacirmasi §4.5'i
+  # acmiyor; R5b'nin bir sinif icin "kapi" DIYE ANILMASI aciyordu.
+  #
+  # KAPATILANLAR (her biri pozitif kontrolle: gecici bir migration -> exit=1,
+  # kaldirinca -> exit=0; ve 21 gercek migration'da 0 yanlis pozitif):
+  #   RLS kapatma/NO FORCE · DROP POLICY · totolojik politika yuklemi (`(true)`,
+  #   `((true))`, `1=1`, `x = x`, ve 4. turdan beri BILESIK olani: `true OR …`,
+  #   `… OR 1=1`) · BYPASSRLS/SUPERUSER rol/kullanici/GRUP · rol uyeligi (GRANT,
+  #   ALTER GROUP … ADD USER, CREATE ROLE … IN ROLE) · ALTER DEFAULT PRIVILEGES ·
+  #   CREATE VIEW (WITH cumlesi AYRISTIRILARAK) · ALTER VIEW (security_invoker
+  #   geri alma, OWNER TO) · CREATE RULE · append-only tabloya
+  #   UPDATE/DELETE/TRUNCATE (istege bagli `TABLE`/`ONLY` oneki dahil) · GRANT …
+  #   ON ALL TABLES IN SCHEMA · tetikleyici sokme/kapatma · tablo sahipligi ·
+  #   GRANT ALL — VE her birinin BOSLUKSUZ/TIRNAKLI yazimi, cunku eslestirme artik
+  #   NORMALIZE metin uzerinde yapiliyor (bkz. lex_statements).
+  #
+  # ⚠️ VE BU LISTE 3. TURDA FAZLA SEY IDDIA EDIYORDU. `(true)` "kapatildi" diye
+  # yaziliydi; olculdu ki `USING(true)` — o dortlunun ILKI, yalnizca boslugu
+  # alinmis — exit=0 veriyordu. Liste artik normalizasyona atif yapiyor; iddiayi
+  # tasiyan sey bir cumle degil, o adim.
+  #
+  # KAPATILAMAYANLAR, ADIYLA (bu kural ne kadar genisletilirse genisletilsin):
+  #   · dinamik SQL — `EXECUTE format('ALTER TABLE %I NO FORCE …', t)`; ifade
+  #     calisma aninda kurulur, dosyada hicbir yerde yazmaz;
+  #   · bir fonksiyon govdesinde saklanan DDL — `CREATE FUNCTION … $$ … $$` sonra
+  #     `SELECT f()`; lexer `$$` govdesini KORUR ama icini denetlemez;
+  #   · `\i` / `\ir` include ve `psql` degiskeni (`:tablo`) — icerik baska dosyada;
+  #   · SECURITY DEFINER fonksiyon + GRANT EXECUTE. Bu SEKIL bilerek kapatilmadi:
+  #     urunun KENDI cozucusu tam olarak budur (ADR 0002 md. 7) ve temiz agacta 10
+  #     `security definer` ifadesi var, ONU DA hepsi mesru. Bir grep mesru cozucuyu
+  #     kotu niyetli olandan ayirt edemez; ayirt eden sey kod incelemesidir;
+  #   · 🔴 VE ONUN UZERINDEN DOLAYLI VIEW — 4. turda olculdu, hem burada hem
+  #     internal/db/viewsecurity_test.go'nun KATALOG testinde sessiz:
+  #       CREATE FUNCTION zzf() RETURNS TABLE(id uuid, tenant_id uuid)
+  #         SECURITY DEFINER … SELECT id, tenant_id FROM transactions;
+  #       CREATE VIEW zzv AS SELECT * FROM zzf();
+  #     Ayni transaction'da, `SET LOCAL ROLE tappa_app` + yabanci app.tenant_id ile:
+  #     dogrudan 0 satir, view'den 408 188 satir / 81 777 tenant. Ayirt edici nokta
+  #     da olculdu: `RETURNS SETOF transactions` YAKALANIR (pg_depend tablo tipine
+  #     baglanir), kacan yazim `RETURNS TABLE(...)`;
+  #   · 🔴 `COPY … TO/FROM PROGRAM` — olculdu, exit=0. §4.5'i BOZMAZ (RLS yerinde
+  #     kalir, `COPY` cagiran rolun haklariyla kosar) ama SONUCUNU bozar: owner
+  #     rolüyle kosan bir migration'da `COPY transactions TO PROGRAM 'curl …'` her
+  #     tenant'in satirini kutunun disina cikarir, ve `FROM PROGRAM` keyfi kabuk
+  #     komutu kosar. Kapatilmadi cunku bu bir SIZDIRMA sinifidir, bir RLS-sokme
+  #     sinifi degil; kapisi kod incelemesi ve migration'i kimin kosturdugudur;
+  #   · BILESIK olmayan totolojiler — `NOT false`, `tenant_id IS NOT DISTINCT FROM
+  #     tenant_id`, `coalesce(true, …)`. Ayristirici `true`, ust seviye `=` ve ust
+  #     seviye ` or ` biliyor; SQL'in yuklem cebrini bilmiyor;
+  #   · adlandirilmis dolar tirnagi (`$body$ … $body$`) — sql_lex yalnizca `$$` bilir;
+  #   · SOZDIZIMSEL ESANLAMLILAR normalizasyonun KAPSAMINDA DEGIL. Normalizasyon
+  #     noktalama duzeyindedir; `ALTER USER` = `ALTER ROLE`, `GROUP` = `ROLE` gibi
+  #     esanlamlilar hala tek tek yazilmistir ve bir sonraki esanlamli yine sessiz
+  #     gecer;
+  #   · VE EN GENISI: MIGRATION DISINDA KOSAN HER IFADE. Bu kural yalnizca
+  #     `db/migrations/*.sql` okur. Bir operator'un psql oturumu, bir bakim
+  #     script'i, bir yonetilen-Postgres konsolu bu taramanin kapsaminda DEGILDIR
+  #     — ve ilk uc madde gibi "egzotik" de degil, en olasi yol budur.
+  #
+  # ==========================================================================
+  # 🔴 GERCEK KAPI SINIF SINIF — VE BIR SINIFIN KAPISI YOKSA ONU DA YAZIYORUZ.
+  # ==========================================================================
+  # Onceki hali "§4.5'in kapisi uc yerde durur: kod incelemesi ·
+  # pg-restore-verify.sh · rls_test.go + acilis sondasi" diyordu. Bir denetim
+  # olctu ki VIEW sinifi icin UCU DE TUTMUYOR, ve iki gerekce yanlisti:
+  #
+  #   ⚠️ `scripts/pg-restore-verify.sh` MIGRATION DONGUSUNDE HIC KOSMUYOR.
+  #      `.github/workflows/ci.yml`: make up -> migrate -> seed -> check -> audit.
+  #      Script'i cagiran tek yer operator'un geri yukleme adimidir (deploy/README.md,
+  #      iki yer). Ustelik referans kumesi DUMP'IN KENDISIDIR (§3'un kendi yorumu
+  #      "EXPECTED comes from the dump" diyor), yani kaynakta verilmis bir yetki
+  #      dump'ta da bulunur ve script "eslesiyor" der. Ve §2'nin sayaclari
+  #      `c.relkind='r'` -- bir VIEW hic sayilmaz.
+  #   ⚠️ `internal/db/rls_test.go` VIEW SAYMIYOR. TestRLS_ReadIsolation_AllTables
+  #      17 TABLO adini elle dolasir; hicbir test pg_views'e bakmiyordu.
+  #   ⚠️ `db.New`'in acilis sondasi CAGIRAN ROLUN erisimini olcer; bir view'in
+  #      SAHIBININ haklariyla okunmasini gormez.
+  #
+  # 🔴 VE 4. TURDA HARITANIN ILK SATIRI YANLIS OLCULDU. "RLS kapatma -> izolasyon
+  # suiti. Gercek kapi budur" yaziyordu; guvenlik denetimi `NO FORCE ROW LEVEL
+  # SECURITY`i sevk edilmis semaya uygulayip olctu:
+  #     owner baglantisi, YABANCI bir app.tenant_id altinda: 404 335 satir / 80 961 tenant
+  #     internal/db suiti: ok github.com/atknatk/tappa/internal/db 8.802s  <- TAMAMEN YESIL
+  # Sebep yapisal: izolasyon suiti `tappa_app` ile kosar, `tappa_app` hicbir
+  # tablonun SAHIBI degildir (ADR 0002 md. 1 bunu sart kosar) ve FORCE'un TEK isi
+  # politikalari tablonun SAHIBINE de uygulamaktir. Sahibe hic baglanmayan bir
+  # suit FORCE'u goremez — ve sahip varsayimsal bir rol degil: migration'lar,
+  # `make seed` ve operatorun psql oturumu tappa_owner ile kosar.
+  #
+  # SINIF -> KAPI (her satir 4. turda BIR MUTASYONLA olculdu; "KIRMIZI" = kapi
+  # gercekten dondu, komut ve sonuc yanlarinda):
+  #   RLS DISABLE · politika silme/izin verme
+  #       -> internal/db/rls_test.go izolasyon suiti (17 tablo, her vaka POZITIF
+  #          KONTROLLU). OLCULDU:
+  #            ALTER TABLE employee_invites DISABLE ROW LEVEL SECURITY
+  #              -> KIRMIZI: "RLS FAILED: B's context read 1 of A's employee_invites rows"
+  #            DROP POLICY employee_invites_tenant_isolation ON employee_invites
+  #              -> KIRMIZI: fixture INSERT'i 42501 ile reddedildi (politikasiz tablo
+  #                 tappa_app icin FAIL-CLOSED'dur; suit yine de kirmiziya doner)
+  #   RLS NO FORCE
+  #       -> 🔴 internal/db/rlsforce_test.go KATALOG TESTI (4. turda yazildi; ONCESINDE
+  #          BU SINIFIN KAPISI YOKTU ve yukaridaki satir yanlislikla kapi gosteriyordu).
+  #          17 tenant kapsamli tablonun HEPSI icin relrowsecurity + relforcerowsecurity
+  #          okur. LISTEYI CANLI KATALOGDAN TURETIR
+  #          (tenantScopedTablesFromCatalogue -- su anda tenant_id TASIYAN her tablo),
+  #          db/migrations turetimini ise ANTI-VACUITY CAPRAZ KONTROLU olarak tutar ve
+  #          ikisinin ESIT olmasini sart kosar.
+  #          ⚠️ BU SATIR 5. TURDA AZ IDDIA EDIYORDU: "listeyi db/migrations'tan
+  #          TURETIR" yaziliydi, oysa sevk edilen test tam tersini yapar. Kapi
+  #          yazilandan GUCLU -- ve fark bosuna degil, asagidaki ADD COLUMN sinifini
+  #          kapsayan sey tam olarak katalog turetimidir. OLCULDU (sevk edilmis semaya
+  #          uygulanip geri alinarak):
+  #            ALTER TABLE password_resets NO FORCE ROW LEVEL SECURITY  -> KIRMIZI, tabloyu adiyla soyler
+  #            ALTER TABLE employee_invites DISABLE ROW LEVEL SECURITY  -> KIRMIZI, "DISABLED" der
+  #   ALTER TABLE … ADD COLUMN tenant_id (TABLO SONRADAN KAPSAMA GIRIYOR)
+  #       -> 🔴 internal/db/rlsforce_test.go'nun KATALOG turetimi +
+  #          TestRLS_TheGateSeesATableScopedAfterItWasCreated (5. turda yazildi).
+  #          ⚠️ BU KURAL O SINIFI GORMEZ, ve gormedigi yapisaldir: R5 tablo adlarini
+  #          yalnizca `^create table` ile BASLAYAN ifadelerden cikarir (bkz. R5'in
+  #          tetiklenme kosulu, yukarida), yani CREATE TABLE govdesinde tenant_id
+  #          OLMAYAN bir tablo besligin denetimine hic girmez. cmd/tappa'nin
+  #          insertscope_test.go'su da ayni govdeyi okur, izolasyon suiti ise 17 adi
+  #          ELLE dolasir. OLCULDU (BEGIN … ROLLBACK icinde, tappa_owner ile):
+  #            CREATE TABLE zz_late_scoped (id uuid);
+  #            ALTER TABLE zz_late_scoped ADD COLUMN tenant_id uuid NOT NULL;
+  #              -> katalog sorgusu tabloyu LISTELER ve
+  #                 relrowsecurity=f / relforcerowsecurity=f okur; sevk edilen ret onu
+  #                 ADIYLA soyler ("row level security is DISABLED")
+  #              -> db/migrations turetimi tabloyu GORMEZ (kor yon; capraz kontrol
+  #                 bunun icin var, ve test bu iki yonu ayri ayri iddia eder)
+  #   BYPASSRLS/SUPERUSER rol · rol uyeligi
+  #       -> internal/db'nin ACILIS SONDASI: readRole dort olguyu okur ve
+  #          roleRefusal uretimde havuzu REDDEDER. OLCULDU:
+  #            CREATE ROLE zz_probe_bypass NOLOGIN BYPASSRLS; GRANT zz_probe_bypass TO tappa_app
+  #              -> KIRMIZI: TestNewRefusesAPrivilegedRoleInProduction'in "uygulama rolu
+  #                 uretimde — yine acilir" satiri dustu (New havuzu REDDETTI), ve
+  #                 TestReadRoleSeesTheOwnerAndTheApplicationRoleDifferently de dustu.
+  #          ⚠️ BOOT-TIME'dir: surec basladiktan SONRA verilen bir uyelik yeniden olculmez.
+  #   VIEW (security_invoker)
+  #       -> 🔴 internal/db/viewsecurity_test.go KATALOG TESTI (3. turda yazildi):
+  #          pg_class.reloptions okur -- ifade metnini DEGIL -- ve listeyi
+  #          pg_rewrite/pg_depend ile SEMADAN turetir, elle yazmaz. Pozitif
+  #          kontrolu kendi icinde (BEGIN … ROLLBACK), dize-sabiti taklidi dahil.
+  #          ⚠️ VE SINIRI 4. TURDA OLCULDU: bir SECURITY DEFINER fonksiyon uzerinden
+  #          kurulan view (`RETURNS TABLE(...)` yazimi) o katalog testinde de
+  #          GORUNMUYOR — dogrudan 0 satir, view'den 408 188 satir / 81 777 tenant.
+  #          O sinir dosyanin kendi basligina da yazildi.
+  #   append-only UPDATE/DELETE/TRUNCATE · GRANT ALL · tetikleyici sokme
+  #       -> TestRLS_AppCannotMutateTransactions · TestRLS_AppCannotMutatePolicyVersions
+  #          · TestRLS_OwnerMutationsHitAppendOnlyTrigger. OLCULDU:
+  #            DROP TRIGGER billing_periods_no_mutation ON billing_periods
+  #              -> KIRMIZI: "owner UPDATE billing_periods: succeeded, want the
+  #                 append-only trigger to block it"
+  #            GRANT ALL PRIVILEGES ON policy_versions TO tappa_app
+  #              -> KIRMIZI: bekledigi 42501 yerine tetikleyicinin 23001'i geldi, yani
+  #                 "yetki reddi" iddiasi tutmadi. (Kritik ayrinti: assertPermissionDenied
+  #                 HERHANGI bir hatayi degil 42501'i sart kosuyor; gevsek olsaydi bu
+  #                 mutasyon YESIL gecerdi.)
+  #   CREATE RULE
+  #       -> internal/handler'in §5 satir sayaclari. OLCULDU (3. tur, gercek
+  #          veritabaninda): kural `ON INSERT … DO INSTEAD NOTHING` olarak
+  #          konunca o ailenin YEDI testinden ALTISI kirmiziya donuyor.
+  #          Kirmiziya DONMEYEN tek test
+  #          TestCheckinDB_Row3_NoSessionRedirectsAndWritesNOTHING'dir ve donmemeli:
+  #          §5 satir 3 zaten "kayit YAZILMAZ" diyen tek satirdir. Ailenin geri
+  #          kalani icin ornek:
+  #          TestCheckinDB_Row7_NoEvidenceIsFlaggedAndRECORDED.
+  #   ALTER TABLE … OWNER TO (UYGULAMA ROLUNE)
+  #       -> internal/db'nin ACILIS SONDASI, ve bu 3. turda YANLIS yaziliydi
+  #          ("hicbir test bir tablonun SAHIBINI olcmuyor"). readRole'un dorduncu
+  #          olgusu tam olarak budur. OLCULDU:
+  #            CREATE TABLE zz_probe_owned (tenant_id uuid NOT NULL);
+  #            ALTER TABLE zz_probe_owned ENABLE ROW LEVEL SECURITY;
+  #            ALTER TABLE zz_probe_owned OWNER TO tappa_app;
+  #              -> KIRMIZI: New havuzu reddetti (owns_or_can_become_owner_of_an_rls_
+  #                 table=true) ve TestReadRoleSeesTheOwnerAndTheApplicationRoleDifferently
+  #                 "ADR 0002 madde 1 says it must not" ile dustu.
+  #          ⚠️ SINIRI: sondanin olctugu sey BAGLANAN rolun sahipligidir. Bir tablonun
+  #          sahibini UCUNCU bir role tasimak (ornegin `OWNER TO tappa_resolver`)
+  #          tappa_app'in olgularini degistirmez ve sessiz gecer.
+  #   ALTER DEFAULT PRIVILEGES
+  #       -> 🔴 BUNUN MEKANIK BIR KAPISI YOK. Bu grep'ten baska hicbir sey onu
+  #          gormuyor: R5'in tablo besligi yeni tablonun kendi GRANT'ini denetler
+  #          ama varsayilan yetkinin SONRADAN ekledigini gormez, ve
+  #          internal/db/rlsforce_test.go RLS bitlerini okur, yetkileri degil.
+  #          Kalan sey kod incelemesi.
+  #
+  # Bu kural yukaridakilerin yerini almaz; onlardan once ucuza ates eder.
+  # 🔴 UP VE DOWN, IKISI DE (3. tur, 2026-08-19 olculdu). Onceki hali bu ikisini
+  # YALNIZ Up'ta ariyordu ve gerekce "bir Down'un Up'taki ENABLE/CREATE'i geri
+  # almasi mesrudur" idi. Bedel sayildi: 107 Down ifadesinde `disable row level
+  # security` 0, `no force row level security` 0, `drop policy` 0 isabet — cunku
+  # her tablo RLS'i ACIK DOGAR (§6) ve onu geri alan sey tablonun kendisini
+  # DROP etmektir, RLS'i kapatmak degil. Yalniz-Up kisiti bu iki desen icin
+  # BEDAVA kaldirilabiliyordu; `drop trigger` icin kaldirilMADI (Down'da 8 mesru
+  # isabet, asagida).
+  while IFS= read -r s; do
+    [[ -n $s ]] || continue
+    rls_mutations+="$f: RLS SOKULUYOR → ${s:0:110}"$'\n'
+  done < <(grep -E '^alter table .*(disable|no force) row level security' \
+             <<<"$stmts"$'\n'"$(sql_statements_down "$f")" || true)
+
+  while IFS= read -r s; do
+    [[ -n $s ]] || continue
+    rls_mutations+="$f: politika SILINIYOR → ${s:0:110}"$'\n'
+  done < <(grep -E '^drop policy' <<<"$stmts"$'\n'"$(sql_statements_down "$f")" || true)
+
+  # IZIN VEREN POLITIKA: tenant yuklemini bir TOTOLOJIYLE degistirmek tabloyu tum
+  # tenant'lara acar. Olculdu: 0 -> 392 197 satir (2026-08-19).
+  #
+  # 🔴 DESEN DEGIL AYRISTIRICI, VE MUAFIYET TAM AD (3. tur). Eski hali
+  # `(using|with check) ?\( ?true ?\)` ariyordu ve UC yazim sessizce geciyordu --
+  # `((true))`, `(1=1)`, `(tenant_id = tenant_id)` -- ustelik muafiyet
+  # `*legal_documents_public*` ALT DIZESINE bakiyordu, yani o metni ADIN icine
+  # gomen bir politika BASKA bir tabloda muaf oluyordu (olculdu: `CREATE POLICY
+  # zz_legal_documents_public_bait ON transactions ... USING (true)` -> exit 0).
+  # Simdi yuklem policy_tautology ile ayristiriliyor ve muafiyet politikanin TAM
+  # ADI + TAM TABLOSU. Ayni tabloya YENI bir izin veren politika yazilirsa kural
+  # yine ateslenir ve bir karar ister.
+  while IFS= read -r s; do
+    [[ -n $s ]] || continue
+    taut=$(policy_tautology "$s")
+    [[ -n $taut ]] || continue
+    grep -qE '^create policy legal_documents_public on ("?public"?\.)?"?legal_documents"?[ (]' <<<"$s" && continue
+    rls_mutations+="$f: IZIN VEREN politika (tenant yuklemi yerine totoloji: ${taut:0:40}) → ${s:0:110}"$'\n'
+  done < <(grep -E '^(create|alter) policy ' \
+             <<<"$stmts"$'\n'"$(sql_statements_down "$f")" || true)
+
+  # `nobypassrls` / `nosuperuser` GUVENLI yondur ve eslesMEMELIDIR: onlerindeki
+  # `o` harfi `[^a-z]` sinifina takilmadigi icin desen onlari gormez (olculdu).
+  # `user` 2. turda EKLENDI (`ALTER USER` = `ALTER ROLE`), `group` 3. turda:
+  # `CREATE GROUP zzg SUPERUSER` iki tur boyunca sessiz geciyordu ve `GROUP` da
+  # PostgreSQL'de ROLE'un esanlamlisidir. Down'da da FAIL: bir rollback uretimde
+  # kosar ve bu ifadenin mesru tersi yok.
+  while IFS= read -r s; do
+    [[ -n $s ]] || continue
+    rls_mutations+="$f: rol RLS'i ATLAR HALE GETIRILIYOR → ${s:0:110}"$'\n'
+  done < <(grep -E '^(alter|create) (role|user|group) .*[^a-z](bypassrls|superuser)' \
+             <<<"$stmts"$'\n'"$(sql_statements_down "$f")" || true)
+
+  # ROL UYELIGI: `GRANT <rol> TO <rol>` -- ` on ` TASIMAYAN bir GRANT bir yetki
+  # degil bir UYELIK verir, ve uyelik bir `SET ROLE` uzagindadir. Acilis sondasi
+  # bunu calisma aninda da olcer (internal/db, InheritsPrivilege), ama bir
+  # migration'in yazdigi uyelik sonda kosmadan ONCE de gorunmelidir.
+  #
+  # 🔴 UC YAZIM DAHA, 3. TURDA OLCULDU. Uyelik yalniz GRANT ile verilmiyor:
+  #   ALTER GROUP tappa_owner ADD USER tappa_app;   -> ayni baglantida 0 -> 331 010 tenant
+  #   ALTER GROUP tappa_resolver ADD USER tappa_app; -> 122 012 plaket / 104 307 tenant
+  #                                                     + 122 012 sarmalanmis AES referansi (§4.7)
+  #   CREATE ROLE zz IN ROLE tappa_owner;            -> ayni kapi, dogum aninda
+  # Ucu de asagidaki iki ek desende. `DROP USER`/`DROP ROLE` yonu GUVENLIDIR ve
+  # eslesmez.
+  while IFS= read -r s; do
+    [[ -n $s ]] || continue
+    rls_mutations+="$f: ROL UYELIGI veriliyor (SET ROLE bir adim uzakta) → ${s:0:110}"$'\n'
+  done < <(grep -E -e '^alter (group|role|user) [a-z0-9_", ]+ add (user|role) ' \
+             -e '^create (role|user|group) .* in (role|group) ' \
+             <<<"$stmts"$'\n'"$(sql_statements_down "$f")" || true)
+
+  while IFS= read -r s; do
+    [[ -n $s ]] || continue
+    [[ $s == *" on "* ]] && continue
+    rls_mutations+="$f: ROL UYELIGI veriliyor (SET ROLE bir adim uzakta) → ${s:0:110}"$'\n'
+  done < <(grep -E '^grant [a-z0-9_",. ]+ to ' \
+             <<<"$stmts"$'\n'"$(sql_statements_down "$f")" || true)
+
+  # ALTER DEFAULT PRIVILEGES: tek ifade, SONRAKI her tabloya kalici yetki. Bir
+  # tablonun dogumunu denetleyen R5, dogumdan sonra otomatik eklenen GRANT'i
+  # goremez.
+  while IFS= read -r s; do
+    [[ -n $s ]] || continue
+    rls_mutations+="$f: VARSAYILAN YETKI degistiriliyor (sonraki her tabloyu etkiler) → ${s:0:110}"$'\n'
+  done < <(grep -E '^alter default privileges.* grant ' \
+             <<<"$stmts"$'\n'"$(sql_statements_down "$f")" || true)
+
+  # VIEW: sahibinin haklariyla degerlendirilir (`security_invoker` varsayilan
+  # OLARAK KAPALI), yani tablo sahibinin actigi bir view RLS'i TAMAMEN atlar.
+  # Olculdu, ayni baglantida: tablo 0 satir, view 392 197 satir / 78 406 tenant;
+  # `WITH (security_invoker = true)` yazilinca view de 0 satir. MATERIALIZED VIEW
+  # muaf edilemez: security_invoker desteklemez.
+  #
+  # 🔴 MUAFIYET ARTIK IFADE METNINDE ARANMIYOR, `WITH ( … )` CUMLESI AYRISTIRILIYOR
+  # (3. tur). Eski hali `security_invoker *= *(true|on)` diye tum ifadede ariyordu
+  # ve bir DIZE SABITIYLE taklit ediliyordu (olculdu, `make audit` yesil):
+  #   CREATE VIEW zz AS SELECT 'security_invoker = true' AS n, t.* FROM transactions t;
+  # opt_clause depolama parametre listesini ` as `den onceki basta, dengeli
+  # parantezle cikarir ve tanimlayici/dize ICERIKLERINI notrlestirir.
+  #
+  # ⚠️ VE BU KURAL YALNIZ MIGRATION'LARI GORUR. Bir view'i migration DISINDA
+  # yaratmak (psql, operator script'i, elle) bu grep'in kapsaminin tamamen
+  # disindadir; onun kapisi internal/db/viewsecurity_test.go'nun KATALOG testidir
+  # (pg_class.reloptions okur, ifade metnini degil) -- sinif tablosu asagida.
+  while IFS= read -r s; do
+    [[ -n $s ]] || continue
+    if [[ $s != *"materialized view"* ]] && invoker_on "$(opt_clause "$s" 'with (')"; then
+      continue
+    fi
+    rls_mutations+="$f: VIEW acilıyor (sahibin haklariyla okunur, RLS atlanir) → ${s:0:110}"$'\n'
+  done < <(grep -E '^create( or replace)?( temp| temporary| recursive)* (materialized )?view ' \
+             <<<"$stmts"$'\n'"$(sql_statements_down "$f")" || true)
+
+  # VAR OLAN BIR VIEW'IN SONRADAN ACILMASI (3. turda olculdu). `CREATE VIEW … WITH
+  # (security_invoker = true)` ile yaratilan bir view, tek bir ALTER ile DEFINER'a
+  # geri cevrilebilir -- ve eski kural yalnizca CREATE'e bakiyordu:
+  #   ALTER VIEW zz SET (security_invoker = false);
+  #   ALTER VIEW zz RESET (security_invoker);        -- varsayilana, yani DEFINER'a
+  #   ALTER VIEW zz OWNER TO tappa_owner;            -- definer'i degistirir
+  # `SET (security_invoker = true)` bir ONARIMDIR ve eslesMEZ.
+  while IFS= read -r s; do
+    [[ -n $s ]] || continue
+    if [[ $s == *"set ("* && $s != *"reset ("* ]] && invoker_on "$(opt_clause "$s" 'set (')"; then
+      continue
+    fi
+    rls_mutations+="$f: VIEW sonradan DEFINER'a cevriliyor → ${s:0:110}"$'\n'
+  done < <(grep -E '^alter( materialized)? view .*(security_invoker|owner to )' \
+             <<<"$stmts"$'\n'"$(sql_statements_down "$f")" || true)
+
+  # KURAL (CREATE RULE): §4.6'yi TEK IFADEDE kapatir ve bir tetikleyici degildir,
+  # yani tetikleyici kurallarinin hicbiri gormuyordu (3. turda olculdu):
+  #   CREATE RULE zz AS ON INSERT TO transactions DO INSTEAD NOTHING;
+  # -> INSERT `INSERT 0 0` doner: HATA YOK, SATIR YOK. Yani her tap sessizce
+  # kaybolur ve cagiran basarili sanir. §4.6'nin mekanik kapisi bu grep degil,
+  # CI'da kosan §5 satir sayaclaridir (internal/handler, ornek:
+  # TestCheckinDB_Row7_NoEvidenceIsFlaggedAndRECORDED); dogrulandi (3. tur, gercek
+  # veritabaninda): kural konunca o ailenin yedi testinden altisi KIRMIZIYA doner.
+  while IFS= read -r s; do
+    [[ -n $s ]] || continue
+    rls_mutations+="$f: KURAL (RULE) yaratiliyor — DML'i sessizce yeniden yazabilir (§4.6/§4.3) → ${s:0:110}"$'\n'
+  done < <(grep -E '^create( or replace)? rule ' \
+             <<<"$stmts"$'\n'"$(sql_statements_down "$f")" || true)
+
+  # APPEND-ONLY TABLOYA UPDATE/DELETE/TRUNCATE GRANT'i (§4.3). `select, insert`
+  # MESRU ve eslesMEZ; suzgec yetki listesinde update/delete/truncate arar.
+  #
+  # 🔴 IKI YAZIM 3. TURDA OLCULDU VE IKISI DE SESSIZ GECIYORDU:
+  #   GRANT UPDATE ON TABLE transactions TO tappa_app;   -- `TABLE` istege baglidir
+  #   GRANT UPDATE ON ALL TABLES IN SCHEMA public TO tappa_app;  -- ALTI tabloyu birden
+  # Ilki icin desen artik istege bagli `table `/`only ` onekini yutuyor; ikincisi
+  # ayri bir kural, cunku hicbir tablo adi tasimiyor.
+  while IFS= read -r s; do
+    [[ -n $s ]] || continue
+    rls_mutations+="$f: append-only tabloya UPDATE/DELETE yetkisi (§4.3) → ${s:0:110}"$'\n'
+  done < <(grep -E "^grant [a-z_0-9, ()]*(update|delete|truncate)[a-z_0-9, ()]* on (table |only )*[^ ]*($APPEND_ONLY)" \
+             <<<"$stmts"$'\n'"$(sql_statements_down "$f")" || true)
+
+  while IFS= read -r s; do
+    [[ -n $s ]] || continue
+    rls_mutations+="$f: SEMA CAPINDA UPDATE/DELETE yetkisi — append-only tablolarin ALTISI da dahil (§4.3) → ${s:0:110}"$'\n'
+  done < <(grep -E "^grant [a-z_0-9, ()]*(update|delete|truncate)[a-z_0-9, ()]* on all tables in schema " \
+             <<<"$stmts"$'\n'"$(sql_statements_down "$f")" || true)
+
+  # TETIKLEYICI SOKME (§4.3'un mekanik kapisi). `drop trigger` YALNIZ Up'ta FAIL:
+  # bir Down'un Up'ta yarattigi tetikleyiciyi silmesi mesrudur ve olculdu (8 isabet,
+  # hepsi mesru). `disable trigger` ve `enable always/replica` ikisinde de FAIL --
+  # bunlarin mesru bir tersi yok.
+  while IFS= read -r s; do
+    [[ -n $s ]] || continue
+    rls_mutations+="$f: TETIKLEYICI siliniyor (§4.3'un kapisi) → ${s:0:110}"$'\n'
+  done < <(grep -E '^drop trigger' <<<"$stmts" || true)
+
+  while IFS= read -r s; do
+    [[ -n $s ]] || continue
+    rls_mutations+="$f: TETIKLEYICI kapatiliyor (§4.3'un kapisi) → ${s:0:110}"$'\n'
+  done < <(grep -E '^alter table .* (disable|enable always|enable replica) trigger' \
+             <<<"$stmts"$'\n'"$(sql_statements_down "$f")" || true)
+
+  # SAHIPLIK: bir tablonun sahibi FORCE ROW LEVEL SECURITY'yi GERI ALABILIR. FORCE
+  # DML'i korur, sahibin FORCE'u KALDIRMA hakkini kaldirmaz -- olculdu.
+  while IFS= read -r s; do
+    [[ -n $s ]] || continue
+    rls_mutations+="$f: TABLO SAHIPLIGI degistiriliyor (sahip FORCE'u geri alabilir) → ${s:0:110}"$'\n'
+  done < <(grep -E '^alter table .* owner to ' \
+             <<<"$stmts"$'\n'"$(sql_statements_down "$f")" || true)
+
+  # GRANT ALL, tappa_app'e `transactions` uzerinde UPDATE/DELETE de verir (§4.3).
+  # Rol adi TAM eslesmeli — yukaridaki GRANT kontrolunun ayni suzgeci.
+  while IFS= read -r s; do
+    [[ -n $s ]] || continue
+    roles=${s##* to }
+    [[ " ${roles//[!a-z0-9_]/ } " == *" tappa_app "* ]] || continue
+    rls_mutations+="$f: uygulama roluna GRANT ALL → ${s:0:110}"$'\n'
+  done < <(grep -E '^grant all( privileges)? .* to ' \
+             <<<"$stmts"$'\n'"$(sql_statements_down "$f")" || true)
 done
 report FAIL R5 "Migration'da tablo besligi eksik (tenant_id + indeks + ENABLE/FORCE RLS + politika + GRANT)" "${missing_rls%$'\n'}"
+
+report FAIL R5b "Migration §4.5/§4.3/§4.6'yi SOKUYOR (RLS kapatma · politika silme veya totolojik yuklem · BYPASSRLS-SUPERUSER rol/grup · rol uyeligi · varsayilan yetki · view acma veya definer'a cevirme · KURAL (RULE) · tablo sahipligi · tetikleyici · append-only UPDATE/DELETE · sema capinda UPDATE/DELETE · GRANT ALL)" "${rls_mutations%$'\n'}"
 
 report WARN R5 "Tenant kapsamindan MUAF birakilmis tablo(lar) — muafiyet sessiz kalmamali" "${waiver_report%$'\n'}"
 
@@ -482,7 +1287,7 @@ report WARN R5 "Tablo yaratimi R5'in gorus alani disinda — elle denetle" "${un
 # kullanimi hala yakalanir. NOT: bu muafiyet R5'in yalniz bu (migrate-URL) taramasi
 # icindir; migration-besligi (db/migrations) ve SET-LOCAL kontrolu etkilenmez.
 report FAIL R5 "Uygulama migration rolu ile baglaniyor — RLS etkisiz kalir" \
-  "$(scan -e 'DATABASE_MIGRATE_URL' --glob '!cmd/migrate/*' --glob '!internal/config/*' --glob '!**/*_test.go' || true)"
+  "$(scan_in SRC_CODE -e 'DATABASE_MIGRATE_URL' --glob '!cmd/migrate/*' --glob '!internal/config/*' --glob '!**/*_test.go' || true)"
 
 report WARN R5 "SET LOCAL degil duz SET — havuzdaki baglantiyi kirletir" \
   "$(scan -e "SET +app\.tenant_id" | grep -viE 'SET +LOCAL' || true)"
@@ -600,7 +1405,89 @@ R7_PATTERN="(slog|log|fmt)\\.[A-Za-z]+\\((?:[^()]|\\([^()]*\\))*($R7_TRIGGERS)"
 # ⚠️ TEK SATIR, `##` ile ayrilmis: BSD awk (`-v`) deger icinde SATIR SONU KABUL
 # ETMEZ ("newline in string" ile patlar ve tarama sessizce yarim kalir -- olculdu,
 # bu tur, macOS). R1'in tablosu tek degerli oldugu icin bu sorunu hic gormemisti.
-R7_WAIVERS='test/fixtures/seedkeys/main[.]go;;aes_key_ref##internal/adminauth/password[.]go;;ErrPasswordTooLong##internal/domain/signup/signup[.]go;;"password";;MinPasswordRunes'
+#
+# W4 deploy/README.md -- M8-04'te SRC'ye `deploy` eklenince ortaya cikan IKI satir,
+#    ve ikisi de W2/W3'un KENDISINI ANLATAN belge satirlari: README'nin R7 muafiyet
+#    TABLOSU, muaf edilen Go cagrilarini ALINTILIYOR. Yani tetikleyen metin, bu
+#    script'in kendi muafiyetlerinin gerekcesi. Masum belirtecler tek tek yazildi
+#    (`password.go` bir DOSYA ADI, `ErrPasswordTooLong` bir SENTINEL,
+#    `MinPasswordRunes` bir SABIT) -- dosyaya GERCEK bir `token`/`cmac`/`aes_key`
+#    girerse bolge yine FAIL uretir, cunku muafiyet dosyayi degil bu belirtecleri
+#    affeder.
+#
+#    🔴 W4 DARALTILDI (2. tur, 2026-08-19) -- ILK HALI `password` TETIKLEYICISINI
+#    BU DOSYA ICIN TAMAMEN ETKISIZ KILIYORDU. Belirtec listesinde CIPLAK
+#    `"password"` ve `a[.]password` vardi; ikisi de gercek bir sizinti satirinin
+#    icinde de gecer. Olculdu, o hallerinde:
+#      log.Info("admin sign-in", "password", pw)             -> exit=0, SESSIZCE MUAF
+#      slog.Error("login failed", "a.password", a.Password)  -> exit=0, SESSIZCE MUAF
+#    Simdi iki belirtec de MARKDOWN KOD ISARETLERIYLE BIRLIKTE yaziliyor, cunku
+#    README onlari her zaman kod araligi olarak ALINTILIYOR; bir log cagrisinda
+#    ayni metin isaretsiz gecer ve muaf olmaz. Ayni iki sonda simdi FAIL veriyor
+#    (pozitif kontrol asagida degil, gorev raporunda -- burada yalnizca sebep).
+#    ⚠️ Bes adlandirilmis §4.7 sirri (token · cmac · aes_key · davet kodu · GPS)
+#    daraltmadan ONCE de FAIL veriyordu; delik yalnizca `password` icindi.
+#
+#    🔴 VE 2. TURUN DARALTMASI YARIMDI — KALAN IKI CIPLAK BELIRTEC 3. TURDA OLCULDU:
+#      slog.Info("admin sign-in", "password.go", pw)   -> exit=0, SESSIZCE MUAF
+#      fmt.Printf("minpasswordrunes=%s", raw)          -> exit=0, SESSIZCE MUAF
+#    Sebep ayni: `password[.]go` ve `minpasswordrunes` CIPLAK yaziliydi. Ikisi de
+#    artik README'nin GERCEKTEN kullandigi IKI bicimle sinirli — tek basina kod
+#    araligi (`…`) ve daha uzun bir kod araliginin ICINDE, cagri sonundaki tam
+#    metinle. `errpasswordtoolong` da ayni sekilde daraltildi (o da ciplakti).
+#    ⚠️ NEDEN IKI BICIM: README bu adlari hem "belirtec" sutununda TEK BASINA
+#    alintiliyor hem de muaf edilen cagriyi (`fmt.Errorf(…, ErrPasswordTooLong, n)`,
+#    `fmt.Sprintf(…, MinPasswordRunes)`) bir butun olarak alintiliyor; ikinci
+#    bicimde ad kendi kod isaretlerini TASIMAZ. Tek bicim yazmak mesru satiri
+#    kizartirdi (olculdu), her ikisini ciplak birakmak ise deligi acik tutuyordu.
+#
+#    ==========================================================================
+#    🔴 4. TUR: DARALTMA BURADA DURUYOR. KALAN, SAYILMIS LIMIT OLARAK YAZILDI.
+#    ==========================================================================
+#    Uc turdur ayni sey oluyor: bir belirtec daraltiliyor, bir sonraki tur onun
+#    yeni yazimini buluyor. M5-06'nin kurali (agent-brief.md, "Yeni kanal
+#    KAPATILMAZ, sayilir") bu noktada devreye girer. Dorduncu kez daraltmak yerine
+#    KALAN OLCULDU — on sonda, her biri deploy/README.md'nin SONUNA eklenip
+#    `./scripts/redline-check.sh` cikis kodu okunarak (mutasyon her seferinde geri
+#    alindi, `cmp` ile dogrulandi):
+#
+#      log.Info("admin sign-in", "password", pw) ................. exit=1
+#      slog.Error("login failed", "a.password", pw) .............. exit=1
+#      slog.Info("admin sign-in", "password.go", pw) ............. exit=1
+#      fmt.Printf("minpasswordrunes=%s", pw) ..................... exit=1
+#      slog.Info("x", "errpasswordtoolong", pw) .................. exit=1
+#      log.Info("admin sign-in", `"password"`, pw) ............... exit=0  <- MUAF
+#      slog.Info("cfg", `internal/adminauth/password.go`, pw) .... exit=0  <- MUAF
+#      slog.Info("cfg", `errpasswordtoolong`, pw) ................ exit=0  <- MUAF
+#      slog.Info("cfg", `minpasswordrunes`, pw) .................. exit=0  <- MUAF
+#      slog.Info("cfg", `a.password`, pw) ........................ exit=0  <- MUAF
+#
+#    🔴 SEBEP DARALTMAYLA COZULEMEZ, VE BU KALAN LIMITIN NIYE LIMIT OLDUGUDUR:
+#    markdown KOD ISARETI ile Go'nun HAM DIZE sinirlayicisi AYNI KARAKTERDIR (`).
+#    Yani "README bunu bir kod araligi olarak alintiliyor" ile "bir Go satiri bunu
+#    ham dize olarak yaziyor" BIREBIR AYNI BAYTLARDIR. Ikisini ayirt edebilecek tek
+#    sey bir Markdown/Go AYRISTIRICISIDIR; bir grep degil. Belirteci daha da
+#    daraltmak (ornegin cevresine tablo boru isareti sartı koymak) bu sefer
+#    README'nin gercek satirini kizartirdi — olculdu, 3. turda ayni sekilde oldu.
+#
+#    KALAN DELIGIN SINIRLARI, OLCUYLE:
+#      · YALNIZCA `deploy/README.md`. Ayni on satir `internal/handler/` altindaki
+#        bir Go dosyasina konuldugunda ONUNUN DE cikis kodu 1 — muafiyet dosyaya
+#        bagli, yani uretim kodunda boyle bir satir hicbir yazimla muaf olamaz.
+#      · YALNIZCA `password` TETIKLEYICISI. §4.7'nin bes ADLANDIRILMIS sirri ayni
+#        muaf belirteci TASIYAN bir satirda bile FAIL veriyor (olculdu, hepsi exit=1):
+#          log.Info("t", `"password"`, sessionToken) ... token   -> exit=1
+#          log.Info("t", `"password"`, cmac) ........... cmac    -> exit=1
+#          log.Info("t", `"password"`, aes_key) ........ aes_key -> exit=1
+#          log.Info("t", `"password"`, inviteCode) ..... davet   -> exit=1
+#          log.Info("t", `"password"`, gpsLat, gpsLng) . GPS     -> exit=1
+#      · Yani affedilen sey: "deploy/README.md icinde, `password` tetikleyicisiyle,
+#        muaf belirtecin kod-isaretli yazimini tasiyan bir bolge". Affedilmeyen sey:
+#        ayni dosyadaki bes adlandirilmis sir, ve BASKA HER DOSYA.
+#      · Bu bir belge dosyasidir; oradaki bir "sizinti" calisan bir log cagrisi
+#        degil, yazilmis bir orneKtir. Delik gercek ama uretim kodunda kosmuyor —
+#        ve bunu yazmak, kapatildigini iddia etmekten guvenlidir.
+R7_WAIVERS='test/fixtures/seedkeys/main[.]go;;aes_key_ref##internal/adminauth/password[.]go;;ErrPasswordTooLong##internal/domain/signup/signup[.]go;;"password";;MinPasswordRunes##deploy/README[.]md;;`errpasswordtoolong`;;errpasswordtoolong, n\);;`internal/adminauth/password[.]go`;;`minpasswordrunes`;;minpasswordrunes\);;`a[.]password`;;`"password"`'
 
 r7_raw="$(scan -U -i -e "$R7_PATTERN" || true)"
 

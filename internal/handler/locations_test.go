@@ -351,6 +351,76 @@ func TestParseRanges_AcceptsWhatPostgresWouldAndRefusesWhatItWouldNot(t *testing
 		},
 		{name: "nonsense is refused", raw: "not-an-address", wantMsg: "not an address"},
 		{name: "a bad mask is refused", raw: "192.168.1.0/99", wantMsg: "not an address range"},
+		// 🔴 BACKLOG T40. A "/0" here made every later tap at this venue record
+		// `ip_match=t, trust=70, note="network proof of place..."` into an IMMUTABLE
+		// row, for a tap that could have come from anywhere. The limit, its derivation
+		// and the three measured exploit spellings live on netx.TooWideForProofOfPlace;
+		// these rows pin the SENTENCE the manager reads.
+		{
+			name: "a default route is refused and named",
+			raw:  "0.0.0.0/0", wantMsg: "0.0.0.0/0",
+		},
+		{
+			name: "the v6 default route too",
+			raw:  "::/0", wantMsg: "covers far more of the internet than one venue's network can",
+		},
+		{
+			name: "a real range does not launder a default route beside it",
+			raw:  "192.168.1.0/24\n0.0.0.0/0", wantMsg: "0.0.0.0/0",
+		},
+		{
+			// A /1 is over the limit on its own, so the manager is pointed at a LINE
+			// they can delete rather than at "the list".
+			name: "a UNION of the two halves names the first over-wide line",
+			raw:  "0.0.0.0/1, 128.0.0.0/1", wantMsg: "0.0.0.0/1",
+		},
+		{
+			// 🔴 THE SENTENCE FOR THE OTHER BRANCH, WHICH NO OTHER ROW REACHES. Three
+			// /8s: each entry is at or under the limit, so no single line can be blamed
+			// and the message has to be about the list. Without a row here the
+			// "Together, ..." string would be unreachable and could rot unnoticed.
+			name: "three ISP allocations are refused as a LIST, with no line blamed",
+			raw:  "10.0.0.0/8\n11.0.0.0/8\n12.0.0.0/8", wantMsg: "Together, those ranges",
+		},
+		{
+			// 🔴 EXPLOIT 2 OF 3 (5th round). Eight lines omitting only 25.0.0.0/8 —
+			// measured on this tree as `accepted=8 refused=""` before the width rule,
+			// after which taps from four unrelated public addresses were recorded
+			// verdict=ok ip_match=true trust=70 on NFC and QR alike.
+			name: "the eight lines that omit only 25.0.0.0/8 are refused",
+			raw: "128.0.0.0/1\n64.0.0.0/2\n32.0.0.0/3\n0.0.0.0/4\n" +
+				"16.0.0.0/5\n28.0.0.0/6\n26.0.0.0/7\n24.0.0.0/8",
+			wantMsg: "128.0.0.0/1",
+		},
+		{
+			// 🔴 EXPLOIT 3 OF 3. Twenty-four lines omitting only RFC 5737 TEST-NET-1,
+			// which is never routed — so this list eliminates NOBODY, and maxStaticRanges
+			// is 32, so the field holds it with room to spare.
+			name: "the 24 lines that omit only TEST-NET-1 are refused",
+			raw: "0.0.0.0/1, 128.0.0.0/2, 224.0.0.0/3, 208.0.0.0/4, 200.0.0.0/5, 196.0.0.0/6, " +
+				"194.0.0.0/7, 193.0.0.0/8, 192.128.0.0/9, 192.64.0.0/10, 192.32.0.0/11, " +
+				"192.16.0.0/12, 192.8.0.0/13, 192.4.0.0/14, 192.2.0.0/15, 192.1.0.0/16, " +
+				"192.0.128.0/17, 192.0.64.0/18, 192.0.32.0/19, 192.0.16.0/20, 192.0.8.0/21, " +
+				"192.0.4.0/22, 192.0.0.0/23, 192.0.3.0/24",
+			wantMsg: "0.0.0.0/1",
+		},
+		{
+			// POSITIVE CONTROL FOR T40: the repair must refuse a claim, not a venue.
+			// /29 and /24 are the masklens the development database actually holds.
+			name: "a legitimate ISP block is still accepted",
+			raw:  "81.240.16.8/29", want: []string{"81.240.16.8/29"},
+		},
+		{
+			name: "a wide but real range is still accepted",
+			raw:  "10.0.0.0/8", want: []string{"10.0.0.0/8"},
+		},
+		{
+			// AND THE SHAPE THE LIMIT'S DOUBLING EXISTS FOR: a wholly private
+			// deployment, a corporate /8 beside a guest /16, must still save.
+			name: "a fully private deployment is still accepted",
+			raw:  "10.0.0.0/8\n192.168.0.0/16",
+			want: []string{"10.0.0.0/8", "192.168.0.0/16"},
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

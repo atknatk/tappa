@@ -92,6 +92,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	"github.com/atknatk/tappa/internal/audit"
+	"github.com/atknatk/tappa/internal/netx"
 	"github.com/atknatk/tappa/internal/store"
 )
 
@@ -131,6 +132,13 @@ var (
 	// stores a different name than the one they typed and says nothing about it.
 	ErrVenueName      = errors.New("tenant: that venue name cannot be stored")
 	ErrDepartmentName = errors.New("tenant: that department name cannot be stored")
+
+	// ErrVenueRangeTooWide: the address ranges offered for this venue cover more of
+	// an address family than a venue's network plausibly can, so they cannot be
+	// evidence of anything. The limit, why it is a WIDTH and no longer a coverage
+	// question, and the three measured exploit spellings that forced the change are
+	// on netx.TooWideForProofOfPlace.
+	ErrVenueRangeTooWide = errors.New("tenant: an address range too wide to tell this venue apart is not proof of place")
 )
 
 // MaxVenueNameRunes bounds a stored venue or department name.
@@ -1024,6 +1032,19 @@ func (v *Venues) SaveVenue(ctx context.Context, c VenueCommand) (Venue, error) {
 	if err != nil {
 		return Venue{}, err
 	}
+	// 🔴 REFUSED HERE AS WELL AS AT THE BOUNDARY, and the duplication is the point:
+	// this is the invariant, the handler's copy is the SENTENCE. A range wide enough
+	// to match essentially everybody would be written into locations.static_ips and
+	// then quoted, tap after tap, into an IMMUTABLE transaction row as "network proof
+	// of place".
+	//
+	// The predicate itself lives in internal/netx, which is a pure package both this
+	// one and internal/domain/tap may import: tap applies the SAME function on the
+	// READ side, so a row stored before this refusal existed cannot go on producing
+	// proof either (§4.3 — an immutable row can never be corrected).
+	if _, tooWide := netx.TooWideForProofOfPlace(c.StaticIPs); tooWide {
+		return Venue{}, ErrVenueRangeTooWide
+	}
 	if err := requireActor(c.TenantID, c.ActorID); err != nil {
 		return Venue{}, err
 	}
@@ -1508,6 +1529,7 @@ func wrapVenue(op string, err error) error {
 	case errors.Is(err, ErrUnknownVenue),
 		errors.Is(err, ErrUnknownDepartment),
 		errors.Is(err, ErrVenueName),
+		errors.Is(err, ErrVenueRangeTooWide),
 		errors.Is(err, ErrDepartmentName):
 		return err
 	default:

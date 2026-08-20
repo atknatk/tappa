@@ -149,6 +149,17 @@ func (a *AdminAuth) saveVenue(w http.ResponseWriter, r *http.Request) {
 		a.renderVenueFormAgain(w, r, venueFormFromSubmission(sub, r), "name",
 			"That name cannot be stored. Try a shorter one.")
 		return
+	case errors.Is(err, tenant.ErrVenueRangeTooWide):
+		// Same shape as the name case above, and it means the same thing: the
+		// boundary and the domain disagreed about a value, which is a defect rather
+		// than a manager's mistake -- parseRanges already refuses this. It is still
+		// shown as a form failure, because the alternative is a 500 on a screen where
+		// the manager can see and fix the field.
+		a.log.Error("panel venue save: the domain refused an address range the boundary accepted")
+		a.renderVenueFormAgain(w, r, venueFormFromSubmission(sub, r), "static_ips",
+			"Those address ranges cover every address a visitor could arrive from, so they cannot be "+
+				"proof of place. Give the ranges your venue actually uses.")
+		return
 	default:
 		a.log.Error("panel: could not save the venue", "err", err, "venue_id", sub.VenueID)
 		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelUnavailable)

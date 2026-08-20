@@ -565,6 +565,111 @@ func TestVenues_StaticIPsRoundTripAndAnEmptyListIsAConfiguration(t *testing.T) {
 	}
 }
 
+// TestVenues_ARangeTooWideForProofOfPlaceIsRefusedAndNeverStored is backlog T40's
+// positive control, taken all the way to the column.
+//
+// 🔴 WHAT IT IS FOR. Before M8-04 a manager could set a venue's range to 0.0.0.0/0
+// from the panel, and the next tap FROM ANYWHERE was recorded as
+// `verdict=ok trust=70 ip_match=t` with the note "network proof of place: the
+// source IP matches the location". transactions are immutable (section 4.3), so
+// those rows could never be corrected — and with no GPS permission `tap:gpsConflict`
+// never fires, so ADR 0005's detection signal for risk 4 stays silent.
+//
+// 🔴 ITS NAME MOVED IN THE 5th ROUND WITH THE PREDICATE'S. "Matches everybody" was
+// a coverage claim, and two measured spellings that match essentially everybody do
+// NOT match everybody — the eight lines below omit 25.0.0.0/8, the twenty-four omit
+// RFC 5737's never-routed 192.0.2.0/24. Both were stored happily by this very
+// function before the width rule; both are driven here now.
+//
+// It asserts BOTH directions, because a refusal that also refuses real venues is
+// not a repair: the /29 below is a masklen the development database actually holds.
+func TestVenues_ARangeTooWideForProofOfPlaceIsRefusedAndNeverStored(t *testing.T) {
+	f := newVenueFixture(t)
+	ctx := context.Background()
+
+	mustPrefixes := func(ss ...string) []netip.Prefix {
+		out := make([]netip.Prefix, 0, len(ss))
+		for _, s := range ss {
+			out = append(out, netip.MustParsePrefix(s))
+		}
+		return out
+	}
+
+	before := f.venueCount(t, f.tenantID)
+	for _, tc := range []struct {
+		name string
+		ips  []netip.Prefix
+	}{
+		{"the v4 default route", []netip.Prefix{netip.MustParsePrefix("0.0.0.0/0")}},
+		{"the v6 default route", []netip.Prefix{netip.MustParsePrefix("::/0")}},
+		{"a real range does not launder one beside it", []netip.Prefix{
+			netip.MustParsePrefix("192.168.1.0/24"), netip.MustParsePrefix("0.0.0.0/0"),
+		}},
+		{"a union that leaves no address out", []netip.Prefix{
+			netip.MustParsePrefix("0.0.0.0/1"), netip.MustParsePrefix("128.0.0.0/1"),
+		}},
+		{"eight lines that omit only 25.0.0.0/8", mustPrefixes(
+			"128.0.0.0/1", "64.0.0.0/2", "32.0.0.0/3", "0.0.0.0/4",
+			"16.0.0.0/5", "28.0.0.0/6", "26.0.0.0/7", "24.0.0.0/8",
+		)},
+		{"24 lines that omit only RFC 5737 TEST-NET-1", mustPrefixes(
+			"0.0.0.0/1", "128.0.0.0/2", "224.0.0.0/3", "208.0.0.0/4",
+			"200.0.0.0/5", "196.0.0.0/6", "194.0.0.0/7", "193.0.0.0/8",
+			"192.128.0.0/9", "192.64.0.0/10", "192.32.0.0/11", "192.16.0.0/12",
+			"192.8.0.0/13", "192.4.0.0/14", "192.2.0.0/15", "192.1.0.0/16",
+			"192.0.128.0/17", "192.0.64.0/18", "192.0.32.0/19", "192.0.16.0/20",
+			"192.0.8.0/21", "192.0.4.0/22", "192.0.0.0/23", "192.0.3.0/24",
+		)},
+		{"three ISP allocations, where no single line is over the limit", mustPrefixes(
+			"10.0.0.0/8", "11.0.0.0/8", "12.0.0.0/8",
+		)},
+	} {
+		if _, err := f.venues.SaveVenue(ctx, VenueCommand{
+			TenantID: f.tenantID, ActorID: f.actorID, Name: "Everywhere", StaticIPs: tc.ips,
+		}); !errors.Is(err, ErrVenueRangeTooWide) {
+			t.Errorf("%s: SaveVenue answered %v, want ErrVenueRangeTooWide", tc.name, err)
+		}
+	}
+	if after := f.venueCount(t, f.tenantID); after != before {
+		t.Errorf("a refused range was stored anyway (%d venues, was %d); the row it would "+
+			"have produced is IMMUTABLE", after, before)
+	}
+
+	// THE CONTROL. An ordinary ISP block and an ordinary subnet must still save, and
+	// must still count as proof of place — otherwise the repair broke the product.
+	ok, err := f.venues.SaveVenue(ctx, VenueCommand{
+		TenantID: f.tenantID, ActorID: f.actorID, Name: "Rusty Bar",
+		StaticIPs: []netip.Prefix{
+			netip.MustParsePrefix("81.240.16.8/29"),
+			netip.MustParsePrefix("192.168.1.0/24"),
+		},
+	})
+	if err != nil {
+		t.Fatalf("a legitimate /29 was refused: %v", err)
+	}
+	if len(ok.StaticIPs) != 2 || !ok.HasProofOfPlace() {
+		t.Errorf("the accepted venue stored %v and reports proof of place = %v",
+			ok.StaticIPs, ok.HasProofOfPlace())
+	}
+
+	// AND THE SECOND CONTROL, WHICH IS THE ONE THE 5th ROUND'S LIMIT COULD HAVE
+	// BROKEN. A wholly private deployment — a corporate /8 beside a guest /16 — covers
+	// 65 536 addresses MORE than a bare /8; with the limit set at a /8 rather than a
+	// /7 this save would fail, and a manager with that network could not configure
+	// their venue at all.
+	priv, err := f.venues.SaveVenue(ctx, VenueCommand{
+		TenantID: f.tenantID, ActorID: f.actorID, Name: "Kebab Manufacturing HQ",
+		StaticIPs: mustPrefixes("10.0.0.0/8", "192.168.0.0/16"),
+	})
+	if err != nil {
+		t.Fatalf("a wholly private deployment was refused: %v", err)
+	}
+	if len(priv.StaticIPs) != 2 || !priv.HasProofOfPlace() {
+		t.Errorf("the private deployment stored %v and reports proof of place = %v",
+			priv.StaticIPs, priv.HasProofOfPlace())
+	}
+}
+
 // --- the trail shares the write's fate ----------------------------------------------
 
 // failingTrail is a Trail that refuses. It exists to answer one question that cannot
