@@ -3733,6 +3733,31 @@ tablosu çıkmış durumda (satış slaytı da olur).
 > — ölçülmediği de orada yazıyor. Seçim **kullanıcınındır** (yeni bağımlılık,
 > CLAUDE.md §1).
 >
+> > 🔴 **Kart düzeltmesi (2026-08-20).** Yukarıdaki *"maliyet hâlâ ölçülmedi"*
+> > **artık yanlış** ve *"iki yol"* da eksik. Kullanıcının *"önce ÖLÇ, sonra karar
+> > ver"* talimatıyla **dört yol** ölçüldü ve `deploy/README.md` → *Plaket encode*
+> > → **"Dört yol — ÖLÇÜLDÜ (2026-08-20)"** alt bölümüne yazıldı: **A** USB
+> > okuyucu + Go (**€42–48**, 1 Go modülü) · **B** kendi Android app'imiz (**€0**,
+> > yeni dil zinciri) · **C** kendi iOS app'imiz (**$99/yıl** + macOS) · **D**
+> > üçüncü parti (**$29,99/yıl**, 🔴 **ADR 0003 md.5 ihlali**).
+> > 🔴 **VE ÖLÇÜM BU KARTIN ÜÇ CÜMLESİNİ ÇÜRÜTTÜ:** *(i)* *"hazır uygulamalar
+> > `ChangeKey` yapamaz"* — NXP TagWriter `ChangeFileSettings`/SDM'i **yapıyor**
+> > (kılavuz Rev 1.29 §4.3–4.7), `ChangeKey`'i yapmıyor; ve **NFC.cool Tools
+> > telefonda ikisini de yapıyor**. Ama hiçbiri işe yaramıyor ve sebebi **protokol**:
+> > `ChangeKey` gövdesi `Eski ⊕ Yeni ‖ KeyVer ‖ CRC32`, onu kuran taraf düz anahtarı
+> > **görmek zorunda**. *(ii)* *"NXP'nin resmî yolu RFIDDiscover + PEGODA"* — AN12196
+> > rev. 1.8 **ve** 2.0'ın kişiselleştirme bölümü **hiçbir araç adı vermiyor**;
+> > `PEGODA` ve `TagXplorer` iki revizyonda da **sıfır kez** geçiyor. *(iii)* Asıl
+> > eksen *"araç hangi cihazda koşuyor"* değil, **APDU RÖLESİ mümkün mü** — çipe
+> > dokunan taraf yalnız bayt taşır, kripto sunucuda koşar, düz anahtar sunucudan
+> > **çıkmaz**. `ISO 14443-4`'te `FWT` **PICC'in** yanıt gecikmesini sınırlar,
+> > PCD'nin düşünme süresini değil → araya ağ turu koymak standardı bozmuyor. Bu
+> > sayede **A, B ve C'nin üçü de ADR 0003 md.5'i tadil etmeden** sağlıyor.
+> > **Kararı belirleyen tek ölçüm yapılmadı:** iOS'un **~20 sn sert** bağlantı
+> > sınırının altında tam bir röleli tur yetişiyor mu (kaba hesap 17 tur × ~150 ms
+> > ≈ 2,6 sn diyor, **silikonda ölçüm yok**). Yetişirse C ile B aynı sınıfa çıkar;
+> > yetişmezse seçim **A ile B** arasına iner. **Hiçbir çip encode edilmedi.**
+>
 > **(3) "Uçtan uca doğrulama"nın NEYİ kanıtlaması gerektiği eksikti — ve bu artık
 > boş bir uyarı değil, ADLANDIRILMIŞ bir şüphe.** ⚠️ **Bu bloktaki bölüm/tablo
 > numaraları AN12196 rev. 1.8'indir; rev. 2.0 karşılıkları parantezde.** FAZ A'da

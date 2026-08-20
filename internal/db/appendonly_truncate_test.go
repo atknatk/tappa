@@ -2,10 +2,15 @@ package db
 
 import (
 	"context"
+	"errors"
+	"math/rand"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // ============================================================================
@@ -28,11 +33,48 @@ import (
 // product path can restore. tx.Rollback is deferred before the statement is
 // issued, so it runs on t.Fatal (Goexit runs defers) as well as on success.
 //
-// LOCK NOTE: TRUNCATE takes ACCESS EXCLUSIVE on the table AND on everything it
-// cascades to, and `go test ./...` runs other packages against the same database.
-// lock_timeout turns a pathological wait into a diagnosable error instead of a
-// hung suite; if a run ever fails with 55P03 the cause is contention, not a
-// missing guard, and the message below says so.
+// 🔴 LOCK NOTE -- THIS IS BACKLOG T57, AND THE PARAGRAPH THAT USED TO STAND HERE
+// WAS WRONG IN A WAY ONLY A FULL SUITE RUN COULD SHOW.
+//
+// TRUNCATE takes ACCESS EXCLUSIVE on the table AND on everything it cascades to
+// -- for `TRUNCATE tenants CASCADE` that is tenants plus the sixteen tables that
+// reference it -- while `go test ./...` runs every other package against the same
+// database. The old note said lock_timeout would turn that contention into a
+// diagnosable 55P03. IT COULD NOT, AND SAYING SO WAS THE WHOLE DEFECT: the wait
+// was set to 30s and PostgreSQL runs its deadlock detector at deadlock_timeout,
+// one second by default, so a cycle is broken twenty-nine seconds before
+// lock_timeout has anything to say. The error that actually reached this test was
+// `deadlock detected (SQLSTATE 40P01)`, which is not 55P03 and which
+// assertAppendOnlyTrigger reported as "want the append-only trigger ... got
+// deadlock" -- i.e. the one mitigation in the file was inert, and the failure it
+// failed to prevent read like a section 4.3 breach.
+//
+// THE CYCLE, measured 2026-08-20 with two psql sessions and no rows written
+// (LOCK TABLE / FOR KEY SHARE take the same locks an INSERT does):
+//
+//	session A   ROW EXCLUSIVE on transactions (the INSERT every other package makes)
+//	            then ROW SHARE on tenants     (that INSERT's tenant_id FK check)
+//	this probe  ACCESS EXCLUSIVE on tenants   (TRUNCATE locks the named table first)
+//	            then ACCESS EXCLUSIVE on transactions
+//
+// -> each waits for what the other holds. 🔴 AND THE VICTIM IS WHICHEVER SESSION'S
+// DETECTOR FIRES FIRST: in that measurement it was SESSION A, so a long wait here
+// does not merely risk this test, it can fail an innocent one in another package.
+//
+// THE FIX IS THE INEQUALITY, NOT THE NUMBER. lock_timeout is now far BELOW
+// deadlock_timeout instead of far above it, so the probe hands every lock back
+// long before any waiter's detector can run and no cycle is ever observed; a lost
+// race answers 55P03 in milliseconds and is retried, because "somebody else holds
+// this table" says nothing whatsoever about append-only. Same two sessions, same
+// order, only the timeout changed:
+//
+//	lock_timeout 30s  -> ERROR deadlock detected (40P01); session A was the victim
+//	lock_timeout 25ms -> ERROR canceling statement due to lock timeout (55P03)
+//	                     here, and session A completed normally
+//
+// The inequality is enforced at runtime rather than trusted, and by the widest
+// probe's real lock count rather than a remembered one: see
+// TestAppendOnly_TruncateProbeCannotOutwaitTheDeadlockDetector.
 // ============================================================================
 
 // truncateTargets are the six append-only tables and the statement that empties
@@ -52,10 +94,104 @@ var truncateTargets = []struct {
 	{"legal_documents", "TRUNCATE legal_documents"},
 }
 
+// SQLSTATEs the retry loop classifies on, named rather than matched on message
+// text: a message can be reworded, a code cannot.
+const (
+	sqlstateLockNotAvailable = "55P03" // lock_timeout fired -- somebody else holds the table
+	sqlstateDeadlockDetected = "40P01" // the detector broke a cycle and picked a victim
+)
+
+// probeLockTimeout is how long ONE lock acquisition inside a TRUNCATE probe may
+// wait. It is small on purpose, and the purpose is deadlock_timeout: see the LOCK
+// NOTE above. The bound it has to satisfy is
+//
+//	(relations the widest probe locks) x probeLockTimeout  <  deadlock_timeout
+//
+// because in the worst case the probe waits that long for each lock in turn while
+// holding the ones it already took; if that product exceeded deadlock_timeout a
+// waiter could still see the cycle. Measured 2026-08-20: the closure is 17
+// relations and deadlock_timeout is 1s, so the worst case is 425ms, the ceiling on
+// this constant is 1000/17 = ~58ms, and 25ms goes on holding until the closure
+// reaches 40 relations. NOT REMEMBERED, MEASURED, on every run --
+// TestAppendOnly_TruncateProbeCannotOutwaitTheDeadlockDetector reads both
+// operands from the live database and fails if the inequality stops holding.
+const probeLockTimeout = 25 * time.Millisecond
+
+// probeAttempts is the retry budget, and it is dated rather than derived because
+// nothing mechanical can pin "generous enough".
+//
+// MEASURED 2026-08-20, the run that reproduced T57: a background session held ROW
+// EXCLUSIVE on transactions for 300ms out of every ~500ms -- a ~60% duty cycle,
+// far heavier than the real suite, which lost this race roughly once in several
+// full runs. Attempts are spread by probeBackoff so they sample independent
+// moments, so even at that 60% occupancy a budget of 40 leaves 0.6^40 ~ 1e-9.
+// Exhausting it therefore does not mean "unlucky", it means the database is
+// genuinely jammed -- and that is reported, not skipped.
+const probeAttempts = 40
+
+// isLockContention answers whether err is the database saying "somebody else is
+// holding this table", which is the one class of failure that says NOTHING about
+// append-only and may therefore be retried.
+//
+// 🔴 THE GUARD'S OWN SQLSTATE MUST NEVER LAND HERE. If 23001 were classified as
+// contention the loop would retry a working refusal forty times and then report a
+// jammed database -- a red test, so not silent, but pointing at the wrong thing,
+// which is exactly the misdiagnosis T57 exists to remove. TestIsLockContention
+// pins the membership of this set.
+func isLockContention(err error) bool {
+	pg := asPgErr(err)
+	if pg == nil {
+		return false
+	}
+	return pg.Code == sqlstateLockNotAvailable || pg.Code == sqlstateDeadlockDetected
+}
+
+// probeBackoff spreads retries out instead of hot-spinning inside one holder's
+// window. The JITTER is the load-bearing half, not the ramp: a holder that takes
+// and releases on a fixed cycle (the 300ms-in-500ms amplifier above) would be
+// sampled at the same phase every time by evenly spaced retries.
+func probeBackoff(attempt int) time.Duration {
+	d := probeLockTimeout * time.Duration(attempt)
+	if d > 200*time.Millisecond {
+		d = 200 * time.Millisecond
+	}
+	return d/2 + time.Duration(rand.Int63n(int64(d/2)+1))
+}
+
 // tryTruncate issues stmt inside a transaction that is ALWAYS rolled back and
 // returns the error the statement produced (nil means it succeeded, which is the
-// regression this file exists to catch).
+// regression this file exists to catch). A lost lock race is retried rather than
+// returned, so the caller's assertions only ever see an answer about append-only.
 func tryTruncate(t *testing.T, d *DB, stmt string) error {
+	t.Helper()
+	var err error
+	for attempt := 1; attempt <= probeAttempts; attempt++ {
+		err = truncateOnce(t, d, stmt)
+		if !isLockContention(err) {
+			if attempt > 1 {
+				t.Logf("%s: answered on attempt %d of %d (earlier attempts lost the lock race, which is not a verdict on the guard)",
+					stmt, attempt, probeAttempts)
+			}
+			return err
+		}
+		time.Sleep(probeBackoff(attempt))
+	}
+	// 🔴 FATAL, NOT SKIP, AND THAT IS A DELIBERATE READING OF THIS REPOSITORY'S OWN
+	// HISTORY. `make test`'s require-db-env gate exists because silently skipped
+	// database tests let a green run hide four red-line proofs; adding a skip to the
+	// section 4.3 TRUNCATE guard would rebuild that hole on the very test that
+	// guards the red line. The message names the cause instead, so the failure
+	// cannot be read as "append-only broke".
+	t.Fatalf("%s: %d attempts in a row could not take the locks (last: %v). This is LOCK CONTENTION "+
+		"with concurrent packages -- the statement never reached the append-only trigger, so this is "+
+		"NOT a section 4.3 regression and NOT a verdict on the guard. Something is holding these tables "+
+		"far longer than the suite does.", stmt, probeAttempts, err)
+	return nil // unreachable: t.Fatalf calls runtime.Goexit
+}
+
+// truncateOnce is one attempt: begin, arm the timeout, issue the statement, roll
+// back whatever happened.
+func truncateOnce(t *testing.T, d *DB, stmt string) error {
 	t.Helper()
 	ctx := context.Background()
 	tx, err := d.pool.Begin(ctx)
@@ -69,15 +205,18 @@ func tryTruncate(t *testing.T, d *DB, stmt string) error {
 			t.Errorf("rollback after %q: %v", stmt, e)
 		}
 	}()
-	if _, e := tx.Exec(ctx, "SET LOCAL lock_timeout = '30s'"); e != nil {
+	if _, e := tx.Exec(ctx, "SET LOCAL lock_timeout = "+quoteMillis(probeLockTimeout)); e != nil {
 		t.Fatalf("set lock_timeout: %v", e)
 	}
 	_, err = tx.Exec(ctx, stmt)
-	if pg := asPgErr(err); pg != nil && pg.Code == "55P03" {
-		t.Fatalf("%s: lock_not_available after 30s -- this is CONTENTION with another "+
-			"package's transactions, not a missing guard; re-run", stmt)
-	}
 	return err
+}
+
+// quoteMillis renders d as a SQL string literal Postgres reads as milliseconds.
+// SET does not take a bind parameter, so the value is formatted; it comes from a
+// constant in this file and is integer milliseconds, never user input.
+func quoteMillis(d time.Duration) string {
+	return "'" + strconv.FormatInt(d.Milliseconds(), 10) + "ms'"
 }
 
 // countRows reads a table's size through the owner pool (which bypasses RLS, so
@@ -220,6 +359,100 @@ func TestAppendOnly_AppHasNoTruncatePrivilege(t *testing.T) {
 			if granted {
 				t.Fatalf("tappa_app holds TRUNCATE on %s -- the HTTP-facing role must not be "+
 					"able to empty an append-only table (section 4.3)", tc.name)
+			}
+		})
+	}
+}
+
+// TestAppendOnly_TruncateProbeCannotOutwaitTheDeadlockDetector is the gate under
+// probeLockTimeout, and it exists because the number it guards was WRONG BY A
+// FACTOR OF THIRTY in the shipped version of this file and nothing noticed.
+//
+// The old value was 30s against a 1s deadlock_timeout, i.e. the probe was
+// guaranteed to sit in a cycle long enough for somebody's detector to fire, and
+// the comment beside it asserted the opposite. A comment cannot hold an
+// inequality; this reads BOTH operands from the live database and fails when it
+// stops holding:
+//
+//	relations the widest probe locks  x  probeLockTimeout  <  deadlock_timeout
+//
+// The left operand is the transitive closure of "tables that reference tenants",
+// which is what TRUNCATE ... CASCADE actually locks -- so ADDING A TENANT-SCOPED
+// TABLE (CLAUDE.md section 6 makes tenant_id mandatory, so every new table joins
+// this closure) walks the product toward the ceiling and this test says so before
+// the flake comes back. Lowering the server's deadlock_timeout fails it too.
+func TestAppendOnly_TruncateProbeCannotOutwaitTheDeadlockDetector(t *testing.T) {
+	owner := ownerDB(t)
+	ctx := context.Background()
+
+	var deadlockMillis int64
+	var unit string
+	if err := owner.pool.QueryRow(ctx,
+		`SELECT setting::bigint, unit FROM pg_settings WHERE name = 'deadlock_timeout'`,
+	).Scan(&deadlockMillis, &unit); err != nil {
+		t.Fatalf("read deadlock_timeout: %v", err)
+	}
+	// pg_settings reports this one in ms. Asserted rather than assumed: if a future
+	// Postgres reported seconds, the comparison below would be off by 1000 and would
+	// PASS, which is the direction that hurts.
+	if unit != "ms" {
+		t.Fatalf("deadlock_timeout is reported in %q, not ms -- the arithmetic below assumes ms", unit)
+	}
+	deadlock := time.Duration(deadlockMillis) * time.Millisecond
+
+	// The closure TRUNCATE tenants CASCADE walks. UNION (not UNION ALL) so a
+	// self-referencing FK terminates.
+	var relations int64
+	if err := owner.pool.QueryRow(ctx, `
+		WITH RECURSIVE reached(rel) AS (
+			SELECT 'tenants'::regclass
+		  UNION
+			SELECT c.conrelid
+			FROM pg_constraint c JOIN reached r ON c.confrelid = r.rel
+			WHERE c.contype = 'f'
+		)
+		SELECT count(*) FROM reached`,
+	).Scan(&relations); err != nil {
+		t.Fatalf("count cascade closure: %v", err)
+	}
+	if relations < 2 {
+		t.Fatalf("the cascade closure of tenants is %d relation(s) -- the query has gone blind, "+
+			"and a blind left operand makes this inequality pass for free", relations)
+	}
+
+	worst := time.Duration(relations) * probeLockTimeout
+	t.Logf("widest probe locks %d relations x %v = %v worst-case hold, deadlock_timeout %v",
+		relations, probeLockTimeout, worst, deadlock)
+	if worst >= deadlock {
+		t.Fatalf("probeLockTimeout %v x %d relations = %v, which is NOT below deadlock_timeout %v. "+
+			"A waiter can see the cycle again and backlog T57 comes back -- lower probeLockTimeout "+
+			"(the ceiling is %v) rather than raising the wait.",
+			probeLockTimeout, relations, worst, deadlock, deadlock/time.Duration(relations))
+	}
+}
+
+// TestIsLockContention pins WHICH failures may be retried, because that set is
+// the whole safety argument for the retry loop: everything outside it reaches the
+// caller's assertions unchanged.
+//
+// The case that matters is 23001. The append-only guard raises with it, and if it
+// were ever classified as contention a working refusal would be retried away.
+func TestIsLockContention(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"lock_timeout fired", &pgconn.PgError{Code: sqlstateLockNotAvailable, Message: "canceling statement due to lock timeout"}, true},
+		{"detector picked us", &pgconn.PgError{Code: sqlstateDeadlockDetected, Message: "deadlock detected"}, true},
+		{"the guard refusing -- MUST NOT be retried away", &pgconn.PgError{Code: sqlstateRestrictViolation, Message: "append-only table transactions: TRUNCATE is forbidden"}, false},
+		{"permission denied", &pgconn.PgError{Code: sqlstateInsufficientPrivi, Message: "permission denied for table audit_log"}, false},
+		{"TRUNCATE succeeded -- the regression this file catches", nil, false},
+		{"not a Postgres error at all", errors.New("connection reset"), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isLockContention(tc.err); got != tc.want {
+				t.Errorf("isLockContention(%v) = %v, want %v", tc.err, got, tc.want)
 			}
 		})
 	}

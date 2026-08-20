@@ -1056,23 +1056,440 @@ Yukarıdaki kısıt (canlı oturum zorunlu) iki şekle izin veriyor:
 | **A — kendi yazıcımız** | Go içinde PC/SC benzeri bir okuyucu katmanı + `AuthenticateEV2First` / `ChangeFileSettings` / `ChangeKey` akışının kendi uygulamamız. Anahtar süreçten hiç çıkmaz, `sun.Wrap`/`sun.Zero` aynı süreçte. | **Kısıtı biliyoruz, maliyeti bilmiyoruz.** APDU akışının şartları AN12196'dan **birebir** okundu (yukarıdaki tablo). Okuyucu donanımı, sürücü katmanı ve yeni bağımlılık **ölçülmedi**. |
 | **B — üçüncü parti yazıcı + ayrı yükleyici** | Encode'u hazır bir araçla yap, satırı ayrı bir filtreyle DB'ye yükle. | **En zayıf halka burada: anahtar araçtan çıkar.** Araç düz anahtarı üretiyor/gösteriyorsa "Anahtar hijyeni" maddesi 1 **ihlal edilir**; ihlal etmeyen bir araç bulunmadan bu yol yoldur denemez. |
 
-⚠️ **Aşağıdaki araç iddiaları ZAYIF KANIT — ölçüm değil, okuma.** Bunlar arama
-sonucu özetlerinden derlendi; ilgili sayfaların bir kısmı **403** döndürdüğü için
-birincil kaynaktan **doğrulanamadı**. AN12196 atıflarıyla **aynı sınıfta
-değildir** ve öyle okunmamalıdır:
+⚠️ **Aşağıdaki araç iddiaları ZAYIF KANIT'TI — ölçüm değil, okumaydı.** Bunlar
+arama sonucu özetlerinden derlenmişti; ilgili sayfaların bir kısmı **403**
+döndürdüğü için birincil kaynaktan doğrulanamamıştı. AN12196 atıflarıyla **aynı
+sınıfta değildi** ve öyle okunmamalıydı:
 
 - **NXP TagWriter** — anahtar değiştirmediği, yani `ChangeKey` yapmadığı
   *okundu*; aynı okumada bu iş için RFIDDiscover + PEGODA okuyucu işaret ediliyor.
-  **Doğrulanamadı.**
-- **TagXplorer** — artık desteklenmediği *okundu*. **Doğrulanamadı.**
+  **O gün doğrulanamadı.**
+- **TagXplorer** — artık desteklenmediği *okundu*. **O gün doğrulanamadı.**
 - **Maliyetler hiç ölçülmedi.** Ne okuyucu fiyatı, ne lisans, ne teslim süresi.
-  Bu bölüm bir maliyet karşılaştırması **taşımıyor**; taşıdığını iddia eden bir
-  cümle görürsen o cümle yanlıştır.
+  *(O gün buraya şu da yazılmıştı: "Bu bölüm bir maliyet karşılaştırması
+  **taşımıyor**; taşıdığını iddia eden bir cümle görürsen o cümle yanlıştır."
+  🔴 **O cümle bugün geçersizdir** — aşağıdaki kutuya bak.)*
+
+> ✅ **ÜÇÜ DE 2026-08-20'DE ÖLÇÜLDÜ — VE ÜÇÜNCÜSÜNÜN SONUCU YUKARIDAKİ İKİ
+> ŞEKLİ DE DEĞİŞTİRDİ.** Yukarıdaki üç madde **silinmedi**: bir sonraki okur
+> *"zayıf iddia"* etiketiyle *"ölçülmüş sonuç"*u karıştırmasın diye tarihsel
+> kayıt yerinde duruyor. **Bugünkü hâl** ve kaynakları bir alt bölümdedir:
+> **"Dört yol — ölçüldü"**. 🔴 Bu paragrafın *"maliyet karşılaştırması
+> taşımıyor"* cümlesi **artık yanlıştır**; bölüm bir maliyet karşılaştırması
+> **taşıyor** ve her satırı tarihli. ⚠️ Aynı bayat cümle
+> [m8-deploy-pilot.md](../docs/plan/m8-deploy-pilot.md) → M8-05'te de duruyor
+> (FAZ A kriter 2 satırı ve *"maliyet hâlâ ölçülmedi"* cümlesi); o kart bu turda
+> **kapsam dışıydı**, düzeltilmedi — çelişki görürsen **bu dosya** günceldir.
 
 **Karar için gereken ölçüm (FAZ B'nin ilk adımı):** eldeki 10'luk NTAG 424 DNA
 paketiyle, seçilen okuyucu üzerinde **tek bir çipi** kişiselleştirmek — ve bunu
-yaparken anahtarın süreç dışına **çıkmadığını** göstermek. O ölçüm yapılmadan
-A/B karşılaştırması fiyat listesi okumaktan ibarettir.
+yaparken anahtarın süreç dışına **çıkmadığını** göstermek. Aşağıdaki bölüm bu
+ölçümün **önündeki** soruları (yapabilir mi · anahtar nerede · ne yazacağız · ne
+kadar) kapatır; **çipe dokunan** yarı hâlâ FAZ B'dedir.
+
+### Dört yol — ÖLÇÜLDÜ (2026-08-20). KARAR YİNE VERİLMEDİ.
+
+> 🔴 **BU ALT BÖLÜM YUKARIDAKİ "İKİ ŞEKİL" TABLOSUNUN YERİNE GEÇMEZ — ONU
+> AÇAR, VE EŞLEMESİ BURADA YAZILI** (iki tablonun sessizce ayrışması bu dosyanın
+> bilinen hastalığıdır):
+>
+> | Yukarıdaki şekil | Aşağıdaki yol |
+> |---|---|
+> | **A — kendi yazıcımız** | **üç taşımaya ayrılıyor**: **A** (USB okuyucu) · **B** (Android) · **C** (iOS) |
+> | **B — üçüncü parti yazıcı + ayrı yükleyici** | **D** |
+>
+> İkisi çelişirse **aşağıdaki** geçerlidir: bu ölçüldü, yukarıdaki okunmuştu.
+>
+> ⚠️ **BU BÖLÜM BAYATLAR VE TARİHİ ONUN İÇİN YAZILI.** Her fiyat, her sürüm
+> numarası, her mağaza satırı **2026-08-20**'de görülen hâldir. Fiyatlar ve
+> uygulama özellikleri altı ayda değişir; **API ve entitlement kuralları** daha
+> yavaş ama onlar da değişir (aşağıda iOS 26.4'ün taze bir örneği var). Altı
+> aydan eski okuyorsan **yeniden ölç**.
+>
+> 🔴 **VE BURADA HÂLÂ HİÇBİR ŞEY SEÇİLMEDİ.** Dördü de en az bir yeni bağımlılık
+> ya da yeni bir dil/araç zinciri getiriyor → **CLAUDE.md §1 gereği seçim
+> kullanıcınındır.** Aşağıdaki metin okumaları sayılarla yan yana koyar,
+> aralarından birini **işaretlemez**.
+
+#### Önce üç iddia kapandı — ikisi ÇÜRÜDÜ
+
+**1. 🔴 "Hazır uygulamalar `ChangeKey` yapamaz" — BLOKET HÂLİYLE YANLIŞ.**
+Bu oturumun başında öne sürülen ve *doğrulanamayan* iddia buydu. Ölçüldü:
+**dar hâli doğru, geniş hâli yanlış.**
+
+- ✅ **Doğru olan yarı, ve artık ÜRETİCİNİN KENDİ AĞZINDAN:** wakdev'in
+  **NFC Tools**'u NTAG 424 DNA'da yalnız *"teknik bilgi okuma, NDEF kaydı yazma
+  ve silme"* yapar; kriptografik yapılandırma için *"özel bir okuyucu ve sunucu
+  tarafı altyapı"* gerektiğini **kendi bilgi tabanında** yazıyor.
+  ([wakdev KB → NXP NTAG424 DNA](https://www.wakdev.com/en/knowledge-base/nfc-chips/nxp-ntag424-dna.html),
+  2026-08-20'de okundu.) Aynı sayfa sık yapılan hatayı da kapatıyor: NTAG 424 DNA
+  **NTAG21x'in 32-bit parola mekanizmasını kullanmaz** — koruma tamamen AES-128
+  anahtarlarındadır. *"NFC Tools tag'e parola koyabiliyor"* diyen her cümle bu
+  iki mekanizmayı karıştırıyor.
+- ✅ **NXP TagWriter ve TagInfo da yapamıyor** — ve bu artık okuma değil ölçüm:
+  iki uygulamanın Play Store açıklamalarında `424`, `SDM`, `SUN`, `AES`,
+  `ChangeKey`, `personaliz` dizeleri **sıfır kez** geçiyor. TagWriter'ın tek
+  güvenlik özelliği yine **NTAG21x** parolasıdır ve NTAG 424 DNA desteklenen çip
+  listesinde bile yok.
+- ❌ **ÇÜRÜYEN YARI — istisna VAR, hem de birden çok, hem de telefonda:**
+  - **NFC.cool Tools** (iPhone **ve** Android, okuyucu gerektirmez) kendi blog
+    sayfasında *"herhangi bir slotu değiştir, fabrika ayarına döndür, ya da başka
+    bir cihazda kurduğun bir anahtarı gir"* ve *"SUN'ı aç, tag her tap'i
+    imzalamaya başlasın"* diyor; UID'nin açık mı şifreli mi mirror'lanacağını da
+    ayarlatıyor. Yani **`ChangeKey` + `ChangeFileSettings`, telefondan.**
+    ([nfc.cool blog, sayfa tarihi 2026-07-24](https://nfc.cool/blog/ntag-424-dna-counterfeit-proof-nfc-tags/) ·
+    [App Store listesi](https://apps.apple.com/us/app/nfc-cool-tools-tag-reader/id1249686798))
+  - **NFC Developer App** (Arx Research; iOS + Android) NTAG 424 DNA'yı dinamik
+    URL özelliğiyle programlıyor; kendi demo sayfası kullanıcıya *"master
+    anahtarını oluştur"* dedirtip **16 baytı elle uygulamaya girdiriyor**.
+    ([nfc.dev/n424/demo](https://nfc.dev/n424/demo/), 2026-08-20)
+  - **GoToTags Desktop** (Windows/macOS/Linux + PC/SC okuyucu) *"File Access
+    Rights"* ve *"SDM Settings"* yazıyor.
+- 🔴 **AMA HİÇBİRİ BİZİM SORUNUMUZU ÇÖZMÜYOR, VE SEBEBİ ÜRÜN KUSURU DEĞİL —
+  PROTOKOL:** `ChangeKey` (0xC4) gövdesi `EskiAnahtar ⊕ YeniAnahtar ‖ KeyVer ‖
+  CRC32(YeniAnahtar)` olarak, oturum anahtarı altında şifreli gider. **Bu APDU'yu
+  kuran şey düz anahtarı görmek ZORUNDADIR.** Anahtarı hiç görmeyen bir tüketici
+  ürünü yoktur ve olamaz. Kaynakta teyit: `johnnyb/ntag424-java` →
+  `ChangeKey.run(comm, keyNum, byte[] oldKey, byte[] newKey, version)`; NXP'nin
+  kendi **TapLinx** API'si → `changeKey(int keyNo, KeyType, byte[] oldKey,
+  byte[] newKey, byte keyVersion)`. **İki imza da düz anahtarı parametre olarak
+  alıyor.**
+
+  Yani D yolunun tek gerçek sorusu *"araç yapabiliyor mu"* değil,
+  **"düz anahtar nereye düşüyor"**dur — ve cevap her seferinde *"aracın içine"*:
+  NFC.cool anahtarı bir **parola cümlesinden türetip telefonun keychain'ine**
+  yazıyor (⚠️ türetme fonksiyonu **belgelenmemiş** — `internal/sun`'ın aynı 16
+  baytı bağımsız üretmesi imkânsız, yani `aes_key_ref`'e yazacak değeri
+  **bilemeyiz**); NFC Developer App anahtarı **elle girdiriyor**.
+
+**2. ✅ WebNFC ham APDU VERMİYOR — kapandı, ve kalıcı olarak.** Tarayıcıdan
+yapılabilseydi §1'e hiçbir şey eklemeyecektik; yapılamıyor. W3C şartnamesi
+(⚠️ adres **taşındı**: `w3c-cg.github.io/web-nfc`) birebir şöyle diyor:
+*"The current scope of this specification is NDEF. Low-level I/O operations
+(e.g. ISO-DEP, NFC-A/B, NFC-F) and Host-based Card Emulation (HCE) are not
+supported within the current scope."* Chrome'un belgesi gerekçeyi ekliyor:
+*"Web NFC is limited to NDEF because the security properties of reading and
+writing NDEF data are more easily quantifiable."*
+([w3c-cg.github.io/web-nfc](https://w3c-cg.github.io/web-nfc/) ·
+[developer.chrome.com/docs/capabilities/nfc](https://developer.chrome.com/docs/capabilities/nfc))
+İlgili iki talep **on yıldır açık ve hiç uygulanmadı**: `w3c/web-nfc` **#101**
+("Support ISODep", 2016-02-11 açıldı, son yorum 2024-09-23) ve **#578**
+("APDU transmit", 2020-05-23). Şartname editörü #101'de: *"this API does not
+intend to provide a low level access… with ISODep etc we open a point-blank
+Pandora box."* **Kalıcı olarak yok say.** (Ayrıca WebNFC yalnız Android/Chrome
+89+; iOS'ta hiç yok.)
+
+**3. 🔴 "NXP'nin resmî yolu şu araçtır" ÖNERMESİ DE YANLIŞMIŞ — AN12196 ARAÇ
+VARSAYMIYOR.** Yukarıdaki zayıf-kanıt bloğu RFIDDiscover + PEGODA'yı *"bu iş
+için işaret edilen"* araç diye anıyordu. Belge okundu (rev. 1.8, 2020-11-17 **ve**
+rev. 2.0, 2025-03-04): **kişiselleştirme bölümü hiçbir donanım ya da yazılım adı
+vermiyor.** Ham APDU dizisidir — 17 numaralı adım, `ChangeKey`'le biter, ve
+kendi ifadesiyle *"Following steps are optional and used as an example only."*
+Her iki revizyonda **"PEGODA" ve "TagXplorer" sıfır kez** geçiyor. Tek araç
+listesi ayrı bir bölümdedir (rev. 1.8 §10.1 / rev. 2.0 §9.1) ve orada
+**RFIDDiscover · NXPRdLib · TapLinx · TagInfo · TagWriter** sayılır — TagWriter'ın
+tarifi de zaten *"configure, write **NDEF data**"*.
+⚠️ **nxp.com JavaScript çalıştırmayan istemcilere her PDF'i 404 döndürüyor**
+(anti-bot; gerçek bir 404 değil) — önceki turun "403/doğrulanamadı"sının sebebi
+büyük olasılıkla budur. Çalışan yollar: bir satıcı aynası
+([rev. 1.8 PDF](https://cdn.webshopapp.com/shops/19172/files/428229523/ntag424-an12196.pdf))
+ve archive.org anlık görüntüsü (rev. 2.0).
+**Sonuç: AN12196 bilinçli olarak araç-bağımsızdır** — yani "resmî araç" diye bir
+kısıtımız yok, dört yol da belgeye eşit uzaklıkta.
+
+Mobil tarafta NXP'nin işaret ettiği tek şey **TapLinx**'tir (bir uygulama değil,
+Android **kütüphanesi**) ve **yaşıyor**: v5.0.0, 2025-11-03; Android 4.1–15;
+*"generate APDUs… leveraging the Android SDK's transceive functionality"*
+(RN00263 rev. 3.0, 2025-11-13). ⚠️ **Lisans kapılı**: mifare.net üzerinde paket
+adına bağlı uygulama kaydı + `registerJavaApp()` ile yüklenen bir lisans dosyası
+ister. Bedelsiz ama **hesaba bağlı**, ve bir bağımlılıktan fazlası: bir hesap
+ilişkisi.
+
+#### 🔴 APDU RÖLESİ — dört yolun GERÇEK ayırıcısı burasıdır
+
+Bu bölümün üstünde yazılı olan kısıt (*"offline script üret, sonra yapıştır"
+mümkün değil; `RndB` ve `TI` çipten gelir*) **değişmedi ve doğru**. Ama ondan
+**ikinci** bir sonuç çıkıyor ve karar tam olarak orada duruyor:
+
+> **Çipe dokunan şeyin kriptografiyi yapması GEREKMİYOR.** `AuthenticateEV2First`
+> → `ChangeFileSettings` → `ChangeKey` akışında dokunan taraf yalnız **bayt
+> taşır**: C-APDU'yu çipe verir, R-APDU'yu geri alır. Şifre çözme, oturum
+> anahtarı türetme, `Old ⊕ New ‖ KeyVer ‖ CRC32` gövdesini kurma ve yanıt MAC'ini
+> doğrulama — hepsi **saf hesaptır** ve nerede koştuğu çipin umurunda değildir.
+
+Akış rölede şöyle bölünür (numaralar AN12196'nın kişiselleştirme adımlarıdır):
+
+| Kim | Ne yapar |
+|---|---|
+| **Taşıyıcı** (okuyucu / telefon) | `9071…` gönderir → `E(K, RndB)` alır → **sunucuya iletir** → dönen 32 baytı `90AF…` ile gönderir → yanıtı iletir → sunucunun kurduğu `905F…` ve `90C4…` APDU'larını sırayla gönderir, yanıtları iletir |
+| **Sunucu (Go)** | `crypto/rand` ile 16 baytı üretir · `E(K,RndB)`'yi çözer · `RndA‖RndB'`'yi kurar · `TI` + `KSesAuthENC` + `KSesAuthMAC` türetir · `CmdCtr`'ı sayar · iki komut gövdesini şifreler ve MAC'ler · yanıt MAC'lerini doğrular · sonunda `sun.Wrap` + `sun.Zero` |
+
+**Bunun üç sonucu var ve üçü de karar ağırlıklı:**
+
+1. 🔴 **Düz anahtar sunucudan hiç çıkmaz.** ADR 0003 md. 5'in *"düz anahtar bu
+   adımdan sonra hiçbir yerde kalıcılaşmaz"* şartı ve *"Anahtar hijyeni"* maddesi
+   1 (`Wrap`/`Zero` **aynı süreçte**) **ihlal edilmeden** sağlanır — hatta bu
+   bölümün başındaki *"araç düz anahtarı kendi süreci içinde üretmek zorunda"*
+   cümlesinden **daha dar** bir garantidir: süreç artık bir operatör makinesinde
+   değil, sunucudadır. **ADR tadili gerekmez.**
+2. ✅ **Telefon/okuyucu tarafı APTAL bir borudur.** Kripto orada koşmayınca A, B,
+   C yollarının *"bizde ne yazılacak"* maliyeti çöker: kalan iş bir APDU
+   döngüsü + HTTPS çağrısıdır (mertebe: **birkaç yüz satır**). Özellikle iOS'ta
+   bu, aşağıda sayılan **CryptoKit'te AES-CBC ve AES-CMAC olmaması** engelini
+   **tamamen ortadan kaldırır** — ki bilinen tek açık iOS denemesinin tam olarak
+   takıldığı yer orasıydı.
+3. ⚠️ **Bedeli sunucuda YENİ ve DURUMLU bir makinedir.** Bir encode oturumu
+   `RndA`, `TI`, `KSesAuthENC`, `KSesAuthMAC`, `CmdCtr` taşır ve **6–17 HTTP
+   gidiş-dönüşü** boyunca yaşamak zorundadır. Bugün böyle bir şey yok. Bu, `tap`
+   yolunun durumsuz şeklinden farklı bir hayvandır ve **kendi kabul kriterlerini
+   ister** (oturum ömrü, eşzamanlılık, iptal, yarım kalan encode'un `tags`
+   satırına ne yaptığı). ⚠️ **Ölçmedim:** böyle bir oturumun uçtan uca gecikmesi
+   ve hata modları **denenmedi** — protokol tarafı mümkün diyor, gerçek ölçüm
+   FAZ B'dedir.
+
+**Protokol tarafı bunu neden engellemiyor:** ISO/IEC 14443-4'te `FWT`
+(frame waiting time) **PICC'in yanıt gecikmesini** sınırlar, PCD'nin iki komut
+arasındaki düşünme süresini **değil**. Yani araya bir ağ turu koymak standardın
+zaman bütçesine dokunmaz. 🔴 **Tek gerçek zaman duvarı iOS'tadır** ve aşağıda C
+yolunda sayılıdır (~20 sn, sert).
+
+**D yolunda röle MÜMKÜN DEĞİLDİR** ve sebep yukarıda: `ChangeKey` gövdesini kuran
+taraf düz anahtarı görmek zorunda; üçüncü parti araç o gövdeyi kendi kuruyor.
+Röle, aracın **bizim** olmasını gerektirir.
+
+#### Dört yol — karşılaştırma
+
+| | **A · USB okuyucu + kendi Go aracımız** | **B · kendi Android uygulamamız** | **C · kendi iOS uygulamamız** | **D · üçüncü parti araç + kendi yükleyicimiz** |
+|---|---|---|---|---|
+| **424 DNA personalizasyonunu yapabilir mi?** | ✅ **Evet.** ACR1252U belgesi: ISO 14443-4 uyumlu her kart ISO 7816-4 APDU anlar, *"ACR1252U will handle the ISO 14443 Parts 1-4 Protocols internally"* → düz `SCardTransmit` yeter, satıcıya özel escape komutu **gerekmez** | ✅ **Evet.** `IsoDep.transceive()` belgede birebir *"Send **raw** ISO-DEP data to the tag"*; NDEF kısıtı **yok**, `CLA=0x90` ailesi dokunulmadan geçer | ✅ **Evet, ve Apple'ın belgelediği YOL VAR** — ama şekli seçmek gerekiyor (aşağıda) | ✅ Evet (NFC.cool · NFC Developer App · GoToTags) |
+| **Ham APDU sınırı** | Kısa **ve** genişletilmiş APDU (CCID `dwFeatures 0x000404BA`, `dwMaxCCIDMessageLength 522`) | `getMaxTransceiveLength()` ile sorulur; genişletilmiş için `isExtendedLengthApduSupported()`. **Bizde önemsiz** — 424 DNA'nın her komutu 255 baytın altında | Aynı sebeple önemsiz | — |
+| 🔴 **Düz anahtar nerede durur?** | **Sunucuda** (röle) **veya** operatör makinesindeki süreçte. İkisi de ADR 0003 md. 5 ile uyumlu | **Sunucuda** (röle). Telefonda **hiç** durmaz | **Sunucuda** (röle). Telefonda **hiç** durmaz | 🔴 **ARACIN İÇİNDE** — kaçınılmaz (protokol gereği). NFC.cool'da telefon keychain'inde, belgelenmemiş bir türetmeyle; NFC Developer App'te elle girilir |
+| **Bizde ne yazılacak** | 2 bileşen: PC/SC taşıması + DESFire EV2 güvenli mesajlaşma (Go). Röle varsa taşıma ayrı bir ikili | 3 bileşen: Android APDU borusu (Kotlin/Java) + sunucuda encode oturumu + EV2 kripto (Go) | 3 bileşen: iOS APDU borusu (Swift) + sunucuda encode oturumu + EV2 kripto (Go) | 1 bileşen: `seedkeys` emsalinde saf bir yükleyici filtresi (Go) — **ama** yüklenecek anahtarı **araçtan** almak gerekir |
+| **Yeni bağımlılık (§1)** | **1 Go modülü** (PC/SC bağlaması) — ya da kendi bağlamamızı yazarsak 0 modül + CGO. EV2 kripto `crypto/aes` + `crypto/cipher` ile stdlib'de kalır | **Yeni bir dil ve derleme zinciri**: Kotlin/Java + Android SDK + Gradle. Go tarafında **0 yeni modül** (röle sayesinde). Node **gerekmez** | **Yeni bir dil ve derleme zinciri**: Swift + Xcode + **macOS derleme makinesi**. Go tarafında **0 yeni modül** | Go tarafında **0 yeni modül**. Ama bir **satıcı bağımlılığı** ve bir **abonelik** |
+| **Dağıtım sürtünmesi** | Yok — operatör makinesinde koşan bir CLI | APK **yan yükleme yeter**, mağaza hesabı gerekmez. ⚠️ 2027 kapısı aşağıda | 🔴 **Ücretli Apple Developer Program ZORUNLU** — bedava sağlama profili NFC entitlement'ı **vermez** | Yok |
+| **Maliyet (2026-08-20)** | Okuyucu **~€42–48** (ACR1252U, AB satıcısı) · yazılım €0 | €0 (yan yükleme) · cihaz elde | **$99/yıl** + macOS makinesi · cihaz elde | NFC.cool **$29.99/yıl** (ya da $3.99/ay) · GoToTags **~$0.05/tag, $25 asgari** · NFC Developer App: ücretsiz sürüm CAPTCHA'lı |
+| **Tedarik (Malta)** | ShopNFC (IT) Malta'yı **adıyla** sayıyor: ücretsiz 7–14 iş günü ya da **€9.90'dan 3–5 iş günü**. AB içi → gümrük yok | — | — | — |
+| 🔴 **ADR 0003 md. 5 / §4.7 etkisi** | ✅ İhlal yok | ✅ İhlal yok | ✅ İhlal yok | 🔴 **İHLAL** — düz anahtar süreçten çıkar, üçüncü bir yazılıma ve o cihazın kalıcı deposuna girer. Bu yolu seçmek **ADR tadili** demektir ve o **ayrı bir karardır** |
+| **En büyük tek risk** | Go PC/SC bağlamalarının hiçbiri hem bakımlı hem CGO'suz hem çapraz platform değil (aşağıda) | Google'ın 2027 doğrulama kapısı | ~20 sn'lik **sert** bağlantı sınırı + iOS 26.4 API değişimi | Anahtar hijyeni **ve** NFC.cool'un belgelenmemiş anahtar türetmesi → `aes_key_ref`'e ne yazacağımızı bilemeyiz |
+
+#### A — USB okuyucu + kendi Go aracımız · ayrıntı
+
+**Okuyucu seçimi ölçüldü, ve iki popüler seçenek ELENDİ.** Kanıt CCID
+sürücüsünün kendi cihaz veritabanıdır
+([LudovicRousseau/CCID](https://github.com/LudovicRousseau/CCID),
+[desteklenmeyenler listesi](https://ccid.apdu.fr/ccid/unsupported.html)):
+
+| Okuyucu | APDU seviyesi | Durum |
+|---|---|---|
+| **ACR1252U** | kısa + genişletilmiş | ✅ önerilebilir |
+| **ACR1552U-M1** | kısa + genişletilmiş | ✅ ACS'in kendi ACR122U halefi, USB-C var |
+| **uTrust 3700 F** | kısa + genişletilmiş (1034 bayt) | ✅ en geniş, ⚠️ **AB fiyatı doğrulanamadı** |
+| 🔴 **ACR122U** | **yalnız kısa** | ❌ **ELENDİ** |
+| 🔴 **ACR1281U-C1** | kısa + genişletilmiş | ❌ **ELENDİ** |
+
+🔴 **ACR122U'yu eleyen şey APDU uzunluğu DEĞİL — WTX.** Desteklenmeyenler
+listesi birebir: *"**Time extension requests are not supported.**"* Oysa
+`AuthenticateEV2First` ve `ChangeKey` çipe AES işi yaptırır ve çip **bekleme
+süresi uzatması** ister; onu host'a iletmeyen okuyucu el sıkışmanın **ortasında**
+zaman aşımına düşer. Aynı cümle **ACR1281U-C1** için de yazılı. Üstüne ACS
+ACR122U'yu **kullanımdan kaldırdı** ve piyasadaki
+[sahteler için resmî bir bildiri](https://www.acs.com.hk/en/press-release/2266/)
+yayımladı. ⚠️ **PN532 kartları da yol değil** — CCID cihazı değiller, PC/SC yolu
+hiç yok.
+
+⚠️ **DigiKey / Mouser / RS / Farnell'den ISMARLAMA:** oralarda "ACR1252U" adıyla
+**~€152**'ye listelenen şey **Carlo Gavazzi**'nin bir röle aksesuarıdır — aynı
+parça numarası, başka ürün. AB satıcı örnekleri (2026-08-20, KDV hariç/dahil
+karışık): Kartenstudio (DE) **€41.50 + KDV** · Identible (DE) **€42.00 net** ·
+ShopNFC (IT) **€48.30** · MEGATEH (EE) ACR1552U-M1 **€46.40**.
+🔴 **Birleşik Krallık satıcılarından alma** — Malta'ya üçüncü ülke ithalatıdır
+(18% ithalat KDV + gümrükleme), ve €150 muafiyet eşiği **2026'da kalkıyor**
+([EC, 2025-11-13](https://taxation-customs.ec.europa.eu/news/e-commerce-150-eur-customs-duty-exemption-threshold-be-removed-2026-2025-11-13_en)).
+
+**Go tarafı — ve §1'in "tek statik binary"si burada gerçekten zorlanıyor:**
+
+| Kütüphane | ★ | Son commit | Lisans | CGO? | Çalışma anı ihtiyacı |
+|---|---|---|---|---|---|
+| `ebfe/scard` | 102 | 2024-12-14 | BSD-2 | **Evet** (Windows hariç) | `libpcsclite` / `PCSC.framework` |
+| `ElMostafaIdrassi/goscard` | 8 | 2025-01-25 | Apache-2.0 | **Hayır** (purego, `dlopen`) | aynı kütüphaneler, **çalışma anında** |
+| `gballet/go-libpcsclite` | 5 | 2025-09-18 | BSD-3 | **Hayır** | **hiçbiri** — doğrudan `pcscd` soketi |
+| `sf1/go-card` | 41 | 2022-08-12 | MIT | Evet | 🔴 **ARŞİVLENMİŞ** |
+
+🔴 **"CGO yok" ile "native bağımlılık yok" AYNI ŞEY DEĞİL.** `goscard` CGO'suz
+ama yine `libpcsclite`'ı çalışma anında arar. Bağımlılığı **tamamen** kaldıran
+tek seçenek `go-libpcsclite` ve o da **kullanılamaz**: `doc_darwin.go` ile
+`doc_windows.go` soket yolunu **boş dize** tanımlıyor (macOS için
+[issue #3, 2019'dan beri açık](https://github.com/gballet/go-libpcsclite/issues/3);
+Windows için #5, 2020) — **bizim geliştirme makinemiz darwin**. Ayrıca API'si
+beş fonksiyon (`SCardControl` ve transaction yok) ve pcsc-lite'ın
+**sürümlenmemiş, dahili** istemci/daemon ABI'sini yeniden uyguluyor.
+
+⚠️ **Bir kaçış yolu var ve sayılmalı:** encode aracı **sunucu değildir**. §1'in
+*"tek binary, statik deploy"* hedefi **sevk edilen ikiliye** aittir; ayrı bir
+operatör CLI'si (`cmd/…`) CGO'yu **rahatça** göze alabilir ve o zaman CGO'suzluk
+sorusu **karar taşımaz hâle gelir**. Bu bir karar değil, seçeneğin kendisidir.
+
+**Hazır Go kütüphanesi YOK — bu bir bağımlılık seçimi değil, bir yazma işidir.**
+`pkg.go.dev` `ntag424` için **tek** sonuç veriyor ve onu **sıfır** paket import
+ediyor. Ölçülen iki aday da düşüyor:
+`barnettlynn/nfctools` **tam** (SDM dahil) ama **LİSANSSIZ** (yani her hakkı saklı)
+ve düz AES anahtarlarını diskteki `.hex` dosyalarından okuyor — §4.7 ile doğrudan
+çarpışıyor · `dumacp/smartcard` (33★, Apache-2.0, testli) DESFire EV2 oturum
+kurulumunu **doğru** yapıyor (`sv1`/`sv2` sabitleri, `TI`+`CmdCtr` IV'i) ama
+**`SDM` deposunda sıfır kez geçiyor** — yani `ChangeFileSettings`'in tam da bizim
+ihtiyacımız olan yarısı (SDM seçenek baytı, erişim hakları, üç baytlık
+little-endian mirror ofsetleri) **eksik**. Port kaynağı olarak en temizi
+[codeberg.org/jannschu/ntag424](https://codeberg.org/jannschu/ntag424) (Rust,
+MIT/Apache-2.0, 2026-05-26) ve `johnnyb/ntag424-java` (47★, MIT, ⚠️ 2024-06-10'dan
+beri commit yok).
+
+#### B — kendi Android uygulamamız · ayrıntı
+
+**Ham APDU: belgeyle kanıtlı.** Android'in `IsoDep` sınıfı birebir *"Provides
+access to ISO-DEP (ISO 14443-4) properties and I/O operations on a Tag.
+Applications must implement their own protocol stack on top of `transceive()`"*
+diyor; `transceive(byte[])` ise *"Send **raw** ISO-DEP data to the tag and
+receive the response"*. **NDEF kısıtı yoktur.** Gereken izin sıradan
+`android.permission.NFC`'dir (çalışma anı izni değil). Sınırlar:
+`getMaxTransceiveLength()` bayt tavanını verir, `isExtendedLengthApduSupported()`
+genişletilmiş APDU desteğini söyler (kısa APDU tavanı 255 yük / 261 çerçeve) ve
+`setTimeout(int)` **transceive başına** ayarlanır. 🔴 **Android'de oturum ömrü
+sınırı YOKTUR** — bağlantı çip alandan çıkana ya da `close()` çağrılana kadar
+yaşar. Röle için bu, iOS'a göre **belirleyici bir üstünlüktür**.
+
+**Dağıtım bugün: APK yan yükleme yeter.** Mağaza hesabı, inceleme, ücret yok.
+
+⚠️ **AMA BİR TARİH VAR VE KARARA GİRMELİ.** Google, sertifikalı Android
+cihazlarda kurulacak uygulamalar için **geliştirici doğrulaması** getiriyor:
+geliştirici API'leri ve "güç kullanıcı" akışı **2026 Ağustos**, dört ülkede
+mağaza son tarihi **2026-09-30**, **küresel yayılım 2027**. Doğrulama KYC kimlik
+kontrolü + paket adı ve imza anahtarı kaydı istiyor.
+([developer.android.com/developer-verification](https://developer.android.com/developer-verification),
+2026-08-20) İki hafifletici var ve ikisi de bizim ölçeğimize **uyuyor**:
+**ADB ile kurulum** ve öğrenci/hobici için **"limited distribution" hesabı —
+20 cihaza kadar, kimlik belgesi ve ücret istemeden**. Encode aracı **tek bir
+operatör telefonunda** koşacaksa bu kapı bugün de 2027'de de kapanmıyor;
+yine de **bilerek** girilmeli.
+
+#### C — kendi iOS uygulamamız · ayrıntı
+
+**API ve sürüm.** `NFCTagReaderSession` ve `NFCISO7816Tag.sendCommand(apdu:)`
+**iOS 13.0+**. ⚠️ **iOS 26.4** `NFCTagReaderSession.init(pollingOption:delegate:queue:)`
+başlatıcısını **kullanımdan kaldırdı**; yerine `init(configuration:delegate:queue:)`
+geldi. Yazılacak kod ilk günden yeni başlatıcıya + geriye dönük dala göre
+kurulmalı.
+
+**Entitlement:** `com.apple.developer.nfc.readersession.formats`. Apple'ın
+bugünkü belgesi **tek** değer sayıyor: **`TAG`** — *"Allows read and write access
+to a tag using `NFCTagReaderSession`"*. Ayrıca `Info.plist`'te boş olmayan bir
+`NFCReaderUsageDescription` **zorunlu**; entitlement eksikse oturum
+`NFCReaderErrorSecurityViolation` ile başlamaz.
+
+🔴 **AID listesi sorusunun cevabı beklenenden İYİ, çünkü İKİ ŞEKİL var:**
+
+- **Şekil 1 — `NFCISO7816Tag`:** `Info.plist`'e
+  `com.apple.developer.nfc.readersession.iso7816.select-identifiers` altında
+  **`D2760000850101`** yazılır. Apple: sistem listedeki her kimlik için **kendisi
+  `SELECT` gönderir** ve ilk başarılıda tag'i teslim eder. **Bu bizim için tam
+  isabet:** NTAG 424 DNA'nın **tek** uygulaması vardır ve ISO 7816 DF adı zaten
+  **odur** — yani "PICC seviyesine ayrı bir AID ile inmek" diye bir sorun **yok**,
+  AN12196'nın bütün kişiselleştirme dizisi tam da o SELECT'in **arkasında**
+  koşuyor. Apple'ın tek kısıtı `p1Parameter == 0x04` ile **kendi** göndereceğin
+  `SELECT` içindir; `90 71 / 90 5F / 90 C4 / 90 AF` **`SELECT` değildir**, kısıta
+  girmez.
+- **Şekil 2 — `NFCMiFareTag`:** `D2760000850101`'i listeye **koymazsan** Apple
+  aynı çipi MIFARE tag'i olarak verir ve `sendMiFareCommand` ile DESFire ailesine
+  doğrudan komut gönderirsin — **`select-identifiers` hiç gerekmez**, `formats`
+  entitlement'ı yeter. Apple'ın kendi belgesi bunu **DESFire için açıkça**
+  tarif ediyor (*"To get the MIFARE DESFire tag as an `NFCMiFareTag` object,
+  don't include `D2760000850101`"*), ve komut zincirlemeyi (`AF` parçaları)
+  **kendisi birleştiriyor**.
+
+🔴 **ASIL ENGEL AID DEĞİL, ZAMAN — VE SERT.** Bir Apple mühendisi geliştirici
+forumunda (2025-10) birebir: *"The 20 second limit is a hard limit, and there is
+no opportunities to extend it."* Yani oturum ~60 sn yaşasa da **çipe bağlı
+kalınan süre ~20 saniyedir ve uzatılamaz**. Röle mimarisinde 17 APDU'nun her
+biri bir NFC turu **artı** bir HTTPS turu demektir; kaba hesapla tur başına
+~150 ms ile ~2.6 sn eder, yani **sığar** — ama TLS el sıkışması, yeniden deneme
+ve zayıf şebeke için **marj dardır**. ⚠️ **ÖLÇMEDİM.** Bu tek sayı C yolunu tek
+başına açar ya da kapatır ve **gerçek cihazla ölçülmelidir**.
+([Apple Developer Forums 802895](https://developer.apple.com/forums/thread/802895))
+
+**Dağıtım ve maliyet:** 🔴 **Ücretsiz kişisel sağlama profili NFC entitlement'ı
+VERMEZ** — Apple'ın kendi "Supported capabilities (iOS)" tablosu *Near Field
+Communication Tag Reading* satırını ücretsiz "Apple Developer" sütununda **✗**
+işaretliyor. Yani **$99/yıl Apple Developer Program zorunludur**.
+([developer.apple.com/help/account/reference/supported-capabilities-ios](https://developer.apple.com/help/account/reference/supported-capabilities-ios/))
+İç ekipe dağıtım için **Ad Hoc** (kayıtlı cihazlara, **inceleme yok**) ya da
+Apple'ın beta kanalının **internal** kolu (100 kullanıcıya kadar, App Review
+yok) yeterlidir — ürünün adı bilerek yazılmadı, çünkü `Test` ile başlayıp büyük
+harfle devam ettiği için `TestEveryNamedTestExists` onu **var olmayan bir teste
+atıf** sayıyor (ölçüldü: 54 canlı / 53 bütçeli). Muafiyet listesi
+(`cmd/tappa/testdata/known-dangling-citations.txt`) kendi başlığında *"yalnız
+KÜÇÜLEBİLİR"* diyor, yani doğru çözüm ada dokunmamak;
+**Enterprise Program ($299/yıl) uygun değil** — Apple ≥100 çalışan, D-U-N-S ve
+doğrulama mülakatı şart koşuyor.
+⚠️ Karıştırılan bir şey: bazı yazılar NFC'nin *"ayrı ticari sözleşme ve ek ücret"*
+istediğini söylüyor — o, **HCE/güvenli eleman** (`…nfc.hce`) içindir. **Tag
+okuma** $99'a dahil sıradan bir yetenektir.
+
+**Röle olmadan iOS ayrıca kripto borcu getirir:** CryptoKit'te **AES-CBC de
+AES-CMAC de yok**; bilinen tek açık iOS denemesi tam orada durmuş. **Röleyle bu
+borç sıfırlanır** — telefon hiç kripto yapmaz.
+
+#### D — üçüncü parti araç + kendi yükleyicimiz · ayrıntı
+
+Teknik olarak **çalışır** ve bugün **hemen** yapılabilir; kırmızı çizgide durur.
+
+- **Ne alınır:** NFC.cool Tools (**$29.99/yıl**, iPhone + Android, okuyucu
+  gerektirmez) · GoToTags Desktop (**~$0.05/tag, $25 asgari**, PC/SC okuyucu
+  ister) · NFC Developer App (ücretsiz sürüm CAPTCHA'lı).
+- 🔴 **ADR 0003 md. 5 ve §4.7 ihlali — ve iki ayrı yerden:**
+  1. Düz anahtar **bizim süreçlerimizin dışında** üretilir/girilir ve o cihazda
+     kalıcılaşır. Bu bölümün *"Anahtar hijyeni"* maddesi 1 (`Wrap`+`Zero` **aynı
+     süreçte**) **sağlanamaz**.
+  2. NFC.cool'da anahtar bir **parola cümlesinden belgelenmemiş bir türetmeyle**
+     üretilip keychain'e yazılıyor → `internal/sun` aynı 16 baytı **bağımsız
+     üretemez**, yani `aes_key_ref`'e yazılacak değeri **bilemeyiz**. Ham hex
+     girme yolu varsa o kullanılmalı — ama o zaman da (1) geçerli.
+- ⚠️ **"Encode'lu tedarikçiden al" bunun daha kötü hâlidir ve Q10 onu zaten
+  reddetti.** Ölçüm bunu doğruluyor: bu hizmeti veren satıcılar master sırrın
+  kendi tesislerinden **çıkmadığını** açıkça yazıyor — yani üçüncü bir taraf
+  duvardaki plaketlerimiz için **süresiz geçerli SUN URL'leri üretebilir**, yani
+  **check-in uydurabilir**. Bu bir zahmet değil, **diskalifiye**dir.
+- **Bu yolu seçmek bir ADR tadili demektir** ve bu **ayrı bir karardır** — bir
+  araç seçimi olarak sessizce alınamaz.
+
+#### Ölçemediklerim — tahmin yerine boşluk
+
+1. **Hiçbir çip encode edilmedi.** Bu bölümün tamamı belge, satıcı sayfası ve
+   API referansı okumasıdır. **Silikonla hiçbir şey doğrulanmadı** — FAZ B
+   listesinin sekiz maddesi yerinde duruyor.
+2. **iOS'un ~20 sn sınırı altında bir röle turunun gerçekten yetişip
+   yetişmediği.** Kaba hesap yetiyor diyor; **ölçüm yok**. C yolunu tek başına
+   açacak/kapatacak sayı budur.
+3. **NTAG 424 DNA'nın kendi tarafında bir oturum zaman aşımı olup olmadığı.**
+   AN12196'da bulamadım; veri sayfasına birincil kaynaktan erişilemedi
+   (nxp.com JS'siz istemcilere 404 döndürüyor). ISO 14443-4 tarafı sorun
+   çıkarmıyor ama **çip tarafı ölçülmedi**.
+4. **uTrust 3700 F ve Omnikey 5022'nin AB fiyatları** — doğrulanamadı.
+5. **Gerçek ACR122U'nun bugünkü AB fiyatı** — zaten elendiği için aranmadı.
+6. **GoToTags'in düz anahtarı nerede tuttuğu** belgelenmemiş; D için **en kötü
+   varsayım** alındı (araçta durur).
+7. **community.nxp.com Cloudflare 403 veriyor ve Wayback anlık görüntüsü yok** —
+   NXP forumundan gelen her iddia yalnız arama özeti düzeyindedir ve bu bölümde
+   **karar taşıyan hiçbir cümle** oraya dayanmıyor.
+
+#### 🔴 Kararı değiştirecek TEK ölçüm
+
+Yukarıdakilerin arasında **bir tanesi** okumaları yer değiştirtir:
+**iOS'ta ~20 saniyelik sert bağlantı sınırının altında tam bir röleli
+kişiselleştirme turunun yetişip yetişmediği.** Yetişiyorsa C yolu B ile aynı
+sınıfa çıkar ve *"donanım almadan, elimizdeki telefonla, anahtar sunucudan
+çıkmadan"* şeklinde tek bir cevap belirir. Yetişmiyorsa C **düşer** ve seçim
+**A ile B** arasına iner — biri **~€45 donanım + 1 Go bağımlılığı**, öteki
+**€0 donanım + yeni bir dil zinciri ve 2027 doğrulama kapısı**.
+Diğer altı boşluğun hiçbiri bu yer değiştirmeyi yapmaz.
 
 ### Encode ayarları — ADR 0003'ten NORMATİF türetilmiştir
 
