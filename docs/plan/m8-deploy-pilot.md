@@ -3794,6 +3794,61 @@ tablosu çıkmış durumda (satış slaytı da olur).
 > **kendimiz encode ederiz**. Gerekçe runbook'ta (`deploy/README.md` → "Plaket
 > encode"), `open-questions.md`'de değil — orası orkestratörün.
 
+> **Kart düzeltmesi (2026-08-20, M8-05 FAZ B1 TUR 1 sırasında).** Üç cümle
+> değişti; hiçbiri silinmedi, üçü de burada.
+>
+> **(a) ARAÇ YOLU ARTIK SEÇİLDİ.** Kullanıcı 2026-08-20'de **B yolunu** (kendi
+> Android uygulamamız, **APDU rölesi** şeklinde) seçti; kripto sunucuda koşar,
+> düz anahtar sunucu sürecinden çıkmaz. Kararın kendisi, sınırı, tehdit modeli,
+> oturum durumunun nerede yaşadığı, anahtar numaraları ve **yarım-yazma kurtarma
+> yolu** [ADR 0017](../adr/0017-encode-rolesi-ve-yarim-yazma-kurtarmasi.md)'dedir.
+> ⚠️ Onay **Android dil zinciri** içindir; **yeni bir Go bağımlılığına onay
+> verilmedi** (§1). Kod hâlâ yazılmadı, çip hâlâ encode edilmedi.
+>
+> 🔴 **Bunun ölü bıraktığı cümleler — sayıldı, ve BU KARTTA İKİ SATIR:**
+> ⚠️ **Bu bloğun ilk hâli kendi sayımıyla çelişiyordu** (*"ikisi bu kartta"* dedi
+> ama biri `deploy/README.md`'deydi; *"kalan üçü"* dedi ama dört madde saydı).
+> Düzeltilmiş sayım:
+> **(i)** aşağıdaki **FAZ A kriter 2** satırı (`m8-deploy-pilot.md`) **üç** ölü
+> ifade taşıyor — *"maliyet ölçülmedi"* (2026-08-20'de ölçüldü) · *"araç iddiaları
+> zayıf kanıt diye etiketli"* (üçü de kapandı, ikisi çürüdü) · *"Seçim FAZ B'de ve
+> kullanıcınındır"* (seçim yapıldı). Satır tarihsel kayıt olarak **duruyor**.
+> **(ii)** aşağıdaki **FAZ A kriter 1** satırı: *"yazma izni anahtarla kilitli …
+> ADR'den normatif türetildi"* — **hangi anahtara** kilitleneceği bu turda
+> **karara bağlanmamıştı** ve elde olan tek anahtar halka açık fabrika anahtarı
+> 0'dır; skill'e tam o cümle için bir uyarı eklendi (ADR 0017 §5.0 · ADR 0005
+> risk 8).
+> **(iii)** `deploy/README.md`'de **beş** ölü cümle var ve **beşine de** tarihli
+> şerh düşüldü: *"Araç yolu — KARAR DEĞİL, KARAR ÖNERİSİ"* başlığı ·
+> *"BU BAŞLIK ALTINDA HİÇBİR ŞEY SEÇİLMEDİ"* · *"Dört yol — … KARAR YİNE
+> VERİLMEDİ"* başlığı · *"VE BURADA HÂLÂ HİÇBİR ŞEY SEÇİLMEDİ"* · **FAZ B devir
+> listesi md. 2** (*"Araç yolu seçilir ve kurulur"* — o liste **bu kartta değil**,
+> kart ona yalnız atıf yapıyor). Bu sayı ADR 0017'nin verdiği **beş** ile
+> **aynıdır**; ilk hâlinde değildi.
+> ⚠️ İlk sürümü bu blok *"Hiçbir şey seçilmedi"*yi **bu kartın** nested bloğuna
+> atfediyordu; ölçüldü, o cümle bu kartta **hiç yok** — düzeltildi.
+>
+> **(b) FAZ B'nin ENCODE YARISI SANILDIĞI KADAR ÇIPLAK DEĞİL.** Kart ve runbook
+> uçtan uca doğrulamayı yalnız silikona bağlıyordu; ölçüldü, AN12196'nın
+> **kişiselleştirme bölümü çalışılmış örnekler taşıyor** — rev. 1.8 §6.6 tablo
+> 14 (`AuthenticateEV2First`), §6.9 tablo 19 (`ChangeFileSettings`), §6.16 tablo
+> 26/27 (`ChangeKey`); rev. 2.0'da §5.6 tablo 14 / §5.9 tablo 18 / §5.16 tablo
+> 25/26. Üçü de somut `RndA`/`RndB`/`TI`/oturum anahtarı/şifreli gövde/MAC
+> değerleri veriyor, yani **komut formatı tablosu değil, known-answer
+> vektörü**. 🔴 **Ama kapatmadıkları iki eksen var ve ikisi de M2-08 sınıfı:**
+> *(i)* yayımlanmış `ChangeFileSettings` örneği **şifreli-PICC** yapılandırmasını
+> kuruyor, Tappa'nın **plain**'ini değil — plain gövdenin alan sırası yalnız
+> **NT4H2421Gx** veri sayfası §10.7.1 tablo 69'dan okunur; *(ii)* iki `ChangeKey`
+> örneğinin de eski anahtarı **sıfır**, yani `Old ⊕ New == New` → **XOR'un
+> yapılıp yapılmadığını hiçbir vektör ayırt etmiyor**.
+>
+> **(c) VERİ SAYFASI BUGÜN ERİŞİLEBİLİR.** Runbook'un *"Ölçemediklerim"*
+> maddesi 3 *"veri sayfasına birincil kaynaktan erişilemedi (nxp.com JS'siz
+> istemcilere 404 döndürüyor)"* diyor. Bugün ölçüldü: `nxp.com/docs/en/data-
+> sheet/NT4H2421Gx.pdf` düz bir `curl`'e **HTTP 200** ve **gerçek PDF** döndürdü
+> (rev. 3.0, 2019-01-31, 97 sayfa). O madde **bu belge için** bayattır; araç
+> sayfalarındaki 403/404 gözlemleri hakkında bir şey söylemiyor.
+
 **FAZ A — donanımsız yarı (bu tur).**
 
 | # | Kriter | Durum |
@@ -3805,15 +3860,21 @@ tablosu çıkmış durumda (satış slaytı da olur).
 | 5 | Anahtarlar repoya/sohbete/e-postaya yazılmadı; KEK ile sarmalı DB'de | ✅ bugün yapılabilir — **mekanizma olarak** yazıldı (`sun.Wrap`/`sun.Zero`, R7 kuralları, `seedkeys` emsali) |
 | 6 | Plaket baskısı: A5, NFC + QR birlikte, kamera görüş alanına montaj notu | ✅ bugün yapılabilir — skill `tappa-brand` → "Plaket baskısı"na atıfla; QR'ın §5 sonucu yazıldı. ⚠️ **A5 skill'de YOK** (ölçüldü: `A5`/`148`/`210` sıfır isabet); kâğıt boyu **handoff.md**'den gelir, skill yerleşim/QR ölçüsü verir. |
 
-**FAZ B — fiziksel çip gerektiren yarı (devir).** Sekiz maddelik yükümlülük
+**FAZ B — fiziksel çip gerektiren yarı (devir).** **Dokuz** maddelik yükümlülük
 listesi runbook'un sonundadır: `deploy/README.md` → **"FAZ B'ye devredilenler"**.
 Kriter 2'nin araç seçimi ve kriter 3'ün tamamı oraya aittir.
+⚠️ **Liste 2026-08-20'de sekizden dokuza çıktı** (ADR 0017): md. 6 anahtar
+numarasına göre ikiye ayrıldı, md. 7 kimlik doğrulanmış yazma denemesini de
+kapsayacak şekilde genişledi, ve **md. 9 eklendi** — anahtar 0 maruziyeti +
+*"anahtar 0 fabrika varsayılanındayken plaket duvara çıkamaz"* güvenlik çizgisi
+(bu bir **pilot** bloklayıcısıdır, encode bloklayıcısı değil).
 ⚠️ **Listenin 1. maddesi M2-08 ile DARALDI ve sıra ayrıcalığını kaybetti.** Eskiden
 *"`ctr` bayt sırası — diğer yedisinden önce koşulur"* diyordu; o gerekçe (*yanlış
 tarafta duran kod her tap'i reddeder*) **decode** tarafı içindi ve decode tarafı
 artık kapalı. Kalan iş **encode** tarafının doğrulanmasıdır: encode aracı sayacı
-URL'ye gerçekten **MSB-first** yazıyor mu. Bu, kalan yedi maddeyle **aynı turda**
-ölçülebilir; ayrıca `ctr` palindrom olmadığı için sinyal gürültüsüzdür.
+URL'ye gerçekten **MSB-first** yazıyor mu. Bu, kalan **sekiz** maddeyle **aynı
+turda** ölçülebilir; ayrıca `ctr` palindrom olmadığı için sinyal gürültüsüzdür.
+(Liste 2026-08-20'de dokuza çıktı; bu cümle *"yedi"* diyordu.)
 
 **Tuzaklar.**
 - **Yanlış host'la encode edilmiş plaket = sahada plaket değişimi.** SUN URL'si
@@ -3840,12 +3901,35 @@ URL'ye gerçekten **MSB-first** yazıyor mu. Bu, kalan yedi maddeyle **aynı tur
 > - [ ] Saklama süresi ve silme/anonimleştirme akışı karara bağlı (Q13)
 > - [ ] Telefon envanteri çıkarıldı ([M8-07](m8-deploy-pilot.md))
 > - [ ] Üretim tenant'ı kuruldu ve doğrulandı ([M8-07](m8-deploy-pilot.md))
+> - [ ] 🔴 **Duvara çıkan hiçbir plakette uygulama anahtarı 0 fabrika
+>       varsayılanında DEĞİL** ([ADR 0017](../adr/0017-encode-rolesi-ve-yarim-yazma-kurtarmasi.md)
+>       §5.0 · [ADR 0005](../adr/0005-kabul-edilen-riskler.md) risk 8)
+>       — **madde 2026-08-20'de eklendi.**
+>       **Ön koşulu bir şema kararıdır:** ikinci plaket anahtarının nerede
+>       saklanacağı (ADR 0017 §6 md. 5; üç şık `deploy/README.md` → *"FAZ B'ye
+>       devredilenler"* md. 9'da sayılı). O karar kapanmadan bu kutu
+>       işaretlenemez.
+>       ⚠️ **Bu kutunun bugün MEKANİK KARŞILIĞI YOK ve bunu bilerek yazıyoruz:**
+>       `AssignTagToLocation`'ın WHERE'i yalnız `tenant_id` + `uid` +
+>       `status = 'unassigned'` bakıyor; anahtar 0 durumunu okuyan bir sütun ya da
+>       kontrol ağaçta **yok** (ölçüldü: `master_key`/`key0`/ikinci anahtar sütunu
+>       için `internal`, `db`, `cmd` taramasında sıfır isabet). Yani bugün bu bir
+>       **insan kontrolüdür**; mekanikleştirmek M8-05 turun 2'sinin ya da M8-06'nın
+>       işidir.
+>       **Neden pilot kapısında:** encode aracının inşası ve testi bunu beklemez
+>       (tezgâhta ve kutuda sorun yok); duvara çıkmak bekler. Sinyalsiz bir risk
+>       olduğu için (ADR 0005 risk 8 — repointlenen plaketin tap'i bize **hiç
+>       ulaşmaz**) sonradan yakalanamaz.
 >
 > "BioTime'ın GDPR yükünden kurtulun" diye satılan bir ürünün kendi pilotunda
 > aydınlatma metni olmadan çalışması, ürünün ana satış argümanını çürütür.
 
 **Kabul kriterleri.**
-- Pilot kapısındaki altı madde de ✓.
+- Pilot kapısındaki **yedi** madde de ✓ — **yedincisi 2026-08-20'de eklendi**
+  (anahtar 0 fabrika varsayılanında değil; [ADR 0017](../adr/0017-encode-rolesi-ve-yarim-yazma-kurtarmasi.md)
+  §5.0 · [ADR 0005](../adr/0005-kabul-edilen-riskler.md) risk 8). ⚠️ Bu satır
+  **altı** diyordu ve kapı yediye çıktığı hâlde 24 satır aşağıda güncellenmemişti;
+  o hâliyle pilot, anahtar 0 kutusu işaretlenmeden *"kapı tam"* ilan edilebilirdi.
 - 15 kişilik kadro aktive edildi; her çalışanın practice tap'i tamamlandı.
 - 1 hafta boyunca iki sistem paralel; günlük kayıt karşılaştırma tablosu.
 - Uyuşmazlıkların her biri açıklandı (kim, ne zaman, neden) — açıklanamayan

@@ -251,3 +251,190 @@ func adr0005ProseNames(t *testing.T, section string) []string {
 	}
 	return out
 }
+
+// adr0005MainTableHead and adr0005MainTableEnd bracket the MAIN accepted-risk table
+// (the numbered one under "## Karar"), which is a DIFFERENT table from the M8-04 B3
+// one above and is parsed by a different function for that reason.
+const (
+	adr0005MainTableHead = "## Karar"
+	adr0005MainTableEnd  = "Referanslanan `sid`'ler kodda gerçektir"
+)
+
+// adr0005MainProseCount reads the Turkish number word the ADR uses for its own risk
+// count. A word and not a digit, because that is how the document is written
+// ("Aşağıdaki **sekiz risk** kabul edilir") and rewriting the prose to suit the test
+// would be the test dictating the document.
+var adr0005NumberWords = map[string]int{
+	"bir": 1, "iki": 2, "üç": 3, "dört": 4, "beş": 5, "altı": 6,
+	"yedi": 7, "sekiz": 8, "dokuz": 9, "on": 10, "on bir": 11, "on iki": 12,
+}
+
+// TestADR0005_TheRiskCountMatchesTheTable binds the ONE number the main table had no
+// gate for.
+//
+// 🔴 WHY IT EXISTS, and it is not a hypothetical. The sibling gate above
+// (TestADR0005_TheAnchorCountsMatchTheProse) slices only the M8-04 B3 section,
+// which sits ~450 lines below this table — so
+// when M8-05 appended risks 7 and 8 on 2026-08-20 the sentence "Aşağıdaki **altı
+// risk** kabul edilir" was left describing a table that now held eight, and every
+// existing gate stayed green. Four of that round's blocking findings were the same
+// class in other files: a count copied into prose and left behind. This repository's
+// rule is that a number is BOUND, DATED, or DELETED; this one is now bound.
+//
+// It deliberately does NOT re-check anchors, cell shape or names — that is the other
+// test's job and duplicating it would give two places to update for one change.
+func TestADR0005_TheRiskCountMatchesTheTable(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join(repoRoot, adr0005Path))
+	if err != nil {
+		t.Fatalf("reading %s: %v", adr0005Path, err)
+	}
+	text := string(b)
+
+	start := strings.Index(text, adr0005MainTableHead)
+	if start < 0 {
+		t.Fatalf("%s no longer contains %q", adr0005Path, adr0005MainTableHead)
+	}
+	rest := text[start:]
+	end := strings.Index(rest, adr0005MainTableEnd)
+	if end < 0 {
+		t.Fatalf("%s: the main risk table is not terminated by %q, so any count below "+
+			"would be measuring the rest of the file", adr0005Path, adr0005MainTableEnd)
+	}
+	section := rest[:end]
+
+	// Rows are `| 7 | **Risk** | ... |`. The leading digit is what numbers a risk.
+	//
+	// ONE ROW PATTERN, PLUS THE TWO LINES THAT ARE NOT ROWS. Every pipe-led line in the
+	// slice must be the header, the separator, or a row of that exact form; anything
+	// else fails below. There is no second "loose" row pattern and no comparison of two
+	// PATTERN totals — that WAS the design for one round and it is gone, because
+	// counting patterns kept leaving holes (the history is at the failure site below).
+	// What IS compared, further down, is the row count against the number the prose
+	// states.
+	//
+	// 🔴 COUNTED ESCAPE, NAMED RATHER THAN CLOSED — AND IT IS THE HEAVIER DIRECTION.
+	// "Pipe-led" is the literal truth of the scan and it is also a HOLE, not only the
+	// convenience it looks like. GitHub-flavoured Markdown makes the leading and
+	// trailing pipes OPTIONAL on body rows, so a line written
+	//
+	//	9 | **Ninth risk, no leading pipe** | why | signal | task |
+	//
+	// RENDERS as a ninth row of this very table and this scan NEVER SEES IT: the
+	// loop skips any line that does not start with a pipe. Measured 2026-08-20 (eighth
+	// audit, reproduced here): with that line appended the gate stays GREEN at "8 rows,
+	// prose says sekiz".
+	//
+	// DIRECTION: A MISSED ROW. That is the opposite of the limit recorded at the
+	// failure site below (a second table makes this gate blame the wrong one — a false
+	// alarm), and it is WORSE, because a missed row is exactly the defect class this
+	// gate exists for: an accepted risk that the count does not cover.
+	//
+	// WHY IT IS NOT CLOSED: closing it means moving the scan toward GFM's real table
+	// grammar (optional delimiters, escaped pipes, alignment rows), which is a parser,
+	// not a guard. That is more than this gate is worth today. It is recorded so the
+	// next reader knows the boundary is a boundary and not an oversight — and so that
+	// nobody reads "every pipe-led line" as "every row".
+	//
+	// 🔴 AND THE COMMENT THAT DESCRIBED THE OLD DESIGN OUTLIVED IT BY A ROUND, WHICH IS
+	// THE SECOND TIME IN TWO ROUNDS THAT THIS TASK DELETED A MECHANISM AND LEFT ITS
+	// PROSE STANDING. The first was an AN12196 table whose withdrawn completeness claim
+	// stayed in its own heading while the retraction sat thirty-six lines above it; the
+	// second was this block, still announcing a `looseRe` that no longer exists, while
+	// the corrected explanation sat seventeen lines below. Both times the WRONG half was
+	// the one a reader meets first.
+	//
+	// THE RULE THIS TASK LEARNED, WRITTEN WHERE IT WAS BROKEN: when you remove a
+	// mechanism, remove the text that DESCRIBES it in the same edit, and prove it with a
+	// grep for the removed identifier. A retraction that lives away from the retracted
+	// sentence is not a retraction; a comment is not documentation of intent, it is a
+	// claim about the code beside it.
+	rowRe := regexp.MustCompile(`^\|\s*(\d+)\s*\|\s*\*\*`)
+	headerRe := regexp.MustCompile(`^\|\s*#\s*\|`)
+	sepRe := regexp.MustCompile(`^\|[-:\s|]+\|\s*$`)
+
+	var nums []string
+	for i, line := range strings.Split(section, "\n") {
+		if !strings.HasPrefix(strings.TrimSpace(line), "|") {
+			continue
+		}
+		line = strings.TrimSpace(line)
+		switch {
+		case headerRe.MatchString(line), sepRe.MatchString(line):
+			continue
+		}
+		m := rowRe.FindStringSubmatch(line)
+		if m == nil {
+			// 🔴 EVERY PIPE LINE IS EITHER THE HEADER, THE SEPARATOR, OR A WELL-FORMED
+			// ROW — a positive shape assertion, and it is positive BECAUSE COUNTING
+			// PATTERNS LEFT HOLES. Two rounds of audit mutation measured them: a row
+			// numbered but NOT bold was caught by an added second pattern, and then a
+			// row BOLD BUT NOT NUMBERED sailed through both, because neither pattern
+			// described what a row must look like — only what some rows do look like.
+			// A table row that matches no pattern is now a failure by construction,
+			// which is the only shape that does not need a new pattern per new defect.
+			//
+			// ⚠️ COUNTED LIMIT: THE SLICE IS ASSUMED TO HOLD EXACTLY ONE PIPE TABLE, and
+			// today it does. Measured by an audit: drop a SECOND well-formed table into
+			// the slice and this check fails — correctly, in the sense that it fires,
+			// but it blames "the main risk table" for a line that is not in it. The
+			// direction is the safe one (a false alarm, never a missed row) and the
+			// offending line is printed, so a reader is one look from the truth. Fixing
+			// it properly means bounding the table itself rather than the section, which
+			// is a bigger change than this gate is worth today; recorded rather than
+			// pretended away. (Pipes inside PROSE are unaffected -- the scan only looks
+			// at lines that START with one. ⚠️ That same "pipe-led" restriction is ALSO
+			// an escape in the other direction, and it is named at the top of this
+			// function: a body row written WITHOUT its leading pipe renders as a row and
+			// is never scanned. Do not read this parenthesis as the whole story.)
+			// 🔴 THE NUMBER IS COUNTED FROM THE START OF THE SLICE, NOT FROM THE FILE,
+			// and it says so — because the sibling parser in this same file
+			// (readADR0005Rows) reports ABSOLUTE file lines, so one file carries two
+			// bases and a reader who assumes the wrong one looks in the wrong place.
+			// The offending text is printed alongside precisely so the number never has
+			// to be trusted on its own.
+			t.Errorf("🔴 %s: line %d OF THE SLICE (counting from %q, not from the top of "+
+				"the file) matches neither the header, the separator, nor the row form "+
+				"`| N | **Risk** | … |`:\n    %.100s\n"+
+				"A row the counter cannot read is a risk the count does not cover, and "+
+				"the prose above would stay 'right' about a table that had grown.",
+				adr0005Path, i+1, adr0005MainTableHead, line)
+			continue
+		}
+		nums = append(nums, m[1])
+	}
+	if len(nums) == 0 {
+		t.Fatal("CONTROL FAILED: no numbered rows were parsed out of the main risk table, " +
+			"so nothing below is being measured")
+	}
+
+	// The numbering must be dense and start at 1: a gap or a duplicate would make the
+	// count agree with the prose while the table itself was wrong.
+	for i, n := range nums {
+		got, err := strconv.Atoi(n)
+		if err != nil || got != i+1 {
+			t.Errorf("%s: main risk table row %d is numbered %q; the rows must run 1..N "+
+				"without gaps or repeats, otherwise 'N risk' is true of the count and "+
+				"false of the table", adr0005Path, i+1, n)
+		}
+	}
+
+	proseRe := regexp.MustCompile(`Aşağıdaki \*\*(\p{L}+(?: \p{L}+)?) risk\*\* kabul edilir`)
+	pm := proseRe.FindStringSubmatch(section)
+	if pm == nil {
+		t.Fatalf("%s: could not find the sentence that states the risk count "+
+			`("Aşağıdaki **N risk** kabul edilir"). If it was reworded, this gate has to `+
+			"follow it — a count nobody checks is how risks 7 and 8 shipped under the "+
+			"word 'altı'.", adr0005Path)
+	}
+	want, ok := adr0005NumberWords[strings.ToLower(pm[1])]
+	if !ok {
+		t.Fatalf("%s says %q risks are accepted and this test does not know that number "+
+			"word. Add it to adr0005NumberWords.", adr0005Path, pm[1])
+	}
+	if len(nums) != want {
+		t.Errorf("🔴 %s says %q (%d) risks are accepted; the main table holds %d rows. "+
+			"Append rule: a new accepted risk is added to THAT table and to this sentence "+
+			"in the same change.", adr0005Path, pm[1], want, len(nums))
+	}
+	t.Logf("main risk table: %d rows, prose says %q (%d)", len(nums), pm[1], want)
+}

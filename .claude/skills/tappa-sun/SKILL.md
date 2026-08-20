@@ -217,11 +217,49 @@ Son satır pazarlıksızdır: replay korumasının tek gerçek kanıtı odur.
 
 ## Donanım / tedarik
 
-Geliştirme için 10'luk NTAG 424 DNA etiket (~30 €) + **NXP TagWriter** (Android)
-ile SDM mirroring encode edilir. Encode ederken: UID mirror + counter mirror açık,
-SDM MAC input offset ayarlı, dosya okuma izni herkese açık, yazma izni anahtarla
-kilitli. Ölçekte encode'lu tedarikçiden alınır — anahtarlar bize teslim edilir ve
-üretimde döndürülür.
+> 🔴 **BU BÖLÜM 2026-08-20'DE DÜZELTİLDİ — ESKİ HÂLİ İKİ KEZ YANLIŞTI VE
+> BİRİ TEHLİKELİYDİ.** Burada *"Ölçekte encode'lu tedarikçiden alınır —
+> anahtarlar bize teslim edilir"* yazıyordu. Bu, **Q10'un (2026-08-18) tam
+> tersidir** ve [ADR 0003](../../../docs/adr/0003-sdm-modu-ve-anahtar-yonetimi.md)
+> md. 3'ün reddettiği **tek-nokta felaketinin kendisidir**: tedarikçi encode
+> ederse park geneli anahtarları **tedarikçi bilir** ve o liste sızarsa duvardaki
+> her plaket için süresiz geçerli SUN URL'i üretilebilir. Ayrıca *"NXP TagWriter
+> ile encode edilir"* de yanlıştı: ölçüldü, TagWriter `ChangeKey` **yapmıyor** ve
+> NTAG 424 DNA desteklenen çip listesinde bile yok. CLAUDE.md §11 her NFC/etiket
+> işini bu dosyaya yolladığı için iki cümle de **talimat** olarak okunabilirdi.
+
+**Q10 (2026-08-18): plaketleri KENDİMİZ encode ederiz.** Boş NTAG 424 DNA çipleri
+alınır (geliştirme için 10'luk paket, ~30 €); anahtar üretimi ve SDM
+yapılandırması Tappa tarafında yapılır. **Encode'lu tedarikçiden plaket satın
+alınmaz** — hiçbir ölçekte.
+
+**Araç (kullanıcı kararı, 2026-08-20): kendi Android uygulamamız, APDU rölesi.**
+Telefon yalnız bayt taşır; kripto **sunucuda** koşar ve düz plaket anahtarı sunucu
+sürecinden **çıkmaz**. Karar, sınır, tehdit modeli, anahtar numaraları, komut
+sırası ve **yarım-yazma kurtarma yolu**:
+[ADR 0017](../../../docs/adr/0017-encode-rolesi-ve-yarim-yazma-kurtarmasi.md).
+⚠️ **Araç henüz YAZILMADI ve hiçbir çip encode edilmedi** — bugün elle plaket
+üretemezsiniz.
+
+**Encode ayarlarının tek yetkili kaynağı** `deploy/README.md` → *"Plaket encode —
+boş çipten duvara"* → *"Encode ayarları"* tablosudur (her satır ADR 0003'ten
+normatif türetilmiştir): plain mirroring · UID mirror açık · counter mirror açık ·
+**SDM MAC girdisi BOŞ** (`SDMMACInputOffset == SDMMACOffset` — bir ayar değil,
+ADR 0003 md. 2) · dosya okuma izni serbest · **yazma izni anahtarla kilitli**.
+
+🔴 **AMA *"anahtarla kilitli"* CÜMLESİNİ BURADAN OKUYUP UYGULAMAYIN — HANGİ
+ANAHTAR OLDUĞU KARARA BAĞLANMADI.** O tablo `FileAR.Change`'i ve
+`FileAR.ReadWrite`'ı **hiç** karara bağlamıyor, ve veri sayfasının tablo 9'una
+göre `Write` **ile** `ReadWrite` **ikisi de** `WriteData`'ya kapı açıyor — yani
+yalnız birini kilitlemek yazmayı kilitlemez. Üstelik bugün elde olan tek
+anahtar **fabrika varsayılanı anahtar 0**'dır ve o **halka açıktır**: yazmayı ona
+kilitlemek, kapıyı kilitleyip anahtarı paspasın altına bırakmaktır. Anahtar
+numaraları, sıra ve bunun neden bir **kabul edilmiş risk** olduğu:
+[ADR 0017](../../../docs/adr/0017-encode-rolesi-ve-yarim-yazma-kurtarmasi.md) §5.0
+· [ADR 0005](../../../docs/adr/0005-kabul-edilen-riskler.md) risk 8.
 
 Referans: NXP **AN12196** ("NTAG 424 DNA — features and hints") ve
-**NT4H2421Gx** veri sayfası, SDM bölümü.
+**NT4H2421Gx** veri sayfası, SDM bölümü. ⚠️ AN12196 atıflarında **revizyon
+belirtmeden bölüm numarası yazma** — rev. 1.8 ile rev. 2.0 arasında §2–§10 bir
+aşağı kayıyor, tablo numaraları ise ayrı davranıyor. Ölçülmüş eşleme tablosu:
+`internal/sun/an12196_kat_test.go` dosya başlığı.

@@ -46,9 +46,18 @@ satış ve gelecekteki tasarım tek yere baksın. Kabul edilmiş bir risk çöz�
 
 ## Karar
 
-Aşağıdaki **altı risk** kabul edilir. Her biri için: neden çözemiyoruz, hangi
+Aşağıdaki **sekiz risk** kabul edilir. Her biri için: neden çözemiyoruz, hangi
 gözlemlenebilir sinyalle tespit ederiz, o sinyalin hangi görevde uygulandığı ve
 (buddy punching için ayrıca) satış cevabı.
+
+> ⚠️ **7 ve 8, 2026-08-20'de eklendi (M8-05 FAZ B1, [ADR 0017](0017-encode-rolesi-ve-yarim-yazma-kurtarmasi.md)).**
+> Yukarıdaki *"Append kuralı"* gereği yeni bir ADR açılmadı. İkisi de **encode
+> sürecine** aittir — yani ilk altısından farklı olarak bir *tap* riski değil,
+> bir **üretim/kişiselleştirme** riskidir. 🔴 **Ve ikisi de bu belgenin genel
+> kalıbını bir yerde bozuyor: doğrudan bir tespit sinyalleri YOK.** Bu, bağlam
+> bölümündeki *"her risk … en azından gözlemlenebilir bir sinyale bağlanır"*
+> ifadesinin **ilk istisnasıdır** ve gizlenmiyor — sinyal sütununda ne varsa
+> **dolaylı** olduğu yazılıdır.
 
 | # | Risk | Neden çözemiyoruz (hangi kırmızı çizgi) | Tespit sinyali | Uygulandığı görev |
 |---|---|---|---|---|
@@ -58,6 +67,8 @@ gözlemlenebilir sinyalle tespit ederiz, o sinyalin hangi görevde uygulandığ�
 | 4 | **Mekânda bırakılmış proxy** (Y-E) ⚠️ *2026-08-19'da DARALTILDI — §4'ün ek notu* | IP taşınabilir; mekânın WiFi'ında proxy+VPN, uzaktaki tap'i mekânın IP'sinden gösterir. Kriptografik çözümü yok. ⚠️ Bunun altındaki **ayrı** bir yüzey — panelden `/0` vererek **yapılandırmayla üretilen** sahte IP kanıtı — kabul edilmiş DEĞİLDİR ve M8-04'te kapatıldı | `tap:gpsConflict` → `base:gps-conflict-review`; "IP eşleşti ama GPS uyuşmuyor" metriği | baseline [M3-06](../plan/m3-policy-motoru.md) · metrik [M6-11](../plan/m6-dashboard.md) |
 | 5 | **Müdürün kimlik basması** (Y-D) | Davet kodunu üreten ve gören kişi = bordroyu şişirmede en güçlü teşviği olan kişi | Tek cihaz/oturumdan aktive N çalışan + hiç çapraz-lokasyon göstermeyen çalışan | rapor [M6-11](../plan/m6-dashboard.md) · davet kanalı [M5-02](../plan/m5-tap-akisi.md) (Q02) |
 | 6 | **Fiziksel plaket devri** | Plaket duvardan sökülüp taşınabilir; pasif çipin "yerini" doğrulayan bir bağı yok | Lokasyon–IP/GPS uyumsuzluğu → `flag`; müdür `lost` işaretler | baseline [M3-06](../plan/m3-policy-motoru.md) · guardrail [M3-05](../plan/m3-policy-motoru.md) |
+| 7 | **Encode oturumunun APDU dökümü** (ADR 0017 §2.2) | Boş çipte kimlik doğrulama anahtarı **fabrika varsayılanıdır, yani halka açıktır**; oturum anahtarları ondan türer. Dökümü gören taraf `ChangeKey` gövdesini çözüp o plaketin anahtarını öğrenir. **Çipin kişiselleştirme protokolünün yapısal özelliği** — altı kapatma yolu denendi, altısı da başarısız (ADR 0017 §2.2) | 🔴 **Doğrudan sinyal YOK.** Dolaylı: sızan anahtar sahte SUN üretse bile §5'in diğer üç kanıtı (oturum çerezi · IP · GPS) bağlamaya devam eder → kanıtsız tap `flag`'lenir | Karşı önlem tespit değil **kapsama**: encode kontrollü ortamda, plaket duvara çıkmadan; şüphede ADR 0003 md. 5 → **`retire + replace`**. 🔴 **Maruziyet ilk encode turuyla SINIRLI DEĞİL** — her **kurtarma** turu da fabrika anahtarı altında koşar (ADR 0017 §5.3) |
+| 8 | **Anahtar 0 fabrika varsayılanında kalan plaket** (ADR 0017 §5.0) — 🔴 **risk 6'nın DAHA KÖTÜ kardeşi** | İkinci bir plaket-başına anahtarı saklayacak şema yok (`tags` tek `aes_key_ref`, ADR 0003 md. 4); karar verilene kadar uygulama anahtarı 0 **halka açık** kalır. Plakete fiziksel erişimi olan biri master olarak kimlik doğrulayıp NDEF URL'sinin host'unu değiştirebilir → **oltalama** | 🔴 **Tespit sinyali YOK, ve sebebi risk 6'dan farklı:** repointlenen plaketin tap'i **bize hiç ulaşmaz**, yani konum çelişkisi de dahil hiçbir kayıt doğmaz. Dolaylı işaret (plaketin sessizleşmesi) **yapısal olarak yetmiyor**: `ListTagLastSeen` satırı **yalnız en az bir tap üretmiş** plaket için doğar (ölçüldü 2026-08-20, yerel DB: 137 699 plaketin 79 995'i, yani **57 704'ü hiç satır üretmiyor**), yani **ilk tap'inden önce** repointlenen plaket stok plaketten ayırt edilemez | Şema kararı [M8-05](../plan/m8-deploy-pilot.md) FAZ B md. 9 · pilot kapısı Q23 md. 7 · *"anahtar 0 fabrikadayken plaket duvara çıkamaz"* güvenlik çizgisi (`deploy/README.md`) |
 
 Referanslanan `sid`'ler kodda gerçektir ve bu ADR'yle **birebir** eşleşir:
 `base:ctr-gap-review` ve `base:gps-conflict-review` `internal/policy/baseline.go`'da
@@ -438,16 +449,145 @@ guardrail `sys:tag-not-active` ile **reddedilir** ([M3-05](../plan/m3-policy-mot
 [M3-05](../plan/m3-policy-motoru.md)'te (`sys:tag-not-active`); lokasyon–IP/GPS
 uyumsuzluğu kesiti [M6-11](../plan/m6-dashboard.md)'de.
 
+### 7. Encode oturumunun APDU dökümü (ADR 0017 §2.2)
+
+**Neden çözemiyoruz.** Boş bir NTAG 424 DNA çipinde uygulama anahtarı 0 **fabrika
+varsayılanıdır** ve o değer halka açıktır. `AuthenticateEV2First`'ün oturum
+anahtarları o anahtardan ve iki rastgele sayıdan türer; ikisi de o anahtar altında
+şifreli olarak telde gider. Dolayısıyla kişiselleştirme oturumunun APDU dökümünü
+gören biri oturum anahtarlarını yeniden türetebilir ve `ChangeKey` gövdesini
+çözebilir — yani o oturumda yazılan **plaket anahtarını öğrenir**.
+
+🔴 **Bu bir uygulama kusuru değil, protokolün şeklidir**, ve kapatılabileceğini
+düşünen bir sonraki okur zaman kaybetmesin diye **altı deneme ve altı başarısızlık**
+ADR 0017 §2.2'de sayılıdır (önce anahtar 0'ı değiştirmek · anahtarı türetip
+göndermemek · röleyi iki cihaza bölmek · anahtarı çipte üretmek · sonradan
+güvenilir okuyucuyla yeniden anahtarlamak · ikinci kanaldan doğrulamak). Genel
+ifade: **halka açık bir anahtarla başlayan bir kanal üzerinden gizlilik bootstrap
+edilemez.** Aynı sınır USB okuyucu yolunda da vardır; röle onu yaratmaz, yalnız
+dökümün geçtiği yüzeyi genişletir.
+
+**Tespit sinyali — dürüst cevap: doğrudan yok.** Sızan anahtar, sahibine o plaket
+için geçerli SUN üretme yeteneği verir; bu, kayıt akışında **meşru bir tap gibi**
+görünür. Kalan bağ dolaylıdır: §5'in diğer üç kanıtı (oturum çerezi = kim ·
+IP = nerede · GPS = yedek nerede) bağlamaya devam eder, yani kanıtsız bir tap
+yine `flag`'lenir. Bu bir tespit değil, bir **sınırlama**dır.
+
+> 📍 **YETKİLİ METİN: [ADR 0017](0017-encode-rolesi-ve-yarim-yazma-kurtarmasi.md)
+> §2.2 (tehdit modeli, altı başarısız kapatma denemesi) ve §5.3 (kurtarmanın
+> maruziyeti).** Aşağısı sicil için yapılmış bir **özettir**. İkisi çelişirse
+> **ADR 0017 geçerlidir** ve bu satır o gün düzeltilmelidir — bu dosyanın kendi
+> ilkesi (`deploy/README.md`: *"iki yerde duran bir ölçü er geç iki farklı ölçü
+> olur"*), ve bu risk bugün **dört ayrı dosyada** anlatılıyor.
+
+**Karşı önlem kapsamadır, tespit değil.** Encode **kontrollü ortamda**, **bizim
+cihazımızla**, plaket **duvara çıkmadan önce** yapılır. Etkilenen küme o
+oturumlarda encode edilen plaketlerdir (ADR 0003 md. 3 gereği **park geneli bir
+sır yoktur** — yarıçap plaket başınadır). Şüphe hâlinde yol ADR 0003 md. 5'in
+normatif yoludur: **`retire + replace`**.
+
+🔴 **VE YÜKÜMLÜLÜK İLK ENCODE TURUYLA BİTMEZ — KURTARMA DA KAPSAM İÇİNDEDİR.**
+ADR 0017 §5.3: yarım kalmış bir çipin kurtarılması *fabrika → bizimki* yönünde
+bir `ChangeKey` gerektirir ve o oturum, ilk turdan **günler sonra** ve muhtemelen
+**başka bir telefonla**, yine **halka açık** anahtar 0 altında koşar. Yani
+maruziyet penceresi *"encode günü"* değil, **o plakete yapılan her fabrika-
+anahtarlı oturumdur**; *"kontrollü ortam"* şartı kurtarma için de geçerlidir.
+(Teşhis sondaları maruz **değildir**: biri bizim anahtarımızla koşar, öteki
+fabrika anahtarıyla koşar ama hiçbir gövde göndermez.) ⚠️ *"Kontrollü ortam"* bugün bir **temenni**dir, bir mekanizma değil:
+ağaçta encode'a özgü cihaz kimliği, izin listesi ya da ağ kısıtı **yok**
+(ADR 0017 §6 md. 10).
+
+### 8. Anahtar 0 fabrika varsayılanında kalan plaket (ADR 0017 §5.0)
+
+> 📍 **YETKİLİ METİN: [ADR 0017](0017-encode-rolesi-ve-yarim-yazma-kurtarmasi.md)
+> §5.0 (anahtar numaraları kararı ve oltalama ölçümü).** Güvenlik çizgisinin
+> operasyonel hâli `deploy/README.md` → *"FAZ B'ye devredilenler"* md. 9'da,
+> kapısı [M8-06](../plan/m8-deploy-pilot.md)'nın Q23 listesi md. 7'de. Aşağısı
+> sicil için yapılmış bir **özettir**; çelişkide **ADR 0017 geçerlidir**.
+
+**Neden kabul ediyoruz.** ADR 0017 §5.0 uygulama anahtarı 0'ın da
+kişiselleştirilmesini **karara bağladı**; sevk edilmesi bir **şema kararına**
+bağlı, çünkü `tags` tek bir `aes_key_ref` taşır ve ADR 0003 md. 4 onu tam 44
+bayta — yani **tek** bir AES-128 anahtarına — sabitler. Üç saklama şıkkı
+(`deploy/README.md` → FAZ B md. 9) sayıldı, hiçbiri seçilmedi. Karar kapanana
+kadar encode edilen plaketlerde anahtar 0 **halka açık** kalır.
+
+**Somut sonucu oltalama.** Plakete fiziksel erişimi olan biri master olarak kimlik
+doğrulayıp NDEF URL'sinin host'unu değiştirebilir; çalışan plakete dokunur ve
+telefonu **saldırganın sitesini** açar. Veri sayfası bunu kendi ayak notunda
+emrediyor (tablo 8: *"Write and ReadWrite access rights for the NDEF File
+should be changed after personalization"*), ve gereken araç özel donanım değil —
+`deploy/README.md`'nin *"Dört yol"* ölçümü bir mağaza uygulamasının (NFC.cool
+Tools) `ChangeKey` **ve** `ChangeFileSettings`'i telefonda yaptığını kaydetti.
+
+🔴 **Tespit sinyali YOK — ve bu, risk 6'dan ayrıldığı yerdir.** Risk 6'da
+(fiziksel plaket devri) taşınan plaket **hâlâ bize tap üretir**, yalnız konum
+kanıtı çelişir → `flag` → müdür `lost` işaretler. Burada öyle değil: NDEF'i
+saldırganın host'una çevrilmiş bir plaketin tap'i **hiç bize ulaşmaz**, yani
+çelişecek bir kayıt bile doğmaz. Aynı fiziksel erişim, **sinyalsiz** sonuç.
+Dolaylı tek işaret plaketin **sessizleşmesi** olurdu — ve **o da yapısal olarak
+yetmiyor**, ölçüldü (2026-08-20, güvenlik denetimi):
+
+- `ListTagLastSeen` `transactions` üzerinde `tag_uid IS NOT NULL` ile **tek bir
+  tarama** yapar ve `GROUP BY` kullanır; sorgunun kendi yorumu bunu açıkça
+  yazıyor: *"a group EXISTS only when it has [rows]"*. Yani **satır yalnız en az
+  bir tap üretmiş plaket için doğar.**
+- 🔴 **Sonuç: ilk tap'inden ÖNCE repointlenen bir plaket için sinyal YOKTUR** —
+  satır hiç doğmaz ve plaket, henüz taranmamış bir stok plaketten **ayırt
+  edilemez**. Risk 8'in en olası senaryosu tam budur (yeni monte edilmiş plaket).
+- Canlı ölçüm bunu doğruluyor — **tarihiyle, popülasyonuyla ve KİMİN ölçtüğüyle
+  birlikte**, çünkü popülasyonsuz bir oran bu repoda sayılmaz
+  (`db/queries/tags.sql`'in kendi kuralı):
+  - **Ağaç geneli — 2026-08-20, yerel geliştirme veritabanı, `tappa_owner` ile
+    salt-okuma sondası (`BEGIN … ROLLBACK`):** **137 699** plaketin **79 995**'i
+    en az bir tap üretmiş → **%58**. Yani **57 704 plaket için `ListTagLastSeen`
+    hiç satır üretmiyor.**
+  - **Tek tenant kesiti — 2026-08-20, tenant
+    `10000000-0000-4000-8000-000000000001`, bağımsız üçüncü göz tarafından
+    `BEGIN … ROLLBACK` salt-okuma sondasıyla üretildi** (⚠️ **tam id yazılıyor**,
+    kısaltma değil: yerel veritabanında id'si `1000` ile başlayan **beş** tenant
+    var, yani *"tenant 1000…"* bir popülasyon adlandırmaz — ve bu paragrafın
+    kendi kuralı popülasyonun adıyla yazılmasıdır)**:** o tenant'ın
+    **25** plaketinin **4**'ünde `ListTagLastSeen` satırı var → **%16**.
+    ⚠️ Bu satırı yazan tur rakamı **kendi sondasıyla üretemedi** (tenant
+    filtresiz denemesi ağaç ölçeğinde zaman aşımına uğradı); **teyit ayrı bir
+    ajandan geldi** ve rakam o yüzden burada duruyor — kim ölçtü, kaydın parçası.
+  - Sorgunun kendi yorumu üçüncü bir veri kümesinde *"only 3 of the 11 plaques
+    have ever been tapped"* diyor — aynı şekil, farklı ölçek.
+
+  ⚠️ Bu oranlar **seed verisinin** özellikleridir, üretimin değil. Taşıyan şey
+  oran değil **şekildir**: tap üretmemiş plaket satır üretmez, ve o şekil
+  `GROUP BY`'dan gelir — veriden değil.
+- Ayrıca eşik/uyarı **kodu yok** (sıfır isabet); değer yalnız panelde bir sütun,
+  **tenant kapsamlı** — yani izleyecek olan **müdür**, biz değiliz.
+
+⚠️ Bu yüzden bu maddenin başlığındaki *"Tespit sinyali YOK"* **kalibredir**;
+*"veri mevcut ama uyarı yazılmadı"* şeklindeki daha yumuşak bir ifade **bir tık
+geniş** olurdu ve geri çekildi.
+
+**Kapatma yolu ve kapı.** Şema kararı ADR 0017 §6 md. 5'te; yükümlülük
+`deploy/README.md` → *"FAZ B'ye devredilenler"* md. 9'da; ve pilot kapısı
+[M8-06](../plan/m8-deploy-pilot.md)'nın Q23 listesinde **7. madde** olarak
+duruyor. Güvenlik çizgisi: encode aracının **inşası ve testi** bunu beklemez,
+ama **bir plaket anahtar 0 fabrika varsayılanındayken duvara çıkamaz.**
+⚠️ Bu çizginin bugün **mekanik karşılığı yoktur** — `AssignTagToLocation`'ın
+WHERE'i yalnız `tenant_id` + `uid` + `status = 'unassigned'` bakar, anahtar 0
+durumunu okuyan hiçbir sütun ya da kontrol ağaçta yok.
+
 ---
 
 ## Kabul edilen ORTA/DÜŞÜK denetim bulguları (M8-04 FAZ B3, 2026-08-20)
 
-> **Bunlar yukarıdaki ALTI RİSKTEN AYRI bir sınıftır ve tabloya eklenmediler.**
-> Risk 1–6 ürünün **kalıntı tehditleri**dir — bir saldırganın yapabildiği bir şey.
+> **Bunlar yukarıdaki SEKİZ RİSKTEN AYRI bir sınıftır ve tabloya eklenmediler.**
+> Risk 1–8 ürünün **kalıntı tehditleri**dir — bir saldırganın yapabildiği bir şey.
+> ⚠️ *"ALTI"* 2026-08-20'de **sekiz** oldu (risk 7 ve 8, ADR 0017); bu paragrafın
+> ayrımı değişmedi, yalnız sayısı.
 > Aşağıdaki tablo M8-04 güvenlik denetiminin **kapatılmayıp KABUL EDİLEN** ORTA/DÜŞÜK
 > bulgularını tutar: çoğu bir **kapının darlığı**, bir **geliştirme ortamı** koşulu ya
-> da bir **dağıtım ön koşulu**. Karışmasınlar diye ayrı duruyorlar; *"Aşağıdaki
-> **altı risk** kabul edilir"* cümlesi değişmedi.
+> da bir **dağıtım ön koşulu**. Karışmasınlar diye ayrı duruyorlar. ⚠️ Bu blok
+> *"'Aşağıdaki **altı risk** kabul edilir' cümlesi değişmedi"* diyordu; **artık
+> değişti** — Append kuralı gereği risk 7 ve 8 o tabloya eklendi ve cümle
+> **sekiz**'e çıktı. Değişmeyen şey **bu tablonun ondan ayrı olmasıdır**.
 >
 > 🔴 **CÜMLE DARALTILDI, ÇÜNKÜ GENİŞ HÂLİ YANLIŞTI — ÖLÇÜLDÜ (2026-08-20, FAZ B3
 > düzeltme turu).** İlk yazımı *"kapatılmayan ORTA/DÜŞÜK bulgularıdır"* diyordu, yani
@@ -577,11 +717,14 @@ bir kez daha işlemek olurdu.
 - **[M3-05](../plan/m3-policy-motoru.md) (guardrail) ile bağ:** `sys:tag-not-active`
   fiziksel plaket devrinin (Risk 6) son savunmasıdır — müdür `lost` işaretledikten
   sonra taşınan plaketi terminal olarak reddeder.
-- **[M6-11](../plan/m6-dashboard.md) bu ADR'nin ana çıktısıdır:** altı riskin
+- **[M6-11](../plan/m6-dashboard.md) bu ADR'nin ana çıktısıdır:** risk **1–6**'nın
   beşinin tespit sinyali (buddy çiftleri, GPS-only oranı, ctr-boşluk metriği,
   gps-conflict metriği, tek-cihaz/çapraz-lokasyon-yok kalıbı) bu raporda yüzeye
   çıkar. M6-11 kartı A1·A3·A4·Y-D·Y-E sinyallerini üretmekle yükümlüdür; bu ADR o
   yükümlülüğün gerekçesidir.
+  🔴 **Risk 7 ve 8 bu cümlenin DIŞINDADIR ve bu bir eksiklik değil, bir olgudur:**
+  ikisinin de M6-11'e verecek bir sinyali yok (7'ninki dolaylı, 8'inki hiç yok).
+  Encode riskleri panelde değil, **süreçte ve pilot kapısında** karşılanır.
 - **[M5-02](../plan/m5-tap-akisi.md) müdür-kimlik riskini azaltır:** Q02 çözülünce
   davet kodu çalışanın kendi kanalına gider; Risk 5'in önkoşulu (müdürün kodu
   görmesi) kalkar. Risk kabul olarak durur ama azaltım yolu bu görevdedir.

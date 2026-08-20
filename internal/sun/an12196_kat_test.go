@@ -39,6 +39,19 @@ import (
 //	  rev. 1.8, 17 November 2020 (59 pp.) -- section numbering used below
 //	  rev. 2.0,  4 March    2025 (59 pp.) -- same values, sections RENUMBERED
 //
+// 🔴 READ THIS BEFORE TRUSTING THE TABLE BELOW: IT IS A CONVENIENCE LIST, NOT A
+// COMPLETE ONE, AND IT IS KNOWN TO BE INCOMPLETE. It used to claim "every pair this
+// repository cites, measured". That claim was falsified in FOUR CONSECUTIVE ROUNDS
+// (each one named below), so the sentence was DELETED from the table's own heading
+// rather than repaired for a fifth time.
+//
+// ⚠️ AND THE DELETION ITSELF TOOK TWO ROUNDS, WHICH IS THE POINT. Round five wrote
+// this withdrawal note and left the claim standing thirty-six lines below it, where
+// the reader actually looks; an audit found the file contradicting itself and the
+// wrong half was the visible one. A retraction that lives far from the retracted
+// sentence is not a retraction. That is why the short version now sits ON the
+// table's heading and this long one only explains it.
+//
 // 🔴 THE RENUMBERING RULE, IN FULL — AND THE PARTIAL VERSION WAS THE BUG. This
 // note used to say only "sections renumbered 4.x -> 3.x". That is TRUE and
 // INCOMPLETE, and the incompleteness propagated: six AN12196 citations elsewhere
@@ -66,17 +79,70 @@ import (
 // ⚠️ SUBSECTION DEPTH SURVIVES, TABLE NUMBERS DO NOT — the two must be looked up
 // separately. §4.4.4.2.1 becomes §3.4.4.2.1 with the same title, but its table
 // goes 5 -> 4; §6.6's table is 14 in BOTH, so the table number cannot be derived
-// from the section shift either way. Every pair this repository cites, measured:
+// from the section shift either way.
+//
+// 🔴 WHAT THE TABLE BELOW IS: A PARTIAL LOOKUP AID, KNOWN INCOMPLETE. It is NOT a
+// list of every pair this repository cites — it said that for four rounds and was
+// falsified in every one of them (dated list further down). Its silence about a
+// citation is not evidence. Add a row when you cite a new section; expect the next
+// reader to find one you forgot.
 //
 //	rev 1.8                     rev 2.0                what it is
 //	§4.3   Table 2  p.10        §3.3   Table 1  p.9    SDM Session Key Generation
 //	§4.4.1          p.11        §3.4.1          p.10   PICCData mirror (plain SUN URL)
 //	§4.4.2.1        p.11        §3.4.2.1        p.10   Encryption of PICCData
 //	§4.4.4.2.1 Table 5 p.15     §3.4.4.2.1 Table 4     CMACInputOffset == CMACOffset
+//	§6 (chapter) p.24           §5 (chapter) p.22      "Personalization example"
+//	§6.4   Table 12 p.26        §5.4   Table 10 p.24   Get File Settings (NDEF file)
+//	§6.5   Table 13 p.27        §5.5   Table 12 p.25   Get Version (UID, three frames)
 //	§6.6   Table 14             §5.6   Table 14        AuthenticateEV2First, key 0x00
 //	§6.9   Table 19             §5.9   Table 18        Change NDEF File Settings
+//	§6.10  Table 20 p.35        §5.10  Table 19 p.32   AuthenticateEV2First, key 0x03
+//	§6.14  Table 24 p.39        §5.14  Table 23 p.36   AuthenticateEV2NonFirst, key 0x00
 //	§6.16  Table 26/27          §5.16  Table 25/26     Changing the Key
+//	§7 (chapter) p.43           §6 (chapter) p.40      "Special functionalities"
+//	§7.2   Table 28 p.43        §6.2   Table 27 p.40    Enabling Random ID - RID
+//	§10.1           p.54        §9.1            p.51   Supporting tools list
 //	§3 "Definition of variables" p.6   §2 p.4          MACt() truncation notation
+//
+// ⚠️ SUBSECTION DEPTH IS NOT RE-LISTED. ADR 0017 cites §6.16.1 and §6.16.2, which
+// the §6.16 row already covers: the depth survives the renumbering (§6.16.1 ->
+// §5.16.1), only the TABLE numbers move. That is the rule stated above, applied.
+//
+// 🔴 THE FOUR FALSIFICATIONS, EACH DATED, BECAUSE THE PATTERN IS THE POINT:
+//
+//	round 1 (2026-08-20)  ADR 0017 cited §6.4 and §6.10 -- both absent
+//	round 2 (2026-08-20)  ADR 0017's LOAD-BEARING measurement cites §6.14 Table 24
+//	                      (the session keys behind the "one session survives a
+//	                      non-zero ChangeKey" finding) -- absent. And §10.1, cited
+//	                      by deploy/README.md, had been absent since before either
+//	                      round.
+//	round 3 (2026-08-20)  ADR 0017's correction to that same finding cites the
+//	                      "Special functionalities" chapter and rev 2.0's Table 27
+//	                      (the FRESH session that shows the old one did not carry
+//	                      on) -- both absent. Damage was limited because both
+//	                      citations carry their revision; what was stale was the
+//	                      COMPLETENESS CLAIM, for the third time in one task.
+//	round 4 (2026-08-20)  ADR 0017 cites §6.5 Table 13 -- the three-frame GetVersion
+//	                      that its "at least ten APDU exchanges" derivation RESTS ON
+//	                      -- and it too was absent. The round before had just written
+//	                      "falsified twice"; by the next audit it was four.
+//
+// FOUR ROUNDS, FOUR MISSES, AND EACH ROUND PATCHED THE PREVIOUS ROUND'S GAP. That is
+// the shape this repository names outright: a detector written to the shape of the
+// last defect documents nothing about the next. So the claim is gone (see the top of
+// this comment); what remains is a lookup aid that is honest about being partial.
+//
+// THE MECHANICAL VERSION, NAMED -- AND WHY IT IS STILL NOT WRITTEN. The fix that would
+// actually hold is a test that scans every text file for AN12196 section citations and
+// requires each one to appear in this table: structurally the same walk cmd/tappa's
+// test-name citation check already performs, with the same ratchet shape. It is not
+// written here for one reason and it is worth stating so the next reader does not
+// assume neglect: the four rounds above were DOCUMENT rounds (an ADR and a runbook),
+// under an explicit no-new-code constraint, and writing a scanner is a code task with
+// its own design questions -- what counts as a citation, how revisions are spelled,
+// what the ratchet's starting budget is. It is on the backlog. Until it lands, the
+// table is maintained by hand and the honest expectation is that it will drift again.
 //
 // So a citation without its revision points at a DIFFERENT place — and for §6.x it
 // lands in a different CHAPTER: rev 2.0 §6 is "Special functionalities", not

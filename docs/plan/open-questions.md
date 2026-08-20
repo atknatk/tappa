@@ -346,8 +346,20 @@ sonra gelse de geçmiş yeniden üretilemez.
 
 **Karar:** Aydınlatma metni → [M5-02](m5-tap-akisi.md); gizlilik/şartlar/imprint
 → [M7-01](m7-portal.md); DPA + saklama → [M8-02](m8-deploy-pilot.md). Ayrıca
-[M8-06](m8-deploy-pilot.md)'ya **altı maddelik pilot kapısı**: hepsi ✓ olmadan
+[M8-06](m8-deploy-pilot.md)'ya **yedi maddelik pilot kapısı**: hepsi ✓ olmadan
 pilot başlamaz.
+
+> **Güncelleme (2026-08-20, M8-05 FAZ B1 tur 1).** Kapı **altıydı, yedi oldu**:
+> yedinci madde *"duvara çıkan hiçbir plakette uygulama anahtarı 0 fabrika
+> varsayılanında değil"* — kararın kendisi
+> [ADR 0017](../adr/0017-encode-rolesi-ve-yarim-yazma-kurtarmasi.md) **§5.0**'da,
+> onu bugün sevk edilemez kılan **şema ön koşulu** ise **§6 md.5**'te.
+> ⚠️ Bu satır **bir denetim bulgusudur, bir güncelleme değil**: kart
+> yediye çıkarıldığında burası *"altı"* kaldı ve o hâliyle pilot, anahtar 0
+> kutusu işaretlenmeden **"kapı tam" ilan edilebiliyordu** — yani yeni madde
+> tam olarak engellemek için var olduğu şeyi engellemiyordu. Kapının **sayısı
+> iki dosyada duruyor**; yetkili olan [m8-deploy-pilot.md](m8-deploy-pilot.md)
+> → M8-06'daki **listenin kendisidir**, bu cümle değil.
 **Gerekçe:** "BioTime'ın GDPR yükünden kurtulun" diye satılan ürünün kendi
 pilotunda aydınlatma metni olmadan çalışması ana satış argümanını çürütür.
 

@@ -1045,9 +1045,15 @@ tasarım, aşağıdaki "Anahtar hijyeni"ni ihlal eder.
 
 ### Araç yolu — KARAR DEĞİL, KARAR ÖNERİSİ (FAZ B, ve kararı kullanıcı verir)
 
+> ✅ **BU BAŞLIK VE ALTINDAKİ "SEÇİLMEDİ" CÜMLESİ → ADR 0017 İLE KAPANDI
+> (2026-08-20).** Kullanıcı **B yolunu** (kendi Android uygulamamız, APDU rölesi)
+> seçti. Aşağısı tarihsel kayıttır, **silinmedi**; bugünkü karar
+> [ADR 0017](../docs/adr/0017-encode-rolesi-ve-yarim-yazma-kurtarmasi.md)'dedir.
+
 > 🔴 **BU BAŞLIK ALTINDA HİÇBİR ŞEY SEÇİLMEDİ.** Yeni bir taşıma bağımlılığı
 > CLAUDE.md §1 gereği **kullanıcı onayı** ister; bir ajan onu kendi başına
 > seçemez. Burada yazılı olan şey **seçenekler ve bilinme dereceleri**dir.
+> *(→ ADR 0017 ile kapandı, 2026-08-20.)*
 
 Yukarıdaki kısıt (canlı oturum zorunlu) iki şekle izin veriyor:
 
@@ -1089,6 +1095,10 @@ kadar) kapatır; **çipe dokunan** yarı hâlâ FAZ B'dedir.
 
 ### Dört yol — ÖLÇÜLDÜ (2026-08-20). KARAR YİNE VERİLMEDİ.
 
+> ✅ **BAŞLIĞIN İKİNCİ CÜMLESİ → ADR 0017 İLE KAPANDI (2026-08-20, aynı gün
+> akşamı).** Ölçüm geçerli ve değişmedi; **seçim yapıldı: B yolu.**
+> [ADR 0017](../docs/adr/0017-encode-rolesi-ve-yarim-yazma-kurtarmasi.md).
+
 > 🔴 **BU ALT BÖLÜM YUKARIDAKİ "İKİ ŞEKİL" TABLOSUNUN YERİNE GEÇMEZ — ONU
 > AÇAR, VE EŞLEMESİ BURADA YAZILI** (iki tablonun sessizce ayrışması bu dosyanın
 > bilinen hastalığıdır):
@@ -1110,6 +1120,8 @@ kadar) kapatır; **çipe dokunan** yarı hâlâ FAZ B'dedir.
 > ya da yeni bir dil/araç zinciri getiriyor → **CLAUDE.md §1 gereği seçim
 > kullanıcınındır.** Aşağıdaki metin okumaları sayılarla yan yana koyar,
 > aralarından birini **işaretlemez**.
+> *(→ ADR 0017 ile kapandı, 2026-08-20: kullanıcı **B**'yi seçti. Aşağıdaki
+> karşılaştırma tarihsel kayıt olarak duruyor ve hâlâ doğrudur.)*
 
 #### Önce üç iddia kapandı — ikisi ÇÜRÜDÜ
 
@@ -1464,14 +1476,22 @@ Teknik olarak **çalışır** ve bugün **hemen** yapılabilir; kırmızı çizg
 
 1. **Hiçbir çip encode edilmedi.** Bu bölümün tamamı belge, satıcı sayfası ve
    API referansı okumasıdır. **Silikonla hiçbir şey doğrulanmadı** — FAZ B
-   listesinin sekiz maddesi yerinde duruyor.
+   listesinin **dokuz** maddesi yerinde duruyor (2026-08-20'de sekizden dokuza
+   çıktı: md. 9, anahtar 0 maruziyeti).
 2. **iOS'un ~20 sn sınırı altında bir röle turunun gerçekten yetişip
    yetişmediği.** Kaba hesap yetiyor diyor; **ölçüm yok**. C yolunu tek başına
    açacak/kapatacak sayı budur.
 3. **NTAG 424 DNA'nın kendi tarafında bir oturum zaman aşımı olup olmadığı.**
-   AN12196'da bulamadım; veri sayfasına birincil kaynaktan erişilemedi
-   (nxp.com JS'siz istemcilere 404 döndürüyor). ISO 14443-4 tarafı sorun
-   çıkarmıyor ama **çip tarafı ölçülmedi**.
+   AN12196'da bulamadım. ISO 14443-4 tarafı sorun çıkarmıyor ama **çip tarafı
+   ölçülmedi** — ve **konu hâlâ açıktır**.
+   ⚠️ **GEREKÇE DÜZELTİLDİ (2026-08-20).** Bu madde *"veri sayfasına birincil
+   kaynaktan erişilemedi (nxp.com JS'siz istemcilere 404 döndürüyor)"* diyordu;
+   **artık yanlış**. Ölçüldü (düz `curl`, iki ayrı ajan, aynı gün):
+   `nxp.com/docs/en/data-sheet/NT4H2421Gx.pdf` → **HTTP 200 + gerçek 97 sayfalık
+   PDF** (rev. 3.0, 2019-01-31). Belge **elde** ve ADR 0017 ondan on üç sayfaya
+   atıf yapıyor. Yani açık olan şey **erişim değil**, veri sayfasında bir oturum
+   zaman aşımı **aranıp bulunamamış olmasıdır** — bu iki farklı boşluktur ve
+   ikincisini birincisiyle açıklamak yanlış yere bakmaya yol açar.
 4. **uTrust 3700 F ve Omnikey 5022'nin AB fiyatları** — doğrulanamadı.
 5. **Gerçek ACR122U'nun bugünkü AB fiyatı** — zaten elendiği için aranmadı.
 6. **GoToTags'in düz anahtarı nerede tuttuğu** belgelenmemiş; D için **en kötü
@@ -1515,9 +1535,13 @@ değiştirmek **ADR değişikliğidir**, ayar değişikliği değil.
 | **SDM MAC girdisi** | **BOŞ** — `SDMMACInputOffset == SDMMACOffset` | ADR 0003 md. 2. AN12196 rev. 1.8 §4.4.4.2.1 tablo 5 (rev. 2.0: §3.4.4.2.1 tablo **4**) bunu birebir tanımlıyor: *"SDMMAC = MACt(KSesSDMFileReadMAC; **zero length input**)"*. |
 | SDM MAC | 8 bayt → 16 hane, URL'nin **sonunda** | ADR 0003 md. 1/6. AN12196 rev. 1.8 §4.4.1 (rev. 2.0: §3.4.1): *"CMAC shall be appended to the end of NDEF."* |
 | Dosya okuma izni | **açık** (kimlik doğrulamasız okuma) | Tap akışı anonim bir tarayıcıdan gelir; okuma kapalıysa SUN hiç yayılmaz. AN12196 rev. 1.8 §6.9 tablo 19 (rev. 2.0: §5.9 tablo **18**) örneğinde `FileAR.Read = 0xE` (serbest). |
-| Dosya **yazma** izni | **anahtarla kilitli** | Aynı örnekte (rev. 1.8 §6.9 / rev. 2.0 §5.9) `FileAR.Write = 0x0` (anahtar 0). Yazma serbest kalırsa duvardaki plaketin NDEF'ini herkes değiştirebilir. |
+| Dosya **yazma** izni | **anahtarla kilitli** — 🔴 **AMA HANGİ ANAHTAR OLDUĞU KARARA BAĞLANMADI** | Aynı örnekte (rev. 1.8 §6.9 / rev. 2.0 §5.9) `FileAR.Write = 0x0` (anahtar 0). Yazma serbest kalırsa duvardaki plaketin NDEF'ini herkes değiştirebilir. 🔴 **UYARI (2026-08-20, ADR 0017 §5.0): BU SATIRI OLDUĞU GİBİ UYGULAMAK BUGÜN BİR AÇIK BIRAKIR.** *(a)* `FileAR.Write` **tek başına yetmez** — veri sayfası tablo 9'a göre `FileAR.ReadWrite` de `WriteData`'ya kapı açar ve o hak bu tabloda **karara bağlanmadı** (aşağıdaki satır). *(b)* Gösterdiği **anahtar 0**, uygulama anahtarı 0 kişiselleştirilene kadar **fabrika varsayılanıdır, yani halka açıktır** — yazmayı ona kilitlemek kapıyı kilitleyip anahtarı paspasın altına bırakmaktır ([ADR 0005](../docs/adr/0005-kabul-edilen-riskler.md) risk 8). |
 | `K_SDMFileRead` | plaket-başına **rastgele** AES-128 | ADR 0003 md. 3 (Q06). `crypto/rand`; hiçbir şeyden türetilmez. |
-| Fabrika varsayılan anahtarı | **değiştirilir** | ADR 0003 md. 5: *"Bu varsayılan anahtar üretimde **asla** kullanılmaz"*; `K_SDMFileRead` varsayılandan değiştirilir. ⚠️ ADR **yalnız bunu** emrediyor; kalan uygulama anahtarlarının da kişiselleştirilmesi AN12196 rev. 1.8 §6.16'nın (rev. 2.0: §5.16) **tavsiyesidir** (*"highly recommended to configure all the Application Keys during personalization"*) — FAZ B'de karara bağlanır. |
+| `K_SDMFileRead`'in anahtar NUMARASI | **`0x01`** | 🔴 **KARAR: [ADR 0017](../docs/adr/0017-encode-rolesi-ve-yarim-yazma-kurtarmasi.md) §5.0 karar 1 (2026-08-20).** Sıfırdan farklı olmak zorunda: anahtar 0 kart master anahtarıdır (veri sayfası §8.2.4.1) ve `ChangeKey` gövdesinin **şekli** numaraya bağlıdır (veri sayfası tablo 63: anahtar 0 → 17 bayt `NewKey ‖ KeyVer`; anahtar 1–4 → 21 bayt `(NewKey XOR OldKey) ‖ KeyVer ‖ CRC32NK`). `0x01`, AN12196 rev. 1.8 **§6** (rev. 2.0: **§5**) örnek yapılandırmasının `KSDMFileRead`'iyle aynı numaradır. |
+| Fabrika varsayılan anahtarı | **değiştirilir** | ADR 0003 md. 5: *"Bu varsayılan anahtar üretimde **asla** kullanılmaz"*; `K_SDMFileRead` varsayılandan değiştirilir. |
+| **Uygulama anahtarı `0x00` (AppMasterKey)** | **kişiselleştirilir, EN SON adım** | 🔴 **KARAR: ADR 0017 §5.0 karar 2 (2026-08-20) — bu hücre daha önce *"FAZ B'de karara bağlanır"* diyordu ve o cümle artık YANLIŞTIR.** Fabrika varsayılanında kalırsa halka açık bir anahtarla `WriteData` mümkün olur → NDEF URL'si değiştirilebilir → **oltalama** ([ADR 0005](../docs/adr/0005-kabul-edilen-riskler.md) risk 8). Veri sayfası tablo 8 ayak notu aynı şeyi emrediyor. Veri sayfası §8.2.4.2 ayrıca **beş anahtarın hepsini** öneriyor (*"highly recommended to change all 5 keys at personalization"*). ⚠️ **SEVKİYAT BİR ŞEMA KARARINA BAĞLI** (ikinci anahtar nerede saklanacak — ADR 0017 §6 md. 5; üç şık aşağıda *"FAZ B'ye devredilenler"* md. 9'da). Kapanana kadar: **plaket duvara çıkamaz.** |
+| Anahtar **`0x02`–`0x04`** | ⚠️ **karara bağlanmadı** | Aynı §8.2.4.2 tavsiyesi kapsamındadır ve aynı saklama sorusuna tabidir (ADR 0017 §6 md. 5). ⚠️ **GERİ KONAN ALINTI (2026-08-20):** bu hücrenin öncülü AN12196 rev. 1.8 §6.16'nın (rev. 2.0: §5.16) *"It is **highly recommended to configure all the Application Keys** during personalization procedure"* cümlesiydi ve bu turda hücre bölünürken **şerhsiz düştü**. Sonucu değiştirmiyor (veri sayfası §8.2.4.2 aynı şeyi *"change all 5 keys"* diye söylüyor) ama bu dosyanın kuralı **tarihsel kayıt silinmez, şerhlenir**. |
+| `FileAR.Change` · `FileAR.ReadWrite` | ⚠️ **karara bağlanmadı** | 🔴 Bu tablo bu iki hakkı **hiç** karara bağlamıyor ve bu bir eksikliktir, bir susma değil (ADR 0017 §6 md. 13). Veri sayfası tablo 8: NDEF dosyasında (`02h`) teslimde `Change = 0h`, `Write = ReadWrite = Eh`. Tablo 9: **`Write` ile `ReadWrite` ikisi de** `WriteData`'ya kapı açar → yalnız birini kilitlemek yazmayı kilitlemez. |
 | URL parametre adları | **tam olarak** `tag`, `ctr`, `cmac` | ADR 0003 md. 1. Kodda tek yerde sabit: `internal/sun/params.go` (`paramTag`/`paramCtr`/`paramCMAC`). Başka bir ad = ayrıştırma hatası. |
 | URL biçimi | `https://<host>/t?tag=<14 hane>&ctr=<6 hane>&cmac=<16 hane>` | ADR 0003 md. 1. |
 
@@ -1575,10 +1599,13 @@ değiştirmek **ADR değişikliğidir**, ayar değişikliği değil.
 
 ### Anahtar teslimi ve döndürme
 
-**Teslim.** Çipler tedarikçiden **fabrika varsayılanı** anahtarlarla gelir. Encode
-sırasında en azından `K_SDMFileRead` bizim ürettiğimiz rastgele anahtarla değiştirilir
-(ADR 0003 md. 5); kalan uygulama anahtarları için yukarıdaki tablonun *"Fabrika
-varsayılan anahtarı"* satırına bak.
+**Teslim.** Çipler tedarikçiden **fabrika varsayılanı** anahtarlarla gelir
+(veri sayfası §8.2.4.2: *"The transport value of these 5 keys is 16 bytes of
+00h"*). Encode sırasında `K_SDMFileRead` (**anahtar `0x01`**) bizim ürettiğimiz
+rastgele anahtarla değiştirilir (ADR 0003 md. 5), ve **uygulama anahtarı `0x00`
+da kişiselleştirilir — en son adım olarak** (ADR 0017 §5.0 karar 2; sevkiyatı bir
+şema kararına bağlı, aynı ADR §6 md. 5). Anahtar `0x02`–`0x04` **karara
+bağlanmadı**. Ayrıntı: yukarıdaki tablonun ilgili satırları.
 Varsayılan anahtarla hiçbir plaket üretime çıkmaz — bu, Q10 kararının (kendimiz encode
 ederiz) **operasyonel karşılığıdır**.
 
@@ -1611,14 +1638,37 @@ edilebilir bir zincir** olmalı. Bugün yürürlükte olan mekanizmalar:
 1. **Düz anahtar hiç kalıcılaşmaz.** `internal/sun`'da `Wrap(kek, uid, key)`
    AES-256-GCM zarfını üretir (AAD = **ham 7 baytlık UID**, yani sarmalı anahtar
    kendi satırına **bağlıdır**, başka satıra taşınamaz) ve `Zero(key)` düz
-   kopyayı siler. Encode aracı bu ikisini **aynı süreçte, art arda** çağırmak
+   kopyayı siler. Encode aracı bu ikisini **aynı süreçte** çağırmak
    **zorundadır** (araç yazıldığında; bugün yok — bölüm başındaki uyarı).
+   ⚠️ **DÜZELTME (2026-08-20, ADR 0017 §3).** Burada *"aynı süreçte, **art
+   arda**"* yazıyordu ve **art arda olan yarısı yanlıştı**: `Wrap` düz anahtarı
+   kalıcılaştırır ama **tüketmez** — `ChangeKey` gövdesini kurabilmek için düz
+   anahtar **altı APDU turu daha** bellekte kalmak zorunda (ADR 0017 §5.1: `Wrap`
+   adım 3, `ChangeKey` adım 6/8, `Zero` adım 9). Ayakta kalan şart **aynı
+   süreçtir**; düşen şart **bitişikliktir**. Bunun bedeli, `Zero`'nun **her**
+   çıkış yolunda (başarı · hata · zaman aşımı · iptal · kapanış) çağrılmasının
+   ayrıca garanti edilmesidir — ADR 0017 §6 md. 7.
 2. **Veritabanı yalnız sarmalıyı görür.** `tags.aes_key_ref` = 44 bayt
    (`nonce(12) ‖ ciphertext(16) ‖ gcm_tag(16)`), ADR 0003 md. 4.
-3. **Uygulama rolü onu yazamaz.** Migration 00013 `tappa_app`'e `tags` üzerinde
-   **sütun listeli** UPDATE veriyor (`location_id`, `last_ctr`, `status`,
-   `retired_at`, `replaced_by`) — `aes_key_ref` **listede yok**. Satırı
-   `tappa_owner` yükler.
+3. **Uygulama rolü onu DEĞİŞTİREMEZ.** Migration 00013 `tappa_app`'e `tags`
+   üzerinde **sütun listeli** UPDATE veriyor (`location_id`, `last_ctr`,
+   `status`, `retired_at`, `replaced_by`) — `aes_key_ref` **listede yok**.
+   ⚠️ **DÜZELTME (2026-08-20, ADR 0017 §3.1).** Bu madde *"yazamaz"* diyordu ve
+   *"Satırı `tappa_owner` yükler"* diye bitiyordu; ölçüldü, bu **UPDATE için
+   doğru, INSERT için değil**: 00004'ün `GRANT SELECT, INSERT, UPDATE ON tags TO
+   tappa_app` satırındaki **tablo geneli INSERT** hiç geri alınmadı (00013 bunu
+   bilerek yaptı ve *"the day a loader writes plaques through the application
+   role, this line is what has to be revisited"* diye yazdı). Bugüne kadar
+   *"owner yükler"*in doğru **görünmesinin** sebebi tek yükleyicinin
+   (`scripts/seed.sh` + `seedkeys`) owner olarak koşmasıydı — yapısal bir engel
+   değil, bir alışkanlık. Encode akışı bir HTTP uç noktasıdır ve `internal/db`
+   havuzu **üretimde** owner bir DSN'i **reddettiği** için (`roleRefusal(facts,
+   cfg.IsProd())` — geliştirmede **uyarır, reddetmez**) satırı **`tappa_app`
+   yazacaktır**.
+   Ayakta kalan garanti: anahtar referansı **yaz-bir-kez**tir (INSERT edilebilir,
+   asla UPDATE edilemez) ve `tags` politikası `WITH CHECK` ile satırı çağıranın
+   tenant'ına bağlar. Ayrıntı ve gerekçe:
+   [ADR 0017](../docs/adr/0017-encode-rolesi-ve-yarim-yazma-kurtarmasi.md) §3.1.
 4. **Panel plaket yaratamaz.** `db/queries/tags.sql` **hiç INSERT taşımıyor** ve
    bu bir eksiklik değil karardır (kullanıcı kararı 2026-08-08: *"Tappa encodes
    the plaque and loads the row; the panel only binds it"*). Plaket doğuran tek
@@ -1627,9 +1677,18 @@ edilebilir bir zincir** olmalı. Bugün yürürlükte olan mekanizmalar:
 5. **Mekanik tarama.** `scripts/redline-check.sh` R7 iki şeyi arıyor: repoda
    gömülü anahtar dosyası (`*.pem`, `*.key`, `*.aes`, `secrets/*`) ve sır taşıyan
    log çağrısı. ⚠️ Geçmesi ihlal olmadığını **kanıtlamaz** (CLAUDE.md §4).
-6. **Emsal: yalnız SARMALI blob çıktıya çıkar.** `test/fixtures/seedkeys` KEK'i
-   ortamdan okur, asla basmaz; stdout'a yalnız sarmalı değeri taşıyan SQL yazar.
-   Encode aracının çıktısı **aynı şekli** almalıdır.
+6. **Emsal: KALICILAŞAN yalnız SARMALI blob'dur.** `test/fixtures/seedkeys`
+   KEK'i ortamdan okur, asla basmaz; stdout'a yalnız sarmalı değeri taşıyan SQL
+   yazar. Encode aracının **veritabanına yazdığı** şey aynı şekli almalıdır.
+   🔴 **DÜZELTME (2026-08-20, ADR 0017 §2.2/§3).** Bu madde *"yalnız sarmalı blob
+   **çıktıya** çıkar"* diyordu ve encode aracına *"çıktısı aynı şekli almalıdır"*
+   diye emrediyordu; **encode aracı bunu SAĞLAYAMAZ ve sağlaması da beklenmemeli**.
+   `seedkeys` bir **filtredir** — tek çıktısı SQL'dir. Encode aracı bir
+   **rölenin sunucu ucudur**: telefona **APDU baytları** da gönderir, ve
+   `ChangeKey`'in gövdesi bunların arasındadır. Boş bir çipte o gövdeyi koruyan
+   oturum anahtarları **halka açık fabrika anahtarından** türediği için döküm
+   anahtara **eşdeğerdir** (ADR 0017 §2.2 — kabul edilmiş risk, ADR 0005 risk 7).
+   Ayakta kalan emsal: **kalıcılaşan** hiçbir şey düz değildir.
 
 **Operatör kuralları (mekanizmanın kapatamadığı yarı).**
 - Düz anahtar **hiçbir zaman** ekrana basılmaz, panoya kopyalanmaz, sohbete/
@@ -1728,6 +1787,9 @@ Donanım (bir NTAG 424 DNA yazıcı/okuyucu) geldiğinde yapılacaklar. Bu liste
 2. **Araç yolu seçilir ve kurulur** (tam Go yazıcı vs üçüncü parti yazıcı +
    yükleyici). Taşıma katmanı yeni bir bağımlılık gerektiriyorsa **CLAUDE.md §1
    gereği onay alınır**; FAZ A hiçbir bağımlılık eklemedi.
+   ✅ **SEÇİM → ADR 0017 ile kapandı (2026-08-20): B yolu (kendi Android
+   uygulamamız, APDU rölesi); onay Android dil zinciri içindir, yeni bir Go
+   bağımlılığı için değil.** ⚠️ **KURULUM AÇIK** — tek satır kod yazılmadı.
 3. **En az bir fiziksel etiketle uçtan uca doğrulama** (kart kriteri 3): encode →
    duvara benzet → gerçek telefonla tap → kayıt panelde görülür.
 4. **Gerçek çiple replay denemesi** (M8-04 kartı bunu istiyor): aynı tap URL'si
@@ -1737,13 +1799,66 @@ Donanım (bir NTAG 424 DNA yazıcı/okuyucu) geldiğinde yapılacaklar. Bu liste
    M8-05'te"*). Ölçülecek olan: **sunucunun yazdığı httpOnly** çerez ITP altında
    1 yıl yaşıyor mu (7 günlük kırpma **JS ile yazılan** çerezlere ait — doğrulanması
    gereken tam olarak bu ayrım). *"Telefon seni tanır"* vaadi buna dayanıyor.
-6. **Fabrika varsayılanlarının gerçekten değiştiği doğrulanır**: encode sonrası
-   varsayılan anahtarla kimlik doğrulama **başarısız** olmalı.
-7. **Yazma izninin gerçekten kilitli olduğu doğrulanır**: kimlik doğrulamasız bir
-   NDEF yazma denemesi **reddedilmeli**.
+6. **Fabrika varsayılanlarının gerçekten değiştiği doğrulanır — VE BU MADDE
+   ANAHTAR NUMARASINA GÖRE İKİYE AYRILIR (düzeltme 2026-08-20, ADR 0017).**
+   Eski hâli *"varsayılan anahtarla kimlik doğrulama **başarısız** olmalı"*
+   diyordu ve ADR 0017 §5.3 tarafından **yanlışlanıyordu**; aynı deneyin iki zıt
+   beklentisi iki dosyada normatif duramaz.
+   - **6a — anahtar `0x01` (`K_SDMFileRead`):** encode sonrası **fabrika
+     varsayılanıyla** `AuthenticateEV2First(0x01)` **BAŞARISIZ**, satırdaki
+     anahtarla **BAŞARILI** olmalı.
+   - **6b — anahtar `0x00` (AppMasterKey):** beklenti **§6 md. 5'in şema
+     kararına bağlıdır**. Karar kapanana kadar `AuthenticateEV2First(0x00,
+     fabrika)` **BAŞARILI olacaktır** ve bu bir arıza değil, **bilinen ve
+     aşağıda 9. maddede sayılan bir maruziyettir**. Karar kapandıktan sonra
+     beklenti tersine döner.
+7. **Yazma izninin gerçekten kilitli olduğu doğrulanır — İKİ DENEY, BİRİ DEĞİL
+   (düzeltme 2026-08-20, ADR 0017).** Eski hâli yalnız birincisini ölçüyordu.
+   - **7a — kimlik doğrulamasız** bir NDEF yazma denemesi **reddedilmeli**
+     (`FileAR.Write` ve `FileAR.ReadWrite` anahtara bağlandıktan sonra).
+   - **7b — kimlik doğrulanmış:** halka açık **fabrika anahtarı 0** ile
+     `AuthenticateEV2First` yapıp `WriteData` denemesi. Bugün **başarılı
+     olacaktır** — ADR 0017 §5.0'ın oltalama vektörü tam olarak budur. 9. madde
+     kapanınca bu deney **reddedilmeli**.
 8. **Baskı provası** — A5 ölçüleri, QR kenar uzunluğu ve sessiz alan **fiziksel
    provada** doğrulanır; doğrulanınca skill `tappa-brand`'in ilgili bloğu
    *"ölçüldü"* olarak güncellenir.
+9. 🔴 **ANAHTAR 0 MARUZİYETİ KAPATILIR — ve bu madde 2026-08-20'de eklendi çünkü
+   listede onu yakalayacak tek satır yoktu.** ADR 0017 §5.0 anahtar 0'ın
+   kişiselleştirilmesini **karara bağladı** ama sevk edilmesini bir **şema
+   kararına** bağladı (§6 md. 5: ikinci anahtarı nerede saklayacağız).
+   Kapanana kadar encode edilen her plakette uygulama anahtarı 0 **fabrika
+   varsayılanındadır**, yani **halka açıktır**.
+
+   **Somut sonucu:** plakete fiziksel erişimi olan biri master olarak kimlik
+   doğrulayıp NDEF URL'sinin host'unu değiştirebilir → çalışan plakete dokunur,
+   telefonu **saldırganın sitesini** açar. Veri sayfası bunu kendi ayak notunda
+   söylüyor (tablo 8, s. 12): *"Write and ReadWrite access rights for the NDEF
+   File (File No. 02h) **should be changed after personalization** in order to
+   prevent unauthorized changes in the NDEF File."* ⚠️ **Ve bu teorik değil:**
+   bu dosyanın *"Dört yol"* ölçümü **NFC.cool Tools**'un telefonda `ChangeKey`
+   **ve** `ChangeFileSettings`'in ikisini de yaptığını kaydetti — gereken şey
+   özel donanım değil, bir mağaza uygulaması.
+
+   > 🔴 **GÜVENLİK ÇİZGİSİ — İKİ AYRI KAPI, KARIŞTIRMAYIN.**
+   >
+   > **Encode aracının inşası ve testi bu maddeyi BEKLEMEZ.** Geliştirme ve
+   > deneme plaketleri anahtar 0 fabrika varsayılanındayken encode edilebilir;
+   > tezgâhta, kutuda, laboratuvarda sorun yoktur.
+   >
+   > **Ama bir plaket, anahtar 0 fabrika varsayılanındayken DUVARA ÇIKAMAZ.**
+   > Bu bir **pilot bloklayıcısıdır** (M8-06), encode bloklayıcısı değil — ve
+   > Q08'in *"Q08 kapanmadan üretim plaketi encode edilmez"* kuralıyla aynı
+   > sınıfa aittir: ikisi de üretim plaketini durdurur, geliştirmeyi durdurmaz.
+
+   **Üç saklama şıkkı — SAYILDI, SEÇİLMEDİ** (turun 2'si şemayı önünde görerek
+   seçsin). Her birinin ADR 0017 §5.3'ün teşhis sondalarına etkisi yazılı:
+
+   | Şık | Bedeli | §5.3 sondalarına etkisi |
+   |---|---|---|
+   | **1. Yeni sütun + migration** | CLAUDE.md §6 beşlisi (tenant sütunu, RLS, FORCE, politika, indeks) + GRANT; `tags`'a ikinci bir sarmalı anahtar alanı | ✅ **Sondalar korunur ve GÜÇLENİR** — sonda 3, *"bizim anahtar 0'ımızla dene"* hâline gelir ve adım 8'in koşup koşmadığını kesin ayırır |
+   | **2. Aynı plaket sırrından KDF ile türetme** (`key0 = KDF(plaketAnahtarı, …)`) | 44 bayt **sabit kalır**, şema borcu yok, anahtar 0 istendiğinde geri getirilebilir. 🔴 **Bedeli ADR 0017 §5.0 karar 1'in 2. gerekçesiyle DOĞRUDAN çarpışır:** iki farklı yetki (SDM okuma · kart master) **tek sırra kenetlenir**, yani sızan bir plaket anahtarı yalnız SUN üretmez, o çipin NDEF'ini ve tüm anahtarlarını da açar. ✅ **ADR 0003 md. 3 BOZULMAZ** — türetilen sır **plaket-başına** kalır, park geneli bir master doğmaz, patlama yarıçapı **tek plaket** | ✅ Sondalar korunur (anahtar 0 hesaplanabilir) |
+   | **3. Yaz-ve-saklama** (anahtar 0'a rastgele yaz, değeri **at**) | Sıfır şema borcu. ADR 0003 md. 5'in normatif yolu (`retire + replace`) ile **tutarlı**: o çipe bir daha kimlik doğrulanamaz, tek çare değişimdir | 🔴 **SONDA 2 VE 3 ÇALIŞMAZ HÂLE GELİR.** Anahtar 0 bilinmediği için hiçbir kimlik doğrulama kurulamaz → **yarım-yazma teşhisi tamamen kaybolur**, yarıda kalan her çip doğrudan çöp olur. Bu, ADR 0017 §5'in tüm kurtarma yolunu iptal eder |
 
 ---
 
