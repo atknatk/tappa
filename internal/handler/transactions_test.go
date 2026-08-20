@@ -34,6 +34,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/atknatk/tappa/internal/adminauth"
+	"github.com/atknatk/tappa/internal/domain/checkin"
 	"github.com/atknatk/tappa/internal/domain/ledger"
 	"github.com/atknatk/tappa/internal/store"
 	"github.com/atknatk/tappa/web"
@@ -1169,19 +1170,21 @@ func TestVendoredScript_MatchesTheRecordedDigest(t *testing.T) {
 // down by TestLedger_ATenantsPolicySentenceIsMarkedAsTheirs; this asserts the label
 // survives the handler's mapping and the template.
 //
-// 🔴 THE MEASUREMENT BEHIND IT. The M8-04 security audit installed a tenant policy
-// statement whose resource was more specific than the baseline's and whose
-// author-written reason claimed "network proof of place: the source IP matches the
-// location". The tap that matched it recorded verdict=ok, matched_sid='tenant:…',
-// policy_layer='tenant', ip_match=false, trust=20 — three columns telling the truth
-// while the prose did not — and the docket printed the prose alone.
+// 🔴 WHAT THE LABEL MEANS, STATED EXACTLY, BECAUSE A ROUND OF M8-04 STATED IT WRONG.
+// It says the DECIDING RULE sat on the organisation's own policy document
+// (transactions.policy_layer='tenant'). It does NOT say the organisation wrote the
+// sentence: a customer document is a scoped copy of a shipped statement, prose
+// included, which tenant.copyOfShipped does and
+// TestAuthoredRule_TheProseIsOursAndOnlyTheScopeIsTheirs holds. The fixture below
+// uses a real baseline sentence for exactly that reason — the same words can carry
+// either layer, so a test using invented prose would be measuring the wrong thing.
 //
-// ⚠️ WHAT THIS DOES NOT ASSERT, because the product deliberately does not do it: it
-// does not assert the sentence is refused, rewritten or hidden. Section 5 rows 6-7
-// are the tenant's to change by name (CLAUDE.md), the same tenant can already type
-// any sentence into a channel='manual' record, and transactions is append-only so a
-// stored note cannot be corrected anyway. The accepted guarantee is narrower and
-// this is it: the screen says whose sentence it is.
+// ⚠️ WHAT THIS DOES NOT ASSERT. It does not assert that a note is checked against the
+// row it sits on. Nothing does: transactions is append-only (§4.3), so a stored note
+// cannot be corrected in any case. The guarantee is the narrow one — the screen says
+// which document decided — and the note class this product has measured saying
+// something untrue is baseline-layer (backlog T40), which this label leaves
+// unmarked by design. That is written on ledger.Record.NoteIsTenants.
 func TestTransactions_ADocketSaysWhoWroteTheNote(t *testing.T) {
 	const claim = "network proof of place: the source IP matches the location"
 	const label = "Your own policy rule"
@@ -1213,10 +1216,10 @@ func TestTransactions_ADocketSaysWhoWroteTheNote(t *testing.T) {
 			"surface:\n%s", body)
 	}
 	if !strings.Contains(body, label) {
-		t.Errorf("a note written by the ORGANISATION's own policy rule rendered with no " +
-			"attribution. The row's own columns say policy_layer='tenant' and the panel " +
-			"has that column; printing only the prose prints the one part of an immutable " +
-			"record that can be wrong.")
+		t.Errorf("a note produced by the ORGANISATION's OWN policy rule rendered with no " +
+			"attribution. The row says policy_layer='tenant' and the panel query selects " +
+			"that column; without the label a manager cannot tell which document to open " +
+			"to find — or change — the rule that decided this record.")
 	}
 
 	// OURS: the same sentence, our layer — no label. This is the control that stops
@@ -1227,7 +1230,77 @@ func TestTransactions_ADocketSaysWhoWroteTheNote(t *testing.T) {
 		t.Fatalf("the control page does not carry the note at all:\n%s", ours)
 	}
 	if strings.Contains(ours, label) {
-		t.Errorf("a note the PRODUCT wrote was labelled as the organisation's. A label on " +
-			"every docket says nothing; the label exists to mark the exception.")
+		t.Errorf("a decision OUR OWN document made was labelled as the organisation's. A " +
+			"label on every docket says nothing; the label exists to mark the exception.")
+	}
+}
+
+// TestPolicyNote_IsEscapedOnBothSurfacesThatPrintIt drives a hostile sentence through
+// the deciding rule's note on the TWO surfaces that render it — the manager's docket
+// and the employee's tap result — and reads the escaping off the real HTML.
+//
+// 🔴 IT EXISTS BECAUSE THREE COMMENTS CLAIMED IT AND CITED THE WRONG TEST. They said
+// "templ escapes both on output — proved by
+// TestReviewDB_AHostileNoteIsEscapedWhereItIsRendered", and that test POSTs to
+// transaction_reviews.note and reads back the card that prints DocketView.ReviewNote.
+// It measures the manager's field and nothing else; the policy note arrives by a
+// different route (the engine, then two different templates) and had no such proof.
+// The property held — the audit confirmed templ.EscapeString on all three
+// interpolations — but a citation that names a test which does not test the thing is
+// how a property stops being checked without anybody noticing.
+//
+// ⚠️ WHY THE FIXTURE IS THE REVIEW TEST'S. hostileNote is reused rather than copied so
+// the two surfaces cannot drift onto different definitions of "hostile"; the control
+// below fails if that constant stops carrying the characters that matter.
+func TestPolicyNote_IsEscapedOnBothSurfacesThatPrintIt(t *testing.T) {
+	// CONTROL: the fixture is actually dangerous. Without this the assertions below
+	// would pass on any harmless string.
+	for _, ch := range []string{"<", ">", "&", `"`} {
+		if !strings.Contains(hostileNote, ch) {
+			t.Fatalf("CONTROL FAILED: hostileNote no longer contains %q, so escaping it "+
+				"proves nothing", ch)
+		}
+	}
+	escaped := "&lt;script&gt;"
+	raw := "<script>"
+
+	// THE DOCKET, where Note is printed beside the label that says whose rule decided.
+	f := newFakeLedger()
+	f.page = ledger.Page{
+		Queried: true,
+		Zone:    time.UTC,
+		Records: []ledger.Record{{
+			ID:           uuid.New(),
+			OccurredAt:   time.Date(2026, 8, 20, 9, 30, 0, 0, time.UTC),
+			Verdict:      "flag",
+			Channel:      "nfc",
+			Direction:    "in",
+			EmployeeName: "Maria Borg",
+			LocationName: "KF St Julians",
+			Note:         hostileNote,
+		}},
+	}
+	docket := htmlOf(t, panelBrowserWith(t, f).do(http.MethodGet, transactionsHref, nil))
+	if strings.Contains(docket, raw) {
+		t.Errorf("the docket rendered %q unescaped inside the policy note", raw)
+	}
+	if !strings.Contains(docket, escaped) {
+		t.Errorf("the docket does not carry the ESCAPED note either, so this test is "+
+			"measuring the wrong surface rather than proving an escape:\n%s", docket)
+	}
+
+	// THE EMPLOYEE'S RESULT SCREEN, driven the way result_test.go drives it. §9 keeps
+	// this screen at one screen and one button; reading its HTML changes nothing on it.
+	body := mustBody(t, checkin.Result{
+		Outcome:      checkin.OutcomeRecorded,
+		Decision:     withNote(decisionOf("flag", "in", false), hostileNote),
+		LocationName: "St Julians", Timezone: "Europe/Malta", BusinessType: "restaurant",
+	})
+	if strings.Contains(body, raw) {
+		t.Errorf("the tap result rendered %q unescaped inside the policy note", raw)
+	}
+	if !strings.Contains(body, escaped) {
+		t.Errorf("the tap result does not carry the ESCAPED note either; the note may not "+
+			"be reaching this screen at all:\n%s", body)
 	}
 }

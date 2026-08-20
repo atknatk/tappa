@@ -227,8 +227,13 @@ tablosu çıkmış durumda (satış slaytı da olur).
 >
 > **T31'in yarısı sevk edilen ikilide kapandı.** İmaj `golang:1.26.6-bookworm` ile
 > derleniyor (CI hâlâ 1.26.5 pinli — o kullanıcının Go kurulumu). Ölçüldü:
-> `go version -m` → `go1.26.6`. `make audit` **hâlâ kırmızı**, çünkü govulncheck
-> geliştirici makinesinin toolchain'ini sayıyor.
+> `go version -m` → `go1.26.6`.
+>
+> ⚠️ **Burada *"`make audit` hâlâ kırmızı"* yazıyordu ve BAYAT** (düzeltildi 2026-08-20,
+> M8-04 FAZ B3): o cümle geliştirici makinesinin toolchain'ini sayan govulncheck'e
+> bağlıydı ve toolchain o günden beri güncellendi. Bugün ölçüldü: `go version` →
+> **`go1.26.7`**, `make audit` → **exit 0** (`govulncheck exit=0`, `redline-check
+> exit=0`). **T31 kapandı.**
 >
 > **Ölçerek verilen beş karar (brief'in *"ölç ve seç"* dediği yerler):**
 > 1. **Nihai imaj `scratch`** — 22,3 MB (16,1 MB ikili + 216 KB CA paketi). Dosya
@@ -3180,8 +3185,10 @@ tablosu çıkmış durumda (satış slaytı da olur).
 > yaptı; bu faz **"ve yazıldı"** kısmıdır.
 >
 > **KABUL METİNLERİ ARTIK AĞAÇTA: [ADR 0005](../adr/0005-kabul-edilen-riskler.md)
-> → *"Kabul edilen ORTA/DÜŞÜK denetim bulguları (M8-04 FAZ B3)"*.** On bir satır,
-> her biri *ne kabul edildi · neden kapatılmadı · mekanik çapa*. 🔴 **Çapa bir TEST
+> → *"Kabul edilen ORTA/DÜŞÜK denetim bulguları (M8-04 FAZ B3)"*.** Her satır
+> *ne kabul edildi · neden kapatılmadı · mekanik çapa* taşır; **satır sayısı burada
+> YAZILI DEĞİL, ADR'de BAĞLI** (`TestADR0005_TheAnchorCountsMatchTheProse`).
+> 🔴 **Çapaların ÇOĞU bir TEST
 > ADIDIR ve bu bilinçli:** `TestEveryNamedTestExists` deponun **her metin dosyasını**
 > tarar, ADR dahil — yani adı geçen bir test silinirse belge kırmızıya döner. Pozitif
 > kontrol koşuldu (bir çapa testi yeniden adlandırıldı → `docs/adr/0005-…` adıyla
@@ -3219,19 +3226,29 @@ tablosu çıkmış durumda (satış slaytı da olur).
 >
 > **VE SON DENETİMİN İKİ İŞİ:**
 >
-> **(1) Tenant politikasının `note`'a yazdığı sahte kanıt cümlesi — ÖLÇÜLDÜ ve
-> KAPATILDI (savunma derinliği).** Denetçinin gerekçesine katılıyorum: **§4 ihlali
-> değil** (§5 satır 6–7 adıyla tenant'ın, ve aynı tenant `channel='manual'` ile zaten
-> keyfi not yazabiliyor). Kalan boşluk **fiş**teydi ve ölçüldü: `docket.templ` `d.Note`'u
-> **katmansız** basıyordu, `policy_layer` satırda dururken. Kapatıldı **okuma
-> tarafında** (yazma tarafı değil — bir yazma işareti **var olan** satırlara ulaşmaz,
-> ve §9'un kutsal saydığı çalışan ekranını da değiştirirdi): `policy_layer` iki
-> sorguya eklendi (gün **ve** onay kuyruğu), `ledger.Record.NoteIsTenants` türetiliyor,
-> fiş tenant'ın kendi kuralını **adıyla** basıyor. ⚠️ **VE İKİ YORUM YALAN
-> SÖYLÜYORDU:** `docketview.go` *"straight from internal/policy … fixed strings
-> written by us"*, `ledger.go` *"unlike Note above (which is one of our own policy
-> sentences)"* — ikisi de düzeltildi. Pozitif kontrol iki yönlü (`if true` → etiket
-> her fişte → kırmızı; `if false` → hiç → kırmızı).
+> **(1) Fişin `note`'u kararın hangi belgeden geldiğini söylemiyordu — KAPATILDI
+> (savunma derinliği).** Ölçüldü: `docket.templ` `d.Note`'u **katmansız** basıyordu,
+> `policy_layer` satırda dururken. Kapatıldı **okuma tarafında** (yazma tarafı değil —
+> bir yazma işareti **var olan** satırlara ulaşmaz, ve §9'un kutsal saydığı çalışan
+> ekranını da değiştirirdi): `policy_layer` iki sorguya eklendi (gün **ve** onay
+> kuyruğu), `ledger.Record.NoteIsTenants` türetiliyor, fiş **kararı tenant'ın kendi
+> belgesinin verdiğini** söylüyor. Pozitif kontrol iki yönlü (`if true` → etiket her
+> fişte → kırmızı; `if false` → hiç → kırmızı).
+>
+> 🔴 **BU MADDENİN İLK İKİ YAZIMI ETİKETİ *"tenant'ın YAZDIĞI sahte kanıt cümlesi"*
+> DİYE TANITIYORDU VE BU YANLIŞTI — DÜZELTME TURU 2'DE ÖLÇÜLDÜ.** Tenant bir ifadeyi
+> **seçip kapsamlandırabiliyor**, **metnini yazamıyor**: `copyOfShipped` ifadeyi
+> **bütün** kopyalıyor (effect · action · condition · **reason**), yalnız `Sid` ve
+> `Resource` değişiyor; `AuthorCommand`'da `Reason` alanı **yok**; panel formu
+> `op · policy · resource · name · based_on · venue` okuyor, **doküman yüklemiyor**.
+> Etiketin kendisi doğru — *"bu kararı tenant'ın kuralı verdi"* diyor — ama onu tarif
+> eden yorumlar üç dosyada yanlıştı ve düzeltildi. Kapılar artık **davranışsal**:
+> `TestAuthoredRule_TheProseIsOursAndOnlyTheScopeIsTheirs` (üretici çağrılıyor,
+> ifadeler alan alan karşılaştırılıyor) ve
+> `TestNoteProvenance_OnlyTwoProductionCallSitesWriteAPolicyDocument` (belgeyi yazan
+> **iki** üretim çağrısı; üçüncüsü — Q22'nin M9-07'ye ertelediği ham-JSON editörü —
+> kırmızı verir). Metin tarayan kapı **silindi**: bugün **doğru** olan bir cümleyi
+> yasaklıyordu.
 >
 > **(2) `CREATE RULE … DO INSTEAD NOTHING` kapısı — ÖLÇÜLDÜ, HARİTA DOĞRU ÇIKTI.**
 > Bu, sınıf→kapı haritasının **ölçümü tekrarlanmayan tek satırıydı** ve aynı haritanın
@@ -3241,6 +3258,414 @@ tablosu çıkmış durumda (satış slaytı da olur).
 > `TestCheckinDB_Row3_NoSessionRedirectsAndWritesNOTHING`. Geri alındı ve doğrulandı:
 > `pg_rules = 0`, `transactions` **426 791 → 426 791**. **Sayı doğru; düzeltilecek bir
 > şey yok, değişen tek şey artık iki kez ölçülmüş olması** (tarih script'e yazıldı).
+
+> **Kart düzeltmesi (2026-08-20, M8-04 FAZ B3 doğrulama turu).**
+>
+> 🔴 **FAZ B3'ÜN İŞİ AĞAÇTAYDI VE BU TUR ONU DOĞRULAMAK İÇİN AÇILDI; İKİ İDDİA
+> YANLIŞ ÇIKTI — İKİSİ DE *"AĞ TUTUYOR AMA AĞ HAKKINDAKİ CÜMLE YANLIŞ"* SINIFINDAN.**
+> Ürün davranışında bulgu **yok**; yanlış olan **belgenin kendisi hakkındaki**
+> cümleleriydi, yani tam olarak bu görevde **yedi kez** bloklayan sınıf.
+>
+> **(1) ADR 0005 kendini otuz satır arayla çürütüyordu.** Bölüm başlığı *"**HER SATIR**
+> BİR MEKANİK ÇAPA TAŞIR, VE ÇAPA BİR TEST ADIDIR"* diyordu; aynı belge aşağıda
+> *"**ÜÇ SATIRIN** mekanik çapası yok"* diyordu (T28 · T38 · T39). İkisi aynı anda
+> doğru olamaz. Başlık **gerçeğe** eşitlendi.
+>
+> **(2) Bu kart tabloyu *"On bir satır"* diye tanıtıyordu; tablo **on iki** satır.**
+> Sayıyı hiçbir kapı korumuyordu. **Düzeltilmedi — kaldırıldı ve BAĞLANDI:** karttan
+> silindi, ADR'de `TestADR0005_TheAnchorCountsMatchTheProse` ile bağlandı.
+>
+> **(3) Ve sayılamıyordu, çünkü damga İKİ TÜRLÜ yazılmıştı.** T38/T39
+> *"MEKANİK ÇAPASI YOK, SAYILDI"*, T28 *"bu satırın MEKANİK bir çapası YOKTUR ve bu
+> sayılmıştır"* diyordu — aynı anlam, ve ilk yazımın sayımı **2** verirken düzyazı
+> **3** diyordu. Bir kümeyi **insanların onu yazma biçimlerini sayarak** tanımlamak,
+> `netx`'in üç turda üç kez aşılan kusuruyla **aynı** kusurdur; onarım da aynı şekilde:
+> **tek kanonik damga**.
+>
+> **Yeni kapı — dört iddiayı bağlıyor** (`cmd/tappa/adr0005_test.go`): satır sayısı ·
+> çapasız satır sayısı · çapasızların **adları** (yalnız sayı, bir satırın çapasını
+> yitirip başkasının kazanmasını görmez) · ve **damgasız her satırın çapa hücresinin
+> gerçekten bir `Test…` adı andığı**. **Dördüncüsü `TestEveryNamedTestExists`'in
+> GÖREMEDİĞİ boşluktur** ve ölçüldü: T52'nin çapa hücresi `--` yapıldığında **benim
+> kapım FAIL**, `TestEveryNamedTestExists` **aynı ağaçta `ok`** — çünkü o *"anılan ad
+> var mı"* diye sorar, *"anması gereken satır anıyor mu"* diye değil.
+> Üç mutasyon + pozitif kontrol koşuldu, üçü de geri alındı (`cmp` **OK**).
+>
+> ⚠️ **Doğrulanan ve DEĞİŞTİRİLMEYENLER:** orkestratörün sekiz satırlık ön ölçümünün
+> **sekizi de tuttu**; ADR'de adı geçen **her çapa testi gerçekten var** — ve buraya
+> bir sayı yazılmıyor, çünkü onu tutan bir kapı zaten var (`TestEveryNamedTestExists`);
+> ⚠️ **bu cümlenin ilk hâli *"25 çapa testinin 25'i"* diyordu ve sayı ölçülmemişti
+> (gerçek değer 20) — yapıcının bu turda kendi işlediği, düzelttiği ve kaydettiği
+> kusur, kuralın yazara da uygulandığının kanıtı olarak burada bırakıldı.**
+> `TestEveryNamedTestExists`'in *"her metin dosyasını tarar"* iddiası **doğru**
+> (`filepath.Walk(repoRoot)` + dört girdilik atlama listesi), yani ADR gerçekten
+> taranıyor ve B3'ün çapa mantığı **sağlam**.
+
+> **Kart düzeltmesi (2026-08-20, M8-04 FAZ B3 — düzeltme turu).**
+>
+> Doğrulama turu **RED** verdi (iki bloklayan, iki bloklamayan). Dördü de bu turda
+> kapatıldı. 🔴 **Ve bloklayanların ikisi de yine aynı sınıftandı:** ürün doğru
+> davranıyordu, **ürün hakkındaki cümle** yanlıştı ya da hiç yazılmamıştı.
+>
+> **(D42 — SONRADAN GERİ ÇEVRİLDİ, ↓ düzeltme turu 2) ÜÇÜNCÜ KOPYA `view.go`'DAYDI.**
+> Bu tur `web/templates/pages/view.go`'daki *"internal/policy's reasons are fixed
+> strings written by us"* cümlesini **yalan** sayıp sildi, yerine tenant'ın
+> *"author-written `reason`"*'ının `Note`'a birebir düştüğünü yazdı ve bunu bir metin
+> tarayıcısıyla **dayattı** (`cmd/tappa/noteprovenance_test.go`'nun ilk hâli; adı
+> burada anılmıyor, çünkü artık var olmayan bir teste yapılan atıf **çalışan bir
+> atıf gibi görünür** ve `TestEveryNamedTestExists` de haklı olarak kırmızı verir).
+> 🔴 **BİR SONRAKİ DENETİM BU İDDİAYI ÖLÇTÜ VE ÇÜRÜTTÜ:** silinen cümle
+> **doğruydu**. Bu blok, düzeltmenin kendisi kadar önemli olduğu için silinmiyor —
+> ayrıntı ve bugünkü kapılar için aşağıdaki *"düzeltme turu 2"* bloğuna bakın.
+>
+> **(D42-3 — SONRADAN GERİ ÇEVRİLDİ, ↓ düzeltme turu 2) TAP EKRANI KATMAN ETİKETİ
+> TAŞIMIYOR.** Bu tur bunu *"sayılmış limit"* olarak yazdı ve metnini bir kapıyla
+> (aynı silinen dosyadaki ikinci test) tuttu. Dayanağı D42'nin
+> çürütülen iddiasıydı: tenant çalışanının ekranına **kendi yazdığı** bir cümleyi
+> düşürebiliyor olsaydı, etiketsiz ekran gerçekten bir dürüstlük boşluğu olurdu.
+> Cümle her katmanda **bizim** olduğu için o boşluk yok; ekranda eksik olan tek bilgi
+> *"kararı hangi belge verdi"* ve onun muhatabı **müdür** (fişte basılıyor), çalışan
+> değil. Kapı da metin de kaldırıldı. §9 gereği ekrana **hâlâ dokunulmadı**.
+>
+> **(D43) KABUL KRİTERİ 4 — DÖRT MADDENİN ÜÇÜ ÖLÇÜLDÜ VE YAZILDI, BİRİ BLOKE.**
+> Bu satır *"Manuel doğrulamalar"* diyor ve bugüne kadar yalnız birinci maddesi
+> yazılıydı. 🔴 **Aşağıdakiler bu turda YENİDEN ölçüldü** (2026-08-20, `HEAD ac29cf7`
+> + bu turun çalışma ağacı, yerel `tappa` DB'si); *"sağlanıyor"* denmedi, komutu ve
+> çıktısı yazıldı.
+>
+> **1. Çapraz-tenant erişim denemesi — ÖLÇÜLDÜ, GEÇTİ.** Üç ayrı kesit:
+> · **Tap yüzeyi:** `TestCheckinDB_ForeignTenantTapIsRefusedAndWritesNOTHING` **PASS**
+> — başka tenant'ın plaketine geçerli bir oturumla POST → **403**, **her iki**
+> tenant'ın `transactions` sayısı **değişmiyor**, ve testin kendi **pozitif kontrolü**
+> aynı istek şeklinin kendi plaketinde **+1 satır** yazdığını gösteriyor (yani ölçülen
+> şey tenant kontrolü, alakasız bir ret değil).
+> · **Sayaç:** `TestCheckinDB_ForeignTenantTapNeverTouchesTheOtherTenantsCounter`
+> **PASS** — yabancı plaketin `last_ctr`'ı **kıpırdamıyor** (900 → 900), pozitif
+> kontrolde o tenant'ın **kendi** oturumu aynı plaketi 900 → 901 ilerletiyor. Kod
+> tarafındaki sebep tek satır: `internal/domain/checkin/checkin.go:954`
+> — `if tagRow.TenantID != req.SessionTenantID { return false, 0, nil }`, yani
+> `sun.AdvanceCounter` **hiç çağrılmıyor**.
+> · **Panel girişi:** `TestAuthenticate_RefusesTheCrossTenantBypass` **PASS** (üç alt
+> test; *"aynı parola iki işletmede"* vakası dahil).
+> · **Veri katmanı:** `TestRLS_ReadIsolation_AllTables` **PASS** — **17 alt test**,
+> ve bu sayı **elle yazılmadı**: 16'sı canlı katalogda `tenant_id` taşıyan tablolar
+> (`pg_attribute` sorgusu aynı ağaçta **16** döndürdü), 17.'si `tenants`'ın kendisi
+> (`id` ile kapsanır). Yanında `TestRLS_WriteWithCheck_AllTables` ·
+> `TestRLS_NoContext_FailsClosed` · `TestRLS_AppRoleHasNoBypass` — dördü de **PASS**.
+>
+> **2. Oturum çalma senaryosu — ÖLÇÜLDÜ. Kapatılmayan kısmı aşağıda, gizlenmedi.**
+> **Çalınmış bir tap çerezi NE YAPAMAZ:** · Tek başına **hiçbir kayıt üretemez**:
+> `POST /api/checkin` gövdesinde **bu sunucunun mühürlediği** bir `ctx` ister ve o
+> mühür **oturum kimliğine bağlıdır** (`t.contexts.parse(…, id.Session.ID)`,
+> `internal/handler/checkin.go:176`). O bağlamı üreten `GET /t`, geçerli bir SUN
+> URL'i ister → **fiziksel dokunuş** (§5 satır 2). · **Panele erişemez:** ayrı çerez,
+> ayrı tablo (`admin_sessions`), ve yol `/admin`'e daraltılmış —
+> `TestPanelCookies_NeverReachTheTapSurface` + `TestPanelCookiePath_IsNarrowerThanTheTapSurface`.
+> · **Başka tenant'a geçemez:** oturum kendi `tenant_id`'sini taşır, plaket uyuşmazlığı
+> `sys:tenant-mismatch` (yukarıdaki ölçüm). · **Çerezin kendisi kayıt değildir:** DB
+> yalnız HMAC-SHA256 **hash**'i tutar, Go tarafında bayt karşılaştırması **yok**
+> (`internal/session/manager.go`).
+> **NE YAPABİLİR:** hırsız, kurbanın tenant'ının bir plaketine **fiziksel olarak
+> dokunabiliyorsa**, kurban adına giriş/çıkış yazdırabilir. Bu, ADR 0005'in Risk 1'i
+> (buddy punching) ile **aynı** kalıntıdır ve orada kabul edilmiştir.
+> 🔴 **KAPATILMAYAN, DÜRÜSTÇE:** **(a)** Oturum **FIXATION**'ı — `SameSite`/`HttpOnly`/
+> `Secure` bunu durdurmaz; T3'ün kabul metni bunu zaten söylüyor
+> (`internal/handler/cookies.go`) ve bu turda **ADR 0005'in tablosuna** satır olarak
+> eklendi. **(b)** 🔴 **ÇALINMIŞ BİR TAP OTURUMUNU İPTAL EDECEK BİR EKRAN YOK — ÖLÇÜLDÜ.**
+> `session.Manager.Revoke` ve `ListForEmployee`'nin **üretimde tek bir çağıranı bile
+> yok**; `RevokeAllForEmployee`'nin tek çağıranı `internal/handler/activate.go:458`
+> (yeniden aktivasyon eskilerin **hepsini** öldürür). `admins.Revoke` yalnız **panel**
+> oturumu içindir (`adminlogin.go:1336`). Yani bugün tek çare **çalışanı yeniden
+> aktive etmek**tir; çalışanı `deactivated` yapmak oturumu **bilerek** iptal etmez
+> (`internal/handler/tap.go:304-309`) ama sonraki her tap `sys:employee-deactivated`
+> ile **kayıtlı bir reject** + güvenlik uyarısı üretir (§5 satır 4). Bunu üreten komut:
+> ```sh
+> grep -rn "RevokeAllForEmployee\|ListForEmployee\|\.Revoke(" --include='*.go' internal/ cmd/ | grep -v _test
+> ```
+> **(c)** Oturum başına oran sınırı floodu durdurur, **tek bir sahte tap'i durdurmaz**
+> (aşağı bakın). Bir *"cihazlarım / oturumu kapat"* ekranı **bu görevin işi değildir**;
+> burada **sayılmış boşluk** olarak yazıldı, kapatılmadı.
+>
+> **3. Oran sınırı — ÖLÇÜLDÜ.** **Anahtar hiçbir yerde tenant değildir**; üç şekil
+> var: **adres** (`httpx.ClientIP`, IPv6'da `/64`), **oturum**, ve **hesap**.
+> ⚠️ **Aşağıdaki bütçeler TARİHLİDİR** (2026-08-20, aynı ağaç) ve hepsi tek komutla
+> yeniden üretilir:
+> ```sh
+> grep -rn "Limit  *= \|Period  *= " internal/httpx/ratelimit.go internal/handler/ratelimit.go internal/handler/adminratelimit.go internal/handler/signupratelimit.go
+> ```
+> · **Tap yüzeyi** (`GET /t`, `POST /api/checkin`) **iki taraflı**: adres başına
+> **3000/10 dk**, oturum başına **300/10 dk** (`internal/httpx/ratelimit.go:284-287`).
+> Bu iki sayı **bağlı**: `TestTapLimiter_DefaultsAreWideEnoughForAShiftChange` —
+> daha önceki bir taslak 120 yazmıştı ve o test 120'nin tam olarak beş saniyelik bir
+> yeniden yükleme döngüsünün ürettiği sayı olduğunu yakaladı.
+> · **Aktivasyon:** adres başına **600/10 dk** flood, **60/10 dk** atfedilemeyen
+> başarısızlık, **10/10 dk** davet hatası (`internal/handler/ratelimit.go:133-147`).
+> · **Panel:** adres **3000/10 dk**, oturum **300/10 dk**, giriş denemesi **10/10 dk**,
+> bcrypt işi **120/10 dk**, hesap başına **10/10 dk** (`adminratelimit.go`).
+> · **Kayıt (signup):** adres **600/10 dk** flood, VIES **20/10 dk**, deneme
+> **10/10 dk**, **işletme yaratma 3/saat** (`signupratelimit.go:62-146`).
+> 🔴 **YAPISAL KALINTILAR — KAPATILMADI, `docs/backlog.md` T1:** sınırlayıcı
+> **süreç içi** (iki instance sınırı **ikiye katlar**), **sabit pencere** (pencere
+> sınırında kısa sürede **2×**), ve `limiterMaxKeys` (**100 000**) aşılınca map
+> **toptan sıfırlanıyor** — bilinçli **fail-open**, `internal/httpx/ratelimit.go:24-32`
+> ve `:142-151`'de yazılı, `TestLimiter_EvictsWhenTheMapIsFull` ile bağlı.
+> ⚠️ **`/healthz` ve `/readyz`'in adres başına bütçesi YOK** ve bu bir eksiklik değil
+> **karar**: canlılık, her bağımlılık çökmüşken bile cevaplanabilmek zorunda
+> (`internal/httpx/router.go:85-109`). `/readyz` **bir DB sorgusu** koşturuyor, yani
+> M8-01'in notu duruyor: bütçesiz bir uç, ucuz olmayan tek sağlık ucudur.
+>
+> **4. Replay denemesi GERÇEK ETİKETLE — HÂLÂ BLOKE, ÖLÇEMEDİM.** Sebep değişmedi:
+> NTAG 424 DNA yazıcı donanımı **elimde yok**, bu yüzden gerçek bir çipin ürettiği
+> SUN URL'i üretilemiyor. Yerine geçen **değil**, tamamlayıcı olan şey ağaçta: bilinen
+> cevap vektörleri (`internal/sun`) ve `TestAdvanceCounter_ConcurrentRaceExactlyOneWinner`
+> (N goroutine, aynı `(tag, ctr)`, tam olarak **1** kazanan, `-race`). Gerçek etiketli
+> tur **M8-05 FAZ B**'ye bağlıdır. 🔴 *"Sağlanıyor"* denmiyor — **ölçülemedi**.
+>
+> **(D44) ADR 0005'İN KÜME CÜMLESİ TABLOSUNDAN GENİŞTİ — İKİ ONARIM DA YAPILDI,
+> ÖLÇEREK.** Denetim *"(a) T3'ü ekle **ya da** (b) cümleyi daralt"* diyordu; ölçüm
+> **ikisini de** gerektirdi ve gerekçesi şu: **(a)** T3 gerçekten bir **kabul**dür
+> (`state.md` FAZ B2'yi *"T27/T3 kabul, ölçülerek"* diye kaydediyor ve üç ölçüm
+> `internal/handler/cookies.go`'da duruyor) → satır **eklendi**, çapası
+> `TestPanelCookiePath_IsNarrowerThanTheTapSurface` + `TestCookies_ZeroValueIsSecure`,
+> ve bağlı sayı **12 → 13** oldu (kapı zaten tutuyordu, `çapasız satır = 3`
+> değişmedi). **(b)** Ama T3 eklendikten **sonra da** tablo *"kapatılmayanların
+> tamamı"* değildi: **T40'ın (ii)/(iii) soruları** ölçüldü ama **karara bağlanmadı**,
+> ve FAZ A'nın **F7**'sinin metni repoda **yok**. İkisi de **kabul değil**; tabloya
+> girselerdi *"kabul edildi"* diye okunurlardı. Bu yüzden cümle
+> *"kapatılmayıp **KABUL EDİLEN**"* diye daraltıldı ve dışarıda kalanlar **adıyla**
+> sayıldı. (⚠️ O listenin dördüncü maddesi D42-3'tü; düzeltme turu 2'de geri çekildi,
+> çünkü dayandığı iddia çürütüldü — ADR'de de kaydı var.)
+>
+> **(D45) KAPININ REGEX'İ DÜZYAZI SIRASINA BAĞLIYDI — DÜZELTİLDİ VE MUTASYONLA
+> KANITLANDI.** `satır = (\d+)`, ADR'nin `**satır = 13** · **çapasız satır = 3**`
+> cümlesinde **ikincisinin içine de** uyuyor; doğru okuması yalnız **leftmost-match**
+> sayesindeydi. Mutasyon (iki ifade yer değiştirildi, ADR'nin kopyası üzerinde):
+> eski desen *"holds 3 rows"* dedi, **yeni desen 13 okumaya devam etti**. İkisi de
+> `\*\*…\*\*` ile çapalandı.
+
+> **Kart düzeltmesi (2026-08-20, M8-04 FAZ B3 — DÜZELTME TURU 2).**
+>
+> Güvenlik denetimi **RED** verdi ve bulgusu **bir önceki turu tersine çevirdi**.
+> 🔴 **BU TURUN DERSİ TEK CÜMLE: BİR YANLIŞI DÜZELTİRKEN YERİNE KONAN CÜMLE DE
+> ÖLÇÜLMELİ.** Önceki tur *"tenant'ın yazdığı `reason` çalışanın ekranına birebir
+> düşüyor"* iddiasını doğru sayıp üç dosyadaki **doğru** cümleyi sildi, yanlışını
+> koydu ve doğru cümleyi bir kapıyla **yasakladı**.
+>
+> **(D46 — BLOKLAYAN) SİLİNEN CÜMLE DOĞRUYDU. ÖLÇÜM (kendi komutlarımla yeniden
+> üretildi; ⚠️ satır numaraları bu ağaca aittir — kayarlar, **dosya adları ve
+> davranış** kaymaz, ve davranışı tutan kapılar aşağıda adıyla anılıyor):**
+> · `policy_versions.document`'ın **iki** üretim yazıcısı var:
+> `internal/domain/tenant/rulewriter.go:964` (`AppendPolicyVersion`, layer `tenant`)
+> ve `internal/domain/checkin/policyset.go:423` (`EnsureBaselinePolicyVersion`,
+> layer `baseline`).
+>
+> ⚠️ **BURADA BİR `grep` SAYISI YAYIMLANMIŞTI VE HİÇBİR YOLDAN ÜRETİLEMİYORDU** (D52,
+> 3. tur). Yayımlanan çıktı *"4 satır, ikisi çağrı ikisi `internal/store` tanımı"*
+> idi; cümle kendi içinde çelişiyordu, çünkü `grep -v /internal/store/` filtresi
+> tam da o iki tanımı **eler**. Yeniden ölçüldü (2026-08-20, bu makine):
+> `grep -rn "AppendPolicyVersion(\|EnsureBaselinePolicyVersion(" --include='*.go' . |
+> grep -v /internal/store/` →
+> **POSIX `grep` ile (`/usr/bin/grep`) 2 satır** (yollar `./` önekli, filtre tutuyor:
+> `./internal/domain/tenant/rulewriter.go:964` ve
+> `./internal/domain/checkin/policyset.go:423`) ·
+> **PATH'teki `grep` ile — bu makinede `ugrep 7.5.0` — 6 satır** (yollarda `./` yok,
+> filtre **hiç** tutmuyor, iki tanım ve iki `querier.go` arayüz satırı da geliyor).
+> **4 ikisinden de çıkmıyor.**
+>
+> 🔴 **DERS: KABUK SAYISI KAPI DEĞİLDİR.** Sayı hangi `grep`'in kurulu olduğuna
+> bağlıydı, yani okuyan kişi ile yazan kişi farklı sayı görüyordu. Bu yüzden
+> yazıcıların sayısı artık **karttan değil kapıdan** okunur:
+> `TestNoteProvenance_TheWriterListIsDerivedFromTheQueriesRatherThanNamed` yazıcı
+> kümesini `db/`'den **türetir** ve her koşuda **yazdırır** — yukarıdaki iki ad, o
+> kapının çıktısıdır, bir kabuk komutunun değil.
+> · `copyOfShipped` (`rulewriter.go:1040`) `copied := st` ile ifadeyi **bütün**
+> kopyalıyor; yalnız `Sid` ve `Resource` değişiyor.
+> · `AuthorCommand`'ın alanları: `TenantID · Actor · PolicyID · Name · BasedOn ·
+> Venues`. **`Reason` yok.**
+> · Panel formu (`policyactions.go`) `op · policy · resource · name · based_on ·
+> venue` okuyor; **doküman yükleme yok**.
+> · İddia edilen çift (`reason="network proof of place…"` **ve** `ip_match=false`)
+> `copyOfShipped`'den **üretilemez**, çünkü koşul da birlikte kopyalanıyor
+> (`baseline.go`, `Condition{OpBool:{CtxTapIPMatch:true}}`).
+>
+> **Yapılan — ve ayrım korundu.** İki cümle de yazıldı: **(1)** politika cümleleri
+> **bizim** (tenant ifadeyi *seçip kapsamlandırıyor*, metnini yazmıyor); **(2)** ama
+> **kararı** tenant'ın kuralı vermiş olabilir ve `policy_layer='tenant'` bunu söyler —
+> `NoteIsTenants` **onu** işaretliyor. **Etiket ve mekanizma korundu, yorumlar
+> düzeltildi.** Düzeltilen yerler: `web/templates/pages/view.go` ·
+> `web/templates/components/docketview.go` (iki blok) ·
+> `web/templates/components/docket.templ` · `internal/domain/ledger/ledger.go`
+> (üç blok) · `db/queries/transactions.sql` · `db/queries/reviews.sql` (+ `make sqlc`
+> çıktısı) · `internal/handler/transactions_test.go` ·
+> `internal/domain/ledger/mapper_test.go` · ADR 0005 · bu kart.
+>
+> 🔴 **METİN TARAYAN KAPI SİLİNDİ, YERİNE İKİ DAVRANIŞSAL/YAPISAL KAPI KONDU.**
+> Silinen metin tarayıcısı bugün **doğru** olan bir
+> cümleyi yasaklıyordu; korunacak gerçek şey cümlenin **kendisi** değil onu doğru kılan
+> **yazma yolları**. Yerine:
+> · `TestAuthoredRule_TheProseIsOursAndOnlyTheScopeIsTheirs`
+> (`internal/domain/tenant`) — üreticiyi **çağırıyor**, `AuthorableRules()`'un
+> döndürdüğü **her** belgenin **her** ifadesini
+> alan alan karşılaştırıyor (`Reason`/`Effect`/`Action`/`Condition` aynı, `Sid` ve
+> `Resource` değişmiş), ve *"hiç `reason` yoktu"* şeklinde boş geçmemesi için
+> **kontrolü** var.
+> · `TestAuthorCommand_CarriesNoProseDestinedForAStatement` — alan kümesi tam
+> karşılaştırılıyor (ad içinde "Reason" aramak yerine), çünkü bir sonraki alan
+> `Message` diye adlanabilir.
+> · `TestPolicyStatement_HasExactlyOneProseField` — düzyazı taşıyan **tek** alanın
+> `Reason` olduğunu tutuyor.
+> · `TestNoteProvenance_OnlyTwoProductionCallSitesWriteAPolicyDocument` (`cmd/tappa`)
+> — belgeyi yazan üretim çağrılarını **ve** ham `INSERT INTO … policy_versions`
+> bypass'ını tarıyor. ⚠️ **3. turda bu tek kapı üçe bölündü ve iki kaçış kapatıldı**
+> — aşağıdaki D51 bloğuna bakınız.
+>
+> 🔴 **İLERİYE DÖNÜK RİSK — SAYILDI, SİLİNMEDİ.** Q22 v1 editörünü bilerek **form-only**
+> yaptı ve ham-JSON editörünü **M9-07**'ye erteledi (`AuthorCommand`'ın kendi doc
+> yorumu). O editör gelirse `reason` **yazılabilir** olur ve çürütülen iddia **doğru
+> hâle gelir**. ⚠️ **Burada *"hangisi olursa olsun"* yazıyordu ve 3. turda yanlışlandı**
+> (D51): kapılar o gün **üç şekli göremiyordu**. Editörün şekline göre hangi kapının
+> kırmızı verdiği artık **tek tek sayılıdır** — `copyOfShipped` üzerinden giderse
+> `TestAuthoredRule_TheProseIsOursAndOnlyTheScopeIsTheirs`; `db/queries`'e sorgu
+> eklerse `TestNoteProvenance_TheWriterListIsDerivedFromTheQueriesRatherThanNamed`;
+> `internal/store`'a elle metot yazarsa
+> `TestNoteProvenance_TheStoreCarriesNoWriterTheQueriesDoNotName`; yeni bir dosyadan
+> çağırır ya da `INSERT`'ü sevk edilen Go'ya koyarsa
+> `TestNoteProvenance_OnlyTwoProductionCallSitesWriteAPolicyDocument`. **Dördü de
+> enjekte edilip kırmızı ölçüldü** (2026-08-20). Göremediği şekil de yazılı:
+> çalışma anında **sabit olmayan** parçalardan kurulan SQL. Bu **bugünkü olguyla
+> karıştırılmadan** yazıldı.
+>
+> **(D47 — BLOKLAYAN) ETİKETİN NE YAKALADIĞI VE NE KAÇIRDIĞI — ÖLÇÜLDÜ.**
+> Yalan söylediği **ölçülmüş** tek not sınıfı **T40**'tır ve o cümle **bizim
+> baseline'ımızındır** (`base:ip-or-gps-ok` → *"network proof of place: the source IP
+> matches the location"*), yani `policy_layer='baseline'` → **`NoteIsTenants` onu
+> işaretlemiyor.** Yerel `tappa` DB'sinde, `BEGIN … ROLLBACK` içinde (2026-08-20):
+> ```
+> locations total ................................................. 344 082
+> venues holding a list the guard now refuses ......................      66
+> transactions at those venues .....................................      11
+>   of those, ip_match=TRUE ........................................       4
+>   of those, note LIKE 'network proof of place%' ..................       4
+>   of those, policy_layer='tenant' (yani etiketlenirdi) ...........       0
+> ```
+> Ve tüm tabloda `policy_layer='tenant'` satır sayısı **0**'dır (`(null)` 186 258 ·
+> `baseline` 133 154 · `guardrail` 110 422). **Etiket bu veritabanında hiçbir satırı
+> işaretlemiyor** — çünkü işaretleyeceği şey henüz üretilmiyor
+> (`TestPolicySetDB_TenantLayerIsEmptyToday` bunu zaten söylüyor).
+> **İki şey ayrı ayrı yazıldı:** **(a)** FAZ B2'nin `netx` düzeltmesinden sonra bu sınıf
+> **yeni satırlarda üretilemiyor** — yazma tarafında `netx.TooWideForProofOfPlace`
+> reddediyor, okuma tarafında `tap.ipMatches` aynı fonksiyonu çağırıyor
+> (`TestDecide_AStoredRangeTooWideForProofOfPlaceDoesNotMatch`); **(b)** ama
+> **yukarıdaki 4 satır `transactions`'ta değişmez duruyor** (§4.3) ve o cümleyi sonsuza
+> kadar taşıyor. Bu ayrım `ledger.Record.NoteIsTenants`'ın ve
+> `components.DocketView.NoteIsTenants`'ın yorumlarına **yazıldı**.
+>
+> **(D48 — ORTA) KAÇIŞ ATFI YANLIŞTI; ÖLÇEREK *"gerçek test yaz"* SEÇİLDİ.**
+> `TestReviewDB_AHostileNoteIsEscapedWhereItIsRendered` düşman metni
+> **`transaction_reviews.note`**'a POST ediyor ve yalnız `d.ReviewNote`'un basıldığı
+> kartı okuyor; `d.Note` ve `v.Note` için düşman girdi taşıyan test **yoktu**. Özellik
+> tutuyordu (`templ.EscapeString` üç interpolasyonda da var) ama atıf yanlıştı — bir
+> özelliğin *kimse fark etmeden* denetlenmez hâle gelme şekli budur. Yazıldı:
+> `TestPolicyNote_IsEscapedOnBothSurfacesThatPrintIt` — aynı `hostileNote` fikstürünü
+> **fişten** (`d.Note`, `panelBrowserWith`) **ve tap sonuç ekranından**
+> (`v.Note`, `mustBody`) geçiriyor, ham `<script>`'in **yokluğunu** ve
+> `&lt;script&gt;`'in **varlığını** ikisinde de ölçüyor (ikinci yarı olmadan test
+> yanlış yüzeyi ölçüyor olabilirdi). §9: ekranın HTML'i **okundu**, ekran
+> **değiştirilmedi**.
+>
+> **(D49 — ORTA) `make check` SCRIPT'İ ÖNCE KOŞTURUP KAPILARINI SONRA DOĞRULUYORDU —
+> SIRALAMAYA DEĞİL ÇAĞRIYA BAĞLANDI.** Ölçüm doğruydu:
+> `TestDbReset_RefusesADaemonOnAnotherMachine` `t.Parallel()` **çağırmıyor** (seri faz),
+> `TestDbReset_KeepsItsStructuralGuards` çağırıyor (ertelenir). Sıralamayı düzeltmek
+> **yetmezdi**: `-run` ile tek test koşturulduğunda ya da `-shuffle` altında yine
+> bozulurdu. Yapısal kontroller `dbResetStructuralProblems(text)` fonksiyonuna
+> çıkarıldı; her iki test de onu **çağırıyor** ve davranışsal olan `exec.Command`'dan
+> **önce** `t.Fatalf` veriyor. 🔴 `scripts/db-reset.sh` **elle koşturulmadı**.
+>
+> **(D50 — DÜŞÜK) ÜÇ YENİDEN ÜRETİLEMEYEN KAYIT — ÜÇÜ DE GERÇEĞE EŞİTLENDİ.**
+> **(1)** `scriptguards_test.go`'nun yayımladığı `rg … -> "zero"` çifti `239d427`'de
+> **2 satır** döndürüyordu (`internal/db/viewsecurity_test.go:17`, `:20` — ikisi de
+> **yorum**). Esas iddia doğru, kanıtı değildi: iki komut da **verdikleri çıktıyla**
+> yazıldı (`git grep -ln 'exec.Command("bash"' 239d427 -- '*_test.go'` →
+> `cmd/rotatekek/script_test.go`) ve *"bir AD bir KOŞU değildir"* ayrımı açıkça kondu.
+> **(2)** `scripts/db-reset.sh`'in sızıntı kaydındaki `probeleak_probeleak-pgdata`
+> compose'un **hiç üretmediği** bir addır. Kural `<project>_<volume-key>` ve anahtar
+> `tappa-pgdata`; bu makinede `docker volume ls` → **`tappa_tappa-pgdata`**,
+> `docker network ls` → **`tappa_default`** (ölçüldü, salt-okuma). Doğru adlar yazıldı:
+> `-p tappa` (script'in daima pinlediği) → `tappa_default` + `tappa_tappa-pgdata`, yani
+> `make up`'ın zaten sahip olduğu nesneler; `-p probeleak` → `probeleak_default` +
+> **`probeleak_tappa-pgdata`**. Yanlış adın operatöre maliyeti de yazıldı.
+> **(3)** `docket.templ`'in *"a page that routinely holds 1 628 of them"* cümlesi tek
+> seferlik bir **seed** EXPLAIN ölçümünü üretim iddiasına çeviriyordu; sayı
+> **kaldırıldı** (kaynağında, `db/queries/transactions.sql`'de, *"seed tenant"* atfıyla
+> duruyor — orası ölçümün kendisi).
+>
+> ⚠️ **KAPATILAMAYAN / DOĞRULANAMAYAN — bu turda yok denmedi:** kabul kriteri 4'ün
+> **replay denemesi gerçek etiketle** maddesi hâlâ **bloke** (NTAG yazıcı donanımı yok;
+> M8-05 FAZ B'ye bağlı) — D43'ün altında yazılı ve değişmedi.
+
+> **Kart düzeltmesi (2026-08-20, M8-04 FAZ B3 — DÜZELTME TURU 3).**
+>
+> 🔴 **BU TURUN DERSİ: BİR KAPI, YANINDA YAZILI GARANTİYİ TUTMUYORDU.** 2. tur
+> *"belgeyi yazan **her** yazıcıyı bildiriyorum — store'dan geçse de doğrudan tabloya
+> vursa da"* diye yazdı; 3. turun denetimi **üç kaçış derledi**, üçünde de `go build`
+> geçti ve **dört kapı da yeşil kaldı**.
+>
+> **(D51 — BLOKLAYAN) ÜÇ KAÇIŞ, ÜÇÜ DE KAPATILDI — VE HER BİRİ ENJEKTE EDİLİP
+> KIRMIZI ÖLÇÜLDÜ (2026-08-20).**
+> · **(b) `db/queries/*.sql` HİÇ OKUNMUYORDU** — yürüyüş yalnız `.go` kabul ediyordu,
+> yani `CLAUDE.md §6`'nın *"her sorgu burada yaşar"* dediği dizin taranmıyordu.
+> Artık `db/` (queries **ve** migrations) taranıyor ve yazıcı kümesi **oradan
+> türetiliyor**.
+> · **(a) İKİ ADLIK İZİN LİSTESİ + `internal/store/`'un atlanması** — ad bilinmeyen
+> bir üçüncü yazıcı iki kere görünmezdi. Ölçüt artık **ad değil davranış**:
+> `policyDocumentWriters` bir izin listesi değil, `db/`'den türetilen kümeye karşı
+> **doğrulanan bir iddia**; `internal/store` da atlanmıyor, sqlc'nin `-- name:`
+> başlığına göre **atfediliyor**.
+> · **(c) Ham SQL kontrolü satır bazlıydı** — `INSERT INTO` ile `policy_versions`'ı
+> aynı satırda arıyordu. Go tarafı artık **satır değil sözdizimi** okuyor
+> (`go/parser`): ham dize kaç satıra bölünürse bölünsün tek değerdir, `+` zinciri
+> eşleştirmeden **önce** birleştirilir, yorum ise ayrıştırıcıya hiç verilmez.
+>
+> **Tek kapı üçe bölündü** (adları beş yerde anılıyor):
+> `TestNoteProvenance_TheWriterListIsDerivedFromTheQueriesRatherThanNamed` ·
+> `TestNoteProvenance_TheStoreCarriesNoWriterTheQueriesDoNotName` ·
+> `TestNoteProvenance_OnlyTwoProductionCallSitesWriteAPolicyDocument`, artı negatif
+> kontrol `TestNoteProvenanceScan_ReportsTheBypassesItExistsToReport`.
+>
+> **Enjekte edilip ölçülen altı şekil — hepsi YENİ kapıda kırmızı, hepsi ESKİ kapıda
+> yeşildi:** store'a elle metot (kendi `INSERT`'üyle) · aynısı **sahte `-- name:`
+> başlığıyla** · üretilmiş sabiti çalıştıran ikinci fonksiyon · üretilmiş yazıcıyı
+> saran fonksiyon · `db/queries`'e yeni `-- name:` sorgusu · sevk edilen Go'da iki
+> satıra bölünmüş `INSERT` (ve iki satıra bölünmüş `+` zinciri).
+>
+> 🔴 **VE GARANTİNİN CÜMLESİ GERÇEĞE EŞİTLENDİ.** Beş yerdeki *"any writer /
+> whichever way"* ifadeleri kaldırıldı; yerine **hangi şeklin hangi kapıyı kırmızıya
+> çevirdiği tek tek sayıldı** ve **göremediği şekil de yazıldı**: çalışma anında
+> **sabit olmayan** parçalardan kurulan SQL (`fmt.Sprintf("INSERT INTO %s", …)`).
+> Ona karşı duran şey bu dosya değil, `CLAUDE.md §6` ve altı paketin `query_test.go`
+> kemeridir. Sayılan diğer limitler: store'da **izin verilen bir adın başlığı taklit
+> edilebilir** (bedeli ölçüldü: türetilmiş küme + yazıcı başına tek segment + sabit
+> kullanım kontrolü aynı anda sağlanmalı, yani taklit gerçek sorgunun **yerine
+> geçmek** zorunda ve `make gen` onu geri koyar) · DDL/trigger okunmaz · testler ve
+> fixture'lar kapsam dışı (pozitif kontrol adıyla yazılı) · SQL blok yorumu
+> ayıklanmaz (ölçüldü: `db/` altında `/* */` yorum **yok**).
+>
+> **(D52 — BLOKLAYAN) YAYIMLANAN `grep` SAYISI HİÇBİR YOLDAN ÜRETİLEMİYORDU.**
+> Düzeltildi ve iki `grep` uygulaması için ayrı ayrı ölçüldü — D46 bloğunda,
+> yukarıda. **Ders kartın kendisine yazıldı: kabuk sayısı kapı değildir**; yazıcı
+> sayısı artık her koşuda kapının kendisi tarafından yazdırılıyor.
+>
+> **(D53 — DÜŞÜK) `1 628` TARİHLENDİ.** `db/queries/transactions.sql`'deki EXPLAIN
+> ANALYZE kurulumu artık **2026-08-07 (M6-04, commit `2e7ec64`)** tarihini taşıyor,
+> **seed** atfı korundu, ve sayının *"o gün ölçümün alındığı günün büyüklüğü"*
+> olduğu — canlı bir sayım olmadığı — açıkça yazıldı. sqlc kopyaları `make sqlc` ile
+> takip etti. `internal/handler/employees_test.go`'daki roster tarayıcı örneği de
+> artık **ağaçta gerçekten duran** satırı alıntılıyor (⚠️ kapsam dışı tek dokunuş,
+> gerekçesi: silinmiş metni alıntılayan bir kontrol, kontrol olmaktan çıkar).
+>
+> ⚠️ **BAYAT BİR CÜMLE DE DÜZELTİLDİ:** T31 bloğundaki *"`make audit` hâlâ kırmızı"*
+> bugün yanlıştı — `go1.26.7`, `make audit` **exit 0**. Yukarıda yerinde düzeltildi.
 
 **Kabul kriterleri.**
 - agent `tappa-security-auditor` tam repo üzerinde koştu; R1–R8 için kanıtlı rapor.

@@ -122,16 +122,24 @@ templ TransactionDocket(d DocketView) {
 				}
 			</p>
 		}
-		// THE ENGINE'S "WHY", AND WHOSE SENTENCE IT IS.
+		// THE ENGINE'S "WHY", AND WHOSE RULE PRODUCED IT.
 		//
 		// 🔴 THE LABEL IS PRINTED FOR THE TENANT'S OWN RULES ONLY, and the asymmetry
-		// is the decision rather than an omission. An unlabelled note is the
-		// product's own fixed sentence, which is the overwhelming majority of a
-		// day's records; labelling those too would put a line of chrome on every
-		// docket on a page that routinely holds 1 628 of them, to say "normal".
-		// The label marks the case a manager has to read differently: a sentence
-		// their own organisation authored, which the audit measured asserting
-		// evidence the same row denies.
+		// is the decision rather than an omission. An unlabelled note came from a
+		// document we own, which is what decided every record in this database
+		// today; labelling those too would put a line of chrome on every docket on
+		// the page to say "normal". The label marks the case a manager may have to
+		// chase somewhere else: the deciding statement sat on their own
+		// organisation's policy document, so the rule behind the sentence is one
+		// they can change.
+		//
+		// ⚠️ IT SAYS WHOSE RULE, NOT WHOSE WORDS, and an M8-04 round wrote the
+		// opposite here. The sentence is ours on all three layers the column can
+		// hold — policy_layer is a CHECK-constrained enum of guardrail, baseline
+		// and tenant (migration 0008), the first two are this binary's and the
+		// third is a scoped copy of a shipped statement. See
+		// ledger.Record.NoteIsTenants for the write paths that make that so, and
+		// for the note class this label does NOT catch.
 		//
 		// It reuses the treatment the manager's note already has one block down —
 		// same label class, same tone, no new colour and no new token.

@@ -444,10 +444,33 @@ uyumsuzluğu kesiti [M6-11](../plan/m6-dashboard.md)'de.
 
 > **Bunlar yukarıdaki ALTI RİSKTEN AYRI bir sınıftır ve tabloya eklenmediler.**
 > Risk 1–6 ürünün **kalıntı tehditleri**dir — bir saldırganın yapabildiği bir şey.
-> Aşağıdakiler M8-04 güvenlik denetiminin **kapatılmayan ORTA/DÜŞÜK** bulgularıdır:
-> çoğu bir **kapının darlığı**, bir **geliştirme ortamı** koşulu ya da bir **dağıtım
-> ön koşulu**. Karışmasınlar diye ayrı duruyorlar; *"Aşağıdaki **altı risk** kabul
-> edilir"* cümlesi değişmedi.
+> Aşağıdaki tablo M8-04 güvenlik denetiminin **kapatılmayıp KABUL EDİLEN** ORTA/DÜŞÜK
+> bulgularını tutar: çoğu bir **kapının darlığı**, bir **geliştirme ortamı** koşulu ya
+> da bir **dağıtım ön koşulu**. Karışmasınlar diye ayrı duruyorlar; *"Aşağıdaki
+> **altı risk** kabul edilir"* cümlesi değişmedi.
+>
+> 🔴 **CÜMLE DARALTILDI, ÇÜNKÜ GENİŞ HÂLİ YANLIŞTI — ÖLÇÜLDÜ (2026-08-20, FAZ B3
+> düzeltme turu).** İlk yazımı *"kapatılmayan ORTA/DÜŞÜK bulgularıdır"* diyordu, yani
+> tablonun **kapatılmayanların tamamı** olduğunu iddia ediyordu; en az üç şey
+> tablonun dışındaydı ve üçü de aynı sınıftan **değil**:
+> **(1) T3** — kabul edilmiş, gerekçesi ve üç ölçümü **ağaçta**
+> (`internal/handler/cookies.go`, `internal/session/cookie.go`), ama satırı yoktu →
+> **eklendi**, çünkü kabul odur.
+> **(2) T40'ın (ii) ve (iii) soruları** — *ölçüldü, karara bağlanmadı*
+> ([m8-deploy-pilot.md](../plan/m8-deploy-pilot.md) M8-04 FAZ B2 bloğu). Bunlar
+> **kabul değil**, açık karar; tabloya girerlerse "kabul edildi" diye okunurlar.
+> **(3) FAZ A'nın F7'si** — metni repoda **yok**; olmayan bir bulgu kabul edilemez.
+> **Kural şudur:** bu tablo *kabul edilenleri* tutar; **açık kalmış ve karara
+> bağlanmamış** sorular görev kartında durur ve oraya taşınmazlar.
+>
+> ⚠️ **BU LİSTENİN DÖRDÜNCÜ BİR MADDESİ VARDI VE GERİ ÇEKİLDİ (düzeltme turu 2).**
+> *"Tap sonuç ekranı katman etiketi taşımıyor"* bir **bulgu** olarak yazılmıştı;
+> dayanağı, tenant'ın politika cümlesinin metnini kendisinin yazdığı iddiasıydı ve o
+> iddia ölçülerek **çürütüldü** (`internal/domain/tenant`'ın `copyOfShipped`'i ifadeyi
+> **bütün** kopyalar, `AuthorCommand`'da alan yok, panel formunda alan yok). Cümle
+> her katmanda **bizimdir**; ekranda eksik olan tek şey *"kararı hangi belge verdi"*
+> bilgisidir ve onu okuması gereken kişi çalışan değil **müdürdür** — fişte zaten
+> basılıyor. Kabul edilecek bir risk kalmadığı için tabloya da girmiyor.
 >
 > **Neden burada ve neden `docs/backlog.md`'de durmaları yetmedi.** M8-04 kartının
 > kabul kriteri şudur: *"ORTA/DÜŞÜK olanlar ya kapandı ya gerekçesiyle kabul edildi
@@ -455,17 +478,31 @@ uyumsuzluğu kesiti [M6-11](../plan/m6-dashboard.md)'de.
 > başlığı bunu söyler; bir **kabul kararı** oraya yazıldığında karar değil bir
 > hatırlatma olur. Kabul **ağaçta** durmalı.
 >
-> 🔴 **HER SATIR BİR MEKANİK ÇAPA TAŞIR, VE ÇAPA BİR TEST ADIDIR.**
+> 🔴 **ÇAPALARIN ÇOĞU BİR TEST ADIDIR — AMA HEPSİ DEĞİL, VE FARK SAYILMIŞTIR.**
 > `TestEveryNamedTestExists` (cmd/tappa) bu dosyayı da tarar — deposundaki **her
 > metin dosyasını** tarar — yani aşağıda adı geçen bir test silinir ya da yeniden
 > adlandırılırsa **bu belge kırmızıya döner**. Kabul metni ile onu doğru kılan
 > mekanizma böylece ayrılamaz. Çapaların yönü de yazılıdır: çoğu, kabulün
-> **önkoşulunu** tutar, yani önkoşul kalkarsa kabul de kalkar.
+> **önkoşulunu** tutar, yani önkoşul kalkarsa kabul de kalkar. Bir test adına
+> bağlanamayan satırlar **`MEKANİK ÇAPASI YOK, SAYILDI`** damgasını taşır; gerekçe
+> tablonun altında.
+>
+> **Bağlı sayılar.** `TestADR0005_TheAnchorCountsMatchTheProse` tabloyu **bu
+> dosyadan** okur ve şunları doğrular: **satır = 13** · **çapasız satır = 3**,
+> çapasızlar tam olarak **T28 · T38 · T39**, ve damgasız her satırın çapa hücresi
+> **gerçekten bir `Test…` adı anıyor**.
+>
+> 🔴 **BU PARAGRAFIN İLK HÂLİ *"HER SATIR BİR MEKANİK ÇAPA TAŞIR"* DİYORDU, VE AYNI
+> BELGE OTUZ SATIR AŞAĞIDA ONU ÇÜRÜTÜYORDU** (*"üç satırın mekanik çapası yok"*).
+> Ağ tutuyordu; **ağ hakkındaki cümle yanlıştı** — bu görevde yedi kez bloklayan
+> bulgu üreten sınıfın bu belgedeki üyesi. Sayılar artık yazılı değil **bağlı**
+> (M8-04 FAZ B3 kapanışı, 2026-08-20).
 
 | Bulgu | Ne kabul edildi | Neden kapatılmadı | Mekanik çapa (kabulü yanlışlayan) |
 |---|---|---|---|
+| **T3** çerez gölgeleme: alt alan adı sahibi aynı adla ikinci bir çerez yazabilir, `r.Cookie` **ilkini** döndürür ve hangisi olduğu ayırt edilemez | `__Host-` öneki **alınmadı**. Bugün duran şey: `SameSite=Lax` + `HttpOnly` + üretimde koşulsuz `Secure`, ve **dikilen bir SESSION değeri oturum değildir** — veritabanında çözülmek zorunda. Kapanmayan kısım oturum **FIXATION**'ıdır: saldırganın **kendi** oturumunu kurbanın tarayıcısına diktirmesi | Önek `Path=/` **şart koşar**; panel çerezi bilerek `/admin`'e daraltılmıştır ve bu daralık *"panel çerezi tap yüzeyine erişemez"* güvencesinin yapısal yarısıdır — önek ya onu bozar ya da çerezlerin bir kısmına uygulanır. Ayrıca önek `Secure` istediği için `TAPPA_ENV`'e koşullu olurdu; yanlış yapılırsa **yalnız üretimde** patlar. Gerçek çare ürünün **kardeşsiz bir konaktan** sunulmasıdır — bir kod değişikliği değil, **operatör kararı**. Üç ölçüm `internal/handler/cookies.go`'da | `TestPanelCookiePath_IsNarrowerThanTheTapSurface` (kabulün 2. dayanağı: önek tekbiçimli olamaz, çünkü panel yolu dar) + `TestCookies_ZeroValueIsSecure` (`internal/session`; 1. dayanağı: `Secure` yapısal — sıfır değer bile güvenli, yani üretimde Secure'suz çerez üretilemez) |
 | **T27** faturalama: `plan` değişimi kapatılmamış ayları ücretliye çevirebilir | Bugün erişim dar: `plan`'ı **yalnız operatör** yazabilir | Çare bir **plan geçmişi tablosu** ya da bir **sıralama kısıtı** — ikisi de migration + faturalama kararı, pilot faturalaması başlamadan kullanıcının vereceği bir karar | `TestAccountDB_TheAppRoleHoldsNoUpdateOnTheVATColumnsOrTheTerms` — `tappa_app`'e `tenants.plan` üzerinde UPDATE verilirse kırmızı, ve **kabulün tek dayanağı** o yokluktur |
-| **T28** uygulama kendi `Strict-Transport-Security` başlığını set etmiyor | Başlık **ingress'ten** geliyor (ölçüldü: `max-age=31536000; includeSubDomains`) | HSTS ingress-nginx'te **per-controller** bir ConfigMap seçeneği; paylaşılan ConfigMap'i değiştirmek ~20 başka uygulamayı etkiler (gerekçe `deploy/k8s/40-ingress.yaml` başında). `preload` bilinçli olarak **set edilmedi** — geri alması aylar sürer | `TestObservability_AlertSignalNames`'in tuttuğu **belge çapası** değil, `deploy/k8s/40-ingress.yaml`'in kendi ölçüm bloğu; ⚠️ **bu satırın MEKANİK bir çapası YOKTUR ve bu sayılmıştır** — manifest bir küme durumunu tarif eder, testler kümeye bakmaz |
+| **T28** uygulama kendi `Strict-Transport-Security` başlığını set etmiyor | Başlık **ingress'ten** geliyor (ölçüldü: `max-age=31536000; includeSubDomains`) | HSTS ingress-nginx'te **per-controller** bir ConfigMap seçeneği; paylaşılan ConfigMap'i değiştirmek ~20 başka uygulamayı etkiler (gerekçe `deploy/k8s/40-ingress.yaml` başında). `preload` bilinçli olarak **set edilmedi** — geri alması aylar sürer | ⚠️ **MEKANİK ÇAPASI YOK, SAYILDI.** Yerini tutan şey `deploy/k8s/40-ingress.yaml`'in kendi ölçüm bloğudur — komut **ve** çıktı — bir test değil; manifest bir küme durumunu tarif eder, testler kümeye bakmaz |
 | **T32** geliştirme compose'u `log_statement=all` ile koşuyor; bind parametreleri log'a düşüyor (bcrypt digest, `password_resets.token_hash`) | Kapsam **dev/CI**; üretim yönetilen/ayrı Postgres, ve denetçiler bu log'u **ölçüm aracı** olarak kullanıyor | Kapatmak denetim yeteneğini kaldırır; §4.7'ye değen yüzey **repoda yazılı** (`00018`, `00019`, `00021` başlıkları + `deploy/README.md`'nin rotasyon ön koşulu) | `TestStoreParams_AreNeverHandedToAPrintingCall` + `TestStoreParams_ArePrintableAndThatIsTheHazard` — **uygulamanın** sır basmadığını tutar; Postgres'in ne yazdığını bir Go testi tutamaz, ve bu fark burada yazılıdır |
 | **T38** düz HTTP'de panele `localhost` dışından girilemiyor (`Sec-Fetch-Site` yok, `Origin: null`) | Üretim **HTTPS**; kapı orada çalışır. Kalan, **TLS öncesi** LAN demosu | Gevşetmek panelin CSRF savunmasını **kalıcı** olarak zayıflatır; ekranın *"süresi doldu"* demesi ayrı ve daha küçük bir kusur (M8-07'ye) | ⚠️ **MEKANİK ÇAPASI YOK, SAYILDI.** Kapı `internal/handler/adminlogin.go`'nun `sameOrigin`'idir ve tarayıcı davranışına bağlıdır; bir Go testi `Sec-Fetch-Site`'ı üretmez, **taklit eder** |
 | **T39** düz HTTP'de `getCurrentPosition` **hiç** çalışmıyor → §5'in GPS kanıtı kaybolur | Aynı ön koşul: **TLS**. T38'in kardeşi | Tarayıcının "potansiyel olarak güvenilir kaynak" kuralı; üründe kapatılabilir bir yanı yok | ⚠️ **MEKANİK ÇAPASI YOK, SAYILDI** — aynı sebeple. `web/static/js/tap.js`'in hata dalının **ne dediği** ayrı bir iş ve M8-07'ye ait |
@@ -487,8 +524,10 @@ eşleşmesi, `tap.decision` → `tap.decisionMUT` **geçiyordu**) ·
 `TestPgRestoreVerify_KeepsTheTruncateGuardPredicates` ·
 `TestComposeFileDeclaresTheProjectName` (T55: iki taşıyıcı script'in arkasında
 hiçbir kapı yoktu) · `TestTransactions_ADocketSaysWhoWroteTheNote` +
-`TestLedger_ATenantsPolicySentenceIsMarkedAsTheirs` (fiş, tenant'ın yazdığı bir
-politika cümlesini artık **adıyla** basıyor).
+`TestLedger_ATenantsPolicySentenceIsMarkedAsTheirs` (fiş, **kararı tenant'ın kendi
+belgesi verdiğinde** bunu artık söylüyor — ⚠️ *cümleyi* tenant yazmıyor; bunu
+`TestAuthoredRule_TheProseIsOursAndOnlyTheScopeIsTheirs` ve
+`TestNoteProvenance_OnlyTwoProductionCallSitesWriteAPolicyDocument` tutuyor).
 
 🔴 **VE ÜÇ SATIRIN MEKANİK ÇAPASI YOK — BU BİR EKSİKLİK OLARAK YAZILDI, GİZLENMEDİ.**
 T28, T38 ve T39'un üçü de **tarayıcı ya da küme** davranışına bağlıdır; bir Go

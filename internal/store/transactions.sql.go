@@ -750,8 +750,13 @@ type ListPanelTransactionsRow struct {
 // join in the query whose absence of a cardinality guarantee would silently change
 // how many dockets a page holds, which is why the guarantee is named.
 //
-// COST, MEASURED (EXPLAIN ANALYZE, seed tenant, ordinary day of 1 628 records,
-// warm cache, after ANALYZE, 3 repeats each after a warm-up run):
+// COST, MEASURED 2026-08-07 (M6-04, commit 2e7ec64). The SETUP is dated because the
+// three timings below mean nothing without it, and because 1 628 is a property of the
+// corpus rather than a fact about any deployment: EXPLAIN ANALYZE against the SEED
+// tenant, on a day that held 1 628 records AS SEEDED THEN, warm cache, after ANALYZE,
+// 3 repeats each after a warm-up run. Re-seeding moves that figure and nothing here
+// re-measures it, so read it as "the size of the day these numbers were taken on",
+// not as a live count:
 //
 //	without the review join   0.745 / 0.622 / 0.463 ms
 //	with it                   6.084 / 0.632 / 0.611 ms
@@ -761,18 +766,23 @@ type ListPanelTransactionsRow struct {
 // an equality probe against a UNIQUE index costs on a 26-row page. The outlier is
 // printed rather than dropped because a range that excludes its own first
 // measurement is the kind this repository has had to withdraw before.
-// 🔴 policy_layer IS SELECTED AND note IS NOT SELF-DESCRIBING WITHOUT IT (M8-04
-// FAZ B3). The security audit MEASURED this: a tenant policy statement whose
-// resource is more specific than the baseline's wins the tiebreak, and its
-// author-written `reason` becomes this note verbatim -- including a sentence
-// asserting evidence the row itself denies ("the source IP matches the location"
-// on a row carrying ip_match=false, trust=20). It is NOT a section 4 breach:
-// section 5 rows 6-7 are the tenant's to change by name, matched_sid says
-// 'tenant:...', and the same tenant can already type any sentence they like
-// through channel='manual'. What was missing is DEFENCE IN DEPTH ON THE READ
-// SIDE: three columns told the truth while the prose did not, and the screen
-// printed only the prose. This column is what lets the docket say WHOSE sentence
-// it is rendering.
+// 🔴 policy_layer IS SELECTED SO A NOTE CAN NAME THE RULE BEHIND IT (M8-04 FAZ B3).
+// A note is one of OUR sentences on all three layers this column can hold: it is a
+// CHECK-constrained enum of guardrail, baseline and tenant (migration 0008), the
+// first two are this binary's and the third is a scoped copy of a shipped statement,
+// prose included (tenant.copyOfShipped) -- but
+// the DOCUMENT that decided may be the customer's own, and until this column
+// travelled with the note nothing on the panel said so. A manager reading
+// "verified via GPS only" on a flagged record has a different next step depending
+// on whether the rule that produced it is one they can change.
+//
+// ⚠️ AN EARLIER SPELLING OF THIS PARAGRAPH SAID THE CUSTOMER WRITES THE PROSE
+// ("its author-written `reason` becomes this note verbatim") and the audit after it
+// measured that to be false: there is no production path by which a customer
+// supplies a statement's words. Recorded rather than quietly replaced, because the
+// claim becomes true the day M9-07's raw-JSON editor lands (Q22 defers it), and
+// because the tests that would catch that day are named on
+// ledger.Record.NoteIsTenants.
 //
 // IT IS SECTION 4.7-SAFE, which is why it may join the list the paragraph above
 // guards: policy_layer is a CHECK-constrained three-word enum

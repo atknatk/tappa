@@ -94,17 +94,18 @@ type DocketView struct {
 	Review string
 	// ReviewNote is what the deciding manager typed, "" when they typed nothing.
 	//
-	// 🔴 IT USED TO SAY "THE ONLY FIELD ON THIS TYPE THAT A HUMAN WROTE" AND THAT WAS
-	// FALSE — the audit measured it (M8-04 FAZ B3). Note below is a policy sentence,
-	// but not necessarily ONE OF OURS: a tenant's own policy statement carries an
-	// author-written `reason` and, when it wins the tiebreak, that reason IS the
-	// note. So two fields on this type can hold text a human typed, and NoteIsTenants
-	// is what tells them apart on screen.
+	// IT IS THE ONLY FIELD ON THIS TYPE A HUMAN COMPOSED. A round of M8-04 struck
+	// that sentence out on the ground that Note below could also be tenant-written
+	// prose; the audit after it measured the write paths and put the sentence back
+	// (see Note). What a customer chooses about a policy is which shipped statement
+	// applies and where — never its words.
 	//
-	// templ escapes both on output: proved by
-	// TestReviewDB_AHostileNoteIsEscapedWhereItIsRendered against a stored note
-	// containing a script tag, a quote and an ampersand, rather than asserted in a
-	// comment.
+	// templ escapes it on output, proved rather than asserted, by
+	// TestReviewDB_AHostileNoteIsEscapedWhereItIsRendered — a note stored through the
+	// real POST, containing a script tag, a quote and an ampersand, read back off the
+	// real page. Note below has its own proof
+	// (TestPolicyNote_IsEscapedOnBothSurfacesThatPrintIt); the two are separate
+	// because they arrive by different routes and one test cannot stand for both.
 	//
 	// ⚠️ THE ESCAPING IS templ's AND IT DOES NOT TRAVEL. M6-07's CSV export will
 	// read the same column and get none of it, and a spreadsheet treats a cell
@@ -115,30 +116,42 @@ type DocketView struct {
 	// the manager who decides and the manager who reads have to share a surface, or
 	// the note is written into a place nobody looks.
 	ReviewNote string
-	// Note is the deciding rule's sentence. It carries no coordinate and no secret.
+	// Note is the deciding rule's sentence. It carries no coordinate and no secret,
+	// and its WORDS are ours: tenant.copyOfShipped copies a shipped statement whole
+	// and changes only its sid and its resource list, so a customer document repeats
+	// prose this binary ships. Pinned by
+	// TestAuthoredRule_TheProseIsOursAndOnlyTheScopeIsTheirs and
+	// TestNoteProvenance_OnlyTwoProductionCallSitesWriteAPolicyDocument, and escaped
+	// on output by TestPolicyNote_IsEscapedOnBothSurfacesThatPrintIt.
 	//
-	// 🔴 IT IS NOT ALWAYS OURS, AND THE SENTENCE THAT USED TO STAND HERE SAID IT WAS
-	// ("straight from internal/policy … fixed strings written by us"). Measured by
-	// the M8-04 security audit: a tenant policy statement whose resource is more
-	// specific than the baseline's wins the tiebreak, and its author-written reason
-	// becomes this string verbatim — including one asserting network evidence on a
-	// record whose own columns record ip_match=false and trust=20.
+	// ⚠️ A ROUND OF M8-04 SAID THE OPPOSITE HERE — "straight from internal/policy …
+	// fixed strings written by us" was struck out as false, and a claim about
+	// "author-written reasons" put in its place. The audit after it measured the
+	// write paths and reversed that; the strike-out is recorded because the mistake
+	// is invisible from the corrected text, and because M9-07's raw-JSON editor
+	// (deferred by Q22) is what would make the struck-out claim right after all.
 	Note string
-	// NoteIsTenants marks a Note the ORGANISATION wrote rather than one we wrote, so
-	// the card can say whose sentence it is printing.
+	// NoteIsTenants marks a note whose DECISION came from the organisation's own
+	// policy document rather than from ours, so the card can say whose rule it is
+	// reporting.
 	//
-	// 🔴 WHY THE PRODUCT DOES NOT SIMPLY REFUSE SUCH A NOTE. Section 5 rows 6-7 are
-	// the tenant's to change BY NAME, and the same tenant can already type any
-	// sentence they like into a channel='manual' record. The record was never
-	// silent about this either: matched_sid says 'tenant:…', policy_layer says
-	// 'tenant', ip_match says false. The gap the audit found is that the DOCKET
-	// printed the one part of the row that can be wrong and none of the three that
-	// cannot — so this is defence in depth on the read side, not a section 4 fix.
+	// 🔴 IT IS ABOUT THE RULE, NOT THE WORDS, AND THE DIFFERENCE IS THE WHOLE LABEL.
+	// The sentence in Note is ours either way (see Note). What a customer controls is
+	// which shipped statement applies and at which venues, and the record has always
+	// said so — matched_sid reads 'tenant:…', policy_layer reads 'tenant'. The label
+	// carries that one column onto the screen, so a manager reading a note knows
+	// which document to open to find the rule behind it.
 	//
-	// ⚠️ WHAT IT DOES NOT DO, said rather than left to be discovered: it does not
-	// make the sentence false, or true. A tenant rule may well be right about its own
-	// venue. The label reports PROVENANCE, and the evidence signs beside it
-	// (IPSign/GPSSign) are what a manager checks it against.
+	// ⚠️ WHAT IT DOES NOT DO, said rather than left to be discovered. It does not make
+	// the sentence true, or false. And it does not mark the one note class this
+	// product has actually measured saying something untrue: that was a BASELINE
+	// sentence — "network proof of place: the source IP matches the location" on a
+	// venue whose stored range was too wide to tell it apart from anywhere else
+	// (backlog T40) — which reads policy_layer='baseline' and so is never labelled
+	// here. That class is closed on both sides now (netx.TooWideForProofOfPlace at
+	// save time, tap.ipMatches at read time), but §4.3 means the rows already written
+	// keep the sentence. Watching for it is the evidence signs' job (IPSign/GPSSign)
+	// and the ANOMALY report's, not this label's.
 	NoteIsTenants bool
 }
 

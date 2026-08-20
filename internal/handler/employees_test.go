@@ -663,7 +663,12 @@ func TestRosterSizeScanner_RejectsTheThingsItExistsToReject(t *testing.T) {
 		"// PendingCap cannot tell a queue of exactly 100 from a queue of 9 000.",
 		// The nouns deliberately NOT in the vocabulary -- other magnitudes that also
 		// drift but are other tasks' prose, and that a wider net flagged thirty of.
-		"// an ordinary day of 1 628 records, warm cache",
+		// Quoted from db/queries/transactions.sql, which M8-04 FAZ B3 dated after an
+		// audit noted the figure carried neither a date nor an anchor. It is a
+		// RECORD count on a seeded day, not a roster size, so it stays out of this
+		// vocabulary -- and the sample is refreshed with the line rather than left
+		// quoting text the tree no longer holds.
+		"-- tenant, on a day that held 1 628 records AS SEEDED THEN, warm cache, after ANALYZE,",
 		"// 3000 istek/pencere/adres",
 		"// 40 850 tenant-days measured",
 		"// rosterDesignCeiling = 10000, and RosterPageSize x adminSessionLimit = 15 000",

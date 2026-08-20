@@ -137,21 +137,37 @@
 #       (backlog T56 item 1, M8-04 FAZ B3). `compose run --rm` makes compose
 #       CREATE the project's scaffolding before it runs anything, so a REFUSED run
 #       still leaves two objects behind on the daemon it just declined to touch.
-#       Measured against a project name that did not exist until the probe ran:
+#       The names follow compose's own rule, `<project>_<key>`, where the key is
+#       this file's volume key `tappa-pgdata` -- NOT the project name. On this
+#       machine `make up` demonstrates the rule directly:
 #
-#         project `probeleak`, refused run -> network `probeleak_default`
-#                                          -> volume  `probeleak_probeleak-pgdata`
-#         orphan containers ................. NONE (--rm works; measured)
+#         docker volume ls  -> tappa_tappa-pgdata
+#         docker network ls -> tappa_default
+#
+#       So a REFUSED run leaves behind, for whichever project it was pinned to:
+#
+#         -p tappa     (what this script ALWAYS pins) -> network `tappa_default`
+#                                                     -> volume  `tappa_tappa-pgdata`
+#                       i.e. the objects `make up` already created; nothing new.
+#         -p probeleak (a throwaway name, to make    -> network `probeleak_default`
+#                       the leak visible at all)     -> volume  `probeleak_tappa-pgdata`
+#         orphan containers ............................ NONE (--rm works; measured)
+#
+#       ⚠️ THE THROWAWAY VOLUME WAS RECORDED HERE AS `probeleak_probeleak-pgdata`,
+#       WHICH COMPOSE NEVER PRODUCES (corrected M8-04 FAZ B3, round 2). An operator
+#       cleaning up after this probe would have looked for an object that does not
+#       exist and concluded there was nothing to clean.
 #
 #       So the guard writes an empty volume and a network onto the very machine it
 #       exists in order not to touch. NOT DESTRUCTIVE and not a §4 matter: both are
 #       empty, both are project-scoped, and neither can collide with data (a volume
-#       that already held rows is reused, not recreated). It is recorded rather than
-#       fixed because every cheaper probe measured WORSE: `docker info` compares a
-#       CLAIM (and refuses Docker Desktop, see above), and any probe that reads a
-#       bind mount has to start a container to do the reading. Fixing it properly
-#       means asking the daemon a filesystem question without compose, which is a
-#       different guard, not a smaller one.
+#       that already held rows is reused, not recreated) -- and on the pin this
+#       script actually uses, both objects are ones `make up` owns already. It is
+#       recorded rather than fixed because every cheaper probe measured WORSE:
+#       `docker info` compares a CLAIM (and refuses Docker Desktop, see above), and
+#       any probe that reads a bind mount has to start a container to do the
+#       reading. Fixing it properly means asking the daemon a filesystem question
+#       without compose, which is a different guard, not a smaller one.
 #
 # The same reasoning scripts/seed.sh gives for running psql from the container
 # applies here, and it is why no migration-role variable is named in this file.

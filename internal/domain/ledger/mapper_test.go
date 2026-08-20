@@ -201,19 +201,19 @@ func TestQueueRecord_TheExemptionListIsNotAWildcard(t *testing.T) {
 // TestLedger_ATenantsPolicySentenceIsMarkedAsTheirs is the falsifying test for the
 // acceptance written on Record.NoteIsTenants and on DocketView.Note (M8-04 FAZ B3).
 //
-// 🔴 THE ACCEPTANCE IT FALSIFIES, STATED SO A FUTURE READER CANNOT MISTAKE IT FOR
-// TIDINESS. The audit measured a tenant policy statement whose author-written reason
-// asserted network evidence — "the source IP matches the location" — on a record the
-// engine had scored ip_match=false, trust=20, matched_sid='tenant:…'. The product
-// does NOT refuse that sentence, and the reasoning for not refusing it is written on
-// the view model: section 5 rows 6-7 are the tenant's to change BY NAME, and the same
-// tenant can already type anything into a channel='manual' record. What was accepted
-// instead is a WEAKER guarantee: the screen will say whose sentence it is.
+// 🔴 WHAT THE ACCEPTANCE IS, STATED SO A FUTURE READER CANNOT MISTAKE IT FOR
+// TIDINESS — AND STATED AGAIN, BECAUSE AN M8-04 ROUND STATED IT WRONG. That round
+// wrote that a tenant's "author-written reason" lands on the docket verbatim; the
+// audit after it measured the write paths and found none. A customer document is a
+// scoped copy of a shipped statement, prose included
+// (TestAuthoredRule_TheProseIsOursAndOnlyTheScopeIsTheirs). So the words on a docket
+// are ours whatever this boolean says.
 //
-// So this test holds the weaker guarantee. If the derivation is deleted, inverted, or
-// quietly widened so that OUR sentences are labelled as theirs (which would make the
-// label meaningless by making it universal), it goes red — and the acceptance stops
-// being true at the same moment.
+// What the boolean reports is WHICH DOCUMENT decided — theirs or ours — which is the
+// thing a manager needs in order to find the rule and, if it is theirs, change it.
+// This test holds that derivation. If it is deleted, inverted, or quietly widened so
+// that OUR decisions are labelled as theirs (which would make the label meaningless
+// by making it universal), it goes red.
 func TestLedger_ATenantsPolicySentenceIsMarkedAsTheirs(t *testing.T) {
 	t.Parallel()
 

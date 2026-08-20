@@ -111,7 +111,7 @@ func TestQueriesInsertValuesNameTheTenantTheCallerNamed(t *testing.T) {
 // It returns one message per problem and the number of VALUES ROWS it managed to
 // look at, which is what the anti-vacuity floor counts.
 func insertScopeFindings(name, raw string, scoped map[string]bool) (findings []string, checked int) {
-	body := stripSQLLineComments(raw)
+	body := stripSQLComments(raw)
 	for _, loc := range insertValuesRE.FindAllStringSubmatchIndex(body, -1) {
 		table := strings.ToLower(body[loc[2]:loc[3]])
 		// The scope column of `tenants` is its own primary key (00001's policy
@@ -227,7 +227,7 @@ func tenantScopedTables(t *testing.T) map[string]bool {
 		if i := strings.Index(strings.ToLower(body), "-- +goose down"); i >= 0 {
 			body = body[:i]
 		}
-		body = stripSQLLineComments(body)
+		body = stripSQLComments(body)
 		for _, loc := range createRE.FindAllStringSubmatchIndex(body, -1) {
 			table := strings.ToLower(body[loc[2]:loc[3]])
 			cols, _, ok := balancedGroupAt(body, loc[1]-1)
@@ -246,20 +246,200 @@ func tenantScopedTables(t *testing.T) map[string]bool {
 	return out
 }
 
-// stripSQLLineComments removes `--` comment lines. Whole lines only: a `--` inside a
-// string literal is not a comment, and no query in db/queries carries a trailing
-// comment on a line this scan reads.
-func stripSQLLineComments(s string) string {
+// The states stripSQLComments walks. A comment is only a comment in the first one,
+// which is the whole point of lexing rather than pattern-matching lines.
+const (
+	sqlCode         = iota
+	sqlLineComment  // `--` … end of line
+	sqlBlockComment // `/*` … `*/`
+	sqlString       // '…'
+	sqlQuotedIdent  // "…"
+	sqlDollarBody   // $tag$ … $tag$
+)
+
+// blockOpen and blockClose are the two-character block-comment tokens, spelled as
+// concatenations ON PURPOSE.
+//
+// 🔴 A LITERAL OPEN TOKEN IN THIS FILE HIDES THE TESTS BELOW IT FROM ANOTHER GATE, and
+// the measurement is why this looks silly rather than because it does.
+// TestEveryNamedTestExists collects test declarations after stripping block comments
+// out of the source with a regexp, and that regexp cannot tell a Go string literal
+// from code -- so an open token inside a string runs to the next close token wherever
+// that happens to be. Measured (2026-08-20): with the open token written out in
+// stripSQLComments below, the strip ran from that line to the next close token, which
+// sits past TestInsertScopeScanFlagsTheShapesItClaims; the declaration disappeared,
+// this file's own citation of it became dangling, and the ratchet went 53 -> 55.
+//
+// The gate is not wrong to strip -- it exists because a test can be COMMENTED OUT and
+// leave its citation behind -- and a file whose whole subject is SQL comments is the
+// one file that cannot spell those two characters freely. So every open token in this
+// file comes from here, and the ones inside prose comments close on their own line.
+const (
+	blockOpen  = "/" + "*"
+	blockClose = "*" + "/"
+)
+
+// stripSQLComments blanks every SQL comment -- `--` to end of line WHEREVER on the
+// line it starts, and `/* … */` across however many lines it spans -- while leaving
+// string literals, quoted identifiers and dollar-quoted bodies byte for byte as they
+// were. Every newline survives in place, so a line number counted on the result still
+// points at the line it came from.
+//
+// 🔴 IT USED TO BE `strings.HasPrefix(trimmed, "--")`, AND THAT WAS A HOLE IN BOTH
+// SCANS THAT CALL IT. Whole comment LINES were blanked; a comment that began after
+// some code was not. Both callers match a statement HEAD across whitespace
+// (`INSERT\s+INTO\s+…`), and a comment is whitespace to PostgreSQL and was not
+// whitespace to `\s+`, so these two parse as writes on this database and matched
+// nothing here:
+//
+//	INSERT INTO /* audit */ policy_versions (…)
+//	INSERT INTO -- audit
+//	policy_versions (…)
+//
+// Measured end to end (2026-08-20, FAZ B3's security audit): the first form appended
+// to db/queries/policies.sql and regenerated left `go build ./...`,
+// `go test ./cmd/tappa/` and `scripts/redline-check.sh` ALL at exit 0, while the same
+// query written without the comment turned the gate red. The escape needed no
+// hand-written Go either -- sqlc v1.28.0, the version the Makefile pins, copies the
+// comment into the generated constant verbatim, so it arrives through the `make gen`
+// step CLAUDE.md §2 makes mandatory. Both forms are now controls:
+// TestStripSQLComments_ReadsCommentsTheWayPostgresDoes and the comment cases in
+// TestNoteProvenanceScan_ReportsTheBypassesItExistsToReport and
+// TestInsertScopeScanFlagsTheShapesItClaims.
+//
+// A comment becomes ONE SPACE rather than nothing, because PostgreSQL treats it as a
+// token separator: `INSERT INTO/*x*/policy_versions` is two tokens there, and deleting
+// the comment outright would fuse them into an identifier that matches nothing.
+//
+// ⚠️ COUNTED LIMITS, all of them in the OVER-report direction, which is the one a
+// detector can afford:
+//   - BLOCK COMMENTS DO NOT NEST HERE and they do in PostgreSQL. `/* a /* b */ c */`
+//     is one comment there and closes at the first `*/` here, so the tail is read as
+//     code and would be REPORTED. That is strictly less text removed than PostgreSQL
+//     removes, so no statement PostgreSQL would run can hide behind it. It is also
+//     what scripts/redline-check.sh's own sql_lex does, deliberately.
+//   - `E'…\'…'` (a backslash-escaped quote, which needs the E prefix and
+//     standard_conforming_strings) would be read as a string that ended early. db/
+//     carries none today (2026-08-20: 33 hits for `E'`, every one of them prose inside
+//     a `--` line -- `UPDATE'tir`, `DATABASE's`), and the failure mode is again
+//     over-reporting: text PostgreSQL calls data would be read as code.
+//   - An UNBALANCED quote leaves the walk inside a string to the end of the input, so
+//     comments after it are kept as code. Over-report again.
+func stripSQLComments(s string) string {
+	out, _ := stripSQLCommentsState(s)
+	return out
+}
+
+// stripSQLCommentsState is stripSQLComments plus the state the walk ENDED in, which is
+// the one symptom of a swallowed file that has no innocent cause. An unbalanced quote
+// or an odd `$$` leaves the lexer inside a literal to the end of the input, and from
+// that point on nothing is stripped and nothing is checked. Only the tree-wide control
+// in TestStripSQLComments_ReadsCommentsTheWayPostgresDoes reads it; the scans do not,
+// because for them the failure is already the safe direction.
+func stripSQLCommentsState(s string) (string, int) {
 	var b strings.Builder
-	for _, line := range strings.Split(s, "\n") {
-		if strings.HasPrefix(strings.TrimSpace(line), "--") {
-			b.WriteByte('\n')
-			continue
+	b.Grow(len(s))
+	state, tag := sqlCode, ""
+	for i := 0; i < len(s); {
+		c := s[i]
+		two := ""
+		if i+1 < len(s) {
+			two = s[i : i+2]
 		}
-		b.WriteString(line)
-		b.WriteByte('\n')
+		switch state {
+		case sqlLineComment:
+			if c == '\n' {
+				state = sqlCode
+				b.WriteByte(c)
+			}
+			i++
+		case sqlBlockComment:
+			switch {
+			case two == blockClose:
+				// The separating space was written when the comment OPENED; a
+				// second one here would only make the output harder to compare.
+				state = sqlCode
+				i += 2
+			case c == '\n':
+				b.WriteByte(c)
+				i++
+			default:
+				i++
+			}
+		case sqlString, sqlQuotedIdent:
+			// `''` inside a string closes and reopens, which is the same text out.
+			b.WriteByte(c)
+			if (state == sqlString && c == '\'') || (state == sqlQuotedIdent && c == '"') {
+				state = sqlCode
+			}
+			i++
+		case sqlDollarBody:
+			if strings.HasPrefix(s[i:], tag) {
+				b.WriteString(tag)
+				i += len(tag)
+				state = sqlCode
+				continue
+			}
+			b.WriteByte(c)
+			i++
+		default: // sqlCode
+			switch {
+			case two == "--":
+				state = sqlLineComment
+				b.WriteByte(' ')
+				i += 2
+			case two == blockOpen:
+				state = sqlBlockComment
+				b.WriteByte(' ')
+				i += 2
+			case c == '\'':
+				state = sqlString
+				b.WriteByte(c)
+				i++
+			case c == '"':
+				state = sqlQuotedIdent
+				b.WriteByte(c)
+				i++
+			default:
+				if t, ok := dollarQuoteTagAt(s, i); ok {
+					state, tag = sqlDollarBody, t
+					b.WriteString(t)
+					i += len(t)
+					continue
+				}
+				b.WriteByte(c)
+				i++
+			}
+		}
 	}
-	return b.String()
+	// A line comment that runs to the end of the input has ended, not been left open.
+	if state == sqlLineComment {
+		state = sqlCode
+	}
+	return b.String(), state
+}
+
+// dollarQuoteTagAt reports the dollar-quote tag opening at i -- `$$` or `$name$` --
+// and nothing for a parameter placeholder, whose `$1` would need a tag starting with a
+// digit. It matters because db/migrations holds 38 `$$` bodies (2026-08-20) whose
+// plpgsql carries both `--` comments and apostrophes, and db/queries is written in
+// sqlc's `$1` form; reading one as the other would swallow the rest of the file.
+func dollarQuoteTagAt(s string, i int) (string, bool) {
+	if i >= len(s) || s[i] != '$' {
+		return "", false
+	}
+	for j := i + 1; j < len(s); j++ {
+		c := s[j]
+		switch {
+		case c == '$':
+			return s[i : j+1], true
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c == '_':
+		case c >= '0' && c <= '9' && j > i+1:
+		default:
+			return "", false
+		}
+	}
+	return "", false
 }
 
 // splitTopLevelCommas splits on commas that are not inside parentheses, so
@@ -353,6 +533,19 @@ func TestInsertScopeScanFlagsTheShapesItClaims(t *testing.T) {
 		"a third row that is the wrong one": `
 			INSERT INTO transactions (tenant_id, employee_id)
 			VALUES (@tenant_id, @employee_id), (@tenant_id, @employee_id), (@employee_id, @employee_id);`,
+		// 🔴 AND THE SHAPES A WHOLE-LINE COMMENT STRIPPER WALKED PAST (FAZ B3). A
+		// comment is whitespace to PostgreSQL; it was not whitespace to this scan,
+		// so a literal tenant hid behind one.
+		"a literal tenant behind a trailing line comment": `
+			INSERT INTO transactions (tenant_id, employee_id) -- rebuilt nightly
+			VALUES ('00000000-0000-0000-0000-000000000001', @employee_id);`,
+		"a literal tenant behind a block comment inside the statement": `
+			INSERT INTO /* audit */ transactions (tenant_id, employee_id)
+			VALUES ('00000000-0000-0000-0000-000000000001', @employee_id);`,
+		"a block comment spanning lines inside the column list": `
+			INSERT INTO transactions (tenant_id, /* the person
+			   who tapped */ employee_id)
+			VALUES ('00000000-0000-0000-0000-000000000001', @employee_id);`,
 	} {
 		if findings(sql) == 0 {
 			t.Errorf("%s: the scan reported nothing.\nSQL: %s", name, sql)
@@ -374,6 +567,24 @@ func TestInsertScopeScanFlagsTheShapesItClaims(t *testing.T) {
 		"a row whose values contain a parenthesised call": `
 			INSERT INTO transactions (id, tenant_id, employee_id)
 			VALUES (gen_random_uuid(), @tenant_id, @a), (gen_random_uuid(), @tenant_id, @b);`,
+		// 🔴 THE OTHER HALF OF THE COMMENT FIX, and the half that keeps it from
+		// becoming noise: a `--` or a block-comment open INSIDE a string literal is
+		// data. If the
+		// stripper took either for a comment it would eat the rest of the row and
+		// report a VALUES list it "cannot read" on a statement that is correct.
+		"a value containing what looks like a line comment": `
+			INSERT INTO transactions (tenant_id, employee_id, note)
+			VALUES (@tenant_id, @employee_id, '-- not a comment');`,
+		"a value containing what looks like a block comment": `
+			INSERT INTO transactions (tenant_id, employee_id, note)
+			VALUES (@tenant_id, @employee_id, '/* not a comment */');`,
+		"a correct row with a comment between the columns and VALUES": `
+			INSERT INTO transactions (tenant_id, employee_id) -- one row per tap
+			VALUES (@tenant_id, @employee_id);`,
+		// A statement that is entirely commented out is not a statement.
+		"a wrong statement that is wholly inside a block comment": `
+			/* INSERT INTO transactions (tenant_id, employee_id)
+			   VALUES ('00000000-0000-0000-0000-000000000001', @employee_id); */`,
 	} {
 		if n := findings(sql); n != 0 {
 			t.Errorf("%s: the scan reported %d finding(s) on a CORRECT statement; a noisy "+
@@ -388,4 +599,136 @@ func TestInsertScopeScanFlagsTheShapesItClaims(t *testing.T) {
 		VALUES (@tenant_id, @a), (@tenant_id, @b), (@tenant_id, @c);`, scoped); checked != 3 {
 		t.Errorf("a three-row VALUES was counted as %d row(s); the scan is not reading past row one", checked)
 	}
+}
+
+// TestStripSQLComments_ReadsCommentsTheWayPostgresDoes pins the lexer both scans in
+// this package rest on, directly rather than through them.
+//
+// 🔴 IT EXISTS BECAUSE THE OLD ONE'S DOC COMMENT WAS A CLAIM NOTHING CHECKED. It said
+// whole-line stripping was enough because "no query in db/queries carries a trailing
+// comment on a line this scan reads" -- true about that day's tree, and nothing at all
+// about tomorrow's. The two halves below are the two ways a lexer fails: a comment it
+// does not see (a write walks past the scan) and a comment it invents inside a string
+// (a correct statement is reported, and a noisy check is one the next author waters
+// down).
+func TestStripSQLComments_ReadsCommentsTheWayPostgresDoes(t *testing.T) {
+	t.Parallel()
+
+	// GONE, and gone as a SPACE: PostgreSQL separates tokens with a comment, so the
+	// text either side must not fuse.
+	for name, tc := range map[string]struct{ in, want string }{
+		"a whole comment line":        {"-- gone\nSELECT 1\n", " \nSELECT 1\n"},
+		"a trailing comment":          {"SELECT 1 -- gone\n", "SELECT 1  \n"},
+		"a comment with no newline":   {"SELECT 1 -- gone", "SELECT 1  "},
+		"a block comment":             {"SELECT /* gone */ 1", "SELECT   1"},
+		"a block comment with no gap": {"INSERT INTO/*gone*/policy_versions", "INSERT INTO policy_versions"},
+		"a block comment over lines":  {"INSERT INTO /* a\nb */ policy_versions", "INSERT INTO  \n policy_versions"},
+		"a comment inside a comment":  {"-- a " + blockOpen + " b\nSELECT 1", " \nSELECT 1"},
+	} {
+		if got := stripSQLComments(tc.in); got != tc.want {
+			t.Errorf("%s: stripSQLComments(%q) = %q, want %q", name, tc.in, got, tc.want)
+		}
+	}
+
+	// KEPT, byte for byte: none of these is a comment, and a stripper that thought
+	// otherwise would eat the rest of a correct statement.
+	for name, in := range map[string]string{
+		"a line comment inside a string":      "SELECT '-- kept' FROM t",
+		"a block comment inside a string":     "SELECT '/* kept */' FROM t",
+		"a doubled quote then a comment mark": "SELECT 'it''s -- kept' FROM t",
+		"a quoted identifier":                 `SELECT "od--d" FROM t`,
+		"a dollar-quoted body":                "DO $$ BEGIN -- kept\nEND $$",
+		"a tagged dollar body":                "DO $b$ /* kept */ $b$",
+		"a bcrypt hash, which is not a tag":   "SELECT '$2a$10$abc/*x*/' FROM t",
+		"sqlc placeholders, not a tag":        "VALUES ($1, $2)",
+	} {
+		if got := stripSQLComments(in); got != in {
+			t.Errorf("%s: stripSQLComments(%q) = %q, want it unchanged", name, in, got)
+		}
+	}
+
+	// AND THE TAG READER UNDER IT, because `$1` and `$$` differ by one character and
+	// reading the first as the second would swallow db/queries from that point on.
+	for in, want := range map[string]string{
+		"$$ x $$":    "$$",
+		"$b$ x $b$":  "$b$",
+		"$_1$ x":     "$_1$",
+		"$1, $2)":    "",
+		"$2a$10$":    "",
+		"$ x":        "",
+		"$":          "",
+		"no dollar":  "",
+		"$unclosed ": "",
+	} {
+		got, ok := dollarQuoteTagAt(in, 0)
+		if !ok {
+			got = ""
+		}
+		if got != want {
+			t.Errorf("dollarQuoteTagAt(%q) = %q, want %q", in, got, want)
+		}
+	}
+
+	// LINE NUMBERS SURVIVE. policyVersionWrites reports a position by counting the
+	// newlines before a match, so a stripper that dropped one would point the reader
+	// at the wrong line -- and a finding nobody can locate is a finding nobody fixes.
+	for name, in := range map[string]string{
+		"a block comment spanning three lines": "a\n/* b\nc\nd */e\nf\n",
+		"line comments throughout":             "-- a\nb -- c\n-- d\ne\n",
+		"a dollar body spanning lines":         "DO $$\n-- x\n$$;\n",
+	} {
+		if got, want := strings.Count(stripSQLComments(in), "\n"), strings.Count(in, "\n"); got != want {
+			t.Errorf("%s: %d newline(s) survived, want %d.\ninput: %q\noutput: %q",
+				name, got, want, in, stripSQLComments(in))
+		}
+	}
+
+	// AND THE TREE IT ACTUALLY READS, because a control built only out of hand-written
+	// snippets proves the lexer works on hand-written snippets. Every .sql this package
+	// reads is walked, and two things are asserted about each: the newline count is
+	// unchanged (a position reported against the file has to name the right line), and
+	// the walk ENDS IN CODE STATE.
+	//
+	// 🔴 THE SECOND ONE REPLACED A CHECK THAT WAS SIMPLY FALSE, and the measurement is
+	// worth keeping. It first read "an even number of `'` survives", on the reasoning
+	// that an odd one means the walk ended inside a string. Six migrations failed it
+	// (2026-08-20), and all six were right and the check was wrong: the apostrophes sit
+	// in Turkish prose inside `$$` bodies -- 00003's "domain'de", 00004's "M1-08'in" --
+	// where PostgreSQL reads the whole body as one literal and an apostrophe is just a
+	// character. The end state is the property that was actually meant: an unbalanced
+	// quote or an odd `$$` leaves the walk inside a literal to EOF, and from there
+	// nothing is stripped and nothing is checked.
+	files := 0
+	for _, dir := range []string{"queries", "migrations"} {
+		entries, err := os.ReadDir(filepath.Join(repoRoot, "db", dir))
+		if err != nil {
+			t.Fatalf("reading db/%s: %v", dir, err)
+		}
+		for _, e := range entries {
+			if e.IsDir() || !strings.HasSuffix(e.Name(), ".sql") {
+				continue
+			}
+			at := filepath.Join(repoRoot, "db", dir, e.Name())
+			raw, rerr := os.ReadFile(at)
+			if rerr != nil {
+				t.Fatalf("reading %s: %v", e.Name(), rerr)
+			}
+			files++
+			out, end := stripSQLCommentsState(string(raw))
+			if got, want := strings.Count(out, "\n"), strings.Count(string(raw), "\n"); got != want {
+				t.Errorf("db/%s/%s: %d newline(s) survived stripping, want %d; a position "+
+					"reported against this file would name the wrong line", dir, e.Name(), got, want)
+			}
+			if end != sqlCode {
+				t.Errorf("db/%s/%s: the lexer ended in state %d rather than code, so it ran off "+
+					"the end inside a literal or a comment and everything after that point was "+
+					"read as neither", dir, e.Name(), end)
+			}
+		}
+	}
+	if files < 30 {
+		t.Fatalf("only %d .sql file(s) were read under db/; 38 were there when this floor was "+
+			"set (2026-08-20, measured by this test), so nothing above was measured", files)
+	}
+	t.Logf("%d .sql file(s) lexed under db/", files)
 }

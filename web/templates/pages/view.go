@@ -293,8 +293,45 @@ type ResultView struct {
 	// because it is the number a manager asks about when a tap is queried.
 	Trust int
 	// Note is the deciding rule's human sentence ("verified via GPS only — no
-	// network proof of place"). It never carries a secret or a coordinate —
-	// internal/policy's reasons are fixed strings written by us.
+	// network proof of place"). The chain is short and was measured:
+	// internal/domain/tap/decide.go sets Note from the winning statement's
+	// pd.Reason, internal/handler/checkin.go copies it here, result.templ prints it.
+	//
+	// THE PROSE IS OURS, AND THAT IS A FACT ABOUT THE WRITE PATHS RATHER THAN A
+	// PROMISE. A customer can choose WHICH shipped statement applies and WHERE, and
+	// §5 rows 6-7 are theirs to change by name — but tenant.copyOfShipped copies a
+	// shipped statement WHOLE and replaces only its sid and its resource list, and
+	// tenant.AuthorCommand has no field a sentence could arrive in. Held by
+	// TestAuthoredRule_TheProseIsOursAndOnlyTheScopeIsTheirs (which calls the
+	// generator) and, in cmd/tappa, by the three that derive the write paths from db/
+	// and the shipped Go rather than from a list of names:
+	// TestNoteProvenance_TheWriterListIsDerivedFromTheQueriesRatherThanNamed,
+	// TestNoteProvenance_TheStoreCarriesNoWriterTheQueriesDoNotName and
+	// TestNoteProvenance_OnlyTwoProductionCallSitesWriteAPolicyDocument. So this
+	// paragraph goes red rather than stale.
+	//
+	// ⚠️ A ROUND OF M8-04 ASSERTED THE OPPOSITE HERE — that a tenant's
+	// "author-written reason" lands in this string verbatim, bounded only by
+	// maxReasonLen — and the audit after it measured that claim to be false. It is
+	// recorded because the correction is not visible from the corrected text: the
+	// v1 rule editor is form-only ON PURPOSE (Q22), and the raw-JSON editor that
+	// would make the claim true is M9-07. If it ships, one of the four tests above is
+	// what says so, and which one depends on the shape it takes — cmd/tappa's
+	// noteprovenance_test.go lists the shapes that were injected and measured red
+	// (2026-08-20) and the one that was not.
+	//
+	// WHAT THE ENGINE GUARANTEES: no secret and no coordinate goes in here (§7), and
+	// templ escapes whatever is in it on output —
+	// TestPolicyNote_IsEscapedOnBothSurfacesThatPrintIt drives a hostile sentence
+	// through this field and through the docket's, rather than asserting it.
+	//
+	// ⚠️ THIS SCREEN PRINTS NO LAYER, AND THE DOCKET DOES — COUNTED, NOT CLOSED. A
+	// manager's docket marks a note whose decision came from the organisation's own
+	// rule (ledger.Record.NoteIsTenants); the employee's result does not. That is a
+	// smaller gap than the falsified claim made it look — the sentence is the same
+	// sentence either way, and what differs is only which document selected it — and
+	// closing it would be a feature on a screen §9 keeps at "one screen, one button,
+	// zero learning". It was left alone for that reason, not overlooked.
 	Note string
 	// Practice marks the training tap that never counts toward hours (§5).
 	Practice bool

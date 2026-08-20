@@ -214,14 +214,15 @@ type Record struct {
 	// rendering the note a manager could never see that their sentence had been
 	// cut. Reading it back is what makes that visible.
 	//
-	// IT IS FREE TEXT A HUMAN WROTE. So, sometimes, is Note above — see
-	// NoteIsTenants, and the audit that corrected the sentence which used to stand
-	// here ("unlike Note above, which is one of our own policy sentences"). What
-	// still separates the two is WHO and WHEN: this is typed by a manager DURING
-	// review and belongs to one record; a tenant policy reason is typed once and
-	// applies to every record the statement decides. templ escapes both on output —
-	// proved rather than asserted, by
-	// TestReviewDB_AHostileNoteIsEscapedWhereItIsRendered.
+	// IT IS FREE TEXT A HUMAN WROTE, AND IT IS THE ONLY SUCH FIELD ON THIS TYPE —
+	// unlike Note below, which is one of our own policy sentences whatever layer
+	// selected it. A round of M8-04 struck that clause out, on a claim about
+	// "author-written reasons" the audit after it measured to be false; see
+	// NoteIsTenants for what a customer really controls. templ escapes both on
+	// output, proved rather than asserted:
+	// TestReviewDB_AHostileNoteIsEscapedWhereItIsRendered for this field, which
+	// arrives through a POST, and TestPolicyNote_IsEscapedOnBothSurfacesThatPrintIt
+	// for Note, which arrives through the engine.
 	ReviewNote string
 	// Manual is derived from the channel rather than from entered_by. §5 pairs
 	// the two ("channel='manual' + entered_by dolu"), and the channel is the
@@ -238,26 +239,44 @@ type Record struct {
 	IPMatch  *bool
 	GPSMatch *bool
 	Note     string
-	// NoteIsTenants says the sentence in Note was written by THIS ORGANISATION
-	// rather than by us (M8-04 FAZ B3). It is derived from transactions.policy_layer
-	// — 'tenant' means the deciding statement came from the tenant's own policy
-	// document, whose `reason` is free text the tenant typed (bounded only by
-	// internal/policy's maxReasonLen).
+	// NoteIsTenants says the DECISION behind Note came from this organisation's own
+	// policy document rather than from ours (M8-04 FAZ B3). It is derived from
+	// transactions.policy_layer — 'tenant' means the winning statement sat on a
+	// customer document.
 	//
-	// 🔴 THE COMMENT THIS REPLACED WAS FALSE, AND THE AUDIT MEASURED IT. It said
-	// Note was "one of our own policy sentences". A tenant statement whose resource
-	// is more specific than the baseline's wins the tiebreak and its reason becomes
-	// this field verbatim — measured with a statement asserting "the source IP
-	// matches the location" on a record that carries ip_match=false and trust=20.
-	// That is NOT a section 4 breach (section 5 rows 6-7 are the tenant's by name,
-	// and matched_sid/policy_layer/ip_match all say so on the row), but a screen
-	// that prints the prose without the layer prints the only part of the record
-	// that can lie.
+	// 🔴 IT MARKS THE RULE, NOT THE AUTHORSHIP OF THE WORDS, AND A ROUND OF M8-04 GOT
+	// THAT BACKWARDS. That round wrote here that a tenant's `reason` is "free text the
+	// tenant typed, bounded only by maxReasonLen"; the audit after it measured the
+	// write paths and found no such path — tenant.copyOfShipped copies a shipped
+	// statement WHOLE (effect, action, condition and reason) and replaces only the sid
+	// and the resource list, tenant.AuthorCommand has no field a sentence could arrive
+	// in, and the panel form uploads no document. What a customer chooses is WHICH
+	// shipped statement applies and WHERE. The behavioural half is held by
+	// TestAuthoredRule_TheProseIsOursAndOnlyTheScopeIsTheirs, which calls the one
+	// document generator; the structural half by cmd/tappa's three note-provenance
+	// tests, which derive the writers from db/ rather than trusting a list of names
+	// (TestNoteProvenance_TheWriterListIsDerivedFromTheQueriesRatherThanNamed,
+	// TestNoteProvenance_TheStoreCarriesNoWriterTheQueriesDoNotName and
+	// TestNoteProvenance_OnlyTwoProductionCallSitesWriteAPolicyDocument). The day a
+	// raw-JSON editor lands (Q22 defers it to M9-07) one of the four goes red, and
+	// which one depends on the shape it takes -- the cmd/tappa file's header names
+	// the shapes it caught when they were injected, and the one it did not.
+	//
+	// ⚠️ SO SAY PLAINLY WHAT THE LABEL BUYS AND WHAT IT MISSES. It buys a manager the
+	// answer to "which document do I open to find this rule" without putting a sid on
+	// the card. It does NOT catch the one note class this product has measured saying
+	// something the same row denies: a venue whose stored range was too wide to tell
+	// it apart from anywhere else produced ip_match=true and OUR baseline sentence
+	// "network proof of place: the source IP matches the location" (backlog T40).
+	// Those rows read policy_layer='baseline', so this boolean is false on every one
+	// of them. The class is closed on both sides now — netx.TooWideForProofOfPlace at
+	// save time, tap.ipMatches at read time — but transactions are immutable (§4.3),
+	// so the rows written while it was open keep the sentence for good.
 	//
 	// ⚠️ IT IS A BOOLEAN RATHER THAN THE LAYER STRING, deliberately: the docket asks
-	// ONE question ("did we write this sentence, or did they"), and the three-value
-	// column would put a vocabulary on a screen that has no use for the difference
-	// between guardrail and baseline — both are ours.
+	// ONE question ("was this our rule, or theirs"), and the three-value column would
+	// put a vocabulary on a screen that has no use for the difference between
+	// guardrail and baseline — both are ours.
 	NoteIsTenants bool
 	// The three names are empty when the row carries no such id, which §4.6
 	// requires to be possible: a stolen plaque touched with no cookie writes a
@@ -676,8 +695,8 @@ func record(row store.ListPanelTransactionsRow) Record {
 }
 
 // policyLayerTenant is the one value of transactions.policy_layer that means the
-// deciding statement — and therefore the note — came from the ORGANISATION rather
-// than from us.
+// deciding statement sat on a document the ORGANISATION owns rather than one of
+// ours. The note's WORDS are ours either way — see Record.NoteIsTenants.
 //
 // 🔴 IT IS COMPARED, NOT CARRIED. The alternative was to put the layer string on
 // Record and let the template switch on it, which would make every future value of
@@ -686,11 +705,10 @@ func record(row store.ListPanelTransactionsRow) Record {
 //
 // ⚠️ A NULL policy_layer READS AS "OURS", which is the fail-safe direction and is
 // stated rather than left to be inferred: rows written before M3-07 carry NULL, as
-// do manager-entered records (channel='manual' names no policy at all), and those
-// notes are ours or the manager's own — never a tenant POLICY sentence. The
-// dangerous direction is calling a tenant's sentence ours, and that requires the
-// column to say 'tenant' and this comparison to fail, which
-// TestLedger_ATenantsPolicySentenceIsMarkedAsTheirs pins.
+// do manager-entered records (channel='manual' names no policy at all), and no
+// tenant DOCUMENT decided either kind. The direction that would mislead is calling
+// a tenant's rule ours, and that requires the column to say 'tenant' and this
+// comparison to fail, which TestLedger_ATenantsPolicySentenceIsMarkedAsTheirs pins.
 const policyLayerTenant = "tenant"
 
 // options loads the three id-valued filters' contents.

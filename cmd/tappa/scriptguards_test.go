@@ -6,12 +6,27 @@ package main
 // 🔴 WHY THIS FILE EXISTS, MEASURED RATHER THAN ARGUED. Before it, the repository
 // contained exactly one test that executed a shell script — cmd/rotatekek/
 // script_test.go, and it targets rotate-kek.sh alone. The other two were unread by
-// anything:
+// anything. Measured at the commit before this file (239d427):
 //
-//	rg -n 'db-reset.sh|pg-restore-verify' --glob '*_test.go'   -> zero
-//	make check = fmt gen lint test                              -> reads no .sh
-//	CI                                                          -> runs neither
-//	scripts/redline-check.sh                                    -> exempts one BY NAME
+//	git grep -ln 'exec.Command("bash"' 239d427 -- '*_test.go'
+//	  -> cmd/rotatekek/script_test.go          (rotate-kek.sh, and only it)
+//
+//	git grep -n 'db-reset.sh\|pg-restore-verify' 239d427 -- '*_test.go'
+//	  -> internal/db/viewsecurity_test.go:17   PROSE in a comment
+//	  -> internal/db/viewsecurity_test.go:20   PROSE in a comment
+//
+//	make check = fmt gen lint test              -> reads no .sh
+//	CI                                          -> runs neither
+//	scripts/redline-check.sh                    -> exempts one BY NAME
+//
+// ⚠️ THE SECOND COMMAND USED TO BE PUBLISHED HERE AS ANSWERING "zero", AND IT DOES
+// NOT. An audit re-ran it and got the two lines above (M8-04 FAZ B3, correction
+// round 2). The CLAIM was right — neither script was executed by any test — but it
+// was evidenced with a command that does not produce the stated output, which is the
+// same defect as an unheld number: the next reader runs it, gets something else, and
+// has no way to tell which half was wrong. Both commands are now printed with the
+// output they actually give, and the distinction they turn on (a NAME in a comment
+// is not a RUN) is written out rather than implied.
 //
 // And one of them DELETES DATA. The consequence was measured during M6: with the
 // `-f`/`-p` pin removed from scripts/db-reset.sh, the script stopped a FOREIGN
@@ -44,6 +59,7 @@ package main
 //     sentence would be lying ABOUT.
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -145,8 +161,34 @@ func TestCarrierScripts_ParseUnderBash(t *testing.T) {
 // literal with no reason beside it is the change detector this repository refuses.
 func TestDbReset_KeepsItsStructuralGuards(t *testing.T) {
 	t.Parallel()
-	text := readScript(t, "db-reset.sh")
+	for _, problem := range dbResetStructuralProblems(readScript(t, "db-reset.sh")) {
+		t.Error(problem)
+	}
+}
+
+// dbResetStructuralProblems returns one sentence per structural guard missing from
+// db-reset.sh, and returns nothing when the script is intact.
+//
+// 🔴 IT IS A FUNCTION RATHER THAN A TEST BODY BECAUSE TWO TESTS NEED IT, AND ONE OF
+// THEM RUNS THE SCRIPT. TestDbReset_RefusesADaemonOnAnotherMachine executes
+// db-reset.sh — safely, on paths the script refuses — and the reason those paths ARE
+// safe is that the guards below sit above `down --volumes`. Ordering was doing that
+// job and doing it by accident: the behavioural test does not call t.Parallel() and
+// so runs in the serial phase, while the test asserting the guards DOES call it and
+// is therefore deferred until the serial phase ends. Every `make check` and every CI
+// run executed the script twice before anything had checked what it would do.
+//
+// Nothing was broken by it: the locality probe and the schema gate both return
+// before the destructive statement, measured. But an ordering that holds by
+// coincidence stops holding under `-run`, under `-shuffle`, and the moment somebody
+// adds t.Parallel() to the other test. Making the precondition a CALL removes the
+// dependency on order entirely.
+func dbResetStructuralProblems(text string) []string {
 	code := codeOf(text)
+	var problems []string
+	add := func(format string, args ...any) {
+		problems = append(problems, fmt.Sprintf(format, args...))
+	}
 
 	// 🔴 THE PIN, AND THE MEASURED FAILURE IT PREVENTS. Without `-f`/`-p`, compose
 	// reads COMPOSE_FILE and COMPOSE_PROJECT_NAME out of the ambient environment —
@@ -158,7 +200,7 @@ func TestDbReset_KeepsItsStructuralGuards(t *testing.T) {
 		`project=tappa`,
 	} {
 		if !strings.Contains(text, want) {
-			t.Errorf("scripts/db-reset.sh no longer contains %q. That pin is the only thing "+
+			add("scripts/db-reset.sh no longer contains %q. That pin is the only thing "+
 				"between this target and another compose project's volumes (measured: without "+
 				"it, a foreign project's data volume was destroyed while the banner still said "+
 				"'pinned').", want)
@@ -176,7 +218,7 @@ func TestDbReset_KeepsItsStructuralGuards(t *testing.T) {
 		if strings.Contains(trimmed, "COMPOSE=(") {
 			continue
 		}
-		t.Errorf("scripts/db-reset.sh:%d calls compose without going through ${COMPOSE[@]}:\n  %s\n"+
+		add("scripts/db-reset.sh:%d calls compose without going through ${COMPOSE[@]}:\n  %s\n"+
 			"An unpinned call reads COMPOSE_FILE/COMPOSE_PROJECT_NAME from the environment.",
 			i+1, trimmed)
 	}
@@ -191,7 +233,7 @@ func TestDbReset_KeepsItsStructuralGuards(t *testing.T) {
 		`down --volumes`,
 	} {
 		if !strings.Contains(text, want) {
-			t.Errorf("scripts/db-reset.sh no longer contains %q — the locality probe's chain is "+
+			add("scripts/db-reset.sh no longer contains %q — the locality probe's chain is "+
 				"broken, or the destructive statement it guards has moved and this test is now "+
 				"guarding nothing", want)
 		}
@@ -201,7 +243,7 @@ func TestDbReset_KeepsItsStructuralGuards(t *testing.T) {
 	// would be a post-mortem. This is the one property a literal check can hold
 	// about sequencing, and it is cheap.
 	if strings.Index(code, "cmp -s scripts/db-init/01-roles.sql") > strings.Index(code, "down --volumes") {
-		t.Error("scripts/db-reset.sh runs its locality probe AFTER the volume is removed; " +
+		add("scripts/db-reset.sh runs its locality probe AFTER the volume is removed; " +
 			"a guard that fires after the deletion is not a guard")
 	}
 
@@ -211,11 +253,13 @@ func TestDbReset_KeepsItsStructuralGuards(t *testing.T) {
 	// hand-wrote `docker compose -p tappa logs db`, missing -f and repeating the
 	// project name, which is exactly the fault that paragraph diagnoses.
 	if strings.Contains(code, "docker compose -p tappa logs") {
-		t.Error("scripts/db-reset.sh tells the operator to run a HAND-WRITTEN compose command " +
+		add("scripts/db-reset.sh tells the operator to run a HAND-WRITTEN compose command " +
 			"(`docker compose -p tappa logs`). It repeats the project name the file holds in " +
 			"$project and omits -f, so it points at whatever COMPOSE_FILE says and stops " +
 			"matching the moment $project changes — the file's own diagnosis, one screen down.")
 	}
+
+	return problems
 }
 
 // TestDbReset_RefusesADaemonOnAnotherMachine is the BEHAVIOURAL half: the refusals
@@ -232,6 +276,21 @@ func TestDbReset_RefusesADaemonOnAnotherMachine(t *testing.T) {
 	if _, err := exec.LookPath("docker"); err != nil {
 		t.Skip("docker is not on PATH; the script's first refusal is about docker itself")
 	}
+
+	// 🔴 THE PRECONDITION, CHECKED HERE RATHER THAN LEFT TO TEST ORDER. What makes it
+	// safe to RUN this script is that its guards return before `down --volumes`; if a
+	// guard has been deleted, the run below stops being a refusal and becomes a
+	// deletion. TestDbReset_KeepsItsStructuralGuards asserts the same thing, but it
+	// calls t.Parallel() and is therefore deferred past the whole serial phase — so
+	// on every `make check` and every CI run the script executed twice BEFORE the
+	// check that says the execution is safe. Calling it makes the dependency real
+	// instead of positional, and survives `-run`, `-shuffle` and reordering.
+	if problems := dbResetStructuralProblems(readScript(t, "db-reset.sh")); len(problems) > 0 {
+		t.Fatalf("REFUSING TO EXECUTE scripts/db-reset.sh: %d structural guard(s) are "+
+			"missing, so a run that is supposed to be refused may reach `down --volumes`:\n  %s",
+			len(problems), strings.Join(problems, "\n  "))
+	}
+
 	script := scriptPathIn(t, "db-reset.sh")
 
 	tests := []struct {
