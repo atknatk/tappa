@@ -3173,6 +3173,75 @@ tablosu çıkmış durumda (satış slaytı da olur).
 > (tenant `bad47dbe-…`, `iso-fixture`, sentetik) — **silinmedi**, satır sayısı
 > azaltılmaz; tarihli bir gözlem olarak yazıldı.
 
+> **Kart düzeltmesi (2026-08-20, M8-04 FAZ B3 — SON FAZ).**
+>
+> **FAZ B3 kartın SAĞLANMAYAN TEK KRİTERİNİ hedefledi:** *"ORTA/DÜŞÜK olanlar ya
+> kapandı ya gerekçesiyle kabul edildi **ve yazıldı**."* B1 ve B2 kapatma kısmını
+> yaptı; bu faz **"ve yazıldı"** kısmıdır.
+>
+> **KABUL METİNLERİ ARTIK AĞAÇTA: [ADR 0005](../adr/0005-kabul-edilen-riskler.md)
+> → *"Kabul edilen ORTA/DÜŞÜK denetim bulguları (M8-04 FAZ B3)"*.** On bir satır,
+> her biri *ne kabul edildi · neden kapatılmadı · mekanik çapa*. 🔴 **Çapa bir TEST
+> ADIDIR ve bu bilinçli:** `TestEveryNamedTestExists` deponun **her metin dosyasını**
+> tarar, ADR dahil — yani adı geçen bir test silinirse belge kırmızıya döner. Pozitif
+> kontrol koşuldu (bir çapa testi yeniden adlandırıldı → `docs/adr/0005-…` adıyla
+> raporlandı, `54 live / 53 budgeted`; geri alındı). **Backlog'a yazmak yetmiyordu:**
+> `docs/backlog.md` kendi başlığında *"yalnız KULLANICININ yapabileceği işleri
+> tutar"* diyor; oraya yazılan bir **karar** karar değil hatırlatma olur.
+>
+> 🔴 **ÜÇ SATIRIN MEKANİK ÇAPASI YOK VE BU AĞACA YAZILDI: T28 · T38 · T39.** Üçü de
+> **tarayıcı ya da küme** davranışına bağlı; bir Go testi `Sec-Fetch-Site` üretmez,
+> **taklit eder**, ve taklit eden bir test bir kabulü doğrulamaz. Gerçek kapıları
+> dağıtımdır (TLS + ingress). *"Kapatıldı"* demek bu görevin dört turdur tekrarlayan
+> **sağlanmayan-garanti** kusurunu bir kez daha işlemek olurdu.
+>
+> **BU TURDA KAPATILAN ALTI BULGU — hepsi mutasyon + pozitif kontrolle:**
+> **T48-1** `TestRotateScript_AlwaysPassesOnErrorStop` `HasPrefix("psql ")` ile
+> tarıyordu ve `BYPASS="$(psql …` satırını **görmüyordu** — script'in **dört**
+> çağrısının **üçü**; oysa `deploy/README.md` bunu *"her `psql` çağrısında"* diye
+> yayımlıyor. Kardeş testin (`TestRotateScript_IsImmuneToAHostilePsqlrc`) **kanıtlanmış
+> kuralı** kopyalandı, körlük tabanı 3→**4** · **T48-2** `lock_timeout` **değeri**
+> pinsizdi (`'5s'` → `'5000s'` **yeşil**, ölçüldü) ve runbook onu **iki kopyada**
+> yayımlıyor; ikisi de bağlandı · **T54-1** olay adları **alt-dize** ile aranıyordu:
+> `deploy/README.md`'de `tap.decision` → `tap.decisionMUT` (yapıştırılabilir blok
+> **dahil**, 6 yer) **GEÇİYORDU** — operatörün kopyaladığı filtre hiçbir şeyle
+> eşleşmeyecekken. Tam-ad eşleşmesine çevrildi · **T55** iki taşıyıcı script'in
+> arkasında **hiçbir kapı yoktu** ve biri **veri siliyor**: `cmd/tappa/scriptguards_test.go`
+> (beş test) — pin literalleri, sıra (`cmp` **önce**, `down --volumes` **sonra**),
+> §5'in dört tetikleyici yüklemi, ve **davranış**: `DOCKER_HOST=tcp://…`/`ssh://…`
+> ile script gerçekten koşturulup **reddi** ölçülüyor (yıkıcı dal **hiç**
+> çalıştırılmıyor) · **T56-2** `db-reset.sh` operatöre elle yazılmış
+> `docker compose -p tappa logs db` diyordu — proje adı **ikinci kez** yazılmış, `-f`
+> **yok**; dosyanın kendi teşhisi, bir ekran ilerde. Artık `${COMPOSE[*]}`'den
+> basılıyor · **T56-1** yerellik sondasının **reddettiği hedefte yazma yaptığı**
+> (`probeleak_default` network + `probeleak_probeleak-pgdata` volume) script başlığına
+> **sayılmış limit** olarak yazıldı.
+>
+> **VE SON DENETİMİN İKİ İŞİ:**
+>
+> **(1) Tenant politikasının `note`'a yazdığı sahte kanıt cümlesi — ÖLÇÜLDÜ ve
+> KAPATILDI (savunma derinliği).** Denetçinin gerekçesine katılıyorum: **§4 ihlali
+> değil** (§5 satır 6–7 adıyla tenant'ın, ve aynı tenant `channel='manual'` ile zaten
+> keyfi not yazabiliyor). Kalan boşluk **fiş**teydi ve ölçüldü: `docket.templ` `d.Note`'u
+> **katmansız** basıyordu, `policy_layer` satırda dururken. Kapatıldı **okuma
+> tarafında** (yazma tarafı değil — bir yazma işareti **var olan** satırlara ulaşmaz,
+> ve §9'un kutsal saydığı çalışan ekranını da değiştirirdi): `policy_layer` iki
+> sorguya eklendi (gün **ve** onay kuyruğu), `ledger.Record.NoteIsTenants` türetiliyor,
+> fiş tenant'ın kendi kuralını **adıyla** basıyor. ⚠️ **VE İKİ YORUM YALAN
+> SÖYLÜYORDU:** `docketview.go` *"straight from internal/policy … fixed strings
+> written by us"*, `ledger.go` *"unlike Note above (which is one of our own policy
+> sentences)"* — ikisi de düzeltildi. Pozitif kontrol iki yönlü (`if true` → etiket
+> her fişte → kırmızı; `if false` → hiç → kırmızı).
+>
+> **(2) `CREATE RULE … DO INSTEAD NOTHING` kapısı — ÖLÇÜLDÜ, HARİTA DOĞRU ÇIKTI.**
+> Bu, sınıf→kapı haritasının **ölçümü tekrarlanmayan tek satırıydı** ve aynı haritanın
+> başka iki satırı yanlış çıkmıştı. Sonda commit'li DDL gerektirdi (bir RULE'un etkisi
+> başka bir bağlantıya görünür olmak zorunda): **Row1·2·4·5·6·7 FAIL, Row3 PASS** —
+> yani **7'nin 6'sı**, ve PASS eden tam olarak haritanın *"dönmemeli"* dediği
+> `TestCheckinDB_Row3_NoSessionRedirectsAndWritesNOTHING`. Geri alındı ve doğrulandı:
+> `pg_rules = 0`, `transactions` **426 791 → 426 791**. **Sayı doğru; düzeltilecek bir
+> şey yok, değişen tek şey artık iki kez ölçülmüş olması** (tarih script'e yazıldı).
+
 **Kabul kriterleri.**
 - agent `tappa-security-auditor` tam repo üzerinde koştu; R1–R8 için kanıtlı rapor.
 - `make audit` temiz: `govulncheck` + `scripts/redline-check.sh`.

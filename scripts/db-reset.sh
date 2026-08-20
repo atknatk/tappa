@@ -132,6 +132,27 @@
 #       absolute path would pass. That is a far narrower hole than "any unix
 #       socket", and it is the honest limit of a filesystem-identity probe.
 #
+#       🔴 AND THE PROBE IS NOT READ-ONLY ON THE TARGET IT REFUSES. Counted here
+#       because the paragraph above talks about cost and did not count this
+#       (backlog T56 item 1, M8-04 FAZ B3). `compose run --rm` makes compose
+#       CREATE the project's scaffolding before it runs anything, so a REFUSED run
+#       still leaves two objects behind on the daemon it just declined to touch.
+#       Measured against a project name that did not exist until the probe ran:
+#
+#         project `probeleak`, refused run -> network `probeleak_default`
+#                                          -> volume  `probeleak_probeleak-pgdata`
+#         orphan containers ................. NONE (--rm works; measured)
+#
+#       So the guard writes an empty volume and a network onto the very machine it
+#       exists in order not to touch. NOT DESTRUCTIVE and not a §4 matter: both are
+#       empty, both are project-scoped, and neither can collide with data (a volume
+#       that already held rows is reused, not recreated). It is recorded rather than
+#       fixed because every cheaper probe measured WORSE: `docker info` compares a
+#       CLAIM (and refuses Docker Desktop, see above), and any probe that reads a
+#       bind mount has to start a container to do the reading. Fixing it properly
+#       means asking the daemon a filesystem question without compose, which is a
+#       different guard, not a smaller one.
+#
 # The same reasoning scripts/seed.sh gives for running psql from the container
 # applies here, and it is why no migration-role variable is named in this file.
 #
@@ -263,7 +284,15 @@ echo
 
 if [[ $ready -ne 1 ]]; then
 	echo "db-reset: the database did not finish initialising in 90s." >&2
-	echo "          'docker compose -p tappa logs db' will say which init script failed;" >&2
+	# THE INSTRUCTION IS BUILT FROM THE SAME ARRAY THE SCRIPT ITSELF USES, and it
+	# used to be a hand-written 'docker compose -p tappa logs db' -- the project name
+	# spelled a SECOND time and the -f flag missing entirely. That is the exact fault
+	# the paragraph above `project=` diagnoses ("the first draft wrote it twice ...
+	# and the announcement was immediately observed lying"), committed one screen
+	# further down: changing `project=` would have left this line pointing an operator
+	# at another project's logs, and an absent -f would have let COMPOSE_FILE choose
+	# the file. Measured and closed in M8-04 FAZ B3 (backlog T56 item 2).
+	echo "          '${COMPOSE[*]} logs db' will say which init script failed;" >&2
 	echo "          a failed init leaves tappa_app NOLOGIN, which is fail-closed." >&2
 	exit 1
 fi

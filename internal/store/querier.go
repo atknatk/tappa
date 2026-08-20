@@ -2453,6 +2453,11 @@ type Querier interface {
 	// required even though RLS is on, every JOIN re-states tenant_id in its own ON
 	// clause, and the anti-join subquery carries its own. The tenant comes from the
 	// panel session, never from the request.
+	// policy_layer travels with the note for the reason ListPanelTransactions gives
+	// at length (M8-04 FAZ B3): a tenant-authored policy reason is rendered verbatim,
+	// and this queue is where such a record lands -- every row here is a `flag`
+	// awaiting a human. The column is a CHECK-constrained three-word enum, so it is
+	// section 4.7-safe; policy_context still is not selected.
 	ListFlaggedForReview(ctx context.Context, arg ListFlaggedForReviewParams) ([]ListFlaggedForReviewRow, error)
 	// The resets of one administrator that could still be spent RIGHT NOW: not consumed,
 	// not retired, not expired.
@@ -2910,6 +2915,24 @@ type Querier interface {
 	// an equality probe against a UNIQUE index costs on a 26-row page. The outlier is
 	// printed rather than dropped because a range that excludes its own first
 	// measurement is the kind this repository has had to withdraw before.
+	// 🔴 policy_layer IS SELECTED AND note IS NOT SELF-DESCRIBING WITHOUT IT (M8-04
+	// FAZ B3). The security audit MEASURED this: a tenant policy statement whose
+	// resource is more specific than the baseline's wins the tiebreak, and its
+	// author-written `reason` becomes this note verbatim -- including a sentence
+	// asserting evidence the row itself denies ("the source IP matches the location"
+	// on a row carrying ip_match=false, trust=20). It is NOT a section 4 breach:
+	// section 5 rows 6-7 are the tenant's to change by name, matched_sid says
+	// 'tenant:...', and the same tenant can already type any sentence they like
+	// through channel='manual'. What was missing is DEFENCE IN DEPTH ON THE READ
+	// SIDE: three columns told the truth while the prose did not, and the screen
+	// printed only the prose. This column is what lets the docket say WHOSE sentence
+	// it is rendering.
+	//
+	// IT IS SECTION 4.7-SAFE, which is why it may join the list the paragraph above
+	// guards: policy_layer is a CHECK-constrained three-word enum
+	// (guardrail|baseline|tenant, migration 0008). It carries no coordinate, no
+	// address and no free text -- unlike policy_context, which stays unselected for
+	// the reason given above.
 	ListPanelTransactions(ctx context.Context, arg ListPanelTransactionsParams) ([]ListPanelTransactionsRow, error)
 	// The invites of one employee that are still usable RIGHT NOW: not consumed and
 	// not expired. Phase B reads this for the "this employee is already active --

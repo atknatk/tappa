@@ -412,7 +412,15 @@ func TestWriteSQL_CarriesBothPostConditions(t *testing.T) {
 		// rotation's row locks. Without it the wait is a property of machine load:
 		// measured between 0.76 s and 13.19 s across rounds, with no bound at any
 		// layer. SET LOCAL so it cannot leak into a pooled session (§6).
-		"SET LOCAL lock_timeout",
+		//
+		// 🔴 THE VALUE IS PART OF THE ASSERTION, AND IT DID NOT USED TO BE (backlog
+		// T48 item 2, closed M8-04 FAZ B3). This line read "SET LOCAL lock_timeout"
+		// and asserted only that a ceiling EXISTS — measured: changing '5s' to
+		// '5000s' left the whole suite green, i.e. a ceiling of eighty-three minutes
+		// satisfied a check written to bound a tap's wait to five seconds. A number
+		// that no gate holds is a number that drifts, and this one is published to
+		// operators twice in deploy/README.md (see the pin below).
+		"SET LOCAL lock_timeout = '5s';",
 		// Post-condition 1: the reader saw the whole park. This is the ONLY thing
 		// that catches an RLS-narrowed COPY, which the tool itself cannot see —
 		// a partial read looks exactly like a small park.
@@ -436,6 +444,24 @@ func TestWriteSQL_CarriesBothPostConditions(t *testing.T) {
 	// assumed.
 	if strings.Contains(sql, "%!") {
 		t.Error("the emitted SQL contains a Go format error marker")
+	}
+
+	// 🔴 AND THE OPERATOR DOCUMENT IS HELD TO THE SAME NUMBER (backlog T48 item 2).
+	// deploy/README.md publishes this ceiling to whoever runs a rotation, in two
+	// places — a prose paragraph and the failure table's row — and both quote the
+	// literal. Pinning only the emitted SQL would leave the published figure free
+	// to drift away from what the tool actually emits, which is the one-sided
+	// change nobody notices (the class TestObservability_AlertSignalNames exists
+	// for, applied here).
+	runbook, err := os.ReadFile(filepath.Join(repoRoot(t), "deploy", "README.md"))
+	if err != nil {
+		t.Fatalf("read the runbook: %v", err)
+	}
+	const published = "SET LOCAL lock_timeout = '5s'"
+	if n := strings.Count(string(runbook), published); n < 2 {
+		t.Errorf("deploy/README.md quotes %q %d time(s), want at least 2 — the tool emits "+
+			"that ceiling and the runbook is where an operator reads it. If the value "+
+			"changed, change it in BOTH, in this edit.", published, n)
 	}
 }
 

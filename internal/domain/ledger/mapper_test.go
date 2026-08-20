@@ -63,6 +63,16 @@ func fillStruct(t *testing.T, v any, seed int64) {
 			f.Set(reflect.ValueOf(&s))
 			continue
 		}
+		// PolicyLayer, like Channel, is a value the mapper DERIVES from rather than
+		// copies: NoteIsTenants is true only for the literal "tenant". A random
+		// string would leave that field FALSE on both sides — the zero value — and
+		// the anti-vacuity check below counts a zero field as unmapped, so this is
+		// not cosmetic: without it the derived field is invisible to the comparison.
+		if name == "PolicyLayer" {
+			s := policyLayerTenant
+			f.Set(reflect.ValueOf(&s))
+			continue
+		}
 		setNonZero(t, f, rng, name)
 	}
 }
@@ -185,5 +195,70 @@ func TestQueueRecord_TheExemptionListIsNotAWildcard(t *testing.T) {
 	if len(queueOnlyDifferences) >= rt.NumField() {
 		t.Fatalf("every field of Record is exempt (%d of %d); the comparison checks nothing",
 			len(queueOnlyDifferences), rt.NumField())
+	}
+}
+
+// TestLedger_ATenantsPolicySentenceIsMarkedAsTheirs is the falsifying test for the
+// acceptance written on Record.NoteIsTenants and on DocketView.Note (M8-04 FAZ B3).
+//
+// 🔴 THE ACCEPTANCE IT FALSIFIES, STATED SO A FUTURE READER CANNOT MISTAKE IT FOR
+// TIDINESS. The audit measured a tenant policy statement whose author-written reason
+// asserted network evidence — "the source IP matches the location" — on a record the
+// engine had scored ip_match=false, trust=20, matched_sid='tenant:…'. The product
+// does NOT refuse that sentence, and the reasoning for not refusing it is written on
+// the view model: section 5 rows 6-7 are the tenant's to change BY NAME, and the same
+// tenant can already type anything into a channel='manual' record. What was accepted
+// instead is a WEAKER guarantee: the screen will say whose sentence it is.
+//
+// So this test holds the weaker guarantee. If the derivation is deleted, inverted, or
+// quietly widened so that OUR sentences are labelled as theirs (which would make the
+// label meaningless by making it universal), it goes red — and the acceptance stops
+// being true at the same moment.
+func TestLedger_ATenantsPolicySentenceIsMarkedAsTheirs(t *testing.T) {
+	t.Parallel()
+
+	layer := func(s string) *string { return &s }
+
+	tests := []struct {
+		name  string
+		layer *string
+		want  bool
+	}{
+		{"a tenant's own rule is marked", layer("tenant"), true},
+		{"a baseline rule is ours", layer("baseline"), false},
+		{"a guardrail is ours", layer("guardrail"), false},
+		// NULL is what a pre-M3-07 row and a manager-entered record carry. It must
+		// read as OURS: the dangerous direction is calling a tenant's sentence ours,
+		// and that needs the column to SAY 'tenant'.
+		{"no layer recorded reads as ours", nil, false},
+		// The case that makes the label meaningful rather than decorative: an
+		// unrelated value must not be treated as 'tenant'.
+		{"an unknown layer is not a tenant's", layer("Tenant"), false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			day := record(store.ListPanelTransactionsRow{
+				Note: layer("network proof of place: the source IP matches the location"),
+				// The three columns that told the truth while the prose did not.
+				IpMatch:     new(bool), // false
+				PolicyLayer: tc.layer,
+				Channel:     "nfc",
+			})
+			if day.NoteIsTenants != tc.want {
+				t.Errorf("the DAY mapper marked NoteIsTenants=%v, want %v", day.NoteIsTenants, tc.want)
+			}
+			queue := queueRecord(store.ListFlaggedForReviewRow{
+				Note:        layer("network proof of place: the source IP matches the location"),
+				IpMatch:     new(bool),
+				PolicyLayer: tc.layer,
+				Channel:     "nfc",
+			})
+			// BOTH MAPPERS, because the review queue is where a flagged record with a
+			// tenant-authored reason actually lands — mapper parity is asserted over the
+			// TYPE above, but this asserts the DERIVATION, which a type walk cannot see.
+			if queue.NoteIsTenants != tc.want {
+				t.Errorf("the QUEUE mapper marked NoteIsTenants=%v, want %v", queue.NoteIsTenants, tc.want)
+			}
+		})
 	}
 }

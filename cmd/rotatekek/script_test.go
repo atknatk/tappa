@@ -67,14 +67,32 @@ func TestRotateScript_AlwaysPassesOnErrorStop(t *testing.T) {
 	var applyLines []string
 	for _, ln := range strings.Split(text, "\n") {
 		trimmed := strings.TrimSpace(ln)
-		// psql as a COMMAND: the line starts with it. Anything else (a die message
-		// that names "psql exit $PSQL_RC", a comment) is prose about psql, not a
-		// call — an earlier version matched those and reported the fix as a defect.
-		if strings.HasPrefix(trimmed, "psql ") {
-			applyLines = append(applyLines, ln)
+		// 🔴 THE RULE IS THE SIBLING'S, AND IT WAS COPIED HERE BECAUSE THIS ONE WAS
+		// MEASURED WRONG (backlog T48 item 1, closed M8-04 FAZ B3). This scan used
+		// to be `HasPrefix(trimmed, "psql ")`, which finds THREE of the script's
+		// FOUR invocations: the RLS-bypass probe lives inside a command
+		// substitution, `BYPASS="$(psql -X "$OWNER_DSN" …`, so the line does not
+		// START with psql and the call was never checked. deploy/README.md
+		// nonetheless publishes this test as looking "at every psql call"
+		// (the ON_ERROR_STOP row of the failure table), which made the claim wider
+		// than the mechanism — the class this task has hit repeatedly.
+		//
+		// AN INVOCATION PASSES THE DSN. That is what separates a CALL from PROSE
+		// ABOUT a call: the die messages name "psql exit $PSQL_RC" and an earlier
+		// version of this scan matched those and reported the fix as a defect.
+		// TestRotateScript_IsImmuneToAHostilePsqlrc has used exactly this rule since
+		// it was written, on the same four lines.
+		if strings.HasPrefix(trimmed, "#") ||
+			!strings.Contains(trimmed, "psql ") ||
+			!strings.Contains(trimmed, `"$OWNER_DSN"`) {
+			continue
 		}
+		applyLines = append(applyLines, ln)
 	}
-	if len(applyLines) < 3 {
+	// FOUR, NOT THREE. The floor is the count the sibling asserts, so the two scans
+	// cannot silently disagree about how many calls the script makes — and dropping
+	// back to a prefix-only rule fails here rather than passing with a smaller set.
+	if len(applyLines) < 4 {
 		t.Fatalf("only %d psql invocations found; the scan has gone blind", len(applyLines))
 	}
 	for _, ln := range applyLines {

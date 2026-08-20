@@ -234,6 +234,11 @@ func docketView(rec ledger.Record, zone *time.Location) components.DocketView {
 		// silent cut — see maxReviewNote.
 		ReviewNote: rec.ReviewNote,
 		Note:       rec.Note,
+		// AND WHOSE SENTENCE THE NOTE IS (M8-04 FAZ B3). Carried from
+		// transactions.policy_layer through ledger.Record; see DocketView's own
+		// comment for what the audit measured and why the answer is a label rather
+		// than a refusal.
+		NoteIsTenants: rec.NoteIsTenants,
 	}
 	if rec.Trust != nil {
 		d.Trust = strconv.Itoa(int(*rec.Trust))

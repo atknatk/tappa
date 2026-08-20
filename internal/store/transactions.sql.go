@@ -531,7 +531,7 @@ WITH matched_employees AS MATERIALIZED (
       AND e2.full_name ILIKE '%' || $6::text || '%'
 )
 SELECT t.id, t.occurred_at, t.type, t.trust, t.verdict, t.channel, t.practice,
-       t.queued, t.tag_uid, t.ctr, t.ip_match, t.gps_match, t.note,
+       t.queued, t.tag_uid, t.ctr, t.ip_match, t.gps_match, t.note, t.policy_layer,
        l.name AS location_name,
        d.name AS department_name,
        e.full_name AS employee_name,
@@ -591,6 +591,7 @@ type ListPanelTransactionsRow struct {
 	IpMatch        *bool
 	GpsMatch       *bool
 	Note           *string
+	PolicyLayer    *string
 	LocationName   *string
 	DepartmentName *string
 	EmployeeName   *string
@@ -760,6 +761,24 @@ type ListPanelTransactionsRow struct {
 // an equality probe against a UNIQUE index costs on a 26-row page. The outlier is
 // printed rather than dropped because a range that excludes its own first
 // measurement is the kind this repository has had to withdraw before.
+// 🔴 policy_layer IS SELECTED AND note IS NOT SELF-DESCRIBING WITHOUT IT (M8-04
+// FAZ B3). The security audit MEASURED this: a tenant policy statement whose
+// resource is more specific than the baseline's wins the tiebreak, and its
+// author-written `reason` becomes this note verbatim -- including a sentence
+// asserting evidence the row itself denies ("the source IP matches the location"
+// on a row carrying ip_match=false, trust=20). It is NOT a section 4 breach:
+// section 5 rows 6-7 are the tenant's to change by name, matched_sid says
+// 'tenant:...', and the same tenant can already type any sentence they like
+// through channel='manual'. What was missing is DEFENCE IN DEPTH ON THE READ
+// SIDE: three columns told the truth while the prose did not, and the screen
+// printed only the prose. This column is what lets the docket say WHOSE sentence
+// it is rendering.
+//
+// IT IS SECTION 4.7-SAFE, which is why it may join the list the paragraph above
+// guards: policy_layer is a CHECK-constrained three-word enum
+// (guardrail|baseline|tenant, migration 0008). It carries no coordinate, no
+// address and no free text -- unlike policy_context, which stays unselected for
+// the reason given above.
 func (q *Queries) ListPanelTransactions(ctx context.Context, arg ListPanelTransactionsParams) ([]ListPanelTransactionsRow, error) {
 	rows, err := q.db.Query(ctx, listPanelTransactions,
 		arg.TenantID,
@@ -795,6 +814,7 @@ func (q *Queries) ListPanelTransactions(ctx context.Context, arg ListPanelTransa
 			&i.IpMatch,
 			&i.GpsMatch,
 			&i.Note,
+			&i.PolicyLayer,
 			&i.LocationName,
 			&i.DepartmentName,
 			&i.EmployeeName,

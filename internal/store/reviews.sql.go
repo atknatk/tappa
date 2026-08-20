@@ -220,7 +220,7 @@ func (q *Queries) InsertTransactionReview(ctx context.Context, arg InsertTransac
 
 const listFlaggedForReview = `-- name: ListFlaggedForReview :many
 SELECT t.id, t.occurred_at, t.type, t.trust, t.verdict, t.channel, t.practice,
-       t.queued, t.tag_uid, t.ctr, t.ip_match, t.gps_match, t.note,
+       t.queued, t.tag_uid, t.ctr, t.ip_match, t.gps_match, t.note, t.policy_layer,
        l.name AS location_name,
        d.name AS department_name,
        e.full_name AS employee_name
@@ -263,6 +263,7 @@ type ListFlaggedForReviewRow struct {
 	IpMatch        *bool
 	GpsMatch       *bool
 	Note           *string
+	PolicyLayer    *string
 	LocationName   *string
 	DepartmentName *string
 	EmployeeName   *string
@@ -286,6 +287,11 @@ type ListFlaggedForReviewRow struct {
 // required even though RLS is on, every JOIN re-states tenant_id in its own ON
 // clause, and the anti-join subquery carries its own. The tenant comes from the
 // panel session, never from the request.
+// policy_layer travels with the note for the reason ListPanelTransactions gives
+// at length (M8-04 FAZ B3): a tenant-authored policy reason is rendered verbatim,
+// and this queue is where such a record lands -- every row here is a `flag`
+// awaiting a human. The column is a CHECK-constrained three-word enum, so it is
+// section 4.7-safe; policy_context still is not selected.
 func (q *Queries) ListFlaggedForReview(ctx context.Context, arg ListFlaggedForReviewParams) ([]ListFlaggedForReviewRow, error) {
 	rows, err := q.db.Query(ctx, listFlaggedForReview,
 		arg.TenantID,
@@ -314,6 +320,7 @@ func (q *Queries) ListFlaggedForReview(ctx context.Context, arg ListFlaggedForRe
 			&i.IpMatch,
 			&i.GpsMatch,
 			&i.Note,
+			&i.PolicyLayer,
 			&i.LocationName,
 			&i.DepartmentName,
 			&i.EmployeeName,

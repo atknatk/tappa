@@ -214,9 +214,14 @@ type Record struct {
 	// rendering the note a manager could never see that their sentence had been
 	// cut. Reading it back is what makes that visible.
 	//
-	// IT IS FREE TEXT A HUMAN WROTE, unlike Note above (which is one of our own
-	// policy sentences). templ escapes it on output — proved rather than asserted,
-	// by TestReviewDB_AHostileNoteIsEscapedWhereItIsRendered.
+	// IT IS FREE TEXT A HUMAN WROTE. So, sometimes, is Note above — see
+	// NoteIsTenants, and the audit that corrected the sentence which used to stand
+	// here ("unlike Note above, which is one of our own policy sentences"). What
+	// still separates the two is WHO and WHEN: this is typed by a manager DURING
+	// review and belongs to one record; a tenant policy reason is typed once and
+	// applies to every record the statement decides. templ escapes both on output —
+	// proved rather than asserted, by
+	// TestReviewDB_AHostileNoteIsEscapedWhereItIsRendered.
 	ReviewNote string
 	// Manual is derived from the channel rather than from entered_by. §5 pairs
 	// the two ("channel='manual' + entered_by dolu"), and the channel is the
@@ -233,6 +238,27 @@ type Record struct {
 	IPMatch  *bool
 	GPSMatch *bool
 	Note     string
+	// NoteIsTenants says the sentence in Note was written by THIS ORGANISATION
+	// rather than by us (M8-04 FAZ B3). It is derived from transactions.policy_layer
+	// — 'tenant' means the deciding statement came from the tenant's own policy
+	// document, whose `reason` is free text the tenant typed (bounded only by
+	// internal/policy's maxReasonLen).
+	//
+	// 🔴 THE COMMENT THIS REPLACED WAS FALSE, AND THE AUDIT MEASURED IT. It said
+	// Note was "one of our own policy sentences". A tenant statement whose resource
+	// is more specific than the baseline's wins the tiebreak and its reason becomes
+	// this field verbatim — measured with a statement asserting "the source IP
+	// matches the location" on a record that carries ip_match=false and trust=20.
+	// That is NOT a section 4 breach (section 5 rows 6-7 are the tenant's by name,
+	// and matched_sid/policy_layer/ip_match all say so on the row), but a screen
+	// that prints the prose without the layer prints the only part of the record
+	// that can lie.
+	//
+	// ⚠️ IT IS A BOOLEAN RATHER THAN THE LAYER STRING, deliberately: the docket asks
+	// ONE question ("did we write this sentence, or did they"), and the three-value
+	// column would put a vocabulary on a screen that has no use for the difference
+	// between guardrail and baseline — both are ours.
+	NoteIsTenants bool
 	// The three names are empty when the row carries no such id, which §4.6
 	// requires to be possible: a stolen plaque touched with no cookie writes a
 	// reject with no employee at all, and that record must still be listed.
@@ -642,11 +668,30 @@ func record(row store.ListPanelTransactionsRow) Record {
 		IPMatch:        row.IpMatch,
 		GPSMatch:       row.GpsMatch,
 		Note:           deref(row.Note),
+		NoteIsTenants:  deref(row.PolicyLayer) == policyLayerTenant,
 		LocationName:   deref(row.LocationName),
 		DepartmentName: deref(row.DepartmentName),
 		EmployeeName:   deref(row.EmployeeName),
 	}
 }
+
+// policyLayerTenant is the one value of transactions.policy_layer that means the
+// deciding statement — and therefore the note — came from the ORGANISATION rather
+// than from us.
+//
+// 🔴 IT IS COMPARED, NOT CARRIED. The alternative was to put the layer string on
+// Record and let the template switch on it, which would make every future value of
+// a CHECK-constrained column (migration 0008: guardrail|baseline|tenant) a screen
+// vocabulary. The docket has exactly one question to ask of this column.
+//
+// ⚠️ A NULL policy_layer READS AS "OURS", which is the fail-safe direction and is
+// stated rather than left to be inferred: rows written before M3-07 carry NULL, as
+// do manager-entered records (channel='manual' names no policy at all), and those
+// notes are ours or the manager's own — never a tenant POLICY sentence. The
+// dangerous direction is calling a tenant's sentence ours, and that requires the
+// column to say 'tenant' and this comparison to fail, which
+// TestLedger_ATenantsPolicySentenceIsMarkedAsTheirs pins.
+const policyLayerTenant = "tenant"
 
 // options loads the three id-valued filters' contents.
 func options(ctx context.Context, q *store.Queries, tenantID uuid.UUID) (Options, error) {

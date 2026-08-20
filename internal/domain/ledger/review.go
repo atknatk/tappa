@@ -230,6 +230,7 @@ func queueRecord(row store.ListFlaggedForReviewRow) Record {
 		IPMatch:        row.IpMatch,
 		GPSMatch:       row.GpsMatch,
 		Note:           deref(row.Note),
+		NoteIsTenants:  deref(row.PolicyLayer) == policyLayerTenant,
 		LocationName:   deref(row.LocationName),
 		DepartmentName: deref(row.DepartmentName),
 		EmployeeName:   deref(row.EmployeeName),

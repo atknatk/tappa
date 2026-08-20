@@ -109,9 +109,10 @@ func TestObservability_AlertSignalNames(t *testing.T) {
 				"so renaming the constant makes those rules match nothing", n, got[n], want[n])
 			continue
 		}
-		if !strings.Contains(doc, want[n]) {
-			t.Errorf("deploy/README.md does not mention %q (%s). Either the rule was dropped or "+
-				"the name drifted; an alert nobody can find is not an alert", want[n], n)
+		if !mentionsWholeName(doc, want[n]) {
+			t.Errorf("deploy/README.md does not mention %q (%s) as a WHOLE name. Either the "+
+				"rule was dropped or the name drifted; an alert nobody can find is not an "+
+				"alert", want[n], n)
 		}
 	}
 
@@ -138,11 +139,55 @@ func TestObservability_AlertSignalNames(t *testing.T) {
 		httpx.EventHTTPRequest,
 		handler.EventReadinessLost,
 	} {
-		if !strings.Contains(block, event) {
-			t.Errorf("the paste-able filter block in deploy/README.md does not contain %q. "+
-				"The prose may still name it, but the query an operator actually copies no longer "+
-				"matches that event — which renders as a permanently quiet alert:\n%s", event, block)
+		if !mentionsWholeName(block, event) {
+			t.Errorf("the paste-able filter block in deploy/README.md does not contain %q as a "+
+				"WHOLE name. The prose may still name it, but the query an operator actually "+
+				"copies no longer matches that event — which renders as a permanently quiet "+
+				"alert:\n%s", event, block)
 		}
+	}
+}
+
+// nameChar is what can EXTEND an event or attribute name. A match flanked by one of
+// these is not the name; it is a longer name that starts or ends with it.
+func nameChar(r byte) bool {
+	return r == '_' || r == '.' || r == '-' ||
+		(r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9')
+}
+
+// mentionsWholeName reports whether text contains name as a complete token.
+//
+// 🔴 IT REPLACES strings.Contains, AND THE REPLACEMENT WAS MEASURED RATHER THAN
+// REASONED (backlog T54 item 1, closed M8-04 FAZ B3). Renaming the event in
+// deploy/README.md from `tap.decision` to `tap.decisionMUT` — six occurrences,
+// INCLUDING the paste-able filter block an operator copies — left this whole test
+// GREEN, because "tap.decisionMUT" contains "tap.decision". The rename that a
+// substring check DOES catch is one that shortens or alters the stem
+// (`tap.verdictline` fails); the one it misses is a suffix, which is exactly the
+// shape a typo and a half-finished rename take.
+//
+// The constant-versus-literal comparison above is unaffected either way: renaming
+// the Go constant fails on equality. This is about the DOCUMENT half, where the
+// only reader is a human copying a filter into a log tool.
+//
+// ⚠️ COUNTED LIMIT: this is a token check, not a parse. The document could still
+// quote a name inside a sentence that says the opposite ("we no longer emit
+// tap.decision") and satisfy it. What it holds is the one-sided RENAME, which is
+// the failure the alert rules actually suffer.
+func mentionsWholeName(text, name string) bool {
+	for i := 0; ; {
+		j := strings.Index(text[i:], name)
+		if j < 0 {
+			return false
+		}
+		start := i + j
+		end := start + len(name)
+		beforeOK := start == 0 || !nameChar(text[start-1])
+		afterOK := end == len(text) || !nameChar(text[end])
+		if beforeOK && afterOK {
+			return true
+		}
+		i = start + 1
 	}
 }
 

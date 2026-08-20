@@ -438,6 +438,66 @@ guardrail `sys:tag-not-active` ile **reddedilir** ([M3-05](../plan/m3-policy-mot
 [M3-05](../plan/m3-policy-motoru.md)'te (`sys:tag-not-active`); lokasyon–IP/GPS
 uyumsuzluğu kesiti [M6-11](../plan/m6-dashboard.md)'de.
 
+---
+
+## Kabul edilen ORTA/DÜŞÜK denetim bulguları (M8-04 FAZ B3, 2026-08-20)
+
+> **Bunlar yukarıdaki ALTI RİSKTEN AYRI bir sınıftır ve tabloya eklenmediler.**
+> Risk 1–6 ürünün **kalıntı tehditleri**dir — bir saldırganın yapabildiği bir şey.
+> Aşağıdakiler M8-04 güvenlik denetiminin **kapatılmayan ORTA/DÜŞÜK** bulgularıdır:
+> çoğu bir **kapının darlığı**, bir **geliştirme ortamı** koşulu ya da bir **dağıtım
+> ön koşulu**. Karışmasınlar diye ayrı duruyorlar; *"Aşağıdaki **altı risk** kabul
+> edilir"* cümlesi değişmedi.
+>
+> **Neden burada ve neden `docs/backlog.md`'de durmaları yetmedi.** M8-04 kartının
+> kabul kriteri şudur: *"ORTA/DÜŞÜK olanlar ya kapandı ya gerekçesiyle kabul edildi
+> **ve yazıldı**."* Backlog **kullanıcı eylemi bekleyen** işleri tutar ve kendi
+> başlığı bunu söyler; bir **kabul kararı** oraya yazıldığında karar değil bir
+> hatırlatma olur. Kabul **ağaçta** durmalı.
+>
+> 🔴 **HER SATIR BİR MEKANİK ÇAPA TAŞIR, VE ÇAPA BİR TEST ADIDIR.**
+> `TestEveryNamedTestExists` (cmd/tappa) bu dosyayı da tarar — deposundaki **her
+> metin dosyasını** tarar — yani aşağıda adı geçen bir test silinir ya da yeniden
+> adlandırılırsa **bu belge kırmızıya döner**. Kabul metni ile onu doğru kılan
+> mekanizma böylece ayrılamaz. Çapaların yönü de yazılıdır: çoğu, kabulün
+> **önkoşulunu** tutar, yani önkoşul kalkarsa kabul de kalkar.
+
+| Bulgu | Ne kabul edildi | Neden kapatılmadı | Mekanik çapa (kabulü yanlışlayan) |
+|---|---|---|---|
+| **T27** faturalama: `plan` değişimi kapatılmamış ayları ücretliye çevirebilir | Bugün erişim dar: `plan`'ı **yalnız operatör** yazabilir | Çare bir **plan geçmişi tablosu** ya da bir **sıralama kısıtı** — ikisi de migration + faturalama kararı, pilot faturalaması başlamadan kullanıcının vereceği bir karar | `TestAccountDB_TheAppRoleHoldsNoUpdateOnTheVATColumnsOrTheTerms` — `tappa_app`'e `tenants.plan` üzerinde UPDATE verilirse kırmızı, ve **kabulün tek dayanağı** o yokluktur |
+| **T28** uygulama kendi `Strict-Transport-Security` başlığını set etmiyor | Başlık **ingress'ten** geliyor (ölçüldü: `max-age=31536000; includeSubDomains`) | HSTS ingress-nginx'te **per-controller** bir ConfigMap seçeneği; paylaşılan ConfigMap'i değiştirmek ~20 başka uygulamayı etkiler (gerekçe `deploy/k8s/40-ingress.yaml` başında). `preload` bilinçli olarak **set edilmedi** — geri alması aylar sürer | `TestObservability_AlertSignalNames`'in tuttuğu **belge çapası** değil, `deploy/k8s/40-ingress.yaml`'in kendi ölçüm bloğu; ⚠️ **bu satırın MEKANİK bir çapası YOKTUR ve bu sayılmıştır** — manifest bir küme durumunu tarif eder, testler kümeye bakmaz |
+| **T32** geliştirme compose'u `log_statement=all` ile koşuyor; bind parametreleri log'a düşüyor (bcrypt digest, `password_resets.token_hash`) | Kapsam **dev/CI**; üretim yönetilen/ayrı Postgres, ve denetçiler bu log'u **ölçüm aracı** olarak kullanıyor | Kapatmak denetim yeteneğini kaldırır; §4.7'ye değen yüzey **repoda yazılı** (`00018`, `00019`, `00021` başlıkları + `deploy/README.md`'nin rotasyon ön koşulu) | `TestStoreParams_AreNeverHandedToAPrintingCall` + `TestStoreParams_ArePrintableAndThatIsTheHazard` — **uygulamanın** sır basmadığını tutar; Postgres'in ne yazdığını bir Go testi tutamaz, ve bu fark burada yazılıdır |
+| **T38** düz HTTP'de panele `localhost` dışından girilemiyor (`Sec-Fetch-Site` yok, `Origin: null`) | Üretim **HTTPS**; kapı orada çalışır. Kalan, **TLS öncesi** LAN demosu | Gevşetmek panelin CSRF savunmasını **kalıcı** olarak zayıflatır; ekranın *"süresi doldu"* demesi ayrı ve daha küçük bir kusur (M8-07'ye) | ⚠️ **MEKANİK ÇAPASI YOK, SAYILDI.** Kapı `internal/handler/adminlogin.go`'nun `sameOrigin`'idir ve tarayıcı davranışına bağlıdır; bir Go testi `Sec-Fetch-Site`'ı üretmez, **taklit eder** |
+| **T39** düz HTTP'de `getCurrentPosition` **hiç** çalışmıyor → §5'in GPS kanıtı kaybolur | Aynı ön koşul: **TLS**. T38'in kardeşi | Tarayıcının "potansiyel olarak güvenilir kaynak" kuralı; üründe kapatılabilir bir yanı yok | ⚠️ **MEKANİK ÇAPASI YOK, SAYILDI** — aynı sebeple. `web/static/js/tap.js`'in hata dalının **ne dediği** ayrı bir iş ve M8-07'ye ait |
+| **T48 (3)** runbook satır sözleşmesi yalnız **sondaki** yorumu görüyor; `OWNER_DSN=… ./scripts/…` biçimindeki bir çağrı çıkarımdan **sessizce** düşüyor | Bugün ihlal **yok**; boşluk gelecekteki bir yazıma dair | Çıkarımı genişletmek **yeni bir ayrıştırıcı** ister; aynı dosya üç turdur "detektörü son kusurun şekline göre yazma" dersini kaydediyor | `TestRunbook_ItsOwnCommandsAreRUNNotSCANNED` — çağrıları **koşturur**; boşluk onun *çıkarım* yarısındadır, *koşturma* yarısında değil |
+| **T48 (4)** yapıştırma-tehlike dedektörü zsh'in beş yapısından **ikisini** görüyor; sondaki yorumlar hiç taranmıyor | Bugün metinde **0** ihlal | Denylist'in kendisi sayılmış bir limit ve `scanPasteableComments` bunu **kendi gövdesinde** yazıyor; genişletmek gerçek bir zsh matrisi ister | `TestRunbook_PasteableBlocksCarryNoShellHazardInComments` — dedektörün kendisi; limiti **kendi yorumunda** taşıyor |
+| **T48 (5)** sarkan-atıf envanteri bütçeyi elle artırarak **büyüyebiliyor** | Sayının kendisi (**53**) dürüst ve iki yönlü bayatlık kontrolü çalışıyor | Bütçeyi artırmak **incelemede görünür** bir adımdır ve tasarım gereği öyle; `!=` (`>` değil) yüksek-su-seviyesi olmasını zaten engelliyor | `TestEveryNamedTestExists` + `TestRatchetOK` — bütçe `!=` ile tutuluyor, yani **hem büyüme hem küçülme** bir düzenleme ister |
+| **T51** logger redaksiyonu **tip düzeyinde** değil; R7b alıcının `log` adında olmasına bağlı | Bugün doğru: **347 logger alanının 347'si de `log`** | Çare **paket çapında bir dönüşüm** — ölçüldü: `internal/handler`'da 22 dosyada 224 çağrı yeri + `internal/domain`'de 46. Bir kartın işi değil | `TestObservability_EveryLoggerCallSiteIsSpelledLog` — **tam olarak o önkoşulu** tutar: bir çağrı yeri `log`'dan farklı yazılırsa kırmızı, ve kabulün dayanağı o tekbiçimliliktir |
+| **T52** yerel geliştirme DB'si mutasyon koşularının yazdığı **128 `employee.added`** satırı taşıyor; `audit_log` append-only olduğu için silinemez | Kapsam **yalnız yerel dev**; üretim yolu `detail`'e ne ad ne adres yazıyor | Silmek §4.3'ü ihlal ederdi; tek çıkış `make db-reset` (T22'de kuruldu, artık **çalışıyor**) | `TestAuditLog_IsAppendOnlyForTheApp` — satırların **niye** silinemediğini tutar; kabulün gerekçesi tam olarak budur |
+| **T54 (2)** `deploy/README.md`'de hiçbir kapının korumadığı sayılar var | Sayıların **yanlış olması ürünü bozmuyor**; okuru yanıltıyor | Hepsini bağlamak atıf tarayıcısını sayılara genişletmek demek (maliyeti ölçülmedi); bu turda **iki tanesi** bağlandı (`lock_timeout '5s'` ve olay adları) | `TestWriteSQL_CarriesBothPostConditions` (runbook'un `'5s'`'ini iki kopyada tutar) + `TestObservability_AlertSignalNames` (olay adlarını **tam ad** olarak tutar). Kalan sayılar **açıkça bağsızdır** |
+| **T56 (1)** `db-reset.sh`'in yerellik sondası, **reddettiği** hedefte boş bir network ve volume yaratıyor | Yıkıcı değil, proje kapsamlı, veriye dokunamaz | Daha ucuz her sonda **daha kötü** ölçüldü (`docker info` bir *iddia*dır ve Docker Desktop'ı reddeder); compose'suz bir dosya sistemi sorusu **başka bir kapı**dır | Metin `scripts/db-reset.sh` başlığına **ölçümüyle** yazıldı; `TestDbReset_KeepsItsStructuralGuards` sondanın kendisini (ve **sırasını**) tutar |
+
+**Bu turda KAPATILANLAR** (kabul değil, kapanış — çapalarıyla):
+`TestRotateScript_AlwaysPassesOnErrorStop` (T48-1: tarama dört `psql` çağrısının
+üçünü görüyordu) · `TestWriteSQL_CarriesBothPostConditions` (T48-2: `lock_timeout`
+**değeri** pinsizdi) · `TestObservability_AlertSignalNames` (T54-1: alt-dize
+eşleşmesi, `tap.decision` → `tap.decisionMUT` **geçiyordu**) ·
+`TestCarrierScripts_ParseUnderBash` · `TestDbReset_KeepsItsStructuralGuards` ·
+`TestDbReset_RefusesADaemonOnAnotherMachine` ·
+`TestPgRestoreVerify_KeepsTheTruncateGuardPredicates` ·
+`TestComposeFileDeclaresTheProjectName` (T55: iki taşıyıcı script'in arkasında
+hiçbir kapı yoktu) · `TestTransactions_ADocketSaysWhoWroteTheNote` +
+`TestLedger_ATenantsPolicySentenceIsMarkedAsTheirs` (fiş, tenant'ın yazdığı bir
+politika cümlesini artık **adıyla** basıyor).
+
+🔴 **VE ÜÇ SATIRIN MEKANİK ÇAPASI YOK — BU BİR EKSİKLİK OLARAK YAZILDI, GİZLENMEDİ.**
+T28, T38 ve T39'un üçü de **tarayıcı ya da küme** davranışına bağlıdır; bir Go
+testi ikisini de üretmez, taklit eder, ve taklit eden bir test kabulü **doğrulamaz**.
+Üçünün de gerçek kapısı **dağıtımdır** (TLS + ingress) ve dağıtım bir manifest
+tarafından tarif edilir, bir test tarafından değil. Bunu *"kapatıldı"* diye yazmak,
+bu görevin dört turdur tekrarlayan **"sağlanmayan garantiyi beyan etmek"** kusurunu
+bir kez daha işlemek olurdu.
+
 ## Gerekçe
 
 - **Neden bir §4.1 "pozitif" ADR'si.** §4.1 negatif bir yasaktır ("biyometri

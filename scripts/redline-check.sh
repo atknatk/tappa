@@ -1055,6 +1055,18 @@ for f in db/migrations/*.sql; do
   #          §5 satir 3 zaten "kayit YAZILMAZ" diyen tek satirdir. Ailenin geri
   #          kalani icin ornek:
   #          TestCheckinDB_Row7_NoEvidenceIsFlaggedAndRECORDED.
+  #          ✅ YENIDEN OLCULDU (M8-04 FAZ B3, 2026-08-20) — cunku 3. turun bu
+  #          satiri, haritanin OLCUMU TEKRARLANMAYAN tek satiriydi ve ayni
+  #          haritanin BASKA iki satiri yanlis cikmisti (RLS kapatma 4. turda,
+  #          rlsforce 5. turda). Sonda: `CREATE RULE zz_probe_rule AS ON INSERT TO
+  #          transactions DO INSTEAD NOTHING;` sevk edilmis semaya UYGULANDI (bir
+  #          RULE'un etkisi baska bir baglantiya gorunur olmak zorunda, yani
+  #          BEGIN … ROLLBACK ise yaramaz), sonra DROP edildi:
+  #            Row1 FAIL · Row2 FAIL · Row3 PASS · Row4 FAIL · Row5 FAIL ·
+  #            Row6 FAIL · Row7 FAIL              -> 7'nin 6'si, PASS eden Row3
+  #          Geri alindi ve DOGRULANDI: pg_rules = 0, transactions satir sayisi
+  #          degismedi (426 791 -> 426 791). SAYI DOGRU CIKTI; degistirilecek bir
+  #          sey yok, degisen tek sey artik IKI kez olculmus olmasi.
   #   ALTER TABLE … OWNER TO (UYGULAMA ROLUNE)
   #       -> internal/db'nin ACILIS SONDASI, ve bu 3. turda YANLIS yaziliydi
   #          ("hicbir test bir tablonun SAHIBINI olcmuyor"). readRole'un dorduncu

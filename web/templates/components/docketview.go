@@ -94,12 +94,17 @@ type DocketView struct {
 	Review string
 	// ReviewNote is what the deciding manager typed, "" when they typed nothing.
 	//
-	// 🔴 IT IS THE ONLY FIELD ON THIS TYPE THAT A HUMAN WROTE. Note above is one of
-	// our own policy sentences from internal/policy — a fixed string. This is free
-	// text, so it is the one field whose escaping matters, and templ escapes it on
-	// output: proved by TestReviewDB_AHostileNoteIsEscapedWhereItIsRendered against
-	// a stored note containing a script tag, a quote and an ampersand, rather than
-	// asserted in a comment.
+	// 🔴 IT USED TO SAY "THE ONLY FIELD ON THIS TYPE THAT A HUMAN WROTE" AND THAT WAS
+	// FALSE — the audit measured it (M8-04 FAZ B3). Note below is a policy sentence,
+	// but not necessarily ONE OF OURS: a tenant's own policy statement carries an
+	// author-written `reason` and, when it wins the tiebreak, that reason IS the
+	// note. So two fields on this type can hold text a human typed, and NoteIsTenants
+	// is what tells them apart on screen.
+	//
+	// templ escapes both on output: proved by
+	// TestReviewDB_AHostileNoteIsEscapedWhereItIsRendered against a stored note
+	// containing a script tag, a quote and an ampersand, rather than asserted in a
+	// comment.
 	//
 	// ⚠️ THE ESCAPING IS templ's AND IT DOES NOT TRAVEL. M6-07's CSV export will
 	// read the same column and get none of it, and a spreadsheet treats a cell
@@ -110,9 +115,31 @@ type DocketView struct {
 	// the manager who decides and the manager who reads have to share a surface, or
 	// the note is written into a place nobody looks.
 	ReviewNote string
-	// Note is the deciding rule's sentence, straight from internal/policy. Those
-	// are fixed strings written by us; they carry no coordinate and no secret.
+	// Note is the deciding rule's sentence. It carries no coordinate and no secret.
+	//
+	// 🔴 IT IS NOT ALWAYS OURS, AND THE SENTENCE THAT USED TO STAND HERE SAID IT WAS
+	// ("straight from internal/policy … fixed strings written by us"). Measured by
+	// the M8-04 security audit: a tenant policy statement whose resource is more
+	// specific than the baseline's wins the tiebreak, and its author-written reason
+	// becomes this string verbatim — including one asserting network evidence on a
+	// record whose own columns record ip_match=false and trust=20.
 	Note string
+	// NoteIsTenants marks a Note the ORGANISATION wrote rather than one we wrote, so
+	// the card can say whose sentence it is printing.
+	//
+	// 🔴 WHY THE PRODUCT DOES NOT SIMPLY REFUSE SUCH A NOTE. Section 5 rows 6-7 are
+	// the tenant's to change BY NAME, and the same tenant can already type any
+	// sentence they like into a channel='manual' record. The record was never
+	// silent about this either: matched_sid says 'tenant:…', policy_layer says
+	// 'tenant', ip_match says false. The gap the audit found is that the DOCKET
+	// printed the one part of the row that can be wrong and none of the three that
+	// cannot — so this is defence in depth on the read side, not a section 4 fix.
+	//
+	// ⚠️ WHAT IT DOES NOT DO, said rather than left to be discovered: it does not
+	// make the sentence false, or true. A tenant rule may well be right about its own
+	// venue. The label reports PROVENANCE, and the evidence signs beside it
+	// (IPSign/GPSSign) are what a manager checks it against.
+	NoteIsTenants bool
 }
 
 // FilterBarView is the six filters M6-03's card names: what can be picked, and

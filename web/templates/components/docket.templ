@@ -122,8 +122,26 @@ templ TransactionDocket(d DocketView) {
 				}
 			</p>
 		}
+		// THE ENGINE'S "WHY", AND WHOSE SENTENCE IT IS.
+		//
+		// 🔴 THE LABEL IS PRINTED FOR THE TENANT'S OWN RULES ONLY, and the asymmetry
+		// is the decision rather than an omission. An unlabelled note is the
+		// product's own fixed sentence, which is the overwhelming majority of a
+		// day's records; labelling those too would put a line of chrome on every
+		// docket on a page that routinely holds 1 628 of them, to say "normal".
+		// The label marks the case a manager has to read differently: a sentence
+		// their own organisation authored, which the audit measured asserting
+		// evidence the same row denies.
+		//
+		// It reuses the treatment the manager's note already has one block down —
+		// same label class, same tone, no new colour and no new token.
 		if d.Note != "" {
-			<p class="mt-2 text-xs text-ink/85">{ d.Note }</p>
+			if d.NoteIsTenants {
+				<p class="mt-2 docket-label">Your own policy rule</p>
+				<p class="text-xs text-ink/85">{ d.Note }</p>
+			} else {
+				<p class="mt-2 text-xs text-ink/85">{ d.Note }</p>
+			}
 		}
 		// THE MANAGER'S OWN SENTENCE, LABELLED, so it is never mistaken for the
 		// engine's Note above it. One is what the RULE said; this is what a PERSON

@@ -1163,3 +1163,71 @@ func TestVendoredScript_MatchesTheRecordedDigest(t *testing.T) {
 		t.Fatal("no vendored .js in the embedded tree -- this test is guarding nothing")
 	}
 }
+
+// TestTransactions_ADocketSaysWhoWroteTheNote is the RENDER half of the acceptance
+// on ledger.Record.NoteIsTenants (M8-04 FAZ B3). The derivation is pinned one layer
+// down by TestLedger_ATenantsPolicySentenceIsMarkedAsTheirs; this asserts the label
+// survives the handler's mapping and the template.
+//
+// 🔴 THE MEASUREMENT BEHIND IT. The M8-04 security audit installed a tenant policy
+// statement whose resource was more specific than the baseline's and whose
+// author-written reason claimed "network proof of place: the source IP matches the
+// location". The tap that matched it recorded verdict=ok, matched_sid='tenant:…',
+// policy_layer='tenant', ip_match=false, trust=20 — three columns telling the truth
+// while the prose did not — and the docket printed the prose alone.
+//
+// ⚠️ WHAT THIS DOES NOT ASSERT, because the product deliberately does not do it: it
+// does not assert the sentence is refused, rewritten or hidden. Section 5 rows 6-7
+// are the tenant's to change by name (CLAUDE.md), the same tenant can already type
+// any sentence into a channel='manual' record, and transactions is append-only so a
+// stored note cannot be corrected anyway. The accepted guarantee is narrower and
+// this is it: the screen says whose sentence it is.
+func TestTransactions_ADocketSaysWhoWroteTheNote(t *testing.T) {
+	const claim = "network proof of place: the source IP matches the location"
+	const label = "Your own policy rule"
+
+	base := func(theirs bool) *fakeLedger {
+		f := newFakeLedger()
+		f.page = ledger.Page{
+			Queried: true,
+			Zone:    time.UTC,
+			Records: []ledger.Record{{
+				ID:            uuid.New(),
+				OccurredAt:    time.Date(2026, 8, 20, 9, 30, 0, 0, time.UTC),
+				Verdict:       "ok",
+				Channel:       "nfc",
+				Direction:     "in",
+				EmployeeName:  "Maria Borg",
+				LocationName:  "KF St Julians",
+				Note:          claim,
+				NoteIsTenants: theirs,
+			}},
+		}
+		return f
+	}
+
+	// THEIRS: the label is printed and the sentence still is.
+	body := htmlOf(t, panelBrowserWith(t, base(true)).do(http.MethodGet, transactionsHref, nil))
+	if !strings.Contains(body, claim) {
+		t.Fatalf("the note itself is not on the page; this test is measuring the wrong "+
+			"surface:\n%s", body)
+	}
+	if !strings.Contains(body, label) {
+		t.Errorf("a note written by the ORGANISATION's own policy rule rendered with no " +
+			"attribution. The row's own columns say policy_layer='tenant' and the panel " +
+			"has that column; printing only the prose prints the one part of an immutable " +
+			"record that can be wrong.")
+	}
+
+	// OURS: the same sentence, our layer — no label. This is the control that stops
+	// the check above from passing on a label the template prints unconditionally,
+	// which would make the mark meaningless by making it universal.
+	ours := htmlOf(t, panelBrowserWith(t, base(false)).do(http.MethodGet, transactionsHref, nil))
+	if !strings.Contains(ours, claim) {
+		t.Fatalf("the control page does not carry the note at all:\n%s", ours)
+	}
+	if strings.Contains(ours, label) {
+		t.Errorf("a note the PRODUCT wrote was labelled as the organisation's. A label on " +
+			"every docket says nothing; the label exists to mark the exception.")
+	}
+}
