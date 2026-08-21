@@ -127,9 +127,9 @@ const (
 	katT17Cmd = 0x8D
 	// 🔴 THE DOCUMENT CONTRADICTS ITSELF ABOUT THIS FIELD AND ITS OWN MAC SETTLES
 	// IT — MEASURED, NOT ASSUMED. Steps 4 and 12 print the CmdHeader's length
-	// sub-field as 530000 (83, the plaintext length); the C-APDU in step 15 carries
-	// 800000 (128, the ENCRYPTED length). Only one of them can have produced the MAC
-	// of step 13, so both were tried against the published value:
+	// sub-field as 530000 (83); the C-APDU in step 15 carries 800000 (128). Only one
+	// of them can have produced the MAC of step 13, so both were tried against the
+	// published value:
 	//
 	//	02 000000 530000 -> CMAC 695776212CF7A3DA0FB249D8D57E557F, MACt 5721F7DAB2D87E7F
 	//	02 000000 800000 -> CMAC A8D185D964A8E04998965461E7EB3EF3, MACt D1D9A8499661EBF3  <- published
@@ -139,6 +139,16 @@ const (
 	// stale length. The transcription follows the cryptography. As a side effect
 	// this is also a field-ORDER check: the three candidates differ in one field and
 	// give three different MACs, so the position of CmdHeader is pinned too.
+	//
+	// ⚠️ AND WHAT 128 *IS* WAS WRITTEN WRONG HERE FOR ONE ROUND — corrected in
+	// M8-05 FAZ B2b, by measurement rather than by rewording. This note called
+	// 800000 "the ENCRYPTED length"; it is not. The published CmdData is 128 bytes
+	// and the published ciphertext is 144 (128 plus the whole extra padding block
+	// §9.1.4 mandates), so 0x80 is neither 83 nor 144: it is len(CmdData), the
+	// plaintext being WRITTEN. The distinction is load-bearing for
+	// EV2WriteDataCommand, which has to choose what to put in that field, and
+	// TestAPDU_WriteDataHeaderMatchesAN12196Table17 now asserts all three numbers
+	// so the choice cannot drift back.
 	katT17Header  = "02000000800000"
 	katT17Ctr     = 0x0000                             // step 5  CmdCtr
 	katT17IV      = "D2CB7277A17841A06654A48188C1F8F5" // step 9  IVc
@@ -470,9 +480,15 @@ func TestEV2KAT_DataIVMatchesTwoPublishedCommands(t *testing.T) {
 // UIDOffset and SDMReadCtrOffset instead — a layout that is read from NT4H2421Gx
 // rev. 3.0 §10.7.1 Table 69 and appears in NEITHER revision of AN12196. What is
 // under test here is the SEALING, which treats the body as opaque bytes, so these
-// vectors say nothing about which body Tappa will eventually send. (ADR 0017 §6
-// does not list that layout as its own open item; the neighbouring decision it
-// does list is md. 13, the FileAR.Change / FileAR.ReadWrite cells.)
+// vectors say nothing about which body Tappa sends.
+//
+// ⚠️ UPDATED 2026-08-21 (M8-05 FAZ B2b), AND ITS TWIN IN ev2.go WAS UPDATED IN
+// THE SAME ROUND WHILE THIS ONE WAS NOT — which is the pattern this repository has
+// a name for: a mechanism moves and the prose beside it is left vouching for the
+// old world. What changed: filesettings.go now BUILDS both bodies, the plain one
+// and the published encrypted-PICC one, and ADR 0017 §6 md. 13 — the
+// FileAR.Change / FileAR.ReadWrite cells this note pointed at as "still open" —
+// was CLOSED in that round.
 //
 // 🔴 TABLE 17 ALSO PINS THE "EXTRA PADDING BLOCK" RULE, AND ITS SPLIT IS PROVEN
 // RATHER THAN ASSUMED. The document's step 7 prints 144 bytes under the label

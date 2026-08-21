@@ -4034,6 +4034,325 @@ turda** ölçülebilir; ayrıca `ctr` palindrom olmadığı için sinyal gürül
 >    çağrıda açık argüman, tek fren **çipin kendisi** (§9.1.2: yanlış sayaç =
 >    yanlış MAC). Sayaç muhasebesi B2b'nin oturum nesnesinin işidir.
 
+> **Kart düzeltmesi (2026-08-21, M8-05 FAZ B2b — komut katmanı).**
+>
+> **Sevk edilen (hâlâ taşımasız, hâlâ saf bayt üreten fonksiyonlar):**
+> `internal/sun/apdu.go` (ISO 7816 sarmalayıcı · `ISO SELECT` · **üç çerçeveli**
+> `GetVersion` + UID çıkarımı · `AuthenticateEV2First`'ün iki APDU çerçevesi ·
+> `WriteData` komutu · durum sözcüğü ayrıştırma), `internal/sun/ndef.go` (mirror
+> yer tutuculu NDEF URL şablonu + üç ofset) ve `internal/sun/filesettings.go`
+> (`ChangeFileSettings` gövdesi + Tappa'nın normatif yapılandırması). HTTP · DB ·
+> durumlu oturum · gerçek APDU taşıma **YOK** — onlar **B2c**. Yeni bağımlılık yok
+> (`encoding/hex`, `fmt`, `strings` — stdlib). `internal/sun` kapsamı **%96,2**.
+>
+> ✅ **YAYIMLANMIŞ `ChangeFileSettings` VEKTÖRÜ ÜRETİLDİ — ve bu turun tek dış
+> çapası odur.** Aynı kurucu AN12196 rev. 1.8 §6.9 tablo 19 (rev. 2.0 §5.9 tablo
+> 18) **şifreli-PICC** yapılandırmasını birebir veriyor:
+> `4000E0C1F121200000430000430000`. Böylece **alan sırası**, iki hak alanının
+> **bayt bileşimi**, `FileOption`/`SDMOptions` bitleri, 3 baytlık **LSB-first**
+> ofset kodlaması ve sarmalama **dışarıdan** çivilendi. Tappa'nın plain gövdesi
+> (18 bayt, `4011E1C1F1E11D00003000003C00003C0000`) ondan yalnız **iki nibble
+> değeri** ve **hangi ofsetlerin var olduğu** ile ayrılıyor.
+> 🔴 **Ofsetler ÇAPRAZ ÖLÇÜLDÜ, kopyalanmadı:** test 32 ve 67'yi tablo 18'in kendi
+> baytlarından **okumuyor**, tablo 17'nin `WriteData` gövdesindeki yer tutucu
+> koşularını **buluyor** ve kurucudan tablo 18'i üretmesini istiyor — iki ayrı
+> yayımlanmış dizi, aynı oturum. Bu, *"ofset dosyanın başından, NLEN dahil
+> sayılır"* okumasını da kanıtlıyor (mesaja göreli okuma **iki eksik** olurdu).
+>
+> 🔴 **DERIVED, NOT TRANSCRIBED — kısa ve tam liste** (uzunu
+> `internal/sun/filesettings.go` başlığında): *(1)* `SDMMetaRead = Eh`'in plain
+> anlamı ve `UIDOffset`+`SDMReadCtrOffset`'i **var**, `PICCDataOffset`'i **yok**
+> etmesi · *(2)* o iki ofsetin alan sırasındaki **yeri** · *(3)* NFC Forum URI RTD
+> 1.0'ın `04h = https://` eşlemesi (üçüncü bir belge) · *(4)* NDEF dosyasının
+> 256 baytlık **tavanı** (yalnız bir reddetme sınırı, tele giden bayt değil) ·
+> *(5)* `GetVersion` üçüncü çerçevesinin **uzunluk alt sınırı**.
+>
+> ⚠️ **BU BLOK BURADA *"belgenin ayırt edemediği ÜÇ alan konumu"* DİYORDU VE
+> İKİSİ YANLIŞTI — denetim turunda düzeltildi, aşağıdaki bloğa bakın.** Tablo 69
+> `SDMOptions` bitlerini ve `SDMAccessRights` nibble'larını **isimle** veriyor;
+> gerçekten ayırt edilemeyen **tek** çift `SDMMACInputOffset` ↔ `SDMMACOffset`'tir
+> ve o **reddetmeyle** kapatıldı: kurucu **boş olmayan MAC girdisi taşıyan gövdeyi
+> hiç kurmuyor** (ADR 0003 md. 2 zaten eşitlik istiyor).
+>
+> **Mutasyon kanıtı: 27 mutasyon, 25'i kırmızı.** Ofset MSB-first · `AccessRights`
+> baytlarının ve `Read`/`Write` nibble'larının yer değiştirmesi ·
+> `SDMAccessRights` baytlarının ve `MetaRead`/`FileRead` nibble'larının yer
+> değiştirmesi · `RFU` nibble'ı · üç varlık koşulu · `UIDOffset`/`ReadCtrOffset`
+> sırası · `FileOption` SDM biti · iki `SDMOptions` biti · `NLEN`'in LSB-first
+> yazılması · ofsetlerin NLEN'siz sayılması · `WriteData` başlığında uzunluk ve
+> ofsetin yer değiştirmesi · uzunluğun pad'li gövdeyi sayması · `GetVersion`'ın
+> 7 baytlık üçüncü çerçeve kabul etmesi · UID'nin **birinci** çerçeveden alınması ·
+> `ISO SELECT` P2'si · `NativeAPDU`'nun `Le`'yi düşürmesi · URI ön eki
+> `https→http` · yük uzunluğunun ön ek baytını saymaması · MAC ofsetinin bir bayt
+> kayması · `ChangeFileSettings` başlığından dosya numarasının düşmesi.
+> **İki hayatta kalan** yukarıdaki ayırt-edilemez konumlardır ve **ikisi de
+> tasarımla zararsızdır**, bir test boşluğu değil.
+> 🔴 **VE BİR MUTASYON GERÇEK BİR BOŞLUK BULDU:** URI ön ekini `04h`'den `03h`'ye
+> (`http://`) çeviren mutasyon **ilk turda hayatta kaldı**, çünkü test beklenen
+> değeri **sabitin kendisinden** okuyordu — M2-08'in birebir şekli. Test artık
+> belgeden gelen **04 harfini** yazıyor; mutasyon kırmızı.
+>
+> ✅ **ADR 0017 §6 MD. 13 KAPANDI: `Change` = `Write` = `ReadWrite` = anahtar
+> `0x01`, `Read` = `Eh`.** Gerekçe ve durum-durum kurtarma sayımı ADR 0017 §6
+> md. 13'te; iki *"karara bağlanmadı"* hücresi `deploy/README.md`'nin ayar
+> tablosunda **dolduruldu**. 🔴 **ADR 0005 risk 8 DARALDI** (satır **eklenmedi**,
+> sicil sekiz risk): fabrika anahtarı 0 ile **NDEF yazılamaz** ve **SDM
+> kapatılamaz** → **oltalama vektörü kapandı**; kalan yarı **hizmet reddi + anahtar
+> 0 kişiselleştirmesinin önden alınması** ve o da **sinyalsiz**.
+>
+> ⚠️ **B2a'nın BİR ÖLÇÜMÜNE İTİRAZ EDİLDİ VE DÜZELTİLDİ.** `ev2_kat_test.go`
+> tablo 17'nin `800000`'ını *"ENCRYPTED length"* diye niteliyordu; ölçüldü:
+> yayımlanmış `CmdData` **128**, şifreli alan **144**. Yani `0x80` ne 83 ne 144 —
+> `len(CmdData)`, yani **yazılan düz metin**. Bu ayrım `EV2WriteDataCommand`'ın o
+> alana ne koyacağını belirlediği için iş görüyor; testi artık üç sayıyı da
+> doğruluyor.
+>
+> **Denetim turu (2026-08-21, bağımsız üçüncü göz — AN12196 rev 2.0 ve NT4H2421Gx
+> rev 3.0 PDF'leri indirilerek, her *"belge diyor ki"* cümlesi `pdftotext`
+> çıktısından okunarak). VERDICT: RED — iki bloklayan + altı bloklamayan; hepsi
+> kapatıldı.**
+>
+> 🔴 **BLOKLAYAN 1 — *"ölçemedim"* dediğim iki vektör YAYIMLANMIŞ.** İkisi de
+> `tags.uid`'i (**PRIMARY KEY**) üreten komutlardı, yani **sıfır dış çapayla**
+> sevk ediliyorlardı, çapa **eldeyken**:
+> - `ISO SELECT` — AN12196 rev 2.0 **§5.3 tablo 9 adım 10** tam C-APDU'yu basıyor:
+>   `00A4040C07D276000085010100`, üretilen baytların **birebir aynısı**. Kod
+>   *"this repository holds no vector for either"* diyordu.
+>   → `TestAPDU_ISOSelectMatchesAN12196Table9`.
+> - `GetVersion` üçüncü çerçevesi — **§5.5 tablo 12 adım 9**:
+>   `04968CAA5C5E80CD65935D4021189100`, **14 veri baytı**, UID `04968CAA5C5E80`.
+>   Veri sayfası **tablo 58 (s.60)** kalem kalem sayıyor → **14 veya 15**. Kod
+>   *"this round could not measure that trailer's exact length"* diyordu; alt
+>   sınır artık **transkript**, ve bir **üst sınır** da eklendi.
+>   → `TestGetVersionKAT_ThirdFrameMatchesAN12196Table12`.
+>   🔴 Ağırlaştırıcı: `commands_kat_test.go` §5.3'ü **SOURCES tablosunda
+>   listeliyordu** ve hiçbir test kullanmıyordu; `an12196_kat_test.go`'nun eşleme
+>   tablosunda ise §5.3 **hiç yoktu** → o tablonun **beşinci** yanlışlanması
+>   (round 7 olarak kaydedildi; rev 1.8 yarısı **ölçülmedi diye BOŞ bırakıldı**,
+>   tahmin edilmedi).
+> **Sınıfı:** `https→http` mutasyonunun **tersi**. Orada test kendi sabitinden
+> okuyordu (var olmayan bir hatayı gizliyordu); burada **var olan kanıt yok
+> sayılıyordu**. Birincisi mutasyonda kendini gösterir, ikincisi **kimse bakmazsa
+> hiç görünmez**.
+>
+> 🔴 **BLOKLAYAN 2 — *"çözülemiyor"* dediğim iki atama Tablo 69'da (s.66) YAZIYOR.**
+> `SDMOptions`: bit 7 UID · 6 SDMReadCtr · 5 SDMReadCtrLimit · 4 SDMENCFileData ·
+> 3-1 RFU · 0 ASCII. `SDMAccessRights`: 15-12 `SDMMetaRead` · 11-8 `SDMFileRead` ·
+> 7-4 RFU · 3-0 `SDMCtrRet` — ve AN12196 T18 adım 7'nin **kendi metni** nibble'ları
+> tel sırasında etiketliyor. **Baytlar zaten doğruydu; yanlış olan ETİKETTİ**, ve
+> bedeli ölçülebilirdi: `ReadWrite↔Change` mutasyonu **hayatta kalmıştı**, çünkü
+> hiçbir test o iki alanı **farklı** değerlerle kurmuyordu.
+> → `TestFileSettings_NibblePositionsAreTheOnesTable69Names` (yedi nibble'ın yedisi
+> de farklı; `23E1`/`F2E1` beklentileri **Tablo 7 + Tablo 69'dan türetilmiş**) ve
+> mutasyon artık **KIRMIZI**. *"Zararsızlaştırma"* testi (`…AreHarmless`)
+> **silindi** — öncülü yanlış cümleydi. `SDMCtrRet = 0x01` artık bir **KARAR**
+> olarak yazılı (Tablo 9: `GetFileCounters`'ı kilitler; serbest bırakmak plakete
+> dokunabilen herkese o kapının **kaç kez tap edildiğini** okuturdu).
+> ✅ **Ve bir hayatta kalan GERÇEKTEN meşru:** `SDMMACInputOffset` ↔ `SDMMACOffset`
+> — **T18 adım 7 o ikisini Tablo 69'un TERS sırasında listeliyor** ve örnekte ikisi
+> de `430000`, yani hiçbir yayımlanmış bayt hakemlik edemiyor. Reddetme doğru çözüm.
+>
+> **Bloklamayanlar:**
+> - **N1 — dört atıf yanlış yere işaret ediyordu** (baytlar doğru, işaret yanlış;
+>   *"yanlış atıf, sonraki okuru doğrulayamayacağı bir sayfaya yollar"*):
+>   `ISOSelectFile` §10.3.1 → **§10.9.1 tablo 84 (s.77)** · `WriteData` §10.8.2
+>   tablo 74 → **tablo 81 (s.75)** · NDEF dosya numarası/boyutu §8.2.2 →
+>   **§8.2.3 tablo 5 (s.10)** · dosya hakları aralığı tablo 69 → **tablo 6
+>   (§8.2.3.3)** · tablo 69 sayfa aralığı **65–67** (varlık koşulları **s.67**).
+> - **N2 — `ndefFileSize = 256` *"ölçülmemiş okuma"* diye etiketlenmişti**;
+>   **tablo 5 (s.10)** onu veriyor ve §8.2.3.2 CC içeriğinde tekrarlıyor →
+>   **transkript**. Bloklayan 2'nin aynısı, ters yönde.
+> - **N3 — etiketlenmemiş türetme, ve belge onu yalanlıyor.** **Tablo 81:**
+>   `WriteData`'nın veri alanı *"up to **248 byte** including secure messaging"*;
+>   `apduMaxLc` 255'ti, yani **239 baytlık bir NDEF dosyası kabul ediliyordu** ve
+>   çip `LENGTH_ERROR` verirdi — **oturumun ortasında**, adım 5'te. Artık
+>   **birleştirilmiş alan üstünden** reddediliyor (`writeDataMaxDataField = 248`;
+>   düz metin tavanı **223 bayt**). ⚠️ Ve daha ağırı: **§8.2.3.1** *"single frames
+>   **up to 128 bytes** … are also tearing protected"* → 128'in üstündeki şablon
+>   **tearing korumasını kaybeder**, oysa ADR 0017 §5.3'ün tamamı yarım yazma
+>   üzerine ve **ayırt edemediği tek çift** *"hiç dokunulmadı"* ↔ *"yalnız adım 5
+>   yazıldı"*. **KARAR (2026-08-21):** `BuildTapNDEF` 128 baytın üstünü **reddeder**
+>   — host+path bütçesi **69 bayt**, bugünkü şablon 76 baytın tamamı 128'in altında,
+>   ve Q08 host'u **henüz seçmedi**, yani kısıtı koymanın en ucuz anı.
+> - **N4 — `SDMCtrRet`'in aralık kapısı yoktu** (üç kardeşinin hepsinde vardı).
+>   Sonda: `0x07` kabul ediliyordu → çipte `PARAMETER_ERROR` (tablo 71) ve
+>   **§9.1.10 gereği oturum ölür**, yani adım 5/6 koşmuşken adım 7 düşer. Kapı
+>   eklendi (`0h..4h`, `Eh`, `Fh`).
+> - **N5 — ADR 0005'in *"ölçülmedi"* satırı ölçüldü ve içinde KALICI bir madde
+>   var.** `SetConfiguration` **§10.5.1** gereği **AppMasterKey** ister → fabrika
+>   anahtarı 0 ile erişilebilir; **tablo 50**'nin `05h` seçeneği **LRP modunu geri
+>   alınamaz** şekilde açıyor (*"cannot be disabled afterwards"*) ve LRP'de SDM MAC
+>   **§9.3.8.2**'nin ayrı yoluyla hesaplanıyor → **doğrulayıcımızın asla
+>   okuyamayacağı bir plaket**. ✅ Rahatlatıcı yarı: **Random ID plain UID mirror'ı
+>   bozmuyor** (s.12). Sınıf değişmedi (hizmet reddi, `retire + replace`); ADR 0005
+>   risk 8 güncellendi, **satır eklenmedi**, sayı **8**.
+> - **N6 — üç bayat/yanlış cümle.** `ev2_kat_test.go`'nun *"md. 13 … does list"*'i
+>   (ikizi `ev2.go`'da düzeltilmiş, bu **bırakılmıştı** — *"mekanizma taşındı, nesir
+>   ayakta kaldı"*) · `an12196_kat_test.go`'nun round **6** notu round **5**'in
+>   **üstüne** yazılmıştı ve *"diğer atıfların hepsi NT4H2421Gx'e"* cümlesi
+>   **yanlıştı** (dört dosya AN12196 §5.3/§5.5/§5.6/§5.8.2/§5.9'a atıf yapıyor) ·
+>   alt-test adı `…is_five_bytes_shorter_still` — gövde 18→**3**, yani **on beş**.
+>
+> **Mutasyon (denetim sonrası): 32 mutasyon, 31'i kırmızı.** İlk tur 27/25'ti;
+> denetim beş mutasyon ekledi (dört yeni kapının her biri + `RFU↔SDMCtrRet`) ve
+> **`ReadWrite↔Change`'i kapattı** — artık `TestFileSettings_NibblePositionsAreTheOnesTable69Names`
+> tarafından kırmızıya çevriliyor. **Kalan tek hayatta kalan `MACInput↔MAC`** ve
+> **meşruluğu T18'in ters sırasıyla** gerekçeli.
+>
+> **Güvenlik denetimi turu (2026-08-21, `tappa-security-auditor` — VERDICT: RED,
+> bir bloklayan + üç bloklamayan). 🔴 KARAR DOĞRU ÇIKTI, SAYIM YANLIŞTI: kod
+> değişmedi, METİN değişti.**
+>
+> Temiz bulunanlar (hepsi denetçinin kendi mutasyonuyla): §4.1–§4.6 ve §4.8 · §4.7
+> sızıntı taraması (üç dosyadaki her biçim fiili yalnız uzunluk/indeks/nibble/
+> ofset/anahtar numarası/durum sözcüğü taşıyor) · üç dosyada **sıfır `defer Zero`**
+> (envanterin istediği hâl, iki yönde ölçüldü) · sabit-zaman envanteri ·
+> `cmac.go`/`verify_mac.go` **dokunulmamış** (T64) · kararın dört nibble'ı da
+> mutasyonla çivili · `go.mod` değişmemiş. Q08 bütçesi de ölçüldü:
+> `tappa.mt/t` → 69 bayt, `tap.tappa.mt/t` → 73, 35 karakterlik host → 96; hepsi
+> 128'in altında ve 70 bayt üstü **hata döndürüyor, sessiz kırpma yok**.
+>
+> 🔴 **BLOKLAYAN — yazma yetkisi, "yapısal olarak sızar" denen anahtara bağlandı.**
+> `Write = ReadWrite = Change = 0x01` ve **`0x01`, ADR 0005 risk 7'nin her encode ve
+> her kurtarma oturumunda dökümü görene sızdığını söylediği anahtardır**. Zincirin
+> her halkası bu turun kendi kodunda: risk 7'nin kümesi `K_0x01`'i öğrenir →
+> `AuthenticateEV2First(0x01)` mümkün (§5.3 sondası zaten onu kullanıyor) → o
+> oturumda `WriteData` **ve** `ChangeFileSettings` açık → **NDEF repointlenebilir =
+> oltalama**. Ve risk 7'nin kendi azaltma cümlesi (*"§5'in diğer üç kanıtı
+> bağlamaya devam eder"*) o dalda **geçersiz**: repointlenen plaketin tap'i **bize
+> hiç ulaşmaz**, yani çelişecek bir çerez/IP/GPS doğmaz.
+> **Karar korundu** — `0x00` halka açık (daha kötü), teslim `Eh` serbest (daha
+> kötü), `Fh` Q08 ve §5.3 gerekçesiyle zaten reddedilmiş. **Düzeltilen SAYIM:**
+> risk 7'nin sonuç sütunu ve gövdesi artık *"sahte SUN **VEYA** NDEF repointleme
+> (oltalama, sinyalsiz)"* diyor ve azaltma cümlesi o dalda geçersiz diye yazılı ·
+> risk 8'in satırı, daralma tablosu ve ADR 0017 §6 md. 13 **iki niteleyici** aldı:
+> **KİM** (yalnız fabrika anahtarı 0'ı olan taraf, risk 7'nin kümesi değil) ve
+> **NE ZAMAN** (yalnız **adım 7 tamamlandıktan sonra**; adım 5–7 arasında kesilen
+> çipte `Write = ReadWrite = Eh`, yani **serbest**). **Satır eklenmedi, sayı 8.**
+>
+> **Bloklamayanlar:**
+> - **N7 — `ParseGetVersion` UID İÇERİĞİNİ hiç doğrulamıyordu.** Denetçi
+>   `00000000000000`, `FFFFFFFFFFFFFF` ve **seed'in gerçek plaket UID'sini** verdi;
+>   üçü de kabul ediliyordu. Belgeden **ölçülerek** iki kapı eklendi: veri sayfası
+>   **§8.1 (s.8)** *"the first byte of the double size UID is **fixed to 04h**"* ve
+>   🔴 **Tablo 58 (s.60)** UID alanı için *"**All zero** — if configured for
+>   RandomID"* — yani sıfır UID **dejenere görünüm değil, belgelenmiş bir durum**:
+>   çip UID'ini **söylemiyor**. Onu `tags.uid`'e (**PRIMARY KEY**) yazmak ilk
+>   plakette işgal, sonrakilerde çakışma olurdu.
+>   🔴 **Ve dürüst sayım: bu saldırıyı KAPATMAZ.** Yalancı bir röle **geçerli
+>   görünen bir kurban UID'si** döndürebilir ve `GetVersion` yanıtının hiçbir yerinde
+>   kimlik doğrulama yoktur — test bu vakayı **kabul ederek** ve sebebini yazarak
+>   tutuyor. **Gerçek çare** ADR 0017 §6 md. 12'ye **dördüncü sonuç** olarak yazıldı:
+>   adım 6'dan sonra `K_0x01` bizimken UID'yi **`GetCardUID` ile o oturumda yeniden
+>   oku** (`CommMode.Full`, yanıt MAC'i röle tarafından üretilemez) — **yalanı
+>   TESPİT eder, satırı önlemez**. Komut kurucusu sevk edildi (`GetCardUIDCommand`).
+> - **N8 — §5.3'ün 1 numaralı sondası yazılmamıştı** ve açık listede de yoktu.
+>   Sevk edildi: `GetFileSettingsCommand` + `ParseFileSettings`. ⚠️ *"Kimlik
+>   doğrulamadan önce koşar"* artık **çıkarım değil ölçüm**: Tablo 22 komutu
+>   `CommMode.MAC` diye listeliyor (aynı etiketi `GetVersion`'a da veriyor, ve onun
+>   kendi bölümü *"freely accessible without secure messaging"* diyor), AN12196 ise
+>   soruyu **yaparak** kapatıyor — dizide adım **4**, kimlik doğrulaması olan adım
+>   **6**'dan önce. `Change = 0x01` sondayı **bozmuyor** (Tablo 9 `Change`'i yalnız
+>   `ChangeFileSettings`'e bağlar).
+>   🔴 **Ve ayrıştırıcı için DIŞ ÇAPA VAR:** AN12196 §5.4 Tablo 11'in alan listesi
+>   §5.9 Tablo 18'in `CmdData`'sının **aynısıdır**, yani yanıt → ayrıştır →
+>   yeniden kodla turu **yayımlanmış bir dizeye** iniyor. ⚠️ Belgenin **basılı
+>   R-APDU dizesi kullanılmadı** ve sebebi ölçüldü: `004300E0...9100` **18 bayt** ve
+>   `FileOption = 43h` gösteriyor, oysa kendi Tablo 11'i **19 bayt** ve `40h`
+>   diyor — dördüncü belge iç çelişkisi. (Beşincisi: Tablo 11 ofsetlerini
+>   `UIDOffset`/`SDMReadCtrOffset` diye **etiketliyor**, oysa kendi
+>   `SDMMetaRead = 2h` değeri altında Tablo 73'ün varlık koşulları o ikisinin
+>   **yok** olduğunu söylüyor.)
+> - **N9 — daralma tablosunun durum niteleyicisi yoktu**; eklendi (yukarıda).
+>
+> **Denetçinin doğrulayamadıkları — ÜÇÜ DE PDF'ten ölçüldü (bu turda indirildi):**
+> **(1)** `SetConfiguration` *"requires an authentication with the **AppMasterKey**"*
+> ✅ (§10.5.1) · LRP ✅ ama **adı düzeltildi**: seçenek `05h` **"Capability data"**,
+> LRP onun içindeki `PDCap2.1` **bit 1**'dir, *"This change is permanent"* ✅ ·
+> **Tablo 81 = 248 "including secure messaging"** ✅ · **§8.2.3.1 = 128** ✅.
+> **(2)** 🔴 **Tablo 50 alıntısı KISMİYDİ ve öyle olduğunu söylemiyordu** — üç
+> değil **beş** seçenek (`00h`, `04h`, `05h`, `0Ah`, `0Bh`); tamamı ADR 0005 risk
+> 8'e yazıldı. Ve **komut tablosu (Tablo 22) tarandı**: anahtar 0 ile erişilip
+> **kalıcı** etki bırakan küme = `SetConfiguration` (LRP kalıcı) + `ChangeKey`
+> (anahtar 0, 2–4; eskileri halka açık sıfır). 🔴 **Tarama md. 13'ün hiç
+> kapsamadığı bir yol buldu:** Tablo 8'e göre dosya `01h` (**Capability Container**)
+> teslimde `Write = ReadWrite = 0h`, dosya `03h` `3h` → anahtar `0x00`/`0x02`–`0x04`
+> fabrika sıfırında kaldıkça **ikisi de herkese yazılabilir**, ve CC'yi `E105h`'e
+> yönlendirip oraya URL yazmak **dosya `02h`'ye hiç dokunmadan** oltalama üretir.
+> Kapatan şey md. 13 değil **md. 5**'tir; ADR 0005 risk 8'e ve ADR 0017 md. 13'e
+> yazıldı.
+> **(3)** **128 baytlık tearing sınırı YAZILAN baytları ölçüyor**, mühürlenmiş
+> çerçeveyi değil → **kapı doğru kalibre**. Kanıt belgenin kendi karşıtlığı:
+> mühürlenmiş boyutu kastettiğinde **söylüyor** (Tablo 81 *"including secure
+> messaging"*), §8.2.3.1'de böyle bir ibare yok ve cümle `ISOUpdateBinary`'yi de
+> anıyor — o `CommMode.Plain`, yani orada yazılan bayt = çerçeve baytı.
+>
+> **Ayrıca bu turda belgeden doğrulanan üç şey daha:** Tablo 7 erişim haklarını
+> **bit 15..12 Read · 11..8 Write · 7..4 ReadWrite · 3..0 Change** diye veriyor ve
+> teslim değeri `E0EE` (Tablo 8 ile birebir) → **bayt bileşimi artık iki ayrı
+> yerden çivili** · Tablo 73 varlık koşullarının **beşini de** komut yönündekiyle
+> aynı sırada tekrarlıyor, **`SDMMACInputOffset` önce** → AN12196'nın ters
+> etiketlemesi bir **hata**, ayırt edilemezlik değil · Tablo 58 üçüncü çerçeveyi
+> UID(7)+BatchNo(4)+1+1+1[+1] diye sayıyor → **14 veya 15**, kodun aralığıyla aynı.
+>
+> **Üçüncü denetim (2026-08-21 — VERDICT: ONAY, bloklayan yok).** Denetçi iki
+> PDF'i **md5'leriyle** doğruladı (`8c9a4453…` AN12196 rev 2.0, `dcf5319c…`
+> NT4H2421Gx rev 3.0 — bu turda aynı hash'ler yeniden ölçüldü) ve her iddiayı
+> kendi ölçtü; hepsi tuttu. Kapatılan **beş** madde ve hepsi **güvenlik
+> belgelerindeki iddiaları düzeltiyor**, kod değil:
+> - 🔴 **Anahtar-0 ile erişilebilen KALICI küme eksikti.** `ChangeFileSettings`
+>   ile dosya `01h`/`03h`'nin herhangi bir hakkını **`Fh`** (tablo 6: *"no
+>   access"*) yapmak **geri alınamaz**: geri açacak komut yine
+>   `ChangeFileSettings`'tir (tablo 9) ve veri sayfasında **format/fabrika
+>   sıfırlama komutu yoktur** — tablo 22 taraması `FormatPICC|CreateApplication|
+>   factory reset|restore.*default` için **sıfır eşleşme** (bu turda yeniden
+>   koşuldu). Sonuçları: CC'yi repointledikten **sonra dondurmak** =
+>   **düzeltilemez oltalama plaketi**; boş çipte `02h`'nin `Change`'ini `Fh`
+>   yapmak = **adım 7'miz kalıcı olarak başarısız** (§5.3 sondası 1 bunu görür).
+> - 🔴 **CC yolunun yarısı TÜRETME DEĞİL, YAYIMLANMIŞ ÖRNEK** — etiket fazla
+>   temkinliydi. AN12196 **§5.14**: *"By default, CC file has FileAR.ReadWrite set
+>   to 00. **Therefore Authentication with Key0 needs to be done**."* ve **§5.15
+>   tablo 24** anahtar 0 altında CC'ye yazan tam C-APDU'yu basıyor — yazdığı şey
+>   `E105h`'i adlandıran `Proprietary-File_Ctrl_TLV`. Türetilmiş kalan tek parça
+>   telefonun CC'deki dosya kimliğini izlemesi. **İki ADR de artık AN12196'ya atıf
+>   veriyor** (önceden hiç vermiyorlardı).
+> - **Risk 8'in CC cümlesi bir adımı atlıyordu:** tablo 8 dosya `03h`'ye
+>   `Read = 2h` veriyor, yani kimlik doğrulamamış telefon `E105h`'i **okuyamaz**;
+>   saldırganın **ayrıca** `03h`'nin `Read`'ini `Eh`'ye taşıması gerekiyor
+>   (mümkün: `Change = 0h`). Sonuç değişmiyor, ama cümle saldırıyı olduğundan
+>   **kolay** gösteriyordu — sapma yanlış yöndeydi. Üç adım artık yazılı.
+> - **`filesettings.go`'nun "19"u yanlış belgeye bağlanmıştı.** Tablo 11'in kendi
+>   değer sütunu **16** veri baytı veriyor, yani basılı dizeyle **aynı**; **19**,
+>   Tablo 11'in `SDMAccessRights = F121` değerine **NT4H2421Gx tablo 73'ün**
+>   varlık koşulları uygulanınca çıkıyor (`7+3+3+3+3`). Çelişki her iki okumada da
+>   gerçek ve kod doğru; yanlış olan **aritmetiğin kaynağıydı**.
+> - **Bir "kendi şüphem" ölçüme indirildi.** *"Basılı dize doğruysa ayrıştırıcım
+>   da yanlış"* — **değil**: ayrıştırıcı **NT4H2421Gx şekil 23 + tablo 73**'ü
+>   uyguluyor, ve çipin yanıt biçimi için normatif olan onlar; AN12196'nın bu
+>   konuda yetkisi yok. Yanlış olabilecek şey **vektör seçimi**, **bölme değil**.
+>
+> **Denetçinin fazladan yaptığı ve tutan üç ölçüm:** `ndefPrefixLen = 7` ve mutlak
+> ofsetler (T17 → T18 `200000`/`430000`) · 248/223 aritmetiği (T17 adım 15
+> `Lc = 0x9F = 7 + 144 + 8`) · **18 baytlık gövdenin sekiz alanının sekizi**.
+>
+> 🔴 **BU GÖREVİN ÖĞRETTİĞİ — PDF itirafının ÖTESİNDE.** Üç denetimin **üçü de**
+> aynı sınıfı buldu ve sınıf *"yanlış bayt"* değildi: **fazla geniş bir cümle**.
+> Sırasıyla *"vektör yok"* (vardı) · *"ayırt edilemez"* (Tablo 69 isimle veriyor) ·
+> *"oltalama kapandı"* (yalnız bir saldırgan kümesine karşı) · *"ölçülmedi"*
+> (ölçülebilirdi). **Hiçbiri testle yakalanmaz**, çünkü hiçbiri koda dair bir
+> iddia değil — **kanıta dair** bir iddia. Mutasyon bir baytın korunduğunu
+> gösterir; bir cümlenin **hak ettiğinden fazlasını söylediğini** göstermez.
+> Ders operasyonel: **bir "yapamaz/yoktur/kapandı" cümlesi yazarken niteleyicisini
+> aynı anda yaz** — *kime karşı, hangi durumda, hangi ölçümle* — çünkü niteleyici
+> sonradan eklenmiyor, **denetim tarafından ekletiliyor**. Bu turda kararların
+> hiçbiri değişmedi; değişen **on iki cümle** oldu.
+>
+> 🔴 **AÇIK KALAN — B2c'nin işi:** ADR 0017 §6'nın md. 5 (anahtar 0'ın şeması) ·
+> md. 7 (oturum TTL/süpürücü/`Zero` garantisi) · md. 8 (`audit_log`) · md. 10
+> (yetkilendirme kapısı) · md. 12 (UID uzayı), artı B2a'nın F4 devri (`crypto/rand`
+> ile `RndA`, `CmdCtr` muhasebesi, `EV2Auth`'un şeklinin yazılı kararı) ve
+> **hâlâ hiçbir çip encode edilmedi** (§6 md. 1).
+
 **Tuzaklar.**
 - **Yanlış host'la encode edilmiş plaket = sahada plaket değişimi.** SUN URL'si
   domaini taşır ve **Q08 hâlâ açık** (`tappa.mt`/`tappa.io` alınmadı). Encode

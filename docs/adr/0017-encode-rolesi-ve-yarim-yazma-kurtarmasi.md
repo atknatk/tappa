@@ -400,8 +400,9 @@ belgede yazılı:
   bağlamıyor**. `00E0`'ın gerçek kaynağı AN12196'nın **örnek** `CmdData`'sıdır
   (rev. 1.8 §6.9 tablo 19 adım 7; rev. 2.0 §5.9 tablo 18) — ve o örnek
   **şifreli-PICC** yapılandırmasıdır, Tappa'nın plain'i değil. Bu satır bu
-  yüzden **bir alıntıdır, bir karar değil**; `FileAR.Change` ve
-  `FileAR.ReadWrite` için Tappa'nın kararı turun 2'sinde o tabloya yazılmalıdır.
+  yüzden **bir alıntıdır, bir karar değil**. ✅ **Tappa'nın kararı 2026-08-21'de
+  verildi ve o tabloya yazıldı** — `Change = Write = ReadWrite = 0x01`,
+  `Read = Eh`; gerekçe ve risk 8 etkisi §6 md. 13'te.
 - **Sonuç ödünç alınan değere BAĞLI DEĞİL, ve bu ayrı ölçüldü:** veri sayfası
   **tablo 8** (s. 12, *"Default file access rights"*) NDEF dosyasına (`02h`)
   **teslimde** `Change = 0h` veriyor — yani `ChangeFileSettings` daha ilk günden
@@ -453,7 +454,7 @@ Normatif sıra:
 4. AuthenticateEV2First(anahtar 0, FABRİKA varsayılanı)
 5. WriteData → NDEF URL şablonu (mirror yer tutucuları)
 6. ChangeKey(anahtar 0x01 = K_SDMFileRead): fabrika → bizimki   [§6.16.1 sınıfı]
-7. ChangeFileSettings: plain SDM aç + yazma iznini kilitle
+7. ChangeFileSettings: plain SDM aç + yazma iznini kilitle (anahtar 0x01 — §6 md. 13)
 8. ChangeKey(anahtar 0x00 = AppMasterKey): fabrika → bizimki    [§6.16.2 sınıfı]
    🔴 NORMATİF, ama BİR ŞEMA KARARINA BAĞLI — aşağıya bak (§6 md. 5)
 9. [sunucu] Zero(anahtarlar); satırı "encode edildi" olarak işaretle
@@ -499,8 +500,11 @@ değiştirildikten **sonra** koşar. Gerekçe **fail-closed**:
   hiçbir SUN üretmez. **Yanlış yön güvenli yöndür.**
 - Sapma serbesttir çünkü adım 5–8'in hepsi **aynı** oturumda, **anahtar 0** ile
   koşar: veri sayfası §10.6.1 *"Authentication with application key number 0 is
-  required to change the key"* der, `FileAR.Change` ve `FileAR.Write` da anahtar
-  0'dır (tablo 9). Ve belge kendi sırasını normatif saymaz — kişiselleştirme
+  required to change the key"* der, `FileAR.Change` ve `FileAR.Write` da
+  **teslimde** anahtar 0'dır (tablo 8/9). ⚠️ *"Teslimde"* niteleyicisi
+  2026-08-21'de eklendi: §6 md. 13'ün kararı adım 7'de ikisini de `0x01`'e taşır,
+  ama **adım 7'nin kendisi** hâlâ teslim değeriyle, yani anahtar 0 oturumunda
+  koşar — dizi değişmiyor. Ve belge kendi sırasını normatif saymaz — kişiselleştirme
   adımları için *"Following steps are optional and used as an example only."* der.
 
 **`ChangeKey`'in iki sınıfı KARIŞTIRILAMAZ** — belge onları bilerek ikiye
@@ -535,7 +539,15 @@ messaging as soon as the PD is selected and there is no active authentication."*
 ⚠️ **Random ID itirazı düşüyor** ve sebebi ölçüldü: `PICCConfig` bit 1 için veri
 sayfası (s. 56) *"Random ID is **disabled at delivery time**"* diyor ve §5.1'in
 dizisi `SetConfiguration`'ı **hiç çağırmıyor** — yani boş çipte `GetVersion`'ın
-döndürdüğü şey gerçek UID'dir. (Random ID açık bir çipte doğru komut
+döndürdüğü şey gerçek UID'dir.
+🔴 **AMA "TESLİMDE KAPALI" BİR GARANTİ DEĞİL, BİR BAŞLANGIÇ DURUMUDUR — 2026-08-21
+ölçümü.** `SetConfiguration` yalnız **AppMasterKey** ister (§10.5.1) ve o anahtar,
+md. 5 kapanana kadar **halka açık fabrika varsayılanıdır**; yani plakete fiziksel
+erişimi olan biri Random ID'yi **açabilir** ve o çipte `GetVersion` UID alanını
+**hepsi sıfır** döndürür (Tablo 58: *"All zero — if configured for RandomID"*).
+Sıfır UID'i `tags.uid`'e yazmak **PRIMARY KEY**'i işgal ederdi; `internal/sun`
+bu turdan itibaren onu **reddediyor**. Ve bu, md. 12'nin dördüncü sonucundan
+**ayrı bir eksendir**: burada yalan söyleyen **çip**, orada **telefon**. (Random ID açık bir çipte doğru komut
 `GetCardUID` olurdu ve o **kimlik doğrulama ister** — bu ADR o yapılandırmayı
 kurmuyor.) Yani gerçek
 seçim *"satır mı çip mi"* değil, *"satır, çipin ilk **geri alınamaz**
@@ -574,6 +586,15 @@ silinmemesidir**; olay izi henüz bir yükümlülüktür, bir mekanizma değil.
    ofsetleri beklenen mi. Kapalıysa **adım 7 hiç koşmamıştır**. (AN12196 bu
    komutu kişiselleştirme dizisinde **kimlik doğrulamadan önce** çağırıyor —
    rev. 1.8 §6.4 tablo 12, s. 26; rev. 2.0 §5.4 tablo **10**, s. 24.)
+   ✅ **SEVK EDİLDİ (2026-08-21, FAZ B2b):** `internal/sun/apdu.go` →
+   `GetFileSettingsCommand` ve `internal/sun/filesettings.go` → `ParseFileSettings`.
+   ⚠️ *"Kimlik doğrulamadan önce"* artık bir çıkarım değil **ölçüm**: veri sayfası
+   Tablo 22 bu komutu `CommMode.MAC` diye listeliyor — `GetVersion`'a verdiği
+   etiketin aynısı, ve `GetVersion`'ın kendi bölümü onun *"freely accessible
+   without secure messaging"* olduğunu yazıyor (§10.5.2). AN12196 soruyu **yaparak**
+   kapatıyor: dizide adım **4**, kimlik doğrulaması olan adım **6**'dan önce, ve
+   yanıtı düz basılı. Md. 13'ün `Change = 0x01` kararı bu sondayı **bozmuyor**:
+   Tablo 9 `Change`'i yalnız `ChangeFileSettings`'e bağlar, okumaya değil.
 2. `AuthenticateEV2First(anahtar 0x01, **satırdaki** anahtar)` → **başarılı** ise
    adım 6 koşmuştur; **başarısız** ise çipin `K_SDMFileRead`'i hâlâ fabrika
    varsayılanıdır. (Sıfırdan farklı bir anahtar numarasıyla kimlik doğrulama
@@ -780,16 +801,110 @@ bilmeyen bir `ChangeKey` **yapılamaz** (protokol gövdesi `Old ⊕ New` ister);
     ve `ratelimit` taşıyor — md. 10) · oran sınırı · ve **bugün tek temizlik
     yolunun `tappa_owner` ile elle müdahale olduğunun** yazılı olması.
 
-13. 🔴 **`FileAR.Change` VE `FileAR.ReadWrite` KARARA BAĞLANMADI — ve §5.1 adım 7
-    onlarsız NORMATİF yazıldı.** §5.1 *"yazma iznini kilitle"* diyor ama **hangi
-    anahtara** olduğunu söylemiyor; `deploy/README.md`'nin normatif ayar tablosu
-    da bu iki hakkı **hiç** karara bağlamıyor (§5.0'da ölçüldü; bu turda tabloya
-    *"karara bağlanmadı"* satırı olarak **yazıldı**, ama karar hâlâ yok). İki
-    ölçüm bunu acil kılıyor: veri sayfası **tablo 9**'a göre `Write` **ile**
-    `ReadWrite` **ikisi de** `WriteData`'ya kapı açar → yalnız birini kilitlemek
-    yazmayı **kilitlemez**; ve **tablo 8**'e göre ikisi de teslimde `Eh`
-    (serbest). Turun 2'si üç hücreyi birden kararlaştırmalı: `Change` · `Write` ·
-    `ReadWrite`, ve her biri **hangi anahtar numarasına**.
+    🔴 **DÖRDÜNCÜ SONUÇ — bu madde onu SAYMIYORDU (güvenlik denetimi, 2026-08-21).**
+    Yukarıdaki üç ölçüm *"B tenant'ı A'nın uid'ini işgal eder"* eksenindedir.
+    Sayılmayan şey daha basit ve daha ağır: **röle `UID_X` döndürür, çip gerçekte
+    `UID_Y`'dir.** O zaman §5.1 adım 3 satırı `UID_X` ile yazar ve `Wrap`'ın AAD'si
+    `UID_X` olur (ADR 0003 md. 4), ama adım 6–8 **gerçek çipe** koşar → çip `Y`,
+    **hiçbir satırda bulunmayan** bir anahtar taşır. Bu tam olarak §5.2'nin
+    🔴 *"çip var, satır yok — plaket kalıcı olarak çöp"* modudur, yani **"satır
+    önce" kararının engellemek için var olduğu mod**. §5.2'nin bu karara getirdiği
+    tek itiraz **Random ID**'dir ve o bir **çip** özelliğidir; §2.2 ise **telefonu**
+    düşman sayar — iki ayrı eksen.
+    **Bu turda yapılan:** `ParseGetVersion` artık belgeye dayanan iki dejenere
+    UID'i reddediyor — **hepsi sıfır** (Tablo 58: Random ID durumu) ve **ilk baytı
+    `04h` olmayan** (§8.1: *"the first byte of the double size UID is fixed to
+    04h"*). ⚠️ **Bu saldırıyı KAPATMAZ ve öyle sunulmuyor:** yalancı bir röle
+    **geçerli görünen bir kurban UID'si** döndürebilir ve `GetVersion` yanıtının
+    hiçbir yerinde kimlik doğrulama yoktur.
+    **Gerçek çare — B2c'nin işi:** adım 6'dan sonra, `K_0x01` artık bizimken,
+    UID'yi **o oturumda `GetCardUID` ile yeniden oku** (§5.2'nin kendi cümlesi
+    onun kimlik doğrulama istediğini yazıyor; komut `CommMode.Full`, yani yanıt
+    MAC'i röle tarafından **üretilemez**). Bu **yalanı TESPİT eder, satırı
+    önlemez** — sessiz kalıcı kaybı *"iptal et ve temizle"*ye çevirir. Komut
+    kurucusu bu turda sevk edildi: `internal/sun/apdu.go` → `GetCardUIDCommand`.
+
+13. ✅ **KAPANDI (2026-08-21, FAZ B2b): `FileAR.Change` = `FileAR.Write` =
+    `FileAR.ReadWrite` = anahtar `0x01`; `FileAR.Read` = `Eh`.**
+    Madde açıkken şöyle diyordu: §5.1 adım 7 *"yazma iznini kilitle"* diyor ama
+    **hangi anahtara** olduğunu söylemiyor, ve `deploy/README.md`'nin normatif
+    ayar tablosu bu iki hakkı **hiç** karara bağlamıyor. İki ölçüm aciliyeti
+    veriyordu ve ikisi de kararda duruyor: veri sayfası **tablo 9**'a göre
+    `Write` **ile** `ReadWrite` **ikisi de** `WriteData`'ya kapı açar → yalnız
+    birini kilitlemek yazmayı **kilitlemez**; ve **tablo 8**'e göre ikisi de
+    teslimde `Eh` (serbest), `Change` ise `0h`.
+
+    **Kararın dört gerekçesi ölçüldü** (tamamı `internal/sun/filesettings.go` →
+    `TappaNDEFSettings`, hücreler `deploy/README.md`'nin ayar tablosunda):
+    - `Change`'i teslim değerinde (`0h`) bırakmak öteki ikisini **süs yapardı**:
+      halka açık fabrika anahtarı 0 ile kimlik doğrulayan biri
+      `ChangeFileSettings` ile `Write`/`ReadWrite`'ı `Eh`'ye geri çevirip yazardı.
+    - **Anahtar `0x00` değil**, çünkü anahtar 0 **bugün halka açıktır** — §5.0
+      karar 2 onu kişiselleştiriyor ama sevkiyat md. 5'e bloke. Yazmayı ona
+      kilitlemek `deploy/README`'nin kendi imgesiyle paspasın altındaki anahtardır.
+    - **`Fh` ("asla") değil**, çünkü Q08 açık (md. 11): host kararlaşmadı, yani
+      bir plaketin URL'si duvara çıkmadan **yeniden yazılmak** zorunda kalabilir.
+      `Fh` her Q08 düzeltmesini plaket değişimine çevirirdi; `Change = Fh` ayrıca
+      §5.3 kurtarmasını dondururdu.
+    - **§5.1'in sırasıyla uyumlu, ve bu ayrıca ölçüldü:** `Change` teslimde `0h`
+      olduğu için **ilk** `ChangeFileSettings` (adım 7) adım 4'ün anahtar-0
+      oturumunda koşar; `Change`'i `0x01`'e taşıyan komut **aynı komuttur**, yani
+      anahtar 0 gerektiren **son** ayar komutudur. Adım 5'in `WriteData`'sı ondan
+      **önce**, teslim `Write = Eh` altında koşmuş olur. Sonraki hiçbir adım bu
+      iki hakka ihtiyaç duymaz: adım 8 `ChangeKey`'dir ve `ChangeKey` dosya
+      haklarına değil **AppMasterKey**'e bağlıdır (veri sayfası §8.2.4.1).
+    - **§5.3'ün üç yarım-yazma durumu da ulaşılabilir kalıyor** (durum durum
+      sayıldı, aynı yerde yazılı): adım 6/7 koşmamışsa fabrika anahtarı 0 her şeyi
+      açar · adım 6 koşup 7 koşmamışsa `Change` hâlâ `0h`'dır · ikisi de koşmuşsa
+      yazma ve yeniden yapılandırma `0x01` ister ve o **satırdadır** (§5.2 satırı
+      **önce** yazıyor, tam olarak bunun için).
+
+    ⚠️ **Bir bedeli sayıldı:** *"çip yazıldı, satır kayboldu"* modunda (§5.2 onu
+    zaten kalıcı plaket kaybı sayıyor) `Change = 0h` olan bir çip, `SDMFileRead`'i
+    hâlâ fabrikada olan başka bir anahtara çevirerek **kurtarılabilirdi**;
+    `Change = 0x01` ile o hurda-değeri de gidiyor.
+
+    🔴 **RİSK 8'E ETKİSİ: DARALTIYOR, KAPATMIYOR** — ve ADR 0005 risk 8 bu turda
+    buna göre güncellendi (satır **eklenmedi**, sicil sekiz risktir). Fiziksel
+    erişimi ve halka açık fabrika anahtarı 0'ı olan biri artık NDEF URL'sini
+    **yazamaz** (oltalama vektörü kapandı) ve SDM'i **kapatamaz**; anahtar `0x01`'i
+    **öğrenemez ve değiştiremez** (tablo 63 gövdesi `New XOR Old` **ve** `New`
+    üzerinde `CRC32` ister — eski anahtarı bilmeden ikisi de hesaplanamaz).
+    **Yapabildiği**: anahtar 0'ı ve 2–4'ü (eskileri halka açık sıfır olduğu için)
+    üzerine yazmak → **hizmet reddi ve bizim gelecekteki anahtar-0
+    kişiselleştirmemizin önden alınması**, sahtecilik değil.
+    🔴 **VE BU MADDE *"ÖLÇÜLMEDİ"* DEMİŞTİ; ÖLÇÜLDÜ (2026-08-21, üçüncü göz).**
+    `SetConfiguration` veri sayfası §10.5.1'e göre **AppMasterKey** ister, yani
+    fabrika anahtarı 0 ile erişilebilir; Tablo 50'nin `05h` seçeneği
+    (**"Capability data"** — LRP onun içinde `PDCap2.1` **bit 1**'dir) LRP modunu
+    **KALICI olarak** açar (*"This change is permanent, LRP mode cannot be disabled
+    afterwards"*) ve LRP'de SDM MAC §9.3.8.2'nin ayrı yoluyla hesaplanır →
+    **doğrulayıcımızın asla okuyamayacağı bir plaket**. ⚠️ Tablo 50'nin **beş**
+    seçeneği var (`00h`, `04h`, `05h`, `0Ah`, `0Bh`); tamamı ADR 0005 risk 8'de
+    sayılı. Rahatlatıcı yarı da ölçüldü: **Random ID plain UID mirror'ı bozmuyor**
+    (veri sayfası s. 12) — **ama `GetVersion`'ın UID alanını sıfırlar** (Tablo 58:
+    *"All zero — if configured for RandomID"*), ve encode akışı artık o değeri
+    **reddediyor** (`internal/sun/apdu.go`). Sınıf değişmiyor — hizmet reddi, çare
+    `retire + replace`.
+    🔴 **VE BU KARARIN HİÇ KAPSAMADIĞI BİR YOL SAYILDI:** md. 13 yalnız dosya
+    `02h`'yi kilitler; tablo 8'e göre dosya `01h` (**Capability Container**)
+    teslimde `Write = ReadWrite = 0h`, dosya `03h` ise `Read = 2h`,
+    `Write = ReadWrite = 3h`, `Change = 0h`'dır — yani anahtar `0x00` ve
+    `0x02`–`0x04` fabrika sıfırında kaldığı sürece **ikisi de herkese
+    yazılabilir**. ⚠️ **Ve bu bir türetme değil:** AN12196 rev. 2.0 **§5.14**
+    *"By default, CC file has FileAR.ReadWrite set to 00. **Therefore
+    Authentication with Key0 needs to be done**."* diyor ve **§5.15 tablo 24**
+    anahtar 0 altında CC'ye yazan tam C-APDU'yu basıyor — `E105h`'i adlandıran
+    `Proprietary-File_Ctrl_TLV`'yi yazarak. Saldırı üç adımdır (`E105h`'e URL yaz ·
+    `03h`'nin `Read`'ini `2h`'den `Eh`'ye taşı — `Change = 0h` olduğu için mümkün ·
+    CC'yi `E105h`'e yönlendir) ve dosya `02h`'ye **hiç dokunmaz**.
+    🔴 **Geri alınamaz üyesi:** `ChangeFileSettings` ile `01h`/`03h`'nin herhangi
+    bir hakkını **`Fh`** (tablo 6: *"no access"*) yapmak **kalıcıdır** — geri açacak
+    komut yine `ChangeFileSettings`'tir (tablo 9) ve veri sayfasında **format ya da
+    fabrika ayarlarına dönüş komutu yoktur** (tablo 22 taraması: sıfır eşleşme).
+    Aynı hamle **boş bir çipte `02h`'nin `Change`'ine** uygulanırsa **adım 7
+    kalıcı olarak başarısız olur** — §5.3 sondası 1 bunu görür.
+    Kapatan şey **md. 5**'tir, bu madde değil.
 
 14. 🔴 **BU TUR İKİ MEKANİK KORUMA DÜŞÜRDÜ — geri alma değil, SAYILMIŞ KAYIP.**
     İkisi de `deploy/README.md` → *"Anahtar hijyeni"*ndeydi ve **eski hâlleri

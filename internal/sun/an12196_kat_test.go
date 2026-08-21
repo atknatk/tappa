@@ -93,6 +93,7 @@ import (
 //	§4.4.2.1        p.11        §3.4.2.1        p.10   Encryption of PICCData
 //	§4.4.4.2.1 Table 5 p.15     §3.4.4.2.1 Table 4     CMACInputOffset == CMACOffset
 //	§6 (chapter) p.24           §5 (chapter) p.22      "Personalization example"
+//	§6.3?  NOT MEASURED         §5.3   Table 9         Select NDEF application (ISO SELECT)
 //	§6.4   Table 12 p.26        §5.4   Table 10 p.24   Get File Settings (NDEF file)
 //	§6.5   Table 13 p.27        §5.5   Table 12 p.25   Get Version (UID, three frames)
 //	§6.6   Table 14             §5.6   Table 14        AuthenticateEV2First, key 0x00
@@ -106,6 +107,13 @@ import (
 //	§7.3   Table 29 p.45        §6.3   Table 28 p.42   Get UID (CommMode.FULL response)
 //	§10.1           p.54        §9.1            p.51   Supporting tools list
 //	§3 "Definition of variables" p.6   §2 p.4          MACt() truncation notation
+//
+// ⚠️ ONE HALF-ROW, AND THE BLANK IS DELIBERATE. The §5.3 row carries "NOT MEASURED"
+// on the rev 1.8 side because nobody has opened rev 1.8 at that page. The section
+// number follows the chapter shift (§5.x is §6.x); the TABLE number follows nothing
+// — this table's own rule, and the neighbouring rows prove it: §6.4's table is 12
+// while §5.4's is 10, and §6.5's is 13 while §5.5's is 12. A plausible number written
+// here would be indistinguishable from a measured one. Measure it and fill it in.
 //
 // ⚠️ SUBSECTION DEPTH IS NOT RE-LISTED. ADR 0017 cites §6.16.1 and §6.16.2, which
 // the §6.16 row already covers: the depth survives the renumbering (§6.16.1 ->
@@ -137,6 +145,25 @@ import (
 //	                      section, table AND page all move independently — §6.8.2
 //	                      Table 18 p.32 becomes §5.8.2 Table 17 p.29 — so the "page
 //	                      does not move" shortcut that keeps suggesting itself is false.
+//
+//	round 6 (2026-08-21)  NOT a falsification, and recorded because a check that PASSES
+//	                      is still a measurement: M8-05 FAZ B2b cited §6.5/§5.5
+//	                      (GetVersion, three frames) from PRODUCTION code for the first
+//	                      time — internal/sun/apdu.go — and the row was already here,
+//	                      added after round 4 found it missing from an ADR.
+//	                      ⚠️ ITS FIRST WRITING ALSO CLAIMED "the round's other citations
+//	                      are all to NT4H2421Gx, which has one revision". FALSE, and the
+//	                      next audit said so: that round's four files cite AN12196
+//	                      §5.3, §5.5, §5.6, §5.8.2 and §5.9 repeatedly. A note ABOUT a
+//	                      table of citations got its own citations wrong.
+//
+//	round 7 (2026-08-21)  THE FIFTH FALSIFICATION, found by the third-eye audit of that
+//	                      same round: §5.3 (Select NDEF application, rev 2.0 Table 9)
+//	                      was cited by nothing here and IS the anchor for
+//	                      ISOSelectNDEFApplication — while apdu.go was simultaneously
+//	                      claiming "this repository holds no vector for either". Row
+//	                      added below. Five falsifications in seven rounds; the heading
+//	                      above already stopped promising completeness, and this is why.
 //
 // FOUR ROUNDS, FOUR MISSES, AND EACH ROUND PATCHED THE PREVIOUS ROUND'S GAP. That is
 // the shape this repository names outright: a detector written to the shape of the

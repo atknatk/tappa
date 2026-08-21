@@ -23,11 +23,11 @@ import (
 //
 // 🔴 WHAT THIS FILE IS NOT. There is no HTTP, no DB, no APDU transport, no relay,
 // no context, no goroutine and no stateful session machine here — those are ADR
-// 0017's turn 2b. Every function takes bytes and returns bytes. EV2Auth is a
+// 0017's turn 2c. Every function takes bytes and returns bytes. EV2Auth is a
 // RESULT VALUE, not a session: it holds no command counter, so nothing here can
 // silently mis-count. CmdCtr is an explicit argument at every call site, exactly
 // so the caller has to say which value it means (ADR 0017 §6 md. 7 — the session
-// TTL, the sweeper and the zeroisation rule are still open and are turn 2b's).
+// TTL, the sweeper and the zeroisation rule are still open and are turn 2c's).
 //
 // 🔴 SECRETS (CLAUDE.md §4.7). RndA, RndB, the session keys and every plaintext
 // key buffer are key material. Nothing here logs, formats or returns them by
@@ -148,7 +148,7 @@ var (
 // derived. It is a RESULT VALUE and deliberately not a session object — it has no
 // command counter, no clock and no lifecycle, so nothing in this package can
 // mis-count commands on a caller's behalf (ADR 0017 §4: the session lives in turn
-// 2b's memory, and its TTL/zeroisation rule is still open, §6 md. 7).
+// 2c's memory, and its TTL/zeroisation rule is still open, §6 md. 7).
 //
 // 🔴 KeyENC and KeyMAC ARE KEY MATERIAL (CLAUDE.md §4.7). On a blank chip they
 // derive from the PUBLIC factory key, so they protect nothing there (ADR 0017
@@ -435,12 +435,12 @@ func ev2SessionVector(label [2]byte, rndA, rndB []byte) []byte {
 // carries UIDOffset and SDMReadCtrOffset in place of PICCDataOffset. That
 // difference lives entirely in the CmdData bytes, which this function treats as
 // opaque — so the vector pins the SEALING and says nothing about Tappa's file
-// settings. Building that body is turn 2b's job; its field order and the
-// field-presence conditions are read from NT4H2421Gx rev. 3.0 §10.7.1 Table 69
-// ("Mirror position (LSB first)"), NOT from AN12196, which never shows a plain
-// configuration. ADR 0017 §6 does not enumerate that layout gap as its own item;
-// the adjacent open decision it DOES enumerate is md. 13, the FileAR.Change and
-// FileAR.ReadWrite cells the same command writes.
+// settings. That body is now built by filesettings.go (turn 2b, M8-05 FAZ B2b):
+// its field order and field-presence conditions are read from NT4H2421Gx rev. 3.0
+// §10.7.1 Table 69 ("Mirror position (LSB first)"), NOT from AN12196, which never
+// shows a plain configuration. The adjacent open decision ADR 0017 §6 enumerated,
+// md. 13 — the FileAR.Change and FileAR.ReadWrite cells the same command writes —
+// was decided in that round and is recorded at TappaNDEFSettings.
 //
 // A command with NO body is legal: §9.1.9's "CmdData (if present)" and §9.1.10's
 // bracketed "[|| E(Ke, CmdData)]" in Figure 9. In that case nothing is encrypted

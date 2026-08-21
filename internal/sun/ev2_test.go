@@ -47,15 +47,27 @@ import (
 // removing or "simplifying away" a wipe that is already there. Finding a missing
 // one is still a reading job.
 //
-// ⚠️ SCOPE. Only the two production files are counted. Zero is also called
-// non-deferred (EV2AuthPart1's error path, keys.go's callers) and those are
-// deliberately out of scope: the deferred form is the one that survives an early
-// return, which is what ADR 0017 §3 asks for ("HER çıkışta").
+// ⚠️ SCOPE. Only the deferred form is counted. Zero is also called non-deferred
+// (EV2AuthPart1's error path, keys.go's callers) and that is deliberately out of
+// scope: the deferred form is the one that survives an early return, which is what
+// ADR 0017 §3 asks for ("HER çıkışta").
+//
+// 🔴 THE SCANNED SET IS WIDER THAN THE INVENTORY, AND THAT ASYMMETRY IS THE POINT
+// (M8-05 FAZ B2b). zeroDisciplineFiles lists every production file of the
+// personalisation half; the inventory lists only the ones that hold key material.
+// A scanned file that is NOT in the inventory must have ZERO deferred wipes, so
+// the day apdu.go, ndef.go or filesettings.go starts handling a plaintext key, the
+// inventory has to be edited in the same change — the visible-in-review step. The
+// alternative, listing them with a zero, does not work: a zero is exactly what a
+// deletion produces, which is the argument cmd/tappa's constantTimeInventory makes
+// about internal/session.
 //
 // ⚠️ THE OBLIGATION THIS DOES NOT DISCHARGE: ADR 0017 §6 md. 7 — the in-memory
 // session's TTL, its sweeper, and the guarantee that a CALLER invokes
-// EV2Auth.Zero on every exit path — is turn 2b's and stays open. This map is about
+// EV2Auth.Zero on every exit path — is turn 2c's and stays open. This map is about
 // this package's own internal buffers only.
+var zeroDisciplineFiles = []string{"ev2.go", "changekey.go", "apdu.go", "ndef.go", "filesettings.go"}
+
 var zeroDisciplineInventory = map[string]int{
 	// Two session vectors, two derivation CMAC outputs (ev2SessionKeys); the
 	// rotated RndB' and the RndA||RndB' it feeds (EV2AuthPart1); the decrypted
@@ -73,7 +85,7 @@ var zeroDisciplineInventory = map[string]int{
 // three separate times with text scans.
 func TestEV2_ZeroDisciplineIsInventoried(t *testing.T) {
 	got := map[string]int{}
-	for _, name := range []string{"ev2.go", "changekey.go"} {
+	for _, name := range zeroDisciplineFiles {
 		fset := token.NewFileSet()
 		f, err := parser.ParseFile(fset, name, nil, 0)
 		if err != nil {
@@ -109,8 +121,25 @@ func TestEV2_ZeroDisciplineIsInventoried(t *testing.T) {
 				"free either: say in the map WHICH buffer the new one covers", name, have, want)
 		}
 	}
-	t.Logf("%d deferred key-material wipes across %d production files",
-		got["ev2.go"]+got["changekey.go"], len(zeroDisciplineInventory))
+
+	// The other direction: a scanned file that is not inventoried must hold no
+	// wipes at all. A wipe appearing there means key material started flowing
+	// through a file whose own header says it handles none.
+	total := 0
+	for _, name := range zeroDisciplineFiles {
+		total += got[name]
+		if _, inInventory := zeroDisciplineInventory[name]; inInventory {
+			continue
+		}
+		if got[name] != 0 {
+			t.Errorf("%s performs %d deferred Zero call(s) and is not in "+
+				"zeroDisciplineInventory. Either it started handling key material — in "+
+				"which case inventory it HERE, saying which buffer — or the wipe belongs "+
+				"in another file", name, got[name])
+		}
+	}
+	t.Logf("%d deferred key-material wipes across %d scanned files, %d of them inventoried",
+		total, len(zeroDisciplineFiles), len(zeroDisciplineInventory))
 }
 
 // TestEV2_AuthPart1RejectsMalformedInput covers the three length gates of

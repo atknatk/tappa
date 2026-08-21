@@ -1535,15 +1535,68 @@ değiştirmek **ADR değişikliğidir**, ayar değişikliği değil.
 | **SDM MAC girdisi** | **BOŞ** — `SDMMACInputOffset == SDMMACOffset` | ADR 0003 md. 2. AN12196 rev. 1.8 §4.4.4.2.1 tablo 5 (rev. 2.0: §3.4.4.2.1 tablo **4**) bunu birebir tanımlıyor: *"SDMMAC = MACt(KSesSDMFileReadMAC; **zero length input**)"*. |
 | SDM MAC | 8 bayt → 16 hane, URL'nin **sonunda** | ADR 0003 md. 1/6. AN12196 rev. 1.8 §4.4.1 (rev. 2.0: §3.4.1): *"CMAC shall be appended to the end of NDEF."* |
 | Dosya okuma izni | **açık** (kimlik doğrulamasız okuma) | Tap akışı anonim bir tarayıcıdan gelir; okuma kapalıysa SUN hiç yayılmaz. AN12196 rev. 1.8 §6.9 tablo 19 (rev. 2.0: §5.9 tablo **18**) örneğinde `FileAR.Read = 0xE` (serbest). |
-| Dosya **yazma** izni | **anahtarla kilitli** — 🔴 **AMA HANGİ ANAHTAR OLDUĞU KARARA BAĞLANMADI** | Aynı örnekte (rev. 1.8 §6.9 / rev. 2.0 §5.9) `FileAR.Write = 0x0` (anahtar 0). Yazma serbest kalırsa duvardaki plaketin NDEF'ini herkes değiştirebilir. 🔴 **UYARI (2026-08-20, ADR 0017 §5.0): BU SATIRI OLDUĞU GİBİ UYGULAMAK BUGÜN BİR AÇIK BIRAKIR.** *(a)* `FileAR.Write` **tek başına yetmez** — veri sayfası tablo 9'a göre `FileAR.ReadWrite` de `WriteData`'ya kapı açar ve o hak bu tabloda **karara bağlanmadı** (aşağıdaki satır). *(b)* Gösterdiği **anahtar 0**, uygulama anahtarı 0 kişiselleştirilene kadar **fabrika varsayılanıdır, yani halka açıktır** — yazmayı ona kilitlemek kapıyı kilitleyip anahtarı paspasın altına bırakmaktır ([ADR 0005](../docs/adr/0005-kabul-edilen-riskler.md) risk 8). |
+| Dosya **yazma** izni (`FileAR.Write`) | **anahtar `0x01`** | 🔴 **KARAR: [ADR 0017](../docs/adr/0017-encode-rolesi-ve-yarim-yazma-kurtarmasi.md) §6 md. 13 (2026-08-21, M8-05 FAZ B2b).** Bu hücre daha önce *"anahtarla kilitli — ama hangi anahtar KARARA BAĞLANMADI"* diyordu. Yazma serbest kalırsa duvardaki plaketin NDEF'ini herkes değiştirebilir. AN12196 örneğinin gösterdiği **anahtar 0** ALINMADI: uygulama anahtarı 0, kişiselleştirilene kadar (ADR 0017 §6 md. 5) **fabrika varsayılanıdır, yani halka açıktır** — yazmayı ona kilitlemek kapıyı kilitleyip anahtarı paspasın altına bırakmaktır ([ADR 0005](../docs/adr/0005-kabul-edilen-riskler.md) risk 8). `0x01` plaket-başına rastgeledir ve yalnız `tags.aes_key_ref` içinde sarmalı durur. ⚠️ **Tek başına yetmez ve o yüzden aşağıdaki satırla BİRLİKTE okunur** — tablo 9'a göre `FileAR.ReadWrite` de `WriteData`'ya kapı açar. Kod: `internal/sun/filesettings.go` → `TappaNDEFSettings`. |
 | `K_SDMFileRead` | plaket-başına **rastgele** AES-128 | ADR 0003 md. 3 (Q06). `crypto/rand`; hiçbir şeyden türetilmez. |
 | `K_SDMFileRead`'in anahtar NUMARASI | **`0x01`** | 🔴 **KARAR: [ADR 0017](../docs/adr/0017-encode-rolesi-ve-yarim-yazma-kurtarmasi.md) §5.0 karar 1 (2026-08-20).** Sıfırdan farklı olmak zorunda: anahtar 0 kart master anahtarıdır (veri sayfası §8.2.4.1) ve `ChangeKey` gövdesinin **şekli** numaraya bağlıdır (veri sayfası tablo 63: anahtar 0 → 17 bayt `NewKey ‖ KeyVer`; anahtar 1–4 → 21 bayt `(NewKey XOR OldKey) ‖ KeyVer ‖ CRC32NK`). `0x01`, AN12196 rev. 1.8 **§6** (rev. 2.0: **§5**) örnek yapılandırmasının `KSDMFileRead`'iyle aynı numaradır. |
 | Fabrika varsayılan anahtarı | **değiştirilir** | ADR 0003 md. 5: *"Bu varsayılan anahtar üretimde **asla** kullanılmaz"*; `K_SDMFileRead` varsayılandan değiştirilir. |
 | **Uygulama anahtarı `0x00` (AppMasterKey)** | **kişiselleştirilir, EN SON adım** | 🔴 **KARAR: ADR 0017 §5.0 karar 2 (2026-08-20) — bu hücre daha önce *"FAZ B'de karara bağlanır"* diyordu ve o cümle artık YANLIŞTIR.** Fabrika varsayılanında kalırsa halka açık bir anahtarla `WriteData` mümkün olur → NDEF URL'si değiştirilebilir → **oltalama** ([ADR 0005](../docs/adr/0005-kabul-edilen-riskler.md) risk 8). Veri sayfası tablo 8 ayak notu aynı şeyi emrediyor. Veri sayfası §8.2.4.2 ayrıca **beş anahtarın hepsini** öneriyor (*"highly recommended to change all 5 keys at personalization"*). ⚠️ **SEVKİYAT BİR ŞEMA KARARINA BAĞLI** (ikinci anahtar nerede saklanacak — ADR 0017 §6 md. 5; üç şık aşağıda *"FAZ B'ye devredilenler"* md. 9'da). Kapanana kadar: **plaket duvara çıkamaz.** |
 | Anahtar **`0x02`–`0x04`** | ⚠️ **karara bağlanmadı** | Aynı §8.2.4.2 tavsiyesi kapsamındadır ve aynı saklama sorusuna tabidir (ADR 0017 §6 md. 5). ⚠️ **GERİ KONAN ALINTI (2026-08-20):** bu hücrenin öncülü AN12196 rev. 1.8 §6.16'nın (rev. 2.0: §5.16) *"It is **highly recommended to configure all the Application Keys** during personalization procedure"* cümlesiydi ve bu turda hücre bölünürken **şerhsiz düştü**. Sonucu değiştirmiyor (veri sayfası §8.2.4.2 aynı şeyi *"change all 5 keys"* diye söylüyor) ama bu dosyanın kuralı **tarihsel kayıt silinmez, şerhlenir**. |
-| `FileAR.Change` · `FileAR.ReadWrite` | ⚠️ **karara bağlanmadı** | 🔴 Bu tablo bu iki hakkı **hiç** karara bağlamıyor ve bu bir eksikliktir, bir susma değil (ADR 0017 §6 md. 13). Veri sayfası tablo 8: NDEF dosyasında (`02h`) teslimde `Change = 0h`, `Write = ReadWrite = Eh`. Tablo 9: **`Write` ile `ReadWrite` ikisi de** `WriteData`'ya kapı açar → yalnız birini kilitlemek yazmayı kilitlemez. |
+| `FileAR.Change` · `FileAR.ReadWrite` | **ikisi de anahtar `0x01`** | 🔴 **KARAR: ADR 0017 §6 md. 13 (2026-08-21, M8-05 FAZ B2b) — bu hücre daha önce *"karara bağlanmadı"* diyordu ve o cümle artık YANLIŞTIR.** Veri sayfası tablo 8: NDEF dosyasında (`02h`) teslimde `Change = 0h`, `Write = ReadWrite = Eh`. Tablo 9: **`Write` ile `ReadWrite` ikisi de** `WriteData`'ya kapı açar → yalnız birini kilitlemek yazmayı kilitlemez; `Change` ise `ChangeFileSettings`'i yönetir, yani teslim değerinde bırakılırsa halka açık anahtar 0 ile ötekiler geri gevşetilebilirdi. **`Fh` (asla) seçilmedi:** Q08 açıkken (host kararlaşmadı) `Fh` her URL düzeltmesini plaket değişimine çevirir ve ADR 0017 §5.3 kurtarmasını dondururdu. **Sıra bozulmuyor:** `Change` teslimde `0h` olduğu için adım 7 hâlâ anahtar-0 oturumunda koşar ve `Change`'i taşıyan komut **o komuttur**. |
 | URL parametre adları | **tam olarak** `tag`, `ctr`, `cmac` | ADR 0003 md. 1. Kodda tek yerde sabit: `internal/sun/params.go` (`paramTag`/`paramCtr`/`paramCMAC`). Başka bir ad = ayrıştırma hatası. |
 | URL biçimi | `https://<host>/t?tag=<14 hane>&ctr=<6 hane>&cmac=<16 hane>` | ADR 0003 md. 1. |
+
+> ### ✅ BU TABLONUN BAYT KARŞILIĞI ARTIK KODDA — VE NEYİN KANITLI OLDUĞU SAYILI
+>
+> **2026-08-21 (M8-05 FAZ B2b).** Yukarıdaki satırların hepsi tek bir gövdede
+> buluşuyor: `internal/sun/filesettings.go` → `ChangeFileSettingsData`, Tappa
+> yapılandırması `TappaNDEFSettings`. Örnek şablon `https://tap.example.com/t`
+> için üretilen `CmdData` **18 bayttır**:
+>
+> ```
+> 40 11E1 C1 F1E1 1D0000 300000 3C0000 3C0000
+> ^^ FileOption: SDM açık + CommMode plain
+>    ^^^^ AccessRights: (ReadWrite 1 <<4)|Change 1 , (Read E <<4)|Write 1
+>         ^^ SDMOptions: UID mirror + sayaç mirror + ASCII  (yayımlanmış örnekle AYNI bayt)
+>            ^^^^ SDMAccessRights: (RFU F<<4)|CtrRet 1 , (MetaRead E<<4)|FileRead 1
+>                 ^^^^^^ UIDOffset 29 · ReadCtrOffset 48 · MACInputOffset 60 · MACOffset 60
+> ```
+>
+> 🔴 **DIŞ ÇAPA VAR AMA BU GÖVDE İÇİN DEĞİL — ayrım kayıt için yazılıyor.** Aynı
+> kurucu, AN12196'nın **şifreli-PICC** örneğini (rev. 1.8 §6.9 tablo 19 / rev. 2.0
+> §5.9 tablo 18) **birebir** üretiyor: `4000E0C1F121200000430000430000`. Bu,
+> **alan sırasını**, iki hak alanının **bayt bileşimini**, `FileOption`/`SDMOptions`
+> bitlerini ve 3 baytlık **LSB-first** ofset kodlamasını dışarıdan çiviliyor.
+> Tappa'nın plain gövdesi ondan yalnız **iki nibble değeri** ve **hangi ofsetlerin
+> var olduğu** ile ayrılıyor — ve o ayrım **yalnız** NT4H2421Gx rev. 3.0 §10.7.1
+> tablo 69'dan okunmuş durumda, hiçbir yayımlanmış vektör onu koşturmuyor.
+> **Ofsetlerin dosyanın başından (NLEN dahil) sayıldığı** ayrıca ölçüldü: tablo
+> 17'nin `WriteData` gövdesinde yer tutucu 32. baytta başlıyor, tablo 18'in
+> `PICCDataOffset`'i `200000` = 32.
+>
+> 🔴 **BAYT SINIRI DA VAR VE İKİ TANE (2026-08-21; ikisi de PDF'ten ölçüldü).**
+> Veri sayfası **tablo 81 (s.75)**: `WriteData`'nın veri alanı *"up to **248 byte**
+> including secure messaging"* → düz metin tavanı **223 bayt**, ve kod artık
+> **birleştirilmiş alanı** ölçüp reddediyor. **§8.2.3.1 (s.10)**: *"The writing
+> operations of single frames **up to 128 bytes** with a WriteData or
+> ISOUpdateBinary command are also tearing protected."* → 128'in üstündeki bir
+> şablon **tearing korumasını kaybeder**, ve yarım yazma tam olarak ADR 0017
+> §5.3'ün konusudur. Bu yüzden `BuildTapNDEF` **128 baytın üstünü reddeder**:
+> host + path bütçesi **69 bayt**. ⚠️ **Q08 host'u seçerken bu bütçeyi bilin** —
+> bugünkü şablon 76 bayt.
+>
+> 🔴 **128 NEYİ ÖLÇÜYOR — SORULDU VE CEVAPLANDI (kapı kalibrasyonu buna bağlı).**
+> **Yazılan baytları**, mühürlenmiş çerçeveyi değil. Kanıt belgenin kendi
+> karşıtlığıdır: mühürlenmiş boyutu kastettiğinde **söylüyor** — tablo 81 *"248
+> byte **including secure messaging**"* der. §8.2.3.1'de böyle bir ibare **yok** ve
+> cümle `WriteData` **ile** `ISOUpdateBinary`'yi birlikte anıyor; `ISOUpdateBinary`
+> `CommMode.Plain`'dir (tablo 22), yani onda yazılan bayt = çerçeve baytı. İki
+> komut için iki farklı şey ölçen bir sınır, tuhaf okuma olurdu. Kapı bu yüzden
+> **dosya uzunluğunda**.
+>
+> ⚠️ **HÂLÂ SİLİKON HAKEM.** Bu tablo bir çip üzerinde **doğrulanmadı** (ADR 0017
+> §6 md. 1). İç tutarlılık çapası var — üretilen URL'yi `internal/sun`'ın kendi
+> ayrıştırıcısı ve MAC doğrulayıcısı okuyabiliyor — ama iç tutarlılık **tam olarak**
+> M2-08'in dört ay boyunca yeşil kaldığı kanıt sınıfıdır.
 
 > ### 🔴 BOŞ MAC GİRDİSİNİ BİR BUG SANIP UID/ctr EKLEMEYİN
 >

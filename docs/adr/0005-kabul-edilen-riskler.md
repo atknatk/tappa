@@ -67,8 +67,8 @@ gözlemlenebilir sinyalle tespit ederiz, o sinyalin hangi görevde uygulandığ�
 | 4 | **Mekânda bırakılmış proxy** (Y-E) ⚠️ *2026-08-19'da DARALTILDI — §4'ün ek notu* | IP taşınabilir; mekânın WiFi'ında proxy+VPN, uzaktaki tap'i mekânın IP'sinden gösterir. Kriptografik çözümü yok. ⚠️ Bunun altındaki **ayrı** bir yüzey — panelden `/0` vererek **yapılandırmayla üretilen** sahte IP kanıtı — kabul edilmiş DEĞİLDİR ve M8-04'te kapatıldı | `tap:gpsConflict` → `base:gps-conflict-review`; "IP eşleşti ama GPS uyuşmuyor" metriği | baseline [M3-06](../plan/m3-policy-motoru.md) · metrik [M6-11](../plan/m6-dashboard.md) |
 | 5 | **Müdürün kimlik basması** (Y-D) | Davet kodunu üreten ve gören kişi = bordroyu şişirmede en güçlü teşviği olan kişi | Tek cihaz/oturumdan aktive N çalışan + hiç çapraz-lokasyon göstermeyen çalışan | rapor [M6-11](../plan/m6-dashboard.md) · davet kanalı [M5-02](../plan/m5-tap-akisi.md) (Q02) |
 | 6 | **Fiziksel plaket devri** | Plaket duvardan sökülüp taşınabilir; pasif çipin "yerini" doğrulayan bir bağı yok | Lokasyon–IP/GPS uyumsuzluğu → `flag`; müdür `lost` işaretler | baseline [M3-06](../plan/m3-policy-motoru.md) · guardrail [M3-05](../plan/m3-policy-motoru.md) |
-| 7 | **Encode oturumunun APDU dökümü** (ADR 0017 §2.2) | Boş çipte kimlik doğrulama anahtarı **fabrika varsayılanıdır, yani halka açıktır**; oturum anahtarları ondan türer. Dökümü gören taraf `ChangeKey` gövdesini çözüp o plaketin anahtarını öğrenir. **Çipin kişiselleştirme protokolünün yapısal özelliği** — altı kapatma yolu denendi, altısı da başarısız (ADR 0017 §2.2) | 🔴 **Doğrudan sinyal YOK.** Dolaylı: sızan anahtar sahte SUN üretse bile §5'in diğer üç kanıtı (oturum çerezi · IP · GPS) bağlamaya devam eder → kanıtsız tap `flag`'lenir | Karşı önlem tespit değil **kapsama**: encode kontrollü ortamda, plaket duvara çıkmadan; şüphede ADR 0003 md. 5 → **`retire + replace`**. 🔴 **Maruziyet ilk encode turuyla SINIRLI DEĞİL** — her **kurtarma** turu da fabrika anahtarı altında koşar (ADR 0017 §5.3) |
-| 8 | **Anahtar 0 fabrika varsayılanında kalan plaket** (ADR 0017 §5.0) — 🔴 **risk 6'nın DAHA KÖTÜ kardeşi** | İkinci bir plaket-başına anahtarı saklayacak şema yok (`tags` tek `aes_key_ref`, ADR 0003 md. 4); karar verilene kadar uygulama anahtarı 0 **halka açık** kalır. Plakete fiziksel erişimi olan biri master olarak kimlik doğrulayıp NDEF URL'sinin host'unu değiştirebilir → **oltalama** | 🔴 **Tespit sinyali YOK, ve sebebi risk 6'dan farklı:** repointlenen plaketin tap'i **bize hiç ulaşmaz**, yani konum çelişkisi de dahil hiçbir kayıt doğmaz. Dolaylı işaret (plaketin sessizleşmesi) **yapısal olarak yetmiyor**: `ListTagLastSeen` satırı **yalnız en az bir tap üretmiş** plaket için doğar (ölçüldü 2026-08-20, yerel DB: 137 699 plaketin 79 995'i, yani **57 704'ü hiç satır üretmiyor**), yani **ilk tap'inden önce** repointlenen plaket stok plaketten ayırt edilemez | Şema kararı [M8-05](../plan/m8-deploy-pilot.md) FAZ B md. 9 · pilot kapısı Q23 md. 7 · *"anahtar 0 fabrikadayken plaket duvara çıkamaz"* güvenlik çizgisi (`deploy/README.md`) |
+| 7 | **Encode oturumunun APDU dökümü** (ADR 0017 §2.2) | Boş çipte kimlik doğrulama anahtarı **fabrika varsayılanıdır, yani halka açıktır**; oturum anahtarları ondan türer. Dökümü gören taraf `ChangeKey` gövdesini çözüp o plaketin anahtarını öğrenir. **Çipin kişiselleştirme protokolünün yapısal özelliği** — altı kapatma yolu denendi, altısı da başarısız (ADR 0017 §2.2). 🔴 **KAPSAM 2026-08-21'DE BÜYÜDÜ:** ADR 0017 §6 md. 13 `FileAR.Write`/`ReadWrite`/`Change`'i **aynı `0x01` anahtarına** bağladı, yani sızan şey artık yalnız SUN imzalama yetkisi değil, **dosya YAZMA ve YENİDEN YAPILANDIRMA yetkisi**dir | 🔴 **Doğrudan sinyal YOK, ve sonuç iki dallı:** *(a)* **sahte SUN** — burada §5'in diğer üç kanıtı (oturum çerezi · IP · GPS) bağlamaya devam eder → kanıtsız tap `flag`'lenir · *(b)* 🔴 **NDEF'i repointleme (oltalama)** — md. 13'ten sonra mümkün, ve burada **üç kanıt HİÇ devreye girmez**: repointlenen plaketin tap'i **bize hiç ulaşmaz** (risk 8'in ölçümü) | Karşı önlem tespit değil **kapsama**: encode kontrollü ortamda, plaket duvara çıkmadan; şüphede ADR 0003 md. 5 → **`retire + replace`**. 🔴 **Maruziyet ilk encode turuyla SINIRLI DEĞİL** — her **kurtarma** turu da fabrika anahtarı altında koşar (ADR 0017 §5.3) |
+| 8 | **Anahtar 0 fabrika varsayılanında kalan plaket** (ADR 0017 §5.0) — ⚠️ **2026-08-21'de DARALDI: oltalama yarısı kapandı, hizmet reddi yarısı duruyor** | İkinci bir plaket-başına anahtarı saklayacak şema yok (`tags` tek `aes_key_ref`, ADR 0003 md. 4); karar verilene kadar uygulama anahtarı 0 **halka açık** kalır. ⚠️ ADR 0017 §6 md. 13 (FAZ B2b) `FileAR.Write`/`ReadWrite`/`Change`'i **anahtar `0x01`**'e kilitledi → **elinde YALNIZ halka açık fabrika anahtarı 0 olan** tarafa karşı **NDEF yazılamaz ve SDM kapatılamaz**. 🔴 **Risk 7'nin kümesine karşı DEĞİL:** `0x01` her encode ve her kurtarma oturumunda o dökümü görene sızar ve md. 13'ten sonra **aynı zamanda yazma yetkisidir**. **Kalan:** aynı kişi anahtar 0'ı (ve 2–4'ü) üzerine yazabilir → **hizmet reddi** ve gelecekteki anahtar-0 kişiselleştirmemizin **önden alınması** | 🔴 **Tespit sinyali YOK, ve sebebi risk 6'dan farklı:** repointlenen plaketin tap'i **bize hiç ulaşmaz**, yani konum çelişkisi de dahil hiçbir kayıt doğmaz. Dolaylı işaret (plaketin sessizleşmesi) **yapısal olarak yetmiyor**: `ListTagLastSeen` satırı **yalnız en az bir tap üretmiş** plaket için doğar (ölçüldü 2026-08-20, yerel DB: 137 699 plaketin 79 995'i, yani **57 704'ü hiç satır üretmiyor**), yani **ilk tap'inden önce** repointlenen plaket stok plaketten ayırt edilemez | Şema kararı [M8-05](../plan/m8-deploy-pilot.md) FAZ B md. 9 · pilot kapısı Q23 md. 7 · *"anahtar 0 fabrikadayken plaket duvara çıkamaz"* güvenlik çizgisi (`deploy/README.md`) |
 
 Referanslanan `sid`'ler kodda gerçektir ve bu ADR'yle **birebir** eşleşir:
 `base:ctr-gap-review` ve `base:gps-conflict-review` `internal/policy/baseline.go`'da
@@ -473,6 +473,30 @@ görünür. Kalan bağ dolaylıdır: §5'in diğer üç kanıtı (oturum çerezi
 IP = nerede · GPS = yedek nerede) bağlamaya devam eder, yani kanıtsız bir tap
 yine `flag`'lenir. Bu bir tespit değil, bir **sınırlama**dır.
 
+🔴 **VE 2026-08-21'DE BU PARAGRAF YETERSİZ KALDI — GÜVENLİK DENETİMİ ÖLÇTÜ.**
+Yukarısı sızan anahtarın sonucunu **yalnız "sahte SUN üretmek"** diye yazıyor ve
+azaltmayı *"§5'in diğer üç kanıtı bağlamaya devam eder"* diye veriyor. ADR 0017
+§6 md. 13'ün kararından sonra **ikisi de eksik**:
+
+- **Sonuç büyüdü.** `K_0x01` artık aynı zamanda `FileAR.Write`, `FileAR.ReadWrite`
+  ve `FileAR.Change`'tir. Dökümü gören taraf o anahtarla
+  `AuthenticateEV2First(0x01)` yapabilir (§5.3'ün 2 numaralı sondası zaten bu
+  şekildedir), sonra `WriteData` ile **NDEF URL'sinin host'unu değiştirebilir** ve
+  `ChangeFileSettings` ile **SDM'i kapatabilir**. Yani sonuç *"sahte SUN"* değil,
+  **"sahte SUN VEYA oltalama"**dır.
+- **Azaltma cümlesi o dalda GEÇERSİZ.** Üç kanıt yalnız **bize ulaşan** bir tap'i
+  bağlar. Repointlenen bir plakette çalışanın telefonu **saldırganın sitesini**
+  açar; bize hiçbir kayıt gelmez, dolayısıyla çelişecek bir IP, GPS ya da çerez
+  de yoktur. Bu, risk 8'in kendi ölçümüyle aynı şeydir ve orada *"tespit sinyali
+  yok"* diye yazılıdır.
+
+⚠️ **Bu, md. 13'ün kararını yanlışlamıyor.** Alternatifleri daha kötü: anahtar
+`0x00` bugün **halka açık**, teslim değeri `Eh` **herkese açık**, `Fh` ise Q08 ve
+§5.3 gerekçesiyle reddedildi. Değişen şey **kimin yapabildiğidir**: *"veri
+sayfasını okumuş herkes"*ten *"belirli bir encode oturumunun dökümünü görmüş
+taraf"*a. Bu gerçek bir daralmadır; **kapanma değildir**, ve risk 8'in tablosu
+artık bunu niteleyicisiyle yazıyor.
+
 > 📍 **YETKİLİ METİN: [ADR 0017](0017-encode-rolesi-ve-yarim-yazma-kurtarmasi.md)
 > §2.2 (tehdit modeli, altı başarısız kapatma denemesi) ve §5.3 (kurtarmanın
 > maruziyeti).** Aşağısı sicil için yapılmış bir **özettir**. İkisi çelişirse
@@ -499,8 +523,18 @@ ağaçta encode'a özgü cihaz kimliği, izin listesi ya da ağ kısıtı **yok*
 
 ### 8. Anahtar 0 fabrika varsayılanında kalan plaket (ADR 0017 §5.0)
 
+> ⚠️ **BU RİSK 2026-08-21'DE DARALDI VE AŞAĞISININ BİR KISMI O TARİHTEN ÖNCEYE
+> AİTTİR.** M8-05 FAZ B2b, ADR 0017 §6 md. 13'ü kapatarak `FileAR.Write`,
+> `FileAR.ReadWrite` **ve** `FileAR.Change`'i plaket-başına anahtar `0x01`'e
+> kilitledi. **Sicile satır EKLENMEDİ** — sekiz risk, sekiz satır; değişen bu
+> riskin **kapsamıdır**. Ne kaldığı ve ne gittiği aşağıda *"Ne daraldı"* alt
+> başlığında **tek tek sayılıdır**; oradan önceki paragraflar riskin **tam**
+> hâlini anlatır ve tarihsel kayıt olarak **silinmedi** (bu belgenin append
+> kuralı).
+>
 > 📍 **YETKİLİ METİN: [ADR 0017](0017-encode-rolesi-ve-yarim-yazma-kurtarmasi.md)
-> §5.0 (anahtar numaraları kararı ve oltalama ölçümü).** Güvenlik çizgisinin
+> §5.0 (anahtar numaraları kararı ve oltalama ölçümü) ve **§6 md. 13** (erişim
+> hakları kararı, 2026-08-21).** Güvenlik çizgisinin
 > operasyonel hâli `deploy/README.md` → *"FAZ B'ye devredilenler"* md. 9'da,
 > kapısı [M8-06](../plan/m8-deploy-pilot.md)'nın Q23 listesi md. 7'de. Aşağısı
 > sicil için yapılmış bir **özettir**; çelişkide **ADR 0017 geçerlidir**.
@@ -564,6 +598,115 @@ yetmiyor**, ölçüldü (2026-08-20, güvenlik denetimi):
 ⚠️ Bu yüzden bu maddenin başlığındaki *"Tespit sinyali YOK"* **kalibredir**;
 *"veri mevcut ama uyarı yazılmadı"* şeklindeki daha yumuşak bir ifade **bir tık
 geniş** olurdu ve geri çekildi.
+
+**Ne daraldı (2026-08-21, M8-05 FAZ B2b) — tek tek.** ADR 0017 §6 md. 13
+`FileAR.Write`, `FileAR.ReadWrite` **ve** `FileAR.Change`'in üçünü de
+plaket-başına anahtar `0x01`'e bağladı.
+
+> 🔴 **AŞAĞIDAKİ TABLONUN İKİ NİTELEYİCİSİ VAR VE İLK YAZIMINDA İKİSİ DE YOKTU
+> (güvenlik denetimi, 2026-08-21).** Niteleyicisiz hâli iki ayrı şekilde fazla
+> iddia ediyordu:
+>
+> 1. **KİM.** Tablo, elinde **YALNIZ halka açık fabrika anahtarı 0** olan tarafı
+>    anlatır. **Risk 7'nin kümesini anlatmaz:** `K_0x01` her encode ve her kurtarma
+>    oturumunun dökümüne sızar (risk 7) ve md. 13'ten sonra o anahtar **yazma ve
+>    yeniden yapılandırma yetkisidir** — yani o taraf **oltalama yapabilir**.
+> 2. **NE ZAMAN.** Daralma yalnız **adım 7 TAMAMLANDIKTAN sonra** geçerlidir.
+>    Adım 5 ile 7 arasında kesilmiş bir çipte haklar hâlâ **teslim değerindedir**:
+>    `Write = ReadWrite = Eh` (**serbest, hiçbir anahtar gerekmez**) ve
+>    `Change = 0h`. O çipte oltalama ve SDM yapılandırması **tamamen açıktır**.
+>    Süreç bunu kapsıyor — satır `unassigned`, `location_id NULL`, yani plaket
+>    duvara çıkmamıştır (ADR 0017 §5.2) — ama **kapsayan şey süreçtir, çipin
+>    ayarları değil**.
+
+Bu iki niteleyici altında, plakete fiziksel erişimi olan ve elinde yalnız fabrika
+anahtarı 0 bulunan biri, **adım 7 tamamlanmış** bir plakette:
+
+| | Yapabilir mi | Neden |
+|---|---|---|
+| NDEF URL'sini değiştirmek (**oltalama**) | ❌ **Hayır** | `WriteData` `Write` **veya** `ReadWrite` ister, ikisi de `0x01` |
+| SDM'i kapatmak / yeniden yönlendirmek | ❌ **Hayır** | `ChangeFileSettings` `Change` ister, o da `0x01` |
+| Anahtar `0x01`'i öğrenmek ya da değiştirmek | ❌ **Hayır** | Veri sayfası tablo 63: gövde `New XOR Old` **ve** `New` üzerinde `CRC32` ister; eski anahtarı bilmeyen ikisini de üretemez, çip reddeder |
+| Dosyayı okumak | ✅ Evet | `Read = Eh` **kasıtlı**; URL zaten halka açıktır (plakette basılı) |
+| Anahtar 0'ı ve 2–4'ü üzerine yazmak | ✅ Evet | Eski değerleri halka açık sıfırdır, yani gövde hesaplanabilir |
+
+🔴 **Kalan zararın adı: HİZMET REDDİ ve ÖNDEN ALMA**, sahtecilik değil. Anahtar
+0'ı kendi değeriyle değiştiren biri, **bizim** gelecekteki anahtar-0
+kişiselleştirmemizi (ADR 0017 §5.0 karar 2) ve kurtarmanın fabrika-anahtarlı
+yarısını (§5.3 sonda 3) kalıcı olarak engeller. Çözüm yolu değişmiyor:
+`retire + replace`. ⚠️ Ve **tespit sinyali bu yarı için de yoktur**: anahtar 0
+değişse bile taplar **normal doğrulanır** (SUN anahtar `0x01` ile imzalanır), yani
+dışarıdan hiçbir şey olmamış görünür.
+
+⚠️ **BU DARALMA RİSKİ KAPATMIYOR ve şema kararının yerine geçmiyor** (ADR 0017 §6
+md. 5).
+
+🔴 **VE BİR YÜZEY *"ÖLÇÜLMEDİ"* DİYE YAZILMIŞTI — ÖLÇÜLDÜ (2026-08-21, bağımsız
+üçüncü göz, veri sayfası elde), VE İÇİNDE GERİ ALINAMAZ BİR MADDE VAR.**
+`SetConfiguration` veri sayfası **§10.5.1**'e göre *"requires an authentication
+with the **AppMasterKey**"* — yani **halka açık fabrika anahtarı 0 ile
+erişilebilir**. **Tablo 50**'nin seçenekleri:
+
+⚠️ **VE BU LİSTE TAMDIR — ilk yazımı ÜÇ seçenek gösteriyordu ve kısmi olduğunu
+söylemiyordu.** Tablo 50'nin **beş** seçeneği var; hepsi aşağıda:
+
+| Seçenek | Ne yapar | Bizim için |
+|---|---|---|
+| `00h` PICC Configuration | `PICCConfig` bit 1 → **Random ID** | ⚠️ **Tap'i KIRMIYOR** (s.12: *"it is still possible to enable plain PICCData mirroring of the UID even if Random ID is enabled"*) ama 🔴 **`GetVersion`'ın UID alanını SIFIRLAR** — Tablo 58: *"All zero — if configured for RandomID"*. Encode akışı o değeri `tags.uid`'e (**PRIMARY KEY**) yazsaydı ilk plaket işgal eder, sonrakiler çakışırdı; `internal/sun/apdu.go` artık **reddediyor** |
+| `04h` Secure Messaging Configuration | `WriteData`'da zincirli yazmayı kapatabilir | dar: bizim yazmamız **tek çerçeve** |
+| 🔴 `05h` Capability data → `PDCap2.1` **bit 1** | *"1b means enable LRP mode. **This change is permanent**, LRP mode **cannot be disabled** afterwards."* | 🔴 **KALICI**: LRP'de SDM MAC ayrı bir yolla hesaplanır (§9.3.8.2) → **doğrulayıcımızın asla okuyamayacağı bir plaket**, geri dönüşü yok. ⚠️ Seçeneğin adı *"LRP modu"* değil **"Capability data"**dır; LRP onun içindeki **bir bit**tir |
+| `0Ah` Failed authentication counter | deneme limiti/azaltma | zarar dar |
+| `0Bh` HW configuration | geri modülasyon gücü | okuma mesafesini bozabilir; kalıcı değil |
+
+🔴 **VE AYNI TARAMA, md. 13'ÜN HİÇ KAPSAMADIĞI BİR YOL BULDU — sayılıyor.**
+Md. 13 yalnız **dosya `02h`**'yi kilitler. Veri sayfası **tablo 8**: dosya `01h`
+(**Capability Container** — telefona NDEF mesajının **nerede** olduğunu söyleyen
+dosya) teslimde `Write = ReadWrite = 0h`, dosya `03h` (proprietary) ise `3h`.
+Anahtar `0x00` ve `0x02`–`0x04` fabrika sıfırında kaldığı sürece (ADR 0017 §6
+md. 5 ikisini de açık bırakıyor) **ikisi de herkese yazılabilir**.
+
+🔴 **VE BUNUN YARISI TÜRETME DEĞİL, YAYIMLANMIŞ BİR ÖRNEK — ilk yazımı bunu
+bilmiyordu ve fazla temkinli etiketlenmişti (2026-08-21, üçüncü denetim).**
+AN12196 rev. 2.0 **§5.14** doğrudan söylüyor: *"By default, CC file has
+FileAR.ReadWrite set to 00. **Therefore Authentication with Key0 needs to be
+done**."* — yani **halka açık anahtar 0 ile CC'ye yazmak belgenin kendi
+kişiselleştirme dizisinde bir adımdır**. **§5.15 tablo 24** tam C-APDU'yu basıyor
+(`Cmd.WriteData`, `FileNo = 01`, `Offset = 0E0000`, 18 bayt) ve yazdığı içerik
+`05 06 E105 0080 82 83` — **`E105h`'i NDEF olmayan dosya olarak adlandıran
+Proprietary-File_Ctrl_TLV'nin ta kendisi**. Türetilmiş kalan **tek** parça,
+telefonun CC'deki dosya kimliğini izlemesidir (NFC Forum T4T davranışı).
+
+**Saldırının tam adımları — ve biri ilk yazımda ATLANMIŞTI:**
+1. Anahtar 0 (halka açık) ile kimlik doğrula → `E105h`'e istediği NDEF URL'sini
+   yaz (`03h`'nin `Write`'ı `3h`'dir ve anahtar 3 de fabrika sıfırıdır).
+2. 🔴 **ATLANAN ADIM:** `03h`'nin `Read`'i teslimde **`2h`**'dir (tablo 8), yani
+   kimlik doğrulamamış bir telefon `E105h`'i **okuyamaz**. Saldırganın **ayrıca**
+   `ChangeFileSettings` ile `03h`'nin `Read`'ini `Eh`'ye taşıması gerekir —
+   **mümkün**, çünkü `03h`'nin `Change`'i teslimde `0h`'dır.
+3. CC'yi (`01h`) `E105h`'i NDEF dosyası gösterecek şekilde yeniden yaz.
+   Sonuç: telefon **saldırganın URL'sini** okur ve dosya `02h`'ye **hiç
+   dokunulmaz**. ⚠️ Eksik adım sonucu değiştirmiyor ama sapma **yanlış yöndeydi**:
+   cümle saldırıyı olduğundan **kolay** gösteriyordu.
+
+🔴 **VE BU AİLENİN GERİ ALINAMAZ ÜYESİ — *"kalıcı"* listesine ait ve orada yoktu.**
+`ChangeFileSettings` ile dosya `01h` ya da `03h`'nin **herhangi bir hakkını `Fh`**
+yapmak (tablo 6: *"no access"*) **geri alınamaz**, çünkü o hakkı geri açacak komut
+yine `ChangeFileSettings`'tir (tablo 9) ve onu yöneten `Change` hakkı da `Fh`
+olmuştur — ve **veri sayfasında format/fabrika ayarlarına dönüş komutu yoktur**
+(tablo 22 taraması: `FormatPICC`, `CreateApplication`, *factory reset*, *restore
+defaults* → **sıfır eşleşme**). İki somut sonucu: *(a)* CC'yi repointledikten
+**sonra dondurmak** → **düzeltilemez bir oltalama plaketi**; *(b)* boş bir çipte
+`02h`'nin `Change`'ini `Fh` yapmak → **bizim adım 7'miz kalıcı olarak başarısız
+olur** (ADR 0017 §5.3'ün 1 numaralı sondası bunu **görür** — `Change`'i okuyor).
+Sınıf yine aynı: **hizmet reddi**, çare `retire + replace`.
+
+**Kapatan şey md. 13 değil, anahtar `0x00`/`0x02`–`0x04`'ün kişiselleştirilmesi
+ya da dosya `01h`/`03h`'in kilitlenmesidir**; ikisi de ADR 0017 §6 md. 5'e bağlı.
+
+**Sonucu değiştirmiyor, sınıfını değiştirmiyor:** üçü de **sahtecilik değil**,
+**hizmet reddi**dir ve çaresi aynıdır — `retire + replace`. Değişen tek şey
+dürüstlüktür: bu satır artık *"ölçülmedi"* demiyor, **ne olduğunu** söylüyor, ve
+LRP'nin **geri alınamaz** olduğunu kayda geçiriyor.
 
 **Kapatma yolu ve kapı.** Şema kararı ADR 0017 §6 md. 5'te; yükümlülük
 `deploy/README.md` → *"FAZ B'ye devredilenler"* md. 9'da; ve pilot kapısı
