@@ -3876,6 +3876,164 @@ URL'ye gerçekten **MSB-first** yazıyor mu. Bu, kalan **sekiz** maddeyle **ayn�
 turda** ölçülebilir; ayrıca `ctr` palindrom olmadığı için sinyal gürültüsüzdür.
 (Liste 2026-08-20'de dokuza çıktı; bu cümle *"yedi"* diyordu.)
 
+> **Kart düzeltmesi (2026-08-21, M8-05 FAZ B2a — EV2 kripto çekirdeği).**
+>
+> **Sevk edilen (yalnız saf kripto, ADR 0017 turun 2'sinin ilk kod turu):**
+> `internal/sun/ev2.go` (AuthenticateEV2First'ün iki yarısı · oturum anahtarı
+> türetimi · CommMode.Full sarmalayıcısı: IV, şifreleme, komut/yanıt MAC'i,
+> kısaltma, ISO 9797-1 pad/unpad) ve `internal/sun/changekey.go` (Tablo 63'ün
+> **iki** gövdesi + `CRC32NK`). HTTP · DB · durumlu oturum · APDU taşıma **YOK**
+> — onlar B2b. Yeni bağımlılık yok (`crypto/aes`, `crypto/cipher`, `hash/crc32`,
+> `encoding/binary` — hepsi stdlib). `internal/sun` kapsamı **%95,9**.
+>
+> 🔴 **BELGE İKİ YERDE KENDİSİYLE ÇELİŞİYOR VE İKİSİNİ DE KENDİ DEĞERİ ÇÖZDÜ.**
+> İkisi de M2-08 sınıfıdır (bir alan sırası / bir uzunluk), ikisi de **ölçülerek**
+> kapatıldı, ikisinin de üç adayı testte duruyor:
+> 1. **AN12196 rev. 2.0 §5.8.2 Tablo 17** (rev. 1.8 §6.8.2 Tablo 18): adım 4 ve 12
+>    `CmdHeader`'ı `02 000000 **530000**` yazıyor, C-APDU (adım 15) `**800000**`
+>    taşıyor. Adım 13'ün yayımlanmış CMAC'i **yalnız `800000`** ile üretiliyor
+>    (`A8D185D9…`); `530000` başka bir değer veriyor. Kripto kazandı.
+> 2. **AN12196 rev. 2.0 §6.3 Tablo 28** (rev. 1.8 §7.3 Tablo 29): adım 13 yanıt
+>    MAC girdisini *"Status || **Cmd** || CmdCounter+1 || TI || …"* diye
+>    **etiketliyor**; NT4H2421Gx rev. 3.0 §9.1.9 yanıtlar için `Cmd` **saymıyor**.
+>    Yayımlanmış CMAC (`F4593D5F…`) **`Cmd`'siz** okumayı seçiyor. Veri sayfası
+>    kazandı.
+>
+> ✅ **ADR 0017 §6 md. 6 ARTIK ÖLÇÜLDÜ, YALNIZ İDDİA DEĞİL.** `ChangeKeyData`'dan
+> XOR silindi (`newKey[i]^oldKey[i]` → `newKey[i]`) ve paket testleri koşturuldu:
+> **tam bir test kırmızıya döndü** — sıfırdan farklı eski anahtarla kurulan
+> `TestChangeKey_XORAppliesToANonZeroOldKey`. Yayımlanmış **her** vektör
+> (iki uçtan uca `ChangeKey` C-APDU'su dahil) **yeşil kaldı**. Yani ADR'nin
+> *"hiçbir dış vektör XOR'u ayırt edemez"* cümlesi bir deney olarak yeniden
+> üretildi. ⚠️ O testin beklenen değeri **DERIVED, NOT TRANSCRIBED**'dır ve dosyada
+> öyle etiketlidir; yayımlanmış vektör gibi sunulmuyor.
+>
+> ✅ **`CRC32NK`'nın serileştirmesi KAPANDI** (md. 6'nın kapatılabilir yarısı).
+> Dört makul diziliş testte `hash/crc32`'den bağımsız hesaplanıyor ve **yalnız
+> biri** Tablo 25 adım 7'nin `789DFADC`'sini üretiyor: **tümlenmemiş (ham) register,
+> LSB-first**. Tarif metne yazılmadı; belgenin değeri beklenen sabit alındı.
+>
+> **Mutasyon kanıtı: 11 bayt-sırası/uzunluk mutasyonu, 11'i de kırmızı.** CmdCtr'ın
+> iki yerde MSB-first'e çevrilmesi · SV1/SV2'de `RndB` diliminin kuyruktan
+> alınması · iki rotasyonun yön değiştirmesi · kısaltmanın çift indekse kayması ·
+> pad'in "zaten 16'nın katıysa fazladan blok ekleme" kuralının düşürülmesi ·
+> yanıtın `CmdCtr+1` yerine `CmdCtr` kullanması · CRC'nin MSB-first olması ·
+> CRC'nin tümlenmiş register'ı kullanması · XOR'un silinmesi.
+>
+> 🔴 **AÇIK KALAN — ve B2b'nin işi:** ADR 0017 §6'nın md. 5 (anahtar 0'ın şeması) ·
+> md. 7 (oturum TTL/süpürücü/`Zero` garantisi — bu tur yalnız `EV2Auth.Zero()`
+> **sağladı**, çağrılacağı yeri değil) · md. 8 (`audit_log`) · md. 10 (yetkilendirme
+> kapısı) · md. 12 (UID uzayı) · **md. 13** (`FileAR.Change`/`ReadWrite`).
+> **Plain SDM `CmdData` düzeni** de açık — sarmalayıcı gövdeyi opak sayar,
+> `ChangeFileSettings` gövdesi bu turda **kurulmadı** ve alan sırası yalnız
+> NT4H2421Gx rev. 3.0 §10.7.1 Tablo 69'dan okunur; ⚠️ **ADR 0017 §6 onu ayrı bir
+> madde olarak SAYMIYOR** — en yakın sayılı komşusu md. 13'tür. Ayrıca hâlâ
+> **hiçbir çip encode edilmedi**.
+>
+> **Denetim turu düzeltmeleri (2026-08-21, bağımsız üçüncü göz).** Bloklayan bir
+> bulgu ve altı bloklamayan; hepsi kapatıldı:
+> - 🔴 **BLOKLAYAN:** `ev2.go`'nun iki `subtle.ConstantTimeCompare`'i
+>   `cmd/tappa/constanttime_test.go`'nun **envanterine kaydolmamıştı** → `make check`
+>   kırmızıydı. `"internal/sun/ev2.go": 2` eklendi, **ne karşılaştırdığı yazılarak**.
+>   Ölçüm: 10 üretim dosyası, 16 karşılaştırma, **0 korumasız**.
+> - 🔴 **Kapsam iddiası düzeltildi:** ilk tur 11 kapsanmamış bloğun **hepsini**
+>   *"daha önceki uzunluk kontrolünün arkasında ulaşılamaz"* diye rapor etmişti;
+>   **biri ulaşılabilirdi**. 4 baytlık bir gövde üzerine **geçerli MAC** taşıyan
+>   yanıt çerçevesi MAC kapısını geçip hizalama hatasına düşüyor.
+>   `TestEV2_UnwrapResponseFullRejectsAMisalignedCiphertext` (kontrol alt-testiyle:
+>   MAC bozulunca **daha erken** düşüyor) eklendi. Kapsam **%95,4 → %95,9**; kalan
+>   **10** blok bu kez **blok blok**, her birinin önündeki kapı adlandırılarak
+>   gerekçelendirildi.
+> - Kırmızı çizgi kural kimliği üç yerde **R7c → R7** (R7c GPS kuralıdır;
+>   sabit-zaman R7'dir — emsal `an12196_kat_test.go` zaten doğrusunu yazıyordu).
+> - Sayfa numarası çelişkisi: rev. 1.8 §7.3 **başlığı s.44**, **Tablo 29 s.45**;
+>   dosya içi iki yer artık aynı şeyi söylüyor.
+> - Veri sayfasının §8.2.4.6'sı anahtar sürümünü **"GetVersion"** ile geri
+>   okutuyor; doğrusu §10.6.2 **GetKeyVersion** görünüyor — **etiketlendi, sessizce
+>   düzeltilmedi** (bu tur hiçbir şeyi okumuyor, yalnız yazıyor).
+> - `ev2SessionKeys` başarı yolunda da yerel CMAC dizilerini sıfırlıyor; dosya
+>   başlığındaki sıfırlama iddiası artık **hangi tamponlar** olduğunu sayıyor.
+>
+> **Güvenlik denetimi turu (2026-08-21, `tappa-security-auditor` — VERDICT: ONAY,
+> bloklayan yok).** Üç bloklamayan bulgu commit'ten önce kapatıldı, biri sayıldı:
+> - 🔴 **F1 — `Zero` disiplini bir cümleydi, mekanizma değil.** Denetçi **on bir
+>   `defer Zero(...)`'ın hepsini sildi** ve `go test ./internal/sun/` **tamamen
+>   yeşil kaldı**; oysa `ev2.go`'nun başlığı listeyi *"so the claim can be checked"*
+>   diye yazıyordu. Artık `TestEV2_ZeroDisciplineIsInventoried` kaynağı **go/ast ile
+>   okuyup** dosya başına sayıyor (`ev2.go: 11`, `changekey.go: 1`) ve
+>   **iki yönlü ratchet**: silmek de eklemek de kırmızı verir (ikisi de ölçüldü).
+>   ⚠️ **Ne kanıtlamadığı testin kendi yorumunda yazılı:** bir wipe'ın
+>   **VARLIĞINI** sayıyor, **doğru tamponu** sıfırladığını değil — ve **eksik**
+>   olanı hiç bulamaz (F2 tam olarak eksik bir wipe'tı).
+> - 🔴 **F2 — itiraf edilen alışkanlığın ikinci örneği bulundu ve kapatıldı.**
+>   `ev2RotateLeft1(rndB)` sonucu **isimsiz** kullanılıyordu: fonksiyon taze 16 bayt
+>   ayırıp **RndB'nin tamamını** yazıyor, `msg`'e kopyalanıyor, sonra
+>   **sıfırlanmadan** düşüyordu → her el sıkışmada oturum anahtarı girdisinin
+>   yarısının **silinmemiş ikinci kopyası**. Aynadaki `ev2RotateRight1` yalnız
+>   **adlandırılmış bir yerele bağlandığı için** kapsanıyordu — gerekçelendirilmiş
+>   değil, **tesadüfi** bir ayrım. `rot := …; defer Zero(rot)` eklendi.
+>   **Aynı tarama tekrarlandı** (go/ast, anahtar malzemesi üreten 11 fonksiyonun
+>   çağrı yerleri): iki dosyada **16 çağrının 16'sı da bir isme bağlı**, ikinci bir
+>   örnek **yok**. Ayrıca dosya başlığına yeni bir mekanizma notu girdi: tüm
+>   tamponlar **tam kapasiteyle** ayrılıyor, yani hiçbir `append` yeniden
+>   ayırmıyor ve `Zero`'nun ulaşamayacağı yetim kopya kalmıyor.
+> - 🔴 **F3 — all-zero (fabrika varsayılanı) `newKey` reddediliyor artık.**
+>   `ChangeKeyData` uzunluğu doğruluyor, **değeri** doğrulamıyordu; 16 sıfır baytlık
+>   bir `newKey` Tablo 63'e göre **kusursuz geçerli** bir gövde üretiyordu.
+>   Ağır sonucu: satıra sarmalı bir sıfır anahtar yazılır, plaket *"encode edildi"*
+>   işaretlenir, ve **§5.3 sonda 2 BAŞARILI döner** — yarım-yazma teşhisi bunu
+>   **göremez**. Risk 8 (oltalama), **tespit sinyali olmadan**. İki kapı eklendi
+>   (§8.2.4.2 ve §5.3 atıflarıyla): **all-zero `newKey`** ve **`newKey == oldKey`**
+>   (no-op; §5.3 zaten *"kurtarma hiç `ChangeKey` çağırmaz"* diyor). İkisi de
+>   `subtle.ConstantTimeCompare` ile ve **envantere yazıldı**
+>   (`internal/sun/changekey.go: 2`; toplam 11 dosya, 18 karşılaştırma, 0 korumasız).
+>   ✅ **Meşru vaka engellenmiyor — ölçüldü:** ağaçtaki hiçbir çağıran sıfır anahtar
+>   ya da no-op yazmıyor; AN12196'nın iki yayımlanmış vektörü de sıfırdan farklı ve
+>   birbirinden farklı anahtarlar kullanıyor, **all-zero ESKİ anahtar** (boş çip,
+>   normal vaka) **kabul edilmeye devam ediyor** — testte ayrı bir kontrol var.
+>   ⚠️ `newKey == oldKey` reddi bir **karar**, protokol değil: Tablo 63 buna izin
+>   veriyor. Geri alınabilir; gerekçesi testin yorumunda.
+>
+> 🔴 **F4 — B2b'YE DEVREDİLEN, KAPATILMADI (denetimde sayıldı):**
+> 1. **`RndA`'nın üretimi çağıranındır ve bu bilinçli** — **bu iki dosyada**
+>    (`ev2.go`, `changekey.go`) ne `crypto/rand` ne `math/rand` var, çünkü KAT'lar
+>    belgenin sabit `RndA`'sını besleyebilmek zorunda.
+>    ⚠️ **DÜZELTME (2026-08-21, 3. denetim):** burada *"bu **pakette**"* yazıyordu
+>    ve **olgusal olarak yanlıştı** — `internal/sun/keys.go:6` `crypto/rand`
+>    **import ediyor** ve `:86` `rand.Read(nonce)` çağırıyor (GCM nonce'u, ADR 0003
+>    md. 4). Yanlış olan **ölçüm cümlesiydi**; aşağıdaki normatif talimat
+>    etkilenmiyor. B2b **`crypto/rand` ile üretmek, hatayı kontrol etmek ve ASLA
+>    tekrar kullanmamakla** yükümlüdür.
+>    🔴 **Tekrar kullanımın bedeli bir gizlilik kaybı değil, bir TEŞHİS
+>    YANILGISIDIR:** kaydedilmiş bir `(E(K,RndB), E(K,TI‖RndA'‖caps))` çifti, aynı
+>    `RndA` tekrarlandığında RndA-echo kapısını **anahtar olmadan** geçirir → ADR
+>    0017 §5.3 **sonda 2 sahte bir "başarılı"** verir.
+> 2. **`EV2Auth`'un BEŞ alanının beşi de ihraç edilmiş** (`TI`, `KeyENC`,
+>    `KeyMAC`, `PDcap2`, `PCDcap2` — `ev2.go:158-173`) **ve *"kimlik doğrulandı"*
+>    işareti taşıyan gizli alan YOK.** ⚠️ **DÜZELTME (2026-08-21, 3. denetim):**
+>    burada *"üç"* yazıyordu; maddenin özü doğrulandı, yalnız **sayı** yanlıştı.
+>    Bu şekil bilinçli (paket dışından bir oturum kurulamaz demek değil —
+>    `&sun.EV2Auth{…}` ile kurulabilir; kurulan şey yalnız **bayt üretir**, hiçbir
+>    kapı açmaz). B2b bir `authenticated bool` eklemek yerine bu şekli korumayı
+>    **yazılı bir karar** hâline getirmeli.
+> 3'. **İki iddia daha ölçüme indirildi (2026-08-21, 3. denetim; kayıt yeter):**
+>    **(S1)** `ev2.go` başlığının *"her tampon TAM nihai kapasitesinde ayrılır"*
+>    cümlesi **fazla güçlüydü** — iki dosyadaki **on** `make([]byte, 0, …)` yerinin
+>    **dokuzu** tam nihai uzunluğu ayırıyor, `ev2Pad` tek istisna ve bir **üst
+>    sınır** ayırıyor (`len(in)+16`; 17 baytlık gövde → len 32, cap 33). İddianın
+>    **iş gören yarısı** (*yeniden tahsis yok → öksüz kopya yok*) **onunda da**
+>    geçerli, ve yazılmamış kuyruk baytları `make`'ten zaten sıfır → **sızıntı
+>    yok**; yalnız *"tam"* kelimesi ölçüme indirildi.
+>    **(S2)** `TestChangeKey_RejectsInvalidArguments`'ın iki numara vakası eski ve
+>    yeni anahtar olarak **aynı** değeri geçiyordu, yani F3'ün no-op kapısı da
+>    ateşlerdi ve iki alt test **numara kapısı silinse bile yeşil kalırdı** (bugün
+>    geçmelerinin sebebi sıra, iddia değil). Girdi **ayırt edici** yapıldı: eski
+>    anahtar artık farklı ve sıfırdan farklı, böylece ateşleyebilecek tek kapı
+>    numara kapısı.
+> 3. **`CmdCtr` monotonluğunu hiçbir Go katmanı garanti etmiyor** — `cmdCtr` her
+>    çağrıda açık argüman, tek fren **çipin kendisi** (§9.1.2: yanlış sayaç =
+>    yanlış MAC). Sayaç muhasebesi B2b'nin oturum nesnesinin işidir.
+
 **Tuzaklar.**
 - **Yanlış host'la encode edilmiş plaket = sahada plaket değişimi.** SUN URL'si
   domaini taşır ve **Q08 hâlâ açık** (`tappa.mt`/`tappa.io` alınmadı). Encode

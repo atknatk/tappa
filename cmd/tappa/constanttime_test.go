@@ -75,6 +75,25 @@ var constantTimeInventory = map[string]int{
 	// The chip's SDM MAC (CLAUDE.md §4.7). Also pinned, more strictly, by
 	// internal/sun/verify_mac_test.go, which asserts the SPELLING inside verifyMAC.
 	"internal/sun/verify_mac.go": 1,
+	// EV2 secure messaging, the PERSONALISATION side (M8-05 FAZ B2a, ADR 0017).
+	// Two comparisons, and they are different classes:
+	//   EV2AuthPart2       — the chip's echoed RndA against the one we sent. This
+	//                        IS the authentication of AuthenticateEV2First: without
+	//                        it nothing has proven the chip holds the key, so a
+	//                        bytes.Equal here leaks how much of a forged echo was
+	//                        right to whoever is holding the plaque.
+	//   EV2UnwrapResponseFull — the chip's truncated response MAC. Attacker-facing
+	//                        by construction: the relay carries these bytes
+	//                        (ADR 0017 §2.2 says to assume the phone is hostile).
+	"internal/sun/ev2.go": 2,
+	// ChangeKey's two VALUE gates, both secret-to-secret and both of the lighter
+	// class the internal/config entries above describe: the new plaque key against
+	// the all-zero factory transport value (datasheet §8.2.4.2), and the new key
+	// against the old one (a write that would change nothing). No attacker input
+	// reaches either — the new key is our own crypto/rand output — but "the ones we
+	// think are safe" is not a category that survives an edit, which is the same
+	// argument the config entries make.
+	"internal/sun/changekey.go": 2,
 }
 
 // TestConstantTimeComparisonsAreWhereTheyWere generalises internal/sun's

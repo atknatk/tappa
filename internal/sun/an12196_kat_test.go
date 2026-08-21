@@ -96,12 +96,14 @@ import (
 //	§6.4   Table 12 p.26        §5.4   Table 10 p.24   Get File Settings (NDEF file)
 //	§6.5   Table 13 p.27        §5.5   Table 12 p.25   Get Version (UID, three frames)
 //	§6.6   Table 14             §5.6   Table 14        AuthenticateEV2First, key 0x00
+//	§6.8.2 Table 18 p.32        §5.8.2 Table 17 p.29   Write NDEF File, CommMode.FULL
 //	§6.9   Table 19             §5.9   Table 18        Change NDEF File Settings
 //	§6.10  Table 20 p.35        §5.10  Table 19 p.32   AuthenticateEV2First, key 0x03
 //	§6.14  Table 24 p.39        §5.14  Table 23 p.36   AuthenticateEV2NonFirst, key 0x00
 //	§6.16  Table 26/27          §5.16  Table 25/26     Changing the Key
 //	§7 (chapter) p.43           §6 (chapter) p.40      "Special functionalities"
 //	§7.2   Table 28 p.43        §6.2   Table 27 p.40    Enabling Random ID - RID
+//	§7.3   Table 29 p.45        §6.3   Table 28 p.42   Get UID (CommMode.FULL response)
 //	§10.1           p.54        §9.1            p.51   Supporting tools list
 //	§3 "Definition of variables" p.6   §2 p.4          MACt() truncation notation
 //
@@ -127,6 +129,14 @@ import (
 //	                      that its "at least ten APDU exchanges" derivation RESTS ON
 //	                      -- and it too was absent. The round before had just written
 //	                      "falsified twice"; by the next audit it was four.
+//
+//	round 5 (2026-08-21)  NOT a falsification, recorded so the maintenance history is
+//	                      complete: M8-05 FAZ B2a (ev2_kat_test.go) cited §6.8.2/§5.8.2
+//	                      and §7.3/§6.3 for the first time and added both rows BEFORE
+//	                      the next audit could find them missing. It also measured that
+//	                      section, table AND page all move independently — §6.8.2
+//	                      Table 18 p.32 becomes §5.8.2 Table 17 p.29 — so the "page
+//	                      does not move" shortcut that keeps suggesting itself is false.
 //
 // FOUR ROUNDS, FOUR MISSES, AND EACH ROUND PATCHED THE PREVIOUS ROUND'S GAP. That is
 // the shape this repository names outright: a detector written to the shape of the
