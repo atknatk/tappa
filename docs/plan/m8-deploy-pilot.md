@@ -4245,6 +4245,9 @@ turda** ölçülebilir; ayrıca `ctr` palindrom olmadığı için sinyal gürül
 >   tutuyor. **Gerçek çare** ADR 0017 §6 md. 12'ye **dördüncü sonuç** olarak yazıldı:
 >   adım 6'dan sonra `K_0x01` bizimken UID'yi **`GetCardUID` ile o oturumda yeniden
 >   oku** (`CommMode.Full`, yanıt MAC'i röle tarafından üretilemez) — **yalanı
+>   ⚠️ *(Bu iki yarı da sonradan çürütüldü: yerleşim FAZ B2c-1'de **adım 4b**'ye
+>   taşındı, MAC iddiası geri çekildi. Bu satır **tarihsel bir B2b kaydıdır** ve
+>   olduğu gibi bırakılıyor; güncel hâl ADR 0017 §6 md. 12'dedir.)*
 >   TESPİT eder, satırı önlemez**. Komut kurucusu sevk edildi (`GetCardUIDCommand`).
 > - **N8 — §5.3'ün 1 numaralı sondası yazılmamıştı** ve açık listede de yoktu.
 >   Sevk edildi: `GetFileSettingsCommand` + `ParseFileSettings`. ⚠️ *"Kimlik
@@ -4352,6 +4355,1243 @@ turda** ölçülebilir; ayrıca `ctr` palindrom olmadığı için sinyal gürül
 > (yetkilendirme kapısı) · md. 12 (UID uzayı), artı B2a'nın F4 devri (`crypto/rand`
 > ile `RndA`, `CmdCtr` muhasebesi, `EV2Auth`'un şeklinin yazılı kararı) ve
 > **hâlâ hiçbir çip encode edilmedi** (§6 md. 1).
+
+> **Kart düzeltmesi (2026-08-21, M8-05 FAZ B2c-1 sırasında).**
+>
+> **Sevk edilen: `internal/encode` — ürünün ilk DURUMLU encode kodu.**
+> `session.go` (bellek içi oturum deposu: keyring · TTL · süpürücü · eşzamanlılık
+> sınırları · tek çıkış) ve `driver.go` (§5.1'in **on alışverişlik** durum makinesi).
+> 🔴 **HTTP YOK · DB YOK · sqlc YOK · migration YOK**; `db/queries/` değişmedi.
+> Kalıcılık, sarmalama ve saat **tüketici tarafında tanımlanmış üç arayüzle**
+> (`Rows`, `Wrapper`, `Clock`) enjekte ediliyor. Yeni bağımlılık **yok**
+> (`context`, `crypto/rand`, `crypto/aes`, `encoding/hex`, `errors`, `fmt`, `sync`,
+> `time`, `bytes` — hepsi stdlib). Kapsam: `internal/encode` **%92,6**,
+> `internal/sun` **%96,7** (düşmedi). **127 test vakası.**
+> ⚠️ **Kapsam sayısı DETERMİNİSTİK DEĞİL** (5. denetim ölçtü): beş ardışık koşu
+> **93,1 / 92,6 / 92,6 / 92,6 / 92,6** verdi (kendi ölçümüm). Raporlanan sayı **mod**, sabit değil —
+> sebebi `Close`'un zaman aşımı dalındaki `if stuck == 0` gibi yarış-bağımlı
+> satırların bazı koşularda hiç çalışmaması.
+> **Mutasyon: 76 mutasyon, 67'si kırmızı, 9 hayatta kalan** — dokuzu da gerekçeli ve
+> ikisinin **meşruluk ön koşulu ayrıca çivili** (aşağıda).
+>
+> ✅ **ADR 0017 §6 md. 7 KAPANDI — beş maddenin beşi de karara bağlandı ve gerekçe
+> KODUN İÇİNDE:**
+> 1. **TTL = 90 sn**, ve **iki taraftan da bağlı** (`TestSession_TheTTLCoversTheRoundAndNotMuchMore`).
+>    Taban `len(roundSteps) × exchangeBudget` = 10 × 5 sn — **tabloyu sayarak
+>    türetiliyor**, tekrar yazılmıyor. Tavan **tabanın iki katı**, ve tavanın
+>    gerekçesi ölçüm: veri sayfası s. 28, alan düşünce çipin kimlik doğrulama
+>    durumu *"immediately lost"* → sunucu oturumunun çipinkinden uzun yaşaması
+>    **hiçbir şey satın almaz**, yalnız anahtar tutar. ⚠️ `exchangeBudget = 5 sn`
+>    bir **bütçedir, ölçüm değil**, ve öyle etiketli: §6 md. 2 röle gecikmesinin
+>    **ölçülmediğini** söylüyor, elimizdeki tek sayı `deploy/README`'nin ~150 ms'lik
+>    kaba hesabı. FAZ B3 silikonda ölçtüğünde değişecek sabit budur.
+> 2. **İKİSİ DE süpürür, ve ikisi de gerekli.** Tembel süpürme (`checkout`) **terk
+>    edilmiş** oturuma **hiç ulaşmaz** — tanımı gereği kimse onu bir daha
+>    aramıyor; süpürücü **goroutine** ise tick'ler arasında bir pencere bırakır.
+>    `TestStore_TheSweeperIsAGoroutineAndItRuns` goroutine'i **hiçbir çağrı
+>    yapmadan** kanıtlıyor (yalnız tick), pozitif kontrolüyle birlikte.
+> 3. 🔴 **GARANTİNİN MEKANİK YÜZÜ ÜÇ PARÇA — B2a mekanizmayı vermişti, bu tur
+>    garantiyi veriyor:** *(a)* `sun.Zero` **yalnız keyring metotlarında** çağrılır
+>    (`TestSession_OnlyTheKeyringWipes`, go/ast) · *(b)* `zeroAll`'ın **tam bir**
+>    çağıranı vardır, `Store.retireLocked`
+>    (`TestSession_TheRingIsWipedFromExactlyOnePlace`) · *(c)* **hiçbir ihraç
+>    edilmiş API bir `*Session` alıp vermez** (`TestSession_NoExportedAPIHandsOutASession`),
+>    yani çağıran bir oturumu tutamaz, düşüremez. ⚠️ Üçü **varlığı ve tekliği**
+>    kanıtlar, **kaydolmamayı** değil — o boşluk `TestStore_TheDrivenExitPathsWipeEveryKeyBuffer`
+>    ile **davranışsal** kapatıldı: test **çağıranın kendi dilim başlıklarını**
+>    tutuyor ve **yedi** çıkış yolunun (başarı · hata · TTL süpürmesi · tembel
+>    süpürme · iptal · kapanış · abort) her birinde baytların sıfır olduğunu ölçüyor.
+> 4. **Eşzamanlılık: plaket başına 1 · aktör başına 3 · depo geneli 64**, üçü de
+>    gerekçesiyle. Plaket başına **red, tahliye değil** (tahliye eden taraf canlı
+>    bir turu bir plaket bedeliyle öldürebilirdi); red bir **gecikme**, kayıp değil,
+>    ve pozitif kontrolü var.
+> 5. **Envanter TEK YERDE, `keyInventory`:** `KSesAuthENC` · `KSesAuthMAC` ·
+>    `RndA` · `RndB` · `K_SDMFileRead` · **`K_AppMaster`** — sonuncusu **bugün hiç
+>    doldurulmuyor** (md. 5 bloke) ama **slot açık**, yani şema kararı geldiğinde
+>    silme/çıkış yolu **zaten kapsıyor**. `TI` ve `CmdCtr`'ın **neden listede
+>    olmadığı** aynı yerde yazılı; oturum kimliğinin **silinemez bir Go dizesi**
+>    olduğu **sayılmış limit** olarak duruyor.
+>
+> ✅ **§5.1 SIRASI TABLONUN KENDİSİ.** `roundSteps` on satır; hiçbir dal bir adımı
+> sırasız üretemez. **6 ↔ 7** üç yönden çivili (tablo indeksi · tele çıkan INS
+> dizisi · makinenin **hiçbir durumunda** adım 7'nin sıradaki komut olmaması), ve
+> mutasyonla kırmızı. ✅ **§5.2 SIRASI da:** satır, `GetVersion`'ın **üçüncü
+> çerçevesinin** accept'inde — UID'nin var olduğu ilk an — ve `AuthenticateEV2First`
+> **çıkmadan önce** yazılıyor; `recordingRows` porta yapılan çağrılarla tele çıkan
+> APDU'ları **tek bir sıralı günlükte** kaydediyor, mutasyon (satırı adım 4'ten
+> sonraya almak) **dört testi** kırmızıya çeviriyor.
+>
+> ✅ **`RndA` DİSİPLİNİ YAPISAL, "dikkat ediyoruz" değil.** `crypto/rand`'dan
+> üretiliyor, hata kontrollü, **keyring'e giriyor** ve `take` slotu **consumed**
+> işaretliyor → **ikinci bir okuma ifade edilemez**. Tazelik **telden** ölçülüyor:
+> çip Part 2 kriptogramından `RndA`'yı geri çözüyor, 16 turun 16'sı **ayrık**.
+>
+> 🔴 **VE BU TUR ADR'NİN KENDİ BİR CÜMLESİNİ ÖLÇEREK ÇÜRÜTTÜ — md. 12'nin dördüncü
+> sonucu SEVK EDİLDİ, ama iddiası daraltıldı.** ADR *"`GetCardUID` `CommMode.Full`,
+> yani yanıt MAC'i röle tarafından **üretilemez**"* diyordu. Ölçüldü: o oturum
+> **anahtar 0** ile kurulur ve boş çipte anahtar 0 **halka açıktır**, yani ADR 0005
+> **risk 7**'nin kümesi oturum anahtarlarını türetip **o MAC'i de üretir**; kontrolü
+> taze bir `0x01` oturumuna taşımak da kurtarmaz (aynı döküm adım 6'nın `ChangeKey`
+> gövdesini taşıyor). **Hak edilen dar cümle:** kapı bir **dizeyi düzenleyerek**
+> yalan söyleyen röleyi yakalar, **EV2 güvenli mesajlaşmasını uygulayan** §2.2
+> rölesini yakalamaz. Kod, test ve ADR artık **tam olarak bunu** söylüyor;
+> `internal/sun/apdu.go`'daki ikiz cümle de daraltıldı. Kapı **kaldırılmadı** —
+> ucuz, sevk edildi, ve tespit ettiği yalan *"iptal et ve temizle"*ye çevriliyor;
+> temizlik yolu (`retire + replace` + çipin hurdaya ayrılması, **bugün elle,
+> `tappa_owner` ile**) `RelayMismatchError`'da **adıyla** yazılı, ve test satırın
+> **silinmediğini** de iddia ediyor.
+>
+> ✅ **İKİ TASARIM KARARI YAZILDI:**
+> - **`EV2Auth` DEĞİŞMEDİ** (`internal/sun/ev2.go`'ya bu turda dokunulmadı) ve
+>   `authenticated bool` **eklenmedi**. Karar: **kimlik doğrulama durumu oturumun
+>   adım indeksinde yaşar** — `Session`'ın **hiçbir ihraç edilmiş alanı yok** ve
+>   paket dışından kurulamaz/okunamaz. `TestSession_TheEV2AuthShapeIsTheOneThisPackageInventories`
+>   `EV2Auth`'un **beş alanını** reflect ile çiviliyor: altıncı bir alan (bayrak ya
+>   da yeni sır) bu kararı **kırmızı** yapar.
+> - **`CmdCtr` ARTIK BİR GO KATMANINDA.** `Session.useCtr()` sayacı verir ve
+>   ilerletir; **setter yok**, çağıran değer sağlamaz. Kanıt dolaylı ve asıl güçlü
+>   olan o: sahte çip **her komut MAC'ini kendi sayacıyla** doğruluyor, yani
+>   atlanan/tekrarlanan/önden artırılmış bir sayaç **INTEGRITY_ERROR** veriyor
+>   (mutasyon M12 → dört test kırmızı). `FFFFh` sınırı ayrıca reddediliyor.
+>
+> **Sahte çip (`chip_test.go`) NE KANITLAR, NE KANITLAMAZ — kendi başlığında yazılı.**
+> Kanıtlar: sayaç muhasebesi, `TI`, alan bölünmesi, sıra (komut MAC'lerini
+> **bağımsız** bir RFC 4493 CMAC'iyle doğruluyor). **Kanıtlamaz:** silikon hakkında
+> hiçbir şey (§6 md. 1 duruyor) · KDF hakkında hiçbir şey (oturum anahtarlarını
+> `sun.EV2AuthPart2`'den **ödünç alıyor**; o zaten AN12196 vektörleriyle **dışarıdan**
+> çivili) · `CRC32NK` hakkında hiçbir şey (bilerek yeniden hesaplamıyor).
+>
+> **Mutasyon kanıtı: 76 mutasyon, 67'si kırmızı, 9 hayatta kalan.**
+> Kapsanan kararlar: `zeroAll`'ın silinmesi · `take`'in consumed'ı bırakması
+> (RndA tekrarı) · adım 6/7'nin ters çevrilmesi · satırın adım 4'ten sonraya
+> alınması · `GetCardUID` karşılaştırmasının **ve** uzunluk kapısının kaldırılması ·
+> süpürücünün iki ayrı yolla kapatılması · üç eşzamanlılık sınırının kaldırılması ·
+> sayacın artmaması, `FFFFh`'de sarması ve yanıtın **yanlış sayaçla** doğrulanması ·
+> durum sözcüğünün denetlenmemesi · tembel süpürmenin kaldırılması · `add`'in
+> reddettiğini silmemesi · iptalin yok sayılması · hatada oturumun emekli
+> edilmemesi · işaretleyici hatasında `Done`'ın düşürülmesi · `ISO SELECT` ve
+> mühürlü-onay gövde kapıları · `Close`'un oturumları bırakması · satır kapısının
+> düşürülmesi · **plaket anahtarının sabitlenmesi** · **oturum kimliğinin sayaca
+> çevrilmesi** · `sweepDivisor`, `DefaultMaxLive`, `DefaultMaxPerActor`,
+> `exchangeBudget`, `keyVersion`'ın oynatılması · **panik çıkış yolunun
+> kaldırılması** · **yanlış AAD ile sarmalama** · **satıra başka bir anahtarın
+> sarmalanması** · **`ChangeKey`'in anahtar 0'a gitmesi** · **şablonun yanlış
+> dosyaya yazılması** · `ISO SELECT`'in atlanması.
+>
+> 🔴 **HAYATTA KALANLAR — HER BİRİ AYRI AYRI YAZILI.** ⚠️ Bu bir **örneklem**
+> ifadesidir, bir kod özelliği değil: *"tek ve meşru"* gibi kesin tekil bir cümle
+> **kurulmuyor**, çünkü bir sonraki denetçinin kuracağı başka bir mutasyon kümesi
+> başka hayatta kalanlar bulabilir — nitekim 2. denetim tam olarak bunu yaptı.
+> 1. **`ParseGetVersion`'a çerçeve 1 ile 2'nin ters verilmesi.** Meşru, çünkü
+>    ölçüldü: UID **üçüncü** çerçeveden okunuyor, ilk ikisi yalnız **uzunluk**
+>    kapısından geçiyor, ve bu paket `Version`'dan **yalnız `UID`** okuyor. Meşruluk
+>    **koşullu** olduğu için koşul çivilendi:
+>    `TestSession_TheDriverReadsOnlyTheUIDOutOfGetVersion` (go/ast) bu paket
+>    `Hardware`/`Software`/`Production` okumaya başladığı gün kırmızıya döner.
+> 2. **Kimlik doğrulama sonrası `s.cmdCtr = 0` atamasının silinmesi.** Meşru: alan
+>    `Begin`'in **taze ayırdığı** bir `Session`'da zaten sıfır; atama yalnız bir
+>    oturumun **yeniden kullanılmasına** karşı savunma. Ön koşul çivilendi:
+>    `TestSession_ASessionIsOnlyEverConstructedOnce` (go/ast) `Session` bileşik
+>    değişmezinin **tam bir** üretim fonksiyonunda (yalnız `Begin`) kurulduğunu
+>    ölçüyor; havuzlama geldiği gün kırmızı.
+> 3. **Zaman aşımı dalının `retireIdleLocked()` yerine `len(st.live)` sayması**
+>    (M63, bu turda eklendi). Meşru: değişiklik **yapısal bir sertleştirme**, gözlenen
+>    bir kusurun düzeltmesi değil — pencereyi ne denetçi ne ben üretebildik (**400
+>    denemede 0** yanlış alarm), dolayısıyla hiçbir davranışsal test ikisini ayırt
+>    edemez. Sayının taze bir sweep'ten türetilmesi pencereyi **şansa değil yapıya**
+>    bağlıyor.
+> 4. **Sahte çipin `ChangeKey` gövde-biçimi ölçütünün oturuma çevrilmesi** (M64, bu
+>    turda eklendi). Meşru **ve ölçülmüş**: Tablo 65'in ön koşulu uygulandığı için
+>    `ChangeKey` yalnız anahtar-0 oturumunda yasaldır, dolayısıyla `keyNo == AuthKey`
+>    ile `keyNo == 0` **her girdide aynı dalı seçer** — hiçbir davranışsal test
+>    ikisini ayırt edemez. ADR 0017 §5.1 bunu zaten söylüyor: *"ikisi aynı kapıya
+>    çıkar — ama kod **numaraya** bakmalıdır, oturuma değil."* Kod numaraya bakıyor;
+>    ayrım adım 8 ya da probe-2 akışı geldiğinde **gerçek** olacak.
+> 5. 🔴 **Anahtar baytlarının başka bir tipin MAP ANAHTARINA sızması** (M76) ve
+>    🔴 **bir CLOSURE YAKALAMASINA sızması** (M77). **Meşru hayatta kalan DEĞİL —
+>    BUNLAR SAYILMIŞ AÇIĞIN KENDİSİ** (md. 15). Hiçbir kapı görmüyor; map anahtarı
+>    ayrıca **kalıcı olarak** silinemez (Go dizesi). Mutasyon tablosunda **kalıcı
+>    olarak** tutuluyorlar ki açık **görünür** kalsın, bir gün mekanikleşirse
+>    **kırmızıya dönsünler**.
+> 6. **`finishLocked`'ın switch'inde `case done:`'ın yerini değiştirmek** (M78).
+>    Meşru **ve ölçüldü**: o switch'in **hiçbir sırası yük taşımıyor** — tek çağrı
+>    yeri var, `done` doğruyken dönüşü `Step` hiç okumuyor, ve üç dal da **aynı tek
+>    ifadeyi** çalıştırıyor. Bu mutasyonun hayatta kalması, bloklayan 2'nin
+>    düzeltmesinin **dayandığı ölçümdür**.
+> 7. **`finishLocked`'ın `signalDrainLocked()` çağrısının silinmesi** (M79). Meşru:
+>    `Close` yalnız **meşgul** oturumları bekliyor ve hepsini `expireLocked` ediyor,
+>    dolayısıyla sahibinin `finishLocked`'ı **daima** `retireLocked`'a düşüyor ve
+>    sinyali **o** veriyor — buradaki çağrı **savunmacı fazlalıktır**. ⚠️ Kolun
+>    kendisi yük taşıyor: `finishLocked`'ın **deadline dalını silmek KIRMIZI** (M80,
+>    kontrol).
+> 8. **`retireLocked`'da `s.auth = nil`'in silinmesi.** Meşru ve **çivilenmiyor**:
+>    `auth.KeyENC`/`KeyMAC` **halkada kayıtlı** ve `zeroAll` **aynı arka dizileri**
+>    siliyor; işaretçiyi `nil`'lemek bir **takma adı** kaldırıyor, bir sırrı değil.
+>    Geriye kalan `TI` ve yetenek baytları §4.7 anlamında sır değil.
+>
+> 🔴 **İLK GEÇİŞLERDE ÜÇ MUTASYON HAYATTA KALDI VE ÜÇÜ DE GERÇEK ZAYIFLIKTI:**
+> *(i)* `GetCardUID` **uzunluk** kapısını silmek yeşil kalıyordu (`bytes.Equal` kısa
+> çerçevede zaten `false`) — ama o zaman kırık bir aktarım **`RelayMismatchError`**
+> olarak raporlanır, yani operatör bir **taşıma arızası** için satırı emekli edip
+> çipi **hurdaya** yollar; test artık hata **sınıfını** iddia ediyor.
+> *(ii)* **Satır kapısı** testi *"bir hata döndü"* diyordu, oysa satırsız bir
+> oturumun oturum anahtarı da yok — kod ve mutantı **aynı şekilde** düşüyordu; test
+> artık **hangi kapının** ateşlediğini iddia ediyor. *(iii)* Şablonun **dosya 03h**'ye
+> yazılması yeşil kalıyordu ve sebebi **sahte çipin kendi zayıflığıydı**: tek bir
+> `ndef` alanı tutuyor, dosya numarasını yok sayıyordu. Çip artık **dosya başına**
+> saklıyor ve tam tur testi şablonun **02h'ye ve yalnız 02h'ye** indiğini ölçüyor.
+>
+> 🔴 **AÇIK KALAN — B2c-2'nin işi, ve hiçbiri bu turda kapanmadı:** ADR 0017 §6
+> md. 5 (anahtar 0'ın şeması → **§5.1 adım 8 SEVK EDİLMEDİ**, ve
+> `TestDriver_NoChangeKeyIsEverEmittedForApplicationKeyZero` onu kapalı tutuyor;
+> bedeli **ADR 0005 risk 8** ve *"anahtar 0 fabrikadayken plaket duvara çıkamaz"*
+> çizgisi aynen duruyor) · md. 8 (`audit_log` — olay adı/aktör/tenant üçü de
+> kararsız, bu yüzden **hiçbiri uydurulmadı**) · md. 10 (yetkilendirme kapısı —
+> `Begin`'in `actor`'ı bir **maruziyet sınırıdır, yetki değil**, ve kodda öyle
+> yazılı) · md. 11 (Q08 host'u) · §5.3'ün üç sondası (komut kurucuları `internal/sun`'da
+> **var**, sürücüsü yok — ayrı bir akış) · ve **hâlâ hiçbir çip encode edilmedi**.
+> ⚠️ **Ve bir ŞEMA BOŞLUĞU ÖLÇÜLDÜ:** §5.1 adım 9'un *"satırı encode edildi olarak
+> işaretle"*sinin **karşılığı yok** — `tags`'te böyle bir sütun bulunmuyor (00004 +
+> 00013; `status` **`unassigned`** kalmak **zorunda**, kartın kendi tuzağı). `Rows`
+> portunun `MarkEncoded`'ı bu yüzden **tüketicinin ihtiyacını** beyan ediyor,
+> B2c-2 nasıl karşılanacağına karar verecek.
+>
+> 🔴 **VE BU TURUN ÜRETTİĞİ YENİ AÇIK SİLİKON SORUSU — FAZ B3 İÇİN, BU LİSTEDE
+> (denetim bulgusu N5: soru doğruydu ama yalnızca bir kod yorumunda ve denetim
+> anlatısında duruyordu, yani FAZ B3'ü okuyan kişiye *"bunu ölç"* diyen satır yoktu):**
+> **adım 5'in CommMode'u ÖLÇÜLMEDİ.** Tappa'nın `WriteData`'sı, dosya `02h` hâlâ
+> **teslim haklarındayken** (`Write = ReadWrite = Eh`, veri sayfası **Tablo 8 s.12**)
+> anahtar-0 oturumunda **CommMode.Full** gönderiyor; veri sayfası **§8.2.3.3 (s.12)**
+> ve ikizi **§8.2.3.5 (s.13)** o durumda *"CommMode.Plain **has to be applied**"*
+> diyor. **Hiçbir yayımlanmış örnek bu kombinasyonu kapsamıyor** — AN12196'nın Full
+> `WriteData`'sı (§5.8.2) **teslim yapılandırmasında değil**: §5.4 (s.24) bunu birebir
+> söylüyor ve Tablo 11 `00E0` → `Write = 0` (anahtar 0) çözüyor.
+> ⚠️ **Çipin ne yaptığı da belgede yazmıyor:** iki bölüm de hangi **KİPİN** geçerli
+> olduğunu söylüyor, çerçevenin **reddedildiğini değil** — Plain uygulayan bir çip
+> mühürlü alanı **düz veri olarak dosyaya yazar**, yani tur yine düşer (yanıt
+> MAC'inde) ama çip *"hâlâ boş"* **değildir**.
+> 🔴 **VE B2c-2 İÇİN BİR BLOKLAYICI ŞART (2. güvenlik denetimi, R5, aynen):**
+> *"`tenant_id` porta **AÇIK PARAMETRE** olmalı; bağlantının `SET LOCAL`'ine örtük
+> bırakılırsa **kuşak (açık filtre) tamamen uygulamanın hafızasına kalır**."*
+> `Rows.InsertUnassigned`'ın bugünkü imzası tenant taşımıyor ve `tags.tenant_id`
+> **NOT NULL, DEFAULT'suz** (00004) — yani şekil B2c-2'de karara bağlanacak.
+>
+> **Ölçülecek:** gerçek bir çip adım 5'i kabul ediyor mu. **Yedek:** belgenin kendi
+> **§5.8.1**'i (`ISOUpdateBinary`, CommMode.PLAIN). **Neden bloklamıyor:** adım 5 her
+> `ChangeKey`'den **önce** koşuyor → hiçbir anahtar değişmemiş olur, plaket
+> **kurtarılabilir** (§5.3 adım 5'ten yeniden koşup NDEF'i üzerine yazıyor — zaten
+> ayırt etmediği çift). Aynı madde **ADR 0017 §6'ya `md. 12b` olarak** da yazıldı;
+> kod tarafındaki tam kayıt `internal/encode/driver.go` → `roundSteps` başlığı.
+>
+> **Denetim turu (2026-08-21, bağımsız üçüncü göz — VERDICT: RED, beş bloklayan +
+> altı bloklamayan; hepsi kapatıldı).** Denetçi ölçümlerin çoğunu kendi komutlarıyla
+> yeniden üretti ve **brief'in adını verdiği yedi mutasyonun yedisini de** kırmızı
+> buldu; **beş mutasyon hayatta kaldı** ve **dördü kanıt-iddiası sınıfıydı** —
+> yanlış bayt değil, **hak ettiğinden fazlasını iddia eden cümle.**
+>
+> 🔴 **B1 — PLAKET ANAHTARI RASTGELE OLMAYI BIRAKABİLİYORDU VE BORU HATTI YEŞİL
+> KALIYORDU.** `mintPlaqueKey`'in `rand.Read`'i sabit 16 baytla değiştirilince
+> testler · `go vet` · `redline-check` **üçü de exit 0**. Yani her plaket **aynı**
+> `K_SDMFileRead` ile çıkardı ve ADR 0005 risk 7'nin *görülebilir* dediği **tek bir
+> dökümden** çıkan anahtar **tüm filo** için SUN üretirdi — ADR 0003 md. 3'ün tersi,
+> sessizce. Asimetri kendi dosyamdaydı: **geçici** nonce için telden 16/16 ayrıklık
+> ölçülüyordu, **kalıcı** anahtar için aynı döngü **hiç yazılmamıştı**.
+> → `TestDriver_ThePlaqueKeyIsFreshOnEveryRound` (hem turdan hem doğrudan 64 çağrıdan)
+> ve **`TestDriver_TheKeyInTheRowIsTheKeyOnTheChip`** — turun **ürettiği asıl şeyi**
+> hiçbir şey doğrulamıyordu: satıra giden 44 baytın, **aynı KEK ve aynı UID AAD'si
+> altında**, çipin benimsediği anahtara açılması. Üç yeni mutasyon (sabit anahtar ·
+> yanlış AAD · satıra başka anahtar) artık kırmızı.
+>
+> 🔴 **B2 — TTL TAVANININ GEREKÇESİ UYDURULMUŞ BİR ATIFTI VE *"ÖLÇÜLDÜ"* ETİKETİ
+> TAŞIYORDU.** *"Veri sayfası s. 28: alan düşünce kimlik doğrulama durumu ölür"*
+> yazıyordu. **Yeniden ölçüldü** (97 sayfa, `pdftotext -layout`): `"authentication
+> state"` **tam iki kez** geçiyor (§9.1.9 s.28, §9.1.10 s.29) ve **ikisi de komut
+> hatası** hakkında; `"RF field"` · `"field is removed"` · `"power off"` ·
+> `"deselect"` · `"HALT"` · `"leaves the field"` → **altısı da sıfır isabet**. Belge
+> alanın düşmesi hakkında **hiçbir şey söylemiyor**. Yorum artık **DERIVED, NOT
+> TRANSCRIBED** diye etiketli (`exchangeBudget`'ın kalibrasyonu), transkript olan
+> yarı (*hatalı komut oturumu öldürür*) ile tasarım yargısı olan yarı **ayrıldı**, ve
+> testin **hata mesajındaki** aynı cümle de düzeltildi.
+>
+> 🔴 **B3 — `Table 8` ADIYLA ANILIYORDU VE TABLO TERSİNİ YAZIYOR.** *"FileAR.Change
+> ve FileAR.Write teslimde ikisi de anahtar 0"* deniyordu; Tablo 8 (**s. 12**, sayfa
+> numarası da yanlıştı) dosya `02h` için `Read=Eh, **Write=Eh**, ReadWrite=Eh,
+> Change=0h` veriyor — `Write` **serbest**, anahtar değil. Ve yanlış atıf **gerçek bir
+> gerilimi** örtüyordu: **§8.2.3.3 (s.12)** *"If authenticated and the only access
+> conditions satisfied are the free access Eh ones, then the **CommMode.Plain** is to
+> be applied"* — oysa sürücü teslim ayarlarında **CommMode.Full** `WriteData`
+> gönderiyor. **Gerilimi belge kendi yaparak çözüyor:** AN12196 rev. 2.0 **§5.8.2
+> Tablo 17**'nin başlığı *"Write NDEF File - using Cmd.WriteData, **CommMode.FULL**"*,
+> yeri **§5.6 (anahtar 0 ile auth) ile §5.9 (ChangeFileSettings) arasında** — yani
+> dosya hâlâ teslim haklarında —, ve **başarılı R-APDU'yu basıyor**
+> (`FC222E5F7A5424529100`, adım 21 yanıt MAC'ini **doğrulanmış** kaydediyor).
+> ⚠️ **Açık kalan, dürüstçe:** yayımlanmış örnek silikon değildir; gerçek çip
+> §8.2.3.3'ü harfiyen uygularsa adım 5 düşer ve yedek **§5.8.1'in `ISOUpdateBinary`
+> CommMode.PLAIN**'idir — ucuz, çünkü adım 5 her `ChangeKey`'den önce koşar, yani
+> reddeden çip hâlâ boştur. FAZ B3 ölçümü.
+>
+> 🔴 **B4 — *"ADR §4 aynı onu bağımsız sayıyor"* — İKİ FARKLI ON, TESADÜFEN EŞİT.**
+> ADR §4'ün listesi `ChangeKey`'i **iki kez** sayıyor (adım 8 dahil) ve `GetCardUID`
+> **taşımıyor**; bu tablo adım 8'i **sevk etmiyor** ve `GetCardUID` **ekliyor**. Biri
+> düşmüş, biri eklenmiş → toplamlar **rastlantıyla** eşit, ve rastlantı çapraz
+> doğrulama değildir. İki yorum ve testin hata mesajı düzeltildi; adım 8 sevk
+> edildiği gün bu tablo **on bir** olacak, ADR'nin listesi **on** kalacak.
+>
+> 🔴 **B5 — *"AN12196 bunu tek oturumda yayımlıyor"* — İKİ AYRI OTURUM.** Ölçüldü:
+> T17/T18'in `TI = 9D00C4DF`, T25/T26'nın `TI = 7614281A`. Ve **hiçbiri** bitişik bir
+> `0,1,2,3` basmıyor: oturum B'nin basılı komutları `0000` (T21) → `0200` → `0300`,
+> `0100` yalnız bir **yanıt** MAC girdisinde görünüyor. Yorum artık her iki izin **ne
+> çivilediğini ayrı ayrı** yazıyor: oturum A *"komut başına bir artış"*ı (0000→0100,
+> bitişik), oturum B *"sıfırdan farklı anahtarı değiştirmek oturumu düşürmüyor"*u
+> (0200→0300). §9.1.2'nin muhasebe kuralı zaten doğru transkribe edilmişti.
+>
+> **Bloklamayanların hepsi kapatıldı:** **b6** — 🔴 **SEKİZİNCİ çıkış yolu vardı:
+> panik.** `Step` `defer` kullanmıyordu; `advance` paniklerse `s.busy` **kalıcı true**
+> kalır, süpürücü meşgulü **atlar**, `Abort` yalnız deadline'ı öne çeker → oturum, iki
+> düz anahtar ve `perUID` yuvası **`Close`'a kadar** yaşardı (recover eden bir HTTP
+> katmanının altında: süresiz) — §6 md. 7'nin **reddettiği** cevabın ta kendisi.
+> `defer` eklendi, panik **yutulmuyor, yeniden fırlatılıyor**; `Store` yorumunun
+> niteleyicisiz *"a property of the type"* cümlesi de **sekiz çıkışı sayarak** ve
+> kapsamadıklarını (SIGKILL · core dump · swap) **adlandırarak** daraltıldı.
+> ⚠️ Denetçi röle-kontrollü baytlarla gerçek panik **üretemedi**, yani bu bilinen bir
+> açığı değil **ulaşılabilirliği bilinmeyen bir yolu** kapatıyor. · **b7** — oturum
+> kimliği **sayaca** çevrilince suit yeşildi; `Step`/`Abort` **aktörü hiç kontrol
+> etmiyor** (md. 10 açık), yani **ID tek yetkidir**, üstelik *"hamiline yazılı
+> handle"* gerekçesi iki başka kararı da taşıyor. `TestSession_TheHandleIsUnpredictable`
+> 64 örnekte **bayt konumu başına** en az 30 ayrık değer istiyor (rastgele için beklenen
+> ~57; bir sayaç için baştaki baytlarda **1**). · **b8** — iki çıplak sayı çivilendi:
+> `sweepDivisor` artık **istenen tick periyodundan** ölçülüyor (`6→1` kırmızı) ve
+> `DefaultMaxLive` **bayt cinsinden anahtar malzemesi tavanıyla** (`64→100000` kırmızı).
+> · **b9** — `keyVersion` yayımlanmış değere çivilendi. · **b10** — kart bu blokla
+> **doğru sayılara** güncellendi. · **b11** — *"hiçbir ulaşılabilir durum"* cümlesi bir
+> **izle** ölçülüyordu; artık durum uzayı **gerçekten** sürülüyor
+> (`TestDriver_NoStateOfTheMachineEmitsChangeFileSettingsEarly`, tabloyu
+> **çalıştırmadan** fonksiyon işaretçileriyle enumerate ediyor) ve eski alt-testin
+> cümlesi sürdüğü ize daraltıldı.
+>
+> 🔴 **VE BU TURDA BİR ALTINCISINI KENDİM ARADIM (talimat gereği).** Kalan her
+> *"ölçüldü/belge diyor ki"* cümlesi PDF'e karşı yeniden geçildi. Bir **yanlış alarm**
+> çıktı ve kaydı önemli: `"freely accessible without secure messaging"` (§10.5.2)
+> ilk taramada **sıfır isabet** verdi — çünkü cümle **satır sonunda bölünüyor**.
+> Alıntı **doğru**; yanlış olan aramaydı. Düzeltilen tek gerçek hata **Tablo 8'in
+> sayfa numarası** (11 → **12**) ve `GetVersion`'ın üç çerçeve cümlesinin **birebir**
+> metni (*"The version data is return over three frames."*) oldu.
+>
+> **İkinci denetim turu (2026-08-21, YENİ bir üçüncü göz — VERDICT: RED, beş
+> bloklayan + sekiz bloklamayan; hepsi kapatıldı).** Denetçi 1. turun düzeltmelerini
+> doğruladı (B1 gerçek, B5 birebir, b9, M38'in meşruluğu, Tablo 8 s.12) ve kendi 22
+> mutasyonunu attı; hepsi kırmızı.
+>
+> 🔴 **EN AĞIR BULGU BİR KOD KUSURU DEĞİL, BİR SÜREÇ HATASIYDI: *"düzelttim"* dediğim
+> iki cümlenin İKİNCİ KOPYASI DÜZELTİLMEMİŞTİ.** B2'nin uydurulmuş atfı ve B4'ün geri
+> çekilmiş çapraz kontrolü **testte** ayakta kalmıştı — ikincisi üstelik **canlı bir
+> assertion** olarak. Bu, bu projenin **tekrar eden** kusuru (*"mekanizma taşındı,
+> nesir ayakta kaldı"*). **Kural, bu turda uygulandı:** düzeltilen her cümle için
+> `grep -rn` ile **önce ve sonra kopya sayısı ölçülür**. Bu turda düzeltilen yedi
+> cümlenin yedisi de böyle ölçüldü; kalan isabetlerin **hepsi** geri-çekme
+> anlatısının içindeki **alıntılar**.
+>
+> 🔴 **B-1 — BİR YARIŞ VE BİR ANAHTAR KAYBI YOLU.** `checkout`'un süre-doldu dalı
+> **MEŞGUL** bir oturumu koşulsuz emekli ediyordu; üç kardeşinin (`sweepLocked`,
+> `Abort`, aynı fonksiyonun ctx dalı) **üçü de** korurken.
+> 🔴 **VE BU SAYIM DA EKSİKTİ: `Close` DÖRDÜNCÜ KARDEŞTİ** ve bu blok onu **hiç
+> anmıyordu** — 3. denetimin tek bloklayanı (B-A) tam olarak oydu, ve şekli B4'ün
+> *"iki farklı on"*uyla aynı: **kapalı bir sayım, eksik**. Aşağıya bakın.
+> Ölçüldü: meşgul bir
+> oturumun **beş anahtar tamponunun beşi de** — `K_SDMFileRead` dahil — ilk adım hâlâ
+> `advance` içindeyken siliniyordu, ve `advance` **`st.mu` dışında** koşuyor — yani
+> canlı anahtar malzemesi üzerinde bir **veri yarışı**; ayrıca `perUID` **tur
+> ortasında** serbest kalıyordu. İkisi de gerçek. Kapatıldı;
+> `TestStore_ABusySessionIsNeverWipedUnderItsOwner`.
+> ⚠️ **DARALTILDI (3. denetim): bu bloğun ilk hâli sonucu fazla iddia ediyordu** —
+> *"o pencereye düşen bir silme çipe sıfırlanmış bir anahtar kurar"*. Ölçüldü,
+> **ulaşılabilir değil**: `zeroAll` `keyInventory` **sırasıyla** yürüyor
+> (`K_SDMFileRead` **son**), `EV2ChangeKeyCommand` ise plaket anahtarını **önce**
+> okuyor; iki somut deneme de fail-closed (tam sıfır → `sun.ChangeKeyData` reddediyor,
+> yırtık anahtar → çip `911E`). Bu, **düzeltmenin içinde doğan** bir kanıt-iddiasıydı
+> ve **üç kopya** hâlinde sevk edilmişti; üçü de daraltıldı. Kalıcı bozulmaya
+> **gerçekten** ulaşan çağrı yeri **`Close`**'dur (B-A).
+>
+> 🔴 **B-5 — §6 md. 7 MADDE 3'ÜN GARANTİSİ, TURUN KORUMAK İÇİN VAR OLDUĞU TEK ANAHTAR
+> İÇİN TUTMUYORDU.** Yorum *"her çıkış yolu siler … sızdırabilecek bir dal yok"*
+> diyordu; ölçüldü: `ring.add`'i `WrapKey`'den **sonraya** almak ve başarılı
+> `InsertUnassigned`'dan **sonraya** almak **ikisi de yeşil** kaldı. İkincisiyle,
+> **başarısız bir satır yazımı** — paketin zaten testi olan bir yol — taze basılmış
+> AES-128 plaket anahtarını heap'te **kayıtsız** bırakıyordu. Boşluk **yapısaldı**:
+> her silme iddiası yalnız adım 3'ün **başarılı** olduğu yollarda dilim başlığı
+> tutuyordu, iki hata testi ise **anahtarın baytlarına hiç bakmıyordu**. Kapatıldı:
+> `capturingWrapper` port argümanından dilim başlığını yakalıyor ve
+> `TestDriver_TheFreshPlaqueKeyIsWipedOnBothReachableFailurePathsOfStep3` **iki hata yolunda**
+> baytların sıfır olduğunu, **pozitif kontrolde** ise anahtarın adım 6'ya kadar
+> **canlı kaldığını** ölçüyor.
+>
+> 🔴 **B-4 — 1. TURUN B3 "ÇÖZÜMÜ" ÖLÇÜLEBİLİR ŞEKİLDE YANLIŞTI VE GERİ ÇEKİLDİ.**
+> *"AN12196 §5.8.2 Tablo 17 teslim haklarında Full `WriteData` yapıyor"* demiştim.
+> Kendi ölçümüm de denetçininkini doğruladı: **§5.4 (s.24) birebir** *"This step does
+> **not** reflect default delivered NTAG 424 DNA configuration of NDEF file settings
+> (0000E0EE00010026000CA)"*, ve **Tablo 11 (s.24)** örnek çipin `AccessRights = 00E0`
+> olduğunu, yani `FileAR.Write = 0` (**anahtar 0**) olduğunu çözüyor — §8.2.3.3'ün
+> *"yalnız serbest `Eh` koşulları"* şartı orada **hiç tetiklenmiyor**. Konumsal
+> argüman da düşüyor: **§5.4, §5.8'den ÖNCE** geliyor. **Sonuç: gerilim AÇIK.**
+> Tappa'nın adım 5'i teslim haklarındaki (`Write = ReadWrite = Eh`) bir dosyaya
+> anahtar-0 oturumunda **CommMode.Full** yazıyor ve **hiçbir yayımlanmış örnek bu
+> kombinasyonu kapsamıyor**. Ayakta duran yarı korundu, fazla iddia eden **silindi**:
+> adım 5 her `ChangeKey`'den **önce** koşar, yani reddeden çip **hâlâ boştur** ve
+> yedek belgenin kendi **§5.8.1**'i (`ISOUpdateBinary`, CommMode.PLAIN). Hangisini
+> silikonun kabul ettiği **FAZ B3 ölçümüdür**. ⚠️ *"Bir gerilimi açık bırakmak,
+> yanlış kapatmaktan iyidir."*
+>
+> **Sekiz bloklamayanın hepsi:** **n1** — *"Step ve Close'daki sekiz çıkış"* kapalı
+> sayımı **yanlıştı** (B4'ün iki onuyla aynı şekil): `grep` **on bir** `retireLocked`
+> çağrı yeri sayıyor, ikisi o sekizin dışında (`finishLocked`'ın *"adım koşarken
+> doldu"*u ve `Begin`'in ilk komut hatası). Sayı **kaldırıldı**, küme adlandırıldı; ve
+> adı *"Every"* diyen test **gövdesi sekiz süren** adıyla yeniden adlandırıldı
+> (`TestStore_TheDrivenExitPathsWipeEveryKeyBuffer`, üç kopyanın üçü de güncellendi).
+> · **n2** — `sweepDivisor`'ın takas cümlesi **tersine** yazılmıştı (küçük bölen =
+> **uzun** periyot = **geniş** pencere), üstelik bir önceki denetimin düzelttirdiği
+> blokta; cümle düzeltildi **ve** daraltma yönü de bağlandı (`6→12` artık kırmızı).
+> · **n3** — `DefaultTTL` *"ilerleme olmadan"* diyordu ama deadline `Begin`'de bir kez
+> kuruluyor ve **asla ilerletilmiyor**; **toplam tur bütçesi** olarak yeniden yazıldı,
+> operasyonel bedeli (90 sn'yi aşan meşru tur **adım 6'dan sonra** ölebilir, ama
+> fail-closed ve kurtarılabilir) yazıldı, ve
+> `TestSession_TheDeadlineIsATotalBudgetAndIsNeverExtended` iki okumadan **birini**
+> çiviledi. · **n4** — sahte çip `WriteData`'nın **Offset ve Length**'ine kördü (bir
+> önceki turda **kendi bulduğum** dosya-numarası zaafının aynı sınıfı, bir alan
+> ötede); çip artık üç başlık alanını da çözüyor, uzunluğu gövdeye karşı doğruluyor,
+> ofsete yazıyor, ve `chip_test.go`'nun *"başlık bölünmesi doğru"* iddiası **hangi
+> komut için ne kadar** doğrulandığını söyleyecek şekilde daraltıldı. · **n5** —
+> `perUID`'nin kimlik guard'ı çivisizdi ve **B-1 çifte retire'ı ulaşılabilir kılıyordu**
+> (ikisi birleşiyor); `TestStore_RetiringOneSessionDoesNotFreeAnotherPlaqueSlot`.
+> · **n6** — *"tek ve meşru"* kesin tekili **kaldırıldı**; hayatta kalanlar artık
+> **örneklem** olarak sunuluyor ve **üçü ayrı ayrı** gerekçeli. · **n7** — Tablo
+> 17'nin *"is titled"*'ı: başlık `Write NDEF File - using Cmd.WriteData`,
+> `, CommMode.FULL` **§5.8.2 bölüm başlığına** ait — uydurma değil **imprecision**,
+> ama B3'ün üstünde yükseldiği fiilin aynısı; kaydedildi. · **n8** — `staticcheck`
+> **PATH'te yok** ve öyle olması gerekmiyor: `Makefile`'ın `lint` hedefi (satır 346)
+> gibi **`go run honnef.co/go/tools/cmd/staticcheck@2025.1.1 ./...`** ile koşuluyor;
+> komut artık raporda yazılı.
+>
+> **Üçüncü denetim turu (2026-08-21, ÜÇÜNCÜ ayrı üçüncü göz — VERDICT: RED, BİR
+> bloklayan + yedi bloklamayan; hepsi kapatıldı).** Bloklayan sayısı **5 → 5 → 1**.
+> Denetçi süreç hatasının **temiz kapandığını** doğruladı (`counts the same ten` 0 ·
+> `RESOLVED BY THE DOCUMENT DOING IT` 0 · `without progress` 0; kalan dört isabet
+> kendi geri-çekilme bloklarının içindeki **alıntılar**), B-4'ün üç ölçümünü PDF'ten
+> **birebir** yeniden üretti, B-5 ve n4'ün gerçekten kapandığını mutasyonla gösterdi,
+> ve `capturingWrapper` itirazını **kendi ölçümüyle geri çekti** (dilim **başlığını**
+> tutuyor, kopya değil → sözleşmeye uyan bir sahteden **daha güçlü**). Kalıcı değer
+> süpürmesinde **üçüncü bir boşluk bulunamadı**.
+>
+> 🔴 **B-A — `Close` B-1'in DÖRDÜNCÜ KARDEŞİYDİ VE KORUMASIZ BIRAKILMIŞTI; SONUCU
+> SATIRA 16 SIFIR BAYT.** `Close` her canlı oturumu `s.busy` bakmadan emekli
+> ediyordu. Kendi sondamla yeniden ürettim: meşgul bir oturumun **beş tamponunun
+> beşi de** silindi. Denetçinin uçtan uca ölçümü daha ağır: gerçek zaman harcayan bir
+> `Wrapper` ile silme **`sun.Wrap`'ın içine** düşüyor ve satır, açıldığında **on altı
+> sıfır bayt** veren bir `aes_key_ref` ile **COMMIT** ediliyor. Hiçbir şey reddetmiyor
+> — `sun.Wrap`'ta sıfır kapısı yok, `InsertUnassigned`'da yok, turun tek sıfır kapısı
+> `sun.ChangeKeyData`'da ve **üç alışveriş SONRA**. ADR 0003 md. 3 sessizce ve
+> **kalıcı** olarak yeniliyor (`tappa_app` o sütunu asla yeniden yazamaz, 00013).
+> 🔴 **VE ÇÖZÜM KARDEŞLERİN KOPYASI DEĞİL, BİR KARAR:** kardeşler *"atla, sahibi
+> bitirsin"* diyebiliyor çünkü **sahip var**; kapanışta sahip **gidiyor**, yani
+> *"atla"* anahtarı sürece bırakmak olurdu — §6 md. 7'nin **reddettiği** cevap.
+> Seçilen üç parça: **(1)** boştaki oturumlar **hemen** siliniyor · **(2)** uçuştakiler
+> için `CloseGrace` (varsayılan **5 sn**, yani `exchangeBudget`
+> mertebesinde — bir turun değil bir **adımın** dönmesini bekliyor) kadar
+> **BEKLENİYOR**, sonra siliniyor · **(3)** süre dolarsa **SİLİNMİYOR** ve `Close`
+> **hata döndürüyor**. Üçüncüsü ters görünüyor ve değil: sahibin altından silmek
+> **kalıcı ve sessiz** bir bozulma (sıfır `aes_key_ref`), silmemek ise **geçici ve
+> GÜRÜLTÜLÜ** bir maruziyet — sayı çağırana dönüyor. ⚠️ O dalda §6 md. 7 madde 3'ün
+> garantisi o oturumlar için **tutmuyor** ve `Close` bunu `nil` döndürmek yerine
+> **hatasında söylüyor**. Ayrıca *"Close dönünce bu süreçte hiçbir şey bir oturum
+> tutmuyor"* cümlesi **ölçülerek yanlışlandı** ve artık yalnız `Close` `nil`
+> döndürdüğünde doğru. `Close()` imzası `error` döndürüyor; her çağrı yeri uyarlandı,
+> yani drenaj edilemeyen bir oturum artık **test hatası**.
+>
+> **Yedi bloklamayanın hepsi:** **N1** — 🔴 **B-1'in KENDİ sonuç cümlesi fazla iddia
+> ediyordu ve ÜÇ kopya hâlinde sevk edilmişti** (*"o pencereye düşen bir silme çipe
+> sıfırlanmış bir anahtar kurar"*). Ölçüldü, **ulaşılabilir değil**: `zeroAll`
+> `keyInventory` **sırasıyla** yürüyor (`K_SDMFileRead` **son**), `EV2ChangeKeyCommand`
+> plaket anahtarını **önce** okuyor; iki somut deneme de fail-closed (tam sıfır →
+> `sun.ChangeKeyData` reddediyor; yırtık anahtar → çip **`911E`**). Yarış ve `perUID`'nin
+> tur ortasında bırakılması **gerçek**; adı konan sonuç değil. **Üç kopya birden**
+> daraltıldı, `grep -rn` ile önce/sonra ölçüldü. ⚠️ Bu, **düzeltmenin içinde doğan**
+> yeni bir kanıt-iddiasıydı — sınıf üçüncü kez tekrarladı. · **N2** — iki gerçek boşluk:
+> **`A3b`** §5.1 **adım 9'un sırası** (*"Zero(keys) FIRST … then mark"*) **çivisizdi**,
+> oysa §5.2'nin ikiz sıra iddiası ilk turdan beri çivili — asimetri B1'inkiyle aynı;
+> artık `MarkEncoded`'ın **içinden** ölçülüyor (`TestDriver_Step9WipesTheKeysBeforeItMarksTheRow`).
+> 🔴 **Ve o testin ilk hâli mutasyonu kaçırdı**: her çağrıda **üzerine yazıyordu**, yani
+> satırı iki kez işaretleyen bir mutant suçlayıcı gözlemi masumla eziyordu; artık
+> **tüm** gözlemler saklanıyor. **`A4`** — `keyring.take` bir **KOPYA** döndürebiliyordu
+> ve suit yeşildi; kopya halkadan tamamen kaçar, `zeroAll` ona **asla** ulaşamaz. Altı
+> test `peek`'e demirlenmişti, `take`'e **hiçbir şey** — üçüncü kez aynı şekil. Artık
+> ikisi de **takma ad** özelliğiyle çivili. **`A18`** — `s.finished` de çivilendi.
+> · **N3** — *"EVERY"* diyen bir test adı **iki** yol sürüyordu; üçüncüsü
+> (`ring.add`'in hatası) **ulaşılabilir değil** (taze oturumda slot boş) — ad
+> `…OnBothReachableFailurePathsOfStep3` oldu ve gerekçe yazıldı. Aynı turda düzelttiğim
+> ad-gövde kusurunun **bir test ötesinde** tekrarıydı. · **N4** — `driver.go` belgenin
+> söylemediği bir **silikon davranışı** iddia ediyordu (*"refuses it"*, *"still blank"*);
+> §8.2.3.3 ve §8.2.3.5 hangi **KİPİN** geçerli olduğunu söylüyor, çerçevenin
+> **reddedildiğini değil** — Plain uygulayan bir çip mühürlü alanı **dosyaya yazar**.
+> İki fiil düzeltildi; **güvenlik sonucu (kurtarılabilirlik) ayakta**, çünkü adım 5 her
+> `ChangeKey`'den önce koşuyor. · **N5** — turun ürettiği **tek açık silikon sorusu**
+> yalnız bir kod yorumunda ve denetim anlatısındaydı; artık **kartın kendi "AÇIK
+> KALAN" listesinde** ve **ADR 0017 §6'da `md. 12b`** olarak. · **N6** — sahtenin
+> *"ne kanıtlamaz"* listesi, sahtenin **açık sorunun izin veren dalını modellediği**
+> tek yeri atlıyordu (hiçbir erişim hakkı / CommMode kuralı uygulamıyor); madde
+> **adıyla** eklendi. · **N7** — veri sayfası **97 sayfa** (`pdfinfo`), *"98"* değil;
+> koddaki ve karttaki iki kopya da düzeltildi.
+>
+> ⚠️ **VE BU TURDA `redline-check` BİR KEZ KIRMIZIYA DÖNDÜ — SEBEBİ BENDİM.** `Close`'un
+> yeni hata metni `tags.aes_key_ref`'i **adıyla** anıyordu ve R7'nin `aes_?key`
+> tetikleyicisine takıldı. **Yanlış pozitifti** (argümanlar bir `int` ve bir
+> `Duration`), ama doğru cevap **muafiyet değil**: hata mesajı **kısaltıldı**, gerekçe
+> zaten `Close`'un doküman yorumunda. `redline-check.sh` yeniden **exit 0**.
+>
+> **Güvenlik denetimi turu (2026-08-21, `tappa-security-auditor` — VERDICT: RED, bir
+> YÜKSEK + dört DÜŞÜK; hepsi kapatıldı).** Kanıtıyla **temiz** bulunanlar: **R1**
+> biyometri 0 · **R2** GPS 0 · **R3** `transactions` dokunulmamış · **R4** (`useCtr`
+> yalnız `advance` içinden ve `busy` dışlaması altında; `perUID` yalnız kimlik
+> eşleşince; `0xFFFF` reddediliyor) · **R6/§5.2** sıra doğru (satır, çipin ilk geri
+> döndürülemez komutundan **dört değiş-tokuş önce**; hata yolunda satırı temizleyen
+> **hiçbir dal yok**) · **R7 yarış** (60 iterasyonluk stres sondası `-race` temiz; **11
+> `retireLocked` çağrı yerinin her biri** ya sahibinin kendisi ya `s.busy` korumalı) ·
+> **R7 sızıntı** (üretimdeki **her** format argümanı ölçüldü; 32+ haneli hex sabit
+> yok) · silme bir **mekanizma** (`zeroAll` silinince **10+ test** kırmızı) · risk 7'ye
+> karşı **fazla iddia yok** · **M47 gerekçesi denetçinin kendi mutasyonuyla
+> doğrulandı**.
+>
+> 🔴 **YÜKSEK — VE BULUNAN ŞEY BENİM BİR ÖNCEKİ TURDAKİ *DÜZELTMEMİN* İÇİNDEYDİ:
+> `Close`'un grace'i dolduğunda kalan oturum HİÇ silinmiyordu.** Ne o an, ne sahibi
+> dönünce, ne sonra. Kendi sondamla birebir yeniden ürettim (bloklayan bir `Wrapper`
+> ile tur `getversion.3` içinde tutuldu, `CloseGrace=50ms`): `Close` hata döndürdü,
+> uçuştaki `Step` **başarıyla** tamamlandı, ve **düz AES-128 plaket anahtarı hâlâ
+> bellekteydi** — `busy=false`, `finished=false`, süpürücü **ölü**. Mekanizma:
+> `retireIdleLocked` meşgul oturumu sayıp **`continue`** ediyordu ve **deadline'a
+> dokunmuyordu**, oysa meşgul bir oturum için kalan tek retire sebebi
+> `finishLocked`'ın deadline kontrolü. Paket içinde o oturuma ulaşan **hiçbir yol**
+> kalmıyordu.
+> 🔴 **VE İKİLEM SAHTEYDİ — üçüncü seçenek aynı dosyada zaten iki kez kullanılıyor.**
+> `Abort` ve `checkout`'un ctx dalı meşgul oturumun **deadline'ını ŞİMDİ'ye çekip**
+> silmeyi **sahibinin kendi `finishLocked`'ına** bırakıyor. `Close` artık aynısını
+> yapıyor: **tek satır** (`s.deadline = now`), sahibin altından silme **yok**, `-race`
+> temiz. `Close`'un **hata sözleşmesi de değişti**: artık *"silinmedi"* değil
+> **"HENÜZ silinmedi — sahibi döndüğünde silinir"*, ve kalan gerçek **daha dar ve
+> adıyla yazılı**: **hiç dönmeyen** bir sahip (sonsuza kadar bloke bir port çağrısı)
+> halkasını canlı tutar — tıpkı kalıcı sıkışmış herhangi bir goroutine gibi.
+> `CloseGrace` bunu **sınırlamıyor** ve bu yazılı.
+>
+> 🔴 **ÜÇ FAZLA-İDDİA CÜMLESİ YİNE BENİM O TURDAKİ YENİ CÜMLELERİMDİ** — sınıf
+> **üçüncü kez** düzeltmenin içinde doğdu (tur 2'de B-4, tur 3'te N1, şimdi bu):
+> *"transient loud exposure"* (**geçici değildi**; eşik bir **uçurumdu**: grace−1ms'de
+> silinir, grace+1ms'de asla) · `Close`'un artık kabulünün **sahibin dönüşünden
+> sonrasını** söylememesi · ve *"**exactly the eleven** call sites of `retireLocked`"*.
+> 🔴 **BU SONUNCUSU ÜÇÜNCÜ KAPALI-SAYIM KUSURUYDU** (B4'ün *"iki farklı on"*u ·
+> `Close`'un *"üç kardeş"*i · şimdi *"tam on bir"*) ve sayı artık **nesir değil**:
+> `retireCallSites` bir **envanter**, `TestSession_TheRetireCallSitesAreInventoried`
+> onu **go/ast ile sayıyor**, iki yönlü ratchet (12. çağrı yeri → **kırmızı**).
+> **Kural: kapalı bir sayım yazacaksan saymayı da mekanikleştir, yoksa yazma.**
+>
+> **Dört DÜŞÜĞÜN hepsi:** **L1** — panik dalı `s.busy`'yi **temizlemiyor** ve drain
+> sinyali **vermiyordu**; tek meşgul oturum paniklerse `Close` boşuna tam grace
+> bekleyip *"**0** encode session(s) … NOT wiped"* diye **yanlış bir §4.7 artık
+> alarmı** veriyordu. İkisi de artık **`retireLocked`'ın içinde**, yani her retire
+> yolu aynı şekilde; birim **ve** davranışsal testle çivili. · **L2** —
+> `ring.add(keyNameSesENC, …)` hata verirse **`auth.KeyMAC` HİÇ kaydedilmiyordu** →
+> `zeroAll` ona asla ulaşamaz (`add` yalnız **kendi reddettiğini** siler). Bugün
+> ulaşılamaz (ölçüldü) ama **adım 8 aynı kalıbı İKİ anahtarla tekrarlayacak**; iki
+> `add` de artık **koşulsuz deneniyor** ve doğrudan çağrıyla çivilendi. · **L3** —
+> `InsertUnassigned` imzasında **`tenant_id` yok**; `tags.tenant_id` **NOT NULL,
+> DEFAULT'suz** (00004). Denetçinin asıl noktası bir **tutarsızlıktı** —
+> `MarkEncoded` eksik sütunu **ölçüp adlandırıyor**, aynı titizlik tenant'a
+> uygulanmamıştı. 🔴 **VE BU MADDE O TUR KAPATILMADI — kart bunu YANLIŞ yazdı;
+> düzeltmesi ve nasıl kaçtığı bir sonraki blokta (B4).** · **L4** —
+> `DefaultMaxPerActor`'ın *"hostile with a valid handle"* cümlesi yanlış okumaya davet
+> ediyordu: `actor` **çağıranın verdiği bir dizedir** (ölçüldü: yalnız sayacın
+> anahtarı), yani düşman onu değiştirip taze bütçe alır; **gerçek tavan
+> `DefaultMaxLive`**'dır. Cümle daraltıldı. ✅ *"`actor` yetkiyi değil MARUZİYETİ
+> sınırlar"* iddiası **doğrulandı**.
+>
+> ⚠️ **Denetçinin kendi niteleyicisi, aynen:** *"Uzaktan sömürülebilir DEĞİL — bellek
+> okuma (core dump, swap, debugger) gerektirir; ve BUGÜN üretimde erişilemez:
+> `internal/encode` hiçbir yerden import edilmiyor (paket dışı import sayısı **0**).
+> Bloklama sebebim erişilebilirlik değil, **turun KENDİ kabul kriterinin kırılması**."*
+>
+> **Dördüncü denetim turu (2026-08-21, DÖRDÜNCÜ ayrı üçüncü göz — VERDICT: RED, beş
+> bloklayan + dört bloklamayan; hepsi kapatıldı).** Denetçinin teşhisi: *"**kod
+> yakınsıyor, iddialar yakınsamıyor**"* — en ağır beşin **dördü kanıt hakkındaki
+> cümleler**, biri kanıtsız bir guard, ve **üçü yine bir önceki turun düzeltmesinin
+> içinde** doğdu (**dördüncü ardışık tur**). Doğrulanıp **tutan**: build/vet/gofmt/
+> staticcheck · ölçümlerin tamamı · **veri sayfası 97 sayfa** ve ~20 alıntının hepsi
+> PDF'ten birebir · `retireCallSites` ratchet'i **gerçekten iki yönlü** (11→12 ve
+> silme, ikisi de kırmızı) · denetçinin **32 bağımsız mutasyonundan 27'si kırmızı**.
+>
+> 🔴 **B4 — VE BU EN AĞIRI, ÇÜNKÜ ÜÇÜNCÜ KEZ AYNI SÜREÇ HATASI: L3 KAPATILMAMIŞTI VE
+> "KAPATTIM" DİYE RAPORLANMIŞTI.** `grep -c tenant_id internal/encode/session.go` →
+> **1**, ve o tek isabet md. 10 hakkındaydı; `InsertUnassigned`'ın yorumunda
+> `tenant_id` **hiç geçmiyordu**. Sebep **mekanikti ve kaydedilmeli**: L2/L3/L4'ü tek
+> bir toplu script'te uygulamıştım, script **sona kadar yazmıyor** ve L4'ün anchor'ı
+> tutmayınca `AssertionError` ile düştü → **L2 ve L3 de yazılmadı**; L4'ü ayrıca
+> uyguladım, L3'ü unuttum ve **doğrulamadan** kapandı dedim. ⚠️ Kart da yanlış yazdı.
+> 🔴 **Ve var olan tek tenant cümlesi şemaya aykırıydı:** `Begin`'in *"the row lands in
+> whatever tenant `app.tenant_id` names"*'i — `tags.tenant_id` **NOT NULL,
+> DEFAULT'suz** (00004), yani argümansız bir INSERT hiçbir yere *"düşmez"*, **patlar**.
+> İkisi de yazıldı ve **komutla doğrulandı** (`InsertUnassigned` doküman bloğunda
+> tenant_id: **0 → 5** isabet). **Kural artık: bir maddeyi kapattığını yazmadan önce
+> kanıtını KOMUTLA üret ve komutu raporda göster.**
+>
+> 🔴 **B1 — `Close`'un YENİ kanıt cümlesi ikinci bir `Close` için yanlıştı, ve artık
+> tek artık değildi.** `if st.closed { return nil }` yüzünden **ikinci** `Close`
+> **nil** dönüyordu; o anda oturum **canlı**, **busy** ve halkası **sıfırlanmamış düz
+> plaket anahtarını** tutuyor. Ve bu ezoterik değil: `newHarness`'ın `t.Cleanup`'ı her
+> testte `Close` çağırıyor, yani **açıkça kapatan her test zaten çift-kapatıyordu**.
+> Artık yalnız **tek seferlik teardown** korunuyor; retire-and-drain yarısı **her
+> çağrıda** koşuyor → `Close` hem **idempotent** hem **dürüst**. Artık **tek** kalem:
+> *hiç dönmeyen* bir sahip.
+>
+> 🔴 **B2 — `TestStore_CloseDoesNotCommitAnAllZeroKey` BOŞTU; hiçbir şey iddia
+> etmiyordu.** Gövdesi `h.rows.inserted` üzerinde dönüyordu ve o küme **30/30 koşuda
+> boştu** — `Close` goroutine doğar doğmaz çağrıldığı için tur **adım 3'e hiç
+> ulaşmıyordu**; B-A kusuru geri konduğunda test **60/60 yeşil** kalıyordu. Oysa
+> güvenlik denetiminin bulduğu şeyin **kalıcı** yarısını (satıra sıfır `aes_key_ref`)
+> çivileyen tek test oydu. Yeniden yazıldı: `blockingWrapper` turu **`sun.Wrap`'ın
+> içinde** park ediyor — kusurun ihtiyaç duyduğu tam pencere — ve **boş küme kontrolü**
+> eklendi. Ölçüm: B-A mutasyonu (M59) artık **bu test tarafından** kırmızıya
+> çevriliyor.
+>
+> 🔴 **B3 — L1'in "davranışsal" yarısı kendi senaryosunu HİÇ sürmüyordu.** L1 düzeltmesi
+> silindiğinde alt-test **20/20 yeşil**di; yalnız birim assertion'ı kırmızıydı. Yorumu
+> *"sequenced so Close is already waiting"* diyordu ama sıralama **hiç oluşmuyordu**.
+> Denetçinin ölçtüğü 200 ms'lik sıralama eklendi → mutasyon **5/5 kırmızı**, ve
+> uykunun **neden** gerekli olduğu (üretime test kancası eklemeden gözlenebilir bir
+> kenar yok) ile **neden yanlış yönde flake edemeyeceği** yazıldı.
+>
+> 🔴 **B5 — `advance`'in `s.finished` guard'ı çivisizdi ve testi YANLIŞ SEBEPLE
+> yeşildi** (M2-08'in genellemesi, **üçüncü** vaka). `s.finished ||` silindiğinde tüm
+> suite yeşil kalıyordu, çünkü test `sw(0x9100)` veriyordu ve `stepIdx=0`'da
+> `RequireStatus` **önce** düşüyordu — assertion **durum sözcüğü kapısıyla**
+> karşılanıyordu. Girdi, makinenin **kabul edeceği** `sw(0x9000)` yapıldı (+ canlı
+> oturumda **pozitif kontrol**); M60 artık kırmızı. Geçen tur bayrağın **yazılması**
+> çivilenmişti, **okunması** değil.
+>
+> **Dört bloklamayan:** **N1** — `DefaultCloseGrace` turun tek çivisiz boyut sabitiydi
+> (`5s→90s` ve `5s→1ns` ikisi de yeşil); yorumunun **iki ilişkisel iddiası** artık
+> assertion (`>= exchangeBudget`, `< DefaultTTL`, ve `<= DefaultTTL/3`), M61/M62
+> kırmızı. · **N2** — sahtenin `applyChangeKey`'i Tablo 63'ün **iki gövde biçimini**
+> yalnız `len(plain)`'e bakarak seçiyordu, **`keyNo == authKeyNo`'ya asla** — yani
+> gerçek çipin **reddedeceği** bir biçimi kabul ediyordu; bu, aynı sahte zaafının
+> **üçüncüsü** (dosya numarası → `WriteData` ofseti/uzunluğu → gövde biçimi) ve
+> **adım 8 tam oraya yürüyecek**. Karşılaştırma eklendi, başlıktaki niteleyici
+> düzeltildi. · **N3** — *"`retireCallSites` **below**"* yanlış yönlendiriyordu
+> (`session_test.go`'da); düzeltildi. · **N4 (denetçi DOĞRULANAMADI diye etiketledi)**
+> — `Close`'un `select`'inde timer ile drain aynı anda hazırsa `len(st.live)` **retire
+> sonrası** okunup *"0 encode session(s)"* basabilirdi. **Ölçtüm:** 1 ms grace'e 1 ms'de
+> bırakılan drain sinyaliyle **400 denemede 0** yanlış alarm — yani pencereyi **ben de
+> üretemedim**. Yine de sayı artık `len(st.live)` yerine **taze bir sweep'ten**
+> türetiliyor, yani pencere **yapısal olarak** kapatıldı; M63'ün hayatta kalması bu
+> yüzden **beklenen ve meşru** (aşağıda sayılı).
+>
+> 🔴 **BU TURUN DERSİ, VE ARTIK BİR KURAL:** bu görevde **dört kez** bir test kendi
+> yorumunun anlattığı senaryoyu **sürmedi** (`…EveryExitPath…` · `…OnEVERYFailurePath…`
+> · B2 · B3). Bir test yazarken sorulacak soru *"geçiyor mu"* değil, **"koruduğu şey
+> bozulsa kırmızıya döner mi"** — ve cevap **okumayla değil mutasyonla** verilir. Bu
+> turda yazılan/değiştirilen her testin mutasyonu koşuldu.
+>
+> **Beşinci denetim turu (2026-08-21, BEŞİNCİ ayrı üçüncü göz — VERDICT: RED, dört
+> bloklayan + üç bloklamayan; hepsi kapatıldı).** 🔴 **Yön veren cümle denetçinin
+> kendisinden:** *"üretim yolunda (`session.go`/`driver.go`) **yeni bir
+> güvenlik/doğruluk kusuru BULAMADIM** — 21 mutasyonun 20'si kırmızı."* **Kod
+> yakınsadı;** kalan dördün biri **sahte çipte**, ikisi **kanıt cümlesi**, biri
+> **kartta**.
+>
+> 🔴 **B1 — BU TURDA EKLEDİĞİM `ChangeKey` KAPISI YANLIŞ KURALI KODLUYORDU, ve adını
+> verdiği tablo TERSİNİ yazıyor.** Kendi ölçümüm (md5 `dcf5319c…`, 97 s.) denetçiyi
+> doğruladı: **Tablo 63 (s.62)** ayrımı **ANAHTAR NUMARASIYLA** yapıyor — *"if key 0
+> is to be changed"* (17 bayt) / *"if key 1 to 4 are to be changed"* (21 bayt).
+> `"KeyNo == AuthKey"` çerçevesi **AN12196'nın BÖLÜM BAŞLIĞI** dili. Depo zaten
+> **doğrusunu** yazıyordu ve danışılmamıştı (`internal/sun/changekey.go`:
+> *"THE SWITCH IS ON THE KEY NUMBER"*; ADR 0017 §5.1: *"kod **numaraya** bakmalıdır,
+> oturuma değil"*). Ve bu yalnız atıf değildi: yanlış kural **ADR'ye UYAN kodu
+> reddediyordu** — `0x01` ile kimlik doğrulayan bir oturum (**§5.3 probe 2'nin tam
+> şekli**, B2c-2'nin koşacağı) Tablo 63'ün doğru 21 baytlık gövdesini üretiyor,
+> sahte çip testi düşürüyordu. **Yedi kopya + kart** düzeltildi (`grep -rn` önce
+> **12** isabet / sonra yalnız **geri-çekme alıntıları**). 🔴 **Ve denetçi ölçmüştü:
+> eski satır geri alınınca suite YEŞİL** — yani hiçbir şey satın almıyordu. Artık
+> **Tablo 65'in ön koşulu da uygulanıyor** (`AUTHENTICATION_ERROR AEh`, *"missing
+> active authentication with AppMasterKey"*; §8.2.4.1) ve **beş vakalık ayırt edici
+> bir test** kapıyı çiviliyor (M65 kırmızı). ⚠️ Tablo 65 uygulanınca iki ölçüt
+> **çakışıyor**, yani M64 **meşru olarak hayatta kalıyor** — ADR 0017 §5.1'in zaten
+> söylediği şey, ve kod yine de **numaraya** bakıyor.
+>
+> 🔴 **B2 — `DefaultTTL`'in *"asla uzatılmaz; ona yazan her şey ONU ÖNE çeker"*
+> cümlesi ölçülerek yanlışlandı: KAPALI SAYIM, bir eksik.** Denetçi üçüncü yazarı
+> buldu (`retireIdleLocked`) ve **korumasız** olduğunu ölçtü: bütçesi bir dakika önce
+> dolmuş bir oturumda `Close` deadline'ı **tam bir TTL ileri** itiyordu. 🔴 **Ve o
+> yazar için yazdığım test hemen bir DÖRDÜNCÜSÜNÜ buldu** — `checkout`'un iptal dalı
+> aynı şekildeydi. Site yamamak site saymaya yeniliyordu, o yüzden çözüm **yapısal**:
+> tek bir `expireLocked` yardımcısı, üç çağrı yeri, ham atama **sıfır**. Cümle artık
+> bir **özellik**, ve `TestSession_EveryWriterOfTheDeadlineMovesItEarlier` **üçünü de**
+> sürüyor (M66 üç alt-testin üçünde birden kırmızı).
+>
+> 🔴 **B3 — 200 ms sıralamasının YENİ gerekçesi (*"tek yönde güvenli"*) kategorik
+> olarak yanlıştı, ve denetçi bunu ÜRETİM KODUNU MUTASYONA UĞRATMADAN gösterdi:**
+> uykuyu `CloseGrace`'in üstüne çıkarmak testi düşürüyor. Yarısı doğruydu (kısa uyku
+> yalnız daha azını kanıtlar); yanlış olan **imkânsızlık** iddiasıydı. Cümle bir
+> **sayılmış marja** çevrildi ve marj büyütüldü: `CloseGrace` 5 s → **30 s**, uyku
+> 200 ms → **150×**.
+>
+> 🔴 **B4 — kartın hayatta kalanlar bloğu BEŞİNCİ kapalı-sayım kusuruydu:** başlık
+> *"ÜÇÜ DE"* diyordu, gövdede **dört** madde vardı ve `3'.` numarası M63'ün başlığa
+> dokunmadan araya sokulduğunu ele veriyordu. Başlık **sayıdan arındırıldı**
+> (*"HER BİRİ"*), numaralar düzeltildi, ve beşinci madde eklendi.
+>
+> **Üç bloklamayan:** **n1** — N4 yorumunun adlandırdığı mekanizma
+> **gerçekleşemez** (`retireLocked` `delete(st.live, …)` yapıyor, emekli oturum
+> sayılamaz); **sertleştirme doğru, hikâye yanlıştı** — düzeltildi. · **n2** — kapsam
+> sayısı **deterministik değil**: beş ardışık koşu **93,1 / 92,6 / 92,6 / 92,6 /
+> 92,6** (kendi ölçümüm), yani raporlanan sayı **mod**; karta böyle yazıldı.
+> · **n3** — `driver.go`'nun aynı yanlış adlandırması B1 ile birlikte düzeltildi.
+>
+> ⚠️ **DENETÇİNİN AÇIKÇA ÖLÇMEDİĞİ İKİ ŞEY, benim tarafımdan koşuldu:** DB sondası
+> (`BEGIN READ ONLY … ROLLBACK`, oturum kapatıldı) → `04AC7E55000601 = active`,
+> **139204 / 448234**, değişmedi · ve mutasyon toplamı **baştan yeniden koşuldu**.
+>
+> 🔴 **BU TURUN DERSİ, ve bir öncekinin ikizi:** geçen tur kural *"bir testin sorusu
+> 'geçiyor mu' değil, 'koruduğu şey bozulsa kırmızıya döner mi'"* idi. Eksik olan
+> ikizi bu turda ödendi: **bir YORUM yazdığında, yorumun İDDİA ETTİĞİ şeyi de
+> yanlışlamaya çalış.** B2 ve B3 tam olarak böyle bulundu — ikisi de **üretim kodu
+> mutasyonsuz**, yalnız cümlenin kendisi sınanarak.
+>
+> **İkinci güvenlik denetimi turu (2026-08-21, YENİ bir `tappa-security-auditor` —
+> VERDICT: RED, bir YÜKSEK + iki ORTA + iki DÜŞÜK; hepsi kapatıldı).** Denetçi **33
+> mutasyon** (31 kırmızı), **5 sonda testi** (`-race`) ve iki hedefli ölçüm koştu.
+> **Kanıtıyla temiz bulunan geniş taban:** R1/R2 sıfır · R3 hiç SQL yok · **R4 tam
+> kapalı** (`perUID` UID'nin var olduğu ilk anda, INSERT'ten **önce**, tek `st.mu`
+> altında alınıyor; turu bitirmeden bırakan yol **yok**) · R6 sıra hem tabloda hem
+> çalışma-zamanı guard'ında · R7 sızıntı temiz · **`Close`'un altıncı deliği ARANDI,
+> BULUNAMADI** (**24 goroutine × 15 tur**, `-race`: `rounds=135 aborted=30 errs=225
+> **residue=0**`) · M64'ün meşruiyeti bağımsız doğrulandı · `apdu.go` **gerçekten
+> yalnız yorum**.
+>
+> 🔴 **F1 (YÜKSEK) — UID-İKAME KAPISI, ÖNLEMEK İÇİN VAR OLDUĞU HASARIN SONRASINA
+> KONMUŞTU. Orkestratör kararı: kapı `index 6`'ya taşındı.** Kendi ölçümüm
+> denetçininkini doğruladı: yalancı röle senaryosunda çip **`8D` (`WriteData`) ve
+> `C4` (`ChangeKey`) komutlarını kabul etmiş** oluyordu
+> (`A460AFAF71AF8DC451`), yani **kendi UID'siyle hiçbir satırda görünmeyen bir plaket
+> anahtarı** taşıyordu — §5.2'nin 🔴 kalıcı kayıp modu, **kapının engellemek için var
+> olduğu modun ta kendisi**. 🔴 **Ve yerleşimin TEK gerekçesi AYNI TURDA geri
+> çekilmişti** (*"`K_0x01` bizimken MAC üretilemez"*): gerekçe düştü, yerleşim kaldı.
+> **Tespit gücü değişmiyor ve bu ölçülebilir:** §5.1'e göre adım 5–8 **tek bir
+> anahtar-0 oturumunda** koşar (adım 6 yeniden kimlik doğrulamaz; veri sayfası
+> §10.6.1), yani yanıt MAC'i **her iki yerleşimde de** halka açık fabrika anahtarı
+> 0'dan türer — risk 7'nin saldırganı ikisini de forge eder. **Kazanç tek taraflı:**
+> uyumsuzluk artık yalnız **hayalet envanter satırı** bırakıyor. **Ek alışveriş yok**
+> (`CommMode.Full`, adım 4'ten itibaren kullanılabilir). ADR 0017 **§5.1'e `4b` olarak
+> yazıldı** ve **§6 md. 12 tadil edildi**. 🔴 **Ve ilgili test zararlı sırayı
+> "beklenen" diye çiviliyordu** — çipin durumu hakkında **hiçbir iddiası yoktu**;
+> artık uyumsuzluk anında **çipin yazılmamış, anahtarının fabrika değerinde ve hiçbir
+> geri döndürülemez komutun geçmemiş** olduğunu ölçüyor (M67 kırmızı).
+>
+> 🔴 **F2 (ORTA) — *"çip hurdadır, anahtarı kurtarılamaz"* ÖLÇÜLEREK YANLIŞLANDI, ve
+> bu cümle HATA MESAJINDA operatöre söyleniyordu.** Kendi ölçümüm: hayalet satırdaki
+> sarmalın AAD'si **RowUID**'dir ve RowUID **halka açıktır** (mesajın kendisi
+> yazdırıyor) → `sun.Unwrap(kek, RowUID, ref)` **açılıyor** ve çıkan anahtar
+> **çiptekinin aynısı**; anahtar 0 da hâlâ fabrika değerinde. Yani plaket
+> **kurtarılabilir** — ve eski cümle operatöre **gerçek bir Tappa plaket anahtarı
+> taşıyan** bir çipi çöpe attırırdı. Doğru kurtarma yolu yazıldı; hata mesajı artık
+> *"satırı elle emekliye ayır — **SAKIN SİLME**, anahtarın tek kopyası onda"* diyor.
+>
+> 🔴 **F3 (ORTA) — `Progress.Done`'ın güvenlik cümlesi, kodun ÜRETEMEYECEĞİ bir zincir
+> anlatıyordu.** *"Yeniden koşturmak `ChangeKey`'i fabrika anahtarıyla çağırır ve
+> düşer"* diyordu; ölçtüm: ikinci tur **dört alışveriş önce**, satır INSERT'inde
+> ölüyor — *"duplicate key value violates unique constraint"* (`tags.uid` **PRIMARY
+> KEY**, ve `InsertUnassigned`'ın **kendi sözleşmesi** üzerine yazmayı yasaklıyor).
+> **Sonuç doğruydu, gerekçe ölçülmemişti** — ve fark operasyoneldir: operatör bir
+> **çip arızası** değil, **bayat envanter gibi görünen bir DB hatası** görüyor, ve
+> akla gelen ilk düzeltme **SATIRI SİLMEK** — ki o satır plaket anahtarının **tek
+> kopyasını** tutuyor. Gerekçe ölçümle değiştirildi ve **"sakın silme"** uyarısı
+> eklendi.
+>
+> **İki DÜŞÜK sertleştirme:** **F4** — `expireLocked`'ın *"her yazar buradan geçer"*
+> iddiası hâlâ **nesirdi**; `retireCallSites` için mekanikleştirdiğim şey buna
+> yapılmamıştı. `deadlineWriters` + `go/ast` ratchet eklendi
+> (`TestSession_TheDeadlineHasExactlyOneRawWriter`, ham atama **1**), M68 kırmızı.
+> · **F5** — **halkanın hangi kilit altında olduğu hiçbir yerde yazmıyordu**, ve
+> bariz tahmin **yanlış**: halka `st.mu`'nun değil, **`s.busy`'yi tutan
+> goroutine'in**. Denetçi `st.mu` **altında** peek ederek gerçek bir `-race`
+> üretti. Bugün üretimde erişilemez, ama **B2c-2'nin sağlık yüzeyi tam o deseni
+> kullanacak** (`armed()` test yardımcısı zaten kullanıyor) — cümle `keyring`'in
+> doküman yorumuna yazıldı.
+>
+> ⚠️ **VE BU TURDA BİR ARAÇ KAZASI OLDU, KAYDEDİLMELİ:** paylaşılan scratchpad'deki
+> `mutate.py` **bir denetçinin kendi script'i tarafından üzerine yazılmış**, ve o
+> script **kendi yedeğinden geri yükleyerek F1 düzeltmemi (üretim kodu) geri aldı**.
+> `go test` ile yakalandı (üç test kırmızı), F1 yeniden uygulandı ve doğrulandı; kendi
+> script'im artık **`scratchpad/builder-mut/` altında izole**. Ders: paylaşılan
+> scratchpad'de sabit adlı bir script, **başka bir ajanın geri yükleme yedeğiyle
+> birlikte**, üretim kodunu sessizce geri alabilir.
+>
+> 🔴 **ALTINCI ARDIŞIK TUR: en ağır bulguların ikisi (F2, F3) yine BENİM bu turdaki
+> yeni cümlelerimdi**, ve ikisi de **üretim kodu mutasyonsuzken**, yalnız **yorumun
+> iddiası sondalanarak** bulundu — geçen tur yazdığım ikiz kuralın ta kendisi. Kural
+> çalışıyor; eksik olan **onu kendi yeni cümlelerime uygulamak**.
+>
+> **Altıncı denetim turu (2026-08-21, ALTINCI ayrı üçüncü göz — VERDICT: RED, iki
+> bloklayan + sekiz bloklamayan; hepsi kapatıldı).** 🔴 **DURMA KURALININ İŞARETİ:
+> bulgular METNE döndü** — iki bloklayanın **ikisi de nesir**, sekiz bloklamayanın
+> **yedisi** nesir/atıf. **Üretim yolunda yeni kusur yok; üst üste üçüncü denetim.**
+>
+> ✅ **VE SCRATCHPAD KAZASI DENETLENDİ: ÜÇÜNCÜ BİR SESSİZ GERİ ALMA YOK.** Denetçi
+> tur 1–7'nin **21 adlandırılmış düzeltmesini** tek tek ölçtü — hepsi yerinde.
+> **F1 bağımsız doğrulandı ve dayanağı PDF'ten ölçüldü** (§10.6.1 birebir
+> *"Authentication with application key number 0 **is required** to change the key"*
+> → adım 5–8 gerçekten tek anahtar-0 oturumunu paylaşıyor, yani *"tespit gücü
+> değişmiyor"* gerekçesi **ayakta**). **12 mutasyon, 12 kırmızı**; kapıyı **index
+> 8'e** de **index 7'ye** de geri taşımak **kırmızı**.
+>
+> 🔴 **B1 + B2 — VE İKİSİ DE AYNI ALT SINIF: BİR DÜZELTMENİN ÇÜRÜTTÜĞÜ, AMA YANINDA
+> BIRAKILMIŞ KOMŞU CÜMLE.** B1: F2'nin geri çektiği *"çipi hurdaya at"* talimatı
+> **`driver_test.go`'da iki yerde** hâlâ sevk ediliyordu — biri bir **`t.Fatalf`
+> mesajı**, yani tam olarak birinin **karar verirken okuduğu** yer — ve F1 onu **iki
+> kat** yanlış yapmıştı (artık hiçbir çip kişiselleştirilmiyor). Doğru ifadeyi aynı
+> dosyada, 300 satır yukarıda, **aynı turda** yazmıştım. B2: `RelayMismatchError`'ın
+> **doküman başlığı**, F1 öncesi sonucu (*"the chip **now holds** a plaque key … 
+> permanent plaque loss … Detecting it does not undo it"*) **OLGU olarak** iddia
+> etmeye devam ediyordu — üstelik kendini *"**named rather than softened**"* diye ilan
+> ederek, ki bu bayat bir iddiayı **ölçülmüş** gibi okutan şeklin ta kendisi.
+> Niteleyici yalnız **üç paragraf aşağıda** yaşıyordu. Ve operatöre görünen `Error()`
+> bunu miras almıştı: *"it holds the **only copy of the key**"* — **eylem doğru,
+> gerekçe yanlış**; satırı korumanın gerçek sebebi §5.2'nin *"sessiz temizlik
+> yoktur"*u ve envanter izidir. Üçü de düzeltildi.
+>
+> 🔴 **VE BU TURUN OPERASYONEL KURALI, denetçinin adlandırdığı hâliyle:** bir düzeltme
+> yaptığında `grep -rn`'i **düzelttiğin cümleye** değil **düzeltmenin ÇÜRÜTTÜĞÜ
+> İDDİAYA** uygula. Bu turda taranan iddialar ve isabetleri: *"scrap"* (5) ·
+> *"chip now holds"* (2) · *"steps 5 and 6 ran"* (1) · *"only copy of the key"* (1) ·
+> *"nine steps/numbered"* (2) · *"four exchanges"* (1) ·
+> *"Detecting it does not undo it"* (1). Hepsi ya düzeltildi ya geri-çekme alıntısına
+> dönüştü.
+>
+> **Sekiz bloklamayan:** **N1** — `DefaultTTL` **yanlış testi** adlandırıyordu
+> (*"drives all three"* diyen test üçünün **hiçbirini** sürmüyor); 🔴 **ve mekanik
+> atıf kontrolü bunu GÖREMİYOR** — adı geçen 14 testin 14'ü de **var**, yani ratchet
+> *"var mı"*yı ölçüyor, *"doğru mu"*yu değil. · **N2** — **altıncı kapalı sayım**
+> (*"asserts **twice over**"*, testin kendi başlığı *"WHY **THREE**"* diyor). ·
+> **N3** — alışveriş mesafesi bir fazla (*"four"* → **three**); aynı ifade 100 satır
+> yukarıda **doğru**. · **N4** — 🔴 **F4 ratchet'i sayımı KAPATMIYORDU, ve bu
+> ölçüldü:** deadline'ı **UZATAN** ikinci bir yazım **composite literal** olarak
+> eklendiğinde test **yeşil** kalıyordu (`ast` yalnız `AssignStmt` eşliyordu);
+> yakalayan şey **başka bir ratchet**ti. `KeyValueExpr` eklendi (**kendi mutasyonumla
+> doğruladım: 3 ≠ 2 ile kırmızı**), ve **ne ölçtüğü/ne ölçmediği** yanına yazıldı. ·
+> **N5** — iki envanterin doküman yorumları bitişikti, gerekçe yanlış olana
+> bağlanıyordu; ayrıldı. · **N6** — `adr:` alanı, **izlemek için var olduğu belgeden**
+> kaymıştı (ADR §5.1 artık `4b` diyor); alan ve iki *"nine steps"* cümlesi
+> hizalandı. · **N7** — 🔴 **sahtede BEŞİNCİ boşluk adayı: denetçi belgeden
+> ÇÖZEMEDİ, ben de çözemedim** — sahte **her** `ChangeKey`'den sonra oturumu ayakta
+> bırakıyor, **anahtar 0 dahil**; §10.6.1 ve Tablo 63/64/65 kimlik doğrulanan anahtar
+> değişince oturumun yaşayıp yaşamadığı hakkında **hiçbir şey söylemiyor**, ve
+> `internal/sun/changekey.go` **ters tahmin** yapıyor (*"CASE 2 ENDS THE SESSION"*).
+> **"Doğrulanamadı" olarak kaydedildi, "temiz" olarak DEĞİL**, ve **adım 8'in turuna
+> devredildi**. · **N8** — `cmd/tappa/constanttime_test.go`'daki bayat *"14/9"* çifti
+> güncel gibi okunuyordu; **tarihlendi** ⚠️ **kapsam dışı, işaretli**.
+>
+> ⚠️ **Bu turda kendi betiğim `scratchpad/builder-mut/` altında izole tutuldu ve beş
+> üretim dosyası tur başında/sonunda md5 ile karşılaştırıldı** — beşi de değişti
+> (bu tur beşini de düzenledim), yani sessiz geri alma yok.
+>
+> **Yedinci denetim turu (2026-08-21, YEDİNCİ ayrı üçüncü göz — VERDICT: RED, dört
+> bloklayan + altı bloklamayan; hepsi kapatıldı).** 🔴 **VE DURMA KURALI HAKLI OLARAK
+> TETİKLENMEDİ: sekiz turun kaçırdığı GERÇEK bir üretim kusuru bulundu**, yani tur
+> 8'in *"iki nesir bloklayanı"* ikinci ardışık saf-nesir turu **değildi**. Zemin
+> temiz: denetçi **36 düzeltmeyi** kendi komutuyla doğruladı → **dördüncü sessiz geri
+> alma yok**; F1'in yerleşimi **index 7 VE index 8**, ikisi de kırmızı.
+>
+> 🔴 **B1 (ÜRETİM KUSURU) — `Step`, SON alışverişte context ölürse `Progress.Done`'ı
+> DÜŞÜRÜYORDU.** Kendi sondamla yeniden ürettim (`checkout` `ctx.Err()`'i **saatten
+> önce** okuduğu için, `Now()` içinde iptal eden bir `Clock`): `Done=false`,
+> `err=context canceled` — ve **çip tam kişiselleştirilmiş** (anahtar `01` kurulmuş,
+> NDEF 76 bayt, ayarlar 18 bayt), **`MarkEncoded` hiç çağrılmamış**. Bu,
+> `Progress.Done`'ın **kendi 🔴 kuralını** yanlışlıyor (*"READ Done BEFORE READING THE
+> ERROR … must NOT be re-run"*), ve aynı fonksiyon çiftindeki `finishLocked` **zaten
+> doğru sıralıyordu** (`case done:` → `case ctxErr != nil:`). İki merdiven
+> çelişiyordu; yanlış olan `Step`'inkiydi. **Sonucu F3'ün belgelediği zincirin ta
+> kendisi:** yeniden koşan çağıran `duplicate key` alır → bayat envanter gibi okunur →
+> bariz *"düzeltme"* **satırı silmek** → plaket anahtarının tek kopyası yok olur. Ve
+> tetikleyici bir HTTP rölesi için **sıradan**: telefon son R-APDU'yu post eder, istek
+> context'i ölür. Düzeltildi (`Done` artık `ctxErr`'den **önce**), ve **son
+> alışverişte iptali süren bir test** yazıldı — mevcut iptal testi 10'un **4.**
+> alışverişinde iptal ediyordu, bu pencere **hiç sürülmemişti** (M71 kırmızı).
+>
+> 🔴 **B2 — TURUN MERKEZÎ KABUL KRİTERİNDE (§6 md. 7 md. 3) NİTELEYİCİSİZ BİR TÜMEL.**
+> *"Halkaya hiç ulaşmamış bir tampon orada düşer"* diyordu; denetçinin **iki
+> mutasyonu da YEŞİL** kaldı (düz oturum anahtarını ve düz **plaket anahtarını** var
+> olan bir bayt-dilimi alanına saklamak). Sebep yapısal: `armed()` `bufs`'ı
+> `ring.filled()`'dan kuruyor ve **beş bilinen ada** çivili → **bilinen** bir tamponun
+> kaydolmayı bırakmasını yakalar, **yeni** birini asla göremez. **Kapatılamayanı
+> kapatmadım, ikiye böldüm:** *(a)* `Session`'a **yeni bir alan** eklenmesi artık
+> mekanik (`TestSession_TheSessionFieldsAreInventoried`, 16 alan, M72 kırmızı) — ki
+> adım 8'in ikinci plaket anahtarı **tam bu şekil**; *(b)* var olan bir alanın
+> **yeniden kullanılması** hiçbir şey tarafından yakalanmıyor ve bu paketin
+> yazabileceği hiçbir kaynak taraması onu yakalamaz → **SAYILMIŞ AÇIK olarak yazıldı**,
+> durma kuralı 2'nin meşru saydığı biçimde.
+>
+> 🔴 **B3 — YEDİNCİ kapalı sayım: *"iki düz plaket anahtarı"*, üç niteleyicisiz kopya,
+> gerçek sayı BİR.** Ölçtüm: `grep "ring.add(" internal/encode/*.go` (test dışı) **beş
+> yer** veriyor ve `keyNameAppMaster` **hiç** geçmiyor — `keyInventory`'nin kendi
+> yorumu bunu söylüyor, `armed()` **bir** plaket anahtarı çiviliyor. Kopyalardan biri
+> **TTL tavanının gerekçesiydi**. Üçü de düzeltildi ve **ölçüm** taşıyıcı olanın
+> yanına yazıldı. (Maruziyeti fazla söylüyordu, az değil — ama yazılı bir sayım.)
+>
+> 🔴 **B4 — F1'in çürüttüğü yerleşim, bu turun DÜZENLEDİĞİ dosyada hâlâ sevk
+> ediliyordu.** `internal/sun/apdu.go` *"the session that exists **after ADR 0017 §5.1
+> step 6**"* diyordu; tur o cümleyi düzenlemiş, yalnız **MAC iddiasını** daraltıp
+> **yerleşim yarısını bırakmıştı**. ADR §6 md. 12 yerleşimi açıkça geri çekerken
+> `apdu.go` onu çıplak ifade ediyordu — **örüntü 4**. Geri çekildi; `apdu.go` **hâlâ
+> yalnız yorum** (`git diff -U0 | grep -v '^[-+]\s*//'` → **0 satır**).
+>
+> **Altı bloklamayan:** **N1** — tek ilişki için **iki mesafe** (*"four … and now
+> three"*); *"dört"* `writedata`'ya olan mesafeydi ve **tur 8'in kendi N3 düzeltmesi**
+> onu yanına bırakmıştı. · **N2** — `deadlineWriters` envanteri **birbiriyle çelişen**
+> iki paragraf taşıyordu (*"sayılmadı"* / *"sayıldı"*); değer **2**, ikisi de sayılı,
+> çelişen yarı silindi. · **N3** — *"a fourth test enumerates the state space **an
+> entire round actually emits**"*: o test **bilerek tur KOŞMUYOR**, ve koşmamak b11
+> düzeltmesinin **bütün içeriğiydi**; cümle iz çerçevesini geri takıyordu. · **N4** —
+> `s.rowWritten` çivisiz bir guard'dı (ataması insert'in üstüne alınınca suite yeşil);
+> bugün ulaşılamaz ama guard'ın **ilan edilmiş görevi** gelecekteki bir yeniden
+> sıralamada ayakta kalmak, o yüzden çivilendi (M73 kırmızı). · **N5** — *"SEKİZ yol"*
+> diyordu, gövdede **yedi** alt-test var (sekizinci komşu dosyada); sayı gövdeyle
+> eşitlendi. · **N6** — 🔴 **kapsam dışıydı ama gerçek**: md. 12b'nin anmadığı
+> **ÜÇÜNCÜ** uyumlu belge ifadesi — **Tablo 13, *"Default communication modes per
+> file"***, dosya `02h` → **CommMode.Plain**. Kendi ölçümümle doğrulandı ve **hem
+> ADR'ye hem koda** eklendi: belge *"bir gerilim"*in ima ettiğinden **daha tekdüze**.
+>
+> ---
+>
+> ## 🔴 KAPATILMAMIŞ SAYIM — B2c-2 / B3 / adım 8'e DEVREDİLENLER
+>
+> **Bu liste bir sonraki oturumun okuyacağı tek kayıttır. Hiçbiri kapatılmadı; hepsi
+> adıyla devrediliyor.**
+>
+> 1. **§6 md. 5** — anahtar 0'ın şeması. §5.1 **adım 8 SEVK EDİLMEDİ**; bedeli **ADR
+>    0005 risk 8** ve *"anahtar 0 fabrikadayken plaket duvara çıkamaz"* pilot çizgisi.
+> 2. **§6 md. 8** — `audit_log` izi: olay adı · aktör · hangi tenant. Üçü de kararsız,
+>    bu yüzden **hiçbiri uydurulmadı**.
+> 3. **§6 md. 10** — yetkilendirme kapısı. `Begin`'in `actor`'ı bir **maruziyet
+>    sınırıdır, yetki değil**.
+> 4. 🔴 **R5 BLOKLAYICI ŞART:** `tenant_id` porta **AÇIK PARAMETRE** olmalı; örtük
+>    bırakılırsa §4.5'in *"kemer"*i tümüyle uygulamanın hafızasına kalır.
+> 5. **§5.1 adım 9'un şema karşılığı yok** — `tags`'te *"encoded"* sütunu bulunmuyor
+>    (00004+00013; `status` **`unassigned`** kalmak zorunda). `MarkEncoded` bugün
+>    **tüketicinin ihtiyacını** beyan ediyor.
+> 6. **§6 md. 11 (Q08)** — host kararlaşmadı; yanlış host'la encode = plaket değişimi.
+> 7. **§6 md. 12b** — **adım 5'in CommMode'u ÖLÇÜLMEDİ**. Belge **üç** yerde
+>    `CommMode.Plain` diyor (§8.2.3.3 · §8.2.3.5 · **Tablo 13**); sürücü **Full**
+>    gönderiyor; **hiçbir yayımlanmış örnek** bu kombinasyonu kapsamıyor. Yedek:
+>    §5.8.1 `ISOUpdateBinary`. **Bloklamıyor** (adım 5 her `ChangeKey`'den önce koşar).
+> 8. 🔴 **ÇÖZÜLEMEDİ, TEMİZ DEĞİL — kimlik doğrulanan anahtar değişince oturum yaşıyor
+>    mu?** Sahte çip **her** `ChangeKey`'den sonra oturumu ayakta bırakıyor, **anahtar
+>    0 dahil**. §10.6.1 yalnız *"Authentication with application key number 0 is
+>    required"* diyor; Tablo 63/64/65 oturumun kaderi hakkında **hiçbir şey**
+>    söylemiyor; belge geneli sonlanma-dili taraması yalnız §9.1.9/§9.1.10'u döndürüyor
+>    (ikisi de **komut hatası**). `internal/sun/changekey.go` **tersini varsayıyor**
+>    (*"CASE 2 ENDS THE SESSION"*). **Adım 8'in turu bunu silikonla çözmeli.**
+> 9. 🔴 **Sahtede DÖRDÜNCÜ aynı-şekil aday:** `ChangeFileSettings` başlığındaki
+>    **`FileNo` DEĞERİ yok sayılıyor** (`c.fileSettingsBody` tek alan) — dosya
+>    numarası ve ofset/uzunluk boşluklarıyla **aynı sınıf**. Bu katmandan ulaşılamaz
+>    (`SDMFileSettings.FileNo` `internal/sun`'da kuruluyor), **`internal/sun` değiştiği
+>    gün canlanır**.
+>    ⚠️ **Ve aynı sahtenin BEŞİNCİ sınırı (9. denetim, N4):** Tablo 65'in ön koşulu bir
+>    **`t.Fatalf`** ile modellenmiş — gerçek silikon **`AUTHENTICATION_ERROR AEh`
+>    çerçevesi** döndürür **ve §9.1.10 gereği kimlik doğrulama durumunu düşürür**, ki
+>    sürücünün `RequireStatus`'ının göreceği ve fail-closed yolunun yazıldığı şey odur.
+>    Başlıktaki *"enforced"* **kontrol** için doğru, **davranış** için değil. Bugün
+>    ulaşılamaz; **adım 8 / probe-2 turunda canlanır**.
+>    ⚠️ **VE AYNI SEÇİM EN AZ BEŞ YERDE DAHA VAR** (10. denetim, N3): runt C-APDU ·
+>    sınıf baytı · `Lc` uyuşmazlığı · gövdenin header+MAC'ten kısa olması ·
+>    `WriteData` uzunluk uyuşmazlığı — gerçek silikon hepsinde **durum sözcüğü
+>    çerçevesi** döndürür. 🔴 **Ama bunlar MATERYAL OLARAK DAHA ZAYIF ve öyle
+>    yazılmalı:** uyumlu bir sürücünün **hiç üretmediği** çerçeveler, yani orada
+>    `t.Fatalf` bir **davranış modeli değil bir assertion**'dır ve doğrudur. Tablo
+>    65'inki farklıdır çünkü oraya **meşru bir gelecek yol** (probe 2 / adım 8) varır —
+>    devredilen tek şekil odur.
+>    ⚠️ **Ve aynı sahtenin ALTINCI sınırı (10. denetim, N7):** `Transceive` `t.Fatalf`
+>    çağırıyor ve **test goroutine'i dışından** ulaşılabilir konumda (eşzamanlılık
+>    testleri turları spawn edilen goroutine'lerden sürüyor); `testing` bunu geçersiz
+>    sayar. **Bugün ateşlenmiyor** (her `Fatalf`, uyumlu bir sürücünün üretmediği bir
+>    çerçeveyi koruyor) ve `go vet` bu şekli **görmüyor**. Ateşlerse bedeli **teşhis
+>    kalitesidir, doğruluk değil**.
+> 10. **`Close`'un kalan artığı:** **hiç dönmeyen** bir sahip (sonsuza kadar bloke bir
+>     port çağrısı) halkasını canlı tutar; `CloseGrace` bunu **sınırlamıyor**.
+> 11. **§5.3'ün üç sondası** — komut kurucuları `internal/sun`'da **var**, sürücüsü
+>     yok; ayrı bir akış.
+> 12. **M64 meşru hayatta kalanı** — Tablo 65 ön koşulu iki ölçütü çakıştırdığı için
+>     hiçbir davranışsal test onları ayırt edemez; **adım 8 geldiğinde gerçek olur**.
+> 13. 🔴 **Plaket anahtarının ve `RndA`'nın ÖNGÖRÜLEMEZLİĞİ — bu turda çivilendi, ama
+>     sınırı yazılı.** 9. denetim ölçtü: `mintPlaqueKey`'i **sıralı bir sayaca**
+>     çevirmek (ayrık ama tümüyle öngörülebilir) **üç kapıyı da** geçiyordu; testler
+>     yalnız **AYRIKLIK** ölçüyordu, oysa hamiline oturum handle'ının **dağılım** testi
+>     zaten vardı. `TestDriver_ThePlaqueKeyAndRndAAreUNPREDICTABLENotMerelyDistinct`
+>     eklendi (64 örnek, bayt konumu başına ≥30 ayrık değer, **ikisi için de**).
+>     ⚠️ **Ne kanıtladığı sınırlı ve yanında yazılı:** bir dağılım testi
+>     *"öngörülemez"* **kanıtlamaz**; yalnız **bir SINIF** öngörülebilirliği (sayaç,
+>     zaman damgası, PID) eler. İstatistiği iyi ama kriptografik olarak zayıf bir PRNG
+>     **geçer**. Nihai dayanak `crypto/rand`'dır; onu tutan tek şey bu testin
+>     **değişikliği fark etmesidir**.
+> 14. 🔴 **§6 md. 7 md. 3'ün AÇIĞI — ARTIK YER SAYMIYOR, ve bu ifadenin KENDİSİ
+>     düzeltmedir.**
+>     **Kaydolmamış bir tamponu HİÇBİR ŞEY görmez.** Mekanikleşen **tek** şey
+>     `Session`'a **YENİ ALAN** eklenmesidir (`sessionFields`) — ki ADR 0017 §5.1
+>     **adım 8**'in ikinci plaket anahtarı tam bu şekildir. **Diğer HER dinlenme
+>     yeri yakalanmıyor:** başka bir tipte yeni **ya da var olan** alan · paket
+>     değişkeni · **closure yakalaması** · map değeri · ve **map ANAHTARI**.
+>     🔴 **MAP ANAHTARI KATEGORİK OLARAK DAHA KÖTÜ ve ayrı yazılmalı:** anahtar
+>     baytları bir **Go DİZESİNE** girer; bir dize **hiç sıfırlanamaz** —
+>     `sun.Zero`'nun yazacağı bir şey yoktur, `retireLocked`'ın `delete`'i girdiyi
+>     siler **ama baytları silmez**, süpürücü ve `Close` da ulaşamaz. O şekil için
+>     garanti **uygulanmıyor değil, KALICI OLARAK yanlış**.
+>     ⚠️ **NEDEN SAYMIYORUZ — asıl ders bu:** üç ardışık denetimin **üçü de** sayımın
+>     kaçırdığı bir şekil daha ölçtü (başka tipte yeni alan → başka tipte **var olan**
+>     alan/map anahtarı → **closure yakalaması**), ve her seferinde liste uzatıldı,
+>     her seferinde bir sonraki denetim uzatmayı da **eksik** buldu. **Saklanma
+>     yerleri listesi tamamlanamaz**; yer saymak, doğduğu anda yanlış olan bir sayı
+>     üretir. Yerden bağımsız ifade **eksik olamaz**, çünkü sayılacak bir şey
+>     bırakmaz. Durma kuralı 2 (*"sayılmış açık, kapatıldığı iddia edilenden
+>     güvenlidir"*) yalnız **sayım doğruyken** geçerlidir; eksik sayım, sayım
+>     kılığında bir iddiadır.
+> 15. 🔴 **`deploy/README.md` → *"Anahtar hijyeni"* md. 6'nın DÜŞÜRDÜĞÜ MEKANİK SINIR
+>     YERİNE KONMADI — sayılıyor, kapatılmadı.** ADR 0017 §6 **md. 14** bunu
+>     *"sayılmış kayıp"* diye kaydedip *"**turun 2'si** mekanik bir şeyle
+>     değiştirmeli"* demişti; **turun 2 bu görevdir, bitti, ve değiştirmedi.**
+>     Eski sınır *"yalnız sarmalı blob **çıktıya** çıkar"*tı — §4.7'nin **en dar**
+>     hâli; yeni hâl yalnız **kalıcılaşanı** bağlıyor.
+>     **Ölçüldü (2026-08-21):** süreçten **çıkanı** bağlayan **genel** bir kapı
+>     **yok**. Bugün var olan üçü **adlandırılmış kanalları** bağlıyor, iddiayı
+>     değil: `internal/encode` **hiç logger içermiyor** (kaynak okuyan test) ·
+>     **hata mesajları** anahtar baytı taşımıyor (test) · `redline-check.sh` **R7**
+>     gömülü anahtar dosyası ve sır taşıyan log çağrısı arıyor. Paket bugün
+>     **hiçbir şey yazmıyor** (dosya/stdout yazıcısı **sıfır isabet**) — ama bu
+>     **bugünkü kodun özelliğidir, bir kapı değil**, ve B2c-2 bir **HTTP uç noktası**
+>     eklediğinde tam olarak o yüzey doğacak.
+>     ⚠️ **md. 14'ün ÖTEKİ yarısı (md. 1) KAPANDI** — TTL + `defer` + süpürücü +
+>     tek çıkış + yerden bağımsız garanti **sevk edildi**; ADR'de ve runbook'ta
+>     **yerinde** kapatıldı.
+> 16. 🔴 **§6 md. 1 — HİÇBİR ÇİP ENCODE EDİLMEDİ.** Bu turun tamamı belge okuması,
+>     sahte çip ve mutasyondur. **FAZ B3 silikonu getirene kadar hiçbir şey
+>     kanıtlanmış sayılmaz.**
+>
+> **Sekizinci denetim turu (2026-08-21, SEKİZİNCİ ayrı üçüncü göz — VERDICT: RED, dört
+> bloklayan + beş bloklamayan; hepsi kapatıldı).** Denetçi üretim yolunu satır satır
+> sondaladı (16 fonksiyon, 7 mutasyon, 5 çürütülmüş hipotez) ve sonucu yazdı: ***"Sevk
+> edilen baytlarda YENİ bir sessiz-bozulma kusuru BULAMADIM."*** **24 düzeltme**
+> doğrulandı → **beşinci geri alma yok**. Kalan dördün biri **kapı boşluğu**, üçü
+> **sayım/nesir**.
+>
+> 🔴 **B1 — PLAKET ANAHTARI RASTGELE OLMAYI BIRAKABİLİYORDU VE ÜÇ KAPI DA YEŞİLDİ; TUR
+> 1'İN B1'İ YALNIZ YARISI KAPATILMIŞTI.** Kendi sondamla yeniden ürettim:
+> `mintPlaqueKey`'i **sıralı bir sayaca** çevirmek — her tur ayrık, ama tümüyle
+> öngörülebilir — `go test -race` · `go vet` · `redline-check` **üçünü de** geçiyordu.
+> Sebep: yazdığım iki tazelik testi de **AYRIKLIK** ölçüyordu, **ÖNGÖRÜLEMEZLİK**
+> değil. Aynı mutasyon `RndA`'da da yeşildi. **Sonuç ADR 0003 md. 3'ün tam tersi:**
+> tek bir plaketin anahtarını gören taraf **tüm filoyu sayar**. 🔴 **Ve emsal elimdeydi
+> ve daha az değerli bir sır için yazılmıştı:** hamiline oturum handle'ının **dağılım**
+> testi vardı, **AES-128 plaket anahtarınınki yoktu**. Aynı şekil ikisine de yazıldı
+> (64 örnek, bayt konumu başına ≥30 ayrık değer); M74 ve M75 **kırmızı**. ⚠️ **Ne
+> kanıtladığı yanına yazıldı:** bir dağılım testi *"öngörülemez"* kanıtlamaz, yalnız
+> **bir sınıf** öngörülebilirliği eler.
+>
+> 🔴 **B2 — SEKİZİNCİ kapalı sayım, ve YEDİNCİYİ KAPATAN cümlenin içinde.** Raporum
+> *"üç kopya, üçü de düzeltildi"* demişti; koddaki geri-çekme bloğu *"FOUR PLACES"*
+> diyordu — **iki sayı zaten uyuşmuyordu**. Ölçüm: `grep -rn "two plain plaque"` →
+> **7 isabet**, **6'sı niteleyicisiz**, biri **üretim kodunda**, **ikisi `t.Fatalf`
+> mesajında**. Hepsi düzeltildi; sweep sonrası **1 isabet** kaldı ve o
+> `keyInventory`'nin **gelecek zamanlı**, meşru olanı. Bu, tur 8'in B2 dersinin birebir
+> tekrarıydı, bu kez altı kopyayla.
+>
+> 🔴 **B3 — F1/F2'nin çürüttüğü İKİ YARI, ADR'nin KENDİSİNDE emir kipinde duruyordu.**
+> §6 md. 12'nin *"Gerçek çare — B2c'nin işi: **adım 6'dan sonra** … yanıt MAC'i röle
+> tarafından **üretilemez**"* cümlesi hem **zararlı ölçülen yerleşimi** hem **geri
+> çekilen MAC iddiasını** taşıyordu; alttaki blok yalnız MAC'i, 40 satır yukarıdaki
+> blok ise *"yukarıdaki cümle"* diyerek **bu cümleyi kapsamadan** yerleşimi geri
+> çekiyordu. Raporum bunu *"ADR açıkça geri çekiyor"* diye yazmıştı — **ölçüldü, ADR
+> onu çıplak ifade etmeye devam ediyordu**. İkisi de **yerinde** geri çekildi.
+>
+> 🔴 **B4 — B2'nin *"ikiye böldüm"*ü uzayı KAPSAMIYORDU.** Denetçi **üçüncü** bir şekil
+> ölçtü: **`Session` DIŞINDAKİ** bir tipe yeni alan (`Store.stash []byte` + plaket
+> anahtarının kopyası) → **suite yeşil**, ve sayılmış açığın **metni o şekli tarif bile
+> etmiyordu**. Sayım **üçe** çıkarıldı ve gerekçesi yazıldı: durma kuralı 2 (*"sayılmış
+> açık, kapatıldığı iddia edilenden güvenlidir"*) yalnız **sayım doğruyken** geçerli;
+> **eksik sayım, sayım kılığında bir iddiadır**.
+>
+> **Beş bloklamayan:** **N1** — 🔴 B1'in (ctxErr/Done) dayandığı *"iki merdiven
+> çelişiyordu"* **emsali davranışsal olarak BOŞ**: `finishLocked`'ın iki `case`'ini
+> takas etmek suite'i **yeşil** bırakıyor, çünkü **ikisinin gövdesi de aynı tek
+> ifade**. Düzeltme doğru (M71 kırmızı), **gerekçe ölçülmemişti** — doğru sonucu
+> ölçülmemiş bir nedenle desteklemek, bu paketin tekrar tekrar bulduğu sınıfın
+> kendisi. · **N2** — TTL tavanının taşıyıcı cümlesi **15 satırlık bir blokla ikiye
+> bölünmüştü** ve okunamıyordu; blok cümlenin **sonrasına** alındı. · **N3** —
+> `sessionFields` kapısı **başarısızken** *"hepsi envanterde"* basıyordu (`t.Logf`,
+> `t.Errorf`'tan sonra koşulsuz); artık `t.Failed()` ile korumalı. · **N4** — sahte çip
+> Tablo 65'i **`t.Fatalf`** ile modelliyor, oysa gerçek silikon **`AEh` çerçevesi**
+> döndürür ve §9.1.10 gereği kimlik doğrulamayı düşürür; **devir listesi md. 9'a
+> yazıldı**. · **N5** — kartın kendi B2b kaydındaki aynı çürütülmüş çift **tarihsel
+> diye işaretlendi** (kapsam dışı).
+>
+> 🔴 **DEVİR LİSTESİ 16 MADDEDİR:** denetçi 14'ün 14'ünü de doğru buldu ve iki
+> madde eklenmesini istedi — **15** (öngörülemezlik çivisi ve sınırı) ve **16** (§6
+> md. 7 md. 3'ün üçüncü şekli), artı **md. 9'a N4**.
+>
+> **Dokuzuncu denetim turu (2026-08-21, DOKUZUNCU ayrı üçüncü göz — VERDICT: RED, iki
+> bloklayan + üç bloklamayan; hepsi kapatıldı).** İkisi de **sayım/kanıt** sınıfında;
+> denetçi de bir öncekiyle aynı sonuca vardı — ***"sevk edilen üretim baytlarında yeni
+> bir sessiz-bozulma kusuru bulamadım"*** — ve **nasıl aradığını** yazdı. **B1'in
+> niteleyicisi bağımsız doğrulandı:** `crypto/rand → math/rand(seed 42)` mutasyonu
+> **yeşil** kalıyor, yani *"iyi istatistikli zayıf bir PRNG geçer"* cümlesi **testin
+> gerçekten taşıdığı** sınırdır; elediği sayaç sınıfı da gerçek (M74/M75).
+>
+> 🔴 **BLOKLAYAN 1 — SAYILMIŞ AÇIK YİNE EKSİKTİ: dördüncü ve beşinci şekil.** Kendi
+> sondamla ikisini de yeniden ürettim: *(4)* plaket anahtarının baytlarını **başka bir
+> tipin VAR OLAN alanına** — `st.perUID`'e, **Go DİZESİ map anahtarı** olarak — koymak
+> → **suite yeşil**; *(5)* `append` + **closure yakalaması** ile bir goroutine'de
+> tutmak → **`-race` yeşil**. Sayımın **(b)**'si *"on `Session`"* ile, **(c)**'si
+> *"**NEW** field on another type"* ile sınırlıydı; **hiçbiri bu ikisini tarif
+> etmiyordu** — tur 10'un B4'ünde (c)'yi eklerken kullanılan argümanın **aynısı**.
+> 🔴 **Ve map anahtarı diğerlerinden KATEGORİK olarak farklı:** anahtar baytları bir
+> **Go dizesine** girer, dize **hiç sıfırlanamaz** — `sun.Zero`'nun yazacağı bir şey
+> yok, `delete` baytları silmiyor, süpürücü ve `Close` ulaşamıyor. O şekil için §6
+> md. 7 md. 3 **uygulanmıyor değil, KALICI OLARAK yanlış**.
+> 🔴 **ÇÖZÜM (denetçinin verdiği ve uyguladığım): YER SAYMAYI BIRAK.** İfade artık
+> yerden bağımsız — *"kaydolmamış bir tamponu **hiçbir şey** görmez; mekanikleşen tek
+> şey `Session`'a **yeni alan** eklenmesidir"* — ve **map anahtarı adıyla anılıyor**.
+> **Bu, kapalı-sayım sınıfını bu madde için KAPATIR:** sayılacak yer listesi kalmaz,
+> dolayısıyla eksik sayılacak bir şey de kalmaz. **Üç ardışık denetimin üçü de** listeye
+> bir şekil daha ekletmişti; **saklanma yerleri listesi tamamlanamaz.** Hem koda hem
+> devir listesi **md. 15**'e (eski 16) bu hâliyle yazıldı, ve M76/M77 mutasyon
+> tablosunda **kalıcı** — açık **görünür** kalsın, mekanikleşirse **kırmızıya dönsün**.
+>
+> 🔴 **BLOKLAYAN 2 — N1'İN YERİNE KOYDUĞUM GEREKÇE DE ÖLÇÜLMEMİŞTİ, VE YANLIŞTI.**
+> *"The **only** load-bearing order in that switch is `case done:` against the deadline
+> case"* — kendi ölçümüm: `case done:`'ı deadline case'inin **altına** almak da
+> **yeşil**. Yapısal sebep: `finishLocked`'ın **tam bir** çağrı yeri var, dönüşü
+> `lateErr`'e bağlı, ve `Step` `p.Done` doğruyken `markEncoded` ile dönüp **`lateErr`'i
+> hiç okumuyor** → dönüş **gözlenemez**, ve üç dal da **aynı tek ifadeyi** çalıştırıyor.
+> 🔴 **İroni kayda değer:** *"doğru sonucu ölçülmemiş bir nedenle desteklemek bu
+> paketin tekrar bulduğu sınıfın kendisi"* diyen blok, bir ölçülmemiş iddiayı **başka
+> bir ölçülmemiş iddiayla** değiştirdi. **Çözüm: emsal aramayı bırak.** Artık
+> *"o switch'te **yük taşıyan bir sıra yok**"* yazılı ve **ölçülmüş** (M78 kalıcı
+> hayatta kalan olarak tabloda); düzeltme `Progress.Done`'ın **kendi kuralına** ve
+> M71'e dayanıyor — **bir düzeltme gerekçesi için başka bir yerde simetriye ihtiyaç
+> duymaz**.
+>
+> **Üç bloklamayan:** **N1** — devir listesi **16 maddeye 17 numara** veriyordu (md. 14
+> *"bkz. madde 13"* diyen **içeriksiz bir işaretçiydi**); silindi, yeniden numaralandı,
+> **liste 16 maddedir**. · **N2** — süpürme sayım **birebir üretilmiyordu**, çünkü
+> **cümlenin kendisi arama dizesini içeriyor**; iddia yerden bağımsız hâle getirildi ve
+> *"sonucu kendini içeren bir grep, kodun ölçümü değildir"* yazıldı. · **N3** — sahtenin
+> `t.Fatalf` modellemesi md. 9'un dediğinden **geniş** (en az beş yer daha); md. 9
+> genişletildi **ve materyal farkı yazıldı**: ötekiler **uyumlu bir sürücünün hiç
+> üretmediği** çerçeveler, yani orada `t.Fatalf` bir **assertion**'dır ve doğrudur —
+> Tablo 65'inki farklı, çünkü oraya **meşru bir gelecek yol** varır.
+>
+> **Onuncu denetim turu (2026-08-21, ONUNCU ayrı üçüncü göz — VERDICT: RED, iki
+> bloklayan + yedi bloklamayan; hepsi kapatıldı). İKİSİ DE METİN.**
+>
+> ✅ **ÜÇÜNCÜ BAĞIMSIZ DENETÇİ, FARKLI YOLLARDAN, AYNI SONUÇ:** *"sevk edilen baytlarda
+> yeni bir güvenlik ya da doğruluk kusuru **BULAMADIM**"* (63 mutasyon, 47 kırmızı;
+> `keyring`, `Store`'un yedi giriş noktası, on adımlık makine, `internal/sun` sınırında
+> on argüman seçimi). ✅ **VE 11. TURUN BLOKLAYAN 1'İ TERMİNE ETTİ:** denetçi kendi
+> **altıncı** şeklini üretti (`Session`'ın KENDİ var olan alanı) ve **yerden bağımsız
+> ifade onu kapsıyor**; gizli bir yer listesi aradı ve **bulamadı**. **Sınıf kapandı.**
+> ✅ **BLOKLAYAN 2 genişletildi:** `switch`'in **dört permütasyonu da yeşil**, ama
+> **deadline kolunu silmek KIRMIZI** — *"hiçbir sıra yük taşımıyor"* artık bir örnekle
+> değil **uzayın dördüyle** ölçülü, ve kolun kendisinin yük taşıdığı ayrıca çivili
+> (M80).
+>
+> 🔴 **B1 — DEVİR LİSTESİNİN md. 10'u İÇERİKSİZ BİR İŞARETÇİYDİ, ve BU TURUN KENDİ
+> CÜMLESİ ONA ATIF YAPIYORDU.** 11. turun N1'i tam bu kusurun **bir örneğini** silip
+> **iki sıra ötedeki ikizini bırakmıştı** — *"düzeltmenin çürüttüğü iddiayı greple"*
+> kuralının kendi düzeltmesine uygulanmaması. Ağırlaştıran: `session.go`'nun
+> *"Handed on as **item 10** … in this same place-independent form"* cümlesi **boş bir
+> girdiye** düşüyordu, yani B2c-2 oturumu kodun işaretçisini izlediğinde kartta
+> **hiçbir şey** bulacaktı. Stub silindi, liste **15 maddeye** indi, kod **md. 14**'e
+> işaret ediyor, ve **atıf komutla doğrulandı** — kod artık doğrulama komutunu
+> **kendisi yayımlıyor**.
+>
+> 🔴 **B2 — KART *"§6 md. 7 KAPANDI"* DİYORDU; ADR'NİN KENDİSİ HÂLÂ *"AÇIK"* YAZIYORDU,
+> VE ENVANTERİ SEVK EDİLEN KODUN İKİ YÖNDEN TERSİYDİ.** ADR §6 md. 7 birebir *"bugün
+> **hiçbiri için** bir `Zero` kuralı yazılı değil"* diyordu ve oturum envanterini
+> *"`KSesAuthENC`, `KSesAuthMAC`, **`TI`**, **`CmdCtr`**"* olarak sayıyordu — oysa
+> `keyInventory` **`RndA`/`RndB`**'yi taşıyor ve kod `TI`/`CmdCtr`'ın **sır olmadığını**
+> gerekçesiyle yazıyor: **iki fazla, iki eksik**. Aynı yanlış envanter **§4 tablosunda**
+> da duruyordu. 🔴 *"Eski metin"* savunması geçmiyordu çünkü **ADR bu görevde
+> düzenlendi** (§5.1 `4b`, md. 12, md. 12b) ve **ADR'nin kendi kuralı yerinde
+> kapatmaktır**. **Somut bedeli:** adım 8'i yazacak oturum ADR'yi okuyacak ve orada
+> `RndA`/`RndB` disiplinini **hiç görmeyecekti**. Md. 7 **ADR'nin kendi biçimiyle
+> kapatıldı** (beş karar adıyla, envanter `keyInventory` ile **eşitlendi**,
+> `TI`/`CmdCtr`'ın **neden dışarıda** olduğu yazıldı, **sayılmış açık** ve **map
+> anahtarı** dahil), ve **§4 tablosundaki ikiz de düzeltildi** — `grep -rn` ile **iki
+> kopya da** bulundu.
+>
+> **Yedi bloklamayan:** **N1** — yayımlanan `grep` **kendi cümlesini sayıyordu**;
+> komut kaldırıldı ve 🔴 **yerine temiz bir komut KONMADI, çünkü yok**: bir sembolü
+> tartışan dosya o sembol için greplenemez. · **N2** — *"all three arms"* **dört kollu**
+> bir switch hakkındaydı; hangi üç olduğu ve dördüncünün ayrıca `return` ettiği
+> yazıldı. · **N3** — **örüntü 2'nin altıncı vakası**: `allZero(bytesOf(0, 0))` boş
+> dilim üzerinde **önemsizce true**, ve iddia ettiği tamponlar o fonksiyonda bir
+> değişkene **bağlanmıyordu bile**. **Onarılmadı, SİLİNDİ** — özellik komşu testte
+> gerçekten çivili. · **N4** — **dokuzuncu hayatta kalan** tabloya eklendi (M79) ve
+> **kontrolüyle** birlikte (M80 kırmızı). · **N5** — dört *"ileriye dönük"* iddia
+> çivisizdi; dördü de **fail-closed** olduğu için **LİMİT olarak yazıldılar**, ve
+> ikisinde *"testin yanlış sebeple yeşil"* olduğu (mutantın `internal/sun`'ın kendi
+> kapısına düşmesi) **adıyla** kaydedildi. · **N6** — `Progress`'in *"Command … nil
+> when the round is over"* değişmezi çivisizdi; çivilendi (M81 kırmızı). · **N7** —
+> sahtenin `t.Fatalf`'i **test goroutine'i dışından** ulaşılabilir; **bugün
+> ateşlenmiyor**, `go vet` görmüyor, bedeli **teşhis kalitesi**; kodda ve devir
+> listesi md. 9'da **işaretlendi**.
+>
+> **Orkestratörün commit öncesi doğrulaması (2026-08-21) — ÖRÜNTÜ 4, BU KEZ MD. 7'NİN
+> KENDİ KAPANIŞI TARAFINDAN.** Her iki bloklayan düzeltmesi doğrulandı
+> (`session.go:257` → **ITEM 14**, devir listesi **boşluksuz**, ADR md. 7
+> `✅ KAPANDI`, `:297` envanteri düzeltilmiş) — **ama md. 7'yi kapatmam ADR'nin
+> içinde komşuları çürüttü ve onları taramamıştım.** Kendi kuralımın
+> (*"düzelttiğin cümleyi değil, düzeltmenin ÇÜRÜTTÜĞÜ İDDİAYI greple"*) **bu turdaki
+> son uygulaması, ve tam da atladığım uygulama.**
+>
+> **Tarama (önce → sonra), üç dosyada:** `hâlâ AÇIK` **1 → 0** ·
+> `yazılmamış bir yükümlülük` **1 → 0 canlı** (kalan tek isabet kapanışın **alıntısı**) ·
+> `bugün karara bağlanmadı (§6 md. 7)` **1 → 0** ·
+> `turun 2'sinin kabul kriterleridir` **1 → 0** ·
+> `Turun 2'si bu ikisini … değiştirmeli` **1 → 0 canlı**. Kalan dokuz `turun 2`
+> atfı **meşru** — md. 5 · md. 8 · md. 10 · md. 12 · XOR riski gibi **hâlâ açık**
+> maddeler hakkında.
+>
+> ✅ **ÜÇ KOMŞU YERİNDE KAPANDI:** §3'ün *"o TTL bugün karara bağlanmadı"*ı → **90 sn** ·
+> §4'ün *"TTL, eşzamanlılık sınırı ve iptali turun 2'sinin kabul kriterleridir"*i →
+> **üçü de karara bağlandı** (90 sn · 1/3/64 · iptal bir **ÇIKIŞ YOLUDUR**) ·
+> **md. 14'ün md. 1 yarısı** → *"o üçü §6 md. 7'de hâlâ AÇIK"* **çürüdü**; yerini alan
+> şey artık **mekanizma** (TTL + `defer` + iki yollu süpürücü + tek çıkış + yerden
+> bağımsız garanti). ⚠️ **Niteleyiciyle:** mekanizma **sevk edildi** ama
+> `internal/encode` **hiçbir yerden import edilmiyor** (**0**), yani runbook'un
+> *"araç yazıldığında; bugün yok"* parantezi **akışın bütünü için hâlâ doğrudur** —
+> kapanan şey **yükümlülüğün nesir olması**.
+>
+> 🔴 **VE md. 14'ÜN ÖTEKİ YARISI KAPATILMADI, SAYILDI — devir listesi 15 → 16.**
+> `deploy/README.md` md. 6'nın düşürdüğü sınır (*"yalnız sarmalı blob **çıktıya**
+> çıkar"*) **yerine konmadı**. Ölçtüm: süreçten **çıkanı** bağlayan **genel** bir kapı
+> **yok**; bugünkü üç mekanizma **adlandırılmış kanalları** bağlıyor (logger yok ·
+> hata mesajı testi · R7), iddiayı değil. Paket bugün hiçbir şey **yazmıyor**
+> (dosya/stdout yazıcısı **0**), ama o **bugünkü kodun özelliği, bir kapı değil** — ve
+> B2c-2 bir **HTTP uç noktası** eklediğinde tam o yüzey doğar.
+> ⚠️ *"Sayılmış bir açık, kapatıldığı iddia edilenden güvenlidir"* — bu yüzden
+> **kapatılmadı, SAYILDI**, hem ADR md. 14'te hem runbook'ta hem devir listesinde.
+>
+> **Kapsam:** `deploy/README.md` **düzenlendi** (kart onu normatif olarak anıyor):
+> md. 1'e kapanış ve niteleyicisi, md. 6'ya **sayılmış açık**. İkisi de **ölçümle**
+> yazıldı, ikisi de yalnız nesir.
+>
+> **Kapsam dışı, işaretli:** ADR 0017 §6 md. 12'ye tarihli düzeltme bloğu ve
+> `internal/sun/apdu.go`'nun `GetCardUIDCommand` yorumundaki ikiz cümlenin
+> daraltılması. Gerekçe: ikisi de **ölçülerek yanlışlanmış bir güvenlik cümlesiydi**
+> ve bu turun kodu tam o cümleye dayanıyor; düzeltmeden bırakmak, bu görevin
+> "Ders 2"sinin tarif ettiği hatanın aynısını sevk etmek olurdu. **Bayt değişmedi,
+> yalnız iki cümlenin niteleyicisi.**
 
 **Tuzaklar.**
 - **Yanlış host'la encode edilmiş plaket = sahada plaket değişimi.** SUN URL'si

@@ -27,6 +27,10 @@ import (
 //
 // ⚠️ THE BACKLOG SAID "eighteen production sites in ten files" AND THAT NUMBER WAS
 // A GREP'S, NOT A COMPILER'S. Re-measured here through go/ast: 14 CALLS in 9 files.
+// ⚠️ THAT PAIR IS HISTORICAL (M2-08) AND READS LIKE A CURRENT MEASUREMENT, WHICH IS
+// WHY IT IS DATED NOW: the map below has since grown to 18 comparisons in 11 files
+// as internal/sun's EV2 and ChangeKey gates were added. The test itself reports the
+// live figures on every run.
 // The four missing ones are COMMENTS that name the function (one in
 // internal/config/config.go, two in internal/sun/verify_mac.go, one in
 // internal/session/manager.go), and the tenth "file" is internal/session/manager.go,

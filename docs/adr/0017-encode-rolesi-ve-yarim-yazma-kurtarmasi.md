@@ -187,8 +187,9 @@ Adım numarası değil, **tur** sayılıyor.
 Bunun iki sonucu var ve ikisi de turun 2'sine yükümlülüktür:
 
 1. **Tutucu §4'ün bellek içi oturumudur.** Düz anahtar oturum nesnesinin bir
-   alanıdır, yani ömrü **oturumun TTL'i kadardır** — ve o TTL bugün karara
-   bağlanmadı (§6 md. 7).
+   alanıdır, yani ömrü **oturumun TTL'i kadardır** — ✅ ve o TTL **karara bağlandı:
+   90 sn** (2026-08-21, FAZ B2c-1; §6 md. 7). Bu satır *"bugün karara bağlanmadı"*
+   diyordu.
 2. **`Zero` tek bir yolda değil, HER çıkışta çağrılmalıdır:** başarı · hata ·
    zaman aşımı · iptal · süreç kapanışı. `Wrap`'ın hemen ardından sıfırlamak
    **mümkün değil**; bunun yerine tek çıkış noktası (`defer`) ve TTL süpürücüsü
@@ -294,7 +295,7 @@ kendisinden değil, NDEF'in kaç çerçeveye bölündüğünden gelir.
 
 | | **Bellek içi** (seçilen) | **Kalıcı** (`encode_sessions` tablosu) |
 |---|---|---|
-| Anahtar malzemesinin maruziyeti (envanter: `TI`, `CmdCtr`, `KSesAuthENC`, `KSesAuthMAC` · **düz `K_SDMFileRead`** · ve karar 2 sevk edildiğinde **düz anahtar 0** — yani **iki** düz anahtar; §5.1 adım 9'un `Zero(anahtarlar)` çoğulu bu yüzden) | süreç belleği; süreç ölünce yok. ⚠️ *"Süreç ölünce yok"* bir **gözlemdir, bir sıfırlama değil** — açık `Zero` kuralı §6 md. 7'de | **diskte + her yedekte**. Yedekler `deploy/README.md`'nin KEK bölümündeki *"🔴 Adım 4 — ROTASYON ÖNCESİ YEDEKLER…"* maddesinin gösterdiği gibi ayrı bir maruziyet yüzeyidir |
+| Anahtar malzemesinin maruziyeti (envanter — 🔴 **DÜZELTİLDİ 2026-08-21, FAZ B2c-1; bu satır `TI` ile `CmdCtr`'ı sayıyordu ve `RndA`/`RndB`'yi hiç saymıyordu, yani iki fazla iki eksikti.** Sevk edilen `keyInventory`: `KSesAuthENC` · `KSesAuthMAC` · **`RndA`** · **`RndB`** · **düz `K_SDMFileRead`** · ve md. 5 kapandığında **düz anahtar 0**. `TI` ve `CmdCtr` **sır değildir** ve bilerek dışarıdadır; `RndA`/`RndB` §9.1.7'ye göre oturum anahtarlarının **bütün girdisidir**. ⚠️ Bugün **bir** düz plaket anahtarı tutuluyor, iki değil — §5.1 adım 9'un `Zero(anahtarlar)` çoğulu **adım 8 sevk edildiğinde** doğru olur) | süreç belleği; süreç ölünce yok. ⚠️ *"Süreç ölünce yok"* bir **gözlemdir, bir sıfırlama değil** — açık `Zero` kuralı §6 md. 7'de | **diskte + her yedekte**. Yedekler `deploy/README.md`'nin KEK bölümündeki *"🔴 Adım 4 — ROTASYON ÖNCESİ YEDEKLER…"* maddesinin gösterdiği gibi ayrı bir maruziyet yüzeyidir |
 | Rollout'a dayanır mı | **Hayır** — ölçüldü, aşağıda | Evet |
 | Yeni şema borcu | yok | migration + RLS + GRANT + saklama/temizleme politikası (CLAUDE.md §6 beşlisi) |
 | Yarım-yazma riski | değişmiyor — §5'teki kurtarma her iki şıkta da **zaten** gerekli | değişmiyor |
@@ -340,7 +341,10 @@ değil, yalnızca bir yönlendirme belirsizliğidir. Ucuz olmaktan çıktığı 
 — bir oturumu sessizce diske almak değil.
 
 **Bellek içi oturumun TTL'i, eşzamanlılık sınırı ve iptali** turun 2'sinin kabul
-kriterleridir; bu ADR yalnız **nerede yaşadığını** sabitler.
+kriterleriydi; bu ADR yalnız **nerede yaşadığını** sabitler.
+✅ **Üçü de karara bağlandı (2026-08-21, FAZ B2c-1): TTL 90 sn · plaket başına 1,
+aktör başına 3, depo geneli 64 · iptal bir ÇIKIŞ YOLUDUR** (oturumu emekli eder,
+yalnız isteği reddetmez). Ayrıntı ve gerekçeler §6 md. 7'de.
 
 ---
 
@@ -452,6 +456,10 @@ Normatif sıra:
 2. GetVersion  → 7 baytlık UID          (kimlik doğrulama İSTEMEZ)
 3. [sunucu] anahtar üret → Wrap → tags satırını YAZ        (§5.2)
 4. AuthenticateEV2First(anahtar 0, FABRİKA varsayılanı)
+4b. GetCardUID → UID'yi MÜHÜRLÜ olarak yeniden oku ve adım 3'ün satırıyla karşılaştır
+   🔴 EKLENDİ 2026-08-21 (FAZ B2c-1, 2. güvenlik denetimi). Yeri **kasıtlı**: kimlik
+   doğrulamadan SONRA (komut `CommMode.Full`, oturum ister) ama **ilk geri
+   döndürülemez komuttan ÖNCE**. Gerekçe §6 md. 12'de.
 5. WriteData → NDEF URL şablonu (mirror yer tutucuları)
 6. ChangeKey(anahtar 0x01 = K_SDMFileRead): fabrika → bizimki   [§6.16.1 sınıfı]
 7. ChangeFileSettings: plain SDM aç + yazma iznini kilitle (anahtar 0x01 — §6 md. 13)
@@ -744,17 +752,42 @@ bilmeyen bir `ChangeKey` **yapılamaz** (protokol gövdesi `Old ⊕ New` ister);
    yayımlamıyor. Turun 2'sinde doğru yol, tarifi metne yazmak değil, **belgenin
    değerini beklenen sabit olarak** almak ve dört dizilişten yalnız birinin onu
    ürettiğini bir vaka tablosuyla göstermektir.
-7. **Bellek içi oturumun TTL'i, eşzamanlılık sınırı, iptali VE SIFIRLAMA KURALI**
-   yazılmadı — turun 2'sinin kabul kriteri, ve **düz plaket anahtarı bu listenin
-   içindedir**. Oturum nesnesi dört anahtar malzemesi taşır (`KSesAuthENC`,
-   `KSesAuthMAC`, `TI`, `CmdCtr`) **artı düz plaket anahtarlarını** — `K_SDMFileRead`,
-   ve karar 2 sevk edildiğinde **anahtar 0** da (§3, §4 envanteri) — ve bugün
-   **hiçbiri için** bir `Zero` kuralı yazılı değil. Karara bağlanması gerekenler:
-   TTL değeri · TTL dolduğunda kimin süpürdüğü · **her** çıkış yolunda
-   (başarı · hata · zaman aşımı · iptal · kapanış) `sun.Zero`'nun çağrıldığının
-   nasıl garanti edildiği · kişi/plaket başına eşzamanlı oturum sınırı.
-   ⚠️ *"Süreç ölünce bellek gider"* bunun yerine geçmez: süreç **ölmediği**
-   sürece terk edilmiş bir oturum düz anahtarı TTL boyunca tutar.
+7. ✅ **KAPANDI (2026-08-21, FAZ B2c-1).** Madde açıkken şöyle diyordu: *"Bellek içi
+   oturumun TTL'i, eşzamanlılık sınırı, iptali VE SIFIRLAMA KURALI yazılmadı … bugün
+   **hiçbiri için** bir `Zero` kuralı yazılı değil."* Beşi de karara bağlandı, ve
+   gerekçeleri **kodun içindedir** (`internal/encode/session.go`):
+   - **TTL = 90 sn**, iki taraftan da bağlı: taban `len(roundSteps) × exchangeBudget`
+     (**tablodan türetiliyor**, tekrar yazılmıyor), tavan **tabanın iki katı**.
+     ⚠️ `exchangeBudget = 5 sn` bir **bütçedir, ölçüm değil** ve öyle etiketli — röle
+     gecikmesi hâlâ **ölçülmedi** (md. 2).
+   - **Süpürme İKİ YOLLU:** tembel süpürme (`checkout`) **terk edilmiş** oturuma
+     hiç ulaşmaz; süpürücü **goroutine** tick'lerle çalışır. İkisi de gerekli.
+   - 🔴 **SIFIRLAMA GARANTİSİ — ve ifadesi YER SAYMIYOR:** *"kaydolmamış bir tamponu
+     **hiçbir şey** görmez; mekanikleşen **tek** şey `Session`'a **yeni alan**
+     eklenmesidir."* Mekanik yüzü üç parçadır: `sun.Zero` **yalnız** keyring
+     metotlarında · `zeroAll`'ın **tam bir** çağıranı (`retireLocked`) · **hiçbir
+     ihraç edilmiş API bir `*Session` alıp vermez**. Davranışsal yüzü çıkış yollarını
+     **çağıranın kendi dilim başlıklarıyla** ölçer. ⚠️ **SAYILMIŞ AÇIK:** başka her
+     dinlenme yeri (başka tipte alan, paket değişkeni, closure yakalaması, map
+     değeri **ve map ANAHTARI**) yakalanmıyor — **map anahtarı Go dizesidir ve
+     HİÇ sıfırlanamaz**, yani o şekil için bu garanti **kalıcı olarak yanlıştır**.
+   - **Eşzamanlılık: plaket başına 1 · aktör başına 3 · depo geneli 64**, üçü de
+     gerekçeli. ⚠️ `actor` çağıranın verdiği bir **dizedir**, yani **kazayı** sınırlar,
+     düşmanı değil; gerçek tavan **64**'tür.
+   - 🔴 **ENVANTER — VE BU MADDENİN ESKİ HÂLİ İKİ YÖNDEN YANLIŞTI.** Sevk edilen
+     `keyInventory` **altı yuvadır**: `KSesAuthENC` · `KSesAuthMAC` · **`RndA`** ·
+     **`RndB`** · `K_SDMFileRead` · `K_AppMaster`. Eski metin `TI` ile `CmdCtr`'ı
+     **anahtar malzemesi sayıyordu** — kod ikisini de **bilerek dışarıda tutuyor**
+     (`TI` bir tekrar/araya-girme koruması, `CmdCtr` bir sayaç; *"silmek, sahip
+     olmadıkları bir hassasiyeti iddia etmek olurdu"*) — ve `RndA`/`RndB`'yi **hiç
+     saymıyordu**, oysa onlar §9.1.7'ye göre **oturum anahtarlarının bütün
+     girdisidir**. **İki fazla, iki eksik.**
+     ⚠️ **`K_AppMaster` bugün hiç doldurulmuyor** (md. 5 bloke): sevk edilen kod
+     **bir** düz plaket anahtarı tutar, **iki değil** — slot, adım 8 geldiğinde silme
+     ve çıkış yollarının **zaten kapsaması** için açık duruyor.
+   ⚠️ *"Süreç ölünce bellek gider"* hâlâ yerine geçmez, ve `Close` bunu **bekleyerek**
+   çözer (boştakileri hemen siler, uçuştakileri **expire eder**, `CloseGrace` kadar
+   bekler); kalan tek artık **hiç dönmeyen bir sahiptir**.
 8. **Encode olayının `audit_log` izi tanımlanmadı.** §5.2'nin *"tur `audit_log`'a
    düşer"* cümlesi **gelecek zamandır**: `action` serbest metindir (00005) ve
    bugün hiçbir encode olayı yazılmıyor. Turun 2'si üç şeyi kararlaştırmalı:
@@ -811,18 +844,126 @@ bilmeyen bir `ChangeKey` **yapılamaz** (protokol gövdesi `Old ⊕ New` ister);
     önce" kararının engellemek için var olduğu mod**. §5.2'nin bu karara getirdiği
     tek itiraz **Random ID**'dir ve o bir **çip** özelliğidir; §2.2 ise **telefonu**
     düşman sayar — iki ayrı eksen.
+    🔴 **YERLEŞİM DÜZELTİLDİ — 2026-08-21, FAZ B2c-1'in 2. güvenlik denetimi (F1).**
+    Yukarıdaki cümle *"adım 6'dan **sonra**"* diyor ve **kapı oraya kondu**; ölçüldü,
+    **yanlış yerdi**. Yalancı röle senaryosunda çip, uyumsuzluk yakalanmadan önce
+    `8D` (`WriteData`) **ve** `C4` (`ChangeKey`) komutlarını kabul ediyordu — yani
+    **kendi UID'siyle hiçbir satırda görünmeyen bir plaket anahtarı taşıyordu**, ki bu
+    §5.2'nin 🔴 *"çip var, satır yok"* kalıcı kayıp modudur: kapının **engellemek
+    için var olduğu** modun ta kendisi.
+    🔴 **Ve yerleşimin TEK gerekçesi zaten AYNI TURDA geri çekilmişti:** *"`K_0x01`
+    artık bizimken … yanıt MAC'i röle tarafından üretilemez"*. Gerekçe düştü,
+    yerleşim yerinde kaldı.
+    **Yeni yer: adım 4'ten (kimlik doğrulama) SONRA, ilk geri döndürülemez komuttan
+    ÖNCE** — §5.1'de `4b` olarak yazılı.
+    **Tespit gücü DEĞİŞMİYOR, ve bu ölçülebilir:** §5.1'e göre adım 5–8'in hepsi
+    **anahtar-0 oturumunda** koşar (adım 6 anahtar 1'i değiştirir, yeniden kimlik
+    doğrulamaz; veri sayfası §10.6.1 `ChangeKey` için anahtar 0 ister), yani
+    `GetCardUID`'in yanıt MAC'i **her iki yerleşimde de** halka açık fabrika anahtarı
+    0'dan türer. Risk 7'nin saldırganı ikisini de forge eder — geç yerleşim **hiçbir
+    ek güvence satın almıyordu**.
+    **Kazanç tek taraflı:** uyumsuzluk artık yalnız **hayalet envanter satırı**
+    bırakıyor (`status='unassigned'`, `location_id IS NULL`, hizmette görünmez) —
+    §5.2 asimetrisinin **güvenli yarısı**. **Ek alışveriş maliyeti yok**
+    (`GetCardUID` `CommMode.Full`'dur, adım 4'ten itibaren kullanılabilir).
+
+    ⚠️ **VE BU MADDENİN *"çip hurdadır"* SONUCU DA ÖLÇÜLEREK YANLIŞLANDI (F2).**
+    Hayalet satırdaki sarmalın AAD'si **RowUID**'dir ve RowUID **halka açıktır**;
+    ölçüldü: `sun.Unwrap(kek, RowUID, ref)` **açılıyor** ve çıkan anahtar **çipteki
+    anahtarın aynısı**, üstelik anahtar 0 hâlâ fabrika değerinde. Yani çip
+    **kurtarılabilir** — satırdan `Unwrap`, aynı anahtarla yeniden sür ya da anahtar 0
+    ile yeniden anahtarla. *"Hurda"* demek, gerçek bir Tappa plaket anahtarı taşıyan
+    bir çipi çöpe attırırdı.
+
     **Bu turda yapılan:** `ParseGetVersion` artık belgeye dayanan iki dejenere
     UID'i reddediyor — **hepsi sıfır** (Tablo 58: Random ID durumu) ve **ilk baytı
     `04h` olmayan** (§8.1: *"the first byte of the double size UID is fixed to
     04h"*). ⚠️ **Bu saldırıyı KAPATMAZ ve öyle sunulmuyor:** yalancı bir röle
     **geçerli görünen bir kurban UID'si** döndürebilir ve `GetVersion` yanıtının
     hiçbir yerinde kimlik doğrulama yoktur.
-    **Gerçek çare — B2c'nin işi:** adım 6'dan sonra, `K_0x01` artık bizimken,
-    UID'yi **o oturumda `GetCardUID` ile yeniden oku** (§5.2'nin kendi cümlesi
-    onun kimlik doğrulama istediğini yazıyor; komut `CommMode.Full`, yani yanıt
-    MAC'i röle tarafından **üretilemez**). Bu **yalanı TESPİT eder, satırı
-    önlemez** — sessiz kalıcı kaybı *"iptal et ve temizle"*ye çevirir. Komut
-    kurucusu bu turda sevk edildi: `internal/sun/apdu.go` → `GetCardUIDCommand`.
+    🔴 **ÇARE — SEVK EDİLDİ (FAZ B2c-1), ve bu paragrafın İLK HÂLİ İKİ AYRI ÇÜRÜTÜLMÜŞ
+    YARIYI EMİR KİPİNDE TAŞIYORDU; ikisi de burada, yerinde geri çekiliyor (9. denetim,
+    2026-08-21).** Eski metin şuydu: *"Gerçek çare — B2c'nin işi: **adım 6'dan sonra**,
+    `K_0x01` artık bizimken, UID'yi o oturumda `GetCardUID` ile yeniden oku (…, yani
+    yanıt MAC'i röle tarafından **üretilemez**)."*
+    - 🔴 **Yerleşim yarısı ÇÜRÜK:** adım-6-sonrası yuva **ölçülerek ZARARLI** bulundu —
+      o noktada çip `8D` (`WriteData`) ve `C4` (`ChangeKey`) komutlarını çoktan kabul
+      etmiştir, yani uyumsuzluk **kendi UID'siyle hiçbir satırda olmayan bir anahtar
+      taşıyan çip** bırakır: §5.2'nin **kalıcı kayıp** modu, kapının **engellemek için
+      var olduğu** mod. Doğru yer **§5.1 adım `4b`**: kimlik doğrulamadan **sonra**,
+      **ilk geri döndürülemez komuttan ÖNCE**. Ayrıntı ve gerekçe **40 satır yukarıda**,
+      *"YERLEŞİM DÜZELTİLDİ"* bloğunda — o blok *"yukarıdaki cümle"* diyordu ve **bu
+      cümleyi kapsamıyordu**.
+    - 🔴 **MAC yarısı ÇÜRÜK:** *"röle tarafından üretilemez"* yanlış; oturum **halka
+      açık fabrika anahtarı 0** ile kurulur, risk 7'nin kümesi oturum anahtarlarını
+      türetip o MAC'i **üretebilir**. Ayrıntı hemen aşağıdaki düzeltme bloğunda.
+    - ⚠️ *"B2c'nin işi"* de **bayat**: kapı **sevk edildi**.
+
+    **Ayakta kalan ve hak edilmiş olan:** UID'yi kimlik doğrulanmış oturumda
+    `GetCardUID` ile yeniden okumak, **bir dizeyi düzenleyerek yalan söyleyen röleyi**
+    yakalar; §2.2'nin EV2 güvenli mesajlaşmasını uygulayan tam düşmanını yakalamaz. Bu
+    **yalanı TESPİT eder, satırı önlemez** — ve **adım 4b'de** sessiz kalıcı kaybı
+    **hayalet envanter satırına** indirger. Komut kurucusu: `internal/sun/apdu.go` →
+    `GetCardUIDCommand`.
+
+    🔴 **DÜZELTME (2026-08-21, FAZ B2c-1 uygulaması sırasında — ÇARE SEVK EDİLDİ,
+    AMA YUKARIDAKİ CÜMLE FAZLA GÜÇLÜYDÜ.** *"Yanıt MAC'i röle tarafından
+    **üretilemez**"* — **ölçüldü, yanlış**, ve tam olarak bu belgenin kendi
+    denetimlerinin üç kez bulduğu sınıf: **hak ettiğinden fazlasını iddia eden bir
+    cümle**. Zincir bu ADR'nin kendi maddelerinden çıkıyor: o oturum **adım 4'te
+    uygulama anahtarı 0 ile** kurulur ve o anahtar boş çipte **halka açık fabrika
+    varsayılanıdır** (veri sayfası §8.2.4.2). §2.2 ile ADR 0005 risk 7 zaten
+    söylüyor: dökümü gören taraf `RndA` ve `RndB`'yi geri türetir, dolayısıyla
+    `KSesAuthENC` ve `KSesAuthMAC`'i de — yani o oturumdaki **her** MAC'i, bunun
+    dahil, **üretebilir**. Kontrolü taze bir `0x01` oturumuna taşımak da
+    kurtarmıyor: aynı döküm adım 6'nın `ChangeKey` gövdesini taşır ve aynı gözlemci
+    oradan `K_0x01`'i çıkarır (risk 7'nin tanımı).
+    **Hak edilen dar cümle:** bu kapı **MALİYETİ YÜKSELTİR, KAPIYI KAPATMAZ** —
+    HTTP gövdesindeki bir dizeyi değiştirerek yalan söyleyen bir röleyi
+    (hatalı uygulama, yanlış okunan ikinci çip, tek alanı düzenleyen saldırgan)
+    **yakalar**, çünkü öyle bir röle uyumlu bir mühürlü yanıt **üretemez**; §2.2'nin
+    *"EV2 güvenli mesajlaşmasını uygulayan"* tam düşman rölesine karşı **hiçbir şey
+    tespit etmez**. Kod ve test tam olarak bu kadarını iddia ediyor
+    (`internal/encode/driver.go` → `acceptGetCardUID`,
+    `TestDriver_ARelayThatLiesAboutTheUIDIsCaught`). Karar değişmedi — kapı ucuz ve
+    sevk edildi; değişen **cümlenin niteleyicisi**. Aynı fazla-geniş cümle
+    `internal/sun/apdu.go` → `GetCardUIDCommand` yorumunda da vardı ve aynı turda
+    daraltıldı.
+
+12b. 🔴 **AÇIK, VE BU TURDA (FAZ B2c-1) DOĞDU: ADIM 5'İN CommMode'U ÖLÇÜLMEDİ.**
+    §5.1 adım 5, dosya `02h` hâlâ **teslim haklarındayken** (`Write = ReadWrite = Eh`
+    — veri sayfası Tablo 8, s. 12) anahtar-0 oturumunda **CommMode.Full**
+    `WriteData` gönderiyor. Veri sayfası **§8.2.3.3 (s. 12)**: *"If authenticated and
+    the only access conditions satisfied are the free access Eh ones, then the
+    **CommMode.Plain** is to be applied"* — ikizi **§8.2.3.5 (s. 13)** aynı şeyi
+    *"has to be applied"* diye tekrarlıyor.
+    🔴 **VE ÜÇÜNCÜ BİR UYUMLU İFADE VAR; BU MADDE ONU ANMIYORDU** (8. denetim, N6;
+    kendi ölçümümle doğrulandı): **Tablo 13, *"Default communication modes per
+    file"***, dosya `02h` için **CommMode.Plain** veriyor (dosya `03h` için
+    `CommMode.Full`). Yani belge, *"bir gerilim"*in ima ettiğinden **daha TEKDÜZE** —
+    üç ayrı yer aynı yöne işaret ediyor. Sonucu **değiştirmiyor** (hangi kipin
+    gerçekten dayatıldığına **silikon** karar verecek), ama bu maddeyi okuyan kişi
+    belgenin **iki değil üç** kez aynı şeyi söylediğini bilmeli.
+    🔴 **VE BU GERİLİM BİR KEZ YANLIŞ KAPATILDI, O YÜZDEN NASIL KAPATILAMAYACAĞI DA
+    YAZILI:** FAZ B2c-1'in ilk turu *"AN12196 §5.8.2 Tablo 17 bunu teslim
+    haklarında yapıyor"* dedi; **ölçüldü, yanlış** — **§5.4 (s. 24) birebir**
+    *"This step does **not** reflect default delivered NTAG 424 DNA configuration of
+    NDEF file settings (0000E0EE00010026000CA)"* diyor ve **Tablo 11 (s. 24)** örnek
+    çipin `AccessRights = 00E0`, yani `FileAR.Write = **0**` (anahtar 0) olduğunu
+    çözüyor. Anahtar tabanlı bir koşul **CommMode.Full'u zaten gerektirir**, yani
+    §8.2.3.3'ün şartı o örnekte **hiç tetiklenmiyor**. Konumsal argüman da düşüyor:
+    **§5.4, §5.8'den ÖNCE** geliyor.
+    ⚠️ **Çipin ne yapacağı da belgede YOK:** her iki bölüm de hangi **kipin**
+    geçerli olduğunu söylüyor, çerçevenin **reddedildiğini değil**. Plain uygulayan
+    bir çip mühürlü alanı düz veri olarak dosyaya **yazar** — tur yanıt MAC'inde
+    düşer, ama çip *"hâlâ boş"* **değildir**.
+    **Neden pilot bloklayıcısı değil:** adım 5 her `ChangeKey`'den **önce** koşar,
+    yani hiçbir anahtar değişmemiştir ve plaket **kurtarılabilir** (§5.3 kurtarması
+    adım 5'ten yeniden koşar ve NDEF'i üzerine yazar — §5.3'ün zaten *"ayırt
+    edemediği çift"* olarak saydığı durum). **Yedek belgenin kendisinde:** §5.8.1,
+    *"Write NDEF File - using Cmd.ISOUpdateBinary, CommMode.PLAIN"*.
+    **FAZ B3'ün ölçeceği:** gerçek bir çip adım 5'i kabul ediyor mu.
+    Kod tarafındaki tam kayıt: `internal/encode/driver.go` → `roundSteps` başlığı.
 
 13. ✅ **KAPANDI (2026-08-21, FAZ B2b): `FileAR.Change` = `FileAR.Write` =
     `FileAR.ReadWrite` = anahtar `0x01`; `FileAR.Read` = `Eh`.**
@@ -913,15 +1054,38 @@ bilmeyen bir `ChangeKey` **yapılamaz** (protokol gövdesi `Old ⊕ New` ister);
     - **md. 1** eskiden *"aynı süreçte, **art arda**"* diyordu. *"Art arda"*
       **yapısal** bir sınırdı: anahtar iki ifade kadar yaşar ve bu **kodu
       okuyarak** doğrulanır. Yeni hâlde kalan tek şart *"aynı süreç"*; zaman
-      sınırı **TTL + `defer` + süpürücü**'ye devredildi ve o üçü **§6 md. 7'de
-      hâlâ AÇIK**. Yani bugün runbook, ölçülebilir bir sınır yerine
-      **yazılmamış bir yükümlülük** taşıyor.
+      sınırı **TTL + `defer` + süpürücü**'ye devredildi.
+      ✅ **KAPANDI (2026-08-21, FAZ B2c-1).** Bu madde *"o üçü §6 md. 7'de **hâlâ
+      AÇIK**; runbook ölçülebilir bir sınır yerine **yazılmamış bir yükümlülük**
+      taşıyor"* diyordu — md. 7 **bu turda kapatıldığı için** bu cümle çürüdü ve
+      **yerinde** düzeltiliyor. Yerini alan şey artık nesir değil, **mekanizma**:
+      TTL **90 sn** (tabanı `roundSteps`'ten türetilmiş, tavanı iki katı, ikisi de
+      test) · `defer` **panik yolunda** · süpürücü **iki yollu** (tembel + goroutine) ·
+      **tek çıkış** `retireLocked` (11 çağrı yeri **go/ast envanteriyle** çivili) ·
+      ve garanti ifadesi **yerden bağımsız**, **sayılmış açığıyla** birlikte.
+      ⚠️ **NİTELEYİCİ, ve md. 4'ün kendi cümlesiyle uyumlu:** mekanizma
+      `internal/encode`'da **sevk edildi** ama **hiçbir yerden import edilmiyor**
+      (ölçüldü: paket dışı import **0**), yani runbook'un *"araç yazıldığında; bugün
+      yok"* parantezi **akışın bütünü için hâlâ geçerlidir**. Kapanan şey
+      **yükümlülüğün nesir olması**, akışın sevk edilmiş olması değil.
     - **md. 6** eskiden *"yalnız sarmalı blob **çıktıya** çıkar"* diyordu —
       §4.7 sınırının **en dar** hâli. Yeni hâl yalnız **kalıcılaşanı** bağlıyor
       ve süreçten çıkan başka bir şey için runbook'ta **hiçbir sınır**
       bırakmıyor; tek bağ ADR'nin §2.2'si, yani **başka bir dosyada**.
-    Turun 2'si bu ikisini yeni ve **mekanik** bir şeyle değiştirmeli; bugün
-    yerlerinde duran şey nesir.
+    🔴 **DURUM (2026-08-21, FAZ B2c-1 bitişinde) — bu paragraf *"Turun 2'si bu ikisini
+    … değiştirmeli"* diye **gelecek zamanda** duruyordu; turun 2 **bu görevdir ve
+    bitti**, o yüzden ikisi ayrı ayrı kapanıyor:**
+    - **md. 1'in yarısı KAPANDI** (yukarıda, mekanizmasıyla).
+    - 🔴 **md. 6'nın yarısı AÇIK KALIYOR, ve sayılıyor.** Süreçten çıkanı bağlayan
+      **genel** bir mekanik sınır **yok**. Bugün var olan üçü **adlandırılmış
+      kanalları** bağlıyor, iddiayı değil: paket **hiç logger içermiyor** (kaynak
+      okuyan test) · **hata mesajları** anahtar baytı taşımıyor (test) ·
+      `redline-check.sh` **R7** gömülü anahtar dosyası ve sır taşıyan log çağrısı
+      arıyor. Ölçüldü: paket bugün **hiçbir şey yazmıyor** (dosya/stdout yazıcısı
+      **0 isabet**) — ama bu **bugünkü kodun bir özelliğidir, bir kapı değil**.
+      **Kartın devir listesine adıyla girdi.**
+    ⚠️ *"Sayılmış bir açık, kapatıldığı iddia edilenden güvenlidir"* — bu yüzden
+    md. 6 **kapatılmadı, SAYILDI**.
 
 15. ⚠️ **KAYNAK DOĞRULAMASI ASİMETRİK — sayılıyor, çünkü bir kanıt gücü farkıdır.**
     Bu ADR'nin AN12196 atıfları iki revizyona dayanıyor ve ikisi **eşit ölçüde

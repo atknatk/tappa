@@ -450,11 +450,34 @@ func AuthenticateEV2FirstPart2Command(part2Data []byte) ([]byte, error) {
 // encode flow would write a row for a chip that is not the chip being written —
 // ADR 0017 §5.2's "chip written, row missing" mode, which the whole "row first"
 // decision exists to prevent. GetCardUID is CommMode.Full, so its response carries
-// a MAC computed with session keys the relay does not have: re-reading the UID
-// inside the key-0x01 session that exists after ADR 0017 §5.1 step 6 DETECTS the
-// substitution. It does not prevent the row — it turns a silent permanent loss
-// into an abort-and-clean. Wiring that in is turn 2c's; ADR 0017 §6 md. 12 carries
-// it as the fourth consequence.
+// a MAC: re-reading the UID inside the authenticated session DETECTS the
+// substitution. It does not prevent the row — it turns a silent permanent loss into
+// an abort-and-clean. It is wired in by internal/encode (M8-05 FAZ B2c-1); ADR 0017
+// §6 md. 12 carries it as the fourth consequence.
+//
+// ⚠️ THE PLACEMENT NAMED HERE WAS "the session that exists after ADR 0017 §5.1
+// step 6", AND THAT IS RETRACTED (2026-08-21). A security audit measured the
+// after-step-6 slot as HARMFUL: by then the chip has already accepted WriteData and
+// ChangeKey, so a substituted UID leaves a personalised chip whose key is in no row —
+// §5.2's permanent loss, the mode the check exists to avoid. The gate now runs at
+// ADR 0017 §5.1 step 4b: after authentication, BEFORE the first irreversible command.
+// Detection power is unchanged, because §10.6.1 requires key 0 for ChangeKey and
+// steps 5-8 therefore share one key-0 session either way.
+//
+// 🔴 AND THE SENTENCE THAT USED TO BE HERE CLAIMED MORE THAN IT EARNED — CORRECTED
+// 2026-08-21, MEASURED, NOT REWORDED. It said the MAC is "computed with session
+// keys the relay does not have". The relay DOES have them: that session is opened
+// with application key 0, which on a blank chip is the PUBLIC factory default
+// (§8.2.4.2), and ADR 0005 risk 7 is precisely the finding that whoever sees the
+// dump re-derives RndA, RndB and therefore both session keys. Moving the check into
+// a fresh key-0x01 session does not help either — the same dump carries step 6's
+// ChangeKey body, from which the same observer recovers K_0x01.
+//
+// What the check earns, exactly: it separates a relay that lies by EDITING A STRING
+// from one that implements EV2 secure messaging. Against ADR 0017 §2.2's fully
+// hostile relay it detects nothing, and it never could — §2.2's own conclusion is
+// that a channel bootstrapped from a public key carries neither confidentiality nor
+// authenticity.
 //
 // The response is unwrapped with EV2UnwrapResponseFull; ev2_kat_test.go's
 // TestEV2KAT_GetCardUIDRoundTripMatchesAN12196Table28 already pins both directions

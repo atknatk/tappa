@@ -1701,6 +1701,18 @@ edilebilir bir zincir** olmalı. Bugün yürürlükte olan mekanizmalar:
    süreçtir**; düşen şart **bitişikliktir**. Bunun bedeli, `Zero`'nun **her**
    çıkış yolunda (başarı · hata · zaman aşımı · iptal · kapanış) çağrılmasının
    ayrıca garanti edilmesidir — ADR 0017 §6 md. 7.
+   ✅ **VE O BEDEL ÖDENDİ (2026-08-21, FAZ B2c-1).** ADR 0017 §6 md. 7 **kapandı**
+   ve yerini alan şey nesir değil **mekanizma**: `internal/encode`'da TTL **90 sn**
+   (tabanı adım tablosundan türetilmiş, tavanı iki katı) · `defer` **panik
+   yolunda** · süpürücü **iki yollu** (tembel + goroutine) · **tek çıkış**
+   (`retireLocked`, 11 çağrı yeri `go/ast` envanteriyle çivili) · ve silme
+   garantisinin ifadesi **yerden bağımsız**, **sayılmış açığıyla** birlikte
+   (`Session`'a yeni alan **mekanik**; başka her dinlenme yeri — özellikle **map
+   anahtarı**, ki bir Go dizesi **hiç sıfırlanamaz** — **yakalanmıyor**).
+   ⚠️ **Niteleyici, ve bu maddenin kendi parantezini bozmaz:** mekanizma sevk
+   edildi ama **hiçbir yerden import edilmiyor** (ölçüldü: paket dışı import **0**),
+   yani *"araç yazıldığında; bugün yok"* **akışın bütünü için hâlâ doğrudur**.
+   Kapanan şey **yükümlülüğün yazılmamış olması**dır.
 2. **Veritabanı yalnız sarmalıyı görür.** `tags.aes_key_ref` = 44 bayt
    (`nonce(12) ‖ ciphertext(16) ‖ gcm_tag(16)`), ADR 0003 md. 4.
 3. **Uygulama rolü onu DEĞİŞTİREMEZ.** Migration 00013 `tappa_app`'e `tags`
@@ -1742,6 +1754,16 @@ edilebilir bir zincir** olmalı. Bugün yürürlükte olan mekanizmalar:
    oturum anahtarları **halka açık fabrika anahtarından** türediği için döküm
    anahtara **eşdeğerdir** (ADR 0017 §2.2 — kabul edilmiş risk, ADR 0005 risk 7).
    Ayakta kalan emsal: **kalıcılaşan** hiçbir şey düz değildir.
+   🔴 **VE BU MADDENİN DÜŞÜRDÜĞÜ MEKANİK SINIR HÂLÂ YERİNE KONMADI — SAYILIYOR
+   (2026-08-21, FAZ B2c-1).** ADR 0017 §6 md. 14 bunu *"sayılmış kayıp"* olarak
+   kaydetmişti ve *"turun 2'si mekanik bir şeyle değiştirmeli"* diyordu; **turun 2
+   bitti ve değiştirmedi**. Ölçüldü: süreçten **çıkanı** bağlayan **genel** bir kapı
+   yok. Bugün var olan üçü **adlandırılmış kanalları** bağlıyor, iddiayı değil —
+   `internal/encode` **hiç logger içermiyor** (kaynak okuyan test) · **hata
+   mesajları** anahtar baytı taşımıyor (test) · `redline-check.sh` **R7** gömülü
+   anahtar dosyası ve sır taşıyan log çağrısı arıyor. Paket bugün **hiçbir şey
+   yazmıyor** (dosya/stdout yazıcısı **sıfır isabet**), ama bu **bugünkü kodun
+   özelliğidir, bir kapı değil**. Devir listesine adıyla girdi.
 
 **Operatör kuralları (mekanizmanın kapatamadığı yarı).**
 - Düz anahtar **hiçbir zaman** ekrana basılmaz, panoya kopyalanmaz, sohbete/
