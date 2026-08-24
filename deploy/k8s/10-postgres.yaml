@@ -96,7 +96,23 @@ spec:
           # `-c log_statement=all -c log_min_duration_statement=0`. Those are
           # development aids and they would be a §4.7 problem in production — every
           # statement, with its parameters, into the pod log: session token hashes,
-          # invite code hashes, source IPs, GPS coordinates.
+          # invite code hashes, source IPs, GPS coordinates, and — since M8-05 FAZ
+          # B2c-2a — THE KEK-WRAPPED PLAQUE ENVELOPE.
+          #
+          # 🔴 THAT LAST CLASS WAS ADDED 2026-08-24 AND IT IS THE ONE THIS LIST WAS
+          # MISSING WHILE THE CHANGE THAT CREATES IT WAS BEING WRITTEN. db/queries'
+          # InsertUnassigned binds tags.aes_key_ref as $3, so under log_statement=all
+          # the 44-byte envelope is printed as 88 hex characters — twice, once at
+          # `bind` and once at `execute`. Measured on the development database, one
+          # `go test -count=1 ./internal/encode/` run: 1945 log lines, 26 literals,
+          # 12 DISTINCT envelopes.
+          #
+          # ⚠️ IT IS DEVELOPMENT-ONLY AND THAT IS WHY IT IS A NOTE RATHER THAN A
+          # FINDING: this manifest passes `args: []`, so production sets neither flag,
+          # and CI's service container does not either. What makes it worth writing
+          # down is that docker-compose's json-file driver has NO max-size, so the
+          # development accumulation is unbounded — and that an envelope is useless
+          # without TAPPA_TAG_KEK, which never enters a statement.
           args: []
           ports:
             - name: postgres

@@ -806,16 +806,32 @@ func (f *seedFlow) tagCounter(t *testing.T, uid string) uint32 {
 
 // wrappedKeyOf reads a plaque's stored envelope through the APPLICATION role, so
 // what is asserted is what the running product can see.
+// 🔴 IT READS AS tappa_owner AS OF MIGRATION 00022, AND THE CHANGE IS THE PROOF THAT
+// THE MIGRATION BIT. This used to read through f.data -- the ordinary application
+// pool -- and after 00022 revoked aes_key_ref from tappa_app's SELECT privilege it
+// answers `permission denied for table tags (SQLSTATE 42501)`. Measured; it was one
+// of exactly three assertions in the whole tree that had to move.
+//
+// THE ASSERTION IS UNCHANGED AND SO IS ITS VALUE: the seed's envelopes must open
+// under the operator's KEK. What changed is WHO may look, and "the owner" is the
+// honest answer -- it is the identity the rotatekek runbook uses for the same column.
+// ownerPoolForTest SKIPS when DATABASE_MIGRATE_URL is unset rather than falling back,
+// for the reason its own header gives. ⚠️ It skips QUIETLY -- measured 2026-08-24, a
+// bare `go test` prints only `ok` -- and what keeps that from mattering is the
+// Makefile's require-db-env gate, not this helper.
+//
+// ⚠️ IT IS NOT A HOLE IN THE WALL: no PRODUCT path gains anything here. internal/db's
+// tap path still reads the column through resolve_tag_by_uid, which is SECURITY
+// DEFINER and unaffected.
 func (f *seedFlow) wrappedKeyOf(t *testing.T, tenantID uuid.UUID, uid string) []byte {
 	t.Helper()
+	pool := ownerPoolForTest(t)
 	var ref []byte
-	err := f.data.WithTenant(context.Background(), tenantID, func(ctx context.Context, tx pgx.Tx) error {
-		return tx.QueryRow(ctx,
-			`SELECT aes_key_ref FROM tags WHERE tenant_id = $1 AND uid = $2`,
-			tenantID, uid).Scan(&ref)
-	})
+	err := pool.QueryRow(context.Background(),
+		`SELECT aes_key_ref FROM tags WHERE tenant_id = $1 AND uid = $2`,
+		tenantID, uid).Scan(&ref)
 	if err != nil {
-		t.Fatalf("read aes_key_ref for %s: %v", uid, err)
+		t.Fatalf("read aes_key_ref for %s as the owner: %v", uid, err)
 	}
 	return ref
 }

@@ -53,9 +53,13 @@ func (p *panelHarness) seedWall(t *testing.T, name string) uuid.UUID {
 	return id
 }
 
-// seedPlaque commits one plaque the way TAPPA'S LOADER would. There is no product
-// query that does this: db/queries/tags.sql ships no INSERT over `tags`, because
-// creating a plaque means holding its key (user decision, 2026-08-08).
+// seedPlaque commits one plaque the way TAPPA'S LOADER would. No query the PANEL
+// reaches does this, because creating a plaque means holding its key (user
+// decision, 2026-08-08).
+//
+// ⚠️ THE REASON USED TO BE "db/queries/tags.sql ships no INSERT over `tags`", WHICH
+// EXPIRED ON 2026-08-24 (M8-05 FAZ B2c-2a): that file now carries
+// InsertUnassigned, the encode endpoint's loader.
 func (p *panelHarness) seedPlaque(t *testing.T, status string, wall uuid.UUID) string {
 	t.Helper()
 	b := make([]byte, 7)

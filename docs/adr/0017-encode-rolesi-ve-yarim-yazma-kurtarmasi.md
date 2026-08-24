@@ -234,9 +234,22 @@ bağlantısıyla koşturmak **mümkündür** ve o, sevk edilen davranışı kan�
 
 | Fiil | Bugün | Nerede |
 |---|---|---|
-| `INSERT` (tablo geneli, **tüm sütunlar** — `aes_key_ref` dahil) | ✅ `tappa_app`'e **verili** | 00004: `GRANT SELECT, INSERT, UPDATE ON tags TO tappa_app` |
+| `SELECT` (`aes_key_ref` üzerinde) | ⛔ **YOK** — sütun listeli, ve `aes_key_ref` **listede değil** | **00022** (2026-08-24): `REVOKE SELECT … ` + dokuz sütunluk `GRANT SELECT` |
+| `INSERT` (tablo geneli, **tüm sütunlar** — `aes_key_ref` dahil) | ✅ `tappa_app`'e **verili** | 00004'ün `GRANT SELECT, INSERT, UPDATE …`'inin **yalnız INSERT yarısı**; ölçüldü, `relacl` bugün `tappa_app=a` |
 | `UPDATE` | ⛔ sütun listeli, ve `aes_key_ref` **listede yok** | 00013: `REVOKE UPDATE …` + `GRANT UPDATE (location_id, last_ctr, status, retired_at, replaced_by)` |
 | `DELETE` | ⛔ revoke | 00004 (§4.6) |
+
+⚠️ **BU TABLONUN *"ÖLÇÜLDÜ"* ETİKETİ 2026-08-24'TE TAZELENDİ, VE ESKİ HÂLİ BU
+DEĞİŞİKLİK SETİNİN KENDİSİ TARAFINDAN ÇÜRÜTÜLMÜŞTÜ** (denetim, örüntü 4). Tablo üç
+satırdı (`INSERT`/`UPDATE`/`DELETE`), **`SELECT` satırı yoktu**, ve kanıt olarak
+00004'ün `GRANT SELECT, INSERT, UPDATE` satırını gösteriyordu — oysa o satırın SELECT
+yarısı **artık ayakta değil**: 00022 onu geri aldı ve dokuz anahtar-dışı sütuna
+indirdi. Gerekçesi ve ölçümü 00022'nin kendi başlığındadır.
+🔴 **VE OKUMA TÜMÜYLE KAPANMADI, TAŞINDI:** `resolve_tag_by_uid` (`SECURITY DEFINER`,
+sahibi `tappa_resolver`, **BYPASSRLS**) zarfı **döndürmeye devam ediyor** ve
+`tappa_app` onu **çağırabiliyor** — tap yolu bunu gerektirdiği için **kapatılamaz**.
+Duvarın şekli: *"her DOĞRUDAN ifade reddedilir; anahtar TAM OLARAK BİR adlandırılmış
+yoldan okunur; o yol ENVANTERLİDİR"* (`cmd/tappa/storekeyshape_test.go`).
 
 **Bu, `deploy/README.md` → *"Anahtar hijyeni"* md. 3'ün cümlesini DARALTIYOR.**
 Orada *"Uygulama rolü onu yazamaz … Satırı `tappa_owner` yükler"* yazıyor. Ölçüm:
@@ -466,6 +479,9 @@ Normatif sıra:
 8. ChangeKey(anahtar 0x00 = AppMasterKey): fabrika → bizimki    [§6.16.2 sınıfı]
    🔴 NORMATİF, ama BİR ŞEMA KARARINA BAĞLI — aşağıya bak (§6 md. 5)
 9. [sunucu] Zero(anahtarlar); satırı "encode edildi" olarak işaretle
+   ✅ ŞEMA KARŞILIĞI SEVK EDİLDİ 2026-08-24 (FAZ B2c-2a): `tags.encoded_at`
+   (migration 00022) — nullable, sunucu saatli, YAZ-BİR-KEZ (trigger her rolü
+   bağlar). `status` **`unassigned` KALIR** (kutudaki plaket hizmette değildir).
 ```
 
 🔴 **ADIM 8'İN AÇIK BİR ÖN KOŞULU VAR VE BU TURDA KAPATILAMAZ.** Anahtar 0'a
@@ -576,15 +592,21 @@ satırı **silmez**. Satır `status='unassigned'` ve `location_id IS NULL` ile d
 ve `internal/sun` akışı onu CLAUDE.md §5 satır 1'den reddeder. **Sessiz temizlik
 yoktur.**
 
-⚠️ **Ve burada bir cümle GELECEK ZAMANDA yazılmalıdır, çünkü yolu yok.** Bu ADR'nin
-ilk sürümü *"Turun kendisi `audit_log`'a düşer"* diyordu — şimdiki zaman, ve
-**bugün yanlış**. Ölçüldü: encode akışının kendisi yok; `audit_log.action`
-**serbest metindir** (00005, *"olay sözlüğü domain'de büyür"*), `db/queries/audit.sql`
-`RecordAuditEvent`'i taşıyor ama **hiçbir encode olayı yazmıyor**; olay adı, aktör
-ve **hangi tenant'a yazılacağı** hiçbir yerde kararlaştırılmadı. Doğru ifade:
-**turun kendisi `audit_log`'a DÜŞMELİDİR** ve bunu tanımlamak turun 2'sinin
-işidir (§6 md. 8). §4.6 uyumunun bugün ayakta duran yarısı **satırın
-silinmemesidir**; olay izi henüz bir yükümlülüktür, bir mekanizma değil.
+✅ **VE BU PARAGRAF GELECEK ZAMANDAN ÇIKTI (2026-08-24, FAZ B2c-2a).** ADR'nin ilk
+sürümü *"Turun kendisi `audit_log`'a düşer"* diyordu, bir sonraki sürüm bunu
+*"düşMELİdir"*e çevirdi çünkü ölçüm o gün böyleydi: encode akışı yoktu ve
+`RecordAuditEvent` **hiçbir encode olayı yazmıyordu**. Artık yazıyor —
+`plaque.loaded` (adım 3) ve `plaque.encoded` (adım 9), ikisi de **satırın kendi
+işleminin içinde**, `internal/encode/rows.go`. Olay adı, aktör, tenant ve **zaman**
+§6 md. 8'de karara bağlandı.
+
+⚠️ **NİTELEYİCİ, ÇÜNKÜ MEKANİZMA SEVK EDİLDİ AMA HİÇBİR YERDEN ÇAĞRILMIYOR:**
+`internal/encode` bugün **hiçbir paket tarafından import edilmiyor** (ölçüldü), yani
+üretimde bu iki olayı yazan bir yol henüz **yok**. Kapanan şey *"tanımlanmadı"*dır,
+*"koşuyor"* değil; koşması bir HTTP uç noktası ister (FAZ B2c-2b).
+
+§4.6 uyumunun ayakta duran yarısı yine **satırın silinmemesidir**, ve iz artık onun
+yanında duruyor: yarıda kalan bir tur **satırını da izini de** bırakır.
 
 ### 5.3 Yarım kalmış bir çip nasıl tanınır
 
@@ -788,20 +810,181 @@ bilmeyen bir `ChangeKey` **yapılamaz** (protokol gövdesi `Old ⊕ New` ister);
    ⚠️ *"Süreç ölünce bellek gider"* hâlâ yerine geçmez, ve `Close` bunu **bekleyerek**
    çözer (boştakileri hemen siler, uçuştakileri **expire eder**, `CloseGrace` kadar
    bekler); kalan tek artık **hiç dönmeyen bir sahiptir**.
-8. **Encode olayının `audit_log` izi tanımlanmadı.** §5.2'nin *"tur `audit_log`'a
-   düşer"* cümlesi **gelecek zamandır**: `action` serbest metindir (00005) ve
-   bugün hiçbir encode olayı yazılmıyor. Turun 2'si üç şeyi kararlaştırmalı:
-   **olay adı** (mevcut sözlükle tutarlı — `tag.retired` kalıbı), **aktör**
-   (`actor_id` kim? encode'u tetikleyen operatörün `admin_users.id`'si mi?), ve
-   **hangi tenant'a** yazıldığı.
+8. ✅ **KAPANDI (2026-08-24, FAZ B2c-2a).** Madde açıkken üç şeyin kararsız
+   olduğunu söylüyordu: **olay adı**, **aktör**, **hangi tenant**. Dördüncüsü
+   sorulmamıştı ve asıl belirleyici oydu — **ne zaman yazılır**. Dördü de karara
+   bağlandı; uygulama `internal/encode/rows.go`, sabitler
+   `internal/domain/tenant/plaque.go`.
+
+   - **AD — İKİ olay, ve maddenin verdiği kalıp YANLIŞTI.** Bu madde *"mevcut
+     sözlükle tutarlı — `tag.retired` kalıbı"* diyordu. **Ölçüldü:**
+     `grep -rn '"tag\.' internal/ db/` **sıfır** isabet — ağaçta `tag.*` diye bir
+     olay **yok**. Sevk edilmiş sözlük `plaque.mounted` · `plaque.retired` ·
+     `plaque.unmounted`. Yani ADR var olmayan bir kalıp adlandırdı; **ağacın
+     yazımı geçerlidir**: `plaque.loaded` (adım 3, satır) ve `plaque.encoded`
+     (adım 9, çip).
+   - 🔴 **NEDEN İKİ, ve tek olayın her iki yönü de ölçüldü.** §5.2 satırı çipe
+     dokunmadan **önce** yazdığı için ikisi **farklı olgudur**: *yalnız son olay*
+     → yarıda kalan turun izi **tümüyle boş** olur (`ListPlaqueHistory` sıfır
+     satır döner ve kart, Tappa'nın kendi yarattığı bir satır için *"bu plakete
+     hiçbir şey yapılmadı"* der) — §5.2'nin *"sessiz temizlik yoktur"* kuralı
+     tabloda tutulup izde düşürülmüş olur; *yalnız ilk olay* → tamamlanmış turla
+     terk edilmiş tur izde **aynı görünür**, ki bu tam olarak 00022'nin ayırmak
+     için var olduğu ayrımdır. ⚠️ **Bedeli sayıldı — ve ilk sayım eksikti
+     (denetim, 2026-08-24):** başarılı her encode **iki satır**, **ARTI her yeniden
+     denenen işaretleme için bir satır**. `MarkEncoded` **satırda** idempotenttir
+     (`coalesce`), **izde değil** — `audit_log` append-only olduğu için ikinci çağrı
+     ikinci, **doğru** bir satır yazar (paketin kendi testi bunu sürüyor). Saklama
+     işi **yok** (backlog T6/T13), yani dürüst sınır **çağrı başınadır**, encode
+     başına değil. ⚠️ Bu düzeltme `internal/encode/rows.go` ve
+     `db/queries/audit.sql`'de **aynı turda** yapılmıştı; **normatif kaynak olarak
+     gösterilen bu madde atlanmıştı** — örüntü 4.
+   - **AKTÖR — `actor_id` NULL, ve bu bir eksiklik değil ölçülmüş bir karar.**
+     `RecordAuditEvent`'in kendi kuralı: NULL *"when the actor is the SYSTEM"*, ve
+     *"bir çalışanın kendini aktive etmesi admin aktörü DEĞİLDİR"*. Encode
+     akışının aktörü `Begin`'e verilen, **hiçbir şeyin doğrulamadığı bir
+     dizedir**; `audit_log.actor_id` ise `admin_users`'a LEFT JOIN edilip ekranda
+     **bir isim** olarak basılır. Oraya doğrulanmamış bir değer koymak,
+     `ListPlaqueHistory`'nin `by_system` sütununun **önlemek için eklendiği**
+     yanlış-atıftır. ⚠️ **Bedeli açıkça yazılıyor:** kart bu iki satırı *"by the
+     system"* diye gösterecek, ki **doğru değil** — encode'u bir insan koşuyor.
+     Satırın dürüst okumasıdır, ve satır böyledir çünkü **md. 10'un kapısı
+     yoktur**. Etiketin kendisi `detail.claimed_by` altında saklanıyor: adı
+     *"actor"* **değil**, çünkü bir gün birinin onu `actor_id`'ye terfi ettirmesi
+     davet edilmemeli.
+   - **TENANT — `Begin`'e verilen tenant**, ve bu md. 4'ün *"açık parametre"*
+     şartıyla **aynı sorunun ikinci yüzüdür**: `Rows`'un iki metodu da
+     `tenantID`'yi **taşımak zorundadır**, satır ve iz **aynı** tenant'a düşer,
+     ve `audit_log`'un `WITH CHECK`'i uyuşmazlığı reddeder.
+   - 🔴 **NE ZAMAN — İZ, SATIRIN İŞLEMİNİN İÇİNDE.** `audit.RecordTx`'in kendi
+     kuralı: *"use it when the event is only true if the surrounding change is
+     true"*. Kendi işleminde yazılan bir iz, **geri alınmış** bir INSERT'ten sağ
+     çıkıp **var olmayan** bir plaketi anlatabilirdi. Bir iz satırı **kanıttır**;
+     olmamış bir şeyin kanıtı sessizlikten kötüdür. Adım 3'te bu bedavadır (çipe
+     henüz dokunulmamıştır, geri alma **hiçbir şeye mal olmaz**) — turun **tek**
+     böyle noktasıdır.
+   - **§4.7:** `detail`'in **hiçbir alanı tip düzeyinde anahtar tutamaz.**
+     `plaque.loaded` **iki** alan taşır — `claimed_by` (sınırlanmış operatör
+     etiketi) ve `key_bytes` (bir **tamsayı**; §4.7 uzunluğu açıkça *"değeri
+     göstermeden doğrulama"* olarak sayar); `plaque.encoded` **bir** alan taşır
+     (`claimed_by`), çünkü o adımda saklanan bir şey yoktur. ⚠️ *"İki alan"*
+     cümlesi bir tur boyunca **ikisi için birden** yazılıydı ve `encodedDetail` için
+     **yanlıştı** (denetim, 2026-08-24) — güvenlik sonucu değişmiyor, ama sayı
+     sayıysa doğru olmalı. Sarmalı zarf, düz anahtar, oturum anahtarı, oturum
+     handle'ı ve CMAC iki yapıdan da **ulaşılamaz**: o şekilde bir alan **yoktur**.
+     🔴 **Ve ADLARIN KENDİSİ ÇİVİLİ:** `claimed_by`'ın `actor` olmadığı
+     `TestDBRows_TheTrailDetailKeysAreTheDecidedONES` ile **jsonb anahtarları
+     üzerinden** doğrulanıyor — Go struct etiketini yeniden adlandırmak **iki
+     tarafı birden** değiştirdiği için bir Go testi bu kararı koruyamıyordu
+     (denetim mutasyonu N6).
 9. ✅ **KAPANDI (bu turda): `deploy/README.md` → *"Anahtar hijyeni"* md. 3.**
    *"Uygulama rolü onu **yazamaz** … Satırı `tappa_owner` yükler"* cümlesi
    §3.1'in ölçümüne göre **UPDATE için doğru, INSERT için yanlıştı**; madde
    *"DEĞİŞTİREMEZ"* olarak daraltıldı ve tarihli bir düzeltme bloğu eklendi.
-   **Açık kalan:** migration 00013'ün *"revisit"* uyarısının kendisi — encode
-   akışı sevk edildiğinde `aes_key_ref` için **sütun düzeyinde bir INSERT
-   kısıtı** gerekip gerekmediği bir sonraki tura kalıyor (bugün gerekli
-   **değil**: yaz-bir-kez davranışı UPDATE kısıtından zaten geliyor).
+   ⚠️ **AÇIK KALAN YARISI ÖLÇÜLDÜ (2026-08-24, FAZ B2c-2a) — VE BU MADDE BİR TUR
+   *"✅ KAPANDI"* DAMGASI TAŞIDI, YANLIŞ OLARAK. Damga kaldırıldı; aşağısı
+   ölçümün taşıdığı kadarıdır, bir kapanış değil.** Maddenin ilk hâli *"bugün
+   gerekli değil: yaz-bir-kez davranışı UPDATE kısıtından zaten geliyor"* diyordu
+   — doğru, ama **soruyu yanıtlamıyor**. Cevap canlı katalogla ölçüldü
+   (`BEGIN … ROLLBACK`, `SET LOCAL ROLE tappa_app`, sonda oturumu kapatıldı):
+
+   | Deneme | Sonuç |
+   |---|---|
+   | Kısıt **kurulabiliyor mu** | ✅ Evet — `REVOKE INSERT` + dokuz sütunluk `GRANT INSERT` sonrası `has_column_privilege(…, 'aes_key_ref', 'INSERT')` = `f` |
+   | **Sevk edilen** ifade (sütunu adlandırır) | ⛔ `ERROR: permission denied for table tags` |
+   | Aynı ifade sütunu **atlarsa** | ⛔ `ERROR: null value in column "aes_key_ref" … violates not-null constraint` |
+   | `REVOKE INSERT` (T16'nın ilk hâli) | ⛔ `ERROR: permission denied for table tags` |
+
+   🔴 **VE BU MADDE *"ÜÇÜNCÜ BİR INSERT ŞEKLİ YOK"* DİYORDU; DENETİM İKİ TANE
+   ÜRETTİ VE BEN İKİSİNİ DE BAĞIMSIZ OLARAK YENİDEN ÜRETTİM** — aynı grant
+   altında, `has_column_privilege = f` iken:
+
+   | Şekil | Sonuç |
+   |---|---|
+   | **C** — `BEFORE INSERT` trigger `NEW.aes_key_ref`'i doldurur | ✅ `INSERT 0 1`, satırda **44 bayt** |
+   | **D** — sütuna `DEFAULT` konur | ✅ `INSERT 0 1`, satırda **44 bayt** |
+   | **E** — `MERGE … WHEN NOT MATCHED THEN INSERT` | ⛔ `permission denied for table tags` |
+   | **F** — `COPY tags FROM STDIN` (sütun listesiz) | ⛔ `permission denied for table tags` |
+
+   **Mekanizma:** ayrıcalık, satırın *sonuçta taşıdığı* sütunlara değil, **ifadenin
+   ADLANDIRDIĞI** sütunlara bakılarak denetlenir. Yani öncül (`NOT NULL`,
+   DEFAULT'suz) bozulmadan geçilebiliyor.
+
+   **DOĞRU İFADE, NİTELEYİCİSİYLE BİRLİKTE:** sütun düzeyinde INSERT kısıtı
+   **§3.1'in dayattığı şekil altında** — yani sarmalı zarfı **ifadenin kendisinin
+   taşıdığı** bir `INSERT … VALUES` altında — akışı öldürür. C ve D o şekli terk
+   ederek geçer.
+
+   🔴 **VE C İLE D NEDEN KABUL EDİLEMEZ — ÖLÇÜM, TASARIM TERCİHİ DEĞİL.** İkisi de
+   zarfı **`set_config` üzerinden bir GUC'a** koymak zorundadır (trigger/DEFAULT
+   gövdesi parametre alamaz). `docker-compose.yml` Postgres'i **`log_statement=all`**
+   ile koşturuyor (ölçüldü: `SHOW log_statement` → `all`), ve bir GUC ataması **bir
+   ifadedir**. Sahte bir işaretçiyle ölçüldü:
+
+   ```
+   2026-08-24 07:57:33.684 UTC [1232506] LOG:  statement: BEGIN; SELECT
+     set_config('probe.ref', 'DEADBEEFNOTAKEY000000000000000000000…
+   ```
+
+   Yani C ve D, **her plaket yüklemesinde 88 haneli sarmalı zarfı sunucu log'una**
+   yazar — bu deponun **kontrol etmediği** bir dosyaya (00021 Part 2 aynı şeyi
+   `CHECK` DETAIL'i için yazıyor).
+
+   🔴 **AMA BU GEREKÇE, TEK BAŞINA, SEVK EDİLEN YOLU DA REDDEDER — VE İLK SÜRÜM BUNU
+   SÖYLEMİYORDU (güvenlik denetimi, 2026-08-24).** Ölçüldü, **bugün koşan gerçek
+   testten**: sevk edilen `INSERT … VALUES` de aynı log'a, aynı zarfı, **iki kez**
+   yazıyor (`bind` ve `execute`, T32'nin ölçtüğü çift yazım):
+
+   ```
+   LOG:  bind stmtcache_…: -- name: InsertUnassigned :one
+   DETAIL:  Parameters: $1 = 'BEC60352456B49', $2 = 'ea69c92c-…',
+            $3 = '\xc2bc7202170926fcf6e33a73aaff9f2f148…
+   ```
+
+   Bir bağlı parametre de bir `set_config` değeri kadar log'a düşer. **Dolayısıyla
+   C ve D'yi ayıran şey LOG DEĞİLDİR**; ayıran şey **ikinci niteleyicidir** (aşağıda):
+   `tappa_app` C ve D'yi **kuramaz**, yani onlar bizim **tasarım seçimlerimizdir** ve
+   seçmemek bedavadır — sevk edilen `INSERT` ise §5.1 adım 3'ün **zorunlu** yoludur.
+   *"Yok"* demekle *"kabul edilemez"* demek aynı cümle değildir, ve *"log'a düşüyor"*
+   ile *"yalnız bunlar log'a düşüyor"* de aynı cümle değildir.
+
+   ⚠️ **SINIFLANDIRMA: GELİŞTİRME-YALNIZ, ve kaydı EKSİKTİ.**
+   `log_statement=all` `docker-compose.yml`'dedir; `deploy/k8s/10-postgres.yaml`
+   `args: []` ile onu **bilerek koymuyor** ve gerekçesini yazıyor — ama o gerekçenin
+   saydığı sızacak sınıflar *"session token hashes, invite code hashes, source IPs,
+   GPS coordinates"*, ve **sarmalı plaket zarfı listede yok**. Aynı eksik
+   `docs/backlog.md` T4/T32'de ve ADR 0005'in T32 satırında da var (yalnız bcrypt
+   digest / `token_hash` / `code_hash`). `deploy/README.md` zarfı **biliyor** ama
+   yalnız **rotatekek runbook'u** için. **Bloklamıyor** — zarf KEK'siz işe yaramaz,
+   KEK log'a hiç girmiyor, üretim manifesti ayarı koymuyor — ama §4.7 *"`aes_key_ref`
+   … log'a asla yazılmaz"* diyor, ve **bu turun C/D'yi reddetme gerekçesi kabul
+   edilen tasarım için de aynen geçerlidir**. T32'ye bu sınıfın eklenmesi
+   orkestratörün işidir.
+   ⚠️ **İkinci niteleyici, ayrıca ölçüldü:** C ve D **saldırgan yolu değildir**.
+   `tappa_app` ikisini de kuramaz — `CREATE FUNCTION` → `permission denied for
+   schema public`, `ALTER TABLE … SET DEFAULT` → `must be owner of table tags`,
+   `CREATE TRIGGER` → `permission denied for table tags`. İkisi de bir
+   **migration'da `tappa_owner` tarafından** kurulur, yani bunlar bizim
+   yapabileceğimiz **tasarım seçimleridir**, bir enjeksiyonun ulaşabileceği şeyler
+   değil.
+
+   **Satın alınan şey de ölçüldü — sanılandan az:** 00021
+   `tags_aes_key_ref_is_kek_envelope` (`octet_length = 44`) eklendi, yani T16'nın
+   örnek zararı (`'\xdead'` zarfı) **artık şemaca reddediliyor, her rol için**.
+   🔴 **Sayılan ve kapatılmayan artık:** `tappa_app` `tags` üzerinde **tablo geneli
+   INSERT** tutuyor (ölçüldü: `relacl` `tappa_app=ar`, ve **hiçbir sütunda INSERT
+   grant'ı yok** — `attacl`'ler yalnız `w`/`r` taşıyor), yani bir enjeksiyon ya da
+   yanlış yazılmış bir sorgu **kendi tenant'ında** *"unassigned"* bir satır
+   üretebilir (44 baytlık ama sahte bir zarfla; öyle bir plakete tap **500** verir),
+   ve **artık uydurma bir `encoded_at` de** (bkz. aşağıdaki not).
+   **Bilinen azaltmalar, ve hiçbiri bu turda yapılmadı:** `SECURITY DEFINER` bir
+   yükleyici fonksiyon (00004'ün `resolve_tag_by_uid` kalıbı) — bedeli ölçüldü:
+   **14 test dosyası** `tags`'e doğrudan `tappa_app` olarak INSERT ediyor
+   (2026-08-24 sayımı; 00013 *"yedi"* diyordu, ve **14'üncüsü bu değişiklik setinin
+   kendi testidir**), artı RLS'i bypass etmeyecek bir sahip rolü, yani `db-init`
+   işi. **Liste kapalı değildir** — yukarıdaki C/D ölçümü tam olarak kapalı bir
+   listenin nasıl yanlış çıktığını gösteriyor. Backlog **T16** bu ölçümlerle
+   birlikte **açık kalır**.
 10. **Encode uç noktasının YETKİLENDİRME kapısı yok.** *"Kim, hangi tenant için
     plaket encode edebilir"* hiçbir yerde yazılı değil; §3.1'in ölçümüne göre
     satır **`app.tenant_id`'yi kim kurduysa** oraya düşer. Bu, tenant izolasyonunu

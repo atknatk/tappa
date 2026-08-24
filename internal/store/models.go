@@ -186,6 +186,8 @@ type Tag struct {
 	RetiredAt  *time.Time
 	ReplacedBy *string
 	CreatedAt  time.Time
+	// When this chip completed its personalisation round (ADR 0017 §5.1 step 9). NULL = the inventory row exists but the chip was never confirmed personalised. 🔴 This REFUTES migration 00013 Part 3's "encoded = the row exists": ADR 0017 §5.2 writes the row BEFORE the chip's first irreversible command, so the row now means "we intended to encode this". A row is BORN UNSTAMPED (tags_encoded_at_not_settable_at_insert) and a stamp never changes (tags_encoded_at_write_once); the shipped statement uses the server clock. What the schema does NOT enforce: that the value is now() rather than any other timestamp -- a trigger cannot see intent, only the two rules above.
+	EncodedAt *time.Time
 }
 
 type Tenant struct {

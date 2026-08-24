@@ -9,15 +9,31 @@
 //
 // WHAT THIS PACKAGE IS NOT, TODAY:
 //
-//   - There is NO HTTP here, no database, no sqlc, no migration. Persistence and
-//     the clock arrive through the three interfaces below, which are declared HERE
-//     because this package is their CONSUMER (CLAUDE.md §7). The real
-//     implementations are the next round's (M8-05 FAZ B2c-2).
+//   - There is NO HTTP here. The three ports below are still declared HERE because
+//     this package is their CONSUMER (CLAUDE.md §7), but two of them now have
+//     shipped implementations in this same package — rows.go (Postgres + the audit
+//     trail) and wrapper.go (sun.Wrap under the tag KEK) — and the third, Clock,
+//     has had one since B2c-1 (systemClock, below).
+//
+//     ⚠️ NOTHING IMPORTS THIS PACKAGE YET, and the command that says so had to be
+//     replaced because the first one did not work in this repository's shell
+//     (audit, 2026-08-24). It was `grep -rl "internal/encode" --include=*.go . |
+//     grep -v "^./internal/encode/"`. Two faults, and either alone is fatal to a
+//     published measurement: under zsh the unquoted --include=*.go is GLOBBED and
+//     the command dies with "no matches found", and where it does run, grep -rl
+//     does not print a "./" prefix, so the filter removes nothing — not even this
+//     package's own files. The command that reproduces the claim:
+//
+//     grep -rn "atknatk/tappa/internal/encode" --include='*.go' . | grep -v "internal/encode/"
+//
+//     which returns ZERO on this tree. So the endpoint that would drive any of
+//     this is still M8-05 FAZ B2c-2b's.
+//
 //   - There is no authorisation gate. ADR 0017 §6 md. 10 ("who may encode for
 //     which tenant") is NOT closed by this round; the actor string below bounds
-//     EXPOSURE, it does not grant anything.
-//   - There is no audit_log event. ADR 0017 §6 md. 8 needs three decisions this
-//     round does not make (event name, actor, tenant), so it makes none of them.
+//     EXPOSURE, it does not grant anything, and the tenant is whatever the caller
+//     names at Begin.
+//
 //   - NO CHIP HAS BEEN ENCODED (ADR 0017 §6 md. 1). Everything below is measured
 //     against documents and a test double, and the test double is written in this
 //     repository by the same hand as the code — chip_test.go says in its own
@@ -34,6 +50,7 @@ import (
 	"time"
 
 	"github.com/atknatk/tappa/internal/sun"
+	"github.com/google/uuid"
 )
 
 // --- Ports: the outside world, declared by its consumer ------------------------
@@ -75,6 +92,11 @@ func (systemClock) NewTicker(d time.Duration) (<-chan time.Time, func()) {
 // keeps this package honest about what leaves it: the ONLY key-shaped value that
 // crosses this interface in either direction is the 44-byte wrapped blob going
 // out to Rows (ADR 0017 §3, "kalıcılaşan tek anahtar-benzeri şey sarmalıdır").
+//
+// ✅ THE PRODUCTION IMPLEMENTATION IS KEKWrapper (wrapper.go), shipped in FAZ
+// B2c-2a. It is a two-line adapter over sun.Wrap, which is the point: the
+// cryptography stays in internal/sun (CLAUDE.md §4.7) and this package only names
+// what it needs.
 type Wrapper interface {
 	// WrapKey seals plainKey against the RAW 7-byte uid as AAD and returns the
 	// 44 bytes tags.aes_key_ref holds. It must not retain plainKey.
@@ -84,6 +106,30 @@ type Wrapper interface {
 // Rows is the persistence port — ADR 0017 §5.2 (the row is written before the
 // chip's first irreversible command) and §3.1 (it is written by tappa_app, so
 // this is an ordinary application-role INSERT).
+//
+// ✅ THE PRODUCTION IMPLEMENTATION IS DBRows (rows.go), shipped in FAZ B2c-2a.
+//
+// 🔴 tenantID IS AN EXPLICIT PARAMETER ON BOTH METHODS, AND THAT IS THE ROUND'S
+// BLOCKING CONDITION MADE STRUCTURAL (the M8-05 card's hand-over list, item 4).
+// The alternative — leaving the tenant implicit in whatever the connection's
+// SET LOCAL app.tenant_id happens to say — was refused for a measured reason and
+// not a stylistic one: tags.tenant_id is `uuid NOT NULL REFERENCES tenants (id)`
+// with NO DEFAULT (migration 00004), so a statement that names no tenant does not
+// "land in the session's tenant", it FAILS with a not-null violation. CLAUDE.md
+// §4.5 asks for a BELT (an explicit tenant predicate) beside RLS's BRACES (the
+// policy's WITH CHECK), and an interface that does not carry the tenant leaves the
+// belt entirely to the implementer's memory. Carried here, omitting it is a
+// COMPILE ERROR.
+//
+// ⚠️ WHAT THAT DOES NOT BUY, said in the same breath as the claim: it forces the
+// caller to name A tenant, never the RIGHT one. Nothing in this package decides
+// which tenant an operator may encode for — ADR 0017 §6 md. 10's authorisation
+// gate is still open and belongs with the endpoint (FAZ B2c-2b). What refuses a
+// WRONG tenant today is the database: the tags policy carries WITH CHECK as well
+// as USING (00004) and tappa_app is NOBYPASSRLS, so a row stamped with a tenant
+// other than the transaction's is refused. Against a caller who names a tenant
+// that is genuinely not theirs, both of those are silent — that is md. 10, and it
+// is open.
 type Rows interface {
 	// InsertUnassigned writes the tags row: uidHex canonical upper-case hex
 	// (migration 00013's CHECK), the wrapped key, status 'unassigned', no
@@ -91,42 +137,48 @@ type Rows interface {
 	// tags.uid is a PRIMARY KEY and a second row for one chip is not a state this
 	// flow can produce (ADR 0017 §6 md. 12).
 	//
-	// 🔴 MEASURED, AND THE SIGNATURE DOES NOT CARRY IT: tags.tenant_id is
-	// `tenant_id uuid NOT NULL REFERENCES tenants (id)` with NO DEFAULT (migration
-	// 00004). So an implementation of this method MUST supply a tenant, and an INSERT
-	// that names no tenant column does not "land" anywhere — it FAILS, with a
-	// not-null violation. CLAUDE.md §4.5 asks for belt as well as braces (an explicit
-	// tenant predicate beside RLS's WITH CHECK); as this port is shaped, the belt is
-	// entirely the implementation's to remember, because the interface does not force
-	// it.
+	// 🔴 IT ALSO OWES A TRAIL ENTRY, AND IT MUST SHARE THE ROW'S FATE. ADR 0017
+	// §5.2 says the round itself belongs in audit_log and §6 md. 8 left the event
+	// undefined; FAZ B2c-2a defines it as ActionPlaqueLoaded, written in the SAME
+	// transaction as the INSERT. The reason is audit.RecordTx's own documented
+	// rule — "use it when the event is only true if the surrounding change is
+	// true". An entry written in its own transaction could survive a failed
+	// INSERT and would describe a plaque that does not exist.
 	//
-	// ⚠️ WHAT IS NOT DECIDED HERE: the port's SHAPE. Whether tenant_id becomes an
-	// explicit parameter — so a caller cannot forget it — or stays implicit in the
-	// connection's SET LOCAL app.tenant_id is B2c-2's call, together with ADR 0017 §6
-	// md. 10's authorisation gate, because "who may encode for which tenant" and
-	// "which tenant does this row go to" are one question asked twice.
+	// actor is the operator label from Begin. ⚠️ IT IS NOT AN IDENTITY (see Begin),
+	// so an implementation must NOT put it in audit_log.actor_id, which is read on
+	// the panel as "who did this".
 	//
-	// ⚠️ AND THE HONEST HISTORY, because it is the more useful record: a security
-	// audit raised this, the round REPORTED it closed, and it was not — the batched
-	// edit that was supposed to write this paragraph aborted before writing. A fourth
-	// audit caught it with one command (`grep -c tenant_id internal/encode/session.go`
-	// returned 1, and that one hit was about md. 10). That is why a closure claim in
-	// this package now has to carry the command that proves it.
-	InsertUnassigned(ctx context.Context, uidHex string, wrappedKey []byte) error
+	// ⚠️ AND THE HONEST HISTORY OF THIS PARAGRAPH, because it is the more useful
+	// record: a security audit raised the missing tenant, the round REPORTED it
+	// closed, and it was not — the batched edit that was supposed to write it
+	// aborted before writing. A fourth audit caught it with one command
+	// (`grep -c tenant_id internal/encode/session.go` returned 1, and that one hit
+	// was about md. 10). That is why a closure claim in this package has to carry
+	// the command that proves it, and why the closure this time is a SIGNATURE
+	// rather than a sentence: a signature cannot be reported closed while absent.
+	InsertUnassigned(ctx context.Context, tenantID uuid.UUID, uidHex string, wrappedKey []byte, actor string) error
 
 	// MarkEncoded records that the chip completed the round — ADR 0017 §5.1
 	// step 9, "satırı 'encode edildi' olarak işaretle".
 	//
-	// ⚠️ MEASURED, AND IT IS AN OPEN SCHEMA QUESTION RATHER THAN A CALL WAITING FOR
-	// A BODY: `tags` HAS NO SUCH COLUMN TODAY. Migration 00004 creates the table
-	// and 00013 widens tags_status_check to ('active','retired','lost',
-	// 'unassigned') — and 'unassigned' is exactly what an encoded-but-not-mounted
-	// plaque must stay (the M8-05 card's second trap: writing 'active' would show a
-	// boxed plaque as in service). So there is no value to move and no column to
-	// set. This method is the CONSUMER stating a requirement; FAZ B2c-2 decides how
-	// to satisfy it — a new column, the audit_log event ADR 0017 §6 md. 8 still
-	// owes, or an explicit decision that the round leaves no mark at all.
-	MarkEncoded(ctx context.Context, uidHex string) error
+	// ✅ THE SCHEMA QUESTION THIS COMMENT USED TO STATE IS CLOSED (FAZ B2c-2a).
+	// It said `tags` HAS NO SUCH COLUMN, which was true against 00004 + 00013:
+	// there was no value to move, because status must STAY 'unassigned' (writing
+	// 'active' would show a boxed plaque as in service, and would additionally
+	// violate 00013's tags_active_requires_location). Migration 00022 adds
+	// `encoded_at timestamptz`, nullable and write-once, and the mark is that
+	// column. The distinction it buys is the one §5.2 creates by writing the row
+	// BEFORE the chip's first irreversible command: "the row exists" now means
+	// "we intended to encode this", so without a second mark a half-finished round
+	// and a completed one are the same row.
+	//
+	// It must be IDEMPOTENT. Step 9 runs after finishLocked has already wiped the
+	// keys, it runs even on a cancelled context (see Step), and Progress.Done tells
+	// the caller not to re-run — so the one repeat this flow can produce is a
+	// retried marker, and a retry must not look like a failure or move the
+	// timestamp.
+	MarkEncoded(ctx context.Context, tenantID uuid.UUID, uidHex string, actor string) error
 }
 
 // --- The key inventory: ONE place, ADR 0017 §6 md. 7 item 5 --------------------
@@ -556,6 +608,21 @@ const (
 	// material, which is the only failure mode of an in-memory session table that
 	// costs more than a retry.
 	DefaultMaxLive = 64
+
+	// MaxActorLen bounds the operator label Begin accepts.
+	//
+	// It is a BYTE length rather than a rune count, deliberately and unlike
+	// tenant.MaxVenueNameRunes: this is not a human-facing name that Maltese
+	// diacritics would unfairly shorten (00013 Part 3b's reasoning), it is a
+	// machine-ish handle whose only jobs are to key a counter and to sit in an
+	// append-only jsonb field. What must be bounded is what lands in the column,
+	// and that is bytes.
+	//
+	// 200 is chosen against what the label actually is — an operator or device
+	// handle, tens of bytes — with room for a uuid, an email and a separator
+	// (~90) and again as much slack. It is not derived from a measurement because
+	// there is nothing to measure yet: no endpoint supplies it (FAZ B2c-2b).
+	MaxActorLen = 200
 )
 
 // --- Errors --------------------------------------------------------------------
@@ -702,8 +769,17 @@ func newID() (ID, error) {
 // internal/sun/ev2.go is NOT modified by this round. It did not need to be: the
 // missing state was never EV2Auth's to hold.
 type Session struct {
-	id       ID
-	actor    string
+	id    ID
+	actor string
+	// tenantID is the business this round's row and trail entries belong to. It is
+	// NOT key material and is registered as such in sessionFields.
+	//
+	// ⚠️ IT IS THE CALLER'S CLAIM, NOT A VERIFIED FACT. Begin takes it, nothing
+	// here checks that the caller may encode for it, and ADR 0017 §6 md. 10 is the
+	// open item that would. What it buys today is that the value the ports receive
+	// is the value the round was opened with, rather than whatever a pooled
+	// connection last happened to be set to.
+	tenantID uuid.UUID
 	deadline time.Time
 
 	// busy is held by the one goroutine currently running a step. Guarded by the
@@ -1423,25 +1499,47 @@ func (st *Store) finishLocked(s *Session, done bool, stepErr error, ctxErr error
 // Begin opens a round and returns its handle and the first C-APDU — ADR 0017 §5.1
 // step 1, the ISO SELECT.
 //
-// actor identifies whoever is driving; it bounds how many sessions one operator
-// may hold. ⚠️ IT IS NOT AN AUTHORISATION DECISION. ADR 0017 §6 md. 10 ("who may
-// encode for which tenant") is still open and this round does not close it: a
-// caller supplies whatever string it likes, and nothing here decides which tenant
-// the row belongs to. What this bounds is exposure, nothing else.
+// tenantID is the business the plaque is being loaded for. It is REQUIRED and it
+// is carried, unchanged, to both Rows methods — see Rows for why the port takes it
+// explicitly rather than inheriting it from a connection setting.
 //
-// ⚠️ AND THE SENTENCE THAT USED TO END THIS PARAGRAPH WAS SCHEMA-WRONG — "the row
+// actor identifies whoever is driving; it bounds how many sessions one operator
+// may hold. ⚠️ NEITHER ARGUMENT IS AN AUTHORISATION DECISION. ADR 0017 §6 md. 10
+// ("who may encode for which tenant") is still open and this round does not close
+// it: a caller supplies whatever string and whatever tenant id it likes. What
+// actor bounds is exposure; what tenantID buys is that the value is NAMED rather
+// than inherited.
+//
+// ⚠️ AND A SENTENCE THAT USED TO END THIS PARAGRAPH WAS SCHEMA-WRONG — "the row
 // lands in whatever tenant app.tenant_id names". Measured against migration 00004
 // and the live schema: tags.tenant_id is NOT NULL with no DEFAULT, so a row does not
-// "land" in a tenant by omission; an INSERT that supplies none FAILS. Where the
-// tenant comes from is stated at Rows.InsertUnassigned and is B2c-2's decision.
-func (st *Store) Begin(ctx context.Context, actor string) (ID, Progress, error) {
+// "land" in a tenant by omission; an INSERT that supplies none FAILS. That is the
+// measurement this signature is built on.
+func (st *Store) Begin(ctx context.Context, tenantID uuid.UUID, actor string) (ID, Progress, error) {
 	if err := ctx.Err(); err != nil {
 		return "", Progress{}, fmt.Errorf("encode: %w", err)
+	}
+	if tenantID == uuid.Nil {
+		// The nil UUID is a valid uuid literal, so passing it would scope the row to
+		// a tenant that does not exist and fail at the FK — deep inside the round,
+		// after the chip has been selected and read. db.WithTenant refuses it for the
+		// same reason; refusing it HERE means the round never opens.
+		return "", Progress{}, errors.New("encode: an encode round needs a tenant")
 	}
 	if actor == "" {
 		// An empty actor would share one counter with every other empty actor, which
 		// is a limit that limits nothing.
 		return "", Progress{}, errors.New("encode: an encode round needs an actor")
+	}
+	if len(actor) > MaxActorLen {
+		// 🔴 BOUNDED BECAUSE IT IS PERSISTED NOW, WHICH IT WAS NOT IN B2c-1. The
+		// label is copied into audit_log.detail (see rows.go), and audit_log is
+		// append-only for every role including tappa_owner (00005's trigger) — so an
+		// unbounded caller-supplied string would be an unbounded, unremovable write.
+		// CLAUDE.md §7 puts input validation at the boundary; this is the boundary.
+		// Refusing is preferred to truncating: a truncated label is a value nobody
+		// supplied.
+		return "", Progress{}, fmt.Errorf("encode: the actor label is %d bytes, at most %d are accepted", len(actor), MaxActorLen)
 	}
 
 	id, err := newID()
@@ -1470,6 +1568,7 @@ func (st *Store) Begin(ctx context.Context, actor string) (ID, Progress, error) 
 	s := &Session{
 		id:       id,
 		actor:    actor,
+		tenantID: tenantID,
 		deadline: now.Add(st.ttl),
 		ring:     newKeyring(),
 	}
@@ -1612,7 +1711,7 @@ func (st *Store) Step(ctx context.Context, id ID, rapdu []byte) (Progress, error
 // mark the row. The marker is bookkeeping; the keys are not, so the keys go first
 // even though it means the marker runs with no session left to hold.
 func (st *Store) markEncoded(ctx context.Context, s *Session, p Progress) (Progress, error) {
-	if err := st.rows.MarkEncoded(ctx, s.uidHex); err != nil {
+	if err := st.rows.MarkEncoded(ctx, s.tenantID, s.uidHex, s.actor); err != nil {
 		// Done stays TRUE. See Progress.Done: the chip is personalised and the round
 		// must not be re-run.
 		return p, fmt.Errorf("encode: the chip completed but the row for %s could not be marked; do NOT re-run this round: %w", s.uidHex, err)

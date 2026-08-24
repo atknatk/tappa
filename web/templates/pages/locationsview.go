@@ -23,9 +23,13 @@ import "github.com/atknatk/tappa/web/templates/components"
 // anywhere beneath them — including beneath THIS type, which is walked for shape.
 //
 // ⚠️ IT IS A SHAPE CLAIM, NOT AN ABSOLUTE ONE. A key HEX-ENCODED into a permitted
-// string would pass both walks; what makes that unreachable is that none of the five
-// shipped tag queries selects aes_key_ref at all, asserted against
-// db/queries/tags.sql itself. An earlier version of this paragraph said "NO FIELD
+// string would pass both walks; what makes that unreachable is that no shipped tag
+// query RETURNS aes_key_ref -- asserted in two places, against db/queries/tags.sql
+// and against the generated internal/store types (cmd/tappa/storekeyshape_test.go).
+// ⚠️ THIS LINE SAID "the FIVE shipped tag queries" UNTIL 2026-08-24 AND THERE ARE
+// TEN (grep -c '^-- name:' db/queries/tags.sql). A count in prose over a file this
+// package does not own is the defect this repository keeps paying for; the number is
+// gone rather than raised. An earlier version of this paragraph said "NO FIELD
 // ANYWHERE ... COULD TRAVEL IN", which an audit disproved in three shapes.
 //
 // The card's "encoded/pending" criterion is answered by a WORD derived from whether

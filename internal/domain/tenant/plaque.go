@@ -6,12 +6,27 @@ package tenant
 //
 // 🔴 THE PANEL NEVER CREATES A PLAQUE, AND THAT IS THE PRODUCT DECISION THIS FILE
 // IS BUILT AROUND (user decision, 2026-08-08: the inventory model). Creating a
-// plaque means holding its AES-128 key; the key is produced by the M8-05 runbook,
-// wrapped under the KEK and LOADED into the database by an operator as
-// tappa_owner. So this file's whole vocabulary is: LIST, READ, BIND, UN-BIND and
-// RETIRE -- never CREATE and never DELETE, which are the two the key and the
-// evidence forbid.
-// db/queries/tags.sql ships no INSERT over `tags` for the same reason.
+// plaque means holding its AES-128 key; the key is produced by the M8-05 runbook
+// and wrapped under the KEK before the row is loaded. So this file's whole
+// vocabulary is: LIST, READ, BIND, UN-BIND and RETIRE -- never CREATE and never
+// DELETE, which are the two the key and the evidence forbid.
+//
+// ⚠️ TWO SENTENCES OF THIS PARAGRAPH WERE CORRECTED ON 2026-08-24 (M8-05 FAZ
+// B2c-2a) AND THE DECISION ABOVE IS UNCHANGED. They said the row is "LOADED into
+// the database by an operator as tappa_owner", and that "db/queries/tags.sql ships
+// no INSERT over `tags` for the same reason". Both are now false, and they were the
+// two carrying the AUTHORITY MODEL rather than the product rule:
+//
+//   - WHO LOADS. ADR 0017 §3.1 closed the role question by measurement: the encode
+//     flow is an HTTP endpoint, and internal/db/pool.go refuses an
+//     owner/superuser/BYPASSRLS DSN in production, so the loader connects as
+//     tappa_app like everything else. There is no tappa_owner loader to point at.
+//   - WHETHER THERE IS AN INSERT. There is one, InsertUnassigned, added in the same
+//     round. What stays true -- and is the only thing this paragraph was ever
+//     about -- is that no statement THE PANEL reaches can create a plaque.
+//
+// The rule that survives, stated where it belongs: this package holds no INSERT
+// over `tags`, and the loader is not in it.
 //
 // 🔴 SECTION 4.7 IS ENFORCED BY THE TYPE, AND THE CLAIM IS EXACTLY AS WIDE AS THE
 // TEST UNDER IT. An earlier version of this paragraph said a key "has nowhere to
@@ -29,14 +44,44 @@ package tenant
 //	          array (however long), a map, an interface, a channel or a []byte is
 //	          refused on shape alone. uuid.UUID is permitted by IDENTITY -- it is
 //	          itself a [16]byte -- which is what keeps [44]byte refused.
-//	COVERED   the SQL: no query in db/queries/tags.sql selects aes_key_ref, asserted
-//	          against the FILE rather than from memory -- and the assertion scans
-//	          every statement in it, so it does not depend on anybody counting them.
+//	COVERED   the SQL, PARTIALLY, and the qualifier is the point (rewritten
+//	          2026-08-24; the previous three lines described a design that no longer
+//	          exists). TestPlaquesDB_NoShippedTagQuerySelectsTheKey reads
+//	          db/queries/tags.sql and PERMITS exactly two lines -- InsertUnassigned's
+//	          column list and its VALUES list, because ADR 0017 §5.1 step 3 must name
+//	          the column to write it -- plus a rule that refuses any wildcard. It
+//	          DOES depend on counting: an allow-list of two, an EXACT count of ten
+//	          named statements, and a ratchet on the list's own size. And it is NOT
+//	          complete -- five audit rounds produced twenty SQL spellings that return
+//	          the column. ⚠️ THE NUMBER OF SURVIVORS IS DELIBERATELY NOT GIVEN HERE:
+//	          an earlier version said "seven of which it still misses" and a fifth
+//	          audit measured TWO, because the tree had moved under the sentence. What
+//	          is stable is the SHAPE of the gap, not its size: alias, inner
+//	          whitespace, schema qualification and line splitting all defeat it.
+//	COVERED   the GENERATED ARTIFACT (cmd/tappa/storekeyshape_test.go), in two gates:
+//	          storeSurface pins all 112 *Queries SIGNATURES verbatim, with parameter
+//	          and result structs expanded to their fields, so any RETURNING edit, any
+//	          new query and any sqlc override is red; and a second derives its subject
+//	          -- all 107 query methods with a value result, across all nineteen
+//	          generated files -- and refuses a []byte result, bare or as a field,
+//	          outside five measured policy-document carriers.
+//	          ⚠️ AND THE LOAD-BEARING HALF IS NEITHER: it is the PRIVILEGE (migration
+//	          00022). A leak can change no shape at all -- `to_jsonb(g)::text AS
+//	          status` is byte-identical in Go -- and only the privilege sees that.
+//	          ⚠️ THIS ENTRY DESCRIBED A DELETED GATE UNTIL 2026-08-24, and the text was
+//	          added by the same change set that deleted it: it said one gate "pins the
+//	          exact FIELD SETS of the ten NAMED tags row types", which storeSurface
+//	          subsumed and which was removed as redundant. `grep -rn tagsRowShapes`
+//	          returns no declaration. An inventory that describes a tree which no
+//	          longer exists stops being read -- the neighbouring file says so itself.
 //	NOT COVERED  the RENDER types. A domain package cannot import web/templates, so
 //	          the twin walk lives in internal/handler
 //	          (TestPlaqueViewModels_CannotCarryAKey). Two tests, named in both files.
-//	NOT COVERED  internal/sun, which legitimately reads the key through
-//	          resolve_tag_by_uid (00004) to verify a CMAC.
+//	NOT COVERED  the TWO packages that legitimately read the key through
+//	          resolve_tag_by_uid (00004) to verify a CMAC -- internal/sun AND
+//	          internal/domain/checkin, both via db.GetTagByUID, whose ResolvedTag
+//	          carries AESKeyRef []byte. ⚠️ This entry said "internal/sun" alone until
+//	          2026-08-24; measured, checkin.go:604 calls it too.
 //	NOT COVERED  a caller reaching store.Queries directly. Nothing in the panel does.
 //	NOT COVERED  a key ENCODED INTO A PERMITTED FIELD -- hex in a string, base64 in
 //	          a name. No type system refuses that. What makes it unreachable is that
@@ -155,6 +200,32 @@ const (
 	// ListPlaqueHistory picks it up with NO change, which is why its filter is the
 	// PREFIX `plaque.%` rather than a hand-listed pair.
 	ActionPlaqueUnmounted = "plaque.unmounted"
+
+	// ActionPlaqueLoaded and ActionPlaqueEncoded are the ENCODE side of the same
+	// vocabulary — ADR 0017 §5.1 steps 3 and 9, added in M8-05 FAZ B2c-2a. THIS
+	// PACKAGE DOES NOT WRITE THEM; internal/encode does.
+	//
+	// 🔴 THEY ARE DECLARED HERE ANYWAY, AND THAT IS THE POINT RATHER THAN AN
+	// ACCIDENT OF TIDINESS. internal/handler's plaqueActionsFromSource derives the
+	// screen's word list from THIS PACKAGE with go/ast, and its counted-limit table
+	// names exactly one shape it cannot see: "an action written from ANOTHER
+	// package — NO … Nothing else writes `plaque.*` (grepped), and doing so would be
+	// a visible edit in a new package." FAZ B2c-2a is that edit. Declaring the two
+	// constants where the scan already looks CLOSES that limit instead of realising
+	// it: adding a fifth action without a manager's word is RED, wherever the
+	// package that writes it lives.
+	//
+	// MEASURED, which is why it was not left alone: plaqueTrailView falls back to the
+	// RAW action string for an unmapped value, so the panel's plaque card would have
+	// printed "plaque.loaded 24 Aug 2026 · by the system" at a manager — the exact
+	// defect plaqueActionWords' own comment says four review rounds closed for
+	// plaque.unmounted.
+	//
+	// ⚠️ THE DIRECTION OF THE DEPENDENCY IS internal/encode -> HERE, never the
+	// reverse; these are string constants and nothing else, so the coupling is
+	// compile-time and one-way.
+	ActionPlaqueLoaded  = "plaque.loaded"
+	ActionPlaqueEncoded = "plaque.encoded"
 )
 
 // The plaque lifecycle vocabulary, read from the same CHECK constraint the policy
@@ -558,11 +629,20 @@ type PlaqueEvent struct {
 	ActorName string
 	// BySystem says the trail row carried NO actor at all.
 	//
-	// Today no plaque.* row can have one — requireActor refuses a command with no
-	// actor, so the arm is unreachable from the product and is driven only in tests.
-	// It is carried rather than assumed away because audit_log is shared and
-	// append-only: a future writer (a retention job, a runbook) will produce one, and
-	// this reader must not misattribute it on the day it does.
+	// ⚠️ THE SENTENCE THAT USED TO BE HERE EXPIRED IN M8-05 FAZ B2c-2a. It said
+	// "Today no plaque.* row can have one — requireActor refuses a command with no
+	// actor, so the arm is unreachable from the product and is driven only in
+	// tests." That is still true of the three acts THIS package writes, and it is
+	// no longer true of the trail: internal/encode writes plaque.loaded and
+	// plaque.encoded with actor_id NULL, deliberately, because the encode flow's
+	// actor is a caller-supplied string that nothing authenticated and
+	// audit_log.actor_id is joined to admin_users to render a NAME (ADR 0017 §6
+	// md. 10 is the gate that would change it).
+	//
+	// So this arm is REACHABLE FROM THE PRODUCT as of that round, which is exactly
+	// why it was carried rather than assumed away: audit_log is shared and
+	// append-only, and this reader must not misattribute a row on the day one
+	// arrives.
 	BySystem bool
 }
 
@@ -575,7 +655,27 @@ type PlaqueEvent struct {
 // 19 MB relation: 1 064 buffers, 4.2 ms,
 // zero rows returned. Linear in the business's age, not in the plaque's history. The
 // index that would fix it is a MIGRATION and this phase's slot is spent; it is in the
-// backlog. 20 is far above any real chain and small enough that the card stays a card.
+// backlog.
+//
+// 🔴 THE JUSTIFICATION THAT USED TO END THIS COMMENT IS RETRACTED, AND THE
+// RETRACTION WAS ALREADY WRITTEN IN THE OTHER FILE (2026-08-24). It said "20 is far
+// above any real chain and small enough that the card stays a card" -- and
+// db/queries/audit.sql now says, about this exact sentence, that a chain is
+// UNBOUNDED in principle: M8-05 FAZ B2c-2a took the plaque vocabulary from three
+// acts to five, and plaque.encoded is not capped at one, because MarkEncoded is
+// idempotent on the ROW and audit_log is append-only, so a retried marking appends
+// another true entry. The retraction landed in audit.sql and this file was not
+// touched, which left two shipped files contradicting each other with the WRONG half
+// in front of the reader who gets here first.
+//
+// WHAT THE LIMIT IS FOR, now that "far above any real chain" is gone: it bounds what
+// crosses the wire and what a template renders. That job never depended on a ceiling
+// -- it is the half a row cap can actually give, which is what the query's own header
+// says about @row_limit. NO NEW NUMBER IS PUT HERE; a ceiling is exactly what went
+// stale.
+//
+// ⚠️ NOT REACHABLE TODAY: a second round against one chip dies at the duplicate uid,
+// and the endpoint that could retry a marking is FAZ B2c-2b's.
 const plaqueHistoryLimit = 20
 
 // History reads WHO did WHAT to this plaque, most recent first.

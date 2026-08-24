@@ -127,10 +127,18 @@ type ListPlaqueHistoryRow struct {
 // matters least when something has gone wrong at a door.
 //
 // 🔴 THE ACTION FILTER IS A PREFIX AND THAT IS DELIBERATE. `plaque.%` covers
-// plaque.mounted and plaque.retired today and covers whatever the next plaque act is
-// called on the day it is added -- the same reason venue.go's header gives for
-// `action LIKE 'location.%'`. A hand-listed pair would silently stop describing the
-// product the moment a third act shipped.
+// whatever the next plaque act is called on the day it is added -- the same reason
+// venue.go's header gives for `action LIKE 'location.%'`. A hand-listed pair would
+// silently stop describing the product the moment a third act shipped.
+//
+// ⚠️ AND THIS LINE USED TO NAME THE SET ("covers plaque.mounted and plaque.retired
+// today"), WHICH IS THE DEFECT ITS OWN NEXT SENTENCE WARNS ABOUT, IN PROSE INSTEAD
+// OF IN SQL. It went stale twice: plaque.unmounted shipped in the same change set
+// that wrote it, and M8-05 FAZ B2c-2a added plaque.loaded and plaque.encoded
+// (internal/encode, ADR 0017 §5.1 steps 3 and 9). The number is deliberately not
+// restated here. Where the set IS counted is internal/handler's
+// TestPlaqueTrail_NamesEveryActionTheDOMAINCanWrite, which derives it from
+// internal/domain/tenant's const block with go/ast rather than from a sentence.
 //
 // 🔴 @target IS CAST EXPLICITLY, for ConfirmRecentRemoval's measured reason:
 // audit_log.target is nullable by schema (00005), so without the cast sqlc infers the
@@ -159,10 +167,27 @@ type ListPlaqueHistoryRow struct {
 // ROW says so.
 //
 // 🔴 @row_limit BOUNDS THE OUTPUT, NOT THE WORK, AND THE DIFFERENCE IS THE WHOLE
-// COST OF THIS QUERY. A plaque's history is three rows at most; the SCAN is over
-// every audit row the TENANT has, and audit_log is append-only with no retention job
-// (backlog T6/T13), so the cost grows with the business's age rather than with the
-// plaque's.
+// COST OF THIS QUERY. The SCAN is over every audit row the TENANT has, and
+// audit_log is append-only with no retention job (backlog T6/T13), so the cost
+// grows with the business's age rather than with the plaque's.
+//
+// ⚠️ THIS PARAGRAPH USED TO OPEN "A plaque's history is THREE ROWS AT MOST" AND
+// THAT CEILING IS GONE (M8-05 FAZ B2c-2a, 2026-08-24) -- a closed count, forty
+// lines under a paragraph the same change set was editing. Two things broke it:
+// the vocabulary went from three acts to FIVE (plaque.loaded and plaque.encoded,
+// ADR 0017 §5.1 steps 3 and 9), and plaque.encoded is NOT capped at one -- the
+// marker is idempotent on the ROW but audit_log is append-only, so a RETRIED
+// marking appends another true entry. internal/encode's own test drives exactly
+// that ("plaque.encoded entries = 2").
+//
+// 🔴 WHAT THAT COSTS, NAMED RATHER THAN RE-COUNTED: plaqueHistoryLimit = 20
+// (internal/domain/tenant/plaque.go) justified itself as "far above any real
+// chain", and THAT JUSTIFICATION NO LONGER HOLDS -- a chain is now unbounded in
+// principle, because a caller that retries a marking N times writes N rows. No new
+// number is put here: a ceiling is exactly what went stale, and the limit's real
+// job (bounding what crosses the wire and what a template renders) never depended
+// on one. ⚠️ NOT REACHABLE TODAY -- a second round against one chip dies at the
+// duplicate uid, and the endpoint that could retry a marking is FAZ B2c-2b's.
 //
 // MEASURED 2026-08-10, with its population as this repo's rule requires -- tenant
 // 10000000-...-0001, 2 566 audit rows of 63 624 in a 19 MB relation, asked for a

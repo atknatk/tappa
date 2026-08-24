@@ -1436,8 +1436,9 @@ func TestPlaqueReceipt_ATrailFailureIsSilenceNotAnOutage(t *testing.T) {
 //
 // ⚠️ WHAT IS STILL NOT COVERED: a key ENCODED INTO A PERMITTED FIELD (hex in a
 // string). No type system refuses that; what does is that no query on this path
-// SELECTS aes_key_ref at all, which the domain package asserts against
-// db/queries/tags.sql itself.
+// RETURNS aes_key_ref -- asserted by the domain package against db/queries/tags.sql
+// and, since 2026-08-24, by cmd/tappa/storekeyshape_test.go against the generated
+// store types, which is the half that survives a spelling nobody listed.
 func TestPlaqueViewModels_CannotCarryAKey(t *testing.T) {
 	fields := map[string][]string{
 		"components.PlaqueRowView": {"UID", "Status", "Venue", "VenueUnknown", "Counter",

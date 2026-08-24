@@ -29,8 +29,27 @@ package components
 //
 // ⚠️ AND NEITHER HALF REFUSES A KEY *ENCODED* INTO A PERMITTED FIELD — hex in a
 // string, base64 in a name. No type system does. What makes that unreachable is that
-// nothing on this path READS the column: no shipped tag query selects aes_key_ref,
-// asserted against db/queries/tags.sql itself.
+// nothing on this path READS the column: as of migration 00022 tappa_app has no
+// SELECT privilege on tags.aes_key_ref, so every DIRECT expression over it fails at
+// runtime.
+//
+// ⚠️ "ANY WAY AT ALL" WAS TOO BIG AND AN AUDIT MEASURED IT DOWN (2026-08-24). The key
+// is still reachable through resolve_tag_by_uid -- SECURITY DEFINER, returns the
+// column, EXECUTE granted to tappa_app -- which the tap path NEEDS and which therefore
+// cannot be revoked.
+//
+// ⚠️ AND THE REPLACEMENT SENTENCE WAS TOO BIG TOO (same day, next audit): it said that
+// path is bounded by an inventory. That inventory is text matching and was beaten
+// twice -- see cmd/tappa/storekeyshape_test.go's header, where the gap is COUNTED
+// rather than claimed closed. What this file can honestly say is that nothing on the
+// PANEL path reads the column, and that the panel's own protection is the privilege.
+//
+// ⚠️ THE PREVIOUS VERSION RESTED THIS ON THE STATIC GATES ("no shipped tag query
+// RETURNS aes_key_ref ... verified against the generated return shapes") AND A
+// SECURITY AUDIT DISPROVED THE SECOND HALF: a value can come back WITHOUT the return
+// shape changing -- `to_jsonb(g)::text AS status` is byte-identical in Go and carries
+// the whole row. The gates are kept as defence in depth; the privilege is what the
+// sentence now rests on.
 //
 // 🔴 KeyState's NAME CONTAINS "key" AND THE FIELD CONTAINS NONE: it holds one of two
 // fixed sentences, produced by handler.keyStateOf from whether the plaque has a wall,

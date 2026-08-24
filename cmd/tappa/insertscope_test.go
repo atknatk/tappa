@@ -17,23 +17,31 @@ import (
 // 🔴 WHY IT IS HERE AND NOT IN A SEVENTH query_test.go (backlog T20). The belts
 // derive their query list from their own package's `q.X(` calls, which is the right
 // shape for a WHERE-clause check and the wrong one for this: measured on this tree,
-// the twelve `INSERT ... VALUES` statements in db/queries divide as
+// the `INSERT ... VALUES` statements in db/queries divide as
 //
-//	four in a belted package    AppendPolicyVersion, AttachPolicyResource,
+//	in a belted package         AppendPolicyVersion, AttachPolicyResource,
 //	                            CreateTenantPolicy (internal/domain/tenant, which
 //	                            grew an INSERT arm in M6-09 phase B) and CreateTenant
 //	                            (internal/domain/signup)
-//	eight in a package with NO belt file at all
-//	                            RecordAuditEvent (internal/audit) · CreateInvite
-//	                            (internal/invite) · CreateSession (internal/session) ·
+//	in a package with NO belt   RecordAuditEvent (internal/audit) · CreateInvite
+//	file at all                 (internal/invite) · CreateSession (internal/session) ·
 //	                            EnsureBaselinePolicy, EnsureBaselinePolicyVersion,
 //	                            EnsurePolicyAttachment and InsertTransaction
-//	                            (internal/domain/checkin)
+//	                            (internal/domain/checkin) · InsertUnassigned
+//	                            (internal/encode, M8-05 FAZ B2c-2a)
 //
-// and the last of those is THE PRODUCT'S MAIN WRITE PATH — every attendance record
+// and InsertTransaction is THE PRODUCT'S MAIN WRITE PATH — every attendance record
 // (CLAUDE.md §4.3, immutable). Closing that by giving internal/domain/checkin its own
 // derivation machinery would duplicate ~200 lines for one property; deriving from the
-// SQL instead covers all twelve, and the next one, in one place.
+// SQL instead covers all of them, and the next one, in one place.
+//
+// ⚠️ THE PARAGRAPH ABOVE USED TO OPEN "the twelve INSERT ... VALUES statements" AND
+// SPLIT THEM "four … eight", AND BOTH NUMBERS WENT STALE ON 2026-08-24 when
+// InsertUnassigned shipped — a closed count in prose, over a directory the test
+// itself walks, which is this repository's most-repeated defect. The numbers are
+// gone rather than corrected; the list is illustrative and the SCAN is the count.
+// What guards against the scan going blind is the floor at the bottom of this file,
+// which is derived, not typed.
 //
 // ⚠️ COUNTED LIMITS, ALL FALSE-NEGATIVE:
 //   - It reads db/queries only. SQL written inline in Go is invisible here — the

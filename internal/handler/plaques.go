@@ -23,12 +23,43 @@ import (
 // decision, 2026-08-08: the inventory model). Tappa encodes a plaque, wraps its
 // AES key under the KEK and LOADS the row; the panel's whole vocabulary is list,
 // read, BIND, UN-BIND and RETIRE — never CREATE and never DELETE. There is no "add a
-// plaque" control here, no route for
-// one, and no query behind it — db/queries/tags.sql ships no INSERT.
+// plaque" control here, no route for one, and no handler in this file that reaches
+// a loading statement.
+//
+// ⚠️ THE LAST CLAUSE USED TO READ "and no query behind it — db/queries/tags.sql
+// ships no INSERT", WHICH IS NO LONGER TRUE (M8-05 FAZ B2c-2a, 2026-08-24). That
+// file now carries InsertUnassigned, the encode endpoint's loader, which connects
+// as tappa_app because ADR 0017 §3.1 leaves it no choice. The panel rule is
+// unchanged and is now stated as what it is — a claim about THIS FILE's routes —
+// rather than as a claim about a file it does not own.
 //
 // 🔴 §4.7 — NO KEY PASSES THROUGH THIS FILE, AND THE WALL IS A TYPE RATHER THAN A
-// HABIT. tenant.Plaque has no []byte field, the view models have none, and none of
-// the shipped tag queries selects aes_key_ref. The card's "encoded/pending"
+// HABIT — AND AS OF 2026-08-24 THE LOAD-BEARING HALF IS A PRIVILEGE, NOT A TYPE.
+// tenant.Plaque has no []byte field and the view models have none, which stops a key
+// being CARRIED; migration 00022 stops it being read DIRECTLY, by revoking SELECT on
+// tags.aes_key_ref from tappa_app.
+//
+// ⚠️ "DIRECTLY" IS LOAD-BEARING (audit, 2026-08-24): resolve_tag_by_uid still returns
+// the column to any caller with EXECUTE, and the tap path cannot do without it.
+// ⚠️ NO MECHANISM IS IN FORCE ON THAT PATH TODAY -- but one EXISTS and was not taken
+// (a separate role holding EXECUTE on the resolver; measured). Two earlier versions of
+// this line were both too strong: one said an inventory bounds the path, the other
+// that nothing mechanical could. It is a COUNTED gap;
+// cmd/tappa/storekeyshape_test.go's header names four escapes and the deferred option.
+//
+// ⚠️ AND THE RENDER-SIDE TEST IS NOT THE OTHER END OF THIS. The section test that
+// greps the rendered bytes for `aes_key_ref`, `kek` and `envelope`
+// -- but it renders from a FAKE Plaques source, so it can only ever prove
+// that the TEMPLATE adds nothing. It is structurally unable to see a real leak, and an
+// earlier version of this comment leaned on it as though it could.
+//
+// ⚠️ BOTH HALVES ARE NEEDED AND THE STATIC ONE WAS OVER-TRUSTED. This comment used to
+// say no shipped tag query "RETURNS aes_key_ref ... pinned against the generated
+// internal/store types". A security audit showed a value can return WITHOUT the
+// generated type changing (`to_jsonb(g)::text AS status` is byte-identical), so the
+// pin is defence in depth and the privilege is the wall.
+// (⚠️ the SQL half permits the column in ONE named INSERT, because ADR 0017 §5.1
+// step 3 must write it; the direction is what that rule is about.) The card's "encoded/pending"
 // criterion is answered by a WORD derived from whether the plaque has a wall —
 // keyStateOf below is the only thing that produces it, and it reads nothing about
 // cryptography. What that word IS and IS NOT backed by is written at
@@ -472,10 +503,21 @@ func stockOptions(screen tenant.PlaqueScreen, exclude string) []components.Optio
 // internal/domain/tenant's own const block with go/ast and fails on any value that
 // is missing here. So the list cannot go stale: adding an action without a word is
 // RED, and nobody has to remember this file exists.
+// 🔴 THE SEVENTH TIME, AND IT WAS CAUGHT BY THE MECHANISM RATHER THAN BY A READER.
+// M8-05 FAZ B2c-2a added two ENCODE acts to the vocabulary (ADR 0017 §5.1 steps 3
+// and 9); the completeness test turned RED naming both, before either could reach a
+// screen. That is the derivation earning its keep — the previous six were found
+// after shipping.
+//
+// THE TWO WORDS ARE THE MANAGER'S, NOT THE ADR'S. "Loaded into stock" says what a
+// plaque row without a wall is; "Encoded" says the chip took its keys. Neither says
+// "unassigned", which is a column value, and neither mentions a key.
 var plaqueActionWords = map[string]string{
 	tenant.ActionPlaqueMounted:   "Mounted",
 	tenant.ActionPlaqueRetired:   "Retired",
 	tenant.ActionPlaqueUnmounted: "Taken off the wall",
+	tenant.ActionPlaqueLoaded:    "Loaded into stock",
+	tenant.ActionPlaqueEncoded:   "Encoded",
 }
 
 // plaqueTrailView turns the trail's own vocabulary into the manager's.

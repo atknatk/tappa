@@ -65,9 +65,13 @@ import (
 // key, this tenant, and the caller's choice of status and wall.
 //
 // 🔴 IT IS AN INSERT AND THE PANEL HAS NO SUCH QUERY, which is the inventory model
-// stated as a fixture: db/queries/tags.sql ships no INSERT over `tags` because
-// creating a plaque means holding its key. This helper stands in for the M8-05
-// runbook, not for anything the panel can do.
+// stated as a fixture: creating a plaque means holding its key. This helper stands
+// in for the M8-05 loader, not for anything the panel can do.
+//
+// ⚠️ THE REASON USED TO BE "db/queries/tags.sql ships no INSERT over `tags`", WHICH
+// EXPIRED ON 2026-08-24 (M8-05 FAZ B2c-2a) — that file now carries
+// InsertUnassigned, the encode endpoint's loader. The panel half is unchanged: no
+// route in internal/handler reaches it.
 //
 // wall == uuid.Nil produces a STOCK plaque: location_id NULL, status
 // 'unassigned'. The two travel together because 00013's CHECKs bind them —

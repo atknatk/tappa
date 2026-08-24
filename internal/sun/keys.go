@@ -58,6 +58,30 @@ const (
 	wrappedKeyLen = gcmNonceLen + tagKeyLen + gcmTagLen
 )
 
+// KEKLen and WrappedKeyLen are the two sizes callers OUTSIDE this package have to
+// agree with, exported in M8-05 FAZ B2c-2a so that agreement is a reference rather
+// than a second copy of a number.
+//
+// 🔴 THE ALTERNATIVE WAS MEASURED AND IT IS WHY THESE EXIST. internal/encode has to
+// refuse a mis-sized KEK at CONSTRUCTION (a configuration fault should be a startup
+// failure, not an error in the middle of a round with a chip already selected) and a
+// mis-sized envelope BEFORE the INSERT (migration 00021's
+// tags_aes_key_ref_is_kek_envelope rejects it, and a CHECK violation's DETAIL line is
+// the whole failing tuple — §4.7). Both checks need the number. Writing `32` and `44`
+// over there would put this schema's shape in a third and fourth place; internal/config's
+// key32 already holds a second 32, and that one is about the ENV VAR's shape rather
+// than the envelope's.
+//
+// ⚠️ WHAT THEY ARE NOT: they are not a licence to build an envelope elsewhere.
+// Wrap/Unwrap remain the only constructors, and the cryptography stays here
+// (CLAUDE.md §4.7).
+const (
+	// KEKLen is the required TAPPA_TAG_KEK size — 32 bytes, i.e. AES-256.
+	KEKLen = kekLen
+	// WrappedKeyLen is the exact tags.aes_key_ref length, ADR 0003 md. 4's 44.
+	WrappedKeyLen = wrappedKeyLen
+)
+
 // Wrap seals a 16-byte per-tag AES key under kek (the 32-byte AES-256 KEK),
 // authenticating it against uid (the RAW 7-byte tag UID) as GCM AAD, and returns
 // the 44-byte value for tags.aes_key_ref: nonce(12) || ciphertext(16) || tag(16)

@@ -5267,20 +5267,62 @@ turda** ölçülebilir; ayrıca `ctr` palindrom olmadığı için sinyal gürül
 >
 > ## 🔴 KAPATILMAMIŞ SAYIM — B2c-2 / B3 / adım 8'e DEVREDİLENLER
 >
-> **Bu liste bir sonraki oturumun okuyacağı tek kayıttır. Hiçbiri kapatılmadı; hepsi
-> adıyla devrediliyor.**
+> **Bu liste bir sonraki oturumun okuyacağı tek kayıttır.**
+> ⚠️ **BAŞLIK CÜMLESİ 2026-08-24'TE DÜZELTİLDİ, ÇÜNKÜ LİSTENİN KENDİSİ ONU
+> YANLIŞLIYORDU.** *"Hiçbiri kapatılmadı"* yazıyordu, oysa **md. 2, 4 ve 5** ✅
+> **KAPANDI** damgalı — üçü de ölçümle, ve denetçi üçünün de **gerçekten sevk
+> edildiğini** doğruladı. Doğru ifade: **liste 19 maddedir; üçü KAPANDI (2, 4, 5),
+> on altısı AÇIK ve adıyla devrediliyor.**
+> **Liste 2026-08-24'te 16 → 17 → 19'a çıktı:** md. **17** (`resolve_tag_by_uid`
+> üzerinden okuma — **sayıldı, kapatılmadı**), md. **18** (`internal/encode` hiçbir
+> yerden import edilmiyor), md. **19** (envanter ratchet'i ve dördüncü kaçış).
 >
 > 1. **§6 md. 5** — anahtar 0'ın şeması. §5.1 **adım 8 SEVK EDİLMEDİ**; bedeli **ADR
 >    0005 risk 8** ve *"anahtar 0 fabrikadayken plaket duvara çıkamaz"* pilot çizgisi.
-> 2. **§6 md. 8** — `audit_log` izi: olay adı · aktör · hangi tenant. Üçü de kararsız,
->    bu yüzden **hiçbiri uydurulmadı**.
+> 2. ✅ **KAPANDI (2026-08-24, FAZ B2c-2a) — §6 md. 8.** Üç soru soruluyordu (ad ·
+>    aktör · tenant); **dördüncüsü sorulmamıştı ve belirleyici oydu: NE ZAMAN.**
+>    Karar: **iki olay**, `plaque.loaded` (adım 3) ve `plaque.encoded` (adım 9),
+>    ikisi de **satırın kendi işleminin içinde** · `actor_id` **NULL** · tenant
+>    `Begin`'e verilen · `detail` alanlarının **BİRLEŞİMİ** `claimed_by` + `key_bytes`
+>    (bir **tamsayı**). ⚠️ **Tek tek okununca yanlış, ve öyle yazılmıştı**
+>    (2026-08-24): `plaque.loaded` **iki** alan taşır, `plaque.encoded` **yalnız
+>    `claimed_by`** — ve testi bunu **jsonb anahtarları** üzerinden çiviliyor.
+>    ⚠️ **ADR'nin verdiği kalıp yanlıştı:** md. 8 *"`tag.retired` kalıbı"* diyor,
+>    ağaçta `tag.*` diye bir olay **yok** (ölçüldü, sıfır isabet) — ağacın yazımı
+>    (`plaque.*`) geçerli. Gerekçelerin tamamı ADR §6 md. 8'de.
 > 3. **§6 md. 10** — yetkilendirme kapısı. `Begin`'in `actor`'ı bir **maruziyet
->    sınırıdır, yetki değil**.
-> 4. 🔴 **R5 BLOKLAYICI ŞART:** `tenant_id` porta **AÇIK PARAMETRE** olmalı; örtük
->    bırakılırsa §4.5'in *"kemer"*i tümüyle uygulamanın hafızasına kalır.
-> 5. **§5.1 adım 9'un şema karşılığı yok** — `tags`'te *"encoded"* sütunu bulunmuyor
->    (00004+00013; `status` **`unassigned`** kalmak zorunda). `MarkEncoded` bugün
->    **tüketicinin ihtiyacını** beyan ediyor.
+>    sınırıdır, yetki değil**. **HÂLÂ AÇIK**, ve B2c-2a onu kapatmadı: `Begin` artık
+>    bir `tenantID` **alıyor**, ama hiçbir şey çağıranın o tenant için encode
+>    edebileceğini **doğrulamıyor**. Kapanan şey *"hangi tenant"*ın **adlandırılması**,
+>    *"kim yazabilir"* değil.
+> 4. ✅ **KAPANDI (2026-08-24, FAZ B2c-2a) — R5 BLOKLAYICI ŞART.** `Rows`'un **iki**
+>    metodu da `tenantID uuid.UUID` **taşıyor**; atlamak **derleme hatası**.
+>    ⚠️ **Ne satın almadığı aynı nefeste yazıldı:** çağıranı **bir** tenant
+>    adlandırmaya zorlar, **doğrusunu** değil (md. 10). Ve kemerin kendisi
+>    **davranıştan görünmez** — ölçüldü (M2), **ama iki adımda ve ilk adım
+>    derleyicinindir:** yüklemi düpedüz silmek ağacı **derletmiyor** (sqlc tek
+>    parametre kalınca `MarkTagEncodedParams`'ı çıplak bir `string`'e çöktürüyor).
+>    **Arity'yi koruyan** varyant (`WHERE uid = @uid AND (@tenant_id::uuid IS NOT
+>    NULL)`) derleniyor ve **`internal/encode`'u** yeşil bırakıyor, çünkü RLS'in
+>    `USING`'i satırı zaten gizliyor. Bu yüzden orada bir **kaynak** kapısı eklendi
+>    (`TestDBRows_EveryStatementThisPackageCallsNamesTheTenantItself`).
+>    🔴 **AMA *"TÜM SUITE'İ YEŞİL BIRAKIYOR"* YANLIŞTI, VE DÜZELTMESİ BİR KAZANÇTIR
+>    (2026-08-24, ölçüldü):** `internal/domain/tenant` **FAIL** veriyor —
+>    `TestTagsQueries_CarryAnExplicitTenantPredicate` **tam olarak** `tags.sql`'i
+>    okuyor, **`MarkTagEncoded`'ı adıyla** sayıyor, ve *"`tenant_id`'yi
+>    `@tenant_id`'ye **ÜST DÜZEY BİR VE**'de bağlamıyor"* diyor. **Ağaç bunu
+>    yakalıyor**; yakalamayan yalnız `internal/encode`'un kendi **dar** kapısıydı.
+>    ⚠️ Derleyici de **yerine geçmiyor**: o **arity**'ye itiraz ediyor, **kapsama**
+>    değil.
+> 5. ✅ **KAPANDI (2026-08-24, FAZ B2c-2a) — §5.1 adım 9'un şema karşılığı.**
+>    `tags.encoded_at timestamptz` (migration **00022**): nullable · sunucu saati
+>    (`coalesce(encoded_at, now())`) · **yaz-bir-kez**, ve trigger `tappa_owner`'ı da
+>    bağlıyor · `GRANT UPDATE (encoded_at)` (§3.1 satırı `tappa_app`'e yazdırıyor).
+>    `status` **`unassigned` KALIYOR** — kartın ikinci tuzağı korunuyor, ve şema onu
+>    ayrıca zorluyor (`tags_active_requires_location`). 🔴 **Sütun, 00013 Part 3'ün
+>    *"encoded = the row exists"* cümlesini ÇÜRÜTÜYOR** (§5.2 satırı çipten önce
+>    yazıyor); 00013 değiştirilemez, düzeltme **00022'nin başlığında ve sütun
+>    yorumunda**.
 > 6. **§6 md. 11 (Q08)** — host kararlaşmadı; yanlış host'la encode = plaket değişimi.
 > 7. **§6 md. 12b** — **adım 5'in CommMode'u ÖLÇÜLMEDİ**. Belge **üç** yerde
 >    `CommMode.Plain` diyor (§8.2.3.3 · §8.2.3.5 · **Tablo 13**); sürücü **Full**
@@ -5322,7 +5364,9 @@ turda** ölçülebilir; ayrıca `ctr` palindrom olmadığı için sinyal gürül
 >     port çağrısı) halkasını canlı tutar; `CloseGrace` bunu **sınırlamıyor**.
 > 11. **§5.3'ün üç sondası** — komut kurucuları `internal/sun`'da **var**, sürücüsü
 >     yok; ayrı bir akış.
-> 12. **M64 meşru hayatta kalanı** — Tablo 65 ön koşulu iki ölçütü çakıştırdığı için
+> 12. **B2c-1'in M64 meşru hayatta kalanı** (⚠️ **kimlik ayrıştırıldı 2026-08-24**:
+>     sonraki turlar `M78b`–`M86` kullanıyor, çünkü `M64`–`M68` kartta **iki kez**
+>     tanımlıydı ve bu işaretçi **yanlış mutasyona** varıyordu) — Tablo 65 ön koşulu iki ölçütü çakıştırdığı için
 >     hiçbir davranışsal test onları ayırt edemez; **adım 8 geldiğinde gerçek olur**.
 > 13. 🔴 **Plaket anahtarının ve `RndA`'nın ÖNGÖRÜLEMEZLİĞİ — bu turda çivilendi, ama
 >     sınırı yazılı.** 9. denetim ölçtü: `mintPlaqueKey`'i **sıralı bir sayaca**
@@ -5376,6 +5420,859 @@ turda** ölçülebilir; ayrıca `ctr` palindrom olmadığı için sinyal gürül
 > 16. 🔴 **§6 md. 1 — HİÇBİR ÇİP ENCODE EDİLMEDİ.** Bu turun tamamı belge okuması,
 >     sahte çip ve mutasyondur. **FAZ B3 silikonu getirene kadar hiçbir şey
 >     kanıtlanmış sayılmaz.**
+> 17. 🔴 **`resolve_tag_by_uid` ÜZERİNDEN OKUMA — SAYILDI, KAPATILMADI (2026-08-24).**
+>     `tags.aes_key_ref` üzerindeki her **DOĞRUDAN** ifade reddediliyor. ⚠️ **SAYI
+>     BİR TEK KÜME DEĞİL, VE İKİ KAYIT FARKLI ON BİR SAYIYORDU — 2026-08-24'te
+>     ayrıştırıldı.** Sevk edilen metnin onu: sütun · `to_jsonb` · `row_to_json` ·
+>     `SELECT *` · `octet_length` · tırnaklı korelasyonlu alt sorgu · `COPY TO
+>     STDOUT` · `CREATE VIEW` · `SET ROLE` · kendi `pg_temp` definer'ı; on birinci
+>     **`resolve_tag_by_uid`** ve o **dönüyor**. 6. tur kaydının onu farklıydı
+>     (`pg_read_server_files` + `pg_stat_statements` içeriyordu, `resolve_tag_by_uid`
+>     **yoktu**).
+>     🔴 **VE ONUN İKİSİ 00022 İLE İLGİSİZ:** `CREATE VIEW` → `permission denied for
+>     schema public`, `SET ROLE` → `permission denied to set role` — ikisi de **başka
+>     ayrıcalıklardan** reddediliyor. *"00022 on birin onunu reddetti"* cümlesi ona
+>     **üretmediği iki reddi** yazıyordu. **00022'nin kendi payı: sekiz.**
+>     ⚠️ Ayrıca 8. denetim **21 ek şekil** daha sınadı (`ONLY tags` · `g.*` ·
+>     `json_agg` · `INSERT/UPDATE/MERGE … RETURNING` · `DECLARE CURSOR` · LATERAL ·
+>     `md5(key::text)` · `COPY TO PROGRAM` …) — **hepsi reddedildi**.
+>     **On birinci şekil `resolve_tag_by_uid`'dir ve KAPATILAMAZ:** tap tenant
+>     bağlamı olmadan gelir ve SUN'ı doğrulamak için zarfı almak zorundadır
+>     (ADR 0002 md. 7).
+>     🔴 **BUGÜN YÜRÜRLÜKTE BİR MEKANİZMA YOK — AMA MEVCUT OLAN VAR, ALINMADI.**
+>     *"Mekanik hiçbir şey yok"* cümlesi **ölçümle yanlıştı**: fonksiyon üzerindeki
+>     `EXECUTE` sıradan bir ayrıcalıktır — tek `BEGIN … ROLLBACK`'te ayrı bir role
+>     `GRANT`, `tappa_app`'ten `REVOKE` → `ERROR: permission denied for function
+>     resolve_tag_by_uid` (`proacl` öncesi/sonrası birebir aynı). **Seçenek adıyla
+>     devrediliyor:** bağlamsız çözümleme havuzuna **kendi rolü**; **bedeli İKİNCİ BİR
+>     HAVUZ**, ki bu **FAZ B2c-2b'nin havuz tasarımına** değer — o yüzden **mimari
+>     karar olarak ertelendi, uygulanmadı**. ⚠️ Ve `pool.go`'nun `roleRefusal`'ı
+>     `Privileged()` (super/bypassrls/owner/inherit) dışında **hiçbir rolü reddetmez**,
+>     yani böyle bir rol açılışta **fark edilmez** (ölçüldü).
+>     🔴 *"Kapatılamaz"* (doğru — tap zarfı almak zorunda) ile *"mekanik hiçbir şey
+>     yok"* (**yanlış**) aynı nefeste yazılmıştı; ikincisi **operatörü aramayı
+>     bıraktırır**. İki envanter kolu
+>     (`cmd/tappa/storekeyshape_test.go`) **düz yazımı** yakalıyor — bir geliştiricinin
+>     yazacağı yazımı — ve **kaçamaklı yazımı yakalamıyor. Üç kaçış, ikisi uçtan uca
+>     üretildi:**
+>     **(a)** `U&"\0072esolve_tag_by_uid"` — sqlc **kabul ediyor**, satır tipi
+>     **bayt-bayt aynı**, **iki kol da geçiyor**, ve kapı bir definer çağrısı duran
+>     satır için *"0 definer calls"* basıyor. ⚠️ **Tur 4'ün metin duvarını SÜTUN adında
+>     yenen numaranın aynısı** (`U&"\0061es_key_ref"`).
+>     **(b)** bölünmüş dize literali — `fmt.Sprintf("… %stag_by_uid($1) …", "resolve_")`
+>     yeni bir Go dosyasında; `go build` ve `redline-check` **ikisi de geçiyor**.
+>     **(c)** gelecekte yeni adlı bir definer (örn. `resolve_venue_by_id`) + yeni bir
+>     Go dosyası — kol 2 **altı sabit ad** tutuyor, kol 1 yalnız `db/queries`'i okuyor.
+>     *(Üretilmedi; olmayan bir migration gerekiyor.)*
+>     **(d)** 🔴 **envantere BİR SATIR eklemek — hiç kaçamak gerektirmiyor**, ve
+>     önceki sayım **bunu kaçırmıştı**. Üretildi: yeni üretim çağıranı + tek satır →
+>     iki kol da geçiyor, kapı *"2 file(s) … all inventoried"* basıyor. **Ratchet
+>     eklendi** (md. 19).
+>     ⚠️ **VE BU YOL TENANT SINIRINI DA AŞAR** (`tappa_resolver` **BYPASSRLS**) — yani
+>     **§4.5**, §4.7'nin yanında. ADR 0002 md. 7 o bypass'ı **çözümleme yoluna**
+>     kapsamlandırıyor; bir **panel** sorgusunun çağırması o kararın **dışında**.
+>     🔴 **`agent-brief.md` durma kuralı 2 uygulandı:** *"yeni kanal KAPATILMAZ,
+>     SAYILIR … sayılmış bir açık, kapatıldığı İDDİA EDİLEN bir açıktan güvenlidir."*
+>     Beş metin tasarımı, bir ayrıcalık ve iki envanter kolundan sonra geriye kalan
+>     **dürüstçe yazılmış bu limittir**.
+>
+> ---
+>
+> ### 🔴 FAZ B2c-2a (2026-08-24) — VERİ KATMANI: NE KAPANDI, NE KAPANMADI
+>
+> 18. 🔴 **`internal/encode` HİÇBİR PAKETTEN IMPORT EDİLMİYOR** — ölçüldü
+>     (`grep -rn "atknatk/tappa/internal/encode" --include='*.go' . | grep -v "internal/encode/"`
+>     → **0**). Yani üretimde `plaque.loaded`/`plaque.encoded` yazan ve `encoded_at`'i
+>     dolduran **bir yol YOK**. Sevk edilen şey **mekanizmadır, akış değil**;
+>     **FAZ B2c-2b'nin ilk işi** bu paketi bir HTTP uç noktasına bağlamaktır.
+>     *(Kartta bir "niteleyici" olarak duruyordu; numaralı madde değildi.)*
+> 19. 🔴 **ENVANTER RATCHET'İ ve DÖRDÜNCÜ KAÇIŞ** — *"`resolve_tag_by_uid` ÜZERİNDEN
+>     OKUMA"* maddesinin gövdesi.
+>     `resolverCallSites` **boyut ratchet'i olmadan sevk edilmişti**, ve dördüncü
+>     kaçış **hiç kaçamak gerektirmiyordu**: yeni bir üretim çağıranı + envantere
+>     **tek satır** → iki kol da geçiyor ve kapı *"2 file(s) … all inventoried"* diye
+>     **ONAYLIYOR**. Ratchet eklendi (M82 kırmızı, M83 ratchet'siz **yeşil** — yani
+>     yakalayan **tek şey** o). ⚠️ **Ratchet meşru ikinci çağıranı smuggled olandan
+>     ayırt EDEMEZ** — yalnız **sessiz** olanı kaldırır; ayrım **insanındır**.
+> **Kapatılan devir maddeleri: 2 · 4 · 5** (yukarıda **yerinde** işaretli). ADR 0017
+> tarafında kapananlar: **§6 md. 8** (tamamı) · **§6 md. 9'un açık yarısı** ·
+> §5.1 adım 9'un şema karşılığı · §5.2'nin *"düşMELİdir"* gelecek zamanı.
+> **Kapanmayan ve adıyla devredilen — ON ALTI madde:** md. 1 · **3 (md. 10)** · 6 ·
+> 7 · 8 · 9 · 10 · 11 · 12 · 13 · 14 · 15 · 16 · **17** · **18** · **19**.
+> ⚠️ **BU SATIR 2026-08-24'TE DÜZELTİLDİ VE KUSURU AĞIRDI:** on üç madde sayıyordu ve
+> **md. 17 listede yoktu** — yani *"bu turun TÜM ÜRÜNÜ olan sayılmış açık"*, bir
+> sonraki oturumun okuyacağı **özetten düşmüştü**. Bir sayım yanlışsa, *"sayılmış bir
+> açık kapatıldığı iddia edilenden güvenlidir"* kuralının **kendisi geçersizdir**.
+>
+> **Sevk edilenler.** migration **00022** (`encoded_at` + yaz-bir-kez trigger +
+> sütun GRANT) · `db/queries/tags.sql` → `InsertUnassigned` ve `MarkTagEncoded` ·
+> `internal/encode/rows.go` (`DBRows`: Postgres + `audit_log`, tek işlemde) ·
+> `internal/encode/wrapper.go` (`KEKWrapper`) · `Rows`'un iki metodunda **açık
+> `tenantID`** · `Begin(ctx, tenantID, actor)` + `MaxActorLen` · RLS izolasyon
+> testi (**vacuous olmadığı ölçüldü**) · `internal/sun`'da `KEKLen`/`WrappedKeyLen`.
+>
+> 🔴 **BİR SAYILMIŞ SINIR GERÇEK OLACAKTI, VE KAPATILDI — ÖRÜNTÜ 4'ÜN EN KESKİN
+> HÂLİ.** `internal/handler`'ın `plaqueActionsFromSource` sayımı, göremediği tek
+> şekli kendi tablosunda yazıyordu: ***"an action written from ANOTHER package — NO
+> … Nothing else writes `plaque.*` (grepped), and doing so would be a visible edit in
+> a new package."*** **Bu tur tam olarak o edit.** Ölçüldü: `plaqueTrailView`
+> eşleşmeyen bir eylemi **ham veritabanı sözcüğü** olarak basıyor, yani kart müdüre
+> *"plaque.loaded 24 Aug 2026 · by the system"* gösterecekti — `plaque.unmounted` ile
+> **dört denetim turu** harcanan kusurun aynısı. **Çözüm sınırı gerçekleştirmek değil
+> KAPATMAK oldu:** iki sabit `internal/domain/tenant/plaque.go`'da (taramanın zaten
+> baktığı yer) tanımlandı, `internal/encode` onları **alias**'lıyor. Kapı çalıştı —
+> sözcükler eklenmeden **kırmızıydı** ve ikisini de adıyla saydı.
+>
+> 🔴 **KARAR 4 / T16 — VE BU BLOK BİR TUR *"ÜÇÜNCÜ BİR ŞEKİL YOK"* DEDİ, DENETİM
+> İKİ TANE ÜRETTİ. KAPALI SAYIM, *"KAPANDI"* DAMGASIYLA — bu turun en pahalı
+> dersi.** ADR §6 md. 9 *"bugün gerekli değil"* diyordu; ölçüm şunu verdi:
+> `aes_key_ref`'i `tappa_app`'in INSERT hakkının dışına çıkarmak **mümkün**
+> (`has_column_privilege` → `f`) ve **sevk edilen ifadeyi** öldürüyor — sütunu
+> adlandıran INSERT `permission denied`, atlayan INSERT `not-null violation`.
+> 🔴 **Ama *"üçüncü şekil yok"* YANLIŞTI**, ve ikisini de bağımsız yeniden ürettim:
+> **C** bir `BEFORE INSERT` trigger'ıyla (`INSERT 0 1`, satırda 44 bayt), **D** bir
+> sütun `DEFAULT`'uyla (aynı) geçiyor — çünkü ayrıcalık **ifadenin ADLANDIRDIĞI**
+> sütunlara bakar, satırın taşıdığına değil. (**E** `MERGE` ve **F** `COPY`
+> reddediliyor.)
+> **Doğru ifade, niteleyicisiyle:** kısıt, **§3.1'in dayattığı şekil altında** —
+> zarfı ifadenin kendisinin taşıdığı bir `INSERT … VALUES` — akışı öldürür.
+> 🔴 **C ve D'yi KABUL EDİLEMEZ yapan şey ölçüldü, tercih edilmedi:** ikisi de zarfı
+> bir **GUC**'a koymak zorunda, `docker-compose.yml` Postgres'i **`log_statement=all`**
+> ile koşuyor (`SHOW log_statement` → `all`), ve sahte bir işaretçiyle ölçtüm —
+> değer **sunucu log'una birebir** düşüyor (`LOG: statement: … set_config('probe.ref',
+> 'DEADBEEFNOTAKEY…`). Yani her yüklemede 88 haneli zarf, bu deponun **kontrol
+> etmediği** bir dosyaya. ⚠️ İkisi de **saldırgan yolu değil**: `tappa_app` ikisini de
+> kuramıyor (`permission denied for schema public` · `must be owner of table tags` ·
+> `permission denied for table tags`) — bunlar `tappa_owner`'ın migration'da yapacağı
+> **tasarım seçimleridir**.
+> **T16 açık kalır**, ve bilinen azaltma `SECURITY DEFINER` bir yükleyici
+> fonksiyondur — **liste kapalı değildir**, çünkü yukarıdaki C/D tam olarak kapalı
+> bir listenin nasıl yanlış çıktığını gösteriyor. Bedeli ölçüldü:
+> **14 test dosyası** (`tags`'e doğrudan INSERT eden; 00013 *"yedi"* diyordu, ve
+> **14'üncüsü bu değişiklik setinin kendi testidir** — sayı doğduğu gün eskiyordu)
+> artı RLS'i bypass etmeyecek bir sahip rolü, yani `db-init` işi. **T7'nin şema yarısı
+> zaten 00021'de kapanmıştı** (`tags_aes_key_ref_is_kek_envelope`), yani T16'nın
+> örnek zararı (`'\xdead'`) **artık her rol için reddediliyor**.
+>
+> ⚠️ **NİTELEYİCİ — MEKANİZMA SEVK EDİLDİ, HİÇBİR YERDEN ÇAĞRILMIYOR.**
+> `internal/encode` bugün **hiçbir paket tarafından import edilmiyor**, yani üretimde
+> `plaque.loaded`/`plaque.encoded` yazan bir yol **yok** ve `encoded_at`'i dolduran
+> bir yol **yok**. Kapanan şey *"tanımlanmadı"*dır, *"koşuyor"* değil.
+> ⚠️ **Ve bunu söyleyen komut bir tur boyunca YANLIŞTI** (`grep -rl … --include=*.go`
+> zsh'te globbing yüzünden **hiç koşmuyor**, ve koştuğu yerde `./` öneki basmadığı
+> için filtre **hiçbir şey elemiyor**). Üreyen komut:
+> `grep -rn "atknatk/tappa/internal/encode" --include='*.go' . | grep -v "internal/encode/"` → **0**.
+>
+> ---
+>
+> ### 🔴 BAĞIMSIZ DENETİM TURU (2026-08-24) — VERDICT: RED, beş bloklayan + dokuz bloklamayan. HEPSİ KAPATILDI.
+>
+> **Denetçinin doğruladıkları ayakta:** trigger'ın beş geçişi · `IS DISTINCT FROM`'un
+> taşıyıcılığı (düz `<>` ile `değer→NULL` **sessizce geçiyor**) · §6 beşlisi ·
+> UPDATE hakları · `Down` 1700/1700 · RLS non-vacuity · **80 test fonksiyonunun
+> hiçbiri silinmemiş** · `make sqlc` birebir üretiyor.
+>
+> 🔴 **B1 — §4.7 ANAHTAR DUVARININ YÖNLÜ HÂLİ ÜÇ ŞEKLİ KAÇIRIYORDU, VE *"her iki
+> sınır da OVER-report yönünde"* CÜMLESİ BUNU İDDİA EDİYORDU.** Kendi sondamla
+> üçünü de yeniden ürettim (**0 bulgu**): `…)RETURNING uid,aes_key_ref` (RETURNING
+> öncesi **boşluksuz**) · `…)SELECT …` (aynı) · izin listesindeki bir INSERT'ün
+> `ON CONFLICT … DO UPDATE SET aes_key_ref`'i. **İlki, testin kendi cümlesinin
+> *"the value coming BACK OUT"* dediği şeklin ta kendisi.** Tokenizasyon **boşluğa**
+> yaslanıyordu; SQL boşluk istemiyor. O tur **token sınırıyla** eşleşmeye geçti
+> (`query_test.go`'nun `wordBoundary`'si yeniden kullanıldı) ve `ON CONFLICT`'i izin
+> listesine bakılmaksızın reddetti; negatif kontrol **altıdan dokuza** çıktı.
+> ⚠️ **BU PARAGRAF TARİHSEL BİR KAYITTIR — 2. TURU ANLATIYOR VE ŞİMDİKİ ZAMANDAYDI.**
+> Anlattığı mekanizmanın **hiçbiri artık ağaçta yok**: 3. tur token eşleşmesini ve
+> `ON CONFLICT` dalını **mutlak kural + izin listesiyle** değiştirdi, 4. tur ise
+> kapıyı **tümüyle üretilen esere taşıdı**. Kontrol **9 değil 20**. Güncel tasarım
+> için **70 satır aşağıdaki 3. ve 4. tur bloklarına** bak.
+>
+> 🔴 **B2 — *"ÜÇÜNCÜ BİR INSERT ŞEKLİ YOK"* ÇÜRÜDÜ, ve madde ✅ KAPANDI damgalıydı.**
+> Yukarıdaki KARAR 4 bloğu ölçümle yeniden yazıldı; ADR md. 9'un damgası **kaldırıldı**.
+> **Ders:** *"yok"* demek ile *"kabul edilemez"* demek aynı cümle değil — ve C/D'yi
+> kabul edilemez yapan şey **ölçülebilir** (`log_statement=all` → zarf sunucu
+> log'unda), o yüzden **iddia büyütülmedi, niteleyici yazıldı**.
+>
+> 🔴 **B3 — GÜVENLİK TESTİ VAR OLMAYAN BİR AYRICALIK KATMANINI GEREKÇE GÖSTERİYORDU.**
+> `encodedat_test.go` *"00013'ün sütun grant'ları privilege katmanının WITH CHECK'ten
+> önce reddetmesini sağlar"* diyordu. **Ölçüldü, ikisi de yanlış:** `tags`'te
+> **hiçbir INSERT sütun grant'ı yok** (`relacl` `tappa_app=ar`, `attacl`'ler yalnız
+> `w`/`r`, `has_column_privilege(...,'INSERT')` **on sütunun onunda `t`**), ve hata
+> **politikanın kendisi** (`42501 new row violates row-level security policy`).
+> 🔴 **Kendi commit'imin komşusunu çürütmüştüm** — 00022 aynı değişiklik setinde
+> *"tappa_app holds TABLE-WIDE INSERT"* yazıyor. Yorum ölçümle değiştirildi.
+>
+> 🔴 **B4 — İZ HATASINI YUTMAK TÜM SUITE'İ YEŞİL BIRAKIYORDU.** `_ = err` ile
+> `internal/encode` **ve** `internal/db` yeşil, ve **`go vet` + staticcheck GÖRMÜYOR**
+> (ikisi de exit 0 — kendim ölçtüm). Bedeli: INSERT **commit olur**, iz **yazılmaz**,
+> çağıran **başarı** görür. Hata döndüren bir iz sahtesi (`failingTrail`) yazıldı ve
+> **iki yön de** çivilendi (`TestDBRows_AFailedTrailWriteTAKESTHEROWWITHIT`); M16 ve
+> M17 **kırmızı**. ⚠️ `_ = err` ayrıca **CLAUDE.md §7'nin açık yasağı** ve lint onu
+> görmüyor — bir yasağın neden teste ihtiyacı olduğunun ölçümü.
+>
+> 🔴 **B5 — KATALOG YORUMU *"Server-side now() only, and write-once"* DİYORDU;
+> INSERT YOLU BAĞLI DEĞİLDİ.** Ölçüldü: `tappa_app` `encoded_at`'e **1999-01-01**
+> yazarak plaket yükleyebiliyordu. **Yorumu daraltmak yerine YOLU BAĞLADIM**, çünkü
+> ölçtüm ki bağlanabiliyor. ⚠️ Tek kelimelik çözüm **imkânsız**: mevcut trigger'ı
+> `BEFORE INSERT OR UPDATE`'e genişletmek → `INSERT trigger's WHEN condition cannot
+> reference OLD values`. İkinci bir trigger eklendi
+> (`tags_encoded_at_not_settable_at_insert`, `WHEN (NEW.encoded_at IS NOT NULL)`):
+> satır **damgasız doğar**. M23 kırmızı, kontrolü yeşil. **Yorum da ayrıca daraltıldı**
+> — şemanın *zorlamadığı* şey (değerin `now()` olması) artık yazılı. ⚠️ **Bu bir testi
+> yeşilden kırmızıya çevirdi ve o bilgi taşıyordu:** çapraz-tenant vakası `encoded_at`
+> ile INSERT ediyordu, yani **hiç tenant kuralını sınamıyormuş**; ikiye ayrıldı.
+>
+> **Dokuz bloklamayan da kapatıldı.** **N1** — `"tag\.` grep'i *"sıfır"* değil **ALTI**
+> (hepsi `t.Errorf("tag.UID = …")`); dar kalıp (`'"tag\.[a-z]'`) **0** veriyor, üç
+> kopyada da düzeltildi. **N2** — `session.go`'daki komut bu kabukta **hiç koşmuyor**;
+> üreyen komutla değiştirildi. **N3** — *"grep → 0 (2026-08-24)"* **onu yanlışlayan
+> dosyanın içine** şimdiki zamanda yazılmıştı; **öncesi/sonrası** olarak tarihlendi.
+> **N4** — *"13 test dosyası"* **ONDÖRT**, ve 14'üncüsü **bu turun kendi testi**.
+> **N5** — M2 *"yazıldığı gibi"* üretilemiyor: sqlc parametreyi çöktürüyor ve
+> **derlenmiyor**; arity'yi koruyan varyant yeşil. **Derleyicinin payı** üç kopyada da
+> yazıldı, ve *"derleyici yerine geçmiyor — o arity'ye itiraz ediyor, kapsama değil"*
+> eklendi. **N6** — `claimed_by` → `actor` mutasyonu **hayatta kalıyordu**; artık
+> **jsonb anahtarları** okunuyor (`TestDBRows_TheTrailDetailKeysAreTheDecidedONES`),
+> M18 **kırmızı**. **N7** — *"iki alan"* yalnız `loadedDetail` için doğru;
+> `encodedDetail` **bir** alan taşıyor, ADR düzeltildi. **N8** — aşağıda, **meşru
+> hayatta kalan** olarak. **N9** — kapsam dışı (denetçinin env eksiği), kaydedildi.
+>
+> ---
+>
+> ### 🔴 `tappa-security-auditor` TURU (2026-08-24) — VERDICT: RED, bir ORTA bloklayan + beş bulgu. HEPSİ KAPATILDI.
+>
+> **Kanıtıyla temiz bulunanlar:** R1/R2 **0** · R3 (`transactions` sabit, diff'te
+> UPDATE/DELETE yok) · **R4** (yeni INSERT `last_ctr`'ı adlandırmıyor → DEFAULT 0;
+> `status='unassigned'` doğduğu için `sys:tag-not-active` tap'i reddediyor) · **R5
+> şema tam** (çapraz-tenant `tags` **ve** `audit_log` INSERT'i ikisi de reddedildi;
+> iz satırının tenant'ı satırınkine `WITH CHECK` ile bağlı) · kuşak+kemer ayrımı
+> doğru · iki trigger **sekiz geçişle** sınandı · `Down` canlı DB'de koşuldu · §4.7
+> tip düzeyi · `sun.Wrap` AAD **ham uid** · **B4'ün üçüncü yönü ARANDI VE YOK**.
+>
+> 🔴 **BLOKLAYAN — ANAHTAR DUVARI, ÜÇÜNCÜ TASARIM: ŞEKİL TANIMA BIRAKILDI.**
+> Denetçi sevk edilen taramayı kaynaktan çıkarıp koşturdu ve **dört şekil daha**
+> **0 bulgu** verdi: `RETURNING *` · `RETURNING t.*` · `RETURNING tags.*, uid` ·
+> satır sonu yorumunda *"returning"* geçen bir yan tümce. **İki sebep:** bir
+> **YILDIZ sütun adını İÇERMEZ**, ve yorumdaki kelime indeksi gerçek yan tümcenin
+> ötesine taşıyor. Dördünü de yeniden ürettim.
+> 🔴 **`RETURNING *`'ın bedelini OKUYARAK değil `make gen` KOŞARAK ölçtüm — ve
+> denetçinin varsaydığından kötü:** sqlc yıldızı **on sütuna** açıyor, **bespoke satır
+> tipini hiç üretmiyor**, imza `(Tag, error)` oluyor ve gövde **`&i.AesKeyRef`**'i
+> tarıyor. Yani zarf **her plaket yüklemesinde** tele çıkıyor ve **paylaşılan bir
+> model tipinin `[]byte` alanına** iniyor. (Sonda geri alındı, geri alma **iki
+> dosyada `cmp` ile** doğrulandı.) ⚠️ **Tip duvarı bunu yakalamıyor:**
+> `TestPlaquesDB_NoTypeOnThisPathCanCarryAKey`'in kökleri yalnız `tenant.*`,
+> **`store.*` değil**.
+> 🔴 **ASIL DERS, VE DÜZELTME ONA GÖRE SEÇİLDİ:** iki ardışık denetim **YEDİ** şekil
+> üretti, hepsi aynı yönde, ve **yedisini de ORİJİNAL MUTLAK KURAL yakalıyordu**.
+> Bir tanıyıcı bitirilemez — yalnız bir sonraki denetime kadar yamanabilir. **Mutlak
+> kurala dönüldü**, eksik olan tek şey eklenerek: **EVET diyebilme yolu**.
+> `keyRefAllowedLines` — izin verilen **TAM METİN**, ve **yükleyicinin ADINA bağlı**.
+> Başka her satır, **hangi şekilde olursa olsun**, reddedilir.
+> **Yıldız sınıfı ayrı ve mutlak kapatıldı** (`count(*)` tek muafiyet, metin olarak;
+> ölçüldü: `tags.sql`'in **tek** yıldızları o üç toplam satırı). **Ve izin listesinin
+> KENDİSİ ratchet'lendi** — denetçinin *"görünür bir düzenleme"* savunması ölçüldü
+> (M26) ve **görünür bir düzenleme kırmızı bir test değildir**; artık listeyi
+> büyütmek ikinci, bilinçli bir düzenleme istiyor, ve liste **RETURNING** ya da
+> **yıldız** taşıyamaz. Negatif kontrol **9 → 17** must-report.
+>
+> **ORTA 1 — ADR'nin C/D reddi sevk edilen yolu ANMIYORDU.** Kendi ölçümüm, bugün
+> koşan gerçek testten: sevk edilen `INSERT … VALUES` de **aynı log'a, aynı zarfı,
+> iki kez** yazıyor (`bind` + `execute` DETAIL). Yani **C ve D'yi ayıran şey log
+> değil, ikinci niteleyicidir** (`tappa_app` onları kuramaz → onlar bizim
+> seçimimiz, `INSERT` ise zorunlu yol). ADR'ye yazıldı. ⚠️ Sınıflandırma
+> **geliştirme-yalnız**, ama `deploy/k8s/10-postgres.yaml`'in saydığı sızacak
+> sınıflarda **sarmalı plaket zarfı YOK**; aynı eksik T4/T32'de ve ADR 0005'te de
+> var. **T32'ye bu sınıfın eklenmesi orkestratörün işi** — backlog'a dokunulmadı.
+>
+> **ORTA 2 — KOMŞU ÇÜRÜTMESİ: aynı iki cümlenin BEŞ kopyası, ikisi ÜRETİM KAYNAĞI.**
+> `grep -rn "no INSERT" internal/` → **5 canlı isabet** (`plaque.go:14` ·
+> `plaques.go:27` · üç fixture gerekçesi), ve `plaque.go` ayrıca **YETKİ MODELİNİ**
+> yanlış öğretiyordu (*"an operator as tappa_owner"*). Beşi de yerinde geri çekildi;
+> hayatta kalan cümleler artık **kapsamlarını söylüyor** (*"bu paket"*, *"bu
+> dosyanın rotaları"*). Sweep sonrası `"tags.sql ships no INSERT"` → **3 isabet,
+> üçü de geri çekme bloğunun içinde**; *"loaded by an operator as tappa_owner"* →
+> **0**.
+>
+> **DÜŞÜK 1** — `ports_test.go` *"over-reports rather than under"* diyip **hemen
+> ardından bir under-report örneği veriyordu** — bu turun **büyük harfle
+> düzelttiği** kusurun komşu dosyada yeniden üremiş hâli. Ölçüldü: sqlc'nin
+> **adlandırılmış** parametre sözdizimiyle yazılan mutasyon
+> (`AND (@tenant_id::uuid IS NOT NULL)`) bu kontrolden de **geçiyor**. İddia
+> *"parametrenin KAYBOLMASINI yakalar, ETKİSİZLEŞTİRİLMESİNİ değil"* olarak
+> daraltıldı. **DÜŞÜK 2** — `audit.sql`'in *"bir plaketin geçmişi EN ÇOK ÜÇ
+> satır"*ı: sözlük **beşe** çıktı **ve** `plaque.encoded` **çağrı başına** bir satır
+> ekliyor, yani tavan **yok**; `plaqueHistoryLimit = 20`'nin gerekçesi de bununla
+> düştü — **yeni bir sayı konmadı**, çünkü eskiyen şey tam olarak bir tavandı.
+> **DÜŞÜK 3** — `rows.go`'nun *"encode başına iki satır"*ı **yeniden denemeyi
+> saymıyordu**; *"artı her yeniden denenen işaretleme için bir satır"* eklendi
+> (paketin kendi testi bunu zaten sürüyor).
+>
+> ⚠️ **Ve 00022'nin *"223 satır damgalı"* sayısı:** denetçi **73**, ben **79** ölçtüm
+> — **hareketli bir popülasyonun okuması**, üstelik Down/Up döngüsü sütunu düşürüp
+> geri getirdiği için. Sayı **kaldırıldı**; kalan şey **yön** (*"hiçbir zaman
+> sıfır değil"*) artı tarihli, ölçüm-anı etiketli bir parantez.
+>
+> **MUTASYON TABLOSU, 3. TUR — M25–M34, onunun onu kırmızı** (M25 önce **yeşildi**
+> ve yıldız kuralı eklenene kadar öyle kaldı; M26 önce **yeşildi** ve ratchet
+> eklenene kadar öyle kaldı).
+>
+> ---
+>
+> ### 🔴 ÜÇÜNCÜ ÜÇÜNCÜ-GÖZ TURU (2026-08-24) — VERDICT: RED, dört bloklayan + on bloklamayan. HEPSİ KAPATILDI.
+>
+> **Doğrulananlar:** ratchet iddiası **5/5 kırmızı** · sayılar tam · madde 16
+> doğrulandı · yayımlanan iki grep birebir üredi · **223 doğru silinmiş** ·
+> `internal/encode` hiçbir şeyden import edilmiyor · 00022 `Down` tam, üç trigger `O`.
+>
+> 🔴 **BLOKLAYAN 1 — SEKİZİNCİ KAÇIŞ DEĞİL, ÜÇ SINIF VE YEDİ YAZIM. VE ARGÜMAN
+> ÇÜRÜDÜ.** Denetçi sevk edilen yükleyiciye yedi şekil koydu, yedisi de **KAÇTI**;
+> altısını bağımsız yeniden ürettim (yedincisi Unicode escape). İki sebep: taramanın
+> sütun karşılaştırması **kasa duyarlıydı** (PostgreSQL tırnaksız tanımlayıcıları
+> **katlar**) — üstelik **üç satır yukarıdaki yıldız kuralı katlıyordu**, yani
+> tutarsızlık **tek fonksiyonun içindeydi**; ve **bir yıldız tek joker değil** —
+> `to_jsonb(tags)` · `row_to_json(tags)` · çıplak `tags` her sütunu döndürüyor,
+> **yıldızsız, sütun adsız**.
+> 🔴 **Ve bu, 3. tasarımın dayandığı cümleyi çürüttü:** *"mutlak kural yedisini de
+> yakalıyordu"* — **hayır**: tur 1'in mutlak kuralı da aynı kasa-duyarlı `Contains`'i
+> kullanıyordu ve bütün-satır fonksiyonu diye bir kavramı yoktu. **Mutlak kural da
+> hiçbir zaman tam değildi.**
+> 🔴 **KAPI ÜRETİLEN ESERE TAŞINDI — `cmd/tappa/storekeyshape_test.go`.** SQL metni
+> **sonsuz**, üretilen Go **sonlu ve bizim**. `make gen` ile ölçtüm (sondalar geri
+> alındı, geri almalar **`cmp` ile** doğrulandı): `AES_KEY_REF` → `AesKeyRef []byte` ·
+> `to_jsonb(tags)` → **`ToJsonb []byte`** (bütün satır, **adı hiçbir şey ele
+> vermeyen** bir alanda) · `RETURNING *` → bespoke tip **hiç üretilmiyor**, imza
+> `(Tag, error)`. **Üç kapı:** on `tags` satır tipinin **tam alan kümesi** pinlendi ·
+> `tags.sql.go`'daki hiçbir satır tipi **skaler olmayan** taşıyamaz · ve `tags`
+> tablosuna ulaşan `db/queries` dosyaları **adla** sayıldı.
+> ⚠️ **BU ÜÇÜNCÜ KAPI 5. TURDA SİLİNDİ ve *"N12'yi kapatıyor"* iddiası GERİ ÇEKİLDİ**
+> — iki sıradan yazımla (çift boşluk · virgüllü join) yeniliyordu. N12'yi kapatan şey
+> **eser kapısıdır**; bkz. aşağıdaki 4. üçüncü-göz turu bloğu.
+> **ÖLÇÜM — yedi şeklin yedisi de:** SQL taraması **7 YEŞİL**, şekil kapısı
+> **7 KIRMIZI**.
+> ⚠️ **SQL taraması SİLİNMEDİ** (farklı eser, ucuz, en olası yazımı yakalıyor) —
+> **kasa katlaması düzeltildi**, `/* name: */` biçimi eklendi, ve **iddiası
+> daraltıldı: artık "duvar" değil, "daha küçük yarı"**. Üç kasa şekli negatif
+> kontrole eklendi (**17 → 20 must-report**).
+>
+> 🔴 **BLOKLAYAN 2/3/4 — ÜÇÜ DE ÖRÜNTÜ 4, ve üçü de BU DEĞİŞİKLİK SETİNİN kendi
+> düzeltmelerinin komşusu.** `tags.sql:68` *"aes_key_ref IS IN NO COLUMN LIST
+> BELOW"* — **kendi dosyası 405 satır aşağıda çürütüyor**, ve **üç yorum onu otorite
+> gösteriyor**; *"RETURNING OR SELECT"* olarak daraltıldı. `plaque.go:47-49` §4.7
+> kapsam tablosu **terk edilen tasarımı** anlatıyordu (*"hiçbir sorgu seçmiyor"*,
+> *"kimsenin saymasına bağlı değil"*) — oysa duvar iki satıra **izin veriyor** ve
+> **üç ayrı sayıya bağlı**; yeniden yazıldı ve **üretilen-eser kapısı eklendi**.
+> `plaque.go:628` *"20 gerçek bir zincirin çok üstünde"* — **geri çekmesi `audit.sql`'e
+> yazılmış, cümlenin kendisi ellenmemişti**; geri çekildi, **yeni sayı konmadı**.
+>
+> **On bloklamayan da kapatıldı.** **N5** *"beş sevk edilmiş tag sorgusu"* → **on**;
+> sayı **kaldırıldı**. **N6** ADR'nin *"iki satır"*ı → *"artı her yeniden denenen
+> işaretleme için bir"* (düzeltme iki dosyaya yazılmış, **normatif kaynak
+> atlanmıştı**). **N7** başlığın *"the wall"*ı → **üç net, hiçbiri tek başına duvar
+> değil**. **N8** kartın 2. tur bloğu **şimdiki zamandaydı ve anlattığı mekanizmanın
+> hiçbiri kalmadı** → **tarihsel** işaretlendi + ileri işaretçi. **N9** üç kopya daha
+> daraltıldı. **N10** — 🔴 **ÖRÜNTÜ 2: `ports_test.go`'nun anti-vacuity döngüsü ÖLÜ
+> KODDU** (`want[q]=true` `!found`'dan hemen sonra kuruluyordu, **hiç ateşleyemezdi**)
+> — **bu turun yazdığı bir kontrol, bu turun yazdığı dersin ihlali**; silindi ve
+> yerine ateşleyebilen bir sayım kondu (M39b kırmızı). **N11** sqlc `/* name: */`
+> biçimini kabul ediyor → tarama artık ikisini de sayıyor. **N12** — ⚠️ *"kapatıldı"* denmişti, **5. turda GERİ ÇEKİLDİ** (bkz. 30 satır yukarısı); kapatan şey yerleşim kuralı değil **eser envanteridir**. Eski ifade:
+> (yerleşim kuralı). **N13** — **yayımladığım grep'ler satır sarmasını ölçüyordu**;
+> **sarma-duyarsız** komut kullanıldı ve gerçek sayılar yazıldı: *"ships no INSERT"*
+> **5 dosya** (hepsi geri çekme bloğu), *"operator as tappa_owner"* **5 dosya**
+> (üçü üretilmiş/rapor, ikisi geri çekme). **N14** dev log maruziyeti yeniden
+> ölçüldü: **40 dakikada 99 670 DETAIL satırı, 538 adet 88-hane zarf literali** —
+> dev-only, kayıtlı, açık.
+>
+> ⚠️ **Denetçinin üretemediği iki sayı, yeniden ölçüldü:** `internal/encode`
+> **146 vaka / 0 SKIP** (doğrulandı) · *"26 DETAIL satırı"* **yanlıştı** — o bir
+> pencereye özgü rakamdı; doğru ifade yukarıdaki gibi **pencere ve komutla birlikte**
+> yazılır.
+>
+> ---
+>
+> ### 🔴 DÖRDÜNCÜ ÜÇÜNCÜ-GÖZ TURU (2026-08-24) — VERDICT: RED, üç bloklayan + beş bloklamayan. HEPSİ KAPATILDI.
+>
+> **Denetçi kendi izole sqlc projesini kurup sevk edilen `tags.sql.go`'yu bayt bayt
+> yeniden üretti** (tek fark sürüm banner'ı), ve **iki ölçümü benim lehime yaptı:**
+> yedi yazımın **şekil pinini gerçekten kırmızıya çevirdiğini** doğruladı, ve **çıplak
+> `SELECT tags`'in uçtan uca kaçış OLMADIĞINI** ölçtü (sqlc reddediyor —
+> `column "tags" does not exist`), yani **yedinin biri Go'ya hiç ulaşmıyor**.
+>
+> 🔴 **BLOKLAYAN 1 — KAPI (b) İDDİASINI TUTMUYORDU, VE KAPATMAK İÇİN VAR OLDUĞU SINIF
+> DÖRT KAPIYI DA GEÇİYORDU.** Yorum *"konusunu ESERDEN türetir — `tags`'ten söz eden
+> her dosya, her dönüş tipi, her alan"* diyordu; gövde `tags.sql.go`'yu **sabit
+> kodluyor**, `Row` ile bitmeyeni **atlıyor**, ve **hiç SQL okumuyordu**. Sonuç
+> teorik değil: **TEK SÜTUNLUK bir projeksiyon HİÇ `Row` tipi üretmiyor** —
+> `SELECT to_jsonb(tags)` → `([]byte, error)`, ve `to_jsonb(tags)` **bütün satırdır,
+> `aes_key_ref` dahil**. Kendi ölçümümle üç biçimi de üretip **gerçek ağaca** koydum:
+> dört kapı da **yeşil**.
+> 🔴 **ÇÖZÜM — KONU GERÇEKTEN ESERDEN TÜRETİLDİ.** Yeni kapı **19 üretilmiş dosyanın
+> tamamını** okuyor, **107 sorgu metodunun İLK SONUCUNU** inceliyor (çıplak tip, dilim,
+> model, `Row` — hepsi), ve alanlarını yürüyor. **Dosya adı yok, `Row` son eki yok.**
+> 🔴 **VE KURAL `[]byte`, DARLIĞI ÖLÇÜLDÜ:** 107 metotta **70 skaler-olmayan alan**
+> var, **67'si** `pgtype.Numeric`/`Time`/`Date`/`[]netip.Prefix` (para, saat, IP
+> aralığı — hiçbiri anahtar taşıyamaz). **Tam ÜÇ `[]byte` alanı** var (üçü de policy
+> dokümanı) ve **SIFIR çıplak `[]byte` dönüşü**. Yani muafiyet listesi **üç satır ve
+> ölçülmüş**; 70 satırlık bir liste kimsenin okumadığı gürültü olurdu.
+> **ÖLÇÜM:** `to_jsonb(tags)` · `row_to_json(tags)` · başka dosyadaki virgüllü join —
+> **üçü de KIRMIZI**.
+> ⚠️ **VE BİR AŞIRI-İDDİAYI KENDİ SAATİMDE ÖLÇTÜM:** ilk taslak *"`(to_jsonb(tags))::text`
+> SQL taramasında yakalanır"* diyordu — **ölçüldü, YAKALANMIYORDU**. SQL taramasına
+> **aile düzeyinde** bir kural eklendi (fonksiyon adı saymadan): **tablo adını DEĞER
+> olarak geçen** her satır — `(tags)`, `(tags `, `(tags,`, `(tags.` — reddediliyor.
+> Bugünkü maliyeti **sıfır satır** (17 dosyada hiç eşleşme yok).
+> ⚠️ **VE *"ailenin dördü de kırmızı"* İDDİASI 6. TURDA İKİ KEZ DARALTILDI.** (1) M50
+> aslında **üç** ölçüm: kural devre dışıyken dördüncü üye `(tags).aes_key_ref` **eski
+> sütun-adı kuralıyla** kırmızı kalıyor, yani yeni kural için kanıt değil. (2) Kuralın
+> kendisi **mekanizmayı değil bare `tags` TOKEN'ını** sayıyor — `to_jsonb(g)` (alias,
+> ve bu dosyanın kendi okumaları zaten `FROM tags g` yazıyor), `to_jsonb ( tags )`
+> (iç boşluk), `to_jsonb(public.tags)`, ve satıra bölünmüş hâli **hepsi geçiyor**.
+> Kural **kaldı** (bedava, ve ilk yazılacak biçimi yakalıyor) ama **iddiası ölçtüğüne
+> indirildi**; bu sınıfı taşıyan şey artık **envanterdir**.
+>
+> 🔴 **BLOKLAYAN 2 — KAPI (c) İKİ SIRADAN YAZIMLA YENİLİYORDU** (`FROM  tags` çift
+> boşluk · `FROM employees e, tags g` virgüllü join), yani tur 2'nin dersinin **bu
+> turda yazılmış bir tarayıcıda** tekrarı. **Onarılmadı, SİLİNDİ** — dönüş tiplerine
+> bakan bir kapı sorgunun **hangi dosyada** olduğunu bilmek zorunda değil. Kartın
+> *"N12'yi kapatıyor"* iddiası **geri çekildi**: N12'yi kapatan şey **eser kapısıdır**,
+> yerleşim kuralı hiç kapatmadı.
+>
+> 🔴 **BLOKLAYAN 3 — ÖRÜNTÜ 2'NİN DÜZELTMESİNİN İÇİNDE ÖRÜNTÜ 2, ve bu ÜÇÜNCÜ örnek.**
+> N10 için koyduğum `reached++` / `if reached != len(want)` sayacı **yerini aldığı ölü
+> döngüyle AYNI ŞEKİLDİ**: `reached++` koşulsuz, hayatta kalmamanın tek yolu Goexit
+> yapan bir `Fatalf`. **Hiçbir girdi için ateşleyemezdi.** Kartın *"ateşleyebilen bir
+> sayım kondu"* cümlesi **yanlıştı**. **Satır silindi**, ve neden silinebilir olduğu
+> yazıldı: vacuity kontrolünün gerçek konusu **bir sorgunun kaybolmasıdır**, ve onu
+> zaten `!found` `Fatalf`'i yakalıyor (M44a kırmızı). ⚠️ **Bir anti-vacuity satırının
+> tek ölçütü:** *ateşletecek bir girdi var mı?* Yoksa **satır yoktur**.
+>
+> **Beş bloklamayan.** **N1** — kartın *"iki kol da yük taşıyor"* okuması
+> **denetçinin daha dar okumasıyla değiştirildi**: (b)'nin gerçek değeri (a)'nın kaçış
+> kapısını sessiz olmaktan çıkarmaktı; **gerçekten pinlenmemiş vaka ikisini de
+> geçiyordu** — bu yüzden (b) yeniden yazıldı. **N2** taban `< 15` iken mesaj
+> *"on dokuz"* diyordu → **`!= 19`**, dört dosyalık sessiz gevşeklik kaldırıldı
+> (M47 kırmızı). **N3** taban `< 8` iken mesaj *"on"* diyordu → **`!= 10`**
+> (M44b kırmızı: bir sorgu silinince ateşliyor; **yeniden adlandırma** onun konusu
+> değil, ve bu ayrım artık yazılı). **N4** — yayımlanan `grep` yayımlanan sonucu
+> **üretmiyordu** (*"INSERT parametresi ve başka hiçbir şey"* → gerçek **11 isabet**,
+> 5'i yorum); **kendi ağacımda koştum ve çıktısını yorumun içine koydum** — altı
+> yorum-olmayan satır, **tam biri ifade**. 🔴 Bu, iki tur önce **iki dosya ötede**
+> düzelttiğim N13'ün aynısı. **N5** — özet `Logf` **başarısızlığın yanında**
+> basıyordu; `t.Failed()` ile korumalı (M52 kırmızı).
+>
+> ⚠️ **Denetçinin settle edemedikleri, benim tarafımdan:** N14'ün log penceresi
+> **yeniden ölçülmedi** (aynı 40 dk'lık pencere gerekiyor) — **doğrulanmadı,
+> çürütülmedi**, ve rakam **pencere ve komutla birlikte** yazılı olduğu için öyle
+> kalıyor. Ratchet rakamları **bağımsız yeniden türetildi** ve bu raporda çıktısıyla
+> duruyor.
+>
+> ---
+>
+> ### 🔴 BEŞİNCİ ÜÇÜNCÜ-GÖZ TURU (2026-08-24) — VERDICT: RED, dört bloklayan + sekiz bloklamayan. HEPSİ KAPATILDI.
+>
+> **Denetçi sqlc v1.28.0'ı repo dışında kurup `internal/store`'u bayt bayt yeniden
+> üretti**, 107/19/3/0/70/67'yi bağımsız türetti, negatif kontrolü elle saydı, ve
+> **yenemediği yedi şekli de yazdı**.
+>
+> 🔴 **DÖRT BLOKLAYAN, VE HEPSİ AYNI KÖKTEN.** *(1)* **`[][]byte`** — `:many` bir
+> bütün-satır dökümü (`SELECT to_jsonb(tags)` bir tenant üzerinde, ki bu o sorgunun
+> **doğal** biçimidir) hiçbir `[]byte` desenine uymuyordu; **iki duvar da yeşildi**.
+> *(2)* SQL taramasının bütün-satır kuralı **mekanizmayı değil bare `tags` token'ını**
+> sayıyordu — alias · iç boşluk · `public.` · satır bölme, **dördü de** geçiyordu, ve
+> **iç boşluk hâli tur-2'nin dersinin, o dersi cevaplamak için yazılmış kuralın
+> içinde** tekrarıydı. *(3)* Muafiyetler **tip.alan ADINA** bağlıydı: var olan bir
+> sorguyu `tags`'e yöneltmek anahtarı **aklıyordu**. *(4)* **`sqlc.yaml` `overrides`
+> tek satırla** (`bytea → json.RawMessage`) bütün duvarı susturuyordu.
+>
+> 🔴 **YÖN UYGULANDI: TİP SINIFLANDIRMA BIRAKILDI, ESER ENVANTERLENDİ.** Beş turda beş
+> tasarım, beşinde de kaçış — çünkü hepsi *"bir sızıntı NASIL GÖRÜNÜR"* sorusunu
+> cevaplıyordu ve o soru **sonsuz**. **Eser sonlu: 112 metot, 19 dosya.**
+> `storeSurface` artık **112 imzayı birebir** pinliyor — ad + **parametre tipleri** +
+> **dönüş tipleri**, ve **her struct alanlarına AÇILMIŞ** hâlde. Bu, deponun üç kez
+> kullanıp üç kez terminate ettiği şekildir (`retireCallSites` · `deadlineWriters` ·
+> `sessionFields` · sabit-zaman envanteri): ölçüt *"tehlikeli mi"* değil,
+> ***"envanterde mi"***.
+> **ÖLÇÜM:** `[][]byte` **RED** · `overrides` **RED** (parametreler de açıldığı için —
+> ilk deneme yeşildi, çünkü yalnız sonuçları açıyordum, ve bunu **kendi sondamda
+> yakaladım**) · var olan sorgunun `tags`'e yönelmesi **RED**.
+> 🔴 **Ve bloklayan 3'ün imza-korumalı hâli için AYRI bir kapı:** `[]byte` taşıyan her
+> sonuç, **SQL'ine bağlandı** — liste **türetiliyor**, elle yazılmıyor. Alan kümesi
+> korunarak `tags`'e yöneltme (M57) **kırmızı**.
+> ⚠️ **Silinen iki kapı:** tags satır-şekli pini (envanter onu **içeriyor**; bir
+> komşuyu tekrarlayan kontrol, komşunun okunmamasının yoludur) ve daha önce silinen
+> yerleşim kuralı.
+> ⚠️ **SQL taraması korundu ama İDDİASI ÖLÇÜLDÜĞÜNE İNDİRİLDİ:** *"mekanizmayı
+> yakalar"* değil, **"bare `tags` token'ını bir satırda yakalar"**.
+>
+> **Sekiz bloklamayan.** **N-A5-1** — 🔴 **örüntü 2'nin üçüncü örneği, onu iki kez
+> düzelten dosyanın içinde**: taban `< 100` iken mesaj *"yüz yedi"* diyordu; envanter
+> tabanı artık **birebir eşitlik** ve **iki yönden** sınandı (M53 silme · M54 ekleme).
+> **N-A5-2** — `noteprovenance_test.go`'nun aynı sınıftaki gevşek tabanı **kapsam
+> dışı**, kaydedildi. **N-A5-3** — `plaque.go`'nun kapsam tablosu bu turun **kendi**
+> düzeltmelerinden önceki sayıları anlatıyordu (*"sekiz ifadelik taban"*, *"yedisini
+> kaçırıyor"*); güncellendi, ve **hayatta kalan sayısı artık VERİLMİYOR** — ağaç
+> altından kaydığı için. **N-A5-4** — başlık **silinmiş** kapının özelliğini
+> (*"non-scalar"*, *"tags üstünde"*) iddia ediyordu; envanterin gerçekten kanıtladığına
+> indirildi. **N-A5-5** — M50 dört değil **üç** ölçüm; dördüncü üye **eski** kuralla
+> kırmızı kalıyor, kaydedildi. **N-A5-6** — 🔴 **kapsam sapması: `%93,8`
+> `MarkEncoded`'ın SATIR-İÇİ rakamıydı; paket toplamı `%93,3`.** `go tool cover -func`
+> ile yeniden ölçtüm ve doğruladım — **örüntü 1**. **N-A5-7** — kartın `N12 kapatıldı`
+> satırı **yerinde** nitelendi. **N-A5-8** — 🔴 **ve aynı kusuru bu turda TEKRAR
+> yaptım:** yeni kapının mesajı *"yalnız ÜÇ `[]byte` alanı var"* diyordu; ölçüm
+> **BEŞ METOT** (üç alan, ama `Transaction`'ı **üç** okuyucu döndürüyor). Sayı artık
+> yürüyüşün çıktısı (M58 kırmızı).
+>
+> ---
+>
+> ### 🔴 İKİNCİ GÜVENLİK DENETİMİ (2026-08-24) — VERDICT: RED, iki YÜKSEK + iki ORTA. SINIF **VERİTABANINDA** KAPATILDI.
+>
+> 🔴 **YÜKSEK 1 — *"ölçüt ENVANTERDE Mİ"* İDDİASI ÇÜRÜDÜ: BİR SIZINTI ŞEKİL
+> DEĞİŞTİRMEK ZORUNDA DEĞİL.** Tek satır, yeni sorgu/alan/tip **yok** —
+> `GetTagForTenant`'ın SELECT listesinde `g.status` → `to_jsonb(g)::text AS status`.
+> Kendi ölçümüm: üretilen `GetTagForTenantRow` **sevk edilenle BİREBİR AYNI**
+> (`Status` zaten `string`), ve **dört kapı da YEŞİL** (envanter *"112 inventoried and
+> matched"* · `[]byte` bağlama kapısı hiç bakmıyor · metin duvarı ad/yıldız görmüyor ·
+> `redline-check` exit 0). Değer `tenant.Plaque.Status` üzerinden **plaket kartına**
+> gidiyor; **tip duvarı yapısal olarak kör**.
+>
+> 🔴 **YÜKSEK 2 — `[]byte` bağlama kapısının tokenizasyonu doğrudan `tags` okumasını
+> kaçırıyor** (tırnaklı `"tags"` · virgüllü join), ve kapı **yanlış cümleyi kanıt diye
+> basıyordu** (*"none reads tags"* — bilmediği bir şey).
+>
+> 🔴 **KARAR (orkestratör): SINIFI AYRICALIK KATMANINDA KAPAT — UYGULANDI.** `00022`'ye
+> `REVOKE SELECT ON tags FROM tappa_app` + **dokuz anahtar-dışı sütun** için
+> `GRANT SELECT`. **Gerekçe altı turun dersidir:** statik tarama *"bir sızıntı nasıl
+> görünür"* sorusunu cevaplıyor ve o soru **sonsuz**; ayrıcalık sistemi o soruyu **hiç
+> sormuyor** — sütun okunamıyorsa hangi ifadeyle denendiği **önemsiz**. §4.5'in
+> kuşak+kemer kalıbı, §4.7'ye uygulanmış hâli.
+>
+> **KENDİ ÖLÇÜMÜM** (her biri ayrı `BEGIN … ROLLBACK`, `tappa_app`, tenant bağlamıyla):
+> `octet_length(aes_key_ref)` · `to_jsonb(g)::text` **(YÜKSEK-1'in mekanizması)** ·
+> `row_to_json(g)` · `SELECT *` · tırnaklı `"tags"` alt-sorgusu **(YÜKSEK-2a)** →
+> **beşi de `permission denied for table tags`**. Sevk edilen panel okuması · INSERT ·
+> `UPDATE … RETURNING` · `FOR UPDATE` satır kilidi → **dördü de OK**.
+> 🔴 **VE YÜKSEK-1'İN MUTASYONU YENİ AYRICALIK ALTINDA KOŞULDU:** iki statik kapı
+> **hâlâ YEŞİL**, ve **kırmızıya çeviren katman AYRICALIK** —
+> `ERROR: permission denied for table tags (SQLSTATE 42501)`, hem
+> `internal/domain/tenant` hem `internal/handler` panel yolunda.
+>
+> ⚠️ **TAP YOLU ETKİLENMİYOR, ölçüldü:** `resolve_tag_by_uid` **`SECURITY DEFINER`**,
+> sahibi `tappa_resolver` (`prosecdef=t`) — definer fonksiyon **sahibinin** yetkisiyle
+> koşar. `tappa_owner`'ın okuması da korunuyor (rotatekek runbook'u ona bağlı).
+>
+> 🔴 **BEDEL — ÖLÇÜLDÜ VE SIFIR DEĞİL: ağaçta ÜÇ assertion taşındı.**
+> `internal/encode/rows_db_test.go` (iki) ve `internal/handler/seedflow_db_test.go`
+> ve `internal/db/encodedat_test.go` (birer) — hepsi zarfı **uygulama rolüyle** okuyup
+> `42501` alıyordu. Üçü de **`tappa_owner`'a** taşındı (paketin kendi
+> `ownerPoolForTest` / `DATABASE_MIGRATE_URL` kalıbıyla, ve **`Skip` ile**, sessiz
+> geri-düşüş **yok**). **Hiçbir ÜRÜN yolu değişmedi** — kırılan tek şey, zarfı
+> okuyabildiğini varsayan testlerdi, ki bu **değişikliğin işe yaradığının kanıtıdır**.
+>
+> ⚠️ **ÜÇ TARAMA KAPISININ İDDİASI KÜÇÜLTÜLDÜ** ve YÜKSEK-1/2'nin kaçışları
+> **açıkça sayıldı**: taşıyıcı olan **ayrıcalıktır**, envanter ve metin duvarı
+> **derinlemesine savunmadır**. Yanlış kanıt cümlesi düzeltildi. İki komşu iddia
+> (`plaqueview.go`, `plaques.go` — *"üretilen dönüş şekillerine karşı doğrulanmış"*)
+> **çürütüldü ve yerinde düzeltildi**.
+>
+> **ORTA 2 — dev log'u, KENDİ pencerem:** bir `go test -count=1 ./internal/encode/`
+> koşusu → **1945 log satırı, 26 adet 88-hane zarf literali, 12 AYRIK zarf**
+> (denetçinin penceresiyle birebir aynı). `deploy/k8s/10-postgres.yaml`'in sızıntı
+> sınıfı listesine **sarmalı plaket zarfı eklendi** — o listeyi çürüten şey **tam da bu
+> değişiklik setiydi**. **DEV-ONLY** (üretim `args: []`), ama `json-file` sürücüsünde
+> **`max-size` yok** → birikim sınırsız.
+>
+> 🔴 **T16 / T7 YENİDEN DEĞERLENDİRME (backlog'a dokunulmadı):** T16'nın **SELECT
+> yarısı KAPANDI** — `tappa_app` zarfı **okuyamıyor**. **INSERT yarısı açık kalıyor**
+> ve **kapatılamaz** (§3.1: satırı `tappa_app` yazmak zorunda; `aes_key_ref` `NOT NULL`,
+> DEFAULT'suz). Yani T16'nın kalan hâli artık dar ve adlandırılabilir: *"tablo geneli
+> INSERT, sahte ama 44 baytlık bir zarf yazabilir"* — ve **okunamayacağı için** ne
+> ekrana ne log'a taşınır; bedeli o plakete gelen tap'in **500** vermesidir. **T7**'nin
+> şema yarısı 00021'de kapanmıştı; kalan *"44 bayt bir ŞEKİLDİR, kanıt değil"* sınırı
+> **aynen duruyor**.
+>
+> ---
+>
+> ### 🔴 ALTINCI ÜÇÜNCÜ-GÖZ TURU (2026-08-24) — VERDICT: RED, bir bloklayan. **DUVARIN ŞEKLİ DÜZELTİLDİ.**
+>
+> **Denetçi ayrıcalığı ON BİR şekilde yenmeye çalıştı ve ONU TUTTU** (doğrudan sütun ·
+> `to_jsonb` · `row_to_json` · `SELECT *` · `octet_length` · tırnaklı korelasyonlu alt
+> sorgu · `COPY … TO STDOUT` · `CREATE VIEW` · `SET ROLE tappa_resolver` ·
+> `pg_read_server_files` · `pg_stat_statements`), ve `pg_temp` definer'ının **kazanç
+> vermediğini** ölçtü. **Ayrıcalık kararı doğruydu ve işini yapıyor.**
+>
+> 🔴 **BLOKLAYAN — ALTINCI KAÇIŞ, VE O SEVK EDİLMİŞ OLAN.** `resolve_tag_by_uid`
+> (`SECURITY DEFINER`, sahibi `tappa_resolver` **BYPASSRLS**, dönüş tipi
+> `aes_key_ref` **içeriyor**, `proacl`'de `tappa_app=X`). Kendi ölçümüm, ayrıcalık
+> yürürlükteyken, `aes_key_ref` **hiç yazılmadan**:
+> `(SELECT to_jsonb(r)::text FROM resolve_tag_by_uid(g.uid) r LIMIT 1) AS status`
+> → **44 baytlık zarf döndü**, satır tipi **BYTE-IDENTICAL**, dört kapı da **yeşil**.
+> **CTE biçimi de** — kapının **kendi adlandırdığı** şekil — geçti.
+> 🔴 **Ve tenant çaprazı:** definer sahibi BYPASSRLS olduğu için bir tenant'ın
+> bağlantısı **başkasının zarfını** okudu — **§4.5**, §4.7'nin yanında.
+>
+> 🔴 **VE BU KAPI KAPATILAMAZ, ÇÜNKÜ TAP YOLU ONU GEREKTİRİYOR.** Tap SUN'ı
+> doğrulamak için zarfı **almak zorunda** ve **tenant bağlamı olmadan** gelir —
+> ADR 0002 md. 7'nin resolver'ı tam bunun için var. **Yani *"uygulama rolü anahtarı
+> okuyamaz"* CÜMLESİ HİÇBİR ZAMAN DOĞRU OLAMAZ**, ve 00022'nin ilk taslağı onu
+> yazmıştı. **Duvarın gerçek şekli:**
+>
+> > **her DOĞRUDAN ifade ayrıcalıkla reddedilir · anahtar TAM OLARAK BİR adlandırılmış
+> > yoldan okunur · ve o yol ENVANTERLİDİR.**
+>
+> **Envanter iki kollu** (`cmd/tappa/storekeyshape_test.go`): *(a)* **hiçbir sqlc
+> sorgusu bir `resolve_*` fonksiyonu adlandıramaz** — bugün **0 ihlal**, 17 dosya,
+> **111 adlandırılmış sorgu**, ve `db/queries/resolve.sql`'in **sıfır** sorgusu var
+> (o bir belge dosyası), yani **muafiyet gerekmiyor**; *(b)* ham SQL'i taşıyan
+> **üretim dosyaları `go/ast` ile envanterli** — bugün **tam bir tanesi**,
+> `internal/db/resolve.go`, **altı resolver'la**.
+> **M78b–M81b: dördü de kırmızı** (alt sorgu · CTE · **ikinci çağıran** · envanterli
+> çağıranın resolver'ı kaybetmesi) — **ekleme ve silme, iki yön**.
+>
+> **Çürütülen altı cümle yerinde küçültüldü:** 00022'nin *"THE PRIVILEGE SYSTEM DOES
+> NOT ASK THAT QUESTION"*u (artık **DOĞRUDAN** ifade için) · *"a FUTURE definer"*
+> (kaçış **MEVCUT** olanda) · `plaqueview.go`'nun *"any way at all"*ı ·
+> `plaques.go` · iki kapı yorumu — ve **CTE tahmini ölçüldü ve YANLIŞ çıktı**
+> (*"result type değişir ve buraya düşer"* — düşmüyor).
+>
+> **Beş bloklamayan.** **B1** — 🔴 *"loudly"* **ölçüldü ve YANLIŞ**: `DATABASE_MIGRATE_URL`
+> yokken çıktı yalnız `ok`, 19 test **sessizce** atlanıyor. İki cümle de düzeltildi;
+> hacmi veren şey **`require-db-env`**, helper değil. **B2** — ADR 0017'nin
+> *"ölçüldü"* yetki tablosunda **`SELECT` satırı yoktu** ve kanıt olarak 00004'ün artık
+> **yarısı düşmüş** GRANT'ını gösteriyordu; satır eklendi, `relacl` bugün
+> **`tappa_app=a`** (ölçüldü). **Örüntü 4, benim çürüttüğüm komşu.** **B3** — T16'nın
+> *"dokuz sütunun dokuzu"*su artık **onun onu** (`encoded_at`'ten sonra) ve SELECT
+> yarısının kapandığı yazılı değil — **backlog orkestratörün**, yalnız raporda.
+> **B4** — 🔴 **farkında olmadan KAZANILAN bir şey**: `CHECK` ihlalinin `DETAIL`
+> satırı (00021 Part 2'nin ölçtüğü kanal) `tappa_app` için **artık hiç basılmıyor**
+> — ölçtüm: owner'da tuple **var**, app'te **DETAIL satırı YOK**. 00022'ye yazıldı.
+> **B5** — panelin *"ekrana ulaşmaz"* testi **sahte veriyle** koşuyor, yani yalnız
+> *"şablon bir şey eklemiyor"*u kanıtlayabilir; `plaques.go` onu **taşıyıcı sanıyordu**.
+>
+> ⚠️ **Sayılan, kapatılmayan:** tenant çaprazı — ADR 0002 md. 7 resolver'ı bilerek
+> BYPASSRLS yapıyor ama bu karar **çözümleme yolu** içindir; bir **panel** sorgusunun
+> onu çağırması o kapsamın **dışındadır** ve bugün onu tutan tek şey **envanterdir**.
+> `pgtype` sarmalayıcı ve çok-sonuçlu `(A,B,error)` **hâlâ ölçülmedi**.
+>
+> ---
+>
+> ### 🔴 YEDİNCİ ÜÇÜNCÜ-GÖZ TURU (2026-08-24) — VERDICT: RED, üç bloklayan. **KAPATMA BIRAKILDI, SAYILDI.**
+>
+> 🔴 **BLOKLAYAN 1/2 — ENVANTERİN İKİ KOLU DA METİN EŞLEŞTİRMESİ VE İKİSİ DE YENİLİYOR.**
+> Kendi sondamla ikisini de uçtan uca ürettim: **(a)** `U&"\0072esolve_tag_by_uid"` —
+> `make sqlc` **kabul ediyor**, satır tipi **bayt-bayt aynı**, **iki kol da PASS**, ve
+> kapı bir definer çağrısı **duran satır için** *"0 definer calls"* basıyor — ki bu
+> **dosyanın kendi ilan ettiği anti-kalıp**, ve **tur 4'ün SÜTUN adında yenilen
+> numarasının aynısı**. **(b)** bölünmüş dize literali yeni bir Go dosyasında —
+> `go build` ve `redline-check` **ikisi de geçiyor**.
+> 🔴 **KARAR UYGULANDI: KAPI YAZILMADI, CÜMLE YAZILDI.** Ayrıcalık **kalıyor** (gerçek,
+> ölçülmüş kazanç: **00022'nin kendi payı SEKİZ** — on birin ikisi başka ayrıcalıklardan
+> reddediliyor, biri de dönüyor); iki envanter kolu **kalıyor** ama **iddiaları
+> düştü** — artık *"düz yazımı yakalarlar, 'tam olarak bir yol' cümlesini
+> UYGULAMAZLAR"* diyorlar, ve **üç kaçış adıyla sayılı** (kol 2'nin sayılmış limiti
+> **hiç yoktu**, eklendi). **Duvarın cümlesi ÜÇÜNCÜ kez düzeltildi — bu sefer SAYARAK**,
+> ve dört yerde birden (00022 · kapı başlığı · iki handler dosyası).
+> **Devir listesi 16 → 17.** `agent-brief.md` durma kuralı 2 adıyla uygulandı.
+>
+> 🔴 **BLOKLAYAN 3 — `DETAIL` BASTIRMASININ MEKANİZMASI YANLIŞTI, VE ZATEN ÜRETİM
+> GEREKÇESİ ÜRETMİŞTİ.** İki rollü ölçüm üreniyor, **ama sebep REVOKE değil**: kontrolü
+> kendim koştum — `employees`'te `tappa_app` **tam tablo SELECT** tutuyor ve **yine
+> `DETAIL` almıyor**; ayıran şey **rol** (`tappa_owner` super/bypassrls, `tappa_app`
+> değil → RLS aktifken Postgres tanımı **hiç kurmuyor**). **REVOKE o kanala hiçbir şey
+> katmıyor**, ve kanal **00022'den önce üç kez sayılmıştı** (00018 · 00019 · ADR 0015,
+> üçü de **uygulanmış**, dokunulmadı). **Dört yer düzeltildi** — 00022'nin başlığı ·
+> `rows.go`'nun **üretim guard gerekçesi** (guard **kalıyor**, ama ayakta kalan
+> sebeplerle: hızlı yerel hata, işlem açmadan, ve kanal **`tappa_owner` için gerçek**) ·
+> `ports_test.go` · `encodedat_test.go`.
+>
+> **Beş bloklamayan.** **N-1** dört yerin dördü de yukarıda. **N-2** — 🔴 **kendi
+> standardımın ihlali, aynı dosyada aynı turda**: taban `< 100` iken ölçüm **111**;
+> **`!= 111`** yapıldı (M82b silme · M83b ekleme · **M86** eski gevşek tabanın bir
+> silmeyi gizlediğini gösteriyor). **N-3** kol 2'nin sayılmış limiti yazıldı.
+> **N-4** — ⚠️ **BU KAYIT AÇIĞI OLDUĞUNDAN BÜYÜK GÖSTERİYORDU, DÜZELTİLDİ
+> (2026-08-24).** *"ADR 0002 md. 7 beş sayıyor, ağaç altı sevk ediyor"* denmişti; ölçüm:
+> **ADR altıncıyı ZATEN KAYDEDİYOR** — `0002-*.md`'de tarihli bir güncelleme bloğu
+> (*"beşten altıya çıktı: `resolve_password_reset_by_token_hash`, 00019"*). Bayat olan
+> yalnız **md. 7'nin gövde cümlesi ve parantezi**, ve o **kapsam dışı**. ✅ Ve md. 7'nin
+> BYPASSRLS'i **çözümleme yoluna** kapsamlandırdığı doğrulandı. **N-5** — kapsam
+> **`go tool cover -func … | grep total`** ile ölçüldü: **paket toplamı %93,3**
+> (denetçinin %93,8'i yine **fonksiyon-içi** rakam; bu sayı bu görevde **üçüncü kez**
+> karıştı ve komut artık raporda).
+>
+> ---
+>
+> ### 🔴 SEKİZİNCİ ÜÇÜNCÜ-GÖZ TURU (2026-08-24) — VERDICT: RED, dört bloklayan. **SAYIMIN KENDİSİ DÜZELTİLDİ.**
+>
+> **Denetçi iddiayı GÜÇLENDİRDİ:** *"her DOĞRUDAN ifade reddedilir"*i listedeki onun
+> **dışında 21 ek şekille** sınadı (`ONLY tags` · `g.*` · `json_agg` ·
+> `INSERT/UPDATE/MERGE … RETURNING` · `DECLARE CURSOR` · LATERAL · `md5(key::text)` ·
+> `COPY TO PROGRAM` …) — **hepsi reddedildi**. Kapalı damgalı üç maddenin (2/4/5)
+> **gerçekten sevk edildiğini** de doğruladı.
+>
+> 🔴 **BLOKLAYAN 1 — `plaque.go` SİLİNMİŞ bir kapıyı canlı anlatıyordu, ve metni BU
+> TUR EKLEMİŞTİ.** Ölçüldü: `grep -rn tagsRowShapes` → **sıfır `var`**, yalnız iki
+> öksüz yorum başlığı (ikisi de silindi). Paragraf, komşu dosyanın **aynı değişiklik
+> setinde** *"DELETED AS REDUNDANT"* dediği kapıyı **kelimesi kelimesine** tarif
+> ediyordu. Yeniden yazıldı: `storeSurface` (112 imza) + `[]byte` kolu, **ve taşıyıcı
+> olanın ayrıcalık olduğu**.
+>
+> 🔴 **BLOKLAYAN 2 — *"MEKANİK HİÇBİR ŞEY YOK"* ÖLÇÜMLE YANLIŞTI.** Kendi sondamla
+> ürettim: ayrı bir role `GRANT EXECUTE` + `tappa_app`'ten `REVOKE` →
+> `ERROR: permission denied for function resolve_tag_by_uid`; `proacl` öncesi/sonrası
+> **birebir aynı**. **Mekanizma VAR, ALINMADI.** Dört yerde de düzeltildi:
+> *"bugün yürürlükte bir mekanizma yok; mevcut olan **ayrı çözümleme rolüdür** ve
+> **alınmadı**, bedeli **ikinci bir havuz**"* — ve **uygulanmadı**, çünkü B2c-2b'nin
+> havuz tasarımına değen bir **mimari karar**. ⚠️ `pool.go`'nun `roleRefusal`'ı
+> `Privileged()` dışında **hiçbir rolü reddetmiyor** (ölçüldü), yani böyle bir rol
+> açılışta **fark edilmez**. 🔴 **Ders:** *"kapatılamaz"* (doğru) ile *"mekanik hiçbir
+> şey yok"* (yanlış) aynı nefeste yazılmıştı — ve ikincisi **operatörü aramayı
+> bıraktırır**.
+>
+> 🔴 **BLOKLAYAN 3 — DÖRDÜNCÜ KAÇIŞ, VE HİÇ KAÇAMAK GEREKTİRMİYOR.** `resolverCallSites`
+> **boyut ratchet'i olmadan** sevk edilmişti — oysa **aynı görevin 3. turu**
+> `keyRefAllowedLines`'ı **tam bu sebeple** ratchet'lemişti (M26). Üretildi: yeni bir
+> üretim çağıranı + envantere **tek satır** → iki kol da geçiyor ve kapı **"2 file(s)
+> … all inventoried"** diye **onaylıyor**. Ratchet eklendi. **Eşleştirilmiş ölçüm:
+> M82 (ratchet açık) KIRMIZI · M83 (ratchet kapalı, aynı ihlal) YEŞİL** — yani
+> yakalayan **tek şey** o. Dördüncü kaçış sayıma eklendi.
+>
+> 🔴 **BLOKLAYAN 4 — DEVİR LİSTESİ KENDİ İÇİNDE ÇELİŞİYORDU VE md. 17'Yİ ÖZETTEN
+> DÜŞÜRMÜŞTÜ.** Başlık *"hiçbiri kapatılmadı"* diyordu, oysa **2/4/5 ✅ KAPANDI**
+> damgalı; ve *"kapanmayan ve adıyla devredilen"* özeti **13 madde** sayıyordu,
+> **md. 17 yoktu** — yani **turun tüm ürünü olan sayılmış açık**, bir sonraki oturumun
+> okuyacağı özetten **düşmüştü**. İkisi de düzeltildi. **Liste 17 → 19:** md. **18**
+> (`internal/encode` hiçbir yerden import edilmiyor → üretimde akış YOK; B2c-2b'nin
+> ilk işi) ve md. **19** (envanter ratchet'i + dördüncü kaçış).
+> 🔴 **Ve bu turun kuralı budur:** bir sayım yanlışsa, *"sayılmış açık kapatıldığı
+> iddia edilenden güvenlidir"* **kuralının kendisi geçersizdir**.
+>
+> **Dört bloklamayan.** **b1** — *"reached only by `internal/sun`"* **ölçümle eksik**:
+> `GetTagByUID`'i **İKİ** üretim paketi çağırıyor (`internal/sun/preview.go` **ve**
+> `internal/domain/checkin/checkin.go`) ve dönen `db.ResolvedTag` **`AESKeyRef []byte`
+> taşıyor**; dört yerde düzeltildi (`tags.sql`'in *"and nowhere else"*i dahil, ve o
+> **"hiçbir sqlc sorgusu okumaz"** olarak daraltıldı). **b2** — mutasyon kimlikleri
+> **çakışıyordu** (`M64`–`M68` kartta **iki kez**); 7.–9. turlarınkiler **M78b–M86**'ya
+> ayrıldı ve **md. 12'nin işaretçisi** düzeltildi. **b3** — N-4 kaydı açığı olduğundan
+> **büyük** gösteriyordu: ADR 0002 altıncı resolver'ı **zaten kaydediyor**; bayat olan
+> yalnız md. 7'nin gövde cümlesi. **b4** — *"on bir"* **iki farklı küme**ydi ve **onun
+> ikisi 00022 ile ilgisiz** ayrıcalıklardan reddediliyor (`CREATE VIEW` → şema,
+> `SET ROLE` → rol); **00022'nin kendi payı: sekiz**. Hepsi yazıldı.
+>
+> ---
+>
+> ### 🔴 DOKUZUNCU ÜÇÜNCÜ-GÖZ TURU (2026-08-24) — VERDICT: RED, üç bloklayan. **KAYDIN DOĞRULUĞU.**
+>
+> **Denetçi 19 maddenin 19'unu tek tek geçti ve listede OLMASI GEREKİP OLMAYAN bir şey
+> BULAMADI.** md. 17'nin gövdesini **dokuz YENİ doğrudan şekille** sınadı — hepsi
+> `permission denied` — definer'ın hâlâ **194 karakterlik JSON** döndürdüğünü ve tenant
+> sınırının **gerçekten aşıldığını** ölçtü, ve **M82/M83'ü kendi üretim dosyasıyla
+> bağımsız eşleştirdi**.
+>
+> 🔴 **BLOKLAYAN 1 — *"ten of eleven"* DÜZELTMESİ YALNIZ KARTA YAZILMIŞTI.** Kod ve
+> migration **hâlâ** *"TEN OF ELEVEN … refused by PRIVILEGE (migration 00022)"*
+> diyordu, ve 10. turda **"Hepsi yazıldı"** demiştim — **ölçümle yanlış (örüntü 3)**.
+> Ölçüldü: `CREATE VIEW` → `permission denied for SCHEMA public`, `SET ROLE` →
+> `permission denied to SET ROLE`; ikisi de **bu REVOKE'un ÜRETMEDİĞİ** retler.
+> **00022'nin kendi payı SEKİZ.** Üç kopyanın üçü de düzeltildi (`grep` ile: canlı
+> kopya **1**, o da geri çekmenin kendi alıntısı). 🔴 **Ders:** bir sayı **kaç kopyada
+> yaşıyorsa o kadar yerde düzeltilir** — bu görevin en çok tekrarlanan dersi.
+>
+> 🔴 **BLOKLAYAN 2 — SAYILMIŞ BİR AÇIK MEVCUT DEĞİLDİ, VE BU BİR KAZANÇ.**
+> `ports_test.go` *"inert-parametre mutasyonu tüm suite'i yeşil bırakır"* diyordu.
+> Kendi ölçümüm: `internal/encode` **GREEN**, ama `internal/domain/tenant` **RED** —
+> `TestTagsQueries_CarryAnExplicitTenantPredicate` **tam olarak** `tags.sql`'i okuyor,
+> **`MarkTagEncoded`'ı adıyla** sayıyor, *"üst düzey bir VE'de bağlamıyor"* diyor.
+> **Ağaç yakalıyor.** 🔴 Ve komşu paragraf *"neden zaten parse etmiyoruz"* diye
+> **ZATEN KOŞAN** bir parser'a karşı argüman kuruyordu — **silindi**, çünkü var olan
+> bir şeyi yapmamak için yazılmış bir gerekçe, **kapattığı deliği sevk etme lisansı
+> gibi okunur**. Bu, 10. turun *"mekanik hiçbir şey yok"* dersinin **ters yönü**.
+> Kartın md. 4'ü de düzeltildi.
+>
+> 🔴 **BLOKLAYAN 3 — LİSTE `1…16, 18, 19, 17` SIRASINDAYDI.** Etiketler benzersizdi
+> (*"her biri tam bir kez"* iddiam doğruydu) ama **CommonMark sıralı listeyi ilk
+> maddeden yeniden numaralandırır**, yani render edilen kartta *"item 17"* **başka bir
+> maddeye** düşüyordu — ve **iki sevk edilmiş artefakt** (00022 ve kapı) oraya
+> **numarayla** işaret ediyordu. Liste **sıraya kondu** (ölçüldü: `1..19`), **ve iki
+> işaretçi BAŞLIĞA çevrildi** — yeniden numaralandırma onları **bir daha kıramaz**.
+> Gerekçe: bu görevde numaralandırma **iki kez** bloklayan oldu (`M64`–`M68`
+> çakışması, ve bu).
+>
+> **Üç bloklamayan.** **N2** — md. 2'nin `detail` cümlesi **birleşim** olarak doğru,
+> **tek tek yanlıştı**; `plaque.encoded` **yalnız `claimed_by`** taşıyor, yazıldı.
+> **N3** — md. 13 *"denetlenmedi"* kümesindeydi, oysa **ölçülebilir ve ölçüldü**;
+> kümeden **çıkarıldı**. 🔴 Bir maddeyi *"denetlenemez"* saymak, **denetlenmiş olduğunu
+> iddia etmek kadar yanlıştır**. **N4** — md. 10 ve md. 11 **sondalanmadı**;
+> *"doğrulanamadı"*, **temiz sayılmıyor**, kaydedildi. **N1** (grep ifadesi) denetçi
+> tarafından **bloklamayan** bulundu ve gerekçesi yazıldı: cümle *"no declaration"*
+> diyor, *"sıfır isabet"* demiyor — **kelimesi kelimesine doğru**.
+>
+> **MUTASYON TABLOSU, 10. TUR — M87 (paket paket: encode GREEN, tenant RED) · M88
+> (envanter ratchet'i).** Hayatta kalanlar bir **örnektir**.
+>
+> **MUTASYON TABLOSU, 9. TUR — M82/M83 eşleştirilmiş**, artı 8. turun beşi yeniden
+> koşuldu. Hayatta kalanlar bir **örnektir**.
+>
+> ⚠️ **Denetçinin AÇIKÇA denetlemedikleri, temiz sayılmıyor:** devir md. **1 · 6 · 7 ·
+> 8 · 9 · 10 · 11 · 16** — *"hepsi silikona, yayımlanmış NXP belgesine ya da henüz
+> var olmayan bir migration'a bağlı; bu turda ölçülebilir bir yüzeyleri yok."*
+> 🔴 **md. 13 BU KÜMEDEN ÇIKARILDI (2026-08-24): ÖLÇÜLEBİLİR VE ÖLÇÜLDÜ.** Testi
+> ağaçta (`internal/encode/driver_test.go`, öngörülemezlik testi — adı satır sonuna
+> bölünmesin diye burada yazılmıyor; `grep -n UNPREDICTABLE` ile bulunur) ve bir
+> sonraki denetçi onu **koştu**. Sayım burada **EKSİK-İDDİA**
+> yönünde yanlıştı — bir maddeyi *"denetlenemez"* saymak, denetlenmiş olduğunu
+> iddia etmek kadar yanlıştır.
+> ⚠️ **VE md. 10 ile md. 11 SONDALANMADI** — *"doğrulanamadı"*, temiz **sayılmıyor**.
+>
+> **MUTASYON TABLOSU, 8. TUR — M82b–M86, beşinin beşi kırmızı.** M84/M85 kolların
+> **düz yazım için çalıştığını**, M82b/M83b tabanın **iki yönde** ateşlediğini, M86 eski
+> gevşek tabanın **bir silmeyi gizlediğini** gösteriyor.
+>
+> ⚠️ **KAPSAM DIŞI, DOKUNULMADI:** `gpsredaction_test.go`'nun flake'i (orkestratör
+> backlog'a alıyor) · 00018/00019/ADR 0002 (uygulanmış/başka tur).
+>
+> **MUTASYON TABLOSU, 7. TUR:** YÜKSEK-1 mutasyonu → statik kapılar **YEŞİL**,
+> ayrıcalık **KIRMIZI** (iki pakette). Ayrıcalık sondası **dokuz vaka** (beş ret, dört
+> başarı). `Down` **taze klonda 498/498 IDENTICAL**.
+>
+> ⚠️ **Sayılan, kapatılmayan:** `pgtype` sarmalayıcı · çok-sonuçlu `(A,B,error)` ·
+> VIEW/CTE/`SECURITY DEFINER` üstünden okuma — **üçü de hâlâ ölçülmedi**; ayrıcalık
+> ilk ikisini konusuz bırakır (sütun okunamıyor), üçüncüsü **kasıtlı olarak** definer
+> yolunun kendisidir ve yeni bir definer fonksiyon **dikkatle** yazılmalıdır.
+>
+> **MUTASYON TABLOSU, 6. TUR — M53–M58, altısının altısı kırmızı.** Envanter tabanı
+> **iki yönden** sınandı. Hayatta kalanlar bir **örnektir**.
+>
+> ⚠️ **Sayılan, kapatılmayan:** VIEW/CTE/`SECURITY DEFINER` üstünden okuma ·
+> `pgtype` sarmalayıcı içinde bayt · çok-sonuçlu `(A, B, error)` imza — **üçü de
+> denenmedi**; ilk ikisi bir dönüş tipini ya da alan listesini değiştirir ve envantere
+> düşer, üçüncüsü imzayı değiştirir, ama **hiçbiri ölçülmedi**. N14'ün log penceresi
+> **hâlâ doğrulanmadı, çürütülmedi**.
+>
+> **MUTASYON TABLOSU, 5. TUR — M44–M52.** 🔴 **Eşleştirilmiş biçimde okunmalı:**
+> **M45b** ve **M46b** *"YEŞİL"*tir ve bu **kolun yük taşıdığının KANITIDIR** — kol
+> devre dışıyken ihlal yakalanmıyor. M45a/M46a (iki kol da canlı) **kırmızı**;
+> M46b'de **şekil pini tek başına** `RETURNING *`'ı yakalıyor, ama **bütün-satır
+> sınıfını yakalayamıyor** — o yalnız çıplak-sonuç kolunun işi. M47 · M48 (muafiyet
+> silinince) · M49 (muafiyet bayatlayınca) · M50 · M51 · M52 · M44a · M44b **kırmızı**.
+> Hayatta kalanlar bir **örnektir**.
+>
+> **MUTASYON TABLOSU, 4. TUR — M35–M43.** Sekizi kırmızı. 🔴 **M35 ve M36 tek
+> başlarına YEŞİL, ve sebebi ölçüldü: temiz bir ağaçta her kolun yakalayacağı bir şey
+> yoktur** — bu, mutasyon hakkında bir olgudur, kol hakkında değil. **EŞLEŞTİRİLMİŞ
+> biçimleri** (kolu **ve** var olma sebebini birlikte) ikisini de yük taşıyor
+> gösterdi: **M35'** (pinlenmemiş yeni sorgu + skaler olmayan) → iki kol da tek
+> başına kırmızı; **M36'** (zararsız bir **skaler** sütun eklenmesi) → **yalnız şekil
+> pini** yakalıyor, kol devre dışıyken **yeşil**, ve SQL taraması **hiç görmüyor**
+> (M43). Hayatta kalanlar bir **örnektir**.
+>
+> **MUTASYON TABLOSU, 2. TUR — 24 mutasyon, 23 kırmızı.** Hayatta kalanlar bir
+> **örnektir**, ve bugün bilinen biri şudur:
+> **M19 (`KeyBytes: len(wrappedKey)` → sabit `44`) YEŞİL, ve MEŞRU.** Sebebi ölçülü:
+> `InsertUnassigned` 44 baytlık olmayan her zarfı **SQL'e ulaşmadan** reddediyor
+> (`TestDBRows_AMisSizedEnvelopeIsRefusedBeforeTheDatabaseIsTouched`), yani bu iki
+> ifade bugün **semantik olarak eşdeğerdir** — mutasyon bir kusur göstermiyor, `detail`
+> içeriğinin **gerçek değere karşı** değil **sabite karşı** doğrulanabildiğini
+> gösteriyor. Gerçek olacağı gün: ADR 0003 md. 4'ün 44 baytı **birden fazla** zarf
+> boyuna açıldığı gün.
 >
 > **Sekizinci denetim turu (2026-08-21, SEKİZİNCİ ayrı üçüncü göz — VERDICT: RED, dört
 > bloklayan + beş bloklamayan; hepsi kapatıldı).** Denetçi üretim yolunu satır satır

@@ -343,7 +343,7 @@ func liveSession(t *testing.T, st *Store, id ID) *Session {
 func armed(t *testing.T, h *harness, chip *fakeChip, actor string) (ID, Progress, *Session, [][]byte) {
 	t.Helper()
 	ctx := context.Background()
-	id, p, err := h.st.Begin(ctx, actor)
+	id, p, err := h.st.Begin(ctx, testTenant, actor)
 	if err != nil {
 		t.Fatalf("Begin: %v", err)
 	}
@@ -576,7 +576,7 @@ func TestStore_ConcurrencyLimitsReallyLimit(t *testing.T) {
 		for i := 0; i < goroutines; i++ {
 			go func() {
 				defer wg.Done()
-				_, _, err := h.st.Begin(context.Background(), "one-operator")
+				_, _, err := h.st.Begin(context.Background(), testTenant, "one-operator")
 				mu.Lock()
 				defer mu.Unlock()
 				switch {
@@ -613,7 +613,7 @@ func TestStore_ConcurrencyLimitsReallyLimit(t *testing.T) {
 		for i := 0; i < goroutines; i++ {
 			go func(n int) {
 				defer wg.Done()
-				_, _, err := h.st.Begin(context.Background(), "operator-"+string(rune('a'+n%26)))
+				_, _, err := h.st.Begin(context.Background(), testTenant, "operator-"+string(rune('a'+n%26)))
 				if err == nil {
 					mu.Lock()
 					ok++
@@ -631,15 +631,15 @@ func TestStore_ConcurrencyLimitsReallyLimit(t *testing.T) {
 	t.Run("a_freed_slot_is_reusable", func(t *testing.T) {
 		// POSITIVE CONTROL for both caps: the limit is a limit, not a one-way latch.
 		h := newHarness(t, func(c *Config) { c.MaxPerActor = 1; c.MaxLive = 1 })
-		id, _, err := h.st.Begin(context.Background(), "operator-1")
+		id, _, err := h.st.Begin(context.Background(), testTenant, "operator-1")
 		if err != nil {
 			t.Fatalf("first Begin: %v", err)
 		}
-		if _, _, err := h.st.Begin(context.Background(), "operator-1"); !errors.Is(err, ErrTooManySessions) {
+		if _, _, err := h.st.Begin(context.Background(), testTenant, "operator-1"); !errors.Is(err, ErrTooManySessions) {
 			t.Fatalf("the second Begin returned %v, want ErrTooManySessions", err)
 		}
 		h.st.Abort(id)
-		if _, _, err := h.st.Begin(context.Background(), "operator-1"); err != nil {
+		if _, _, err := h.st.Begin(context.Background(), testTenant, "operator-1"); err != nil {
 			t.Fatalf("a slot freed by Abort was not reusable: %v", err)
 		}
 	})
@@ -648,11 +648,11 @@ func TestStore_ConcurrencyLimitsReallyLimit(t *testing.T) {
 		// An operator whose reads dropped must not be locked out for a whole TTL by
 		// sessions that are already dead.
 		h := newHarness(t, func(c *Config) { c.MaxPerActor = 1; c.MaxLive = 1 })
-		if _, _, err := h.st.Begin(context.Background(), "operator-1"); err != nil {
+		if _, _, err := h.st.Begin(context.Background(), testTenant, "operator-1"); err != nil {
 			t.Fatalf("first Begin: %v", err)
 		}
 		h.clock.Advance(DefaultTTL + time.Second)
-		if _, _, err := h.st.Begin(context.Background(), "operator-1"); err != nil {
+		if _, _, err := h.st.Begin(context.Background(), testTenant, "operator-1"); err != nil {
 			t.Fatalf("Begin after the previous session expired: %v", err)
 		}
 	})
@@ -728,7 +728,7 @@ func TestStore_AfterCloseNothingStarts(t *testing.T) {
 	if err := h.st.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
-	if _, _, err := h.st.Begin(context.Background(), "operator-1"); !errors.Is(err, ErrStoreClosed) {
+	if _, _, err := h.st.Begin(context.Background(), testTenant, "operator-1"); !errors.Is(err, ErrStoreClosed) {
 		t.Fatalf("Begin after Close returned %v", err)
 	}
 	if _, err := h.st.Step(context.Background(), "whatever", sw(0x9100)); !errors.Is(err, ErrStoreClosed) {
@@ -742,7 +742,7 @@ func TestStore_AfterCloseNothingStarts(t *testing.T) {
 
 func TestStore_AnActorIsRequired(t *testing.T) {
 	h := newHarness(t)
-	if _, _, err := h.st.Begin(context.Background(), ""); err == nil {
+	if _, _, err := h.st.Begin(context.Background(), testTenant, ""); err == nil {
 		t.Fatalf("an empty actor was accepted; every empty actor would share one budget")
 	}
 }
@@ -752,7 +752,7 @@ func TestStore_AnActorIsRequired(t *testing.T) {
 func TestStore_AnUnknownHandleIsIndistinguishableFromAnExpiredOne(t *testing.T) {
 	h := newHarness(t)
 	chip := newFakeChip(t)
-	id, p, err := h.st.Begin(context.Background(), "operator-1")
+	id, p, err := h.st.Begin(context.Background(), testTenant, "operator-1")
 	if err != nil {
 		t.Fatalf("Begin: %v", err)
 	}
@@ -919,7 +919,7 @@ func TestSession_TheSystemClockIsTheProductionOne(t *testing.T) {
 			t.Errorf("Close: %v", err)
 		}
 	}()
-	if _, _, err := st.Begin(context.Background(), "operator-1"); err != nil {
+	if _, _, err := st.Begin(context.Background(), testTenant, "operator-1"); err != nil {
 		t.Fatalf("Begin on a default-clock store: %v", err)
 	}
 	if st.Live() != 1 {
@@ -995,7 +995,7 @@ func TestStore_BeginRefusesACancelledContext(t *testing.T) {
 	h := newHarness(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, _, err := h.st.Begin(ctx, "operator-1"); err == nil {
+	if _, _, err := h.st.Begin(ctx, testTenant, "operator-1"); err == nil {
 		t.Fatalf("Begin accepted a cancelled context")
 	}
 	if h.st.Live() != 0 {
@@ -1262,7 +1262,7 @@ func TestSession_TheDeadlineIsATotalBudgetAndIsNeverExtended(t *testing.T) {
 	chip := newFakeChip(t)
 	ctx := context.Background()
 
-	id, p, err := h.st.Begin(ctx, "operator-1")
+	id, p, err := h.st.Begin(ctx, testTenant, "operator-1")
 	if err != nil {
 		t.Fatalf("Begin: %v", err)
 	}
@@ -1456,7 +1456,7 @@ func TestStore_RetiringOneSessionDoesNotFreeAnotherPlaqueSlot(t *testing.T) {
 	ctx := context.Background()
 
 	chipA := newFakeChip(t)
-	idA, pA, err := h.st.Begin(ctx, "operator-1")
+	idA, pA, err := h.st.Begin(ctx, testTenant, "operator-1")
 	if err != nil {
 		t.Fatalf("Begin A: %v", err)
 	}
@@ -1480,7 +1480,7 @@ func TestStore_RetiringOneSessionDoesNotFreeAnotherPlaqueSlot(t *testing.T) {
 	h.rows.mu.Unlock()
 
 	chipB := newFakeChip(t)
-	idB, pB, err := h.st.Begin(ctx, "operator-2")
+	idB, pB, err := h.st.Begin(ctx, testTenant, "operator-2")
 	if err != nil {
 		t.Fatalf("Begin B: %v", err)
 	}
@@ -1675,7 +1675,7 @@ func TestStore_CloseDoesNotCommitAnAllZeroKey(t *testing.T) {
 	chip := newFakeChip(t)
 	ctx := context.Background()
 
-	id, p, err := h.st.Begin(ctx, "operator-1")
+	id, p, err := h.st.Begin(ctx, testTenant, "operator-1")
 	if err != nil {
 		t.Fatalf("Begin: %v", err)
 	}
@@ -1946,7 +1946,7 @@ func TestStore_ACloseThatTimesOutStillGetsTheSessionWipedByItsOwner(t *testing.T
 	chip := newFakeChip(t)
 	ctx := context.Background()
 
-	id, p, err := h.st.Begin(ctx, "operator-1")
+	id, p, err := h.st.Begin(ctx, testTenant, "operator-1")
 	if err != nil {
 		t.Fatalf("Begin: %v", err)
 	}
@@ -2138,7 +2138,7 @@ func TestStore_RetiringAlwaysClearsBusyAndSignalsTheDrain(t *testing.T) {
 		chip := newFakeChip(t)
 		ctx := context.Background()
 
-		id, p, err := h.st.Begin(ctx, "operator-1")
+		id, p, err := h.st.Begin(ctx, testTenant, "operator-1")
 		if err != nil {
 			t.Fatalf("Begin: %v", err)
 		}
@@ -2299,7 +2299,7 @@ func TestStore_ACancellationOnTheLastExchangeStillReportsDone(t *testing.T) {
 	})
 
 	chip := newFakeChip(t)
-	id, p, err := st.Begin(ctx, "operator-1")
+	id, p, err := st.Begin(ctx, testTenant, "operator-1")
 	if err != nil {
 		t.Fatalf("Begin: %v", err)
 	}
@@ -2359,6 +2359,7 @@ func TestStore_ACancellationOnTheLastExchangeStillReportsDone(t *testing.T) {
 var sessionFields = map[string]string{
 	"id":            "bearer handle, not key material (see keyInventory's exclusions)",
 	"actor":         "exposure-budget key only, never an authorisation input",
+	"tenantID":      "uuid; a SCOPE the caller named, not a secret and not an authorisation (ADR 0017 §6 md. 10 is open)",
 	"deadline":      "time; every writer routes through expireLocked",
 	"busy":          "ownership flag, guarded by st.mu",
 	"ring":          "THE key material; everything secret must live here",
@@ -2439,7 +2440,7 @@ func TestStore_AFinishedProgressCarriesNoCommand(t *testing.T) {
 	ctx := context.Background()
 	chip2 := newFakeChip(t)
 	chip2.uid = []byte{0x04, 0x96, 0x8C, 0xAA, 0x5C, 0x5E, 0x77}
-	id, mid, err := h.st.Begin(ctx, "operator-2")
+	id, mid, err := h.st.Begin(ctx, testTenant, "operator-2")
 	if err != nil {
 		t.Fatalf("Begin: %v", err)
 	}

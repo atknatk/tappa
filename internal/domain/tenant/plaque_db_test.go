@@ -16,9 +16,13 @@ package tenant
 //     tappa_app. That is the card's own criterion and it is a GRANT, not a habit.
 //   - section 4.5. A foreign uid writes nothing, and it is REFUSED rather than
 //     erroring, because the explicit tenant predicate and the RLS policy both bite.
-//   - section 4.7. No query on this path selects aes_key_ref, and no type on it can
-//     hold one. The reflection test at the bottom is the wall; the SQL assertion
-//     beside it is what stops a future query from widening it.
+//   - section 4.7. No query on this path RETURNS aes_key_ref, and no type on it can
+//     hold one. ⚠️ TWO NETS, AND NEITHER IS "THE WALL" -- this header called the
+//     reflection test that until 2026-08-24, while the scan at the bottom of this
+//     file calls itself "the OTHER half". The reflection test pins the TYPES on this
+//     path; the SQL scan pins the permitted statement TEXT and is measurably
+//     incomplete (see its own header); and the load-bearing third is
+//     cmd/tappa/storekeyshape_test.go, which pins the generated return SHAPES.
 //
 // FIXTURES ARE NOT CLEANED UP, for the reason venue_db_test.go states: audit_log is
 // append-only (00005) and `tags` cannot be deleted at all by this role. Fresh random
@@ -135,9 +139,15 @@ func (f *plaqueFixture) seedTenant(t *testing.T, tenantID, wall, second uuid.UUI
 // load inserts a plaque the way TAPPA'S LOADER would -- a two-byte placeholder in
 // aes_key_ref, this tenant, and the caller's status and wall.
 //
-// 🔴 THERE IS NO PRODUCT QUERY THAT DOES THIS, which is the inventory model as a
-// fixture: db/queries/tags.sql ships no INSERT over `tags`, because creating a
-// plaque means holding its key. This stands in for the M8-05 runbook.
+// 🔴 NO QUERY **THIS PACKAGE** REACHES DOES THIS, which is the inventory model as a
+// fixture: creating a plaque means holding its key, so it is not the panel's to do.
+// This stands in for the M8-05 loader.
+//
+// ⚠️ IT USED TO SAY "db/queries/tags.sql ships no INSERT over `tags`" AND THAT
+// EXPIRED ON 2026-08-24 (M8-05 FAZ B2c-2a): the file now carries InsertUnassigned,
+// the encode endpoint's loader, which connects as tappa_app. The fixture's reason
+// for existing is unchanged — this package still has no such query — but the reason
+// is about THIS PACKAGE, not about that file.
 //
 // wall == uuid.Nil produces STOCK: location_id NULL. The status and the wall travel
 // together because 00013's CHECKs bind them, so a fixture cannot build the state the
@@ -1343,13 +1353,71 @@ func walkKeylessType(t *testing.T, path string, ty reflect.Type, fields map[stri
 }
 
 // TestPlaquesDB_NoShippedTagQuerySelectsTheKey is the OTHER half of the wall, and
-// it reads db/queries/tags.sql rather than trusting the types: a query that selected
+// it reads db/queries/tags.sql rather than trusting the types: a query that READ
 // aes_key_ref would put a wrapped key into template data, log lines and HTTP
 // responses for a value no pixel renders.
 //
 // 🔴 THE RESOLVER IS THE ONE PATH THAT LEGITIMATELY READS IT, and it is NOT in this
 // file -- it is a SECURITY DEFINER function in migration 00004, reached only by
 // internal/sun. That separation is why this assertion can be absolute here.
+//
+// 🔴 THE RULE IS NOW DIRECTIONAL, AND THE OLD ONE WAS NOT. Until FAZ B2c-2a this
+// test refused the STRING `aes_key_ref` on any non-comment line of the file, and
+// that was a fine approximation while every statement in the file was a read. ADR
+// 0017 §3.1 ended that: the encode flow is an HTTP endpoint, internal/db/pool.go
+// refuses an owner/superuser/BYPASSRLS DSN in production, so the loader that writes
+// a plaque row connects as tappa_app and its INSERT names the column. The old rule
+// would have failed that statement -- correctly by its own letter, wrongly by its
+// own PURPOSE, which the doc comment states as "a query that selected it".
+//
+// 🔴 THE RULE IS ABSOLUTE, WITH THE ONE THING IT WAS MISSING: A WAY TO SAY YES.
+// See keyRefAllowedLines -- a list of the EXACT statement text permitted to contain
+// the column, bound to the loader's NAME. Anything else, of any shape, is refused.
+//
+// 🔴 AND THIS SCAN IS **NOT** THE WALL. IT IS ONE HALF, AND THE SMALLER HALF, AND
+// THREE ROUNDS OF SAYING OTHERWISE IS THE REASON THAT IS WRITTEN IN CAPITALS.
+// Successive audits produced FOURTEEN spellings that return this column, and each
+// design was falsified by the next reader:
+//
+//	round 2  )RETURNING with no space · )SELECT with no space · ON CONFLICT DO UPDATE
+//	round 3  RETURNING * · t.* · tags.* · a trailing comment containing "returning"
+//	round 4  AES_KEY_REF · Aes_Key_Ref · aes_key_reF (PostgreSQL folds unquoted
+//	         identifiers) · bare `tags` · to_jsonb(tags) · row_to_json(tags) ·
+//	         U&"\0061es_key_ref"
+//
+// The round-4 seven are the ones that matter, because they broke the ARGUMENT this
+// design was built on. That argument said "the absolute rule caught all seven, so
+// the search is over"; measured, round 1's absolute rule used the same case-SENSITIVE
+// Contains and would have missed three of these, and it had no notion of a
+// whole-row function at all. THE ABSOLUTE RULE WAS NEVER COMPLETE EITHER.
+//
+// 🔴 SO THE GATE MOVED TO THE GENERATED ARTIFACT, and that is where the load now
+// sits: cmd/tappa/storekeyshape_test.go. SQL text is an infinite space; the
+// generated Go is finite, ours, and countable with go/ast. Measured, all seven
+// round-4 spellings pasted into the SHIPPED loader: this scan reports GREEN on seven,
+// that one RED on all seven.
+//
+// ⚠️ AND THE VERB HERE WAS TOO BIG UNTIL A FIFTH AUDIT: this line said that file
+// "pins the FIELD SETS of EVERY tags query's return type". It pins ten NAMED row
+// types out of tags.sql.go -- which is a ratchet, not a survey -- and a SECOND,
+// separate gate in the same file walks all 107 query methods across all nineteen
+// generated files for []byte results. It was the second one that caught the
+// single-column whole-row class; the pin could not, because such a query gets no row
+// type at all.
+//
+// 🔴 AND AS OF 2026-08-24 THIS FILE IS THE THIRD LINE OF DEFENCE, NOT THE FIRST.
+// Migration 00022 revoked SELECT on tags.aes_key_ref from tappa_app entirely, because
+// a security audit produced a leak that CHANGES NO SHAPE AT ALL -- one substitution in
+// GetTagForTenant's select list, `g.status -> to_jsonb(g)::text AS status`, which
+// emits a byte-identical row type and carries the whole row out through a field that
+// was already a string. Measured: this scan GREEN, the signature inventory GREEN,
+// redline-check exit 0 -- and the same mutation under the new privilege fails at
+// runtime with `permission denied for table tags (SQLSTATE 42501)`.
+//
+// THIS FILE IS KEPT ANYWAY, and the reason is not sentiment: it reads a DIFFERENT
+// artifact, it costs nothing, and it fires on the one spelling a developer is most
+// likely to actually type. Three partial nets over one property beat two. What it may
+// no longer claim is completeness -- and it does not.
 func TestPlaquesDB_NoShippedTagQuerySelectsTheKey(t *testing.T) {
 	raw, err := os.ReadFile("../../../db/queries/tags.sql")
 	if err != nil {
@@ -1358,18 +1426,454 @@ func TestPlaquesDB_NoShippedTagQuerySelectsTheKey(t *testing.T) {
 	sql := string(raw)
 	// ANTI-VACUITY: the file must be the one this package uses.
 	for _, name := range []string{"ListTagsForTenant", "GetTagForTenant",
-		"AssignTagToLocation", "RetireTagForReplacement", "ListTagLastSeen"} {
+		"AssignTagToLocation", "RetireTagForReplacement", "ListTagLastSeen",
+		"InsertUnassigned", "MarkTagEncoded"} {
 		if !strings.Contains(sql, name) {
 			t.Fatalf("db/queries/tags.sql does not declare %s; this test is reading the wrong file", name)
 		}
 	}
+
+	findings, read := keyRefFindings(sql)
+	for _, f := range findings {
+		t.Error(f)
+	}
+	// ANTI-VACUITY: without this the whole test passes on a tree where the split
+	// stopped matching -- the failure mode every scanner in this repo has hit at
+	// least once.
+	// 🔴 EXACT, NOT A FLOOR (audit, 2026-08-24). This read `read < 8` while its own
+	// message said ten were declared -- so TWO named queries could vanish from the file
+	// without the vacuity half noticing, which is the one thing it is for.
+	if read != 10 {
+		t.Fatalf("%d named quer(ies) were read out of db/queries/tags.sql; TEN were declared "+
+			"when this was pinned (2026-08-24). A query was added or removed: update this "+
+			"number in the same edit, and check that the new one belongs to neither wall's "+
+			"blind spot", read)
+	}
+	t.Logf("%d named queries read from db/queries/tags.sql", read)
+}
+
+// keyRefAllowedLines is the ENTIRE permission this wall grants: the exact
+// statement lines of db/queries/tags.sql that may contain `aes_key_ref`, matched
+// as whole strings after whitespace collapsing.
+//
+// 🔴 IT IS AN ALLOW-LIST OF **TEXT**, NOT OF SHAPES, AND THAT IS THE THIRD AND
+// FINAL DESIGN OF THIS SCAN. The history is the argument and it is short:
+//
+//	round 1  ABSOLUTE ("any non-comment line containing the column FAILS").
+//	         Replaced because ADR 0017 §5.1 step 3 makes an INSERT that NAMES the
+//	         column mandatory, so the absolute rule refused a required statement.
+//	round 2  DIRECTIONAL (INSERT in / RETURNING out / SELECT / ON CONFLICT).
+//	         An audit measured THREE escapes; they were closed by matching
+//	         keywords on token boundaries instead of spaces.
+//	round 3  A SECOND AUDIT MEASURED FOUR MORE, and that is the datum that ends
+//	         the approach rather than patching it:
+//
+//	           RETURNING *                      -> 0 findings
+//	           RETURNING t.*                    -> 0 findings
+//	           RETURNING tags.*, uid            -> 0 findings
+//	           RETURNING uid, aes_key_ref;
+//	             -- nothing else is returning   -> 0 findings
+//
+//	         Two causes, neither exotic: a STAR does not contain the column NAME,
+//	         so no substring test over the clause can see it; and the word
+//	         "returning" inside a trailing comment moved the clause index past the
+//	         real clause.
+//
+// 🔴 WHAT `RETURNING *` WOULD ACTUALLY COST, MEASURED BY RUNNING `make gen` RATHER
+// THAN BY READING (the previous audit could not run it, and the answer is worse
+// than it assumed): sqlc expands the star to all TEN columns and stops emitting a
+// bespoke row type altogether -- InsertUnassigned's signature becomes
+// `(Tag, error)` and the generated body scans `&i.AesKeyRef` directly. So the
+// 44-byte envelope crosses the wire on EVERY plaque load and lands in a `[]byte`
+// field of a shared model type. The probe was reverted and the revert verified
+// with cmp on both files.
+//
+// ⚠️ AND THE TYPE WALL DOES NOT CATCH IT, which is why this one has to:
+// TestPlaquesDB_NoTypeOnThisPathCanCarryAKey roots at this package's own
+// `tenant.*` screen types and never reaches `store.*`.
+//
+// 🔴 SO: SHAPE RECOGNITION IS ABANDONED. Two consecutive audits found a shape the
+// recogniser did not know, in the same direction, and a third would too -- the set
+// of SQL spellings is not enumerable, and this file already says so in its own
+// limit list ("this is not a parser ... the safe answer to 'I cannot tell' is no").
+// The absolute rule caught all SEVEN escapes; what it lacked was a way to say yes
+// to the one required statement. An allow-list of exact TEXT is that, and it fails
+// CLOSED by construction: any other line containing the column -- whatever its
+// shape, whatever tomorrow's SQL looks like -- is refused, because it is not this
+// string. Adding a second loader is then a VISIBLE EDIT to this list rather than a
+// silent pass.
+//
+// ⚠️ THE COST, NAMED: this list is brittle on purpose. Re-indenting or rewording
+// the permitted statement turns the suite RED with a message that says exactly
+// what to do. That is the trade -- a false alarm a developer can fix in one line,
+// against a class of silent escape that has now cost two audits.
+var keyRefAllowedLines = map[string]string{
+	"INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, status)": "InsertUnassigned's " +
+		"column list (ADR 0017 §5.1 step 3 -- the loader MUST name the column to write it)",
+	"VALUES (@uid, @tenant_id, NULL, @aes_key_ref, 'unassigned')": "InsertUnassigned's VALUES " +
+		"list -- the value travels IN, as a bound parameter",
+}
+
+// keyRefFindings is THE scan. Both the check above and its negative control call
+// it, which is deliberate: a control that re-implements the thing it controls stops
+// controlling it the moment the two drift (this repository has paid for that twice
+// -- see cmd/tappa/insertscope_test.go's own note).
+//
+// It returns one message per offending LINE and the number of NAMED QUERIES it
+// managed to read, which is what the anti-vacuity floor counts.
+//
+// ⚠️ COUNTED LIMITS, EACH WITH ITS OWN DIRECTION:
+//   - OVER-report. The comment stripper is LINE-LEVEL: a line whose TRIMMED form
+//     starts with `--` is dropped, a trailing comment on a code line is not. A
+//     comment naming the column at the end of a statement line is therefore
+//     REPORTED. Strictly more reporting than PostgreSQL would do, and -- unlike the
+//     round-2 design -- no statement can hide behind it, because the trailing
+//     comment is now part of the line that must match the allow-list exactly.
+//   - OVER-report. A permitted line that is re-indented or reworded is reported.
+//     See the cost note above; this is the trade, not an accident.
+//   - UNDER-report, and it is the only one left: SQL written somewhere other than
+//     db/queries/tags.sql is invisible here. cmd/tappa/insertscope_test.go walks
+//     all of db/queries for a different property, and CLAUDE.md §6 forbids raw SQL
+//     in handlers; neither is this scan.
+//   - STATEMENTS ARE SPLIT ON sqlc's `-- name:` MARKERS, so a file that stopped
+//     using them would be read as one statement. The anti-vacuity floor notices.
+func keyRefFindings(sql string) (findings []string, read int) {
+	const col = "aes_key_ref"
+	name := ""
 	for _, line := range strings.Split(sql, "\n") {
 		trimmed := strings.TrimSpace(line)
+		// 🔴 BOTH MARKER FORMS, BECAUSE sqlc ACCEPTS BOTH AND THIS SCAN COUNTED ONE
+		// (audit, 2026-08-24). Measured: a query declared `/* name: X :one */` is
+		// generated normally by `make sqlc`, and this loop did not see it -- so two
+		// queries could hide without the statement floor below noticing. The column
+		// rule still fired on their lines, so it was never a leak on its own; it was
+		// a blind spot in the ANTI-VACUITY half, which is the half that notices when
+		// a scan has stopped reading.
+		marker := ""
+		if rest, ok := strings.CutPrefix(trimmed, "-- name:"); ok {
+			marker = rest
+		} else if rest, ok := strings.CutPrefix(trimmed, "/* name:"); ok {
+			marker = strings.TrimSuffix(strings.TrimSpace(rest), "*/")
+		}
+		if marker != "" {
+			name = strings.Fields(marker + " ")[0]
+			read++
+			continue
+		}
 		if strings.HasPrefix(trimmed, "--") {
 			continue // a comment may NAME the column; that is how the rule is explained
 		}
-		if strings.Contains(trimmed, "aes_key_ref") {
-			t.Fatalf("a shipped tag query selects aes_key_ref: %q", trimmed)
+		// 🔴 THE STAR RULE, AND IT IS THE HALF THE COLUMN RULE STRUCTURALLY CANNOT
+		// COVER. `RETURNING *` does not contain the string "aes_key_ref", so no
+		// amount of matching on the COLUMN NAME can see it -- measured: with the
+		// absolute column rule in place, adding `RETURNING *` to the shipped loader
+		// still reported ZERO (mutation M25). And measured by running `make gen`
+		// rather than by reading, the cost is concrete: sqlc expands the star to all
+		// ten columns, stops emitting a bespoke row type, returns `Tag`, and scans
+		// `&i.AesKeyRef` -- so the 44-byte envelope crosses the wire on every plaque
+		// load. (Probe reverted; revert verified with cmp on both files.)
+		//
+		// So a star is refused BY ITS OWN CHARACTER, with one carve-out matched as
+		// TEXT rather than as a shape: `count(*)`, which returns a number. Measured
+		// on this file, those three aggregate lines in CountTenantPlaques are the
+		// ONLY stars it contains. A future statement that genuinely needs another
+		// one adds its exact line to keyRefAllowedLines, like everything else here.
+		// 🔴 THE WHOLE-ROW RULE, ADDED 2026-08-24 AFTER A FOURTH AUDIT MEASURED THE
+		// CLASS. `to_jsonb(tags)` and `row_to_json(tags)` project EVERY column --
+		// aes_key_ref included -- with NO wildcard and NO column name, so neither the
+		// star rule nor the column rule can see them. Measured end to end: as a
+		// single-column projection they get no Row type at all, which is how they
+		// walked past every gate this repository had.
+		//
+		// 🔴 THE CLAIM THIS BLOCK MADE WAS TOO BIG AND A FIFTH AUDIT MEASURED IT DOWN.
+		// It said the rule catches "the MECHANISM rather than the function names", and
+		// that the family was covered. It is not: the rule matches the bare TOKEN
+		// `tags`, so every one of these walked through it --
+		//
+		//	to_jsonb(g)                (an ALIAS -- and this file's own reads already
+		//	                            write `FROM tags g`, so it is the NATURAL form)
+		//	to_jsonb ( tags )          (inner whitespace -- round two's `)RETURNING`
+		//	                            lesson, inside the rule written to answer it)
+		//	to_jsonb(public.tags)      (schema qualification)
+		//	to_jsonb(\n tags \n)        (split across lines)
+		//
+		// WHAT IT ACTUALLY CATCHES, stated at that size: a whole-row projection that
+		// names the table by its bare token on one line. It is kept because it is free
+		// and it fires on the spelling somebody would type first -- NOT because it
+		// covers the family. What carries this class now is the INVENTORY in
+		// cmd/tappa/storekeyshape_test.go, where every one of those spellings changes a
+		// method signature.
+		//
+		// MEASURED COST TODAY: zero. No non-comment line in any of the seventeen
+		// db/queries files matches it.
+		lower := strings.ToLower(strings.Join(strings.Fields(trimmed), " "))
+		for _, delim := range []string{"(tags)", "(tags ", "(tags,", "(tags."} {
+			if strings.Contains(lower, delim) {
+				collapsed := strings.Join(strings.Fields(trimmed), " ")
+				findings = append(findings, "db/queries/tags.sql: "+name+" passes the TABLE `tags` "+
+					"as a VALUE. to_jsonb(tags), row_to_json(tags) and (tags).col each project "+
+					"EVERY column including aes_key_ref, with no wildcard and no column name for "+
+					"any other rule to see -- and as a single-column projection sqlc gives it no "+
+					"Row type either. Name the columns. Line: "+collapsed)
+				break
+			}
 		}
+		starred := strings.ReplaceAll(strings.ToLower(strings.Join(strings.Fields(trimmed), " ")), "count(*)", "")
+		if strings.Contains(starred, "*") {
+			collapsed := strings.Join(strings.Fields(trimmed), " ")
+			if _, ok := keyRefAllowedLines[collapsed]; !ok {
+				where := "db/queries/tags.sql"
+				if name != "" {
+					where += ": " + name
+				}
+				findings = append(findings, where+" has a line with a WILDCARD. A star does not "+
+					"contain the column name, so the rule below cannot see it, and sqlc expands "+
+					"it to every column -- including aes_key_ref, which then crosses the wire as "+
+					"a []byte on a shared model type (§4.7, measured with make gen). Name the "+
+					"columns. Line: "+collapsed)
+				continue
+			}
+		}
+		// 🔴 LOWER-CASED, BECAUSE POSTGRESQL FOLDS UNQUOTED IDENTIFIERS AND THIS TEST
+		// DID NOT (audit, 2026-08-24). `RETURNING AES_KEY_REF` is the same column to
+		// the server and was a different string to this scan -- measured, three
+		// spellings escaped (AES_KEY_REF, Aes_Key_Ref, aes_key_reF). Worse, the star
+		// rule three lines above ALREADY lower-cased, so the inconsistency lived
+		// inside one function.
+		if !strings.Contains(strings.ToLower(trimmed), col) {
+			continue
+		}
+		// Whitespace is collapsed so indentation is not part of the identity, and
+		// nothing else is normalised: the match is on the statement TEXT.
+		collapsed := strings.Join(strings.Fields(trimmed), " ")
+		if _, ok := keyRefAllowedLines[collapsed]; ok {
+			if name == "InsertUnassigned" {
+				continue
+			}
+			findings = append(findings, "db/queries/tags.sql: "+name+" reuses a line permitted "+
+				"only inside InsertUnassigned. The allow-list is bound to the LOADER, not to "+
+				"the text alone: "+collapsed)
+			continue
+		}
+		where := "db/queries/tags.sql"
+		if name != "" {
+			where += ": " + name
+		}
+		findings = append(findings, where+" has a line containing "+col+" that is not the "+
+			"loader's permitted text, so the wrapped key may be travelling OUT of the database "+
+			"-- into template data, log lines and HTTP responses for a value no pixel renders "+
+			"(§4.7). The one path that may read it is resolve_tag_by_uid (migration 00004), "+
+			"reached by TWO packages (internal/sun and internal/domain/checkin). If this line "+
+			"is a NEW legitimate loader, add its "+
+			"exact text to keyRefAllowedLines and say why. Line: "+collapsed)
+	}
+	return findings, read
+}
+
+// TestPlaquesDB_KeyRefScanFlagsTheShapesItClaims is the negative control: a scanner
+// with no proof that it fires is a scanner that may have stopped reading. Every case
+// drives keyRefFindings, the exact function the check above drives.
+func TestPlaquesDB_KeyRefScanFlagsTheShapesItClaims(t *testing.T) {
+	t.Parallel()
+
+	// MUST REPORT.
+	for name, sql := range map[string]string{
+		"a SELECT list carrying the key": `
+			-- name: GetTagForTenant :one
+			SELECT g.uid, g.aes_key_ref FROM tags g WHERE g.tenant_id = @tenant_id;`,
+		"an UPDATE returning the key": `
+			-- name: AssignTagToLocation :one
+			UPDATE tags SET status = 'active' WHERE uid = @uid
+			RETURNING uid, aes_key_ref;`,
+		"an INSERT returning the key": `
+			-- name: InsertUnassigned :one
+			INSERT INTO tags (uid, tenant_id, aes_key_ref) VALUES (@uid, @tenant_id, @aes_key_ref)
+			RETURNING uid, aes_key_ref;`,
+		"an INSERT nobody put on the writers list": `
+			-- name: LoadPlaqueSomeOtherWay :one
+			INSERT INTO tags (uid, tenant_id, aes_key_ref) VALUES (@uid, @tenant_id, @aes_key_ref)
+			RETURNING uid;`,
+		"an INSERT ... SELECT, which reads and writes at once": `
+			-- name: InsertUnassigned :one
+			INSERT INTO tags (uid, tenant_id, aes_key_ref)
+			SELECT g.uid, g.tenant_id, g.aes_key_ref FROM tags g;`,
+		"a WHERE that filters on the key": `
+			-- name: ListTagsForTenant :many
+			SELECT g.uid FROM tags g WHERE g.aes_key_ref = @ref;`,
+
+		// 🔴 THE THREE SHAPES THE FIRST VERSION OF THIS SCAN LET THROUGH, ADDED BY
+		// THE AUDIT THAT MEASURED THEM (2026-08-24). All three reported ZERO
+		// findings, all three would have been caught by the ABSOLUTE rule this
+		// directional one replaced, and PostgreSQL accepts two of them verbatim
+		// (measured, BEGIN … ROLLBACK, both INSERT 0 1). The first is the exact
+		// shape this test's own doc calls "the value coming BACK OUT, which is
+		// exactly what this wall exists to stop".
+		"an INSERT whose RETURNING has no space before it": `
+			-- name: InsertUnassigned :one
+			INSERT INTO tags (uid, tenant_id, aes_key_ref) VALUES (@uid, @tenant_id, @aes_key_ref)RETURNING uid,aes_key_ref;`,
+		"an INSERT ... SELECT with no space before SELECT": `
+			-- name: InsertUnassigned :one
+			INSERT INTO tags (uid, tenant_id, aes_key_ref)SELECT g.uid, g.tenant_id, g.aes_key_ref FROM tags g;`,
+		"an allow-listed INSERT that REWRITES the key in ON CONFLICT": `
+			-- name: InsertUnassigned :one
+			INSERT INTO tags (uid, tenant_id, aes_key_ref) VALUES (@uid, @tenant_id, @aes_key_ref)
+			ON CONFLICT (uid) DO UPDATE SET aes_key_ref = EXCLUDED.aes_key_ref
+			RETURNING uid;`,
+
+		// 🔴 THE FOUR SHAPES THE **DIRECTIONAL** SCAN LET THROUGH, ADDED BY THE
+		// SECURITY AUDIT THAT MEASURED THEM (2026-08-24, round 2). All four reported
+		// ZERO, all four were caught by the ABSOLUTE rule two rounds ago, and the
+		// first is the one that matters: adding `RETURNING *` to the shipped loader
+		// sends the 44-byte envelope back to the process on EVERY plaque load.
+		//
+		// Two independent causes, and neither is exotic:
+		//   * a STAR does not contain the column NAME, so a substring test over the
+		//     RETURNING clause cannot see it;
+		//   * the word "returning" in a TRAILING COMMENT moved the clause index past
+		//     the real clause.
+		"an INSERT with RETURNING *": `
+			-- name: InsertUnassigned :one
+			INSERT INTO tags (uid, tenant_id, aes_key_ref) VALUES (@uid, @tenant_id, @aes_key_ref)
+			RETURNING *;`,
+		"an INSERT with RETURNING t.*": `
+			-- name: InsertUnassigned :one
+			INSERT INTO tags AS t (uid, tenant_id, aes_key_ref) VALUES (@uid, @tenant_id, @aes_key_ref)
+			RETURNING t.*;`,
+		"an INSERT with RETURNING tags.*, uid": `
+			-- name: InsertUnassigned :one
+			INSERT INTO tags (uid, tenant_id, aes_key_ref) VALUES (@uid, @tenant_id, @aes_key_ref)
+			RETURNING tags.*, uid;`,
+		"an INSERT whose RETURNING is hidden behind a trailing comment": `
+			-- name: InsertUnassigned :one
+			INSERT INTO tags (uid, tenant_id, aes_key_ref) VALUES (@uid, @tenant_id, @aes_key_ref)
+			RETURNING uid, aes_key_ref; -- nothing else is returning here`,
+
+		// 🔴 THE ALLOW-LIST IS BOUND TO THE LOADER'S NAME, NOT TO THE TEXT ALONE.
+		// Copying the permitted lines under a different query name is the obvious
+		// way to launder a second loader past a text allow-list, so it is refused
+		// and the refusal says why. (Both permitted lines appear verbatim; only the
+		// name differs.)
+		"the permitted text copied under a DIFFERENT query name": `
+			-- name: LoadPlaqueSomeOtherWay :one
+			INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, status)
+			VALUES (@uid, @tenant_id, NULL, @aes_key_ref, 'unassigned')
+			RETURNING uid, created_at;`,
+
+		// 🔴 THE STAR CASES. None of these contains the string "aes_key_ref", so
+		// they are the half no column-name rule can reach — and the first is the
+		// blocker that survived the absolute rule (mutation M25) until the star rule
+		// was added. A SELECT star is included because the danger is the wildcard,
+		// not the verb.
+		"the shipped loader with RETURNING *": `
+			-- name: InsertUnassigned :one
+			INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, status)
+			VALUES (@uid, @tenant_id, NULL, @aes_key_ref, 'unassigned')
+			RETURNING *;`,
+		"a read with SELECT *": `
+			-- name: GetTagForTenant :one
+			SELECT * FROM tags WHERE uid = @uid AND tenant_id = @tenant_id;`,
+		"a qualified star": `
+			-- name: ListTagsForTenant :many
+			SELECT g.* FROM tags g WHERE g.tenant_id = @tenant_id;`,
+
+		// 🔴 THE WHOLE-ROW FAMILY (fourth audit). None of these contains the column
+		// name and none contains a wildcard; the first two escaped EVERY gate this
+		// repository had, because a single-column projection gets no Row type.
+		"a to_jsonb whole-row projection": `
+			-- name: DumpTagForSupport :one
+			SELECT to_jsonb(tags) FROM tags WHERE uid = @uid AND tenant_id = @tenant_id;`,
+		"a row_to_json whole-row projection": `
+			-- name: DumpTagRowJSON :one
+			SELECT row_to_json(tags) FROM tags WHERE uid = @uid AND tenant_id = @tenant_id;`,
+		"a whole-row projection cast to text": `
+			-- name: DumpTagText :one
+			SELECT (to_jsonb(tags))::text FROM tags WHERE uid = @uid AND tenant_id = @tenant_id;`,
+		"a whole-row field reference": `
+			-- name: DumpTagField :one
+			SELECT (tags).aes_key_ref FROM tags WHERE uid = @uid;`,
+
+		// 🔴 THE ROUND-4 CASE-FOLDING SHAPES. PostgreSQL folds unquoted identifiers
+		// to lower case, so all three name the same column; this scan compared
+		// case-SENSITIVELY and let all three through, while the star rule three lines
+		// away already folded. The inconsistency lived inside one function.
+		"an upper-case column name": `
+			-- name: InsertUnassigned :one
+			INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, status)
+			VALUES (@uid, @tenant_id, NULL, @aes_key_ref, 'unassigned')
+			RETURNING uid, created_at, AES_KEY_REF;`,
+		"a mixed-case column name": `
+			-- name: InsertUnassigned :one
+			INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, status)
+			VALUES (@uid, @tenant_id, NULL, @aes_key_ref, 'unassigned')
+			RETURNING uid, created_at, Aes_Key_Ref;`,
+		"a single upper-case letter in the column name": `
+			-- name: InsertUnassigned :one
+			INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, status)
+			VALUES (@uid, @tenant_id, NULL, @aes_key_ref, 'unassigned')
+			RETURNING uid, created_at, aes_key_reF;`,
+	} {
+		if got, _ := keyRefFindings(sql); len(got) == 0 {
+			t.Errorf("%s: the scan reported nothing.\nSQL: %s", name, sql)
+		}
+	}
+
+	// MUST STAY QUIET -- a noisy check is one the next author waters down.
+	for name, sql := range map[string]string{
+		"the shipped loader": `
+			-- name: InsertUnassigned :one
+			INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, status)
+			VALUES (@uid, @tenant_id, NULL, @aes_key_ref, 'unassigned')
+			RETURNING uid, created_at;`,
+		"a read that does not touch the column": `
+			-- name: GetTagForTenant :one
+			SELECT g.uid, g.status FROM tags g WHERE g.tenant_id = @tenant_id AND g.uid = @uid;`,
+		"a comment line naming the column": `
+			-- name: MarkTagEncoded :one
+			-- aes_key_ref is deliberately absent here -- see the file header.
+			UPDATE tags SET encoded_at = now() WHERE uid = @uid RETURNING uid, encoded_at;`,
+	} {
+		if got, _ := keyRefFindings(sql); len(got) != 0 {
+			t.Errorf("%s: the scan reported %d finding(s) on a CORRECT statement.\nSQL: %s\n%v",
+				name, len(got), sql, got)
+		}
+	}
+
+	// 🔴 AND THE ALLOW-LIST ITSELF IS RATCHETED, because a text allow-list's ONE
+	// escape hatch is somebody adding a line to it. The design's answer was "that is
+	// a visible edit in the diff" — measured (mutation M26), a visible edit is not a
+	// RED TEST, and this repository's own rule is that a claim worth making is worth
+	// mechanising. Growing the list now costs a second, deliberate edit here.
+	//
+	// ⚠️ WHAT THIS CANNOT DO, stated rather than implied: it cannot tell a
+	// legitimate second loader from a smuggled one. That is a human review question
+	// and always was. What it removes is the SILENT version.
+	if len(keyRefAllowedLines) != 2 {
+		t.Errorf("keyRefAllowedLines holds %d entr(ies), and TWO were the whole permission when "+
+			"this ratchet was set (2026-08-24): InsertUnassigned's column list and its VALUES "+
+			"list. A third entry means a new statement may carry the wrapped key — say which, "+
+			"and why, and raise this number in the same edit", len(keyRefAllowedLines))
+	}
+	for line := range keyRefAllowedLines {
+		if strings.Contains(strings.ToLower(line), "returning") {
+			t.Errorf("keyRefAllowedLines permits a RETURNING clause (%q). The permission exists "+
+				"for the value travelling IN; a RETURNING is the value coming BACK OUT, which "+
+				"is the whole subject of this wall", line)
+		}
+		if strings.Contains(line, "*") {
+			t.Errorf("keyRefAllowedLines permits a wildcard (%q), which sqlc expands to every "+
+				"column including aes_key_ref", line)
+		}
+	}
+
+	// AND THE QUERY COUNT IS ASSERTED, because "no findings" is also what a scan that
+	// stopped after the first marker reports.
+	if _, read := keyRefFindings(`
+		-- name: A :one
+		SELECT 1;
+		-- name: B :one
+		SELECT 2;
+		-- name: C :one
+		SELECT 3;`); read != 3 {
+		t.Errorf("three named queries were counted as %d; the scan is not reading past the first", read)
 	}
 }

@@ -2362,6 +2362,112 @@ type Querier interface {
 	// loser of a race that their decision was recorded when somebody else's was
 	// (section 4.6).
 	InsertTransactionReview(ctx context.Context, arg InsertTransactionReviewParams) (InsertTransactionReviewRow, error)
+	// ============================================================================
+	// THE ENCODE SIDE (M8-05 FAZ B2c-2a, migration 00022). ADR 0017 §5.1: the row is
+	// written at step 3, BEFORE the chip's first irreversible command, and marked at
+	// step 9, after the chip has taken its keys.
+	//
+	// 🔴 THE HEADER OF THIS FILE SAYS "THERE IS NO INSERT HERE, AND THAT IS THE
+	// DECISION, NOT AN OMISSION", AND THE STATEMENT BELOW ENDS THAT. The sentence was
+	// about the PANEL and it stays true of the panel: a manager still cannot create a
+	// plaque, and the list/bind/unbind/retire vocabulary above is unchanged. What
+	// changes is that Tappa's own encode endpoint now has a statement, because ADR
+	// 0017 §3.1 measured the role question closed: the encode flow is an HTTP
+	// endpoint, internal/db/pool.go refuses an owner/superuser/BYPASSRLS DSN in
+	// production, so the loader connects as tappa_app like everything else.
+	//
+	// 🔴 AND THIS IS THE FIRST INSERT OVER `tags` IN db/queries, because two shipped
+	// comments rest on its absence and both expire here.
+	//
+	// ⚠️ THE MEASUREMENT PRINTED HERE WAS SELF-FALSIFYING AND IS NOW DATED AS THE
+	// HISTORICAL READING IT IS (audit, 2026-08-24). It read:
+	//
+	//     grep -c "INSERT INTO tags" db/queries/*.sql   ->  0 on every one of the
+	//                                                       17 files (2026-08-24)
+	//
+	// That was true of the tree BEFORE this change set and it was written INTO THE
+	// FILE THAT MAKES IT FALSE, in the present tense, with today's date beside it. Run
+	// now, the same command answers `db/queries/tags.sql:2` across the same 17 files --
+	// the two hits being this statement and MarkTagEncoded's neighbour below. A
+	// measurement that its own diff refutes has to say WHICH TREE it measured:
+	//
+	//     BEFORE this change set (2026-08-24) ... 0 hits across 17 files
+	//     AFTER  this change set ................ 2 hits, both in this file
+	//
+	//   * 00013 Part 3: "STILL NOT REACHABLE FROM THE APPLICATION ... db/queries has
+	//     NO INSERT over `tags` ... That protection does NOT expire with the next
+	//     round ... it expires the day a loader or runbook writes one." This is that
+	//     day. 00013 also inverted the guardrail on the same day it wrote that
+	//     sentence (sys:tag-not-active now demands `active` instead of listing the
+	//     bad statuses), which is what makes today's `unassigned` row refuse a tap on
+	//     its own rather than by luck.
+	//   * 00013 Part 2 declined to revoke tappa_app's TABLE-WIDE INSERT with the note
+	//     "the day a loader writes plaques through the application role, this line is
+	//     what has to be revisited". Backlog T16 is that item; 00022 restates it and
+	//     neither closes it. What bounds it today: the value crossing the boundary is
+	//     the 44-byte KEK envelope, never the plain key (ADR 0017 §3.1), and
+	//     aes_key_ref is not on any UPDATE grant, so it is write-ONCE.
+	// ============================================================================
+	// STEP 3: the row, written before the chip is touched.
+	//
+	// 🔴 WHY IT IS SAFE TO WRITE A ROW FOR A CHIP THAT IS NOT YET PERSONALISED, and
+	// it is the whole reason the order is this way round (ADR 0017 §5.2). The two
+	// half-write modes are NOT symmetric:
+	//   row, no chip -> a dead inventory row. status='unassigned', location_id NULL,
+	//                   so it is not on a wall and CLAUDE.md §5 row 1 rejects any tap
+	//                   on it. The wrapped key is still ours, so the SAME key can be
+	//                   driven onto the chip on a second attempt. Recoverable.
+	//   chip, no row -> a chip carrying a key that exists NOWHERE. It cannot be
+	//                   authenticated, re-keyed or verified again. Permanently scrap,
+	//                   and a §4.7 key-management loss.
+	// So the row goes first. What the row means afterwards is "we intended to encode
+	// this", which is exactly why 00022 adds encoded_at and why MarkTagEncoded below
+	// exists.
+	//
+	// 🔴 status IS THE LITERAL 'unassigned' AND NEVER 'active'. Two independent
+	// reasons, and the second is structural rather than a matter of care: an 'active'
+	// row would show a boxed plaque as in service on the panel's plaque list (the
+	// M8-05 card's own trap), AND it would violate 00013's
+	// tags_active_requires_location, because a plaque that has just been encoded is
+	// not on anybody's wall yet. The schema refuses the mistake; this literal means
+	// the flow never asks it to.
+	//
+	// 🔴 location_id IS WRITTEN AS AN EXPLICIT NULL RATHER THAN OMITTED. Omitting it
+	// would be a silent reliance on a DEFAULT that does not exist -- 00004 declares
+	// `location_id uuid` with no default, and 00013's
+	// tags_unassigned_has_no_location requires the value to be NULL for this status
+	// anyway. Writing it out means the statement says what the constraint demands
+	// instead of arriving at it by accident, and it keeps the column list and the
+	// VALUES list the same length, which is what cmd/tappa/insertscope_test.go can
+	// line up.
+	//
+	// @tenant_id IS A NAMED VALUE, NOT AN IMPLICIT ONE, and that is CLAUDE.md §4.5's
+	// belt beside RLS's braces. The braces are real: the tags policy carries WITH
+	// CHECK as well as USING (00004), tappa_app is NOBYPASSRLS, so a row stamped with
+	// ANOTHER tenant's id is refused. What WITH CHECK cannot do is notice that the
+	// statement never said which tenant it meant -- tags.tenant_id is NOT NULL with
+	// no default, so an INSERT that omits it does not "land in the session's tenant",
+	// it FAILS with a not-null violation. cmd/tappa/insertscope_test.go asserts
+	// exactly this shape across the whole of db/queries, and internal/encode's Rows
+	// port carries the same note for its implementer.
+	//
+	// 🔴 A DUPLICATE uid MUST FAIL, AND IT DOES -- uid is the PRIMARY KEY (00004), so
+	// a second INSERT for one chip answers 23505 rather than overwriting. That is the
+	// required behaviour on both sides: Rows.InsertUnassigned's contract says "It
+	// must fail rather than overwrite", and ADR 0017 §6 md. 12 counts the cost of the
+	// alternative -- uid is GLOBAL and public (printed on the plaque, in the tap URL),
+	// so an overwrite would let one round destroy another tenant's plaque row. The
+	// same md. 12 records the axis this statement does NOT close: 23505 on a uid the
+	// caller cannot SELECT is a cross-tenant existence oracle, and today the only
+	// cleanup for an occupied uid is tappa_owner by hand.
+	//
+	// RETURNING IS TWO COLUMNS AND NEITHER IS THE KEY. created_at is the server's
+	// clock (a caller that wanted to know when it loaded a plaque should not be
+	// trusted to say so), and uid is echoed so the caller can assert the row it got
+	// is the row it asked for. aes_key_ref is deliberately absent -- see this file's
+	// header: the one path that legitimately needs it is SUN verification, through
+	// resolve_tag_by_uid.
+	InsertUnassigned(ctx context.Context, arg InsertUnassignedParams) (InsertUnassignedRow, error)
 	// Every session of one admin, newest first: the read side of "sign out everywhere"
 	// and of the panel's device list. Revoked rows are included on purpose; the caller
 	// filters on revoked_at, so the history stays visible (section 4.6).
@@ -2972,10 +3078,18 @@ type Querier interface {
 	// matters least when something has gone wrong at a door.
 	//
 	// 🔴 THE ACTION FILTER IS A PREFIX AND THAT IS DELIBERATE. `plaque.%` covers
-	// plaque.mounted and plaque.retired today and covers whatever the next plaque act is
-	// called on the day it is added -- the same reason venue.go's header gives for
-	// `action LIKE 'location.%'`. A hand-listed pair would silently stop describing the
-	// product the moment a third act shipped.
+	// whatever the next plaque act is called on the day it is added -- the same reason
+	// venue.go's header gives for `action LIKE 'location.%'`. A hand-listed pair would
+	// silently stop describing the product the moment a third act shipped.
+	//
+	// ⚠️ AND THIS LINE USED TO NAME THE SET ("covers plaque.mounted and plaque.retired
+	// today"), WHICH IS THE DEFECT ITS OWN NEXT SENTENCE WARNS ABOUT, IN PROSE INSTEAD
+	// OF IN SQL. It went stale twice: plaque.unmounted shipped in the same change set
+	// that wrote it, and M8-05 FAZ B2c-2a added plaque.loaded and plaque.encoded
+	// (internal/encode, ADR 0017 §5.1 steps 3 and 9). The number is deliberately not
+	// restated here. Where the set IS counted is internal/handler's
+	// TestPlaqueTrail_NamesEveryActionTheDOMAINCanWrite, which derives it from
+	// internal/domain/tenant's const block with go/ast rather than from a sentence.
 	//
 	// 🔴 @target IS CAST EXPLICITLY, for ConfirmRecentRemoval's measured reason:
 	// audit_log.target is nullable by schema (00005), so without the cast sqlc infers the
@@ -3004,10 +3118,27 @@ type Querier interface {
 	// ROW says so.
 	//
 	// 🔴 @row_limit BOUNDS THE OUTPUT, NOT THE WORK, AND THE DIFFERENCE IS THE WHOLE
-	// COST OF THIS QUERY. A plaque's history is three rows at most; the SCAN is over
-	// every audit row the TENANT has, and audit_log is append-only with no retention job
-	// (backlog T6/T13), so the cost grows with the business's age rather than with the
-	// plaque's.
+	// COST OF THIS QUERY. The SCAN is over every audit row the TENANT has, and
+	// audit_log is append-only with no retention job (backlog T6/T13), so the cost
+	// grows with the business's age rather than with the plaque's.
+	//
+	// ⚠️ THIS PARAGRAPH USED TO OPEN "A plaque's history is THREE ROWS AT MOST" AND
+	// THAT CEILING IS GONE (M8-05 FAZ B2c-2a, 2026-08-24) -- a closed count, forty
+	// lines under a paragraph the same change set was editing. Two things broke it:
+	// the vocabulary went from three acts to FIVE (plaque.loaded and plaque.encoded,
+	// ADR 0017 §5.1 steps 3 and 9), and plaque.encoded is NOT capped at one -- the
+	// marker is idempotent on the ROW but audit_log is append-only, so a RETRIED
+	// marking appends another true entry. internal/encode's own test drives exactly
+	// that ("plaque.encoded entries = 2").
+	//
+	// 🔴 WHAT THAT COSTS, NAMED RATHER THAN RE-COUNTED: plaqueHistoryLimit = 20
+	// (internal/domain/tenant/plaque.go) justified itself as "far above any real
+	// chain", and THAT JUSTIFICATION NO LONGER HOLDS -- a chain is now unbounded in
+	// principle, because a caller that retries a marking N times writes N rows. No new
+	// number is put here: a ceiling is exactly what went stale, and the limit's real
+	// job (bounding what crosses the wire and what a template renders) never depended
+	// on one. ⚠️ NOT REACHABLE TODAY -- a second round against one chip dies at the
+	// duplicate uid, and the endpoint that could retry a marking is FAZ B2c-2b's.
 	//
 	// MEASURED 2026-08-10, with its population as this repo's rule requires -- tenant
 	// 10000000-...-0001, 2 566 audit rows of 63 624 in a 19 MB relation, asked for a
@@ -3284,16 +3415,41 @@ type Querier interface {
 	// INVENTORY MODEL: Tappa encodes a plaque and LOADS the row, the panel only
 	// BINDS it to a wall (user decision 2026-08-08).
 	//
-	// 🔴 THERE IS NO INSERT HERE, AND THAT IS THE DECISION, NOT AN OMISSION. Creating
-	// a plaque means holding its AES key, and the key never passes through the panel
-	// (section 4.7, Q06: the key is produced by the M8-05 runbook). The row is loaded
-	// by an operator as tappa_owner. The panel's whole vocabulary is: list, read, bind,
-	// UN-bind and retire -- never create and never delete.
+	// 🔴 THERE IS NO INSERT IN THIS SECTION, AND THAT IS THE DECISION, NOT AN
+	// OMISSION. Creating a plaque means holding its AES key, and the key never passes
+	// through the panel (section 4.7, Q06: the key is produced by the M8-05 runbook).
+	// The panel's whole vocabulary is: list, read, bind, UN-bind and retire -- never
+	// create and never delete.
 	//
-	// 🔴 AND aes_key_ref IS IN NO COLUMN LIST BELOW. It is a KEK-wrapped envelope,
-	// useless without the KEK, but useless-if-stolen is not a reason to hand it to a
-	// screen. The ONE path that legitimately needs it is the SUN verification, which
-	// reads it through resolve_tag_by_uid (00004) and nowhere else. A panel query
+	// ⚠️ TWO WORDS OF THIS PARAGRAPH WERE CORRECTED ON 2026-08-24 (M8-05 FAZ B2c-2a)
+	// AND THE DECISION IS UNCHANGED. It read "THERE IS NO INSERT HERE" -- a claim about
+	// the FILE, made in a section header about the PANEL -- and "The row is loaded by an
+	// operator as tappa_owner". The file now has an INSERT, at the bottom, under its own
+	// header: ADR 0017 §3.1 measured the role question closed, and the loader is the
+	// encode ENDPOINT connecting as tappa_app, not an operator as tappa_owner
+	// (internal/db/pool.go refuses an owner DSN in production). What has NOT changed is
+	// the sentence this section is actually about: a MANAGER still cannot create a
+	// plaque, and none of the statements below it can.
+	//
+	// 🔴 AND aes_key_ref IS IN NO **RETURNING OR SELECT** LIST BELOW. It is a
+	// KEK-wrapped envelope, useless without the KEK, but useless-if-stolen is not a
+	// reason to hand it to a screen.
+	//
+	// ⚠️ THIS LINE READ "IS IN NO COLUMN LIST BELOW" UNTIL 2026-08-24 AND ITS OWN FILE
+	// REFUTED IT 405 LINES DOWN: InsertUnassigned's INSERT names the column, because
+	// ADR 0017 §5.1 step 3 cannot write it otherwise. The paragraph directly above was
+	// corrected for exactly that statement in the same change set and this sentence was
+	// skipped -- and three comments in this file (at the panel section, the encode
+	// section and InsertUnassigned's own RETURNING note) point AT this header as their
+	// authority. The DIRECTION is what the rule was always about: the value travels IN,
+	// in one named statement, and comes back OUT nowhere.
+	//
+	// The ONE path that legitimately needs to READ it is the SUN verification, which
+	// reads it through resolve_tag_by_uid (00004) and no SQLC QUERY reads it at all.
+	// ⚠️ "NOWHERE ELSE" WAS TOO BIG AND IS NARROWED (2026-08-24): TWO production packages
+	// call that function -- internal/sun/preview.go and internal/domain/checkin/checkin.go,
+	// both via db.GetTagByUID, whose ResolvedTag carries AESKeyRef []byte. What is true is
+	// that no query in THIS file reads the column. A panel query
 	// that selected it would put a wrapped key into template data, log lines and
 	// HTTP responses for a value no pixel renders.
 	// ============================================================================
@@ -3562,6 +3718,49 @@ type Querier interface {
 	// it answers "when was the most recent login", not "when was the first". The
 	// history of logins is audit_log's job (phase B writes it), not this column's.
 	MarkAdminLoggedIn(ctx context.Context, arg MarkAdminLoggedInParams) (MarkAdminLoggedInRow, error)
+	// STEP 9: the chip took its keys, so stamp the row.
+	//
+	// 🔴 coalesce() MAKES IT IDEMPOTENT AT THE STATEMENT LEVEL, which is what lets a
+	// retry be a retry. A second call writes the STORED timestamp back over itself,
+	// so it returns the FIRST time rather than a new one -- the answer to "when was
+	// this chip personalised" cannot drift because somebody pressed the button twice
+	// or a proxy replayed a request. It also lands exactly on the one UPDATE
+	// 00022's tags_encoded_at_write_once permits without firing (value -> SAME value;
+	// 00011's BOUNDARY 2: a guard that fires on a duplicate makes the caller report
+	// failure for work that succeeded).
+	//
+	// THE TRIGGER IS THE BELT AND THIS coalesce IS THE BRACE, not the other way
+	// round. This statement is one writer; the trigger binds EVERY writer including
+	// tappa_owner, which no REVOKE can reach. A hand-written UPDATE at a psql prompt
+	// gets 23001; this statement gets a no-op.
+	//
+	// 🔴 THE TIME IS THE DATABASE'S now(), NEVER A CALLER-SUPPLIED TIMESTAMP, and the
+	// precedent is not a preference: audit_log.at and transactions.created_at are
+	// server-side for the same reason (a clock-skewed phone, or a malicious one,
+	// must not be able to backdate a record). ADR 0017 §2.2 says to assume the phone
+	// in this flow is compromised, which makes the point concrete rather than
+	// theoretical -- and CLAUDE.md §6 fixes the type: timestamptz, UTC, converted to
+	// local only when it is rendered.
+	//
+	// now() AND NOT clock_timestamp(): now() is the TRANSACTION's start time, so if
+	// this statement ever shares a transaction with another write, both carry the
+	// same instant. Nothing here needs sub-transaction resolution, and a stable value
+	// is the easier one to reason about in an audit.
+	//
+	// THE EXPLICIT tenant_id PREDICATE IS §4.5's BELT, and on this table it does real
+	// work rather than decorating: uid is a GLOBAL primary key and it is PUBLIC, so
+	// without the predicate the statement's scope would be "any plaque in the world
+	// with this uid" and only RLS would narrow it. With it, the statement says what
+	// it means even on a code path where the tenant GUC was never set.
+	//
+	// 🔴 ZERO ROWS MEANS "NO SUCH PLAQUE IN THIS TENANT" (pgx.ErrNoRows) AND NOT
+	// "ALREADY ENCODED". The distinction matters because the obvious alternative --
+	// `WHERE ... AND encoded_at IS NULL` -- would collapse the two: a retry would
+	// look identical to a uid that belongs to somebody else, and a caller that
+	// treated ErrNoRows as "fine, it was already done" would then swallow the second
+	// case silently. Here a retry SUCCEEDS and returns the original timestamp, so
+	// ErrNoRows keeps exactly one meaning.
+	MarkTagEncoded(ctx context.Context, arg MarkTagEncodedParams) (MarkTagEncodedRow, error)
 	// Re-places one person: a different venue, a different department, or both
 	// (M6-05 phase B).
 	//

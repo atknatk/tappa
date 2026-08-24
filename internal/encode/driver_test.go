@@ -11,16 +11,35 @@ import (
 	"time"
 
 	"github.com/atknatk/tappa/internal/sun"
+	"github.com/google/uuid"
 )
+
+// testTenant is the business every in-memory round in this package is opened for.
+//
+// It is a FIXED, RECOGNISABLE value rather than uuid.New(): the point of the tenant
+// argument is that the value the ports receive is the value the round was opened
+// with (see Rows), and an assertion against a fresh random uuid would pass equally
+// well if the plumbing dropped it and read it back from the same variable. A
+// literal makes the round trip visible in a failure message.
+var testTenant = uuid.MustParse("10000000-0000-0000-0000-000000000001")
 
 // --- test ports ----------------------------------------------------------------
 
 // recordingRows records the ORDER of persistence calls, not just their arguments.
 // ADR 0017 §5.2 is a statement about order, so a double that only remembered "an
 // insert happened" could not fail the mutation the rule exists for.
+// portCall is one Rows call with the three arguments a transposition would mix up.
+type portCall struct {
+	op     string
+	tenant uuid.UUID
+	uid    string
+	actor  string
+}
+
 type recordingRows struct {
 	mu        sync.Mutex
 	events    []string
+	scope     []portCall
 	inserted  map[string][]byte
 	insertErr error
 	markErr   error
@@ -36,12 +55,18 @@ func newRecordingRows() *recordingRows {
 	return &recordingRows{inserted: map[string][]byte{}}
 }
 
-func (r *recordingRows) InsertUnassigned(_ context.Context, uidHex string, wrapped []byte) error {
+func (r *recordingRows) InsertUnassigned(_ context.Context, tenantID uuid.UUID, uidHex string, wrapped []byte, actor string) error {
 	if r.beforeInsert != nil {
 		r.beforeInsert()
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	// RECORDED SEPARATELY FROM uidHex, and that is what makes an argument SWAP
+	// visible: tenantID, uidHex and actor are three values, two of them strings, so
+	// a port whose parameters were transposed would still compile. The three
+	// assertions in TestDriver_TheRowPortReceivesTheRoundsOwnTenantAndActor read
+	// them apart.
+	r.scope = append(r.scope, portCall{op: "insert", tenant: tenantID, uid: uidHex, actor: actor})
 	if r.insertErr != nil {
 		r.events = append(r.events, "insert-failed:"+uidHex)
 		return r.insertErr
@@ -55,12 +80,13 @@ func (r *recordingRows) InsertUnassigned(_ context.Context, uidHex string, wrapp
 	return nil
 }
 
-func (r *recordingRows) MarkEncoded(_ context.Context, uidHex string) error {
+func (r *recordingRows) MarkEncoded(_ context.Context, tenantID uuid.UUID, uidHex string, actor string) error {
 	if r.onMark != nil {
 		r.onMark()
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.scope = append(r.scope, portCall{op: "mark", tenant: tenantID, uid: uidHex, actor: actor})
 	if r.markErr != nil {
 		r.events = append(r.events, "mark-failed:"+uidHex)
 		return r.markErr
@@ -79,6 +105,12 @@ func (r *recordingRows) log() []string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return append([]string(nil), r.events...)
+}
+
+func (r *recordingRows) calls() []portCall {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]portCall(nil), r.scope...)
 }
 
 // testWrapper is the real sun.Wrap under a test KEK, not a stub. The point is to
@@ -196,7 +228,7 @@ func newHarness(t *testing.T, mutate ...func(*Config)) *harness {
 func (h *harness) run(t *testing.T, chip *fakeChip, actor string) (Progress, error) {
 	t.Helper()
 	ctx := context.Background()
-	id, p, err := h.st.Begin(ctx, actor)
+	id, p, err := h.st.Begin(ctx, testTenant, actor)
 	if err != nil {
 		return Progress{}, err
 	}
@@ -436,7 +468,7 @@ func TestDriver_ChangeKeyAlwaysPrecedesChangeFileSettings(t *testing.T) {
 	h2 := newHarness(t)
 	chip2 := newFakeChip(t)
 	ctx := context.Background()
-	id, p, err := h2.st.Begin(ctx, "operator-1")
+	id, p, err := h2.st.Begin(ctx, testTenant, "operator-1")
 	if err != nil {
 		t.Fatalf("Begin: %v", err)
 	}
@@ -779,7 +811,7 @@ func TestDriver_AChipErrorEndsTheRound(t *testing.T) {
 	h := newHarness(t)
 	chip := newFakeChip(t)
 	ctx := context.Background()
-	id, p, err := h.st.Begin(ctx, "operator-1")
+	id, p, err := h.st.Begin(ctx, testTenant, "operator-1")
 	if err != nil {
 		t.Fatalf("Begin: %v", err)
 	}
@@ -837,7 +869,7 @@ func TestDriver_ASecondRoundForOneChipIsRefused(t *testing.T) {
 
 	// Drive round A up to and including the row write, then leave it live.
 	chipA := newFakeChip(t)
-	idA, pA, err := h.st.Begin(ctx, "operator-1")
+	idA, pA, err := h.st.Begin(ctx, testTenant, "operator-1")
 	if err != nil {
 		t.Fatalf("Begin A: %v", err)
 	}
@@ -850,7 +882,7 @@ func TestDriver_ASecondRoundForOneChipIsRefused(t *testing.T) {
 
 	// Round B against a chip with the same UID.
 	chipB := newFakeChip(t)
-	idB, pB, err := h.st.Begin(ctx, "operator-2")
+	idB, pB, err := h.st.Begin(ctx, testTenant, "operator-2")
 	if err != nil {
 		t.Fatalf("Begin B: %v", err)
 	}
@@ -895,7 +927,7 @@ func TestDriver_RejectsMalformedResponses(t *testing.T) {
 	t.Run("a_runt_frame", func(t *testing.T) {
 		h := newHarness(t)
 		ctx := context.Background()
-		id, _, err := h.st.Begin(ctx, "operator-1")
+		id, _, err := h.st.Begin(ctx, testTenant, "operator-1")
 		if err != nil {
 			t.Fatalf("Begin: %v", err)
 		}
@@ -907,7 +939,7 @@ func TestDriver_RejectsMalformedResponses(t *testing.T) {
 	t.Run("the_wrong_status_word", func(t *testing.T) {
 		h := newHarness(t)
 		ctx := context.Background()
-		id, _, err := h.st.Begin(ctx, "operator-1")
+		id, _, err := h.st.Begin(ctx, testTenant, "operator-1")
 		if err != nil {
 			t.Fatalf("Begin: %v", err)
 		}
@@ -1166,7 +1198,7 @@ func TestDriver_TheFreshPlaqueKeyIsWipedOnBothReachableFailurePathsOfStep3(t *te
 		chip := newFakeChip(t)
 
 		ctx := context.Background()
-		id, p, err := h.st.Begin(ctx, "operator-1")
+		id, p, err := h.st.Begin(ctx, testTenant, "operator-1")
 		if err != nil {
 			t.Fatalf("Begin: %v", err)
 		}
@@ -1238,7 +1270,7 @@ func TestDriver_ACancellationDuringAStepEndsTheRound(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	h.rows.beforeInsert = cancel
 
-	id, p, err := h.st.Begin(ctx, "operator-1")
+	id, p, err := h.st.Begin(ctx, testTenant, "operator-1")
 	if err != nil {
 		t.Fatalf("Begin: %v", err)
 	}
@@ -1439,7 +1471,7 @@ func TestStore_APanicInAStepStillWipesTheSession(t *testing.T) {
 	// Take a fresh session to the row-writing step so the panic lands inside advance.
 	chip2 := newFakeChip(t)
 	chip2.uid = []byte{0x04, 0x96, 0x8C, 0xAA, 0x5C, 0x5E, 0x99}
-	id2, p2, err := h.st.Begin(context.Background(), "operator-2")
+	id2, p2, err := h.st.Begin(context.Background(), testTenant, "operator-2")
 	if err != nil {
 		t.Fatalf("Begin: %v", err)
 	}
