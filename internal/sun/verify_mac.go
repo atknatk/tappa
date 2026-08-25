@@ -44,9 +44,32 @@ var sdmSV2Prefix = [6]byte{0x3C, 0xC3, 0x00, 0x01, 0x00, 0x80}
 // upstream programming error (M2-05 always yields 16 bytes); it is surfaced, not
 // swallowed (CLAUDE.md §7). A cryptographic mismatch is (false, nil), never an
 // error — a wrong CMAC is a normal reject, not a failure.
+//
+// 🔴 ZEROISATION (§4.7, backlog T64). sessionKey, full AND mac are all wiped on
+// every exit path, error returns included, by deferring. kSDMFileRead is the
+// CALLER's unwrapped key — verify.go:250-256 unwraps it and Zeroes it — so wiping
+// it here would destroy a buffer this function does not own; uid, ctrBytes and
+// chipCMAC are the caller's too.
+//
+// 🔴 WHY mac IS WIPED, AND WHY THE FIRST VERSION OF THIS SENTENCE WAS WRONG. It
+// said mac "is bit-for-bit the value the chip puts on the wire, which the attacker
+// already has", and cited ev2.go's rule that MAC tags need no wipe. Both halves
+// fail HERE. mac is eight bytes of a CMAC computed under the per-tap SDM session
+// key: key-derived by definition. And ev2.go's tag is written into an outgoing
+// command and genuinely leaves the process; this one is a COMPARISON value that
+// never goes anywhere.
+//
+// The gap that opens is the interesting one, and it is on the REJECT path.
+// verify.go:199-206 returns before AdvanceCounter whenever the MAC did not verify,
+// so a refused tap leaves the counter unmoved — and the mac still sitting in this
+// frame is the CORRECT SDM MAC for a (uid, ctr) pair the sender demonstrably did
+// NOT have, at the exact moment key, sessionKey and full have all been zeroed.
+// That is T64's own item (a), one layer further down: the last unwiped copy of a
+// value the rest of the chain took care to destroy.
 func verifyMAC(kSDMFileRead, uid, ctrBytes, chipCMAC []byte) (bool, error) {
 	// Step 1+2: derive the per-tap session key from SV2.
 	sessionKey, err := cmac(kSDMFileRead, sv2(uid, ctrBytes))
+	defer Zero(sessionKey[:])
 	if err != nil {
 		return false, fmt.Errorf("sun: derive session key: %w", err)
 	}
@@ -57,12 +80,16 @@ func verifyMAC(kSDMFileRead, uid, ctrBytes, chipCMAC []byte) (bool, error) {
 	// verification fail — the chip MACs the empty input. sessionKey[:] is a
 	// valid 16-byte AES key, so this cmac cannot fail on key length.
 	full, err := cmac(sessionKey[:], nil)
+	defer Zero(full[:])
 	if err != nil {
 		return false, fmt.Errorf("sun: compute sdm mac: %w", err)
 	}
 
-	// Step 4: truncate to the 8 odd-indexed bytes the chip actually emits.
+	// Step 4: truncate to the 8 odd-indexed bytes the chip actually emits. The
+	// deferred wipe is safe because the ONLY read of mac is inside the return
+	// expression below, and return values are evaluated before any defer runs.
 	mac := truncateSDMMAC(full)
+	defer Zero(mac[:])
 
 	// Step 5: constant-time compare. subtle.ConstantTimeCompare returns 1 only
 	// when the lengths match AND the bytes are equal, and it does so without a
@@ -139,8 +166,17 @@ func sv2(uid, ctrBytes []byte) []byte {
 // bytes (or the first 8) fails EVERY time and misleadingly looks like a wrong
 // key (skill tappa-sun, m2-sun.md M2-04 Tuzaklar). full[2*i+1] for i in 0..7
 // yields exactly indices 1,3,5,7,9,11,13,15.
+//
+// full arrives BY VALUE, so this frame holds its own copy of the untruncated CMAC
+// — including the eight EVEN-indexed bytes the chip never transmits — and wipes it
+// on return. mac is wiped too: it is a CMAC under a session key, and the result of
+// this function is UNNAMED, so `return mac` has already copied the eight bytes out
+// by the time the deferred wipe runs. Naming the result would make that defer zero
+// what the caller gets — every known-answer vector in the package fires on it.
 func truncateSDMMAC(full [16]byte) [8]byte {
+	defer Zero(full[:])
 	var mac [8]byte
+	defer Zero(mac[:])
 	for i := 0; i < 8; i++ {
 		mac[i] = full[2*i+1]
 	}

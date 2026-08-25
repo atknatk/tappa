@@ -38,16 +38,59 @@ import (
 // outputs (ev2SessionKeys), the rotated RndB' AND the RndA || RndB' it is copied
 // into (EV2AuthPart1), the decrypted authentication response and the rotated echo
 // (EV2AuthPart2), the data IV and the padded plaintext body (EV2WrapCommandFull),
-// and the ChangeKey body (EV2ChangeKeyCommand). Ciphertext and MAC tags are NOT
-// wiped — they are not key material, and they are what goes on the wire anyway.
-// TestEV2_ZeroDisciplineIsInventoried holds the COUNT of those wipes so a deleted
-// one is a red test rather than a stale sentence.
+// the ChangeKey body (EV2ChangeKeyCommand), and — added 2026-08-25 — the two
+// untruncated CMACs, the expected response tag and truncateMACt's own copy.
+// Every one of them is held by byteBufferInventory in cmac_wipe_test.go, which
+// records for EACH declared identifier in this file whether it is wiped or exempt
+// and why — so a deleted wipe, a wipe moved to the wrong variable, and a new
+// buffer nobody classified are all red tests rather than stale sentences.
+//
+// ⚠️ THIS POINTER USED TO NAME TestEV2_ZeroDisciplineIsInventoried, WHICH NO LONGER
+// WATCHES THIS FILE. ev2.go left that counting gate on 2026-08-25 for the stronger
+// per-identifier one, because a count knows how many wipes exist and never which
+// buffer — and two audit mutations exploited exactly that. A signpost pointing at
+// a gate that has stopped covering you is the failure this very sentence used to
+// warn about, so it is spelled out instead of quietly repaired.
+//
+// 🔴 THE SENTENCE THAT USED TO STAND HERE WAS "Ciphertext and MAC tags are NOT
+// wiped — they are not key material, and they are what goes on the wire anyway",
+// AND IT WAS DOING REAL DAMAGE: it defended three unwiped CMACs in this file for
+// a month. Measured against each value it claimed to cover, rather than restated:
+//
+//	full (EV2WrapCommandFull, EV2UnwrapResponseFull) — SIXTEEN bytes of CMAC under
+//	  KSesAuthMAC. Exactly EIGHT of them become the tag. The other eight are never
+//	  transmitted in any frame, so "goes on the wire anyway" was false for half of
+//	  the buffer it was excusing. WIPED.
+//	want (EV2UnwrapResponseFull) — the expected tag. It is never transmitted at
+//	  all: it is what the received tag is COMPARED against, and on the failing
+//	  branch it is the correct MAC for a frame the relay could not produce. WIPED.
+//	full (truncateMACt) — a by-value copy of the same sixteen bytes. WIPED.
+//	t (EV2WrapCommandFull) — the eight bytes that DO travel. They are appended into
+//	  the returned frame verbatim, so this copy is genuinely redundant with a value
+//	  the caller is about to hand to a hostile relay. NOT wiped, and that is the
+//	  only form of the old sentence that survives.
+//	enc / out / the returned plaintext — ciphertext and caller-owned results. NOT
+//	  wiped; ev2Unpad's error path already Zeroes the plaintext it is abandoning.
+//
+// The rule, stated so it cannot be stretched by prose again: a value is exempt
+// because it IS, byte for byte, something this process is about to transmit — not
+// because it is "a MAC", and not because part of the buffer it lives in travels.
+// A comparison value is never exempt. verify_mac.go carries the same distinction
+// for the SDM half, and the two were fixed in the same round for the same reason.
 //
 // ⚠️ ONE MECHANISM THIS RELIES ON, STATED SO IT IS NOT ASSUMED — AND STATED AT THE
 // STRENGTH IT WAS MEASURED AT, WHICH IS NOT "EXACT". Every buffer above is
 // allocated with a capacity that is ALREADY AT LEAST ITS FINAL LENGTH, so no
 // append in this file ever reallocates and no half-built copy is orphaned in an
-// old backing array where Zero cannot reach it. Counted across ev2.go and
+// old backing array where Zero cannot reach it.
+//
+// ⚠️ THIS IS STILL A HAND ARGUMENT, AND THE MECHANICAL RULE DOES NOT REPLACE IT.
+// cmac_wipe_test.go's reassignedAfterItsWipe checks the no-reallocation property
+// only for identifiers the inventory marks WIPED, within one function — which
+// covers iv, padded, plain, rot, msg, echoed, sv1 and sv2v. It does NOT look at
+// the buffers this paragraph is mostly about: ev2Pad's out, ev2MACInput's buf,
+// ev2SessionVector's sv and the rotations' out are all classified exReturned, and
+// no mechanism examines their capacities at all. Counted across ev2.go and
 // changekey.go: TEN make([]byte, 0, …) sites, NINE of which allocate the exact
 // final length; ev2Pad is the single exception and allocates an upper bound
 // (len(in)+16, so a 17-byte body yields len 32 in a cap-33 array). That is
@@ -466,7 +509,13 @@ func EV2WrapCommandFull(auth *EV2Auth, cmd byte, cmdCtr uint16, cmdHeader, cmdDa
 	}
 
 	macIn := ev2MACInput(cmd, cmdCtr, auth.TI, cmdHeader, enc)
+	// full is the UNTRUNCATED CMAC under KSesAuthMAC. Only its eight odd-indexed
+	// bytes become t and travel; the other eight never leave this process, so the
+	// "it goes on the wire anyway" argument does not cover them (see the file
+	// header). t itself is NOT wiped — it is copied verbatim into out below and
+	// returned, so scrubbing this copy protects nothing.
 	full, err := cmac(auth.KeyMAC, macIn)
+	defer Zero(full[:])
 	if err != nil {
 		return nil, fmt.Errorf("sun: ev2: compute command MAC: %w", err)
 	}
@@ -520,10 +569,18 @@ func EV2UnwrapResponseFull(auth *EV2Auth, cmdCtr uint16, rc byte, respField []by
 
 	macIn := ev2MACInput(rc, respCtr, auth.TI, nil, enc)
 	full, err := cmac(auth.KeyMAC, macIn)
+	defer Zero(full[:])
 	if err != nil {
 		return nil, fmt.Errorf("sun: ev2: compute response MAC: %w", err)
 	}
+	// 🔴 want IS WIPED AND t IN EV2WrapCommandFull IS NOT, AND THE DIFFERENCE IS THE
+	// WHOLE POINT. t is put into the returned frame and travels. want is a
+	// COMPARISON value that never leaves this frame — and on the failing branch it
+	// is the CORRECT MAC for a response the relay could not produce, computed under
+	// a session key, at the moment we hand the relay an error. ADR 0017 §2.2 says
+	// to assume that relay is hostile. Same shape as verify_mac.go's mac.
 	want := truncateMACt(full)
+	defer Zero(want[:])
 	if subtle.ConstantTimeCompare(want[:], got) != 1 {
 		// No bytes in the message (§4.7): a caller learns only that the frame
 		// did not authenticate, never how close it was.
@@ -640,7 +697,16 @@ func ev2NextCtr(cmdCtr uint16) (uint16, error) {
 // order" means S14, S12, … S0 with S15 leftmost, and those sit at slice indices
 // 1, 3, … 15. AN12196 rev. 2.0 §5.16.1 Table 25 steps 17-18 publish the pair —
 // CMAC EA5D2E0CBFE24C0BCBCD501D21060EE6 truncates to 5D0CE20BCD1D06E6.
-func truncateMACt(full [16]byte) [8]byte { return truncateSDMMAC(full) }
+//
+// full arrives BY VALUE, so this frame holds a third copy of the untruncated CMAC
+// and wipes it. The argument to truncateSDMMAC is evaluated — a fourth copy, which
+// that function wipes itself — and the [8]byte result is assigned to this
+// function's UNNAMED result before any deferred call runs, so the caller gets the
+// tag and this frame keeps zeros.
+func truncateMACt(full [16]byte) [8]byte {
+	defer Zero(full[:])
+	return truncateSDMMAC(full)
+}
 
 // ev2Pad applies ISO/IEC 9797-1 padding method 2, as datasheet rev. 3.0 §9.1.4
 // prescribes: always an 80h, then zeros to a multiple of 16 — "Note that if the

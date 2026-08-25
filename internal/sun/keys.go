@@ -217,11 +217,28 @@ func UnwrapAny(keks [][]byte, uid, ref []byte) ([]byte, error) {
 // clear sets every byte to zero.
 func Zero(key []byte) { clear(key) }
 
-// aead builds the AES-256-GCM AEAD from the KEK for a single Wrap/Unwrap. It is
-// built per call — never cached — so no KEK-derived key schedule outlives the
-// operation. The explicit length check enforces AES-256 (kekLen); aes.NewCipher
-// alone would accept 16/24 bytes and silently downgrade the envelope. Errors
-// report only the length, never the KEK bytes (§4.7).
+// aead builds the AES-256-GCM AEAD from the KEK for a single Wrap/Unwrap. The
+// explicit length check enforces AES-256 (kekLen); aes.NewCipher alone would
+// accept 16/24 bytes and silently downgrade the envelope. Errors report only the
+// length, never the KEK bytes (§4.7).
+//
+// 🔴 A SENTENCE HERE USED TO SAY "built per call — never cached — so no
+// KEK-derived key schedule outlives the operation". THAT WAS MEASURED AND IT IS
+// WRONG: the REFERENCE does not outlive the operation, the BYTES do, and they are
+// unreachable garbage rather than freed memory. Measured 2026-08-25 on go1.26.7
+// darwin/amd64 by a probe outside this repo printing only a boolean and an offset:
+// the *aes.Block allocation contains the 32-byte KEK verbatim, and cipher.NewGCM
+// embeds that Block BY VALUE into a second, larger allocation which therefore
+// contains a SECOND verbatim copy. Two copies per call, neither wipeable — Go
+// exposes no way to scrub either — so every Unwrap leaves roughly a kilobyte of
+// unreferenced heap holding the key that opens every tag in the park, until the
+// allocator happens to reuse those spans.
+//
+// It cannot be closed here; it is COUNTED, at
+// TestCMAC_TheUnwipeableCipherBlocksAreCounted, which counts key-schedule
+// ALLOCATIONS rather than aes.NewCipher call sites for exactly this reason: an
+// earlier version counted the call sites, said "keys.go: 1", and missed the GCM
+// copy entirely.
 func aead(kek []byte) (cipher.AEAD, error) {
 	if len(kek) != kekLen {
 		return nil, fmt.Errorf("sun: KEK must be %d bytes, got %d", kekLen, len(kek))

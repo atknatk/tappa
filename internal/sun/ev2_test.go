@@ -27,11 +27,14 @@ import (
 // production file of the EV2 half, and it exists because the alternative was a
 // SENTENCE.
 //
-// 🔴 WHAT WAS MEASURED (2026-08-21, security audit). All eleven deferred wipes in
-// ev2.go and changekey.go were deleted at once and `go test ./internal/sun/`
-// stayed ENTIRELY GREEN. ev2.go's header claims a specific list of buffers is
-// zeroised "so the claim can be checked" — and there was nothing checking it. A
-// §4.7 obligation that no test can fail is a comment, not a mechanism.
+// 🔴 WHAT WAS MEASURED (2026-08-21, security audit). All the deferred wipes in
+// ev2.go and changekey.go — eleven AT THAT DATE, sixteen now — were deleted at
+// once and `go test ./internal/sun/` stayed ENTIRELY GREEN. ev2.go's header claims
+// a specific list of buffers is zeroised "so the claim can be checked" — and there
+// was nothing checking it. A §4.7 obligation that no test can fail is a comment,
+// not a mechanism. (The count is spelled with its date because it has moved once
+// already: T64's third round added four to ev2.go's MAC path on 2026-08-25. The
+// live figure is in the map below and nowhere else.)
 //
 // 🔴 IT RATCHETS BOTH WAYS, exactly like cmd/tappa's constantTimeInventory and for
 // the same reason: with "at least", a deleted wipe buys itself an exemption.
@@ -53,30 +56,49 @@ import (
 // ADR 0017 §3 asks for ("HER çıkışta").
 //
 // 🔴 THE SCANNED SET IS WIDER THAN THE INVENTORY, AND THAT ASYMMETRY IS THE POINT
-// (M8-05 FAZ B2b). zeroDisciplineFiles lists every production file of the
-// personalisation half; the inventory lists only the ones that hold key material.
-// A scanned file that is NOT in the inventory must have ZERO deferred wipes, so
-// the day apdu.go, ndef.go or filesettings.go starts handling a plaintext key, the
-// inventory has to be edited in the same change — the visible-in-review step. The
-// alternative, listing them with a zero, does not work: a zero is exactly what a
-// deletion produces, which is the argument cmd/tappa's constantTimeInventory makes
-// about internal/session.
+// (M8-05 FAZ B2b). A scanned file that is NOT in the inventory must have ZERO
+// deferred wipes, so the day apdu.go, ndef.go or filesettings.go starts handling a
+// plaintext key, the inventory has to be edited in the same change — the
+// visible-in-review step. The alternative, listing them with a zero, does not
+// work: a zero is exactly what a deletion produces, which is the argument
+// cmd/tappa's constantTimeInventory makes about internal/session.
 //
 // ⚠️ THE OBLIGATION THIS DOES NOT DISCHARGE: ADR 0017 §6 md. 7 — the in-memory
 // session's TTL, its sweeper, and the guarantee that a CALLER invokes
 // EV2Auth.Zero on every exit path — is turn 2c's and stays open. This map is about
 // this package's own internal buffers only.
-var zeroDisciplineFiles = []string{"ev2.go", "changekey.go", "apdu.go", "ndef.go", "filesettings.go"}
+//
+// 🔴 ev2.go LEFT THIS GATE ON 2026-08-25, AND THE SENTENCE THAT USED TO STAND HERE
+// IS THE REASON. It said the two file sets were "disjoint on purpose" — and a
+// security audit accepted that as the justification for NOT blocking on a real
+// gap, because the boundary was at least honestly disclosed. Then it produced the
+// two mutations the boundary let through, both COUNT-PRESERVING and therefore
+// invisible to everything in this file:
+//
+//	defer Zero(want[:]) -> defer Zero(got)   // ev2.go:566, and got is the CALLER's
+//	defer Zero(enc[:])  -> defer Zero(sv1)   // ev2.go:383, KSesAuthENC's scratch
+//
+// Zero tests red, exit 0, for both. A count knows HOW MANY wipes there are and
+// never WHICH buffer, so this gate was structurally incapable of seeing them. The
+// answer was not a new gate design: ev2.go's 101 declarations were classified into
+// the existing byteBufferInventory with the existing closed vocabulary, which
+// fails in BOTH directions — `want` marked wiped with nothing wiping it, and `got`
+// marked exempt with something wiping it.
+//
+// So the two sets are still disjoint, but the boundary MOVED: this gate now holds
+// changekey.go and the three files that must have no wipes at all, while cmac.go,
+// verify_mac.go and ev2.go get per-identifier completeness. Which production files
+// fall outside BOTH is not written here as a list — an earlier draft of this very
+// sentence enumerated six and got one of them wrong, which is this repo's oldest
+// defect pattern. It is read off the directory by
+// TestSUN_EveryProductionFileIsAssignedToAWipeGate.
+var zeroDisciplineFiles = []string{"changekey.go", "apdu.go", "ndef.go", "filesettings.go"}
 
 var zeroDisciplineInventory = map[string]int{
-	// Two session vectors, two derivation CMAC outputs (ev2SessionKeys); the
-	// rotated RndB' and the RndA||RndB' it feeds (EV2AuthPart1); the decrypted
-	// auth response and the rotated echo (EV2AuthPart2); the command IV and the
-	// padded body (EV2WrapCommandFull); the response IV (EV2UnwrapResponseFull).
-	"ev2.go": 11,
 	// The plaintext ChangeKey body (EV2ChangeKeyCommand) — for key 0 it IS the new
-	// plaque key in the clear.
-	"changekey.go": 1,
+	// plaque key in the clear — and crc32NK's out, which carries 32 linear
+	// equations in that key's 128 bits (added 2026-08-25, security audit F3).
+	"changekey.go": 2,
 }
 
 // TestEV2_ZeroDisciplineIsInventoried holds the count above. It parses the source
@@ -103,10 +125,12 @@ func TestEV2_ZeroDisciplineIsInventoried(t *testing.T) {
 		})
 	}
 
-	// CONTROL: the walk reached real code. Without this the whole test passes on an
-	// empty result set if parsing ever silently stops finding anything.
-	if total := got["ev2.go"] + got["changekey.go"]; total < 5 {
-		t.Fatalf("only %d deferred wipes found across both files; the scan has gone blind", total)
+	// CONTROL: the walk reached real code — without it the whole test passes on an
+	// empty result set if parsing ever silently stops finding anything. ev2.go left
+	// this gate for the stronger per-identifier one in cmac_wipe_test.go, so
+	// changekey.go is the whole inventory now and the threshold is 1, not 5.
+	if total := got["changekey.go"]; total < 1 {
+		t.Fatal("no deferred wipe found in changekey.go; the scan has gone blind")
 	}
 
 	for name, want := range zeroDisciplineInventory {

@@ -185,9 +185,22 @@ func ChangeKeyData(keyNo byte, oldKey, newKey []byte, keyVer byte) ([]byte, erro
 // the choice is anchored to the document rather than to this comment.
 //
 // crc32.ChecksumIEEE returns the FCS-style complemented value, hence the ^.
+//
+// 🔴 BOTH LOCALS ARE WIPED, AND THE REASON IS THINNER THAN THE OTHER WIPES IN THIS
+// PACKAGE — SO IT IS WRITTEN DOWN RATHER THAN IMPLIED. A CRC32 is not a MAC and
+// leaks far less than one, but it is not nothing either: CRC32 is linear over
+// GF(2), so CRC32(newKey) is 32 linear equations in the 128 bits of a fresh plaque
+// key, taking an exhaustive search from 2^128 to 2^96. That is not a practical
+// attack and this is not a §4.7 finding; it is the difference between "these
+// buffers are harmless" and "these buffers are cheap to erase and nobody counted
+// them", which is what a security audit called out. out is returned BY VALUE from
+// an unnamed result, so the caller's copy is made before the deferred wipe runs.
+// raw is a uint32 in a register and cannot be scrubbed at all — the same
+// unclosable class as cmac.go's carry, named here so the list stays honest.
 func crc32NK(newKey []byte) [crc32NKLength]byte {
 	raw := ^crc32.ChecksumIEEE(newKey)
 	var out [crc32NKLength]byte
+	defer Zero(out[:])
 	binary.LittleEndian.PutUint32(out[:], raw)
 	return out
 }
