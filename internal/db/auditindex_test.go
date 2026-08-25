@@ -27,6 +27,31 @@ import (
 //	        Buffers: shared read=3
 //	        0.194 ms cold / 0.154 / 0.159 / 0.164 ms warm
 //
+// 🔴 THE PAIR "3 688 OF 193 064" IS DATED AND CAN NO LONGER BE REPRODUCED, and it
+// is labelled rather than quietly left to rot. Re-checked 2026-08-25: the tenant
+// that probe named (10000000-...-0001) now holds ZERO audit rows -- the development
+// database has been refreshed since -- so anyone re-running it gets nothing and
+// could reasonably conclude the number was invented. It was not; it is history,
+// and this file's rule is that a number is either wired to a gate, DATED, or
+// deleted. This one is dated.
+//
+// RE-MEASURED 2026-08-25 ON THE SAME DEVELOPMENT DATABASE, same probe shape, with
+// the index DROPPED inside a rolled-back transaction so BEFORE is the real absence
+// of it rather than a planner flag. Tenant 10000000-0000-4000-8000-000000000001,
+// 5 574 audit rows of 279 436:
+//
+//	BEFORE  Bitmap Heap Scan, Rows Removed by Filter: 5 573,
+//	        Heap Blocks: exact=1 787, Buffers: shared hit=1 838
+//	        6.216 / 5.288 / 6.216 ms
+//	AFTER   Index Scan using audit_log_tenant_target_idx,
+//	        Buffers: shared hit=7
+//	        0.161 / 0.253 / 0.146 ms
+//
+// Same shape, same two orders of magnitude, three months of drift later: every row
+// the TENANT owns is fetched and discarded without the index, and 7 buffers with
+// it. The 2026-08-19 figures above are superseded as row counts and confirmed as a
+// claim.
+//
 // 🔴 TWO TESTS, BECAUSE THE INDEX HAS TWO PROPERTIES AND ONE ASSERTION CANNOT
 // SEE BOTH. This was MEASURED, and the single-assertion version that used to live
 // here was wrong about both halves:
@@ -42,14 +67,29 @@ import (
 //     so the planner still reaches the rows through an index of that name. A
 //     plan can report WHICH index was used; it cannot report what the index IS.
 //
-//   - USABILITY (will the planner actually choose it) is a COST fact, and cost
-//     depends on statistics, which depend on data. The previous version asserted
-//     it against a tenant holding ONE row and was green only by accident of this
-//     machine's 194 770 accumulated audit rows. Measured on a freshly migrated
-//     database at several volumes, running the old test verbatim:
+//   - USABILITY (CAN the planner reach the rows through it, with target as a
+//     SEEK KEY) is what TestAuditIndex00021_PlaqueHistoryCanSeekOnTheIndex
+//     asserts. It is NOT the same question as "will the planner CHOOSE it", and
+//     🔴 THAT SECOND QUESTION IS NO LONGER ASSERTED ANYWHERE IN THIS FILE. This
+//     sentence used to read "USABILITY (will the planner actually choose it) is
+//     a COST fact" and it is corrected here rather than only in the body,
+//     because a reader who starts at the TOP would otherwise leave believing CI
+//     still defends a planner PREFERENCE. It does not, deliberately -- the full
+//     reasoning, the measurements and the honest statement of what was given up
+//     are on that test below, and this is the third round in which the fix and
+//     the surrounding prose had to be made to agree.
 //
-//     audit_log rows   101    122    223    424   1 425
-//     verdict          FAIL   FAIL   FAIL   FAIL  FAIL
+//     Choice is a COST fact: cost depends on statistics, statistics depend on
+//     data, and CI's data is not production's. Two rounds tried to settle it
+//     with a bigger fixture and CI falsified both. Measured on a freshly
+//     migrated database, running the then-current test verbatim -- ⚠️ AND NOTE
+//     WHICH AXIS THIS IS: rows in the TABLE, while the probe's own tenant held
+//     exactly ONE. The table further down on that test counts rows in the
+//     TENANT, on an otherwise empty audit_log. Different magnitudes, not a
+//     contradiction:
+//
+//     rows in the TABLE (tenant holds 1)   101    122    223    424   1 425
+//     verdict                              FAIL   FAIL   FAIL   FAIL  FAIL
 //
 //     -- and at 424 and 1 425 rows the plan was not even the "no index" fallback
 //     the old failure message named: it was `Index Scan using
@@ -127,18 +167,106 @@ func TestAuditIndex00021_IndexShape(t *testing.T) {
 	}
 }
 
-// TestAuditIndex00021_PlaqueHistoryUsesTheIndex runs ListPlaqueHistory's exact
-// predicate under EXPLAIN and requires the planner to reach it through the index
-// -- under the conditions the index EXISTS for, which it builds itself instead of
-// hoping the database it is pointed at happens to have them.
+// TestAuditIndex00021_PlaqueHistoryCanSeekOnTheIndex runs ListPlaqueHistory's
+// exact predicate under EXPLAIN with sequential scans disabled, and requires the
+// planner to reach the rows through the index WITH target as a seek key -- under
+// conditions it builds itself instead of hoping the database it is pointed at
+// happens to have them.
+//
+// 🔴 "CAN SEEK", NOT "USES" -- THE QUESTION WAS DELIBERATELY NARROWED, AND CI
+// FALSIFIED THE OLD ONE TWICE. Runs 32570619152 (2026-08-22) and 32856990423
+// (2026-08-25) failed identically on `Seq Scan on audit_log a (cost=0.01..6.62)`,
+// and THE PLANNER WAS RIGHT: on CI's table that scan is cheaper than the index
+// path, which costs a flat 8.30..8.31 (0.29 startup + two random page fetches at
+// random_page_cost = 4). Nothing was broken; the test was asserting a cost
+// outcome under conditions in which the outcome it demanded was the wrong one.
+//
+// ⚠️ AND THE HEADER ABOVE HAD ALREADY DIAGNOSED THIS, IN THESE WORDS: "the old
+// test did not have a threshold problem; it was asking a cost question under
+// conditions in which the answer it demanded would have been wrong." The diagnosis
+// was right and the remedy did not follow it -- the answer was a bigger fixture,
+// which is a threshold. So this is the same mistake twice, and the second time it
+// was made on top of its own correct post-mortem. That is the reason the fix below
+// changes the QUESTION rather than the number: a number is what the last two
+// rounds both reached for.
+//
+// The paragraph that used to stand here said: "5 rows is already enough on a
+// freshly migrated database ... 200 is used, well clear of the floor." THAT
+// MEASUREMENT WAS WRONG, and re-measuring it showed why: probes that ROLL BACK
+// still leave dead heap pages behind, so a sweep run in one sitting inflates the
+// table under its own feet and every later N looks better than it is. With
+// `VACUUM FULL audit_log` before each trial (postgres 17.10, compose defaults,
+// fresh schema, 2026-08-25) the real curve is:
+//
+//	rows in the TENANT     5      50    100    200    240    260    400   1000+
+//	seq scan cost        1.11   1.90   3.77   6.52   8.22      -      -       -
+//	planner picks         SEQ    SEQ    SEQ    SEQ    SEQ    IDX    IDX     IDX
+//
+// (a dash means the chosen plan had no Seq Scan node to quote a cost from.)
+//
+// ⚠️ THE AXIS IS ROWS IN THE TENANT, ON AN OTHERWISE EMPTY audit_log -- so here
+// tenant rows and table rows are the same number. The header's table above counts
+// rows in the TABLE while its tenant held exactly ONE. Both are correct and they
+// are not the same measurement; read the axis before comparing them.
+//
+// The crossover is ~250 and 200 sat 20% BELOW it, not "well clear" above it. CI
+// was never near a floor; it was on the wrong side of a knife edge. And it had no
+// help from anywhere else: test/fixtures/seed.sql writes NO audit_log rows (it
+// says so in its own header), so audit_log in CI holds only what the suite itself
+// commits -- a handful of rows, and since `go test ./...` runs packages in
+// PARALLEL that handful is a race. CI's 6.62 against this machine's 6.52 for the
+// same 200-row fixture IS that handful.
+//
+// 🔴 AND NO OTHER NUMBER WOULD HAVE BEEN SAFE EITHER -- THE THRESHOLD IS NOT THE
+// TEST'S TO PICK. The crossover moves with cost GUCs the test does not control.
+// Measured on the same fresh schema, fixture rebuilt on a vacuumed table each
+// time, over the ladder 200 / 400 / 1 000 / 2 000 / 5 000 / 10 000 / 20 000 --
+// smallest rung that wins:
+//
+//	random_page_cost    1.1     4      10      20      40
+//	smallest rung       200    400   1 000   2 000   5 000
+//
+// 4 is the compose default; 1.1 is what almost every managed Postgres on SSD
+// ships. That is a 25x spread across two ordinary settings -- not a floor to
+// clear, a coin to flip -- and Postgres version, row width, page density and
+// parallel plan thresholds move it further. So the probe asks the decidable
+// question instead:
+// `SET LOCAL enable_seqscan = off` takes the sequential scan off the table and
+// asks whether the index is USABLE for this predicate. Measured stable across
+// random_page_cost 0.5, 1.1, 2, 4, 10, 20, 40 and 100: Index Scan using
+// audit_log_tenant_target_idx with `Index Cond: (tenant_id = ... AND target = ...)`
+// in all eight, on both a fresh schema and this machine's 278 004-row one.
+//
+// 🔴 WHAT THIS TEST NO LONGER SAYS, BY NAME. It does NOT prove the planner would
+// CHOOSE this index over a sequential scan at any volume, and least of all at
+// production volume -- which is exactly where T17's fear ("ListPlaqueHistory scans
+// the tenant's whole audit history") actually lives. That is a real narrowing and
+// it should not be dressed up.
+//
+// What it is NOT, though, is the loss of a production guarantee, because the old
+// assertion never carried one: it asserted a preference over a 200-ROW FIXTURE,
+// and 200 rows is not the volume T17 is about. It bought a claim about a toy table
+// at the price of a threshold that could never be made durable. The production
+// claim is evidence, not an assertion, and it is recorded where evidence belongs
+// -- the BEFORE/AFTER measurement in migration 00021's header and at the top of
+// this file (3 688 rows of 193 064: 1 184 heap blocks -> 3 buffers, 2.0 ms ->
+// 0.16 ms). ⚠️ That row-count pair is DATED and no longer reproducible; the header
+// says so and gives the 2026-08-25 equivalent that is. What CI can still decide,
+// it still decides: the index EXISTS
+// (TestAuditIndex00021_IndexShape), has the right columns in the right order
+// (ditto), honours RLS (TestRLS_AuditTargetIndex_DoesNotLeakAcrossTenants), and is
+// USABLE for this predicate with target as a SEEK KEY rather than a filter (here).
+// An index with those four properties is one the planner reaches for as soon as
+// the volume makes it worth reaching for.
 //
 // 🔴 THE WHOLE PROBE IS ONE TRANSACTION THAT IS ROLLED BACK, AND EVERY PART OF
 // THAT SENTENCE IS LOAD-BEARING:
 //
-//   - it INSERTS a tenant with a realistic audit volume, because T17's problem
-//     only exists for a tenant that HAS one (measured: with the tenant holding 0
-//     extra rows on a fresh database the planner picks audit_log_tenant_at_idx,
-//     and it is right to);
+//   - it INSERTS a tenant holding several DISTINCT targets, because that is what
+//     makes `target = $2` selective and therefore what makes the second index
+//     column worth anything (measured: with the tenant holding 0 extra rows the
+//     planner picks audit_log_tenant_at_idx even with seqscan off, and it is right
+//     to -- on a one-row tenant the two paths are a tie);
 //   - it then runs ANALYZE, so the choice is made from statistics this test
 //     created rather than statistics some earlier `make test` left behind. This
 //     is why the test needs the OWNER role: ANALYZE requires table ownership;
@@ -150,9 +278,40 @@ func TestAuditIndex00021_IndexShape(t *testing.T) {
 //     (section 4.3), so a probe that COMMITTED its fixture would add rows no role
 //     can ever remove, which is backlog T52.
 //
-// Measured floor for the volume: 5 rows is already enough on a freshly migrated
-// database and 0 is enough on the 194 770-row development one. 200 is used, well
-// clear of the floor and free, since none of it is kept.
+// 🔴 THE ANALYZE IS STILL LOAD-BEARING AND WAS RE-MEASURED, because disabling the
+// sequential scan removes only ONE of the two jobs the fixture used to do. Without
+// ANALYZE, at every volume tried (0, 1, 5 and 200 extra rows, seqscan off), the
+// plan is `Index Scan using audit_log_tenant_at_idx` with `Filter: (target = ...)`
+// -- the pre-00021 shape -- because reltuples is 0 and the planner has no reason to
+// believe target narrows anything. The fixture no longer has to OUTWEIGH a seq
+// scan; it still has to make target look SELECTIVE.
+//
+// Re-measured floor under the new question -- this floor is about STATISTICS, not
+// page count, which is why it is two orders of magnitude below the old one.
+//
+// 🔴 BUT THE FLOOR IS NOT A CONSTANT: IT CLIMBS WITH THE ROWS ALREADY COMMITTED IN
+// audit_log, because rows belonging to OTHER tenants dilute what ANALYZE learns
+// about how selective `target = $2` is. Stating the floor without stating that
+// condition is how the last two rounds went wrong, so here is the condition.
+// Measured on a freshly migrated schema, VACUUM FULL before every trial, 3 trials
+// per cell (2026-08-25):
+//
+//	rows already committed    extra=0   extra=1   extra=2   extra=5
+//	0 (empty audit_log)       FILTER    seek      seek      seek
+//	2 (other tenants)         FILTER    FILTER    seek      seek
+//	4 (other tenants)         FILTER    FILTER    FILTER    seek
+//
+// ⚠️ AND THE 2-ROW LINE IS THE ONE CI ACTUALLY SEES, because those rows are not
+// hypothetical: TestRLS_AuditTargetIndex_DoesNotLeakAcrossTenants, at the bottom of
+// THIS FILE, commits exactly 2 audit rows on every run (one per tenant, both
+// permanent -- audit_log is append-only). So the floor under CI is at least 2, not
+// 1, and it rises a little with every run the database has ever seen.
+//
+// 200 is kept: it is two orders of magnitude above any floor in that table, which
+// is the margin the previous two rounds did not have. It also gives ANALYZE a
+// sample worth taking, and it is free -- the whole probe (fixture, ANALYZE,
+// EXPLAIN, rollback) measured 0.11 s against a CI-sized database, and none of it
+// is kept.
 //
 // ⚠️ THE EXPLAIN ITSELF RUNS AS tappa_app, VIA SET LOCAL ROLE, so RLS is in force
 // and the plan carries the policy's One-Time Filter -- an index that only worked
@@ -162,7 +321,7 @@ func TestAuditIndex00021_IndexShape(t *testing.T) {
 // applied identically); for anything about authentication it would, and this test
 // makes no such claim. TestRLS_AuditTargetIndex_DoesNotLeakAcrossTenants below
 // asks the isolation question over a genuine tappa_app pool.
-func TestAuditIndex00021_PlaqueHistoryUsesTheIndex(t *testing.T) {
+func TestAuditIndex00021_PlaqueHistoryCanSeekOnTheIndex(t *testing.T) {
 	owner := ownerDB(t)
 
 	tenantID := uuid.New()
@@ -200,10 +359,31 @@ func TestAuditIndex00021_PlaqueHistoryUsesTheIndex(t *testing.T) {
 			return fmt.Errorf("ANALYZE audit_log (needs the table owner): %w", e)
 		}
 
+		// 🔴 THIS LINE IS THE FIX FOR TWO RED CI RUNS, and the doc comment above
+		// carries the measurement. It takes the sequential scan off the table so
+		// the question becomes "is the index USABLE for this predicate", which the
+		// test controls, instead of "is the index CHEAPER than reading the whole
+		// table", which depends on volume and cost GUCs that it does not.
+		// SET LOCAL, so it dies with the transaction like everything else here.
+		if _, e := tx.Exec(ctx, `SET LOCAL enable_seqscan = off`); e != nil {
+			return e
+		}
+
 		// From here on the session is the application's role, so the policy
 		// applies to the EXPLAIN below.
 		if _, e := tx.Exec(ctx, `SET LOCAL ROLE tappa_app`); e != nil {
 			return e
+		}
+		// Proven, not assumed -- the same reason the role is proven below. If a
+		// refactor ever moved the SET LOCAL onto a different connection or outside
+		// the transaction, the probe would quietly become the volume-dependent test
+		// that failed CI twice, and it would be green on the machine that wrote it.
+		var seqscan string
+		if e := tx.QueryRow(ctx, `SHOW enable_seqscan`).Scan(&seqscan); e != nil {
+			return e
+		}
+		if seqscan != "off" {
+			return fmt.Errorf("enable_seqscan is %q inside the probe, want off", seqscan)
 		}
 		// Proven, not assumed: a superuser or BYPASSRLS role would silently make
 		// the "RLS in force" claim above false.
@@ -267,10 +447,11 @@ func TestAuditIndex00021_PlaqueHistoryUsesTheIndex(t *testing.T) {
 	}
 
 	if !strings.Contains(plan, auditTargetIndex) {
-		t.Fatalf("ListPlaqueHistory's predicate does NOT reach the rows through %s, even with 200 rows in "+
-			"the tenant and fresh statistics. Check WHICH path the planner took below: another index name "+
-			"means the index lost a cost race, no index name at all means it is gone or unusable (backlog "+
-			"T17). Plan:\n%s", auditTargetIndex, plan)
+		t.Fatalf("ListPlaqueHistory's predicate does NOT reach the rows through %s, with 200 rows in the "+
+			"tenant, fresh statistics AND sequential scans disabled -- so this is not a cost race the index "+
+			"lost, it is the index being unusable for this predicate (backlog T17). Check WHICH path the "+
+			"planner took below: audit_log_tenant_at_idx means it fell back to the pre-00021 path, no index "+
+			"name at all means the index is gone. Plan:\n%s", auditTargetIndex, plan)
 	}
 
 	// 🔴 THE PROPERTY IS `target` IN AN Index Cond, NOT THE ABSENCE OF A BITMAP
