@@ -54,7 +54,16 @@ import (
 // Event construction below for why that is the honest rendering today and what
 // would change it.
 //
-// 🔴 TWO EVENTS AND NOT ONE, AND COLLAPSING THEM WAS MEASURED AS WRONG IN BOTH
+// 🔴 THREE EVENTS SINCE 2026-08-24, AND THE THIRD ANSWERS A DIFFERENT QUESTION FROM
+// THE OTHER TWO. plaque.loaded and plaque.encoded describe a round that WORKED, at its
+// two persistent moments; plaque.unmarked describes the one that did not, in the only
+// way that matters — the chip is personalised and the row does not say so. Without it
+// that state was byte-identical to a round that never touched the chip, and the two
+// have opposite recovery instructions (security audit F3). See
+// tenant.ActionPlaqueUnmarked, and note that it is written with Record rather than
+// RecordTx for the reason the trail interface gives.
+//
+// 🔴 THE FIRST TWO ARE TWO AND NOT ONE, AND COLLAPSING THEM WAS MEASURED AS WRONG IN BOTH
 // DIRECTIONS. ADR 0017 §5.2 writes the row BEFORE the chip's first irreversible
 // command, so the two facts are genuinely different and a round can produce the
 // first without the second:
@@ -89,6 +98,10 @@ const (
 	ActionPlaqueLoaded = tenant.ActionPlaqueLoaded
 	// ActionPlaqueEncoded: the chip completed its round. ADR 0017 §5.1 step 9.
 	ActionPlaqueEncoded = tenant.ActionPlaqueEncoded
+	// ActionPlaqueUnmarked: the chip completed and the row could NOT be marked. See
+	// tenant.ActionPlaqueUnmarked for the two states it separates and why one log line
+	// was not enough to separate them.
+	ActionPlaqueUnmarked = tenant.ActionPlaqueUnmarked
 )
 
 // database is the narrow slice of *db.DB this file needs, declared at the CONSUMER
@@ -99,16 +112,30 @@ type database interface {
 
 // trail is the narrow slice of *audit.Recorder this file needs.
 //
-// 🔴 RecordTx AND NOT Record, AND THE CHOICE IS THE WHOLE POINT OF THE PORT.
-// audit.Recorder documents both: Record opens its OWN transaction so a failed
-// caller still leaves a trace, RecordTx joins the caller's so the entry "commits or
-// rolls back WITH that caller's work … when the event is only true if the
-// surrounding change is true". Both of these events are of the second kind. An
-// entry written in its own transaction could survive a rolled-back INSERT and
-// describe a plaque that does not exist — a trail row is supposed to be evidence,
-// and evidence for something that did not happen is worse than silence.
+// 🔴 BOTH ENTRY POINTS, AND WHICH ONE IS USED IS THE WHOLE POINT OF THE PORT.
+// audit.Recorder documents the difference: Record opens its OWN transaction so a
+// failed caller still leaves a trace, RecordTx joins the caller's so the entry
+// "commits or rolls back WITH that caller's work … when the event is only true if the
+// surrounding change is true".
+//
+//	plaque.loaded / plaque.encoded   RecordTx. They are only true if the statement
+//	                                 beside them committed. An entry in its own
+//	                                 transaction could survive a rolled-back INSERT and
+//	                                 describe a plaque that does not exist — evidence
+//	                                 for something that did not happen is worse than
+//	                                 silence.
+//	plaque.unmarked                  Record. It is true PRECISELY BECAUSE the
+//	                                 surrounding statement did NOT commit, so joining
+//	                                 that transaction would roll the evidence back with
+//	                                 the thing it is evidence of.
+//
+// ⚠️ Record WAS ADDED IN THE THIRD ROUND AND ITS ABSENCE WAS THE DEFECT, not an
+// omission: with only RecordTx there was no way to record a FAILED marking at all, so
+// the round's worst outcome and its most harmless one left byte-identical rows. See
+// tenant.ActionPlaqueUnmarked.
 type trail interface {
 	RecordTx(ctx context.Context, tx pgx.Tx, e audit.Event) (uuid.UUID, error)
+	Record(ctx context.Context, e audit.Event) (uuid.UUID, error)
 }
 
 // loadedDetail is ActionPlaqueLoaded's jsonb payload.
@@ -143,6 +170,17 @@ type encodedDetail struct {
 	ClaimedBy string `json:"claimed_by"`
 }
 
+// unmarkedDetail is ActionPlaqueUnmarked's payload.
+//
+// 🔴 IT CARRIES THE SAME ONE FIELD AND DELIBERATELY NOT THE ERROR. A database error's
+// text is diagnostic and belongs in the log; what this row has to say is the FACT —
+// this uid's chip is personalised and its row is not marked — and the fact is fully
+// carried by the action name plus the target. A message field here would be a place
+// for whatever a driver happened to print, on a row nobody can ever delete.
+type unmarkedDetail struct {
+	ClaimedBy string `json:"claimed_by"`
+}
+
 // DBRows is the production Rows: Postgres through sqlc, as tappa_app, with an
 // audit_log entry inside each statement's own transaction.
 //
@@ -156,7 +194,10 @@ type encodedDetail struct {
 //
 // 🔴 WHAT THIS TYPE DOES NOT DO, named because the gap is the round's largest:
 // it does not decide whether the caller may write to tenantID. It writes where it is
-// told. ADR 0017 §6 md. 10 is that gate and it is open. What the database still
+// told. ⚠️ THAT GATE IS ADR 0017 §6 md. 10 AND IT CLOSED IN FAZ B2c-2b — one layer up,
+// in internal/handler, where a request has an identity to answer it with. This
+// sentence said "and it is open" for a round after it shut; internal/encode's package
+// doc was corrected in the same change set and this one was missed. What the database still
 // refuses is a MISMATCH — db.WithTenant sets app.tenant_id from the same value the
 // statement names, and the tags policy's WITH CHECK plus tappa_app's NOBYPASSRLS mean
 // a row cannot land in a different tenant than the transaction's. A caller who names
@@ -187,7 +228,7 @@ func NewDBRows(data database, t trail) (*DBRows, error) {
 // the chip has not been touched yet — driver.go's own comment says failing here
 // "costs nothing but the round" — so rolling back is free, and it is the only
 // point in the round where that is true.
-func (r *DBRows) InsertUnassigned(ctx context.Context, tenantID uuid.UUID, uidHex string, wrappedKey []byte, actor string) error {
+func (r *DBRows) InsertUnassigned(ctx context.Context, tenantID, adminID uuid.UUID, uidHex string, wrappedKey []byte, actor string) error {
 	if err := checkPlaqueArgs(tenantID, uidHex, actor); err != nil {
 		return err
 	}
@@ -240,24 +281,25 @@ func (r *DBRows) InsertUnassigned(ctx context.Context, tenantID uuid.UUID, uidHe
 		}
 		_, err = r.trail.RecordTx(ctx, tx, audit.Event{
 			TenantID: tenantID,
-			// 🔴 NIL, AND IT IS A DECISION WITH A MEASUREMENT BEHIND IT (ADR 0017
-			// §6 md. 8's second question). audit_log.actor_id is a uuid that
-			// db/queries/audit.sql LEFT JOINs to admin_users to render a NAME, and
-			// RecordAuditEvent's own comment fixes the rule: NULL "when the actor
-			// is the SYSTEM", and "an employee activating themselves is NOT an
-			// admin actor". The encode flow's actor is a caller-supplied STRING
-			// (see Begin) that nothing has authenticated and that is not an
-			// admin_users.id at all. Putting it there would need it to be a uuid,
-			// and a caller-supplied uuid in that column is a name on a screen that
-			// nobody verified — the exact misattribution ListPlaqueHistory's
-			// by_system column was added to prevent.
+			// ✅ THE ADMIN'S REAL ID, SINCE FAZ B2c-2b's FOURTH AUDIT — and the
+			// paragraph that used to stand here PREDICTED ITS OWN EXPIRY AND THEN
+			// OUTLIVED IT BY A ROUND, which is why the retraction is kept.
 			//
-			// ⚠️ THE COST, STATED RATHER THAN GLOSSED: the plaque-history card will
-			// render these two rows as "by the system", which is not true — a human
-			// ran the encode. It is the honest reading of the ROW, and the row is
-			// what it is because md. 10's gate does not exist. The day that gate
-			// lands, the admin's real id goes here and this paragraph expires.
-			ActorID: nil,
+			// It said: NIL, because "the encode flow's actor is a caller-supplied
+			// STRING that nothing has authenticated … a caller-supplied uuid in that
+			// column is a name on a screen that nobody verified", and it closed with
+			// "the day that gate lands, the admin's real id goes here and this
+			// paragraph expires". ADR 0017 §6 md. 10's gate LANDED in this same
+			// phase; the paragraph did not expire, and the plaque card kept saying
+			// "by the system" for something a person did.
+			//
+			// 🔴 WHAT CHANGED IS THE AUTHORITY, NOT THE OPINION. The id no longer
+			// comes from a label: internal/handler derives it from
+			// httpx.AdminOf(r).Admin — the session row a cookie HASH matched — and it
+			// travels here as its own typed argument. actorIDOf carries the rest,
+			// including why `actor` is still never parsed for it and why uuid.Nil
+			// still means the system.
+			ActorID: actorIDOf(adminID),
 			Action:  ActionPlaqueLoaded,
 			Target:  row.Uid,
 			Detail:  loadedDetail{ClaimedBy: actor, KeyBytes: len(wrappedKey)},
@@ -284,7 +326,29 @@ func (r *DBRows) InsertUnassigned(ctx context.Context, tenantID uuid.UUID, uidHe
 // mean "already encoded", because the statement has no `encoded_at IS NULL`
 // predicate — see the query's own comment for why that predicate was refused. So the
 // error below can say what it says without qualification.
-func (r *DBRows) MarkEncoded(ctx context.Context, tenantID uuid.UUID, uidHex string, actor string) error {
+//
+// 🔴 AND IT IS THE ONE ARM THAT MAKES THIS FUNCTION WRITE A ROW THAT IS NOT TRUE —
+// COUNTED, NOT CLOSED (eleventh audit, 2026-08-25). ErrNoRows leaves the write path
+// perfectly intact, so by the property below the failure IS recorded: a plaque.unmarked
+// row appears. But that event means "the chip WAS personalised and the row could not be
+// marked — do NOT re-encode", and internal/handler renders it to a manager in exactly
+// those words. Measured:
+//
+//	tenant B marks tenant A's uid    -> plaque.unmarked in B = 1, in A = 0
+//	a uid that exists nowhere        -> plaque.unmarked = 1, with no tags row at all
+//
+// In both, the row asserts a chip was personalised when none was, in an append-only
+// table no role can delete.
+//
+// ⚠️ THE LIMIT THIS EXPOSES IS IN THE PROPERTY ITSELF, and saying so is the point of
+// counting it: the property binds WHAT CAN BE RECORDED. It says nothing about whether
+// what is recorded is TRUE. This is the only arm where those two come apart.
+//
+// NOT REACHABLE FROM THE ENDPOINT, which is why it is counted rather than fixed:
+// Store.markEncoded runs only after Progress.Done, with the session's own tenantID and
+// uidHex, in a round whose InsertUnassigned already succeeded for that pair. A caller
+// would have to use DBRows directly. Hand-over list, md. 28.
+func (r *DBRows) MarkEncoded(ctx context.Context, tenantID, adminID uuid.UUID, uidHex string, actor string) error {
 	if err := checkPlaqueArgs(tenantID, uidHex, actor); err != nil {
 		return err
 	}
@@ -299,7 +363,7 @@ func (r *DBRows) MarkEncoded(ctx context.Context, tenantID uuid.UUID, uidHex str
 		}
 		_, err = r.trail.RecordTx(ctx, tx, audit.Event{
 			TenantID: tenantID,
-			ActorID:  nil, // See InsertUnassigned for why.
+			ActorID:  actorIDOf(adminID),
 			Action:   ActionPlaqueEncoded,
 			Target:   row.Uid,
 			Detail:   encodedDetail{ClaimedBy: actor},
@@ -314,9 +378,182 @@ func (r *DBRows) MarkEncoded(ctx context.Context, tenantID uuid.UUID, uidHex str
 		// wording has to survive that. Store.markEncoded returns Progress.Done TRUE
 		// alongside this error and tells the operator NOT to re-run: the chip is
 		// personalised whatever the database says.
+		//
+		// 🔴 AND THE FACT GETS A PERMANENT HOME BEFORE THE ERROR IS RETURNED. Until
+		// the third round it did not: the marking and its trail entry share one
+		// transaction, so a failure rolled BOTH back, and the database was left
+		// byte-identical to a round that never touched the chip — same status, same
+		// NULL location, same NULL encoded_at, same lone plaque.loaded. The two have
+		// OPPOSITE recovery instructions and the only thing telling them apart was one
+		// line in the process log, which log rotation removes. audit_log cannot be
+		// deleted by any role (00005's trigger), so that is where the distinction
+		// belongs.
+		//
+		// Record, not RecordTx: this event is true precisely because the transaction
+		// above did not commit (see the trail interface).
+		//
+		// 🔴 AND ON A CONTEXT DETACHED FROM THE REQUEST, WHICH IS THE WHOLE REASON THIS
+		// ENTRY EXISTS AT ALL (security audit, 2026-08-24, second pass). It used to
+		// reuse ctx — the REQUEST's context, since plaqueEncodeStep calls Step with
+		// r.Context() — so a cancelled request failed the marking AND the evidence of
+		// the marking, for one reason, at once.
+		//
+		// 🔴 AND IN THE NINTH ROUND THE CALLER WAS DETACHED TOO, WHICH CHANGES WHAT
+		// THIS EVENT MEANS. session.go's markEncoded now runs the whole marking on a
+		// detached context, so the ORDINARY cancellation — the phone posting its last
+		// R-APDU and hanging up — is REPAIRED rather than recorded: encoded_at is
+		// stamped and no row lands here at all. Measured, cancelled ctx both ways:
+		//
+		//	request ctx   err=true   encoded_at=<nil>  unmarked=1
+		//	detached      err=false  encoded_at=set    unmarked=0
+		//
+		// 🔴 SO WHY DOES THIS ENTRY STILL EXIST? Because the two writes answer
+		// DIFFERENT failures, and collapsing them would lose the second:
+		//
+		//	REPAIRED by the detach   the request went away. Nothing is wrong with the
+		//	                         database; only the caller stopped listening.
+		//	RECORDED here            the marking failed for a reason that leaves this
+		//	                         write's own path intact — a constraint refusing
+		//	                         the row, a logical error, a bug. The chip is
+		//	                         already personalised, so a durable record is the
+		//	                         only thing standing between the operator and a
+		//	                         plaque that looks untouched.
+		//
+		// 🔴 AND THE SECOND ROW USED TO CLAIM MORE THAN IT CAN DELIVER — it read "the
+		// database is genuinely out of reach: pool exhausted, network gone, the budget
+		// spent, a constraint refusing". Some of those defeat THIS write too, because
+		// it goes through the same pool to the same database.
+		//
+		// ⚠️ AND "SOME" IS DELIBERATE, BECAUSE THE REPLACEMENT SENTENCE SAID "THREE OF
+		// THOSE FOUR" AND THAT COUNT WAS ALSO WRONG (eleventh audit). A spent budget is
+		// RECORDABLE — the compensation gets a fresh deadline. Counting is what keeps
+		// failing here; the property below is what decides, and it is stated once.
+		//
+		// The detach made this entry RARE. It did not make it unnecessary — it made it
+		// the record of a real fault instead of the record of a hang-up.
+		//
+		// context.WithoutCancel keeps the tenant GUC and the pool but drops the
+		// cancellation AND the deadline; the timeout stops a hung write from outliving
+		// the request by more than a moment. The shape is internal/handler/health.go's
+		// — context.WithTimeout(context.WithoutCancel(ctx), <named constant>) — which
+		// is the tree's existing precedent for exactly this, and is cited here after an
+		// audit measured that the file this comment used to name, internal/db/tenant.go,
+		// contains no WithoutCancel at all: it uses a bare context.Background() with no
+		// timeout. Same REASONING, different shape; the shape belongs to health.go.
+		trailCtx, cancelTrail := context.WithTimeout(context.WithoutCancel(ctx), DefaultRepairGrace)
+		defer cancelTrail()
+		if _, aerr := r.trail.Record(trailCtx, audit.Event{
+			TenantID: tenantID,
+			ActorID:  actorIDOf(adminID),
+			Action:   ActionPlaqueUnmarked,
+			Target:   uidHex,
+			Detail:   unmarkedDetail{ClaimedBy: actor},
+		}); aerr != nil {
+			// Both errors matter and neither may hide the other: the marking failed AND
+			// the only permanent record of that failure could not be written. The
+			// caller is told about the first (it decides what the operator sees); the
+			// second is joined to it so nothing is swallowed (CLAUDE.md §7).
+			return fmt.Errorf("encode: mark plaque %s encoded: %w (and the %s trail entry "+
+				"could not be written either: %v)", uidHex, err, ActionPlaqueUnmarked, aerr)
+		}
 		return fmt.Errorf("encode: mark plaque %s encoded: %w", uidHex, err)
 	}
 	return nil
+}
+
+// 🔴 WHAT THIS COMPENSATION CAN AND CANNOT RECORD — A PROPERTY, NOT A LIST, BECAUSE
+// THE LIST WAS WRONG (tenth audit, 2026-08-25). The ninth round wrote the limit as
+// "process death": SIGKILL, OOM, a pod past its grace period. That was true and it was
+// far too narrow, and this file's own sentence explains why the shape fails — a
+// promise whose limits are unwritten gets read as unlimited, and so does one whose
+// limits are written as a short list.
+//
+//	THE COMPENSATION TRAVELS THE PATH IT REPORTS ON. It writes through the same pool,
+//	to the same database, from the same process as the marking it compensates for. So
+//	it can record only a fault that leaves that path INTACT. Any fault IN the path
+//	takes the compensation with it.
+//
+// 🔴 NOW DERIVE FROM IT RATHER THAN ENUMERATING AGAIN. The first derivation written
+// under this property said "of the four causes, only a constraint refusing is
+// recordable", and that was ANOTHER LIST and it was MEASURED WRONG (eleventh audit,
+// 2026-08-25). Eleven rounds produced eleven lists and all eleven were incomplete;
+// the property does the work if it is actually applied.
+//
+// APPLY IT: which parts of the path does the compensation genuinely SHARE?
+//
+//	SHARED      the pool, the database, the process. A fault in any of these is
+//	            reported by a write that must itself traverse them, so it cannot be
+//	            recorded.
+//	NOT SHARED  the DEADLINE. context.WithoutCancel drops the parent's deadline as
+//	            well as its cancellation, so the compensation starts a FRESH budget.
+//
+// So a fault confined to the marking's own deadline IS recordable — the compensation
+// is not standing in the failure it reports. This file's neighbour states the same
+// thing from the other side (session.go, DefaultRepairGrace: "the second write still
+// gets a FULL budget, not the remainder ... that is precisely the case it exists
+// for"), and the first derivation contradicted it in the same diff. Measured:
+//
+//	healthy pool, the MARKING's own budget spent
+//	  err = mark plaque F81892FD5B927E encoded: db: begin tx: context deadline exceeded
+//	  -> plaque.unmarked = 1, plaque.encoded = 0        RECORDED
+//
+// ⚠️ AND THE COUNTER-CASE PRODUCES A BYTE-IDENTICAL ERROR STRING, WHICH IS WHY THE
+// CONDITION IS PART OF THE EVIDENCE AND NOT A FOOTNOTE. Under pool_max_conns=1 with
+// the single connection already held, pool.Begin waits for a connection it will never
+// get and times out with the same words — and the compensation, needing that same
+// connection, fails identically:
+//
+//	pool_max_conns=1, pool saturated
+//	  err = mark plaque BA6449CA48DB40 encoded: db: begin tx: context deadline exceeded
+//	        (and the plaque.unmarked trail entry could not be written either:
+//	         audit: record "plaque.unmarked": db: begin tx: context deadline exceeded)
+//	  -> encoded_at NULL, NO plaque.unmarked row              NOT RECORDED
+//
+// Same string, opposite outcome, process healthy in both. What separates them is not
+// the message but whether the POOL could still hand out a connection — which is the
+// property, restated by measurement. An error string quoted without its condition
+// cannot distinguish the class it is offered as evidence for.
+//
+// ⚠️ SO WHAT IS IT FOR? It is worth keeping and it is not a guarantee. It converts
+// SOME silent losses into recorded ones, at no cost, and it is the only in-process
+// mechanism that can. What it cannot do is bound the failure, because no write into a
+// resource can be the witness for that resource's own failure.
+//
+// 🔴 THE REAL FIX IS OUT OF PROCESS AND IS NOT WRITTEN YET: an idempotent
+// reconciliation pass over rows with a wrapped key but no encoded_at, which needs
+// neither the request nor the process that lost it. Hand-over list, md. 27 — whose
+// scope the tenth audit widened from "ungraceful death" to "every fault that also
+// defeats the compensation", the ordinary database outage being both the commonest
+// case and the one nobody was counting.
+
+// actorIDOf turns the round's admin id into audit_log.actor_id.
+//
+// 🔴 IT WRITES A REAL ID WHERE THE FIRST VERSION WROTE nil, AND THE nil WAS RIGHT AT
+// THE TIME (security audit N3, 2026-08-24). The old comment argued the case exactly:
+// audit_log.actor_id is what db/queries/audit.sql LEFT JOINs to admin_users to render
+// a NAME, and the only actor this flow had was a caller-supplied STRING that nothing
+// had authenticated. Putting that in the column would have been "a name on a screen
+// that nobody verified".
+//
+// What changed is the AUTHORITY, not the opinion. ADR 0017 §6 md. 10's gate landed in
+// FAZ B2c-2b: internal/handler derives the id from httpx.AdminOf(r).Admin, i.e. from
+// the session row a cookie HASH matched. That is a resolved value, not a claim, and it
+// is the one the plaque card should show. The old paragraph said so itself — "the day
+// that gate lands, the admin's real id goes here and this paragraph expires" — and
+// then the gate landed and the paragraph did not.
+//
+// 🔴 THE LABEL IS STILL NOT PARSED FOR IT, AND THAT IS THE WHOLE POINT. `actor` is
+// caller-supplied and reaches detail.claimed_by; digging a uuid out of it would
+// promote an unverified string into this column, which is precisely what the original
+// refusal was about. The id travels as its own typed argument or not at all.
+//
+// uuid.Nil means SYSTEM and keeps the old behaviour for any caller without an admin —
+// audit.RecordAuditEvent's own rule for a NULL actor.
+func actorIDOf(adminID uuid.UUID) *uuid.UUID {
+	if adminID == uuid.Nil {
+		return nil
+	}
+	return &adminID
 }
 
 // checkPlaqueArgs is the ONE place both methods validate their shared arguments, so

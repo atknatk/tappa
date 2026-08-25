@@ -217,6 +217,32 @@ type AdminAuth struct {
 	// stops a change to the roster or the venue side reaching it.
 	accounts panelAccounts
 
+	// encoder drives the plaque personalisation relay (M8-05 FAZ B2c-2b,
+	// internal/encode). See plaqueencode.go for the whole surface.
+	//
+	// 🔴 IT IS THE ONE FIELD ON THIS TYPE THAT MAY BE NIL, AND THE EXCEPTION IS
+	// ARGUED RATHER THAN SMUGGLED. Every constructor argument above is refused when
+	// nil, for the M5-04 reason this file repeats nine times: a capability that is
+	// delivered, tested and DEAD in the wired product. This one is different because
+	// its absence is a DEPLOYMENT FACT rather than a wiring bug. encode.NewStore
+	// refuses a base URL that is not https — sun.BuildTapNDEF's rule, and the right
+	// one, because a plaque's NDEF must carry https — and TAPPA_BASE_URL defaults to
+	// http://localhost:8080. Requiring it would make `make dev` fail to start, and
+	// internal/db/pool.go already records where that ends: "a tool that refuses to
+	// start in development is a tool somebody routes around".
+	//
+	// 🔴 WHAT IS NOT DONE INSTEAD, because both alternatives are worse. The routes are
+	// NOT mounted conditionally — dashboard.go's own rule is that "the routing table
+	// is complete or it is not, and a route that exists only in some deployments is a
+	// route whose absence is indistinguishable from a 404 for a mistyped URL", which
+	// is why the operator legal screen is mounted for everybody and refuses almost
+	// everybody. And a PLACEHOLDER host is not substituted: Q08 is open (ADR 0017 §6
+	// md. 11) and a plaque encoded against the wrong host is a physical plaque swap,
+	// so inventing one would be the most expensive possible way to keep a constructor
+	// happy. A nil encoder answers 503 with a named fault, and cmd/tappa says so in
+	// the log at start-up.
+	encoder PlaqueEncoder
+
 	// operators is the allow-list that gates `texts` (config.OperatorAdminIDs). It is
 	// a plain slice rather than a set because it has a handful of entries and is
 	// walked once per panel render; a map would be a second representation of two or
@@ -241,13 +267,21 @@ type AdminAuth struct {
 	accountLimiter *limiter
 	sessionLimiter *limiter
 	logoutLimiter  *limiter
+	// encodeLimiter is the plaque relay's own per-session ceiling. It is a SEVENTH
+	// bucket rather than a share of sessionLimiter's, and plaqueencode.go's
+	// adminEncodeLimit carries the arithmetic for why.
+	encodeLimiter *limiter
 
 	log *slog.Logger
 }
 
 // NewAdminAuth wires the flow. Every dependency is required: a nil recorder would
 // silently drop the section 4.6 trail and a nil manager cannot fail safely.
-func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLedger, queue panelQueue, reviewer panelReviewer, staff panelStaff, invites panelInviter, venues panelVenues, plaques panelPlaques, entries panelRecorder, rules panelRules, scribe panelScribe, books panelBooks, texts panelTexts, accounts panelAccounts, cfg *config.Config, log *slog.Logger) (*AdminAuth, error) {
+// 🔴 encoder IS THE ONLY PARAMETER THAT MAY BE NIL. The field's own comment carries
+// the argument; the short version is that its absence is a deployment fact (no https
+// base URL, therefore no NDEF template) rather than a wiring bug, and the surface
+// answers 503 with a named fault instead of 404.
+func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLedger, queue panelQueue, reviewer panelReviewer, staff panelStaff, invites panelInviter, venues panelVenues, plaques panelPlaques, entries panelRecorder, rules panelRules, scribe panelScribe, books panelBooks, texts panelTexts, accounts panelAccounts, encoder PlaqueEncoder, cfg *config.Config, log *slog.Logger) (*AdminAuth, error) {
 	switch {
 	case admins == nil:
 		return nil, errors.New("handler: nil admin authenticator")
@@ -376,6 +410,7 @@ func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLed
 		books:          books,
 		texts:          texts,
 		accounts:       accounts,
+		encoder:        encoder,
 		operators:      cfg.OperatorAdminIDs,
 		cookies:        adminauth.NewCookies(cfg),
 		short:          newAdminCookies(cfg),
@@ -388,6 +423,7 @@ func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLed
 		accountLimiter: newLimiter(adminAccountLimit, adminAccountPeriod),
 		sessionLimiter: newLimiter(adminSessionLimit, adminSessionPeriod),
 		logoutLimiter:  newLimiter(adminLogoutLimit, adminLogoutPeriod),
+		encodeLimiter:  newLimiter(adminEncodeLimit, adminEncodePeriod),
 		log:            log,
 	}, nil
 }

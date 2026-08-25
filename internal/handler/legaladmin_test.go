@@ -52,7 +52,7 @@ func legalBrowser(t *testing.T, who uuid.UUID, allow []uuid.UUID, texts panelTex
 	}
 	h, err := NewAdminAuth(admins, trail, newFakeLedger(), newFakeLedger(), &fakeReviewer{},
 		&fakeStaff{}, &fakeInviter{}, &fakeVenues{}, &fakePlaques{}, &fakeRecorder{}, newFakeRules(),
-		newFakeScribe(), newFakeBooks(), texts, newFakeAccount(), cfg, slog.New(slog.DiscardHandler))
+		newFakeScribe(), newFakeBooks(), texts, newFakeAccount(), nil, cfg, slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}

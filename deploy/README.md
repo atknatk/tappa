@@ -1844,6 +1844,87 @@ kutuda duran bir plaketi hizmette göstermek olur — ve `internal/sun`'ın akı
 `active` olmayan her plaketi §5 satır 1'den reddeder, yani yanlış durum sessiz
 kalmaz ama **yanlış yönde** de yanılmaz.
 
+### 🔴 YANLIŞ YÜKLENMİŞ BİR SATIR NASIL TEMİZLENİR — TEK YOL ELLE MÜDAHALEDİR
+
+> **Eklendi 2026-08-24 (M8-05 FAZ B2c-2b).** Encode akışı artık bir HTTP uç
+> noktasıdır ve `tags`'a **üretimde** satır yazar. ADR 0017 §6 md. 12 üç azaltma
+> adlandırıyor — uç noktada yetkilendirme, oran sınırı, **ve bu bölüm**: bugün tek
+> temizlik yolunun elle müdahale olduğunun operatörün bulacağı yerde **yazılı**
+> olması. İlk ikisi sevk edildi; bu, üçüncüsüdür.
+
+**Ne oluyor.** `tags.uid` **global PRIMARY KEY**'dir, tenant kapsamlı değildir — ve
+bu **doğrudur**: bir tap geldiğinde elde yalnız URL'deki uid vardır, tenant o
+aramanın **sonucudur** (00004'ün kendi yorumu, ADR 0002 md. 7). Yan etkisi şudur:
+bir uid'i **hangi tenant yazarsa yazsın**, o uid **park geneli için tükenir**.
+
+**Üç sonucu, üçü de ölçüldü** (`tappa_app`, `BEGIN … ROLLBACK`):
+
+| Deneme | Sonuç |
+|---|---|
+| B tenant'ı, A'nın var olan uid'siyle `INSERT` | `23505 duplicate key` — oysa **aynı bağlantıda** `SELECT` o uid için **0 satır** döner (RLS satırı gizler, PK varlığını ele verir) |
+| B taze bir uid'i işgal eder, A onu ister | A **göremez** (0 satır), **yazamaz** (23505), **silemez** (`permission denied`) |
+| Satır düzeltilebilir mi | **Hayır.** `aes_key_ref` **yaz-bir-kez**: 00013 `tappa_app`'ten `UPDATE`'i geri aldı ve sütun listesine koymadı |
+
+**Yani düzeltme uygulamadan yapılamaz.** Panelde "plaketi sil" diye bir düğme
+**yoktur ve olmayacaktır** (§4.6 ailesi: kayıt silinmez); `tappa_app`'in `tags`
+üzerinde `DELETE` yetkisi **yoktur** (00004).
+
+**Elle müdahale — `tappa_owner` ile, ve önce DUR:**
+
+1. **Silmeden önce sor: gerçekten yanlış mı?** Yarıda kalmış bir tur satırı
+   `status='unassigned'`, `location_id IS NULL` bırakır — bu **hizmette değildir**,
+   `internal/sun` akışı onu §5 satır 1'den zaten reddeder, ve **kurtarılabilir**:
+   sarmalı anahtar elimizdedir, aynı anahtar çipe yeniden sürülebilir. Ölü bir
+   envanter satırı **zararsızdır**; silmek değildir.
+2. **Silinmesi gereken tek şekil:** yanlış tenant'a düşmüş ya da hiç var olmayan bir
+   çipin uid'ini işgal eden satır. İkisi de bir **insan kararıdır**.
+3. **Nasıl:** `DATABASE_MIGRATE_URL` (yani `tappa_owner`) ile, tek bir
+   `BEGIN … DELETE … <önce SELECT ile doğrula> … COMMIT` içinde, ve **uid birebir
+   yazılarak**. `tappa_app`'in DSN'i bu işi yapamaz — bu bilerek böyledir.
+4. **`audit_log` satırları KALIR.** `plaque.loaded` (ve varsa `plaque.encoded` ya da
+   **`plaque.unmarked`** — sonuncusu *"çip kişiselleştirildi ama satır işaretlenemedi,
+   TEKRAR ENCODE ETME"* demektir ve bu ayrımı yalnız o satır taşır.
+   🔴 **VE ARTIK NADİRDİR — GÖRDÜYSEN VERİTABANI ERİŞİLEBİLİRDİ** (bu satır yazılabildi
+   demek, havuz bağlantı verdi demek; kutunun altındaki özellikten **türetilir**.
+   ⚠️ Bir önceki yazımı *"GERÇEKTEN ERİŞİLEMEZDİ"* diyordu ve **yedi satır aşağısıyla
+   çelişiyordu**). Telefonun
+   son R-APDU'yu gönderip bağlantıyı kapatması **bu satırı ÜRETMEZ**: o durum artık
+   isteğin context'inden kopuk bir yazma ile **onarılıyor** (`encoded_at` damgalanır,
+   tur normal biter). Bu satır yalnız **gerçek** bir arızada yazılır — ve hangi
+   arızalarda yazılabildiği aşağıdaki özellikle belirlenir, bir liste ile değil.
+   🔴 **VE BU SATIRIN YOKLUĞU HİÇBİR ŞEY KANITLAMAZ — BUNU BİR LİSTE OLARAK DEĞİL,
+   BİR ÖZELLİK OLARAK OKU:**
+   > **Telafi kaydı, hakkında rapor verdiği yolun ÜSTÜNDEN geçer** — aynı havuz, aynı
+   > veritabanı, aynı süreç. Bu yüzden yalnızca **o yolu sağlam bırakan** bir arızayı
+   > kaydedebilir. Yolun **kendisindeki** her arıza, telafiyi de beraberinde götürür.
+   🔴 **BUNDAN TÜRET, YENİDEN SAYMA.** Paylaşılan şey **havuz · veritabanı · süreç**;
+   **son tarih paylaşılmaz** (`WithoutCancel` ebeveynin deadline'ını düşürür, telafi
+   **taze bütçeyle** başlar). Dolayısıyla:
+   **(1) satır VARSA** → veritabanı erişilebilirdi; taşıdığı arıza kısıt reddi, mantık
+   hatası, ya da **yalnız işaretlemenin kendi bütçesinin dolması** olabilir.
+   **(2) satır YOKSA** → hiçbir şey kanıtlanmaz; havuz tükenmesi, ağ kopması, ölü
+   veritabanı ve öldürülen süreç telafiyi de düşürür.
+   ⚠️ **VE HATA METNİ İKİ SINIFI AYIRT ETMEZ — koşula bak, mesaja değil.** Aynı
+   `db: begin tx: context deadline exceeded` iki zıt sonuç veriyor (ölçüldü):
+   `sağlam havuz + işaretlemenin bütçesi dolmuş` → **`plaque.unmarked`=1 (KAYDEDİLDİ)** ·
+   `pool_max_conns=1, havuz doygun` → **satır YOK**, `encoded_at` **NULL**, plaket
+   **dokunulmamış görünüyor**. Ayıran şey **havuzun bağlantı verip veremediği**.
+   ⚠️ **O YÜZDEN ŞÜPHEDE SATIRA DEĞİL, ŞU İKİLİYE BAK** — `tags` içinde `aes_key_ref`
+   **dolu** ama `encoded_at` **NULL** olan satırlar: bu ikili, tamamlanmamış ya da
+   **kaydedilememiş** bir turun izidir ve telafi kaydından **bağımsızdır**. Bunu
+   sistematik yapan idempotent bir uzlaştırma geçişi bugün **yok** — devir listesi
+   **md. 27**)
+   append-only bir tablodadır ve **`tappa_owner` bile silemez** (00005'in trigger'ı).
+   Yani bir plaket satırı silinse bile *"kim, ne zaman, hangi tenant için yükledi"*
+   izi durur — `detail.claimed_by` yükleyen yöneticinin id'sini taşır.
+5. **Managed Postgres'te bu prosedürün yürütülebilir yolu var mı diye ayrıca bak** —
+   aynı sınır KEK döndürme bölümünde de sayılı.
+
+⚠️ **Bu bir mekanizma değil, bir prosedürdür — ve öyle yazılmıştır.** Uç noktadaki
+yetkilendirme (`AdminAuth.ProtectWriting` + oturumdan gelen tenant) ve oran sınırı
+(`adminEncodeLimit`) işgali **bir kimliğe bağlar ve sayısını sınırlar**; hiçbiri onu
+**imkânsız** kılmaz. ADR 0017 §6 md. 12 kapatılmadı, **sayıldı**.
+
 ### FAZ B'ye devredilenler — yükümlülük listesi
 
 Donanım (bir NTAG 424 DNA yazıcı/okuyucu) geldiğinde yapılacaklar. Bu liste

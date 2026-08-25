@@ -99,7 +99,7 @@ func newAccountDBFixture(t *testing.T, role string) *accountDBFixture {
 	records := newFakeLedger()
 	h, err := NewAdminAuth(admins, trail, records, records, &fakeReviewer{},
 		&fakeStaff{}, &fakeInviter{}, &fakeVenues{}, &fakePlaques{}, &fakeRecorder{},
-		newFakeRules(), newFakeScribe(), newFakeBooks(), newFakeTexts(), accounts,
+		newFakeRules(), newFakeScribe(), newFakeBooks(), newFakeTexts(), accounts, nil,
 		adminTestConfig(), discardLogger())
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)

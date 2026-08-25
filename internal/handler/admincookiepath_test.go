@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"sort"
 	"strings"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/atknatk/tappa/internal/adminauth"
 	"github.com/atknatk/tappa/internal/session"
+	"github.com/atknatk/tappa/web/templates/pages"
 )
 
 // admincookiepath_test.go -- the SECOND half of the M6-01 acceptance criterion
@@ -79,17 +81,95 @@ var tapSurfacePaths = employeeRoutes()
 // would mean constructing handler.Activation and handler.Tap, which need a
 // database, an invite manager, a session manager, a SUN verifier and an audit
 // recorder — a lot of machinery to answer a question that is textually decidable.
-// The trade is stated rather than hidden: this sees route LITERALS, so a route
-// registered through a variable would be missed. knownEmployeeRoutes below is the
-// floor that keeps that from silently emptying the list.
+//
+// 🔴 IT RESOLVES NAMED CONSTANTS AS WELL AS LITERALS, AND THAT IS A REPAIR RATHER
+// THAN A FEATURE (2026-08-24, M8-05 FAZ B2c-2b). The comment here already named the
+// limit — "this sees route LITERALS, so a route registered through a variable would
+// be missed" — and the limit went live the moment tap.go's `r.Get("/t", …)` became
+// `r.Get(TapPath, …)`, which it had to, because the encode relay burns
+// TAPPA_BASE_URL + that path into a PHYSICAL PLAQUE and two spellings of it is a
+// plaque swap in the field. MEASURED, and the failure was worse than one red test:
+//
+//	TestEmployeeRoutes_DerivationIsNotVacuous  -> "missing /t"
+//	TestPanelCookies_NeverReachTheTapSurface   -> control saw 404 at /t
+//
+// The second is the one that matters. newPathHarness MOUNTS the derived list, so a
+// route falling out of the derivation did not merely go unchecked — it vanished from
+// the harness, and the positive-control loop that exists to catch exactly that ranged
+// over the SAME shrunken list and passed. A floor (knownEmployeeRoutes) caught it;
+// without the floor the whole file would have gone quietly vacuous.
+//
+// ✅ AND IT WIDENED THE NET, SUBSTANTIALLY. Before the repair the derivation found SIX
+// paths. Three passes were added — named constants, selector-driven tables, and the
+// internal/httpx root router — and every route they brought in was one no cookie
+// assertion had ever covered.
+//
+// 🔴 NO ARITHMETIC IS WRITTEN OUT HERE ANY MORE, AND THAT IS THE RULE RATHER THAN A
+// RETREAT. Two consecutive versions of this paragraph published a breakdown and both
+// were wrong: "six … now twelve" was short by four (written before the selector pass
+// existed), and its replacement said "6 + 7 + 4 = 16" — which does not add up, and does
+// not add up because `/` is a LITERAL (marketing.go) and was inside the original six.
+// A tally in a comment about a set the code derives is the second-representation defect
+// this file's own header is written about, and it has now drifted three times in three
+// rounds. The live number is printed by TestEmployeeRoutes_DerivationIsNotVacuous on
+// every run; that is the only place it belongs.
+//
+// 🔴 SELECTOR-NAMED ROUTES ARE COUNTED TOO, AND THE SENTENCE THAT USED TO STAND HERE
+// WAS FALSE (corrected 2026-08-24, second audit of FAZ B2c-2b). It said: "a route
+// named by a SELECTOR (dashboard.go's `r.Get(s.Href, …)`) is still invisible. THOSE
+// ARE PANEL ROUTES and would be filtered out anyway." Measured — they are not:
+//
+//	marketing.go:223-224   r.Get(page.Path, serve) / r.Head(page.Path, serve)
+//	                       over pages.LegalPages -> /legal/privacy, /legal/terms,
+//	                       /legal/cookies, /legal/imprint
+//
+// Four PUBLIC routes, none under /admin, none in the derived list, and none in the
+// harness this list mounts. Worse than the miss: unresolvedRouteNames was pinned EMPTY,
+// so the file was asserting "nothing is out of scope" while four routes were. That is
+// this file's own rule broken by this file — "silence is the one answer a derivation
+// may never give" — in the very mechanism the previous round claimed to have repaired.
+//
+// THE SHAPE OF THE REPAIR: selector registrations are collected as EXPRESSIONS
+// (`s.Href`, `page.Path`), the set is pinned by the test, and each entry is either
+//
+//	LICENSED-EXCLUDED  the table it walks is provably under adminauth.CookiePath, and
+//	                   the test asserts that at run time over the real table, or
+//	INCLUDED           the table's paths are added to the derived list.
+//
+// So a new selector-driven mount is a red test rather than a silent gap, and the
+// answer it forces is a question about a TABLE (finite, enumerable at run time) rather
+// than about a spelling.
+//
+// ⚠️ WHAT IS STILL NOT SEEN, counted honestly: a route path computed at run time from
+// something that is not a package-level table — a function call, a config value, a
+// database row. Nothing does that; if something starts to, its selector will appear in
+// the pinned set below with no table to point at, which is the moment to decide.
+// An unresolvable BARE identifier is COLLECTED rather than skipped, and a panic at
+// package init was tried and rejected as too blunt (it kills every test in the
+// package, including the one that would explain why).
 func employeeRoutes() []string {
 	files, err := filepath.Glob("*.go")
 	if err != nil {
 		panic("handler: globbing package sources: " + err.Error())
 	}
-	re := regexp.MustCompile(`r\.(?:Get|Post|Put|Delete|Patch|Head|Handle)\("(/[^"]*)"`)
-	seen := map[string]bool{}
-	var out []string
+	// 🔴 internal/httpx IS READ TOO, AND ITS ABSENCE WAS A COUNTED HOLE (audit, third
+	// round). router.go registers `/static/*` and `/healthz` on the ROOT router — public,
+	// outside adminauth.CookiePath, and invisible to a glob of this package. The net was
+	// asserting "no panel cookie reaches an employee-facing route" while two such routes
+	// were not in the list. Harmless today for the same reason /legal/* was harmless —
+	// the cookie is Path=/admin — but that is the argument the net exists to PROVE
+	// rather than to assume, and it was the wrong argument once already.
+	more, err := filepath.Glob(filepath.Join("..", "httpx", "*.go"))
+	if err != nil {
+		panic("handler: globbing internal/httpx: " + err.Error())
+	}
+	files = append(files, more...)
+
+	type source struct {
+		name string
+		text string
+	}
+	var sources []source
 	for _, f := range files {
 		if strings.HasSuffix(f, "_test.go") {
 			continue
@@ -98,19 +178,160 @@ func employeeRoutes() []string {
 		if err != nil {
 			panic("handler: reading " + f + ": " + err.Error())
 		}
-		for _, m := range re.FindAllStringSubmatch(string(b), -1) {
-			route := m[1]
-			if route == adminauth.CookiePath || strings.HasPrefix(route, adminauth.CookiePath+"/") {
-				continue // the panel's own routes
-			}
-			if !seen[route] {
-				seen[route] = true
-				out = append(out, route)
+		sources = append(sources, source{name: filepath.Base(f), text: string(b)})
+	}
+
+	// Pass one: every package-level `name = "/…"`, so a route registered by name can
+	// be resolved back to the path it holds.
+	constRe := regexp.MustCompile(`(?m)^\s*(?:const\s+)?([A-Za-z_]\w*)(?:\s+string)?\s*=\s*"(/[^"]*)"`)
+	paths := map[string]string{}
+	for _, src := range sources {
+		for _, m := range constRe.FindAllStringSubmatch(src.text, -1) {
+			paths[m[1]] = m[2]
+		}
+	}
+	// Pass two: names ROOTED IN THE PANEL'S SECTION TABLE. mustSectionHref reads
+	// pages.PanelSections and panics for a tab that is not there, and every entry in
+	// that table is under adminauth.CookiePath — a fact
+	// TestEmployeeRoutes_DerivationIsNotVacuous asserts at run time rather than
+	// assuming. So a name built from one can never be an employee-facing route, and it
+	// is EXCLUDED rather than reported as unresolvable.
+	sectionRe := regexp.MustCompile(`(?m)^\s*(?:const\s+|var\s+)?([A-Za-z_]\w*)\s*=\s*mustSectionHref\(`)
+	panelRooted := map[string]bool{}
+	for _, src := range sources {
+		for _, m := range sectionRe.FindAllStringSubmatch(src.text, -1) {
+			panelRooted[m[1]] = true
+		}
+	}
+	// Pass three: `name = otherName + "suffix"`. It is how the CSV exports and every
+	// panel write route are built, and the entries live inside `var (…)` blocks, so the
+	// keyword is optional here exactly as it is above. Run to a fixed point so a chain
+	// of any length resolves; propagate BOTH the literal path and the panel-rooted flag.
+	chainRe := regexp.MustCompile(`(?m)^\s*(?:const\s+|var\s+)?([A-Za-z_]\w*)\s*=\s*([A-Za-z_]\w*)\s*\+\s*"([^"]*)"`)
+	for again := true; again; {
+		again = false
+		for _, src := range sources {
+			for _, m := range chainRe.FindAllStringSubmatch(src.text, -1) {
+				if _, done := paths[m[1]]; done {
+					continue
+				}
+				if base, ok := paths[m[2]]; ok {
+					paths[m[1]] = base + m[3]
+					again = true
+					continue
+				}
+				if panelRooted[m[2]] && !panelRooted[m[1]] {
+					panelRooted[m[1]] = true
+					again = true
+				}
 			}
 		}
 	}
+
+	litRe := regexp.MustCompile(`\br\.(?:Get|Post|Put|Delete|Patch|Head|Handle)\("(/[^"]*)"`)
+	nameRe := regexp.MustCompile(`\br\.(?:Get|Post|Put|Delete|Patch|Head|Handle)\(([A-Za-z_]\w*)\s*,`)
+	// Pass four: SELECTOR-named routes (`r.Get(page.Path, …)`). They are collected as
+	// expressions and resolved against the run-time tables below, never guessed.
+	selectorRe := regexp.MustCompile(`\br\.(?:Get|Post|Put|Delete|Patch|Head|Handle)\(([A-Za-z_]\w*\.[A-Za-z_]\w*)\s*,`)
+
+	seen := map[string]bool{}
+	var out []string
+	add := func(route string) {
+		if route == adminauth.CookiePath || strings.HasPrefix(route, adminauth.CookiePath+"/") {
+			return // the panel's own routes
+		}
+		if !seen[route] {
+			seen[route] = true
+			out = append(out, route)
+		}
+	}
+	for _, src := range sources {
+		for _, m := range litRe.FindAllStringSubmatch(src.text, -1) {
+			add(m[1])
+		}
+		for _, m := range nameRe.FindAllStringSubmatch(src.text, -1) {
+			if route, ok := paths[m[1]]; ok {
+				add(route)
+				continue
+			}
+			if panelRooted[m[1]] {
+				continue // provably under adminauth.CookiePath — see pass two
+			}
+			if !seenUnresolved[m[1]] {
+				seenUnresolved[m[1]] = true
+				unresolvedRouteNames = append(unresolvedRouteNames, m[1])
+			}
+		}
+		for _, m := range selectorRe.FindAllStringSubmatch(src.text, -1) {
+			// 🔴 KEYED BY THE TABLE THE MOUNT WALKS, AND THE TWO WEAKER KEYS WERE EACH
+			// BEATEN BY A MUTATION. Keying on the EXPRESSION alone collided the moment two
+			// files used the same loop variable (`s.Href`); keying on FILE + EXPRESSION
+			// collided the moment ONE FILE had two mounts with the same variable name —
+			// an audit added a second `page.Path` range over a different table in
+			// marketing.go, registered two public routes, and the pin stayed GREEN. The
+			// pin is about WHICH MOUNT WALKS WHICH TABLE, so the table is what it records.
+			key := src.name + ":" + m[1] + " over " + rangeTableFor(src.text, m[0])
+			if !seenSelector[key] {
+				seenSelector[key] = true
+				selectorRouteExprs = append(selectorRouteExprs, key)
+			}
+		}
+	}
+
+	// The tables those selectors walk, resolved at RUN TIME from the real values
+	// rather than guessed from the source. pages.PanelSections is licensed-excluded
+	// (asserted under adminauth.CookiePath by the test); pages.LegalPages is PUBLIC and
+	// is therefore INCLUDED — the four routes an audit found missing.
+	for _, p := range pages.LegalPages {
+		add(p.Path)
+	}
+
 	sort.Strings(out)
+	sort.Strings(unresolvedRouteNames)
+	sort.Strings(selectorRouteExprs)
 	return out
+}
+
+// unresolvedRouteNames records every route registered under a BARE NAME this scan
+// could not turn into a path; selectorRouteExprs records every route registered under
+// a SELECTOR.
+//
+// 🔴 THEY ARE TWO SETS BECAUSE THEY FAIL DIFFERENTLY, AND CONFLATING THEM IS WHAT AN
+// AUDIT CAUGHT. A bare name is resolvable in principle (a constant somewhere); a
+// selector names a FIELD OF A TABLE and is only answerable by looking at the table. The
+// first version of this file had only the first set, pinned EMPTY — which read as
+// "nothing is out of scope" while four /legal/* routes were.
+//
+// 🔴 COUNTED RATHER THAN IGNORED, AND RATHER THAN FATAL. Silently skipping is what let
+// /t fall out of the net; panicking at package init was tried and is too blunt — it
+// kills every test in the package, including the ones that would say why. So both sets
+// are recorded and TestEmployeeRoutes_DerivationIsNotVacuous pins both.
+var (
+	unresolvedRouteNames []string
+	seenUnresolved       = map[string]bool{}
+	selectorRouteExprs   []string
+	seenSelector         = map[string]bool{}
+)
+
+// rangeTableFor names the table a selector-driven mount walks: the nearest enclosing
+// `for … range <TABLE>` above the registration.
+//
+// It is a backwards text scan rather than a syntax walk because everything around it
+// is one, and the answer it needs is textual: the identifier being ranged over. A
+// registration with no range above it answers "(no enclosing range)", which is
+// reported in the pinned set rather than swallowed — a mount whose table this cannot
+// name is exactly the case a human should look at.
+func rangeTableFor(src, registration string) string {
+	at := strings.Index(src, registration)
+	if at < 0 {
+		return "(not found)"
+	}
+	re := regexp.MustCompile(`for\s+[^\n]*range\s+([A-Za-z_][\w.]*)`)
+	best := "(no enclosing range)"
+	for _, loc := range re.FindAllStringSubmatchIndex(src[:at], -1) {
+		best = src[loc[2]:loc[3]] // the last range that opens before the registration
+	}
+	return best
 }
 
 // knownEmployeeRoutes is the FLOOR: routes that must appear whatever the scanner
@@ -133,6 +354,73 @@ func TestEmployeeRoutes_DerivationIsNotVacuous(t *testing.T) {
 			t.Fatalf("the derived route list is missing %q; got %v", want, got)
 		}
 	}
+	// 🔴 THE COUNTED GAP, PINNED. Every route name this scan could not resolve is
+	// listed here with the reason it is safe to leave out. A NEW name turns this red,
+	// and the question it asks is the one that matters: does that route sit outside
+	// adminauth.CookiePath? If it does, it belongs in the cookie net and this
+	// derivation has to learn how to resolve it.
+	//
+	// 🔴 THE EXCLUSION FOR PANEL-ROOTED NAMES IS LICENSED HERE, AT RUN TIME, RATHER
+	// THAN ASSUMED IN THE SCANNER. The derivation drops any route whose name chains
+	// back to mustSectionHref; that is only sound because every section href really is
+	// under the panel's cookie path. Asserting it means the day somebody adds a section
+	// outside /admin, this test says so instead of the route quietly leaving the net.
+	for _, s := range pages.PanelSections {
+		if s.Href != adminauth.CookiePath && !strings.HasPrefix(s.Href, adminauth.CookiePath+"/") {
+			t.Fatalf("panel section %q is at %q, outside %q. employeeRoutes() EXCLUDES every "+
+				"route whose name chains back to mustSectionHref on the grounds that it cannot "+
+				"be employee-facing; this section breaks that", s.Tab, s.Href, adminauth.CookiePath)
+		}
+	}
+
+	var wantUnresolved []string
+	if !reflect.DeepEqual(unresolvedRouteNames, wantUnresolved) {
+		t.Fatalf("route names this scan cannot resolve = %v, want %v.\n"+
+			"A new one is not automatically a defect — but it IS a route outside the "+
+			"cookie net until somebody says why it cannot be employee-facing",
+			unresolvedRouteNames, wantUnresolved)
+	}
+
+	// 🔴 THE SELECTOR SET, PINNED WITH A REASON PER ENTRY — AND ITS FIRST VERSION WAS
+	// THE DEFECT AN AUDIT FOUND. Until 2026-08-24 selector-named routes were not
+	// collected at all and the comment above claimed they were all panel routes; four
+	// public /legal/* routes were neither derived nor mounted, while
+	// unresolvedRouteNames sat pinned EMPTY saying nothing was out of scope.
+	wantSelectors := []string{
+		// dashboard.go's mountSections, over pages.PanelSections. LICENSED-EXCLUDED by
+		// the run-time assertion above: every entry is under adminauth.CookiePath.
+		"dashboard.go:s.Href over pages.PanelSections",
+		// marketing.go's Mount, over pages.LegalPages. PUBLIC, so employeeRoutes() adds
+		// every path in that table — asserted below rather than assumed.
+		"marketing.go:page.Path over pages.LegalPages",
+	}
+	if !reflect.DeepEqual(selectorRouteExprs, wantSelectors) {
+		t.Fatalf("routes registered under a SELECTOR = %v, want %v.\n"+
+			"Each entry must be answered against the TABLE it walks: either that table is "+
+			"provably under %q (exclude it, and assert that here) or it is public (add its "+
+			"paths to the derivation). A new selector with neither is a route outside the net",
+			selectorRouteExprs, wantSelectors, adminauth.CookiePath)
+	}
+
+	// 🔴 AND THE PUBLIC TABLE IS ASSERTED BOTH WAYS. Every legal page must be in the
+	// derived list (so the harness mounts it and the cookie assertions cover it), and
+	// none of them may be under the panel's cookie path — if one ever is, the inclusion
+	// above becomes wrong rather than merely unnecessary.
+	if len(pages.LegalPages) == 0 {
+		t.Fatalf("pages.LegalPages is empty; the inclusion below proves nothing")
+	}
+	for _, p := range pages.LegalPages {
+		if strings.HasPrefix(p.Path, adminauth.CookiePath) {
+			t.Fatalf("legal page %q is under %q; it is added to the derived list as a PUBLIC "+
+				"route and that premise no longer holds", p.Path, adminauth.CookiePath)
+		}
+		if !contains(got, p.Path) {
+			t.Fatalf("legal page %q is mounted by marketing.go but is not in the derived list "+
+				"(%v). It is a PUBLIC route, so the panel cookie must be proven absent from it",
+				p.Path, got)
+		}
+	}
+
 	// And it must NOT have swept in the panel's own routes.
 	for _, r := range got {
 		if r == adminauth.CookiePath || strings.HasPrefix(r, adminauth.CookiePath+"/") {
@@ -200,7 +488,7 @@ func newPathHarness(t *testing.T, verified []adminauth.Verified) *pathHarness {
 		},
 	}
 	fake := newFakeLedger()
-	h, err := NewAdminAuth(admins, &fakeTrail{}, fake, fake, &fakeReviewer{}, &fakeStaff{}, &fakeInviter{}, &fakeVenues{}, &fakePlaques{}, &fakeRecorder{}, newFakeRules(), newFakeScribe(), newFakeBooks(), newFakeTexts(), newFakeAccount(), cfg, discardLogger())
+	h, err := NewAdminAuth(admins, &fakeTrail{}, fake, fake, &fakeReviewer{}, &fakeStaff{}, &fakeInviter{}, &fakeVenues{}, &fakePlaques{}, &fakeRecorder{}, newFakeRules(), newFakeScribe(), newFakeBooks(), newFakeTexts(), newFakeAccount(), nil, cfg, discardLogger())
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}

@@ -907,11 +907,44 @@ func TestPlaqueConfirmation_RefusesASubjectCarryingTheSeparator(t *testing.T) {
 //	                                                            different mechanism.
 //	an action written from ANOTHER package             NO       this scan reads
 //	                                                            internal/domain/tenant
-//	                                                            only. Nothing else
-//	                                                            writes `plaque.*`
-//	                                                            (grepped), and doing so
-//	                                                            would be a visible edit
-//	                                                            in a new package.
+//	                                                            only. 🔴 AND IT HAPPENS
+//	                                                            — see the block below.
+//
+// 🔴 THE "ANOTHER PACKAGE" ROW IS NO LONGER HYPOTHETICAL, AND THE SENTENCE THAT USED
+// TO SIT IN IT WAS FALSE WHEN IT WAS WRITTEN (corrected 2026-08-24, M8-05 FAZ
+// B2c-2b). It said "Nothing else writes `plaque.*` (grepped), and doing so would be a
+// visible edit in a new package." Measured on this tree:
+//
+//	grep -rn 'Action:  *ActionPlaque' --include='*.go' internal/ | grep -v _test
+//	  -> internal/encode/rows.go  Action:  ActionPlaqueLoaded
+//	  -> internal/encode/rows.go  Action:   ActionPlaqueEncoded
+//	  -> internal/encode/rows.go  Action:   ActionPlaqueUnmarked
+//
+// internal/encode has written the first two since FAZ B2c-2a and the third since a
+// security audit in FAZ B2c-2b, and that phase wired an HTTP endpoint that drives all
+// three, so they reach a real audit_log.
+//
+// ⚠️ NO LINE NUMBERS ARE QUOTED ANY MORE, AND THAT IS THE REPAIR RATHER THAN LAZINESS.
+// This block used to print ":261" and ":303"; both had moved by the next round, and the
+// third write was added without the block being re-run at all — so a published
+// measurement was wrong in two ways at once. A file:line pair in a comment is a second
+// representation of something the command already returns.
+//
+// 🔴 WHY THE HOLE THIS ROW DESCRIBES IS STILL SHUT, WHICH IS THE PART WORTH KEEPING.
+// The danger was never "somebody writes plaque.* elsewhere"; it was "an action reaches
+// the trail card as a word nobody has a rendering for". internal/encode does not
+// DECLARE its own vocabulary — rows.go aliases tenant.ActionPlaqueLoaded,
+// tenant.ActionPlaqueEncoded and tenant.ActionPlaqueUnmarked, so the scan below sees
+// all three, and TestPlaqueTrail_NamesEveryActionTheDOMAINCanWrite requires a word for
+// each
+// (plaques.go carries "Loaded into stock" and "Encoded"). rows.go's own header says
+// this is deliberate: "Declaring the two constants where the scan already looks turns
+// 'the panel prints a raw database word at a manager' into a RED TEST."
+//
+// ⚠️ WHAT REMAINS UNCOVERED, NARROWED RATHER THAN CLOSED: a package that declares its
+// OWN plaque.* literal instead of aliasing. Nothing does; the alias pattern is the one
+// the tree uses and rows.go argues for. This row is the reason to check when a third
+// writer appears.
 //
 // 🔴 AND THE TEST NAMED FOR THE WRITE SIDE IS THE ONE ABOVE, NOT THIS ONE. An earlier
 // version of this paragraph pointed the whole limit list at

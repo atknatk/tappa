@@ -240,6 +240,32 @@ func (a *AdminAuth) mountWriting(r chi.Router) {
 		// clock every shift and every lateness verdict is resolved against, and it moves
 		// both ends of every billing month that has not been frozen yet.
 		r.Post(accountHref, a.accountSave)
+
+		// 🔴 THE PLAQUE ENCODE RELAY (M8-05 FAZ B2c-2b) — A NESTED GROUP INSIDE THIS
+		// ONE, AND THE NESTING IS THE WHOLE REASON IT IS NOT THREE MORE r.Post LINES
+		// ABOVE. These routes need EVERYTHING ProtectWriting carries — the Origin
+		// check ahead of the resolver, the address shield, the identity, the session
+		// budget — AND ONE MORE STAGE that can only run once the identity exists:
+		// their own per-session ceiling, keyed on the panel session id. A per-session
+		// budget cannot be keyed before the session is resolved (adminSessionLimit's
+		// comment makes the same point), so encodeGate has to come AFTER requireAdmin,
+		// which is what an inner group expresses and what an extra r.Use on this one
+		// cannot. Nesting keeps this function's own promise literally true: every
+		// mutating panel route still shares one chain, and this one adds to it.
+		//
+		// 🔴 THEY ARE WRITES IN THE HEAVIEST SENSE THIS PANEL HAS. One round appends a
+		// row to `tags` whose uid is a GLOBAL primary key (ADR 0017 §6 md. 12): the
+		// row squats that uid for every business at once, tappa_app cannot delete it,
+		// and its aes_key_ref can never be rewritten (migration 00013 — cleanup is
+		// manual, as tappa_owner, and deploy/README.md says so where an operator will
+		// find it). It also drives ten irreversible commands at a physical chip.
+		// Everything above is recoverable by comparison.
+		r.Group(func(r chi.Router) {
+			r.Use(a.encodeGate)
+			r.Post(plaqueEncodeHref, a.plaqueEncodeBegin)
+			r.Post(plaqueEncodeStepHref, a.plaqueEncodeStep)
+			r.Post(plaqueEncodeAbortHref, a.plaqueEncodeAbort)
+		})
 	})
 }
 

@@ -15,24 +15,38 @@
 //     trail) and wrapper.go (sun.Wrap under the tag KEK) — and the third, Clock,
 //     has had one since B2c-1 (systemClock, below).
 //
-//     ⚠️ NOTHING IMPORTS THIS PACKAGE YET, and the command that says so had to be
-//     replaced because the first one did not work in this repository's shell
-//     (audit, 2026-08-24). It was `grep -rl "internal/encode" --include=*.go . |
-//     grep -v "^./internal/encode/"`. Two faults, and either alone is fatal to a
-//     published measurement: under zsh the unquoted --include=*.go is GLOBBED and
-//     the command dies with "no matches found", and where it does run, grep -rl
-//     does not print a "./" prefix, so the filter removes nothing — not even this
-//     package's own files. The command that reproduces the claim:
+//     ⚠️ "NOTHING IMPORTS THIS PACKAGE YET" WAS TRUE UNTIL 2026-08-24 AND IS NOW
+//     FALSE — FAZ B2c-2b wired it. The command is kept because the shape of it was
+//     the lesson (audit, 2026-08-24): the first version was
+//     `grep -rl "internal/encode" --include=*.go . | grep -v "^./internal/encode/"`
+//     and had two faults, either alone fatal to a published measurement — under zsh
+//     the unquoted --include=*.go is GLOBBED and the command dies with "no matches
+//     found", and where it does run, grep -rl does not print a "./" prefix, so the
+//     filter removes nothing. The command that reproduces today's claim:
 //
 //     grep -rn "atknatk/tappa/internal/encode" --include='*.go' . | grep -v "internal/encode/"
 //
-//     which returns ZERO on this tree. So the endpoint that would drive any of
-//     this is still M8-05 FAZ B2c-2b's.
+//     which returns FOUR lines on this tree — internal/handler/plaqueencode.go (the
+//     relay endpoint), cmd/tappa/main.go (its wiring), and two test files:
+//     internal/handler/plaqueencode_test.go and cmd/tappa/shutdownbudget_test.go.
+//     Test lines are counted rather than filtered away: a published measurement has
+//     to be reproducible verbatim.
 //
-//   - There is no authorisation gate. ADR 0017 §6 md. 10 ("who may encode for
-//     which tenant") is NOT closed by this round; the actor string below bounds
-//     EXPOSURE, it does not grant anything, and the tenant is whatever the caller
-//     names at Begin.
+//     ⚠️ THIS NUMBER HAS NOW BEEN WRONG TWICE, IN OPPOSITE ROUNDS. It said "two"
+//     (test file uncounted), was corrected to "three", and went stale the same day a
+//     LATER round added cmd/tappa/shutdownbudget_test.go — which imports this package
+//     to read DefaultCloseGrace. A count published beside the command that produces it
+//     has to be re-run when anything imports the package, and twice it was not.
+//
+//   - THE AUTHORISATION GATE IS NOT HERE, AND THAT IS STILL TRUE OF THIS PACKAGE.
+//     ADR 0017 §6 md. 10 ("who may encode for which tenant") is answered ONE LAYER
+//     UP, in internal/handler/plaqueencode.go, where a request has an identity to
+//     answer it with: the tenant comes off the resolved panel session and never off
+//     the request body. Nothing in THIS package checks anything — the actor string
+//     below bounds EXPOSURE, it does not grant anything, and Begin still writes
+//     wherever it is told. A second caller that skipped the handler would skip the
+//     gate, which is why the gate is pinned at the one call site rather than
+//     described here.
 //
 //   - NO CHIP HAS BEEN ENCODED (ADR 0017 §6 md. 1). Everything below is measured
 //     against documents and a test double, and the test double is written in this
@@ -46,6 +60,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -123,13 +138,17 @@ type Wrapper interface {
 //
 // ⚠️ WHAT THAT DOES NOT BUY, said in the same breath as the claim: it forces the
 // caller to name A tenant, never the RIGHT one. Nothing in this package decides
-// which tenant an operator may encode for — ADR 0017 §6 md. 10's authorisation
-// gate is still open and belongs with the endpoint (FAZ B2c-2b). What refuses a
-// WRONG tenant today is the database: the tags policy carries WITH CHECK as well
-// as USING (00004) and tappa_app is NOBYPASSRLS, so a row stamped with a tenant
-// other than the transaction's is refused. Against a caller who names a tenant
-// that is genuinely not theirs, both of those are silent — that is md. 10, and it
-// is open.
+// which tenant an operator may encode for. ⚠️ THAT GATE — ADR 0017 §6 md. 10 — IS
+// CLOSED AS OF FAZ B2c-2b, ONE LAYER UP, and this paragraph said "still open" for a
+// round after it shut. It belongs with the endpoint, exactly as predicted:
+// internal/handler derives the tenant from the resolved panel session. What is still
+// true of THIS package is the first sentence — nothing here decides anything, so a
+// second caller that skipped the handler would skip the gate.
+// What refuses a WRONG tenant at the database is unchanged: the tags policy carries
+// WITH CHECK as well as USING (00004) and tappa_app is NOBYPASSRLS, so a row stamped
+// with a tenant other than the transaction's is refused. Against a caller who names a
+// tenant that is genuinely not theirs, both of those are silent — which is why the
+// gate had to exist somewhere, and now does.
 type Rows interface {
 	// InsertUnassigned writes the tags row: uidHex canonical upper-case hex
 	// (migration 00013's CHECK), the wrapped key, status 'unassigned', no
@@ -157,7 +176,7 @@ type Rows interface {
 	// was about md. 10). That is why a closure claim in this package has to carry
 	// the command that proves it, and why the closure this time is a SIGNATURE
 	// rather than a sentence: a signature cannot be reported closed while absent.
-	InsertUnassigned(ctx context.Context, tenantID uuid.UUID, uidHex string, wrappedKey []byte, actor string) error
+	InsertUnassigned(ctx context.Context, tenantID, adminID uuid.UUID, uidHex string, wrappedKey []byte, actor string) error
 
 	// MarkEncoded records that the chip completed the round — ADR 0017 §5.1
 	// step 9, "satırı 'encode edildi' olarak işaretle".
@@ -178,7 +197,7 @@ type Rows interface {
 	// the caller not to re-run — so the one repeat this flow can produce is a
 	// retried marker, and a retry must not look like a failure or move the
 	// timestamp.
-	MarkEncoded(ctx context.Context, tenantID uuid.UUID, uidHex string, actor string) error
+	MarkEncoded(ctx context.Context, tenantID, adminID uuid.UUID, uidHex string, actor string) error
 }
 
 // --- The key inventory: ONE place, ADR 0017 §6 md. 7 item 5 --------------------
@@ -600,6 +619,40 @@ const (
 	// can hang for ever is not a shutdown.
 	DefaultCloseGrace = 5 * time.Second
 
+	// DefaultRepairGrace bounds EACH write that finishes a round after the request
+	// that started it has gone away.
+	//
+	// 🔴 IT IS EXPORTED SO A GATE CAN SEE IT (ninth audit, 2026-08-24). The number it
+	// replaced was an unexported constant in rows.go whose comment asserted a
+	// relationship — "5s nests inside httpShutdownGrace's 20s" — that NOTHING held:
+	// cmd/tappa could not read the identifier, so httpShutdownGrace could have been
+	// lowered to 3s and the nesting would have broken in silence. This task's own rule
+	// is that a number is bound to a gate, dated, or deleted; this one is now bound, by
+	// cmd/tappa's TestShutdownBudget_TheDetachedRepairsNestInsideTheHTTPGrace.
+	//
+	// ONE constant for BOTH detached writes rather than two numbers, because the second
+	// write happens only when the first failed and their budgets therefore ADD. The
+	// gate asserts the sum: 2 x DefaultRepairGrace <= httpShutdownGrace.
+	//
+	// ⚠️ THE SECOND WRITE STILL GETS A FULL BUDGET, not the remainder — context
+	// .WithoutCancel drops the parent's DEADLINE as well as its cancellation, so the
+	// compensating write is not starved by the marking that just timed out. That is
+	// precisely the case it exists for.
+	//
+	// 🔴 AND THE SUM IS NOT THEORETICAL — MEASURED UNDER pool_max_conns=1 (tenth audit,
+	// 2026-08-25), which is what makes this number worth having a gate for:
+	//
+	//	cancelled ctx, before the detach   5.000 s
+	//	detached ctx, as shipped          10.002 s
+	//
+	// A dead request occupies its handler goroutine for TEN SECONDS under pool
+	// pressure. That is the real cost of detaching, it lands inside the in-flight
+	// request srv.Shutdown already waits for, and 10 <= httpShutdownGrace's 20 is the
+	// exact relationship the gate holds. The two writes are SEQUENTIAL and SYNCHRONOUS
+	// on the plaqueEncodeStep -> Step -> markEncoded chain, which is why they add to
+	// each other and nest inside the drain rather than extending it.
+	DefaultRepairGrace = 5 * time.Second
+
 	// DefaultMaxLive bounds the store as a whole, across all actors.
 	//
 	// The pilot is one branch and encoding is manual (ADR 0017 §4), so the real
@@ -608,6 +661,47 @@ const (
 	// material, which is the only failure mode of an in-memory session table that
 	// costs more than a retry.
 	DefaultMaxLive = 64
+
+	// DefaultMaxPerTenant bounds one BUSINESS's share of the store — the axis the
+	// first two caps do not have.
+	//
+	// 🔴 IT IS DERIVED FROM DefaultMaxLive RATHER THAN CHOSEN, so the three numbers
+	// cannot drift apart: an eighth of the store. Both directions are asserted by
+	// TestSession_TheTenantCapSitsBetweenTheActorCapAndTheStore —
+	//
+	//	FLOOR    it must clear 2 x DefaultMaxPerActor, so two operators of the same
+	//	         business can each hold a full retry sequence ("tap, miss, retry,
+	//	         retry") without the business's own cap refusing either of them.
+	//	CEILING  it must stay at or under a quarter of the store, or "one business
+	//	         cannot take the product down" stops being true in any useful sense.
+	//
+	// 🔴 WHAT IT DOES NOT DO, AND THE FIRST VERSION OF THIS PARAGRAPH PRICED THE
+	// RESIDUAL 2.75x TOO HIGH. It said "twenty-two tenants at three sessions each still
+	// reach 66 >= DefaultMaxLive" — the arithmetic of the world BEFORE this cap, quoted
+	// as if it described the world after. MEASURED against the shipped store: EIGHT
+	// distinct tenants, each filling its own cap of eight, hold 64 live rounds and the
+	// store then refuses everyone.
+	//
+	// So the cap does not stop N DISTINCT tenants from exhausting the store between
+	// them. The cheapest price is EIGHT sign-ups AND TWENTY-FOUR ADMIN ACCOUNTS, and
+	// the second half was missing from the first three versions of this paragraph
+	// (security audit, second pass): eight tenants is what the TENANT cap alone
+	// implies, but DefaultMaxPerActor is 3, so filling one tenant's eight takes
+	// ceil(8/3) = 3 distinct actor labels, and through the endpoint an actor label is
+	// not a free string — plaqueEncodeGrantOf builds it as "admin:"+AdminUserID from
+	// the session cookie, so a distinct label costs a distinct ADMIN ACCOUNT. 8 x 3 =
+	// 24. TestSession_TheCheapestExhaustionIsEightTenantsAndTwentyFourAdmins measures
+	// both numbers off the shipped constants rather than restating them, because this
+	// sentence has now been wrong twice by being written rather than run.
+	//
+	// What it removes is the SINGLE-tenant
+	// version, which is cheaper still — one sign-up, one address. The N-tenant version
+	// is bounded by nothing here; the honest place for it is the endpoint's own budgets
+	// and, ultimately, an operational limit. ADR 0017 §4's "a rollout window loses a
+	// round" paragraph is the right precedent: the residual is written down rather than
+	// papered over — and at its REAL price, because a residual quoted too HIGH is still
+	// a wrong count.
+	DefaultMaxPerTenant = DefaultMaxLive / 8
 
 	// MaxActorLen bounds the operator label Begin accepts.
 	//
@@ -620,10 +714,98 @@ const (
 	//
 	// 200 is chosen against what the label actually is — an operator or device
 	// handle, tens of bytes — with room for a uuid, an email and a separator
-	// (~90) and again as much slack. It is not derived from a measurement because
-	// there is nothing to measure yet: no endpoint supplies it (FAZ B2c-2b).
+	// (~90) and again as much slack.
+	//
+	// ⚠️ THE SENTENCE THAT FOLLOWED THIS ONE EXPIRED ON 2026-08-24 (FAZ B2c-2b). It
+	// said "no endpoint supplies it". internal/handler's encode relay now does, and
+	// what it supplies is `admin:<uuid>` — 42 bytes, well inside this bound, and
+	// derived from the resolved panel session rather than from the request body.
 	MaxActorLen = 200
 )
+
+// RequestsPerRound is how many HTTP exchanges one COMPLETE encode round costs a
+// relay: one Begin, then one Step per entry in the step table.
+//
+// 🔴 IT IS EXPORTED FOR ONE REASON AND THAT REASON IS A RULE, NOT A CONVENIENCE.
+// internal/handler has to size a rate-limit budget against "how many plaques may an
+// operator encode in a window", and this repository's standing rule is that a number
+// is either bound to a gate, dated, or deleted (docs/plan/agent-brief.md). Written
+// out as `11` in the handler it would be a second representation of this table, and
+// this repository has paid for that shape often enough to have a name for it. Derived
+// from here it MOVES on its own the day ADR 0017 §5.1 step 8 ships (§6 md. 5): the
+// TABLE goes from ten exchanges to eleven, so this function goes from 11 to 12.
+// ⚠️ THE TWO ELEVENS ARE ONE APART AND USED TO SIT IN ONE SENTENCE WITHOUT SAYING SO
+// — len(roundSteps) and this function's result are never the same number, and an
+// auditor read the handler's copy of that sentence as arithmetic that does not close.
+//
+// ⚠️ IT IS A FUNCTION AND NOT A CONSTANT, and not by preference: roundSteps is a
+// slice, so len() over it is not a constant expression. Anything derived from it is
+// therefore a var, which is why internal/handler pins the derived budget in a test of
+// its own rather than relying on adminratelimit.go's constant pin.
+//
+// 🔴 A FUNCTION AND NOT AN EXPORTED var, WHICH IS A CORRECTION (audit, 2026-08-24).
+// It shipped as an exported package-level variable, and an exported var is
+// ASSIGNABLE by any importer — a package could set it to 1 and silently multiply the
+// encode rate limit by eleven. Harmless in the shipped tree (internal/handler reads it
+// once at package init) and a shape worth not leaving lying about: a function returns
+// a value nobody can rebind.
+//
+// ⚠️ WHAT IT DOES NOT COUNT, because a budget written against the wrong denominator
+// is worse than none: an ABORT (one more request), a round that dies part-way (fewer),
+// and — the one that matters for ADR 0017 §6 md. 12 — the number of requests it takes
+// to WRITE A ROW — which is RequestsBeforeTheRowIsWritten() below, and is NOT counted
+// here on purpose. A budget sized on a whole round therefore permits
+// RequestsPerRound/RequestsBeforeTheRowIsWritten() times as many inventory rows as it
+// does completed plaques.
+//
+// 🔴 THIS PARAGRAPH SAID "FOUR (Begin plus three Steps)" AND WAS THE FOURTH PUBLISHED
+// COPY OF AN OFF-BY-ONE — twenty lines above the function that exists to correct it,
+// and written in the same round that corrected the other three. The right number is
+// FIVE and the reason is one line down. No digit is written here now: the function is
+// the answer, and it is measured against a real round by
+// TestDriver_TheRowIsWrittenOnTheExchangeThisNumberNames.
+func RequestsPerRound() int { return 1 + len(roundSteps) }
+
+// RequestsBeforeTheRowIsWritten is how many HTTP exchanges a relay must complete
+// before an inventory row exists for the plaque — ADR 0017 §5.1 step 3.
+//
+// 🔴 IT IS THE DENOMINATOR ADR 0017 §6 md. 12 CARES ABOUT, AND IT IS NOT
+// RequestsPerRound. The hazard that item counts is a SQUATTED uid, not a finished
+// plaque: tags.uid is a global PRIMARY KEY, so the damage is done the moment the row
+// lands, six exchanges before the round ends. A rate limit divided by the length of a
+// whole round therefore overstates how much it bounds squatting by a factor of nearly
+// three, and internal/handler sizes its budget against THIS number for that reason.
+//
+// ⚠️ IT IS DERIVED FROM THE STEP TABLE RATHER THAN COUNTED BY HAND, and the FIRST
+// DERIVATION WAS OFF BY ONE — caught by the test below rather than by reading, which is
+// exactly why the test exists. It said `1 + rowWriteStepIndex()` = 4. The row is
+// written by the ACCEPT of the step at that index, and an accept runs when the response
+// is FED BACK IN, which is the (index+1)-th Step call. So: one Begin, plus index+1
+// Steps, = index + 2 = **5**.
+//
+// 🔴 THE OFF-BY-ONE WAS ALREADY PUBLISHED IN THREE PLACES AS "/4", giving 55 rows per
+// session and 750 per address. Both were wrong in the UNSAFE direction — they made the
+// gate look weaker than it is (44 and 600) — but a bound written from an unmeasured
+// denominator is a bound nobody has checked, whichever way it errs.
+func RequestsBeforeTheRowIsWritten() int { return rowWriteStepIndex() + 2 }
+
+// rowWriteStepIndex finds the exchange whose accept writes the tags row.
+//
+// It matches on the step's own ADR reference rather than on its name: stepDef.adr is
+// the field that exists to keep the table and the document from drifting, and §5.1
+// step 3 has exactly one home in the sequence. A rename of the exchange does not move
+// the row; a change to WHICH exchange writes it does, and that is what should move
+// this number.
+func rowWriteStepIndex() int {
+	for i, s := range roundSteps {
+		if strings.Contains(s.adr, "then step 3") {
+			return i
+		}
+	}
+	// Unreachable while the table carries step 3, and a panic is right: a silent zero
+	// would hand internal/handler a denominator of one and quietly loosen a rate limit.
+	panic("encode: no step in roundSteps writes the tags row (ADR 0017 §5.1 step 3)")
+}
 
 // --- Errors --------------------------------------------------------------------
 
@@ -775,11 +957,20 @@ type Session struct {
 	// NOT key material and is registered as such in sessionFields.
 	//
 	// ⚠️ IT IS THE CALLER'S CLAIM, NOT A VERIFIED FACT. Begin takes it, nothing
-	// here checks that the caller may encode for it, and ADR 0017 §6 md. 10 is the
-	// open item that would. What it buys today is that the value the ports receive
-	// is the value the round was opened with, rather than whatever a pooled
-	// connection last happened to be set to.
+	// here checks that the caller may encode for it — ⚠️ and the "open item that
+	// would" sentence that used to end this paragraph is STALE: ADR 0017 §6 md. 10
+	// CLOSED in FAZ B2c-2b, one layer up, where a request has an identity to answer
+	// it with. What this field buys is unchanged: the value the ports receive is the
+	// value the round was opened with, rather than whatever a pooled connection last
+	// happened to be set to.
 	tenantID uuid.UUID
+
+	// adminID is the RESOLVED admin who opened the round — httpx.AdminOf's, never a
+	// caller's claim — and it becomes audit_log.actor_id. It is a separate field from
+	// `actor` on purpose: actor is a label the caller supplies and this is not.
+	// uuid.Nil means "no admin", which is how every non-HTTP caller (tests) drives it
+	// and which audit reads as the system.
+	adminID  uuid.UUID
 	deadline time.Time
 
 	// busy is held by the one goroutine currently running a step. Guarded by the
@@ -930,7 +1121,9 @@ type Config struct {
 	TTL time.Duration
 	// MaxPerActor defaults to DefaultMaxPerActor, MaxLive to DefaultMaxLive.
 	MaxPerActor int
-	MaxLive     int
+	// MaxPerTenant defaults to DefaultMaxPerTenant.
+	MaxPerTenant int
+	MaxLive      int
 
 	// CloseGrace is how long Close waits for in-flight steps to drain before it
 	// gives up. Defaults to DefaultCloseGrace. See Close for why it waits at all.
@@ -976,17 +1169,21 @@ type Store struct {
 	mu       sync.Mutex
 	live     map[ID]*Session
 	perActor map[string]int
-	perUID   map[string]ID
-	closed   bool
+	// perTenant bounds one BUSINESS's share of a store every business shares. See
+	// Begin's third gate for the exhaustion it refuses and for what it does not refuse.
+	perTenant map[uuid.UUID]int
+	perUID    map[string]ID
+	closed    bool
 
 	rows    Rows
 	wrapper Wrapper
 	baseURL string
 
-	clock       Clock
-	ttl         time.Duration
-	maxPerActor int
-	maxLive     int
+	clock        Clock
+	ttl          time.Duration
+	maxPerActor  int
+	maxPerTenant int
+	maxLive      int
 
 	closeGrace  time.Duration
 	drain       chan struct{}
@@ -1029,20 +1226,22 @@ func NewStore(cfg Config) (*Store, error) {
 	}
 
 	st := &Store{
-		live:        map[ID]*Session{},
-		perActor:    map[string]int{},
-		perUID:      map[string]ID{},
-		rows:        cfg.Rows,
-		wrapper:     cfg.Wrapper,
-		baseURL:     cfg.BaseURL,
-		clock:       cfg.Clock,
-		ttl:         cfg.TTL,
-		maxPerActor: cfg.MaxPerActor,
-		maxLive:     cfg.MaxLive,
-		closeGrace:  cfg.CloseGrace,
-		drain:       make(chan struct{}, 1),
-		quit:        make(chan struct{}),
-		sweeperDone: make(chan struct{}),
+		live:         map[ID]*Session{},
+		perActor:     map[string]int{},
+		perTenant:    map[uuid.UUID]int{},
+		perUID:       map[string]ID{},
+		rows:         cfg.Rows,
+		wrapper:      cfg.Wrapper,
+		baseURL:      cfg.BaseURL,
+		clock:        cfg.Clock,
+		ttl:          cfg.TTL,
+		maxPerActor:  cfg.MaxPerActor,
+		maxPerTenant: cfg.MaxPerTenant,
+		maxLive:      cfg.MaxLive,
+		closeGrace:   cfg.CloseGrace,
+		drain:        make(chan struct{}, 1),
+		quit:         make(chan struct{}),
+		sweeperDone:  make(chan struct{}),
 	}
 	if st.closeGrace <= 0 {
 		st.closeGrace = DefaultCloseGrace
@@ -1058,6 +1257,9 @@ func NewStore(cfg Config) (*Store, error) {
 	}
 	if st.maxLive <= 0 {
 		st.maxLive = DefaultMaxLive
+	}
+	if st.maxPerTenant <= 0 {
+		st.maxPerTenant = DefaultMaxPerTenant
 	}
 
 	period := st.ttl / sweepDivisor
@@ -1164,6 +1366,15 @@ func (st *Store) retireLocked(s *Session) {
 		delete(st.perActor, s.actor)
 	} else {
 		st.perActor[s.actor] = n - 1
+	}
+	// The tenant counter is released the same way and in the same place, so "every
+	// exit releases every counter" stays a property of THIS function rather than a
+	// second thing to remember. A counter that leaked here would refuse a tenant for
+	// ever, which is worse than the exhaustion it exists to prevent.
+	if n := st.perTenant[s.tenantID]; n <= 1 {
+		delete(st.perTenant, s.tenantID)
+	} else {
+		st.perTenant[s.tenantID] = n - 1
 	}
 	if s.uidHex != "" {
 		if id, ok := st.perUID[s.uidHex]; ok && id == s.id {
@@ -1515,7 +1726,7 @@ func (st *Store) finishLocked(s *Session, done bool, stepErr error, ctxErr error
 // and the live schema: tags.tenant_id is NOT NULL with no DEFAULT, so a row does not
 // "land" in a tenant by omission; an INSERT that supplies none FAILS. That is the
 // measurement this signature is built on.
-func (st *Store) Begin(ctx context.Context, tenantID uuid.UUID, actor string) (ID, Progress, error) {
+func (st *Store) Begin(ctx context.Context, tenantID, adminID uuid.UUID, actor string) (ID, Progress, error) {
 	if err := ctx.Err(); err != nil {
 		return "", Progress{}, fmt.Errorf("encode: %w", err)
 	}
@@ -1563,17 +1774,34 @@ func (st *Store) Begin(ctx context.Context, tenantID uuid.UUID, actor string) (I
 	if st.perActor[actor] >= st.maxPerActor {
 		return "", Progress{}, ErrTooManySessions
 	}
+	// 🔴 THE THIRD GATE, AND IT IS THE ONE THIS STORE SHIPPED WITHOUT (security audit,
+	// 2026-08-24). The other two bound an ACTOR and the STORE; neither bounds a
+	// BUSINESS, and the store is one process-wide object shared by every tenant. So
+	// one tenant could hold every slot the product has: with per-actor 3, twenty-two
+	// admin ids reach 66 ≥ DefaultMaxLive, and from that moment EVERY tenant's Begin
+	// answers ErrTooManySessions — including the operator standing at a wall with a
+	// plaque in their hand, who gets a 409 and no screen that explains it.
+	//
+	// ⚠️ THE LIMITS WERE CHOSEN IN B2c-1 WHEN NOTHING CALLED THIS PACKAGE. What made
+	// them reachable is the HTTP endpoint, so the multi-tenant axis belongs to the
+	// round that opened it. ADR 0017 §6 md. 7 settled three numbers without weighing
+	// this one.
+	if st.perTenant[tenantID] >= st.maxPerTenant {
+		return "", Progress{}, ErrTooManySessions
+	}
 
 	now := st.clock.Now()
 	s := &Session{
 		id:       id,
 		actor:    actor,
 		tenantID: tenantID,
+		adminID:  adminID,
 		deadline: now.Add(st.ttl),
 		ring:     newKeyring(),
 	}
 	st.live[id] = s
 	st.perActor[actor]++
+	st.perTenant[tenantID]++
 
 	cmd, err := roundSteps[0].command(ctx, st, s)
 	if err != nil {
@@ -1688,9 +1916,22 @@ func (st *Store) Step(ctx context.Context, id ID, rapdu []byte) (Progress, error
 	// ORDINARY for an HTTP relay: the phone posts the last R-APDU and the request
 	// context dies.
 	//
-	// The marker below still runs on a cancelled context. It will usually fail there,
-	// which is correct and already specified: Done stays true and the error says do not
-	// re-run.
+	// 🔴 THE MARKER NO LONGER FAILS HERE, AND TWO SENTENCES THAT SAID OTHERWISE ARE
+	// RETRACTED (ninth audit, 2026-08-24). They read: "the marker below still runs on a
+	// cancelled context, it will usually fail there, which is correct" and "it is fine
+	// for the marker to fail here". Both were true of the shipped code and both were
+	// arguing for the wrong thing — that the round should FILE the damage rather than
+	// avoid it.
+	//
+	// markEncoded now runs on a context detached from the request, so the ordinary
+	// hang-up is REPAIRED: encoded_at is stamped, no plaque.unmarked row is written,
+	// and the round ends in the state the chip is actually in. Measured, cancelled ctx:
+	// err=false, encoded_at set, unmarked=0.
+	//
+	// WHAT SURVIVES FROM THE OLD PARAGRAPH, because it was never about the marker: the
+	// ladder below reads Done BEFORE any error, and that rule is the one thing standing
+	// between a caller and the re-run chain described above. Done's own rule is
+	// sufficient on its own; the marker's fate is no longer part of the argument.
 	if p.Done {
 		return st.markEncoded(ctx, s, p)
 	}
@@ -1711,7 +1952,29 @@ func (st *Store) Step(ctx context.Context, id ID, rapdu []byte) (Progress, error
 // mark the row. The marker is bookkeeping; the keys are not, so the keys go first
 // even though it means the marker runs with no session left to hold.
 func (st *Store) markEncoded(ctx context.Context, s *Session, p Progress) (Progress, error) {
-	if err := st.rows.MarkEncoded(ctx, s.tenantID, s.uidHex, s.actor); err != nil {
+	// 🔴 DETACHED FROM THE REQUEST, AND THIS IS A REPAIR RATHER THAN A RECORD OF DAMAGE
+	// (ninth audit, 2026-08-24). The eighth round detached the trail entry that
+	// DOCUMENTS a failed marking; the ninth observed that the same one-line mechanism,
+	// at this call site, stops the failure from happening at all. Measured against real
+	// Postgres, cancelled request context both ways:
+	//
+	//	SHIPPED (request ctx)  err=true   encoded_at=<nil>  plaque.unmarked=1
+	//	DETACHED (this)        err=false  encoded_at=set    plaque.unmarked=0
+	//
+	// The trigger this repairs is the one the code above calls ORDINARY for an HTTP
+	// relay: the phone posts the last R-APDU and hangs up. A round should not answer
+	// that by filing damage it could simply have avoided.
+	//
+	// 🔴 WHY IT IS SAFE TO IGNORE THE CANCELLATION HERE, which is the question a
+	// detached write always owes: cancellation normally means "the caller stopped
+	// caring", and honouring it is right while work can still be abandoned cleanly.
+	// Past Progress.Done nothing can be abandoned cleanly — the CHIP is already
+	// personalised, irreversibly, outside the database. The only question left is
+	// whether the database is allowed to catch up with a fact that is already true in
+	// the physical world. tags.encoded_at is that fact's only record.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), DefaultRepairGrace)
+	defer cancel()
+	if err := st.rows.MarkEncoded(ctx, s.tenantID, s.adminID, s.uidHex, s.actor); err != nil {
 		// Done stays TRUE. See Progress.Done: the chip is personalised and the round
 		// must not be re-run.
 		return p, fmt.Errorf("encode: the chip completed but the row for %s could not be marked; do NOT re-run this round: %w", s.uidHex, err)

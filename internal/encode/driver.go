@@ -412,7 +412,7 @@ func acceptVersionFrame3AndWriteRow(ctx context.Context, st *Store, s *Session, 
 	if err != nil {
 		return fmt.Errorf("wrap the plaque key: %w", err)
 	}
-	if err := st.rows.InsertUnassigned(ctx, s.tenantID, s.uidHex, wrapped, s.actor); err != nil {
+	if err := st.rows.InsertUnassigned(ctx, s.tenantID, s.adminID, s.uidHex, wrapped, s.actor); err != nil {
 		// The chip has not been touched irreversibly yet — SELECT and GetVersion
 		// leave nothing behind — so failing here costs nothing but the round.
 		return fmt.Errorf("write the tags row: %w", err)

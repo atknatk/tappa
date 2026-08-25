@@ -226,6 +226,68 @@ const (
 	// compile-time and one-way.
 	ActionPlaqueLoaded  = "plaque.loaded"
 	ActionPlaqueEncoded = "plaque.encoded"
+
+	// ActionPlaqueUnmarked is the THIRD encode event, and it exists because the two
+	// above could not tell the round's WORST outcome from its most harmless one
+	// (security audit, 2026-08-24, M8-05 FAZ B2c-2b).
+	//
+	// 🔴 THE TWO STATES IT SEPARATES ARE BYTE-IDENTICAL IN THE DATABASE AND HAVE
+	// OPPOSITE RECOVERY INSTRUCTIONS:
+	//
+	//	the chip WAS personalised, the row could not be marked   tags: unassigned,
+	//	  -> the operator must NOT re-run; the plaque is done      location NULL,
+	//	                                                           encoded_at NULL,
+	//	the round died before touching the chip at all             audit: plaque.loaded
+	//	  -> the operator SHOULD re-run                            ...identically.
+	//
+	// 🔴 AND WHAT IT MEANS NARROWED ONE ROUND LATER (ninth audit, 2026-08-24), which
+	// matters to whoever reads one of these rows. When it was introduced, the ORDINARY
+	// cause was a phone posting its last R-APDU and hanging up — the request context
+	// died and the marking died with it. That cause is now REPAIRED rather than
+	// recorded: internal/encode runs the marking on a context detached from the
+	// request, so a hang-up stamps encoded_at and writes nothing here.
+	//
+	// So a row with this action means the marking failed after the chip was already
+	// personalised. It is rare, and it should be read as a fault rather than as a
+	// normal ending.
+	//
+	// 🔴 ITS LIMIT IS A PROPERTY, NOT A LIST (tenth audit, 2026-08-25):
+	//
+	//	THE COMPENSATION TRAVELS THE PATH IT REPORTS ON — same pool, same database,
+	//	same process as the marking it compensates for. It can record only a fault that
+	//	leaves that path INTACT. Any fault IN the path takes the compensation with it.
+	//
+	// 🔴 AND THE TWO CONSEQUENCES BELOW ARE DERIVED FROM IT, NOT ENUMERATED. Every
+	// enumeration attempted under this property was measured incomplete — eleven
+	// rounds, eleven lists (eleventh audit, 2026-08-25).
+	//
+	// FIRST: SEEING THIS ROW MEANS THE DATABASE WAS REACHABLE. The compensation wrote,
+	// so the pool handed out a connection and the database accepted it. This paragraph
+	// used to say the opposite — "the database was GENUINELY out of reach" — thirteen
+	// lines above the property that contradicts it. The reachable-database faults are
+	// the ones this row can carry: a constraint refusing, a logical error, or a
+	// deadline confined to the MARKING (context.WithoutCancel gives the compensation a
+	// fresh budget, so a spent marking budget is recordable — measured: unmarked=1).
+	//
+	// SECOND: NOT SEEING IT PROVES NOTHING. Pool exhaustion, a lost network, a dead
+	// database and a killed process all defeat the compensation as surely as the
+	// marking. Absence means "no fault of the recordable kind", never "no fault".
+	//
+	// The out-of-process fix is an idempotent reconciliation pass over rows with a
+	// wrapped key but no encoded_at. It does not exist yet: counted, md. 27.
+	//
+	// The only thing that distinguished them was ONE LINE IN THE PROCESS LOG, which is
+	// exactly the shape M8-03 found and refused: a signal with no second home, lost to
+	// log rotation, while audit_log — which no role can delete (00005's trigger) —
+	// never heard about the event at all. What is left after the log ages out is ADR
+	// 0017 §5.3's PHYSICAL probes on the chip.
+	//
+	// 🔴 IT IS WRITTEN IN ITS OWN TRANSACTION, unlike the two above. The other two use
+	// RecordTx because they are only true if the surrounding statement committed; this
+	// one is true PRECISELY BECAUSE the surrounding statement did not. internal/audit's
+	// Record is the entry point for that, and internal/encode/rows.go says so at the
+	// call site.
+	ActionPlaqueUnmarked = "plaque.unmarked"
 )
 
 // The plaque lifecycle vocabulary, read from the same CHECK constraint the policy

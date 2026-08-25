@@ -25,8 +25,10 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/atknatk/tappa/internal/audit"
 	"github.com/atknatk/tappa/internal/config"
@@ -119,6 +121,30 @@ func newEncodeTenant(t *testing.T, d *db.DB) uuid.UUID {
 	return id
 }
 
+// newEncodeAdmin creates an admin row so a trail entry has a real actor to name.
+//
+// audit_log.actor_id carries NO foreign key (00005 keeps it polymorphic — measured on
+// the live catalogue), so this row is not strictly required to write the id. It is
+// created anyway because db/queries/audit.sql LEFT JOINs admin_users to render a NAME,
+// and a test that wrote an id nothing could resolve would assert the column and not
+// the thing the column is for.
+func newEncodeAdmin(t *testing.T, d *db.DB, tenant uuid.UUID) uuid.UUID {
+	t.Helper()
+	id := uuid.New()
+	err := d.WithTenant(context.Background(), tenant, func(ctx context.Context, tx pgx.Tx) error {
+		_, e := tx.Exec(ctx,
+			`INSERT INTO admin_users (id, tenant_id, email, password_hash, full_name, role, status)
+			 VALUES ($1, $2, $3, $4, 'Encode Operator', 'owner', 'active')`,
+			id, tenant, "encode-"+id.String()+"@example.test",
+			"$2a$12$abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0")
+		return e
+	})
+	if err != nil {
+		t.Fatalf("newEncodeAdmin: %v", err)
+	}
+	return id
+}
+
 // newUID mints a uid in the CANONICAL form migration 00013 requires and 00021
 // validated -- upper-case hex, exactly 14 characters.
 func newUID(t *testing.T) string {
@@ -166,7 +192,7 @@ func TestDBRows_InsertLoadsStockAndWritesItsTrailEntryInOneTransaction(t *testin
 	uid := newUID(t)
 	const actor = "operator-alpha"
 
-	if err := rows.InsertUnassigned(context.Background(), tenant, uid, wrappedFor(t, uid), actor); err != nil {
+	if err := rows.InsertUnassigned(context.Background(), tenant, uuid.Nil, uid, wrappedFor(t, uid), actor); err != nil {
 		t.Fatalf("InsertUnassigned: %v", err)
 	}
 
@@ -206,10 +232,23 @@ func TestDBRows_InsertLoadsStockAndWritesItsTrailEntryInOneTransaction(t *testin
 	// THE TRAIL ENTRY. ADR 0017 §5.2 says the round belongs in audit_log and §6
 	// md. 8 left the event undefined; this is the definition.
 	ev := onlyTrailEntry(t, d, tenant, uid, ActionPlaqueLoaded)
+	// 🔴 THIS ASSERTS THE uuid.Nil ARM AND NOTHING MORE, AND THE MESSAGE THAT USED TO
+	// BE HERE ASSERTED A RETRACTED RULE (audit, 2026-08-24). It read: "actor_id = %v,
+	// want NULL: the encode actor is a caller-supplied STRING that nothing
+	// authenticated" — the exact rationale internal/encode/rows.go now carries two
+	// screens of retraction for. It stayed green only because this test passes
+	// uuid.Nil, and it sat in the SAME FILE as an assertion demanding a real admin id.
+	// A later reader repairing that binding would have found a live test telling them
+	// nil was correct: the M2-08 trap, where a test's own words steer somebody into
+	// reverting their own fix.
+	//
+	// WHAT IT REALLY TESTS, and what it is kept for: uuid.Nil means SYSTEM and reaches
+	// the column as SQL NULL. That behaviour is shipped and right — see actorIDOf.
+	// The admin arm is TestDBRows_EveryTrailRowOfARoundNamesTheAdmin.
 	if ev.actorID != nil {
-		t.Errorf("actor_id = %v, want NULL: the encode actor is a caller-supplied STRING that "+
-			"nothing authenticated, and audit_log.actor_id is joined to admin_users to render a "+
-			"NAME on a manager's screen", ev.actorID)
+		t.Errorf("actor_id = %v, want NULL for a uuid.Nil admin: actorIDOf maps the nil UUID to "+
+			"a NULL column ('the system'), and writing 00000000-… into a column that is joined "+
+			"to admin_users would render an empty name on a manager's screen", ev.actorID)
 	}
 	var detail loadedDetail
 	if err := json.Unmarshal(ev.detail, &detail); err != nil {
@@ -239,11 +278,11 @@ func TestDBRows_ADuplicateUIDFailsAndTakesItsTrailEntryWithIt(t *testing.T) {
 	uid := newUID(t)
 	first := wrappedFor(t, uid)
 
-	if err := rows.InsertUnassigned(context.Background(), tenant, uid, first, "operator-alpha"); err != nil {
+	if err := rows.InsertUnassigned(context.Background(), tenant, uuid.Nil, uid, first, "operator-alpha"); err != nil {
 		t.Fatalf("the first load failed: %v", err)
 	}
 	second := wrappedFor(t, uid)
-	err := rows.InsertUnassigned(context.Background(), tenant, uid, second, "operator-beta")
+	err := rows.InsertUnassigned(context.Background(), tenant, uuid.Nil, uid, second, "operator-beta")
 	if err == nil {
 		t.Fatal("a second load for the same uid SUCCEEDED; tags.uid is a PRIMARY KEY and " +
 			"Rows.InsertUnassigned's contract is to fail rather than overwrite")
@@ -297,7 +336,7 @@ func TestDBRows_AFailedTrailWriteTAKESTHEROWWITHIT(t *testing.T) {
 
 	// (1) INSERT: the error must surface AND the row must not survive.
 	uid := newUID(t)
-	insertErr := rows.InsertUnassigned(ctx, tenant, uid, wrappedFor(t, uid), "operator-alpha")
+	insertErr := rows.InsertUnassigned(ctx, tenant, uuid.Nil, uid, wrappedFor(t, uid), "operator-alpha")
 	if insertErr == nil {
 		t.Fatal("InsertUnassigned reported SUCCESS while its trail entry failed. The row is " +
 			"committed, the trail is empty, and the caller believes the plaque is loaded")
@@ -319,10 +358,10 @@ func TestDBRows_AFailedTrailWriteTAKESTHEROWWITHIT(t *testing.T) {
 	// port first, so the only thing failing is the trail.
 	good := newDBRows(t, d)
 	uid2 := newUID(t)
-	if err := good.InsertUnassigned(ctx, tenant, uid2, wrappedFor(t, uid2), "operator-alpha"); err != nil {
+	if err := good.InsertUnassigned(ctx, tenant, uuid.Nil, uid2, wrappedFor(t, uid2), "operator-alpha"); err != nil {
 		t.Fatalf("the fixture load failed: %v", err)
 	}
-	markErr := rows.MarkEncoded(ctx, tenant, uid2, "operator-alpha")
+	markErr := rows.MarkEncoded(ctx, tenant, uuid.Nil, uid2, "operator-alpha")
 	if markErr == nil {
 		t.Fatal("MarkEncoded reported SUCCESS while its trail entry failed")
 	}
@@ -342,10 +381,10 @@ func TestDBRows_AFailedTrailWriteTAKESTHEROWWITHIT(t *testing.T) {
 	// POSITIVE CONTROL: with a WORKING trail the same two calls succeed. Without
 	// it, a port that failed unconditionally would pass everything above.
 	uid3 := newUID(t)
-	if err := good.InsertUnassigned(ctx, tenant, uid3, wrappedFor(t, uid3), "operator-alpha"); err != nil {
+	if err := good.InsertUnassigned(ctx, tenant, uuid.Nil, uid3, wrappedFor(t, uid3), "operator-alpha"); err != nil {
 		t.Fatalf("the positive control failed: %v", err)
 	}
-	if err := good.MarkEncoded(ctx, tenant, uid3, "operator-alpha"); err != nil {
+	if err := good.MarkEncoded(ctx, tenant, uuid.Nil, uid3, "operator-alpha"); err != nil {
 		t.Fatalf("the positive control failed: %v", err)
 	}
 }
@@ -357,6 +396,10 @@ func TestDBRows_AFailedTrailWriteTAKESTHEROWWITHIT(t *testing.T) {
 type failingTrail struct{ err error }
 
 func (f failingTrail) RecordTx(context.Context, pgx.Tx, audit.Event) (uuid.UUID, error) {
+	return uuid.Nil, f.err
+}
+
+func (f failingTrail) Record(context.Context, audit.Event) (uuid.UUID, error) {
 	return uuid.Nil, f.err
 }
 
@@ -379,10 +422,10 @@ func TestDBRows_TheTrailDetailKeysAreTheDecidedONES(t *testing.T) {
 	uid := newUID(t)
 	ctx := context.Background()
 
-	if err := rows.InsertUnassigned(ctx, tenant, uid, wrappedFor(t, uid), "operator-alpha"); err != nil {
+	if err := rows.InsertUnassigned(ctx, tenant, uuid.Nil, uid, wrappedFor(t, uid), "operator-alpha"); err != nil {
 		t.Fatalf("InsertUnassigned: %v", err)
 	}
-	if err := rows.MarkEncoded(ctx, tenant, uid, "operator-alpha"); err != nil {
+	if err := rows.MarkEncoded(ctx, tenant, uuid.Nil, uid, "operator-alpha"); err != nil {
 		t.Fatalf("MarkEncoded: %v", err)
 	}
 
@@ -434,17 +477,17 @@ func TestDBRows_TheRefusalOfACrossTenantLoadCarriesNoKeyBytes(t *testing.T) {
 	ref := wrappedFor(t, uid)
 
 	short := ref[:len(ref)-1]
-	err := rows.InsertUnassigned(context.Background(), tenant, uid, short, "operator-alpha")
+	err := rows.InsertUnassigned(context.Background(), tenant, uuid.Nil, uid, short, "operator-alpha")
 	if err == nil {
 		t.Fatal("a 43-byte envelope was accepted; 00021's tags_aes_key_ref_is_kek_envelope " +
 			"would have refused it in the database and printed the whole tuple doing so")
 	}
 	assertCarriesNoBytes(t, err, short)
 
-	if err := rows.InsertUnassigned(context.Background(), tenant, uid, ref, "operator-alpha"); err != nil {
+	if err := rows.InsertUnassigned(context.Background(), tenant, uuid.Nil, uid, ref, "operator-alpha"); err != nil {
 		t.Fatalf("the positive control failed: %v", err)
 	}
-	dup := rows.InsertUnassigned(context.Background(), tenant, uid, ref, "operator-alpha")
+	dup := rows.InsertUnassigned(context.Background(), tenant, uuid.Nil, uid, ref, "operator-alpha")
 	if dup == nil {
 		t.Fatal("the duplicate was accepted")
 	}
@@ -468,10 +511,10 @@ func TestDBRows_MarkEncodedStampsTheServerClockAndIsIdempotent(t *testing.T) {
 	uid := newUID(t)
 	ctx := context.Background()
 
-	if err := rows.InsertUnassigned(ctx, tenant, uid, wrappedFor(t, uid), "operator-alpha"); err != nil {
+	if err := rows.InsertUnassigned(ctx, tenant, uuid.Nil, uid, wrappedFor(t, uid), "operator-alpha"); err != nil {
 		t.Fatalf("InsertUnassigned: %v", err)
 	}
-	if err := rows.MarkEncoded(ctx, tenant, uid, "operator-alpha"); err != nil {
+	if err := rows.MarkEncoded(ctx, tenant, uuid.Nil, uid, "operator-alpha"); err != nil {
 		t.Fatalf("MarkEncoded: %v", err)
 	}
 
@@ -491,7 +534,7 @@ func TestDBRows_MarkEncodedStampsTheServerClockAndIsIdempotent(t *testing.T) {
 		t.Errorf("status = %q after the marker, want unassigned", status)
 	}
 
-	if err := rows.MarkEncoded(ctx, tenant, uid, "operator-alpha"); err != nil {
+	if err := rows.MarkEncoded(ctx, tenant, uuid.Nil, uid, "operator-alpha"); err != nil {
 		t.Fatalf("a second MarkEncoded failed: %v -- a retry must not look like a failure", err)
 	}
 	var second string
@@ -528,17 +571,28 @@ func TestDBRows_MarkEncodedRefusesAPlaqueThatIsNotThisTenants(t *testing.T) {
 	uid := newUID(t)
 	ctx := context.Background()
 
-	if err := rows.InsertUnassigned(ctx, a, uid, wrappedFor(t, uid), "operator-alpha"); err != nil {
+	if err := rows.InsertUnassigned(ctx, a, uuid.Nil, uid, wrappedFor(t, uid), "operator-alpha"); err != nil {
 		t.Fatalf("InsertUnassigned: %v", err)
 	}
-	if err := rows.MarkEncoded(ctx, b, uid, "operator-beta"); err == nil {
+	if err := rows.MarkEncoded(ctx, b, uuid.Nil, uid, "operator-beta"); err == nil {
 		t.Fatal("tenant B marked tenant A's plaque as encoded")
 	}
 	// A's row is untouched and A can still mark it -- the positive control that
 	// separates "the policy worked" from "the fixture was broken".
-	if err := rows.MarkEncoded(ctx, a, uid, "operator-alpha"); err != nil {
+	if err := rows.MarkEncoded(ctx, a, uuid.Nil, uid, "operator-alpha"); err != nil {
 		t.Fatalf("the owning tenant could not mark its own plaque: %v", err)
 	}
+	// ⚠️ THIS ASSERTION IS NARROWER THAN THE SENTENCE ABOVE IT, AND THE GAP IS
+	// DELIBERATE RATHER THAN OVERLOOKED (eleventh audit, 2026-08-25). It counts
+	// plaque.encoded only. B's refused marking DOES write a row — plaque.unmarked,
+	// in B — because ErrNoRows leaves the write path intact and the compensation
+	// therefore fires. So "wrote nothing for a plaque it does not own" is not what is
+	// measured here, and tightening it is a PRODUCT decision rather than a test one:
+	// that row is a false claim ("a chip was personalised") in an append-only table.
+	// Counted at MarkEncoded's ErrNoRows comment and on the hand-over list as md. 28.
+	//
+	// What this assertion DOES hold is the isolation property it was written for:
+	// tenant B cannot mark, and cannot record a MARKING, for tenant A's plaque.
 	if n := countTrail(t, d, b, uid, ActionPlaqueEncoded); n != 0 {
 		t.Errorf("tenant B wrote %d plaque.encoded entr(ies) for a plaque it does not own", n)
 	}
@@ -569,10 +623,10 @@ func TestRLS_DBRows_ATenantCannotLoadOrMarkAnothersPlaque(t *testing.T) {
 	uid := newUID(t)
 	ctx := context.Background()
 
-	if err := rows.InsertUnassigned(ctx, a, uid, wrappedFor(t, uid), "operator-alpha"); err != nil {
+	if err := rows.InsertUnassigned(ctx, a, uuid.Nil, uid, wrappedFor(t, uid), "operator-alpha"); err != nil {
 		t.Fatalf("InsertUnassigned: %v", err)
 	}
-	if err := rows.MarkEncoded(ctx, a, uid, "operator-alpha"); err != nil {
+	if err := rows.MarkEncoded(ctx, a, uuid.Nil, uid, "operator-alpha"); err != nil {
 		t.Fatalf("MarkEncoded: %v", err)
 	}
 
@@ -661,8 +715,10 @@ func TestDBRows_BothMethodsRefuseAMissingTenantBeforeTouchingTheDatabase(t *test
 		name string
 		run  func(uuid.UUID, string, string) error
 	}{
-		{"insert", func(tn uuid.UUID, u, a string) error { return rows.InsertUnassigned(ctx, tn, u, ref, a) }},
-		{"mark", func(tn uuid.UUID, u, a string) error { return rows.MarkEncoded(ctx, tn, u, a) }},
+		{"insert", func(tn uuid.UUID, u, a string) error {
+			return rows.InsertUnassigned(ctx, tn, uuid.Nil, u, ref, a)
+		}},
+		{"mark", func(tn uuid.UUID, u, a string) error { return rows.MarkEncoded(ctx, tn, uuid.Nil, u, a) }},
 	}
 	for _, c := range cases {
 		if err := c.run(uuid.Nil, uid, "operator-alpha"); err == nil {
@@ -682,10 +738,10 @@ func TestDBRows_BothMethodsRefuseAMissingTenantBeforeTouchingTheDatabase(t *test
 
 	// POSITIVE CONTROL: the same arguments, correct, are accepted -- otherwise a
 	// port that refused everything would pass every case above.
-	if err := rows.InsertUnassigned(ctx, tenant, uid, ref, "operator-alpha"); err != nil {
+	if err := rows.InsertUnassigned(ctx, tenant, uuid.Nil, uid, ref, "operator-alpha"); err != nil {
 		t.Fatalf("the positive control failed: %v", err)
 	}
-	if err := rows.MarkEncoded(ctx, tenant, uid, "operator-alpha"); err != nil {
+	if err := rows.MarkEncoded(ctx, tenant, uuid.Nil, uid, "operator-alpha"); err != nil {
 		t.Fatalf("the positive control failed: %v", err)
 	}
 }
@@ -784,5 +840,475 @@ func assertCarriesNoBytes(t *testing.T, err error, value []byte) {
 	}
 	if errors.Is(err, context.Canceled) {
 		t.Fatalf("unexpected cancellation: %v", err)
+	}
+}
+
+// TestDBRows_AFailedMarkerLeavesAPERMANENTTraceThatSaysDoNotReEncode is the third
+// round's security finding, closed (tappa-security-auditor F3, 2026-08-24).
+//
+// 🔴 THE TWO STATES THIS SEPARATES WERE BYTE-IDENTICAL IN THE DATABASE AND HAVE
+// OPPOSITE RECOVERY INSTRUCTIONS:
+//
+//	the chip WAS personalised and the row could not be marked  ->  do NOT re-run
+//	the round died before touching the chip                    ->  DO re-run
+//
+// Both left `tags` at status 'unassigned' with a NULL location and a NULL
+// encoded_at, and both left exactly one plaque.loaded in audit_log. The only thing
+// telling them apart was one line in the PROCESS LOG — the shape M8-03 refused, since
+// log rotation removes it and audit_log (which no role may delete, 00005's trigger)
+// never heard about the event.
+//
+// This drives the real port against real Postgres with a trail whose IN-TRANSACTION
+// half fails, which is exactly the shape a marker failure has.
+func TestDBRows_AFailedMarkerLeavesAPERMANENTTraceThatSaysDoNotReEncode(t *testing.T) {
+	d := testDB(t)
+	tenant := newEncodeTenant(t, d)
+	ctx := context.Background()
+
+	// The row is loaded by a working port; the chip is personalised at this point in
+	// the round, which is why MarkEncoded is being called at all.
+	good := newDBRows(t, d)
+	uid := newUID(t)
+	admin := newEncodeAdmin(t, d, tenant)
+	if err := good.InsertUnassigned(ctx, tenant, admin, uid, wrappedFor(t, uid), "operator-alpha"); err != nil {
+		t.Fatalf("the fixture load failed: %v", err)
+	}
+
+	// A trail whose RecordTx fails (the marker's transaction rolls back) but whose
+	// Record succeeds — the split the port now makes.
+	rec, err := audit.New(d)
+	if err != nil {
+		t.Fatalf("audit.New: %v", err)
+	}
+	rows, err := NewDBRows(d, halfFailingTrail{real: rec, err: errors.New("trail boom")})
+	if err != nil {
+		t.Fatalf("NewDBRows: %v", err)
+	}
+
+	if err := rows.MarkEncoded(ctx, tenant, admin, uid, "operator-alpha"); err == nil {
+		t.Fatal("MarkEncoded reported SUCCESS while its trail entry failed")
+	}
+
+	// The row is unchanged — that half is the existing guarantee.
+	var stamped bool
+	readAs(t, d, tenant, func(ctx context.Context, tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SELECT encoded_at IS NOT NULL FROM tags WHERE uid = $1 AND tenant_id = $2`,
+			uid, tenant).Scan(&stamped)
+	})
+	if stamped {
+		t.Error("the marker survived a failed trail write")
+	}
+
+	// 🔴 AND THE PERMANENT RECORD NOW SAYS WHICH OF THE TWO STATES THIS IS.
+	var actions []string
+	readAs(t, d, tenant, func(ctx context.Context, tx pgx.Tx) error {
+		r, e := tx.Query(ctx,
+			`SELECT action FROM audit_log WHERE tenant_id = $1 AND target = $2 ORDER BY action`,
+			tenant, uid)
+		if e != nil {
+			return e
+		}
+		defer r.Close()
+		for r.Next() {
+			var a string
+			if e := r.Scan(&a); e != nil {
+				return e
+			}
+			actions = append(actions, a)
+		}
+		return r.Err()
+	})
+
+	want := []string{ActionPlaqueLoaded, ActionPlaqueUnmarked}
+	if !reflect.DeepEqual(actions, want) {
+		t.Fatalf("audit_log for %s holds %v, want %v.\n"+
+			"Without the second entry this row is indistinguishable from a round that never "+
+			"touched the chip, and the two have OPPOSITE recovery instructions. The signal "+
+			"cannot live only in the process log — that is the M8-03 shape.", uid, actions, want)
+	}
+
+	// It is attributable and it carries no error text: one field, the operator label.
+	var detail map[string]any
+	readAs(t, d, tenant, func(ctx context.Context, tx pgx.Tx) error {
+		var raw []byte
+		if e := tx.QueryRow(ctx,
+			`SELECT detail FROM audit_log WHERE tenant_id = $1 AND target = $2 AND action = $3`,
+			tenant, uid, ActionPlaqueUnmarked).Scan(&raw); e != nil {
+			return e
+		}
+		return json.Unmarshal(raw, &detail)
+	})
+	// 🔴 AND THE ROW IS ATTRIBUTED TO THE ADMIN, NOT TO "THE SYSTEM" (audit N3). The
+	// port now carries a RESOLVED admin id and writes it to audit_log.actor_id; until
+	// the FIFTH round it wrote nil and the plaque card said "by the system" for
+	// something a person did. (This said "the fourth round"; the fourth was the
+	// security audit that opened the finding, the fifth is where the binding shipped.)
+	var gotActor *uuid.UUID
+	readAs(t, d, tenant, func(ctx context.Context, tx pgx.Tx) error {
+		return tx.QueryRow(ctx,
+			`SELECT actor_id FROM audit_log WHERE tenant_id = $1 AND target = $2 AND action = $3`,
+			tenant, uid, ActionPlaqueUnmarked).Scan(&gotActor)
+	})
+	if gotActor == nil || *gotActor != admin {
+		t.Fatalf("actor_id = %v, want %s — the trail must name the admin who drove the round",
+			gotActor, admin)
+	}
+
+	if len(detail) != 1 || detail["claimed_by"] != "operator-alpha" {
+		t.Fatalf("the %s detail is %v, want exactly {claimed_by: operator-alpha}. A database "+
+			"error's text belongs in the log, not on a row nobody can ever delete",
+			ActionPlaqueUnmarked, detail)
+	}
+
+	// POSITIVE CONTROL: a marker that SUCCEEDS writes plaque.encoded and no unmarked
+	// entry, so the two arms are genuinely different rather than both firing.
+	uid2 := newUID(t)
+	if err := good.InsertUnassigned(ctx, tenant, uuid.Nil, uid2, wrappedFor(t, uid2), "operator-alpha"); err != nil {
+		t.Fatalf("the positive control load failed: %v", err)
+	}
+	if err := good.MarkEncoded(ctx, tenant, uuid.Nil, uid2, "operator-alpha"); err != nil {
+		t.Fatalf("the positive control failed: %v", err)
+	}
+	var control []string
+	readAs(t, d, tenant, func(ctx context.Context, tx pgx.Tx) error {
+		r, e := tx.Query(ctx,
+			`SELECT action FROM audit_log WHERE tenant_id = $1 AND target = $2 ORDER BY action`,
+			tenant, uid2)
+		if e != nil {
+			return e
+		}
+		defer r.Close()
+		for r.Next() {
+			var a string
+			if e := r.Scan(&a); e != nil {
+				return e
+			}
+			control = append(control, a)
+		}
+		return r.Err()
+	})
+	if !reflect.DeepEqual(control, []string{ActionPlaqueEncoded, ActionPlaqueLoaded}) {
+		t.Fatalf("a SUCCESSFUL round wrote %v; the unmarked entry must not fire on the happy "+
+			"path or it stops distinguishing anything", control)
+	}
+}
+
+// halfFailingTrail fails the IN-TRANSACTION write and succeeds the own-transaction
+// one — the exact shape a marker failure has, and the only way to drive the arm
+// where the row rolls back but the evidence must not.
+type halfFailingTrail struct {
+	real *audit.Recorder
+	err  error
+}
+
+func (h halfFailingTrail) RecordTx(context.Context, pgx.Tx, audit.Event) (uuid.UUID, error) {
+	return uuid.Nil, h.err
+}
+
+func (h halfFailingTrail) Record(ctx context.Context, e audit.Event) (uuid.UUID, error) {
+	return h.real.Record(ctx, e)
+}
+
+// TestDBRows_EveryTrailRowOfARoundNamesTheAdmin is ADR 0017 §6 md. 8's actor decision
+// at the COLUMN, on the path a round actually takes.
+//
+// 🔴 IT EXISTS BECAUSE THE BINDING WAS UNDEFENDED ON THE SUCCESS PATH AND AN AUDITOR
+// PROVED IT (2026-08-24). Reverting BOTH `ActorID: actorIDOf(adminID)` sites in
+// InsertUnassigned and MarkEncoded to nil left the entire repository green — 25
+// packages, zero failures, real Postgres. Three things measured "up to" the column and
+// none measured it: the failure-path test pinned only plaque.unmarked, the handler test
+// pinned that the id reaches the PORT (against a fake), and the AST pin fixed the
+// EXPRESSION at the call site. The one round-trip nobody asserted was the one that
+// matters.
+//
+// 🔴 AND IT IS WRITTEN OVER THE ROWS THAT EXIST, NOT OVER A LIST OF THEM. The
+// temptation was "assert plaque.loaded's actor, then plaque.encoded's" — which is a
+// place-count, and a place-count goes silently short the day a fourth event is added.
+// That is hand-over item 14's own lesson. So the claim is: FOR EVERY audit_log row this
+// round produced, whatever its action, actor_id is the admin. A new event is covered
+// the day it is written, without this file being touched.
+//
+// ⚠️ THE ONE THING THE QUERY STILL NAMES, counted rather than glossed: it selects on
+// `target = uid`. All three shipped events use the plaque's uid as their target, so
+// "every row of this round" and "every row for this uid" are the same set today. An
+// event targeting something else — a location, a session handle — would be outside
+// this net. Nothing does; and this is a narrower assumption than a list of actions,
+// which is why it is the one that was kept.
+func TestDBRows_EveryTrailRowOfARoundNamesTheAdmin(t *testing.T) {
+	d := testDB(t)
+	rows := newDBRows(t, d)
+	tenant := newEncodeTenant(t, d)
+	admin := newEncodeAdmin(t, d, tenant)
+	uid := newUID(t)
+	ctx := context.Background()
+	const actor = "operator-alpha"
+
+	// A COMPLETE, SUCCESSFUL round: the row, then the marker. Both write a trail entry.
+	if err := rows.InsertUnassigned(ctx, tenant, admin, uid, wrappedFor(t, uid), actor); err != nil {
+		t.Fatalf("InsertUnassigned: %v", err)
+	}
+	if err := rows.MarkEncoded(ctx, tenant, admin, uid, actor); err != nil {
+		t.Fatalf("MarkEncoded: %v", err)
+	}
+
+	type row struct {
+		action  string
+		actorID *uuid.UUID
+	}
+	var got []row
+	readAs(t, d, tenant, func(ctx context.Context, tx pgx.Tx) error {
+		r, err := tx.Query(ctx,
+			`SELECT action, actor_id FROM audit_log
+			  WHERE tenant_id = $1 AND target = $2 ORDER BY action`, tenant, uid)
+		if err != nil {
+			return err
+		}
+		defer r.Close()
+		for r.Next() {
+			var one row
+			if err := r.Scan(&one.action, &one.actorID); err != nil {
+				return err
+			}
+			got = append(got, one)
+		}
+		return r.Err()
+	})
+
+	// ANTI-VACUITY: a round that wrote nothing would satisfy "every row names the
+	// admin" for free. Two is what a successful round owes (§5.2 and §5.1 step 9).
+	if len(got) < 2 {
+		t.Fatalf("a successful round left %d trail row(s) for %s (%v); it owes at least two, "+
+			"and without them the assertion below is vacuous", len(got), uid, got)
+	}
+
+	for _, one := range got {
+		if one.actorID == nil {
+			t.Errorf("%s has actor_id NULL. Every row a round writes must name the admin who "+
+				"drove it — the plaque card renders NULL as 'by the system', which is untrue of "+
+				"an encode a person ran", one.action)
+			continue
+		}
+		if *one.actorID != admin {
+			t.Errorf("%s has actor_id %s, want the round's admin %s", one.action, *one.actorID, admin)
+		}
+	}
+	// Guarded: under the B1 mutation this line printed "all naming the admin" directly
+	// beneath two t.Errorf calls saying the opposite. A wrong verdict stops the next
+	// reader looking — this session's own lesson, applied to the test that carries it.
+	if !t.Failed() {
+		t.Logf("%d trail row(s) for this round, all naming the admin: %v", len(got), got)
+	}
+}
+
+// TestDBRows_TheUnmarkedTrailSurvivesACancelledRequest pins the PORT's own guarantee:
+// whatever context DBRows is handed, a failed marking still leaves a durable record.
+//
+// 🔴 ITS RATIONALE WAS REWRITTEN IN THE NINTH ROUND, AND THE OLD ONE IS RETRACTED.
+// This test used to say it was driving "the ORDINARY trigger ... the phone posting its
+// last R-APDU and hanging up". That trigger no longer reaches here: session.go's
+// markEncoded detaches from the request, so an ordinary hang-up is REPAIRED and this
+// port is never asked to record anything. Leaving the old sentence would have taught
+// the next reader that a hung-up phone still files damage, which is exactly backwards.
+//
+// WHAT THIS TEST IS FOR NOW, and it is a different and smaller thing: DBRows must not
+// assume its caller detached. A cancelled context arriving HERE means the layer above
+// changed, or a future caller passed one straight through, and in that case the chip
+// may already be personalised while the row is not marked — the state whose recovery
+// instruction is the opposite of "re-encode". The port keeps its own guarantee rather
+// than borrowing one from a caller two files away.
+//
+// ⚠️ WHY THE ORIGINAL DEFECT WAS INVISIBLE, kept because it is the lesson: the
+// pre-existing test forced the failure with halfFailingTrail, a shape only a DATABASE
+// fault produces. There was no context.WithCancel anywhere in this file.
+func TestDBRows_TheUnmarkedTrailSurvivesACancelledRequest(t *testing.T) {
+	d := testDB(t)
+	rows := newDBRows(t, d)
+	tenant := newEncodeTenant(t, d)
+	admin := newEncodeAdmin(t, d, tenant)
+
+	unmarked := func(uid string) int {
+		t.Helper()
+		var n int
+		readAs(t, d, tenant, func(ctx context.Context, tx pgx.Tx) error {
+			return tx.QueryRow(ctx,
+				`SELECT count(*) FROM audit_log WHERE tenant_id = $1 AND target = $2 AND action = $3`,
+				tenant, uid, ActionPlaqueUnmarked).Scan(&n)
+		})
+		return n
+	}
+
+	// THE PROBE: a cancelled request context, which is what a relay hanging up looks
+	// like from here. The marking must fail and the evidence must survive.
+	uid := newUID(t)
+	if err := rows.InsertUnassigned(context.Background(), tenant, admin, uid, wrappedFor(t, uid), "operator-alpha"); err != nil {
+		t.Fatalf("the fixture load failed: %v", err)
+	}
+	dead, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := rows.MarkEncoded(dead, tenant, admin, uid, "operator-alpha"); err == nil {
+		t.Fatal("MarkEncoded reported SUCCESS on a cancelled context; the probe below would " +
+			"be measuring the happy path")
+	}
+	if n := unmarked(uid); n != 1 {
+		t.Fatalf("a cancelled request left %d %s row(s), want 1.\n"+
+			"The marking and its EVIDENCE must not fail for the same reason: this row is the "+
+			"only thing distinguishing 'the chip is personalised and the row is not marked' "+
+			"from 'the round never touched the chip', and those two have OPPOSITE recovery "+
+			"instructions.", n, ActionPlaqueUnmarked)
+	}
+
+	// PAIRED ARM: the same failure on a LIVE context still records. Without this the
+	// assertion above would pass over a port that wrote the row unconditionally.
+	rec, err := audit.New(d)
+	if err != nil {
+		t.Fatalf("audit.New: %v", err)
+	}
+	half, err := NewDBRows(d, halfFailingTrail{real: rec, err: errors.New("trail boom")})
+	if err != nil {
+		t.Fatalf("NewDBRows: %v", err)
+	}
+	uid2 := newUID(t)
+	if err := rows.InsertUnassigned(context.Background(), tenant, admin, uid2, wrappedFor(t, uid2), "operator-alpha"); err != nil {
+		t.Fatalf("the paired-arm load failed: %v", err)
+	}
+	if err := half.MarkEncoded(context.Background(), tenant, admin, uid2, "operator-alpha"); err == nil {
+		t.Fatal("the paired arm did not fail its marking")
+	}
+	if n := unmarked(uid2); n != 1 {
+		t.Fatalf("the live-context arm left %d %s row(s), want 1", n, ActionPlaqueUnmarked)
+	}
+
+	// NEGATIVE CONTROL: a SUCCESSFUL marking writes no unmarked row at all, so the two
+	// assertions above are distinguishing something rather than always firing.
+	uid3 := newUID(t)
+	if err := rows.InsertUnassigned(context.Background(), tenant, admin, uid3, wrappedFor(t, uid3), "operator-alpha"); err != nil {
+		t.Fatalf("the negative-control load failed: %v", err)
+	}
+	if err := rows.MarkEncoded(context.Background(), tenant, admin, uid3, "operator-alpha"); err != nil {
+		t.Fatalf("the negative control failed: %v", err)
+	}
+	if n := unmarked(uid3); n != 0 {
+		t.Fatalf("a SUCCESSFUL round wrote %d %s row(s); the event must fire only when the "+
+			"marking failed", n, ActionPlaqueUnmarked)
+	}
+}
+
+// TestDBStore_AnOrdinaryHangUpIsREPAIRED_NotFiledAsDamage is the ninth audit's own
+// two-arm probe, shipped as a permanent test, against real Postgres.
+//
+// 🔴 THE EIGHTH ROUND FIXED THE WRONG HALF, AND THE NINTH MEASURED THE RIGHT ONE.
+// Round eight detached the trail entry that DOCUMENTS a failed marking, and called
+// that closed. The auditor applied the same one-line mechanism to the MARKING itself
+// and got:
+//
+//	ARM1  shipped (request ctx)   err=true   encoded_at=<nil>  unmarked=1
+//	ARM2  detached (this)         err=false  encoded_at=set    unmarked=0
+//
+// At the trigger this package's own comment calls "ORDINARY for an HTTP relay", the
+// round was filing a REPORT OF DAMAGE that the same mechanism could simply avoid.
+// tags.encoded_at is the only record that a chip was personalised; past Progress.Done
+// the chip is irreversibly written, so letting a hung-up phone decide whether the
+// database catches up was never the right trade.
+//
+// ⚠️ AND THE HONEST QUALIFIER, IN THE AUDITOR'S OWN WORDS: round eight was not a
+// regression — before it the row was both unmarked AND unrecorded; after it, unmarked
+// but recorded, which is strictly better. What this test adds is the state where it is
+// neither.
+func TestDBStore_AnOrdinaryHangUpIsREPAIRED_NotFiledAsDamage(t *testing.T) {
+	d := testDB(t)
+	tenant := newEncodeTenant(t, d)
+	admin := newEncodeAdmin(t, d, tenant)
+
+	wrapper, err := NewKEKWrapper(bytesOf(sun.KEKLen, 0x3B))
+	if err != nil {
+		t.Fatalf("NewKEKWrapper: %v", err)
+	}
+	fc := newFakeClock()
+	armed := false
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	st, err := NewStore(Config{
+		Rows:    newDBRows(t, d),
+		Wrapper: wrapper,
+		BaseURL: testBaseURL,
+		// The cancellation must land AFTER checkout and INSIDE the final exchange —
+		// checkout reads ctx.Err() first, so any earlier cancellation stops the round
+		// before it can reach the marking at all.
+		Clock: cancellingClock{inner: fc, cancel: cancel, armed: &armed},
+	})
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	t.Cleanup(func() {
+		if cerr := st.Close(); cerr != nil {
+			t.Errorf("Close: %v", cerr)
+		}
+	})
+
+	chip := newFakeChip(t)
+	// 🔴 A UNIQUE UID PER RUN, AND THIS IS NOT COSMETIC. newFakeChip carries a FIXED
+	// uid, which is fine against the in-memory ports every other round test uses and
+	// WRONG here: tags.uid is a global PRIMARY KEY in a database that persists between
+	// runs, so a shared-uid test passes exactly once and then fails on a duplicate key
+	// for ever. Caught by re-running this test's own mutation restore, which reported
+	// FAIL on a tree that was correct.
+	if _, err := rand.Read(chip.uid); err != nil {
+		t.Fatalf("mint a chip uid: %v", err)
+	}
+	chip.uid[0] = 0x04 // NXP, like every real NTAG 424 DNA
+
+	id, p, err := st.Begin(ctx, tenant, admin, "operator-alpha")
+	if err != nil {
+		t.Fatalf("Begin: %v", err)
+	}
+	for i := 0; i < len(roundSteps)-1; i++ {
+		p, err = st.Step(ctx, id, chip.Transceive(p.Command))
+		if err != nil {
+			t.Fatalf("step %d: %v", i, err)
+		}
+		if p.Done {
+			t.Fatalf("the round finished early, at step %d", i)
+		}
+	}
+	armed = true // the phone posts its last R-APDU and hangs up
+	p, err = st.Step(ctx, id, chip.Transceive(p.Command))
+
+	uid := strings.ToUpper(hex.EncodeToString(chip.uid))
+	if !p.Done {
+		t.Fatalf("Done=false after the chip was personalised (err=%v)", err)
+	}
+	// ARM2, the whole point: the ordinary hang-up now completes.
+	if err != nil {
+		t.Fatalf("an ORDINARY cancelled request failed the round: %v\n"+
+			"Past Progress.Done the chip is already personalised. Honouring the cancellation "+
+			"here does not abandon work cleanly — it abandons the DATABASE's only record of a "+
+			"physical fact that is already true.", err)
+	}
+
+	var encodedAt *time.Time
+	readAs(t, d, tenant, func(c context.Context, tx pgx.Tx) error {
+		return tx.QueryRow(c, `SELECT encoded_at FROM tags WHERE uid = $1`, uid).Scan(&encodedAt)
+	})
+	if encodedAt == nil {
+		t.Errorf("encoded_at is NULL after a completed round. It is the ONLY record that this " +
+			"chip was personalised, and the row is now indistinguishable from a plaque nobody " +
+			"has touched — whose recovery instruction is the opposite one")
+	}
+
+	// ...and no damage was filed, because none was done. This is the assertion that
+	// separates a REPAIR from a RECORD: reverting the detach in markEncoded turns both
+	// of these red at once.
+	var unmarked int
+	readAs(t, d, tenant, func(c context.Context, tx pgx.Tx) error {
+		return tx.QueryRow(c,
+			`SELECT count(*) FROM audit_log WHERE tenant_id = $1 AND target = $2 AND action = $3`,
+			tenant, uid, ActionPlaqueUnmarked).Scan(&unmarked)
+	})
+	if unmarked != 0 {
+		t.Errorf("a repaired round still filed %d %s row(s). That event means 'the marking "+
+			"failed after the chip was already personalised'; a phone hanging up is not that, "+
+			"and recording it as such trains the operator to ignore the one signal that "+
+			"matters", unmarked, ActionPlaqueUnmarked)
 	}
 }

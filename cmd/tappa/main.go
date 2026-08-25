@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -53,12 +54,32 @@ import (
 	"github.com/atknatk/tappa/internal/domain/review"
 	"github.com/atknatk/tappa/internal/domain/signup"
 	"github.com/atknatk/tappa/internal/domain/tenant"
+	"github.com/atknatk/tappa/internal/encode"
 	"github.com/atknatk/tappa/internal/handler"
 	"github.com/atknatk/tappa/internal/httpx"
 	"github.com/atknatk/tappa/internal/invite"
 	"github.com/atknatk/tappa/internal/session"
 	"github.com/atknatk/tappa/internal/sun"
 )
+
+// httpShutdownGrace is how long the server drains in-flight requests after a signal.
+//
+// 🔴 IT IS A NAMED CONSTANT SO THAT A TEST CAN READ IT, AND THE TEST IS THE POINT
+// (security audit F4, 2026-08-24). Three numbers have to fit inside each other and
+// nothing bound them:
+//
+//	httpShutdownGrace          20s   here — drain in-flight taps and panel requests
+//	encode.DefaultCloseGrace    5s   internal/encode — wait for a mid-step round, then
+//	                                 wipe every live session's plain plaque key
+//	terminationGracePeriodSeconds 30s deploy/k8s/20-app.yaml — after this, SIGKILL
+//
+// The two Go waits run in sequence (Close is deferred, so it runs after Shutdown
+// returns), so 20 + 5 = 25 must stay under 30. If any one of the three drifts, sun.Zero
+// runs under SIGKILL and ADR 0017 §6 md. 7's wipe guarantee is silently gone — the
+// failure mode is a process that looks like it shut down cleanly.
+// TestShutdownBudget_TheTwoGoWaitsFitInsideTheKubernetesGrace reads all three,
+// including the YAML, and refuses the drift.
+const httpShutdownGrace = 20 * time.Second
 
 func main() {
 	if err := run(); err != nil {
@@ -277,10 +298,15 @@ func run() error {
 	// takes away the thing every tap at that entrance is authenticated by (§5 row 1),
 	// and `tags` has no updated_at either.
 	//
-	// 🔴 IT CANNOT CREATE A PLAQUE AND THERE IS NOTHING TO WIRE FOR THAT. Creating one
-	// means holding its AES key (user decision, 2026-08-08: Tappa encodes the plaque
-	// and loads the row; the panel only binds it), so db/queries/tags.sql ships no
-	// INSERT and this type exposes no such method.
+	// 🔴 IT CANNOT CREATE A PLAQUE, AND THE REASON GIVEN FOR THAT WAS OVERTAKEN BY
+	// EVENTS (corrected 2026-08-24, M8-05 FAZ B2c-2b). This said "db/queries/tags.sql
+	// ships no INSERT" — false since FAZ B2c-2a added InsertUnassigned, and doubly so
+	// now that this same function wires the endpoint that runs it, a hundred lines
+	// below. What survives, and what the user decision of 2026-08-08 actually says, is
+	// the DIVISION: creating a plaque means holding its AES key, so it belongs to the
+	// encode relay (internal/encode, connecting as tappa_app because ADR 0017 §3.1
+	// leaves no choice) and the panel only BINDS one to a wall. This type exposes no
+	// loading method, which is the half that is still structural.
 	plaques, err := tenant.NewPlaques(data, trail, slog.Default())
 	if err != nil {
 		return err
@@ -410,7 +436,83 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	panelAuth, err := handler.NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, venues, plaques, entries, rules, ruleWriter, books, texts, accounts, cfg, slog.Default())
+	// 🔴 THE PLAQUE ENCODE RELAY (M8-05 FAZ B2c-2b, ADR 0017). This is the wiring that
+	// turns internal/encode from a shipped mechanism into a live flow: until this line
+	// nothing in the product imported that package, so nothing wrote `plaque.loaded`,
+	// nothing wrote `plaque.encoded`, and `tags.encoded_at` could not be filled.
+	//
+	// 🔴 IT IS THE ONE DEPENDENCY THAT MAY BE ABSENT, AND encoder IS DECLARED AS THE
+	// INTERFACE SO THAT ABSENCE IS A REAL nil. A nil *encode.Store assigned into an
+	// interface is NOT nil (Go's typed nil) and would turn "this deployment has no
+	// encode surface" into a panic on the first request.
+	//
+	// WHY IT CAN BE ABSENT: encode.NewStore builds the plaque's NDEF template at
+	// construction, and sun.BuildTapNDEF refuses a base URL that is not https —
+	// correctly, since that URL is burned into a physical plaque. TAPPA_BASE_URL
+	// defaults to http://localhost:8080, so requiring it here would mean `make dev`
+	// cannot start. internal/db/pool.go already records where that road ends: "a tool
+	// that refuses to start in development is a tool somebody routes around."
+	//
+	// ⚠️ Q08 IS STILL OPEN AND THIS LINE DOES NOT CLOSE IT (ADR 0017 §6 md. 11). The
+	// tap URL is derived from THIS DEPLOYMENT'S own base URL; if Q08 later picks a
+	// different host, every plaque already encoded is a physical plaque swap. The rule
+	// lives above the code and is unchanged: no PRODUCTION plaque is encoded until Q08
+	// picks the host.
+
+	// THE WRAPPER AND THE ROW PORT ARE FATAL WHERE THE STORE IS NOT, and the asymmetry
+	// is the point: a wrong-sized KEK is a CONFIGURATION error config.Load already
+	// refuses, and a nil pool or trail is a WIRING bug — neither is a deployment fact,
+	// so neither may be tolerated. Only the NDEF template can legitimately be
+	// unavailable, for the https reason above.
+	//
+	// ⚠️ THE SENTENCE HERE USED TO OPEN "Both of these are genuine start-up failures"
+	// WITH NOTHING FOR "these" TO POINT AT — the paragraph in front of it is about Q08.
+	// It was written in the same change set that corrected five other dangling
+	// references, which is the whole lesson: a comment that names its subject cannot
+	// drift onto a different one.
+	encodeWrapper, err := encode.NewKEKWrapper(cfg.TagKEK)
+	if err != nil {
+		return err
+	}
+	// It takes the SAME audit recorder every other writer takes, and the reason is the
+	// tenth in this function: ADR 0017 §5.2 writes the inventory row BEFORE the chip's
+	// first irreversible command, so the row and its `plaque.loaded` entry have to
+	// share one transaction — an entry that survived a rolled-back INSERT would be
+	// evidence for a plaque that does not exist.
+	encodeRows, err := encode.NewDBRows(data, trail)
+	if err != nil {
+		return err
+	}
+	var encoder handler.PlaqueEncoder
+	encodeStore, err := encode.NewStore(encode.Config{
+		Rows:    encodeRows,
+		Wrapper: encodeWrapper,
+		// The tap URL, not the site root: this is what sun.BuildTapNDEF turns into
+		// the plaque's NDEF record, and the plaque must open the tap page.
+		// handler.TapPath is the route's own constant, so the plaque and the router
+		// cannot drift apart.
+		BaseURL: strings.TrimRight(cfg.BaseURL, "/") + handler.TapPath,
+	})
+	switch {
+	case err != nil:
+		// NOT FATAL, and loud rather than silent: the three routes are still mounted
+		// (dashboard.go's rule about a complete routing table) and answer 503 with a
+		// named fault, so an operator gets an explanation instead of a 404.
+		slog.Warn("no plaque encode relay in this deployment: POST /admin/plaques/encode will refuse every round",
+			"err", err, "base_url_scheme_must_be", "https")
+	default:
+		encoder = encodeStore
+		// Close wipes every live session's key material and waits for in-flight steps
+		// (ADR 0017 §6 md. 7). "The process will exit eventually" is exactly the answer
+		// that item rejects.
+		defer func() {
+			if err := encodeStore.Close(); err != nil {
+				slog.Error("the plaque encode store did not shut down cleanly", "err", err)
+			}
+		}()
+	}
+
+	panelAuth, err := handler.NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, venues, plaques, entries, rules, ruleWriter, books, texts, accounts, encoder, cfg, slog.Default())
 	if err != nil {
 		return err
 	}
@@ -560,7 +662,7 @@ func run() error {
 		// Drain in-flight taps before exiting: a dropped request is a lost
 		// attendance record, and records are never lost (CLAUDE.md §4).
 		slog.Info("shutting down")
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), httpShutdownGrace)
 		defer cancel()
 		return srv.Shutdown(shutdownCtx)
 	}

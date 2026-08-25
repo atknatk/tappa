@@ -84,7 +84,7 @@ func panelBrowserWithLogsAndLedger(t *testing.T, records *fakeLedger, staff *fak
 	}}
 	h, err := NewAdminAuth(admins, &fakeTrail{}, records, records, &fakeReviewer{},
 		staff, invites, &fakeVenues{}, &fakePlaques{}, &fakeRecorder{}, newFakeRules(), newFakeScribe(),
-		newFakeBooks(), newFakeTexts(), newFakeAccount(), adminTestConfig(),
+		newFakeBooks(), newFakeTexts(), newFakeAccount(), nil, adminTestConfig(),
 		slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)
@@ -1344,7 +1344,7 @@ func newAdminRouterLogging(t *testing.T, into *strings.Builder, trail *fakeTrail
 		}, nil
 	}}
 	h, err := NewAdminAuth(admins, trail, newFakeLedger(), newFakeLedger(), &fakeReviewer{},
-		staff, invites, &fakeVenues{}, &fakePlaques{}, &fakeRecorder{}, newFakeRules(), newFakeScribe(), newFakeBooks(), newFakeTexts(), newFakeAccount(), adminTestConfig(),
+		staff, invites, &fakeVenues{}, &fakePlaques{}, &fakeRecorder{}, newFakeRules(), newFakeScribe(), newFakeBooks(), newFakeTexts(), newFakeAccount(), nil, adminTestConfig(),
 		slog.New(slog.NewTextHandler(into, &slog.HandlerOptions{Level: slog.LevelDebug})))
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)

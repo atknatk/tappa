@@ -69,6 +69,21 @@ func TestDriver_TheRowPortReceivesTheRoundsOwnTenantAndActor(t *testing.T) {
 		if c.actor != actor {
 			t.Errorf("%s received actor %q, want %q", c.op, c.actor, actor)
 		}
+		// 🔴 THE FOURTH VALUE, AND THE ONE THE PORT USED TO SWALLOW. adminID became a
+		// parameter so audit_log.actor_id could name a person rather than a label,
+		// but recordingRows accepted it into "_"-shaped oblivion, so nothing said the
+		// round's own admin was the one that arrived. Note this can only be asserted
+		// because the harness begins with testAdmin: against a uuid.Nil round, a port
+		// that dropped the argument would record uuid.Nil and agree with itself.
+		if c.admin != testAdmin {
+			t.Errorf("%s received admin %s, want the admin Begin was given (%s). audit_log's "+
+				"actor_id is the only column that names WHO encoded a plaque; a dropped or "+
+				"transposed argument here writes a row that blames nobody", c.op, c.admin, testAdmin)
+		}
+		if c.admin == c.tenant {
+			t.Errorf("%s received the TENANT id as its admin (%s); both are uuid.UUID so a "+
+				"transposed port compiles", c.op, c.admin)
+		}
 	}
 }
 
@@ -80,7 +95,7 @@ func TestDriver_TheRowPortReceivesTheRoundsOwnTenantAndActor(t *testing.T) {
 // refuses the nil tenant for the same reason and says so in its own comment.
 func TestStore_BeginRefusesARoundWithNoTenant(t *testing.T) {
 	h := newHarness(t)
-	_, _, err := h.st.Begin(context.Background(), uuid.Nil, "operator-1")
+	_, _, err := h.st.Begin(context.Background(), uuid.Nil, uuid.Nil, "operator-1")
 	if err == nil {
 		t.Fatal("Begin accepted the nil tenant; a round scoped to a tenant that does not exist " +
 			"would fail at the foreign key three exchanges later")
@@ -110,12 +125,12 @@ func TestStore_BeginBoundsTheActorLabelBecauseItIsPersistedNow(t *testing.T) {
 	// POSITIVE CONTROL: exactly at the bound is accepted. Without it, a mutation
 	// that refused every actor would pass the negative half.
 	atLimit := strings.Repeat("a", MaxActorLen)
-	if _, _, err := h.st.Begin(ctx, testTenant, atLimit); err != nil {
+	if _, _, err := h.st.Begin(ctx, testTenant, uuid.Nil, atLimit); err != nil {
 		t.Fatalf("an actor of exactly MaxActorLen (%d) was refused: %v", MaxActorLen, err)
 	}
 
 	tooLong := strings.Repeat("a", MaxActorLen+1)
-	_, _, err := h.st.Begin(ctx, testTenant, tooLong)
+	_, _, err := h.st.Begin(ctx, testTenant, uuid.Nil, tooLong)
 	if err == nil {
 		t.Fatal("Begin accepted an actor label one byte over MaxActorLen")
 	}
@@ -289,7 +304,7 @@ func TestDBRows_AMisSizedEnvelopeIsRefusedBeforeTheDatabaseIsTouched(t *testing.
 	}
 	tenant := uuid.New()
 	for _, n := range []int{0, 43, 45, 16} {
-		if err := rows.InsertUnassigned(context.Background(), tenant, "04968CAA5C5E80", bytesOf(n, 0x9), "op"); err == nil {
+		if err := rows.InsertUnassigned(context.Background(), tenant, uuid.Nil, "04968CAA5C5E80", bytesOf(n, 0x9), "op"); err == nil {
 			t.Errorf("a %d-byte envelope was accepted", n)
 		}
 	}
@@ -301,7 +316,7 @@ func TestDBRows_AMisSizedEnvelopeIsRefusedBeforeTheDatabaseIsTouched(t *testing.
 
 	// POSITIVE CONTROL: a correctly sized envelope DOES reach the database. Without
 	// it, a port that refused everything would pass the assertion above.
-	if err := rows.InsertUnassigned(context.Background(), tenant, "04968CAA5C5E80", bytesOf(sun.WrappedKeyLen, 0x9), "op"); err != nil {
+	if err := rows.InsertUnassigned(context.Background(), tenant, uuid.Nil, "04968CAA5C5E80", bytesOf(sun.WrappedKeyLen, 0x9), "op"); err != nil {
 		t.Fatalf("the positive control failed: %v", err)
 	}
 	if db.calls != 1 {
@@ -320,6 +335,11 @@ func (c *countingDB) WithTenant(_ context.Context, _ uuid.UUID, _ db.TxFunc) err
 type stubTrail struct{}
 
 func (stubTrail) RecordTx(context.Context, pgx.Tx, audit.Event) (uuid.UUID, error) {
+	return uuid.Nil, nil
+}
+
+// Record is the OWN-TRANSACTION half, used only by the plaque.unmarked path.
+func (stubTrail) Record(context.Context, audit.Event) (uuid.UUID, error) {
 	return uuid.Nil, nil
 }
 

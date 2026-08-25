@@ -135,10 +135,22 @@ bootstrap edilemez.** Aynı sınır A yolunda (USB okuyucu) da vardır; röle on
 yerine telefon + ağ yolu).
 
 **Bu yüzden kabul edilen sınır şu şekilde yazılır:** encode **kontrollü ortamda**,
-**bizim cihazımızla**, plaket **duvara çıkmadan önce** yapılır. ⚠️ **VE BU BİR
-MEKANİZMA DEĞİL, BİR TEMENNİDİR — ölçüldü:** bugün ağaçta encode'a özgü cihaz
-kimliği, izin listesi, ağ kısıtı ya da kimlik doğrulama **yoktur**; §3.1'in
-`RequireAdmin` + `ratelimit` atfı bir **plan**, bir **bağ** değil (§6 md. 10).
+**bizim cihazımızla**, plaket **duvara çıkmadan önce** yapılır.
+⚠️ **BU CÜMLE 2026-08-24'TE (FAZ B2c-2b) YARIYA KADAR DEĞİŞTİ, VE ESKİ HÂLİ
+ARTIK YANLIŞTIR.** *"Bugün ağaçta encode'a özgü cihaz kimliği, izin listesi, ağ
+kısıtı ya da kimlik doğrulama **yoktur**; §3.1'in `RequireAdmin` + `ratelimit`
+atfı bir **plan**, bir **bağ** değil"* diyordu. **Ölçüldü, artık bağ:** üç uç
+nokta `internal/handler/dashboard.go`'nun `mountWriting`'i içinde,
+`AdminAuth.ProtectWriting()` **altında** ve kendi bütçeleriyle (`encodeGate`)
+mount edilmiştir — yani **kimlik doğrulama vardır** (panel oturumu), **oran
+sınırı vardır** (oturum başına 220 istek = 20 plaket / 10 dk) ve **kaynak
+kısıtı vardır** (`sameOriginGate`; ölçüldü: `Origin` başlığı olmayan bir istek
+tur **açamıyor**).
+🔴 **AMA "KONTROLLÜ ORTAM"IN GERİ KALANI HÂLÂ TEMENNİDİR, ve ayrım önemlidir:**
+*cihaz kimliği* **yok** (bir yöneticinin oturum çerezini taşıyan **herhangi** bir
+telefon röle olabilir), *ağ kısıtı* **yok** (IP izin listesi yok), *"plaket
+duvara çıkmadan önce"* için **hiçbir mekanik kapı yok**. Kapanan şey *"kim
+çağırabilir"*dir; açık kalan *"hangi cihazdan ve nerede"*dir.
 🔴 **Patlama yarıçapı "encode penceresi" DEĞİL** — ilk sürüm öyle yazdı ve §5.3
 onu **çürüttü**: kurtarma da *fabrika → bizimki* yönünde `ChangeKey` çağırır ve o
 oturum, ilk turdan **günler sonra**, muhtemelen **başka bir telefonla**, yine
@@ -199,6 +211,39 @@ Bunun iki sonucu var ve ikisi de turun 2'sine yükümlülüktür:
 (CLAUDE.md §4.7). Doğrulama **değer göstermeden** yapılır — uzunluk, satır sayısı,
 eşitlik boolean'ı; hex dökümü değil (`deploy/README.md` → *"Anahtar hijyeni —
 iddia değil, mekanizma"*).
+
+✅ **VE BU CÜMLENİN "TELEFONA" YARISI 2026-08-24'TE (FAZ B2c-2b) İLK KEZ MEKANİK
+OLARAK ÖLÇÜLDÜ.** Sevkiyattan bu yana bir **iddia**ydı: §2.1 *"düz anahtar
+süreçten çıkmaz, yalnız EV2 oturum anahtarı altında şifreli bayt çıkar"* diyor,
+ama hiçbir test onu sürmüyordu. `internal/encode/relayexposure_test.go` şimdi
+sürüyor: tam bir tur koşuluyor, **on C-APDU'nun hepsi** yakalanıyor, ve
+`keyInventory`'nin o turda dolan **beş yuvası** (`KSesAuthENC` · `KSesAuthMAC` ·
+`RndA` · `RndB` · `K_SDMFileRead`) artı satıra giden **44 baytlık zarf** hiçbirinin
+içinde **alt dizi olarak** aranıyor. Yakalanan kopyalar `sun.Zero` çalışmadan önce
+alınıyor (yoksa iddia boş olurdu) ve bir **ekilmiş iğne** kontrolü aramanın
+gerçekten bulabildiğini kanıtlıyor.
+⚠️ **NE KANITLAMADIĞI, ve §2.2 bunu zaten söylüyor:** turun **gizli** olduğunu
+kanıtlamaz. Boş çipte kimlik doğrulama anahtarı fabrika varsayılanıdır, yani dökümü
+gören biri oturum anahtarlarını yeniden türetip `ChangeKey` gövdesini çözebilir.
+Ölçülen şey **süreç sınırıdır**: röleye verilen baytlar **mühürlü** olanlardır.
+✅ **VE İDDİA CANLI — YAPICI KENDİNİ EKSİK DEĞERLENDİRMİŞTİ, DENETÇİ ÖLÇEREK
+DÜZELTTİ (2026-08-24).** İlk metin *"komuta düz anahtarı ekleyen mutasyon testi
+kırmızıya çeviriyor ama iddiadan değil, sahte çipin uzunluk kontrolünden (`911E`)
+… asıl değeri bir cırcırdır"* diyordu. **Yanlış, ve düzeltmesi iddiayı
+güçlendiriyor:** gerçek bir sırrı yakalanmış bir çerçeveye **uzunluğu değiştirmeden**
+yazınca iddia **kendisi** ateşliyor —
+
+```
+the plaintext K_SDMFileRead (16 bytes) appears in C-APDU 5 (authenticate.2)
+```
+
+— yani hiçbir uzunluk kontrolüne bağlı değil. **İkisi de doğru:** komutu
+**UZATAN** bir mutasyonu çip daha erken yakalar, **uzunluğu KORUYAN** bir mutasyonu
+bu iddia yakalar; söylenmesi gereken yalnız ikincisiydi. `Progress.Command`'ın hem
+tek dışa çıkan değer hem çipin kabul etmek zorunda olduğu baytlar olması **ek** bir
+güvencedir, iddianın dayanağı değil. Ayrıca ikisini ayıracak bir gelecek değişikliği
+(teşhis alanı, yankı, ikinci çıktı) `TestRelay_TheOnlyBytesAStepHandsBackAreTheCommand`
+**şekilden** reddediyor (ölçüldü: `Progress`'e ikinci bir `[]byte` → kırmızı).
 
 **Emsal birebir korunuyor:** `test/fixtures/seedkeys` KEK'i ortamdan okur, asla
 basmaz, stdout'a yalnız **sarmalı** değeri taşıyan SQL yazar. Encode akışının
@@ -279,14 +324,27 @@ through the application role, this line is what has to be revisited"*.
 ⚠️ **Bunun ARDINDAN bir iş doğuyor, artı yarım bir tane** (§6 md. 9 ve md. 10):
 `deploy/README.md`'nin o cümlesinin daraltılması **bu turda yapıldı** (md. 9
 ✅ kapandı; kalan yarısı yalnız *"`aes_key_ref` için sütun düzeyinde bir INSERT
-kısıtı gerekir mi"* sorusudur). **Açık olan tek iş** *"kim, hangi tenant için
-encode edebilir"* yetkilendirme kapısıdır — bugün böyle **encode'a özgü** bir kapı
-**yok** ve `app.tenant_id`'yi kim kuruyorsa satır oraya düşüyor.
-⚠️ **Sıfırdan başlanmıyor, ve bunu söylemek gerekiyor:** `internal/httpx` zaten
-`RequireAdmin` (`adminidentity.go`) ve bir hız sınırlayıcı (`ratelimit.go`)
-taşıyor; turun 2'sinin yapacağı şey yeni bir kimlik yüzeyi icat etmek değil,
-**var olanı encode uç noktasına bağlamak** ve *"bu admin hangi tenant için
-plaket yükleyebilir"* sorusunu cevaplamaktır.
+kısıtı gerekir mi"* sorusudur).
+✅ **VE İKİNCİ İŞ DE KAPANDI (2026-08-24, FAZ B2c-2b) — md. 10.** Bu paragraf
+*"Açık olan tek iş **kim, hangi tenant için encode edebilir** yetkilendirme
+kapısıdır — bugün böyle encode'a özgü bir kapı **yok** ve `app.tenant_id`'yi kim
+kuruyorsa satır oraya düşüyor"* diyordu. Artık kapı var ve **yeni bir kimlik
+yüzeyi icat edilmedi**, tam da bu paragrafın öngördüğü gibi var olan bağlandı:
+`internal/handler/plaqueencode.go` üç uç noktayı `AdminAuth.ProtectWriting()`
+altına mount ediyor (`floodGate` → `sameOriginGate` → `requireAdmin` →
+`sessionGate`) ve tenant **`httpx.AdminOf(r).Admin.TenantID`**'den geliyor —
+istek gövdesinden **değil**. Gövdeden alınan bir tenant md. 10'u kapatmaz, adını
+değiştirirdi: `db.WithTenant` `app.tenant_id`'yi aynı sahte değerden kurar ve
+RLS'in `WITH CHECK`'i memnun olur.
+**Mekanizma iki nettir, bir cümle değil:** `plaqueEncodeGrant` **tek bir
+fonksiyonda** kuruluyor ve `Begin`'in tenant argümanı `go/ast` ile **birebir
+çivili** (`TestPlaqueEncodeGrant_IsBuiltOnlyFromTheResolvedAdminSession`); uç
+nokta **yalnız iki form anahtarı** okuyor (`session`, `rapdu`) ve o da AST ile
+sayılı. Mutasyonla ölçüldü: gövdeden tenant okuyan bir erken dönüş **üç testi**
+kırmızıya çeviriyor.
+⚠️ **Kapanmayan yarı adıyla:** *rol* sorulmuyor — hem `owner` hem `manager`
+encode edebilir. İki okuma tartıldı ve gerekçesi `plaqueEncodeBegin`'in kendi
+yorumunda; tek satırda geri alınabilir bir **ürün kararıdır**.
 
 ---
 
@@ -356,7 +414,8 @@ değil, yalnızca bir yönlendirme belirsizliğidir. Ucuz olmaktan çıktığı 
 **Bellek içi oturumun TTL'i, eşzamanlılık sınırı ve iptali** turun 2'sinin kabul
 kriterleriydi; bu ADR yalnız **nerede yaşadığını** sabitler.
 ✅ **Üçü de karara bağlandı (2026-08-21, FAZ B2c-1): TTL 90 sn · plaket başına 1,
-aktör başına 3, depo geneli 64 · iptal bir ÇIKIŞ YOLUDUR** (oturumu emekli eder,
+aktör başına 3, **tenant başına 8** (2026-08-24'te eklendi, md. 7'ye bakın),
+depo geneli 64 · iptal bir ÇIKIŞ YOLUDUR** (oturumu emekli eder,
 yalnız isteği reddetmez). Ayrıntı ve gerekçeler §6 md. 7'de.
 
 ---
@@ -600,10 +659,28 @@ sürümü *"Turun kendisi `audit_log`'a düşer"* diyordu, bir sonraki sürüm b
 işleminin içinde**, `internal/encode/rows.go`. Olay adı, aktör, tenant ve **zaman**
 §6 md. 8'de karara bağlandı.
 
-⚠️ **NİTELEYİCİ, ÇÜNKÜ MEKANİZMA SEVK EDİLDİ AMA HİÇBİR YERDEN ÇAĞRILMIYOR:**
-`internal/encode` bugün **hiçbir paket tarafından import edilmiyor** (ölçüldü), yani
-üretimde bu iki olayı yazan bir yol henüz **yok**. Kapanan şey *"tanımlanmadı"*dır,
-*"koşuyor"* değil; koşması bir HTTP uç noktası ister (FAZ B2c-2b).
+✅ **VE NİTELEYİCİ 2026-08-24'TE (FAZ B2c-2b) DÜŞTÜ.** Burada *"`internal/encode`
+bugün **hiçbir paket tarafından import edilmiyor** (ölçüldü), yani üretimde bu iki
+olayı yazan bir yol henüz **yok** … koşması bir HTTP uç noktası ister"* yazıyordu.
+Uç nokta sevk edildi: `internal/handler/plaqueencode.go` (üç rota) ve
+`cmd/tappa/main.go` (bağlantı). Aynı komut bugün **DÖRT satır** veriyor — o iki üretim
+dosyası ve iki test dosyası (`internal/handler/plaqueencode_test.go` ve
+`cmd/tappa/shutdownbudget_test.go`):
+
+```
+grep -rn "atknatk/tappa/internal/encode" --include='*.go' . | grep -v "internal/encode/"
+```
+
+⚠️ Test satırları **filtrelenmiyor, sayılıyor**: yayımlanan bir ölçüm birebir yeniden
+üretilebilmeli. 🔴 **VE BU SAYI İKİ KEZ YANLIŞ OLDU:** ilk hâli *"iki isabet"* diyordu
+(test dosyası sayılmamıştı), *"üç"*e düzeltildi, ve **aynı gün** bir sonraki tur
+`cmd/tappa/shutdownbudget_test.go`'yi ekleyince yine bayatladı — o dosya
+`DefaultCloseGrace`'i okumak için bu paketi import ediyor. **Komutunun yanına yazılan
+bir sayı, pakete her yeni import geldiğinde yeniden koşulmalıdır.**
+
+⚠️ **Kapanan şey YOLUN VARLIĞIDIR, TURUN KOŞTUĞU DEĞİL.** §6 md. 1 yerinde
+duruyor: hiçbir çip encode edilmedi, Android rölesi yazılmadı. Yani `plaque.loaded`
+ve `plaque.encoded` **yazılabilir**; bugüne kadar **yazılmadı**.
 
 §4.6 uyumunun ayakta duran yarısı yine **satırın silinmemesidir**, ve iz artık onun
 yanında duruyor: yarıda kalan bir tur **satırını da izini de** bırakır.
@@ -793,7 +870,27 @@ bilmeyen bir `ChangeKey` **yapılamaz** (protokol gövdesi `Old ⊕ New` ister);
      dinlenme yeri (başka tipte alan, paket değişkeni, closure yakalaması, map
      değeri **ve map ANAHTARI**) yakalanmıyor — **map anahtarı Go dizesidir ve
      HİÇ sıfırlanamaz**, yani o şekil için bu garanti **kalıcı olarak yanlıştır**.
-   - **Eşzamanlılık: plaket başına 1 · aktör başına 3 · depo geneli 64**, üçü de
+   - **Eşzamanlılık: plaket başına 1 · aktör başına 3 · TENANT BAŞINA 8 · depo
+     geneli 64.** ⚠️ **DÖRDÜNCÜ SINIR 2026-08-24'TE EKLENDİ VE ÜÇLÜ EKSİKTİ**
+     (`tappa-security-auditor` F2): üçü bir **aktörü**, bir **plaketi** ve **depoyu**
+     bağlıyordu, bir **İŞLETMEYİ** değil — oysa depo süreç geneli tek nesnedir.
+     Kapıdan **önce**: 22 ayrı `admin_users.id` × 3 = **66 ≥ 64**, ve o andan sonra
+     **her** tenant'ın `Begin`'i `ErrTooManySessions` alır. Limitler FAZ B2c-1'de **hiçbir çağıran yokken**
+     seçilmişti; onları dışarıdan ulaşılabilir yapan FAZ B2c-2b'nin uç noktasıdır, o
+     yüzden düzeltme de oraya düştü. `DefaultMaxPerTenant = DefaultMaxLive / 8`,
+     tabanı `2 × DefaultMaxPerActor`, tavanı deponun dörtte biri.
+     ⚠️ **VE *"iki yönden de çivili"* İLK YAZILDIĞINDA YANLIŞTI (5. denetim):** türetim
+     iddiası **önce** ve `t.Fatalf` ile geliyordu, `MaxLive/8 ≤ MaxLive/4` her pozitif
+     tamsayıda doğru olduğu için **tavan kolu hiçbir mutasyonla ateşlenemiyordu** —
+     ölü koddu. Sıra **taban → tavan → türetim** yapıldı, üçü de `t.Errorf`, ve tavan
+     kolu artık `MaxLive/2` mutasyonuyla kırmızıya dönüyor.
+     🔴 **SAYILAN ARTIK — VE FİYATI DÜZELTİLDİ (5. denetim):** **N AYRI** tenant'ın
+     depoyu birlikte tüketmesi hâlâ mümkün. İlk metin bunu *"22 tenant × 3 = 66"* diye
+     yazıyordu; o **kapıdan önceki** aritmetiktir. **Ölçüldü:** kapıdan sonra en ucuz N
+     **SEKİZ**'dir — sekiz tenant, her biri kendi sekizlik payını doldurarak **64 canlı
+     tur** tutuyor ve depo herkesi reddediyor. Kalkan yalnız **tek-tenant** sürümüdür
+     (daha da ucuz olanı: bir kayıt, bir adres). **Fazla yüksek yazılmış bir artık da
+     yanlış bir sayımdır.** Dört sınırın hepsi
      gerekçeli. ⚠️ `actor` çağıranın verdiği bir **dizedir**, yani **kazayı** sınırlar,
      düşmanı değil; gerçek tavan **64**'tür.
    - 🔴 **ENVANTER — VE BU MADDENİN ESKİ HÂLİ İKİ YÖNDEN YANLIŞTI.** Sevk edilen
@@ -823,6 +920,85 @@ bilmeyen bir `ChangeKey` **yapılamaz** (protokol gövdesi `Old ⊕ New` ister);
      `plaque.unmounted`. Yani ADR var olmayan bir kalıp adlandırdı; **ağacın
      yazımı geçerlidir**: `plaque.loaded` (adım 3, satır) ve `plaque.encoded`
      (adım 9, çip).
+     🔴 **VE 2026-08-24'TE ÜÇÜNCÜ BİR OLAY EKLENDİ — `plaque.unmarked`** (
+     `tappa-security-auditor` F3). İkisi turun **başarılı** hâlini anlatıyordu; hiçbiri
+     turun **en ağır** hâlini anlatmıyordu: **çip kişiselleştirildi, satır
+     işaretlenemedi**. `MarkEncoded`'ın `RecordTx`'i aynı transaction'da geri
+     alındığı için o durum `tags`'ta ve `audit_log`'da **çipe hiç dokunulmamış bir
+     turla birebir aynı** görünüyordu — aynı `unassigned`, aynı NULL `location_id`,
+     aynı NULL `encoded_at`, aynı tek `plaque.loaded` — ve ikisinin kurtarma talimatı
+     **zıttır** (*"tekrar KOŞMA"* / *"tekrar koş"*). Ayıran tek şey **süreç
+     log'undaki bir satırdı**, yani M8-03'ün reddettiği şekil.
+     ⚠️ **VE BU ÜÇÜNCÜSÜ `Record` İLE YAZILIR, `RecordTx` İLE DEĞİL** — olay tam da
+     çevresindeki işlem **commit olmadığı için** doğrudur; onun transaction'ına
+     katılmak, kanıtı kanıtladığı şeyle birlikte geri alırdı.
+     🔴 **VE İSTEKTEN KOPUK BİR CONTEXT İLE** (ikinci güvenlik turu, 2026-08-24;
+     **beş genel denetim bunu göremedi**). Olay eklendiğinde `ctx`'i — yani
+     `plaqueEncodeStep`'in `r.Context()`'ini — kullanıyordu, oysa bu olayı gerekli
+     kılan **tetikleyicinin kendisi** iptal edilmiş bir istektir: `session.go` o
+     tetikleyiciyi kendi sözleriyle *"bir HTTP rölesi için OLAĞAN"* diye anlatıyor.
+     Yani işaretleme ile **işaretlemenin kanıtı aynı sebepten** ölüyordu ve olayın
+     var oluş gerekçesi olan tek durum, kaydedilmeyen tek durumdu. Gerçek Postgres'e
+     karşı ölçüldü: **canlı ctx → 1 satır, iptal edilmiş ctx → 0 satır.** Düzeltme
+     `context.WithoutCancel` + kısa `WithTimeout`; repo aynı hamleyi aynı gerekçeyle
+     `internal/handler/health.go`'da zaten yapıyor —
+     `context.WithTimeout(context.WithoutCancel(ctx), <adlandırılmış sabit>)`, birebir
+     aynı şekil. ⚠️ **Bu emsal 9. turda DÜZELTİLDİ:** önce `internal/db/tenant.go`
+     gösteriliyordu ve o **yanlış dosyaydı** — gerekçesi aynı ama şekli değil (çıplak
+     `context.Background()`, timeout yok, `WithoutCancel` sıfır isabet). **Kural olarak
+     ifade edildi, tek satır olarak değil** — bir yazma bu sınıfa *"veritabanının
+     DIŞINDA yapılmış geri alınamaz bir değişikliğin tek kaydı olduğunda"* girer;
+     turda veritabanının çipten **geri kaldığı** tek aralık `WriteData` ile
+     `MarkEncoded` arasıdır ve o aralığı `cmdWriteNDEF`'in `s.rowWritten` muhafızı
+     sınırlar. `TestSource_ACompensatingTrailWriteNeverUsesTheRequestContext` bunu
+     paket genelinde uygular: bu pakette **işlem dışı** bir `Record` çağrısı
+     istek context'ine bağlı olamaz — kapı **ada** değil, argümanın
+     `context.WithoutCancel`'dan **türetilmiş olmasına** bakar (ilk tasarım yalnız
+     `ctx` adını yasaklıyordu ve denetim onu `reqCtx` yeniden adlandırmasıyla yendi).
+     🔴 **VE 9. TURDA SINIF, KENDİ TANIMININ GEREKTİRDİĞİ YERE GENİŞLETİLDİ —
+     `MarkEncoded`'IN KENDİSİ.** Sayım *"bir **veritabanı** yazması"* diye yazılmıştı
+     ama fiilen *"bir **iz** yazması"*na daralmıştı: `tags.encoded_at` tanımın her
+     şartını sağlıyor (çip DB'nin **dışında** geri alınamaz biçimde yazıldı ·
+     `encoded_at` bunun **tek** kaydı · ve ifade tam da `WriteData`→`MarkEncoded`
+     aralığının içinde), ve dışlanmasının dayanağı bir **türetme** değil bir
+     **iddiaydı** (*"işaretleyicinin burada başarısız olması sorun değil"* — o cümle
+     artık **geri çekildi**). Şimdi işaretleme de kopuk context ile koşuyor.
+     **Ölçüldü, iptal edilmiş ctx:**
+     `istek ctx → err=true, encoded_at=NULL, unmarked=1` ·
+     `kopuk → err=false, encoded_at=damgalı, unmarked=0`.
+     ⚠️ **Bu, `plaque.unmarked`'ı gereksiz kılmaz — ANLAMINI değiştirir:** olağan
+     kapanma artık **onarılıyor**, satır ise yalnız çip kişiselleştirildikten **sonra**
+     işaretlemenin başarısız olduğu hâlde yazılıyor.
+     🔴 **VE SINIRI BİR LİSTE DEĞİL, BİR ÖZELLİKTİR** (10. denetim, 2026-08-25):
+     > **Telafi kaydı, hakkında rapor verdiği yolun üstünden geçer** — aynı havuz, aynı
+     > veritabanı, aynı süreç. Yalnızca **o yolu sağlam bırakan** bir arızayı
+     > kaydedebilir; yolun **kendisindeki** arıza telafiyi de götürür.
+     🔴 **VE AŞAĞIDAKİ İKİ SONUÇ ÖZELLİKTEN TÜRETİLDİ, YENİDEN SAYILMADI.** Bu
+     özelliğin altına yazılan ilk türetme (*"dört sebepten yalnız kısıt reddi
+     kaydedilebilir"*) **yine bir listeydi ve ölçümle yanlışlandı** (11. denetim):
+     **on bir turda on bir liste, on birinde de eksik**.
+     **PAYLAŞILAN NEDİR?** Havuz · veritabanı · süreç **paylaşılır**; **son tarih
+     (deadline) PAYLAŞILMAZ** — `context.WithoutCancel` ebeveynin deadline'ını da
+     düşürdüğü için telafi **taze bir bütçeyle** başlar (bunu `session.go`
+     `DefaultRepairGrace`'te zaten yazıyordu: *"the second write still gets a FULL
+     budget … that is precisely the case it exists for"* — ilk türetme **aynı diff
+     içinde** ona zıt düşüyordu).
+     **1) Bu satırı GÖRÜYORSAN veritabanı ERİŞİLEBİLİRDİ** — telafi havuzdan bağlantı
+     aldı ve yazabildi. Taşıyabildiği arızalar: kısıt reddi · mantık hatası · ve
+     **yalnız işaretlemenin kendi bütçesinin dolması** (ölçüldü: sağlam havuz +
+     bütçesi dolmuş ctx → `unmarked=1, encoded=0`).
+     **2) GÖRMÜYORSAN hiçbir şey kanıtlanmaz** — havuz tükenmesi, ağ kopması, ölü
+     veritabanı ve öldürülen süreç telafiyi de düşürür.
+     ⚠️ **VE İKİ SINIFIN HATA METNİ BİREBİR AYNI**, o yüzden koşul kanıtın **yanında**
+     durmalı: `db: begin tx: context deadline exceeded` hem *"yalnız işaretlemenin
+     bütçesi doldu"* (**kaydedilir**) hem *"`pool_max_conns=1`, havuz doygun"*
+     (**kaydedilmez**) hâlinde çıkıyor. Ayıran şey mesaj değil, **havuzun hâlâ bağlantı
+     verip veremediği**.
+     ⚠️ **Bir kaynağa yapılan yazma, o kaynağın kendi arızasının tanığı olamaz** —
+     bu yüzden gerçek çare **süreç dışıdır**: `aes_key_ref` dolu + `encoded_at` NULL
+     satırları tarayan **idempotent bir uzlaştırma geçişi**. Yok, **sayıldı**
+     (devir listesi md. 27; kapsamı 10. turda *"zarif olmayan ölüm"*ten
+     *"telafiyi de düşüren her arıza"*ya **genişletildi**).
    - 🔴 **NEDEN İKİ, ve tek olayın her iki yönü de ölçüldü.** §5.2 satırı çipe
      dokunmadan **önce** yazdığı için ikisi **farklı olgudur**: *yalnız son olay*
      → yarıda kalan turun izi **tümüyle boş** olur (`ListPlaqueHistory` sıfır
@@ -839,7 +1015,20 @@ bilmeyen bir `ChangeKey` **yapılamaz** (protokol gövdesi `Old ⊕ New` ister);
      başına değil. ⚠️ Bu düzeltme `internal/encode/rows.go` ve
      `db/queries/audit.sql`'de **aynı turda** yapılmıştı; **normatif kaynak olarak
      gösterilen bu madde atlanmıştı** — örüntü 4.
-   - **AKTÖR — `actor_id` NULL, ve bu bir eksiklik değil ölçülmüş bir karar.**
+   - ✅ **AKTÖR — `actor_id` ARTIK GERÇEK ADMIN ID'Sİ (2026-08-24, 5. tur). Aşağıdaki
+     karar TARİHSEL KAYITTIR ve o gün için doğruydu; bugün için değil.**
+     Karar kendi son geçerlilik tarihini yazmıştı (*"md. 10'un kapısı yoktur"*), kapı
+     **FAZ B2c-2b'de indi**, ve paragraf **bir tur boyunca ayakta kaldı** — plaket
+     kartı bir insanın koştuğu turu *"by the system"* diye basmaya devam etti.
+     🔴 **DEĞİŞEN ŞEY OTORİTEDİR, GÖRÜŞ DEĞİL:** id artık bir **etiketten**
+     gelmiyor; `internal/handler` onu `httpx.AdminOf(r).Admin`'den — yani bir çerezin
+     **HASH**'inin eşleştiği oturum satırından — türetiyor ve `Rows`'a **kendi tipli
+     argümanı** olarak taşıyor. Şema ölçüldü: `audit_log.actor_id` **FK taşımıyor**,
+     nullable uuid (00005 bilerek polimorfik). `uuid.Nil` hâlâ **sistem** demek.
+     ⚠️ **Etiket ASLA ayrıştırılmıyor** — aşağıdaki gerekçenin ayakta kalan yarısı
+     tam olarak budur.
+     *(Aşağısı kararın 2026-08-24 öncesi hâlidir, silinmedi:)*
+     **AKTÖR — `actor_id` NULL, ve bu bir eksiklik değil ölçülmüş bir karar.**
      `RecordAuditEvent`'in kendi kuralı: NULL *"when the actor is the SYSTEM"*, ve
      *"bir çalışanın kendini aktive etmesi admin aktörü DEĞİLDİR"*. Encode
      akışının aktörü `Begin`'e verilen, **hiçbir şeyin doğrulamadığı bir
@@ -985,11 +1174,33 @@ bilmeyen bir `ChangeKey` **yapılamaz** (protokol gövdesi `Old ⊕ New` ister);
    işi. **Liste kapalı değildir** — yukarıdaki C/D ölçümü tam olarak kapalı bir
    listenin nasıl yanlış çıktığını gösteriyor. Backlog **T16** bu ölçümlerle
    birlikte **açık kalır**.
-10. **Encode uç noktasının YETKİLENDİRME kapısı yok.** *"Kim, hangi tenant için
-    plaket encode edebilir"* hiçbir yerde yazılı değil; §3.1'in ölçümüne göre
-    satır **`app.tenant_id`'yi kim kurduysa** oraya düşer. Bu, tenant izolasyonunu
-    bozmaz (RLS `WITH CHECK` bağlar) ama **yanlış tenant'a plaket yüklemeyi**
-    engelleyen bir şey de yoktur. Turun 2'sinin kabul kriteri.
+10. ✅ **KAPANDI (2026-08-24, FAZ B2c-2b).** Madde açıkken şöyle diyordu:
+    *"Encode uç noktasının YETKİLENDİRME kapısı yok. **Kim, hangi tenant için
+    plaket encode edebilir** hiçbir yerde yazılı değil; §3.1'in ölçümüne göre satır
+    `app.tenant_id`'yi kim kurduysa oraya düşer."*
+
+    **Cevap:** encode edebilen, **panel oturumu çözümlenmiş bir yöneticidir**; ve
+    encode ettiği tenant, **o oturumun tenant'ıdır**. Uygulama
+    `internal/handler/plaqueencode.go`; ayrıntı ve iki mekanik net §3.1'in sonunda.
+    Üç rota `mountWriting` içinde `AdminAuth.ProtectWriting()` altında mount
+    edilmiştir — yani `floodGate` → `sameOriginGate` → `requireAdmin` →
+    `sessionGate` → `encodeGate`.
+
+    🔴 **BELİRLEYİCİ OLAN ŞEY BİR YÜZEY DEĞİL, BİR YÖNDÜ:** tenant **istek
+    gövdesinden gelmez**, `httpx.AdminOf(r).Admin.TenantID`'den gelir.
+    `httpx.AdminIdentity.TenantID` bu kuralı kendi tarafından da yazıyor:
+    *"IT IS THE OUTPUT OF RESOLUTION, NEVER AN INPUT (ADR 0002 madde 7)."*
+    Gövdeden okunan bir tenant maddeyi kapatmaz — `db.WithTenant` `app.tenant_id`'yi
+    aynı sahte değerden kurar, RLS'in `WITH CHECK`'i uyumlu bulur ve satır **yanlış
+    tenant'a düşer**. Mutasyonla ölçüldü (gövdeden tenant okuyan bir erken dönüş):
+    **üç test kırmızı**.
+
+    ⚠️ **NE KAPANMADI, adıyla:** (a) **rol** sorulmuyor — `owner` da `manager` da
+    encode edebilir; iki okuma tartıldı, gerekçe kodda, ve bu bir **ürün kararıdır**.
+    (b) **oturum handle'ı açan yöneticiye bağlanmıyor** — canlı bir handle'ı ele
+    geçiren başka bir yönetici turu sürebilir (ama tur yine **açanın** tenant'ına
+    yazar; handle 128-bit rastgeledir ve yalnız kendi yanıt gövdesinde geçer).
+    (c) §2.2'nin *"kontrollü ortam"*ının **cihaz** ve **ağ** yarısı hâlâ temennidir.
 11. **Q08 hâlâ açık** ve bu ADR onu açmıyor: SUN URL'si domaini taşır, domain
     alınmadı, **yanlış host'la encode edilmiş plaket = sahada plaket değişimi**.
     Kural değişmedi: *Q08 kapanmadan üretim plaketi encode edilmez.*
@@ -1008,14 +1219,46 @@ bilmeyen bir `ChangeKey` **yapılamaz** (protokol gövdesi `Old ⊕ New` ister);
     - §3.1'in *"yaz-bir-kez"* garantisi — doğru ve ölçülü — zararı **kalıcı**
       yapıyor: temizlik yalnız `tappa_owner` ile **elle**.
 
-    **Bugün ulaşılabilir değil, çünkü uç nokta yok — bu ADR onu yaratıyor.** Ve
-    üç şey bir araya geliyor: UID **public**tir (plakette basılı, tap URL'sinde),
-    §5.1'de uid **telefondan** gelir (adım 2), ve §2.2 telefonu *"ele geçmiş
-    varsay"* der.
-    **Azaltmanın şekli — ADLANDIRILDI, YAZILMADI; turun 2'sinin kabul
-    kriterleri:** uç noktada yetkilendirme (`internal/httpx` zaten `RequireAdmin`
-    ve `ratelimit` taşıyor — md. 10) · oran sınırı · ve **bugün tek temizlik
-    yolunun `tappa_owner` ile elle müdahale olduğunun** yazılı olması.
+    🔴 **VE 2026-08-24'TEN İTİBAREN ULAŞILABİLİR.** Bu paragraf *"Bugün
+    ulaşılabilir değil, çünkü uç nokta yok — bu ADR onu yaratıyor"* diyordu; FAZ
+    B2c-2b uç noktayı sevk etti. Üç şey bir araya geliyor: UID **public**tir
+    (plakette basılı, tap URL'sinde), §5.1'de uid **telefondan** gelir (adım 2), ve
+    §2.2 telefonu *"ele geçmiş varsay"* der.
+
+    ✅ **ÜÇ AZALTMANIN ÜÇÜ DE SEVK EDİLDİ (2026-08-24), VE MADDE YİNE DE
+    KAPATILMADI — SAYILDI.** Bu paragraf *"ADLANDIRILDI, YAZILMADI"* diyordu:
+    - **uç noktada yetkilendirme** → md. 10, kapandı. İşgal eden artık
+      **adlandırılabilir**: `audit_log.detail.claimed_by` yükleyen yöneticinin
+      id'sini taşır ve `audit_log` **hiçbir rol için** silinemez (00005 trigger).
+    - **oran sınırı** → `adminEncodeLimit` = **220 istek / 10 dk / panel oturumu**
+      (`encodePlaquesPerWindow × encode.RequestsPerRound()` — yazılmış değil,
+      **türetilmiş**; adım 8 gelince kendiliğinden 240 olur). Bütçe tükendiğinde
+      operatöre **79 panel isteği** kalır ve bu bir yorum değil bir **ölçümdür**:
+      `encodePanelHeadroom` iki limitten türetiliyor ve gerçek router'da sayılıyor.
+      ⚠️ **79, 80 değil** — `sessionGate` `encodeGate`'ten **önce** koştuğu için,
+      bütçenin bittiğini **keşfeden** istek panel kovasından da düşülmüştür.
+      🔴 **PAYDA TURDA DEĞİL, SATIRDADIR — VE PAYDANIN İLK YAZILIŞI DA YANLIŞTI.**
+      *"Dördüncü istek"* deniyordu (Begin + üç GetVersion çerçevesi) ve bundan **55**
+      ve **750** türetilmişti; üçü de yorumda, hiçbiri bir kapıya bağlı değildi.
+      Bağlandığı anda ölçüm paydayı düzeltti: satırı yazan şey üçüncü GetVersion
+      çerçevesinin **ACCEPT**'idir ve bir accept, o çerçevenin **YANITI geri
+      verildiğinde** koşar — yani **BEŞİNCİ** istekte.
+      **Doğru rakamlar:** oturum başına **44** satır (220/5) · adres başına **600**
+      (3000/5) · bu kapıdan önce panel bütçesinin tek başına verdiği **60** (300/5).
+      Üçü de artık `encode.RequestsBeforeTheRowIsWritten()`'dan **türetiliyor**, o da
+      gerçek bir turla **ölçülüyor** (`TestDriver_TheRowIsWrittenOnTheExchangeThisNumberNames`), ve `adminEncodeLimit`'in pin testi **44 < 60** olduğunu — yani
+      kapının gerçekten **daralttığını** — ayrıca çiviliyor.
+    - **elle temizlik yolunun yazılı olması** → `deploy/README.md` →
+      *"🔴 YANLIŞ YÜKLENMİŞ BİR SATIR NASIL TEMİZLENİR"*, `tappa_owner` gerektiği,
+      `tappa_app`'in `DELETE` yetkisi olmadığı ve `audit_log` izinin kalacağı
+      dâhil — operatörün plaket satırlarına baktığı bölümün hemen yanında.
+
+    🔴 **YİNE DE KAPANMADI: üçü de İŞGALİ SINIRLAR VE ADLANDIRIR, İMKÂNSIZ KILMAZ.**
+    Geçerli bir panel oturumu olan bir yönetici, bir öğleden sonrada üç yüzden fazla
+    taze uid'i park geneli için tüketebilir ve temizliği yalnız elle mümkündür. Bunun
+    tek yapısal çözümü `tags.uid`'i tenant kapsamlı yapmaktır, ki bu **ADR 0002 md.
+    7'nin doğrudan ihlalidir** (tap tenant'sız gelir) ve seçenek değildir.
+    *"Sayılmış bir açık, kapatıldığı iddia edilen bir açıktan güvenlidir."*
 
     🔴 **DÖRDÜNCÜ SONUÇ — bu madde onu SAYMIYORDU (güvenlik denetimi, 2026-08-21).**
     Yukarıdaki üç ölçüm *"B tenant'ı A'nın uid'ini işgal eder"* eksenindedir.
@@ -1259,14 +1502,126 @@ bilmeyen bir `ChangeKey` **yapılamaz** (protokol gövdesi `Old ⊕ New` ister);
     … değiştirmeli"* diye **gelecek zamanda** duruyordu; turun 2 **bu görevdir ve
     bitti**, o yüzden ikisi ayrı ayrı kapanıyor:**
     - **md. 1'in yarısı KAPANDI** (yukarıda, mekanizmasıyla).
-    - 🔴 **md. 6'nın yarısı AÇIK KALIYOR, ve sayılıyor.** Süreçten çıkanı bağlayan
-      **genel** bir mekanik sınır **yok**. Bugün var olan üçü **adlandırılmış
-      kanalları** bağlıyor, iddiayı değil: paket **hiç logger içermiyor** (kaynak
-      okuyan test) · **hata mesajları** anahtar baytı taşımıyor (test) ·
-      `redline-check.sh` **R7** gömülü anahtar dosyası ve sır taşıyan log çağrısı
-      arıyor. Ölçüldü: paket bugün **hiçbir şey yazmıyor** (dosya/stdout yazıcısı
-      **0 isabet**) — ama bu **bugünkü kodun bir özelliğidir, bir kapı değil**.
-      **Kartın devir listesine adıyla girdi.**
+    - 🔴 **md. 6'nın yarısı — AÇIK KALIYOR, VE SAYILIYOR. ÜÇ TASARIM DENENDİ, ÜÇÜ DE
+      AŞILDI.** ⚠️ Bu satır iki tur boyunca *"DOĞAN KANAL İÇİN KAPANDI"* diyordu ve
+      **ikisinde de yanlıştı**; üçüncü denetim üçüncü tasarımı da yendi, o yüzden etiket
+      **KAPANDI**'dan **SAYILDI**'ya çevrildi (`agent-brief` durma kuralı 2: *"sayılmış
+      bir açık, kapatıldığı İDDİA EDİLEN bir açıktan güvenlidir"*).
+      Madde şöyle diyordu: *"Süreçten çıkanı bağlayan
+      **genel** bir mekanik sınır **yok**. Bugün var olan üçü adlandırılmış
+      kanalları bağlıyor, iddiayı değil … paket bugün hiçbir şey yazmıyor — ama bu
+      bugünkü kodun bir özelliğidir, bir kapı değil"* — ve doğru olarak ekliyordu:
+      B2c-2 bir HTTP uç noktası eklediğinde **tam o yüzey doğacak**.
+
+      **Doğdu, ve kendi kapısıyla birlikte geldi — AMA ÜÇÜNCÜ DENEMEDE, VE BU KAYDIN
+      EN ÖĞRETİCİ YARISI ODUR.** Sevk edilen ilk hâl şöyle anlatılıyordu: *"gövde tek
+      bir fonksiyondan çıkıyor ve çıktısı yapısal olarak dar … bir `error`'ın metni
+      gövdeye giremez, çünkü o şekilde bir alan yok."*
+      🔴 **Cümle iki struct için doğru, YAZICI için yanlıştı:** `writeEncodeJSON`
+      gövdeyi **`any`** alıyordu. Bağımsız denetçi 2. turda **uçtan uca üretti** —
+      dört gerçek alanı taklit eden **beşinci alanlı anonim bir struct** abort
+      yolundan çıktı ve `go test ./internal/handler/` **paketin tamamını yeşil**
+      bıraktı, eşleştirilmiş üç kol kırmızıyken. **Yani soru değiştirilmişti ama yeni
+      sorunun cevap uzayı (`body any`) yine sonsuzdu** — B2c-2a'nın sınıfı, bir kez
+      daha. İkinci düzeltme bir **tip**ti ve **o da yenildi** (aşağıda); ayakta kalan
+      üçüncü tasarımdır.
+
+      ⚠️ **VE İKİNCİ TASARIM DA DÜŞTÜ — ÜÇÜNCÜ DENETİM, GÖMME.** Kapatan şeyin
+      *"bir kural değil bir tip"* olduğu yazılmıştı: `encodeBody`, mühürlü arayüz
+      (`isEncodeBody()`, dışa kapalı), yalnız iki struct uyguluyor; *"anonim bir struct
+      onu asla uygulayamaz"*. Cümle **doğruydu ve konu dışıydı**: Go'da bir tip metodu
+      **tanımlamak zorunda değil**, `encodeReply`'ı **GÖMEREK terfi ettirir**, ve
+      `encoding/json` gömülü alanı **düzleştirir**. Ölçüldü, gerçek router'dan:
+      `struct{ encodeReply; Leak string }` → `BUILD+VET CLEAN`, paket **yeşil**, ve
+      telde `{"session":"","command":"","step":"abort","done":false,"leak":"AUDITPROBE-…"}`.
+      Adlı gömen tip de kaçtı.
+
+      **ÜÇÜNCÜ TASARIM: GÖVDENİN ŞEKLİ DARALTILDI.** İki yazıcı — `writeEncodeReply(w,
+      status, session, command, step, done)` ve `writeEncodeFault(w, status, fault)` —
+      serileştirilen literali **kendi içlerinde** kuruyor; **hiçbir imza çağıranın
+      kurduğu bir STRUCT almıyor**, yani gömülecek bir parametre yok. `encodeBody` ve
+      `writeEncodeJSON` **silindi**.
+
+      🔴 **VE ÜÇÜNCÜ TASARIM DA AŞILDI — DURMA KURALI UYGULANDI: MADDE KAPATILMADI,
+      SAYILDI** (2026-08-24, `tappa-security-auditor` F1). Üç kanal **uçtan uca
+      üretildi**, akıl yürütmeyle değil:
+
+      **(a) KAPI GÖVDEYİ BAĞLIYOR, BAŞLIĞI DEĞİL.** Yazıcı taraması **üç** fonksiyonu
+      muaf tutuyor ve **muaf bir fonksiyon `w` üzerinde her şeyi yapabilir**.
+      `writeEncodeReply`'ın ilk satırına konan tek bir
+      `w.Header().Set("X-Audit-Probe", session+hex(command))` ikisini de tele koydu
+      (ölçüldü: `status=200`, başlık yerinde), `-race` üç pakette **yeşil**, `go vet`
+      temiz, `redline-check` **exit 0**. **Beş AST kapısının beşi de görmedi.**
+      **(b) `command` BİR SKALER DEĞİL, BİR DEĞERDİR** (`[]byte`, çağıran kuruyor).
+      Çağrı yeri pini **ifadeyi** çiviliyor, **içeriği** değil: üç reply çağrı yerinin
+      ikisi davranış testiyle kaplı, üçüncüsü (`plaqueEncodeStep`'in `p.Done` kolu)
+      **kaplı değil** — oraya eklenen bir prob **yeşil** kaldı.
+      **(c) LOG HİÇ BAĞLI DEĞİL.** R7 anahtar kelimeye bakıyor, o yüzden
+      `a.log.Info("…", "c", hex(command), "h", string(id))` her kapıdan geçiyor.
+
+      🔴 **VE DÖRDÜNCÜ BİR KAPI CEVAP DEĞİL.** *"Muaf listeyi daralt"* ya da *"başlık
+      adlarını da çivile"* **aynı sınıfa düşer**: `w`'ye erişimi olan bir fonksiyonun
+      yapabilecekleri kümesi (`Header` · `Write` · `WriteHeader` · `Hijacker` ·
+      `Flusher` · `ResponseController` · trailer · panik metni · `slog` · yüzey dışı
+      bir alan) **bileşiktir ve dibi yoktur**. B2c-2a bu duvara **beş kez**, bu görev
+      **üç kez** koştu.
+
+      🔴 **PATLAMA YARIÇAPI — VE BU PARAGRAFIN İLK HÂLİ TEHLİKELİ YÖNDE YANLIŞTI
+      (4. denetim, 2026-08-24).** Şöyle diyordu: *"bu yüzeyden ulaşılabilir bir sır
+      **yok** … tele koyabileceği en fazla şey `command` ve `session`"*. **Ölçüldü,
+      yanlış.** Üç handler **`*AdminAuth` üzerinde metottur** ve `AdminAuth` **aynı
+      pakette** iki imza anahtarını **düz alan** olarak taşıyor:
+
+      | alan | nerede | türetim |
+      |---|---|---|
+      | `a.choices.key` | `logincontext.go` | `hmac(SessionHMACKey, adminChoiceKeyLabel)` |
+      | `a.confirm.key` | `deactivateconfirm.go` | `hmac(SessionHMACKey, adminConfirmKeyLabel)` |
+
+      İhraç edilmiş erişimci gerekmiyor — **aynı paket, düz okuma**. Denetçi bunu
+      yukarıdaki **(a) kanalıyla** birleştirip (handler değeri saklar, **muaf** yazıcı
+      başlığa basar) ikisini de `POST …/abort`'un **200**'ünde tele çıkardı; `build`,
+      `vet`, `redline-check` ve bu yüzeyin **18 testinin 18'i** yeşilken. Yapıcı
+      **değer göstermeden** yeniden üretti (§4.7): ikisi de **32 bayt**, ikisi de
+      **ulaşılabilir**, ikisi de `SessionHMACKey` türevine **`hmac.Equal`**.
+
+      **Bunlar `command` sınıfı veri DEĞİLDİR:** panelin **senkronizatör token'ını**,
+      **doğrulanmış-aday kümesini** ve **deaktivasyon onayını** imzalarlar — röleye
+      hiç gitmemesi gereken §4.7 malzemesi.
+
+      🔴 **VE BU, md. 14'ÜN SAYIMINI DEĞİŞTİRİR:** doğru ifade *"ulaşılabilir sır
+      yok"* değil, **"bu yüzey `AdminAuth`'un HER alanına ulaşabilir, çünkü onun
+      metotlarından yapılmıştır"**. Sızıntıyı bugün engelleyen şey ortada bir şey
+      olmaması değil; üç kapı, artı **kimsenin öyle bir satır yazmamış olması**.
+      Durma kuralı 2 **yalnız sayım doğruyken** geçerlidir, ve bu sayım tehlikeyi
+      **küçük gösteriyordu**.
+
+      ⚠️ **ESKİ PARAGRAFTAN AYAKTA KALAN, ölçülene daraltılmış hâliyle:** `AdminAuth`
+      `*config.Config`'i **saklamıyor** ve `TagKEK`'i hiç okumuyor — yani **plaket
+      KEK'i** bu yolla ulaşılabilir **değil**; `PlaqueEncoder`'ın üç metodu oturum
+      durumu döndürmüyor; `encode.Progress`'in **DÖRT** alanı (`Command` · `Done` ·
+      `Step` · **`UIDHex`** — eski metin *"üç"* diyordu) mühürlü bir C-APDU, bir
+      bayrak, bir adım adı ve **halka açık** bir uid'dir.
+
+      **Yine de ayakta duran kilitler, hepsi mutasyonla ölçüldü:** gömülü anonim struct
+      → **kırmızı** · gömülü adlı tip → kırmızı · `w.Header().Set(...)` bir
+      **HANDLER**'da → kırmızı · `http.NewResponseController(w)` → kırmızı · **yeni bir
+      dosyaya yazılmış dördüncü encode handler'ı** → kırmızı · `http.Error(w,
+      err.Error(), …)` → kırmızı · bir fault sabitinin **DEĞERİNİ** değiştirmek →
+      kırmızı. Kapılar **paket kapsamlı**; yüzeyin tanımı türetilmiş
+      (`encodeSurfaceFunc`).
+
+      🔴 **ÜÇ TASARIMIN HİKÂYESİ, bir sonraki turun aynı duvara DÖRDÜNCÜ kez koşmaması
+      için:** `body any` → **mühürlü tip** (gömme ile yenildi) → **değer parametresinin
+      kaldırılması** (muaf yazıcı ve `command []byte`'ın içeriğiyle aşıldı).
+      **Bu, B2c-2a'nın beş tasarımıyla AYNI SINIFTIR.** Dördüncüsünü tasarlama; madde
+      **sayılı** hâlde bırakıldı.
+
+      ⚠️ **AÇIK KALAN, adıyla:** bu kapı **HTTP gövdesini** bağlar,
+      `internal/encode`'un kendisini değil. O paket için hâlâ üç **adlandırılmış
+      kanal** koruması geçerli (logger yok · hata mesajları anahtar baytı taşımıyor ·
+      R7) ve *"paket hiçbir dosyaya/stdout'a yazmıyor"* hâlâ **bir özellik, bir kapı
+      değil**. Yani md. 6'nın *"yalnız sarmalı blob çıktıya çıkar"* genelliği geri
+      gelmedi; yerine, **yeni yüzeyin kendi mekanik sınırı** kondu.
     ⚠️ *"Sayılmış bir açık, kapatıldığı iddia edilenden güvenlidir"* — bu yüzden
     md. 6 **kapatılmadı, SAYILDI**.
 

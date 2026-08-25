@@ -33,6 +33,21 @@ import (
 // unchanged and is now stated as what it is — a claim about THIS FILE's routes —
 // rather than as a claim about a file it does not own.
 //
+// 🔴 AND THAT FILE NOW EXISTS: plaqueencode.go, THREE ROUTES UNDER /admin (M8-05 FAZ
+// B2c-2b, 2026-08-24). So "the panel cannot create a plaque" is narrower than it
+// reads and the narrowing belongs here, beside the sentence: the same PROCESS, behind
+// the same panel session, does create plaques — over an APDU relay, one physical chip
+// at a time. What is still true of THIS file is the vocabulary: nothing here lists,
+// offers or reaches a create. THREE audit actions can appear on the plaque card when a
+// round runs — plaque.loaded and plaque.encoded on the ordinary path, and
+// plaque.unmarked when the marking failed after the chip was already personalised —
+// and all three have words in plaqueActionWords below. ⚠️ THIS SENTENCE SAID "TWO"
+// TWELVE LINES ABOVE THE HUNK THAT ADDED THE THIRD, and shipped that way through one
+// audit (found on the ninth): ListPlaqueHistory filters on action LIKE 'plaque.%', so
+// the card's contents are not a list anybody maintains here — counting them in prose
+// is a claim about a query. internal/encode/rows.go says why the constants are
+// declared in internal/domain/tenant rather than in that package.
+//
 // 🔴 §4.7 — NO KEY PASSES THROUGH THIS FILE, AND THE WALL IS A TYPE RATHER THAN A
 // HABIT — AND AS OF 2026-08-24 THE LOAD-BEARING HALF IS A PRIVILEGE, NOT A TYPE.
 // tenant.Plaque has no []byte field and the view models have none, which stops a key
@@ -518,6 +533,12 @@ var plaqueActionWords = map[string]string{
 	tenant.ActionPlaqueUnmounted: "Taken off the wall",
 	tenant.ActionPlaqueLoaded:    "Loaded into stock",
 	tenant.ActionPlaqueEncoded:   "Encoded",
+	// 🔴 THE WORD SAYS WHAT THE MANAGER MUST DO, because this is the one trail line
+	// on this card whose reader has a decision to make. The plaque IS encoded — the
+	// chip took its keys — and the row could not record it, so re-running would drive
+	// a second round at a chip that is already personalised. "Encoded — needs checking"
+	// is deliberately not "failed": nothing failed on the plaque.
+	tenant.ActionPlaqueUnmarked: "Encoded, but not recorded — do not re-encode",
 }
 
 // plaqueTrailView turns the trail's own vocabulary into the manager's.

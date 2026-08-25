@@ -204,12 +204,22 @@ func NewTap(preview tapPreviewer, dir tapDirectory, sess sessionVerifier, checki
 // budgets would mean neither budget describes a tap. It also means the shield the
 // M5-03 audit measured is the one both endpoints get, rather than a second one
 // somebody wired up later with different arguments.
+// TapPath is the route a plaque's NDEF record opens.
+//
+// 🔴 IT BECAME A CONSTANT IN M8-05 FAZ B2c-2b, FOR THE REASON adminLoginPath BECAME
+// ONE: a second surface started depending on it. The encode relay burns
+// TAPPA_BASE_URL + this path into a PHYSICAL PLAQUE (ADR 0017 §5.1 step 5), and a
+// plaque whose URL no longer matches the router is not a redirect somebody fixes —
+// it is a plaque swap in the field. The route and the thing written to the chip are
+// now the same string at compile time.
+const TapPath = "/t"
+
 func (t *Tap) Mount(r chi.Router) {
 	r.Group(func(r chi.Router) {
 		r.Use(t.limiter.ByAddress)
 		r.Use(httpx.Identify(t.cookies, t.sessions))
 		r.Use(t.limiter.BySession)
-		r.Get("/t", t.Page)
+		r.Get(TapPath, t.Page)
 		r.Post("/api/checkin", t.Checkin)
 	})
 }

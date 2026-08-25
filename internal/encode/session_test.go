@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/google/uuid"
 	"time"
 
 	"github.com/atknatk/tappa/internal/sun"
@@ -343,7 +345,7 @@ func liveSession(t *testing.T, st *Store, id ID) *Session {
 func armed(t *testing.T, h *harness, chip *fakeChip, actor string) (ID, Progress, *Session, [][]byte) {
 	t.Helper()
 	ctx := context.Background()
-	id, p, err := h.st.Begin(ctx, testTenant, actor)
+	id, p, err := h.st.Begin(ctx, testTenant, uuid.Nil, actor)
 	if err != nil {
 		t.Fatalf("Begin: %v", err)
 	}
@@ -576,7 +578,7 @@ func TestStore_ConcurrencyLimitsReallyLimit(t *testing.T) {
 		for i := 0; i < goroutines; i++ {
 			go func() {
 				defer wg.Done()
-				_, _, err := h.st.Begin(context.Background(), testTenant, "one-operator")
+				_, _, err := h.st.Begin(context.Background(), testTenant, uuid.Nil, "one-operator")
 				mu.Lock()
 				defer mu.Unlock()
 				switch {
@@ -613,7 +615,7 @@ func TestStore_ConcurrencyLimitsReallyLimit(t *testing.T) {
 		for i := 0; i < goroutines; i++ {
 			go func(n int) {
 				defer wg.Done()
-				_, _, err := h.st.Begin(context.Background(), testTenant, "operator-"+string(rune('a'+n%26)))
+				_, _, err := h.st.Begin(context.Background(), testTenant, uuid.Nil, "operator-"+string(rune('a'+n%26)))
 				if err == nil {
 					mu.Lock()
 					ok++
@@ -631,15 +633,15 @@ func TestStore_ConcurrencyLimitsReallyLimit(t *testing.T) {
 	t.Run("a_freed_slot_is_reusable", func(t *testing.T) {
 		// POSITIVE CONTROL for both caps: the limit is a limit, not a one-way latch.
 		h := newHarness(t, func(c *Config) { c.MaxPerActor = 1; c.MaxLive = 1 })
-		id, _, err := h.st.Begin(context.Background(), testTenant, "operator-1")
+		id, _, err := h.st.Begin(context.Background(), testTenant, uuid.Nil, "operator-1")
 		if err != nil {
 			t.Fatalf("first Begin: %v", err)
 		}
-		if _, _, err := h.st.Begin(context.Background(), testTenant, "operator-1"); !errors.Is(err, ErrTooManySessions) {
+		if _, _, err := h.st.Begin(context.Background(), testTenant, uuid.Nil, "operator-1"); !errors.Is(err, ErrTooManySessions) {
 			t.Fatalf("the second Begin returned %v, want ErrTooManySessions", err)
 		}
 		h.st.Abort(id)
-		if _, _, err := h.st.Begin(context.Background(), testTenant, "operator-1"); err != nil {
+		if _, _, err := h.st.Begin(context.Background(), testTenant, uuid.Nil, "operator-1"); err != nil {
 			t.Fatalf("a slot freed by Abort was not reusable: %v", err)
 		}
 	})
@@ -648,11 +650,11 @@ func TestStore_ConcurrencyLimitsReallyLimit(t *testing.T) {
 		// An operator whose reads dropped must not be locked out for a whole TTL by
 		// sessions that are already dead.
 		h := newHarness(t, func(c *Config) { c.MaxPerActor = 1; c.MaxLive = 1 })
-		if _, _, err := h.st.Begin(context.Background(), testTenant, "operator-1"); err != nil {
+		if _, _, err := h.st.Begin(context.Background(), testTenant, uuid.Nil, "operator-1"); err != nil {
 			t.Fatalf("first Begin: %v", err)
 		}
 		h.clock.Advance(DefaultTTL + time.Second)
-		if _, _, err := h.st.Begin(context.Background(), testTenant, "operator-1"); err != nil {
+		if _, _, err := h.st.Begin(context.Background(), testTenant, uuid.Nil, "operator-1"); err != nil {
 			t.Fatalf("Begin after the previous session expired: %v", err)
 		}
 	})
@@ -728,7 +730,7 @@ func TestStore_AfterCloseNothingStarts(t *testing.T) {
 	if err := h.st.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
-	if _, _, err := h.st.Begin(context.Background(), testTenant, "operator-1"); !errors.Is(err, ErrStoreClosed) {
+	if _, _, err := h.st.Begin(context.Background(), testTenant, uuid.Nil, "operator-1"); !errors.Is(err, ErrStoreClosed) {
 		t.Fatalf("Begin after Close returned %v", err)
 	}
 	if _, err := h.st.Step(context.Background(), "whatever", sw(0x9100)); !errors.Is(err, ErrStoreClosed) {
@@ -742,7 +744,7 @@ func TestStore_AfterCloseNothingStarts(t *testing.T) {
 
 func TestStore_AnActorIsRequired(t *testing.T) {
 	h := newHarness(t)
-	if _, _, err := h.st.Begin(context.Background(), testTenant, ""); err == nil {
+	if _, _, err := h.st.Begin(context.Background(), testTenant, uuid.Nil, ""); err == nil {
 		t.Fatalf("an empty actor was accepted; every empty actor would share one budget")
 	}
 }
@@ -752,7 +754,7 @@ func TestStore_AnActorIsRequired(t *testing.T) {
 func TestStore_AnUnknownHandleIsIndistinguishableFromAnExpiredOne(t *testing.T) {
 	h := newHarness(t)
 	chip := newFakeChip(t)
-	id, p, err := h.st.Begin(context.Background(), testTenant, "operator-1")
+	id, p, err := h.st.Begin(context.Background(), testTenant, uuid.Nil, "operator-1")
 	if err != nil {
 		t.Fatalf("Begin: %v", err)
 	}
@@ -919,7 +921,7 @@ func TestSession_TheSystemClockIsTheProductionOne(t *testing.T) {
 			t.Errorf("Close: %v", err)
 		}
 	}()
-	if _, _, err := st.Begin(context.Background(), testTenant, "operator-1"); err != nil {
+	if _, _, err := st.Begin(context.Background(), testTenant, uuid.Nil, "operator-1"); err != nil {
 		t.Fatalf("Begin on a default-clock store: %v", err)
 	}
 	if st.Live() != 1 {
@@ -995,7 +997,7 @@ func TestStore_BeginRefusesACancelledContext(t *testing.T) {
 	h := newHarness(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, _, err := h.st.Begin(ctx, testTenant, "operator-1"); err == nil {
+	if _, _, err := h.st.Begin(ctx, testTenant, uuid.Nil, "operator-1"); err == nil {
 		t.Fatalf("Begin accepted a cancelled context")
 	}
 	if h.st.Live() != 0 {
@@ -1094,7 +1096,10 @@ func TestStore_ACancelledCallerCannotWipeASessionMidStep(t *testing.T) {
 // TestSession_TheHandleIsUnpredictable.
 //
 // 🔴 WHY THIS IS NOT COSMETIC. Step and Abort check the ID and NOTHING ELSE — they do
-// not check the actor, because ADR 0017 §6 md. 10's authorisation gate is still open.
+// not check the actor. ⚠️ The reason used to be "md. 10's gate is still open"; that
+// gate CLOSED in FAZ B2c-2b, and the property survives its retired justification: the
+// gate authorises who may OPEN a round, and this package still binds a live round to
+// its HANDLE alone (internal/handler's plaqueEncodeStep counts that as a named limit).
 // So the handle IS the authority over a live round: whoever has it can drive the
 // remaining exchanges of somebody else's encode, or abort it. Two other decisions
 // lean on the same assumption and say so: the store's refusal to distinguish
@@ -1146,7 +1151,8 @@ func TestSession_TheHandleIsUnpredictable(t *testing.T) {
 		if len(values) < minDistinctPerByte {
 			t.Fatalf("byte %d of the session handle takes only %d distinct values across %d samples "+
 				"(want at least %d). A predictable handle is a predictable AUTHORITY: Step and Abort "+
-				"check the ID and nothing else while ADR 0017 §6 md. 10 stays open",
+				"check the ID and nothing else — md. 10's gate authorises who may OPEN a round, "+
+				"not who may drive one",
 				pos, len(values), samples, minDistinctPerByte)
 		}
 	}
@@ -1262,7 +1268,7 @@ func TestSession_TheDeadlineIsATotalBudgetAndIsNeverExtended(t *testing.T) {
 	chip := newFakeChip(t)
 	ctx := context.Background()
 
-	id, p, err := h.st.Begin(ctx, testTenant, "operator-1")
+	id, p, err := h.st.Begin(ctx, testTenant, uuid.Nil, "operator-1")
 	if err != nil {
 		t.Fatalf("Begin: %v", err)
 	}
@@ -1456,7 +1462,7 @@ func TestStore_RetiringOneSessionDoesNotFreeAnotherPlaqueSlot(t *testing.T) {
 	ctx := context.Background()
 
 	chipA := newFakeChip(t)
-	idA, pA, err := h.st.Begin(ctx, testTenant, "operator-1")
+	idA, pA, err := h.st.Begin(ctx, testTenant, uuid.Nil, "operator-1")
 	if err != nil {
 		t.Fatalf("Begin A: %v", err)
 	}
@@ -1480,7 +1486,7 @@ func TestStore_RetiringOneSessionDoesNotFreeAnotherPlaqueSlot(t *testing.T) {
 	h.rows.mu.Unlock()
 
 	chipB := newFakeChip(t)
-	idB, pB, err := h.st.Begin(ctx, testTenant, "operator-2")
+	idB, pB, err := h.st.Begin(ctx, testTenant, uuid.Nil, "operator-2")
 	if err != nil {
 		t.Fatalf("Begin B: %v", err)
 	}
@@ -1675,7 +1681,7 @@ func TestStore_CloseDoesNotCommitAnAllZeroKey(t *testing.T) {
 	chip := newFakeChip(t)
 	ctx := context.Background()
 
-	id, p, err := h.st.Begin(ctx, testTenant, "operator-1")
+	id, p, err := h.st.Begin(ctx, testTenant, uuid.Nil, "operator-1")
 	if err != nil {
 		t.Fatalf("Begin: %v", err)
 	}
@@ -1946,7 +1952,7 @@ func TestStore_ACloseThatTimesOutStillGetsTheSessionWipedByItsOwner(t *testing.T
 	chip := newFakeChip(t)
 	ctx := context.Background()
 
-	id, p, err := h.st.Begin(ctx, testTenant, "operator-1")
+	id, p, err := h.st.Begin(ctx, testTenant, uuid.Nil, "operator-1")
 	if err != nil {
 		t.Fatalf("Begin: %v", err)
 	}
@@ -2138,7 +2144,7 @@ func TestStore_RetiringAlwaysClearsBusyAndSignalsTheDrain(t *testing.T) {
 		chip := newFakeChip(t)
 		ctx := context.Background()
 
-		id, p, err := h.st.Begin(ctx, testTenant, "operator-1")
+		id, p, err := h.st.Begin(ctx, testTenant, uuid.Nil, "operator-1")
 		if err != nil {
 			t.Fatalf("Begin: %v", err)
 		}
@@ -2299,7 +2305,7 @@ func TestStore_ACancellationOnTheLastExchangeStillReportsDone(t *testing.T) {
 	})
 
 	chip := newFakeChip(t)
-	id, p, err := st.Begin(ctx, testTenant, "operator-1")
+	id, p, err := st.Begin(ctx, testTenant, uuid.Nil, "operator-1")
 	if err != nil {
 		t.Fatalf("Begin: %v", err)
 	}
@@ -2359,7 +2365,8 @@ func TestStore_ACancellationOnTheLastExchangeStillReportsDone(t *testing.T) {
 var sessionFields = map[string]string{
 	"id":            "bearer handle, not key material (see keyInventory's exclusions)",
 	"actor":         "exposure-budget key only, never an authorisation input",
-	"tenantID":      "uuid; a SCOPE the caller named, not a secret and not an authorisation (ADR 0017 §6 md. 10 is open)",
+	"tenantID":      "uuid; a SCOPE, not a secret. It IS an authorisation as of FAZ B2c-2b — internal/handler derives it from the resolved panel session (ADR 0017 §6 md. 10, closed) — but nothing in THIS package checks it",
+	"adminID":       "uuid; the RESOLVED admin, not a secret. It becomes audit_log.actor_id (internal/encode/rows.go's actorIDOf) and is deliberately separate from `actor`, which is a caller-supplied label",
 	"deadline":      "time; every writer routes through expireLocked",
 	"busy":          "ownership flag, guarded by st.mu",
 	"ring":          "THE key material; everything secret must live here",
@@ -2440,7 +2447,7 @@ func TestStore_AFinishedProgressCarriesNoCommand(t *testing.T) {
 	ctx := context.Background()
 	chip2 := newFakeChip(t)
 	chip2.uid = []byte{0x04, 0x96, 0x8C, 0xAA, 0x5C, 0x5E, 0x77}
-	id, mid, err := h.st.Begin(ctx, testTenant, "operator-2")
+	id, mid, err := h.st.Begin(ctx, testTenant, uuid.Nil, "operator-2")
 	if err != nil {
 		t.Fatalf("Begin: %v", err)
 	}
@@ -2453,5 +2460,337 @@ func TestStore_AFinishedProgressCarriesNoCommand(t *testing.T) {
 	}
 	if mid.Done || mid.Command == nil {
 		t.Fatalf("a mid-round progress must carry a command (Done=%v, Command=%v)", mid.Done, mid.Command != nil)
+	}
+}
+
+// TestSource_ACompensatingTrailWriteNeverUsesTheRequestContext generalises a one-site
+// fix into the rule that picked the site out.
+//
+// 🔴 THE CLASS, STATED FOR **DATABASE** WRITES AND NOT ONLY TRAIL WRITES — the ninth
+// audit caught the count silently narrowing. A write belongs to the class exactly when
+// it is THE ONLY RECORD OF AN IRREVERSIBLE CHANGE ALREADY MADE OUTSIDE THE DATABASE.
+// By that test tags.encoded_at qualifies as squarely as any audit row does, and the
+// eighth round's count excluded it by ASSERTION ("it is fine for the marker to fail
+// here") rather than by derivation. Both are now detached, and the membership list is:
+//
+//	InsertUnassigned / plaque.loaded   NOT in the class. The database LEADS the chip
+//	                                   here, and cmdWriteNDEF's s.rowWritten guard
+//	                                   enforces the lead by refusing the chip's first
+//	                                   irreversible command without a committed row.
+//	Two RecordTx writes                NOT in the class. They live inside the
+//	                                   transaction they document; dying with it is
+//	                                   correct.
+//	MarkEncoded / tags.encoded_at      IN. Detached in markEncoded (ninth round).
+//	The compensating Record            IN. Detached in rows.go (eighth round).
+//
+// ⚠️ THE HONEST SCOPE OF THIS GATE, because the eighth round overstated it and audits
+// have now measured the overstatement three times. Every known hole is named here
+// rather than left for the next reader to find:
+//
+//	ONE PACKAGE       productionFiles globs internal/encode only, so the tree's other
+//	                  Record calls are outside it. An auditor inspected those by hand:
+//	                  none are in the class. The MEMBERSHIP claim holds; the
+//	                  ENFORCEMENT claim never covered them.
+//	ONE OF TWO        🔴 the class table above has TWO members and this gate inspects
+//	MEMBERS           ONE. It scans calls named Record; nothing here checks
+//	                  markEncoded's detach, so removing that detach — the ninth
+//	                  round's entire product — leaves this test GREEN. Measured
+//	                  (tenth audit). The database test is what turns red.
+//	ANY ASSIGNMENT    🔴 and the rule is weaker than "first assignment wins", which is
+//	MENTIONING IT     how this row read until an audit corrected it. detachedInside
+//	                  asks whether the name appears on the LEFT of ANY assignment
+//	                  whose RIGHT side mentions WithoutCancel ANYWHERE. So a later
+//	                  re-assignment (trailCtx = ctx on the next line) satisfies it for
+//	                  ever. Measured: gate PASS, database test FAIL.
+//	MULTI-ASSIGN      🔴 THE FIFTH HOLE, AND IT IS NOT A SUBSET OF THE OTHERS
+//	IS UNPAIRED       (eleventh audit). detachedInside walks Lhs and Rhs as two
+//	                  independent loops with no index, so it never pairs them:
+//	                      detachedCtx, trailCtx := context.WithoutCancel(ctx), ctx
+//	                  binds trailCtx to the REQUEST while the gate sees WithoutCancel
+//	                  somewhere on the right and passes. Not "first assignment wins"
+//	                  (there is no valid binding at all) and not "text, not semantics"
+//	                  (the gate is wrong about a purely SYNTACTIC fact). Measured:
+//	                  gate PASS, database test FAIL.
+//	TEXT, NOT         it cannot know what a context MEANS. Three attacks it does hold
+//	SEMANTICS         were measured: assigning to another variable and passing the
+//	                  request's, discarding to _, and WithCancel(WithoutCancel(ctx)).
+//
+// What actually holds the property is the pair of database tests — every hole above
+// was found by an attack that turned a DATABASE test red while this gate stayed green,
+// which is the mitigation working rather than failing. This gate exists to make the
+// ORDINARY edit in this package fail loudly.
+//
+// 🔴 THE TABLE IS THE PRICE OF SAYING THAT HONESTLY, AND IT IS CHEAPER THAN A FIFTH
+// DESIGN. "How does a request context reach this call" has an unbounded answer space;
+// this task hit that wall five times before it started counting instead, and each
+// round since has produced one more spelling nobody had imagined. Counting is the
+// stopping rule, and it only works while the count is right — hence five rows.
+//
+// 🔴 IT ASKS A POSITIVE QUESTION, WHICH IS THE FIX FOR THE FIRST DESIGN. Version one
+// forbade one identifier NAME ("ctx"), and the audit beat it by renaming the parameter
+// to reqCtx: the gate went green while the database test went red. A blocklist of
+// spellings has an unbounded answer space — the same wall this task hit five times.
+// This version requires the argument to be DERIVED, in the enclosing function, from
+// context.WithoutCancel. A parameter passed straight through fails whatever it is
+// called, because it is not derived from anything.
+func TestSource_ACompensatingTrailWriteNeverUsesTheRequestContext(t *testing.T) {
+	var checked int
+	for name, f := range productionFiles(t) {
+		ast.Inspect(f, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			sel, ok := call.Fun.(*ast.SelectorExpr)
+			// RecordTx is deliberately excluded: it is scoped to a transaction that
+			// the same cancellation is entitled to kill.
+			if !ok || sel.Sel.Name != "Record" || len(call.Args) == 0 {
+				return true
+			}
+			checked++
+			fn := enclosingFuncDecl(f, call.Pos())
+			if fn == nil {
+				return true
+			}
+			if detachedInside(fn, call.Args[0]) {
+				return true
+			}
+			t.Errorf("%s: the non-transactional Record in %s is handed a context that is not "+
+				"derived from context.WithoutCancel in that function.\n"+
+				"This write exists because the operation beside it failed, so it must not be "+
+				"able to fail for the same reason. plaqueEncodeStep drives this path with "+
+				"r.Context(): a relay that hangs up would take the evidence with the thing it "+
+				"is evidence of, and the resulting database is byte-identical to a round that "+
+				"never touched a chip — whose recovery instruction is the OPPOSITE one.\n"+
+				"Shape: context.WithTimeout(context.WithoutCancel(ctx), DefaultRepairGrace), as "+
+				"rows.go and internal/handler/health.go both do.",
+				name, enclosingFunc(f, call.Pos()))
+			return true
+		})
+	}
+	// CONTROL: the walk found the call it exists for. Renaming Record, or moving it
+	// behind a wrapper, would otherwise leave this test green over nothing.
+	if checked == 0 {
+		t.Fatal("no non-transactional Record call found; this gate has gone blind")
+	}
+}
+
+// enclosingFuncDecl is enclosingFunc's sibling: the declaration rather than its name.
+func enclosingFuncDecl(f *ast.File, pos token.Pos) *ast.FuncDecl {
+	for _, d := range f.Decls {
+		fd, ok := d.(*ast.FuncDecl)
+		if ok && fd.Body != nil && fd.Pos() <= pos && pos <= fd.End() {
+			return fd
+		}
+	}
+	return nil
+}
+
+// detachedInside reports whether arg is an identifier that the function binds to an
+// expression mentioning context.WithoutCancel.
+//
+// Deliberately textual and deliberately shallow — internal/sun's
+// TestEV2_ZeroDisciplineIsInventoried is the precedent for that choice. It holds the
+// edit somebody actually makes (pass the parameter through, or rename it) rather than
+// a wholesale redesign, and it says so instead of implying more.
+func detachedInside(fn *ast.FuncDecl, arg ast.Expr) bool {
+	ident, ok := arg.(*ast.Ident)
+	if !ok {
+		// Not a bare identifier: an inline context.WithTimeout(context.WithoutCancel(..))
+		// or similar. Accept only if the expression itself mentions WithoutCancel.
+		return mentionsWithoutCancel(arg)
+	}
+	var found bool
+	ast.Inspect(fn.Body, func(n ast.Node) bool {
+		as, ok := n.(*ast.AssignStmt)
+		if !ok {
+			return true
+		}
+		for _, lhs := range as.Lhs {
+			id, ok := lhs.(*ast.Ident)
+			if !ok || id.Name != ident.Name {
+				continue
+			}
+			for _, rhs := range as.Rhs {
+				if mentionsWithoutCancel(rhs) {
+					found = true
+				}
+			}
+		}
+		return true
+	})
+	return found
+}
+
+func mentionsWithoutCancel(e ast.Expr) bool {
+	var found bool
+	ast.Inspect(e, func(n ast.Node) bool {
+		if sel, ok := n.(*ast.SelectorExpr); ok && sel.Sel.Name == "WithoutCancel" {
+			found = true
+		}
+		return true
+	})
+	return found
+}
+
+// TestSession_TheCheapestExhaustionIsEightTenantsAndTwentyFourAdmins MEASURES the
+// residual that DefaultMaxPerTenant's comment prices, instead of restating it.
+//
+// 🔴 THAT COMMENT HAS NOW BEEN WRONG TWICE BY BEING WRITTEN RATHER THAN RUN. Version
+// one quoted the arithmetic of the world BEFORE the cap ("twenty-two tenants at three
+// sessions each"). Version two said "the cheapest N is EIGHT sign-ups" and stopped
+// there — true about tenants, silent about the fact that one tenant cannot reach its
+// own cap of 8 with fewer than ceil(8/3) = 3 actor labels, and that through the
+// endpoint an actor label costs an ADMIN ACCOUNT because plaqueEncodeGrantOf derives
+// it from the session cookie rather than the body. This test spends the real price
+// and reports what it actually took.
+func TestSession_TheCheapestExhaustionIsEightTenantsAndTwentyFourAdmins(t *testing.T) {
+	h := newHarness(t)
+	ctx := context.Background()
+
+	var tenants, admins int
+	for h.st.Live() < DefaultMaxLive {
+		tenant := uuid.New()
+		tenants++
+		// Spend the CHEAPEST number of admins for this tenant: keep reusing one label
+		// until the per-actor cap refuses it, and only then buy another account.
+		for filled := 0; filled < DefaultMaxPerTenant; {
+			admin := uuid.New()
+			admins++
+			actor := "admin:" + admin.String()
+			for {
+				if _, _, err := h.st.Begin(ctx, tenant, admin, actor); err != nil {
+					break // this label is spent, or the store is full
+				}
+				filled++
+				if filled == DefaultMaxPerTenant {
+					break
+				}
+			}
+			if h.st.Live() >= DefaultMaxLive {
+				break
+			}
+		}
+	}
+
+	if tenants != 8 || admins != 24 {
+		t.Errorf("exhausting the store took %d tenant(s) and %d admin account(s); the constants "+
+			"imply 8 and 24 (DefaultMaxLive=%d / DefaultMaxPerTenant=%d tenants, each needing "+
+			"ceil(%d/%d) actor labels at DefaultMaxPerActor=%d).\n"+
+			"If a cap moved, the DefaultMaxPerTenant comment is now quoting a price nobody pays.",
+			tenants, admins, DefaultMaxLive, DefaultMaxPerTenant,
+			DefaultMaxPerTenant, DefaultMaxPerActor, DefaultMaxPerActor)
+	}
+
+	// The store is genuinely full, and a NINTH tenant with a FRESH admin is refused —
+	// which is what makes the count above a ceiling rather than a coincidence.
+	if live := h.st.Live(); live != DefaultMaxLive {
+		t.Fatalf("%d live rounds, want the full %d", live, DefaultMaxLive)
+	}
+	if _, _, err := h.st.Begin(ctx, uuid.New(), uuid.New(), "admin:"+uuid.NewString()); !errors.Is(err, ErrTooManySessions) {
+		t.Errorf("a fresh tenant on a full store got %v, want ErrTooManySessions", err)
+	}
+}
+
+// TestSession_EveryRefusedOrPanickingRoundReleasesBothCounters drives the two exits
+// from a round that retireLocked owns but no test had ever taken.
+//
+// 🔴 perTenant AND perActor HAD ZERO MENTIONS IN THIS FILE (security audit, second
+// pass). The counters were asserted only through their REFUSALS — "the ninth round is
+// rejected" — which is the arm that fires when a counter is too HIGH. Nothing drove
+// the arm where a counter is never given BACK, and that failure is strictly worse than
+// the exhaustion the caps exist to prevent: an exhausted store recovers at the TTL,
+// whereas a leaked counter refuses that tenant, or that admin, until the process is
+// restarted. retireLocked's own comment claims "every exit releases every counter";
+// these are the two exits that claim had never been tested on.
+func TestSession_EveryRefusedOrPanickingRoundReleasesBothCounters(t *testing.T) {
+	// --- Exit 1: Begin's own error arm ---------------------------------------
+	//
+	// ⚠️ MEASURED HONESTLY, AND THE HONEST WORD IS "UNREACHABLE TODAY": roundSteps[0]
+	// is cmdSelect, which is `return sun.ISOSelectNDEFApplication(), nil` and has no
+	// failing branch at all. So this arm is defensive, and the only way to drive it is
+	// to bend the table. That is worth doing rather than skipping — the counters are
+	// incremented three lines above the call, so a future first step that CAN fail
+	// would leak both, and it would leak them at the point where the operator has
+	// nothing in their hand yet and will simply press the button again.
+	func() {
+		h := newHarness(t)
+		saved := roundSteps[0].command
+		defer func() { roundSteps[0].command = saved }()
+		roundSteps[0].command = func(context.Context, *Store, *Session) ([]byte, error) {
+			return nil, errors.New("the first step refused")
+		}
+
+		tenant, admin := uuid.New(), uuid.New()
+		actor := "admin:" + admin.String()
+		if _, _, err := h.st.Begin(context.Background(), tenant, admin, actor); err == nil {
+			t.Fatal("Begin succeeded although the first step returned an error")
+		}
+		assertNoCountersHeld(t, h.st, tenant, actor, "a Begin whose first step failed")
+
+		// POSITIVE CONTROL: the tenant and the actor are still usable afterwards. This
+		// is the property an operator would actually notice, and it is what a leaked
+		// counter takes away.
+		roundSteps[0].command = saved
+		if _, _, err := h.st.Begin(context.Background(), tenant, admin, actor); err != nil {
+			t.Fatalf("the tenant/actor was refused AFTER a failed Begin (%v); the counters "+
+				"leaked and this pair is now locked out until the process restarts", err)
+		}
+	}()
+
+	// --- Exit 2: the panic arm in Step ---------------------------------------
+	//
+	// Reached through the rows port, which is the one seam in a round that runs
+	// arbitrary caller code. The panic is re-raised by design, so the test catches it.
+	func() {
+		h := newHarness(t)
+		chip := newFakeChip(t)
+		h.rows.beforeInsert = func() { panic("the row port exploded mid-round") }
+
+		tenant, admin := uuid.New(), uuid.New()
+		actor := "admin:" + admin.String()
+
+		var panicked bool
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					panicked = true
+				}
+			}()
+			ctx := context.Background()
+			id, p, err := h.st.Begin(ctx, tenant, admin, actor)
+			if err != nil {
+				t.Fatalf("Begin: %v", err)
+			}
+			for i := 0; i < len(roundSteps)+2 && p.Command != nil; i++ {
+				p, err = h.st.Step(ctx, id, chip.Transceive(p.Command))
+				if err != nil {
+					return
+				}
+			}
+		}()
+		if !panicked {
+			t.Fatal("the round never panicked; the arm under test was not entered")
+		}
+		assertNoCountersHeld(t, h.st, tenant, actor, "a round that panicked mid-step")
+	}()
+}
+
+// assertNoCountersHeld reads the three maps directly, because the point is the
+// counter and not the refusal it eventually causes.
+func assertNoCountersHeld(t *testing.T, st *Store, tenant uuid.UUID, actor, what string) {
+	t.Helper()
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	if n := st.perTenant[tenant]; n != 0 {
+		t.Errorf("%s left perTenant[%s] = %d, want 0. A counter that is never given back "+
+			"refuses this business until the process restarts — worse than the exhaustion the "+
+			"cap exists to prevent, because an exhausted store recovers at the TTL", what, tenant, n)
+	}
+	if n := st.perActor[actor]; n != 0 {
+		t.Errorf("%s left perActor[%q] = %d, want 0", what, actor, n)
+	}
+	if n := len(st.live); n != 0 {
+		t.Errorf("%s left %d live session(s), want 0", what, n)
 	}
 }
