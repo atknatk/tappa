@@ -115,13 +115,18 @@ import (
 // 🔴 REVISITED AT M8-04 (2026-08-19, backlog T3) AND STILL NOT ADOPTED — BUT THE
 // RECORD ABOVE WAS TOO KIND AND IS CORRECTED HERE. Three things were measured.
 //
-//  1. THE PRECONDITION IS SATISFIED BY THE ACTUAL DEPLOYMENT, NOT HYPOTHETICALLY.
-//     The product is served from a SUBDOMAIN of a registrable domain it does not
-//     own alone (deploy/k8s/05-config.yaml, 40-ingress.yaml). Any other host under
-//     that registrable domain can set a Domain-scoped cookie with any of this
-//     product's ten cookie names, and net/http's r.Cookie returns the FIRST match
-//     with no way to tell which. So "a page on a subdomain" is not a thought
-//     experiment here; it is the shape of the deployment.
+//  1. THE PRECONDITION WAS SATISFIED THROUGH M8 — AND THE 2026-09-02 DOMAIN CUTOVER
+//     CLOSED IT. Through M8 the product was served from a SUBDOMAIN of a registrable
+//     domain it did not own alone (tappa.everva.com.tr), so any other host under that
+//     registrable domain could set a Domain-scoped cookie with any of this product's
+//     ten cookie names, and net/http's r.Cookie returns the FIRST match with no way
+//     to tell which. The cutover moved serving to taptime.mt — a registrable domain
+//     the product owns ENTIRELY (deploy/k8s/05-config.yaml, 40-ingress.yaml), whose
+//     only sibling host is www, which is redirect-only and sets no cookie. The
+//     session cookie is host-only (internal/session sets no Domain attribute), so
+//     with no UNTRUSTED host under taptime.mt there is no sibling to shadow it. The
+//     precondition returns the day an untrusted subdomain is added under taptime.mt —
+//     which is exactly the deployment decision this whole note turns on.
 //  2. __Host- IS NOT A UNIFORM OPTION, and that is a schema fact rather than a
 //     preference: the prefix REQUIRES Path=/, and internal/adminauth deliberately
 //     scopes the panel cookie to /admin — that narrower path is the structural half
@@ -136,10 +141,12 @@ import (
 // WHAT THIS MEANS FOR THE RISK, honestly: SameSite=Lax, HttpOnly and Secure-in-prod
 // are in place and a planted SESSION value is not a session (it must resolve against
 // the database), but neither of those stops session FIXATION — an attacker planting
-// a cookie for a session they own. The narrowing that would actually close it is a
+// a cookie for a session they own. The narrowing that would actually close it was a
 // deployment decision (serve from a registrable domain of the product's own, or from
-// a host with no siblings), and it is a decision for the operator rather than a
-// change to make inside a security-fix round.
+// a host with no untrusted siblings) — and as of the 2026-09-02 cutover to taptime.mt
+// that decision has been taken, so this stops being a live gap and becomes a standing
+// deployment constraint: do not add an untrusted subdomain under taptime.mt without
+// reopening the __Host- question (points 2 and 3 above still price it).
 
 const (
 	// activationCookieName is separate from the session cookie so that clearing

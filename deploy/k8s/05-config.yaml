@@ -16,7 +16,12 @@ data:
   # session cookie Secure (internal/session reads IsProd).
   TAPPA_ENV: "prod"
   TAPPA_ADDR: ":8080"
-  TAPPA_BASE_URL: "https://tappa.everva.com.tr"
+  # 🔴 THIS IS THE CANONICAL ORIGIN AND IT MINTS SUN URLs INTO PHYSICAL TAGS. It moves
+  # in lockstep with deploy/k8s/40-ingress.yaml's serving host: the apex there is the
+  # only host that mints URLs, and the value here IS that apex. Changing one without
+  # the other means links point at a host the ingress does not serve. Domain cutover
+  # tappa.everva.com.tr → taptime.mt, 2026-09-02; the old host now 301-redirects here.
+  TAPPA_BASE_URL: "https://taptime.mt"
   TAPPA_LOG_LEVEL: "info"
 
   # 🔴 json HERE AND text EVERYWHERE ELSE, BECAUSE THE READER IS DIFFERENT AND IT

@@ -23,11 +23,13 @@ const (
 	// environment is its own class of bug. Revisit at deployment (M8).
 	//
 	// 🔴 REVISITED AT M8-04 (2026-08-19, backlog T3): STILL NOT ADOPTED, and the
-	// three measurements behind that — including the one that makes the risk
-	// REAL rather than theoretical (the product is served from a subdomain of a
-	// registrable domain it does not own alone) — are written out in
-	// internal/handler/cookies.go, beside the shadowing limit they belong to.
-	// This line is the pointer so the two sides cannot drift apart.
+	// three measurements behind that are written out in internal/handler/cookies.go,
+	// beside the shadowing limit they belong to. The measurement that once made the
+	// risk REAL — the product served from a subdomain of a registrable domain it did
+	// not own alone — was closed by the 2026-09-02 cutover to taptime.mt, an apex the
+	// product owns entirely; the residual is a deployment constraint (add no untrusted
+	// subdomain under taptime.mt), recorded on that side. This line is the pointer so
+	// the two sides cannot drift apart.
 	CookieName = "tappa_session"
 
 	// cookieMaxAgeSeconds is ~1 year (the card's "uzun Max-Age"). The whole

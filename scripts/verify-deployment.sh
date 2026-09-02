@@ -2,7 +2,7 @@
 # Tappa -- post-rollout gates on a LIVE deployment (M8-02).
 #
 # Usage:
-#   scripts/verify-deployment.sh cloudflare [host]        default: tappa.everva.com.tr
+#   scripts/verify-deployment.sh cloudflare [host]        default: taptime.mt
 #   scripts/verify-deployment.sh db-role    [namespace]   default: tappa
 #   scripts/verify-deployment.sh all        [host] [ns]
 #
@@ -49,12 +49,13 @@ mode=${1:?usage: verify-deployment.sh <cloudflare|db-role|all> [host] [namespace
 # they are unchanged; `all` reads this variable instead of guessing from the code.
 CF_OUTCOME=unchecked
 check_cloudflare() {
-  local host=${1:-tappa.everva.com.tr} headers
+  local host=${1:-taptime.mt} headers
   # 🔴 A GATE RATHER THAN A LINE IN A RUNBOOK, BECAUSE THE DEFAULT IS THE WRONG ONE.
-  # everva.com.tr is on Cloudflare with a PROXIED WILDCARD (measured 2026-08-15: an
-  # invented subdomain resolves to the same two Cloudflare addresses), and a NEW A
-  # record in Cloudflare defaults to PROXIED. So the single most likely operator
-  # mistake produces a deployment that looks completely healthy and in which:
+  # A NEW A record in Cloudflare defaults to PROXIED, and toggling a zone's proxy back
+  # on is a one-click regression. taptime.mt's records were created DNS-only (grey
+  # cloud) at cutover, but "created correct once" is not "stays correct", which is why
+  # this is an exit code and not a note. The single most likely operator mistake — a
+  # proxied primary — produces a deployment that looks completely healthy and in which:
   #   - §5's proof of place can never be true for anybody -- ingress-nginx runs with
   #     an EMPTY ConfigMap, so use-forwarded-headers is false and nginx REPLACES
   #     X-Forwarded-For with $remote_addr, which would be a Cloudflare edge address;

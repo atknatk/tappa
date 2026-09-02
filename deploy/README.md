@@ -5,8 +5,15 @@ Bu dizin **paketleme ve küme manifestlerini** taşır. M8-02'nin ikinci yarıs�
 **yoktur**; bu dosya yalnızca *bu dosyaların nasıl kullanılacağını* ve
 **kabul edilmiş sınırları** yazar.
 
-Hedef: `https://tappa.everva.com.tr` · küme: k3s v1.35.4, tek node
+Hedef: `https://taptime.mt` · küme: k3s v1.35.4, tek node
 (`k8s-1.fsn1.private`, Hetzner fsn1, `144.76.158.60`).
+
+> **Domain cutover (2026-09-02):** birincil host artık `taptime.mt`. Eski
+> `tappa.everva.com.tr` M8 boyunca deploy hedefiydi; artık yalnızca `taptime.mt`'ye
+> **kalıcı 301 redirect** yapıyor (`deploy/k8s/40-ingress.yaml`, Ingress
+> `tappa-redirects`, `$request_uri` korunur), böylece cutover'dan önce basılmış
+> linkler ve plaketler 404 vermez. `www.taptime.mt` de aynı Ingress'ten apex'e
+> 301'lenir — redirect-only, hiçbir zaman tap işlemez.
 
 ---
 
@@ -93,18 +100,20 @@ toptan** `apply` etmek değildir.
 
 **1. DNS — ve bu adım en kritik olanı.**
 
-`tappa.everva.com.tr` için **A kaydı → `144.76.158.60`**, Cloudflare proxy
+`taptime.mt` için **A kaydı → `144.76.158.60`**, Cloudflare proxy
 **KAPALI** (gri bulut / "DNS only").
 
 > ⚠️ `everva.com.tr` Cloudflare'de ve **proxy'li bir joker kayıt HÂLÂ var** —
 > yeniden ölçüldü (2026-08-16): uydurma bir alt alan **hâlâ**
 > `172.67.181.173`/`104.21.72.109`'a çözülüyor, yani bu adım **yeni bir host için
 > hâlâ geçerli ve hâlâ varsayılanı yanlış**.
-> ✅ **Ama `tappa.everva.com.tr` ARTIK proxy'li değil ve buradaki şimdiki zaman
-> düzeltildi:** `dig +short tappa.everva.com.tr` → **`144.76.158.60`**,
-> `scripts/verify-deployment.sh cloudflare tappa.everva.com.tr` → **exit 0,
-> *"not proxied"***. Eskiden bu satır *"bugün zaten Cloudflare üzerinden cevap
-> veriyor"* diyordu; o cümle 2026-08-15'te doğruydu, bugün değil.
+> ✅ **Ama `taptime.mt` AYRI ve KONTROLLÜ bir zone** (operatörün Cloudflare
+> hesabı, zone oluşturma 2026-09-02) — everva'nın joker kaydının
+> aksine **dövüşülecek proxy'li bir joker yok**. apex `A → 144.76.158.60` ve
+> `www CNAME → apex`, ikisi de **DNS-only** (gri bulut) yaratıldı. Oluşturmadan
+> sonra doğrulandı: `dig +short taptime.mt` → **`144.76.158.60`** (origin, Cloudflare
+> kenar adresi değil); burada bir kenar adresi (`104.21.*`/`172.67.*`) görünürse
+> proxy geri açılmış demektir. Kapı: `scripts/verify-deployment.sh cloudflare taptime.mt`.
 > Proxy açık kalırsa uygulama her istemciyi bir Cloudflare adresi olarak görür:
 > §5'in IP kanıtı (100 güven puanının 50'si) **hiç kimse için** doğru olamaz ve
 > panel giriş bütçesi tüm müşteriler için tek adrese çöker (backlog T30).
@@ -113,8 +122,8 @@ toptan** `apply` etmek değildir.
 Doğrulama (kayıt açıldıktan sonra):
 
 ```bash
-dig +short tappa.everva.com.tr                     # 144.76.158.60 olmalı
-curl -sS -o /dev/null -D - https://tappa.everva.com.tr/ | grep -i 'cf-ray\|^HTTP/'
+dig +short taptime.mt                              # 144.76.158.60 olmalı
+curl -sS -o /dev/null -D - https://taptime.mt/ | grep -i 'cf-ray\|^HTTP/'
 # cf-ray varsa kayıt hâlâ proxy'li demektir; YOKSA yalnız `HTTP/2 200` satırı çıkar.
 # (Desende `^HTTP/` var, `^server` yok: origin `server` başlığı GÖNDERMİYOR ve durum
 #  satırında `HTTP` ile `/` arasında iki nokta yok — eski desen sağlıklı durumda
@@ -290,7 +299,7 @@ kubectl -n tappa exec statefulset/tappa-postgres -- sh -c 'PGPASSWORD="$POSTGRES
 # tappa_app|t|f|f  ·  tappa_owner|t|t|t  ·  tappa_resolver|f|f|t
 
 # (c) TLS + HSTS
-curl -sS -o /dev/null -D - https://tappa.everva.com.tr/healthz | \
+curl -sS -o /dev/null -D - https://taptime.mt/healthz | \
   grep -i 'strict-transport\|^HTTP'
 ```
 
@@ -625,8 +634,8 @@ yarısının uygulanamadığını görüp **doğaçlar** — ve doğaçlanan yol
 **1. Kesintinin var olduğunu ve şeklini ölç.** İki dış kanıt:
 
 ```bash
-curl -sS -o /dev/null -w '%{http_code}\n' https://tappa.everva.com.tr/healthz
-curl -sS -o /dev/null -w '%{http_code}\n' https://tappa.everva.com.tr/readyz
+curl -sS -o /dev/null -w '%{http_code}\n' https://taptime.mt/healthz
+curl -sS -o /dev/null -w '%{http_code}\n' https://taptime.mt/readyz
 ```
 
 **2. 🔴 HİÇBİR ŞEYİ SİLMEDEN ÖNCE, BOZUK VERİTABANININ KENDİSİNİ YEDEKLE.** Bu adım
@@ -821,7 +830,7 @@ SQL
 
 kubectl -n tappa scale deployment/tappa --replicas=1
 kubectl -n tappa rollout status deployment/tappa
-curl -sS -o /dev/null -w '%{http_code}\n' https://tappa.everva.com.tr/readyz     # 200 bekleniyor
+curl -sS -o /dev/null -w '%{http_code}\n' https://taptime.mt/readyz     # 200 bekleniyor
 ```
 
 > 🔴 **O SON `ALTER DEFAULT PRIVILEGES` NEDEN VAR — VE NEDEN `REVOKE UPDATE, DELETE`,
@@ -943,7 +952,7 @@ kubectl apply -f deploy/k8s/12-networkpolicy.yaml
 kubectl apply -f deploy/k8s/20-app.yaml
 kubectl apply -f deploy/k8s/40-ingress.yaml
 kubectl -n tappa rollout status deployment/tappa
-curl -sS -o /dev/null -w '%{http_code}\n' https://tappa.everva.com.tr/readyz
+curl -sS -o /dev/null -w '%{http_code}\n' https://taptime.mt/readyz
 ```
 
 Sonra **yedeğin `started_at`'i ile arıza saati arasındaki her tap kaybolmuştur** ve
@@ -1820,10 +1829,11 @@ Kartın istediği üç şey ve bugünkü durumları:
 > türetiliyor; URL'e istemcinin taşıdığı bir kanal işareti eklemek o türetimi
 > ikinci bir kaynakla yarıştırırdı.
 
-> #### 🔴 Q08 AÇIK — ENCODE EDİLEN HOST GERİ ALINAMAZ
+> #### 🔴 Q08 KAPANDI — AMA ENCODE EDİLEN HOST HÂLÂ GERİ ALINAMAZ
 >
-> SUN URL'si **domaini taşır** ve domain **henüz alınmadı** (`tappa.mt` /
-> `tappa.io`, EUIPO taraması da yapılmadı — `open-questions.md` Q08).
+> SUN URL'si **domaini taşır** ve domain artık **alındı: `taptime.mt`**
+> (Cloudflare zone aktif, 2026-09-02 — `open-questions.md` Q08 kapandı). Encode
+> edilecek host **`taptime.mt`**'dir.
 >
 > Çipe yazılan NDEF, o çipin anahtarı olmadan **değiştirilemez**; anahtarı olsa
 > bile her plaket için **tek tek, fiziksel olarak** yeniden yazmak demektir. Yani
@@ -1831,9 +1841,9 @@ Kartın istediği üç şey ve bugünkü durumları:
 > girişinde bu maliyeti *"yanlış modda veya yanlış anahtar stratejisiyle"* encode
 > için adlandırıyor; **host üçüncü hâlidir** ve ADR'de yazmıyor — burada yazıyor.
 >
-> **Kural: Q08 kapanmadan üretim plaketi encode edilmez.** Deneme/geliştirme
-> plaketleri encode edilebilir, ama duvara **çıkmaz** ve `status='unassigned'`
-> kalır.
+> **Kural: üretim plaketi yalnız `taptime.mt` host'uyla encode edilir** — Q08
+> kapandığı için önü açık. Encode edilen plaket duvara bağlanana kadar
+> `status='unassigned'` kalır.
 
 ### Encode edilen satırın durumu
 
@@ -2639,8 +2649,8 @@ kopyasında** — `CREATE DATABASE … TEMPLATE tappa`, koşuldu, doğrulandı, 
 >
 > **Önce ölç, sonra dokun.** Kesintinin var olup olmadığının tek dış kanıtı:
 > ```bash
-> curl -sS -o /dev/null -w '%{http_code}\n' https://tappa.everva.com.tr/healthz  # süreç ayakta mı
-> curl -sS -o /dev/null -w '%{http_code}\n' https://tappa.everva.com.tr/readyz   # DB'ye ulaşıyor mu
+> curl -sS -o /dev/null -w '%{http_code}\n' https://taptime.mt/healthz  # süreç ayakta mı
+> curl -sS -o /dev/null -w '%{http_code}\n' https://taptime.mt/readyz   # DB'ye ulaşıyor mu
 > ```
 > `/healthz` hiçbir şeye dokunmaz, `/readyz` havuzdan bağlantı alır. **200/200** =
 > ürün çalışıyor; **200/503** = süreç ayakta ama veritabanı yok; **ikisi de yok** =

@@ -7448,8 +7448,9 @@ turda** ölçülebilir; ayrıca `ctr` palindrom olmadığı için sinyal gürül
 
 **Tuzaklar.**
 - **Yanlış host'la encode edilmiş plaket = sahada plaket değişimi.** SUN URL'si
-  domaini taşır ve **Q08 hâlâ açık** (`tappa.mt`/`tappa.io` alınmadı). Encode
-  edilen host **geri alınamaz**.
+  domaini taşır; domain artık **alındı: `taptime.mt`** (Q08 kapandı, Cloudflare
+  zone aktif 2026-09-02), yani encode edilen host **`taptime.mt`**. Encode edilen
+  host **geri alınamaz**.
 - Encode edilen satırın doğru durumu **`unassigned`**'dır (`active` değil):
   migration 00013'ün envanter modelinde plaket önce **yüklenir**, duvara sonra
   **bağlanır**. `active` yazmak, kutudaki plaketi hizmette göstermek demektir.

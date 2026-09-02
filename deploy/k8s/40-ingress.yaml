@@ -1,8 +1,24 @@
-# Tappa — TLS ingress (M8-02).
+# Tappa — TLS ingress (M8-02; domain cutover to taptime.mt, 2026-09-02).
+#
+# 🔴 DOMAIN CUTOVER. The primary host is now `taptime.mt`. `tappa.everva.com.tr`
+# was the deploy target through M8; it is kept below ONLY as a 301 redirect (Ingress
+# `tappa-redirects`) so links minted before the cutover still land. TAPPA_BASE_URL in
+# 05-config.yaml moves in lockstep with this file, and the proxy-off gate in
+# .github/workflows/deploy.yml + scripts/verify-deployment.sh now names taptime.mt —
+# the four move together or the invariant below is unchecked on the host that actually
+# takes taps.
+#
+# 🔴 EXACTLY ONE HOST SERVES THE APP, AND THAT IS DELIBERATE. The `tappa` Ingress
+# below serves ONLY taptime.mt. Every other name we answer — the legacy domain and
+# www — 301s to it from the `tappa-redirects` Ingress and NEVER reaches the app. That
+# is what lets the proxy-off gate check a single host and still cover every path a tap
+# can arrive on: a request that could process a tap can only land on taptime.mt. A www
+# rule pointed at the app would reopen that gap (a proxied www would then feed a
+# Cloudflare edge address into §5's proof of place), so www is redirect-only.
 #
 # 🔴 THIS HOSTNAME MUST NOT BE PROXIED BY CLOUDFLARE, AND THAT IS THE SINGLE MOST
-# CONSEQUENTIAL LINE IN THIS DIRECTORY. Measured 2026-08-15, before anything was
-# written:
+# CONSEQUENTIAL LINE IN THIS DIRECTORY. The rule predates taptime.mt; it was measured
+# on the sibling zone on 2026-08-15, before anything was written:
 #
 #   $ dig +short tappa.everva.com.tr        → 104.21.72.109, 172.67.181.173
 #   $ dig +short NS everva.com.tr           → bryce.ns.cloudflare.com, magdalena...
@@ -10,10 +26,19 @@
 #     server: cloudflare        cf-ray: a2b98ed718d0bc94-MXP
 #
 # everva.com.tr is on Cloudflare with a PROXIED WILDCARD: an invented subdomain
-# resolves to the same two Cloudflare addresses, so tappa.everva.com.tr already
-# answers today, through Cloudflare, before any record is created for it. Another
-# Ingress in this cluster (optiway-stg-api-ws) hashes on $http_cf_connecting_ip,
-# which is the same fact from the other side.
+# resolves to the same two Cloudflare addresses, so tappa.everva.com.tr answered
+# through Cloudflare before any record was created for it, and a DNS-only record had
+# to be written to override the wildcard. Another Ingress in this cluster
+# (optiway-stg-api-ws) hashes on $http_cf_connecting_ip, which is the same fact from
+# the other side.
+#
+# taptime.mt IS A CONTROLLED ZONE and its records were created DNS-only, not left to
+# a default. It lives in the operator's Cloudflare account (zone created 2026-09-02);
+# the apex A record and the www CNAME were both created with the proxy OFF (grey
+# cloud), and — unlike everva.com.tr — this zone has NO proxied wildcard to fight.
+# Verified after creation, which is the only proof that matters here:
+#   $ dig +short taptime.mt        → 144.76.158.60   (the origin, NOT a CF edge addr)
+# A Cloudflare edge address (104.21.* / 172.67.*) here would mean the proxy is back on.
 #
 # WHY THAT BREAKS THIS PRODUCT SPECIFICALLY. ingress-nginx here runs with an EMPTY
 # ConfigMap (`kubectl -n ingress-nginx get cm ingress-nginx-controller -o
@@ -42,9 +67,9 @@
 #   (c) Read CF-Connecting-IP in the application. New code, and a header that is
 #       only trustworthy if the origin refuses non-Cloudflare traffic.
 #
-# ⚠️ HOW TO VERIFY (a) AFTER THE RECORD IS CREATED — one command, and it is not
-# optional, because this is a property nothing in the cluster will report:
-#   curl -sS -o /dev/null -D - https://tappa.everva.com.tr/ | grep -i 'cf-ray\|server'
+# ⚠️ HOW TO VERIFY (a) AFTER THE CUTOVER — one command, and it is not optional,
+# because this is a property nothing in the cluster will report:
+#   curl -sS -o /dev/null -D - https://taptime.mt/ | grep -i 'cf-ray\|server'
 # A `cf-ray` header means the record is still proxied and proof-of-place is dead.
 #
 # ---------------------------------------------------------------------------
@@ -63,10 +88,11 @@
 # includeSubDomains, and this Ingress inherits it. Two things follow, and both are
 # stated because a header that arrives by inheritance is a header nobody owns:
 #
-#   - includeSubDomains here scopes to *.tappa.everva.com.tr, NOT to
-#     everva.com.tr — this Ingress cannot affect the apex or its siblings.
+#   - includeSubDomains now scopes to *.taptime.mt — and because taptime.mt is the
+#     APEX (not a subdomain as tappa.everva.com.tr was), that pins the WHOLE zone to
+#     HTTPS, including www. That is the intent: every host we serve here is HTTPS.
 #   - preload is NOT set and must not be set casually: it is submitted to a browser
-#     list and takes months to undo. Out of scope for M8-02.
+#     list and takes months to undo. Out of scope for the cutover.
 #   - HSTS is per-CONTROLLER (a ConfigMap option), not per-Ingress: there is no
 #     annotation here that could turn it off or on for this host alone, and snippet
 #     annotations are disabled by default in ingress-nginx ≥1.9. The application-side
@@ -80,10 +106,11 @@ metadata:
   labels:
     app.kubernetes.io/name: tappa
   annotations:
-    # cert-manager solves HTTP-01 against this host. Verified reachable: the origin
-    # answers on :80 directly (404 from the default backend, which is what an
-    # un-routed host should give), so the challenge path will route once the DNS
-    # record points here.
+    # cert-manager solves HTTP-01 against this host. taptime.mt resolves DNS-only to
+    # the origin, which answers on :80 (the challenge path routes there), so a fresh
+    # certificate is issued into the `taptime-tls` secret on first apply. There is a
+    # brief window between apply and issuance where https://taptime.mt has no valid
+    # cert — expected for a cutover, verified with the curl above once it clears.
     cert-manager.io/cluster-issuer: letsencrypt-prod
     # 🔴 PLAIN HTTP IS NOT MERELY UNTIDY FOR THIS PRODUCT, IT IS BROKEN — and both
     # halves were measured on 2026-08-15 (backlog T38 and T39):
@@ -104,10 +131,83 @@ spec:
   ingressClassName: nginx
   tls:
     - hosts:
+        - taptime.mt
+      secretName: taptime-tls
+  rules:
+    - host: taptime.mt
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: tappa
+                port:
+                  name: http
+---
+# 🔴 EVERY NON-CANONICAL HOST 301s HERE — NOT ONE OF THEM SERVES CONTENT. Two hosts
+# redirect to https://taptime.mt with the path+query preserved:
+#
+#   - tappa.everva.com.tr — the deploy target through M8. A SUN URL carries its domain
+#     into the physical tag and §4.3 makes a transactions row immutable, so any link
+#     or plaque minted before the cutover must keep resolving; it must not 404.
+#   - www.taptime.mt — kept redirect-only ON PURPOSE (see the header of the `tappa`
+#     Ingress): if www served the app, a later proxied www would feed a Cloudflare
+#     edge address into §5's proof of place, and the single-host proxy-off gate would
+#     not see it. A 301 processes no tap, so a proxied www could at worst mis-redirect,
+#     never mis-attribute a tap.
+#
+# The two hosts get SEPARATE certificates so neither can hold the other hostage:
+# tappa.everva.com.tr reuses the existing valid `tappa-tls` (so the cutover triggers
+# NO re-issuance for it), and www.taptime.mt gets its own `taptime-www-tls`, isolated
+# from the apex's `taptime-tls` — a stuck www challenge cannot delay the apex cert.
+#
+# ⚠️ TWO THINGS TO VERIFY AFTER THE FIRST DEPLOY, because both are properties to
+# confirm rather than assume:
+#   1. The redirect preserves the path+query:
+#      curl -sS -o /dev/null -D - https://tappa.everva.com.tr/activate?x=1 | grep -i location
+#      → location: https://taptime.mt/activate?x=1
+#   2. cert-manager can still RENEW tappa-tls (~60 days out) THROUGH the redirect: the
+#      HTTP-01 solver Ingress adds a more-specific /.well-known/acme-challenge/<token>
+#      location that should take precedence over this `/` redirect. Confirm before the
+#      first renewal, or retire the legacy host before tappa-tls expires:
+#      curl -sS -o /dev/null -D - http://tappa.everva.com.tr/.well-known/acme-challenge/probe
+#      → NOT a 301 to https (a 404 from the origin is the healthy answer here).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: tappa-redirects
+  namespace: tappa
+  labels:
+    app.kubernetes.io/name: tappa
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/permanent-redirect: "https://taptime.mt$request_uri"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
         - tappa.everva.com.tr
       secretName: tappa-tls
+    - hosts:
+        - www.taptime.mt
+      secretName: taptime-www-tls
   rules:
+    # Backends are required by the Ingress schema even though the redirect fires
+    # before the request reaches them; they point at the same service, never used.
     - host: tappa.everva.com.tr
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: tappa
+                port:
+                  name: http
+    - host: www.taptime.mt
       http:
         paths:
           - path: /

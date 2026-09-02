@@ -465,7 +465,9 @@ jobs:
       # genuinely first deploy the hostname does not resolve yet and the check says so
       # and passes; every other curl failure is now an error rather than a shrug (B5).
       - name: Preflight — the hostname must NOT be proxied by Cloudflare
-        run: scripts/verify-deployment.sh cloudflare tappa.everva.com.tr
+        # taptime.mt is the primary as of the 2026-09-02 cutover; this gate names the
+        # host that actually takes taps, not the legacy redirect target.
+        run: scripts/verify-deployment.sh cloudflare taptime.mt
 
       # 🔴 THE APPLICATION SECRET STAYS THE OPERATOR'S — THIS GATE DOES NOT MOVE.
       # tappa-secrets holds TAPPA_TAG_KEK, the session HMAC key and both DSNs. CI
