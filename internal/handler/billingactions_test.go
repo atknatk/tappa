@@ -331,7 +331,10 @@ func TestBillingExport_LeavesAnAccessRow(t *testing.T) {
 		t.Errorf("rendering the section wrote %d audit row(s), want 0", n)
 	}
 
-	if rec := b.do(http.MethodGet, billingCSVHref, nil); rec.Code != http.StatusOK {
+	// THE MONTH IS NAMED so the access row records billingTestMonth rather than whichever
+	// month "last month" resolves to today — the row's Month is asserted below, and a
+	// default export made that assertion a date bomb.
+	if rec := b.do(http.MethodGet, billingCSVHref+"?month="+billingTestMonth.String(), nil); rec.Code != http.StatusOK {
 		t.Fatalf("GET the export: %d", rec.Code)
 	}
 	if n := trail.count(ActionBillingExported); n != 1 {

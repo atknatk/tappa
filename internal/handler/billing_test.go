@@ -89,6 +89,37 @@ func billingFile(t *testing.T, books panelBooks) string {
 	return htmlOf(t, rec)
 }
 
+// billingPageMonth and billingFileMonth are billingPage/billingFile for an EXPLICITLY
+// NAMED month, so a test that freezes a month and then renders it does not depend on
+// which month "last month" happens to be on the day the suite runs.
+//
+// 🔴 THE MONTH IS NAMED RATHER THAN LEFT TO RESOLVE. billingMonth consults time.Now()
+// ONLY for an empty request (billing.go); a named month is read straight through Period,
+// so `?month=` makes the render deterministic. A test that froze July and then rendered
+// the default month proved its point only while "the last finished month" was July — a
+// time bomb that went off the month after. Naming the month loses no coverage: the
+// default-month resolution has its own home in
+// TestBillingMonth_ResolvesTheLastFinishedMonthInTheTenantsZone.
+func billingPageMonth(t *testing.T, books panelBooks, m billing.Month) string {
+	t.Helper()
+	href := billingHref + "?month=" + m.String()
+	rec := billingBrowser(t, books, billingTestOwnerRole).do(http.MethodGet, href, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET %s: %d, want 200", href, rec.Code)
+	}
+	return htmlOf(t, rec)
+}
+
+func billingFileMonth(t *testing.T, books panelBooks, m billing.Month) string {
+	t.Helper()
+	href := billingCSVHref + "?month=" + m.String()
+	rec := billingBrowser(t, books, billingTestOwnerRole).do(http.MethodGet, href, nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET %s: %d, want 200", href, rec.Code)
+	}
+	return htmlOf(t, rec)
+}
+
 // --- obligation 1: the count is a FLOOR, and the figure is an UPPER BOUND ---------
 
 // TestBilling_SaysTheCountIsAFloorOnTheScreen is phase A's first handover.
@@ -160,14 +191,17 @@ func TestBilling_SaysTheCountIsAFloorInTheCSV(t *testing.T) {
 // sentence and the control to differ, and it is measured going red when any one of
 // the three is made identical.
 func TestBilling_AFrozenMonthAndADraftDoNotRenderAlike(t *testing.T) {
+	// THE SAME MONTH IS NAMED FOR BOTH SIDES, so the difference this test asserts is the
+	// only variable — FROZEN vs DRAFT — and not "which month the suite happens to run in".
+	// A past month is used precisely so it is never the one billingMonth would resolve to.
 	july := billing.Month{Year: 2026, Month: time.July}
 
 	draftBooks := newFakeBooks()
-	draftHTML := billingPage(t, draftBooks)
+	draftHTML := billingPageMonth(t, draftBooks, july)
 
 	frozenBooks := newFakeBooks()
 	frozenBooks.frozen[july.String()] = frozenDraftFor(july, 24, 3600)
-	frozenHTML := billingPage(t, frozenBooks)
+	frozenHTML := billingPageMonth(t, frozenBooks, july)
 
 	if draftHTML == frozenHTML {
 		t.Fatal("a frozen month and a live draft render the identical page.\n" +
@@ -271,9 +305,12 @@ func TestBillingDraft_DoesNotClaimMoreVolatilityThanTheDefinitionHas(t *testing.
 // file, and it matters MORE there: in a spreadsheet the header scrolls away, and a
 // provisional figure that looks final is how a draft gets invoiced.
 func TestBillingCSV_SaysWhichDocumentItIsInItsFirstFacts(t *testing.T) {
+	// BOTH DOCUMENTS ARE FOR THE SAME NAMED MONTH — draft vs frozen is the whole contrast,
+	// and naming July keeps it off the day the suite runs (a frozen July rendered as the
+	// default month stopped being July the month after and the frozen half went silent).
 	july := billing.Month{Year: 2026, Month: time.July}
 
-	draft := billingFile(t, newFakeBooks())
+	draft := billingFileMonth(t, newFakeBooks(), july)
 	if !strings.Contains(draft, "Status,DRAFT") {
 		t.Error("the exported draft does not carry Status,DRAFT")
 	}
@@ -283,7 +320,7 @@ func TestBillingCSV_SaysWhichDocumentItIsInItsFirstFacts(t *testing.T) {
 
 	frozenBooks := newFakeBooks()
 	frozenBooks.frozen[july.String()] = frozenDraftFor(july, 24, 3600)
-	frozen := billingFile(t, frozenBooks)
+	frozen := billingFileMonth(t, frozenBooks, july)
 	if !strings.Contains(frozen, "Status,FROZEN") {
 		t.Error("the exported frozen month does not carry Status,FROZEN")
 	}
@@ -562,8 +599,11 @@ func TestBilling_OffersNoItemisationAnywhere(t *testing.T) {
 	books.frozen[july.String()] = frozenDraftFor(july, 24, 3600)
 	books.history = []billing.Draft{frozenDraftFor(billing.Month{Year: 2026, Month: time.June}, 20, 3000)}
 
-	html := billingPage(t, books)
-	file := billingFile(t, books)
+	// THE FROZEN MONTH IS NAMED, so the "number of people, not which people" sentence this
+	// test reads is the FROZEN itemisation and not the draft one that the default month
+	// would render on any day after July.
+	html := billingPageMonth(t, books, july)
+	file := billingFileMonth(t, books, july)
 
 	// 1. STRUCTURALLY THERE IS NOWHERE FOR ONE TO LIVE. Anything offering to break the
 	//    count down would have to be a link or a form, and the section owns exactly four
