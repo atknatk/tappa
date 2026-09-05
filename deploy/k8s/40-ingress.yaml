@@ -162,9 +162,16 @@ spec:
 # NO re-issuance for it), and www.taptime.mt gets its own `taptime-www-tls`, isolated
 # from the apex's `taptime-tls` — a stuck www challenge cannot delay the apex cert.
 #
+# 🔴 THE VALUE IS scheme+host WITH NO $request_uri, AND THAT IS THE INGRESS-NGINX
+# IDIOM, NOT A LOST FEATURE. The controller appends the request path+query itself, so
+# the annotation carries only the target host; a literal "$request_uri" in the value
+# is rejected by the admission webhook ("permanent-redirect contains invalid value",
+# an injection guard) — which is exactly what failed the first cutover deploy. Path
+# preservation is therefore the controller's job, verified below.
+#
 # ⚠️ TWO THINGS TO VERIFY AFTER THE FIRST DEPLOY, because both are properties to
 # confirm rather than assume:
-#   1. The redirect preserves the path+query:
+#   1. The redirect preserves the path+query (the controller-appended $request_uri):
 #      curl -sS -o /dev/null -D - https://tappa.everva.com.tr/activate?x=1 | grep -i location
 #      → location: https://taptime.mt/activate?x=1
 #   2. cert-manager can still RENEW tappa-tls (~60 days out) THROUGH the redirect: the
@@ -184,7 +191,7 @@ metadata:
     cert-manager.io/cluster-issuer: letsencrypt-prod
     nginx.ingress.kubernetes.io/ssl-redirect: "true"
     nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
-    nginx.ingress.kubernetes.io/permanent-redirect: "https://taptime.mt$request_uri"
+    nginx.ingress.kubernetes.io/permanent-redirect: "https://taptime.mt"
 spec:
   ingressClassName: nginx
   tls:
