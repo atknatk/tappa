@@ -146,7 +146,7 @@ spec:
                   name: http
 ---
 # 🔴 EVERY NON-CANONICAL HOST 301s HERE — NOT ONE OF THEM SERVES CONTENT. Two hosts
-# redirect to https://taptime.mt with the path+query preserved:
+# 301 to https://taptime.mt (the apex home — the path is NOT carried, see below):
 #
 #   - tappa.everva.com.tr — the deploy target through M8. A SUN URL carries its domain
 #     into the physical tag and §4.3 makes a transactions row immutable, so any link
@@ -162,18 +162,23 @@ spec:
 # NO re-issuance for it), and www.taptime.mt gets its own `taptime-www-tls`, isolated
 # from the apex's `taptime-tls` — a stuck www challenge cannot delay the apex cert.
 #
-# 🔴 THE VALUE IS scheme+host WITH NO $request_uri, AND THAT IS THE INGRESS-NGINX
-# IDIOM, NOT A LOST FEATURE. The controller appends the request path+query itself, so
-# the annotation carries only the target host; a literal "$request_uri" in the value
-# is rejected by the admission webhook ("permanent-redirect contains invalid value",
-# an injection guard) — which is exactly what failed the first cutover deploy. Path
-# preservation is therefore the controller's job, verified below.
+# 🔴 THE PATH IS DROPPED, AND THAT IS AN INGRESS-NGINX LIMITATION MEASURED HERE, NOT A
+# CHOICE. permanent-redirect emits `return 301 https://taptime.mt;` and does NOT append
+# the request URI; a literal "$request_uri" in the value is rejected by the admission
+# webhook ("permanent-redirect contains invalid value", a URL-injection guard — which
+# is what failed the first cutover deploy), and configuration-snippets are disabled
+# cluster-wide (ingress-nginx ≥1.9), so no annotation here can carry the path across
+# hosts. Measured 2026-09-05: curl .../activate?x=1 -> Location: https://taptime.mt.
+# This still satisfies "must not 404" (a 301 to a live page), but an old DEEP link
+# lands on the apex home, not its target. Acceptable because Q08 closed only at this
+# cutover, so no finalised production plaque or link carries the old domain. A
+# path-preserving redirect (app-level, or enabling snippets) is backlog T71.
 #
 # ⚠️ TWO THINGS TO VERIFY AFTER THE FIRST DEPLOY, because both are properties to
 # confirm rather than assume:
-#   1. The redirect preserves the path+query (the controller-appended $request_uri):
+#   1. The redirect is a 301 to the apex (path dropped, T71). Confirmed 2026-09-05:
 #      curl -sS -o /dev/null -D - https://tappa.everva.com.tr/activate?x=1 | grep -i location
-#      → location: https://taptime.mt/activate?x=1
+#      → location: https://taptime.mt   (NOT .../activate?x=1 — see the path note above)
 #   2. cert-manager can still RENEW tappa-tls (~60 days out) THROUGH the redirect: the
 #      HTTP-01 solver Ingress adds a more-specific /.well-known/acme-challenge/<token>
 #      location that should take precedence over this `/` redirect. Confirm before the
