@@ -75,8 +75,22 @@ check_cloudflare() {
   # state a first deploy is legitimately in. Everything else means the name DOES
   # resolve and we still could not get an answer, and that has to be loud, because an
   # unanswered check cannot distinguish a proxied host from a healthy one.
+  #
+  # 🔴 -k IS DELIBERATE, AND IT IS WHAT MAKES THE GATE ANSWER THE QUESTION IT ASKS.
+  # The question is "is this host PROXIED by Cloudflare", and the only signal for that
+  # is the cf-ray header below — certificate validity is orthogonal. The two states
+  # this gate must tell apart both PRESENT A CERTIFICATE: a proxied host serves a valid
+  # Cloudflare edge cert (plus cf-ray); a DNS-only origin serves whatever it has. On a
+  # controlled zone the record is created DNS-only BEFORE the first deploy (so HTTP-01
+  # can resolve it), which means that between the record and the ingress apply the
+  # origin answers with ingress-nginx's self-signed default ("Fake Certificate").
+  # Verifying that cert would turn the CORRECT state — DNS-only, cert pending — into a
+  # curl exit 60 and a false failure, which is exactly what aborted the taptime.mt
+  # cutover once. -k accepts the origin's cert so the header check can run; a proxied
+  # host still shows cf-ray under -k, and a genuinely unreachable origin still fails
+  # the rc check below (connection refused, timeout — every code except a cert error).
   local rc=0
-  headers=$(curl -sSI --connect-timeout 10 --max-time 20 "https://${host}/healthz" 2>&1) || rc=$?
+  headers=$(curl -sSI -k --connect-timeout 10 --max-time 20 "https://${host}/healthz" 2>&1) || rc=$?
   if (( rc == 6 )); then
     CF_OUTCOME=unchecked
     echo "::warning::${host} does not resolve. If this is the first deploy that is expected: create an A record to 144.76.158.60 with the proxy OFF (grey cloud), then re-run. Nothing about Cloudflare could be checked."
