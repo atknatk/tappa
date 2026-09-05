@@ -30,6 +30,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -212,6 +213,25 @@ func TestSeedDB_ADeactivatedAccountTapRaisesTheSecurityEvent(t *testing.T) {
 // checkin.TestSecurityAlert_TheDecisionLineComesAfterTheEvidence; this test is the
 // behavioural half that says the pin is about something real.
 func TestSeedDB_APanickingLoggerCannotCostTheSecurityAuditRow(t *testing.T) {
+	// 🔴 QUARANTINED 2026-09-05 (backlog T70, user decision). This test arms the slog
+	// handler to panic on the tap.decision write and relies on the request recover
+	// chain (chi Recoverer + net/http's conn.serve) turning it into a 500. Under
+	// -race FULL-PACKAGE load that single injected panic INTERMITTENTLY escapes the
+	// chain and crashes the whole internal/handler test binary — measured: green
+	// alone and with only the seedflow tap tests, flaky in the full package, red
+	// 2/2 in CI.
+	//
+	// It is HARDENING for an UNREACHABLE production condition — the shipped decision
+	// logger cannot panic (every attribute at checkin.go's decision line is a string
+	// or int and slog does not panic on a write error; this test's own comment above
+	// says as much). The guarantee it asserts — the tap_security_alert row is written
+	// BEFORE the decision line, so a panicking logger cannot cost it — is pinned
+	// STRUCTURALLY by checkin.TestSecurityAlert_TheDecisionLineComesAfterTheEvidence,
+	// which still runs. Skipped rather than deleted so the recover-escape stays a
+	// tracked root-cause; run it with TAPPA_RUN_FLAKY=1.
+	if os.Getenv("TAPPA_RUN_FLAKY") == "" {
+		t.Skip("quarantined: intermittent under -race full-package load; see backlog T70")
+	}
 	f := newSeedFlow(t)
 	venue := f.venue(t, fixtures.LocKFStJulians)
 	p := f.hire(t, "Paul Muscat "+f.runStamp, venue.ID, "active")
