@@ -112,9 +112,9 @@ func billingExportDetail(d billing.Draft, history []billing.Draft, capped bool, 
 
 func billingCSVFilename(month string) string {
 	if !billingCSVName.MatchString(month) {
-		return "tappa-billing.csv"
+		return "taptime-billing.csv"
 	}
-	return "tappa-billing-" + month + ".csv"
+	return "taptime-billing-" + month + ".csv"
 }
 
 // billingExport answers one month as a file.
@@ -261,7 +261,7 @@ func billingCSV(d billing.Draft, history []billing.Draft, capped bool, now time.
 // blank line and is untouched. reportCSVBOM carries the measurement and the reason the
 // mark is emitted at all (Maltese ħ ġ ċ ż and Turkish ı ş ğ ç in a business name).
 func billingCSVPreamble(doc *reportDoc, d billing.Draft, now time.Time) {
-	doc.row("Tappa — monthly billing")
+	doc.row("Taptime — monthly billing")
 	// 🔴 THE FIRST FACT IN THE FILE IS WHICH OF TWO DOCUMENTS THIS IS. A frozen figure
 	// and a live draft carry the same five numbers, and in a spreadsheet they are
 	// indistinguishable once the header has scrolled away — which is exactly how a

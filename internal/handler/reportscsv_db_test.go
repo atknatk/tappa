@@ -486,7 +486,7 @@ func TestPanelReportsCSVDB_TheDownloadIsAFileAndSaysSo(t *testing.T) {
 		{"Content-Type", "text/csv; charset=utf-8"},
 		{"X-Content-Type-Options", "nosniff"},
 		{"Cache-Control", "no-store"},
-		{"Content-Disposition", `attachment; filename="tappa-hours-` + week.FirstDay.String() + `.csv"`},
+		{"Content-Disposition", `attachment; filename="taptime-hours-` + week.FirstDay.String() + `.csv"`},
 	} {
 		if got := res.Header.Get(c.name); got != c.want {
 			t.Errorf("%s = %q, want %q", c.name, got, c.want)

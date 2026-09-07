@@ -333,7 +333,7 @@ func (h *AdminReset) Mount(r chi.Router) {
 var (
 	problemResetNoCookie = pages.ProblemView{
 		Title:   "Your browser didn't keep this step",
-		Message: "Tappa needs a cookie to carry this form from one page to the next, and this browser is not storing one.",
+		Message: "Taptime needs a cookie to carry this form from one page to the next, and this browser is not storing one.",
 		Hint:    "Allow cookies for this site, or turn off private browsing, then start again.",
 	}
 	problemResetRestart = pages.ProblemView{
@@ -360,7 +360,7 @@ var (
 	// screen that sends somebody to ask for a replacement that will not arrive
 	// either.
 	problemResetNoDelivery = pages.ProblemView{
-		Title:   "This Tappa cannot send recovery links",
+		Title:   "This Taptime cannot send recovery links",
 		Message: "Sending is not switched on for this server, so no recovery link was ever issued and nothing here can set a password.",
 		Hint:    "Ask another owner of your business to set a new password for you from the panel.",
 	}

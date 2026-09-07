@@ -301,7 +301,7 @@ func SignupBusiness(v SignupBusinessView) templ.Component {
 					}
 					return nil
 				})
-				templ_7745c5c3_Err = components.Notice(components.ToneAlert, "This business is already with Tappa").Render(templ.WithChildren(ctx, templ_7745c5c3_Var12), templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = components.Notice(components.ToneAlert, "This business is already with Taptime").Render(templ.WithChildren(ctx, templ_7745c5c3_Var12), templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -353,7 +353,7 @@ func SignupBusiness(v SignupBusinessView) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "\" class=\"min-h-11 w-full border border-line bg-paper px-3 py-2 font-mono text-sm uppercase text-ink focus:border-tappa-green focus:outline-none focus:ring-1 focus:ring-tappa-green\"><p class=\"mt-1 text-xs text-ink/70\">With the country letters in front — MT12345678 for Malta. Tappa is for registered businesses, so this one is required.</p>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "\" class=\"min-h-11 w-full border border-line bg-paper px-3 py-2 font-mono text-sm uppercase text-ink focus:border-tappa-green focus:outline-none focus:ring-1 focus:ring-tappa-green\"><p class=\"mt-1 text-xs text-ink/70\">With the country letters in front — MT12345678 for Malta. Taptime is for registered businesses, so this one is required.</p>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -443,7 +443,7 @@ func SignupBusiness(v SignupBusinessView) templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = signupShell("Start free — Tappa", 1, "Tell us about the business",
+		templ_7745c5c3_Err = signupShell("Start free — Taptime", 1, "Tell us about the business",
 			"Three short steps. Nothing is created until the last one, and you can go back at any point.").Render(templ.WithChildren(ctx, templ_7745c5c3_Var11), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
@@ -726,7 +726,7 @@ func SignupPlaces(v SignupPlacesView) templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = signupShell("Your places — Tappa", 2, "Where does your team tap?",
+		templ_7745c5c3_Err = signupShell("Your places — Taptime", 2, "Where does your team tap?",
 			"One line per door. You can rename them and add the rest from your dashboard.").Render(templ.WithChildren(ctx, templ_7745c5c3_Var24), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
@@ -897,7 +897,7 @@ func SignupAccount(v SignupAccountView) templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = signupShell("Your account — Tappa", 3, "Create your sign-in",
+		templ_7745c5c3_Err = signupShell("Your account — Taptime", 3, "Create your sign-in",
 			"This is the account you will manage "+v.BusinessName+" with. You can invite the rest of your managers later.").Render(templ.WithChildren(ctx, templ_7745c5c3_Var33), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
@@ -1104,7 +1104,7 @@ func SignupDone(v SignupDoneView) templ.Component {
 						return templ_7745c5c3_Err
 					}
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 80, "<li><span class=\"font-display font-bold tracking-tight text-ink\">Invite your team.</span> Each person opens their own link once, on their own phone.</li><li><span class=\"font-display font-bold tracking-tight text-ink\">Your plaques.</span> Tappa encodes each one and loads it into your dashboard; ask us for the ones you need. Until one is mounted there is nothing to tap at.</li></ol></div>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 80, "<li><span class=\"font-display font-bold tracking-tight text-ink\">Invite your team.</span> Each person opens their own link once, on their own phone.</li><li><span class=\"font-display font-bold tracking-tight text-ink\">Your plaques.</span> Taptime encodes each one and loads it into your dashboard; ask us for the ones you need. Until one is mounted there is nothing to tap at.</li></ol></div>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -1135,7 +1135,7 @@ func SignupDone(v SignupDoneView) templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = layout.Marketing("You're set up — Tappa", layout.RobotsPrivate).Render(templ.WithChildren(ctx, templ_7745c5c3_Var41), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = layout.Marketing("You're set up — Taptime", layout.RobotsPrivate).Render(templ.WithChildren(ctx, templ_7745c5c3_Var41), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1275,7 +1275,7 @@ func SignupProblem(v SignupProblemView) templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = layout.Marketing("Tappa", layout.RobotsPrivate).Render(templ.WithChildren(ctx, templ_7745c5c3_Var52), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = layout.Marketing("Taptime", layout.RobotsPrivate).Render(templ.WithChildren(ctx, templ_7745c5c3_Var52), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

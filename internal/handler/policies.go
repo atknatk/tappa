@@ -190,7 +190,7 @@ func policyProblemSentence(word string) string {
 			"rule is switched off, never deleted. Either pick a different name, or choose " +
 			"“a new version of” that rule instead of “a new rule”."
 	case "not-yours":
-		return "That is a rule Tappa maintains, so it cannot be rewritten in place. Switch it " +
+		return "That is a rule Taptime maintains, so it cannot be rewritten in place. Switch it " +
 			"off and write your own version instead — that way its history stays readable for " +
 			"the records it decided."
 	case "lockout-stands":

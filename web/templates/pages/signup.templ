@@ -83,10 +83,10 @@ templ fieldError(errs map[string]string, field string) {
 // SignupBusiness is step one: the business name, the VAT number, the trade and
 // whether there is one place or several.
 templ SignupBusiness(v SignupBusinessView) {
-	@signupShell("Start free — Tappa", 1, "Tell us about the business",
+	@signupShell("Start free — Taptime", 1, "Tell us about the business",
 		"Three short steps. Nothing is created until the last one, and you can go back at any point.") {
 		if v.SignInHref != "" {
-			@components.Notice(components.ToneAlert, "This business is already with Tappa") {
+			@components.Notice(components.ToneAlert, "This business is already with Taptime") {
 				<p>
 					Sign in with the address you registered, or use a different VAT number if this is
 					a second company.
@@ -127,7 +127,7 @@ templ SignupBusiness(v SignupBusinessView) {
 					class="min-h-11 w-full border border-line bg-paper px-3 py-2 font-mono text-sm uppercase text-ink focus:border-tappa-green focus:outline-none focus:ring-1 focus:ring-tappa-green"
 				/>
 				<p class="mt-1 text-xs text-ink/70">
-					With the country letters in front — MT12345678 for Malta. Tappa is for registered
+					With the country letters in front — MT12345678 for Malta. Taptime is for registered
 					businesses, so this one is required.
 				</p>
 				@fieldError(v.Errors, "vat_number")
@@ -231,7 +231,7 @@ templ structureCard(current, value, title, body string) {
 // on a sign-up form produces wrong data at the one moment nobody can check it, and
 // wrong proof-of-place is what turns a good tap into a FLAGGED one.
 templ SignupPlaces(v SignupPlacesView) {
-	@signupShell("Your places — Tappa", 2, "Where does your team tap?",
+	@signupShell("Your places — Taptime", 2, "Where does your team tap?",
 		"One line per door. You can rename them and add the rest from your dashboard.") {
 		<form method="post" action="/signup/places" class="flex flex-col gap-6">
 			<input type="hidden" name="csrf" value={ v.CSRFToken }/>
@@ -281,7 +281,7 @@ templ SignupPlaces(v SignupPlacesView) {
 
 // SignupAccount is step three: the person who will manage it.
 templ SignupAccount(v SignupAccountView) {
-	@signupShell("Your account — Tappa", 3, "Create your sign-in",
+	@signupShell("Your account — Taptime", 3, "Create your sign-in",
 		"This is the account you will manage "+v.BusinessName+" with. You can invite the rest of your managers later.") {
 		<form method="post" action="/signup/account" class="flex flex-col gap-6">
 			<input type="hidden" name="csrf" value={ v.CSRFToken }/>
@@ -385,7 +385,7 @@ templ SignupAccount(v SignupAccountView) {
 // THE DOCKET MOTIF IS THE PRODUCT'S SIGNATURE and this is the first record the
 // customer ever sees. Every card in the panel will look like this one.
 templ SignupDone(v SignupDoneView) {
-	@layout.Marketing("You're set up — Tappa", layout.RobotsPrivate) {
+	@layout.Marketing("You're set up — Taptime", layout.RobotsPrivate) {
 		@marketingChrome("") {
 			<section class="px-4 py-8 sm:py-12">
 				<div class="mx-auto w-full max-w-2xl">
@@ -463,7 +463,7 @@ templ SignupDone(v SignupDoneView) {
 								// tripwire forbade the same words on another, one click apart.
 								// TestSignupSurface_MakesNoDeliveryClaim holds it.
 								<span class="font-display font-bold tracking-tight text-ink">Your plaques.</span>
-								Tappa encodes each one and loads it into your dashboard; ask us for the
+								Taptime encodes each one and loads it into your dashboard; ask us for the
 								ones you need. Until one is mounted there is nothing to tap at.
 							</li>
 						</ol>
@@ -484,7 +484,7 @@ templ SignupDone(v SignupDoneView) {
 // SignupProblem is every "this did not work" screen in the wizard. See
 // signupview.go for why it is separate from pages.Problem.
 templ SignupProblem(v SignupProblemView) {
-	@layout.Marketing("Tappa", layout.RobotsPrivate) {
+	@layout.Marketing("Taptime", layout.RobotsPrivate) {
 		@marketingChrome("") {
 			<section class="px-4 py-8 sm:py-12">
 				<div class="mx-auto w-full max-w-2xl">

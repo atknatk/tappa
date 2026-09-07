@@ -73,9 +73,9 @@ type AdminResetSentView struct {
 // duplicating the whole page to vary six words is how two pages drift apart.
 func (v AdminResetSentView) title() string {
 	if v.CanDeliver {
-		return "Check your email — Tappa"
+		return "Check your email — Taptime"
 	}
-	return "Nothing was sent — Tappa"
+	return "Nothing was sent — Taptime"
 }
 
 // AdminResetNewView is the form a recovery link opens: two password boxes.

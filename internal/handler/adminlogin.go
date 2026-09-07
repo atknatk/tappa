@@ -702,7 +702,7 @@ func (a *AdminAuth) requireLogin(w http.ResponseWriter, r *http.Request) {
 var (
 	problemAdminNoCookie = pages.ProblemView{
 		Title:   "Your browser didn't keep the sign-in",
-		Message: "Tappa needs a cookie to sign you in, and this browser is not storing one.",
+		Message: "Taptime needs a cookie to sign you in, and this browser is not storing one.",
 		Hint:    "Allow cookies for this site, or turn off private browsing, then try again.",
 	}
 	problemAdminRestart = pages.ProblemView{

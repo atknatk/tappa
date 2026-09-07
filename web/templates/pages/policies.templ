@@ -147,10 +147,10 @@ templ policyDegraded(v PoliciesView) {
 			// design. A reassurance that is wrong on the screen explaining the problem is
 			// the §4.6 failure one layer out.
 			<p>
-				One of your Tappa baseline rules is stored in a form this release cannot
+				One of your Taptime baseline rules is stored in a form this release cannot
 				read, and the engine does not run a PART of a rulebook — a half rulebook is
 				a different rulebook, not a safer one. So every tap is currently being
-				judged by the Tappa guarantees alone: whatever one of them settles is
+				judged by the Taptime guarantees alone: whatever one of them settles is
 				settled the same way it always is, and everything else is recorded and sent
 				to your review queue instead of being approved.
 			</p>
@@ -175,10 +175,10 @@ templ policyIntro(v PoliciesView) {
 	<section class="bg-paper border border-line px-4 py-4">
 		<h2 class="font-display text-lg font-bold tracking-tight text-ink">How your rules are decided</h2>
 		<p class="mt-1 text-sm text-ink/85">
-			Every tap is judged in three layers, in this order. <strong>Tappa guarantees</strong>
+			Every tap is judged in three layers, in this order. <strong>Taptime guarantees</strong>
 			run first and stop everything else — they are part of the product and nobody
 			can switch them off, including us. If none of them applies, your
-			<strong>Tappa baseline</strong> and <strong>your own policies</strong> are weighed
+			<strong>Taptime baseline</strong> and <strong>your own policies</strong> are weighed
 			together, and where two rules disagree the <strong>more specific one decides</strong>
 			— a rule about one venue beats a rule about all of them, whichever way it goes.
 			Only when two rules are equally specific does the stricter answer win. If nothing
@@ -189,7 +189,7 @@ templ policyIntro(v PoliciesView) {
 		</p>
 		if v.MayEdit {
 			<p class="mt-2 text-xs text-ink/85">
-				You can switch a Tappa baseline rule off, and write your own version of one that
+				You can switch a Taptime baseline rule off, and write your own version of one that
 				applies at the venues you choose. Every change is shown to you in words before it
 				is written, and every change is recorded with your name against it.
 			</p>
@@ -202,7 +202,7 @@ templ policyIntro(v PoliciesView) {
 			// sentence instead of as a switch. The page said the true thing twice already (the
 			// "Bound to" footnote and the bind confirmation screen) and the opposite here.
 			<p class="mt-1 text-xs text-ink/85">
-				You can also record where a Tappa rule belongs. That is bookkeeping, not scope —
+				You can also record where a Taptime rule belongs. That is bookkeeping, not scope —
 				what decides where a rule applies is the “Where” line on each of its statements,
 				never the bindings.
 			</p>
@@ -258,7 +258,7 @@ templ policySettings(v PoliciesView) {
 					// here" three lines below, so the first sentence read as an invitation and the
 					// second as a contradiction. The range is still printed — a customer asking us
 					// to change it needs to know what they may ask for.
-					<span class="text-ink/70">· set by Tappa, within { s.Range }</span>
+					<span class="text-ink/70">· set by Taptime, within { s.Range }</span>
 				</p>
 				<p class="text-xs text-ink/85">{ s.Uses }</p>
 			}
@@ -313,7 +313,7 @@ templ policySettings(v PoliciesView) {
 // thing a button. The rest of the section is held by a different, wider net.
 templ PolicyGuarantees(v PoliciesView) {
 	<div class="policy-guarantees">
-		<h2 class="font-display text-lg font-bold tracking-tight text-ink">Tappa guarantees</h2>
+		<h2 class="font-display text-lg font-bold tracking-tight text-ink">Taptime guarantees</h2>
 		<p class="text-sm text-ink/85">
 			These are checked in the order shown, and the first one that applies decides on
 			its own. They are part of the product rather than a setting: there is no control to
@@ -349,7 +349,7 @@ templ PolicyGuarantees(v PoliciesView) {
 
 // policyBaseline is the layer Tappa ships and maintains.
 templ policyBaseline(v PoliciesView) {
-	<h2 class="font-display text-lg font-bold tracking-tight text-ink">Tappa baseline</h2>
+	<h2 class="font-display text-lg font-bold tracking-tight text-ink">Taptime baseline</h2>
 	<p class="text-sm text-ink/85">
 		The defaults we ship. Unlike the guarantees above, these are yours: one can be
 		switched off or replaced with your own version once it has been set up for your
@@ -384,7 +384,7 @@ templ policyTenant(v PoliciesView) {
 				</p>
 			} else {
 				<p class="mt-1 text-sm">
-					Your business is running on the Tappa guarantees alone — none of the
+					Your business is running on the Taptime guarantees alone — none of the
 					baseline rules above is deciding anything yet. Taps are still recorded;
 					anything the guarantees do not settle goes to your review queue.
 				</p>
@@ -412,7 +412,7 @@ templ policyRule(r PolicyRuleView) {
 		</div>
 		<p class="mt-1 font-mono text-xs uppercase tracking-widest text-ink/70">
 			if r.Managed {
-				Managed by Tappa
+				Managed by Taptime
 			} else {
 				Written by you
 			}
@@ -595,8 +595,8 @@ templ policyAuthoring(v PoliciesView) {
 				// the very thing the form sells — an owner writing a permissive copy scoped to one
 				// venue would read the intro and expect it not to loosen anything, and the engine
 				// would pick it.
-				Take one of the Tappa rules above and keep it only where you want it. Your copy is
-				your own — it gets its own history, and Tappa never changes it. It does NOT switch
+				Take one of the Taptime rules above and keep it only where you want it. Your copy is
+				your own — it gets its own history, and Taptime never changes it. It does NOT switch
 				the original off: until you do that, both apply, and the more specific one decides
 				— so a copy scoped to one venue can make that venue MORE permissive than the
 				original, not only stricter.
@@ -624,7 +624,7 @@ templ policyAuthoring(v PoliciesView) {
 					<input type="text" name="name" maxlength="120" required class="filter-input"/>
 				</label>
 				<label class="flex flex-col gap-1 text-xs text-ink/85">
-					Which Tappa rule is it a version of?
+					Which Taptime rule is it a version of?
 					<select name="based_on" class="filter-input">
 						for _, o := range v.Authorable {
 							<option value={ o.Value }>{ o.Label }</option>
@@ -641,7 +641,7 @@ templ policyAuthoring(v PoliciesView) {
 					// offer departments in the "Bound to" control and a customer would otherwise
 					// reasonably read that as scope.
 					<p class="text-xs text-ink/85">
-						Tick nothing and it applies at every venue, which is what the Tappa rule already
+						Tick nothing and it applies at every venue, which is what the Taptime rule already
 						does. Tick some and it applies only there. A rule cannot be narrowed to a
 						department yet — only to venues. Recording one against a department under
 						“Bound to” is bookkeeping rather than scope.

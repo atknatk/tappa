@@ -621,7 +621,7 @@ func TestBillingCSV_CarriesTheBOMAndPutsItOnATitle(t *testing.T) {
 		t.Fatal("the export has no rows")
 	}
 	// The first record is the title, and it is not a heading anything keys on.
-	if first := rows[0][0]; first != "Tappa — monthly billing" {
+	if first := rows[0][0]; first != "Taptime — monthly billing" {
 		t.Errorf("the BOM lands on %q, which is not the document's title row", first)
 	}
 	// EVERY MACHINE-READABLE HEADING IS UNTOUCHED, which is the whole of the mitigation.

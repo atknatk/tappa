@@ -319,9 +319,9 @@ var reportCSVName = regexp.MustCompile(`^[0-9]{4}-[0-9]{2}-[0-9]{2}$`)
 
 func reportCSVFilename(day string) string {
 	if !reportCSVName.MatchString(day) {
-		return "tappa-hours.csv"
+		return "taptime-hours.csv"
 	}
-	return "tappa-hours-" + day + ".csv"
+	return "taptime-hours-" + day + ".csv"
 }
 
 // spreadsheetSafe neutralises a cell a spreadsheet would treat as a FORMULA.
@@ -750,7 +750,7 @@ func reportCSVPreamble(d *reportDoc, s ledger.ReportScreen, zone *time.Location,
 	days := p.DayLabels(zone)
 	last := days[len(days)-1]
 
-	d.row("Tappa — hours worked")
+	d.row("Taptime — hours worked")
 	d.row("Business", s.TenantName)
 	d.row("Week (local days)", p.FirstDay.String()+" to "+last.Format("2006-01-02"))
 	d.row("Timezone", zone.String())
@@ -798,7 +798,7 @@ func reportCSVExclusions(d *reportDoc, s ledger.ReportScreen) {
 	d.row("Hours a manager refused", hoursMinutes(s.Totals.Refused), strconv.Itoa(wholeMinutes(s.Totals.Refused)),
 		"Flagged records a manager rejected. Not in worked hours, and shown so the total can be checked against the records.")
 	d.row("Check-ins with no checkout", strconv.Itoa(s.Totals.Open), "",
-		"Tappa does not invent a checkout. These are worth NO hours here — not zero hours — and a manager enters the missing record. Listed in full below.")
+		"Taptime does not invent a checkout. These are worth NO hours here — not zero hours — and a manager enters the missing record. Listed in full below.")
 	// 🔴 THE SCREEN PRINTS THIS TALLY AND THE FILE DID NOT, WHICH IS AN ASYMMETRY
 	// RATHER THAN A SAVING. pages.needsActionLine tells a manager how many of the whole
 	// backlog have been open too long to be somebody still on shift; the open block

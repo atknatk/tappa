@@ -91,7 +91,7 @@ func AdminResetRequest(v AdminResetRequestView) templ.Component {
 					}
 					return nil
 				})
-				templ_7745c5c3_Err = components.Notice(components.ToneWarn, "This Tappa cannot send email yet").Render(templ.WithChildren(ctx, templ_7745c5c3_Var3), templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = components.Notice(components.ToneWarn, "This Taptime cannot send email yet").Render(templ.WithChildren(ctx, templ_7745c5c3_Var3), templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -124,7 +124,7 @@ func AdminResetRequest(v AdminResetRequestView) templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = layout.Page("Recover your password — Tappa").Render(templ.WithChildren(ctx, templ_7745c5c3_Var2), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = layout.Page("Recover your password — Taptime").Render(templ.WithChildren(ctx, templ_7745c5c3_Var2), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -173,7 +173,7 @@ func AdminResetSent(v AdminResetSentView) templ.Component {
 			}
 			ctx = templ.InitializeContext(ctx)
 			if v.CanDeliver {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "<h1 class=\"font-display text-2xl font-bold tracking-tight\">Check your email</h1><p class=\"text-sm text-ink/85\">If that address belongs to a Tappa administrator, a recovery link is on its way to it. The link works once and expires in an hour.</p><p class=\"text-sm text-ink/70\">Nothing has changed yet: your current password still works until you use the link.</p><p class=\"text-sm text-ink/70\">If several emails arrive, use the newest — asking again replaces the earlier links.</p>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "<h1 class=\"font-display text-2xl font-bold tracking-tight\">Check your email</h1><p class=\"text-sm text-ink/85\">If that address belongs to a Taptime administrator, a recovery link is on its way to it. The link works once and expires in an hour.</p><p class=\"text-sm text-ink/70\">Nothing has changed yet: your current password still works until you use the link.</p><p class=\"text-sm text-ink/70\">If several emails arrive, use the newest — asking again replaces the earlier links.</p>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -200,7 +200,7 @@ func AdminResetSent(v AdminResetSentView) templ.Component {
 					}
 					return nil
 				})
-				templ_7745c5c3_Err = components.Notice(components.ToneWarn, "This Tappa cannot send email yet").Render(templ.WithChildren(ctx, templ_7745c5c3_Var8), templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = components.Notice(components.ToneWarn, "This Taptime cannot send email yet").Render(templ.WithChildren(ctx, templ_7745c5c3_Var8), templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -337,13 +337,13 @@ func AdminResetNew(v AdminResetNewView) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "\"><div class=\"flex flex-col gap-1\"><label for=\"reset-password\" class=\"docket-label\">New password</label> <input id=\"reset-password\" name=\"password\" type=\"password\" autocomplete=\"new-password\" required autofocus class=\"min-h-11 w-full border border-line bg-paper px-3 py-2 font-mono text-sm text-ink focus:border-tappa-green focus:outline-none focus:ring-1 focus:ring-tappa-green\"></div><div class=\"flex flex-col gap-1\"><label for=\"reset-password-confirm\" class=\"docket-label\">Type it again</label> <input id=\"reset-password-confirm\" name=\"password_confirm\" type=\"password\" autocomplete=\"new-password\" required class=\"min-h-11 w-full border border-line bg-paper px-3 py-2 font-mono text-sm text-ink focus:border-tappa-green focus:outline-none focus:ring-1 focus:ring-tappa-green\"></div><button type=\"submit\" class=\"btn btn--primary w-full\">Set the password</button></form><p class=\"text-xs text-ink/70\">Setting a new password signs you out of Tappa everywhere, on every device — including this one. You will sign in again straight afterwards.</p>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "\"><div class=\"flex flex-col gap-1\"><label for=\"reset-password\" class=\"docket-label\">New password</label> <input id=\"reset-password\" name=\"password\" type=\"password\" autocomplete=\"new-password\" required autofocus class=\"min-h-11 w-full border border-line bg-paper px-3 py-2 font-mono text-sm text-ink focus:border-tappa-green focus:outline-none focus:ring-1 focus:ring-tappa-green\"></div><div class=\"flex flex-col gap-1\"><label for=\"reset-password-confirm\" class=\"docket-label\">Type it again</label> <input id=\"reset-password-confirm\" name=\"password_confirm\" type=\"password\" autocomplete=\"new-password\" required class=\"min-h-11 w-full border border-line bg-paper px-3 py-2 font-mono text-sm text-ink focus:border-tappa-green focus:outline-none focus:ring-1 focus:ring-tappa-green\"></div><button type=\"submit\" class=\"btn btn--primary w-full\">Set the password</button></form><p class=\"text-xs text-ink/70\">Setting a new password signs you out of Taptime everywhere, on every device — including this one. You will sign in again straight afterwards.</p>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = layout.Page("Set a new password — Tappa").Render(templ.WithChildren(ctx, templ_7745c5c3_Var11), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = layout.Page("Set a new password — Taptime").Render(templ.WithChildren(ctx, templ_7745c5c3_Var11), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

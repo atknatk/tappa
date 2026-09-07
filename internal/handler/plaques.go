@@ -275,9 +275,9 @@ func plaqueStatusWord(status string) string {
 // one place.
 func keyStateOf(p tenant.Plaque) string {
 	if p.InStock() {
-		return "Encoded by Tappa — pending a wall"
+		return "Encoded by Taptime — pending a wall"
 	}
-	return "Encoded by Tappa"
+	return "Encoded by Taptime"
 }
 
 // plaqueStamp renders an instant in the tenant's zone, or "" for none.

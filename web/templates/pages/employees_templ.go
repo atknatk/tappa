@@ -585,7 +585,7 @@ func AdminInviteIssued(v InviteIssuedView) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 34, "</p><p class=\"mt-3 text-xs text-ink/85\">Tappa keeps no copy of this link. If you lose this page, create another invitation.</p><p class=\"mt-2 text-xs text-ink/85\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 34, "</p><p class=\"mt-3 text-xs text-ink/85\">Taptime keeps no copy of this link. If you lose this page, create another invitation.</p><p class=\"mt-2 text-xs text-ink/85\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

@@ -471,7 +471,7 @@ func TestEmployeeDeactivate_TheConfirmationStepIsENFORCED(t *testing.T) {
 		b := panelBrowserWithActions(t, &fakeStaff{}, &fakeInviter{})
 		body := htmlOf(t, b.do(http.MethodGet,
 			managedRosterHref(employeeID)+"&confirm=deactivate", nil))
-		if !strings.Contains(body, "Tappa has no way to undo it") {
+		if !strings.Contains(body, "Taptime has no way to undo it") {
 			t.Error("the confirmation screen no longer says the action cannot be undone")
 		}
 	})

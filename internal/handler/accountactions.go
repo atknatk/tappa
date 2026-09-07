@@ -191,7 +191,7 @@ func (a *AdminAuth) accountSave(w http.ResponseWriter, r *http.Request) {
 		a.renderAccountFormAgain(w, r, id, form, "timezone",
 			"That timezone would move the first month you can be billed for, so we cannot "+
 				"change it from this screen. Your business signed up close to a month boundary, "+
-				"which is why the zone decides which month is your first paid one. Ask Tappa and "+
+				"which is why the zone decides which month is your first paid one. Ask Taptime and "+
 				"we will change it with you.")
 		return
 	case errors.Is(err, tenant.ErrUnknownTenantAccount):

@@ -289,7 +289,7 @@ var PanelSections = []PanelSection{
 		// shift; putting it between Reports and Anomalies would break a run navigated by
 		// habit for a screen read twice a year.
 		Tab: TabAccount, Label: "Account", Href: "/admin/account", Task: "M7-05",
-		Blurb: "This business as Tappa has it on file: its name, its VAT number and what the register said about it, its timezone, and the send-off your staff read after a good tap.",
+		Blurb: "This business as Taptime has it on file: its name, its VAT number and what the register said about it, its timezone, and the send-off your staff read after a good tap.",
 	},
 	{
 		// 🔴 IT IS AFTER BILLING BECAUSE IT IS NOT THIS BUSINESS'S AT ALL. Billing is
@@ -297,8 +297,8 @@ var PanelSections = []PanelSection{
 		// is about TAPPA, and almost nobody signed into this panel will ever see it.
 		// Putting it anywhere among the operational sections would suggest a customer
 		// has something to do here.
-		Tab: TabLegal, Label: "Tappa legal texts", Href: "/admin/legal", Task: "M7-06",
-		Blurb: "The privacy policy, terms, company details and cookie notice that /legal publishes — Tappa's own documents, not this business's.",
+		Tab: TabLegal, Label: "Taptime legal texts", Href: "/admin/legal", Task: "M7-06",
+		Blurb: "The privacy policy, terms, company details and cookie notice that /legal publishes — Taptime's own documents, not this business's.",
 		// The route is mounted for everybody and the handler refuses everybody who is
 		// not on the allow-list; this only decides whether the link is drawn.
 		OperatorOnly: true,

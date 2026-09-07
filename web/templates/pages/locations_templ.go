@@ -557,7 +557,7 @@ func AdminLocations(v LocationsView) templ.Component {
 							return templ_7745c5c3_Err
 						}
 					} else {
-						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 46, "   <p>No plaques have been loaded for this business yet. Tappa encodes each plaque and loads it here; ask us for the ones you need and they will appear in stock, ready to mount.</p>")
+						templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 46, "   <p>No plaques have been loaded for this business yet. Taptime encodes each plaque and loads it here; ask us for the ones you need and they will appear in stock, ready to mount.</p>")
 						if templ_7745c5c3_Err != nil {
 							return templ_7745c5c3_Err
 						}

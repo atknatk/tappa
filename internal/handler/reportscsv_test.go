@@ -886,7 +886,7 @@ func TestReportCSV_PutsTheBOMWhereNoColumnHeadingIs(t *testing.T) {
 
 	// 🔴 THE MARK IS ON A TITLE CELL. Parsed WITHOUT stripping it, the first cell is
 	// the document's title and no machine-readable heading is touched.
-	if rows[0][0] != reportCSVBOM+"Tappa — hours worked" {
+	if rows[0][0] != reportCSVBOM+"Taptime — hours worked" {
 		t.Fatalf("the first cell is %q; the mark must land on the title line", rows[0][0])
 	}
 	// EVERY OTHER CELL IS CLEAN, which is the property that makes the placement worth
@@ -1039,7 +1039,7 @@ func TestReportsExport_SendsTheHeadersADownloadNeedsAndNotTheOnesItDoesNot(t *te
 		{"Content-Type", "text/csv; charset=utf-8", "a browser must not render this as a page"},
 		{"X-Content-Type-Options", "nosniff", "content sniffing on a downloaded file is how an attachment becomes a page"},
 		{"Cache-Control", "no-store", "this is payroll; no intermediary and no back button may keep a copy"},
-		{"Content-Disposition", `attachment; filename="tappa-hours-2026-08-03.csv"`, "it is a file, and its name is server-derived"},
+		{"Content-Disposition", `attachment; filename="taptime-hours-2026-08-03.csv"`, "it is a file, and its name is server-derived"},
 	} {
 		if got := h.Get(c.name); got != c.want {
 			t.Errorf("%s = %q, want %q (%s)", c.name, got, c.want, c.why)
@@ -1072,14 +1072,14 @@ func TestReportsExport_SendsTheHeadersADownloadNeedsAndNotTheOnesItDoesNot(t *te
 // pattern is what makes "server-derived" checkable.
 func TestReportCSVFilename_IsServerDerivedAndCannotBreakTheHeader(t *testing.T) {
 	for _, c := range []struct{ in, want string }{
-		{in: "2026-08-03", want: "tappa-hours-2026-08-03.csv"},
+		{in: "2026-08-03", want: "taptime-hours-2026-08-03.csv"},
 		// Everything that is not an ISO date falls back, INCLUDING the shapes that
 		// would break the header.
-		{in: `x" ; filename="payroll.html`, want: "tappa-hours.csv"},
-		{in: "2026-08-03\r\nX-Injected: 1", want: "tappa-hours.csv"},
-		{in: "../../etc/passwd", want: "tappa-hours.csv"},
-		{in: "", want: "tappa-hours.csv"},
-		{in: "2026-8-3", want: "tappa-hours.csv"},
+		{in: `x" ; filename="payroll.html`, want: "taptime-hours.csv"},
+		{in: "2026-08-03\r\nX-Injected: 1", want: "taptime-hours.csv"},
+		{in: "../../etc/passwd", want: "taptime-hours.csv"},
+		{in: "", want: "taptime-hours.csv"},
+		{in: "2026-8-3", want: "taptime-hours.csv"},
 	} {
 		if got := reportCSVFilename(c.in); got != c.want {
 			t.Errorf("reportCSVFilename(%q) = %q, want %q", c.in, got, c.want)

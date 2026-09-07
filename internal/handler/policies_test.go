@@ -333,7 +333,7 @@ func TestPoliciesSection_SaysTheReadFailedRatherThanShowingAnEmptyRulebook(t *te
 		t.Fatalf("GET with a failing read: %d, want 500", rec.Code)
 	}
 	body := htmlOf(t, rec)
-	for _, forbidden := range []string{"Tappa guarantees", "Who may do what"} {
+	for _, forbidden := range []string{"Taptime guarantees", "Who may do what"} {
 		if strings.Contains(body, forbidden) {
 			t.Errorf("a failed read rendered the section heading %q; it must render a problem "+
 				"page instead", forbidden)
@@ -633,7 +633,7 @@ func TestPoliciesSection_RendersOnlyInertMarkup(t *testing.T) {
 			// only where a body exists -- and the branch derivation is what guarantees
 			// every OTHER fixture reaches the blocks these headings live in.
 			if screen.Queried {
-				for _, heading := range []string{"Tappa guarantees", "Tappa baseline", "Who may do what"} {
+				for _, heading := range []string{"Taptime guarantees", "Taptime baseline", "Who may do what"} {
 					if !strings.Contains(section, heading) {
 						t.Fatalf("the scanned slice does not contain %q, so the check above ran over "+
 							"less than the section", heading)
@@ -772,9 +772,9 @@ var policyBranchWitness = map[string]string{
 	`g.Tunable != ""@1`:        "may be set between",
 	"len(v.Tenant) == 0@1":     "You have not written any policies of your own.",
 	"v.BaselineInForce@1":      "the intended starting point rather than a gap",
-	"else@1":                   "running on the Tappa guarantees alone",
+	"else@1":                   "running on the Taptime guarantees alone",
 	"else@2":                   "zz-branch-tenant-rule",
-	"r.Managed@1":              "Managed by Tappa",
+	"r.Managed@1":              "Managed by Taptime",
 	"else@3":                   "Written by you",
 	`r.Version != ""@1`:        "version 4241",
 	`r.Stamp != ""@1`:          "zz-branch-stamp",
@@ -1286,7 +1286,7 @@ func policyGuaranteeBytes(t *testing.T, screen tenant.PolicyScreen, mayEdit bool
 	out := buf.String()
 	// ANTI-VACUITY: an empty or trivial render would make every page conform, which is
 	// the failure mode this approach exists to remove rather than inherit.
-	if len(out) < 500 || !strings.Contains(out, "Tappa guarantees") {
+	if len(out) < 500 || !strings.Contains(out, "Taptime guarantees") {
 		t.Fatalf("the guarantee component rendered %d bytes and does not name itself; the "+
 			"region would then be nothing", len(out))
 	}
@@ -2330,7 +2330,7 @@ func TestPoliciesSection_DoesNotTellABusinessWithNoBaselineThatTheBaselineIsCarr
 			"carrying the business, directly under a list saying every one of them is not " +
 			"set up")
 	}
-	if !strings.Contains(body, "running on the Tappa guarantees alone") {
+	if !strings.Contains(body, "running on the Taptime guarantees alone") {
 		t.Error("the page does not say what IS carrying the business; an empty state that " +
 			"only removes a claim leaves the reader with nothing")
 	}

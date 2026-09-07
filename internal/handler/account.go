@@ -108,7 +108,7 @@ var (
 // it did, saying nothing is better than saying something untrue.
 func accountDoneSentence(word string) string {
 	if word == "saved" {
-		return "These details are what Tappa now has on file for this business. " +
+		return "These details are what Taptime now has on file for this business. " +
 			"Everything on this page is read from the row that was just written, not " +
 			"from what was typed."
 	}
@@ -212,7 +212,7 @@ func (a *AdminAuth) accountView(r *http.Request, id httpx.AdminIdentity, s tenan
 		},
 		BrandNote: "These two lines are the send-off after a tap that counted. They " +
 			"follow the kind of business above rather than being written per business, " +
-			"so every restaurant on Tappa reads the same one — writing your own is not " +
+			"so every restaurant on Taptime reads the same one — writing your own is not " +
 			"built yet. They are never shown on a training tap, or on a tap that is " +
 			"waiting for a manager.",
 	}

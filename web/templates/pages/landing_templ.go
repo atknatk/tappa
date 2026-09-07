@@ -141,7 +141,7 @@ func Landing(v LandingView) templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = layout.Marketing("Tappa — punchless time and attendance", layout.RobotsPublic).Render(templ.WithChildren(ctx, templ_7745c5c3_Var2), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = layout.Marketing("Taptime — punchless time and attendance", layout.RobotsPublic).Render(templ.WithChildren(ctx, templ_7745c5c3_Var2), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -225,7 +225,7 @@ func landingPlaque() templ.Component {
 			templ_7745c5c3_Var5 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "<div><p class=\"docket-label\">On the wall</p><div class=\"mt-2 border border-line bg-paper px-4 py-8 text-center\"><p class=\"font-display text-lg font-bold tracking-tight text-tappa-green\">tappa</p><p class=\"docket-label mt-1\">punchless</p><div class=\"mx-auto mt-6 flex h-24 w-24 items-center justify-center rounded-full border-2 border-dashed border-line\"><span class=\"docket-label\">tap here</span></div><p class=\"mt-6 font-display text-base font-bold tracking-tight\">Hold your phone here</p><p class=\"mt-1 text-xs text-ink/70\">Passive chip. No power, no battery, no network.</p></div></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "<div><p class=\"docket-label\">On the wall</p><div class=\"mt-2 border border-line bg-paper px-4 py-8 text-center\"><p class=\"font-display text-lg font-bold tracking-tight text-tappa-green\">taptime</p><p class=\"docket-label mt-1\">punchless</p><div class=\"mx-auto mt-6 flex h-24 w-24 items-center justify-center rounded-full border-2 border-dashed border-line\"><span class=\"docket-label\">tap here</span></div><p class=\"mt-6 font-display text-base font-bold tracking-tight\">Hold your phone here</p><p class=\"mt-1 text-xs text-ink/70\">Passive chip. No power, no battery, no network.</p></div></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -451,7 +451,7 @@ func landingEvidence() templ.Component {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 24, "</dl><div class=\"mt-6 grid gap-4 sm:grid-cols-2\"><div class=\"border border-dashed border-line bg-paper px-4 py-4\"><h3 class=\"font-display text-base font-bold tracking-tight\">When the evidence is thin</h3><p class=\"mt-2 text-sm text-ink/85\">No network match and no position means Tappa cannot say where the tap happened. It does not guess and it does not throw the tap away: it writes the record, marks it FLAGGED and puts it in a manager's queue. Nothing is ever approved silently, and no tap is ever lost for want of proof.</p></div><div class=\"border border-dashed border-line bg-paper px-4 py-4\"><h3 class=\"font-display text-base font-bold tracking-tight\">When there is no one-time code</h3><p class=\"mt-2 text-sm text-ink/85\">A check-in can reach Tappa without the plaque's one-time code — an older phone cannot read a chip in the background. That check-in is no proof of a physical touch, so it needs your venue's network address; a position on its own is not enough for it. That rule is yours to change.</p></div></div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 24, "</dl><div class=\"mt-6 grid gap-4 sm:grid-cols-2\"><div class=\"border border-dashed border-line bg-paper px-4 py-4\"><h3 class=\"font-display text-base font-bold tracking-tight\">When the evidence is thin</h3><p class=\"mt-2 text-sm text-ink/85\">No network match and no position means Taptime cannot say where the tap happened. It does not guess and it does not throw the tap away: it writes the record, marks it FLAGGED and puts it in a manager's queue. Nothing is ever approved silently, and no tap is ever lost for want of proof.</p></div><div class=\"border border-dashed border-line bg-paper px-4 py-4\"><h3 class=\"font-display text-base font-bold tracking-tight\">When there is no one-time code</h3><p class=\"mt-2 text-sm text-ink/85\">A check-in can reach Taptime without the plaque's one-time code — an older phone cannot read a chip in the background. That check-in is no proof of a physical touch, so it needs your venue's network address; a position on its own is not enough for it. That rule is yours to change.</p></div></div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -504,7 +504,7 @@ func landingComparison() templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 25, "<div class=\"mt-6 overflow-x-auto border border-line bg-paper\"><table class=\"w-full min-w-[36rem] text-left text-sm\"><caption class=\"sr-only\">How a fingerprint terminal and Tappa each work</caption> <thead><tr class=\"border-b border-line\"><th scope=\"col\" class=\"px-4 py-3 docket-label\">&nbsp;</th><th scope=\"col\" class=\"px-4 py-3 docket-label\">Fingerprint terminal</th><th scope=\"col\" class=\"px-4 py-3 docket-label\">Tappa</th></tr></thead> <tbody>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 25, "<div class=\"mt-6 overflow-x-auto border border-line bg-paper\"><table class=\"w-full min-w-[36rem] text-left text-sm\"><caption class=\"sr-only\">How a fingerprint terminal and Taptime each work</caption> <thead><tr class=\"border-b border-line\"><th scope=\"col\" class=\"px-4 py-3 docket-label\">&nbsp;</th><th scope=\"col\" class=\"px-4 py-3 docket-label\">Fingerprint terminal</th><th scope=\"col\" class=\"px-4 py-3 docket-label\">Taptime</th></tr></thead> <tbody>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -553,7 +553,7 @@ func landingComparison() templ.Component {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 30, "</tbody></table></div><p class=\"mt-3 text-xs text-ink/70\">This table compares how the two approaches work. It is not a benchmark: we have measured no device against Tappa and make no claim about accuracy or reliability.</p>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 30, "</tbody></table></div><p class=\"mt-3 text-xs text-ink/70\">This table compares how the two approaches work. It is not a benchmark: we have measured no device against Taptime and make no claim about accuracy or reliability.</p>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -754,7 +754,7 @@ func landingPricing(v LandingView) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 42, " months cost nothing, and the price you start on is the price you keep for as long as you stay. In exchange we ask for a reference and permission to write up how it went.</p><p class=\"mt-2 text-sm text-ink/85\">Tappa counts those free months itself and the dashboard shows you which month is the first chargeable one, so the offer is not something you have to remember.</p></div></div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 42, " months cost nothing, and the price you start on is the price you keep for as long as you stay. In exchange we ask for a reference and permission to write up how it went.</p><p class=\"mt-2 text-sm text-ink/85\">Taptime counts those free months itself and the dashboard shows you which month is the first chargeable one, so the offer is not something you have to remember.</p></div></div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -1042,7 +1042,7 @@ func marketingChrome(signInHref string) templ.Component {
 			templ_7745c5c3_Var43 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 59, "<a href=\"#main\" class=\"sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-10 focus:border focus:border-ink focus:bg-paper focus:px-3 focus:py-2\">Skip to content</a><header class=\"border-b border-line px-4 py-4\"><div class=\"mx-auto flex w-full max-w-3xl items-center justify-between gap-4\"><a href=\"/\" class=\"flex items-baseline gap-2\"><span class=\"font-display text-lg font-bold tracking-tight text-tappa-green\">tappa</span> <span class=\"font-mono text-[10px] uppercase tracking-widest text-ink/70\">punchless</span></a> <a href=\"")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 59, "<a href=\"#main\" class=\"sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-10 focus:border focus:border-ink focus:bg-paper focus:px-3 focus:py-2\">Skip to content</a><header class=\"border-b border-line px-4 py-4\"><div class=\"mx-auto flex w-full max-w-3xl items-center justify-between gap-4\"><a href=\"/\" class=\"flex items-baseline gap-2\"><span class=\"font-display text-lg font-bold tracking-tight text-tappa-green\">taptime</span> <span class=\"font-mono text-[10px] uppercase tracking-widest text-ink/70\">punchless</span></a> <a href=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1059,7 +1059,7 @@ func marketingChrome(signInHref string) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 61, "</main><footer class=\"px-4 py-10\"><div class=\"mx-auto w-full max-w-3xl\"><p class=\"docket-label\">Tappa</p><p class=\"mt-2 max-w-xl text-sm text-ink/85\">Punchless time and attendance. Tappa collects no biometric data of any kind: no fingerprints, no face, no voice. A phone's position is read only at the moment somebody presses the button.</p><nav class=\"mt-6 flex flex-wrap gap-x-6 gap-y-2\" aria-label=\"Legal\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 61, "</main><footer class=\"px-4 py-10\"><div class=\"mx-auto w-full max-w-3xl\"><p class=\"docket-label\">Taptime</p><p class=\"mt-2 max-w-xl text-sm text-ink/85\">Punchless time and attendance. Taptime collects no biometric data of any kind: no fingerprints, no face, no voice. A phone's position is read only at the moment somebody presses the button.</p><nav class=\"mt-6 flex flex-wrap gap-x-6 gap-y-2\" aria-label=\"Legal\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

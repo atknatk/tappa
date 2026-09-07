@@ -1520,8 +1520,8 @@ func TestPlaqueViewModels_CannotCarryAKey(t *testing.T) {
 		p    tenant.Plaque
 		want string
 	}{
-		{onWall, "Encoded by Tappa"},
-		{inBox, "Encoded by Tappa — pending a wall"},
+		{onWall, "Encoded by Taptime"},
+		{inBox, "Encoded by Taptime — pending a wall"},
 	} {
 		if got := keyStateOf(tc.p); got != tc.want {
 			t.Errorf("keyStateOf(%s) = %q, want %q", tc.p.Status, got, tc.want)

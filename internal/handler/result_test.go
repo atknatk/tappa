@@ -921,7 +921,7 @@ const (
 
 // What the shell contributes to every confirmation screen: the document <title>
 // (an audit smuggled a claim into it) and the two words in the header.
-const shellText = "Tapped — Tappa tappa punchless"
+const shellText = "Tapped — Taptime taptime punchless"
 
 // problemRetryURL is what renderRetryableProblem puts on the three GET branches
 // that offer one: the plaque's own request URI.
@@ -1360,7 +1360,7 @@ func TestTapPage_EveryGetServerErrorBranchIsAccountedFor(t *testing.T) {
 // strings.Contains, so "Try again — your earlier tap stands" would have passed.
 // problemScreenShell is what the layout contributes to a failure screen: the
 // document <title> and the two header words.
-const problemScreenShell = "Tappa tappa punchless"
+const problemScreenShell = "Taptime taptime punchless"
 
 // problemScreens is the expected text of each failure screen, as LITERALS.
 //
@@ -1382,7 +1382,7 @@ var problemScreens = []struct {
 	},
 	{
 		name: "unknown plaque", view: tapProblemUnknownTag,
-		want: problemScreenShell + " We don't know that plaque This plaque isn't set up with Tappa, or it has" +
+		want: problemScreenShell + " We don't know that plaque This plaque isn't set up with Taptime, or it has" +
 			" been replaced. Tell your manager which door you tapped.",
 	},
 	{

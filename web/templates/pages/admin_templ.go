@@ -73,7 +73,7 @@ func AdminLogin(v AdminLoginView) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<h1 class=\"font-display text-2xl font-bold tracking-tight\">Sign in</h1><p class=\"text-sm text-ink/70\">The Tappa panel for your business.</p>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<h1 class=\"font-display text-2xl font-bold tracking-tight\">Sign in</h1><p class=\"text-sm text-ink/70\">The Taptime panel for your business.</p>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -90,7 +90,7 @@ func AdminLogin(v AdminLoginView) templ.Component {
 						}()
 					}
 					ctx = templ.InitializeContext(ctx)
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "<p>Every Tappa session was signed out, on every device. Sign in with the new password.</p>")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "<p>Every Taptime session was signed out, on every device. Sign in with the new password.</p>")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -167,7 +167,7 @@ func AdminLogin(v AdminLoginView) templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = layout.Page("Sign in — Tappa").Render(templ.WithChildren(ctx, templ_7745c5c3_Var2), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = layout.Page("Sign in — Taptime").Render(templ.WithChildren(ctx, templ_7745c5c3_Var2), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -290,7 +290,7 @@ func AdminChoose(v AdminChooseView) templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = layout.Page("Which business? — Tappa").Render(templ.WithChildren(ctx, templ_7745c5c3_Var8), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = layout.Page("Which business? — Taptime").Render(templ.WithChildren(ctx, templ_7745c5c3_Var8), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -369,7 +369,7 @@ func PanelShell(c PanelChrome) templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = layout.Panel("Panel — Tappa").Render(templ.WithChildren(ctx, templ_7745c5c3_Var14), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = layout.Panel("Panel — Taptime").Render(templ.WithChildren(ctx, templ_7745c5c3_Var14), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -440,7 +440,7 @@ func PanelShellWithScript(c PanelChrome, script string) templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = layout.PanelWithScript("Panel — Tappa", script).Render(templ.WithChildren(ctx, templ_7745c5c3_Var16), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = layout.PanelWithScript("Panel — Taptime", script).Render(templ.WithChildren(ctx, templ_7745c5c3_Var16), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

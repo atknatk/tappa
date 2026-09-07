@@ -88,7 +88,7 @@ var LandingSteps = []Step{
 	{
 		Ordinal: "03",
 		Title:   "After that it is one tap",
-		Body: "Hold the phone to the plaque, the browser opens, one button. Tappa knows " +
+		Body: "Hold the phone to the plaque, the browser opens, one button. Taptime knows " +
 			"whether this is a way in or a way out from the last entry that is still open — " +
 			"so a shift that ends at 02:00 closes the one that started at 18:00.",
 	},
@@ -125,20 +125,20 @@ var LandingEvidence = []Evidence{
 		// and checkable is where it never goes — internal/sun and CLAUDE.md §4.7.
 		Body: "The chip writes a fresh single-use code every time a phone reads it, signed " +
 			"with a key that is never printed on the plaque, never sent to the phone and " +
-			"never written to a log. Tappa checks the signature and refuses any code it " +
+			"never written to a log. Taptime checks the signature and refuses any code it " +
 			"has already seen, so a copied link is worth nothing.",
 	},
 	{
 		Label:   "The sign-in on the phone",
 		Answers: "who tapped",
-		Body: "Set once, when your colleague opened their link. Tappa stores a hash of it " +
+		Body: "Set once, when your colleague opened their link. Taptime stores a hash of it " +
 			"rather than the value, so the thing in their browser cannot be read back " +
 			"out of our database.",
 	},
 	{
 		Label:   "Your venue's network address",
 		Answers: "where it happened",
-		Body: "If you tell Tappa the fixed address a venue's internet connection uses, a tap " +
+		Body: "If you tell Taptime the fixed address a venue's internet connection uses, a tap " +
 			"arriving from it is a tap that happened there.",
 	},
 	{
@@ -150,9 +150,9 @@ var LandingEvidence = []Evidence{
 		// was: internal/domain/ledger's two view types and components.DocketView have
 		// no Latitude and no Longitude field, and the queries do not select them.
 		Body: "If there is no address to match, the browser may offer the phone's position as " +
-			"the button is pressed. Once, on a press. Tappa does not watch a location in " +
+			"the button is pressed. Once, on a press. Taptime does not watch a location in " +
 			"the background and does not draw a boundary to be alerted about, and no " +
-			"screen or export in Tappa shows where a person was — only whether they were " +
+			"screen or export in Taptime shows where a person was — only whether they were " +
 			"close enough.",
 	},
 }
@@ -233,14 +233,14 @@ var LandingFAQ = []Question{
 	},
 	{
 		Q: "What about phones that cannot read the plaque?",
-		A: "Older phones cannot read a chip in the background. Tappa accepts a check-in that " +
+		A: "Older phones cannot read a chip in the background. Taptime accepts a check-in that " +
 			"arrives without the plaque's one-time code — but that check-in carries no proof " +
 			"of a physical touch, so it needs your venue's network address to match. A " +
 			"position on its own is not enough for it. Your organisation can change that rule.",
 	},
 	{
 		Q: "What happens when somebody forgets to clock out?",
-		A: "Tappa does not invent a clock-out. The entry stays open, it is listed as an " +
+		A: "Taptime does not invent a clock-out. The entry stays open, it is listed as an " +
 			"anomaly for a manager, and the hours are typed in by a person. Open entries are " +
 			"left out of the totals and the report says so rather than quietly rounding.",
 	},
@@ -251,7 +251,7 @@ var LandingFAQ = []Question{
 			"record usable as evidence later.",
 	},
 	{
-		Q: "What if Tappa cannot tell where a tap happened?",
+		Q: "What if Taptime cannot tell where a tap happened?",
 		A: "It writes the record anyway, marks it FLAGGED and puts it in a manager's queue. " +
 			"A record is never dropped for want of proof, and nothing is approved silently.",
 	},
@@ -453,7 +453,7 @@ var LegalPages = []LegalPage{
 		Path:     "/legal/privacy",
 		Title:    "Privacy policy",
 		NavLabel: "Privacy",
-		Lede: "What Tappa records about the people who use it, why, how long it is kept " +
+		Lede: "What Taptime records about the people who use it, why, how long it is kept " +
 			"and how somebody exercises their rights over it.",
 		Needs: []string{
 			"The controller: the registered company acting as data controller, with its address.",
@@ -468,7 +468,7 @@ var LegalPages = []LegalPage{
 		Path:     "/legal/terms",
 		Title:    "Terms of service",
 		NavLabel: "Terms",
-		Lede: "The agreement between Tappa and the organisation that subscribes: what is " +
+		Lede: "The agreement between Taptime and the organisation that subscribes: what is " +
 			"provided, what it costs, and how either side ends it.",
 		Needs: []string{
 			"The contracting entity and the governing law.",
@@ -482,7 +482,7 @@ var LegalPages = []LegalPage{
 		Path:     "/legal/imprint",
 		Title:    "Company details",
 		NavLabel: "Company details",
-		Lede: "Who runs Tappa: the registered company, where it is registered and how to " +
+		Lede: "Who runs Taptime: the registered company, where it is registered and how to " +
 			"reach it.",
 		Needs: []string{
 			"Registered company name, legal form and registration number.",
@@ -496,7 +496,7 @@ var LegalPages = []LegalPage{
 		Path:     "/legal/cookies",
 		Title:    "Cookies",
 		NavLabel: "Cookies",
-		Lede: "Every cookie Tappa sets, what it is for and how long it lasts. Tappa sets no " +
+		Lede: "Every cookie Taptime sets, what it is for and how long it lasts. Taptime sets no " +
 			"advertising or analytics cookie and embeds nothing from another site.",
 		Needs: []string{
 			"The controller and contact point, as for the privacy policy.",

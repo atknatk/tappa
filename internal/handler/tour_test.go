@@ -314,19 +314,19 @@ func TestTour_SaysExactlyThisAndNothingElse(t *testing.T) {
 	// run together with single spaces across tag boundaries — the same shape
 	// shellText and the result-screen table use.
 	want := map[int]string{
-		1: "How Tappa works — Tappa tappa punchless " +
+		1: "How Taptime works — Taptime taptime punchless " +
 			"Step 1 of 3 Tap the plaque " +
-			"Hold the top of your phone against the Tappa plaque by the door. Your phone " +
+			"Hold the top of your phone against the Taptime plaque by the door. Your phone " +
 			"opens this page for you — there is nothing to install and nothing to remember. " +
 			"If your phone does not react, ask your manager. " +
 			"Next Skip the tour",
-		2: "One button — Tappa tappa punchless " +
+		2: "One button — Taptime taptime punchless " +
 			"Step 2 of 3 One button " +
 			"The page opens with your name on it and a single button. Press it — that is " +
 			"the whole thing. " +
-			"Tappa works out whether you are arriving or leaving, so you never have to choose. " +
+			"Taptime works out whether you are arriving or leaving, so you never have to choose. " +
 			"Next Skip the tour",
-		3: "Your first tap — Tappa tappa punchless " +
+		3: "Your first tap — Taptime taptime punchless " +
 			"Step 3 of 3 First tap is practice " +
 			"Go ahead and try it: your first tap is a practice run. " +
 			"TRAINING " +

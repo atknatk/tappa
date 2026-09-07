@@ -338,7 +338,7 @@ func Wordmark() templ.Component {
 			templ_7745c5c3_Var10 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "<header class=\"flex items-baseline justify-between\"><span class=\"font-display text-lg font-bold tracking-tight text-tappa-green\">tappa</span> <span class=\"font-mono text-[10px] uppercase tracking-widest text-ink/70\">punchless</span></header>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "<header class=\"flex items-baseline justify-between\"><span class=\"font-display text-lg font-bold tracking-tight text-tappa-green\">taptime</span> <span class=\"font-mono text-[10px] uppercase tracking-widest text-ink/70\">punchless</span></header>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

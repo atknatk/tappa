@@ -146,7 +146,7 @@ func Legal(v LegalPageView) templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = layout.Marketing(v.Page.Title+" — Tappa", v.Robots()).Render(templ.WithChildren(ctx, templ_7745c5c3_Var2), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = layout.Marketing(v.Page.Title+" — Taptime", v.Robots()).Render(templ.WithChildren(ctx, templ_7745c5c3_Var2), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -333,7 +333,7 @@ func legalCookieTable(rows []CookieRow) templ.Component {
 			templ_7745c5c3_Var11 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 16, "<section class=\"mt-8\"><h2 class=\"font-display text-xl font-bold tracking-tight\">The cookies Tappa sets</h2><p class=\"mt-2 max-w-xl text-sm text-ink/85\">All of them are necessary to sign in and to record a shift. There is no advertising cookie, no analytics cookie and nothing embedded from another site — every stylesheet, typeface and script this product loads is served from this domain, so no third party is contacted by opening a page.</p><div class=\"mt-4 overflow-x-auto border border-line bg-paper\"><table class=\"w-full min-w-[42rem] text-left text-sm\"><caption class=\"sr-only\">Cookie name, purpose, lifetime, scope and attributes</caption> <thead><tr class=\"border-b border-line\"><th scope=\"col\" class=\"px-4 py-3 docket-label\">Name</th><th scope=\"col\" class=\"px-4 py-3 docket-label\">What it is for</th><th scope=\"col\" class=\"px-4 py-3 docket-label\">Lifetime</th><th scope=\"col\" class=\"px-4 py-3 docket-label\">Sent to</th><th scope=\"col\" class=\"px-4 py-3 docket-label\">Attributes</th></tr></thead> <tbody>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 16, "<section class=\"mt-8\"><h2 class=\"font-display text-xl font-bold tracking-tight\">The cookies Taptime sets</h2><p class=\"mt-2 max-w-xl text-sm text-ink/85\">All of them are necessary to sign in and to record a shift. There is no advertising cookie, no analytics cookie and nothing embedded from another site — every stylesheet, typeface and script this product loads is served from this domain, so no third party is contacted by opening a page.</p><div class=\"mt-4 overflow-x-auto border border-line bg-paper\"><table class=\"w-full min-w-[42rem] text-left text-sm\"><caption class=\"sr-only\">Cookie name, purpose, lifetime, scope and attributes</caption> <thead><tr class=\"border-b border-line\"><th scope=\"col\" class=\"px-4 py-3 docket-label\">Name</th><th scope=\"col\" class=\"px-4 py-3 docket-label\">What it is for</th><th scope=\"col\" class=\"px-4 py-3 docket-label\">Lifetime</th><th scope=\"col\" class=\"px-4 py-3 docket-label\">Sent to</th><th scope=\"col\" class=\"px-4 py-3 docket-label\">Attributes</th></tr></thead> <tbody>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -408,7 +408,7 @@ func legalCookieTable(rows []CookieRow) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 23, "</tbody></table></div><p class=\"mt-3 text-xs text-ink/70\">Secure is set whenever Tappa is served over https, which is every deployment that is not a developer's own machine. HttpOnly means no page script can read the value.</p></section>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 23, "</tbody></table></div><p class=\"mt-3 text-xs text-ink/70\">Secure is set whenever Taptime is served over https, which is every deployment that is not a developer's own machine. HttpOnly means no page script can read the value.</p></section>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

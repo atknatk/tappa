@@ -602,7 +602,7 @@ func manualConfirmStep(v ManualEntryView) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 47, "<p>Attendance records are permanent — nothing in Tappa can change one or take it back, because a record may be needed as evidence.</p>     <p class=\"mt-1\">If this is wrong, adding another record later can shorten the shift but never lengthen it. Check the time before you press.</p>     ")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 47, "<p>Attendance records are permanent — nothing in Taptime can change one or take it back, because a record may be needed as evidence.</p>     <p class=\"mt-1\">If this is wrong, adding another record later can shorten the shift but never lengthen it. Check the time before you press.</p>     ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

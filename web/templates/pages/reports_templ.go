@@ -914,7 +914,7 @@ func reportOpen(v ReportsView) templ.Component {
 		}
 		ctx = templ.ClearChildren(ctx)
 		if len(v.Open) > 0 {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 75, "<h2 class=\"font-display text-lg font-bold tracking-tight text-ink\">Open — no checkout</h2>   <p class=\"text-sm text-ink/85\">Tappa does not invent a checkout. These check-ins are in none of the totals above, and a manager enters the missing record.</p><p class=\"text-xs text-ink/70\">A row cannot say why it is open. Somebody still on shift and somebody who forgot to tap out look the same here; how long it has been open is all this list measures.</p>   ")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 75, "<h2 class=\"font-display text-lg font-bold tracking-tight text-ink\">Open — no checkout</h2>   <p class=\"text-sm text-ink/85\">Taptime does not invent a checkout. These check-ins are in none of the totals above, and a manager enters the missing record.</p><p class=\"text-xs text-ink/70\">A row cannot say why it is open. Somebody still on shift and somebody who forgot to tap out look the same here; how long it has been open is all this list measures.</p>   ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

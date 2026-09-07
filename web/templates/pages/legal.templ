@@ -34,7 +34,7 @@ import "github.com/atknatk/tappa/web/templates/layout"
 
 // Legal renders one document.
 templ Legal(v LegalPageView) {
-	@layout.Marketing(v.Page.Title+" — Tappa", v.Robots()) {
+	@layout.Marketing(v.Page.Title+" — Taptime", v.Robots()) {
 		@marketingChrome(v.SignInHref) {
 			<article class="px-4 py-10 sm:py-14">
 				<div class="mx-auto w-full max-w-3xl">
@@ -121,7 +121,7 @@ templ legalDraftNotice(p LegalPage) {
 // that is data rather than prose.
 templ legalCookieTable(rows []CookieRow) {
 	<section class="mt-8">
-		<h2 class="font-display text-xl font-bold tracking-tight">The cookies Tappa sets</h2>
+		<h2 class="font-display text-xl font-bold tracking-tight">The cookies Taptime sets</h2>
 		<p class="mt-2 max-w-xl text-sm text-ink/85">
 			All of them are necessary to sign in and to record a shift. There is no
 			advertising cookie, no analytics cookie and nothing embedded from another site —
@@ -154,7 +154,7 @@ templ legalCookieTable(rows []CookieRow) {
 			</table>
 		</div>
 		<p class="mt-3 text-xs text-ink/70">
-			Secure is set whenever Tappa is served over https, which is every deployment that
+			Secure is set whenever Taptime is served over https, which is every deployment that
 			is not a developer's own machine. HttpOnly means no page script can read the value.
 		</p>
 	</section>

@@ -333,7 +333,7 @@ func policyDegraded(v PoliciesView) templ.Component {
 					}()
 				}
 				ctx = templ.InitializeContext(ctx)
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 18, "       <p>One of your Tappa baseline rules is stored in a form this release cannot read, and the engine does not run a PART of a rulebook — a half rulebook is a different rulebook, not a safer one. So every tap is currently being judged by the Tappa guarantees alone: whatever one of them settles is settled the same way it always is, and everything else is recorded and sent to your review queue instead of being approved.</p><p class=\"mt-1\">The rules listed below are stored and valid, and they are <strong>not deciding anything today</strong>. Neither are the permissions further down. This is not something you can fix from this screen — tell us, and it is repaired by shipping a rule your business accepts.</p><dl class=\"mt-2\"><dt class=\"docket-label\">Cannot be read</dt>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 18, "       <p>One of your Taptime baseline rules is stored in a form this release cannot read, and the engine does not run a PART of a rulebook — a half rulebook is a different rulebook, not a safer one. So every tap is currently being judged by the Taptime guarantees alone: whatever one of them settles is settled the same way it always is, and everything else is recorded and sent to your review queue instead of being approved.</p><p class=\"mt-1\">The rules listed below are stored and valid, and they are <strong>not deciding anything today</strong>. Neither are the permissions further down. This is not something you can fix from this screen — tell us, and it is repaired by shipping a rule your business accepts.</p><dl class=\"mt-2\"><dt class=\"docket-label\">Cannot be read</dt>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -393,7 +393,7 @@ func policyIntro(v PoliciesView) templ.Component {
 			templ_7745c5c3_Var11 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 22, "<section class=\"bg-paper border border-line px-4 py-4\"><h2 class=\"font-display text-lg font-bold tracking-tight text-ink\">How your rules are decided</h2><p class=\"mt-1 text-sm text-ink/85\">Every tap is judged in three layers, in this order. <strong>Tappa guarantees</strong> run first and stop everything else — they are part of the product and nobody can switch them off, including us. If none of them applies, your <strong>Tappa baseline</strong> and <strong>your own policies</strong> are weighed together, and where two rules disagree the <strong>more specific one decides</strong> — a rule about one venue beats a rule about all of them, whichever way it goes. Only when two rules are equally specific does the stricter answer win. If nothing at all matches, a tap is sent to your review queue rather than quietly approved.</p><p class=\"mt-2 font-mono text-xs uppercase tracking-widest text-ink/70\">Baseline shipped with this release: ")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 22, "<section class=\"bg-paper border border-line px-4 py-4\"><h2 class=\"font-display text-lg font-bold tracking-tight text-ink\">How your rules are decided</h2><p class=\"mt-1 text-sm text-ink/85\">Every tap is judged in three layers, in this order. <strong>Taptime guarantees</strong> run first and stop everything else — they are part of the product and nobody can switch them off, including us. If none of them applies, your <strong>Taptime baseline</strong> and <strong>your own policies</strong> are weighed together, and where two rules disagree the <strong>more specific one decides</strong> — a rule about one venue beats a rule about all of them, whichever way it goes. Only when two rules are equally specific does the stricter answer win. If nothing at all matches, a tap is sent to your review queue rather than quietly approved.</p><p class=\"mt-2 font-mono text-xs uppercase tracking-widest text-ink/70\">Baseline shipped with this release: ")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -411,7 +411,7 @@ func policyIntro(v PoliciesView) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		if v.MayEdit {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 24, "<p class=\"mt-2 text-xs text-ink/85\">You can switch a Tappa baseline rule off, and write your own version of one that applies at the venues you choose. Every change is shown to you in words before it is written, and every change is recorded with your name against it.</p>        <p class=\"mt-1 text-xs text-ink/85\">You can also record where a Tappa rule belongs. That is bookkeeping, not scope — what decides where a rule applies is the “Where” line on each of its statements, never the bindings.</p>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 24, "<p class=\"mt-2 text-xs text-ink/85\">You can switch a Taptime baseline rule off, and write your own version of one that applies at the venues you choose. Every change is shown to you in words before it is written, and every change is recorded with your name against it.</p>        <p class=\"mt-1 text-xs text-ink/85\">You can also record where a Taptime rule belongs. That is bookkeeping, not scope — what decides where a rule applies is the “Where” line on each of its statements, never the bindings.</p>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -507,14 +507,14 @@ func policySettings(v PoliciesView) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 30, "<span class=\"text-ink/70\">· set by Tappa, within ")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 30, "<span class=\"text-ink/70\">· set by Taptime, within ")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var16 string
 				templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.JoinStringErrs(s.Range)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/policies.templ`, Line: 261, Col: 64}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/policies.templ`, Line: 261, Col: 66}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var16))
 				if templ_7745c5c3_Err != nil {
@@ -601,7 +601,7 @@ func PolicyGuarantees(v PoliciesView) templ.Component {
 			templ_7745c5c3_Var18 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 34, "<div class=\"policy-guarantees\"><h2 class=\"font-display text-lg font-bold tracking-tight text-ink\">Tappa guarantees</h2><p class=\"text-sm text-ink/85\">These are checked in the order shown, and the first one that applies decides on its own. They are part of the product rather than a setting: there is no control to turn one off, on this page or anywhere else, because each of them is a promise the product is sold on. Some of them can be TUNED inside a range — that is marked below.</p><div class=\"flex flex-col gap-3\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 34, "<div class=\"policy-guarantees\"><h2 class=\"font-display text-lg font-bold tracking-tight text-ink\">Taptime guarantees</h2><p class=\"text-sm text-ink/85\">These are checked in the order shown, and the first one that applies decides on its own. They are part of the product rather than a setting: there is no control to turn one off, on this page or anywhere else, because each of them is a promise the product is sold on. Some of them can be TUNED inside a range — that is marked below.</p><div class=\"flex flex-col gap-3\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -755,7 +755,7 @@ func policyBaseline(v PoliciesView) templ.Component {
 			templ_7745c5c3_Var27 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 47, "<h2 class=\"font-display text-lg font-bold tracking-tight text-ink\">Tappa baseline</h2><p class=\"text-sm text-ink/85\">The defaults we ship. Unlike the guarantees above, these are yours: one can be switched off or replaced with your own version once it has been set up for your business, and doing so never touches a guarantee. A rule you switch off is not deleted — its history stays, so a record decided under it can still explain itself years later.</p><div class=\"flex flex-col gap-4\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 47, "<h2 class=\"font-display text-lg font-bold tracking-tight text-ink\">Taptime baseline</h2><p class=\"text-sm text-ink/85\">The defaults we ship. Unlike the guarantees above, these are yours: one can be switched off or replaced with your own version once it has been set up for your business, and doing so never touches a guarantee. A rule you switch off is not deleted — its history stays, so a record decided under it can still explain itself years later.</p><div class=\"flex flex-col gap-4\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -810,7 +810,7 @@ func policyTenant(v PoliciesView) templ.Component {
 					return templ_7745c5c3_Err
 				}
 			} else {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 52, "<p class=\"mt-1 text-sm\">Your business is running on the Tappa guarantees alone — none of the baseline rules above is deciding anything yet. Taps are still recorded; anything the guarantees do not settle goes to your review queue.</p>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 52, "<p class=\"mt-1 text-sm\">Your business is running on the Taptime guarantees alone — none of the baseline rules above is deciding anything yet. Taps are still recorded; anything the guarantees do not settle goes to your review queue.</p>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -918,7 +918,7 @@ func policyRule(r PolicyRuleView) templ.Component {
 			return templ_7745c5c3_Err
 		}
 		if r.Managed {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 61, "Managed by Tappa ")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 61, "Managed by Taptime ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -1592,7 +1592,7 @@ func policyAuthoring(v PoliciesView) templ.Component {
 		}
 		ctx = templ.ClearChildren(ctx)
 		if len(v.Authorable) > 0 {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 123, "<section class=\"bg-paper border border-line px-4 py-4\"><h2 class=\"font-display text-lg font-bold tracking-tight text-ink\">Write your own version</h2><p class=\"mt-1 text-sm text-ink/85\">Take one of the Tappa rules above and keep it only where you want it. Your copy is your own — it gets its own history, and Tappa never changes it. It does NOT switch the original off: until you do that, both apply, and the more specific one decides — so a copy scoped to one venue can make that venue MORE permissive than the original, not only stricter.</p><form method=\"post\" action=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 123, "<section class=\"bg-paper border border-line px-4 py-4\"><h2 class=\"font-display text-lg font-bold tracking-tight text-ink\">Write your own version</h2><p class=\"mt-1 text-sm text-ink/85\">Take one of the Taptime rules above and keep it only where you want it. Your copy is your own — it gets its own history, and Taptime never changes it. It does NOT switch the original off: until you do that, both apply, and the more specific one decides — so a copy scoped to one venue can make that venue MORE permissive than the original, not only stricter.</p><form method=\"post\" action=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -1647,7 +1647,7 @@ func policyAuthoring(v PoliciesView) templ.Component {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 130, "<label class=\"flex flex-col gap-1 text-xs text-ink/85\">What do you want to call it? <input type=\"text\" name=\"name\" maxlength=\"120\" required class=\"filter-input\"></label> <label class=\"flex flex-col gap-1 text-xs text-ink/85\">Which Tappa rule is it a version of? <select name=\"based_on\" class=\"filter-input\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 130, "<label class=\"flex flex-col gap-1 text-xs text-ink/85\">What do you want to call it? <input type=\"text\" name=\"name\" maxlength=\"120\" required class=\"filter-input\"></label> <label class=\"flex flex-col gap-1 text-xs text-ink/85\">Which Taptime rule is it a version of? <select name=\"based_on\" class=\"filter-input\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -1683,7 +1683,7 @@ func policyAuthoring(v PoliciesView) templ.Component {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 134, "</select></label><fieldset class=\"border border-line px-3 py-2\"><legend class=\"docket-label\">Where does it apply?</legend><p class=\"text-xs text-ink/85\">Tick nothing and it applies at every venue, which is what the Tappa rule already does. Tick some and it applies only there. A rule cannot be narrowed to a department yet — only to venues. Recording one against a department under “Bound to” is bookkeeping rather than scope.</p>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 134, "</select></label><fieldset class=\"border border-line px-3 py-2\"><legend class=\"docket-label\">Where does it apply?</legend><p class=\"text-xs text-ink/85\">Tick nothing and it applies at every venue, which is what the Taptime rule already does. Tick some and it applies only there. A rule cannot be narrowed to a department yet — only to venues. Recording one against a department under “Bound to” is bookkeeping rather than scope.</p>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

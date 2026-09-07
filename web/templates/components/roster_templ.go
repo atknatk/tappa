@@ -337,7 +337,7 @@ func RosterActions(v RosterActionsView) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 25, "</button></form><p class=\"text-xs text-ink/70\">The link is shown once, on the next screen. Tappa keeps no copy of it.</p>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 25, "</button></form><p class=\"text-xs text-ink/70\">The link is shown once, on the next screen. Taptime keeps no copy of it.</p>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -375,7 +375,7 @@ func RosterActions(v RosterActionsView) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 30, " stops their taps from being accepted. Tappa has no way to undo it: bringing them back means adding them again as a new person, and their old records stay where they are.</p><form method=\"post\" action=\"")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 30, " stops their taps from being accepted. Taptime has no way to undo it: bringing them back means adding them again as a new person, and their old records stay where they are.</p><form method=\"post\" action=\"")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}

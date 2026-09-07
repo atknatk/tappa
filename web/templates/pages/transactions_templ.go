@@ -263,7 +263,7 @@ func plaqueNotice(v TransactionsView) templ.Component {
 					}()
 				}
 				ctx = templ.InitializeContext(ctx)
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, "<p>No plaques have been loaded for this business yet, so nobody can tap in or out. Tappa encodes each plaque and loads it here; ask us for the ones you need and they will appear in stock, ready to mount.</p>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, "<p>No plaques have been loaded for this business yet, so nobody can tap in or out. Taptime encodes each plaque and loads it here; ask us for the ones you need and they will appear in stock, ready to mount.</p>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}

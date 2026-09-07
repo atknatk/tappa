@@ -597,7 +597,7 @@ func VenueForm(v VenueFormView) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 47, "One per line — a range like 192.168.1.0/24, or a single address like 192.168.1.5. This is how Tappa checks somebody is really at this venue. <strong class=\"font-bold\">Leave it empty and taps here are checked against GPS alone; with no coordinate either, every tap goes to the review queue.</strong>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 47, "One per line — a range like 192.168.1.0/24, or a single address like 192.168.1.5. This is how Taptime checks somebody is really at this venue. <strong class=\"font-bold\">Leave it empty and taps here are checked against GPS alone; with no coordinate either, every tap goes to the review queue.</strong>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

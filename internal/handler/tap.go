@@ -236,7 +236,7 @@ var (
 	}
 	tapProblemUnknownTag = pages.ProblemView{
 		Title:   "We don't know that plaque",
-		Message: "This plaque isn't set up with Tappa, or it has been replaced.",
+		Message: "This plaque isn't set up with Taptime, or it has been replaced.",
 		Hint:    "Tell your manager which door you tapped.",
 	}
 	tapProblemServer = pages.ProblemView{

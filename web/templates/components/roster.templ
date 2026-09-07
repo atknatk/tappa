@@ -142,7 +142,7 @@ templ RosterActions(v RosterActionsView) {
 						<button type="submit" class="btn btn--primary">{ v.InviteLabel }</button>
 					</form>
 					<p class="text-xs text-ink/70">
-						The link is shown once, on the next screen. Tappa keeps no copy of it.
+						The link is shown once, on the next screen. Taptime keeps no copy of it.
 					</p>
 				} else {
 					// 🔴 IT SAYS WHY RATHER THAN SHOWING NOTHING. A missing button
@@ -180,7 +180,7 @@ templ RosterActions(v RosterActionsView) {
 				if v.CanDeactivate {
 					if v.Confirming {
 						<p class="text-sm text-ink">
-							Deactivating { v.Name } stops their taps from being accepted. Tappa has no
+							Deactivating { v.Name } stops their taps from being accepted. Taptime has no
 							way to undo it: bringing them back means adding them again as a new person,
 							and their old records stay where they are.
 						</p>

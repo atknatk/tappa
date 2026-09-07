@@ -223,7 +223,7 @@ templ VenueForm(v VenueFormView) {
 				>{ v.Ranges }</textarea>
 				@fieldNote("venue-ranges-help", v.ErrorField, "static_ips", v.ErrorMessage) {
 					One per line — a range like 192.168.1.0/24, or a single address like
-					192.168.1.5. This is how Tappa checks somebody is really at this venue.
+					192.168.1.5. This is how Taptime checks somebody is really at this venue.
 					<strong class="font-bold">
 						Leave it empty and taps here are checked against
 						GPS alone; with no coordinate either, every tap goes to the review queue.

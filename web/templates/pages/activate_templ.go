@@ -251,7 +251,7 @@ func Activate(v ActivateView) templ.Component {
 					}()
 				}
 				ctx = templ.InitializeContext(ctx)
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "<ul class=\"mt-3 flex flex-col gap-3 text-sm text-ink/85\"><li><span class=\"font-bold\">What a tap records.</span> When you touch the plaque, Tappa saves the time, your phone's internet (IP) address and — only at that moment — your location. Nothing runs in the background and nothing is recorded between taps.</li><li><span class=\"font-bold\">No fingerprints. Ever.</span> Tappa collects no biometric data of any kind: no fingerprints, no face, no voice. Your phone's own screen lock stays private to your phone.</li><li><span class=\"font-bold\">How long records are kept.</span> Your attendance records are kept for <span class=\"num font-bold\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "<ul class=\"mt-3 flex flex-col gap-3 text-sm text-ink/85\"><li><span class=\"font-bold\">What a tap records.</span> When you touch the plaque, Taptime saves the time, your phone's internet (IP) address and — only at that moment — your location. Nothing runs in the background and nothing is recorded between taps.</li><li><span class=\"font-bold\">No fingerprints. Ever.</span> Taptime collects no biometric data of any kind: no fingerprints, no face, no voice. Your phone's own screen lock stays private to your phone.</li><li><span class=\"font-bold\">How long records are kept.</span> Your attendance records are kept for <span class=\"num font-bold\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -292,7 +292,7 @@ func Activate(v ActivateView) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 22, " is the controller of these records; Tappa processes them on their behalf. To see, correct or ask about your data, speak to your manager.</li></ul>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 22, " is the controller of these records; Taptime processes them on their behalf. To see, correct or ask about your data, speak to your manager.</li></ul>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -338,12 +338,12 @@ func Activate(v ActivateView) templ.Component {
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 26, "</span> before you tap: being on the venue's network is how Tappa can tell you are really here.</p>")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 26, "</span> before you tap: being on the venue's network is how Taptime can tell you are really here.</p>")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 				} else {
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 27, "<p class=\"mt-2 text-sm text-ink/85\">This place has no staff network to join, so Tappa will use your location at the moment you tap instead.</p>")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 27, "<p class=\"mt-2 text-sm text-ink/85\">This place has no staff network to join, so Taptime will use your location at the moment you tap instead.</p>")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -438,7 +438,7 @@ func Activate(v ActivateView) templ.Component {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 38, "> <span class=\"text-sm text-ink/85\">I have read what Tappa records and how long it is kept.</span></label> ")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 38, "> <span class=\"text-sm text-ink/85\">I have read what Taptime records and how long it is kept.</span></label> ")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -480,7 +480,7 @@ func Activate(v ActivateView) templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = layout.Page("Activate your phone — Tappa").Render(templ.WithChildren(ctx, templ_7745c5c3_Var2), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = layout.Page("Activate your phone — Taptime").Render(templ.WithChildren(ctx, templ_7745c5c3_Var2), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -615,7 +615,7 @@ func Done(v DoneView) templ.Component {
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 51, "</span> when you are at work, so Tappa can see you are on site.</p>")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 51, "</span> when you are at work, so Taptime can see you are on site.</p>")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
@@ -660,7 +660,7 @@ func Done(v DoneView) templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = layout.Page("You're set up — Tappa").Render(templ.WithChildren(ctx, templ_7745c5c3_Var23), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = layout.Page("You're set up — Taptime").Render(templ.WithChildren(ctx, templ_7745c5c3_Var23), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -889,7 +889,7 @@ func tourBody(step int) templ.Component {
 		ctx = templ.ClearChildren(ctx)
 		switch step {
 		case 2:
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 63, "<p class=\"mt-2 text-sm text-ink/85\">The page opens with your name on it and a single button. Press it — that is the whole thing.</p><p class=\"mt-2 text-sm text-ink/85\">Tappa works out whether you are arriving or leaving, so you never have to choose.</p>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 63, "<p class=\"mt-2 text-sm text-ink/85\">The page opens with your name on it and a single button. Press it — that is the whole thing.</p><p class=\"mt-2 text-sm text-ink/85\">Taptime works out whether you are arriving or leaving, so you never have to choose.</p>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -899,7 +899,7 @@ func tourBody(step int) templ.Component {
 				return templ_7745c5c3_Err
 			}
 		default:
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 65, "<p class=\"mt-2 text-sm text-ink/85\">Hold the top of your phone against the Tappa plaque by the door. Your phone opens this page for you — there is nothing to install and nothing to remember.</p><p class=\"mt-3 text-sm text-ink/70\">If your phone does not react, ask your manager.</p>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 65, "<p class=\"mt-2 text-sm text-ink/85\">Hold the top of your phone against the Taptime plaque by the door. Your phone opens this page for you — there is nothing to install and nothing to remember.</p><p class=\"mt-3 text-sm text-ink/70\">If your phone does not react, ask your manager.</p>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -1160,7 +1160,7 @@ func Problem(v ProblemView) templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = layout.Page("Tappa").Render(templ.WithChildren(ctx, templ_7745c5c3_Var40), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = layout.Page("Taptime").Render(templ.WithChildren(ctx, templ_7745c5c3_Var40), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1282,7 +1282,7 @@ func Confirm(v ConfirmView) templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = layout.Page("Continue? — Tappa").Render(templ.WithChildren(ctx, templ_7745c5c3_Var47), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = layout.Page("Continue? — Taptime").Render(templ.WithChildren(ctx, templ_7745c5c3_Var47), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

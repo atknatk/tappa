@@ -173,11 +173,11 @@ func Baseline() []BaselineDoc {
 		// --- §5 row 6: IP or GPS proves place -> allow. Split into two documents
 		// so a tenant can require IP by disabling/overriding ONLY the GPS-only
 		// branch (Q16) while IP-proven taps keep flowing.
-		tapDoc("Tappa baseline — IP proof of place", SidIPOrGPSOK, EffectAllow,
+		tapDoc("Taptime baseline — IP proof of place", SidIPOrGPSOK, EffectAllow,
 			Condition{OpBool: {CtxTapIPMatch: true}},
 			"network proof of place: the source IP matches the location"),
 
-		tapDoc("Tappa baseline — GPS-only allowance", SidGPSOnlyAllow, EffectAllow,
+		tapDoc("Taptime baseline — GPS-only allowance", SidGPSOnlyAllow, EffectAllow,
 			// ipMatch=false AND gpsMatch=true. This is the ONE statement a tenant
 			// flips to review with a single toggle to require IP everywhere (Q16);
 			// IP-proven taps (base:ip-or-gps-ok) are unaffected.
@@ -185,7 +185,7 @@ func Baseline() []BaselineDoc {
 			"verified via GPS only — no network proof of place"),
 
 		// --- §5 row 7: no evidence at all -> review (never a silent allow, §4.6).
-		tapDoc("Tappa baseline — no evidence needs review", SidNoEvidenceReview, EffectReview,
+		tapDoc("Taptime baseline — no evidence needs review", SidNoEvidenceReview, EffectReview,
 			Condition{OpBool: {CtxTapIPMatch: false, CtxTapGPSMatch: false}},
 			"neither IP nor GPS could place this tap"),
 
@@ -193,7 +193,7 @@ func Baseline() []BaselineDoc {
 		// with no IP match goes to review; GPS alone is not enough. Composes with
 		// base:gps-only-allow: a QR+GPS-only tap matches BOTH, and review out-
 		// restricts allow, so it lands on review (the Q15 outcome).
-		tapDoc("Tappa baseline — QR requires IP", SidQRRequiresIP, EffectReview,
+		tapDoc("Taptime baseline — QR requires IP", SidQRRequiresIP, EffectReview,
 			Condition{OpStringEquals: {CtxTapChannel: channelQR}, OpBool: {CtxTapIPMatch: false}},
 			"QR tap without an IP match: GPS alone is not sufficient proof of place"),
 
@@ -204,7 +204,7 @@ func Baseline() []BaselineDoc {
 		// recorded (M3-07) for the report. A more-restrictive baseline (e.g.
 		// no-evidence-review) still wins when its condition holds, so this allow
 		// never opens a hole.
-		tapDoc("Tappa baseline — cross-location note", SidCrossLocationNote, EffectAllow,
+		tapDoc("Taptime baseline — cross-location note", SidCrossLocationNote, EffectAllow,
 			Condition{OpBool: {CtxEmployeeCrossLocation: true}},
 			"tapped at a location other than the employee's home location (recorded as cross-location)"),
 
@@ -212,7 +212,7 @@ func Baseline() []BaselineDoc {
 		// window in the past is likely queued/offline -> review. The hard upper
 		// bound (0..72h reject) is the guardrail sys:occurred-at-bound; this is the
 		// softer, tenant-tunable review threshold below it.
-		tapDoc("Tappa baseline — queued tap window", SidQueuedWindow, EffectReview,
+		tapDoc("Taptime baseline — queued tap window", SidQueuedWindow, EffectReview,
 			Condition{OpNumericGreaterThan: {CtxTapOccurredAtSkewSeconds: float64(BaselineQueuedSkewSeconds)}},
 			"declared tap time is well in the past; likely a queued or backdated tap"),
 
@@ -223,7 +223,7 @@ func Baseline() []BaselineDoc {
 		// tenant allow beats this location/* review, ADR 0004 §7) or M7-03 can
 		// attach it selectively — because hoarding only pays off at LOW-traffic
 		// plaques (a busy plaque's hoarded URLs die on the next person's tap).
-		tapDoc("Tappa baseline — counter gap review", SidCtrGapReview, EffectReview,
+		tapDoc("Taptime baseline — counter gap review", SidCtrGapReview, EffectReview,
 			Condition{OpNumericGreaterThan: {CtxTapCtrGap: float64(0)}},
 			"the tag counter jumped: reads happened that the server never saw"),
 
@@ -277,7 +277,7 @@ func Baseline() []BaselineDoc {
 		// which is the thing M7-03's surface → accept → append flow exists to prevent.
 		// The customer-facing sentence stays wrong for existing tenants on purpose,
 		// and the reason is consent rather than immutability.
-		tapDoc("Tappa baseline — GPS conflict review", SidGPSConflictReview, EffectReview,
+		tapDoc("Taptime baseline — GPS conflict review", SidGPSConflictReview, EffectReview,
 			Condition{OpBool: {CtxTapGPSConflict: true}},
 			"GPS was read and puts the device outside this location's radius"),
 
@@ -316,7 +316,7 @@ func tapDoc(name, sid string, eff Effect, cond Condition, reason string) Baselin
 
 // authzDoc builds the role-based authorization BaselineDoc (owner + manager).
 func authzDoc() BaselineDoc {
-	name := "Tappa baseline — panel access by role"
+	name := "Taptime baseline — panel access by role"
 	owner := Statement{
 		Sid:    SidAuthzOwner,
 		Effect: EffectAllow,

@@ -336,7 +336,7 @@ func ValidateBusiness(b Business) (Business, Errors) {
 	b.VATNumber = NormaliseVAT(b.VATNumber)
 	switch {
 	case b.VATNumber == "":
-		errs.add("vat_number", "Tappa is for registered businesses, so a VAT number is required.")
+		errs.add("vat_number", "Taptime is for registered businesses, so a VAT number is required.")
 	case !ValidVATFormat(b.VATNumber):
 		// The message names the SHAPE rather than the country list: a customer who
 		// mistyped needs to look at their own number, and a customer outside the EU

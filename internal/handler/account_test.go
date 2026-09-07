@@ -373,7 +373,7 @@ func TestAccount_SaysTheMessagesCannotBeEdited(t *testing.T) {
 			"§4.6 applied to a screen: a preview with no editor beside it and no sentence " +
 			"explaining why is indistinguishable from a missing feature.")
 	}
-	if !strings.Contains(html, htmlText("every restaurant on Tappa reads the same one")) {
+	if !strings.Contains(html, htmlText("every restaurant on Taptime reads the same one")) {
 		t.Error("the screen does not state the LIMIT — that the sentences follow the kind of " +
 			"business rather than the business. M5-05 recorded it as a known limit; a customer " +
 			"who believes these are theirs alone has been misled.")

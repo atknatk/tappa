@@ -1223,7 +1223,7 @@ func historyByPolicy(rows []store.ListPolicyVersionsRow) map[uuid.UUID][]RuleVer
 // itself is not printed: it identifies no person to the reader and answers no
 // question a manager has, and a support question is where it belongs.
 const (
-	AuthorSystem     = "Tappa (system provisioning)"
+	AuthorSystem     = "Taptime (system provisioning)"
 	AuthorUnresolved = "not resolvable in this organisation"
 )
 

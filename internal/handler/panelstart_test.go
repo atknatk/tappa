@@ -274,7 +274,7 @@ var deliveryClaimCorpus = []string{
 // WITHOUT IT, `.*` WOULD PASS THE TEST ABOVE. A scan that catches every known-bad
 // sentence and every good one is not a scan, it is a ban on prose.
 var deliveryAllowedCorpus = []string{
-	"Tappa encodes each plaque and loads it here; ask us for the ones you need and " +
+	"Taptime encodes each plaque and loads it here; ask us for the ones you need and " +
 		"they will appear in stock, ready to mount.",
 	"No plaques have been loaded for this business yet, so nobody can tap in or out.",
 	"None of this business's plaques is mounted, so nobody can tap in or out. " +
@@ -283,7 +283,7 @@ var deliveryAllowedCorpus = []string{
 		"so nobody can tap in or out. Ask us for a replacement and it will appear in " +
 		"stock, ready to mount.",
 	"Locations & Wall Tags shows every plaque this business has.",
-	"Tappa encodes each one and loads it into your dashboard; ask us for the ones " +
+	"Taptime encodes each one and loads it into your dashboard; ask us for the ones " +
 		"you need. Until one is mounted there is nothing to tap at.",
 	"Nothing was recorded here on this day. Pick another day above.",
 	"Sign in. Use the email address and password you just chose.",

@@ -591,7 +591,7 @@ func (a *AdminAuth) policyChangeView(r *http.Request, c policyChange, token stri
 		// that it shows what will happen cannot describe two acts identically.
 		if c.policyID == uuid.Nil {
 			v.Heading = "Write a new rule of your own"
-			v.Summary = "This creates a rule that is yours: a new entry beside the Tappa " +
+			v.Summary = "This creates a rule that is yours: a new entry beside the Taptime " +
 				"baseline, starting at version 1. Nothing existing is changed or replaced."
 		} else {
 			v.Heading = "Write a new version of your rule"
@@ -599,7 +599,7 @@ func (a *AdminAuth) policyChangeView(r *http.Request, c policyChange, token stri
 				"overwritten — a policy's versions can never be edited or deleted, so the " +
 				"version this one supersedes stays readable for the records it decided."
 		}
-		v.Warning = "Your copy does NOT switch the Tappa rule off. Until you do that, both are " +
+		v.Warning = "Your copy does NOT switch the Taptime rule off. Until you do that, both are " +
 			"weighed together and the more specific one wins where they disagree — so a copy " +
 			"scoped to one venue changes that venue and leaves the rest as they were."
 	}

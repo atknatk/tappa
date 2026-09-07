@@ -109,7 +109,7 @@ const legalHref = "/admin/legal"
 // person who cannot help, because no role in their business grants this.
 var problemLegalNotOperator = pages.ProblemView{
 	Title:   "This screen is not part of your dashboard",
-	Message: "It publishes Tappa's own privacy policy, terms and company details — the documents on tappa's public pages, not anything belonging to your business. It is open to the people who run this deployment. Nothing is wrong with your account.",
+	Message: "It publishes Taptime's own privacy policy, terms and company details — the documents on taptime's public pages, not anything belonging to your business. It is open to the people who run this deployment. Nothing is wrong with your account.",
 	Hint:    "Everything that belongs to your business is on the tabs above.",
 }
 

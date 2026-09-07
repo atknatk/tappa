@@ -277,7 +277,7 @@ func accountFacts(v AccountView) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, "</dd></div></dl><p class=\"mt-3 text-sm text-ink/85\">The VAT number is what your invoice is made out to and it cannot be changed from here: it is unique across every business on Tappa, and the record of what the tax register said about it belongs to the number it was asked about. If it is wrong, tell us and we will correct both together.</p>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, "</dd></div></dl><p class=\"mt-3 text-sm text-ink/85\">The VAT number is what your invoice is made out to and it cannot be changed from here: it is unique across every business on Taptime, and the record of what the tax register said about it belongs to the number it was asked about. If it is wrong, tell us and we will correct both together.</p>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

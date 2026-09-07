@@ -196,7 +196,7 @@ var (
 	}
 	problemSignupNoCookie = pages.SignupProblemView{
 		Title:   "Your browser didn't keep the form",
-		Message: "Tappa needs a cookie to carry your answers from one step to the next, and this browser is not storing one.",
+		Message: "Taptime needs a cookie to carry your answers from one step to the next, and this browser is not storing one.",
 		Hint:    "Allow cookies for this site, or turn off private browsing, then start again.",
 		Retry:   signupPath,
 	}
@@ -552,7 +552,7 @@ func (s *Signup) SubmitAccount(w http.ResponseWriter, r *http.Request) {
 			BusinessType: d.BusinessType,
 			Structure:    d.Structure,
 			Errors: map[string]string{
-				"vat_number": "That VAT number is already registered with Tappa. If this is your " +
+				"vat_number": "That VAT number is already registered with Taptime. If this is your " +
 					"business, sign in instead of registering again.",
 			},
 			SignInHref: adminLoginPath,

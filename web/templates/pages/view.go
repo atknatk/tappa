@@ -144,11 +144,11 @@ type TourView struct {
 func TourPageTitle(step int) string {
 	switch step {
 	case 2:
-		return "One button — Tappa"
+		return "One button — Taptime"
 	case 3:
-		return "Your first tap — Tappa"
+		return "Your first tap — Taptime"
 	default:
-		return "How Tappa works — Tappa"
+		return "How Taptime works — Taptime"
 	}
 }
 

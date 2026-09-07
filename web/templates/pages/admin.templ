@@ -33,13 +33,13 @@ import (
 // The wording still follows the brand's rule that an error says what to do next —
 // it just cannot say what went wrong.
 templ AdminLogin(v AdminLoginView) {
-	@layout.Page("Sign in — Tappa") {
+	@layout.Page("Sign in — Taptime") {
 		<h1 class="font-display text-2xl font-bold tracking-tight">Sign in</h1>
-		<p class="text-sm text-ink/70">The Tappa panel for your business.</p>
+		<p class="text-sm text-ink/70">The Taptime panel for your business.</p>
 		if v.Recovered {
 			@components.Notice(components.ToneOK, "Your new password is set") {
 				<p>
-					Every Tappa session was signed out, on every device. Sign in with the new password.
+					Every Taptime session was signed out, on every device. Sign in with the new password.
 				</p>
 			}
 		}
@@ -105,7 +105,7 @@ templ AdminLogin(v AdminLoginView) {
 // field per form, and the server does not believe it — it checks membership of the
 // signed set.
 templ AdminChoose(v AdminChooseView) {
-	@layout.Page("Which business? — Tappa") {
+	@layout.Page("Which business? — Taptime") {
 		<h1 class="font-display text-2xl font-bold tracking-tight">Which business?</h1>
 		<p class="text-sm text-ink/70">
 			You manage more than one. Pick the one you want to work in — you can sign out and switch at any time.
@@ -153,7 +153,7 @@ templ AdminChoose(v AdminChooseView) {
 // it. So this split does not make widening impossible — it makes the cheapest form
 // of it impossible, and leaves the remaining form deliberate and netted.
 templ PanelShell(c PanelChrome) {
-	@layout.Panel("Panel — Tappa") {
+	@layout.Panel("Panel — Taptime") {
 		@panelChrome(c)
 		{ children... }
 	}
@@ -176,7 +176,7 @@ templ PanelShell(c PanelChrome) {
 // cheapest edit — changing a string — is now rejected by the compiler, and the
 // remaining route requires naming a different component on purpose.
 templ PanelShellWithScript(c PanelChrome, script string) {
-	@layout.PanelWithScript("Panel — Tappa", script) {
+	@layout.PanelWithScript("Panel — Taptime", script) {
 		@panelChrome(c)
 		{ children... }
 	}

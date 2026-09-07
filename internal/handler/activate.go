@@ -177,7 +177,7 @@ var (
 	}
 	problemNoSession = pages.ProblemView{
 		Title:   "Your browser didn't keep the sign-in",
-		Message: "Tappa needs to remember this phone, and this browser is not storing that.",
+		Message: "Taptime needs to remember this phone, and this browser is not storing that.",
 		Hint:    "Turn off private browsing or allow cookies for this site, then open your link again.",
 	}
 	problemServer = pages.ProblemView{

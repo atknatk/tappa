@@ -147,7 +147,7 @@ type panelBooks interface {
 // WHO may look, never WHAT they would have seen.
 var problemBillingOwnerOnly = pages.ProblemView{
 	Title:   "Billing is the owner's",
-	Message: "This section shows what this business is charged for Tappa, and it is visible to an owner of the business rather than to a manager. Nothing is wrong with your account.",
+	Message: "This section shows what this business is charged for Taptime, and it is visible to an owner of the business rather than to a manager. Nothing is wrong with your account.",
 	Hint:    "If you need these figures, ask an owner of the business.",
 }
 

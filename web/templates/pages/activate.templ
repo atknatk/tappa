@@ -28,7 +28,7 @@ import (
 // 3 and its M5-04 note) and the only thing between that and a confused tap is a
 // person reading a name they do not recognise before pressing anything.
 templ Activate(v ActivateView) {
-	@layout.Page("Activate your phone — Tappa") {
+	@layout.Page("Activate your phone — Taptime") {
 		<section class="docket">
 			<p class="docket-label">Activating</p>
 			<h1 class="font-display text-2xl font-bold tracking-tight text-ink">
@@ -67,13 +67,13 @@ templ Activate(v ActivateView) {
 			<ul class="mt-3 flex flex-col gap-3 text-sm text-ink/85">
 				<li>
 					<span class="font-bold">What a tap records.</span>
-					When you touch the plaque, Tappa saves the time, your phone's internet (IP)
+					When you touch the plaque, Taptime saves the time, your phone's internet (IP)
 					address and — only at that moment — your location. Nothing runs in the
 					background and nothing is recorded between taps.
 				</li>
 				<li>
 					<span class="font-bold">No fingerprints. Ever.</span>
-					Tappa collects no biometric data of any kind: no fingerprints, no face, no voice.
+					Taptime collects no biometric data of any kind: no fingerprints, no face, no voice.
 					Your phone's own screen lock stays private to your phone.
 				</li>
 				<li>
@@ -89,7 +89,7 @@ templ Activate(v ActivateView) {
 				</li>
 				<li>
 					<span class="font-bold">Who is responsible.</span>
-					{ v.EmployerName } is the controller of these records; Tappa processes them
+					{ v.EmployerName } is the controller of these records; Taptime processes them
 					on their behalf. To see, correct or ask about your data, speak to your
 					manager.
 				</li>
@@ -106,12 +106,12 @@ templ Activate(v ActivateView) {
 				<p class="mt-2 text-sm text-ink/85">
 					Connect to
 					<span class="num font-bold">{ v.WiFiSSID }</span>
-					before you tap: being on the venue's network is how Tappa can tell you are
+					before you tap: being on the venue's network is how Taptime can tell you are
 					really here.
 				</p>
 			} else {
 				<p class="mt-2 text-sm text-ink/85">
-					This place has no staff network to join, so Tappa will use your location at
+					This place has no staff network to join, so Taptime will use your location at
 					the moment you tap instead.
 				</p>
 			}
@@ -158,7 +158,7 @@ templ Activate(v ActivateView) {
 					}
 				/>
 				<span class="text-sm text-ink/85">
-					I have read what Tappa records and how long it is kept.
+					I have read what Taptime records and how long it is kept.
 				</span>
 			</label>
 			if v.ConsentMissing {
@@ -182,7 +182,7 @@ templ Activate(v ActivateView) {
 // Done is the confirmation. No button (skill tappa-brand): the next thing that
 // happens is a physical touch on a plaque, so there is nothing to press here.
 templ Done(v DoneView) {
-	@layout.Page("You're set up — Tappa") {
+	@layout.Page("You're set up — Taptime") {
 		<section class="docket">
 			<p class="docket-label">Activated</p>
 			<h1 class="font-display text-2xl font-bold tracking-tight text-ink">
@@ -201,7 +201,7 @@ templ Done(v DoneView) {
 				<p class="text-sm text-ink/85">
 					One last thing: connect to
 					<span class="num font-bold">{ v.WiFiSSID }</span>
-					when you are at work, so Tappa can see you are on site.
+					when you are at work, so Taptime can see you are on site.
 				</p>
 			}
 		}
@@ -297,7 +297,7 @@ templ tourBody(step int) {
 				the whole thing.
 			</p>
 			<p class="mt-2 text-sm text-ink/85">
-				Tappa works out whether you are arriving or leaving, so you never have to
+				Taptime works out whether you are arriving or leaving, so you never have to
 				choose.
 			</p>
 		case 3:
@@ -316,7 +316,7 @@ templ tourBody(step int) {
 			</p>
 		default:
 			<p class="mt-2 text-sm text-ink/85">
-				Hold the top of your phone against the Tappa plaque by the door. Your phone
+				Hold the top of your phone against the Taptime plaque by the door. Your phone
 				opens this page for you — there is nothing to install and nothing to
 				remember.
 			</p>
@@ -398,7 +398,7 @@ templ tourSkip() {
 // attendance record. That is the same rule the confirmation screen keeps by
 // having no button at all (§9).
 templ Problem(v ProblemView) {
-	@layout.Page("Tappa") {
+	@layout.Page("Taptime") {
 		@components.Notice(components.ToneAlert, "") {
 			<h1 class="font-display text-xl font-bold tracking-tight">{ v.Title }</h1>
 			<p class="mt-2">{ v.Message }</p>
@@ -432,7 +432,7 @@ templ Problem(v ProblemView) {
 // It stores NOTHING — the code only reaches a cookie if the person holding the
 // phone presses the button on this page.
 templ Confirm(v ConfirmView) {
-	@layout.Page("Continue? — Tappa") {
+	@layout.Page("Continue? — Taptime") {
 		@components.Notice(components.ToneAlert, "") {
 			<h1 class="font-display text-xl font-bold tracking-tight">This phone is already in use</h1>
 			<p class="mt-2">
