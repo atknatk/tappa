@@ -22,11 +22,20 @@ import "github.com/atknatk/tappa/web/templates/layout"
 //     reason to buy it; "safer than a fingerprint terminal" is a comparison nobody
 //     here has run. The comparison table below compares mechanisms and says so in
 //     its own footnote.
-//   - A CAPABILITY THAT IS NOT MOUNTED. The sign-up wizard is M7-02 and does not
-//     exist, so LandingView.SignupHref is "" and the page says so in words instead
-//     of shipping a button that 404s.
+//   - A CAPABILITY THAT IS NOT MOUNTED. This one has a DATE on it, because the
+//     example changed: M7-01 shipped with the sign-up wizard unbuilt, so
+//     LandingView.SignupHref was "" and the page said so in words rather than
+//     shipping a button that 404s. M7-02 mounted it, handler.NewMarketing now sets
+//     the field to signupPath, and the page renders the button at three stops —
+//     which is why the guard is a TEST and not this paragraph:
 //     TestMarketing_EveryInternalLinkResolves follows every link on the surface
-//     against the real router.
+//     against the real router, and TestLanding_OffersTheWizardItMounts drives BOTH
+//     branches, including the empty-href one a deployment without the wizard falls
+//     back to.
+//     The 2026-09-07 rebuild's own instance of this rule is recorded on
+//     LandingRules: a draft line said the debounce window is the customer's to set,
+//     and no such control exists (policy.Params is one process-wide value read from
+//     the environment; the panel prints it and offers no form).
 
 // LandingView is the public landing page.
 //
@@ -91,6 +100,296 @@ var LandingSteps = []Step{
 		Body: "Hold the phone to the plaque, the browser opens, one button. Taptime knows " +
 			"whether this is a way in or a way out from the last entry that is still open — " +
 			"so a shift that ends at 02:00 closes the one that started at 18:00.",
+	},
+}
+
+// --- the two blocks the 2026-09-07 redesign added ----------------------------
+//
+// 🔴 BOTH ARE MECHANISM, AND BOTH WERE WRITTEN UNDER THE RULE AT THE TOP OF THIS
+// FILE. The page this replaces was measured as honest and unillustrated: it carried
+// no drawing of any kind and eight sections of the same bordered box, so it read as
+// a well-written DOCUMENT rather than as a piece of engineering. The remedy is not
+// decoration — it is that the two things this product actually does, PROVING a tap
+// and JUDGING one, are now shown rather than summarised, and every line of both is
+// a description of code in this repository.
+//
+// WHY THEY ARE DATA HERE RATHER THAN MARKUP IN THE TEMPLATE: it is where the
+// answers to "which code provides this?" are recorded, which is what the header of
+// this file demands of a marketing sentence.
+
+// Source is a product fact one MECHANISM line rests on — the counterpart of Anchor
+// for the two blocks the 2026-09-07 rebuild added.
+//
+// 🔴 IT IS A SEPARATE TYPE FROM Anchor ON PURPOSE, and the reason is a test rather
+// than taxonomy. TestLandingAudiences_EveryClaimRestsOnAProductAnchor requires every
+// declared Anchor to be claimed by a LandingAudiences sentence — an anchor nothing
+// claims is a pin guarding nothing — so pinning these lines with Anchor constants
+// would have turned that test red for a reason that is not a defect. Two vocabularies,
+// two derivation maps, the same discipline.
+//
+// 🔴 AND THIS BLOCK EXISTS BECAUSE ITS ABSENCE SHIPPED A FALSE SENTENCE IN THE SAME
+// ROUND THAT WROTE THIS FILE. LandingRules line three read "it is the one path in the
+// product that writes no record"; measured, at least four paths write none —
+// sys:tenant-mismatch redirects and lands in NEITHER organisation
+// (TestCheckinDB_ForeignTenantTapIsRefusedAndWritesNOTHING), and the tap surface has
+// three more refusals that tell the employee nothing was recorded. Nothing was red,
+// because nothing read these two slices at all: of the seven claim-carrying values in
+// this file only LandingComparison and LandingAudiences were pinned. The mechanism
+// below is a RATCHET AGAINST DRIFT and not a proof of truth — the same limit written
+// on Anchor applies word for word — but a line whose sid disappears now fails, and a
+// line with no source does not compile past the test.
+type Source string
+
+const (
+	// The five guardrails §5's rows 1-5 name, in the order internal/policy runs
+	// them. Derived from policy.Guardrails(policy.DefaultParams()): the sid must be
+	// present, carry the effect the row's stamp claims, and sit in this order.
+	SourceTagNotActive        Source = "policy:sys:tag-not-active"
+	SourceSUNInvalid          Source = "policy:sys:sun-invalid"
+	SourceNoSession           Source = "policy:sys:no-session"
+	SourceEmployeeDeactivated Source = "policy:sys:employee-deactivated"
+	SourcePersonDebounce      Source = "policy:sys:person-debounce"
+	// The baseline statements §5's rows 6-7 name. Derived from policy.Baseline()'s
+	// documents rather than from a source scan, so a baseline that changed an effect
+	// would fail even with the sid still present.
+	SourceIPOrGPSOK        Source = "policy:base:ip-or-gps-ok"
+	SourceGPSOnlyAllow     Source = "policy:base:gps-only-allow"
+	SourceQRRequiresIP     Source = "policy:base:qr-requires-ip"
+	SourceNoEvidenceReview Source = "policy:base:no-evidence-review"
+	// The chip's URL carries a counter AND a signature. Derived by reflection over
+	// sun.Params: the two fields the chip rewrites on every read.
+	SourceSUNURLCarriesCounterAndSignature Source = "type:sun.Params.Ctr+CMAC"
+	// The tap page is a web page at a route, which is the whole of "nothing to
+	// install". Derived from handler.TapPath being registered with a GET.
+	SourceTapIsAWebPage Source = "route:GET handler.TapPath"
+	// The signature is checked in the server. Derived from sun.Verifier carrying a
+	// Verify method — the one place CLAUDE.md §3 allows the cryptography to live.
+	SourceSignatureIsVerified Source = "method:sun.Verifier.Verify"
+	// The counter moves forward in ONE statement that refuses to move it backwards
+	// (§4.4). Derived from db/queries/tags.sql's AdvanceTagCounter carrying the
+	// strict `< @ctr` guard, which is the line that makes the second copy of a link
+	// lose.
+	SourceCounterAdvanceIsGuarded Source = "query:AdvanceTagCounter"
+	// A phone whose session belongs to ANOTHER organisation is refused rather than
+	// invited to activate (§4.5). Derived from the outcome switch in
+	// internal/handler/checkin.go: the foreign-tenant arm answers with a forbidden
+	// problem page and a fixed set of words, and it is the ACTIVATION arm — the one
+	// line three is otherwise about — that redirects.
+	//
+	// 🔴 IT EXISTS BECAUSE THIS IS THE HALF OF LINE THREE NOTHING WAS HOLDING. The
+	// line named sys:no-session, that sid was present, and the sentence beside it
+	// described a SECOND path the sid says nothing about — so the page could claim
+	// the two are handled alike while the handler pulled them apart, and did.
+	//
+	// ⚠️ ITS LIMIT IS THE ONE WRITTEN AT THE TOP OF THIS BLOCK, and one more besides:
+	// it reads handler SOURCE rather than running the handler, so it fails when the
+	// arm is rewritten and not when the arm is reached by something else.
+	SourceForeignTenantIsRefusedNotActivated Source = "handler:checkin.OutcomeForeignTenant"
+)
+
+// Stage is one step in the life of a single tap, from the chip to a written record.
+type Stage struct {
+	// Ordinal is printed as the step number, in the data typeface.
+	Ordinal string
+	Title   string
+	Body    string
+	// Sources are the product facts this stage rests on. A slice, and never empty:
+	// a stage with two halves rests on two facts, and pinning only the first half is
+	// how half a claim goes unchecked. The test refuses a Stage with none.
+	Sources []Source
+}
+
+// LandingTapFlow is what happens between a phone touching the plaque and a record
+// existing. It is internal/sun's contract, written for somebody who has not read it.
+//
+// EVERY SENTENCE HAS A SOURCE, IN ORDER:
+//   - 01: the NTAG 424 DNA chip rewrites its own URL on every read (skill tappa-sun,
+//     internal/sun.Parse reads the ctr and cmac it writes).
+//   - 02: layout.PageWithScript renders the tap page; there is no application to
+//     install and the phone creates no account of its own.
+//   - 03: internal/sun verifies the AES-CMAC, and CLAUDE.md §4.7 is where the key
+//     never goes — not the plaque, not the phone, not a log.
+//   - 04: CLAUDE.md §4.4's single statement, whose WHERE clause is the mechanism:
+//     `UPDATE tags SET last_ctr = $2 WHERE uid = $1 AND last_ctr < $2`. Zero rows
+//     affected means the counter did not move forward, which is what makes the
+//     second copy of one link lose. (KEEP THAT STATEMENT ON ONE LINE — R4 in
+//     scripts/redline-check.sh is line-local, and a wrapped one reads as an
+//     unconditional counter write.)
+//
+// ⚠️ NO COUNTER VALUE AND NO PLAQUE ID IS PRINTED ANYWHERE ON THIS PAGE, and the
+// drawing beside this block says `n` and `n+1` for exactly the reason
+// landingSampleDocket gives about the record card: an invented identifier printed in
+// the shape of a real one is the one thing a public page must not do.
+var LandingTapFlow = []Stage{
+	{
+		Ordinal: "01",
+		Title:   "The chip writes a new code",
+		Body: "Every time a phone reads the plaque, the chip rewrites its own link: a counter one " +
+			"higher than the last read, and a signature over it. It holds nothing about your team " +
+			"and it needs no power to do this.",
+		Sources: []Source{SourceSUNURLCarriesCounterAndSignature},
+	},
+	{
+		Ordinal: "02",
+		Title:   "The phone opens a page",
+		Body: "That link opens in the browser the phone already has. Nothing is installed, no " +
+			"account is created on the phone, and there is nothing to keep up to date.",
+		Sources: []Source{SourceTapIsAWebPage},
+	},
+	{
+		Ordinal: "03",
+		Title:   "Taptime checks the signature",
+		Body: "The key that signs the code is never printed on the plaque, never sent to the phone " +
+			"and never written to a log. A code whose signature does not check out is refused.",
+		Sources: []Source{SourceSignatureIsVerified},
+	},
+	{
+		Ordinal: "04",
+		Title:   "And refuses a repeat",
+		Body: "The counter is moved forward by a single database statement that will not move it " +
+			"backwards. If one link is opened twice, the second one changes nothing and is refused.",
+		Sources: []Source{SourceCounterAdvanceIsGuarded},
+	},
+}
+
+// Stamp is the verdict a decision line ends in — the closed vocabulary the rubber
+// stamp is rendered from.
+//
+// IT IS A TYPE AND NOT A CLASS NAME, and that is a Tailwind fact rather than
+// tidiness. The CLI scans .templ files as raw text and emits a component rule only
+// where it sees the literal class, so a class assembled in Go ("stamp--" + x) would
+// compile to a stamp with no frame and no ground. The template switches on these
+// values and writes the five class names out in full; see landing.templ.
+type Stamp string
+
+const (
+	// StampNone is the one line that ends in no record at all.
+	StampNone     Stamp = ""
+	StampApproved Stamp = "approved"
+	StampFlagged  Stamp = "flagged"
+	StampRejected Stamp = "rejected"
+	StampIgnored  Stamp = "ignored"
+)
+
+// Rule is one line of the decision order: when it matches, and what the answer is.
+type Rule struct {
+	// Ordinal is the line's position, printed in the data typeface. The ORDER is the
+	// substance of this table — the first line that matches wins — so the number is
+	// part of the claim rather than decoration.
+	Ordinal string
+	// When is the condition, written as a person would say it.
+	When string
+	// Verdict is the stamp this line ends in, or StampNone for the one line that
+	// records nothing.
+	Verdict Stamp
+	// Body is what it means, and it is where the line's limit is stated.
+	Body string
+	// Sources are the engine facts this line rests on — see Source. Never empty.
+	Sources []Source
+}
+
+// LandingRules is CLAUDE.md §5's decision order, which is also internal/policy's:
+// rows 1-5 are guardrails in internal/policy/guardrails.go (sys:tag-not-active,
+// sys:sun-invalid, sys:no-session, sys:employee-deactivated, sys:person-debounce, in
+// that order), rows 6-7 are the baseline (base:ip-or-gps-ok / base:gps-only-allow,
+// then base:no-evidence-review). internal/domain/tap.Decide makes exactly one call
+// into the engine and applies what comes back.
+//
+// 🔴 IT IS A SELECTION AND THE PAGE SAYS SO. The tap guardrails number more than
+// seven — a session tapping another organisation's plaque, a page left open too
+// long, a declared time outside the tolerance — and a table that showed seven and
+// implied "these are all of them" would be the shape of claim this file exists to
+// refuse. The note under the table names two of the ones not shown.
+//
+// ⚠️ ROW 4 SAYS WHAT IS ACTUALLY DONE, WHICH IS NOT WHAT §5's WORDING SUGGESTS. §5
+// calls it a "güvenlik uyarısı" and the first draft here read "a manager is told" —
+// that is a notification, and this product has none. What exists (M8-03,
+// internal/domain/checkin) is the refused record, a row in the audit trail and a
+// warning in the server's log, so that is what the line claims.
+var LandingRules = []Rule{
+	{
+		Ordinal: "1",
+		When:    "The plaque is retired, or reported lost",
+		Verdict: StampRejected,
+		Body:    "A plaque that is out of service decides nothing, whoever is holding the phone.",
+		Sources: []Source{SourceTagNotActive},
+	},
+	{
+		Ordinal: "2",
+		When:    "The one-time code does not check out, or has been seen before",
+		Verdict: StampRejected,
+		Body:    "A link somebody copied carries a counter Taptime has already moved past.",
+		Sources: []Source{SourceSUNInvalid},
+	},
+	{
+		Ordinal: "3",
+		// 🔴 "NEVER BEEN SET UP" WAS TOO NARROW FOR WHAT FIRES THIS LINE. The guardrail
+		// is reached from httpx.SessionAbsent AND httpx.SessionRevoked (handler/tap.go's
+		// SessionAbsent, SessionRevoked arm), and the second one is a phone that WAS set
+		// up and has since been signed out — a stolen handset, a second device. A line
+		// that named only the first left the commoner half of its own trigger undescribed.
+		When:    "This phone has not been set up, or has been signed out",
+		Verdict: StampNone,
+		// 🔴 THE SECOND SENTENCE USED TO SAY THE FOREIGN-ORGANISATION TAP IS "TURNED AWAY
+		// THE SAME WAY", AND IT IS NOT. Measured: sys:no-session ends in a 303 to the
+		// activation page (handler/tap.go's SessionAbsent, SessionRevoked arm), while
+		// sys:tenant-mismatch lets the page open, is decided when the button is pressed
+		// and answers 403 with a fixed refusal — handler/checkin.go's
+		// checkin.OutcomeForeignTenant arm, whose own comment says it is NOT the
+		// activation page "because their session is perfectly good". Since this line's
+		// premise was "the person is shown their invitation", "the same way" told the
+		// reader that a stranger's phone is offered an invitation to activate, which is
+		// the one thing §4.5 refuses. What the two paths genuinely share is the half that
+		// was already true and is worth keeping: neither writes a record
+		// (TestCheckinDB_ForeignTenantTapIsRefusedAndWritesNOTHING).
+		//
+		// 🔴 AND THE FIRST SENTENCE WAS WRONG IN ITS OWN RIGHT, WHICH ONLY SHOWED UP
+		// WHILE CHECKING THE SECOND. "Shown their invitation" describes a page this
+		// product does not serve: handler/tap.go's redirectToActivation sends the phone
+		// to /activate with NO code, and handler/activate.go answers that with
+		// problemNoLink — "You need your activation link ... This page opens from the
+		// personal link your workplace sent you". The page ASKS FOR the invitation; it
+		// does not show one. A sentence that promised the opposite would have read as a
+		// small kindness the product does not perform.
+		Body: "The person is sent to the activation page, which asks for the personal link " +
+			"their workplace sent them. Nothing is recorded — not because the evidence is " +
+			"thin, which is line seven's business, but because there is nobody to write a " +
+			"record against. A phone signed in to another organisation is not sent there: " +
+			"that session is real, so the tap is refused at the button instead, in words " +
+			"that name neither employer. It lands in neither organisation's records either.",
+		Sources: []Source{SourceNoSession, SourceForeignTenantIsRefusedNotActivated},
+	},
+	{
+		Ordinal: "4",
+		When:    "The person's account has been switched off",
+		Verdict: StampRejected,
+		Body: "Refused, and still written down: the record, an entry in the audit trail, and a " +
+			"warning in the server's log.",
+		Sources: []Source{SourceEmployeeDeactivated},
+	},
+	{
+		Ordinal: "5",
+		When:    "The same person tapped a moment ago",
+		Verdict: StampIgnored,
+		Body: "Their earlier tap stands. The window is per person and not per plaque, so a queue " +
+			"at one door still records everybody in it.",
+		Sources: []Source{SourcePersonDebounce},
+	},
+	{
+		Ordinal: "6",
+		When:    "The venue's network address matches, or the phone is close enough",
+		Verdict: StampApproved,
+		Body: "Either half is enough on its own. A check-in that arrives without the plaque's " +
+			"one-time code is no proof of a touch, so for that one the address is required.",
+		Sources: []Source{SourceIPOrGPSOK, SourceGPSOnlyAllow, SourceQRRequiresIP},
+	},
+	{
+		Ordinal: "7",
+		When:    "Neither of them",
+		Verdict: StampFlagged,
+		Body: "The record is written, marked, and put in a manager's queue. No tap is dropped " +
+			"for want of proof and nothing is approved silently.",
+		Sources: []Source{SourceNoEvidenceReview},
 	},
 }
 

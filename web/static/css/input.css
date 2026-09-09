@@ -382,6 +382,126 @@
            font-mono text-[11px] leading-5 text-ink;
   }
 
+  /* --- the public page's drawings (M7-01 rebuild, 2026-09-07) ---
+     WHY THERE ARE RULES HERE AT ALL AND NOT UTILITIES ON EVERY SHAPE: the four
+     figures on the landing page carry roughly a hundred elements between them, and
+     an SVG shape needs `fill` and `stroke` where the rest of the product needs
+     `color` and `background`. Repeating a four-utility chain a hundred times is the
+     brand's "a repeated chain is a component nobody has written yet" in its purest
+     form -- and it would put the drawings' contrast decisions in a hundred places
+     instead of eleven.
+
+     MEASURED (WCAG relative luminance, sRGB composite; AA for normal text is
+     4.5:1), AND MEASURED AGAINST THE GROUND EACH LABEL ACTUALLY SITS ON -- which is
+     the correction an audit made to this block on 2026-09-07. The first version
+     reported the two tinted boxes "over paper" and they are not: they are drawn
+     INSIDE the flow figure, which has no ground of its own, so what shows through is
+     the SECTION ground, `porcelain #EDF0EA`. Both numbers were therefore for a
+     surface that is not there. The verdict does not move -- everything here is an
+     order of magnitude past AA -- but a measurement that names the wrong ground is
+     how the next one gets taken on the wrong ground too.
+
+       ink on paper ......................... 16.17:1  (labels inside a filled shape)
+       ink on porcelain ..................... 14.32:1  (labels on the section ground)
+       ink on tomato/10 over porcelain ...... 12.46:1  (the refused counter box)
+       ink on tappa-green/10 over porcelain . 12.34:1  (the accepted counter box)
+       tappa-green on paper .................. 7.73:1  (the drawn wordmark)
+
+     For reference, the same two tints OVER PAPER measure 13.99:1 and 13.85:1 -- that
+     is the pairing the panel's chips use, and it is not what these figures do.
+     No label is painted in `saffron` (2.62:1 on paper) or `line` (1.52:1): those
+     two tokens appear only as strokes, and never as the only carrier of a fact --
+     every stroke in these figures is beside a word that says the same thing.
+
+     THE FIGURES ARE NAMED, NOT DECORATIVE. Each carries role="img" and a <title>,
+     so a screen reader is told what the drawing shows; the same fact is written in
+     the prose beside it, which is why nothing is lost when images are off. */
+  .diagram-frame {
+    @apply fill-paper stroke-line;
+    stroke-width: 1.5;
+  }
+  .diagram-accent-frame {
+    @apply fill-tappa-green/10 stroke-tappa-green;
+    stroke-width: 1.5;
+  }
+  .diagram-refused-frame {
+    @apply fill-tomato/10 stroke-tomato;
+    stroke-width: 1.5;
+  }
+  .diagram-rule {
+    @apply fill-none stroke-line;
+    stroke-width: 1.5;
+  }
+  .diagram-accent {
+    @apply fill-none stroke-tappa-green;
+    stroke-width: 2;
+  }
+  /* The antenna's centre. Dashed because it is WHERE something is, not something
+     to press -- a solid ring reads as a button. */
+  .diagram-dashed {
+    @apply fill-none stroke-line;
+    stroke-width: 1.5;
+    stroke-dasharray: 4 4;
+  }
+  .diagram-arrow {
+    @apply fill-none stroke-ink;
+    stroke-width: 1.5;
+  }
+  .diagram-tick {
+    @apply fill-none stroke-tappa-green;
+    stroke-width: 2.5;
+  }
+  .diagram-cross {
+    @apply fill-none stroke-tomato;
+    stroke-width: 2.5;
+  }
+  .diagram-title {
+    @apply fill-ink font-display text-[13px] font-bold tracking-tight;
+  }
+  /* Every figure's small caps, and every figure's numbers. Mono, because skill
+     tappa-brand's rule is that a data cell which is not mono is wrong -- a counter
+     drawn in the display face would be the same defect as a counter typed there. */
+  .diagram-label {
+    @apply fill-ink font-mono text-[10px] uppercase tracking-widest;
+  }
+  .diagram-mono {
+    @apply fill-ink font-mono text-[14px] font-bold;
+  }
+  .diagram-wordmark {
+    @apply fill-tappa-green font-display text-[22px] font-bold tracking-tight;
+  }
+
+  /* --- the landing page's SECOND one-shot: the plaque's field, drawn once ---
+     🔴 IT IS DECLARED ONLY INSIDE `no-preference`, WHICH IS THE SAME SAFETY SHAPE
+     THE DOCKET'S ANIMATION BELOW ARGUES FOR AND FOR THE SAME REASON. The effect
+     works by HIDING the arcs first (a dash offset the length of the stroke) and
+     drawing them in; written the ordinary way it would need a second rule under
+     `reduce` to undo that, and the day that second rule is dropped, renamed or
+     reordered, a reader who asked for less motion is left looking at a plaque with
+     no field on it at all. Declared this way there is nothing to undo: outside this
+     block the arcs carry no dash pattern and are simply painted.
+
+     ONE SHOT, NOT A LOOP. The M7-01 card asks the hero for a live plaque, and the
+     brand forbids anything that sways or repeats — so this runs once, in the
+     direction the field actually travels (inner arc first), and stops.
+
+     THE DASH LENGTH IS 200 BECAUSE THE LONGEST ARC IS SHORTER THAN THAT: the
+     outermost is a half circle of radius 54, i.e. about 170 units. A dash longer
+     than the path is what makes "draw it in" possible without a visible dash
+     pattern at the end of it. */
+  @media (prefers-reduced-motion: no-preference) {
+    @keyframes plaque-field {
+      from { stroke-dashoffset: 200; }
+      to   { stroke-dashoffset: 0; }
+    }
+    .plaque-field {
+      stroke-dasharray: 200;
+      animation: plaque-field 900ms ease-out both;
+    }
+    .plaque-field--mid { animation-delay: 180ms; }
+    .plaque-field--outer { animation-delay: 360ms; }
+  }
+
   /* --- the landing page's ONE animation (M7-01): a docket coming off the printer ---
      The M7-01 card asks the hero for "canlı plaket + basılan adisyon animasyonu"
      and requires it to respect prefers-reduced-motion. It is a single downward
