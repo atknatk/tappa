@@ -15,6 +15,49 @@
 
 ## Açık
 
+### T72 — panel, tenant'a veremeyeceği bir ayarı vaat ediyor
+
+**Durum:** açık · **Bloklar:** hiçbir şeyi · **İlgili:** M3-policy, M6-dashboard, 19. oturum
+
+**Ne oldu.** Landing'in yeniden tasarımında *"5. satırdaki pencere sizin ayarınız"* cümlesi
+**mount edilmemiş yetenek** olarak bulundu ve kaldırıldı. Ama iddianın **kökü landing değil
+panel**: `internal/domain/tenant/rulebook.go:806` tenant yöneticisine hâlâ
+*"The window is yours to set"* diyor, ve `web/templates/pages/policies.templ:335-343` değeri
+salt-okunur basıyor — o blokta **hiç `<form>` yok**.
+
+**Ölçüldü.** Debounce **süreç geneli tek değer**: `internal/config/config.go` `TAPPA_DEBOUNCE_SECONDS`
+→ `internal/domain/checkin/checkin.go` `params.DebounceWindow` → `cmd/tappa/main.go`
+`tenant.NewRulebook(...)` **tek çağrı, her tenant için aynı**. `internal/handler/dashboard.go`'da
+bounded param için `r.Post` yok. `db/migrations/` içinde debounce yalnız `00005`'te bir
+`transactions` sütunu — **tenant başına saklama yok**.
+
+**Seçenekler.** (a) panel metnini gerçeğe çek (ucuz, dürüst) · (b) bounded param'ı gerçekten
+tenant başına saklanabilir yap (şema + politika motoru işi, M3'ün kapsamı).
+
+**Neden önemli.** Landing'de aynı cümle **bloklayan** sayıldı. Panelde duruyor olması onu
+doğru yapmıyor; yalnız izleyici kitlesi daha dar.
+
+### T73 — `make audit`'te marka kapısı yok
+
+**Durum:** açık · **Bloklar:** hiçbir şeyi · **İlgili:** rebrand (`0738d16`), 19. oturum
+
+**Ne oldu.** Kullanıcı-yüzü marka `Taptime`, iç kod adı `tappa` (kullanıcı kararı — teknik
+tanımlayıcılar bilinçli olarak değişmedi). Ama render edilen metinde `Tappa` sızıntısını
+**mekanik olarak tarayan hiçbir şey yok**. Bugüne kadar iki kez **elle** doğrulandı
+(rebrand turunda ve landing yeniden tasarımında), ikisinde de temiz çıktı.
+
+**Risk.** Kod tabanında 5.396 `tappa` tekrarı duruyor. Yeni kullanıcı-yüzü metin yazan
+herkesin (insan ya da ajan) yanlış adı yazması için bolca çağrışım var, ve onu yakalayacak
+bir kapı yok — mevcut testler yalnız **belirli** ekranlarda **belirli** string'leri doğruluyor,
+genel bir tarama değil.
+
+**Ne yapılacak.** `scripts/redline-check.sh`'e (ya da ayrı bir kapıya) render edilen
+şablonlarda/kullanıcıya giden metinlerde `Tappa` arayan bir kural ekle. **Muaf olmalı:**
+`tappa-green` CSS token'ı · import/modül yolları · `tappa_*` DB rolleri · `TAPPA_*` env'ler ·
+Go identifier'ları (`ComparisonRow.Tappa`) · yorumlar. Kapı, rebrand turunun **elle** yaptığı
+doğrulamayı mekanikleştirir.
+
+
 ### B1 — iOS Safari çerez ömrü ölçümü (Q11)
 
 **Durum:** açık · **Bloklar:** hiçbir şeyi · **İlgili:** Q11, M5-01 (`a71e1b2`), M8-05
