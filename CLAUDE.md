@@ -253,10 +253,16 @@ dokunuş gerektirir. Bu ekrana özellik eklemek istiyorsan önce sor.
 - Şema, karar motoru veya güvenlik sınırı değiştiyse **ADR yaz** (`docs/adr/NNNN-*.md`).
 - İş bitince `make check` çalıştır. Kırmızıysa iş bitmemiştir.
 - Commit: `type(scope): özet` — `feat(tap): reject retired tags`. İngilizce, emir kipi.
-- **Doğrudan `main`'de çalışılır** (kullanıcı kararı, 2026-07-24): yeni proje,
-  görev/milestone başına feature dal açılmaz. Kullanıcı istemedikçe **push/PR
-  açma** — commit yerelde `main`'e atılır. (M0, `m0-bootstrap` dalında yapılıp
-  `main`'e birleştirildi; sonrası doğrudan `main`.)
+- **İş feature dalında yapılır** (kullanıcı kararı, 2026-09-09 — bu, *"doğrudan
+  `main`'de çalışılır"* diyen 2026-07-24 kararının **yerini alır**). Gerekçe
+  ölçüldü: **`main` üretime deploy eder.** `.github/workflows/deploy.yml`
+  `workflow_run … branches: [main]` ile bağlı, yani `main`'e atılan her commit
+  CI yeşilse **canlıya çıkar**; oysa `ci.yml` `on: push` ile **her dalda** koşar.
+  Dal bu yüzden bedava: tam CI doğrulaması verir, deploy riski vermez.
+  Kullanıcı istemedikçe **`main`'e birleştirme** — birleştirme bir deploy
+  kararıdır, kod kararı değil. Dal push'u serbest, `main` push'u değil.
+  (M0 `m0-bootstrap`'ta yapıldı; M1–M8 doğrudan `main`'de; landing yeniden
+  tasarımından itibaren yeniden dalda.)
 - Emin değilsen sor — özellikle §4 kırmızı çizgilere değen her şeyde.
 
 ## 11. Ajanlar & skill'ler
