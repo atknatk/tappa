@@ -66,6 +66,28 @@ type LandingView struct {
 	FreeMonths int
 }
 
+// NavLink is one in-page link in the landing page's own navigation bar.
+type NavLink struct {
+	Label string
+	// Href is an in-page anchor — "#how" — and nothing else. The page's sections
+	// carry their ids in marketingSection's first argument, and
+	// TestLandingNav_EveryLinkPointsAtASectionOnThePage follows each one against the
+	// rendered page, so a section renamed without this list going with it is a red
+	// test rather than a link that scrolls nowhere.
+	Href string
+}
+
+// LandingNav is the sticky bar's three in-page links (2026-09-12, the user's own
+// design carried across). The two OTHER things in the bar — "Sign in" and "Start
+// free" — are not here because they are not in-page: they come from
+// LandingView.SignInHref and LandingView.SignupHref for the reason those fields
+// record, and the header renders them from the view.
+var LandingNav = []NavLink{
+	{Label: "How it works", Href: "#how"},
+	{Label: "Security", Href: "#proof"},
+	{Label: "Pricing", Href: "#pricing"},
+}
+
 // Step is one of the three things that happen before a shift is being recorded.
 type Step struct {
 	// Ordinal is printed as the step number. A string because it is set in the
@@ -73,6 +95,11 @@ type Step struct {
 	Ordinal string
 	Title   string
 	Body    string
+	// Facts are the product facts this step rests on — see Fact. Never empty.
+	// Added 2026-09-12; until then Step carried no pin and
+	// marketing_claims_test.go said so out loud ("RENDERING ONLY, AND THE GAP IS
+	// STATED"). TestLandingSteps_EveryStepRestsOnAProductFact closes it.
+	Facts []Fact
 }
 
 // LandingSteps is handoff §9's "3 adım".
@@ -81,25 +108,104 @@ type Step struct {
 // (internal/sun reads what it writes), step 2 is the activation flow
 // (handler.Activation, GET /activate), step 3 is the tap flow (handler.Tap,
 // GET /t and POST /api/checkin) with the direction rule from CLAUDE.md §5.
+//
+// ⚠️ STEP 3's "SIZED FOR A WET OR FLOURY HAND" IS THE USER'S OWN PHRASE (2026-09-12)
+// AND IT IS A DESIGN RULE, NOT A MEASUREMENT: skill tappa-brand fixes the tap
+// button at a 64px minimum so that a gloved or wet finger can press it, and
+// input.css's .tap-button rule carries that floor. Nobody has timed anybody's
+// hands; the sentence says what the button is sized FOR, which is what the rule
+// says, and FactTapButtonSizedForAWetHand reads the rule. "Under two seconds"
+// from the same draft was NOT carried, because it is a number nobody measured.
 var LandingSteps = []Step{
 	{
 		Ordinal: "01",
 		Title:   "A plaque goes up by the door",
 		Body: "It is a printed plaque with a passive chip behind it. No power, no network, " +
 			"no battery to change. One at each entrance you want to record.",
+		Facts: []Fact{FactPlaqueIsPassive},
 	},
 	{
 		Ordinal: "02",
 		Title:   "Each person opens their link once",
 		Body: "You invite them from the dashboard. They open the link on their own phone, " +
 			"read what is recorded and why, and agree. That is the only setup they ever do.",
+		Facts: []Fact{FactPeopleAreInvitedFromTheDashboard},
 	},
 	{
 		Ordinal: "03",
 		Title:   "After that it is one tap",
-		Body: "Hold the phone to the plaque, the browser opens, one button. Taptime knows " +
-			"whether this is a way in or a way out from the last entry that is still open — " +
-			"so a shift that ends at 02:00 closes the one that started at 18:00.",
+		Body: "Hold the phone to the plaque, the browser opens, one button — sized for a wet " +
+			"or floury hand. Taptime knows whether this is a way in or a way out from the " +
+			"last entry that is still open — so a shift that ends at 02:00 closes the one " +
+			"that started at 18:00.",
+		Facts: []Fact{FactTapPageNeedsNoApp, FactTapButtonSizedForAWetHand, FactDirectionTogglesOnLastOpenEntry},
+	},
+}
+
+// Line is one sentence of copy paired with the product facts it rests on. It is
+// what a new marketing sentence has to be, as of 2026-09-12: the text and its
+// answer to "which code provides this?" in one value, rendered from here rather
+// than typed into the template.
+type Line struct {
+	Text  string
+	Facts []Fact
+}
+
+// LandingSetupLede sits under the "how it works" heading. The user's draft read
+// "There is nothing to install, enroll, or maintain. The plaque is passive — no
+// battery, no software, no internet of its own." — "enroll" was dropped, because
+// opening the invitation link once IS an enrolment of a kind and the sentence two
+// lines below it says so; the rest is carried, and each half is pinned.
+var LandingSetupLede = Line{
+	Text: "Nothing to install, and nothing on the wall to maintain: the plaque is passive — " +
+		"no battery, no software, no internet of its own.",
+	Facts: []Fact{FactTapPageNeedsNoApp, FactPlaqueIsPassive},
+}
+
+// LandingPricingHeading is the user's own line, carried word for word because both
+// halves are true and checkable: the price is per employee (migration 00016's
+// price_per_employee_month, which TestLanding_PriceMatchesTheSchemaItIsCharged
+// pins to the number printed), and there is no device to charge for because the
+// plaque is a passive chip.
+var LandingPricingHeading = Line{
+	Text:  "Pay per person. Nothing per device — there are none.",
+	Facts: []Fact{FactPricePerEmployee, FactPlaqueIsPassive},
+}
+
+// LandingPricingIncludes is the price card's list, and EVERY LINE IS SOMETHING THE
+// PRODUCT DOES TODAY. The user's draft listed five; three were not carried, and
+// the reasons are the reasons this file is written under:
+//
+//   - "Branded wall plaques included & replaced free" — the pricing card's prose
+//     already says plaques are included (handoff §11, unchanged since M7-01), and
+//     repeating it as a checklist item beside features the dashboard serves today
+//     would present a plaque nobody can yet order (M8-05 B3 is blocked on hardware)
+//     as a delivered feature. Said once, in the prose, as the pricing term it is.
+//   - "Daily reports, CSV export & API for your payroll flow" — the CSV half is
+//     real and is line three below; the API half is NOT. The only /api routes are
+//     the tap form's own POSTs (FactNoIntegrationAPI is the tripwire).
+//   - "Runs alongside your current system during trial" — not a product feature at
+//     all, and "Unlimited locations & departments" was narrowed too: nothing caps
+//     how many a tenant creates, but the panel's lists are capped at
+//     venuePageLimit, so "unlimited" would be a word the screen contradicts.
+var LandingPricingIncludes = []Line{
+	{
+		Text: "Venues and departments, each on its own hours — and each venue with its own " +
+			"network address.",
+		Facts: []Fact{FactVenuesAndDepartmentsCarryOwnHours},
+	},
+	{
+		Text:  "The dashboard, with a queue of FLAGGED records for a manager to decide.",
+		Facts: []Fact{FactFlaggedQueueDecidedByAManager},
+	},
+	{
+		Text:  "Hours and the monthly headcount as CSV files, downloaded from the dashboard.",
+		Facts: []Fact{FactHoursExportAsCSV, FactBillingExportAsCSV},
+	},
+	{
+		Text: "Manual entries for a day the phone stayed at home — with the manager's name " +
+			"on them, and marked as typed rather than tapped.",
+		Facts: []Fact{FactManualEntryNamesAManager},
 	},
 }
 
@@ -185,6 +291,121 @@ const (
 	// it reads handler SOURCE rather than running the handler, so it fails when the
 	// arm is rewritten and not when the arm is reached by something else.
 	SourceForeignTenantIsRefusedNotActivated Source = "handler:checkin.OutcomeForeignTenant"
+)
+
+// Fact is a product fact one of the 2026-09-12 additions rests on: the FAQ, the
+// price card's list, the three steps and the two lede lines carried over from the
+// user's own design.
+//
+// 🔴 IT IS A THIRD VOCABULARY, AND THE REASON IS THE SAME ONE Source GIVES FOR
+// BEING SEPARATE FROM Anchor — a test, not taxonomy. Both older vocabularies are
+// CLOSED by tests that this task may not edit: every declared Anchor must be
+// claimed by LandingAudiences and derived in anchorDerivations, every declared
+// Source by LandingRules or LandingTapFlow and sourceDerivations. A new constant in
+// either block turns one of those tests red for a reason that is not a defect. So
+// the new claims get their own block, their own derivation map
+// (internal/handler/marketing_facts_test.go) and their own closure test — and
+// where a fact IS one the older vocabularies already derive, the derivation
+// delegates to theirs rather than re-reading the product a second way.
+//
+// ⚠️ THE LIMIT IS THE ONE WRITTEN ON Anchor, WORD FOR WORD: naming a Fact does
+// not make a sentence true, and the test is blind to a sentence bolted onto an
+// unrelated but healthy Fact. Every sentence below was still read by a person
+// against the product. Three of the facts are TRIPWIRES for an ABSENCE — no bulk
+// import, no integration API, no edit of a record — because the user's draft
+// promised all three and the honest sentence is the one that says they are not
+// there; a tripwire fails the day one appears, which is the day that sentence
+// has to be rewritten.
+type Fact string
+
+const (
+	// The tap page is a web page at a route, which is the whole of "nothing to
+	// install". Delegates to SourceTapIsAWebPage.
+	FactTapPageNeedsNoApp Fact = "fact:tap-is-a-web-page"
+	// The plaque is a passive NTAG 424 DNA chip that rewrites its own URL (skill
+	// tappa-sun; internal/sun.Parse reads the ctr and cmac it writes). Delegates to
+	// SourceSUNURLCarriesCounterAndSignature. ITS LIMIT, STATED: no Go code can
+	// prove a chip has no battery; what the derivation holds is that the product
+	// reads a counter and a signature the plaque itself wrote, which is the
+	// mechanism a passive NFC tag provides and a powered reader does not.
+	FactPlaqueIsPassive Fact = "fact:plaque-writes-its-own-url"
+	// The tap button carries a 64px minimum (input.css .tap-button, min-h-16),
+	// which skill tappa-brand fixes so a gloved or wet finger can press it. Derived
+	// by reading the rule.
+	FactTapButtonSizedForAWetHand Fact = "css:.tap-button min-h-16"
+	// In or out is decided by toggling against the person's last OPEN check-in,
+	// not the calendar day (CLAUDE.md §5, internal/domain/tap.resolveDirection over
+	// Input.LastOpenIn). Derived by reflection over tap.Input and a scan for the
+	// function.
+	FactDirectionTogglesOnLastOpenEntry Fact = "tap:resolveDirection(Input.LastOpenIn)"
+	// People are added one at a time from the dashboard (POST employeeAddHref in
+	// internal/handler/dashboard.go) and open their invitation on their own phone
+	// (GET /activate in internal/handler/activate.go). Derived from both
+	// registrations.
+	FactPeopleAreInvitedFromTheDashboard Fact = "route:POST employeeAddHref+GET /activate"
+	// TRIPWIRE: there is no file import. Derived as an ABSENCE — no non-test Go
+	// source under internal/ or cmd/ reads a multipart upload (FormFile,
+	// MultipartReader, ParseMultipartForm). The FAQ says "there is no file import
+	// today"; the day one exists this fails and the sentence is rewritten.
+	FactNoBulkImport Fact = "absent:multipart-upload"
+	// TRIPWIRE: there is no integration API. Derived as an ABSENCE — the only
+	// "/api…" literals in non-test Go source are the tap form's own two POSTs
+	// (/api/checkin, /api/activate). The user's draft promised "a clean API feed";
+	// the FAQ says "There is no API" instead.
+	FactNoIntegrationAPI Fact = "absent:/api beyond the tap form"
+	// A typed record names the administrator who typed it and is marked apart from
+	// a tapped one: manual.Entry.EnteredBy (required, from the signed panel
+	// session), migration 0005's channel CHECK admitting 'manual' with entered_by
+	// beside it, and components.DocketView.Manual, which the panel renders as
+	// "Entered by a manager". Derived from all three.
+	FactManualEntryNamesAManager Fact = "domain:manual.Entry.EnteredBy+DocketView.Manual"
+	// The hours report is downloadable as CSV: GET reportsCSVHref is registered in
+	// internal/handler/dashboard.go and reportscsv.go answers it as an attachment.
+	FactHoursExportAsCSV Fact = "route:GET reportsCSVHref"
+	// The monthly headcount is downloadable as CSV: GET billingCSVHref, same shape.
+	FactBillingExportAsCSV Fact = "route:GET billingCSVHref"
+	// A record with too little evidence is written, marked and queued for a person
+	// (base:no-evidence-review carries EffectReview) and the panel takes the
+	// decision (POST reviewHref → reviewDecision). Delegates to
+	// SourceNoEvidenceReview for the first half and reads the registration for the
+	// second.
+	FactFlaggedQueueDecidedByAManager Fact = "route:POST reviewHref+policy:base:no-evidence-review"
+	// A copied link loses: the counter is advanced under a strict `<` and a code
+	// whose signature or counter does not check out is refused. Delegates to
+	// SourceCounterAdvanceIsGuarded and SourceSUNInvalid.
+	FactCopiedLinkIsRefused Fact = "fact:replayed-link-is-refused"
+	// A check-in that arrives without the plaque's one-time code needs the venue's
+	// network address; a position alone is not enough for it (§5's QR sentence,
+	// base:qr-requires-ip carries EffectReview). Delegates to SourceQRRequiresIP.
+	//
+	// 🔴 THIS IS THE FACT THE USER'S FAQ GOT WRONG — "requires the IP OR GPS proof
+	// instead" — and it is a decision-engine claim of the exact class that produced
+	// three REDs on this page. The address is REQUIRED for the codeless channel;
+	// GPS on its own ends in FLAGGED. Both FAQ answers that touch it say so.
+	FactCodelessTapNeedsAddress Fact = "fact:codeless-tap-needs-the-address"
+	// A venue carries its own hours and its own addresses, a department its own
+	// hours. Delegates to AnchorVenueShiftAndAddress and AnchorDepartmentShift.
+	FactVenuesAndDepartmentsCarryOwnHours Fact = "fact:venue-and-department-hours"
+	// The price is per employee per month: migration 00016's
+	// tenants.price_per_employee_month. Derived from the migration.
+	FactPricePerEmployee Fact = "schema:tenants.price_per_employee_month"
+	// An open entry is listed, not closed for you: ledger.Report carries Open
+	// []OpenEntry and the panel mounts an anomalies section over it. Derived by
+	// reflection and from the section table.
+	FactOpenEntriesAreListedNotClosed Fact = "type:ledger.Report.Open+section:anomalies"
+	// TRIPWIRE: a recorded tap is never changed and never deleted. Derived from
+	// migration 0005's GRANT on transactions naming SELECT and INSERT and nothing
+	// else for the application role (§4.3) — an UPDATE or DELETE grant appearing
+	// there fails this.
+	FactRecordsAreAppendOnly Fact = "grant:transactions SELECT,INSERT only"
+	// Every table is isolated inside the database: each CREATE TABLE in
+	// db/migrations has a matching FORCE ROW LEVEL SECURITY, and internal/db's
+	// readRole refuses a role that could bypass it (§4.5). Derived from the
+	// migrations and the pool source.
+	FactEveryTableIsIsolated Fact = "schema:every-table-forces-rls"
+	// The report totals per person and per venue. Delegates to
+	// AnchorPerVenueReport.
+	FactReportPerPersonAndVenue Fact = "fact:report-per-person-and-venue"
 )
 
 // Stage is one step in the life of a single tap, from the chip to a written record.
@@ -371,8 +592,13 @@ var LandingRules = []Rule{
 		Ordinal: "5",
 		When:    "The same person tapped a moment ago",
 		Verdict: StampIgnored,
+		// "IN THE LUNCH RUSH" IS THE USER'S PHRASE (2026-09-12) AND THIS IS THE ONE LINE
+		// IT IS TRUE OF: the window is keyed to the PERSON, so a queue of different
+		// people at one door is not debounced into one record. It is not a claim about
+		// speed, which is what the same phrase meant in the draft's setup heading and
+		// why it was not carried there.
 		Body: "Their earlier tap stands. The window is per person and not per plaque, so a queue " +
-			"at one door still records everybody in it.",
+			"at one door in the lunch rush still records everybody in it.",
 		Sources: []Source{SourcePersonDebounce},
 	},
 	{
@@ -395,6 +621,11 @@ var LandingRules = []Rule{
 
 // Evidence is one of the four things Tappa weighs when it decides a record.
 type Evidence struct {
+	// Proof is the user's own label for the piece (2026-09-12): "Proof of moment",
+	// "Proof of person", "Proof of place" and — for the position — "Backup proof of
+	// place", which is CLAUDE.md §5's own word for it ("yedek nerede"). Printed as
+	// the card's eyebrow; Answers stays as the sentence under the name.
+	Proof string
 	// Label is the short name, printed in the data typeface.
 	Label string
 	// Answers is the question this piece of evidence answers — the four-word
@@ -416,6 +647,7 @@ type Evidence struct {
 // components.DocketView.
 var LandingEvidence = []Evidence{
 	{
+		Proof:   "Proof of moment",
 		Label:   "The plaque's one-time code",
 		Answers: "a real touch, just now",
 		// ⚠️ "a key that never leaves our database" WAS THE FIRST DRAFT AND IT IS NOT
@@ -428,6 +660,7 @@ var LandingEvidence = []Evidence{
 			"has already seen, so a copied link is worth nothing.",
 	},
 	{
+		Proof:   "Proof of person",
 		Label:   "The sign-in on the phone",
 		Answers: "who tapped",
 		Body: "Set once, when your colleague opened their link. Taptime stores a hash of it " +
@@ -435,12 +668,14 @@ var LandingEvidence = []Evidence{
 			"out of our database.",
 	},
 	{
+		Proof:   "Proof of place",
 		Label:   "Your venue's network address",
 		Answers: "where it happened",
 		Body: "If you tell Taptime the fixed address a venue's internet connection uses, a tap " +
 			"arriving from it is a tap that happened there.",
 	},
 	{
+		Proof:   "Backup proof of place",
 		Label:   "The phone's position, at that moment",
 		Answers: "where it happened, without a fixed address",
 		// ⚠️ "shows the position on no screen" HAD TO BE NARROWED. The panel DOES show
@@ -513,22 +748,50 @@ var LandingComparison = []ComparisonRow{
 type Question struct {
 	Q string
 	A string
+	// Facts are the product facts the answer rests on — see Fact. Never empty.
+	// Added 2026-09-12, when the FAQ grew four questions from the user's own draft;
+	// until then Question carried no pin and marketing_claims_test.go said so.
+	Facts []Fact
 }
 
-// LandingFAQ is handoff §9's FAQ.
+// LandingFAQ is handoff §9's FAQ, plus four of the user's questions (2026-09-12).
 //
-// EVERY ANSWER NAMES A BEHAVIOUR THAT IS IMPLEMENTED. In order: the tap page loads
-// no application; the QR-shaped channel exists in internal/sun.Parse and is
-// governed by the base:qr-requires-ip policy; Q18 decided the system produces no
-// checkout of its own, so handler + internal/domain/manual make a person type one;
-// CLAUDE.md §4.3 and migration 0005 make `transactions` append-only; §4.5 and every
-// migration's row-level security isolate a tenant; §4.6 refuses to drop a record it
-// cannot judge.
+// EVERY ANSWER NAMES A BEHAVIOUR THAT IS IMPLEMENTED, and since 2026-09-12 every
+// answer also NAMES ITS FACT. In order: the tap page loads no application; the
+// QR-shaped channel exists in internal/sun.Parse and is governed by the
+// base:qr-requires-ip policy; Q18 decided the system produces no checkout of its
+// own, so handler + internal/domain/manual make a person type one; CLAUDE.md §4.3
+// and migration 0005 make `transactions` append-only; §4.5 and every migration's
+// row-level security isolate a tenant; §4.6 refuses to drop a record it cannot
+// judge.
+//
+// 🔴 THE FOUR NEW ONES WERE THE MOST DANGEROUS COPY IN THE USER'S DRAFT, because
+// every one of them answered with something the product does not do, and one of
+// them mis-stated the decision engine:
+//
+//   - "in ten seconds" (the manual entry) — a number nobody measured; dropped.
+//   - "Every plaque also carries a QR code … requires the IP OR GPS proof instead"
+//     — plaques carry no printed code yet (M8-05), and the rule is WRONG: the
+//     codeless channel REQUIRES the address, and a position alone ends in FLAGGED
+//     (§5, base:qr-requires-ip). The existing "cannot read the plaque" answer
+//     already says it right and is kept; the "from home" answer says it again.
+//   - "IP + GPS have to agree" — wrong the other way: §5's line six is a
+//     disjunction, either half is enough. The "from home" answer does not say
+//     "agree".
+//   - "Import your staff list from a CSV … run both systems side by side … Most
+//     sites switch in one pay period" — there is no import (FactNoBulkImport is
+//     the tripwire), and the rest is a process claim nobody measured. The answer
+//     says what is there: one person at a time, from the dashboard.
+//   - "a clean API feed your payroll or HR system directly" — there is no API
+//     (FactNoIntegrationAPI is the tripwire). The answer says so. The sentence
+//     "Taptime is the source of truth for in and out times — it does not try to
+//     replace your payroll" is the user's and is kept, because it is true.
 var LandingFAQ = []Question{
 	{
 		Q: "Does my team have to install anything?",
 		A: "No. Holding the phone to the plaque opens a web page. There is no app, no " +
 			"account to create on the phone and nothing to update.",
+		Facts: []Fact{FactTapPageNeedsNoApp},
 	},
 	{
 		Q: "What about phones that cannot read the plaque?",
@@ -536,29 +799,77 @@ var LandingFAQ = []Question{
 			"arrives without the plaque's one-time code — but that check-in carries no proof " +
 			"of a physical touch, so it needs your venue's network address to match. A " +
 			"position on its own is not enough for it. Your organisation can change that rule.",
+		Facts: []Fact{FactCodelessTapNeedsAddress},
+	},
+	{
+		Q: "What if somebody does not have their phone that day?",
+		// "vouched for" IS THE USER'S WORD AND IT IS THE RIGHT ONE: a typed record
+		// carries no evidence of a touch, only a named manager standing behind it —
+		// which is exactly what manual.Entry.EnteredBy being REQUIRED means.
+		A: "A manager types the entry from the dashboard. It is stored with that manager's " +
+			"name on it and marked as entered by hand rather than tapped, so a record that " +
+			"was vouched for never looks like one that was proved.",
+		Facts: []Fact{FactManualEntryNamesAManager},
 	},
 	{
 		Q: "What happens when somebody forgets to clock out?",
 		A: "Taptime does not invent a clock-out. The entry stays open, it is listed as an " +
 			"anomaly for a manager, and the hours are typed in by a person. Open entries are " +
 			"left out of the totals and the report says so rather than quietly rounding.",
+		Facts: []Fact{FactOpenEntriesAreListedNotClosed, FactManualEntryNamesAManager},
+	},
+	{
+		Q: "Can somebody clock in from home?",
+		// 🔴 READ THE THREE SENTENCES AGAINST §5 BEFORE TOUCHING THEM. A link with the
+		// plaque's code only exists once a phone has read the plaque, and the second
+		// opening of it loses (rows 2 and the counter guard). A check-in WITHOUT the
+		// code is the codeless channel: it needs the venue's address, and from anywhere
+		// else it is FLAGGED — recorded, queued, not approved. "Not without a manager
+		// seeing it" is therefore the honest answer, and "No" would have been too
+		// strong: a flagged record IS written.
+		A: "Not without a manager seeing it. The plaque's chip signs every tap with a one-time " +
+			"code, so such a link only exists once a phone has read the plaque — and a copied " +
+			"link, or yesterday's, carries a counter Taptime has already moved past and is " +
+			"refused. A check-in that arrives without the code at all needs your venue's " +
+			"network address to be approved; from anywhere else it is written down, marked " +
+			"FLAGGED and put in a manager's queue rather than approved.",
+		Facts: []Fact{FactCopiedLinkIsRefused, FactCodelessTapNeedsAddress, FactFlaggedQueueDecidedByAManager},
 	},
 	{
 		Q: "Can a record be edited?",
 		A: "No. A recorded tap is never changed and never deleted. A correction is a new " +
 			"record with the manager's name on it, and both stay — that is what makes the " +
 			"record usable as evidence later.",
+		Facts: []Fact{FactRecordsAreAppendOnly, FactManualEntryNamesAManager},
 	},
 	{
 		Q: "What if Taptime cannot tell where a tap happened?",
 		A: "It writes the record anyway, marks it FLAGGED and puts it in a manager's queue. " +
 			"A record is never dropped for want of proof, and nothing is approved silently.",
+		Facts: []Fact{FactFlaggedQueueDecidedByAManager},
+	},
+	{
+		Q: "How do we move over from the device we have now?",
+		A: "One person at a time, and by hand: you add each person from the dashboard and " +
+			"send them their invitation link, which they open once on their own phone. There " +
+			"is no file import today. The device you have now is yours to switch off whenever " +
+			"you are ready — Taptime does not talk to it.",
+		Facts: []Fact{FactPeopleAreInvitedFromTheDashboard, FactNoBulkImport, FactNoIntegrationAPI},
+	},
+	{
+		Q: "Where does the data go?",
+		A: "Into your dashboard: hours per person and per venue, open entries listed as " +
+			"anomalies, and the monthly headcount you are billed on. Hours and headcount come " +
+			"out as CSV files. There is no API. Taptime is the source of truth for in and out " +
+			"times — it does not try to replace your payroll.",
+		Facts: []Fact{FactReportPerPersonAndVenue, FactOpenEntriesAreListedNotClosed, FactHoursExportAsCSV, FactBillingExportAsCSV, FactNoIntegrationAPI},
 	},
 	{
 		Q: "Can one organisation see another's records?",
 		A: "No. Every table carries the organisation it belongs to, every table enforces that " +
 			"inside the database rather than only in the application, and the application " +
 			"connects with a role that cannot bypass it.",
+		Facts: []Fact{FactEveryTableIsIsolated},
 	},
 }
 

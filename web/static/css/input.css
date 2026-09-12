@@ -534,4 +534,116 @@
       animation: docket-print 600ms ease-out both;
     }
   }
+
+  /* --- the landing page restyle (2026-09-12): the user's own design, carried ---
+     Everything below is rendered ONLY by web/templates/pages/landing.templ. The
+     panel, the tap screens, the wizard and the legal pages wear none of it, so
+     their bytes do not move.
+
+     THREE OF THESE BLOCKS PUT TEXT ON A DARK OR A GREEN GROUND, which this product
+     had not done before, and every pair was MEASURED (WCAG relative luminance,
+     sRGB composite; AA for normal text is 4.5:1) rather than assumed. Only palette
+     tokens are used on those grounds -- the user's draft carried seventeen hex
+     values outside the palette and none of them survives here.
+
+       paper on ink ......................... 16.17:1  (ledger row names, Taptime column)
+       porcelain on ink ..................... 14.32:1
+       porcelain/85 on ink .................. 10.65:1  (ledger terminal column, footnote)
+       line on ink .......................... 10.62:1  (ledger small caps, plaque small caps)
+       green-lite on ink .................... 13.70:1  (the plaque's field -- a stroke, beside words)
+       paper on tappa-green .................. 7.73:1  (sign-off heading and copy)
+       paper/80 on tappa-green ............... 5.63:1  (the struck words in the sign-off)
+       tappa-green on ink .................... 2.09:1  NOT USED -- the reason the plaque's
+                                                       wordmark is paper on the dark ground
+                                                       and green everywhere else
+
+     ink/85 on paper (10.14:1) and ink/70 on paper (6.03:1) are the pairs the FAQ
+     and the price list use and were measured in the report-row block above. */
+
+  /* The plaque on its ink ground. The shapes are the same eleven the light figure
+     used; only the fills and strokes change, and each is a token. The arcs keep
+     the plaque-field one-shot declared further up. */
+  .plaque-ink {
+    @apply fill-ink stroke-line;
+    stroke-width: 1.5;
+  }
+  .plaque-ink-screw {
+    @apply fill-line;
+  }
+  .plaque-ink-wordmark {
+    @apply fill-paper font-display text-[22px] font-bold tracking-tight;
+  }
+  .plaque-ink-title {
+    @apply fill-paper font-display text-[13px] font-bold tracking-tight;
+  }
+  .plaque-ink-label {
+    @apply fill-line font-mono text-[10px] uppercase tracking-widest;
+  }
+  .plaque-ink-arc {
+    @apply fill-none stroke-green-lite;
+    stroke-width: 2;
+  }
+  .plaque-ink-dashed {
+    @apply fill-none stroke-line;
+    stroke-width: 1.5;
+    stroke-dasharray: 4 4;
+  }
+
+  /* The ledger: the comparison table on ink. Square corners, like every docket --
+     the user's 24px radius was not carried (skill tappa-brand). */
+  .ledger {
+    @apply bg-ink px-5 py-8 text-paper sm:px-10 sm:py-12;
+  }
+  .ledger-label {
+    @apply font-mono text-[10px] uppercase tracking-widest text-line;
+  }
+  .ledger-rule {
+    @apply border-b border-line/30;
+  }
+
+  /* The FAQ as disclosure widgets. No script: the browser opens and closes them.
+     The marker is drawn with a plus and a minus in the data face rather than the
+     browser's triangle, so it matches the ordinals elsewhere on the page. */
+  .faq-item {
+    @apply border border-line bg-paper;
+  }
+  .faq-summary {
+    @apply flex min-h-11 cursor-pointer list-none items-center justify-between gap-4
+           px-4 py-3 font-display text-base font-bold tracking-tight text-ink;
+  }
+  .faq-summary::-webkit-details-marker {
+    display: none;
+  }
+  .faq-summary::after {
+    content: '+';
+    @apply shrink-0 font-mono text-xl text-tappa-green;
+  }
+  /* A literal minus sign (U+2212), NOT the escape: TestCompiledCSS_GeneratesNoText
+     refuses a content: value carrying a letter or a digit, and an escape is six
+     of them. The glyph is decoration; the open/closed state is the element's own. */
+  .faq-item[open] > .faq-summary::after {
+    content: '−';
+  }
+  .faq-answer {
+    @apply px-4 pb-4 text-sm text-ink/85;
+  }
+
+  /* The sign-off on green: a paper button, the struck slogan, two rings. */
+  .btn--paper {
+    @apply min-h-12 py-3 text-base bg-paper text-ink hover:bg-porcelain focus:ring-paper;
+  }
+  .cta-struck {
+    @apply text-paper/80;
+  }
+  .cta-ring {
+    @apply absolute rounded-full border border-paper/20;
+  }
+
+  /* The sticky bar's in-page links: reserved to the 44px floor like every other
+     target, and shown from the sm breakpoint up -- below it the bar keeps the
+     wordmark and the two ways in. */
+  .nav-link {
+    @apply hidden min-h-11 items-center px-1 font-display text-sm font-bold tracking-tight
+           text-ink/85 hover:text-tappa-green motion-safe:transition-colors sm:inline-flex;
+  }
 }

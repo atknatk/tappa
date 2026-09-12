@@ -10,38 +10,51 @@ import templruntime "github.com/a-h/templ/runtime"
 
 import "github.com/atknatk/tappa/web/templates/layout"
 
-// The PUBLIC landing page (M7-01, rebuilt 2026-09-07) — handoff §9, in templ per
-// ADR 0001.
+// The PUBLIC landing page (M7-01, rebuilt 2026-09-07, restyled 2026-09-12) —
+// handoff §9, in templ per ADR 0001.
 //
 // 🔴 READ landingview.go BEFORE EDITING THE COPY HERE. Every claim on this page is
 // answerable with "which code, schema or test provides this?", and that file
 // records the answers. A landing page is made entirely of claims; this repository's
 // recurring defect is the sentence that promises what the product does not do.
 //
-// 🔴 WHAT THE REBUILD CHANGED, AND WHY IT WAS NEEDED. The first version of this page
-// was measured HONEST and measured UNILLUSTRATED: not one drawing, not one moving
-// part, and eight sections built from the same bordered box. That reads as a
-// well-written document rather than as a piece of engineering, and half of what a
-// stranger has to decide in the first ten seconds is whether the thing behind the
-// page is built. So the two mechanisms this product IS — proving a tap, and judging
-// one — are now drawn and tabled rather than summarised, and the page carries a way
-// in at three natural stops instead of only at the end.
+// 🔴 WHAT THE 2026-09-12 RESTYLE IS, AND WHAT IT IS NOT. The user drew their own
+// landing page and asked for its look, structure and voice to be carried onto the
+// audited skeleton. What was carried: a sticky bar, a two-column hero with a dark
+// plaque and a docket coming off the printer beside it, the warmer copy, a dark
+// ledger for the comparison, a disclosure-widget FAQ, a green sign-off block and
+// the user's section order. What was NOT carried is recorded item by item in
+// landingview.go beside the block that replaced it — every line of the draft
+// that promised a capability this product does not have (an API, a file import, a
+// live headcount, plaques nobody can yet order, a pilot strip naming demo
+// tenants), every number nobody measured, every verdict about a competitor, and
+// one mis-statement of the decision engine. The look moved; the claims did not.
 //
-// THE ORDER IS AN ARGUMENT, not a list of topics:
+// 🔴 WHAT THE 2026-09-07 REBUILD CHANGED, AND WHY IT WAS NEEDED. The first version
+// of this page was measured HONEST and measured UNILLUSTRATED: not one drawing, not
+// one moving part, and eight sections built from the same bordered box. That reads
+// as a well-written document rather than as a piece of engineering, and half of
+// what a stranger has to decide in the first ten seconds is whether the thing
+// behind the page is built. So the two mechanisms this product IS — proving a tap,
+// and judging one — are drawn and tabled rather than summarised.
+//
+// THE ORDER IS THE USER'S, and it is still an argument:
 //
 //	hero        what it is, and the way in
+//	how         what setting it up actually costs, and the way in again
 //	proof       how a tap proves itself (the chip, then the four pieces of evidence)
 //	decision    how a tap is judged (the order, first match wins, and what is kept)
-//	steps       what setting it up actually costs, and the way in again
+//	compare     what it is instead of, mechanism against mechanism, on the ledger
 //	shapes      whether it fits the shape of this business
-//	compare     what it is instead of, mechanism against mechanism
 //	pricing     what it costs
 //	faq         the objections, answered
 //	start       the way in, with what happens next stated plainly
 //
-// Proof and decision come BEFORE price and before the comparison table, because the
-// product's argument is that a record can be trusted; everything commercial rests
-// on that and reads as noise before it.
+// Proof and decision still come BEFORE price and before the comparison table,
+// because the product's argument is that a record can be trusted; everything
+// commercial rests on that and reads as noise before it. "How it works" moved
+// ahead of them on the user's call: the three steps are the shortest answer to
+// "what is this", and the mechanism is the answer to "why believe it".
 //
 // THE MOTIF IS CARRIED, THE COMPONENT IS NOT — and that was a decision with a
 // measurement behind it. components.TransactionDocket renders eleven fields out of
@@ -57,6 +70,12 @@ import "github.com/atknatk/tappa/web/templates/layout"
 // anybody else's — would not load. Every one of them shows a mechanism this
 // repository implements, and each is named for a screen reader and repeated in
 // words beside it, so nothing is carried by the picture alone.
+//
+// ⚠️ THERE IS NO SCRIPT ON THIS PAGE AND THE USER'S DRAFT HAD ONE. It rotated four
+// invented names through the docket every few seconds. Client state on a page
+// whose policy names no script-src is not a small addition, and the brand's rule
+// is that nothing sways or repeats: the docket prints once, and the name on it is
+// the same made-up one for everybody.
 
 // Landing is the page at /.
 func Landing(v LandingView) templ.Component {
@@ -112,7 +131,7 @@ func Landing(v LandingView) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = landingProof().Render(ctx, templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = landingSetup(v).Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -120,7 +139,7 @@ func Landing(v LandingView) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = landingDecision().Render(ctx, templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = landingProof().Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -128,7 +147,7 @@ func Landing(v LandingView) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = landingSetup(v).Render(ctx, templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = landingDecision().Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -136,7 +155,7 @@ func Landing(v LandingView) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = landingShapes().Render(ctx, templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = landingComparison().Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -144,7 +163,7 @@ func Landing(v LandingView) templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = landingComparison().Render(ctx, templ_7745c5c3_Buffer)
+				templ_7745c5c3_Err = landingShapes().Render(ctx, templ_7745c5c3_Buffer)
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -174,7 +193,7 @@ func Landing(v LandingView) templ.Component {
 				}
 				return nil
 			})
-			templ_7745c5c3_Err = marketingChromeWide(v.SignInHref).Render(templ.WithChildren(ctx, templ_7745c5c3_Var3), templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = landingChrome(v).Render(templ.WithChildren(ctx, templ_7745c5c3_Var3), templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -188,11 +207,17 @@ func Landing(v LandingView) templ.Component {
 	})
 }
 
-// landingHero is the slogan, the way in, the plaque and one printed record.
+// landingHero is the slogan, the way in, and the scene: a dark plaque with one
+// printed record coming off the printer beside it.
 //
 // THE SLOGAN IS FIXED (skill tappa-brand): "No app. No device. No fingerprints.
 // Just tap." It is split across four lines so the four denials read as four
 // denials, and TestLanding_CarriesTheSlogan asserts the sentence survives as text.
+//
+// THE THREE-CELL FACT STRIP THE 2026-09-07 PAGE CARRIED IS GONE. The user's hero is
+// copy, two buttons and the scene; the strip's three facts ("no power", "no app",
+// "three steps") are each said elsewhere on the page in a sentence that is pinned,
+// and a strip that repeated them was the third copy of each.
 func landingHero(v LandingView) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -214,101 +239,23 @@ func landingHero(v LandingView) templ.Component {
 			templ_7745c5c3_Var4 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "<section class=\"border-b border-line px-4 py-10 sm:py-16\"><div class=\"mx-auto grid w-full max-w-5xl gap-10 md:grid-cols-[minmax(0,1fr)_20rem] md:items-start\"><div><p class=\"docket-label\">Time and attendance, Malta</p><h1 class=\"mt-3 font-display text-4xl font-bold leading-tight tracking-tight sm:text-5xl\">No app.<br>No device.<br>No fingerprints.<br><span class=\"text-tappa-green\">Just tap.</span></h1><p class=\"mt-6 max-w-xl text-base text-ink/85\">A printed plaque goes up by the door. Your team holds their own phone to it, the browser opens, one button — in or out. Nothing to install, nothing to carry and no reader on the wall to power.</p>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 9, "<section class=\"border-b border-line px-4 py-10 sm:py-16\"><div class=\"mx-auto grid w-full max-w-5xl gap-10 md:grid-cols-[minmax(0,1fr)_minmax(0,26rem)] md:items-center\"><div><p class=\"docket-label\">Time and attendance for shift teams</p><h1 class=\"mt-3 font-display text-4xl font-bold leading-tight tracking-tight sm:text-5xl\">No app.<br>No device.<br>No fingerprints.<br><span class=\"text-tappa-green\">Just tap.</span></h1><p class=\"mt-6 max-w-xl text-lg text-ink/85\">A printed plaque goes up by the door. Your team holds their own phone to it, the browser opens, one button — in or out. Nothing to install, nothing to carry and no reader on the wall to power.</p>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = landingWayIn(v, "hero", true).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = landingWayIn(v, "hero", true, NavLink{Label: "See how it works", Href: "#how"}).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "<dl class=\"mt-10 grid max-w-xl gap-px border border-line bg-line sm:grid-cols-3\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 10, "</div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Var5 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
-			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
-			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
-			if !templ_7745c5c3_IsBuffer {
-				defer func() {
-					templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
-					if templ_7745c5c3_Err == nil {
-						templ_7745c5c3_Err = templ_7745c5c3_BufErr
-					}
-				}()
-			}
-			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "The business, its doors and your own sign-in.")
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			return nil
-		})
-		templ_7745c5c3_Err = landingFact("Set up in", "three steps").Render(templ.WithChildren(ctx, templ_7745c5c3_Var5), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = landingScene().Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Var6 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
-			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
-			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
-			if !templ_7745c5c3_IsBuffer {
-				defer func() {
-					templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
-					if templ_7745c5c3_Err == nil {
-						templ_7745c5c3_Err = templ_7745c5c3_BufErr
-					}
-				}()
-			}
-			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, "A passive chip behind a printed card.")
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			return nil
-		})
-		templ_7745c5c3_Err = landingFact("On the wall", "no power").Render(templ.WithChildren(ctx, templ_7745c5c3_Var6), templ_7745c5c3_Buffer)
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		templ_7745c5c3_Var7 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
-			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
-			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
-			if !templ_7745c5c3_IsBuffer {
-				defer func() {
-					templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
-					if templ_7745c5c3_Err == nil {
-						templ_7745c5c3_Err = templ_7745c5c3_BufErr
-					}
-				}()
-			}
-			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "A web page, opened by holding the phone there.")
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			return nil
-		})
-		templ_7745c5c3_Err = landingFact("On their phone", "no app").Render(templ.WithChildren(ctx, templ_7745c5c3_Var7), templ_7745c5c3_Buffer)
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, "</dl></div><div class=\"flex flex-col gap-6\">")
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		templ_7745c5c3_Err = landingPlaqueFigure().Render(ctx, templ_7745c5c3_Buffer)
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 15, "<div><p class=\"docket-label\">Example — what a manager sees</p><div class=\"mt-2 docket-print\">")
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		templ_7745c5c3_Err = landingSampleDocket().Render(ctx, templ_7745c5c3_Buffer)
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 16, "</div><p class=\"mt-2 text-xs text-ink/70\">One card per tap: where, who, which way, and what the decision was based on. This one is made up — it is here to show the shape of a record, not a real shift.</p></div></div></div></section>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 11, "</div></section>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -316,10 +263,15 @@ func landingHero(v LandingView) templ.Component {
 	})
 }
 
-// landingFact is one cell of the hero's three-cell strip. A strip rather than three
-// cards: they are three short facts, and giving each a frame of its own would make
-// three of the same box, which is the thing this page had eight of.
-func landingFact(label, value string) templ.Component {
+// landingScene is the user's hero picture, built from the parts this page already
+// had: the plaque figure (now on an ink ground, as they drew it) and the sample
+// docket, which slides in once from the plaque's lower edge as though printed.
+//
+// THE DOCKET OVERLAPS THE PLAQUE ON A WIDE SCREEN AND SITS UNDER IT ON A PHONE.
+// The overlap is what makes the two read as one event rather than two exhibits;
+// on a narrow screen there is no room for it and the two stack, which is fine —
+// the caption says what they are.
+func landingScene() templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -335,46 +287,28 @@ func landingFact(label, value string) templ.Component {
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var8 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var8 == nil {
-			templ_7745c5c3_Var8 = templ.NopComponent
+		templ_7745c5c3_Var5 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var5 == nil {
+			templ_7745c5c3_Var5 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "<div class=\"bg-porcelain px-4 py-4\"><dt class=\"docket-label\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 12, "<div class=\"flex flex-col gap-4\"><div class=\"relative mx-auto w-full max-w-[26rem] sm:pb-16\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var9 string
-		templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.JoinStringErrs(label)
-		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 129, Col: 34}
-		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var9))
+		templ_7745c5c3_Err = landingPlaqueFigure().Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 18, "</dt><dd class=\"mt-1 font-display text-lg font-bold tracking-tight text-ink\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 13, "<div class=\"mt-4 docket-print sm:absolute sm:bottom-0 sm:right-0 sm:mt-0 sm:w-60 sm:rotate-2\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var10 string
-		templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.JoinStringErrs(value)
-		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 130, Col: 81}
-		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var10))
+		templ_7745c5c3_Err = landingSampleDocket().Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 19, "</dd><dd class=\"mt-1 text-xs text-ink/70\">")
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		templ_7745c5c3_Err = templ_7745c5c3_Var8.Render(ctx, templ_7745c5c3_Buffer)
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 20, "</dd></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, "</div></div><p class=\"mx-auto max-w-[26rem] text-xs text-ink/70\">One card per tap: where, who, which way, and what the decision was based on. This one is made up — it is here to show the shape of a record, not a real shift.</p></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -382,13 +316,18 @@ func landingFact(label, value string) templ.Component {
 	})
 }
 
-// landingWayIn is the pair of buttons, rendered at three stops on the page.
+// landingWayIn is the pair of buttons, rendered at two stops on the page; the
+// green sign-off at the end carries its own copy of the same conditional because
+// its button and its fallback sentence sit on the green ground and need the paper
+// tones, and a class assembled from a parameter is a class Tailwind never sees.
 //
 // 🔴 IT IS ONE COMPONENT BECAUSE IT CARRIES A CONDITIONAL, AND A CONDITIONAL PASTED
-// THREE TIMES IS A CONDITIONAL THAT WILL DISAGREE WITH ITSELF. The wizard is mounted
-// today, so the first branch runs; the second is what a deployment WITHOUT it falls
-// back to, and it must never be reachable at the same time as a button that answers
-// 404. TestLanding_OffersTheWizardItMounts drives both branches.
+// AROUND THE PAGE IS A CONDITIONAL THAT WILL DISAGREE WITH ITSELF. The wizard is
+// mounted today, so the first branch runs; the second is what a deployment WITHOUT
+// it falls back to, and it must never be reachable at the same time as a button
+// that answers 404. TestLanding_OffersTheWizardItMounts drives both branches, and
+// it renders the WHOLE page for the empty-href case, so the sign-off's copy of the
+// conditional is under the same test.
 //
 // THE HREF IS NEVER WRITTEN HERE. LandingView.SignupHref is a string for the reason
 // that file records: the alternative is a bool plus a hard-coded path, which is the
@@ -397,8 +336,16 @@ func landingFact(label, value string) templ.Component {
 // `where` is only for the anchor ids the page's own links point at; it is not
 // rendered as text. `note` is false at the last stop, where the card beside the
 // buttons already lists what the wizard creates and repeating it would be the third
-// copy of one sentence on one page.
-func landingWayIn(v LandingView, where string, note bool) templ.Component {
+// copy of one sentence on one page. `alt` is the quiet button beside "Start free":
+// the hero points it at the next section, the setup stop at the sign-in page.
+//
+// "START FREE" IS THE USER'S LABEL and it is honest as it stands: the founding
+// offer's free months are granted by the product itself (migration 00016,
+// TestLanding_FreeMonthsMatchTheFunctionThatGrantsThem). The draft's longer form,
+// "Start free — 3 months on us", is not used on the button because the offer's
+// terms are stated in full on the pricing card and a button is not the place to
+// state half of them.
+func landingWayIn(v LandingView, where string, note bool, alt NavLink) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -414,77 +361,90 @@ func landingWayIn(v LandingView, where string, note bool) templ.Component {
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var11 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var11 == nil {
-			templ_7745c5c3_Var11 = templ.NopComponent
+		templ_7745c5c3_Var6 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var6 == nil {
+			templ_7745c5c3_Var6 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
 		if v.SignupHref != "" {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 21, "<div id=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 15, "<div id=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var12 string
-			templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.JoinStringErrs("start-" + where)
+			var templ_7745c5c3_Var7 string
+			templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinStringErrs("start-" + where)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 155, Col: 28}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 180, Col: 28}
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var12))
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 22, "\" class=\"mt-8 flex flex-wrap items-center gap-3\"><a href=\"")
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var7))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var13 templ.SafeURL = templ.URL(v.SignupHref)
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(string(templ_7745c5c3_Var13)))
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 16, "\" class=\"mt-8 flex flex-wrap items-center gap-3\"><a href=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 23, "\" class=\"btn btn--primary sm:px-8\">Create your business account</a> <a href=\"")
+			var templ_7745c5c3_Var8 templ.SafeURL = templ.URL(v.SignupHref)
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(string(templ_7745c5c3_Var8)))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var14 templ.SafeURL = templ.URL(v.SignInHref)
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(string(templ_7745c5c3_Var14)))
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "\" class=\"btn btn--primary sm:px-8\">Start free</a> <a href=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 24, "\" class=\"btn btn--quiet\">Sign in</a></div>")
+			var templ_7745c5c3_Var9 templ.SafeURL = templ.URL(alt.Href)
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(string(templ_7745c5c3_Var9)))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 18, "\" class=\"btn btn--quiet\">")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var10 string
+			templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.JoinStringErrs(alt.Label)
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 182, Col: 69}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var10))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 19, "</a></div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			if note {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 25, "<p class=\"mt-3 max-w-xl text-xs text-ink/70\">Three steps — the business and its VAT number, the doors you want to record, and your own sign-in. Nothing is created until the last one.</p>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 20, "<p class=\"mt-3 max-w-xl text-xs text-ink/70\">Three steps — the business and its VAT number, the doors you want to record, and your own sign-in. Nothing is created until the last one.</p>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 			}
 		} else {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 26, "<div id=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 21, "<div id=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var15 string
-			templ_7745c5c3_Var15, templ_7745c5c3_Err = templ.JoinStringErrs("start-" + where)
+			var templ_7745c5c3_Var11 string
+			templ_7745c5c3_Var11, templ_7745c5c3_Err = templ.JoinStringErrs("start-" + where)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 166, Col: 28}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 191, Col: 28}
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var15))
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 27, "\" class=\"mt-8\"><a href=\"")
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var11))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var16 templ.SafeURL = templ.URL(v.SignInHref)
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(string(templ_7745c5c3_Var16)))
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 22, "\" class=\"mt-8\"><a href=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 28, "\" class=\"btn btn--quiet\">Sign in to your dashboard</a></div><p class=\"mt-3 max-w-xl text-sm text-ink/85\">Self-service sign-up is not open in this deployment, so there is no form to fill in on this page. Accounts are set up by hand — plaques, venues and the first manager account together.</p>")
+			var templ_7745c5c3_Var12 templ.SafeURL = templ.URL(v.SignInHref)
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(string(templ_7745c5c3_Var12)))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 23, "\" class=\"btn btn--quiet\">Sign in to your dashboard</a></div><p class=\"mt-3 max-w-xl text-sm text-ink/85\">Self-service sign-up is not open in this deployment, so there is no form to fill in on this page. Accounts are set up by hand — plaques, venues and the first manager account together.</p>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -493,7 +453,8 @@ func landingWayIn(v LandingView, where string, note bool) templ.Component {
 	})
 }
 
-// landingPlaqueFigure is the wall plaque, drawn rather than photographed.
+// landingPlaqueFigure is the wall plaque, drawn rather than photographed — on an
+// ink ground since 2026-09-12, which is how the user drew it.
 //
 // THE THREE ARCS DRAW THEMSELVES IN ONCE, inner one first, and then stop. That is
 // the M7-01 card's "live plaque", and it is declared only inside a
@@ -515,6 +476,16 @@ func landingWayIn(v LandingView, where string, note bool) templ.Component {
 // ⚠️ NO CODE SQUARE IS DRAWN ON IT. The plaques this product has today carry the
 // chip only; a printed scan code is planned (skill tappa-brand, M8-05) and drawing
 // one now would be a picture of a product nobody can order.
+//
+// 🔴 NO VENUE NAME AND NO IDENTIFIER IS PRINTED ON IT. The user's drawing carried
+// "KF ST JULIANS · 91AC-7E55" along its lower edge: a demo tenant's venue and a
+// string in the exact shape of a plaque uid, on a public page. Neither is drawn,
+// for the reason landingSampleDocket gives — an invented identifier in the shape
+// of a real one is the one thing this page must not print.
+//
+// THE COLOURS ON THE INK GROUND ARE FOUR PALETTE TOKENS AND NOTHING ELSE: paper for
+// the wordmark and the instruction, line for the small caps, green-lite for the
+// field, and line for the dashed centre. Measured in input.css beside the rules.
 func landingPlaqueFigure() templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -531,12 +502,12 @@ func landingPlaqueFigure() templ.Component {
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var17 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var17 == nil {
-			templ_7745c5c3_Var17 = templ.NopComponent
+		templ_7745c5c3_Var13 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var13 == nil {
+			templ_7745c5c3_Var13 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 29, "<figure><p class=\"docket-label\">On the wall</p><svg viewBox=\"0 0 260 340\" role=\"img\" aria-labelledby=\"plaque-figure-title\" class=\"mt-2 h-auto w-full max-w-[18rem]\"><title id=\"plaque-figure-title\">A printed wall plaque: the Taptime wordmark above a dashed circle marking the chip, with the words \"Hold your phone here\" beneath it.</title><rect x=\"10\" y=\"10\" width=\"240\" height=\"320\" class=\"diagram-frame\"></rect> <circle cx=\"26\" cy=\"26\" r=\"3\" class=\"diagram-rule\"></circle> <circle cx=\"234\" cy=\"26\" r=\"3\" class=\"diagram-rule\"></circle> <circle cx=\"26\" cy=\"314\" r=\"3\" class=\"diagram-rule\"></circle> <circle cx=\"234\" cy=\"314\" r=\"3\" class=\"diagram-rule\"></circle> <text x=\"130\" y=\"62\" text-anchor=\"middle\" class=\"diagram-wordmark\">taptime</text> <text x=\"130\" y=\"82\" text-anchor=\"middle\" class=\"diagram-label\">PUNCHLESS</text> <path d=\"M 91.8 198.2 A 54 54 0 0 1 168.2 121.8\" class=\"diagram-accent plaque-field plaque-field--outer\"></path> <path d=\"M 101.7 188.3 A 40 40 0 0 1 158.3 131.7\" class=\"diagram-accent plaque-field plaque-field--mid\"></path> <path d=\"M 111.6 178.4 A 26 26 0 0 1 148.4 141.6\" class=\"diagram-accent plaque-field\"></path> <circle cx=\"130\" cy=\"160\" r=\"14\" class=\"diagram-dashed\"></circle> <text x=\"130\" y=\"248\" text-anchor=\"middle\" class=\"diagram-title\">Hold your phone here</text> <text x=\"130\" y=\"274\" text-anchor=\"middle\" class=\"diagram-label\">NO POWER · NO BATTERY</text> <text x=\"130\" y=\"292\" text-anchor=\"middle\" class=\"diagram-label\">NO NETWORK</text></svg></figure>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 24, "<figure><svg viewBox=\"0 0 260 340\" role=\"img\" aria-labelledby=\"plaque-figure-title\" class=\"mx-auto h-auto w-full max-w-[14rem] sm:mx-0\"><title id=\"plaque-figure-title\">A dark wall plaque: the Taptime wordmark above a dashed circle marking the chip, with the words \"Hold your phone here\" beneath it.</title><rect x=\"10\" y=\"10\" width=\"240\" height=\"320\" class=\"plaque-ink\"></rect> <circle cx=\"26\" cy=\"26\" r=\"3\" class=\"plaque-ink-screw\"></circle> <circle cx=\"234\" cy=\"26\" r=\"3\" class=\"plaque-ink-screw\"></circle> <circle cx=\"26\" cy=\"314\" r=\"3\" class=\"plaque-ink-screw\"></circle> <circle cx=\"234\" cy=\"314\" r=\"3\" class=\"plaque-ink-screw\"></circle> <text x=\"130\" y=\"62\" text-anchor=\"middle\" class=\"plaque-ink-wordmark\">taptime</text> <text x=\"130\" y=\"82\" text-anchor=\"middle\" class=\"plaque-ink-label\">PUNCHLESS</text> <path d=\"M 91.8 198.2 A 54 54 0 0 1 168.2 121.8\" class=\"plaque-ink-arc plaque-field plaque-field--outer\"></path> <path d=\"M 101.7 188.3 A 40 40 0 0 1 158.3 131.7\" class=\"plaque-ink-arc plaque-field plaque-field--mid\"></path> <path d=\"M 111.6 178.4 A 26 26 0 0 1 148.4 141.6\" class=\"plaque-ink-arc plaque-field\"></path> <circle cx=\"130\" cy=\"160\" r=\"14\" class=\"plaque-ink-dashed\"></circle> <text x=\"130\" y=\"248\" text-anchor=\"middle\" class=\"plaque-ink-title\">Hold your phone here</text> <text x=\"130\" y=\"274\" text-anchor=\"middle\" class=\"plaque-ink-label\">NO POWER · NO BATTERY</text> <text x=\"130\" y=\"292\" text-anchor=\"middle\" class=\"plaque-ink-label\">NO NETWORK</text></svg></figure>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -566,12 +537,12 @@ func landingSampleDocket() templ.Component {
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var18 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var18 == nil {
-			templ_7745c5c3_Var18 = templ.NopComponent
+		templ_7745c5c3_Var14 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var14 == nil {
+			templ_7745c5c3_Var14 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 30, "<article class=\"docket\"><div class=\"flex items-start justify-between gap-3\"><div class=\"min-w-0\"><p class=\"docket-label\">Where</p><p class=\"truncate font-display text-sm font-bold tracking-tight text-ink\">Front door</p><p class=\"mt-2 docket-label\">Who</p><p class=\"truncate font-display text-sm font-bold tracking-tight text-ink\">A. Sample</p></div><div class=\"shrink-0 text-right\"><span class=\"stamp stamp--approved\">APPROVED</span></div></div><dl class=\"mt-3 grid grid-cols-2 gap-x-4 gap-y-1\"><div><dt class=\"docket-label\">Direction</dt><dd class=\"uppercase tracking-widest text-ink\">in</dd></div><div><dt class=\"docket-label\">Time</dt><dd class=\"text-ink\">14:03:22</dd></div><div><dt class=\"docket-label\">Network</dt><dd class=\"text-ink\">matched</dd></div><div><dt class=\"docket-label\">Position</dt><dd class=\"text-ink\">matched</dd></div></dl></article>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 25, "<article class=\"docket\"><div class=\"flex items-start justify-between gap-3\"><div class=\"min-w-0\"><p class=\"docket-label\">Where</p><p class=\"truncate font-display text-sm font-bold tracking-tight text-ink\">Front door</p><p class=\"mt-2 docket-label\">Who</p><p class=\"truncate font-display text-sm font-bold tracking-tight text-ink\">A. Sample</p></div><div class=\"shrink-0 text-right\"><span class=\"stamp stamp--approved\">APPROVED</span></div></div><dl class=\"mt-3 grid grid-cols-2 gap-x-4 gap-y-1\"><div><dt class=\"docket-label\">Direction</dt><dd class=\"uppercase tracking-widest text-ink\">in</dd></div><div><dt class=\"docket-label\">Time</dt><dd class=\"text-ink\">14:03:22</dd></div><div><dt class=\"docket-label\">Network</dt><dd class=\"text-ink\">matched</dd></div><div><dt class=\"docket-label\">Position</dt><dd class=\"text-ink\">matched</dd></div></dl></article>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -585,6 +556,13 @@ func landingSampleDocket() templ.Component {
 // are meaningless until a reader believes the first one cannot be faked from an
 // armchair, and that belief comes from the counter and the signature rather than
 // from an adjective.
+//
+// IT IS ALSO THE PAGE'S "SECURITY" SECTION — the bar's second link lands here.
+// The user's draft had a separate "Security — four proofs" block after the ledger,
+// and it was the same four pieces of evidence this section already carries under
+// their §5 names; two tellings of one mechanism would be the shape of page this
+// rebuild replaced. Their labels ("Proof of moment", "Proof of person", "Proof of
+// place", "Backup proof") were the better half and now head each card.
 func landingProof() templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -601,12 +579,12 @@ func landingProof() templ.Component {
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var19 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var19 == nil {
-			templ_7745c5c3_Var19 = templ.NopComponent
+		templ_7745c5c3_Var15 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var15 == nil {
+			templ_7745c5c3_Var15 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Var20 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+		templ_7745c5c3_Var16 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 			if !templ_7745c5c3_IsBuffer {
@@ -618,7 +596,7 @@ func landingProof() templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 31, "<figure class=\"mt-6\"><div tabindex=\"0\" role=\"region\" aria-label=\"The tap, drawn end to end\" class=\"overflow-x-auto\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 26, "<figure class=\"mt-6\"><div tabindex=\"0\" role=\"region\" aria-label=\"The tap, drawn end to end\" class=\"overflow-x-auto\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -626,111 +604,124 @@ func landingProof() templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 32, "</div><figcaption class=\"mt-2 docket-label sm:hidden\">Drag the drawing sideways to see the rest</figcaption></figure><ol class=\"mt-6 grid gap-px border border-line bg-line sm:grid-cols-2 lg:grid-cols-4\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 27, "</div><figcaption class=\"mt-2 docket-label sm:hidden\">Drag the drawing sideways to see the rest</figcaption></figure><ol class=\"mt-6 grid gap-px border border-line bg-line sm:grid-cols-2 lg:grid-cols-4\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			for _, s := range LandingTapFlow {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 33, "<li class=\"bg-paper px-4 py-4\"><p class=\"font-mono text-sm font-bold text-tappa-green\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 28, "<li class=\"bg-paper px-4 py-4\"><p class=\"font-mono text-sm font-bold text-tappa-green\">")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				var templ_7745c5c3_Var17 string
+				templ_7745c5c3_Var17, templ_7745c5c3_Err = templ.JoinStringErrs(s.Ordinal)
+				if templ_7745c5c3_Err != nil {
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 327, Col: 72}
+				}
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var17))
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 29, "</p><h3 class=\"mt-1 font-display text-base font-bold tracking-tight\">")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				var templ_7745c5c3_Var18 string
+				templ_7745c5c3_Var18, templ_7745c5c3_Err = templ.JoinStringErrs(s.Title)
+				if templ_7745c5c3_Err != nil {
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 328, Col: 79}
+				}
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var18))
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 30, "</h3><p class=\"mt-2 text-sm text-ink/85\">")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				var templ_7745c5c3_Var19 string
+				templ_7745c5c3_Var19, templ_7745c5c3_Err = templ.JoinStringErrs(s.Body)
+				if templ_7745c5c3_Err != nil {
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 329, Col: 49}
+				}
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var19))
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 31, "</p></li>")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 32, "</ol><h3 class=\"mt-12 font-display text-xl font-bold tracking-tight\">Four pieces of evidence</h3><p class=\"mt-2 max-w-2xl text-sm text-ink/85\">A record is not a button press. It is what could be shown about that press: that a physical touch happened just then, who was signed in on the phone, and where it happened — twice over, if both are available.</p><dl class=\"mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4\">")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			for _, e := range LandingEvidence {
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 33, "<div class=\"docket\"><dt><span class=\"block docket-label\">")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				var templ_7745c5c3_Var20 string
+				templ_7745c5c3_Var20, templ_7745c5c3_Err = templ.JoinStringErrs(e.Proof)
+				if templ_7745c5c3_Err != nil {
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 343, Col: 48}
+				}
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var20))
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 34, "</span> <span class=\"mt-1 block font-display text-base font-bold tracking-tight\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var21 string
-				templ_7745c5c3_Var21, templ_7745c5c3_Err = templ.JoinStringErrs(s.Ordinal)
+				templ_7745c5c3_Var21, templ_7745c5c3_Err = templ.JoinStringErrs(e.Label)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 285, Col: 72}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 344, Col: 88}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var21))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 34, "</p><h3 class=\"mt-1 font-display text-base font-bold tracking-tight\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 35, "</span> <span class=\"mt-1 block font-mono text-xs text-ink/70\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var22 string
-				templ_7745c5c3_Var22, templ_7745c5c3_Err = templ.JoinStringErrs(s.Title)
+				templ_7745c5c3_Var22, templ_7745c5c3_Err = templ.JoinStringErrs(e.Answers)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 286, Col: 79}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 345, Col: 72}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var22))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 35, "</h3><p class=\"mt-2 text-sm text-ink/85\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 36, "</span></dt><dd class=\"mt-2 font-display text-sm text-ink/85\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var23 string
-				templ_7745c5c3_Var23, templ_7745c5c3_Err = templ.JoinStringErrs(s.Body)
+				templ_7745c5c3_Var23, templ_7745c5c3_Err = templ.JoinStringErrs(e.Body)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 287, Col: 49}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 347, Col: 63}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var23))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 36, "</p></li>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 37, "</dd></div>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 37, "</ol><h3 class=\"mt-12 font-display text-xl font-bold tracking-tight\">Four pieces of evidence</h3><p class=\"mt-2 max-w-2xl text-sm text-ink/85\">A record is not a button press. It is what could be shown about that press: that a physical touch happened just then, who was signed in on the phone, and where it happened — twice over, if both are available.</p><dl class=\"mt-6 grid gap-4 sm:grid-cols-2\">")
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			for _, e := range LandingEvidence {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 38, "<div class=\"docket\"><dt><span class=\"block docket-label\">")
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				var templ_7745c5c3_Var24 string
-				templ_7745c5c3_Var24, templ_7745c5c3_Err = templ.JoinStringErrs(e.Answers)
-				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 301, Col: 50}
-				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var24))
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 39, "</span> <span class=\"mt-1 block font-display text-base font-bold tracking-tight\">")
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				var templ_7745c5c3_Var25 string
-				templ_7745c5c3_Var25, templ_7745c5c3_Err = templ.JoinStringErrs(e.Label)
-				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 302, Col: 88}
-				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var25))
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 40, "</span></dt><dd class=\"mt-2 font-display text-sm text-ink/85\">")
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				var templ_7745c5c3_Var26 string
-				templ_7745c5c3_Var26, templ_7745c5c3_Err = templ.JoinStringErrs(e.Body)
-				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 304, Col: 63}
-				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var26))
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 41, "</dd></div>")
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 42, "</dl>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 38, "</dl>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = marketingSection("proof", "How a tap proves itself", "A fresh code every time, and four things weighed").Render(templ.WithChildren(ctx, templ_7745c5c3_Var20), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = marketingSection("proof", "Security", "How a tap proves itself: a fresh code every time, and four things weighed").Render(templ.WithChildren(ctx, templ_7745c5c3_Var16), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -760,12 +751,12 @@ func landingFlowFigure() templ.Component {
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var27 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var27 == nil {
-			templ_7745c5c3_Var27 = templ.NopComponent
+		templ_7745c5c3_Var24 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var24 == nil {
+			templ_7745c5c3_Var24 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 43, "<svg viewBox=\"0 0 720 230\" role=\"img\" aria-labelledby=\"flow-figure-title\" class=\"h-auto w-[45rem] max-w-none\"><title id=\"flow-figure-title\">The plaque writes a fresh code and a counter one higher than the last read; the phone's browser carries it to Taptime, which checks the signature and refuses a counter it has already seen.</title><rect x=\"8\" y=\"24\" width=\"180\" height=\"84\" class=\"diagram-frame\"></rect> <text x=\"98\" y=\"56\" text-anchor=\"middle\" class=\"diagram-title\">The plaque</text> <text x=\"98\" y=\"78\" text-anchor=\"middle\" class=\"diagram-label\">PASSIVE CHIP</text> <text x=\"98\" y=\"94\" text-anchor=\"middle\" class=\"diagram-label\">NO POWER</text> <rect x=\"270\" y=\"24\" width=\"180\" height=\"84\" class=\"diagram-frame\"></rect> <text x=\"360\" y=\"56\" text-anchor=\"middle\" class=\"diagram-title\">The phone's browser</text> <text x=\"360\" y=\"78\" text-anchor=\"middle\" class=\"diagram-label\">NOTHING INSTALLED</text> <text x=\"360\" y=\"94\" text-anchor=\"middle\" class=\"diagram-label\">ONE BUTTON</text> <rect x=\"532\" y=\"24\" width=\"180\" height=\"84\" class=\"diagram-frame\"></rect> <text x=\"622\" y=\"56\" text-anchor=\"middle\" class=\"diagram-title\">Taptime</text> <text x=\"622\" y=\"78\" text-anchor=\"middle\" class=\"diagram-label\">CHECKS THE SIGNATURE</text> <text x=\"622\" y=\"94\" text-anchor=\"middle\" class=\"diagram-label\">THEN RECORDS</text> <path d=\"M 188 66 L 262 66\" class=\"diagram-arrow\"></path> <path d=\"M 254 60 L 262 66 L 254 72\" class=\"diagram-arrow\"></path> <text x=\"225\" y=\"52\" text-anchor=\"middle\" class=\"diagram-label\">WRITES</text> <path d=\"M 450 66 L 524 66\" class=\"diagram-arrow\"></path> <path d=\"M 516 60 L 524 66 L 516 72\" class=\"diagram-arrow\"></path> <text x=\"487\" y=\"52\" text-anchor=\"middle\" class=\"diagram-label\">OPENS</text> <text x=\"8\" y=\"152\" class=\"diagram-label\">THE COUNTER, ON THE CHIP</text> <rect x=\"8\" y=\"164\" width=\"96\" height=\"44\" class=\"diagram-frame\"></rect> <text x=\"56\" y=\"192\" text-anchor=\"middle\" class=\"diagram-mono\">n</text> <path d=\"M 112 186 L 148 186\" class=\"diagram-arrow\"></path> <path d=\"M 140 180 L 148 186 L 140 192\" class=\"diagram-arrow\"></path> <rect x=\"156\" y=\"164\" width=\"96\" height=\"44\" class=\"diagram-accent-frame\"></rect> <text x=\"204\" y=\"192\" text-anchor=\"middle\" class=\"diagram-mono\">n+1</text> <path d=\"M 268 188 L 276 196 L 292 176\" class=\"diagram-tick\"></path> <text x=\"302\" y=\"192\" class=\"diagram-label\">RECORDED</text> <rect x=\"440\" y=\"164\" width=\"120\" height=\"44\" class=\"diagram-refused-frame\"></rect> <text x=\"500\" y=\"192\" text-anchor=\"middle\" class=\"diagram-mono\">n+1 again</text> <path d=\"M 576 176 L 596 196\" class=\"diagram-cross\"></path> <path d=\"M 596 176 L 576 196\" class=\"diagram-cross\"></path> <text x=\"606\" y=\"192\" class=\"diagram-label\">REFUSED</text></svg>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 39, "<svg viewBox=\"0 0 720 230\" role=\"img\" aria-labelledby=\"flow-figure-title\" class=\"h-auto w-[45rem] max-w-none\"><title id=\"flow-figure-title\">The plaque writes a fresh code and a counter one higher than the last read; the phone's browser carries it to Taptime, which checks the signature and refuses a counter it has already seen.</title><rect x=\"8\" y=\"24\" width=\"180\" height=\"84\" class=\"diagram-frame\"></rect> <text x=\"98\" y=\"56\" text-anchor=\"middle\" class=\"diagram-title\">The plaque</text> <text x=\"98\" y=\"78\" text-anchor=\"middle\" class=\"diagram-label\">PASSIVE CHIP</text> <text x=\"98\" y=\"94\" text-anchor=\"middle\" class=\"diagram-label\">NO POWER</text> <rect x=\"270\" y=\"24\" width=\"180\" height=\"84\" class=\"diagram-frame\"></rect> <text x=\"360\" y=\"56\" text-anchor=\"middle\" class=\"diagram-title\">The phone's browser</text> <text x=\"360\" y=\"78\" text-anchor=\"middle\" class=\"diagram-label\">NOTHING INSTALLED</text> <text x=\"360\" y=\"94\" text-anchor=\"middle\" class=\"diagram-label\">ONE BUTTON</text> <rect x=\"532\" y=\"24\" width=\"180\" height=\"84\" class=\"diagram-frame\"></rect> <text x=\"622\" y=\"56\" text-anchor=\"middle\" class=\"diagram-title\">Taptime</text> <text x=\"622\" y=\"78\" text-anchor=\"middle\" class=\"diagram-label\">CHECKS THE SIGNATURE</text> <text x=\"622\" y=\"94\" text-anchor=\"middle\" class=\"diagram-label\">THEN RECORDS</text> <path d=\"M 188 66 L 262 66\" class=\"diagram-arrow\"></path> <path d=\"M 254 60 L 262 66 L 254 72\" class=\"diagram-arrow\"></path> <text x=\"225\" y=\"52\" text-anchor=\"middle\" class=\"diagram-label\">WRITES</text> <path d=\"M 450 66 L 524 66\" class=\"diagram-arrow\"></path> <path d=\"M 516 60 L 524 66 L 516 72\" class=\"diagram-arrow\"></path> <text x=\"487\" y=\"52\" text-anchor=\"middle\" class=\"diagram-label\">OPENS</text> <text x=\"8\" y=\"152\" class=\"diagram-label\">THE COUNTER, ON THE CHIP</text> <rect x=\"8\" y=\"164\" width=\"96\" height=\"44\" class=\"diagram-frame\"></rect> <text x=\"56\" y=\"192\" text-anchor=\"middle\" class=\"diagram-mono\">n</text> <path d=\"M 112 186 L 148 186\" class=\"diagram-arrow\"></path> <path d=\"M 140 180 L 148 186 L 140 192\" class=\"diagram-arrow\"></path> <rect x=\"156\" y=\"164\" width=\"96\" height=\"44\" class=\"diagram-accent-frame\"></rect> <text x=\"204\" y=\"192\" text-anchor=\"middle\" class=\"diagram-mono\">n+1</text> <path d=\"M 268 188 L 276 196 L 292 176\" class=\"diagram-tick\"></path> <text x=\"302\" y=\"192\" class=\"diagram-label\">RECORDED</text> <rect x=\"440\" y=\"164\" width=\"120\" height=\"44\" class=\"diagram-refused-frame\"></rect> <text x=\"500\" y=\"192\" text-anchor=\"middle\" class=\"diagram-mono\">n+1 again</text> <path d=\"M 576 176 L 596 196\" class=\"diagram-cross\"></path> <path d=\"M 596 176 L 576 196\" class=\"diagram-cross\"></path> <text x=\"606\" y=\"192\" class=\"diagram-label\">REFUSED</text></svg>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -807,12 +798,12 @@ func landingDecision() templ.Component {
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var28 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var28 == nil {
-			templ_7745c5c3_Var28 = templ.NopComponent
+		templ_7745c5c3_Var25 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var25 == nil {
+			templ_7745c5c3_Var25 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Var29 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+		templ_7745c5c3_Var26 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 			if !templ_7745c5c3_IsBuffer {
@@ -824,51 +815,51 @@ func landingDecision() templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 44, "<p class=\"mt-3 max-w-2xl text-sm text-ink/85\">These are not settings buried somewhere. They are the order the decision engine runs in, and every record keeps the line that decided it — so a record can still say why it says what it says long after the shift it belongs to.</p><ol class=\"mt-6 flex flex-col gap-px border border-line bg-line\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 40, "<p class=\"mt-3 max-w-2xl text-sm text-ink/85\">These are not settings buried somewhere. They are the order the decision engine runs in, and every record keeps the line that decided it — so a record can still say why it says what it says long after the shift it belongs to.</p><ol class=\"mt-6 flex flex-col gap-px border border-line bg-line\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			for _, r := range LandingRules {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 45, "<li class=\"flex flex-col gap-3 bg-paper px-4 py-4 sm:flex-row sm:items-start\"><span class=\"font-mono text-sm font-bold text-tappa-green sm:w-8 sm:shrink-0\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 41, "<li class=\"flex flex-col gap-3 bg-paper px-4 py-4 sm:flex-row sm:items-start\"><span class=\"font-mono text-sm font-bold text-tappa-green sm:w-8 sm:shrink-0\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				var templ_7745c5c3_Var30 string
-				templ_7745c5c3_Var30, templ_7745c5c3_Err = templ.JoinStringErrs(r.Ordinal)
+				var templ_7745c5c3_Var27 string
+				templ_7745c5c3_Var27, templ_7745c5c3_Err = templ.JoinStringErrs(r.Ordinal)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 387, Col: 94}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 430, Col: 94}
 				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var30))
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 46, "</span><div class=\"min-w-0 flex-1\"><p class=\"font-display text-base font-bold tracking-tight text-ink\">")
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var27))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				var templ_7745c5c3_Var31 string
-				templ_7745c5c3_Var31, templ_7745c5c3_Err = templ.JoinStringErrs(r.When)
-				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 389, Col: 82}
-				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var31))
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 42, "</span><div class=\"min-w-0 flex-1\"><p class=\"font-display text-base font-bold tracking-tight text-ink\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 47, "</p><p class=\"mt-1 text-sm text-ink/85\">")
+				var templ_7745c5c3_Var28 string
+				templ_7745c5c3_Var28, templ_7745c5c3_Err = templ.JoinStringErrs(r.When)
+				if templ_7745c5c3_Err != nil {
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 432, Col: 82}
+				}
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var28))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				var templ_7745c5c3_Var32 string
-				templ_7745c5c3_Var32, templ_7745c5c3_Err = templ.JoinStringErrs(r.Body)
-				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 390, Col: 50}
-				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var32))
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 43, "</p><p class=\"mt-1 text-sm text-ink/85\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 48, "</p></div><div class=\"sm:w-32 sm:shrink-0 sm:pl-4 sm:text-right\">")
+				var templ_7745c5c3_Var29 string
+				templ_7745c5c3_Var29, templ_7745c5c3_Err = templ.JoinStringErrs(r.Body)
+				if templ_7745c5c3_Err != nil {
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 433, Col: 50}
+				}
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var29))
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 44, "</p></div><div class=\"sm:w-32 sm:shrink-0 sm:pl-4 sm:text-right\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -876,18 +867,18 @@ func landingDecision() templ.Component {
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 49, "</div></li>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 45, "</div></li>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 50, "</ol><div class=\"mt-6 grid gap-4 sm:grid-cols-2\"><div class=\"border-l-4 border-line bg-paper px-4 py-4\"><h3 class=\"font-display text-base font-bold tracking-tight\">What nobody can switch off</h3><p class=\"mt-2 text-sm text-ink/85\">Lines one to five are guardrails: they are part of the product rather than a setting, and no organisation can turn one off. There are more of them than fit here, among them a phone signed in to one organisation tapping another's plaque, and a page left sitting open for hours.</p></div><div class=\"border-l-4 border-tappa-green bg-paper px-4 py-4\"><h3 class=\"font-display text-base font-bold tracking-tight\">What you can change</h3><p class=\"mt-2 text-sm text-ink/85\">Lines six and seven are the starting position, not the law: what an organisation writes for its own doors is another RULE, added above them, and whatever it decides the record is still written and the deciding rule is still recorded on it. What is not a setting is the guardrails above — and the windows they use, which belong to the deployment rather than to any one organisation.</p></div></div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 46, "</ol><div class=\"mt-6 grid gap-4 sm:grid-cols-2\"><div class=\"border-l-4 border-line bg-paper px-4 py-4\"><h3 class=\"font-display text-base font-bold tracking-tight\">What nobody can switch off</h3><p class=\"mt-2 text-sm text-ink/85\">Lines one to five are guardrails: they are part of the product rather than a setting, and no organisation can turn one off. There are more of them than fit here, among them a phone signed in to one organisation tapping another's plaque, and a page left sitting open for hours.</p></div><div class=\"border-l-4 border-tappa-green bg-paper px-4 py-4\"><h3 class=\"font-display text-base font-bold tracking-tight\">What you can change</h3><p class=\"mt-2 text-sm text-ink/85\">Lines six and seven are the starting position, not the law: what an organisation writes for its own doors is another RULE, added above them, and whatever it decides the record is still written and the deciding rule is still recorded on it. What is not a setting is the guardrails above — and the windows they use, which belong to the deployment rather than to any one organisation.</p></div></div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = marketingSection("decision", "How a tap is judged", "Seven questions, in order — the first one that matches wins").Render(templ.WithChildren(ctx, templ_7745c5c3_Var29), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = marketingSection("decision", "How a tap is judged", "Seven questions, in order — the first one that matches wins").Render(templ.WithChildren(ctx, templ_7745c5c3_Var26), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -918,34 +909,34 @@ func landingVerdict(s Stamp) templ.Component {
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var33 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var33 == nil {
-			templ_7745c5c3_Var33 = templ.NopComponent
+		templ_7745c5c3_Var30 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var30 == nil {
+			templ_7745c5c3_Var30 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
 		switch s {
 		case StampApproved:
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 51, "<span class=\"stamp stamp--approved\">APPROVED</span>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 47, "<span class=\"stamp stamp--approved\">APPROVED</span>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		case StampFlagged:
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 52, "<span class=\"stamp stamp--flagged\">FLAGGED</span>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 48, "<span class=\"stamp stamp--flagged\">FLAGGED</span>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		case StampRejected:
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 53, "<span class=\"stamp stamp--rejected\">REJECTED</span>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 49, "<span class=\"stamp stamp--rejected\">REJECTED</span>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		case StampIgnored:
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 54, "<span class=\"stamp stamp--ignored\">IGNORED</span>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 50, "<span class=\"stamp stamp--ignored\">IGNORED</span>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		default:
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 55, "<span class=\"docket-label\">no record</span>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 51, "<span class=\"docket-label\">no record</span>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -956,9 +947,9 @@ func landingVerdict(s Stamp) templ.Component {
 
 // landingSetup is handoff §9's three steps, and the page's second way in.
 //
-// IT COMES AFTER THE MECHANISM ON PURPOSE: "what will this cost me to set up" is the
-// question a reader asks once they believe the thing works, and answering it earlier
-// answers a question nobody has yet.
+// SINCE 2026-09-12 IT COMES SECOND, on the user's call — see the order at the top
+// of this file. The lede under the heading is LandingSetupLede, pinned in
+// landingview.go.
 func landingSetup(v LandingView) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -975,12 +966,12 @@ func landingSetup(v LandingView) templ.Component {
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var34 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var34 == nil {
-			templ_7745c5c3_Var34 = templ.NopComponent
+		templ_7745c5c3_Var31 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var31 == nil {
+			templ_7745c5c3_Var31 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Var35 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+		templ_7745c5c3_Var32 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 			if !templ_7745c5c3_IsBuffer {
@@ -992,66 +983,177 @@ func landingSetup(v LandingView) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 56, "<ol class=\"mt-6 grid gap-4 sm:grid-cols-3\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 52, "<p class=\"mt-3 max-w-2xl text-base text-ink/85\">")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var33 string
+			templ_7745c5c3_Var33, templ_7745c5c3_Err = templ.JoinStringErrs(LandingSetupLede.Text)
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 494, Col: 73}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var33))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 53, "</p><ol class=\"mt-6 grid gap-4 sm:grid-cols-3\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			for _, s := range LandingSteps {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 57, "<li class=\"docket\"><p class=\"text-sm font-bold text-tappa-green\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 54, "<li class=\"docket\"><p class=\"text-sm font-bold text-tappa-green\">")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				var templ_7745c5c3_Var34 string
+				templ_7745c5c3_Var34, templ_7745c5c3_Err = templ.JoinStringErrs(s.Ordinal)
+				if templ_7745c5c3_Err != nil {
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 498, Col: 62}
+				}
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var34))
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 55, "</p><h3 class=\"mt-1 font-display text-base font-bold tracking-tight\">")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				var templ_7745c5c3_Var35 string
+				templ_7745c5c3_Var35, templ_7745c5c3_Err = templ.JoinStringErrs(s.Title)
+				if templ_7745c5c3_Err != nil {
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 499, Col: 79}
+				}
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var35))
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 56, "</h3><p class=\"mt-2 font-display text-sm text-ink/85\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				var templ_7745c5c3_Var36 string
-				templ_7745c5c3_Var36, templ_7745c5c3_Err = templ.JoinStringErrs(s.Ordinal)
+				templ_7745c5c3_Var36, templ_7745c5c3_Err = templ.JoinStringErrs(s.Body)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 454, Col: 62}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 500, Col: 62}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var36))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 58, "</p><h3 class=\"mt-1 font-display text-base font-bold tracking-tight\">")
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				var templ_7745c5c3_Var37 string
-				templ_7745c5c3_Var37, templ_7745c5c3_Err = templ.JoinStringErrs(s.Title)
-				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 455, Col: 79}
-				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var37))
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 59, "</h3><p class=\"mt-2 font-display text-sm text-ink/85\">")
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				var templ_7745c5c3_Var38 string
-				templ_7745c5c3_Var38, templ_7745c5c3_Err = templ.JoinStringErrs(s.Body)
-				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 456, Col: 62}
-				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var38))
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 60, "</p></li>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 57, "</p></li>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 61, "</ol>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 58, "</ol>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = landingWayIn(v, "setup", true).Render(ctx, templ_7745c5c3_Buffer)
+			templ_7745c5c3_Err = landingWayIn(v, "setup", true, NavLink{Label: "Sign in", Href: v.SignInHref}).Render(ctx, templ_7745c5c3_Buffer)
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = marketingSection("how", "Getting started", "Three things happen, and only one of them repeats").Render(templ.WithChildren(ctx, templ_7745c5c3_Var35), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = marketingSection("how", "How it works", "Three things happen, and only one of them repeats").Render(templ.WithChildren(ctx, templ_7745c5c3_Var32), templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		return nil
+	})
+}
+
+// landingComparison is the comparison table, set on the ink ground since
+// 2026-09-12 — the user's "ledger".
+//
+// 🔴 THE FOOTNOTE IS NOT OPTIONAL AND IS ASSERTED BY A TEST. The table compares how
+// two approaches work; it makes no claim about accuracy, reliability or safety,
+// because nobody here has measured one. See LandingComparison for the rule every
+// cell in the middle column was written under.
+//
+// 🔴 WHAT THE DARK GROUND DID NOT BRING WITH IT. The user's ledger had a tick in
+// every Taptime cell and a cross in every other one, under a heading that told the
+// reader to retire their terminal and a lede about "sensors that refuse kitchen
+// hands". Every one of those is a verdict on a device nobody here has measured
+// (TestLanding_ComparesMechanismsAndDeclaresNoWinner scans for the shape). The
+// rows are the same five mechanisms as before; what changed is the paper they are
+// printed on.
+//
+// THE TEXT ON INK IS PALETTE TOKENS ONLY, measured in input.css beside the ledger
+// rules: paper for the Taptime column and the row names, porcelain for the other
+// column and the footnote, line for the small caps. No tappa-green on ink — that
+// pair is 2.09:1.
+func landingComparison() templ.Component {
+	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
+			return templ_7745c5c3_CtxErr
+		}
+		templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+		if !templ_7745c5c3_IsBuffer {
+			defer func() {
+				templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+				if templ_7745c5c3_Err == nil {
+					templ_7745c5c3_Err = templ_7745c5c3_BufErr
+				}
+			}()
+		}
+		ctx = templ.InitializeContext(ctx)
+		templ_7745c5c3_Var37 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var37 == nil {
+			templ_7745c5c3_Var37 = templ.NopComponent
+		}
+		ctx = templ.ClearChildren(ctx)
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 59, "<section id=\"compare\" class=\"border-b border-line px-4 py-12 sm:py-16\"><div class=\"mx-auto w-full max-w-5xl\"><div class=\"ledger\"><p class=\"ledger-label\">Against a fingerprint terminal</p><h2 class=\"mt-2 max-w-2xl font-display text-3xl font-bold tracking-tight text-paper\">The same job, done with different evidence</h2><div class=\"mt-6 overflow-x-auto\"><table class=\"w-full min-w-[36rem] text-left text-sm\"><caption class=\"sr-only\">How a fingerprint terminal and Taptime each work</caption> <thead><tr class=\"ledger-rule\"><th scope=\"col\" class=\"px-4 py-3 ledger-label\">&nbsp;</th><th scope=\"col\" class=\"px-4 py-3 ledger-label\">Fingerprint terminal</th><th scope=\"col\" class=\"px-4 py-3 ledger-label\">Taptime</th></tr></thead> <tbody>")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		for _, row := range LandingComparison {
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 60, "<tr class=\"ledger-rule last:border-b-0\"><th scope=\"row\" class=\"px-4 py-3 align-top font-display font-bold tracking-tight text-paper\">")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var38 string
+			templ_7745c5c3_Var38, templ_7745c5c3_Err = templ.JoinStringErrs(row.Aspect)
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 547, Col: 114}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var38))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 61, "</th><td class=\"px-4 py-3 align-top text-porcelain/85\">")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var39 string
+			templ_7745c5c3_Var39, templ_7745c5c3_Err = templ.JoinStringErrs(row.Terminal)
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 548, Col: 73}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var39))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 62, "</td><td class=\"px-4 py-3 align-top text-paper\">")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var40 string
+			templ_7745c5c3_Var40, templ_7745c5c3_Err = templ.JoinStringErrs(row.Tappa)
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 549, Col: 63}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var40))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 63, "</td></tr>")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 64, "</tbody></table></div><p class=\"mt-4 max-w-2xl text-xs text-porcelain/85\">This table compares how the two approaches work. It is not a benchmark: we have measured no device against Taptime and make no claim about accuracy or reliability.</p></div></div></section>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1081,12 +1183,12 @@ func landingShapes() templ.Component {
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var39 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var39 == nil {
-			templ_7745c5c3_Var39 = templ.NopComponent
+		templ_7745c5c3_Var41 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var41 == nil {
+			templ_7745c5c3_Var41 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Var40 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+		templ_7745c5c3_Var42 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 			if !templ_7745c5c3_IsBuffer {
@@ -1098,38 +1200,38 @@ func landingShapes() templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 62, "<div class=\"mt-6 grid gap-4 sm:grid-cols-2\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 65, "<div class=\"mt-6 grid gap-4 sm:grid-cols-2\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			for i, a := range LandingAudiences {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 63, "<div class=\"border border-line bg-paper px-4 py-4\"><h3 class=\"font-display text-lg font-bold tracking-tight\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 66, "<div class=\"border border-line bg-paper px-4 py-4\"><h3 class=\"font-display text-lg font-bold tracking-tight\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				var templ_7745c5c3_Var41 string
-				templ_7745c5c3_Var41, templ_7745c5c3_Err = templ.JoinStringErrs(a.Title)
+				var templ_7745c5c3_Var43 string
+				templ_7745c5c3_Var43, templ_7745c5c3_Err = templ.JoinStringErrs(a.Title)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 475, Col: 72}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 575, Col: 72}
 				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var41))
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 64, "</h3><p class=\"mt-1 text-sm text-ink/70\">")
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var43))
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				var templ_7745c5c3_Var42 string
-				templ_7745c5c3_Var42, templ_7745c5c3_Err = templ.JoinStringErrs(a.Lede)
-				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 476, Col: 49}
-				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var42))
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 67, "</h3><p class=\"mt-1 text-sm text-ink/70\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 65, "</p>")
+				var templ_7745c5c3_Var44 string
+				templ_7745c5c3_Var44, templ_7745c5c3_Err = templ.JoinStringErrs(a.Lede)
+				if templ_7745c5c3_Err != nil {
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 576, Col: 49}
+				}
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var44))
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 68, "</p>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
@@ -1144,41 +1246,41 @@ func landingShapes() templ.Component {
 						return templ_7745c5c3_Err
 					}
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 66, "<ul class=\"mt-4 flex flex-col gap-2 text-sm text-ink/85\">")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 69, "<ul class=\"mt-4 flex flex-col gap-2 text-sm text-ink/85\">")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 				for _, p := range a.Points {
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 67, "<li class=\"border-l-2 border-line pl-3\">")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 70, "<li class=\"border-l-2 border-line pl-3\">")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					var templ_7745c5c3_Var43 string
-					templ_7745c5c3_Var43, templ_7745c5c3_Err = templ.JoinStringErrs(p.Text)
+					var templ_7745c5c3_Var45 string
+					templ_7745c5c3_Var45, templ_7745c5c3_Err = templ.JoinStringErrs(p.Text)
 					if templ_7745c5c3_Err != nil {
-						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 484, Col: 55}
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 584, Col: 55}
 					}
-					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var43))
+					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var45))
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
-					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 68, "</li>")
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 71, "</li>")
 					if templ_7745c5c3_Err != nil {
 						return templ_7745c5c3_Err
 					}
 				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 69, "</ul></div>")
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 72, "</ul></div>")
 				if templ_7745c5c3_Err != nil {
 					return templ_7745c5c3_Err
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 70, "</div>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 73, "</div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = marketingSection("shapes", "Two shapes", "A chain and a single site are not the same problem").Render(templ.WithChildren(ctx, templ_7745c5c3_Var40), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = marketingSection("shapes", "Two shapes", "A chain and a single site are not the same problem").Render(templ.WithChildren(ctx, templ_7745c5c3_Var42), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1203,12 +1305,12 @@ func landingChainFigure() templ.Component {
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var44 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var44 == nil {
-			templ_7745c5c3_Var44 = templ.NopComponent
+		templ_7745c5c3_Var46 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var46 == nil {
+			templ_7745c5c3_Var46 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 71, "<svg viewBox=\"0 0 320 150\" role=\"img\" aria-labelledby=\"chain-figure-title\" class=\"mt-4 h-auto w-full\"><title id=\"chain-figure-title\">One business above three separate doors, each door carrying its own plaque, its own opening hours and its own network address.</title><text x=\"160\" y=\"18\" text-anchor=\"middle\" class=\"diagram-label\">ONE BUSINESS</text> <path d=\"M 50 28 L 270 28\" class=\"diagram-rule\"></path> <path d=\"M 50 28 L 50 44\" class=\"diagram-rule\"></path> <path d=\"M 160 28 L 160 44\" class=\"diagram-rule\"></path> <path d=\"M 270 28 L 270 44\" class=\"diagram-rule\"></path> <rect x=\"14\" y=\"44\" width=\"72\" height=\"66\" class=\"diagram-frame\"></rect> <rect x=\"124\" y=\"44\" width=\"72\" height=\"66\" class=\"diagram-frame\"></rect> <rect x=\"234\" y=\"44\" width=\"72\" height=\"66\" class=\"diagram-frame\"></rect> <rect x=\"42\" y=\"56\" width=\"16\" height=\"16\" class=\"diagram-accent-frame\"></rect> <rect x=\"152\" y=\"56\" width=\"16\" height=\"16\" class=\"diagram-accent-frame\"></rect> <rect x=\"262\" y=\"56\" width=\"16\" height=\"16\" class=\"diagram-accent-frame\"></rect> <text x=\"50\" y=\"92\" text-anchor=\"middle\" class=\"diagram-label\">DOOR 1</text> <text x=\"160\" y=\"92\" text-anchor=\"middle\" class=\"diagram-label\">DOOR 2</text> <text x=\"270\" y=\"92\" text-anchor=\"middle\" class=\"diagram-label\">DOOR 3</text> <text x=\"160\" y=\"134\" text-anchor=\"middle\" class=\"diagram-label\">OWN HOURS · OWN ADDRESS · OWN TOTAL</text></svg>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 74, "<svg viewBox=\"0 0 320 150\" role=\"img\" aria-labelledby=\"chain-figure-title\" class=\"mt-4 h-auto w-full\"><title id=\"chain-figure-title\">One business above three separate doors, each door carrying its own plaque, its own opening hours and its own network address.</title><text x=\"160\" y=\"18\" text-anchor=\"middle\" class=\"diagram-label\">ONE BUSINESS</text> <path d=\"M 50 28 L 270 28\" class=\"diagram-rule\"></path> <path d=\"M 50 28 L 50 44\" class=\"diagram-rule\"></path> <path d=\"M 160 28 L 160 44\" class=\"diagram-rule\"></path> <path d=\"M 270 28 L 270 44\" class=\"diagram-rule\"></path> <rect x=\"14\" y=\"44\" width=\"72\" height=\"66\" class=\"diagram-frame\"></rect> <rect x=\"124\" y=\"44\" width=\"72\" height=\"66\" class=\"diagram-frame\"></rect> <rect x=\"234\" y=\"44\" width=\"72\" height=\"66\" class=\"diagram-frame\"></rect> <rect x=\"42\" y=\"56\" width=\"16\" height=\"16\" class=\"diagram-accent-frame\"></rect> <rect x=\"152\" y=\"56\" width=\"16\" height=\"16\" class=\"diagram-accent-frame\"></rect> <rect x=\"262\" y=\"56\" width=\"16\" height=\"16\" class=\"diagram-accent-frame\"></rect> <text x=\"50\" y=\"92\" text-anchor=\"middle\" class=\"diagram-label\">DOOR 1</text> <text x=\"160\" y=\"92\" text-anchor=\"middle\" class=\"diagram-label\">DOOR 2</text> <text x=\"270\" y=\"92\" text-anchor=\"middle\" class=\"diagram-label\">DOOR 3</text> <text x=\"160\" y=\"134\" text-anchor=\"middle\" class=\"diagram-label\">OWN HOURS · OWN ADDRESS · OWN TOTAL</text></svg>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1233,114 +1335,12 @@ func landingSiteFigure() templ.Component {
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var45 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var45 == nil {
-			templ_7745c5c3_Var45 = templ.NopComponent
+		templ_7745c5c3_Var47 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var47 == nil {
+			templ_7745c5c3_Var47 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 72, "<svg viewBox=\"0 0 320 176\" role=\"img\" aria-labelledby=\"site-figure-title\" class=\"mt-4 h-auto w-full\"><title id=\"site-figure-title\">One site with one address, and three departments on a twenty-four hour scale: two daytime shifts and one that starts in the evening and ends the next morning.</title><text x=\"160\" y=\"18\" text-anchor=\"middle\" class=\"diagram-label\">ONE SITE · ONE ADDRESS</text> <text x=\"14\" y=\"44\" class=\"diagram-label\">A</text> <rect x=\"126\" y=\"34\" width=\"87\" height=\"12\" class=\"diagram-accent-frame\"></rect> <text x=\"14\" y=\"70\" class=\"diagram-label\">B</text> <rect x=\"213\" y=\"60\" width=\"87\" height=\"12\" class=\"diagram-accent-frame\"></rect> <text x=\"14\" y=\"96\" class=\"diagram-label\">C</text> <rect x=\"257\" y=\"86\" width=\"43\" height=\"12\" class=\"diagram-accent-frame\"></rect> <rect x=\"40\" y=\"86\" width=\"43\" height=\"12\" class=\"diagram-accent-frame\"></rect> <path d=\"M 40 118 L 300 118\" class=\"diagram-rule\"></path> <path d=\"M 40 114 L 40 122\" class=\"diagram-rule\"></path> <path d=\"M 170 114 L 170 122\" class=\"diagram-rule\"></path> <path d=\"M 300 114 L 300 122\" class=\"diagram-rule\"></path> <text x=\"40\" y=\"138\" text-anchor=\"middle\" class=\"diagram-label\">00</text> <text x=\"170\" y=\"138\" text-anchor=\"middle\" class=\"diagram-label\">12</text> <text x=\"300\" y=\"138\" text-anchor=\"middle\" class=\"diagram-label\">24</text> <text x=\"160\" y=\"166\" text-anchor=\"middle\" class=\"diagram-label\">C RUNS PAST MIDNIGHT</text></svg>")
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		return nil
-	})
-}
-
-// landingComparison is the comparison table.
-//
-// 🔴 THE FOOTNOTE IS NOT OPTIONAL AND IS ASSERTED BY A TEST. The table compares how
-// two approaches work; it makes no claim about accuracy, reliability or safety,
-// because nobody here has measured one. See LandingComparison for the rule every
-// cell in the middle column was written under.
-func landingComparison() templ.Component {
-	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
-		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
-		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
-			return templ_7745c5c3_CtxErr
-		}
-		templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
-		if !templ_7745c5c3_IsBuffer {
-			defer func() {
-				templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
-				if templ_7745c5c3_Err == nil {
-					templ_7745c5c3_Err = templ_7745c5c3_BufErr
-				}
-			}()
-		}
-		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var46 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var46 == nil {
-			templ_7745c5c3_Var46 = templ.NopComponent
-		}
-		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Var47 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
-			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
-			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
-			if !templ_7745c5c3_IsBuffer {
-				defer func() {
-					templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
-					if templ_7745c5c3_Err == nil {
-						templ_7745c5c3_Err = templ_7745c5c3_BufErr
-					}
-				}()
-			}
-			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 73, "<div class=\"mt-6 overflow-x-auto border border-line bg-paper\"><table class=\"w-full min-w-[36rem] text-left text-sm\"><caption class=\"sr-only\">How a fingerprint terminal and Taptime each work</caption> <thead><tr class=\"border-b border-line\"><th scope=\"col\" class=\"px-4 py-3 docket-label\">&nbsp;</th><th scope=\"col\" class=\"px-4 py-3 docket-label\">Fingerprint terminal</th><th scope=\"col\" class=\"px-4 py-3 docket-label\">Taptime</th></tr></thead> <tbody>")
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			for _, row := range LandingComparison {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 74, "<tr class=\"border-b border-line last:border-b-0\"><th scope=\"row\" class=\"px-4 py-3 align-top font-display font-bold tracking-tight\">")
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				var templ_7745c5c3_Var48 string
-				templ_7745c5c3_Var48, templ_7745c5c3_Err = templ.JoinStringErrs(row.Aspect)
-				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 565, Col: 101}
-				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var48))
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 75, "</th><td class=\"px-4 py-3 align-top text-ink/85\">")
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				var templ_7745c5c3_Var49 string
-				templ_7745c5c3_Var49, templ_7745c5c3_Err = templ.JoinStringErrs(row.Terminal)
-				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 566, Col: 65}
-				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var49))
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 76, "</td><td class=\"px-4 py-3 align-top text-ink\">")
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				var templ_7745c5c3_Var50 string
-				templ_7745c5c3_Var50, templ_7745c5c3_Err = templ.JoinStringErrs(row.Tappa)
-				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 567, Col: 59}
-				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var50))
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 77, "</td></tr>")
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 78, "</tbody></table></div><p class=\"mt-3 max-w-2xl text-xs text-ink/70\">This table compares how the two approaches work. It is not a benchmark: we have measured no device against Taptime and make no claim about accuracy or reliability.</p>")
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			return nil
-		})
-		templ_7745c5c3_Err = marketingSection("compare", "Against a fingerprint terminal", "The same job, done with different evidence").Render(templ.WithChildren(ctx, templ_7745c5c3_Var47), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 75, "<svg viewBox=\"0 0 320 176\" role=\"img\" aria-labelledby=\"site-figure-title\" class=\"mt-4 h-auto w-full\"><title id=\"site-figure-title\">One site with one address, and three departments on a twenty-four hour scale: two daytime shifts and one that starts in the evening and ends the next morning.</title><text x=\"160\" y=\"18\" text-anchor=\"middle\" class=\"diagram-label\">ONE SITE · ONE ADDRESS</text> <text x=\"14\" y=\"44\" class=\"diagram-label\">A</text> <rect x=\"126\" y=\"34\" width=\"87\" height=\"12\" class=\"diagram-accent-frame\"></rect> <text x=\"14\" y=\"70\" class=\"diagram-label\">B</text> <rect x=\"213\" y=\"60\" width=\"87\" height=\"12\" class=\"diagram-accent-frame\"></rect> <text x=\"14\" y=\"96\" class=\"diagram-label\">C</text> <rect x=\"257\" y=\"86\" width=\"43\" height=\"12\" class=\"diagram-accent-frame\"></rect> <rect x=\"40\" y=\"86\" width=\"43\" height=\"12\" class=\"diagram-accent-frame\"></rect> <path d=\"M 40 118 L 300 118\" class=\"diagram-rule\"></path> <path d=\"M 40 114 L 40 122\" class=\"diagram-rule\"></path> <path d=\"M 170 114 L 170 122\" class=\"diagram-rule\"></path> <path d=\"M 300 114 L 300 122\" class=\"diagram-rule\"></path> <text x=\"40\" y=\"138\" text-anchor=\"middle\" class=\"diagram-label\">00</text> <text x=\"170\" y=\"138\" text-anchor=\"middle\" class=\"diagram-label\">12</text> <text x=\"300\" y=\"138\" text-anchor=\"middle\" class=\"diagram-label\">24</text> <text x=\"160\" y=\"166\" text-anchor=\"middle\" class=\"diagram-label\">C RUNS PAST MIDNIGHT</text></svg>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1356,6 +1356,13 @@ func landingComparison() templ.Component {
 // migration. The free period is the same story: plan='founding' adds three months
 // in tappa_first_chargeable_month, and the panel's billing screen reads that
 // function rather than a constant.
+//
+// THE HEADING AND THE LIST ARE THE USER'S (2026-09-12) AND BOTH LIVE IN
+// landingview.go — LandingPricingHeading and LandingPricingIncludes — with the
+// three list items that were NOT carried recorded beside them. The draft's "A
+// 60-person chain runs on about €90/month — less than one terminal's
+// yearly maintenance" is not here either: the first half is arithmetic on a
+// headcount nobody has, the second a comparison nobody ran.
 func landingPricing(v LandingView) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -1372,12 +1379,12 @@ func landingPricing(v LandingView) templ.Component {
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var51 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var51 == nil {
-			templ_7745c5c3_Var51 = templ.NopComponent
+		templ_7745c5c3_Var48 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var48 == nil {
+			templ_7745c5c3_Var48 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Var52 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+		templ_7745c5c3_Var49 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 			if !templ_7745c5c3_IsBuffer {
@@ -1389,29 +1396,52 @@ func landingPricing(v LandingView) templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 79, "<div class=\"mt-6 grid gap-4 sm:grid-cols-2\"><div class=\"docket\"><p class=\"docket-label\">Per employee, per month</p><p class=\"mt-1 font-mono text-5xl font-bold text-ink\">&#8364;")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 76, "<div class=\"mt-6 grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]\"><div class=\"docket\"><p class=\"docket-label\">Per employee, per month</p><p class=\"mt-1 font-mono text-5xl font-bold text-ink\">&#8364;")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var53 string
-			templ_7745c5c3_Var53, templ_7745c5c3_Err = templ.JoinStringErrs(v.PricePerEmployeeMonth)
+			var templ_7745c5c3_Var50 string
+			templ_7745c5c3_Var50, templ_7745c5c3_Err = templ.JoinStringErrs(v.PricePerEmployeeMonth)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 593, Col: 90}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 664, Col: 90}
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var53))
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 80, "</p><p class=\"mt-3 font-display text-sm text-ink/85\">Plaques are included, and so are replacements. You are billed for the people who could actually clock in that month: somebody you invited who never opened their link is not billed, and somebody who leaves is billed only for the months they were still working.</p></div><div class=\"border border-saffron bg-saffron-lite px-4 py-4\"><p class=\"docket-label\">Founding offer</p><h3 class=\"mt-1 font-display text-lg font-bold tracking-tight\">")
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var50))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var54 string
-			templ_7745c5c3_Var54, templ_7745c5c3_Err = templ.JoinStringErrs(itoa(v.FreeMonths))
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 77, "</p><p class=\"mt-3 font-display text-sm text-ink/85\">Plaques are included, and so are replacements. You are billed for the people who could actually clock in that month: somebody you invited who never opened their link is not billed, and somebody who leaves is billed only for the months they were still working.</p><p class=\"mt-4 docket-label\">What the dashboard gives you</p><ul class=\"mt-2 flex flex-col gap-2 font-display text-sm text-ink/85\">")
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 604, Col: 25}
+				return templ_7745c5c3_Err
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var54))
+			for _, l := range LandingPricingIncludes {
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 78, "<li class=\"flex gap-3\"><span aria-hidden=\"true\" class=\"shrink-0 font-mono font-bold text-tappa-green\">&#8212;</span> <span>")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				var templ_7745c5c3_Var51 string
+				templ_7745c5c3_Var51, templ_7745c5c3_Err = templ.JoinStringErrs(l.Text)
+				if templ_7745c5c3_Err != nil {
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 676, Col: 21}
+				}
+				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var51))
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 79, "</span></li>")
+				if templ_7745c5c3_Err != nil {
+					return templ_7745c5c3_Err
+				}
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 80, "</ul></div><div class=\"border border-saffron bg-saffron-lite px-4 py-4\"><p class=\"docket-label\">Founding offer</p><h3 class=\"mt-1 font-display text-lg font-bold tracking-tight\">")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var52 string
+			templ_7745c5c3_Var52, templ_7745c5c3_Err = templ.JoinStringErrs(itoa(v.FreeMonths))
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 684, Col: 25}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var52))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -1419,12 +1449,12 @@ func landingPricing(v LandingView) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var55 string
-			templ_7745c5c3_Var55, templ_7745c5c3_Err = templ.JoinStringErrs(itoa(v.FreeMonths))
+			var templ_7745c5c3_Var53 string
+			templ_7745c5c3_Var53, templ_7745c5c3_Err = templ.JoinStringErrs(itoa(v.FreeMonths))
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 607, Col: 35}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 687, Col: 35}
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var55))
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var53))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -1434,7 +1464,7 @@ func landingPricing(v LandingView) templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = marketingSection("pricing", "What it costs", "One price, and the first months are free").Render(templ.WithChildren(ctx, templ_7745c5c3_Var52), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = marketingSection("pricing", "Pricing", LandingPricingHeading.Text).Render(templ.WithChildren(ctx, templ_7745c5c3_Var49), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1442,8 +1472,15 @@ func landingPricing(v LandingView) templ.Component {
 	})
 }
 
-// landingFAQ is handoff §9's FAQ. Plain markup rather than a disclosure widget:
-// there is no script on this page, and an answer nobody can find is not an answer.
+// landingFAQ is handoff §9's FAQ plus the user's four questions, as disclosure
+// widgets since 2026-09-12.
+//
+// <details> NEEDS NO SCRIPT, which is what made the change possible on a page whose
+// policy names no script-src: the browser opens and closes each answer itself. The
+// answers are in the document either way — TestLandingFAQ_EveryQuestionIsRenderedWithItsAnswer
+// reads the rendered bytes, not a viewport — and a reader without CSS sees every
+// answer open. THE FIRST ONE IS OPEN BY DEFAULT so the block never reads as a list
+// of questions with nothing under them.
 func landingFAQ() templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -1460,12 +1497,12 @@ func landingFAQ() templ.Component {
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var56 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var56 == nil {
-			templ_7745c5c3_Var56 = templ.NopComponent
+		templ_7745c5c3_Var54 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var54 == nil {
+			templ_7745c5c3_Var54 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Var57 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+		templ_7745c5c3_Var55 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
 			if !templ_7745c5c3_IsBuffer {
@@ -1477,49 +1514,82 @@ func landingFAQ() templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 83, "<dl class=\"mt-6 grid gap-4 sm:grid-cols-2\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 83, "<div class=\"mt-6 grid gap-3 md:grid-cols-2 md:items-start\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			for _, q := range LandingFAQ {
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 84, "<div class=\"border-l-4 border-line bg-paper px-4 py-4\"><dt class=\"font-display text-base font-bold tracking-tight\">")
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				var templ_7745c5c3_Var58 string
-				templ_7745c5c3_Var58, templ_7745c5c3_Err = templ.JoinStringErrs(q.Q)
-				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 627, Col: 70}
-				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var58))
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 85, "</dt><dd class=\"mt-2 text-sm text-ink/85\">")
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				var templ_7745c5c3_Var59 string
-				templ_7745c5c3_Var59, templ_7745c5c3_Err = templ.JoinStringErrs(q.A)
-				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 628, Col: 47}
-				}
-				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var59))
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
-				}
-				templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 86, "</dd></div>")
-				if templ_7745c5c3_Err != nil {
-					return templ_7745c5c3_Err
+			for i, q := range LandingFAQ {
+				if i == 0 {
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 84, "<details class=\"faq-item\" open><summary class=\"faq-summary\">")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					var templ_7745c5c3_Var56 string
+					templ_7745c5c3_Var56, templ_7745c5c3_Err = templ.JoinStringErrs(q.Q)
+					if templ_7745c5c3_Err != nil {
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 715, Col: 40}
+					}
+					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var56))
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 85, "</summary><p class=\"faq-answer\">")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					var templ_7745c5c3_Var57 string
+					templ_7745c5c3_Var57, templ_7745c5c3_Err = templ.JoinStringErrs(q.A)
+					if templ_7745c5c3_Err != nil {
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 716, Col: 33}
+					}
+					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var57))
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 86, "</p></details>")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+				} else {
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 87, "<details class=\"faq-item\"><summary class=\"faq-summary\">")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					var templ_7745c5c3_Var58 string
+					templ_7745c5c3_Var58, templ_7745c5c3_Err = templ.JoinStringErrs(q.Q)
+					if templ_7745c5c3_Err != nil {
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 720, Col: 40}
+					}
+					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var58))
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 88, "</summary><p class=\"faq-answer\">")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					var templ_7745c5c3_Var59 string
+					templ_7745c5c3_Var59, templ_7745c5c3_Err = templ.JoinStringErrs(q.A)
+					if templ_7745c5c3_Err != nil {
+						return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 721, Col: 33}
+					}
+					_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var59))
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
+					templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 89, "</p></details>")
+					if templ_7745c5c3_Err != nil {
+						return templ_7745c5c3_Err
+					}
 				}
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 87, "</dl>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 90, "</div>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = marketingSection("faq", "Questions", "The ones we are actually asked").Render(templ.WithChildren(ctx, templ_7745c5c3_Var57), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = marketingSection("faq", "Questions", "The ones we are actually asked").Render(templ.WithChildren(ctx, templ_7745c5c3_Var55), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1528,7 +1598,10 @@ func landingFAQ() templ.Component {
 }
 
 // landingCTA is the last block, and the one that has to be exact about WHAT HAPPENS
-// NEXT rather than enthusiastic about it.
+// NEXT rather than enthusiastic about it. On the green ground since 2026-09-12 —
+// the user's sign-off — with the slogan's four denials struck through, which was
+// the one idea in their draft the h1 could not take (skill tappa-brand fixes the
+// slogan as four lines) and the sign-off can.
 //
 // 🔴 EVERY LINE OF "WHAT YOU LEAVE WITH" WAS CHECKED AGAINST THE WIZARD ITSELF
 // (internal/handler/signup.go, pages/signup.templ) AND ONE OF THEM WAS ALREADY
@@ -1537,6 +1610,16 @@ func landingFAQ() templ.Component {
 // and nothing in the wizard collects one. The three lines below are the wizard's own
 // three steps, and the last of them — that a plaque still has to be on a wall before
 // anybody can tap — is the sentence a landing page most wants to leave out.
+//
+// 🔴 THE USER'S DRAFT HAD A SECOND BUTTON HERE, "Book a pilot", OPENING A MAIL
+// CLIENT. There is no published contact address (the third line of the card says
+// exactly why), so the button would have promised a channel that does not exist.
+// The sentence stays; the button was not carried.
+//
+// THE STRUCK WORDS ARE paper AT 80% ON tappa-green, measured in input.css beside
+// the rule: 5.63:1, which clears AA for the size they are set at. The two rings
+// are borders only — no gradient, no fill — and are hidden from assistive
+// technology because they say nothing.
 func landingCTA(v LandingView) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
@@ -1558,15 +1641,40 @@ func landingCTA(v LandingView) templ.Component {
 			templ_7745c5c3_Var60 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 88, "<section id=\"start\" class=\"border-t border-line px-4 py-12 sm:py-16\"><div class=\"mx-auto grid w-full max-w-5xl gap-8 md:grid-cols-2 md:items-start\"><div><p class=\"docket-label\">Go punchless</p><h2 class=\"mt-2 font-display text-3xl font-bold tracking-tight\">Open the account now</h2><p class=\"mt-3 max-w-md text-base text-ink/85\">The business, the doors you name and your own sign-in are created together, in one transaction — either all of it exists or none of it does. Then you sign in with the password you just chose.</p>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 91, "<section id=\"start\" class=\"px-4 py-12 sm:py-16\"><div class=\"relative mx-auto w-full max-w-5xl overflow-hidden bg-tappa-green px-6 py-10 sm:px-10 sm:py-14\"><span aria-hidden=\"true\" class=\"cta-ring -left-24 -top-32 h-80 w-80\"></span> <span aria-hidden=\"true\" class=\"cta-ring -bottom-24 -right-16 h-56 w-56\"></span><div class=\"relative grid gap-8 md:grid-cols-2 md:items-start\"><div><h2 class=\"font-display text-4xl font-bold tracking-tight text-paper\">Go punchless.</h2><p class=\"mt-3 font-mono text-sm text-paper\"><s class=\"cta-struck\">No app.</s> <s class=\"cta-struck\">No device.</s> <s class=\"cta-struck\">No fingerprints.</s> Just tap.</p><p class=\"mt-4 max-w-md text-base text-paper\">The business, the doors you name and your own sign-in are created together, in one transaction — either all of it exists or none of it does. Then you sign in with the password you just chose.</p>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = landingWayIn(v, "end", false).Render(ctx, templ_7745c5c3_Buffer)
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
+		if v.SignupHref != "" {
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 92, "<div id=\"start-end\" class=\"mt-8 flex flex-wrap items-center gap-3\"><a href=\"")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var61 templ.SafeURL = templ.URL(v.SignupHref)
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(string(templ_7745c5c3_Var61)))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 93, "\" class=\"btn btn--paper sm:px-8\">Start free</a></div>")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+		} else {
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 94, "<div id=\"start-end\" class=\"mt-8\"><a href=\"")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var62 templ.SafeURL = templ.URL(v.SignInHref)
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(string(templ_7745c5c3_Var62)))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 95, "\" class=\"btn btn--paper\">Sign in to your dashboard</a></div><p class=\"mt-3 max-w-md text-sm text-paper\">Self-service sign-up is not open in this deployment, so there is no form to fill in on this page. Accounts are set up by hand — plaques, venues and the first manager account together.</p>")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 89, "</div><div class=\"docket\"><p class=\"docket-label\">What you leave with</p><ol class=\"mt-2 flex flex-col gap-3 font-display text-sm text-ink/85\"><li><span class=\"font-display font-bold tracking-tight text-ink\">The business.</span> Its name, its VAT number and the doors you named, created together in one go.</li><li><span class=\"font-display font-bold tracking-tight text-ink\">Your sign-in.</span> The account you manage it with, ready to use as soon as the last step finishes.</li><li><span class=\"font-display font-bold tracking-tight text-ink\">Then the plaques.</span> Taptime encodes each one and loads it into your dashboard. We are not publishing a contact address here until the company details in the footer are published with it, so this page cannot yet tell you where to ask for one. Until a plaque is mounted there is nothing to tap at.</li></ol></div></div></section>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 96, "</div><div class=\"docket\"><p class=\"docket-label\">What you leave with</p><ol class=\"mt-2 flex flex-col gap-3 font-display text-sm text-ink/85\"><li><span class=\"font-display font-bold tracking-tight text-ink\">The business.</span> Its name, its VAT number and the doors you named, created together in one go.</li><li><span class=\"font-display font-bold tracking-tight text-ink\">Your sign-in.</span> The account you manage it with, ready to use as soon as the last step finishes.</li><li><span class=\"font-display font-bold tracking-tight text-ink\">Then the plaques.</span> Taptime encodes each one and loads it into your dashboard. We are not publishing a contact address here until the company details in the footer are published with it, so this page cannot yet tell you where to ask for one. Until a plaque is mounted there is nothing to tap at.</li></ol></div></div></div></section>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1594,59 +1702,59 @@ func marketingSection(id, eyebrow, heading string) templ.Component {
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var61 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var61 == nil {
-			templ_7745c5c3_Var61 = templ.NopComponent
+		templ_7745c5c3_Var63 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var63 == nil {
+			templ_7745c5c3_Var63 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 90, "<section id=\"")
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		var templ_7745c5c3_Var62 string
-		templ_7745c5c3_Var62, templ_7745c5c3_Err = templ.JoinStringErrs(id)
-		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 687, Col: 17}
-		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var62))
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 91, "\" class=\"border-b border-line px-4 py-12 sm:py-16\"><div class=\"mx-auto w-full max-w-5xl\"><p class=\"docket-label\">")
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		var templ_7745c5c3_Var63 string
-		templ_7745c5c3_Var63, templ_7745c5c3_Err = templ.JoinStringErrs(eyebrow)
-		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 689, Col: 36}
-		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var63))
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 92, "</p><h2 class=\"mt-2 max-w-2xl font-display text-3xl font-bold tracking-tight\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 97, "<section id=\"")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		var templ_7745c5c3_Var64 string
-		templ_7745c5c3_Var64, templ_7745c5c3_Err = templ.JoinStringErrs(heading)
+		templ_7745c5c3_Var64, templ_7745c5c3_Err = templ.JoinStringErrs(id)
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 690, Col: 86}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 816, Col: 17}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var64))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 93, "</h2>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 98, "\" class=\"border-b border-line px-4 py-12 sm:py-16\"><div class=\"mx-auto w-full max-w-5xl\"><p class=\"docket-label\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templ_7745c5c3_Var61.Render(ctx, templ_7745c5c3_Buffer)
+		var templ_7745c5c3_Var65 string
+		templ_7745c5c3_Var65, templ_7745c5c3_Err = templ.JoinStringErrs(eyebrow)
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 818, Col: 36}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var65))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 94, "</div></section>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 99, "</p><h2 class=\"mt-2 max-w-2xl font-display text-3xl font-bold tracking-tight\">")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		var templ_7745c5c3_Var66 string
+		templ_7745c5c3_Var66, templ_7745c5c3_Err = templ.JoinStringErrs(heading)
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 819, Col: 86}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var66))
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 100, "</h2>")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templ_7745c5c3_Var63.Render(ctx, templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 101, "</div></section>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1693,72 +1801,6 @@ func marketingChrome(signInHref string) templ.Component {
 			}()
 		}
 		ctx = templ.InitializeContext(ctx)
-		templ_7745c5c3_Var65 := templ.GetChildren(ctx)
-		if templ_7745c5c3_Var65 == nil {
-			templ_7745c5c3_Var65 = templ.NopComponent
-		}
-		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Var66 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
-			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
-			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
-			if !templ_7745c5c3_IsBuffer {
-				defer func() {
-					templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
-					if templ_7745c5c3_Err == nil {
-						templ_7745c5c3_Err = templ_7745c5c3_BufErr
-					}
-				}()
-			}
-			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templ_7745c5c3_Var65.Render(ctx, templ_7745c5c3_Buffer)
-			if templ_7745c5c3_Err != nil {
-				return templ_7745c5c3_Err
-			}
-			return nil
-		})
-		templ_7745c5c3_Err = marketingShell(signInHref, "max-w-3xl").Render(templ.WithChildren(ctx, templ_7745c5c3_Var66), templ_7745c5c3_Buffer)
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		return nil
-	})
-}
-
-// marketingChromeWide is the SAME chrome measured for the landing page.
-//
-// 🔴 IT EXISTS BECAUSE ONE WIDTH CANNOT BE RIGHT FOR BOTH SURFACES, and the
-// alternative was measured worse. The 2026-09-07 rebuild widened the shared wrapper
-// to fit a four-column strip and two drawings side by side — and that widened the
-// header and footer of the SIGN-UP WIZARD too, whose four screens are a
-// single 2xl form column, leaving the chrome visibly wider than the thing it frames.
-// The wizard's screens are out of this task's scope, so the fix is here: the shared
-// component keeps the WIDTH it always had and the landing page names the wider one.
-//
-// ⚠️ "UNCHANGED" WOULD BE TOO STRONG AND IS NOT CLAIMED. Two cosmetic edits in this
-// rebuild do reach every surface that renders the shell: the header now sits on the
-// paper ground, and the sign-in and legal links gained a colour fade, applied only
-// where motion is welcome. Both are deliberate and both are shared; the width is the
-// one that was wrong for a form column, and the width is what this pair fixes.
-//
-// THE TWO WIDTH CLASSES ARE LITERALS PASSED IN, not built anywhere. Tailwind reads
-// this file as raw text and emits a rule only for a name it can see, so a width
-// assembled from a variable would compile to no rule at all.
-func marketingChromeWide(signInHref string) templ.Component {
-	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
-		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
-		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
-			return templ_7745c5c3_CtxErr
-		}
-		templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
-		if !templ_7745c5c3_IsBuffer {
-			defer func() {
-				templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
-				if templ_7745c5c3_Err == nil {
-					templ_7745c5c3_Err = templ_7745c5c3_BufErr
-				}
-			}()
-		}
-		ctx = templ.InitializeContext(ctx)
 		templ_7745c5c3_Var67 := templ.GetChildren(ctx)
 		if templ_7745c5c3_Var67 == nil {
 			templ_7745c5c3_Var67 = templ.NopComponent
@@ -1782,7 +1824,7 @@ func marketingChromeWide(signInHref string) templ.Component {
 			}
 			return nil
 		})
-		templ_7745c5c3_Err = marketingShell(signInHref, "max-w-5xl").Render(templ.WithChildren(ctx, templ_7745c5c3_Var68), templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = marketingShell(signInHref, "max-w-3xl", nil, "").Render(templ.WithChildren(ctx, templ_7745c5c3_Var68), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -1790,9 +1832,32 @@ func marketingChromeWide(signInHref string) templ.Component {
 	})
 }
 
-// marketingShell is the markup both widths share. One copy: a second would be a
-// second place for the footer's §4.1 sentence and the legal navigation to drift.
-func marketingShell(signInHref, width string) templ.Component {
+// landingChrome is the SAME chrome measured for the landing page: the wider
+// column, and — since 2026-09-12 — the sticky bar with the page's own links.
+//
+// 🔴 IT EXISTS BECAUSE ONE WIDTH CANNOT BE RIGHT FOR BOTH SURFACES, and the
+// alternative was measured worse. The 2026-09-07 rebuild widened the shared wrapper
+// to fit a four-column strip and two drawings side by side — and that widened the
+// header and footer of the SIGN-UP WIZARD too, whose four screens are a
+// single 2xl form column, leaving the chrome visibly wider than the thing it frames.
+// The wizard's screens are out of this task's scope, so the fix is here: the shared
+// component keeps the WIDTH it always had and the landing page names the wider one.
+//
+// THE BAR IS THE LANDING PAGE'S ONLY. The wizard and the legal pages render
+// marketingChrome, which passes no links and no sign-up href, and their header
+// keeps what it had: not sticky, the wordmark and "Sign in". A sticky bar offering
+// "How it works" on a form somebody is half way through would be a link away from
+// the form, and the pages this shell is shared with were not asked for one.
+//
+// ⚠️ "UNCHANGED" WOULD BE TOO STRONG AND IS NOT CLAIMED. Two edits do reach every
+// surface that renders the shell, and both are deliberate: the sign-in link now
+// sits inside a navigation landmark, and it reserves the 44px floor the rest of
+// the product's targets already reserve. Nothing else about those pages moved.
+//
+// THE TWO WIDTH CLASSES ARE LITERALS PASSED IN, not built anywhere. Tailwind reads
+// this file as raw text and emits a rule only for a name it can see, so a width
+// assembled from a variable would compile to no rule at all.
+func landingChrome(v LandingView) templ.Component {
 	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
 		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
 		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
@@ -1813,100 +1878,274 @@ func marketingShell(signInHref, width string) templ.Component {
 			templ_7745c5c3_Var69 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 95, "<a href=\"#main\" class=\"sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-10 focus:border focus:border-ink focus:bg-paper focus:px-3 focus:py-2\">Skip to content</a><header class=\"border-b border-line bg-paper px-4 py-4\">")
+		templ_7745c5c3_Var70 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+			if !templ_7745c5c3_IsBuffer {
+				defer func() {
+					templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+					if templ_7745c5c3_Err == nil {
+						templ_7745c5c3_Err = templ_7745c5c3_BufErr
+					}
+				}()
+			}
+			ctx = templ.InitializeContext(ctx)
+			templ_7745c5c3_Err = templ_7745c5c3_Var69.Render(ctx, templ_7745c5c3_Buffer)
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			return nil
+		})
+		templ_7745c5c3_Err = marketingShell(v.SignInHref, "max-w-5xl", LandingNav, v.SignupHref).Render(templ.WithChildren(ctx, templ_7745c5c3_Var70), templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var70 = []any{"mx-auto flex w-full items-center justify-between gap-4 " + width}
-		templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var70...)
+		return nil
+	})
+}
+
+// marketingShell is the markup both widths share. One copy: a second would be a
+// second place for the footer's §4.1 sentence and the legal navigation to drift.
+//
+// `nav` and `startHref` are the landing page's bar; both empty means the plain
+// header the wizard and the legal pages have always had. The two header variants
+// share marketingHeaderInner so the wordmark and the sign-in link cannot drift
+// either; what differs is that one sticks to the top of the viewport and carries
+// the links.
+func marketingShell(signInHref, width string, nav []NavLink, startHref string) templ.Component {
+	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
+			return templ_7745c5c3_CtxErr
+		}
+		templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+		if !templ_7745c5c3_IsBuffer {
+			defer func() {
+				templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+				if templ_7745c5c3_Err == nil {
+					templ_7745c5c3_Err = templ_7745c5c3_BufErr
+				}
+			}()
+		}
+		ctx = templ.InitializeContext(ctx)
+		templ_7745c5c3_Var71 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var71 == nil {
+			templ_7745c5c3_Var71 = templ.NopComponent
+		}
+		ctx = templ.ClearChildren(ctx)
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 102, "<a href=\"#main\" class=\"sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-30 focus:border focus:border-ink focus:bg-paper focus:px-3 focus:py-2\">Skip to content</a> ")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 96, "<div class=\"")
+		if len(nav) > 0 {
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 103, "<header class=\"sticky top-0 z-20 border-b border-line bg-paper px-4 py-2\">")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = marketingHeaderInner(signInHref, width, nav, startHref).Render(ctx, templ_7745c5c3_Buffer)
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 104, "</header>")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+		} else {
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 105, "<header class=\"border-b border-line bg-paper px-4 py-4\">")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = marketingHeaderInner(signInHref, width, nav, startHref).Render(ctx, templ_7745c5c3_Buffer)
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 106, "</header>")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 107, "<main id=\"main\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		var templ_7745c5c3_Var71 string
-		templ_7745c5c3_Var71, templ_7745c5c3_Err = templ.JoinStringErrs(templ.CSSClasses(templ_7745c5c3_Var70).String())
+		templ_7745c5c3_Err = templ_7745c5c3_Var71.Render(ctx, templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 108, "</main><footer class=\"border-t border-line px-4 py-10\">")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		var templ_7745c5c3_Var72 = []any{"mx-auto w-full " + width}
+		templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var72...)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 109, "<div class=\"")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		var templ_7745c5c3_Var73 string
+		templ_7745c5c3_Var73, templ_7745c5c3_Err = templ.JoinStringErrs(templ.CSSClasses(templ_7745c5c3_Var72).String())
 		if templ_7745c5c3_Err != nil {
 			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 1, Col: 0}
 		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var71))
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var73))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 97, "\"><a href=\"/\" class=\"flex items-baseline gap-2\"><span class=\"font-display text-lg font-bold tracking-tight text-tappa-green\">taptime</span> <span class=\"font-mono text-[10px] uppercase tracking-widest text-ink/70\">punchless</span></a> <a href=\"")
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		var templ_7745c5c3_Var72 templ.SafeURL = templ.URL(signInHref)
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(string(templ_7745c5c3_Var72)))
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 98, "\" class=\"font-display text-sm font-bold tracking-tight text-ink underline underline-offset-4 motion-safe:transition-colors hover:text-tappa-green\">Sign in</a></div></header><main id=\"main\">")
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		templ_7745c5c3_Err = templ_7745c5c3_Var69.Render(ctx, templ_7745c5c3_Buffer)
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 99, "</main><footer class=\"border-t border-line px-4 py-10\">")
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		var templ_7745c5c3_Var73 = []any{"mx-auto w-full " + width}
-		templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var73...)
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 100, "<div class=\"")
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		var templ_7745c5c3_Var74 string
-		templ_7745c5c3_Var74, templ_7745c5c3_Err = templ.JoinStringErrs(templ.CSSClasses(templ_7745c5c3_Var73).String())
-		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 1, Col: 0}
-		}
-		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var74))
-		if templ_7745c5c3_Err != nil {
-			return templ_7745c5c3_Err
-		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 101, "\"><p class=\"docket-label\">Taptime</p><p class=\"mt-2 max-w-xl text-sm text-ink/85\">Punchless time and attendance. Taptime collects no biometric data of any kind: no fingerprints, no face, no voice. A phone's position is read only at the moment somebody presses the button.</p><nav class=\"mt-6 flex flex-wrap gap-x-6 gap-y-2\" aria-label=\"Legal\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 110, "\"><p class=\"docket-label\">Taptime</p><p class=\"mt-2 max-w-xl text-sm text-ink/85\">Punchless time and attendance. Taptime collects no biometric data of any kind: no fingerprints, no face, no voice. A phone's position is read only at the moment somebody presses the button.</p><nav class=\"mt-6 flex flex-wrap gap-x-6 gap-y-2\" aria-label=\"Legal\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		for _, p := range LegalPages {
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 102, "<a href=\"")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 111, "<a href=\"")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var75 templ.SafeURL = templ.URL(p.Path)
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(string(templ_7745c5c3_Var75)))
+			var templ_7745c5c3_Var74 templ.SafeURL = templ.URL(p.Path)
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(string(templ_7745c5c3_Var74)))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 103, "\" class=\"font-mono text-xs uppercase tracking-widest text-ink/70 underline underline-offset-4 motion-safe:transition-colors hover:text-ink\">")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 112, "\" class=\"font-mono text-xs uppercase tracking-widest text-ink/70 underline underline-offset-4 motion-safe:transition-colors hover:text-ink\">")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			var templ_7745c5c3_Var76 string
-			templ_7745c5c3_Var76, templ_7745c5c3_Err = templ.JoinStringErrs(p.NavLabel)
+			var templ_7745c5c3_Var75 string
+			templ_7745c5c3_Var75, templ_7745c5c3_Err = templ.JoinStringErrs(p.NavLabel)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 781, Col: 18}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 920, Col: 18}
 			}
-			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var76))
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var75))
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 104, "</a>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 113, "</a>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 105, "</nav></div></footer>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 114, "</nav></div></footer>")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		return nil
+	})
+}
+
+// marketingHeaderInner is what the header holds: wordmark, the landing page's links
+// when there are any, "Sign in", and "Start free" when the wizard is mounted.
+//
+// THE IN-PAGE LINKS HIDE BELOW THE sm BREAKPOINT and the two buttons stay: on a
+// phone the bar has room for the wordmark and the two ways in, and the sections
+// the links point at are one scroll away. Every target in the bar reserves the
+// 44px floor (.btn and the link rule both carry min-h-11).
+//
+// 🔴 THE WORDMARK IS `taptime` + `punchless`, THE SAME PAIR THE PLAQUE AND THE
+// PANEL CARRY. The user's draft had a green disc with a hoop drawn in it beside the word;
+// skill tappa-brand names no such mark, and a mark that exists on one page and
+// nowhere else in the product is not a brand.
+func marketingHeaderInner(signInHref, width string, nav []NavLink, startHref string) templ.Component {
+	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
+			return templ_7745c5c3_CtxErr
+		}
+		templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+		if !templ_7745c5c3_IsBuffer {
+			defer func() {
+				templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+				if templ_7745c5c3_Err == nil {
+					templ_7745c5c3_Err = templ_7745c5c3_BufErr
+				}
+			}()
+		}
+		ctx = templ.InitializeContext(ctx)
+		templ_7745c5c3_Var76 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var76 == nil {
+			templ_7745c5c3_Var76 = templ.NopComponent
+		}
+		ctx = templ.ClearChildren(ctx)
+		var templ_7745c5c3_Var77 = []any{"mx-auto flex w-full items-center justify-between gap-4 " + width}
+		templ_7745c5c3_Err = templ.RenderCSSItems(ctx, templ_7745c5c3_Buffer, templ_7745c5c3_Var77...)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 115, "<div class=\"")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		var templ_7745c5c3_Var78 string
+		templ_7745c5c3_Var78, templ_7745c5c3_Err = templ.JoinStringErrs(templ.CSSClasses(templ_7745c5c3_Var77).String())
+		if templ_7745c5c3_Err != nil {
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 1, Col: 0}
+		}
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var78))
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 116, "\"><a href=\"/\" class=\"flex min-h-11 items-baseline gap-2\"><span class=\"font-display text-lg font-bold tracking-tight text-tappa-green\">taptime</span> <span class=\"font-mono text-[10px] uppercase tracking-widest text-ink/70\">punchless</span></a><nav class=\"flex items-center gap-2 sm:gap-4\" aria-label=\"Page\">")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		for _, l := range nav {
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 117, "<a href=\"")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var79 templ.SafeURL = templ.URL(l.Href)
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(string(templ_7745c5c3_Var79)))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 118, "\" class=\"nav-link\">")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var80 string
+			templ_7745c5c3_Var80, templ_7745c5c3_Err = templ.JoinStringErrs(l.Label)
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/landing.templ`, Line: 948, Col: 60}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var80))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 119, "</a> ")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 120, "<a href=\"")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		var templ_7745c5c3_Var81 templ.SafeURL = templ.URL(signInHref)
+		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(string(templ_7745c5c3_Var81)))
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 121, "\" class=\"inline-flex min-h-11 items-center font-display text-sm font-bold tracking-tight text-ink underline underline-offset-4 motion-safe:transition-colors hover:text-tappa-green\">Sign in</a> ")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		if startHref != "" {
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 122, "<a href=\"")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var82 templ.SafeURL = templ.URL(startHref)
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(string(templ_7745c5c3_Var82)))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 123, "\" class=\"btn btn--primary min-h-11 py-2 text-sm\">Start free</a>")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 124, "</nav></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

@@ -2,38 +2,51 @@ package pages
 
 import "github.com/atknatk/tappa/web/templates/layout"
 
-// The PUBLIC landing page (M7-01, rebuilt 2026-09-07) — handoff §9, in templ per
-// ADR 0001.
+// The PUBLIC landing page (M7-01, rebuilt 2026-09-07, restyled 2026-09-12) —
+// handoff §9, in templ per ADR 0001.
 //
 // 🔴 READ landingview.go BEFORE EDITING THE COPY HERE. Every claim on this page is
 // answerable with "which code, schema or test provides this?", and that file
 // records the answers. A landing page is made entirely of claims; this repository's
 // recurring defect is the sentence that promises what the product does not do.
 //
-// 🔴 WHAT THE REBUILD CHANGED, AND WHY IT WAS NEEDED. The first version of this page
-// was measured HONEST and measured UNILLUSTRATED: not one drawing, not one moving
-// part, and eight sections built from the same bordered box. That reads as a
-// well-written document rather than as a piece of engineering, and half of what a
-// stranger has to decide in the first ten seconds is whether the thing behind the
-// page is built. So the two mechanisms this product IS — proving a tap, and judging
-// one — are now drawn and tabled rather than summarised, and the page carries a way
-// in at three natural stops instead of only at the end.
+// 🔴 WHAT THE 2026-09-12 RESTYLE IS, AND WHAT IT IS NOT. The user drew their own
+// landing page and asked for its look, structure and voice to be carried onto the
+// audited skeleton. What was carried: a sticky bar, a two-column hero with a dark
+// plaque and a docket coming off the printer beside it, the warmer copy, a dark
+// ledger for the comparison, a disclosure-widget FAQ, a green sign-off block and
+// the user's section order. What was NOT carried is recorded item by item in
+// landingview.go beside the block that replaced it — every line of the draft
+// that promised a capability this product does not have (an API, a file import, a
+// live headcount, plaques nobody can yet order, a pilot strip naming demo
+// tenants), every number nobody measured, every verdict about a competitor, and
+// one mis-statement of the decision engine. The look moved; the claims did not.
 //
-// THE ORDER IS AN ARGUMENT, not a list of topics:
+// 🔴 WHAT THE 2026-09-07 REBUILD CHANGED, AND WHY IT WAS NEEDED. The first version
+// of this page was measured HONEST and measured UNILLUSTRATED: not one drawing, not
+// one moving part, and eight sections built from the same bordered box. That reads
+// as a well-written document rather than as a piece of engineering, and half of
+// what a stranger has to decide in the first ten seconds is whether the thing
+// behind the page is built. So the two mechanisms this product IS — proving a tap,
+// and judging one — are drawn and tabled rather than summarised.
+//
+// THE ORDER IS THE USER'S, and it is still an argument:
 //
 //	hero        what it is, and the way in
+//	how         what setting it up actually costs, and the way in again
 //	proof       how a tap proves itself (the chip, then the four pieces of evidence)
 //	decision    how a tap is judged (the order, first match wins, and what is kept)
-//	steps       what setting it up actually costs, and the way in again
+//	compare     what it is instead of, mechanism against mechanism, on the ledger
 //	shapes      whether it fits the shape of this business
-//	compare     what it is instead of, mechanism against mechanism
 //	pricing     what it costs
 //	faq         the objections, answered
 //	start       the way in, with what happens next stated plainly
 //
-// Proof and decision come BEFORE price and before the comparison table, because the
-// product's argument is that a record can be trusted; everything commercial rests
-// on that and reads as noise before it.
+// Proof and decision still come BEFORE price and before the comparison table,
+// because the product's argument is that a record can be trusted; everything
+// commercial rests on that and reads as noise before it. "How it works" moved
+// ahead of them on the user's call: the three steps are the shortest answer to
+// "what is this", and the mechanism is the answer to "why believe it".
 //
 // THE MOTIF IS CARRIED, THE COMPONENT IS NOT — and that was a decision with a
 // measurement behind it. components.TransactionDocket renders eleven fields out of
@@ -49,17 +62,23 @@ import "github.com/atknatk/tappa/web/templates/layout"
 // anybody else's — would not load. Every one of them shows a mechanism this
 // repository implements, and each is named for a screen reader and repeated in
 // words beside it, so nothing is carried by the picture alone.
+//
+// ⚠️ THERE IS NO SCRIPT ON THIS PAGE AND THE USER'S DRAFT HAD ONE. It rotated four
+// invented names through the docket every few seconds. Client state on a page
+// whose policy names no script-src is not a small addition, and the brand's rule
+// is that nothing sways or repeats: the docket prints once, and the name on it is
+// the same made-up one for everybody.
 
 // Landing is the page at /.
 templ Landing(v LandingView) {
 	@layout.Marketing("Taptime — punchless time and attendance", layout.RobotsPublic) {
-		@marketingChromeWide(v.SignInHref) {
+		@landingChrome(v) {
 			@landingHero(v)
+			@landingSetup(v)
 			@landingProof()
 			@landingDecision()
-			@landingSetup(v)
-			@landingShapes()
 			@landingComparison()
+			@landingShapes()
 			@landingPricing(v)
 			@landingFAQ()
 			@landingCTA(v)
@@ -67,16 +86,22 @@ templ Landing(v LandingView) {
 	}
 }
 
-// landingHero is the slogan, the way in, the plaque and one printed record.
+// landingHero is the slogan, the way in, and the scene: a dark plaque with one
+// printed record coming off the printer beside it.
 //
 // THE SLOGAN IS FIXED (skill tappa-brand): "No app. No device. No fingerprints.
 // Just tap." It is split across four lines so the four denials read as four
 // denials, and TestLanding_CarriesTheSlogan asserts the sentence survives as text.
+//
+// THE THREE-CELL FACT STRIP THE 2026-09-07 PAGE CARRIED IS GONE. The user's hero is
+// copy, two buttons and the scene; the strip's three facts ("no power", "no app",
+// "three steps") are each said elsewhere on the page in a sentence that is pinned,
+// and a strip that repeated them was the third copy of each.
 templ landingHero(v LandingView) {
 	<section class="border-b border-line px-4 py-10 sm:py-16">
-		<div class="mx-auto grid w-full max-w-5xl gap-10 md:grid-cols-[minmax(0,1fr)_20rem] md:items-start">
+		<div class="mx-auto grid w-full max-w-5xl gap-10 md:grid-cols-[minmax(0,1fr)_minmax(0,26rem)] md:items-center">
 			<div>
-				<p class="docket-label">Time and attendance, Malta</p>
+				<p class="docket-label">Time and attendance for shift teams</p>
 				<h1 class="mt-3 font-display text-4xl font-bold leading-tight tracking-tight sm:text-5xl">
 					No app.
 					<br/>
@@ -86,61 +111,53 @@ templ landingHero(v LandingView) {
 					<br/>
 					<span class="text-tappa-green">Just tap.</span>
 				</h1>
-				<p class="mt-6 max-w-xl text-base text-ink/85">
+				<p class="mt-6 max-w-xl text-lg text-ink/85">
 					A printed plaque goes up by the door. Your team holds their own phone to it, the
 					browser opens, one button — in or out. Nothing to install, nothing to carry and
 					no reader on the wall to power.
 				</p>
-				@landingWayIn(v, "hero", true)
-				<dl class="mt-10 grid max-w-xl gap-px border border-line bg-line sm:grid-cols-3">
-					@landingFact("Set up in", "three steps") {
-						The business, its doors and your own sign-in.
-					}
-					@landingFact("On the wall", "no power") {
-						A passive chip behind a printed card.
-					}
-					@landingFact("On their phone", "no app") {
-						A web page, opened by holding the phone there.
-					}
-				</dl>
+				@landingWayIn(v, "hero", true, NavLink{Label: "See how it works", Href: "#how"})
 			</div>
-			<div class="flex flex-col gap-6">
-				@landingPlaqueFigure()
-				<div>
-					<p class="docket-label">Example — what a manager sees</p>
-					<div class="mt-2 docket-print">
-						@landingSampleDocket()
-					</div>
-					<p class="mt-2 text-xs text-ink/70">
-						One card per tap: where, who, which way, and what the decision was based on.
-						This one is made up — it is here to show the shape of a record, not a real shift.
-					</p>
-				</div>
-			</div>
+			@landingScene()
 		</div>
 	</section>
 }
 
-// landingFact is one cell of the hero's three-cell strip. A strip rather than three
-// cards: they are three short facts, and giving each a frame of its own would make
-// three of the same box, which is the thing this page had eight of.
-templ landingFact(label, value string) {
-	<div class="bg-porcelain px-4 py-4">
-		<dt class="docket-label">{ label }</dt>
-		<dd class="mt-1 font-display text-lg font-bold tracking-tight text-ink">{ value }</dd>
-		<dd class="mt-1 text-xs text-ink/70">
-			{ children... }
-		</dd>
+// landingScene is the user's hero picture, built from the parts this page already
+// had: the plaque figure (now on an ink ground, as they drew it) and the sample
+// docket, which slides in once from the plaque's lower edge as though printed.
+//
+// THE DOCKET OVERLAPS THE PLAQUE ON A WIDE SCREEN AND SITS UNDER IT ON A PHONE.
+// The overlap is what makes the two read as one event rather than two exhibits;
+// on a narrow screen there is no room for it and the two stack, which is fine —
+// the caption says what they are.
+templ landingScene() {
+	<div class="flex flex-col gap-4">
+		<div class="relative mx-auto w-full max-w-[26rem] sm:pb-16">
+			@landingPlaqueFigure()
+			<div class="mt-4 docket-print sm:absolute sm:bottom-0 sm:right-0 sm:mt-0 sm:w-60 sm:rotate-2">
+				@landingSampleDocket()
+			</div>
+		</div>
+		<p class="mx-auto max-w-[26rem] text-xs text-ink/70">
+			One card per tap: where, who, which way, and what the decision was based on.
+			This one is made up — it is here to show the shape of a record, not a real shift.
+		</p>
 	</div>
 }
 
-// landingWayIn is the pair of buttons, rendered at three stops on the page.
+// landingWayIn is the pair of buttons, rendered at two stops on the page; the
+// green sign-off at the end carries its own copy of the same conditional because
+// its button and its fallback sentence sit on the green ground and need the paper
+// tones, and a class assembled from a parameter is a class Tailwind never sees.
 //
 // 🔴 IT IS ONE COMPONENT BECAUSE IT CARRIES A CONDITIONAL, AND A CONDITIONAL PASTED
-// THREE TIMES IS A CONDITIONAL THAT WILL DISAGREE WITH ITSELF. The wizard is mounted
-// today, so the first branch runs; the second is what a deployment WITHOUT it falls
-// back to, and it must never be reachable at the same time as a button that answers
-// 404. TestLanding_OffersTheWizardItMounts drives both branches.
+// AROUND THE PAGE IS A CONDITIONAL THAT WILL DISAGREE WITH ITSELF. The wizard is
+// mounted today, so the first branch runs; the second is what a deployment WITHOUT
+// it falls back to, and it must never be reachable at the same time as a button
+// that answers 404. TestLanding_OffersTheWizardItMounts drives both branches, and
+// it renders the WHOLE page for the empty-href case, so the sign-off's copy of the
+// conditional is under the same test.
 //
 // THE HREF IS NEVER WRITTEN HERE. LandingView.SignupHref is a string for the reason
 // that file records: the alternative is a bool plus a hard-coded path, which is the
@@ -149,12 +166,20 @@ templ landingFact(label, value string) {
 // `where` is only for the anchor ids the page's own links point at; it is not
 // rendered as text. `note` is false at the last stop, where the card beside the
 // buttons already lists what the wizard creates and repeating it would be the third
-// copy of one sentence on one page.
-templ landingWayIn(v LandingView, where string, note bool) {
+// copy of one sentence on one page. `alt` is the quiet button beside "Start free":
+// the hero points it at the next section, the setup stop at the sign-in page.
+//
+// "START FREE" IS THE USER'S LABEL and it is honest as it stands: the founding
+// offer's free months are granted by the product itself (migration 00016,
+// TestLanding_FreeMonthsMatchTheFunctionThatGrantsThem). The draft's longer form,
+// "Start free — 3 months on us", is not used on the button because the offer's
+// terms are stated in full on the pricing card and a button is not the place to
+// state half of them.
+templ landingWayIn(v LandingView, where string, note bool, alt NavLink) {
 	if v.SignupHref != "" {
 		<div id={ "start-" + where } class="mt-8 flex flex-wrap items-center gap-3">
-			<a href={ templ.URL(v.SignupHref) } class="btn btn--primary sm:px-8">Create your business account</a>
-			<a href={ templ.URL(v.SignInHref) } class="btn btn--quiet">Sign in</a>
+			<a href={ templ.URL(v.SignupHref) } class="btn btn--primary sm:px-8">Start free</a>
+			<a href={ templ.URL(alt.Href) } class="btn btn--quiet">{ alt.Label }</a>
 		</div>
 		if note {
 			<p class="mt-3 max-w-xl text-xs text-ink/70">
@@ -174,7 +199,8 @@ templ landingWayIn(v LandingView, where string, note bool) {
 	}
 }
 
-// landingPlaqueFigure is the wall plaque, drawn rather than photographed.
+// landingPlaqueFigure is the wall plaque, drawn rather than photographed — on an
+// ink ground since 2026-09-12, which is how the user drew it.
 //
 // THE THREE ARCS DRAW THEMSELVES IN ONCE, inner one first, and then stop. That is
 // the M7-01 card's "live plaque", and it is declared only inside a
@@ -196,28 +222,37 @@ templ landingWayIn(v LandingView, where string, note bool) {
 // ⚠️ NO CODE SQUARE IS DRAWN ON IT. The plaques this product has today carry the
 // chip only; a printed scan code is planned (skill tappa-brand, M8-05) and drawing
 // one now would be a picture of a product nobody can order.
+//
+// 🔴 NO VENUE NAME AND NO IDENTIFIER IS PRINTED ON IT. The user's drawing carried
+// "KF ST JULIANS · 91AC-7E55" along its lower edge: a demo tenant's venue and a
+// string in the exact shape of a plaque uid, on a public page. Neither is drawn,
+// for the reason landingSampleDocket gives — an invented identifier in the shape
+// of a real one is the one thing this page must not print.
+//
+// THE COLOURS ON THE INK GROUND ARE FOUR PALETTE TOKENS AND NOTHING ELSE: paper for
+// the wordmark and the instruction, line for the small caps, green-lite for the
+// field, and line for the dashed centre. Measured in input.css beside the rules.
 templ landingPlaqueFigure() {
 	<figure>
-		<p class="docket-label">On the wall</p>
-		<svg viewBox="0 0 260 340" role="img" aria-labelledby="plaque-figure-title" class="mt-2 h-auto w-full max-w-[18rem]">
+		<svg viewBox="0 0 260 340" role="img" aria-labelledby="plaque-figure-title" class="mx-auto h-auto w-full max-w-[14rem] sm:mx-0">
 			<title id="plaque-figure-title">
-				A printed wall plaque: the Taptime wordmark above a dashed circle marking the chip, with
+				A dark wall plaque: the Taptime wordmark above a dashed circle marking the chip, with
 				the words "Hold your phone here" beneath it.
 			</title>
-			<rect x="10" y="10" width="240" height="320" class="diagram-frame"></rect>
-			<circle cx="26" cy="26" r="3" class="diagram-rule"></circle>
-			<circle cx="234" cy="26" r="3" class="diagram-rule"></circle>
-			<circle cx="26" cy="314" r="3" class="diagram-rule"></circle>
-			<circle cx="234" cy="314" r="3" class="diagram-rule"></circle>
-			<text x="130" y="62" text-anchor="middle" class="diagram-wordmark">taptime</text>
-			<text x="130" y="82" text-anchor="middle" class="diagram-label">PUNCHLESS</text>
-			<path d="M 91.8 198.2 A 54 54 0 0 1 168.2 121.8" class="diagram-accent plaque-field plaque-field--outer"></path>
-			<path d="M 101.7 188.3 A 40 40 0 0 1 158.3 131.7" class="diagram-accent plaque-field plaque-field--mid"></path>
-			<path d="M 111.6 178.4 A 26 26 0 0 1 148.4 141.6" class="diagram-accent plaque-field"></path>
-			<circle cx="130" cy="160" r="14" class="diagram-dashed"></circle>
-			<text x="130" y="248" text-anchor="middle" class="diagram-title">Hold your phone here</text>
-			<text x="130" y="274" text-anchor="middle" class="diagram-label">NO POWER · NO BATTERY</text>
-			<text x="130" y="292" text-anchor="middle" class="diagram-label">NO NETWORK</text>
+			<rect x="10" y="10" width="240" height="320" class="plaque-ink"></rect>
+			<circle cx="26" cy="26" r="3" class="plaque-ink-screw"></circle>
+			<circle cx="234" cy="26" r="3" class="plaque-ink-screw"></circle>
+			<circle cx="26" cy="314" r="3" class="plaque-ink-screw"></circle>
+			<circle cx="234" cy="314" r="3" class="plaque-ink-screw"></circle>
+			<text x="130" y="62" text-anchor="middle" class="plaque-ink-wordmark">taptime</text>
+			<text x="130" y="82" text-anchor="middle" class="plaque-ink-label">PUNCHLESS</text>
+			<path d="M 91.8 198.2 A 54 54 0 0 1 168.2 121.8" class="plaque-ink-arc plaque-field plaque-field--outer"></path>
+			<path d="M 101.7 188.3 A 40 40 0 0 1 158.3 131.7" class="plaque-ink-arc plaque-field plaque-field--mid"></path>
+			<path d="M 111.6 178.4 A 26 26 0 0 1 148.4 141.6" class="plaque-ink-arc plaque-field"></path>
+			<circle cx="130" cy="160" r="14" class="plaque-ink-dashed"></circle>
+			<text x="130" y="248" text-anchor="middle" class="plaque-ink-title">Hold your phone here</text>
+			<text x="130" y="274" text-anchor="middle" class="plaque-ink-label">NO POWER · NO BATTERY</text>
+			<text x="130" y="292" text-anchor="middle" class="plaque-ink-label">NO NETWORK</text>
 		</svg>
 	</figure>
 }
@@ -268,8 +303,15 @@ templ landingSampleDocket() {
 // are meaningless until a reader believes the first one cannot be faked from an
 // armchair, and that belief comes from the counter and the signature rather than
 // from an adjective.
+//
+// IT IS ALSO THE PAGE'S "SECURITY" SECTION — the bar's second link lands here.
+// The user's draft had a separate "Security — four proofs" block after the ledger,
+// and it was the same four pieces of evidence this section already carries under
+// their §5 names; two tellings of one mechanism would be the shape of page this
+// rebuild replaced. Their labels ("Proof of moment", "Proof of person", "Proof of
+// place", "Backup proof") were the better half and now head each card.
 templ landingProof() {
-	@marketingSection("proof", "How a tap proves itself", "A fresh code every time, and four things weighed") {
+	@marketingSection("proof", "Security", "How a tap proves itself: a fresh code every time, and four things weighed") {
 		<figure class="mt-6">
 			// tabindex AND a name: a region that scrolls must be reachable from a keyboard
 			// (WCAG 2.1.1), and a focusable region needs something for a screen reader to
@@ -294,12 +336,13 @@ templ landingProof() {
 			physical touch happened just then, who was signed in on the phone, and where it
 			happened — twice over, if both are available.
 		</p>
-		<dl class="mt-6 grid gap-4 sm:grid-cols-2">
+		<dl class="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
 			for _, e := range LandingEvidence {
 				<div class="docket">
 					<dt>
-						<span class="block docket-label">{ e.Answers }</span>
+						<span class="block docket-label">{ e.Proof }</span>
 						<span class="mt-1 block font-display text-base font-bold tracking-tight">{ e.Label }</span>
+						<span class="mt-1 block font-mono text-xs text-ink/70">{ e.Answers }</span>
 					</dt>
 					<dd class="mt-2 font-display text-sm text-ink/85">{ e.Body }</dd>
 				</div>
@@ -443,11 +486,12 @@ templ landingVerdict(s Stamp) {
 
 // landingSetup is handoff §9's three steps, and the page's second way in.
 //
-// IT COMES AFTER THE MECHANISM ON PURPOSE: "what will this cost me to set up" is the
-// question a reader asks once they believe the thing works, and answering it earlier
-// answers a question nobody has yet.
+// SINCE 2026-09-12 IT COMES SECOND, on the user's call — see the order at the top
+// of this file. The lede under the heading is LandingSetupLede, pinned in
+// landingview.go.
 templ landingSetup(v LandingView) {
-	@marketingSection("how", "Getting started", "Three things happen, and only one of them repeats") {
+	@marketingSection("how", "How it works", "Three things happen, and only one of them repeats") {
+		<p class="mt-3 max-w-2xl text-base text-ink/85">{ LandingSetupLede.Text }</p>
 		<ol class="mt-6 grid gap-4 sm:grid-cols-3">
 			for _, s := range LandingSteps {
 				<li class="docket">
@@ -457,8 +501,64 @@ templ landingSetup(v LandingView) {
 				</li>
 			}
 		</ol>
-		@landingWayIn(v, "setup", true)
+		@landingWayIn(v, "setup", true, NavLink{Label: "Sign in", Href: v.SignInHref})
 	}
+}
+
+// landingComparison is the comparison table, set on the ink ground since
+// 2026-09-12 — the user's "ledger".
+//
+// 🔴 THE FOOTNOTE IS NOT OPTIONAL AND IS ASSERTED BY A TEST. The table compares how
+// two approaches work; it makes no claim about accuracy, reliability or safety,
+// because nobody here has measured one. See LandingComparison for the rule every
+// cell in the middle column was written under.
+//
+// 🔴 WHAT THE DARK GROUND DID NOT BRING WITH IT. The user's ledger had a tick in
+// every Taptime cell and a cross in every other one, under a heading that told the
+// reader to retire their terminal and a lede about "sensors that refuse kitchen
+// hands". Every one of those is a verdict on a device nobody here has measured
+// (TestLanding_ComparesMechanismsAndDeclaresNoWinner scans for the shape). The
+// rows are the same five mechanisms as before; what changed is the paper they are
+// printed on.
+//
+// THE TEXT ON INK IS PALETTE TOKENS ONLY, measured in input.css beside the ledger
+// rules: paper for the Taptime column and the row names, porcelain for the other
+// column and the footnote, line for the small caps. No tappa-green on ink — that
+// pair is 2.09:1.
+templ landingComparison() {
+	<section id="compare" class="border-b border-line px-4 py-12 sm:py-16">
+		<div class="mx-auto w-full max-w-5xl">
+			<div class="ledger">
+				<p class="ledger-label">Against a fingerprint terminal</p>
+				<h2 class="mt-2 max-w-2xl font-display text-3xl font-bold tracking-tight text-paper">The same job, done with different evidence</h2>
+				<div class="mt-6 overflow-x-auto">
+					<table class="w-full min-w-[36rem] text-left text-sm">
+						<caption class="sr-only">How a fingerprint terminal and Taptime each work</caption>
+						<thead>
+							<tr class="ledger-rule">
+								<th scope="col" class="px-4 py-3 ledger-label">&nbsp;</th>
+								<th scope="col" class="px-4 py-3 ledger-label">Fingerprint terminal</th>
+								<th scope="col" class="px-4 py-3 ledger-label">Taptime</th>
+							</tr>
+						</thead>
+						<tbody>
+							for _, row := range LandingComparison {
+								<tr class="ledger-rule last:border-b-0">
+									<th scope="row" class="px-4 py-3 align-top font-display font-bold tracking-tight text-paper">{ row.Aspect }</th>
+									<td class="px-4 py-3 align-top text-porcelain/85">{ row.Terminal }</td>
+									<td class="px-4 py-3 align-top text-paper">{ row.Tappa }</td>
+								</tr>
+							}
+						</tbody>
+					</table>
+				</div>
+				<p class="mt-4 max-w-2xl text-xs text-porcelain/85">
+					This table compares how the two approaches work. It is not a benchmark: we have
+					measured no device against Taptime and make no claim about accuracy or reliability.
+				</p>
+			</div>
+		</div>
+	</section>
 }
 
 // landingShapes is handoff §9's chain-versus-facility split.
@@ -541,42 +641,6 @@ templ landingSiteFigure() {
 	</svg>
 }
 
-// landingComparison is the comparison table.
-//
-// 🔴 THE FOOTNOTE IS NOT OPTIONAL AND IS ASSERTED BY A TEST. The table compares how
-// two approaches work; it makes no claim about accuracy, reliability or safety,
-// because nobody here has measured one. See LandingComparison for the rule every
-// cell in the middle column was written under.
-templ landingComparison() {
-	@marketingSection("compare", "Against a fingerprint terminal", "The same job, done with different evidence") {
-		<div class="mt-6 overflow-x-auto border border-line bg-paper">
-			<table class="w-full min-w-[36rem] text-left text-sm">
-				<caption class="sr-only">How a fingerprint terminal and Taptime each work</caption>
-				<thead>
-					<tr class="border-b border-line">
-						<th scope="col" class="px-4 py-3 docket-label">&nbsp;</th>
-						<th scope="col" class="px-4 py-3 docket-label">Fingerprint terminal</th>
-						<th scope="col" class="px-4 py-3 docket-label">Taptime</th>
-					</tr>
-				</thead>
-				<tbody>
-					for _, row := range LandingComparison {
-						<tr class="border-b border-line last:border-b-0">
-							<th scope="row" class="px-4 py-3 align-top font-display font-bold tracking-tight">{ row.Aspect }</th>
-							<td class="px-4 py-3 align-top text-ink/85">{ row.Terminal }</td>
-							<td class="px-4 py-3 align-top text-ink">{ row.Tappa }</td>
-						</tr>
-					}
-				</tbody>
-			</table>
-		</div>
-		<p class="mt-3 max-w-2xl text-xs text-ink/70">
-			This table compares how the two approaches work. It is not a benchmark: we have
-			measured no device against Taptime and make no claim about accuracy or reliability.
-		</p>
-	}
-}
-
 // landingPricing is handoff §11's offer.
 //
 // 🔴 THE PRICE IS NOT WRITTEN HERE. It arrives on the view because the same number
@@ -585,9 +649,16 @@ templ landingComparison() {
 // migration. The free period is the same story: plan='founding' adds three months
 // in tappa_first_chargeable_month, and the panel's billing screen reads that
 // function rather than a constant.
+//
+// THE HEADING AND THE LIST ARE THE USER'S (2026-09-12) AND BOTH LIVE IN
+// landingview.go — LandingPricingHeading and LandingPricingIncludes — with the
+// three list items that were NOT carried recorded beside them. The draft's "A
+// 60-person chain runs on about €90/month — less than one terminal's
+// yearly maintenance" is not here either: the first half is arithmetic on a
+// headcount nobody has, the second a comparison nobody ran.
 templ landingPricing(v LandingView) {
-	@marketingSection("pricing", "What it costs", "One price, and the first months are free") {
-		<div class="mt-6 grid gap-4 sm:grid-cols-2">
+	@marketingSection("pricing", "Pricing", LandingPricingHeading.Text) {
+		<div class="mt-6 grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
 			<div class="docket">
 				<p class="docket-label">Per employee, per month</p>
 				<p class="mt-1 font-mono text-5xl font-bold text-ink">&#8364;{ v.PricePerEmployeeMonth }</p>
@@ -597,6 +668,15 @@ templ landingPricing(v LandingView) {
 					link is not billed, and somebody who leaves is billed only for the months they
 					were still working.
 				</p>
+				<p class="mt-4 docket-label">What the dashboard gives you</p>
+				<ul class="mt-2 flex flex-col gap-2 font-display text-sm text-ink/85">
+					for _, l := range LandingPricingIncludes {
+						<li class="flex gap-3">
+							<span aria-hidden="true" class="shrink-0 font-mono font-bold text-tappa-green">&#8212;</span>
+							<span>{ l.Text }</span>
+						</li>
+					}
+				</ul>
 			</div>
 			<div class="border border-saffron bg-saffron-lite px-4 py-4">
 				<p class="docket-label">Founding offer</p>
@@ -617,23 +697,40 @@ templ landingPricing(v LandingView) {
 	}
 }
 
-// landingFAQ is handoff §9's FAQ. Plain markup rather than a disclosure widget:
-// there is no script on this page, and an answer nobody can find is not an answer.
+// landingFAQ is handoff §9's FAQ plus the user's four questions, as disclosure
+// widgets since 2026-09-12.
+//
+// <details> NEEDS NO SCRIPT, which is what made the change possible on a page whose
+// policy names no script-src: the browser opens and closes each answer itself. The
+// answers are in the document either way — TestLandingFAQ_EveryQuestionIsRenderedWithItsAnswer
+// reads the rendered bytes, not a viewport — and a reader without CSS sees every
+// answer open. THE FIRST ONE IS OPEN BY DEFAULT so the block never reads as a list
+// of questions with nothing under them.
 templ landingFAQ() {
 	@marketingSection("faq", "Questions", "The ones we are actually asked") {
-		<dl class="mt-6 grid gap-4 sm:grid-cols-2">
-			for _, q := range LandingFAQ {
-				<div class="border-l-4 border-line bg-paper px-4 py-4">
-					<dt class="font-display text-base font-bold tracking-tight">{ q.Q }</dt>
-					<dd class="mt-2 text-sm text-ink/85">{ q.A }</dd>
-				</div>
+		<div class="mt-6 grid gap-3 md:grid-cols-2 md:items-start">
+			for i, q := range LandingFAQ {
+				if i == 0 {
+					<details class="faq-item" open>
+						<summary class="faq-summary">{ q.Q }</summary>
+						<p class="faq-answer">{ q.A }</p>
+					</details>
+				} else {
+					<details class="faq-item">
+						<summary class="faq-summary">{ q.Q }</summary>
+						<p class="faq-answer">{ q.A }</p>
+					</details>
+				}
 			}
-		</dl>
+		</div>
 	}
 }
 
 // landingCTA is the last block, and the one that has to be exact about WHAT HAPPENS
-// NEXT rather than enthusiastic about it.
+// NEXT rather than enthusiastic about it. On the green ground since 2026-09-12 —
+// the user's sign-off — with the slogan's four denials struck through, which was
+// the one idea in their draft the h1 could not take (skill tappa-brand fixes the
+// slogan as four lines) and the sign-off can.
 //
 // 🔴 EVERY LINE OF "WHAT YOU LEAVE WITH" WAS CHECKED AGAINST THE WIZARD ITSELF
 // (internal/handler/signup.go, pages/signup.templ) AND ONE OF THEM WAS ALREADY
@@ -642,38 +739,70 @@ templ landingFAQ() {
 // and nothing in the wizard collects one. The three lines below are the wizard's own
 // three steps, and the last of them — that a plaque still has to be on a wall before
 // anybody can tap — is the sentence a landing page most wants to leave out.
+//
+// 🔴 THE USER'S DRAFT HAD A SECOND BUTTON HERE, "Book a pilot", OPENING A MAIL
+// CLIENT. There is no published contact address (the third line of the card says
+// exactly why), so the button would have promised a channel that does not exist.
+// The sentence stays; the button was not carried.
+//
+// THE STRUCK WORDS ARE paper AT 80% ON tappa-green, measured in input.css beside
+// the rule: 5.63:1, which clears AA for the size they are set at. The two rings
+// are borders only — no gradient, no fill — and are hidden from assistive
+// technology because they say nothing.
 templ landingCTA(v LandingView) {
-	<section id="start" class="border-t border-line px-4 py-12 sm:py-16">
-		<div class="mx-auto grid w-full max-w-5xl gap-8 md:grid-cols-2 md:items-start">
-			<div>
-				<p class="docket-label">Go punchless</p>
-				<h2 class="mt-2 font-display text-3xl font-bold tracking-tight">Open the account now</h2>
-				<p class="mt-3 max-w-md text-base text-ink/85">
-					The business, the doors you name and your own sign-in are created together, in one
-					transaction — either all of it exists or none of it does. Then you sign in with the
-					password you just chose.
-				</p>
-				@landingWayIn(v, "end", false)
-			</div>
-			<div class="docket">
-				<p class="docket-label">What you leave with</p>
-				<ol class="mt-2 flex flex-col gap-3 font-display text-sm text-ink/85">
-					<li>
-						<span class="font-display font-bold tracking-tight text-ink">The business.</span>
-						Its name, its VAT number and the doors you named, created together in one go.
-					</li>
-					<li>
-						<span class="font-display font-bold tracking-tight text-ink">Your sign-in.</span>
-						The account you manage it with, ready to use as soon as the last step finishes.
-					</li>
-					<li>
-						<span class="font-display font-bold tracking-tight text-ink">Then the plaques.</span>
-						Taptime encodes each one and loads it into your dashboard. We are not publishing
-						a contact address here until the company details in the footer are published
-						with it, so this page cannot yet tell you where to ask for one. Until a plaque
-						is mounted there is nothing to tap at.
-					</li>
-				</ol>
+	<section id="start" class="px-4 py-12 sm:py-16">
+		<div class="relative mx-auto w-full max-w-5xl overflow-hidden bg-tappa-green px-6 py-10 sm:px-10 sm:py-14">
+			<span aria-hidden="true" class="cta-ring -left-24 -top-32 h-80 w-80"></span>
+			<span aria-hidden="true" class="cta-ring -bottom-24 -right-16 h-56 w-56"></span>
+			<div class="relative grid gap-8 md:grid-cols-2 md:items-start">
+				<div>
+					<h2 class="font-display text-4xl font-bold tracking-tight text-paper">Go punchless.</h2>
+					<p class="mt-3 font-mono text-sm text-paper">
+						<s class="cta-struck">No app.</s>
+						<s class="cta-struck">No device.</s>
+						<s class="cta-struck">No fingerprints.</s>
+						Just tap.
+					</p>
+					<p class="mt-4 max-w-md text-base text-paper">
+						The business, the doors you name and your own sign-in are created together, in one
+						transaction — either all of it exists or none of it does. Then you sign in with the
+						password you just chose.
+					</p>
+					if v.SignupHref != "" {
+						<div id="start-end" class="mt-8 flex flex-wrap items-center gap-3">
+							<a href={ templ.URL(v.SignupHref) } class="btn btn--paper sm:px-8">Start free</a>
+						</div>
+					} else {
+						<div id="start-end" class="mt-8">
+							<a href={ templ.URL(v.SignInHref) } class="btn btn--paper">Sign in to your dashboard</a>
+						</div>
+						<p class="mt-3 max-w-md text-sm text-paper">
+							Self-service sign-up is not open in this deployment, so there is no form to fill in
+							on this page. Accounts are set up by hand — plaques, venues and the first manager
+							account together.
+						</p>
+					}
+				</div>
+				<div class="docket">
+					<p class="docket-label">What you leave with</p>
+					<ol class="mt-2 flex flex-col gap-3 font-display text-sm text-ink/85">
+						<li>
+							<span class="font-display font-bold tracking-tight text-ink">The business.</span>
+							Its name, its VAT number and the doors you named, created together in one go.
+						</li>
+						<li>
+							<span class="font-display font-bold tracking-tight text-ink">Your sign-in.</span>
+							The account you manage it with, ready to use as soon as the last step finishes.
+						</li>
+						<li>
+							<span class="font-display font-bold tracking-tight text-ink">Then the plaques.</span>
+							Taptime encodes each one and loads it into your dashboard. We are not publishing
+							a contact address here until the company details in the footer are published
+							with it, so this page cannot yet tell you where to ask for one. Until a plaque
+							is mounted there is nothing to tap at.
+						</li>
+					</ol>
+				</div>
 			</div>
 		</div>
 	</section>
@@ -717,12 +846,13 @@ templ marketingSection(id, eyebrow, heading string) {
 // this task's widening was given back. ADR 0012 records what remains and why.
 // KEEP THE DENIAL ON ONE LINE — the scanner is line-local.
 templ marketingChrome(signInHref string) {
-	@marketingShell(signInHref, "max-w-3xl") {
+	@marketingShell(signInHref, "max-w-3xl", nil, "") {
 		{ children... }
 	}
 }
 
-// marketingChromeWide is the SAME chrome measured for the landing page.
+// landingChrome is the SAME chrome measured for the landing page: the wider
+// column, and — since 2026-09-12 — the sticky bar with the page's own links.
 //
 // 🔴 IT EXISTS BECAUSE ONE WIDTH CANNOT BE RIGHT FOR BOTH SURFACES, and the
 // alternative was measured worse. The 2026-09-07 rebuild widened the shared wrapper
@@ -732,38 +862,47 @@ templ marketingChrome(signInHref string) {
 // The wizard's screens are out of this task's scope, so the fix is here: the shared
 // component keeps the WIDTH it always had and the landing page names the wider one.
 //
-// ⚠️ "UNCHANGED" WOULD BE TOO STRONG AND IS NOT CLAIMED. Two cosmetic edits in this
-// rebuild do reach every surface that renders the shell: the header now sits on the
-// paper ground, and the sign-in and legal links gained a colour fade, applied only
-// where motion is welcome. Both are deliberate and both are shared; the width is the
-// one that was wrong for a form column, and the width is what this pair fixes.
+// THE BAR IS THE LANDING PAGE'S ONLY. The wizard and the legal pages render
+// marketingChrome, which passes no links and no sign-up href, and their header
+// keeps what it had: not sticky, the wordmark and "Sign in". A sticky bar offering
+// "How it works" on a form somebody is half way through would be a link away from
+// the form, and the pages this shell is shared with were not asked for one.
+//
+// ⚠️ "UNCHANGED" WOULD BE TOO STRONG AND IS NOT CLAIMED. Two edits do reach every
+// surface that renders the shell, and both are deliberate: the sign-in link now
+// sits inside a navigation landmark, and it reserves the 44px floor the rest of
+// the product's targets already reserve. Nothing else about those pages moved.
 //
 // THE TWO WIDTH CLASSES ARE LITERALS PASSED IN, not built anywhere. Tailwind reads
 // this file as raw text and emits a rule only for a name it can see, so a width
 // assembled from a variable would compile to no rule at all.
-templ marketingChromeWide(signInHref string) {
-	@marketingShell(signInHref, "max-w-5xl") {
+templ landingChrome(v LandingView) {
+	@marketingShell(v.SignInHref, "max-w-5xl", LandingNav, v.SignupHref) {
 		{ children... }
 	}
 }
 
 // marketingShell is the markup both widths share. One copy: a second would be a
 // second place for the footer's §4.1 sentence and the legal navigation to drift.
-templ marketingShell(signInHref, width string) {
-	<a href="#main" class="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-10 focus:border focus:border-ink focus:bg-paper focus:px-3 focus:py-2">
+//
+// `nav` and `startHref` are the landing page's bar; both empty means the plain
+// header the wizard and the legal pages have always had. The two header variants
+// share marketingHeaderInner so the wordmark and the sign-in link cannot drift
+// either; what differs is that one sticks to the top of the viewport and carries
+// the links.
+templ marketingShell(signInHref, width string, nav []NavLink, startHref string) {
+	<a href="#main" class="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-30 focus:border focus:border-ink focus:bg-paper focus:px-3 focus:py-2">
 		Skip to content
 	</a>
-	<header class="border-b border-line bg-paper px-4 py-4">
-		<div class={ "mx-auto flex w-full items-center justify-between gap-4 " + width }>
-			<a href="/" class="flex items-baseline gap-2">
-				<span class="font-display text-lg font-bold tracking-tight text-tappa-green">taptime</span>
-				<span class="font-mono text-[10px] uppercase tracking-widest text-ink/70">punchless</span>
-			</a>
-			<a href={ templ.URL(signInHref) } class="font-display text-sm font-bold tracking-tight text-ink underline underline-offset-4 motion-safe:transition-colors hover:text-tappa-green">
-				Sign in
-			</a>
-		</div>
-	</header>
+	if len(nav) > 0 {
+		<header class="sticky top-0 z-20 border-b border-line bg-paper px-4 py-2">
+			@marketingHeaderInner(signInHref, width, nav, startHref)
+		</header>
+	} else {
+		<header class="border-b border-line bg-paper px-4 py-4">
+			@marketingHeaderInner(signInHref, width, nav, startHref)
+		</header>
+	}
 	<main id="main">
 		{ children... }
 	</main>
@@ -784,4 +923,36 @@ templ marketingShell(signInHref, width string) {
 			</nav>
 		</div>
 	</footer>
+}
+
+// marketingHeaderInner is what the header holds: wordmark, the landing page's links
+// when there are any, "Sign in", and "Start free" when the wizard is mounted.
+//
+// THE IN-PAGE LINKS HIDE BELOW THE sm BREAKPOINT and the two buttons stay: on a
+// phone the bar has room for the wordmark and the two ways in, and the sections
+// the links point at are one scroll away. Every target in the bar reserves the
+// 44px floor (.btn and the link rule both carry min-h-11).
+//
+// 🔴 THE WORDMARK IS `taptime` + `punchless`, THE SAME PAIR THE PLAQUE AND THE
+// PANEL CARRY. The user's draft had a green disc with a hoop drawn in it beside the word;
+// skill tappa-brand names no such mark, and a mark that exists on one page and
+// nowhere else in the product is not a brand.
+templ marketingHeaderInner(signInHref, width string, nav []NavLink, startHref string) {
+	<div class={ "mx-auto flex w-full items-center justify-between gap-4 " + width }>
+		<a href="/" class="flex min-h-11 items-baseline gap-2">
+			<span class="font-display text-lg font-bold tracking-tight text-tappa-green">taptime</span>
+			<span class="font-mono text-[10px] uppercase tracking-widest text-ink/70">punchless</span>
+		</a>
+		<nav class="flex items-center gap-2 sm:gap-4" aria-label="Page">
+			for _, l := range nav {
+				<a href={ templ.URL(l.Href) } class="nav-link">{ l.Label }</a>
+			}
+			<a href={ templ.URL(signInHref) } class="inline-flex min-h-11 items-center font-display text-sm font-bold tracking-tight text-ink underline underline-offset-4 motion-safe:transition-colors hover:text-tappa-green">
+				Sign in
+			</a>
+			if startHref != "" {
+				<a href={ templ.URL(startHref) } class="btn btn--primary min-h-11 py-2 text-sm">Start free</a>
+			}
+		</nav>
+	</div>
 }
