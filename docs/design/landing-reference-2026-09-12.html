@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tappa — Punchless time & attendance</title>
+<meta name="description" content="No app. No device. No biometrics. Your team taps a phone on a wall plaque and they're clocked in — cryptographically verified.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ink:#152219;
+  --ink-soft:#3D4F44;
+  --green:#1F5C41;
+  --green-deep:#17462F;
+  --green-lite:#E1EDE6;
+  --porcelain:#EDF0EA;
+  --paper:#FFFDF4;
+  --saffron:#D98E2B;
+  --saffron-lite:#F7EBD6;
+  --tomato:#BE3D2A;
+  --line:#C9D2C8;
+  --disp:'Space Grotesk',system-ui,sans-serif;
+  --mono:'IBM Plex Mono',ui-monospace,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{background:var(--porcelain);color:var(--ink);font-family:var(--disp);line-height:1.6;-webkit-font-smoothing:antialiased}
+a{color:inherit}
+img{max-width:100%}
+::selection{background:var(--green);color:#fff}
+:focus-visible{outline:3px solid var(--saffron);outline-offset:3px;border-radius:4px}
+
+.wrap{max-width:1140px;margin:0 auto;padding:0 24px}
+
+/* ---------------- nav ---------------- */
+nav{position:sticky;top:0;z-index:50;background:rgba(237,240,234,.88);backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+.navIn{display:flex;align-items:center;justify-content:space-between;height:66px}
+.wordmark{display:flex;align-items:center;gap:10px;font-weight:700;font-size:21px;letter-spacing:-.5px;text-decoration:none}
+.wordmark .dot{width:30px;height:30px;border-radius:50%;background:var(--green);position:relative;flex-shrink:0}
+.wordmark .dot::after{content:'';position:absolute;inset:6px;border-radius:50%;border:2px solid #fff;opacity:.9}
+.navLinks{display:flex;align-items:center;gap:28px;font-size:14.5px;font-weight:500}
+.navLinks a{text-decoration:none;color:var(--ink-soft)}
+.navLinks a:hover{color:var(--ink)}
+.btn{display:inline-block;font-family:var(--disp);font-weight:700;font-size:15px;text-decoration:none;border-radius:12px;padding:13px 24px;transition:transform .12s ease,box-shadow .12s ease;cursor:pointer;border:none}
+.btn:active{transform:scale(.98)}
+.btn-green{background:var(--green);color:#fff;box-shadow:0 4px 14px rgba(31,92,65,.28)}
+.btn-green:hover{background:var(--green-deep)}
+.btn-ghost{background:transparent;color:var(--ink);border:2px solid var(--ink);padding:11px 22px}
+.btn-ghost:hover{background:var(--ink);color:#fff}
+.navLinks .btn{padding:10px 18px;font-size:14px}
+@media(max-width:720px){.navLinks a:not(.btn){display:none}}
+
+/* ---------------- hero ---------------- */
+.hero{padding:84px 0 70px;overflow:hidden}
+.heroGrid{display:grid;grid-template-columns:1.05fr .95fr;gap:56px;align-items:center}
+@media(max-width:900px){.heroGrid{grid-template-columns:1fr;gap:48px}}
+.eyebrow{font-family:var(--mono);font-size:12px;font-weight:600;letter-spacing:2.5px;text-transform:uppercase;color:var(--green);margin-bottom:18px}
+h1{font-size:clamp(40px,5.6vw,64px);line-height:1.03;letter-spacing:-2px;font-weight:700;margin-bottom:22px}
+h1 .tapWord{color:var(--green);white-space:nowrap}
+.heroSub{font-size:18.5px;color:var(--ink-soft);max-width:480px;margin-bottom:14px}
+.heroCreed{font-family:var(--mono);font-size:13.5px;font-weight:500;color:var(--ink);margin-bottom:32px}
+.heroCreed s{color:#9AA79C;text-decoration-color:var(--tomato)}
+.heroBtns{display:flex;gap:14px;flex-wrap:wrap}
+.heroFoot{margin-top:26px;font-family:var(--mono);font-size:11.5px;color:var(--ink-soft)}
+
+/* the scene: plaque + docket */
+.scene{position:relative;min-height:430px;display:flex;align-items:center;justify-content:center}
+.plaque{width:230px;background:var(--ink);border-radius:20px;padding:28px 22px 22px;color:#F2F5EF;text-align:center;box-shadow:0 24px 60px rgba(15,25,18,.35);position:relative;z-index:2}
+.plaque .p-brand{font-family:var(--mono);font-size:10px;letter-spacing:3px;color:#9DB3A5;margin-bottom:18px}
+.plaque .p-ring{width:84px;height:84px;margin:0 auto 18px;border-radius:50%;border:2px dashed #6FA88B;display:flex;align-items:center;justify-content:center;position:relative}
+.plaque .p-ring svg{width:36px;height:36px}
+.plaque .p-txt{font-size:16px;font-weight:700;line-height:1.35;margin-bottom:14px}
+.plaque .p-loc{font-family:var(--mono);font-size:9.5px;color:#7A9484;border-top:1px dashed #33473B;padding-top:12px}
+.tapPulse{position:absolute;inset:-12px;border-radius:50%;border:2px solid #6FA88B;opacity:0;transform:scale(.7)}
+.scene.play .tapPulse{animation:tapring 3.8s ease-out infinite}
+@keyframes tapring{0%,55%{opacity:0;transform:scale(.7)}60%{opacity:.95;transform:scale(.8)}78%{opacity:0;transform:scale(1.5)}100%{opacity:0}}
+
+/* docket that "prints" */
+.docket{position:absolute;right:max(0px, calc(50% - 300px));top:50%;transform:translateY(-46%) rotate(2.5deg);width:212px;background:var(--paper);border:1px solid #E2DFC9;border-radius:4px;font-family:var(--mono);padding:14px 16px 16px;box-shadow:0 14px 34px rgba(20,30,22,.18);z-index:3;clip-path:inset(0 0 100% 0)}
+.scene.play .docket{animation:printout 3.8s ease-out infinite}
+@keyframes printout{0%,62%{clip-path:inset(0 0 100% 0)}80%,100%{clip-path:inset(0 0 0% 0)}}
+.docket::before{content:'';position:absolute;top:0;left:0;right:0;height:5px;background:repeating-linear-gradient(90deg,var(--green) 0 12px,transparent 12px 18px)}
+.d-name{font-weight:600;font-size:13.5px;margin:6px 0 2px}
+.d-tag{display:inline-block;font-size:9px;font-weight:600;letter-spacing:1.5px;background:var(--green-lite);color:var(--green);border-radius:4px;padding:2px 7px;margin-bottom:8px}
+.d-rows{border-top:1px dashed #C9C4A8;padding-top:7px;font-size:10.5px;color:#4B5C50;display:flex;flex-direction:column;gap:3px}
+.d-rows div{display:flex;justify-content:space-between;gap:8px}
+.d-rows b{color:var(--ink);font-weight:600}
+.d-stamp{position:absolute;right:10px;bottom:12px;font-weight:600;font-size:10px;letter-spacing:1.5px;padding:3px 8px;border:2px solid var(--green);color:var(--green);border-radius:4px;transform:rotate(-7deg);background:rgba(255,253,244,.9)}
+@media(max-width:520px){.docket{right:-6px;width:190px}}
+
+/* ---------------- trust strip ---------------- */
+.strip{border-top:1px solid var(--line);border-bottom:1px solid var(--line);background:#F4F6F1}
+.stripIn{display:flex;align-items:center;justify-content:center;gap:38px;padding:20px 24px;flex-wrap:wrap;font-family:var(--mono);font-size:12px;color:var(--ink-soft)}
+.stripIn b{color:var(--ink);font-weight:600;letter-spacing:.5px}
+
+/* ---------------- sections ---------------- */
+section{padding:92px 0}
+.secEyebrow{font-family:var(--mono);font-size:12px;font-weight:600;letter-spacing:2.5px;text-transform:uppercase;color:var(--green);margin-bottom:14px}
+h2{font-size:clamp(30px,3.8vw,44px);letter-spacing:-1.2px;line-height:1.1;font-weight:700;margin-bottom:16px;max-width:640px}
+.secSub{font-size:17px;color:var(--ink-soft);max-width:560px;margin-bottom:52px}
+
+/* how it works */
+.steps{display:grid;grid-template-columns:repeat(3,1fr);gap:20px}
+@media(max-width:860px){.steps{grid-template-columns:1fr}}
+.step{background:#fff;border:1px solid var(--line);border-radius:18px;padding:30px 26px}
+.step .n{font-family:var(--mono);font-size:12px;font-weight:600;color:var(--saffron);letter-spacing:2px;margin-bottom:16px;display:block}
+.step .ico{font-size:30px;margin-bottom:14px;display:block}
+.step h3{font-size:19px;letter-spacing:-.3px;margin-bottom:10px}
+.step p{font-size:14.5px;color:var(--ink-soft)}
+.step p b{color:var(--ink)}
+
+/* ledger comparison */
+.ledgerWrap{background:var(--ink);border-radius:24px;padding:56px 48px;color:#E9EFE9}
+@media(max-width:720px){.ledgerWrap{padding:40px 24px}}
+.ledgerWrap h2{color:#fff}
+.ledgerWrap .secSub{color:#9DB3A5}
+.ledger{width:100%;border-collapse:collapse;font-size:14.5px}
+.ledger th{font-family:var(--mono);font-size:11px;letter-spacing:2px;text-transform:uppercase;text-align:left;padding:14px 16px;border-bottom:1px solid #33473B;color:#9DB3A5;font-weight:600}
+.ledger th.tappaCol{color:#8FD3AF}
+.ledger td{padding:15px 16px;border-bottom:1px solid #24352B;vertical-align:top}
+.ledger tr:last-child td{border-bottom:none}
+.ledger td:first-child{color:#B9C8BC;font-weight:500;width:26%}
+.ledger .no{color:#D98B7B;font-family:var(--mono);font-size:13px}
+.ledger .yes{color:#8FD3AF;font-family:var(--mono);font-size:13px}
+@media(max-width:640px){.ledger td:nth-child(2){display:none}.ledger th:nth-child(2){display:none}.ledger td:first-child{width:40%}}
+
+/* security chain */
+.chain{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;counter-reset:layer}
+@media(max-width:960px){.chain{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:540px){.chain{grid-template-columns:1fr}}
+.link{background:var(--paper);border:1px solid #E2DFC9;border-radius:6px;padding:24px 22px;position:relative;font-family:var(--mono)}
+.link::before{content:'';position:absolute;top:0;left:0;right:0;height:5px;background:repeating-linear-gradient(90deg,var(--green) 0 12px,transparent 12px 18px)}
+.link .proof{font-size:10px;font-weight:600;letter-spacing:2px;color:var(--saffron);text-transform:uppercase;display:block;margin-bottom:12px}
+.link h3{font-family:var(--disp);font-size:17.5px;letter-spacing:-.2px;margin-bottom:8px}
+.link p{font-size:12.5px;color:var(--ink-soft);line-height:1.6}
+.gdprNote{margin-top:26px;background:var(--green-lite);border:1px solid var(--green);border-radius:14px;padding:18px 22px;font-size:14.5px;color:var(--ink-soft);max-width:760px}
+.gdprNote b{color:var(--ink)}
+
+/* fits */
+.fits{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+@media(max-width:820px){.fits{grid-template-columns:1fr}}
+.fit{background:#fff;border:1px solid var(--line);border-radius:18px;padding:32px 28px}
+.fit .k{font-family:var(--mono);font-size:11px;font-weight:600;letter-spacing:2px;text-transform:uppercase;color:var(--saffron);display:block;margin-bottom:14px}
+.fit h3{font-size:21px;letter-spacing:-.4px;margin-bottom:10px}
+.fit p{font-size:14.5px;color:var(--ink-soft)}
+.fit .ex{margin-top:16px;font-family:var(--mono);font-size:11.5px;color:var(--green);background:var(--green-lite);display:inline-block;border-radius:6px;padding:5px 10px}
+
+/* pricing */
+.priceCard{background:#fff;border:1.5px solid var(--green);border-radius:24px;padding:52px 48px;display:grid;grid-template-columns:1.1fr .9fr;gap:44px;align-items:center;box-shadow:0 20px 50px rgba(31,92,65,.1)}
+@media(max-width:820px){.priceCard{grid-template-columns:1fr;padding:36px 26px}}
+.priceNum{font-size:clamp(52px,6vw,74px);font-weight:700;letter-spacing:-3px;line-height:1}
+.priceNum small{font-size:17px;font-weight:500;letter-spacing:0;color:var(--ink-soft)}
+.priceList{list-style:none;display:flex;flex-direction:column;gap:12px;font-size:15px}
+.priceList li{padding-left:28px;position:relative}
+.priceList li::before{content:'✓';position:absolute;left:0;color:var(--green);font-weight:700}
+.founding{margin-top:22px;font-family:var(--mono);font-size:12px;color:var(--saffron);background:var(--saffron-lite);display:inline-block;border-radius:8px;padding:7px 12px}
+
+/* faq */
+.faq{max-width:760px}
+.faq details{background:#fff;border:1px solid var(--line);border-radius:14px;margin-bottom:12px;overflow:hidden}
+.faq summary{cursor:pointer;padding:20px 24px;font-weight:700;font-size:16px;list-style:none;display:flex;justify-content:space-between;align-items:center;gap:16px}
+.faq summary::-webkit-details-marker{display:none}
+.faq summary::after{content:'+';font-family:var(--mono);font-size:20px;color:var(--green);transition:transform .2s}
+.faq details[open] summary::after{transform:rotate(45deg)}
+.faq .a{padding:0 24px 22px;font-size:15px;color:var(--ink-soft)}
+
+/* footer cta */
+.footCta{background:var(--green);border-radius:24px;padding:64px 48px;text-align:center;color:#fff;position:relative;overflow:hidden}
+@media(max-width:720px){.footCta{padding:48px 24px}}
+.footCta h2{color:#fff;margin:0 auto 14px;max-width:none}
+.footCta p{color:#CFE6D8;font-size:16.5px;margin-bottom:32px}
+.footCta .btn{background:#fff;color:var(--green)}
+.footCta .ringBg{position:absolute;border-radius:50%;border:1.5px solid rgba(255,255,255,.14);pointer-events:none}
+footer{padding:44px 0 60px;font-family:var(--mono);font-size:12px;color:var(--ink-soft)}
+.footIn{display:flex;justify-content:space-between;gap:20px;flex-wrap:wrap;align-items:center}
+
+@media (prefers-reduced-motion: reduce){
+  .scene.play .tapPulse,.scene.play .docket{animation:none}
+  .scene.play .docket{clip-path:none}
+  html{scroll-behavior:auto}
+}
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="wrap navIn">
+    <a class="wordmark" href="#"><span class="dot" aria-hidden="true"></span>tappa</a>
+    <div class="navLinks">
+      <a href="#how">How it works</a>
+      <a href="#security">Security</a>
+      <a href="#pricing">Pricing</a>
+      <a href="tappa-portal.html">Sign in</a>
+      <a class="btn btn-green" href="tappa-portal.html#signup">Start free</a>
+    </div>
+  </div>
+</nav>
+
+<header class="hero">
+  <div class="wrap heroGrid">
+    <div>
+      <p class="eyebrow">Time &amp; attendance for shift teams</p>
+      <h1>Punchless.<br>Every shift starts with a <span class="tapWord">tap.</span></h1>
+      <p class="heroSub">Stick one smart plaque on the wall. Your team taps their own phone on it and they're clocked in — verified, timestamped, on the right site.</p>
+      <p class="heroCreed"><s>No app.</s>&nbsp; <s>No device.</s>&nbsp; <s>No fingerprints.</s>&nbsp; Just tap.</p>
+      <div class="heroBtns">
+        <a class="btn btn-green" href="tappa-portal.html#signup">Start free — 3 months on us</a>
+        <a class="btn btn-ghost" href="#how">See how it works</a>
+      </div>
+      <p class="heroFoot">Set up a location in under 10 minutes · works with the phone already in every pocket</p>
+    </div>
+
+    <div class="scene play" aria-label="A phone taps the Tappa wall plaque and a verified clock-in ticket prints">
+      <div class="plaque">
+        <div class="p-brand">TAPPA · TIME</div>
+        <div class="p-ring">
+          <span class="tapPulse" aria-hidden="true"></span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="#8FD3AF" stroke-width="1.6" aria-hidden="true">
+            <path d="M6 8.5a8 8 0 0 1 12 0M8.5 11a4.5 4.5 0 0 1 7 0" stroke-linecap="round"/>
+            <circle cx="12" cy="14.5" r="1.6" fill="#8FD3AF" stroke="none"/>
+          </svg>
+        </div>
+        <div class="p-txt">Tap here to<br>clock in / out</div>
+        <div class="p-loc">KF ST JULIANS · 91AC-7E55</div>
+      </div>
+
+      <div class="docket" id="docket">
+        <div class="d-name" id="dName">Maria Vella</div>
+        <span class="d-tag" id="dType">CLOCK IN</span>
+        <div class="d-rows">
+          <div><span>Time</span><b id="dTime">09:58</b></div>
+          <div><span>Location</span><b id="dLoc">KF St Julians</b></div>
+          <div><span>Signature</span><b>SUN valid ✓</b></div>
+          <div><span>On site</span><b>IP + GPS ✓</b></div>
+        </div>
+        <div class="d-stamp">APPROVED</div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<div class="strip">
+  <div class="stripIn">
+    <span>Piloting with teams in Malta</span>
+    <b>KEBAB FACTORY LTD. — 9 locations</b>
+    <b>KEBAB MANUFACTURING CO. — 5 departments</b>
+  </div>
+</div>
+
+<section id="how">
+  <div class="wrap">
+    <p class="secEyebrow">How it works</p>
+    <h2>From box to first clock-in, before the lunch rush.</h2>
+    <p class="secSub">There is nothing to install, enroll, or maintain. The plaque is passive — no battery, no software, no internet of its own.</p>
+    <div class="steps">
+      <div class="step">
+        <span class="n">STEP 1</span>
+        <span class="ico">🏷️</span>
+        <h3>Stick the plaque</h3>
+        <p>One branded A5 plaque per location, placed by the entrance — ideally in view of your camera. Inside it: a cryptographic NFC chip that identifies <b>the place</b>, not the person.</p>
+      </div>
+      <div class="step">
+        <span class="n">STEP 2</span>
+        <span class="ico">✉️</span>
+        <h3>Invite your team</h3>
+        <p>Create a profile, send the invite. Each person activates once on their own phone — <b>30 seconds, ever</b>. New hires clock in on day one; leavers are switched off with one click, instantly.</p>
+      </div>
+      <div class="step">
+        <span class="n">STEP 3</span>
+        <span class="ico">📶</span>
+        <h3>Tap in, tap out</h3>
+        <p>Hold the phone to the plaque. The page opens by itself — no app — greets them by name, one button, done. <b>Under two seconds</b>, even with wet or floury hands.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="ledgerWrap">
+      <p class="secEyebrow" style="color:#8FD3AF">Why switch</p>
+      <h2>Retire the fingerprint box.</h2>
+      <p class="secSub">You know the routine: enrollment queues for every new hire, a dead device blinding a whole site, sensors that refuse kitchen hands.</p>
+      <table class="ledger">
+        <thead>
+          <tr>
+            <th></th>
+            <th>Fingerprint / card devices</th>
+            <th class="tappaCol">Tappa</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Hardware per site</td>
+            <td class="no">✗ &nbsp;Reader + wiring + maintenance</td>
+            <td class="yes">✓ &nbsp;One passive sticker-plaque</td>
+          </tr>
+          <tr>
+            <td>New-hire setup</td>
+            <td class="no">✗ &nbsp;Enrollment at the device</td>
+            <td class="yes">✓ &nbsp;Invite link, activates on first tap</td>
+          </tr>
+          <tr>
+            <td>When someone leaves</td>
+            <td class="no">✗ &nbsp;Delete from each terminal</td>
+            <td class="yes">✓ &nbsp;One click — access dies that second</td>
+          </tr>
+          <tr>
+            <td>If it breaks</td>
+            <td class="no">✗ &nbsp;Site goes blind until repair</td>
+            <td class="yes">✓ &nbsp;Stick a spare plaque, 30 seconds</td>
+          </tr>
+          <tr>
+            <td>Internet down on site</td>
+            <td class="no">✗ &nbsp;Device offline, records stuck</td>
+            <td class="yes">✓ &nbsp;Phones fall back to mobile data + GPS</td>
+          </tr>
+          <tr>
+            <td>Biometric data</td>
+            <td class="no">✗ &nbsp;Fingerprints stored = GDPR weight</td>
+            <td class="yes">✓ &nbsp;None collected, ever</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section id="security">
+  <div class="wrap">
+    <p class="secEyebrow">Security</p>
+    <h2>Four proofs on every single tap.</h2>
+    <p class="secSub">A tap isn't trusted — it's verified. Each clock-in is scored against four independent signals before it lands in your records.</p>
+    <div class="chain">
+      <div class="link">
+        <span class="proof">Proof of moment</span>
+        <h3>One-time signature</h3>
+        <p>The plaque's NTAG 424 DNA chip signs every tap with a fresh counter + AES cryptogram. Copied or replayed links are rejected — you must physically be at the plaque, right now.</p>
+      </div>
+      <div class="link">
+        <span class="proof">Proof of person</span>
+        <h3>Phone session</h3>
+        <p>Identity lives in a secure session on each employee's own phone, behind their own screen lock. No shared PINs, no swappable cards, no buddy punching.</p>
+      </div>
+      <div class="link">
+        <span class="proof">Proof of place</span>
+        <h3>Site IP match</h3>
+        <p>Requests from your site's WiFi carry its static IP — hard evidence the person is inside the building, and it resolves the location automatically.</p>
+      </div>
+      <div class="link">
+        <span class="proof">Backup proof</span>
+        <h3>GPS fallback</h3>
+        <p>WiFi down or phone on mobile data? GPS confirms presence within 150&nbsp;m. Anything unverified is stored, flagged, and queued for manager review — never silently approved.</p>
+      </div>
+    </div>
+    <div class="gdprNote">
+      <b>Privacy by design:</b> Tappa stores no fingerprints, no face scans, and never tracks location — GPS is read only at the moment of the tap. Built for GDPR from day one.
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <p class="secEyebrow">Built for both shapes of business</p>
+    <h2>Chains and facilities, one system.</h2>
+    <p class="secSub">Whether your people are spread across a city or across one production floor, Tappa maps to how you actually operate.</p>
+    <div class="fits">
+      <div class="fit">
+        <span class="k">Multi-location</span>
+        <h3>Restaurant &amp; retail chains</h3>
+        <p>One plaque per site, each with its own verified IP. Late-night bars welcome: overnight shifts pair check-outs to the last open check-in, not the calendar date.</p>
+        <span class="ex">9 sites · 1 dashboard · live headcount per location</span>
+      </div>
+      <div class="fit">
+        <span class="k">Single site, many teams</span>
+        <h3>Production &amp; facilities</h3>
+        <p>One plaque at the gate; departments resolve automatically from each employee's profile — bakers against their 04:00 shift, meat production against 05:00. No extra hardware per floor.</p>
+        <span class="ex">5 departments · per-department shifts &amp; reports</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="pricing">
+  <div class="wrap">
+    <p class="secEyebrow">Pricing</p>
+    <h2>Pay per person. Nothing per device — there are none.</h2>
+    <p class="secSub">No hardware bill, no installation fee, no maintenance contract. Plaques included.</p>
+    <div class="priceCard">
+      <div>
+        <div class="priceNum">€1.50 <small>/ employee / month</small></div>
+        <p style="color:var(--ink-soft);margin-top:14px;font-size:15px">A 60-person chain runs on about €90/month — less than one fingerprint terminal's yearly maintenance.</p>
+        <span class="founding">FOUNDING OFFER: first 3 months free · pricing locked for life</span>
+      </div>
+      <ul class="priceList">
+        <li>Unlimited locations &amp; departments</li>
+        <li>Branded wall plaques included &amp; replaced free</li>
+        <li>Live dashboard, flags &amp; manager review queue</li>
+        <li>Daily reports, CSV export &amp; API for your payroll flow</li>
+        <li>Runs alongside your current system during trial</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <p class="secEyebrow">Questions, answered</p>
+    <h2>The ones every ops manager asks.</h2>
+    <div class="faq" style="margin-top:44px">
+      <details>
+        <summary>What if someone doesn't have their phone that day?</summary>
+        <p class="a">The shift lead records the entry from the dashboard in ten seconds. It's stored with a "manually entered by" label, so your reports always show exactly which records were tapped and which were vouched for.</p>
+      </details>
+      <details>
+        <summary>What if the phone has no NFC?</summary>
+        <p class="a">Every plaque also carries a QR code — the camera opens the same page. QR taps skip the cryptographic signature, so Tappa automatically requires the IP or GPS proof instead before approving.</p>
+      </details>
+      <details>
+        <summary>Can someone clock in from home?</summary>
+        <p class="a">No. The plaque's chip signs each tap with a one-time cryptogram, so the link only exists if a phone touched the plaque at that moment. A copied link, a screenshot, or yesterday's URL is rejected by the server — and IP + GPS have to agree the phone is on site.</p>
+      </details>
+      <details>
+        <summary>How do we migrate from our current device?</summary>
+        <p class="a">Import your staff list from a CSV export, hand out invite links, and run both systems side by side for a week. You compare the records, then unplug the old box. Most sites switch in one pay period.</p>
+      </details>
+      <details>
+        <summary>Where does the data go?</summary>
+        <p class="a">Into your dashboard, then wherever you need it: daily CSV exports or a clean API feed your payroll or HR system directly. Tappa is the source of truth for in/out times — it doesn't try to replace your payroll.</p>
+      </details>
+    </div>
+  </div>
+</section>
+
+<section id="pilot" style="padding-top:0">
+  <div class="wrap">
+    <div class="footCta">
+      <span class="ringBg" style="width:420px;height:420px;top:-190px;left:-140px" aria-hidden="true"></span>
+      <span class="ringBg" style="width:280px;height:280px;bottom:-120px;right:-80px" aria-hidden="true"></span>
+      <h2>Go punchless.</h2>
+      <p>Start yourself in minutes — first 3 months free — or book a guided pilot and we'll set up your first location with you.</p>
+      <div style="display:flex;gap:14px;justify-content:center;flex-wrap:wrap">
+        <a class="btn" href="tappa-portal.html#signup">Start free — 3 months</a>
+        <a class="btn" style="background:transparent;color:#fff;border:2px solid rgba(255,255,255,.7)" href="mailto:hello@tappa.mt?subject=Tappa%20pilot">Book a pilot</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap footIn">
+    <span>© 2026 Tappa · Malta 🇲🇹</span>
+    <span>tap in · tap out · that's it</span>
+  </div>
+</footer>
+
+<script>
+(function(){
+  var reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var people = [
+    {n:'Maria Vella',  t:'CLOCK IN',  time:'09:58', loc:'KF St Julians'},
+    {n:'Kevin Grech',  t:'CLOCK IN',  time:'09:52', loc:'KF St Julians'},
+    {n:'Anna Farrugia',t:'CLOCK IN',  time:'04:02', loc:'KM Facility'},
+    {n:'Luke Borg',    t:'CLOCK OUT', time:'02:04', loc:'Rusty Bar'}
+  ];
+  var i = 0;
+  if (reduced) return;
+  setInterval(function(){
+    i = (i + 1) % people.length;
+    var p = people[i];
+    document.getElementById('dName').textContent = p.n;
+    document.getElementById('dType').textContent = p.t;
+    document.getElementById('dTime').textContent = p.time;
+    document.getElementById('dLoc').textContent  = p.loc;
+  }, 3800);
+})();
+</script>
+
+</body>
+</html>
