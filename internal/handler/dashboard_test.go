@@ -862,6 +862,12 @@ var panelTouchTargets = map[string]int{
 	// through a semantic class. It is a real compiled rule (min-height:2.75rem), so
 	// the stylesheet half below holds it to the same floor.
 	"min-h-11": 44,
+	// The sign-in field's password reveal button (2026-09-14). It is a real <button>,
+	// so BOTH halves of the pair reach it: the markup half accepts it because the
+	// class is in this map, and the stylesheet half then demands the height exists.
+	// It is the first entry whose element ships [hidden] — that changes nothing here,
+	// because a control revealed one keystroke later is pressed by the same thumb.
+	"pw-toggle": 44, // .pw-toggle -> min-h-11/min-w-11 = 2.75rem square
 }
 
 func hasTouchTargetClass(classes string) bool {
@@ -1051,8 +1057,18 @@ var docketLabelGrounds = map[string]string{
 // creating a ground nobody checked.
 var nonSurfaceGrounds = map[string]string{
 	"tappa-green": "the primary button and .tap-button; their label is text-paper, and no docket-label is ever placed on one",
-	"ink":         "stamp--training's 10% tint, inside .stamp only",
-	"saffron":     "stamp--flagged's 10% tint, inside .stamp only",
+	// ⚠️ ink IS NO LONGER "inside .stamp only", and the reason is corrected here
+	// rather than left saying something that stopped being true — the same
+	// correction tomato and line already carry below. The 2026-09-14 sign-in
+	// redesign made bg-ink a real, full-height SURFACE (pages/admin.templ's brand
+	// panel). The CLASSIFICATION is unchanged and still correct: no docket-label
+	// sits on it.
+	//
+	// saffron's reason briefly said "and the sign-in screen's founding-offer badge"
+	// — that badge was removed the same day at the user's request, so the sentence
+	// is back to the one ground saffron actually has.
+	"ink":     "stamp--training's 10% tint, and the sign-in screen's brand panel; no docket-label sits on either",
+	"saffron": "stamp--flagged's 10% tint, inside .stamp only",
 	// ⚠️ NO LONGER "inside .stamp only": M6-04 added .tally--rejected, which uses
 	// bg-tomato/10 in a docket footnote. The CLASSIFICATION is unchanged and still
 	// correct (no docket-label sits on either), but the reason had to be re-measured

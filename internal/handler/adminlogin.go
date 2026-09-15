@@ -789,15 +789,23 @@ func (a *AdminAuth) LoginPage(w http.ResponseWriter, r *http.Request) {
 	// Any choice blob from an abandoned attempt is dead the moment a new login
 	// starts: leaving it would let a stale verified set survive into a new attempt.
 	a.short.clear(w, adminChoiceCookieName)
-	a.render(w, r, http.StatusOK, pages.AdminLogin(pages.AdminLoginView{
+	a.renderLoginScreen(w, r, http.StatusOK, pages.AdminLoginView{
 		CSRFToken: st.csrf,
 		ResetHref: adminResetPath,
+		// THE SAME TWO CONSTANTS THE LANDING PAGE IS BUILT FROM, and that is the
+		// point of passing them rather than writing "/signup" and "3" into the
+		// markup: marketing.go's Landing reads signupPath and foundingFreeMonths for
+		// the reasons LandingView records, and a free period advertised here that
+		// disagrees with the one migration 00016 actually grants is the worst kind of
+		// wrong page, because both halves look right on their own.
+		SignupHref: signupPath,
+		FreeMonths: foundingFreeMonths,
 		// 🔴 THE QUERY IS READ, NOT BELIEVED. It decides one sentence and nothing
 		// else — no cookie is cleared, no row is read, no state changes — which is
 		// why a value anybody can type is safe to act on here. See
 		// adminResetDoneQuery.
 		Recovered: r.URL.Query().Get("recovered") == "1",
-	}))
+	})
 }
 
 // Login serves POST /admin/login.
@@ -1340,16 +1348,20 @@ func (a *AdminAuth) recordCandidateProbe(r *http.Request, ip string, auth admina
 // with no parameters carrying an outcome, so there is no argument through which a
 // caller could vary what a failure looks like.
 func (a *AdminAuth) renderLoginFailure(w http.ResponseWriter, r *http.Request, st adminLoginState) {
-	a.render(w, r, http.StatusUnauthorized, pages.AdminLogin(pages.AdminLoginView{
+	a.renderLoginScreen(w, r, http.StatusUnauthorized, pages.AdminLoginView{
 		CSRFToken: st.csrf,
 		Failed:    true,
+		// The refused render is the SAME page, chrome included — see LoginPage for
+		// why these two values are constants rather than literals.
+		SignupHref: signupPath,
+		FreeMonths: foundingFreeMonths,
 		// THE RECOVERY LINK IS ON THE FAILURE PAGE TOO, which is where somebody
 		// actually needs it: adminratelimit.go's own sentence is "three is the usual
 		// human maximum before they use the reset link (which M7-04 will provide;
 		// today they ask another owner)". Leaving it off this render would hide it at
 		// the one moment it is wanted.
 		ResetHref: adminResetPath,
-	}))
+	})
 }
 
 // Logout serves POST /admin/logout.
@@ -1734,3 +1746,54 @@ const adminCSP = "default-src 'none'; style-src 'self'; font-src 'self'; " +
 // fragment route that started sending the scripted policy is caught by
 // TestDocketFragment_UsesTheUnwidenedPolicy rather than by the count.
 const adminScriptedCSP = adminCSP + "; script-src 'self'; connect-src 'self'"
+
+// adminLoginCSP is the policy for /admin/login ALONE, and it is adminCSP plus ONE
+// directive.
+//
+// 🔴 THIS IS THE VISIBLE EDIT adminCSP'S OWN COMMENT ASKED FOR. That comment says
+// the panel screens name no script-src so that "adding a script is a visible edit
+// here rather than a silent inheritance". The sign-in screen now loads one:
+// web/static/js/adminpassword.js, which reveals the password field's show/hide
+// button once somebody starts typing. The directive is therefore added where the
+// script is, and nowhere else.
+//
+// WHAT WIDENED, EXACTLY ONE THING:
+//
+//	script-src 'self'   a file from our own origin, embedded in the binary by
+//	                    web/embed.go and served from /static like every other asset
+//	                    here.
+//
+// 🔴 WHAT DID NOT WIDEN, WHICH IS THE HALF THAT MATTERS ON A PASSWORD FORM:
+//
+//   - NOT 'unsafe-inline'. 'self' does not cover inline script -- that is the one
+//     thing the keyword explicitly excludes -- so a string reflected into this page
+//     still cannot become code. Reflected XSS on /admin/login remains impossible for
+//     the same reason it was before this constant existed, and the toggle is a FILE
+//     rather than an onclick precisely so that stays true.
+//   - NOT 'unsafe-eval'. Nothing here builds code from a string.
+//   - NOT connect-src. adminScriptedCSP carries one because htmx pages with XHR and
+//     connect-src falls back to default-src 'none'; this script makes no request of
+//     any kind, so naming the directive would permit something that does not happen.
+//     That is the same argument adminCSP makes about script-src, one level down.
+//   - NOT the other panel screens. /admin, /admin/login/choose, the password reset
+//     family (adminreset.go sends adminCSP by reference) and every section keep the
+//     unwidened six directives. TestAdminLoginPassword_OnlyTheSignInPageWidensIt
+//     measures that on the wire rather than trusting this paragraph.
+//
+// WHY NOT REUSE adminScriptedCSP, which already names script-src. Because it also
+// names connect-src, and htmx's needs are not this page's needs. Reusing it would
+// have given a password form permission to open connections in order to avoid
+// writing four lines -- and would have put /admin/login inside the cardinality
+// dashboard_test.go counts for the TRANSACTIONS widening, where it does not belong.
+//
+// BOTH RENDERS OF THIS PAGE SEND IT. LoginPage and renderLoginFailure go through
+// renderLoginScreen below, so the 401 re-render cannot drift back to adminCSP and
+// ship a page whose one script the browser refuses.
+const adminLoginCSP = adminCSP + "; script-src 'self'"
+
+// renderLoginScreen writes the sign-in page. It exists so the policy is chosen ONCE
+// for a page with two render sites -- the GET and the 401 -- rather than at each of
+// them, which is how the failure render ends up one edit behind the success render.
+func (a *AdminAuth) renderLoginScreen(w http.ResponseWriter, r *http.Request, status int, v pages.AdminLoginView) {
+	a.renderWithPolicy(w, r, status, pages.AdminLogin(v), adminLoginCSP)
+}

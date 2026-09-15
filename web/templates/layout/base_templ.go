@@ -599,11 +599,79 @@ func Marketing(title string, robots Robots) templ.Component {
 			templ_7745c5c3_Var14 = templ.NopComponent
 		}
 		ctx = templ.ClearChildren(ctx)
+		templ_7745c5c3_Var15 := templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+			templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+			templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+			if !templ_7745c5c3_IsBuffer {
+				defer func() {
+					templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+					if templ_7745c5c3_Err == nil {
+						templ_7745c5c3_Err = templ_7745c5c3_BufErr
+					}
+				}()
+			}
+			ctx = templ.InitializeContext(ctx)
+			templ_7745c5c3_Err = templ_7745c5c3_Var14.Render(ctx, templ_7745c5c3_Buffer)
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			return nil
+		})
+		templ_7745c5c3_Err = MarketingWithScript(title, robots, "").Render(templ.WithChildren(ctx, templ_7745c5c3_Var15), templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		return nil
+	})
+}
+
+// MarketingWithScript is the marketing shell plus at most ONE self-hosted script
+// tag, and it is the pair Page/PageWithScript and Panel/PanelWithScript already
+// use — a SECOND NAMED COMPONENT rather than a parameter on Marketing, so that
+// naming a script is an act somebody performs in a template they had to choose.
+//
+// 🔴 POINT 2 OF Marketing'S COMMENT ABOVE SAID THERE WAS NOWHERE HERE TO WRITE A
+// PATH, AND THAT WAS TRUE UNTIL 2026-09-14. What changed it is a user decision,
+// not a convenience: the landing page the user drew carries a script of their own
+// — the ticket in the hero cycles through four made-up records — and the
+// instruction was to reproduce that page rather than adapt it. So the slot exists,
+// it has exactly one caller (pages.Landing), and Marketing above passes "".
+//
+// WHAT IT COSTS, EXACTLY. internal/handler/marketing.go now carries TWO policies
+// derived from one base: the marketing default, unchanged, on the four legal pages,
+// and a landing one that adds script-src 'self'. Nothing gains 'unsafe-inline' or
+// 'unsafe-eval', which is why the script is a FILE under /static rather than
+// inline. The legal pages and the sign-up wizard render Marketing and are reached
+// by the unchanged policy.
+//
+// src must be an app-relative path under /static, and "" means no script at all.
+// Nothing here builds a URL from user input.
+func MarketingWithScript(title string, robots Robots, src string) templ.Component {
+	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
+			return templ_7745c5c3_CtxErr
+		}
+		templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+		if !templ_7745c5c3_IsBuffer {
+			defer func() {
+				templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+				if templ_7745c5c3_Err == nil {
+					templ_7745c5c3_Err = templ_7745c5c3_BufErr
+				}
+			}()
+		}
+		ctx = templ.InitializeContext(ctx)
+		templ_7745c5c3_Var16 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var16 == nil {
+			templ_7745c5c3_Var16 = templ.NopComponent
+		}
+		ctx = templ.ClearChildren(ctx)
 		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 14, "<!doctype html><html lang=\"en\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = documentHead(title, "", robots).Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = documentHead(title, src, robots).Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
@@ -611,11 +679,100 @@ func Marketing(title string, robots Robots) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templ_7745c5c3_Var14.Render(ctx, templ_7745c5c3_Buffer)
+		templ_7745c5c3_Err = templ_7745c5c3_Var16.Render(ctx, templ_7745c5c3_Buffer)
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
 		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 16, "</body></html>")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		return nil
+	})
+}
+
+// Auth is the FIFTH named shell: a FULL-BLEED document with no column of its own.
+//
+// IT EXISTS FOR THE PANEL'S SIGN-IN SCREEN AND THE REASON IS A MEASUREMENT, not a
+// preference. The four shells above all hand their children a centred column —
+// Page and PageWithScript a phone-width max-w-md, Panel and PanelWithScript a
+// max-w-5xl content well, Marketing a body the landing page's own .lp wrapper
+// re-columns. The sign-in screen the user drew is two panels that meet at a seam
+// and run the full height of the viewport: a dark brand half and a light form
+// half. There is no width at which a centred column renders that, so the choice
+// was a fifth shell or a max-width somebody would have had to fight from the
+// inside with negative margins.
+//
+// 🔴 IT HAD NO SCRIPT SLOT UNTIL 2026-09-14, and the sentence that stood here said
+// so: "there is nowhere in this shell to write a path and no one-word edit that
+// would make the sign-in page load one". The `script` parameter is that edit, made
+// once and in the open, and this comment is the visible record the old sentence
+// asked for.
+//
+// WHY A PARAMETER AND NOT A SIBLING SHELL, which is what layout.MarketingWithScript
+// is. Marketing has FOUR call sites (pages.Legal, which serves all four documents,
+// and three sign-up wizard screens) and none of them wanted a script, so a sibling
+// kept every one of them unable to grow one by accident. Auth has ONE call site,
+// pages.AdminLogin — counted, not remembered: a sibling here
+// would leave the scriptless shell with no caller at all — dead code whose only job
+// is to look like a guarantee. One shell with one argument is the same count of
+// screens that can load a script, written where a reader can see it.
+//
+// WHAT THE ARGUMENT IS NOT: the security boundary. A path written here loads only if
+// the response's Content-Security-Policy permits one, and that is decided per render
+// in internal/handler/adminlogin.go — adminLoginCSP (adminCSP + script-src 'self')
+// on GET and on the 401 re-render of /admin/login, the unwidened adminCSP on every
+// other panel screen. No 'unsafe-inline' anywhere: the script is a FILE under
+// /static, embedded in the binary, so a reflected string still cannot become code on
+// this page. No connect-src either — this script makes no request of any kind, and
+// connect-src falls back to default-src 'none'.
+//
+// script must be an app-relative path under /static, and "" means no script at all.
+// Nothing here builds it from user input.
+//
+// WHAT IT DOES NOT CHANGE, and this is most of what a shell is: the shared document
+// head (no third-party URL, no referrer, RobotsPrivate), the ink text, the absence
+// of a dark theme. The BODY GROUND is still porcelain — the dark half is painted by
+// the page, on an element the page owns, so nothing here has to know which side is
+// which.
+func Auth(title, script string) templ.Component {
+	return templruntime.GeneratedTemplate(func(templ_7745c5c3_Input templruntime.GeneratedComponentInput) (templ_7745c5c3_Err error) {
+		templ_7745c5c3_W, ctx := templ_7745c5c3_Input.Writer, templ_7745c5c3_Input.Context
+		if templ_7745c5c3_CtxErr := ctx.Err(); templ_7745c5c3_CtxErr != nil {
+			return templ_7745c5c3_CtxErr
+		}
+		templ_7745c5c3_Buffer, templ_7745c5c3_IsBuffer := templruntime.GetBuffer(templ_7745c5c3_W)
+		if !templ_7745c5c3_IsBuffer {
+			defer func() {
+				templ_7745c5c3_BufErr := templruntime.ReleaseBuffer(templ_7745c5c3_Buffer)
+				if templ_7745c5c3_Err == nil {
+					templ_7745c5c3_Err = templ_7745c5c3_BufErr
+				}
+			}()
+		}
+		ctx = templ.InitializeContext(ctx)
+		templ_7745c5c3_Var17 := templ.GetChildren(ctx)
+		if templ_7745c5c3_Var17 == nil {
+			templ_7745c5c3_Var17 = templ.NopComponent
+		}
+		ctx = templ.ClearChildren(ctx)
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 17, "<!doctype html><html lang=\"en\">")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = documentHead(title, script, RobotsPrivate).Render(ctx, templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 18, "<body class=\"min-h-screen bg-porcelain text-ink antialiased\">")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templ_7745c5c3_Var17.Render(ctx, templ_7745c5c3_Buffer)
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 19, "</body></html>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

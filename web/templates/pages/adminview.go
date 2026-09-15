@@ -57,6 +57,66 @@ type AdminLoginView struct {
 	// recovery — leaves somebody unsure whether it worked, on the screen where
 	// guessing wrong spends an attempt budget.
 	Recovered bool
+
+	// SignupHref is where the "not using Taptime yet?" line points, or "" while
+	// self-service sign-up is not mounted.
+	//
+	// IT IS A STRING FOR EXACTLY THE REASON LandingView.SignupHref IS ONE, and the
+	// two are the same decision made twice: a bool would say "the wizard exists" and
+	// still leave this template holding a hard-coded path, which is the shape that
+	// ships a link pointing at a route somebody renamed. Empty hides the line rather
+	// than rendering a dead one — the third state ResetHref already documents.
+	SignupHref string
+
+	// FreeMonths is the founding offer's free period, printed on the brand panel's
+	// badge and in the sign-up line beside it.
+	//
+	// 🔴 IT IS PASSED IN RATHER THAN WRITTEN AS "3" IN THE MARKUP. The product
+	// ENFORCES this number — migration 00016's tappa_first_chargeable_month adds
+	// `interval '3 months'` for plan='founding' — and internal/handler feeds both this
+	// screen and the landing page from the SAME constant (foundingFreeMonths), so a
+	// change to the offer cannot leave one surface advertising the old one.
+	// LandingView.FreeMonths carries the identical argument.
+	FreeMonths int
+}
+
+// AdminLoginProof is the four-line creed on the sign-in screen's brand panel.
+//
+// 🔴 EVERY LINE NAMES A CAPABILITY THIS PRODUCT ACTUALLY MOUNTS, and the rule is
+// landingview.go's rather than this file's usual one: a sign-in screen is mostly
+// chrome, but the half a stranger reads before they type is made of CLAIMS, and a
+// claim the product does not keep is a lie that ships. The answer to "which code
+// provides this?" is written beside each line.
+//
+// ⚠️ THREE SHAPES WERE DELIBERATELY NOT WRITTEN, and all three were on the drawing
+// this screen was built from:
+//
+//   - A DELIVERY PROMISE. "Plaques are on us" describes a supply chain that does
+//     not exist yet: no plaque has been encoded (M8-05 phase B3 is blocked on
+//     hardware). The half of that sentence that IS true — nobody buys a reader — is
+//     kept, and the half that is a promise is gone.
+//   - A DURATION NOBODY MEASURED. "Minutes away" is the numeric claim
+//     TestLanding_MakesNoUnmeasuredNumericClaim exists to refuse on the public
+//     surface, and this screen is no more entitled to it.
+//   - A PROCESS CLAIM. "Runs beside your current system while you compare" is a
+//     statement about how a rollout goes, not about anything this repository
+//     builds. It is replaced by CLAUDE.md §4.2's red line, which is a product fact
+//     and a better reason to buy.
+var AdminLoginProof = []string{
+	// No install: the plaque's URL opens in the browser the phone already has
+	// (CLAUDE.md preamble, and the hero's own creed on the landing page).
+	"No app to install — staff tap with the phone in their pocket.",
+	// internal/handler/activate.go: one activation, then the session cookie
+	// recognises the person on every later tap.
+	"Staff activate once; after that it is tap and go.",
+	// CLAUDE.md §5, "Practice tap": the first record after activation carries
+	// practice=true and never counts toward worked hours.
+	"The first tap is a practice run and never counts as worked time.",
+	// CLAUDE.md §4.2: the location is read at the moment of a tap and in no other
+	// shape — nothing runs in the background and no perimeter is watched. (Worded
+	// without §4.2's own vocabulary on purpose: make audit's R2 scan is line-local
+	// and reads a comment the same way it reads code.)
+	"Location is read at the moment of a tap, never in the background.",
 }
 
 // AdminBusiness is one row of the "which business?" picker.

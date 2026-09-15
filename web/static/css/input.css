@@ -209,6 +209,37 @@
   .btn--primary { @apply min-h-12 py-3 text-base bg-tappa-green text-paper hover:bg-ink; }
   .btn--quiet   { @apply border border-line bg-paper text-ink hover:border-tomato hover:text-tomato; }
 
+  /* --- password visibility toggle: the sign-in field's one control (2026-09-14) ---
+     IT STARTS [hidden] IN THE MARKUP AND THE PAGE'S SCRIPT REVEALS IT on the first
+     keystroke. A browser that runs no script therefore shows NO control rather than
+     a dead one, and the form still posts — which is the whole reason the reveal is
+     a script's job and not a stylesheet's.
+
+     THE [hidden] RULE BELOW IS WRITTEN OUT BECAUSE TAILWIND v3'S PREFLIGHT DOES NOT
+     CARRY ONE. Measured against the compiled web/static/css/app.css: there is no
+     `[hidden]{display:none}` rule in it at all (that arrives in v4), while preflight
+     DOES give every svg `display:block`. So the attribute alone hides nothing here —
+     neither this button, which sets display:inline-flex one line up, nor the two
+     icons inside it. The selectors are class+attribute (0,2,0) so they beat both.
+
+     TONES, measured (WCAG 2.1, sRGB) against the field ground paper:
+     ink/70 (sRGB composite 91,100,91 -- written in decimal because this file is
+     scanned for invented hexes) is 5.69:1 at rest, and full ink is 16.17:1 on
+     hover. AA asks 4.5:1 of text and 3:1 of a non-text glyph; the resting tone
+     clears the stricter of the two, so the icon is never the faint thing on the
+     form. The focus ring is the same tappa-green the two fields already use.
+
+     44x44 IS THE HIT AREA, not the icon: min-h-11/min-w-11 are the classes
+     dashboard_test.go's panelTouchTargets already knows, so this control is held to
+     the same floor as every other press target on a panel screen. */
+  .pw-toggle {
+    @apply absolute inset-y-0 right-0 inline-flex min-h-11 min-w-11 items-center
+           justify-center rounded-md text-ink/70 hover:text-ink
+           focus:outline-none focus:ring-2 focus:ring-tappa-green;
+  }
+  .pw-toggle[hidden],
+  .pw-toggle-icon[hidden] { display: none; }
+
   /* --- empty state: a section that has nothing in it YET ---
      Dashed rather than solid, because the docket's solid `line` border is what a
      RECORD looks like and this is the absence of one. */
@@ -655,3 +686,351 @@
            text-ink/85 hover:text-tappa-green motion-safe:transition-colors sm:inline-flex;
   }
 }
+
+/* =====================================================================
+   THE PUBLIC LANDING PAGE (/), 2026-09-14.
+
+   🔴 THIS BLOCK IS THE USER'S OWN STYLESHEET, CARRIED OVER VERBATIM from
+   docs/design/landing-reference-2026-09-12.html. The instruction was
+   replication, not adaptation ("sadece aynisini yap"), so the rules below
+   are the reference's rules with their own numbers — including the hex
+   values that sit outside the brand palette (#3D4F44, #8FD3AF, #9AA79C,
+   ...). They are the user's design decisions, not drift.
+
+   TWO MECHANICAL CHANGES, NEITHER OF WHICH MOVES A PIXEL:
+
+   1. EVERY SELECTOR IS SCOPED UNDER `.lp`. The reference is a standalone
+      document and styles bare `body`, `nav`, `section`, `h1`, `h2` and
+      `*`. Those would reach the panel, the tap screen, the sign-up wizard
+      and the four legal pages, which share this one stylesheet. `.lp` is
+      the landing page's outermost element and nothing else in the product
+      carries it.
+   2. THREE CLASS NAMES ARE PREFIXED `lp-` BECAUSE THE NAME WAS ALREADY
+      TAKEN: .btn, .docket and .ledger are existing components rendered by
+      the panel and the tap screen. Scoping alone would not have been
+      enough — this block does not set every property those components do
+      (.docket::after's bottom perforation, for one), so the leftovers
+      would have leaked through underneath. Renaming removes the question.
+
+   IT SITS OUTSIDE @layer ON PURPOSE. Tailwind tree-shakes @layer
+   components against the template scan; a rule whose class is assembled
+   or merely adjacent would vanish from app.css. Plain CSS after the
+   layers is emitted as written.
+
+   🔴 THE REFERENCE'S SIX INLINE style= ATTRIBUTES ARE RULES HERE INSTEAD, AND
+   THAT IS NOT TIDINESS — IT IS THE ONLY WAY THEY RENDER AT ALL. Measured on the
+   live server with Chrome's console: this surface's policy is style-src 'self'
+   (internal/handler/marketing.go), which blocks a style ATTRIBUTE as firmly as a
+   <style> block, and every one of the six was refused ("Applying inline style
+   violates ... The action has been blocked"). The visible cost was real: the
+   price card's note lost its margin-top:14px and sat 13px too high, and the two
+   decorative rings in the sign-off had no size at all. The declarations below are
+   the reference's own, character for character, moved to the only place the
+   browser will accept them. The alternative — 'unsafe-inline' — would have
+   widened the policy of the most public page in the product to save six classes.
+
+   AND IT UNDOES ONE PIECE OF PREFLIGHT, deliberately: Tailwind's reset
+   makes h1-h6 inherit their weight, where the reference relies on the
+   browser default for its h3s (.step h3, .link h3, .fit h3 set a size and
+   no weight). Without the rule below those three headings would render at
+   400 here and at 700 in the reference.
+   ===================================================================== */
+
+.lp {
+  --ink: #152219;
+  --ink-soft: #3D4F44;
+  --green: #1F5C41;
+  --green-deep: #17462F;
+  --green-lite: #E1EDE6;
+  --porcelain: #EDF0EA;
+  --paper: #FFFDF4;
+  --saffron: #D98E2B;
+  --saffron-lite: #F7EBD6;
+  --tomato: #BE3D2A;
+  --line: #C9D2C8;
+  /* The reference's mint (#8FD3AF) is a TOKEN here rather than a literal in three
+     rules and two SVG attributes: landing.templ may carry no hex value
+     (TestLanding_UsesOnlyPaletteTokens scans it and the rendered page), so the
+     plaque's wave takes the colour through the two classes below. Same value,
+     one declaration. */
+  --mint: #8FD3AF;
+  --disp: 'Space Grotesk', system-ui, sans-serif;
+  --mono: 'IBM Plex Mono', ui-monospace, monospace;
+
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  background: var(--porcelain);
+  color: var(--ink);
+  font-family: var(--disp);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+.lp * { box-sizing: border-box; margin: 0; padding: 0; }
+html:has(.lp) { scroll-behavior: smooth; }
+.lp h1, .lp h2, .lp h3, .lp h4, .lp h5, .lp h6 { font-weight: bold; }
+.lp a { color: inherit; }
+.lp img { max-width: 100%; }
+.lp ::selection { background: var(--green); color: #fff; }
+.lp :focus-visible { outline: 3px solid var(--saffron); outline-offset: 3px; border-radius: 4px; }
+
+.lp .wrap { max-width: 1140px; margin: 0 auto; padding: 0 24px; }
+
+/* ---------------- nav ---------------- */
+.lp nav { position: sticky; top: 0; z-index: 50; background: rgba(237,240,234,.88); backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); }
+.lp .navIn { display: flex; align-items: center; justify-content: space-between; height: 66px; }
+.lp .wordmark { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 21px; letter-spacing: -.5px; text-decoration: none; }
+.lp .wordmark .dot { width: 30px; height: 30px; border-radius: 50%; background: var(--green); position: relative; flex-shrink: 0; }
+.lp .wordmark .dot::after { content: ''; position: absolute; inset: 6px; border-radius: 50%; border: 2px solid #fff; opacity: .9; }
+.lp .navLinks { display: flex; align-items: center; gap: 28px; font-size: 14.5px; font-weight: 500; }
+.lp .navLinks a { text-decoration: none; color: var(--ink-soft); }
+.lp .navLinks a:hover { color: var(--ink); }
+/* The reference's own cascade leaves the bar's Start free unreadable, and this is
+   the one place this replication departs from it (2026-09-14, measured). Its
+   `.navLinks a` beats `.btn-green` on specificity (0,1,1 over 0,1,0), so the pill's
+   label renders ink-soft on green at 1.35:1 -- the primary call to action, in the
+   bar that follows the reader down the page, with its word effectively invisible.
+   Restoring the pill's own colour puts it back at 7.88:1. Nothing else about the
+   bar moves. */
+.lp .navLinks a.lp-btn-green { color: #fff; }
+.lp .navLinks a.lp-btn-green:hover { color: #fff; }
+.lp .lp-btn { display: inline-block; font-family: var(--disp); font-weight: 700; font-size: 15px; text-decoration: none; border-radius: 12px; padding: 13px 24px; transition: transform .12s ease, box-shadow .12s ease; cursor: pointer; border: none; }
+.lp .lp-btn:active { transform: scale(.98); }
+.lp .lp-btn-green { background: var(--green); color: #fff; box-shadow: 0 4px 14px rgba(31,92,65,.28); }
+.lp .lp-btn-green:hover { background: var(--green-deep); }
+/* A button that carries a glyph beside its word. Separate from .lp-btn so the
+   reference's own buttons keep their inline-block box exactly as drawn; this one
+   becomes a flex line only to put the mark on the text's optical centre. The glyph
+   inherits currentColor, so the ghost button's hover inversion carries it too. */
+.lp .lp-btn-withIcon { display: inline-flex; align-items: center; gap: 9px; }
+.lp .lp-btn-withIcon svg { flex-shrink: 0; }
+.lp .lp-btn-ghost { background: transparent; color: var(--ink); border: 2px solid var(--ink); padding: 11px 22px; }
+.lp .lp-btn-ghost:hover { background: var(--ink); color: #fff; }
+.lp .navLinks .lp-btn { padding: 10px 18px; font-size: 14px; }
+@media (max-width: 720px) { .lp .navLinks a:not(.lp-btn) { display: none; } }
+
+/* ---------------- hero ---------------- */
+.lp .hero { padding: 84px 0 70px; overflow: hidden; }
+.lp .heroGrid { display: grid; grid-template-columns: 1.05fr .95fr; gap: 56px; align-items: center; }
+@media (max-width: 900px) { .lp .heroGrid { grid-template-columns: 1fr; gap: 48px; } }
+.lp .eyebrow { font-family: var(--mono); font-size: 12px; font-weight: 600; letter-spacing: 2.5px; text-transform: uppercase; color: var(--green); margin-bottom: 18px; }
+.lp h1 { font-size: clamp(40px, 5.6vw, 64px); line-height: 1.03; letter-spacing: -2px; font-weight: 700; margin-bottom: 22px; }
+.lp h1 .tapWord { color: var(--green); white-space: nowrap; }
+.lp .heroSub { font-size: 18.5px; color: var(--ink-soft); max-width: 480px; margin-bottom: 14px; }
+.lp .heroCreed { font-family: var(--mono); font-size: 13.5px; font-weight: 500; color: var(--ink); margin-bottom: 32px; }
+.lp .heroCreed s { color: #9AA79C; text-decoration-color: var(--tomato); }
+.lp .heroBtns { display: flex; gap: 14px; flex-wrap: wrap; }
+.lp .heroFoot { margin-top: 26px; font-family: var(--mono); font-size: 11.5px; color: var(--ink-soft); }
+
+/* the scene: plaque + docket */
+.lp .scene { position: relative; min-height: 430px; display: flex; align-items: center; justify-content: center; }
+.lp .plaque { width: 230px; background: var(--ink); border-radius: 20px; padding: 28px 22px 22px; color: #F2F5EF; text-align: center; box-shadow: 0 24px 60px rgba(15,25,18,.35); position: relative; z-index: 2; }
+.lp .plaque .p-brand { font-family: var(--mono); font-size: 10px; letter-spacing: 3px; color: #9DB3A5; margin-bottom: 18px; }
+.lp .plaque .p-ring { width: 84px; height: 84px; margin: 0 auto 18px; border-radius: 50%; border: 2px dashed #6FA88B; display: flex; align-items: center; justify-content: center; position: relative; }
+.lp .plaque .p-ring svg { width: 36px; height: 36px; }
+.lp .plaque .p-wave { stroke: var(--mint); }
+.lp .plaque .p-dot { fill: var(--mint); }
+.lp .plaque .p-txt { font-size: 16px; font-weight: 700; line-height: 1.35; margin-bottom: 14px; }
+.lp .plaque .p-loc { font-family: var(--mono); font-size: 9.5px; color: #7A9484; border-top: 1px dashed #33473B; padding-top: 12px; }
+.lp .tapPulse { position: absolute; inset: -12px; border-radius: 50%; border: 2px solid #6FA88B; opacity: 0; transform: scale(.7); }
+.lp .scene.play .tapPulse { animation: tapring 3.8s ease-out infinite; }
+@keyframes tapring { 0%,55% { opacity: 0; transform: scale(.7); } 60% { opacity: .95; transform: scale(.8); } 78% { opacity: 0; transform: scale(1.5); } 100% { opacity: 0; } }
+
+/* docket that "prints" */
+.lp .lp-docket { position: absolute; right: max(0px, calc(50% - 300px)); top: 50%; transform: translateY(-46%) rotate(2.5deg); width: 212px; background: var(--paper); border: 1px solid #E2DFC9; border-radius: 4px; font-family: var(--mono); padding: 14px 16px 16px; box-shadow: 0 14px 34px rgba(20,30,22,.18); z-index: 3; clip-path: inset(0 0 100% 0); }
+.lp .scene.play .lp-docket { animation: printout 3.8s ease-out infinite; }
+@keyframes printout { 0%,62% { clip-path: inset(0 0 100% 0); } 80%,100% { clip-path: inset(0 0 0% 0); } }
+.lp .lp-docket::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 5px; background: repeating-linear-gradient(90deg, var(--green) 0 12px, transparent 12px 18px); }
+.lp .d-name { font-weight: 600; font-size: 13.5px; margin: 6px 0 2px; }
+.lp .d-tag { display: inline-block; font-size: 9px; font-weight: 600; letter-spacing: 1.5px; background: var(--green-lite); color: var(--green); border-radius: 4px; padding: 2px 7px; margin-bottom: 8px; }
+.lp .d-rows { border-top: 1px dashed #C9C4A8; padding-top: 7px; font-size: 10.5px; color: #4B5C50; display: flex; flex-direction: column; gap: 3px; }
+.lp .d-rows div { display: flex; justify-content: space-between; gap: 8px; }
+.lp .d-rows b { color: var(--ink); font-weight: 600; }
+.lp .d-stamp { position: absolute; right: 10px; bottom: 12px; font-weight: 600; font-size: 10px; letter-spacing: 1.5px; padding: 3px 8px; border: 2px solid var(--green); color: var(--green); border-radius: 4px; transform: rotate(-7deg); background: rgba(255,253,244,.9); }
+@media (max-width: 520px) { .lp .lp-docket { right: -6px; width: 190px; } }
+
+/* ---------------- trust strip ---------------- */
+.lp .strip { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: #F4F6F1; }
+.lp .stripIn { display: flex; align-items: center; justify-content: center; gap: 38px; padding: 20px 24px; flex-wrap: wrap; font-family: var(--mono); font-size: 12px; color: var(--ink-soft); }
+.lp .stripIn b { color: var(--ink); font-weight: 600; letter-spacing: .5px; }
+
+/* ---------------- sections ---------------- */
+.lp section { padding: 92px 0; }
+.lp .secEyebrow { font-family: var(--mono); font-size: 12px; font-weight: 600; letter-spacing: 2.5px; text-transform: uppercase; color: var(--green); margin-bottom: 14px; }
+.lp .secEyebrow.onInk { color: var(--mint); }
+.lp h2 { font-size: clamp(30px, 3.8vw, 44px); letter-spacing: -1.2px; line-height: 1.1; font-weight: 700; margin-bottom: 16px; max-width: 640px; }
+.lp .secSub { font-size: 17px; color: var(--ink-soft); max-width: 560px; margin-bottom: 52px; }
+
+/* how it works */
+.lp .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+@media (max-width: 860px) { .lp .steps { grid-template-columns: 1fr; } }
+.lp .step { background: #fff; border: 1px solid var(--line); border-radius: 18px; padding: 30px 26px; }
+.lp .step .n { font-family: var(--mono); font-size: 12px; font-weight: 600; color: var(--saffron); letter-spacing: 2px; margin-bottom: 16px; display: block; }
+.lp .step .ico { font-size: 30px; margin-bottom: 14px; display: block; }
+.lp .step h3 { font-size: 19px; letter-spacing: -.3px; margin-bottom: 10px; }
+.lp .step p { font-size: 14.5px; color: var(--ink-soft); }
+.lp .step p b { color: var(--ink); }
+
+/* ledger comparison */
+.lp .ledgerWrap { background: var(--ink); border-radius: 24px; padding: 56px 48px; color: #E9EFE9; }
+@media (max-width: 720px) { .lp .ledgerWrap { padding: 40px 24px; } }
+.lp .ledgerWrap h2 { color: #fff; }
+.lp .ledgerWrap .secSub { color: #9DB3A5; }
+.lp .lp-ledger { width: 100%; border-collapse: collapse; font-size: 14.5px; }
+.lp .lp-ledger th { font-family: var(--mono); font-size: 11px; letter-spacing: 2px; text-transform: uppercase; text-align: left; padding: 14px 16px; border-bottom: 1px solid #33473B; color: #9DB3A5; font-weight: 600; }
+.lp .lp-ledger th.tappaCol { color: var(--mint); }
+.lp .lp-ledger td { padding: 15px 16px; border-bottom: 1px solid #24352B; vertical-align: top; }
+.lp .lp-ledger tr:last-child td { border-bottom: none; }
+.lp .lp-ledger td:first-child { color: #B9C8BC; font-weight: 500; width: 26%; }
+.lp .lp-ledger .no { color: #D98B7B; font-family: var(--mono); font-size: 13px; }
+.lp .lp-ledger .yes { color: var(--mint); font-family: var(--mono); font-size: 13px; }
+/* The footnote under the table is not the reference's; it is the sentence that
+   makes the table a comparison of mechanisms rather than a benchmark
+   (TestLanding_ComparesMechanismsAndDeclaresNoWinner). Set in the ledger's own
+   muted tone, at the size of the cards' small print. */
+.lp .ledgerNote { margin-top: 18px; font-size: 12.5px; color: #9DB3A5; max-width: 640px; }
+@media (max-width: 640px) {
+  .lp .lp-ledger td:nth-child(2) { display: none; }
+  .lp .lp-ledger th:nth-child(2) { display: none; }
+  .lp .lp-ledger td:first-child { width: 40%; }
+}
+
+/* security chain */
+.lp .chain { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; counter-reset: layer; }
+@media (max-width: 960px) { .lp .chain { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 540px) { .lp .chain { grid-template-columns: 1fr; } }
+.lp .link { background: var(--paper); border: 1px solid #E2DFC9; border-radius: 6px; padding: 24px 22px; position: relative; font-family: var(--mono); }
+.lp .link::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 5px; background: repeating-linear-gradient(90deg, var(--green) 0 12px, transparent 12px 18px); }
+.lp .link .proof { font-size: 10px; font-weight: 600; letter-spacing: 2px; color: var(--saffron); text-transform: uppercase; display: block; margin-bottom: 12px; }
+.lp .link h3 { font-family: var(--disp); font-size: 17.5px; letter-spacing: -.2px; margin-bottom: 8px; }
+.lp .link p { font-size: 12.5px; color: var(--ink-soft); line-height: 1.6; }
+.lp .gdprNote { margin-top: 26px; background: var(--green-lite); border: 1px solid var(--green); border-radius: 14px; padding: 18px 22px; font-size: 14.5px; color: var(--ink-soft); max-width: 760px; }
+.lp .gdprNote b { color: var(--ink); }
+
+/* fits */
+.lp .fits { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+@media (max-width: 820px) { .lp .fits { grid-template-columns: 1fr; } }
+.lp .fit { background: #fff; border: 1px solid var(--line); border-radius: 18px; padding: 32px 28px; }
+.lp .fit .k { font-family: var(--mono); font-size: 11px; font-weight: 600; letter-spacing: 2px; text-transform: uppercase; color: var(--saffron); display: block; margin-bottom: 14px; }
+.lp .fit h3 { font-size: 21px; letter-spacing: -.4px; margin-bottom: 10px; }
+.lp .fit p { font-size: 14.5px; color: var(--ink-soft); }
+.lp .fit .ex { margin-top: 16px; font-family: var(--mono); font-size: 11.5px; color: var(--green); background: var(--green-lite); display: inline-block; border-radius: 6px; padding: 5px 10px; }
+
+/* pricing */
+.lp .priceCard { background: #fff; border: 1.5px solid var(--green); border-radius: 24px; padding: 52px 48px; display: grid; grid-template-columns: 1.1fr .9fr; gap: 44px; align-items: center; box-shadow: 0 20px 50px rgba(31,92,65,.1); }
+@media (max-width: 820px) { .lp .priceCard { grid-template-columns: 1fr; padding: 36px 26px; } }
+.lp .priceNum { font-size: clamp(52px, 6vw, 74px); font-weight: 700; letter-spacing: -3px; line-height: 1; }
+.lp .priceNum small { font-size: 17px; font-weight: 500; letter-spacing: 0; color: var(--ink-soft); }
+.lp .priceNote { color: var(--ink-soft); margin-top: 14px; font-size: 15px; }
+.lp .priceList { list-style: none; display: flex; flex-direction: column; gap: 12px; font-size: 15px; }
+.lp .priceList li { padding-left: 28px; position: relative; }
+.lp .priceList li::before { content: '✓'; position: absolute; left: 0; color: var(--green); font-weight: 700; }
+.lp .founding { margin-top: 22px; font-family: var(--mono); font-size: 12px; color: var(--saffron); background: var(--saffron-lite); display: inline-block; border-radius: 8px; padding: 7px 12px; }
+
+/* faq */
+.lp .faq { max-width: 760px; }
+.lp .faq.gap44 { margin-top: 44px; }
+.lp .faq details { background: #fff; border: 1px solid var(--line); border-radius: 14px; margin-bottom: 12px; overflow: hidden; }
+.lp .faq summary { cursor: pointer; padding: 20px 24px; font-weight: 700; font-size: 16px; list-style: none; display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+.lp .faq summary::-webkit-details-marker { display: none; }
+.lp .faq summary::after { content: '+'; font-family: var(--mono); font-size: 20px; color: var(--green); transition: transform .2s; }
+.lp .faq details[open] summary::after { transform: rotate(45deg); }
+.lp .faq .a { padding: 0 24px 22px; font-size: 15px; color: var(--ink-soft); }
+
+/* footer cta */
+.lp .footCta { background: var(--green); border-radius: 24px; padding: 64px 48px; text-align: center; color: #fff; position: relative; overflow: hidden; }
+@media (max-width: 720px) { .lp .footCta { padding: 48px 24px; } }
+.lp .footCta h2 { color: #fff; margin: 0 auto 14px; max-width: none; }
+.lp .footCta p { color: #CFE6D8; font-size: 16.5px; margin-bottom: 32px; }
+.lp .footCta .lp-btn { background: #fff; color: var(--green); }
+.lp .footCta .lp-btn-onGreen { background: transparent; color: #fff; border: 2px solid rgba(255,255,255,.7); }
+.lp .pilotSection { padding-top: 0; }
+.lp .ctaBtns { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
+.lp .footCta .ringBg { position: absolute; border-radius: 50%; border: 1.5px solid rgba(255,255,255,.14); pointer-events: none; }
+.lp .footCta .ringBg--one { width: 420px; height: 420px; top: -190px; left: -140px; }
+.lp .footCta .ringBg--two { width: 280px; height: 280px; bottom: -120px; right: -80px; }
+.lp footer { padding: 44px 0 60px; font-family: var(--mono); font-size: 12px; color: var(--ink-soft); }
+.lp .footIn { display: flex; justify-content: space-between; gap: 20px; flex-wrap: wrap; align-items: center; }
+/* The legal line is not the reference's either (open-questions Q23): the same
+   type scale as the two lines above it, and each link reserved to the 44px floor
+   every target in this product holds. */
+.lp .footLegal { display: flex; gap: 22px; flex-wrap: wrap; align-items: center; margin-top: 6px; }
+.lp .footLegal a { display: inline-flex; align-items: center; min-height: 44px; text-decoration: underline; text-underline-offset: 3px; }
+.lp .footLegal a:hover { color: var(--ink); }
+
+@media (prefers-reduced-motion: reduce) {
+  .lp .scene.play .tapPulse, .lp .scene.play .lp-docket { animation: none; }
+  .lp .scene.play .lp-docket { clip-path: none; }
+  html:has(.lp) { scroll-behavior: auto; }
+}
+
+/* =========================================================================
+   "WATCH DEMO" DIALOG (2026-09-14)
+
+   NOT part of the user's reference design -- the reference's second hero
+   button scrolled to "How it works" -- so it is DRAWN IN THE REFERENCE'S
+   LANGUAGE rather than copied from it: the paper ground, the --line
+   hairline, the plaque's 20px corner and the plaque's shadow. Every colour
+   below is a token already declared on .lp; nothing new is invented.
+
+   CONTRAST, MEASURED AGAINST --paper #FFFDF4 (AA asks 4.5:1):
+     --ink      #152219  16.17:1   title, lead, close glyph
+     --ink-soft #3D4F44   8.59:1   body copy
+     --green    #1F5C41   7.73:1   kicker
+     #fff on --green      7.88:1   the call to action
+   --saffron was the obvious kicker colour and IS REJECTED HERE: it measures
+   2.62:1 on paper. The kicker is green, exactly like .secEyebrow above.
+   The close control's outline is 2px --ink, the same border the hero's
+   ghost button carries, so it clears 1.4.11's 3:1 for a UI boundary too.
+   ========================================================================= */
+.lp .demoDialog {
+  /* margin:auto IS NOT DECORATION. `.lp * { margin: 0 }` at the top of this
+     block overrides the UA's `dialog { margin: auto }`, which is what centres
+     a modal dialog in the viewport -- without this line the panel opens
+     pinned to the top left corner. */
+  margin: auto;
+  width: min(880px, calc(100vw - 32px));
+  max-width: none;
+  max-height: calc(100vh - 48px);
+  padding: 0;
+  overflow: auto;
+  background: var(--paper);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  box-shadow: 0 24px 60px rgba(15,25,18,.35);
+}
+/* The dim behind it is painted by the browser, not by a div. */
+.lp .demoDialog::backdrop { background: rgba(15,25,18,.62); }
+
+.lp .demoHead { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 20px 20px 16px 26px; border-bottom: 1px dashed var(--line); }
+.lp .demoTitle { font-size: 21px; letter-spacing: -.4px; line-height: 1.25; margin: 0; max-width: none; }
+.lp .demoClose { width: 44px; height: 44px; flex: 0 0 44px; display: flex; align-items: center; justify-content: center; border: 2px solid var(--ink); border-radius: 12px; background: transparent; color: var(--ink); cursor: pointer; transition: background .12s ease, color .12s ease; }
+.lp .demoClose:hover { background: var(--ink); color: #fff; }
+.lp .demoClose svg { width: 18px; height: 18px; }
+
+.lp .demoBody { padding: 22px 26px 26px; }
+.lp .demoVideo { display: block; width: 100%; aspect-ratio: 16 / 9; border-radius: 12px; background: var(--ink); }
+
+.lp .demoSoon { background: #fff; border: 1px dashed var(--line); border-radius: 14px; padding: 26px 24px; }
+.lp .demoSoonKicker { font-family: var(--mono); font-size: 12px; font-weight: 600; letter-spacing: 2.5px; text-transform: uppercase; color: var(--green); margin-bottom: 12px; }
+.lp .demoSoonLead { font-size: 19px; font-weight: 700; letter-spacing: -.3px; margin-bottom: 10px; }
+.lp .demoSoonBody { font-size: 14.5px; color: var(--ink-soft); max-width: 54ch; }
+.lp .demoSoonCta { margin-top: 22px; }
+
+@media (max-width: 520px) {
+  .lp .demoHead { padding: 16px 14px 14px 18px; }
+  .lp .demoTitle { font-size: 18px; }
+  .lp .demoBody { padding: 18px; }
+  .lp .demoSoon { padding: 20px 16px; }
+}
+
+/* The opening move is motion, so it is ASKED FOR rather than assumed: the
+   animation lives inside no-preference, and a reader who has asked for less
+   gets the panel already there. */
+@media (prefers-reduced-motion: no-preference) {
+  .lp .demoDialog[open] { animation: demoIn .18s ease-out both; }
+  .lp .demoDialog[open]::backdrop { animation: demoFade .18s ease-out both; }
+}
+@keyframes demoIn { from { opacity: 0; transform: translateY(10px) scale(.985); } to { opacity: 1; transform: none; } }
+@keyframes demoFade { from { opacity: 0; } to { opacity: 1; } }

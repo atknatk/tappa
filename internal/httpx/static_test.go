@@ -44,6 +44,20 @@ func TestStatic_ServesFilesButNotDirectoryListings(t *testing.T) {
 		t.Fatal("the served script is not the tap script")
 	}
 
+	// The panel sign-in screen's reveal script (2026-09-14). It is asserted HERE, on
+	// the real asset route, because internal/handler can only prove the page NAMES
+	// the path and that the file is in the embedded tree — neither of which is the
+	// same as the route answering 200 for it. /admin/login answers a policy that
+	// permits exactly one script; a 404 for that script is a dead button on a
+	// password form.
+	if code, body := get("/static/js/adminpassword.js"); code != http.StatusOK {
+		t.Fatalf("GET /static/js/adminpassword.js = %d, want 200 — the sign-in page "+
+			"names this file in a <script src>, so a 404 here is a reveal button "+
+			"that never appears", code)
+	} else if !strings.Contains(body, "admin-password") {
+		t.Fatal("the served file is not the password reveal script")
+	}
+
 	// Directories, with and without the trailing slash, and the root.
 	for _, dir := range []string{"/static/", "/static/fonts/", "/static/js/", "/static/fonts", "/static/css/"} {
 		code, body := get(dir)

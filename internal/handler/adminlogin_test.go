@@ -2024,19 +2024,45 @@ func TestAdminScreens_CarryTheSecurityHeaders(t *testing.T) {
 			// widens the policy for a script it does not load, AND a page that loads
 			// a script the policy does not permit (which would be a broken page
 			// shipped green).
-			loadsScript := strings.Contains(strings.ToLower(htmlOf(t, rec)), "<script")
+			body := strings.ToLower(htmlOf(t, rec))
+			loadsScript := strings.Contains(body, "<script")
 			namesScript := strings.Contains(csp, "script-src")
 			switch {
 			case namesScript && !loadsScript:
 				t.Fatalf("CSP names script-src on a page that loads no script: %q", csp)
 			case loadsScript && !namesScript:
 				t.Fatalf("the page loads a script but its CSP does not permit one: %q", csp)
-			case loadsScript && !strings.Contains(csp, "connect-src"):
-				// htmx pages with XMLHttpRequest and connect-src falls back to
-				// default-src, which is 'none'. A scripted page without it loads the
-				// library and then has every request it makes blocked.
-				t.Fatalf("a scripted panel page names no connect-src, so its own "+
-					"requests would be refused by default-src 'none': %q", csp)
+			}
+
+			// 🔴 connect-src IS OWED BY THE htmx PAGES AND BY NOTHING ELSE, and this
+			// clause used to say "every scripted page owes it".
+			//
+			// THAT WAS TRUE WHILE THE ONLY SCRIPT IN THE PANEL WAS htmx, and it stopped
+			// being true on 2026-09-14, when /admin/login grew a file that reveals the
+			// password field's show/hide button. htmx needs connect-src because it pages
+			// with XMLHttpRequest and connect-src falls back to default-src, which is
+			// 'none'; a scripted page without it would load the library and then have
+			// every request it makes refused. The reveal button makes no request of any
+			// kind, so naming connect-src for it would permit something that does not
+			// happen — which is the argument adminCSP makes about script-src, one level
+			// down, and the reason adminLoginCSP is its own constant rather than a reuse
+			// of adminScriptedCSP.
+			//
+			// SO THE RULE IS A CORRESPONDENCE AGAIN RATHER THAN AN EXEMPTION: connect-src
+			// appears IF AND ONLY IF the page loads a VENDORED script (web/static/vendor/,
+			// which is where other people's code lives and the only place htmx is). Both
+			// directions are held, so a page that permits connections it never opens is
+			// as red as a page that opens connections it never permitted.
+			needsConnect := strings.Contains(body, `src="/static/vendor/`)
+			hasConnect := strings.Contains(csp, "connect-src")
+			switch {
+			case needsConnect && !hasConnect:
+				t.Fatalf("a panel page loads a vendored script but names no connect-src, "+
+					"so its own requests would be refused by default-src 'none': %q", csp)
+			case hasConnect && !needsConnect:
+				t.Fatalf("CSP names connect-src on a page whose scripts open no "+
+					"connection: %q. A directive granted for nothing is how the next "+
+					"one gets inherited instead of argued for.", csp)
 			}
 			for _, never := range []string{"unsafe-inline", "unsafe-eval"} {
 				if strings.Contains(csp, never) {
