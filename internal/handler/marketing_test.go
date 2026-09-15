@@ -20,8 +20,8 @@ import (
 
 	"github.com/atknatk/tappa/internal/adminauth"
 	"github.com/atknatk/tappa/internal/domain/ledger"
+	"github.com/atknatk/tappa/internal/domain/tap"
 	"github.com/atknatk/tappa/internal/httpx"
-	"github.com/atknatk/tappa/internal/policy"
 	"github.com/atknatk/tappa/internal/store"
 	"github.com/atknatk/tappa/web/templates/components"
 	"github.com/atknatk/tappa/web/templates/pages"
@@ -253,6 +253,14 @@ func TestMarketing_IsCacheableAndCarriesNoPanelHeaders(t *testing.T) {
 // regression. What is actually required of this surface is that every directive is
 // justified by something the page loads, and that nothing it does not load is
 // named.
+//
+// 🔴 THE LANDING PAGE IS THE ONE EXCEPTION AND IT IS HELD TO EXACTLY ONE
+// WIDENING (2026-09-14). / loads ONE self-hosted script (the user's design
+// rotates the ticket in the hero), so its header is the marketing policy plus
+// `script-src 'self'` — and, only in a build that carries the demo recording, the
+// media directives TestLandingDemo_PolicyNamesMediaOnlyWhenTheBuildCarriesTheDemo
+// holds. Nothing else on the surface — the four legal pages, the wizard's first
+// screen — carries a script-src, because nothing else carries a script.
 func TestMarketing_PolicyNamesWhatThePageLoadsAndNothingElse(t *testing.T) {
 	t.Parallel()
 	want := map[string]string{
@@ -263,14 +271,18 @@ func TestMarketing_PolicyNamesWhatThePageLoadsAndNothingElse(t *testing.T) {
 		"base-uri":        "'none'",
 		"frame-ancestors": "'none'",
 	}
-	got := map[string]string{}
-	for _, d := range strings.Split(marketingCSP, ";") {
-		fields := strings.Fields(strings.TrimSpace(d))
-		if len(fields) == 0 {
-			continue
+	directives := func(policy string) map[string]string {
+		got := map[string]string{}
+		for _, d := range strings.Split(policy, ";") {
+			fields := strings.Fields(strings.TrimSpace(d))
+			if len(fields) == 0 {
+				continue
+			}
+			got[fields[0]] = strings.Join(fields[1:], " ")
 		}
-		got[fields[0]] = strings.Join(fields[1:], " ")
+		return got
 	}
+	got := directives(marketingCSP)
 	for name, value := range want {
 		if got[name] != value {
 			t.Errorf("marketingCSP %s = %q, want %q", name, got[name], value)
@@ -284,22 +296,81 @@ func TestMarketing_PolicyNamesWhatThePageLoadsAndNothingElse(t *testing.T) {
 		}
 	}
 
-	// AND THE PAGES AGREE WITH IT. A policy that forbids scripts on a page that
-	// loads one is a broken page, not a strict one -- so the correspondence is
-	// measured in both directions.
+	// THE LEGAL PAGES AND THE WIZARD'S FIRST SCREEN AGREE WITH IT, and render
+	// nothing the policy would refuse.
 	r := marketingRouter(t)
+	plain := []string{}
 	for _, url := range marketingURLs() {
+		if url != "/" {
+			plain = append(plain, url)
+		}
+	}
+	plain = append(plain, signupPath)
+	for _, url := range plain {
 		rec := fetchMarketing(t, r, url, nil)
-		if header := rec.Header().Get("Content-Security-Policy"); header != marketingCSP {
+		if rec.Code != http.StatusOK {
+			t.Errorf("GET %s = %d, want 200", url, rec.Code)
+			continue
+		}
+		header := rec.Header().Get("Content-Security-Policy")
+		if _, ok := directives(header)["script-src"]; ok {
+			t.Errorf("GET %s policy = %q names script-src; only / carries a script", url, header)
+		}
+		if header != marketingCSP && header != signupCSP {
 			t.Errorf("GET %s policy = %q, want the marketing policy", url, header)
 		}
-		body := rec.Body.String()
+		body := strings.ToLower(rec.Body.String())
 		for _, forbidden := range []string{"<script", "<img", "<iframe", "<object", "<embed"} {
-			if strings.Contains(strings.ToLower(body), forbidden) {
+			if strings.Contains(body, forbidden) {
 				t.Errorf("GET %s renders %s, which the policy does not permit. Either the "+
 					"element goes or the directive it needs has to be argued for.", url, forbidden)
 			}
 		}
+	}
+
+	// AND / CARRIES THE MARKETING POLICY PLUS script-src 'self' AND NOTHING ELSE
+	// (media-src / img-src aside, which the demo test holds to the build).
+	rec := fetchMarketing(t, r, "/", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET / = %d, want 200", rec.Code)
+	}
+	landing := directives(rec.Header().Get("Content-Security-Policy"))
+	for name, value := range want {
+		if landing[name] != value {
+			t.Errorf("GET / policy %s = %q, want the marketing policy's %q", name, landing[name], value)
+		}
+	}
+	if landing["script-src"] != "'self'" {
+		t.Errorf("GET / policy script-src = %q, want 'self': the page loads one self-hosted "+
+			"script and may load nothing wider", landing["script-src"])
+	}
+	for name := range landing {
+		switch name {
+		case "script-src", "media-src", "img-src":
+			continue
+		}
+		if _, ok := want[name]; !ok {
+			t.Errorf("GET / policy names %s, which nothing on the page loads", name)
+		}
+	}
+	body := rec.Body.String()
+	lower := strings.ToLower(body)
+	if n := strings.Count(lower, "<script"); n != 1 {
+		t.Errorf("GET / renders %d <script> element(s); the policy was widened for exactly one", n)
+	}
+	if !strings.Contains(body, `<script src="/static/js/landing.js"`) {
+		t.Error("GET / does not load /static/js/landing.js as its one script; 'self' was granted for it")
+	}
+	if strings.Contains(lower, "<script>") {
+		t.Error("GET / carries an inline <script>, which script-src 'self' refuses and this test refuses first")
+	}
+	for _, forbidden := range []string{"<iframe", "<object", "<embed"} {
+		if strings.Contains(lower, forbidden) {
+			t.Errorf("GET / renders %s, which the policy does not permit", forbidden)
+		}
+	}
+	if _, ok := landing["img-src"]; !ok && strings.Contains(lower, "<img") {
+		t.Error("GET / renders <img> and names no img-src, so the image cannot load")
 	}
 }
 
@@ -691,6 +762,69 @@ func TestLanding_PriceMatchesTheSchemaItIsCharged(t *testing.T) {
 	}
 }
 
+// TestLanding_ExampleTeamCostIsThePriceTimesTheHeadcount.
+//
+// 🔴 THE PRICE CARD'S "A 60-person chain runs on €90/month" IS ARITHMETIC ON THE
+// PRICE, and the user's draft carried the ninety as a literal — a second copy of
+// the price that nothing compared, beside the one that is compared. The figure is
+// now computed in cents by exampleTeamMonthly and rendered from the view; this
+// test holds the function to its arithmetic on constructed prices, and holds the
+// page to the product of the SCHEMA's price and the headcount.
+func TestLanding_ExampleTeamCostIsThePriceTimesTheHeadcount(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		price     string
+		headcount int
+		want      string
+		wantErr   bool
+	}{
+		{"1.50", 60, "90", false},
+		{"1.50", 61, "91.50", false},
+		{"2.00", 10, "20", false},
+		{"0.99", 3, "2.97", false},
+		{"1.5", 60, "", true},   // not <euros>.<cents>
+		{"1.505", 60, "", true}, // three decimals is not a price
+		{"abc", 60, "", true},
+		{"1.50", 0, "", true},
+	} {
+		got, err := exampleTeamMonthly(tc.price, tc.headcount)
+		if (err != nil) != tc.wantErr || got != tc.want {
+			t.Errorf("exampleTeamMonthly(%q, %d) = %q, %v; want %q, err=%v", tc.price, tc.headcount, got, err, tc.want, tc.wantErr)
+		}
+	}
+
+	// The page: the headcount the user chose, times the price migration 00016 charges.
+	mig := repoFile(t, "db", "migrations", "00016_add_billing_price_and_periods.sql")
+	m := priceDefaultRE.FindStringSubmatch(mig)
+	if m == nil {
+		t.Fatal("migration 00016 no longer declares a DEFAULT for tenants.price_per_employee_month in a shape this test can read")
+	}
+	want, err := exampleTeamMonthly(m[1], exampleHeadcount)
+	if err != nil {
+		t.Fatalf("the schema's price %q cannot be multiplied: %v", m[1], err)
+	}
+	text := screenText(t, mustFetchMarketing(t, marketingRouter(t), "/"))
+	sentence := "A " + strconv.Itoa(exampleHeadcount) + "-person chain runs on €" + want + "/month."
+	if !strings.Contains(text, sentence) {
+		t.Errorf("the price card does not say %q; the worked example has come apart from the price", sentence)
+	}
+	if strings.Contains(strings.ToLower(text), "about €") {
+		t.Error("the price card hedges the example with \"about\"; it is exact arithmetic on the published price")
+	}
+	// AND THE EMPTY BRANCH RENDERS NO EXAMPLE rather than a wrong one.
+	var sb strings.Builder
+	v := pages.LandingView{SignupHref: signupPath, SignInHref: adminLoginPath,
+		PricePerEmployeeMonth: publishedPricePerEmployeeMonth, FreeMonths: foundingFreeMonths,
+		ExampleHeadcount: exampleHeadcount, ExampleMonthly: ""}
+	if err := pages.Landing(v).Render(t.Context(), &sb); err != nil {
+		t.Fatalf("rendering the landing page without an example: %v", err)
+	}
+	if strings.Contains(sb.String(), "-person chain runs on") {
+		t.Error("an empty LandingView.ExampleMonthly still renders the example sentence, so a " +
+			"deployment whose price could not be read would print a figure from nowhere")
+	}
+}
+
 // TestLanding_FreeMonthsMatchTheFunctionThatGrantsThem.
 //
 // The founding offer is the one commercial promise on this page that the PRODUCT
@@ -990,6 +1124,7 @@ func anchorDerivations(t *testing.T) map[pages.Anchor]func() string {
 	mig02 := repoFile(t, "db", "migrations", "00002_create_locations_departments.sql")
 	mig04 := repoFile(t, "db", "migrations", "00004_create_tags.sql")
 	mig05 := repoFile(t, "db", "migrations", "00005_create_transactions_audit_reviews.sql")
+	tapSrc := repoFile(t, "internal", "domain", "tap", "decide.go")
 
 	// The two shift-carrying tables, isolated from each other.
 	locations := createTableBlock(t, mig02, "locations")
@@ -1014,25 +1149,14 @@ func anchorDerivations(t *testing.T) map[pages.Anchor]func() string {
 			}
 			return ""
 		},
-		pages.AnchorCrossVenueNotPenalised: func() string {
-			// DERIVED FROM THE POLICY BASELINE ITSELF, not from a source scan: the
-			// statement that makes a cross-venue tap normal has to be present AND
-			// still be an allow. A baseline that turned it into a review would make
-			// the page's "never counted against the person" false.
-			for _, doc := range policy.Baseline() {
-				for _, st := range doc.Document.Statements {
-					if st.Sid != policy.SidCrossLocationNote {
-						continue
-					}
-					if st.Effect != policy.EffectAllow {
-						return "the baseline statement " + policy.SidCrossLocationNote +
-							" is now " + string(st.Effect) + " rather than allow, so a tap away " +
-							"from the home venue IS held against the person"
-					}
-					return ""
-				}
+		pages.AnchorDirectionFollowsLastOpenEntry: func() string {
+			if _, ok := fieldNames(tap.Input{})["LastOpenIn"]; !ok {
+				return "tap.Input no longer carries LastOpenIn, so direction cannot toggle against the last open entry"
 			}
-			return "the baseline no longer carries a " + policy.SidCrossLocationNote + " statement"
+			if !strings.Contains(tapSrc, "func resolveDirection(") {
+				return "internal/domain/tap no longer has resolveDirection; the direction rule the page describes is gone"
+			}
+			return ""
 		},
 		pages.AnchorPerVenueReport: func() string {
 			f, ok := fieldNames(ledger.Report{})["Venues"]
@@ -1121,7 +1245,7 @@ func TestLandingAudiences_EveryClaimRestsOnAProductAnchor(t *testing.T) {
 	claims := 0
 	used := map[pages.Anchor]bool{}
 	for _, a := range pages.LandingAudiences {
-		for _, c := range a.Points {
+		for _, c := range append(append([]pages.Claim{}, a.Points...), a.Example) {
 			claims++
 			if len(c.Anchors) == 0 {
 				t.Errorf("the claim %q rests on no product anchor.\n"+
@@ -1220,7 +1344,10 @@ func TestLandingAudiences_EveryClaimIsActuallyRendered(t *testing.T) {
 		if !strings.Contains(text, a.Title) {
 			t.Errorf("the audience %q is not on the page", a.Title)
 		}
-		for _, c := range a.Points {
+		if a.Kicker == "" || !strings.Contains(text, a.Kicker) {
+			t.Errorf("the audience %q's kicker %q is not on the page", a.Title, a.Kicker)
+		}
+		for _, c := range append(append([]pages.Claim{}, a.Points...), a.Example) {
 			if !strings.Contains(text, c.Text) {
 				t.Errorf("the claim %q is anchored and is NOT rendered, so its pin guards "+
 					"nothing.\nGot: %s", c.Text, text)
@@ -1304,7 +1431,8 @@ func TestLandingAudiences_SayNothingAboutTheTwoBreakdownsThatDoNotExist(t *testi
 	}
 	// And the page does not claim it today.
 	text := strings.ToLower(screenText(t, mustFetchMarketing(t, marketingRouter(t), "/")))
-	for _, phrase := range []string{"split by department", "headcount by department", "report by department", "reports by department"} {
+	for _, phrase := range []string{"split by department", "headcount by department", "report by department",
+		"reports by department", "per-department reports", "shifts & reports", "shifts and reports"} {
 		if strings.Contains(text, phrase) {
 			t.Errorf("the landing page says %q. Neither the reports section nor the monthly "+
 				"headcount has a department dimension.", phrase)

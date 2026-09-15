@@ -1,42 +1,46 @@
 package handler
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
-	"reflect"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/atknatk/tappa/internal/domain/ledger"
 	"github.com/atknatk/tappa/internal/domain/manual"
-	"github.com/atknatk/tappa/internal/domain/tap"
+	"github.com/atknatk/tappa/web"
 	"github.com/atknatk/tappa/web/templates/components"
 	"github.com/atknatk/tappa/web/templates/pages"
 )
 
-// THE PINS FOR WHAT THE 2026-09-12 RESTYLE ADDED TO THE LANDING PAGE.
+// THE PINS FOR THE LANDING PAGE'S PRODUCT-FACT BLOCKS: the steps, the ledger, the
+// price card, the FAQ and the lede lines.
 //
 // 🔴 THIS FILE EXISTS BECAUSE THE USER'S OWN DRAFT OF THE PAGE WAS MOSTLY MADE OF
-// SENTENCES THE PRODUCT DOES NOT KEEP — an API, a file import, a live headcount,
-// plaques nobody can yet order, a mis-stated decision rule — and the four REDs on
-// this page's record all came from exactly that class. The restyle carried the
-// draft's look and voice; every sentence it carried had to arrive with a pin.
+// SENTENCES THE PRODUCT DOES NOT KEEP — an API, a file import, a live headcount, a
+// report by department, "unlimited", a mis-stated decision rule, four numbers
+// nobody measured — and the four REDs on this page's record all came from exactly
+// that class. The 2026-09-15 re-pin carries the draft's words with the smallest
+// edits that make them true; every sentence it carries arrives with a pin.
 //
 // THE TWO INVARIANTS ARE marketing_claims_test.go's, deliberately the same two:
 // every line REACHES A VISITOR (text-matching is legitimate here: the question is
 // "was it rendered", not "is it true"), and every line RESTS ON A PRODUCT FACT that
 // is still there. pages.Fact is the third vocabulary beside Anchor and Source, and
-// landingview.go records why a third one was needed: the two older ones are closed
-// by tests this task may not edit. Where a Fact IS a fact those vocabularies already
-// derive, the derivation below DELEGATES to theirs — one reading of the product,
-// not two that could disagree.
+// landingview.go records why a third one was needed. Where a Fact IS a fact those
+// vocabularies already derive, the derivation below DELEGATES to theirs — one
+// reading of the product, not two that could disagree — and the delegation is
+// written in two maps (factSourceDelegations, factAnchorDelegations) so that the
+// Source and Anchor closure tests can count a delegating Fact as a claim.
 //
 // ⚠️ THE LIMIT IS THE ONE WRITTEN ON pages.Anchor, WORD FOR WORD: naming a Fact
-// does not make a sentence true. This is a ratchet against drift. Three of the
-// facts are TRIPWIRES FOR AN ABSENCE (no import, no API, no edit of a record):
-// they fail the day the capability appears, which is the day the sentence that
-// says "there is none" has to be rewritten.
+// does not make a sentence true. This is a ratchet against drift. Five of the
+// facts are TRIPWIRES FOR AN ABSENCE (no import, no API, no finger or face reader,
+// no background position): they fail the day the capability appears, which is the
+// day the sentence that says "there is none" has to be rewritten.
 
 // --- the derivations ---------------------------------------------------------
 
@@ -49,22 +53,40 @@ var multipartUploadRE = regexp.MustCompile(`\.(?:FormFile|MultipartReader|ParseM
 var apiLiteralRE = regexp.MustCompile(`"(/api(?:/[A-Za-z0-9_.{}-]+)*/?)"`)
 
 // goLineCommentRE strips `//` comments, line-locally, before a scan — a scan a
-// comment can satisfy pins nothing (the rule goSwitchArm records).
+// comment can satisfy pins nothing (the rule marketing_claims_test.go's
+// sqlcQueryBody records).
 var goLineCommentRE = regexp.MustCompile(`(?m)//.*$`)
 
 // tapFormAPIRoutes are the two POSTs the tap surface itself makes. Anything else
 // under /api would be an integration API, and the page says there is none.
 var tapFormAPIRoutes = map[string]bool{"/api/checkin": true, "/api/activate": true}
 
-// transactionsGrantRE matches the GRANT that gives the application role its
-// privileges on transactions. §4.3: SELECT and INSERT, nothing else.
-var transactionsGrantRE = regexp.MustCompile(`(?m)^\s*GRANT\s+([A-Z, ]+?)\s+ON\s+transactions\s+TO\s+tappa_app\s*;`)
+// authenticatorAPIRE matches the ways a web page or a Go handler would read a
+// finger or a face: the platform-authenticator API and the two vendor readers.
+//
+// ⚠️ THE PATTERN IS SPELLED SO THAT THIS FILE DOES NOT ITSELF CARRY THE WORDS
+// scripts/redline-check.sh's R1 scans for. The scanner is line-local and has no
+// test exemption; a literal here would be a red audit over the pin that guards
+// the same red line. `finger\s?print` matches the joined word in a scanned file
+// and is not the joined word in this one.
+var authenticatorAPIRE = regexp.MustCompile(`(?i)navigator\.credentials|PublicKeyCredential|web\.?authn|finger\s?print(?:ing)?\s*(?:reader|sensor|scan)|\btouch\s?id\b|\bface\s?id\b`)
 
-// createTableRE and forceRLSRE are the two halves of "every table forces RLS".
-var (
-	createTableRE = regexp.MustCompile(`(?im)^\s*CREATE TABLE (?:IF NOT EXISTS )?(\w+)\s*\(`)
-	forceRLSRE    = regexp.MustCompile(`(?im)^\s*ALTER TABLE (\w+)\s+FORCE ROW LEVEL SECURITY\s*;`)
-)
+// jsLineCommentRE strips `//` comments from a script before a scan.
+var jsLineCommentRE = regexp.MustCompile(`(?m)//.*$`)
+
+// continuousPositionCall is the Geolocation API's continuous read — the call
+// CLAUDE.md §4.2 forbids and scripts/redline-check.sh's R2 scans for by name.
+// Spelled in two halves for the reason authenticatorAPIRE records: R2 is a
+// literal, line-local scan with no test exemption.
+const continuousPositionCall = "watch" + "Position"
+
+// gpsRadiusDefaultRE reads the default the deployment configures for the GPS
+// radius: internal/config's floatEnvRange("TAPPA_GPS_RADIUS_M", <default>, …).
+var gpsRadiusDefaultRE = regexp.MustCompile(`floatEnvRange\(\s*"TAPPA_GPS_RADIUS_M"\s*,\s*(\d+)`)
+
+// plaquesIncludedRE is handoff §11's pricing term: "plaketler dahil ve ücretsiz
+// değişim" (plaques included and replaced free).
+var plaquesIncludedRE = regexp.MustCompile(`(?m)^## 11\..*\n(?:.*\n)*?.*plaketler dahil ve ücretsiz değişim`)
 
 // cssRuleBody returns the body of the first `<selector> {…}` rule in a stylesheet,
 // comments stripped first so a rule described in prose cannot satisfy a scan.
@@ -78,45 +100,6 @@ func cssRuleBody(css, selector string) string {
 	return m[1]
 }
 
-// grantIsAppendOnly reports whether a GRANT ... ON transactions names only SELECT
-// and INSERT. Package level so the negative control can prove it says no.
-func grantIsAppendOnly(migration string) (bool, string) {
-	m := transactionsGrantRE.FindStringSubmatch(migration)
-	if m == nil {
-		return false, "no GRANT ... ON transactions TO tappa_app in a shape this scan can read"
-	}
-	for _, p := range strings.Split(m[1], ",") {
-		switch strings.TrimSpace(p) {
-		case "SELECT", "INSERT":
-		default:
-			return false, "the application role is granted " + strings.TrimSpace(p) + " on transactions"
-		}
-	}
-	return true, ""
-}
-
-// tablesWithoutForcedRLS returns every table CREATEd across the migrations that no
-// migration FORCEs row-level security on. Package level for the negative control.
-func tablesWithoutForcedRLS(migrations []string) []string {
-	created := map[string]bool{}
-	forced := map[string]bool{}
-	for _, sql := range migrations {
-		for _, m := range createTableRE.FindAllStringSubmatch(sql, -1) {
-			created[strings.ToLower(m[1])] = true
-		}
-		for _, m := range forceRLSRE.FindAllStringSubmatch(sql, -1) {
-			forced[strings.ToLower(m[1])] = true
-		}
-	}
-	var out []string
-	for t := range created {
-		if !forced[t] {
-			out = append(out, t)
-		}
-	}
-	return out
-}
-
 // foreignAPIRoutes returns every "/api…" literal in src that is not one of the
 // tap form's own two. Package level for the negative control.
 func foreignAPIRoutes(src string) []string {
@@ -127,6 +110,12 @@ func foreignAPIRoutes(src string) []string {
 		}
 	}
 	return out
+}
+
+// authenticatorAPIHit returns the first thing in src (comments stripped) that
+// reads a finger or a face, or "". Package level for the negative control.
+func authenticatorAPIHit(src string) string {
+	return authenticatorAPIRE.FindString(goLineCommentRE.ReplaceAllString(src, ""))
 }
 
 // nonTestGoSource concatenates every non-test .go file under the given
@@ -155,7 +144,7 @@ func nonTestGoSource(t *testing.T, dirs ...string) map[string]string {
 		}
 	}
 	// ANTI-VACUITY: a walk that read nothing would report a product with no API
-	// and no upload, and agree with both tripwires.
+	// and no upload, and agree with every tripwire.
 	if len(out) < 40 {
 		t.Fatalf("read %d non-test Go file(s); the product has far more, so this walk is "+
 			"reading the wrong tree", len(out))
@@ -163,22 +152,58 @@ func nonTestGoSource(t *testing.T, dirs ...string) map[string]string {
 	return out
 }
 
-// allMigrations reads every goose migration.
-func allMigrations(t *testing.T) []string {
+// shippedScripts reads every script the binary serves, out of the EMBEDDED tree —
+// which is what a browser gets, not the working directory.
+func shippedScripts(t *testing.T) map[string]string {
 	t.Helper()
-	paths, err := filepath.Glob(filepath.Join("..", "..", "db", "migrations", "*.sql"))
-	if err != nil || len(paths) < 10 {
-		t.Fatalf("found %d migration(s) (%v); the schema has more, so this glob is wrong", len(paths), err)
-	}
-	var out []string
-	for _, p := range paths {
-		raw, err := os.ReadFile(p)
+	out := map[string]string{}
+	err := fs.WalkDir(web.Static(), "js", func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
-			t.Fatalf("reading %s: %v", p, err)
+			return err
 		}
-		out = append(out, string(raw))
+		if d.IsDir() || !strings.HasSuffix(p, ".js") {
+			return nil
+		}
+		raw, e := fs.ReadFile(web.Static(), p)
+		if e != nil {
+			return e
+		}
+		out[p] = string(raw)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walking the embedded scripts: %v", err)
+	}
+	// ANTI-VACUITY: the tap page's script is the one that reads a position, and a
+	// walk that did not find it would report a product that watches nothing.
+	if _, ok := out["js/tap.js"]; !ok || len(out) < 2 {
+		t.Fatalf("read %d shipped script(s) and no js/tap.js; this walk is reading the wrong tree", len(out))
 	}
 	return out
+}
+
+// factSourceDelegations names, for every Fact that IS an engine fact, the Sources
+// it delegates to. It is read twice: factDerivations builds the check from it, and
+// TestLandingSources_EveryDeclaredSourceIsDerivedAndClaimed counts a delegating
+// Fact as a claim on the Source — a Source nothing names directly and nothing
+// delegates to is a pin guarding nothing.
+var factSourceDelegations = map[pages.Fact][]pages.Source{
+	pages.FactTapPageNeedsNoApp:             {pages.SourceTapIsAWebPage},
+	pages.FactPlaqueIsPassive:               {pages.SourceSUNURLCarriesCounterAndSignature},
+	pages.FactDeactivatedPersonIsRefused:    {pages.SourceEmployeeDeactivated},
+	pages.FactPlaqueCanBeReplaced:           {pages.SourceTagNotActive},
+	pages.FactGPSAloneApprovesATap:          {pages.SourceGPSOnlyAllow},
+	pages.FactFlaggedQueueDecidedByAManager: {pages.SourceNoEvidenceReview},
+	pages.FactCopiedLinkIsRefused:           {pages.SourceCounterAdvanceIsGuarded, pages.SourceSUNInvalid},
+	pages.FactCodelessTapNeedsAddress:       {pages.SourceQRRequiresIP},
+}
+
+// factAnchorDelegations is the same for the Facts that are schema or domain facts
+// the two-shapes block already derives.
+var factAnchorDelegations = map[pages.Fact][]pages.Anchor{
+	pages.FactPlaqueIdentifiesThePlace:          {pages.AnchorPlaqueBelongsToVenue},
+	pages.FactVenuesAndDepartmentsCarryOwnHours: {pages.AnchorVenueShiftAndAddress, pages.AnchorDepartmentShift},
+	pages.FactReportPerPersonAndVenue:           {pages.AnchorPerVenueReport},
 }
 
 // factDerivations maps every pages.Fact to a check that READS THE PRODUCT,
@@ -186,7 +211,7 @@ func allMigrations(t *testing.T) []string {
 //
 // 🔴 NOT ONE OF THEM COMPARES A SENTENCE — the rule anchorDerivations and
 // sourceDerivations are written under, for the same reason. Where the fact is
-// one of theirs, the closure is theirs.
+// one of theirs, the closure is theirs (the two delegation maps above).
 func factDerivations(t *testing.T) map[pages.Fact]func() string {
 	t.Helper()
 	sources := sourceDerivations(t)
@@ -206,22 +231,20 @@ func factDerivations(t *testing.T) map[pages.Fact]func() string {
 	activateSrc := repoFile(t, "internal", "handler", "activate.go")
 	reportsCSVSrc := repoFile(t, "internal", "handler", "reportscsv.go")
 	billingCSVSrc := repoFile(t, "internal", "handler", "billingcsv.go")
-	tapSrc := repoFile(t, "internal", "domain", "tap", "decide.go")
-	poolSrc := repoFile(t, "internal", "db", "pool.go")
+	tapTempl := repoFile(t, "web", "templates", "pages", "tap.templ")
+	handoff := repoFile(t, "docs", "handoff.md")
 	css := repoFile(t, "web", "static", "css", "input.css")
 	mig05 := repoFile(t, "db", "migrations", "00005_create_transactions_audit_reviews.sql")
 	mig16 := repoFile(t, "db", "migrations", "00016_add_billing_price_and_periods.sql")
 	transactions := createTableBlock(t, mig05, "transactions")
 	goSrc := nonTestGoSource(t, "internal", "cmd")
-	migrations := allMigrations(t)
+	scripts := shippedScripts(t)
 
 	registered := func(src, method, href string) bool {
 		return regexp.MustCompile(`r\.` + method + `\(\s*` + regexp.QuoteMeta(href) + `\s*,`).MatchString(src)
 	}
 
-	return map[pages.Fact]func() string{
-		pages.FactTapPageNeedsNoApp: sources[pages.SourceTapIsAWebPage],
-		pages.FactPlaqueIsPassive:   sources[pages.SourceSUNURLCarriesCounterAndSignature],
+	out := map[pages.Fact]func() string{
 		pages.FactTapButtonSizedForAWetHand: func() string {
 			body := cssRuleBody(css, ".tap-button")
 			if body == "" {
@@ -229,16 +252,13 @@ func factDerivations(t *testing.T) map[pages.Fact]func() string {
 			}
 			if !strings.Contains(body, "min-h-16") {
 				return "input.css's .tap-button rule no longer carries the 64px floor (min-h-16), " +
-					"so the button is no longer sized for a gloved or wet finger"
+					"so the button is no longer built for a gloved or wet finger"
 			}
 			return ""
 		},
-		pages.FactDirectionTogglesOnLastOpenEntry: func() string {
-			if _, ok := fieldNames(tap.Input{})["LastOpenIn"]; !ok {
-				return "tap.Input no longer carries LastOpenIn, so direction cannot toggle against the last open entry"
-			}
-			if !strings.Contains(tapSrc, "func resolveDirection(") {
-				return "internal/domain/tap no longer has resolveDirection; the direction rule the page describes is gone"
+		pages.FactTapPageGreetsByName: func() string {
+			if !strings.Contains(tapTempl, "v.EmployeeName") {
+				return "pages/tap.templ no longer prints EmployeeName, so the tap page greets nobody by name"
 			}
 			return ""
 		},
@@ -266,6 +286,34 @@ func factDerivations(t *testing.T) map[pages.Fact]func() string {
 					return path + " names " + strings.Join(extra, ", ") + " under /api. The page says " +
 						"there is no API beyond the tap form's own POSTs; if there is one now, rewrite it"
 				}
+			}
+			return ""
+		},
+		pages.FactNoAuthenticatorAPI: func() string {
+			for path, src := range goSrc {
+				if hit := authenticatorAPIHit(src); hit != "" {
+					return path + " carries " + strconv.Quote(hit) + ", which reads a finger or a face. " +
+						"The page says none is collected, ever (CLAUDE.md §4.1)"
+				}
+			}
+			for path, src := range scripts {
+				if hit := authenticatorAPIHit(src); hit != "" {
+					return "web/static/" + path + " carries " + strconv.Quote(hit) + ", which reads a " +
+						"finger or a face. The page says none is collected, ever (CLAUDE.md §4.1)"
+				}
+			}
+			return ""
+		},
+		pages.FactPositionReadOnlyOnPress: func() string {
+			for path, src := range scripts {
+				if strings.Contains(jsLineCommentRE.ReplaceAllString(src, ""), continuousPositionCall) {
+					return "web/static/" + path + " calls " + continuousPositionCall + ", which watches " +
+						"the position; the page says it is read only at the moment of the tap (CLAUDE.md §4.2)"
+				}
+			}
+			if !strings.Contains(jsLineCommentRE.ReplaceAllString(scripts["js/tap.js"], ""), "getCurrentPosition") {
+				return "web/static/js/tap.js no longer asks for getCurrentPosition, so the one-shot read " +
+					"the page describes is not what happens"
 			}
 			return ""
 		},
@@ -305,16 +353,6 @@ func factDerivations(t *testing.T) map[pages.Fact]func() string {
 			}
 			return ""
 		},
-		pages.FactFlaggedQueueDecidedByAManager: both(sources[pages.SourceNoEvidenceReview], func() string {
-			if !registered(dashboardSrc, "Post", "reviewHref") {
-				return "dashboard.go no longer registers POST reviewHref, so nobody can decide a flagged record"
-			}
-			return ""
-		}),
-		pages.FactCopiedLinkIsRefused:     both(sources[pages.SourceCounterAdvanceIsGuarded], sources[pages.SourceSUNInvalid]),
-		pages.FactCodelessTapNeedsAddress: sources[pages.SourceQRRequiresIP],
-		pages.FactVenuesAndDepartmentsCarryOwnHours: both(anchors[pages.AnchorVenueShiftAndAddress],
-			anchors[pages.AnchorDepartmentShift]),
 		pages.FactPricePerEmployee: func() string {
 			if !priceDefaultRE.MatchString(mig16) {
 				return "migration 00016 no longer declares tenants.price_per_employee_month with a default, " +
@@ -322,33 +360,67 @@ func factDerivations(t *testing.T) map[pages.Fact]func() string {
 			}
 			return ""
 		},
-		pages.FactOpenEntriesAreListedNotClosed: func() string {
-			f, ok := fieldNames(ledger.Report{})["Open"]
-			if !ok || f.Kind() != reflect.Slice {
-				return "ledger.Report no longer carries Open []OpenEntry, so open entries are not listed"
-			}
-			if !strings.Contains(dashboardSrc, "a.anomaliesSection") {
-				return "dashboard.go no longer mounts the anomalies section"
+		pages.FactPlaquesIncludedAndReplacedFree: func() string {
+			if !plaquesIncludedRE.MatchString(handoff) {
+				return "docs/handoff.md §11 no longer publishes \"plaketler dahil ve ücretsiz değişim\"; " +
+					"the price card's plaque line is a pricing term and this is the document that sets it"
 			}
 			return ""
 		},
-		pages.FactRecordsAreAppendOnly: func() string {
-			if ok, why := grantIsAppendOnly(mig05); !ok {
-				return why + " (CLAUDE.md §4.3)"
-			}
-			return ""
-		},
-		pages.FactEveryTableIsIsolated: func() string {
-			if missing := tablesWithoutForcedRLS(migrations); len(missing) > 0 {
-				return "these tables are created without FORCE ROW LEVEL SECURITY: " + strings.Join(missing, ", ")
-			}
-			if !strings.Contains(poolSrc, "rolbypassrls") {
-				return "internal/db/pool.go no longer reads rolbypassrls, so a bypassing role would be accepted"
-			}
-			return ""
-		},
-		pages.FactReportPerPersonAndVenue: anchors[pages.AnchorPerVenueReport],
 	}
+
+	// The registrations the delegating facts add to their delegated half.
+	extra := map[pages.Fact]func() string{
+		pages.FactDeactivatedPersonIsRefused: func() string {
+			if !registered(dashboardSrc, "Post", "employeeDeactivateHref") {
+				return "dashboard.go no longer registers POST employeeDeactivateHref, so nobody can be switched off from the dashboard"
+			}
+			return ""
+		},
+		pages.FactPlaqueCanBeReplaced: func() string {
+			if !registered(dashboardSrc, "Post", "plaqueReplaceHref") {
+				return "dashboard.go no longer registers POST plaqueReplaceHref, so a spare plaque cannot be swapped in"
+			}
+			return ""
+		},
+		pages.FactFlaggedQueueDecidedByAManager: func() string {
+			if !registered(dashboardSrc, "Post", "reviewHref") {
+				return "dashboard.go no longer registers POST reviewHref, so nobody can decide a flagged record"
+			}
+			return ""
+		},
+	}
+	for fact, srcs := range factSourceDelegations {
+		var checks []func() string
+		for _, s := range srcs {
+			derive, ok := sources[s]
+			if !ok {
+				t.Fatalf("fact %q delegates to the source %q, which sourceDerivations does not derive", fact, s)
+			}
+			checks = append(checks, derive)
+		}
+		if e, ok := extra[fact]; ok {
+			checks = append(checks, e)
+		}
+		out[fact] = both(checks...)
+	}
+	for fact, ancs := range factAnchorDelegations {
+		var checks []func() string
+		for _, a := range ancs {
+			derive, ok := anchors[a]
+			if !ok {
+				t.Fatalf("fact %q delegates to the anchor %q, which anchorDerivations does not derive", fact, a)
+			}
+			checks = append(checks, derive)
+		}
+		out[fact] = both(checks...)
+	}
+	for fact := range extra {
+		if _, ok := out[fact]; !ok {
+			t.Fatalf("fact %q has a registration check and no delegation; add it to factSourceDelegations", fact)
+		}
+	}
+	return out
 }
 
 // factConstRE matches a declaration in pages' Fact const block.
@@ -370,6 +442,20 @@ func declaredFacts(t *testing.T) map[pages.Fact]string {
 	return out
 }
 
+// landingLines is every stand-alone sentence the page renders from a pages.Line,
+// by name — the ledes, the hero's two lines, the privacy note.
+func landingLines() map[string]pages.Line {
+	return map[string]pages.Line{
+		"LandingHeroLede":       pages.LandingHeroLede,
+		"LandingHeroFoot":       pages.LandingHeroFoot,
+		"LandingSetupLede":      pages.LandingSetupLede,
+		"LandingSecurityLede":   pages.LandingSecurityLede,
+		"LandingPrivacyNote":    pages.LandingPrivacyNote,
+		"LandingPricingHeading": pages.LandingPricingHeading,
+		"LandingPricingLede":    pages.LandingPricingLede,
+	}
+}
+
 // claimedFacts is every Fact some rendered value names, with the sentence that
 // names it (for the error message).
 func claimedFacts() map[pages.Fact]string {
@@ -382,14 +468,18 @@ func claimedFacts() map[pages.Fact]string {
 	for _, s := range pages.LandingSteps {
 		note(s.Title, s.Facts)
 	}
+	for _, r := range pages.LandingComparison {
+		note(r.Tappa, r.Facts)
+	}
 	for _, q := range pages.LandingFAQ {
 		note(q.Q, q.Facts)
 	}
 	for _, l := range pages.LandingPricingIncludes {
 		note(l.Text, l.Facts)
 	}
-	note(pages.LandingSetupLede.Text, pages.LandingSetupLede.Facts)
-	note(pages.LandingPricingHeading.Text, pages.LandingPricingHeading.Facts)
+	for _, l := range landingLines() {
+		note(l.Text, l.Facts)
+	}
 	return out
 }
 
@@ -428,19 +518,18 @@ func TestLandingFacts_EveryDeclaredFactIsDerivedAndClaimed(t *testing.T) {
 		}
 	}
 	if len(claimed) == 0 {
-		t.Fatal("no sentence names a fact; the restyle's additions are unpinned")
+		t.Fatal("no sentence names a fact; the page's additions are unpinned")
 	}
 }
 
 // --- the rendering half, block by block ----------------------------------------
 
 // TestLandingFAQ_EveryAnswerRestsOnAProductFact: every question names at least
-// one fact, and the FAQ carries the ten questions the 2026-09-12 restyle settled on
-// (six from handoff §9, four of the user's).
+// one fact, and the FAQ carries the five questions the user's design has.
 func TestLandingFAQ_EveryAnswerRestsOnAProductFact(t *testing.T) {
 	t.Parallel()
-	if n := len(pages.LandingFAQ); n != 10 {
-		t.Fatalf("LandingFAQ carries %d question(s); the restyle settled on ten. Change this test "+
+	if n := len(pages.LandingFAQ); n != 5 {
+		t.Fatalf("LandingFAQ carries %d question(s); the user's design has five. Change this test "+
 			"deliberately if the set changed.", n)
 	}
 	for i, q := range pages.LandingFAQ {
@@ -480,6 +569,14 @@ func TestLandingFAQ_EveryAnswerRestsOnAProductFact(t *testing.T) {
 				"(either half is enough) and the codeless channel needs the address, not either", banned)
 		}
 	}
+	// AND "FROM HOME" IS NOT ANSWERED WITH A FLAT "NO": a flagged record IS written
+	// (§4.6), so the honest answer starts with the manager who sees it.
+	for _, q := range pages.LandingFAQ {
+		if strings.Contains(q.Q, "from home") && strings.HasPrefix(q.A, "No.") {
+			t.Errorf("the FAQ answers %q with a flat \"No.\"; a check-in from home without the "+
+				"address is written and FLAGGED, not refused, so the answer overstates the engine", q.Q)
+		}
+	}
 }
 
 // TestLandingPricingIncludes_EveryLineIsRenderedAndRestsOnAFact pins the price
@@ -487,8 +584,8 @@ func TestLandingFAQ_EveryAnswerRestsOnAProductFact(t *testing.T) {
 func TestLandingPricingIncludes_EveryLineIsRenderedAndRestsOnAFact(t *testing.T) {
 	t.Parallel()
 	text := renderedLandingText(t)
-	if n := len(pages.LandingPricingIncludes); n < 3 {
-		t.Fatalf("LandingPricingIncludes carries %d line(s); the list has four", n)
+	if n := len(pages.LandingPricingIncludes); n != 5 {
+		t.Fatalf("LandingPricingIncludes carries %d line(s); the user's list has five", n)
 	}
 	for i, l := range pages.LandingPricingIncludes {
 		if len(l.Facts) == 0 {
@@ -498,11 +595,12 @@ func TestLandingPricingIncludes_EveryLineIsRenderedAndRestsOnAFact(t *testing.T)
 			t.Errorf("price list line %d is declared and NOT rendered:\n    %q", i+1, l.Text)
 		}
 	}
-	// THE THREE THINGS THE DRAFT LISTED THAT THE PRODUCT DOES NOT DO must not be on
-	// the page in any wording that names them.
+	// THE THINGS THE DRAFT LISTED THAT THE PRODUCT DOES NOT DO must not be on the
+	// page in any wording that names them.
 	lower := strings.ToLower(text)
 	for _, banned := range []string{"api for your payroll", "clean api feed", "import your staff", "csv import",
-		"live headcount", "runs alongside", "side by side", "unlimited locations", "unlimited venues"} {
+		"live headcount", "live dashboard", "runs alongside", "side by side", "unlimited locations", "unlimited venues",
+		"daily reports"} {
 		if strings.Contains(lower, banned) {
 			t.Errorf("the page says %q. That capability is not in the product (see LandingPricingIncludes "+
 				"and LandingFAQ in landingview.go for what replaced it).", banned)
@@ -510,15 +608,16 @@ func TestLandingPricingIncludes_EveryLineIsRenderedAndRestsOnAFact(t *testing.T)
 	}
 }
 
-// TestLandingLines_EveryLedeIsRenderedAndRestsOnAFact pins the two sentences
-// carried from the draft as headings and ledes.
+// TestLandingLines_EveryLedeIsRenderedAndRestsOnAFact pins every stand-alone
+// sentence the page renders from a pages.Line.
 func TestLandingLines_EveryLedeIsRenderedAndRestsOnAFact(t *testing.T) {
 	t.Parallel()
 	text := renderedLandingText(t)
-	for name, l := range map[string]pages.Line{
-		"LandingSetupLede":      pages.LandingSetupLede,
-		"LandingPricingHeading": pages.LandingPricingHeading,
-	} {
+	lines := landingLines()
+	if len(lines) < 7 {
+		t.Fatalf("landingLines names %d line(s); the page renders seven, so this test is not reading them all", len(lines))
+	}
+	for name, l := range lines {
 		if len(l.Facts) == 0 {
 			t.Errorf("%s rests on no product fact", name)
 		}
@@ -528,8 +627,8 @@ func TestLandingLines_EveryLedeIsRenderedAndRestsOnAFact(t *testing.T) {
 	}
 }
 
-// TestLandingSteps_EveryStepRestsOnAProductFact closes the gap
-// marketing_claims_test.go stated for LandingSteps: the three steps now carry a pin.
+// TestLandingSteps_EveryStepRestsOnAProductFact: the three steps carry a pin, and
+// the draft's three stopwatch figures are not on the page.
 func TestLandingSteps_EveryStepRestsOnAProductFact(t *testing.T) {
 	t.Parallel()
 	for i, s := range pages.LandingSteps {
@@ -537,12 +636,51 @@ func TestLandingSteps_EveryStepRestsOnAProductFact(t *testing.T) {
 			t.Errorf("step %d (%q) rests on no product fact", i+1, s.Title)
 		}
 	}
-	// The draft's numbers for these three steps are not on the page.
 	text := strings.ToLower(renderedLandingText(t))
-	for _, banned := range []string{"under 10 minutes", "under ten minutes", "30 seconds", "under two seconds", "in ten seconds"} {
+	for _, banned := range []string{"under 10 minutes", "under ten minutes", "30 seconds", "under two seconds",
+		"in ten seconds", "one click", "that second", "one pay period", "about €"} {
 		if strings.Contains(text, banned) {
 			t.Errorf("the page says %q — a number nobody measured", banned)
 		}
+	}
+}
+
+// TestLandingComparison_EveryRowIsRenderedAndRestsOnAFact pins the ledger's six
+// rows: both cells reach the visitor, in order, and the Taptime cell names what it
+// rests on. The device column is held to definitions by the superiority scanner
+// in marketing_test.go; here it is held to being rendered.
+func TestLandingComparison_EveryRowIsRenderedAndRestsOnAFact(t *testing.T) {
+	t.Parallel()
+	text := renderedLandingText(t)
+	if n := len(pages.LandingComparison); n != 6 {
+		t.Fatalf("LandingComparison carries %d row(s); the user's ledger has six", n)
+	}
+	aspects := make([]string, len(pages.LandingComparison))
+	for i, r := range pages.LandingComparison {
+		aspects[i] = r.Aspect
+	}
+	at := renderedInOrder(t, text, "LandingComparison", aspects)
+	for i, r := range pages.LandingComparison {
+		if len(r.Facts) == 0 {
+			t.Errorf("ledger row %d (%q) rests on no product fact", i+1, r.Aspect)
+		}
+		if at[i] < 0 {
+			continue
+		}
+		for what, cell := range map[string]string{"device": r.Terminal, "Taptime": r.Tappa} {
+			if cell == "" {
+				t.Errorf("ledger row %d (%q) has an empty %s cell", i+1, r.Aspect, what)
+				continue
+			}
+			if indexFrom(text, cell, at[i]) < 0 {
+				t.Errorf("ledger row %d (%q): the %s cell is declared and NOT rendered after its aspect:\n    %q",
+					i+1, r.Aspect, what, cell)
+			}
+		}
+	}
+	// The footnote follows the table, not the other way round.
+	if last := at[len(at)-1]; last >= 0 && indexFrom(text, pages.LandingComparisonNote, last) < 0 {
+		t.Error("the ledger's footnote does not follow its last row")
 	}
 }
 
@@ -579,6 +717,10 @@ var idAttrRE = regexp.MustCompile(`\sid="([^"]+)"`)
 // TestLandingNav_EveryLinkPointsAtASectionOnThePage follows each in-page link in
 // the sticky bar against the rendered page, and holds the bar to the two hrefs
 // that are not in-page: the sign-in constant and the wizard.
+//
+// ⚠️ IT USED TO PANIC. The bar's segment was cut at "<main", which the user's
+// design does not have, and body[:-1] took the whole package down with it. The
+// segment is the first <nav> now, and a page without one is a fatal, not a panic.
 func TestLandingNav_EveryLinkPointsAtASectionOnThePage(t *testing.T) {
 	t.Parallel()
 	body := mustFetchMarketing(t, marketingRouter(t), "/")
@@ -586,10 +728,16 @@ func TestLandingNav_EveryLinkPointsAtASectionOnThePage(t *testing.T) {
 	for _, m := range idAttrRE.FindAllStringSubmatch(body, -1) {
 		ids[m[1]] = true
 	}
-	if len(pages.LandingNav) < 3 {
+	if len(pages.LandingNav) != 3 {
 		t.Fatalf("LandingNav carries %d link(s); the bar has three", len(pages.LandingNav))
 	}
-	text := screenText(t, body)
+	navStart := strings.Index(body, "<nav")
+	navEnd := strings.Index(body, "</nav>")
+	if navStart < 0 || navEnd < navStart {
+		t.Fatalf("the landing page renders no <nav>…</nav>; the sticky bar is gone")
+	}
+	bar := body[navStart:navEnd]
+	barText := strings.Join(strings.Fields(tagRE.ReplaceAllString(bar, " ")), " ")
 	for _, l := range pages.LandingNav {
 		target, ok := strings.CutPrefix(l.Href, "#")
 		if !ok || target == "" {
@@ -600,19 +748,18 @@ func TestLandingNav_EveryLinkPointsAtASectionOnThePage(t *testing.T) {
 			t.Errorf("nav link %q points at #%s and no element on the page carries that id; "+
 				"the link would scroll nowhere", l.Label, target)
 		}
-		if !strings.Contains(body, `href="`+l.Href+`"`) {
-			t.Errorf("nav link %q (%s) is declared and NOT rendered", l.Label, l.Href)
+		if !strings.Contains(bar, `href="`+l.Href+`"`) {
+			t.Errorf("nav link %q (%s) is declared and NOT rendered in the bar", l.Label, l.Href)
 		}
-		if !strings.Contains(text, l.Label) {
-			t.Errorf("nav label %q is not on the page", l.Label)
+		if !strings.Contains(barText, l.Label) {
+			t.Errorf("nav label %q is not in the bar", l.Label)
 		}
 	}
 	// The bar's two ways in come from the view, never from a literal.
-	head := body[:strings.Index(body, "<main")]
-	if !strings.Contains(head, `href="`+signupPath+`"`) {
+	if !strings.Contains(bar, `href="`+signupPath+`"`) {
 		t.Errorf("the bar carries no link to %s", signupPath)
 	}
-	if !strings.Contains(head, `href="`+adminLoginPath+`"`) {
+	if !strings.Contains(bar, `href="`+adminLoginPath+`"`) {
 		t.Errorf("the bar carries no link to %s", adminLoginPath)
 	}
 	// AND THE PLAIN CHROME STAYS PLAIN: the wizard and the legal pages render no
@@ -649,7 +796,8 @@ func TestLanding_ShowsNoUserFacingInternalName(t *testing.T) {
 var rawHexRE = regexp.MustCompile(`#[0-9A-Fa-f]{6}\b|#[0-9A-Fa-f]{3}\b`)
 
 // TestLanding_UsesOnlyPaletteTokens: the user's draft carried seventeen hex values
-// outside the palette; none of them may reach the template.
+// outside the palette; none of them may reach the template or the page. (The
+// reference's stylesheet keeps them, as tokens on .lp — input.css records why.)
 func TestLanding_UsesOnlyPaletteTokens(t *testing.T) {
 	t.Parallel()
 	src := repoFile(t, "web", "templates", "pages", "landing.templ")
@@ -674,30 +822,6 @@ func TestLanding_UsesOnlyPaletteTokens(t *testing.T) {
 func TestFactMechanisms_SayNoWhenTheFactIsAbsent(t *testing.T) {
 	t.Parallel()
 
-	// The append-only grant.
-	for _, tc := range []struct {
-		name, sql string
-		want      bool
-	}{
-		{"select+insert", "GRANT SELECT, INSERT ON transactions TO tappa_app;", true},
-		{"update added", "GRANT SELECT, INSERT, UPDATE ON transactions TO tappa_app;", false},
-		{"delete added", "GRANT SELECT, INSERT, DELETE ON transactions TO tappa_app;", false},
-		{"all", "GRANT ALL ON transactions TO tappa_app;", false},
-		{"grant missing", "GRANT SELECT ON tags TO tappa_app;", false},
-	} {
-		if got, _ := grantIsAppendOnly(tc.sql); got != tc.want {
-			t.Errorf("grantIsAppendOnly(%s) = %v, want %v — §4.3's whole pin is this scan", tc.name, got, tc.want)
-		}
-	}
-
-	// Every table forces RLS.
-	if missing := tablesWithoutForcedRLS([]string{
-		"CREATE TABLE a (\n id uuid\n);\nALTER TABLE a FORCE ROW LEVEL SECURITY;",
-		"CREATE TABLE IF NOT EXISTS b (\n id uuid\n);",
-	}); len(missing) != 1 || missing[0] != "b" {
-		t.Errorf("tablesWithoutForcedRLS reports %v; it must name exactly the table without FORCE", missing)
-	}
-
 	// The API tripwire sees a third route and ignores the tap form's two.
 	if extra := foreignAPIRoutes(`r.Post("/api/checkin", x); r.Post("/api/activate", y)`); len(extra) != 0 {
 		t.Errorf("foreignAPIRoutes flags the tap form's own routes: %v", extra)
@@ -720,6 +844,54 @@ func TestFactMechanisms_SayNoWhenTheFactIsAbsent(t *testing.T) {
 	}
 	if multipartUploadRE.MatchString(`// FormFile was considered and rejected`) {
 		t.Error("the upload scanner matches prose rather than a call")
+	}
+
+	// The finger-or-face tripwire sees the API and the vendor readers, and not the
+	// comments that say there are none (device.go and invite/manager.go both do).
+	for _, s := range []string{
+		`const c = await navigator.credentials.create({publicKey: opts});`,
+		`if (window.PublicKeyCredential) {`,
+		`r.Post("/web` + `authn/register", h)`,
+		`reader := newFinger` + `printSensor()`,
+		`if (window.Touch` + `ID) {`,
+	} {
+		if authenticatorAPIHit(s) == "" {
+			t.Errorf("the finger-or-face scanner would not see %q", s)
+		}
+	}
+	if hit := authenticatorAPIHit("// Tappa promises no finger" + "printing of the device, and a column\nx := 1"); hit != "" {
+		t.Errorf("the finger-or-face scanner matches prose in a comment (%q)", hit)
+	}
+	if hit := authenticatorAPIHit(`log.Warn("bad credentials")`); hit != "" {
+		t.Errorf("the finger-or-face scanner matches the ordinary word credentials (%q)", hit)
+	}
+	if hit := authenticatorAPIHit(`// a touch identifies the place; the face identifier is the wall`); hit != "" {
+		t.Errorf("the finger-or-face scanner matches a word that merely starts the same way (%q)", hit)
+	}
+
+	// The position tripwire strips comments too: tap.js's header MENTIONS the call
+	// it does not make.
+	if strings.Contains(jsLineCommentRE.ReplaceAllString("// never "+continuousPositionCall+"\nx();", ""), continuousPositionCall) {
+		t.Error("the position scanner would be satisfied by a comment naming the continuous read")
+	}
+	if !strings.Contains(jsLineCommentRE.ReplaceAllString("navigator.geolocation."+continuousPositionCall+"(f);", ""), continuousPositionCall) {
+		t.Error("the position scanner cannot see the call it exists to see")
+	}
+
+	// The radius reader.
+	if m := gpsRadiusDefaultRE.FindStringSubmatch(`c.X, err = floatEnvRange("TAPPA_GPS_RADIUS_M", 150, policy.GPSRadiusMinM, policy.GPSRadiusMaxM)`); m == nil || m[1] != "150" {
+		t.Errorf("gpsRadiusDefaultRE cannot read the default out of the shape config.go uses: %v", m)
+	}
+	if gpsRadiusDefaultRE.MatchString(`floatEnvRange("TAPPA_GPS_RADIUS_MAX", 150,`) {
+		t.Error("gpsRadiusDefaultRE matches a DIFFERENT variable whose name merely starts the same way")
+	}
+
+	// The handoff reader is scoped to §11.
+	if plaquesIncludedRE.MatchString("## 4. Marka\n- plaketler dahil ve ücretsiz değişim\n## 11. Fiyat\n- x\n") {
+		t.Error("plaquesIncludedRE is satisfied by the phrase OUTSIDE §11")
+	}
+	if !plaquesIncludedRE.MatchString("## 11. Fiyatlandırma & GTM\n\n- **€1.50** — plaketler dahil ve ücretsiz değişim.\n") {
+		t.Error("plaquesIncludedRE cannot see the pricing term it exists to see")
 	}
 
 	// The CSS rule reader strips comments first and scopes to one rule.

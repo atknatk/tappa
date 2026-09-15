@@ -3,9 +3,12 @@ package handler
 import (
 	"context"
 	"errors"
+	"fmt"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/a-h/templ"
 	"github.com/go-chi/chi/v5"
@@ -13,6 +16,7 @@ import (
 	"github.com/atknatk/tappa/internal/adminauth"
 	"github.com/atknatk/tappa/internal/domain/legal"
 	"github.com/atknatk/tappa/internal/session"
+	"github.com/atknatk/tappa/web"
 	"github.com/atknatk/tappa/web/templates/pages"
 )
 
@@ -137,6 +141,31 @@ type Marketing struct {
 	// would have put an unauthenticated, unbudgeted path onto the pool that check-in
 	// shares. What the snapshot costs instead is written down in internal/domain/legal.
 	texts legalReader
+	// demoVideoSrc is the URL of the demo recording, or "" when this binary does not
+	// carry one. demoPosterSrc is its poster frame, or "" — and it is always "" when
+	// there is no video, because a poster on its own is nothing.
+	//
+	// 🔴 THEY ARE RESOLVED ONCE, IN THE CONSTRUCTOR, AND NOT PER REQUEST, and that is
+	// a statement about what they ARE rather than a micro-optimisation: web.Static()
+	// is an embed.FS, so the answer is fixed at COMPILE time. A per-request fs.Stat
+	// would have implied the asset tree can change while the process runs, which is
+	// the one thing web/embed.go exists to make untrue, and it would have put a
+	// lookup on the unmetered path this type's whole argument rests on being free.
+	//
+	// ⚠️ THEY ARE STRINGS AND THE REFLECTION TEST ABOVE ALREADY PERMITS STRINGS, so
+	// this pair adds no capability to the type: a path this feature links to is
+	// exactly what that allowance was written for. Nothing here can query, log or
+	// remember anything about a visitor.
+	demoVideoSrc  string
+	demoPosterSrc string
+	// landingPolicy is the Content-Security-Policy header / sends in THIS build. See
+	// landingCSPFor for why it is computed rather than written down as a constant.
+	landingPolicy string
+	// exampleMonthly is what exampleHeadcount people cost a month at the published
+	// price, formatted without a symbol — "90" — or "" when the constant could not
+	// be read, in which case the page renders no example (see
+	// pages.LandingView.ExampleMonthly). Computed once, here, by exampleTeamMonthly.
+	exampleMonthly string
 }
 
 // legalReader is the slice of internal/domain/legal.Store the PUBLIC surface needs.
@@ -162,7 +191,65 @@ func NewMarketing(texts legalReader, log *slog.Logger) *Marketing {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &Marketing{signupHref: signupPath, texts: texts, log: log}
+	static := web.Static()
+	video := staticAssetURL(static, demoVideoAsset)
+	poster := ""
+	if video != "" {
+		poster = staticAssetURL(static, demoPosterAsset)
+	}
+	example, err := exampleTeamMonthly(publishedPricePerEmployeeMonth, exampleHeadcount)
+	if err != nil {
+		// A malformed published price is a programming error in a constant, and
+		// TestLanding_ExampleTeamCostIsThePriceTimesTheHeadcount fails on it before
+		// this can run in production. Should it ever get here, the page says less
+		// rather than something wrong: no example is rendered.
+		log.Error("landing: the worked example cannot be computed; rendering none", "err", err)
+		example = ""
+	}
+	return &Marketing{
+		signupHref:     signupPath,
+		texts:          texts,
+		log:            log,
+		demoVideoSrc:   video,
+		demoPosterSrc:  poster,
+		landingPolicy:  landingCSPFor(video, poster),
+		exampleMonthly: example,
+	}
+}
+
+// The two files the hero's demo dialog looks for, as paths INSIDE web/static.
+//
+// 🔴 THEY ARE NAMED HERE AND NOWHERE ELSE. The template holds no /static path of its
+// own (pages.LandingView.DemoVideoSrc records why), so renaming the file is one edit
+// here rather than a hunt through markup — and a typo produces the honest empty state
+// rather than a 404 inside a dialog.
+const (
+	demoVideoAsset  = "video/demo.mp4"
+	demoPosterAsset = "video/demo-poster.jpg"
+)
+
+// staticAssetURL returns the public URL of name inside the embedded asset tree, or
+// "" when the tree does not carry it.
+//
+// 🔴 IT TAKES AN fs.FS RATHER THAN CALLING web.Static() ITSELF, and that parameter is
+// the whole of its testability. The embedded tree is a compile-time constant, so a
+// test that wanted to drive the "the video IS there" branch could not create one — it
+// would have to commit a video into the repository in order to exercise a branch.
+// With a parameter the branch runs against an fstest.MapFS, and what the SHIPPED
+// binary answers is measured separately, by running the server.
+//
+// A DIRECTORY IS NOT AN ASSET. fs.Stat succeeds on web/static/video itself, and
+// <video src="/static/video"> would answer 404 — the file server refuses to list —
+// which is precisely the broken element this function exists to prevent.
+//
+// IT DOES NOT READ THE DISK: fs.Stat on an embed.FS reads a table inside the binary.
+// TestPackaging_NoProductionCodeReadsTheDisk names the os.* calls that would.
+func staticAssetURL(fsys fs.FS, name string) string {
+	info, err := fs.Stat(fsys, name)
+	if err != nil || info.IsDir() {
+		return ""
+	}
+	return "/static/" + name
 }
 
 // Mount registers the routes on r.
@@ -227,11 +314,15 @@ func (m *Marketing) Mount(r chi.Router) {
 
 // Landing serves GET /.
 func (m *Marketing) Landing(w http.ResponseWriter, r *http.Request) {
-	m.render(w, r, pages.Landing(pages.LandingView{
+	m.renderWith(w, r, m.landingPolicy, pages.Landing(pages.LandingView{
 		SignupHref:            m.signupHref,
 		SignInHref:            adminLoginPath,
 		PricePerEmployeeMonth: publishedPricePerEmployeeMonth,
 		FreeMonths:            foundingFreeMonths,
+		ExampleHeadcount:      exampleHeadcount,
+		ExampleMonthly:        m.exampleMonthly,
+		DemoVideoSrc:          m.demoVideoSrc,
+		DemoPosterSrc:         m.demoPosterSrc,
 	}))
 }
 
@@ -287,9 +378,17 @@ func (m *Marketing) legal(w http.ResponseWriter, r *http.Request, p pages.LegalP
 // the sentence above: a shared cache may keep this because nothing in it belongs
 // to one visitor.
 func (m *Marketing) render(w http.ResponseWriter, r *http.Request, c templ.Component) {
+	m.renderWith(w, r, marketingCSP, c)
+}
+
+// renderWith is render with the policy named, and it exists because ONE PAGE on
+// this surface now loads something the others do not — see landingCSP. render
+// above keeps its three-argument shape so that "the marketing policy" stays the
+// default a caller gets without asking.
+func (m *Marketing) renderWith(w http.ResponseWriter, r *http.Request, policy string, c templ.Component) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
-	w.Header().Set("Content-Security-Policy", marketingCSP)
+	w.Header().Set("Content-Security-Policy", policy)
 	w.Header().Set("Cache-Control", marketingCacheControl)
 	w.WriteHeader(http.StatusOK)
 	if err := c.Render(r.Context(), w); err != nil {
@@ -353,6 +452,62 @@ func (m *Marketing) render(w http.ResponseWriter, r *http.Request, c templ.Compo
 const marketingCSP = "default-src 'none'; style-src 'self'; font-src 'self'; " +
 	"form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
 
+// landingCSP is the policy for / ALONE, and it is marketingCSP plus one directive.
+//
+// 🔴 THE LANDING PAGE CARRIES A SCRIPT AS OF 2026-09-14 AND THE FOUR LEGAL PAGES DO
+// NOT. The user's landing design (docs/design/landing-reference-2026-09-12.html)
+// rotates four made-up records through the ticket in the hero, and the instruction
+// was to reproduce that page rather than adapt it. A policy that forbids scripts on
+// a page that loads one is a broken page, not a strict one — so the directive is
+// added where the script is and nowhere else.
+//
+// WHAT IT IS NOT: 'unsafe-inline'. The script is a FILE, web/static/js/landing.js,
+// embedded in the binary and served from /static like every other asset here, so
+// 'self' is the whole of the widening. No 'unsafe-eval', no connect-src — the
+// script makes no request of any kind.
+//
+// WHY A SECOND CONSTANT RATHER THAN WIDENING THE FIRST. /legal/* loads exactly what
+// it loaded before, and a single widened policy would have handed a script-src to
+// four pages that have no script and no reason to grow one. The two are derived
+// from one base string so the five shared directives cannot drift.
+const landingCSP = marketingCSP + "; script-src 'self'"
+
+// landingCSPFor is landingCSP plus exactly the directives the DEMO ASSETS IN THIS
+// BUILD need, and nothing else (2026-09-14).
+//
+// 🔴 IT IS A FUNCTION AND NOT A THIRD CONSTANT, AND THE REASON IS THE SENTENCE
+// marketingCSP ALREADY ARGUES: "a directive named for something that does not load
+// makes the next addition a silent inheritance instead of a visible edit". The demo
+// recording is not in the repository — the dialog ships showing a sentence, not a
+// player — so a constant `media-src 'self'` would be a permission granted today for
+// a file that arrives on some later day, on the one page in the product that every
+// stranger reaches. Computing it means the binary that carries no video sends BYTE
+// FOR BYTE the policy it sent before this task, and the binary the user builds after
+// dropping demo.mp4 in sends media-src, because by then the page really does load
+// media.
+//
+// WHY img-src IS HERE AT ALL, since this page loads no image and says so at length:
+// a <video poster> IS an image fetch, governed by img-src, and img-src has no
+// fallback to media-src — it falls back to default-src 'none'. A poster added
+// without this directive would not be a visible error; it would be a black
+// rectangle and a console line nobody reads. So the directive arrives with the file
+// that needs it and departs with it.
+//
+// WHAT IS STILL NOT HERE, IN ANY BUILD: no connect-src (the player streams over the
+// same media-src), no 'unsafe-inline', no host but 'self'. A YouTube or Vimeo embed
+// would have needed frame-src plus a third-party origin plus their cookies on this
+// page; self-hosting under /static is what keeps the whole policy to one keyword.
+func landingCSPFor(videoSrc, posterSrc string) string {
+	policy := landingCSP
+	if videoSrc != "" {
+		policy += "; media-src 'self'"
+	}
+	if posterSrc != "" {
+		policy += "; img-src 'self'"
+	}
+	return policy
+}
+
 // marketingCacheControl is the header the panel's no-store is NOT copied into. See
 // render above for the argument and for the test that measures its premise.
 const marketingCacheControl = "public, max-age=300"
@@ -371,6 +526,43 @@ const marketingCacheControl = "public, max-age=300"
 // migration and compares. That is the whole reason this is a named constant with a
 // comment instead of a literal in a template.
 const publishedPricePerEmployeeMonth = "1.50"
+
+// exampleHeadcount is the team size the price card's worked example uses — "A
+// 60-person chain runs on €90/month". The user chose the sixty; the ninety is
+// computed from it and the published price by exampleTeamMonthly, never typed, so
+// that a change to the price cannot leave a stale figure beside it.
+const exampleHeadcount = 60
+
+// exampleTeamMonthly is headcount × price, in cents, formatted the way the price
+// is ("90", "90.50") and without a currency symbol.
+//
+// 🔴 IT IS INTEGER ARITHMETIC ON CENTS, NOT A float64 (CLAUDE.md §6: no money in
+// floats). The price is parsed as "<euros>.<two digits>" — the shape
+// publishedPricePerEmployeeMonth has and TestLanding_PriceMatchesTheSchemaItIsCharged
+// already requires — and anything else is an error, which NewMarketing turns into
+// "render no example" rather than a wrong number.
+func exampleTeamMonthly(price string, headcount int) (string, error) {
+	euros, cents, ok := strings.Cut(price, ".")
+	if !ok || len(cents) != 2 {
+		return "", fmt.Errorf("example cost: price %q is not <euros>.<cents>", price)
+	}
+	e, err := strconv.Atoi(euros)
+	if err != nil || e < 0 {
+		return "", fmt.Errorf("example cost: price %q: bad euros", price)
+	}
+	c, err := strconv.Atoi(cents)
+	if err != nil || c < 0 {
+		return "", fmt.Errorf("example cost: price %q: bad cents", price)
+	}
+	if headcount <= 0 {
+		return "", fmt.Errorf("example cost: headcount %d is not positive", headcount)
+	}
+	total := (e*100 + c) * headcount
+	if total%100 == 0 {
+		return strconv.Itoa(total / 100), nil
+	}
+	return fmt.Sprintf("%d.%02d", total/100, total%100), nil
+}
 
 // foundingFreeMonths is the founding offer's free period.
 //

@@ -200,7 +200,17 @@ echo
 # tetikleyici kalmadi mi" kontrolune AYNI ifade gider. Iki kopya olsaydi biri
 # digerinden sapabilir ve muafiyet tanimadigi bir terimi sessizce affederdi.
 R1_TRIGGERS='fingerprint|biometric|face[_-]?id|touch[_-]?id|webauthn'
-R1_WAIVER_PHRASE='fingerprint terminal'
+# 🔴 BIR IFADE DEGIL BES IFADE (2026-09-15, ADR 0012 ek bolumu). Kullanicinin kendi
+# cizdigi landing (docs/design/landing-reference-2026-09-12.html) karsilastirma
+# tablosunu BASLIK, SUTUN BASLIGI ve IKI HUCRE olarak yaziyor ve dordu de terimi
+# `fingerprint terminal` disinda bir sekilde aniyor. Kullanici metni birebir
+# istedi; muafiyet bu yuzden KELIMEYE degil CUMLEYE baglandi: her giris, satirin
+# tasidigi metnin TAMAMI ya da bir Go string literalinin `"..."` arasindaki tam
+# icerigidir (metin landingview.go'da veri olarak yasar, sablon oradan basar).
+# Metin bir harf degisirse muafiyet DUSER ve R1 yeniden FAIL verir — dogru yon,
+# cunku yeni cumleyi birinin bilerek muaf tutmasi gerekir. Eslesme HARFI HARFINE
+# (index), regex degil; `|` ayirici.
+R1_WAIVER_PHRASES='fingerprint terminal|retire the fingerprint box.|fingerprint / card devices|"biometric data"|fingerprints stored = gdpr weight'
 R1_WAIVER_PATHS='^(web/templates/pages/landing[^:]*\.(templ|go)|internal/handler/marketing[^:]*\.go):'
 
 r1_raw="$(scan -i -e "$R1_TRIGGERS" \
@@ -222,19 +232,45 @@ r1_raw="$(scan -i -e "$R1_TRIGGERS" \
 # `webauthn` FAIL uretir. Muafiyet artik "bu satiri gormezden gel" degil, "bu
 # ifadenin KENDISI bir ihlal degil" demektir.
 r1_select() {
-  awk -v mode="$1" -v ph="$R1_WAIVER_PHRASE" -v paths="$R1_WAIVER_PATHS" -v trig="$R1_TRIGGERS" '
+  awk -v mode="$1" -v phs="$R1_WAIVER_PHRASES" -v paths="$R1_WAIVER_PATHS" -v trig="$R1_TRIGGERS" '
+    BEGIN {
+      n = split(phs, ph, "|")
+      # Bos giris (listenin sonunda unutulmus bir `|`): BSD awk index("abc","")=1
+      # dondurur ve asagidaki strip dongusu hic bitmez; gawk 0 dondurur ve ayni hata
+      # CI icinde sessiz gecer. Iki platformda iki davranis yerine tek, gurultulu hata.
+      # (Kesme isareti YOK — bu blok tek tirnak icinde.)
+      for (k = 1; k <= n; k++) if (length(ph[k]) == 0) {
+        print "redline-check: R1_WAIVER_PHRASES has an empty entry" > "/dev/stderr"; exit 2
+      }
+    }
+    # strip(s, p): p ifadesinin HER harfi harfine gecisini s icinden cikarir.
+    # gsub DEGIL: gsub deseni regex sayar, "box." noktasi her karakterle eslesirdi.
+    # (Bu blok tek tirnak icinde; yorumlarda kesme isareti KULLANILMAZ — ilk hali
+    # tam bu yuzden sessizce bos donuyordu.)
+    function strip(s, p,    i) {
+      while ((i = index(s, p)) > 0) s = substr(s, 1, i - 1) " " substr(s, i + length(p))
+      return s
+    }
     length($0) == 0 { next }
     {
       w = 0
       if ($0 ~ paths) {
-        rest = tolower($0)
-        if (index(rest, ph) > 0) {
-          gsub(ph, " ", rest)          # muaf ifadeyi cikar
-          if (rest !~ trig) w = 1      # geriye tetikleyici kalmadiysa muaf
+        rest = tolower($0); hit = 0
+        for (k = 1; k <= n; k++) {
+          if (index(rest, ph[k]) > 0) { hit = 1; rest = strip(rest, ph[k]) }
         }
+        if (hit && rest !~ trig) w = 1   # ifadeler cikarilinca tetikleyici kalmadiysa muaf
       }
       if ((mode == "waived") == w) print
     }' <<<"$r1_raw"
+  # awk'in cikis kodu $(...) icinde kaybolur ve bos bir secim "temiz" okunur — tam
+  # olarak scan_in'in isaretciyle kapattigi delik. Ayni isaretci burada da yazilir,
+  # boylece bir awk hatasi exit 2 ile biter, sessiz bir exit 0 ile degil.
+  local rc=${PIPESTATUS[0]}
+  if [[ $rc -ne 0 ]]; then
+    echo "${RED}ATLANDI${OFF}: R1 muafiyet secimi hata verdi (awk exit $rc) — TARAMA GUVENILIR DEGIL." >&2
+    echo "$rc" >>"$SCAN_ERR"
+  fi
 }
 
 report FAIL R1 "Biyometrik veri izi — Tappa biyometri toplamaz/saklamaz" "$(r1_select fail)"

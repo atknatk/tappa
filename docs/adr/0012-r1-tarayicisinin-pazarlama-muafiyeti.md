@@ -114,3 +114,79 @@ görünen metnidir"* derken gerçekte dokuz satırdı ve üçü görünen metin 
 | P4 | ifade + `biometric template`, tek satır, muaf yolda | **R1 FAIL** |
 | P5 | ifade + `TouchID`, tek satır, muaf yolda | **R1 FAIL** |
 | — | temiz ağaç | exit 0, 6 satır `[R1 · WARN]` |
+
+---
+
+## Ek — 2026-09-15: tek ifadeden beş cümleye, kelimeden cümleye
+
+- **Durum:** kabul edildi (kullanıcı kararı: *"önerdiğin şekilde ilerle"*)
+- **Tetikleyen:** landing sayfası kullanıcının kendi çizdiği tasarımla
+  ([docs/design/landing-reference-2026-09-12.html](../design/landing-reference-2026-09-12.html))
+  **birebir** değiştirildi. O tasarımın karşılaştırma tablosu terimi dört yerde
+  `fingerprint terminal` **dışında** bir şekilde anıyor; dördü de R1'i FAIL'e
+  düşürüyordu ve dal push'lansaydı CI `make audit`'te kırmızı olacaktı (ölçüldü,
+  yerelde `rg` ile).
+
+### Ne değişti
+
+`R1_WAIVER_PHRASE` (tek ifade) → `R1_WAIVER_PHRASES` (`|` ile ayrılmış beş
+giriş). **Üç koşul aynen duruyor** — yol kümesi değişmedi, *"ifadeler çıkarılınca
+geriye tetikleyici kalmamalı"* kuralı artık beş girişin **hepsi** çıkarıldıktan
+sonra uygulanıyor, kullanılan her muafiyet her koşuda WARN basıyor.
+
+| # | Giriş | Nerede |
+|---|---|---|
+| 1 | `fingerprint terminal` | (2026-08-13'ten beri) |
+| 2 | `retire the fingerprint box.` | tablonun `<h2>` başlığı |
+| 3 | `fingerprint / card devices` | sütun başlığı |
+| 4 | `"biometric data"` | satır etiketi — tırnaklar **dahil**, yani `landingview.go`'daki Go string literalinin **tam** içeriği (ilk hâli `>biometric data<` idi; metin aynı gün şablondan veriye taşınınca eşleşme düştü ve builder kelimeyi değiştirmek zorunda kaldı — tam da tasarlanan yön, muafiyet cümleyle birlikte yeniden bağlandı) |
+| 5 | `fingerprints stored = gdpr weight` | rakip hücresi |
+
+### Neden kelime değil cümle
+
+Bir kelime muafiyeti (`fingerprint`, `biometric`) yola sınırlı da olsa R1'i o
+dosyalarda fiilen kapatırdı. Cümle muafiyeti **metne bağlıdır**: kopya bir harf
+değişirse eşleşme düşer ve R1 yeniden FAIL verir — doğru yön, çünkü yeni cümleyi
+birinin **bilerek** muaf tutması gerekir (P6). 4. girişteki `>`…`<` aynı fikrin
+string literali için hâli: `"Biometric data"` muaf, `"store biometric data"`
+değil (P7/P8).
+
+Eşleşme artık **harfi harfine** (`index` + `substr`), `gsub` değil: `gsub` deseni
+regex sayar ve `box.` noktası her karakterle eşleşirdi.
+
+### Kullanıcının verdiği serbestlik, kullanılmadı
+
+Kullanıcı *"birebir olmasa da olur, küçük değişiklikler kabul"* dedi. Dört
+cümleyi `fingerprint terminal` kalıbına çekmek muafiyeti genişletmeden geçerdi;
+tercih edilmedi çünkü (a) `Biometric data` satır etiketi için doğal bir eşdeğer
+yok, (b) muafiyeti cümleye bağlamak metni kalıba zorlamaktan **daha dar** bir
+ağ bırakıyor — kopya değişince muafiyet kendini kapatıyor.
+
+### Sondalar — hepsi koşturuldu (2026-09-15)
+
+| # | Sonda | Sonuç |
+|---|---|---|
+| P1 | `retire the fingerprint box.` + `webauthn`, tek satır, muaf yolda | **R1 FAIL** |
+| P2 | aynı cümle, muaf **olmayan** yolda (`internal/domain/tap`) | **R1 FAIL** |
+| P3 | `var fingerprintTemplate []byte`, muaf yolda | **R1 FAIL** |
+| P6 | kopya bir harf değişmiş: `Retire the fingerprint bin.` | **R1 FAIL** |
+| P7 | `<td>store biometric data</td>` (hücre içeriği tam değil) | **R1 FAIL** |
+| P8 | `<td>Biometric data</td>` (muaf hücrenin kopyası) | muaf, exit 0 |
+| — | temiz ağaç | exit 0, 8 satır `[R1 · WARN]` (4'ü yeni) |
+
+⚠️ İlk yazım **sessizce boş dönüyordu**: awk programı tek tırnak içindedir ve
+bir yorumdaki kesme işareti (`p'nin`) programı ortadan kesti — R1 ne FAIL ne WARN
+bastı, exit 0. Yakalayan şey WARN bloğunun **kaybolması** oldu; *"muafiyet
+görünmez olamaz"* ilkesinin bu kez betiğin kendisini koruduğu ölçüm.
+
+### Denetim (tappa-security-auditor, 2026-09-15) — GREEN, iki düşük bulgu
+
+| Bulgu | Karar |
+|---|---|
+| **Taşıyıcı sınıfı** (P9/P10): muaf bir cümlenin yanına, `R1_TRIGGERS`'ta **zaten olmayan** bir toplama API'si (`capture="user"`, `navigator.credentials`) yazılırsa satır muaf kalır. | **Ön varolan** — bu satırlar muaf yol dışında ve cümle olmadan da yakalanmıyordu; açık tetikleyici listesinde, muafiyette değil. Kaydedildi, genişletilmedi (ayrı karar). |
+| **Boş giriş** (`…|` typo'su): BSD awk `index(s,"")=1` döndürür → `strip` sonsuz döngü; gawk 0 → sessiz geçer. | **Kapatıldı:** `BEGIN` boş girişi `exit 2` ile reddeder, **ve** `r1_select` awk'ın çıkış kodunu `SCAN_ERR` işaretçisine yazar — `$(...)` içinde kaybolan kod eskiden betiği **exit 0** ile bitiriyordu (ölçüldü: mesaj basıldı, sonuç yine "temiz"). Şimdi exit 2. |
+
+Sondalar tekrar koşturuldu: temiz ağaç exit 0 · boş giriş exit 2, asılmıyor · P1 FAIL.
+Denetçinin doğrulayamadığı: **gawk/mawk** yerelde yok; POSIX'in tek-karakter FS
+kuralı gereği `split(phs, ph, "|")` ikisinde de literal beklenir. CI'ın ilk koşusu
+bunun ölçümüdür.
