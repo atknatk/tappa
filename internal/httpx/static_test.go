@@ -1,6 +1,7 @@
 package httpx_test
 
 import (
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -28,9 +29,18 @@ func TestStatic_ServesFilesButNotDirectoryListings(t *testing.T) {
 			t.Fatalf("GET %s: %v", path, err)
 		}
 		defer resp.Body.Close()
-		buf := make([]byte, 4096)
-		n, _ := resp.Body.Read(buf)
-		return resp.StatusCode, string(buf[:n])
+		// io.ReadAll, NOT a single Read into a fixed buffer. One Read returns
+		// whatever chunk the transport had ready, not the buffer's worth, and the
+		// first version of this helper measured exactly that: a 4096-byte Read was
+		// green on a laptop and red on the CI runner, where the chunk that arrived
+		// stopped short of the byte the assertion needed (2026-09-15, main run
+		// 34980983641). The cap keeps a directory listing or a runaway response
+		// from being read without bound.
+		body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		if err != nil {
+			t.Fatalf("GET %s: reading body: %v", path, err)
+		}
+		return resp.StatusCode, string(body)
 	}
 
 	// POSITIVE CONTROL FIRST: a real file still serves. Without this, every
