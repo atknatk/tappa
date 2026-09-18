@@ -49,7 +49,7 @@ const handoverCardPath = "docs/plan/m8-deploy-pilot.md"
 // NAME ("item 7 is MISSING") rather than by arithmetic. What the bare count buys on
 // its own is the one case membership cannot see — an item appended without anybody
 // deciding to. Adding an item is one line here; that is the whole cost.
-const handoverItemCount = 28
+const handoverItemCount = 29
 
 // The three bucket labels, exactly as the card writes them.
 const (

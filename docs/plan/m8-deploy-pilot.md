@@ -5282,7 +5282,7 @@ turda** ölçülebilir; ayrıca `ctr` palindrom olmadığı için sinyal gürül
 > DEĞİL, YALNIZ NUMARA LİSTESİYLE VERİLİYOR.**
 > **KAPANDI:** 2 · 3 · 4 · 5 · 18.
 > **TAM AÇIK:** 1 · 6 · 7 · 8 · 9 · 10 · 11 · 12 · 13 · 14 · 15 · 16 · 17 · 19 · 20 ·
-> 21 · 22 · 23 · 24 · 25 · 26 · 27 · 28.
+> 21 · 22 · 23 · 24 · 25 · 26 · 27 · 28 · 29.
 > ⚠️ **YARISI KAPANDI kovası DÖRDÜNCÜ TURDA BOŞALDI ve kaldırıldı:** tek üyesi
 > **md. 15**'ti ve o madde artık **tam açık, sayılmış** durumda — üçüncü gövde tasarımı
 > da aşıldı, durma kuralı 2 uygulandı. **Yani bugün İKİ kova vardır.**
@@ -5888,6 +5888,19 @@ turda** ölçülebilir; ayrıca `ctr` palindrom olmadığı için sinyal gürül
 >     yuvalanıyor** ve bunu `TestShutdownBudget_TheDetachedRepairsNestInsideTheHTTPGrace`
 >     tutuyor — yani zarif kapanmada pencere **kapalı**; açık kalan yalnız **zarif
 >     olmayan** ölüm. `deploy/README.md`'nin kurtarma prosedürü bu niteliği taşıyor.
+> 29. 🔴 **`p.Done` KOLU FAULT KELİMESİ TAŞIMIYOR — "ÇİP YAZILDI, SATIR İŞARETLENEMEDİ"
+>     OPERATÖRE "Plaque encoded." GÖRÜNÜR (2026-09-18, B3a yapıcısının sözleşme
+>     gözlemi, üçüncü göz doğruladı).** `plaqueencode.go`'nun `p.Done` kolu **düz
+>     `writeEncodeReply`** yazıyor; `encodeReply`'da fault alanı yok. `Progress.Done`'un
+>     yorumu *"bir tur Done olup AYNI ZAMANDA hata raporlayabilir"* diyor — ama o hata
+>     **telde yok**, yalnız sunucu log'unda ve `plaque.unmarked` satırında. Android
+>     istemcisi bu şekle hazır (`trailingFault` parse ediyor) ama bugünkü telde o alan
+>     **asla dolmaz**. **Somut sonucu:** md. 27'nin telafi kaydı yazıldığında bile
+>     operatör telefonda **başarı** görür ve plaketi *"encode edildi"* diye rafa koyar;
+>     panelde ise *"Encoded, but not recorded"* durur — **iki yüzey iki farklı şey
+>     söyler**. Çare sunucuda ve küçük: `encodeReply`'a opsiyonel `fault` (ya da
+>     `warning`) alanı, `p.Done && err != nil` kolunda dolu. **Sunucu işi, B3'ün değil**
+>     — ADR 0017 §6 md. 10'un *"bind, don't invent"* kuralına dokunmuyor.
 >
 > **11. TURUN (KAPANIŞ TURU) SONUÇLARI — RED, ama denetçinin kararı: "MEKANİZMA
 > YAKINSADI."** İki ardışık tur **yalnız metin**, üründe davranış kusuru **yok** →
