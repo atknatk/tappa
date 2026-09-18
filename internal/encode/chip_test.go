@@ -19,9 +19,11 @@ import (
 // rules (the AES-CMAC below is an independent RFC 4493 implementation, not
 // internal/sun's). So a round that completes is evidence about the DRIVER's side of
 // the protocol conversation:
-//   - the command counter really is 0, 1, 2, 3 in that order, incremented exactly
-//     once per sealed command, and the response really is verified against the
-//     increased value (mutate either and the chip's MAC check fails);
+//   - the command counter really climbs 0, 1, 2, 3, 4 in that order — advanced once
+//     for EACH command the session issues, the plain WriteData included (silicon
+//     counts it too; 2026-09-18, see writeDataPlain) — and the response really is
+//     verified against the increased value (mutate either and the chip's MAC check
+//     fails);
 //   - TI really is the one the chip minted;
 //   - the CmdHeader/CmdData split really is the one each command's table gives — for
 //     WriteData the double now decodes all three header fields (FileNo, Offset,
@@ -543,18 +545,26 @@ func (c *fakeChip) sealed(ins byte, body []byte) []byte {
 // writeDataPlain models Cmd.WriteData in CommMode.Plain — the mode a real NTAG 424
 // DNA enforces for the NDEF file 02h while it is still at delivery rights
 // (Write = ReadWrite = Eh, free access): datasheet §8.2.3.3 / §8.2.3.5 and Table 13.
-// The data field is CmdHeader || Data with NO encryption and NO MAC, and a plain
-// command carries no CmdCtr, so the counter is neither read nor advanced (§9.1.2
-// couples the increment to the command MAC, and there is none). That is why this
-// path does NOT touch c.ctr — the next Full command (ChangeKey) reuses the counter
-// value GetCardUID left, and its response MAC verifies only if the driver made the
-// same choice (cmdWriteNDEF consumes no counter). The two together pin the decision.
+// The data field is CmdHeader || Data with NO encryption and NO MAC.
 //
-// 🔴 THIS IS WHAT MAKES THE FIX SELF-CHECKING. A driver that sends a CommMode.Full
-// WriteData (CmdHeader || E(data)||padding || MACt) to this file leaves trailing
-// bytes that exceed the plaintext Length the header declares, so the chip answers
-// 917E LENGTH_ERROR — the exact status real silicon returned on 2026-09-18.
-// Reverting cmdWriteNDEF to EV2WriteDataCommand turns the full-round test red here.
+// 🔴 THE PLAIN COMMAND STILL ADVANCES CmdCtr, AND THAT IS SILICON-MEASURED (2026-09-18,
+// second real round). fd1b667 read §9.1.2's letter — the increment is coupled to the
+// command MAC, and a plain command has none — and modelled the plain write as leaving
+// c.ctr untouched. Real silicon disagreed: after auth (0) and getcarduid (0->1) the
+// chip had counted the plain WriteData (1->2) and answered the next Full command
+// (ChangeKey) with 911E INTEGRITY_ERROR, expecting CmdCtr=2 while the driver sent 1.
+// So this double now advances c.ctr for the plain write, exactly as the chip does —
+// which is why step 6's ChangeKey MAC verifies only if cmdWriteNDEF also consumes a
+// counter (it does). The two together pin the decision, and the mutation proves it:
+// dropping s.useCtr() from cmdWriteNDEF makes ChangeKey fail here with 911E, the
+// silicon-observed status.
+//
+// 🔴 THE Plain/Full CHOICE IS SELF-CHECKING THE SAME WAY. A driver that sends a
+// CommMode.Full WriteData (CmdHeader || E(data)||padding || MACt) to this file leaves
+// trailing bytes that exceed the plaintext Length the header declares, so the chip
+// answers 917E LENGTH_ERROR — the exact status real silicon returned on 2026-09-18
+// (first round). Reverting cmdWriteNDEF to EV2WriteDataCommand turns the full-round
+// test red here too.
 //
 // 🔴 THE OFFSET AND THE LENGTH ARE LOAD-BEARING (audit, 2026-08-21, carried over from
 // the sealed path). Ignoring the offset let a template written at offset 5 look
@@ -586,8 +596,13 @@ func (c *fakeChip) writeDataPlain(body []byte) []byte {
 	copy(file[off:], data)
 	c.files[header[0]] = file
 
-	// A plain response is a bare status word: no data, no MAC — and no counter
-	// change. An injected body still exercises the driver's "a plain ack must carry
+	// The chip COUNTS this command even though it carries no MAC — silicon-measured
+	// (2026-09-18): the next Full command's CmdCtr expectation moved by one, so the
+	// plain write must advance the counter here to match. See this function's header.
+	c.ctr++
+
+	// A plain response is a bare status word: no data and no MAC (the counter moved
+	// above). An injected body still exercises the driver's "a plain ack must carry
 	// no body" guard (acceptPlainAck).
 	if injected, ok := c.injectRespData[0x8D]; ok {
 		return append(append([]byte(nil), injected...), sw(0x9100)...)

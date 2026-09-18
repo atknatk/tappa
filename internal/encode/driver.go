@@ -62,10 +62,16 @@ import (
 // 917E LENGTH_ERROR: the chip enforces CommMode.Plain there, exactly as §8.2.3.3,
 // §8.2.3.5 and Table 13 say. The driver now sends CommMode.Plain at step 5
 // (cmdWriteNDEF -> sun.WriteDataPlainCommand); the field is CmdHeader || Data, with no
-// MAC and no CmdCtr consumed. The Full frame's 917E is a length mismatch made visible:
+// MAC and no CmdCtr on the wire. The Full frame's 917E is a length mismatch made visible:
 // its E(data)||padding||MACt runs past the plaintext Length the header declares.
-// ⚠️ THE FIX ITSELF IS NOT YET SILICON-VERIFIED — silicon proved the Full frame FAILS;
-// that the plain frame SUCCEEDS end to end is the next hardware round's measurement.
+// 🔴 AND THE PLAIN FRAME SUCCEEDS — MEASURED ON THE SECOND HARDWARE ROUND (2026-09-18):
+// a blank chip accepted the plain WriteData end to end (step 5 returned 9100). The same
+// round corrected one thing fd1b667 had guessed: it assumed the plain command left the
+// CmdCtr untouched (§9.1.2's letter) and built step 6 at CmdCtr=1, but the chip had
+// COUNTED the plain WriteData and answered ChangeKey with 911E INTEGRITY_ERROR,
+// expecting CmdCtr=2. cmdWriteNDEF now consumes a counter for the plain command (see
+// its own comment); the 911E landed before any key changed, so the plaque stayed
+// recoverable — the exact catch fd1b667 named at that call site.
 // ⚠️ HISTORY KEPT: this said "THE TENSION IS OPEN, NOT RESOLVED" (2026-08-21), after an
 // even earlier version wrongly claimed the document alone resolved it. The document
 // never could — only silicon decides what is enforced — which is why this stood open
@@ -130,8 +136,10 @@ import (
 // its probes need not distinguish. The fallback named in the same section of the same
 // document — §5.8.1, "Write NDEF File - using Cmd.ISOUpdateBinary, CommMode.PLAIN" —
 // was not needed: the native WriteData in CommMode.Plain is the smaller change and
-// keeps §5.1's step order. That FAZ B3 measurement has now happened (Full -> 917E);
-// what remains is confirming the plain frame succeeds on a chip.
+// keeps §5.1's step order. That FAZ B3 measurement has now happened (Full -> 917E), and
+// the plain frame has since been confirmed on a chip too (step 5 returned 9100, second
+// round) — the only correction the plain frame then needed was the CmdCtr accounting
+// above.
 //
 // WHAT IS *NOT* HERE, and both absences are decisions:
 //
@@ -576,18 +584,29 @@ func cmdWriteNDEF(_ context.Context, st *Store, s *Session) ([]byte, error) {
 		return nil, err
 	}
 	s.ndef = t
-	// 🔴 CommMode.Plain, NOT Full — and NO CmdCtr is consumed. At step 5 the NDEF
-	// file 02h is still at delivery rights (Write = ReadWrite = Eh, free access), and
-	// the datasheet mandates CommMode.Plain there (§8.2.3.3 · §8.2.3.5 · Table 13);
-	// real silicon confirmed it on 2026-09-18 by rejecting the old Full frame with
-	// 917E LENGTH_ERROR. A plain command carries no session MAC over the counter, so
-	// per §9.1.2 the counter is neither read nor advanced: the next Full command
-	// (step 6 ChangeKey) reuses the value this step would otherwise have taken. See
-	// sun.WriteDataPlainCommand for the full derivation.
-	// ⚠️ SILICON-UNVERIFIED, and this is the immediate next thing a real chip tests:
-	// if step 6's MAC is rejected, the plain command DID advance the chip's counter
-	// and this must call s.useCtr() (offset by one). The failure is caught at step 6,
-	// before any key changes, so the plaque stays recoverable (ADR 0017 §5.3).
+	// 🔴 CommMode.Plain, NOT Full. At step 5 the NDEF file 02h is still at delivery
+	// rights (Write = ReadWrite = Eh, free access), and the datasheet mandates
+	// CommMode.Plain there (§8.2.3.3 · §8.2.3.5 · Table 13); real silicon confirmed it
+	// on 2026-09-18 by rejecting the old Full frame with 917E LENGTH_ERROR. The plain
+	// frame is CmdHeader || Data with no session MAC and no CmdCtr ON THE WIRE — so
+	// WriteDataPlainCommand takes no counter argument. See it for the full derivation.
+	//
+	// 🔴 BUT THE CHIP STILL COUNTS THIS COMMAND, AND THAT IS SILICON-MEASURED (2026-09-18,
+	// second real round). §9.1.2's letter couples the CmdCtr increment to the command
+	// MAC, and a plain command has none; fd1b667 read that letter, assumed the plain
+	// write left the counter alone, and did NOT call s.useCtr() here — so it built step
+	// 6's ChangeKey at CmdCtr=1. Real silicon answered ChangeKey with 911E
+	// INTEGRITY_ERROR: the chip had COUNTED the plain WriteData (auth->0, getcarduid
+	// 0->1, writedata 1->2) and expected CmdCtr=2. So the counter is consumed here to
+	// keep the driver's count aligned with the chip's. The return value is DISCARDED on
+	// purpose — the plain command never puts a CmdCtr on the wire; the only effect that
+	// matters is that s.cmdCtr moves on, so the next sealed command (step 6 ChangeKey,
+	// which does carry a CmdCtr in its MAC) is built with the value the chip now
+	// expects. The 911E was caught BEFORE any key changed, so the plaque stayed
+	// recoverable (ADR 0017 §5.3) — the exact catch fd1b667 named at this call site.
+	if _, err := s.useCtr(); err != nil {
+		return nil, err
+	}
 	field, err := sun.WriteDataPlainCommand(sun.NDEFFileNo, 0, t.File)
 	if err != nil {
 		return nil, err

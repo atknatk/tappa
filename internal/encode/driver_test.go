@@ -776,29 +776,32 @@ func TestDriver_RndACannotBeReadTwice(t *testing.T) {
 
 // --- the command counter --------------------------------------------------------
 
-// TestDriver_TheCommandCounterCountsOncePerSealedCommand is design decision (b)
+// TestDriver_TheCommandCounterCountsEverySessionCommand is design decision (b)
 // under test.
 //
 // The strong assertion is indirect and that is the point: the chip verifies every
-// command MAC against ITS OWN counter, so a driver that skipped, repeated or
-// pre-incremented would be refused with INTEGRITY_ERROR long before this line. The
-// explicit count below is the readable half.
-func TestDriver_TheCommandCounterCountsOncePerSealedCommand(t *testing.T) {
+// Full command MAC against ITS OWN counter, so a driver that skipped, repeated or
+// pre-incremented would be refused with INTEGRITY_ERROR long before this line — which
+// is exactly how real silicon caught fd1b667's missing plain-write increment (911E at
+// step 6, 2026-09-18). The explicit count below is the readable half.
+func TestDriver_TheCommandCounterCountsEverySessionCommand(t *testing.T) {
 	h := newHarness(t)
 	chip := newFakeChip(t)
 	if _, err := h.run(t, chip, "operator-1"); err != nil {
 		t.Fatalf("round: %v", err)
 	}
-	// Three CommMode.Full commands advance the counter: GetCardUID, ChangeKey,
-	// ChangeFileSettings. WriteData (step 5) now runs in CommMode.Plain, which carries
-	// no MAC over the CmdCtr, so per datasheet §9.1.2 it neither reads nor advances the
-	// counter — the driver (cmdWriteNDEF) and the fake chip (writeDataPlain) agree on
-	// that, which is what makes step 6's response MAC verify. ⚠️ SILICON-UNVERIFIED:
-	// if a real chip counts the plain command, this ends at 4 and cmdWriteNDEF must
-	// consume a counter; that mismatch surfaces as a step-6 MAC failure, before any
-	// key changes.
-	if chip.ctr != 3 {
-		t.Fatalf("the chip's counter ended at %d, want 3", chip.ctr)
+	// AuthenticateEV2First resets the CmdCtr to 0, and it then advances once for EVERY
+	// command the session issues: GetCardUID (0->1), the plain WriteData (1->2),
+	// ChangeKey (2->3) and ChangeFileSettings (3->4). WriteData (step 5) runs in
+	// CommMode.Plain and carries no MAC over the CmdCtr, so §9.1.2's letter reads as "no
+	// increment" — but real silicon COUNTS it anyway (2026-09-18, second round): the chip
+	// answered step 6's ChangeKey with 911E INTEGRITY_ERROR until cmdWriteNDEF consumed a
+	// counter for the plain write too. The driver (cmdWriteNDEF) and this fake chip
+	// (writeDataPlain) now both advance for it, which is what makes step 6's MAC verify;
+	// drop s.useCtr() from cmdWriteNDEF and the full round fails at ChangeKey with that
+	// same 911E.
+	if chip.ctr != 4 {
+		t.Fatalf("the chip's counter ended at %d, want 4", chip.ctr)
 	}
 }
 
