@@ -392,6 +392,22 @@ func TestAPDU_CommandBuildersRejectMalformedInput(t *testing.T) {
 			_, err := EV2WriteDataCommand(auth, 0, NDEFFileNo, 0, bytes.Repeat([]byte{0xAA}, 224))
 			return err
 		}},
+		// The plain builder (CommMode.Plain, step 5) shares the same bounds as the
+		// Full one, minus the session — no auth argument, no sealing overhead.
+		{"writedata_plain_empty_body", func() error {
+			_, err := WriteDataPlainCommand(NDEFFileNo, 0, nil)
+			return err
+		}},
+		{"writedata_plain_offset_too_big", func() error {
+			_, err := WriteDataPlainCommand(NDEFFileNo, maxUint24+1, []byte{0x01})
+			return err
+		}},
+		// Plain spends no bytes on padding or MAC, so its plaintext ceiling is
+		// higher: 248 field - 7 header = 241. 242 is one over.
+		{"writedata_plain_body_over_the_command_ceiling", func() error {
+			_, err := WriteDataPlainCommand(NDEFFileNo, 0, bytes.Repeat([]byte{0xAA}, 242))
+			return err
+		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			err := tc.call()
@@ -421,6 +437,17 @@ func TestAPDU_CommandBuildersRejectMalformedInput(t *testing.T) {
 		}
 		if _, err := EV2WriteDataCommand(auth, 0, NDEFFileNo, 0, bytes.Repeat([]byte{0xAA}, 224)); err == nil {
 			t.Fatal("one byte more than the largest writable body was accepted")
+		}
+
+		// The plain builder has no padding or MAC, so its largest body is 241 (248
+		// field - 7 header), and 242 is refused.
+		if field, err := WriteDataPlainCommand(NDEFFileNo, 0, bytes.Repeat([]byte{0xAA}, 241)); err != nil {
+			t.Fatalf("the largest plain body was refused: %v", err)
+		} else if len(field) != writeDataMaxDataField {
+			t.Fatalf("the plain ceiling body is %d bytes, want exactly %d", len(field), writeDataMaxDataField)
+		}
+		if _, err := WriteDataPlainCommand(NDEFFileNo, 0, bytes.Repeat([]byte{0xAA}, 242)); err == nil {
+			t.Fatal("one byte more than the largest writable plain body was accepted")
 		}
 	})
 }

@@ -625,3 +625,65 @@ func EV2WriteDataCommand(auth *EV2Auth, cmdCtr uint16, fileNo byte, offset uint3
 	}
 	return field, nil
 }
+
+// WriteDataPlainCommand builds the ISO 7816 data field of Cmd.WriteData in
+// CommMode.Plain — the mode NT4H2421Gx rev. 3.0 MANDATES when the only satisfied
+// access condition is free access (Eh). It is the counterpart to EV2WriteDataCommand
+// (CommMode.Full) and the two are NOT interchangeable: which one is correct is
+// decided by the target file's access rights, not by preference.
+//
+// 🔴 WHY PLAIN, AND WHY THIS EXISTS AS A SEPARATE BUILDER (2026-09-18, first real
+// silicon round). At ADR 0017 §5.1 step 5 the NDEF file 02h is still at DELIVERY
+// rights — Write = ReadWrite = Eh (datasheet Table 8, p. 12), i.e. free access —
+// because the command that locks writing (ChangeFileSettings, step 7) has not run
+// yet. The datasheet requires CommMode.Plain for that file in THREE concordant
+// places: §8.2.3.3 (p. 12) "If authenticated and the only access conditions
+// satisfied are the free access Eh ones, then the CommMode.Plain is to be applied",
+// its twin §8.2.3.5 (p. 13) "has to be applied", and Table 13 "Default communication
+// modes per file" (file 02h -> Plain; 03h -> Full). Real silicon then settled it:
+// a CommMode.Full WriteData to that file was rejected with status 917E LENGTH_ERROR.
+// The mechanism of that error is the shape difference this builder removes — a Full
+// frame is CmdHeader || E(data)||padding || MACt, whose trailing bytes exceed the
+// plaintext Length the header declares, so a chip enforcing Plain reads a length
+// mismatch. EV2WriteDataCommand (Full) is still correct for a file whose Write is
+// KEY-gated — which is the scenario AN12196 §5.8.2 Table 17 publishes (its example
+// chip has AccessRights = 00E0, Write = key 0; §5.4 says it is NOT the delivery
+// configuration) and which katT17 pins — so that builder is kept, not replaced.
+//
+// The field is CmdHeader || Data, with NO encryption and NO MAC:
+//
+//	FileNo(1) || Offset(3, LSB) || Length(3, LSB) || Data
+//
+// The header is byte-for-byte the one EV2WriteDataCommand builds (NT4H2421Gx rev. 3.0
+// Table 81, p. 75; assembled in AN12196 §5.8.2 Table 17 as 02 000000 800000); only
+// the body framing differs. A plain command carries no session MAC and no CmdCtr, so
+// callers advance no counter for it (datasheet §9.1.2 couples the increment to the
+// command MAC, and there is none) — see internal/encode/driver.go cmdWriteNDEF.
+func WriteDataPlainCommand(fileNo byte, offset uint32, data []byte) ([]byte, error) {
+	if len(data) == 0 {
+		return nil, fmt.Errorf("sun: writedata: refusing to write an empty body")
+	}
+	if offset > maxUint24 {
+		return nil, fmt.Errorf("sun: writedata: offset must fit in 3 bytes, got %d", offset)
+	}
+	// Compared as an int, not uint32(len(data)) — the conversion would TRUNCATE a
+	// length above 2^32 and let it through as a small number (same guard, and same
+	// reason, as EV2WriteDataCommand).
+	if len(data) > maxUint24 {
+		return nil, fmt.Errorf("sun: writedata: length must fit in 3 bytes, got %d", len(data))
+	}
+	field := make([]byte, 0, writeDataHeaderLen+len(data))
+	field = append(field, fileNo)
+	field = appendUint24LE(field, offset)
+	field = appendUint24LE(field, uint32(len(data)))
+	field = append(field, data...)
+	if len(field) > writeDataMaxDataField {
+		// Refused rather than truncated or chunked — same boundary as the Full path.
+		// A plain field spends its whole budget on header + plaintext (no padding, no
+		// MAC), so a larger template fits here than under Full; the chip's ceiling is
+		// the same, "up to 248 byte including secure messaging" (Table 81).
+		return nil, fmt.Errorf("sun: writedata: %d-byte body builds a %d-byte data field, more than the %d one command carries",
+			len(data), len(field), writeDataMaxDataField)
+	}
+	return field, nil
+}

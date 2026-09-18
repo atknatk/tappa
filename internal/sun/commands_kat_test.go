@@ -286,6 +286,66 @@ func TestAPDU_WriteDataHeaderMatchesAN12196Table17(t *testing.T) {
 	}
 }
 
+// TestAPDU_WriteDataPlainIsHeaderPlusDataOnly pins the CommMode.Plain WriteData used
+// at ADR 0017 §5.1 step 5, where the NDEF file 02h is still at delivery rights and the
+// datasheet mandates Plain (§8.2.3.3 · §8.2.3.5 · Table 13; confirmed on 2026-09-18 by
+// real silicon returning 917E LENGTH_ERROR for the Full frame). The plain field is
+// EXACTLY CmdHeader || Data — no encryption, no padding block, no MAC.
+//
+// 🔴 THE POSITIVE CONTROL IS THE Full BUILDER FOR THE SAME BODY. If plain and Full
+// produced the same bytes, or the plain field were not strictly shorter, this test
+// would be asserting nothing about the mode — so both are checked. Reverting
+// cmdWriteNDEF to EV2WriteDataCommand ships the longer Full field, which the fake chip
+// (internal/encode) then rejects with 917E; this test nails the shape one layer down.
+func TestAPDU_WriteDataPlainIsHeaderPlusDataOnly(t *testing.T) {
+	body := hexBytes(t, katT17CmdData) // 128 bytes -> length field 800000, the published header
+	header := hexBytes(t, katT17Header)
+
+	field, err := WriteDataPlainCommand(NDEFFileNo, 0, body)
+	if err != nil {
+		t.Fatalf("WriteDataPlainCommand: %v", err)
+	}
+
+	// EXACTLY CmdHeader || Data.
+	want := append(append([]byte{}, header...), body...)
+	if !bytes.Equal(field, want) {
+		t.Fatalf("plain WriteData field is not header||data\n got %X\nwant %X", field, want)
+	}
+	// Length: header (7) + plaintext, not a byte more. A MAC would add 8; a padding
+	// block would round the body up to a multiple of 16.
+	if len(field) != len(header)+len(body) {
+		t.Fatalf("plain WriteData field is %d bytes, want %d (header %d + body %d)",
+			len(field), len(header)+len(body), len(header), len(body))
+	}
+	// The CmdHeader is byte-for-byte the one the published Full vector carries — same
+	// FileNo/Offset/Length, LSB first — so ONLY the body framing differs between modes.
+	if !bytes.HasPrefix(field, header) {
+		t.Fatalf("plain WriteData CmdHeader does not match AN12196 Table 17\n got %X\nwant %X",
+			field[:min(len(field), len(header))], header)
+	}
+
+	// VACUITY GUARD: the Full builder for the SAME body produces a strictly longer
+	// field (ciphertext padded to a 16-byte block plus an 8-byte MAC) that is not
+	// equal to the plain one.
+	auth := katAuth(t, katT14TI, katT14KeyENC, katT14KeyMAC)
+	full, err := EV2WriteDataCommand(auth, katT17Ctr, NDEFFileNo, 0, body)
+	if err != nil {
+		t.Fatalf("EV2WriteDataCommand: %v", err)
+	}
+	if len(full) <= len(field) {
+		t.Fatalf("the Full field (%d bytes) is not longer than the plain field (%d bytes); "+
+			"the sealing overhead this test relies on is gone", len(full), len(field))
+	}
+	if bytes.Equal(full, field) {
+		t.Fatal("plain and Full WriteData produced identical fields; the mode makes no difference")
+	}
+	// The plain field's tail is the body's tail, not a truncated CMAC: nothing is
+	// appended after the data.
+	if !bytes.Equal(field[len(field)-8:], body[len(body)-8:]) {
+		t.Fatalf("the plain field's tail is not the body's tail; something was appended after the data")
+	}
+}
+
 // TestAPDU_ThreeByteFieldsAreLSBFirst is the discriminator for appendUint24LE
 // itself, on the WriteData header rather than on a settings body — a second,
 // independent published string carrying the same encoding.

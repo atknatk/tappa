@@ -789,9 +789,16 @@ func TestDriver_TheCommandCounterCountsOncePerSealedCommand(t *testing.T) {
 	if _, err := h.run(t, chip, "operator-1"); err != nil {
 		t.Fatalf("round: %v", err)
 	}
-	// Four sealed commands: WriteData, ChangeKey, GetCardUID, ChangeFileSettings.
-	if chip.ctr != 4 {
-		t.Fatalf("the chip's counter ended at %d, want 4", chip.ctr)
+	// Three CommMode.Full commands advance the counter: GetCardUID, ChangeKey,
+	// ChangeFileSettings. WriteData (step 5) now runs in CommMode.Plain, which carries
+	// no MAC over the CmdCtr, so per datasheet §9.1.2 it neither reads nor advances the
+	// counter — the driver (cmdWriteNDEF) and the fake chip (writeDataPlain) agree on
+	// that, which is what makes step 6's response MAC verify. ⚠️ SILICON-UNVERIFIED:
+	// if a real chip counts the plain command, this ends at 4 and cmdWriteNDEF must
+	// consume a counter; that mismatch surfaces as a step-6 MAC failure, before any
+	// key changes.
+	if chip.ctr != 3 {
+		t.Fatalf("the chip's counter ended at %d, want 3", chip.ctr)
 	}
 }
 
@@ -1084,7 +1091,19 @@ func TestDriver_ASlowRowWriteThatOutlivesTheTTLEndsTheRound(t *testing.T) {
 // evidence: under CommMode.Full the proof that the CHIP answered is the response
 // MAC. This drives a frame that says success and does not authenticate.
 func TestDriver_ASealedResponseThatDoesNotAuthenticateEndsTheRound(t *testing.T) {
-	for _, ins := range []byte{0x8D, 0x51} {
+	// 🔴 WriteData (0x8D) IS NO LONGER IN THIS LOOP, and its absence is the point.
+	// Step 5 now runs in CommMode.Plain (the datasheet mandates it for the delivery-
+	// rights NDEF file; real silicon returned 917E for the old Full frame), and a
+	// plain response carries NO MAC — so there is nothing to corrupt and nothing to
+	// authenticate. That is a genuine property lost at step 5: a relay that drops the
+	// frame and fakes a 9100 makes the round continue, so steps 6-7 DO change keys — but
+	// the outcome is a RECOVERABLE plaque (NDEF still factory/public, so field taps fail
+	// CMAC and are flagged per §4.6; ADR 0017 §5.3 rewrites from step 5), and file 02h is
+	// free-access until step 7 anyway, so this reach predates the Plain/Full choice
+	// (ADR 0005 risk 7/8). The counter is still checked one exchange later: a drifted
+	// CmdCtr fails step 6's
+	// response MAC, which GetCardUID (0x51, still CommMode.Full) also exercises here.
+	for _, ins := range []byte{0x51} {
 		t.Run(insName([]byte{0x90, ins}), func(t *testing.T) {
 			h := newHarness(t)
 			chip := newFakeChip(t)
@@ -1303,12 +1322,12 @@ func TestDriver_TheFirstIrreversibleCommandRefusesToRunWithoutARow(t *testing.T)
 	h := newHarness(t)
 	s := &Session{ring: newKeyring()}
 
-	// 🔴 THE ASSERTION IS ON THE MESSAGE, AND THE FIRST VERSION OF THIS TEST WAS NOT
-	// — WHICH IS WHY THE MUTATION SURVIVED THE FIRST PASS. A session with no row
-	// also has no session keys, so cmdWriteNDEF fails EITHER WAY: with the guard it
-	// fails on the row, without it, three lines later, on the nil authentication.
-	// "It returned an error" was therefore true of both the code and its mutant, and
-	// the test proved nothing. It has to name WHICH gate fired.
+	// 🔴 THE §5.2 ROW GUARD IS NOW cmdWriteNDEF'S ONLY PRECONDITION, AND THE ASSERTION
+	// STILL NAMES THE GATE. WriteData moved to CommMode.Plain (sun.WriteDataPlainCommand),
+	// which needs no session keys — so the old "fails either way, on the row or three
+	// lines later on nil auth" ambiguity is gone. Without the guard, a rowless session
+	// would BUILD a valid plain command, so the first assertion below catches a removed
+	// guard directly rather than being masked by a second failure mode.
 	_, err := cmdWriteNDEF(context.Background(), h.st, s)
 	if err == nil {
 		t.Fatalf("WriteData was built for a chip with no tags row")
@@ -1319,14 +1338,11 @@ func TestDriver_TheFirstIrreversibleCommandRefusesToRunWithoutARow(t *testing.T)
 	}
 
 	// POSITIVE CONTROL: the guard is about the ROW, not about refusing everything —
-	// once the row exists this function complains about something else entirely (and
-	// the full round in TestDriver_AFullRoundPersonalisesTheChip goes through it and
-	// succeeds).
+	// once the row exists cmdWriteNDEF builds the plain WriteData and returns no error
+	// (the full round in TestDriver_AFullRoundPersonalisesTheChip runs it end to end).
 	s.rowWritten = true
-	if _, err := cmdWriteNDEF(context.Background(), h.st, s); err == nil {
-		t.Fatalf("expected the NEXT gate (no session keys) to be the one that fires")
-	} else if strings.Contains(err.Error(), "tags row") {
-		t.Fatalf("the row guard fired for a session that has a row: %v", err)
+	if _, err := cmdWriteNDEF(context.Background(), h.st, s); err != nil {
+		t.Fatalf("with a row present, cmdWriteNDEF should build the plain WriteData; got %v", err)
 	}
 }
 

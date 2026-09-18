@@ -57,8 +57,19 @@ import (
 // those free-access Eh conditions — and this driver sends a CommMode.FULL WriteData.
 // Read alone, that sentence says it should be sending Plain.
 //
-// 🔴 THE TENSION IS OPEN. IT IS NOT RESOLVED, AND A PREVIOUS VERSION OF THIS COMMENT
-// CLAIMED IT WAS — RETRACTED 2026-08-21 AFTER A SECOND AUDIT MEASURED THE CLAIM.
+// 🔴 THE TENSION IS RESOLVED — BY REAL SILICON, 2026-09-18 (first hardware round).
+// A CommMode.FULL WriteData to file 02h at delivery rights was REJECTED with status
+// 917E LENGTH_ERROR: the chip enforces CommMode.Plain there, exactly as §8.2.3.3,
+// §8.2.3.5 and Table 13 say. The driver now sends CommMode.Plain at step 5
+// (cmdWriteNDEF -> sun.WriteDataPlainCommand); the field is CmdHeader || Data, with no
+// MAC and no CmdCtr consumed. The Full frame's 917E is a length mismatch made visible:
+// its E(data)||padding||MACt runs past the plaintext Length the header declares.
+// ⚠️ THE FIX ITSELF IS NOT YET SILICON-VERIFIED — silicon proved the Full frame FAILS;
+// that the plain frame SUCCEEDS end to end is the next hardware round's measurement.
+// ⚠️ HISTORY KEPT: this said "THE TENSION IS OPEN, NOT RESOLVED" (2026-08-21), after an
+// even earlier version wrongly claimed the document alone resolved it. The document
+// never could — only silicon decides what is enforced — which is why this stood open
+// until the chip answered.
 //
 // The retracted argument was: "AN12196 §5.8.2 Table 17 publishes a CommMode.FULL
 // WriteData to file 02h, positioned between §5.6 and §5.9, so the file is still at
@@ -88,9 +99,10 @@ import (
 // internal/sun/filesettings.go — "Step 5's WriteData already ran before it, under the
 // delivery Write = Eh."
 //
-// SO, HONESTLY: Tappa's step 5 writes to a file whose Write and ReadWrite are both
-// Eh, under a key-0 session, in CommMode.Full — and no published example covers that
-// combination.
+// SO, HONESTLY (pre-fix state, kept for the record): Tappa's step 5 USED TO write to a
+// file whose Write and ReadWrite are both Eh, under a key-0 session, in CommMode.Full
+// — and no published example covered that combination. Silicon rejected it (917E);
+// step 5 is now CommMode.Plain.
 //
 // ⚠️ AND THE DOCUMENT IS MORE UNIFORM THAN "A TENSION" SUGGESTS — a third statement
 // points the same way, and this comment did not name it (eighth audit): Table 13,
@@ -106,15 +118,20 @@ import (
 // read our sealed field as plain data and WRITE it into file 02h — the round still
 // fails, at the response MAC, but the file has been touched, so "still blank" is
 // wrong.
+// 🔴 MEASURED 2026-09-18: the real chip did NEITHER — it returned 917E LENGTH_ERROR, a
+// command-level rejection BEFORE any write, so the file stayed untouched. Both earlier
+// guesses ("refuses it, still blank" and "applies plain, file touched") guessed a
+// behavior the document does not state; the chip rejects the frame outright.
 //
 // WHY IT IS STILL ACCEPTABLE TO SHIP, on the half that survives the correction: step 5
 // runs BEFORE any ChangeKey, so whatever the chip does with that frame, no key has
 // changed and the plaque is still RECOVERABLE — ADR 0017 §5.3's recovery re-runs from
 // step 5 and overwrites the NDEF file, which is exactly the pair of states §5.3 says
-// its probes need not distinguish. The fallback is named and sits in the same section
-// of the same document: §5.8.1, "Write NDEF File - using Cmd.ISOUpdateBinary,
-// CommMode.PLAIN". Measuring which one silicon accepts is a FAZ B3 job (ADR 0017 §6
-// md. 1: no chip has been encoded).
+// its probes need not distinguish. The fallback named in the same section of the same
+// document — §5.8.1, "Write NDEF File - using Cmd.ISOUpdateBinary, CommMode.PLAIN" —
+// was not needed: the native WriteData in CommMode.Plain is the smaller change and
+// keeps §5.1's step order. That FAZ B3 measurement has now happened (Full -> 917E);
+// what remains is confirming the plain frame succeeds on a chip.
 //
 // WHAT IS *NOT* HERE, and both absences are decisions:
 //
@@ -270,7 +287,7 @@ var roundSteps = []stepDef{
 	},
 	{
 		name: "writedata", adr: "ADR 0017 §5.1 step 5", want: sun.SWSuccess,
-		command: cmdWriteNDEF, accept: acceptSealedAck,
+		command: cmdWriteNDEF, accept: acceptPlainAck,
 	},
 	{
 		name: "changekey.sdmfileread", adr: "ADR 0017 §5.1 step 6", want: sun.SWSuccess,
@@ -559,11 +576,19 @@ func cmdWriteNDEF(_ context.Context, st *Store, s *Session) ([]byte, error) {
 		return nil, err
 	}
 	s.ndef = t
-	ctr, err := s.useCtr()
-	if err != nil {
-		return nil, err
-	}
-	field, err := sun.EV2WriteDataCommand(s.auth, ctr, sun.NDEFFileNo, 0, t.File)
+	// 🔴 CommMode.Plain, NOT Full — and NO CmdCtr is consumed. At step 5 the NDEF
+	// file 02h is still at delivery rights (Write = ReadWrite = Eh, free access), and
+	// the datasheet mandates CommMode.Plain there (§8.2.3.3 · §8.2.3.5 · Table 13);
+	// real silicon confirmed it on 2026-09-18 by rejecting the old Full frame with
+	// 917E LENGTH_ERROR. A plain command carries no session MAC over the counter, so
+	// per §9.1.2 the counter is neither read nor advanced: the next Full command
+	// (step 6 ChangeKey) reuses the value this step would otherwise have taken. See
+	// sun.WriteDataPlainCommand for the full derivation.
+	// ⚠️ SILICON-UNVERIFIED, and this is the immediate next thing a real chip tests:
+	// if step 6's MAC is rejected, the plain command DID advance the chip's counter
+	// and this must call s.useCtr() (offset by one). The failure is caught at step 6,
+	// before any key changes, so the plaque stays recoverable (ADR 0017 §5.3).
+	field, err := sun.WriteDataPlainCommand(sun.NDEFFileNo, 0, t.File)
 	if err != nil {
 		return nil, err
 	}
@@ -584,6 +609,34 @@ func acceptSealedAck(_ context.Context, _ *Store, s *Session, data []byte) error
 	}
 	if len(plain) != 0 {
 		return fmt.Errorf("expected an empty response body, got %d bytes", len(plain))
+	}
+	return nil
+}
+
+// acceptPlainAck accepts a CommMode.Plain response: a bare 9100 with no data and no
+// MAC. RequireStatus has already checked the status word; this only guards against an
+// unexpected trailing body.
+//
+// 🔴 IT DELIBERATELY DOES NOT VERIFY A RESPONSE MAC, BECAUSE A PLAIN RESPONSE HAS
+// NONE — and that is a real property lost at step 5, not an oversight. acceptSealedAck
+// (steps 6, 7 and GetCardUID) verifies that the chip, not the relay, produced the
+// acknowledgement AND that our CmdCtr/TI still agree with the chip's. WriteData in
+// CommMode.Plain cannot offer that proof, so a hostile relay CAN drop this frame and
+// fake a 9100 — the round then CONTINUES, so steps 6-7 DO change keys ("no key has
+// changed" would be false on that path). It is still safe because the outcome is a
+// RECOVERABLE plaque, not a forged tap: SDM ends up on and the write key locked to
+// 0x01, K_SDMFileRead is ours, but the NDEF holds factory/public content, so every
+// field tap fails its CMAC and is RECORDED then flagged/rejected (§4.6 — never silently
+// approved); ADR 0017 §5.3's recovery re-runs from step 5 on the "key already ours"
+// arm. Two facts bound it: (1) this content-substitution reach does NOT arise from this
+// change — file 02h is free-access until step 7, so a hostile relay could inject its own
+// plain write whether Tappa sent Full or Plain (ADR 0005 risk 7/8, an accepted trust
+// boundary); (2) the old Full regime gained nothing here — silicon rejected step 5 with
+// 917E, so there was no safe behavior to regress. The counter is still checked one
+// exchange later — a drifted CmdCtr fails step 6's response MAC in acceptSealedAck.
+func acceptPlainAck(_ context.Context, _ *Store, _ *Session, data []byte) error {
+	if len(data) != 0 {
+		return fmt.Errorf("expected an empty plain response body, got %d bytes", len(data))
 	}
 	return nil
 }

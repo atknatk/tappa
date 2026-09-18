@@ -384,7 +384,10 @@ func (c *fakeChip) Transceive(capdu []byte) []byte {
 	case 0x71: // AuthenticateEV2First
 		return c.authPart1(body)
 
-	case 0x8D, 0xC4, 0x51, 0x5F:
+	case 0x8D: // WriteData — CommMode.Plain for the delivery-rights NDEF file
+		return c.writeDataPlain(body)
+
+	case 0xC4, 0x51, 0x5F:
 		return c.sealed(ins, body)
 	}
 
@@ -518,29 +521,6 @@ func (c *fakeChip) sealed(ins byte, body []byte) []byte {
 
 	var respData []byte
 	switch ins {
-	case 0x8D: // WriteData
-		// header is FileNo || Offset(3) || Length(3) — Table 81, both 3-byte fields
-		// LSB first.
-		//
-		// 🔴 THE OFFSET AND THE LENGTH USED TO BE IGNORED HERE, AND THAT WAS THE SAME
-		// DOUBLE WEAKNESS AS THE FILE NUMBER ONE FOUND A ROUND EARLIER, ONE FIELD OVER
-		// (audit, 2026-08-21). This line was `c.files[header[0]] = plain`, so a driver
-		// writing the template at offset 5 instead of 0 looked identical to one
-		// writing it at 0 — and the mutation that does exactly that survived. On
-		// silicon that plaque emits nothing usable: step 7's SDM mirror offsets are
-		// absolute file positions, so a shifted template points them at the wrong
-		// bytes and every tap fails its CMAC forever.
-		off := uint32(header[1]) | uint32(header[2])<<8 | uint32(header[3])<<16
-		length := uint32(header[4]) | uint32(header[5])<<8 | uint32(header[6])<<16
-		if int(length) != len(plain) {
-			t.Fatalf("chip: WriteData declared %d bytes and sent %d", length, len(plain))
-		}
-		file := c.files[header[0]]
-		for len(file) < int(off)+len(plain) {
-			file = append(file, 0x00)
-		}
-		copy(file[off:], plain)
-		c.files[header[0]] = file
 	case 0xC4: // ChangeKey
 		c.applyChangeKey(header[0], plain)
 	case 0x5F: // ChangeFileSettings
@@ -558,6 +538,61 @@ func (c *fakeChip) sealed(ins byte, body []byte) []byte {
 		out[len(out)-3] ^= 0x01
 	}
 	return out
+}
+
+// writeDataPlain models Cmd.WriteData in CommMode.Plain — the mode a real NTAG 424
+// DNA enforces for the NDEF file 02h while it is still at delivery rights
+// (Write = ReadWrite = Eh, free access): datasheet §8.2.3.3 / §8.2.3.5 and Table 13.
+// The data field is CmdHeader || Data with NO encryption and NO MAC, and a plain
+// command carries no CmdCtr, so the counter is neither read nor advanced (§9.1.2
+// couples the increment to the command MAC, and there is none). That is why this
+// path does NOT touch c.ctr — the next Full command (ChangeKey) reuses the counter
+// value GetCardUID left, and its response MAC verifies only if the driver made the
+// same choice (cmdWriteNDEF consumes no counter). The two together pin the decision.
+//
+// 🔴 THIS IS WHAT MAKES THE FIX SELF-CHECKING. A driver that sends a CommMode.Full
+// WriteData (CmdHeader || E(data)||padding || MACt) to this file leaves trailing
+// bytes that exceed the plaintext Length the header declares, so the chip answers
+// 917E LENGTH_ERROR — the exact status real silicon returned on 2026-09-18.
+// Reverting cmdWriteNDEF to EV2WriteDataCommand turns the full-round test red here.
+//
+// 🔴 THE OFFSET AND THE LENGTH ARE LOAD-BEARING (audit, 2026-08-21, carried over from
+// the sealed path). Ignoring the offset let a template written at offset 5 look
+// identical to one at 0; on silicon step 7's SDM mirror offsets are absolute file
+// positions, so a shifted template points them at the wrong bytes and every tap
+// fails its CMAC forever.
+func (c *fakeChip) writeDataPlain(body []byte) []byte {
+	// Free access needs no authentication (a real chip would accept this frame
+	// unauthenticated too); the encode round is always authenticated by step 5, so
+	// no auth precondition is asserted here.
+	const hl = 7 // FileNo || Offset(3) || Length(3) — Table 81, both 3-byte fields LSB first
+	if len(body) < hl {
+		return sw(0x917E) // LENGTH_ERROR: too short for even the header
+	}
+	header := body[:hl]
+	data := body[hl:]
+	off := uint32(header[1]) | uint32(header[2])<<8 | uint32(header[3])<<16
+	length := uint32(header[4]) | uint32(header[5])<<8 | uint32(header[6])<<16
+	if int(length) != len(data) {
+		// The declared plaintext length does not match the bytes that followed. A
+		// CommMode.Full frame lands here: its E(data)||padding||MACt is longer than
+		// Length. This is the 917E the real chip returned for the Full WriteData.
+		return sw(0x917E)
+	}
+	file := c.files[header[0]]
+	for len(file) < int(off)+len(data) {
+		file = append(file, 0x00)
+	}
+	copy(file[off:], data)
+	c.files[header[0]] = file
+
+	// A plain response is a bare status word: no data, no MAC — and no counter
+	// change. An injected body still exercises the driver's "a plain ack must carry
+	// no body" guard (acceptPlainAck).
+	if injected, ok := c.injectRespData[0x8D]; ok {
+		return append(append([]byte(nil), injected...), sw(0x9100)...)
+	}
+	return sw(0x9100)
 }
 
 func (c *fakeChip) applyChangeKey(keyNo byte, plain []byte) {
