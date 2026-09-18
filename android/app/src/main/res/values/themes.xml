@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Platform Material, light only (tappa-brand: no dark theme). No AndroidX. -->
+    <style name="Theme.Taptime" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:colorPrimary">@color/tappa_green</item>
+        <item name="android:colorPrimaryDark">@color/ink</item>
+        <item name="android:colorAccent">@color/tappa_green</item>
+        <item name="android:windowBackground">@color/porcelain</item>
+        <item name="android:statusBarColor">@color/ink</item>
+        <item name="android:navigationBarColor">@color/porcelain</item>
+        <item name="android:textColorPrimary">@color/ink</item>
+        <item name="android:textColorSecondary">@color/ink</item>
+        <item name="android:windowLightNavigationBar">true</item>
+    </style>
+
+    <style name="Button.Primary" parent="android:Widget.Material.Button">
+        <item name="android:background">@drawable/button_primary</item>
+        <item name="android:textColor">@color/paper</item>
+        <item name="android:textAllCaps">false</item>
+        <item name="android:textSize">17sp</item>
+        <item name="android:minHeight">56dp</item>
+        <item name="android:paddingStart">24dp</item>
+        <item name="android:paddingEnd">24dp</item>
+        <item name="android:letterSpacing">-0.01</item>
+    </style>
+
+    <style name="Button.Quiet" parent="android:Widget.Material.Button">
+        <item name="android:background">@drawable/button_quiet</item>
+        <item name="android:textColor">@color/ink</item>
+        <item name="android:textAllCaps">false</item>
+        <item name="android:textSize">15sp</item>
+        <item name="android:minHeight">48dp</item>
+        <item name="android:paddingStart">20dp</item>
+        <item name="android:paddingEnd">20dp</item>
+    </style>
+</resources>

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Sharp corners (rounded-sm at most), flat, tappa-green. No pill, no gradient. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <solid android:color="@color/tappa_green" />
+    <corners android:radius="2dp" />
+</shape>

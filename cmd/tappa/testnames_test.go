@@ -398,6 +398,13 @@ func skipScanDir(rel string) bool {
 	switch rel {
 	case ".git", ".tools", "bin", "node_modules":
 		return true
+	// Gradle output for the Android relay (M8-05 FAZ B3). None of it is hand-written
+	// and all of it is gitignored, but `make android` leaves it on disk and the walk
+	// found cited test names inside a zip cache there -- 54 dangling against a budget
+	// of 53, on a tree whose sources had not changed. The SOURCE tree under android/
+	// stays in scope: android/README.md cites Go test names on purpose.
+	case "android/.gradle", "android/.kotlin", "android/build", "android/app/build":
+		return true
 	}
 	return false
 }
@@ -406,7 +413,10 @@ func skipScanDir(rel string) bool {
 // decision, which the repository-wide walk cannot pin because nothing in the tree
 // triggers it.
 func TestScanScope_SkipsBuildOutputWithoutSkippingEverythingNamedLikeIt(t *testing.T) {
-	for _, rel := range []string{".git", ".tools", "bin", "node_modules"} {
+	for _, rel := range []string{
+		".git", ".tools", "bin", "node_modules",
+		"android/.gradle", "android/.kotlin", "android/build", "android/app/build",
+	} {
 		if !skipScanDir(rel) {
 			t.Errorf("%s should be skipped: it holds no hand-written citations", rel)
 		}
@@ -416,6 +426,9 @@ func TestScanScope_SkipsBuildOutputWithoutSkippingEverythingNamedLikeIt(t *testi
 	for _, rel := range []string{
 		"docs/bin", "internal/bin", "web/static/bin", "deploy/bin",
 		"docs/.git-notes", "internal/tools", "scripts/node_modules-notes",
+		// The Android SOURCE tree is hand-written and cites Go tests; only its
+		// Gradle output is skipped. "android/app" is the parent of "android/app/build".
+		"android", "android/app", "android/app/src",
 	} {
 		if skipScanDir(rel) {
 			t.Errorf("🔴 %s is being skipped, so a citation written there would be invisible. "+

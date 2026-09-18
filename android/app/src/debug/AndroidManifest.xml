@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  DEBUG ONLY: a debug build may talk to a plain-http server on the LAN (the address
+  is editable on the screen). The release manifest carries no such attribute, so a
+  release build refuses cleartext and can only relay to https.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <application
+        android:usesCleartextTraffic="true"
+        tools:targetApi="28" />
+</manifest>

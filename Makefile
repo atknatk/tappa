@@ -154,6 +154,30 @@ db-reset:
 simulate-day:
 	go test -race -count=1 -v -run TestSeedDB_ADayAtKFStJulians ./internal/handler
 
+# ------------------------------------------------------------------ android --
+# Plaket encode rolesi (android/, M8-05 FAZ B3): Go modulunun DISINDA ayri bir Gradle
+# derlemesi. `check`in PARCASI DEGIL -- Go CI'i ona dokunmaz ve redline-check'in SRC
+# listesi onu taramaz. Zincir: SISTEM Gradle'i (agacta wrapper JAR yok, repo ikili
+# tasimaz) + JDK 21 + ANDROID_HOME altindaki SDK. Tam surumler: android/README.md.
+#
+# JAVA_HOME ACIKCA VERILIR, VARSAYILMAZ. Olculdu: JAVA_HOME'suz `gradle` bu makinede
+# Homebrew'un openjdk@25'ini seciyor; zincir 21 ile olculdu, 25 ile degil.
+# Bellek dar: android/gradle.properties daemon'i -Xmx2g ile sinirlar ve paralel
+# derlemeyi kapatir. Derleme sirasinda `make test` kosturma.
+ANDROID_HOME      ?= /usr/local/share/android-commandlinetools
+ANDROID_JAVA_HOME ?= /usr/local/opt/openjdk@21
+GRADLE            ?= gradle
+ANDROID_ENV       := JAVA_HOME=$(ANDROID_JAVA_HOME) ANDROID_HOME=$(ANDROID_HOME)
+
+## android: relay APK'sini derle (assembleDebug) ve adb'ye bagli telefona kur
+android:
+	cd android && $(ANDROID_ENV) $(GRADLE) --console=plain assembleDebug
+	adb install -r android/app/build/outputs/apk/debug/app-debug.apk
+
+## android-test: relay JVM testleri -- donanim gerekmez (sahte sunucu + sahte cip)
+android-test:
+	cd android && $(ANDROID_ENV) $(GRADLE) --console=plain testDebugUnitTest
+
 # ------------------------------------------------------------------- kalite --
 # 🔴 DB ORTAMI YOKSA BU HEDEFLER KOSMAZ — ESKIDEN SESSIZCE YARIM KOSUYORDU
 # (M8-04 F1..F8 turu, 2026-08-19). Olculdu, `-v` ile: env YOKKEN yuzlerce test
@@ -421,4 +445,4 @@ audit:
 
 .PHONY: help tools gen templ sqlc css up down dev build migrate migrate-down \
         migrate-status migrate-new seed db-reset simulate-day test test-short \
-        cover lint fmt check audit require-db-env
+        cover lint fmt check audit require-db-env android android-test

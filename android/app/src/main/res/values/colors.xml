@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The palette, verbatim from skill tappa-brand. Nothing outside it. -->
+<resources>
+    <color name="ink">#152219</color>
+    <color name="porcelain">#EDF0EA</color>
+    <color name="paper">#FFFDF4</color>
+    <color name="tappa_green">#1F5C41</color>
+    <color name="green_lite">#E1EDE6</color>
+    <color name="saffron">#D98E2B</color>
+    <color name="saffron_lite">#F7EBD6</color>
+    <color name="tomato">#BE3D2A</color>
+    <color name="line">#C9D2C8</color>
+    <!--
+      ink at 65 % over paper, for the address field's hint. Not a new token: the
+      brand rule for "a colour is needed" is an existing token's opacity. Measured
+      (WCAG relative luminance, sRGB composite): line on paper is 1.52:1 — the first
+      version used it and failed AA; ink@0.65 composites to #676F66 and gives 5.10:1
+      on paper, above the 4.5:1 normal-text bar (0.60 gives 4.34:1, under).
+    -->
+    <color name="ink_hint">#A6152219</color>
+</resources>

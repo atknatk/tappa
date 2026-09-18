@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- K6: the user-facing name is Taptime. -->
+    <string name="app_name">Taptime</string>
+    <string name="subtitle">PLAQUE RELAY</string>
+    <string name="server_hint">https://taptime.mt</string>
+    <string name="save">Save address</string>
+    <string name="check">Check server</string>
+    <string name="sign_in">Sign in</string>
+    <string name="sign_out">Sign out</string>
+</resources>

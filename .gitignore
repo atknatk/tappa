@@ -52,3 +52,13 @@ coverage.*
 
 # --- claude local overrides ---
 .claude/settings.local.json
+
+# --- android relay (M8-05 FAZ B3) — build output and machine-local config ---
+# Compiled output and local.properties (it names this machine's SDK path) are
+# never committed; the tree carries source only, no binaries (no Gradle wrapper JAR).
+/android/.gradle/
+/android/build/
+/android/app/build/
+/android/local.properties
+/android/.kotlin/
+*.apk
