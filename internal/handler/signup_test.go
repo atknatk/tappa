@@ -394,7 +394,7 @@ func TestSignup_ServerRefusesABadAccountAndKeepsThePasswordOffTheScreen(t *testi
 		{"no name", func(v url.Values) { v.Set("full_name", "") }, "Tell us your name"},
 		{"no email", func(v url.Values) { v.Set("email", "") }, "We need an address"},
 		{"an email with no @", func(v url.Values) { v.Set("email", "maria.example.mt") }, "does not look like an email"},
-		{"a short password", func(v url.Values) { v.Set("password", secret) }, "at least 12 characters"},
+		{"a short password", func(v url.Values) { v.Set("password", secret) }, "at least 8 characters"},
 		{"no password", func(v url.Values) { v.Set("password", "") }, "Choose a password"},
 		{"a password past bcrypt's byte limit", func(v url.Values) {
 			v.Set("password", strings.Repeat("q", 73))

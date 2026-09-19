@@ -837,7 +837,7 @@ func SignupAccount(v SignupAccountView) templ.Component {
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 56, "</div><div class=\"flex flex-col gap-1\"><label for=\"signup-password\" class=\"docket-label\">Password</label><input id=\"signup-password\" name=\"password\" type=\"password\" autocomplete=\"new-password\" required minlength=\"12\" class=\"min-h-11 w-full border border-line bg-paper px-3 py-2 font-mono text-sm text-ink focus:border-tappa-green focus:outline-none focus:ring-1 focus:ring-tappa-green\"><p class=\"mt-1 text-xs text-ink/70\">At least 12 characters. A few words you will remember beats a short one you will not.</p>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 56, "</div><div class=\"flex flex-col gap-1\"><label for=\"signup-password\" class=\"docket-label\">Password</label><input id=\"signup-password\" name=\"password\" type=\"password\" autocomplete=\"new-password\" required minlength=\"8\" class=\"min-h-11 w-full border border-line bg-paper px-3 py-2 font-mono text-sm text-ink focus:border-tappa-green focus:outline-none focus:ring-1 focus:ring-tappa-green\"><p class=\"mt-1 text-xs text-ink/70\">At least 8 characters. A few words you will remember beats a short one you will not.</p>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}

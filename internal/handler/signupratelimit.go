@@ -168,8 +168,8 @@ const (
 	//  2. THIS MINIMUM FILL TIME. The wizard's signed state carries the instant it
 	//     was first minted and NEVER refreshes it (signupstate.go), so this measures
 	//     the whole wizard rather than one step. Nobody types a company name, a VAT
-	//     number, one or more venue names, their own name, an email address and a
-	//     twelve-character password in eight seconds.
+	//     number, one or more venue names, their own name, an email address and an
+	//     eight-character password in eight seconds.
 	//  3. THE SIGNED THREE-STEP SEQUENCE ITSELF, which is not a challenge but does
 	//     the same work: POST /signup/account cannot be reached without a state blob
 	//     this server signed, which cannot be obtained without posting the two

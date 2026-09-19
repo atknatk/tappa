@@ -127,12 +127,16 @@ const (
 
 	// MinPasswordRunes is the floor for the first operator's password.
 	//
-	// TWELVE, AND IT IS A FLOOR RATHER THAN A COMPOSITION RULE. There is no "one
+	// EIGHT, AND IT IS A FLOOR RATHER THAN A COMPOSITION RULE. There is no "one
 	// upper case, one digit, one symbol" here on purpose: those rules measurably
 	// push people toward `Password1!` and this product has a better lever — bcrypt
 	// at cost 12 (internal/adminauth) makes an offline guess expensive, and the
 	// panel's attempt budget makes an online one pointless.
-	MinPasswordRunes = 12
+	//
+	// The floor was lowered from twelve to eight as a deliberate product call
+	// ("keep it simple", user decision); the levers that carry the security -- bcrypt
+	// cost 12, the attempt budget, per-account isolation -- did not move. See ADR 0019.
+	MinPasswordRunes = 8
 
 	// MaxPasswordBytes is adminauth's hard limit, mirrored so this package can
 	// refuse over-long input where an error is cheap and explainable (at the moment

@@ -1228,7 +1228,7 @@ func constantTimeMatch(held, sent string) bool {
 // the sentence to show.
 //
 // THE BOUNDS ARE internal/domain/signup's, NOT NEW ONES. That package already decided
-// what a Tappa panel password may be (a twelve-character floor with no composition
+// what a Tappa panel password may be (an eight-character floor with no composition
 // rule, and bcrypt's 72-BYTE ceiling), and a second set of numbers here would be a
 // second representation of one product rule — the shape this repository has paid for
 // more than once. A person who registers and a person who recovers must not be able

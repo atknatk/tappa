@@ -342,11 +342,11 @@ templ SignupAccount(v SignupAccountView) {
 					type="password"
 					autocomplete="new-password"
 					required
-					minlength="12"
+					minlength="8"
 					class="min-h-11 w-full border border-line bg-paper px-3 py-2 font-mono text-sm text-ink focus:border-tappa-green focus:outline-none focus:ring-1 focus:ring-tappa-green"
 				/>
 				<p class="mt-1 text-xs text-ink/70">
-					At least 12 characters. A few words you will remember beats a short one you will not.
+					At least 8 characters. A few words you will remember beats a short one you will not.
 				</p>
 				@fieldError(v.Errors, "password")
 			</div>
