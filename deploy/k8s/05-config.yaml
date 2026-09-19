@@ -122,4 +122,4 @@ data:
   # unique only within one business and sign-up is public, so an address-keyed
   # allow-list can be joined by registering a business with that address (measured;
   # internal/config.OperatorAdminIDs carries the break in full).
-  TAPPA_OPERATOR_ADMIN_IDS: ""
+  TAPPA_OPERATOR_ADMIN_IDS: "9bdf19a4-eeaf-4886-bb93-a44f52d7cb08,07f4f6bc-1539-420c-893c-652cc31b45ec"
