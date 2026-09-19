@@ -109,9 +109,24 @@ func TestPoint_EveryRenderingPathIsRedacted(t *testing.T) {
 func TestPoint_IsUnloggable(t *testing.T) {
 	t.Parallel()
 
+	// noTime drops slog's timestamp from the output. It is TEST NOISE, not part of
+	// the redaction contract: time.Time.Format prints the seconds as "SS.mmm", so a
+	// tap logged at, say, :35.9xx put "35.9" in the line and leaked() flagged the
+	// TIMESTAMP, not the (correctly redacted) coordinate — a false positive that
+	// made this test flaky in CI. Removing the time attr makes the collision
+	// impossible while every banned prefix and the REDACTED check below stay intact;
+	// the production redaction path (geo.go's five methods) is untouched.
+	noTime := &slog.HandlerOptions{
+		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
+			if len(groups) == 0 && a.Key == slog.TimeKey {
+				return slog.Attr{}
+			}
+			return a
+		},
+	}
 	handlers := map[string]func(*bytes.Buffer) slog.Handler{
-		"text": func(b *bytes.Buffer) slog.Handler { return slog.NewTextHandler(b, nil) },
-		"json": func(b *bytes.Buffer) slog.Handler { return slog.NewJSONHandler(b, nil) },
+		"text": func(b *bytes.Buffer) slog.Handler { return slog.NewTextHandler(b, noTime) },
+		"json": func(b *bytes.Buffer) slog.Handler { return slog.NewJSONHandler(b, noTime) },
 	}
 
 	// Both spellings. MEASURED, and the correction of a claim this file used to
