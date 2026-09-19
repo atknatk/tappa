@@ -120,20 +120,21 @@ func TestRelay_NoPlaintextKeyMaterialEverReachesTheWire(t *testing.T) {
 		t.Fatalf("captured %d C-APDU(s) for a %d-exchange round; the capture is incomplete "+
 			"and every assertion below is weaker than it looks", got, len(roundSteps))
 	}
-	// The five slots that are filled during a shipped round. K_AppMaster is declared
-	// and never filled (ADR 0017 §6 md. 5 blocks step 8), so requiring it would make
-	// this test fail for the wrong reason — and NOT naming it would let the day it
-	// starts being filled pass unnoticed. It is asserted ABSENT instead.
+	// The six slots that are filled during a shipped round. K_AppMaster joined the
+	// list when ADR 0017 §5.1 step 8 shipped (ADR 0018): step 3 mints it beside
+	// K_SDMFileRead, and step 8's ChangeKey(0) carries it ENCRYPTED — so its plaintext
+	// must not appear on the wire either, which is exactly what the substring search
+	// below now also checks.
 	var names []string
 	for name := range secrets {
 		names = append(names, name)
 	}
 	sort.Strings(names)
-	want := []string{"KSesAuthENC", "KSesAuthMAC", "K_SDMFileRead", "RndA", "RndB"}
+	want := []string{"KSesAuthENC", "KSesAuthMAC", "K_AppMaster", "K_SDMFileRead", "RndA", "RndB"}
 	if len(names) != len(want) {
 		t.Fatalf("the round produced key material %v, want %v.\n"+
-			"If K_AppMaster is in that list, ADR 0017 §5.1 step 8 has shipped and this test "+
-			"is now checking one more secret — which is correct; update `want`.", names, want)
+			"If K_AppMaster is missing, step 3 stopped minting it; if there is an extra name, "+
+			"a new secret entered the ring and this test is now checking one more — update `want`.", names, want)
 	}
 	for i := range want {
 		if names[i] != want[i] {

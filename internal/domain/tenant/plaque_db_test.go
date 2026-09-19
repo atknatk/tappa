@@ -1453,8 +1453,10 @@ func TestPlaquesDB_NoShippedTagQuerySelectsTheKey(t *testing.T) {
 }
 
 // keyRefAllowedLines is the ENTIRE permission this wall grants: the exact
-// statement lines of db/queries/tags.sql that may contain `aes_key_ref`, matched
-// as whole strings after whitespace collapsing.
+// statement lines of db/queries/tags.sql that may contain a wrapped-key column
+// (`aes_key_ref` or, since ADR 0018 / migration 00023, `app_key_ref`), matched as
+// whole strings after whitespace collapsing. The loader names both in one INSERT,
+// so both permitted lines carry both columns.
 //
 // 🔴 IT IS AN ALLOW-LIST OF **TEXT**, NOT OF SHAPES, AND THAT IS THE THIRD AND
 // FINAL DESIGN OF THIS SCAN. The history is the argument and it is short:
@@ -1508,10 +1510,11 @@ func TestPlaquesDB_NoShippedTagQuerySelectsTheKey(t *testing.T) {
 // what to do. That is the trade -- a false alarm a developer can fix in one line,
 // against a class of silent escape that has now cost two audits.
 var keyRefAllowedLines = map[string]string{
-	"INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, status)": "InsertUnassigned's " +
-		"column list (ADR 0017 §5.1 step 3 -- the loader MUST name the column to write it)",
-	"VALUES (@uid, @tenant_id, NULL, @aes_key_ref, 'unassigned')": "InsertUnassigned's VALUES " +
-		"list -- the value travels IN, as a bound parameter",
+	"INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, app_key_ref, status)": "InsertUnassigned's " +
+		"column list (ADR 0017 §5.1 step 3 / ADR 0018 -- the loader MUST name BOTH wrapped " +
+		"keys, aes_key_ref (key 1) and app_key_ref (key 0), to write them)",
+	"VALUES (@uid, @tenant_id, NULL, @aes_key_ref, @app_key_ref, 'unassigned')": "InsertUnassigned's VALUES " +
+		"list -- both wrapped keys travel IN, as bound parameters",
 }
 
 // keyRefFindings is THE scan. Both the check above and its negative control call
@@ -1538,7 +1541,12 @@ var keyRefAllowedLines = map[string]string{
 //   - STATEMENTS ARE SPLIT ON sqlc's `-- name:` MARKERS, so a file that stopped
 //     using them would be read as one statement. The anti-vacuity floor notices.
 func keyRefFindings(sql string) (findings []string, read int) {
-	const col = "aes_key_ref"
+	// BOTH wrapped-key columns, because ADR 0018 (migration 00023) added a SECOND
+	// per-plaque envelope, app_key_ref (NTAG 424 DNA key 0), of exactly aes_key_ref's
+	// §4.7 sensitivity. A wall that guarded only key 1 would let key 0 out through the
+	// spelling nobody listed -- the same class every earlier round of this scan paid
+	// for. The two loader lines carry BOTH and are the only permission (keyRefAllowedLines).
+	cols := []string{"aes_key_ref", "app_key_ref"}
 	name := ""
 	for _, line := range strings.Split(sql, "\n") {
 		trimmed := strings.TrimSpace(line)
@@ -1640,7 +1648,15 @@ func keyRefFindings(sql string) (findings []string, read int) {
 		// spellings escaped (AES_KEY_REF, Aes_Key_Ref, aes_key_reF). Worse, the star
 		// rule three lines above ALREADY lower-cased, so the inconsistency lived
 		// inside one function.
-		if !strings.Contains(strings.ToLower(trimmed), col) {
+		col := ""
+		low := strings.ToLower(trimmed)
+		for _, c := range cols {
+			if strings.Contains(low, c) {
+				col = c
+				break
+			}
+		}
+		if col == "" {
 			continue
 		}
 		// Whitespace is collapsed so indentation is not part of the identity, and
@@ -1681,6 +1697,12 @@ func TestPlaquesDB_KeyRefScanFlagsTheShapesItClaims(t *testing.T) {
 		"a SELECT list carrying the key": `
 			-- name: GetTagForTenant :one
 			SELECT g.uid, g.aes_key_ref FROM tags g WHERE g.tenant_id = @tenant_id;`,
+		// 🔴 THE SECOND WRAPPED KEY (ADR 0018, migration 00023). app_key_ref does not
+		// contain the string "aes_key_ref", so before the scan covered both columns this
+		// SELECT reported nothing -- the exact blind spot every earlier round left.
+		"a SELECT list carrying the app master key": `
+			-- name: GetTagForTenant :one
+			SELECT g.uid, g.app_key_ref FROM tags g WHERE g.tenant_id = @tenant_id;`,
 		"an UPDATE returning the key": `
 			-- name: AssignTagToLocation :one
 			UPDATE tags SET status = 'active' WHERE uid = @uid
@@ -1755,8 +1777,8 @@ func TestPlaquesDB_KeyRefScanFlagsTheShapesItClaims(t *testing.T) {
 		// name differs.)
 		"the permitted text copied under a DIFFERENT query name": `
 			-- name: LoadPlaqueSomeOtherWay :one
-			INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, status)
-			VALUES (@uid, @tenant_id, NULL, @aes_key_ref, 'unassigned')
+			INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, app_key_ref, status)
+			VALUES (@uid, @tenant_id, NULL, @aes_key_ref, @app_key_ref, 'unassigned')
 			RETURNING uid, created_at;`,
 
 		// 🔴 THE STAR CASES. None of these contains the string "aes_key_ref", so
@@ -1766,8 +1788,8 @@ func TestPlaquesDB_KeyRefScanFlagsTheShapesItClaims(t *testing.T) {
 		// not the verb.
 		"the shipped loader with RETURNING *": `
 			-- name: InsertUnassigned :one
-			INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, status)
-			VALUES (@uid, @tenant_id, NULL, @aes_key_ref, 'unassigned')
+			INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, app_key_ref, status)
+			VALUES (@uid, @tenant_id, NULL, @aes_key_ref, @app_key_ref, 'unassigned')
 			RETURNING *;`,
 		"a read with SELECT *": `
 			-- name: GetTagForTenant :one
@@ -1798,18 +1820,18 @@ func TestPlaquesDB_KeyRefScanFlagsTheShapesItClaims(t *testing.T) {
 		// away already folded. The inconsistency lived inside one function.
 		"an upper-case column name": `
 			-- name: InsertUnassigned :one
-			INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, status)
-			VALUES (@uid, @tenant_id, NULL, @aes_key_ref, 'unassigned')
+			INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, app_key_ref, status)
+			VALUES (@uid, @tenant_id, NULL, @aes_key_ref, @app_key_ref, 'unassigned')
 			RETURNING uid, created_at, AES_KEY_REF;`,
 		"a mixed-case column name": `
 			-- name: InsertUnassigned :one
-			INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, status)
-			VALUES (@uid, @tenant_id, NULL, @aes_key_ref, 'unassigned')
+			INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, app_key_ref, status)
+			VALUES (@uid, @tenant_id, NULL, @aes_key_ref, @app_key_ref, 'unassigned')
 			RETURNING uid, created_at, Aes_Key_Ref;`,
 		"a single upper-case letter in the column name": `
 			-- name: InsertUnassigned :one
-			INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, status)
-			VALUES (@uid, @tenant_id, NULL, @aes_key_ref, 'unassigned')
+			INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, app_key_ref, status)
+			VALUES (@uid, @tenant_id, NULL, @aes_key_ref, @app_key_ref, 'unassigned')
 			RETURNING uid, created_at, aes_key_reF;`,
 	} {
 		if got, _ := keyRefFindings(sql); len(got) == 0 {
@@ -1821,8 +1843,8 @@ func TestPlaquesDB_KeyRefScanFlagsTheShapesItClaims(t *testing.T) {
 	for name, sql := range map[string]string{
 		"the shipped loader": `
 			-- name: InsertUnassigned :one
-			INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, status)
-			VALUES (@uid, @tenant_id, NULL, @aes_key_ref, 'unassigned')
+			INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, app_key_ref, status)
+			VALUES (@uid, @tenant_id, NULL, @aes_key_ref, @app_key_ref, 'unassigned')
 			RETURNING uid, created_at;`,
 		"a read that does not touch the column": `
 			-- name: GetTagForTenant :one

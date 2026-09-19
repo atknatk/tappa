@@ -192,7 +192,7 @@ func TestDBRows_InsertLoadsStockAndWritesItsTrailEntryInOneTransaction(t *testin
 	uid := newUID(t)
 	const actor = "operator-alpha"
 
-	if err := rows.InsertUnassigned(context.Background(), tenant, uuid.Nil, uid, wrappedFor(t, uid), actor); err != nil {
+	if err := rows.InsertUnassigned(context.Background(), tenant, uuid.Nil, uid, wrappedFor(t, uid), nil, actor); err != nil {
 		t.Fatalf("InsertUnassigned: %v", err)
 	}
 
@@ -278,11 +278,11 @@ func TestDBRows_ADuplicateUIDFailsAndTakesItsTrailEntryWithIt(t *testing.T) {
 	uid := newUID(t)
 	first := wrappedFor(t, uid)
 
-	if err := rows.InsertUnassigned(context.Background(), tenant, uuid.Nil, uid, first, "operator-alpha"); err != nil {
+	if err := rows.InsertUnassigned(context.Background(), tenant, uuid.Nil, uid, first, nil, "operator-alpha"); err != nil {
 		t.Fatalf("the first load failed: %v", err)
 	}
 	second := wrappedFor(t, uid)
-	err := rows.InsertUnassigned(context.Background(), tenant, uuid.Nil, uid, second, "operator-beta")
+	err := rows.InsertUnassigned(context.Background(), tenant, uuid.Nil, uid, second, nil, "operator-beta")
 	if err == nil {
 		t.Fatal("a second load for the same uid SUCCEEDED; tags.uid is a PRIMARY KEY and " +
 			"Rows.InsertUnassigned's contract is to fail rather than overwrite")
@@ -336,7 +336,7 @@ func TestDBRows_AFailedTrailWriteTAKESTHEROWWITHIT(t *testing.T) {
 
 	// (1) INSERT: the error must surface AND the row must not survive.
 	uid := newUID(t)
-	insertErr := rows.InsertUnassigned(ctx, tenant, uuid.Nil, uid, wrappedFor(t, uid), "operator-alpha")
+	insertErr := rows.InsertUnassigned(ctx, tenant, uuid.Nil, uid, wrappedFor(t, uid), nil, "operator-alpha")
 	if insertErr == nil {
 		t.Fatal("InsertUnassigned reported SUCCESS while its trail entry failed. The row is " +
 			"committed, the trail is empty, and the caller believes the plaque is loaded")
@@ -358,7 +358,7 @@ func TestDBRows_AFailedTrailWriteTAKESTHEROWWITHIT(t *testing.T) {
 	// port first, so the only thing failing is the trail.
 	good := newDBRows(t, d)
 	uid2 := newUID(t)
-	if err := good.InsertUnassigned(ctx, tenant, uuid.Nil, uid2, wrappedFor(t, uid2), "operator-alpha"); err != nil {
+	if err := good.InsertUnassigned(ctx, tenant, uuid.Nil, uid2, wrappedFor(t, uid2), nil, "operator-alpha"); err != nil {
 		t.Fatalf("the fixture load failed: %v", err)
 	}
 	markErr := rows.MarkEncoded(ctx, tenant, uuid.Nil, uid2, "operator-alpha")
@@ -381,7 +381,7 @@ func TestDBRows_AFailedTrailWriteTAKESTHEROWWITHIT(t *testing.T) {
 	// POSITIVE CONTROL: with a WORKING trail the same two calls succeed. Without
 	// it, a port that failed unconditionally would pass everything above.
 	uid3 := newUID(t)
-	if err := good.InsertUnassigned(ctx, tenant, uuid.Nil, uid3, wrappedFor(t, uid3), "operator-alpha"); err != nil {
+	if err := good.InsertUnassigned(ctx, tenant, uuid.Nil, uid3, wrappedFor(t, uid3), nil, "operator-alpha"); err != nil {
 		t.Fatalf("the positive control failed: %v", err)
 	}
 	if err := good.MarkEncoded(ctx, tenant, uuid.Nil, uid3, "operator-alpha"); err != nil {
@@ -422,7 +422,7 @@ func TestDBRows_TheTrailDetailKeysAreTheDecidedONES(t *testing.T) {
 	uid := newUID(t)
 	ctx := context.Background()
 
-	if err := rows.InsertUnassigned(ctx, tenant, uuid.Nil, uid, wrappedFor(t, uid), "operator-alpha"); err != nil {
+	if err := rows.InsertUnassigned(ctx, tenant, uuid.Nil, uid, wrappedFor(t, uid), nil, "operator-alpha"); err != nil {
 		t.Fatalf("InsertUnassigned: %v", err)
 	}
 	if err := rows.MarkEncoded(ctx, tenant, uuid.Nil, uid, "operator-alpha"); err != nil {
@@ -477,17 +477,17 @@ func TestDBRows_TheRefusalOfACrossTenantLoadCarriesNoKeyBytes(t *testing.T) {
 	ref := wrappedFor(t, uid)
 
 	short := ref[:len(ref)-1]
-	err := rows.InsertUnassigned(context.Background(), tenant, uuid.Nil, uid, short, "operator-alpha")
+	err := rows.InsertUnassigned(context.Background(), tenant, uuid.Nil, uid, short, nil, "operator-alpha")
 	if err == nil {
 		t.Fatal("a 43-byte envelope was accepted; 00021's tags_aes_key_ref_is_kek_envelope " +
 			"would have refused it in the database and printed the whole tuple doing so")
 	}
 	assertCarriesNoBytes(t, err, short)
 
-	if err := rows.InsertUnassigned(context.Background(), tenant, uuid.Nil, uid, ref, "operator-alpha"); err != nil {
+	if err := rows.InsertUnassigned(context.Background(), tenant, uuid.Nil, uid, ref, nil, "operator-alpha"); err != nil {
 		t.Fatalf("the positive control failed: %v", err)
 	}
-	dup := rows.InsertUnassigned(context.Background(), tenant, uuid.Nil, uid, ref, "operator-alpha")
+	dup := rows.InsertUnassigned(context.Background(), tenant, uuid.Nil, uid, ref, nil, "operator-alpha")
 	if dup == nil {
 		t.Fatal("the duplicate was accepted")
 	}
@@ -511,7 +511,7 @@ func TestDBRows_MarkEncodedStampsTheServerClockAndIsIdempotent(t *testing.T) {
 	uid := newUID(t)
 	ctx := context.Background()
 
-	if err := rows.InsertUnassigned(ctx, tenant, uuid.Nil, uid, wrappedFor(t, uid), "operator-alpha"); err != nil {
+	if err := rows.InsertUnassigned(ctx, tenant, uuid.Nil, uid, wrappedFor(t, uid), nil, "operator-alpha"); err != nil {
 		t.Fatalf("InsertUnassigned: %v", err)
 	}
 	if err := rows.MarkEncoded(ctx, tenant, uuid.Nil, uid, "operator-alpha"); err != nil {
@@ -571,7 +571,7 @@ func TestDBRows_MarkEncodedRefusesAPlaqueThatIsNotThisTenants(t *testing.T) {
 	uid := newUID(t)
 	ctx := context.Background()
 
-	if err := rows.InsertUnassigned(ctx, a, uuid.Nil, uid, wrappedFor(t, uid), "operator-alpha"); err != nil {
+	if err := rows.InsertUnassigned(ctx, a, uuid.Nil, uid, wrappedFor(t, uid), nil, "operator-alpha"); err != nil {
 		t.Fatalf("InsertUnassigned: %v", err)
 	}
 	if err := rows.MarkEncoded(ctx, b, uuid.Nil, uid, "operator-beta"); err == nil {
@@ -623,7 +623,7 @@ func TestRLS_DBRows_ATenantCannotLoadOrMarkAnothersPlaque(t *testing.T) {
 	uid := newUID(t)
 	ctx := context.Background()
 
-	if err := rows.InsertUnassigned(ctx, a, uuid.Nil, uid, wrappedFor(t, uid), "operator-alpha"); err != nil {
+	if err := rows.InsertUnassigned(ctx, a, uuid.Nil, uid, wrappedFor(t, uid), nil, "operator-alpha"); err != nil {
 		t.Fatalf("InsertUnassigned: %v", err)
 	}
 	if err := rows.MarkEncoded(ctx, a, uuid.Nil, uid, "operator-alpha"); err != nil {
@@ -716,7 +716,7 @@ func TestDBRows_BothMethodsRefuseAMissingTenantBeforeTouchingTheDatabase(t *test
 		run  func(uuid.UUID, string, string) error
 	}{
 		{"insert", func(tn uuid.UUID, u, a string) error {
-			return rows.InsertUnassigned(ctx, tn, uuid.Nil, u, ref, a)
+			return rows.InsertUnassigned(ctx, tn, uuid.Nil, u, ref, nil, a)
 		}},
 		{"mark", func(tn uuid.UUID, u, a string) error { return rows.MarkEncoded(ctx, tn, uuid.Nil, u, a) }},
 	}
@@ -738,7 +738,7 @@ func TestDBRows_BothMethodsRefuseAMissingTenantBeforeTouchingTheDatabase(t *test
 
 	// POSITIVE CONTROL: the same arguments, correct, are accepted -- otherwise a
 	// port that refused everything would pass every case above.
-	if err := rows.InsertUnassigned(ctx, tenant, uuid.Nil, uid, ref, "operator-alpha"); err != nil {
+	if err := rows.InsertUnassigned(ctx, tenant, uuid.Nil, uid, ref, nil, "operator-alpha"); err != nil {
 		t.Fatalf("the positive control failed: %v", err)
 	}
 	if err := rows.MarkEncoded(ctx, tenant, uuid.Nil, uid, "operator-alpha"); err != nil {
@@ -870,7 +870,7 @@ func TestDBRows_AFailedMarkerLeavesAPERMANENTTraceThatSaysDoNotReEncode(t *testi
 	good := newDBRows(t, d)
 	uid := newUID(t)
 	admin := newEncodeAdmin(t, d, tenant)
-	if err := good.InsertUnassigned(ctx, tenant, admin, uid, wrappedFor(t, uid), "operator-alpha"); err != nil {
+	if err := good.InsertUnassigned(ctx, tenant, admin, uid, wrappedFor(t, uid), nil, "operator-alpha"); err != nil {
 		t.Fatalf("the fixture load failed: %v", err)
 	}
 
@@ -963,7 +963,7 @@ func TestDBRows_AFailedMarkerLeavesAPERMANENTTraceThatSaysDoNotReEncode(t *testi
 	// POSITIVE CONTROL: a marker that SUCCEEDS writes plaque.encoded and no unmarked
 	// entry, so the two arms are genuinely different rather than both firing.
 	uid2 := newUID(t)
-	if err := good.InsertUnassigned(ctx, tenant, uuid.Nil, uid2, wrappedFor(t, uid2), "operator-alpha"); err != nil {
+	if err := good.InsertUnassigned(ctx, tenant, uuid.Nil, uid2, wrappedFor(t, uid2), nil, "operator-alpha"); err != nil {
 		t.Fatalf("the positive control load failed: %v", err)
 	}
 	if err := good.MarkEncoded(ctx, tenant, uuid.Nil, uid2, "operator-alpha"); err != nil {
@@ -1044,7 +1044,7 @@ func TestDBRows_EveryTrailRowOfARoundNamesTheAdmin(t *testing.T) {
 	const actor = "operator-alpha"
 
 	// A COMPLETE, SUCCESSFUL round: the row, then the marker. Both write a trail entry.
-	if err := rows.InsertUnassigned(ctx, tenant, admin, uid, wrappedFor(t, uid), actor); err != nil {
+	if err := rows.InsertUnassigned(ctx, tenant, admin, uid, wrappedFor(t, uid), nil, actor); err != nil {
 		t.Fatalf("InsertUnassigned: %v", err)
 	}
 	if err := rows.MarkEncoded(ctx, tenant, admin, uid, actor); err != nil {
@@ -1140,7 +1140,7 @@ func TestDBRows_TheUnmarkedTrailSurvivesACancelledRequest(t *testing.T) {
 	// THE PROBE: a cancelled request context, which is what a relay hanging up looks
 	// like from here. The marking must fail and the evidence must survive.
 	uid := newUID(t)
-	if err := rows.InsertUnassigned(context.Background(), tenant, admin, uid, wrappedFor(t, uid), "operator-alpha"); err != nil {
+	if err := rows.InsertUnassigned(context.Background(), tenant, admin, uid, wrappedFor(t, uid), nil, "operator-alpha"); err != nil {
 		t.Fatalf("the fixture load failed: %v", err)
 	}
 	dead, cancel := context.WithCancel(context.Background())
@@ -1168,7 +1168,7 @@ func TestDBRows_TheUnmarkedTrailSurvivesACancelledRequest(t *testing.T) {
 		t.Fatalf("NewDBRows: %v", err)
 	}
 	uid2 := newUID(t)
-	if err := rows.InsertUnassigned(context.Background(), tenant, admin, uid2, wrappedFor(t, uid2), "operator-alpha"); err != nil {
+	if err := rows.InsertUnassigned(context.Background(), tenant, admin, uid2, wrappedFor(t, uid2), nil, "operator-alpha"); err != nil {
 		t.Fatalf("the paired-arm load failed: %v", err)
 	}
 	if err := half.MarkEncoded(context.Background(), tenant, admin, uid2, "operator-alpha"); err == nil {
@@ -1181,7 +1181,7 @@ func TestDBRows_TheUnmarkedTrailSurvivesACancelledRequest(t *testing.T) {
 	// NEGATIVE CONTROL: a SUCCESSFUL marking writes no unmarked row at all, so the two
 	// assertions above are distinguishing something rather than always firing.
 	uid3 := newUID(t)
-	if err := rows.InsertUnassigned(context.Background(), tenant, admin, uid3, wrappedFor(t, uid3), "operator-alpha"); err != nil {
+	if err := rows.InsertUnassigned(context.Background(), tenant, admin, uid3, wrappedFor(t, uid3), nil, "operator-alpha"); err != nil {
 		t.Fatalf("the negative-control load failed: %v", err)
 	}
 	if err := rows.MarkEncoded(context.Background(), tenant, admin, uid3, "operator-alpha"); err != nil {

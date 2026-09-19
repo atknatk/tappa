@@ -393,13 +393,18 @@ func plaqueEncodeGrantOf(r *http.Request) (plaqueEncodeGrant, bool) {
 // HEADROOM RATHER THAN A LOWER LIMIT:
 //
 //	adminSessionLimit                       300 requests per session per window
-//	minus ~80 reserved for the panel         -80
+//	minus the panel's reserve
 //	                                        ----
-//	the encode surface's own share          220 requests
-//	  / encode.RequestsPerRound() (11)        =  20 plaques
+//	the encode surface's own share          adminEncodeLimit requests
+//	  / encode.RequestsPerRound()             =  20 plaques
 //
-// (The panel really keeps 79 of those 80 — encodePanelHeadroom carries the missing
-// one and why it is missing.)
+// ⚠️ THE FIXED LEVER IS encodePlaquesPerWindow (20), NOT the reserve. When ADR 0017
+// §5.1 step 8 shipped (ADR 0018) RequestsPerRound went 11 -> 12, so adminEncodeLimit
+// went 220 -> 240 (20 plaques still), and the panel reserve SHRANK from ~80 to ~60 —
+// encodePanelHeadroom is now 59, not 79. Twenty plaques was sized at 11 requests/round
+// and is KEPT at twelve because the product decision is a plaque count, not a request
+// count; the headroom that buys is the number that moved, and it is still well above
+// the fifty-request floor below.
 //
 // ⚠️ WITHOUT THIS GATE THE NUMBER WOULD BE 27 PLAQUES AND THE PANEL WOULD THEN BE
 // DEAD FOR THE REST OF THE WINDOW — the operator could not even open the plaque list
@@ -460,12 +465,13 @@ var encodePanelHeadroom = adminSessionLimit - adminEncodeLimit - 1
 // RequestsPerRound(), the second is len(roundSteps) AFTER step 8, and they are one
 // apart. The two quantities are named apart now:
 //
-//	len(roundSteps)        10 today, 11 when ADR 0017 §5.1 step 8 ships
-//	RequestsPerRound()     11 today, 12 then   (one Begin + one Step per exchange)
-//	adminEncodeLimit      220 today, 240 then  (encodePlaquesPerWindow x the above)
+//	len(roundSteps)        11  (ADR 0017 §5.1 step 8 shipped, ADR 0018)
+//	RequestsPerRound()     12  (one Begin + one Step per exchange)
+//	adminEncodeLimit      240  (encodePlaquesPerWindow x the above)
 //
-// So the budget follows the table on its own, and the headroom arithmetic above wants
-// re-reading on that day rather than the number wanting editing.
+// So the budget followed the table on its own when step 8 landed — no edit here — and
+// the headroom above absorbed the change (79 -> 59), exactly as this comment predicted
+// it would.
 //
 // 🔴 WHAT IT DOES TO ADR 0017 §6 md. 12 IS COUNTED BY encodeRowsPerWindow BELOW
 // RATHER THAN BY THIS COMMENT, and the reason is that this comment got it wrong. It
@@ -489,14 +495,15 @@ var adminEncodeLimit = encodePlaquesPerWindow * encode.RequestsPerRound()
 // ROW, not the finished plaque: tags.uid is a global PRIMARY KEY, so a row squats that
 // uid for every business at once, tappa_app cannot delete it, and its aes_key_ref can
 // never be rewritten — cleanup is manual, as tappa_owner (deploy/README.md carries the
-// procedure where an operator will find it). The row lands SIX exchanges before the
-// round ends, so dividing by RequestsPerRound instead would say the budget permits 20
-// squatted rows when it permits 44 — i.e. it would make the bound look 2.2x TIGHTER
-// than it is (220/11 against 220/5).
+// procedure where an operator will find it). The row lands well before the round ends,
+// so dividing by RequestsPerRound instead would say the budget permits 20 squatted rows
+// when it permits 48 — i.e. it would make the bound look TIGHTER than it is
+// (240/12 against 240/5, after step 8; it was 220/11 against 220/5 before).
 //
 // ⚠️ THAT SENTENCE READ "overstate the bound by nearly three" AND WAS WRONG TWICE OVER
-// (audit, seventh round): the factor is 11/5 = 2.2, and "overstate the bound" pointed
-// the wrong way — the wrong denominator understates the ROWS, which flatters the gate.
+// (audit, seventh round): the factor is RequestsPerRound/RequestsBeforeTheRowIsWritten
+// (12/5 = 2.4 now, 11/5 = 2.2 before step 8), and "overstate the bound" pointed the
+// wrong way — the wrong denominator understates the ROWS, which flatters the gate.
 // A factor written without its two operands is a factor nobody can check.
 //
 // 🔴 DERIVED, BECAUSE THE HAND-WRITTEN VERSION WAS WRONG IN THREE PLACES AT ONCE. An

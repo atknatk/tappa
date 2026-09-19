@@ -10,7 +10,7 @@ import (
 	"github.com/atknatk/tappa/internal/sun"
 )
 
-// chip_test.go — an NTAG 424 DNA good enough to answer the ten exchanges of
+// chip_test.go — an NTAG 424 DNA good enough to answer the eleven exchanges of
 // ADR 0017 §5.1, and a note about exactly what a green round trip against it does
 // and does not prove.
 //
@@ -31,7 +31,7 @@ import (
 //     wrong offset or a mis-declared length is refused. ⚠️ For ChangeKey and
 //     ChangeFileSettings it still only checks the header's LENGTH and, for ChangeKey,
 //     reads the key number; their header CONTENTS beyond that are not validated here.
-//   - the ten commands really are emitted in the table's order, because the chip
+//   - the eleven commands really are emitted in the table's order, because the chip
 //     refuses a command it is not in a state to answer.
 //
 // 🔴 WHAT IT DOES *NOT* PROVE, and this is the half a test double is always asked
@@ -54,18 +54,19 @@ import (
 //     ADR 0017 §5.1 step 8 will walk straight into. ⚠️ The first version of that gate
 //     used the WRONG criterion (keyNo == AuthKey) and cited Table 63 for it; see
 //     applyChangeKey.
-//   - 🔴 UNRESOLVED, NOT CLEAN — WHETHER THE SESSION SURVIVES A ChangeKey ON THE
-//     AUTHENTICATED KEY. This double leaves c.authed = true after ANY ChangeKey,
-//     including key 0, which is the key every session authenticates with. An auditor
-//     raised it and COULD NOT SETTLE IT FROM THE DOCUMENTS, and neither can this
-//     comment: §10.6.1 and Tables 63/64/65 say nothing about the session's fate after
-//     the authenticated key changes, and the ADR's only evidence (AN12196 session B,
-//     CmdCtr 0200 -> 0300) is about a NON-ZERO key. internal/sun/changekey.go reaches
-//     the opposite guess for its own callers — "CASE 2 ENDS THE SESSION" — and cites
-//     AN12196's bare 9100 for it.
-//     Unreachable today because ADR 0017 §5.1 step 8 is not shipped; it becomes
-//     load-bearing the day it is, which is also the day §6 md. 5 lands. Recorded here
-//     rather than resolved, and handed to that round.
+//   - 🔴 RESOLVED, IN THE DIRECTION internal/sun ALREADY CHOSE — THE SESSION DOES NOT
+//     SURVIVE A ChangeKey ON THE AUTHENTICATED KEY. This double previously left
+//     c.authed = true after ANY ChangeKey and flagged the question as unsettled from the
+//     documents. Step 8 (ADR 0017 §5.1, ADR 0018) makes it load-bearing, so it is now
+//     modelled: a ChangeKey on key 0 (the key every session authenticates with) clears
+//     c.authed and answers a BARE 9100 with no response MAC — matching what
+//     internal/sun/changekey.go builds for ("CASE 2 ENDS THE SESSION", citing AN12196's
+//     bare 9100) and what its EV2ChangeKeyCommand warns callers not to feed to
+//     EV2UnwrapResponseFull. §10.6.1 and Tables 63/64/65 still say nothing about the
+//     session's fate directly, so this remains a DOCUMENT-INFORMED GUESS, not a silicon
+//     measurement (ADR 0017 §6 md. 1: no chip has run step 8); it is placed at the LAST
+//     step precisely so that if the guess is wrong the round has nothing left to do.
+//     TestDriver_TheFullRoundIncludingStep8 exercises it end to end.
 //   - NOTHING ABOUT ChangeKey's CRC32NK. The chip below does not recompute it,
 //     because doing so with the same spelling internal/sun uses would be a second
 //     copy of one reading rather than a check. That value is anchored to the
@@ -525,6 +526,20 @@ func (c *fakeChip) sealed(ins byte, body []byte) []byte {
 	switch ins {
 	case 0xC4: // ChangeKey
 		c.applyChangeKey(header[0], plain)
+		if header[0] == 0x00 {
+			// 🔴 CASE 2 ENDS THE SESSION — the previously UNRESOLVED point this file's
+			// header (and internal/sun/changekey.go) flagged, now modelled because step 8
+			// makes it load-bearing (ADR 0017 §5.1, ADR 0018). ChangeKey on application
+			// key 0 changes the very key this session authenticated with, so the chip
+			// answers a BARE 9100 with NO response MAC (AN12196 rev. 2.0 §5.16.2 Table 26
+			// step 18) and DROPS its authentication state (§9.1.10 — any state change on
+			// the auth key). Modelling both: no sealResponse (so no MAC), and c.authed is
+			// cleared so any command after this one is refused for lack of authentication.
+			// The command MAC was already verified above at the current c.ctr, which is
+			// what proves the driver reached step 8 with the counter the chip expects.
+			c.authed = false
+			return sw(0x9100)
+		}
 	case 0x5F: // ChangeFileSettings
 		c.fileSettingsBody = append([]byte(nil), plain...)
 	case 0x51: // GetCardUID

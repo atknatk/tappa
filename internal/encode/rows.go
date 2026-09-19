@@ -228,7 +228,7 @@ func NewDBRows(data database, t trail) (*DBRows, error) {
 // the chip has not been touched yet — driver.go's own comment says failing here
 // "costs nothing but the round" — so rolling back is free, and it is the only
 // point in the round where that is true.
-func (r *DBRows) InsertUnassigned(ctx context.Context, tenantID, adminID uuid.UUID, uidHex string, wrappedKey []byte, actor string) error {
+func (r *DBRows) InsertUnassigned(ctx context.Context, tenantID, adminID uuid.UUID, uidHex string, wrappedKey, appWrappedKey []byte, actor string) error {
 	if err := checkPlaqueArgs(tenantID, uidHex, actor); err != nil {
 		return err
 	}
@@ -262,6 +262,15 @@ func (r *DBRows) InsertUnassigned(ctx context.Context, tenantID, adminID uuid.UU
 	if len(wrappedKey) != sun.WrappedKeyLen {
 		return fmt.Errorf("encode: the wrapped plaque key is %d bytes, the envelope is fixed at %d (ADR 0003 md. 4)", len(wrappedKey), sun.WrappedKeyLen)
 	}
+	// 🔴 THE SECOND ENVELOPE IS GUARDED THE SAME WAY, WITH ONE DIFFERENCE: app_key_ref
+	// is NULLABLE (migration 00023 — pre-00023 rows and any caller that mints no key 0
+	// leave it NULL, which the DB CHECK admits). So nil PASSES here; a non-nil value
+	// must be the fixed 44-byte envelope, exactly as aes_key_ref. The shipped driver
+	// always supplies 44 bytes (ADR 0017 §5.1 step 8's key, minted at step 3). Same
+	// §4.7 reasoning as above: the message names a LENGTH, never a byte.
+	if appWrappedKey != nil && len(appWrappedKey) != sun.WrappedKeyLen {
+		return fmt.Errorf("encode: the wrapped app master key is %d bytes, the envelope is fixed at %d (ADR 0003 md. 4)", len(appWrappedKey), sun.WrappedKeyLen)
+	}
 
 	err := r.data.WithTenant(ctx, tenantID, func(ctx context.Context, tx pgx.Tx) error {
 		q := store.New(tx)
@@ -269,6 +278,7 @@ func (r *DBRows) InsertUnassigned(ctx context.Context, tenantID, adminID uuid.UU
 			Uid:       uidHex,
 			TenantID:  tenantID,
 			AesKeyRef: wrappedKey,
+			AppKeyRef: appWrappedKey,
 		})
 		if err != nil {
 			// pgx returns *pgconn.PgError, whose Error() is severity + message +

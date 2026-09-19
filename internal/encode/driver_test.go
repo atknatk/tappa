@@ -46,12 +46,13 @@ type portCall struct {
 }
 
 type recordingRows struct {
-	mu        sync.Mutex
-	events    []string
-	scope     []portCall
-	inserted  map[string][]byte
-	insertErr error
-	markErr   error
+	mu          sync.Mutex
+	events      []string
+	scope       []portCall
+	inserted    map[string][]byte
+	insertedApp map[string][]byte
+	insertErr   error
+	markErr     error
 	// beforeInsert runs inside InsertUnassigned, where a slow database call would
 	// spend its time.
 	beforeInsert func()
@@ -61,10 +62,10 @@ type recordingRows struct {
 }
 
 func newRecordingRows() *recordingRows {
-	return &recordingRows{inserted: map[string][]byte{}}
+	return &recordingRows{inserted: map[string][]byte{}, insertedApp: map[string][]byte{}}
 }
 
-func (r *recordingRows) InsertUnassigned(_ context.Context, tenantID, adminID uuid.UUID, uidHex string, wrapped []byte, actor string) error {
+func (r *recordingRows) InsertUnassigned(_ context.Context, tenantID, adminID uuid.UUID, uidHex string, wrapped, appWrapped []byte, actor string) error {
 	if r.beforeInsert != nil {
 		r.beforeInsert()
 	}
@@ -85,6 +86,12 @@ func (r *recordingRows) InsertUnassigned(_ context.Context, tenantID, adminID uu
 		return errors.New("duplicate key value violates unique constraint")
 	}
 	r.inserted[uidHex] = append([]byte(nil), wrapped...)
+	// BOTH envelopes are captured, so TestDriver_TheFullRoundIncludingStep8 can assert
+	// app_key_ref (ADR 0018) is a real 44-byte envelope DISTINCT from aes_key_ref. A
+	// nil is stored as nil (a caller minting no key 0), not as an empty slice.
+	if appWrapped != nil {
+		r.insertedApp[uidHex] = append([]byte(nil), appWrapped...)
+	}
 	r.events = append(r.events, "insert:"+uidHex)
 	return nil
 }
@@ -385,7 +392,7 @@ func indexOf(hay []string, needle string) int {
 // --- ADR 0017 §5.1: the order ---------------------------------------------------
 
 // TestDriver_TheStepOrderIsADR0017Section51 asserts the whole sequence as the CHIP
-// saw it — ten commands, in the ADR's order.
+// saw it — eleven commands, in the ADR's order.
 func TestDriver_TheStepOrderIsADR0017Section51(t *testing.T) {
 	h := newHarness(t)
 	chip := newFakeChip(t)
@@ -407,8 +414,9 @@ func TestDriver_TheStepOrderIsADR0017Section51(t *testing.T) {
 		//                loss). Detection is identical either side — steps 5-8 share
 		//                one key-0 session — so the later slot bought nothing.
 		0x8D, // step 5  WriteData          <- first irreversible command
-		0xC4, // step 6  ChangeKey(0x01)
+		0xC4, // step 6  ChangeKey(0x01)    <- key 1, BEFORE ChangeFileSettings (fail-closed)
 		0x5F, // step 7  ChangeFileSettings
+		0xC4, // step 8  ChangeKey(0x00)    <- key 0, LAST (case 2 ends the session)
 	}
 	if string(chip.insSeen) != string(want) {
 		t.Fatalf("command sequence\n got %X\nwant %X", chip.insSeen, want)
@@ -427,23 +435,41 @@ func TestDriver_TheStepOrderIsADR0017Section51(t *testing.T) {
 // (b) the order that actually reached the chip, and (c) that the machine has no
 // state in which ChangeFileSettings is the next thing it would emit while ChangeKey
 // is still pending.
+//
+// 🔴 THERE ARE TWO ChangeKeys NOW (ADR 0018), AND THE RULE IS ABOUT KEY 1. Step 6's
+// ChangeKey installs K_SDMFileRead (key 1, non-zero) and MUST precede
+// ChangeFileSettings — that is this test. Step 8's ChangeKey installs the AppMasterKey
+// (key 0) and MUST FOLLOW everything, because case 2 ends the session; that ordering is
+// TestDriver_ChangeKeyForApplicationKeyZeroIsEmittedLast's job. This test names the two
+// apart by step name (table) and by position (wire) so the second ChangeKey cannot be
+// mistaken for the one the 6 <-> 7 rule governs.
 func TestDriver_ChangeKeyAlwaysPrecedesChangeFileSettings(t *testing.T) {
-	// (a) the table.
-	ck, cfs := -1, -1
+	// (a) the table. The key-1 change is matched by NAME, not by "the first ChangeKey",
+	// so step 8's key-0 change cannot stand in for it.
+	ck, cfs, ckAppMaster := -1, -1, -1
 	for i, s := range roundSteps {
 		switch s.name {
 		case "changekey.sdmfileread":
 			ck = i
 		case "changefilesettings":
 			cfs = i
+		case "changekey.appmaster":
+			ckAppMaster = i
 		}
 	}
-	if ck < 0 || cfs < 0 {
-		t.Fatalf("the two steps are not both in roundSteps (changekey=%d changefilesettings=%d)", ck, cfs)
+	if ck < 0 || cfs < 0 || ckAppMaster < 0 {
+		t.Fatalf("a step is missing from roundSteps (changekey.sdmfileread=%d changefilesettings=%d changekey.appmaster=%d)",
+			ck, cfs, ckAppMaster)
 	}
 	if ck >= cfs {
-		t.Fatalf("ChangeKey is at index %d and ChangeFileSettings at %d; ADR 0017 §5.1 puts the key change FIRST "+
+		t.Fatalf("the key-1 ChangeKey is at index %d and ChangeFileSettings at %d; ADR 0017 §5.1 puts the key change FIRST "+
 			"so that an interrupted chip keeps SDM disabled instead of signing SUN with the public factory key", ck, cfs)
+	}
+	// And key 0's change is AFTER ChangeFileSettings — the opposite half of the pair,
+	// because case 2 ends the session and nothing may follow it.
+	if ckAppMaster <= cfs {
+		t.Fatalf("the key-0 ChangeKey is at index %d and ChangeFileSettings at %d; ADR 0017 §5.1 puts key 0 LAST "+
+			"(case 2 ends the session), so it must come AFTER ChangeFileSettings", ckAppMaster, cfs)
 	}
 
 	// (b) the wire.
@@ -452,17 +478,24 @@ func TestDriver_ChangeKeyAlwaysPrecedesChangeFileSettings(t *testing.T) {
 	if _, err := h.run(t, chip, "operator-1"); err != nil {
 		t.Fatalf("round: %v", err)
 	}
-	iCK, iCFS := -1, -1
+	iCK, iCFS, iCKLast := -1, -1, -1
 	for i, ins := range chip.insSeen {
 		if ins == 0xC4 && iCK < 0 {
-			iCK = i
+			iCK = i // the FIRST ChangeKey on the wire = key 1 (step 6)
+		}
+		if ins == 0xC4 {
+			iCKLast = i // the LAST ChangeKey on the wire = key 0 (step 8)
 		}
 		if ins == 0x5F && iCFS < 0 {
 			iCFS = i
 		}
 	}
 	if iCK < 0 || iCFS < 0 || iCK >= iCFS {
-		t.Fatalf("on the wire ChangeKey was at %d and ChangeFileSettings at %d", iCK, iCFS)
+		t.Fatalf("on the wire the key-1 ChangeKey was at %d and ChangeFileSettings at %d", iCK, iCFS)
+	}
+	if iCKLast <= iCFS || iCKLast == iCK {
+		t.Fatalf("on the wire the key-0 ChangeKey was at %d; it must be a SECOND ChangeKey AFTER "+
+			"ChangeFileSettings (at %d), distinct from the key-1 one at %d", iCKLast, iCFS, iCK)
 	}
 
 	// (c) ⚠️ NARROWED (2026-08-21, audit): this used to say "no reachable state emits
@@ -503,16 +536,22 @@ func TestDriver_ChangeKeyAlwaysPrecedesChangeFileSettings(t *testing.T) {
 	}
 }
 
-// TestDriver_NoChangeKeyIsEverEmittedForApplicationKeyZero holds ADR 0017 §6 md. 5
-// shut.
+// TestDriver_ChangeKeyForApplicationKeyZeroIsEmittedLast holds ADR 0017 §5.1 step 8's
+// placement — the successor to a test whose name it inverts.
 //
-// Step 8 is NORMATIVE in the ADR and deliberately NOT shipped: `tags` carries one
-// aes_key_ref (migration 00004) and ADR 0003 md. 4 fixes it at 44 bytes, so there
-// is nowhere to put a second key. Shipping step 8 without that schema decision
-// would personalise key 0 and then LOSE the key — the permanent-plaque-loss mode of
-// §5.2, arrived at deliberately. When the schema lands, this test is what has to be
-// edited, in the same change.
-func TestDriver_NoChangeKeyIsEverEmittedForApplicationKeyZero(t *testing.T) {
+// 🔴 IT REPLACES TestDriver_NoChangeKeyIsEverEmittedForApplicationKeyZero, which held
+// ADR 0017 §6 md. 5 shut while step 8 was blocked on WHERE key 0 lives. ADR 0018 gave
+// it tags.app_key_ref (migration 00023), so step 8 now SHIPS and the old assertion —
+// "no ChangeKey is ever emitted for key 0" — is exactly false. That old name is cited
+// in immutable ADR 0018 and in the M8 plan card, which is why it is carried in
+// cmd/tappa/testdata/known-dangling-citations.txt rather than left to dangle.
+//
+// WHAT IT ASSERTS NOW: exactly TWO ChangeKey commands, the key-0 one is the LAST
+// command of the round, it comes AFTER ChangeFileSettings, and on the chip keys 0 and 1
+// changed off factory while keys 2..4 did not (ADR 0017 §5.1 personalises 0 and 1
+// only). Placement is load-bearing because case 2 ends the session (changekey.go): a
+// key-0 ChangeKey anywhere but last would leave later steps with no session.
+func TestDriver_ChangeKeyForApplicationKeyZeroIsEmittedLast(t *testing.T) {
 	h := newHarness(t)
 	chip := newFakeChip(t)
 	if _, err := h.run(t, chip, "operator-1"); err != nil {
@@ -525,20 +564,177 @@ func TestDriver_NoChangeKeyIsEverEmittedForApplicationKeyZero(t *testing.T) {
 			changeKeys++
 		}
 	}
-	if changeKeys != 1 {
-		t.Fatalf("%d ChangeKey commands were emitted; the shipped sequence has exactly one (key 01h)", changeKeys)
+	if changeKeys != 2 {
+		t.Fatalf("%d ChangeKey commands were emitted; the shipped sequence has exactly two "+
+			"(key 01h at step 6, key 00h at step 8)", changeKeys)
 	}
-	for _, no := range []byte{0x00, 0x02, 0x03, 0x04} {
-		if string(chip.keys[no]) != string(make([]byte, 16)) {
-			t.Fatalf("application key %02X was changed; only 01h is in scope this round (ADR 0017 §6 md. 5)", no)
+
+	// The LAST command the chip saw is the key-0 ChangeKey.
+	last := chip.insSeen[len(chip.insSeen)-1]
+	if last != 0xC4 {
+		t.Fatalf("the round's last command was %02X, not ChangeKey; ADR 0017 §5.1 puts key 0 LAST "+
+			"because case 2 ends the session and nothing may follow it", last)
+	}
+	// And it followed ChangeFileSettings (0x5F).
+	iCFS := -1
+	for i, ins := range chip.insSeen {
+		if ins == 0x5F {
+			iCFS = i
 		}
 	}
-	// ⚠️ AND THE COST IS RESTATED HERE RATHER THAN LEFT IMPLICIT: the chip this test
-	// just "successfully" personalised leaves with a PUBLIC AppMasterKey. ADR 0005
-	// risk 8. ADR 0017 §5.1's security line: such a plaque may be built and tested
-	// but may NOT go on a wall.
-	if string(chip.keys[0x00]) != string(make([]byte, 16)) {
-		t.Fatalf("key 0 unexpectedly changed")
+	if iCFS < 0 || iCFS >= len(chip.insSeen)-1 {
+		t.Fatalf("ChangeFileSettings was at %d of %d; the key-0 ChangeKey must come after it",
+			iCFS, len(chip.insSeen))
+	}
+
+	// The chip adopted a non-factory key 0 (step 8 did its work) AND a non-factory
+	// key 1 (step 6), and left keys 2..4 untouched.
+	if string(chip.keys[0x00]) == string(make([]byte, 16)) {
+		t.Fatalf("application key 0 is still the factory transport key; step 8 did not install it")
+	}
+	if string(chip.keys[0x01]) == string(make([]byte, 16)) {
+		t.Fatalf("application key 1 is still the factory transport key; step 6 did not install it")
+	}
+	for _, no := range []byte{0x02, 0x03, 0x04} {
+		if string(chip.keys[no]) != string(make([]byte, 16)) {
+			t.Fatalf("application key %02X was changed; ADR 0017 §5.1 personalises only keys 0 and 1", no)
+		}
+	}
+}
+
+// TestDriver_TheFullRoundIncludingStep8 is the end-to-end control for ADR 0017 §5.1
+// step 8 (ADR 0018): the complete eleven-exchange round through the fake chip, with the
+// second envelope, the session-ending ChangeKey, and the key that reaches the row.
+//
+// 🔴 §4.7: no plaintext key is ever printed. K_SDMFileRead and K_AppMaster are recovered
+// from their envelopes ONLY to be compared by bytes.Equal — a boolean, never a value.
+func TestDriver_TheFullRoundIncludingStep8(t *testing.T) {
+	h := newHarness(t)
+	chip := newFakeChip(t)
+	ctx := context.Background()
+
+	id, p, err := h.st.Begin(ctx, testTenant, testAdmin, "operator-step8")
+	if err != nil {
+		t.Fatalf("Begin: %v", err)
+	}
+
+	// Drive the round by hand so the LAST C-APDU — step 8's ChangeKey — can be
+	// inspected on the wire.
+	commands := [][]byte{append([]byte(nil), p.Command...)}
+	for i := 0; ; i++ {
+		if i > len(roundSteps)+2 {
+			t.Fatalf("the round did not terminate after %d exchanges", i)
+		}
+		resp := chip.Transceive(p.Command)
+		p, err = h.st.Step(ctx, id, resp)
+		if err != nil {
+			t.Fatalf("step %d: %v", i, err)
+		}
+		if p.Done {
+			break
+		}
+		if p.Command == nil {
+			t.Fatalf("step %d produced no command and did not finish", i)
+		}
+		commands = append(commands, append([]byte(nil), p.Command...))
+	}
+	if !p.Done {
+		t.Fatalf("the round did not finish with Done")
+	}
+
+	const uid = "04968CAA5C5E80"
+
+	// (1) Eleven exchanges reached the chip, and the last one was ChangeKey.
+	if len(chip.insSeen) != len(roundSteps) {
+		t.Fatalf("the chip saw %d commands; the table has %d steps", len(chip.insSeen), len(roundSteps))
+	}
+	if len(chip.insSeen) != 11 {
+		t.Fatalf("the round is %d exchanges, expected 11 once step 8 ships (ADR 0018)", len(chip.insSeen))
+	}
+
+	// (2) app_key_ref was written BESIDE aes_key_ref (ADR 0017 §5.2: at step 3, before
+	// the chip was touched), both are 44-byte envelopes, and they are DIFFERENT — key 0
+	// is an independent crypto/rand draw, not a copy of key 1 (ADR 0018 md. 1).
+	aesRef, ok := h.rows.inserted[uid]
+	if !ok || len(aesRef) != 44 {
+		t.Fatalf("aes_key_ref envelope missing or not 44 bytes")
+	}
+	appRef, ok := h.rows.insertedApp[uid]
+	if !ok || len(appRef) != 44 {
+		t.Fatalf("app_key_ref envelope missing or not 44 bytes; ADR 0018 requires it written at step 3")
+	}
+	if bytes.Equal(aesRef, appRef) {
+		t.Fatalf("app_key_ref equals aes_key_ref; the two envelopes must differ (ADR 0018 md. 1)")
+	}
+
+	// (3) Each envelope opens under the chip's own UID as AAD and IS the key the chip
+	// adopted: aes_key_ref -> key 1 (step 6), app_key_ref -> key 0 (step 8). And the two
+	// plaintext keys are independent (checked by boolean).
+	openedSDM, err := sun.Unwrap(h.kek, chip.uid, aesRef)
+	if err != nil {
+		t.Fatalf("aes_key_ref does not open under the chip UID: %v", err)
+	}
+	if !bytes.Equal(openedSDM, chip.keys[0x01]) {
+		t.Fatalf("the key in aes_key_ref is not the key 1 the chip adopted")
+	}
+	openedApp, err := sun.Unwrap(h.kek, chip.uid, appRef)
+	if err != nil {
+		t.Fatalf("app_key_ref does not open under the chip UID: %v", err)
+	}
+	if !bytes.Equal(openedApp, chip.keys[0x00]) {
+		t.Fatalf("the key in app_key_ref is not the AppMasterKey the chip adopted at step 8; " +
+			"a tap or a recovery would then find a master key that is in no row")
+	}
+	if bytes.Equal(openedSDM, openedApp) {
+		t.Fatalf("K_SDMFileRead and K_AppMaster are byte-identical; key 0 must be independent (ADR 0018 md. 1)")
+	}
+
+	// (4) Step 8's emitted C-APDU is a ChangeKey (INS C4h) whose CmdHeader is key
+	// number 00h. The plaintext body cannot be read off the wire (encrypted, and 17 and
+	// 21 both pad to one AES block, so the LENGTH does not distinguish the cases), so
+	// the case-2 shape is proven two independent ways: (a) sun.ChangeKeyData for key 0
+	// with the ACTUAL installed key returns Table 63's 17-byte NewKey||KeyVer form while
+	// key 1 returns 21, and (b) the fake chip's applyChangeKey t.Fatalf's on a 21-byte
+	// body for key 0, so the round completing at all means step 8 sent 17.
+	step8 := commands[len(commands)-1]
+	if len(step8) < 6 {
+		t.Fatalf("step 8's C-APDU is only %d bytes: % X", len(step8), step8)
+	}
+	if step8[1] != sun.INSChangeKey {
+		t.Fatalf("step 8's INS is %02X, expected ChangeKey C4h", step8[1])
+	}
+	if step8[5] != 0x00 {
+		t.Fatalf("step 8's CmdHeader key number is %02X, expected 00h (the AppMasterKey)", step8[5])
+	}
+	body0, err := sun.ChangeKeyData(0x00, factoryKey(), openedApp, keyVersion)
+	if err != nil {
+		t.Fatalf("ChangeKeyData for key 0: %v", err)
+	}
+	if len(body0) != 17 {
+		t.Fatalf("the key-0 ChangeKey body is %d bytes, expected Table 63's 17 (NewKey||KeyVer, case 2)", len(body0))
+	}
+	body1, err := sun.ChangeKeyData(0x01, factoryKey(), openedSDM, keyVersion)
+	if err != nil {
+		t.Fatalf("ChangeKeyData for key 1: %v", err)
+	}
+	if len(body1) != 21 {
+		t.Fatalf("the key-1 ChangeKey body is %d bytes, expected Table 63's 21 (case 1)", len(body1))
+	}
+
+	// (5) The session is DEAD on the chip after the key-0 ChangeKey (case 2). Both the
+	// modelled flag and a follow-up command prove it: any sealed command now answers
+	// AUTHENTICATION_ERROR (91AEh) for lack of an active authentication.
+	if chip.authed {
+		t.Fatalf("the chip is still authenticated after ChangeKey on key 0; case 2 must end the session")
+	}
+	after := chip.Transceive([]byte{0x90, 0x5F, 0x00, 0x00, 0x00}) // a bare ChangeFileSettings attempt
+	if len(after) < 2 || after[len(after)-2] != 0x91 || after[len(after)-1] != 0xAE {
+		t.Fatalf("a command after step 8 answered % X; a dead session must refuse it with 91AE", after)
+	}
+
+	// (6) The row was marked encoded (step 9).
+	if !contains(h.rows.log(), "mark:"+uid) {
+		t.Fatalf("the row was not marked encoded; log = %v", h.rows.log())
 	}
 }
 
@@ -1179,13 +1375,20 @@ func (failingWrapper) WrapKey([]byte, []byte) ([]byte, error) {
 //
 // No key value is printed on any path (§4.7): the assertions are on zero-ness.
 func TestDriver_TheFreshPlaqueKeyIsWipedOnBothReachableFailurePathsOfStep3(t *testing.T) {
+	// 🔴 STEP 3 NOW MINTS TWO KEYS (ADR 0018), so the count the wrapper sees depends on
+	// WHERE the failure lands. The wrap fails on the FIRST wrap (K_SDMFileRead), so the
+	// second key is minted and registered but its wrap is never reached — one captured
+	// key. The row insert runs only after BOTH wraps succeed — two captured keys. In
+	// EITHER case every captured key must be wiped, because both were registered in the
+	// ring before the first fallible operation (ADR 0017 §6 md. 7 item 3, ADR 0018).
 	for _, tc := range []struct {
 		name      string
 		wrapFails bool
 		rowFails  bool
+		wantSeen  int
 	}{
-		{"the_wrap_fails", true, false},
-		{"the_row_insert_fails", false, true},
+		{"the_wrap_fails", true, false, 1},
+		{"the_row_insert_fails", false, true, 2},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			w := &capturingWrapper{kek: bytesOf(32, 0x2A)}
@@ -1202,17 +1405,19 @@ func TestDriver_TheFreshPlaqueKeyIsWipedOnBothReachableFailurePathsOfStep3(t *te
 				t.Fatalf("the round succeeded although step 3 failed")
 			}
 
-			if len(w.seen) != 1 {
-				t.Fatalf("the wrapper saw %d keys, want exactly 1", len(w.seen))
+			if len(w.seen) != tc.wantSeen {
+				t.Fatalf("the wrapper saw %d keys, want exactly %d", len(w.seen), tc.wantSeen)
 			}
-			key := w.seen[0]
-			if len(key) != plaqueKeyLen {
-				t.Fatalf("the wrapper was handed a %d-byte key", len(key))
-			}
-			if !allZero(key) {
-				t.Fatalf("the freshly minted plaque key survived a failing step 3 with non-zero bytes. " +
-					"It must be registered in the keyring BEFORE anything can fail, or retireLocked's " +
-					"zeroAll never reaches it (ADR 0017 §6 md. 7 item 3)")
+			for i, key := range w.seen {
+				if len(key) != plaqueKeyLen {
+					t.Fatalf("the wrapper was handed a %d-byte key at %d", len(key), i)
+				}
+				if !allZero(key) {
+					t.Fatalf("a freshly minted plaque key (index %d of %d) survived a failing step 3 "+
+						"with non-zero bytes. BOTH keys must be registered in the keyring BEFORE anything "+
+						"can fail, or retireLocked's zeroAll never reaches them (ADR 0017 §6 md. 7 item 3, "+
+						"ADR 0018)", i, len(w.seen))
+				}
 			}
 			if h.st.Live() != 0 {
 				t.Fatalf("%d sessions live after a failed step 3", h.st.Live())
@@ -1220,10 +1425,11 @@ func TestDriver_TheFreshPlaqueKeyIsWipedOnBothReachableFailurePathsOfStep3(t *te
 		})
 	}
 
-	// POSITIVE CONTROL: on the SUCCESS path the same slice is NOT wiped early — it
-	// has to stay alive until step 6 installs it. Without this, "always zero" would
-	// pass a driver that wiped the key immediately and shipped a dead plaque.
-	t.Run("a_successful_round_keeps_the_key_alive_until_step_6", func(t *testing.T) {
+	// POSITIVE CONTROL: on the SUCCESS path the two slices are NOT wiped early — key 1
+	// has to stay alive until step 6 installs it and key 0 until step 8. Without this,
+	// "always zero" would pass a driver that wiped a key immediately and shipped a dead
+	// plaque.
+	t.Run("a_successful_round_keeps_both_keys_alive_until_they_are_installed", func(t *testing.T) {
 		w := &capturingWrapper{kek: bytesOf(32, 0x2A)}
 		h := newHarness(t, func(c *Config) { c.Wrapper = w })
 		chip := newFakeChip(t)
@@ -1233,17 +1439,23 @@ func TestDriver_TheFreshPlaqueKeyIsWipedOnBothReachableFailurePathsOfStep3(t *te
 		if err != nil {
 			t.Fatalf("Begin: %v", err)
 		}
-		// Stop just before ChangeKey goes out.
+		// Stop just before the FIRST ChangeKey (step 6) goes out. Both keys were minted
+		// and wrapped at step 3, so both must be captured and both still live.
 		for insName(p.Command) != "changekey" {
 			p, err = h.st.Step(ctx, id, chip.Transceive(p.Command))
 			if err != nil {
 				t.Fatalf("step: %v", err)
 			}
 		}
-		if len(w.seen) != 1 || allZero(w.seen[0]) {
-			t.Fatalf("the plaque key was wiped before ChangeKey could install it")
+		if len(w.seen) != 2 {
+			t.Fatalf("the wrapper saw %d keys before step 6, want 2 (K_SDMFileRead and K_AppMaster)", len(w.seen))
 		}
-		// And after the round it IS wiped.
+		for i, key := range w.seen {
+			if allZero(key) {
+				t.Fatalf("plaque key %d was wiped before it could be installed", i)
+			}
+		}
+		// And after the round BOTH are wiped.
 		for p.Command != nil {
 			p, err = h.st.Step(ctx, id, chip.Transceive(p.Command))
 			if err != nil {
@@ -1253,8 +1465,10 @@ func TestDriver_TheFreshPlaqueKeyIsWipedOnBothReachableFailurePathsOfStep3(t *te
 				break
 			}
 		}
-		if !allZero(w.seen[0]) {
-			t.Fatalf("the plaque key survived a COMPLETED round")
+		for i, key := range w.seen {
+			if !allZero(key) {
+				t.Fatalf("plaque key %d survived a COMPLETED round", i)
+			}
 		}
 	})
 }
@@ -1602,9 +1816,23 @@ func TestDriver_Step9WipesTheKeysBeforeItMarksTheRow(t *testing.T) {
 	// after — overwrote the damning observation with the innocent one and SURVIVED.
 	// Last-write-wins in a test double is its own small version of this round's
 	// recurring defect.
+	// BOTH plaque keys must already be zero by the time the row is marked (ADR 0018
+	// makes step 3 mint two). allZeroAll is true only when the wrapper captured both
+	// and neither survives into the marking.
+	allZeroAll := func(bufs [][]byte) bool {
+		if len(bufs) != 2 {
+			return false
+		}
+		for _, b := range bufs {
+			if !allZero(b) {
+				return false
+			}
+		}
+		return true
+	}
 	var marks []bool
 	h.rows.onMark = func() {
-		marks = append(marks, len(w.seen) == 1 && allZero(w.seen[0]))
+		marks = append(marks, allZeroAll(w.seen))
 	}
 
 	chip := newFakeChip(t)
@@ -1622,10 +1850,10 @@ func TestDriver_Step9WipesTheKeysBeforeItMarksTheRow(t *testing.T) {
 				i+1, len(marks))
 		}
 	}
-	// POSITIVE CONTROL: before step 9 the key is NOT zero, so the assertion above is
-	// about ordering and not about the key being zero all along.
-	if len(w.seen) != 1 {
-		t.Fatalf("the wrapper saw %d keys", len(w.seen))
+	// POSITIVE CONTROL: the wrapper saw BOTH plaque keys (ADR 0018), so the ordering
+	// assertion above is about a real, non-empty capture and not vacuous.
+	if len(w.seen) != 2 {
+		t.Fatalf("the wrapper saw %d keys, want 2 (K_SDMFileRead and K_AppMaster)", len(w.seen))
 	}
 }
 

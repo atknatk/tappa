@@ -188,6 +188,8 @@ type Tag struct {
 	CreatedAt  time.Time
 	// When this chip completed its personalisation round (ADR 0017 §5.1 step 9). NULL = the inventory row exists but the chip was never confirmed personalised. 🔴 This REFUTES migration 00013 Part 3's "encoded = the row exists": ADR 0017 §5.2 writes the row BEFORE the chip's first irreversible command, so the row now means "we intended to encode this". A row is BORN UNSTAMPED (tags_encoded_at_not_settable_at_insert) and a stamp never changes (tags_encoded_at_write_once); the shipped statement uses the server clock. What the schema does NOT enforce: that the value is now() rather than any other timestamp -- a trigger cannot see intent, only the two rules above.
 	EncodedAt *time.Time
+	// KEK-wrapped NTAG 424 DNA application key 0 (AppMasterKey), the twin of aes_key_ref (key 1). 44-byte AES-GCM envelope (TAPPA_TAG_KEK); the plain key is NEVER stored, logged or in the repo (CLAUDE.md §4.7). NULL = no key 0 has been minted for this plaque, i.e. ADR 0017 §5.1 step 8 has not run. Written beside aes_key_ref at INSERT (ADR 0017 §5.2, DB before chip); write-once (tags_app_key_ref_write_once) and off tappa_app's UPDATE/SELECT grants, so it is never rewritten and never read by the application role (ADR 0018).
+	AppKeyRef []byte
 }
 
 type Tenant struct {

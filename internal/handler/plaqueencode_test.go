@@ -1037,10 +1037,10 @@ func TestPlaqueEncoder_NamesExactlyTheThreeMethodsTheRelayNeeds(t *testing.T) {
 // six — and its DERIVATION is asserted too, so a change to the step table moves it
 // rather than breaking it.
 func TestEncodeBudget_IsDerivedFromTheRoundAndIsPinned(t *testing.T) {
-	if encode.RequestsPerRound() != 11 {
-		t.Fatalf("a complete round is %d requests, was 11 when this budget was sized. "+
-			"That is not a failure — it means ADR 0017 §5.1's table changed (step 8?) and "+
-			"adminEncodeLimit's arithmetic wants re-reading", encode.RequestsPerRound())
+	if encode.RequestsPerRound() != 12 {
+		t.Fatalf("a complete round is %d requests, was 12 after ADR 0017 §5.1 step 8 shipped "+
+			"(ADR 0018 added a ChangeKey exchange). That is not a failure — it means the table "+
+			"changed again and adminEncodeLimit's arithmetic wants re-reading", encode.RequestsPerRound())
 	}
 	if encodePlaquesPerWindow != 20 {
 		t.Fatalf("encodePlaquesPerWindow = %d, want 20. It is DERIVED: adminSessionLimit (300) "+
@@ -1053,8 +1053,8 @@ func TestEncodeBudget_IsDerivedFromTheRoundAndIsPinned(t *testing.T) {
 			"than written out, or it is a second representation of the step table",
 			adminEncodeLimit, encodePlaquesPerWindow*encode.RequestsPerRound())
 	}
-	if adminEncodeLimit != 220 {
-		t.Fatalf("adminEncodeLimit = %d, want 220", adminEncodeLimit)
+	if adminEncodeLimit != 240 {
+		t.Fatalf("adminEncodeLimit = %d, want 240 (20 plaques x 12 requests/round after step 8)", adminEncodeLimit)
 	}
 	// 🔴 THE PROPERTY THE FIRST VERSION OF THIS BUDGET LOST, AND THE REASON THIS LINE
 	// EXISTS. adminSessionLimit is charged by EVERY panel request including these, so a
@@ -1075,23 +1075,25 @@ func TestEncodeBudget_IsDerivedFromTheRoundAndIsPinned(t *testing.T) {
 	// encodeGate, so the request that discovers the encode budget is spent has already
 	// been charged to the panel's bucket. Measured, not reasoned — the first version of
 	// this constant said 80 and the run below returned 79.
-	if encodePanelHeadroom != 79 {
-		t.Fatalf("encodePanelHeadroom = %d, want 79 (adminSessionLimit %d − adminEncodeLimit %d "+
+	if encodePanelHeadroom != 59 {
+		t.Fatalf("encodePanelHeadroom = %d, want 59 (adminSessionLimit %d − adminEncodeLimit %d "+
 			"− 1 for the refused request sessionGate charges first)",
 			encodePanelHeadroom, adminSessionLimit, adminEncodeLimit)
 	}
-	// 🔴 ADR 0017 §6 md. 12's REAL BOUNDS, PINNED — and the numbers moved twice getting
-	// here. They were published as 55 and 750 from a hand-written denominator of four;
-	// encode.RequestsBeforeTheRowIsWritten() measures FIVE against a real round, so the
-	// true figures are 44 and 600. An audit named them as bound to nothing, and deriving
-	// them is what exposed the off-by-one.
+	// 🔴 ADR 0017 §6 md. 12's REAL BOUNDS, PINNED — and the numbers move with the round.
+	// The per-window figure follows adminEncodeLimit (which grew 220 -> 240 when step 8
+	// added an exchange, ADR 0018): 240/5 = 48. The per-address figure follows
+	// adminFloodLimit, which step 8 does not touch: 3000/5 = 600. The denominator is
+	// RequestsBeforeTheRowIsWritten() (the row squats SIX exchanges before the round
+	// ends), not RequestsPerRound() — and it is unchanged at five because step 8 was
+	// appended at the END, after the row is written.
 	if d := encode.RequestsBeforeTheRowIsWritten(); d != 5 {
 		t.Fatalf("a row is written after %d requests, was 5 when these bounds were sized. "+
 			"That is not a failure — ADR 0017 §5.1's sequence changed and md. 12's arithmetic "+
 			"wants re-reading", d)
 	}
-	if encodeRowsPerWindow != 44 || encodeRowsPerAddress != 600 {
-		t.Fatalf("uids squattable per window = %d per session and %d per address, want 44 and "+
+	if encodeRowsPerWindow != 48 || encodeRowsPerAddress != 600 {
+		t.Fatalf("uids squattable per window = %d per session and %d per address, want 48 and "+
 			"600 (adminEncodeLimit %d and adminFloodLimit %d over %d requests per row)",
 			encodeRowsPerWindow, encodeRowsPerAddress, adminEncodeLimit, adminFloodLimit,
 			encode.RequestsBeforeTheRowIsWritten())
@@ -1492,7 +1494,7 @@ func keysOf(m map[string]bool) []string {
 // the store's CUSTODY (sessions, deadlines, the sweeper), not its persistence.
 type noopEncodeRows struct{}
 
-func (noopEncodeRows) InsertUnassigned(context.Context, uuid.UUID, uuid.UUID, string, []byte, string) error {
+func (noopEncodeRows) InsertUnassigned(context.Context, uuid.UUID, uuid.UUID, string, []byte, []byte, string) error {
 	return nil
 }
 func (noopEncodeRows) MarkEncoded(context.Context, uuid.UUID, uuid.UUID, string, string) error {

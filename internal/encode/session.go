@@ -176,7 +176,18 @@ type Rows interface {
 	// was about md. 10). That is why a closure claim in this package has to carry
 	// the command that proves it, and why the closure this time is a SIGNATURE
 	// rather than a sentence: a signature cannot be reported closed while absent.
-	InsertUnassigned(ctx context.Context, tenantID, adminID uuid.UUID, uidHex string, wrappedKey []byte, actor string) error
+	//
+	// 🔴 wrappedKey AND appWrappedKey ARE TWO ENVELOPES, NOT ONE — ADR 0018, migration
+	// 00023. wrappedKey is application key 1's (K_SDMFileRead) 44-byte KEK envelope, in
+	// tags.aes_key_ref; appWrappedKey is application key 0's (the AppMasterKey, ADR 0017
+	// §5.1 step 8) 44-byte envelope, in tags.app_key_ref. BOTH are written in the ONE
+	// INSERT, before the chip's first irreversible command (ADR 0017 §5.2: "row, no chip"
+	// is recoverable, "chip, no row" is a §4.7 loss), so app_key_ref is in the DB long
+	// before step 8 touches the chip. Each is the SEALED value, never the plain key
+	// (CLAUDE.md §4.7). appWrappedKey is nil only for a caller that mints no key 0; the
+	// shipped driver always mints both (ADR 0003 md. 3: two independent crypto/rand keys,
+	// key 0 not a copy or derivation of key 1).
+	InsertUnassigned(ctx context.Context, tenantID, adminID uuid.UUID, uidHex string, wrappedKey, appWrappedKey []byte, actor string) error
 
 	// MarkEncoded records that the chip completed the round — ADR 0017 §5.1
 	// step 9, "satırı 'encode edildi' olarak işaretle".
@@ -222,18 +233,18 @@ const (
 
 // keyInventory is the declared order of the slots every keyring is born with.
 //
-// 🔴 K_AppMaster IS DECLARED AND NEVER FILLED TODAY, AND THAT IS THE POINT.
-// ADR 0017 §5.0 decision 2 makes personalising application key 0 NORMATIVE and
-// §5.1 step 8 puts it last; §6 md. 5 then blocks SHIPPING it, because `tags`
-// carries exactly one aes_key_ref (00004) and ADR 0003 md. 4 fixes it at 44 bytes
-// — one AES-128 key. A second key needs a column and a migration, and this round
-// writes neither. Declaring the slot now means the day that schema decision lands,
-// the wipe, the inventory and the exit paths already cover it: nobody has to
-// remember to add a Zero. Until then driver.go emits no ChangeKey for key 0 and
-// TestDriver_NoChangeKeyIsEverEmittedForApplicationKeyZero holds that shut.
+// 🔴 K_AppMaster IS NOW FILLED — ADR 0017 §5.1 step 8 SHIPPED (ADR 0018). It was
+// blocked on WHERE the new key 0 lives; migration 00023 added tags.app_key_ref, a
+// second per-plaque envelope beside aes_key_ref, so the slot is filled at step 3
+// (acceptVersionFrame3AndWriteRow mints a second, INDEPENDENT crypto/rand key —
+// ADR 0003 md. 3, ADR 0018 md. 1) and consumed at step 8 (cmdChangeKeyAppMaster).
+// The slot was declared long before it was filled, which is why the wipe, the
+// inventory and the exit paths already covered it the day step 8 landed — nobody had
+// to add a Zero. driver.go now emits ChangeKey for key 0 as the LAST step, and
+// TestDriver_ChangeKeyForApplicationKeyZeroIsEmittedLast holds that placement.
 //
 // ⚠️ THIS IS WHY ADR 0017 §5.1 STEP 9 SAYS Zero(anahtarlar), PLURAL: two plain
-// plaque keys, one of them not yet reachable.
+// plaque keys, and both are now reachable and both are wiped on every exit.
 var keyInventory = []string{
 	keyNameSesENC,
 	keyNameSesMAC,
@@ -405,11 +416,16 @@ func (k *keyring) add(name string, buf []byte) error {
 	return nil
 }
 
-// peek reads a registered buffer WITHOUT consuming it — for a key that is used
-// more than once in a round (K_SDMFileRead is read by step 6, and by step 8 the
-// day ADR 0017 §6 md. 5 lets step 8 exist). It is separate from take so that
-// "read again" and "must never be read again" are different verbs at the call
+// peek reads a registered buffer WITHOUT consuming it. It is separate from take so
+// that "read again" and "must never be read again" are different verbs at the call
 // site rather than a comment.
+//
+// ⚠️ NO SHIPPED KEY IS READ TWICE ANY MORE. cmdChangeKeySDMFileRead is peek's only
+// caller, and step 8 (cmdChangeKeyAppMaster) uses take on a DIFFERENT key, K_AppMaster
+// — an earlier version of this doc justified peek by "step 8 reads K_SDMFileRead
+// again", which was wrong the moment step 8 shipped (ADR 0018). peek is kept because
+// the read/consume distinction is still worth spelling at a call site, not because any
+// key currently needs a second read.
 func (k *keyring) peek(name string) ([]byte, error) {
 	s, err := k.find(name)
 	if err != nil {
@@ -531,14 +547,15 @@ const (
 	// nothing is bought in exchange, because a round that has stopped progressing is
 	// a round that is not coming back.
 	//
-	// ⚠️ THAT SENTENCE SAID "TWO plain plaque keys" AND THE SHIPPED CODE HOLDS ONE.
-	// Measured: `grep "ring.add(" internal/encode/*.go` outside tests gives exactly
-	// five sites — K_SDMFileRead, RndA, RndB, KSesAuthENC, KSesAuthMAC — and
-	// keyNameAppMaster is never passed to add at all, which keyInventory's own comment
-	// says ("DECLARED AND NEVER FILLED TODAY") and armed() pins by expecting exactly
-	// one plaque key. It becomes two the day ADR 0017 §6 md. 5 lands and step 8 ships.
-	// Over-stating exposure is the safe direction, but a written count that is wrong
-	// for the shipped code is a count — and this one was carrying a TTL bound.
+	// ⚠️ THE SHIPPED CODE NOW HOLDS TWO plain plaque keys, and this comment once
+	// (correctly, for its day) said ONE. Measured: `grep "ring.add(" internal/encode/*.go`
+	// outside tests gives SIX sites — K_SDMFileRead, K_AppMaster, RndA, RndB,
+	// KSesAuthENC, KSesAuthMAC — since ADR 0017 §5.1 step 8 shipped (ADR 0018), so
+	// keyNameAppMaster IS passed to add now (acceptVersionFrame3AndWriteRow) and armed()
+	// pins TWO plaque keys. The worst case is therefore four 16-byte secrets per live
+	// session (two plaque keys plus the two session keys); over-stating exposure is the
+	// safe direction, but a written count that is wrong for the shipped code is a
+	// count — and this one carries a TTL bound.
 	//
 	// 🔴 THE SPREAD WAS THE REAL DEFECT AND IT TOOK TWO ROUNDS TO MEASURE. A seventh
 	// audit corrected three copies; an eighth measured SEVEN occurrences, of which SIX
@@ -730,13 +747,14 @@ const (
 // internal/handler has to size a rate-limit budget against "how many plaques may an
 // operator encode in a window", and this repository's standing rule is that a number
 // is either bound to a gate, dated, or deleted (docs/plan/agent-brief.md). Written
-// out as `11` in the handler it would be a second representation of this table, and
+// out as `12` in the handler it would be a second representation of this table, and
 // this repository has paid for that shape often enough to have a name for it. Derived
-// from here it MOVES on its own the day ADR 0017 §5.1 step 8 ships (§6 md. 5): the
-// TABLE goes from ten exchanges to eleven, so this function goes from 11 to 12.
-// ⚠️ THE TWO ELEVENS ARE ONE APART AND USED TO SIT IN ONE SENTENCE WITHOUT SAYING SO
-// — len(roundSteps) and this function's result are never the same number, and an
-// auditor read the handler's copy of that sentence as arithmetic that does not close.
+// from here it MOVED on its own when ADR 0017 §5.1 step 8 shipped (ADR 0018): the
+// TABLE went from ten exchanges to eleven, so this function went from 11 to 12, and
+// the handler's derived budget followed with no edit to the handler.
+// ⚠️ len(roundSteps) (11) AND THIS FUNCTION'S RESULT (12) ARE ONE APART and are never
+// the same number — one Begin plus one Step per exchange — and an auditor once read the
+// handler's copy of that relation as arithmetic that does not close.
 //
 // ⚠️ IT IS A FUNCTION AND NOT A CONSTANT, and not by preference: roundSteps is a
 // slice, so len() over it is not a constant expression. Anything derived from it is

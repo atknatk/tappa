@@ -479,14 +479,21 @@ WHERE g.tenant_id = @tenant_id;
 -- caller cannot SELECT is a cross-tenant existence oracle, and today the only
 -- cleanup for an occupied uid is tappa_owner by hand.
 --
--- RETURNING IS TWO COLUMNS AND NEITHER IS THE KEY. created_at is the server's
--- clock (a caller that wanted to know when it loaded a plaque should not be
--- trusted to say so), and uid is echoed so the caller can assert the row it got
--- is the row it asked for. aes_key_ref is deliberately absent -- see this file's
--- header: the one path that legitimately needs it is SUN verification, through
--- resolve_tag_by_uid.
-INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, status)
-VALUES (@uid, @tenant_id, NULL, @aes_key_ref, 'unassigned')
+-- 🔴 @app_key_ref IS THE SECOND WRAPPED KEY, WRITTEN IN THE SAME INSERT (ADR 0018,
+-- migration 00023). It is the KEK-GCM envelope of NTAG 424 DNA application key 0
+-- (the AppMasterKey), the twin of aes_key_ref (key 1). It travels IN as a bound
+-- parameter and is the SARMALI (wrapped) value -- the 44-byte envelope, NEVER the
+-- plain key, which is never in a log, a query or the repo (CLAUDE.md §4.7). It is
+-- written HERE, beside aes_key_ref, and never by a later UPDATE, because ADR 0017
+-- §5.2 puts the row before the chip: "row, no chip" is recoverable, "chip, no row"
+-- is a permanent §4.7 loss, so both envelopes are in the DB before step 8 touches
+-- the chip. The column is NULLABLE (00023-öncesi rows were born without it), so a
+-- nil []byte here means "no key 0 minted yet" -- which is what the encode driver
+-- passes until FAZ B wires the step-8 mint. It is deliberately NOT in RETURNING,
+-- for aes_key_ref's reason (this file's header): a wrapped key does not travel back
+-- out through a query result.
+INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, app_key_ref, status)
+VALUES (@uid, @tenant_id, NULL, @aes_key_ref, @app_key_ref, 'unassigned')
 RETURNING uid, created_at;
 
 -- name: MarkTagEncoded :one

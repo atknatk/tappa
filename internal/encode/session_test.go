@@ -227,8 +227,8 @@ func TestSession_TheKeyInventoryIsTheOneADR0017Lists(t *testing.T) {
 		// ... TI and CmdCtr are the other two, and they are NOT key material — see
 		// the keyring's "what is deliberately not in it" list.
 		"RndA", "RndB",
-		// ADR 0017 §3 and §5.1 step 9's PLURAL: two plain plaque keys, of which the
-		// second is blocked on §6 md. 5's schema decision and is never filled today.
+		// ADR 0017 §3 and §5.1 step 9's PLURAL: two plain plaque keys, and since step 8
+		// shipped (ADR 0018) BOTH are minted at step 3 and filled during a round.
 		"K_SDMFileRead", "K_AppMaster",
 	}
 	if !reflect.DeepEqual(keyInventory, want) {
@@ -366,9 +366,12 @@ func armed(t *testing.T, h *harness, chip *fakeChip, actor string) (ID, Progress
 		}
 		bufs = append(bufs, b)
 	}
-	// The five that must be live at this point. Fewer means something is not being
+	// The six that must be live at this point. Fewer means something is not being
 	// registered; the assertion below would then be vacuously green without it.
-	wantNames := []string{"KSesAuthENC", "KSesAuthMAC", "RndA", "RndB", "K_SDMFileRead"}
+	// K_AppMaster joined this list when ADR 0017 §5.1 step 8 shipped (ADR 0018) —
+	// acceptVersionFrame3AndWriteRow mints and registers it at step 3, beside
+	// K_SDMFileRead, so from mid-round the exit paths must wipe TWO plaque keys.
+	wantNames := []string{"KSesAuthENC", "KSesAuthMAC", "RndA", "RndB", "K_SDMFileRead", "K_AppMaster"}
 	sort.Strings(names)
 	sort.Strings(wantNames)
 	if !reflect.DeepEqual(names, wantNames) {
@@ -1200,9 +1203,9 @@ func TestStore_TheSweepCadenceIsTheOneItsCommentClaims(t *testing.T) {
 // actual job is stated in its comment — bound how much KEY MATERIAL the store can be
 // driven into holding — so that is what is asserted, in bytes.
 func TestStore_TheGlobalCapBoundsKeyMaterialAndNotJustMemory(t *testing.T) {
-	// Two plain plaque keys per session, once ADR 0017 §6 md. 5 lands and K_AppMaster
-	// is filled; the session keys are a further two. Four 16-byte secrets is the
-	// worst case per live session.
+	// Two plain plaque keys per session now that ADR 0017 §5.1 step 8 has shipped
+	// (ADR 0018) and K_AppMaster is filled; the session keys are a further two. Four
+	// 16-byte secrets is the worst case per live session.
 	const secretsPerSession = 4
 	worst := DefaultMaxLive * secretsPerSession * plaqueKeyLen
 	if worst > 4096 {
@@ -1993,12 +1996,17 @@ func TestStore_ACloseThatTimesOutStillGetsTheSessionWipedByItsOwner(t *testing.T
 			"package can reach them: the sweeper is stopped and no deadline was moved, so the "+
 			"plain plaque key stays for the life of the process", live)
 	}
-	if len(w.seen) != 1 {
-		t.Fatalf("the wrapper saw %d keys", len(w.seen))
+	// Step 3 mints and wraps BOTH plaque keys (ADR 0018), so the wrapper sees two:
+	// K_SDMFileRead (which blocked the owner inside WrapKey) and K_AppMaster (wrapped
+	// once the owner was released). Both must be wiped by the owner's return.
+	if len(w.seen) != 2 {
+		t.Fatalf("the wrapper saw %d keys, want 2 (K_SDMFileRead and K_AppMaster)", len(w.seen))
 	}
-	if !allZero(w.seen[0]) {
-		t.Fatalf("the plaque key was never wiped: Close timed out and the owner's return did not " +
-			"retire the session either")
+	for i, key := range w.seen {
+		if !allZero(key) {
+			t.Fatalf("plaque key %d was never wiped: Close timed out and the owner's return did "+
+				"not retire the session either", i)
+		}
 	}
 }
 

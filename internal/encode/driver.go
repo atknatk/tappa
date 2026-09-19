@@ -141,15 +141,18 @@ import (
 // round) — the only correction the plain frame then needed was the CmdCtr accounting
 // above.
 //
-// WHAT IS *NOT* HERE, and both absences are decisions:
+// ✅ ADR 0017 §5.1 STEP 8 (ChangeKey on application key 0) IS NOW HERE — the last
+// entry of roundSteps, changekey.appmaster. It was blocked on WHERE the new key 0
+// lives; ADR 0018 answered that with tags.app_key_ref (migration 00023), a second
+// per-plaque envelope beside aes_key_ref, so the key is minted, wrapped and stored at
+// step 3 (§5.2: DB before chip) and installed on the chip last (case 2 ends the
+// session). ⚠️ CODE + FAKE-CHIP ONLY THIS ROUND: no real chip has run step 8. A
+// plaque built without it still carries a PUBLIC AppMasterKey (ADR 0005 risk 8), so
+// ADR 0017 §5.1's security line still governs the WALL — a real step-8 run on silicon
+// is a separate, irreversible act.
 //
-//   - ADR 0017 §5.1 STEP 8 (ChangeKey on application key 0). Normative in the ADR,
-//     BLOCKED by §6 md. 5: `tags` has one aes_key_ref and ADR 0003 md. 4 fixes it
-//     at 44 bytes, i.e. one AES-128 key. Storing a second key needs a column and a
-//     migration, and this round writes neither. The consequence is written down and
-//     is not small — ADR 0005 risk 8: until it ships, a plaque leaves with a public
-//     AppMasterKey, and ADR 0017 §5.1's own security line says such a plaque MAY
-//     BE BUILT AND TESTED BUT MAY NOT GO ON A WALL.
+// WHAT IS *NOT* HERE, and it is a decision:
+//
 //   - The three recovery probes of ADR 0017 §5.3. internal/sun ships their command
 //     builders (GetFileSettingsCommand, ParseFileSettings,
 //     AuthenticateEV2FirstCommand); driving them is a separate flow with a separate
@@ -197,7 +200,7 @@ type stepDef struct {
 	accept func(ctx context.Context, st *Store, s *Session, data []byte) error
 }
 
-// roundSteps is ADR 0017 §5.1, expanded from its numbered steps into the ten
+// roundSteps is ADR 0017 §5.1, expanded from its numbered steps into the eleven
 // exchanges they actually cost.
 //
 // The mapping to the ADR's numbering, because they are not the same list:
@@ -217,22 +220,22 @@ type stepDef struct {
 //	§5.1 step 5  WriteData ................. 1 exchange
 //	§5.1 step 6  ChangeKey(0x01) ........... 1 exchange
 //	§5.1 step 7  ChangeFileSettings ........ 1 exchange
-//	§5.1 step 8  ChangeKey(0x00) ........... NOT SHIPPED (§6 md. 5, see above)
+//	§5.1 step 8  ChangeKey(0x00) ........... 1 exchange — SHIPPED (ADR 0018, see above)
 //	§5.1 step 9  server: Zero, mark row .... 0 exchanges — Store.Step's tail
 //
-// Ten. DefaultTTL's floor is derived from len(roundSteps) rather than from a
+// Eleven. DefaultTTL's floor is derived from len(roundSteps) rather than from a
 // repeated literal.
 //
-// 🔴 AND THE SENTENCE THAT USED TO BE HERE CLAIMED AN INDEPENDENT CONFIRMATION THAT
-// DOES NOT EXIST (corrected 2026-08-21, third-eye audit). It said "ADR 0017 §4 counts
-// the same ten independently". The ADR's ten is a DIFFERENT ten: its list is
-// ISO SELECT 1 + GetVersion 3 + AuthenticateEV2First 2 + WriteData 1 + ChangeKey x2 2
-// + ChangeFileSettings 1, i.e. it counts BOTH ChangeKeys (step 8 included) and NO
-// GetCardUID. This table ships one ChangeKey (step 8 is blocked, §6 md. 5) and adds
-// GetCardUID (§6 md. 12). The two totals agree BY COINCIDENCE — one exchange dropped,
-// one added — and a coincidence is not a cross-check. The ADR's number confirms
-// nothing about this table, and if step 8 ever ships this table becomes ELEVEN while
-// the ADR's list stays ten.
+// 🔴 THE ADR'S OWN COUNT IS TEN AND NO LONGER AGREES, AND ITS PREVIOUS AGREEMENT WAS
+// A COINCIDENCE THAT HAS NOW COME APART EXACTLY AS THIS COMMENT PREDICTED. ADR 0017
+// §4 counts ten off §5.1: ISO SELECT 1 + GetVersion 3 + AuthenticateEV2First 2 +
+// WriteData 1 + ChangeKey x2 2 + ChangeFileSettings 1, with NO GetCardUID. This table
+// counts eleven: the same steps PLUS GetCardUID (§6 md. 12). Before step 8 shipped the
+// two both read ten — the ADR counting a second ChangeKey this table did not yet emit,
+// this table counting a GetCardUID the ADR omits, one each way. Step 8 restored this
+// table's second ChangeKey without adding a GetCardUID to the ADR's list, so the digits
+// diverged (11 vs 10) the moment step 8 landed. The ADR's number confirms nothing about
+// this table: len() over roundSteps is the only authority here.
 var roundSteps = []stepDef{
 	{
 		name: "select", adr: "ADR 0017 §5.1 step 1", want: sun.SWISOSuccess,
@@ -304,6 +307,18 @@ var roundSteps = []stepDef{
 	{
 		name: "changefilesettings", adr: "ADR 0017 §5.1 step 7", want: sun.SWSuccess,
 		command: cmdChangeFileSettings, accept: acceptSealedAck,
+	},
+	{
+		// 🔴 STEP 8 IS LAST, AND THAT IS THE WHOLE PLACEMENT DECISION (ADR 0017 §5.0
+		// Karar 2, §5.1). ChangeKey on application key 0 — the key this session
+		// authenticated with — ENDS the session on the chip: it answers a bare 9100
+		// with NO response MAC and drops its authentication state, so no command can
+		// follow it. Key 1's ChangeKey (step 6) is NON-zero, leaves the session alive,
+		// and therefore runs BEFORE ChangeFileSettings (fail-closed: SDM stays off if a
+		// chip is torn out mid-round). Key 0's must run AFTER everything, because it
+		// closes the door behind itself.
+		name: "changekey.appmaster", adr: "ADR 0017 §5.1 step 8", want: sun.SWSuccess,
+		command: cmdChangeKeyAppMaster, accept: acceptSessionEndedAck,
 	},
 }
 
@@ -422,22 +437,43 @@ func acceptVersionFrame3AndWriteRow(ctx context.Context, st *Store, s *Session, 
 	st.perUID[s.uidHex] = s.id
 	st.mu.Unlock()
 
-	// ADR 0017 §5.1 step 3, in its three parts.
-	key, err := mintPlaqueKey()
+	// ADR 0017 §5.1 step 3, in its three parts — now for TWO keys (ADR 0018,
+	// migration 00023). Key 1 (K_SDMFileRead) signs SUN; key 0 (the AppMasterKey,
+	// installed by step 8) is the chip's master authority. They are two INDEPENDENT
+	// crypto/rand draws (ADR 0003 md. 3, ADR 0018 md. 1: key 0 is NOT a copy or a
+	// derivation of key 1 — two authorities, two blast radii).
+	sdmKey, err := mintPlaqueKey()
 	if err != nil {
 		return err
 	}
 	// Registered BEFORE anything can fail: from here the key is the ring's, so
 	// every exit path wipes it whether or not the wrap or the INSERT succeeds.
 	// add wipes what it refuses, so there is no branch here that can leak one.
-	if err := s.ring.add(keyNameSDMFileRead, key); err != nil {
+	if err := s.ring.add(keyNameSDMFileRead, sdmKey); err != nil {
 		return err
 	}
-	wrapped, err := st.wrapper.WrapKey(s.uid, key)
+	// The second key is minted and registered BEFORE either wrap runs, so both are
+	// the ring's — and therefore covered by retireLocked's zeroAll on every exit —
+	// before the first fallible operation (the wrap) can leave one behind.
+	appKey, err := mintPlaqueKey()
 	if err != nil {
-		return fmt.Errorf("wrap the plaque key: %w", err)
+		return err
 	}
-	if err := st.rows.InsertUnassigned(ctx, s.tenantID, s.adminID, s.uidHex, wrapped, s.actor); err != nil {
+	if err := s.ring.add(keyNameAppMaster, appKey); err != nil {
+		return err
+	}
+	sdmWrapped, err := st.wrapper.WrapKey(s.uid, sdmKey)
+	if err != nil {
+		return fmt.Errorf("wrap the SDM file-read key: %w", err)
+	}
+	appWrapped, err := st.wrapper.WrapKey(s.uid, appKey)
+	if err != nil {
+		return fmt.Errorf("wrap the app master key: %w", err)
+	}
+	// Both envelopes go in the ONE INSERT (ADR 0017 §5.2: DB before chip, because
+	// "chip, no row" is a permanent §4.7 loss) — app_key_ref is in the DB long
+	// before step 8 touches the chip.
+	if err := st.rows.InsertUnassigned(ctx, s.tenantID, s.adminID, s.uidHex, sdmWrapped, appWrapped, s.actor); err != nil {
 		// The chip has not been touched irreversibly yet — SELECT and GetVersion
 		// leave nothing behind — so failing here costs nothing but the round.
 		return fmt.Errorf("write the tags row: %w", err)
@@ -548,9 +584,9 @@ func acceptAuthenticate2(_ context.Context, _ *Store, s *Session, data []byte) e
 	// ⚠️ Measured as unreachable TODAY: advance only advances stepIdx on success and
 	// retires the session on error, and acceptAuthenticate2 runs at most once per
 	// session, so neither slot can already be filled. It is written this way anyway
-	// because ADR 0017 §5.1 step 8 repeats the pattern with TWO plaque keys the day
-	// §6 md. 5 lands, and "unreachable today" is not a property a future edit
-	// preserves.
+	// because acceptVersionFrame3AndWriteRow now registers TWO plaque keys the same
+	// way (ADR 0017 §5.1 step 8 shipped, ADR 0018), and "unreachable today" is not a
+	// property a future edit preserves.
 	errENC := s.ring.add(keyNameSesENC, auth.KeyENC)
 	errMAC := s.ring.add(keyNameSesMAC, auth.KeyMAC)
 	if errENC != nil {
@@ -675,16 +711,17 @@ func acceptPlainAck(_ context.Context, _ *Store, _ *Session, data []byte) error 
 // internal/sun closed that with its own experiment (FAZ B2a: deleting the XOR turns
 // exactly one test red); this layer only supplies the two keys.
 func cmdChangeKeySDMFileRead(_ context.Context, _ *Store, s *Session) ([]byte, error) {
-	// Read, not consumed: the key is needed again by step 8 the day §6 md. 5 lets
-	// step 8 exist, and the ring — not this function — owns its end.
+	// Read, not consumed, and the ring — not this function — owns the key's end.
 	//
-	// ⚠️ NOTHING HOLDS THAT TODAY, AND IT IS A LIMIT RATHER THAN A GATE (tenth audit,
-	// 2026-08-21). Changing this peek to take is GREEN, because step 6 is the only
-	// reader in the shipped sequence — the second reader arrives with step 8. So the
-	// choice of verb is a statement of intent that no test can currently distinguish.
-	// Recorded rather than pinned: a test asserting "peek, not take" would only
-	// restate the source, and the property it protects does not exist yet. FAIL-CLOSED
-	// either way — a consumed slot makes step 8 error rather than send a wrong key.
+	// ⚠️ K_SDMFileRead HAS EXACTLY ONE READER (this step), AND peek vs take IS NOW A
+	// FREE CHOICE. An earlier version justified peek by "step 8 reads it again"; that
+	// was WRONG the moment step 8 shipped — step 8 (changekey.appmaster) installs
+	// K_AppMaster, a DIFFERENT key, and never touches K_SDMFileRead. So this is the
+	// key's only read; take would be equally correct (the buffer stays in the ring for
+	// zeroAll either way). peek is kept because a test asserting "peek, not take" would
+	// only restate the source, and nothing downstream reads this slot to distinguish
+	// them. FAIL-CLOSED regardless — a consumed slot would error rather than send a
+	// wrong key.
 	key, err := s.ring.peek(keyNameSDMFileRead)
 	if err != nil {
 		return nil, err
@@ -798,4 +835,61 @@ func cmdChangeFileSettings(_ context.Context, _ *Store, s *Session) ([]byte, err
 		return nil, err
 	}
 	return sun.NativeAPDU(sun.INSChangeFileSettings, field)
+}
+
+// --- Step 8: ChangeKey on the AppMasterKey (application key 0) ------------------
+
+// cmdChangeKeyAppMaster installs the plaque's own AppMasterKey on application key 0,
+// the LAST irreversible thing done to the chip — ADR 0017 §5.1 step 8, unblocked by
+// ADR 0018's app_key_ref column.
+//
+// 🔴 THE KEY NUMBER IS 0x00 AND THAT SELECTS Table 63's CASE 2 (17-byte body:
+// NewKey || KeyVer, no XOR and no CRC — sun.EV2ChangeKeyCommand switches on the
+// number, not on the session). oldKey is factoryKey() only for its LENGTH: case 2
+// does not put the old key in the body at all (changekey.go documents that
+// asymmetry), and the chip is still at the PUBLIC factory master key here, which is
+// exactly why this must happen in a controlled setting before the plaque goes on a
+// wall (ADR 0005 risk 8, ADR 0017 §5.0).
+//
+// take, NOT peek: this is K_AppMaster's ONLY reader, so consuming it means a second
+// read would error rather than silently send a wrong key. The buffer stays in the
+// ring (take marks the slot consumed but leaves the bytes), so retireLocked's zeroAll
+// still wipes it on the way out.
+func cmdChangeKeyAppMaster(_ context.Context, _ *Store, s *Session) ([]byte, error) {
+	key, err := s.ring.take(keyNameAppMaster)
+	if err != nil {
+		return nil, err
+	}
+	ctr, err := s.useCtr()
+	if err != nil {
+		return nil, err
+	}
+	// keyNo 0x00 = AppMasterKey. changekey.go's appMasterKeyNo is unexported; the
+	// literal is the same value and the switch inside EV2ChangeKeyCommand is what
+	// turns it into the case-2 body.
+	field, err := sun.EV2ChangeKeyCommand(s.auth, ctr, 0x00, factoryKey(), key, keyVersion)
+	if err != nil {
+		return nil, err
+	}
+	return sun.NativeAPDU(sun.INSChangeKey, field)
+}
+
+// acceptSessionEndedAck accepts the response to a ChangeKey on the authenticated key
+// (case 2), which ENDS the EV2 session on the chip.
+//
+// 🔴 IT DELIBERATELY DOES NOT CALL EV2UnwrapResponseFull, AND THAT IS THE WHOLE
+// POINT. A case-2 ChangeKey answers a BARE 9100 with NO response MAC — the chip has
+// just changed the very key its session keys derive from, so there is nothing left to
+// verify the response against (changekey.go's EV2ChangeKeyCommand states this, citing
+// AN12196's bare "9100"). Feeding it to the Full unwrapper would try to MAC-check a
+// frame that carries no MAC and fail a round that in fact SUCCEEDED. RequireStatus has
+// already confirmed the 9100; this only guards against a trailing body a real chip
+// would not send. The CmdCtr was already advanced by cmdChangeKeyAppMaster's useCtr,
+// so the driver's count stays aligned with the chip's even though no further command
+// will use it — the session is over.
+func acceptSessionEndedAck(_ context.Context, _ *Store, _ *Session, data []byte) error {
+	if len(data) != 0 {
+		return fmt.Errorf("expected an empty session-ending response body, got %d bytes", len(data))
+	}
+	return nil
 }

@@ -304,7 +304,7 @@ func TestDBRows_AMisSizedEnvelopeIsRefusedBeforeTheDatabaseIsTouched(t *testing.
 	}
 	tenant := uuid.New()
 	for _, n := range []int{0, 43, 45, 16} {
-		if err := rows.InsertUnassigned(context.Background(), tenant, uuid.Nil, "04968CAA5C5E80", bytesOf(n, 0x9), "op"); err == nil {
+		if err := rows.InsertUnassigned(context.Background(), tenant, uuid.Nil, "04968CAA5C5E80", bytesOf(n, 0x9), nil, "op"); err == nil {
 			t.Errorf("a %d-byte envelope was accepted", n)
 		}
 	}
@@ -316,11 +316,38 @@ func TestDBRows_AMisSizedEnvelopeIsRefusedBeforeTheDatabaseIsTouched(t *testing.
 
 	// POSITIVE CONTROL: a correctly sized envelope DOES reach the database. Without
 	// it, a port that refused everything would pass the assertion above.
-	if err := rows.InsertUnassigned(context.Background(), tenant, uuid.Nil, "04968CAA5C5E80", bytesOf(sun.WrappedKeyLen, 0x9), "op"); err != nil {
+	if err := rows.InsertUnassigned(context.Background(), tenant, uuid.Nil, "04968CAA5C5E80", bytesOf(sun.WrappedKeyLen, 0x9), nil, "op"); err != nil {
 		t.Fatalf("the positive control failed: %v", err)
 	}
 	if db.calls != 1 {
 		t.Errorf("a correct envelope opened the database %d time(s), want 1", db.calls)
+	}
+
+	// THE SECOND ENVELOPE (app_key_ref) is guarded identically, with aes VALID so a
+	// refusal can only be the app gate. A non-nil mis-sized value is refused before
+	// the database is touched -- otherwise 00023's CHECK prints the whole failing
+	// tuple (app_key_ref included) into the server log, the same 4.7 concern the aes
+	// half guards. nil IS admitted (pre-00023 rows / no key 0 minted), proven below.
+	var db2 countingDB
+	rows2, err := NewDBRows(&db2, stubTrail{})
+	if err != nil {
+		t.Fatalf("NewDBRows: %v", err)
+	}
+	good := bytesOf(sun.WrappedKeyLen, 0x9)
+	for _, n := range []int{16, 43, 45} {
+		if err := rows2.InsertUnassigned(context.Background(), tenant, uuid.Nil, "04968CAA5C5E80", good, bytesOf(n, 0x7), "op"); err == nil {
+			t.Errorf("a %d-byte app envelope was accepted", n)
+		}
+	}
+	if db2.calls != 0 {
+		t.Errorf("the database was opened %d time(s) for an app envelope that cannot be stored", db2.calls)
+	}
+	// A nil app envelope IS admitted (no key 0 to store) and reaches the database.
+	if err := rows2.InsertUnassigned(context.Background(), tenant, uuid.Nil, "04968CAA5C5E80", good, nil, "op"); err != nil {
+		t.Fatalf("a nil app envelope must be admitted: %v", err)
+	}
+	if db2.calls != 1 {
+		t.Errorf("a nil app envelope opened the database %d time(s), want 1", db2.calls)
 	}
 }
 

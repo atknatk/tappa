@@ -16,6 +16,16 @@
 # truncated citations in other milestones' comments. None were introduced by the KEK
 # rotation work and none are fixed by it — correcting each means deciding what it
 # MEANT to cite, which is not this task's call. From here the list may only SHRINK.
+# 2026-09-19: ONE entry added (53 -> 54), the sanctioned exception rather than rot.
+# TestDriver_NoChangeKeyIsEverEmittedForApplicationKeyZero was RENAMED to
+# TestDriver_ChangeKeyForApplicationKeyZeroIsEmittedLast when ADR 0017 section 5.1
+# step 8 shipped (ADR 0018) -- the old name asserted the opposite of what the code now
+# does. The old name is cited in IMMUTABLE ADR 0018, the M8 plan card, and the
+# successor test's own explanatory comment (internal/encode/driver_test.go, which
+# names what it replaced on purpose) -- the first two this task may not edit, so its
+# citation cannot resolve regardless. danglingBudget was raised
+# in the same change (visible in review), which is the mechanism's own rule for a
+# justified growth.
 TestAccount
 TestAccount_TheSignUpConfirmation
 TestAdminReset_TheUndeliverableLineClaimsOnly
@@ -27,6 +37,7 @@ TestCheckinDB_Row4
 TestCode_NoExportedAccessor
 TestConfirmation_IsBoundToTheACTIONAndNotOnlyToThe
 TestCookieSeparation
+TestDriver_NoChangeKeyIsEverEmittedForApplicationKeyZero
 TestEmployeeActions_CrossOriginCostsNoResolverRead
 TestEmployeeActions_SecFetchSiteSameSitePasses
 TestEmployeeDeactivate_TheConfirmationStepIsNotEnforced
