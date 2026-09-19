@@ -240,6 +240,12 @@ func (a *AdminAuth) mountWriting(r chi.Router) {
 		// clock every shift and every lateness verdict is resolved against, and it moves
 		// both ends of every billing month that has not been frozen yet.
 		r.Post(accountHref, a.accountSave)
+		// 🔴 CHANGE-MY-OWN-PASSWORD (M7-05, T73). It shares this chain for the ordinary
+		// reason — the Origin check must run AHEAD of the resolver — but its gate is the
+		// OPPOSITE of accountSave's: any live admin may rotate their OWN credential
+		// (K-A), so it is NOT owner-only. It is a separate route from accountSave for
+		// exactly that reason: the two must never share a gate.
+		r.Post(accountPasswordHref, a.accountPasswordSave)
 
 		// 🔴 THE PLAQUE ENCODE RELAY (M8-05 FAZ B2c-2b) — A NESTED GROUP INSIDE THIS
 		// ONE, AND THE NESTING IS THE WHOLE REASON IT IS NOT THREE MORE r.Post LINES

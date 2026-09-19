@@ -96,7 +96,10 @@ var accountZoneSuggestions = []string{"Europe/Malta", "Europe/Rome", "Europe/Lon
 // query string may echo. A reflected parameter is a value somebody can put anything
 // into, and the answer is to have nothing to escape (oneOfWords).
 var (
-	accountDoneWords    = []string{"saved"}
+	// "password" joins "saved" because a password change lands back here with its OWN
+	// flash (T73): it is a different act from a details save and reads a different
+	// sentence, so it cannot borrow "saved" without claiming the business's facts moved.
+	accountDoneWords    = []string{"saved", "password"}
 	accountProblemWords = []string{"unreadable", "not-permitted", "unknown-business", "unavailable"}
 )
 
@@ -113,6 +116,13 @@ func accountDoneSentence(word string) string {
 			"from what was typed."
 	}
 	return ""
+}
+
+// accountPasswordDoneSentence is the flash after a successful password change. It names
+// the K3 sign-out so the person is not surprised to find their other devices logged out.
+func accountPasswordDoneSentence() string {
+	return "Your password has been changed. You are still signed in on this device; any " +
+		"other devices you were signed in on have been signed out."
 }
 
 func accountProblemSentence(word string) string {
@@ -159,7 +169,13 @@ func (a *AdminAuth) accountSection(w http.ResponseWriter, r *http.Request) {
 	// SENTENCES, so a query string carrying anything at all produces no notice rather
 	// than a reflected value.
 	if word := oneOfWords(strings.TrimSpace(r.URL.Query().Get("done")), accountDoneWords...); word != "" {
-		v.Saved = accountDoneSentence(word)
+		// "password" is the T73 flash and belongs beside the password form, not in the
+		// top-of-page "Saved" notice that speaks about the business's stored details.
+		if word == "password" {
+			v.PasswordSaved = accountPasswordDoneSentence()
+		} else {
+			v.Saved = accountDoneSentence(word)
+		}
 	}
 	if word := oneOfWords(strings.TrimSpace(r.URL.Query().Get("problem")), accountProblemWords...); word != "" {
 		v.Problem = accountProblemSentence(word)
@@ -194,8 +210,11 @@ func (a *AdminAuth) accountView(r *http.Request, id httpx.AdminIdentity, s tenan
 		Types:           businessTypeOptions(),
 		ZoneSuggestions: accountZoneSuggestions,
 		PostHref:        accountHref,
-		NameMaxLength:   tenant.AccountNameLimit,
-		CanEdit:         mayEditAccount(id),
+		// PasswordPostHref is a SEPARATE route from PostHref (T73): the password form is
+		// drawn for every live admin, not just the owner PostHref's gate serves.
+		PasswordPostHref: accountPasswordHref,
+		NameMaxLength:    tenant.AccountNameLimit,
+		CanEdit:          mayEditAccount(id),
 		// 🔴 BOTH FIELDS ARE FILLED FROM THE STORED ROW HERE, AND ONLY Form IS EVER
 		// OVERWRITTEN AFTERWARDS (renderAccountFormAgain). That asymmetry is what makes
 		// "on file" a fact rather than an echo: OnFile has exactly one source in this

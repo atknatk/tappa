@@ -26,6 +26,10 @@ type adminAuthenticator interface {
 	Issue(ctx context.Context, v adminauth.Verified) (adminauth.Issued, error)
 	Verify(ctx context.Context, t adminauth.Token) (adminauth.Resolved, error)
 	Revoke(ctx context.Context, tenantID, sessionID uuid.UUID) error
+	// ChangeOwnPassword rotates the signed-in admin's own credential (M7-05, T73). It
+	// takes exceptSessionID -- the CURRENT session's id -- so the change keeps this
+	// device signed in and revokes the others (K3), and returns how many it revoked.
+	ChangeOwnPassword(ctx context.Context, tenantID, adminID, exceptSessionID uuid.UUID, current, next string) (int, error)
 }
 
 // Audit actions written by the panel auth flow. The vocabulary is free text by

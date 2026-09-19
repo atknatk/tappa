@@ -28,10 +28,21 @@
 -- struct in internal/store/admins.sql.go carries a TokenHash field -- the only
 -- TokenHash there is CreateAdminSessionParams', i.e. an INPUT. So a row read
 -- cannot leak the hash into a log, and the guarantee survives a regeneration
--- rather than depending on how this comment is worded. password_hash is likewise
--- never selected by any query in this file: the only place it is read is the
--- context-less login resolver, which needs it to verify a password and returns it
--- to exactly one caller.
+-- rather than depending on how this comment is worded. password_hash USED to be
+-- selected by no query in this file; T73 (change-my-own-password) changed that, and
+-- the claim is rewritten to stay honest and grep-checkable rather than quietly
+-- false. The digest is now read in EXACTLY TWO places: the context-less login
+-- resolver (db/queries/resolve.sql, where the tenant is the RESULT of the lookup)
+-- and GetAdminPasswordHashByID BELOW, the id+tenant-scoped read an ALREADY
+-- authenticated admin uses to re-verify their CURRENT password before setting a new
+-- one. Both return the digest to ONE caller (internal/adminauth), which hands it
+-- straight to bcrypt.Compare and never logs, emits or re-returns it. The measured,
+-- regeneration-proof form of the guarantee: in internal/store/admins.sql.go the ONLY
+-- *Row struct carrying a PasswordHash field is GetAdminPasswordHashByIDRow -- the two
+-- WRITERS (CreateAdminUser, SetOwnAdminPassword) name the column solely as the
+-- @password_hash parameter of an INSERT/UPDATE and their RETURNING lists omit it,
+-- exactly as @token_hash is written-not-returned in CreateAdminSession, so a row read
+-- on either write path cannot leak the digest into a log.
 --
 -- NO DELETE QUERIES BY DESIGN: 00006 REVOKEs DELETE on both admin tables, so no
 -- application code path can destroy an admin or a session row (section 4.6).
@@ -209,8 +220,9 @@ ORDER BY created_at DESC;
 -- status is returned rather than filtered, for the same reason the resolvers carry
 -- their state instead of hiding it: a caller that finds a disabled admin can say
 -- so and audit it; one that gets "not found" cannot tell that from a bad id.
--- password_hash is NOT selected (section 4.7 spirit: it leaves the database only
--- on the one path that must compare it).
+-- password_hash is NOT selected by this identity read (section 4.7 spirit): it
+-- leaves the database only on the two paths that must compare it -- the login
+-- resolver and T73's GetAdminPasswordHashByID -- and this "who am I" read is neither.
 SELECT id, tenant_id, full_name, email, role, status, created_at, last_login_at
 FROM admin_users
 WHERE id = @id
@@ -287,12 +299,13 @@ RETURNING id, last_login_at;
 -- whole registration rolls back rather than producing an admin belonging to a tenant
 -- that is not theirs.
 --
--- password_hash IS WRITTEN AND IS NEVER RETURNED. This file's header makes the
--- grep-checkable claim that password_hash is selected by no query here; that stays
--- true -- the value appears once, as a parameter of the INSERT's select-list, exactly
+-- password_hash IS WRITTEN AND IS NEVER RETURNED BY THIS QUERY. The header no longer
+-- claims "selected by no query here" -- T73's GetAdminPasswordHashByID selects it --
+-- but the WRITE-half invariant CreateAdminUser stands on is unchanged: the value
+-- appears once, as the @password_hash parameter of the INSERT's select-list, exactly
 -- as @token_hash does in CreateAdminSession, and the RETURNING list below does not
--- name it. The generated *Row struct therefore has no PasswordHash field, so a row
--- read cannot leak the digest into a log.
+-- name it. The generated CreateAdminUserRow therefore has no PasswordHash field, so a
+-- row read on this write path cannot leak the digest into a log.
 --
 -- email IS NOT RETURNED EITHER, for a smaller reason: nothing in the sign-up flow
 -- needs it back (the boundary already holds the value it just sent) and an address is
@@ -308,3 +321,84 @@ SELECT t.id, @full_name, @email, @password_hash, @role
 FROM tenants t
 WHERE t.id = @tenant_id
 RETURNING id, tenant_id, full_name, role, status, created_at;
+
+-- ============================================================================
+-- T73 -- CHANGE MY OWN PASSWORD FROM THE PANEL (M7-05). Three queries, all
+-- authorised by the CURRENT SESSION's identity rather than by a token. This is the
+-- "its OWN statement with its OWN authority" that db/queries/passwordresets.sql's
+-- ConsumePasswordResetAndSetPassword comment forbade it to borrow: the reset flow
+-- proves possession of a mailed token, this flow proves possession of the current
+-- password, and the two must not share a statement.
+-- ============================================================================
+
+-- name: GetAdminPasswordHashByID :one
+-- The CURRENT-password check for change-my-own-password. An authenticated admin
+-- reads their OWN digest (id from the live session, tenant from the request context)
+-- so internal/adminauth can bcrypt.Compare the plaintext they just typed before any
+-- write happens: "prove you are still you" defends against a walked-away laptop.
+--
+-- 🔴 THIS IS THE QUERY THE HEADER'S INVARIANT NAMES. It is the SECOND and last reader
+-- of password_hash in the product (the first is the context-less login resolver), and
+-- it returns the digest as a PLAIN string to EXACTLY ONE caller, internal/adminauth,
+-- which feeds it straight to bcrypt.Compare and never logs, emits or re-returns it. No
+-- secret-wrapper type is used or needed: the login resolver wraps its hash because it
+-- runs WITHOUT a tenant context and hands a value across a wider boundary; this read
+-- runs POST-authentication inside WithTenant and its result never leaves adminauth.
+--
+-- status is RETURNED, not filtered (the GetAdminByID precedent): a caller that finds
+-- a disabled admin can say so and audit it, where "no such row" could not be told
+-- from a bad id. Tenant-scoped explicitly (section 4.5, belt on top of RLS): a hash
+-- is the one value cross-tenant reads must never reach, so the predicate is doubled.
+SELECT id, password_hash, status
+FROM admin_users
+WHERE id = @id
+  AND tenant_id = @tenant_id;
+
+-- name: SetOwnAdminPassword :one
+-- The standalone set-password statement passwordresets.sql said M7-05 would need and
+-- must NOT reach for ConsumePasswordResetAndSetPassword to write. Its authority is the
+-- current session's identity: the caller passes the id it authenticated as, so the
+-- statement can only ever rewrite the CALLER'S OWN row -- there is no admin_user_id
+-- parameter that could name someone else, which is exactly the privilege-escalation
+-- shape the reset comment warned a shared "set password" query would open.
+--
+-- 0 ROWS -> CALLER REJECTS: unknown id, wrong tenant, or a disabled account (the
+-- status = 'active' guard) all collapse to pgx.ErrNoRows, and the change is refused
+-- rather than silently no-op'd. status is tested here, not read: a disabled admin has
+-- no business rotating a credential.
+--
+-- password_hash is written ONLY with adminauth.Hash output; the database backs that
+-- up structurally -- migration 00018's CHECK accepts only a digest bcrypt will fully
+-- process, so a caller that passed anything else gets 23514 and the whole WithTenant
+-- transaction rolls back (fail-closed). @password_hash is a parameter, not returned:
+-- the RETURNING list names id alone, so no *Row struct carries the digest.
+UPDATE admin_users
+SET password_hash = @password_hash
+WHERE id = @id
+  AND tenant_id = @tenant_id
+  AND status = 'active'
+RETURNING id;
+
+-- name: RevokeOtherAdminSessionsForAdmin :many
+-- K3: when a password changes, every OTHER live session of that admin is revoked, but
+-- the session that made the change survives -- the user stays signed in on this device
+-- and is signed out everywhere else. That is the ONE difference from the reset flow's
+-- RevokeAdminSessionsForAdmin (above), which revokes ALL of them because the person
+-- resetting has, by construction, no live session to keep. Both queries are kept: the
+-- reset flow calls the revoke-all variant, this flow calls the revoke-others variant,
+-- and neither modifies the other.
+--
+-- @except_session_id is the CURRENT session's id, so `id <> @except_session_id` is
+-- what "other" means. The `revoked_at IS NULL` guard is load-bearing under
+-- concurrency for the same reason RevokeAdminSessionsForAdmin's is (see the COALESCE
+-- note on RevokeAdminSession): a second concurrent writer re-evaluates the WHERE
+-- against the committed row, finds revoked_at no longer NULL, updates 0 and the 00011
+-- monotonicity trigger never fires. Returns the ids it revoked (empty when there was
+-- nothing else live -- idempotent). Tenant-scoped explicitly (section 4.5).
+UPDATE admin_sessions
+SET revoked_at = now()
+WHERE tenant_id = @tenant_id
+  AND admin_user_id = @admin_user_id
+  AND id <> @except_session_id
+  AND revoked_at IS NULL
+RETURNING id;

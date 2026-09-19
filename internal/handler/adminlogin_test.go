@@ -53,11 +53,25 @@ type fakeAdmins struct {
 	choices      func(v []adminauth.Verified) ([]adminauth.Choice, error)
 	issue        func(v adminauth.Verified) (adminauth.Issued, error)
 	verify       func() (adminauth.Resolved, error)
+	// changePassword is the hook for ChangeOwnPassword (T73). Nil means "succeed,
+	// revoking nothing", so every test that does not care about this path is unaffected.
+	changePassword func(tenantID, adminID, exceptSessionID uuid.UUID, current, next string) (int, error)
 
 	authCalls   int
 	issuedFor   []adminauth.Verified
 	revokeCalls int
 	verifyCalls int
+	// changeArgs records every ChangeOwnPassword call in order, so a test can assert the
+	// handler passed the SESSION's ids (§4.5, K3) rather than anything from the request.
+	changeArgs []changePasswordArgs
+}
+
+// changePasswordArgs is one recorded ChangeOwnPassword call. It deliberately keeps the
+// passwords too: a test asserts they were passed straight through, and that they never
+// reach an audit row or a log (a leak test reads the trail and the sink, not this).
+type changePasswordArgs struct {
+	tenantID, adminID, exceptSessionID uuid.UUID
+	current, next                      string
 }
 
 func (f *fakeAdmins) Authenticate(_ context.Context, email, password string) (adminauth.Authentication, error) {
@@ -140,6 +154,36 @@ func (f *fakeAdmins) Revoke(_ context.Context, _, _ uuid.UUID) error {
 	f.revokeCalls++
 	f.mu.Unlock()
 	return nil
+}
+
+func (f *fakeAdmins) ChangeOwnPassword(_ context.Context, tenantID, adminID, exceptSessionID uuid.UUID, current, next string) (int, error) {
+	f.mu.Lock()
+	f.changeArgs = append(f.changeArgs, changePasswordArgs{tenantID, adminID, exceptSessionID, current, next})
+	hook := f.changePassword
+	f.mu.Unlock()
+	if hook == nil {
+		return 0, nil
+	}
+	return hook(tenantID, adminID, exceptSessionID, current, next)
+}
+
+// changeCalls is how many times the handler reached ChangeOwnPassword — the number that
+// separates "the gate refused" from "the gate refused BEFORE the credential path".
+func (f *fakeAdmins) changeCalls() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.changeArgs)
+}
+
+// lastChange returns the arguments of the most recent ChangeOwnPassword call.
+func (f *fakeAdmins) lastChange(t *testing.T) changePasswordArgs {
+	t.Helper()
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.changeArgs) == 0 {
+		t.Fatalf("ChangeOwnPassword was never called")
+	}
+	return f.changeArgs[len(f.changeArgs)-1]
 }
 
 // fakeTrail counts audit rows without a database. audit_log is append-only at the

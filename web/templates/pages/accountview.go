@@ -150,6 +150,23 @@ type AccountView struct {
 	FieldError string
 	// BillingHref is the money screen, drawn only when the reader may open it.
 	BillingHref string
+
+	// --- the password form (T73) --------------------------------------------------
+
+	// PasswordPostHref is where the change-my-password form posts. It is a DIFFERENT
+	// route from PostHref: the details form above is owner-only, but a password is
+	// personal (K-A), so its form is drawn for every live admin and posts to its own
+	// endpoint, which carries no owner-only gate.
+	PasswordPostHref string
+	// PasswordError is the message shown beside the password form after a refused
+	// change -- a weak or mismatched new password, a wrong current password, or a new
+	// password equal to the current one. It is built from a FIXED set of sentences in
+	// the handler; nothing a caller types reaches it, and no password is ever echoed.
+	PasswordError string
+	// PasswordSaved is the confirmation shown after a successful change, "" otherwise.
+	// It names the K3 sign-out (other devices signed out, this one kept) and, like
+	// Saved, comes from a closed vocabulary the query string can only select from.
+	PasswordSaved string
 }
 
 // AccountForm is the three editable fields.
