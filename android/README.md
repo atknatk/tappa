@@ -224,8 +224,8 @@ with the suite re-run each time:
 BEFORE (no inputs declared)                          AFTER (inputs declared, same warm tree)
 a  plaqueEncodeStepHref -> …/step2   UP-TO-DATE 31/0   FAILED  theThreeRoutes_matchPlaqueencodeGo
 b  faultBusy -> "busy2"              UP-TO-DATE 31/0   FAILED  theFaultVocabulary_matchesPlaqueencodeGo
-c  "getcarduid" -> "getcarduid2"     UP-TO-DATE 31/0   FAILED  theTenStepNames_matchDriverGo
-d  an eleventh roundSteps entry      UP-TO-DATE 31/0   FAILED  theTenStepNames_matchDriverGo
+c  "getcarduid" -> "getcarduid2"     UP-TO-DATE 31/0   FAILED  theElevenStepNames_matchDriverGo
+d  a twelfth roundSteps entry        UP-TO-DATE 31/0   FAILED  theElevenStepNames_matchDriverGo
 e  PostFormValue("rapdu"->"response") UP-TO-DATE 31/0  FAILED  theTwoFormFields_matchWhatTheHandlersRead
 f  CookieName -> "…_session2"        UP-TO-DATE 31/0   FAILED  thePanelCookieAndPaths_matchTheServer
 g  a Go COMMENT `faultExample = "…"` (N5)              re-ran, 31/0 green (comment lines stripped)

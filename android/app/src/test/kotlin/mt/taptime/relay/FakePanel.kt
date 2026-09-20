@@ -11,7 +11,7 @@ import java.net.URLDecoder
  * the REAL HttpRelayServer — headers, form encoding, redirect handling — rather than
  * a fake behind the RelayServer interface that could never notice a missing Origin.
  *
- * The default script is a complete ten-exchange round. A test replaces [script] to
+ * The default script is a complete eleven-exchange round. A test replaces [script] to
  * inject a fault, a refusal, a malformed body or a never-ending round.
  */
 class FakePanel : AutoCloseable {
@@ -21,7 +21,7 @@ class FakePanel : AutoCloseable {
     val seen = mutableListOf<Seen>()
     val handle = "0123456789abcdef0123456789abcdef"
 
-    /** Ten distinct C-APDUs, one per exchange. Contents are arbitrary — the loop never reads them. */
+    /** Eleven distinct C-APDUs, one per exchange. Contents are arbitrary — the loop never reads them. */
     val commands: List<ByteArray> = (0 until STEPS.size).map { i -> byteArrayOf(0x90.toByte(), (0x10 + i).toByte(), 0x00, 0x00, i.toByte()) }
 
     private var stepIndex = 0
@@ -90,7 +90,7 @@ class FakePanel : AutoCloseable {
     override fun close() = server.stop(0)
 
     companion object {
-        /** The ten step names of internal/encode/driver.go's roundSteps, in order. */
+        /** The eleven step names of internal/encode/driver.go's roundSteps, in order. */
         val STEPS = listOf(
             "select",
             "getversion.1", "getversion.2", "getversion.3",
@@ -99,6 +99,7 @@ class FakePanel : AutoCloseable {
             "writedata",
             "changekey.sdmfileread",
             "changefilesettings",
+            "changekey.appmaster",
         )
     }
 }

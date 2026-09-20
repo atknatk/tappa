@@ -476,10 +476,10 @@ class MainActivity : Activity() {
 
         /**
          * The number of exchanges a round costs on today's server (internal/encode,
-         * len(roundSteps) = 10). Cosmetic — it only makes the progress line read
-         * "3/10"; the loop takes its cue from `done`, never from this number.
+         * len(roundSteps) = 11). Cosmetic — it only makes the progress line read
+         * "3/11"; the loop takes its cue from `done`, never from this number.
          */
-        const val EXPECTED_EXCHANGES = 10
+        const val EXPECTED_EXCHANGES = 11
 
         /** The ONLY thing written to SharedPreferences: the server address. Never a cookie, never a handle. */
         private const val PREF_SERVER = "server"

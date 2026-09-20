@@ -36,28 +36,28 @@ class RelayLoopTest {
     // --- the happy path ---------------------------------------------------------------
 
     /**
-     * Ten commands out, ten responses back, done. RED IF: the loop stops early, skips
-     * a command, posts a wrong R-APDU, or forgets the handle on a step.
+     * Eleven commands out, eleven responses back, done. RED IF: the loop stops early,
+     * skips a command, posts a wrong R-APDU, or forgets the handle on a step.
      */
     @Test
-    fun fullRound_tenCommandsTenResponses_isCompleted() {
+    fun fullRound_elevenCommandsElevenResponses_isCompleted() {
         val chip = ScriptedChip()
         val progress = mutableListOf<Pair<Int, String>>()
         val outcome = run(chip) { n, step -> progress += n to step }
 
-        assertEquals(Outcome.Completed(10, null), outcome)
-        assertEquals(10, chip.received.size)
-        for (i in 0 until 10) assertArrayEquals("command $i", panel.commands[i], chip.received[i])
+        assertEquals(Outcome.Completed(11, null), outcome)
+        assertEquals(11, chip.received.size)
+        for (i in 0 until 11) assertArrayEquals("command $i", panel.commands[i], chip.received[i])
 
         assertEquals(1, panel.begins().size)
-        assertEquals(10, panel.steps().size)
+        assertEquals(11, panel.steps().size)
         assertEquals(0, panel.aborts().size)
         for (s in panel.steps()) {
             assertEquals(panel.handle, s.form["session"])
             assertEquals("9100", s.form["rapdu"])
         }
         // The screen saw every exchange, with the server's step word for the one before.
-        assertEquals((1..10).toList(), progress.map { it.first })
+        assertEquals((1..11).toList(), progress.map { it.first })
         assertEquals(listOf("begin") + FakePanel.STEPS.dropLast(1), progress.map { it.second })
     }
 
@@ -79,7 +79,7 @@ class RelayLoopTest {
             } else a
         }
         val outcome = run()
-        assertEquals(Outcome.Completed(10, "server-error"), outcome)
+        assertEquals(Outcome.Completed(11, "server-error"), outcome)
         assertEquals(1, panel.begins().size)
         assertEquals(0, panel.aborts().size)
         assertTrue(Wording.forOutcome(outcome).contains("Do NOT encode this plaque again"))
@@ -93,7 +93,7 @@ class RelayLoopTest {
             val a = base(s)
             if (s.path == HttpRelayServer.STEP_PATH && a.body.contains("\"done\":true")) panel.json(500, a.body) else a
         }
-        assertEquals(Outcome.Completed(10, null), run())
+        assertEquals(Outcome.Completed(11, null), run())
         assertEquals(0, panel.aborts().size)
     }
 

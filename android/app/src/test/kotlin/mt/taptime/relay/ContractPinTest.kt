@@ -72,7 +72,7 @@ class ContractPinTest {
     }
 
     @Test
-    fun theTenStepNames_matchDriverGo() {
+    fun theElevenStepNames_matchDriverGo() {
         assertEquals(FakePanel.STEPS, stepNames())
         assertEquals("EXPECTED_EXCHANGES is cosmetic but must not lie", stepNames().size, MainActivity.EXPECTED_EXCHANGES)
     }

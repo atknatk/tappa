@@ -134,10 +134,10 @@ class RelayLoop(
 
     companion object {
         /**
-         * A runaway guard, NOT a contract. The server's table is ten exchanges today
-         * and becomes eleven when ADR 0017 §5.1 step 8 ships; the server also bounds
-         * every round itself (`too-many-rounds`). This exists so that a server that
-         * never says `done` cannot keep a phone transceiving forever.
+         * A runaway guard, NOT a contract. The server's table is eleven exchanges
+         * today (ADR 0017 §5.1 step 8, changekey.appmaster, shipped); the server also
+         * bounds every round itself (`too-many-rounds`). This exists so that a server
+         * that never says `done` cannot keep a phone transceiving forever.
          */
         const val MAX_EXCHANGES = 16
     }

@@ -12,7 +12,7 @@ import java.io.IOException
  * The connection stays OPEN for the whole round. Android puts no lifetime on an
  * ISO-DEP session: it lives until the tag leaves the field or close() is called,
  * which is the property the README calls the decisive advantage over iOS. A round
- * is ten exchanges with an HTTPS turn between each, and the chip's authentication
+ * is eleven exchanges with an HTTPS turn between each, and the chip's authentication
  * state must survive all of them.
  */
 class IsoDepChip private constructor(private val dep: IsoDep) : Chip, AutoCloseable {
