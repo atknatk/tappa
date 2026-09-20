@@ -16,6 +16,7 @@ object Wording {
         "unknown-session",
         "busy",
         "refused",
+        "already-encoded",
         "too-many-rounds",
         "server-error",
     )
@@ -31,8 +32,13 @@ object Wording {
         "busy" ->
             "Another round is already running on this plaque or for this account. Wait a moment, then try again."
         "refused" ->
-            "The server refused this round. If this plaque was encoded before, do not run it again — " +
-                "a plaque cannot be encoded twice. Otherwise try a fresh plaque."
+            // Re-encode now has its own word (already-encoded), so this stays the
+            // general "the round failed on its own terms" sentence.
+            "The server refused this round. The chip answered in a way the round could not accept. " +
+                "Try a fresh plaque; if it keeps happening, tell whoever runs the server."
+        "already-encoded" ->
+            "This plaque has already been encoded. A plaque can only be encoded once — " +
+                "use a fresh one."
         "too-many-rounds" ->
             "The encoding budget for this sign-in is spent. Wait ten minutes, or sign out and in again."
         "server-error" ->
@@ -102,14 +108,15 @@ object Wording {
     /**
      * Whether the FAULT screen's button may honestly say "Try again". False where the
      * text above says not to: a part-written or row-holding plaque (chip-side and
-     * transport interruptions at or past the row), and the two fault words that mean
-     * the round is over for THIS plaque. For Unreachable/Protocol the count is
+     * transport interruptions at or past the row), and the three fault words that mean
+     * the round is over for THIS plaque (refused, unknown-session, already-encoded).
+     * For Unreachable/Protocol the count is
      * conservative — it is incremented before the step is posted, so at exactly
      * ROW the row may or may not exist, and the safe reading is "may".
      */
     fun retryIsSafe(o: Outcome): Boolean = when (o) {
         is Outcome.Completed -> false
-        is Outcome.Faulted -> o.fault != "refused" && o.fault != "unknown-session"
+        is Outcome.Faulted -> o.fault != "refused" && o.fault != "unknown-session" && o.fault != "already-encoded"
         is Outcome.Refused -> true
         is Outcome.ChipLost -> o.exchanges < ROW_WRITTEN_AFTER_EXCHANGES
         is Outcome.ChipError -> o.exchanges < ROW_WRITTEN_AFTER_EXCHANGES

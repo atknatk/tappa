@@ -26,6 +26,7 @@ import (
 
 	"github.com/atknatk/tappa/internal/adminauth"
 	"github.com/atknatk/tappa/internal/encode"
+	"github.com/atknatk/tappa/internal/sun"
 )
 
 // The plaque encode relay's tests — ADR 0017 §6 md. 10, md. 12 and md. 14, and the
@@ -906,7 +907,7 @@ func TestPlaqueEncode_WritesOnlyDeclaredFaults(t *testing.T) {
 	// THE WORDS THEMSELVES, pinned. A wire vocabulary is a contract with the relay as
 	// well as a §4.7 bound, so changing one is a decision, not an edit.
 	wantWords := []string{
-		"bad-request", "busy", "encode-unavailable", "refused",
+		"already-encoded", "bad-request", "busy", "encode-unavailable", "refused",
 		"server-error", "too-many-rounds", "unknown-session",
 	}
 	gotWords := append([]string(nil), encodeFaults...)
@@ -1413,6 +1414,131 @@ func TestPlaqueEncode_AStoreErrorNeverReachesTheBody(t *testing.T) {
 			strings.Contains(rec.Body.String(), "retire the row") {
 			t.Errorf("an error's text reached the body: %q", rec.Body.String())
 		}
+	}
+}
+
+// TestPlaqueEncode_AStepFailureDerivesItsFaultAndLogsTheDiagnosis is ADR 0017 §6
+// md. 14's OBSERVABILITY half, and the motivating event: re-encoding an
+// already-personalised chip.
+//
+// It drives the STEP endpoint with the TYPED error a real round produces at
+// changekey.sdmfileread when the chip's key is already ours (911E INTEGRITY_ERROR),
+// and requires two things at once:
+//
+//   - the BODY carries the derived fault word `already-encoded` at 422 — a strictly
+//     more specific reading than the old blanket `refused`;
+//   - the LOG line carries the diagnosis, STRUCTURED: step, status_word, want, uid,
+//     tenant_id, session_id, actor — the fields an operator needs to see WHY, none of
+//     which reached the log before (step was blank, the status word was buried in a
+//     string).
+//
+// 🔴 AND THE §4.7 HALF, MEASURED RATHER THAN ASSUMED: the log line carries NO C-APDU,
+// NO key and NO CMAC. The typed error has nowhere to put one, and this asserts the
+// rendered line is clean.
+func TestPlaqueEncode_AStepFailureDerivesItsFaultAndLogsTheDiagnosis(t *testing.T) {
+	const uidHex = "04A1B2C3D4E5F6"
+	cases := []struct {
+		name      string
+		step      string
+		got       sun.StatusWord
+		wantFault string
+		wantSW    string
+	}{
+		{"reencode_integrity_error", "changekey.sdmfileread", sun.SWIntegrityError, faultAlreadyEncoded, "911E"},
+		{"reencode_permission_denied", "changekey.sdmfileread", sun.SWPermissionDenied, faultAlreadyEncoded, "919D"},
+		{"reencode_appmaster", "changekey.appmaster", sun.SWIntegrityError, faultAlreadyEncoded, "911E"},
+		// A LENGTH_ERROR at WriteData is a different fault: still `refused`, so the new
+		// word stays specific to a re-encode rather than "the chip said an error word".
+		{"other_status_stays_refused", "writedata", 0x917E, faultRefused, "917E"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			log := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn}))
+			// The REAL typed errors, so this exercises the lossless carry end to end:
+			// advance would wrap sun.RequireStatus's *sun.StatusError in a *encode.StepError.
+			enc := &fakeEncoder{nextErr: &encode.StepError{
+				Step:   tc.step,
+				UIDHex: uidHex,
+				Err:    &sun.StatusError{Got: tc.got, Want: sun.SWSuccess},
+			}}
+			b := signedIn(t, encodeRouter(t, signedInAdmins(), enc, log))
+
+			rec := b.do(http.MethodPost, plaqueEncodeStepHref, url.Values{
+				"session": {strings.Repeat("a", 32)}, "rapdu": {"9100"},
+			})
+
+			if rec.Code != http.StatusUnprocessableEntity {
+				t.Fatalf("answered %d, want 422. body=%q", rec.Code, rec.Body.String())
+			}
+			if got := faultOf(t, rec); got != tc.wantFault {
+				t.Fatalf("fault = %q, want %q", got, tc.wantFault)
+			}
+
+			// The status word NEVER reaches the body — the body is the closed vocabulary
+			// only (§4.7/ADR 0017 §6 md. 14). It is diagnostic detail, and it lives in the log.
+			if strings.Contains(rec.Body.String(), tc.wantSW) {
+				t.Fatalf("the status word reached the body: %q", rec.Body.String())
+			}
+
+			// The structured log line carries every diagnostic field.
+			line := buf.String()
+			for _, want := range []string{
+				`step=` + tc.step,
+				`status_word=` + tc.wantSW,
+				`want=9100`,
+				`uid=` + uidHex,
+				`tenant_id=` + panelTestTenant.String(),
+				`session_id=` + panelTestSession.String(),
+				`actor=admin:` + panelTestAdmin.String(),
+			} {
+				if !strings.Contains(line, want) {
+					t.Fatalf("the failure log line is missing %q.\nlog: %q", want, line)
+				}
+			}
+
+			// 🔴 §4.7: no C-APDU, no key, no CMAC on the line. The rapdu we posted was
+			// 9100; a hex command/key would show as a long hex run. Assert the obvious
+			// leak channels are absent.
+			for _, forbidden := range []string{"command=", "cmac", "aes_key", "c-apdu", "capdu"} {
+				if strings.Contains(strings.ToLower(line), forbidden) {
+					t.Fatalf("the log line carries a forbidden field %q: %q", forbidden, line)
+				}
+			}
+			// The round handle (a bearer credential) is never logged.
+			if strings.Contains(line, strings.Repeat("a", 32)) {
+				t.Fatalf("the round handle reached the log: %q", line)
+			}
+		})
+	}
+}
+
+// TestPlaqueEncode_AFailureWithNoStatusWordStillLogsStepAndUID proves the log line
+// degrades honestly: a step failure that carries no status word (a lying relay,
+// caught as a *encode.RelayMismatchError) still logs step and uid, and simply omits
+// the two codes rather than printing zeros. Its fault stays `refused`.
+func TestPlaqueEncode_AFailureWithNoStatusWordStillLogsStepAndUID(t *testing.T) {
+	var buf bytes.Buffer
+	log := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	enc := &fakeEncoder{nextErr: &encode.StepError{
+		Step:   "getcarduid",
+		UIDHex: "04AAAAAAAAAAAA",
+		Err:    &encode.RelayMismatchError{RowUID: "04AAAAAAAAAAAA", ChipUID: "04BBBBBBBBBBBB"},
+	}}
+	b := signedIn(t, encodeRouter(t, signedInAdmins(), enc, log))
+
+	rec := b.do(http.MethodPost, plaqueEncodeStepHref, url.Values{
+		"session": {strings.Repeat("a", 32)}, "rapdu": {"9100"},
+	})
+	if rec.Code != http.StatusUnprocessableEntity || faultOf(t, rec) != faultRefused {
+		t.Fatalf("answered %d %q, want 422 %q", rec.Code, rec.Body.String(), faultRefused)
+	}
+	line := buf.String()
+	if !strings.Contains(line, "step=getcarduid") || !strings.Contains(line, "uid=04AAAAAAAAAAAA") {
+		t.Fatalf("the log line dropped step or uid: %q", line)
+	}
+	if strings.Contains(line, "status_word=") {
+		t.Fatalf("a failure with no status word logged a status_word field: %q", line)
 	}
 }
 

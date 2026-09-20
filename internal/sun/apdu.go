@@ -134,6 +134,23 @@ const (
 	SWAdditionalFrame StatusWord = 0x91AF
 	// SWISOSuccess — 9000h, the ISO 7816-4 trailer the plain SELECT returns.
 	SWISOSuccess StatusWord = 0x9000
+
+	// Error trailers the personalisation flow reasons about by NAME. NT4H2421Gx
+	// rev. 3.0 §10.3 (Status word) lists the wrapped-native error codes; the two
+	// below are the ones a caller BRANCHES on rather than merely reports, so they
+	// earn a name. Both are PUBLIC — a return code is diagnostic, not a secret (see
+	// StatusWord above).
+	//
+	// SWIntegrityError — 911Eh, INTEGRITY_ERROR. The chip could not verify the
+	// command's integrity. Measured on real silicon 2026-09-18 (internal/encode/
+	// driver.go): a ChangeKey whose stated OLD key is not the key the chip actually
+	// holds answers 911E — which is exactly what a RE-ENCODE of an already-personalised
+	// plaque produces at ADR 0017 §5.1 step 6.
+	SWIntegrityError StatusWord = 0x911E
+	// SWPermissionDenied — 919Dh, PERMISSION_DENIED. The command is not allowed in
+	// the chip's current state. The other trailer a re-encode's ChangeKey can return
+	// once application key 1 is no longer the factory default.
+	SWPermissionDenied StatusWord = 0x919D
 )
 
 // swLen is the size of the SW1SW2 trailer.
@@ -159,10 +176,32 @@ func SplitResponse(resp []byte) ([]byte, StatusWord, error) {
 	return resp[:n], StatusWord(resp[n])<<8 | StatusWord(resp[n+1]), nil
 }
 
-// RequireStatus reports whether got is want, as an error naming both.
+// StatusError is a status-word mismatch, carried as a TYPE so a caller can recover
+// the codes losslessly with errors.As instead of parsing them out of a string.
+//
+// 🔴 BOTH FIELDS ARE PUBLIC, WHICH IS WHY THIS TYPE MAY BE INSPECTED, LOGGED AND
+// RENDERED FROM. A status word is a return code, never key material (see StatusWord's
+// own "A STATUS WORD IS NOT A SECRET"). There is no command, key, CmdCtr or CMAC in
+// this type and nowhere to put one; the whole point of surfacing it is diagnosis —
+// ADR 0017 §5.3's probes are entirely status-word reading, and ADR 0017 §6 md. 14's
+// operator log line needs the code to say WHY a step failed.
+//
+// Error()'s wording is UNCHANGED from the fmt.Errorf RequireStatus used to return, so
+// callers that only read the message text (an12196_kat_test.go, commands_test.go) do
+// not move.
+type StatusError struct {
+	Got  StatusWord
+	Want StatusWord
+}
+
+func (e *StatusError) Error() string {
+	return fmt.Sprintf("sun: apdu: chip returned status %s, expected %s", e.Got, e.Want)
+}
+
+// RequireStatus reports whether got is want, as a *StatusError naming both.
 func RequireStatus(got, want StatusWord) error {
 	if got != want {
-		return fmt.Errorf("sun: apdu: chip returned status %s, expected %s", got, want)
+		return &StatusError{Got: got, Want: want}
 	}
 	return nil
 }

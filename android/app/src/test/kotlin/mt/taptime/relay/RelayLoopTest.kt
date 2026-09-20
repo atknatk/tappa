@@ -109,7 +109,8 @@ class RelayLoopTest {
     fun everyFaultWord_stopsTheRound_withoutAnAbort_andHasItsOwnSentence() {
         val statuses = mapOf(
             "encode-unavailable" to 503, "bad-request" to 400, "unknown-session" to 404,
-            "busy" to 409, "refused" to 422, "too-many-rounds" to 429, "server-error" to 500,
+            "busy" to 409, "refused" to 422, "already-encoded" to 422, "too-many-rounds" to 429,
+            "server-error" to 500,
         )
         assertEquals(Wording.FAULT_WORDS.toSet(), statuses.map { (word, _) -> word }.toSet())
         for (word in Wording.FAULT_WORDS) {
@@ -134,6 +135,12 @@ class RelayLoopTest {
         }
         // And an unknown word is still reported, not swallowed.
         assertTrue(Wording.forFault("something-new").contains("something-new"))
+
+        // The re-encode word gets its own specific, actionable sentence — the whole
+        // point of adding it (server: faultAlreadyEncoded).
+        val alreadyEncoded = Wording.forFault("already-encoded")
+        assertTrue("already-encoded says it is already encoded", alreadyEncoded.contains("already been encoded"))
+        assertTrue("already-encoded tells the operator to use a fresh plaque", alreadyEncoded.contains("fresh"))
     }
 
     // --- the chip leaves the field ----------------------------------------------------
@@ -219,6 +226,8 @@ class RelayLoopTest {
         assertFalse(Wording.retryIsSafe(late))
         assertFalse(Wording.retryIsSafe(Outcome.Faulted(3, 422, "refused")))
         assertFalse(Wording.retryIsSafe(Outcome.Faulted(3, 404, "unknown-session")))
+        // A re-encode is over for THIS plaque: the button must not say "Try again".
+        assertFalse(Wording.retryIsSafe(Outcome.Faulted(9, 422, "already-encoded")))
         assertTrue(Wording.retryIsSafe(Outcome.Faulted(0, 409, "busy")))
         assertTrue(Wording.retryIsSafe(Outcome.Refused(0, 303)))
         assertFalse(Wording.retryIsSafe(Outcome.Unreachable(row, "timeout", abortSent = false)))

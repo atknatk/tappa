@@ -2,6 +2,7 @@ package sun
 
 import (
 	"bytes"
+	"errors"
 	"net/url"
 	"strings"
 	"testing"
@@ -204,6 +205,32 @@ func TestAPDU_RequireStatusReportsTheMismatch(t *testing.T) {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("error %q does not name %s", err, want)
 		}
+	}
+}
+
+// TestAPDU_RequireStatusIsATypedError proves the mismatch is recoverable as a
+// *StatusError, so a caller (internal/encode's advance, the encode relay's log line
+// and fault mapping) reads the two codes losslessly instead of parsing a string. A
+// status word is public — this whole type exists so it can be surfaced for diagnosis.
+func TestAPDU_RequireStatusIsATypedError(t *testing.T) {
+	err := RequireStatus(SWIntegrityError, SWSuccess)
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	var se *StatusError
+	if !errors.As(err, &se) {
+		t.Fatalf("error is %T, want a *StatusError", err)
+	}
+	if se.Got != SWIntegrityError || se.Want != SWSuccess {
+		t.Fatalf("StatusError = {got %s want %s}, want {911E 9100}", se.Got, se.Want)
+	}
+	// The message wording is byte-for-byte the fmt.Errorf one it replaced.
+	if got := err.Error(); got != "sun: apdu: chip returned status 911E, expected 9100" {
+		t.Fatalf("message = %q", got)
+	}
+	// A match is still a nil error, not an empty StatusError.
+	if RequireStatus(SWSuccess, SWSuccess) != nil {
+		t.Fatal("a matching status word returned a non-nil error")
 	}
 }
 

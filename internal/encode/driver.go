@@ -322,6 +322,30 @@ var roundSteps = []stepDef{
 	},
 }
 
+// StepError names the exchange a round failed on WITHOUT losing the cause beneath
+// it. advance wraps every per-step failure in one, so a caller — the HTTP relay's
+// operator log line (ADR 0017 §6 md. 14) and its fault mapping — can read the step
+// name AND, through Unwrap, the typed cause: a *sun.StatusError for a status-word
+// mismatch, a *RelayMismatchError for a lying relay, a plain error otherwise.
+//
+// 🔴 EVERY FIELD IS PUBLIC (§4.7). Step is a name from the roundSteps table; UIDHex
+// is the chip UID (ADR 0003 md. 1 — printed on the plaque, in every tap URL, and
+// empty until GetVersion has disclosed it); Err is one this package already lets
+// escape. There is no key, CmdCtr, CMAC or C-APDU here and nowhere to put one — the
+// reason the log line built from it (plaqueencode.go) is safe to write.
+//
+// Error() reproduces advance's previous "encode: <step>: <cause>" wording verbatim,
+// so nothing that read the message text moves; Unwrap exposes the cause to
+// errors.As / errors.Is, so the existing *RelayMismatchError assertions keep working.
+type StepError struct {
+	Step   string
+	UIDHex string
+	Err    error
+}
+
+func (e *StepError) Error() string { return "encode: " + e.Step + ": " + e.Err.Error() }
+func (e *StepError) Unwrap() error { return e.Err }
+
 // advance runs exactly one exchange: check this step's status word, accept its
 // data, move on, and build the next command.
 func (s *Session) advance(ctx context.Context, st *Store, rapdu []byte) (Progress, error) {
@@ -332,13 +356,13 @@ func (s *Session) advance(ctx context.Context, st *Store, rapdu []byte) (Progres
 
 	data, sw, err := sun.SplitResponse(rapdu)
 	if err != nil {
-		return Progress{}, fmt.Errorf("encode: %s: %w", def.name, err)
+		return Progress{}, &StepError{Step: def.name, UIDHex: s.uidHex, Err: err}
 	}
 	if err := sun.RequireStatus(sw, def.want); err != nil {
-		return Progress{}, fmt.Errorf("encode: %s: %w", def.name, err)
+		return Progress{}, &StepError{Step: def.name, UIDHex: s.uidHex, Err: err}
 	}
 	if err := def.accept(ctx, st, s, data); err != nil {
-		return Progress{}, fmt.Errorf("encode: %s: %w", def.name, err)
+		return Progress{}, &StepError{Step: def.name, UIDHex: s.uidHex, Err: err}
 	}
 
 	s.stepIdx++
@@ -348,7 +372,7 @@ func (s *Session) advance(ctx context.Context, st *Store, rapdu []byte) (Progres
 	next := roundSteps[s.stepIdx]
 	cmd, err := next.command(ctx, st, s)
 	if err != nil {
-		return Progress{}, fmt.Errorf("encode: %s: %w", next.name, err)
+		return Progress{}, &StepError{Step: next.name, UIDHex: s.uidHex, Err: err}
 	}
 	return Progress{Command: cmd, Step: def.name, UIDHex: s.uidHex}, nil
 }

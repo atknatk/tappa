@@ -1214,6 +1214,44 @@ func TestDriver_RejectsMalformedResponses(t *testing.T) {
 	})
 }
 
+// TestStepError_CarriesTheStepAndStatusWordLosslessly proves the typed error advance
+// now returns keeps BOTH facts a caller needs — the step name and the chip's status
+// word — recoverable with errors.As instead of parsed out of a string. This is the
+// server-side half of ADR 0017 §6 md. 14's diagnosis: the handler builds its
+// structured log line and derives `already-encoded` from exactly these two values.
+func TestStepError_CarriesTheStepAndStatusWordLosslessly(t *testing.T) {
+	h := newHarness(t)
+	s := &Session{ring: newKeyring()}
+
+	// Step 0 is the ISO SELECT and wants 0x9000; feed it 911E (INTEGRITY_ERROR).
+	_, err := s.advance(context.Background(), h.st, sw(0x911E))
+	if err == nil {
+		t.Fatal("a wrong status word was accepted")
+	}
+
+	var se *StepError
+	if !errors.As(err, &se) {
+		t.Fatalf("error is %T, want a *StepError", err)
+	}
+	if se.Step != "select" {
+		t.Fatalf("StepError.Step = %q, want \"select\"", se.Step)
+	}
+
+	var statusErr *sun.StatusError
+	if !errors.As(err, &statusErr) {
+		t.Fatalf("the status word did not survive as a *sun.StatusError: %v", err)
+	}
+	if statusErr.Got != sun.SWIntegrityError || statusErr.Want != sun.SWISOSuccess {
+		t.Fatalf("StatusError = {got %s want %s}, want {911E 9000}", statusErr.Got, statusErr.Want)
+	}
+
+	// The message text is unchanged from the fmt.Errorf wrap StepError replaced, so
+	// nothing that read the string moves.
+	if !strings.Contains(err.Error(), "encode: select: ") || !strings.Contains(err.Error(), "911E") {
+		t.Fatalf("the message text changed: %q", err.Error())
+	}
+}
+
 // TestDriver_TheMachineRefusesToRunPastItsLastStep. Reached directly because the
 // store retires a finished session before a caller can step it again — this asserts
 // the guard underneath that, so removing the store's custody would not silently

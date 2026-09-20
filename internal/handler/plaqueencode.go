@@ -6,12 +6,14 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
 
 	"github.com/atknatk/tappa/internal/encode"
 	"github.com/atknatk/tappa/internal/httpx"
+	"github.com/atknatk/tappa/internal/sun"
 )
 
 // THE PLAQUE ENCODE RELAY — ADR 0017's HTTP half (M8-05 FAZ B2c-2b).
@@ -149,6 +151,15 @@ const (
 	// faultRefused: the round failed on its own terms. The chip answered wrongly, the
 	// relay lied about a UID, or a gate in driver.go refused. NOT retryable as-is.
 	faultRefused = "refused"
+	// faultAlreadyEncoded: this chip has already been personalised. Its application
+	// key is no longer the factory default, so a re-encode's ChangeKey (ADR 0017 §5.1
+	// step 6) is rejected by the chip with 911E INTEGRITY_ERROR or 919D
+	// PERMISSION_DENIED. A plaque can be encoded once; the operator needs a fresh one.
+	// NOT retryable. It is a strictly more specific reading of faultRefused, derived
+	// from the status word + step in writeEncodeStoreFault; the deriving status word
+	// stays in the LOG, never in the body (§4.7, ADR 0017 §6 md. 14 — the body carries
+	// only the closed fault vocabulary).
+	faultAlreadyEncoded = "already-encoded"
 	// faultTooMany: the encode budget for this panel session is spent.
 	faultTooMany = "too-many-rounds"
 	// faultServer: an internal failure. Nothing more is said, deliberately.
@@ -161,7 +172,7 @@ const (
 // list derived from the source would grow with one.
 var encodeFaults = []string{
 	faultUnavailable, faultBadRequest, faultUnknownSession,
-	faultBusy, faultRefused, faultTooMany, faultServer,
+	faultBusy, faultRefused, faultAlreadyEncoded, faultTooMany, faultServer,
 }
 
 // encodeReply is the ONE successful body this endpoint produces.
@@ -644,7 +655,8 @@ func (a *AdminAuth) plaqueEncodeStep(w http.ResponseWriter, r *http.Request) {
 		writeEncodeFault(w, http.StatusServiceUnavailable, faultUnavailable)
 		return
 	}
-	if _, ok := plaqueEncodeGrantOf(r); !ok {
+	g, ok := plaqueEncodeGrantOf(r)
+	if !ok {
 		a.log.Error("plaque encode: no resolved admin on a protected route",
 			"hint", "mount AdminAuth.ProtectWriting in front of "+plaqueEncodeStepHref)
 		writeEncodeFault(w, http.StatusInternalServerError, faultServer)
@@ -684,7 +696,32 @@ func (a *AdminAuth) plaqueEncodeStep(w http.ResponseWriter, r *http.Request) {
 			writeEncodeReply(w, http.StatusOK, string(id), p.Command, p.Step, p.Done)
 			return
 		}
-		a.log.Warn("plaque encode: a step failed", "err", err, "step", p.Step)
+		// 🔴 A STRUCTURED, DIAGNOSABLE OPERATOR EVENT — ADR 0017 §6 md. 14. The step
+		// name and status word come from the TYPED error, not from p, because advance
+		// returns an EMPTY Progress on failure (p.Step was blank here before). Every
+		// field is PUBLIC: the step name, the chip UID (ADR 0003 md. 1), the two status
+		// words (a return code is not a secret — sun.StatusWord), the tenant, the panel
+		// session id (the same value encodeGate logs) and the resolved actor.
+		//
+		// 🔴 §4.7: THE C-APDU, ANY KEY AND THE CMAC ARE ABSENT BY CONSTRUCTION. The
+		// only values put on this line are the public scalars named above plus `err`,
+		// whose text — for every error this path can produce — names lengths, positions
+		// and public UIDs, never bytes of a key or a command (proved by
+		// TestSession_NoErrorMessageCarriesKeyMaterial one layer down and by this
+		// file's own leak test). The round handle (a bearer credential) is NOT logged.
+		f := encodeFailureOf(err)
+		attrs := []any{
+			"step", f.step,
+			"uid", f.uidHex,
+			"tenant_id", g.tenantID,
+			"session_id", httpx.AdminOf(r).Admin.SessionID,
+			"actor", g.actor,
+			"err", err,
+		}
+		if f.hasStatus {
+			attrs = append(attrs, "status_word", f.got.String(), "want", f.want.String())
+		}
+		a.log.Warn("plaque encode: a step failed", attrs...)
 		writeEncodeStoreFault(w, err)
 		return
 	}
@@ -853,7 +890,67 @@ func writeEncodeStoreFault(w http.ResponseWriter, err error) {
 		writeEncodeFault(w, http.StatusConflict, faultBusy)
 	case errors.Is(err, encode.ErrStoreClosed):
 		writeEncodeFault(w, http.StatusServiceUnavailable, faultUnavailable)
+	case isReEncodeRejection(err):
+		// A strictly more specific reading of the default arm below, and the ONLY one
+		// this file adds. See faultAlreadyEncoded and isReEncodeRejection.
+		writeEncodeFault(w, http.StatusUnprocessableEntity, faultAlreadyEncoded)
 	default:
 		writeEncodeFault(w, http.StatusUnprocessableEntity, faultRefused)
 	}
+}
+
+// isReEncodeRejection recognises the one per-step failure that has a better word
+// than `refused`: an attempt to encode a chip that was ALREADY encoded.
+//
+// 🔴 THE TEST IS STATUS WORD + STEP, BOTH, AND THAT KEEPS THE WORD HONEST. When a
+// chip's application key 1 already holds OUR key, ADR 0017 §5.1 step 6's ChangeKey —
+// which authenticates and changes against the FACTORY key — is rejected by the chip
+// with 911E INTEGRITY_ERROR (measured on real silicon 2026-09-18; see
+// internal/encode/driver.go) or 919D PERMISSION_DENIED. Requiring the failing step to
+// be a changekey step as WELL as the status word means a 911E from any other exchange
+// stays `refused`: this reads a re-encode, not "the chip said 911E".
+//
+// 🔴 IT READS THE TYPED ERROR, NOT A STRING. StepError carries the step name and
+// wraps the cause; sun.StatusError carries the codes. Both are recovered with
+// errors.As, so the status word is never parsed out of a message and the codes it
+// branches on are the ones the chip actually returned — public values, never a secret.
+func isReEncodeRejection(err error) bool {
+	var se *encode.StepError
+	if !errors.As(err, &se) || !strings.HasPrefix(se.Step, "changekey") {
+		return false
+	}
+	var sw *sun.StatusError
+	if !errors.As(err, &sw) {
+		return false
+	}
+	return sw.Got == sun.SWIntegrityError || sw.Got == sun.SWPermissionDenied
+}
+
+// encodeStepFailure is the set of PUBLIC, diagnosable facts a failed step's typed
+// error carries — for the operator log line only (plaqueEncodeStep). It is
+// deliberately a value of scalars: there is no field for a command, a key or a CMAC,
+// so a log built from it cannot carry one (§4.7).
+type encodeStepFailure struct {
+	step      string
+	uidHex    string
+	got       sun.StatusWord
+	want      sun.StatusWord
+	hasStatus bool
+}
+
+// encodeFailureOf pulls those facts out of a step error. A failure with no status
+// word (a lying relay, a bad tags row) still yields the step and uid; hasStatus is
+// false and the log line omits the two codes rather than printing zeros.
+func encodeFailureOf(err error) encodeStepFailure {
+	var f encodeStepFailure
+	var se *encode.StepError
+	if errors.As(err, &se) {
+		f.step = se.Step
+		f.uidHex = se.UIDHex
+	}
+	var sw *sun.StatusError
+	if errors.As(err, &sw) {
+		f.got, f.want, f.hasStatus = sw.Got, sw.Want, true
+	}
+	return f
 }
