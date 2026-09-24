@@ -28,7 +28,7 @@ Taptime'ın herkese açık gizlilik/künye metinlerini değiştirebilir ve tenan
 |---|---|---|---|
 | F0-1 | Operatör panel parolasını değiştir (Account → Change password, T73). Yeni parola sohbete/repoya yazılmaz | **Kullanıcı** | eski parolayla giriş 401; diğer oturumlar iptal (K3) |
 | F0-2 | Scrub commit'ini push et | orkestratör (kullanıcı onayıyla) | `origin/main`'de değer 0 |
-| F0-3 | Depo görünürlüğü kararı (öneri **private**) — geçmişte değer kalıyor; rotate sonrası ölü ama depo operasyon ayrıntısı taşıyor | **Kullanıcı** | karar private ise `gh repo view` → PRIVATE |
+| F0-3 | Depo görünürlüğü — ✅ **karar: PUBLIC kalır** (D-A). Geçmişteki değer yalnız F0-1 ile ölür | **Kullanıcı** | — (karar verildi) |
 | F0-4 | `tappa_app` + `tappa_owner` DB parolalarını rotate et (tappa-secrets + `ALTER ROLE`) | **Kullanıcı** (§4.7: ajan tappa-secrets'a dokunmaz) | `/readyz` 200; eski parolayla bağlantı reddi |
 | F0-5 | Sır sızıntısı kapısı: `redline-check.sh`'e kural — commit'lenen her dosyada kimlik bilgisi biçimleri (`postgres://…:…@`, `AKIA…`, `$2a$..$` digest, uzun hex parola biçimleri, `password=`) → FAIL; + agent-brief sabit kurallarına "sır DEĞERİ hiçbir dosyaya yazılmaz" | builder + güvenlik | mutasyon: state.md'ye sahte `postgres://u:p@h/db` eklemek redline'ı kırmızıya çevirir |
 | OP-2 | Allow-list parser birim testleri (A-5) | builder | boş/boşluk→nil; `a,,b`→hata; e-posta→hata; nil uuid→hata; tekrar→tek; nil-reddi mutasyonu kırmızı |
@@ -52,7 +52,7 @@ POST rotasının tamamı tek tek denetlendi:
 Küçük bulgular: A-2 encode global uid işgali (ADR 0017 md.12, bilinen) → OP-18 · A-3 signup'ta VAT
 işgali → OP-11/15/16 · A-4 → OP-3 · A-5 → OP-2 · A-7 encode step handle admin'e bağlı değil → OP-18.
 
-## 2. Sıralama (öneri — ⏳ D-D)
+## 2. Sıralama — ✅ D-D (2026-09-24)
 ```
 Faz 0 (bugün) ─► A1 Operatör kimliği + legal taşıma (OP-4..OP-10)
                  ║ paralel: kullanıcının SES dış adımları (AWS / DNS / sandbox çıkışı — günler sürer)
@@ -81,7 +81,7 @@ taşıyıcısı · 0023 tenant markası/§9 · 0024 kullanıcı yüklediği gör
 
 ## 3. Akış A — Platform operatörü (süper admin)
 
-### Öneri: (c) hibrit — ⏳ D-B
+### Karar: (c) hibrit — ✅ D-B (2026-09-24)
 Ayrı `platform_admins` kimliği (ayrı tablo, çerez, oturum, zorunlu TOTP, sunucu tarafı oturum
 süresi), `/operator` ağacı tercihen `ops.taptime.mt`; tenant-ötesi erişim YALNIZ ayrı bir LOGIN
 rolünün (`tappa_operator`, NOBYPASSRLS) çağırabildiği, adı konmuş `SECURITY DEFINER op_*`
@@ -294,7 +294,7 @@ yasal belge içindi, M9-08'in kapsamı §4.5'i aşan beş işlev.
 
 ## 5. Akış C — White-label (tenant markası)
 
-### Öneri: tek vurgu rengi + bir logo, co-brand — ✅ (tap ekranı ⏳ D-C)
+### Karar: tek vurgu rengi + bir logo, co-brand — ✅ (tap ekranı ✅ D-C: logo + accent tap butonunda)
 İstek (*"kendi logosu ve renkleri"*) CLAUDE.md §9'la iki yerde çelişiyor: "paletin dışına çıkma"
 ve "tap ekranına özellik eklemek istiyorsan önce sor". Uzlaşma: tenant YALNIZ tanımlı slotları
 boyar, durum renkleri asla değişmez. Tenant logosu önde, küçük "taptime · punchless" kalır (GDPR
@@ -394,14 +394,13 @@ metni), `FactNoBulkImport`, `TestBrand_*`, panel CSP ↔ script karşılığı t
 
 ## 6. Kararlar
 
-**⏳ Şimdi kullanıcıya sorulan** (depo politikası / geri alınması zor mimari / §9 "önce sor" /
-ürün önceliği):
-| # | Soru | Öneri |
-|---|---|---|
-| D-A | Depo PUBLIC — ne yapılsın? Scrub push'u? | private yap + scrub'ı push et |
-| D-B | Süper admin modeli | (c) hibrit: ayrı kimlik + TOTP + `ops.taptime.mt` + `op_*` definer'lar (B kararının yerine geçer) |
-| D-C | Tap ekranı markası (§9) | logo + accent tap butonunda; sonuç ekranında yalnız logo |
-| D-D | Akış sırası | Faz 0 → A1 → B → C → A2 (SES dış adımları paralel) |
+**✅ Kullanıcı kararları (2026-09-24):**
+| # | Soru | Öneri | **Karar** |
+|---|---|---|---|
+| D-A | Depo PUBLIC — ne yapılsın? Scrub push'u? | private yap + push | **Public kalsın, yalnız push.** Sonuç: geçmişteki değeri öldüren tek önlem F0-1 (rotate); F0-5 sır kapısı kritik hale geldi — depo herkese açık kaldıkça her commit yayındır |
+| D-B | Süper admin modeli | (c) hibrit | **(c) ayrı operatör kimliği** — TOTP + `ops.taptime.mt` + `op_*` definer'lar; önceki "B — allow-list genişlet" kararının yerine geçer |
+| D-C | Tap ekranı markası (§9) | logo + accent tap butonunda | **Logo + tap butonu tenant renginde**; sonuç ekranında yalnız logo (§9 onayı — WL-9 kartına alıntılanır) |
+| D-D | Akış sırası | Faz 0 → A1 → B → C → A2 | **Faz 0 → Süper admin (A1) → SES (B) → White-label (C) → A2**; SES dış adımları paralel |
 
 **⏳ Sırası gelince sorulacak:** OP-K5 askıdaki ayın faturalanması · EM-K9 Mailpit (yeni dev aracı,
 docker-compose, Go bağımlılığı değil) · OP-K12 T27/T37 (plan geçmişi, OP-17 öncesi) · OP-K2/K4
