@@ -9,6 +9,9 @@
 
 ## 0. Faz 0 — Acil güvenlik (tasarımdan bağımsız, hemen)
 
+### Olay A-1 (2026-09-24, canlı pilot)
+Yakılmış çip `0492A2BA902390` (23. oturumda encode edilen, anahtarları silinmiş eski tenant'a ait) bugün tekrar encode denendi → `writedata` **91AE** ile düştü (yeni yapılandırılmış log sayesinde görüldü), step 3'te yazılan satır `encoded_at` boş kaldı — ve panel buna **mount'a izin verdi**: **Rusty Bar**'da duvarda, **12 tap / 0 geçerli** (DB'deki yeni anahtar çipe hiç yazılmadı → her SUN reddediliyor). Aynı gün iki yeni çip (KF St Julians, KF Paceville) tam encode + **anahtar-0 döndürülmüş** → md.5 gerçek silikonda da KAPANDI. **Kullanıcıya:** Rusty Bar plaketini yeni boş çiple değiştir (panel → plaket → replace). Kod tarafı: F0-6 (mount kapısı) + F0-7 (91AE imzası).
+
 ### Olay A-0 (2026-09-24'te tespit)
 Operatör hesabının (allow-list'teki tek id, Kebab Factory Ltd. owner'ı) canlı panel parolası,
 bir "rotate edilmeli" borç notunun İÇİNDE `state.md`'ye yazılmış (4 satır, 3 commit,
@@ -31,6 +34,8 @@ Taptime'ın herkese açık gizlilik/künye metinlerini değiştirebilir ve tenan
 | F0-3 | Depo görünürlüğü — ✅ **karar: PUBLIC kalır** (D-A). Geçmişteki değer yalnız F0-1 ile ölür | **Kullanıcı** | — (karar verildi) |
 | F0-4 | `tappa_app` + `tappa_owner` DB parolalarını rotate et (tappa-secrets + `ALTER ROLE`) | **Kullanıcı** (§4.7: ajan tappa-secrets'a dokunmaz) | `/readyz` 200; eski parolayla bağlantı reddi |
 | F0-5 | Sır sızıntısı kapısı: `redline-check.sh`'e kural — commit'lenen her dosyada kimlik bilgisi biçimleri (`postgres://…:…@`, `AKIA…`, `$2a$..$` digest, uzun hex parola biçimleri, `password=`) → FAIL; + agent-brief sabit kurallarına "sır DEĞERİ hiçbir dosyaya yazılmaz" | builder + güvenlik | mutasyon: state.md'ye sahte `postgres://u:p@h/db` eklemek redline'ı kırmızıya çevirir |
+| F0-6 | **Mount kapısı:** `encoded_at IS NULL` olan plaketin mount/replace'i REDDEDİLİR (ADR 0017 §5.1 "anahtar 0 fabrikadayken duvara çıkamaz" güvenlik çizgisini KODDA uygular). Olay: 2026-09-24 yakılmış çip (`writedata` 91AE ile yarım kalmış satır) Rusty Bar'a mount edildi → 12 tap, 0 geçerli | builder + güvenlik | encode edilmemiş plaketin mount/replace POST'u 303 + ret cümlesi + audit, 0 UPDATE; encode edilmiş plaket etkilenmez; plaket kartı "encode tamamlanmadı — duvara takılamaz" der |
+| F0-7 | `isReEncodeRejection`'a gerçek silikon imzasını ekle: **`writedata` + `91AE`** (AUTHENTICATION_ERROR — ilk encode'un step 7'si NDEF yazma yetkisini kilitler; 2026-09-24 ölçüldü). Bugün jenerik `refused` gösteriyor | builder | handler tablo testi: writedata+91AE → `already-encoded`; writedata+917E → `refused` kalır |
 | OP-2 | Allow-list parser birim testleri (A-5) | builder | boş/boşluk→nil; `a,,b`→hata; e-posta→hata; nil uuid→hata; tekrar→tek; nil-reddi mutasyonu kırmızı |
 | OP-3 | `tenants` UPDATE yetkisini daralt (A-4): `REVOKE UPDATE` + `GRANT UPDATE (name, business_type, timezone)` | tappa-db-migrator + güvenlik | `has_column_privilege(tappa_app,'tenants','vat_number'\|'structure','UPDATE')=false`; kapalı-liste testi genişletildi; signup E2E yeşil; Down temiz |
 

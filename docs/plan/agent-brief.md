@@ -173,6 +173,7 @@ yükümlülüktü** — biri çapraz-tenant kimlik atlatmasıydı ve **B yazılm
 **Sabitler:**
 - **Denetçiler PAYLAŞILAN Postgres'e karşı SIRALI koşar** (M3-02 dersi) — DDL/mutasyon sondaları
   birbirini bozar. Salt-okuma sondaları eşzamanlı güvenli.
+- **🔴 SIR DEĞERİ HİÇBİR DOSYAYA YAZILMAZ — ORKESTRATÖR DAHİL (A-0, 2026-09-24).** Depo PUBLIC. 25. oturumda orkestratör operatör parolasını "rotate edilmeli" borç notunun İÇİNDE state.md'ye yazdı; not sızıntının kendisi oldu. Sırra yalnız adıyla/rolüyle atıf yapılır ("operatör panel parolası"), değeriyle asla — state.md, plan, ADR, commit mesajı, test fixture'ı dahil. Commit öncesi bilinen öneklerle `grep -rF` + redline sır kuralı (M10 F0-5).
 - **Denetçi raporu kullanıcıya olduğu gibi aktarılır.** Ölçüm sayıları (satır sayısı, `last_ctr`,
   429 sayısı) **özetlenmez** — kanıtın kendisi onlar.
 - **Yapıcı ve denetçi `state.md`/`roadmap.md`/`backlog.md`/`open-questions.md`'ye DOKUNMAZ ve commit

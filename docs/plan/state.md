@@ -1715,6 +1715,8 @@ En üste ekle. Kısa tut: ne yapıldı, ne öğrenildi, ne kaldı.
 
 **Planın özü:** SES = `net/smtp` + SES SMTP, 0 yeni modül; reset gönderimi istek yolundan çıkmalı (zamanlama kehaneti); mail katmanı ham SMTP metnini ASLA sarmaz (davet hata yolu tüm zinciri logluyor → adres sızardı); davet Y-D'yi kapatmaz, daraltır. White-label = tek accent (WCAG kapısı, red bandı L∈(0,179;0,237)) + PNG/JPEG logo (yeniden kodlama → EXIF-GPS silinir, §4.2), Postgres bytea, CSP DEĞİŞMEZ (durumsuz `/brand/theme/{HEX}.css`). Çakışma çözümü: e-posta gönderen adı faz 1'de SABİT "Taptime" ("X via Taptime" oltalama kaldıracı → VIES-doğrulanmış tenant'la sonra).
 
+🔴 **OLAY A-1 (canlı pilot):** yakılmış çip `0492A2BA902390` tekrar encode denenip `writedata` **91AE** ile yarım kaldı, panel yine de mount'a izin verdi → **Rusty Bar'da 12 tap / 0 geçerli**. Kullanıcı plaketi yeni çiple değiştirmeli. M10'a **F0-6** (encode edilmemiş plaketin mount'u reddedilir — ADR 0017 §5.1 kodda) + **F0-7** (writedata+91AE → `already-encoded`) eklendi. ✅ md.5 gerçek silikonda kapandı: bugünkü 2 çip encoded + anahtar-0 döndürülmüş (`app_key_ref` dolu).
+
 **Gözlem:** kullanıcı 24 Eylül'de pilotu kurmuş — audit: 2 yeni çip encode + 3 mount, 8 lokasyon, 3 çalışan + 3 aktivasyon (yeni çiplerle encode sorunsuz).
 
 **Kararlar (kullanıcı, aynı gün):** D-A **depo PUBLIC kalır, yalnız push** (→ tek gerçek önlem F0-1 parola rotate; F0-5 sır kapısı kritik) · D-B **(c) ayrı operatör kimliği** (B kararının yerine geçer) · D-C **tap ekranında logo + tap butonu tenant renginde** (§9 onayı) · D-D **Faz 0 → Süper admin → SES → White-label → A2**. **Sıradaki:** M10 Faz 0 — F0-1/F0-4 kullanıcıda; F0-5 + OP-2 + OP-3 yapıcıda.
