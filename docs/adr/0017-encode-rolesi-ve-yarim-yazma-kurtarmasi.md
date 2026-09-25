@@ -151,6 +151,24 @@ tur **açamıyor**).
 telefon röle olabilir), *ağ kısıtı* **yok** (IP izin listesi yok), *"plaket
 duvara çıkmadan önce"* için **hiçbir mekanik kapı yok**. Kapanan şey *"kim
 çağırabilir"*dir; açık kalan *"hangi cihazdan ve nerede"*dir.
+✅ **DÜZELTME (2026-09-25, M10 F0-6): *"hiçbir mekanik kapı yok"* KISMEN ARTIK
+YANLIŞTIR — kayıt düzeyinde bir kapı var.** `AssignTagToLocation`
+(`db/queries/tags.sql`) ön koşulunu ifadenin içinde taşır: `encoded_at IS NOT NULL`.
+Encode turu damgasını basmamış bir plaket panelde **bir lokasyona bağlanamaz** —
+mount da, replace'in yeni plaketi de reddedilir (replace'te eski plaketin retire'ı
+aynı transaction'da geri alınır), ret en-iyi-çaba olarak `plaque.mount_refused`
+diye audit'lenir (yalnız tenant'ın kendi satırı için; trail yazılamazsa ret yine
+döner ve yalnız log kalır) ve plaket kartı encode'un bitmiş kaydedilmediğini
+söyler. Kapı **fiziksel değildir** — kimse bir çipi duvara takmaktan alıkonmaz — ve
+**geriye uzanmaz**: kapanan şey damgasız bir plaketin bir lokasyona **yeni
+bağlanması**dır; zaten bağlı damgasız bir satır (A-1'deki gibi) `active` kalır, tap
+yolu `encoded_at` okumaz, kart onu değiştirilmesi gereken plaket olarak gösterir ve
+onarım Replace'tir. Doğuran olay (A-1, 2026-09-24, canlı pilot): yakılmış
+bir çipin yeniden encode'u `writedata` 91AE ile yarım kaldı, damgasız satır mount
+edildi ve o kapıdaki 12 tap'in 12'si SUN doğrulamasında reddedildi (anahtar
+çipe hiç yazılmamıştı). Damganın anlamı sevk edilen tura göre
+değişir: md.5'ten (adım 8, anahtar 0 rotasyonu) sonra damga anahtar 0'ın
+döndürülmüş olmasını da içerir, öncesinde damgalanmış satırlarda içermez.
 🔴 **Patlama yarıçapı "encode penceresi" DEĞİL** — ilk sürüm öyle yazdı ve §5.3
 onu **çürüttü**: kurtarma da *fabrika → bizimki* yönünde `ChangeKey` çağırır ve o
 oturum, ilk turdan **günler sonra**, muhtemelen **başka bir telefonla**, yine
