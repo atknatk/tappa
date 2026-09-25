@@ -39,6 +39,11 @@ Taptime'ın herkese açık gizlilik/künye metinlerini değiştirebilir ve tenan
 | OP-2 | Allow-list parser birim testleri (A-5) | builder | boş/boşluk→nil; `a,,b`→hata; e-posta→hata; nil uuid→hata; tekrar→tek; nil-reddi mutasyonu kırmızı |
 | OP-3 | `tenants` UPDATE yetkisini daralt (A-4): `REVOKE UPDATE` + `GRANT UPDATE (name, business_type, timezone)` | tappa-db-migrator + güvenlik | `has_column_privilege(tappa_app,'tenants','vat_number'\|'structure','UPDATE')=false`; kapalı-liste testi genişletildi; signup E2E yeşil; Down temiz |
 
+> **Kart düzeltmesi (2026-09-25, OP-2 uygulaması sırasında).** `a,,b` hata verir ama boş-eleman
+> reddi yüzünden DEĞİL: `a` bir uuid olmadığı için ilk elemanda düşer. Boş-eleman reddini ölçen
+> vaka `<uuid>,,<uuid>` (ve sondaki virgül) — hata mesajı `empty entry` ile doğrulanır; yalnız
+> "hata var" demek, ret silindiğinde de `uuid.Parse("")` yüzünden yeşil kalırdı.
+
 ## 1. Kullanıcının endişesinin denetimi — hüküm
 *"Her restoran admini sistem verisini güncelleyebiliyor mu?"* → **Kodda yetki açığı YOK.** 24 panel
 POST rotasının tamamı tek tek denetlendi:

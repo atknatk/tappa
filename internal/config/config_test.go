@@ -553,3 +553,78 @@ func TestLoad_UnsetPreviousKEKIsNilNotEmptySlice(t *testing.T) {
 		t.Fatalf("an unset rotation KEK must be nil, got %d bytes", len(c.TagKEKPrevious))
 	}
 }
+
+// ------------------------------------------------------ operator allow-list --
+
+// TestLoad_OperatorAdminIDsParsesStrictly pins TAPPA_OPERATOR_ADMIN_IDS's parser
+// (operatorAdminIDs, M7-06) — M10 OP-2 / finding A-5: before this, nothing in the
+// package exercised it, so each of its refusals could be deleted with every test
+// green. The list is the ONLY thing between a signed-in admin and the screen that
+// publishes Tappa's own legal texts; a parser that silently accepted a placeholder,
+// a typo or an email would hand that screen to the wrong key.
+//
+// Each refusal is asserted by its OWN message, not merely by "an error": the empty
+// entry of `a,,b` would otherwise still fail — later, inside uuid.Parse — with the
+// empty-entry check deleted, and the mutation would survive.
+//
+// ⚠️ OP-10 retires this mechanism (docs/plan/m10-platform.md); until then these
+// cases lock the behaviour that ships.
+func TestLoad_OperatorAdminIDsParsesStrictly(t *testing.T) {
+	const (
+		u1 = "11111111-1111-4111-8111-111111111111"
+		u2 = "22222222-2222-4222-8222-222222222222"
+		up = "ABCDEF01-2345-4678-9ABC-DEF012345678" // upper case: same id as its lower-case form
+	)
+	tests := []struct {
+		name    string
+		env     string
+		want    []string // canonical String() form, in order; nil means "nil slice"
+		wantErr string   // "" means it must LOAD
+	}{
+		{name: "unset admits nobody", env: "", want: nil},
+		{name: "whitespace only admits nobody", env: " \t  ", want: nil},
+		{name: "one id", env: u1, want: []string{u1}},
+		{name: "spaced list keeps its order", env: "  " + u2 + " ,  " + u1 + "  ", want: []string{u2, u1}},
+		{name: "a repeated id is kept once", env: u1 + "," + u2 + "," + u1, want: []string{u1, u2}},
+		{name: "upper case is canonicalised", env: up, want: []string{strings.ToLower(up)}},
+		{name: "upper and lower case of one id are one entry", env: strings.ToLower(up) + "," + up, want: []string{strings.ToLower(up)}},
+		{name: "a stray comma between ids", env: u1 + ",," + u2, wantErr: "empty entry"},
+		{name: "a trailing comma", env: u1 + ",", wantErr: "empty entry"},
+		{name: "a,,b", env: "a,,b", wantErr: "TAPPA_OPERATOR_ADMIN_IDS"},
+		{name: "an email address", env: "owner@example.test", wantErr: "not an email address"},
+		{name: "the nil uuid", env: "00000000-0000-0000-0000-000000000000", wantErr: "nil uuid"},
+		{name: "the nil uuid beside a real id", env: u1 + ",00000000-0000-0000-0000-000000000000", wantErr: "nil uuid"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			setRequired(t)
+			t.Setenv("TAPPA_OPERATOR_ADMIN_IDS", tc.env)
+			c, err := config.Load()
+			if tc.wantErr != "" {
+				if err == nil {
+					t.Fatalf("TAPPA_OPERATOR_ADMIN_IDS=%q loaded; it must be refused at startup", tc.env)
+				}
+				if !strings.Contains(err.Error(), tc.wantErr) || !strings.Contains(err.Error(), "TAPPA_OPERATOR_ADMIN_IDS") {
+					t.Fatalf("the refusal should name the variable and say %q, got: %v", tc.wantErr, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("TAPPA_OPERATOR_ADMIN_IDS=%q must load: %v", tc.env, err)
+			}
+			if tc.want == nil {
+				if c.OperatorAdminIDs != nil {
+					t.Fatalf("an empty allow-list must be nil (nobody), got %v", c.OperatorAdminIDs)
+				}
+				return
+			}
+			got := make([]string, len(c.OperatorAdminIDs))
+			for i, id := range c.OperatorAdminIDs {
+				got[i] = id.String()
+			}
+			if strings.Join(got, ",") != strings.Join(tc.want, ",") {
+				t.Fatalf("OperatorAdminIDs = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
