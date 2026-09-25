@@ -51,19 +51,27 @@ package components
 // the whole row. The gates are kept as defence in depth; the privilege is what the
 // sentence now rests on.
 //
-// 🔴 KeyState's NAME CONTAINS "key" AND THE FIELD CONTAINS NONE: it holds one of two
-// fixed sentences, produced by handler.keyStateOf from whether the plaque has a wall,
-// and that closed value set is pinned by the same test.
+// 🔴 KeyState's NAME CONTAINS "key" AND THE FIELD CONTAINS NONE: it holds one of a
+// closed set of fixed sentences, produced by handler.keyStateOf from tags.encoded_at
+// and the wall, and that value set is pinned by the same test. KeyAlert is its
+// banner, from handler.keyAlertOf: "stock", "wall" or "".
 //
 // 🔴 WHAT KeyState IS ACTUALLY BACKED BY, because "encoded" is a claim about
-// cryptography and this screen never sees any. It is derived from ONE fact:
-// whether the plaque has a wall. What licenses the word "encoded" is the SCHEMA --
-// tags.aes_key_ref is `bytea NOT NULL` and only Tappa's loader writes rows, so a
-// row that exists is a plaque Tappa encoded and loaded. What NOTHING checks is
-// that the stored value is a well-formed 44-byte KEK envelope (backlog T7): a
-// corrupt one reads "Encoded" here and fails at TAP time inside sun.Unwrap. The
-// sentence on the card says what it means rather than implying a verification
-// nobody performed.
+// cryptography and this screen never sees any. It is derived from tags.encoded_at,
+// the stamp ADR 0017 §5.1 step 9 writes once the chip took its keys (migration
+// 00022: server clock, write-once, never settable at INSERT), and from the wall.
+//
+// ⚠️ THIS PARAGRAPH USED TO SAY "a row that exists is a plaque Tappa encoded and
+// loaded", licensed by aes_key_ref being NOT NULL — and M8-05 made that false: the
+// encode endpoint writes the row at step 3, BEFORE it touches the chip. Incident A-1
+// (2026-09-24) is the cost: a half-encoded row read "Encoded — pending a wall", was
+// mounted at Rusty Bar, and every tap there was rejected. M10 F0-6 moved the word
+// onto the stamp.
+//
+// What NOTHING checks is that the stored value is a well-formed 44-byte KEK envelope
+// (backlog T7): a corrupt one reads "Encoded" here and fails at TAP time inside
+// sun.Unwrap. The sentence on the card says what it means rather than implying a
+// verification nobody performed.
 //
 // 🔴 THERE IS NO RUBBER STAMP ON THESE CARDS, for VenueRow's reason: a stamp is a
 // VERDICT -- the engine's judgement of a tap -- and a plaque's lifecycle is not a
@@ -109,6 +117,20 @@ type PlaqueRowView struct {
 	// KeyState is the "encoded/pending" state the M6-06 card asks for. See the file
 	// header for exactly what backs it. It never contains, encodes or hints at a key.
 	KeyState string
+
+	// KeyAlert is which unrecorded-encode banner the docket carries (M10 F0-6):
+	//
+	//	"stock"  in the box, encoding not recorded as finished — it cannot go on a
+	//	         wall
+	//	"wall"   ON a wall with its encoding not recorded as finished (incident A-1's
+	//	         shape) — it should be replaced. NO claim about its taps: the same
+	//	         NULL covers a personalised chip whose marking failed, and taps on
+	//	         that one verify (see handler.keyStateOf)
+	//	""       no banner: the encode finished, or the plaque serves no door
+	//
+	// 🔴 A SERVER-CHOSEN WORD FROM A FIXED SET, like Blocked — never anything a client
+	// sent, and never the sentence itself: the template owns the wording.
+	KeyAlert string
 
 	// Replaces / ReplacedBy are the two ends of the replacement chain, as uids.
 	// Empty when this plaque is not part of one.

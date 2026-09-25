@@ -103,6 +103,15 @@ const (
 	uidSpare2  = "04AC7E55000604"
 )
 
+// fixtureStamp is the encode round's step-9 stamp (tags.encoded_at) on every fake
+// plaque that FINISHED encoding (M10 F0-6).
+//
+// 🔴 A tenant.Plaque WITHOUT IT READS AS NOT ENCODED — the fail-closed zero value —
+// so a fixture about anything else must carry it, or the card withholds the very
+// control the test is about. The unrecorded states are built explicitly, without it,
+// in the tests that are about them.
+var fixtureStamp = time.Date(2026, 7, 30, 8, 0, 0, 0, time.UTC)
+
 // threePlaques is the ordinary fixture: one on a wall, one spare in the box, one
 // already replaced.
 func threePlaques(wall uuid.UUID) *fakePlaques {
@@ -111,11 +120,11 @@ func threePlaques(wall uuid.UUID) *fakePlaques {
 	return &fakePlaques{screen: tenant.PlaqueScreen{
 		Zone: time.UTC,
 		Plaques: []tenant.Plaque{
-			{UID: uidInStock, Status: tenant.PlaqueUnassigned, LastCtr: 0, Canonical: true},
+			{UID: uidInStock, Status: tenant.PlaqueUnassigned, LastCtr: 0, Canonical: true, EncodedAt: &fixtureStamp},
 			{UID: uidOnWall, Status: tenant.PlaqueActive, LocationID: &wall, LastCtr: 641,
-				LastSeen: &seen, Replaces: uidRetired, Canonical: true},
+				LastSeen: &seen, Replaces: uidRetired, Canonical: true, EncodedAt: &fixtureStamp},
 			{UID: uidRetired, Status: tenant.PlaqueRetired, LocationID: &wall, LastCtr: 512,
-				RetiredAt: &retiredAt, ReplacedBy: uidOnWall, Canonical: true},
+				RetiredAt: &retiredAt, ReplacedBy: uidOnWall, Canonical: true, EncodedAt: &fixtureStamp},
 		},
 	}}
 }
@@ -181,9 +190,9 @@ func TestPlaquesSection_ReadingFailureIsAnErrorNotAnEmptyBox(t *testing.T) {
 // leads to a refusal is never rendered, and the card says why instead.
 func TestPlaquesCard_OffersOnlyTheActTheServerWouldACCEPT(t *testing.T) {
 	wall := uuid.New()
-	spare := tenant.Plaque{UID: uidSpare2, Status: tenant.PlaqueUnassigned, Canonical: true}
-	onWall := tenant.Plaque{UID: uidOnWall, Status: tenant.PlaqueActive, LocationID: &wall, Canonical: true}
-	retired := tenant.Plaque{UID: uidRetired, Status: tenant.PlaqueRetired, LocationID: &wall, Canonical: true}
+	spare := tenant.Plaque{UID: uidSpare2, Status: tenant.PlaqueUnassigned, Canonical: true, EncodedAt: &fixtureStamp}
+	onWall := tenant.Plaque{UID: uidOnWall, Status: tenant.PlaqueActive, LocationID: &wall, Canonical: true, EncodedAt: &fixtureStamp}
+	retired := tenant.Plaque{UID: uidRetired, Status: tenant.PlaqueRetired, LocationID: &wall, Canonical: true, EncodedAt: &fixtureStamp}
 	frozen := tenant.Plaque{UID: uidInStock, Status: tenant.PlaqueUnassigned, Canonical: false}
 
 	tests := []struct {
@@ -262,6 +271,224 @@ func TestPlaquesCard_OffersOnlyTheActTheServerWouldACCEPT(t *testing.T) {
 	}
 }
 
+// TestPlaquesCard_AnUnrecordedEncodeIsNeverOfferedAWall is M10 F0-6 on the screen:
+// the card must not offer a control AssignTagToLocation will refuse, and it must
+// say what an unrecorded encode means in each place it can sit.
+//
+// 🔴 INCIDENT A-1 IS THE REASON THE FIRST CASE EXISTS: before the gate, this exact
+// card offered "Mount this plaque" for a half-encoded row, a manager pressed it, and
+// Rusty Bar refused every tap. The second is that door as it stands today.
+//
+// ⚠️ AND NO CASE MAY CLAIM ANYTHING ABOUT TAPS (second round, 2026-09-25): the
+// row cannot tell Rusty Bar's chip from a personalised one whose marking failed, and
+// taps on the second verify. forbiddenTapClaims is checked on every render below.
+func TestPlaquesCard_AnUnrecordedEncodeIsNeverOfferedAWall(t *testing.T) {
+	wall := uuid.New()
+	const uidHalf = "04AC7E55000605"
+	half := tenant.Plaque{UID: uidHalf, Status: tenant.PlaqueUnassigned, Canonical: true}
+	spare := tenant.Plaque{UID: uidSpare2, Status: tenant.PlaqueUnassigned, Canonical: true, EncodedAt: &fixtureStamp}
+	rusty := tenant.Plaque{UID: uidOnWall, Status: tenant.PlaqueActive, LocationID: &wall, Canonical: true}
+	good := tenant.Plaque{UID: uidOnWall, Status: tenant.PlaqueActive, LocationID: &wall, Canonical: true, EncodedAt: &fixtureStamp}
+
+	tests := []struct {
+		name        string
+		plaques     []tenant.Plaque
+		open        string
+		wantReplace bool
+		wantSays    []string
+		wantNot     []string
+	}{
+		{
+			name: "in stock, encode not recorded: no mount form, and why", plaques: []tenant.Plaque{half},
+			open: uidHalf,
+			wantSays: []string{noticeWarnClass, "This plaque cannot go on a wall",
+				"Its encoding was not recorded as finished", "Encoding not recorded as finished",
+				"No mount is offered for this plaque."},
+		},
+		{
+			// 🔴 RUSTY BAR'S SHAPE. The banner is the alert tone and the REPLACE control
+			// stays — that is the repair — while the un-mount link does not, because
+			// "back into stock, ready to mount" is false for this plaque.
+			name:    "on a wall, encode not recorded, an encoded spare in the box",
+			plaques: []tenant.Plaque{rusty, spare}, open: uidOnWall, wantReplace: true,
+			wantSays: []string{noticeAlertClass, "This plaque needs replacing",
+				"Replace it with a freshly encoded plaque", "Replace this plaque"},
+			wantNot: []string{"confirm=unmount", "On the wrong door?"},
+		},
+		{
+			name:    "on a wall, encode not recorded, nothing encoded to replace it with",
+			plaques: []tenant.Plaque{rusty, half}, open: uidOnWall,
+			wantSays: []string{"This plaque needs replacing", "There is no encoded spare plaque in stock",
+				"Once a new plaque has been encoded"},
+			wantNot: []string{"confirm=unmount"},
+		},
+		{
+			// A working door whose only stock is unrecorded: that plaque is NOT a spare,
+			// and saying "no spare" above a stock list that shows one would read as a
+			// contradiction — hence "encoded".
+			name:    "on a wall and encoded, the only stock is unrecorded",
+			plaques: []tenant.Plaque{good, half}, open: uidOnWall,
+			wantSays: []string{"There is no encoded spare plaque in stock", "take it off the wall below"},
+			wantNot:  []string{"This plaque needs replacing"},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			plaques := &fakePlaques{screen: tenant.PlaqueScreen{Plaques: tc.plaques, Zone: time.UTC}}
+			b := plaqueBrowser(t, twoVenues(), plaques)
+			rec := b.do(http.MethodGet, locationsHref+"?plaque="+tc.open, nil)
+			html := htmlOf(t, rec)
+			for _, want := range tc.wantSays {
+				if !strings.Contains(html, want) {
+					t.Errorf("the card does not say %q", want)
+				}
+			}
+			for _, not := range append(tc.wantNot, forbiddenTapClaims...) {
+				if strings.Contains(html, not) {
+					t.Errorf("the page says %q", not)
+				}
+			}
+			if strings.Contains(html, `action="`+plaqueMountHref+`"`) {
+				t.Errorf("the card offers a mount form; the bind refuses an unrecorded encode")
+			}
+			if got := strings.Contains(html, `action="`+plaqueReplaceHref+`"`); got != tc.wantReplace {
+				t.Errorf("replace form offered = %v, want %v", got, tc.wantReplace)
+			}
+			// 🔴 THE UNRECORDED PLAQUE IS NEVER A CHOICE IN THE DROPDOWN — choosing it
+			// would roll the whole replacement back.
+			if strings.Contains(html, `<option value="`+uidHalf+`"`) {
+				t.Errorf("the successor dropdown offers %s, whose encode was not recorded", uidHalf)
+			}
+			if tc.wantReplace != mintedConfirmation(rec) {
+				t.Errorf("minted a confirmation = %v, want %v (only a real replace form spends one)",
+					mintedConfirmation(rec), tc.wantReplace)
+			}
+		})
+	}
+
+	t.Run("the reason is spelled out once on the card, not four times", func(t *testing.T) {
+		// B6(b), second round: the first version put the same clause on one stock card
+		// FOUR times (banner heading, banner body, Key field, closing line). The banner
+		// is now the one place it is spelled out; the Key field names the state and the
+		// closing line is short. The bound is on the CARD — the page's list below
+		// repeats the row by design.
+		plaques := &fakePlaques{screen: tenant.PlaqueScreen{Zone: time.UTC, Plaques: []tenant.Plaque{half}}}
+		b := plaqueBrowser(t, twoVenues(), plaques)
+		html := htmlOf(t, b.do(http.MethodGet, locationsHref+"?plaque="+uidHalf, nil))
+		card := cardOnly(t, html)
+		if n := strings.Count(card, "not recorded as finished"); n != 2 {
+			t.Errorf("the card says \"not recorded as finished\" %d times, want 2 (banner + Key field)", n)
+		}
+		if n := strings.Count(card, "cannot go on a wall"); n != 1 {
+			t.Errorf("the card says \"cannot go on a wall\" %d times, want 1 (the banner heading)", n)
+		}
+	})
+
+	t.Run("a typed ?confirm=unmount does not arm what the card declined to offer", func(t *testing.T) {
+		plaques := &fakePlaques{screen: tenant.PlaqueScreen{Zone: time.UTC,
+			Plaques: []tenant.Plaque{rusty}}}
+		b := plaqueBrowser(t, twoVenues(), plaques)
+		rec := b.do(http.MethodGet, locationsHref+"?plaque="+uidOnWall+"&confirm=unmount", nil)
+		if mintedConfirmation(rec) {
+			t.Fatal("the un-mount step minted a confirmation for a plaque the card offers no un-mount")
+		}
+		if strings.Contains(htmlOf(t, rec), `action="`+plaqueUnmountHref+`"`) {
+			t.Fatal("the un-mount form rendered for a plaque the card offers no un-mount")
+		}
+	})
+
+	t.Run("the list carries the banners, in the component's two tones", func(t *testing.T) {
+		plaques := &fakePlaques{screen: tenant.PlaqueScreen{Zone: time.UTC,
+			Plaques: []tenant.Plaque{half, rusty}}}
+		b := plaqueBrowser(t, twoVenues(), plaques)
+		html := htmlOf(t, b.do(http.MethodGet, locationsHref, nil))
+		for _, want := range []string{
+			"This plaque needs replacing", noticeAlertClass,
+			"This plaque cannot go on a wall", noticeWarnClass,
+		} {
+			if !strings.Contains(html, want) {
+				t.Errorf("the plaque list does not contain %q", want)
+			}
+		}
+		if strings.Contains(html, "Encoded by Taptime") {
+			t.Error("the list calls an unrecorded plaque encoded — incident A-1's sentence")
+		}
+		for _, not := range forbiddenTapClaims {
+			if strings.Contains(html, not) {
+				t.Errorf("the list says %q", not)
+			}
+		}
+	})
+}
+
+// TestPlaquesCard_AnUnmarkedPlaqueIsNotToldItsTapsFail is B1 of the second round.
+//
+// 🔴 plaque.unmarked MEANS THE CHIP WAS PERSONALISED AND ONLY THE MARKING FAILED —
+// its trail line tells the manager "do not re-encode" — so taps on it VERIFY. It has
+// the same NULL stamp as Rusty Bar's plaque, and the first version of this card told
+// both of them their taps are rejected: two contradicting sentences on one screen.
+// Both shapes are rendered here with the unmarked trail line beside them.
+func TestPlaquesCard_AnUnmarkedPlaqueIsNotToldItsTapsFail(t *testing.T) {
+	wall := uuid.New()
+	const uidUnmarked = "04AC7E55000606"
+	unmarkedTrail := map[string][]tenant.PlaqueEvent{uidUnmarked: {
+		{Action: tenant.ActionPlaqueLoaded, At: fixtureStamp, BySystem: true},
+		{Action: tenant.ActionPlaqueUnmarked, At: fixtureStamp, BySystem: true},
+	}}
+	for _, tc := range []struct {
+		name string
+		p    tenant.Plaque
+	}{
+		{"in stock", tenant.Plaque{UID: uidUnmarked, Status: tenant.PlaqueUnassigned, Canonical: true}},
+		{"on a wall", tenant.Plaque{UID: uidUnmarked, Status: tenant.PlaqueActive, LocationID: &wall, Canonical: true}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			plaques := &fakePlaques{
+				screen:  tenant.PlaqueScreen{Zone: time.UTC, Plaques: []tenant.Plaque{tc.p}},
+				history: unmarkedTrail,
+			}
+			b := plaqueBrowser(t, twoVenues(), plaques)
+			card := cardOnly(t, htmlOf(t, b.do(http.MethodGet, locationsHref+"?plaque="+uidUnmarked, nil)))
+			// POSITIVE CONTROL: both sentences that must coexist are really on the card.
+			for _, want := range []string{"Encoded, but not recorded — do not re-encode",
+				"Its encoding was not recorded as finished"} {
+				if !strings.Contains(card, want) {
+					t.Fatalf("the card does not say %q; this test measures nothing without it", want)
+				}
+			}
+			for _, not := range forbiddenTapClaims {
+				if strings.Contains(card, not) {
+					t.Errorf("the card says %q beside \"do not re-encode\" — the chip was "+
+						"personalised, so a claim that its taps fail contradicts the trail", not)
+				}
+			}
+		})
+	}
+}
+
+// forbiddenTapClaims are the causal sentences the first round put on an unrecorded
+// plaque and the second round removed: none is derivable from a NULL stamp.
+var forbiddenTapClaims = []string{
+	"would be rejected", "rejects every tap", "every tap on it is rejected", "did not finish",
+}
+
+// The two components.Notice tones the banners use, as the component renders them.
+const (
+	noticeWarnClass  = "border-l-4 border-saffron bg-saffron-lite px-4 py-4"
+	noticeAlertClass = "border-l-4 border-tomato bg-paper px-4 py-4"
+)
+
+// cardOnly cuts the rendered section down to the open card: it is rendered before
+// the venue list, so everything before the Venues heading is the card.
+func cardOnly(t *testing.T, html string) string {
+	t.Helper()
+	i := strings.Index(html, ">Venues</h2>")
+	if i < 0 {
+		t.Fatalf("no Venues heading; cannot isolate the card")
+	}
+	return html[:i]
+}
+
 // TestPlaquesSection_OpensEveryRowItLISTS is A1, and it is the defect this section
 // has now closed FIVE times in one form or another.
 //
@@ -280,7 +507,7 @@ func TestPlaquesSection_OpensEveryRowItLISTS(t *testing.T) {
 	wall := uuid.New()
 	venues := twoVenues()
 	plaques := &fakePlaques{screen: tenant.PlaqueScreen{Zone: time.UTC, Plaques: []tenant.Plaque{
-		{UID: uidOnWall, Status: tenant.PlaqueActive, LocationID: &wall, Canonical: true},
+		{UID: uidOnWall, Status: tenant.PlaqueActive, LocationID: &wall, Canonical: true, EncodedAt: &fixtureStamp},
 		// Canonical:false is what the domain sets for a uid the schema would now
 		// refuse — the row is real, listed, and unwritable.
 		{UID: frozenUID, Status: tenant.PlaqueActive, LocationID: &wall, Canonical: false},
@@ -565,6 +792,7 @@ func TestPlaqueWrites_EveryDomainRefusalBecomesItsOWNSentence(t *testing.T) {
 		{name: "it is not on a wall any more", err: tenant.ErrPlaqueNotOnAWall, want: "problem=plaque-not-active"},
 		{name: "a plaque cannot replace itself", err: tenant.ErrSamePlaque, want: "problem=same-plaque"},
 		{name: "the row is frozen", err: tenant.ErrPlaqueFrozen, want: "problem=plaque-frozen"},
+		{name: "its encoding was not recorded as finished", err: tenant.ErrPlaqueNotEncoded, want: "problem=plaque-not-encoded"},
 		{name: "another business's venue", err: tenant.ErrUnknownVenue, want: "problem=unknown-venue"},
 	}
 	for _, tc := range tests {
@@ -627,7 +855,7 @@ func TestPlaqueWrites_MountNeedsNoConfirmationAndReplaceDoes(t *testing.T) {
 		wall := uuid.New()
 		venues := twoVenues()
 		plaques := &fakePlaques{screen: tenant.PlaqueScreen{Zone: time.UTC, Plaques: []tenant.Plaque{
-			{UID: uidOnWall, Status: tenant.PlaqueActive, LocationID: &wall, Canonical: true},
+			{UID: uidOnWall, Status: tenant.PlaqueActive, LocationID: &wall, Canonical: true, EncodedAt: &fixtureStamp},
 		}}}
 		b := plaqueBrowser(t, venues, plaques)
 
@@ -647,8 +875,8 @@ func TestPlaqueWrites_MountNeedsNoConfirmationAndReplaceDoes(t *testing.T) {
 		wall := uuid.New()
 		venues := twoVenues()
 		plaques := &fakePlaques{screen: tenant.PlaqueScreen{Zone: time.UTC, Plaques: []tenant.Plaque{
-			{UID: uidOnWall, Status: tenant.PlaqueActive, LocationID: &wall, Canonical: true},
-			{UID: uidInStock, Status: tenant.PlaqueUnassigned, Canonical: true},
+			{UID: uidOnWall, Status: tenant.PlaqueActive, LocationID: &wall, Canonical: true, EncodedAt: &fixtureStamp},
+			{UID: uidInStock, Status: tenant.PlaqueUnassigned, Canonical: true, EncodedAt: &fixtureStamp},
 		}}}
 		b := plaqueBrowser(t, venues, plaques)
 		replaceToken := armReplacement(t, b, uidOnWall)
@@ -670,7 +898,7 @@ func TestPlaqueWrites_MountNeedsNoConfirmationAndReplaceDoes(t *testing.T) {
 		wall := uuid.New()
 		venues := twoVenues()
 		plaques := &fakePlaques{screen: tenant.PlaqueScreen{Zone: time.UTC, Plaques: []tenant.Plaque{
-			{UID: uidOnWall, Status: tenant.PlaqueActive, LocationID: &wall, Canonical: true},
+			{UID: uidOnWall, Status: tenant.PlaqueActive, LocationID: &wall, Canonical: true, EncodedAt: &fixtureStamp},
 		}}}
 		b := plaqueBrowser(t, venues, plaques)
 
@@ -717,7 +945,7 @@ func TestPlaqueWrites_MountNeedsNoConfirmationAndReplaceDoes(t *testing.T) {
 		// browser that nothing ever checks — with the whole package still green.
 		venues := twoVenues()
 		plaques := &fakePlaques{screen: tenant.PlaqueScreen{Zone: time.UTC, Plaques: []tenant.Plaque{
-			{UID: uidInStock, Status: tenant.PlaqueUnassigned, Canonical: true},
+			{UID: uidInStock, Status: tenant.PlaqueUnassigned, Canonical: true, EncodedAt: &fixtureStamp},
 		}}}
 		b := plaqueBrowser(t, venues, plaques)
 		rec := b.do(http.MethodGet, locationsHref+"?plaque="+uidInStock, nil)
@@ -737,8 +965,8 @@ func TestPlaqueWrites_MountNeedsNoConfirmationAndReplaceDoes(t *testing.T) {
 		wall := uuid.New()
 		venues := twoVenues()
 		plaques := &fakePlaques{screen: tenant.PlaqueScreen{Zone: time.UTC, Plaques: []tenant.Plaque{
-			{UID: uidOnWall, Status: tenant.PlaqueActive, LocationID: &wall, Canonical: true},
-			{UID: uidInStock, Status: tenant.PlaqueUnassigned, Canonical: true},
+			{UID: uidOnWall, Status: tenant.PlaqueActive, LocationID: &wall, Canonical: true, EncodedAt: &fixtureStamp},
+			{UID: uidInStock, Status: tenant.PlaqueUnassigned, Canonical: true, EncodedAt: &fixtureStamp},
 		}}}
 		b := plaqueBrowser(t, venues, plaques)
 
@@ -1474,8 +1702,9 @@ func TestPlaqueReceipt_ATrailFailureIsSilenceNotAnOutage(t *testing.T) {
 // store types, which is the half that survives a spelling nobody listed.
 func TestPlaqueViewModels_CannotCarryAKey(t *testing.T) {
 	fields := map[string][]string{
+		// KeyAlert (M10 F0-6) is a closed word — "stock", "wall" or "" — pinned below.
 		"components.PlaqueRowView": {"UID", "Status", "Venue", "VenueUnknown", "Counter",
-			"LastSeen", "KeyState", "Replaces", "ReplacedBy", "RetiredAt", "Loaded",
+			"LastSeen", "KeyState", "KeyAlert", "Replaces", "ReplacedBy", "RetiredAt", "Loaded",
 			"Frozen", "OpenHref"},
 		"components.PlaqueFormView": {"Heading", "Action", "CloseHref", "Plaque", "Mode",
 			"Venues", "Successors", "Blocked", "ErrorMessage", "Submit",
@@ -1512,19 +1741,42 @@ func TestPlaqueViewModels_CannotCarryAKey(t *testing.T) {
 
 	// 🔴 KeyState's NAME CONTAINS "key" AND ITS VALUE SET IS CLOSED, which is what
 	// makes the field safe rather than merely permitted. keyStateOf is the only thing
-	// that produces it, it takes a plaque and returns one of two sentences, and
-	// neither reads anything about a key.
-	onWall := tenant.Plaque{UID: uidOnWall, Status: tenant.PlaqueActive, Canonical: true}
-	inBox := tenant.Plaque{UID: uidInStock, Status: tenant.PlaqueUnassigned, Canonical: true}
+	// that produces it, it takes a plaque and returns one of THREE sentences, and none
+	// reads anything about a key. KeyAlert's set is closed the same way. (Five in the
+	// first round of M10 F0-6; two of those claimed taps are rejected, which a NULL
+	// stamp cannot know — see keyStateOf.)
+	//
+	// ⚠️ IT WAS TWO SENTENCES UNTIL M10 F0-6 AND BOTH SAID "Encoded" FOR ANY ROW THAT
+	// EXISTED. That is incident A-1: a half-encoded plaque read "Encoded by Taptime —
+	// pending a wall", was mounted, and refused every tap at Rusty Bar. The unrecorded
+	// rows below are the ones that sentence was wrong about.
+	stamped := func(status string) tenant.Plaque {
+		return tenant.Plaque{UID: uidOnWall, Status: status, Canonical: true, EncodedAt: &fixtureStamp}
+	}
+	unrecorded := func(status string) tenant.Plaque {
+		return tenant.Plaque{UID: uidOnWall, Status: status, Canonical: true}
+	}
 	for _, tc := range []struct {
-		p    tenant.Plaque
-		want string
+		name      string
+		p         tenant.Plaque
+		wantState string
+		wantAlert string
 	}{
-		{onWall, "Encoded by Taptime"},
-		{inBox, "Encoded by Taptime — pending a wall"},
+		{"encoded, on a wall", stamped(tenant.PlaqueActive), "Encoded by Taptime", ""},
+		{"encoded, in stock", stamped(tenant.PlaqueUnassigned), "Encoded by Taptime — pending a wall", ""},
+		{"encoded, retired", stamped(tenant.PlaqueRetired), "Encoded by Taptime", ""},
+		// ONE sentence for every unrecorded shape, and it makes no claim about taps —
+		// the second round's B1 (see keyStateOf).
+		{"unrecorded, in stock", unrecorded(tenant.PlaqueUnassigned), "Encoding not recorded as finished", "stock"},
+		{"unrecorded, on a wall (Rusty Bar)", unrecorded(tenant.PlaqueActive), "Encoding not recorded as finished", "wall"},
+		{"unrecorded, retired", unrecorded(tenant.PlaqueRetired), "Encoding not recorded as finished", ""},
+		{"unrecorded, lost", unrecorded(tenant.PlaqueLost), "Encoding not recorded as finished", ""},
 	} {
-		if got := keyStateOf(tc.p); got != tc.want {
-			t.Errorf("keyStateOf(%s) = %q, want %q", tc.p.Status, got, tc.want)
+		if got := keyStateOf(tc.p); got != tc.wantState {
+			t.Errorf("%s: keyStateOf = %q, want %q", tc.name, got, tc.wantState)
+		}
+		if got := keyAlertOf(tc.p); got != tc.wantAlert {
+			t.Errorf("%s: keyAlertOf = %q, want %q", tc.name, got, tc.wantAlert)
 		}
 	}
 }

@@ -354,9 +354,13 @@ type Page struct {
 // serves prints nothing that depends on it.
 type Plaques struct {
 	Queried bool
-	// InService is the number of plaques a tap could actually use — the same
-	// `status = 'active'` test §5 row 1 applies, so this is not a second opinion
-	// about what would be rejected.
+	// InService is the number of `active` plaques — the same `status = 'active'` test
+	// §5 row 1 applies, so this is not a second opinion about what row 1 would reject.
+	//
+	// ⚠️ IT IS NOT "PLAQUES A TAP COULD ACTUALLY USE", which this comment used to say
+	// (corrected M10 F0-6, third round): an `active` plaque without an encoded_at stamp
+	// — Rusty Bar's shape, 12 taps and 0 valid — is counted here and fails later, at
+	// the SUN check, which no count over `tags` can see.
 	InService int
 	// InStock is how many are loaded but not yet mounted ('unassigned').
 	//
@@ -365,6 +369,14 @@ type Plaques struct {
 	// plaques, so a business whose last plaque was retired would be told its
 	// replacement is waiting in the box.
 	InStock int
+	// ReadyToMount is how many of InStock could actually go on a wall: in the box AND
+	// stamped as encoded (tags.encoded_at), the same test AssignTagToLocation applies.
+	//
+	// 🔴 A SEPARATE COUNT BECAUSE "IN STOCK" STOPPED MEANING "READY" (M10 F0-6). An
+	// encode round that dies before its step-9 stamp leaves an `unassigned` row the
+	// bind refuses; before this field the landing section printed InStock beside the
+	// words "ready to mount" and promised exactly the mount the statement refuses.
+	ReadyToMount int
 	// Loaded is every plaque row this business has, whatever its status. It
 	// separates "Tappa has not loaded any" from "every one of them is out of
 	// service", which would otherwise be one silence.
@@ -544,10 +556,11 @@ func (r *Reader) advisories(ctx context.Context, tx pgx.Tx, tenantID uuid.UUID) 
 			return err
 		}
 		plaques = Plaques{
-			Queried:   true,
-			InService: int(row.InService),
-			InStock:   int(row.InStock),
-			Loaded:    int(row.Loaded),
+			Queried:      true,
+			InService:    int(row.InService),
+			InStock:      int(row.InStock),
+			ReadyToMount: int(row.ReadyToMount),
+			Loaded:       int(row.Loaded),
 		}
 		return nil
 	}); err != nil {

@@ -123,6 +123,19 @@ func addPlaque(t *testing.T, d *DB, fx tagFixture, uid string, location uuid.UUI
 	}
 }
 
+// stampPlaque runs ADR 0017 §5.1 step 9 on a plaque addPlaque loaded — through
+// store.MarkTagEncoded, the encode flow's OWN statement — so it may be bound
+// (M10 F0-6: AssignTagToLocation refuses a row without encoded_at).
+func stampPlaque(t *testing.T, d *DB, fx tagFixture, uid string) {
+	t.Helper()
+	if err := d.WithTenant(context.Background(), fx.tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		_, e := store.New(tx).MarkTagEncoded(ctx, store.MarkTagEncodedParams{Uid: uid, TenantID: fx.tenantID})
+		return e
+	}); err != nil {
+		t.Fatalf("stampPlaque(%s): %v", uid, err)
+	}
+}
+
 // execAs runs one statement in a tenant context and returns the raw error, so a
 // caller can assert on its SQLSTATE. Rows affected comes back too, because the
 // three failure shapes differ: an INSERT that breaks a policy RAISES, an UPDATE
@@ -571,6 +584,7 @@ func TestTags00013_BindAndRetireAreAtomicTransitions(t *testing.T) {
 	stock := randUID(t)
 	successor := randUID(t)
 	addPlaque(t, app, fx, stock, uuid.Nil, "unassigned", 0)
+	stampPlaque(t, app, fx, stock) // M10 F0-6: only a stamped plaque may be bound
 	addPlaque(t, app, fx, successor, fx.locationID, "active", 0)
 
 	// BIND -- moves location_id and status in ONE statement, because the CHECK
@@ -705,6 +719,9 @@ func TestTags00013_BindRefusesAnotherTenantsLocation(t *testing.T) {
 
 	stock := randUID(t)
 	addPlaque(t, app, a, stock, uuid.Nil, "unassigned", 0)
+	// STAMPED, OR THE FK IS NEVER REACHED: since M10 F0-6 an unstamped row fails the
+	// WHERE first, matches nothing, and this probe would assert on the wrong refusal.
+	stampPlaque(t, app, a, stock)
 
 	err := app.WithTenant(context.Background(), a.tenantID, func(ctx context.Context, tx pgx.Tx) error {
 		_, e := store.New(tx).AssignTagToLocation(ctx, store.AssignTagToLocationParams{
@@ -1084,6 +1101,10 @@ func TestBelt_Tags00013_PanelQueriesCarryTheirOwnTenantPredicate(t *testing.T) {
 	successor := randUID(t)
 	addPlaque(t, app, a, mounted, a.locationID, "active", 7)
 	addPlaque(t, app, a, stock, uuid.Nil, "unassigned", 0)
+	// Stamped so the AssignTagToLocation CONTROL below can bind it (M10 F0-6); without
+	// the stamp the control would fail for a reason that has nothing to do with the
+	// tenant predicate this test is about.
+	stampPlaque(t, app, a, stock)
 	addPlaque(t, app, a, successor, a.locationID, "active", 0)
 
 	// One recorded tap on A's mounted plaque, so ListTagLastSeen has something to
@@ -1204,7 +1225,7 @@ func TestBelt_Tags00013_PanelQueriesCarryTheirOwnTenantPredicate(t *testing.T) {
 		}); err != nil {
 			t.Fatalf("count with B's id from A's context: %v", err)
 		}
-		if got.Loaded != 0 || got.InService != 0 || got.InStock != 0 {
+		if got.Loaded != 0 || got.InService != 0 || got.InStock != 0 || got.ReadyToMount != 0 {
 			t.Fatalf("counted %+v for B's tenant id while inside A's context, want all zero -- "+
 				"those are A's plaques, counted because the query has no tenant predicate", got)
 		}
@@ -1217,9 +1238,10 @@ func TestBelt_Tags00013_PanelQueriesCarryTheirOwnTenantPredicate(t *testing.T) {
 		}); err != nil {
 			t.Fatalf("control: %v", err)
 		}
-		if got.Loaded != 3 || got.InService != 2 || got.InStock != 1 {
-			t.Fatalf("control counted %+v, want loaded=3 in_service=2 in_stock=1 -- without "+
-				"it the zeroes above prove nothing, and the three FILTERs are unmeasured", got)
+		// ready_to_mount is 1 because the one stock plaque was stamped above (M10 F0-6).
+		if got.Loaded != 3 || got.InService != 2 || got.InStock != 1 || got.ReadyToMount != 1 {
+			t.Fatalf("control counted %+v, want loaded=3 in_service=2 in_stock=1 ready_to_mount=1 "+
+				"-- without it the zeroes above prove nothing, and the FILTERs are unmeasured", got)
 		}
 	})
 

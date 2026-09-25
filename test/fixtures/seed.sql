@@ -25,6 +25,11 @@
 --   backfills wifi_ssid (00010) into rows seeded before that column existed. It
 --   is guarded so it fires at most once per row and never overwrites a value;
 --   the reasoning is written out at that statement.
+--   A SECOND ONE, also scoped to a single column (M10 F0-6, 2026-09-25): the demo
+--   plaques get tags.encoded_at from an UPDATE after their INSERT, because
+--   migration 00022 refuses the stamp at INSERT (a plaque row is born unstamped).
+--   It matches only rows whose stamp is still NULL, so a second run changes nothing
+--   and a stamp is never rewritten (00022's write-once trigger would refuse that).
 --   The same fixed identifiers are mirrored, typed, in test/fixtures/ids.go so
 --   Go tests reference named handles instead of magic strings.
 --   ONE MORE THING TO KNOW, and it belongs to scripts/seed.sh rather than to this
@@ -446,6 +451,37 @@ FROM (VALUES
      '20000000-0000-4000-8000-000000000101', 'active',  NULL)
 ) AS t(uid, tenant_id, location_id, status, replaced_by)
 ON CONFLICT (uid) DO NOTHING;
+
+-- ------------------------------------------------------------- tags: encoded
+-- Every demo plaque above is one whose encode round FINISHED (ADR 0017 §5.1 step
+-- 9), so each carries the stamp that says so.
+--
+-- 🔴 WITHOUT IT THE DEMO PANEL SHOWS NINE BROKEN DOORS (M10 F0-6, measured
+-- 2026-09-25: all twelve seeded plaques had encoded_at NULL). The panel now reads
+-- the plaque's state from this column rather than from the row's existence --
+-- incident A-1 was a half-encoded row the old reading called "Encoded" -- so an
+-- unstamped `active` plaque renders the "This plaque needs replacing" banner
+-- ("its encoding was not recorded as finished") and an unstamped stock plaque
+-- cannot be mounted. Neither says anything about taps, and for these rows the
+-- banner's premise would be FALSE: the seeded keys are real (scripts/seed.sh's
+-- second half wraps them) and every simulated tap verifies. It would also teach a
+-- demo audience to ignore the one banner that must never be ignored.
+--
+-- WHY AN UPDATE: 00022's tags_encoded_at_not_settable_at_insert refuses a stamped
+-- INSERT for every role, tappa_owner included. WHY created_at: in this fiction a
+-- plaque was encoded as it was loaded, and a stamp later than "Loaded 80 days ago"
+-- would describe an encode that never happened. `encoded_at IS NULL` makes it
+-- idempotent -- the second run matches nothing -- and keeps it clear of 00022's
+-- write-once trigger, which refuses any change to a stamp once written.
+UPDATE tags
+SET encoded_at = created_at
+WHERE tenant_id IN ('10000000-0000-4000-8000-000000000001',
+                    '20000000-0000-4000-8000-000000000001')
+  AND uid IN ('04AC7E55000101', '04AC7E550001FF', '04AC7E55000201',
+              '04AC7E55000301', '04AC7E55000401', '04AC7E55000501',
+              '04AC7E55000601', '04AC7E550006AA', '04AC7E55000701',
+              '04AC7E55000801', '04AC7E55000901', '04BE7E55000A01')
+  AND encoded_at IS NULL;
 
 -- ------------------------------------------------------------------ admin_users
 -- ONE panel owner per tenant (M1-11). role='owner', status='active'. This is the

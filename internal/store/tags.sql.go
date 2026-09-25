@@ -84,7 +84,8 @@ SET location_id = $1::uuid,
 WHERE tenant_id = $2
   AND uid = $3
   AND status = 'unassigned'
-RETURNING uid, tenant_id, location_id, last_ctr, status, retired_at, replaced_by, created_at
+  AND encoded_at IS NOT NULL
+RETURNING uid, tenant_id, location_id, last_ctr, status, retired_at, replaced_by, created_at, encoded_at
 `
 
 type AssignTagToLocationParams struct {
@@ -102,6 +103,7 @@ type AssignTagToLocationRow struct {
 	RetiredAt  *time.Time
 	ReplacedBy *string
 	CreatedAt  time.Time
+	EncodedAt  *time.Time
 }
 
 // BIND: move a loaded plaque out of stock and onto a wall.
@@ -130,6 +132,42 @@ type AssignTagToLocationRow struct {
 // nil would mean "bind this plaque to nowhere". The schema still refuses it
 // (tags_active_requires_location -> 23514), but a parameter that cannot express
 // the mistake is better than one that has to be caught.
+//
+// 🔴 `encoded_at IS NOT NULL` IS THE SECOND PRECONDITION AND IT IS IN THE STATEMENT
+// FOR THE SAME REASON AS THE FIRST (M10 F0-6, 2026-09-25). ADR 0017 §5.1 writes the
+// row at step 3, BEFORE the chip is touched, and stamps encoded_at at step 9, AFTER
+// the chip took its keys; a round that dies in between leaves an `unassigned` row
+// whose key the chip never received. Incident A-1 (2026-09-24, live pilot): a
+// re-encode of an already-personalised chip died at WriteData with 91AE, the row
+// stayed unstamped, the panel mounted it at Rusty Bar, and that door took 12 taps
+// with 0 valid -- every SUN was checked against a key that exists only in the
+// database.
+//
+// ⚠️ WHAT THE STAMP DOES AND DOES NOT CARRY, measured rather than assumed (second
+// round, 2026-09-25). encoded_at records that the round reached ADR 0017 §5.1 step 9.
+// For a round run by the SHIPPED driver, step 8 (ChangeKey on application key 0,
+// ADR 0018's app_key_ref) comes before it, so the stamp implies key 0 was rotated off
+// the factory default -- and on production the two stamped plaques both carry
+// app_key_ref (orchestrator measurement, 2026-09-25). A row stamped BEFORE step 8
+// shipped (internal/encode/driver.go: step 8 arrived later than the stamp, and md. 5
+// closed on silicon only on 2026-09-24) carries the stamp WITHOUT that implication.
+// So this predicate enforces "the encode round was recorded as finished"; it is §5.1's
+// "a plaque cannot go on a wall while key 0 is still the factory default" only for
+// rounds that ran step 8, and it is not a check of key 0 itself.
+//
+// Reading the stamp first and then binding would be the read-then-write window the
+// status predicate already refuses. Zero rows here is therefore ambiguous by
+// construction, and classifyMount (internal/domain/tenant/plaque.go) resolves it
+// with a second read on the failure path only.
+//
+// ⚠️ THE REPLACE FLOW RUNS THIS SAME STATEMENT AFTER THE RETIRE, INSIDE ONE
+// TRANSACTION, so an unstamped successor rolls the retirement back too: the old
+// plaque stays `active` on its wall. The retire has NO stamp predicate and must not
+// get one -- Rusty Bar's own plaque is `active` with a NULL stamp, and retiring it is
+// exactly the repair.
+//
+// RETURNING carries encoded_at so the plaque handed back is the row as it now
+// stands rather than a value with the stamp silently missing.
 func (q *Queries) AssignTagToLocation(ctx context.Context, arg AssignTagToLocationParams) (AssignTagToLocationRow, error) {
 	row := q.db.QueryRow(ctx, assignTagToLocation, arg.LocationID, arg.TenantID, arg.Uid)
 	var i AssignTagToLocationRow
@@ -142,6 +180,7 @@ func (q *Queries) AssignTagToLocation(ctx context.Context, arg AssignTagToLocati
 		&i.RetiredAt,
 		&i.ReplacedBy,
 		&i.CreatedAt,
+		&i.EncodedAt,
 	)
 	return i, err
 }
@@ -149,15 +188,18 @@ func (q *Queries) AssignTagToLocation(ctx context.Context, arg AssignTagToLocati
 const countTenantPlaques = `-- name: CountTenantPlaques :one
 SELECT count(*) FILTER (WHERE g.status = 'active')::bigint     AS in_service,
        count(*) FILTER (WHERE g.status = 'unassigned')::bigint AS in_stock,
+       count(*) FILTER (WHERE g.status = 'unassigned'
+                          AND g.encoded_at IS NOT NULL)::bigint AS ready_to_mount,
        count(*)::bigint                                        AS loaded
 FROM tags g
 WHERE g.tenant_id = $1
 `
 
 type CountTenantPlaquesRow struct {
-	InService int64
-	InStock   int64
-	Loaded    int64
+	InService    int64
+	InStock      int64
+	ReadyToMount int64
+	Loaded       int64
 }
 
 // HOW MANY PLAQUES THIS BUSINESS HAS, AND HOW MANY OF THEM A TAP CAN ACTUALLY USE.
@@ -206,16 +248,30 @@ type CountTenantPlaquesRow struct {
 // thousands -- so the heap access is five pages rather than a table scan. What is
 // being recorded here is that it IS heap access, at that tenant size and that row
 // count, and not a claim that it is free.
+//
+// 🔴 ready_to_mount IS THE FOURTH COUNT AND in_stock IS NOT ITS SYNONYM (M10 F0-6,
+// second round). AssignTagToLocation refuses an unassigned row with no encoded_at,
+// so "in the box" and "can go on a wall" diverge exactly on the rows a failed encode
+// round leaves behind. A screen that printed in_stock beside the words "ready to
+// mount" was promising a mount the statement would refuse. in_stock is kept, because
+// "no plaque is on a wall, but some are in the box" is still the right STATE; the
+// number a sentence calls "ready" is this one. Same predicate as the bind, so the
+// count and the refusal cannot disagree.
 func (q *Queries) CountTenantPlaques(ctx context.Context, tenantID uuid.UUID) (CountTenantPlaquesRow, error) {
 	row := q.db.QueryRow(ctx, countTenantPlaques, tenantID)
 	var i CountTenantPlaquesRow
-	err := row.Scan(&i.InService, &i.InStock, &i.Loaded)
+	err := row.Scan(
+		&i.InService,
+		&i.InStock,
+		&i.ReadyToMount,
+		&i.Loaded,
+	)
 	return i, err
 }
 
 const getTagForTenant = `-- name: GetTagForTenant :one
 SELECT g.uid, g.tenant_id, g.location_id, g.last_ctr, g.status, g.retired_at,
-       g.replaced_by, g.created_at
+       g.replaced_by, g.created_at, g.encoded_at
 FROM tags g
 WHERE g.tenant_id = $1
   AND g.uid = $2
@@ -235,10 +291,11 @@ type GetTagForTenantRow struct {
 	RetiredAt  *time.Time
 	ReplacedBy *string
 	CreatedAt  time.Time
+	EncodedAt  *time.Time
 }
 
 // One plaque, for the detail/edit card. Same column set as the list -- no
-// aes_key_ref (see the header).
+// aes_key_ref (see the header), and encoded_at for the list's reason.
 //
 // KEYED BY uid, WHICH IS PUBLIC (it is printed on the plaque and sits in the NFC
 // URL), so the tenant predicate is doing real work here rather than decorating:
@@ -257,6 +314,7 @@ func (q *Queries) GetTagForTenant(ctx context.Context, arg GetTagForTenantParams
 		&i.RetiredAt,
 		&i.ReplacedBy,
 		&i.CreatedAt,
+		&i.EncodedAt,
 	)
 	return i, err
 }
@@ -516,7 +574,7 @@ func (q *Queries) ListTagLastSeen(ctx context.Context, tenantID uuid.UUID) ([]Li
 const listTagsForTenant = `-- name: ListTagsForTenant :many
 
 SELECT g.uid, g.tenant_id, g.location_id, g.last_ctr, g.status, g.retired_at,
-       g.replaced_by, g.created_at
+       g.replaced_by, g.created_at, g.encoded_at
 FROM tags g
 WHERE g.tenant_id = $1
 ORDER BY g.location_id NULLS FIRST, g.uid
@@ -531,6 +589,7 @@ type ListTagsForTenantRow struct {
 	RetiredAt  *time.Time
 	ReplacedBy *string
 	CreatedAt  time.Time
+	EncodedAt  *time.Time
 }
 
 // ============================================================================
@@ -585,6 +644,13 @@ type ListTagsForTenantRow struct {
 // opening this tab is usually there to mount something; the plaques that need an
 // action are the ones with no wall. uid is the tiebreaker so the list never
 // depends on physical row order.
+//
+// encoded_at IS ON THE LIST (M10 F0-6, 2026-09-25) because it is the ONLY record
+// that the chip took its keys (ADR 0017 §5.1 step 9). The row itself is written at
+// step 3, before the chip is touched, so "a row exists" says "we intended to encode
+// this" and nothing more -- incident A-1 (2026-09-24) was a panel that read it as
+// more. It is a timestamp, not key material: tappa_app holds a column-level SELECT
+// on it (00022 Part 3), and aes_key_ref / app_key_ref stay out (see the header).
 func (q *Queries) ListTagsForTenant(ctx context.Context, tenantID uuid.UUID) ([]ListTagsForTenantRow, error) {
 	rows, err := q.db.Query(ctx, listTagsForTenant, tenantID)
 	if err != nil {
@@ -603,6 +669,7 @@ func (q *Queries) ListTagsForTenant(ctx context.Context, tenantID uuid.UUID) ([]
 			&i.RetiredAt,
 			&i.ReplacedBy,
 			&i.CreatedAt,
+			&i.EncodedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -689,7 +756,7 @@ WHERE tenant_id = $2
   AND uid = $3
   AND status = 'active'
   AND $1::text ~ '^[0-9A-F]{14}$'
-RETURNING uid, tenant_id, location_id, last_ctr, status, retired_at, replaced_by, created_at
+RETURNING uid, tenant_id, location_id, last_ctr, status, retired_at, replaced_by, created_at, encoded_at
 `
 
 type RetireTagForReplacementParams struct {
@@ -707,6 +774,7 @@ type RetireTagForReplacementRow struct {
 	RetiredAt  *time.Time
 	ReplacedBy *string
 	CreatedAt  time.Time
+	EncodedAt  *time.Time
 }
 
 // RETIRE: the old plaque of a "Replace tag", stamped with what replaced it.
@@ -764,6 +832,7 @@ func (q *Queries) RetireTagForReplacement(ctx context.Context, arg RetireTagForR
 		&i.RetiredAt,
 		&i.ReplacedBy,
 		&i.CreatedAt,
+		&i.EncodedAt,
 	)
 	return i, err
 }
@@ -775,7 +844,7 @@ SET location_id = NULL,
 WHERE tenant_id = $1
   AND uid = $2
   AND status = 'active'
-RETURNING uid, tenant_id, location_id, last_ctr, status, retired_at, replaced_by, created_at
+RETURNING uid, tenant_id, location_id, last_ctr, status, retired_at, replaced_by, created_at, encoded_at
 `
 
 type UnmountTagFromWallParams struct {
@@ -792,6 +861,7 @@ type UnmountTagFromWallRow struct {
 	RetiredAt  *time.Time
 	ReplacedBy *string
 	CreatedAt  time.Time
+	EncodedAt  *time.Time
 }
 
 // UN-BIND: take a plaque off its wall and put it back in stock.
@@ -835,6 +905,7 @@ func (q *Queries) UnmountTagFromWall(ctx context.Context, arg UnmountTagFromWall
 		&i.RetiredAt,
 		&i.ReplacedBy,
 		&i.CreatedAt,
+		&i.EncodedAt,
 	)
 	return i, err
 }

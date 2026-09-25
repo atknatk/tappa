@@ -124,10 +124,11 @@ func (a *AdminAuth) transactionsSection(w http.ResponseWriter, r *http.Request) 
 	// this handler and the fragment handler below cannot disagree about it, because
 	// only one of them fills the field and the other leaves Queried false.
 	v.Plaques = pages.PlaqueCounts{
-		Queried:   screen.Plaques.Queried,
-		InService: screen.Plaques.InService,
-		InStock:   screen.Plaques.InStock,
-		Loaded:    screen.Plaques.Loaded,
+		Queried:      screen.Plaques.Queried,
+		InService:    screen.Plaques.InService,
+		InStock:      screen.Plaques.InStock,
+		ReadyToMount: screen.Plaques.ReadyToMount,
+		Loaded:       screen.Plaques.Loaded,
 	}
 	// Whether another day is worth offering — a fact about the RECORDS, deliberately
 	// not derived from the plaque counts above (see ledger.History).

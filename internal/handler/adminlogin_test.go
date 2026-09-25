@@ -993,7 +993,7 @@ func (f *fakePlaques) Mount(_ context.Context, c tenant.MountCommand) (tenant.Pl
 	}
 	loc := c.LocationID
 	return tenant.Plaque{
-		UID: c.UID, Status: tenant.PlaqueActive, LocationID: &loc, Canonical: true,
+		UID: c.UID, Status: tenant.PlaqueActive, LocationID: &loc, Canonical: true, EncodedAt: &fixtureStamp,
 	}, nil
 }
 
@@ -1004,7 +1004,7 @@ func (f *fakePlaques) Unmount(_ context.Context, c tenant.UnmountCommand) (tenan
 	if f.unmountErr != nil {
 		return tenant.Plaque{}, f.unmountErr
 	}
-	return tenant.Plaque{UID: c.UID, Status: tenant.PlaqueUnassigned, Canonical: true}, nil
+	return tenant.Plaque{UID: c.UID, Status: tenant.PlaqueUnassigned, Canonical: true, EncodedAt: &fixtureStamp}, nil
 }
 
 func (f *fakePlaques) Replace(_ context.Context, c tenant.ReplaceCommand) (tenant.Replacement, error) {
@@ -1016,9 +1016,9 @@ func (f *fakePlaques) Replace(_ context.Context, c tenant.ReplaceCommand) (tenan
 	}
 	return tenant.Replacement{
 		Retired: tenant.Plaque{UID: c.RetiringUID, Status: tenant.PlaqueRetired,
-			ReplacedBy: string(c.SuccessorUID), Canonical: true},
+			ReplacedBy: string(c.SuccessorUID), Canonical: true, EncodedAt: &fixtureStamp},
 		Mounted: tenant.Plaque{UID: string(c.SuccessorUID), Status: tenant.PlaqueActive,
-			Replaces: c.RetiringUID, Canonical: true},
+			Replaces: c.RetiringUID, Canonical: true, EncodedAt: &fixtureStamp},
 	}, nil
 }
 

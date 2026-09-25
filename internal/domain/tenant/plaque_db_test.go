@@ -51,6 +51,7 @@ import (
 	"github.com/atknatk/tappa/internal/audit"
 	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/db"
+	"github.com/atknatk/tappa/internal/store"
 	"github.com/atknatk/tappa/test/fixtures"
 )
 
@@ -152,6 +153,15 @@ func (f *plaqueFixture) seedTenant(t *testing.T, tenantID, wall, second uuid.UUI
 // wall == uuid.Nil produces STOCK: location_id NULL. The status and the wall travel
 // together because 00013's CHECKs bind them, so a fixture cannot build the state the
 // schema forbids.
+//
+// 🔴 IT FINISHES THE ENCODE, BECAUSE THE LOADER IT STANDS IN FOR DOES (M10 F0-6).
+// ADR 0017 §5.1 writes the row at step 3 and stamps encoded_at at step 9, and a
+// plaque the panel can mount is one that reached step 9. The stamp is written by
+// store.MarkTagEncoded — the encode flow's OWN statement — rather than by a
+// hand-written UPDATE, so the fixture takes the path the product takes and 00022's
+// "never settable at INSERT" trigger is honoured rather than dodged. A plaque whose
+// round died between the two steps is loadUnrecorded, and only the tests about that
+// state use it.
 func (f *plaqueFixture) load(t *testing.T, tenantID uuid.UUID, status string, wall uuid.UUID) string {
 	t.Helper()
 	return f.loadUID(t, tenantID, newPlaqueUID(t), status, wall)
@@ -159,22 +169,68 @@ func (f *plaqueFixture) load(t *testing.T, tenantID uuid.UUID, status string, wa
 
 func (f *plaqueFixture) loadUID(t *testing.T, tenantID uuid.UUID, uid, status string, wall uuid.UUID) string {
 	t.Helper()
+	return f.loadStamped(t, tenantID, uid, status, wall, true)
+}
+
+// loadUnrecorded is incident A-1's row: loaded at step 3, never stamped at step 9.
+// With status active it is Rusty Bar's plaque — on a wall from before the gate.
+func (f *plaqueFixture) loadUnrecorded(t *testing.T, tenantID uuid.UUID, status string, wall uuid.UUID) string {
+	t.Helper()
+	return f.loadStamped(t, tenantID, newPlaqueUID(t), status, wall, false)
+}
+
+func (f *plaqueFixture) loadStamped(t *testing.T, tenantID uuid.UUID, uid, status string, wall uuid.UUID, stamped bool) string {
+	t.Helper()
 	var location *uuid.UUID
 	if wall != uuid.Nil {
 		w := wall
 		location = &w
 	}
 	err := f.data.WithTenant(context.Background(), tenantID, func(ctx context.Context, tx pgx.Tx) error {
-		_, e := tx.Exec(ctx,
+		if _, e := tx.Exec(ctx,
 			`INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, last_ctr, status)
 			 VALUES ($1, $2, $3, decode(repeat('dead', 22), 'hex'), 41, $4)`,
-			uid, tenantID, location, status)
+			uid, tenantID, location, status); e != nil {
+			return e
+		}
+		if !stamped {
+			return nil
+		}
+		_, e := store.New(tx).MarkTagEncoded(ctx, store.MarkTagEncodedParams{Uid: uid, TenantID: tenantID})
 		return e
 	})
 	if err != nil {
-		t.Fatalf("load plaque (%s): %v", status, err)
+		t.Fatalf("load plaque (%s, stamped=%v): %v", status, stamped, err)
 	}
 	return uid
+}
+
+// encodedAt reads the stamp straight out of the table, bypassing the domain.
+func (f *plaqueFixture) encodedAt(t *testing.T, uid string) *time.Time {
+	t.Helper()
+	var at *time.Time
+	if err := f.data.WithTenant(context.Background(), f.tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SELECT encoded_at FROM tags WHERE tenant_id = $1 AND uid = $2`,
+			f.tenantID, uid).Scan(&at)
+	}); err != nil {
+		t.Fatalf("read encoded_at: %v", err)
+	}
+	return at
+}
+
+// auditRowsIn is auditRows for ANY tenant, so an isolation test can assert that a
+// refusal left nothing in the other business's trail either.
+func (f *plaqueFixture) auditRowsIn(t *testing.T, tenantID uuid.UUID, action, target string) int {
+	t.Helper()
+	var n int
+	if err := f.data.WithTenant(context.Background(), tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		return tx.QueryRow(ctx,
+			`SELECT count(*) FROM audit_log WHERE tenant_id = $1 AND action = $2 AND target = $3`,
+			tenantID, action, target).Scan(&n)
+	}); err != nil {
+		t.Fatalf("count audit rows: %v", err)
+	}
+	return n
 }
 
 func newPlaqueUID(t *testing.T) string {
@@ -436,6 +492,8 @@ func TestPlaquesDB_TheTwoAuditPayloadsCarryEXACTLYTheseKeys(t *testing.T) {
 		{"plaque.mounted", mountedDetail{}, []string{"from_status", "location_id", "name", "replaces"}},
 		{"plaque.retired", retiredDetail{}, []string{"last_ctr", "location_id", "name"}},
 		{"plaque.unmounted", unmountedDetail{}, []string{"from_status", "location_id", "name"}},
+		// M10 F0-6. No location_id, deliberately — refusedMountDetail says why.
+		{"plaque.mount_refused", refusedMountDetail{}, []string{"act", "name", "outcome", "reason", "replaces"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -533,6 +591,231 @@ func TestPlaquesDB_MountingOntoAnotherBusinessesVenueIsRefused(t *testing.T) {
 	if status != PlaqueUnassigned || wall != nil {
 		t.Fatalf("row = (%s, %v) after a refused cross-tenant mount, want (unassigned, nil)",
 			status, wall)
+	}
+}
+
+// --- the encode gate (M10 F0-6, incident A-1) ------------------------------------
+//
+// 🔴 WHAT HAPPENED, 2026-09-24, live pilot: a re-encode of an already-personalised
+// chip died at WriteData with 91AE, the step-3 row stayed without its step-9 stamp,
+// the panel mounted it at Rusty Bar, and the door took 12 taps with 0 valid. These
+// tests hold the gate that makes that unrepeatable, against real Postgres, and read
+// every outcome back out of the TABLE rather than trusting what the domain returned.
+
+// TestPlaquesDB_APlaqueWithNoRecordedEncodeCannotBeMounted is the gate itself.
+func TestPlaquesDB_APlaqueWithNoRecordedEncodeCannotBeMounted(t *testing.T) {
+	f := newPlaqueFixture(t)
+	f.namedAdmin(t, f.actorID, "Rita Camilleri")
+	uid := f.loadUnrecorded(t, f.tenantID, PlaqueUnassigned, uuid.Nil)
+
+	// The domain reads it as what it is before anybody presses anything.
+	read, err := f.plaques.Plaque(context.Background(), f.tenantID, uid)
+	if err != nil {
+		t.Fatalf("Plaque: %v", err)
+	}
+	if read.Encoded() || read.EncodedAt != nil {
+		t.Fatalf("an unstamped row reads Encoded()=%v EncodedAt=%v; the stamp is the only "+
+			"thing that may say so", read.Encoded(), read.EncodedAt)
+	}
+
+	_, err = f.plaques.Mount(context.Background(), MountCommand{
+		TenantID: f.tenantID, ActorID: f.actorID, UID: uid,
+		LocationID: f.locationID, VenueName: "KF Rusty Bar",
+	})
+	if !errors.Is(err, ErrPlaqueNotEncoded) {
+		t.Fatalf("Mount of an unstamped plaque = %v, want ErrPlaqueNotEncoded", err)
+	}
+	// 🔴 0 UPDATE, read from the table: still in the box, still without a wall.
+	status, wall, _, _ := f.row(t, uid)
+	if status != PlaqueUnassigned || wall != nil {
+		t.Fatalf("stored row = (%s, %v) after a refused mount, want (unassigned, nil)", status, wall)
+	}
+	if n := f.auditRows(t, ActionPlaqueMounted, uid); n != 0 {
+		t.Fatalf("plaque.mounted rows = %d after a refusal, want 0", n)
+	}
+	// 🔴 AND THE ATTEMPT IS IN THE TENANT'S OWN TRAIL — its own transaction, since the
+	// act's rolled back — with the actor from the command and the facts the server
+	// established.
+	if n := f.auditRows(t, ActionPlaqueMountRefused, uid); n != 1 {
+		t.Fatalf("plaque.mount_refused rows = %d, want 1", n)
+	}
+	var d refusedMountDetail
+	if err := json.Unmarshal([]byte(f.auditDetail(t, ActionPlaqueMountRefused, uid)), &d); err != nil {
+		t.Fatalf("detail: %v", err)
+	}
+	if d.Outcome != "refused" || d.Reason != refusedMountReason || d.Act != "mount" ||
+		d.Name != "KF Rusty Bar" || d.Replaces != "" {
+		t.Fatalf("refusal detail = %+v", d)
+	}
+	history, err := f.plaques.History(context.Background(), f.tenantID, uid)
+	if err != nil {
+		t.Fatalf("History: %v", err)
+	}
+	if len(history) != 1 || history[0].Action != ActionPlaqueMountRefused ||
+		history[0].ActorName != "Rita Camilleri" {
+		t.Fatalf("the plaque's trail = %+v, want one refusal by Rita Camilleri", history)
+	}
+
+	// THE POSITIVE CONTROL, ON THE SAME ROW: once the encode flow's own step-9
+	// statement stamps it, the very same Mount goes through. Without this the refusal
+	// above could be about the fixture rather than about the stamp.
+	if err := f.data.WithTenant(context.Background(), f.tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		_, e := store.New(tx).MarkTagEncoded(ctx, store.MarkTagEncodedParams{Uid: uid, TenantID: f.tenantID})
+		return e
+	}); err != nil {
+		t.Fatalf("MarkTagEncoded: %v", err)
+	}
+	got, err := f.plaques.Mount(context.Background(), MountCommand{
+		TenantID: f.tenantID, ActorID: f.actorID, UID: uid,
+		LocationID: f.locationID, VenueName: "KF Rusty Bar",
+	})
+	if err != nil {
+		t.Fatalf("Mount after the stamp: %v", err)
+	}
+	if !got.OnAWall() || !got.Encoded() {
+		t.Fatalf("mounted plaque = (%s, encoded=%v), want active and encoded", got.Status, got.Encoded())
+	}
+	if status, wall, _, _ := f.row(t, uid); status != PlaqueActive || wall == nil || *wall != f.locationID {
+		t.Fatalf("stored row = (%s, %v), want (active, %s)", status, wall, f.locationID)
+	}
+}
+
+// TestPlaquesDB_ReplacingWithAnUnrecordedSpareRollsTheWholeThingBack is the replace
+// half: the retire runs first and SUCCEEDS, then the bind refuses — and the one
+// transaction takes the retirement back with it.
+func TestPlaquesDB_ReplacingWithAnUnrecordedSpareRollsTheWholeThingBack(t *testing.T) {
+	f := newPlaqueFixture(t)
+	old := f.load(t, f.tenantID, PlaqueActive, f.locationID)
+	halfDone := f.loadUnrecorded(t, f.tenantID, PlaqueUnassigned, uuid.Nil)
+
+	_, err := f.plaques.Replace(context.Background(), ReplaceCommand{
+		TenantID: f.tenantID, ActorID: f.actorID,
+		RetiringUID: old, SuccessorUID: CanonicalUID(halfDone), VenueName: "St Julians",
+	})
+	if !errors.Is(err, ErrPlaqueNotEncoded) {
+		t.Fatalf("Replace with an unstamped successor = %v, want ErrPlaqueNotEncoded", err)
+	}
+	status, wall, retiredAt, replacedBy := f.row(t, old)
+	if status != PlaqueActive || retiredAt != nil || replacedBy != nil {
+		t.Fatalf("old plaque = (%s, retired_at=%v, replaced_by=%v); the retirement did NOT "+
+			"roll back, so the door lost its working plaque to one that cannot work",
+			status, retiredAt, replacedBy)
+	}
+	if wall == nil || *wall != f.locationID {
+		t.Fatalf("old plaque's wall = %v, want %s unchanged", wall, f.locationID)
+	}
+	if status, wall, _, _ := f.row(t, halfDone); status != PlaqueUnassigned || wall != nil {
+		t.Fatalf("successor = (%s, %v), want (unassigned, nil)", status, wall)
+	}
+	if n := f.auditRows(t, ActionPlaqueRetired, old); n != 0 {
+		t.Fatalf("plaque.retired rows = %d after a refused replacement, want 0", n)
+	}
+	if n := f.auditRows(t, ActionPlaqueMounted, halfDone); n != 0 {
+		t.Fatalf("plaque.mounted rows = %d after a refused replacement, want 0", n)
+	}
+	if n := f.auditRows(t, ActionPlaqueMountRefused, halfDone); n != 1 {
+		t.Fatalf("plaque.mount_refused rows = %d, want 1", n)
+	}
+	var d refusedMountDetail
+	if err := json.Unmarshal([]byte(f.auditDetail(t, ActionPlaqueMountRefused, halfDone)), &d); err != nil {
+		t.Fatalf("detail: %v", err)
+	}
+	if d.Act != "replace" || d.Replaces != old || d.Name != "St Julians" {
+		t.Fatalf("refusal detail = %+v, want act=replace replaces=%s name=St Julians", d, old)
+	}
+}
+
+// TestPlaquesDB_RustyBarsPlaqueCanStillBeReplaced is the repair the user will run:
+// the plaque ON the wall is the unstamped one, the spare is stamped. The retire has
+// no stamp predicate — gating it would lock the broken plaque onto its door.
+func TestPlaquesDB_RustyBarsPlaqueCanStillBeReplaced(t *testing.T) {
+	f := newPlaqueFixture(t)
+	broken := f.loadUnrecorded(t, f.tenantID, PlaqueActive, f.locationID)
+	spare := f.load(t, f.tenantID, PlaqueUnassigned, uuid.Nil)
+
+	// It reads as what it is: on a wall, not encoded.
+	read, err := f.plaques.Plaque(context.Background(), f.tenantID, broken)
+	if err != nil {
+		t.Fatalf("Plaque: %v", err)
+	}
+	if !read.OnAWall() || read.Encoded() {
+		t.Fatalf("Rusty Bar's plaque reads (%s, encoded=%v), want (active, false)", read.Status, read.Encoded())
+	}
+
+	done, err := f.plaques.Replace(context.Background(), ReplaceCommand{
+		TenantID: f.tenantID, ActorID: f.actorID,
+		RetiringUID: broken, SuccessorUID: CanonicalUID(spare), VenueName: "KF Rusty Bar",
+	})
+	if err != nil {
+		t.Fatalf("Replace of the unstamped plaque on the wall: %v", err)
+	}
+	if done.Retired.Encoded() || !done.Mounted.Encoded() {
+		t.Fatalf("returned plaques carry encoded=(%v, %v), want (false, true) — the stamp "+
+			"must travel back with the row", done.Retired.Encoded(), done.Mounted.Encoded())
+	}
+	if status, _, _, replacedBy := f.row(t, broken); status != PlaqueRetired || replacedBy == nil || *replacedBy != spare {
+		t.Fatalf("broken plaque = (%s, %v), want (retired, %s)", status, replacedBy, spare)
+	}
+	if status, wall, _, _ := f.row(t, spare); status != PlaqueActive || wall == nil || *wall != f.locationID {
+		t.Fatalf("spare = (%s, %v), want (active, %s)", status, wall, f.locationID)
+	}
+	if at := f.encodedAt(t, broken); at != nil {
+		t.Fatalf("retiring the broken plaque stamped it (%v); nothing but step 9 may", at)
+	}
+	if n := f.auditRows(t, ActionPlaqueMountRefused, spare); n != 0 {
+		t.Fatalf("a successful replacement wrote %d refusal rows", n)
+	}
+}
+
+// TestPlaquesDB_TheEncodeGateLeaksNothingAcrossTenants is §4.5 on the new refusal.
+// The uid is public (printed on the wall), so "not encoded" must never become an
+// answer about ANOTHER business's plaque — it stays "no such plaque", in both acts,
+// and neither trail gains a row.
+func TestPlaquesDB_TheEncodeGateLeaksNothingAcrossTenants(t *testing.T) {
+	f := newPlaqueFixture(t)
+	theirs := f.loadUnrecorded(t, f.foreignTenant, PlaqueUnassigned, uuid.Nil)
+	mine := f.load(t, f.tenantID, PlaqueActive, f.locationID)
+
+	if _, err := f.plaques.Mount(context.Background(), MountCommand{
+		TenantID: f.tenantID, ActorID: f.actorID, UID: theirs, LocationID: f.locationID,
+	}); !errors.Is(err, ErrUnknownPlaque) {
+		t.Fatalf("mounting another business's unstamped plaque = %v, want ErrUnknownPlaque", err)
+	}
+	if _, err := f.plaques.Replace(context.Background(), ReplaceCommand{
+		TenantID: f.tenantID, ActorID: f.actorID,
+		RetiringUID: mine, SuccessorUID: CanonicalUID(theirs),
+	}); !errors.Is(err, ErrUnknownPlaque) {
+		t.Fatalf("replacing with another business's unstamped plaque = %v, want ErrUnknownPlaque", err)
+	}
+	for _, tenantID := range []uuid.UUID{f.tenantID, f.foreignTenant} {
+		if n := f.auditRowsIn(t, tenantID, ActionPlaqueMountRefused, theirs); n != 0 {
+			t.Fatalf("tenant %s gained %d refusal rows about a plaque this business cannot see",
+				tenantID, n)
+		}
+	}
+	if status, _, _, _ := f.row(t, mine); status != PlaqueActive {
+		t.Fatalf("my plaque = %s after a refused cross-tenant replacement, want active", status)
+	}
+}
+
+// TestPlaquesDB_ARefusalTheTrailCannotRecordIsStillARefusal: recording the refusal
+// is a RECORDING path, not an authorising one. A trail outage must neither turn the
+// answer into a 500 nor let the mount through.
+func TestPlaquesDB_ARefusalTheTrailCannotRecordIsStillARefusal(t *testing.T) {
+	f := newPlaqueFixture(t)
+	uid := f.loadUnrecorded(t, f.tenantID, PlaqueUnassigned, uuid.Nil)
+
+	broken, err := NewPlaques(f.data, brokenTrail{err: errors.New("trail down")}, slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatalf("NewPlaques: %v", err)
+	}
+	if _, err := broken.Mount(context.Background(), MountCommand{
+		TenantID: f.tenantID, ActorID: f.actorID, UID: uid, LocationID: f.locationID,
+	}); !errors.Is(err, ErrPlaqueNotEncoded) {
+		t.Fatalf("Mount with a broken trail = %v, want ErrPlaqueNotEncoded unchanged", err)
+	}
+	if status, wall, _, _ := f.row(t, uid); status != PlaqueUnassigned || wall != nil {
+		t.Fatalf("row = (%s, %v), want (unassigned, nil)", status, wall)
 	}
 }
 
@@ -1250,8 +1533,9 @@ func TestPlaques_TheTwoBoundariesAnswerTwoDIFFERENTQuestions(t *testing.T) {
 //     SELECTS the column at all (the test below), so there is nothing to encode.
 func TestPlaquesDB_NoTypeOnThisPathCanCarryAKey(t *testing.T) {
 	fields := map[string][]string{
+		// EncodedAt (M10 F0-6) is a *time.Time — the stamp, never key material.
 		"tenant.Plaque": {"UID", "Status", "LocationID", "LastCtr", "RetiredAt",
-			"ReplacedBy", "Replaces", "LastSeen", "CreatedAt", "Canonical"},
+			"ReplacedBy", "Replaces", "LastSeen", "CreatedAt", "Canonical", "EncodedAt"},
 		"tenant.PlaqueScreen": {"Plaques", "Capped", "Zone"},
 		"tenant.Replacement":  {"Retired", "Mounted"},
 		"tenant.PlaqueEvent":  {"Action", "At", "ActorName", "BySystem"},
@@ -1583,8 +1867,9 @@ func keyRefFindings(sql string) (findings []string, read int) {
 		//
 		// So a star is refused BY ITS OWN CHARACTER, with one carve-out matched as
 		// TEXT rather than as a shape: `count(*)`, which returns a number. Measured
-		// on this file, those three aggregate lines in CountTenantPlaques are the
-		// ONLY stars it contains. A future statement that genuinely needs another
+		// on this file, the aggregate lines in CountTenantPlaques are the ONLY stars
+		// it contains (their number is deliberately not given: M10 F0-6 added a
+		// fourth, ready_to_mount, and a count here would have gone stale with it). A future statement that genuinely needs another
 		// one adds its exact line to keyRefAllowedLines, like everything else here.
 		// 🔴 THE WHOLE-ROW RULE, ADDED 2026-08-24 AFTER A FOURTH AUDIT MEASURED THE
 		// CLASS. `to_jsonb(tags)` and `row_to_json(tags)` project EVERY column --

@@ -160,6 +160,11 @@ var (
 		//	                     would meet a 500 on a row they can see.
 		"unknown-plaque", "plaque-not-stock", "plaque-not-active", "same-plaque",
 		"plaque-frozen",
+		// "plaque-not-encoded" — the plaque named to go on a wall has no record that its
+		// encoding finished (M10 F0-6, incident A-1). A separate word from "plaque-not-stock"
+		// because picking another spare is not the same act as "somebody beat you to
+		// it": this one is a property of the plaque, and no race produced it.
+		"plaque-not-encoded",
 		// "plaque-no-wall" — the plaque a manager tried to take DOWN is not on a wall.
 		// A separate word from "plaque-not-active" because it sends them somewhere
 		// else: that one is about the plaque a replacement would retire.

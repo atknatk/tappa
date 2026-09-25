@@ -90,15 +90,50 @@ package tenant
 // 🔴 WHAT "ENCODED" ON THE SCREEN IS ACTUALLY BACKED BY -- measured, because the
 // M6-06 card asks for an "encoded/pending" state and a word that overclaims is
 // worse than no word. The screen reads NOTHING about the key. It reads
-// `location_id IS NULL`. What lets it say "encoded" at all is a SCHEMA fact:
-// tags.aes_key_ref is `bytea NOT NULL` (00004), so a row cannot exist without
-// one, and only Tappa's loader writes rows. What it is NOT backed by, and this is
-// backlog T7 restated where a reader will meet it: nothing verifies the value is
-// a well-formed 44-byte KEK envelope. A corrupt or truncated envelope shows as
-// "encoded" here and fails at TAP time, as a 500 out of sun.Unwrap's length
-// check. This package cannot close that -- it would have to SELECT the column,
-// which is exactly what the wall above forbids. Closing it needs a schema CHECK
-// (T7 lists three options).
+// tags.encoded_at, the stamp ADR 0017 §5.1 step 9 writes after the chip took its
+// keys (migration 00022: server clock, write-once, never settable at INSERT).
+//
+// ⚠️ UNTIL 2026-09-25 IT READ THE ROW'S EXISTENCE INSTEAD, AND A LIVE DOOR PAID FOR
+// IT (M10 F0-6, incident A-1). The argument was "aes_key_ref is NOT NULL and only
+// Tappa's loader writes rows, so a row that exists is a plaque Tappa encoded" -- true
+// before M8-05, false after it: the encode endpoint writes the row at step 3, BEFORE
+// it touches the chip. A round that died in between left an unstamped row, the card
+// called it encoded, a manager mounted it at Rusty Bar, and every tap there was
+// refused. The stamp is now the only thing that licenses the word, and
+// AssignTagToLocation refuses an unstamped row in its own WHERE.
+//
+// What it is STILL NOT backed by, and this is backlog T7 restated where a reader
+// will meet it: nothing verifies the stored value is a well-formed 44-byte KEK
+// envelope, and nothing proves the stamped key is the one on the chip -- the stamp
+// records that the round reached step 9, not a later read of the silicon. This
+// package cannot close either: it would have to SELECT the key column, which is
+// exactly what the wall above forbids.
+//
+// ⚠️ AND A NULL STAMP HAS TWO CLASSES OF FALSE NEGATIVE, NAMED SO NEITHER IS
+// REDISCOVERED. Both carry the same NULL as Rusty Bar's plaque, so both read
+// "encoding not recorded as finished" and neither can be mounted. That is the
+// fail-closed direction — a working plaque kept off a wall costs a spare, a dead one
+// on a wall costs a door — but it is a claim about the RECORD, not about the chip.
+// (This paragraph said "ONE FALSE NEGATIVE" in the first two rounds of M10 F0-6; the
+// second class was found in review.)
+//
+//  1. THE CHIP WAS PERSONALISED AND THE STAMP WAS NOT WRITTEN: the marking failed
+//     after the chip's last irreversible step (plaque.unmarked, below — its trail
+//     says "do not re-encode"), or the round died between that step and step 9.
+//     Taps on such a chip verify. The repair is the out-of-process reconciliation
+//     pass ADR 0017 counts (md. 27), which does not exist yet.
+//  2. THE ROW PREDATES THE STAMP: migration 00022 records that before ADR 0017 §5.2
+//     the only writers were tappa_owner by hand and test/fixtures/seedkeys, both
+//     AFTER the chip was personalised — "the row was the RECEIPT" — and it added the
+//     column with NO backfill. Every such row is NULL, whatever state its chip is in.
+//
+// MEASURED, so the size of each class is on record rather than guessed. Production,
+// every tag row, counted by the orchestrator on 2026-09-25: 3 rows in total — 2
+// `active` + stamped + app_key_ref present, 1 (Rusty Bar) `active` + UNSTAMPED +
+// app_key_ref present. No class-2 row exists in production. Development did carry
+// class 2: all twelve seed plaques were unstamped (measured 2026-09-25) and the seed
+// now stamps them (test/fixtures/seed.sql, round 2); older test residue in the demo
+// tenant stays unstamped.
 //
 // 🔴 A REPLACE IS TWO WRITES AND ONE TRANSACTION (M6-06 card: "the old one is
 // retired, the new one is registered"). Retiring the old plaque and binding the
@@ -288,6 +323,32 @@ const (
 	// Record is the entry point for that, and internal/encode/rows.go says so at the
 	// call site.
 	ActionPlaqueUnmarked = "plaque.unmarked"
+
+	// ActionPlaqueMountRefused: a mount or a replacement named a plaque whose encoding
+	// was not recorded as finished, and the bind refused it (M10 F0-6, incident A-1).
+	//
+	// 🔴 IT IS WRITTEN BECAUSE THE SCREEN NEVER OFFERS THE ACT, so reaching the refusal
+	// means the page was stale, shared or bypassed — refuseRemovalByRole's argument
+	// (internal/handler/locationactions.go), and the name shape the product's other
+	// refusals use (`<subject>.<verb>_refused`, e.g. location.delete_refused), so a
+	// reader scanning `plaque.%` cannot mistake it for plaque.mounted. What decides it
+	// is the line it guards: ADR 0017 §5.1's "a plaque cannot go on a wall while key 0
+	// is still the factory default" is a security line — for a round that ran step 8,
+	// the step-9 stamp is the record that it got past it (rows stamped before step 8
+	// shipped carry no such implication; db/queries/tags.sql AssignTagToLocation says
+	// what was measured) — and an attempt to cross one belongs in the tenant's own
+	// durable trail, not only in a process log.
+	//
+	// 🔴 ITS OWN TRANSACTION, because the surrounding one ROLLED BACK — that is what
+	// the refusal is. Plaques.recordRefusedMount carries the argument; the other
+	// refusals this file answers (not in stock, frozen, no such plaque) write nothing,
+	// because each is a race or a lookup and none crosses a security line.
+	//
+	// ONLY WRITTEN FOR A ROW OF THIS TENANT: the refusal is reached through
+	// classifyMount's tenant-scoped read, so another business's uid is still
+	// ErrUnknownPlaque and leaves no row here (§4.5 — the trail must not become an
+	// oracle for "does this uid exist elsewhere").
+	ActionPlaqueMountRefused = "plaque.mount_refused"
 )
 
 // The plaque lifecycle vocabulary, read from the same CHECK constraint the policy
@@ -348,6 +409,17 @@ var (
 	// database has no violating row and none can be written -- so this maps a
 	// development reality onto a sentence rather than a crash.
 	ErrPlaqueFrozen = errors.New("tenant: that plaque's id was recorded in a spelling this database no longer accepts")
+
+	// ErrPlaqueNotEncoded: the plaque is in stock but its encoding was not recorded as finished
+	// (tags.encoded_at IS NULL), so it may not go on a wall (M10 F0-6).
+	//
+	// 🔴 A SEPARATE SENTENCE FROM ErrPlaqueNotInStock BECAUSE IT IS A DIFFERENT THING
+	// TO DO ABOUT IT. "Not in stock" is a race — pick another spare. This one is a
+	// property of the plaque: no spare-picking fixes it, and a manager told "somebody
+	// mounted it first" would go looking for a colleague. Incident A-1 is what it
+	// costs when the distinction is missing entirely: the plaque went up and the door
+	// refused every tap.
+	ErrPlaqueNotEncoded = errors.New("tenant: that plaque's encoding was not recorded as finished, so it cannot go on a wall")
 )
 
 // plaqueUIDRE is the canonical uid: 14 upper-case hex characters. It is
@@ -494,10 +566,24 @@ type Plaque struct {
 	// for development residue -- see ErrPlaqueFrozen. A non-canonical row can be
 	// READ but never written, so the screen must not offer it an action.
 	Canonical bool
+	// EncodedAt is when the encode round stamped this plaque (tags.encoded_at, ADR
+	// 0017 §5.1 step 9), or NIL FOR "ENCODING NOT RECORDED AS FINISHED".
+	//
+	// 🔴 nil IS THE FAIL-CLOSED ZERO VALUE, AND THAT IS WHY THE FIELD IS THIS WAY ROUND.
+	// A Plaque built without the fact — a fixture, a future query that forgot the
+	// column — reads as NOT encoded and is offered no mount, instead of the reverse. A
+	// boolean "unencoded" flag would have made the forgetful case the dangerous one,
+	// which is incident A-1's shape: a row taken for an encoded plaque because nothing
+	// said otherwise. See the file header for what the stamp does and does not prove.
+	EncodedAt *time.Time
 }
 
 // InStock reports that this plaque is loaded but not on any wall.
 func (p Plaque) InStock() bool { return p.Status == PlaqueUnassigned }
+
+// Encoded reports that the encode round finished for this plaque — the only state in
+// which AssignTagToLocation will put it on a wall.
+func (p Plaque) Encoded() bool { return p.EncodedAt != nil }
 
 // OnAWall reports that this plaque is in service.
 func (p Plaque) OnAWall() bool { return p.Status == PlaqueActive }
@@ -659,7 +745,7 @@ func (p *Plaques) Plaque(ctx context.Context, tenantID uuid.UUID, uid string) (P
 		out = plaqueOf(plaqueRow{
 			UID: row.Uid, LocationID: row.LocationID, LastCtr: row.LastCtr,
 			Status: row.Status, RetiredAt: row.RetiredAt, ReplacedBy: row.ReplacedBy,
-			CreatedAt: row.CreatedAt,
+			CreatedAt: row.CreatedAt, EncodedAt: row.EncodedAt,
 		})
 		return nil
 	})
@@ -819,6 +905,34 @@ type mountedDetail struct {
 	FromStatus string `json:"from_status"`
 }
 
+// refusedMountDetail is the audit row's payload for a mount or a replacement that
+// named a plaque whose encoding was not recorded as finished (ActionPlaqueMountRefused).
+//
+// 🔴 EVERY VALUE IN IT IS ONE THE SERVER ESTABLISHED, NOT ONE THE REQUEST CLAIMED.
+// A mount's venue id is deliberately absent: the refused statement never reached
+// the composite FK that would have validated it, so writing it here would put an
+// unchecked, possibly foreign id into this tenant's durable trail. `name` is the
+// venue name the caller read through a tenant-scoped query ("" when it could not),
+// and `replaces` is the plaque a replacement would have retired — read by the
+// retire's own tenant-scoped statement before the rollback.
+//
+// 🔴 NO omitempty ON ANY FACT (deletedDetail's lesson) and nothing a secret could
+// travel in (§4.7): an outcome, a reason, an act, a venue name and a public uid.
+type refusedMountDetail struct {
+	Outcome string `json:"outcome"`
+	Reason  string `json:"reason"`
+	// Act is "mount" or "replace" — which door-changing act was refused.
+	Act  string `json:"act"`
+	Name string `json:"name"`
+	// Replaces is the plaque that STAYED on the wall because the replacement was
+	// refused, or "" for a plain mount.
+	Replaces string `json:"replaces"`
+}
+
+// refusedMountReason is the one reason this refusal carries. A constant so the
+// trail's wording cannot drift between the two acts that write it.
+const refusedMountReason = "encoding not recorded as finished"
+
 // retiredDetail is the audit row's payload for a retirement.
 type retiredDetail struct {
 	// Name holds the SUCCESSOR's uid -- see the ActionPlaqueRetired comment for why
@@ -840,6 +954,12 @@ type retiredDetail struct {
 // between them (the section 4.4 shape applied to a different column). This function
 // does NOT read the row first to check -- that would be the TOCTOU the shape exists
 // to forbid.
+//
+// 🔴 AND SO IS THE SECOND ONE (M10 F0-6): the statement also demands `encoded_at IS
+// NOT NULL`, so a plaque whose encoding was not recorded as finished is refused by the same WHERE,
+// with nothing written. classifyMount names it ErrPlaqueNotEncoded, and that one
+// refusal is also recorded in the trail — in a transaction of its own, after the
+// refused one has rolled back (see ActionPlaqueMountRefused).
 func (p *Plaques) Mount(ctx context.Context, c MountCommand) (Plaque, error) {
 	if err := requireActor(c.TenantID, c.ActorID); err != nil {
 		return Plaque{}, err
@@ -869,7 +989,7 @@ func (p *Plaques) Mount(ctx context.Context, c MountCommand) (Plaque, error) {
 		out = plaqueOf(plaqueRow{
 			UID: row.Uid, LocationID: row.LocationID, LastCtr: row.LastCtr,
 			Status: row.Status, RetiredAt: row.RetiredAt, ReplacedBy: row.ReplacedBy,
-			CreatedAt: row.CreatedAt,
+			CreatedAt: row.CreatedAt, EncodedAt: row.EncodedAt,
 		})
 		_, err = p.trail.RecordTx(ctx, tx, audit.Event{
 			TenantID: c.TenantID,
@@ -885,6 +1005,12 @@ func (p *Plaques) Mount(ctx context.Context, c MountCommand) (Plaque, error) {
 		})
 		return err
 	})
+	if errors.Is(err, ErrPlaqueNotEncoded) {
+		p.recordRefusedMount(ctx, c.TenantID, c.ActorID, uid, refusedMountDetail{
+			Outcome: "refused", Reason: refusedMountReason, Act: "mount",
+			Name: c.VenueName, Replaces: "",
+		})
+	}
 	if err != nil {
 		return Plaque{}, wrapPlaque("mount plaque", err)
 	}
@@ -971,7 +1097,7 @@ func (p *Plaques) Unmount(ctx context.Context, c UnmountCommand) (Plaque, error)
 		out = plaqueOf(plaqueRow{
 			UID: row.Uid, LocationID: row.LocationID, LastCtr: row.LastCtr,
 			Status: row.Status, RetiredAt: row.RetiredAt, ReplacedBy: row.ReplacedBy,
-			CreatedAt: row.CreatedAt,
+			CreatedAt: row.CreatedAt, EncodedAt: row.EncodedAt,
 		})
 		_, err = p.trail.RecordTx(ctx, tx, audit.Event{
 			TenantID: c.TenantID,
@@ -1096,6 +1222,11 @@ func (p *Plaques) Replace(ctx context.Context, c ReplaceCommand) (Replacement, e
 		}
 		wall := *old.LocationID
 
+		// 🔴 AN UNSTAMPED SUCCESSOR ROLLS THE RETIREMENT BACK (M10 F0-6). The bind
+		// demands encoded_at IS NOT NULL in its own WHERE; returning its refusal from
+		// this callback aborts the one transaction, so the old plaque is still `active`
+		// on its wall and no retire row reaches the trail. Retiring is deliberately NOT
+		// gated on the old plaque's stamp — Rusty Bar's is NULL and this is its repair.
 		fresh, err := q.AssignTagToLocation(ctx, store.AssignTagToLocationParams{
 			LocationID: wall, TenantID: c.TenantID, Uid: string(successor),
 		})
@@ -1106,12 +1237,12 @@ func (p *Plaques) Replace(ctx context.Context, c ReplaceCommand) (Replacement, e
 		out.Retired = plaqueOf(plaqueRow{
 			UID: old.Uid, LocationID: old.LocationID, LastCtr: old.LastCtr,
 			Status: old.Status, RetiredAt: old.RetiredAt, ReplacedBy: old.ReplacedBy,
-			CreatedAt: old.CreatedAt,
+			CreatedAt: old.CreatedAt, EncodedAt: old.EncodedAt,
 		})
 		out.Mounted = plaqueOf(plaqueRow{
 			UID: fresh.Uid, LocationID: fresh.LocationID, LastCtr: fresh.LastCtr,
 			Status: fresh.Status, RetiredAt: fresh.RetiredAt, ReplacedBy: fresh.ReplacedBy,
-			CreatedAt: fresh.CreatedAt,
+			CreatedAt: fresh.CreatedAt, EncodedAt: fresh.EncodedAt,
 		})
 
 		if _, err := p.trail.RecordTx(ctx, tx, audit.Event{
@@ -1141,6 +1272,12 @@ func (p *Plaques) Replace(ctx context.Context, c ReplaceCommand) (Replacement, e
 		})
 		return err
 	})
+	if errors.Is(err, ErrPlaqueNotEncoded) {
+		p.recordRefusedMount(ctx, c.TenantID, c.ActorID, string(successor), refusedMountDetail{
+			Outcome: "refused", Reason: refusedMountReason, Act: "replace",
+			Name: c.VenueName, Replaces: retiring,
+		})
+	}
 	if err != nil {
 		return Replacement{}, wrapPlaque("replace plaque", err)
 	}
@@ -1202,10 +1339,16 @@ func (p *Plaques) ConfirmPlaqueAct(ctx context.Context, tenantID, actorID uuid.U
 // classifyMount turns a failed bind into the sentence a manager can act on.
 //
 // 🔴 pgx.ErrNoRows IS AMBIGUOUS BY CONSTRUCTION AND THE SECOND READ IS WHAT
-// RESOLVES IT. AssignTagToLocation matches on (tenant, uid, status='unassigned'),
-// so zero rows means EITHER "no such plaque here" OR "it is not in stock" -- two
-// different things to do about it. The follow-up read runs only on the failure
-// path, inside the same transaction, and costs nothing on the ordinary one.
+// RESOLVES IT. AssignTagToLocation matches on (tenant, uid, status='unassigned',
+// encoded_at IS NOT NULL), so zero rows means "no such plaque here", "it is not in
+// stock" OR "its encoding was not recorded as finished" -- three different things to do about it.
+// The follow-up read runs only on the failure path, inside the same transaction, and
+// costs nothing on the ordinary one.
+//
+// THE ORDER OF THE ARMS IS THE ORDER A MANAGER CAN ACT ON: a plaque of another
+// business is nothing to them (and must stay indistinguishable from none, §4.5); a
+// plaque on a wall is "pick another spare" whatever its stamp; only a plaque that IS
+// in stock is refused for its stamp.
 func classifyMount(ctx context.Context, q *store.Queries, tenantID uuid.UUID, uid string, cause error) error {
 	if errors.Is(cause, pgx.ErrNoRows) {
 		row, err := q.GetTagForTenant(ctx, store.GetTagForTenantParams{TenantID: tenantID, Uid: uid})
@@ -1216,6 +1359,10 @@ func classifyMount(ctx context.Context, q *store.Queries, tenantID uuid.UUID, ui
 			return fmt.Errorf("classify mount: %w", err)
 		case row.Status != PlaqueUnassigned:
 			return ErrPlaqueNotInStock
+		case row.EncodedAt == nil:
+			// M10 F0-6 / incident A-1: the row exists, is in stock, and the encode round
+			// never stamped it. The statement refused; this names why.
+			return ErrPlaqueNotEncoded
 		default:
 			// The row IS in stock and the statement still matched nothing. There is no
 			// third reading, so it is reported as itself rather than guessed at.
@@ -1293,6 +1440,10 @@ type plaqueRow struct {
 	RetiredAt  *time.Time
 	ReplacedBy *string
 	CreatedAt  time.Time
+	// EncodedAt is tags.encoded_at. Every tag query this file calls selects or
+	// returns it (M10 F0-6), so every call site fills it — a site that forgot would
+	// produce a plaque that reads as NOT encoded, which is the safe way to be wrong.
+	EncodedAt *time.Time
 }
 
 func plaqueOf(r plaqueRow) Plaque {
@@ -1306,6 +1457,7 @@ func plaqueOf(r plaqueRow) Plaque {
 		LastSeen:   nil,
 		CreatedAt:  r.CreatedAt,
 		Canonical:  plaqueUIDRE.MatchString(r.UID),
+		EncodedAt:  r.EncodedAt,
 	}
 }
 
@@ -1346,7 +1498,7 @@ func plaqueScreenOf(rows []store.ListTagsForTenantRow, seen []store.ListTagLastS
 		p := plaqueOf(plaqueRow{
 			UID: r.Uid, LocationID: r.LocationID, LastCtr: r.LastCtr,
 			Status: r.Status, RetiredAt: r.RetiredAt, ReplacedBy: r.ReplacedBy,
-			CreatedAt: r.CreatedAt,
+			CreatedAt: r.CreatedAt, EncodedAt: r.EncodedAt,
 		})
 		if t, ok := stamps[r.Uid]; ok {
 			stamp := t
@@ -1371,9 +1523,47 @@ func wrapPlaque(op string, err error) error {
 		errors.Is(err, ErrSamePlaque),
 		errors.Is(err, ErrPlaqueUID),
 		errors.Is(err, ErrPlaqueFrozen),
+		errors.Is(err, ErrPlaqueNotEncoded),
 		errors.Is(err, ErrUnknownVenue):
 		return err
 	default:
 		return fmt.Errorf("tenant: %s: %w", op, err)
+	}
+}
+
+// recordRefusedMount writes ActionPlaqueMountRefused for a bind that
+// AssignTagToLocation refused because the plaque's encoding was not recorded as finished.
+//
+// 🔴 IT IS ITS OWN TRANSACTION, AND IT CAN ONLY BE: the act's transaction has
+// already ROLLED BACK — that rollback is the refusal — so a trail row written inside
+// it would vanish with it. This is the case audit.Record's own comment describes
+// (the caller who most needs a trail row is the one whose act did NOT happen), and
+// the shape internal/encode uses for plaque.unmarked. It goes through RecordTx inside
+// a fresh WithTenant because that is the one port this type holds (§7: the trail is
+// injected, and widening its interface for one caller is not this change's to make).
+//
+// 🔴 A FAILED WRITE DOES NOT CHANGE THE ANSWER — refuseRemovalByRole's rule. This is
+// a RECORDING path, not an authorising one: the refusal already happened in the
+// statement, and turning a trail outage into "the panel is unavailable" would report
+// OUR failure as a verdict on the manager's request. It is logged loudly instead.
+//
+// ⚠️ WHAT IT DOES NOT PROVE, counted rather than implied: its absence. A trail
+// outage, a cancelled request context or a dead pool leaves the refusal unrecorded
+// (the log line below is then the only trace) — the same limit plaque.unmarked's
+// comment states for itself.
+func (p *Plaques) recordRefusedMount(ctx context.Context, tenantID, actorID uuid.UUID, uid string, d refusedMountDetail) {
+	err := p.data.WithTenant(ctx, tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		_, err := p.trail.RecordTx(ctx, tx, audit.Event{
+			TenantID: tenantID,
+			ActorID:  &actorID,
+			Action:   ActionPlaqueMountRefused,
+			Target:   uid,
+			Detail:   d,
+		})
+		return err
+	})
+	if err != nil {
+		p.log.Error("tenant: could not record a refused mount; the refusal stands",
+			"err", err, "tag_uid", uid, "actor_id", actorID, "act", d.Act)
 	}
 }

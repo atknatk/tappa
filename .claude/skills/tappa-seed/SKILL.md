@@ -130,18 +130,29 @@ Bu senaryo olmadan gece vardiyası regresyonu fark edilmez.
 ## Nasıl yazılır
 
 - `test/fixtures/seed.sql` — idempotent (sabit UUID'ler + `ON CONFLICT DO NOTHING`),
-  `make seed` ile çalışır.
+  `make seed` ile çalışır. **Tek sütunluk iki istisna** var, ikisi de ikinci koşuda
+  hiçbir şey değiştirmez: `locations.wifi_ssid`'i dolduran korumalı `DO UPDATE`, ve
+  (M10 F0-6, 2026-09-25) demo plaketlerine `tags.encoded_at` basan
+  `UPDATE … WHERE … AND encoded_at IS NULL`. Damga INSERT'te basılamaz (migration
+  00022 her rol için reddeder), o yüzden ayrı bir UPDATE'tir.
 - ⚠️ **`make seed` İKİ ADIMDIR ve `TAPPA_TAG_KEK` ZORUNLUDUR** — yoksa
   `scripts/seed.sh` exit 1 verir, yarım seed bırakmaz. Adım 1 `seed.sql`'i akıtır;
   adım 2 `test/fixtures/seedkeys` ile her demo plaketin per-tag anahtarını KEK ile
   **sarmalar** ve `tags.aes_key_ref`'i yazar. Bu SQL'de yapılamaz: pgcrypto'da GCM
   yok ve değer operatörün KEK'ine bağlı (KEK repoda değil — §4.7). Anahtarın hiç
   yoksa üret: `openssl rand -base64 32` → `.env`.
-- ⚠️ **Yeni plaket = İKİ yer:** `seed.sql`'e satır **ve** `fixtures.SeedTags`'e
-  giriş (`test/fixtures/tagkeys.go`). Yalnız birine yazarsan plaket 44 baytlık
-  zarfsız kalır ve ilk tap `GET /t`'de **500** verir. Drift guard bunu mekanik
-  yakalar: seed adımı 44 bayt olmayan bir demo plaket görürse `RAISE` ile patlar,
-  yani hata günler sonra ilk tap'te değil, `make seed`'de çıkar.
+- ⚠️ **Yeni plaket = ÜÇ yer** (M10 F0-6'dan beri; önceden iki):
+  1. `seed.sql`'deki `INSERT INTO tags` satırı,
+  2. aynı dosyada, hemen altındaki `encoded_at` damga `UPDATE`'inin **sabit uid
+     listesi**,
+  3. `fixtures.SeedTags` girişi (`test/fixtures/tagkeys.go`).
+  - (3)'ü unutursan plaket 44 baytlık zarfsız kalır ve ilk tap `GET /t`'de **500**
+    verir. seedkeys'in drift guard'ı bunu `make seed`'de `RAISE` ile yakalar.
+  - (2)'yi unutursan plaket **damgasız** yüklenir. Panel onu "cannot go on a wall" /
+    "needs replacing" diye gösterir ve kartı mount'u reddeder.
+  - Üçünün birebir aynı uid kümesi olduğunu
+    `test/fixtures/seed_test.go → TestSeedSQL_EveryLoadedPlaqueIsStampedAndListed`
+    DB'siz, her `go test`'te kontrol eder.
 - Tarihler `now()`'a **göreli** üretilir (bugünün vardiyası) ki dashboard her
   zaman dolu görünsün; sabit takvim tarihi gömme.
 - Üretilen `transactions` satırları karar motorunun **çıktısıyla tutarlı** olmalı:

@@ -110,6 +110,12 @@ templ AdminLocations(v LocationsView) {
 						// spelling it no longer accepts; they are listed because they exist, and
 						// the database refuses every write to them.
 						<p>That plaque's id was recorded in a spelling this system no longer accepts, so nothing can be written to it. Nothing was changed.</p>
+					case "plaque-not-encoded":
+						// 🔴 M10 F0-6, INCIDENT A-1. The card never offers this act, so the page
+						// was stale or the form was bypassed; the statement refused it. For a
+						// replacement the old plaque's retirement was rolled back with it, which
+						// is why the sentence says nothing came down either.
+						<p>Its encoding was not recorded as finished. Nothing was changed: no plaque went up and none came down. Pick a freshly encoded plaque.</p>
 					default:
 						<p>We could not load your venues. Nothing was changed — try again in a moment.</p>
 				}
@@ -244,8 +250,15 @@ templ AdminLocations(v LocationsView) {
 				}
 			} else if v.PlaquesQueried {
 				@components.EmptyState("No plaques are mounted") {
-					if len(v.Stock) > 0 {
+					if v.MountableStock > 0 {
 						<p>You have plaques in stock below. Open one to mount it at a venue.</p>
+					} else if len(v.Stock) > 0 {
+						// 🔴 M10 F0-6. The box is not empty, but nothing in it can go on a
+						// wall — its encoding was not recorded as finished (or, on a
+						// development database, the row is frozen). The first sentence above
+						// would promise a mount the server refuses; this one sends the manager
+						// to the card, which says which reason applies.
+						<p>None of the plaques in stock below can be mounted — open one to see why.</p>
 					} else {
 						// 🔴 THE SENTENCE SAYS WHERE PLAQUES COME FROM, because there is no
 						// button and there must not be: the panel cannot create a plaque — that
@@ -446,6 +459,8 @@ func problemVenueHeading(problem string) string {
 		return "A plaque cannot replace itself"
 	case "plaque-frozen":
 		return "That plaque cannot be changed"
+	case "plaque-not-encoded":
+		return "That plaque cannot go on a wall"
 	default:
 		return "We could not load your venues"
 	}

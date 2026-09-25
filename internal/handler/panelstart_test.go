@@ -31,6 +31,7 @@ package handler
 // TestSignupSurface_MakesNoDeliveryClaim points them at the sign-up surface too.
 
 import (
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -80,7 +81,7 @@ var plaqueStates = []plaqueStateFixture{
 	},
 	{
 		name:    "loaded, none mounted",
-		plaques: ledger.Plaques{Queried: true, InStock: 3, Loaded: 3},
+		plaques: ledger.Plaques{Queried: true, InStock: 3, ReadyToMount: 3, Loaded: 3},
 		state:   pages.PlaqueStateInStock,
 		want:    "None of this business's plaques is mounted",
 	},
@@ -128,6 +129,55 @@ func TestPanelLanding_SaysWhyNobodyCanTapYet(t *testing.T) {
 						"The three cannot both be true: one of them is telling this customer\n"+
 						"something about their plaques that is not so.", tc.state, other.want)
 				}
+			}
+		})
+	}
+}
+
+// TestPanelLanding_ReadyToMountCountsOnlyFinishedEncodes is M10 F0-6's second
+// round, B2: "ready to mount" is a promise the mount statement has to keep.
+//
+// 🔴 THE SENTENCE USED TO PRINT InStock. AssignTagToLocation refuses an `unassigned`
+// row whose encode was not recorded as finished, so a box holding only such rows was
+// described as "ready to mount: N" while every one of the N would be refused. The
+// counts below are the three shapes that separate the two numbers.
+func TestPanelLanding_ReadyToMountCountsOnlyFinishedEncodes(t *testing.T) {
+	const ready = `In stock, ready to mount: <span class="font-mono">%d</span>.`
+	const unrecorded = `Not mountable — encoding not recorded as finished: <span class="font-mono">%d</span>.`
+	const askUs = "Ask us for a freshly encoded plaque."
+	for _, tc := range []struct {
+		name           string
+		plaques        ledger.Plaques
+		wantReady      int
+		wantUnrecorded int // 0 = the sentence must be absent
+		wantAskUs      bool
+	}{
+		{"every plaque in the box is ready",
+			ledger.Plaques{Queried: true, InStock: 3, ReadyToMount: 3, Loaded: 3}, 3, 0, false},
+		{"only unrecorded plaques in the box",
+			ledger.Plaques{Queried: true, InStock: 2, ReadyToMount: 0, Loaded: 2}, 0, 2, true},
+		{"a mix: one ready, two unrecorded",
+			ledger.Plaques{Queried: true, InStock: 3, ReadyToMount: 1, Loaded: 3}, 1, 2, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fake := newFakeLedger()
+			fake.plaques = tc.plaques
+			body := htmlOf(t, panelBrowserWith(t, fake).do(http.MethodGet, transactionsHref, nil))
+			if want := fmt.Sprintf(ready, tc.wantReady); !strings.Contains(body, want) {
+				t.Errorf("the landing section does not say %q", want)
+			}
+			hasUnrecorded := strings.Contains(body, "Not mountable — encoding not recorded as finished")
+			if hasUnrecorded != (tc.wantUnrecorded > 0) {
+				t.Errorf("unrecorded-stock sentence present = %v, want %v", hasUnrecorded, tc.wantUnrecorded > 0)
+			}
+			if tc.wantUnrecorded > 0 {
+				if want := fmt.Sprintf(unrecorded, tc.wantUnrecorded); !strings.Contains(body, want) {
+					t.Errorf("the landing section does not say %q", want)
+				}
+			}
+			if got := strings.Contains(body, askUs); got != tc.wantAskUs {
+				t.Errorf("%q present = %v, want %v (only when nothing in the box can be mounted)",
+					askUs, got, tc.wantAskUs)
 			}
 		})
 	}

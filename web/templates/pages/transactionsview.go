@@ -106,10 +106,23 @@ type PlaqueCounts struct {
 	// difference decides whether the screen may make a claim about the business at
 	// all (§4.6). The HTMX fragment never asks, so it renders nothing from here.
 	Queried bool
-	// InService is how many plaques a tap could actually use — §5 row 1's own test.
+	// InService is how many plaques are `active` — the status half of §5 row 1's
+	// test, nothing more.
+	//
+	// ⚠️ IT IS NOT "PLAQUES A TAP COULD ACTUALLY USE", AND THIS LINE USED TO SAY SO
+	// (corrected M10 F0-6, third round). The count includes an `active` plaque with no
+	// encoded_at stamp — Rusty Bar's shape — whose taps failed the SUN check live (12
+	// taps, 0 valid). Whether an active plaque's chip actually carries the key the
+	// database holds is not knowable from this row, so the screen's "working" state
+	// means "a plaque is on a wall", not "taps there verify". Behaviour is unchanged;
+	// the open item is the orchestrator's backlog.
 	InService int
 	// InStock is how many are loaded and not yet mounted.
 	InStock int
+	// ReadyToMount is how many of those could go on a wall — encoded as well as in
+	// the box (M10 F0-6). The sentence that says "ready to mount" prints THIS, never
+	// InStock; see ledger.Plaques.ReadyToMount.
+	ReadyToMount int
 	// Loaded is every plaque row this business has, whatever its status.
 	Loaded int
 }
@@ -185,6 +198,27 @@ func (v TransactionsView) PlaquesHref() string { return SectionHref(TabLocations
 // navigation does.
 func (v TransactionsView) PlaquesLabel() string { return SectionLabel(TabLocations) }
 
-// InStockCount is the stock figure as text, for a mono cell. skill tappa-brand:
-// every number the product prints is data and data is mono.
-func (v TransactionsView) InStockCount() string { return strconv.Itoa(v.Plaques.InStock) }
+// ReadyToMountCount is the figure the sentence calls "ready to mount", as text for
+// a mono cell (skill tappa-brand: every number the product prints is data and data
+// is mono).
+//
+// 🔴 IT WAS InStockCount UNTIL M10 F0-6, AND THE NAME WAS THE BUG. It printed every
+// `unassigned` row beside the words "ready to mount", including rows whose encode
+// round never recorded its finish — which AssignTagToLocation refuses. The words now
+// get the count the bind agrees with.
+func (v TransactionsView) ReadyToMountCount() string {
+	return strconv.Itoa(v.Plaques.ReadyToMount)
+}
+
+// UnrecordedStock is how many plaques are in the box but cannot go on a wall because
+// their encoding was not recorded as finished. Zero means the sentence for them is
+// not printed at all.
+func (v TransactionsView) UnrecordedStock() int {
+	if n := v.Plaques.InStock - v.Plaques.ReadyToMount; n > 0 {
+		return n
+	}
+	return 0
+}
+
+// UnrecordedStockCount is UnrecordedStock as text, for a mono cell.
+func (v TransactionsView) UnrecordedStockCount() string { return strconv.Itoa(v.UnrecordedStock()) }

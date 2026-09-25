@@ -75,13 +75,15 @@ import (
 // pin is defence in depth and the privilege is the wall.
 // (⚠️ the SQL half permits the column in ONE named INSERT, because ADR 0017 §5.1
 // step 3 must write it; the direction is what that rule is about.) The card's "encoded/pending"
-// criterion is answered by a WORD derived from whether the plaque has a wall —
+// criterion is answered by a WORD derived from tags.encoded_at and the wall —
 // keyStateOf below is the only thing that produces it, and it reads nothing about
 // cryptography. What that word IS and IS NOT backed by is written at
 // components/plaqueview.go and in internal/domain/tenant/plaque.go; the short
-// version is that tags.aes_key_ref is NOT NULL by schema, so a row that exists is
-// a plaque Tappa loaded, and NOTHING checks that the stored envelope is well
-// formed (backlog T7).
+// version is that encoded_at is the step-9 stamp of the encode round (ADR 0017
+// §5.1), the ONLY record that the chip took its keys, and NOTHING checks that the
+// stored envelope is well formed (backlog T7). ⚠️ Until M10 F0-6 (2026-09-25) the
+// word was derived from the row's mere existence, and incident A-1 is what that
+// cost: a half-encoded plaque read "Encoded", was mounted, and refused every tap.
 //
 // 🔴 THE TENANT IS NEVER AN INPUT (§4.5). It comes from httpx.AdminOf(r), which
 // the Protect chain resolved from a signed session cookie against the database.
@@ -152,6 +154,11 @@ func fillPlaques(v *pages.LocationsView, screen tenant.PlaqueScreen, venues tena
 			v.Mounted = append(v.Mounted, row)
 		case p.InStock():
 			v.Stock = append(v.Stock, row)
+			// The same three predicates plaqueCardOf applies before it offers a mount
+			// form (and AssignTagToLocation applies before it binds).
+			if p.Encoded() && p.Changeable() {
+				v.MountableStock++
+			}
 		default:
 			v.OutOfService = append(v.OutOfService, row)
 		}
@@ -203,6 +210,7 @@ func plaqueRowView(p tenant.Plaque, names map[uuid.UUID]string, zone *time.Locat
 		Counter:    strconv.FormatInt(int64(p.LastCtr), 10),
 		LastSeen:   plaqueStamp(p.LastSeen, zone),
 		KeyState:   keyStateOf(p),
+		KeyAlert:   keyAlertOf(p),
 		Replaces:   p.Replaces,
 		ReplacedBy: p.ReplacedBy,
 		RetiredAt:  plaqueStamp(p.RetiredAt, zone),
@@ -251,12 +259,30 @@ func plaqueStatusWord(status string) string {
 // keyStateOf is the M6-06 card's "encoded/pending" criterion, and it is the ONLY
 // thing on this screen that says anything about a plaque's key.
 //
-// 🔴 IT READS NO KEY. It reads whether the plaque has a wall. The word "encoded"
-// is licensed by a SCHEMA fact rather than by an inspection: tags.aes_key_ref is
-// `bytea NOT NULL` (00004) and only Tappa's loader writes rows, so a row that
-// exists is a plaque somebody encoded and loaded. "Pending" means pending a WALL,
-// which is what the inventory model made representable (00013 part 3: pending =
-// location_id IS NULL).
+// 🔴 IT READS NO KEY. It reads tags.encoded_at — the stamp ADR 0017 §5.1 step 9
+// writes once the chip took its keys — and whether the plaque has a wall. "Pending"
+// means pending a WALL, which is what the inventory model made representable (00013
+// part 3: pending = location_id IS NULL).
+//
+// 🔴 THE WORD "ENCODED" USED TO BE LICENSED BY THE ROW'S EXISTENCE AND THAT WAS
+// INCIDENT A-1 (M10 F0-6, 2026-09-25). The argument read "aes_key_ref is NOT NULL and
+// only Tappa's loader writes rows, so a row that exists is a plaque somebody encoded"
+// — and M8-05's encode endpoint writes the row at step 3, BEFORE touching the chip.
+// A round that died there left a row this function called "Encoded by Taptime —
+// pending a wall"; it was mounted at Rusty Bar and refused 12 taps out of 12. The
+// value set is still CLOSED (the view-model test pins it): two sentences for a
+// recorded encode, one for every unrecorded one.
+//
+// ⚠️ THE UNRECORDED SENTENCE MAKES NO CLAIM ABOUT TAPS, AND THAT IS A CORRECTION
+// (second round, 2026-09-25). The first version said "every tap on it is rejected"
+// for a plaque on a wall, and "a tap on it would be rejected" for one in the box.
+// Neither is derivable from the row: a round whose chip WAS personalised and whose
+// marking failed (plaque.unmarked — its trail line says "do not re-encode") has a
+// working chip and the same NULL, and so does a round that died after step 7 and
+// before step 9 — taps on those VERIFY. Rusty Bar's shape (91AE at WriteData, the
+// row's key never reached the chip) cannot be told apart from them in the database
+// today. What IS true of every one of them is what the row says: the encode was not
+// recorded as finished, and the mount refuses it. The sentence says exactly that.
 //
 // ⚠️ WHAT IT DOES NOT CLAIM, stated because a word that overclaims is worse than no
 // word: nothing here verifies the stored envelope is the well-formed 44-byte KEK
@@ -274,10 +300,45 @@ func plaqueStatusWord(status string) string {
 // where the misleading WORD is produced, so whoever fixes T7 finds the whole cost in
 // one place.
 func keyStateOf(p tenant.Plaque) string {
-	if p.InStock() {
+	switch {
+	case p.Encoded() && p.InStock():
 		return "Encoded by Taptime — pending a wall"
+	case p.Encoded():
+		return "Encoded by Taptime"
+	default:
+		return "Encoding not recorded as finished"
 	}
-	return "Encoded by Taptime"
+}
+
+// keyAlertOf decides whether the docket carries a banner about an encode that was
+// not recorded as finished, and which one: "stock", "wall", or "" for none.
+//
+// 🔴 TWO BANNERS BECAUSE THE TWO STATES ASK FOR DIFFERENT ACTS (M10 F0-6). An
+// unrecorded plaque in the BOX costs a spare: the mount control is withheld and the
+// statement would refuse it anyway — a warning (saffron). An unrecorded plaque ON A
+// WALL — Rusty Bar's shape, which predates the gate and which no gate can reach back
+// and undo — is serving a door it should not be on, and the act that fixes it is a
+// replacement: components.ToneAlert, the brand's "a refusal or a danger" tone.
+//
+// ⚠️ THE FIRST VERSION JUSTIFIED THE ALERT TONE WITH "every tap there is rejected at
+// the SUN check", and that was not derivable from the row (see keyStateOf): the
+// same NULL covers a personalised chip whose marking failed, on which taps verify.
+// The tone is argued from the rule the row breaks, not from a verdict it cannot see.
+//
+// A retired or lost plaque gets none: it serves no door and has no act left, so a
+// banner would be an alarm with nothing to do about it. keyStateOf still says what
+// it is.
+func keyAlertOf(p tenant.Plaque) string {
+	switch {
+	case p.Encoded():
+		return ""
+	case p.InStock():
+		return "stock"
+	case p.OnAWall():
+		return "wall"
+	default:
+		return ""
+	}
 }
 
 // plaqueStamp renders an instant in the tenant's zone, or "" for none.
@@ -364,7 +425,10 @@ func (a *AdminAuth) plaqueCard(w http.ResponseWriter, r *http.Request, screen te
 	// SITTING BESIDE IT. Exactly one confirmation is minted per render (the cookie is
 	// one per browser), so asking for the un-mount warning withdraws the replacement
 	// form for that render — phase A's two-step shape, applied where it is needed.
-	if f.Mode == "onwall" && r.URL.Query().Get("confirm") == "unmount" {
+	// ⚠️ THE STEP IS REACHABLE ONLY WHERE THE LINK TO IT IS OFFERED (M10 F0-6): the
+	// card withholds the un-mount link from a plaque whose encode was not recorded, and
+	// a typed ?confirm=unmount must not arm what the card declined to offer.
+	if f.Mode == "onwall" && f.UnmountHref != "" && r.URL.Query().Get("confirm") == "unmount" {
 		f.Mode = "unmount"
 		f.Action = plaqueUnmountHref
 		f.Successors = nil
@@ -444,6 +508,17 @@ func plaqueCardOf(p tenant.Plaque, screen tenant.PlaqueScreen, venues tenant.Ven
 		// The frozen development residue (00013's NOT VALID constraint). The row's own
 		// docket already carries the warning; this is why there is no control.
 		f.Blocked = "This plaque cannot be changed, so it cannot be mounted or replaced."
+	case p.InStock() && !p.Encoded():
+		// 🔴 M10 F0-6 / INCIDENT A-1. AssignTagToLocation refuses a row with no
+		// encoded_at in its own WHERE, so a mount form here could only fail — and before
+		// the gate existed it did not fail, it mounted a plaque whose key the chip never
+		// received. The card says why instead of offering the control.
+		//
+		// ⚠️ SHORT ON PURPOSE (second round): the row's own banner above already says
+		// why and what to do instead. Repeating the reason here put the same clause on
+		// one card four times — skill tappa-brand's "readable in three seconds" is lost
+		// by the third copy.
+		f.Blocked = "No mount is offered for this plaque."
 	case p.InStock():
 		options := venueOptionViews(venues.Venues)
 		if len(options) == 0 {
@@ -460,16 +535,32 @@ func plaqueCardOf(p tenant.Plaque, screen tenant.PlaqueScreen, venues tenant.Ven
 		// not be moved, could not go back to stock, and with no spare in the box this
 		// card offered nothing at all — while every tap there was judged against the
 		// wrong venue's IP and coordinate (§5 row 7, the approval queue).
-		f.UnmountHref = locationsHref + "?plaque=" + p.UID + "&confirm=unmount"
+		//
+		// ⚠️ EXCEPT FOR A PLAQUE WHOSE ENCODE WAS NOT RECORDED AS FINISHED (M10 F0-6), and the
+		// reason is the sentence the link carries: "it goes back into stock, ready to
+		// mount where it belongs". For Rusty Bar's shape that is false — back in stock
+		// it is a plaque the bind refuses — and moving it fixes no door, because no door
+		// can verify a tap on it. What fixes that door is a replacement, below.
+		if p.Encoded() {
+			f.UnmountHref = locationsHref + "?plaque=" + p.UID + "&confirm=unmount"
+		}
 		spares := stockOptions(screen, p.UID)
 		if len(spares) == 0 {
+			f.Mode = "onwall"
+			if !p.Encoded() {
+				f.Blocked = "There is no encoded spare plaque in stock to replace it with. " +
+					"Once a new plaque has been encoded it appears in stock — then replace this one."
+				break
+			}
 			// ⚠️ AND THE SENTENCE NO LONGER ENDS AT "ask us for one". A manager whose
 			// plaque is on the wrong door does not need a spare — they need it off the
 			// wall — and the old copy sent them to us for a thing they already had.
-			f.Blocked = "There is no spare plaque in stock to swap this one for. " +
+			// "encoded" was added by M10 F0-6: a stock plaque whose encoding never
+			// finished is listed in stock but is not a spare, and "no spare in stock"
+			// above a stock list with one in it would read as a contradiction.
+			f.Blocked = "There is no encoded spare plaque in stock to swap this one for. " +
 				"If it is simply on the wrong door, take it off the wall below and mount " +
 				"it where it belongs — that costs no spare."
-			f.Mode = "onwall"
 			break
 		}
 		f.Mode = "onwall"
@@ -492,10 +583,14 @@ func plaqueCardOf(p tenant.Plaque, screen tenant.PlaqueScreen, venues tenant.Ven
 // A FROZEN ROW IS NOT OFFERED. The database would refuse the write with 23514, and
 // a control that leads to a refusal is the defect this section has spent four
 // review rounds closing.
+//
+// NOR IS A PLAQUE WHOSE ENCODE WAS NOT RECORDED AS FINISHED (M10 F0-6): AssignTagToLocation
+// refuses it, and the refusal would roll the whole replacement back — so offering it
+// would be a dropdown entry that can only fail.
 func stockOptions(screen tenant.PlaqueScreen, exclude string) []components.OptionView {
 	out := make([]components.OptionView, 0, len(screen.Plaques))
 	for _, p := range screen.Plaques {
-		if !p.InStock() || !p.Changeable() || p.UID == exclude {
+		if !p.InStock() || !p.Changeable() || !p.Encoded() || p.UID == exclude {
 			continue
 		}
 		out = append(out, components.OptionView{Value: p.UID, Label: p.UID})
@@ -539,6 +634,10 @@ var plaqueActionWords = map[string]string{
 	// a second round at a chip that is already personalised. "Encoded — needs checking"
 	// is deliberately not "failed": nothing failed on the plaque.
 	tenant.ActionPlaqueUnmarked: "Encoded, but not recorded — do not re-encode",
+	// M10 F0-6: somebody tried to put this plaque on a wall and the bind refused it,
+	// because its encoding was not recorded as finished. It names the plaque's state rather than
+	// blaming the person — the screen never offered the act, so the page was stale.
+	tenant.ActionPlaqueMountRefused: "Refused a wall — encoding not recorded as finished",
 }
 
 // plaqueTrailView turns the trail's own vocabulary into the manager's.

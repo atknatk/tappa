@@ -81,6 +81,42 @@ type Querier interface {
 	// nil would mean "bind this plaque to nowhere". The schema still refuses it
 	// (tags_active_requires_location -> 23514), but a parameter that cannot express
 	// the mistake is better than one that has to be caught.
+	//
+	// 🔴 `encoded_at IS NOT NULL` IS THE SECOND PRECONDITION AND IT IS IN THE STATEMENT
+	// FOR THE SAME REASON AS THE FIRST (M10 F0-6, 2026-09-25). ADR 0017 §5.1 writes the
+	// row at step 3, BEFORE the chip is touched, and stamps encoded_at at step 9, AFTER
+	// the chip took its keys; a round that dies in between leaves an `unassigned` row
+	// whose key the chip never received. Incident A-1 (2026-09-24, live pilot): a
+	// re-encode of an already-personalised chip died at WriteData with 91AE, the row
+	// stayed unstamped, the panel mounted it at Rusty Bar, and that door took 12 taps
+	// with 0 valid -- every SUN was checked against a key that exists only in the
+	// database.
+	//
+	// ⚠️ WHAT THE STAMP DOES AND DOES NOT CARRY, measured rather than assumed (second
+	// round, 2026-09-25). encoded_at records that the round reached ADR 0017 §5.1 step 9.
+	// For a round run by the SHIPPED driver, step 8 (ChangeKey on application key 0,
+	// ADR 0018's app_key_ref) comes before it, so the stamp implies key 0 was rotated off
+	// the factory default -- and on production the two stamped plaques both carry
+	// app_key_ref (orchestrator measurement, 2026-09-25). A row stamped BEFORE step 8
+	// shipped (internal/encode/driver.go: step 8 arrived later than the stamp, and md. 5
+	// closed on silicon only on 2026-09-24) carries the stamp WITHOUT that implication.
+	// So this predicate enforces "the encode round was recorded as finished"; it is §5.1's
+	// "a plaque cannot go on a wall while key 0 is still the factory default" only for
+	// rounds that ran step 8, and it is not a check of key 0 itself.
+	//
+	// Reading the stamp first and then binding would be the read-then-write window the
+	// status predicate already refuses. Zero rows here is therefore ambiguous by
+	// construction, and classifyMount (internal/domain/tenant/plaque.go) resolves it
+	// with a second read on the failure path only.
+	//
+	// ⚠️ THE REPLACE FLOW RUNS THIS SAME STATEMENT AFTER THE RETIRE, INSIDE ONE
+	// TRANSACTION, so an unstamped successor rolls the retirement back too: the old
+	// plaque stays `active` on its wall. The retire has NO stamp predicate and must not
+	// get one -- Rusty Bar's own plaque is `active` with a NULL stamp, and retiring it is
+	// exactly the repair.
+	//
+	// RETURNING carries encoded_at so the plaque handed back is the row as it now
+	// stands rather than a value with the stamp silently missing.
 	AssignTagToLocation(ctx context.Context, arg AssignTagToLocationParams) (AssignTagToLocationRow, error)
 	// Bind a policy to one resource ('*', 'location/<id>', 'department/<id>', ...).
 	//
@@ -777,6 +813,15 @@ type Querier interface {
 	// thousands -- so the heap access is five pages rather than a table scan. What is
 	// being recorded here is that it IS heap access, at that tenant size and that row
 	// count, and not a claim that it is free.
+	//
+	// 🔴 ready_to_mount IS THE FOURTH COUNT AND in_stock IS NOT ITS SYNONYM (M10 F0-6,
+	// second round). AssignTagToLocation refuses an unassigned row with no encoded_at,
+	// so "in the box" and "can go on a wall" diverge exactly on the rows a failed encode
+	// round leaves behind. A screen that printed in_stock beside the words "ready to
+	// mount" was promising a mount the statement would refuse. in_stock is kept, because
+	// "no plaque is on a wall, but some are in the box" is still the right STATE; the
+	// number a sentence calls "ready" is this one. Same predicate as the bind, so the
+	// count and the refusal cannot disagree.
 	CountTenantPlaques(ctx context.Context, tenantID uuid.UUID) (CountTenantPlaquesRow, error)
 	// admins.sql -- the TENANT-SCOPED half of panel authentication (M6-01 phase A):
 	// issuing, refreshing and revoking the ADMIN session, plus the two in-context
@@ -2159,7 +2204,7 @@ type Querier interface {
 	// never somebody else's.
 	GetRosterCursorAnchor(ctx context.Context, arg GetRosterCursorAnchorParams) (string, error)
 	// One plaque, for the detail/edit card. Same column set as the list -- no
-	// aes_key_ref (see the header).
+	// aes_key_ref (see the header), and encoded_at for the list's reason.
 	//
 	// KEYED BY uid, WHICH IS PUBLIC (it is printed on the plaque and sits in the NFC
 	// URL), so the tenant predicate is doing real work here rather than decorating:
@@ -3509,6 +3554,12 @@ type Querier interface {
 	// action are the ones with no wall. uid is the tiebreaker so the list never
 	// depends on physical row order.
 	//
+	// encoded_at IS ON THE LIST (M10 F0-6, 2026-09-25) because it is the ONLY record
+	// that the chip took its keys (ADR 0017 §5.1 step 9). The row itself is written at
+	// step 3, before the chip is touched, so "a row exists" says "we intended to encode
+	// this" and nothing more -- incident A-1 (2026-09-24) was a panel that read it as
+	// more. It is a timestamp, not key material: tappa_app holds a column-level SELECT
+	// on it (00022 Part 3), and aes_key_ref / app_key_ref stay out (see the header).
 	ListTagsForTenant(ctx context.Context, tenantID uuid.UUID) ([]ListTagsForTenantRow, error)
 	// Pairs of people whose taps land at the same venue within seconds of each other, on
 	// more than one day (the buddy-punching signal).

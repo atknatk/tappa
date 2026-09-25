@@ -25,9 +25,22 @@ package components
 // a judgement of anything. The status is a labelled word.
 //
 // 🔴 SECTION 4.7: THERE IS NO KEY ON THIS CARD AND NOTHING THAT STANDS IN FOR ONE.
-// The "Key" field prints the encoded/pending STATE, derived from whether the plaque
-// has a wall; components/plaqueview.go states exactly what backs that word and what
-// does not. The view model has no field a key could arrive in.
+// The "Key" field prints the encoded/pending STATE, derived from the encode round's
+// step-9 stamp and the wall; components/plaqueview.go states exactly what backs that
+// word and what does not. The view model has no field a key could arrive in.
+//
+// 🔴 AN UNRECORDED ENCODE GETS A BANNER, NOT ONLY A WORD (M10 F0-6, incident A-1).
+// The word alone was how Rusty Bar happened: the card said "Encoded", a manager
+// believed it, and the door refused every tap. The banner is components.Notice — the
+// brand's one bordered status block, colour on the edge and ground, never on the words
+// — rather than a copied class chain (skill tappa-brand: a repeated pattern is a
+// component; notice.templ exists because an audit counted the chain five times). It is
+// NOT a stamp: a stamp is a verdict on a tap, and this is a fact about a plaque.
+//
+// ⚠️ THE FROZEN-ROW BANNER BELOW IS STILL A HAND-WRITTEN CHAIN, and it was left alone
+// on purpose: it predates this change, it is a development-only state, and moving it
+// would restyle a shipped screen as a side effect of a security fix. Counted here so
+// the next reader converts it deliberately rather than copying it.
 //
 // ⚠️ THE UTILITY CLASSES ARE DESCRIBED RATHER THAN NAMED in the prose here, on
 // purpose: the Tailwind CLI scans this file as raw text and its candidate extractor
@@ -60,6 +73,40 @@ templ PlaqueRow(p PlaqueRowView) {
 				</p>
 			</div>
 		}
+		switch p.KeyAlert {
+			case "wall":
+				// 🔴 RUSTY BAR'S SHAPE: on a wall, with no record that its encode finished.
+				// The act that fixes it is a replacement, which the card keeps on offer.
+				//
+				// ⚠️ NO CLAIM ABOUT ITS TAPS (second round, 2026-09-25). The first version
+				// said "this door rejects every tap". The row cannot know that: the same
+				// NULL covers a personalised chip whose marking failed (its trail says "do
+				// not re-encode"), and taps on that one verify. The words say what the row
+				// says; the tone is the brand's "danger" because the rule it breaks is a
+				// security line, not because of a verdict it cannot see.
+				<div class="mt-3">
+					@Notice(ToneAlert, "This plaque needs replacing") {
+						<p>
+							Its encoding was not recorded as finished, so it should not be on a
+							wall. Replace it with a freshly encoded plaque.
+						</p>
+					}
+				</div>
+			case "stock":
+				// The same fact in the box: nothing is on a wall yet, and the card withholds
+				// the mount control rather than offering one the database would refuse. This
+				// banner is the ONE place the reason is spelled out; the Key field and the
+				// card's closing line stay short (skill tappa-brand: readable in three
+				// seconds).
+				<div class="mt-3">
+					@Notice(ToneWarn, "This plaque cannot go on a wall") {
+						<p>
+							Its encoding was not recorded as finished. Mount a freshly encoded
+							plaque instead.
+						</p>
+					}
+				</div>
+		}
 		<dl class="mt-3 grid grid-cols-2 gap-x-4 gap-y-2">
 			<div>
 				<dt class="docket-label">Status</dt>
@@ -77,8 +124,9 @@ templ PlaqueRow(p PlaqueRowView) {
 						<span class="text-ink/70">Venue could not be read</span>
 					} else {
 						// 🔴 "None" WOULD READ AS A FAULT. A plaque with no wall is INVENTORY —
-						// Tappa encoded it and loaded it, and nobody has decided which door it
-						// goes on yet. That is the whole inventory model (00013, part 3).
+						// Tappa loaded it, and nobody has decided which door it goes on yet.
+						// That is the whole inventory model (00013, part 3). Whether its
+						// encoding finished is the Key field's to say, not this one's.
 						<span class="text-ink/70">Not mounted yet</span>
 					}
 				</dd>

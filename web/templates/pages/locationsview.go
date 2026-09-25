@@ -128,6 +128,17 @@ type LocationsView struct {
 	Stock        []components.PlaqueRowView
 	OutOfService []components.PlaqueRowView
 
+	// MountableStock is how many of Stock the server would actually let a manager
+	// mount: in the box, stamped as encoded, and writable (M10 F0-6).
+	//
+	// 🔴 IT EXISTS BECAUSE len(Stock) STOPPED BEING "SOMETHING TO MOUNT". The empty
+	// state for the wall list said "You have plaques in stock below. Open one to mount
+	// it" whenever the box held anything — including a box holding only plaques whose
+	// encoding was not recorded as finished, which AssignTagToLocation refuses. The
+	// handler counts it from the same predicates the card uses to decide whether it
+	// offers a mount form, so the sentence and the control cannot disagree.
+	MountableStock int
+
 	// PlaquesQueried is set ONLY after the plaque read answered — the anti-fabrication
 	// flag Queried is for the venues, kept separate because the two reads can fail
 	// independently.
@@ -220,6 +231,9 @@ type LocationsView struct {
 	//	"same-plaque"          a plaque cannot replace itself
 	//	"plaque-frozen"        the database refuses to write this row at all (a
 	//	                       development-only state — see PlaqueRowView.Frozen)
+	//	"plaque-not-encoded"   the plaque named to go on a wall has no record that
+	//	                       its encoding finished (M10 F0-6); a replacement was
+	//	                       rolled back whole, so the old plaque is still up
 	//
 	// ⚠️ THERE IS NO WORD FOR "OUR READ FAILED", and its absence is the decision. A
 	// failed read renders a PROBLEM PAGE (§4.6) rather than redirecting here, so a

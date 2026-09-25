@@ -149,8 +149,20 @@ templ plaqueNotice(v TransactionsView) {
 			@components.Notice(components.ToneWarn, "No plaque is on a wall yet") {
 				<p>
 					None of this business's plaques is mounted, so nobody can tap in or out.
-					In stock, ready to mount: <span class="font-mono">{ v.InStockCount() }</span>.
+					In stock, ready to mount: <span class="font-mono">{ v.ReadyToMountCount() }</span>.
 				</p>
+				if v.UnrecordedStock() > 0 {
+					// M10 F0-6: a plaque in the box whose encoding was not recorded as
+					// finished is refused by the mount, so it is counted apart rather than
+					// folded into "ready". The sentence says what to do, not why the chip is
+					// in that state — the plaque card is where that is said.
+					<p class="mt-1">
+						Not mountable — encoding not recorded as finished: <span class="font-mono">{ v.UnrecordedStockCount() }</span>.
+						if v.Plaques.ReadyToMount == 0 {
+							Ask us for a freshly encoded plaque.
+						}
+					</p>
+				}
 				@plaqueNoticeLink(v)
 			}
 		case PlaqueStateOutOfService:

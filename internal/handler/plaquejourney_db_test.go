@@ -35,6 +35,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/atknatk/tappa/internal/config"
+	"github.com/atknatk/tappa/internal/store"
 	"github.com/atknatk/tappa/internal/sun"
 )
 
@@ -60,7 +61,22 @@ func (p *panelHarness) seedWall(t *testing.T, name string) uuid.UUID {
 // ⚠️ THE REASON USED TO BE "db/queries/tags.sql ships no INSERT over `tags`", WHICH
 // EXPIRED ON 2026-08-24 (M8-05 FAZ B2c-2a): that file now carries
 // InsertUnassigned, the encode endpoint's loader.
+//
+// 🔴 AND IT FINISHES THE ENCODE, BECAUSE THAT LOADER DOES (M10 F0-6): the row is
+// stamped by store.MarkTagEncoded, ADR 0017 §5.1 step 9's own statement, since the
+// panel mounts only a plaque that reached it. seedUnrecordedPlaque is incident A-1's
+// row — loaded at step 3 and never stamped — and only the tests about it use it.
 func (p *panelHarness) seedPlaque(t *testing.T, status string, wall uuid.UUID) string {
+	t.Helper()
+	return p.seedPlaqueStamped(t, status, wall, true)
+}
+
+func (p *panelHarness) seedUnrecordedPlaque(t *testing.T, status string, wall uuid.UUID) string {
+	t.Helper()
+	return p.seedPlaqueStamped(t, status, wall, false)
+}
+
+func (p *panelHarness) seedPlaqueStamped(t *testing.T, status string, wall uuid.UUID, stamped bool) string {
 	t.Helper()
 	b := make([]byte, 7)
 	if _, err := rand.Read(b); err != nil {
@@ -85,13 +101,19 @@ func (p *panelHarness) seedPlaque(t *testing.T, status string, wall uuid.UUID) s
 		t.Fatalf("wrapped key is %d bytes, want 44 — the envelope shape T7 is about", len(ref))
 	}
 	if err := p.data.WithTenant(context.Background(), p.tenantID, func(ctx context.Context, tx pgx.Tx) error {
-		_, e := tx.Exec(ctx,
+		if _, e := tx.Exec(ctx,
 			`INSERT INTO tags (uid, tenant_id, location_id, aes_key_ref, last_ctr, status)
 			 VALUES ($1, $2, $3, $4, 500, $5)`,
-			uid, p.tenantID, location, ref, status)
+			uid, p.tenantID, location, ref, status); e != nil {
+			return e
+		}
+		if !stamped {
+			return nil
+		}
+		_, e := store.New(tx).MarkTagEncoded(ctx, store.MarkTagEncodedParams{Uid: uid, TenantID: p.tenantID})
 		return e
 	}); err != nil {
-		t.Fatalf("seed plaque (%s): %v", status, err)
+		t.Fatalf("seed plaque (%s, stamped=%v): %v", status, stamped, err)
 	}
 	return uid
 }
@@ -777,5 +799,256 @@ func TestPlaqueJourneyDB_TheAcknowledgementIsNotSomethingAStrangerCanPrint(t *te
 	// indistinguishable from "rendered nothing".
 	if !strings.Contains(html, onWall) {
 		t.Fatalf("the plaque list did not render at all")
+	}
+}
+
+// --- the encode gate, end to end (M10 F0-6, incident A-1) -------------------------
+//
+// 🔴 WHAT HAPPENED, 2026-09-24, live pilot: a re-encode of an already-personalised
+// chip died at WriteData with 91AE, the row written at ADR 0017 §5.1 step 3 never got
+// its step-9 stamp, the card called it "Encoded", a manager mounted it at Rusty Bar,
+// and that door took 12 taps with 0 valid. These drive the real router against real
+// Postgres and read every outcome back out of the TABLE.
+
+// plaqueState reads what the table holds for one plaque of the harness tenant.
+func (p *panelHarness) plaqueState(t *testing.T, uid string) (status string, wall *uuid.UUID, retiredAt *time.Time, replacedBy *string) {
+	t.Helper()
+	if err := p.data.WithTenant(context.Background(), p.tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		return tx.QueryRow(ctx,
+			`SELECT status, location_id, retired_at, replaced_by FROM tags WHERE tenant_id = $1 AND uid = $2`,
+			p.tenantID, uid).Scan(&status, &wall, &retiredAt, &replacedBy)
+	}); err != nil {
+		t.Fatalf("read plaque %s: %v", uid, err)
+	}
+	return status, wall, retiredAt, replacedBy
+}
+
+// plaqueTrailRows counts one action about one target in ONE tenant's trail.
+func (p *panelHarness) plaqueTrailRows(t *testing.T, tenantID uuid.UUID, action, target string) int {
+	t.Helper()
+	var n int
+	if err := p.data.WithTenant(context.Background(), tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		return tx.QueryRow(ctx,
+			`SELECT count(*) FROM audit_log WHERE tenant_id = $1 AND action = $2 AND target = $3`,
+			tenantID, action, target).Scan(&n)
+	}); err != nil {
+		t.Fatalf("count %s rows: %v", action, err)
+	}
+	return n
+}
+
+// TestPlaqueJourneyDB_AnUnrecordedEncodeCannotBeMounted is the mount POST refused:
+// 303 with its own sentence, the row untouched, the attempt in the trail.
+func TestPlaqueJourneyDB_AnUnrecordedEncodeCannotBeMounted(t *testing.T) {
+	p := newPanelHarness(t)
+	p.signIn(t)
+	wall := p.seedWall(t, "KF Rusty Bar")
+	half := p.seedUnrecordedPlaque(t, "unassigned", uuid.Nil)
+
+	// The list, from the real row: the stock banner, and never the old sentence.
+	_, html := p.get(t, locationsHref)
+	for _, want := range []string{"This plaque cannot go on a wall", "Encoding not recorded as finished",
+		// B2 (second round): the box is not empty, but nothing in it can be mounted,
+		// so the wall list's empty state must not promise a mount.
+		"None of the plaques in stock below can be mounted"} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("the list does not say %q.\n%s", want, html)
+		}
+	}
+	for _, not := range []string{"Encoded by Taptime", "Open one to mount it at a venue"} {
+		if strings.Contains(html, not) {
+			t.Fatalf("the list says %q about a box holding only an unrecorded plaque", not)
+		}
+	}
+	// B2 on the landing section, from the same real row: in the box, but NOT ready.
+	_, landing := p.get(t, transactionsHref)
+	for _, want := range []string{
+		`In stock, ready to mount: <span class="font-mono">0</span>.`,
+		`Not mountable — encoding not recorded as finished: <span class="font-mono">1</span>.`,
+		"Ask us for a freshly encoded plaque.",
+	} {
+		if !strings.Contains(landing, want) {
+			t.Fatalf("the landing section does not say %q.\n%s", want, excerpt(landing))
+		}
+	}
+	// The card offers no mount form.
+	_, html = p.get(t, locationsHref+"?plaque="+half)
+	if strings.Contains(html, `action="`+plaqueMountHref+`"`) {
+		t.Fatal("the card offers a mount form for a plaque with no recorded encode")
+	}
+
+	// A BYPASSED (or stale) POST — the only way to reach the statement now.
+	res, _ := p.post(t, plaqueMountHref, url.Values{"uid": {half}, "location_id": {wall.String()}})
+	if res.StatusCode != http.StatusSeeOther {
+		t.Fatalf("POST mount = %d, want 303 (a sentence, never a 500)", res.StatusCode)
+	}
+	back := res.Header.Get("Location")
+	if !strings.Contains(back, "problem=plaque-not-encoded") {
+		t.Fatalf("Location = %q, want problem=plaque-not-encoded", back)
+	}
+	// 🔴 0 UPDATE: the row is exactly as it was.
+	if status, w, _, _ := p.plaqueState(t, half); status != "unassigned" || w != nil {
+		t.Fatalf("row = (%s, %v) after a refused mount, want (unassigned, nil)", status, w)
+	}
+	if n := p.plaqueTrailRows(t, p.tenantID, "plaque.mounted", half); n != 0 {
+		t.Fatalf("plaque.mounted rows = %d, want 0", n)
+	}
+	if n := p.plaqueTrailRows(t, p.tenantID, "plaque.mount_refused", half); n != 1 {
+		t.Fatalf("plaque.mount_refused rows = %d, want 1", n)
+	}
+	_, html = p.get(t, back)
+	for _, want := range []string{"That plaque cannot go on a wall",
+		"Its encoding was not recorded as finished", "no plaque went up and none came down"} {
+		if !strings.Contains(html, want) {
+			t.Fatalf("the refusal page does not say %q.\n%s", want, html)
+		}
+	}
+	// And the card's own trail shows the attempt, in the manager's words.
+	_, html = p.get(t, locationsHref+"?plaque="+half)
+	if !strings.Contains(html, "Refused a wall — encoding not recorded as finished") {
+		t.Fatalf("the plaque's trail does not show the refused mount.\n%s", html)
+	}
+}
+
+// TestPlaqueJourneyDB_ReplacingWithAnUnrecordedSpareChangesNothing is the replace
+// POST refused: the retire ran and was rolled back with the bind.
+func TestPlaqueJourneyDB_ReplacingWithAnUnrecordedSpareChangesNothing(t *testing.T) {
+	p := newPanelHarness(t)
+	p.signIn(t)
+	wall := p.seedWall(t, "KF St Julians")
+	old := p.seedPlaque(t, "active", wall)
+	spare := p.seedPlaque(t, "unassigned", uuid.Nil)
+	half := p.seedUnrecordedPlaque(t, "unassigned", uuid.Nil)
+
+	_, html := p.get(t, locationsHref+"?plaque="+old)
+	if !strings.Contains(html, `value="`+spare+`"`) {
+		t.Fatalf("the encoded spare is not offered.\n%s", html)
+	}
+	if strings.Contains(html, `value="`+half+`"`) {
+		t.Fatal("the dropdown offers a plaque with no recorded encode")
+	}
+	token := confirmTokenRE.FindStringSubmatch(html)
+	if token == nil {
+		t.Fatalf("the replacement card carried no confirmation.\n%s", html)
+	}
+	// The confirmation is bound to the plaque coming OFF, so a stale or hand-edited
+	// form can name the unrecorded plaque as the successor — this is that POST.
+	res, _ := p.post(t, plaqueReplaceHref, url.Values{
+		"uid": {old}, "successor": {half}, confirmField: {token[1]},
+	})
+	if res.StatusCode != http.StatusSeeOther {
+		t.Fatalf("POST replace = %d, want 303", res.StatusCode)
+	}
+	if loc := res.Header.Get("Location"); !strings.Contains(loc, "problem=plaque-not-encoded") {
+		t.Fatalf("Location = %q, want problem=plaque-not-encoded", loc)
+	}
+	status, w, retiredAt, replacedBy := p.plaqueState(t, old)
+	if status != "active" || w == nil || *w != wall || retiredAt != nil || replacedBy != nil {
+		t.Fatalf("old plaque = (%s, %v, retired_at=%v, replaced_by=%v), want (active, %s, nil, nil) "+
+			"— the retirement must roll back with the refused bind", status, w, retiredAt, replacedBy, wall)
+	}
+	if status, w, _, _ := p.plaqueState(t, half); status != "unassigned" || w != nil {
+		t.Fatalf("unrecorded plaque = (%s, %v), want (unassigned, nil)", status, w)
+	}
+	if n := p.plaqueTrailRows(t, p.tenantID, "plaque.retired", old); n != 0 {
+		t.Fatalf("plaque.retired rows = %d after a refused replacement, want 0", n)
+	}
+	if n := p.plaqueTrailRows(t, p.tenantID, "plaque.mounted", half); n != 0 {
+		t.Fatalf("plaque.mounted rows = %d, want 0", n)
+	}
+	if n := p.plaqueTrailRows(t, p.tenantID, "plaque.mount_refused", half); n != 1 {
+		t.Fatalf("plaque.mount_refused rows = %d, want 1", n)
+	}
+}
+
+// TestPlaqueJourneyDB_RustyBarsDoorCanBeRepaired is the repair the user will run on
+// the live pilot, and the three KeyState sentences read off REAL rows in one list:
+// an encoded spare, the unrecorded plaque on the wall, and — after — the new one.
+func TestPlaqueJourneyDB_RustyBarsDoorCanBeRepaired(t *testing.T) {
+	p := newPanelHarness(t)
+	p.signIn(t)
+	wall := p.seedWall(t, "KF Rusty Bar")
+	broken := p.seedUnrecordedPlaque(t, "active", wall)
+	spare := p.seedPlaque(t, "unassigned", uuid.Nil)
+	p.seedUnrecordedPlaque(t, "unassigned", uuid.Nil) // state (b), for the list below
+
+	_, html := p.get(t, locationsHref)
+	for _, want := range []string{
+		"This plaque needs replacing",         // (c) the banner
+		"Encoding not recorded as finished",   // (b) and (c), the Key field
+		"This plaque cannot go on a wall",     // (b) the banner
+		"Encoded by Taptime — pending a wall", // (a), the spare
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("the list does not say %q", want)
+		}
+	}
+
+	_, html = p.get(t, locationsHref+"?plaque="+broken)
+	if !strings.Contains(html, `action="`+plaqueReplaceHref+`"`) {
+		t.Fatalf("the card for Rusty Bar's plaque offers no replacement — that is the repair.\n%s", html)
+	}
+	if strings.Contains(html, "confirm=unmount") {
+		t.Fatal("the card offers to take it down and \"mount it where it belongs\" — false for this plaque")
+	}
+	token := confirmTokenRE.FindStringSubmatch(html)
+	if token == nil {
+		t.Fatalf("no confirmation on the card.\n%s", html)
+	}
+	res, _ := p.post(t, plaqueReplaceHref, url.Values{
+		"uid": {broken}, "successor": {spare}, confirmField: {token[1]},
+	})
+	if loc := res.Header.Get("Location"); res.StatusCode != http.StatusSeeOther ||
+		!strings.Contains(loc, "done=plaque-replaced") {
+		t.Fatalf("POST replace = %d %q, want 303 done=plaque-replaced", res.StatusCode, loc)
+	}
+	if status, _, _, replacedBy := p.plaqueState(t, broken); status != "retired" || replacedBy == nil || *replacedBy != spare {
+		t.Fatalf("Rusty Bar's old plaque = (%s, %v), want (retired, %s)", status, replacedBy, spare)
+	}
+	if status, w, _, _ := p.plaqueState(t, spare); status != "active" || w == nil || *w != wall {
+		t.Fatalf("the new plaque = (%s, %v), want (active, %s)", status, w, wall)
+	}
+}
+
+// TestPlaqueJourneyDB_TheEncodeGateSaysNothingAboutAnotherBusiness is §4.5: another
+// business's unrecorded plaque is "no such plaque" in both acts, and neither trail
+// learns anything.
+func TestPlaqueJourneyDB_TheEncodeGateSaysNothingAboutAnotherBusiness(t *testing.T) {
+	p := newPanelHarness(t)
+	p.signIn(t)
+	other := newPanelHarness(t)
+	theirs := other.seedUnrecordedPlaque(t, "unassigned", uuid.Nil)
+	wall := p.seedWall(t, "KF Paceville")
+	mine := p.seedPlaque(t, "active", wall)
+	p.seedPlaque(t, "unassigned", uuid.Nil) // a real spare, so the card mints
+
+	res, _ := p.post(t, plaqueMountHref, url.Values{"uid": {theirs}, "location_id": {wall.String()}})
+	if loc := res.Header.Get("Location"); !strings.Contains(loc, "problem=unknown-plaque") {
+		t.Fatalf("mounting another business's unrecorded plaque: Location = %q, want "+
+			"problem=unknown-plaque — never plaque-not-encoded, which would confirm it exists", loc)
+	}
+
+	_, html := p.get(t, locationsHref+"?plaque="+mine)
+	token := confirmTokenRE.FindStringSubmatch(html)
+	if token == nil {
+		t.Fatalf("no confirmation on the card.\n%s", html)
+	}
+	res, _ = p.post(t, plaqueReplaceHref, url.Values{
+		"uid": {mine}, "successor": {theirs}, confirmField: {token[1]},
+	})
+	if loc := res.Header.Get("Location"); !strings.Contains(loc, "problem=unknown-plaque") {
+		t.Fatalf("replacing with another business's unrecorded plaque: Location = %q, want "+
+			"problem=unknown-plaque", loc)
+	}
+	if status, _, _, _ := p.plaqueState(t, mine); status != "active" {
+		t.Fatalf("my plaque = %s, want active", status)
+	}
+	for _, tenantID := range []uuid.UUID{p.tenantID, other.tenantID} {
+		if n := p.plaqueTrailRows(t, tenantID, "plaque.mount_refused", theirs); n != 0 {
+			t.Fatalf("tenant %s gained %d refusal rows about a plaque the actor cannot see", tenantID, n)
+		}
+	}
+	if status, w, _, _ := other.plaqueState(t, theirs); status != "unassigned" || w != nil {
+		t.Fatalf("the other business's plaque = (%s, %v), want untouched", status, w)
 	}
 }

@@ -690,3 +690,109 @@ func TestTags00022_MarkTagEncodedTouchesNothingInAnotherTenant(t *testing.T) {
 		t.Fatalf("B stamping its own plaque: %v", err)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// M10 F0-6 -- THE BIND READS THE STAMP (incident A-1, 2026-09-24)
+// ---------------------------------------------------------------------------
+
+// TestTags00022_TheBindRefusesAPlaqueWithNoRecordedEncode is the gate at the
+// statement, with no domain in between.
+//
+// 🔴 WHAT IT PINS: AssignTagToLocation carries `encoded_at IS NOT NULL` in its OWN
+// WHERE -- the §4.4 shape, the precondition inside the statement -- so a row loaded
+// at ADR 0017 §5.1 step 3 and never stamped at step 9 matches NOTHING and nothing is
+// written. Live, that row was Rusty Bar's plaque: mounted, 12 taps, 0 valid.
+//
+// It runs as tappa_app, which is itself a measurement: an UPDATE whose WHERE reads a
+// column needs SELECT on that column, and 00022 Part 3 is what grants it. Were the
+// grant missing, the positive control below would fail with 42501 rather than bind.
+func TestTags00022_TheBindRefusesAPlaqueWithNoRecordedEncode(t *testing.T) {
+	app := appDB(t)
+	assertAppRole(t, app)
+	fx := newTagTenant(t, app)
+	uid := randUID(t)
+	addPlaque(t, app, fx, uid, uuid.Nil, "unassigned", 0)
+
+	bind := func() (store.AssignTagToLocationRow, error) {
+		var row store.AssignTagToLocationRow
+		err := app.WithTenant(context.Background(), fx.tenantID, func(ctx context.Context, tx pgx.Tx) error {
+			var e error
+			row, e = store.New(tx).AssignTagToLocation(ctx, store.AssignTagToLocationParams{
+				LocationID: fx.locationID, TenantID: fx.tenantID, Uid: uid,
+			})
+			return e
+		})
+		return row, err
+	}
+	state := func() (status string, wall *uuid.UUID, stamp *time.Time) {
+		if err := app.WithTenant(context.Background(), fx.tenantID, func(ctx context.Context, tx pgx.Tx) error {
+			return tx.QueryRow(ctx,
+				`SELECT status, location_id, encoded_at FROM tags WHERE tenant_id = $1 AND uid = $2`,
+				fx.tenantID, uid).Scan(&status, &wall, &stamp)
+		}); err != nil {
+			t.Fatalf("read the row: %v", err)
+		}
+		return status, wall, stamp
+	}
+
+	if _, err := bind(); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("binding an unstamped plaque = %v, want pgx.ErrNoRows (the stamp is a "+
+			"precondition of the statement, not of its caller)", err)
+	}
+	if status, wall, stamp := state(); status != "unassigned" || wall != nil || stamp != nil {
+		t.Fatalf("after the refused bind: (%s, %v, %v), want (unassigned, nil, nil) -- 0 UPDATE",
+			status, wall, stamp)
+	}
+
+	// THE POSITIVE CONTROL, SAME ROW: step 9's own statement, then the same bind.
+	stampPlaque(t, app, fx, uid)
+	row, err := bind()
+	if err != nil {
+		t.Fatalf("binding the same plaque after MarkTagEncoded: %v", err)
+	}
+	if row.Status != "active" || row.LocationID == nil || *row.LocationID != fx.locationID {
+		t.Fatalf("bound row = (%s, %v), want (active, %s)", row.Status, row.LocationID, fx.locationID)
+	}
+	if row.EncodedAt == nil {
+		t.Fatal("RETURNING carried no encoded_at for a stamped plaque; the row handed back " +
+			"must be the row as it stands")
+	}
+}
+
+// TestTags00022_ReadyToMountCountsOnlyStampedStock is the count the landing section
+// prints beside the words "ready to mount" (M10 F0-6, second round, B2).
+//
+// 🔴 in_stock AND ready_to_mount DIVERGE EXACTLY ON THE ROWS A FAILED ENCODE LEAVES
+// BEHIND, and the fixture holds all four shapes so each FILTER is measured against a
+// row it must count and a row it must not: one stamped stock plaque, two unstamped
+// ones, one stamped plaque on a wall (in service, not stock) and one unstamped one on
+// a wall (Rusty Bar's shape — in service by status, never "ready").
+func TestTags00022_ReadyToMountCountsOnlyStampedStock(t *testing.T) {
+	app := appDB(t)
+	assertAppRole(t, app)
+	fx := newTagTenant(t, app)
+
+	stamped := randUID(t)
+	addPlaque(t, app, fx, stamped, uuid.Nil, "unassigned", 0)
+	stampPlaque(t, app, fx, stamped)
+	for i := 0; i < 2; i++ {
+		addPlaque(t, app, fx, randUID(t), uuid.Nil, "unassigned", 0)
+	}
+	onWall := randUID(t)
+	addPlaque(t, app, fx, onWall, fx.locationID, "active", 0)
+	stampPlaque(t, app, fx, onWall)
+	addPlaque(t, app, fx, randUID(t), fx.locationID, "active", 0)
+
+	var got store.CountTenantPlaquesRow
+	if err := app.WithTenant(context.Background(), fx.tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		var e error
+		got, e = store.New(tx).CountTenantPlaques(ctx, fx.tenantID)
+		return e
+	}); err != nil {
+		t.Fatalf("CountTenantPlaques: %v", err)
+	}
+	if got.InStock != 3 || got.ReadyToMount != 1 || got.InService != 2 || got.Loaded != 5 {
+		t.Fatalf("counted %+v, want in_stock=3 ready_to_mount=1 in_service=2 loaded=5 -- "+
+			"ready_to_mount must be the bind's own predicate (unassigned AND stamped)", got)
+	}
+}

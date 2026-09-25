@@ -433,6 +433,12 @@ func plaqueRefusal(err error) string {
 		return "same-plaque"
 	case errors.Is(err, tenant.ErrPlaqueFrozen):
 		return "plaque-frozen"
+	case errors.Is(err, tenant.ErrPlaqueNotEncoded):
+		// M10 F0-6: the plaque named to go on a wall has no record that its encoding
+		// finished (the chip may or may not have taken its keys — the row cannot say). The card
+		// does not offer that act, so this arm meets a stale page or a bypassed one;
+		// the domain has already written plaque.mount_refused to the trail.
+		return "plaque-not-encoded"
 	case errors.Is(err, tenant.ErrUnknownVenue):
 		return "unknown-venue"
 	default:

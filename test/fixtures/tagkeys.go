@@ -100,7 +100,9 @@ type SeedTag struct {
 // It MUST stay in sync with the tags section of seed.sql; the seed step verifies
 // mechanically that nothing was missed (it fails if any row is left without a
 // 44-byte wrapped key), so drift here becomes a loud seed failure rather than a
-// plaque that 500s on the first tap.
+// plaque that 500s on the first tap. TestSeedSQL_EveryLoadedPlaqueIsStampedAndListed
+// (seed_test.go) holds the same sync without a database, together with seed.sql's
+// encoded_at stamp list — the third place a demo plaque must be named (M10 F0-6).
 var SeedTags = []SeedTag{
 	{TagKFHamrun, TenantKF},
 	{TagKFHamrunLost, TenantKF},
