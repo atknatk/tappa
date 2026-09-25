@@ -39,6 +39,128 @@ Taptime'ın herkese açık gizlilik/künye metinlerini değiştirebilir ve tenan
 | OP-2 | Allow-list parser birim testleri (A-5) | builder | boş/boşluk→nil; `a,,b`→hata; e-posta→hata; nil uuid→hata; tekrar→tek; nil-reddi mutasyonu kırmızı |
 | OP-3 | `tenants` UPDATE yetkisini daralt (A-4): `REVOKE UPDATE` + `GRANT UPDATE (name, business_type, timezone)` | tappa-db-migrator + güvenlik | `has_column_privilege(tappa_app,'tenants','vat_number'\|'structure','UPDATE')=false`; kapalı-liste testi genişletildi; signup E2E yeşil; Down temiz |
 
+> **Kart düzeltmesi (2026-09-25, F0-5 uygulaması sırasında).** Kural kodu **R7d**, R8 değil:
+> redline R1–R7 `tappa-security-auditor`'ın R1–R7 başlıklarıyla birebir eşleşiyor ve o ajanın
+> R8'i "Karar sırası uyumu" (plan belgelerinde 9 kez "auditor R6/R8" diye geçiyor). Desenler,
+> tetikleyiciler ve muafiyet tablosu tek yerde, `scripts/secretscan.sh`; iki tüketicisi var:
+> `redline-check.sh` R7d (commit'lenebilir **her** dosya — `docs/` dahil, `.env` hariç) ve
+> `scripts/git-hooks/pre-push` (push edilecek aralığın **eklenen** satırları + commit mesajları;
+> kurulum `make hooks`). Kartın "uzun hex parola biçimleri" maddesi a0-token'ın ≥32 haneli hex
+> alt-şekli olarak var. Bulgu metni hiçbir çıktıya basılmaz (`yol:satır: [sınıf]`). Regresyon
+> ağı `cmd/tappa/secretscan_test.go`. agent-brief maddesi `573d4e1`'de zaten yazılmıştı.
+> 2. tur (üçüncü göz RED): muafiyet belirteçleri artık sınırlı eşleşiyor, commit-mesajı
+> muafiyeti tek commit'e bağlı, kanca boru hattının her aşamasını
+> ayrı okuyor, kayıt ayıracı `:` değil 0x1F, kanca `--text` + annotated tag mesajı okuyor,
+> sağlayıcı önekleri / yeni atama anahtarları / `IDENTIFIED BY` / `curl -u` eklendi. Yan
+> bulgu: GNU `mktemp -t ad` X'siz şablonu reddeder — `redline-check.sh`'in `SCAN_ERR`
+> işaretçisi Ubuntu CI'da yazıldığından beri ölüydü; şablonlu yolla düzeltildi.
+> 3. tur (üçüncü göz RED, B1 kalıntısı): 2. turun "sınırlı eşleşme"si yalnız ardındaki bir
+> *değer karakterine* bakıyordu ve YAML'da boşluk/sekme/`,`/`;`/tırnak/`(`/`\`, kabukta
+> tırnak/`\`, SQL'de `''` ile uzatılmış dev değerini hâlâ affediyordu (denetçi sekiz ayraçla
+> ölçtü). Muafiyet belirteçleri TÜRLÜ yapıldı (`@yaml` / `@sh` / `@sql`) — 4. tur bunu da kırdı
+> (aşağıda); o makine 4. turda silindi. Kanca: ikili kararı blob'dan (0x01 işaretçisi değil), `--root`, 8
+> kat tag sınırı testle pinli; CI'da `make audit` önceki adımlar kırmızı olsa da koşar.
+> Push notu: kanca aralığı uzağın ADIYLA hesaplar — `git push -u origin m10-faz0` taklit bir
+> origin'e karşı rc=0 (4 yeni commit); URL ile push tüm geçmişi tarar ve A-0 satırları
+> yüzünden exit 1 verir (pre-push başlığı ve Makefile `hooks` notu).
+> 4. tur (üçüncü göz RED): `@yaml`/`@sql` muafiyeti, satır sonunda BİTMEYEN değeri (YAML çok
+> satırlı düz skaler, SQL bitişik dizge; PyYAML/Ruby/yq ve Postgres 17 ile ölçüldü) hâlâ
+> affediyordu — üç turdur aynı sınıf. Kök neden `tappa` gibi zayıf bir dev değerini önce
+> yakalayıp sonra affetmekti. Karar ve uygulama: `pw-assign`'ın bütün biçimleri değerin gücüne
+> bakıyor (≥6 karakter, ≥2 sınıf, yer tutucu/başvuru değil); değer dilin kuralıyla okunuyor
+> (kabuk kelimesi, YAML satır sonu, SQL `''`). Dev değeri muafiyetleri ve tür makinesi
+> silindi; ağaçta tablo boşken bile 0 `pw-assign` isabeti. Zayıf değer ve satırlar arası
+> devam, `scripts/secretscan.sh`'te sayılı sınır. Varsayılan sınır da sıkılaştı: kapanan
+> tırnaktan sonra yalnız satır sonu ya da `,;)]}` (Go dizge birleştirmesi `" + "` artık
+> affedilmiyor); backtick yalnız .md'de ve yorum satırında sınır.
+> 5. tur (üçüncü göz RED): tablodaki tek `@prefix=` satırı (rotatekek testi) açılış
+> tırnağını da çıkarıyordu; satırın tırnak paritesi kayıyor ve aynı satıra eklenen ikinci
+> tırnaklı değer üç biçimde sessiz kalıyordu. 4. turun ilkesiyle muafiyet sıkılaştırılmadı,
+> KALDIRILDI: test değeri çalışma anında 8 karakterden kısa parçalardan kuruluyor (bayt
+> bayt aynı), `@prefix=` türü silindi, tırnak taşıyan belirteç tabloyu exit 2 ile reddediyor.
+> "Aynı satırda ikinci değer FAIL verir" bir teste bağlandı (6. turda düzeltildi: dört
+> biçimden üçünde belirteç sınırlı değildi; 7. turda belirteç mekanizmasıyla birlikte
+> silindi, aşağıda). İstisna, sayılı: `@class` (htmx) o sınıfın ikinci değerini de affediyordu
+> (7. turda silindi). Değer okuyucuları: YAML tırnaklı skaler kaçışları, düğüm
+> özellikleri (`&çapa`, `!etiket`), tırnaklı değerde başvuru süzgeci yok, `$`/`%` + güçlü
+> gövde değer (6. turda daraltıldı: bu kural yalnız `$`'ı AÇAN bağlamda; kısa kuyruk orada
+> sayılı sınır); kanca `GIT_NO_REPLACE_OBJECTS=1`. Tam geçmiş taramasında A-0'ın 9 satırına
+> rotatekek testinin `a32d0ca`'daki tek satırı eklendi (artık muaf değil; yalnız tüm geçmişi
+> tarayan URL/yeni-uzak push'unda görünür, o da A-0 yüzünden zaten exit 1).
+> 6. tur (üçüncü göz RED): muafiyet belirteci silinince içindeki sır kelimesi de
+> gidiyordu — ADR 0019'un örnek parolası ve CI-only sahte KEK "password"/"secret"
+> kelimesini kendisi taşıyor; satıra eklenen ikinci güçlü değer, kelime yalnız belirteçte
+> olduğunda sessizdi. Mekanizmada çözüldü: silme satır uzunluğunu koruyor, bağlam (sır
+> kelimesi, atama anahtarı, `curl`) orijinal satırdan, değer adayları silinmiş satırdan
+> okunuyordu; ikinci-değer testi eşli kontrollerle yeniden yazılmıştı (ikisi de 7. turda
+> belirteç mekanizmasıyla birlikte silindi).
+> `$`/`%`: düz bağlamda (.md, commit/tag mesajı, kaynak kod, URL parolası) `$` hiçbir şey
+> açmaz — `$AD`, `${...}`, printf biçimi dışındaki her şey `$` dahil tam değer olarak
+> ölçülüyor; açan bağlamda kısa kuyruk sayılı sınır (#23). Grafts ve değersiz YAML çapası
+> sayıldı (#10, #18).
+> 7. tur (üçüncü göz RED; orkestratör kararı: yeniden tasarım): 6. turun boşluğa çevirme
+> mekanizması SOL uzatmayı açmıştı (22 belirteç × 5 ayraç × 3 tırnak = 330 satırın 330'u
+> adlı yolda sessiz; signup.go'ya eklenen bir satır push'ta rc=0). Altı turun bloklayanının
+> hepsi aynı sınıftı: satırın İÇİNDEKİ bir belirteci affedip geri kalanını sınıflamak. Muafiyet
+> artık SATIRIN TAMAMINA bağlı (redline R1'in "cümleye bağlı" ilkesi): tablo girdisi
+> `yol ERE;sha256(satırın tam baytları, \n hariç);açıklama` — değer içermez; hash tutan satır
+> hiç sınıflanmaz, bir bayt değişirse adsız bir yoldaki gibi sınıflanır. Belirteç silme,
+> sınır kuralları, bağlam aktarımı, `@prefix`/`@class`, tablonun kendi satırı istisnası ve
+> bunların testleri silindi. Tablo, 6. turun muaf ettiği 37 ağaç satırından üretildi: 32
+> girdi; yeni muaf listesi eskisiyle birebir aynı. htmx girdisinin hash'i README'deki
+> sha256'nın kendisi (tek satırlık dosya). Özellik testi: muaf her satırın her
+> tırnak/ayraç komşuluğuna, başına, sonuna ve 10 rastgele konuma güçlü bir değer eklenir —
+> 1178 satırın 1178'i adsız yoldakiyle birebir aynı sınıflanıyor (aynı küme 6. turun
+> mekanizmasında 792 satırda sessizdi); tek bayt değişikliği (sondaki boşluk, `\r`, …) muafiyeti
+> düşürüyor. Muafiyet eklemek: `bash scripts/secretscan.sh --hash <dosya>:<satır>` (satır
+> metnini basmaz). Ayrıca kabuk kelimesi kapanan `"`'ın ardından kelime/tırnak gelirse
+> sürüyor; deploy/k8s YAML'ında yalnız `$(AD)` açılıyor. Tamlık iddiası yok: sayılı sınırlar
+> `scripts/secretscan.sh` başlığında.
+> 8. tur (üçüncü göz ONAY; bloklamayan bulgular kapatıldı): kanca ÖLÇÜLEN git
+> ayarlarından bağımsız okuyor (`--src-prefix=a/ --dst-prefix=b/`, `--encoding=UTF-8` ve
+> diğer bayraklar; `diff.dstPrefix` ve UTF-16 log kodlaması altında rc=0 ölçülmüştü;
+> tamlık iddiası yok — 9. turda iki ayar daha bulundu, aşağıda).
+> Tablo açıklaması değer taşıyamıyor, yol tek bir dosyayı adlandırmak zorunda, `--hash`
+> yardımcısının `\r`/sondaki boşluk sadakati testle pinli, redline R7d FAIL mesajı
+> yardımcıyı gösteriyor, boşluksuz printf biçimi (`KEY=%-20s`) kod şekli. Sayıldı:
+> boşluklu a0 adayı (#24), yalan söyleyen araçlar (#25).
+> 9. tur (üçüncü göz RED): 8. turun printf kuralı (`ANAHTAR=` + harf/rakam + tek bir
+> `%<harf>` → kod) güçlü değerleri susturuyordu (7. turda kırmızı 13 değer sessizdi).
+> Kural artık yalnız printf fiilleri + alfanümerik olmayan ayraçlardan oluşan değeri kod
+> sayıyor; sabit tohumlu 2 × 300 rastgele değerde kural açıkken ve kapalıyken aynı satırlar
+> raporlanıyor. Ayrıca: tablo açıklaması boşluk kelimeleriyle de sınanıyor; tablo hatası
+> satır metnini basmıyor; kanca `diff.interHunkContext`/`GIT_DIFF_OPTS` bağlam satırlarında
+> doğru satır numarası veriyor ve yanlış `encoding` başlıklı commit mesajını ham nesneden
+> okuyor. Muafiyet yolu kısıtı belgelendi (#26: böyle bir dosya gerekirse yeniden adlandırılır).
+> 10. tur (üçüncü göz ONAY; yalnız belge ve test): printf kuralının susturduğu iki biçim
+> (isimli fiildeki tanımlayıcı, yalnız fiillerden oluşan değer) sınır #27; kuralın testi
+> yalnız kendi tohumlu örneklemini iddia ediyor (`TestSecretScan_ThePrintfRuleSilencesNoRealisticValue`).
+> 128 karakterden uzun a0 adayı sınır #28. İmzalı bir tag'in `git merge` ile birleştirilmesi:
+> tag mesajı merge commit'in `mergetag` başlığına gömülüyor ve yayınlanıyordu; kanca artık o
+> başlığın devam satırlarını okuyor (ssh imzalı tag + özel merge mesajında rc=0 → 1, ölçüldü).
+> Ham mesaj geçişinin iki koruması (kesilmiş `--batch` akışı, gerçek UTF-16LE mesaj baytları)
+> testle pinlendi. Bilinen gürültüye Go'nun `%[1]s` ve `100%%s` biçimleri eklendi.
+> 11. tur (tappa-security-auditor ONAY; ORTA §4.7 kapatıldı): KEK ve NTAG AES anahtar
+> değerleri A-0 biçiminde yazılınca sessizdi ("canlı KEK", "plaket anahtarı (key 1)",
+> `TAPPA_TAG_KEK=`, `*_HMAC_KEY=`; altı biçimin altısı). Anahtar bağlamı kelimeleri (kek,
+> hmac, aes, key, anahtar) artık YALNIZ anahtar biçimli tırnaklı bir değerle birlikte
+> tetik; `kek` ve `hmac_key` atama anahtarı — örnek Secret'ın yedi adının yedisi bir
+> kurala giriyor. Tablo boşken ağaçta 23 yeni satır çıktı; hepsi sınıflandırıldı (CI'nın
+> belgelenmiş sahte KEK'i, AN12196 bilinen-cevap vektörleri, `_label: FAKE` fixture),
+> gerçek sızıntı yok; satıra bağlı 18 girdiyle muaf. Kesilen bir taramanın geçici
+> dizini (satır metni taşır) artık siliniyor. Sayıldı: commit başlık alanları (#29),
+> anahtar bağlamının sınırı (#30). `make audit` etiketi "SKIPPED(scan could not run)".
+> 12. tur (son sertleştirme): `kek`/`hmac_key` adın ortasında bir rotasyon sonekiyle de
+> atama anahtarı (`TAPPA_TAG_KEK_PREVIOUS=`); camelCase adlardaki anahtar kelimesi
+> (`tagKey`, `prodKEK`) bağlam. Tablo boşken ağaçta 14 yeni satır — hepsi test değeri
+> (AN12196, belge dışı bir bayt rampası, fake/test/wrong adlı değerler, sun_vectors.json
+> sahtelerinin kopyaları),
+> gerçek sızıntı yok; satıra bağlı 14 girdiyle muaf (tablo 64 girdi). Her bağlam kelimesi
+> kendi vakasıyla pinli. Kancanın üst düzey HUP tuzağı ölçüldü: Ubuntu bash 5.2'de tuzaksız
+> 12/20 koşuda kalıntı, tuzakla 0/20 — tutuldu, test onu yalnız olasılıkla pinliyor (#31).
+> Sayıldı: #31, #32 ve #30'a eklenen anahtar biçimleri; bilinen gürültüye beş biçim.
+> Kapanış (yalnız metin): ayraçsız ve camel sınırsız adlar (`TAGKEY`, `tagkey`) #33.
+>
 > **Kart düzeltmesi (2026-09-25, OP-2 uygulaması sırasında).** `a,,b` hata verir ama boş-eleman
 > reddi yüzünden DEĞİL: `a` bir uuid olmadığı için ilk elemanda düşer. Boş-eleman reddini ölçen
 > vaka `<uuid>,,<uuid>` (ve sondaki virgül) — hata mesajı `empty entry` ile doğrulanır; yalnız
@@ -271,6 +393,18 @@ yasal belge içindi, M9-08'in kapsamı §4.5'i aşan beş işlev.
 | EM-10 | Bounce/complaint (SNS → HTTPS, imza doğrulama) | L | — | pilot sonrası, kendi ADR'si | — |
 | EM-11 | Signup e-posta doğrulaması (ADR 0013 c) | L | — | pilot sonrası, kendi ADR'si | — |
 | EM-12 | M7-07 yönetici daveti (kilidi açılır) | — | — | kendi kartı ve ADR'si | EM-7 |
+
+> **Kart düzeltmesi (2026-09-25, F0-5 uygulaması sırasında — EM-3 için): SMTP kimlik bilgisi
+> biçimi R7d'de şu durumda.** SES SMTP kullanıcı adı bir AWS erişim anahtarı kimliğidir
+> (`AKIA…`, 20 karakter) ve `aws-key` sınıfı onu nerede geçerse geçsin FAIL verir. SMTP
+> parolası 44 karakterlik base64'tür: `+` ya da `/` taşıyorsa zaten yakalanıyordu; taşımıyorsa
+> (yalnız harf+rakam) 3. tura kadar tanımlayıcı sayılıp SESSİZ kalıyordu. Artık ≥32 karakterlik,
+> büyük+küçük harf+rakam karışık, tekrarlı dolgu olmayan bir değer bir sır kelimesiyle aynı
+> satırda tırnak/backtick içindeyse `a0-token` FAIL verir (ağaçta 0 yanlış pozitif; iki
+> sentetik test değeri tabloda adıyla). KALAN: tırnaksız yazılmış ya da sır kelimesinden ayrı
+> satırdaki değer, `_`/`-` taşıyan base64url biçimi (Go test adlarıyla aynı şekil) ve
+> `Authorization: Basic …` başlığı yakalanmaz (`scripts/secretscan.sh` sınır listesi). EM-3'ün
+> runbook'u SMTP değerlerini yalnız Secret'a yazar; hiçbir belgeye değer yazılmaz (A-0).
 
 ### Kullanıcının dış adımları (EM-2 ile paralel başlar; sıralı)
 1. AWS hesabı: root için MFA, günlük kullanım için ayrı yönetici kullanıcı, fatura alarmı (~$5).

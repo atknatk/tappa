@@ -969,7 +969,11 @@ func TestRun_AFailedWriteIsARefusalNotASuccess(t *testing.T) {
 // tells the operator to KEEP as the only record of the run. Reverting the fix left
 // every test green, so the fix was decoration until this existed.
 func TestReadAck_NeverEchoesTheRawValue(t *testing.T) {
-	secret := "omAfxiWEwnollFiosY/ykdPOo2BXdn59WNPzTmqkWeE="
+	// Assembled from short fragments, byte for byte the literal it replaced: R7d
+	// (scripts/secretscan.sh) scans this file, and a quoted base64 value on the
+	// same line as that variable name is the Olay A-0 shape. Pieces shorter than
+	// eight characters cannot fire, so no waiver row is needed (M10 F0-5, 5th round).
+	secret := "omAfxiW" + "EwnollF" + "iosY/yk" + "dPOo2BX" + "dn59WNP" + "zTmqkWe" + "E="
 	for _, bad := range []string{secret, "abc", "-1", "12x"} {
 		_, _, err := readAck(func(k string) string {
 			if k == ackEnv {

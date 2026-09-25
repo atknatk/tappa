@@ -11,6 +11,9 @@ fail=0
 
 # Yalnizca kaynak kod taranir: dokumanlar ve .claude/ kurallari bu terimleri
 # mesru olarak icerir, onlari eslestirmek gurultu uretir.
+# ⚠️ TEK ISTISNA R7d (sir DEGERI, M10 F0-5): o kural SRC'yi DEGIL commit'lenebilir
+# HER dosyayi tarar, cunku Olay A-0'in sizintisi tam olarak SRC'nin disinda,
+# docs/plan/state.md'deydi. Kapsami ve gerekcesi R7d bolumunde.
 #
 # `test` M5-09'da EKLENDI (guvenlik denetimi olctu): test/fixtures altinda
 # `_test.go` OLMAYAN gercek Go kaynagi var (tagkeys.go, seedkeys/main.go) ve
@@ -119,8 +122,15 @@ fi
 # yine "temiz" + exit 0 basiyordu. Bu yuzden iki mekanizma var: asagidaki ON-UCUS
 # (have_rg icinde, ana kabukta) ve her cagrida yazilan SCAN_ERR isaretcisi; ikincisi
 # sonda okunuyor.
-SCAN_ERR=$(mktemp -t tappa-redline-scan-err)
-trap 'rm -f "$SCAN_ERR"' EXIT
+# 🔴 SABLON `XXXXXX` ILE VE TAM YOLLA (2026-09-25, M10 F0-5 2. turu olctu). Onceki
+# `mktemp -t tappa-redline-scan-err` yalniz BSD mktemp'te (macOS) calisiyordu; GNU
+# mktemp (Ubuntu CI) X'siz sablonu "too few X's" ile REDDEDER. Olculdu, ubuntu:24.04:
+# SCAN_ERR BOS kaliyor, her `echo ... >>"$SCAN_ERR"` "No such file" ile dusuyor ve
+# `[[ -s "" ]]` yanlis — yani CI'da yukaridaki "tarama patladi -> exit 2" isaretcisi
+# bu satirin yazildigi gunden beri OLUYDU. Artik yaratilamazsa betik baslamaz.
+SCAN_ERR=$(mktemp "${TMPDIR:-/tmp}/tappa-redline-scan-err.XXXXXX") || { echo "redline-check: mktemp failed" >&2; exit 2; }
+R7D_LIST=$(mktemp "${TMPDIR:-/tmp}/tappa-redline-r7d-files.XXXXXX") || { rm -f "$SCAN_ERR"; echo "redline-check: mktemp failed" >&2; exit 2; }
+trap 'rm -f "$SCAN_ERR" "$R7D_LIST"' EXIT
 scan() { scan_in SRC "$@"; }
 
 # scan_in <dizi-adi> <rg argumanlari...> — scan()'in kapsami secilebilen hali.
@@ -1750,6 +1760,84 @@ report WARN R6 "Sessizce yutulan hata — kayit kaybina yol acabilir" \
 # --- Node yasagi (bkz. CLAUDE.md §1) ----------------------------------------
 node_files=$(git ls-files 'package.json' 'package-lock.json' 'pnpm-lock.yaml' 'yarn.lock' 2>/dev/null || true)
 report FAIL N1 "Node artefakti — bu repo Node'suzdur" "$node_files"
+
+# --- R7d: SIR DEGERI commit'lenebilir bir dosyada (M10 F0-5, Olay A-0) --------
+#
+# KOD NEDEN R7d, R8 DEGIL: R1-R7 bu dosyada agent `tappa-security-auditor`in R1-R7
+# basliklariyla BIREBIR eslesiyor (R7 = "Sir sizintisi" ikisinde de), ve o ajanin
+# R8'i "Karar sirasi uyumu" — plan belgelerinde "tappa-security-auditor R6/R8 temiz"
+# diye aniliyor (docs altinda 9 kez, olculdu). Burada R8 demek "R8 temiz" cumlesini iki anlamli
+# yapardi. Sir DEGERI, R7 ailesinin (R7 log · R7b kisisel veri · R7c GPS) dorduncu
+# uyesidir.
+#
+# 🔴 NEDEN AYRI KAPSAM. R1-R7 SRC'yi (kaynak kod) tarar; A-0'in sizintisi — operator
+# panel parolasinin DEGERI bir "rotate edilmeli" notunun icinde — docs/plan/state.md'deydi
+# ve DORT satir, UC commit boyunca, depo PUBLIC iken hicbir kural oraya bakmadi.
+# R7d'in kapsami bu yuzden `git ls-files --cached --others --exclude-standard`: bir
+# `git add -A`'nin alacagi her dosya — docs/ ve .claude/ dahil, .gitignore'daki .env
+# HARIC (o dosyanin degerleri hicbir tarama ciktisina girmemeli; zaten commit'lenemez).
+# Izlenmeyen ama ignore EDILMEMIS dosyalar da taranir: "commit'lenmeden once" gorulen
+# sizinti, "commit'lendikten sonra" gorulenden ucuzdur.
+#
+# DESENLER, TETIKLEYICILER VE MUAFIYET TABLOSU scripts/secretscan.sh'TE, TEK YERDE —
+# scripts/git-hooks/pre-push ayni dosyayi source eder (push edilecek EKLENEN satirlar).
+# Olcumler, siniflar ve sayilmis sinirlar orada yazili.
+#
+# 🔴 BULGU METNI BASILMAZ: cikti `yol:satir: [sinif]`. Eslesen satiri basmak sirri
+# CI log'una — public depoda public — ikinci kez yayinlardi.
+#
+# ⚠️ `--no-config` BILINCLI: RIPGREP_CONFIG_PATH bir `--max-columns` tasirsa rg uzun
+# satiri "[Omitted long line]" ile DEGISTIRIR. state.md'nin A-0 satiri binlerce
+# karakterlik tek bir satirdi — yani o ayarla ag tam sizintinin ustunde korlesirdi.
+# `--sort=path` ciktiyi kosudan kosuya AYNI sirada tutar (rg paralel siralamasi
+# degisken; WARN listesi CI log'larinda karsilastirilabilir kalmali). Bedeli tek
+# is parcacigi: bu agacta 0,08 sn (siralamasiz 0,02 sn), olculdu.
+# ⚠️ Dosya listesi -z ile alinir: -z'siz git, ASCII disi yollari tirnakli sekizli
+# kacisla basar ve rg o yolu bulamaz (exit 2). Silinmis-ama-izlenen dosyalar ve
+# sembolik baglar atlanir (ilki okunamaz, ikincisi agaci disariya tasir).
+# ⚠️ KAYIT AYIRACI `:` DEGIL US (0x1F) — 2. tur (N1): yolu `:` tasiyan bir dosya
+# (`docs/plan/a:b.md`) `yol:satir:metin` ayristirmasinda SESSIZCE atlaniyordu. rg
+# alanlari `--field-match-separator` ile ayirir; secretscan.sh ayrisamayan her
+# kaydi HATA sayar (exit 2), rg'nin ikili dosya bildirimi disinda.
+# ⚠️ Kutuphane yuklenemezse asagidaki blok HIC KOSMAZ: `set -u` altinda tanimsiz
+# bir R7D_* degiskeni betigi exit 1 ile — "ihlal var" ile ayni sayiyla — dusururdu.
+r7d_ok=1
+if ! . scripts/secretscan.sh; then
+  echo "${RED}ATLANDI${OFF}: scripts/secretscan.sh yuklenemedi — R7d KOSMADI." >&2
+  echo 2 >>"$SCAN_ERR"
+  r7d_ok=0
+fi
+if ! git ls-files -z --cached --others --exclude-standard >"$R7D_LIST"; then
+  echo "${RED}ATLANDI${OFF}: R7d dosya listesi alinamadi (git ls-files) — TARAMA KOSMADI." >&2
+  echo 2 >>"$SCAN_ERR"
+fi
+r7d_files=()
+while IFS= read -r -d '' f; do
+  [[ -f $f && ! -L $f ]] && r7d_files+=("$f")
+done <"$R7D_LIST"
+r7d_raw=""; r7d_fail=""; r7d_waived=""
+if [[ $r7d_ok -eq 1 && ${#r7d_files[@]} -eq 0 ]]; then
+  echo "${RED}ATLANDI${OFF}: R7d taranacak dosya bulamadi — bu bir 'temiz' sonucu DEGILDIR." >&2
+  echo 2 >>"$SCAN_ERR"
+elif [[ $r7d_ok -eq 1 ]]; then
+  r7d_raw=$(rg --no-config --sort=path -n --no-heading -H --field-match-separator "$R7D_SEP" \
+    -i -e "$R7D_PREFILTER" -- "${r7d_files[@]}")
+  r7d_rc=$?
+  if [[ $r7d_rc -gt 1 ]]; then
+    echo "${RED}ATLANDI${OFF}: R7d ripgrep taramasi hata verdi (exit $r7d_rc) — TARAMA GUVENILIR DEGIL." >&2
+    echo "$r7d_rc" >>"$SCAN_ERR"
+  fi
+  # r7d_select'in cikis kodu $(...) icinde kaybolurdu; `||` onu SCAN_ERR'e yazar.
+  r7d_fail=$(r7d_select fail <<<"$r7d_raw") || {
+    echo "${RED}ATLANDI${OFF}: R7d siniflandirmasi hata verdi (awk / ayrisamayan kayit / sha256) — TARAMA GUVENILIR DEGIL." >&2
+    echo 2 >>"$SCAN_ERR"
+  }
+  r7d_waived=$(r7d_select waived <<<"$r7d_raw") || echo 2 >>"$SCAN_ERR"
+fi
+report FAIL R7d "Sir DEGERI commit'lenebilir dosyada (kimlikli URL · AWS anahtari · PEM ozel anahtar · bcrypt ozeti · saglayici belirteci · parola atamasi · A-0 sekli) — metin basilmaz, satiri yerelde ac. Gercekten zararsizsa (ya da muaf bir satir duzenlendiyse, muafiyeti SATIRA bagli oldugu icin duser): bash scripts/secretscan.sh --hash <dosya>:<satir> satirin hash'ini basar, R7D_WAIVERS tablosuna gerekcesiyle eklenir" \
+  "$r7d_fail"
+report WARN R7d "R7d muafiyeti kullanildi (yola VE satirin sha256'sina bagli, scripts/secretscan.sh) — muafiyet sessiz kalamaz" \
+  "$r7d_waived"
 
 # 🔴 BIR TARAMA PATLADIYSA SONUC "TEMIZ" DE "IHLAL VAR" DA DEGILDIR. Isaretci
 # dolduysa hicbir bulgu guvenilir degil -- gorulmeyen ihlal gorulmemis sayilamaz.

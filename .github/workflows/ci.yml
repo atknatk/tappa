@@ -206,4 +206,13 @@ jobs:
       - name: make audit (govulncheck + redline-check)
         # govulncheck@v1.6.0 (pinli) + scripts/redline-check.sh (kirmizi cizgi
         # taramasi). rg yukarida kuruldu, tarama gercekten kosar.
+        #
+        # 🔴 ONCEKI ADIMLAR KIRMIZI OLSA DA KOSAR (M10 F0-5, 3. tur denetimi). Eskiden
+        # `make check` ya da migrate/seed dustugunde bu adim HIC kosmuyordu, yani
+        # R7d (sir DEGERI kapisi) bir TEST kirmizisinin arkasinda kor kaliyordu —
+        # depo PUBLIC, sir kapisi test durumuna bagli olmamali. redline-check ve
+        # govulncheck veritabani istemez. `always()` degil `!cancelled()`: iptal
+        # edilen bir kosuda (concurrency cancel-in-progress) bosuna calismaz.
+        # Isin sonucu yine kirmizi kalir; bu satir yalniz TARAMANIN kosmasini saglar.
+        if: ${{ !cancelled() }}
         run: make audit

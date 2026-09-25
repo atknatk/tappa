@@ -1,0 +1,329 @@
+#!/usr/bin/env bash
+# Tappa — pre-push: R7d sir taramasi, PUSH EDILECEK EKLENEN SATIRLAR uzerinde.
+#
+# Kurulum (depo basina bir kez): `make hooks`  ->  git config core.hooksPath scripts/git-hooks
+#
+# 🔴 NEDEN BIR KANCA, CI YETMEZKEN (M10 F0-5, Olay A-0). redline-check.sh R7d agaci
+# CI'da tarar — ama CI push'tan SONRA kosar, ve depo PUBLIC: push zaten yayindir.
+# A-0'da deger UC commit boyunca pushlandi. Bu kanca ayni desenleri (scripts/
+# secretscan.sh, TEK TANIM) yayindan ONCE, gonderilecek aralik uzerinde uygular.
+#
+# 🔴 AGACI DEGIL EKLENEN SATIRLARI TARAR. Bir commit'te eklenip bir sonrakinde
+# silinen sir HEAD agacinda yoktur ama gecmisle birlikte YAYINLANIR — tam olarak
+# A-0'in 920baaa'daki durumu (deger HEAD'den kalkti, gecmiste duruyor). Bu yuzden
+# aralik commit commit gezilir (`git log -p`), birlesme commit'leri ilk ebeveynine
+# gore (`--diff-merges=first-parent`, git >= 2.31), ve commit MESAJLARI da taranir.
+#
+# ARALIK (stdin: <yerel ref> <yerel sha> <uzak ref> <uzak sha>, satir basina):
+#   yerel sha sifir ........... silme; taranacak bir sey yok
+#   uzak sha sifir (yeni dal) . yerel sha'dan erisilebilen ve HICBIR `refs/remotes/
+#                               <uzak>/*` ref'inden erisilemeyen commit'ler. Uzakta
+#                               hic izleme ref'i yoksa bu TUM gecmistir — dogru:
+#                               yeni bir uzaga ilk push tum gecmisi yayinlar.
+#   uzak sha yerelde yok ...... (baskasinin push'u; zorla push) ayni geri dusus.
+#   aksi halde ................ <uzak sha>..<yerel sha>
+# Kok commit de taranir (`--root`): kullanicinin `log.showRoot=false` ayari onu
+# atliyordu (3. tur).
+#
+# 🔴 URL ILE YA DA YENI BIR UZAGA ILK PUSH (3. tur, olculdu). Aralik uzagin ADIYLA
+# (`--remotes=<ad>`) hesaplanir: git kancaya uzagin adini verir, URL ile push'ta ise
+# URL'yi — o zaman hicbir `refs/remotes/<URL>/*` yoktur ve aralik TUM GECMISTIR. Bu
+# depoda gecmis A-0 penceresinin satirlarini tasir, yani:
+#   `git push -u origin m10-faz0` ........ origin/main (A-0'i iceren) disarida -> 0
+#   `git push <url> m10-faz0` / yeni uzak .. tum gecmis -> A-0 satirlari -> exit 1
+# DOGRU YOL: uzagi adla ekle, `git fetch <ad>` ile izleme ref'lerini guncelle, sonra
+# adla push et (`git push -u <ad> <dal>`). Yeni bir uzaga ilk push gecmisi GERCEKTEN
+# yayinlar; exit 1 orada dogru cevaptir — A-0 degeri o gecmistedir. Izleme ref'leri
+# BAYATSA (fetch edilmemis) zaten yayinli commit'ler yeniden taranir ve exit 1 gorulur:
+# once `git fetch`.
+#
+# CIKIS: 0 temiz · 1 bulgu (push DURUR) · 2 arac eksik/hata (push DURUR —
+# "taranamadi" "temiz" demek degildir, redline-check.sh'in exit 2 ilkesi).
+# 🔴 BULGU METNI BASILMAZ: yalniz `yol:satir: [sinif]` (commit mesaji icin
+# `commit-msg@<sha>:<satir>`, annotated tag mesaji icin `tag-msg@<sha>:<satir>`).
+# Satiri gormek icin: `git show <sha>`.
+set -uo pipefail
+
+# 🔴 REPLACE NESNELERI KAPALI (5. tur N6, olculdu). `git replace <commit> <ikiz>`
+# yerel bir yonlendirmedir: `git log -p <commit>` sorulunca temiz ikizi gosterir ve
+# kanca exit 0 veriyordu — ama `git push` ORIJINAL nesneleri yollar. Tarayici push
+# edilecek baytlari okumali. export: bu betikteki HER git cagrisina (log, cat-file,
+# rev-list, for-each-ref) miras kalir; TestPrePush_ReplaceRefsDoNotHideWhatIsPushed.
+export GIT_NO_REPLACE_OBJECTS=1
+# 9. tur (N2): GIT_DIFF_OPTS `-U0`/`--unified=0`'i bile ezer ve baglam satirlari uretir
+# (olculdu); GIT_EXTERNAL_DIFF `--no-ext-diff` ile zaten kapali, yine de temizlenir.
+unset GIT_DIFF_OPTS GIT_EXTERNAL_DIFF
+
+top=$(git rev-parse --show-toplevel 2>/dev/null) || { echo "pre-push: not a git work tree" >&2; exit 2; }
+cd "$top" || exit 2
+
+# rg YOKSA KAPALI-BASARISIZ. `command -v` yetmez (bozuk/calistirilamaz shim de
+# "var" gorunur — redline-check.sh have_rg'nin olculmus dersi); gercek bir arama
+# kosulur. --no-config: RIPGREP_CONFIG_PATH'teki bir `--max-columns` uzun satiri
+# "[Omitted long line]" ile degistirir ve A-0'in tek uzun satirini gizlerdi.
+if ! command -v rg >/dev/null 2>&1 || ! printf 'x\n' | rg --no-config -q -e x >/dev/null 2>&1; then
+  echo "pre-push: ripgrep (rg) yok ya da CALISMIYOR — sir taramasi KOSMADI, push durduruldu." >&2
+  echo "  Kur: brew install ripgrep. Bu bir 'temiz' sonucu DEGILDIR." >&2
+  exit 2
+fi
+if ! . scripts/secretscan.sh; then
+  echo "pre-push: scripts/secretscan.sh yuklenemedi — push durduruldu." >&2
+  exit 2
+fi
+
+remote="${1:-origin}"
+# Sablon `XXXXXX` ile: GNU mktemp (Ubuntu) X'siz `-t ad` bicimini reddeder (olculdu).
+# Yaratilamazsa neden durdugunu SOYLER (3. tur); exit 2 kalir.
+tmps=()
+cleanup() { [[ ${#tmps[@]} -eq 0 ]] || rm -f "${tmps[@]}"; }
+trap cleanup EXIT
+# 11. tur (§4.7): gecici dosyalar eklenen satirlarin TAM metnini tasir. Kapanan bir
+# terminal (SIGHUP) onlari birakmasin: sinyal bir `exit`e cevrilir, EXIT tuzagi siler.
+# Olculdu (12. tur, 20'ser kosu): Ubuntu bash 5.2 tuzaksiz 12/20 kosuda dosyalari
+# BIRAKIYORDU, tuzakla 0/20; macOS bash 3.2 iki durumda da 0/20. Kalinti bir yarisa
+# bagli oldugu icin test tuzagi yalniz olasilikla pinler (secretscan.sh sinir #31).
+# SIGINT ve SIGTERM'de iki surum de EXIT tuzagini zaten kosuyor (olculdu); o tuzaklar
+# ayirt edici bir vaka vermedigi icin eklenmedi.
+trap 'exit 129' HUP
+newtmp() { # newtmp <degisken> <ad>
+  local f
+  if ! f=$(mktemp "${TMPDIR:-/tmp}/tappa-prepush-$2.XXXXXX"); then
+    echo "pre-push: gecici dosya yaratilamadi (mktemp, TMPDIR=${TMPDIR:-/tmp}) — push durduruldu." >&2
+    exit 2
+  fi
+  tmps+=("$f"); printf -v "$1" '%s' "$f"
+}
+newtmp added added
+newtmp uniq uniq
+newtmp binlist binlist
+newtmp blob blob
+err=0
+
+# 🔴 BORU HATTININ HER ASAMASI AYRI OKUNUR (2. tur, B2). `pipefail` en SAGDAKI sifir
+# olmayan kodu dondurur; ilk hali `awk ... | rg ...; rc=$?` idi ve denetci yalniz o
+# awk'i dusuren bir PATH shim'iyle olctu: awk coktu, rg bos girdiye 1 ("isabet yok")
+# dedi, aralikta A-0 bicimli bir satir dururken kanca EXIT 0 verdi. Artik her boru
+# hattindan sonra PIPESTATUS'un TAMAMI okunur (ok_pipe) ve rg yalniz ara DOSYA
+# uzerinde kosar: rg'nin "1 = isabet yok" anlami ancak girdisini ureten asama 0
+# dondu ise gecerlidir.
+ok_pipe() { # ok_pipe <PIPESTATUS...> — hepsi 0 ise 0
+  local s
+  for s in "$@"; do [[ $s -eq 0 ]] || return 1; done
+  return 0
+}
+
+# diff_lines <ikili-blob-listesi>: `git log -p -U0 --text --full-index` ciktisini
+# `yol US satir US metin` kayitlarina cevirir (R7D_SEP; `:` degil — yolu `:` tasiyan
+# dosya, 2. tur N1). Baslik (`--- a/..`, `+++ b/..`, `index`) YALNIZ `diff --git` ile
+# ilk `@@` ARASINDA okunur; hunk icindeki her satirin bir onek karakteri vardir, yani
+# icerigi `++ b/` ile baslayan eklenmis bir satir basliga karismaz. Bosluklu yolun
+# sonuna git bir SEKME ekler (olculdu), o silinir. (awk tek tirnak icinde: kesme
+# isareti yok.)
+# 🔴 IKILI DOSYA = BLOB'U NUL TASIYAN DOSYA — ozniteligi DEGIL, metindeki bir isaret
+# bayti DA degil (3. tur). 2. tur NUL'lari 0x01'e cevirip "0x01 goren dosyayi at"
+# diyordu; 0x01 tasiyan bir METIN dosyasi da boylece butunuyle atlaniyordu (olculdu:
+# A-0 satiri + ayri satirda 0x01 -> rc=0). Artik ikili karari blob basina, git'in kendi
+# nesnesinden verilir (blob_is_binary, asagida) ve `index <eski>..<yeni>` satirindaki
+# yeni blob o listede ise dosyanin satirlari atlanir. NUL'lar silinir (awk ve rg NUL'da
+# farkli davranir); o dosyalar zaten ikili listededir.
+diff_lines() {
+  LC_ALL=C awk -v binf="$1" '
+    BEGIN { SEP = "\037"; while ((getline l < binf) > 0) BIN[l] = 1; close(binf) }
+    /^\001[0-9a-f]+$/ { inhunk = 0; path = ""; skipf = 0; next }
+    /^diff --git / { inhunk = 0; path = ""; skipf = 0; next }
+    !inhunk && /^index [0-9a-f]+[.][.][0-9a-f]+/ {
+      b = $2; sub(/^[0-9a-f]+[.][.]/, "", b); skipf = (b in BIN); next
+    }
+    !inhunk && /^\+\+\+ / {
+      path = substr($0, 5); sub(/\t$/, "", path)
+      if (path == "/dev/null") path = ""
+      else { sub(/^"/, "", path); sub(/"$/, "", path); sub(/^b\//, "", path) }
+      next
+    }
+    /^@@ / {
+      h = $0; sub(/^@@ -[0-9]+(,[0-9]+)? \+/, "", h); sub(/[, ].*$/, "", h)
+      ln = h + 0; inhunk = 1; next
+    }
+    inhunk && /^\+/ { if (path != "" && !skipf) print path SEP ln SEP substr($0, 2); ln++; next }
+    inhunk && /^ / { ln++; next }
+  '
+}
+
+# blob_is_binary <blob>: 0 = ikili (icinde NUL var), 1 = metin, 2 = okunamadi. rg'nin
+# agac taramasindaki ikili kuraliyla ayni olcut: bayt 0x00.
+blob_is_binary() {
+  git cat-file blob "$1" >"$blob" || return 2
+  rg --no-config -a -q -e '\x00' "$blob"
+  case $? in 0) return 0 ;; 1) return 1 ;; *) return 2 ;; esac
+}
+
+# msg_lines <onek>: `%x01<sha>` ile ayrilmis mesaj govdeleri -> `<onek>@<sha12> US n US metin`.
+# Ayirac TAM bicimle taninir (0x01 + yalniz hex): 0x01 ile BASLAYAN bir mesaj satiri
+# ayirac sanilip atlaniyordu (4. tur N5, olculdu).
+msg_lines() {
+  LC_ALL=C awk -v pfx="$1" '
+    BEGIN { SEP = "\037" }
+    /^\001[0-9a-f]+$/ { sha = substr($0, 2, 12); n = 0; next }
+    { n++; print pfx "@" sha SEP n SEP $0 }
+  '
+}
+
+# raw_msg_lines: `git cat-file --batch` ciktisindaki commit nesnelerinin MESAJLARI ->
+# `commit-msg@<sha12> US n US metin`. Baslik satirlari ilk bos satira kadar atlanir —
+# `mergetag` basliginin devam satirlari HARIC (10. tur, olculdu): imzali bir tag
+# `git merge` ile birlestirilince tag nesnesi, MESAJIYLA birlikte, merge commit'in
+# `mergetag` basligina gomulur ve push ile yayinlanir; ozel bir merge mesajinda deger
+# yalniz orada kaliyordu ve kanca rc=0 veriyordu. O satirlar `mergetag@<sha12> US n US
+# metin` olarak okunur. Nesnenin boyutu bayt bayt sayilir, sapma exit 1 (kanca exit 2).
+raw_msg_lines() {
+  LC_ALL=C awk '
+    BEGIN { SEP = "\037"; need = 0 }
+    need == 0 {
+      if ($0 == "") next
+      if (split($0, H, " ") != 3 || H[2] != "commit" || H[3] !~ /^[0-9]+$/) { bad = 1; exit 1 }
+      sha = substr(H[1], 1, 12); need = H[3] + 1; body = 0; n = 0; m = 0; hdr = ""; next
+    }
+    {
+      need -= length($0) + 1
+      if (need < 0) { bad = 1; exit 1 }
+      if (!body) {
+        if ($0 == "") { body = 1; next }
+        if (substr($0, 1, 1) != " ") { hdr = $0; sub(/ .*/, "", hdr); next }
+        if (hdr == "mergetag") { t = substr($0, 2); gsub(/\002/, "", t); m++; print "mergetag@" sha SEP m SEP t }
+        next
+      }
+      if (need > 0 || $0 != "") { t = $0; gsub(/\002/, "", t); n++; print "commit-msg@" sha SEP n SEP t }
+    }
+    END { if (bad || need != 0) exit 1 }
+  '
+}
+
+# tag_lines <nesne>: annotated tag MESAJLARI (2. tur, N3 — tag push'unda mesajdaki
+# A-0 bicimi exit 0 veriyordu). Ic ice en fazla max_tag_depth (8) tag okunur; 9. kat
+# taranamaz ve exit 2 olur (sessiz degil). 2. tur yorumu "8 kattan derin" diyordu ama
+# dongu 8. katta dusuyordu — 3. tur olctu; sinir cmd/tappa testinde 8 ve 9 katla pinli.
+# Tag olmayan nesnede (commit, hafif tag) yapacak bir sey yok.
+max_tag_depth=8
+tag_lines() {
+  local obj=$1 depth=0 t body
+  while :; do
+    t=$(git cat-file -t "$obj" 2>/dev/null) || return 1
+    [[ $t == tag ]] || return 0
+    ((depth++ < max_tag_depth)) || return 1
+    body=$(git cat-file tag "$obj") || return 1
+    { printf '\001%s\n' "$obj"; printf '%s\n' "$body" | LC_ALL=C awk 'b { print; next } /^$/ { b = 1 }'; } |
+      msg_lines tag-msg >>"$added"
+    ok_pipe "${PIPESTATUS[@]}" || return 1
+    obj=$(printf '%s\n' "$body" | LC_ALL=C awk '/^object / { print $2; exit }')
+    [[ -n $obj ]] || return 1
+  done
+}
+
+# `--text`: 2. tur (N2) — commit'lenmis `.gitattributes` (`*.md -diff`) ya da
+# `.git/info/attributes` bir dosyayi "ikili" ilan edince `git log -p` yalniz
+# "Binary files differ" basiyordu ve kanca 0 veriyordu. `--text` her farki metin
+# olarak basar; ikili (blob'u NUL tasiyan) dosyalar once listelenip diff_lines'a
+# verilir. `LC_ALL=C tr`: macOS tr UTF-8 yerelinde gecersiz bir bayt dizisinde
+# "Illegal byte sequence" ile DUSER (olculdu). `--no-textconv`/`--no-ext-diff`: bir
+# diff surucusu icerigi BASKA bir metne cevirip sakladigi icin. `--full-index`:
+# `index` satirinda tam blob adi. `core.quotePath=false`: ASCII disi yol kacissiz.
+# 🔴 OLCULEN GIT AYARLARI CIKTIYI DEGISTIRMEZ (8./9. tur; tamlik iddiasi YOK). `diff.dstPrefix=X/`
+# yolu `X/deploy/k8s/...` yapiyordu (sigmode k8s yerine shell secti, `$`-degerli satir
+# rc=0); `diff.noprefix` `b/` yi kaldiriyordu; `i18n.logOutputEncoding=UTF-16LE`
+# mesaji UTF-16'ya ceviriyordu (A-0 bicimli commit mesaji rc=0). Kancanin okudugu her
+# `git log` bicimi bayrakla SABITLENIR: `--src-prefix=a/ --dst-prefix=b/` (noprefix,
+# mnemonicPrefix, src/dstPrefix — `--default-prefix` git 2.41+, onek bayraklari her
+# surumde), `--encoding=UTF-8` (mesaj), `--no-show-signature` (log.showSignature gpg
+# ciktisini mesajin onune basar), `--no-relative` (diff.relative), `--submodule=short`
+# (diff.submodule), `--no-color` (color.*), `--format` (format.pretty, log.decorate
+# ozel bicimde basilmaz). `git cat-file` ham nesneyi basar; i18n ayari onu etkilemez.
+# Onek ve kodlama bayraklari testle pinli (TestPrePush_UserGitSettingsDoNotChangeWhatIsRead).
+# `--no-show-signature`, `--no-relative`, `--submodule=short` icin ayirt edici vaka YOK
+# (olculdu): imza satiri mesaj ayiracinin ONUNE duser ve deger tasimaz, kanca depo
+# kokunde kosar, alt modul satirlari hunk disindadir — cikti belirli olsun diye sabit.
+# 9. tur: `diff.interHunkContext` ve GIT_DIFF_OPTS baglam satirlari uretiyordu (satir
+# numarasi kayiyordu; tespit etkilenmiyordu): `-c diff.interHunkContext=0`,
+# `--unified=0`, GIT_DIFF_OPTS silinir ve diff_lines baglam satirini da sayar.
+# `i18n.commitEncoding` ile yanlis `encoding` basligi tasiyan commit: mesaj bir de HAM
+# nesneden okunur (asagida). Test: TestPrePush_UserGitSettingsDoNotChangeWhatIsRead,
+# TestPrePush_ContextLinesKeepLineNumbers, TestPrePush_CommitEncodingDoesNotHideAMessage.
+# GR: kancanin her `git log` cagrisinin ortak sabit bayraklari.
+GR=(--no-color --no-show-signature --no-relative)
+zero_re='^0+$'
+while read -r local_ref local_sha remote_ref remote_sha; do
+  [[ -n ${local_sha:-} ]] || continue
+  [[ $local_sha =~ $zero_re ]] && continue
+  if [[ ${remote_sha:-0} =~ $zero_re ]] || ! git cat-file -e "${remote_sha}^{commit}" 2>/dev/null; then
+    range=("$local_sha" --not "--remotes=$remote")
+  else
+    range=("$remote_sha..$local_sha")
+  fi
+  # Ikili ADAYLAR: git'in kendi `--numstat`'inin `-` dedigi dosyalar — gercek ikililer
+  # VE `-diff` ozniteligi tasiyan metinler. Karari her adayin BLOB'u verir (NUL var mi).
+  # Git'in metin dedigi dosya aday degildir: blob'unun ilk 8000 baytinda NUL yoktur ve
+  # metin olarak taranir. Olculdu (275 commit'lik tam gecmis): her blob'u denetlemek
+  # 69 sn, yalniz adaylari 7 sn. Alt modul (160000) bir blob degildir.
+  blobs=$(git -c core.quotePath=false log "${GR[@]}" --no-renames --root --diff-merges=first-parent \
+    --raw --numstat --no-abbrev --format='%x01%H' "${range[@]}" | LC_ALL=C awk -F '\t' '
+      /^\001/ { split("", blob); next }
+      /^:/ { split($1, M, " "); if (M[2] != "160000" && M[4] !~ /^0+$/) blob[$2] = M[4]; next }
+      NF >= 3 && $1 == "-" && $2 == "-" && ($3 in blob) { print blob[$3] }
+    ' | sort -u)
+  ok_pipe "${PIPESTATUS[@]}" || err=1
+  for b in $blobs; do
+    blob_is_binary "$b"
+    case $? in 0) printf '%s\n' "$b" >>"$binlist" ;; 1) ;; *) err=1 ;; esac
+  done
+  git -c core.quotePath=false -c diff.interHunkContext=0 log "${GR[@]}" --no-ext-diff --no-textconv --no-renames --text --root \
+    --full-index --diff-merges=first-parent -p -U0 --unified=0 --src-prefix=a/ --dst-prefix=b/ \
+    --submodule=short --format='%x01%H' "${range[@]}" |
+    LC_ALL=C tr -d '\000' | diff_lines "$binlist" >>"$added"
+  ok_pipe "${PIPESTATUS[@]}" || err=1
+  git log "${GR[@]}" --encoding=UTF-8 --format='%x01%H%n%B' "${range[@]}" | msg_lines commit-msg >>"$added"
+  ok_pipe "${PIPESTATUS[@]}" || err=1
+  # 9. tur (N1): mesaj bir de HAM nesneden okunur. `i18n.commitEncoding` ile yazilan
+  # commit bir `encoding` basligi tasir; baslik yanlissa (UTF-8 baytlar, baslik
+  # UTF-16LE/UTF-16/UTF-32/IBM037) `--encoding=UTF-8` ceviri degeri cop yapar ve kanca
+  # rc=0 veriyordu, oysa yayinlanan ham nesne degeri tasir (olculdu). `git cat-file
+  # --batch` tek surecte ham baytlari verir; NUL'lar 0x02'ye cevrilir (awk bayt sayar),
+  # sonra atilir — gercek UTF-16 bir mesajin ASCII kismi da boylece okunur.
+  git rev-list "${range[@]}" | git cat-file --batch='%(objectname) %(objecttype) %(objectsize)' |
+    LC_ALL=C tr '\000' '\002' | raw_msg_lines >>"$added"
+  ok_pipe "${PIPESTATUS[@]}" || err=1
+  tag_lines "$local_sha" || err=1
+done
+if [[ $err -ne 0 ]]; then
+  echo "pre-push: git log/awk hata verdi — aralik TARANAMADI, push durduruldu." >&2
+  exit 2
+fi
+
+# Ayni eklenen satir iki kez gelebilir (bir commit'te, sonra birlesmenin ilk-ebeveyn
+# farkinda; ya da iki ref ayni commit'i tasir) — bulgu bir kez yazilsin. Ara DOSYA,
+# boru DEGIL: bkz. ok_pipe.
+if ! LC_ALL=C awk '!seen[$0]++' "$added" >"$uniq"; then
+  echo "pre-push: satir ayiklama (awk) hata verdi — push durduruldu." >&2
+  exit 2
+fi
+hits=$(rg --no-config -a --no-filename --no-line-number -i -e "$R7D_PREFILTER" <"$uniq")
+rc=$?
+if [[ $rc -gt 1 ]]; then
+  echo "pre-push: rg taramasi hata verdi (exit $rc) — push durduruldu." >&2
+  exit 2
+fi
+fails=$(r7d_select fail <<<"$hits") || { echo "pre-push: R7d siniflandirmasi hata verdi — push durduruldu." >&2; exit 2; }
+waived=$(r7d_select waived <<<"$hits") || { echo "pre-push: R7d siniflandirmasi hata verdi — push durduruldu." >&2; exit 2; }
+
+if [[ -n $waived ]]; then
+  echo "pre-push: R7d muafiyeti kullanildi (scripts/secretscan.sh) — bilgi:" >&2
+  sed 's/^/    /' <<<"$waived" >&2
+fi
+if [[ -n $fails ]]; then
+  echo "pre-push: 🔴 SIR DEGERI gonderilecek aralikta — PUSH DURDURULDU (depo PUBLIC, push = yayin)." >&2
+  sed 's/^/    /' <<<"$fails" >&2
+  echo "  Metin basilmadi; satiri yerelde ac. Degeri gecmisten cikar (rebase/amend) —" >&2
+  echo "  sonraki bir commit'te silmek YETMEZ, eklendigi commit de yayinlanir." >&2
+  echo "  Gercekten zararsizsa: bash scripts/secretscan.sh --hash <dosya>:<satir> satirin" >&2
+  echo "  hash'ini basar; R7D_WAIVERS'a gerekcesiyle eklenir (muafiyet satirin TAMAMINA bagli)." >&2
+  exit 1
+fi
+exit 0

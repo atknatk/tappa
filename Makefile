@@ -438,11 +438,29 @@ audit:
 	echo "--- govulncheck ---"; $(GOVULNCHECK) ./... || vuln=$$?; \
 	echo "--- redline-check ---"; ./scripts/redline-check.sh || red=$$?; \
 	redword="exit=$$red"; \
-	if [ $$red -eq 2 ]; then redword="SKIPPED(no rg) exit=2"; fi; \
+	if [ $$red -eq 2 ]; then redword="SKIPPED(scan could not run) exit=2"; fi; \
 	echo ""; \
 	echo "audit: govulncheck exit=$$vuln - redline-check $$redword"; \
 	test $$vuln -eq 0 && test $$red -eq 0
 
+## hooks: git kancalarini bu depoya bagla (pre-push = R7d sir taramasi) — klon basina bir kez
+# 🔴 M10 F0-5 (Olay A-0): depo PUBLIC, yani push bir yayindir; CI'daki R7d sizintiyi
+# ancak push'tan SONRA gorur. scripts/git-hooks/pre-push ayni desenleri
+# (scripts/secretscan.sh) gonderilecek araligin EKLENEN satirlarina yayindan ONCE
+# uygular. core.hooksPath depo-yerel bir ayardir ve klonla gelmez; bu yuzden hedef.
+# ⚠️ SAYILMIS SINIR: yol CALISMA AGACINA goredir. Kancayi tasimayan eski bir commit
+# checkout edilip oradan push edilirse git kancayi BULAMAZ ve push'u sessizce gecirir;
+# `git push --no-verify` de atlar. Ikinci ag CI'daki redline-check R7d'dir.
+# ⚠️ PUSH'U UZAGIN ADIYLA YAP (olculdu, 3. tur). Kanca araligi `--remotes=<ad>` ile
+# hesaplar: `git push -u origin <dal>` origin/* izleme ref'lerinin zaten tasidigi
+# gecmisi disarida birakir. URL ile ya da yeni bir uzaga ilk push'ta izleme ref'i
+# yoktur, aralik TUM gecmistir ve gecmisteki Olay A-0 satirlari yuzunden kanca exit 1
+# verir — o durumda gecmis gercekten yayinlanacaktir. Dogru yol: uzagi adla ekle,
+# `git fetch <ad>`, sonra `git push -u <ad> <dal>`. Izleme ref'leri bayatsa once fetch.
+hooks:
+	git config core.hooksPath scripts/git-hooks
+	@echo "hooks: core.hooksPath=$$(git config --get core.hooksPath)"
+
 .PHONY: help tools gen templ sqlc css up down dev build migrate migrate-down \
         migrate-status migrate-new seed db-reset simulate-day test test-short \
-        cover lint fmt check audit require-db-env android android-test
+        cover lint fmt check audit hooks require-db-env android android-test
