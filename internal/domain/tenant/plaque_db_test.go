@@ -819,6 +819,131 @@ func TestPlaquesDB_ARefusalTheTrailCannotRecordIsStillARefusal(t *testing.T) {
 	}
 }
 
+// hangUpAfterFirstTx is a Database that behaves exactly like the real one and then,
+// the moment its FIRST transaction returns, cancels the request context — a client
+// closing its connection right after the refusal came back, which is the shape a
+// script posting a bypassed form and hanging up produces. Every later WithTenant
+// call on the same request runs with that context already cancelled.
+//
+// 🔴 IT ALSO WITNESSES THE SECOND CALL — the refusal's record — AT ITS ENTRY, because
+// two properties can only be seen there (third-eye review, 2026-09-25):
+//
+//   - ORDER. That the request was ALREADY cancelled when the record began. Asserting
+//     only that it was cancelled "at some point" let a wrapper cancelling AFTER the
+//     record pass, with the product's detach removed (review mutation M5, green).
+//   - BUDGET. That the record runs under a deadline of at most RefusalRecordGrace.
+//     Without it, swapping WithTimeout for a bare WithCancel left the write unbounded
+//     and RefusalRecordGrace dead, and every test stayed green (review mutation M2).
+type hangUpAfterFirstTx struct {
+	inner Database
+	// parent is the REQUEST context — the one hangUp cancels — as opposed to the
+	// context the record is handed, which is whatever the product derived from it.
+	parent context.Context
+	hangUp context.CancelFunc
+	calls  int
+
+	// What the second call saw on entry.
+	requestGoneAtRecord bool          // parent.Err() != nil
+	recordHasDeadline   bool          // the record's ctx carries a deadline
+	recordBudget        time.Duration // time.Until(that deadline), read on entry
+	recordCtxErr        error         // the record's own ctx is live
+}
+
+func (h *hangUpAfterFirstTx) WithTenant(ctx context.Context, tenantID uuid.UUID, fn db.TxFunc) error {
+	h.calls++
+	if h.calls == 2 {
+		h.requestGoneAtRecord = h.parent.Err() != nil
+		var dl time.Time
+		dl, h.recordHasDeadline = ctx.Deadline()
+		h.recordBudget = time.Until(dl)
+		h.recordCtxErr = ctx.Err()
+	}
+	err := h.inner.WithTenant(ctx, tenantID, fn)
+	if h.calls == 1 {
+		h.hangUp()
+	}
+	return err
+}
+
+// TestPlaquesDB_ARefusalIsRecordedEvenIfTheCallerHangsUp is the security audit's
+// follow-up (2026-09-25): the plaque.mount_refused row must not depend on the client
+// staying connected.
+//
+// 🔴 THE CANCELLATION LANDS BETWEEN THE REFUSAL AND ITS RECORD, which is the only
+// window that matters: cancelled earlier, the mount itself never runs and there is no
+// refusal to record; cancelled later, the row is already written. The wrapper puts it
+// exactly there, for both acts that record a refusal. With the write on the request
+// context — the first version — the row was never written (mutation-measured).
+func TestPlaquesDB_ARefusalIsRecordedEvenIfTheCallerHangsUp(t *testing.T) {
+	for _, act := range []string{"mount", "replace"} {
+		t.Run(act, func(t *testing.T) {
+			f := newPlaqueFixture(t)
+			uid := f.loadUnrecorded(t, f.tenantID, PlaqueUnassigned, uuid.Nil)
+			old := ""
+			if act == "replace" {
+				old = f.load(t, f.tenantID, PlaqueActive, f.locationID)
+			}
+
+			ctx, hangUp := context.WithCancel(context.Background())
+			defer hangUp()
+			data := &hangUpAfterFirstTx{inner: f.data, parent: ctx, hangUp: hangUp}
+			plaques, err := NewPlaques(data, f.trail, slog.New(slog.DiscardHandler))
+			if err != nil {
+				t.Fatalf("NewPlaques: %v", err)
+			}
+
+			if act == "mount" {
+				_, err = plaques.Mount(ctx, MountCommand{
+					TenantID: f.tenantID, ActorID: f.actorID, UID: uid, LocationID: f.locationID,
+				})
+			} else {
+				_, err = plaques.Replace(ctx, ReplaceCommand{
+					TenantID: f.tenantID, ActorID: f.actorID,
+					RetiringUID: old, SuccessorUID: CanonicalUID(uid),
+				})
+			}
+			if !errors.Is(err, ErrPlaqueNotEncoded) {
+				t.Fatalf("%s = %v, want ErrPlaqueNotEncoded", act, err)
+			}
+			// CONTROL, ON THE ORDER IT NAMES: the record was attempted (a second
+			// transaction ran) AND the request was already gone when it began. The first
+			// version checked only that the request was cancelled by the end, which a
+			// cancellation after the record also satisfies.
+			if data.calls < 2 {
+				t.Fatalf("%d transaction(s) ran; the refusal's record was never attempted", data.calls)
+			}
+			if !data.requestGoneAtRecord {
+				t.Fatal("the request was still live when the record began; the test never put " +
+					"the cancellation BETWEEN the refusal and its record")
+			}
+			// THE BUDGET: the record ran on a live context of its own, bounded by
+			// RefusalRecordGrace — detached from the request's cancellation, not from a limit.
+			if data.recordCtxErr != nil {
+				t.Fatalf("the record's context was already done on entry (%v); it inherited the "+
+					"request's cancellation", data.recordCtxErr)
+			}
+			if !data.recordHasDeadline || data.recordBudget <= 0 || data.recordBudget > RefusalRecordGrace {
+				t.Fatalf("the record ran with deadline=%v, %v left; want a deadline with 0 < left <= "+
+					"RefusalRecordGrace (%v) — an unbounded detached write can outlive the HTTP drain",
+					data.recordHasDeadline, data.recordBudget, RefusalRecordGrace)
+			}
+			if n := f.auditRows(t, ActionPlaqueMountRefused, uid); n != 1 {
+				t.Fatalf("plaque.mount_refused rows = %d after the caller hung up, want 1 — "+
+					"the refusal happened, and whether it is recorded must not depend on the "+
+					"client staying connected", n)
+			}
+			if status, wall, _, _ := f.row(t, uid); status != PlaqueUnassigned || wall != nil {
+				t.Fatalf("row = (%s, %v), want (unassigned, nil) — the refusal wrote nothing", status, wall)
+			}
+			if act == "replace" {
+				if status, _, _, replacedBy := f.row(t, old); status != PlaqueActive || replacedBy != nil {
+					t.Fatalf("old plaque = (%s, %v), want active and unreplaced", status, replacedBy)
+				}
+			}
+		})
+	}
+}
+
 // TestPlaquesDB_AnotherBusinessesPlaqueIsInvisibleAndUnwritable. The uid is a GLOBAL
 // primary key and is printed on a wall, so it is the one identifier an attacker can
 // simply read. Both the explicit tenant predicate and RLS refuse it.

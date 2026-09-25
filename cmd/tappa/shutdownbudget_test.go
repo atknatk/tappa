@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/atknatk/tappa/internal/domain/tenant"
 	"github.com/atknatk/tappa/internal/encode"
 )
 
@@ -115,5 +116,25 @@ func TestShutdownBudget_TheDetachedRepairsNestInsideTheHTTPGrace(t *testing.T) {
 		t.Errorf("encode.DefaultRepairGrace is %v, which is too short to complete one INSERT "+
 			"against a real database; detaching from the request would then buy nothing",
 			encode.DefaultRepairGrace)
+	}
+}
+
+// TestShutdownBudget_TheRefusalRecordNestsInsideTheHTTPGrace binds the budget of the
+// OTHER detached write in this process: recording a refused mount (M10 F0-6, security
+// audit follow-up 2026-09-25). It runs inside the panel request that was refused, after
+// that request may have been abandoned, so — like the encode repairs above — it must
+// FIT in the drain Shutdown already waits for, not extend it. It is one write, never
+// followed by a second, so the bound is the budget itself rather than twice it.
+func TestShutdownBudget_TheRefusalRecordNestsInsideTheHTTPGrace(t *testing.T) {
+	if tenant.RefusalRecordGrace > httpShutdownGrace {
+		t.Fatalf("recording a refused mount can take %v (tenant.RefusalRecordGrace) but "+
+			"Shutdown only waits httpShutdownGrace (%v) for the request it runs inside; a "+
+			"refusal whose record is cut off by the drain is the silent state the detach "+
+			"exists to prevent", tenant.RefusalRecordGrace, httpShutdownGrace)
+	}
+	// POSITIVE CONTROL, as above: a budget too short for one INSERT would make the
+	// detach decorative.
+	if tenant.RefusalRecordGrace < time.Second {
+		t.Errorf("tenant.RefusalRecordGrace is %v, too short to complete one INSERT", tenant.RefusalRecordGrace)
 	}
 }

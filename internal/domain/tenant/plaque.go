@@ -933,6 +933,19 @@ type refusedMountDetail struct {
 // trail's wording cannot drift between the two acts that write it.
 const refusedMountReason = "encoding not recorded as finished"
 
+// RefusalRecordGrace bounds the detached write that records a refused mount
+// (recordRefusedMount), which runs after the request that caused it may have gone.
+//
+// 🔴 FIVE SECONDS, THE SAME AS encode.DefaultRepairGrace, AND FOR THE SAME REASON:
+// one INSERT into audit_log needs far less, and the budget has to NEST inside the HTTP
+// drain it runs within (httpShutdownGrace, 20 s), because a detached write is still an
+// in-flight request's work. It is EXPORTED only so cmd/tappa's shutdown-budget gate
+// can hold that nesting — a number this repository does not bind to a gate is a
+// number that drifts in silence (internal/encode/session.go says so for its own).
+// This package cannot import internal/encode (the dependency runs the other way), so
+// it is a second constant rather than a reference, and the gate reads both.
+const RefusalRecordGrace = 5 * time.Second
+
 // retiredDetail is the audit row's payload for a retirement.
 type retiredDetail struct {
 	// Name holds the SUCCESSOR's uid -- see the ActionPlaqueRetired comment for why
@@ -1547,11 +1560,25 @@ func wrapPlaque(op string, err error) error {
 // statement, and turning a trail outage into "the panel is unavailable" would report
 // OUR failure as a verdict on the manager's request. It is logged loudly instead.
 //
+// 🔴 IT IS DETACHED FROM THE REQUEST'S CANCELLATION (security audit follow-up,
+// 2026-09-25). The first version wrote on the request context, so a client that
+// closed its connection right after the refusal — a script posting and hanging up,
+// the very actor a bypassed POST points to — left no plaque.mount_refused row, only a
+// log line. The refusal is already a FACT when this runs (the statement refused and
+// rolled back); the only question left is whether the trail may record it, which is
+// the same argument internal/encode/session.go makes for markEncoded, and this uses
+// the same shape: context.WithoutCancel plus a bounded budget of its own,
+// RefusalRecordGrace — the same five seconds as encode.DefaultRepairGrace, bound
+// under the HTTP drain by cmd/tappa's shutdown-budget gate.
+//
 // ⚠️ WHAT IT DOES NOT PROVE, counted rather than implied: its absence. A trail
-// outage, a cancelled request context or a dead pool leaves the refusal unrecorded
-// (the log line below is then the only trace) — the same limit plaque.unmarked's
-// comment states for itself.
+// outage, a dead pool, a spent RefusalRecordGrace or a killed process still leaves
+// the refusal unrecorded (the log line below is then the only trace) — the same
+// limit plaque.unmarked's comment states for itself. A cancelled REQUEST no longer
+// does.
 func (p *Plaques) recordRefusedMount(ctx context.Context, tenantID, actorID uuid.UUID, uid string, d refusedMountDetail) {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), RefusalRecordGrace)
+	defer cancel()
 	err := p.data.WithTenant(ctx, tenantID, func(ctx context.Context, tx pgx.Tx) error {
 		_, err := p.trail.RecordTx(ctx, tx, audit.Event{
 			TenantID: tenantID,

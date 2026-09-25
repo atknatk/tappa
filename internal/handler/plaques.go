@@ -539,8 +539,11 @@ func plaqueCardOf(p tenant.Plaque, screen tenant.PlaqueScreen, venues tenant.Ven
 		// ⚠️ EXCEPT FOR A PLAQUE WHOSE ENCODE WAS NOT RECORDED AS FINISHED (M10 F0-6), and the
 		// reason is the sentence the link carries: "it goes back into stock, ready to
 		// mount where it belongs". For Rusty Bar's shape that is false — back in stock
-		// it is a plaque the bind refuses — and moving it fixes no door, because no door
-		// can verify a tap on it. What fixes that door is a replacement, below.
+		// it is a plaque the bind refuses, because its encoding was not recorded as
+		// finished. Whether taps on it verify is NOT knowable from the row (the same
+		// NULL covers a personalised chip whose marking failed — see keyStateOf), so
+		// the card makes no claim about the door either way; the act that settles it
+		// is a replacement with a freshly encoded plaque, below.
 		if p.Encoded() {
 			f.UnmountHref = locationsHref + "?plaque=" + p.UID + "&confirm=unmount"
 		}
