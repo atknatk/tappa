@@ -151,9 +151,11 @@ const (
 	// faultRefused: the round failed on its own terms. The chip answered wrongly, the
 	// relay lied about a UID, or a gate in driver.go refused. NOT retryable as-is.
 	faultRefused = "refused"
-	// faultAlreadyEncoded: this chip has already been personalised. Its application
-	// key is no longer the factory default, so a re-encode's ChangeKey (ADR 0017 §5.1
-	// step 6) is rejected by the chip with 911E INTEGRITY_ERROR or 919D
+	// faultAlreadyEncoded: this chip has already been personalised, and says so in
+	// one of two measured ways (isReEncodeRejection): its NDEF file is write-locked, so
+	// a re-encode's plain WriteData (ADR 0017 §5.1 step 5) is refused with 91AE
+	// AUTHENTICATION_ERROR; or its application key 1 is no longer the factory default,
+	// so the re-encode's ChangeKey (step 6) is refused with 911E INTEGRITY_ERROR or 919D
 	// PERMISSION_DENIED. A plaque can be encoded once; the operator needs a fresh one.
 	// NOT retryable. It is a strictly more specific reading of faultRefused, derived
 	// from the status word + step in writeEncodeStoreFault; the deriving status word
@@ -902,13 +904,31 @@ func writeEncodeStoreFault(w http.ResponseWriter, err error) {
 // isReEncodeRejection recognises the one per-step failure that has a better word
 // than `refused`: an attempt to encode a chip that was ALREADY encoded.
 //
-// 🔴 THE TEST IS STATUS WORD + STEP, BOTH, AND THAT KEEPS THE WORD HONEST. When a
-// chip's application key 1 already holds OUR key, ADR 0017 §5.1 step 6's ChangeKey —
-// which authenticates and changes against the FACTORY key — is rejected by the chip
-// with 911E INTEGRITY_ERROR (measured on real silicon 2026-09-18; see
-// internal/encode/driver.go) or 919D PERMISSION_DENIED. Requiring the failing step to
-// be a changekey step as WELL as the status word means a 911E from any other exchange
-// stays `refused`: this reads a re-encode, not "the chip said 911E".
+// 🔴 THE TEST IS STATUS WORD + STEP, BOTH, AND THAT KEEPS THE WORD HONEST. There are
+// exactly two signatures, each a (step, status word) PAIR:
+//
+//   - changekey.* + 911E INTEGRITY_ERROR / 919D PERMISSION_DENIED. When a chip's
+//     application key 1 already holds OUR key, ADR 0017 §5.1 step 6's ChangeKey —
+//     which states the FACTORY key as the old one — is refused (911E measured on real
+//     silicon 2026-09-18; see internal/encode/driver.go).
+//   - writedata + 91AE AUTHENTICATION_ERROR. Measured on real silicon 2026-09-24
+//     (docs/plan/m10-platform.md, Olay A-1, the structured log's step and
+//     status_word): the first encode's step 7 locked the NDEF file's Write/ReadWrite
+//     to key 01h, so the re-encode's plain WriteData — step 5, in a key-0 session —
+//     is refused. Before this arm the A-1 chip showed the generic `refused`.
+//     The pair is also the STRONGER evidence of the two: by step 5 the session is
+//     proven good (authenticate succeeded under the factory key 0 and GetCardUID's
+//     response MAC verified one exchange earlier), so a 91AE here points at the
+//     file's access right rather than at the handshake.
+//
+// Requiring the step as WELL as the status word means the same code from any other
+// exchange stays `refused`: this reads a re-encode, not "the chip said 911E/91AE".
+// ⚠️ NOT an arm, deliberately: authenticate.2 + 91AE — what a re-encode of a chip
+// whose KEY 0 was rotated (ADR 0018, step 8; every plaque encoded since 2026-09-19)
+// returns on the fake chip. There the handshake itself fails, so the same code also
+// covers a corrupted cryptogram or a driver fault on a BLANK chip, and it has not been
+// seen on silicon. TestPlaqueEncode_AStepFailureDerivesItsFaultAndLogsTheDiagnosis
+// pins it as `refused` until that is decided.
 //
 // 🔴 IT READS THE TYPED ERROR, NOT A STRING. StepError carries the step name and
 // wraps the cause; sun.StatusError carries the codes. Both are recovered with
@@ -916,14 +936,20 @@ func writeEncodeStoreFault(w http.ResponseWriter, err error) {
 // branches on are the ones the chip actually returned — public values, never a secret.
 func isReEncodeRejection(err error) bool {
 	var se *encode.StepError
-	if !errors.As(err, &se) || !strings.HasPrefix(se.Step, "changekey") {
+	if !errors.As(err, &se) {
 		return false
 	}
 	var sw *sun.StatusError
 	if !errors.As(err, &sw) {
 		return false
 	}
-	return sw.Got == sun.SWIntegrityError || sw.Got == sun.SWPermissionDenied
+	switch {
+	case strings.HasPrefix(se.Step, "changekey"):
+		return sw.Got == sun.SWIntegrityError || sw.Got == sun.SWPermissionDenied
+	case se.Step == "writedata":
+		return sw.Got == sun.SWAuthenticationError
+	}
+	return false
 }
 
 // encodeStepFailure is the set of PUBLIC, diagnosable facts a failed step's typed

@@ -136,9 +136,9 @@ const (
 	SWISOSuccess StatusWord = 0x9000
 
 	// Error trailers the personalisation flow reasons about by NAME. NT4H2421Gx
-	// rev. 3.0 §10.3 (Status word) lists the wrapped-native error codes; the two
+	// rev. 3.0 §10.3 (Status word) lists the wrapped-native error codes; the three
 	// below are the ones a caller BRANCHES on rather than merely reports, so they
-	// earn a name. Both are PUBLIC — a return code is diagnostic, not a secret (see
+	// earn a name. All are PUBLIC — a return code is diagnostic, not a secret (see
 	// StatusWord above).
 	//
 	// SWIntegrityError — 911Eh, INTEGRITY_ERROR. The chip could not verify the
@@ -151,6 +151,15 @@ const (
 	// the chip's current state. The other trailer a re-encode's ChangeKey can return
 	// once application key 1 is no longer the factory default.
 	SWPermissionDenied StatusWord = 0x919D
+	// SWAuthenticationError — 91AEh, AUTHENTICATION_ERROR. The current
+	// authentication state does not grant the command: no active authentication, or
+	// one under a key the target's access right does not name. Measured on real
+	// silicon 2026-09-24 (docs/plan/m10-platform.md, Olay A-1): the plain WriteData
+	// of a RE-ENCODE (ADR 0017 §5.1 step 5) answers 91AE, because the first encode's
+	// step 7 moved the NDEF file's Write/ReadWrite rights from free access (Eh) to
+	// K_SDMFileRead (01h, TappaNDEFSettings) and this session is authenticated with
+	// key 0.
+	SWAuthenticationError StatusWord = 0x91AE
 )
 
 // swLen is the size of the SW1SW2 trailer.

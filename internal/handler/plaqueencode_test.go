@@ -14,6 +14,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"path/filepath"
 	"reflect"
 	"sort"
 	"strings"
@@ -1447,9 +1448,24 @@ func TestPlaqueEncode_AStepFailureDerivesItsFaultAndLogsTheDiagnosis(t *testing.
 		{"reencode_integrity_error", "changekey.sdmfileread", sun.SWIntegrityError, faultAlreadyEncoded, "911E"},
 		{"reencode_permission_denied", "changekey.sdmfileread", sun.SWPermissionDenied, faultAlreadyEncoded, "919D"},
 		{"reencode_appmaster", "changekey.appmaster", sun.SWIntegrityError, faultAlreadyEncoded, "911E"},
+		// M10 F0-7 — the real-silicon signature of Olay A-1 (2026-09-24): the first
+		// encode's step 7 locked the NDEF file, so the re-encode's plain WriteData is
+		// refused with 91AE. It used to fall through to `refused`.
+		{"reencode_writedata_auth_error", "writedata", sun.SWAuthenticationError, faultAlreadyEncoded, "91AE"},
 		// A LENGTH_ERROR at WriteData is a different fault: still `refused`, so the new
 		// word stays specific to a re-encode rather than "the chip said an error word".
 		{"other_status_stays_refused", "writedata", 0x917E, faultRefused, "917E"},
+		// The changekey signature's CODE at the writedata STEP is not a re-encode.
+		{"writedata_integrity_error_stays_refused", "writedata", sun.SWIntegrityError, faultRefused, "911E"},
+		// ...and 91AE at any step but writedata is not either: STATUS WORD + STEP, both.
+		{"auth_error_at_changefilesettings_stays_refused", "changefilesettings", sun.SWAuthenticationError, faultRefused, "91AE"},
+		{"auth_error_at_changekey_stays_refused", "changekey.sdmfileread", sun.SWAuthenticationError, faultRefused, "91AE"},
+		// ⚠️ DELIBERATELY `refused`, AND A DECISION LEFT OPEN (F0-7 report): this is what
+		// a re-encode of a key-0-rotated chip (every plaque since ADR 0018's step 8)
+		// returns on the fake chip, but 91AE at the HANDSHAKE also covers a corrupted
+		// cryptogram or a driver fault on a blank chip, and silicon has not shown it.
+		// Changing this row is the decision, made on purpose.
+		{"auth_error_at_authenticate_stays_refused", "authenticate.2", sun.SWAuthenticationError, faultRefused, "91AE"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1510,6 +1526,24 @@ func TestPlaqueEncode_AStepFailureDerivesItsFaultAndLogsTheDiagnosis(t *testing.
 				t.Fatalf("the round handle reached the log: %q", line)
 			}
 		})
+	}
+}
+
+// TestIsReEncodeRejection_ReadsStepNamesTheDriverEmits pins the STEP half of
+// isReEncodeRejection to internal/encode's step table. The arms compare string
+// literals ("writedata", the "changekey" prefix) against StepError.Step; renaming a
+// step in driver.go would leave an arm that can never match — `already-encoded`
+// silently back to `refused`, with every test above still green because they build
+// the StepError by hand.
+func TestIsReEncodeRejection_ReadsStepNamesTheDriverEmits(t *testing.T) {
+	src, err := os.ReadFile(filepath.Join("..", "encode", "driver.go"))
+	if err != nil {
+		t.Fatalf("reading internal/encode/driver.go: %v", err)
+	}
+	for _, want := range []string{`name: "writedata",`, `name: "changekey.sdmfileread",`, `name: "changekey.appmaster",`} {
+		if !strings.Contains(string(src), want) {
+			t.Errorf("driver.go no longer declares the step %s that isReEncodeRejection reads", want)
+		}
 	}
 }
 
