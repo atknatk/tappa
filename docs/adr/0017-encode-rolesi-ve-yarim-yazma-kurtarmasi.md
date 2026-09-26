@@ -169,6 +169,16 @@ edildi ve o kapıdaki 12 tap'in 12'si SUN doğrulamasında reddedildi (anahtar
 çipe hiç yazılmamıştı). Damganın anlamı sevk edilen tura göre
 değişir: md.5'ten (adım 8, anahtar 0 rotasyonu) sonra damga anahtar 0'ın
 döndürülmüş olmasını da içerir, öncesinde damgalanmış satırlarda içermez.
+✅ **EK (2026-09-26, migration 00025): kapı şemada da var ve HER ROLÜ bağlar.**
+`tags_active_requires_recorded_encode` (BEFORE UPDATE) bir satırın `active`'e
+**geçişini** `OLD.encoded_at` ya da `NEW.encoded_at` boşsa 23001 ile reddeder —
+`tappa_owner` ile elle yazılmış bir UPDATE ya da gelecekteki bir bağlama sorgusu da
+kapıyı atlayamaz, tek ifadede "damgala + mount" da geçmez. Yalnız geçişi yakalar:
+zaten `active` damgasız bir satırın tap sayaç güncellemesi `WHEN`'e hiç uymaz (§4.6).
+**Açık kalan, sayılı:** bir satırın doğrudan `active` **doğması** — `tappa_app`
+tablo düzeyi INSERT tutuyor ve `tags.status` DEFAULT'u `'active'`; bugün hiçbir kod
+yolu bunu yapmıyor (tek INSERT `InsertUnassigned`, literal `'unassigned'`), kapatma
+sırası backlog T76'da.
 🔴 **Patlama yarıçapı "encode penceresi" DEĞİL** — ilk sürüm öyle yazdı ve §5.3
 onu **çürüttü**: kurtarma da *fabrika → bizimki* yönünde `ChangeKey` çağırır ve o
 oturum, ilk turdan **günler sonra**, muhtemelen **başka bir telefonla**, yine
