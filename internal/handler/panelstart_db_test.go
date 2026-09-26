@@ -25,6 +25,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+
+	"github.com/atknatk/tappa/internal/store"
 )
 
 // newPlaqueUID mints a canonical 14-hex-digit uid (00013's CHECK is upper case).
@@ -95,6 +97,16 @@ func TestPanelLandingDB_ReadsThePlaqueStateFromTheDatabase(t *testing.T) {
 	}
 
 	// STEP 3 -- somebody mounts it. The notice must go away entirely.
+	//
+	// The encode round finishes first (ADR 0017 §5.1 step 9, the encode flow's own
+	// statement): since migration 00025 the schema refuses to move a plaque whose
+	// encode was never recorded into `active`, whatever statement asks.
+	if err := p.data.WithTenant(context.Background(), p.tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		_, e := store.New(tx).MarkTagEncoded(ctx, store.MarkTagEncodedParams{Uid: uid, TenantID: p.tenantID})
+		return e
+	}); err != nil {
+		t.Fatalf("stamping the loaded plaque: %v", err)
+	}
 	mustExec(t, p, p.tenantID,
 		`UPDATE tags SET status = 'active', location_id = $2 WHERE uid = $1 AND tenant_id = $3`,
 		uid, locationID, p.tenantID)

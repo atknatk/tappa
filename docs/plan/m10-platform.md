@@ -39,6 +39,27 @@ Taptime'ın herkese açık gizlilik/künye metinlerini değiştirebilir ve tenan
 | OP-2 | Allow-list parser birim testleri (A-5) | builder | boş/boşluk→nil; `a,,b`→hata; e-posta→hata; nil uuid→hata; tekrar→tek; nil-reddi mutasyonu kırmızı |
 | OP-3 | `tenants` UPDATE yetkisini daralt (A-4): `REVOKE UPDATE` + `GRANT UPDATE (name, business_type, timezone)` | tappa-db-migrator + güvenlik | `has_column_privilege(tappa_app,'tenants','vat_number'\|'structure','UPDATE')=false`; kapalı-liste testi genişletildi; signup E2E yeşil; Down temiz |
 
+> **Kart düzeltmesi (2026-09-26, OP-3 uygulaması sırasında).** Migration **00024**. (1) UPDATE
+> 00016'dan beri zaten sütun düzeyindeydi (ölçüldü, dev = üretim: `vat_number`/`structure` = `aw`),
+> yani pratik etki bu iki sütundan UPDATE'in düşmesi; tek yazan ifade (`UpdateTenantAccount`)
+> yalnız `name`/`business_type`/`timezone` yazıyor. (2) **Kapsam genişletildi (orkestratör
+> kararı, en-az-yetki):** tablo düzeyi `DELETE` de REVOKE edildi — `DELETE FROM tenants` hiçbir
+> yerde yok (grep 0), ama çocuksuz yeni bir tenant satırını `tappa_app` silebiliyordu (ölçüldü:
+> `DELETE 1`; sonra 42501). (3) Sıra yük taşır: tablo düzeyi `REVOKE UPDATE` sütun grant'larını
+> da siler (ölçüldü) — REVOKE'tan sonra GRANT (kapalı liste) gelmezse hesap ekranı kırılır.
+> INSERT listesine dokunulmadı. Down, 00016+00017 ACL'ini bayt-aynı geri kuruyor.
+>
+> **F0-6b (aynı gün, migration 00025).** F0-6'nın uygulama kapısının altına şema kemeri:
+> `tags_active_requires_recorded_encode` — damgası ifadeden ÖNCE kayıtlı olmayan bir plaketin
+> `active`'e **geçişi** her rolde (tappa_owner dahil) 23001 ile reddedilir. `active` kalan damgasız
+> satırın (Rusty Bar) `last_ctr` artışı, retire ve unmount'u geçer (§4.6). **INSERT yarısı
+> BİLEREK yok:** `tappa_app` tablo düzeyi INSERT tutuyor ve `status` DEFAULT'u `'active'` —
+> damgasız `active` satır INSERT ile üretilebiliyor (ölçüldü); ama 00022 her satırı damgasız
+> doğurduğu için bir INSERT trigger'ı her `active` INSERT'i reddeder: seed.sql'in plaket INSERT'i
+> yeniden koşumda bile kırılır (ölçüldü) ve `internal/store` dışında 17 Go dosyasında 51
+> `INSERT INTO tags` satırı (çoğu `active` yükleyen fixture) yeniden şekillenmeli. Açık kalan, T16
+> ile birlikte ayrı bir iş.
+
 > **Kart düzeltmesi (2026-09-25, F0-5 uygulaması sırasında).** Kural kodu **R7d**, R8 değil:
 > redline R1–R7 `tappa-security-auditor`'ın R1–R7 başlıklarıyla birebir eşleşiyor ve o ajanın
 > R8'i "Karar sırası uyumu" (plan belgelerinde 9 kez "auditor R6/R8" diye geçiyor). Desenler,

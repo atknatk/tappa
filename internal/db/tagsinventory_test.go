@@ -756,6 +756,12 @@ func TestRLS_Tags00013_StockIsolation(t *testing.T) {
 
 	stock := randUID(t)
 	addPlaque(t, app, a, stock, uuid.Nil, "unassigned", 0)
+	// STAMPED, because the positive control in (2) moves it into `active` and
+	// migration 00025 refuses that for a plaque whose encode was never recorded. It
+	// also keeps (2) able to fail for the right reason: with RLS off, B's bind would
+	// now SUCCEED (1 row) and turn this red, rather than tripping the trigger and
+	// turning it red for a reason that has nothing to do with isolation.
+	stampPlaque(t, app, a, stock)
 
 	// (1) READ -- B must not see A's stock; A must.
 	count := func(ctxTenant uuid.UUID) int {

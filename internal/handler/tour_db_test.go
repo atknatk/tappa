@@ -33,6 +33,7 @@ import (
 
 	"github.com/atknatk/tappa/internal/invite"
 	"github.com/atknatk/tappa/internal/session"
+	"github.com/atknatk/tappa/internal/store"
 )
 
 // tourFlow is the tap harness with the ACTIVATION routes mounted beside the tap
@@ -523,7 +524,17 @@ func TestTourDB_ARejectedFirstTapSpendsThePracticeRun(t *testing.T) {
 	//     base:ctr-gap-review made this `flag` as well ("the tag counter jumped").
 	//     Reading the live row keeps the test measuring the practice rule instead
 	//     of accidentally measuring the counter.
-	f.retireTag(t, f.tagUID, "active") // the plaque is back in service
+	// The plaque is back in service. The harness loads it `active` and never runs the
+	// encode round, so its step-9 stamp is recorded first (the encode flow's own
+	// statement): since migration 00025 the schema refuses `retired -> active` on a
+	// plaque whose encode was never recorded. The stamp changes nothing a tap reads.
+	if err := f.data.WithTenant(context.Background(), f.tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		_, e := store.New(tx).MarkTagEncoded(ctx, store.MarkTagEncodedParams{Uid: f.tagUID, TenantID: f.tenantID})
+		return e
+	}); err != nil {
+		t.Fatalf("stamping the harness plaque before returning it to service: %v", err)
+	}
+	f.retireTag(t, f.tagUID, "active")
 	next := f.newEmployee(t, "active")
 	f.seedAgedRecord(t, next, 600*time.Second, nil, "reject", false)
 	ctr := uint32(f.lastCtr(t, f.tagUID)) + 1 //nolint:gosec // fixture counter, far inside uint32

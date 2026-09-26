@@ -109,6 +109,12 @@ type Querier interface {
 	// construction, and classifyMount (internal/domain/tenant/plaque.go) resolves it
 	// with a second read on the failure path only.
 	//
+	// THE SCHEMA CARRIES THE SAME RULE SINCE MIGRATION 00025 (M10 Faz 0 F0-6b), for
+	// every role and every statement: tags_active_requires_recorded_encode refuses any
+	// transition INTO `active` on a row whose encode was not recorded before the
+	// statement (23001). This WHERE still refuses FIRST, so this statement answers
+	// pgx.ErrNoRows and never that 23001 -- the division classifyMount depends on.
+	//
 	// ⚠️ THE REPLACE FLOW RUNS THIS SAME STATEMENT AFTER THE RETIRE, INSIDE ONE
 	// TRANSACTION, so an unstamped successor rolls the retirement back too: the old
 	// plaque stays `active` on its wall. The retire has NO stamp predicate and must not
