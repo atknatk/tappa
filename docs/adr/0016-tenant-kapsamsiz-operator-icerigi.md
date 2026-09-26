@@ -1,11 +1,77 @@
 # ADR 0016 — Tappa'nın kendi yasal metinleri tenant kapsamsız bir tabloda durur
 
-- **Durum:** kabul edildi
+- **Durum:** kabul edildi · **kısmen yerine geçildi**
+  ([ADR 0020](0020-platform-operatoru-ayri-kimlik.md),
+  [ADR 0021](0021-op-fonksiyonlari-tenant-otesi-erisim.md), 2026-09-26) — hangi
+  maddenin ayakta kaldığı aşağıdaki güncelleme bloğunda
 - **Tarih:** 2026-08-14
 - **Bağlam:** M7-06 (yasal metin formu), migration
   [00020](../../db/migrations/00020_create_legal_documents.sql)
 - **İlgili:** [ADR 0002](0002-tenant-baglami-ve-rls.md) (tenant bağlamı, çözümleyici
   muafiyetleri) · CLAUDE.md §4.5, §6 · `scripts/redline-check.sh` R5 muafiyeti
+
+> **ADR güncellemesi (2026-09-26, M10 OP-4) — KISMEN YERİNE GEÇİLDİ:
+> [ADR 0020](0020-platform-operatoru-ayri-kimlik.md) (platform operatörü: ayrı kimlik,
+> zorunlu TOTP, ayrı oturum ve host) ve
+> [ADR 0021](0021-op-fonksiyonlari-tenant-otesi-erisim.md) (`op_*`: tenant sınırını
+> aşmanın tek yolu).** Kullanıcı kararı D-B (2026-09-24). Bu ADR'nin gövdesi
+> **değiştirilmedi** — ADR 0002'nin tarihli güncelleme blokları ve ADR 0018'in
+> *"0017'nin metnine dokunulmaz"* emsali; neyin düştüğü ve neyin ayakta kaldığı burada.
+>
+> ⚠️ **Yerine geçen bugün KARARDIR, KOD DEĞİL.** HEAD `f6f5a9b`'de izin listesi,
+> `mayPublishLegal`, `TabLegal` ve `tappa_app`'in `legal_documents` üzerindeki sütun
+> düzeyi `INSERT`'i çalışıyor (ölçüldü: `has_any_column_privilege(tappa_app, …,
+> 'INSERT') = t`). OP-10 sevk edilene kadar §5 **üretimde yürürlükteki davranışın**
+> doğru tarifidir.
+>
+> **AYAKTA kalanlar:**
+> - **§1** — tablo `tenant_id` taşımaz, R5 muafiyeti gürültülü, RLS gönüllü. Değişmedi;
+>   operatör tabloları (ADR 0020) aynı muafiyet kalıbını kullanacak.
+> - **§2'nin SONUCU** — yasal metinler "Tappa'nın kendi tenant'ına" taşınmaz, ve
+>   müşteri oturumuyla ulaşılan bir handler'da `WithTenant(başkası)` yasaktır. ADR
+>   0020'nin izin listesini genişletmeyi elemesinin gerekçelerinden biri tam olarak bu.
+> - **§3** append-only · **§4** `published_by`'da FK yok (değerleri artık iki kaynaktan
+>   gelecek: eski satırlar `admin_users.id`, OP-10 sonrası `platform_admins.id`) ·
+>   **§6** 256 KiB gövde sınırı ve yayımda paragraf bölme — yeni yazma yolu
+>   (`op_publish_legal`) bu sınırı korumak **zorunda**.
+> - **OKUMA yolunun tamamı** — `handler.Marketing` havuzsuz, `legal.Store` anlık
+>   görüntüsü, Sonuçlar'daki iki bayatlık kaynağı. Tek ek: tek replikada yayından sonra
+>   `legal.Store.Refresh`.
+> - **§5'in "Yeni rol yok" maddesi** — `admin_users.role` kapalı sözlüğüne değer
+>   eklenmez; operatör ayrı bir tabloda yaşar.
+> - **§5'in genel dersi** — *"bir izin listesi ancak anahtarının tekilliği kadar
+>   değerlidir"* — ADR 0020'de `platform_admins.email`'in GLOBAL UNIQUE olmasının ve
+>   yalnız `tappa_owner`'ın satır yazabilmesinin gerekçesi olarak taşınır. *"Boş =
+>   kimse"* ilkesi de taşınır (boş `platform_admins`).
+> - Sonuçlar: *"`published_by` uygulama rolü tarafından okunamaz"* — `tappa_app` için
+>   **ayakta**.
+>
+> **YERİNE GEÇİLENLER:**
+> - **§5 tümüyle** — env izin listesi, anahtarın `admin_users.id` olması, reddetme
+>   sayfasının çağıranın kendi id'sini basması → ADR 0020 (ayrı kimlik) + OP-10
+>   (`TabLegal`, `PanelSection.OperatorOnly`, `PanelChrome.Operator`, `mayPublishLegal`,
+>   `config.OperatorAdminIDs`, `TAPPA_OPERATOR_ADMIN_IDS` kalkar). Özellikle §5'in
+>   **"Yeni giriş yok"** maddesi: ayrı bir operatör girişi artık VAR — gerekçesi (*"Dört
+>   belge bunu haklı çıkarmaz"*) dört belge içindi, operatör kapsamı tenant sınırını
+>   aşan işlevlere büyüdü.
+> - **§2'nin gerekçe cümlesi** — *"operatöre Tappa tenant'ında ikinci bir hesap (ve
+>   ikinci bir giriş) vermek … 'yeni giriş yok' kararının reddettiği şey"*. İkinci giriş
+>   artık var; ama Tappa'nın tenant'ında değil, tenant kapsamsız `platform_admins`'te.
+> - **§2b** — *"kim yazabilir sorusunun tek cevabı uygulama katmanındaki izin
+>   listesidir"* ve *"yazma tarafında DB derinliği yok"*: OP-10'da `REVOKE INSERT ON
+>   legal_documents FROM tappa_app` ile kapanır, tek yazma yolu `tappa_opdefiner`'ın
+>   `op_publish_legal`'ı olur. §2b'nin ölçümü (`tappa_app` yabancı bir tenant
+>   bağlamında `INSERT` edebiliyor) OP-10'a kadar **doğrudur**. §2b'nin *"İlgili,
+>   kapatılmadı"* notu (izin listesi anahtarı + `tappa_app`'in `admin_users`'a id
+>   seçerek satır ekleyebilmesi) operatör kapısı açısından anlamsızlaşır; ayrıcalığın
+>   kendisi değişmez.
+> - **Sonuçlar** — *"izin listesi `.env`'de"* düşer. *"Ürün içinde 'bu metni kim
+>   yayımladı' ekranı yok"* OP-10'un sürüm listesiyle (`op_*` üzerinden, `tappa_app`
+>   değil) kapanır.
+> - **Audit'in yeri** — yayın audit'i bugün çağıranın tenant'ının `audit_log`'una
+>   yazılıyor; OP-10'dan sonra `operator_audit_log`'a (yasal belge hiçbir tenant'ın
+>   değildir; tenant `audit_log`'u yalnız bir tenant'ı değiştiren operatör eylemleri
+>   için — ADR 0020 §5, K6).
 
 ## Neden ayrı bir ADR
 

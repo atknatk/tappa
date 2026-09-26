@@ -327,6 +327,361 @@ yasal belge içindi, M9-08'in kapsamı §4.5'i aşan beş işlev.
 | OP-9 | `cmd/opadmin` + README + (K2/K4) ops Ingress/DNS | M | builder (+kullanıcı ops) | sürücü yok, owner DSN adı kaynakta yok; çıktı tek transaction; ham token stdout'ta yok; süresi geçen token red | OP-5 |
 | OP-10 | Legal'i taşı + allow-list'i emekliye ayır | M | builder + tappa-db-migrator + güvenlik | `has_table_privilege(tappa_app,'legal_documents','INSERT')=false`; yayın sonrası `/legal/privacy` yeni metin; `TestLegalPublicPath_WritesNothing` + `TestLegalReader_CannotReachTheDatabase` yeşil; sürüm listesi yayımlayanı gösterir; geri alma = yeni satır; `rg 'OperatorAdminIDs\|OperatorOnly\|TabLegal\|mayPublishLegal\|TAPPA_OPERATOR_ADMIN_IDS'` kod+deploy'da 0 (ADR geçmişi hariç); müşteri panel taramasında operatör öğesi yok | OP-8, OP-9 |
 
+> **Kart düzeltmesi (2026-09-26, OP-4 uygulaması sırasında — 1.–4. tur ve 3. tur eki).** Yazıldı:
+> [ADR 0020](../adr/0020-platform-operatoru-ayri-kimlik.md) (kimlik) ve
+> [ADR 0021](../adr/0021-op-fonksiyonlari-tenant-otesi-erisim.md) (`op_*`); ADR 0016
+> durumu *"kısmen yerine geçildi"* + tarihli güncelleme bloğu. Yukarıdaki "Tasarım özü"nden
+> sapmalar aşağıda; normatif hâlleri ADR'lerde. **Ölçüm yöntemi:** dev Postgres 17.10,
+> `tappa_owner` oturumu; kalıcı katalogda iz bırakabilecek her şey `BEGIN … ROLLBACK`
+> içinde (her sondadan sonra kalan `zz_probe_*` nesne/rol 0). 2. turdan itibaren çağıran
+> `SET SESSION AUTHORIZATION tappa_app` ile gerçek, üye olmayan, NOSUPERUSER bir rol;
+> definer'lar NOSUPERUSER BYPASSRLS. Commit gerektiren bilet sondaları `BEGIN … ROLLBACK`
+> ile ölçülemediği için oturuma özel geçici nesnelerle (`pg_temp`) koştu (madde 10, 23).
+> Sonda **olmayan** maddeler *(metin okuması)* diye işaretli.
+>
+> **1. tur**
+> 1. **`op_*` (iv) `SET search_path = pg_catalog, public` AÇIKTI** → `pg_catalog,
+>    pg_temp` + `public.`-nitelenmiş adlar (altı çözümleyicinin altısının emsali).
+>    Yolda yazılmamış `pg_temp` ilk aranır: çağıranın aynı adlı geçici tablosu
+>    fonksiyonun okumasını **ve** audit `INSERT`'ini kendine çekti. Gerçek fiyatı (2. turda
+>    NOSUPERUSER sahip + gerçek çağıranla yeniden ölçüldü): tek aşamalı bir yazma gerçek
+>    tabloya commit edilirken audit'i çağıranın geçici tablosuna gidiyor — değişiklik 1,
+>    gerçek audit 0 (ADR 0021 §2 iv).
+> 2. **OP-10'un `has_table_privilege(tappa_app,'legal_documents','INSERT')=false`
+>    kriteri BUGÜN DE yeşil** — grant sütun düzeyinde; `has_any_column_privilege` = `t`
+>    ve `tappa_app` yazabiliyor. Kriter boş; doğrusu `has_any_column_privilege(…,
+>    'INSERT')=false`. OP-5'in *"dört fiilde yetkisiz"*i aynı sözleşmeyle ölçülür:
+>    SELECT/INSERT/UPDATE `has_any_column_privilege`, DELETE `has_table_privilege`.
+> 3. **`tappa_app` `REVOKE ALL` kapsamı `platform_*` adıyla sınırlı değil** —
+>    `operator_audit_log` da (2. turda: bilet tablosu ve diziler — madde 15). Yeni tablo
+>    dev'de ve üretimde `tappa_app=arwd` ile, taze CI veritabanında `ar` ile doğar;
+>    ikisinde de açık.
+> 4. **`tappa_opdefiner`'ın "ASLA" listesi tenant tablolarının yedi sır sütunudur**
+>    (katalogdaki hash/anahtar-referansı sütunlarının tamamı); adıyla istisna
+>    **`platform_sessions.token_hash`**: (i) `WHERE token_hash = …` ister, Postgres
+>    `WHERE`'deki sütun için sütun SELECT'i ister (yoksa `permission denied`). Görür,
+>    döndürmez.
+> 5. **(v) "her çağrı" = kabul edilen her çağrı.** EXCEPTION'la reddedilen çağrının
+>    audit `INSERT`'i geri alınır (0 satır). Her `op_*` yazdığı için `VOLATILE` zorunlu
+>    (`STABLE`'da `INSERT` çalışma anında hata). (Okumaların audit'i 2. turda iki
+>    aşamalı oldu — madde 10.)
+> 6. **`totp_last_step` `NOT NULL` + başlangıç değeri her gerçek adımdan küçük** —
+>    `NULL` iken `WHERE totp_last_step < $2` 0 satır döndürüp **ilk** kodu reddediyor.
+> 7. **(vi) "hepsi tek migration"** A2'nin ayrı görevleriyle (OP-10, OP-11, …)
+>    çelişiyor → ADR 0021 bunu *"her `op_*`'ın tanımı + sahipliği + grant'ı aynı
+>    migration'da"* diye okur. *(metin okuması)*
+> 8. **`tappa_operator` NOLOGIN ve parolasız doğar** — plan *"LOGIN"* diyor. Giriş,
+>    parolayı Secret'tan veren ayrı adımda açılır; `01-roles.sql`'in ölçülmüş fail-open
+>    düzeltmesinin (`tappa_app`) aynısı. *(metin okuması: `01-roles.sql` başlığı)*
+> 9. **`operator_audit_log`'a tablo-boşaltma trigger'ı da** — plan *"REVOKE +
+>    `tappa_forbid_mutation` trigger"* diyor; 00021 emsali: bugün
+>    `tappa_forbid_mutation` kullanan her tabloda satır ve tablo-boşaltma trigger'ı
+>    birlikte (katalogda ölçüldü).
+>
+> **2. tur (tappa-security-auditor RED; üçüncü göz ONAY, ORTA/DÜŞÜK bulgular)**
+> 10. 🔴 **Okumalar İKİ AŞAMALI (bloklayan bulgu).** Tek aşamalı okuma izsizdi:
+>     `SAVEPOINT` → `op_*` → `ROLLBACK TO` = veri elde, operatör log'unda 0 satır (denetçi
+>     ölçtü). Karar: `op_begin_read` (oturum çözer, audit yazar, bilet döndürür — kendi
+>     transaction'ında **commit**) → `op_read_*` (bileti doğrular, aynı `UPDATE`'te
+>     tüketir, veriyi döndürür). 🔴 **Brief'in önerdiği `xmin = pg_current_xact_id()`
+>     kontrolü AŞILIYOR — ölçüldü:** savepoint içinde yaratılan biletin `xmin`'i bir
+>     alt-transaction kimliği, kontrol veriyi verdi. Yerine: bilet satırı üst düzey
+>     kimliği kaydeder (`created_xact xid8 DEFAULT pg_current_xact_id()` — savepoint
+>     içinde de üst düzeyi döndürüyor, ölçüldü) ve `pg_xact_status(created_xact) =
+>     'committed'` şartı. **Ölçüm:** aynı transaction'da (üst düzey) ret · aynı
+>     transaction'da (savepoint) ret · commit sonrası başka transaction'da veri · okuma
+>     transaction'ı geri alınınca audit satırı kalıcı · commit'siz satır eşzamanlı başka
+>     oturumdan görünmez (0; kendi oturumu 1) · tüketilip commit edilmiş bilet ret.
+>     (Commit gerektiren kısım `BEGIN … ROLLBACK` ile ölçülemez: oturuma özel geçici
+>     nesnelerle — `pg_temp`, bağlantıyla silinir — koştu; eşzamanlılık sondası
+>     `legal_documents`'a `BEGIN … ROLLBACK` içinde bir satırla.) **Yeni sınırlar:**
+>     geri alınan bir okuma bileti tüketilmemiş hâle döndürür ve süresi içinde yeniden
+>     kullandırır (ölçüldü; yeni audit satırı yok, ama commit edilmiş satır aynı oturumu,
+>     türü ve hedefi adlandırıyor) · başarısız oturum sondaları DSN sahibince gizlenebilir
+>     · tek aşamalı bir yazma tenant verisi **döndüremez** (yoksa aynı izsiz okuma açılır).
+>     Commit'ten bağımsız ikinci iz (`log_statement='all'` + `log_parameter_max_length=0`,
+>     ikisi de superuser ayarı — ölçüldü; ya da pgaudit) karar verilmedi. *"`tappa_owner`
+>     bile silemez"* düzeltildi: superuser trigger'ı kapatabilir ya da tabloyu `DROP`
+>     edebilir (00005:22-23, 00021:79-82 — *"defence in depth … not an absolute"*).
+> 11. **`op_record_auth_event`** — oturum öncesi başarısızlıklar için tek, dar, oturumsuz
+>     definer: kapalı beş tür (`login_failed`, `unknown_email`, `totp_failed`, `locked`,
+>     `enrollment_failed`), yalnız başarısızlık, aktör iddiası yok, **adres de adresin
+>     hash'i de saklanmaz** (eşleşen hesabın id'si *hedef hesap*), `RETURNS void`.
+>     `tappa_operator` `operator_audit_log`'a doğrudan `INSERT` tutmaz.
+> 12. **Touch + oturum yüklemi tek definer'da (`op_touch_session`).**
+>     `has_column_privilege('tappa_operator','platform_sessions','token_hash','SELECT')
+>     = false` katalog kabulüdür (denetçi: touch için `SELECT (id, token_hash)` alan rol
+>     bütün canlı hash'leri listeledi). OP-6'nın *"saat enjekte DB testleri"* kabulü,
+>     yüklem veritabanında koştuğu için satırın zaman damgalarını geriye yazarak
+>     karşılanır.
+> 13. **Ters katalog testleri:** `public`'teki her `op\_%` fonksiyonunun sahibi
+>     `tappa_opdefiner` · her `prosecdef` fonksiyonun sahibi {`tappa_resolver`,
+>     `tappa_opdefiner`} içinde ve `rolsuper=f` (bugün altı fonksiyonun altısı
+>     `tappa_resolver` — ölçüldü, test ilk gün yeşil) · `tappa_opdefiner`'ın üyesi 0.
+> 14. **Geçici tablo gölgesi testi, çağıranın tabloyu definer'a `GRANT` ettiği adımı
+>     ŞART koşar** — yeniden ölçüldü: GRANT'sız bozuk `search_path` `permission denied`
+>     ile "reddedilmiş" görünür; GRANT'lı `forged-by-caller` okur.
+> 15. **Diziler:** yeni tablolar **uuid** birincil anahtar kullanır; dizi doğarsa
+>     `REVOKE ALL ON SEQUENCE … FROM tappa_app` (dizi varsayılanı `tappa_app=rU` —
+>     ölçüldü; tablo `REVOKE`'u diziyi kapsamaz).
+> 16. **Reddedilen `op_*` çağrısının audit kararı OP-11'den OP-10'a** (ilk `op_*`
+>     orada sevk ediliyor). *(3. turda OP-5'e çekildi — madde 30.)*
+> 17. **Enrollment:** tek ifadelik koşullu tüketim (ADR 0015 emsali); token 256 bit,
+>     DB'de **anahtarsız** SHA-256; CLI sunucu anahtarı taşımaz.
+> 18. **TOTP zarfı:** `internal/sun`'da yeni genel `Seal`/`Open` (AES-256-GCM, rastgele
+>     nonce); AAD = `platform_admins.id`'nin 16 baytı (kırpılmaz); sır 160 bit. `Wrap`'a
+>     sığdırma kolu kaldırıldı (`keys.go:98-103` 7/16 bayt dışını reddediyor). *"Yalnız
+>     `internal/sun`"* iddiası **üretim kodu** için doğru; test dosyaları da `crypto/aes`
+>     / `crypto/cipher` import ediyor.
+> 19. **`TAPPA_OPERATOR_TOKEN_HMAC_KEY`** — operatör oturum token'ının HMAC'i kendi
+>     değişkeni (etiketle türetme değil — `internal/adminauth/token.go`'nun kendi
+>     uyarısı); diğer anahtarlardan farklılığı açılışta zorunlu; manifest testi;
+>     `tappa-secrets` listesine.
+> 20. **OP-10'un `rg` kriteri karşılanamaz** → *"`db/migrations` ve ADR geçmişi hariç"*:
+>     `db/migrations/00020_create_legal_documents.sql:96-97` iki adı taşıyor ve uygulanmış
+>     migration değişmez.
+> 21. **Miras kalan yanlış atıf:** 72 bayt tavanı ADR 0014'te değil,
+>     `internal/adminauth/password.go:132`'de (`MaxPasswordBytes = 72`). ADR 0020
+>     düzeltildi; aynı hata **ADR 0019:47**'de duruyor — bu görev ADR 0019'a dokunmaz.
+>     *(metin okuması)*
+> 22. Alıntı sadakati düzeltildi: ADR 0016 §2 alıntısına *"Tappa tenant'ında"*; M9-08
+>     kabul 2'nin aslı *"sessiz bir çapraz-tenant okuma yok"*; kabul 4 hücresi özet
+>     olarak, tırnaksız. *(metin okuması)*
+>
+> **3. tur (tappa-security-auditor RED: bilet süresinin saati; üçüncü göz ONAY — 1. turun
+> 11 bulgusu kapandı, bilet ölçümleri yeniden üretildi)**
+> 23. 🔴 **Süreler `clock_timestamp()` ile; `now()` `op_*` içinde YASAK (bloklayan
+>     bulgu).** Deponun deyimi `now()` (`tags.sql:584`, `invites.sql:232,271`,
+>     `sessions.sql:56`) transaction başlangıcında donar ve bu tehdit modelinde transaction
+>     sınırlarını DSN sahibi seçer. Denetçinin ölçümü burada yeniden üretildi (oturuma özel
+>     geçici nesnelerle): ömrü 3 sn'lik bilet commit edildi, okuma transaction'ı 4 sn açık
+>     tutuldu (`now()` 08:28:35.228'de kaldı, duvar saati 08:28:39.234) →
+>     `clock_timestamp()` varyantı **ret**; `now()` varyantı savepoint geri almalarıyla
+>     **3/3**, tek bir `DO` bloğunun istisna alt-transaction'larıyla **5/5 veri**; audit 1,
+>     tüketilmiş bilet 0. `idle_in_transaction_session_timeout`, `transaction_timeout`,
+>     `statement_timeout` üçü de `context = user` (ölçüldü) — çare değil. Kural bilet ömrü,
+>     oturumun mutlak/boşta süresi ve enrollment token süresi için. **Bilet ömrü ≤ 60 sn**
+>     (şema CHECK'i, ADR 0015 emsali). **`pg_xact_status` eski xid için `NULL`** döndürüyor
+>     (ölçüldü: `'100'`, `'3'` → `NULL`); `IF … <> 'committed'` fail-open, bu yüzden koşul
+>     tüketen `UPDATE`'in `WHERE`'inde **pozitif**. Sınır 4 (yeniden kullanım) ≤ 60 sn'ye
+>     indi; ADR 0020'nin *"tek kullanımlık bilet"* ifadesi ona bağlandı.
+> 24. **Bilet tablosu:** `tappa_operator` **dört fiilde de** yetkisiz (denetçi: `INSERT`
+>     tutan rol audit'siz bilet basıp veri aldı; `UPDATE (consumed_at)` tutan rol tüketimi
+>     sıfırladı); `tappa_opdefiner`'ın `UPDATE`'i yalnız `consumed_at`'te; `op_read_*`
+>     **ham** bileti alıp içeride hash'ler; bilet okumanın **bütün** parametrelerini bağlar
+>     (sayfa, imleç, arama terimi — 4. turda terim bilet hash'inin **içine** alındı ve
+>     audit'ten çıkarıldı, madde 41); `audit_id NOT NULL REFERENCES
+>     operator_audit_log`. `tappa_opdefiner`'ın `platform_admins` `INSERT`'i yok (pinli).
+> 25. **Yazmalar yalnız `void` ya da `uuid` döndürür**; önceden var olan duruma bağlı dönüş
+>     ya da hata ayrımı yok (denetçi: `SAVEPOINT` + `disable_admins('B')` → 3 +
+>     `ROLLBACK TO` → audit yok = durum kehaneti). Katalog pini: `op_read_%`,
+>     `op_begin_read`, `op_touch_session` dışındaki `op_*` için `proretset = f` ve dönüş
+>     tipi `void`/`uuid`; *"katalogdan okunamaz"* iddiası kısmi pine yumuşatıldı.
+> 26. **`op_record_auth_event` bir internet yazma kapısıdır:** oturum öncesi satırlar
+>     IP'den bağımsız, süreç geneli bir tavanla sınırlı (sayısı OP-6/OP-8); limiter'ın
+>     reddettiği istek satır yazmaz; **TOTP kilidi bu satırlardan türetilmez**, hesabın
+>     kendi sayacından gelir. Gerekçe `adminlogin.go:1232` ve `:1300-1301`.
+> 27. **`op_open_session` — ikinci oturumsuz istisna:** oturumu doğurur ve köken satırını
+>     (`login`) **aynı ifadede** yazar — 3. tur ekinden beri enrollment kökenini
+>     `op_complete_enrollment` yazar; yeni güç değil (sınır 1), yalnız iz.
+>     Çıkış `op_close_session` (çıkış satırı aynı ifadede). `tappa_operator`
+>     `platform_sessions`'ta hiçbir fiil tutmaz. Enrollment tüketimi `tappa_operator`'ın
+>     ifadesi kaldıkça **yeni sınır 10** (kimlik bilgisi yeniden yazımı, iz'siz); kapatan
+>     öneri ve **benimsenirse değişecek kurallar** (oturumsuz istisna kümesi, *"digest/zarf
+>     okumaz"*, `prosecdef` sahip kümesi) ADR 0021 §1 sonunda. *(Sınır 10 3. tur ekinde
+>     kapandı — madde 33.)*
+> 28. **Audit satırının zorunlu içeriği:** oturum kimliği, tür, hedef (sütun adları OP-5) —
+>     sınır 1 ve 4'ün savunusu buna dayanır.
+> 29. **Asla loglanmayanlar:** okuma bileti, TOTP kodu, enrollment token'ı — `slog`, hata
+>     mesajı, audit `detail`'i (CLAUDE.md §7'de yoklar → açık iş).
+> 30. **Reddedilen çağrının audit kararı OP-10'dan OP-5'e** (madde 16'nın yerine geçer):
+>     `op_touch_session` ve `op_record_auth_event` OP-5'te doğuyor; reddedilebilen ilk
+>     çağrı OP-8'in oturum kapısı.
+> 31. **`pending` hesap** giriş formunda *"aynı yanıt, aynı süre"* kümesinde (yoksa
+>     *"bekleyen operatör"* kehaneti).
+> 32. **Atıflar ve metin** *(metin okuması)*: `token.go` yer tutucu gerekçesi `:59-62`'ye
+>     göre (iki sızıntı-test takımı birbirine kefil olmasın), bağımsızlık uyarısı
+>     `:82-87`; ADR 0020 §7'nin ölçümü `has_column_privilege` ile adlandı; *"sahte bir
+>     başarı basamaz"* yalnız `op_record_auth_event` için; ADR 0020'nin yerine geçilen
+>     tablosuna ADR 0016 bloğunun saydıkları eklendi (*".env"*, *"kim yayımladı"*,
+>     *"audit'in yeri"*); risk 3'e `TAPPA_OPERATOR_TOKEN_HMAC_KEY`. ⚠️ **00005 atfı 22-23
+>     olarak KALDI:** brief *"21-22"* diyordu; `grep -n` alıntılanan iki satırı
+>     (*"…superuser trigger'i"* / *"DISABLE edebilir; bu bilincli defense-in-depth, mutlak
+>     degil."*) 22 ve 23'te gösteriyor (orkestratör 3. tur ekinde onayladı).
+>
+> **3. tur eki (orkestratör kararı: öneri benimsendi, sınır 10 kapandı)**
+> 33. **`op_complete_enrollment` — üçüncü oturumsuz istisna.** Tek koşullu ifadede: ham
+>     enrollment token'ını içeride hash'ler; *id + hash*, `pending`, kullanılmamış ve
+>     süresi geçmemiş (`clock_timestamp()`) koşullarıyla tüketir; parola digest'ini,
+>     mühürlü TOTP sırrını ve `totp_last_step`'in ilk değerini yazar; durumu `active`
+>     yapar; oturumu açar ve köken satırını (`enrollment`) yazar. İlk kodun doğrulaması
+>     ve adımın bulunması Go'da; adımın yazılması enrollment kodunun ilk girişte tekrar
+>     oynatılmasını engeller. Zarfın AAD'si hesap id'si olduğu için `opadmin create` id'yi
+>     kendisi üretip linke koyar (arama definer'ı dördüncü ad olurdu).
+> 34. **`tappa_operator` `platform_admins`'e HİÇBİR ŞEY yazamaz** (`INSERT`, `UPDATE`,
+>     `DELETE`); katalog: `has_any_column_privilege(…,'UPDATE')` ve `'INSERT'` = `false`,
+>     `has_table_privilege(…,'DELETE')` = `false`, enrollment hash'inde `SELECT` `false`.
+>     **TOTP adımı `op_open_session`'ın içinde** ilerler (tekrar koruması
+>     `totp_last_step < $adım` orada; oturum o güncellemenin döndürdüğü satırdan doğar —
+>     tekrar edilen kod oturum açamaz); son giriş ve sayaç sıfırlama da orada. **Kilit
+>     sayacı** `op_record_auth_event`'in `totp_failed` satırıyla aynı ifadede artar (üç
+>     adlı kümeye dördüncü ad eklememek için); kilit kararı satırları saymaz, sayacı okur.
+>     ⚠️ Madde 26'nın *"TOTP kilidi bu satırlardan türetilmez, hesabın kendi sayacından
+>     gelir"* cümlesi ayakta, ama *"sahte satır kilide dönüşmez"* diye okunamaz:
+>     internetten gelen için doğru, **DSN sahibi için değil** — sayaca giden her yol onun
+>     çağırabildiği bir definer'dır (ADR 0021 sınır 7).
+> 35. **Giriş araması öneri olarak kalır;** `tappa_operator` digest'i ve zarfı `SELECT`
+>     eder. Yeni **sınır 11:** DSN sahibi bütün operatörlerin digest'lerini okuyup
+>     çevrimdışı kırmayı deneyebilir (bcrypt cost 12, ≥14 rune); mühürlü sırları okur ama
+>     `TAPPA_OPERATOR_TOTP_KEK` olmadan açamaz (aynı süreçteki RCE KEK'i de alır — K9).
+>
+> **4. tur (iki mercek 3. turda ONAY; ORTA/DÜŞÜK bulgular — çoğu denetçilerin kendi
+> sondasıyla ölçülmüş; O-1…O-4 bu turda `BEGIN … ROLLBACK` / oturum-geçici `pg_temp` ile
+> yeniden üretildi)**
+> 36. **O-1 · donan saatlerin hepsi yasak** — `now()`, `CURRENT_TIMESTAMP`,
+>     `transaction_timestamp()`, `statement_timestamp()`, `LOCALTIMESTAMP`, `LOCALTIME`,
+>     `CURRENT_TIME`, `CURRENT_DATE`. Ölçüldü: uyku tek bir `DO`'nun **içindeyken**
+>     `statement_timestamp()` süresi dolmuş bileti **5/5**, `clock_timestamp()` **0/5**
+>     verdi. `DO` testi uykuyu `DO`'nun içine koyar; `tappa_opdefiner`'ın fonksiyonlarının
+>     `prosrc`'unda ve bu tabloların zaman DEFAULT'larında (`pg_attrdef`) katalog taraması.
+>     Çerçeve düzeltildi: kural yeni değil — `transactions.sql:163-164` ve ADR 0006
+>     (:109-113, :189) zaten `clock_timestamp()`'i seçmiş (B8).
+> 37. **O-2 · bilet INSERT sütunları** — `created_at`, `created_xact`, `consumed_at`
+>     `tappa_opdefiner`'ın INSERT listesinde YOK, DEFAULT doldurur (ADR 0015 §2 emsali);
+>     `has_column_privilege(…,'created_xact'|'created_at'|'consumed_at','INSERT') = false`;
+>     şemada `CHECK (created_xact > '2'::xid8)`. Ölçüldü: `pg_xact_status('1')` ve `('2')`
+>     = `committed` — ADR 0021 §2 v(4)'ün *"NULL fail-closed"* savunması bununla düzeltildi.
+> 38. **O-3 · TOTP adımı duvar saatine bağlı** (`op_open_session` ve
+>     `op_complete_enrollment`): `p_step BETWEEN cur-1 AND cur+1`. Ölçüldü: zehir
+>     (`bigint` üst sınırı), `cur±2`, `cur`+1 yıl → hayır; `cur-1`, `cur`, `cur+1` → evet.
+>     Sınır 7 düzeltildi (sayaç için DB yolu yok, adım için var); yeni sınır 13 (Go/DB saat
+>     ayrışması, fail-closed).
+> 39. **O-4 · yazılan zaman damgaları `clock_timestamp()`** — `operator_audit_log`'un zaman
+>     sütunu DEFAULT ve INSERT listesinde yok; K6 tenant `audit_log.at` açıkça
+>     `clock_timestamp()`. Ölçüldü: 2 sn açık transaction'da `DEFAULT now()` 2,007 sn geri,
+>     `clock_timestamp()` 0,001 sn. Audit–okuma farkı ≤ 60 sn.
+> 40. **B1 · "asla" = `SELECT` yasağı** — `op_complete_enrollment`'ın digest/zarf
+>     `UPDATE`'i §3.3'te `token_hash`'in yanında adlı yazma istisnası; katalog testi yetki
+>     türünü `'SELECT'` diye söyler; ayrım OP-18'in `aes_key_ref`/`app_key_ref` yazımında
+>     yük taşıyacak.
+> 41. **B7 · arama terimi** — audit'e **yazılmaz** (ne ham ne hash'i). Brief'in önerdiği
+>     "bilet satırında terimin anahtarsız hash'i" yerine **daha iyisi ölçülüp seçildi**:
+>     bilet hash'i `sha256(ham bilet ‖ parametrelerin kanonik jsonb metni)`; ham bilet
+>     256 bit ve saklanmaz, yani saklanan hiçbir değer terimden türetilemez (ölçüldü: başka
+>     terim 0, başka sayfa 0, terimin tek başına hash'i 0 eşleşme; jsonb metni anahtar
+>     sırasından bağımsız). *"Sonuç sayısı sınıfı"* audit'e giremez — audit satırı sorgudan
+>     **önce** commit edilir.
+> 42. **D-1 · kilit koşulu `op_open_session`'ın AYNI `UPDATE`'inde** (eşik ve pencere
+>     `clock_timestamp()` ile). **D-2 · kapsam:** *"yazmanın hatası önceki durumdan
+>     bağımsız"* kuralı tenant durumunu değiştiren yazmalar içindir. **`tappa_operator`
+>     `operator_audit_log`'u `SELECT` edemez** — görüntüleyici iki aşamalı `op_read_audit`
+>     (OP-14). **B14 · var olmayan hedef** → tenant satırı `INSERT … WHERE EXISTS`, aynı
+>     `void`, yalnız operatör satırı (davranış testi; kehanet kapandı).
+> 43. **D-3 · enrollment:** kimliksiz son adım bcrypt + `Seal` öder → oran sınırı (yeni
+>     sınır 12, ADR 0015 emsali); "düz sır süreç belleğinde" seçeneği kimliksiz bir GET'le
+>     bellek ayırma ilkeline dönüşebilir (açık maddede); **token sorgu dizgisinde
+>     taşınmaz** (ingress log'u — `requestlog.go:399-406`), fragment ya da yol parçası, OP-9
+>     ölçer; ingress "asla loglanmaz" listesinde. **D-4:** aynı token, N eşzamanlı çağrı →
+>     tam 1 başarı (emsal `internal/db/invites_test.go:213`). **B9:** `reset-mfa` tanımlandı
+>     (zarfı siler, sayacı sıfırlar, `pending`, oturumları iptal eder, yeni token + id'li
+>     link) — OP-9 açık işi. **B11/B12/B4/B5/B6** metin düzeltmeleri (*"Yapabildikleri"*;
+>     `tappa-secrets` listesi iki ADR'de aynı, rol parolası dahil; *"kilidin yeri"* açık
+>     maddeden çıktı; *"üç dar istisna"*; madde 27'de `op_open_session` yalnız `login`).
+>
+> **Kabullere bağlananlar — kart kart** (2. turun paragrafının yerine geçer; 4. turda
+> güncellendi):
+> - **OP-5:** tablolar (bilet tablosu dahil; hepsi uuid PK, dizi yok) + `01-roles.sql` +
+>   runbook. **Burada doğar:** `op_touch_session`, `op_record_auth_event`,
+>   `op_open_session`, `op_complete_enrollment`, `op_close_session` — hepsi audit yazar ve
+>   hepsi **tek aşamalı yazmadır** (testler her yeni `op_*` için yeniden koşar). **Testler:**
+>   - katalog **ileri yön** (`proconfig`, PUBLIC ve `tappa_app` `EXECUTE`, ilk argüman ve
+>     üç oturumsuz ad, dönüş tipi pini) · **donan saat taraması** (`prosrc` + `pg_attrdef`)
+>     · **ters yön** (her `op\_%`'ın sahibi `tappa_opdefiner`; her `prosecdef`'in sahibi
+>     {`tappa_resolver`, `tappa_opdefiner`} ve `rolsuper=f`; `tappa_opdefiner`'ın üyesi 0);
+>   - rol/tablo katalog: `tappa_operator` bilet tablosunda ve `platform_sessions`'ta dört
+>     fiilde yetkisiz, `token_hash` `SELECT` `false`, `operator_audit_log`'da `INSERT` ve
+>     `SELECT` yok, `platform_admins`'te hiçbir yazma yok; `tappa_opdefiner`
+>     `platform_admins` `INSERT` yok, digest ve zarfta `SELECT` yok, bilet `UPDATE`'i yalnız
+>     `consumed_at`, bilet `created_xact`/`created_at`/`consumed_at` `INSERT` yok, audit
+>     zaman sütunu `INSERT` yok;
+>   - **geçici tablo gölgesi testi `GRANT` adımıyla** · **dönüş pini** (her yeni `op_*`
+>     için yeniden);
+>   - enrollment: duvar saatiyle dolmuş / kullanılmış / id-hash eşleşmeyen token ret, aynı
+>     hatayla; `active` hesaba ikinci enrollment ret; zehirli ilk adım ret; aynı adımla
+>     ardından gelen `op_open_session` ret; **aynı token, N eşzamanlı çağrı → tam 1
+>     başarı**;
+>   - TOTP adımı: aynı adımla ikinci `op_open_session` ret (oturum ve köken satırı yok);
+>     **zehirli adım** ret ve hesap kilitlenmez, `cur±1` kabul; **`pending` ya da
+>     `disabled` hesapla `op_open_session` → EXCEPTION**; kilit koşulu sağlanmamış hesap →
+>     EXCEPTION (aynı `UPDATE`);
+>   - oturum: mutlak ve boşta süresi dolmuş (duvar saatiyle), MFA'sız, iptal edilmiş,
+>     `disabled` → exception + 0 audit;
+>   - kilit ve sınır 7 **eşitlendi (B3):** sayaç yalnız `totp_failed` satırıyla artar ve
+>     başarıda sıfırlanır; **parolayı bilmeyen bir saldırgan kilitleyemez** (satır ancak
+>     parola adımından sonra ve limiter'ın izniyle doğar; parolayı bilen biri tasarım gereği
+>     kilitleyebilir), **DSN sahibi kilitleyebilir** (sayılı,
+>     sınır 7). Reddedilen çağrının audit kararı da burada.
+> - **OP-6:** *"saat enjekte DB testleri"* → yüklem veritabanında duvar saatiyle koştuğu
+>   için satırın zaman damgalarını geriye yazarak; kilit eşiği ve penceresi; zarf
+>   `internal/sun`'ın yeni `Seal`/`Open`'ı; enrollment sırasında düz sırrın nerede
+>   tutulduğu (bellek seçilirse kayıt sayısı ve ömrü tavanlı); **limiter testi (B3'ten
+>   taşındı):** limiter'ın reddettiği istek satır yazmaz ve sayacı artırmaz.
+> - **OP-7:** **dört** değişken — `TAPPA_OPERATOR_DATABASE_URL`, `TAPPA_OPERATOR_TOTP_KEK`,
+>   `TAPPA_OPERATOR_HOST`, `TAPPA_OPERATOR_TOKEN_HMAC_KEY`; TOTP KEK'i ve token HMAC
+>   anahtarı diğer her anahtardan farklı değilse açılış reddi.
+> - **OP-8:** oturum kapısı `op_touch_session`; giriş sonu `op_open_session`, çıkış
+>   `op_close_session`; **enrollment handler'ı `op_complete_enrollment`'a bağlı** (B10);
+>   her okuma ekranı önce `op_begin_read`'i ayrı transaction'da commit eder; `pending`
+>   hesap *"aynı yanıt, aynı süre"* kümesinde; `POST /operator/enroll` oran sınırı
+>   (sınır 12); limiter testi (OP-6 ile).
+> - **OP-9:** `opadmin create` hesabın id'sini kendisi üretir ve enrollment linkine
+>   token'la birlikte koyar; **token sorgu dizgisinde taşınmaz** — fragment ya da yol
+>   parçası, ingress'in ne log'ladığı ölçülür; **`reset-mfa`** (zarfı siler, sayacı
+>   sıfırlar, `pending`, oturumları iptal eder, yeni token + id'li link) — açık iş, adıyla.
+> - **OP-10** (ilk `op_read_*` = sürüm listesi; `op_publish_legal` `void` bir tek aşamalı
+>   yazma): iki aşamalı okuma testleri (aynı transaction'da — üst düzey ve savepoint —
+>   yaratılan bilet ret; commit sonrası veri; okuma transaction'ı geri alınınca audit
+>   kalıcı; tüketilip commit edilmiş bilet ret; farklı parametreli bilet ret) · eşzamanlı
+>   görünmezlik · bilet süresi (süresi dolmuş ret; açık tutulan transaction içinde dolunca
+>   ret — savepoint ve **uykusu içinde** bir `DO` bloğu; `now()` ve `statement_timestamp()`
+>   mutasyonları kırmızı) · bilet sahteciliği (`created_xact`/`created_at` INSERT'i `42501`,
+>   `'1'`/`'2'` CHECK ile ret) · geçici tablo ve dönüş pinleri yeni fonksiyonlar için
+>   yeniden. `rg` kriteri: *"`db/migrations` ve ADR geçmişi hariç"*.
+> - **OP-11:** adlar `op_read_` önekiyle ve ikinci argümanda biletle (örn.
+>   `op_read_tenants`, `op_read_tenant_detail` — kartın `op_list_tenants` /
+>   `op_tenant_detail`'i yerine); *"her çağrı tam 1 operatör audit satırı"* → *"kabul edilen
+>   her okuma `op_begin_read`'de tam 1 satır"*; **kemer davranış testi** (A için çağrılan
+>   `op_read_*` B'nin satırını döndürmez); arama terimi audit'e yazılmaz, bilet hash'inde
+>   bağlanır; iki aşamalı ve süre testleri her yeni `op_read_*` için yeniden.
+> - **OP-14:** görüntüleyici iki aşamalı `op_read_audit`; `tappa_operator`'ın
+>   `operator_audit_log` `SELECT`'i yok.
+> - **OP-15/OP-16** (tenant'ı değiştiren ilk yazmalar): kemer testi yazma yönünde (A için
+>   çağrılan yazma B'yi değiştirmez); dönüş `void`/`uuid`, durum ayrımı yok; **var olmayan
+>   hedef** aynı `void`'u verir ve tenant satırı yazmaz (B14); K6 tenant `audit_log`
+>   satırının `at`'ı `clock_timestamp()` ile yazılır — uykusu tek bir `DO` ifadesinin
+>   içinde olan bir yazmada `at` duvar saatine ≤1 sn yakın (kapanış kontrolü Y4: `at`'ı
+>   unutan bir `op_*`'ı katalog taramaları yakalamaz, DEFAULT `audit_log`'dadır).
+>
+> **Kapanış kontrolü (2026-09-26, orkestratör — ONAY'dan sonra, yalnız metin):** Y1 imleç
+> audit'e yazılmaz, yalnız içeriksiz sayfa bilgisi (ADR 0021 §2 v 1, §3; ADR 0020 §5) ·
+> Y2 ham bilet 256 bit karara bağlandı · Y3 `'now'`/`'today'` literalleri yasak listesinde,
+> tarama kelime sınırıyla · Y4 yukarıdaki OP-15/16 testi · Y5 "parolayı bilmeyen saldırgan"
+> · Y6 OP-5'te doğan beşi de tek aşamalı yazma.
+>
+> **Açık bırakılanlar:** tam liste **ADR 0020 ve ADR 0021'in *"Karar verilmedi"*
+> bölümlerinde** (burada tekrarlanmaz). *(AES-256-GCM kodunun yeri 2026-09-26'da
+> orkestratör kararıyla kapandı: mühür `internal/sun`'da kalır — 2. turda yeni
+> `Seal`/`Open` ile —, TOTP'nin HMAC'i `internal/operatorauth`'ta; CLAUDE.md §3 değişmez —
+> ADR 0020 §1.)* **Açık işler (bu görevin dışında):** ADR 0005'e risk eklemesi (Append
+> kuralı; `cmd/tappa/adr0005_test.go` sayımları da değişir) · **CLAUDE.md güncellemesi** —
+> §3 dizin haritası (`internal/operatorauth`, `cmd/opadmin`, `OperatorDB`), §4.5'in
+> *"uygulama `tappa_app` rolüyle bağlanır"* cümlesi, §7'nin *"asla loglanmaz"* listesine
+> okuma bileti, TOTP kodu ve enrollment token'ı. **OP-10 tuzağı:** izin listesini
+> sabitleyen M7-06 testleri ADR 0016'da, `m7-portal.md`'de, bu dosyada ve kod
+> yorumlarında adıyla anılıyor; silinirlerse `TestEveryNamedTestExists` kırılır. Yol
+> kapalı değil: ya aynı adla tutulurlar ya da sarkan atıf envanterinin 2026-09-19 emsaliyle
+> bütçe aynı değişiklikte, gerekçesiyle artırılır (ADR 0020 Sonuçlar).
+
 ### Görevler — A2 tenant-ötesi okuma/yazma
 | ID | Görev | Efor | Kabul (özet) |
 |---|---|---|---|
