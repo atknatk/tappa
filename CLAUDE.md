@@ -91,6 +91,10 @@ ediyorsa **dur ve sor**, sessizce uygulama.
 5. **Tenant izolasyonu her katmanda.** Her tabloda `tenant_id`, her tabloda RLS
    politikası, uygulama `tappa_app` rolüyle bağlanır (NOBYPASSRLS, tablo sahibi
    değil). Sorgularda ayrıca açık `tenant_id` filtresi — kuşak+kemer.
+   **Bilinçli TEK istisna:** platform operatörünün `op_*` SECURITY DEFINER
+   fonksiyonları (ADR 0021) — tenant sınırını aşmanın tek yolu; `tappa_operator`
+   yalnız onları çağırır, tenant verisine her erişim `operator_audit_log`'da iz
+   bırakır. Operatör kimliği ayrıdır ve tenant kapsamsızdır (ADR 0020).
 6. **Kayıt asla kaybolmaz.** Kanıt yetersizse REJECT edip atma: kaydı yaz,
    `verdict='flag'` ver, müdür onay kuyruğuna düşür. Sessiz onay da yok.
 7. **NTAG AES anahtarları repoda yer almaz.** DB'de KEK ile sarmalanmış saklanır
@@ -180,6 +184,12 @@ Bu tablodaki her satırın adı `TestDecide_...` ile başlayan bir test durumu o
 - Her yeni tablo şunlarla doğar: `tenant_id uuid NOT NULL`, `ENABLE ROW LEVEL SECURITY`,
   `FORCE ROW LEVEL SECURITY`, `tenant_id` üzerinde politika, `tenant_id` üzerinde indeks.
   Beşinden biri eksikse migration eksiktir (GRANT dahil; bkz. docs/plan/m1-veri-katmani.md).
+- **Tenant kapsamsız tablo** (yalnız platform operatörü — ADR 0020/0021): R5
+  muafiyetiyle **görünür** (`scripts/redline-check.sh`), `tappa_app`'tan **açık**
+  `REVOKE ALL` (dev/prod varsayılan yetkileri yeni tabloya yetki verir — ölçüldü),
+  `ENABLE` **ve** `FORCE ROW LEVEL SECURITY` birlikte (`scripts/pg-restore-verify.sh`
+  ikisinin sayısı farklıysa geri yüklemeyi reddeder). Tenant verisi olmayan bir sütunun
+  adı `tenant_id` **olmaz** — R5 ve RLS testleri tabloyu o addan tenant tablosu sayar.
 - Tenant bağlamı bağlantı başına `SET LOCAL app.tenant_id` ile verilir; politikalar
   **`NULLIF(current_setting('app.tenant_id', true), '')::uuid`** okur. `SET LOCAL` →
   transaction dışında sızmaz. Havuzdan alınan bağlantıda `SET` (LOCAL'siz) **kullanma**.
@@ -204,7 +214,9 @@ Bu tablodaki her satırın adı `TestDecide_...` ile başlayan bir test durumu o
 - Bağımlılıklar açıkça enjekte edilir (struct alanı), paket seviyesi singleton yok.
 - Arayüz **tüketici** tarafında tanımlanır, üretici tarafında değil.
 - Log: `log/slog`, yapılandırılmış. **Asla loglanmaz:** oturum token'ı, CMAC,
-  AES anahtarı, davet kodu, tam GPS koordinatı.
+  AES anahtarı, davet kodu, tam GPS koordinatı; operatör tarafında okuma bileti,
+  TOTP kodu ve sırrı, enrollment token'ı (ADR 0020/0021 — hata mesajı ve audit
+  `detail`'i dahil).
 - Dış girdi handler sınırında doğrulanır; domain katmanı zaten geçerli veri görür.
 - Yorumlar *neden*i anlatır. Kodun ne yaptığını tekrar eden yorum yazma.
 - Türkçe karakter kodda yok: identifier, log, hata mesajı, commit → İngilizce.
