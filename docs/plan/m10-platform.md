@@ -628,7 +628,15 @@ yasal belge içindi, M9-08'in kapsamı §4.5'i aşan beş işlev.
 >   taşındı):** limiter'ın reddettiği istek satır yazmaz ve sayacı artırmaz.
 > - **OP-7:** **dört** değişken — `TAPPA_OPERATOR_DATABASE_URL`, `TAPPA_OPERATOR_TOTP_KEK`,
 >   `TAPPA_OPERATOR_HOST`, `TAPPA_OPERATOR_TOKEN_HMAC_KEY`; TOTP KEK'i ve token HMAC
->   anahtarı diğer her anahtardan farklı değilse açılış reddi.
+>   anahtarı diğer her anahtardan farklı değilse açılış reddi. **OP-5'in eklediği kabuller
+>   (2026-09-26, 2.–4. tur; gerekçeler OP-5 kart düzeltmesinde, madde 19 ve 33):**
+>   (a) operatör havuzu `log_parameter_max_length_on_error = 0`'ı (gerekiyorsa
+>   `log_parameter_max_length`'i de) bağlantı **başlangıç parametresi** olarak iğneler —
+>   başlangıç paketi rol varsayılanını ezer, **OP-7 ölçer** — ve açılışta
+>   `current_setting('log_parameter_max_length_on_error')` 0 değilse havuzu açmayı
+>   **reddeder**; (b) operatör sorguları yalnız **bağlı parametreyle** yazılır, SQL metnine
+>   değer gömülmez; (c) Go tarafı `PgError.Detail`'i asla log'lamaz; (d)
+>   `db/queries/operator.sql` + `internal/db/operator.go` (ADR 0021 §2 vi).
 > - **OP-8:** oturum kapısı `op_touch_session`; giriş sonu `op_open_session`, çıkış
 >   `op_close_session`; **enrollment handler'ı `op_complete_enrollment`'a bağlı** (B10);
 >   her okuma ekranı önce `op_begin_read`'i ayrı transaction'da commit eder; `pending`
@@ -681,6 +689,343 @@ yasal belge içindi, M9-08'in kapsamı §4.5'i aşan beş işlev.
 > yorumlarında adıyla anılıyor; silinirlerse `TestEveryNamedTestExists` kırılır. Yol
 > kapalı değil: ya aynı adla tutulurlar ya da sarkan atıf envanterinin 2026-09-19 emsaliyle
 > bütçe aynı değişiklikte, gerekçesiyle artırılır (ADR 0020 Sonuçlar).
+
+> **Kart düzeltmesi (2026-09-26, OP-5 uygulaması sırasında).** Yazıldı: migration
+> `db/migrations/00026_create_platform_operator.sql` (dört tablo + beş `op_*`),
+> `scripts/db-init/01-roles.sql`'e işaretli **OPERATOR ROLES** bloğu, `deploy/README.md` →
+> *"Operator roles (M10 OP-5) — tek seferlik kurulum"* runbook'u,
+> `internal/db/operatorschema_test.go` + `internal/db/operatorfuncs_test.go`. Ölçüm: dev
+> Postgres 17.10, `tappa_owner`; sondalar `BEGIN … ROLLBACK`, kimlik
+> `SET LOCAL SESSION AUTHORIZATION` ile. Yukarıdaki OP-4 bloğundan ve ADR'lerden sapmalar ve
+> ADR'lerin OP-5'e bıraktığı kararlar:
+>
+> 1. 🔴 **Deploy sırası — ölçüldü, çözüldü.** Roller canlı kümede yok (`01-roles.sql` yalnız
+>    boş PGDATA'da koşar). 00026'nın ilk ifadesi rolleri, niteliklerini ve üyeliklerini
+>    sınar ve eksikse runbook'u **mesajın içinde** adıyla göstererek düşer (goose yalnız
+>    `PgError.Error()` = severity + message + SQLSTATE basar; HINT kaybolurdu). Dev'de,
+>    roller yokken: `goose up` exit 1, `… needs the cluster role(s) tappa_opdefiner,
+>    tappa_operator … (SQLSTATE 55000)`, `goose_db_version` 25 → 25. `deploy.yml`'den
+>    okundu: Job `backoffLimit: 2` → Migrate adımı `failed >= 3`'te `exit 1` → *"Roll out
+>    the server"* koşmaz → `20-app.yaml` uygulanmaz, **eski pod servis verir**, şema 25'te
+>    kalır. Yani sıra ters olursa deploy kırmızı, ürün ayakta. **Sıra:** canlıda runbook →
+>    sonra `main`'e birleştirme (runbook bunu başta söyler; kurtarma `workflow_dispatch`).
+> 2. **Roller tek kaynaktan.** Blok `01-roles.sql`'de `>>> OPERATOR ROLES (M10 OP-5) >>>`
+>    işaretleri arasında; runbook onu `sed` ile keser (elle kopya yok). İdempotent: `IF NOT
+>    EXISTS` + koşulsuz `ALTER ROLE` (yanlış nitelikleri indirger; `tappa_operator`'ın
+>    LOGIN'ine dokunmaz). Dev'de iki kez uygulandı: iki koşu da rc=0. `tappa_operator`
+>    CONNECT + USAGE; `tappa_opdefiner` yalnız USAGE (NOLOGIN — `tappa_resolver`'ın şekli;
+>    ADR §5'in "CONNECT/USAGE"si iki rol için birlikte yazılmıştı).
+> 3. **Tablo ve sütun adları (ADR'ler OP-5'e bıraktı).** `platform_admins`,
+>    `platform_sessions`, `operator_audit_log`, bilet tablosu **`operator_read_tickets`**.
+>    Operatör eyleminin hedef tenant'ı **`target_tenant_id`** — `tenant_id` DEĞİL: o adla bir
+>    sütun `redline` R5'i, `rlsforce_test.go`'yu ve `insertscope_test.go`'yu tabloyu tenant
+>    verisi sayıp tenant-GUC politikası istemeye iterdi; FK de yok (00020'nin "varlık
+>    kehaneti" gerekçesi, ADR 0021 B14). Audit sütunları: `kind` (kapalı küme: beş oturum
+>    öncesi başarısızlık + `login`, `enrollment`, `logout`; sonraki her `op_*` kendi
+>    migration'ında genişletir), `session_id`, `actor_admin_id`, `target_admin_id`,
+>    `target_tenant_id`, `target_scope`, `page_number`, `page_size` (içeriksiz sayfa),
+>    `detail` (`'{}'`), `at` (`DEFAULT clock_timestamp()`, hiçbir INSERT listesinde yok).
+> 4. **Gönüllü RLS: ENABLE + FORCE, dördünde de; tek politika.** Gerekçe M8-02 FAZ E'nin
+>    ölçümü: geri yükleme varsayılan ACL'i her `CREATE TABLE`'a yeniden uygular, REVOKE'u
+>    yaymaz → `tappa_app` bu tablolarda SELECT/INSERT kazanırdı. RLS açık ve `tappa_app`
+>    için politika yokken o artık 0 satır okur, yazamaz
+>    (`TestOperator00026_RestoreResidueReadsNothing`). **FORCE da** — çünkü
+>    `scripts/pg-restore-verify.sh` 2. bölüm ENABLE ve FORCE sayıları farklı olan geri
+>    yüklenmiş veritabanını reddeder; ENABLE-yalnız bir tablo her felaket kurtarmasını
+>    *"do not put this database into service"* ile bitirirdi (ilk taslak ENABLE-yalnızdı; bu
+>    okumayla değişti). Bedeli migration başlığında: süper kullanıcı olmayan bir sahip
+>    (yönetilen Postgres) `opadmin` yazımında FORCE'a takılır — o topoloji doğunca karar.
+> 5. **`tappa_operator`'ın kesin listesi:** `platform_admins` üzerinde yalnız
+>    `SELECT (id, email, display_name, status, password_hash, totp_secret_sealed,
+>    totp_locked_until)` ve tek politika `FOR SELECT TO tappa_operator USING (status =
+>    'active')`. Sonuç: sınır 11 **aktif** hesapların digest'lerine daralır; `pending` ve
+>    `disabled` hesap giriş işleyicisine bilinmeyen adresten **yapısal olarak** ayırt
+>    edilemez (ADR 0020 §3'ün "aynı yanıt" kümesi). Diğer üç tabloda dört fiilin hiçbiri.
+>    `tappa_opdefiner`'ın sütun listeleri migration'da ve `TestOperator00026_PrivilegeMatrix`'te
+>    tam liste olarak pinli.
+> 6. **Kartın "beşi de audit yazar" cümlesi `op_touch_session` için YANLIŞ — düzeltildi.**
+>    `op_touch_session` yazar (`last_used_at`) ama audit satırı **yazmaz**: her `op_*` onu
+>    çağırır (§2 i), yani bir satır her kabul edilen eylemin arkasına iki satır koyar ve
+>    OP-11'in *"kabul edilen her okuma tam 1 satır"* kabulünü kırar (`op_close_session` de onu
+>    çağırıyor). Diğer dördü kabul edilen her çağrıda **tam bir** satır yazar (testlerde
+>    sayılı). ADR 0021 Sonuçlar zaten *"ilk tek aşamalı yazmalar … `op_close_session` ile üç
+>    oturumsuz fonksiyon"* diyordu. `op_touch_session` `OUT session_id, OUT admin_id` ile tek
+>    satır döndürür (`proretset = f`; dönüş pininden adıyla muaf).
+> 7. **`op_record_auth_event(p_kind, p_email DEFAULT NULL, p_admin DEFAULT NULL)` —
+>    genişletme, adıyla.** Adres verilmezse hedef hesap **id** ile aranır: `totp_failed`,
+>    `locked` ve `enrollment_failed` Go'nun bir adres değil bir id tuttuğu yerlerde doğar
+>    (ara çerez, enrollment linki). Var olmayan bir id FK hatası DEĞİL (hedef `NULL` —
+>    varlık kehaneti yok). Tür çağıranın iddiası, hedef veritabanının kendi araması.
+> 8. **Ret biçimi:** her `op_*` her reddi için tek mesaj, **SQLSTATE 28000**; bu yollarda
+>    başka hiçbir şey 28000 üretmez, yani eksik bir grant'ın 42501'i testte kabul yerine
+>    geçemez. Kapalı küme dışı tür: 22023.
+> 9. **Reddedilen `op_*` çağrısının audit kararı (ADR 0021 "Karar verilmedi"): Go ayrı bir
+>    transaction'da satır YAZMAZ; `op_record_auth_event`'in kümesi büyümez.** Reddedilebilen
+>    ilk çağrı OP-8'in oturum kapısıdır ve girdisi internetten gelen bir çerezdir: her ret
+>    için bir satır, append-only bir tabloya kimliksiz, sınırsız bir yazma ilkeli olurdu
+>    (`internal/handler/adminlogin.go:1300-1301`'in dersi) ve satırın bağlayacağı bir
+>    kimlik yoktur (hash çözülmedi). Sınır 3 zaten DSN sahibine karşı bu izi değersiz
+>    kılar. Saldırıya değen retlerin kendi türleri var (`login_failed`, `totp_failed`,
+>    `locked`, `enrollment_failed` — Go'nun kararı, OP-8); oturum kapısının reddi süreç
+>    log'una hash'siz yazılır.
+> 10. **`op_record_auth_event` içinde ikinci (DB tarafı) tavan — ÖLÇÜLDÜ, KONMADI.** Doğal
+>     biçimi (son 10 dk'da ≤ N oturum öncesi satır; satır ve sayaç birlikte) rolled-back bir
+>     sondada koşuldu, N=20: 25 bilinmeyen-adres çağrısı → **20 yazıldı, 5 kırpıldı**;
+>     ardından kurban hesaba 5 yanlış TOTP → **0 yazıldı, 5 kırpıldı**, sayaç **0** — parola
+>     gerektirmeyen bir sel TOTP kilidini **kapatıyor**. Kilidi korumanın tek yolu
+>     `totp_failed`'ı tavandan muaf tutmak, o zaman da DSN sahibinin `totp_failed` yazımı
+>     sınırsız kalır, yani tavan varlık sebebini (DSN sahibini bağlamak) kaybeder. Sayılı
+>     sınır olarak kalır (ADR 0021 sınır 7).
+> 11. **Kilit sayıları GEÇİCİ: N = 5, pencere 15 dk.** Mekanizma OP-5'in (kilit
+>     `op_open_session`'ın AYNI `UPDATE`'inde), sayılar OP-6/OP-8'in (ADR 0020); mekanizma
+>     sayısız var olamadığı için konuldu. İki fonksiyonda geçer; uyumlarını
+>     `TestOpOpenSession_TheLockIsTheAccountsCounterInTheSameUpdate` pinler (4 hata kilitlemez,
+>     5 kilitler, pencere ~900 sn, pencere geçince kabul ve sıfırlama, audit satırları
+>     kilitlemez). Değişiklik = yeni migration'da `CREATE OR REPLACE`.
+> 12. **Enrollment token hash sözleşmesi (OP-9 için):** `encode(sha256(convert_to(token,
+>     'UTF8')), 'hex')` — linkte taşınan **metnin** baytları üzerinde, küçük harf hex.
+>     `cmd/opadmin` aynı baytları hash'lemeli. Şema: hash şekli CHECK; `enroll_issued_at`
+>     sütunu eklendi (hash/issued/expires üçlüsü birlikte); süre **tavanı 1 sa** (ürün TTL'i
+>     30 dk'nın üstünde — ADR 0015 emsali; tek saat okuması şartı olmasın);
+>     `pending ⇒ token var`.
+> 13. **Kimlik bilgisi şekli:** `password_hash` bcrypt, **cost 12–14** (taban ADR 0020 §1'in
+>     cost'u, tavan 00018'inki — M7-03 A'nın cost-31 dersi); `totp_secret_sealed ≥ 44 bayt`
+>     (12 nonce + 128 bit sır tabanı + 16 etiket; kesin düzen OP-6); `totp_last_step NOT NULL
+>     DEFAULT 0`.
+> 14. **OP-10'a devredilenler:** (a) bilet ömrü **60 sn'den kısa** seçilmeli: `created_at`
+>     DEFAULT'u ile `clock_timestamp()` + ömür iki ayrı saat okumasıdır, tam 60 sn tavanı
+>     mikrosaniyeyle kaçırabilir; (b) `op_begin_read`'in audit `INSERT … RETURNING id`'si
+>     `tappa_opdefiner`'a `operator_audit_log` üzerinde `SELECT (id)` ister — OP-5 vermedi
+>     (kullanan yok); (c) bilet `kind` CHECK'i bugün yalnız şekil, türler OP-10'da.
+> 15. **OP-7'ye devredilenler:** `tappa_operator`'ın **girişi** (dev parolası
+>     `02-dev-only-password.sh` emsaliyle, üretim parolası bir pod'a `secretKeyRef` ile —
+>     ⚠️ `10-postgres.yaml`'a `tappa-secrets`'ta henüz olmayan bir anahtar için
+>     `optional` olmayan bir `secretKeyRef` eklemek Postgres pod'unu başlatamaz); ADR 0021
+>     §2 vi'nin `db/queries/operator.sql` belgesi ve `internal/db/operator.go` erişimcileri
+>     (OP-5'te Go erişimcisi yok, bu yüzden yazılmadı).
+> 16. *(2. turda kapandı — madde 21.)* **Açık iş (bu görev `scripts/`'e dokunmadı):** `scripts/pg-restore-verify.sh` 5. bölüm
+>     TRUNCATE korumasını **altı** append-only tabloda doğruluyor; `operator_audit_log`
+>     yedincidir ve orada yok. `scripts/redline-check.sh`'ın `APPEND_ONLY` deseni onu
+>     **tesadüfen** yakalıyor (`[^ ]*audit_log` alt dizesi); dosyanın kendi cümlesi *"bir
+>     yedincisi eklenirse iki yer birden güncellenmelidir"* diyor.
+> 17. **Kalıcı test verisi:** eşzamanlılık testi (`TestOpCompleteEnrollment_ConcurrentRaceExactlyOneWinner`)
+>     commit etmek zorunda; her koşu bir operatör hesabı, bir oturum ve bir `enrollment`
+>     audit satırı bırakır (rastgele uuid'li, `@example.test`). *(3. turda düzeltildi —
+>     "diğerlerinin hepsi geri alınır" cümlesi 2. turdan beri eskiydi:)* ikinci bir istisna
+>     `TestOpRecordAuthEvent_NoLockOracleOnAnInvisibleAccount`'tır — iki oturum gerektiği
+>     için üç hesabı commit eder, iki sonda transaction'ını geri alır (audit satırı commit
+>     olmaz) ve hesapları sonunda siler. Ölçüldü (hesap/oturum/audit): eşzamanlılık testi
+>     7/7/7 → 8/8/8, kilit-kehaneti testi 8/8/8 → 8/8/8. Geri kalanların hepsi tek
+>     `REPEATABLE READ` transaction'ında geri alınır.
+>
+> **Kabul — OP-5 listesi:** her maddenin testi yukarıdaki iki test dosyasında; mutasyonla
+> kırmızıya dönenler görevin raporunda tablo hâlinde. ~~(yeşil kalan tek mutasyon adıyla:
+> yalnız `enroll_used_at IS NULL`'ı silmek eşzamanlı enrollment'ı **kırmaz**, çünkü başarı
+> durumu `active` yaptığı için `status = 'pending'` yüklemi tek kullanımı tek başına taşır;
+> ikisi birlikte silinince 24 yarışçının 24'ü kazanır).~~ **2. turda YANLIŞLANDI (B1):**
+> `status = 'pending'` tek kullanımı yalnız hesap bir daha `pending`'e dönmedikçe taşır.
+> Sahip kullanılmış bir hesabı token'ı değiştirmeden `pending`'e aldığında (tam da özensiz
+> bir `reset-mfa`'nın ürettiği durum) o mutant hesabı **eski** token'la yeniden enroll etti
+> ve 1. turun bütün testleri yeşil kaldı (denetçi ölçtü). Düzeltme aşağıda, madde 18.
+
+> **Kart düzeltmesi (2026-09-26, OP-5 uygulaması sırasında — 2. tur: üçüncü göz RED, 1
+> bloklayan + 4 orta + 8 düşük).** Hepsi kapatıldı ya da ölçümle sayılı sınıra yazıldı;
+> migration `00026` değişti (dev: down 26→25, up 25→26).
+>
+> 18. 🔴 **B1 · tek kullanım iki BAĞIMSIZ katman.** (a) Şema:
+>     `platform_admins_pending_token_unused CHECK (status <> 'pending' OR enroll_used_at IS
+>     NULL)` — `TestOperator00026_TableShapeChecks` onu kısıt **adıyla** pinler (kullanılmış
+>     bir hesabı eski token'la `pending`'e almak 23514; `reset-mfa` şekli — yeni hash,
+>     `enroll_used_at = NULL` aynı ifadede — kabul). (b) Fonksiyon:
+>     `TestOpCompleteEnrollment_AUsedTokenIsRefusedByTheFunctionItself` CHECK'i
+>     transaction içinde düşürür, `pending` + kullanılmış + canlı durumu kurar, eski token →
+>     28000; kontrol: `enroll_used_at` temizlenince aynı çağrı kabul. İki mutant (fonksiyon
+>     yüklemi silinmiş / CHECK silinmiş) **ayrı ayrı** kırmızı. **OP-9'a, adıyla:**
+>     `reset-mfa` token hash'ini değiştirir ve `enroll_used_at`'i **aynı ifadede** `NULL`
+>     yapar (CHECK aksini zaten reddeder).
+> 19. **O1 · kısıt DETAIL sızıntısı ve kehanet.** *(3. turda iki cümlesi düzeltildi —
+>     aşağıdaki "D-1" ve "D-2" notları.)* Ölçüldü (1. tur şeması): geçerli token +
+>     cost-11 digest → 23514 ve DETAIL *"Failing row contains (…)"* — yazılan digest, zarfın
+>     hex'i, adres, enrollment hash'i; tekrar eden oturum hash'i → 23505
+>     `Key (token_hash)=(…)`; ikisi de yalnız bütün koşullar geçince çıkıyordu. Karar:
+>     argümanı bir kısıta ulaşan iki fonksiyon (`op_open_session`,
+>     `op_complete_enrollment`) `integrity_constraint_violation`'ı yakalayıp **aynı**
+>     28000'e çevirir (her şey geri alınır, 0 audit); geride yalnız kısıt adı + SQLSTATE
+>     taşıyan bir LOG satırı kalır. **D-1 (3. tur):** o satır *"sunucuya yalnız"* DEĞİLDİR
+>     ve *"koşullar tuttu"* kehaneti kapanmadı — `client_min_messages` kullanıcı ayarıdır,
+>     `SET LOCAL client_min_messages = log` diyen çağırana satır döner ve yalnız bütün
+>     koşullar tuttuğunda doğar (ölçüldü: koşullar tutarken bozuk hash → çağırana `LOG: …
+>     failed constraint … (SQLSTATE 23514)`; bayat adımla aynı hash → LOG yok). Kapanan
+>     değer sızıntısı ve DETAIL'dir; bit, SAVEPOINT kanalının verdiğiyle aynı ve ADR 0021
+>     sayılı sınır 14'e eklendi. Ölçülüp alınmayan kapatma: fonksiyona `SET
+>     client_min_messages = error` (satırı çağırandan keser, sunucu yine yazar — ölçüldü)
+>     — iki eşdeğer kanaldan birini kapatır, öğrenilebileni azaltmaz, §6'nın tek-girdili
+>     `proconfig` pinini değiştirirdi. Şekil ön kontrolü **seçilmedi**: her CHECK regex'inin ikinci bir
+>     kopyası olur (kaydığı gün sızıntı geri gelir) ve tekrar eden hash'i yarışsız
+>     kapsayamaz. Kalan üç fonksiyonun argümanı hiçbir kısıta ulaşmaz (touch/close yalnız
+>     `WHERE`'de; record türü yazmadan önce doğrular). Ölçüm (dev, 1 koşu): 14 yakalanan ret,
+>     sunucu log'unda **0** *"Failing row contains"* / **0** `Key (token_hash)`, **14** LOG
+>     satırı (yalnız kısıt adı + SQLSTATE). Pin: `TestOperator00026_ArgumentsNeverComeBackInAnError`
+>     (her şekilce bozuk girdi 28000, DETAIL/HINT boş, hiçbir alanda argüman değeri yok, 0
+>     audit; sonunda aynı çağrı geçerli argümanla kabul). **OP-7'ye, adıyla:** Go tarafı
+>     `PgError.Detail`'i asla log'lamaz. ⚠️ Ayrı gözlem: dev `docker-compose` Postgres'i
+>     `log_statement=all` ile koşuyor ve **bind parametrelerini** (ham token dahil) sunucu
+>     log'una yazıyor — ADR 0021'in *"commit'ten bağımsız ikinci iz / log_parameter_max_length"*
+>     açık maddesinin dev yüzü. **D-2 (3. tur): üretim ÖLÇÜLDÜ — orkestratör, salt-okunur,
+>     2026-09-26:** `log_statement = none` · `log_min_duration_statement = -1` ·
+>     `log_parameter_max_length = -1` · `log_parameter_max_length_on_error = 0` ·
+>     `log_min_error_statement = error` · `log_min_messages = warning` ·
+>     `log_error_verbosity = default`. İki koşul adlandırıldı (ADR 0021 "Karar verilmedi"):
+>     `log_parameter_max_length_on_error` **0 kalmalı** (her `op_*` reddi ERROR,
+>     `log_min_error_statement = error` STATEMENT'ı log'lar; ~~> 0 olursa~~ **0 değilse —
+>     `-1` dahil —** ham enrollment token'ı, oturum hash'i ve digest pod log'una **ve
+>     çağıranın hata CONTEXT'ine** gider; **4. tur düzeltmesi, madde 33:** bu ayar
+>     `user` bağlamlıdır, yani işletme onu tek başına garanti EDEMEZ) · `log_min_duration_statement`
+>     açılırsa `log_parameter_max_length = -1` yavaş bir `op_*` çağrısının parametrelerini
+>     tam log'lar. **OP-7'ye, adıyla:** operatör sorguları yalnız bağlı parametreyle; SQL
+>     metnine değer gömülmez.
+> 20. **O2 · `op_close_session`'ın oturum yüklemi pinlendi.** `op_touch_session`'ın ölü-oturum
+>     tablosu (mutlak, boşta, MFA'sız, iptal, `disabled`, bilinmeyen) ortak bir yardımcıda;
+>     `TestOpCloseSession_RefusesEveryDeadSession` aynısını close için koşar (28000,
+>     `revoked_at` değişmez, 0 audit). Oturumu touch yerine doğrudan arayan mutant kırmızı.
+> 21. **O3 · yedinci append-only tablo iki script'te.** `scripts/pg-restore-verify.sh` 5.
+>     bölüm `trunc_tables`'a `operator_audit_log` eklendi, sayılar 6 → 7;
+>     `scripts/redline-check.sh` `APPEND_ONLY`'ye açıkça yazıldı (1. turda `[^ ]*audit_log`
+>     alt dizgisiyle tesadüfen yakalanıyordu). Yeni türetilmiş test
+>     `TestAppendOnlyTablesAreNamedByBothScripts` (`cmd/tappa`): append-only kümeyi
+>     migration'lardaki `tappa_forbid_mutation` satır tetikleyicilerinden türetir ve iki
+>     listeyle **iki yönde** eşitlik + her birinde TRUNCATE koruması ister. Madde 16'nın
+>     açık işi kapandı. ~~sekizinci bir tablo artık hatırlanmadan unutulamaz~~ — **D-6 (3.
+>     tur):** o cümle fazlaydı; türetme yalnız `BEFORE UPDATE OR DELETE` yazımını tanıyordu
+>     ve `DELETE OR UPDATE` yazımlı sekizinci bir tablo (depo dışında tutulan geçici bir
+>     migration'la ölçüldü) testi **yeşil** bıraktı. Türetme artık her `CREATE [OR REPLACE]
+>     [CONSTRAINT] TRIGGER` ifadesini parçalarıyla sınıflar (hedef, `ROW`/`STATEMENT`,
+>     TRUNCATE; olay sırası, harf, satır sonu, `EACH`/`PROCEDURE`/`public.`/tırnak
+>     serbest) — aynı sonda artık **kırmızı**; yazımları `TestAppendOnlyTriggers_EverySpellingIsSeen`
+>     pinler. **Ölçülmüş sınırı:** dinamik SQL'le (`EXECUTE format(...)`) yaratılan bir
+>     tetikleyiciyi, `tappa_forbid_mutation` DIŞINDA bir fonksiyona bağlı bir değiştirme
+>     yasağını ve yalnız yetkiyle append-only yapılmış bir tabloyu görmez. *(4. tur, madde
+>     36: bir `DO` bloğunun ya da fonksiyon gövdesinin içindeki **statik** `CREATE TRIGGER`'ı
+>     da görmüyordu — artık görüyor.)* **Ters yöndeki sınır (5. tur, denetçi kopyada
+>     ölçtü):** hiç çalışmayan metni de sayar — `IF false` altındaki, hiç çağrılmayan bir
+>     fonksiyonun gövdesindeki ya da bir string literalinin içindeki `CREATE TRIGGER`.
+>     Satır tarafında fail-closed (listelenmesi gerekmeyen bir tabloyu ister), TRUNCATE
+>     tarafında **fail-open** (koruması olmayan bir tablonun korumasını karşılar); o yönün
+>     arka kapısı `scripts/pg-restore-verify.sh` 5. bölümün `pg_trigger` katalog
+>     kontrolüdür. Bugünkü ağaçta böyle metin yok.
+> 22. **O4 · runbook kuralı.** Her `kubectl` satırı `--context hetzner-k8s-1 -n tappa`; psql
+>     kullanıcıyı ve veritabanını pod'un kendi `POSTGRES_USER`/`POSTGRES_DB`'sinden okur (tek
+>     tırnaklı `sh -c`). 0. adım hash basmak yerine **kesimi doğrular**: `psql -1` boş girdiyle
+>     exit 0 verir (ölçüldü) — yanlış yazılmış bir işaret 1. adımı sessizce boş geçirirdi;
+>     artık blokta 2 `CREATE ROLE` + kapanış işareti = **3** sayılır (dev'de ölçüldü: 3).
+>     ⚠️ `deploy/README.md`'nin **diğer bölümlerindeki** kubectl satırlarının hiçbiri
+>     `--context` taşımıyor (ölçüldü: 138 kubectl satırının 0'ı); onlar OP-5'in kapsamı
+>     dışında, dokunulmadı — orkestratörün kararı.
+> 23. **D1 · ön koşul `tappa_opdefiner`'ın KENDİ üyeliklerini de sınar.** Ölçüldü: transaction
+>     içinde `GRANT tappa_owner TO tappa_opdefiner` → eski ön koşul geçti, definer
+>     `tags.aes_key_ref` ve `admin_users.password_hash` üzerinde SELECT=t. Ön koşul + ters
+>     katalog pini + ön koşul testi kontrolü eklendi; kontrolü silen mutant kırmızı.
+> 24. **D2 · kilit-çekişmesi kehaneti kapandı.** Sayaç `UPDATE`'i `status = 'active'` ile
+>     süzülür. Ölçüldü (1. tur şeması, iki oturum): açık tutulan bir `totp_failed` çağrısı
+>     `pending` ve `disabled` hesapta ikinci çağıranı `55P03`'e düşürdü. Şimdi:
+>     `TestOpRecordAuthEvent_NoLockOracleOnAnInvisibleAccount` — `pending`, `disabled` ve
+>     bilinmeyen id anında döner; kontrol: `active` hesapta `55P03` (sonda çekişmeyi
+>     görebiliyor; aktif hesapları `tappa_operator` zaten SELECT eder). Aktif olmayan
+>     hesapta `totp_failed` sayacı ilerletmez (pinli). *(4. tur: kapanan yalnız **kilit**
+>     kanalıdır; aynı gizli hesapların adres varlığı istatistik görünümlerinden hâlâ
+>     okunur — madde 34, sayılı sınır 15.)*
+> 25. **D3 · `unknown_email` + hedef belgelendi ve pinlendi.** Tür Go'nun görüşü (RLS
+>     yalnız `active`'i gösterir), hedef veritabanının araması: `pending`/`disabled` bir
+>     adres `unknown_email` satırı ve o hesabın id'si. ADR 0021 §1'e not.
+> 26. **D4 · kilit şekli bilinçli ve pinli:** sayaç yalnız başarıda sıfırlanır; pencere
+>     geçince tek hata 15 dk yeniden kilitler, kilitliyken hata pencereyi uzatır. İlk
+>     kilitten sonra pencere başına en çok 1 tahmin (günde 96); sayacı pencere sonunda
+>     sıfırlamak N tahmin verirdi (günde 480). ADR 0021 uygulama notu.
+> 27. **D5 · OP-9'a, adıyla:** `enroll_issued_at` ve `enroll_expires_at`'in **ikisi de** SQL
+>     içinde tek bir `clock_timestamp()` okumasından yazılır — süre tavanı yazılabilir
+>     `enroll_issued_at`'e bağlıdır (migration'ın kendi uyarısı).
+> 28. **D6 · gölge testi beş fonksiyonun hepsini koşar:** `op_open_session` (gerçek hesabın
+>     adım geçmişi olmayan sahte kopyası — gölgeden okunsaydı tekrar eden kod oturum açardı;
+>     gerçek `totp_last_step` ilerlemeli) ve `op_complete_enrollment` (gerçek pending hesabın,
+>     çağıranın seçtiği token'ı taşıyan sahte kopyası). Hesap tablosunu nitelemeyen iki
+>     mutant kırmızı.
+> 29. **D7 · ADR 0021 §2 v 7 kapsam notu düzeltildi:** `SAVEPOINT` içinde `op_open_session`
+>     iz bırakmadan `tappa_operator`'ın SELECT edemediği `totp_last_step`'in yerini ve
+>     ~~sayacın eşiğe ulaşıp ulaşmadığını~~ ele verir. Sayılı sınır 14 (sınır 1'in içinde).
+>     **4. tur düzeltmesi (madde 35):** kilit yarısı yeni bilgi değildir —
+>     `totp_locked_until` `tappa_operator`'ın giriş sütunlarındadır ve doğrudan okunur;
+>     SELECT edilemeyen yalnız adım yarısı.
+> 30. **D8 ·** `db/queries/operator.sql` OP-7'de (değişmedi).
+
+> **Kart düzeltmesi (2026-09-26, OP-5 uygulaması sırasında — 3. tur: üçüncü göz ONAY, 6
+> düşük bulgu).** D-1, D-2, D-5 ve D-6 yukarıda, düzelttikleri maddelerin içinde (17, 19,
+> 21). Kalan ikisi:
+>
+> 31. **D-3 · ön koşul `tappa_operator`'ın ÜYELERİNİ de sınar.** Ölçüldü (1.–2. tur şeması,
+>     `BEGIN … ROLLBACK`): `GRANT tappa_operator TO tappa_app` →
+>     `has_function_privilege(tappa_app, op_record_auth_event, EXECUTE)` false → true ve
+>     `tappa_app` fonksiyonu çağırdı. Ön koşul artık reddeder (55000); ön koşul testine ve
+>     ters katalog pinine kontrol eklendi; kontrolü silen mutant kırmızı. Dört üyelik yönü
+>     (definer'ın üyesi, definer'ın üyeliği, operatörün üyesi, operatörün üyeliği) artık
+>     dördü de reddediliyor.
+> 32. **D-4 · `tappa_opdefiner`'ın tenant erişimi pinli.** `TestOperator00026_PrivilegeMatrix`
+>     artık (a) ADR 0021 §1'in yedi "asla" sütununda definer'ın SELECT'inin `false`
+>     olduğunu, (b) definer'ın dört operatör tablosu dışındaki **her** tablo ve görünümde
+>     SELECT/INSERT/UPDATE sütun listesinin ve DELETE/TRUNCATE/REFERENCES/TRIGGER'ın izin
+>     listesine (`opdefinerTenantGrants`, OP-5'te **boş**) eşit olduğunu, (c) definer'ın ve
+>     operatörün hiçbir dizide yetkisi olmadığını sınar. Denetçinin mutantı (`tags`
+>     `aes_key_ref`/`app_key_ref` ve `admin_users.password_hash` SELECT'i) kırmızı.
+>     **Nasıl genişler (OP-10+):** bilinçli her grant, migration'ıyla aynı değişiklikte
+>     `opdefinerTenantGrants`'a `"tablo:YETKİ"` → attnum sıralı **tam** sütun listesi (tablo
+>     düzeyi fiil için `"*"`) olarak eklenir; "asla" sütunları o listeye giremez (test
+>     listeyi de onlara karşı denetler).
+
+> **Kart düzeltmesi (2026-09-26, OP-5 uygulaması sırasında — 4. tur: tappa-security-auditor
+> ONAY, 1 orta + 3 düşük).** Düzeltilen eski maddeler yerinde işaretli (19, 21, 24, 29).
+> Migration'da yalnız bir yorum değişti (fonksiyon gövdesi yok).
+>
+> 33. **S-1 · `log_parameter_max_length_on_error` işletmenin tek başına tutabileceği bir
+>     koşul DEĞİL.** Ölçüldü (dev, `BEGIN … ROLLBACK`): ayarın `pg_settings.context`'i
+>     `user` (`log_parameter_max_length`'inki `superuser`); `tappa_operator` olarak
+>     `SET log_parameter_max_length_on_error = -1` → `-1`; `tappa_operator` olarak
+>     `ALTER ROLE tappa_operator SET log_parameter_max_length_on_error = -1` **başarılı**,
+>     `pg_db_role_setting`'de 1 satır (parola döndürmesinden sağ çıkar, havuzun her yeni
+>     bağlantısına uygulanır); `-1` iken reddedilen `op_touch_session($1)` (bağlı parametre,
+>     `\bind`) çağıranın CONTEXT'ine `unnamed portal with parameters: $1 = '…'` döndürdü
+>     (`0` iken yalnız fonksiyon satırı; sunucu log'u yarısını güvenlik denetçisi ölçtü).
+>     Metin ADR 0021'de ve madde 19'da düzeltildi (`-1` de sızdırır). **OP-7'ye, adıyla:**
+>     yukarıdaki "Kabullere bağlananlar — OP-7" maddesinin (a) şıkkı. **Bugünkü ucuz pin:**
+>     `TestOperator00026_ReverseCatalogPin` `pg_db_role_setting`'de iki operatör rolü için
+>     satır olmamasını ister (iki kontrol; kaldıran mutant kırmızı); runbook'un 2. adımı
+>     sayıyı gösterir (dev'de `…|0`, belgeyle birebir). ⚠️ **Kapsam dışı, not (orkestratör
+>     backlog'a alır):** aynı düğme `tappa_app` için de açıktır — `user` bağlamlı ayarı
+>     müşteri uygulamasının rolü de kendi oturumunda ve rol varsayılanı olarak çevirebilir;
+>     panelin bağlı parametreleri (oturum token hash'leri, davet kodu hash'leri) aynı
+>     yoldan log'a düşer.
+> 34. **S-2 · istatistik görünümleri bir varlık kehaneti — sayılı sınır 15.** Ölçüldü (dev,
+>     `tappa_operator`, her çağrı ayrı `SAVEPOINT` + `ROLLBACK TO`): `platform_admins`
+>     `pg_stat_xact_user_tables.seq_scan` farkı — bilinmeyen adres **+1** (iki ayrı adreste
+>     aynı), `pending` hesabın adresi **+2**, `disabled` hesabın adresi **+2**
+>     (`seq_tup_read` de farklı); fazlalık `target_admin_id` FK kontrolü.
+>     `pg_stat_user_tables.n_live_tup` gizliler dahil toplam hesap sayısını verir.
+>     Görünümler herkese açık → definer tarafında kapatılamaz; sayaçlar plana bağlı olduğu
+>     için "eşitleyen" bir yama bir sonraki planda bozulur. Ölçülen ama **uygulanmayan**
+>     daraltma: adres yolunu yalnız `active` hesaplara çözmek (2. turun D3 kararını geri alır,
+>     plan değişince aynı sınıf `idx_tup_fetch`'e taşınır). Düzeltilen cümleler: migration
+>     `op_record_auth_event` yorumu (*"no existence oracle"*), ADR 0021 §1 (*"üyelik
+>     kehaneti değildir"*), ADR 0021 uygulama notu D2 (yalnız kilit kanalı kapandı).
+> 35. **S-3 · sınır 14 ve §2 v 7 kilit yarısını büyük gösteriyordu.** Ölçüldü:
+>     `tappa_operator` olarak 5 `totp_failed` sonrası `SELECT totp_locked_until` kilidi
+>     okudu; `SELECT totp_last_step` → *permission denied*. Kehanetin yalnız **adım** yarısı
+>     yeni bilgidir; iki metin ve madde 29 düzeltildi.
+> 36. **S-4 · sınıflandırıcı DO bloğundaki statik `CREATE TRIGGER`'ı da görür.** Ucuz olduğu
+>     için genişletildi (sınıra yazmak yerine): `create … trigger` artık `;`-parçasının
+>     başında değil, parçanın içinde nerede başlarsa oradan okunur;
+>     `TestAppendOnlyTriggers_EverySpellingIsSeen`'e iki yazım eklendi (DO içinde satır
+>     tetikleyicisi, DO içinde TRUNCATE koruması); eski, başa bağlı desene dönen mutant
+>     kırmızı. Kalan sınır (madde 21): **dinamik** SQL (tablo adı metinde yok) ve ters
+>     yönde **çalışmayan statik metin** (5. tur; TRUNCATE tarafında fail-open, arka kapısı
+>     `pg-restore-verify.sh` 5. bölüm).
 
 ### Görevler — A2 tenant-ötesi okuma/yazma
 | ID | Görev | Efor | Kabul (özet) |

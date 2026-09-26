@@ -75,6 +75,53 @@ GRANT CONNECT ON DATABASE tappa TO tappa_app;
 GRANT USAGE ON SCHEMA public TO tappa_app;
 GRANT USAGE ON SCHEMA public TO tappa_resolver;
 
+-- >>> OPERATOR ROLES (M10 OP-5) >>> ------------------------------------------------
+-- Platform operatorunun iki rolu (ADR 0021 §1, §5). Bu blok IKI yerde AYNI BAYTLARLA
+-- kosar ve bu yuzden IDEMPOTENT yazildi:
+--   (a) bos bir PGDATA'da, bu dosyanin geri kalaniyla birlikte (initdb, CI, db-reset);
+--   (b) HALIHAZIRDA CALISAN bir kumede, deploy/README.md -> "Operator roles (M10 OP-5)"
+--       runbook'unun `sed` ile bu iki isaretin arasini kesip psql'e vermesiyle.
+-- Rolun ikinci bir yazimi (runbook'ta elle bir kopya) OLMASIN diye isaretler var:
+-- ayni kuralin iki temsili, bu repoda uc kez sessizce ayrisip bedel odetti.
+--
+--   tappa_operator  : operator yuzeyinin baglanacagi rol (OP-7'nin ikinci havuzu).
+--                     NOSUPERUSER, NOBYPASSRLS, hicbir tablonun sahibi degil, hicbir
+--                     rolun UYESI degil -> internal/db RoleFacts.Privileged()=false,
+--                     yani uretimde havuzun ret kapisindan gecer. NOLOGIN ve PAROLASIZ
+--                     dogar (tappa_app'in olculmus fail-open duzeltmesinin aynisi,
+--                     yukarida): girisi, parolayi bir Secret'tan veren AYRI adim acar.
+--   tappa_opdefiner : op_* SECURITY DEFINER fonksiyonlarinin sahibi. NOLOGIN,
+--                     BYPASSRLS, NOSUPERUSER -- tappa_resolver'in sekli. Hicbir DEFAULT
+--                     PRIVILEGE almaz, UYESI YOKTUR: yetkisi migration 00026'nin tek
+--                     tek verdigi SUTUN grant'larindan ibarettir.
+--
+-- 🔴 ALTER ROLE SATIRLARI BILEREK KOSULSUZ. `IF NOT EXISTS` yalniz YARATMAYI atlar;
+-- ayni adla ama yanlis niteliklerle (ornegin LOGIN ya da SUPERUSER) var olan bir rol
+-- sessizce kalirdi. ALTER, nitelikleri her kosuda bu satirlara indirger. tappa_operator
+-- icin LOGIN/PASSWORD'a DOKUNULMAZ: blok, girisi acilmis bir kumede yeniden kosulunca
+-- operator yuzeyini kapatmamali.
+-- ⚠️ Uyelik burada TEMIZLENMEZ; migration 00026'nin on kosulu dort yonu de sinar ve
+-- herhangi biri varsa migration'i REDDEDER: tappa_opdefiner'in bir UYESI, tappa_opdefiner'in
+-- KENDI uyeligi, tappa_operator'in bir UYESI (o uye her op_*'i EXECUTE eder) ve
+-- tappa_operator'in kendi uyeligi.
+-- Bu dosya redline R5b'nin kapsami disindadir (BYPASSRLS mesru; scripts/redline-check.sh).
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'tappa_operator') THEN
+        CREATE ROLE tappa_operator NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'tappa_opdefiner') THEN
+        CREATE ROLE tappa_opdefiner NOLOGIN NOSUPERUSER BYPASSRLS NOCREATEDB NOCREATEROLE;
+    END IF;
+END
+$$;
+ALTER ROLE tappa_operator NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION;
+ALTER ROLE tappa_opdefiner NOLOGIN NOSUPERUSER BYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION;
+GRANT CONNECT ON DATABASE tappa TO tappa_operator;
+GRANT USAGE ON SCHEMA public TO tappa_operator;
+GRANT USAGE ON SCHEMA public TO tappa_opdefiner;
+-- <<< OPERATOR ROLES (M10 OP-5) <<< ------------------------------------------------
+
 -- Migration'larin bundan sonra yaratacagi her tabloda tappa_app'e taban yetki.
 --
 -- 🔴 UPDATE VE DELETE BILEREK YOK, VE BU M8-02 FAZ E'DE OLCULMUS BIR GUVENLIK

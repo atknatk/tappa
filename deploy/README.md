@@ -427,6 +427,131 @@ olan şey *"canlıda satır var, dump'ta yok"*tur.
 
 ---
 
+## Operator roles (M10 OP-5) — tek seferlik kurulum
+
+**Ne:** migration `00026` (platform operatörü — ADR 0020/0021) iki **küme** rolüne
+dayanır: `tappa_operator` (operatör yüzeyinin bağlanacağı rol; NOLOGIN, parolasız doğar)
+ve `tappa_opdefiner` (`op_*` SECURITY DEFINER fonksiyonlarının sahibi; NOLOGIN,
+BYPASSRLS, NOSUPERUSER, üyesi yok). Migration onları **yaratmaz** — roller küme
+nesnesidir ve `scripts/redline-check.sh` R5b bir migration'daki BYPASSRLS rolü FAIL
+eder (ADR 0021 §5). Tanımları `scripts/db-init/01-roles.sql`'dedir, ama o dosya **yalnız
+boş PGDATA'da** koşar: taze kurulum, CI, `make db-reset` ve B YOLU geri yükleme onları
+kendiliğinden alır; **halihazırda çalışan** bir veritabanı (geliştirme DB'si, canlı küme)
+almaz. Bu bölüm o boşluğu bir kez kapatır.
+
+**Tek kaynak, elle kopya yok.** Aşağıdaki komutlar `01-roles.sql`'in
+`>>> OPERATOR ROLES (M10 OP-5) >>>` … `<<< OPERATOR ROLES (M10 OP-5) <<<` işaretleri
+arasındaki bloğu `sed` ile keser ve psql'e verir — rolün ikinci bir yazımı yoktur. Blok
+**idempotenttir**: var olan rollerde iki kez koşmak no-op'tur (ölçüldü, geliştirme DB'si,
+2026-09-26: iki koşu da `DO · ALTER ROLE · ALTER ROLE · GRANT · GRANT · GRANT`, rc=0);
+yanlış niteliklerle var olan bir rolü satırlarına indirger; `tappa_operator`'ın
+LOGIN/parolasına **dokunmaz**. Bloğu ve migration'ın ön koşulunu
+`internal/db/operatorschema_test.go` → `TestOperator00026_PreconditionRefusesAClusterWithoutTheRoles`
+koşar (rolsüz kümede yaratır, var olanda no-op, yanlış nitelikte migration reddeder).
+
+### 🔴 Sıra: ÖNCE bu bölüm, SONRA `main`'e birleştirme
+
+Canlıda `00026`, deploy'un migrate Job'ında `tappa_owner` ile koşar. Roller yoksa ilk
+ifadesi **düşer** ve bu bölümü adıyla gösterir. Geliştirme DB'sinde, roller yokken ölçüldü
+(2026-09-26): `goose up` **exit 1**, son satır
+`ERROR: migration 00026 (M10 OP-5) needs the cluster role(s) tappa_opdefiner, tappa_operator
+and deliberately does not create them. Run the one-time step in deploy/README.md, section
+"Operator roles (M10 OP-5)" … Nothing was changed. (SQLSTATE 55000)`, `goose_db_version`
+önce ve sonra **25**.
+
+**Sıra ters olursa ne olur** (`.github/workflows/deploy.yml` ve `deploy/k8s/`'ten okundu):
+Job `backoffLimit: 2` ile üç kez aynı mesajla düşer → *"Migrate (its own step, its own
+role, before any new binary serves)"* adımı `failed >= 3` görünce `exit 1` verir →
+*"Roll out the server"* adımı **koşmaz** (varsayılan `if: success()`), yani
+`deploy/k8s/20-app.yaml` uygulanmaz ve **eski pod servis vermeye devam eder** (Deployment'a
+hiç dokunulmaz); goose her migration'ı kendi transaction'ında koştuğu için şema **25'te**
+kalır. Deploy kırmızıdır, ürün ayaktadır. Kurtarma: aşağıdaki canlı adımı uygula, sonra
+Actions → `deploy` → **Run workflow** (`workflow_dispatch`).
+
+Kullanıcı, veritabanı ve parola **hiçbir komutta sabit yazılmaz**: psql, Postgres
+konteynerinin kendi ortamındaki `POSTGRES_USER`, `POSTGRES_DB` ve `POSTGRES_PASSWORD`'ü
+tek tırnaklı `sh -c` içinde okur (dışarıdaki kabuk genişletmez, parola ekrana basılmaz).
+Canlı kümeye giden her `kubectl` satırı **`--context hetzner-k8s-1 -n tappa`** taşır —
+yanlış bir varsayılan bağlamla başka bir kümeye rol yazmak bu bölümün tek geri
+alınamayan hatası olurdu.
+
+### Geliştirme veritabanı
+
+```bash
+sed -n '/^-- >>> OPERATOR ROLES (M10 OP-5) >>>/,/^-- <<< OPERATOR ROLES (M10 OP-5) <<</p' \
+    scripts/db-init/01-roles.sql \
+  | docker exec -i tappa-db \
+      sh -c 'psql -X -1 -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
+make migrate
+```
+
+### Canlı küme (kullanıcı / orkestratör — ajan `kubectl` koşmaz)
+
+Birleştirilecek commit'in checkout'unda, repo kökünde:
+
+```bash
+# 0) Kesimin kendisini doğrula. psql -1 BOŞ girdiyle exit 0 verir (ölçüldü, geliştirme
+#    DB'si) -- yani işaretlerden biri yanlış yazılırsa 1. adım hiçbir şey yapmadan
+#    "başarılı" görünür. Blok iki CREATE ROLE ve kapanış işaretini taşımalı:
+sed -n '/^-- >>> OPERATOR ROLES (M10 OP-5) >>>/,/^-- <<< OPERATOR ROLES (M10 OP-5) <<</p' \
+    scripts/db-init/01-roles.sql | grep -cE '^ *CREATE ROLE|^-- <<< OPERATOR ROLES'
+# beklenen: 3 (başka bir sayı -> DUR, 1. adımı koşma)
+
+# 1) Bloğu canlı veritabanına uygula: tek transaction (-1), ilk hatada dur.
+sed -n '/^-- >>> OPERATOR ROLES (M10 OP-5) >>>/,/^-- <<< OPERATOR ROLES (M10 OP-5) <<</p' \
+    scripts/db-init/01-roles.sql \
+  | kubectl --context hetzner-k8s-1 -n tappa exec -i statefulset/tappa-postgres -- \
+      sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -1 -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
+# beklenen: DO · ALTER ROLE · ALTER ROLE · GRANT · GRANT · GRANT
+
+# 2) Doğrula
+kubectl --context hetzner-k8s-1 -n tappa exec -i statefulset/tappa-postgres -- \
+    sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -At -U "$POSTGRES_USER" -d "$POSTGRES_DB"' <<'SQL'
+SELECT r.rolname, r.rolcanlogin, r.rolsuper, r.rolbypassrls,
+       (SELECT count(*) FROM pg_auth_members m WHERE m.roleid = r.oid) AS members,
+       (SELECT count(*) FROM pg_auth_members m WHERE m.member = r.oid) AS member_of,
+       has_schema_privilege(r.rolname, 'public', 'USAGE') AS usage,
+       (SELECT count(*) FROM pg_db_role_setting s WHERE s.setrole = r.oid) AS role_settings
+  FROM pg_roles r
+ WHERE r.rolname IN ('tappa_operator', 'tappa_opdefiner')
+ ORDER BY 1;
+SQL
+# beklenen (geliştirme DB'sinde ölçülen şekil):
+#   tappa_opdefiner|f|f|t|0|0|t|0
+#   tappa_operator|f|f|f|0|0|t|0
+# Son sütun 0 olmalı: tappa_operator kendi rol varsayılanını yazabilir (ör.
+# log_parameter_max_length_on_error -- `user` bağlamlı bir ayar; -1 reddedilen her op_*
+# çağrısının bağlı parametrelerini log'a ve çağırana döker). 0 değilse DUR: satırı gör
+# (`SELECT setconfig FROM pg_db_role_setting WHERE setrole = 'tappa_operator'::regrole`)
+# ve `ALTER ROLE ... RESET ...` ile kaldır; bkz. ADR 0021 "Karar verilmedi".
+# ⚠️ İstisna: ADR 0021 "Karar verilmedi" → "Commit'ten bağımsız ikinci iz" seçeneği
+# (log_statement + log_parameter_max_length) BİR ROL AYARIDIR. Benimsenirse bu adım ve
+# ters katalog pini aynı değişiklikte güncellenir, izin verilen satır burada adıyla
+# yazılır; o gün gelene kadar beklenen değer 0'dır.
+```
+
+Sonra `main`'e birleştir; deploy 00026'yı uygular.
+
+### Bu bölümün AÇMADIĞI şey: `tappa_operator`'ın girişi
+
+Bu adımdan sonra `tappa_operator` hâlâ **NOLOGIN ve parolasızdır** — bilerek
+(`tappa_app`'in ölçülmüş fail-open düzeltmesi, `01-roles.sql` başlığı). Operatör
+yüzeyinin bağlantısı OP-7 ile gelir; girişi açan adım da onunla birlikte yazılır. Adlar
+(değerler **hiçbir dosyaya** yazılmaz — Olay A-0; ADR 0021 §5): kullanıcı
+`tappa-secrets`'a `TAPPA_OPERATOR_DATABASE_URL`, `TAPPA_OPERATOR_TOTP_KEK`,
+`TAPPA_OPERATOR_TOKEN_HMAC_KEY` ve **`tappa_operator` rolünün parolasını** ekler.
+⚠️ Parolayı role veren adım **`tappa-secrets`'ı yerel makineye okumamalıdır** (bu dosya
+`tappa-secrets` üzerinde `jsonpath`'i yasaklıyor, §4.7): emsali
+`deploy/k8s/postgres-init/02-app-password.sh` — değer bir pod'a `secretKeyRef` ile gelir
+ve `psql -v` değişkeniyle, kabuk genişletmesi olmadan verilir. Hangi pod'un bunu yapacağı
+ve anahtarın adı OP-7'nin kararıdır.
+
+**Geri alma yok.** `00026`'nın Down'ı operatör hesaplarını, oturumlarını ve **operatör
+audit izinin tamamını** siler (migration'ın kendi uyarısı); canlıda koşulmaz. Roller
+bırakılabilir: NOLOGIN, üyesiz ve (00026 olmadan) hiçbir nesnenin sahibi değil.
+
+---
+
 ## Elle deploy / rollback
 
 > 🔴 **ÖNCE ŞUNU ÖLÇ: BU BÖLÜM DOCKER HUB'I TARİF EDİYOR, KÜME BUGÜN HÂLÂ GHCR

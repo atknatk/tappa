@@ -4,6 +4,8 @@
   [m10-platform.md](../plan/m10-platform.md) §6). **Uygulama: yok** — bu ADR
   yazıldığında (HEAD `f6f5a9b`) `tappa_operator`, `tappa_opdefiner`, `platform_*`
   tabloları ve tek bir `op_*` fonksiyonu **yoktur** (katalogda ölçüldü).
+  **OP-5 (2026-09-26):** roller, dört tablo ve ilk beş `op_*` migration `00026` ile doğdu —
+  bkz. "OP-5 uygulama notu".
 - **Tarih:** 2026-09-26 · aynı gün **2. tur** (güvenlik denetiminin RED'i: izsiz okuma),
   **3. tur** (güvenlik denetiminin RED'i: bilet süresinin saati; üçüncü gözün bulguları) ve
   **3. tur eki** (orkestratör kararı: enrollment ve kimlik bilgisi yazımı definer'da) ve
@@ -195,14 +197,22 @@ oturumsuz bir definer:
 - **E-posta saklanmaz, hash'i de saklanmaz.** Fonksiyon aldığı adresi
   `platform_admins`'te arar (`citext` eşitliği `OPERATOR(public.=)` ile — ADR 0002
   M6-01 tuzağı). Eşleşirse satır o hesabın **id**'sini *hedef hesap* olarak taşır;
-  eşleşmezse (`unknown_email`) satır adres hakkında **hiçbir şey** taşımaz. Gerekçe:
+  eşleşmezse (`unknown_email`) satır adres hakkında **hiçbir şey** taşımaz.
+  *(OP-5 notu, 2026-09-26: "eşleşme" veritabanının araması, **tür** ise Go'nun görüşüdür.
+  Go giriş aramasında RLS yüzünden yalnız `active` hesapları görür, yani `pending` ya da
+  `disabled` bir hesabın adresini `unknown_email` diye bildirir — ve satır o hesabın id'sini
+  taşır. "`unknown_email` + hedef" = giriş yapamayan bir hesabın adresi; "hedefsiz" = böyle
+  bir hesap yok. `TestOpRecordAuthEvent_ClosedSetNoActorNoAddress` pinler.)* Gerekçe:
   bilinmeyen bir adres saldırganın yazdığı serbest metindir ya da gerçek bir kişinin
   yanlış yazılmış adresidir (kişisel veri; M7-06'nın *"The address is NOT logged"*
   pratiği, R7b); anahtarsız bir hash (örn. SHA-256) adres uzayında sözlükle geri
   çevrilir, yani takma ad değil gizlenmiş kişisel veridir; anahtarlı bir hash ise
   definer'a bir sır taşımayı gerektirir.
-- **`RETURNS void`** — adresin bir operatöre ait olup olmadığını çağırana söylemez;
-  fonksiyon bir üyelik kehaneti değildir.
+- **`RETURNS void`** — adresin bir operatöre ait olup olmadığını çağırana **dönüş
+  değeriyle** söylemez. *(Düzeltme, OP-5 4. tur, 2026-09-26: "fonksiyon bir üyelik
+  kehaneti değildir" cümlesi fazlaydı. Herkese açık istatistik görünümleri eşleşmeyi
+  ele verir — `pg_stat_xact_user_tables` bir eşleşmenin FK kontrolünü sayar; sayılı
+  sınır 15, ölçümüyle.)*
 - `tenant_id` yok; hiçbir tenant verisine dokunmaz; yalnız `operator_audit_log`'a yazar.
 - 🔴 **İnternetten tetiklenen bir yazma kapısıdır, bu yüzden sınırlıdır (normatif).**
   Panel bugün bilinmeyen e-postayı veritabanına **yazmıyor**, yalnız süreç log'una
@@ -462,6 +472,16 @@ NOSUPERUSER bir sahip ve yalnız `EXECUTE` tutan bir çağıranla ölçtü. *"Se
    fonksiyonun ve `op_close_session`'ın hataları yalnız ya `tappa_operator`'ın zaten
    okuduğu `platform_admins` verisini ya da ham token/hash sahibine **kendi** durumunu
    verir.
+   **Düzeltme (2026-09-26, OP-5 2. tur — bu cümle `op_open_session` için eksikti):**
+   `op_open_session` bir `SAVEPOINT` içinde çağrılıp geri alınırsa iz bırakmaz ama
+   sonucu iki şey söyler: hesabın `totp_last_step`'inin `cur-1`/`cur`/`cur+1`'e göre
+   yerini (yani bu adımda bir kodun kullanılıp kullanılmadığını) — `tappa_operator`'ın
+   **SELECT edemediği** tek yarı budur — ve kilidin açık olup olmadığını; ikinci yarıyı
+   `tappa_operator` zaten **doğrudan** okur (`totp_locked_until` giriş aramasının sütun
+   listesinde; 4. turda ölçüldü: 5 `totp_failed` sonrası operatörün kendi SELECT'i kilidi
+   okudu, `totp_last_step` SELECT'i *permission denied*). Kapatılmadı:
+   fonksiyon adımı ilerletmek **zorunda** ve sonucu `void`/istisnadan başka bir şey
+   değil; DSN sahibi zaten oturum basabilir (sınır 1). Sayılı sınır 14.
    **Var olmayan hedef (4. tur, B14):** `audit_log.tenant_id`'nin FK'si var olmayan bir
    tenant'a yazılan K6 satırını `23503` ile düşürür — bu, geri alınınca iz bırakmayan
    bir **varlık kehanetidir**. Normatif: tenant satırı `INSERT … SELECT … WHERE EXISTS`
@@ -809,11 +829,58 @@ hangi testin hangi karta düştüğü plan bloğunda):
     adımı kendi saatine göre `cur ± 1` ile sınırlar; iki saat bir adımdan (≈30 sn) fazla
     ayrışırsa geçerli kodlar reddedilir. Yön fail-closed'dır; çare saat eşitlemesidir
     (NTP), kod değil.
+14. **`op_open_session` bir SAVEPOINT kehanetidir (OP-5 2. tur, 2026-09-26).** DSN sahibi
+    çağrıyı bir `SAVEPOINT` içinde yapıp geri alarak, iz bırakmadan, bir hesabın bu ve
+    komşu adımlarda kod kullanıp kullanmadığını öğrenir (`totp_last_step`,
+    `tappa_operator`'ın SELECT edemediği sütun). *(4. tur düzeltmesi: bu madde kilit
+    durumunu da "SELECT edilemez" sayıyordu; `totp_locked_until` giriş aramasının sütun
+    listesindedir ve operatör onu doğrudan okur — ölçüldü. Kehanetin yalnız adım yarısı
+    yeni bilgidir.)*
+    Ölçüldü (dev, `BEGIN … ROLLBACK`, `tappa_operator` olarak; hesabın `totp_last_step`'i
+    `cur`): doğrudan `SELECT totp_last_step` → *permission denied*; `SAVEPOINT` içinde
+    `op_open_session(…, cur)` → ret, `(…, cur+1)` → kabul; iki `ROLLBACK TO` sonrası audit
+    farkı 0, oturum 0, `totp_last_step` değişmemiş. Etkisi sınır 1'in içindedir (aynı kişi
+    o hesaba MFA'lı oturum basabilir); yazıldı çünkü §2 v 7'nin kapsam notu bunun tersini
+    söylüyordu.
+    **İkinci kanal, aynı bilgi (3. tur, 2026-09-26):** `op_open_session` ve
+    `op_complete_enrollment`'ın kısıt yakalayıcısının LOG satırı yalnız sunucuya gitmez —
+    `client_min_messages` bir **kullanıcı** ayarıdır ve `SET LOCAL client_min_messages =
+    log` diyen çağırana da döner; ve satır yalnız bütün koşullar tuttuğunda doğar. Ölçüldü
+    (dev, `BEGIN … ROLLBACK`, `tappa_operator`): koşullar tutarken bozuk hash → çağırana
+    `LOG: … failed constraint "platform_sessions_token_hash_check" (SQLSTATE 23514)`;
+    aynı hash, bayat adım → LOG yok. Değer taşımaz (kısıt adı + SQLSTATE), ama "koşullar
+    tuttu" bitini SAVEPOINT'siz de verir. Ölçülüp **alınmayan** kapatma: fonksiyona
+    `SET client_min_messages = error` iğnelemek satırı çağırandan keser (sunucu yine
+    yazar — ölçüldü), ama iki eşdeğer kanaldan yalnız birini kapatır, DSN sahibinin
+    öğrenebileceğini azaltmaz ve §6'nın normatif tek-girdili `proconfig` pinini değiştirir.
+15. **İstatistik görünümleri bir varlık kehanetidir (OP-5 4. tur, 2026-09-26).**
+    `pg_stat_xact_user_tables` ve `pg_stat_user_tables` her role açıktır ve SAVEPOINT geri
+    almalarından etkilenmez. Ölçüldü (dev, `BEGIN … ROLLBACK`, `tappa_operator`, her
+    çağrı ayrı bir `SAVEPOINT` içinde ve `ROLLBACK TO` ile): `platform_admins` üzerinde
+    `op_record_auth_event('login_failed', <adres>)` farkı — bilinmeyen adres
+    `seq_scan +1` (iki ayrı adreste aynı), **`pending`** hesabın adresi **`+2`**,
+    **`disabled`** hesabın adresi **`+2`** (`seq_tup_read` da farklı). Fazlalık, hedef
+    dolunca koşan `target_admin_id` yabancı anahtar kontrolüdür. Yani RLS'in giriş
+    aramasından gizlediği `pending`/`disabled` hesapların **adresleri** iz bırakmadan
+    sınanabilir; `n_live_tup` ise gizliler dahil **toplam** hesap sayısını verir.
+    Definer tarafında kapatılamaz: görünümler herkese açıktır ve sayaçlar plana bağlıdır
+    (tablo büyüyüp plan indekse dönünce ayrım `idx_tup_fetch`'e taşınır, yani sayacı
+    "eşitleyen" bir yama bir sonraki planda bozulur). Ölçülen ama **uygulanmayan**
+    daraltma: adres yolunu yalnız `active` hesaplara çözmek bugünkü `seq_scan` farkını
+    kapatır, ama 2. turun D3 kararını (gizli hesabın adresi satırda hedef olarak kalır)
+    geri alır ve plan değişince aynı sınıf başka sayaçta geri gelir. Etkisi sınır 1'in
+    içindedir; e-posta tahmini gerektirir ve `id` yolu 122 bitlik rastgele değerle
+    sınanamaz.
 
 ## Karar verilmedi
 
 - `tappa_operator`'ın `platform_admins` üzerindeki **kesin** sütun listesi ve her
-  `op_*`'ın kesin sütun grant'ları — OP-5 / ilgili A2 kartı.
+  `op_*`'ın kesin sütun grant'ları — OP-5 / ilgili A2 kartı. → **OP-5'te karara bağlandı
+  (2026-09-26):** `tappa_operator` yalnız `SELECT (id, email, display_name, status,
+  password_hash, totp_secret_sealed, totp_locked_until)`, ve yalnız `status = 'active'`
+  satırlar (tek RLS politikası) — sınır 11 aktif hesaplara daralır. `tappa_opdefiner`'ın
+  listeleri `db/migrations/00026_create_platform_operator.sql`'de, tam liste olarak
+  `internal/db/operatorschema_test.go`'da pinli. Aşağıdaki "OP-5 uygulama notu".
 - **Giriş aramasını definer'a taşımak** (öneri; enrollment kısmı 3. tur ekinde karara
   bağlandı). `tappa_operator`'ın parola digest'i ve TOTP zarfı üzerindeki `SELECT`'ini
   kaldırır (sınır 11). Benimsenirse güncellenen kurallar §1 sonunda sayılıdır
@@ -830,10 +897,19 @@ hangi testin hangi karta düştüğü plan bloğunda):
   OP-8'in oturum kapısıdır, `op_touch_session` ise OP-5'te doğar). Yazılırsa bir tür
   gerekir ve `op_record_auth_event`'in kapalı kümesi bu ADR'nin bir güncellemesiyle
   büyür. Her durumda sınır 3 geçerlidir: o iz dürüst bir süreç hatasına karşı
-  kanıttır, DSN sahibine karşı değil.
+  kanıttır, DSN sahibine karşı değil. → **OP-5'te karara bağlandı (2026-09-26): YAZILMAZ,
+  küme büyümez.** Oturum kapısının girdisi internetten gelen bir çerezdir; ret başına bir
+  satır append-only bir tabloya kimliksiz, sınırsız bir yazma ilkeli olurdu
+  (`adminlogin.go:1300-1301`'in dersi) ve bağlayacağı bir kimlik yoktur. Saldırıya değen
+  retlerin kendi türleri var; kapının reddi süreç log'una hash'siz yazılır (OP-8).
 - **Oturum öncesi satırların süreç geneli tavanının sayısı** — OP-6/OP-8; ve
   `op_record_auth_event`'in **içinde** ikinci bir tavan (zaman penceresinde satır
-  sayısı; DSN sahibini de bağlar) — OP-5.
+  sayısı; DSN sahibini de bağlar) — OP-5. → **OP-5'te ölçüldü ve KONMADI (2026-09-26):**
+  doğal biçimi (10 dk'da ≤ N satır, satır ve sayaç birlikte) rolled-back bir sondada, N=20:
+  25 bilinmeyen-adres çağrısı 20 yazdı / 5 kırpıldı; ardından kurbana 5 yanlış TOTP **0
+  yazdı**, sayaç **0** kaldı — parola gerektirmeyen bir sel TOTP kilidini kapatıyor.
+  `totp_failed`'ı muaf tutmak ise DSN sahibinin `totp_failed` yazımını sınırsız bırakır;
+  tavan varlık sebebini kaybeder. Sınır 7 olarak sayılı kalır.
 - **Commit'ten bağımsız ikinci iz** (savunma derinliği): örn.
   `ALTER ROLE tappa_operator SET log_statement = 'all'` **ve**
   `log_parameter_max_length = 0` — ikincisi şarttır, yoksa oturum hash'i ve bilet
@@ -841,14 +917,130 @@ hangi testin hangi karta düştüğü plan bloğunda):
   superuser'ın değiştirebildiği ayarlardır (ölçüldü: `context = superuser`), yani DSN
   sahibi kendi oturumunda kapatamaz. Alternatif: pgaudit (yeni bağımlılık — CLAUDE.md
   §1, önce sorulur).
+  **OP-5 5. tur notu (2026-09-26):** bu seçenek bir `pg_db_role_setting` satırıdır.
+  **Benimsenirse** ters katalog pini (`TestOperator00026_ReverseCatalogPin`, operatör
+  rolünde rol düzeyi ayar reddi) ve runbook'un 2. adımı (`deploy/README.md` → "Operator
+  roles (M10 OP-5)", `role_settings` sütunu, *"0 değilse DUR … RESET ile kaldır"*) **aynı
+  değişiklikte** güncellenir ve izin verilen satır(lar) adıyla listelenir — yoksa runbook'u
+  izleyen biri seçeneği siler. Ve tek başına yeterli değildir: `log_parameter_max_length`
+  bağlı parametreleri yalnız **ifade** log'unda keser; hata bağlamındakileri
+  `user` bağlamlı `log_parameter_max_length_on_error` yönetir (aşağıda, koşul 1) — o
+  ayrıca iğnelenmedikçe reddedilen çağrıların parametreleri yine yazılır.
+  **Üretimin bugünkü log ayarları — orkestratör ölçtü, salt-okunur, 2026-09-26:**
+  `log_statement = none` · `log_min_duration_statement = -1` ·
+  `log_parameter_max_length = -1` · `log_parameter_max_length_on_error = 0` ·
+  `log_min_error_statement = error` · `log_min_messages = warning` ·
+  `log_error_verbosity = default`. Bu değerlerle hiçbir `op_*` parametresi sunucu
+  log'una girmez; güvenliği iki **adsız** koşula dayanır, ikisi de burada adlandırıldı:
+  (1) 🔴 **`log_parameter_max_length_on_error` 0 KALMALI — ve bunu işletme TEK BAŞINA
+  garanti EDEMEZ (4. tur düzeltmesi).** Her `op_*` reddi bir ERROR'dır ve
+  `log_min_error_statement = error` o ifadeyi (STATEMENT) log'lar; bu ayar 0 **değilse**
+  (pozitif **ya da `-1`** — `-1` "sınırsız"dır) reddedilen çağrının **bağlı
+  parametreleri** — ham enrollment token'ı, oturum token'ının hash'i, digest, zarf — hem
+  sunucu log'una (pod log'u; güvenlik denetçisi ölçtü) hem çağıranın hata `CONTEXT`'ine
+  düşer (4. turda ölçüldü, `\bind` ile genişletilmiş protokol, reddedilen
+  `op_touch_session($1)`: `0` → yalnız fonksiyonun satırı; `-1` → ek satır
+  `unnamed portal with parameters: $1 = '…'`). Ayarın
+  `pg_settings.context`'i **`user`**'dır (ölçüldü; `log_parameter_max_length`'inki
+  `superuser`): DSN sahibi onu kendi oturumunda çevirir (ölçüldü: `tappa_operator`
+  olarak `SET log_parameter_max_length_on_error = -1` → `-1`) **ve rol varsayılanı
+  olarak yazar** (ölçüldü: `tappa_operator` olarak `ALTER ROLE tappa_operator SET
+  log_parameter_max_length_on_error = -1` başarılı, `pg_db_role_setting`'de 1 satır) —
+  varsayılan parola döndürülmesinden sağ çıkar ve havuzun her yeni bağlantısına
+  uygulanır. **OP-7'ye, adıyla:** operatör havuzu `log_parameter_max_length_on_error = 0`
+  (gerekiyorsa `log_parameter_max_length` da) bağlantı **başlangıç parametresi** olarak
+  iğneler — başlangıç paketi rol varsayılanını ezer; OP-7 ölçer — ve açılışta
+  `current_setting` 0 değilse havuzu açmayı reddeder. Bugünkü ucuz pin: ters katalog
+  testi `pg_db_role_setting`'de iki operatör rolü için satır olmamasını ister ve runbook'un
+  doğrulama sorgusu bu sayıyı gösterir. Aynı düğme `tappa_app` için de açıktır (kapsam
+  dışı; kart madde 33). (2) **
+  `log_min_duration_statement` açılırsa** `log_parameter_max_length = -1` ile yavaş bir
+  `op_*` çağrısının parametreleri **tam** log'lanır; açılacaksa önce
+  `log_parameter_max_length = 0`. Ve bugünkü güvenlik **Go'nun bağlı parametre
+  kullanmasına** dayanır: SQL metnine gömülen bir değer `log_statement` / hata STATEMENT'ı
+  yoluyla parametre ayarlarından bağımsız log'lanır. **OP-7'ye, adıyla:** operatör
+  sorguları yalnız bağlı parametreyle yazılır, SQL metnine değer gömülmez. (Geliştirme
+  veritabanı bunun tersidir: `log_statement = all` ve bağlı parametreler log'da — yalnız
+  yerel.)
 - Bilet tablosunun adı — tablo OP-5'in tablolarıyla birlikte doğar. (Karara bağlananlar:
   ömür tavanı 60 sn; ham biletin boyu 256 bit — §2 v 1'in geri çevrilemezlik argümanı bu
-  boya dayanır.)
-- `platform_*` tablolarında gönüllü RLS (ADR 0016 §1 emsali) — OP-5.
+  boya dayanır.) → **OP-5 (2026-09-26): `operator_read_tickets`.**
+- `platform_*` tablolarında gönüllü RLS (ADR 0016 §1 emsali) — OP-5. → **OP-5'te karara
+  bağlandı (2026-09-26): dört tabloda da ENABLE + FORCE**, tek politika (yukarıda).
+  Gerekçe: geri yüklemenin varsayılan ACL kalıntısı (M8-02 FAZ E) RLS'le 0 satır okur;
+  FORCE çünkü `scripts/pg-restore-verify.sh` ENABLE ve FORCE sayıları farklı bir
+  veritabanını reddeder.
 - Ek kemer olarak `TEMP` hakkının PUBLIC'ten alınması (§2 iv'ün sondasını bütün roller
   için kapatır ama bütün rolleri etkiler) — değerlendirilmedi.
 - A2'nin fatura ve askı fonksiyonlarına bağlı ⏳ sorular: **OP-K5** (askıdaki ayın
   faturalanması), **OP-K12** (T27/T37 plan geçmişi) — m10-platform.md §6.
+
+## OP-5 uygulama notu (2026-09-26)
+
+Uygulama: `db/migrations/00026_create_platform_operator.sql` +
+`scripts/db-init/01-roles.sql` (işaretli **OPERATOR ROLES** bloğu) + `deploy/README.md` →
+*"Operator roles (M10 OP-5)"*. Kararın gövdesi değişmedi; uygulamanın bu metne eklediği ya
+da onu keskinleştirdiği yerler, adıyla (ayrıntı ve ölçümler:
+[m10-platform.md](../plan/m10-platform.md) → OP-5 kart düzeltmesi):
+
+- **`op_touch_session` audit satırı YAZMAZ.** Yazar (`last_used_at`) ama her `op_*` onu
+  çağırdığı için (§2 i) bir satır, kabul edilen her eylemin arkasına iki satır koyardı ve
+  OP-11'in *"kabul edilen her okuma tam 1 satır"*ını kırardı. Diğer dördü kabul edilen her
+  çağrıda tam bir satır yazar. Dönüşü `OUT session_id uuid, OUT admin_id uuid` — tek satır.
+- **`op_record_auth_event(p_kind, p_email DEFAULT NULL, p_admin DEFAULT NULL)`.** §1'in
+  *"aldığı adresi arar"*ına ek: adres verilmezse hesap **id** ile aranır (`totp_failed`,
+  `locked`, `enrollment_failed` Go'nun bir id tuttuğu yerlerde doğar). Var olmayan id FK
+  hatası değildir — hedef `NULL`, varlık kehaneti yok.
+- **Her `op_*` reddi SQLSTATE 28000**, fonksiyon başına tek mesaj; mesaj hiçbir argümanı
+  biçimlendirmez. **Düzeltme (2. tur):** ilk hâlinde bu cümle doğru değildi — argümanı
+  reddeden bir kısıt (bcrypt şekli, zarf boyu, oturum hash'inin şekli ya da tekrarı)
+  PostgreSQL'in DETAIL satırıyla yazılan **değerleri** (digest, zarfın hex'i, adres,
+  enrollment hash'i) çağırana ve sunucunun stderr'ine döndürüyordu; ve 23514/23505 yalnız
+  bütün koşullar geçince çıktığı için bir "koşullar geçti" kehanetiydi. Argümanı bir
+  kısıta ulaşan iki fonksiyon (`op_open_session`, `op_complete_enrollment`) artık
+  `integrity_constraint_violation`'ı yakalayıp **aynı** 28000'e çevirir; geride yalnız
+  kısıt adını ve SQLSTATE'i taşıyan bir LOG satırı kalır (dev'de ölçüldü: 14 yakalanan ret,
+  sunucu log'unda 0 *"Failing row contains"*). **3. tur düzeltmesi:** o satır "yalnız
+  sunucuda" değildir ve kehanet **kapanmadı** — `client_min_messages = log` diyen çağırana
+  da döner ve yalnız koşullar tuttuğunda doğar; kapanan şey değer sızıntısı ve DETAIL'dir,
+  "koşullar tuttu" biti sayılı sınır 14'tedir (SAVEPOINT kanalıyla aynı bilgi). Şekil ön kontrolü yerine seçildi: ön kontrol
+  her CHECK'in ikinci bir kopyası olur ve tekrar eden hash'i (23505) yarışsız
+  kapsayamaz. `TestOperator00026_ArgumentsNeverComeBackInAnError` pinler. Go tarafı
+  `PgError.Detail`'i asla log'lamaz (OP-7).
+- **Tek kullanım iki bağımsız katmandır (2. tur):** fonksiyonun `enroll_used_at IS NULL`
+  yüklemi ve şemanın `CHECK (status <> 'pending' OR enroll_used_at IS NULL)`'ı; her biri
+  ayrı testle pinli. `reset-mfa` token hash'ini değiştirir ve `enroll_used_at`'i aynı
+  ifadede `NULL` yapar (OP-9).
+- **Ön koşul `tappa_opdefiner`'ın KENDİ üyeliklerini de sınar (2. tur):** transaction
+  içinde `GRANT tappa_owner TO tappa_opdefiner` önceki ön koşulu geçiyordu ve definer
+  `tags.aes_key_ref` ile `admin_users.password_hash`'i okur hâle geliyordu (ölçüldü).
+  **3. tur:** `tappa_operator`'ın **üyelerini** de sınar — `GRANT tappa_operator TO
+  tappa_app` ön koşulu geçiyordu ve `tappa_app` `op_record_auth_event`'i çağırdı
+  (ölçüldü); dört üyelik yönünün dördü de artık reddedilir.
+- **§6'nın "asla" sütunları ve definer'ın tenant erişimi pinli (3. tur):** yedi sır
+  sütununda `tappa_opdefiner` SELECT'i `false`; OP-5 itibarıyla definer'ın dört operatör
+  tablosu dışındaki hiçbir tabloda ve dizide yetkisi yok (`TestOperator00026_PrivilegeMatrix`).
+  OP-10+ bilinçli grant eklerken testin izin listesini tam sütun listesiyle, aynı
+  değişiklikte genişletir; "asla" sütunları o listeye giremez.
+- **Sayaç yalnız `active` hesapta ilerler (2. tur):** filtresiz `UPDATE` `pending`/
+  `disabled` bir satırı da kilitliyordu; açık tutulan bir çağrı ikinci çağıranı
+  bekletiyor (`55P03`), bilinmeyen id anında dönüyordu — giriş aramasının gizlediği
+  hesaplar için bir kilit-çekişmesi kehaneti. Aktif hesaplar bu yoldan hâlâ görünür;
+  `tappa_operator` onları zaten SELECT edebilir. *(4. tur: bu yalnız **kilit** kanalını
+  kapattı; aynı gizli hesapların varlığı istatistik görünümlerinden hâlâ okunur — sayılı
+  sınır 15.)*
+- **Kilit şekli bilinçli (2. tur):** sayaç **yalnız başarıda** sıfırlanır; eşiğe bir kez
+  ulaştıktan sonra her yeni hata tam pencereyi yeniden açar — pencere geçtikten sonra tek
+  hata yeniden kilitler, kilitliyken hata pencereyi uzatır. İlk kilitten sonra pencere
+  başına en çok bir tahmin (15 dk'da günde 96); pencere sonunda sayacı sıfırlamak N
+  tahmin verirdi (günde 480). Testle pinli.
+- **Operatör hedef tenant'ı `target_tenant_id`**, `tenant_id` değil (o ad tabloyu depo
+  genelindeki türetimlerde tenant verisi yapardı); FK yok (B14).
+- **Kilit sayıları geçici: N = 5, 15 dk** — mekanizma sayısız var olamazdı; kesin sayılar
+  OP-6/OP-8 (ADR 0020 "Karar verilmedi").
+- **00026'nın ön koşulu** rollerin varlığını, §1'in niteliklerini ve üyeliklerini sınar;
+  eksikse runbook'un adını mesajda taşıyarak düşer (goose HINT basmaz). Dev'de rollerle ve
+  rolsüz ölçüldü.
 
 ## Sonuçlar
 

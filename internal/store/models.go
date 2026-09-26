@@ -123,6 +123,33 @@ type Location struct {
 	WifiSsid   *string
 }
 
+type OperatorAuditLog struct {
+	ID             uuid.UUID
+	At             time.Time
+	Kind           string
+	SessionID      *uuid.UUID
+	ActorAdminID   *uuid.UUID
+	TargetAdminID  *uuid.UUID
+	TargetTenantID *uuid.UUID
+	TargetScope    *string
+	PageNumber     *int32
+	PageSize       *int32
+	Detail         []byte
+}
+
+type OperatorReadTicket struct {
+	ID             uuid.UUID
+	TicketHash     string
+	SessionID      uuid.UUID
+	Kind           string
+	TargetTenantID *uuid.UUID
+	AuditID        uuid.UUID
+	CreatedAt      time.Time
+	CreatedXact    interface{}
+	ExpiresAt      time.Time
+	ConsumedAt     *time.Time
+}
+
 type PasswordReset struct {
 	ID          uuid.UUID
 	TenantID    uuid.UUID
@@ -133,6 +160,34 @@ type PasswordReset struct {
 	UsedAt      *time.Time
 	// Sifirlama token'i gecersizlestirildi (kullanilmadi). used_at ile ASLA karistirilmaz: used_at = "token harcandi", cancelled_at = "token artik kullanilamaz". Sorgular ikisini de ayri ayri eler.
 	CancelledAt *time.Time
+}
+
+type PlatformAdmin struct {
+	ID               uuid.UUID
+	Email            string
+	DisplayName      string
+	Status           string
+	PasswordHash     *string
+	TotpSecretSealed []byte
+	TotpLastStep     int64
+	TotpFailures     int32
+	TotpLockedUntil  *time.Time
+	LastLoginAt      *time.Time
+	EnrollTokenHash  *string
+	EnrollIssuedAt   *time.Time
+	EnrollExpiresAt  *time.Time
+	EnrollUsedAt     *time.Time
+	CreatedAt        time.Time
+}
+
+type PlatformSession struct {
+	ID            uuid.UUID
+	AdminID       uuid.UUID
+	TokenHash     string
+	CreatedAt     time.Time
+	MfaVerifiedAt *time.Time
+	LastUsedAt    time.Time
+	RevokedAt     *time.Time
 }
 
 type Policy struct {

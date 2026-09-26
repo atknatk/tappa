@@ -536,10 +536,22 @@ m10-platform.md §3'ün ölçütleriyle:
 **Görev kartında sayıyla/ölçümle karara bağlanacak (bu ADR bilerek sayı koymadı):**
 - TOTP kilidinin eşiği N ve kilit penceresi — OP-6/OP-8. (Kilidin yeri karara
   bağlandı: `platform_admins`'teki sayaç, `op_open_session`'ın `UPDATE`'inde sınanır.)
+  → **OP-5 notu (2026-09-26):** mekanizma sayısız var olamadığı için 00026 **geçici**
+  N = 5, pencere 15 dk koydu; kesin sayılar hâlâ OP-6/OP-8'in (değişiklik = yeni
+  migration'da `CREATE OR REPLACE`). Kilidin **şekli** (2. tur, bilinçli ve pinli): sayaç
+  yalnız başarıda sıfırlanır — eşikten sonra pencere geçince tek hata yeniden kilitler,
+  kilitliyken hata pencereyi uzatır; yalnız `active` hesabın sayacı ilerler. Gerekçe ve
+  sayılar ADR 0021 "OP-5 uygulama notu"nda.
 - Ara çerezin ömrü ve üç limiter'ın sayıları — OP-6/OP-8 (panel limiter'larının
   aritmetik savunması emsal).
 - `operator_audit_log`'un sütun şekli ve `platform_*` tablolarında gönüllü RLS olup
-  olmayacağı (ADR 0016 §1 emsali) — OP-5.
+  olmayacağı (ADR 0016 §1 emsali) — OP-5. → **OP-5'te karara bağlandı (2026-09-26):**
+  sütunlar `kind` (kapalı küme), `session_id`, `actor_admin_id`, `target_admin_id`,
+  `target_tenant_id` (bilerek `tenant_id` değil), `target_scope`, `page_number`,
+  `page_size`, `detail`, `at` (`DEFAULT clock_timestamp()`); dört tabloda ENABLE + FORCE
+  RLS, tek politika (`tappa_operator` yalnız `active` hesapları okur). Gerekçeler:
+  ADR 0021 "OP-5 uygulama notu" ve [m10-platform.md](../plan/m10-platform.md) → OP-5 kart
+  düzeltmesi.
 - Operatör host'unda **müşteri rotalarının servis edilip edilmeyeceği.** Öneri: iki
   yönlü host kapısı — operatör host'unda yalnız `/operator/*` ve statik dosyalar; çünkü
   operatör host'unda render edilen herhangi bir müşteri sayfasındaki bir XSS, operatör

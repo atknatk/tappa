@@ -63,6 +63,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -360,11 +361,15 @@ func TestPgRestoreVerify_KeepsTheTruncateGuardPredicates(t *testing.T) {
 		}
 	}
 
-	// THE SIX TABLES ARE THE ONES MIGRATION 00021 GUARDS. A list that shrank would
-	// make the script's PASS sentence ("all 6 tables") false while it still printed.
+	// THE SEVEN TABLES ARE THE ONES MIGRATIONS 00021 AND 00026 GUARD. A list that
+	// shrank would make the script's PASS sentence ("all 7 tables") false while it still
+	// printed. ⚠️ strings.Contains cannot tell "audit_log" from "operator_audit_log";
+	// TestAppendOnlyTablesAreNamedByBothScripts parses the list exactly and derives it
+	// from db/migrations.
 	for _, table := range []string{
 		"transactions", "audit_log", "transaction_reviews",
 		"billing_periods", "policy_versions", "legal_documents",
+		"operator_audit_log",
 	} {
 		if !strings.Contains(text, table) {
 			t.Errorf("scripts/pg-restore-verify.sh no longer names the append-only table %q; "+
@@ -382,6 +387,199 @@ func TestPgRestoreVerify_KeepsTheTruncateGuardPredicates(t *testing.T) {
 	if !strings.Contains(text, "do not put this database into service") {
 		t.Error("scripts/pg-restore-verify.sh no longer tells the operator what a failure MEANS; " +
 			"a check whose failure has no instruction is a check that gets overridden")
+	}
+}
+
+// TestAppendOnlyTablesAreNamedByBothScripts closes the "a seventh is added, update two
+// places" sentence that scripts/redline-check.sh carried: it DERIVES the append-only
+// tables from db/migrations -- every table a ROW-level trigger binds to
+// tappa_forbid_mutation() -- and requires, in both directions, that
+// the set equals pg-restore-verify.sh's `trunc_tables` list and redline-check.sh's
+// APPEND_ONLY alternation, and that every one of them also carries a BEFORE TRUNCATE
+// guard in some migration.
+//
+// It exists because the list grew from six to seven with migration 00026
+// (operator_audit_log) and the first draft of that change updated neither script:
+// pg-restore-verify.sh would have printed "all 6 tables carry a guard" over a restore
+// that had lost the seventh, and redline caught grants on the new table only because
+// `[^ ]*audit_log` happens to match its name.
+//
+// The lists are parsed exactly (whitespace-split, `|`-split) rather than searched with
+// strings.Contains, which cannot tell audit_log from operator_audit_log.
+//
+// 🔴 THE DERIVATION READS TRIGGER STATEMENTS, NOT ONE SPELLING OF THEM (round-3 audit).
+// Its first version matched `BEFORE UPDATE OR DELETE ... FOR EACH ROW EXECUTE FUNCTION`
+// literally; a migration that wrote `BEFORE DELETE OR UPDATE` was invisible to it and an
+// eighth append-only table spelled that way left this test green -- measured with a
+// temporary eighth migration (kept out of the tree). appendOnlyTriggers now splits each
+// migration's Up into statements and classifies every CREATE [OR REPLACE] [CONSTRAINT]
+// TRIGGER bound to tappa_forbid_mutation by its parts -- the target after ON, ROW or
+// STATEMENT level, and whether TRUNCATE is among the events -- whatever their order,
+// case, line breaks or the optional EACH / PROCEDURE / public. / quotes.
+// A STATIC CREATE TRIGGER inside a DO block or a function body is seen too (round-4
+// audit: the first classifier wanted the statement at the start of its ;-fragment and
+// missed it). WHAT IT STILL CANNOT SEE, measured by reading rather than assumed away: a
+// trigger created by DYNAMIC SQL (EXECUTE format(...) -- the table name is not in the
+// text), a trigger bound to some OTHER function that also refuses mutation, and a table
+// made append-only by privileges alone. Each of those is a new mechanism, and the review
+// that introduces it has to name it here.
+// AND THE OPPOSITE LIMIT, which the unanchored search bought (round-5 audit, measured on a
+// copy): it counts statement TEXT that never runs -- a CREATE TRIGGER under `IF false`
+// in a DO block, in the body of a function nobody calls, or inside a string literal all
+// classify like a real one. On the row side that fails CLOSED (the test demands a table
+// be listed that is not append-only). On the TRUNCATE side it fails OPEN: dead text can
+// satisfy "this table has a TRUNCATE guard" for a table that has none. The backstop for
+// that direction is not this test but the catalogue: scripts/pg-restore-verify.sh
+// section 5 reads the guards from pg_trigger, enabled and bound to tappa_forbid_mutation.
+// No migration in the tree has such dead text today.
+func TestAppendOnlyTablesAreNamedByBothScripts(t *testing.T) {
+	t.Parallel()
+
+	dir := filepath.Join(repoRoot, "db", "migrations")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("read db/migrations: %v", err)
+	}
+	appendOnly, truncGuarded := map[string]bool{}, map[string]bool{}
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".sql") {
+			continue
+		}
+		raw, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			t.Fatalf("read %s: %v", e.Name(), err)
+		}
+		up := string(raw)
+		if i := strings.Index(strings.ToLower(up), "-- +goose down"); i >= 0 {
+			up = up[:i]
+		}
+		row, trunc := appendOnlyTriggers(stripSQLComments(up))
+		for _, table := range row {
+			appendOnly[table] = true
+		}
+		for _, table := range trunc {
+			truncGuarded[table] = true
+		}
+	}
+	// ANTI-VACUITY: seven when this was written (00005 x3, 00007, 00016, 00020, 00026).
+	if len(appendOnly) < 7 {
+		t.Fatalf("only %d append-only tables derived from db/migrations (%v); the derivation has gone blind", len(appendOnly), appendOnly)
+	}
+
+	restore := readScript(t, "pg-restore-verify.sh")
+	m := regexp.MustCompile(`(?m)^trunc_tables="([^"]*)"`).FindStringSubmatch(restore)
+	if m == nil {
+		t.Fatal("scripts/pg-restore-verify.sh has no trunc_tables=\"...\" line")
+	}
+	inRestore := map[string]bool{}
+	for _, name := range strings.Fields(m[1]) {
+		inRestore[name] = true
+	}
+	redline := readScript(t, "redline-check.sh")
+	m = regexp.MustCompile(`(?m)^APPEND_ONLY='\(([^)]*)\)'`).FindStringSubmatch(redline)
+	if m == nil {
+		t.Fatal("scripts/redline-check.sh has no APPEND_ONLY='(...)' line")
+	}
+	inRedline := map[string]bool{}
+	for _, name := range strings.Split(m[1], "|") {
+		inRedline[name] = true
+	}
+
+	for table := range appendOnly {
+		if !truncGuarded[table] {
+			t.Errorf("%s is append-only (row trigger) but no migration gives it a BEFORE TRUNCATE guard (00021's lesson: TRUNCATE is neither UPDATE nor DELETE)", table)
+		}
+		if !inRestore[table] {
+			t.Errorf("%s is append-only but scripts/pg-restore-verify.sh's trunc_tables does not name it: a restore that lost its TRUNCATE guard would pass", table)
+		}
+		if !inRedline[table] {
+			t.Errorf("%s is append-only but scripts/redline-check.sh's APPEND_ONLY does not name it", table)
+		}
+	}
+	for name := range inRestore {
+		if !appendOnly[name] {
+			t.Errorf("scripts/pg-restore-verify.sh names %q, which no migration makes append-only", name)
+		}
+	}
+	for name := range inRedline {
+		if !appendOnly[name] {
+			t.Errorf("scripts/redline-check.sh's APPEND_ONLY names %q, which no migration makes append-only", name)
+		}
+	}
+}
+
+// appendOnlyTriggers returns, from one migration's comment-stripped Up section, the
+// tables that carry a ROW-level trigger bound to tappa_forbid_mutation() (the
+// append-only marker, whatever its events) and the tables that carry a BEFORE TRUNCATE
+// statement-level trigger bound to it (00021's guard). It classifies each CREATE
+// TRIGGER statement by its parts, so the event order and the optional words do not
+// matter; see the limits in TestAppendOnlyTablesAreNamedByBothScripts' comment.
+func appendOnlyTriggers(up string) (row, truncGuard []string) {
+	// NOT anchored to the start of the fragment (round-4 audit): a static CREATE TRIGGER
+	// inside a DO block or a function body ends up in the SAME ;-fragment as the
+	// `DO $$ BEGIN` that precedes it, and an anchored pattern missed it (measured:
+	// row="" trunc=""). The statement is read from wherever it starts -- which also
+	// counts text that never executes; see the limit in
+	// TestAppendOnlyTablesAreNamedByBothScripts' comment.
+	createRE := regexp.MustCompile(`(?is)\bcreate\s+(?:or\s+replace\s+)?(?:constraint\s+)?trigger\s`)
+	fnRE := regexp.MustCompile(`(?is)\sexecute\s+(?:function|procedure)\s+(?:"?public"?\s*\.\s*)?"?tappa_forbid_mutation"?\s*\(`)
+	onRE := regexp.MustCompile(`(?is)\son\s+(?:only\s+)?(?:"?public"?\s*\.\s*)?"?([a-z_][a-z0-9_]*)"?`)
+	rowRE := regexp.MustCompile(`(?is)\sfor\s+(?:each\s+)?row\s`)
+	stmtRE := regexp.MustCompile(`(?is)\sfor\s+(?:each\s+)?statement\s`)
+	truncRE := regexp.MustCompile(`(?is)\bbefore\b[^;]*?\btruncate\b[^;]*?\son\s`)
+	for _, frag := range strings.Split(up, ";") {
+		at := createRE.FindStringIndex(frag)
+		if at == nil {
+			continue
+		}
+		stmt := " " + frag[at[0]:]
+		if !fnRE.MatchString(stmt) {
+			continue
+		}
+		m := onRE.FindStringSubmatch(stmt)
+		if m == nil {
+			continue
+		}
+		table := strings.ToLower(m[1])
+		switch {
+		case rowRE.MatchString(stmt):
+			row = append(row, table)
+		case stmtRE.MatchString(stmt) && truncRE.MatchString(stmt):
+			truncGuard = append(truncGuard, table)
+		}
+	}
+	return row, truncGuard
+}
+
+// TestAppendOnlyTriggers_EverySpellingIsSeen pins the classifier on the spellings the
+// first derivation missed and on the ones it must keep rejecting. A table appears in a
+// result only through the rule it is named for; the negative cases are what keep a
+// match-everything classifier from passing.
+func TestAppendOnlyTriggers_EverySpellingIsSeen(t *testing.T) {
+	t.Parallel()
+	for _, c := range []struct {
+		name, sql  string
+		row, trunc string
+	}{
+		{"canonical", "CREATE TRIGGER a BEFORE UPDATE OR DELETE ON t1 FOR EACH ROW EXECUTE FUNCTION tappa_forbid_mutation()", "t1", ""},
+		{"events reversed", "CREATE TRIGGER a BEFORE DELETE OR UPDATE ON t2 FOR EACH ROW EXECUTE FUNCTION tappa_forbid_mutation()", "t2", ""},
+		{"one event, lower case, line breaks", "create trigger a\n before delete\n on public.t3\n for row\n execute procedure public.tappa_forbid_mutation()", "t3", ""},
+		{"update of a column, quoted names", `CREATE OR REPLACE TRIGGER "a" BEFORE UPDATE OF x OR DELETE ON "public"."t4" FOR EACH ROW EXECUTE FUNCTION "tappa_forbid_mutation"()`, "t4", ""},
+		{"truncate guard", "CREATE TRIGGER a BEFORE TRUNCATE ON t5 FOR EACH STATEMENT EXECUTE FUNCTION tappa_forbid_mutation()", "", "t5"},
+		{"another function", "CREATE TRIGGER a BEFORE UPDATE OR DELETE ON t6 FOR EACH ROW EXECUTE FUNCTION something_else()", "", ""},
+		{"a statement trigger that is not TRUNCATE", "CREATE TRIGGER a BEFORE UPDATE ON t7 FOR EACH STATEMENT EXECUTE FUNCTION tappa_forbid_mutation()", "", ""},
+		{"an AFTER truncate", "CREATE TRIGGER a AFTER TRUNCATE ON t8 FOR EACH STATEMENT EXECUTE FUNCTION tappa_forbid_mutation()", "", ""},
+		{"not a CREATE TRIGGER", "DROP TRIGGER a ON t9", "", ""},
+		{"static, inside a DO block", "DO $$ BEGIN CREATE TRIGGER a BEFORE UPDATE OR DELETE ON t10 FOR EACH ROW EXECUTE FUNCTION tappa_forbid_mutation(); END $$", "t10", ""},
+		{"static, inside a DO block, truncate guard", "DO $$ BEGIN\n  CREATE TRIGGER a BEFORE TRUNCATE ON t11 FOR EACH STATEMENT EXECUTE FUNCTION tappa_forbid_mutation(); END $$", "", "t11"},
+	} {
+		row, trunc := appendOnlyTriggers(c.sql + ";")
+		if got := strings.Join(row, ","); got != c.row {
+			t.Errorf("%s: row-level = %q, want %q", c.name, got, c.row)
+		}
+		if got := strings.Join(trunc, ","); got != c.trunc {
+			t.Errorf("%s: truncate guard = %q, want %q", c.name, got, c.trunc)
+		}
 	}
 }
 
