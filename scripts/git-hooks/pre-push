@@ -75,16 +75,35 @@ remote="${1:-origin}"
 # Sablon `XXXXXX` ile: GNU mktemp (Ubuntu) X'siz `-t ad` bicimini reddeder (olculdu).
 # Yaratilamazsa neden durdugunu SOYLER (3. tur); exit 2 kalir.
 tmps=()
-cleanup() { [[ ${#tmps[@]} -eq 0 ]] || rm -f "${tmps[@]}"; }
+R7D_WORKDIR=""
+cleanup() {
+  [[ ${#tmps[@]} -eq 0 ]] || rm -f "${tmps[@]}"
+  [[ -n $R7D_WORKDIR && -d $R7D_WORKDIR ]] && rm -rf "$R7D_WORKDIR"
+  return 0
+}
 trap cleanup EXIT
-# 11. tur (§4.7): gecici dosyalar eklenen satirlarin TAM metnini tasir. Kapanan bir
-# terminal (SIGHUP) onlari birakmasin: sinyal bir `exit`e cevrilir, EXIT tuzagi siler.
-# Olculdu (12. tur, 20'ser kosu): Ubuntu bash 5.2 tuzaksiz 12/20 kosuda dosyalari
-# BIRAKIYORDU, tuzakla 0/20; macOS bash 3.2 iki durumda da 0/20. Kalinti bir yarisa
-# bagli oldugu icin test tuzagi yalniz olasilikla pinler (secretscan.sh sinir #31).
-# SIGINT ve SIGTERM'de iki surum de EXIT tuzagini zaten kosuyor (olculdu); o tuzaklar
-# ayirt edici bir vaka vermedigi icin eklenmedi.
+# 🔴 (§4.7) Gecici dosyalar ve siniflandiricinin calisma dizini (R7D_WORKDIR,
+# secretscan.sh r7d_select) eklenen satirlarin TAM metnini tasir; hepsinin SAHIBI bu
+# ana kabuktur. Kesilen bir kanca (Ctrl-C, Ctrl-\, kapanan terminal, SIGTERM, kapanan
+# cikti borusu) onlari birakmasin: EXIT tuzagi siler. Asagidaki bes tuzak sinyali bir
+# `exit`e cevirir; bash onu on plandaki `$(...)` bittikten SONRA kosturur, yani silme
+# siniflandirici alt kabugu bittikten sonra olur ve cikis kodu 128+n'dir. Tuzaksiz da
+# bash olumcul sinyalde EXIT tuzagini kosturur ama HEMEN (olculdu) — F0-5 CI'daki
+# kirmizi, TERM tuzagi yokken alt kabugun kendi dizinini temizlemesini beklemeyen
+# buydu. Olculdu (F0-5 CI, 2026-09-25): ubuntu:24.04 bash 5.2 INT/HUP/TERM/PIPE her biri
+# 400 kosu (yarisi CPU yukunde), macOS bash 3.2 her biri 50 — ana surec cikisinda ve
+# surec grubu bittikten sonra kalinti 0. Pin: cmd/tappa
+# TestPrePush_AnInterruptedScanLeavesNothing (secretscan.sh #31).
+# QUIT (Ctrl-\; denetim B3, 2026-09-26): tuzaksiz QUIT'te iki bash farkli (olculdu).
+# macOS bash 3.2 sinyalle OLUR ve EXIT tuzagini KOSTURMAZ — kanca satir metni tasiyan
+# bes girdi birakti (3/3, denetci; HEAD'de de ayni); ubuntu bash 5.2 QUIT'i yok sayip
+# devam eder. Tuzakla ikisi de `exit 131` ve temiz. R7D_WORKDIR secretscan.sh
+# YUKLENDIKTEN sonra kurulur: yukleme miras kalan bir degeri siler (B2).
+trap 'exit 130' INT
 trap 'exit 129' HUP
+trap 'exit 131' QUIT
+trap 'exit 143' TERM
+trap 'exit 141' PIPE
 newtmp() { # newtmp <degisken> <ad>
   local f
   if ! f=$(mktemp "${TMPDIR:-/tmp}/tappa-prepush-$2.XXXXXX"); then
@@ -97,6 +116,11 @@ newtmp added added
 newtmp uniq uniq
 newtmp binlist binlist
 newtmp blob blob
+if ! R7D_WORKDIR=$(mktemp -d "${TMPDIR:-/tmp}/tappa-r7d.XXXXXX"); then
+  R7D_WORKDIR=""
+  echo "pre-push: gecici dizin yaratilamadi (mktemp, TMPDIR=${TMPDIR:-/tmp}) — push durduruldu." >&2
+  exit 2
+fi
 err=0
 
 # 🔴 BORU HATTININ HER ASAMASI AYRI OKUNUR (2. tur, B2). `pipefail` en SAGDAKI sifir

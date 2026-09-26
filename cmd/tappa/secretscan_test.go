@@ -70,6 +70,11 @@ func base62(n int) string {
 	return string(b)
 }
 
+// r7dWork is what every caller of r7d_select does in its OWN shell (F0-5 CI): create
+// the classifier's working directory and remove it on exit. r7d_select neither
+// creates nor removes it (it holds line text; the owner is the caller).
+const r7dWork = `R7D_WORKDIR=$(mktemp -d "${TMPDIR:-/tmp}/tappa-r7d.XXXXXX") && trap 'rm -rf "$R7D_WORKDIR"' EXIT && `
+
 // rec builds one classifier record: path US line US text (secretscan.sh R7D_SEP).
 func rec(path string, no int, text string) string {
 	return path + "\x1f" + strconv.Itoa(no) + "\x1f" + text
@@ -87,7 +92,7 @@ func r7dSelect(t *testing.T, mode string, lines ...string) string {
 }
 
 func r7dRun(mode string, lines ...string) (stdout, stderr string, code int) {
-	cmd := exec.Command("bash", "-c", `. scripts/secretscan.sh && r7d_select "$1"`, "r7d", mode)
+	cmd := exec.Command("bash", "-c", `. scripts/secretscan.sh && `+r7dWork+`r7d_select "$1"`, "r7d", mode)
 	cmd.Dir = repoRoot
 	cmd.Stdin = strings.NewReader(strings.Join(lines, "\n") + "\n")
 	var out, errb bytes.Buffer
@@ -593,7 +598,7 @@ func TestSecretScan_TheHashHelperPrintsARowNotTheLine(t *testing.T) {
 // nor may a tool that hashes fewer files than it was given.
 func TestSecretScan_AMissingOrBrokenHasherFailsLoudly(t *testing.T) {
 	run := func(pathPrefix string) (string, int) {
-		cmd := exec.Command("bash", "-c", `. scripts/secretscan.sh && r7d_select fail`)
+		cmd := exec.Command("bash", "-c", `. scripts/secretscan.sh && `+r7dWork+`r7d_select fail`)
 		cmd.Dir = repoRoot
 		cmd.Env = append(os.Environ(), "PATH="+pathPrefix+string(os.PathListSeparator)+os.Getenv("PATH"))
 		cmd.Stdin = strings.NewReader(rec(".env.example", 1, "x") + "\n")
@@ -815,7 +820,7 @@ func TestSecretScan_ABrokenWaiverTableFailsLoudly(t *testing.T) {
 		"^.*$;" + h + ";d", "^a.b$;" + h + ";d", "^a+$;" + h + ";d", "^(a|b)$;" + h + ";d",
 		"^a$|^b$;" + h + ";d", "^a[.]b*$;" + h + ";d", "^a\\.b$;" + h + ";d",
 	} {
-		cmd := exec.Command("bash", "-c", `. scripts/secretscan.sh && R7D_WAIVERS="$1" && r7d_select fail`, "r7d", table)
+		cmd := exec.Command("bash", "-c", `. scripts/secretscan.sh && R7D_WAIVERS="$1" && `+r7dWork+`r7d_select fail`, "r7d", table)
 		cmd.Dir = repoRoot
 		cmd.Stdin = strings.NewReader(rec("docs/x.md", 1, "postgres://u"+":p@h/db") + "\n")
 		out, err := cmd.CombinedOutput()
@@ -1291,7 +1296,7 @@ func TestSecretScan_TheHashHelperKeepsCRAndTrailingBlanks(t *testing.T) {
 		}
 		table := head + "sentetik test satiri"
 		run := func(mode, text string) string {
-			c := exec.Command("bash", "-c", `. scripts/secretscan.sh && R7D_WAIVERS="$1" && r7d_select "$2"`, "r7d", table, mode)
+			c := exec.Command("bash", "-c", `. scripts/secretscan.sh && R7D_WAIVERS="$1" && `+r7dWork+`r7d_select "$2"`, "r7d", table, mode)
 			c.Dir = repoRoot
 			c.Stdin = strings.NewReader(rec("docs/fixture.md", no, text) + "\n")
 			o, err := c.CombinedOutput()
@@ -1388,7 +1393,7 @@ func TestSecretScan_ThePrintfRuleSilencesNoRealisticValue(t *testing.T) {
 		t.Fatal(err)
 	}
 	selectWith := func(script string, recs []string) string {
-		cmd := exec.Command("bash", "-c", `. "$1" && r7d_select fail`, "r7d", script)
+		cmd := exec.Command("bash", "-c", `. "$1" && `+r7dWork+`r7d_select fail`, "r7d", script)
 		cmd.Dir = repoRoot
 		cmd.Stdin = strings.NewReader(strings.Join(recs, "\n") + "\n")
 		out, err := cmd.CombinedOutput()
@@ -1429,7 +1434,7 @@ func TestSecretScan_ATableErrorDoesNotPrintTheRow(t *testing.T) {
 		"^x$;" + v + ";d", "^" + v + "$;" + h + ";d", "^x$;" + h + ";eski " + v,
 		"^x$;" + h + ";" + "par" + "ola " + v, v, "^x$;" + h + ";d\n^x$;" + h + ";" + v,
 	} {
-		cmd := exec.Command("bash", "-c", `. scripts/secretscan.sh && R7D_WAIVERS="$1" && r7d_select fail`, "r7d", table)
+		cmd := exec.Command("bash", "-c", `. scripts/secretscan.sh && R7D_WAIVERS="$1" && `+r7dWork+`r7d_select fail`, "r7d", table)
 		cmd.Dir = repoRoot
 		cmd.Stdin = strings.NewReader(rec("docs/x.md", 1, "x") + "\n")
 		out, err := cmd.CombinedOutput()
@@ -1738,17 +1743,94 @@ func TestSecretScan_KeyValuesAreCaughtInTheirOwnWords(t *testing.T) {
 
 // TestPrePush_AnInterruptedScanLeavesNothing — 11th/12th round (§4.7). The hook's temp
 // files and the classifier's temp directory hold the FULL text of pushed lines. A
-// scan cut by Ctrl-C (SIGINT), a closed terminal (SIGHUP) or SIGTERM used to leave
-// the classifier's directory in TMPDIR (measured). The scan is held in the middle — a
-// sha256 tool that waits on the hashing call — and the process group is signalled.
+// scan cut by Ctrl-C (SIGINT), Ctrl-\ (SIGQUIT), a closed terminal (SIGHUP), SIGTERM or
+// a closed output pipe (SIGPIPE) used to leave the classifier's directory in TMPDIR
+// (measured). The scan is held in the middle — a sha256 tool that waits on the hashing
+// call — and the process group is signalled. One run per signal: the leftover checks
+// measured 0 in 400 runs per signal on ubuntu bash 5.2 (half of them under CPU load)
+// and 0 in 50 on macOS bash 3.2, so a repeat adds time, not strength; the hook's traps
+// are pinned by the exit code, which is deterministic.
 //
-// One run per signal. The hook's own HUP trap is pinned only PROBABILISTICALLY here:
-// without it Ubuntu bash 5.2 left the hook's files in 12 of 20 runs (0 of 20 with it;
-// macOS bash 3.2 left none either way), so this case goes red in about 60% of Linux
-// runs when that trap is missing. Repeating it inside the test was measured to make it
-// flaky instead: in 1 of 250 SIGHUP runs WITH every trap the classifier's directory was
-// left (a race; counted in scripts/secretscan.sh, limit #31).
+// F0-5 CI: the classifier's directory used to be created and removed by the
+// classifier's own subshell, and the hook's main process could exit before that
+// cleanup finished (ubuntu bash 5.2 under CPU contention: 18 of 300 SIGTERM runs left
+// it at the moment the main process exited, 0 after the process group was gone; the
+// GitHub runner hit it). The hook's main shell now owns the directory. Two claims are
+// made per run, because they catch different failures: nothing is left the moment the
+// hook itself exits (the product guarantee: a caller that returns has cleaned up), and
+// nothing is left once every process of the group is gone (a child that outlives the
+// hook and leaks later).
+//
+// SIGQUIT (audit B3, 2026-09-26): without its own trap macOS bash 3.2 dies of it and
+// never runs the EXIT trap (the auditor found five entries holding line text, 3 of 3
+// runs), while ubuntu bash 5.2 ignores it and carries on; with the trap both exit 131.
 func TestPrePush_AnInterruptedScanLeavesNothing(t *testing.T) {
+	const p = "internal/domain/signup/signup.go"
+	line := waivedLineOf(t, p)
+	interruptHeldScan(t, "hook", func(t *testing.T) *exec.Cmd {
+		r := newHookRepo(t)
+		base := r.commit("base")
+		r.write(p, line+"\n")
+		c := r.commit("a line on a waived path, so the classifier hashes it")
+		cmd := exec.Command("bash", filepath.Join(r.dir, "scripts", "git-hooks", "pre-push"), "origin", "/dev/null")
+		cmd.Dir = r.dir
+		cmd.Stdin = strings.NewReader(fmt.Sprintf("refs/heads/b %s refs/heads/b %s\n", c, base))
+		return cmd
+	}, func(code int) bool { return code == 0 })
+}
+
+// TestRedline_AnInterruptedScanLeavesNothing — F0-5 CI audit B1 (2026-09-26).
+// redline-check.sh owns the classifier's directory too (created after secretscan.sh is
+// loaded, removed by its EXIT trap), and nothing pinned that: with the `rm` taken out of
+// its EXIT trap the whole targeted suite stayed green while a direct run left a
+// tappa-r7d.* directory in TMPDIR (the auditor measured it). Same claims as the hook's
+// test, on a tree that holds only the two scripts and one waived line, where the scan
+// reaches R7d's hashing step in about a second. The other rules find none of the trees
+// they read there and say so with exit 2; this test is about the temp files, so the
+// unsignalled run only has to END by itself, not by a signal.
+func TestRedline_AnInterruptedScanLeavesNothing(t *testing.T) {
+	const p = "internal/domain/signup/signup.go"
+	line := waivedLineOf(t, p)
+	interruptHeldScan(t, "redline-check", func(t *testing.T) *exec.Cmd {
+		if _, err := exec.LookPath("rg"); err != nil {
+			t.Skip("rg is not installed; redline-check needs it (CI installs it)")
+		}
+		r := &hookRepo{t: t, dir: t.TempDir()}
+		r.git("init", "-q")
+		for _, rel := range []string{"scripts/redline-check.sh", "scripts/secretscan.sh"} {
+			b, err := os.ReadFile(filepath.Join(repoRoot, rel))
+			if err != nil {
+				t.Fatal(err)
+			}
+			r.write(rel, string(b))
+		}
+		r.write(p, line+"\n")
+		cmd := exec.Command("bash", "scripts/redline-check.sh")
+		cmd.Dir = r.dir
+		return cmd
+	}, func(code int) bool { return code >= 0 && code < 128 })
+}
+
+// waivedLineOf returns the text of the waiver table's line on path.
+func waivedLineOf(t *testing.T, path string) string {
+	t.Helper()
+	for _, w := range waivedLines(t) {
+		if w.path == path {
+			return w.text
+		}
+	}
+	t.Fatalf("no waived line of %s in the table", path)
+	return ""
+}
+
+// interruptHeldScan is the body the two interrupted-scan tests share. One run per
+// signal: prepare builds a fresh tree and returns the scan's command, a sha256 tool on
+// PATH holds the classifier's hashing call, and the scan's whole process group gets the
+// signal. Claims per run: the scan ENDS through its own trap (an ordinary exit 128+n,
+// not death by the signal; normalOK judges the unsignalled run), nothing tappa-* is in
+// TMPDIR the moment it exits, and nothing once its whole process group is gone.
+func interruptHeldScan(t *testing.T, who string, prepare func(t *testing.T) *exec.Cmd, normalOK func(code int) bool) {
+	t.Helper()
 	realHash := ""
 	if p, err := exec.LookPath("sha256sum"); err == nil {
 		realHash = p
@@ -1757,77 +1839,39 @@ func TestPrePush_AnInterruptedScanLeavesNothing(t *testing.T) {
 	} else {
 		t.Skip("no sha256 tool on this machine")
 	}
-	const p = "internal/domain/signup/signup.go"
-	var line string
-	for _, w := range waivedLines(t) {
-		if w.path == p {
-			line = w.text
-		}
-	}
-	if line == "" {
-		t.Fatalf("no waived line of %s in the table", p)
-	}
 	// Signal 0: the scan runs to its end (the hashing step is not held) — the baseline
 	// that nothing is left on a normal exit either.
-	for _, sig := range []syscall.Signal{0, syscall.SIGINT, syscall.SIGHUP, syscall.SIGTERM} {
-		name, reps := "normal exit", 1 // one run each; see the note above
+	for _, sig := range []syscall.Signal{0, syscall.SIGINT, syscall.SIGQUIT, syscall.SIGHUP, syscall.SIGTERM, syscall.SIGPIPE} {
+		name := "normal exit"
 		if sig != 0 {
 			name = sig.String()
 		}
 		t.Run(name, func(t *testing.T) {
-			r := newHookRepo(t)
-			base := r.commit("base")
-			r.write(p, line+"\n")
-			c := r.commit("a line on a waived path, so the classifier hashes it")
-			for rep := 1; rep <= reps; rep++ {
-				shims, tmp, ready := t.TempDir(), t.TempDir(), filepath.Join(t.TempDir(), "ready")
-				// `exec`: the waiting process is the classifier's direct child.
-				hold := "exec sleep 30"
-				if sig == 0 {
-					hold = ":"
-				}
-				body := "#!/bin/sh\nif [ $# -gt 0 ]; then : > '" + ready + "'; " + hold + "; fi\nexec " + realHash + " \"$@\"\n"
-				for _, n := range []string{"sha256sum", "shasum"} {
-					if err := os.WriteFile(filepath.Join(shims, n), []byte(body), 0o755); err != nil {
-						t.Fatal(err)
-					}
-				}
-				cmd := exec.Command("bash", filepath.Join(r.dir, "scripts", "git-hooks", "pre-push"), "origin", "/dev/null")
-				cmd.Dir = r.dir
-				cmd.Env = append(os.Environ(), "TMPDIR="+tmp, "PATH="+shims+string(os.PathListSeparator)+os.Getenv("PATH"))
-				cmd.Stdin = strings.NewReader(fmt.Sprintf("refs/heads/b %s refs/heads/b %s\n", c, base))
-				cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-				if err := cmd.Start(); err != nil {
+			scan := prepare(t)
+			shims, tmp, ready := t.TempDir(), t.TempDir(), filepath.Join(t.TempDir(), "ready")
+			// `exec`: the waiting process is the classifier's direct child.
+			hold := "exec sleep 30"
+			if sig == 0 {
+				hold = ":"
+			}
+			body := "#!/bin/sh\nif [ $# -gt 0 ]; then : > '" + ready + "'; " + hold + "; fi\nexec " + realHash + " \"$@\"\n"
+			for _, n := range []string{"sha256sum", "shasum"} {
+				if err := os.WriteFile(filepath.Join(shims, n), []byte(body), 0o755); err != nil {
 					t.Fatal(err)
 				}
-				deadline := time.Now().Add(30 * time.Second)
-				for {
-					if _, err := os.Stat(ready); err == nil {
-						break
-					}
-					if time.Now().After(deadline) {
-						if err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL); err != nil {
-							t.Logf("killing the stuck hook: %v", err)
-						}
-						t.Fatal("the scan never reached the hashing step")
-					}
-					time.Sleep(50 * time.Millisecond)
-				}
-				if sig != 0 {
-					if err := syscall.Kill(-cmd.Process.Pid, sig); err != nil {
-						t.Fatal(err)
-					}
-				}
-				done := make(chan error, 1)
-				go func() { done <- cmd.Wait() }()
-				select {
-				case <-done:
-				case <-time.After(30 * time.Second):
-					if err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL); err != nil {
-						t.Logf("killing the stuck hook: %v", err)
-					}
-					t.Fatal("the hook did not stop on " + name)
-				}
+			}
+			// `ulimit -c 0`: SIGQUIT's default action dumps core, and no test should
+			// write one (a macOS core is gigabytes). `exec` keeps the PID, so the process
+			// waited on below IS the scan.
+			cmd := exec.Command("bash", append([]string{"-c", `ulimit -c 0 && exec "$@"`, "held-scan"}, scan.Args...)...)
+			cmd.Dir, cmd.Stdin = scan.Dir, scan.Stdin
+			cmd.Env = append(os.Environ(), "TMPDIR="+tmp, "PATH="+shims+string(os.PathListSeparator)+os.Getenv("PATH"))
+			cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+			if err := cmd.Start(); err != nil {
+				t.Fatal(err)
+			}
+			leftover := func(when string) {
+				t.Helper()
 				left, err := filepath.Glob(filepath.Join(tmp, "tappa-*"))
 				if err != nil {
 					t.Fatal(err)
@@ -1837,9 +1881,83 @@ func TestPrePush_AnInterruptedScanLeavesNothing(t *testing.T) {
 					for _, l := range left {
 						names = append(names, filepath.Base(l))
 					}
-					t.Fatalf("a scan (%s, run %d) left %d temp entries holding line text in TMPDIR: %s", name, rep, len(left), strings.Join(names, " "))
+					t.Fatalf("a %s scan (%s) left %d tappa-* temp entries (the kind that holds line text) in TMPDIR %s: %s", who, name, len(left), when, strings.Join(names, " "))
 				}
 			}
+			done := make(chan error, 1)
+			go func() { done <- cmd.Wait() }()
+			var waitErr error
+			finished := false
+			// Done is read BEFORE ready is looked at: a scan that has ended without the
+			// ready file never reached the hashing step, and says so at once.
+			for deadline := time.Now().Add(30 * time.Second); ; {
+				if !finished {
+					select {
+					case waitErr = <-done:
+						finished = true
+					default:
+					}
+				}
+				if _, err := os.Stat(ready); err == nil {
+					break
+				}
+				if finished {
+					leftover("when it ended")
+					t.Fatalf("the %s scan ended (%v, exit code %d) before it reached the hashing step", who, waitErr, cmd.ProcessState.ExitCode())
+				}
+				if time.Now().After(deadline) {
+					if err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL); err != nil {
+						t.Logf("killing the stuck %s: %v", who, err)
+					}
+					t.Fatalf("the %s scan never reached the hashing step", who)
+				}
+				time.Sleep(50 * time.Millisecond)
+			}
+			if sig != 0 {
+				if finished {
+					t.Fatalf("the %s scan ended before it could be signalled, the hashing step was not held", who)
+				}
+				if err := syscall.Kill(-cmd.Process.Pid, sig); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if !finished {
+				select {
+				case waitErr = <-done:
+				case <-time.After(30 * time.Second):
+					if err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL); err != nil {
+						t.Logf("killing the stuck %s: %v", who, err)
+					}
+					t.Fatalf("the %s scan did not stop on %s", who, name)
+				}
+			}
+			// The scan's own trap turns the signal into an ordinary exit (128+n) that
+			// bash runs only after the classifier's $(...) has ended. Without that trap
+			// bash's fatal-signal handler still runs the EXIT trap, but at once and then
+			// dies of the signal (measured) — or, for SIGQUIT, dies without it (bash 3.2)
+			// or ignores the signal (bash 5.2).
+			code := cmd.ProcessState.ExitCode()
+			if sig == 0 && !normalOK(code) {
+				t.Fatalf("the %s scan ended with %v (exit code %d) without being signalled", who, waitErr, code)
+			}
+			if want := 128 + int(sig); sig != 0 && code != want {
+				t.Fatalf("the %s scan (%s) ended with %v (exit code %d), want an ordinary exit %d from its own trap", who, name, waitErr, code, want)
+			}
+			leftover("the moment it exited")
+			// Then wait for the whole process group (children may outlive the scan).
+			for deadline := time.Now().Add(30 * time.Second); ; {
+				if err := syscall.Kill(-cmd.Process.Pid, 0); err == syscall.ESRCH {
+					break
+				}
+				if time.Now().After(deadline) {
+					if err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL); err != nil {
+						t.Logf("killing the lingering group: %v", err)
+					}
+					t.Fatalf("the %s scan's process group did not finish after %s", who, name)
+				}
+				time.Sleep(20 * time.Millisecond)
+			}
+			leftover("after its whole process group was gone")
 		})
 	}
 }
@@ -1854,5 +1972,93 @@ func TestMakefile_AuditSaysTheScanCouldNotRun(t *testing.T) {
 	}
 	if !strings.Contains(string(b), `redword="SKIPPED(scan could not run) exit=2"`) || strings.Contains(string(b), "SKIPPED(no rg)") {
 		t.Fatal("make audit must label redline-check's exit 2 as a scan that could not run")
+	}
+}
+
+// TestSecretScan_TheClassifierNeedsItsCallersWorkdir — F0-5 CI: r7d_select does not
+// create its working directory (it holds line text; the caller creates it AFTER loading
+// secretscan.sh and removes it). Without one a scan with a candidate line FAILS (exit
+// 2), not a clean one — also when the name reaches it from the ENVIRONMENT (audit B2,
+// 2026-09-26: an inherited R7D_WORKDIR=<someone's directory> used to get the line text
+// written into it, that directory's c.1 and h deleted, and exit 0). Loading
+// secretscan.sh drops the inherited name; a caller's own directory that is not empty
+// fails the scan as well, and nothing already in it is touched. One case per guard:
+// the inherited EMPTY directory is caught only by the drop, the caller's own non-empty
+// one only by the emptiness check.
+func TestSecretScan_TheClassifierNeedsItsCallersWorkdir(t *testing.T) {
+	var env []string
+	for _, kv := range os.Environ() {
+		if !strings.HasPrefix(kv, "R7D_WORKDIR=") {
+			env = append(env, kv)
+		}
+	}
+	scan := func(script, in string, extraEnv []string, args ...string) (string, int) {
+		t.Helper()
+		cmd := exec.Command("bash", append([]string{"-c", script, "r7d"}, args...)...)
+		cmd.Dir = repoRoot
+		cmd.Env = append(append([]string{}, env...), extraEnv...)
+		cmd.Stdin = strings.NewReader(in)
+		out, err := cmd.CombinedOutput()
+		if err == nil {
+			return string(out), 0
+		}
+		ee, ok := err.(*exec.ExitError)
+		if !ok {
+			t.Fatal(err)
+		}
+		return string(out), ee.ExitCode()
+	}
+	decoys := map[string]string{"c.1": "decoy file one\n", "h": "decoy file two\n"}
+	withDecoys := func() string {
+		d := t.TempDir()
+		for n, b := range decoys {
+			if err := os.WriteFile(filepath.Join(d, n), []byte(b), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return d
+	}
+	untouched := func(what, d string, want map[string]string) {
+		t.Helper()
+		ents, err := os.ReadDir(d)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(ents) != len(want) {
+			t.Fatalf("%s: the directory now holds %d entries, want %d", what, len(ents), len(want))
+		}
+		for n, b := range want {
+			got, err := os.ReadFile(filepath.Join(d, n))
+			if err != nil || string(got) != b {
+				t.Fatalf("%s: %s was changed or removed (err=%v)", what, n, err)
+			}
+		}
+	}
+	cand := rec(".env.example", 1, "x") + "\n"
+	const load = `. scripts/secretscan.sh && `
+
+	if out, code := scan(load+`r7d_select fail`, cand, nil); code != 2 || !strings.Contains(out, "R7D_WORKDIR") {
+		t.Fatalf("no workdir: a scan with a candidate line must fail (exit 2), got exit %d\n%s", code, out)
+	}
+	inherited := t.TempDir()
+	if out, code := scan(load+`r7d_select fail`, cand, []string{"R7D_WORKDIR=" + inherited}); code != 2 {
+		t.Fatalf("an inherited empty R7D_WORKDIR was used as the workdir: exit %d, want 2\n%s", code, out)
+	}
+	untouched("inherited, empty", inherited, map[string]string{})
+	inherited = withDecoys()
+	if out, code := scan(load+`r7d_select fail`, cand, []string{"R7D_WORKDIR=" + inherited}); code != 2 {
+		t.Fatalf("an inherited R7D_WORKDIR holding files was used as the workdir: exit %d, want 2\n%s", code, out)
+	}
+	untouched("inherited, holding files", inherited, decoys)
+	own := withDecoys()
+	if out, code := scan(load+`R7D_WORKDIR="$1" && r7d_select fail`, cand, nil, own); code != 2 || !strings.Contains(out, "bos degil") {
+		t.Fatalf("the caller's own workdir holding files must fail the scan (exit 2), got exit %d\n%s", code, out)
+	}
+	untouched("the caller's own, holding files", own, decoys)
+
+	// Control (audit B4): really WITHOUT a directory, a record on no waived path is still
+	// classified — the directory is needed only for lines whose hash is looked up.
+	if out, code := scan(load+`r7d_select fail`, rec("docs/x.md", 1, "postgres://u"+":p@h/db")+"\n", nil); code != 0 || !strings.Contains(out, "[url-cred]") {
+		t.Fatalf("control: with no workdir an ordinary record must still be classified (exit 0, [url-cred]), got exit %d\n%s", code, out)
 	}
 }

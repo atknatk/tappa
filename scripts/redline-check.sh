@@ -130,7 +130,21 @@ fi
 # bu satirin yazildigi gunden beri OLUYDU. Artik yaratilamazsa betik baslamaz.
 SCAN_ERR=$(mktemp "${TMPDIR:-/tmp}/tappa-redline-scan-err.XXXXXX") || { echo "redline-check: mktemp failed" >&2; exit 2; }
 R7D_LIST=$(mktemp "${TMPDIR:-/tmp}/tappa-redline-r7d-files.XXXXXX") || { rm -f "$SCAN_ERR"; echo "redline-check: mktemp failed" >&2; exit 2; }
-trap 'rm -f "$SCAN_ERR" "$R7D_LIST"' EXIT
+# R7D_WORKDIR: R7d siniflandiricisinin (secretscan.sh r7d_select) calisma dizini; satir
+# metni tasir, SAHIBI bu ana kabuktur (F0-5 CI): kesilen bir tarama onu birakmasin.
+# secretscan.sh YUKLENDIKTEN SONRA yaratilir (R7d blogu) — yukleme miras kalan bir
+# degeri siler (denetim B2). Tuzaklar sinyali, bash'in on plandaki `$(...)` bittikten
+# sonra kosturdugu bir `exit`e cevirir; QUIT dahil (Ctrl-\; denetim B3: tuzaksiz macOS
+# bash 3.2 QUIT'le olup EXIT tuzagini kosturmuyor, ubuntu bash 5.2 QUIT'i yok sayiyor —
+# olculdu). Pin: cmd/tappa
+# TestRedline_AnInterruptedScanLeavesNothing.
+R7D_WORKDIR=""
+trap 'rm -f "$SCAN_ERR" "$R7D_LIST"; [[ -z ${R7D_WORKDIR:-} ]] || rm -rf "$R7D_WORKDIR"' EXIT
+trap 'exit 130' INT
+trap 'exit 129' HUP
+trap 'exit 131' QUIT
+trap 'exit 143' TERM
+trap 'exit 141' PIPE
 scan() { scan_in SRC "$@"; }
 
 # scan_in <dizi-adi> <rg argumanlari...> — scan()'in kapsami secilebilen hali.
@@ -1804,6 +1818,11 @@ report FAIL N1 "Node artefakti — bu repo Node'suzdur" "$node_files"
 r7d_ok=1
 if ! . scripts/secretscan.sh; then
   echo "${RED}ATLANDI${OFF}: scripts/secretscan.sh yuklenemedi — R7d KOSMADI." >&2
+  echo 2 >>"$SCAN_ERR"
+  r7d_ok=0
+elif ! R7D_WORKDIR=$(mktemp -d "${TMPDIR:-/tmp}/tappa-r7d.XXXXXX"); then
+  R7D_WORKDIR=""
+  echo "${RED}ATLANDI${OFF}: R7d calisma dizini yaratilamadi (mktemp) — R7d KOSMADI." >&2
   echo 2 >>"$SCAN_ERR"
   r7d_ok=0
 fi

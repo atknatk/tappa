@@ -215,7 +215,8 @@
 #   `_label: FAKE` fixture — gercek bir sizinti YOK. 18 satira bagli girdiyle muaf
 #   (tablo 50 girdi, agacta 60 satir); `vcs.revision` git SHA-1'i (40 hex) desen
 #   daraltmasiyla. Tam gecmis: yine 9 A-0 + 1 rotatekek, muaf 60. Ayrica: r7d_select
-#   alt kabugu gecici dizinini EXIT/HUP/TERM tuzaklariyla siler, kanca SIGHUP'ta.
+#   alt kabugu gecici dizinini EXIT/HUP/TERM tuzaklariyla silerdi, kanca SIGHUP'ta
+#   (F0-5 CI'da degisti: dizinin sahibi artik cagiran — #31).
 # --- 12. TUR (2026-09-25, SON sertlestirme; ucuncu goz 12. turda ONAY verdi) -----
 #   `kek`/`hmac_key` adin ortasinda bir rotasyon sonekiyle de atama anahtari
 #   (`TAPPA_TAG_KEK_PREVIOUS=`, `TAG_KEK_OLD:`; #32). camelCase bir adin icindeki
@@ -382,11 +383,30 @@
 #      dizisi, backtick icinde degerden hemen sonra gelen nokta, 64 baytlik (88
 #      karakter) base64 HMAC anahtari. Tirnaksiz markdown degerinde `=` dolgulu ve
 #      `+`/`/` tasimayan base64 kod sekli (`ad=`) sayilir — #13.
-#  31. SINYAL YARISI (12. tur, olculdu): kanca SIGHUP ile taramanin ortasinda
-#      kesilince siniflandiricinin gecici dizini — butun tuzaklar yerindeyken — Ubuntu
-#      bash 5.2'de 250 kosunun 1'inde kaldi. Kancanin ust duzey HUP tuzagi o kalintiyi
-#      12/20 -> 0/20'ye indiriyor (macOS bash 3.2'de tuzaksiz da 0/20); testteki tek
-#      kosu onu yalniz OLASILIKLA pinler (~%60).
+#  31. SINYAL YARISI — KAPANDI (2026-09-25, F0-5 CI; calisma dizininin sahibi artik
+#      cagiranin ana kabugu). Eskiden r7d_select dizinini kendisi yaratip kendi
+#      tuzaklariyla siliyordu; iki ayri kusur olculdu (ubuntu:24.04 bash 5.2, --cpus=1
+#      + 3 mesgul dongu, grup sinyali hash adiminda): (a) GECICI — kancada TERM tuzagi
+#      yokken bash'in olumcul-sinyal isleyicisi EXIT tuzagini hemen kosturup ana sureci
+#      alt kabuk temizligini bitirmeden cikariyordu: 300 SIGTERM'de 18 kalinti ana surec
+#      cikisinda, 0 grup bittikten sonra (GitHub runner'inda test kirmizi). (b) GERCEK —
+#      kancanin tuzaklari tam olsa da alt kabuk-sahipli dizin SIGHUP'ta kaliyordu: 300'de
+#      28, grup bittikten SONRA da (12. turdaki 1/250 ile uyumlu). Simdi: dizini kanca ve
+#      redline-check ana kabukta yaratir, EXIT tuzagi siler; alt kabuk dizin yaratmaz,
+#      silmez, R7D_WORKDIR yoksa aday satirda exit 2. Olcum (kanca, ayni kosullar): INT,
+#      HUP, TERM, PIPE her biri 200 yuklu + 200 yuksuz — ana surec cikisinda 0, grup
+#      bittikten sonra 0; macOS bash 3.2 her biri 50: 0/0. Kancanin INT/HUP/TERM/PIPE
+#      tuzaklari kalintiyi tek basina onleyen sey DEGIL (bash olumcul sinyalde EXIT
+#      tuzagini kendisi de kosturur — olculdu); silmeyi siniflandiricinin $(...)'i
+#      bittikten sonraya siralar ve cikisi 128+n yapar. QUIT istisnadir (denetim B3,
+#      2026-09-26): tuzaksiz macOS bash 3.2 QUIT'le olur ve EXIT tuzagini KOSTURMAZ
+#      (kanca 10/10 kosuda kalinti), ubuntu bash 5.2 QUIT'i yok sayar; kanca ve redline
+#      artik `exit 131` der (macOS 50/50 temiz). Ayni denetim: redline'in dizini de
+#      pinli (B1), miras kalan R7D_WORKDIR kullanilmaz ve dizin BOS olmali (B2, r7d_select
+#      ustundeki not). Pin: TestPrePush_AnInterruptedScanLeavesNothing ve
+#      TestRedline_AnInterruptedScanLeavesNothing — her sinyalde iki an (ana surec
+#      cikisi + grup bitisi) ve tuzaklar cikis koduyla, DETERMINISTIK;
+#      TestSecretScan_TheClassifierNeedsItsCallersWorkdir.
 #  32. ROTASYON SONEKLERI (12. tur): `kek`/`hmac_key` adin ortasinda yalniz bir
 #      rotasyon sonekiyle taninir (`_previous`, `_prev`, `_old`, `_new`, `_next`,
 #      `_current`, `_b64`, `_base64`, `_hex`, `_raw`, `_vN`/`_N`): `TAPPA_TAG_KEK_PREVIOUS`
@@ -598,17 +618,30 @@ r7d_hasher() {
 # Donus: 0 · 2 = tablo bozuk, ayrisamayan kayit, sha256 araci yok ya da hash sayisi
 # tutmadi. Cagiran bunu OKUMAK ZORUNDA: $(...) icinde kaybolan bir hata "temiz" okunur
 # (R1'in SCAN_ERR dersi; 2. tur B2 ayni dersi kancanin boru hattinda yeniden ogretti).
+# 🔴 MIRAS KALAN DEGER KULLANILMAZ (F0-5 CI denetimi B2, 2026-09-26). Bu dosya yuklenince
+# R7D_WORKDIR silinir; cagiran dizini yukledikten SONRA yaratir. Olculdu: silme yokken
+# degiskeni kendisi kurmayan bir cagiran, ortamdan gelen R7D_WORKDIR=<baska dizin> ile
+# satir metnini o dizine yaziyor, oradaki c.1 ve h dosyalarini siliyor ve exit 0
+# donuyordu. PID eslestirmesi (R7D_WORKDIR_PID=$$) yerine bu secildi: ek degisken yok,
+# `exec` ile ayni PID'i devralan bir sureci de kapsar, ve yeniden atanan degisken
+# ortamdan gelen export niteligini tasimaz.
+unset R7D_WORKDIR
 r7d_select() (
-  # 11. tur (§4.7): govde bir ALT KABUKTUR ve kendi tuzaklarini kurar. Gecici dizin
-  # muafiyet yolundaki satirlarin TAM metnini tasir; SIGINT/SIGHUP ile kesilen bir
-  # tarama onu TMPDIR'da birakiyordu (olculdu: `$(...)` alt kabugu cagiranin EXIT
-  # tuzagini miras almaz). Alt kabuk: tuzaklar cagiran kabugunkileri EZMEZ. Olculdu:
-  # SIGINT'te bash 3.2 ve 5.2 EXIT tuzagini kendisi kosar; SIGHUP'ta ikisi de, SIGTERM'de
-  # bash 3.2 kosmaz — o ikisi `exit`e cevrilir.
-  mode=$1; in=""; n=""; tmp=""; rc=0
-  trap '[[ -n $tmp && -d $tmp ]] && rm -rf "$tmp"' EXIT
-  trap 'exit 129' HUP
-  trap 'exit 143' TERM
+  # 🔴 CALISMA DIZININ SAHIBI CAGIRANDIR (F0-5 CI, 2026-09-25). Dizin muafiyet
+  # yolundaki satirlarin TAM metnini tasir. 11./12. turda bu alt kabuk dizini kendisi
+  # yaratip kendi tuzaklariyla siliyordu; kanca SIGTERM ile kesilince ANA surec, alt
+  # kabuk temizligini bitirmeden cikabiliyordu (olculdu, ubuntu:24.04 bash 5.2, 1 CPU:
+  # 300 kosunun 18'inde ana surec cikisinda dizin duruyordu, surec grubu bittikten sonra
+  # 0 — gecici bir yaris; GitHub runner'inda test kirmizi). Artik cagiranin ANA kabugu
+  # dizini yaratir (R7D_WORKDIR) ve EXIT tuzagiyla siler, yani ana surec cikmadan dizin
+  # gider. Ana kabugun INT/HUP/TERM/PIPE tuzaklari sinyali, bash'in on plandaki `$(...)`
+  # bittikten SONRA kosturdugu bir `exit`e cevirir: silme bu alt kabuk bittikten sonra
+  # olur. Bu alt kabuk dizin YARATMAZ, SILMEZ; yalniz icine kendi dosyalarini (c.*, h)
+  # yazar ve is bitince onlari siler.
+  # Kapali basarisiz (exit 2): aday satir varken R7D_WORKDIR tanimsizsa, dizin degilse ya
+  # da BOS degilse. Bos olma sarti B2'nin ikinci yarisi: kendi yaratmadigi hicbir dosyayi
+  # silmez (eskiden basta `rm -f c.* h` vardi — yanlis bir dizinde baskasinin dosyasi).
+  mode=$1; in=""; n=""; rc=0; left=""
   IFS= read -r -d '' in || true
   n=$(r7d_awk count "" <<<"$in") || exit 2
   if [[ $n == 0 ]]; then
@@ -616,17 +649,22 @@ r7d_select() (
     exit
   fi
   r7d_hasher || exit 2
-  tmp=$(mktemp -d "${TMPDIR:-/tmp}/tappa-r7d.XXXXXX") || {
-    echo "secretscan: gecici dizin yaratilamadi — TARAMA GUVENILIR DEGIL" >&2
+  if [[ -z ${R7D_WORKDIR:-} || ! -d $R7D_WORKDIR ]]; then
+    echo "secretscan: R7D_WORKDIR yok — cagiran calisma dizinini secretscan.sh'i yukledikten sonra kendi kabugunda yaratip silmeli; TARAMA GUVENILIR DEGIL" >&2
     exit 2
-  }
+  fi
+  if ! left=$(ls -A -- "$R7D_WORKDIR") || [[ -n $left ]]; then
+    echo "secretscan: R7D_WORKDIR bos degil — baskasinin dosyasina dokunulmaz; TARAMA GUVENILIR DEGIL" >&2
+    exit 2
+  fi
   # shellcheck disable=SC2086 # R7D_HASHER bilerek bolunur
-  if r7d_awk pick "$tmp" <<<"$in" && $R7D_HASHER "$tmp"/c.* >"$tmp/h"; then
-    r7d_awk "$mode" "$tmp" "$n" <<<"$in" || rc=$?
+  if r7d_awk pick "$R7D_WORKDIR" <<<"$in" && $R7D_HASHER "$R7D_WORKDIR"/c.* >"$R7D_WORKDIR/h"; then
+    r7d_awk "$mode" "$R7D_WORKDIR" "$n" <<<"$in" || rc=$?
   else
     echo "secretscan: muafiyet hash'leri hesaplanamadi — TARAMA GUVENILIR DEGIL" >&2
     rc=2
   fi
+  rm -f "$R7D_WORKDIR"/c.* "$R7D_WORKDIR/h"
   exit "$rc"
 )
 
