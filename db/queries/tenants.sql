@@ -122,10 +122,12 @@ WHERE id = @tenant_id;
 -- name: UpdateTenantAccount :one
 -- Rewrites the three facts a business may change about itself (M7-05).
 --
--- 🔴 THREE COLUMNS OF THE FIVE tappa_app MAY UPDATE, AND THE TWO ABSENCES ARE THE
--- DECISION RATHER THAN AN OVERSIGHT. Migration 00016 grants
--- UPDATE (name, vat_number, business_type, structure, timezone); this statement names
--- name, business_type and timezone.
+-- 🔴 THE THREE COLUMNS tappa_app MAY UPDATE, AND THE TWO ABSENCES ARE THE DECISION
+-- RATHER THAN AN OVERSIGHT. Migration 00016 granted
+-- UPDATE (name, vat_number, business_type, structure, timezone) and this statement
+-- named only name, business_type and timezone; migration 00024 (M10 Faz 0 OP-3)
+-- then closed the grant to the same three, so the two absences below are the
+-- schema's as well as this statement's.
 --
 --   vat_number  ABSENT. It is globally UNIQUE (migration 00001), so a self-service
 --               edit is the one write on this screen with a CROSS-TENANT effect: a

@@ -1,0 +1,137 @@
+-- 00024 -- tenants: tappa_app's UPDATE narrowed to the three columns the product
+-- writes, and its table-wide DELETE revoked (M10 Faz 0 OP-3, architecture finding
+-- A-4; the DELETE half is the orchestrator's least-privilege widening of the card).
+--
+-- It adds NO table, so CLAUDE.md §6's five elements are 00001's and are NOT touched
+-- here: `tenants` is scoped by its own primary key (id), ENABLE + FORCE ROW LEVEL
+-- SECURITY, tenants_tenant_isolation over the NULLIF expression with USING **and**
+-- WITH CHECK, and the tappa_app GRANT -- which this migration NARROWS and does not
+-- remove: SELECT stays table-wide and the INSERT column list (00016 + 00017) is not
+-- touched, because the sign-up wizard's CreateTenant depends on every column of it.
+--
+-- ============================================================================
+-- THE ACL, BEFORE AND AFTER (pg_class.relacl / pg_attribute.attacl for tappa_app)
+-- ============================================================================
+-- Read on the development database on 2026-09-26; the orchestrator read production
+-- the same day and it was IDENTICAL to the "before" column (goose version 23).
+--
+--                     before (00001/00016/00017)   after this migration
+--   table (relacl)    tappa_app=rd                 tappa_app=r
+--   id                tappa_app=a                  tappa_app=a
+--   name              tappa_app=aw                 tappa_app=aw
+--   vat_number        tappa_app=aw                 tappa_app=a
+--   business_type     tappa_app=aw                 tappa_app=aw
+--   structure         tappa_app=aw                 tappa_app=a
+--   timezone          tappa_app=aw                 tappa_app=aw
+--   vat_verified      tappa_app=a                  tappa_app=a
+--   vat_checked_at    tappa_app=a                  tappa_app=a
+--
+-- (r = SELECT, a = INSERT, w = UPDATE, d = DELETE.) UPDATE was ALREADY column-level
+-- since 00016, so the practical effect of the UPDATE half is exactly two columns.
+--
+-- ============================================================================
+-- PART 1 -- UPDATE (vat_number, structure) GOES, BECAUSE NOTHING WRITES THEM
+-- ============================================================================
+-- The one UPDATE over `tenants` in db/queries is UpdateTenantAccount (M7-05), and it
+-- names name, business_type and timezone. Its own comment records why the other two
+-- are absent, and both reasons are reasons NOT to hold the privilege either:
+--
+--   vat_number  is globally UNIQUE (00001), so writing it is the one tenant write
+--               with a CROSS-TENANT effect: a business that takes a number no tenant
+--               holds yet refuses another business its registration (the wizard
+--               answers 23505). It would also strand vat_verified/vat_checked_at,
+--               which carry a VIES verdict about the OLD number and which tappa_app
+--               cannot UPDATE (00017 granted INSERT only).
+--   structure   decides nothing after sign-up (TestSignupStructure_DecidesNothingAfterSignUp
+--               bans its read outside the sign-up path).
+--
+-- So until this migration the schema permitted what the product had already decided
+-- against, and the only thing between an injection or a mis-written statement and a
+-- hijacked VAT number was that nobody had written the statement yet. Measured as
+-- tappa_app in its own tenant (SET LOCAL ROLE tappa_app from the owner session:
+-- current_user tappa_app, rolsuper and rolbypassrls both false), inside a
+-- rolled-back transaction, BEFORE this file:
+--
+--   UPDATE tenants SET vat_number = '<another value>' WHERE id = <own>  -> UPDATE 1
+--   UPDATE tenants SET structure  = 'multi'           WHERE id = <own>  -> UPDATE 1
+--
+-- and AFTER it both answer 42501 (permission denied), pinned by internal/db's
+-- TestTenants00024_TheAppMayUpdateThreeColumnsAndDeleteNothing.
+--
+-- 🔴 THE SHAPE IS "REVOKE THE PRIVILEGE, THEN GRANT THE CLOSED LIST", AND THE ORDER
+-- IS LOAD-BEARING. A table-level REVOKE also clears every column-level grant of the
+-- same privilege (00016 measured it; re-measured here). So:
+--
+--   REVOKE UPDATE (vat_number, structure) ON tenants FROM tappa_app;
+--   REVOKE UPDATE ON tenants FROM tappa_app;          -- a "belt", nothing after it
+--     -> name, business_type, timezone UPDATE = false as well (measured, rolled
+--        back): the account screen (M7-05) could no longer save anything.
+--
+-- The closed-list form below produces, on this database, the SAME ACL as a bare
+-- column-level `REVOKE UPDATE (vat_number, structure)` (both measured). It is chosen
+-- for two reasons. It states the WHOLE privilege in the file that last wrote it --
+-- the 00016 discipline. And it is the only one of the two that survives a database
+-- whose ACL has drifted WIDER than the migrations say: scripts/db-init/01-roles.sql
+-- records a pg_dump reload that handed tappa_app table-wide UPDATE on `tags`, and a
+-- table-wide privilege overrides every column list. Measured on a rolled-back copy
+-- of exactly that drift on `tenants` (GRANT UPDATE ON tenants first):
+--
+--   then REVOKE UPDATE (vat_number, structure) ... vat_number UPDATE = true
+--   then this migration's two statements ........ vat_number UPDATE = false,
+--                                                  name UPDATE = true
+--
+-- `id`, `plan`, `price_per_employee_month`, `created_at`, `vat_verified` and
+-- `vat_checked_at` stay off the UPDATE list for 00016's and 00017's reasons.
+--
+-- ============================================================================
+-- PART 2 -- TABLE-WIDE DELETE GOES, BECAUSE NOTHING DELETES A TENANT
+-- ============================================================================
+-- 00001 granted SELECT, INSERT, UPDATE, DELETE; 00016 and 00017 narrowed the middle
+-- two and never touched the fourth. Nothing uses it: `DELETE FROM tenants` appears
+-- in no query, no Go file and no script (grep over db/queries, internal, cmd, web,
+-- scripts, test and deploy -- 0 hits, 2026-09-26), and cmd/tappa/main.go's sign-up
+-- wiring already argues from "a `tenants` row nobody can sign into, cannot be
+-- deleted (§4.6)".
+--
+-- What the privilege COULD still do is narrower than it looks and not zero. RLS
+-- confines it to the context's own row, and all 16 foreign keys that reference
+-- `tenants` are ON DELETE RESTRICT (pg_constraint.confdeltype = 'r' for every one,
+-- measured), so a tenant with any venue, employee, plaque or audit row cannot be
+-- deleted. A tenant
+-- row with NO children can: measured BEFORE this file, as tappa_app inside a
+-- rolled-back transaction, INSERT of a fresh tenant followed by
+-- `DELETE FROM tenants WHERE id = <that id>` -> DELETE 1. AFTER it the same DELETE
+-- answers 42501. A record-keeping product (§4.6: a record never disappears) has no
+-- reason to let the HTTP-facing role destroy the root of its own hierarchy.
+--
+-- ⚠️ WHAT THIS DOES NOT CLOSE, said rather than left to be discovered: tappa_owner
+-- is a SUPERUSER and no REVOKE reaches it (M0-03). The operator's path to removing
+-- a tenant -- if one is ever needed -- stays the owner role, by hand, which is where
+-- it already was.
+--
+-- THE REVOKE IS REQUIRED, NOT DECORATIVE (the M1-04 lesson): DELETE was granted
+-- explicitly by 00001 (and by the running databases' default privileges, which
+-- scripts/db-init/01-roles.sql records as still `arwd` on production and dev), so
+-- only a REVOKE removes it.
+
+-- +goose Up
+
+REVOKE UPDATE ON tenants FROM tappa_app;
+GRANT UPDATE (name, business_type, timezone) ON tenants TO tappa_app;
+
+REVOKE DELETE ON tenants FROM tappa_app;
+
+-- +goose Down
+
+-- Restore the 00016 + 00017 ACL EXACTLY: the five-column UPDATE list and the
+-- table-wide DELETE. Same "revoke, then state the whole list" shape as the Up, so
+-- the Down leaves no residue whatever the column grants were. Verified after
+-- `make migrate-down` against the "before" column of the table in this file's
+-- header, byte for byte (task report, 2026-09-26):
+--   SELECT relacl FROM pg_class WHERE oid = 'tenants'::regclass;
+--   SELECT attname, attacl FROM pg_attribute
+--    WHERE attrelid = 'tenants'::regclass AND attnum > 0 AND attacl IS NOT NULL;
+REVOKE UPDATE ON tenants FROM tappa_app;
+GRANT UPDATE (name, vat_number, business_type, structure, timezone) ON tenants TO tappa_app;
+
+GRANT DELETE ON tenants TO tappa_app;

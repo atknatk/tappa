@@ -171,10 +171,10 @@ type AccountView struct {
 
 // AccountForm is the three editable fields.
 //
-// 🔴 THE STRUCT IS THE LIST OF WHAT MAY CHANGE. `tenants` has five columns tappa_app
-// may UPDATE and this type names three; a field here is a field the form can post, so
-// the two absences (vat_number, structure) are enforced by the shape rather than by
-// remembering not to draw them.
+// 🔴 THE STRUCT IS THE LIST OF WHAT MAY CHANGE. A field here is a field the form can
+// post, so the two absences (vat_number, structure) are enforced by the shape rather
+// than by remembering not to draw them. Since migration 00024 the schema agrees:
+// tappa_app may UPDATE exactly these three columns of `tenants` (it was five, 00016).
 type AccountForm struct {
 	Name         string
 	BusinessType string

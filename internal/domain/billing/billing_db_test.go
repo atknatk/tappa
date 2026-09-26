@@ -890,6 +890,11 @@ func TestBillingDB_TheFrozenRowCannotBeChangedByTheOWNEREither(t *testing.T) {
 //	columns tappa_app may INSERT  business_type, id, name, structure, timezone,
 //	                              vat_checked_at, vat_verified, vat_number
 //
+// (That reading is of the 2026-08-19 tree. Migration 00024, 2026-09-26, narrowed it
+// further -- table privileges SELECT only, UPDATE on business_type, name, timezone --
+// which leaves this acceptance standing: `plan` was on neither list before and is on
+// neither now.)
+//
 // So no request, no panel screen and no signup can move a plan; it takes the owner
 // role, which is an OPERATOR with the migration credentials. The residue is
 // therefore a BILLING PROCEDURE question ("close the free months before you change

@@ -475,9 +475,16 @@ func TestAccountDB_ReadsTheFourVATStates(t *testing.T) {
 //
 // THE SAME ASSERTION COVERS THE COMMERCIAL TERMS, which migration 00016 revoked for a
 // different reason and which this screen must never be able to reach either.
+//
+// ⚠️ WIDENED BY MIGRATION 00024 (M10 Faz 0 OP-3, 2026-09-26). Until then this screen
+// withheld vat_number and structure by SHAPE only (UpdateTenantAccount names three
+// columns) while the role could still write both. 00024 revoked the privilege, so the
+// two are on the closed list now, with `id` beside them (never updatable, 00016), and
+// the table-wide DELETE 00024 also revoked is asserted below.
 func TestAccountDB_TheAppRoleHoldsNoUpdateOnTheVATColumnsOrTheTerms(t *testing.T) {
 	f := newAccountFixture(t)
-	closed := []string{"vat_verified", "vat_checked_at", "plan", "price_per_employee_month", "created_at"}
+	closed := []string{"id", "vat_number", "structure", "vat_verified", "vat_checked_at",
+		"plan", "price_per_employee_month", "created_at"}
 	open := []string{"name", "business_type", "timezone"}
 
 	err := f.data.WithTenant(context.Background(), f.tenantID, func(ctx context.Context, tx pgx.Tx) error {
@@ -488,11 +495,23 @@ func TestAccountDB_TheAppRoleHoldsNoUpdateOnTheVATColumnsOrTheTerms(t *testing.T
 				return e
 			}
 			if may {
-				t.Errorf("the application role may UPDATE tenants.%s.\nvat_verified and "+
-					"vat_checked_at were withheld by migration 00017 on purpose (INSERT only), "+
-					"and plan/price/created_at by 00016. A screen that can write any of them is "+
-					"a different threat model from the one this section was built for.", col)
+				t.Errorf("the application role may UPDATE tenants.%s.\nvat_number and "+
+					"structure were revoked by migration 00024 (the account screen never writes "+
+					"them; vat_number is globally UNIQUE), vat_verified and vat_checked_at were "+
+					"withheld by 00017 on purpose (INSERT only), and id/plan/price/created_at by "+
+					"00016. A screen that can write any of them is a different threat model from "+
+					"the one this section was built for.", col)
 			}
+		}
+		var mayDelete bool
+		if e := tx.QueryRow(ctx,
+			`SELECT has_table_privilege(current_user, 'tenants', 'DELETE')`).Scan(&mayDelete); e != nil {
+			return e
+		}
+		if mayDelete {
+			t.Error("the application role may DELETE from tenants. Migration 00024 revoked it: " +
+				"nothing in the product deletes a business, and a record-keeping product (§4.6) " +
+				"has no reason to let the HTTP-facing role remove the root of its own hierarchy.")
 		}
 		for _, col := range open {
 			var may bool
