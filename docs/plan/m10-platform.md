@@ -29,10 +29,10 @@ Taptime'ın herkese açık gizlilik/künye metinlerini değiştirebilir ve tenan
 
 | ID | Görev | Kim | Kabul |
 |---|---|---|---|
-| F0-1 | Operatör panel parolasını değiştir (Account → Change password, T73). Yeni parola sohbete/repoya yazılmaz | **Kullanıcı** | eski parolayla giriş 401; diğer oturumlar iptal (K3) |
+| F0-1 | Operatör panel parolasını değiştir (Account → Change password, T73). Yeni parola sohbete/repoya yazılmaz | **Kullanıcı** — sahiplendi (2026-10-01): zamanı gelince kendisi yapar, plan takip etmez | eski parolayla giriş 401; diğer oturumlar iptal (K3) |
 | F0-2 | Scrub commit'ini push et | orkestratör (kullanıcı onayıyla) | `origin/main`'de değer 0 |
 | F0-3 | Depo görünürlüğü — ✅ **karar: PUBLIC kalır** (D-A). Geçmişteki değer yalnız F0-1 ile ölür | **Kullanıcı** | — (karar verildi) |
-| F0-4 | `tappa_app` + `tappa_owner` DB parolalarını rotate et (tappa-secrets + `ALTER ROLE`) | **Kullanıcı** (§4.7: ajan tappa-secrets'a dokunmaz) | `/readyz` 200; eski parolayla bağlantı reddi |
+| F0-4 | `tappa_app` + `tappa_owner` DB parolalarını rotate et (tappa-secrets + `ALTER ROLE`) | **Kullanıcı** (§4.7: ajan tappa-secrets'a dokunmaz) — sahiplendi (2026-10-01): zamanı gelince kendisi yapar, plan takip etmez | `/readyz` 200; eski parolayla bağlantı reddi |
 | F0-5 | Sır sızıntısı kapısı: `redline-check.sh`'e kural — commit'lenen her dosyada kimlik bilgisi biçimleri (`postgres://…:…@`, `AKIA…`, `$2a$..$` digest, uzun hex parola biçimleri, `password=`) → FAIL; + agent-brief sabit kurallarına "sır DEĞERİ hiçbir dosyaya yazılmaz" | builder + güvenlik | mutasyon: state.md'ye sahte `postgres://u:p@h/db` eklemek redline'ı kırmızıya çevirir |
 | F0-6 | **Mount kapısı:** `encoded_at IS NULL` olan plaketin mount/replace'i REDDEDİLİR (ADR 0017 §5.1 "anahtar 0 fabrikadayken duvara çıkamaz" güvenlik çizgisini KODDA uygular). Olay: 2026-09-24 yakılmış çip (`writedata` 91AE ile yarım kalmış satır) Rusty Bar'a mount edildi → 12 tap, 0 geçerli | builder + güvenlik | encode edilmemiş plaketin mount/replace POST'u 303 + ret cümlesi + audit, 0 UPDATE; encode edilmiş plaket etkilenmez; plaket kartı "encode tamamlanmadı — duvara takılamaz" der |
 | F0-7 | `isReEncodeRejection`'a gerçek silikon imzasını ekle: **`writedata` + `91AE`** (AUTHENTICATION_ERROR — ilk encode'un step 7'si NDEF yazma yetkisini kilitler; 2026-09-24 ölçüldü). Bugün jenerik `refused` gösteriyor | builder | handler tablo testi: writedata+91AE → `already-encoded`; writedata+917E → `refused` kalır |
