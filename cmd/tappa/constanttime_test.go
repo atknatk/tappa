@@ -98,6 +98,14 @@ var constantTimeInventory = map[string]int{
 	// think are safe" is not a category that survives an edit, which is the same
 	// argument the config entries make.
 	"internal/sun/changekey.go": 2,
+	// The platform operator's sign-in (M10 OP-6, ADR 0020 §3). Both are ATTACKER-FED:
+	//   totp.go      — the six typed digits against each candidate of the ±1-step
+	//                  window. One call site, walked for all three steps with no early
+	//                  exit (operatorauth's TestVerifyCode_TheWindowIsWalkedWholeInConstantTime
+	//                  reads that loop's shape; this map holds the count).
+	//   challenge.go — the login challenge's MAC, a cookie value the client presents.
+	"internal/operatorauth/totp.go":      1,
+	"internal/operatorauth/challenge.go": 1,
 }
 
 // TestConstantTimeComparisonsAreWhereTheyWere generalises internal/sun's

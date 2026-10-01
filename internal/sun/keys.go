@@ -211,6 +211,99 @@ func UnwrapAny(keks [][]byte, uid, ref []byte) ([]byte, error) {
 	return nil, firstErr
 }
 
+// sealOverhead is what Seal adds to its plaintext: the nonce in front and the GCM
+// tag behind — 12 + 16 = 28. It is the same layout Wrap emits; Wrap is Seal with its
+// two lengths fixed by the tag schema (7-byte uid, 16-byte key).
+const sealOverhead = gcmNonceLen + gcmTagLen
+
+// SealOverhead is exported for the callers that must agree with an envelope's size
+// without restating a number: platform_admins.totp_secret_sealed is bounded below by
+// 00026 at 44 bytes (nonce 12 + a 128-bit secret + tag 16), and the operator's
+// 160-bit TOTP secret (ADR 0020 §1) seals to SealOverhead + 20 = 48. Same reasoning
+// as KEKLen/WrappedKeyLen above: a reference, not a licence to build an envelope
+// anywhere else.
+const SealOverhead = sealOverhead
+
+// Seal is the GENERAL form of Wrap: AES-256-GCM under kek, a fresh crypto/rand nonce
+// on every call, the caller's aad authenticated but not stored. It returns
+//
+//	nonce(12) || ciphertext(len(plaintext)) || gcm_tag(16)
+//
+// — exactly gcm.Seal(nonce, nonce, plaintext, aad), no framing, no version byte.
+//
+// WHY IT EXISTS (ADR 0020 §1, orchestrator decision 2026-09-26). The operator's TOTP
+// secret must be sealed under TAPPA_OPERATOR_TOTP_KEK with AAD = the 16 bytes of
+// platform_admins.id, and Wrap cannot carry it: Wrap refuses every uid that is not 7
+// bytes and every plaintext that is not 16 (measured by the OP-4 third eye, and the
+// length checks above say the same). Widening Wrap would have loosened the tag
+// schema's own guard, so the operator gets its own entry point and Wrap is
+// untouched. AES stays in this package (CLAUDE.md §3).
+//
+// THE AAD IS REQUIRED AND IS NOT NORMALISED. It is the caller's byte string, taken
+// as given — the operator passes the id's 16 bytes, uncut (ADR 0020 §1 md.2). An
+// EMPTY aad is refused rather than accepted: an envelope bound to nothing is
+// portable to any row, which is the one property the AAD exists to remove (ADR 0003
+// md.4 is the precedent). An empty plaintext is refused too; nothing in this
+// repository seals nothing, and an envelope of zero bytes would satisfy a length
+// floor while protecting no value.
+//
+// Errors report lengths and fixed strings only (§4.7). The plaintext belongs to the
+// caller: Seal neither keeps nor wipes it — the Wrap contract.
+//
+// ⚠️ THE KEK LEAVES TWO UNWIPEABLE COPIES PER CALL, as every aead() call does
+// (TestCMAC_TheUnwipeableCipherBlocksAreCounted's inventory: keys.go's aead builds
+// an aes.Block and hands it to cipher.NewGCM). Seal and Open reuse aead rather than
+// building their own cipher, so that count is unchanged — the exposure grows per
+// CALL, not per call SITE.
+func Seal(kek, aad, plaintext []byte) ([]byte, error) {
+	if len(aad) == 0 {
+		return nil, fmt.Errorf("sun: seal: aad must not be empty")
+	}
+	if len(plaintext) == 0 {
+		return nil, fmt.Errorf("sun: seal: plaintext must not be empty")
+	}
+	g, err := aead(kek)
+	if err != nil {
+		return nil, err
+	}
+	nonce := make([]byte, gcmNonceLen)
+	if _, err := rand.Read(nonce); err != nil {
+		return nil, fmt.Errorf("sun: seal: read nonce: %w", err)
+	}
+	return g.Seal(nonce, nonce, plaintext, aad), nil
+}
+
+// Open is Seal's inverse: it authenticates envelope against aad under kek and
+// returns the plaintext.
+//
+// The shape is checked FIRST — an empty aad, or an envelope too short to hold a
+// nonce, a tag and at least one byte — WITHOUT building the cipher (Unwrap's
+// ordering, ADR 0003 md.4). A wrong KEK, a different aad (an envelope moved to
+// another row) and any tampering all fail as the same GCM authentication error,
+// which is wrapped and names nothing: the caller learns "did not authenticate",
+// never which of the three it was.
+//
+// The returned plaintext is the only copy Open makes; wiping it is the CALLER's
+// duty (Zero), exactly as for Unwrap. On failure crypto/cipher leaves no plaintext
+// behind.
+func Open(kek, aad, envelope []byte) ([]byte, error) {
+	if len(aad) == 0 {
+		return nil, fmt.Errorf("sun: open: aad must not be empty")
+	}
+	if len(envelope) <= sealOverhead {
+		return nil, fmt.Errorf("sun: open: envelope must be longer than %d bytes, got %d", sealOverhead, len(envelope))
+	}
+	g, err := aead(kek)
+	if err != nil {
+		return nil, err
+	}
+	plaintext, err := g.Open(nil, envelope[:gcmNonceLen], envelope[gcmNonceLen:], aad)
+	if err != nil {
+		return nil, fmt.Errorf("sun: open: %w", err)
+	}
+	return plaintext, nil
+}
+
 // Zero wipes a plaintext key buffer once the caller is done with it (§4.7). The
 // unwrapped key must live only for a single verification; the caller MUST Zero
 // it afterwards so it does not linger in memory (a dump must not yield the park).

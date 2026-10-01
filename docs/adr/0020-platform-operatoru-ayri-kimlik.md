@@ -181,6 +181,77 @@ bir restoran hesabına bağlı olmamalı* (m10-platform.md §1).
   tutucu** basar — `token.go:59-62`'nin gerekçesiyle: bir yer tutucuyu grep'leyen bir
   sızıntı testi, **ötekinin** sızan değerini görmeden geçer; iki ayrı dize iki sızıntı-test
   takımının **birbirine kefil olmasını** engeller.
+  **OP-6 notu (2026-09-30, doğrulama 6. tur), ölçümle:** anahtarları TUTAN iki dışa açık tip
+  de kendini redakte eder — `*Authenticator` (`operatorauth.Authenticator(redacted)`) ve
+  `Config` (`operatorauth.Config(redacted)`), token tiplerinin beş yöntemiyle. Önce: `New`'un
+  döndürdüğü `*Authenticator`'ın `%v`/`%+v`'si ve bir `Config`'in `%+v`'si TOTP KEK'ini ve
+  token HMAC anahtarını ondalık bayt listesi olarak basıyordu, slog'un text handler'ı da;
+  JSON basmıyordu, ama yalnız `Config`'in func alanı `Marshal`'ı düşürdüğü için (5. denetçi).
+  ~~`Authenticator`'ın anahtarları ayrıca bir işaretçinin arkasındadır: … adres görünür, bayt
+  değil. **Açık kalan tek yol, adıyla:** … `Config` DEĞERİ …~~ — **7. turda yanlışlandı** (6.
+  denetçi, ölçümle): (1) fmt'nin `badVerb`'ü, işaretçinin kabul etmediği bir fiilde
+  (`%s %q %e %f %t %c %U`) işaretçiyi derinlik 0'da BİR KEZ açar; bir dizi, dilim, struct ya
+  da map'i gösteren işaretçiyi açar — `*authKeys` dört anahtarı, `Secret`'in ve
+  `db.SealedSecret`'in `*[]byte`'ı düz TOTP sırrını ve zarfı bastı; (2) `Config`'in açık yolu
+  "tek" değildi: `%p` ve `%w` (`Sprintf` ve `Errorf`) fmt'nin `erroring` bayrağıyla
+  yöntemleri devre dışı bırakır ve yansımayla basar, dışa kapalı alan yolu da her fiilde
+  sızıyordu.
+  **OP-6 notu (2026-09-30, doğrulama 7. tur) — kural ve ölçülen matris:** bir sır ya da
+  anahtar baytı dışa açık ya da redakte eden bir tipte YALNIZ tek alanlı bir struct'ın
+  içinde, `*string`'in arkasında durur (repodaki öteki redakte eden tiplerin emsali;
+  `*string` `badVerb`'ün açmadığı bir işaretçidir). `Secret`, `db.SealedSecret` `*string`'e
+  döndü; `Config`'in iki anahtarı ve `Authenticator`'ın dört anahtar alanı yeni, kendini
+  redakte eden `operatorauth.Key` (`struct{ v *string }`, `NewKey([]byte)`, dışa açık
+  erişimci YOK). *8. tur, orkestratörün kararı (çelişki giderildi):* `internal/db`
+  `internal/config`'i import ettiği için `config.Config` bir `Key` tutamaz; operatör anahtarları
+  orada öteki anahtarlar gibi ham `[]byte` durur ve anahtar ayrılığı reddi orada, ham
+  değerlerde koşar (`keySeparation` emsali; `config.Config`'in kendi redaksiyonu repo genelinde
+  ayrı bir iş); `Key`'e dönüşüm `cmd/tappa`'nın wiring'inde `NewKey` ile yapılır;
+  "redaksiyonsuz yapıya kopyalanmaz" kuralı `operatorauth` tarafı içindir. Hash/HMAC/`Seal`/
+  bcrypt'in istediği `[]byte` yalnız kullanım anında, bir kopya olarak üretilir (TOTP sırrının
+  kopyası kullanımdan sonra silinir; anahtarınki silinmez — anahtar süreç boyunca bellektedir). **Ölçülen matris** (`TestLeak_NoSecretOnAnyPrintingPath`,
+  sızıntı testinin `render`'ı): kapalı tip kümesinin her specimen'i (13 tip, `Key` dahil) ×
+  fmt'nin 22 fiili (`%p` ve `%w` dahil) × 6 biçim (değerin kendisi, dışa açık ve dışa kapalı
+  `any` alanı, dışa kapalı alanda işaret edilen değer, dilim elemanı, map değeri) × `Sprintf`
+  ve `Errorf` + slog text/JSON + `json.Marshal` — **0 sızıntı**; yöntemlere ulaşılan her
+  yolda yer tutucu basılır. **Sayılı sınırlar — tek liste:** [m10-platform.md](../plan/m10-platform.md)
+  → OP-6 kart düzeltmesi, md. 18, *Tek liste (11. tur)* — ürün, kapalı küme, alan kuralı,
+  specimen araması ve sızıntı testi sınırları orada numaralı; burada ne tekrarlanır ne
+  aralığı yazılır, çünkü 10. turda kopyalar ayrıştı ve 12. turda buradaki aralık bayatladı. *(8. tur; 9. turda ölçüme göre yeniden yazıldı — bir KURAL olarak burada kalır:)*
+  `store`'un DÜZ bir alanı — OP-7'nin tipi — `Authenticator`'ın değer ya da
+  işaretçi olarak tutulmasından bağımsız olarak basılabilir (8. denetçinin 28 fiillik
+  ölçümü: düz alanlı değer store'u her fiilde, düz alanlı işaretçi store'u ve dışa kapalı
+  alandaki `*Authenticator` 14 fiilde; `*string` alanlı store hiçbirinde); kural OP-7
+  devrinde: düz alan yok. ~~… ve bütçe haritalarının anahtarlarını (istemci adresleri,
+  operatör id'leri) bir kez açıp basar …~~ → **8b, kapandı:** `Authenticator.limits` artık
+  `*limits` (pinli: sızıntı matrisinin `Authenticator` specimen'inin bütçe haritası dolu,
+  `limits limits` geri dönüşü kırmızı; 8. denetçi 0 isabet ölçtü). Kapalı küme — 9. turdan
+  beri KESİN tiplerle (derleyicinin export verisi); 10. turdan beri yürüyüş go/types'ın tip
+  grafiğini tükenmiş bir anahtarla tam dolaşır (tanınmayan tür = kırmızı; her paketin tipi,
+  her struct alanı); 11. turdan beri KAYIT modülün her paketinin adlı tipleridir (`sun.EV2Auth`
+  dersi), alan yürüyüşü her paketin yapısına girer, alan girdileri tipiyle pinlidir ve
+  specimen'in aradığı sırlar tuttuğu redakte değerlere karşı denetlenir
+  (`TestSpecimens_SearchEveryRedactedValueTheyHold`); 12. turdan beri kural (1) istisnasızdır
+  (her alan — fonksiyon ve `okFieldTypes` tipliler dahil — adıyla ve tipiyle), kural (2)
+  fmt'nin ve `encoding/json`'un ölçülen işaretçi davranışını okur
+  (`TestExportedTypes_ExemptFormsPrintNoKeyBytes`) ve gerekçe metinleri gözden geçirenin
+  iddiasıdır (tek liste S11); ~~kalan sınır yalnız çalışma zamanında
+  doldurulan `any` ve reflection~~ *(11. tur: sınırlar yukarıdaki tek listede)* — ve pinler:
+  `TestExportedTypes_EveryOneIsASpecimenOrANamedException`,
+  `TestExportedTypes_CarryNoPlainStringField` (alan ve tür kuralları).
+  **OP-6 notu (2026-10-01, 12c — güvenlik denetimi kapanışı):** (i) bekleyen enrollment
+  blob'u artık KEK'in KENDİSİYLE değil, ondan türetilmiş bir alt anahtarla mühürlenir —
+  `HMAC-SHA256(KEK, "taptime/operator/enrollment-pending/v1/key-derivation")`, challenge
+  anahtarının türetme emsali: `BeginEnrollment` kimliksiz erişilebilir ve saklanan zarfların
+  anahtarı için bir şifreleme kehaneti olmamalı; saklanan zarf (§1) ham KEK'le kalır. (ii)
+  §3'ün bütçelerine adres başına bir enrollment payı eklendi: `enrollAddr` 3/10 dk, süreç
+  geneli `enroll`'dan (10/10 dk) önce. *(12d düzeltmesi, ölçüldü:)* pay anahtarın KENDİ
+  penceresi başınadır ve pencereler hizalı değildir — pencere sınırında tek adres bir süreç
+  penceresine 5'e kadar koyar, tek bir süreç penceresi iki anahtar ve önceki bir istekle
+  tükenir; süreç bütçesini SÜREKLİ tüketmek en az dört hız anahtarı ister (dağıtık saldırgan
+  sınırı ve çaresi OP-8'in). Sayılar OP-8'in
+  aritmetiğiyle değişebilir. Ayrıntı: m10-platform.md, OP-6 md. 8 ve 12. tur bloğunun 12c
+  satırı.
 - **Çerez `__Host-taptime_op`:** `Secure`, `HttpOnly`, `SameSite=Strict`, `Domain` yok.
   `__Host-` öneki tarayıcıya `Secure` + `Path=/` + Domain'sizliği **zorlatır** — çerez
   yalnız operatör host'una gider. Panel çerezi (`tappa_admin_session`, `Path=/admin`) ve
@@ -232,6 +303,20 @@ bir restoran hesabına bağlı olmamalı* (m10-platform.md §1).
   veritabanına değil yalnız süreç log'una yazıyor (`internal/handler/adminlogin.go:1232`)
   ve aynı dosya *"an unbounded row here would be a write primitive into an append-only
   table"* diyor (`adminlogin.go:1300-1301`).
+  **OP-6 düzeltmesi (2026-09-26), ölçümle:** *"oturum öncesi satırlar … süreç genelinde bir
+  tavanla"* cümlesi **parolasız** türler (`unknown_email`, `login_failed`,
+  `enrollment_failed`) için harfiyen uygulandı (30 satır / 10 dk, tek anahtar). `totp_failed`
+  ve `locked` o ortak tavanın **dışındadır**: kilit sayacı yalnız `totp_failed` satırıyla
+  ilerler, yani parolasız çöp ortak tavanı doldurup `totp_failed`'ı susturabilseydi kilidi
+  **kapatırdı** — ölçüldü (2026-09-30'da yeniden üretildi): o yönlendirmeyle, tavan
+  tükenmişken 5 yanlış kod **0** satır ve sayaç **0** bıraktı (doğrusu 5 ve 5). Bu iki tür
+  yalnız doğru parolayla basılmış bir giriş challenge'ını tutanın harcayabildiği, kod
+  denetlenmeden ÖNCE harcanan hesap bütçesiyle (10 / 10 dk / operatör) × aktif operatör
+  sayısıyla sınırlıdır — IP'den bağımsız, ama tek bir sayı değil. Kural TOTP adımının iki
+  kolu için de geçerlidir: veritabanının reddettiği tekrar edilen kodun `totp_failed`'ı ve
+  kilitliyken doğru kodun `locked`'ı da tavanın dışındadır (aynı test, 2026-09-30).
+  Ayrıntı ve sayılar: [m10-platform.md](../plan/m10-platform.md) → OP-6 kart düzeltmesi,
+  md. 8–9.
 - **Kurtarma kodu YOK** (K3). Cihaz kaybında tek yol `opadmin reset-mfa` (§6): TOTP
   zarfı silinir, kilit sayacı sıfırlanır, durum `pending`, bütün oturumlar iptal, yeni
   enrollment token'ı ve id'li link.
@@ -542,8 +627,20 @@ m10-platform.md §3'ün ölçütleriyle:
   yalnız başarıda sıfırlanır — eşikten sonra pencere geçince tek hata yeniden kilitler,
   kilitliyken hata pencereyi uzatır; yalnız `active` hesabın sayacı ilerler. Gerekçe ve
   sayılar ADR 0021 "OP-5 uygulama notu"nda.
+  → **OP-6 (2026-09-26): N = 5 ve 15 dk KORUNDU** (migration yok). Aritmetik: ±1 pencere
+  tahmin başına 3/10⁶; kilit şekli ilk kilitten sonra pencere başına en çok bir tahmin →
+  parolayı zaten bilen ve bir yıl boyunca her pencerede deneyen biri için ~35 000 tahmin ≈
+  %10/yıl, her tahmin bir `totp_failed` satırıyla. Daha sıkı bir şekil (artan pencere)
+  migration ister — açık, orkestratörün kararı.
 - Ara çerezin ömrü ve üç limiter'ın sayıları — OP-6/OP-8 (panel limiter'larının
-  aritmetik savunması emsal).
+  aritmetik savunması emsal). → **OP-6'da karara bağlandı (2026-09-26):** ara çerez
+  (`__Host-taptime_op_login`) 5 dk + 1 dk geri saat toleransı, anahtarı
+  `TAPPA_OPERATOR_TOKEN_HMAC_KEY`'den etiketle türetilir (müşteri anahtarından değil — §2'nin
+  yasağının ruhu korunur); bütçeler flood 300 · iş 20 · hesap 10 (TOTP'de kapı) · süreç
+  geneli parolasız audit tavanı 30 · süreç geneli enrollment 10 · *(2026-10-01, 12c)* adres
+  başına enrollment payı 3 (süreç geneli enrollment'tan önce), hepsi 10 dk.
+  Gerekçeler ve ölçümler: [m10-platform.md](../plan/m10-platform.md) → OP-6 kart
+  düzeltmesi, `internal/operatorauth/limits.go`.
 - `operator_audit_log`'un sütun şekli ve `platform_*` tablolarında gönüllü RLS olup
   olmayacağı (ADR 0016 §1 emsali) — OP-5. → **OP-5'te karara bağlandı (2026-09-26):**
   sütunlar `kind` (kapalı küme), `session_id`, `actor_admin_id`, `target_admin_id`,

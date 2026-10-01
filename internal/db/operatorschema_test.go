@@ -61,6 +61,10 @@ var opSessionless = map[string]bool{
 	"op_record_auth_event": true, "op_open_session": true, "op_complete_enrollment": true,
 }
 
+// operatorTablesTestLock names the cross-package advisory lock opTx takes (see there).
+// internal/operatorauth's harness spells the same text.
+const operatorTablesTestLock = "tappa/test/operator-tables"
+
 // opTables are the four tables 00026 creates.
 var opTables = []string{"platform_admins", "platform_sessions", "operator_audit_log", "operator_read_tickets"}
 
@@ -106,6 +110,22 @@ func opTx(t *testing.T) (context.Context, pgx.Tx) {
 			t.Logf("close owner connection: %v", err)
 		}
 	})
+	// 🔴 OPERATOR-TABLES TEST LOCK, EXCLUSIVE (added 2026-09-26 with M10 OP-6). Several
+	// tests here take ACCESS EXCLUSIVE on the operator tables inside their transaction
+	// (00026's Down/Up, a TRUNCATE, a dropped CHECK). Until OP-6 no other package touched
+	// these tables; internal/operatorauth's database tests now do, from a test binary
+	// that `go test ./...` runs IN PARALLEL with this one -- and the first full run with
+	// both measured the collision: TestOperator00026_AppHoldsNothingUnderTheProductionDefaultACL
+	// died on 40P01 (deadlock) and TestOperator00026_AuditLogRefusesTheOwnerToo on 55P03
+	// (the 10 s lock_timeout). This session-level advisory lock (released when the
+	// connection closes) is taken EXCLUSIVE here and SHARED by every operatorauth
+	// database test (its harness names the same key, and a test there reads this file to
+	// keep the two spellings equal), so the two packages' operator-table tests take
+	// turns instead of racing. It is taken before any table lock, on both sides, so it
+	// cannot join a cycle.
+	if _, err := conn.Exec(ctx, `SELECT pg_advisory_lock(hashtext($1))`, operatorTablesTestLock); err != nil {
+		t.Fatalf("operator-tables test lock: %v", err)
+	}
 	tx, err := conn.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead})
 	if err != nil {
 		t.Fatalf("BEGIN: %v", err)

@@ -759,9 +759,12 @@ func TestResolverAccess_NoSqlcQueryNamesADefiner(t *testing.T) {
 			}
 		}
 	}
-	if files != 17 {
-		t.Fatalf("read %d .sql file(s) under db/queries; SEVENTEEN were there when this was "+
-			"pinned (2026-08-24)", files)
+	// 17 -> 18 on 2026-09-26 (M10 OP-6): db/queries/operator.sql, a `-- name:`-less
+	// DOCUMENT like resolve.sql -- every statement in it is a comment, so it adds no named
+	// query (the count below is unchanged) and no statement line this scan reads.
+	if files != 18 {
+		t.Fatalf("read %d .sql file(s) under db/queries; EIGHTEEN were there when this was "+
+			"pinned (2026-09-26; seventeen on 2026-08-24, plus operator.sql)", files)
 	}
 	// A file count alone does not prove the STATEMENT lines were reached; this does.
 	// EXACT, by this file's own standard 130 lines down ("a floor with slack cannot

@@ -226,6 +226,20 @@ oturumsuz bir definer:
   dönüşmez ve sayaç başarıda sıfırlanabilir. (3. tur eki: sayacın kendisini hangi yolun
   taşıdığı ve bunun DSN sahibine karşı neden korunamadığı hemen aşağıda.) Tavan Go
   tarafındadır; DSN sahibi onu atlar (sınır 7).
+  **OP-6 düzeltmesi (2026-09-26), ölçümle — (a) ile (c) birbirini bozabiliyordu:** (a)
+  bütün beş türe TEK bir ortak tavan olarak okunursa parolasız çöp tavanı doldurur,
+  `totp_failed` susar ve (c)'nin sayacı durur: kilit kapanır. Ölçüldü (Go'da, o
+  yönlendirmeyle): tavan tükenmişken 5 yanlış kod → **0** satır, sayaç **0**. Bu yüzden
+  ortak süreç tavanı (30 / 10 dk) yalnız **parolasız** türleri (`unknown_email`,
+  `login_failed`, `enrollment_failed`) kapsar; `totp_failed` ve `locked` yalnız doğru
+  parolayla basılmış bir giriş challenge'ını tutanın harcayabildiği, kod denetlenmeden ÖNCE
+  harcanan hesap bütçesiyle (10 / 10 dk / operatör) × aktif operatör sayısıyla sınırlıdır.
+  İkisi de IP'den bağımsızdır. Bu, TOTP adımının **iki** kolunu da kapsar: Go'nun reddettiği
+  yanlış kod (`totp_failed`) ve Go'nun kabul edip veritabanının reddettiği kod — tekrar
+  edilen kod (`totp_failed`, sayacı ilerletir) ve kilitliyken doğru kod (`locked`); 2026-09-30
+  doğrulamasında ikinci kolun tavandan geçirilmesi pinsiz bulundu (mutasyon yeşil kaldı) ve
+  aynı teste bağlandı. [m10-platform.md](../plan/m10-platform.md) → OP-6 kart düzeltmesi,
+  md. 8–9.
 - **Kilit sayacının yolu (3. tur eki):** `tappa_operator` sayaca yazamadığı için sayacı
   bir definer taşır, ve üç adlı kümeye dördüncü bir oturumsuz ad eklememek için o definer
   **bu fonksiyondur**: `totp_failed` türü, satırı yazdığı **aynı ifadede** hesabın
@@ -885,13 +899,21 @@ hangi testin hangi karta düştüğü plan bloğunda):
   bağlandı). `tappa_operator`'ın parola digest'i ve TOTP zarfı üzerindeki `SELECT`'ini
   kaldırır (sınır 11). Benimsenirse güncellenen kurallar §1 sonunda sayılıdır
   (`tappa_opdefiner`'ın *"digest/zarf okumaz"* kuralı ve ayrı rol, `prosecdef` sahip
-  kümesi, dördüncü oturumsuz ad) — OP-5/OP-6.
+  kümesi, dördüncü oturumsuz ad) — OP-5/OP-6. → **OP-6 (2026-09-26): BENİMSENMEDİ** —
+  yeni bir definer ve rol bir migration ister, OP-6'da migration yoktur; sınır 11 aynen
+  geçerli, madde açık.
 - Enrollment'ta sırrın **gösterildiği** adım ile ilk kodun **doğrulandığı** adım arasında
   düz TOTP sırrının nerede tutulduğu (süreç belleği mi, şifreli ve imzalı kısa ömürlü bir
   ara çerez mi; DB'ye ve log'a asla) — OP-6/OP-8. ⚠️ **"Süreç belleği" seçeneğinin
   riski:** kimliksiz bir `GET /operator/enroll` ile anahtarlanan bir bellek kaydı,
   sınırsız sayıda istekle doldurulabilen bir **bellek ayırma ilkeline** dönüşür; bu
-  seçenek seçilirse kayıt sayısı ve ömrü tavanlı olmak zorundadır.
+  seçenek seçilirse kayıt sayısı ve ömrü tavanlı olmak zorundadır. → **OP-6'da karara
+  bağlandı (2026-09-26): SUNUCUDA HİÇBİR YERDE.** Sır, sayfanın gizli form alanında taşınan
+  bir **bekleyen blob**a `sun.Seal` ile mühürlenir (AAD = etiket ‖ hesap id ‖ son geçerlilik,
+  30 dk); bellek seçilmediği için kayıt sayısı ve ömrü sorusu doğmaz. Blob'un AAD'si saklanan
+  zarfınkinden (yalnız id) farklıdır, yani biri ötekinin yerine iki yönde de geçemez; sır
+  DB'ye ancak ilk kod doğrulandıktan sonra saklanan AAD ile yeniden mühürlenerek gider
+  (`internal/operatorauth/enrollment.go`).
 - **Reddedilen `op_*` çağrısının** Go tarafından ayrı bir transaction'da
   `operator_audit_log`'a yazılıp yazılmayacağı — **OP-5** (reddedilebilen ilk çağrı
   OP-8'in oturum kapısıdır, `op_touch_session` ise OP-5'te doğar). Yazılırsa bir tür
@@ -909,7 +931,13 @@ hangi testin hangi karta düştüğü plan bloğunda):
   25 bilinmeyen-adres çağrısı 20 yazdı / 5 kırpıldı; ardından kurbana 5 yanlış TOTP **0
   yazdı**, sayaç **0** kaldı — parola gerektirmeyen bir sel TOTP kilidini kapatıyor.
   `totp_failed`'ı muaf tutmak ise DSN sahibinin `totp_failed` yazımını sınırsız bırakır;
-  tavan varlık sebebini kaybeder. Sınır 7 olarak sayılı kalır.
+  tavan varlık sebebini kaybeder. Sınır 7 olarak sayılı kalır. → **Go tarafı sayısı OP-6'da
+  (2026-09-26): 30 satır / 10 dk, tek anahtar, yalnız parolasız türler** (`totp_failed` ve
+  `locked` neden dışarıda: §1 (a)'nın altındaki OP-6 düzeltmesi). Satır bedeli (2026-09-30'da
+  iki bağımsız ölçüm; ilk okuma olan 139,3 bayt yeniden üretilemedi): tablonun üç indeksli
+  geçici kopyasında hedefsiz satır 158,6–170,4, hedefli satır 174,7–188,4 bayt — bir gözlem
+  aralığı, koşudan koşuya değişir → en kötü sürekli durum ≈ 250–297 MB/yıl. Tavan aşılınca istek
+  yine hizmet görür, yalnız satır yazılmaz — bir iz susturma ilkeli, pencere başına tek WARN.
 - **Commit'ten bağımsız ikinci iz** (savunma derinliği): örn.
   `ALTER ROLE tappa_operator SET log_statement = 'all'` **ve**
   `log_parameter_max_length = 0` — ikincisi şarttır, yoksa oturum hash'i ve bilet

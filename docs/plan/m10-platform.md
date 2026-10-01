@@ -321,7 +321,7 @@ yasal belge içindi, M9-08'in kapsamı §4.5'i aşan beş işlev.
 |---|---|---|---|---|---|
 | OP-4 | ADR 0020 (operatör kimliği; ADR 0016 §5 + M7-06 "yeni giriş yok" + B kararının yerine geçer) + ADR 0021 (`op_*` arayüzü, elenenler) | S–M | orkestratör (+güvenlik okuması) | ADR'ler kabul; ADR 0016 durumu "kısmen yerine geçildi" | D-B |
 | OP-5 | Migration: `platform_admins`, `platform_sessions`, `operator_audit_log` + `01-roles.sql` + runbook | M | tappa-db-migrator | tappa_app dört fiilde yetkisiz (prod default-priv simülasyonu dahil); tappa_operator `platform_admins` INSERT yok; `operator_audit_log` UPDATE/DELETE tappa_owner için bile hata; `RoleFacts.Privileged()=false`; active⇒parola+TOTP; R5 WARN'lar; Down temiz | OP-4 |
-| OP-6 | `internal/operatorauth` (parola, TOTP, oturum, çerez, token, limiter/kilit) | L | builder + güvenlik | RFC 6238 Ek B vektörleri; aynı kod N goroutine → tam 1 başarı (-race); yanlış KEK açamaz; sızıntı testleri harici pakette; 8 s / 30 dk / MFA'sız / revoked / disabled hepsi red (saat enjekte DB testleri) | OP-5 |
+| OP-6 | `internal/operatorauth` (parola, TOTP, oturum, çerez, token, limiter/kilit) | L | builder + güvenlik | RFC 6238 Ek B vektörleri; aynı kod N goroutine → tam 1 başarı (-race); yanlış KEK açamaz; sızıntı testleri harici pakette; 8 sa / 30 dk / MFA'sız / revoked / disabled hepsi red (saat enjekte DB testleri) | OP-5 |
 | OP-7 | `OperatorDB` + config (`TAPPA_OPERATOR_DATABASE_URL`, `TAPPA_OPERATOR_TOTP_KEK`, `TAPPA_OPERATOR_HOST`) | M | builder | DSN yoksa /operator 503, panel etkilenmez; prod'da ayrıcalıklı rolle boot reddi; reflection: `WithTenant` yok; OperatorDB yalnız operatör handler'larına; TOTP KEK diğer anahtarlarla aynıysa başlangıç reddi | OP-5 |
 | OP-8 | `/operator` handler'ları + UI (tappa-brand: restoran paneliyle karıştırılamayan "TAPTIME OPERATOR" kabuğu; tenant-ötesi her ekran girdiği tenant'ı başlıkta ADIYLA gösterir) | L | builder + tappa-brand + güvenlik | çapraz çerez: admin/çalışan çerezi operatör çerez adına konunca 303 (ve tersi); yanlış host 404; cross-origin POST'ta resolver çağrısı 0; bilinmeyen e-posta = yanlış parola (gövde + bcrypt sayısı); TOTP tekrarı red; N hatada kilit + audit; her giriş `operator_audit_log`'da; CSP/no-store/nosniff | OP-6, OP-7 |
 | OP-9 | `cmd/opadmin` + README + (K2/K4) ops Ingress/DNS | M | builder (+kullanıcı ops) | sürücü yok, owner DSN adı kaynakta yok; çıktı tek transaction; ham token stdout'ta yok; süresi geçen token red | OP-5 |
@@ -637,15 +637,146 @@ yasal belge içindi, M9-08'in kapsamı §4.5'i aşan beş işlev.
 >   **reddeder**; (b) operatör sorguları yalnız **bağlı parametreyle** yazılır, SQL metnine
 >   değer gömülmez; (c) Go tarafı `PgError.Detail`'i asla log'lamaz; (d)
 >   `db/queries/operator.sql` + `internal/db/operator.go` (ADR 0021 §2 vi).
+>   → **OP-6'da kapananlar (2026-09-26, doğrulama 2026-09-30; gerekçe OP-6 kart düzeltmesi
+>   md. 1):** (b), (c), (d) OP-6'ya çekildi — ifadeler `internal/db/operator.go`'da `OperatorConn`
+>   alan serbest fonksiyonlar, belgesi `db/queries/operator.sql`; (b)'yi
+>   `TestOperatorSQL_OnlyBoundParameters`, (c)'yi `TestOperatorErr_NeverCarriesAPgError` pinler.
+>   **OP-7'ye kalan:** `db.OperatorDB` tipi (havuz, rol ölçümü ve `roleRefusal`, `WithTenant`
+>   yokluğu; `OperatorConn`'u karşılar ve `operatorauth.Store`'u bu fonksiyonlara devrederek
+>   uygular) · (a) başlangıç parametresi pini (`log_parameter_max_length_on_error = 0`) ve
+>   açılışta 0 değilse ret · config ve dört değişken · anahtarların diğer her anahtardan farklı
+>   olmaması halinde açılış reddi · `operatorauth.New`'a anahtarların (`TOTPKEK`,
+>   `TokenHMACKey`) ve logger'ın verilmesi. **Test kuralı (OP-6 md. 16):** operatör tablolarına
+>   dokunan her yeni DB testi `tappa/test/operator-tables` danışma kilidini **paylaşımlı** alır
+>   (`internal/db`'nin `opTx`'i özel alır; almazsa `go test ./...` iki paketi paralel koşturup
+>   00026 DDL testlerini 40P01/55P03 ile düşürür — ölçüldü). → **OP-6 6. turdan (2026-09-30),
+>   adıyla:** `*operatorauth.Authenticator` ve `operatorauth.Config` artık kendini redakte eder
+>   (beş yöntem — ADR 0020 §2 notu). ~~OP-7'nin config wiring'i anahtarları redaksiyonsuz bir
+>   yapıya kopyalamaz~~ *(8. turda daraltıldı — aşağıdaki karar: kural `operatorauth` tarafı
+>   içindir)*. **8. tur, orkestratörün kararı (çelişki giderildi):** `internal/db/pool.go`
+>   `internal/config`'i import eder, yani `config` `operatorauth`'u import edemez ve
+>   `config.Config` bir `Key` tutamaz. Bu yüzden:
+>   (1) operatör anahtarları (`TAPPA_OPERATOR_TOTP_KEK`, `TAPPA_OPERATOR_TOKEN_HMAC_KEY`)
+>   `config.Config`'te öteki anahtarlar gibi (`TagKEK`, `SessionHMACKey` …) HAM `[]byte` olarak
+>   durur ve "diğer her anahtardan farklı" açılış reddi orada, ham değerlerde koşar
+>   (`config.keySeparation` emsali); `config.Config`'in kendi redaksiyonu repo genelinde ayrı bir
+>   iştir (orkestratörün backlog maddesi, `TagKEK`/`SessionHMACKey` ile aynı);
+>   (2) `Key`'e dönüşüm `cmd/tappa`'nın wiring'inde, `operatorauth.NewKey(b)` ile yapılır (kopya
+>   alınır, çağıran silebilir); `Key`'in dışa açık erişimcisi yoktur ve gerekmez;
+>   (3) 6. turun kuralı `operatorauth` TARAFINDA geçerlidir: `Key`'e çevrildikten sonra değer
+>   redaksiyonsuz bir yapıya kopyalanmaz, `operatorauth.Config` bir yapının dışa kapalı alanında
+>   değer olarak tutulmaz; süreç boyunca tutulan `*Authenticator`'dır. `Key` kendini redakte eder
+>   ve baytları `*string` arkasındadır: bir `Config` değeri her yolda — dışa kapalı alanda,
+>   `%p`, `%w` dahil — anahtarı basmaz (7. tur, ölçüldü: sızıntı testinin matrisi).
+>   (4) **`db.OperatorDB` DSN'i ya da parolayı düz bir alanda tutmaz; havuz yalnız işaretçiyle
+>   tutulur** (ölçüldü — 9. turda 8. denetçinin ölçümüyle yeniden yazıldı: `store`'un DÜZ bir
+>   alanı, `Authenticator` değer ya da işaretçi olarak tutulsun, basılabilir — fiil listesi
+>   yazılmaz, çünkü her tutuluş başka bir alt kümede basar; `*string` alan hiçbir fiilde
+>   basılmadı. Kural: düz alan yok).
 > - **OP-8:** oturum kapısı `op_touch_session`; giriş sonu `op_open_session`, çıkış
 >   `op_close_session`; **enrollment handler'ı `op_complete_enrollment`'a bağlı** (B10);
 >   her okuma ekranı önce `op_begin_read`'i ayrı transaction'da commit eder; `pending`
 >   hesap *"aynı yanıt, aynı süre"* kümesinde; `POST /operator/enroll` oran sınırı
->   (sınır 12); limiter testi (OP-6 ile).
+>   (sınır 12); limiter testi (OP-6 ile). → **OP-6'dan gelenler (2026-09-26, doğrulama
+>   2026-09-30):** `floodGate` = `Authenticator.AllowRequest` (adres başına 300/10 dk); `TOTP`
+>   adres almaz, `Password` ve `CompleteEnrollment` adresi yalnız `work` bütçesi için alır (OP-6
+>   md. 17 API notu); `enroll` bütçesi (süreç geneli 10/10 dk) OP-6'da **öneri** olarak sevk
+>   edildi, OP-8 aritmetiğiyle değiştirebilir (OP-6 md. 8) — ⚠️ **ölçüldü (2026-09-30, 2. tur):
+>   TEK bir adres bu bütçeyi tüketip her adresten enrollment'ı reddettirir — ve 3. turda
+>   ölçüldüğü üzere pencere pencere SÜRESİZ; yeni link kaçış değil; her istek bir
+>   `enrollment_failed` satırı yazar** — *(4. tur düzeltmesi: mekanizma sabit pencere; sayaç
+>   pencere dolunca kendiliğinden sıfırlanır, yani sürekli ret her pencerenin başında 10'luk bir
+>   PATLAMA ister; ~~dakikada ~1 istek~~ eşit yayılmış istekler bütçeyi pencerenin çoğunda açık
+>   bırakır; ~~sayacı yalnız süreç yeniden başlatması sıfırlar~~ — sıfırlanma pencerenin kendisi)*
+>   (`work` 20/adres > `enroll` 10/süreç; `BeginEnrollment` DB okumadığı için saldırgan kendi
+>   sayfasını açıp geçerli ilk kodu yazabilir) — ~~adres başına pay OP-8'in kararı (OP-6 md. 8'de
+>   öneriyle)~~ **12c: adres başına pay sevk edildi** (`enrollAddr` 3/10 dk, `enroll`'dan önce;
+>   OP-8 aritmetiğiyle değiştirebilir). **OP-8'e, adıyla:** dağıtık saldırgan (≥4 hız anahtarı;
+>   IPv6'da RateKey bir /64, bir /48 sahibi 65 536 anahtar tutar) süreç bütçesini yine tüketir —
+>   çare OP-8'in (operatör yüzeyinde ops IP kısıtı, K4, ya da başka bir önlem). **OP-8/OP-14'e,
+>   adıyla (12c):** doğru parolası girilip TOTP'si tamamlanmayan giriş bugün yalnız bir slog Info
+>   satırı bırakır (`operator first factor verified; second factor pending` + `operator_id`); kalıcı
+>   bir `password_ok` audit türü 00026'nın kapalı tür kümesine bir migration ister — OP-8/OP-14'ün
+>   kararı. Form sınırındaki adres doğrulaması (UTF-8, NUL, uzunluk) reddi parola adımının
+>   aynı `ErrRefused` yolundan vermeli (OP-6 md. 8, saklanamayan adres). **İstemci adresi
+>   (OP-6 4. tur):** CLAUDE.md §7'nin "asla loglanmaz" listesinde yok; `operatorauth` onu yalnız
+>   bütçe anahtarı olarak kullanır ve hiçbir satıra, hataya ya da log'a yazmaz (sızıntı testi
+>   adresleri arama kümesinde tutar) — handler'ın log ve hata yüzeyinde adresin nasıl ele
+>   alınacağı OP-8'in kararıdır, adıyla. **OP-8'in kendi sızıntı testi** OP-6'nın iki dersiyle
+>   yazılır: yakalama **Debug** seviyesinde, üretimin iki handler'ıyla (text ve JSON), ve iddia
+>   **numaralı bir sözleşmedir** — üye GRUPLARI numaralı ve kaynağıyla; **kapalı ölçüt**
+>   CLAUDE.md §7 + ADR 0020 §5 + ADR 0021 §3.5'in "asla loglanmaz" listesidir: her MADDENİN
+>   bağlı olduğu her grupta en az bir üyesi olmak zorunda, test bunu sayar. ~~her grup kapalı
+>   bir ölçüte bağlı~~ *(6. tur düzeltmesi: yanlıştı — emsalde G16, istemci adresi, bilerek
+>   hiçbir maddeye bağlı değil, paketin kendi iddiası olarak aranır; bağlılık maddeden gruba
+>   doğrudur)*. RENDER'LAR numaralı ve her biri adıyla eşlenmiş kendi builder'ıyla pozitif
+>   kontrollü (6. tur: eşlemesiz bir render — emsalde R3 — boşaltılınca yeşil kalıyordu); KOLLAR
+>   numaralı; aranmayanlar ADIYLA (bölünmüş/kısmi değerler; listede olmayan render'lar —
+>   ölçülüp sayılarak; dışarıdan başarısız kılınamayan kollar); hasat (sahte store'un aldığı
+>   değerler) metot başına pinli — **sayı ve arite, içerik değil** (sayılı sınır); üye başına
+>   pozitif kontrol. **Tip kümesi kapalıdır** (6. tur; 7. turda düzeltildi): paketin ve
+>   `internal/db`'nin test dışı kaynakları tip-denetlenir ve paketin dışa açık her bildiriminden
+>   (tip, fonksiyon, değişken, sabit) dışa açık alanlar, dışa açık yöntem imzaları ve arayüz
+>   yöntemleri üzerinden ulaşılan her adlı tip — dışa açık bir yöntemin döndürdüğü dışa kapalı
+>   tip dahil; ~~*8. turda:* bu bildirimlerin METNİNDE adı geçen her tip de …~~ **9. turdan:
+>   tipler KESİN** — `go list -export -deps` derleyicinin export verisini adlandırır,
+>   `go/importer.ForCompiler(…, "gc", lookup)` okur; böylece takma ad, generic örneğinin TİP
+>   ARGÜMANLARI ve çıkarımla tipi gelen dışa açık değişken kendiliğinden çözülür. **Neden bu
+>   yol (OP-8 aynısını kopyalayacaksa):** 7. ve 8. turda dar denetimin sözdizimiyle kovaladığı
+>   kör nokta iki tur üst üste yeni bir biçimle geri geldi; kesin yükleme ölçüldü — testin
+>   kendisinde sıcak önbellekte 0,23 sn (`-race` 0,35–0,39 sn), soğuk önbellekte 0,58 sn
+>   (`-race` 0,95 sn) — ve "göremediğini yasakla" yolu 8 sentinel hatayı (`Err… =
+>   errors.New(…)`) adıyla istisna yapmayı gerektiriyordu. **10. turdan:** kapanış bir
+>   öncüle değil YAPIYA bağlı — yürüyüş, go/types'ın tip grafiğini TÜKENMİŞ bir anahtarla tam
+>   dolaşır (her tür adıyla; tanınmayan tür = kırmızı), hangi paketin olursa olsun, her struct
+>   alanı dışa açık ya da kapalı, her dışa açık yöntem, kısıtlar ve union terimleri; ~~kayıt
+>   yalnız iki paketin adlı tipleriyle sınırlı~~ *(11. turdan: kayıt modülün HER paketinin adlı
+>   tipleri — `func E() sun.EV2Auth` dersi; alan yürüyüşü her paketin yapısına girer; alan
+>   girdileri TİPİYLE pinli; specimen'in aradığı sırlar tuttuğu redakte değerlere karşı mekanik
+>   olarak denetlenir)*.
+>   9. turun "başka paket yalnız tip argümanıyla" öncülü yanlıştı (`sun.Result` →
+>   `db.ResolvedTag`). ~~Kalan sayılı sınır yalnız çalışma zamanında doldurulan `any` ve
+>   reflection~~ *(11. tur: sayılı sınırlar OP-6 md. 18'in **tek listesinde** — P1–P9,
+>   S1–S14 (12c: P8, P9); OP-8 kendi listesini aynı biçimde tek yerde tutar. 12. turun dersi, OP-8 aynısını
+>   kopyalayacaksa: bir istisnanın GEREKÇESİ bir iddiadır ve test onu doğrulamaz — dört tur
+>   üst üste bir gerekçe, test etmediği bir şeyi iddia etti; kapanış YAPIYLA: alan kuralı
+>   istisnasız (her alan adıyla ve tipiyle, eklemek/silmek/tip değiştirmek kırmızı), muafiyet
+>   yalnız ÖLÇÜLMÜŞ bir yazdırma davranışına dayanır ve o ölçüm bir testtir, gerekçe metni
+>   gözden geçirenin iddiası olarak ilan edilir)*) — ya doldurulmuş bir örnekle **ölçülen
+>   matriste** (fmt'nin bütün fiilleri × altı
+>   biçim × `Sprintf`/`Errorf` + slog + `json.Marshal`) taranır ya da adıyla ve gerekçesiyle
+>   istisnadır; kökler yalnız paketin kendi bildirimleridir (bir istisna kendini ulaşılabilir
+>   kılamaz); fonksiyon içinde tanımlanmış tip reddedilir; sınıflandırılmamış yeni tip ya da
+>   ulaşılamayan istisna kırmızı (emsal
+>   `TestExportedTypes_EveryOneIsASpecimenOrANamedException`, alan düzeyinde
+>   `TestExportedTypes_CarryNoPlainStringField`). **(a) redacting-tip önerisi (OP-6 5. tur,
+>   ölçüldü):** handler'dan `operatorauth`'a düz `string` giden kimlik bilgileri — `Password`'ün
+>   e-postası ve parolası, `TOTP`'un kodu, `CompleteEnrollment`'ın ham token'ı, parolası ve kodu
+>   — OP-8'in handler parametrelerinde sarmalayıcı tipe alınabilir; kazara biçim fiilini kapatır
+>   (D1, D2, D5, D7, D8 sınıfı), bilerek çıkarmayı kapatmaz (D4/D4b/D9 bugün zaten sarmalayıcı
+>   olan `SessionToken`'dan `reveal()` ile sızdı) — kara kutu aramasının yerine değil, önüne. *"Türetilir"*, *"her kimlik
+>   bilgisi"*, *"hiçbiri görünmez"* gibi evrensel sözcükler YAZILMAZ — OP-6'da dört tur üst üste
+>   her biri kapsamı aşan bir değer ya da render buldu. Emsal
+>   `internal/operatorauth/leak_external_test.go` (`TestLeak_NoInputInAnyErrorOrLogLine`'ın
+>   başlığı). **Test kuralı (OP-6 md. 16):**
+>   operatör tablolarına dokunan her yeni DB testi `tappa/test/operator-tables` danışma kilidini
+>   **paylaşımlı** alır.
 > - **OP-9:** `opadmin create` hesabın id'sini kendisi üretir ve enrollment linkine
 >   token'la birlikte koyar; **token sorgu dizgisinde taşınmaz** — fragment ya da yol
 >   parçası, ingress'in ne log'ladığı ölçülür; **`reset-mfa`** (zarfı siler, sayacı
 >   sıfırlar, `pending`, oturumları iptal eder, yeni token + id'li link) — açık iş, adıyla.
+>   → **OP-6'dan gelen biçim şartı (2026-09-26, işaretçi 2026-09-30):** token
+>   `operatorauth.NewEnrollmentToken` ile basılır — 256 bit, **43 karakter base64url** (dolgusuz);
+>   `CompleteEnrollment` başka biçimdeki bir token'ı `op_complete_enrollment`'a göndermeden ve
+>   digest ödemeden reddeder — ~~veritabanına gitmeden~~ *(6. tur düzeltmesi: veritabanına
+>   GİDER — süreç geneli audit tavanının altında bir `enrollment_failed` satırı yazılır,
+>   `op_record_auth_event` üzerinden)* —, yani OP-9 başka biçimde basarsa **kimse enroll
+>   olamaz** ve her deneme bir red satırı bırakır. Hash
+>   `EnrollmentToken.Hash()` / `operatorauth.EnrollmentTokenHash` ile yazılır (anahtarsız SHA-256,
+>   linkteki METNİN UTF-8 baytları, küçük harf hex — 00026'nın `encode(sha256(convert_to(…)))`'ü;
+>   `TestEnrollmentTokenHash_IsTheDatabasesHash` canlı sunucuya pinler). Ayrıntı: OP-6 kart
+>   düzeltmesi md. 7. `enroll_issued_at`/`enroll_expires_at`'in tek `clock_timestamp()`
+>   okumasından yazılması kuralı OP-5 md. 27'de.
 > - **OP-10** (ilk `op_read_*` = sürüm listesi; `op_publish_legal` `void` bir tek aşamalı
 >   yazma): iki aşamalı okuma testleri (aynı transaction'da — üst düzey ve savepoint —
 >   yaratılan bilet ret; commit sonrası veri; okuma transaction'ı geri alınınca audit
@@ -802,7 +933,9 @@ yasal belge içindi, M9-08'in kapsamı §4.5'i aşan beş işlev.
 >     ⚠️ `10-postgres.yaml`'a `tappa-secrets`'ta henüz olmayan bir anahtar için
 >     `optional` olmayan bir `secretKeyRef` eklemek Postgres pod'unu başlatamaz); ADR 0021
 >     §2 vi'nin `db/queries/operator.sql` belgesi ve `internal/db/operator.go` erişimcileri
->     (OP-5'te Go erişimcisi yok, bu yüzden yazılmadı).
+>     (OP-5'te Go erişimcisi yok, bu yüzden yazılmadı). → *(2026-09-30 notu: belge ve erişimciler
+>     OP-6'da yazıldı — OP-6 kart düzeltmesi md. 1; OP-7'ye kalan yukarıdaki OP-4 bloğunun OP-7
+>     maddesinde.)*
 > 16. *(2. turda kapandı — madde 21.)* **Açık iş (bu görev `scripts/`'e dokunmadı):** `scripts/pg-restore-verify.sh` 5. bölüm
 >     TRUNCATE korumasını **altı** append-only tabloda doğruluyor; `operator_audit_log`
 >     yedincidir ve orada yok. `scripts/redline-check.sh`'ın `APPEND_ONLY` deseni onu
@@ -955,7 +1088,8 @@ yasal belge içindi, M9-08'in kapsamı §4.5'i aşan beş işlev.
 >     **4. tur düzeltmesi (madde 35):** kilit yarısı yeni bilgi değildir —
 >     `totp_locked_until` `tappa_operator`'ın giriş sütunlarındadır ve doğrudan okunur;
 >     SELECT edilemeyen yalnız adım yarısı.
-> 30. **D8 ·** `db/queries/operator.sql` OP-7'de (değişmedi).
+> 30. **D8 ·** `db/queries/operator.sql` OP-7'de (değişmedi). → *(2026-09-30 notu: OP-6'da
+>     yazıldı — OP-6 kart düzeltmesi md. 1.)*
 
 > **Kart düzeltmesi (2026-09-26, OP-5 uygulaması sırasında — 3. tur: üçüncü göz ONAY, 6
 > düşük bulgu).** D-1, D-2, D-5 ve D-6 yukarıda, düzelttikleri maddelerin içinde (17, 19,
@@ -1026,6 +1160,1399 @@ yasal belge içindi, M9-08'in kapsamı §4.5'i aşan beş işlev.
 >     kırmızı. Kalan sınır (madde 21): **dinamik** SQL (tablo adı metinde yok) ve ters
 >     yönde **çalışmayan statik metin** (5. tur; TRUNCATE tarafında fail-open, arka kapısı
 >     `pg-restore-verify.sh` 5. bölüm).
+
+> **Kart düzeltmesi (2026-09-26, OP-6 uygulaması sırasında).** Yazıldı: `internal/operatorauth/`
+> (`operatorauth.go`, `password.go`, `totp.go`, `token.go`, `challenge.go`, `enrollment.go`,
+> `cookie.go`, `limits.go`, `flow.go` + testler), `internal/sun/keys.go`'ya genel `Seal`/`Open`
+> (+ `seal_test.go`), `internal/db/operator.go` + `db/queries/operator.sql` (+ `operator_test.go`),
+> iki envanter güncellemesi (`cmd/tappa/constanttime_test.go` +2 dosya,
+> `cmd/tappa/storekeyshape_test.go` 17 → 18 `.sql` dosyası), OP-5'in test yardımcısı `opTx`'e
+> bir danışma kilidi (md. 16), ADR 0020/0021'e tarihli OP-6 notları. Migration YOK. Ölçüm: dev Postgres
+> 17.10; DB testleri `tappa_owner` bağlantısından `SET LOCAL SESSION AUTHORIZATION tappa_operator`
+> ile, **üretim erişimcilerinin kendisini** çağırarak (sahte depo yok). Sapmalar ve kararlar:
+>
+> 1. **(d) OP-7'den OP-6'ya çekildi — ölçülerek.** İki yol sayıldı: (A) OP-6 testlerinde yerel bir
+>    `Store` uygulaması → OP-7 aynı yedi ifadeyi (iki giriş araması + beş `op_*` çağrısı) ve
+>    28000 eşlemesini üretimde **ikinci kez** yazar, ve OP-6'nın bütün DB testleri sonsuza dek
+>    üretimin değil testin kopyasını sınar (M6-09 B'nin "ikiz sözleşmeden ayrışır" sınıfı);
+>    (B) ifadeler şimdi `internal/db/operator.go`'da → **0** kopya: testlerin eklediği tek şey
+>    kimliktir (`SET LOCAL SESSION AUTHORIZATION`). (B) seçildi. Biçim: `*DB` üzerinde metot
+>    DEĞİL, bir `OperatorConn` (Exec + QueryRow) alan serbest fonksiyonlar — `*DB` `tappa_app`'in
+>    havuzudur ve orada her biri 42501 ile düşer (`TestOperatorAccessors_TheCustomerRoleCannotUseThem`).
+>    OP-7'nin (b) ve (c) şıkları SQL'le birlikte buraya geldi ve pinlendi:
+>    `TestOperatorSQL_OnlyBoundParameters` (her ifade sabit; tek tırnaklı literal yalnız şema
+>    sabiti `'active'`; `$n` sayısı = argüman sayısı; her sabit `operator.sql`'de birebir) ·
+>    `TestOperatorErr_NeverCarriesAPgError` (`*pgconn.PgError` hiçbir dönüşten `errors.As` ile
+>    erişilemez; yalnız SQLSTATE kalır). **OP-7'ye kalan:** `db.OperatorDB` tipi (havuz, rol
+>    ölçümü, `roleRefusal`, `WithTenant` yokluğu), (a) başlangıç parametresi, config ve
+>    `operatorauth.New`'a anahtarların verilmesi; metotları bu fonksiyonlara devreder.
+>    Giriş araması bir `-- name:` sqlc sorgusu yapılmadı: `platform_admins` tenant'sızdır ve
+>    `tappa_app`'in store'u o rolle hiç koşmaz.
+> 2. **Mühür:** `sun.Seal(kek, aad, pt)` / `sun.Open(kek, aad, env)` — `keys.go`'da, `aead()`'i
+>    yeniden kullanarak (anahtar-programı tahsis envanteri `keys.go: 2` DEĞİŞMEDİ, silme-kapısı
+>    bölümlemesi değişmedi). Düzen `Wrap`'ınki: `nonce(12) ‖ ct ‖ tag(16)`, sürüm baytı yok →
+>    160 bit sır **48 bayt** (00026 tabanı 44). Boş AAD ve boş düz metin reddedilir; biçim KEK'ten
+>    önce denetlenir; hata metni yalnız uzunluk. **Sayılan olgu:** bir `Wrap` ref'i bir `Seal`
+>    zarfıdır (`TestSeal_WrapIsTheSameFormat`) — plaket anahtarını TOTP sırrından ayıran biçim
+>    değil, KEK (OP-7'nin eşitsizlik reddi) ve AAD boyu (7 ≠ 16).
+> 3. **TOTP:** yalnız stdlib; RFC 4226 Ek D (6 hane) ve RFC 6238 Ek B'nin **18 satırının 18'i**
+>    (SHA-1/256/512, errata tohumları, T değerleri dahil) — yayımlanmış tablolar, bağımsız olarak
+>    python'un `hmac`'iyle de yeniden üretildi. ±1 adım; pencere **bütün** yürünür (erken çıkış
+>    yok, tek `subtle.ConstantTimeCompare` — `TestVerifyCode_TheWindowIsWalkedWholeInConstantTime`
+>    kaynağı okur, sayıyı `constantTimeInventory` tutar); iki adım eşleşirse **sonraki** kabul
+>    edilir (ikisi de emekliye ayrılsın diye — gerçek bir çakışma aranarak sınandı).
+> 4. **Parola:** cost 12, ≥14 rune, ≤72 bayt, geçersiz UTF-8 ret, kompozisyon kuralı yok.
+>    Sahte digest **literal değil, `New` anında** üretilir (maliyeti yapısal olarak `Cost`; depoya
+>    digest biçimli dize girmez; bedeli süreç başına bir bcrypt). "Aynı yanıt, aynı süre":
+>    bilinmeyen / yanlış parola / `pending` / `disabled` / 72+28 bayt / 300 baytlık adres —
+>    hepsi aynı `ErrRefused`, **tam 1** bcrypt karşılaştırması (sayılarak), **tam 1** satır
+>    (`TestPassword_EveryArmPaysOneComparisonAtTheSameCost`); maliyet eşitliği
+>    `TestPassword_TheDigestAndTheDummyAreBothCostTwelve`.
+> 5. **Oturum token'ı ve çerez:** 256 bit, `platform_sessions.token_hash` = küçük-hex
+>    HMAC-SHA256(`TAPPA_OPERATOR_TOKEN_HMAC_KEY`, token dizgesi); yer tutucu
+>    `operatorauth.SessionToken(redacted)` — panelinki ve çalışanınki **o tipler render edilerek**
+>    karşılaştırılır (`TestSessionToken_PlaceholderIsNotAnotherCredentialsPlaceholder`).
+>    `__Host-taptime_op` (8 sa Max-Age ipucu) ve ara çerez `__Host-taptime_op_login`: ikisi de
+>    **daima** `Secure` — `__Host-` öneki Secure'suz çerezi tarayıcıya reddettirir, yani panelin
+>    `insecure` gevşemesinin burada karşılığı yok; sonucu: https ve `http://localhost` dışında
+>    düz http'de kimse giriş yapamaz (fail-closed). `Domain` yok, `Path=/`, `HttpOnly`,
+>    `SameSite=Strict` (`TestCookies_AreHostPrefixedStrictAndSecure`, Set-Cookie METNİ üzerinde).
+> 6. **Ara çerez (giriş challenge'ı) — ADR 0020 "Karar verilmedi"nin ömür ve anahtar maddesi:**
+>    `v1 ‖ hesap id ‖ düzenlenme anı ‖ 16 bayt nonce` + HMAC-SHA256. **Ömür 5 dk + 1 dk geri
+>    saat toleransı = 6 dk taşıyıcı pencere** (panelin `adminChoiceTTL` emsali; daha uzun ömür
+>    daha çok tahmin vermez — tahminleri hesap bütçesi ve DB kilidi sınırlar). **Anahtar:**
+>    `TAPPA_OPERATOR_TOKEN_HMAC_KEY`'den etiketle türetilir. ADR 0020 §2'nin yasağı **müşteri**
+>    oturum anahtarından türetmeyedir (operatör kimliği müşteri anahtarından bağımsız olmalı);
+>    bu türetme operatörün kendi anahtar ailesinde kalır, beşinci bir sır eklemez, ve ham
+>    anahtar oturum hash'lerini ürettiği için türetilmiş anahtar bir challenge MAC'inin asla bir
+>    oturum hash'i olamamasını sağlar. **Tek kullanımlık DEĞİL** (sayılı sınır: pencere içinde
+>    yeniden sunulabilir; her sunuş hesap bütçesinden düşer). Base64 **katı** çözülür — ölçüldü:
+>    gevşek çözücü son karakterin dolgu bitini çevirince 200 000 alanın 37 375'inde (41 bayt) ve
+>    37 466'sında (32 bayt) AYNI baytları verdi (0,187 = 3/16, iki yazımlı kimlik bilgisi); katı
+>    çözücü 0. *(2026-09-30 doğrulaması, yeniden ölçüldü, başka rastgele örnek: 37 792 / 37 447, katı
+>    0. Oranın kaynağı: kanonik son karakterin dolgu bitleri sıfır olan 16 değerinden yalnız
+>    `0`, `4`, `8`'in ASCII'sinde en düşük bitin çevrilmesi alfabede kalıp yalnız dolgu bitini
+>    değiştiriyor — 3/16.)*
+> 7. **Enrollment — ADR 0021 "Karar verilmedi"nin "düz sır nerede" maddesi: SUNUCUDA HİÇBİR
+>    YERDE.** `BeginEnrollment` sırrı üretir ve bir **bekleyen blob**a mühürler (sayfanın gizli
+>    form alanı); `CompleteEnrollment` açar. Sunucu düz sırrı yalnız iki isteğin **içinde** tutar;
+>    bellek seçeneği seçilmediği için "kayıt sayısı ve ömrü tavanı" sorusu doğmaz (GET bir
+>    `crypto/rand` okuması + bir `Seal` öder, istekten uzun yaşayan hiçbir şey ayırmaz). Blob'un
+>    AAD'si `etiket ‖ id ‖ son geçerlilik` — saklanan zarfınki (yalnız id) DEĞİL, dolayısıyla biri
+>    ötekinin yerine **iki yönde de** geçemez (`TestPendingBlob_IsNotTheStoredEnvelope`); ömür
+>    30 dk (bağlantının TTL'i; DB token süresini ayrıca, duvar saatiyle uygular). Sır DB'ye ancak
+>    ilk kod doğrulandıktan sonra, saklanan AAD ile yeniden mühürlenerek gider.
+>    `EnrollmentTokenHash` **tek tanım** ve canlı sunucuya pinli (ASCII dışı dahil —
+>    `TestEnrollmentTokenHash_IsTheDatabasesHash`). **OP-9'a, adıyla:** token
+>    `operatorauth.NewEnrollmentToken` ile basılır (43 karakter base64url — `CompleteEnrollment`
+>    başka biçimi `op_complete_enrollment`'a ve digest'e gitmeden reddeder, ~~DB'ye gitmeden~~
+>    *(6. tur: tavanın altında bir `enrollment_failed` satırı yazılır)*) ve hash `EnrollmentToken.Hash()`/`EnrollmentTokenHash`
+>    ile yazılır.
+> 8. **Bütçeler (ADR'nin OP-6/OP-8'e bıraktığı sayılar; nüfus panelinki değil — 1–3 operatör):**
+>    `flood` 300/10 dk adres başına (OP-8'in `floodGate`'i: `AllowRequest`) · `work` 20/10 dk
+>    adres başına, bcrypt'e ulaşan HER istek (başarı dahil — `adminLoginWorkLimit` dersi) ·
+>    `account` 10/10 dk **operatör başına, TOTP denemesi, kod denetlenmeden ÖNCE — ve bu, panelin
+>    tersine, KAPIDIR**: challenge yalnız doğru parolayla basılır, yani bu bütçeyi yalnız parola
+>    sahibi harcar; kapı olmasaydı kaydedilemeyen bir hata denetlenmiş bir tahmin olurdu ·
+>    `auditCap` 30/10 dk **süreç geneli** (parolasız türler: `unknown_email`, `login_failed`,
+>    `enrollment_failed`) — satır maliyeti ~~ÖLÇÜLDÜ (5 000 satır, geri alınan işlem): 81,9 B yığın,
+>    **139,3 B** üç indeksle → en kötü sürekli durum 1 576 800 satır/yıl ≈ **219 MB/yıl**~~
+>    **2026-09-30 doğrulamasında YENİDEN ÜRETİLEMEDİ, yeniden ölçüldü** (tablonun geçici kopyası —
+>    aynı sütunlar, varsayılanlar ve üç indeks — geri alınan işlemde; gerçek tabloya dokunulmadı):
+>    hedefsiz satır (`unknown_email`) yığın 85,2 B + indeks 81,9 B = **167,1 B** (5 000 satır) /
+>    **158,6 B** (50 000 satır); hedefli satır (`login_failed`, `target_admin_id` dolu) **185,1 B** /
+>    **174,7 B** → en kötü sürekli durum 1 576 800 satır/yıl ≈ **250–292 MB/yıl**. Eski "81,9 B
+>    yığın" bu ölçümün **indeks** payına eşit — büyük olasılıkla etiket kayması; eski toplam
+>    yeniden üretilemedi. *(2. tur, 2026-09-30: denetçinin bağımsız ölçümü — aynı geçici kopya,
+>    `pg_total_relation_size` — hedefsiz 159,7–170,4 B, hedefli 176,3–188,4 B verdi. İki ölçüm
+>    birlikte bir **gözlem aralığıdır, koşudan koşuya değişir**: hedefsiz **158,6–170,4 B**,
+>    hedefli **174,7–188,4 B** → en kötü sürekli durum ≈ **250–297 MB/yıl**.)* Sayı `limits.go`
+>    yorumunda ve ADR 0021'in notunda da bu bantla yazıldı; tavan kararı (30) değişmedi —
+>    sınırlı bir büyüme, sınırsız değil. Tavan
+>    aşılınca istek YİNE hizmet görür, yalnız satır yazılmaz (bir botnet'e operatör girişini
+>    kapatan bir anahtar vermemek için) — bir **iz susturma ilkeli** olarak sayıldı, pencere başına
+>    tek WARN (adres ve e-posta yok) · `enroll` 10/10 dk süreç geneli (ADR 0021 sınır 12'nin
+>    süreç yarısı; ADR sayıları OP-8'e bırakıyor — öneri olarak burada, OP-8 aritmetiğiyle
+>    değiştirebilir). *(2. tur, 2026-09-30 — `limits.go`'nun "sustained distributed flood"
+>    cümlesi YANLIŞTI, ölçüldü: bu bütçeyi **tek bir adres** tüketir. `BeginEnrollment` veritabanı
+>    okumaz, yani herkes rastgele bir id için sayfa açıp gösterilen sırrın geçerli ilk kodunu
+>    yazabilir ve biçimi doğru rastgele bir token gönderebilir — Go'nun her kontrolü geçer, bütçe
+>    harcanır, yalnız `op_complete_enrollment` reddeder. `work` (20/adres) `enroll`'dan (10/süreç)
+>    büyük olduğu için tek adresten on istek pencerenin geri kalanında **her** adresten
+>    enrollment'ı reddettirir; denetçinin sondası ve bu turun yeniden koşusu: tek adresten 10
+>    denemeden sonra başka adresten meşru enrollment → `ErrThrottled`. ~~Hiçbir satır yazılmaz,
+>    hiçbir hesaba dokunulmaz; gerçek operatör pencereyi bekler ya da `opadmin` yeni link verir.~~
+>    **3. tur (2026-09-30), 2. denetçinin ölçümü, bu turda denetçinin sondası kendi kopyamda
+>    yeniden koşuldu — aynı sonuç:** her saldırı isteği bir `enrollment_failed` satırı **yazar**
+>    (pencere başına 10; süreç geneli audit tavanının 30'undan düşer); **yeni link kaçış değildir**
+>    (yeni pending hesap + token, üçüncü adresten → `ErrThrottled` — bütçe süreç geneli); ve aynı
+>    adres bir sonraki pencerede saldırıyı tekrarlar (`work` bütçesinin 10/20'si) → saldırı tek
+>    adresten **süresiz** sürdürülebilir. ~~dakikada ~1 istekle … sayacı yalnız süreç yeniden
+>    başlatması sıfırlar~~ — **4. tur düzeltmesi (3. denetçi):** sayaç sabit penceredir ve süre
+>    dolunca gelen ilk istekte kendiliğinden sıfırlanır (`limits.go` `charge`); sürekli ret her
+>    pencerenin başında **10 isteklik bir patlama** ister — ortalama ~1/dk olsa da eşit yayılmış
+>    istekler bütçeyi pencerenin çoğunda açık bırakır; o pencerenin patlamasından önce gelen meşru
+>    bir enrollment geçer. Sıfırlanma pencerenin kendisidir (yeniden başlatma da sıfırlar, ama
+>    gerekmez). Hiçbir hesaba dokunulmaz.
+>    **OP-8'e, adıyla:** sayılar orada; öneri (ölçülmedi, karar OP-8'in): `enroll`'un adres başına
+>    payı `enrollLimit`'in altında — ör. adres başına 3/10 dk (bir operatörün birkaç denemesi
+>    sığar) — tek adresin tüketmesini imkânsız kılar (en az dört adres gerekir); id başına pay işe
+>    yaramaz, id'ler çağıranın kendisinindir.)* **12c (2026-10-01, güvenlik denetiminin ORTA
+>    bulgusu, orkestratörün kararı — KAPANDI):** `enrollAddr` 3/10 dk **adres başına**, Go'nun her
+>    kontrolünden sonra ve süreç geneli bütçeden ÖNCE (`work` → `enrollAddr` → `enroll` → bcrypt);
+>    reddettiği istek ne satır yazar ne süreç sayacını ilerletir. Tek adres KENDİ penceresi başına
+>    3 harcar; pencereler sabit ve her anahtarınki kendi ilk şarjıyla açılır, hizalı değildir
+>    (12d, kapanış denetçisinin ölçümü, enjekte saat): pencere sınırında tek adres bir süreç
+>    penceresine 5'e kadar koyabilir; tek bir süreç penceresi iki anahtar ve önceki bir istekle
+>    tükenir; SÜREKLİ tüketim en az DÖRT hız anahtarı ister. Kalan sınır tek
+>    listede (P8). Sayılar OP-8'in aritmetiğiyle değişebilir. Rakamlar `TestBudgets_TheShippedNumbersArePinned`'de literal. Kabul:
+>    `TestLimits_ARefusedRequestWritesNoRowAndMovesNoCounter` — beş bütçe de (12c'den) üretimin kurduğu
+>    nesneyle, sınıra kadar harcanıp bir kez daha istenerek: satır 0, sayaç değişmez, bcrypt 0;
+>    her birinde pozitif kontrol. *(2026-09-30 doğrulaması: "üretimin kurduğu nesne" = `build`,
+>    `New`'un yürüdüğü kurucu yolu; testler `New`'u değil `build`'i çağırır, bütçeler aynı
+>    `newLimits`'ten doğar. İki boşluk ölçülüp kapatıldı: **enrollment'ın** adres başına `work`
+>    harcaması hiçbir testte değildi — silinince paket yeşil kaldı; aynı teste bir enrollment kolu
+>    eklendi (bütçesi tükenmiş adresten bozuk token → `ErrThrottled`, satır 0). Ve `flood`
+>    bütçesinin davranışı yoktu (`AllowRequest` hep "evet" deyince yeşil) →
+>    `TestAllowRequest_RefusesPastTheFloodLimitPerAddress`.)* *(2. tur, 2026-09-30, denetçi
+>    bulguları: audit tavanı testte yalnız `unknown_email` ile sürülüyordu — `login_failed` ve
+>    `enrollment_failed`'ı tavanın etrafından doğrudan store'a yazan iki mutasyon YEŞİLDİ; aynı
+>    test artık üç türün üçünü de önce tavanın altında (her biri kendi türünden 1 satır — pozitif
+>    kontrol), sonra tavan tükenmişken (0 satır, aynı hata) sürer. Ve enrollment bütçesinin
+>    bcrypt'ten ÖNCE harcandığı yalnız sonuçtan okunuyordu — sırayı ters çeviren mutasyon YEŞİLDİ;
+>    `Authenticator`'a `compareFn` emsaliyle bir `digestFn` alanı eklendi (yalnız testler
+>    değiştirir) ve test reddedilen istekte **0 digest, 0 veritabanı çağrısı** sayar; kontrol:
+>    bütçenin altında, Go'nun her kontrolünü geçen yanlış token'lı istek 1 digest + 1 çağrı öder.)*
+>    *(2. tur: saklanamayan adres — NUL baytı ya da geçersiz UTF-8 — "aynı yanıt, aynı süre"
+>    kümesinin sayılmamış istisnasıydı, ölçüldü: parola adımı `database error (SQLSTATE 22021)`
+>    döndürüyordu, 0 bcrypt, 0 satır. İki çare tartıldı: 22021'i `ErrNoOperator`'a eşlemek bir DB
+>    turu daha öder ve aynı adresi taşıyan `unknown_email` satırı yine 22021 ile düşer (ölçüldü:
+>    adresi satırla gönderen mutasyon `database error (SQLSTATE 22021)` verdi); seçilen:
+>    `internal/db` böyle bir adresi aşırı uzun adresin yolundan geçirir — arama DB'ye gitmeden
+>    `ErrNoOperator`, satırda adres NULL. Sonuç: `ErrRefused`, 1 bcrypt (sahte digest), 1
+>    `unknown_email` satırı (hedefsiz) — `TestPassword_EveryArmPaysOneComparisonAtTheSameCost`'a
+>    iki kol, `TestOperatorAccessors_AnUnstorableAddressIsNoAnswerNotAnError`. **OP-8'e, adıyla:**
+>    form sınırında adres doğrulaması (UTF-8, NUL, uzunluk) bu kolu yeniden açmamalı — reddi aynı
+>    `ErrRefused` yolundan vermeli.)*
+> 9. 🔴 **İTİRAZ, ÖLÇÜMLE — ADR 0020 §3 / ADR 0021 §1 (a)'nın düz okuması:** *"oturum öncesi
+>    satırlar … süreç genelinde bir tavanla sınırlanır"*. `totp_failed` ve `locked` bu tavanın
+>    **dışındadır**: kilit sayacı yalnız `totp_failed` satırıyla ilerler (00026), yani parolasız
+>    çöp tavanı doldurup `totp_failed`'ı susturabilseydi **kilidi kapatırdı** — OP-5'in DB
+>    tarafında ölçtüğü aynı kusur (madde 10), bir katman yukarıda. Bu iki tür, yalnız parola
+>    sahibinin harcayabildiği `account` kapısıyla × aktif operatör sayısıyla sınırlıdır: IP'den
+>    bağımsız, ama tek bir sayı değil. `TestLimits_TheAuditCapCannotSwitchTheLockOff` pinler
+>    (tavan tükenmişken 5 yanlış kod → 5 satır, sayaç 5, kilit); mutasyon ölçümü raporda.
+>    *(2026-09-30 doğrulaması, itiraz yeniden kuruldu: yanlış kodun `totp_failed` satırını ortak
+>    tavandan geçiren mutasyon testi kırmızıya çevirdi — mesajı birebir: "with the audit cap
+>    exhausted: 0 totp_failed row(s), counter 0, want 5 and 5". Ama pin **yarımdı**: veritabanının
+>    reddettiği, Go'nun kabul ettiği kodun satırını (tekrar edilen kod → `totp_failed`, kilitliyken
+>    doğru kod → `locked`) tavandan geçiren mutasyon test **yeşil** kaldı — o kolun `totp_failed`'ı
+>    da sayacı ilerletir, yani tekrarlar tavan dolunca bedava olurdu. Test iki yarıyla genişletildi
+>    (tavan tükenmişken tekrar edilen kod → 1 `totp_failed` satırı, sayaç 1; kilitliyken doğru kod →
+>    1 `locked` satırı); aynı mutasyon artık kırmızı. "Parola sahibi" kesin okuması: doğru parolayla
+>    basılmış bir challenge'ı **tutan** — challenge taşıyıcı değerdir ve tek kullanımlık değil
+>    (md. 6); tutan kişi hesap bütçesini harcayabilir, parolayı bilmesi gerekmez.)*
+> 10. **Kilit sayıları KORUNDU: N = 5, pencere 15 dk** (00026'nın geçici sayıları; değişiklik =
+>     migration, bu görevde yok). Aritmetik: ±1 pencere tahmin başına 3/10⁶; kilit şekli ilk
+>     kilitten sonra pencere başına en çok 1 tahmin (günde 96 + ilk 5) → parolayı zaten bilen ve
+>     bir yıl boyunca her 15 dakikada deneyen biri için ~35 000 tahmin ≈ **%10/yıl**, ve her tahmin
+>     bir `totp_failed` satırı bırakır (OP-14'ün görüntüleyicisinde görünür). Daha sıkı bir şekil
+>     (artan pencere) migration ister — sayılı sınır olarak açık, karar gerekirse orkestratörün.
+>     Kabul: `TestLock_ThresholdAndWindowThroughTheSignIn` (4 → açık, 5 → kilit ~900 sn, kilitliyken
+>     doğru kod DB'ce reddedilir ve `locked` satırı yazılır — sayılmaz; kilitliyken yanlış kod
+>     sayılır ve uzatır; pencere geçince doğru kod açar, sayaç 0). *(5. tur, 2026-09-30: pencere
+>     geçmiş, henüz başarı yokken — sayaç hâlâ eşiğin üstünde — DB'nin reddettiği doğru kod
+>     `ErrCodeRejected` + bir `totp_failed` satırı alır ve sayar, `locked` DEĞİL. Bu vaka yokken
+>     etiketi pencerenin bitişine bakmadan kuran mutasyon (L1) bütün pakette yeşildi: başarı yolu
+>     etiketi okumaz.)*
+> 11. **DB'nin reddettiği, Go'nun kabul ettiği kod** (tekrar, saat ayrışması, kilit) bir başarısız
+>     deneme olarak yazılır — kilit okunmuşsa `locked`, değilse `totp_failed` (tekrarlanan bir kod
+>     bedava olmasın). "Go kilit kararı vermez": okunan kilit damgası yalnız **etikettir**.
+>     `TestTOTP_SameCodeFromNGoroutinesOpensExactlyOneSession` (8 yarışçı, ayrı havuz
+>     bağlantıları, üretim şekli: 1 oturum, 1 `login`, 7 başarısız deneme satırı — `totp_failed`,
+>     zamanlamaya göre birkaçı `locked` —, `-race`). *(4. tur: 7 ret
+>     kilit eşiğinden (5) fazla olduğu için, hesabı beş ret commit edildikten SONRA okuyan bir
+>     kaybeden `ErrLocked` + `locked` satırı alır — ilk sürüm bunu kabul etmiyordu ve ~125 paket
+>     koşusunda 3 kez kırmızıydı; test artık zamanlamadan bağımsız olanı birebir ister: 1 kazanan,
+>     her kaybeden için iki türden birinde 1 satır, `locked` yalnız ≥5 `totp_failed`'dan sonra.)*
+>     *(5. tur: "yalnız ≥5'ten sonra" artık satırların YAZILIŞ SIRASIYLA ölçülür — `ORDER BY at,
+>     id`, `at` `clock_timestamp()` — ilk `locked` satırından önce ≥5 `totp_failed`; 4. turun son
+>     sayı biçiminde ilk reddi `locked` etiketleyen mutasyon (R3) yeşildi.)*
+> 12. **`internal/httpx` import EDİLMEDİ — bütçe sayacı yerel bir kopya.** `httpx` panelin
+>     kimliğini import ediyor (`adminidentity.go`) ve ADR 0020 §4'ün `requireOperator`'ının doğal
+>     evi orası (`RequireAdmin` emsali): OP-8 onu oraya koyduğu gün `httpx → operatorauth` olur ve
+>     tersi derlenmeyen bir döngüdür. Kopya `httpx.Limiter`'ın mekanizmasıdır (sabit pencere,
+>     `maxKeys` tahliyesi) ve saati enjekte edilebilir.
+> 13. **Zarf, sunucu hatasıdır, operatörün hatası değil:** başka satıra taşınmış zarf (AAD) ya da
+>     başka KEK → hata, oturum yok, **satır yok, sayaç yok** (`TestTOTP_TheEnvelopeIsBoundToItsAccountAndItsKEK`,
+>     kontrolüyle).
+> 14. **Oturum kapısı:** `Verify` 8 sa / 30 dk / MFA'sız / iptal / `disabled` → `ErrNoSession`,
+>     satır yok; sınırın bir dakika içi geçerli (`TestVerify_EveryDeadSessionIsRefused` — satırın
+>     damgaları geriye yazılarak, yüklem DB'de duvar saatiyle).
+> 15. **Kalıcı test verisi:** eşzamanlılık testi her koşuda dev DB'de 1 operatör hesabı, 1 oturum,
+>     1 `login` ve 7 başarısız deneme satırı (`totp_failed`, zamanlamaya göre birkaçı `locked`)
+>     bırakır (rastgele uuid, `@example.test`); diğerleri tek
+>     geri alınan işlemde.
+> 16. **Kapsam genişlemesi, gerekçeli: OP-5'in test yardımcısı `opTx`'e bir danışma kilidi.**
+>     İlk tam koşu (`go test -race ./...`, `.env` yüklü) iki OP-5 testini kırmızı verdi:
+>     `TestOperator00026_AppHoldsNothingUnderTheProductionDefaultACL` **40P01** (kilitlenme) ve
+>     `TestOperator00026_AuditLogRefusesTheOwnerToo` **55P03** (10 sn `lock_timeout`). Sebep bu
+>     görevdi: o testler operatör tablolarında işlem içinde DDL koşuyor (00026 Down/Up,
+>     TRUNCATE, düşürülen CHECK) ve OP-6'ya kadar bu tablolara başka paket dokunmuyordu;
+>     `go test ./...` iki test ikilisini **paralel** koşturur. Çare: `internal/db`'nin `opTx`'i
+>     `pg_advisory_lock(hashtext('tappa/test/operator-tables'))`'u **özel**, operatorauth'un DB
+>     testleri **paylaşımlı** alır (oturum düzeyi; bağlantı kapanınca bırakılır; her iki tarafta
+>     da tablo kilitlerinden ÖNCE — döngüye giremez). İki yazımın eşitliğini
+>     `TestHarness_TheTablesLockIsTheOneInternalDBTakes` kaynaktan okur. Sonrası: iki paket
+>     birlikte yeşil; iki tam koşuda da `internal/db` yeşil (kalan tek kırmızı bilinen T72). ⚠️ **OP-7/OP-8'e, adıyla:** operatör tablolarına
+>     dokunan her yeni DB testi aynı kilidi **paylaşımlı** almalı. *(2026-09-30 doğrulaması: bu
+>     not yalnız burada, OP-6 bloğunda duruyordu; OP-7 ve OP-8'in kabul listeleri — yukarıda, OP-4
+>     bloğunun "Kabullere bağlananlar" bölümü — onu taşımıyordu, yani OP-7'yi o listeden okuyan
+>     yapıcı görmezdi. İki listeye de adıyla eklendi. Kilidi `internal/db`'nin tarafında özelden
+>     paylaşımlıya çeviren mutasyon `TestHarness_TheTablesLockIsTheOneInternalDBTakes`'i kırmızıya
+>     çevirdi. 2026-09-30 tam koşusunda iki paket birlikte yeşil.)*
+> 17. **Test bedeli, ölçüldü (bu makine, `-race`, 2026-09-26):** bir cost-12 bcrypt ~4,4 sn. İlk
+>     sürümde her test kendi `New`'unu çağırıyordu (her biri bir sahte digest bcrypt'i) ve tam
+>     koşuda paket **380 sn** sürdü; `internal/db` paylaşımlı kilidi beklerken 101 → **331 sn**'ye
+>     uzadı. Düzeltme: testler tek bir sahte digest'i `build` üzerinden paylaşır (üretim yolu —
+>     `New`'un kendi digest'i — `TestPassword_TheDigestAndTheDummyAreBothCostTwelve` ve harici
+>     testlerce sürülür), konusu parola olmayan TOTP/oturum testleri challenge'ı doğrudan basar,
+>     ortak digest'ler kilit alınmadan önce ısıtılır. Sonra tam koşu: paket **240 sn**,
+>     `internal/db` **62,9 sn**, duvar saati **480 sn** (en uzun paket `internal/handler` 473 sn —
+>     bu paket kritik yolda değil). Kalan bedel testlerin KONUSU olan karşılaştırmalardır.
+>     *(2026-09-30 doğrulaması: bu maddenin sayıları **önceki yapıcının tek koşusudur**; "~4,4 sn",
+>     "380 sn" ve "101 → 331 sn" artık var olmayan bir sürüme aittir, **yeniden ölçülmedi**.
+>     **Yüke bağlı gözlem aralığı, nokta değil (M6-04 dersi):** yedi tam koşu (`.env` yüklü,
+>     `-race -count=1 ./...`, aynı makine, iki yürütücü — bu doğrulamanın beş koşusu ve 2.
+>     denetçinin iki koşusu, 2026-09-30): paket **110,9–180,7 sn**, `internal/db` **41–120,8 sn**,
+>     duvar **281–348 sn**. Paketin üst ucu 3. turun sızıntı testinden gelir: süreç geneli
+>     enrollment bütçesini tüketmek (E7 kolu) sekiz cost-12 digest öder, `-race` altında testin
+>     kendisi ~34 sn. Dolaylı bcrypt
+>     okuması: `TestPassword_TheDigestAndTheDummyAreBothCostTwelve` (≥2 cost-12 üretim + 2
+>     karşılaştırma) `-race` altında 9,98 sn.)*
+>     **API notu (OP-8'e):** `TOTP(ctx, challenge, code)` adres ALMAZ — adres bütçesi floodGate'in
+>     (`AllowRequest`), geçerli bir challenge ise doğru parolayla basılmıştır; anlamlı bütçe
+>     hesabınkidir. `Password(ctx, addr, email, parola)` ve `CompleteEnrollment(ctx, addr, …)`
+>     adresi `work` bütçesi için alır ve hiçbir satıra yazmaz.
+> 18. **Sayılı sınırlar (kapatılmadı, adıyla).** *(11. tur: geçerli olan bu maddenin sonundaki
+>     **tek liste**dir; bu paragraf tarihçedir — neyin ne zaman eklendiği ve kapandığı.)*
+>     Challenge tek kullanımlık değil (md. 6) · audit
+>     tavanı bir iz susturma ilkelidir (md. 8) · bütçeler süreç içidir (yeniden başlatma sıfırlar,
+>     iki replika her tavanı ikiye katlar) · `Secret.Base32`/`URI` düz metin dize döndürür (Go
+>     dizgesi silinemez; kalıntı kayıt ekranınındır) · TOTP kodu ve parola, handler'dan düz `string`
+>     olarak gelir (sızıntı testi numaralı kolların hatalarını ve Debug log'u numaralı render'larda tarar — 5. tur sözleşmesi —, tip duvarı değildir) · giriş
+>     aramasını definer'a taşıma önerisi (ADR 0021 sınır 11) **benimsenmedi** — yeni definer ve rol
+>     migration ister; `tappa_operator` digest'i ve zarfı okumaya devam eder. *(2026-09-30
+>     doğrulamasının eklediği, analizle, ölçülmedi:)* kilitliyken doğru kod ile yanlış kod **aynı
+>     hatayı** (`ErrLocked`) alır ama doğru kod bir veritabanı çağrısı fazla öder
+>     (`op_open_session` reddi + `locked` satırı; yanlış kod yalnız `totp_failed` satırı) — bir
+>     zamanlama farkı. Pencere başına etkili tahmin sayısını **artırmaz**: kilitliyken bulunan bir
+>     kod ancak kilit bitince kullanılabilir, kilit son YANLIŞ tahminden 15 dk sonra biter ve kodun
+>     ömrü ±1 adımdır (~60–90 sn) — yani işe yarayan bir tahminin önünde ~14 dk yanlış tahminsiz bir
+>     aralık olmak zorunda; md. 10'un "pencere başına en çok bir tahmin" aritmetiği korunur.
+>     *(6. tur, 2026-09-30, adıyla ve ölçülerek:)* ~~çağıranın dışa kapalı alanında tutulan bir
+>     `Config` DEĞERİ anahtarlarını yansımayla basar (…`knownLeaks`… OP-7'ye kural olarak
+>     devredildi)~~ — **7. turda kapatıldı:** anahtarlar `Key` (`*string`); o sınır ve
+>     `knownLeaks` yok · sızıntı testinin hasat pini sayı ve arite tutar, içerik değil (doğru biçimde yanlış değer
+>     kaydeden sahte store görülmez) · audit-satırı AST okuması ada göredir (başka adla satır
+>     yazan yeni bir `Store` metodu ve reflection görülmez; değişken tür yalnız kendi
+>     fonksiyonunun ya da paket düzeyi bildiriminin atamalarından çözülür, çözülemeyen "?"
+>     olarak işaretlenir) · ~~kapalı tip kümesinin `internal/db` yürüyüşü dışa açık alanları ve
+>     yöntem imzalarını izler~~ *(7. tur: tip denetimi — dışa açık fonksiyon, değişken, sabit ve
+>     yöntem imzaları dahil)*; kapalı küme ÇALIŞMA ZAMANINDA başka bir paketin tipiyle doldurulan
+>     bir `any`'yi görmez ~~(küme bu paketin ve `internal/db`'nin adlı tipleridir) · alan kontrolü
+>     map/slice ELEMAN tiplerine inmez~~ *(11. turda ikisi de değişti: kayıt modülün her
+>     paketinin adlı tipleri; kural (2) dilim/dizi elemanına ve map değerine özyinelemeli —
+>     tek liste, S1 ve S3–S4)*. *(7. tur, eklenen:)* `Secret.Zero` baytları SİLEMEZ
+>     (Go dizgesi değişmez), değeri unutturur — ekranın `Base32`/`URI` dizgeleri zaten
+>     silinmiyordu; oturum açılışında ve enrollment'ta açılan sır yerel `[]byte`'tır ve
+>     `sun.Zero` ile silinir. `Key.bytes()` her kullanımda bir kopya üretir, silinmez — anahtar
+>     süreç boyunca zaten bellekte (`internal/config`'in her anahtar için sahip olduğu
+>     emanet). *(8. tur, eklenen, ölçülerek:)* ~~kapalı tip kümesi, başka bir paketin
+>     BİLDİRDİĞİ bir tipin içinden … ulaşılan tipi izlemez (öteki paketler yüklenmez …)~~ →
+>     **9. turda değişti:** tipler artık KESİN yüklenir (derleyicinin export verisi);
+>     **10. turdan:** yürüyüş, go/types'ın tip grafiğini tükenmiş bir anahtarla tam dolaşır
+>     (her tür adıyla; tanınmayan tür = kırmızı; her paketin tipi, her struct alanı dışa açık
+>     ya da kapalı) — 9. turun "başka paket yalnız tip argümanıyla" öncülü yanlıştı ve
+>     kalktı; kapalı kümenin kalan sınırı yalnız ÇALIŞMA ZAMANINDA doldurulan bir `any` ve
+>     reflection · arayüz tipli bir alanın ÇALIŞMA ZAMANI içeriği (`Authenticator.store`'a konan
+>     bir `[]byte` ya da düz DSN'li bir yapı) alan kurallarının dışındadır · *(9. turda ölçüme
+>     göre yeniden yazıldı:)* `store`'un DÜZ bir alanı, `Authenticator`'ın değer ya da işaretçi
+>     olarak tutulmasından bağımsız olarak basılabilir (8. denetçinin 28 fiillik ölçümü: düz
+>     alanlı değer store'u her fiilde, düz alanlı işaretçi store'u 14 fiilde, dışa kapalı
+>     alandaki `*Authenticator` 14 fiilde; `*string` alanlı store hiçbirinde) — **kural: düz
+>     alan yok** (OP-7 devri md. 4) · ~~ve bütçe haritalarının anahtarlarını (istemci
+>     adresleri, operatör id'leri) basar — `badVerb` `*budget`'i bir kez açar;
+>     ~~`limits *limits` yolu kapatır …, ürün değişikliği kararı sonraya bırakıldı~~ → **8b,
+>     KAPANDI (orkestratörün kararı):** `Authenticator.limits` artık `*limits`; pinli (sızıntı
+>     matrisinin `Authenticator` specimen'inin bütçe haritası dolu, adres sırlarından biri;
+>     `limits limits` geri dönüşü kırmızı). `Authenticator`'ın öteki değer/işaretçi alanları
+>     sayıldı: `store` (arayüz — içeriği OP-7'nin, kural OP-7 devrinde), `keys` (`authKeys`
+>     değeri — alanları `Key`, matriste ölçüldü), `log` (`*slog.Logger` — `badVerb` bir kez açar,
+>     yalnız handler'ının ADRESİNİ basar; adres ya da kimlik bilgisi tutmaz), `now`/`compareFn`/
+>     `digestFn` (fonksiyon — adres basılır); `store`'un kuralı OP-7 devrinde.~~ *(9. tur: bütçe
+>     yarısı 8b'den beri kapalı — 8. denetçi 0 isabet ölçtü; sayım cümlesi 8. tur alt
+>     bölümünde.)*
+>
+>     **Tek liste (11. tur, 2026-10-01; 12. turda güncellendi: S3, S4, S6, S7 yeniden yazıldı,
+>     S11–S14 eklendi).** OP-6'nın sayılı sınırları YALNIZ burada tutulur; test yorumları
+>     (`leak_external_test.go`: kapalı küme testi, `notSpecimens`, `isBytesOrText`,
+>     `redactedValues`, `printed`, `exactImports`, sızıntı testinin NOT CLAIMED listesi;
+>     `units_test.go`: AST okuması ve sahte digest), ADR 0020'nin OP-6 notu ve OP-8 devri buraya
+>     işaret eder. Neden: 10. turda kopyalar ayrıştı — üçüncü bir sınır (S2) yalnız test
+>     yorumunda ve 10. tur bloğundaydı. Kural (1)'in (her alan adıyla ve tipiyle) 12. turdan beri
+>     muafiyeti YOK: fonksiyon ve `okFieldTypes` tipli alanlar da adlıdır.
+>     *Ürün:*
+>     - **P1** — challenge tek kullanımlık değil (md. 6).
+>     - **P2** — audit tavanı bir iz susturma ilkelidir (md. 8).
+>     - **P3** — bütçeler süreç içidir: yeniden başlatma sıfırlar, iki replika her tavanı ikiye katlar.
+>     - **P4** — giriş aramasını definer'a taşıma önerisi (ADR 0021 sınır 11) benimsenmedi;
+>       `tappa_operator` digest'i ve zarfı okumaya devam eder.
+>     - **P5** — kilitliyken doğru kod yanlış kodla aynı hatayı alır, bir veritabanı çağrısı
+>       fazla öder (zamanlama farkı; pencere başına etkili tahmin sayısını artırmaz — yukarıda).
+>     - **P6** — Go dizgeleri ve kopyalar: `Secret.Zero` baytları SİLEMEZ, değeri unutturur;
+>       `Secret.Base32`/`URI` dizgeleri silinmez (kalıntı kayıt ekranınındır); `Key.bytes()` her
+>       kullanımda silinmeyen bir kopya üretir (anahtar süreç boyunca zaten bellekte).
+>     - **P7** — TOTP kodu ve parola handler'dan düz `string` gelir; sızıntı testi numaralı
+>       kolların hatalarını ve Debug log'u numaralı render'larda tarar, tip duvarı değildir
+>       (OP-8'e redacting-tip önerisi, OP-8 devri).
+>     - **P8** — (12c; 12d'de pencere metni düzeltildi) süreç geneli `enroll` bütçesini DAĞITIK
+>       bir saldırgan yine tüketir. Adres payı (`enrollAddr`) anahtarın KENDİ penceresi başına 3;
+>       pencereler hizalı değil — pencere sınırında tek anahtar bir süreç penceresine 5'e kadar
+>       koyar, tek bir süreç penceresi iki anahtar ve önceki bir istekle tükenir; SÜREKLİ
+>       tüketim en az dört hız anahtarı ister — dört IPv4 adresi ya da dört IPv6 /64'ü (bir /48
+>       sahibi 65 536 tutar). Çare OP-8'in (K4 ops IP kısıtı ya da başka).
+>     - **P9** — (12c) doğru parolası girilip TOTP'si tamamlanmayan giriş KALICI bir iz
+>       bırakmaz: yalnız bir slog Info satırı (id'yle; süreç log'unun saklama süresi kadar);
+>       `password_ok` audit türü bir migration'dır — OP-8/OP-14.
+>
+>     *Kapalı tip kümesi ve alan kuralı:*
+>     - **S1** — ÇALIŞMA ZAMANI: kapalı küme, bir fonksiyonun doldurduğu `any`'yi (ya da her
+>       arayüzü) ve yansımayla yapılan değeri görmez — küme tiplerin söylediğidir. Arayüz tipli bir
+>       alan (`Authenticator.store`) bildirilen tipiyle yargılanır; içine konan `[]byte` ya da düz
+>       DSN'li yapı alan kurallarının dışındadır (`store`'un kuralı OP-7 devrinde: düz alan yok).
+>     - **S2** — bir adlı tipin DIŞA KAPALI yöntemleri yürünmez (paket dışından çağrılamaz,
+>       yazdırılacak değer tutmaz).
+>     - **S3** — İŞARETÇİ MODELİ (12. turda yeniden yazıldı; ~~"fmt bir kabın içindeki
+>       işaretçiyi her fiilde adres olarak basar"~~ yanlıştı — 11. denetçi: `[]*[]byte`'taki
+>       anahtar 269 render'ın 24'ünde basıldı). Ölçülen gerçek: fmt bir YOLDA BİR işaretçiyi
+>       açar — alanın, elemanın, map anahtarı ya da değerinin, her derinlikte — dizi, dilim,
+>       struct ya da map'i gösteriyorsa ve fiil bir işaretçinin almadığı bir fiilse (`badVerb`
+>       `%v` ile yeniden basar; ondan sonraki her işaretçi adrestir); `encoding/json`
+>       (`json.Marshal`, slog'un JSON handler'ı) DIŞA AÇIK bir alanın HER işaretçisini izler.
+>       Kural (2) bu modeli okur. **Okumadıkları — yalnız dışa KAPALI bir alanda:** başka bir
+>       şeyi gösteren işaretçi (`*string`, `**[]byte`), yoldaki ilk işaretçinin arkasındaki her
+>       işaretçi (`[]*[]*[]byte`), kanal ve fonksiyon. Pin: `TestExportedTypes_ExemptFormsPrintNoKeyBytes`
+>       bu biçimleri KEK'le doldurup matriste basar — muaf on biçim 0 yolda; yanlarındaki
+>       okunan dokuz biçim (`[]*[]byte`, `map[string]*[]byte`, `[]*[32]byte`, dışa açık
+>       `*string` …) 3–262 yolda — ve `isBytesOrText`'in cevabını ölçümle eşler.
+>     - **S4** — kural (2)'nin OKUMADIKLARI: `string` TÜRÜNDE bir map anahtarı (`budget.windows`;
+>       anahtarlarını `checkBudgetKeys` İÇERİKLE pinler — 12b: flood/work sürüşün kullandığı
+>       istemci adreslerinden biri, account sürüşün operatör id'lerinden biri, auditCap/enroll
+>       yalnız boş anahtar; ~~12. turun biçim pini (adres gibi ayrışır, uuid gibi ayrışır)~~
+>       12. denetçinin beş mutantını yeşil bırakıyordu. **Sınır, adıyla:** yalnız SÜRÜLEN
+>       yollar — 43 kol (12c: E10) ile `Verify` ve `Logout`'un başarı yolları; sürülmeyen bir yolun
+>       şarjı görülmez) — başka türde bir anahtar okunur (`map[[32]byte]bool` kırmızı); tek bir
+>       tamsayı (sayaç, `int` olarak kod); bool, float ya da karmaşık sayı dizisi;
+>       `okFieldTypes` tipindeki değer (uuid bir bayt dizisidir, sır değildir — alanı yine de
+>       kural (1)'de adlı); arayüzün çalışma zamanı içeriği (S1).
+>     - **S5** — DÜZ DÖNÜŞ (Mk): dışa açık bir imzanın düz metin, bayt ya da modül DIŞI bir yapı
+>       DÖNDÜRMESİ hiçbir kuralın konusu değildir — `func Snap() struct{ K []byte }` düz `[]byte`
+>       döndürmekle eşdeğerdir (kayıt yalnız modülün adlı tiplerini tutar; alan kuralı kümenin ve
+>       tuttuğu yapıların alanlarını okur). `Secret.Base32`/`URI` ve
+>       `EnrollmentToken.RevealForLink` meşru olarak düz `string` döndürür: değerin çağırana
+>       geçtiği yer bilinçli bir API kararıdır, gözden geçirmede okunur. Dışa açık PAKET
+>       DEĞİŞKENİ ise 12b'den beri pinli: yalnız `error` olabilir (bugün 8 sentinel); başka
+>       tipte bir değişken (`var LastKEK []byte`) kırmızı. 12d'den: her dışa açık `error`
+>       değişkeni `errors.New(<dize literali>)` ile bildirilir ve paketin hiçbir yerinde yeniden
+>       yazılmaz ya da adresi alınmaz (AST; bugün 8'i de bu biçimde); `New`'da KEK metniyle
+>       doldurulan `var ErrLastKey error` kırmızı. Görülmeyen, adıyla: yansıma ya da `unsafe`
+>       ile yazma.
+>
+>     *Specimen araması ve sızıntı testi:*
+>     - **S6** — `dummyDigest` ARANMAZ: `Authenticator` specimen'inin tuttuğu beş `Key`'den
+>       dördü aranır (12c'den: `pendingKey` dahil); `dummyDigest` `unsearched`'te adıyla — `New`'un çekip attığı 32 rastgele
+>       baytın cost-12 bcrypt digest'i. 12. turdan pinli olan kısmı:
+>       `TestDummyDigest_IsNotTheDigestOfAKnownValue` — sıfır tohumun (dolmayan bir okumanın
+>       bıraktığı) ve boş parolanın digest'i DEĞİL (`rand.Read(nil)` kırmızı). Pinli OLMAYAN:
+>       sabit, sıfır olmayan bir tohum (ölçüldü: yeşil); iki sahte digest'i karşılaştırmak hiçbir
+>       şey kanıtlamaz (bcrypt her birini tuzlar).
+>     - **S7** — aramanın pini (`TestSpecimens_SearchEveryRedactedValueTheyHold`) specimen'in
+>       TUTTUĞU redakte değerleri okur; bir yaprağın oturabileceği ama DEĞERSİZ bırakılmış her
+>       yer kırmızı (12. turdan: yaprak tutabilen bir tipe nil işaretçi, boş dilim ve boş map
+>       dahil — `*struct{ K Key }`, `**Key`, `*[1]Key`, `[]Key{}`); `unsearched` girdileri yol
+>       listesiyle pinli. Yürünmeyen: bu modülün DIŞINDAKİ bir paketin yapısının içi
+>       (`atomic.Pointer`, `sync.Map`) ve nil bir arayüz (tipi, yani ne tutabileceği,
+>       bilinmez); düz değerler (bütçe anahtarındaki adres) elle listelenir.
+>     - **S8** — arama biçimleri: bölünmüş ya da kısmi değerler; listede olmayan render'lar
+>       (ölçülüp bulunamayanlar adıyla); bu pakette olmayan asla-loglanmaz maddeleri;
+>       dışarıdan başarısız kılınamayan kollar — sızıntı testinin NOT CLAIMED listesi.
+>     - **S9** — hasat pini sahte store'un kaydettiklerinin SAYISINI ve aritesini tutar,
+>       içeriğini değil (doğru biçimde yanlış değer kaydeden sahte store görülmez).
+>     - **S10** — audit-satırı AST okuması ADA göredir: başka adla satır yazan yeni bir `Store`
+>       metodu ve reflection görülmez; değişken tür yalnız kendi fonksiyonunun ya da paket
+>       düzeyi bildiriminin atamalarından çözülür, çözülemeyen "?" olarak işaretlenir.
+>     - **S11** — GEREKÇE METİNLERİ gözden geçirenin İDDİASIDIR: `allowedFields`,
+>       `notSpecimens`, iç istisnalar ve `unsearched` girdilerindeki `why`. Testler her
+>       girdinin ADINI, TİPİNİ ve KÜMESİNİ pinler (kural (1) istisnasız; kapalı küme iki yönlü;
+>       `unsearched` ve — 12b'den — `okFieldTypes` literal listeyle), metnini ASLA. Bir gerekçeyi yanlışlayıp ad, tip ya da
+>       küme değiştirmeyen bir mutant tanım gereği sözleşmenin dışındadır (ölçüldü: yanlış
+>       yazılmış `dummyDigest` gerekçesi yeşil); üçünden birini değiştiren her mutant
+>       kırmızıdır. Gerekçeler yine de ölçülen gerçekle yazılır.
+>     - **S12** — `go list` hatası testin mesajına stderr'iyle girer: cmd/go proxy URL'sini
+>       `url.URL.Redacted` ile basar (parola maskelenir); URL'nin KULLANICI ADI kısmına konmuş
+>       bir kimlik bilgisi maskelenmez.
+>     - **S13** — pozitif kontrol (`TestLeak_TheBareValueIsThePositiveControl`) yalnız-adres
+>       yollarında (`%p` ile bir işaretçi, dilim ya da map tutucusu) bir şey gösteremez; arama
+>       orada da koşar.
+>     - **S14** — tip pini adlı bir tipi ADIYLA (tam paket yolu) tutar: adlı, struct ya da
+>       arayüz olmayan bir tipin TANIMI aynı adla değişirse pin bunu görmez — kural (2) tanımı
+>       yapısal okur (kural (2)'nin okuduğu bir biçime — dize, tamsayı dizisi, açılan bir işaretçinin
+>       arkasındaki bayt — dönen her tanım kırmızı).
+>       Bugün yürünen alanlarda böyle tipler yalnız modül dışıdır (`uuid.UUID`,
+>       `time.Duration`); `Store` arayüzünün yöntemleri kapalı kümenin yürüyüşündedir.
+>
+> **Kabullere bağlananlar — OP-6, karşılıkları:** RFC 6238 Ek B → `TestTOTP_RFC6238AppendixB`
+> (+ `TestHOTP_RFC4226AppendixD`) · aynı kod N goroutine → md. 11 · yanlış KEK açamaz →
+> `TestOpen_AWrongKEKCannotOpen` + md. 13 · sızıntı testleri harici pakette →
+> `internal/operatorauth/leak_external_test.go` (`TestLeak_NoSecretOnAnyPrintingPath`, pozitif
+> kontrol `TestLeak_TheBareValueIsThePositiveControl`, `TestLeak_NoInputInAnyErrorOrLogLine`) ·
+> 8 sa / 30 dk / MFA'sız / iptal / `disabled` → md. 14 · kilit eşiği ve penceresi → md. 10 ·
+> zarf → md. 2 · düz sırrın yeri → md. 7 · limiter testi → md. 8. ~~**Mutasyonla:** 31 mutasyon
+> (…) — **31'i de kırmızı**; birinin (±1'in genişletilmesi) ilk koşuda YEŞİL kaldığı ölçüldü:
+> pencere testi beklentisini sabitin kendisinden hesaplıyordu (M6-01 B'nin totoloji sınıfı),
+> test ADR'nin literal ±1'ine ve sabitlerin literal pinine çevrildi, aynı mutasyon kırmızı.
+> Kapsam: `internal/sun` %97,4, `internal/operatorauth` %90,7.~~ *(Önceki yapıcının iddiası;
+> raporu yoktu, mutasyon listesi ve çıktısı bulunamadı — aşağıdaki doğrulama bloğunda yeniden
+> ölçüldü ve yerine geçti.)*
+>
+> **Kart düzeltmesi (2026-09-30, OP-6 doğrulama turu).** Önceki yapıcı haftalık kullanım
+> limitiyle yarıda durdu; raporsuz, denetimsiz iş baştan sınandı. Ölçüm: dev Postgres 17.10, `.env`
+> yüklü; mutasyonlar kopyala-geri-yaz (her birinden sonra dosyanın sha256'sı özgün olana döndü,
+> 68/68), hedefli `-run`, `-race`'siz; tam koşu ve kapsam ayrıca. Düzeltilen iddialar madde
+> madde yukarıda, *(2026-09-30 doğrulaması)* etiketiyle (md. 6, 8, 9, 16, 17, 18). Kalanlar:
+>
+> 1. **Mutasyon — 68 mutasyon; ilk ölçümde 58 kırmızı, 9 YEŞİL ve 1 derlenmeyen (MAC kontrolünü
+>    kapatan biçim `mac`'i kullanılmaz bıraktı — derlenir biçimde yeniden kuruldu, kırmızı); 9
+>    yeşilin her biri bir test güçlendirmesiyle kırmızıya döndü → son koşu 68/68 kırmızı.** Sınıflar: TOTP penceresi (daraltma, döngüde ve sabitte genişletme), erken
+>    çıkış, sabit zaman (üç biçim), iki adım eşleşince sonraki, bayt sırası, kesme maskesi, epoch
+>    öncesi taban · tekrar/kilit kolunun kaydı, dört bütçenin her biri (silme ve sıra), audit
+>    tavanı, itiraz mutasyonu (md. 9) ve kardeşi, sahte digest ve maliyeti, zarf hatasının
+>    sayılması, enrollment AAD'si / adımı / parola kuralı / red satırı, Go'nun DB reddini ezmesi ·
+>    yer tutucu, `Format` sızıntısı, anahtarsız hash · token hash sözleşmesi · blob AAD'si / süresi /
+>    süresinin AAD dışında kalması · challenge TTL sınırı / MAC / katı base64 / anahtar türetmesi /
+>    gelecek saat · çerez `SameSite` / `Secure` / ad · bütçe tahliyesi, sınırsız harita, sayı pini,
+>    `AllowRequest`, pencere yenilenmesi · kuşak (e-posta ve id), `PgError`, gömülü değer, 28000
+>    eşlemesi, `operator.sql` ayna kayması · `Seal` sabit nonce / AAD'siz / yarım anahtar programı /
+>    biçim sırası / boş AAD · danışma kilidinin paylaşımlıya dönmesi. **İlk koşuda YEŞİL kalan 9 ve
+>    kapatan güçlendirme:**
+>    - `want == in && subtle.ConstantTimeCompare(…) == 1` ve `_ = subtle.ConstantTimeCompare(…);
+>      hit := want == in` — döngüde yine tek sabit-zaman çağrısı vardı →
+>      `TestVerifyCode_TheWindowIsWalkedWholeInConstantTime` artık döngüdeki her `==`/`!=`'in bir
+>      işleneninin o çağrı olmasını ister (iki mutasyon).
+>    - DB'nin reddettiği kodun satırını ortak tavandan geçirmek → md. 9'un ek yarısı.
+>    - enrollment'ın parola kuralını silmek (`hashPassword` kuralı yeniden uyguladığı için hata
+>      aynıydı) → `TestEnrollment_CompletesOnceAndTheStoredEnvelopeOpens` 13 runelik vakada süreç
+>      geneli enrollment bütçesinin harcanmadığını da ölçer.
+>    - challenge MAC anahtarını `build`'de ham oturum anahtarı yapmak (fonksiyon pinliydi,
+>      kullanımı değil) → `TestChallenge_KeyIsDerivedNotTheSessionKey` kurucunun ürettiği
+>      Authenticator'da ham anahtarla imzalı challenge'ı reddettirir, türetilmişle kabul ettirir.
+>    - `AllowRequest` hep "evet" → `TestAllowRequest_RefusesPastTheFloodLimitPerAddress`.
+>    - id aramasından kuşağı (`status = 'active'`) silmek — tek sonda `pending` hesaptı ve
+>      kimlik bilgisi olmadığı için `scanOperator` onu zaten "yok" sayıyordu →
+>      `TestOperatorByEmail_TheBeltHoldsWhereRLSDoesNot` sahip olarak `disabled` hesabı da id ile
+>      arar (kontrol: `active` bulunur).
+>    - enrollment'ın adres başına `work` harcamasını silmek → md. 8'in ek kolu.
+>    - challenge'ın hesabı artık `active` değilken koda devam etmek → yeni
+>      `TestTOTP_AChallengeDoesNotOutliveTheAccount` (parola adımından sonra `disabled` edilen hesap:
+>      `ErrRefused`, oturum/satır/sayaç yok; kontrol: yeniden `active` → aynı challenge ve kod
+>      oturum açar).
+> 2. **Kapsam — bu kartta TEK kaynak (12. tur sonunda yeniden ölçüldü, 8.–11. turla aynı;
+>    `.env` yüklü, `-count=1`, `-race`'siz):**
+>    `internal/sun` **%97,4**, `internal/operatorauth` **%95,6** (2.–5. turda %95,2, 6. turda
+>    %95,3, 7. turda %95,5). Kapsanmayan dallar yalnız
+>    `crypto/rand` okuma hataları ile `Seal`/bcrypt/token üretim hataları (hata enjeksiyonu
+>    olmadan ulaşılamaz) — hiçbiri bir kabul kolu değil. Test sayısı (`-race -v`, üst düzey):
+>    `operatorauth` 47 (4. turda `TestAuditRows_EveryPasswordlessKindGoesThroughTheCap`, 6. turda
+>    `TestExportedTypes_EveryOneIsASpecimenOrANamedException`, 8. turda `TestKey_CopiesInAndOut`,
+>    11. turda `TestSpecimens_SearchEveryRedactedValueTheyHold`, 12. turda
+>    `TestExportedTypes_ExemptFormsPrintNoKeyBytes` ve `TestDummyDigest_IsNotTheDigestOfAKnownValue` eklendi; 5. ve 7. turda yeni test
+>    fonksiyonu yok — vakalar mevcut testlere eklendi),
+>    `sun` 176, SKIP 0.
+> 3. **RFC vektörleri bağımsız yeniden üretildi** (python `hmac`): RFC 4226 Ek D'nin 10 satırı ve
+>    RFC 6238 Ek B'nin 18 satırı (T değerleri dahil) testteki tabloyla birebir.
+> 4. **Kapı zinciri (2026-09-30; 5.–12. tur sonunda baştan yeniden koşuldu, aynı sonuç —
+>    6. turdan beri `gofmt -s -l` ile, `make fmt`'in biçimiyle; 7. turda staticcheck son kod
+>    değişikliğinden SONRA):** `gofmt -l .` boş · `go build ./...` · `go vet ./...` ·
+>    `make gen` sonrası `git diff --stat` aynı (sqlc `operator.sql`'den dosya üretmiyor —
+>    `resolve.sql` gibi; `internal/store`'da fark yok) · `go.mod`/`go.sum`/`sqlc.yaml` diff boş ·
+>    `./scripts/redline-check.sh` exit 0 · `TestEveryNamedTestExists` yeşil · `staticcheck` bu
+>    makinenin Go 1.27.1'iyle T72'de çöküyor, önbellekteki `go1.26.7` araç zinciriyle temiz.
+> 5. **Dev DB:** mutasyon ve tam koşular sonrası `pg_db_role_setting`'te operatör rolleri için 0
+>    satır; `tappa_opdefiner`'ın dört operatör tablosu dışında tablo/sütun yetkisi 0; beş `op_*`'ın
+>    sahibi `tappa_opdefiner`; rol üyeliği 0; `zz_*` nesnesi 0. Kalıcı test verisi (tasarım gereği,
+>    temizlenmedi): eşzamanlılık testlerinin — bu paketin ve OP-5'in — her paket koşusunda
+>    bıraktıkları; hesapların hepsi `@example.test`; audit türleri `enrollment`, `login`,
+>    `totp_failed`, `locked` (sonuncusu hem yarış testinin kilitten sonra okuyan kaybedenlerinden
+>    hem de DB reddini `locked` diye etiketleyen mutasyonların commit ettirdiği satırlardan).
+>    ~~operatör hesap/oturum/audit satırı bu turun başında 35/39/161, … 4. turun sonunda
+>    480/469/3371 … ve 14 `locked`~~ — **5. tur:** satır sayıları kaldırıldı. Her paket koşusuyla
+>    artan bir sayı bir gerçek değil, bir anın ölçümüdür (M6-05 A dersi), ve "14 `locked`" zaten
+>    yanlıştı (4. denetçi 31 ölçtü). Kayan sayı artık yazılmıyor.
+>
+> **2. tur (2026-09-30) — üçüncü göz RED: 4 bloklayıcı + 9 bloklamayan, hepsi kapatıldı.** Ürün
+> kodu doğru bulundu; bulgular pinsiz korumalardı. Denetçinin 25 mutasyonu (`X*`, `Y*`, `Z1`, üç
+> kontrol) aynı adlarla yeniden koşuldu — **25/25 kırmızı** (`Y20`'nin metni `digestFn` yüzünden
+> uyarlandı, anlamı aynı); bu kartın kendi listesi 68 → **70** (saklanamayan adresin iki yarısı) —
+> **70/70 kırmızı**. Bulgu → karşılığı:
+>
+> | Bulgu | Neydi | Karşılığı (test) | Kıran mutasyon |
+> |---|---|---|---|
+> | B1 | Tekrar korumasının kablolaması: `op_open_session`/`op_complete_enrollment`'a eşleşen adım yerine Go'nun o anki adımı verilince paket yeşil, tek kod 2 oturum | `TestTOTP_ANextStepCodeIsRetiredByItsOwnStep`, `TestEnrollment_ANextStepFirstCodeCannotSignInAgain` (bir SONRAKİ adımın kodu: saklanan adım = eşleşen adım; Go saati o adıma geçince aynı kod `ErrCodeRejected`, 1 oturum) | X8, X8b |
+> | B2 | Audit tavanı yalnız `unknown_email` ile sürülüyordu | `TestLimits_ARefusedRequestWritesNoRowAndMovesNoCounter`: üç tür, her biri önce kontrol (1 satır), sonra tavan tükenmişken 0 satır | X2, X3 |
+> | B3 | Harici sızıntı testi TOTP'u doğrulanmayan challenge'la sürüyordu; kod hiç kullanılmıyordu | `TestLeak_NoInputInAnyErrorOrLogLine` yeniden yazıldı: challenge'ı parola adımı basar; kod kolları (yanlış kod, kilit, DB reddi, DB hatası, satır yazılamaması) ve enrollment kolları sentinel'iyle doğrulanarak sürülür. ~~her giriş noktasının her hata kolu~~ — **3. turda yanlışlandı:** throttle kolları, hesap-gitmiş, zarf ve biçimsiz oturum token'ı kolları ulaşılmıyordu; kolların numaralı listesi 3. tur tablosunda | X11, X15, X16 (+ X10, Y39) |
+> | B4 | Enrollment bütçesinin bcrypt'ten önce harcandığı pinsiz | aynı test: reddedilen istekte 0 digest, 0 DB çağrısı (`digestFn` sayacı, `countingStore`); kontrol 1 + 1 | Y20 |
+> | N1 | Oturum hash'inin anahtarı pinsiz | `storedUnderTokenKey` — satırdaki `token_hash` = HMAC-SHA256(TokenHMACKey, token), testte bağımsız hesaplanır (boolean): giriş ve enrollment oturumu | X1, X1b |
+> | N2 | Çerez testi alt dize arıyordu | `TestCookies_AreHostPrefixedStrictAndSecure`: nitelik KÜMESİ tam eşitlik, ad ve değer tam | X4, X5 |
+> | N3 | Harness'in `tappa_operator` kimliği pinsiz | `isOperator`: her çağrıda `current_user` = `session_user` = `tappa_operator` | X6 |
+> | N4 | Token biçim kapısı pinsiz | `TestEnrollment_CompletesOnceAndTheStoredEnvelopeOpens`: her ret vakası ödediği digest ve DB çağrısını sayar (Go'nun kendi reddi 0/0, DB reddi 1/1) | Y39 |
+> | N5 | "Hash dizge üzerinden, injektif" iddiası pinsiz | Ölçüldü, iddia doğru ve yük taşıyor: 32 baytın son base64 karakterinde 2 kullanılmayan bit var ve biçim kapısı gevşek çözer; aynı baytların ikinci yazımı çözülmüş baytlarla hash'lenseydi aynı oturumun ikinci geçerli çerezi olurdu → `TestSessionToken_HashIsKeyedLowerHexOverTheString` | Y13 |
+> | N6 | `challengeMACLabel = ""` yeşil; sıfır id'li challenge | `TestChallenge_KeyIsDerivedNotTheSessionKey`: etiketin literal yazımıyla MAC kabul, etiketsiz MAC ret; sıfır id'li imzalı challenge ret | X7, X9 |
+> | N7 | `limits.go`'nun enroll yorumu yanlış (dağıtık sel değil, tek adres) | Yorum, md. 8 ve OP-8 notu düzeltildi (ölçüm md. 8'de); sayı değişmedi, öneri OP-8'e | — (yorum) |
+> | N8 | Saklanamayan adres 22021 → DB hatası, "aynı yanıt" kümesinin dışında | `internal/db`: aşırı uzun adres yolu; `TestPassword_EveryArmPaysOneComparisonAtTheSameCost` iki kol, `TestOperatorAccessors_AnUnstorableAddressIsNoAnswerNotAnError`, kuşak testine iki sonda | N8a, N8b |
+> | N9 | Sayılar | Kapsam yukarıda tek kaynak; satır bedeli md. 8'de iki ölçümü kapsayan bant; tablo satırında "8 s" → "8 sa"; test sayısı yukarıda | — |
+>
+> **3. tur (2026-09-30) — 2. denetçi (bağımsız) RED: 1. turun 13 bulgusunun kapandığını
+> doğruladı, 2 bloklayıcı + 5 bloklamayan buldu; hepsi kapatıldı.** Denetçi sondaları ve
+> probe dosyaları bu turda repoya **konmadı** — 2. turda repoya geçici bir probe dosyası koymak bir
+> kısıt sapmasıydı (iz kalmadı, doğrulandı); bu turda denetçinin enrollment sondası repoyu
+> kopyaladığım scratchpad dizininde koştu. Bulgu → karşılığı:
+>
+> | Bulgu | Neydi | Karşılığı (test) | Kıran mutasyon ve mesaj |
+> |---|---|---|---|
+> | B-1 | `digestFn` üretim maliyet pinini kaldırmıştı: testler alanı `hashPassword`'le eziyordu, `cost != Cost` testin kurduğu fonksiyonu ölçüyordu; cost-13/14 üreten üretim `digestFn`'i yeşil (kayıtlı operatörün karşılaştırması sahte digest'inkinden pahalı → "aynı süre" kırılır, e-posta kehaneti) | İki test de ÜRETİM değerini sarmalar (`orig := a.digestFn`); `TestPassword_TheDigestAndTheDummyAreBothCostTwelve` kayıtlı digest'i `New`'un kurduğu `Authenticator`'ın kendi `digestFn`'iyle üretir; `TestEnrollment_CompletesOnceAndTheStoredEnvelopeOpens` maliyeti DB satırındaki digest'ten (`bcrypt.Cost`) okur | M1: "cost=13 …" ve "stored digest: cost 13 …, want 12" · M1b: cost 14 · B1a (kendi) |
+> | B-2 | Sızıntı testinin "her kol" iddiası: throttle kolları, hesap-gitmiş, zarf ve biçimsiz token kolları ulaşılmıyordu | `TestLeak_NoInputInAnyErrorOrLogLine` kolları **numaralı** sürer ve başlığında sayar: P1–P6, T1–T12, V1–V3, L1–L3, E1–E9, A1, N1 — throttle'lar tekrarlı çağrıyla (work bütçesi parola kuralında reddedilen ucuz isteklerle; süreç geneli enrollment bütçesi Go'nun her kontrolünü geçen isteklerle), zarf kolu başka KEK altında mühürlü hesapla, hesap-gitmiş kolu geçerli challenge + boş store'la, A1 audit tavanını doldurarak. **Ulaşılmayan, sayılı:** `crypto/rand`, bcrypt üretimi, `Seal` ve token hash hatalarının kolları (dışarıdan başarısız kılınamaz) | M3, M3b, M4, M5, M5b, M6, M6b; kendi LK1–LK4 (biçimsiz token kolu değeri taşır ×2, hesap-gitmiş ve hesap-throttle kolları kodu taşır) |
+> | N-a | N7'nin 2. tur cümleleri de yanlıştı ("hiçbir satır yazılmaz", "yeni link verir", "pencere boyunca") | Yorum, md. 8 ve OP-8 notu ölçülen gerçekle düzeltildi: pencere başına 10 `enrollment_failed` satırı, yeni link kaçış değil, saldırı süresiz ~~dakikada ~1 istekle … sayacı yalnız süreç yeniden başlatması sıfırlar~~ (4. turda mekanizma düzeltildi: pencere başında 10'luk patlama, sıfırlanma pencerenin kendisi) (denetçinin sondası scratchpad kopyasında yeniden koşuldu: 10 red / 10 satır, meşru → throttled, yeni link → throttled, 2. pencere aynı) | — (metin) |
+> | N-b | OP-9 devir işaretçisi eksikti | OP-4 bloğunun OP-9 maddesine token biçimi şartı ve hash fonksiyonu adıyla eklendi | — (metin) |
+> | N-c | "Hesap bütçesi hesaba dokunmadan önce" pinsizdi | `countingStore.byID`: bütçenin reddettiği denemede hesap **okunmaz** (`TestLimits_ARefusedRequestWritesNoRowAndMovesNoCounter`) | M11: "past the account budget the account was read 2 time(s), want 0" |
+> | N-d | Sızıntı testi yalnız `Error()` metnini tarıyordu | Her hata ayrıca `%v`, `%+v`, `%#v` ile de taranır | — (tarama genişledi) |
+> | N-e | md. 17'nin süreleri | md. 17'de tam koşuların aralığı (4. turda yedi: beşi bu doğrulamanın, ikisi 2. denetçinin), "yüke bağlı gözlem" diye | — |
+>
+> **3. tur mutasyon koşuları (hepsi kopyala-geri-yaz, her birinde sha doğrulandı):** bu kartın
+> kendi listesi 70 → **75** (sızıntı testinin yeni kollarını taşıyan dört mutasyon ve B-1'in
+> kendi biçimi) — **75/75 kırmızı**; 1. denetçinin 25'i — **25/25 kırmızı**; 2. denetçinin 62'si
+> (56 + 6) — **62/62 kırmızı**. 2. denetçinin `C-M1`/`M1-vs-fixed` çifti koşulmadı: iki
+> mutasyonun metni tam olarak bu turun B-1 düzeltmesidir (testin üretim `digestFn`'ini
+> sarmalaması), artık uygulanacak kalıp yok. **Kendi hatam, kapı zincirinde yakalandı:** bu turda
+> sızıntı testine eklediğim bir sabit (sır kelimesi + üç karakter sınıflı değer aynı satırda)
+> `redline` R7d'yi `a0-token` sınıfıyla kırmızıya çevirdi; sabit yeniden adlandırıldı, R7d
+> muafiyeti eklenmedi, `redline` rc=0.
+>
+> **4. tur (2026-09-30) — 3. denetçi (bağımsız) RED: 2. turun 7 bulgusunun kapandığını ve B-2'nin
+> numaralı kollarının 34/34 kırmızı olduğunu doğruladı; 3 bloklayıcı + 3 bloklamayan buldu; hepsi
+> kapatıldı.** Denetçinin 55 mutasyonu aynı adlarla bu ağaçta yeniden koşuldu (sonuç aşağıda);
+> sonda/probe repoya konmadı. Bulgu → karşılığı:
+>
+> | Bulgu | Neydi | Karşılığı | Kıran mutasyon |
+> |---|---|---|---|
+> | B-A | Sızıntı testinin arama kümesi elle listelenmişti: enrollment'ın düz TOTP sırrı hex'te, E4'ün sayfaları, E3'ün biçimsiz token'ı, oturum hash'i, yeni digest ve yeni zarf, 31 baytlık KEK kümede yoktu | ~~Küme artık **türetilir**: verilen her girdi (…), sahte store'un döndürdüğü (…) ve **aldığı** her kimlik bilgisi (…), türetilenler (…)~~ — **5. turda yanlışlandı** (4. denetçi: iddia kapsamdan genişti — `reveal()` ile T12/E9'a konan ham token, türetilmiş challenge anahtarı, bir sonraki adımın kodu, `% x` ve `%#v` render'ları, bölünmüş kod yakalanmıyordu; sahte store'un hasadı da pinsizdi, silinen bir kayıt yeşil kalıyordu). Yerine **numaralı sözleşme** geçti: 5. tur alt bölümü. 4. turun ölçtüğü kısım: bu satırdaki değerler kümeye eklendi, her üye 12 render'da aranır (ham, `%q` ve JSON içi, hex küçük/büyük, base32 dolgulu/dolgusuz, base64 std/url ham/dolgulu, `[]byte`'ın `%v`'si); 6 karakterden kısa render aranmaz (en kısa üyeler 6 haneli kodlardır ve ilk sürümdeki gibi kümede kalır: paketin sabit metinlerinde altı rakamlık dizi yok). **Üye başına pozitif kontrol:** her üye 8 fiil/kodlamayla bir hataya ve Debug log satırına konur, aynı arama bulmak zorunda | G-E5hex, G-E4blob, G-E3tok, G-V3hash, G-T12hash, G-E9digest, G-E9sealed, G-N1kek (+ G-P1addr: adresler de kümede) |
+> | B-B | Log yakalama Info seviyesindeydi | Sızıntı testinin yakalayıcısı **Debug** seviyesinde ve üretimin iki handler'ıyla (text + JSON, `cmd/tappa` `logHandler`); paket içi `newTestLogger` da Debug | G-debug |
+> | B-C | Audit tavanı tür başına pinliydi, kol başına değil | (1) `TestAuditRows_EveryPasswordlessKindGoesThroughTheCap`: kaynaktan (AST) her `RecordOperatorAuthEvent` doğrudan çağrısının türü yalnız `totp_failed`/`locked` (değişkenle verilen tür fonksiyondaki bütün atamalarına çözülür), her `recordPasswordless` çağrısının türü yalnız parolasız üç tür; kendi pozitif kontrolü üç mutant (tavanın etrafından enrollment_failed, tavandan totp_failed, değişken türün login_failed yapılması). (2) `TestLimits_ARefusedRequestWritesNoRowAndMovesNoCounter` enrollment_failed'ı kimliksiz ulaşılabilen dört koluyla sürer: E3, E4, E5, E8 — her biri tavanın altında 1 satır, tavan tükenmişken 0 | C-E4bypass, C-E5bypass, C-E8bypass (kontrol C-E3bypassCtl) |
+> | N-1 | "Her giriş noktası" iddiasının dışında kalan kollar | Numaralı listeye eklendi ve sürüldü: B1 `BeginEnrollment(uuid.Nil)`, C1/C2 çerez setter'larının boş değer reddi, ~~R1–R4~~ K1–K4 *(7. tur: render'ların R1–R15'iyle çakışıyordu, yeniden adlandırıldı)* okuyucuların yok/boş çerez kolları | — |
+> | N-2 | Enrollment bütçesi saldırısının mekanizması yanlış anlatılıyordu ("dakikada ~1 istek", "yalnız yeniden başlatma sıfırlar") | Yorum, md. 8 ve OP-8 notu: sabit pencere, sayaç pencere dolunca kendiliğinden sıfırlanır; sürekli ret her pencerenin başında 10'luk patlama ister; eşit yayılmış istekler bütçeyi pencerenin çoğunda açık bırakır | — (metin) |
+> | N-3 | İstemci adresi sızıntı yüzeyi | OP-8 kabul listesine adıyla: adresin handler log/hata yüzeyinde ele alınışı OP-8'in kararı; OP-8'in sızıntı testi Debug + iki handler + türetilmiş küme | — |
+>
+> **4. tur mutasyon koşuları:** 3. denetçinin 55'i — **55/55 kırmızı** (G-* ve C-* dahil; mesajlar
+> teslim raporunda); bu kartın 75'i — **75/75**; 1. denetçinin 25'i — **25/25**; 2. denetçinin 62'si
+> — **62/62**. Yarış testi düzeltmesinden sonra ona dayanan F1, F18, M30, M41 ve Y45 yeniden
+> koşuldu — hâlâ kırmızı. Tam koşu (`.env`, `-race`): o koşuda tek kırmızı T72. *(5. tur
+> notu: tam koşu deterministik değildir — 4. denetçinin 1. koşusunda `internal/db`
+> `TestConsumeInvite_ConcurrentRaceExactlyOneWinner` 53300 verdi, T34 sınıfı; "tek kırmızı
+> T72" her koşu için ayrı yazılır.)*
+>
+> | Bulgu | Neydi | Karşılığı | Kıran mutasyon |
+> |---|---|---|---|
+> | (kendi) | Yarış testi zamanlamaya bağlı kırmızıydı: 7 ret kilit eşiğini (5) aşar, hesabı geç okuyan kaybeden `ErrLocked` alır. Bu turun ilk paket koşusunda bir kez (çıktı yakalanmadan) ve mutasyon koşularında iki kez (G-E3tok, X8 — ikisi de başka testlerle de kırmızı) görüldü: ~125 paket koşusunda 3 | `TestTOTP_SameCodeFromNGoroutinesOpensExactlyOneSession` artık zamanlamadan bağımsız olanı ister (yukarıda md. 11); F1, F18, M30, M41, Y45 yeniden koşuldu, hâlâ kırmızı | — |
+>
+> **5. tur (2026-09-30) — 4. denetçi (bağımsız) RED: ürün kodunda kusur yok; bloklayıcı sınıf
+> DÖRDÜNCÜ kez geldi — sızıntı testinin yazılı iddiası gerçek kapsamından genişti.** Denetçinin
+> mutasyonları (`D1`–`D9`, `D4b`, `H1`, `H2`, `E1a`, `E2`, `R3`, `L1` ve 4. tur listesinin geri
+> kalanı) bu ağaçta aynı adlarla koşuldu; sonda/probe repoya konmadı. Orkestratörün kararı (M8-02
+> FAZ C dersi: *"yama isteme — karar iste"*): iddia **sayılı ve grep'le çözülebilir bir sözleşmeye**
+> indirildi. Üç yol ölçüldü:
+>
+> - **(a) Yapısal kapatma (redacting tipler) — elendi, OP-8'e öneri.** Yüzey sayıldı (`go doc`):
+>   düz `string` olarak giren kimlik bilgisi OP-8'in API'sinde 6 parametre (`Password`'ün e-posta
+>   ve parolası; `TOTP`'un kodu; `CompleteEnrollment`'ın ham token'ı, parolası, kodu), OP-7'nin
+>   kablolamasında 2 `[]byte` alan (`Config.TOTPKEK`, `Config.TokenHMACKey`), `Store` arayüzünün
+>   6 metodunda 9 parametre (e-posta ×2, oturum hash'i ×4, ham token, yeni digest, yeni zarf —
+>   `internal/db`'nin imzaları), pakette 4 iç anahtar alanı (`kek`, `tokenKey`, `challengeKey`,
+>   `dummyDigest`). Kapattığı sınıf: değer o noktada sarmalayıcı tipte tutulurken **kazara bir
+>   biçim fiili** — D1, D2, D5, D7, D8 (analiz). Kapatmadığı, **ölçüldü**: D4, D4b ve D9 ham oturum
+>   token'ını `SessionToken`'dan sızdırır — o tip **bugün zaten** sarmalayıcıdır, mutasyon
+>   `tok.reveal()`'la geçer; D6 yeni HESAPLANAN bir değerdir (bir sonraki adımın kodu), hiçbir tip
+>   onu tutmaz; D3 bir dizgeyi böler. Bedeli üç görevin API'si (OP-7, OP-8, `internal/db`) — bu
+>   görevin sınırı dışında; kara kutu aramasının YERİNE değil, önüne konacak bir katman olarak
+>   OP-8'e öneri.
+> - **(b) İddiayı gerçeğe indirmek — SEÇİLDİ** (orkestratörün önerisi, aşağıda).
+> - **(c) Hükmü kaldırmak (kara kutu testini silmek) — elendi, ölçüldü.** Sızıntı sınıfındaki
+>   96 mutasyon (bu turun koşularında `TestLeak_NoInputInAnyErrorOrLogLine`'ın kırmızısı
+>   arasında olduğu her biri; testin kendi metnini değiştirenler hariç) paketin tamamıyla, yalnız o
+>   test `-skip` ile atlanarak yeniden koşuldu: **77'si YEŞİL** — onları yalnız kara kutu
+>   testi öldürüyor (4. denetçinin 18'i — D1, D2, D4, D4b, D5, D6, D7, D8, D9 dahil; 3. denetçinin 42'si — A-* ve G-* kollarından; 2. denetçinin 11'i; 1. denetçinin 3'ü — X11, X15, X16; bu kartın LK1, LK2, LK4'ü). Kalan 19'u başka testler de kırmızıya çeviriyor. Silmek bunları görünmez yapar.
+>
+> **Sözleşme — tek kaynağı testin kendisidir** (`internal/operatorauth/leak_external_test.go`:
+> `TestLeak_NoInputInAnyErrorOrLogLine`'ın başlığı ve sabitleri; kart kopyalamaz, kopya kayar).
+> Biçimi: üye GRUPLARI numaralı (`G1`–`G17`, her biri kaynağıyla); **kapalı ölçüt** `neverLog` —
+> CLAUDE.md §7 + ADR 0020 §5 + ADR 0021 §3.5'in bu pakette var olan her "asla loglanmaz"
+> maddesi (`N1`–`N15`: oturum token'ı ve hash'i · TOTP kodu, o anki **ve** ±1 · TOTP sırrı ·
+> enrollment token'ı ve hash'i · parola/yeni parola · digest · zarf · bekleyen blob · KEK · token
+> HMAC anahtarı · türetilmiş challenge anahtarı · challenge · operatör adresi), literal tablo,
+> uzunluğu pinli, her maddenin **her grubunda** ≥1 üye zorunlu (`N3` iki grup: o anki kod ve ±1
+> kodları); RENDER'LAR numaralı (`R1`–`R15`; `% x`/`% X` ve `%#v` bu turda eklendi); KOLLAR
+> numaralı; hatalar `Error()`/`%v`/`%+v`/`%#v`, log Debug'da iki handler'la; testin hiç görmediği
+> ham oturum token'ları, sahte store'un aldığı hash'lerin **ön görüntüsü** olarak aranır
+> (43 karakterlik base64url pencerelerinin HMAC'i). **Aranmayanlar, ADIYLA:** bölünmüş/kısmi
+> değerler (D3); listede olmayan render'lar — **ölçülerek** (yedi örnek değer): `%+q` (ASCII
+> olmayan bayt), `% #x`, bayt başına `%b`/`%o`, hex alfabeli base32, ascii85, MIME satırlı
+> base64, ayrılmış/ASCII olmayan baytın URL kaçışı, `<>&'"` HTML kaçışı, ters bayt sırası,
+> `[N]uint8` dizisinin `%#v`'si, harf katlaması (ve listede olmayıp yine de yakalananlar:
+> `%#q`, `%#x`, `[]byte`'ın `%s`/`%d`'si, `[N]byte`'ın `%v`'si, slog text/JSON'un `[]byte`'ı,
+> `json.Marshal`); bu pakette olmayan maddeler (CMAC, davet kodu, tam GPS, okuma bileti);
+> dışarıdan başarısız kılınamayan kollar (`crypto/rand`, bcrypt üretimi, `Seal`, token hash).
+> **Hasat bütünlüğü:** 40'lık gevşek taban kalktı; sahte store'un kaydeden her metodu çağrısını bir
+> ifadede sayar, vektörünü başka bir ifadede kaydeder, test metot metot `çağrı > 0`, `kayıt =
+> çağrı` ve her vektörün aritesini ister (`storeArity`).
+>
+> | Bulgu | Neydi | Karşılığı | Kıran mutasyon |
+> |---|---|---|---|
+> | B1 · D4, D4b (+ D9) | `tok.reveal()` ile T12/E9'un hatasına (D9: T9'da Debug log'a) konan ham oturum token'ı — test onu hiç görmüyordu | Ön görüntü araması: hata ve log metnindeki her 43 karakterlik base64url penceresi (R1–R15'in tersleriyle çözülerek) token anahtarıyla HMAC'lenir, sahte store'un aldığı hash'lerle karşılaştırılır; pozitif kontrolü sentetik bir token | D4, D4b, D9 |
+> | B1 · D5 | Türetilmiş challenge anahtarı kümede yoktu | `G13` = HMAC(token anahtarı, etiket), testte hesaplanır; etiketin literal yazımı `TestChallenge_KeyIsDerivedNotTheSessionKey`'de pinli | D5; KL (etiket değişince birim testi kırmızı) |
+> | B1 · D6 | ±1 adımın kodu kümede yoktu | `G17` (her iki sır için önceki ve sonraki adımın kodu) ve `N3`'ün iki gruba bağlanması | D6; NL3 (±1 kodları kümeden çıkınca kapalı ölçüt kırmızı), NL3×D6 |
+> | B1 · D1, D8 | `% x` render'ı aranmıyordu | `R6`/`R7` | D1, D8 |
+> | B1 · D2, D7 | `%#v` render'ı aranmıyordu | `R15` | D2, D7 |
+> | B1 · D3 | Bölünmüş kod ("123-456") | Aranmayanlar listesinde adıyla | D3 **yeşil — beklenen** |
+> | B1 · H1, H2 | Hasat pinsizdi (40'lık taban, 80 üye) | Metot başına pin (`storeArity`) | H1, H2; kendi H4 (çağrı ne sayıldı ne kaydedildi), H5 (arity eksik), H6 (adres kaydı düştü); NL1 (kümeden bir madde düştü), NL2 (`neverLog`'dan satır silindi) |
+> | N1 | AST testi yöntem değerini görmüyordu (`rec := a.store.RecordOperatorAuthEvent; rec(…)`) | Çağrının `Fun`'ı olmayan her `RecordOperatorAuthEvent` seçicisi ihlal; testin kendi pozitif kontrolüne dördüncü mutant. **Sayılı sınır:** okuma ADA göredir — başka adla satır yazan yeni bir `Store` metodu ya da reflection görülmez | E1a, E2 (+ E1b, E3) |
+> | N2 · R3 | Yarış testi "`locked` yalnız ≥5 `totp_failed`'dan sonra"yı son sayıyla ölçüyordu | Satırlar `ORDER BY at, id` ile okunur, ilk `locked`'dan önce ≥5 `totp_failed` (md. 11) | R3 (mesaj: "a 'locked' row was written after only 0 totp_failed row(s)") |
+> | N2 · L1 | Etiketi pencerenin bitişine bakmadan kuran mutasyon bütün pakette yeşildi | `TestLock_ThresholdAndWindowThroughTheSignIn`'e pencere sonrası vaka (md. 10) | L1 (mesaj: "a refused code after the window: … the account is locked for a while, want ErrCodeRejected") |
+> | N3 | "14 `locked`" yanlıştı (31); kayan sayılar | Doğrulama bloğu md. 5'ten sayılar kaldırıldı, kayan sayı yazılmıyor | — |
+> | N4 | "Tek kırmızı T72" tam koşu için genelleniyordu | Her koşu ayrı yazılır; 4. denetçinin 53300'ü (T34 sınıfı) 4. tur notunda | — |
+> | N5 | "N-1 'totp_failed' rows" yorumu ve md. 11'in ilk cümlesi | İkisi de "7 başarısız deneme satırı — `totp_failed`, zamanlamaya göre birkaçı `locked`" | — |
+> | (kendi) | Bu turun L1 vakası ilk yazımında zamanlamaya bağlıydı: pencerenin bitişi yalnız veritabanının saatiyle yazılmıştı, testin enjekte saati adımın ortası — veritabanının saati adımın ikinci yarısındaysa Go hesabı hâlâ kilitli okur. Mutasyon koşularında L1 dışındaki 11 paket koşusunun 6'sında `TestLock_ThresholdAndWindowThroughTheSignIn` kırmızısı olarak göründü (beşi başka testlerle de kırmızıydı; D3'ün TEK kırmızısı buydu — yanlış bir kırmızı; D3 düzeltmeden sonra yeniden koşuldu: yeşil, beklenen). Denetçinin 38'i düzeltmeden sonra baştan yeniden koşuldu; tablolardaki sonuçlar o koşunun | Bitiş iki saatin küçüğünden 1 sn önce (`least(clock_timestamp(), now)`); ölçüldü: eski biçim 300 ardışık koşunun 95'inde kırmızı, yenisi 0/300 (koşular bir tam 30 sn adımı kapsadı) | — |
+>
+> **5. tur mutasyon koşuları (hepsi kopyala-geri-yaz, her birinde sha doğrulandı):** 4. denetçinin
+> 38'i — **35 kırmızı, 3 yeşil ve üçü de beklenen:** D3 (aranmayanlar listesinde adıyla), F1
+> (denetçinin kontrolü: geç okuyan kaybedenleri zorlar, testin zamanlamaya dayanıklı olduğunu
+> gösterir) ve BB2 (audit tavanının WARN satırına e-posta — kara kutu testinin A1 kolu tavanı
+> e-postasız türle aşar; aynı mutasyon paketin tamamında, BB2full, `TestLimits_ARefusedRequestWritesNoRowAndMovesNoCounter` ile kırmızı:
+> *"carries the email=true"*); D6'nın denetçinin ilk listesindeki biçimi derlenmiyordu (`step`
+> yerel değişkeni fonksiyonu gölgeliyor), ikinci listesindeki biçimi koşuldu. Denetçinin H3'ü
+> (40'lık tabanın ölçüm sondası) ve F2'si (eski test beklentisi) koşulmadı: uygulanacak metin artık
+> yok. Bu kartın listesi 75 → **83** (H4, H5, H6, NL1, NL2, NL3, NL3×D6, KL) — **83/83 kırmızı**;
+> 1. denetçinin 25'i — **25/25**; 2. denetçinin 62'si — **62/62**; 3. denetçinin 55'i — **55/55**.
+> Tam koşu (`.env`, `-race -count=1 ./...`, 2026-09-30 19:10 UTC, yük 2,6–4,3): **bu koşuda** tek
+> kırmızı T72 (`cmd/rotatekek`); `internal/operatorauth` 168,1 sn, `internal/db` 103,8 sn, duvar
+> 280 sn. Kapı zinciri ve kapsam yukarıda (doğrulama bloğu md. 2 ve 4).
+>
+> **6. tur (2026-09-30) — 5. denetçi (bağımsız) RED: 4. denetçinin bulgularının hepsini doğru
+> testle ve doğru sebeple kapanmış buldu; sözleşmeyi doğruladı (G1–G17 üyeleri, 33 kol tek tek
+> sızdırıldı, aranmayanlar listesi, `neverLog`'un ADR/CLAUDE.md listelerine göre tamlığı,
+> `TestLock_ThresholdAndWindowThroughTheSignIn` 350/350, yarış testi 20/20). Tek bloklayıcı
+> aynı sınıftan: aynı dosyada kalan iki evrensel iddia — `specimens`'ın *"every secret-bearing
+> type this package … exposes"*'u ve yapısal testin *"a type this package hands out"*'u; oysa
+> dışa açık, anahtar taşıyan iki tip (`*Authenticator`, `Config`) hiçbir listede yoktu ve
+> ikisi de anahtarları basıyordu.** Orkestratörün kararı: ikisini birden — gerçek açığı kapat,
+> iddiayı kapalı kümeye bağla.
+>
+> **Ürün değişikliği (ADR 0020 §2'ye tarihli not):**
+>
+> - `*Authenticator` ve `Config` token tiplerinin beş yöntemini taşır (`Format`, `String`,
+>   `GoString`, `LogValue`, `MarshalText`; değer alıcı, yani kopyalanmış bir değer de redakte
+>   eder); yer tutucular `operatorauth.Authenticator(redacted)` ve `operatorauth.Config(redacted)`.
+>   **Ölçüldü** (scratchpad kopyasında sonda, repoya konmadı): yöntemlerle `%v`/`%+v`/`%#v`/`%s`/
+>   `%x`/`%q`/`%d`, `[]any` içinde, slog text ve JSON, `json.Marshal` (doğrudan ve dışa açık alanda)
+>   — anahtar yok. `String`/`GoString`: `Format` varken fmt onları hiç çağırmaz; doğrudan
+>   `Stringer` isteyen tüketici için tutuldu ve beşi de pinli. JSON: `MarshalText` olmadan
+>   `*Authenticator` `{}` basıyordu, `Config` func alanı yüzünden hata veriyordu — tesadüf;
+>   şimdi ikisi de yer tutucu.
+> - **Yöntemlerin ulaşamadığı yol, ölçüldü:** çağıranın DIŞA KAPALI alanında tutulan bir DEĞER
+>   (fmt yöntemi çağıramaz, yansımayla yazdırır). ~~`Authenticator` için **kapatıldı**: dört
+>   anahtar alanı … bir işaretçinin (`keys *authKeys`) arkasına taşındı — … yansıma adres
+>   basar.~~ **7. turda yanlışlandı (6. denetçi, ölçümle):** yalnız `%v`-ailesinde adres
+>   basıyordu; `%s %q %e %f %t %c %U`'da fmt'nin `badVerb`'ü struct'ı gösteren işaretçiyi bir
+>   kez açar ve dört anahtarın dördü de basıldı — 7. tur alt bölümü. `Config` için
+>   **kapatılmadı, adıyla**: anahtar alanları OP-7'nin yazdığı dışa açık `[]byte` alanlarıdır;
+>   kapatmak onları bir işaretçinin (ya da redakte eden bir anahtar tipinin) arkasına, yani
+>   OP-7'nin API'sine taşır. Sayılı sınır (md. 18) + OP-7 kuralı (OP-4 bloğu, OP-7 listesi:
+>   `Config` doğrudan `New`'a gider, dışa kapalı alanda değer olarak tutulmaz); sızıntı testinin
+>   `knownLeaks`'i bu dört yolu adıyla tutar ve iki yönden pinler (sızmayı bırakan giriş de
+>   kırmızı). API kırılması yok; OP-7'ye etkisi bu kural. *(7. turda yanlışlandı: yol "tek"
+>   değildi — `%p` ve `%w` da basıyordu, dışa kapalı alan yolu her fiilde — ve "OP-7'nin
+>   API'sini değiştirir" gerçek bir maliyet değildi, OP-7 henüz yazılmadı; `Config` artık
+>   `Key` taşır, `knownLeaks` kaldırıldı.)*
+>
+> **İddia — kapalı tip kümesi** (`internal/operatorauth/leak_external_test.go`):
+>
+> - `declaredTypes`: paketin test dışı dosyalarında dışa açık her tip, `go/parser` ile KAYNAKTAN.
+>   `reachableDBTypes`: bu tiplerden yansımayla ulaşılan her `internal/db` tipi (dışa açık alanlar,
+>   dışa açık yöntem imzaları, arayüz yöntemleri; yalnız bu paketin ve `internal/db`'nin tipleri
+>   yürünür) — db tipleri için sayılı sınıra yazmak yerine aynı kümeye almak ucuzdu (tek yürüyüş
+>   fonksiyonu); `db.PasswordHash` bu yüzden yeni bir specimen. *(7. tur: ikisi de `apiTypes`'a
+>   — iki paketin tip denetimine — dönüştü; 6. denetçinin ölçtüğü üç kaçış — `db.*` taşıyan
+>   dışa açık fonksiyon/değişken, dışa kapalı tip döndüren dışa açık yöntem, fonksiyon içi tip
+>   — yansıma yürüyüşünde görülmüyordu.)*
+> - `TestExportedTypes_EveryOneIsASpecimenOrANamedException`: kümenin her tipi ya `specimens`'ta
+>   (doldurulmuş bir örnekle yazdırma yolları taranır) ya `notSpecimens`'ta (adıyla ve gerekçesiyle)
+>   — ikisi birden değil; sınıflandırılmamış tip ve kümede olmayan bir giriş kırmızı. *(7. turda
+>   yanlışlandı, `db.*` için: istisnalar yürüyüşün köküydü, ulaşılamayan bir `db.*` girişi
+>   kendini ulaşılabilir kılıyordu — 6. denetçi iki tane ekledi, test yeşil kaldı. 7. turda
+>   kökler yalnız paketin kendi bildirimleri.)*
+> - `TestExportedTypes_CarryNoPlainStringField` artık üç elle seçilmiş tipe değil kümeye bakar:
+>   kümenin her tipinin ve tuttuğu bu paketin/`internal/db`'nin struct'larının (değer ve işaretçi
+>   üzerinden yürünerek) her alanı `allowedFields`'ta gerekçesiyle (işlevler ve `okFieldTypes`
+>   hariç); artık var olmayan bir alanı adlandıran giriş de kırmızı. *(7. turda düzeltildi: bu
+>   paketin ya da db'nin struct tipindeki alanlar adlandırılmıyor, yalnız içlerine iniliyordu —
+>   `Authenticator`'a `cfg Config` eklemek yeşildi; artık onlar da adlandırılır.)*
+> - `TestSessionToken_PlaceholderIsNotAnotherCredentialsPlaceholder` elle listeye değil kümenin
+>   kendini biçimlendiren her tipine bakar.
+> - Redakte eden her specimen, yöntemlerine ulaşılan her yolda yer tutucusunu basmak ve beş
+>   yöntemi yer tutucuyu döndürmek zorunda; slog değeri string'e çözmeli (`LogValue`). Bu pin
+>   olmadan bir yöntemi silmek yeşil kalabiliyordu: `%d`'ye yalnız `Format` ulaşır, `LogValue`
+>   yoksa slog handler'ı `MarshalText`'e düşer.
+> - İşaretçiler: bayt değerleri için ondalık liste (5. denetçinin ölçtüğü biçim), `%#v` listesi,
+>   `%q`'nun kaçışlı metni (bayt kontrolü ölçtü: rastgele baytlar kaçışlanır) ve base64; yollar:
+>   `%d` ve "dışa kapalı alanda, işaret edilen değer". Bayt değerleri için ayrı pozitif kontrol
+>   (`bareBytes`).
+> - "every secret-bearing type this package … exposes" ve "a type this package hands out"
+>   kaldırıldı; dosyada kalan "every" ifadeleri AST/yansıma kümesi, sabit bir tablo ya da numaralı
+>   kollar üzerinden.
+>
+> | Bulgu | Neydi | Karşılığı | Kıran mutasyon |
+> |---|---|---|---|
+> | B1 | İki evrensel iddia; `*Authenticator` ve `Config` hiçbir listede yoktu, `%v`/`%+v`/slog text'te anahtarları basıyordu; `lastCode string` eklenince iki test de yeşil | Yukarıda: beş yöntem + `Authenticator` anahtarları işaretçi arkasında + kapalı tip kümesi + alan düzeyi kapalı liste | B1-lastCode (denetçinin K-ExportedTypes'i): *"Authenticator.lastCode is a field nothing authorised"* · `Format`/`LogValue`/`MarshalText`/`String`/`GoString` silinmesi (iki tip, yöntem ve derleme-zamanı iddiası birlikte), ör. *"Config leaks on %d"*, *"slog resolves it to a Any, not to its placeholder (LogValue)"* · B1-keysByValue (anahtarlar işaretçisiz): *"Authenticator leaks on unexported field, pointee %+v"* · sınıflandırılmamış yeni tip ×2: *"exported type Note is neither a specimen nor a named exception"* · db specimen'i düşürmek, istisna düşürmek, bayat `allowedFields` ve bayat `knownLeaks` girişi |
+> | N1 | R3'ün kendi pozitif kontrolü yoktu; R3 boşaltılınca test yeşil | Her render adıyla kendi builder'ına eşlenir (literal tablo; fmt fiili ya da kodlayıcının akış yazıcısı — render'ın kendi fonksiyonu değil); her üye için render'ın iğnesi aranıyor olmalı ve builder'ın metninde geçmeli | N1-R3-empty ve denetçinin K-R3off'u: *"R3 JSON string inside gives member 0 (G11 TOTP KEK) no searched needle"* · N1-R3-raw (JSON kaçışı olmadan): *"…needle for member 5 (G13 challenge MAC key) is not in its builder's text"* · K-R3json+off |
+> | N2 | AST testi yalnız `FuncDecl` gövdelerini geziyordu; paket düzeyi func literal görülmüyordu | Her dosyanın her bildirimi gezilir (`GenDecl` kendi kapsamı); pozitif kontrole beşinci mutant — yalnız E4 kolunu paket düzeyi literale çeviren (ilk yazdığım mutant bütün tavan çağrısını kaldırıyordu ve "hiçbir tür tavandan geçmiyor" denetimiyle yakalanıyordu, paket düzeyi yürüyüşü sınamıyordu — yürüyüşü geri alan mutasyon onunla yeşildi, bu yüzden daraltıldı). Sayılı sınırlar ADIYLA yorumda ve md. 18'de | N2-pkglevel-literal ve denetçinin K-ASTfunclit'i (yalnız AST testiyle) · N2-walk-funcdecl-only (yürüyüş geri alınınca): *"POSITIVE CONTROL \"a package-level func literal around the cap\": the mutant was not flagged"* |
+> | N3 | OP-7/OP-8 devir işaretçileri | OP-4 bloğu OP-7 listesi: redaksiyon var; anahtarlar redaksiyonsuz yapıya kopyalanmaz; `Config` dışa kapalı alanda değer olarak tutulmaz. OP-8 listesi: (a) redacting-tip önerisi (handler parametreleri), kapalı tip kümesi dersi | — |
+> | N4 | OP-9 devrinde "veritabanına gitmeden" | Düzeltildi (iki yerde): biçimsiz token `op_complete_enrollment`'a ve digest'e gitmez, tavanın altında bir `enrollment_failed` satırı yazılır | — |
+> | N5 | Kartta kısaltılmış test adları | Tam adlar yazıldı. `TestEveryNamedTestExists` neden yakalamadı: alıntı deseni `\bTest[A-Z][A-Za-z0-9_]{4,}\b` — `TestLock`'ta büyük harften sonra 3 karakter var, alıntı sayılmıyor; `TestLimits_…` `TestLimits_` olarak eşleşir ve `_` ile biten alıntı bir AİLE alıntısıdır, bir önek olarak çözülür (`TestDecide_` emsali) | — |
+> | N6 | OP-8 devrinde "her grup kapalı bir ölçüte bağlı" | Düzeltildi: bağlılık maddeden gruba doğru; G16 bilerek hiçbir maddeye bağlı değil | — |
+> | Not | Hasat pini içerik tutmuyor | Testin başlığındaki NOT CLAIMED listesinde ve md. 18'de adıyla | K-Hcontent/K-Hcontent2 yeşil, beklenen |
+>
+> **6. tur mutasyon koşuları (hepsi kopyala-geri-yaz, her birinde sha doğrulandı):** bu turun 20'si
+> — **20/20 kırmızı**; bu kartın önceki listesi (75 + 5. turun 8'i) — **83/83**; 4. denetçinin
+> 38'i — **35 kırmızı, 3 beklenen yeşil** (D3, F1, BB2 — 5. turla aynı); 1. denetçinin 25'i —
+> **25/25**; 2. denetçinin 62'si — **62/62**; 3. denetçinin 55'i — **55/55**; **5. denetçinin 66'sı
+> bu ağaçta aynı adlarla kuruldu** (sonda repoya konmadı; `a.challengeKey` → `a.keys.challengeKey`
+> ve gofmt hizası uyarlandı) — **60 kırmızı, 5 yeşil, 1 derlenmeyen**: yeşillerin beşi de beklenen
+> — B-D3 (adıyla aranmayan), BB2 (kara kutu testinde; BB2'nin paket düzeyi ikizi `TestLimits_ARefusedRequestWritesNoRowAndMovesNoCounter`
+> ile kırmızı), K-Hcontent2 (hasat içerik pinlemez — adıyla sayılı sınır), E-c ×2 ((c)
+> ölçümünün kendisi: kara kutu testi atlanınca yeşil); derlenmeyen K-G17empty denetçinin ilk
+> biçimi (`near` kullanılmaz kalır), düzeltilmiş ikizi K-G17empty2 kırmızı. 5. turda yeşil
+> beklenen dördü artık kırmızı: K-R3off, K-R3json+off (N1), K-ASTfunclit (N2), K-ExportedTypes
+> (B1). K-Hcontent (tek karakterlik sabit) da kırmızı, ama **yan yoldan**: N1'in yeni pini tek
+> karakterlik bir üyenin hiçbir iğnesi olmadığını söyler — içerik pini değildir; 64 karakterlik
+> ikizi (K-Hcontent2) yeşil kalır.
+>
+> **Kendi hatam, bu turda yakalandı:** N2'nin pozitif kontrolünü daraltırken paket düzeyi
+> bildirimi mutanta ekleyen koşul eski metne bakıyordu (`HasPrefix(…, "recordAround")`); mutant
+> bildirimsiz kaldı ve kontrol "flagged değil" diye kırmızıydı. Bu 18 mutasyon koşusunu yan yoldan
+> kırmızı yaptı (4. denetçinin 11'i, 1.'nin 7'si); koşul düzeltildi ve 18'i yeniden koşuldu —
+> tablodaki sonuçlar o koşunun (D3 yeniden yeşil, beklenen).
+>
+> Tam koşu (`.env`, `-race -count=1 ./...`, 2026-09-30 20:59 UTC, yük 2,0–4,9): **bu koşuda** tek
+> kırmızı T72 (`cmd/rotatekek`); `internal/operatorauth` 180,4 sn, `internal/db` 42,5 sn, duvar
+> 297 sn. Kapsam ve kapı zinciri yukarıda (doğrulama bloğu md. 2 ve 4). Tam koşudan sonra tek
+> değişiklik: `Config`'in belge yorumuna sayılı sınır notu (yalnız yorum; ardından build, vet,
+> `gofmt -s`, redline, `TestEveryNamedTestExists` ve paketin kendisi yeniden koşuldu, yeşil).
+>
+> **7. tur (2026-09-30) — 6. denetçi (bağımsız) RED: bu kez bulgular gerçek sızıntı yolları.**
+> Denetçi önce doğruladı: `*Authenticator` / `Authenticator` / `**Authenticator` doğrudan 34–40
+> yolda temiz, `*Authenticator` dışa kapalı alanda 12 fiilde temiz, kapalı küme mutantlarının
+> çoğu kırmızı, 5. turun N1–N6'sı kapalı, 14 ağır mutasyon kırmızı, zamanlama testleri 50/20/40,
+> staticcheck son değişiklikten sonra rc=0. **Bloklayıcılar:** B1 — `*[]byte` dolaylaması
+> `%s`-ailesinde hiçbir şey korumuyordu (fmt'nin `badVerb`'ü, işaretçinin kabul etmediği bir
+> fiilde işaretçiyi derinlik 0'da bir kez açar; dizi/dilim/struct/map'i gösteren işaretçiyi açar,
+> string'i göstereni açmaz): `*authKeys` dört anahtarı, `Secret`/`Pending` düz TOTP sırrını,
+> `db.SealedSecret`/`db.OperatorAccount` zarfı `%s %q %e %f %t %c %U`'da bastı; B2 —
+> `Config`'in "açık kalan tek yolu" tek değildi (`%p` ve `%w` fmt'nin `erroring` bayrağıyla
+> yöntemleri kapatır; dışa kapalı alan her fiilde sızıyordu) ve "OP-7'nin API'sini değiştirir"
+> gerçek bir maliyet değildi; B3 — kapalı kümenin "bayat giriş kırmızı" iddiası `db.*` için
+> boştu (istisnalar kökken bir giriş kendini ulaşılabilir kılıyordu). Orkestratörün kararı: sırlar
+> yalnız `*string` arkasında (repo emsali, sınıfı kıran kural); `Config` → `Key`; kapalı kural
+> pini; render matrisi; kökler yalnız paketin kendisi.
+>
+> **Ürün değişikliği** (ADR 0020 §2'ye tarihli not; 6. turun notu üstü çizilerek düzeltildi):
+>
+> - `Secret` → `struct{ b *string }`, `db.SealedSecret` → `struct{ v *string }`. `Secret.Zero`
+>   artık baytları SİLEMEZ (Go dizgesi değişmez) — değeri unutturur (değer ve kopyaları bir daha
+>   bir şey açmaz). Kayıp değil, ölçülerek: ekranın `Base32`/`URI` dizgeleri ve render edilen
+>   sayfa zaten silinmiyordu; oturum açılışında ve enrollment'ta açılan sır yerel `[]byte`'tır ve
+>   `sun.Zero` ile silinir (değişmedi). `**[]byte` de `badVerb`'e karşı kapatırdı (denetçinin
+>   ölçümü) ve silmeyi korurdu; tek kural için `*string` seçildi.
+> - Yeni `operatorauth.Key` (`key.go`): `struct{ v *string }`, `NewKey([]byte)` (kopya alır),
+>   beş yöntem (`operatorauth.Key(redacted)`), **dışa açık erişimci yok** — OP-7'nin eşitsizlik
+>   reddi `internal/config`'te ham değerlerde, `NewKey`'den önce koşar (`config.keySeparation`
+>   emsali; OP-4 bloğu, OP-7 listesi). `Config.TOTPKEK`/`Config.TokenHMACKey` artık `Key`.
+> - `Authenticator`'ın anahtarları — iki yol: (i) `keys **authKeys` (denetçi kopyasında ölçtü:
+>   kapatır); (ii) `authKeys`'in dört alanı `Key` (bu ağaçta ölçüldü: matriste 0 sızıntı).
+>   **(ii) seçildi:** tek kural (her sır kendi redakte eden tipinde), `Config` ile aynı tip,
+>   anahtar hangi yapıya kopyalanırsa kopyalansın korunur; (i) yalnız o işaretçinin arkasında
+>   korur ve her kullanım yerinde çift dereferans ister. `keys` artık değer (`authKeys`).
+> - Hash/HMAC/`Seal`/`Open`/bcrypt'in istediği `[]byte` yalnız kullanım anında,
+>   `Key.bytes()`'ın kopyası olarak üretilir; silinmez — anahtar süreç boyunca zaten bellekte.
+> - API: yalnız `Config`'in iki alanının tipi değişti; paket dışında kullanıcı yok (OP-7
+>   yazılmadı; denetçinin saydığı 15 kullanım yeri paketin kendi testlerinde, uyarlandı).
+>
+> **Ölçülen matris** (`TestLeak_NoSecretOnAnyPrintingPath`, `render`; sözleşmenin numaralı
+> listesi testte): kapalı kümenin her specimen'i (13 tip, `Key` dahil) × fmt'nin 22 fiili
+> (`%p`, `%w` dahil) × 6 biçim S1–S6 (değerin kendisi, dışa açık `any` alanı, dışa kapalı `any`
+> alanı, dışa kapalı alanda işaret edilen değer, dilim elemanı, map değeri) × `Sprintf` ve
+> `Errorf` + F1–F5 (slog text ×2, slog JSON, `json.Marshal` ×2) — 3497 render, **0 sızıntı**;
+> yöntemlere ulaşılan her yolda yer tutucu. Aranan biçimler sırrın kendisinden türer
+> (`byteForms`: ham, hex ×2, ondalık liste, `%#v` listesi, `%q` kaçışı, JSON dizesi — HTML
+> kaçışlı ve kaçışsız —, base64; `verbForms`: fiilin baytlara ve metne uygulanmışı). **Pozitif
+> kontrol her yol için:** her specimen'in ilk sırrı korumasız — metin ve bayt olarak — matrisin
+> her yolunda bulunmak zorunda; yalnız fmt'nin YALNIZ ADRES bastığı yollar (`%p` × işaretçi,
+> dilim, map) muaf. Kontrolün bulduğu iki eksik: `%c`/`%U`/`%e`… altında `[]byte` hiçbir
+> sabit biçimle eşleşmiyordu (`verbForms` bu yüzden var) ve slog'un JSON handler'ı HTML kaçışı
+> yapmıyor (rastgele bir sırda `<`, `>` ya da `&` varken; 200 tekrarlı koşuda yeşil).
+> `knownLeaks` kaldırıldı — boştu.
+>
+> **Kapalı kural pini** (`TestExportedTypes_CarryNoPlainStringField`, üç kural): (1) yürünen
+> her alan — bu paketin/db'nin struct tipindeki alanlar DAHİL — `allowedFields`'ta ve tersi;
+> (2) hiçbir alan metni ya da baytı açıkta tutmaz (`string`, `[]byte`, `[N]byte`, `*[]byte`,
+> `*[N]byte`; *8. turda:* `[]rune`, `[N]rune`, `*[]rune` de — liste `isBytesOrText`'in
+> kendisidir; arayüz tipli bir alanın ÇALIŞMA ZAMANI içeriği bu kuralın dışında, sayılı
+> sınır); (3) tek alanlı redakte eden bir tip değerini `badVerb`'ün açmadığı bir
+> işaretçinin arkasında tutar (dizi/dilim/struct/map dışı bir şeyi gösteren işaretçi).
+>
+> | Bulgu | Neydi | Karşılığı | Kıran mutasyon |
+> |---|---|---|---|
+> | B1 | `*[]byte` / `*authKeys` `badVerb`'de açılıyordu | `*string` + `Key`; kural (2)–(3); matris | M7-Secret-bytes: *"Secret leaks on Sprintf %s · S3 an unexported any field"* (+ `Zero` testi) · M7-SealedSecret-bytes: *"db.OperatorAccount leaks on Sprintf %s · S3 …"* · M7-Key-bytes: *"Key leaks on Sprintf %s · S3 …"* · M7-SessionToken-bytes; beşinde de alan kuralları ayrıca kırmızı |
+> | B2 | `Config`'in yolları `%p`, `%w`, her fiilde dışa kapalı alan | `Config` → `Key`; matris `%p`/`%w`/S3/S4 dahil | M7-Key-plainBytes (`type Key []byte` + beş yöntem — denetçinin "hiçbir şey kapatmaz" ölçümü): *"Key leaks on Sprintf %w · S1 the value itself"* · M7-Key-Format, M7-Key-LogValue (*"Key: slog resolves it to a Any"*) |
+> | B3 | Ulaşılamayan `db.*` istisnası yeşildi | Kökler yalnız paketin kendi dışa açık bildirimleri (`apiTypes`) | M7-B3-staleTag, M7-B3-staleConn: *"the exception db.ResolvedTag / db.OperatorConn is not reachable from this package's exported API"* |
+> | N1 | `db.*` taşıyan dışa açık fonksiyon/değişken, dışa kapalı tip döndüren yöntem, fonksiyon içi tip | `apiTypes`: iki paketin DAR tip denetimi (`go/types`; başka her import boş bir paket, hataları yok sayılır — yalnız iki paketin adlı tipleri okunur; `-race` altında 55 ms, `go/importer`'ın tam kaynak içe aktarımı ~15 s — ölçüldü); ~~dışa açık her bildirimden ulaşılan her adlı tip~~ *(8. turda yanlışlandı: başka bir paketin generic'inin TİP ARGÜMANI görülmüyordu — o tip geçersiz çözülür ve go/types argümanları değerlendirmez; 8. tur alt bölümü)*; fonksiyon içi tip reddi. **Sayılı sınır:** çalışma zamanında başka bir paketin tipiyle doldurulan `any` kümede değil | M7-N1-func / -var: *"db.ResolvedTag / db.ResolvedAdmin is reachable … and is neither a specimen nor a named exception"* · M7-N1-method: *"authKeys is reachable …"* · M7-N1-local: *"a function-local type t (operatorauth.go:206:7) …"* |
+> | N2 | Struct tipindeki alanlar adlandırılmıyordu | Artık adlandırılır (kural 1) | M7-N2-cfg: *"Authenticator.cfg is a field nothing authorised"* · M7-N2-lastCode · M7-rule-plainString: *"Challenge.raw holds text or bytes in the open (string)"* |
+> | N3 | `TestRedaction_EveryMethodOnEveryType` 7'nin 5'ini kapsıyordu | Tablo kaynağa pinli: `Format` bildiren her tip (bu turda 8: `Key`, `Config`, `Authenticator` eklendi) | M7-N3-table: *"Key declares Format and is not in the table"* · M7-Key-Format: *"the table names Key, which declares no Format"* |
+> | N4 | Çerez kolları R1–R4 render'larla çakışıyordu | K1–K4 (test başlığı, arm adları, kart) | — |
+> | N5 | "the two unexported-field paths" | Cümle kalktı: yollar artık numaralı matris | — |
+> | N6 | Sıfır değerli `Authenticator` | İşlem yok (sıfır değer kullanılamaz) | — |
+>
+> **7. tur mutasyon koşuları (hepsi kopyala-geri-yaz, her birinde sha doğrulandı):** bu turun 17'si
+> — **17/17 kırmızı** (M7-Key-LogValue'nun ilk biçimi derlenmiyordu — kullanılmayan import —,
+> düzeltilmiş biçimi kırmızı); 6. turun kendi listesi 17 — **13 kırmızı + 4 derleme kırmızısı**
+> (B1-MarshalText ×2, B1-StringAuth, B1-GoStringConfig: `TestRedaction_EveryMethodOnEveryType`'ın
+> `printer` arayüzü bu yöntemleri artık `Authenticator` ve `Config` üzerinde de ister, paketin
+> testleri derlenmez); 6. turun üçü eskidi (B1-lastCode → M7-N2-lastCode, B1-keysByValue →
+> M7-Key-bytes, B1-knownLeakStale → `knownLeaks` yok); bu kartın 75'i — **75/75**; 5. turun 8'i
+> + D6 — **9/9**; 1. denetçinin 25'i — **25/25**; 2. denetçinin 62'si — **62/62**.
+> **Yeni yeşiller ve sebepleri, ölçülerek:** 4. denetçinin BA6 ve D2'si, 3. denetçinin A-N1 ve
+> G-N1kek'i, 5. denetçinin B-D2 ve C-N1'i — altısı da `New`'un hata metnine `cfg.TOTPKEK` ya da
+> `cfg.TokenHMACKey`'i `%x`/`%#v`/`%v` ile koyar; bu alanlar artık `Key` ve `Format` yer tutucu
+> basar, yani **mutant artık sızdırmıyor** (eşdeğer mutant). Ölçüldü (scratchpad kopyası): BA6+D2
+> birleşik mutantında `New`'un hatası `… got 31 (operatorauth.Key(redacted))
+> operatorauth.Key(redacted)`. Altısının **bilerek çıkaran** biçimi (`cfg.TOTPKEK.bytes()`, dışa
+> kapalı erişimciyle) — **6/6 kırmızı**, ör. *"error 73 carries member 2 (G11 TOTP KEK)"*. Kalan
+> yeşiller öncekiyle aynı ve beklenen: 4. denetçinin D3, F1, BB2'si; 5. denetçinin B-D3, BB2,
+> K-Hcontent2'si ve E-c ×2'si; 5. denetçinin derlenmeyen K-G17empty'si (ikizi kırmızı). Toplam:
+> 4. denetçinin 37'si (+ D6) — 32 kırmızı; 3. denetçinin 55'i — 53 kırmızı; 5. denetçinin 66'sı —
+> 58 kırmızı, 7 yeşil, 1 derlenmeyen.
+>
+> Tam koşu (`.env`, `-race -count=1 ./...`, 2026-09-30 22:43 UTC, yük 2,8–5,9): **bu koşuda** tek
+> kırmızı T72 (`cmd/rotatekek`); `internal/operatorauth` 171,6 sn, `internal/db` 38,0 sn, duvar 287
+> sn. Tam koşudan sonra tek değişiklik test tarafında: `TestNew_RefusesWhatItCannotUse`'a sıfır
+> `Key` vakası (kapsam `Key.size`'ın sıfır dalını ölçmüyordu); ardından paket `-race` ile
+> yeniden koşuldu (yeşil, 140,0 sn), build, vet, `gofmt -s`, redline, `TestEveryNamedTestExists`
+> ve staticcheck (son değişiklikten sonra, rc=0). Kapsam yukarıda (doğrulama bloğu md. 2).
+>
+> **8. tur (2026-09-30) — 7. denetçi (bağımsız) RED: ürün kodunda sızıntı yok** (bağımsız
+> sondası: 15 specimen × fiiller × 28 matris dışı kalıp — `**T`, derinlik 2–3, reflect,
+> template, gob/xml, `errors.Join`, panic — 47 925 render, 0 isabet). Doğruladıkları: 6 yeni
+> yeşilin açıklaması, `Zero` semantiği, sıfır `Key` reddi, AAD ve 48 baytlık zarf, ağır
+> mutasyonlar, zamanlama 50/20/60 ve matris ×200. **Tek bloklayıcı, adıyla sayılmamış bir
+> kaçış:** `apiTypes` başka bir paketin generic tipinin TİP ARGÜMANI olarak ulaşılan tipi
+> görmüyordu (`func Admins() iter.Seq[db.ResolvedAdmin]`, `func Latest()
+> *atomic.Pointer[db.ResolvedTag]` yeşil; aynı erişim func tipiyle kırmızı).
+>
+> **B1 — ölçerek seçildi: tip argümanları yürütülür** (ucuzdu; sayılı sınıra yazmak
+> gerekmedi). *(9. turda yanlışlandı: sözdizimiyle okuma takma adı ve çıkarımla tipi gelen
+> değişkeni kaçırıyordu — 8. denetçinin 10 mutantı; `names` kaldırıldı, tipler kesin
+> yükleniyor — 9. tur alt bölümü.)* Mekanizma, ölçüldü: dar denetimde başka paketin tipi GEÇERSİZ çözülür ve
+> go/types geçersiz bir generic'in tip argümanlarını HİÇ değerlendirmez (`info.Types`/
+> `info.Instances` de boş kalır) — bu yüzden argümanlar sözdizimiyle okunur: `apiTypes`'ın
+> `names`'i, API bildirimlerinin METNİNDE adı geçen her tipi (paketin kapsamındaki bir ad ya da
+> iki paketten biriyle nitelenmiş bir ad) ziyaret eder. Uygulandığı yerler: dışa açık
+> fonksiyonların imzaları, dışa açık değişken/sabit bildirimleri (tip ve ilk değer), yürüyüşün
+> ulaştığı her adlı tipin `TypeSpec`'i (struct'ta yalnız dışa açık ve gömülü alanlar) ve dışa
+> açık yöntemlerinin `FuncDecl`'ları. **Sayılı sınır, adıyla:** başka bir paketin BİLDİRDİĞİ bir
+> tipin içinden — bu paketin metninde yazılmadan — ulaşılan tip izlenmez (öteki paketler
+> yüklenmez); `names` sözdizimiyle çözdüğü için bir tip adını gölgeleyen yerel bir DEĞİŞKEN o
+> tipi ulaşılabilir saydırır (fail-closed yön). İddia bu ölçüye daraltıldı: test yorumları,
+> md. 18, OP-8 devri, 7. tur bölümünün N1 satırı (üstü çizilerek).
+>
+> | Bulgu | Neydi | Karşılığı | Kıran mutasyon |
+> |---|---|---|---|
+> | B1 | Generic tip argümanı kaçışı | Yukarıda (`names`) | M8-B1-iterSeq (denetçinin `func Admins() iter.Seq[db.ResolvedAdmin]`'i): *"db.ResolvedAdmin is reachable from this package's exported API and is neither a specimen nor a named exception"* · M8-B1-atomicPtr (`*atomic.Pointer[db.ResolvedTag]`): *"db.ResolvedTag is reachable …"* · aynı tip argümanı dışa açık bir YÖNTEMDE (M8-B1-method), dışa açık bir DEĞİŞKENDE (M8-B1-var) ve dışa açık bir STRUCT ALANINDA (M8-B1-field) — kırmızı · KONTROL M8-B1-control-func (func tipiyle aynı erişim) — kırmızı |
+> | N1 | Kural (2)'den `[]rune` ve `any` alanındaki `[]byte` | `isBytesOrText`'e `[]rune`, `[N]rune`, `*[]rune` (int32 elemanlı dilim/dizi); arayüz tipli alanın çalışma zamanı içeriği sayılı sınır (test yorumu, md. 18); kartın düzyazısı listeyle eşleşti | M8-N1-runes ve M8-N1-runesOnly (`allowedFields`'ta adlandırılmış — kural (2) tek başına): *"Challenge.r holds text or bytes in the open ([]int32)"* |
+> | N2 | OP-7 devrinde çelişki (`config` `operatorauth`'u import edemez) | Orkestratörün kararıyla yeniden yazıldı (OP-4 bloğu, OP-7 listesi; ADR 0020 notu; `key.go` yorumu): anahtarlar `config.Config`'te ham `[]byte`, ayrılık reddi orada; `Key`'e dönüşüm `cmd/tappa` wiring'inde `NewKey` ile; 6. tur kuralı `operatorauth` tarafına daraltıldı (üstü çizilerek) | — |
+> | N3 | `Store` yuvası ve bütçe haritaları | Ölçüldü (scratchpad): dışa kapalı alandaki bir `Authenticator` DEĞERİ `%s`/`%q` altında `store`'un içeriğini bir kez açar — düz alanda DSN basıldı (değer store: `%v %s %q %d %+v`; işaretçi store: `%s %q`), `*string` alanda basılmadı *(9. tur: fiil listeleri ölçümün alt kümesiydi — 8. denetçi düz alanlı değer store'unda 28/28, işaretçi store'da 14 fiil ölçtü; md. 18 ve OP-7 devri artık fiil listesi yazmıyor: "düz alan yok")* — ve bütçe haritalarının anahtarlarını basar (`badVerb` `*budget`'i açar). `limits *limits` ile ölçüldü: adres hiçbir fiilde görünmedi. ~~**Ürün değişikliği YAPILMADI** (kararı sonraya).~~ → 8b satırı: yapıldı. Sayılı sınır (md. 18, ADR notu) + OP-7 devrine tek cümle: `db.OperatorDB` DSN'i ya da parolayı düz alanda tutmaz, havuz yalnız işaretçiyle | — |
+> | N4 | `NewKey`'in kopyası pinsiz | `TestKey_CopiesInAndOut` (çağıranın dilimini silmek ve `bytes()`'ın kopyasını silmek `Key`'i değiştirmez) | M8-N4-unsafe (`unsafe.String(unsafe.SliceData(b), len(b))`): *"wiping the caller's slice changed the key"* (`TestKey_CopiesInAndOut`) |
+> | N5 | Tip parametresi "function-local type" diye raporlanıyordu | `*types.TypeParam` atlanır; gerçek fonksiyon içi tip reddi sürer | KONTROL M8-N5-typeparam (dışa açık `func Pick[T any](v T) T`) — **yeşil, beklenen** · M8-N5-revert-skip (atlamayı silip aynı fonksiyon): *"a function-local type T (operatorauth.go:205:11) …"* — kırmızı; gerçek fonksiyon içi tip (M7-N1-local) hâlâ kırmızı |
+> | N6 | `sec.reveal()` kopyası silinmiyordu | `BeginEnrollment`: `pt := sec.reveal(); defer sun.Zero(pt)`; `Secret.Base32` de kopyasını siler. Öteki `reveal()`'lar dizge döner (token, challenge — kopya yok); `Key.bytes()` kopyaları silinmez — süreç ömrü anahtarı, sayılı sınır. Silme gözlenebilir değil — pinsiz, adıyla | — |
+> | 8b | N3 kararı (orkestratör): bütçe haritaları işaretçinin arkasına | `Authenticator.limits` → `*limits` (`newLimits` `*limits` döner) — tek ürün değişikliği. Pin: sızıntı matrisinin `Authenticator` specimen'i `AllowRequest("192.0.2.123")` ile doldurulmuş bütçe haritası taşır ve adres specimen'in sırlarından biridir. `Authenticator`'ın öteki alanları sayıldı (md. 18): işaretçi arkasına alınacak başka adres/kimlik bilgisi tutan alan yok | M8b-limits-byValue (`limits limits` geri dönüşü): *"Authenticator leaks on Sprintf %s · S4 the pointee, in an unexported any field (11 characters …)"* — `%q` ve `Errorf` de; ağır örnekler hâlâ kırmızı: D4, X8, X2, M1, H1, L1 |
+>
+> **8. tur mutasyon koşuları (hepsi kopyala-geri-yaz, her birinde sha doğrulandı):** bu turun 11'i
+> — **10 kırmızı, 1 beklenen yeşil** (M8-N5-typeparam kontrolü); 7. turun 17'si + `Key.LogValue`'nun
+> derlenen biçimi + altı çıkarma biçimi — **24/24 kırmızı** (7. turun eski, derlenmeyen
+> `LogValue` biçimi listede kaldı); 6. turun 17'si — **13 kırmızı + 4 derleme kırmızısı** (7.
+> turdaki gibi); 5. turun 8'i + D6 — **9/9**; bu kartın 75'i — **75/75** (E2'nin metni
+> `BeginEnrollment`'ın yeni `pt`'sine uyarlandı); 1. denetçinin 25'i — **25/25**; 2. denetçinin
+> 62'si — **62/62** (M1 dahil); 4. denetçinin 37'si — **32 kırmızı**; 3. denetçinin 55'i — **53
+> kırmızı**; 5. denetçinin 64'ü — **58 kırmızı**. Yeşiller 7. turla birebir aynı ve sebepleri
+> aynı: eşdeğer mutantlar (BA6, D2, A-N1, G-N1kek, B-D2, C-N1 — `Key` yer tutucu basar; `.bytes()`
+> biçimleri kırmızı) ve beklenenler (D3, F1, BB2, B-D3, K-Hcontent2). İstenen örnekler
+> kırmızı: D4, D5, X8, X2, M1, Y20, H1, R3, L1, E2 ve tip geri dönüşleri (M7-Secret-bytes,
+> M7-Key-bytes, M7-SealedSecret-bytes, M7-Key-plainBytes).
+>
+> Tam koşu (`.env`, `-race -count=1 ./...`, 2026-10-01 00:50 UTC, yük 3,2–4,2): **bu koşuda** tek
+> kırmızı T72 (`cmd/rotatekek`); `internal/operatorauth` 168,9 sn, `internal/db` 40,7 sn, duvar 278
+> sn. Kapı zinciri baştan, staticcheck SON değişiklikten sonra (rc=0); tam koşudan sonra kod
+> değişmedi. Kapsam yukarıda (doğrulama bloğu md. 2). **8b'den sonra** (kod değişti): kapı
+> zinciri baştan (staticcheck son değişiklikten sonra rc=0) ve tam koşu yeniden (2026-10-01
+> 01:00 UTC): bu koşuda tek kırmızı T72; `internal/operatorauth` `-race` ile 168,7 sn, yeşil.
+>
+> **9. tur (2026-10-01) — 8. denetçi (bağımsız) RED.** Doğruladıkları: 7. turun bulgularının hepsi
+> doğru test ve doğru sebeple kapalı; bağımsız ürün sondası 2 914 + 14 756 render, 0 isabet
+> (pozitif kontroller — `limits limits`, `Key *[]byte` — isabet verdi); N2 devri uygulanabilir
+> (import döngüsü kanıtlandı, `cmd/tappa`'da prob derlendi); 16 ağır mutasyon kırmızı; zamanlama
+> temiz; ADR uyumu tam. **Bloklayıcı B-1:** `names` iki biçimde başka paketin generic örneğini
+> kaçırıyordu — tip TAKMA ADI (`Alias` kolu yalnız `Unalias`'a gidiyordu, dar denetimde
+> geçersiz) ve tipi ÇIKARIMLA gelen dışa açık değişken (dışa kapalı bir fonksiyonun, değişkenin
+> ya da yöntemin imzasından); denetçinin 10 derlenen mutantı iki ExportedTypes testini yeşil
+> bıraktı. Orkestratörün kararı: sözdizimini kovalama; iki yoldan birini ÖLÇEREK seç.
+>
+> **İki yolun ölçümü ve karar:**
+>
+> - **(b) KESİN TİPLER — SEÇİLDİ.** `go list -export -deps -json` bağımlılıkların export verisini
+>   (derleyicinin yazdığı) adlandırır; `go/importer.ForCompiler(fset, "gc", lookup)` okur; test
+>   `-race` ile derlendiyse `go list` de `-race` alır (`race_on_test.go`/`race_off_test.go`
+>   yapı etiketi), böylece testi derleyen önbellek girdileri kullanılır. Stdlib yalnız, yeni
+>   bağımlılık yok. Süre, ölçüldü (`apiTypes` bütünü — `go list` + denetim + yürüyüş — bu
+>   paketin kendi testinde): **sıcak önbellek 0,23 sn, `-race` 0,35–0,39 sn; soğuk önbellek**
+>   (yeni bir `GOCACHE`, test ikilisi sıfırdan derlenir) **0,58 sn, `-race` 0,95 sn** — kural
+>   ≤ ~5 sn. Testi derleyen araç zinciriyle `go`'nun sürümü farklıysa test bunu adıyla reddeder
+>   (`go env GOVERSION` ≠ `runtime.Version()`); cmd/go araç zinciri değiştirdiğinde doğru `go`'yu
+>   PATH'in başına koyar (ölçüldü: `GOTOOLCHAIN=go1.26.7` altında alt süreç 1.26.7).
+>   Yürüyüş: dışa açık her bildirimin ÇÖZÜLMÜŞ tipi (değişken ve sabitler dahil), imzalar, dışa
+>   açık alanlar, dışa açık yöntemler, arayüzler, `types.Alias` (`Unalias` + takma adın kendi
+>   tip argümanları), her generic örneğin `TypeArgs()`'ı — hangi paketin olursa olsun. ~~Başka
+>   bir paketin tipi bu iki paketin tipini YALNIZ tip argümanı olarak taşıyabilir (…), o kapı
+>   yürünür — 8. turun "başka paketin içinden" sınırı kalktı.~~ *(10. turda yanlışlandı:
+>   öncül yanlıştı — `operatorauth` → `internal/sun` → `internal/db`; `sun.Result` bir
+>   `db.ResolvedTag` taşır; 10. tur alt bölümü.)* **Kalan sayılı sınır:** çalışma zamanında
+>   doldurulan `any` (arayüz) ve reflection.
+> - **(fail-closed) GÖREMEDİĞİNİ YASAKLA — ölçüldü, seçilmedi.** Sayım: `internal/operatorauth`
+>   ve `internal/db`'de tip takma adı 0, nokta-import 0; açık tipi olmayan dışa açık
+>   `var`/`const`: ~~13 sabit~~ *(10. turda AST ile yeniden sayıldı: `operatorauth`'ta 9 sabit,
+>   `internal/db`'de 1 sabit ve 2 sentinel değişken)* (temel literal — izinli biçim) ve **8
+>   sentinel hata** (`ErrRefused …
+>   = errors.New(…)` — çağrı ifadesi, izinli üç biçimin dışında): kural ya ürünü değiştirmeyi
+>   (`var ErrRefused error = …`) ya da adıyla bir istisnayı gerektirirdi. (b) bu bedeli
+>   istemiyor ve iddiayı "tipler neyse o" yapıyor.
+>
+> `names`, `narrowImporter` ve `ownPackage` kaldırıldı. Yazılı iddia — test yorumu (`exactImports`,
+> `apiTypes`, kapalı küme testinin başlığı), md. 18, OP-8 devri (seçilen yol ve nedeni) ve 8. tur
+> B1 bloğu (üstü çizilerek) — mekanizmayla birebir.
+>
+> | Bulgu | Neydi | Karşılığı | Kıran mutasyon |
+> |---|---|---|---|
+> | B-1 | Takma ad ve çıkarımla tipi gelen değişken kaçışı | Kesin tipler (yukarıda) | Denetçinin 10'u: C2a, C2b, C2c, C2d, C2e, C8b (db tarafı takma ad), C6b, C6c, C6d, C6g — **10/10 kırmızı**, ör. *"db.ResolvedAdmin is reachable from this package's exported API and is neither a specimen nor a named exception"*; nokta-import (`. "iter"`, `func F5() Seq[db.ResolvedAdmin]` — `New` çakışmasız) **kırmızı**; denetçinin `. "…/db"` biçimi derlenmiyor (`New` çakışması — beklenen); daha önce kırmızı olanlar kırmızı: C1, C2f, C3, C4, C4b, C5 (`dbx`), C6a, C6e, C6f, C11, C8a, Cx ×4, B-* (15'in 14'ü; B-limits-byValue-unfilled pinin mekanizmasını gösteren beklenen yeşil), M8-B1-* ×6. **Mekanizma kontrolü:** `TypeArgs` yürüyüşü silinince C2a ve iterSeq YEŞİL (iki kontrol — satır yük taşıyor) |
+> | N-1 | Kural (2) `[N]string`'i görmüyordu | `isBytesOrText`: dize dizisi, dize dilimi ve onlara işaretçi; `**[]byte` adıyla dışarıda (fmt adres basar); dizi eleman sınırı adıyla | M9-N1-stringArray (`r [4]string`, `allowedFields`'ta adlı): *"Authenticator.r holds text or bytes in the open ([4]string)"* · `[]string`, `*[4]string` — kırmızı |
+> | N-2 | DSN sınırının fiil listeleri ölçümün alt kümesiydi | md. 18, OP-7 devri md. 4, 8. tur N3 satırı, ADR 0020 notu: fiil listesi yok, "`store`'un düz alanı `Authenticator`'ın tutuluşundan bağımsız basılabilir; kural: düz alan yok" (8. denetçinin 28 fiillik ölçümü atıfla) | — |
+> | N-3 | Bütçe yarısı şimdiki zamanla duruyordu | ADR 0020 ve md. 18'de üstü çizildi (8b'den beri kapalı; 8. denetçi 0 isabet) | — |
+>
+> **9. tur mutasyon koşuları (hepsi kopyala-geri-yaz, her birinde sha doğrulandı):** 8.
+> denetçinin 41'i (probe dosyası içeriği repoya YENİ dosya olarak konmadı — `key.go`'nun sonuna
+> eklenip geri yazıldı) — **39 kırmızı, 1 beklenen yeşil** (B-limits-byValue-unfilled: pinin
+> mekanizması), **1 beklenen derleme kırmızısı** (C5b); bu turun 6'sı (nokta-import, üç dize
+> biçimi, iki mekanizma kontrolü) — 4 kırmızı + 2 beklenen yeşil kontrol; 8. turun 11'i — 10
+> kırmızı + N5 kontrolü (beklenen yeşil); ağır örnekler 14/14 kırmızı: D4, D5, X8, X2, M1, H1,
+> L1, R3, tip geri dönüşleri (Secret, SealedSecret, Key, SessionToken `*[]byte`; `type Key
+> []byte`) ve `limits limits`.
+>
+> Kapı zinciri baştan, staticcheck SON değişiklikten sonra (rc=0). Tam koşu (`.env`, `-race
+> -count=1 ./...`, 2026-10-01 01:54 UTC, yük 2,9–4,5): **bu koşuda** tek kırmızı T72
+> (`cmd/rotatekek`); `internal/operatorauth` 171,8 sn, `internal/db` 126,2 sn, duvar 280 sn.
+> Kapsam: `internal/operatorauth` %95,6 (44 test), `internal/sun` %97,4.
+>
+> **10. tur (2026-10-01) — 9. denetçi (bağımsız) RED.** Doğruladıkları: CI uyumu (Linux
+> konteyner `golang:1.26`, ağ yok, `GOPROXY=off`, `-mod=readonly`, salt-okunur ve soğuk
+> önbellek, `-race`: PASS, C2a kırmızı); dört bozuk ortamda (sürüm uyuşmazlığı, PATH'te `go`
+> yok, `-mod=vendor`, başka cwd) FAIL, SKIP değil; `-count=10 -parallel 8 -race` temiz; 8.
+> denetçinin 12 mutantı ve kendi 18 yeni biçimi kırmızı; ürün sondası 1 796 render, 0 isabet;
+> 14 ağır + 5 yeni ağır mutant kırmızı. **Bloklayıcılar:** B-1 — 9. turun "başka paketin tipi
+> bu iki paketin tipini yalnız tip argümanı olarak taşıyabilir" öncülü yanlıştı:
+> `operatorauth` → `internal/sun` → `internal/db`, `sun.Result.Tag` bir `db.ResolvedTag` (açıkta
+> `AESKeyRef []byte`); yabancı `Named`'de yalnız `TypeArgs` yürünüyordu, `func R() sun.Result`,
+> `func V() *sun.Verifier`, `var F = sun.NewVerifier` yeşildi. B-2 — tip parametresi kısıtı,
+> gömülü arayüz tipleri ve union terimleri yürünmüyordu. **Orkestratörün kararı: kapanışı
+> öncüle değil YAPIYA bağla.**
+>
+> **Yapılan (yalnız test ve belge; ürünün tek değişikliği `password.go`'da bir yorum):**
+>
+> - **Tükenmiş anahtar.** `apiTypes`'ın `visit`'i go/types'ın her tür türünü ADIYLA ele alır —
+>   Basic, Pointer, Array, Slice, Map (anahtar ve değer), Chan, Struct (HER alan, dışa açık ya da
+>   kapalı — fmt kapalı alanları da basar), Tuple, Signature (alıcı, alıcı ve fonksiyon tip
+>   parametreleri, parametreler, sonuçlar), Named (tip argümanları, tip parametreleri, DIŞA AÇIK
+>   yöntemlerin imzaları, alt tip), Alias (argümanlar, tip parametreleri, `Unalias`),
+>   Interface (açık yöntemler — dışa kapalılar dahil — ve gömülü tipler), Union (terimler),
+>   TypeParam (kısıt); `default:` → `t.Fatalf("unhandled go/types kind %T")`. Hangi paketin
+>   olursa olsun her tip yürünür; KAYIT yalnız `operatorauth` ve `internal/db` adlarıyla
+>   *(11. turda modülün her paketine genişledi)*.
+>   Öncül cümlesi her yerden kalktı (test yorumu, md. 18, 9. tur alt bloğu — üstü çizilerek —,
+>   OP-8 devri, ADR 0020); yerine: "yürüyüş, go/types'ın tip grafiğini tükenmiş bir anahtarla
+>   tam dolaşır; tanınmayan tür = kırmızı". **Kalan sayılı sınır:** yalnız çalışma zamanında
+>   doldurulan `any` ve reflection; ve, adıyla: bir adlı tipin DIŞA KAPALI yöntemleri izlenmez
+>   (paket dışından çağrılamaz, yazdırılacak değer tutmaz). *(11. tur: bu iki sınır ve öteki
+>   hepsi md. 18'in tek listesinde, S1 ve S2.)*
+> - **Ölçüm — bugünkü graf:** ~~1 953 tip (Alias 1, Array 4, Basic 18, Chan 2, Interface 18,
+>   Map 11, Named 112, Pointer 354, Signature 492, Slice 207, Struct 64, Tuple 670)~~ *(11.
+>   tur, N-2: sayı platforma bağlı — Linux go1.26.8'de 1 935 (denetçi); kayıt sayıyı tutmaz,
+>   test her koşuda `t.Logf` ile basar)*; Union ve TypeParam bugünkü grafta YOK. **Küme bu turda dört tip büyüdü** — hepsi bu paketin dışa
+>   kapalı tipleri, `Authenticator`'ın dışa kapalı alanlarından: `authKeys`, `limits`, `budget`,
+>   `budgetWindow`; gerekçeli istisna oldular (yalnız bir `Authenticator`'ın parçası olarak
+>   basılırlar — o bir specimen, ~~matris onu kapsar~~ *(11. turda yanlışlandı: specimen
+>   türetilmiş challenge anahtarını ve `dummyDigest`'i aramıyordu; gerekçeler artık yalnız
+>   mekanik olarak denetlenen iddialar — 11. tur bloğu)*; reflect tipleri `Authenticator`'ın
+>   alanlarından okunur, eksik alan kırmızı). **Yeni db tipi YOK:** `db.ResolvedTag` (ve onun
+>   açıktaki `AESKeyRef []byte`'ı) OP-6'nın API'sinden bugün ULAŞILAMIYOR — ölçüm: `internal/sun`
+>   import ediliyor ama dışa açık hiçbir bildirim bir `sun` tipi vermiyor; `sun.Result` ya da
+>   `*sun.Verifier`'ı veren mutant kırmızı. Kümenin bugünkü üyeleri: specimen 13 —
+>   `SessionToken`, `Challenge`, `Secret`, `EnrollmentToken`, `PendingBlob`, `Issued`,
+>   `Pending`, `Key`, `Authenticator`, `Config`, `db.OperatorAccount`, `db.SealedSecret`,
+>   `db.PasswordHash`; istisna 8 — `Identity`, `Store`, `db.OperatorSession`,
+>   `db.OperatorAuthEvent` ve bu turun dördü. Süre, `apiTypes` bütünü: sıcak 0,19–0,32 sn
+>   (`-race` 0,37–0,53 sn), soğuk 0,43 sn (`-race` 0,83 sn).
+>
+> | Bulgu | Neydi | Karşılığı | Kıran mutasyon |
+> |---|---|---|---|
+> | B-1 | Yabancı `Named`'in alanı/yöntemi yürünmüyordu (öncül yanlış) | Tükenmiş anahtar, yabancı tip tam | A9-sun-Result, A9-sun-Verifier, A9-sun-NewVerifier-funcvalue, A9-sun-field-in-exception — *"db.ResolvedTag is reachable from this package's exported API and is neither a specimen nor a named exception"*; A9-sun-Preview-method **yeşil, doğru**: `sun.Preview`'da hiçbir db tipi yok (alanları bool, uuid, string, *uuid; yöntemi yok) — eşdeğer mutant |
+> | B-2 | Kısıt, gömülü arayüz, union yürünmüyordu | `TypeParam`, `Interface` gömülüleri, `Union` | A9-constraint-inline, -named, -union, -generic-type — *"db.ResolvedAdmin is reachable …"* |
+> | Anahtarın pozitif kontrolü | — | `default:` → `t.Fatalf` | M10-ctl-noBasic (bugünkü grafta 18 Basic): kırmızı, `default` ateşler. M10-ctl-noUnion ve M10-ctl-noTypeParam yalnız başına **yeşil — adıyla eşdeğer**, çünkü bugünkü grafta union ve tip parametresi yok; union ya da kısıt mutantıyla birlikte KIRMIZI (`default` ateşler) |
+> | N-1 | Adsız struct'ın dışa kapalı alanı; kural (2) adsız struct'a uygulanmıyordu | Yürüyüş her alanı; alan testi adsız struct'ı da yürür, alanlarını yolu altında adlandırır (`Authenticator.r.s`) | A9-anon-struct-unexported-field (`func Snap() struct{ a db.ResolvedAdmin }`): kırmızı; M10-N1-anonString (`r struct{ s string }`, iki yol da `allowedFields`'ta): *"Authenticator.r.s holds text or bytes in the open (string)"*. Kontrol: struct yürüyüşü dışa açık alanlarla sınırlanınca Snap'in db tipi yakalanmadı (test yalnız iki iç istisnanın bayatlığıyla kırmızı) |
+> | N-2 | Map eleman cümlesi | `isBytesOrText` map'in DEĞERİNİ okur (anahtarı değil — `budget.windows` hız anahtarlarıyla, adıyla) | M10-N2-mapString, M10-N2-mapBytes: kırmızı |
+> | N-3 | "13 sabit" | AST ile yeniden sayıldı: `operatorauth` 9 sabit + 8 sentinel; `internal/db` 1 sabit + 2 sentinel değişken; 9. tur bloğunda düzeltildi | — |
+> | N-4 | `go list` hatası sebebini söylemiyordu | `ExitError.Stderr` mesajda; gerekçe yorumda (paket/modül/araç zinciri teşhisi; ortamı yankılamaz; bir modül indirme hatası proxy URL'sini — burada genel varsayılan — adlandırır) | — |
+> | N-5 | `compareDummy` yorumu var olmayan bir "erken uzunluk çıkışı" anıyordu | x/crypto v0.54.0 okundu: `CompareHashAndPassword`'de uzunluk çıkışı YOK (yalnız `GenerateFromPassword` 72 baytı reddeder); ölçüldü: cost 12'de 8, 72, 73, 200 ve 4 096 bayt 196–212 ms. Kırpma SAVUNMA olarak tutuldu (iki kol aynı girdiyi hash'ler; ileride kısa yol açan bir karşılaştırıcıya karşı), yorum ölçülen gerçekle yazıldı | M10-N5-noClamp: **yeşil — adıyla eşdeğer**; `TestPassword_EveryArmPaysOneComparisonAtTheSameCost` etkilenmedi |
+>
+> **10. tur mutasyon koşuları (hepsi kopyala-geri-yaz, her birinde sha doğrulandı; probe
+> içeriği `key.go`'nun sonuna eklenip geri yazıldı, repoya yeni dosya konmadı):** 9. denetçinin
+> 41'i — **40 kırmızı + 1 eşdeğer yeşil** (A9-sun-Preview-method); bu turun 10'u — 6 kırmızı
+> + 3 beklenen yeşil (iki eşdeğer kontrol, clamp) + 1 kontrol (yukarıda); 8. denetçinin 45'i
+> (+ 9. turunkiler) — 43 kırmızı, B-limits-byValue-unfilled beklenen yeşil, C5b beklenen
+> derleme kırmızısı; 8. turun 11'i — 10 kırmızı + N5 kontrolü; ağır örnekler 14/14 kırmızı:
+> D4, D5, X8, X2, M1, H1, L1, R3, tip geri dönüşleri ve `limits limits`.
+>
+> Kapı zinciri baştan, staticcheck SON değişiklikten sonra (rc=0). Tam koşu (`.env`, `-race
+> -count=1 ./...`, 2026-10-01 02:52 UTC, yük 2,9–4,8): **bu koşuda** tek kırmızı T72
+> (`cmd/rotatekek`); `internal/operatorauth` 181,4 sn, `internal/db` 106,4 sn, duvar 289 sn.
+> Kapsam: `internal/operatorauth` %95,6 (44 test), `internal/sun` %97,4.
+>
+> **11. tur (2026-10-01) — 10. denetçi (bağımsız) RED.** Bloklayıcılar: **B-1** —
+> `authKeys` istisnasının gerekçesi ("matris onu kapsar") yanlıştı: `Authenticator` specimen'i
+> KEK, HMAC anahtarı ve adresi arıyordu; tuttuğu türetilmiş challenge anahtarını ve
+> `dummyDigest`'i aramıyordu. Kural (2) bir seviyede duruyordu (`[][]byte`, `[2][]byte`,
+> `*[][]byte`, `[][32]byte` — R2a–R2e) ve `allowedFields`'ın "a Key" gerekçesi denetlenmeyen
+> bir iddiaydı: CK (`challengeKey Key` → `challengeKey [][]byte`, aynı ad, girdi dokunulmadan)
+> 44/44 yeşildi. **B-2** — kayıt `operatorauth` ve `internal/db` ile sınırlıydı:
+> `func E() sun.EV2Auth` ve `var Auth *sun.EV2Auth` (`KeyENC`/`KeyMAC` düz `[]byte`) yeşildi.
+> **Orkestratörün kararı:** (1) `allowedFields` alanın TİPİNİ de pinler; (2) kural (2) eleman
+> ve map değerine özyinelemeli, eleman işaretçisi adıyla muaf *(12. turda düzeltildi: muafiyet
+> fmt'nin davranışıyla çelişiyordu)*; (3) specimen sırları tam —
+> türetilmiş anahtar eklenir, kapsama mekanik pinlenir, `dummyDigest` adıyla sınır; (4) kayıt
+> modül geneli; (5) **teslimden önce kendi kendini denetleme** — bu turda yazılan her yorum,
+> gerekçe, sayılı sınır ve kart cümlesi için "onu yanlışlayan tek satırlık bir mutant var
+> mı?", yeni mekanizmalara karşı en az 10 kaçış denemesi.
+>
+> **Yapılan (yalnız test ve belge; ürün kodu değişmedi):**
+>
+> - **Tip pini (karar 1).** `allowedFields` girdisi `{typ, why}`; alan testi her alanın
+>   `typeID`'sini girdiyle karşılaştırır, uyuşmazlık kırmızı (*"… is now a …; allowedFields
+>   pins … -- a type changed under the same name"*). `typeID` her adlı tipi TAM paket yoluyla
+>   yazar (bir build'de tektir) ve adsız tipin değişince tipi değiştiren her parçasını:
+>   kanal yönü, alanın paket yolu, etiketi ve gömülülüğü, fonksiyonun parametreleri ve
+>   variadic'liği, arayüzün yöntemleri. Kapalı kümenin adları da `operatorauth` ve `db` dışında
+>   TAM yolla (modüle göreli bir yol bir standart kütüphane yoluna — `internal/poll` — eşit
+>   olabilirdi).
+> - **Kural (2) özyinelemeli (karar 2).** `isBytesOrText` dilim, dizi ve map değerinde her
+>   derinliğe iner; adsız struct elemanının alanlarını okur; bir kaba işaretçiyi açar; HER
+>   genişlikte tamsayı dizisi düz sayılır (kendi kaçış denemem: `[]uint16` UTF-16 metin taşır ve
+>   `[]byte` ile aynı ondalıkları basar). Okumadıkları adıyla md. 18 tek listesinde (S3, S4).
+> - **Alan yürüyüşü her paketin yapısına girer** (`heldStructs`): işaretçi, dilim, dizi ve
+>   map (anahtar ve değer) üzerinden tutulan HER struct, `okFieldTypes` dışında, hangi paketin
+>   olursa olsun yürünür. Kendi kaçış denemelerim, eski kodda ölçülerek YEŞİL: `sun.EV2Auth`'u
+>   `notSpecimens`'e bir gerekçeyle koymak (yürüyüş yalnız iki paketin yapısına giriyordu, düz
+>   `KeyENC` okunmuyordu), `last http.Cookie` ve `last []http.Cookie` (düz `Value`).
+> - **Specimen araması mekanik (karar 3).** `Authenticator` specimen'i türetilmiş challenge
+>   anahtarını arar; `TestSpecimens_SearchEveryRedactedValueTheyHold`: specimen'in TUTTUĞU her
+>   redakte yaprak (`*string`) — yapı, işaretçi, arayüz, dilim, dizi ve map üzerinden — ya
+>   aranan sırlardan biridir ya da `unsearched`'te gerekçesiyle adlıdır; bayat `unsearched`
+>   girdisi kırmızı; DEĞERSİZ bırakılmış yaprak kırmızı; yaprak tutabilen bir İSTİSNA bir
+>   specimen'in içinde tutulmak zorunda. `dummyDigest` adıyla aranmaz (S6). Kendi kaçış
+>   denemelerim, eski kodda ölçülerek YEŞİL: `Config`'e specimen'in doldurmadığı `Extra Key`
+>   (değersiz yaprak), `authKeys`'e `extra []Key` (yürüyüş dilime inmiyordu), `Identity`'ye (bir
+>   istisna) `k Key` (hiçbir specimen tutmuyordu — kontrol: denetim kapatılınca yeşil).
+> - **Kayıt modül geneli (karar 4).** `github.com/atknatk/tappa/` altındaki her paketin adlı
+>   tipi kaydedilir. Bugünkü ölçüm **+0 / −0**: küme aynı — specimen 13 (`SessionToken`,
+>   `Challenge`, `Secret`, `EnrollmentToken`, `PendingBlob`, `Issued`, `Pending`, `Key`,
+>   `Authenticator`, `Config`, `db.OperatorAccount`, `db.SealedSecret`, `db.PasswordHash`),
+>   istisna 8 (`Identity`, `Store`, `db.OperatorSession`, `db.OperatorAuthEvent`, `authKeys`,
+>   `limits`, `budget`, `budgetWindow`). 10. turda eşdeğer yeşil sayılan A9-sun-Preview-method
+>   artık KIRMIZI (`sun.Preview`'un kendisi kaydedilir). Süre, `apiTypes` bütünü: sıcak
+>   0,18–0,34 sn (`-race` 0,30–0,48 sn), soğuk 0,45 sn (`-race` 0,71 sn) — yük ~4–8 altında;
+>   kural ≤ ~5 sn.
+> - ~~**Gerekçeler yalnız mekanik iddialar.**~~ *(12. turda yanlışlandı: "each field a Key",
+>   "each field a *budget", "a count and a start time" denetlenmeyen iddialardı — uuid ve
+>   fonksiyon alanları kural (1)'in dışındaydı, K5d (`authKeys`'te KEK'in iki yarısını tutan iki
+>   uuid) 45/45 yeşildi. 12. tur: kural (1) istisnasız; gerekçe metni gözden geçirenin
+>   iddiasıdır — md. 18 S11.)* Dört iç istisnanın gerekçesinden "yalnız bir
+>   `Authenticator`'ın parçası olarak basılır" ve "matris onu kapsar" kalktı (analizle, ölçülmedi:
+>   `Config`'e bir `authKeys` alanı ekleyen tek satırlık bir mutant yanlışlardı); yerine tip pini ve arama pinine
+>   atıf. `budget.windows` gerekçesi "opaque rate key" değil, ölçülen anahtarlar: istemci
+>   adresi, operatör id'si, süreç geneli bütçenin boş anahtarı (`flow.go`).
+>
+> | Bulgu | Neydi | Karşılığı | Kıran mutasyon |
+> |---|---|---|---|
+> | B-1 | `authKeys` gerekçesi, kural (2) bir seviye, denetlenmeyen "a Key" | Karar 1–3 (yukarıda) | CK — üç bağımsız kırmızı: tip pini *"authKeys.challengeKey is now a [][]uint8; allowedFields pins github.com/atknatk/tappa/internal/operatorauth.Key"*, kural (2) *"holds text or bytes in the open ([][]uint8)"*, matris *"Authenticator leaks on Sprintf %w · S1 the value itself"* (anahtar artık aranıyor). R2a–R2d kırmızı (*"Authenticator.r holds text or bytes in the open ([][]uint8)"* …); R2e (`[]*[]byte`) ~~**yeşil, doğru** — S3~~ *(12. turda yanlışlandı: `badVerb` eleman işaretçisini açar; 12. tur bloğu)* |
+> | B-2 | Kayıt iki paketle sınırlı | Karar 4 | B2-E, B2-Auth: *"github.com/atknatk/tappa/internal/sun.EV2Auth is reachable from this package's exported API and is neither a specimen nor a named exception"* |
+> | N-1 | Sınır listeleri ayrışmıştı (üçüncü sınır yalnız test yorumunda) | md. 18 **tek liste** (P1–P7, S1–S10); ADR 0020 notu, OP-8 devri ve test yorumları (`leak_external_test.go` üç yer, `units_test.go`) yalnız işaret eder; 10. tur bloğunun "kalan sınır" cümlesi işaretle | — |
+> | N-2 | "1 953 tip" platforma bağlı | 10. tur bloğunda üstü çizildi; sayı yazılmıyor, test `t.Logf` ile basar | — |
+> | N-3 | `go list` stderr yorumu | `cmd/go/internal/web/api.go` okundu: proxy URL'si `url.URL.Redacted` ile basılır (parola maskelenir); maskelenmeyen tek şey kullanıcı adı kısmındaki bir kimlik bilgisi — adıyla | — |
+> | N-4 | Mk düz dönüş | md. 18 S5, ölçülerek: `func Snap() struct{ K []byte }` ve `func C() *http.Cookie` **yeşil** | — |
+>
+> **Kendi kendini denetleme (karar 5) — 30 kaçış denemesi** (hepsi kopyala-geri-yaz, sha
+> doğrulandı; aynı-ad sondası yalnız scratchpad kopyasında):
+>
+> | Mekanizma | Deneme | Sonuç |
+> |---|---|---|
+> | Tip pini | SA1 takma ad (`challengeKey keyAlias`, `type keyAlias = Key`) | **yeşil, doğru** — takma ad aynı tiptir |
+> | | SA2 `*Key`; SA13 girdinin tipi `*Key`, alan `Key` | kırmızı (tip pini) |
+> | | aynı TypeString başka paketten: scratchpad kopyasında `internal/opx/operatorauth.Key` — `reflect.String()` ikisinde de `operatorauth.Key` | kırmızı: *"authKeys.alt is now a github.com/atknatk/tappa/internal/opx/operatorauth.Key; allowedFields pins github.com/atknatk/tappa/internal/operatorauth.Key"* |
+> | | SA20 kanal yönü (`<-chan string`, pin `chan string`); SA21 alan etiketi | kırmızı — **ikisi de okurken bulundu**: ilk `typeID` yönü ve etiketi yazmıyordu; ölçümden önce düzeltildi |
+> | | modüle göreli ad bir stdlib yoluna eşit (`internal/poll`) | okurken bulundu, yapıyla kapandı (tam yol); mutantı ölçülmedi |
+> | Özyineleme | SA3 `[][][]byte`, SA4 `map[string][]string`, SA5 `[]struct{ s string }`, SA19 `[]uint16` | kırmızı (SA19 okurken bulundu, ölçümden önce kapandı) |
+> | | R2e `[]*[]byte`, SA6 `map[string]*string` | **yeşil, adıyla** — S3 *(12. tur: R2e için yanlış — ölçülmemiş bir fmt iddiasına dayanıyordu, kendi denetimim yakalamadı; SA6 doğru, ölçüldü)* |
+> | | SA7 `[]uuid.UUID`, SA24 `[]float64` | **yeşil, adıyla** — S4 |
+> | Alan yürüyüşü | SA14 `sun.EV2Auth` istisna olarak; SA15 `http.Cookie`; SA16 `[]http.Cookie` | eski kodda **YEŞİL — kaçış**; şimdi kırmızı (*"github.com/atknatk/tappa/internal/sun.EV2Auth.KeyENC holds text or bytes in the open ([]uint8)"*, *"net/http.Cookie.Value …"*) |
+> | Modül kaydı | SA8 `func Cfg() config.Config` | kırmızı: *"github.com/atknatk/tappa/internal/config.Config is reachable …"* |
+> | | LIM-S1 `var Any any = sun.EV2Auth{}`; LIM-S2 `Key`'in dışa kapalı yöntemi `db.ResolvedAdmin` döndürür; LIM-S5 `Snap`, `C() *http.Cookie` | **yeşil, adıyla** — S1, S2, S5 |
+> | Arama pini | SA9 challenge anahtarı aranmaz; SA10 `authKeys`'e beşinci `Key`; SA11 bayat `unsearched`; SA12 `dummyDigest` girdisi silinir | kırmızı |
+> | | SA17 değersiz yaprak (`Config.Extra`); SA18 `[]Key`; SA25 istisnada `Key` | eski kodda **YEŞİL — kaçış**; şimdi kırmızı (SA25 kontrolü: denetim kapatılınca yeşil) |
+> | | SA22 nil `*Key`; SA23 `map[string]Key` | kırmızı |
+>
+> Ayrıca okunarak düzeltilen kendi yazılarım: `allowedFields`'ın başlığı yanlış bildirime
+> (`type allowedField`) yapışmıştı; `budget.windows` gerekçesi ("opaque"); iç istisna
+> gerekçeleri (yukarıda). Kırmızı çizgi taraması kendi `typeID`'mi yakaladı (R7b: bir fmt
+> çağrısında `f.Name` — alan adı, kişisel veri değil); muafiyet yerine değişken adı değişti.
+>
+> **11. tur mutasyon koşuları (hepsi kopyala-geri-yaz, her birinde sha doğrulandı; probe
+> içeriği `key.go`'nun sonuna eklenip geri yazıldı, repoya yeni dosya konmadı):** bu turun 39'u —
+> B-1/B-2'nin 8'i, kaçış denemelerinin 29'u (aynı-ad sondası scratchpad kopyasında), SA25'in
+> kontrolü ve yeni girdi biçimine çevrilen `M8-N1-runesOnly` — **29 kırmızı + 10 beklenen
+> yeşil** (R2e, SA1, SA6, SA7, SA24, SA25 kontrolü, dört LIM); 9. denetçinin 41'i — **41
+> kırmızı** (A9-sun-Preview-method dahil, yukarıda); 10. turun 10'u — 10. turdaki gibi (6
+> kırmızı + 3 beklenen yeşil + 1 kontrol); 8. denetçinin 45'i — 43 kırmızı,
+> B-limits-byValue-unfilled beklenen yeşil, C5b beklenen derleme kırmızısı; 8. turun 11'i —
+> 10 kırmızı + N5 kontrolü; ağır örnekler **14/14 kırmızı**: D4, D5, X8, X2, M1, H1, L1, R3,
+> tip geri dönüşleri (dördü artık arama pinini de kırar: yaprak `*string` değil) ve `limits
+> limits`. Eski listelerin `allowedFields` satırları yeni `{tip, gerekçe}` biçimine çevrildi
+> (11 satır, `M8-N1-runesOnly` dahil; tip, mutantın eklediği alanın `typeID`'si — kural (2) tek
+> başına sınansın diye).
+>
+> Kapı zinciri baştan, staticcheck SON değişiklikten sonra (rc=0). Tam koşu (`.env`, `-race
+> -count=1 ./...`, 2026-10-01 04:16 UTC, yük 2,6–4,3): **bu koşuda** tek kırmızı T72
+> (`cmd/rotatekek`); `internal/operatorauth` 166,9 sn, `internal/db` 39,5 sn, duvar 278 sn.
+> Kapsam: `internal/operatorauth` %95,6 (45 test), `internal/sun` %97,4.
+>
+> **12. tur (2026-10-01) — 11. denetçi (bağımsız) RED.** Doğruladıkları: ürün sondası 64 306
+> render, 0 isabet (ürün kodu değişmemiş); kendi 64 mutasyonunun çoğu kırmızı (tip pini, kural
+> (2), `heldStructs`, modül kaydı); 14/14 ağır ve CK (üç yoldan) kırmızı; CI'ya yakın koşu ve
+> ağsız Docker temiz. **Bloklayıcılar:** **B-1** — S3'ün gerekçesi yanlıştı: `badVerb` bir
+> eleman ya da map-değeri işaretçisini (dilim/dizi/map'e) her derinlikte BİR KEZ açar;
+> `authKeys.extra []*[]byte` türetilmiş bir anahtarla, tipi pinli: bütün testler yeşil, 269
+> render'ın 24'ünde anahtar. **B-2** — `okFieldTypes` ve fonksiyon tipli alanlar kural (1)
+> ile (2)'nin dışındaydı ve bu tek listede yoktu: K5d (`authKeys`'te KEK'in iki yarısını tutan
+> `hintA, hintB uuid.UUID`, test dosyasına dokunmadan) 45/45 yeşil, 36/269 render'da iki
+> yarı; C5b, C1, C3 de yeşil. **Orkestratörün kararı: gerekçe sınıfını YAPIDAN kır** —
+> (1) kural (1) istisnasız; (2) gerekçe metinleri gözden geçirenin iddiası olarak ilan
+> edilir; (3) S3 düzeltilir, muaf biçimler ölçülerek pinlenir.
+>
+> **Yapılan (yalnız test ve belge; ürün kodu değişmedi):**
+>
+> - **Kural (1) istisnasız.** Alan yürüyüşü her alanı — fonksiyon ve `okFieldTypes` tipliler
+>   dahil — adıyla ve tipiyle `allowedFields`'ta ister; 17 yeni girdi (`Authenticator.now/
+>   log/compareFn/digestFn`, `budget.mu/period/now`, `budgetWindow.start`, `Config.Now/Log`,
+>   `Identity`, `Issued`, `db.OperatorAccount` ve `db.OperatorSession`'ın uuid'leri,
+>   `db.OperatorAccount.LockedUntil`). `okFieldTypes` yalnız kural (2)'nin okumadığı ve
+>   yürüyüşün girmediği tiplerdir (`heldStructs` artık onlarda durur — önce `*slog.Logger`'ın
+>   içine giriyordu, ilk koşu `log/slog.Logger.handler`'ı adsız buldu).
+> - **Gerekçe metinlerinin statüsü (S11).** `notSpecimens`'in başlığı ilan eder: bu dosyadaki
+>   her `why` gözden geçirenin iddiasıdır; testler ad, tip ve küme üyeliğini pinler, metni
+>   asla. Dört iç istisnanın gerekçesi yalnız mekanik doğru olanı söyler ("alanları
+>   `allowedFields`'ta adıyla ve tipiyle"). `unsearched` girdileri bir yol listesiyle pinli.
+> - **S3 — işaretçi modeli ölçülerek.** `isBytesOrText(tip, dışa açık mı)`: fmt bir yolda bir
+>   işaretçiyi açar (dizi, dilim, struct, map gösteriyorsa, her derinlikte), sonrakiler
+>   adrestir; `encoding/json` dışa açık alanın her işaretçisini izler (kendi kaçış denemem:
+>   dışa açık `*string` `json.Marshal`'da basılıyordu). String türünde olmayan map anahtarı da
+>   okunur. Pin: `TestExportedTypes_ExemptFormsPrintNoKeyBytes` — 19 biçim KEK'le dolu, matriste:
+>   muaf on biçim (`*string`, `**[]byte`, `[]*string`, `map[string]*string`,
+>   `map[*string]bool`, `[]**[]byte`, `*[]*[]byte`, `[]*[]*[]byte`, `chan []byte`,
+>   `func() []byte`) **0 yolda**; okunan dokuz biçim (`[]byte` 262, `*[]byte` 144,
+>   `[]*[]byte` 144, `map[string]*[]byte` 144, `[]*[32]byte` 144, `map[[32]byte]bool` 262,
+>   `[]*struct{ b []byte }` 144, dışa açık `*string` 3, dışa açık `**[]byte` 3 yolda); ve
+>   `isBytesOrText`'in cevabı ölçümle eşleşir.
+> - **N-1 — bütçe anahtarları pinli.** `checkBudgetKeys`, `TestLeak_NoInputInAnyErrorOrLogLine`'ın
+>   42 kolu koştuktan sonra (+ bir `AllowRequest`) beş bütçenin anahtarlarını yansımayla okur:
+>   flood/work istemci adresi (`netip.ParseAddr`), account operatör id'si (`uuid.Parse`),
+>   auditCap/enroll yalnız `""`; anahtar mesajda basılmaz, yalnız uzunluğu. Bugün 17 anahtar.
+>   **Sapma:** karar "iç test" diyordu; harici testte, çünkü 42 kolun hepsini DB'siz süren
+>   tek harness orası — iç bir test aynı kapsam için DB ya da yeni bir sahte store isterdi;
+>   yansıma dışa kapalı alanı yalnız okur.
+> - **N-2 — değersiz yer.** Yaprak tutabilen bir tipe nil işaretçi, boş dilim ve boş map da
+>   "değersiz" (`holdsLeaf`).
+> - **N-3 — S6 pinli.** `TestDummyDigest_IsNotTheDigestOfAKnownValue` (iç): sahte digest sıfır
+>   tohumun ve boş parolanın digest'i değil (iki karşılaştırma yan yana; `sharedDummy`,
+>   ek üretim yok; `-race` altında ~2,6 sn). "İki build'in digest'leri farklı olmalı"
+>   seçilmedi: bcrypt her digest'i tuzlar, aynı tohumun iki digest'i de farklıdır — hiçbir
+>   şey kanıtlamaz. SP3 bir küme değişikliğidir (`unsearched`'e yeni girdi): yol listesi pini
+>   onu kırmızı yapar.
+> - **N-4 — tek liste tek kaynak.** S11 (gerekçe statüsü), S12 (`go list` stderr'inde URL'nin
+>   kullanıcı adı), S13 (pozitif kontrolün yalnız-adres yolları), S14 (tip pini adla — kendi
+>   denetimimden) eklendi; S3, S4, S6, S7 yeniden yazıldı. Tarama (`limit`, `COUNTED`,
+>   `NOT CLAIMED`, `not seen`, `exempt`, `not walked`, `not masked`, `cannot show`, `says
+>   nothing`): test yorumlarında tek listede olmayan sınır kalmadı; sınır anan her yorum
+>   listeye işaret eder.
+>
+> | Bulgu | Neydi | Karşılığı | Kıran mutasyon |
+> |---|---|---|---|
+> | B-1 | S3: "fmt kaptaki işaretçiyi adres basar" | İşaretçi modeli + ölçüm testi (yukarıda) | `authKeys.extra` türetilmiş anahtarla, tipi pinli: `[]*[]byte`, `map[string]*[]byte`, `[]*[32]byte` — *"authKeys.extra holds text or bytes in the open ([]*[]uint8)"* …; 11. turun R2e'si (`[]*[]byte`, "yeşil, doğru") artık kırmızı |
+> | B-2 | `okFieldTypes`/fonksiyon alanı kural (1)'in dışında | Kural (1) istisnasız | K5d *"authKeys.hintA / hintB is a field nothing authorised"*; C5b *"limits.id …"*; C1 *"Identity.ExtraID …"*; C3 *"db.OperatorSession.ExtraID …"*; C4 (fonksiyon) *"authKeys.hook …"*, C4 (zaman) *"authKeys.made …"* — hepsi test dosyasına dokunmadan |
+> | N-1 | Bütçe anahtarı gerekçesi pinsiz | `checkBudgetKeys` | C7d *"the flood budget holds a key that is not a client address (25 characters; not printed …)"*; C7e *"the account budget holds a key that is not an operator id (99 characters …)"* (+ `flow_db_test.go`'nun hesap bütçesi kolu) |
+> | N-2 | Nil işaretçi değersiz sayılmıyordu | `holdsLeaf` ile nil işaretçi, boş dilim, boş map | `Config.Extra` `*struct{ K Key }`, `**Key`, `*[1]Key` nil: *"Config holds no value at Config.Extra, where a redacting leaf can sit"* |
+> | N-3 | S6 pinsiz; SP3 | `TestDummyDigest_IsNotTheDigestOfAKnownValue`; `unsearched` yol listesi | `rand.Read(nil)`: *"the dummy digest is the digest of the zero seed, encoded as newDummyDigest encodes it"*; SP3: *"the specimens leave ["Authenticator.keys.challengeKey" "Authenticator.keys.dummyDigest"] unsearched; the pinned list is ["Authenticator.keys.dummyDigest"]"* — kontrol: pin kapatılınca SP3 yeşil |
+> | N-4 | Tek liste tek kaynak değildi | S11–S14; yorumlar işaret eder | — |
+> | Ölçüm testinin kontrolleri | — | — | işaretçi açma dalı silinir: *"isBytesOrText([]*[]byte) = false, want true"* (+ dört biçim daha); JSON kuralı silinir: *"isBytesOrText(exported *string) = false, want true"*; `fieldShapes` `[]*[]byte`'ı muaf işaretler: *"isBytesOrText([]*[]byte) = true, want false"* ve *"[]*[]byte prints the key on Sprintf %s · S1 the value itself"* |
+>
+> **Kendi kendini denetleme — 19 deneme** (hepsi kopyala-geri-yaz, sha doğrulandı):
+>
+> | Mekanizma / iddia | Deneme | Sonuç |
+> |---|---|---|
+> | Kural (1) istisnasız | SA12-1 gömülü `uuid.UUID` (KEK'ten dolu); SA12-2 adsız struct alanı `x struct{ a uuid.UUID }`; SA12-3 generic örnek `atomic.Pointer[Key]` (alanın kendisi tipiyle adlı) | kırmızı: *"authKeys.UUID …"*; *"authKeys.x …"*, *"authKeys.x.a …"*; *"sync/atomic.Pointer[…operatorauth.Key]._ / .v is a field nothing authorised"* |
+> | | SA12-4 `Identity.AdminID` → `string` | derlenmiyor (testler uuid karşılaştırır) — yerine SA12-4b `Identity.SessionID` → `[16]byte` (iki yönde atanabilir): kırmızı, tip pini + kural (2) |
+> | S3 muafiyetleri | SA12-5 `**[]byte`, SA12-6 `map[string]*string`, SA12-7 `chan []byte` — üçü de KEK'le dolu (matris KEK'i arar); SA12-16 `[]*[]*[]byte` | **yeşil, adıyla** — S3 (ölçümü ayrıca `TestExportedTypes_ExemptFormsPrintNoKeyBytes`) |
+> | | SA12-15 `map[[32]byte]bool`, KEK anahtar | kırmızı: matris + kural (2) |
+> | JSON kuralı (okurken bulundu) | SA12-8 dışa açık `Config.Hint *string`; SA12-9 dışa açık `Issued.Hints []*string` | kırmızı: *"Config.Hint holds text or bytes in the open (*string)"* … |
+> | Ölçüm pini | SA12-18 `fieldShapes` yanlış etiket | kırmızı (yukarıda) |
+> | Gerekçe statüsü (S11) | SA12-10 `dummyDigest` gerekçesi yanlış yazılır ("the KEK itself, printed everywhere") | **yeşil, adıyla** — S11: tanım gereği sözleşmenin dışında |
+> | Değersiz yer | SA12-11 boş `[]Key{}`; SA12-14 istisna `Identity`'de nil `*Key` | kırmızı: *"holds no value at Authenticator.keys.ks …"*; *"the exception Identity can hold a redacting leaf that no specimen holds"* |
+> | Bütçe anahtarları | SA12-12 account `id + "x"`; SA12-17 flood `addr + "|" + addr` | kırmızı (*"… not an operator id (37 characters …)"*, *"… not a client address (19 characters …)"*) |
+> | Sahte digest (S6) | SA12-13 sabit, sıfır olmayan tohum | **yeşil, adıyla** — S6 |
+>
+> Okuyarak denetlenen ve mutantı olmayanlar: tip pini adlı yapı-olmayan bir tipin TANIMINI
+> görmez — S14 olarak listeye girdi (bugün yürünen alanlarda yalnız `uuid.UUID`,
+> `time.Duration`); işaretçi modeli ALAN içindir — doğrudan basılan bir değerin kendisi
+> derinlik 0'da fiil korunarak açılır, bu alan kuralının değil matrisin konusudur (specimen'ler
+> matriste doğrudan basılır); adsız bir struct'ın dışa açık alanı, dışa kapalı bir alanın
+> altındaysa JSON'a ulaşmaz ama kural JSON kuralıyla okur — fazla kırmızı, eksik değil.
+>
+> **12. tur mutasyon koşuları (hepsi kopyala-geri-yaz, sha doğrulandı; probe içeriği ürün
+> dosyalarına eklenip geri yazıldı, repoya yeni dosya konmadı):** bu turun 37'si + SA12-4b —
+> denetçinin istediği 16'sı **16/16 kırmızı**, üç kontrolün ikisi kırmızı (ölçüm testi) ve
+> biri beklenen yeşil (pin kapalı SP3), kendi 18 denemem 11 kırmızı + 6 adıyla yeşil + 1
+> derlenmeyen (yerine 4b kırmızı); ağır örnekler ve CK **15/15 kırmızı** (D4, D5, H1, L1, X2,
+> X8, M1, R3, dört tip geri dönüşü ve `Secret` baytları, `limits limits`, CK); önceki
+> turların 145'i (yeni girdi düzenine göre yeniden çapalandı) — **130 kırmızı**, 14 beklenen
+> yeşil (B-limits-byValue-unfilled, LIM ×4, M10'un üç eşdeğer kontrolü, M8-N5 kontrolü, SA1
+> takma ad, SA24, SA25 kontrolü, SA6, SA7), C5b beklenen derleme kırmızısı; 11. turda "yeşil,
+> doğru" sayılan R2e artık kırmızı.
+>
+> Kapı zinciri baştan, staticcheck SON değişiklikten sonra (rc=0). Tam koşu (`.env`, `-race
+> -count=1 ./...`, 2026-10-01 05:49 UTC, yük 3,2–4,9): **bu koşuda** tek kırmızı T72
+> (`cmd/rotatekek`); `internal/operatorauth` 173,3 sn, `internal/db` 40,2 sn, duvar 281 sn.
+> Kapsam: `internal/operatorauth` %95,6 (47 test), `internal/sun` %97,4.
+>
+> **12b (ONAY sonrası kapanış, 2026-10-01) — 12. denetçi ONAY; dört bloklamayan kapandı.**
+> (1) `checkBudgetKeys` anahtarları BİÇİMLE değil İÇERİKLE pinler (sürüşün kullandığı
+> adresler, operatör id'leri, `""`) ve sürüşe `Verify`/`Logout` başarı yolları eklendi —
+> D3–D7 kırmızı (*"the flood budget holds a key that is not a client address the drive used
+> (43 characters …)"*, *"the account budget holds a key that is not an operator id of the
+> drive (32 characters …)"* …); sınır S4'te adıyla: yalnız sürülen yollar. (2) `okFieldTypes`
+> literal listeyle pinli — `okFieldTypes += [][]byte` + `authKeys.extra [][]byte`: *"okFieldTypes
+> is [… "[][]uint8" …]; the pinned list is […]"*; S11'in kümelerine eklendi. (3) Dışa açık
+> paket değişkeni yalnız `error` olabilir (bugün 8 sentinel) — `var LastKEK []byte`: *"an
+> exported package variable LastKEK []byte: only sentinel errors are exported variables
+> here"*; S5'e yazıldı. (4) ADR 0020'deki bayat aralık kalktı (aralık yazılmıyor, md. 18'e
+> işaret). Ağır örnekler D4 (ham token), X8, M1, CK, K5d kırmızı. Kapı zinciri baştan,
+> staticcheck son değişiklikten sonra (rc=0); tam koşu (`.env`, `-race -count=1 ./...`,
+> 2026-10-01 06:41 UTC): **bu koşuda** tek kırmızı T72; `internal/operatorauth` 177,2 sn.
+>
+> **12c (güvenlik denetimi kapanışı, 2026-10-01) — `tappa-security-auditor` ONAY (kritik/yüksek
+> yok, §4/§7 temiz); bir ORTA, iki DÜŞÜK kapandı; ÜRÜN KODU değişti.** (ORTA) `enrollAddr`
+> 3/10 dk adres başına, `enroll`'dan önce (`limits.go`, `flow.go`; md. 8 ve OP-8 devri) — sızıntı
+> testinde yeni kol **E10** (43 kol), `TestLimits_ARefusedRequestWritesNoRowAndMovesNoCounter`'da
+> kontrollü yeni kol (tek adres 4. istekte ret: digest 0, DB çağrısı 0, satır 0, süreç sayacı
+> kımıldamaz; başka adres kalanı harcar), `TestBudgets_TheShippedNumbersArePinned`'te 3/10 dk, `checkBudgetKeys`'te anahtarı
+> istemci adresi; kalan sınır P8. Adres payı, aynı adresten üçten fazla enrollment tamamlayan
+> `TestEnrollment_CompletesOnceAndTheStoredEnvelopeOpens`'ı kırdı: ret vakaları kendi adresine
+> (`192.0.2.11`) alındı — testin konusu bütçe değil. (DÜŞÜK) Parola adımı başarıda tek Info satırı:
+> `operator first factor verified; second factor pending` + `operator_id` — adres, e-posta, sır yok
+> (metin "password" sözcüğünü taşımaz: kırmızı çizgi taramasının R7 tetikleyicisidir — ilk hâli
+> R7'de kırmızıydı, muafiyet yerine metin değişti);
+> `checkPasswordVerifiedLines` her satırın bu satır olduğunu, yalnız `operator_id` taşıdığını ve
+> her doğru parola için her handler'da bir kez bulunduğunu pinler (A1'in "tek satır" varsayımı
+> buna göre düzeltildi); kalıcı `password_ok` türü P9. (DÜŞÜK) Bekleyen blob artık
+> `HMAC-SHA256(KEK, "taptime/operator/enrollment-pending/v1/key-derivation")` ile mühürlenir
+> (`authKeys.pendingKey`, bir `Key`); saklanan zarf ham KEK'le kalır; etiket
+> `TestPendingBlob_IsNotTheStoredEnvelope`'ta literal ve sızıntı testinde yeniden yazılı (G11'e
+> ve `Authenticator` specimen'inin sırlarına girer). **Mutantlar:** adres payı silinir — kırmızı
+> (*"request 4 of one address: … want ErrThrottled from its enrollment share"*, *"E7: no
+> request from another address passed …"*); sıra ters — kırmızı (*"process counter 6 -> 7;
+> want … unmoved"*); sayı 10 — kırmızı (`TestBudgets_TheShippedNumbersArePinned`, DB kolu, E7); satır silinir — kırmızı
+> (*"0 text and 0 JSON line(s), want 2 of each"*); satıra e-posta — kırmızı (*"5 attributes"*);
+> blob ham KEK'le — kırmızı (*"the page's blob opened under the KEK ITSELF"*); etiket boş —
+> kırmızı (`TestPendingBlob_*` + *"holds a redacted value at Authenticator.keys.pendingKey that
+> its secrets do not include"*); saklanan zarf türetilmiş anahtarla — kırmızı
+> (`TestEnrollment_CompletesOnceAndTheStoredEnvelopeOpens`, `TestEnrollment_ANextStepFirstCodeCannotSignInAgain`).
+> Ağır örnekler D4, X8, M1, CK, K5d, Y20 kırmızı. Kapı zinciri baştan, staticcheck son
+> değişiklikten sonra (rc=0). Tam koşu (`.env`, `-race -count=1 ./...`, 2026-10-01 07:27 UTC,
+> log metni değiştikten sonra): **bu koşuda** tek kırmızı T72; `internal/operatorauth` 175,9 sn.
+> (Önceki bir tam koşu bu satırın ilk hâlindeki kısaltılmış bir test adı atfıyla
+> `TestEveryNamedTestExists`'te kırmızıydı; atıf tam adla düzeltildi, koşu tekrarlandı.) Kapsam: `internal/operatorauth`
+> %95,5 (47 test), `internal/sun` %97,4.
+>
+> **12d (kapanış denetimi, 2026-10-01) — kapanış denetçisi ONAY (32 mutantının 29'u, ağırların
+> 12/12'si kırmızı; bağımsız sonda 3 961 render, 0 isabet); dört ucuz bulgu kapandı.** (1)
+> `TestLimits_ARefusedRequestWritesNoRowAndMovesNoCounter` audit tavanını enrollment kollarından
+> ÖNCE tüketiyordu, bu yüzden iki "satır 0" kontrolü hiç kırmızı olamazdı; enrollment kollarından
+> önce `a.limits.auditCap` tazelenir — C13 (pay reddi `enrollmentRefused` yazar): *"+1 row(s) …
+> want 0, 0, 0 and unmoved"*; C13b (süreç reddi aynı): *"rows +1, want pending and 0"*; ikisi de
+> kırmızı; kontrol: tazeleme olmadan ikisi de yeşil (md. 8'in "satır 0" iddiası artık ölçülüyor).
+> (2) Pencere metni ölçülen hâliyle (`limits.go`, md. 8, P8, ADR 0020): anahtarın kendi penceresi
+> başına 3; pencere sınırında bir süreç penceresine 5'e kadar; tek bir pencere iki anahtar ve
+> önceki bir istekle tükenir; sürekli tüketim ≥4 anahtar. (3) Dışa açık `error` değişkeni:
+> `errors.New(<dize literali>)` ile bildirim + yeniden yazma ya da adres alma yok (AST, `apiTypes`;
+> bugünkü 8 sentinel uyar) — C8c (`var ErrLastKey error`, `New`'da KEK metniyle): kırmızı
+> (*"not declared as errors.New of a string literal"*, *"an exported variable written after its
+> declaration"*); doğru bildirilip `New`'da üzerine yazılan bir sentinel ve `fmt.Errorf` ile
+> bildirilen biri de kırmızı; S5'e yazıldı. (4) Bayat metinler: `Config.Log`'un "tek satır"ı
+> (artık iki), S6 (beş `Key`'den dördü), md. 8 (beş bütçe), ADR 0020'nin bütçe listesi
+> (`enrollAddr 3`), `limits.go` başlığı (enrollment bütçeleri tasarım gereği Go'nun
+> kontrollerinden SONRA, digest'ten ÖNCE — ölçülen sırayla). Ağır örnekler D4, X8, CK kırmızı.
+> Kapı zinciri baştan, staticcheck son değişiklikten sonra (rc=0). Tam koşu (`.env`, `-race
+> -count=1 ./...`, 2026-10-01 08:15 UTC): **bu koşuda** tek kırmızı T72; `internal/operatorauth`
+> 171,1 sn, `internal/db` 100,2 sn. Kapsam: `internal/operatorauth` %95,5 (47 test),
+> `internal/sun` %97,4.
 
 ### Görevler — A2 tenant-ötesi okuma/yazma
 | ID | Görev | Efor | Kabul (özet) |
