@@ -61,6 +61,8 @@ internal/domain/tenant/  tenant/lokasyon/departman/çalışan iş kuralları
 internal/sun/         NTAG 424 DNA SDM doğrulama: AES-CMAC + ctr. Kriptografi
                       SADECE burada. Skill: `tappa-sun`
 internal/session/     oturum token üretimi/doğrulama (hash saklanır, token değil)
+internal/operatorauth/ platform operatörü kimliği (ADR 0020): parola, TOTP, oturum,
+                      çerez, limiter. Tenant kapsamsız; DB'ye yalnız op_* ile gider.
 internal/store/       sqlc ÜRETİMİ — elle dokunma
 internal/geo/         haversine, GPS yarıçap kontrolü
 internal/netx/        adres aralığı aritmetiği (bir liste yer kanıtı olamayacak
