@@ -52,6 +52,8 @@ internal/config/      env okuma + doğrulama. Eksik zorunlu env = başlangıçta
 internal/httpx/       router, middleware (request id, tenant, auth, real-ip, rate limit)
 internal/handler/     HTTP handler + DTO. Kural: parse → domain çağır → render.
                       Handler içinde iş kuralı veya SQL YOK.
+internal/handler/operator/  platform operatörü yüzeyi (/operator, ayrı host); müşteri
+                      paneli bu paketi import etmez. DB'si db.OperatorDB (ADR 0020/0021).
 internal/policy/      ⭐ policy motoru. Guardrail (kapatılamaz) + baseline +
                       tenant politikaları; effect döndürür, kayıt yazmaz.
                       Saf fonksiyon. Detay: docs/plan/m3-policy-motoru.md
