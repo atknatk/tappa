@@ -96,30 +96,31 @@ func run() error {
 
 	// 🔴 THE HANDLER IS WRAPPED SO A CONTEXT-CARRYING RECORD GAINS ITS REQUEST ID
 	// (M8-03). It is wrapped HERE, at the one place the process logger is built,
-	// rather than at each of the 23 slog.Default() reads below: every service in
+	// rather than at each of the 24 slog.Default() reads below: every service in
 	// this file is handed slog.Default(), so wrapping the default handler reaches
 	// all of them and there is no injected logger that could miss it.
 	//
-	// ⚠️ 23, RE-COUNTED. A first round wrote 44 and said all of them were in this
-	// file; both halves were wrong, and the second half mattered because it made the
-	// §7 argument rest on a tree that does not exist.
+	// ⚠️ 24, RE-COUNTED (23 until M10 OP-7 added the operator surface's read). A first
+	// round wrote 44 and said all of them were in this file; both halves were wrong,
+	// and the second half mattered because it made the §7 argument rest on a tree
+	// that does not exist.
 	//
 	// ⚠️ THE MEASUREMENT IS WRITTEN AS A COMMAND, NOT AS A BARE NUMBER, BECAUSE THE
 	// BARE NUMBER HAS NOW GONE STALE TWICE. This block wrote 44 in one round and 26
 	// in another; 26 was already wrong when it was typed, because the same round
 	// added three of the comment mentions it was supposed to be excluding. Run it:
 	//
-	//     grep -c 'slog[.]Default()' cmd/tappa/main.go     ->  27
+	//     grep -c 'slog[.]Default()' cmd/tappa/main.go     ->  28
 	//
-	// 27 = 23 real reads + 4 mentions inside comments (three in this block, one in
+	// 28 = 24 real reads + 4 mentions inside comments (three in this block, one in
 	// the legal-texts branch below). The bracket spelling is deliberate: it matches
 	// the same lines as the escaped-dot form while NOT matching itself, so writing
 	// the command here does not change the number the command reports.
 	//
-	// So: 23 real reads in this file, ALL of them below this line — and 20 more OUTSIDE
+	// So: 24 real reads in this file, ALL of them below this line — and 20 more OUTSIDE
 	// it, every one a `if log == nil { log = slog.Default() }` fall-back in a
 	// constructor (12 under internal/domain, 7 under internal/handler, 1 in
-	// internal/httpx). 43 in the production tree altogether.
+	// internal/httpx). 44 in the production tree altogether.
 	//
 	// Those 20 do not weaken the sentence above, they widen it, and that is the
 	// honest way to put it: the wrap is on the DEFAULT handler, so a service built
@@ -194,8 +195,24 @@ func run() error {
 			"role", role.User, "rolsuper", role.Super, "rolbypassrls", role.BypassRLS,
 			"owns_or_can_become_owner_of_an_rls_table", role.OwnsScopedTable,
 			"member_of_a_superuser_or_bypassrls_role", role.InheritsPrivilege,
+			"session_user", role.Session,
 			"why", db.RoleRiskWhy)
 	}
+
+	// THE PLATFORM OPERATOR'S SURFACE (M10 OP-7) -- its own pool, as tappa_operator,
+	// opened and handed to its Authenticator inside openOperatorSurface and nowhere
+	// else; this function sees only the Surface it mounts and the closer it defers.
+	// Off (no TAPPA_OPERATOR_* set) is not an error; neither is a configured surface whose
+	// database cannot be REACHED (db.ErrOperatorUnreachable: /operator answers 503 and the
+	// customer product serves). Every other failure to open it -- a server that refused,
+	// the role gate, the pin, a malformed DSN, a key of the wrong size -- stops the boot.
+	// It is opened here, after the customer pool, so a customer database that is down is
+	// reported first.
+	operatorSurface, closeOperator, err := openOperatorSurface(ctx, cfg, slog.Default())
+	if err != nil {
+		return err
+	}
+	defer closeOperator()
 
 	sessions, err := session.New(data, cfg)
 	if err != nil {
@@ -634,7 +651,7 @@ func run() error {
 
 	srv := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           httpx.NewRouter(cfg, slog.Default(), activation, tap, panelAuth, marketing, signupFlow, resetFlow, ready),
+		Handler:           httpx.NewRouter(cfg, slog.Default(), activation, tap, panelAuth, marketing, signupFlow, resetFlow, ready, operatorSurface),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       90 * time.Second,
 		// 🔴 SET, RATHER THAN LEFT AT GO'S 1 MiB DEFAULT (M8-03 round 4). Every

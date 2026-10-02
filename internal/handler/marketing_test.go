@@ -1616,8 +1616,60 @@ func TestLegalPage_PublishedTextIsEscapedAndNeverRaw(t *testing.T) {
 
 // cookieNameLiteral matches a Tappa cookie name written into Go source. Every
 // cookie in this product is named by a string literal of this shape, and nothing
-// else in non-test Go source is (measured: the six below and nothing more).
+// else in non-test Go source is -- except the entries of cookieScanNonCookies below
+// (measured: the six cookies and that list, nothing more).
 var cookieNameLiteral = regexp.MustCompile(`"(tappa_[a-z_]+)"`)
+
+// cookieScanNonCookies are the `tappa_`-shaped literals in non-test Go source that are
+// NOT cookie names. Each is bound to the ONE file that holds it and carries its reason;
+// the scan logs every exemption it applies on every run, an exemption whose literal is
+// no longer in its file is a red test (it cannot outlive its reason), and the same
+// literal in any OTHER file is still read as a cookie.
+var cookieScanNonCookies = map[string]struct{ file, why string }{
+	"tappa_operator": {
+		file: filepath.Join("internal", "db", "operatorpool.go"),
+		why: "the PostgreSQL role the operator's pool must sign in as (M10 OP-7), compared with " +
+			"session_user and current_user at start-up; no cookie carries it",
+	},
+}
+
+// cookieLiteralsIn splits the `tappa_`-shaped literals of one source file (rel, relative
+// to the repository root) into cookie names and the exemptions of cookieScanNonCookies
+// that apply to THAT file. TestCookieScanNonCookies_AreBoundToTheirFile drives it.
+func cookieLiteralsIn(rel, text string) (cookies, exempt []string) {
+	for _, m := range cookieNameLiteral.FindAllStringSubmatch(text, -1) {
+		if ex, ok := cookieScanNonCookies[m[1]]; ok && ex.file == rel {
+			exempt = append(exempt, m[1])
+			continue
+		}
+		cookies = append(cookies, m[1])
+	}
+	return cookies, exempt
+}
+
+// TestCookieScanNonCookies_AreBoundToTheirFile pins the exemption's binding: the same
+// literal in its own file is exempted, and in ANY OTHER file is a cookie the notice
+// must disclose (OP-7 2nd round, B5e: dropping the file condition stayed green).
+func TestCookieScanNonCookies_AreBoundToTheirFile(t *testing.T) {
+	t.Parallel()
+	if len(cookieScanNonCookies) == 0 {
+		t.Fatal("PREMISE: no exemption to test")
+	}
+	for lit, ex := range cookieScanNonCookies {
+		src := `const x = "` + lit + `"`
+		if cookies, exempt := cookieLiteralsIn(ex.file, src); len(cookies) != 0 || len(exempt) != 1 {
+			t.Errorf("%q in its own file %s: cookies %v exempt %v, want it exempted", lit, ex.file, cookies, exempt)
+		}
+		for _, other := range []string{filepath.Join("cmd", "tappa", "operator.go"), filepath.Join("internal", "db", "pool.go"), "x.go"} {
+			if other == ex.file {
+				continue
+			}
+			if cookies, exempt := cookieLiteralsIn(other, src); len(cookies) != 1 || len(exempt) != 0 {
+				t.Errorf("%q in %s: cookies %v exempt %v, want it read as a cookie", lit, other, cookies, exempt)
+			}
+		}
+	}
+}
 
 // TestCookieNotice_ListsExactlyTheCookiesTheProductSets.
 //
@@ -1629,6 +1681,7 @@ var cookieNameLiteral = regexp.MustCompile(`"(tappa_[a-z_]+)"`)
 func TestCookieNotice_ListsExactlyTheCookiesTheProductSets(t *testing.T) {
 	t.Parallel()
 	inSource := map[string]string{}
+	exempted := map[string]bool{}
 	setCookieCalls := 0
 	root := filepath.Join("..", "..")
 	for _, dir := range []string{"internal", "cmd"} {
@@ -1645,13 +1698,28 @@ func TestCookieNotice_ListsExactlyTheCookiesTheProductSets(t *testing.T) {
 			}
 			text := string(raw)
 			setCookieCalls += strings.Count(text, "http.SetCookie(")
-			for _, m := range cookieNameLiteral.FindAllStringSubmatch(text, -1) {
-				inSource[m[1]] = strings.TrimPrefix(p, root+string(filepath.Separator))
+			rel := strings.TrimPrefix(p, root+string(filepath.Separator))
+			cookies, exempt := cookieLiteralsIn(rel, text)
+			for _, name := range cookies {
+				inSource[name] = rel
+			}
+			for _, name := range exempt {
+				if !exempted[name] {
+					t.Logf("cookie scan: %q in %s is exempted -- %s", name, rel, cookieScanNonCookies[name].why)
+				}
+				exempted[name] = true
 			}
 			return nil
 		})
 		if err != nil {
 			t.Fatalf("walking %s: %v", dir, err)
+		}
+	}
+	// An exemption that no longer matches anything has lost its reason.
+	for lit, ex := range cookieScanNonCookies {
+		if !exempted[lit] {
+			t.Errorf("cookieScanNonCookies exempts %q in %s, and that file no longer holds it; remove the "+
+				"exemption", lit, ex.file)
 		}
 	}
 	// ANTI-VACUITY, both halves. A walk that read nothing would report a product

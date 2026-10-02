@@ -773,3 +773,163 @@ func TestHealthz_AnswersWhileTheLogTargetPanics(t *testing.T) {
 		t.Errorf("GET %s = %d %q, want 200 %q", httpx.HealthPath, res.StatusCode, body, "ok")
 	}
 }
+
+// TestAccessLog_ADeclaredDesignedAnswerIsNotAnEvent is AnswerAsDesigned's contract (M10
+// OP-7, 2c): a handler that declares its status designed and answers with it writes no
+// access record -- the probe precedent, for a route whose designed answer is a matter of
+// state. A different status (a panic's 500) is recorded at ERROR as on any route, and an
+// undeclared 503 is recorded at ERROR (the CONTROL: the record path is live).
+func TestAccessLog_ADeclaredDesignedAnswerIsNotAnEvent(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name      string
+		handler   http.HandlerFunc
+		wantLevel string // "" = no record
+	}{
+		{"declared 503, answered 503", func(w http.ResponseWriter, r *http.Request) {
+			httpx.AnswerAsDesigned(r, http.StatusServiceUnavailable)
+			w.WriteHeader(http.StatusServiceUnavailable)
+		}, ""},
+		{"declared 503, then a panic (500)", func(_ http.ResponseWriter, r *http.Request) {
+			httpx.AnswerAsDesigned(r, http.StatusServiceUnavailable)
+			panic("designed: deliberate")
+		}, "ERROR"},
+		{"declared 503, answered 200", func(w http.ResponseWriter, r *http.Request) {
+			httpx.AnswerAsDesigned(r, http.StatusServiceUnavailable)
+			w.WriteHeader(http.StatusOK)
+		}, "INFO"},
+		{"CONTROL: an undeclared 503", func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusServiceUnavailable)
+		}, "ERROR"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			var buf bytes.Buffer
+			r := httpx.NewRouter(nil, jsonLogger(&buf), mountFunc(func(r chi.Router) { r.Get("/designed/*", tc.handler) }))
+			r.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/designed/x", nil))
+			var access map[string]any
+			for _, rec := range records(t, &buf) {
+				if rec["msg"] == httpx.EventHTTPRequest {
+					access = rec
+				}
+			}
+			switch {
+			case tc.wantLevel == "" && access != nil:
+				t.Fatalf("a declared designed answer wrote an access record: %v", access)
+			case tc.wantLevel != "" && access == nil:
+				t.Fatalf("no access record, want one at %s:\n%s", tc.wantLevel, buf.String())
+			case tc.wantLevel != "" && access["level"] != tc.wantLevel:
+				t.Fatalf("level = %v, want %s", access["level"], tc.wantLevel)
+			}
+		})
+	}
+}
+
+// TestAnswerAsDesigned_OutsideAccessLogIsANoOp: a request that did not come through
+// AccessLog carries no slot to fill, and the call must not panic.
+func TestAnswerAsDesigned_OutsideAccessLogIsANoOp(t *testing.T) {
+	t.Parallel()
+	httpx.AnswerAsDesigned(httptest.NewRequest(http.MethodGet, "/", nil), http.StatusServiceUnavailable)
+}
+
+// TestAccessLog_ADeclarationIsThisRequestsAndThisStatusOnly pins the declaration's two
+// boundaries on ONE router, one request after another (2d, the closing auditor's
+// mutants B4 and B3): a declared 503 does not carry over to the next request's undeclared
+// 503 (the slot is per request, not per AccessLog installation), and a declared 503
+// followed by a different 5xx -- a 502, not only a panic's 500 -- is recorded at ERROR.
+func TestAccessLog_ADeclarationIsThisRequestsAndThisStatusOnly(t *testing.T) {
+	t.Parallel()
+	var buf bytes.Buffer
+	r := httpx.NewRouter(nil, jsonLogger(&buf), mountFunc(func(r chi.Router) {
+		r.Get("/declared", func(w http.ResponseWriter, r *http.Request) {
+			httpx.AnswerAsDesigned(r, http.StatusServiceUnavailable)
+			w.WriteHeader(http.StatusServiceUnavailable)
+		})
+		r.Get("/undeclared", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusServiceUnavailable) })
+		r.Get("/declared-then-502", func(w http.ResponseWriter, r *http.Request) {
+			httpx.AnswerAsDesigned(r, http.StatusServiceUnavailable)
+			w.WriteHeader(http.StatusBadGateway)
+		})
+	}))
+	for _, tc := range []struct {
+		path      string
+		wantLevel string // "" = no record
+	}{
+		{"/declared", ""},
+		{"/undeclared", "ERROR"},
+		{"/declared", ""},
+		{"/declared-then-502", "ERROR"},
+		{"/undeclared", "ERROR"},
+	} {
+		buf.Reset()
+		r.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, tc.path, nil))
+		var access map[string]any
+		for _, rec := range records(t, &buf) {
+			if rec["msg"] == httpx.EventHTTPRequest {
+				access = rec
+			}
+		}
+		switch {
+		case tc.wantLevel == "" && access != nil:
+			t.Fatalf("GET %s wrote %v, want no record", tc.path, access)
+		case tc.wantLevel != "" && access == nil:
+			t.Fatalf("GET %s wrote no record, want one at %s -- a declaration leaked past its request or status", tc.path, tc.wantLevel)
+		case tc.wantLevel != "" && access["level"] != tc.wantLevel:
+			t.Fatalf("GET %s: level = %v, want %s", tc.path, access["level"], tc.wantLevel)
+		}
+	}
+}
+
+// TestAccessLog_ADeclarationIsThisRequestsWhileAnotherRuns is the per-request slot
+// under CONCURRENCY (2e, the 2nd closing auditor: one slot per AccessLog installation,
+// reset at each request, passed every sequential test and passed under -race). Two
+// requests overlap on one router, in both orders: a declared 503 holding while an
+// undeclared 503 completes, and an undeclared 503 holding while a declared 503
+// completes. Each time exactly ONE record is written, and it is the undeclared one's.
+func TestAccessLog_ADeclarationIsThisRequestsWhileAnotherRuns(t *testing.T) {
+	t.Parallel()
+	for _, declaredHolds := range []bool{true, false} {
+		var buf bytes.Buffer
+		hold, held := make(chan struct{}), make(chan struct{})
+		r := httpx.NewRouter(nil, jsonLogger(&buf), mountFunc(func(r chi.Router) {
+			r.Get("/declared", func(w http.ResponseWriter, r *http.Request) {
+				httpx.AnswerAsDesigned(r, http.StatusServiceUnavailable)
+				if declaredHolds {
+					close(held)
+					<-hold
+				}
+				w.WriteHeader(http.StatusServiceUnavailable)
+			})
+			r.Get("/undeclared", func(w http.ResponseWriter, _ *http.Request) {
+				if !declaredHolds {
+					close(held)
+					<-hold
+				}
+				w.WriteHeader(http.StatusServiceUnavailable)
+			})
+		}))
+		first, second := "/declared", "/undeclared"
+		if !declaredHolds {
+			first, second = second, first
+		}
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			r.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, first, nil))
+		}()
+		<-held
+		r.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, second, nil))
+		close(hold)
+		<-done
+
+		var routes []any
+		for _, rec := range records(t, &buf) {
+			if rec["msg"] == httpx.EventHTTPRequest {
+				routes = append(routes, rec[httpx.LogRouteKey])
+			}
+		}
+		if len(routes) != 1 || routes[0] != "/undeclared" {
+			t.Errorf("%s held while %s ran: records for %v, want exactly one, for /undeclared", first, second, routes)
+		}
+	}
+}

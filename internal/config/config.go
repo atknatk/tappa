@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/netip"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -58,6 +59,38 @@ type Config struct {
 	// SEPARATE key from SessionHMACKey on purpose — see keySeparation below for
 	// the measurement and the reasoning.
 	InviteHMACKey []byte // 32 bytes
+
+	// The platform operator's surface (M10 OP-7; ADR 0020, ADR 0021): its own pool,
+	// its two keys and its own host. FOUR VARIABLES, ONE SET — all four or none
+	// (loadOperatorSurface): none leaves every field empty and the surface off
+	// (/operator answers 503, the customer product is untouched); some but not all is
+	// a startup failure naming which are missing.
+	//
+	// The two keys sit here as raw []byte like every other key in this struct, and
+	// that is a recorded decision rather than an oversight (docs/plan/m10-platform.md,
+	// OP-4 block, "Kabullere bağlananlar — OP-7", the 8th-round decision (1)):
+	// internal/db imports this package, so this package cannot import
+	// internal/operatorauth and cannot hold its redacting Key. cmd/tappa converts the
+	// bytes with operatorauth.NewKey at the one place it builds the Authenticator.
+	// Redacting this struct as a whole is backlog T80; nothing in this repository
+	// formats a Config, and OP-7 adds no place that does.
+	//
+	// OperatorDatabaseURL is tappa_operator's DSN (internal/db.NewOperatorDB). It
+	// carries a password, so no error in this package or in the pool's constructor
+	// repeats it.
+	OperatorDatabaseURL string
+	// OperatorTOTPKEK seals and opens the operators' TOTP secrets (ADR 0020 §1);
+	// 32 bytes, and different from every other key here (operatorKeySeparation).
+	OperatorTOTPKEK []byte
+	// OperatorTokenHMACKey keys the operator session token's hash (ADR 0020 §2);
+	// 32 bytes, its OWN variable rather than a label on the session key, and
+	// different from every other key here.
+	OperatorTokenHMACKey []byte
+	// OperatorHost is the separate host the operator surface lives on (ADR 0020 §4;
+	// D-B: ops.taptime.mt). Validated as ONE spelling — a lower-case DNS name with no
+	// scheme, port, path or user part — and never TAPPA_BASE_URL's own host. It is
+	// configuration, not a secret: it is the one operator value a log line may name.
+	OperatorHost string
 
 	// OperatorAdminIDs is who may publish Tappa's OWN legal texts (M7-06): the
 	// privacy policy, the terms, the company details and the cookie notice. It is an
@@ -261,6 +294,13 @@ func Load() (*Config, error) {
 	}
 	// The invite key must not simply BE the session key. See keySeparation.
 	push(keySeparation(c.SessionHMACKey, c.InviteHMACKey))
+	// The operator surface: all four variables or none, then each one valid, then
+	// neither operator key equal to any other key. It runs after every other key is
+	// read because the last check compares against all of them.
+	for _, err := range loadOperatorSurface(c) {
+		push(err)
+	}
+	push(operatorKeySeparation(c))
 	// RetentionYears is required (no default): see the field comment.
 	if c.RetentionYears, err = intEnvRequiredRange("TAPPA_RETENTION_YEARS", retentionYearsMin, retentionYearsMax); err != nil {
 		push(err)
@@ -444,6 +484,218 @@ func kekSeparation(kek, previous []byte) error {
 			"nothing. Unset it when no rotation is in progress")
 	}
 	return nil
+}
+
+// The four variables of the platform operator's surface (M10 OP-7). They are
+// constants so the set below, the loader and the error messages cannot spell one
+// differently from another.
+const (
+	envOperatorDatabaseURL  = "TAPPA_OPERATOR_DATABASE_URL"
+	envOperatorTOTPKEK      = "TAPPA_OPERATOR_TOTP_KEK"
+	envOperatorTokenHMACKey = "TAPPA_OPERATOR_TOKEN_HMAC_KEY"
+	envOperatorHost         = "TAPPA_OPERATOR_HOST"
+)
+
+// OperatorSurfaceVariables returns the four variables that configure the operator
+// surface, in a fresh slice. They are ONE set: the loader refuses some-but-not-all,
+// and deploy/k8s/20-app.yaml must take all four from tappa-secrets with
+// `optional: true` (cmd/tappa's packaging test reads this list rather than a copy).
+func OperatorSurfaceVariables() []string {
+	return []string{envOperatorDatabaseURL, envOperatorTOTPKEK, envOperatorTokenHMACKey, envOperatorHost}
+}
+
+// OperatorSurfaceConfigured reports whether ANY operator field is set. Load
+// guarantees all four or none; a Config built as a struct literal (a test, or wiring
+// that skips Load) does not have that guarantee, and "any" is the fail-CLOSED reading
+// of a partial one: the caller goes on to open the surface, and the constructors
+// refuse the missing piece (an empty DSN, a key of the wrong size) instead of the
+// surface silently staying off.
+func (c *Config) OperatorSurfaceConfigured() bool {
+	return c.OperatorDatabaseURL != "" || len(c.OperatorTOTPKEK) > 0 ||
+		len(c.OperatorTokenHMACKey) > 0 || c.OperatorHost != ""
+}
+
+// loadOperatorSurface reads the four operator variables as ONE set.
+//
+// 🔴 SOME-BUT-NOT-ALL IS A STARTUP FAILURE, NOT A SURFACE THAT IS "PARTLY ON". A
+// DSN without its KEK cannot sign anybody in, a KEK without its DSN has nothing to
+// open, and a host without either names a surface that does not exist; each half-
+// state would boot looking healthy and fail on the operator's first request, which
+// is this package's "never a silent default" rule. NONE is the inert state and is
+// not an error: the surface is off, /operator answers 503, and the customer product
+// never notices (ADR 0020 §4, risk 7).
+//
+// "Set" means a non-empty value — the same reading optionalKey32 uses — so a value
+// of blanks counts as set and must then be valid. For the DSN, valid starts with "not
+// blank" (2b): pgx parses a DSN of whitespace as an EMPTY connection string — every
+// default, the local socket — so the 2nd auditor's " " beside three valid variables
+// booted with the surface "unavailable" instead of refusing; Load refuses it here.
+// Messages name VARIABLES and
+// lengths, never a value: the DSN carries a password, the keys are keys, and a
+// mis-pasted value in the host variable could be either.
+func loadOperatorSurface(c *Config) []error {
+	var set, missing []string
+	for _, name := range OperatorSurfaceVariables() {
+		if os.Getenv(name) != "" {
+			set = append(set, name)
+		} else {
+			missing = append(missing, name)
+		}
+	}
+	switch {
+	case len(set) == 0:
+		return nil
+	case len(missing) > 0:
+		return []error{fmt.Errorf("the operator surface is configured by four variables together, and only some are set "+
+			"(set: %s; missing: %s). Set all four, or none: with none the surface is off, /operator answers 503 and "+
+			"the customer product is unaffected (deploy/README.md, operator surface runbook)",
+			strings.Join(set, ", "), strings.Join(missing, ", "))}
+	}
+	var errs []error
+	c.OperatorDatabaseURL = os.Getenv(envOperatorDatabaseURL)
+	if strings.TrimSpace(c.OperatorDatabaseURL) == "" {
+		errs = append(errs, errors.New("TAPPA_OPERATOR_DATABASE_URL: is set but holds only whitespace, which "+
+			"PostgreSQL's client reads as an empty connection string (every default, a local socket). Set the "+
+			"operator's DSN, or unset all four operator variables"))
+	}
+	var err error
+	if c.OperatorTOTPKEK, err = key32(envOperatorTOTPKEK); err != nil {
+		errs = append(errs, err)
+	}
+	if c.OperatorTokenHMACKey, err = key32(envOperatorTokenHMACKey); err != nil {
+		errs = append(errs, err)
+	}
+	if c.OperatorHost, err = operatorHost(os.Getenv(envOperatorHost), c.BaseURL); err != nil {
+		errs = append(errs, err)
+	}
+	return errs
+}
+
+// operatorHost validates TAPPA_OPERATOR_HOST and returns it unchanged.
+//
+// ONE SPELLING, REFUSED RATHER THAN NORMALISED (prefixes' lesson above, measured
+// three times in this repository: a check and its consumer must see the same form).
+// The value is compared with a request's host by OP-8's host gate; accepting
+// "OPS.taptime.mt", "ops.taptime.mt." or "ops.taptime.mt:443" here would hand that
+// gate a second spelling to get wrong. So the value is a lower-case DNS name —
+// letters, digits, hyphens and dots, labels of 1-63 characters, no leading or
+// trailing hyphen — and nothing else: no scheme, no port, no path, no user part.
+// Whether a request's port is stripped before the comparison is OP-8's decision.
+//
+// IT IS NEVER TAPPA_BASE_URL's HOST. ADR 0020 §4 puts the operator surface on its OWN
+// host (its `__Host-` cookie, its same-origin check); the base URL's host in this
+// variable would put it on the customer product's canonical host. The comparison
+// ignores case because the base URL's host is not normalised anywhere.
+// ⚠️ THAT IS THE ONLY HOST THIS CHECK KNOWS. The ingress serves the customer product on
+// other hosts as well (deploy/k8s/40-ingress.yaml: www.taptime.mt, tappa.everva.com.tr),
+// and an operator host equal to one of those is accepted here; keeping the operator
+// surface off every customer host is OP-8's two-way host gate (m10-platform.md, OP-7
+// card correction, hand-off list).
+//
+// The error never repeats the value: whatever was pasted into this variable by
+// mistake — a DSN, a key — would otherwise reach the process log.
+func operatorHost(v, baseURL string) (string, error) {
+	if !isDNSHostName(v) {
+		return "", errors.New("TAPPA_OPERATOR_HOST: must be a lower-case DNS host name such as ops.taptime.mt: " +
+			"letters, digits, hyphens and dots only, with no scheme, port, path, user part or trailing dot " +
+			"(the value is not repeated here, because a mis-pasted DSN or key would reach the log)")
+	}
+	if u, err := url.Parse(baseURL); err == nil && strings.EqualFold(u.Hostname(), v) {
+		return "", errors.New("TAPPA_OPERATOR_HOST: must not be TAPPA_BASE_URL's host. The operator surface lives on " +
+			"a host of its own, not on the customer product's canonical host (ADR 0020 §4)")
+	}
+	return v, nil
+}
+
+// isDNSHostName reports whether s is a lower-case DNS host name: 1-253 bytes, dot-
+// separated labels of 1-63 bytes drawn from [a-z0-9-], none starting or ending with
+// a hyphen. A single label (localhost) is a host name; an empty label (a leading,
+// doubled or trailing dot) is not.
+func isDNSHostName(s string) bool {
+	if len(s) == 0 || len(s) > 253 {
+		return false
+	}
+	for _, label := range strings.Split(s, ".") {
+		if len(label) == 0 || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return false
+		}
+		for i := 0; i < len(label); i++ {
+			b := label[i]
+			if (b < 'a' || b > 'z') && (b < '0' || b > '9') && b != '-' {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// namedKey is one key of this Config with the variable it came from. operator marks
+// the two keys operatorKeySeparation holds apart from everything else.
+type namedKey struct {
+	name     string
+	v        []byte
+	operator bool
+}
+
+// namedKeys is EVERY key this Config holds. TestNamedKeys_ListEveryKeyFieldOfTheConfig
+// derives the set of []byte fields from the struct itself, so a key added to Config
+// and not listed here is a red test rather than a key the separation rule never sees.
+func (c *Config) namedKeys() []namedKey {
+	return []namedKey{
+		{"TAPPA_SESSION_HMAC_KEY", c.SessionHMACKey, false},
+		{"TAPPA_TAG_KEK", c.TagKEK, false},
+		{"TAPPA_TAG_KEK_PREVIOUS", c.TagKEKPrevious, false},
+		{"TAPPA_INVITE_HMAC_KEY", c.InviteHMACKey, false},
+		{envOperatorTOTPKEK, c.OperatorTOTPKEK, true},
+		{envOperatorTokenHMACKey, c.OperatorTokenHMACKey, true},
+	}
+}
+
+// operatorKeySeparation refuses an operator key that is byte-identical to ANY other
+// key of this Config — the other operator key included (ADR 0020 §1, §2; the
+// OP-7 acceptance).
+//
+// WHY, IN THIS REPOSITORY'S TERMS. The TOTP KEK seals every operator's second factor
+// with the same AES-256-GCM layout internal/sun.Wrap uses for plaque keys (OP-6
+// measured that a Wrap ref IS a Seal envelope: what keeps the two apart is the KEK
+// and the AAD length), so a TOTP KEK equal to TAPPA_TAG_KEK collapses that separation
+// to the AAD alone. The token HMAC key is its own variable precisely so that the
+// operator's sessions are independent of the customer's keys
+// (internal/adminauth/token.go's own warning), and an equal pair of bytes is that
+// independence absent while every surface reports it present. The realistic cause is
+// keySeparation's: one generated value pasted into two variables.
+//
+// ONLY PAIRS THAT INVOLVE AN OPERATOR KEY are checked. Widening the rule to every
+// pair (say, the tag KEK against the invite key) would add refusals for a production
+// configuration nobody has measured against them; keySeparation and kekSeparation
+// keep their own two pairs. A key of the wrong length is skipped: key32 already
+// reported it, and a second message about the same variable is noise.
+//
+// Constant time, for keySeparation's reason: hygiene on a path with no attacker
+// input, so "secrets are never compared with ==" grows no exception.
+func operatorKeySeparation(c *Config) error {
+	keys := c.namedKeys()
+	var clashes []string
+	for i, a := range keys {
+		if !a.operator || len(a.v) != 32 {
+			continue
+		}
+		for j, b := range keys {
+			// Each unordered pair once: an operator key against a key listed before it
+			// is skipped when that key is an operator key too (it was compared already).
+			if j == i || len(b.v) != 32 || (b.operator && j < i) {
+				continue
+			}
+			if subtle.ConstantTimeCompare(a.v, b.v) == 1 {
+				clashes = append(clashes, a.name+" = "+b.name)
+			}
+		}
+	}
+	if len(clashes) == 0 {
+		return nil
+	}
+	return errors.New("operator keys must differ from each other and from every other key " +
+		"(identical: " + strings.Join(clashes, "; ") + "). Generate each one separately: openssl rand -base64 32")
 }
 
 // optionalKey32 is key32 for a variable that may legitimately be absent: unset

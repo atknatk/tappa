@@ -348,6 +348,34 @@ func probeAnsweredAsDesigned(route string, status int) bool {
 	return probeDesignedStatus[route][status]
 }
 
+// designedAnswerKey carries, per request, the status the route's OWNER declared as its
+// designed answer (AnswerAsDesigned).
+type designedAnswerKey struct{}
+
+type designedAnswer struct{ status int }
+
+// AnswerAsDesigned is probeDesignedStatus's rule for a route whose designed answer is
+// a matter of STATE rather than of its pattern: the handler declares, before it writes,
+// that status is the route answering as built, and AccessLog then writes no record for
+// it -- exactly as for a probe's designed answer. A response whose status differs from
+// the declared one (a panic's 500) is recorded as usual, at ERROR when it is a 5xx.
+//
+// 🔴 THE CASE IT EXISTS FOR (M10 OP-7, 2c, the security auditor's finding): the
+// operator surface answers 503 on every /operator path while it is off or unavailable.
+// Before this, each such answer was an `http.request` record at ERROR, and
+// deploy/README.md's rule 5 (status >= 500, more than 5 in 5 minutes) would page on six
+// requests from anyone -- a path that answered 404 before OP-7. A route table could not
+// carry it: the same patterns will hold OP-8's real handlers, whose 503 is NOT designed,
+// and internal/httpx must not import the operator's package to name its paths (ADR 0021
+// §3.6). The state stays visible where its owner writes it: cmd/tappa logs the surface
+// state once at start-up, an ERROR line when it is unavailable (the readiness
+// precedent: the owner logs the state, the per-request answers do not).
+func AnswerAsDesigned(r *http.Request, status int) {
+	if d, ok := r.Context().Value(designedAnswerKey{}).(*designedAnswer); ok {
+		d.status = status
+	}
+}
+
 // WithRequestID wraps h so a record logged with a *Context method gains
 // request_id when the context carries this package's request id.
 //
@@ -417,9 +445,15 @@ func (h requestIDHandler) WithGroup(name string) slog.Handler {
 //
 // LEVEL CARRIES THE SIGNAL: 5xx is Error, 4xx is Info, the rest is Info. An
 // operator filtering level=ERROR gets exactly the responses that are this
-// server's fault, which is what the M8-03 5xx rule keys on. A probe route
-// answering as designed is not written at all — probeDesignedStatus above has the
-// measurement and the three failures that motivated it.
+// server's fault, which is what the M8-03 5xx rule keys on. A response DESIGNED to
+// be what it is is not written at all, in two ways: a probe route answering as built
+// (probeDesignedStatus above has the measurement and the three failures that motivated
+// it), and a handler that declared its status with AnswerAsDesigned and answered with
+// exactly that status -- today only the operator surface's 503 while it is off or
+// unavailable (M10 OP-7, 2c). The declaration lives in a slot made PER REQUEST below,
+// never per installation, and a different status is recorded as usual
+// (TestAccessLog_ADeclarationIsThisRequestsAndThisStatusOnly). What that costs is counted
+// in deploy/README.md's limits (28 for the probes, 32 for /operator).
 func AccessLog(log *slog.Logger) func(http.Handler) http.Handler {
 	// Per-middleware rather than package level (§7 forbids the package singleton),
 	// and it is what keeps the warning below from becoming its own flood.
@@ -431,6 +465,8 @@ func AccessLog(log *slog.Logger) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ww := middleware.NewWrapResponseWriter(w, r.ProtoMajor)
 			start := time.Now()
+			designed := &designedAnswer{}
+			r = r.WithContext(context.WithValue(r.Context(), designedAnswerKey{}, designed))
 			defer func() {
 				status := ww.Status()
 				if status == 0 {
@@ -438,7 +474,7 @@ func AccessLog(log *slog.Logger) func(http.Handler) http.Handler {
 					status = http.StatusOK
 				}
 				route := routeOf(r)
-				if probeAnsweredAsDesigned(route, status) {
+				if probeAnsweredAsDesigned(route, status) || (designed.status != 0 && designed.status == status) {
 					return
 				}
 				level := slog.LevelInfo

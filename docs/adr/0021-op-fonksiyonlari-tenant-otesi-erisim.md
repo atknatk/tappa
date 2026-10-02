@@ -108,8 +108,12 @@ yoluyla BYPASSRLS kazanmanın yapısal freni zaten kodda. `tappa_opdefiner`'ın 
 
 **`tappa_operator` NOLOGIN ve parolasız doğar**, `tappa_app`'in ölçülmüş fail-open
 düzeltmesiyle aynı şekilde (`scripts/db-init/01-roles.sql` başlığı: parolayı veren
-adım düşerse rol **hiç** giriş yapamamalı, repodaki bir parolayla yaşamamalı). Giriş,
-parolayı bir Secret'tan veren ayrı adımda açılır (§5).
+adım düşerse rol **hiç** giriş yapamamalı, repodaki bir parolayla yaşamamalı). ~~Giriş,
+parolayı bir Secret'tan veren ayrı adımda açılır (§5).~~ → *(OP-7 notu, 2026-10-01: giriş
+ayrı bir adımda açılır, ama parola bir Secret'tan **gelmez**: psql'in `\password`
+komutuyla **stdin'den** verilir; ayrı bir Secret anahtarı yoktur, parola yalnız
+`TAPPA_OPERATOR_DATABASE_URL`'in içinde durur — `deploy/README.md`, "Operator surface
+(M10 OP-7)" runbook'u, 2. adım.)*
 
 **`tappa_operator` oturum hash'lerini GÖREMEZ — oturumun bütün hayatı definer'lardadır.**
 Ölçüldü: `WHERE`'de geçen bir sütun için Postgres sütun `SELECT`'i ister (yalnız
@@ -620,9 +624,44 @@ fonksiyonun **içindedir** — enrollment token süresi de artık bir definer'ı
   `op_close_session`. `tappa_operator` `platform_admins`'e ve `platform_sessions`'a hiçbir
   şey yazmaz.
 - DSN yoksa operatör yüzeyi **503**; müşteri paneli etkilenmez (ADR 0020 §4).
-- İki DSN'in yer değiştirmesi iki yönde de **gürültülü** başarısızlıktır:
+- ~~İki DSN'in yer değiştirmesi iki yönde de **gürültülü** başarısızlıktır:
   `tappa_app`'in `op_*` `EXECUTE`'u yok; `tappa_operator`'ın tenant tablolarında
-  yetkisi yok.
+  yetkisi yok.~~ → *(OP-7 notu, 2b, ölçülene daraltıldı:)* iki yön **eşit değil**.
+  `TAPPA_OPERATOR_DATABASE_URL` `tappa_app`'e işaret ederse **açılış reddedilir** (operatör
+  rol kapısı: `current_user ≠ tappa_operator`; `TestOperatorDB_RefusesEveryRoleButTappaOperator`).
+  `DATABASE_URL` `tappa_operator`'a işaret ederse müşteri havuzunun kapısı **açılır**:
+  ölçtüğü dört olgu (`rolsuper`, `rolbypassrls`, RLS'li tablo sahipliği, ayrıcalıklı bir
+  role üyelik) `tappa_operator` için dördü de `false` (ölçüldü, `SET SESSION AUTHORIZATION`,
+  geri alınan işlem) ve oturum değiştirilmemiştir; hata ancak bir tabloya ilk dokunuşta
+  `42501` olarak görünür (ölçüldü: `tenants` üzerinde `SELECT` → *permission denied*).
+  Sürecin o DSN'le açılıp ilk istekte düştüğü **kod çıkarımıdır** — `tappa_operator`
+  geliştirmede NOLOGIN, süreç koşulmadı. Ucuz bir kod çaresi var ama **eklenmedi**
+  (kapsam): üretimde müşteri havuzunun `current_user = tappa_operator` (ya da genel
+  olarak `≠ tappa_app`) iken açılmayı reddetmesi — backlog adayı, OP-7 kart düzeltmesi
+  "2b" satırında.
+- **OP-7 notu (2026-10-01), ölçülerek** (ayrıntı: [m10-platform.md](../plan/m10-platform.md)
+  → OP-7 kart düzeltmesi): (i) `db.OperatorDB` **kendisi bir `OperatorConn` değildir** —
+  `Exec`/`QueryRow` yok; havuzu `OperatorConn`'dur ve yedi yöntemin her biri `operator.go`'nun
+  aynı adlı fonksiyonuna devreder, yani SQL tek yerdedir ve ~~paket dışından operatörün
+  bağlantısına kendi SQL'ini gönderen kod derlenmez~~ *(2i: `o.Exec`/`o.QueryRow` çağrısı
+  derlenmez — ölçüldü: derleyici *"has no field or method Exec"* der (`operatorpool.go`'nun
+  `OperatorDB` yorumu); yöntem kümesini ve devretmeyi `TestOperatorDB_EveryMethodDelegatesVerbatim`
+  pinler *(2j: atıf önce yanlış teste gidiyordu)*; reflect ve `unsafe`
+  ile havuza ulaşan kod üç parçalı iddianın PART III'üdür, kod incelemesinin konusu)*. (ii) Rol kapısı `current_user`'ın yanında
+  **`session_user`**'ı da ister: sahibin DSN'ine `role=tappa_operator` başlangıç parametresi
+  eklemek `current_user = tappa_operator`, `session_user = tappa_owner` verdi (ölçüldü) —
+  bir `SET ROLE NONE` uzakta bir superuser oturumu (ölçüldü; `RESET ROLE` başlangıç
+  parametresine döner). Kapı ayrıca **herhangi bir** role üyeliği
+  reddeder (§1: "hiçbir rolün üyesi değil") ve **her ortamda** reddeder, yalnız üretimde
+  değil. (iii) Açılışta operatör veritabanına **ulaşılamaması** açılışı durdurmaz
+  (`db.ErrOperatorUnreachable` → yüzey 503); ulaşılan şeyin reddi durdurur. *(2. tur:
+  "ulaşılamaz" KAPALI bir listedir — ağ, ad çözümü, zaman aşımı, iptal edilmiş açılış,
+  SQLSTATE sınıfı 08 ve 28, `3D000`, `53300`, `57P01`–`57P03`; ilk hâl ping'deki HER
+  SQLSTATE'i ulaşılamaz sayıyordu ve denetçi `42501`, `22023`, `42704` ile açılışı sürdürdü.
+  Kapı ayrıca `rolcreatedb`, `rolcreaterole`, `rolreplication`'ı ve rolün bir ÜYESİ
+  olmasını da reddeder. Aynı `session_user` ölçütü **müşteri havuzunun** kapısına da
+  eklendi — sahibin DSN'i + `role=tappa_app` üretimde açılıyordu; artık üretimde ret,
+  geliştirmede uyarı.)*
 
 ### 5. Rollerin kurulumu
 
@@ -634,15 +673,20 @@ fonksiyonun **içindedir** — enrollment token süresi de artık bir definer'ı
 - **`01-roles.sql` yalnız boş `PGDATA`'da koşar** (dosyanın kendi başlığı). Çalışan
   geliştirme veritabanı ve canlı küme için **tek seferlik bir runbook** gerekir; canlı
   kümede bu **kullanıcı işidir** — ajan `tappa-secrets`'a dokunmaz (T44/T45 emsali).
-  Geliştirme parolası `tappa_app`'in dev-only script emsaliyle, üretim parolası
-  Secret'tan (`deploy/k8s/postgres-init/02-app-password.sh` emsali).
+  Geliştirme parolası `tappa_app`'in dev-only script emsaliyle, ~~üretim parolası
+  Secret'tan (`deploy/k8s/postgres-init/02-app-password.sh` emsali).~~ → *(OP-7 notu,
+  2026-10-01: üretim parolası psql `\password` ile stdin'den verilir; ayrı bir Secret
+  anahtarı yoktur, yalnız DSN'in içindedir — runbook 2. adım.)*
 - 🔴 **Sır değerleri hiçbir dosyaya yazılmaz** (Olay A-0). Runbook ve manifestler
   yalnız adlarla konuşur. Kullanıcının `tappa-secrets`'a ekleyeceği adlar (ADR 0020
   Sonuçlar'daki listeyle **aynı**): `TAPPA_OPERATOR_DATABASE_URL`,
   `TAPPA_OPERATOR_TOTP_KEK`, `TAPPA_OPERATOR_TOKEN_HMAC_KEY` ve `tappa_operator`
   rolünün parolası.
   `TestPackaging_EverySecretConfigReadsIsInjectedByTheManifest` yeni sır adlarının
-  manifestte enjekte edildiğini zorlar.
+  manifestte enjekte edildiğini zorlar. → **OP-7 notu (2026-10-01):** dört ad, parola
+  aralarında değil — ADR 0020 Sonuçlar'daki aynı tarihli not; dördünün `optional: true`
+  olarak Secret'tan geldiğini `TestPackaging_TheOperatorSurfaceIsOneOptionalSecretSet`
+  zorlar. Geliştirme parolası `scripts/db-init/02-dev-only-password.sh`'te.
 
 ### 6. Denetim şekli — neyle tutulur
 
@@ -981,13 +1025,128 @@ hangi testin hangi karta düştüğü plan bloğunda):
   `current_setting` 0 değilse havuzu açmayı reddeder. Bugünkü ucuz pin: ters katalog
   testi `pg_db_role_setting`'de iki operatör rolü için satır olmamasını ister ve runbook'un
   doğrulama sorgusu bu sayıyı gösterir. Aynı düğme `tappa_app` için de açıktır (kapsam
-  dışı; kart madde 33). (2) **
+  dışı; kart madde 33). → **OP-7'de uygulandı (2026-10-01), İKİ havuza birden (backlog
+  T79), ölçülerek:** `log_parameter_max_length_on_error = 0` her bağlantının başlangıç
+  parametresidir ve bugünkü kodda **her yeni bağlantıda** geri okunur (ölçen: `TestPin_AConnectionTheParameterDidNotReachIsRefused`; `internal/db/logparams.go`; ilk
+  bağlantı açılışın ping'idir, yani reddi açılış reddidir). Ölçüm (dev, rol varsayılanı
+  `tappa_app IN DATABASE postgres` için -1, sonra RESET): parametresiz bağlantı -1, pinli 0;
+  DSN'deki `options=-c …=-1` ve `?…=-1` pini yenemedi — *(2. tur: harf büyüklüğü farklı bir
+  anahtar, `?LOG_PARAMETER_MAX_LENGTH_ON_ERROR=-1`, ilk hâlde pgx'in haritasında ikinci bir
+  anahtar olarak kalıyor ve paket sırasına göre kazanıyordu — 30 açılışta 7–11 ret, ölçüldü;
+  pin artık o adı harf duyarsız eşleyen her anahtarı siler, 30/30 açılış 0)*. `log_parameter_max_length`
+  **iğnelenmedi**: `superuser` bağlamlıdır, süper kullanıcı olmayan bir başlangıç paketi onu
+  adlandırınca bağlantı **reddedilir** (42501, ölçüldü) ve aynı sebeple DSN sahibi de onu
+  değiştiremez; üretim onu -1'de koşturduğu için geri okuma onu şart koşmaz.
+  `TestPin_NoRoleLevelSettingOnTheConnectingRoles` artık `tappa_app` için de satır
+  olmamasını ister. *(2c, güvenlik denetimi, ölçüldü: pin ve geri okuma tek başına bu
+  koşulu sağlamıyordu. DSN'deki `default_query_exec_mode=simple_protocol`'u pgx kendisi
+  okur, sunucuya göndermez ve argümanları SQL metnine istemci tarafında gömer; iki havuz
+  açıldı, geri okuma "0" dedi ve nöbetçi değer `current_query()`'deydi — yani hata veren
+  ifadenin STATEMENT satırında. Artık iki havuzun kurucusu yalnız bağlı parametre gönderen
+  kipleri kabul eder (`boundParameterModes`: cache_statement, cache_describe,
+  describe_exec, exec — beşinin her koşuda ölçüldüğü liste; `simple_protocol` reddedilir,
+  normalleştirilmez). "OP-7'de uygulandı" iddiası bu ret ile birlikte doğrudur.)* (2) **
   `log_min_duration_statement` açılırsa** `log_parameter_max_length = -1` ile yavaş bir
   `op_*` çağrısının parametreleri **tam** log'lanır; açılacaksa önce
   `log_parameter_max_length = 0`. Ve bugünkü güvenlik **Go'nun bağlı parametre
   kullanmasına** dayanır: SQL metnine gömülen bir değer `log_statement` / hata STATEMENT'ı
   yoluyla parametre ayarlarından bağımsız log'lanır. **OP-7'ye, adıyla:** operatör
-  sorguları yalnız bağlı parametreyle yazılır, SQL metnine değer gömülmez. (Geliştirme
+  sorguları yalnız bağlı parametreyle yazılır, SQL metnine değer gömülmez. *(2c: bu koşul
+  kaynak kodla sınırlı değildi — bir DSN parametresi (`default_query_exec_mode=simple_protocol`)
+  ya da çağrı başına bir `pgx.QueryExecModeSimpleProtocol` argümanı pgx'in bütün
+  argümanları metne gömmesini sağlar. DSN yolu ~~kapandı~~: kurucular o kipi reddeder
+  (`TestPin_ADSNCannotChooseClientSideInterpolation`). ~~Ürün kodunda o argüman yoktur ve
+  yazılamaz (AST taraması).~~ → *2d, kapanış denetimi, ölçüldü:* ada bağlı tarama dört
+  yazımı görmedi (dot import, `pgx.QueryExecMode(5)`, `pgx.QueryExecModeExec + 1`,
+  `…DefaultQueryExecMode = 5`) ve çağrı başına `pgx.QueryExecMode(5)` nöbetçiyi
+  `current_query()`'ye koydu. ~~Kural artık TİPE bağlı ve kapalı: modülün ürün Go kodunda
+  tipi `github.com/jackc/pgx/v5.QueryExecMode` olan HİÇBİR ifade ve `DefaultQueryExecMode`
+  alanının hiçbir kullanımı `internal/db/logparams.go`'nun iki bildirimi
+  (`boundParameterModes`, `requireBoundParameters`) dışında geçemez~~ (tip taraması
+  `go/types` ile, bütün bağımlılıkların tam export verisiyle; 34 paket, 207 test dışı
+  dosya; pozitif kontrollü — *2f: artık bir TUZAK TELİ, kapalı kural değil; aşağıdaki
+  2f notu*). ~~**Kalan tek
+  sınır, adıyla:** reflection ya da `unsafe` — bu tipte bir ifade yazmadan değer yazan yol.~~
+  → *2e, 2. kapanış denetimi, ölçüldü: o iddia da geniş çıktı — build kısıtlı bir ürün
+  dosyası (`//go:build !race` ya da `!cgo`) testin koştuğu build'de yoktu, üretimin
+  build'inde (CGO_ENABLED=0, -race yok) vardı; ve kurucunun içinde, kontrolden SONRA
+  değiştirilen bir kip hiçbir testi kırmızıya çevirmedi. Katman değişti — üç katman ve bir
+  davranış ölçümü: (i) kurucular DSN'i bağlanmadan önce reddeder; (ii) HER YENİ BAĞLANTI
+  kendi kipini yeniden denetler (`pinLogParameters`'ın `AfterConnect`'i) — ~~kurucunun
+  geri kalanında ya da havuzun config'inde sonradan yapılan değişiklik bağlantıya
+  ulaşamaz~~ *(2g, 4. kapanış denetimi, ölçüldü: koşulsuz değil — pin'den sonra havuzun
+  config'ini baştan değiştiren bir dal (`cfg.IsProd()`'a ya da kullanıcı adına bağlı)
+  `AfterConnect`'i de götürdü ve bütün testler yeşil kaldı. Ölçülene eşit cümle: bugünkü
+  kurucular düz çizgidir ve kaynakları token token pinlidir
+  (`TestConstructors_BodiesAreTheReviewedOnes`); `pinLogParameters`'ın `AfterConnect`'i
+  havuzun kancası olarak kaldıkça havuzun config'inde sonradan yapılan bir kip değişikliği
+  bağlantıda reddedilir; havuz kancalarına (`AfterConnect`, `BeforeConnect`, `ConnConfig`)
+  `pinLogParameters` dışında ~~yazmak~~ *(2h: telin listelediği yazım biçimleriyle yazmak —
+  `poolConfigHooks`'un yorumu)* bir teli tetikler; davranış testi müşteri havuzunu
+  dev VE üretim ortamıyla koşar)*; (iii) kaynak: tip taraması, artık `go list`'in modül paketleriyle BİREBİR aynı
+  kümede, koşan build'in dışarıda bıraktığı her test dışı dosyada kırmızı
+  (`IgnoredGoFiles`, `CgoFiles`, `IgnoredOtherFiles`), ve ortamdan bağımsız bir kural
+  ürün dosyalarında build kısıtı, GOOS/GOARCH dosya adı eki, cgo ve go'nun yok saydığı
+  ad yasaklar (`TestProductCode_CarriesNoBuildConstraint`; bugün böyle dosya 0, liste
+  boş); ve DAVRANIŞ: iki kurucunun döndürdüğü havuzda üç ayrı bağlantıda nöbetçi
+  argüman `current_query()`'de yok (`TestPools_KeepArgumentsOutOfTheStatementText`).
+  ~~**Kalan, adıyla:** çağrı başına reflection ya da `unsafe` ile yazılmış bir kip (havuz
+  çapında olanı bağlantı katmanı ve davranış testi yakalar); ve kod içinde SQL kurmak
+  (`QueryRewriter`, `fmt.Sprintf`) — bu kuralın konusu değil (CLAUDE.md §6; `operator.go`'nun
+  bağlı-parametre pini).~~ → *2f, 3. kapanış denetimi ve orkestratör kararı:* o "kalan"
+  listesi de geniş çıktı — `pgxtest.AllQueryExecModes` + çıkarımlı bir generic çağrı
+  başına `simple_protocol` seçti; reflection yok, `unsafe` yok, kip tipinde bir ifade
+  yazılmadı. **İddianın biçimi değişti.** (1) **Havuz düzeyi, ölçülü** *(2h: "KAPALI" sözcüğü
+  kaldırıldı; cümle bugün sevk edilen kod hakkındadır)*: sevk edilen
+  iki havuzun hiçbir bağlantısı argümanı metne gömen bir varsayılan kiple çalışmaz
+  (kurucuların DSN denetimi, bağlantı başına denetim, davranış testi) *(2g: bu cümlenin
+  taşıyıcıları ölçülene eşitlendi — yukarıdaki (ii) notu: kurucular düz çizgi ve token token
+  pinli, bağlantı başına denetim `pinLogParameters`'ın `AfterConnect`'i kanca kaldıkça,
+  havuz kancalarına yazma teli, davranış testi müşteri havuzunu dev ve üretim ortamıyla
+  koşar; operatör havuzunda üretim yolu ile test kancası yolu arasındaki tek fark — *2h:
+  pinli bildirimlerin içinde* — `before`'dur ve kaynak pinlerinde görünür)*. (2) **Çağrı başına
+  kip için tamlık iddiası yoktur.** Kod içinde SQL kurmakla aynı sınıftır; taşıyan kurallar
+  CLAUDE.md §6 ve `operator.go`'nun bağlı-parametre pinidir. Tip taraması
+  (`TestProductCode_ExecModeWireAndConnectWire`) bir tuzak telidir ve yalnız listelediği
+  yazımları yakalar: dot import, dönüşüm, aritmetik, alana untyped sabit, adlı sabit,
+  generic örneğin tip argümanı, alias, `any`'den tip iddiası, literal anahtarı, kipten
+  kurulu bileşik tipler (dilim, dizi, map, kanal, işaretçi, imza, demet) ve
+  `pgxtest`'in listesi; yakalamadığı her yol (örnek: bilmediği bir kaynaktan beslenen
+  çıkarımlı generic, reflection, `unsafe`, `QueryRewriter`/`fmt.Sprintf`) kod incelemesinin
+  ve §6'nın konusudur. (3) **Kapalı ve yapısal:** üretim ikilisinin bağımlılık kapanışı
+  `testing`'i ve `pgxtest`'i içermez (`TestBinary_LinksNoTestCode`) — bu turun kaçışındaki
+  değer kaynağı yapısal olarak kesik.)* *(2h, 5. kapanış denetimi ve orkestratör kararı —
+  İDDİANIN BİÇİMİ KALICI OLARAK: beş kapanış turu her pinin dışında bir yer buldu, çünkü
+  metin GELECEKTEKİ KEYFİ kod değişikliklerine karşı bir garanti gibi okunuyordu; hiçbir
+  test bunu kanıtlayamaz. Bu notun üstündeki OP-7 2c–2g notları şu üç parçaya göre okunur ve
+  yalnız bunları söyler.* **(I) Bugün sevk edilen kod, ölçülen davranış:** iki havuzun her
+  bağlantısı bağlı parametre gönderen bir kipte çalışıyor ve
+  `log_parameter_max_length_on_error` 0'a pinli — ölçen testler:
+  `TestPools_KeepArgumentsOutOfTheStatementText` (iki havuz; müşteri havuzu dev ve prod),
+  `TestPin_ADSNCannotChooseClientSideInterpolation` (DSN reddi, bağlanmadan önce),
+  `TestPin_AModeChangedAfterTheCheckIsRefusedOnItsConnection` (bağlantı başına ret),
+  `TestQueryExecModes_OnlyTheListedOnesBindOnTheServer`, ve pin ile geri okuma
+  (`TestPin_TheStartupParameterOverridesARoleDefault`, `TestPin_ADSNCannotUnpinIt`,
+  `TestPin_ADifferentlyCasedKeyCannotUnpinIt`, `TestPin_AConnectionTheParameterDidNotReachIsRefused`,
+  `TestPin_AReadBackThatCannotRunIsRefused`, `TestLogParameterPinned_OnlyTheTextZero`).
+  **(II) Adıyla sayılan pinler ve teller, tam liste:** `TestConstructors_BodiesAreTheReviewedOnes`
+  — `newDB`, `openOperatorDB`, `pinLogParameters`, `requireBoundParameters` gövdeleri ve
+  `boundParameterModes` başlatıcısı, token token; `TestConstructors_TheHookReachesOnlyThePin`
+  — `New` ve `NewOperatorDB` gövdeleri, kancanın yalnız `pinLogParameters`'ın üçüncü argümanı
+  olması; `TestProductCode_ExecModeWireAndConnectWire` — KİP teli (`execModeEscapes`'teki
+  yazımlar; izinli bölgesi `logparams.go`'da `boundParameterModes` ya da
+  `requireBoundParameters` adlı PAKET DÜZEYİ bildirim, dosyanın kendi konumuyla — aynı adlı
+  yöntem ve `//line` yönergesi sayılmaz (2i) —, izinli kullanım tam olarak 16), BAĞLANTI teli
+  (`connectFuncs`, iki kurucu dışında), HAVUZ-CONFIG teli (`poolConfigHooks` yorumundaki
+  yazım biçimleri: alana atama, alan üzerinden atama, range ataması, artırma, adres alma,
+  literal anahtarı, `pgxpool.Config`'in ya da onun alttaki struct'ını taşıyan bir tipin
+  bütün değeri — 2i); kapalı
+  yapısal kurallar `TestBinary_LinksNoTestCode` (ikili kapanışı, linux/amd64, cgo=0: `testing`
+  ve `pgxtest` yok) ve `TestProductCode_CarriesNoBuildConstraint` (orada listelenen kısıt
+  türleri). **(III) Tamlık iddiası yok:** pinlerin ve tellerin listelemediği her kod
+  değişikliği — pinsiz yardımcılar (ör. `requireLogParametersPinned`, `logParameterPinned`,
+  `readRole`), importlar, başka başlatıcılar, ortama koşullu davranış, reflect ve `unsafe`,
+  çağrı başına seçilen kip — kod incelemesinin konusudur. (Geliştirme
   veritabanı bunun tersidir: `log_statement = all` ve bağlı parametreler log'da — yalnız
   yerel.)
 - Bilet tablosunun adı — tablo OP-5'in tablolarıyla birlikte doğar. (Karara bağlananlar:

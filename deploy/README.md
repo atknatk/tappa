@@ -519,6 +519,8 @@ SQL
 # beklenen (geliştirme DB'sinde ölçülen şekil):
 #   tappa_opdefiner|f|f|t|0|0|t|0
 #   tappa_operator|f|f|f|0|0|t|0
+# ("Operator surface (M10 OP-7)" bölümünün 2. adımından SONRA tappa_operator'ın ikinci
+#  sütunu t olur — giriş o adımda açılır; öteki sütunlar aynı kalmalı.)
 # Son sütun 0 olmalı: tappa_operator kendi rol varsayılanını yazabilir (ör.
 # log_parameter_max_length_on_error -- `user` bağlamlı bir ayar; -1 reddedilen her op_*
 # çağrısının bağlı parametrelerini log'a ve çağırana döker). 0 değilse DUR: satırı gör
@@ -544,11 +546,297 @@ yüzeyinin bağlantısı OP-7 ile gelir; girişi açan adım da onunla birlikte 
 `tappa-secrets` üzerinde `jsonpath`'i yasaklıyor, §4.7): emsali
 `deploy/k8s/postgres-init/02-app-password.sh` — değer bir pod'a `secretKeyRef` ile gelir
 ve `psql -v` değişkeniyle, kabuk genişletmesi olmadan verilir. Hangi pod'un bunu yapacağı
-ve anahtarın adı OP-7'nin kararıdır.
+ve anahtarın adı OP-7'nin kararıdır. → **OP-7'de karara bağlandı (2026-10-01):** aşağıdaki
+*"Operator surface (M10 OP-7)"* bölümü. Parola **ayrı bir Secret anahtarı değildir** (yalnız
+DSN'in içinde durur) ve role bir pod'un `secretKeyRef`'iyle değil, psql'in `\password`
+komutuyla **stdin'den** verilir — `tappa-secrets`'ın hiçbir **değeri** ekrana gelmez (tek
+okuma o bölümün 3a adımındaki `kubectl describe`'dır: yalnız anahtar adı ve bayt boyu).
 
 **Geri alma yok.** `00026`'nın Down'ı operatör hesaplarını, oturumlarını ve **operatör
 audit izinin tamamını** siler (migration'ın kendi uyarısı); canlıda koşulmaz. Roller
 bırakılabilir: NOLOGIN, üyesiz ve (00026 olmadan) hiçbir nesnenin sahibi değil.
+
+---
+
+## Operator surface (M10 OP-7) — `tappa_operator`'ın girişi ve dört anahtar
+
+**Ne:** platform operatörünün yüzeyi (ADR 0020/0021) **dört değişkenle, tek küme olarak**
+açılır: `TAPPA_OPERATOR_DATABASE_URL` (`tappa_operator`'ın DSN'i), `TAPPA_OPERATOR_TOTP_KEK`,
+`TAPPA_OPERATOR_TOKEN_HMAC_KEY` (ikisi 32 bayt, base64) ve `TAPPA_OPERATOR_HOST`
+(ör. `ops.taptime.mt`). **Hiçbiri yoksa** yüzey kapalıdır: `/operator` **503** döner,
+müşteri ürünü etkilenmez — bugünkü durum budur. **Bir kısmı varsa** süreç açılmayı reddeder
+(`config.Load`, eksikleri adıyla söyler; değer basmaz). Dördü de `deploy/k8s/20-app.yaml`'da
+`tappa-secrets`'tan `optional: true` ile okunur — Secret'ta yokken pod yine kalkar
+(`TestPackaging_TheOperatorSurfaceIsOneOptionalSecretSet`).
+
+**OP-7'de yapılandırılmış yüzey HİÇBİR ROTA SUNMAZ** (`/operator` → router'ın kendi 404'ü):
+giriş ekranları, oturum kapısı ve host kapısı OP-8'in işidir. Bu bölüm OP-7 birleştikten
+sonra her an koşulabilir, ama **önerilen zaman OP-8 ile birliktedir** — o güne kadar
+yapılandırmak yalnız bir bağlantı havuzu ve bir başlangıç satırı kazandırır.
+
+### 🔴 Sıra: üç adım, bu sırayla
+
+1. **"Operator roles (M10 OP-5)" bölümü** — `main`'e birleştirmeden ÖNCE (00026 rolleri ister;
+   o bölümün kendi gerekçesi).
+2. **`main`'e birleştirme** → deploy 00026'yı ve OP-7'nin ikilisini uygular. Dört anahtar
+   henüz yok: yüzey **kapalı** açılır. Doğrula (aşağıdaki *Doğrulama*, "önce" satırı):
+   başlangıç log'unda `"operator_surface":"off"` ve `/operator` → 503.
+3. **Bu bölüm** — `tappa_operator`'a giriş + dört anahtar + rollout. 2. adımdan önce
+   koşulursa 00026 yoktur ve operatör havuzu açılamaz.
+
+Her `kubectl` satırı **`--context hetzner-k8s-1 -n tappa`** taşır. Kullanıcı, veritabanı ve
+sahibin parolası Postgres konteynerinin kendi ortamından okunur (tek tırnaklı `sh -c`).
+**Hiçbir değer ekrana, bir dosyaya ya da bir komut satırına yazılmaz:** değerler yerel
+kabuğun değişkenlerinde doğar, `printf` (bash ve zsh'te kabuğun **yerleşik** komutu — bir
+süreç argümanı olmaz) ile stdin'e verilir, ve sonunda `unset` edilir. `tappa-secrets`'ın
+hiçbir **değeri** ekrana gelmez: tek okuması 3a'daki `kubectl describe`'dır ve o yalnız
+anahtar adını ve bayt boyunu basar (bu dosyanın §4.7 kuralı: üzerinde `jsonpath` yok).
+
+### 0) Secret'ı kim yönetiyor — ölç
+
+```bash
+kubectl --context hetzner-k8s-1 -n tappa get externalsecret
+# "No resources found" → düz Secret yolu (aşağıda 3a).
+# tappa-secrets listeleniyorsa → external-secrets yönetiyor (3b): Secret'a doğrudan
+#   yazılan anahtarları bir sonraki eşitleme SİLER.
+```
+
+### 1) Değerleri üret — yerel kabukta, ekrana basmadan
+
+```bash
+umask 077
+OP_PW="$(openssl rand -hex 32)"        # tappa_operator'ın parolası (hex: URI'de ayırıcı yok)
+OP_TOTP_SEAL="$(openssl rand -base64 32)"    # TAPPA_OPERATOR_TOTP_KEK
+OP_SESSION_SIGN="$(openssl rand -base64 32)"   # TAPPA_OPERATOR_TOKEN_HMAC_KEY
+OP_HOST="ops.taptime.mt"               # TAPPA_OPERATOR_HOST — sır değil
+OP_DSN="postgres://tappa_operator:${OP_PW}@tappa-postgres:5432/tappa?sslmode=disable"
+```
+
+`config.Load` iki anahtarı birbirine ve öteki her anahtara (`TAPPA_TAG_KEK`, oturum ve davet
+anahtarları) karşı sabit zamanda karşılaştırır; eşitse açılmaz. Host küçük harfli bir DNS
+adı olmalı (şema, port, yol yok) ve `TAPPA_BASE_URL`'in host'u **olmamalı**.
+
+### 2) `tappa_operator`'a giriş ver — parola psql'in `\password`'üyle, stdin'den
+
+```bash
+{ printf 'ALTER ROLE tappa_operator LOGIN;\n\\password tappa_operator\n'
+  printf '%s\n%s\n' "$OP_PW" "$OP_PW"; } \
+  | kubectl --context hetzner-k8s-1 -n tappa exec -i statefulset/tappa-postgres -- \
+      sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -1 -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
+# beklenen: ALTER ROLE · iki parola istemi (değer yankılanmaz) · çıkış 0
+```
+
+**Neden `\password`:** psql parolayı **istemcide** SCRAM doğrulayıcısına çevirir ve sunucuya
+yalnız onu gönderir (psql belgesi: *"the new password does not appear in cleartext in the
+command history, the server log, or elsewhere"*); düz `ALTER ROLE … PASSWORD '…'` ise başarısız
+olursa `log_min_error_statement = error` ile parolayı **düz metin** sunucu log'una yazar.
+**Neden stdin:** `kubectl exec -i` (`-t` yok) konteynere TTY vermez, psql parola istemini o
+zaman stdin'den okur — ölçüldü (geliştirme DB'si, `docker exec -i`, `BEGIN … ROLLBACK` içinde,
+2026-10-01): iki istem, `rolcanlogin = t`, saklanan değer bir SCRAM doğrulayıcısı; geri
+almadan sonra rol yine NOLOGIN ve parolasız. `-1` stdin betiğini tek transaction'a sarar
+(aynı ölçüm: iki ifade aynı `pg_current_xact_id()`).
+
+Doğrula (değer basmaz):
+
+```bash
+kubectl --context hetzner-k8s-1 -n tappa exec -i statefulset/tappa-postgres -- \
+    sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -At -U "$POSTGRES_USER" -d "$POSTGRES_DB"' <<'SQL'
+SELECT rolcanlogin, starts_with(rolpassword, 'SCRAM'),
+       (SELECT count(*) FROM pg_db_role_setting s WHERE s.setrole = r.oid)
+  FROM pg_authid r WHERE r.rolname = 'tappa_operator';
+SQL
+# beklenen: t|t|0
+```
+
+### 3a) Dört anahtarı `tappa-secrets`'a ekle — düz Secret yolu, TEK yazma
+
+```bash
+printf '{"stringData":{"TAPPA_OPERATOR_DATABASE_URL":"%s","TAPPA_OPERATOR_TOTP_KEK":"%s","TAPPA_OPERATOR_TOKEN_HMAC_KEY":"%s","TAPPA_OPERATOR_HOST":"%s"}}' \
+    "$OP_DSN" "$OP_TOTP_SEAL" "$OP_SESSION_SIGN" "$OP_HOST" \
+  | kubectl --context hetzner-k8s-1 -n tappa patch secret tappa-secrets --type merge --patch-file /dev/stdin
+# beklenen: secret/tappa-secrets patched   (kubectl'in --patch-file bayrağı gerekir)
+
+# Yalnız ADLAR ve BOYUTLAR — değer basılmaz:
+kubectl --context hetzner-k8s-1 -n tappa describe secret tappa-secrets | grep TAPPA_OPERATOR_
+# beklenen dört satır; iki anahtar 44 bayt (32 baytın base64'ü), host 14 bayt (ops.taptime.mt)
+```
+
+🔴 **Dördü TEK yamada.** Secret'ın değişmesi çalışan pod'u yeniden başlatmaz, ama arada bir
+yeniden başlama (node, tahliye) olursa pod **yarım küme** görür ve açılmayı reddeder. Bu
+yüzden ayrı ayrı `patch` yok.
+
+### 3b) external-secrets yolu (Secret'ı bir `ExternalSecret` yönetiyorsa)
+
+Dört değeri Infisical'da `/tappa/` altına aynı adlarla gir. Değer ekrana basılmaz; panoyla
+verilir ve **her yapıştırmadan hemen sonra pano boşaltılır**:
+
+```bash
+printf '%s' "$OP_DSN" | pbcopy            # Infisical'a yapıştır: TAPPA_OPERATOR_DATABASE_URL
+pbcopy </dev/null                          # panoyu hemen boşalt
+printf '%s' "$OP_TOTP_SEAL" | pbcopy      # TAPPA_OPERATOR_TOTP_KEK
+pbcopy </dev/null
+printf '%s' "$OP_SESSION_SIGN" | pbcopy   # TAPPA_OPERATOR_TOKEN_HMAC_KEY
+pbcopy </dev/null
+# TAPPA_OPERATOR_HOST sır değil: elle yaz (ops.taptime.mt)
+```
+
+**Neden boşaltma:** macOS panosu oturumdaki her uygulamanın okuyabildiği ortak bir alandır;
+Evrensel Pano açıksa aynı Apple hesabının öteki cihazlarına da gider. `pbcopy </dev/null`
+panoyu boş bir değerle değiştirir, yani değer yalnız yapıştırma ile boşaltma arasındaki
+saniyelerde panodadır. Bir pano yöneticisinin o arada aldığı kopyayı **silmez** — öyle bir
+araç açıksa bu adımdan önce duraklat. (`printf` kabuğun yerleşiğidir: değer bir süreç
+argümanı olmaz.)
+
+Sonra canlı `ExternalSecret`'in `data:` listesine
+dört girdiyi **birlikte** ekle (`deploy/examples/externalsecret.example.yaml`'da yorumda
+duruyorlar) ve uygula; `kubectl --context hetzner-k8s-1 -n tappa get externalsecret
+tappa-secrets` → `SecretSynced`. ⚠️ `ExternalSecret`'te anahtar başına `optional` yoktur:
+uzak değerlerden biri eksikse **bütün** eşitleme durur ve öteki anahtarlar da donar —
+dördünü Infisical'a girmeden girdileri açma.
+
+### 4) Emanet
+
+`TAPPA_OPERATOR_TOTP_KEK` kaybolursa her operatörün TOTP zarfı açılamaz: geri dönüş her
+operatör için `opadmin reset-mfa`'dır (OP-9) — kalıcı değil ama zahmetli; değeri
+`TAPPA_TAG_KEK`'in emanetiyle aynı yere (Infisical / parola yöneticisi) koy, **ayrı bir
+kayıt** olarak. `TAPPA_OPERATOR_TOKEN_HMAC_KEY` kaybı yalnız açık operatör oturumlarını
+düşürür; parola kaybı yeni bir parola + 2. ve 3. adımdır.
+
+```bash
+unset OP_PW OP_TOTP_SEAL OP_SESSION_SIGN OP_HOST OP_DSN
+```
+
+### 5) Rollout ve doğrulama
+
+```bash
+kubectl --context hetzner-k8s-1 -n tappa rollout restart deployment/tappa
+kubectl --context hetzner-k8s-1 -n tappa rollout status deployment/tappa --timeout=180s
+```
+
+**Doğrulama — başlangıç satırı.** Her süreç tam olarak biri olan bir olgu yazar (yokluğu
+okumamak için; KEK döndürme kapısının gerekçesi):
+
+```bash
+# "önce" (birleştirmeden sonra, bu bölümden önce) — 1 olmalı:
+kubectl --context hetzner-k8s-1 -n tappa logs deployment/tappa | grep -c '"operator_surface":"off"'
+# "sonra" (bu bölümün 5. adımından sonra) — 1 olmalı:
+kubectl --context hetzner-k8s-1 -n tappa logs deployment/tappa | grep -c '"operator_surface":"configured"'
+# 1 ise DUR — yapılandırma tam ama veritabanına ULAŞILAMADI (ağ, ad çözümü, zaman aşımı,
+# kimlik doğrulama, veritabanı yok, sunucu dolu ya da kapanıyor/açılıyor):
+kubectl --context hetzner-k8s-1 -n tappa logs deployment/tappa | grep -c '"operator_surface":"unavailable"'
+```
+
+Başlangıç satırı her süreçte **bir kez**, açılışta yazılır: bu sorguları rollout'tan hemen
+sonra koş (log döndürülmüşse satır gitmiş olabilir — o zaman cevap "bilinmiyor"dur, "kapalı"
+değil). Yapılandırılmış yüzeyin veritabanına bağlı olduğunun kanıtı `configured` satırının
+KENDİSİDİR: o satır ancak havuz açılıp rol kapısı ve log parametresi geri okuması geçtikten
+sonra yazılır.
+
+`unavailable` satırı `err` alanında yalnız bir **kod** taşır (ör. `SQLSTATE 28P01` = yanlış
+parola, `3D000` = veritabanı yok, `connection refused`) — DSN'i, parolayı, sunucunun mesajını
+ya da anahtarı asla (`TestOpenOperatorSurface_PrintsNoValue`). "Ulaşılamaz" sayılanlar KAPALI
+bir listedir (`internal/db` → `unreachableSQLSTATEs`: SQLSTATE sınıfı 08 ve 28, `3D000`,
+`53300`, `57P01`–`57P03`; ağ, ad çözümü, zaman aşımı). Bu durumda süreç **açıktır** ve müşteri
+ürünü servis verir; yalnız `/operator` 503'tür. Nedeni düzelt (çoğunlukla 2. adımla 3. adımın
+parolası uyuşmuyor: yeni bir `OP_PW` ile ikisini birlikte yinele), sonra yeniden rollout.
+
+**Doğrulama — yanıt:**
+
+```bash
+curl -sS -o /dev/null -w '%{http_code}\n' https://taptime.mt/operator
+# beklenen: önce 503, sonra 404 (OP-7'de yapılandırılmış yüzey rota sunmaz)
+```
+
+(`pg_stat_activity`'de bir `tappa_operator` bağlantısı aramak bir kanıt DEĞİLDİR: havuz
+boştaki bağlantıyı en çok ~30 dk tutar — pgxpool `MaxConnIdleTime` — ve `MinConns` 0'dır,
+yani sağlıklı bir süreçte de sonradan sıfır görünür.)
+
+**Açılış reddi** (rollout `status` zaman aşımına uğrar, eski pod servis vermeye devam eder —
+`maxUnavailable: 0`): yeni pod'un log'unda `"msg":"fatal"` satırı nedeni adıyla söyler —
+*"only some are set"* (yarım küme), *"must differ"* (eşit anahtar), *"TAPPA_OPERATOR_HOST"*
+(host biçimi), *"refusing to open"* (DSN `tappa_operator` olarak bağlanmıyor ya da rolün
+nitelikleri ADR 0021 §1'e uymuyor — ör. sahibin DSN'i yapıştırılmış), *"the server refused
+the connection (SQLSTATE …)"* (sunucuya ulaşıldı ve DSN'in istediğini reddetti: `42501` bir
+rol ya da ayar yetkisi, `22023` olmayan bir rol, `42704` bilinmeyen bir ayar — DSN'deki fazla
+parametreye bak), *"asks for default_query_exec_mode=…"* (DSN, pgx'in argümanları SQL metnine istemci
+tarafında gömdüğü bir kip istiyor — `simple_protocol`; parametreyi kaldır — bugünkü kodda
+iki havuz da yalnız bağlı parametre gönderen kipleri kabul eder, ölçen:
+`TestPin_ADSNCannotChooseClientSideInterpolation`) ya da *"the connection's configuration
+(the … pool) is in query exec mode …"* (aynı kip DSN'den değil KODDAN gelmiş — DSN
+denetlenmişti; bir hata raporu konusudur, işletme ayarı değil), *"the connection attempt failed (…), which is not one of the failures that
+count as unreachable"* (sunucu cevabı olmayan bir ret: bir TLS uyarısı, bu tarafın kabul
+etmediği bir sertifika, TLS'i reddeden bir sunucu ya da tanınmayan bir hata — DSN'in
+`sslmode`'una bak; runbook'un DSN'i `sslmode=disable` taşır), ya da
+`log_parameter_max_length_on_error` (bağlantı başlangıç parametresi sunucuya ulaşmadı, ya da
+geri okuması koşamadı). Bir DSN birden çok deneme doğurursa (çok host'lu DSN; `sslmode=prefer`
+ya da hiç `sslmode` yoksa önce TLS sonra düz) "ulaşılamaz" ancak **her** deneme ulaşılamazsa
+geçerlidir; ret satırı karar veren denemeyi *"attempt N of M"* diye, ulaşılamaz satırı her
+denemenin kodunu sırayla (*"attempt 1: connection refused; attempt 2: SQLSTATE 28P01"*)
+adlandırır. Bu yüzden TLS'siz bir sunucuya `sslmode=prefer` ile **listedeki her sunucu cevabı**
+— yanlış parola (`28P01`), olmayan veritabanı (`3D000`), açılan ya da dolu sunucu (`57P03`,
+`53300`) — **açılışı durdurur** (ilk deneme TLS reddidir); ulaşılamaz kalan yalnız her
+denemede ağ düzeyinde olan hatadır (ör. kapalı port). `sslmode=disable` ile aynı cevaplar
+yüzeyi `unavailable` bırakır.
+
+### Geri alma — yüzeyi kapat
+
+```bash
+kubectl --context hetzner-k8s-1 -n tappa patch secret tappa-secrets --type json -p '[
+  {"op":"remove","path":"/data/TAPPA_OPERATOR_DATABASE_URL"},
+  {"op":"remove","path":"/data/TAPPA_OPERATOR_TOTP_KEK"},
+  {"op":"remove","path":"/data/TAPPA_OPERATOR_TOKEN_HMAC_KEY"},
+  {"op":"remove","path":"/data/TAPPA_OPERATOR_HOST"}]'
+kubectl --context hetzner-k8s-1 -n tappa rollout restart deployment/tappa
+kubectl --context hetzner-k8s-1 -n tappa exec -i statefulset/tappa-postgres -- \
+    sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "ALTER ROLE tappa_operator NOLOGIN PASSWORD NULL"'
+```
+
+Dördü yine **tek** yamada (yarım küme yok); sonra başlangıç satırı `"operator_surface":"off"`.
+
+**3b yolunda (Secret'ı bir `ExternalSecret` yönetiyorsa) yukarıdaki `patch` YETMEZ:** bir
+sonraki eşitleme (`refreshInterval: 1h`, ya da `ExternalSecret`'e dokunan ilk değişiklik)
+silinen anahtarları Secret'a geri yazar ve yüzey bir sonraki yeniden başlamada geri açılır.
+Sıra: önce canlı `ExternalSecret`'in `data:` listesinden dört `TAPPA_OPERATOR_*` girdisini
+**birlikte** kaldır ve uygula, eşitlemeyi zorla, Secret'ta kalmadığını doğrula; **ondan
+sonra** `rollout restart` ve `NOLOGIN` satırları:
+
+```bash
+# (canlı ExternalSecret manifestinden dört girdi kaldırılıp uygulandıktan sonra)
+kubectl --context hetzner-k8s-1 -n tappa annotate externalsecret tappa-secrets force-sync="$(date +%s)" --overwrite
+kubectl --context hetzner-k8s-1 -n tappa get externalsecret tappa-secrets
+# beklenen: SecretSynced
+kubectl --context hetzner-k8s-1 -n tappa describe secret tappa-secrets | grep -c TAPPA_OPERATOR_
+# beklenen: 0 — yalnız ad sayar, değer basmaz
+```
+
+`creationPolicy: Owner` ile (örnek dosyadaki) eşitleme Secret'ın verisini `ExternalSecret`'in
+listesinden yeniden kurar, yani kaldırılan girdi Secret'tan da düşer; `0` görmüyorsan (ör.
+`Merge` politikası) yukarıdaki `patch`'i de koş ve yeniden say. Infisical'daki değerler emanet
+olarak kalabilir: `ExternalSecret` onları artık istemez. Bu davranış external-secrets'ın
+belgesine dayanır, bu repoda **ölçülmedi** (ajan kümeye dokunmaz).
+
+### ⚠️ Geri yüklemeden sonra (B YOLU, taze küme)
+
+Rol parolaları bir veritabanı dökümüne **girmez** ve `01-roles.sql` `tappa_operator`'ı
+yeniden **NOLOGIN** yaratır. Emanetten geri gelen `tappa-secrets` dört anahtarı taşıyorsa
+süreç yine **açılır** ama yüzey `unavailable` olur (28P01) — müşteri ürünü etkilenmez. Yeni
+bir `OP_PW` ile 1., 2. ve 3. adımı (DSN'i yeni parolayla) yinele ve rollout et.
+
+### Geliştirme
+
+Taze bir geliştirme veritabanı (`make db-reset`, CI) `tappa_operator`'a geliştirme parolasını
+`scripts/db-init/02-dev-only-password.sh`'den alır. **Halihazırda çalışan** geliştirme
+veritabanında bir kez:
+
+```bash
+docker exec -i tappa-db sh -c 'psql -X -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' <<'SQL'
+ALTER ROLE tappa_operator LOGIN PASSWORD 'tappa';
+SQL
+```
+
+ve `.env`'e dördü birlikte (`.env.example`'daki yorumlu blok): DSN
+`tappa_operator`/`tappa` ile `localhost`, iki anahtar `openssl rand -base64 32` ile
+**ayrı ayrı**, host `ops.localhost` (`localhost` olamaz: `TAPPA_BASE_URL`'in host'u).
 
 ---
 
@@ -3348,6 +3636,20 @@ dışındaki her durum **normal şekilde** kaydedilir; `/readyz`'den gelen bir *
 `TestAccessLog_AHealthyProbeIsNotAnEvent` ile
 `TestAccessLog_AnUndesignedProbeStatusIsStillRecorded` iki yarıyı da tutar.
 
+**Aynı kural, durumu tasarım olan bir rota için: `/operator`'ın 503'ü (M10 OP-7, 2c).**
+Operatör yüzeyi kapalıyken ya da ulaşılamazken `/operator` ve altı her istekte 503 verir;
+bu yanıt **tasarımdır** ve kayıt **yazılmaz** — yoksa birleştirmeden itibaren
+`/operator`'a gelen altı kimliksiz istek 5. kuralı çaldırırdı (OP-7'den önce bu yol
+404'tü). Sondalardan farkı: tasarım rota kalıbına değil yüzeyin **durumuna** bağlıdır (aynı
+kalıplar OP-8'de gerçek handler'ları taşıyacak), bu yüzden tabloya değil, yanıtı yazan
+handler'ın bildirimine dayanır (`httpx.AnswerAsDesigned`): bildirilen durumdan farklı bir
+cevap (ör. paniğin 500'ü) her rotada olduğu gibi kaydedilir. Durumun kendisi görünür kalır:
+`cmd/tappa` onu açılışta **bir kez** yazar — kapalıysa INFO, ulaşılamazsa ERROR
+(`"operator_surface"` satırı). `TestSurface_ItsDesigned503IsNotAnAlertEvent`,
+`TestAccessLog_ADeclaredDesignedAnswerIsNotAnEvent` ve
+`TestAccessLog_ADeclarationIsThisRequestsAndThisStatusOnly` tutar. Bedeli sınır **32**'de
+sayılı.
+
 🔴 **VE GERÇEK BİR HAZIRLIK ARIZASI GÖRÜNÜR KALIR — kayıt kaybolmuyor, YERİ
 DEĞİŞİYOR (§4.6).** Uç noktanın **kendi sahibi** olan `internal/handler.Health`
 durum değişimini zaten yazıyor: `readiness.lost` ve `readiness.regained`,
@@ -4178,3 +4480,18 @@ kişisel veriyle koşan bir DB testi aynı süreç log'una yazar.
     dar, ama sıfır değil. Kaydı kilidin dışına almak yeni davranıştır (kayıt sırası
     ve `h.failing` okumasının atomikliği değişir) ve bu turun kapsamı dışındadır;
     **sayıldı, kapatılmadı**.
+32. **[kapalı/ulaşılamaz operatör yüzeyinde `/operator` istekleri İZ BIRAKMIYOR]** — M10
+    OP-7, 2c–2d. Yüzey kapalıyken ya da ulaşılamazken `/operator` ve altı her istekte 503
+    verir ve bu cevap **tasarımdır**: `httpx.AnswerAsDesigned` ile bildirilir ve
+    `http.request` kaydı **yazılmaz** (28'in emsali; gerekçe *"SAĞLIK SONDALARI"*
+    bölümündeki `/operator` paragrafı). ⚠️ **Ne kaybedildi, açıkça:** (a) bu iki hâlde
+    `/operator`'a yapılan **denemeler süreç log'unda iz bırakmaz** — bir tarayıcının
+    operatör yolunu yoklaması buradan görülmez; (b) **"kayıt yok" ile "istek yok" ayırt
+    edilemez** — bir tarama yalnız **ingress'in** erişim log'unda görünür. Durumun kendisi
+    görünür kalır: açılış satırı (`"operator_surface"`), kapalıysa INFO, ulaşılamazsa
+    **ERROR**. ⚠️ **O ERROR satırını okuyan bir uyarı kuralı YOK:** ulaşılamaz bir yüzey
+    bugün yalnız rollout sonrası runbook sorgusuyla (`grep -c '"operator_surface":"unavailable"'`)
+    görülür. Öneri (6. kuralın emsali, **eklenmedi**): `body.operator_surface = "unavailable"`
+    → **≥ 1** olay = uyarı, pencere yok; kapanışı bir sonraki açılışın `configured` satırıdır.
+    Yüzeyin canlıda açılacağı OP-8'e devredildi (m10-platform.md, OP-7 kart düzeltmesi
+    md. 9 (ix)). **Sayıldı, kapatılmadı.**

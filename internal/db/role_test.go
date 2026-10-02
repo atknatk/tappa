@@ -61,6 +61,25 @@ func TestRoleRefusal(t *testing.T) {
 			wantRefuse: true,
 		},
 		{
+			// M10 OP-7, 2nd round (F1): the owner's DSN with `role=tappa_app` -- every
+			// attribute of current_user is clean, and the session is one SET ROLE NONE
+			// from the superuser it signed in as.
+			name:       "a session that signed in as another role, in production",
+			facts:      RoleFacts{User: "tappa_app", Session: "tappa_owner"},
+			isProd:     true,
+			wantRefuse: true,
+		},
+		{
+			name:   "a session that signed in as another role, outside production -- warn, do not refuse",
+			facts:  RoleFacts{User: "tappa_app", Session: "tappa_owner"},
+			isProd: false,
+		},
+		{
+			name:   "the application role, signed in as itself, in production",
+			facts:  RoleFacts{User: "tappa_app", Session: "tappa_app"},
+			isProd: true,
+		},
+		{
 			name:       "every attribute at once",
 			facts:      RoleFacts{User: "tappa_owner", Super: true, BypassRLS: true, OwnsScopedTable: true, InheritsPrivilege: true},
 			isProd:     true,
@@ -133,6 +152,8 @@ func TestRoleFactsPrivilegedIsAnyReachPastRLS(t *testing.T) {
 		{"owns an RLS table", RoleFacts{OwnsScopedTable: true}, true},
 		{"member of a privileged role", RoleFacts{InheritsPrivilege: true}, true},
 		{"all four", RoleFacts{Super: true, BypassRLS: true, OwnsScopedTable: true, InheritsPrivilege: true}, true},
+		{"signed in as another role (role= at start-up)", RoleFacts{User: "tappa_app", Session: "tappa_owner"}, true},
+		{"signed in as itself", RoleFacts{User: "tappa_app", Session: "tappa_app"}, false},
 	} {
 		if got := tc.facts.Privileged(); got != tc.want {
 			t.Errorf("%s: RoleFacts%+v.Privileged() = %v, want %v", tc.name, tc.facts, got, tc.want)

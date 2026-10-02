@@ -316,10 +316,11 @@ spec:
           # role (tappa_owner) is initdb's bootstrap SUPERUSER and bypasses RLS
           # unconditionally. A compromised server process would then hold a
           # ready-made credential for reading every tenant's rows. Listing only the
-          # names it needs means there is nothing to reach for. (There are FIVE
-          # now: the fifth, TAPPA_TAG_KEK_PREVIOUS, is optional and present only
-          # during a KEK rotation. The count is stated here because it was stale
-          # once; what actually keeps this list honest is
+          # names it needs means there is nothing to reach for. (Some of them are
+          # optional: TAPPA_TAG_KEK_PREVIOUS, present only during a KEK rotation,
+          # and the four TAPPA_OPERATOR_* keys, present only once the operator
+          # surface is configured. No count is written here because one went stale
+          # here once; what keeps this list honest is
           # TestPackaging_EverySecretConfigReadsIsInjectedByTheManifest.)
           #
           # internal/config does read DATABASE_MIGRATE_URL, but only to REFUSE a
@@ -374,6 +375,53 @@ spec:
                   name: tappa-secrets
                   key: TAPPA_TAG_KEK_PREVIOUS
                   optional: true
+            # 🔴 THE PLATFORM OPERATOR'S SURFACE (M10 OP-7): FOUR KEYS, ONE SET, ALL
+            # `optional: true`, ALL FROM tappa-secrets -- and each of those three
+            # facts is load-bearing.
+            #
+            #   optional   tappa-secrets holds none of the four until the operator
+            #              surface runbook (deploy/README.md) has been run. Without
+            #              the flag kubelet refuses to start the container on a
+            #              missing Secret key, so every deploy before that runbook
+            #              would stall -- the TAPPA_TAG_KEK_PREVIOUS precedent above.
+            #              With none present the process boots with the surface OFF:
+            #              /operator answers 503, the customer product is unaffected.
+            #   one set    internal/config refuses some-but-not-all at start-up. So
+            #              the four go into the Secret in ONE write (the runbook's
+            #              single patch): a pod restarted between two partial writes
+            #              would refuse to boot.
+            #   Secret     even TAPPA_OPERATOR_HOST, which is not a secret, comes
+            #              from here and NOT from 05-config.yaml: the ConfigMap is
+            #              re-applied by every deploy, so a host there and the three
+            #              keys still absent would be exactly the partial set, on the
+            #              next rollout, for every pod.
+            #
+            # TestPackaging_TheOperatorSurfaceIsOneOptionalSecretSet reads
+            # internal/config's own list of the four and pins all three facts.
+            - name: TAPPA_OPERATOR_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: tappa-secrets
+                  key: TAPPA_OPERATOR_DATABASE_URL
+                  optional: true
+            - name: TAPPA_OPERATOR_TOTP_KEK
+              valueFrom:
+                secretKeyRef:
+                  name: tappa-secrets
+                  key: TAPPA_OPERATOR_TOTP_KEK
+                  optional: true
+            - name: TAPPA_OPERATOR_TOKEN_HMAC_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: tappa-secrets
+                  key: TAPPA_OPERATOR_TOKEN_HMAC_KEY
+                  optional: true
+            - name: TAPPA_OPERATOR_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: tappa-secrets
+                  key: TAPPA_OPERATOR_HOST
+                  optional: true
           # ------------------------------------------------------------ probes --
           #
           # 🔴 LIVENESS IS /healthz AND READINESS IS /readyz, NEVER THE OTHER WAY
@@ -410,9 +458,15 @@ spec:
               port: http
             periodSeconds: 5
             # 60 s of grace. The process cannot legitimately take longer: config
-            # validation is synchronous and the pool dial has its own 10 s ceiling,
-            # after which the process EXITS rather than serving without a database
-            # (measured: exit 1, "db: ping: context deadline exceeded").
+            # validation is synchronous and there are at most TWO dials, each with a
+            # 10 s ceiling. The customer pool's comes first, and at its ceiling the
+            # process EXITS rather than serving without a database (measured: exit 1,
+            # "db: ping: context deadline exceeded"). The operator pool's comes second,
+            # only when the operator surface is configured, and at its ceiling the
+            # process does NOT exit: the surface is unavailable and the customer product
+            # serves (measured 2026-10-01: an operator database that accepts TCP and
+            # never answers -> listening after 10.4 s, /operator 503, / 200). Worst
+            # case ~20 s, well under 60 s.
             failureThreshold: 12
           readinessProbe:
             httpGet:

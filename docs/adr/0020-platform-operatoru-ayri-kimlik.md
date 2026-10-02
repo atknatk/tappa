@@ -376,6 +376,26 @@ bir restoran hesabına bağlı olmamalı* (m10-platform.md §1).
 - **Sonuç:** müşteri oturumunun operatör yüzeyine girmesi **yapısal olarak**
   imkânsızdır — operatör çerezi yoksa 303, yanlış host'ta 404. Bu, M9-08 kabul 4'ün
   handler başına bir kapıya değil yapıya dayanan karşılığıdır.
+- **OP-7 notu (2026-10-01), ölçülerek** (ayrıntı: [m10-platform.md](../plan/m10-platform.md)
+  → OP-7 kart düzeltmesi): (i) yüzeyin **üç** hâli var: yapılandırma yok → 503 *"not
+  configured"*; yapılandırma tam ama operatör veritabanına **ulaşılamadı** — *(2. tur:
+  KAPALI bir liste: ağ, ad çözümü, zaman aşımı, iptal edilmiş açılış ve SQLSTATE sınıfı 08 ve
+  28, `3D000`, `53300`, `57P01`–`57P03`; sunucunun öteki her cevabı — ör. `42501`, `22023`,
+  `42704` — ulaşılan şeyin reddidir ve açılışı durdurur; *2b:* bir TLS hatası ya da tanınmayan
+  bir hata da ret'tir, ve birden çok denemeli bir bağlantı — çok host'lu DSN, `sslmode=prefer`
+  — ancak **her** denemesi ulaşılamazsa ulaşılamazdır)* → yine 503, *"unavailable"*, ERROR
+  satırı, **süreç açılır ve müşteri
+  ürünü servis verir**; ulaşılan şeyin reddi (rol kapısı, log parametresi geri okuması), bozuk
+  DSN ya da yanlış boyda anahtar → **açılış reddi**. Gerekçe risk 7'nin ruhu ve bir geri
+  yükleme yolu (B YOLU): rol parolaları bir veritabanı dökümünde yoktur, taze kümede
+  `01-roles.sql` `tappa_operator`'ı yeniden NOLOGIN yaratır, dolu bir DSN 28P01 alır —
+  ölümcül bir kuralla bu bir müşteri kesintisi olurdu (28P01'in ulaşılamaz sayıldığı yanlış
+  bir parolayla ölçüldü; geri yüklemenin kendisi koşulmadı). (ii) `TAPPA_OPERATOR_HOST` tek yazımlıdır (küçük harfli DNS adı; şema, port, yol
+  yok) ve `TAPPA_BASE_URL`'in host'u **olamaz** (`config.Load` reddeder). *(2. tur: kural
+  yalnız bu host'u bilir; ingress'in öteki müşteri host'ları — `www.taptime.mt`,
+  `tappa.everva.com.tr` — kabul edilir. Operatör yüzeyini her müşteri host'unun dışında tutmak
+  OP-8'in iki yönlü host kapısının işidir.)* Host kapısı ve yanlış host 404 hâlâ OP-8'in;
+  OP-7'de yapılandırılmış yüzey rota sunmaz (404).
 
 ### 5. Audit
 
@@ -673,7 +693,14 @@ m10-platform.md §3'ün ölçütleriyle:
 - **Kullanıcının `tappa-secrets`'a ekleyeceği adlar** (değerler hiçbir dosyaya
   yazılmaz — A-0; ADR 0021 §5'teki listeyle **aynı**): `TAPPA_OPERATOR_DATABASE_URL`,
   `TAPPA_OPERATOR_TOTP_KEK`, `TAPPA_OPERATOR_TOKEN_HMAC_KEY` ve `tappa_operator`
-  rolünün parolası.
+  rolünün parolası. → **OP-7 notu (2026-10-01):** liste **dört** addır ve parolası onlardan
+  biri **değildir**: `TAPPA_OPERATOR_DATABASE_URL`, `TAPPA_OPERATOR_TOTP_KEK`,
+  `TAPPA_OPERATOR_TOKEN_HMAC_KEY`, `TAPPA_OPERATOR_HOST` (sır olmayan host da Secret'tan
+  gelir: ConfigMap her deploy'da yeniden uygulanır, anahtarlar yokken orada duran bir host
+  yarım küme olurdu). Rolün parolası yalnız DSN'in içindedir ve role psql'in `\password`'üyle
+  stdin'den verilir (`deploy/README.md` → *"Operator surface (M10 OP-7)"*); ayrı bir anahtar
+  ancak onu bir pod tüketseydi gerekirdi, ve `10-postgres.yaml`'a böyle bir `secretKeyRef`
+  OP-5 md. 15'in uyarısına çarpardı.
 - 🔴 **OP-10 tuzağı — adı anılan testler.** İzin listesini sabitleyen M7-06 testleri
   ADR 0016'nın gövdesinde, `m7-portal.md`'de, `m10-platform.md`'de ve kod yorumlarında
   **adıyla** anılıyor. OP-10 onları silerse her atıf sarkan atıfa döner ve

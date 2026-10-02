@@ -10,9 +10,11 @@ package db
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/atknatk/tappa/internal/config"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -69,11 +71,37 @@ type DB struct {
 // with the gate live. Adding a db.AllowPrivilegedRole() option today would ship an
 // unused API surface whose first user would be the person routing around the gate;
 // the escape hatch is a DSN change, which is the thing §4.5 is about.
+//
+// 🔴 IN TODAY'S CODE EVERY CONNECTION IS OPENED WITH log_parameter_max_length_on_error = 0
+// AND READ BACK (M10 OP-7, backlog T79; the tests below measure it). tappa_app can set that `user`-context setting as its
+// own role default, after which every failing statement's bound parameters -- session
+// token hashes, activation code hashes -- would reach the server log; the startup
+// parameter outranks the role default and the read-back refuses a connection on which
+// it did not land. logparams.go carries the measurements (TestPin_TheStartupParameterOverridesARoleDefault,
+// TestPin_ADSNCannotUnpinIt, TestPin_AConnectionTheParameterDidNotReachIsRefused). Production ran it at 0
+// already (measured 2026-09-26), so this changes no production connection's value.
 func New(ctx context.Context, cfg *config.Config) (*DB, error) {
+	return newDB(ctx, cfg, nil)
+}
+
+// newDB is New with a per-connection hook that runs before the pin's read-back. New
+// passes nil; this package's tests use it to change the setting after startup, the
+// one way to reach the read-back's refusal while the startup parameter is in place.
+func newDB(ctx context.Context, cfg *config.Config, before func(context.Context, *pgx.Conn) error) (*DB, error) {
 	poolCfg, err := pgxpool.ParseConfig(cfg.DatabaseURL)
 	if err != nil {
-		return nil, fmt.Errorf("db: parse DATABASE_URL: %w", err)
+		// pgx's parse error is NOT wrapped (M10 OP-7, 2nd round): it quotes the connection
+		// string through pgconn's redactPW, which hides a password only in a URL's
+		// user-info part -- a `?password=` query parameter came back verbatim (measured;
+		// TestNew_AnUnparseableDSNCarriesNoPassword). The operator pool's constructor made
+		// the same choice.
+		return nil, errors.New("db: DATABASE_URL is not a valid PostgreSQL connection string (the parser's " +
+			"message is not repeated: it quotes the value)")
 	}
+	if err := requireBoundParameters(poolCfg.ConnConfig, "DATABASE_URL", true); err != nil {
+		return nil, err
+	}
+	pinLogParameters(poolCfg, "DATABASE_URL", before)
 	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
 	if err != nil {
 		return nil, fmt.Errorf("db: new pool: %w", err)
@@ -148,14 +176,28 @@ type RoleFacts struct {
 	// transitively, of some role that is SUPERUSER or BYPASSRLS. Membership is one
 	// SET ROLE away from the attribute itself.
 	InheritsPrivilege bool
+	// Session is session_user -- the role the connection SIGNED IN as. It differs from
+	// User when the DSN asks for another role at start-up (`role=` is a startup
+	// parameter pgx sends from a query parameter). Measured (M10 OP-7, 2nd round): the
+	// owner's DSN with `role=tappa_app` read as `tappa_app | f | f | f | f` on the four
+	// facts above, so a production boot went ahead -- and on that connection
+	// SET ROLE NONE gave current_user = tappa_owner, rolsuper = t. The four facts
+	// describe current_user only; the session user's reach is not measured, so a switched
+	// session counts as privileged. Empty means "not read" (a struct literal) and is not
+	// a switch.
+	Session string
 }
 
 // Privileged reports whether this role can reach past row level security — either
 // because PostgreSQL skips RLS for it outright, or because it can put itself in the
-// position of a party for which RLS is skipped or removable.
+// position of a party for which RLS is skipped or removable (membership, ownership,
+// or a session that signed in as a different role and is one SET ROLE NONE from it).
 func (f RoleFacts) Privileged() bool {
-	return f.Super || f.BypassRLS || f.OwnsScopedTable || f.InheritsPrivilege
+	return f.Super || f.BypassRLS || f.OwnsScopedTable || f.InheritsPrivilege || f.switchedRole()
 }
+
+// switchedRole: the session signed in as one role and runs as another.
+func (f RoleFacts) switchedRole() bool { return f.Session != "" && f.Session != f.User }
 
 // readRole asks the server which role this pool is authenticated as and how far
 // that role can reach past row level security. New calls it once; RoleFacts serves
@@ -223,35 +265,60 @@ func (f RoleFacts) Privileged() bool {
 // has RLS enabled, and a table with RLS enabled is exactly the kind whose protection
 // an owner can strip.
 func (d *DB) readRole(ctx context.Context) (RoleFacts, error) {
+	// ONE connection for both statements, so the facts describe the same session.
+	conn, err := d.pool.Acquire(ctx)
+	if err != nil {
+		return RoleFacts{}, fmt.Errorf("db: read connection role: %w", err)
+	}
+	defer conn.Release()
 	var f RoleFacts
-	row := d.pool.QueryRow(ctx, roleFactsQuery)
+	row := conn.QueryRow(ctx, roleFactsQuery)
 	if err := row.Scan(&f.User, &f.Super, &f.BypassRLS, &f.OwnsScopedTable, &f.InheritsPrivilege); err != nil {
+		return RoleFacts{}, fmt.Errorf("db: read connection role: %w", err)
+	}
+	if err := conn.QueryRow(ctx, sessionUserQuery).Scan(&f.Session); err != nil {
 		return RoleFacts{}, fmt.Errorf("db: read connection role: %w", err)
 	}
 	return f, nil
 }
 
+// sessionUserQuery is RoleFacts.Session's statement (the field's comment says why).
+const sessionUserQuery = `SELECT session_user`
+
 // roleFactsQuery is readRole's statement, named so its positive control can run the
 // SHIPPED text rather than a copy. A checker that re-types the thing it checks stops
 // checking the moment the two drift, which this repository has measured more than
 // once (internal/db/role_test.go's synthetic-owner control drives this const).
+//
+// EVERY CATALOG NAME, FUNCTION, OPERATOR AND TYPE IS QUALIFIED WITH pg_catalog (2c, the
+// security auditor's finding, measured): an unqualified name resolves through the
+// session's search_path, and with a schema placed BEFORE pg_catalog there, views named
+// pg_roles and pg_class made this query read f|f|f|f for the superuser owner instead of
+// t|t|t|t. Operators resolve the same way -- measured: with search_path = shadow,
+// pg_catalog, a shadow `=` on (name, name), on (oid, oid) and on "char", a shadow `<>`
+// (so NOT IN) and a shadow pg_has_role all took precedence -- so every comparison is
+// OPERATOR(pg_catalog.=) and the IN lists are = ANY over a pg_catalog-typed array.
+// current_user and session_user are SQL keywords, not names, and cannot be shadowed.
+// TestRoleGateQueries_AreSchemaQualified pins the text;
+// TestRoleGateQueries_IgnoreAShadowCatalog drives the auditor's shadow schema.
 const roleFactsQuery = `
 	SELECT current_user,
 	       r.rolsuper,
 	       r.rolbypassrls,
 	       EXISTS (SELECT 1
-	                 FROM pg_class c
-	                 JOIN pg_namespace n ON n.oid = c.relnamespace
-	                WHERE c.relkind = 'r'
+	                 FROM pg_catalog.pg_class c
+	                 JOIN pg_catalog.pg_namespace n ON n.oid OPERATOR(pg_catalog.=) c.relnamespace
+	                WHERE c.relkind OPERATOR(pg_catalog.=) 'r'
 	                  AND c.relrowsecurity
-	                  AND n.nspname NOT IN ('pg_catalog', 'information_schema')
-	                  AND pg_has_role(current_user, c.relowner, 'MEMBER')),
+	                  AND NOT (n.nspname OPERATOR(pg_catalog.=) ANY
+	                           (ARRAY['pg_catalog', 'information_schema']::pg_catalog.name[]))
+	                  AND pg_catalog.pg_has_role(current_user, c.relowner, 'MEMBER')),
 	       EXISTS (SELECT 1
-	                 FROM pg_roles p
+	                 FROM pg_catalog.pg_roles p
 	                WHERE (p.rolsuper OR p.rolbypassrls)
-	                  AND pg_has_role(current_user, p.oid, 'MEMBER'))
-	  FROM pg_roles r
-	 WHERE r.rolname = current_user`
+	                  AND pg_catalog.pg_has_role(current_user, p.oid, 'MEMBER'))
+	  FROM pg_catalog.pg_roles r
+	 WHERE r.rolname OPERATOR(pg_catalog.=) current_user`
 
 // RoleFacts serves the measurement New already took. It queries nothing, so a
 // caller cannot use it to ask a second time and get a different answer than the
@@ -272,7 +339,8 @@ const RoleRiskWhy = "PostgreSQL skips row level security for a superuser and for
 	"and a table's owner may take FORCE ROW LEVEL SECURITY off again; role membership is one SET ROLE " +
 	"away from any of those. On such a connection every tenant-scoped policy in this database is inert " +
 	"or removable and one tenant's request can read every other tenant's rows (CLAUDE.md §4.5). Point " +
-	"DATABASE_URL at the application role (NOSUPERUSER, NOBYPASSRLS, owns nothing, member of nothing); " +
+	"DATABASE_URL at the application role (NOSUPERUSER, NOBYPASSRLS, owns nothing, member of nothing, signed in " +
+	"as itself -- no role= startup parameter); " +
 	"migrations are the only thing that uses the owner role"
 
 // roleRefusal decides whether the role this pool connected as is allowed to serve
@@ -304,9 +372,9 @@ func roleRefusal(f RoleFacts, isProd bool) error {
 	if !f.Privileged() || !isProd {
 		return nil
 	}
-	return fmt.Errorf("db: role %q has rolsuper=%v rolbypassrls=%v owns_or_can_become_owner_of_an_rls_table=%v "+
-		"member_of_a_superuser_or_bypassrls_role=%v: %s",
-		f.User, f.Super, f.BypassRLS, f.OwnsScopedTable, f.InheritsPrivilege, RoleRiskWhy)
+	return fmt.Errorf("db: role %q (session_user %q) has rolsuper=%v rolbypassrls=%v owns_or_can_become_owner_of_an_rls_table=%v "+
+		"member_of_a_superuser_or_bypassrls_role=%v signed_in_as_another_role=%v: %s",
+		f.User, f.Session, f.Super, f.BypassRLS, f.OwnsScopedTable, f.InheritsPrivilege, f.switchedRole(), RoleRiskWhy)
 }
 
 // Tenant resolution (ADR 0002 madde 7) is intentionally NOT provided here.

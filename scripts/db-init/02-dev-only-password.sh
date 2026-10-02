@@ -28,8 +28,16 @@ fi
 # Sabit deger, .env.example ve .github/workflows/ci.yml ile birebir. Bu bir sir
 # DEGILDIR ve olmasi da beklenmez: yalnizca localhost'taki gelistirme veritabanina
 # ve CI'nin gecici konteynerine baglanir.
+#
+# tappa_operator (M10 OP-7) ayni sekilde: 01-roles.sql'in OPERATOR ROLES blogu onu
+# NOLOGIN ve parolasiz yaratir, gelistirmede girisi bu dosya acar (ADR 0021 §5:
+# "gelistirme parolasi tappa_app'in dev-only script emsaliyle"). Uretimde bu dosya
+# yoktur; canli kumede giris deploy/README.md -> "Operator surface (M10 OP-7)"
+# bolumunun 2. adimidir. Halihazirda calisan bir gelistirme veritabani bu satiri
+# ALMAZ (init yalniz bos PGDATA'da kosar) -- ayni bolumun "Gelistirme" adimi.
 psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-'EOSQL'
 	ALTER ROLE tappa_app LOGIN PASSWORD 'tappa';
+	ALTER ROLE tappa_operator LOGIN PASSWORD 'tappa';
 EOSQL
 
-echo "02-dev-only-password.sh: tappa_app can now log in with the DEVELOPMENT password"
+echo "02-dev-only-password.sh: tappa_app and tappa_operator can now log in with the DEVELOPMENT password"

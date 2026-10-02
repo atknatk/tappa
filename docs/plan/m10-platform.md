@@ -673,6 +673,11 @@ yasal belge içindi, M9-08'in kapsamı §4.5'i aşan beş işlev.
 >   alanı, `Authenticator` değer ya da işaretçi olarak tutulsun, basılabilir — fiil listesi
 >   yazılmaz, çünkü her tutuluş başka bir alt kümede basar; `*string` alan hiçbir fiilde
 >   basılmadı. Kural: düz alan yok).
+>   → **OP-7'de uygulandı (2026-10-01):** yukarıdaki listenin hepsi ve T79 *(2c: T79'un ve
+>   ADR 0021 "Karar verilmedi" (1)–(2)'nin "uygulandı" iddiası, pgx'in istemci tarafı gömme
+>   kipinin reddiyle BİRLİKTE doğrudur — OP-7 kart düzeltmesinin "2c" satırı)*; sapmalar ve
+>   ölçümler aşağıdaki *"Kart düzeltmesi (2026-10-01, OP-7 uygulaması sırasında)"* bloğunda
+>   (en önemlisi md. 1: `OperatorDB` kendisi bir `OperatorConn` DEĞİL).
 > - **OP-8:** oturum kapısı `op_touch_session`; giriş sonu `op_open_session`, çıkış
 >   `op_close_session`; **enrollment handler'ı `op_complete_enrollment`'a bağlı** (B10);
 >   her okuma ekranı önce `op_begin_read`'i ayrı transaction'da commit eder; `pending`
@@ -929,7 +934,9 @@ yasal belge içindi, M9-08'in kapsamı §4.5'i aşan beş işlev.
 >     `tappa_opdefiner`'a `operator_audit_log` üzerinde `SELECT (id)` ister — OP-5 vermedi
 >     (kullanan yok); (c) bilet `kind` CHECK'i bugün yalnız şekil, türler OP-10'da.
 > 15. **OP-7'ye devredilenler:** `tappa_operator`'ın **girişi** (dev parolası
->     `02-dev-only-password.sh` emsaliyle, üretim parolası bir pod'a `secretKeyRef` ile —
+>     `02-dev-only-password.sh` emsaliyle, ~~üretim parolası bir pod'a `secretKeyRef` ile~~ →
+>     *OP-7'de başka yoldan çözüldü: parola psql `\password` ile stdin'den, ayrı Secret anahtarı
+>     yok — OP-7 kart düzeltmesi md. 8* —
 >     ⚠️ `10-postgres.yaml`'a `tappa-secrets`'ta henüz olmayan bir anahtar için
 >     `optional` olmayan bir `secretKeyRef` eklemek Postgres pod'unu başlatamaz); ADR 0021
 >     §2 vi'nin `db/queries/operator.sql` belgesi ve `internal/db/operator.go` erişimcileri
@@ -2553,6 +2560,703 @@ yasal belge içindi, M9-08'in kapsamı §4.5'i aşan beş işlev.
 > -count=1 ./...`, 2026-10-01 08:15 UTC): **bu koşuda** tek kırmızı T72; `internal/operatorauth`
 > 171,1 sn, `internal/db` 100,2 sn. Kapsam: `internal/operatorauth` %95,5 (47 test),
 > `internal/sun` %97,4.
+
+> **Kart düzeltmesi (2026-10-01, OP-7 uygulaması sırasında).** Yazıldı:
+> `internal/db/operatorpool.go` (`OperatorDB`, `NewOperatorDB`, `ErrOperatorUnreachable`),
+> `internal/db/logparams.go` (iki havuzun başlangıç parametresi pini ve bağlantı başına geri
+> okuması), `internal/db/pool.go` (`New` artık pinli — backlog T79),
+> `internal/config/config.go` (dört değişken tek küme, `operatorKeySeparation`, host),
+> `internal/handler/operator/` (yüzey: kapalı / ulaşılamaz / yapılandırılmış),
+> `cmd/tappa/operator.go` (wiring) + `main.go`, `deploy/k8s/20-app.yaml` (dört optional
+> `secretKeyRef`), `deploy/README.md` → *"Operator surface (M10 OP-7)"* runbook'u,
+> `scripts/db-init/02-dev-only-password.sh` (`tappa_operator`'ın geliştirme parolası),
+> `.env.example`, iki örnek Secret dosyası; ADR 0020/0021'e tarihli OP-7 notları. Migration
+> YOK. Ölçüm: dev Postgres 17.10; rol sondaları `SET SESSION AUTHORIZATION` ile, katalog
+> sondaları `BEGIN … ROLLBACK` içinde; bir ölçüm rol varsayılanı yazmayı gerektirdi (md. 3)
+> ve sonunda `pg_db_role_setting` 0 satır. Sapmalar ve kararlar:
+>
+> 1. **`OperatorDB` kendisi bir `OperatorConn` DEĞİL — OP-4 bloğu *"OperatorConn'u karşılar"*
+>    diyordu, ölçülerek düzeltildi.** Havuzu (`*pgxpool.Pool`) `OperatorConn`'dur ve yedi
+>    yöntemin her biri `operator.go`'nun aynı adlı fonksiyonuna, argümanları sırasıyla vererek
+>    devreder (SQL tek yerde). Dışa açık `Exec`/`QueryRow` olsaydı `OperatorDB`'yi tutan her
+>    paket operatörün bağlantısına kendi SQL metnini gönderebilirdi ve
+>    `TestOperatorSQL_OnlyBoundParameters` (yalnız `operator.go`'yu okur) onu görmezdi; şimdi
+>    böyle bir çağrı **derlenmez** (*"has no field or method Exec"*). Pinler:
+>    `TestOperatorDB_HasNoTenantDoorAndNoRawSQLDoor` (yansıma: `WithTenant` yok, `OperatorConn`
+>    değil, geri çağırma parametresi ya da pgx tipi taşıyan yöntem yok) ·
+>    `TestOperatorDB_IsTheStoreAndNothingMore` (yöntem kümesi = `operatorauth.Store` + `Close`,
+>    Store'dan TÜRETİLİR) · `TestOperatorDB_EveryMethodDelegatesVerbatim` (AST: tek `return
+>    F(ctx, o.pool, <parametreler sırayla>)`) · `TestOperatorDB_SetsNoTenantContext`.
+> 2. **Rol kapısı: `session_user` VE `current_user` = `tappa_operator`, ayrıcalık yok, HERHANGİ
+>    bir role üyelik yok — ve HER ortamda ret** (kart *"prod'da"* diyordu; üst küme). Ölçüldü:
+>    sahibin DSN'ine `role=tappa_operator` başlangıç parametresi (pgx bilinmeyen bir sorgu
+>    parametresini başlangıç parametresi yapar) `session_user = tappa_owner`, `current_user =
+>    tappa_operator` verdi; `roleFactsQuery` `current_user`'ı okuduğu için onu geçirirdi.
+>    Üyelik: §1 *"hiçbir rolün üyesi değil"* der; `InheritsPrivilege` yalnız ayrıcalıklı
+>    ebeveyni görür (`GRANT tappa_app TO tappa_operator` → `InheritsPrivilege = false`,
+>    `member_of_any_role = true`, ölçüldü — `TestOperatorRoleQuery_SeesAMembershipOfAnyKind`).
+>    Her ortamda ret, çünkü geliştirmede uyarının gerekçesi (sahip olarak migration/seed/psql)
+>    operatör yüzeyi için yoktur: geliştirme rolü `02-dev-only-password.sh`'ten parola alır.
+>    Pinler: `TestOperatorRoleRefusal_IsTappaOperatorAndNothingMore` (doğruluk tablosu),
+>    `TestOperatorDB_RefusesEveryRoleButTappaOperator` (gerçek sunucu: sahip, `tappa_app`,
+>    sahibin `role=` taşıyan DSN'i; dev ve prod). *(2. tur, B9: kapı ADR 0021 §1'in rolünün
+>    kalanını da okur — `rolcreatedb`, `rolcreaterole`, `rolreplication` ve rolün bir ÜYESİ
+>    olması (ters üyelik); dördü de ret. Aşağıdaki "2. tur" bloğu.)*
+>    ⚠️ ~~**Kapsam DIŞI, orkestratöre (backlog adayı) — ÖLÇÜLDÜ:**~~ → *(2. tur: F1 ile
+>    KAPATILDI — aşağıdaki "2. tur" bloğu. Paragraf ilk turun ölçümü olarak duruyor.)* aynı açık **müşteri havuzunun**
+>    kapısında duruyor. `DATABASE_URL` = sahibin DSN'i + `role=tappa_app` →
+>    `roleFactsQuery` *"tappa_app, f, f, f, f"* okur, `Privileged() = false`, üretim açılışı
+>    **geçer**; o bağlantıda `SET ROLE NONE` → `current_user = tappa_owner`, `rolsuper = t`
+>    (`RESET ROLE` değil: başlangıç parametresi oturumun varsayılanıdır). RLS `current_user`'a
+>    göre işlediği için ürün sorguları yine RLS altında; ama oturum bir SQL ifadesi uzakta
+>    superuser. ~~Bu görev `pool.go`'nun rol kapısına dokunmadı (T79 yalnız pini getirdi).~~
+> 3. **(a) başlangıç parametresi — ölçüldü, iki havuza birden (T79).**
+>    `log_parameter_max_length_on_error = 0` her bağlantının **başlangıç parametresidir** ve
+>    `AfterConnect`'te **her yeni bağlantıda** geri okunur (`current_setting` 0 için tam `"0"`
+>    döner, 64 için `"64B"` — ölçüldü); ilk bağlantı açılışın ping'idir, yani reddi açılış
+>    reddidir. Ölçüm (dev; `ALTER ROLE tappa_app IN DATABASE postgres SET … = -1`, sonra
+>    RESET, `pg_db_role_setting` 0 satır): parametresiz bağlantı **-1**, pinli **0**;
+>    `options=-c …=-1` + pin → 0; DSN'de `?…=-1` + pin → 0 (pin üzerine yazar); başka
+>    veritabanına aynı rol → 0. **`log_parameter_max_length` iğnelenmedi:** `superuser`
+>    bağlamlıdır; süper kullanıcı olmayan bir başlangıç paketi onu adlandırınca bağlantı
+>    **42501 ile reddedilir** (ölçüldü) — iğnelemek iki havuzu da düşürürdü — ve aynı sebeple
+>    DSN sahibi onu değiştiremez (`SET` ve `ALTER ROLE … SET` ikisi de 42501, `tappa_operator`
+>    olarak ölçüldü). Üretim onu -1'de koşturduğu için geri okuma onu şart koşmaz. Üretimin
+>    `on_error` değeri zaten 0'dı (orkestratör, 2026-09-26): pin hiçbir üretim bağlantısının
+>    değerini değiştirmez. Pinler: `TestPin_TheStartupParameterOverridesARoleDefault` (rol
+>    varsayılanını **commit eder**, yalnız bakım veritabanı için; Cleanup RESET eder ve 0 satırı
+>    doğrular), `TestPin_ADSNCannotUnpinIt`, `TestPin_AConnectionTheParameterDidNotReachIsRefused`
+>    (açılışta iki havuz + **sonraki** bir bağlantı), `TestPin_NoRoleLevelSettingOnTheConnectingRoles`
+>    (T79 katalog pini: `tappa_app` ve iki operatör rolü, her veritabanında; OP-5 pininin emsali).
+>    *(2. tur, B4/B5b: "DSN'de `?…=-1` + pin → 0" yalnız AYNI yazım için doğruydu; harf
+>    büyüklüğü farklı bir anahtar ikinci bir harita anahtarı olarak kalıyor ve paket sırasına
+>    göre kazanıyordu. Pin artık adı harf duyarsız eşleyen her anahtarı siler. Geri okuma
+>    yalnız tam `"0"` metnini kabul eder; `"64B"`, `"1"`, `""` reddedilir. "2. tur" bloğu.)*
+> 4. **Ulaşılamazlık açılışı DURDURMAZ — karar.** `NewOperatorDB` bağlanamadığında
+>    (~~`connect` adımı: SQLSTATE, errno, DNS, bağlam~~ → *2. tur, B1: KAPALI liste — ağ, ad
+>    çözümü, zaman aşımı, iptal edilmiş açılış ve SQLSTATE sınıfı 08 ve 28, `3D000`, `53300`,
+>    `57P01`–`57P03`; ping'deki öteki her SQLSTATE ve ping'den sonraki her adım RET'tir ve
+>    açılışı durdurur — "2. tur" bloğu; *2b:* TLS hatası ve tanınmayan hata da ret, birden çok
+>    denemeli bir bağlantı ancak HER denemesi ulaşılamazsa ulaşılamaz — "2b" satırı*)
+>    `db.ErrOperatorUnreachable` sarar;
+>    `cmd/tappa` onu **ulaşılamaz yüzey** (503, *"unavailable"*) + ERROR satırıyla karşılar ve
+>    **müşteri ürünü açılır**. Ulaşılan şeyin reddi (rol kapısı, pin geri okuması), bozuk DSN ve
+>    yanlış boyda anahtar **açılışı durdurur**. Gerekçe: risk 7 / §4'ün *"müşteri paneli
+>    etkilenmez"* ruhu ve bir geri yükleme yolu — rol parolaları bir veritabanı dökümünde yoktur,
+>    B YOLU taze kümede `01-roles.sql` `tappa_operator`'ı yeniden NOLOGIN yaratır, emanetten
+>    gelen dolu DSN **28P01** alır; ölümcül bir kuralla bu bir **müşteri kesintisi** olurdu
+>    (28P01'in ulaşılamaz sayıldığı yanlış bir parolayla ölçüldü; geri yüklemenin kendisi
+>    koşulmadı — sayılı sınır S-h). Pinler:
+>    `TestOperatorDB_UnreachabilityIsMarkedAndNothingElseIs` (kapalı port, 28P01, 3D000, iptal
+>    edilmiş bağlam) ve reddin İŞARETSİZ olduğunu söyleyen satırlar üç testte;
+>    `TestOpenOperatorSurface_UnreachableKeepsTheProductUpARefusalStopsTheBoot`.
+> 5. **Config — dört değişken, tek küme** (görev tablosunun OP-7 satırı üç ad sayar; OP-4
+>    bloğu `TAPPA_OPERATOR_TOKEN_HMAC_KEY` ile dört — dört uygulandı). Hiçbiri → kapalı; dördü → açık; on dört kısmi
+>    altkümenin her biri **reddedilir** ve eksikleri adıyla söyler
+>    (`TestLoad_OperatorSurfaceIsAllOrNothing`). Anahtarlar `key32` (32 bayt base64). Ayrılık
+>    (`operatorKeySeparation`, ham baytlarda, sabit zamanlı, tek çağrı yeri — envanter 2 → 3):
+>    yalnız bir operatör anahtarı İÇEREN çiftler (öteki ikisi dahil); var olan çiftler
+>    (ör. etiket KEK'i = davet anahtarı) bu kuralın değildir — onları reddetmek üretimde
+>    ölçülmemiş yeni bir ret olurdu (`…/boundary` alt testi). Karşılaştırılan anahtar kümesi
+>    `Config`'in `[]byte` alanlarından TÜRETİLİR (`TestNamedKeys_ListEveryKeyFieldOfTheConfig`).
+>    **Host (yeni kural, gerekçeli):** tek yazım — küçük harfli DNS adı; şema, port, yol, kullanıcı
+>    kısmı, sondaki nokta yok; normalleştirilmez, reddedilir (M5-03 dersi: kontrol ve tüketici
+>    aynı yazımı görmeli) — ve **`TAPPA_BASE_URL`'in host'u olamaz** (§4'ün ayrı host'u; aynısı
+>    o özelliği sessizce boşa çıkarırdı). *(2. tur, B8: kural YALNIZ bu host'u bilir; ingress'in
+>    öteki müşteri host'ları — `www.taptime.mt`, `tappa.everva.com.tr` — kabul edilir. Hata
+>    metni buna daraltıldı: "the customer product's canonical host"; operatör yüzeyini her
+>    müşteri host'unun dışında tutmak OP-8'in — md. 9 (viii).)* Port'un istekte nasıl ele alınacağı OP-8'in kararı.
+>    Hiçbir hata bir DEĞER basmaz (`TestLoad_OperatorRefusalsRepeatNoValue`: DSN, parolası,
+>    anahtarlar base64/hex/ham/ondalık liste; host'a yapıştırılmış DSN ve anahtar dahil).
+> 6. **`/operator` yüzeyi — ayrı paket `internal/handler/operator`** (ADR 0021 §3.6: müşteri
+>    paneli operatör paketini import etmez; `TestCustomerPanel_ImportsNoOperatorPackage` —
+>    doğrudan import ve `internal/db`'nin operatör adları, adları türetilerek). Kapalı ve
+>    ulaşılamaz: `/operator` ve altı, her yöntem, **503** (`no-store`, `nosniff`, hâli
+>    adlandıran gövde); müşteri rotaları değişmez. **Yapılandırılmış hâl OP-7'de HİÇBİR ROTA
+>    SUNMAZ** (router'ın 404'ü): 503 *"not configured"* yalan olurdu, bir yer tutucu sayfa
+>    OP-8'in silmeyi hatırlaması gereken bir rota olurdu. `*Authenticator` yüzeyin dışa kapalı
+>    alanında, süreç boyunca tutulur; `operatorauth.Config` hiçbir yerde değer olarak tutulmaz.
+> 7. **Wiring:** `openOperatorSurface` (havuz bu fonksiyondan çıkmaz; `Close` bağlı yöntem
+>    değeri olarak döner) → `configuredSurface` → `operatorAuthenticator` (`NewKey` dönüşümü).
+>    Pinler: `TestOperatorWiring_ThePoolReachesOnlyTheAuthenticator` (AST: `NewOperatorDB` tek
+>    çağrı; havuz yalnız `configuredSurface`'in ve `Close`'un; store yalnız `operatorauth.New`'un;
+>    `run()` yüzeyi `httpx.NewRouter`'a verir) · `TestOperatorAuthenticator_EachKeyIsInItsOwnSlot`
+>    (bir enrollment: mühürlü sır TOTP KEK'iyle açılır, token anahtarıyla açılmaz; oturum
+>    hash'i token anahtarıyla HMAC) · `TestOpenOperatorSurface_PrintsNoValue` (üretimin text ve
+>    JSON handler'ları, Debug: kapalı/yapılandırılmış/ulaşılamaz satırları ve her ret).
+> 8. **Deploy.** Dört değişken `tappa-secrets`'tan `optional: true` (host dahil — ConfigMap her
+>    deploy'da yeniden uygulanır, anahtarlar yokken orada duran bir host yarım küme olurdu);
+>    `TestPackaging_TheOperatorSurfaceIsOneOptionalSecretSet` `config.OperatorSurfaceVariables()`'ı
+>    okur. `kubectl` koşulmadı (ajan kuralı): *"Secret'ta yokken pod kalkar"* iddiasını manifest
+>    testi ve `TAPPA_TAG_KEK_PREVIOUS` emsali taşır. **`tappa_operator`'ın parolası ayrı bir
+>    Secret anahtarı DEĞİL** (ADR 0020/0021'in listesi öyle diyordu — tarihli notla düzeltildi):
+>    yalnız DSN'in içinde durur ve role psql `\password` ile **stdin'den** verilir (ölçüldü,
+>    `docker exec -i`, `BEGIN … ROLLBACK`: TTY yokken istem stdin'den okunur, SCRAM doğrulayıcısı
+>    yazılır, geri almadan sonra rol yine NOLOGIN; `psql -1` stdin betiğini tek transaction'a
+>    sarar — iki ifade aynı `pg_current_xact_id()`). OP-5 md. 15'in devri (giriş) böylece
+>    kapandı; geliştirme parolası `02-dev-only-password.sh`'te.
+> 9. **OP-8'e, adıyla:** (i) rotaları `Surface.Mount`'un yapılandırılmış dalına bağla; (ii)
+>    host kapısı `Surface.host` ile (config port'u reddeder; isteğin port'u — dev'de
+>    `localhost:8080` — OP-8'in kararı); (iii) ~~**erişim log'u:** yüzey kapalıyken
+>    `/operator/*`'a gelen kimliksiz her istek 503 = `level=ERROR` `http.request`'tir ve
+>    `deploy/README.md`'nin 5. kuralını (> 5 / 5 dk, `route`'a göre gruplu) bir tarayıcı
+>    tetikleyebilir — sayılı sınır~~ → *2c'de KAPANDI: kapalı/ulaşılamaz yüzeyin 503'ü
+>    `httpx.AnswerAsDesigned` ile tasarım olarak bildirilir ve kayıt yazılmaz; OP-8'in
+>    gerçek rotaları bildirmedikçe her 5xx'leri kaydedilir — "2c" satırı*; (iv) ulaşılamaz yüzey yeniden denemez (yeniden başlatma);
+>    (v) `TestCustomerPanel_ImportsNoOperatorPackage` doğrudan import'u görür —
+>    `requireOperator` `httpx`'e konursa (ADR 0020 §4) müşteri paneli operatör paketine
+>    `httpx` üzerinden geçişli ulaşır; (vi) `TestOperatorDB_RunsAsTappaOperator` yalnız
+>    yazmayan iki ret yolunu sürer — başarılı bir `op_*` çağrısının havuz üzerinden sürülmesi
+>    OP-8'in uçtan uca testlerinin işi; (vii) **çerez bildirimi:** operatörün iki çerezi
+>    (`__Host-taptime_op`, `__Host-taptime_op_login`, OP-6) `/legal/cookies`'in tablosunda yok
+>    ve `TestCookieNotice_ListsExactlyTheCookiesTheProductSets`'in tarayıcısı onları görmez
+>    (yalnız `"tappa_…"` biçimli adları okur) — yüzey açıldığında bildirilip bildirilmeyeceği
+>    ve tarayıcının genişletilmesi OP-8'in kararı; *(viii) (2. tur, B8)* **iki yönlü host kapısı
+>    ingress'in BÜTÜN müşteri host'larını dışlamalı** (`deploy/k8s/40-ingress.yaml`: bugün
+>    `www.taptime.mt`, `tappa.everva.com.tr`; config yalnız `TAPPA_BASE_URL`'in host'unu
+>    reddeder) — operatör rotaları bir müşteri host'unda 404, müşteri rotaları operatör
+>    host'unda 404; *(ix) (2d)* **`operator_surface=unavailable` ERROR açılış satırını okuyan
+>    bir uyarı kuralı yok** — öneri 6. kuralın emsalinde, `body.operator_surface =
+>    "unavailable"` ≥ 1 olay (`deploy/README.md` sınır 32); yüzey canlıda açılırken
+>    eklensin ya da bilinçli olarak reddedilsin; *(x) (2h)* **güvenlik iddialarının biçimi:**
+>    OP-8 ve sonrası güvenlik iddialarını yalnız (I) sevk edilen kodun ölçülen davranışı
+>    (ölçen testin adıyla), (II) adıyla sayılan pinler/teller/kapalı kurallar ve tam olarak
+>    neyi yakaladıkları, (III) açık bir "tamlık iddiası yok" cümlesi olarak yazar; gelecekteki
+>    keyfi kod değişikliklerine karşı garanti gibi okunan koşulsuz cümle yazılmaz (OP-7 kart
+>    düzeltmesi, "2h" satırı).
+> 10. **Sayılı sınırlar (OP-7):** (S-a) üretim `tappa_operator`'a giriş verilmeden yüzey kapalı
+>     kalır — bu görev canlıda hiçbir şey açmadı; (S-b) pin, başlangıç parametrelerini düşüren
+>     bir ara katmanda (connection pooler) etkisizdir — geri okuma o bağlantıyı **reddeder**,
+>     yani sonuç sızıntı değil hizmet reddidir *(2c, ölçülene eşitlendi: bu yalnız SUNUCU
+>     ayarı için doğrudur. Geri okuma, argümanları istemci tarafında SQL metnine gömen bir
+>     pgx kipini göremez — `default_query_exec_mode=simple_protocol` ile iki havuz açıldı,
+>     geri okuma "0" dedi ve değerler metindeydi: sızıntı. Artık kurucular o kipi reddeder;
+>     "hizmet reddi, sızıntı değil" bağlı parametre gönderen kiplerde, yani havuzların kabul
+>     ettiği tek kiplerde doğrudur)* *(2f: bu, havuzun VARSAYILAN kipi için; çağrı başına
+>     seçilen bir kip bu cümlenin dışındadır ve onun için tamlık iddiası yoktur — "2f"
+>     satırı)* *(2g: havuzun varsayılan kipi için de koşullu: bugünkü kurucular düz çizgi ve
+>     token token pinli, `pinLogParameters`'ın `AfterConnect`'i havuzun kancası kaldıkça —
+>     "2g" satırı)* *(2h: bu cümle bugün sevk edilen kodun ölçülen davranışıdır; pinlerin
+>     listelemediği kod değişiklikleri için tamlık iddiası yok — "2h" satırı)*; (S-c) rol kapısı bir AÇILIŞ ölçümüdür
+>     (`pool.go`'nun sınırı aynen): açılıştan sonraki bir `GRANT` yeniden başlatmaya kadar
+>     görülmez; (S-d) geri okuma bağlantının BAŞINDA koşar; aynı oturumda sonradan çalışan bir
+>     `SET` (yalnız bu sürecin kendi kodu — operatör kodu bunu yapmaz) görülmez; (S-e) dev
+>     veritabanında `tappa_operator` hâlâ NOLOGIN (ajan kuralı: rol sondası `SET SESSION
+>     AUTHORIZATION` ile) — yapılandırılmış yolun gerçek girişle uçtan uca açılışı bu makinede
+>     koşulmadı; taze PGDATA (CI) `02-dev-only-password.sh` ile giriş alır; (S-f) ~~müşteri
+>     havuzunun `role=` açığı (md. 2) kapatılmadı~~ → *2. tur F1 ile kapatıldı (üretimde ret)*; (S-g) `config.Config` operatör anahtarlarını
+>     ham `[]byte` tutar ve `%+v` ile basılır — T80, 8. tur kararı (1); OP-7 bir `Config`'i
+>     biçimlendiren hiçbir yer eklemedi; (S-h) md. 4'ün geri yükleme senaryosu koşulmadı —
+>     dayandığı iki olgu (dökümde rol parolası yok; `01-roles.sql` rolü NOLOGIN yaratır) pg_dump'ın
+>     belgelenmiş davranışı ve repodaki SQL'dir, sonucu (28P01 → ulaşılamaz) testle ölçüldü.
+> 11. **Kalıcı test verisi:** yok. `TestPin_TheStartupParameterOverridesARoleDefault` bir rol
+>     varsayılanı commit eder ve Cleanup'ta geri alır (`pg_db_role_setting` 0 satır, her koşuda
+>     doğrulanır; yarıda ölen bir koşu `TestPin_NoRoleLevelSettingOnTheConnectingRoles`'u
+>     kırmızıya çevirir ve satırı adlandırır). Operatör tablolarına dokunan yeni test
+>     (`TestOperatorDB_RunsAsTappaOperator`) danışma kilidini paylaşımlı alır (OP-6 md. 16) ve
+>     yazmayan iki ret yolunu sürer.
+> 12. **Mutasyon koşusu (kopyala-geri-yaz, her mutasyonun diskte olduğu `diff` ile, geri
+>     yüklemesi `cmp`/`shasum` ile doğrulandı; hüküm testin kendi çıkış kodundan ve `--- FAIL`
+>     satırlarından):** ilk koşu 48 mutasyon: 46 kırmızı, 1 derlenmedi (kullanılmayan bir
+>     import; derlenen hâliyle yeniden koşuldu), **1 YEŞİL**: bağlantı hatasına pgx'in metnini
+>     eklemek (`TestOperatorDB_RefusalsCarryNoConnectionString` yalnız parolayı arıyordu; pgx'in
+>     bağlantı hatası parolayı değil kullanıcı ve veritabanı adını alıntılar) — test kullanıcı
+>     ve veritabanı nöbetçileriyle güçlendirildi ve pgx'in metnini görebildiğini bir kontrol
+>     kanıtlar. İkinci koşu 10 mutasyon (o ikisinin yeni hâlleri + 8 yeni): 10/10 kırmızı.
+>     Üçüncü koşu 3 mutasyon (md. 13'ün muafiyeti): 3/3 kırmızı. Toplam 59 ayrı mutasyon, son
+>     hâlleriyle 59'u kırmızı. Ayrıntı görevin raporunda. *(2. tur: 59'un 2. turdaki durumu ve
+>     26 yeni deneme — aşağıdaki "2. tur" bloğu, md. 2T-6.)*
+> 13. **Kapsam genişlemesi, gerekçeli: `internal/handler/marketing_test.go`.** İlk tam koşuda
+>     `TestCookieNotice_ListsExactlyTheCookiesTheProductSets` kırmızıydı: tarayıcısı test dışı Go
+>     kaynağındaki her `"tappa_…"` literalini çerez adı sayar ve yorumu *"başka hiçbir şey bu
+>     biçimde değil"* der; `operatorRole = "tappa_operator"` o öncülü bozdu. Tarayıcıyı bir dizge
+>     hilesiyle atlatmak yerine (agent-brief: kokudur) dar ve görünür bir muafiyet eklendi
+>     (`cookieScanNonCookies`): literal + TEK dosya + gerekçe; uygulandığı her koşuda `t.Logf`
+>     basar; dosyası literali artık taşımıyorsa kırmızı; aynı literal başka bir dosyada hâlâ çerez
+>     sayılır (üç mutasyon, üçü kırmızı).
+>
+> **Kart düzeltmesi — 2. tur (2026-10-01, 1. üçüncü göz denetçisinin RED'inden sonra).**
+> Değişen: `internal/db/operatorpool.go`, `logparams.go`, `pool.go`; `internal/config/config.go`
+> (host hata metni + yorum); `cmd/tappa/operator.go` ve `main.go` (yorumlar; geliştirme
+> uyarısına `session_user`); yeni `internal/db/operatorrefusal_test.go` ve var olan beş test
+> dosyasına satırlar; `deploy/README.md` runbook'u; ADR 0020/0021'in OP-7 notları ("2. tur"
+> işaretli). Migration YOK, bağımlılık YOK. Yukarıdaki md. 2, 3, 4, 5, 9, 10, 12 yerinde
+> işaretlendi (üstü çizili + *2. tur* notu). Maddeler:
+>
+> - **2T-1 · B1 (bloke edici) — "ulaşılamaz" artık KAPALI bir liste.** İlk hâl ping'deki
+>   HER SQLSTATE'i ulaşılamaz sayıyordu; denetçi `42501`, `22023`, `42704` ile sürecin AÇILDIĞINI
+>   ölçtü — DSN'in istediğini REDDEDEN bir sunucu, yüzeyi sessizce "unavailable" yapıyordu.
+>   Şimdi ulaşılamaz yalnız: ağ (errno, `net.Error`, sunucunun bağlantıyı kapatması), ad
+>   çözümü, zaman aşımı, iptal edilmiş açılış ve SQLSTATE sınıfı **08**, sınıfı **28**,
+>   **`3D000`**, **`53300`**, **`57P01`–`57P03`** (`unreachableSQLSTATEs`, her girişin
+>   gerekçesiyle). Öteki her SQLSTATE ve tanınmayan her hata tipi RET'tir ve açılışı durdurur.
+>   *(2b: bu cümle yalnız TEK denemeli bir bağlantı için doğruydu — pgx'in birleştirdiği
+>   denemelerde errno dalı ilk eşleşmeyi alıyordu ve 2. denetçi dört karışık vakayı ulaşılamaz
+>   ölçtü; ayrıca bir TLS uyarısı `net.Error` olduğu için ağ sayılıyordu. Düzeltme "2b" satırında.)*
+>   Ping'den sonraki hiçbir adım (havuzun kurulumu, `Acquire`, rolün okunması) ulaşılamaz
+>   OLAMAZ: `operatorStepErr` sınıflandırıcının hükmünü atar — sunucuya ulaşılmıştır, hata
+>   kapalı yönde biter. Pinler: `TestOperatorConnectErr_OnlyTheTableIsUnreachable` (tablonun
+>   LİTERAL kopyası, iki yön: her giriş ulaşılamaz VE 43 sınıf × 14 alt koddan kurulan evrende
+>   tablo dışındaki her kod ret; ağ, DNS, bağlam, EOF ve bilinmeyen tip satırları) ·
+>   `TestReadOperatorRole_AFailureIsNeverUnreachability` (sahte sorgucu rol okumasında
+>   `08006`, `57P01`, `28P01`, `53300` döndürür → dördü de ret) ·
+>   `TestOperatorDB_AServerThatRefusesStopsTheBoot` (gerçek sunucu, aşağıdaki beş durum + bir
+>   kontrol) · `TestOpenOperatorSurface_UnreachableKeepsTheProductUpARefusalStopsTheBoot`'a
+>   *"a server that refused: the boot stops"* satırı.
+>   **Canlı ölçüm** (gerçek ikili, `:18080`, geliştirme `.env`'i + durumun değişkenleri; her
+>   durumda süreç çıktısında sır değeri araması **0**):
+>
+>   | Durum | Sonuç |
+>   |---|---|
+>   | operatör değişkeni yok | açılır; `/operator` 503 *not configured*; `/healthz`, `/readyz`, `/` 200 |
+>   | kapalı port (ulaşılamaz) | açılır; ERROR `operator_surface=unavailable`, `cannot connect (connection refused)`; `/operator` 503 *unavailable*; müşteri 200 |
+>   | G1 müşteri DSN'i + `role=tappa_operator` | açılmaz — `the server refused the connection (SQLSTATE 42501)` |
+>   | G2 müşteri DSN'i + `options=-c log_parameter_max_length=-1` | açılmaz — `42501` |
+>   | G3 aynı ayar sorgu parametresi olarak | açılmaz — `42501` |
+>   | G4 sahibin DSN'i + `role=<olmayan rol>` | açılmaz — `22023` |
+>   | G5 sahibin DSN'i + bilinmeyen bir ayar | açılmaz — `42704` |
+>
+>   Ret satırı yalnız kodu taşır; nöbetçi (olmayan rolün ve bilinmeyen ayarın adı) hiçbir
+>   çıktıda yok.
+> - **2T-2 · B2** — `### Görevler — A2 tenant-ötesi okuma/yazma` başlığı geri geldi, önünde
+>   boş satır; satır HEAD'dekiyle bayt bayt aynı.
+> - **2T-3 · B3** — B1'le çelişen yorumlar düzeltildi: `main.go`'nun operatör yüzeyi yorumu,
+>   `operator.go`'nun `operatorDialTimeout` ve `openOperatorSurface` yorumları ve süpürmede
+>   bulunan `NewOperatorDB` yorumu kapalı listeyi söyler.
+> - **2T-4 · B4 — pin harf duyarsız.** pgx bilinmeyen bir sorgu parametresini yazıldığı
+>   harflerle başlangıç parametresi yapar; PostgreSQL ayar adını harf duyarsız okur. Ölçüldü
+>   (düzeltmeden önce, havuz başına 30 açılış): `?LOG_PARAMETER_MAX_LENGTH_ON_ERROR=-1` müşteri
+>   havuzunda **7/30**, operatör havuzunda **9/30**; `?Log_Parameter_Max_Length_On_Error=-1`
+>   **10/30** ve **11/30** açılış reddedildi (haritada iki anahtar, Go'nun harita sırası
+>   kazananı seçer; geri okuma yakaladığı için sonuç sızıntı değil rastgele RET'ti). Düzeltme:
+>   adı `strings.EqualFold` ile eşleyen her anahtar silinir, sonra `"0"` yazılır. Sonra: dört
+>   durumda **0/30**. Pinler: `TestPinLogParameters_LeavesOneSpellingOfTheKey` (birim),
+>   `TestPin_ADifferentlyCasedKeyCannotUnpinIt` (gerçek sunucu, iki havuz × iki yazım × 30).
+>   `logparams.go` yorumu ve ADR 0021 notu buna hizalandı. İlk turun D2 mutantı (*"DSN'de yoksa
+>   pinle"*) bu silme döngüsünden sonra EŞDEĞERDİR (anahtar artık hiç bulunmaz) — yerine D2′
+>   (*silme tam eşleşmeye döner*) kuruldu, kırmızı.
+> - **2T-5 · B5.** (a) PgError yolunda nöbetçi: olmayan rolün ve bilinmeyen ayarın adı
+>   rastgele bir nöbetçidir, sunucunun mesajı onu yankılar; hata yalnız `SQLSTATE xxxxx`
+>   taşır (`TestOperatorDB_AServerThatRefusesStopsTheBoot`). (b) Geri okuma yalnız tam `"0"`
+>   metnini kabul eder; `"-1"`, `"64B"`, `"1"`, `"1B"`, `"1kB"`, `""`, `"0B"`, `" 0"`, `"0 "`,
+>   `"00"`, `"-0"` ret (`TestLogParameterPinned_OnlyTheTextZero`); gerçek sunucuda değer `64`
+>   ve `1` iken iki havuz da reddeder (`TestPin_ASizeIsRefusedLikeUnlimited`). (c)
+>   `OperatorSurfaceConfigured`'ın "HERHANGİ bir alan" okuması pinlendi
+>   (`TestOperatorSurfaceConfigured_AnyOneFieldCounts`; komut tarafında
+>   `TestOpenOperatorSurface_APartialStructIsNeverSilentlyOff`: tek alanı dolu elle kurulmuş
+>   bir yapı asla "off" satırı yazmaz). (d) B1'de (`readOperatorRole`). (e) Çerez muafiyetinin
+>   dosya bağı: `TestCookieScanNonCookies_AreBoundToTheirFile` (literal kendi dosyasında muaf,
+>   başka üç dosya adında çerez sayılır).
+> - **2T-6 · B6** — runbook doğrulaması `pg_stat_activity` aramasından açılış satırına taşındı:
+>   `configured` satırı ancak havuz açılıp rol kapısı ve geri okuma geçtikten sonra yazılır;
+>   `pg_stat_activity` kanıt değildir (pgxpool `MinConns` 0, `MaxConnIdleTime` ~30 dk —
+>   sağlıklı süreçte de sonradan sıfır bağlantı). Gerekçe README'de.
+> - **2T-7 · B7** — README'nin iki cümlesi artık aynı şeyi söyler: `tappa-secrets`'ın tek
+>   okuması 3a'daki `kubectl describe`'dır ve yalnız anahtar adını ve bayt boyunu basar.
+> - **2T-8 · B8** — host hata metni ölçülene daraltıldı (*"not on the customer product's
+>   canonical host"*); kural yalnız `TAPPA_BASE_URL`'in host'unu bilir, ingress'in
+>   `www.taptime.mt` ve `tappa.everva.com.tr` host'ları kabul edilir (yorumda adıyla). OP-8
+>   devrine md. 9 (viii) eklendi: *iki yönlü host kapısı ingress'in BÜTÜN müşteri host'larını
+>   dışlamalı*.
+> - **2T-9 · B9 — rol kapısı ADR 0021 §1'in kalanını okur:** `rolcreatedb`, `rolcreaterole`,
+>   `rolreplication` (`pg_roles`) ve ters üyelik (`pg_auth_members`'ta rolün bir ÜYESİ);
+>   dördü de ret, ret mesajı dördünü adlandırır. Pin:
+>   `TestOperatorRoleQuery_SeesTheRestOfADR0021sRole` (her nitelik geri alınan bir savepoint'te
+>   verilir ve gönderilen okuyucuyla `tappa_operator` olarak okunur) + doğruluk tablosunun
+>   dört yeni satırı. Bedel: aynı sorguda dört sütun.
+> - **2T-10 · F1 — KAPSAM GENİŞLEMESİ, gerekçeli: müşteri havuzunun `role=` açığı.** Gerekçe:
+>   md. 2'de ölçülen açık aynı mekanizmadır (başlangıç parametresi `role=`), `pool.go` bu
+>   görevin diff'inde zaten değişiyordu (T79) ve çare bir sütun + bir yüklemdir (orkestratör
+>   kararı: bu turda kapat). Yapılan: `readRole` `session_user`'ı aynı bağlantıda okur,
+>   `RoleFacts.Session`; `Privileged()` artık `session_user ≠ current_user`'ı da sayar
+>   (`signed_in_as_another_role`). Kapının ORTAM davranışı değişmedi: üretimde ret, geliştirmede
+>   uyarı (uyarı satırına `session_user` eklendi). Ölçüldü: geliştirmenin ve CI'nin
+>   `DATABASE_URL`'i `tappa_app` olarak, `role=` olmadan girer → `session_user = current_user`,
+>   kapı onlar için değişmez; üretimin DSN'i ölçülmedi (`kubectl` yok) — runbook onu
+>   `tappa_app` olarak kurar. Canlı: sahibin DSN'i + `role=tappa_app` → üretimde açılmaz
+>   (`signed_in_as_another_role=true`), geliştirmede açılır ve uyarır. Pinler:
+>   `TestNewRefusesASwitchedSessionInProduction` (üretim reddi + geliştirme açılışı + KONTROL:
+>   o bağlantıda `SET ROLE NONE` gerçekten süper kullanıcıya ulaşır), `TestRoleRefusal` ve
+>   `Privileged` doğruluk tablosuna satırlar. Md. 10 (S-f) kapandı.
+> - **2T-11 · F2 — KAPSAM GENİŞLEMESİ, gerekçeli: `db.New`'un ayrıştırma hatası.** `New`
+>   pgx'in ayrıştırma hatasını `%w` ile sarıyordu; pgconn'un redaktörü `?password=` biçimini
+>   görmez, yani bozuk bir `DATABASE_URL` parolasını açılışın `fatal` satırına taşırdı.
+>   Gerekçe: operatör havuzunun ilk turda aldığı önlemin (D12) aynısı, tek satır. Şimdi sabit
+>   bir mesaj. Pin: `TestNew_AnUnparseableDSNCarriesNoPassword` (KONTROL: pgx'in kendi metni
+>   nöbetçiyi taşır). Canlı: bozuk müşteri DSN'i → sabit mesaj, sır araması 0.
+> - **2T-12 · Mutasyonlar (kopyala-geri-yaz, yalnız scratchpad; her mutasyonun diskte olduğu
+>   `diff` ile, geri yüklemesi `shasum` ile doğrulandı; hüküm testin çıkış kodundan).**
+>   İlk turun 59'u yeniden koşuldu: **50** olduğu gibi kırmızı; **8**'inin hedef satırı bu turda
+>   değişti (D3, D7, D8, D9, D11, D17, D20, D21), yeni satırlarına kuruldu, **8/8 kırmızı**; D2
+>   eşdeğer oldu (2T-4), yerine D2′ **kırmızı**. Bu turun yeni denemeleri: **26** (N1–N23 +
+>   N8b, N18b, N20b; B1: N1, N2, N3, N18, N18b, N19, N20, N20b, N23 · B4: N5 · B5a: N4 · B5b: N6, N7
+>   · B5c: N8, N8b · B5d: N3, N19 · B5e: N9 · B9: N10–N14 · F1 ve iki kapının ortak `Session` alanı: N15, N16, N21, N22 · F2: N17);
+>   ilk koşuda 5'i derlenmedi (kullanılmayan import/değişken), derlenen hâlleriyle yeniden
+>   koşuldu — **26/26 kırmızı**. Ayrıntı görevin raporunda.
+> - **2T-13 · Sayılı sınırlar (2. tur):** (i) kapalı liste bir KARARDIR: sınıf 28'in tamamı
+>   (yanlış parola dahil) ulaşılamaz sayılır — geri yükleme gerekçesi (md. 4) bunu ister, bedeli
+>   yanlış bir parolanın açılışı durdurmamasıdır (yüzey 503 + ERROR satırı); (ii) tanınmayan
+>   bir hata TİPİ (ör. pgconn'un TLS reddi) RET'tir — bilinçli olarak kapalı yönde *(2b: tek
+>   denemede doğruydu, birleşik hatada değildi — "2b" satırı)*; (iii)
+>   üretim `DATABASE_URL`'inin `role=` taşımadığı ölçülmedi (kubectl yok) — taşıyorsa F1
+>   üretimde açılışı durdurur ve `fatal` satırı `signed_in_as_another_role=true` diye adlandırır.
+> - **2b (2026-10-01, 2. denetçinin ONAY'ından sonra, bloklamayan bulgular; kapsam
+>   genişletilmedi).** (1) **Birleşik bağlantı hatası:** pgx çok host'lu bir DSN'in ve
+>   `sslmode=prefer`'in denemelerini `errors.Join` ile birleştirir; `errors.As` ilk eşleşmeyi
+>   aldığı için kapalı port + TLS reddi / TLS uyarısı / sertifika reddi *ulaşılamaz*
+>   okunuyordu, TLS uyarısı (`*net.OpError`, Op `"remote error"`) tek başına da ağ sayılıyordu.
+>   Şimdi `connectAttempts` hatayı denemelerine böler (iç içe join'ler dahil) ve
+>   `connectFailure` ancak **her** deneme ulaşılamazsa ulaşılamaz der; karar veren deneme
+>   gerekçede *"attempt N of M"* diye adlandırılır. TLS uyarısı (`remote error`/`local
+>   error`) ve sertifika reddi kendi gerekçesiyle RET'tir. Sunucu cevabı olmayan ret
+>   *"the server refused"* DEMEZ (x509'da reddeden bu taraftır): *"the connection attempt
+>   failed (…), which is not one of the failures that count as unreachable"*. Pinler:
+>   `TestConnectFailure_EveryAttemptDecides` (16 birleşik ya da tek şekil) ·
+>   `TestOperatorDB_AJoinedFailureIsUnreachableOnlyWhenEveryAttemptIs` (127.0.0.1'de sahte
+>   sunucular, gerçek pgx: istemci sertifikası isteyen sunucu → TLS uyarısı; kapalı port +
+>   TLS'i reddeden sunucu, iki sırayla; güvenilmeyen sertifika + kapalı port → dördü RET;
+>   KONTROL iki kapalı port → ulaşılamaz) · `TestOperatorDB_AServerThatRefusesStopsTheBoot`'a
+>   *"a closed port, then the customer DSN asking to become tappa_operator"* (gerçek sunucu,
+>   42501). **Ölçülen bir SONUÇ, sayılı sınır:** `sslmode=prefer` (ya da `sslmode`'suz DSN)
+>   TLS'siz bir sunucuya karşı önce TLS sonra düz dener; yanlış parola *TLS reddi + 28P01*
+>   birleşimidir ve artık açılışı DURDURUR (`sslmode=disable` ile aynı parola `unavailable`;
+>   `TestOperatorDB_PreferAgainstAServerWithoutTLSIsARefusal`, geliştirme sunucusu `ssl=off`).
+>   Runbook'un DSN'i `sslmode=disable` taşır; README'nin ret listesi bunu söyler. *(2d:
+>   ölçülenden dardı — yalnız yanlış parola değil, listedeki HER sunucu cevabı (3D000
+>   ölçüldü; 57P03 ve 53300'ü kapanış denetçisi ölçtü) bu biçimde RET olur; ulaşılamaz kalan
+>   yalnız HER denemede ağ düzeyinde olan hatadır, ör. kapalı port.)* (2)
+>   **Geri okumanın sorgu hatası dalı:** sunucu hatası artık tipli bir RET
+>   (`logParameterReadError`, yalnız SQLSTATE); operatör havuzu onu olduğu gibi geçirir.
+>   `TestPin_AReadBackThatCannotRunIsRefused`: kanca bağlantıyı iptal edilmiş bir işlemde
+>   bırakır → iki havuz da `25P02` ile reddeder. Sorgu `pg_catalog.current_setting`
+>   (`TestReadLogParameterSQL_IsSchemaQualified`). (3) **Boşluktan ibaret DSN:** `config.Load`
+>   reddeder (*"is set but holds only whitespace"*); "blanks are a value" alt testleri dört
+>   değişkenin her biri için (DSN iki biçimde) *(2d: ayrı ve adı içeriğini söyleyen teste
+>   taşındı: `TestLoad_OperatorVariablesOfBlanksAreRefused`)*. Canlı: `" "` ve `" \t\n "` → `fatal`, süreç
+>   açılmadı, sır araması 0. (4) **Kardeş cümleler:** ADR 0021 §1 ve §5 (parola Secret'tan
+>   değil, `\password` ile stdin'den; üstü çizili + tarihli not), OP-5 md. 15 (ileriye
+>   işaret), `20-app.yaml` başlangıç bütçesi (iki dial, ikincisi çıkmaz; ölçüldü: TCP'yi kabul
+>   edip hiç cevap vermeyen bir operatör veritabanıyla süreç 10,4 sn'de dinliyor, `/operator`
+>   503, `/` 200; en kötü ~20 sn < 60 sn), ADR 0021 §4 *"iki yönde de gürültülü"* ölçülene
+>   daraltıldı: `DATABASE_URL` → `tappa_operator` iken müşteri kapısının dört olgusu dördü de
+>   `false` (ölçüldü, `SET SESSION AUTHORIZATION`, geri alınan işlem) ve `tenants` `SELECT`'i
+>   *permission denied* (ölçüldü); sürecin açılıp ilk istekte düşmesi kod çıkarımı. **Backlog
+>   adayı (eklenmedi; 2c md. 3: orkestratörün backlog'una):** üretimde müşteri havuzu `current_user = tappa_operator` (ya da
+>   `≠ tappa_app`) iken açılmayı reddetsin. (5) **Runbook:** geri alma 3b yolunda
+>   `ExternalSecret` girdilerini kaldırma + `force-sync` + ad sayımı (external-secrets
+>   belgesine dayanır, ölçülmedi); 3b'de her `pbcopy`'den hemen sonra `pbcopy </dev/null`
+>   ve gerekçesi. **Mutasyonlar (kopyala-geri-yaz, scratchpad):** 17 yeni deneme; 2'si ilk
+>   koşuda derlenmedi (kullanılmayan değişken/import), derlenen hâlleriyle kırmızı → **16
+>   kırmızı**, **M44 (denetçinin mutantı, yeni kodda) YEŞİL ve EŞDEĞER**: bölmeden sonra her
+>   deneme tek bir doğrusal sarma zinciridir, `*pgconn.PgError` de `syscall.Errno` da zincirin
+>   UCUDUR (ikisi de sarmaz), yani bir zincir en çok birini taşır ve dalların sırası cevabı
+>   değiştiremez. M44'ün tehdit ettiği özellik (kapalı port + 42501 = ret) M44′ (bölme yok),
+>   M44″ (bölme yok + errno önce) ve J1 (bir ulaşılamaz deneme yeter) ile kırmızı. 1. ve 2.
+>   turdan örnek N1, N2, N3, N5, N15, N17, D1, D6: **8/8 kırmızı**.
+> - **2c (güvenlik denetimi, 2026-10-01; `tappa-security-auditor` RED: bir YÜKSEK, dört
+>   DÜŞÜK; kapsam genişletilmedi).** (1) **[YÜKSEK] DSN'deki `default_query_exec_mode`
+>   log korumasını atlatıyordu.** pgx bu parametreyi kendisi okur, sunucuya göndermez;
+>   `simple_protocol`'de argümanları SQL metnine istemci tarafında gömer. Denetçi ölçtü: iki
+>   havuz açıldı, pin "0", nöbetçi `current_query()`'de — üretimde hata veren her ifadenin
+>   STATEMENT satırıyla pod log'una (§7). Çare: iki kurucu `pinLogParameters`'tan önce
+>   `requireBoundParameters` çağırır; kip `boundParameterModes`'ta değilse sabit bir mesajla
+>   RET (normalleştirme yok). Ölçüldü, her koşuda
+>   (`TestQueryExecModes_OnlyTheListedOnesBindOnTheServer`): beş kipten yalnız
+>   `simple_protocol` argümanı metne koyar; `cache_statement`, `cache_describe`,
+>   `describe_exec`, `exec` koymaz — liste literal olarak pinli. Harf duyarlılığı ölçüldü:
+>   pgx anahtarı da değeri de tam yazımla okur; büyük harfli anahtar pgx'in değildir ve
+>   sunucuya bilinmeyen ayar olarak gider (42704, ret), büyük harfli değer ayrıştırılmaz
+>   (ret) — kural ayrıştırılmış kipi denetlediği için yazım farkı bir yol açmaz.
+>   `TestPin_ADSNCannotChooseClientSideInterpolation` (iki havuz × üç yazım → ret; izinli
+>   dört kip açar; KONTROL: ham bağlantıda `simple_protocol` nöbetçiyi metne koyar).
+>   Çağrı başına argüman yolu: ~~ürün Go dosyalarında `QueryExecModeSimpleProtocol` seçicisi
+>   yok; AST, her import adıyla; pozitif kontrollü; bugün 0 isabet~~ → *2d: ada bağlı tarama
+>   dört yazımı görmüyordu; yerine tipe bağlı kural geldi — "2d" satırı* *(2f: kural değil,
+>   TUZAK TELİ; çağrı başına kip için tamlık iddiası yok — "2f" satırı)*. Canlı (`:18080`): iki DSN'de de `fatal`, *"asks for
+>   default_query_exec_mode=simple_protocol"*, sır araması 0. Md. 10 (S-b) ölçülene eşitlendi;
+>   T79 ve ADR 0021 (1)–(2) notları buna bağlandı. (2) **[DÜŞÜK] Rol kapısı sorguları
+>   nitelenmemişti.** Ölçüldü (geri alınan işlem, sahip): `search_path = gölge, pg_catalog`
+>   ile gölge `=` (name, oid, "char"), gölge `<>` (dolayısıyla `NOT IN`) ve gölge
+>   `pg_has_role` öncelik aldı — yani yalnız adlar değil operatörler de. İki sorguda her
+>   katalog adı ve fonksiyon `pg_catalog.` ile, her karşılaştırma `OPERATOR(pg_catalog.=)`
+>   ile, IN listeleri `= ANY` + `pg_catalog.name[]` ile yazıldı. Pinler:
+>   `TestRoleGateQueries_AreSchemaQualified` (metin) ve
+>   `TestRoleGateQueries_IgnoreAShadowCatalog` (denetçinin gölge şeması — görünümler,
+>   fonksiyon, `oid` üzerinde `=` — sevk edilen iki sorgu gölgesiz okuduğunu okur; KONTROL:
+>   aynı metnin nitelenmemiş kopyası gölgeyi okur). (3) **[orkestratörün backlog'una]**
+>   üretimde müşteri havuzu `current_user ≠ tappa_app` iken açılmayı reddetsin (2b satırındaki
+>   aday). (4) **[DÜŞÜK] Kapalı/ulaşılamaz yüzeyin 503'ü 5xx alarmını çaldırabiliyordu.**
+>   5. kuralın sorgusu `status >= 500`'e bakar (ölçüldü: README), yani INFO'ya indirmek
+>   yetmezdi; emsale uyan yol seçildi — tasarlanmış cevap kaydedilmez (`probeDesignedStatus`
+>   emsali). Tasarım rota kalıbına değil yüzeyin durumuna bağlı olduğu için (aynı kalıplar
+>   OP-8'de gerçek handler'ları taşıyacak; `httpx` operatör paketini import edemez) tablo
+>   yerine handler'ın bildirimi: `httpx.AnswerAsDesigned(r, 503)`; bildirilenden farklı bir
+>   durum (paniğin 500'ü) her rotadaki gibi ERROR kaydı. Durum görünür kalır: açılış satırı
+>   (kapalı INFO, ulaşılamaz ERROR). Pinler: `TestAccessLog_ADeclaredDesignedAnswerIsNotAnEvent`,
+>   `TestAnswerAsDesigned_OutsideAccessLogIsANoOp`, `TestSurface_ItsDesigned503IsNotAnAlertEvent`
+>   (kapalı ve ulaşılamaz: 5 yol × 5 yöntem → 0 kayıt; KONTROL: `/admin` bir INFO kaydı,
+>   yapılandırılmış yüzeyin 404'ü kaydedilir). Canlı: kapalı yüzeye 8 istek → `/operator`'da 0
+>   kayıt, `/` 1 kayıt. Md. 9 (iii) kapandı. (5) **[orkestratörün backlog'una]** T80'in
+>   kapsamına iki DSN alanı (`DatabaseURL`, `OperatorDatabaseURL`). **Mutasyonlar
+>   (kopyala-geri-yaz, scratchpad): 16 yeni deneme, 16/16 kırmızı** — ret kaldırıldı (iki
+>   havuz ayrı ayrı), her kip kabul, `simple_protocol` listeye eklendi, `exec` listeden
+>   çıktı, ürün koduna kip argümanı eklendi, tarama hiçbir dosyayı okumadı, tarama hiçbir şey
+>   aramadı; dört nitelik geri alma (`pg_roles`, bir `=`, `pg_has_role`, `NOT IN`); dört
+>   erişim log'u mutantı (yüzey bildirmez, log bildirimi yok sayar, bildirim her durumu
+>   susturur, bildirim boş). "Yalnız tam yazımın reddi" mutantı UYGULANAMAZ: kural yazımı
+>   değil pgx'in ayrıştırdığı kipi denetler ve pgx yalnız tam yazımı okur (ölçüldü). 2b'den
+>   örnek J1, J3, M38, W1: **4/4 kırmızı**.
+> - **2d (kapanış denetimi, 2026-10-01; RED: bir bloklayıcı, dört bloklamayan; kapsam
+>   genişletilmedi).** (1) **[BLOKLAYICI] Çağrı başına kip yasağı ada değil TİPE bağlandı.**
+>   2c'nin taraması yalnız `QueryExecModeSimpleProtocol` adlı seçiciyi görüyordu; denetçi dört
+>   yazımı geçirdi (dot import, `pgx.QueryExecMode(5)`, `pgx.QueryExecModeExec + 1`,
+>   `…DefaultQueryExecMode = 5`) ve sevk edilen müşteri havuzunda çağrı başına
+>   `pgx.QueryExecMode(5)` nöbetçiyi `current_query()`'ye koydu. ~~Kapalı kural:~~ *(2f: tuzak
+>   teli, tamlık iddiası yok — "2f" satırı)* `TestProductCode_ExecModeWireAndConnectWire`
+>   *(2f'de yeniden adlandırıldı)* modülün bütün ürün paketlerini
+>   (`go list -export -deps github.com/atknatk/tappa/...`; **34 paket, 207 test dışı Go
+>   dosyası** — ~~modülde yapı kısıtıyla dışarıda kalan tek dosyalar iki `_test.go`, ölçüldü~~
+>   *2e: üç, ve hepsi `_test.go` — `adminauth/timingsamples_*`, `db/race_*`,
+>   `operatorauth/race_*`; sayı artık yazılmıyor, test hesaplıyor*)
+>   `go/types` ile bağımlılıkların tam export verisine karşı denetler (OP-6'nın `exactImports`
+>   emsali: sürüm koruması, `-race` eşlemesi `race_on_test.go`/`race_off_test.go`, her hata
+>   kırmızı). Tipi `pgx.QueryExecMode` olan her ifade (sabit, dönüşüm, aritmetik, son tipini
+>   almış untyped sabit, tip ifadesi, alan okuması) ve `DefaultQueryExecMode` alanının her
+>   kullanımı, `internal/db/logparams.go`'nun `boundParameterModes` ve
+>   `requireBoundParameters` bildirimleri dışında kırmızı *(2i: "bildirimleri" = PAKET DÜZEYİ
+>   bildirimler, dosyanın kendi konumuyla; aynı adlı yöntem ve `//line` yönergesi izinli
+>   sayılmaz; izinli kullanım tam olarak 16 — "2i" satırı)*. Pozitif kontroller: dokuz yazım
+>   (denetçinin dördü, ad, generic örnek, alias, `any`'den tip iddiası — S1 emsali —,
+>   literal anahtarı) her biri bulunuyor; `logparams.go`'daki izinli kullanımlar sayılıyor
+>   (9). Süre: 0,95 sn (`-race` 2,6 sn). ~~**Kalan tek sınır, adıyla: reflection ya da
+>   `unsafe`** (ölçüldü, mutasyonlarda).~~ *2e: ölçülenden genişti — "2e" satırı.* ADR 0021 notu ve 2c satırı hizalandı. (2)
+>   **`AnswerAsDesigned`'ın iki sınırı pinlendi:** aynı router'da art arda
+>   `TestAccessLog_ADeclarationIsThisRequestsAndThisStatusOnly` — bildirilmiş 503'ten sonra
+>   bildirilmemiş 503 ERROR, bildirilmiş 503'ün yerine 502 ERROR. `AccessLog` yorumu
+>   güncellendi. (3) README sınır **32**: kapalı/ulaşılamaz yüzeyde `/operator` denemeleri
+>   süreç log'unda iz bırakmaz; "kayıt yok" ile "istek yok" ayırt edilemez; tarama yalnız
+>   ingress log'unda görünür; `unavailable` ERROR satırını okuyan kural yok — 6. kural
+>   emsalinde öneri, OP-8'e devir (md. 9 (ix)). (4) `sslmode=prefer` sınırı ölçülene
+>   genişletildi: listedeki her sunucu cevabı ret (3D000 eklendi,
+>   `TestOperatorDB_PreferAgainstAServerWithoutTLSIsARefusal`; kapalı port ulaşılamaz kalır).
+>   (5) Çok denemeli ulaşılamaz mesaj her denemenin kodunu sırayla verir (*"attempt 1:
+>   connection refused; attempt 2: SQLSTATE 28P01"*;
+>   `TestConnectFailure_AnUnreachableJoinNamesEveryAttempt`). Not: boşluk alt testleri
+>   `TestLoad_OperatorVariablesOfBlanksAreRefused`'a taşındı. **Mutasyonlar
+>   (kopyala-geri-yaz; kaçışlar YENİ bir ürün paketinde, `internal/zzescape`, koşudan sonra
+>   silindi): 17 deneme.** Kırmızı 15: denetçinin dört kaçışı (dot import, dönüşüm,
+>   aritmetik, alana untyped sabit), ad kontrolü (`pgx.QueryExecModeSimpleProtocol`), generic
+>   örnek, alias, `any`'den tip iddiası (S1), literal anahtarı, `logparams.go`'da izinli iki
+>   bildirimin dışında bir kullanım, tarama tipi hiç tanımıyor, modül yürüyüşü paket
+>   tutmuyor; B3 (bildirim 500 dışı her durumu susturur), B4 (yuva kurulum başına), çok
+>   denemeli mesaj yalnız ilk denemeyi söyler. **YEŞİL 2, beklenen ve adıyla sayılan
+>   sınır:** reflection (`reflect.Value.FieldByName(...).SetInt`) ve yansımayla bulunmuş
+>   ofsetle `unsafe` yazımı — bu tipte bir ifade yazmadan değeri yazan iki yol. Önceki
+>   turlardan örnek E1, Q2 (2c), J1, M38 (2b): **4/4 kırmızı**.
+> - **2e (2. kapanış denetimi, 2026-10-01; RED: bir bloklayıcı, dört bloklamayan; kapsam
+>   genişletilmedi).** Sınıf iki turdur aynıydı — kip yasağının yazılı iddiası ölçülenden
+>   genişti — bu yüzden **katman değişti: metin denetiminin yanında davranış ölçülüyor.**
+>   (B-1) **[BLOKLAYICI] Build kısıtlı ürün dosyası taramadan kaçıyordu:** `!race`/`!cgo`
+>   etiketli bir dosya CI biçiminde (-race, cgo açık) yoktu, üretimde (CGO_ENABLED=0, -race
+>   yok) vardı. (a) `go list` artık `IgnoredGoFiles`, `CgoFiles`, `IgnoredOtherFiles` da
+>   istiyor; test dışı her girdi kırmızı. (b) Ortamdan bağımsız kural
+>   `TestProductCode_CarriesNoBuildConstraint`: ürün `.go` dosyası `//go:build` / `// +build`
+>   satırı, GOOS/GOARCH dosya adı eki (`go tool dist list`'ten), `import "C"` ya da go'nun yok
+>   saydığı ad (`_`, `.`) taşımaz. Ölçüldü: bugün böyle ürün dosyası **yok** (207 dosya
+>   okundu), izinli liste boş. (N-1) **Kurucunun içinde kontrolden sonra kip değişimi:**
+>   `pinLogParameters`'ın `AfterConnect`'i her yeni bağlantıda bağlantının KENDİ kipini
+>   (`c.Config()`) `requireBoundParameters` ile denetler; ret tipli
+>   (`execModeRefusedError`), operatör havuzu onu olduğu gibi geçirir. Kurucuların erken
+>   kontrolü kaldı ve "bağlanmadan önce" olduğu pinlendi (kapalı port + `simple_protocol` →
+>   kip reddi, bağlantı hatası değil). **Davranış testi**
+>   `TestPools_KeepArgumentsOutOfTheStatementText`: iki kurucunun döndürdüğü havuzda üç ayrı
+>   bağlantı tutulur, her birinde nöbetçi argüman `current_query()`'de YOK; kontrol:
+>   `simple_protocol` nöbetçiyi koyar. **Operatör havuzu test kancasıyla** (`openOperatorDB` +
+>   `asOperator`) — ölçerek seçildi: `tappa_operator` dev'de NOLOGIN; `BEGIN … ROLLBACK`
+>   içinde verilen parola commit edilmediği için yeni bir bağlantıya görünmez; commit edilen
+>   bir giriş, koşu yarıda ölürse kalıcı iz bırakır; ölçülen özellik pgx'in istemci
+>   tarafıdır ve hangi rolün girdiğinden bağımsızdır. `TestPin_AModeChangedAfterTheCheckIsRefusedOnItsConnection`:
+>   (a) havuz kurulmadan önce, (b) ilk bağlantıdan sonra havuzun config'inde değişen kip,
+>   bağlantısında reddedilir. (N-2) Taranan paket kümesi `go list github.com/atknatk/tappa/...`
+>   ile **birebir** eşit (sıralı karşılaştırma). (N-3) Eşzamanlı alt test
+>   `TestAccessLog_ADeclarationIsThisRequestsWhileAnotherRuns`: iki sırayla iki istek üst
+>   üste biner; her seferinde tam bir kayıt, bildirimsizinki. (N-4) Sayı düzeltildi; artık
+>   yazılmıyor. ~~**Sayılı sınırlar, adıyla:** çağrı başına reflection ya da `unsafe` ile
+>   yazılmış bir kip (havuz çapında olanı bağlantı katmanı ve davranış testi yakalar); kod
+>   içinde SQL kurmak (`QueryRewriter`, `fmt.Sprintf`) bu kuralın konusu değil (CLAUDE.md §6;
+>   `operator.go`'nun bağlı-parametre pini).~~ *(2f: bu "kalan" listesi de geniş çıktı; çağrı
+>   başına kip için tamlık iddiası kaldırıldı — "2f" satırı)* **Mutasyonlar (kopyala-geri-yaz; prob
+>   dosyaları koşudan sonra silindi):** 19 deneme, **19/19 kırmızı** — B-1 probları
+>   (`!race` düz ve `-race` koşuda, `!cgo`, `_linux.go`, eski `// +build`, `//go:build
+>   ignore`, cgo dosyası, teste benzeyen ad `zz_tests.go`, go'nun yok saydığı `_zz.go`,
+>   `cmd/tappa`'ya prob), W1, E2a-op, E2a-cust, X13, X13b (kontrol her şeyi kabul edip
+>   `simple_protocol` yazar — yalnız davranış testi ve bağlantı katmanı görür), L1 (bağlantı
+>   katmanı yok + kurucuda takas), L2/L2b (ilk bağlantıdan sonra kip değişir, bağlantı
+>   katmanıyla ve onsuz), B4b (`-race`). Örnekler: 2d X2, X4, X6 ve 2c Q2 kırmızı; 2c E1 ilk
+>   koşuda YEŞİL kaldı — bağlantı katmanı aynı reddi ping'de verdiği için — erken reddin
+>   bağlanmadan önce olduğunu pinleyen satır eklendi, E1 ve E2 yeniden: kırmızı.
+> - **2f (3. kapanış denetimi, 2026-10-01; RED; aynı sınıfın ÜÇÜNCÜ turu — kip yasağının
+>   yazılı iddiası ölçülenden genişti).** Kaçış: `pgxtest.AllQueryExecModes` + çıkarımlı bir
+>   generic (`func last[S ~[]E, E any](s S) any`) çağrı başına `simple_protocol` seçti;
+>   reflection yok, `unsafe` yok, kip tipinde bir ifade yazılmadı; sevk edilen müşteri
+>   havuzunda nöbetçi `current_query()`'de ölçüldü, bütün testler yeşildi. **Orkestratör
+>   kararı — agent-brief M8-02 FAZ C dersi: "sınıfı kıran şey iddianın biçimidir"; üçüncü
+>   kez yama değil, İDDİANIN BİÇİMİ değişti:** (1) **Havuz düzeyi, aynen kalır** *(2h: "KAPALI" sözcüğü
+>   kaldırıldı; cümle bugün sevk edilen kod hakkında, ölçülen — "2h" satırı)*:
+>   sevk edilen iki havuzun hiçbir bağlantısı argümanı metne gömen bir varsayılan kiple
+>   çalışmaz (DSN denetimi + bağlantı başına denetim + davranış testi) *(2g: taşıyıcılarının
+>   yakaladığı ölçülenden geniş yazılmıştı — "2g" satırı; ölçülene eşit cümle orada)*. (2) **Çağrı başına
+>   kip için tamlık iddiası YOKTUR**; kod içinde SQL kurmakla aynı sınıf, taşıyan kurallar
+>   CLAUDE.md §6 ve `operator.go`'nun bağlı-parametre pini. Tip taraması bir **tuzak teli**:
+>   `TestProductCode_ExecModeWireAndConnectWire` (yeniden adlandırıldı) yalnız listelediği
+>   yazımları yakalar — `execModeEscapes`: dot import, dönüşüm, aritmetik, alana untyped
+>   sabit, adlı sabit, generic örnek, alias, `any`'den tip iddiası, literal anahtarı,
+>   `pgxtest` listesi + çıkarımlı generic, işlev değeri; yakalamadığı her yol (örnek:
+>   bilmediği bir kaynaktan beslenen çıkarımlı generic, reflection, `unsafe`,
+>   `QueryRewriter`/`fmt.Sprintf`) kod incelemesinin ve §6'nın konusudur. Tamlık cümleleri
+>   `logparams.go`'dan, test dosyasından, ADR 0021'den, bu kartın 2c/2d/2e satırlarından ve
+>   md. 10'dan kaldırıldı (üstü çizili + 2f notu). (3) **Yeni KAPALI yapısal kural:** üretim
+>   ikilisinin bağımlılık kapanışı `testing`'i (ve `testing/...`'i) ve `pgxtest`'i içermez —
+>   `cmd/tappa`'da `TestBinary_LinksNoTestCode` (`go list -deps`, `CGO_ENABLED=0`, üretimin
+>   build'i; pozitif kontrol: `pgxtest`'in kendi kapanışında `testing` bulunuyor). Önce
+>   ölçüldü: bugün ikisi de kapanışta YOK (CGO açık ve kapalı). (4) **Tel ucuzca
+>   güçlendirildi, iddia büyütülmeden:** `carriesExecMode` işaretçi, dilim, dizi, map, kanal,
+>   imza, demet ve generic adlı tipin tip argümanlarına bakar; `info.Instances`'ın tip
+>   argümanları ve tanımlanan nesnelerin tipleri de denetlenir. (N-1) Build kısıtı kuralı
+>   ölçülene eşitlendi: ad go/build gibi ayrıştırılır (ilk `.`'dan kesilir, ilk `_`'den
+>   öncesi atılır, sondaki `_test` atılır), import yolu `strconv.Unquote` ile çözülür,
+>   GOOS/GOARCH listesi çalışan toolchain'in `internal/syslist`'inden (go/build'in kullandığı
+>   liste; zos, hurd, nacl, arm64be dahil) türetilir; kapsadıkları test yorumunda adıyla,
+>   kapsamadığı "listede olmayan başka bir dışlama yolu". (N-2) **Kaynak pini**
+>   `TestConstructors_TheHookReachesOnlyThePin`: `New` tam olarak `return newDB(ctx, cfg,
+>   nil)`, `NewOperatorDB` tam olarak `return openOperatorDB(ctx, cfg.OperatorDatabaseURL,
+>   nil)`; iki kurucuda `before` yalnız `pinLogParameters`'ın üçüncü argümanıdır ve o çağrı
+>   gövdenin kendi deyimidir (koşul altında değil). (N-3) Aynı tip taramasına bir **tel**:
+>   `pgx.Connect*`, `pgxpool.New`/`NewWithConfig`, `pgconn.Connect*`/`Construct` iki kurucu
+>   (`newDB`, `openOperatorDB`) dışında ~~hiçbir ürün dosyasında kullanılamaz~~ *(2h: telin
+>   gördüğü kullanımlarda kırmızı)* (değer olarak da); bu da bir tel, tamlık iddiası değil. (N-4) Bağlantı katmanının reddi artık kipi DSN'e
+>   yüklemiyor: *"the connection's configuration (the … pool) is in query exec mode …"*;
+>   DSN'den geldiyse *"asks for default_query_exec_mode=…"*; README'nin ret listesi ikisini
+>   de söylüyor. **Mutasyonlar (kopyala-geri-yaz; prob dosyaları silindi): 16 yeni deneme,
+>   16/16 kırmızı** — R3a (`pgxtest` importu, ikilinin kapanışındaki bir ürün paketinde),
+>   R3b (`testing`), R3c (`testing/iotest`); M4 (yerel `[]pgx.QueryExecMode` + çıkarımlı
+>   generic, `pgxtest`'siz), M4b (denetçinin kaçışı, ürün dosyasında), M4c (kip anahtarlı bir
+>   map, tip yazılmadan); N-1 probları (`zzmode_linux.impl.go`, ters tırnaklı ham dizgeyle `C` importu,
+>   `zz_zos.go`, yalnız `a_arm64.impl.go` taşıyan yeni paket); D1, D2, D3 (`NewOperatorDB`
+>   DSN'e parametre ekler); N3a (`pgx.Connect`), N3b (`cmd/tappa`'da `pgxpool.New` değeri);
+>   N4 (bağlantı katmanı DSN'i suçlar). Önceki örnekler E1, E2 (2c), L1, L2, P1r, W1 (2e):
+>   **6/6 kırmızı**.
+> - **2g (4. kapanış denetimi, 2026-10-01; RED: bir bloklayıcı, bir ucuz; kapsam
+>   genişletilmedi).** (B-1) **Havuz düzeyi dört cümle ölçülenden genişti** (`logparams.go`,
+>   ADR 0021, `operatorrefusal_test.go`, `execmodetypes_test.go`): MP1 (`newDB`'de pin'den
+>   sonra `if cfg.IsProd() { poolCfg, _ = pgxpool.ParseConfig(dsn+"…simple_protocol") }` —
+>   pin'in `AfterConnect`'ini de götürür), MP2 (aynısı `openOperatorDB`'de kullanıcı adına
+>   bağlı), K4 (yalnız üretimde `AfterConnect = nil`) bütün suiti yeşil bıraktı; bugünkü kod
+>   düz çizgi ve iddia bugün doğru, ama taşıyıcı testlerin yakaladığı ölçülenden geniş
+>   yazılmıştı. **(a) Kaynak pini — ~~değişiklik bir karar olsun~~** *(2h: pinli
+>   bildirimlerin TOKEN değişikliği testi kırmızı yapar; bildirimlerin dışı pinli değil)*:
+>   `TestConstructors_BodiesAreTheReviewedOnes` `newDB`, `openOperatorDB`,
+>   `pinLogParameters` ve `requireBoundParameters`'ın gövdesini `format.Node` ile basar ve
+>   test dosyasındaki literal metinle **token token** karşılaştırır (yorumlar, boş satırlar,
+>   satır düzeni yok sayılır; her noktalı virgül tek yazımla). Ölçüldü: gövdeye yorum
+>   eklemek ve iki satırlık birleştirmeyi tek satıra almak YEŞİL; yerel değişken yeniden
+>   adlandırmak, deyim taşımak, hata metni değiştirmek, deyim eklemek KIRMIZI; kapanışı yeni
+>   satıra alan ve sondaki virgülü ekleyen bir yeniden akış da KIRMIZI (bir token eklenir —
+>   sayıldı). Kırmızı mesajı değiştirenin neyi yeniden doğrulaması gerektiğini adıyla söyler:
+>   davranış testi (müşteri havuzu dev ve üretim ortamıyla), bağlantı başına denetim, ADR 0021
+>   notu. Ek tel: `pgxpool.Config`'in `AfterConnect`, `BeforeConnect`, `ConnConfig`
+>   alanlarına `pinLogParameters` dışında yazmak (atama, artırma, adres alma, literal
+>   anahtarı) kırmızı; bugün izinli tek yazım `pinLogParameters`'taki `AfterConnect`. **(b)
+>   Dört cümle ölçülene daraltıldı:** "bugünkü kurucular düz çizgidir ve kaynakları token
+>   token pinlidir; `pinLogParameters`'ın `AfterConnect`'i havuzun kancası olarak kaldıkça,
+>   havuzun config'inde sonradan yapılan bir kip değişikliği bağlantıda reddedilir" —
+>   "ulaşamaz" gibi koşulsuz ifadeler kalktı; 2f satırına ve md. 10'a 2g notu eklendi. **(c)
+>   Davranış testi üretim ortamıyla da:** `TestPools_KeepArgumentsOutOfTheStatementText`
+>   müşteri havuzunu `Env=dev` ve `Env=prod` ile koşar (dev'in `tappa_app` rolü üretim rol
+>   kapısından geçer — ölçüldü, test yeşil); operatör havuzunda üretim yolu ile test kancası
+>   yolu arasındaki tek farkın — *2h: pinli bildirimlerin içinde* — `before` olduğu iki
+>   kaynak pininde görünür ve test yorumunda yazılı. (N-1) `TestBinary_LinksNoTestCode` artık `GOOS=linux GOARCH=amd64` ile ölçer:
+>   imaj deploy iş akışının `ubuntu-latest` koşucusunda `docker build` ile, `--platform` ve
+>   GOOS/GOARCH olmadan, golang bookworm imajında kurulur (Dockerfile'ın kendi cümlesi:
+>   "linux/x64") — makinenin GOOS/GOARCH'ı değil. **Mutasyonlar (kopyala-geri-yaz):** MP1,
+>   MP2, K4, K4b (`openOperatorDB`'de `AfterConnect = nil`) — **4/4 kırmızı** (MP1'i davranış
+>   testi de üretim ortamında yakalar). Kaynak pinine karşı öz-denetim 9 deneme: yorum ekleme
+>   ve salt düzen (birleştirilen satır + boş satırlar) YEŞİL — beklenen; yerel değişken
+>   yeniden adı, deyim taşıma, hata metni, `pinLogParameters`'a deyim ekleme,
+>   `requireBoundParameters`'a bir kip daha, sondaki virgüllü yeniden akış KIRMIZI;
+>   `BeforeConnect`'e yazan yeni bir ürün dosyası tel ile KIRMIZI. Önceki örnekler E1, E2
+>   (2c), L1, L2 (2e), R3a, M4 (2f): **6/6 kırmızı**.
+> - **2h (5. kapanış denetimi, 2026-10-01; RED; aynı sınıfın BEŞİNCİ kapanış turu).**
+>   Sevk edilen kodda mutasyonsuz kaçış bulunmadı (denetçi 20 DSN/ortam varyantı denedi);
+>   bulgular metindi: `boundParameterModes`'in başlatıcısı, importlar ve
+>   `requireLogParametersPinned`/`logParameterPinned` token pininin dışındaydı (B6a: liste
+>   üretimde `simple_protocol` ekleyen bir çağrı; B6b: `slices` importu yönlendirilir; B6c:
+>   üretimde `return nil`), pinsiz `readRole` üretimde reflect+`unsafe` ile `afterConnect`'i
+>   sıfırlayabiliyordu (R1), havuz-config teli bazı yazım biçimlerini görmüyordu, ve metinler
+>   bunları kapsıyormuş gibi konuşuyordu. **Orkestratör kararı — iddianın biçimi son kez ve
+>   kalıcı olarak (agent-brief M8-02 FAZ C; "hükmü kaldır"):** kök, metnin gelecekteki KEYFİ
+>   kod değişikliklerine karşı bir garanti gibi okunmasıydı; hiçbir test bunu kanıtlayamaz.
+>   Bütün metinler (`logparams.go`, `execmodetypes_test.go`, `operatorrefusal_test.go`,
+>   `testcode_test.go`, ADR 0021, bu kartın 2c–2g satırları ve md. 10) artık YALNIZ üç şey
+>   söyler — kanonik metin `logparams.go`'da `boundParameterModes`'in yorumunda, Türkçesi ADR
+>   0021'in 2h notunda: **(I) bugün sevk edilen kod, ölçülen davranış** — iki havuzun her
+>   bağlantısı bağlı parametre gönderen bir kipte, log parametresi 0'a pinli; ölçen testler
+>   adıyla; **(II) adıyla sayılan pinler ve teller, neyi yakaladıkları tam liste** — gövde
+>   pini (`newDB`, `openOperatorDB`, `pinLogParameters`, `requireBoundParameters` gövdeleri +
+>   `boundParameterModes` başlatıcısı), kanca pini, KİP/BAĞLANTI/HAVUZ-CONFIG telleri ve
+>   listeledikleri biçimler, kapalı yapısal kurallar (ikili kapanışı linux/amd64 cgo=0; build
+>   kısıtı türleri); **(III) tamlık iddiası yok** — listelenmeyen her değişiklik (pinsiz
+>   yardımcılar, importlar, başka başlatıcılar, ortama koşullu davranış, reflect, `unsafe`,
+>   çağrı başına kip) kod incelemesinindir. Bu karar OP-8 ve sonrası için de geçerli (md. 9
+>   (x)). **Ucuz eklemeler:** `boundParameterModes` başlatıcısı token pinine eklendi (B6a
+>   artık kırmızı; değeri karşılaştıran test yorumu buna göre yeniden yazıldı); havuz-config
+>   teline `*c.ConnConfig = …`, `for _, c.AfterConnect = range …` ve bütün `pgxpool.Config`
+>   değeri (`*c = *d`) eklendi ve listede adıyla — görmediği biçimler de adıyla
+>   (`c.ConnConfig.Config = …`, gömülü alan, reflect, `unsafe`); N-2: ikili kuralının cümlesi
+>   "üretim ikilisine bağlanan hiçbir paket" oldu, `cmd/rotatekek` kapsam dışı yazılı.
+>   **Mutasyonlar:** B6a kırmızı; B6b, B6c ve R1 yeşil — beklenen ve (III)'te sınıfıyla
+>   adlandırılmış; yeni tel biçimleri pozitif kontrollerde. Ayrıntı görevin raporunda.
+> - **2i (6. kapanış denetimi, 2026-10-01; RED, ama 2h çerçevesi tuttu: PART I'de ihlal yok;
+>   kapsam genişletilmedi).** (1) **[BLOKLAYICI, PART II eksiği] KİP telinin izinli bölgesi
+>   yalnız ad ve `//line` ile tanınıyordu:** `logparams.go`'da `requireBoundParameters` adlı
+>   bir YÖNTEM ve başka bir paketteki `//line ../db/logparams.go:N` arkasındaki aynı adlı
+>   fonksiyon izinli sayılıyordu (denetçi: yöntemi çağıran bir ürün fonksiyonuyla nöbetçi
+>   operatör havuzunda `current_query()`'ye girdi, suit yeşildi); `allowedModes` bir alt
+>   sınırdı. Çare: `enclosingDecl` yöntemi `"(method) <ad>"` diye adlandırır, izinli bölge
+>   yalnız PAKET DÜZEYİ bildirim (`allowedHit`); bütün tellerin konumları
+>   `PositionFor(pos, false)` — `//line` uygulanmadan; üç sayı da tam eşitlik (16 kip
+>   kullanımı — ölçülen —, 2 açıcı, 1 kanca yazımı). İzinli bölge kontrolleri: aynı adlı yöntem
+>   ve `//line` arkasındaki fonksiyon telde görünür ve izinli sayılmaz; `//line` kontrolünün
+>   boş olmadığı (düzeltilmiş konumun `logparams.go` dediği) ayrıca denetlenir. (2) ADR 0021
+>   (i) cümlesi daraltıldı: `o.Exec`/`o.QueryRow` derlenmez (ölçüldü,
+>   ~~`TestOperatorDB_HasNoTenantDoorAndNoRawSQLDoor`~~ *2j: derleyici "has no field or method
+>   Exec" der; pinleyen `TestOperatorDB_EveryMethodDelegatesVerbatim`*); reflect/`unsafe` PART III. (3) Build
+>   kısıtı yürüyüşü artık go'nun atladığı dizinlere de girer (`_x`, `.x`, `testdata`; yalnız
+>   `.git` ve iç içe modüller — *2j: go.mod DOSYASI taşıyan dizin; sembolik bağlı dizinler
+>   izlenmez* — dışarıda; ölçüldü: bugün böyle bir dizinde `.go` dosyası yok);
+>   yürüyüş `constrainedProductFiles`'a ayrıldı ve geçici bir ağaçta kontrol edilir. (4)
+>   `TestPin_AConnectionTheParameterDidNotReachIsRefused`'a operatör havuzu için "a later
+>   connection, operator pool" alt testi (test kancasıyla) eklendi; "her yeni bağlantı" atfı
+>   artık iki havuz için ölçülü. (5) `pool.go` ve `operatorpool.go`'daki ölçülmüş olgulara test
+>   adları iliştirildi. **Gözlem yakalatıldı:** HAVUZ-CONFIG teli `pgxpool.Config`'in alttaki
+>   struct'ını taşıyan her tipin bütün değer yazımını da görür (`type C pgxpool.Config;
+>   *(*C)(c) = d`); listede adıyla. **Mutasyonlar (kopyala-geri-yaz): 11 deneme, 11/11
+>   kırmızı** — yöntem kaçışı, `//line` kaçışı, sayıyı 15 beklemek, `enclosingDecl`'in alıcıyı
+>   yok sayması, düzeltilmiş konum, tanımlı tiple bütün-değer yazımı, okuma yalnız ilk
+>   bağlantıda (operatör alt testi kırmızı), yürüyüşün `_` ve `testdata` dizinlerini yeniden
+>   atlaması (2), `internal/_zz`'de kısıtlı bir ürün dosyası. Metinler (`logparams.go` PART II,
+>   test dosyası başlığı, `poolConfigHooks` yorumu, ADR 0021 2h notu, 2d satırı) telin yaptığına
+>   eşitlendi.
+> - **2j (7. kapanış denetimi, 2026-10-02; ONAY, iki ucuz bulgu; kapsam genişletilmedi).**
+>   (B-1) ADR 0021 (i) ve 2i satırındaki "`o.Exec`/`o.QueryRow` derlenmez" atfı yanlış teste
+>   gidiyordu (`TestOperatorDB_HasNoTenantDoorAndNoRawSQLDoor` iki yöntem eklemeyi
+>   yakalamıyor); artık derleyicinin *"has no field or method Exec"* ölçümüne ve yöntem
+>   kümesini pinleyen `TestOperatorDB_EveryMethodDelegatesVerbatim`'e gider. (B-2)
+>   `constrainedProductFiles` go.mod adlı bir DİZİNİ iç içe modül sanıp o paketi atlıyordu:
+>   artık yalnız go.mod DOSYASI (`!fi.IsDir()`); yürüyüş kontrolüne `dirmod/go.mod/` dizini +
+>   `dirmod/g_linux.go` satırı eklendi. Sembolik bağlı dizinler izlenmez — kapsam listesinde
+>   adıyla; o yoldan gelen ve bir ürün paketince import edilen paket tel testinin paket
+>   kümesi eşitliğinde görünür (denetçi). Mutasyon: `!fi.IsDir()`'ı geri almak kırmızı.
 
 ### Görevler — A2 tenant-ötesi okuma/yazma
 | ID | Görev | Efor | Kabul (özet) |

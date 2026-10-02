@@ -40,9 +40,10 @@ import (
 // listed with a zero: a zero would assert "nothing here", which is exactly the
 // state a deletion produces.
 //
-// The two in internal/config are a lighter class and are deliberately still here:
+// The ones in internal/config are a lighter class and are deliberately still here:
 // they compare TWO SECRETS with each other (session key against invite key, KEK
-// against previous KEK), so there is no attacker input to drive a timing channel —
+// against previous KEK, an operator key against every other key — M10 OP-7), so
+// there is no attacker input to drive a timing channel —
 // but a rule that exempts "the ones we think are safe" is a rule that has to be
 // re-argued every time somebody edits it.
 //
@@ -59,9 +60,11 @@ import (
 // does hold is the mutation that actually happens: somebody "simplifies" a
 // comparison in place.
 var constantTimeInventory = map[string]int{
-	// Two SECRET-TO-SECRET comparisons: the session key against the invite key,
-	// and the KEK against the previous KEK. No attacker input reaches either.
-	"internal/config/config.go": 2,
+	// Three SECRET-TO-SECRET comparisons: the session key against the invite key,
+	// the KEK against the previous KEK, and (M10 OP-7) each operator key against
+	// every other key -- one call site walked over the pairs. No attacker input
+	// reaches any of them.
+	"internal/config/config.go": 3,
 	// The password-reset token: presented by whoever holds the link.
 	"internal/handler/adminreset.go": 1,
 	// The panel CSRF token.

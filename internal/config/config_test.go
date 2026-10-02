@@ -35,6 +35,13 @@ func setRequired(t *testing.T) {
 	t.Setenv("TAPPA_GPS_RADIUS_M", "")      // -> default 150
 	t.Setenv("TAPPA_DEBOUNCE_SECONDS", "")  // -> default 60
 	t.Setenv("TAPPA_FRESHNESS_SECONDS", "") // -> default 180
+	// The operator surface is OPTIONAL as a set of four (M10 OP-7), and off is the
+	// steady state of every test that does not ask for it — cleared for the same
+	// reason TAPPA_TAG_KEK_PREVIOUS is: an ambient value would make these tests
+	// depend on the shell that ran them.
+	for _, name := range config.OperatorSurfaceVariables() {
+		t.Setenv(name, "")
+	}
 }
 
 // otherKey is a valid 32-byte key that is NOT all zeroes, so it differs from the
