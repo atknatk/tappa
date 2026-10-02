@@ -101,11 +101,11 @@ func configuredSurface(store operatorauth.Store, cfg *config.Config, log *slog.L
 	if err != nil {
 		return nil, err
 	}
-	surface, err := operator.New(auth, cfg.OperatorHost)
+	surface, err := operator.New(auth, cfg.OperatorHost, cfg.BaseURL, log)
 	if err != nil {
 		return nil, err
 	}
-	log.Info("operator surface is configured; it serves no route until M10 OP-8 mounts them",
+	log.Info("operator surface is configured; /operator is served on the operator host",
 		operatorSurfaceKey, operatorSurfaceConfigured, "operator_host", cfg.OperatorHost)
 	return surface, nil
 }

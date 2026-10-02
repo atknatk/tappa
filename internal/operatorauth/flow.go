@@ -55,7 +55,8 @@ func (a *Authenticator) Password(ctx context.Context, addr, email, password stri
 	// A right password whose second factor never completes left no trace (OP-6 12c, the
 	// security audit's LOW finding). One line, the operator's ID and nothing else -- an
 	// operator is named by id (ADR 0020 §5): no address, no email, nothing from the
-	// request. A durable 'password_ok' audit kind is a migration, left to OP-8/OP-14.
+	// request. A durable 'password_ok' audit kind is a migration: OP-8 added none (the
+	// orchestrator's decision), so it is OP-14's.
 	a.log.Info("operator first factor verified; second factor pending", "operator_id", acc.ID.String())
 	return c, nil
 }

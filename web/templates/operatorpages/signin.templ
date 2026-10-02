@@ -1,0 +1,89 @@
+package operatorpages
+
+import "github.com/atknatk/tappa/web/templates/components"
+
+// SignIn is the operator's password step (ADR 0020 §3.1): one address, one password.
+//
+// THE FAILURE SENTENCE NAMES NO CAUSE. An unknown address, a wrong password, a pending
+// account and a disabled one are ADR 0020 §3's "same answer, same time" set, and
+// SignInView has no field for which one it was. The typed address is not put back into
+// the field: internal/operatorauth's
+// TestSurface_EveryRefusedSignInPaysOneComparisonAndAnswersAlike compares the refused
+// pages of its eight arms byte for byte.
+//
+// No synchronizer token: the operator's cookies are SameSite=Strict on a host of their
+// own, and a POST here passes the operator surface's origin check before the form is
+// read -- the Origin, or with none the fetch metadata's same-origin
+// (internal/handler/operator, sameOriginGate; TestSameOriginGate_ACrossOriginPostReachesNoStore).
+templ SignIn(v SignInView) {
+	@screen("Sign in", false) {
+		<section class="op-card">
+			<h1 class="font-display text-2xl font-bold tracking-tight">Operator sign-in</h1>
+			<p class="mt-2 text-sm text-ink/70">Taptime staff only. This is not the business panel.</p>
+			if v.Expired {
+				<div class="mt-6">
+					@components.Notice(components.ToneWarn, "That sign-in step expired") {
+						<p>Sign in again with your email address and password.</p>
+					}
+				</div>
+			}
+			if v.Failed {
+				<div class="mt-6">
+					@components.Notice(components.ToneAlert, "We could not sign you in") {
+						<p>Check the email address and the password, then try again.</p>
+					}
+				</div>
+			}
+			<form method="post" action="/operator/login" class="mt-6 flex flex-col gap-5">
+				<div class="flex flex-col gap-1.5">
+					<label for="op-email" class="docket-label">Email</label>
+					<input id="op-email" name="email" type="email" autocomplete="username" required autofocus class="op-input"/>
+				</div>
+				<div class="flex flex-col gap-1.5">
+					<label for="op-password" class="docket-label">Password</label>
+					<input id="op-password" name="password" type="password" autocomplete="current-password" required class="op-input"/>
+				</div>
+				<button type="submit" class="btn btn--primary">Continue</button>
+			</form>
+		</section>
+	}
+}
+
+// Code is the TOTP step (ADR 0020 §3.2). The handler renders it for a request with a
+// login challenge cookie and redirects the others to the password step.
+//
+// Locked is the database's lock (ADR 0020 §3: N wrong codes). It is shown to a request
+// holding a challenge, which the right password mints, so it tells the password holder
+// what trying codes would tell them.
+templ Code(v CodeView) {
+	@screen("Sign-in code", false) {
+		<section class="op-card">
+			<h1 class="font-display text-2xl font-bold tracking-tight">Enter your code</h1>
+			<p class="mt-2 text-sm text-ink/70">Type the six-digit code your authenticator app shows for Taptime operator.</p>
+			if v.Rejected {
+				<div class="mt-6">
+					@components.Notice(components.ToneAlert, "That code was not accepted") {
+						<p>Check that your phone's clock is right, then type the next code.</p>
+					}
+				</div>
+			}
+			if v.Locked {
+				<div class="mt-6">
+					@components.Notice(components.ToneAlert, "Sign-in is locked for a while") {
+						<p>Too many wrong codes. Wait a quarter of an hour, then try again.</p>
+					}
+				</div>
+			}
+			<form method="post" action="/operator/login/totp" class="mt-6 flex flex-col gap-5">
+				<div class="flex flex-col gap-1.5">
+					<label for="op-code" class="docket-label">Code</label>
+					<input id="op-code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" required autofocus class="op-input"/>
+				</div>
+				<button type="submit" class="btn btn--primary">Sign in</button>
+			</form>
+			<p class="mt-5 text-sm">
+				<a href="/operator/login" class="op-link">Start again</a>
+			</p>
+		</section>
+	}
+}

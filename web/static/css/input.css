@@ -685,6 +685,41 @@
     @apply hidden min-h-11 items-center px-1 font-display text-sm font-bold tracking-tight
            text-ink/85 hover:text-tappa-green motion-safe:transition-colors sm:inline-flex;
   }
+
+  /* --- THE PLATFORM OPERATOR'S CHROME (M10 OP-8) ---
+     web/templates/operatorpages. Set apart from the restaurant panel by WHERE the
+     palette is used, not by a new colour: a full-width ink band with a saffron rule
+     (saffron is the palette's warning tone) and a mono capital lockup, where the panel
+     is light chrome with a green wordmark and a green-underlined tab bar.
+
+     TONES, computed (WCAG 2.1, sRGB) on the ink band: paper text 16.17:1, saffron text
+     6.16:1 (the OPERATOR half of the lockup, and the sign-out control on hover). On the
+     tenant banner the docket label sits on saffron-lite: 5.64:1, the docket label's own
+     table above. The other text of these screens is ink on paper or porcelain, read in
+     the classes below, which the panel's contrast rules already measure. */
+  .op-bar     { @apply border-b-4 border-saffron bg-ink text-paper; }
+  .op-lockup  { @apply font-mono text-sm font-bold uppercase tracking-widest text-paper; }
+  .op-signout {
+    @apply inline-flex min-h-11 items-center border border-paper px-4 font-display text-sm
+           font-bold tracking-tight text-paper hover:border-saffron hover:text-saffron
+           focus:outline-none focus:ring-2 focus:ring-saffron;
+  }
+  .op-tenant  { @apply border-b border-saffron bg-saffron-lite text-ink; }
+  .op-card    { @apply border border-line bg-paper px-6 py-7 shadow-sm; }
+  .op-input {
+    @apply min-h-11 w-full rounded-sm border border-line bg-paper px-3 py-2 font-mono text-sm
+           text-ink focus:border-tappa-green focus:outline-none focus:ring-1 focus:ring-tappa-green;
+  }
+  .op-link    { @apply inline-flex min-h-11 items-center font-display font-bold text-tappa-green underline underline-offset-4 hover:text-ink; }
+  /* The enrollment key: grouped base32, read aloud and typed by a person -- mono, wide
+     tracking, wrapped anywhere rather than overflowing a phone. */
+  .op-key     { @apply break-all font-mono text-lg font-bold tracking-widest text-ink; }
+  .op-uri     { @apply break-all border border-line bg-porcelain px-3 py-2 font-mono text-xs text-ink; }
+  /* The link-code field. The enrollment script hides it once it has filled it in from
+     the link; written out because Tailwind v3's preflight carries no [hidden] rule
+     (the .pw-toggle note above measured it) and this element sets its own display. */
+  .op-token-field { @apply flex flex-col gap-1.5; }
+  .op-token-field[hidden] { display: none; }
 }
 
 /* =====================================================================

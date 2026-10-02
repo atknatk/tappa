@@ -744,8 +744,15 @@ parolası uyuşmuyor: yeni bir `OP_PW` ile ikisini birlikte yinele), sonra yenid
 
 ```bash
 curl -sS -o /dev/null -w '%{http_code}\n' https://taptime.mt/operator
-# beklenen: önce 503, sonra 404 (OP-7'de yapılandırılmış yüzey rota sunmaz)
+# beklenen: önce 503, sonra 404 -- OP-8'den beri yapılandırılmış yüzey operatör
+# host'unda (TAPPA_OPERATOR_HOST) cevap verir; müşteri host'unda /operator, router'ın
+# kendi 404'üdür (iki yönlü host kapısı, ADR 0020 §4 OP-8 notu).
 ```
+
+(OP-8: operatör host'unun kendisi — `https://ops.taptime.mt/operator/login` — bu ingress'le
+**erişilemez**: `40-ingress.yaml` o host için kural taşımaz. DNS, TLS ve Ingress kuralı OP-9'un
+kullanıcı adımıdır (K2/K4); o gelene kadar canlıda operatör girişi yoktur, yapılandırılmış olsa
+bile.)
 
 (`pg_stat_activity`'de bir `tappa_operator` bağlantısı aramak bir kanıt DEĞİLDİR: havuz
 boştaki bağlantıyı en çok ~30 dk tutar — pgxpool `MaxConnIdleTime` — ve `MinConns` 0'dır,
@@ -3536,9 +3543,9 @@ ki bu bugün ~günlerdir. İki sınırın **küçüğü** geçerlidir.
 > durumda aşağıdaki alan filtreleri **hiçbir satırla eşleşmez**, ki bu ekranda
 > *"hiç reject yok, hiç 5xx yok"* diye görünür — sessiz ölüm.
 
-**Altı sinyal**, dört olaydan hesaplanır (aşağıdaki tablo altı satırdır; bir tur
-boyunca burada *"beş"* yazıyordu ve 6. kural eklendikten sonra belge kendisiyle
-çelişiyordu):
+**Yedi sinyal**, dört olaydan ve bir açılış satırından hesaplanır (aşağıdaki tablo yedi
+satırdır; bir tur boyunca burada *"beş"* yazıyordu ve 6. kural eklendikten sonra belge
+kendisiyle çelişiyordu; 7. kural M10 OP-8'de eklendi — sınır 32):
 
 | # | Sinyal | Olay (`msg`) | Filtre | Eşik / pencere | Ne anlama gelir | İlk bakılacak yer |
 |---|---|---|---|---|---|---|
@@ -3548,6 +3555,7 @@ boyunca burada *"beş"* yazıyordu ve 6. kural eklendikten sonra belge kendisiyl
 | 4 | **şüpheli `ctr` sıçraması** | `tap.decision` | `ctr_gap > 10` | tek olay bile bakılmaya değer; **> 50** acil | Çip, sunucunun görmediği kadar okundu — URL biriktirmenin (A1) tek gözlemlenebilir izi (Q21). | `tag_uid` yok bu olayda: `matched_sid = base:ctr-gap-review` ile `transactions` satırını bul |
 | 5 | **5xx oranı** | `http.request` | `level = "ERROR"` (yani `status >= 500`) | 5 dk'lık pencerede **> 5** olay **veya** toplam isteğin **%1**'i | Sunucu bozuk. Panik `middleware.Recoverer` tarafından 500'e çevrilir ve **bu olayda görünür**. 🔴 **Sağlık sondaları bu olayın DIŞINDADIR** — aşağıdaki bloğa bak; `/readyz`'in 503'ü tasarımdır ve bu kuralı ateşlemez, ama `/readyz`'den gelen bir **500** ateşler. | `route` + `request_id`; aynı `request_id` ile o isteğin diğer satırları |
 | 6 | **hazırlık kaybı** | `readiness.lost` | olayın kendisi | **≥ 1** olay = uyarı. Pencere yok. Kapanışı `readiness.regained`'dir. | Veritabanı cevap vermiyor, `/readyz` 503 dönüyor ve pod rotasyondan düşüyor (M8-01). 🔴 **M8-03 4. TUR: kayıt artık sürücünün METNİNİ taşımıyor.** Bir tur boyunca taşıyordu ve bu, `health.go`'nun aynı metni kimliksiz bir HTTP çağıranından esirgeme gerekçesiyle çelişiyordu (rol · veritabanı · host · port · TLS duruşu — ölçüldü; **parola yok**). Yerine iki alan geçti: `err_class` **kapalı kümedir** (`server` · `timeout` · `canceled` · `dns` · `dial` · `other`) ve `err_cause` adres taşımayan en özgül sebeptir — `server` için **SQLSTATE** (yanlış parola `28P01`, olmayan veritabanı `3D000`), `dial` için çağrının kendi kelimesi (`connect: connection refused`), `dns` için `no such host`. **Kaybedilen:** sürücünün cümlesi; `other` sınıfı sebep taşımaz. | `err_class`, sonra `err_cause`; ardından bölüm 1'deki `connection refused` ve bölüm 5'teki DNS akışı |
+| 7 | **operatör yüzeyi ulaşılamaz** (M10 OP-8) | açılış satırı — `msg` bir cümledir, filtre ALANDADIR | `operator_surface = "unavailable"` | **≥ 1** olay = uyarı. Pencere yok. Kapanışı bir sonraki açılışın `"operator_surface":"configured"` satırıdır. | Operatör yapılandırması tam ama süreç açılırken operatör veritabanına **ulaşılamadı** (ağ, ad çözümü, zaman aşımı, `28P01` yanlış parola, `3D000` veritabanı yok, sunucu dolu/açılıyor/kapanıyor — `internal/db` `unreachableSQLSTATEs`); `/operator` ve altı 503 (`TestSurface_OffAnswers503UnderThePrefixAndNowhereElse`; bu 503 tasarımdır ve 5. kuralı ateşlemez — sınır 32), müşteri ürünü servis verir. **Süreç yeniden denemez:** nedeni düzelt, sonra rollout. Satır süreç açılışında **bir kez** yazılır; log döndürülmüşse sinyal gitmiştir (6. kuralın aynı daralması). | `err` alanı (bir kod: sunucunun mesajını taşımadığını `internal/db`'nin `TestOperatorConnectErr_OnlyTheTableIsUnreachable`'ı tablosunun SQLSTATE'lerinde ölçer; `TestOpenOperatorSurface_PrintsNoValue`'nun sürdüğü değerlerden DSN ve parola ham biçimiyle, iki anahtar base64, hex ve ondalık liste biçimleriyle satırda bulunmadı), sonra *"Operator surface (M10 OP-7)"* bölümünün 5. adımı |
 
 **Yapıştırılabilir SigNoz/ClickHouse tarzı filtreler** (alan adları koddaki
 sabitlerdir ve `TestObservability_AlertSignalNames` ikisinin aynı kaldığını
@@ -3573,6 +3581,9 @@ body.msg = "http.request" AND body.status >= 500          # group by body.route
 
 # 6 — hazirlik kaybi
 body.msg = "readiness.lost"
+
+# 7 — operator yuzeyi ulasilamaz (acilista bir kez; tek satir bile uyaridir)
+body.operator_surface = "unavailable"
 ```
 
 > 🔴 **BU TABLODA BİR ZAMANLAR OLMAYAN BİR SID YAZIYORDU, VE ONU KURALI YAZAN TUR
@@ -4494,4 +4505,13 @@ kişisel veriyle koşan bir DB testi aynı süreç log'una yazar.
     görülür. Öneri (6. kuralın emsali, **eklenmedi**): `body.operator_surface = "unavailable"`
     → **≥ 1** olay = uyarı, pencere yok; kapanışı bir sonraki açılışın `configured` satırıdır.
     Yüzeyin canlıda açılacağı OP-8'e devredildi (m10-platform.md, OP-7 kart düzeltmesi
-    md. 9 (ix)). **Sayıldı, kapatılmadı.**
+    md. 9 (ix)). ~~**Sayıldı, kapatılmadı.**~~ → **M10 OP-8 (2026-10-02): EKLENDİ — uyarı
+    kurallarının 7. satırı** (yukarıdaki tablo ve yapıştırılabilir blok;
+    `TestObservability_AlertSignalNames` alan adını ve değeri koddaki sabitlere bağlar). Gerekçe:
+    OP-8 yüzeye gerçek rotalar verdi, yani `unavailable` artık "henüz bir şey sunmayan bir
+    yüzeyin" değil, **operatörün kilitli kaldığı bir konsolun** hâlidir ve satır süreç
+    açılışında bir kez yazılır — okunmazsa başka bir sinyal onu taşımaz (yedi kuralın
+    tablosu). Kalan, adıyla: (a) ve (b) aynen geçerlidir
+    (kapalı/ulaşılamaz yüzeyde `/operator` istekleri iz bırakmaz); kural satırı açılıştan sonra
+    döndürülmüş bir log'da göremez (6. kuralın daralması). Yapılandırılmış yüzeyin kendi 503'leri
+    (giriş sırasında bir veritabanı arızası) tasarım DEĞİLDİR ve 5. kuralda kayıtlıdır.

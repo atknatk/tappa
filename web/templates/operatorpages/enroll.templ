@@ -1,0 +1,95 @@
+package operatorpages
+
+import "github.com/atknatk/tappa/web/templates/components"
+
+// enrollScript is the enrollment screen's script. Measured: of the 40 response classes
+// internal/handler/operator's TestOperatorHeaders_FortyResponseClassesCarryThePolicy
+// drives, four load a script -- the enrollment screen's four -- and their policy
+// (enrollCSP) names this path as its script source.
+const enrollScript = "/static/js/operator/enroll.js"
+
+// EnrollScript is enrollScript for the handler's policy, so the path in the page and
+// the path in the header are one constant.
+func EnrollScript() string { return enrollScript }
+
+// Enroll is the enrollment screen (ADR 0020 §3): the account the link names, a fresh
+// TOTP key, a new password and the first code.
+//
+// THE LINK'S TOKEN IS NOT IN THIS PAGE WHEN IT IS FIRST SERVED. The link carries it in
+// the URL FRAGMENT (`/operator/enroll?id=<account>#<token>`), which a browser does not
+// put in a request (ADR 0020 §6: "token sorgu dizgisinde TAŞINMAZ"). enrollScript
+// copies it into the token field, conceals that field, and removes the fragment from the
+// address bar; without script the field stays on screen and the person pastes the part
+// of the link after the #. The account id is in the query: it is not a secret (ADR 0020
+// §6), and the server needs it to seal the page's key to that account.
+//
+// The key is shown as text twice, not as a QR code (ADR 0020 §3: no QR library).
+templ Enroll(v EnrollView) {
+	@scriptedScreen("Set up your account", enrollScript) {
+		<section class="op-card">
+			<h1 class="font-display text-2xl font-bold tracking-tight">Set up your operator account</h1>
+			<p class="mt-2 text-sm text-ink/70">This link works once, for 30 minutes from when it was made.</p>
+			if v.Key != "" {
+				<div class="mt-6 flex flex-col gap-3">
+					<p class="docket-label">Step 1 · Add this key to your authenticator app</p>
+					<p class="op-key">{ v.Key }</p>
+					<p class="text-sm text-ink/70">If your app takes a setup link instead, use this one:</p>
+					<p class="op-uri">{ v.URI }</p>
+				</div>
+			} else {
+				<div class="mt-6">
+					@components.Notice(components.ToneWarn, "Use the key you already added") {
+						<p>
+							Type a code from the authenticator entry this page gave you. If you did not add
+							it, open your link again for a new key.
+						</p>
+					}
+				</div>
+			}
+			if v.Mismatch {
+				<div class="mt-6">
+					@components.Notice(components.ToneAlert, "The two passwords differ") {
+						<p>Type the same new password in both fields.</p>
+					}
+				</div>
+			}
+			if v.WeakPassword {
+				<div class="mt-6">
+					@components.Notice(components.ToneAlert, "Choose another password") {
+						<p>Use at least 14 characters and at most 72 bytes. A letter with an accent, or from another alphabet, takes two bytes or more.</p>
+					}
+				</div>
+			}
+			if v.CodeRejected {
+				<div class="mt-6">
+					@components.Notice(components.ToneAlert, "That code was not accepted") {
+						<p>Check that your phone's clock is right, then type the next code.</p>
+					}
+				</div>
+			}
+			<form method="post" action="/operator/enroll" class="mt-6 flex flex-col gap-5">
+				<p class="docket-label">Step 2 · Choose a password and confirm the code</p>
+				<input type="hidden" name="id" value={ v.AccountID }/>
+				<input type="hidden" name="blob" value={ v.Blob }/>
+				<div id="enroll-token-wrap" class="op-token-field">
+					<label for="enroll-token" class="docket-label">Link code</label>
+					<input id="enroll-token" name="token" type="password" autocomplete="off" required value={ v.Token } class="op-input"/>
+					<p class="text-xs text-ink/70">The part of your link after the # sign.</p>
+				</div>
+				<div class="flex flex-col gap-1.5">
+					<label for="enroll-password" class="docket-label">New password</label>
+					<input id="enroll-password" name="password" type="password" autocomplete="new-password" minlength="14" required class="op-input"/>
+				</div>
+				<div class="flex flex-col gap-1.5">
+					<label for="enroll-password-again" class="docket-label">New password again</label>
+					<input id="enroll-password-again" name="password_again" type="password" autocomplete="new-password" minlength="14" required class="op-input"/>
+				</div>
+				<div class="flex flex-col gap-1.5">
+					<label for="enroll-code" class="docket-label">Code from the app</label>
+					<input id="enroll-code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" required class="op-input"/>
+				</div>
+				<button type="submit" class="btn btn--primary">Finish setup</button>
+			</form>
+		</section>
+	}
+}

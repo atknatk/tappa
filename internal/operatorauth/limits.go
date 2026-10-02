@@ -188,9 +188,12 @@ const (
 	// addresses, after an earlier request opened the process window, can exhaust it once.
 	// Keeping enrollLimit exhausted window after window takes at least FOUR rate keys.
 	// COUNTED LIMIT, BY NAME: a distributed caller still can -- four IPv4 addresses, or
-	// four IPv6 /64s (httpx's RateKey buckets IPv6 by /64, so one /48 holds 65 536 keys);
-	// OP-8's operator-surface IP restriction (m10-platform.md, K4) or another measure is
-	// OP-8's. The numbers are OP-8's to change by its arithmetic.
+	// four IPv6 /64s (httpx's RateKey buckets IPv6 by /64, so one /48 holds 65 536 keys).
+	// OP-8 (2026-10-02) KEPT these numbers and left the limit counted: what a distributed
+	// caller buys is refused enrollments -- a one-time step one to three people take at a
+	// time they choose -- and ten enrollment_failed rows per window, not an account;
+	// the remedy is an IP restriction on the operator host at the ingress (K4, OP-9's user
+	// decision), not a number here (m10-platform.md, OP-8 card correction).
 	enrollAddrLimit  = 3
 	enrollAddrPeriod = 10 * time.Minute
 )

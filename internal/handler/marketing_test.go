@@ -1614,11 +1614,42 @@ func TestLegalPage_PublishedTextIsEscapedAndNeverRaw(t *testing.T) {
 
 // --- the cookie notice ---------------------------------------------------------
 
-// cookieNameLiteral matches a Tappa cookie name written into Go source. Every
-// cookie in this product is named by a string literal of this shape, and nothing
-// else in non-test Go source is -- except the entries of cookieScanNonCookies below
-// (measured: the six cookies and that list, nothing more).
-var cookieNameLiteral = regexp.MustCompile(`"(tappa_[a-z_]+)"`)
+// cookieNameLiteral matches a cookie name written into Go source: the customer
+// product's `tappa_` names and -- since M10 OP-8 widened it -- the platform operator's
+// `__Host-taptime_` names (internal/operatorauth/cookie.go). The scan reads a string
+// literal of one of the two shapes in non-test Go source as a cookie name, except the
+// entries of cookieScanNonCookies below.
+//
+// THE WIDENING IS OP-8's (m10-platform.md, OP-7 card correction md. 9 (vii)): until it,
+// the scan read `tappa_` alone, so the operator's two cookies were invisible to it and
+// their absence from /legal/cookies was nobody's decision. Now the scan sees them and
+// cookiesNotOnTheNotice says, by name and with the reason, that they are left off.
+var cookieNameLiteral = regexp.MustCompile(`"(tappa_[a-z_]+|__Host-taptime_[a-z_]+)"`)
+
+// cookiesNotOnTheNotice are cookies the product DOES set and /legal/cookies DELIBERATELY
+// does not list (M10 OP-8 decision). Each is bound to the ONE file that sets it, like
+// cookieScanNonCookies: the same literal in another file the scan reads is read as a
+// cookie the notice must carry, an entry whose file no longer holds it is red, and the
+// page is held NOT to print it.
+//
+// WHY THE OPERATOR'S TWO ARE LEFT OFF -- the reason this test gives for the other
+// direction ("will never receive" is its own wording): a notice row for a cookie a
+// visitor does not receive is wrong. Both are `__Host-` cookies (Secure, Path=/, no
+// Domain), so a browser returns them to the host that set them: the operator's host
+// (TAPPA_OPERATOR_HOST, ops.taptime.mt -- ADR 0020 §2), where the customer half of the
+// host gate answers customer routes with 404 (internal/httpx, operatorHostOnly). They are
+// set for Taptime's own staff signing in to the platform console; that disclosure is an
+// employer's, not this page's.
+var cookiesNotOnTheNotice = map[string]struct{ file, why string }{
+	"__Host-taptime_op": {
+		file: filepath.Join("internal", "operatorauth", "cookie.go"),
+		why:  "the platform operator's session cookie (ADR 0020 §2), a __Host- cookie of the operator host",
+	},
+	"__Host-taptime_op_login": {
+		file: filepath.Join("internal", "operatorauth", "cookie.go"),
+		why:  "the platform operator's login challenge between the password and the code (ADR 0020 §3), a __Host- cookie of the operator host",
+	},
+}
 
 // cookieScanNonCookies are the `tappa_`-shaped literals in non-test Go source that are
 // NOT cookie names. Each is bound to the ONE file that holds it and carries its reason;
@@ -1682,6 +1713,7 @@ func TestCookieNotice_ListsExactlyTheCookiesTheProductSets(t *testing.T) {
 	t.Parallel()
 	inSource := map[string]string{}
 	exempted := map[string]bool{}
+	offNotice := map[string]bool{}
 	setCookieCalls := 0
 	root := filepath.Join("..", "..")
 	for _, dir := range []string{"internal", "cmd"} {
@@ -1701,6 +1733,14 @@ func TestCookieNotice_ListsExactlyTheCookiesTheProductSets(t *testing.T) {
 			rel := strings.TrimPrefix(p, root+string(filepath.Separator))
 			cookies, exempt := cookieLiteralsIn(rel, text)
 			for _, name := range cookies {
+				if offTheNoticeIn(rel, name) {
+					if !offNotice[name] {
+						t.Logf("cookie scan: %q in %s is set and deliberately NOT on the notice -- %s", name, rel,
+							cookiesNotOnTheNotice[name].why)
+					}
+					offNotice[name] = true
+					continue
+				}
 				inSource[name] = rel
 			}
 			for _, name := range exempt {
@@ -1720,6 +1760,13 @@ func TestCookieNotice_ListsExactlyTheCookiesTheProductSets(t *testing.T) {
 		if !exempted[lit] {
 			t.Errorf("cookieScanNonCookies exempts %q in %s, and that file no longer holds it; remove the "+
 				"exemption", lit, ex.file)
+		}
+	}
+	// Each deliberate omission is still a cookie the source sets, in its own file.
+	for name, ex := range cookiesNotOnTheNotice {
+		if !offNotice[name] {
+			t.Errorf("cookiesNotOnTheNotice leaves %q off the notice, and %s no longer sets it; remove the entry",
+				name, ex.file)
 		}
 	}
 	// ANTI-VACUITY, both halves. A walk that read nothing would report a product
@@ -1769,6 +1816,47 @@ func TestCookieNotice_ListsExactlyTheCookiesTheProductSets(t *testing.T) {
 			t.Errorf("%s is in the table and not on %s", name, cookieNoticePath)
 		}
 	}
+	// And the deliberate omissions are omitted -- from the table and from the page.
+	for name := range cookiesNotOnTheNotice {
+		if inNotice[name] || strings.Contains(body, name) {
+			t.Errorf("%s is listed on %s, and cookiesNotOnTheNotice leaves it off on purpose: remove one or the other",
+				name, cookieNoticePath)
+		}
+	}
+}
+
+// offTheNoticeIn reports whether the cookie name, found in the source file rel, is one
+// of the deliberate omissions -- in ITS OWN file.
+func offTheNoticeIn(rel, name string) bool {
+	ex, ok := cookiesNotOnTheNotice[name]
+	return ok && ex.file == rel
+}
+
+// TestCookiesNotOnTheNotice_AreBoundToTheirFile: an omission applies to its literal in
+// its own file; the test's other file holding the same literal is read as a cookie the
+// notice must carry -- the binding cookieScanNonCookies has.
+func TestCookiesNotOnTheNotice_AreBoundToTheirFile(t *testing.T) {
+	t.Parallel()
+	if len(cookiesNotOnTheNotice) == 0 {
+		t.Fatal("PREMISE: no omission to test")
+	}
+	for name, ex := range cookiesNotOnTheNotice {
+		src := `const x = "` + name + `"`
+		if cookies, _ := cookieLiteralsIn(ex.file, src); len(cookies) != 1 || cookies[0] != name {
+			t.Fatalf("PREMISE: the scanner does not read %q as a cookie name (%v)", name, cookies)
+		}
+		if _, err := os.Stat(filepath.Join("..", "..", ex.file)); err != nil {
+			t.Errorf("%q is bound to %s, which does not exist", name, ex.file)
+		}
+		if !offTheNoticeIn(ex.file, name) {
+			t.Errorf("%q in its own file %s is not omitted", name, ex.file)
+		}
+		for _, other := range []string{filepath.Join("internal", "handler", "cookies.go"), filepath.Join("internal", "operatorauth", "flow.go"), "x.go"} {
+			if offTheNoticeIn(other, name) {
+				t.Errorf("%q in %s is omitted from the notice; its own file's literal is the omitted one", name, other)
+			}
+		}
+	}
 }
 
 // TestCookieNameScanner_CatchesANewCookie is the negative control: a seventh cookie
@@ -1779,6 +1867,7 @@ func TestCookieNameScanner_CatchesANewCookie(t *testing.T) {
 		`const newThingCookieName = "tappa_new_thing"`,
 		`http.SetCookie(w, &http.Cookie{Name: "tappa_ad_tracker", Value: v})`,
 		`	name := "tappa_preferences"`,
+		`const OperatorTheme = "__Host-taptime_op_theme"`,
 	} {
 		if cookieNameLiteral.FindString(s) == "" {
 			t.Errorf("the cookie-name scanner would not see %q, so a cookie declared that "+

@@ -79,22 +79,28 @@ func TestObservability_AlertSignalNames(t *testing.T) {
 		"httpx.LogRouteKey":              "route",
 		"handler.EventReadinessLost":     "readiness.lost",
 		"handler.EventReadinessRegained": "readiness.regained",
+		// Rule 7 (M10 OP-8) filters on the operator surface's start-up attribute and
+		// its unavailable value (cmd/tappa/operator.go).
+		"main.operatorSurfaceKey":         "operator_surface",
+		"main.operatorSurfaceUnavailable": "unavailable",
 	}
 	got := map[string]string{
-		"checkin.EventTapDecision":       checkin.EventTapDecision,
-		"checkin.EventTapSecurityAlert":  checkin.EventTapSecurityAlert,
-		"checkin.LogVerdict":             checkin.LogVerdict,
-		"checkin.LogChannel":             checkin.LogChannel,
-		"checkin.LogMatchedSid":          checkin.LogMatchedSid,
-		"checkin.LogCtrGap":              checkin.LogCtrGap,
-		"checkin.LogTenantID":            checkin.LogTenantID,
-		"checkin.LogEmployeeID":          checkin.LogEmployeeID,
-		"httpx.EventHTTPRequest":         httpx.EventHTTPRequest,
-		"httpx.LogRequestIDKey":          httpx.LogRequestIDKey,
-		"httpx.LogStatusKey":             httpx.LogStatusKey,
-		"httpx.LogRouteKey":              httpx.LogRouteKey,
-		"handler.EventReadinessLost":     handler.EventReadinessLost,
-		"handler.EventReadinessRegained": handler.EventReadinessRegained,
+		"checkin.EventTapDecision":        checkin.EventTapDecision,
+		"checkin.EventTapSecurityAlert":   checkin.EventTapSecurityAlert,
+		"checkin.LogVerdict":              checkin.LogVerdict,
+		"checkin.LogChannel":              checkin.LogChannel,
+		"checkin.LogMatchedSid":           checkin.LogMatchedSid,
+		"checkin.LogCtrGap":               checkin.LogCtrGap,
+		"checkin.LogTenantID":             checkin.LogTenantID,
+		"checkin.LogEmployeeID":           checkin.LogEmployeeID,
+		"httpx.EventHTTPRequest":          httpx.EventHTTPRequest,
+		"httpx.LogRequestIDKey":           httpx.LogRequestIDKey,
+		"httpx.LogStatusKey":              httpx.LogStatusKey,
+		"httpx.LogRouteKey":               httpx.LogRouteKey,
+		"handler.EventReadinessLost":      handler.EventReadinessLost,
+		"handler.EventReadinessRegained":  handler.EventReadinessRegained,
+		"main.operatorSurfaceKey":         operatorSurfaceKey,
+		"main.operatorSurfaceUnavailable": operatorSurfaceUnavailable,
 	}
 
 	names := make([]string, 0, len(want))
@@ -133,6 +139,12 @@ func TestObservability_AlertSignalNames(t *testing.T) {
 	// channel, tenant_id, employee_id, request_id and readiness.regained are prose;
 	// the four below are filters.
 	block := pasteableFilterBlock(t)
+	// Rule 7's filter is an ATTRIBUTE, not an event: the whole filter line is held to the
+	// constants, because a renamed key or value makes the pasted rule match no record.
+	if rule7 := "body." + operatorSurfaceKey + ` = "` + operatorSurfaceUnavailable + `"`; !strings.Contains(block, rule7) {
+		t.Errorf("the paste-able filter block does not carry rule 7's filter %q -- an unavailable operator "+
+			"surface would page nobody:\n%s", rule7, block)
+	}
 	for _, event := range []string{
 		checkin.EventTapDecision,
 		checkin.EventTapSecurityAlert,

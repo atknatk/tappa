@@ -81,6 +81,13 @@ func NewRouter(cfg *config.Config, log *slog.Logger, features ...Mounter) http.H
 	r.Use(AccessLog(log))
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(30 * time.Second))
+	// THE CUSTOMER HALF OF THE OPERATOR HOST GATE (M10 OP-8, operatorhost.go): with an
+	// operator host configured, operatorHostOnly decides that host's requests. Mounted
+	// after AccessLog, so its 404 is recorded like the router's, and as middleware, so
+	// it runs before a route's handler.
+	if cfg != nil && cfg.OperatorHost != "" {
+		r.Use(operatorHostOnly(cfg.OperatorHost))
+	}
 
 	// LIVENESS. It lives HERE, on the router, rather than in a feature, and that
 	// placement is the guarantee (M8-01): NewRouter is handed no database, no

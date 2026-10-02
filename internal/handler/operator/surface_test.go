@@ -157,35 +157,62 @@ func authenticator(t *testing.T) *operatorauth.Authenticator {
 	return a
 }
 
-// TestSurface_ConfiguredServesNoRouteYet: in OP-7 a configured surface registers
-// nothing, so the prefix answers the router's own 404 -- not the unconfigured 503,
-// which would say something false -- and the customer routes are unchanged.
-func TestSurface_ConfiguredServesNoRouteYet(t *testing.T) {
-	s, err := operator.New(authenticator(t), "ops.taptime.mt")
+// TestSurface_ConfiguredAnswersOnlyOnTheOperatorHost (OP-8; it replaces OP-7's "a
+// configured surface registers nothing"): through a router that knows NO operator host
+// -- the shape of the customer-side tests' routers -- the configured surface still answers its
+// paths with the router's own 404 bytes (its hostGate), and the customer routes are
+// unchanged. CONTROL: the same surface on the operator host serves its sign-in.
+func TestSurface_ConfiguredAnswersOnlyOnTheOperatorHost(t *testing.T) {
+	s, err := operator.New(authenticator(t), "ops.taptime.mt", "https://taptime.mt", slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !s.Configured() {
 		t.Fatal("a surface built by New does not report itself configured")
 	}
+	want := serve(t, s, http.MethodGet, "/definitely-not-a-route")
+	wantBody := body(t, want)
 	for _, p := range operatorPaths {
-		if res := serve(t, s, http.MethodGet, p); res.StatusCode != http.StatusNotFound {
-			t.Errorf("GET %s on a configured surface = %d, want 404 (OP-8 mounts the routes)", p, res.StatusCode)
+		res := serve(t, s, http.MethodGet, p)
+		if res.StatusCode != http.StatusNotFound || body(t, res) != wantBody {
+			t.Errorf("GET %s off the operator host = %d, want the router's own 404", p, res.StatusCode)
 		}
 	}
 	if res := serve(t, s, http.MethodGet, "/admin"); res.StatusCode != 200 {
 		t.Errorf("GET /admin = %d beside a configured surface", res.StatusCode)
 	}
+	h := httpx.NewRouter(nil, nil, customer{}, s)
+	r := httptest.NewRequest(http.MethodGet, "http://ops.taptime.mt/operator/login", nil)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("CONTROL: GET /operator/login on the operator host = %d, want 200", w.Code)
+	}
 }
 
-// TestSurface_NewRefusesWhatAConfiguredSurfaceNeeds: no Authenticator, no host -- each
-// refused rather than degraded to Off.
+// TestSurface_NewRefusesWhatAConfiguredSurfaceNeeds: no Authenticator, no host, no
+// logger, a base URL the operator origin cannot be taken from -- each refused rather
+// than degraded to Off.
 func TestSurface_NewRefusesWhatAConfiguredSurfaceNeeds(t *testing.T) {
-	if s, err := operator.New(nil, "ops.taptime.mt"); err == nil || s != nil {
-		t.Error("New accepted a nil Authenticator")
+	a, log := authenticator(t), slog.New(slog.DiscardHandler)
+	for name, c := range map[string]struct {
+		auth      *operatorauth.Authenticator
+		host, url string
+		log       *slog.Logger
+	}{
+		"no Authenticator":             {nil, "ops.taptime.mt", "https://taptime.mt", log},
+		"no host":                      {a, "", "https://taptime.mt", log},
+		"no logger":                    {a, "ops.taptime.mt", "https://taptime.mt", nil},
+		"no base URL":                  {a, "ops.taptime.mt", "", log},
+		"a base URL with no scheme":    {a, "ops.taptime.mt", "taptime.mt", log},
+		"a base URL of another scheme": {a, "ops.taptime.mt", "ftp://taptime.mt", log},
+	} {
+		if s, err := operator.New(c.auth, c.host, c.url, c.log); err == nil || s != nil {
+			t.Errorf("%s: New built a configured surface", name)
+		}
 	}
-	if s, err := operator.New(authenticator(t), ""); err == nil || s != nil {
-		t.Error("New accepted an empty host")
+	if s, err := operator.New(a, "ops.taptime.mt", "https://taptime.mt", log); err != nil || s == nil {
+		t.Fatalf("CONTROL: a complete configuration was refused: %v", err)
 	}
 	if operator.Off().Configured() || operator.Unavailable().Configured() || (&operator.Surface{}).Configured() ||
 		(*operator.Surface)(nil).Configured() {
@@ -201,7 +228,7 @@ func TestSurface_NewRefusesWhatAConfiguredSurfaceNeeds(t *testing.T) {
 // same router does write its record (the log is live), and the configured surface's 404
 // is recorded as usual (the exemption is the 503's, not the prefix's).
 func TestSurface_ItsDesigned503IsNotAnAlertEvent(t *testing.T) {
-	configured, err := operator.New(authenticator(t), "ops.taptime.mt")
+	configured, err := operator.New(authenticator(t), "ops.taptime.mt", "https://taptime.mt", slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatal(err)
 	}

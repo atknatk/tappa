@@ -396,6 +396,130 @@ bir restoran hesabına bağlı olmamalı* (m10-platform.md §1).
   `tappa.everva.com.tr` — kabul edilir. Operatör yüzeyini her müşteri host'unun dışında tutmak
   OP-8'in iki yönlü host kapısının işidir.)* Host kapısı ve yanlış host 404 hâlâ OP-8'in;
   OP-7'de yapılandırılmış yüzey rota sunmaz (404).
+- **OP-8 notu (2026-10-02; 4. turda bu biçimde yeniden yazıldı, 5. turda (iv), (v), (viii) ve (III) düzeltildi, 6. turda (v), (viii), (III) ölçülen biçim ve sınıf kümesine daraltıldı ve sınırlar eklendi)** (kararların gerekçesi,
+  sayılı sınırlar ve devirler: [m10-platform.md](../plan/m10-platform.md) → OP-8 kart
+  düzeltmesi). Üç parça (OP-7 kart düzeltmesi md. 9 (x); 4. turun biçimi: PART I yalnız
+  sayılı kümelerde ölçülen, PART II yalnız pinlerin listesi, PART III tek cümle):
+  **(I) Sevk edilen kodun ölçülen davranışı, adıyla test ve küme.**
+  (i) Rotalar: giriş, TOTP adımı, enrollment, çıkış ve `/operator`. 00026'nın beş
+  definer'ının beşi de tenant okumaz; `/operator/tenants/{id}`, `/legal`, `/billing`,
+  `/plaques`, `/audit` kayıtlı değil (`TestSurface_TheScreensOfLaterTasksAreNotMounted`) ve
+  `screens()`'in 12 render'ı onlara link vermez
+  (`TestOperatorScreens_EveryActionAndLinkIsAMountedRoute`).
+  (ii) İki yönlü host kapısı, `httpx.OnHost` ile (istekteki port ve bir sondaki nokta düşer,
+  harf büyüklüğü yok sayılır — `TestOnHost_ReducesTheRequestHostToTheConfiguredSpelling`'in
+  satırları). Operatör yarısı `hostGate`: ingress manifestindeki host'larda ve altı host daha,
+  yedi yöntem ve dokuz `/operator` yolunda router'ın kendi 404'ü (durum, gövde, `NotFound`'un
+  yazdığı başlıklar), store çağrısı 0
+  (`TestHostGate_OperatorRoutesAnswerTheRoutersOwn404OnEveryOtherHost`); chi'nin tanımadığı
+  bir yöntem kök yönlendiricide 405, operatör yolu ve bilinmeyen yol için aynı cevap
+  (`TestEscapes_CookieNamesDuplicatesExpiryAndOddMethods`). Müşteri yarısı `internal/httpx`'in
+  `operatorHostOnly`'si: tablosunun satırlarında operatör host'unda `/operator…` ve `/static/`
+  geçer, kök `/operator`'a 303, müşteri rotaları 404
+  (`TestOperatorHostOnly_EveryEscapeAttemptLandsOnOneSide`,
+  `TestHostGate_TheOperatorHostServesNoCustomerRoute`). Kapalı ve ulaşılamaz hâllerin 503'ü
+  sürülen host'larda değişmedi (`TestHostGate_TheUnavailableSurfaceKeepsItsAnswerOnEveryHost`).
+  (iii) Zincir: konsol `hostGate → securityHeaders → floodGate → sameOriginGate →
+  requireOperator → sessionGate`. Çerezsiz konsol isteği 303 ve store çağrısı 0
+  (`TestSessionGate_NoLiveSessionIsASignInRedirect`); tek oturum, 101 adres, 101 istek → 100 ×
+  200, 1 × 429, 101 yüklem çağrısı (`TestSessionGate_ABudgetPerSession`); bütçesi tükenmiş
+  adresten canlı çerezle konsol → 429, store çağrısı 0
+  (`TestFloodGate_AnExhaustedAddressReachesNoConsolePredicate`). Çıkış `sameOriginGate →
+  requireOperator → logoutGate → op_close_session`: 3 001 çerezsiz çıkış → store çağrısı 0,
+  ardından operatörün çıkışı oturumu kapatır
+  (`TestLogout_ACookielessFloodCostsNothingAndCannotRefuseIt`); 3 000 çerezli çıkış →
+  operatörün kendi çıkışı 429, çerez tarayıcıda silinir, oturum store'da canlı
+  (`TestLogout_PastTheCeilingTheBrowserStillForgetsTheSession`; kart L16) — panelinkiyle aynı
+  zayıf değişmez.
+  (iv) `sameOriginGate`: güvensiz yöntemde `Origin` operatör origin'ine (`TAPPA_BASE_URL`'in
+  şeması ve port'u + operatör host'u; varsayılan port düşer) harf büyüklüğü dışında eşit ya
+  da `Origin` yok/`null` iken `Sec-Fetch-Site: same-origin` (panelin geri dönüşü `same-site`'ı
+  da kabul eder — burada tehdit odur). Bir tarayıcının form POST'u `Origin: null` +
+  `Sec-Fetch-Site: same-origin` taşıdı (1. tur denetçisi, headless Chrome). Ret 403, store
+  çağrısı 0, bcrypt 0 (`TestSameOriginGate_ACrossOriginPostReachesNoStore`,
+  `TestSurface_ACrossOriginPostPaysNothing`). Log *(4. tur, B6)*: 10 dakikalık, süreç geneli
+  bir pencerenin ilk reddi bir WARN kaydı (yöntem; adres yok), diğerleri Debug — Info'da iki
+  adresten 801 ret → 1 WARN kaydı ve 801'in tamamında store çağrısı 0 *(5. tur, N3: ölçüm
+  önceden ilk 500'de duruyordu)*, ardından operatörün çıkışı aynı adresten oturumu kapatır
+  (`TestSameOriginGate_RefusalsWriteOneWarnPerWindowAtTheShippedLevel`). Konsolda
+  `same-site`/`cross-site` getirme → 303, yüklem çağrısı 0
+  (`TestSessionGate_ASameSiteReadDoesNotTouchTheSession`; getirme üst verisi göndermeyen
+  tarayıcı kart L5).
+  (v) Yanıt başlıkları *(4. tur, B1; 5. tur, F1/F2/N5–N7)*. Ölçülen nesne **WriteHeader
+  anında yanıtın başlıklarıdır** (kaydedicinin `Result().Header`'ı — durum satırı yazılırken
+  alınan kopya; ondan sonra eklenen ya da silinen bir başlık onu değiştirmez — telde ise
+  net/http'nin belgelediği iki istisna var: 1xx yanıtlar ve trailer'lar; WriteHeader'dan sonra
+  konan bir trailer kopyada değil `Result().Trailer`'dadır ve okunmaz). İki tablo, 48
+  yanıt sınıfı: C1–C40 (`TestOperatorHeaders_FortyResponseClassesCarryThePolicy`) ve C41–C48 —
+  `/operator`'da `HEAD`/`POST`/`OPTIONS`, `/operator/login/totp` ve `/operator/enroll`'da
+  `PUT`, `/operator/logout`'ta `GET` (405) ve kod adımında ve enrollment'ta büyük form (413)
+  (`TestOperatorHeaders_TheWrongMethodAndOversizedClassesCarryThePolicy`). 15 düşmanca istek
+  başlığıyla (`Location`, `Content-Security-Policy`, `Cache-Control`, `Referrer-Policy`,
+  `X-Content-Type-Options`, `Set-Cookie`, `X-Frame-Options`, `Access-Control-Allow-Origin`,
+  `Refresh`, `Referer`, `User-Agent`, `Accept-Language`, `X-Requested-With`, `HX-Current-URL`,
+  `HX-Target`) ve operatörün iki çerez adını taşıyan ikinci bir `Cookie` satırıyla, 32'si
+  (son isteği `/operator/login`, `/operator/login/totp` ya da `/operator/enroll`'a giden
+  sınıflar: C1–C26, C38, C40, C44, C45, C47, C48) ayrıca düşmanca bir sorgu dizgisiyle
+  sürüldüğünde, 48'inin her birinde durum ve son istek
+  (`classRoutes`) tasarlanana, WriteHeader anındaki başlık adları tasarlanan kümeye ve
+  değerleri tasarlanan değerlere eşit ölçüldü: CSP gövdesi betik yükleyen dört sınıfta (adıyla
+  C18, C20, C21, C22) `enrollCSP`, 44'ünde `operatorCSP`; `Cache-Control: no-store`,
+  `nosniff`, `no-referrer`; `Location`, `Content-Type`, `Allow` sınıfın tasarlanan değeri ya
+  da yok; `Set-Cookie`'ler operatörün iki çerezinden, tasarlanan ayarla/sil durumunda ve
+  öznitelikleriyle; 48'inin gövdesinde ve başlık değerlerinde düşmanca değer ham ya da
+  sorgu-kaçışlı biçimiyle bulunmadı (testin aradığı iki biçim); altı 405'te store çağrısı 0.
+  Kopyanın teldeki başlık bölümüyle (net/http istemcisinin ayrıştırdığı `Response.Header`) aynı
+  olduğu üç sınıfta (C1, C18, C28) gerçek bir `httptest.Server` üzerinden ölçüldü,
+  `Content-Length` ve `Date` adıyla dışarıda; trailer bölümü, hijack edilmiş bağlantı ve
+  sunucunun öbür çerçeve başlıkları (`Transfer-Encoding`, `Connection`) karşılaştırılmadı
+  (`TestOperatorHeaders_TheRecorderSnapshotIsWhatTheWireCarries`). `chi.Walk`'un bildirdiği
+  monte edilmiş her yöntem × rota çiftinin ve her rotanın bir 405'inin `classRoutes`'ta bir
+  sınıfı var (`TestOperatorHeaders_TheWalkedRoutesEachHaveAClass`).
+  (vi) Çapraz çerez, gerçek çözümleyicilerle ve gerçek oturumlarla: müşteri tarafının
+  yöneticilerince verilmiş bir panel ve bir çalışan oturumunun değeri operatör çerez adıyla
+  `op_touch_session`'a istek başına tam 1 çağrıyla ulaşır ve 303'tür; operatörün canlı
+  token'ı panelin ve çalışanın çerez adıyla müşteri çözümleyicilerinde reddedilir, her biri
+  tam bir kez sorgulanarak (`TestE2E_CrossCookie_NeitherSideAcceptsTheOthersValue`).
+  (vii) Operatörün iki çerezi `/legal/cookies`'te bilinçli olarak yok (operatör host'unun
+  `__Host-` çerezleri, Taptime personeli için); çerez taraması onları görür ve dışarıda
+  bırakmayı dosyalarına bağlar (`TestCookieNotice_ListsExactlyTheCookiesTheProductSets`,
+  `TestCookiesNotOnTheNotice_AreBoundToTheirFile`).
+  (viii) Sorgu dizgisindeki kimlik bilgisi *(4. tur, B2; 5. tur, N4 — zaman kipi ölçülene
+  eşitlendi)*: testin sürdüğü isteklerde sorgudaki parola/adres giriş sayılmadı
+  (`TestSignIn_ReadsTheBodyNeverTheQuery`), sorgudaki token sayfada ham biçimiyle bulunmadı
+  (`TestEnroll_TheTokenNeverTravelsInTheURL`); sızıntı testinin A28/A29 kollarında (R1–R10
+  render'larıyla) ve (v)'deki 32 sınıfın düşmanca sorgusu yanıtlarda ham ya da sorgu-kaçışlı
+  biçimiyle bulunmadı *(6. tur, B1/N-1)*.
+  (ix) Zayıf parola *(4. tur, B7)*: 14 karakterden kısa, 72 bayttan uzun ve UTF-8 olmayan
+  parolanın üçü tek uyarı alır, uyarı iki sınırı da söyler
+  (`TestEnroll_TheWeakPasswordNoticeNamesBothLimits`).
+  **(II) Pinler:** yukarıdaki testler ve go/types pinleri —
+  `TestSessionCookieReads_TheListedFormsOccurOnlyInRequireOperator` (SC1–SC6),
+  `TestProblemViews_TheListedBuildFormsOccurOnlyInRenderGo` (PV1–PV7),
+  `TestEnrollScreen_TheListedFormsRenderItOnlyInRenderEnroll` (EN1–EN3),
+  `TestFormValues_TheListedSitesAloneRevealOrReadTheForm` (FV1–FV7),
+  `TestClientAddress_TheListedReadsFeedOnlyTheBudgets` (AD1–AD5),
+  `TestResponseHeaders_TheListedNamesAreWrittenOnlyInTheirFunctions` (RH1–RH5; 5. turda RH3'e
+  `http.Header` üstünde yerleşik `delete`/`clear` eklendi),
+  `TestHostGate_TheListedHostReadsOccurOnlyThroughOnHost` (HG1–HG3),
+  `TestOperatorPages_TheExportedScreensAreTheOnesScreensRenders` (SN1–SN2),
+  `TestOperatorPages_ImportedOnlyByTheSurfaceAndSharingOnlyTheShell` (IM1–IM3),
+  `TestOperatorHostFile_ImportsOnlyThreeStandardPackages`. Her pinin yakaladığı liste testin
+  başlığındadır ve pinin iddiası o listedir. Mutasyon tabloları kartta (2. tur 69, 3. tur 51,
+  4. ve 5. tur alt blokları).
+  **(III)** Bu nottaki ölçümler adıyla geçen testlerin sürdüğü kümelerdir ve pinler yalnız
+  kendi listelerini yakalar; bu küme ve listelerde olmayan her biçim (örnekler: 48 sınıfın
+  dışındaki bir yanıt, HTML-kaçışlı ya da base32 bir yansıma, trailer bölümü, hijack edilmiş
+  bağlantı, sunucunun çerçeve başlıkları, `encoding/asn1` ile kurulan bir `ProblemView`,
+  `r.TLS.ServerName`, `URL.RequestURI()`, `X-Cluster-Client-IP` başlığı, başka paketteki bir
+  yardımcı) kod incelemesinin konusudur — tamlık iddiası yok.
+  **Sınırlar:** sayılı sınırlar kartta (OP-8 bloğu, L1–L21). 6. turda eklenen ikisi: **L20** —
+  girişin bcrypt'i için süreç geneli tavan yok, yalnız adres başına `work` bütçesi (20/10 dk);
+  dağıtık bir istemci paylaşılan süreçte CPU'yu doyurabilir (panelin `/admin/login`'i aynı
+  sınıfta ve bugün canlıda erişilebilir; operatör host'u canlıda erişilemez); devir OP-9, K4.
+  **L21** — araya sokulan aynı adlı bir çerez operatörü tarayıcıdan atabilir: sunucu yarısında
+  ilk çerez okunur ve çöp-önce istek 303'tür; tarayıcı yarısı doğrulanamadı; sonucu zorla
+  çıkıştır, erişim vermez.
 
 ### 5. Audit
 
@@ -478,6 +602,28 @@ bir restoran hesabına bağlı olmamalı* (m10-platform.md §1).
   travel in the QUERY STRING"*). Token ya **fragment**'ta (sunucuya hiç gitmez; sayfa onu
   gövdede gönderir) ya da **yol parçasında** taşınır — ikincisi ingress yolu log'luyorsa
   aynı sorunu taşır. Hangisinin seçildiği ve ingress'in ne log'ladığı OP-9'da ölçülür.
+  **OP-8 notu (2026-10-02): biçim SEÇİLDİ — fragment.** Link
+  `https://<operatör host'u>/operator/enroll?id=<hesap id>#<token>`'dır: id sorguda (sır
+  değil; GET sayfanın anahtarını o hesaba mühürlemek için ona ihtiyaç duyar; ürünün erişim
+  kaydı rota desenini yazar, sorguyu değil — ingress'inki yazar), token fragment'ta (tarayıcı
+  göndermez). Sayfanın betiği (`web/static/js/operator/enroll.js`) token'ı forma koyar,
+  alanı gizler ve fragment'ı `history.replaceState` ile adres çubuğundan siler; betiksiz
+  tarayıcıda alan görünür kalır ve kişi `#`'den sonrasını yapıştırır. Sorguya konan token
+  `TestEnroll_TheTokenNeverTravelsInTheURL`'un sürdüğü istekte sayfada ham biçimiyle, iki
+  başlık tablosunun sorgu taşıyan 32 sınıfında yanıtta ham ya da sorgu-kaçışlı biçimiyle
+  bulunmadı (§4 OP-8 notu (I)(viii)). Yol parçası
+  seçilmedi: ingress yolu log'lar. OP-9 linki bu biçimde basar; ingress'in neyi log'ladığının
+  ölçümü OP-9'da kalır. *(2. tur — betiğin davranışı hakkındaki iddia üç parçaya çekildi:)*
+  **(I)** sevk edilen betiğin pinli olan METNİDİR: kodunun normalleştirilmiş sha256'sı
+  (`TestEnrollScript_IsTheReviewedBody`; kodda bir değişiklik özeti değiştirir) ve adlar listesi
+  (`TestEnrollScript_TouchesTheFragmentAndNothingElse`); DAVRANIŞI 2026-10-02'de 1. tur denetçisince
+  headless Chrome'da elle ölçüldü (geçerli token → alan 43 karakter ve link token'ına eşit,
+  sarmalayıcı gizli, `location.hash` boş, fragment ölçülen isteklerde yok; bozuk fragment → alan
+  boş ve görünür, fragment silindi) ve **pinli değildir** — depoda JavaScript motoru yok ve
+  eklenmedi. **(II)** iki pin, yukarıda; yakaladıkları: kodun özeti ve kodun kullandığı adlar.
+  **(III)** Bu iki pin yalnız metni yakalar; davranışı değiştiren her şey (örnekler: bir
+  tarayıcı sürümü, aynı metnin başka bir sayfada yüklenmesi) kod incelemesinin ve elle
+  ölçümün konusudur — tamlık iddiası yok (kart L15).
 - **`platform_admins`'e yalnız `tappa_owner` INSERT eder** (ADR 0021 §1). HTTP'den ya
   da uygulama rollerinden operatör yaratmak imkânsızdır; tablo boşsa kimse giremez.
 - **Reddedilen:** env'den tohumlama — bir kimliği bir dağıtımın yan etkisi yapar ve bir

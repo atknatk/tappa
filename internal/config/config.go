@@ -580,7 +580,8 @@ func loadOperatorSurface(c *Config) []error {
 // gate a second spelling to get wrong. So the value is a lower-case DNS name —
 // letters, digits, hyphens and dots, labels of 1-63 characters, no leading or
 // trailing hyphen — and nothing else: no scheme, no port, no path, no user part.
-// Whether a request's port is stripped before the comparison is OP-8's decision.
+// OP-8 decided the request side: httpx.OnHost drops a request's port and one trailing
+// dot and ignores case before comparing with this one spelling.
 //
 // IT IS NEVER TAPPA_BASE_URL's HOST. ADR 0020 §4 puts the operator surface on its OWN
 // host (its `__Host-` cookie, its same-origin check); the base URL's host in this
@@ -589,8 +590,10 @@ func loadOperatorSurface(c *Config) []error {
 // ⚠️ THAT IS THE ONLY HOST THIS CHECK KNOWS. The ingress serves the customer product on
 // other hosts as well (deploy/k8s/40-ingress.yaml: www.taptime.mt, tappa.everva.com.tr),
 // and an operator host equal to one of those is accepted here; keeping the operator
-// surface off every customer host is OP-8's two-way host gate (m10-platform.md, OP-7
-// card correction, hand-off list).
+// surface off the customer hosts is the two-way host gate's job (OP-8: httpx's
+// operatorHostOnly and internal/handler/operator's hostGate). What an operator host equal
+// to a customer host does is measured and counted there (m10-platform.md, OP-8 card
+// correction).
 //
 // The error never repeats the value: whatever was pasted into this variable by
 // mistake — a DSN, a key — would otherwise reach the process log.

@@ -1067,7 +1067,10 @@ var nonSurfaceGrounds = map[string]string{
 	// saffron's reason briefly said "and the sign-in screen's founding-offer badge"
 	// — that badge was removed the same day at the user's request, so the sentence
 	// is back to the one ground saffron actually has.
-	"ink":     "stamp--training's 10% tint, and the sign-in screen's brand panel; no docket-label sits on either",
+	// M10 OP-8 adds a third: the operator chrome's band (.op-bar, web/templates/operatorpages),
+	// which carries the lockup and the sign-out control in paper and saffron -- no
+	// docket-label sits on it either (the tenant banner under it is saffron-lite).
+	"ink":     "stamp--training's 10% tint, the sign-in screen's brand panel and the operator band; no docket-label sits on any of them",
 	"saffron": "stamp--flagged's 10% tint, inside .stamp only",
 	// ⚠️ NO LONGER "inside .stamp only": M6-04 added .tally--rejected, which uses
 	// bg-tomato/10 in a docket footnote. The CLASSIFICATION is unchanged and still

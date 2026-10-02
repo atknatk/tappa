@@ -21,7 +21,8 @@ import (
 //
 // SameSite=Strict (ADR 0020 §2) and still NOT sufficient on its own: ops.taptime.mt and
 // taptime.mt are the SAME SITE, so a script on the main host sends same-site requests
-// here. The origin check before the resolver is OP-8's (ADR 0020 §4).
+// here. The origin check before the resolver is internal/handler/operator's
+// sameOriginGate (OP-8; ADR 0020 §4).
 const (
 	// SessionCookieName carries the raw session token.
 	SessionCookieName = "__Host-taptime_op"

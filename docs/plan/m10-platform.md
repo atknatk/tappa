@@ -766,6 +766,9 @@ yasal belge içindi, M9-08'in kapsamı §4.5'i aşan beş işlev.
 >   başlığı). **Test kuralı (OP-6 md. 16):**
 >   operatör tablolarına dokunan her yeni DB testi `tappa/test/operator-tables` danışma kilidini
 >   **paylaşımlı** alır.
+>   → **OP-8'de uygulandı (2026-10-02):** kararlar, ölçümler, sayılı sınırlar (L1–L19) ve devirler
+>   aşağıdaki *"Kart düzeltmesi (2026-10-02, OP-8 uygulaması sırasında)"* bloğunda; redacting tip
+>   uygulandı (`formValue`), enroll oran sınırı ve `pending` E2E'de ölçüldü, dağıtık saldırgan L2.
 > - **OP-9:** `opadmin create` hesabın id'sini kendisi üretir ve enrollment linkine
 >   token'la birlikte koyar; **token sorgu dizgisinde taşınmaz** — fragment ya da yol
 >   parçası, ingress'in ne log'ladığı ölçülür; **`reset-mfa`** (zarfı siler, sayacı
@@ -2723,7 +2726,10 @@ yasal belge içindi, M9-08'in kapsamı §4.5'i aşan beş işlev.
 >    (ölçen testin adıyla), (II) adıyla sayılan pinler/teller/kapalı kurallar ve tam olarak
 >    neyi yakaladıkları, (III) açık bir "tamlık iddiası yok" cümlesi olarak yazar; gelecekteki
 >    keyfi kod değişikliklerine karşı garanti gibi okunan koşulsuz cümle yazılmaz (OP-7 kart
->    düzeltmesi, "2h" satırı).
+>    düzeltmesi, "2h" satırı). → **OP-8'de karşılandı (2026-10-02):** (i) md. 1, 7; (ii)/(viii)
+>    md. 2–6; (iii) değişmedi — yapılandırılmış yüzeyin kendi 503'leri tasarım bildirmez, kayda geçer (`surface.go`, `serviceUnavailable`'ın yorumu); (iv) değişmedi; (v) md. 2;
+>    (vi) md. 17; (vii) md. 12; (ix) md. 13 — eklendi; (x) ADR 0020 §4 OP-8 notu — OP-8 kart
+>    düzeltmesi.
 > 10. **Sayılı sınırlar (OP-7):** (S-a) üretim `tappa_operator`'a giriş verilmeden yüzey kapalı
 >     kalır — bu görev canlıda hiçbir şey açmadı; (S-b) pin, başlangıç parametrelerini düşüren
 >     bir ara katmanda (connection pooler) etkisizdir — geri okuma o bağlantıyı **reddeder**,
@@ -3257,6 +3263,1066 @@ yasal belge içindi, M9-08'in kapsamı §4.5'i aşan beş işlev.
 >   `dirmod/g_linux.go` satırı eklendi. Sembolik bağlı dizinler izlenmez — kapsam listesinde
 >   adıyla; o yoldan gelen ve bir ürün paketince import edilen paket tel testinin paket
 >   kümesi eşitliğinde görünür (denetçi). Mutasyon: `!fi.IsDir()`'ı geri almak kırmızı.
+
+> **Kart düzeltmesi (2026-10-02, OP-8 uygulaması sırasında).** Yazıldı:
+> `internal/handler/operator/` (`routes.go` zincir ve kapılar, `signin.go`, `enroll.go`,
+> `console.go`, `render.go`, `form.go`; `surface.go` genişledi — `New(auth, host, baseURL,
+> log)`), `internal/httpx/operatorhost.go` (+ `router.go`'da tek koşullu `r.Use`), yeni templ
+> paketi `web/templates/operatorpages/`, `layout.Operator`/`layout.OperatorWithScript`,
+> `web/static/js/operator/enroll.js`, `input.css`'te `op-*` bileşenleri; `cmd/tappa/operator.go`
+> (yeni imza, açılış satırının metni), `deploy/README.md` (7. uyarı kuralı, sınır 32, runbook
+> yanıt doğrulaması), `internal/handler/marketing_test.go` (çerez taraması) +
+> `marketing.go` (yorum), `dashboard_test.go` (`ink` zemininin gerekçesi), yorumlar:
+> `operatorauth/limits.go`, `flow.go`, `cookie.go`, `config/config.go`. Testler:
+> `internal/handler/operator/` (`op8_test.go`, `op8_db_test.go`, `leak_test.go`, `rig_test.go`,
+> `export_test.go`), `internal/httpx/operatorhost_test.go`,
+> `internal/operatorauth/surface_external_test.go` + `export_test.go` (`CountWork` — bu
+> paketin test build'ine derlenir — `_test.go`; ürün kancası yok). Migration YOK, bağımlılık YOK (`go.mod`,
+> `go.sum`, `sqlc.yaml` diff boş), CLAUDE.md'ye dokunulmadı, `app.css` gitignored (`make css`:
+> +19 kural, 0 kaldırılan, +3 988 bayt — yorumlardan doğmuş kural yok, ölçüldü). Güvenlik
+> iddiaları üç parçalı (md. 9 (x)): ADR 0020 §4'ün OP-8 notu (I)–(III).
+>
+> **Kararlar, ölçümüyle (numaralar atıf içindir; *4. turda bu liste, pinden genel hüküm çıkaran
+> cümleleri kaldıracak biçimde yeniden yazıldı — değişen cümlelerin önceki ve yeni hâli 4. tur
+> alt bloğunun süpürme tablosunda*):**
+> 1. **Rotalar.** 00026'da beş definer var (ölçüldü: `pg_proc`'ta `op_%` = `op_close_session`,
+>    `op_complete_enrollment`, `op_open_session`, `op_record_auth_event`, `op_touch_session`); beşinden
+>    biri de tenant okumaz. Kayıtlı: `GET/POST /operator/login`, `GET/POST /operator/login/totp`,
+>    `GET/POST /operator/enroll`, `POST /operator/logout`, `GET /operator`. ADR 0020 §4'ün tenant,
+>    legal, billing, plaques, audit ekranları kayıtlı DEĞİL (`TestSurface_TheScreensOfLaterTasksAreNotMounted`)
+>    ve `screens()`'in 12 render'ı onlara link vermez, mutlak URL sayısı 0
+>    (`TestOperatorScreens_EveryActionAndLinkIsAMountedRoute`).
+> 2. **İki yönlü host kapısı — yer.** Müşteri yarısı `internal/httpx`'te (`operatorHostOnly`,
+>    `cfg.OperatorHost` doluysa ara katman olarak, `AccessLog`'dan sonra — 404'ü kayda geçer);
+>    operatör yarısı yüzeyin alt yönlendiricisinin ilk halkası (`hostGate`). `operatorhost.go`'nun
+>    importları `net`, `net/http`, `strings` (`TestOperatorHostFile_ImportsOnlyThreeStandardPackages`);
+>    `httpx`'in geçişli bağımlılıklarında `operatorauth`, `internal/handler/operator`, `operatorpages`
+>    yok (`TestOperatorPages_ImportedOnlyByTheSurfaceAndSharingOnlyTheShell`, IM3); `operator.Prefix`
+>    `httpx.OperatorPrefix`'tir (`TestSurface_ThePrefixIsTheRoutersPrefix`). Operatör yarısı alt
+>    yönlendiricinin ilk halkası olduğu için testte sürülen yedi yöntem (GET, HEAD, POST, PUT,
+>    DELETE, OPTIONS, PATCH) kayıtlı bir yolda müşteri host'unda 405 değil 404 alır; chi'nin
+>    tanımadığı bir yöntem (ör. `FOO`) kök yönlendiricide, eşleşmeden önce 405'tir — operatör yolu
+>    ve bilinmeyen yol için aynı cevap (`TestEscapes_CookieNamesDuplicatesExpiryAndOddMethods`).
+>    Kapalı ve ulaşılamaz hâllerde 503 sürülen host'larda aynı kaldı; müşteri yarısı ulaşılamaz
+>    hâlde de takılıdır (yapılandırma tamdır) ve operatör host'unda sürülen müşteri rotası 404'tür
+>    (`TestHostGate_TheUnavailableSurfaceKeepsItsAnswerOnEveryHost`).
+> 3. **Host yazımı.** `httpx.OnHost`: istekteki port düşer, bir sondaki nokta düşer, büyük/küçük
+>    harf yok sayılır (`TestOnHost_ReducesTheRequestHostToTheConfiguredSpelling`'in satırları);
+>    `OnHost` `X-Forwarded-Host` okumaz (kaçış tablosunun iki satırı; M08 kırmızı); mutlak-URI istek
+>    satırında host URI'ninkidir (net/http'nin `r.Host`'u). Gerekçe: bir yazımı müşteri host'u
+>    saymak operatör host'unun o yazımında müşteri sayfası sunardı. *(2. tur, B9:)* bir tarayıcının
+>    yazması `sameOriginGate`'i geri dönüş dalından geçer — sayfaların referrer politikası
+>    no-referrer olduğu için form POST'u `Origin: null` + `Sec-Fetch-Site: same-origin` taşıdı (1. tur
+>    denetçisi headless Chrome'da ölçtü); sondaki noktalı yazımda TAM Origin reddedilir, `null` +
+>    `same-origin` kabul edilir; o yazım operatör yüzeyine sınıflanır
+>    (`TestSameOriginGate_ACrossOriginPostReachesNoStore`; büyük harf ayrı bir origin değildir).
+> 4. **Port (dev `ops.localhost:8080`).** Sınıflandırmada düşer (çerezler porta bağlı değildir);
+>    origin `TAPPA_BASE_URL`'in şeması ve port'undan türetilir (`operatorOrigin`; varsayılan port
+>    düşer): dev `http://ops.localhost:8080`, prod `https://ops.taptime.mt`. Beşinci bir değişken
+>    elendi: aynı süreç, aynı dinleyici, aynı ingress. Bozuk bir base URL açılışı durdurur
+>    (`TestSurface_NewRefusesWhatAConfiguredSurfaceNeeds`).
+> 5. **Static ve probe'lar.** Operatör host'unda `/static/` açık (CSS, fontlar, betik); müşteri
+>    betikleri de oradan servis edilir, bu yüzden enrollment sayfasının `script-src`'si `'self'`
+>    DEĞİL, bir dosyanın tam URL'sidir (bu politika vendored `htmx`'i yükletmez). `/healthz`,
+>    `/readyz` operatör host'unda 404: kubelet sondaları `20-app.yaml`'da host'suz `httpGet`'tir,
+>    yani pod adresiyle gelir (manifest okundu; kümede ölçülmedi).
+> 6. **Operatör host'u = bir müşteri host'u** (config `TAPPA_BASE_URL`'in host'unu reddeder, öteki
+>    müşteri host'larını reddetmez), ölçüldü
+>    (`TestHostGate_AnOperatorHostThatIsACustomerHostServesOnlyTheOperator`, `www.taptime.mt` ile): o
+>    host'ta operatör yüzeyi cevap verir ve sürülen müşteri rotası (`/admin`) 404'tür; bedeli o
+>    host'un müşteri sayfaları; kanonik host `/admin`'i sunar. Bugün ingress'te `www.taptime.mt` ve
+>    `tappa.everva.com.tr` kalıcı yönlendirmedir (`40-ingress.yaml`, okundu; kümede ölçülmedi). Çare
+>    kodda değil: OP-9'un DNS/Ingress adımında operatör host'u ingress'in müşteri host'larından biri
+>    seçilmez — sayılı sınır L3.
+> 7. **Zincir** (ADR 0020 §4): konsol `hostGate → securityHeaders → floodGate → sameOriginGate →
+>    requireOperator → sessionGate`; çıkış `hostGate → securityHeaders → sameOriginGate →
+>    requireOperator → logoutGate → op_close_session` *(2. tur, B3)*. `requireOperator` çerezsiz
+>    isteği store çağrısı olmadan 303'ler (`TestSessionGate_NoLiveSessionIsASignInRedirect`) ve
+>    okuduğu token'ı bağlamla `sessionGate`'e ve çıkış işleyicisine verir *(2. tur, B2: 1. turda çıkış
+>    işleyicisi çerezi kendisi de okuyordu)*. `TestSessionCookieReads_TheListedFormsOccurOnlyInRequireOperator`
+>    SC1–SC6 listesini yakalar *(3. tur, F1: 2. turun sözdizimi pini bir import takma adıyla — X19 —
+>    ve `r.Cookie(operatorauth.SessionCookieName)` ile — X19c — aşılmıştı)*. `sessionGate` önce
+>    `op_touch_session`, sonra oturum başına bütçe (100/10 dk). *(2. tur, B7:)* bütçe yüklemden sonra
+>    harcandığı için bir oturumun kapıyı geçen istek sayısını sınırlar, yüklemin veritabanı işini
+>    değil — ölçüldü: tek oturum, 101 adres, 101 istek → 100 × 200, 1 × 429, **101** yüklem çağrısı
+>    (`TestSessionGate_ABudgetPerSession`); yüklemin işini adres başına flood kapısı sınırlar
+>    *(3. tur, F4)*: bütçesi tükenmiş adresten canlı çerezle konsol → 429, store çağrısı 0; kontrol:
+>    başka adres 200 ve 1 yüklem (`TestFloodGate_AnExhaustedAddressReachesNoConsolePredicate`; X03
+>    kırmızı). **Çıkış — zayıf değişmez, panelin yazımıyla** *(2. tur, B3; 1. tur metni "kendi
+>    oturumunu kapatmak üçüncü bir kişice reddedilememeli" diyordu ve ölçülene göre YANLIŞTI)*:
+>    çerezsiz çıkış bütçeye sayılmaz (zincir sırası; N19 kırmızı) — ölçülen
+>    (`TestLogout_ACookielessFloodCostsNothingAndCannotRefuseIt`): 3 001 çerezsiz çıkış, store 0,
+>    ardından operatörün çıkışı oturumu kapatır. Çerezli çıkış bir definer çağrısıdır: flood bütçesi
+>    ölçülür ama uyulmaz, kendi tavanı 3 000/10 dk adres başına. Ölçülen
+>    (`TestLogout_PastTheCeilingTheBrowserStillForgetsTheSession`): aynı adresten 3 000 çerezli
+>    çıkıştan sonra operatörün kendi çıkışı **429** alır, o 429 oturum çerezini tarayıcıda siler ve
+>    oturum store'da canlı kalır (sunucuda boşta sınırına — 30 dk — ya da mutlak sonuna kadar;
+>    token'ın kopyası kullanılırsa daha uzun: sayılı sınır L16). (Veritabanı arızasının 503'ü çerezi
+>    tutar — `TestLogout_IsNotRefusedByTheBudgetAThirdPartyCanSpend`'in son vakası.)
+> 8. **`sameOriginGate`.** Güvensiz yöntem: `Origin` = operatör origin'i (harf büyüklüğü dışında);
+>    `Origin` yok/`null` → `Sec-Fetch-Site` `same-origin` olmalı (panel `same-site`'ı da kabul
+>    eder; burada `ops.taptime.mt` ile `taptime.mt` aynı site olduğu için tehdit o); ikisi de yoksa
+>    ret. *(2. tur, B9:)* bir tarayıcının yolu geri dönüştür (no-referrer → `Origin: null`; md. 3);
+>    iki dal da kabul ve ret yönünde sürülür. Ret 403 + sabit sayfa, store 0, bcrypt 0. **Log
+>    *(4. tur, B6)*:** 10 dakikalık, süreç geneli bir pencerenin ilk reddi bir **WARN** kaydı
+>    (yöntem; adres yok), diğerleri Debug — ölçülen
+>    (`TestSameOriginGate_RefusalsWriteOneWarnPerWindowAtTheShippedLevel`, Info düzeyi): 500
+>    çerezsiz, Origin'siz çıkış + 500 çapraz-origin giriş (300 × 403, sonra flood'la 200 × 429) +
+>    ikinci bir adresten 1 ret → 801 ret, 1 WARN kaydı, store 0 *(5. tur, N3: store artık 801'in
+>    sonunda ölçülüyor; önceden yalnız ilk 500 çıkışın sonunda)*, erişim kaydı 1 001; ardından
+>    operatörün kendi çıkışı aynı
+>    adresten oturumu kapatır; kontrol: Debug'da iki ret bir WARN + bir DEBUG. *(Geçmiş: 1.–2. tur
+>    her ret için WARN yazıyordu — denetçinin E1'i: 500 ret, 500 WARN; 3. tur F5 hepsini Debug'a
+>    indirmişti, Info'da yüzey sessizdi.)* Konsolda `same-site`/`cross-site` getirme → 303, yüklem
+>    koşmaz (`TestSessionGate_ASameSiteReadDoesNotTouchTheSession`; M17/M18 kırmızı). Giriş
+>    sayfaları için GET kapısı yok — e-postadaki enrollment linki `cross-site` bir gezinmedir.
+> 9. **Giriş.** Form doğrulaması YOK: adres `Password`'e olduğu gibi gider; `internal/db` saklanamayan
+>    adresi bilinmeyen adresin yolundan geçirir (OP-6 md. 8): NUL/UTF-8 dışı/1 000 baytlık adres
+>    bilinmeyen adresle aynı gövde, aynı başlıklar, **1 bcrypt, 1 satır** aldı
+>    (`TestSurface_EveryRefusedSignInPaysOneComparisonAndAnswersAlike` — 8 kol, kontrol: doğru
+>    parola da 1). Ön kontroller `readForm`'unkilerdir: 16 KiB üstü → 413, ayrıştırılamayan gövde →
+>    400; ikisi de 0 bcrypt. Handler'lar `r.PostForm`'u okur; sorgudaki parola/adres giriş
+>    sayılmadı (`TestSignIn_ReadsTheBodyNeverTheQuery`). Başarılı TOTP challenge çerezini siler
+>    (`TestSignIn_TheCodeStepClearsTheChallenge`). Senkronize edici token yok: SameSite=Strict +
+>    origin kontrolü.
+> 10. **Enrollment linki** (OP-9 basacak): `/operator/enroll?id=<hesap>#<token>` — ADR 0020 §6'nın
+>    OP-8 notu. Reddedilen ama düzeltilebilir bir deneme (şifreler farklı, kural, kod) formu aynı
+>    id, mühürlü sayfa ve token ile yeniden çizer — token onu gönderen POST'un yanıt gövdesine geri
+>    yazılır (sızıntı testinin tasarlanmış çıkışı D5). *(2. tur, B6: 1. turda bu yeniden çizim
+>    `operatorCSP` altında gidiyordu.)* Ekranı `renderEnroll` yazar ve `enrollCSP` gönderir; 40
+>    sınıfın betik taşıyan dördü `enrollCSP`, diğer 36'sı `operatorCSP` taşır
+>    (`TestOperatorHeaders_FortyResponseClassesCarryThePolicy`); `TestEnrollScreen_TheListedFormsRenderItOnlyInRenderEnroll`
+>    EN1–EN3 listesini yakalar. Düzeltilemeyen ret (`ErrEnrollment`) form taşımaz. `GET` store
+>    çağrısı yapmaz: iyi biçimli bir id, bekleyen, etkin ya da var olmayan bir hesabı adlandırsın,
+>    aynı türden sayfayı alır. `pending` hesabın girişi (gerçek RLS): bilinmeyen adresle aynı gövde
+>    ve bir `unknown_email` satırı, hedefi o hesap (`TestE2E_EveryRefusedSignInIsOneRowAndTheSameBytes`).
+>    Sorgudaki token: md. 20.
+> 11. **Başlıklar** *(4. tur, B1 — ölçüm davranışa taşındı; 5. tur, F1/F2/N5–N7 — ölçülen nesne
+>    ve küme düzeltildi)*. Ölçülen nesne **WriteHeader anında yanıtın başlıklarıdır**: kaydedicinin
+>    `Result().Header`'ı, durum satırı yazılırken alınan kopya (ondan sonra eklenen ya da silinen
+>    bir başlık onu değiştirmez; 4. tur testleri işleyicinin canlı haritasını, `w.Header()`'ı
+>    okuyordu — 5. tur alt bloğu F1). *(6. tur, B2:)* Telde ise net/http'nin `ResponseWriter.Header`
+>    belgesinin saydığı iki istisna var — 1xx yanıtlar ve trailer'lar: WriteHeader'dan sonra
+>    `http.TrailerPrefix` ile (ya da `Trailer` başlığının duyurduğu adla) konan bir anahtar trailer
+>    olarak gider, kopyada değil `Result().Trailer`'dadır ve testler onu okumaz (denetçinin T01/T02'si
+>    paketin tamamında yeşil). İki tablo, 48 yanıt sınıfı: C1–C40 (handler'ların
+>    okunmasıyla bulundu, 2. tur B5; `TestOperatorHeaders_FortyResponseClassesCarryThePolicy`) ve
+>    C41–C48 (4. tur denetçisinin N7'si: `/operator`'da `HEAD`/`POST`/`OPTIONS`,
+>    `/operator/login/totp` ve `/operator/enroll`'da `PUT`, `/operator/logout`'ta `GET` → 405;
+>    kod adımında ve enrollment'ta büyük form → 413;
+>    `TestOperatorHeaders_TheWrongMethodAndOversizedClassesCarryThePolicy`). 15 düşmanca istek
+>    başlığıyla (`Location`, `Content-Security-Policy`, `Cache-Control`, `Referrer-Policy`,
+>    `X-Content-Type-Options`, `Set-Cookie`, `X-Frame-Options`, `Access-Control-Allow-Origin`,
+>    `Refresh`, `Referer`, `User-Agent`, `Accept-Language`, `X-Requested-With`, `HX-Current-URL`,
+>    `HX-Target`) ve operatörün iki çerez adını taşıyan ikinci bir `Cookie` satırıyla, 32'si — son
+>    isteği `/operator/login`, `/operator/login/totp` ya da `/operator/enroll`'a giden sınıflar: C1–C26,
+>    C38, C40, C44, C45, C47, C48 *(6. tur, N-1: "27" eksik sayımdı)* — ayrıca düşmanca bir sorgu
+>    dizgisiyle sürüldüğünde, 48'inin her birinde
+>    ölçülen: durum ve son istek `classRoutes`'taki girdiye eşit; WriteHeader anındaki başlık
+>    ADLARI tasarlanan kümeye eşit; CSP tek değer (gövdesi betik yükleyen dört sınıfta — adıyla
+>    C18, C20, C21, C22 — `enrollCSP`, 44'ünde `operatorCSP`, `frame-ancestors 'none'`);
+>    `Cache-Control: no-store`, `nosniff`, `no-referrer` tek değer; `Location`, `Content-Type`,
+>    `Allow` sınıfın tasarlanan değeri ya da yok; `Set-Cookie`'ler operatörün iki çerezinden,
+>    tasarlanan ayarla/sil durumunda, `Path=/`, `Secure`, `HttpOnly`, `SameSite=Strict`,
+>    `Domain`'siz; gövdede ve başlık değerlerinde düşmanca değer ham ya da sorgu-kaçışlı
+>    (`url.QueryEscape`) biçimiyle yok — test bu iki biçimi arar, HTML-kaçışlı ya da base32 bir
+>    yansıma aranmaz *(6. tur, B1)*; altı 405'te store 0
+>    (kontrol: istek başlıklarını yanıta kopyalayan bir işleyici kontrolü geçemez). Kopyanın teldeki
+>    BAŞLIK BÖLÜMÜNE (net/http istemcisinin ayrıştırdığı `Response.Header`) eşitliği üç sınıfta (C1,
+>    C18, C28) gerçek bir `httptest.Server` üzerinden ölçülür, `Content-Length` ve `Date` adıyla
+>    dışarıda; trailer bölümü, hijack edilmiş bağlantı ve sunucunun öbür çerçeve başlıkları
+>    karşılaştırmanın dışında (`Transfer-Encoding` — C18'de `chunked` — istemcinin ayrıştırıcısında
+>    `Response.TransferEncoding`'e taşınır; `Connection` bu HTTP/1.1 keep-alive isteklerinde
+>    yazılmaz, `Connection: close` isteğinde ve HTTP/1.0 keep-alive'da telde var — 5. tur denetçisi
+>    ölçtü); kontrol: WriteHeader'dan sonra silinen bir başlık telde ve kopyada var, canlı haritada
+>    yok
+>    (`TestOperatorHeaders_TheRecorderSnapshotIsWhatTheWireCarries`). `chi.Walk`'un bildirdiği
+>    monte edilmiş her yöntem × rota çifti için 405 olmayan bir sınıf, her rota için bir 405 sınıfı
+>    `classRoutes`'ta var ve anahtarlar C1–C48 (`TestOperatorHeaders_TheWalkedRoutesEachHaveAClass`;
+>    sınıfsız yeni rota kırmızı). İstekle ulaşılamayan sınıflar 40 sınıflık testin başlığında
+>    adıyla. Host kapısının 404'ü router'ın kendi 404'üdür (md. 2). Kaynak tarafında
+>    `TestResponseHeaders_TheListedNamesAreWrittenOnlyInTheirFunctions` RH1–RH5 listesini yakalar
+>    (`maps.Copy` o listede değil: X23a–X23b'de RH yeşil kaldı, başlık testi kırmızı; 5. turda RH3'e
+>    `http.Header` üstünde yerleşik `delete` ve `clear` eklendi — X23c'nin `clear`'ı ve 4. tur
+>    denetçisinin H01/L01'indeki `delete` artık RH'de de kırmızı).
+> 12. **Çerez bildirimi.** Ölçüldü: tablo KODDUR (`marketing.go` `cookieNotice`), gövde
+>    `legal_documents` yayınıdır — metne dokunulmadı. Karar: operatörün iki çerezi bilinçli
+>    dışarıda (operatör host'unun `__Host-` çerezleri, Taptime personeli için). Tarama
+>    `__Host-taptime_` adlarını görür; dışarıda bırakma dosyaya bağlı ve sayfa onları basmaz
+>    (`TestCookieNotice_ListsExactlyTheCookiesTheProductSets`,
+>    `TestCookiesNotOnTheNotice_AreBoundToTheirFile`).
+> 13. **Uyarı kuralı (md. 9 (ix)): EKLENDİ** — `deploy/README.md` 7. satır,
+>    `body.operator_surface = "unavailable"`, ≥ 1 olay; sınır 32 güncellendi; alan adı ve değer
+>    koddaki sabitlere bağlı (`TestObservability_AlertSignalNames`). Gerekçe: OP-8'den sonra
+>    `unavailable` kilitli bir konsoldur ve satır süreç açılışında bir kez yazılır.
+> 14. **İstemci adresi:** bütçe anahtarı (`rateKey`). Ölçülen: adres (G15) sızıntı testinin S1–S4
+>    yüzeylerinde, A1–A30 kollarında, R1–R10 render'larıyla bulunmadı (mutasyon M36 kırmızı). `TestClientAddress_TheListedReadsFeedOnlyTheBudgets`
+>    AD1–AD5 listesini yakalar (AD3: altı başlık adı — `x-forwarded-for`, `x-real-ip`, `forwarded`,
+>    `true-client-ip`, `cf-connecting-ip`, `x-client-ip`). *(3. tur, F6: "sızıntı testi G10"
+>    yanlış numaraydı — adres G15.)* Audit satırına ne gittiği `operatorauth`'undur. Atıf ingress
+>    log'unun (adres + `request_id`).
+> 15. **Redacting tip** (OP-4 bloğu OP-8 (a)): uygulandı — `formValue` (parola, adres, kod, link
+>    token'ı); basılma yolları `TestFormValue_PrintsNoValue`'da. `reveal()`'in sevk edilen kodda dokuz
+>    çağrı yeri var — `Password`/`TOTP`/`CompleteEnrollment`'ın altı doğrudan argümanı,
+>    `EnrollView.Token` geri yazımı, `enroll`'daki `!=`'in iki işleneni;
+>    `TestFormValues_TheListedSitesAloneRevealOrReadTheForm` FV1–FV7 listesini yakalar
+>    (`URL.RequestURI`, `URL.Redacted` o listede değil — G-FV-q1/q2, X24a/X24b).
+> 16. **Kabuk.** "TAPTIME OPERATOR": tam genişlikte ink bant, saffron alt çizgi (paletin uyarı tonu),
+>    IBM Plex Mono büyük harf kilit — panelin açık kromuna, yeşil kelime markasına ve sekme çubuğuna
+>    karşı; yeni renk yok. Kontrast hesaplandı: paper/ink **16,17:1**, saffron/ink **6,16:1**
+>    (`TestOperatorChrome_TheColouredTextClearsAA`), docket-label/saffron-lite 5,64:1 (skill
+>    tablosu). Tenant yuvası: `operatorpages.TenantScreen(title, TenantName)`; paket dışında
+>    `TenantName` `NewTenantName` ile yapılır (boş/boşluk ret), sıfır değer render'da
+>    `ErrNoTenantName` ve 0 bayt; render önce tampona yazdığı için yanıt 500 ve sayfa yok
+>    (`TestTenantScreen_RefusesToRenderWithoutAName`; ad hem bantta hem `<title>`'da, kaçışlı).
+>    Ana sayfa tenant verisi ve e-posta göstermez, bu build'de operatör ekranı olmadığını söyler.
+> 17. **Uçtan uca, gerçek Postgres.** `tappa_operator` dev'de NOLOGIN (`rolcanlogin = f`, ölçüldü) ve
+>    bir DSN kimliği değiştiremez: sahibin DSN'i + `options=-c session_authorization=tappa_operator`
+>    ile bağlanınca `current_user = session_user = tappa_owner` (başlangıç seçeneği yok sayılır —
+>    ölçüldü), yani `db.NewOperatorDB`'nin rol kapısı test DSN'iyle geçilemez. Yol: OP-6/OP-7
+>    testlerininki — sahibin bağlantısı, test başına bir REPEATABLE READ işlem (geri alınır), store
+>    çağrıları `SET LOCAL SESSION AUTHORIZATION tappa_operator` altında savepoint'lerde ve kimlik
+>    çağrı başına yeniden okunur; çağrılar `internal/db`'nin ÜRETİM erişimcileri (`db.OperatorDB`
+>    onlara aynen devreder). Danışma kilidi PAYLAŞIMLI (`TestE2E_TheTablesLockIsTheOneInternalDBTakes`).
+>    *(3. tur, F3: önceki metin "kalıcı satır 0" diyordu ve 2. turdan — B12'nin gerçek müşteri
+>    oturumlarından — beri YANLIŞTI.)* Commit eden test `TestE2E_CrossCookie_NeitherSideAcceptsTheOthersValue`:
+>    koşu başına `tappa_app` havuzunda 1 tenant (`OP8 Cross Cookie Ltd`), 1 lokasyon, 1 çalışan, 1
+>    admin kullanıcı (`op8-cross-<id>@example.test`), 1 admin oturumu, 1 çalışan oturumu. Ölçüldü
+>    (2026-10-02, sahip bağlantısı, salt okunur işlem): o testin bir koşusu ve dosyanın `TestE2E_`
+>    testlerinin bir koşusu çevresinde bu altısının her biri +1; `platform_admins`,
+>    `platform_sessions`, `operator_audit_log`, `audit_log`, `tags`, `transactions` 0. Kabul
+>    gerekçesi: müşteri yöneticileri bu satırları kendi bağlantılarında doğrular; panel veritabanı
+>    testlerinin kalıcı fikstürleriyle aynı sınıf — backlog T81. Sürülen başarılı `op_*`'lar:
+>    `op_open_session`, `op_touch_session`, `op_close_session`, `op_complete_enrollment`,
+>    `op_record_auth_event` (`TestE2E_SignInRunsTheRealDefinersEndToEnd`,
+>    `TestE2E_EnrollmentCompletesThroughTheDefinerAndIsRateLimited`, ve aşağıdakiler).
+> 18. **`password_ok` audit türü** migration ister → OP-8'de YOK (orkestratör kararı) → OP-14.
+> 19. **Dağıtık enrollment (P8/K4):** sayılar korundu (3/adres, 10/süreç, 10 dk); bir dağıtık
+>    saldırganın aldığı şey reddedilen enrollment'lar (1–3 kişinin seçtiği zamanda yaptığı bir
+>    kerelik adım) ve pencere başına 10 `enrollment_failed` satırı — hesap değil. Çare kodda değil,
+>    ingress'te operatör host'una IP kısıtı (K4, OP-9 kullanıcı kararı). Sayılı sınır L2.
+> 20. **Sorgu dizgisindeki kimlik bilgisi** *(4. tur, B2)*. Ölçülen: sorgudaki parola/adres giriş
+>    sayılmadı (`TestSignIn_ReadsTheBodyNeverTheQuery`); sorgudaki token sayfada ham biçimiyle
+>    bulunmadı (`TestEnroll_TheTokenNeverTravelsInTheURL`); sızıntı testinin A28/A29 kolları
+>    (R1–R10 render'larıyla); md. 11'deki 32 sınıfın düşmanca sorgusu (token, adres, parola, kod,
+>    blob; POST'ta id) o sınıfların hiçbirinin yanıtında ham ya da sorgu-kaçışlı biçimiyle bulunmadı
+>    — HTML-kaçışlı ve base32 biçimleri aranmadı *(6. tur, B1 ve N-1)*. FV pini listesini yakalar
+>    (md. 15).
+> 21. **Zayıf parola uyarısı** *(4. tur, B7)*. `operatorauth` 14 karakterden kısa, 72 bayttan uzun ve
+>    UTF-8 olmayan parolayı tek hatayla (`ErrWeakPassword`) reddeder; ekran başlığı "That password is
+>    too short" diyordu. Yeni metin: başlık "Choose another password", gövde iki sınırı söyler
+>    ("Use at least 14 characters and at most 72 bytes. A letter with an accent, or from another
+>    alphabet, takes two bytes or more."). Ölçülen: dört kol (13 karakter, 73 tek baytlı karakter,
+>    37 iki baytlı karakter, UTF-8 olmayan 20 bayt) bu uyarıyı alır ve "too short" demez; kontrol:
+>    kurala uyan parola yanlış kodla kod uyarısını alır (`TestEnroll_TheWeakPasswordNoticeNamesBothLimits`).
+>
+> **Kabul — karşılıkları:** çapraz çerez iki yönde → `TestCrossCookie_CustomerValuesUnderTheOperatorNamesAreRefused`
+> (sahte store) + `TestE2E_CrossCookie_NeitherSideAcceptsTheOthersValue` (*2. tur, B12:* müşteri
+> tarafının yöneticilerince verilmiş bir panel ve bir çalışan oturumu operatör çerez adıyla
+> `op_touch_session`'a ulaşır — sayıldı, istek başına 1 — ve 303; gerçek panel ve çalışan
+> çözümleyicileri operatörün canlı token'ını reddeder, ikisi de bir kez sorgulandı; kontroller: iki
+> değer de kendi tarafında canlı) · yanlış host 404 →
+> `TestHostGate_OperatorRoutesAnswerTheRoutersOwn404OnEveryOtherHost`,
+> `TestHostGate_TheOperatorHostServesNoCustomerRoute`, `TestOperatorHostOnly_EveryEscapeAttemptLandsOnOneSide`
+> · cross-origin POST'ta çözümleyici 0 → `TestSameOriginGate_ACrossOriginPostReachesNoStore` (store 0) +
+> `TestSurface_ACrossOriginPostPaysNothing` (bcrypt karşılaştırma 0, digest 0, store 0; kontrol: aynı
+> origin 1 karşılaştırma / 1 digest) · bilinmeyen e-posta = yanlış parola →
+> `TestSurface_EveryRefusedSignInPaysOneComparisonAndAnswersAlike` + `TestE2E_EveryRefusedSignInIsOneRowAndTheSameBytes`
+> · TOTP tekrarı → `TestE2E_AReplayedCodeIsRefused` · N hatada kilit + audit →
+> `TestE2E_WrongCodesLockTheAccountAndEachLeavesARow` (5 `totp_failed`, sonra doğru kod `locked`
+> satırı + kilit sayfası, oturum 0) · kabulün "her giriş `operator_audit_log`'da" maddesi →
+> `login`/`logout`/`enrollment` satırları E2E'de sayılır · CSP/no-store/nosniff →
+> `TestOperatorHeaders_FortyResponseClassesCarryThePolicy` · oturum kapısı (8 sa / 30 dk / MFA'sız /
+> iptal / disabled) → `TestE2E_TheSessionGateRefusesEveryDeadSession`,
+> `TestSessionGate_NoLiveSessionIsASignInRedirect` · enroll oran sınırı → 4. deneme 429, satır yazmadan
+> (`TestE2E_EnrollmentCompletesThroughTheDefinerAndIsRateLimited`) · sızıntı →
+> `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor` (*2. tur:* numaralı sözleşme G1–G15 ×
+> R1–R10 × S1–S4 × A1–A30, tasarlanmış çıkış D1–D5 pozitif olarak; kapalı ölçüt `neverLog`, 12 madde,
+> sayısı pinli; hasat metot başına sayı ve ariteyle pinli; render ve yüzey kontrolleri bağımsız —
+> 2. tur alt bloğu B1; Debug, iki üretim biçimi).
+>
+> **Mutasyonlar (1. tur; kopyala-geri-yaz; tablodaki her deneme diskte `diff` ile, geri yükleme
+> sha256 ile doğrulandı; ağacın hash'i önce/sonra eşit):** 45 deneme *(2. tur: kimlik · ne ·
+> kırmızıya çevirdiği test listesi aşağıdaki "2. tur" alt bloğunda; 1. turun 45'i kodun 2. tur
+> hâline karşı yeniden koşuldu, dördünün hedef metni değiştiği için yeni yazımıyla)*. **42 kırmızı,
+> beklenen** — host kapısının iki yarısı (kaldır, hep geçir, sıra), `OnHost` (port, harf,
+> `X-Forwarded-Host`), başlıklar (üçü), enrollCSP `'self'`, `sameOrigin` (hep doğru, `same-site`
+> geri dönüşü, grup kapısız), konsolun okuma kapısı (sıra, kapalı), `requireOperator` yok, ölü çerez
+> silinmiyor, oturum bütçesi yok, `Verify` atlanıyor, çıkış flood'a uyuyor, başarısız çıkış çerezi
+> siliyor, NUL adres erken ret, sorgu okunuyor, challenge silinmiyor, kola göre gövde, sorgudaki
+> token sayfada, şifre eşitliği yok, tamponsuz render, `TenantScreen`/`NewTenantName` gevşek,
+> `formValue` basıyor, parola/adres/kod/e-posta loglanıyor, token Location'da, bant çizilmiyor
+> (templ), tarama kör, dışarıda bırakma listesi düşmüş, 7. kural silinmiş. **2 yeşil, beklenen:**
+> M09 — sınıflandırmayı `RawPath` yerine `Path` ile yapmak testlerin satırlarında aynı
+> sınıflandırmayı verdi (`routingPath` tutarlılık kararıdır); M40 — redakte `Challenge` değerini
+> loglamak yer tutucu basar (kontrol). **1 derleme hatası** (M33, kullanılmayan import) derlenen
+> biçimiyle (M33b) yeniden koşuldu: kırmızı.
+>
+> **Gerçek sunucuya kaçış denemeleri** (ulaşılamaz hâl — bu makinede açılabilen tek yapılandırılmış
+> şekil: dört değişken dolu, operatör DSN'i kapalı bir porta; `"operator_surface":"unavailable"`
+> okundu; süreç grubu öldürüldü, port `lsof` ile boş): operatör host'unda `/admin`, `/healthz`,
+> `/readyz`, `/legal/cookies`, `OPTIONS /admin`, `//admin`, `/OPERATOR`, `/%6Fperator/login`,
+> `/operator%2Flogin` → 404; `OPS.LOCALHOST`, `ops.localhost.`, port'suz → 404; `/` ve `HEAD /` → 303
+> `/operator`; `/operator/../admin` → operatör yüzeyi (503), müşteri değil; `/static/…` → 200;
+> müşteri host'unda `X-Forwarded-Host: ops…` ile `/admin/login` → 200 (XFH okunmaz); mutlak URI
+> (operatör host'u, Host müşteri) → 404, tersi → 200; HTTP/1.0 Host'suz → müşteri (200); iki `Host`
+> başlığı → net/http 400. Erişim kaydında 21 kayıt, rota deseniyle, adres yok; tasarlanmış 503'ler
+> kayıt yazmadı. Testle pinlenen dört şekil daha
+> (`TestEscapes_CookieNamesDuplicatesExpiryAndOddMethods`): canlı token küçük harfli çerez adıyla
+> okunmaz (303); aynı adla iki çerezde net/http İLKİNİ verir (önce çöp → 303, önce canlı → 200);
+> beş dakikası geçmiş challenge → giriş yeniden, challenge silinir, hesap araması 0; chi'nin
+> bilmediği bir yöntem müşteri host'unda operatör yolu ile bilinmeyen yol için aynı cevap.
+>
+> **Sayılı sınırlar (OP-8, tek liste; OP-6 md. 18 P1–P9 ve S1–S14 aynen geçerli):**
+> - **L1** — Fragment'taki token, `replaceState`'ten ÖNCE tarayıcının genel geçmişine yazılmış
+>   olabilir; tarayıcıda ölçülmedi. Token tek kullanımlık, 30 dk.
+> - **L2** — Dağıtık enrollment (P8 aynen): dört hız anahtarı süreç bütçesini tüketir; çare K4 (OP-9).
+> - **L3** — Operatör host'u ingress'in bir müşteri host'una eşit verilirse o host'un müşteri sayfaları
+>   404 olur (md. 6); config bunu reddetmez (ingress listesini bilmez, operatör host'u bir Secret
+>   değeridir — repoda değil).
+> - **L4** — Oturum bütçesi ve çıkış tavanı süreç içidir (P3 sınıfı: yeniden başlatma sıfırlar, iki
+>   replika ikiye katlar).
+> - **L5** — Konsolun okuma kapısı getirme üst verisi (`Sec-Fetch-Site`) gönderen tarayıcılar içindir;
+>   göndermeyen bir tarayıcıda kardeş host'un gömülü isteği yüklemi koşturur (boşta süreyi tazeler).
+> - **L6** — Katı Origin karşılaştırması tarayıcı olmayan bir istemciye karşı derinlik savunmasıdır;
+>   sınır bütçelerdir.
+> - **L7** — Enrollment'ın düzeltilebilir reddi link token'ını POST yanıt gövdesine geri yazar (D5);
+>   betiksiz yol token'ı kişinin panosundan geçirir.
+> - **L8** — `Secret.Zero` dizgeleri silemez; render tamponu anahtarın base32'sini GC'ye kadar tutar (P6).
+> - **L9** — Host kapısının 404'ü yanıt olarak router'ınkiyle aynıdır, erişim kaydında DEĞİL: rota
+>   alanı ÜÇ değerden biridir — `/operator/*`, `/operator` (müşteri host'unda `GET /operator`; 1. tur
+>   denetçisi ölçtü) ya da `(unmatched)` *(2. tur, B10: 1. tur iki değer sayıyordu)* (süreç içi,
+>   istemciye görünmez).
+> - **L10** — Operatör host'unda sondalar 404'tür; bir dış uptime denetimi `/operator/login`'i
+>   kullanmalı. `HEAD`/`OPTIONS` operatör rotalarında operatör host'unda 405'tir.
+> - **L11** — Bcrypt sayısı sahte store'la ölçüldü (pending/disabled/saklanamayan adres orada
+>   `ErrNoOperator`, `internal/db`'nin belgelenmiş cevabı); gerçek RLS ile ölçülen gövde + satırdır,
+>   bcrypt sayısı değil.
+> - **L12** — Konsol operatörün kimliğini göstermez (e-posta okuyan bir definer yok; yenisi migration).
+> - **L13** — Sızıntı testinin NOT CLAIMED listesi (`leak_test.go` başlığı): bölünmüş değerler,
+>   listelenmeyen render'lar, operatorauth'un kendi tipleri, süreç dışındakiler (ingress log'u,
+>   tarayıcı geçmişi), numaralanmamış kollar.
+> - **L14** — Canlıda operatör host'u bugün ULAŞILAMAZ: ingress'te kuralı yok (OP-9, K2). Bu görev
+>   canlıda bir ingress kuralı eklemedi.
+> - **L15** — *(2. tur, B8)* Enrollment betiğinin DAVRANIŞI pinli değildir: depoda JavaScript motoru
+>   yok ve eklenmedi. Pinli olan METİNDİR — kodun normalleştirilmiş sha256'sı
+>   (`TestEnrollScript_IsTheReviewedBody`: kodda bir değişiklik özeti değiştirir) ve isim listesi
+>   (`TestEnrollScript_TouchesTheFragmentAndNothingElse`). Davranış 2026-10-02'de 1. tur denetçisince
+>   headless Chrome'da ELLE ölçüldü: geçerli token → alan 43 karakter ve link token'ına eşit,
+>   sarmalayıcı gizli, `location.hash` boş, fragment ölçülen isteklerde yok; bozuk fragment → alan
+>   boş ve görünür, fragment silindi.
+> - **L16** — *(2. tur, B3)* Çıkışın zayıf değişmezi (md. 7): paylaşılan bir hız anahtarından bir
+>   pencerede 3 000 çerezli çıkış, operatörün kendi çıkışını 429'a düşürür; tarayıcı oturumu unutur,
+>   sunucudaki oturum boşta sınırına ya da mutlak sonuna kadar (token'ın kopyası kullanılırsa daha
+>   uzun) yaşar. Çare kodda değil: K4 (OP-9) ve `opadmin` ile iptal.
+> - **L17** — *(2. tur, gözlem)* Başka siteden gelen bir gezinme (ör. e-postadaki bir konsol linki)
+>   `SameSite=Strict` yüzünden oturum çerezini taşımaz: canlı oturumlu operatöre giriş sayfası
+>   gösterilir. Bilinçli bedel (ADR 0020 §2'nin `Strict`'i), kod değişikliği yok.
+> - **L18** — *(3. tur; 4. turda yeniden yazıldı, B3)* Yapısal (go/types) pinler yalnız
+>   başlıklarındaki listeyi yakalar; listede olmayan biçimler kod incelemesinin konusudur — örnekler,
+>   ölçülmüş: başka paketteki bir yardımcı (X19r yeşil), çalışma zamanında kurulan bir ad (X19s
+>   yeşil), `encoding/asn1` ile kurulan bir `ProblemView` (X25a yeşil), `r.TLS.ServerName` (X25b
+>   yeşil), `X-Cluster-Client-IP` (X25c yeşil), `URL.RequestURI`/`URL.Redacted` (X24a/X24b, FV'de
+>   yeşil). Yükleyicinin reddettiği sekiz import adıyla: `reflect`, `unsafe`, `plugin`,
+>   `text/template`, `html/template`, `encoding/json`, `encoding/gob`, `encoding/xml` (X19q kırmızı);
+>   ve çalışan build'in dışarıda bıraktığı test dışı dosya (X19p kırmızı).
+> - **L19** — *(3. tur, F5; 4. turda güncellendi, B6)* Çıkışın origin reddi sayıca sınırsızdır:
+>   önünde flood kapısı yok (B3'ün kazanımı — bir kapı, hız anahtarını paylaşan üçüncü kişiye
+>   operatörün çıkışını reddettirirdi; X21b ölçtü). Bir ret bir erişim kaydı ve bir 403 render'ıdır;
+>   store çağrısı, bütçe, bcrypt yok. Süreç log'u: 10 dakikalık süreç geneli pencerenin ilk reddi
+>   bir WARN kaydı (yöntem; adres yok), diğerleri Debug. Panelin `sameOriginGate`'i her reddi WARN
+>   olarak, ip ile yazar (`internal/handler/adminlogin.go:592`); `deploy/README.md`'nin yedi uyarı
+>   kuralından biri de operatör 403'ünü ya da bu kaydı okumaz.
+> - **L20** — *(6. tur; güvenlik denetçisinin düşük notu)* Girişin bcrypt'i için süreç geneli bir
+>   tavan yok, yalnız adres başına `work` bütçesi (20/10 dk). Denetçi tek bir /48 içindeki 40 farklı
+>   /64'ten 40 POST ile 40 cost-12 bcrypt ölçtü (seri 10,7 s); dağıtık bir istemci CPU'yu doyurabilir
+>   (ADR 0020'nin 196–380 ms/karşılaştırma ölçüsüyle bir çekirdek ≈80–150 hız anahtarıyla dolar).
+>   Süreç müşteri ürünüyle (tap, panel) paylaşılıyor. Panelin `/admin/login`'i aynı sınıfta
+>   (`adminLoginWorkLimit` 120/adres, süreç geneli tavan yok) ve bugün canlıda erişilebilir; operatör
+>   host'u canlıda erişilemez (L14). Devir: **OP-9, K4** (ops IP kısıtı).
+> - **L21** — *(6. tur; güvenlik denetçisinin düşük notu)* Araya sokulan aynı adlı bir çerez
+>   operatörü tarayıcıdan atabilir. Sunucu yarısı: aynı adlı iki çerezden ilki okunur, çöp-önce
+>   istek 303'tür (`TestEscapes_CookieNamesDuplicatesExpiryAndOddMethods` bunu ölçer); yanıtın
+>   silen `Set-Cookie`'si ve sunucudaki oturumun canlı kalması güvenlik denetçisinin ölçümüdür, o
+>   testte kontrol edilmez (test mantığına bu turda dokunulmadı). Tarayıcı yarısı — kardeş bir host'un
+>   `__Host-` adlı bir çerezi gerçek çerezden önce serileştirebilmesi (isimsiz çerez hilesi; RFC
+>   6265bis yasaklar, güncel Chrome/Firefox reddeder) — DOĞRULANAMADI. Gerçekleşirse sonucu zorla
+>   çıkıştır; erişim vermez.
+>
+> **Kart düzeltmesi — 2. tur (2026-10-02, 1. üçüncü göz denetçisinin RED'inden sonra: 3 bloklayan + 9
+> bloklamayan; hepsi kapatıldı).** Değişen: `internal/handler/operator/routes.go` (çıkış zinciri,
+> `requireOperator`'ın token'ı bağlama koyması, `sessionTokenOf`, yorumlar), `console.go` (çıkış token'ı bağlamdan),
+> `render.go` (`problemPages`, `problemSignOutThrottled`, `renderEnroll`), `enroll.go`
+> (`renderEnroll`), `surface.go` (oturum bütçesi yorumu), `internal/httpx/operatorhost.go` (yorum),
+> `marketing.go` (yorum); testler `leak_test.go` (yeniden yazıldı), yeni `op8r2_test.go`,
+> `op8_test.go`, `op8_db_test.go`, `rig_test.go`, `export_test.go`. Migration YOK, bağımlılık YOK.
+> Yukarıdaki md. 2, 3, 7, 8, 10, 11 ve L9 yerinde işaretlendi; L15–L17 eklendi.
+>
+> - **B1 (bloklayan) · sızıntı testinin pozitif kontrolü kendini doğruluyordu.** Test yeniden
+>   yazıldı: (a) her render (R1–R10, tek iğne) ADIYLA bağımsız bir kurucuyla eşli (`fmt`, akış
+>   kodlayıcıları, `net/url`'ün form kodlayıcısı, R5 için operatör sayfalarının KENDİ templ
+>   render'ı); her üyenin iğnesi kurucunun metninde OLMAK ZORUNDA, `minNeedle`'dan kısa/boş iğne
+>   KIRMIZI; G1'de %q, JSON, URL ve HTML biçimi ham değerden FARKLI bir kontrol parolası var ve her
+>   render için "en az bir üyenin biçimi hamdan farklı" sayılır; (b) yüzeyler (S1–S4) sayısı ve
+>   adlarıyla pinli, her yüzeye TEK TEK konan bir kanarya `scanArm` ile o yüzeyde bulunmak zorunda,
+>   her yüzey bir gerçek kolda metin taşımak zorunda; (c) `neverLog` — 12 madde, sayı pinli
+>   (CLAUDE.md §7 + ADR 0020 §5 + ADR 0021 §3.5), her maddenin her grubunda en az bir üye; (d) hasat
+>   (`hashRecorder`) metot başına SAYI ve ARİTEYLE pinli (`harvestWant`, sayıların kollardan türetimi
+>   yorumda) ve hasadın kendisi de aranıyor (oturum hash'leri, ham link token'ları, digest, zarf,
+>   adresler); (e) yeni kol **A17** — kullanılmış linkin AYNI token'la yeniden gönderilmesi:
+>   veritabanının reddi, `ErrEnrollment` dalı, gerçek token'la. Mutasyonlar: N01b, N02–N11 — hepsi
+>   kırmızı (tablo aşağıda).
+> - **B2 (bloklayan) · ADR PART II.** (i) Tam mutasyon listesi aşağıda (kimlik · ne · kırmızıya
+>   çevirdiği test). (ii) Çıkış da `requireOperator`'ın arkasına alındı ve token'ı bağlamdan alıyor
+>   (`sessionTokenOf`); bir sözdizimi pini eklendi (`ReadSessionCookie` seçicisi bir kez,
+>   `requireOperator` içinde). *(4. tur: bu maddenin 2. turdaki başlığı — "`requireOperator` çerezin
+>   TEK okumasıdır" YAPISAL olarak doğru yapıldı — pinden genel hüküm çıkarıyordu; pin 3. turda bir
+>   import takma adıyla aşıldı ve go/types pini
+>   `TestSessionCookieReads_TheListedFormsOccurOnlyInRequireOperator` ile değiştirildi; o pin
+>   SC1–SC6 listesini yakalar.)* Mutasyon N18 kırmızı (3. turda yeni pine karşı yeniden koşuldu:
+>   kırmızı).
+> - **B3 (bloklayan) · üçüncü kişi çıkışı reddettirebiliyordu.** Ölçüldü ve karar: çerezsiz çıkış
+>   bütçeye sayılmaz (`requireOperator` önce) — testin 3 001 çıkışında store 0 ve 429 yok; çerezli
+>   çıkış tavana sayılır;
+>   tavanın 429'u oturum çerezini SİLER; kalan zayıf değişmez panelin yazımıyla md. 7'de ve L16'da.
+>   Testler: `TestLogout_ACookielessFloodCostsNothingAndCannotRefuseIt`,
+>   `TestLogout_PastTheCeilingTheBrowserStillForgetsTheSession`. Mutasyonlar N19, N20 kırmızı.
+> - **B4 · problem sayfalarının linkleri.** `problemPages` on `ProblemView`'u listeler;
+>   `TestProblemPages_LinkOnlyToMountedRoutes` onunu render edip linklerini bağlı rotalara tutar;
+>   2. turun sözdizimi pini *(3. tur, F2: buradaki cümle — "`render.go`'nun değişkenleri ve
+>   `problemTooMany` dışında `ProblemView` değişmezi yok" — pinin yakaladığından genişti: pin yalnız
+>   `operatorpages.ProblemView` diye YAZILMIŞ literali görüyordu, tip takma adıyla yazılmış olan (X20b)
+>   yeşildi. Pin go/types'a taşındı: `TestProblemViews_TheListedBuildFormsOccurOnlyInRenderGo` —
+>   PV1–PV7 listesini yakalar (testin başlığı); 4. turun biçimiyle PART III tek cümle: listede
+>   olmayan biçimler kod incelemesinin konusudur — örnekler: sıfır değer, başka paketin döndürdüğü
+>   değer, `encoding/asn1` ile kurulan değer)*. Mutasyonlar N12 (denetçinin
+>   `Back = Prefix+"/tenants"`'i), N13, N14 kırmızı (2. tur; N13 ve N14'ün 3. tur karşılıkları X20c,
+>   X20k).
+> - **B5 · başlık testi örneklemdi.** 40 yanıt sınıfı, durumlarıyla (md. 11). Mutasyonlar N16
+>   (denetçinin D5 `Cache-Control` silmesi), N17 kırmızı.
+> - **B6 · D5 `operatorCSP` altındaydı.** Ekranı `renderEnroll` yazar; betik ⇔ `enrollCSP` eşlemesi 40 sınıfta testte.
+>   Mutasyon N15 kırmızı.
+> - **B7 · oturum bütçesi yorumu.** Ölçülene eşitlendi (md. 7); 101 yüklem çağrısı testte sayılıyor.
+>   Mutasyon N21 (bütçeyi yüklemden önceye almak) kırmızı.
+> - **B8 · betik davranışı.** Metin pini + incelenmiş gövde pini; davranış elle ölçülmüş, pinsiz —
+>   L15; ADR §6 notu üç parçaya çekildi. Mutasyonlar N22, N23 (denetçinin iki mutasyonu) kırmızı.
+> - **B9 · "TAM origin" cümlesi.** Ölçülene eşitlendi (md. 3, 8, `operatorhost.go`, `routes.go`);
+>   `Origin: null` + `same-origin` kabul ve sondaki noktalı yazımın TAM Origin'i ret testte. Mutasyon
+>   N24 kırmızı.
+> - **B10 · "her yöntem" ve L9.** md. 2 ve L9 düzeltildi; ADR notu da.
+> - **B11 · sayı.** Bu turun teslim raporu hedefli koşuyu ÖLÇTÜĞÜ komutla yeniden sayar.
+> - **B12 · E2E çapraz çerez.** Gerçek verilmiş panel ve çalışan oturumları; `op_touch_session`'a
+>   ulaşım sayılıyor (istek başına 1). **Kalıcı test verisi** (panel veritabanı testlerininki gibi):
+>   koşu başına 1 tenant, 1 lokasyon, 1 çalışan, 1 admin kullanıcı, 1 panel oturumu, 1 çalışan
+>   oturumu (`tappa_app` havuzunda commit; operatör satırları geri alınan işlemde). Mutasyon N25
+>   (yüklemi iki kez koşmak) kırmızı — sayaç canlı.
+> - **Not ve gözlem:** `marketing.go`'nun "a seventh"'i ve tarama kapsamı cümlesi düzeltildi; SameSite
+>   gözlemi L17.
+>
+> **Tam mutasyon tablosu (kopyala-geri-yaz, `scratchpad` kopyalarından; tablodaki her deneme diskte
+> `diff` ile görüldü, geri yüklemesi sha256 ile; ağacın parmak izi önce/sonra eşit).** 1. turun 45'i kodun 2. tur
+> hâline karşı YENİDEN koşuldu (M24, M29, M39 hedef metni değiştiği için `b` yazımıyla; M33'ün
+> derlenmeyen yazımı yerine M33b); N01'in ilk yazımı derlenmedi (kullanılmayan import), yerine N01b.
+> **69 deneme: 67 kırmızı, 2 yeşil beklenen** (M09 — `Path` ile `RawPath` testlerin satırlarında
+> aynı sınıflandırmayı verdi; M40 kontrol — redakte `Challenge` yer tutucu basar).
+>
+> | Kimlik | Ne | Sonuç | Kırmızıya çevirdiği test(ler) |
+> |---|---|---|---|
+> | M01 | hostGate removed from the sub-router | RED | `TestHostGate_OperatorRoutesAnswerTheRoutersOwn404OnEveryOtherHost`, `TestHostGate_AnOperatorHostThatIsACustomerHostServesOnlyTheOperator` |
+> | M02 | hostGate passes every host | RED | `TestHostGate_OperatorRoutesAnswerTheRoutersOwn404OnEveryOtherHost` |
+> | M03 | hostGate after securityHeaders | RED | `TestHostGate_OperatorRoutesAnswerTheRoutersOwn404OnEveryOtherHost` |
+> | M04 | customer half not mounted | RED | `TestOperatorHostOnly_EveryEscapeAttemptLandsOnOneSide`, `TestHostGate_TheOperatorHostServesNoCustomerRoute`, `TestHostGate_AnOperatorHostThatIsACustomerHostServesOnlyTheOperator` |
+> | M05 | customer half lets customer routes through | RED | `TestOperatorHostOnly_EveryEscapeAttemptLandsOnOneSide` |
+> | M06 | OnHost keeps the port | RED | `TestOnHost_ReducesTheRequestHostToTheConfiguredSpelling`, `TestOperatorHostOnly_EveryEscapeAttemptLandsOnOneSide` |
+> | M07 | OnHost case-sensitive | RED | `TestOnHost_ReducesTheRequestHostToTheConfiguredSpelling`, `TestOperatorHostOnly_EveryEscapeAttemptLandsOnOneSide` |
+> | M08 | OnHost reads X-Forwarded-Host | RED | `TestOperatorHostOnly_EveryEscapeAttemptLandsOnOneSide` |
+> | M09 | gate classifies by Path not RawPath | GREEN | — (yeşil, beklenen) |
+> | M10 | no Referrer-Policy | RED | `TestOperatorHeaders_FortyResponseClassesCarryThePolicy` |
+> | M11 | CSP without frame-ancestors | RED | `TestOperatorHeaders_FortyResponseClassesCarryThePolicy` |
+> | M12 | enrollCSP uses 'self' | RED | `TestOperatorHeaders_FortyResponseClassesCarryThePolicy` |
+> | M13 | no no-store | RED | `TestOperatorHeaders_FortyResponseClassesCarryThePolicy` |
+> | M14 | sameOrigin always true | RED | `TestSameOriginGate_ACrossOriginPostReachesNoStore`, `TestSurface_ACrossOriginPostPaysNothing` |
+> | M15 | fallback accepts same-site | RED | `TestSameOriginGate_ACrossOriginPostReachesNoStore` |
+> | M16 | sign-in group without sameOriginGate | RED | `TestSameOriginGate_ACrossOriginPostReachesNoStore`, `TestSurface_ACrossOriginPostPaysNothing` |
+> | M17 | console resolves before the read guard | RED | `TestSessionGate_ASameSiteReadDoesNotTouchTheSession` |
+> | M18 | read guard off on the console | RED | `TestSessionGate_ASameSiteReadDoesNotTouchTheSession` |
+> | M19 | requireOperator removed | RED | `TestSessionGate_NoLiveSessionIsASignInRedirect` |
+> | M20 | dead cookie not cleared | RED | `TestSessionGate_NoLiveSessionIsASignInRedirect` |
+> | M21 | no per-session budget | RED | `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor`, `TestSessionGate_ABudgetPerSession` |
+> | M22 | Verify skipped (any cookie is live) | RED | `TestE2E_TheSessionGateRefusesEveryDeadSession`, `TestSessionGate_NoLiveSessionIsASignInRedirect`, `TestCrossCookie_CustomerValuesUnderTheOperatorNamesAreRefused` |
+> | M23 | sign-out obeys the flood budget | RED | `TestLogout_IsNotRefusedByTheBudgetAThirdPartyCanSpend`, `TestLogout_PastTheCeilingTheBrowserStillForgetsTheSession` |
+> | M24b | sign-out clears the cookie on a failed close | RED | `TestLogout_IsNotRefusedByTheBudgetAThirdPartyCanSpend` |
+> | M25 | handler refuses a NUL address early | RED | `TestSurface_EveryRefusedSignInPaysOneComparisonAndAnswersAlike` |
+> | M26 | sign-in reads the query too | RED | `TestSignIn_ReadsTheBodyNeverTheQuery` |
+> | M27 | challenge not cleared on success | RED | `TestSignIn_TheCodeStepClearsTheChallenge` |
+> | M28 | refused body differs by arm | RED | `TestSurface_EveryRefusedSignInPaysOneComparisonAndAnswersAlike`, `TestE2E_EveryRefusedSignInIsOneRowAndTheSameBytes` |
+> | M29b | GET enroll echoes a query token | RED | `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor`, `TestEnroll_TheTokenNeverTravelsInTheURL` |
+> | M30 | password mismatch not checked | RED | `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor` |
+> | M31 | render streams without a buffer | RED | `TestTenantScreen_RefusesToRenderWithoutAName` |
+> | M32 | TenantScreen accepts the zero name | RED | `TestTenantScreen_RefusesToRenderWithoutAName` |
+> | M33b | NewTenantName accepts blanks (compiles) | RED | `TestTenantScreen_RefusesToRenderWithoutAName` |
+> | M34 | formValue prints its value | RED | `TestFormValue_PrintsNoValue` |
+> | M35 | the password is logged | RED | `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor` |
+> | M36 | the client address is logged | RED | `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor` |
+> | M37 | the code is logged | RED | `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor` |
+> | M38 | the link token goes to Location | RED | `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor` |
+> | M39b | the email is logged on a failure | RED | `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor` |
+> | M40 | the challenge is logged | GREEN | — (yeşil, beklenen) |
+> | M41 | the bar is not drawn on platform screens | RED | `TestOperatorScreens_EveryOneWearsTheOperatorChrome` |
+> | M42 | the operator cookies are listed by nobody, scan blind | RED | `TestCookieNameScanner_CatchesANewCookie`, `TestCookiesNotOnTheNotice_AreBoundToTheirFile`, `TestCookieNotice_ListsExactlyTheCookiesTheProductSets` |
+> | M43 | the omission list is dropped | RED | `TestCookieNotice_ListsExactlyTheCookiesTheProductSets` |
+> | M44 | rule 7 dropped from the paste-able block | RED | `TestObservability_AlertSignalNames` |
+> | N01b | R2 rendering emptied (compiles) | RED | `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor` |
+> | N02 | R3 rendering emptied (nil-like) | RED | `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor` |
+> | N03 | R5 reduced to the raw value | RED | `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor` |
+> | N04 | R2 reduced to the raw value | RED | `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor` |
+> | N05 | S2 dropped from the scan | RED | `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor` |
+> | N06 | S2 scanned blind | RED | `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor` |
+> | N07 | a never-log item deleted | RED | `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor` |
+> | N08 | a never-log item bound to an empty group | RED | `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor` |
+> | N09 | harvest arity changed | RED | `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor` |
+> | N10 | harvest drops a method | RED | `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor` |
+> | N11 | the ErrEnrollment branch logs the link token | RED | `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor` |
+> | N12 | a problem page links to an unmounted screen | RED | `TestProblemPages_LinkOnlyToMountedRoutes` |
+> | N13 | a ProblemView built outside render.go | RED | 2. turun sözdizimi pini (3. turda kaldırıldı; karşılığı X20c → `TestProblemViews_TheListedBuildFormsOccurOnlyInRenderGo`) |
+> | N14 | problemPages omits one | RED | `TestProblemPages_LinkOnlyToMountedRoutes`, 2. turun sözdizimi pini (3. tur karşılığı X20k) |
+> | N15 | the D5 re-render under operatorCSP | RED | `TestOperatorHeaders_FortyResponseClassesCarryThePolicy` |
+> | N16 | D5 loses no-store | RED | `TestOperatorHeaders_FortyResponseClassesCarryThePolicy` |
+> | N17 | a 503 page loses no-store | RED | `TestOperatorHeaders_FortyResponseClassesCarryThePolicy` |
+> | N18 | sign-out reads the cookie itself | RED | 2. turun sözdizimi pini; 3. turda yeni pine karşı yeniden koşuldu: `TestSessionCookieReads_TheListedFormsOccurOnlyInRequireOperator` |
+> | N19 | sign-out budget before requireOperator | RED | `TestLogout_ACookielessFloodCostsNothingAndCannotRefuseIt` |
+> | N20 | the ceiling's 429 keeps the cookie | RED | `TestLogout_PastTheCeilingTheBrowserStillForgetsTheSession` |
+> | N21 | session budget charged before the predicate | RED | `TestSessionGate_ABudgetPerSession` |
+> | N22 | enroll.js: the fragment branch disabled | RED | `TestEnrollScript_IsTheReviewedBody` |
+> | N23 | enroll.js: the field emptied | RED | `TestEnrollScript_IsTheReviewedBody` |
+> | N24 | Origin null treated as an origin | RED | `TestSameOriginGate_ACrossOriginPostReachesNoStore` |
+> | N25 | the session predicate run twice | RED | `TestE2E_CrossCookie_NeitherSideAcceptsTheOthersValue`, `TestSessionGate_ABudgetPerSession` |
+>
+> **Kart düzeltmesi — 3. tur (2026-10-02, 2. üçüncü göz denetçisinin RED'inden sonra: 1 bloklayan + 5
+> bloklamayan; hepsi kapatıldı). KATMAN DEĞİŞTİ.** 2. turun iki yapısal pini SÖZDİZİMİNE bakıyordu ve
+> birer takma adla aşıldı (F1, F2 — 1. turun B2'siyle aynı sınıf: metin pinin yakaladığından genişti).
+> Bu turda yapısal pinler go/types'a taşındı (`internal/handler/operator/typepins_test.go`): paket,
+> ÇALIŞAN build'in `go list -export -deps` dışa aktarım verisiyle (`-race` build'inde `-race`'in)
+> tip denetiminden geçirilir — `internal/operatorauth`'un `exactImports`'u ve `internal/db`'nin
+> `moduleExports`'u emsal, yeni bağımlılık yok — ve paketin adları işaret ettikleri NESNEYE
+> (`Info.Uses`/`Defs`), ifadeleri TİPLERİNE ve sabit DEĞERLERİNE (`Info.Types`) çözülür; takma ad, nokta
+> import'u, tip takma adı ve yöntem değeriyle yazılmış bir kullanım aynı nesneye çözüldü (X19, X19d2,
+> X19e, X19g, X20b, X20m kırmızı); konum `token.Pos`'tur (X19o kırmızı). Yükleyici, çalışan build'in
+> dışarıda bıraktığı test dışı bir dosya (`//go:build !race`, GOOS eki, cgo, assembly) ya da sekiz
+> importtan biri (`reflect`, `unsafe`, `plugin`, `text/template`, `html/template`, `encoding/json`,
+> `encoding/gob`, `encoding/xml`) görürse kırmızıdır. Pinlerin başlıkları üç parçalı; 4. turun
+> biçimi: PART II yalnız pinin listesi, PART III tek cümle. Pin kodları iki harfli (SC, PV, EN, FV,
+> AD, RH, HG, SN, IM), sızıntı testinin G/R/S/A/D'siyle ve OP-6'nın P/S'siyle çakışmasın diye.
+>
+> Değişen: ürün — `routes.go` (`sameOriginGate`'in ret kaydı WARN → Debug; yorumlar), `render.go`,
+> `form.go`, `enroll.go`, `signin.go`, `console.go`, `surface.go`, `internal/httpx/operatorhost.go`,
+> `web/templates/operatorpages/view.go`, `chrome.templ`, `enroll.templ`, `signin.templ`,
+> `web/templates/layout/base.templ` (+ üretilen `_templ.go`; yalnız yorumlar); testler — YENİ
+> `typepins_test.go` (9 pin; onuncusu `TestOperatorHostFile_ImportsOnlyThreeStandardPackages`, httpx'te), `op8r3_test.go` (F4, F5), `race_on_test.go`/`race_off_test.go`;
+> `op8r2_test.go` (iki sözdizimi pini kaldırıldı; başlık testi YENİDEN ADLANDIRILDI:
+> `TestOperatorHeaders_FortyResponseClassesCarryThePolicy`, eski adı "Every Response …" idi),
+> `op8_test.go` (başlıklar), `op8_db_test.go` (başlık, F3), `leak_test.go` (D1–D5 tanımlandı), `rig_test.go`
+> (`newRigAt`), `internal/httpx/operatorhost_test.go` (import pini, başlıklar); bu kart ve ADR 0020.
+> Migration YOK, bağımlılık YOK. Yukarıdaki md. 1, 2, 7, 8, 9, 11, 14, 15, 17, 2. tur B2/B4 ve
+> N13/N14/N18 satırları yerinde işaretlendi; L18, L19 eklendi.
+>
+> - **F1 (bloklayan) · "oturum çerezinin TEK okuması".** Ne değişti: sözdizimi pini kaldırıldı; yerine
+>   `TestSessionCookieReads_TheListedFormsOccurOnlyInRequireOperator` — SC1 `operatorauth.ReadSessionCookie`
+>   NESNESİNİN `(*Surface).requireOperator` dışındaki her kullanımı ya da orada 1'den farklı sayı; SC2
+>   `SessionCookieName` NESNESİNİN her kullanımı; SC3 değeri çerezin adını İÇEREN her sabit dizge
+>   ifadesi (harf duyarsız; literal, yerel sabit, sabit birleştirme); SC4 `(*http.Request).Cookie`,
+>   `Cookies`, `CookiesNamed`, `http.ParseCookie`; SC5 bu adlarla bir ARAYÜZ ya da tip-parametresi
+>   yöntemi üzerinden çağrı; SC6 `"Cookie"` başlık adına eşit sabit. PART III: çalışma zamanında
+>   kurulan başlık/çerez adı, başka paketteki okuyucu. Kontroller: aynı nesne çözümü
+>   `ReadChallengeCookie`'yi tam `codePage` ve `code`'da bulur; `(*http.Request).Context`, `templ.Component`
+>   üzerinden `Render`, iki `"Sec-Fetch-Site"` bulunur. Metinler (`routes.go`, md. 7, ADR (II))
+>   pinin listesine eşitlendi. **X19 ve X19c KIRMIZI** (paketin tamamı, DB'li — tek kırmızı yeni pin);
+>   **kontrol N18 KIRMIZI**; sevk edilen kod yeşil. Kaçışlar: aşağıdaki süpürme tablosu ve mutasyon tablosu.
+> - **F2 · `ProblemView` pini tip takma adını kaçırıyordu.** `TestProblemViews_TheListedBuildFormsOccurOnlyInRenderGo`
+>   — PV1 TİPİ `ProblemView` (her takma adla) olan bileşik literal, `render.go`'nun paket düzeyi bir
+>   değişkeninin DOĞRUDAN değeri ya da `problemTooMany`'nin içi dışında; `problemTooMany`'de 1'den
+>   fazla; anahtarsız literal · PV2 `problemPages`'in kullanmadığı değişken (boş tanımlayıcı dahil) ·
+>   PV3 `problemPages`'in `problemTooMany`'yi `false` ve `true` ile tam iki kez çağırmaması · PV4 sabit
+>   olmayan `Back` · PV5 bu literallerin anahtarı dışında bir `ProblemView` ALANI kullanımı (sıfır
+>   değere yazım, gömmeyle gelen alan, `&v.Back`) · PV6 `ProblemView`'dan kurulmuş bir tipe DÖNÜŞÜM ·
+>   PV7 onunla generic ÖRNEKLEME. PART III: alanı hiç yazılmamış SIFIR değer (kendi linki yok: `Back`
+>   boş, çubuğu `problemTooMany(false)`'unki), başka paketin döndürdüğü değer. Kontrol: üç `SignInView`
+>   literali ve `Failed`/`Expired` anahtarları bulunur. Kart B4 cümlesi listeye eşitlendi. **X20b
+>   KIRMIZI, kontrol X20c KIRMIZI.**
+> - **F3 · `op8_db_test.go` başlığı ve md. 17 "kalıcı satır 0" yanlıştı.** Ölçüldü ve yazıldı (md. 17,
+>   dosya başlığı): koşu başına commit eden tek test, altı satır, operatör tablolarında 0, kabul
+>   gerekçesi ve T81 sınıfı. Kod değişikliği yok (kalıcılık kabul — panel emsali).
+> - **F4 · konsolun `floodGate`'i ölçülmüyordu.** `TestFloodGate_AnExhaustedAddressReachesNoConsolePredicate`:
+>   bir adres 300 giriş sayfasıyla flood bütçesini harcar (store 0), aynı adresten CANLI çerezle konsol
+>   → 429 ve store çağrısı 0 (`TouchOperatorSession` dahil); kontrol: aynı çerez başka adresten → 200
+>   ve tam 1 yüklem çağrısı. `surface.go` (`sessionLimit`), `routes.go` (`floodGate`), md. 7, ADR (iii)
+>   ona atıf yapar. **X03 KIRMIZI.**
+> - **F5 · çıkıştaki origin reddi log'u çağıranın yazdırdığı bir satırdı.** *(4. turda değişti — B6:
+>   pencere başına bir WARN, gerisi Debug; test yeniden adlandırıldı:
+>   `TestSameOriginGate_RefusalsWriteOneWarnPerWindowAtTheShippedLevel`. Aşağıdaki 3. tur metni o
+>   turun kararıdır.)* Karar **(a)**: `sameOriginGate`'in
+>   ret kaydı WARN → **Debug** (üretim Info'da: `deploy/k8s/05-config.yaml`; erişim log'u istek başına
+>   zaten bir kayıt yazar). (b) elendi: çıkışın önüne bir bütçe B3'ü bozar — saf hâli X21b ölçüldü: çıkış
+>   testleri ve sızıntı testi kırmızı. 3. turun testi (Info):
+>   500 çerezsiz, Origin'siz çıkış → 500 × 403, store 0; aynı adresten 500 çapraz-origin giriş → 300 × 403
+>   + 200 × 429 (çıkış retleri bütçe harcamadı); ret kaydı 0; erişim kaydı 1 000; ardından operatörün
+>   kendi çıkışı aynı adresten oturumu kapatır (303, canlı oturum 0 — B3 bozulmadı); kontrol: Debug'da
+>   tek ret bir kayıt. Metinler: `routes.go` (`sameOriginGate`, `floodGate`, `mount`), md. 8, ADR (iv),
+>   L19. **X21a (WARN'a geri) KIRMIZI — Info'da 800 kayıt (iki biçimde 1 600 satır); X21b KIRMIZI; X21c (satır tümden silindi)
+>   KIRMIZI.**
+> - **F6 · numaralar.** md. 14'ün "G10"u G15 yapıldı. Kartta, ADR'de ve yorumlarda geçen G/R/S/A/D/L/C
+>   numaraları teste karşı denetlendi: G1–G15, R1–R10, S1–S4, A1–A30, C1–C40 testtekiyle eşit; L1–L19
+>   kartta tanımlı; P1–P9/S1–S14 OP-6 md. 18'in; M08/M09 (`operatorhost.go`) 2. tur tablosuyla eşit.
+>   Bulunan ikinci kusur: D1–D5 `leak_test.go` başlığında anılıyor ama TANIMLANMIYORDU — tanımlandı
+>   (D1 challenge, D2 oturum token'ı, D3 sayfanın TOTP anahtarı, D4 mühürlü blob, D5 geri yazılan link
+>   token'ı; izin tablosundan okundu); kartın D atıfları (md. 10, L7, B5, B6, N15, N16) bununla tutarlı.
+>
+> **Öz-denetim süpürmesi (3. tur).** *(4. tur: 3. turun 43 satırlık tablosu kaldırıldı. "Sertleştirildi"
+> satırları bir pinden ürüne dair genel hüküm çıkarıyordu — 3. tur denetçisi beşini mutasyonla aştı
+> (`maps.Copy`, `encoding/asn1`, `r.TLS.ServerName`, `URL.RequestURI()`, `X-Cluster-Client-IP`).
+> Yeniden yapılmış tablo — önceki metin · yeni metin · tür — 4. tur alt bloğunda.)*
+>
+> **3. tur mutasyon tablosu (kopyala-geri-yaz, yalnız scratchpad yedekleri; yeni dosyalar koşudan sonra
+> silindi; her biri diskte `diff` ile görüldü, geri yükleme sha256 ile; ağacın parmak izi önce/sonra
+> eşit).** **51 deneme: 48 kırmızı, 2 yeşil BEKLENEN (X19r, X19s — PART III, L18), 1 derlenmez (X19d — bu pakette yazılamayan kaçış)**.
+> Paketin tamamıyla (DB'li) koşulanlar: X19, X19c, N18, X20b, X20c, X03, X21a, X21b — her birinde
+> kırmızıya dönen yalnız tabloda adı geçenler.
+>
+> | Kimlik | Ne | Sonuç | Kırmızıya çevirdiği test(ler) |
+> |---|---|---|---|
+> | X19 | console.go reads the session cookie through an import alias (oa.ReadSessionCookie) in logout | RED | `TestSessionCookieReads_TheListedFormsOccurOnlyInRequireOperator` |
+> | X19c | sessionGate reads the cookie a second time with r.Cookie(operatorauth.SessionCookieName) | RED | `TestSessionCookieReads_TheListedFormsOccurOnlyInRequireOperator` |
+> | N18 | CONTROL: sign-out reads the cookie itself (operatorauth.ReadSessionCookie, plain spelling) | RED | `TestSessionCookieReads_TheListedFormsOccurOnlyInRequireOperator` |
+> | X19d | dot import of operatorauth in a new file, ReadSessionCookie(r) | BUILD FAILED | — (derlenmez: `New` hem `operator`'da hem `operatorauth`'ta; bu kaçış bu pakette yazılamaz) |
+> | X19d2 | dot import of net/http in a new file, r.Cookie("x") on *Request | RED | `TestSessionCookieReads_TheListedFormsOccurOnlyInRequireOperator` |
+> | X19e | ReadSessionCookie taken as a function value at package level (console.go) | RED | `TestSessionCookieReads_TheListedFormsOccurOnlyInRequireOperator` |
+> | X19f | method value: get := r.Cookie in sessionGate | RED | `TestSessionCookieReads_TheListedFormsOccurOnlyInRequireOperator` |
+> | X19g | method expression through a type alias: (*rq).Cookie(r, ...) | RED | `TestSessionCookieReads_TheListedFormsOccurOnlyInRequireOperator` |
+> | X19h | r.Cookies() loop comparing against a name built at run time | RED | `TestSessionCookieReads_TheListedFormsOccurOnlyInRequireOperator` |
+> | X19i | raw header index r.Header["Cookie"] | RED | `TestResponseHeaders_TheListedNamesAreWrittenOnlyInTheirFunctions`, `TestSessionCookieReads_TheListedFormsOccurOnlyInRequireOperator` |
+> | X19j | raw header read r.Header.Get("cookie") (lower case) | RED | `TestSessionCookieReads_TheListedFormsOccurOnlyInRequireOperator` |
+> | X19k | string literal instead of the constant: r.Cookie("__Host-taptime_op") | RED | `TestSessionCookieReads_TheListedFormsOccurOnlyInRequireOperator` |
+> | X19l | the name as a constant concatenation, used by no cookie reader | RED | `TestSessionCookieReads_TheListedFormsOccurOnlyInRequireOperator` |
+> | X19m | interface dispatch: var c interface{ Cookies() []*http.Cookie } = r | RED | `TestSessionCookieReads_TheListedFormsOccurOnlyInRequireOperator` |
+> | X19n | embedding: struct{ *http.Request }{r}.Cookie(...) | RED | `TestSessionCookieReads_TheListedFormsOccurOnlyInRequireOperator` |
+> | X19o | a package-level func named requireOperator in another file under //line routes.go | RED | `TestSessionCookieReads_TheListedFormsOccurOnlyInRequireOperator` |
+> | X19p | a //go:build !race product file reading the cookie, under -race | RED | yükleyiciyi kullanan her go/types pini (çalışan build'in dışarıda bıraktığı ürün dosyası reddedilir) |
+> | X19p2 | the same file, without -race | RED | `TestSessionCookieReads_TheListedFormsOccurOnlyInRequireOperator` |
+> | X19q | reflection: a file importing reflect | RED | yükleyiciyi kullanan her go/types pini (`reflect` importu reddedilir) |
+> | X19r | PART III: a helper in ANOTHER package (httpx) reads the cookie; logout calls it | GREEN | — (yeşil, BEKLENEN: PART III, L18) |
+> | X19s | PART III: the Cookie header read under a name built at run time | GREEN | — (yeşil, BEKLENEN: PART III, L18) |
+> | X20b | type alias pv = operatorpages.ProblemView; var _ = pv{Back: /operator/nowhere} in render.go | RED | `TestProblemViews_TheListedBuildFormsOccurOnlyInRenderGo` |
+> | X20c | CONTROL: the same literal spelled operatorpages.ProblemView{...} in home | RED | `TestProblemViews_TheListedBuildFormsOccurOnlyInRenderGo` |
+> | X20d | elided type in a slice literal: []operatorpages.ProblemView{{Back: ...}} | RED | `TestProblemViews_TheListedBuildFormsOccurOnlyInRenderGo` |
+> | X20e | zero value + field write in home | RED | `TestProblemViews_TheListedBuildFormsOccurOnlyInRenderGo` |
+> | X20f | conversion from an identical struct type | RED | `TestProblemViews_TheListedBuildFormsOccurOnlyInRenderGo` |
+> | X20g | generic constructor instantiated with ProblemView | RED | `TestProblemViews_TheListedBuildFormsOccurOnlyInRenderGo` |
+> | X20h | embedding: a wrapper struct's promoted Back written | RED | `TestProblemViews_TheListedBuildFormsOccurOnlyInRenderGo` |
+> | X20i | a listed variable's Back made non-constant | RED | `TestProblemViews_TheListedBuildFormsOccurOnlyInRenderGo` |
+> | X20j | an unkeyed literal, listed by problemPages | RED | `TestProblemViews_TheListedBuildFormsOccurOnlyInRenderGo` |
+> | X20k | problemPages omits a variable (N14 shape) | RED | `TestProblemViews_TheListedBuildFormsOccurOnlyInRenderGo` |
+> | X20l | problemPages calls problemTooMany(false) twice | RED | `TestProblemViews_TheListedBuildFormsOccurOnlyInRenderGo` |
+> | X20m | dot import of operatorpages in a new file, ProblemView{Back: ...} | RED | `TestProblemViews_TheListedBuildFormsOccurOnlyInRenderGo` |
+> | X03 | floodGate removed from the console group | RED | `TestFloodGate_AnExhaustedAddressReachesNoConsolePredicate` |
+> | X21a | the origin refusal back at WARN | RED | `TestSameOriginGate_RefusalsWriteOneWarnPerWindowAtTheShippedLevel` (3. turdaki adıyla koşuldu; 4. turda yeniden adlandırıldı) |
+> | X21b | option (b) done naively: an obeyed floodGate in front of sign-out | RED | `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor`, `TestLogout_ACookielessFloodCostsNothingAndCannotRefuseIt`, `TestLogout_IsNotRefusedByTheBudgetAThirdPartyCanSpend`, `TestLogout_PastTheCeilingTheBrowserStillForgetsTheSession`, `TestSameOriginGate_RefusalsWriteOneWarnPerWindowAtTheShippedLevel` (3. turdaki adıyla koşuldu; 4. turda yeniden adlandırıldı) |
+> | X21c | the refusal line removed altogether (the Debug control) | RED | `TestSameOriginGate_RefusalsWriteOneWarnPerWindowAtTheShippedLevel` (3. turdaki adıyla koşuldu; 4. turda yeniden adlandırıldı) |
+> | X22a | the passwords-differ re-render bypasses renderEnroll | RED | `TestEnrollScreen_TheListedFormsRenderItOnlyInRenderEnroll`, `TestOperatorHeaders_FortyResponseClassesCarryThePolicy` |
+> | X22b | a revealed password reaches a log attribute (as len's argument) | RED | `TestFormValues_TheListedSitesAloneRevealOrReadTheForm` |
+> | X22c | r.FormValue in signIn | RED | `TestFormValues_TheListedSitesAloneRevealOrReadTheForm` |
+> | X22d | r.PostForm.Get("password") read directly in signIn | RED | `TestFormValues_TheListedSitesAloneRevealOrReadTheForm` |
+> | X22e | logoutGate logs its rate key at Debug | RED | `TestClientAddress_TheListedReadsFeedOnlyTheBudgets`, `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor` |
+> | X22f | rateKey touches r.RemoteAddr | RED | `TestClientAddress_TheListedReadsFeedOnlyTheBudgets` |
+> | X22g | a redirect target taken from the request | RED | `TestResponseHeaders_TheListedNamesAreWrittenOnlyInTheirFunctions` |
+> | X22h | securityHeaders deletes a header | RED | `TestResponseHeaders_TheListedNamesAreWrittenOnlyInTheirFunctions` |
+> | X22i | render writes a Location header | RED | `TestResponseHeaders_TheListedNamesAreWrittenOnlyInTheirFunctions` |
+> | X22j | hostGate compares r.Host itself | RED | `TestHostGate_TheListedHostReadsOccurOnlyThroughOnHost` |
+> | X22k | operatorpages exports a component screens() does not render | RED | `TestOperatorPages_TheExportedScreensAreTheOnesScreensRenders` |
+> | X22l | a customer-side package imports operatorpages | RED | `TestOperatorPages_ImportedOnlyByTheSurfaceAndSharingOnlyTheShell` |
+> | X22m | operatorhost.go imports internal/config | RED | `TestOperatorHostFile_ImportsOnlyThreeStandardPackages` |
+> | X22n | internal/httpx comes to depend on an operator package (operatorauth, through a new file) | RED | `TestOperatorPages_ImportedOnlyByTheSurfaceAndSharingOnlyTheShell` |
+>
+> **Kart düzeltmesi — 4. tur (2026-10-02, 3. üçüncü göz denetçisinin RED'inden sonra: 1 bloklayan + 6
+> bloklamayan; hepsi kapatıldı). İDDİANIN BİÇİMİ DEĞİŞTİ (orkestratör kararı: sınıf üç tur üst üste —
+> 1. tur B2, 2. tur F1, 3. tur B1).** Her tur bir denetçi bir pinin listesinin dışında kalan bir Go
+> biçimi bulup onu "so nothing …", "never", "only … in the package" diyen bir cümleyle çelişir
+> buluyordu. Bu turda: (1) pinden ürüne dair genel hüküm çıkaran cümleler kaldırıldı ya da "pin X
+> şu listeyi yakalar" biçimine indirildi; (2) PART III tek düz cümle, gerekçesiz; (3) korunması
+> önemli olan yanıt başlıkları DAVRANIŞ olarak, 40 sayılı sınıfta, düşmanca istek başlıklarıyla
+> ölçülüyor; (4) süpürme tablosu aşağıda yeniden yapıldı ve kalan evrensel sözcüklerin listesi
+> teslim raporundadır (kart özetiyle).
+>
+> Değişen: ürün — `routes.go` (`sameOriginGate`'in ret kaydı: pencere başına bir WARN, gerisi Debug;
+> yorumlar), `surface.go` (`originRefusals` sınırlayıcısı, `originRefusalPeriod`; yorumlar),
+> `render.go`, `form.go`, `enroll.go`, `signin.go`, `console.go` (yorumlar),
+> `web/templates/operatorpages/enroll.templ` (zayıf parola uyarısı metni + yorum), `view.go`,
+> `chrome.templ`, `home.templ`, `signin.templ`, `layout/base.templ` (yorumlar; üretilen `_templ.go`),
+> `web/static/js/operator/enroll.js` (yorumlar; kodun özeti değişmedi), `internal/httpx/operatorhost.go`,
+> `router.go`, `cmd/tappa/operator.go` (açılış satırının metni), `operatorauth/limits.go`,
+> `config/config.go`, `handler/marketing.go`, `deploy/README.md` (cümleler); testler — 40 sınıflık
+> başlık testi düşmanca başlık + sorgu ile (`op8r2_test.go`: `hostileHeaders`, `hostileQuery`,
+> `hostileCookieLine`, `designedHeaders`, `checkDesignedHeaders`, kontrol), `rig_test.go` (`cookieLine`),
+> `op8r3_test.go` (F5 testi yeniden adlandırıldı:
+> `TestSameOriginGate_RefusalsWriteOneWarnPerWindowAtTheShippedLevel`; iki adres), yeni `op8r4_test.go`
+> (`TestEnroll_TheWeakPasswordNoticeNamesBothLimits`), `typepins_test.go` (başlıklar; `reflectiveImports` →
+> `refusedImports`), başlık ve yorum düzeltmeleri `op8_test.go`, `op8_db_test.go`, `leak_test.go`,
+> `export_test.go`, `operatorhost_test.go`, `operatorauth/surface_external_test.go`, `export_test.go`,
+> `cmd/tappa/observability_test.go`, `handler/marketing_test.go`; bu kart ve ADR 0020 (OP-8 notu bu
+> biçimle yeniden yazıldı). Migration YOK, bağımlılık YOK. `app.css` değişmedi (`make css` öncesi/sonrası
+> bayt bayt aynı — yorumlardan kural doğmadı). Kartın OP-8 bloğunda md. 1–19 yeniden yazıldı, md. 20–21,
+> L18–L19 güncellendi, 2. ve 3. tur alt bloklarının evrensel cümleleri işaretlendi, 3. turun süpürme
+> tablosu kaldırıldı.
+>
+> - **B1 (bloklayan) · yanıt başlıkları.** Ne değişti: RH pinine dayanan cümleler ("never deleted",
+>   "the header written only in those two places", "Location is written nowhere else … So nothing
+>   from the request is put into a Location header", ADR (v), md. 11) kaldırıldı; başlıkların iddiası
+>   artık DAVRANIŞ: `TestOperatorHeaders_FortyResponseClassesCarryThePolicy` 40 sınıfın her birini
+>   `Location`, `Content-Security-Policy`, `Cache-Control`, `Referrer-Policy`, `X-Content-Type-Options`,
+>   `Set-Cookie`, `X-Frame-Options`, `Access-Control-Allow-Origin`, `Refresh` istek başlıkları ve
+>   operatörün iki çerez adını taşıyan ikinci bir `Cookie` satırıyla sürer ve her sınıfta yanıt
+>   başlıklarının ADLARINI tasarlanan kümeye, değerlerini tasarlanan değerlere tutar (md. 11).
+>   Pozitif kontrol: başlıkları yanıta kopyalayan, sorguyu gövdeye yazan bir işleyici kontrolü geçemez.
+>   **G-RH-copy2 (X23a), G-RH-copy (X23b), G-RH-clear (X23c), G-RH-mime (X23d) KIRMIZI** (başlık testi);
+>   RH pini X23a–X23c'de yeşil kaldı (PART III, beklenen).
+> - **B2 · sorgu okumaları.** `enroll.go` ve md. 15 metni FV listesine indirildi. Davranış: md. 20 —
+>   40 sınıflık testin ~~27~~ 28 sınıfı *(6. tur, N-1: C40 sayılmamıştı; C41–C48 eklendikten sonra
+>   iki tabloda 32)* düşmanca bir sorgu dizgisiyle (token, adres, parola, kod, blob; POST'ta id)
+>   sürüldü ve o değerler yanıtlarda ham ya da sorgu-kaçışlı biçimiyle bulunmadı *(6. tur, B1)*; ayrıca `TestEnroll_TheTokenNeverTravelsInTheURL`,
+>   `TestSignIn_ReadsTheBodyNeverTheQuery`, sızıntı A28/A29. **G-FV-q1 (X24a: `strings.Cut(r.URL.RequestURI(),
+>   "token=")`'un sonucunu sayfaya yazmak) KIRMIZI** — başlık testi, `TestEnroll_TheTokenNeverTravelsInTheURL`,
+>   sızıntı testi; **G-FV-q2 (X24b: `r.URL.Redacted()`'i Info'da log'lamak) KIRMIZI** — sızıntı testi
+>   (A29, S1). FV pini ikisinde de yeşil (PART III, beklenen). *(İtiraz, ölçümle: "sonuç ve gövde
+>   sorgusuzla aynı" iki sürüşle ölçülemez — enrollment sayfası her yüklemede taze anahtar ve blob
+>   taşır, bütçe ve oturum durumu sürüşler arasında değişir; ölçülen: tasarlanan durum, tasarlanan
+>   başlıklar ve sorgu değerlerinin yanıtta ham ya da sorgu-kaçışlı biçimiyle yokluğu — 6. tur, B1.)*
+> - **B3 · yükleyicinin reddettiği importlar.** "yansımalı çözücüler" genellemesi kaldırıldı; sekiz import
+>   adıyla (`typepins_test.go` `refusedImports`, L18, ADR (II)/(III)). **G-PV-asn1 (X25a) YEŞİL —
+>   PART III, beklenen** (`encoding/asn1` listede değil).
+> - **B4 · host okumaları.** `routes.go` `hostGate`/`OnHost` ve ADR (ii)'deki "no other read of the
+>   request's host" / "host'u yalnız httpx.OnHost okur" kaldırıldı; HG pini listesini yakalar.
+>   **G-HG-tls (X25b, `r.TLS.ServerName`) YEŞİL — PART III, beklenen.**
+> - **B5 · yönlendirilmiş-adres başlıkları.** "the forwarded-address headers" → AD3'ün altı adı adıyla
+>   (md. 14, `typepins_test.go` `forwardedHeaders`). Ölçülen yarı G15 × S1–S4 × A1–A30.
+>   **G-AD-hdr (X25c, `X-Cluster-Client-IP`) YEŞİL — PART III, beklenen.**
+> - **B6 · F5 kararı.** Önerilen üçüncü seçenek uygulandı: `sameOriginGate`'in ret kaydı, süreç geneli
+>   10 dakikalık pencerenin ilk reddi için bir WARN (yöntem; adres yok — OP-8'in adres kararı), gerisi
+>   Debug (`httpx.Limiter`, sınır 0, sabit anahtar; `logoutGate`/`sessionGate`'teki `FirstOverLimit`
+>   deseni). Ölçüm `TestSameOriginGate_RefusalsWriteOneWarnPerWindowAtTheShippedLevel` (Info): 500
+>   reddedilmiş çıkış + 500 çapraz-origin giriş (300 × 403, 200 × 429) + ikinci adresten 1 ret → 801
+>   ret, **1 WARN kaydı**, store 0, erişim kaydı 1 001; ardından operatörün kendi çıkışı aynı adresten
+>   oturumu kapatır (B3 bozulmadı); kontrol: Debug'da iki ret → 1 WARN + 1 DEBUG. Panelin
+>   `sameOriginGate`'i her reddi WARN olarak, ip ile yazar (`internal/handler/adminlogin.go:592`);
+>   `deploy/README.md`'nin yedi uyarı kuralından biri de operatör 403'ünü ya da bu kaydı okumaz (L19).
+>   **X26a (3. turun hep-Debug'ı) KIRMIZI, X26b (her rete WARN) KIRMIZI — 801 WARN, X26c (anahtar adres
+>   başına) KIRMIZI — 2 WARN;** pozitif kontrol: sevk edilen kod yeşil; X21b (çıkışın önüne uyulan flood
+>   kapısı) 3. turda kırmızıydı.
+> - **B7 · zayıf parola uyarısı.** `operatorauth` 14 karakterden kısa, 72 bayttan uzun ve UTF-8 olmayan
+>   parolayı tek hatayla döndürür; başlık "That password is too short" diyordu. Yeni metin (tappa-brand
+>   ses tonu: ne yapılacağını söyler): başlık "Choose another password", gövde "Use at least 14
+>   characters and at most 72 bytes. A letter with an accent, or from another alphabet, takes two bytes
+>   or more." `TestEnroll_TheWeakPasswordNoticeNamesBothLimits`: dört kol (13 karakter, 73 tek baytlı, 37 iki
+>   baytlı, UTF-8 olmayan 20 bayt) 400 + bu uyarı, "too short" yok; kontrol: kurala uyan parola yanlış
+>   kodla kod uyarısını alır. **X27a (eski başlık) KIRMIZI, X27b (72 bayt cümlesi yok) KIRMIZI.**
+>
+> **Süpürme (4. tur, yeniden yapıldı) — OP-8 metinlerinde değişen cümleler.** Tür: *PART I* = sayılı bir
+> kümede ölçülen davranış (adıyla test); *PART II* = bir pinin yakaladığı liste; *PART III* = tamlık
+> iddiası yok (tek cümle); *kod tarifi (okuma)* = kodun ne yaptığının evrensel sözcüksüz tarifi; *olgu
+> (dış)* = ürün dışı bir olgu (HTTP, tarayıcı). 3. turun "sertleştirildi" satırlarının hepsi burada
+> yeniden değerlendirildi; o satırların konuları — çerez okuması, `ProblemView`, `renderEnroll`, `redirect`,
+> `rateKey`, `OnHost`/`hostGate`, `httpx` ve `operatorhost.go` importları, `sameOriginGate`, `floodGate`,
+> `reveal`, enrollment'ın sorgu okuması, `operatorpages` importları, `Back`, `base.templ`'in script-src
+> cümlesi, ekran testleri — aşağıda kendi satırlarındadır.
+>
+> | # | Yer | Önceki metin (alıntı) | Yeni metin (özet) | Tür |
+> |---|---|---|---|---|
+> | 1 | routes.go `mount` | "for every method and every path under Prefix"; "the 3 001 the test sends refuse nothing"; "is the only BUDGET that refuses it" | zincir kodu tarif eder; çıkışın üç ölçümü adıyla (3 001 çerezsiz, 3 000 çerezli, 500 çapraz-origin) | PART I |
+> | 2 | routes.go `hostGate` | "The comparison is httpx.OnHost …; for THIS package that is pinned (… one OnHost call, here, and no other read of the request's host …)" (B4) | "when httpx.OnHost(r, s.host) is false it answers http.NotFound"; ölçüm: manifest host'ları + altı host, yedi yöntem, dokuz yol | PART I |
+> | 3 | routes.go `securityHeaders` | "structurally, these four names are written only here (and the CSP replaced only by renderEnroll), never deleted" (B1) | "sets four response headers"; ölçüm: 40 sınıf düşmanca başlıklarla, adlar ve değerler tasarlanana eşit | PART I |
+> | 4 | routes.go `rateKey` | "STRUCTURALLY, this package reads the address only here and hands it only to the budgets … whose list includes RemoteAddr and the forwarded-address headers" (B5) | "uses it as a budget key"; ölçüm G15 × S1–S4 × A1–A30; "AD pini başlığındaki listeyi yakalar" | PART I + PART II |
+> | 5 | routes.go `floodGate` | "every request in the group charges it, and a request past it is answered 429 before it is looked at further" | "a request in the sign-in and console groups charges it"; konsolda ölçüm (tükenmiş adres, 429, store 0) | PART I |
+> | 6 | routes.go `logoutGate` | "sign-out's own wider ceiling is the only thing that refuses it" | "refuses past sign-out's own ceiling (signOutLimit) with 429" | kod tarifi (okuma) |
+> | 7 | routes.go `sameOriginGate` | "writes a process-log record only at Debug … refused sign-outs are unbounded, and each is an access record and a 403 render, nothing more" (B6) | "the first refusal of a 10-minute window, process-wide, is one WARN record …; the others are Debug"; ölçüm 801 ret / 1 WARN | PART I |
+> | 8 | routes.go `requireOperator` | "(I) … reads the session cookie no other way the pin lists; (II) … resolves … through any alias …; (III) …" | "TestSessionCookieReads_… catches the list in its header" | PART II |
+> | 9 | routes.go `sessionGate` | "runs THE session predicate" | "runs the session predicate" | kod tarifi (okuma) |
+> | 10 | render.go `operatorCSP` | "Both halves are pinned: … and in the source -- the header written only in those two places" (B1) | "Measured on the 40 classes of TestOperatorHeaders_FortyResponseClassesCarryThePolicy" | PART I |
+> | 11 | render.go `enrollCSP` | "leaves those files unloadable on this page even if markup were injected into it" | "does not let a page under this policy load them"; ölçüm 4 / 36 sınıf | PART I |
+> | 12 | render.go `readForm` | "parses the POST body (never the query string: PostForm, not Form)" | "the handlers read r.PostForm (the body), not r.Form" | kod tarifi (okuma) |
+> | 13 | render.go `redirect` | "Every call in this package passes a constant …, and Location is written nowhere else in the package … So nothing from the request is put into a Location header by this package." (B1) | ölçüm: 40 sınıfın Location'ı düşmanca Location isteğiyle tasarlanan yol; "RH pini başlığındaki listeyi yakalar" | PART I + PART II |
+> | 14 | render.go `renderEnroll` | "is the one place this package renders the enrollment screen … each used once, in their one place" | "renders the enrollment screen …"; ölçüm 4 / 36; "EN pini listesini yakalar" | PART I + PART II |
+> | 15 | render.go ProblemView bloğu | "WHERE A ProblemView IS BUILT, IN THREE PARTS … the package sets ProblemView fields only in the eight variables below and in problemTooMany" | "problemPages lists them (eight variables and problemTooMany twice); link testi onunu render eder; PV pini listesini yakalar" | PART I + PART II |
+> | 16 | render.go `problemPages` | "lists every ProblemView this package sets a field of (the pin above)" | "lists the eight variables above and problemTooMany(false) and (true)" | kod tarifi (okuma) |
+> | 17 | render.go sayfa sabitleri | "none quotes the request" | "Their sentences are constants" | kod tarifi (okuma) |
+> | 18 | form.go `formValue` | "Where it is called is pinned … allows exactly nine … and refuses reveal taken as a value and a credential field's name used anywhere but as postValue's argument. PART III there: …" (B2) | "TestFormValues_… catches the list in its header"; "a deliberate extraction is not prevented" | PART II |
+> | 19 | form.go `postValue` | "(never the query string)" | "one field of r.PostForm (the body)" | kod tarifi (okuma) |
+> | 20 | enroll.go dosya notu | "A token that arrives in the QUERY anyway (?token=...) is ignored: the GET reads only id, and the POST reads only its body (… pins the package's query read to enrollPage's one .Get("id") …)" (B2) | "enrollPage reads the query's id; enroll reads r.PostForm"; ölçüm: TestEnroll_TheTokenNeverTravelsInTheURL, A29, 27 sınıfın düşmanca sorgusu; "FV pini listesini yakalar" | PART I + PART II |
+> | 21 | enroll.go dosya notu | "a browser never sends a fragment, so it reaches no ingress log, no proxy and no access record" | "which a browser does not put in a request" | olgu (dış) |
+> | 22 | enroll.go `enrollPage` | "reads no database … every well-formed id gets the same kind of page" | "makes no store call … a well-formed id gets the same kind of page whether it names a pending account, an active one or nobody" | kod tarifi (okuma) |
+> | 23 | enroll.go `enroll` | "THE TWO PASSWORDS ARE COMPARED HERE, FIRST, AND THAT REFUSAL COSTS NOTHING … before any budget is spent or any row is written"; "the one place the token is written after it arrives" | "a mismatch is answered before a budget is charged or a store method is called"; "the leak test's designed egress D5"; B7 notu | kod tarifi + PART I |
+> | 24 | signin.go `signInPage` | "It reads nothing and writes nothing." | "it makes no store call and sets no cookie" | kod tarifi (okuma) |
+> | 25 | signin.go `signIn` | "🔴 ONE ANSWER FOR EVERY REFUSED ARM, AND THIS HANDLER ADDS NO ARM THAT DEPENDS ON THE ACCOUNT" | "ONE ANSWER FOR THE REFUSED ARMS"; ölçüm sekiz kol | PART I |
+> | 26 | signin.go `codePage`/`code` | "its presence is all a page needs"; "has no use once a session exists" | ölçülen davranış + `TestSignIn_TheCodeStepClearsTheChallenge` | PART I |
+> | 27 | console.go `home` | "links to no screen that does not exist" | "its links are held to the mounted routes by TestOperatorScreens_EveryActionAndLinkIsAMountedRoute" | PART I |
+> | 28 | console.go `logout` | "THE COOKIE IS CLEARED ONLY WHEN THE DATABASE HAS ENDED THE SESSION"; "A request with no cookie never gets here" | "On a database fault the session cookie is kept … Measured: …"; "requireOperator is in front" | PART I |
+> | 29 | surface.go paket notu | "none of them reads a tenant … NOT registered … and nothing links to them" | "none of the five reads a tenant"; iki testle ölçüm | PART I |
+> | 30 | surface.go `sessionLimit` | "so only the holder of that session's cookie can spend it"; "That work is bounded per ADDRESS only, by the flood budget in front" | "spending it takes that session's cookie"; "The predicate's work per address is bounded by the flood gate in front" + ölçüm | PART I |
+> | 31 | surface.go `signOutLimit` | "and the ONLY budget that may refuse one" | kaldırıldı ("logoutGate refuses past ten times that number") | kod tarifi (okuma) |
+> | 32 | surface.go `operatorOrigin` | "a browser's Origin header never carries one"; "instead of failing every sign-in" | "a browser serialises Origin without it"; kaldırıldı | olgu (dış) |
+> | 33 | httpx/operatorhost.go dosya notu | "operator routes answer 404 on every other host"; "🔴 THIS FILE IMPORTS NOTHING OF THE OPERATOR'S … imports are net, net/http and strings and nothing else" | "on a host that is not the operator's"; "This file's imports are net, net/http and strings (TestOperatorHostFile_… catches a change to that list)" | kod tarifi + PART II |
+> | 34 | httpx/operatorhost.go `OnHost` | "The OPERATOR half's call is pinned there (… and no other read of the request's host in that package)" (B4) | "operatorHostOnly here and hostGate … call it" | kod tarifi (okuma) |
+> | 35 | httpx/operatorhost.go `OnHost` | "X-Forwarded-Host is not read: not here …, not in internal/handler/operator (HG3 …); a search … found no reader" | "OnHost does not read X-Forwarded-Host (that test's two X-Forwarded-Host rows; mutation M08)" | PART I |
+> | 36 | httpx/operatorhost.go `OnHost` | "Either way the page making the POST is an operator page: that spelling serves nothing else. The wider classification is the side that keeps customer pages away from anything that spells the operator host." | "Classified as the operator host, such a request is served the operator surface" | kod tarifi (okuma) |
+> | 37 | httpx/operatorhost.go `operatorHostOnly` | "it lets through only the operator surface … answers every other path 404 … On every other host it does nothing"; "so no probe ever carries the operator host" | "it passes … and answers the other paths with http.NotFound … When OnHost is false it passes the request on unchanged. Measured on the rows …"; "(read from the manifest; not measured in a cluster)" | kod tarifi + PART I |
+> | 38 | httpx/operatorhost.go `routingPath` | "EQUIVALENT for these prefixes -- the decoded path starts with /operator/ or /static/ exactly when the escaped one does" | "Mutation M09 … left the tests green: on their rows the two classify alike" | PART I |
+> | 39 | httpx/router.go | "that host serves the operator surface and the static assets and nothing else … so no customer handler runs first" | "operatorHostOnly decides that host's requests … it runs before a route's handler" | kod tarifi (okuma) |
+> | 40 | operatorpages/view.go paket notu | "nothing on the customer side imports this package … and no other package of the module. Both halves pinned" | "Measured with `go list` (non-test imports, the build being run): …" | PART I |
+> | 41 | operatorpages/view.go `TenantName`/`TenantScreen` | "the only way to hold a name is NewTenantName"; "the chrome a screen … renders through … (that every such screen does is code review's …) … writing NOTHING" | "a name is made with NewTenantName"; "returns ErrNoTenantName before writing a byte" | kod tarifi (okuma) |
+> | 42 | operatorpages/view.go `SignInView` | "Failed is the one sentence a refused password step shows … whatever was typed" | "Failed selects the sentence …"; sekiz kolun bayt karşılaştırması | PART I |
+> | 43 | operatorpages/view.go `Back`, `Token` | "In internal/handler/operator every Back set is a constant (… PV4)"; "which no browser sends" | "The links of the ten pages … are held to mounted routes by TestProblemPages_LinkOnlyToMountedRoutes"; "which a browser does not put in a request" | PART I |
+> | 44 | operatorpages/home.templ | "🔴 IT SHOWS NO TENANT DATA AND PROMISES NOTHING THE BUILD DOES NOT DO … links to no screen"; "never quote a request" | "It shows no tenant data … carries no link of its own"; "Its sentences come from the handler's ProblemView constants" | kod tarifi (okuma) |
+> | 45 | operatorpages/chrome.templ | "Every operator screen this package ships is rendered inside …"; "this is the one surface of the product that reaches across tenants"; "Its one caller is tenantScreen …"; "for the enrollment screen alone. It is never signed in"; "TenantScreen is the door" | "The six exported screens … Measured: 12 variants"; "this surface reaches across tenants (ADR 0021)"; "In this package's source today its caller is … (read, not pinned)"; "Enroll is its caller. It draws the bar signed out" | PART I + kod tarifi |
+> | 46 | operatorpages/enroll.templ | "It is the ONLY script an operator screen loads … names this exact path and nothing else (enrollCSP, which only renderEnroll sends -- EN pin)"; "which a browser never sends"; "never as a QR code" | "Measured: of the 40 … four load a script … their policy names this path"; "does not put in a request"; "not as a QR code" | PART I |
+> | 47 | operatorpages/signin.templ | "THE FAILURE SENTENCE IS FIXED …"; "It is reached only with a login challenge …; the handler sends anyone else back"; "shown only to someone holding a challenge, which only the right password mints, so it tells the password holder nothing they could not learn by trying" | sekiz kolun bayt karşılaştırması; "The handler renders it for a request with a login challenge cookie and redirects the others"; "It is shown to a request holding a challenge, which the right password mints, so it tells the password holder what trying codes would tell them" | PART I + kod tarifi |
+> | 48 | layout/base.templ `Operator` | "screens must never be mistaken"; "an operator page is never indexed"; "only the enrollment screen names a script-src, and it names exactly one file (pinned there: EN, RH)" | "meant not to be mistaken"; kaldırıldı; "measured there, of the 40 response classes … the four enrollment ones carry a script-src naming one file" | PART I |
+> | 49 | layout/base.templ `OperatorWithScript` | "Its one caller outside this file is … read in the source, not pinned"; "Nothing here builds it from user input" | "In the source today its caller outside this file is … -- read, not pinned"; "This shell writes src as given; the caller passes a constant (enrollScript)" | kod tarifi (okuma) |
+> | 50 | static/js/operator/enroll.js | "a browser never sends a fragment … never reaches an ingress log"; "NAMES THIS FILE AND NOTHING ELSE"; "No request, no storage, no cookie. It never reads the password or code fields."; "the server refuses it the same way whether or not it was copied" | "which a browser does not put in a request"; "THE POLICY THAT PERMITS IT"; "The code below makes no request, … -- read by a reviewer; the browser behaviour was measured by hand (L15)"; "A fragment of another shape is not copied into the field" | PART I (elle) + kod tarifi |
+> | 51 | typepins_test.go dosya başlığı | "PART III -- no completeness claim. What every pin here misses, by name: … reflection, unsafe and linkname are not reachable from this package's own code only because typedOperator refuses those imports (reflectiveImports)" (B3) | üç parçanın tanımı; "imports one of the eight packages in refusedImports" | PART II + PART III |
+> | 52 | typepins_test.go `refusedImports` | "each reaches a value or a method without naming it … (the two template engines, the reflective decoders)" (B3) | "the eight imports typedOperator refuses …, by name: reflect, unsafe, plugin, text/template, html/template, encoding/json, encoding/gob, encoding/xml" | PART II |
+> | 53 | typepins_test.go dokuz pin başlığı | PART III'ler gerekçe içeriyordu (ör. RH: "a header named at run time through a method this pin does not list (Header.Values reads; a write needs Set/Add, which RH2 holds to constants)") (B1) | PART III şablon tek cümle: "This pin catches the list in PART II only; a form not on it (examples: …) is code review's -- no completeness claim." | PART III |
+> | 54 | typepins_test.go RH PART I | "appears as a constant in its allowed functions only" | "the constant occurrences of each guardedHeaders name are its allowed functions with its allowed counts" | PART I |
+> | 55 | op8r2_test.go başlık testi | "(II) … TestResponseHeaders_… pins the source side -- the four names written only in securityHeaders …, the CSP replaced only in renderEnroll, no Del; (III) …" (B1) | PART I: düşmanca başlık + sorgu ile 40 sınıfın ölçülen listesi; PART II: o liste; PART III şablon | PART I + PART III |
+> | 56 | op8r2_test.go diğer başlıklar | "renders every ProblemView problemPages lists … That the list holds every ProblemView the package sets a field of is …'s"; "every line trimmed"; "Any edit to the code turns … red" | "renders the ten ProblemViews problemPages lists …; TestProblemViews_… is the pin … (its header lists what it catches)"; "the lines trimmed"; "An edit to the code turns … red" | PART I + PART II |
+> | 57 | op8_test.go başlıkları | "the same-origin gate ahead of every store call"; "(only that package's tests can count its comparer)"; "every route the configured surface registers"; "it serves nothing else"; "which only a non-browser sends"; "every one is 303"; "change nothing here"; "never echo a request value into Location"; "WRITES NOTHING"; "every fmt verb this test names"; "it knows only TAPPA_BASE_URL's host"; "already keeps customer routes off the operator host"; "and only that session's" | "ahead of the store"; "(that package's test build is the one that can count its comparer)"; "the routes … (walked with chi.Walk)"; "a page under that spelling is served by the operator surface"; kaldırıldı; "each of the six is 303"; "leave the console's answer the sign-in redirect"; "On these three redirected requests Location carries no request value"; "writes 0 bytes"; "the fmt verbs this test names"; "it compares the operator host with TAPPA_BASE_URL's"; "answers the customer route driven on the operator host with 404"; "another operator session afterwards still renders (CONTROL)" | PART I |
+> | 58 | op8_db_test.go | "a Store whose every method is …"; "every store call"; "The OPERATOR rows this file writes are all in those rolled-back transactions"; "every TestE2E_ here"; "every panel database test's … never cleaned up"; "each test here is worthless if …"; "the only role that may"; "Every step through the surface, every database decision the database's" | "a Store whose seven methods call …"; "each store call"; "… (counted below: 0 left in the operator tables)"; "this file's TestE2E_ tests"; "the panel database tests' fixtures … does not clean them up"; "a test here measures nothing about 00026 if …"; "(ADR 0020 §6: tappa_owner inserts platform_admins)"; "each step through the surface, against the real definers" | PART I |
+> | 59 | rig_test.go, export_test.go, operatorauth/export_test.go, surface_external_test.go | "Every request goes through"; "only the Store is a fake"; "COUNTS every call"; "(RLS shows no other)"; "Test-only doors … no product code can name them"; "never stand-ins"; "only this package's test build can wrap them"; "every one is 401"; "the only arm that sets a cookie"; "past it nothing is compared and nothing is written" | "The rig's requests go through"; "the Store is the fake part"; "counts its calls"; "(tappa_operator's RLS shows active rows)"; "This file is a _test.go file, so the go tool compiles it into this package's test build and not into the product"; "not stand-ins"; "this package's test build wraps them"; "each of the eight is 401"; "sets one cookie where the eight set none"; "answered with 0 comparisons and 0 store calls" | PART I + kod tarifi |
+> | 60 | httpx/operatorhost_test.go | "pins the comparison … and no other row matches. Every row that is "false" …"; "An unconfigured host matches nothing"; "Every other host"; "nothing is gated"; "pins operatorhost.go's "THIS FILE IMPORTS NOTHING …"" | "measures OnHost on the rows below … the rows marked false …"; "An unconfigured (empty) host does not match an empty request host"; "The customer host"; "the gate is not mounted"; üç parçalı başlık | PART I + PART II + PART III |
+> | 61 | leak_test.go | "written by the templ-generated code every operator screen goes through"; "THE CONTRACT, AND ONLY THE CONTRACT"; "what it is handed that this surface must never print"; "closes nothing" | "of the operator screens"; "THE CONTRACT"; "what it is handed (…), which the search adds to its needles"; "makes no CloseOperatorSession call" | PART I |
+> | 62 | handler/marketing.go | "from every non-test Go file … grows a cookie"; "they are set only on the operator's own host … a visitor of this site never receives one" | "from the non-test Go files … the source names a cookie"; "`__Host-` cookies set by the operator surface on the operator's host … not for this site's visitors"; *5. tur (N2):* tarayıcının okuduğu iki biçime bağlandı — "the string literals of the two name shapes it reads, `tappa_…` and `__Host-taptime_…` (cookieNameLiteral) … A cookie named in another shape is not read by it" | ~~olgu (dış)~~ PART I (taramanın iki biçimi, `TestCookieNotice_ListsExactlyTheCookiesTheProductSets`) + PART III — *5. turda düzeltildi* |
+> | 63 | handler/marketing_test.go | "Every cookie this product sets is named by a string literal …, and nothing else in non-test Go source is"; "whose every customer route answers 404"; "sent only to the operator host"; "Every deliberate omission"; "in ITS OWN file only"; "only its own file's literal may be" | "The scan reads a string literal … as a cookie name"; "where the customer half of the host gate answers customer routes with 404"; "a __Host- cookie of the operator host"; "Each deliberate omission"; "in ITS OWN file"; "its own file's literal is the omitted one" | kod tarifi (okuma) |
+> | 64 | operatorauth/limits.go, config/config.go, cmd/tappa/operator.go, observability_test.go | "never an account"; "off every customer host"; log: "/operator answers on the operator host only"; "match nothing" | "not an account"; "off the customer hosts is the two-way host gate's job"; log: "/operator is served on the operator host"; "match no record" | kod tarifi (okuma) |
+> | 65 | deploy/README.md | "yalnız operatör host'unda"; "`/operator` her istekte 503"; "Satır her süreçte"; "(yalnız bir kod — DSN, parola, sunucunun mesajı ASLA)"; "okunmazsa hiçbir yerde görünmez" | "operatör host'unda"; "`/operator` ve altı 503 (TestSurface_OffAnswers503UnderThePrefixAndNowhereElse)"; "süreç açılışında"; "(bir kod; TestOpenOperatorSurface_PrintsNoValue'nun sürdüğü değerlerden … satırda bulunmadı)"; "okunmazsa başka bir sinyal onu taşımaz (yedi kuralın tablosu)" | PART I |
+> | 66 | ADR 0020 §4 OP-8 notu (ii) | "Operatör yarısında host'u yalnız httpx.OnHost okur, bir kez, hostGate'te" (B4); "`httpx` operatör paketlerini import etmez …" | silindi; host kapısı ölçümleri adıyla; httpx bağımlılıkları (II)'deki IM pinine | PART I |
+> | 67 | ADR 0020 §4 OP-8 notu (iv) | "süreç log'una yalnız Debug'da bir kayıt yazar" (3. tur) | "10 dakikalık, süreç geneli bir pencerenin ilk reddi bir WARN kaydı …, diğerleri Debug — Info'da iki adresten 801 ret → 1 WARN" (B6) | PART I |
+> | 68 | ADR 0020 §4 OP-8 notu (v) | "kaynak yarısı: dört ad yalnız securityHeaders'ta …, CSP'yi yalnız renderEnroll değiştirir, Location yalnız redirect'te ve hedefi bağlı bir rotanın sabiti" (B1) | düşmanca başlık + sorguyla 40 sınıfın ölçülen başlık listesi | PART I |
+> | 69 | ADR 0020 §4 OP-8 notu (II) | "`requireOperator`'da; … hiçbir dosyada — takma ad …"; "ortak PART III: … paketin kendi reflect/unsafe/şablon/çözücü importu yükleyicide reddedilir" (B3) | pinlerin adları ve kodları; "Her pinin yakaladığı liste testin başlığındadır ve pinin iddiası o listedir" | PART II |
+> | 70 | ADR 0020 §4 OP-8 notu (III) | "listelenmeyen her kod değişikliği (…) kod incelemesinin konusudur" | tek cümle: "bu küme ve listelerde olmayan her biçim (örnekler: …) kod incelemesinin konusudur — tamlık iddiası yok" | PART III |
+> | 71 | ADR 0020 §6 OP-8 notu | "Sorguya konan bir token okunmaz ve sayfaya yazılmaz"; "(her kod değişikliği kırmızı)"; "fragment hiçbir istekte yok"; "(III) … ancak yeniden elle ölçülür" | "… isteklerde yanıta yazılmadı"; "kodda bir değişiklik özeti değiştirir"; "ölçülen isteklerde yok"; PART III şablon | PART I + PART III |
+> | 72 | kart md. 1 | "00026'da yalnız beş definer var … hiçbiri tenant okumaz … 12 render'ından hiçbiri … o küme API'ye pinli" | "beş definer var … beşinden biri de tenant okumaz … 12 render'ı onlara link vermez" | PART I |
+> | 73 | kart md. 2 | "`httpx` operatör paketlerini import etmez: bildiği yalnız bir dizge … ve host'tur"; "503 her host'ta aynı kaldı"; "operatör host'unda müşteri sayfası yok" | importlar ve IM3 adıyla; "sürülen host'larda aynı kaldı"; "sürülen müşteri rotası 404'tür" | PART I |
+> | 74 | kart md. 3 | "geniş sınıflandırma müşteri sayfalarını operatör host'unun her yazımından uzak tutar"; "o yazım yalnız operatör yüzeyini sunduğu için POST'u gönderen sayfa bir operatör sayfasıdır"; "`X-Forwarded-Host` okunmaz" | "bir yazımı müşteri host'u saymak … müşteri sayfası sunardı"; "o yazım operatör yüzeyine sınıflanır"; "`OnHost` `X-Forwarded-Host` okumaz (… M08)" | PART I |
+> | 75 | kart md. 5–6 | "(enjekte edilmiş bir htmx etiketi yüklenmez)"; "config yalnız TAPPA_BASE_URL'in host'unu reddeder"; "operatör origin'inde müşteri sayfası render edilmez" | "(bu politika vendored htmx'i yükletmez)"; "… reddeder, öteki müşteri host'larını reddetmez"; "sürülen müşteri rotası (/admin) 404'tür" | PART I |
+> | 76 | kart md. 7 | "`operatorauth.ReadSessionCookie`'nin tek kullanımı oradadır ve 3. tur pininin listelediği başka bir okuma biçimi paketin hiçbir dosyasında yoktur"; "yüklemin işi yalnız ADRES başına"; "hiçbir bütçeye sayılmadığı için … sayısı bir şey reddettirmez" | "SC1–SC6 listesini yakalar"; "yüklemin işini adres başına flood kapısı sınırlar"; "bütçeye sayılmaz (zincir sırası; N19) — ölçülen 3 001" | PART I + PART II |
+> | 77 | kart md. 8 | "`Sec-Fetch-Site` yalnız `same-origin`"; "bir **Debug** kaydı (yalnız yöntem)" (3. tur) | "`same-origin` olmalı"; "pencerenin ilk reddi bir WARN …" (B6) | PART I |
+> | 78 | kart md. 9 | "ikisi de hiçbir hesap hakkında bir şey söylemez"; "Yalnız `PostForm` okunur — sorgudaki kimlik bilgisi kimlik bilgisi değildir" | "ikisi de 0 bcrypt"; "Handler'lar r.PostForm'u okur; sorgudaki parola/adres giriş sayılmadı" | PART I |
+> | 79 | kart md. 10 | "token yalnız onu gönderen POST'un yanıt gövdesine geri yazılır"; "ekranın TEK yazım yolu `renderEnroll`'dur"; "her iyi biçimli id aynı türden sayfayı alır"; "Sorgudaki token okunmaz" | "token onu gönderen POST'un yanıt gövdesine geri yazılır (D5)"; "Ekranı renderEnroll yazar …; EN1–EN3 listesini yakalar"; "iyi biçimli bir id … aynı türden sayfayı alır"; md. 20 | PART I + PART II |
+> | 80 | kart md. 11 | "kaynak yarısı pinli — dört ad yalnız `securityHeaders`'ta …, CSP'yi yalnız `renderEnroll` değiştirir, `Del` yok, `Location` yalnız `redirect`'te ve her hedef bağlı bir rotanın sabiti" (B1) | düşmanca başlık + sorgu ölçümü; "RH1–RH5 listesini yakalar (maps.Copy ve clear o listede değil …)" | PART I + PART II |
+> | 81 | kart md. 12 | "yalnız operatör host'una gönderilirler; ziyaretçi almaz" | "operatör host'unun `__Host-` çerezleri, Taptime personeli için" | olgu (dış) |
+> | 82 | kart md. 14 | "yalnız bütçe anahtarı …; paket adresi yalnız `rateKey`'de okur ve yalnız bütçelere … verir — … `RemoteAddr` ve yönlendirilmiş-adres başlıkları dahil" (B5) | ölçüm G15; "AD1–AD5 listesini yakalar (AD3: altı başlık adı — adlarıyla)" | PART I + PART II |
+> | 83 | kart md. 15 | "go/types ile pinli: tam dokuz …; kimlik bilgisi alan adları yalnız `postValue`'nun argümanı; form/sorgu okumaları listeli" (B2) | "sevk edilen kodda dokuz çağrı yeri var …; FV1–FV7 listesini yakalar (URL.RequestURI, URL.Redacted o listede değil)" | PART I + PART II |
+> | 84 | kart md. 16–17, 19 | "`TenantName` yalnız `NewTenantName` ile"; "HİÇ bayt"; "var olmayan bir şey vaat etmez"; "Commit eden TEK test"; "her store çağrısı"; "tek seferlik"; "hiçbir hesap" | "paket dışında NewTenantName ile yapılır"; "0 bayt"; "bu build'de operatör ekranı olmadığını söyler"; "Commit eden test"; "store çağrıları"; "bir kerelik"; "hesap değil" | PART I + kod tarifi |
+> | 85 | kart kabul | "her biri tam bir kez sorgulandı; … her değer kendi tarafında canlı"; "her giriş `operator_audit_log`'da →" | "ikisi de bir kez sorgulandı; … iki değer de"; "kabulün "her giriş …" maddesi →" (alıntı) | PART I |
+> | 86 | kart L10, L13–L15 | "(yalnız operatör host'unda)"; "süreç dışı her şey"; "canlıda hiçbir şey açmadı"; "her kod değişikliği kırmızı"; "fragment hiçbir istekte yok" | "operatör host'unda"; "süreç dışındakiler"; "bir ingress kuralı eklemedi"; "kodda bir değişiklik özeti değiştirir"; "ölçülen isteklerde yok" | PART I |
+> | 87 | kart L18 | "Operatör paketinin kendi `reflect`/`unsafe`/`plugin`/şablon/yansımalı çözücü importu … yükleyicide reddedilir" (B3) | "yalnız başlıklarındaki listeyi yakalar …; yükleyicinin reddettiği sekiz import adıyla: …"; ölçülmüş örnekler (X19r, X19s, X25a–X25c, X24a/b) | PART II + PART III |
+> | 88 | kart L19 | "süreç log'u kaydı yalnız Debug'da" (3. tur) | "pencerenin ilk reddi bir WARN …; panelin sameOriginGate'i her reddi WARN olarak, ip ile yazar (adminlogin.go:592); yedi uyarı kuralından biri de bu kaydı okumaz" (B6) | PART I |
+> | 89 | kart 2. tur B2/B3/B4/B6 ve başlık | "(ii) "`requireOperator` çerezin TEK okumasıdır" YAPISAL olarak doğru yapıldı"; "hiçbir bütçeye sayılmaz ve asla 429 almaz"; "Bütün ProblemView'lar problemPages'te"; "`renderEnroll` tek yol"; "`requireOperator` tek okuma"; "M09 eşdeğer — … bu öneklerde aynı" | "(ii) Çıkış da requireOperator'ın arkasına alındı …; 4. tur notu"; "bütçeye sayılmaz — testin 3 001 çıkışında store 0 ve 429 yok"; "problemPages on ProblemView'u listeler"; "Ekranı renderEnroll yazar"; "token'ı bağlama koyması"; "testlerin satırlarında aynı" | PART I + PART II |
+> | 90 | kart 3. tur başlık ve F5 | "her ad … her ifade … çözülür: … AYNI nesnedir"; "Her pinin iddiası … ÜÇ PARÇALI"; F5 "Debug" kararı | "paketin adları … çözülür; … aynı nesneye çözüldü (X19, X19d2, X19e, X19g, X20b, X20m)"; "Pinlerin başlıkları üç parçalı"; F5'e "4. turda değişti — B6" notu | PART I + PART II |
+> | 91 | kart 3. tur süpürme tablosu | 43 satır; "sertleştirildi" satırları pinden genel hüküm çıkarıyordu | kaldırıldı; bu tablo yerine geçer | — |
+>
+> **Kalan evrensel sözcükler (4. tur, (4)).** OP-8 metinlerinde (kod yorumları, testler, bu kartın OP-8
+> bloğu, ADR 0020'nin iki OP-8 notu, `deploy/README.md`'nin OP-8 satırları) `only/never/nothing/every/no
+> other/TEK/hiçbir/yalnız/asla/her` geçişlerinin satır satır listesi, her birinin bağlandığı sayılı kümeyle,
+> teslim raporundadır. Kümeler: bir alıntı (çoğu bu tablonun "önceki metin" sütunu), adıyla sayılan bir
+> küme (C1–C40, 27 sınıf, tablonun denemeleri, sızıntı testinin G/R/S kümeleri, adıyla sayılan pinler),
+> bir sayı ("tek" = bir), PART III cümlesi ("listeyi"), bir pinin listesinin tarifi, bir mutasyonun
+> tarifi, OP-7'nin değişmeyen metni, `neverLog` terimi.
+>
+> **4. tur mutasyon tablosu (kopyala-geri-yaz, yedekler yalnız scratchpad'de; yeni dosyalar koşudan
+> sonra silindi; tablodaki her deneme diskte `diff` ile, geri yükleme sha256 ile; ağacın parmak izi
+> önce/sonra eşit; hepsi paketin tamamıyla, `.env`'li; iki kez koşuldu — ikincisi son koda karşı — ve
+> iki koşu aynı sonucu verdi).** 14 deneme: **11 kırmızı, 3 yeşil BEKLENEN**
+> (X25a–X25c: PART III örnekleri — pinlerin listesinde olmayan biçimler).
+>
+> | Kimlik | Ne | Sonuç | Kırmızıya çevirdiği test(ler) |
+> |---|---|---|---|
+> | X23a | G-RH-copy2: a new file copies the request's headers (Coo* dropped) into the response; home calls it | RED | `TestOperatorHeaders_FortyResponseClassesCarryThePolicy` |
+> | X23b | G-RH-copy: home copies the request's headers into the response (maps.Copy) | RED | `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor`, `TestOperatorHeaders_FortyResponseClassesCarryThePolicy` |
+> | X23c | G-RH-clear: home clears the response headers before rendering | RED | `TestOperatorHeaders_FortyResponseClassesCarryThePolicy` |
+> | X23d | G-RH-mime: home sets a header named at run time through textproto.MIMEHeader | RED | `TestOperatorHeaders_FortyResponseClassesCarryThePolicy`, `TestResponseHeaders_TheListedNamesAreWrittenOnlyInTheirFunctions` |
+> | X24a | G-FV-q1: the enrollment GET echoes a token cut from r.URL.RequestURI() | RED | `TestEnroll_TheTokenNeverTravelsInTheURL`, `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor`, `TestOperatorHeaders_FortyResponseClassesCarryThePolicy` |
+> | X24b | G-FV-q2: the enrollment GET logs r.URL.Redacted() at Info | RED | `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor` |
+> | X25a | G-PV-asn1: a ProblemView with Back set, decoded by encoding/asn1 in a new file | GREEN | — (yeşil, BEKLENEN: PART III örneği) |
+> | X25b | G-HG-tls: hostGate also admits r.TLS.ServerName == the operator host | GREEN | — (yeşil, BEKLENEN: PART III örneği) |
+> | X25c | G-AD-hdr: rateKey prefers an X-Cluster-Client-IP header | GREEN | — (yeşil, BEKLENEN: PART III örneği) |
+> | X26a | the 3rd round's all-Debug back (no WARN at Info) | RED | `TestSameOriginGate_RefusalsWriteOneWarnPerWindowAtTheShippedLevel` |
+> | X26b | a WARN for every refusal (the window ignored) | RED | `TestSameOriginGate_RefusalsWriteOneWarnPerWindowAtTheShippedLevel` |
+> | X26c | the WARN keyed per address (one per address per window) | RED | `TestClientAddress_TheListedReadsFeedOnlyTheBudgets`, `TestSameOriginGate_RefusalsWriteOneWarnPerWindowAtTheShippedLevel` |
+> | X27a | the weak-password heading back to 'That password is too short' (generated code) | RED | `TestEnroll_TheWeakPasswordNoticeNamesBothLimits` |
+> | X27b | the weak-password notice without its 72-byte limit (generated code) | RED | `TestEnroll_TheWeakPasswordNoticeNamesBothLimits` |
+>
+> **Kart düzeltmesi — 5. tur (2026-10-02, 4. üçüncü göz denetçisinin RED'inden sonra: 2 bloklayan + 7
+> bloklamayan).** 4. turun biçimi korundu (PART I sayılı kümede ölçülen, PART II pinin listesi, PART III
+> tek cümle). Mutasyon kimlikleri aşağıdaki 5. tur tablosundadır. Yeni test dosyası
+> `internal/handler/operator/op8r5_test.go` (ortak sınıf koşucusu `runHeaderClasses`, `classRoutes`,
+> C41–C48, yürüme ve tel testleri); ürün kodunda değişen yalnız yorumlar (`routes.go`, `render.go`,
+> `marketing.go`, `input.css`) — davranış değişmedi.
+>
+> - **F1 (bloklayan) · ölçülen nesne.** Başlık ölçen testler işleyicinin canlı haritasını (`w.Header()`)
+>   okuyordu; WriteHeader'dan sonra değişen bir başlık telde olduğu hâlde testte görünmüyordu (denetçinin
+>   H01'i: `Refresh` set + WriteHeader + `delete`; L01'i: `X-Key` = TOTP sırrının base32'si + `defer
+>   delete` — ikisi de 52/52 yeşil). Ne değişti: OP-8'in dört paketinde (`internal/handler/operator`,
+>   `internal/httpx`, `internal/operatorauth`, `cmd/tappa`) yanıtı ölçen test okumaları `Result().Header`'a
+>   — WriteHeader anındaki kopyaya — çevrildi (`checkDesignedHeaders`, sızıntı testinin S4'ü ve öbürleri);
+>   `grep -n "\.Header()"` dört paketin testlerinde 10 satır bulur: 5'i yanıt KURAN kontrol işleyicisi,
+>   2'si tel testinin canlı haritayı bilerek okuyan kontrolü, 3'ü yorum (satır satır sınıflaması teslim
+>   raporunda). Yeni test
+>   `TestOperatorHeaders_TheRecorderSnapshotIsWhatTheWireCarries`: C1, C18 ve C28 gerçek bir
+>   `httptest.Server` üzerinden; durum ve başlık bölümü (`Content-Length`, `Date` adıyla dışarıda;
+>   6. tur: trailer ve çerçeve başlıkları karşılaştırma dışı, md. 11) kopyaya eşit; kontrol: WriteHeader'dan sonra silinen bir başlık telde ve kopyada var, canlı haritada yok.
+>   RH3'e `http.Header` üstünde yerleşik `delete`/`clear` eklendi. Ölçülen nesneyi adlandıran metinler:
+>   başlık testinin başlığı (WHAT IS READ, PART I), `routes.go` `securityHeaders`, `render.go`
+>   (`operatorCSP`, `enrollCSP`, `redirect`, `renderEnroll`), sızıntı testinin başlığı (S4), md. 11, ADR
+>   (v). H01, H01b, L01, L01b KIRMIZI; H01-live ve L01-live (aynı mutasyon, testler 4. turun canlı-harita
+>   okumasına geri) YEŞİL — bulgunun mekanizması, ölçülerek.
+> - **F2 (bloklayan) · `Location`.** `TestEnroll_TheTokenNeverTravelsInTheURL`'un başlığındaki genel
+>   hüküm testin sürdüğü üç isteğe bağlandı. Düşmanca istek başlıkları 9'dan 15'e çıktı: `Referer`,
+>   `User-Agent`, `Accept-Language`, `X-Requested-With`, `HX-Current-URL`, `HX-Target` eklendi; testin
+>   başlığı, md. 11 ve ADR (v) on beşini adıyla sayar. H05b (çerezsiz dalda `textproto.MIMEHeader` ile
+>   `Location` = `Referer` + 303, bir `Referer` gönderildiğinde) KIRMIZI (C28); H05b-noref (aynı mutasyon,
+>   `Referer` düşmanca listeden çıkarılmış — 4. turun listesi) YEŞİL; H05c (koşulsuz) KIRMIZI.
+> - **N1** `TestSessionGate_ASameSiteReadDoesNotTouchTheSession`'ın başlığı getirme üst verisi gönderen
+>   tarayıcıya bağlandı, göndermeyen tarayıcı L5 adıyla (`routes.go` `sameOriginGate`'in metniyle aynı).
+> - **N2** `marketing.go`'nun çerez notu taramanın okuduğu iki biçime bağlandı (`tappa_…` ve
+>   `__Host-taptime_…`, `cookieNameLiteral`; başka biçimde adlandırılmış bir çerez kod incelemesinin);
+>   "on çerez" tablonun bu iki biçimden okunan adlara iki yönde eşitliğidir. 4. tur süpürmesinin 62.
+>   satırının türü düzeltildi.
+> - **N3** B6 testi store'u 801 reddin sonunda ölçer (md. 8; önceden ilk 500'ün sonunda). N3 (çapraz-origin
+>   giriş reddi `Password` çağırır) KIRMIZI; N3-500 (aynı mutasyon, ölçüm 500'de) YEŞİL.
+> - **N4** ADR (I)(viii) ölçülen zaman kipine ve testin sürdüğü isteklere bağlandı ("sayılmadı/yazılmadı",
+>   md. 20 ile aynı).
+> - **N5** `classRoutes` (`op8r5_test.go`; C1–C48 → yöntem, `chi` rotası, durum): iki başlık tablosu her
+>   sınıfın son isteğini ve durumunu kendi girdisine tutar;
+>   `TestOperatorHeaders_TheWalkedRoutesEachHaveAClass` `chi.Walk`'un bildirdiği 8 yöntem × rota çiftinin
+>   (5 rota) her birine 405 olmayan bir sınıf, her rotaya bir 405 sınıfı ister ve anahtarları C1–C48'e
+>   tutar. OP-11 devri adıyla yazıldı (aşağıda). N5a (yeni `GET /operator/status`), N5b (`POST
+>   /operator/`), N5c (`classRoutes`'tan C46 silindi) KIRMIZI.
+> - **N6** Betik yükleyen sınıflar adıyla doğrulanır ("C18,C20,C21,C22"). N6 (C19 enrollment ekranını,
+>   C20 problem sayfasını render eder; sayı 4 kalır) KIRMIZI; N6-count (aynı mutasyon, sayı kontrolüyle)
+>   YEŞİL.
+> - **N7** C41–C48, `TestOperatorHeaders_TheWrongMethodAndOversizedClassesCarryThePolicy`: `/operator`'da
+>   `HEAD`/`POST`/`OPTIONS`, `/operator/login/totp` ve `/operator/enroll`'da `PUT`, `/operator/logout`'ta
+>   `GET` → 405 (`Allow`, CSP, `no-store`; altısında store 0); kod adımında ve enrollment'ta büyük form →
+>   413. N7a (kod adımının 413'üne `Connection: close`) ve N7b (`securityHeaders` `OPTIONS`'ı atlar)
+>   KIRMIZI, ikisi de yalnız bu yeni testte.
+> - **Süpürme (5. tur, tam ve mekanik).** Sözcükler (büyük/küçük harf yok sayılarak, sözcük sınırıyla):
+>   `only`, `never`, `nothing`, `every…`, `ever`, `no other`, `cannot`, `can't`, `can not`, `impossible`,
+>   `always`, `guarantee…`, `ensur…`, `prevent…`, `any…`, `all`, `none`, `whatever`, `regardless`, `tek`,
+>   `hiç…`, `yalnız…`, `asla`, `her`, `herhangi…`, `herkes…`, `her zaman`, `daima`, `imkânsız/imkansız…`,
+>   `bütün…`, `tüm…`. Kapsam: OP-8'in yeni dosyalarının satırlarının tamamı (kod, yorum, dizge, test
+>   mesajı; üretilmiş `_templ.go` dahil) ve değişen dosyalarda `git diff HEAD`'in eklediği satırların
+>   tamamı (bu kartın OP-8 blokları, ADR 0020'nin OP-8 notları, `deploy/README.md` dahil). Sonuç:
+>   551 geçiş, 52 dosyada (32 yeni, 20 değişen). Kategoriler: alıntı 246 · sayılı kümeye bağlı (küme ve
+>   test adıyla) 75 · sözcük listesi ya da terim (sızıntı testinin günlük-dışı listesi, SQL işlem kipi, OP-6 md. 8'in
+>   saklanamayan adresi) 51 · kod/protokol belirteci (Go türü, CSP ve getirme üst verisi anahtar sözcüğü,
+>   değişken adı, CSS, üretilmiş lint yönergesi) 44 ·
+>   sayı 30 · PART II/III 30 · test mesajı 20 · kod tarifi (okuma, adıyla) 17 · mutasyon tarifi 14 · olgu
+>   (Go, Postgres, net/http ya da bu değişikliğin diff'i) 13 · UI metni 6 · biçim tanımı 3 · ölçülmeyenler
+>   listesi 1 · devir talimatı 1; **bağlı olmayan 0**. Bu süpürmeyle yeniden yazılanlar: `op8_db_test.go` (DSN cümlesi denenen tek biçime;
+>   tekrar edilen kodun reddi; dördüncü denemenin ölçülen sayıları), `op8_test.go` (`anyone`),
+>   `op8r5_test.go` (`cannot`), `marketing_test.go` (`anywhere`), `input.css` (`Everything`). Satır
+>   satır liste ve her geçişin bağı teslim raporundadır.
+>
+> **5. tur mutasyon tablosu (kopyala-geri-yaz, yedekler yalnız scratchpad'de; tablodaki her deneme diskte
+> `diff` ile, geri yükleme sha256 ile; ağacın parmak izi önce/sonra eşit; `.env`'li; son sütunda
+> "koşulan" yazmayanlar paketin tamamıyla).** 18 deneme: **13 kırmızı, 5 yeşil BEKLENEN** (H01-live,
+> L01-live, H05b-noref, N3-500, N6-count: aynı mutasyonun 4. turun ölçümüyle yeşil kaldığının
+> kontrolleri). N5c ilk koşuda derlenmedi (kaldırılan girdi satırın sonundaki virgülü de götürüyordu);
+> düzeltilip yeniden koşuldu, tabloda bir kez.
+>
+> | Kimlik | Ne | Sonuç | Kırmızıya çevirdiği test(ler) |
+> |---|---|---|---|
+> | H01 | 4th audit's H01: render sets Refresh from the request, WriteHeader, then delete(w.Header(), Refresh) | RED | `TestOperatorHeaders_FortyResponseClassesCarryThePolicy`, `TestOperatorHeaders_TheWrongMethodAndOversizedClassesCarryThePolicy`, `TestResponseHeaders_TheListedNamesAreWrittenOnlyInTheirFunctions` |
+> | H01b | H01 with maps.DeleteFunc instead of the builtin (outside the RH list) | RED | `TestOperatorHeaders_FortyResponseClassesCarryThePolicy`, `TestOperatorHeaders_TheWrongMethodAndOversizedClassesCarryThePolicy` |
+> | H01-live | CONTROL: H01b against the 4th round's live-map reads (checkDesignedHeaders and S4 back to w.Header()) | GREEN | — (yeşil, BEKLENEN: kontrol; koşulan: `TestOperatorHeaders_FortyResponseClassesCarryThePolicy`, `TestOperatorHeaders_TheWrongMethodAndOversizedClassesCarryThePolicy`, `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor`) |
+> | L01 | 4th audit's L01: enrollPage sets X-Key to the TOTP secret's base32 and defers delete(w.Header(), X-Key) | RED | `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor`, `TestOperatorHeaders_FortyResponseClassesCarryThePolicy`, `TestOperatorHeaders_TheRecorderSnapshotIsWhatTheWireCarries`, `TestResponseHeaders_TheListedNamesAreWrittenOnlyInTheirFunctions` |
+> | L01b | L01 with maps.DeleteFunc instead of the builtin (outside the RH list) | RED | `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor`, `TestOperatorHeaders_FortyResponseClassesCarryThePolicy`, `TestOperatorHeaders_TheRecorderSnapshotIsWhatTheWireCarries` |
+> | L01-live | CONTROL: L01b against the 4th round's live-map reads | GREEN | — (yeşil, BEKLENEN: kontrol; koşulan: `TestOperatorHeaders_FortyResponseClassesCarryThePolicy`, `TestOperatorHeaders_TheWrongMethodAndOversizedClassesCarryThePolicy`, `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor`) |
+> | H05b | 4th audit's H05b: requireOperator's cookieless branch writes Location = r.Referer() through textproto.MIMEHeader + 303 when a Referer is sent | RED | `TestOperatorHeaders_FortyResponseClassesCarryThePolicy` |
+> | H05b-noref | CONTROL: H05b with Referer dropped from hostileHeaders (the 4th round's list) | GREEN | — (yeşil, BEKLENEN: kontrol; koşulan: paketin tamamı) |
+> | H05c | H05b unconditional (Location = r.Referer(), empty when none is sent) | RED | `TestOperatorHeaders_FortyResponseClassesCarryThePolicy`, `TestSessionGate_NoLiveSessionIsASignInRedirect` |
+> | N3 | a cross-origin sign-in refusal calls Password (store calls on the 300 refused sign-ins, none on the 500 sign-outs) | RED | `TestClientAddress_TheListedReadsFeedOnlyTheBudgets`, `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor`, `TestSameOriginGate_ACrossOriginPostReachesNoStore`, `TestSameOriginGate_RefusalsWriteOneWarnPerWindowAtTheShippedLevel` |
+> | N3-500 | CONTROL: N3 against the 4th round's measurement (the store checked after the first 500 only) | GREEN | — (yeşil, BEKLENEN: kontrol; koşulan: `TestSameOriginGate_RefusalsWriteOneWarnPerWindowAtTheShippedLevel`) |
+> | N5a | a new console route GET /operator/status mounted, no class | RED | `TestOperatorHeaders_TheWalkedRoutesEachHaveAClass` |
+> | N5b | POST mounted on the console route (the C42 405 becomes a handler) | RED | `TestOperatorHeaders_TheWalkedRoutesEachHaveAClass`, `TestOperatorHeaders_TheWrongMethodAndOversizedClassesCarryThePolicy` |
+> | N5c | test side: classRoutes loses C46 (GET /operator/logout 405) | RED | `TestOperatorHeaders_TheWalkedRoutesEachHaveAClass`, `TestOperatorHeaders_TheWrongMethodAndOversizedClassesCarryThePolicy` |
+> | N6 | C19 renders the enrollment screen and C20 a problem page: still four scripted classes, other ones | RED | `TestOperatorHeaders_FortyResponseClassesCarryThePolicy` (koşulan: `TestOperatorHeaders_FortyResponseClassesCarryThePolicy`) |
+> | N6-count | CONTROL: N6 against a count-only check (len(scripted) != 4) | GREEN | — (yeşil, BEKLENEN: kontrol; koşulan: `TestOperatorHeaders_FortyResponseClassesCarryThePolicy`) |
+> | N7a | the code step's 413 adds Connection: close (C47 only; C7 is the sign-in's 413) | RED | `TestOperatorHeaders_TheWrongMethodAndOversizedClassesCarryThePolicy` |
+> | N7b | securityHeaders skips OPTIONS (C43) | RED | `TestOperatorHeaders_TheWrongMethodAndOversizedClassesCarryThePolicy` |
+>
+> **Kart düzeltmesi — 6. tur (2026-10-02, YALNIZ METİN; 5. tur üçüncü göz RED verdi — iki
+> bloklayanı da metin —, tappa-security-auditor ONAY verdi, iki düşük not).** Ürün davranışı ve test
+> mantığı değişmedi: değişen satırlar yorum, test başlığı ve belge (kanıt teslim raporunda: değişen
+> Go dosyalarının yorumsuz AST'si 5. tur sonuyla bayt bayt aynı).
+>
+> - **B1 · biçim sınırı.** `checkDesignedHeaders` düşmanca değeri iki biçimde arar: ham ve
+>   `url.QueryEscape`. Yanıtta düşmanca değerin bulunmadığını söyleyen cümleler bu iki biçime
+>   bağlandı: md. 11, md. 20, ADR (v), (I)(viii) ve §6 notu, `enroll.go`, 8 sınıflık testin PART I'i,
+>   4. tur alt bloğunun B2'si. HTML-kaçışlı ve base32 yansıma PART III örneklerine eklendi (40 ve 8
+>   sınıflık testler, ADR (III)). Denetçinin E23b'si (gövdeye HTML-kaçışlı yansıma) ve E25'i (base32)
+>   paketin tamamında yeşildi: ölçüm bu iki biçimi aramaz.
+> - **B2 · kopya ve tel.** (1) `op8r5_test.go`'nun dosya başlığı net/http'nin `ResponseWriter.Header`
+>   belgesinin iki istisnasını adıyla yazar: 1xx yanıtlar ve trailer'lar (denetçinin T01/T02'si:
+>   WriteHeader'dan sonra `http.TrailerPrefix` ile konan anahtar telde trailer olarak gider; kopyada
+>   değil `Result().Trailer`'dadır, testler onu okumaz). (2) `serverAdded`'ın yorumu ölçülene
+>   eşitlendi: karşılaştırılan nesne net/http istemcisinin ayrıştırdığı `Response.Header`'dır;
+>   `Content-Length` ve `Date` adıyla düşer; `Transfer-Encoding` (C18'de `chunked`) istemcinin
+>   ayrıştırıcısında `Response.TransferEncoding`'e taşınır; `Connection` bu HTTP/1.1 keep-alive
+>   isteklerinde yazılmaz (scratchpad'de bir sondayla ölçüldü: `Connection: close` isteğinde telde
+>   var). (3) Kopyayı telle genel olarak eşitleyen cümleler — `leak_test.go`'nun S4'ü,
+>   `checkDesignedHeaders`'ın belgesi ve satır içi yorumu, başlık testinin WHAT IS READ'i, `routes.go`,
+>   md. 11, ADR (v), 5. tur alt bloğunun F1'i — üç sınıfa (C1, C18, C28) ve başlık bölümüne bağlandı;
+>   tel testinin PART III örnekleri: trailer bölümü, hijack edilmiş bağlantı (denetçinin E5'i;
+>   kaydedici Hijack desteklemez), sunucunun çerçeve başlıkları.
+> - **N-1 · sorgulu sınıf sayısı 32.** Ölçüm: worktree'siz ve `.env`'siz bir scratchpad kopyasında
+>   iki tablonun `send`'i son isteğin yolunu sorgusuyla kaydedecek, `runHeaderClasses` her sınıf için
+>   "yolda `?` var mı" yazacak biçimde geçici olarak değiştirildi (kopya sonra silindi): 48 sınıfın
+>   32'sinin son isteği sorgu taşıdı — C1–C26, C38, C40 (40 sınıflık tabloda 28) ve C44, C45, C47,
+>   C48 (8 sınıflık tabloda 4), yani son isteği `hostileDrive`'ın sorgu eklediği üç yoldan birine
+>   giden sınıflar. "27" metinleri düzeltildi: başlık testi, `enroll.go`, md. 11, md. 20, ADR (v) ve
+>   (I)(viii), 4. tur alt bloğunun B2'si.
+> - **Güvenlik denetçisinin iki düşük notu** → L20 ve L21 (sayılı sınırlar listesi) ve ADR notunun
+>   **Sınırlar** satırı. Notun "`TestEscapes_…`'ta pinli" sözü daraltıldı: o test çöp-önce isteğin
+>   303 olduğunu ölçer; silen `Set-Cookie` ve sunucudaki oturumun canlı kalması denetçinin
+>   ölçümüdür. Testin başlığı da buna eşitlendi; test mantığına dokunulmadı.
+> - **Ek metin düzeltmesi.** `deploy/README.md` 7. kuralının `err` hücresi "sunucunun mesajı"nı
+>   `TestOpenOperatorSurface_PrintsNoValue`'ya bağlıyordu; o test DSN'i ve parolayı ham, iki anahtarı
+>   base64, hex ve ondalık liste biçimiyle arar. Sunucu mesajının hatada bulunmadığını `internal/db`'nin
+>   `TestOperatorConnectErr_OnlyTheTableIsUnreachable`'ı ölçer; hücre ikisini ayrı ayrı adlandırır.
+> - **Olumsuz olgu taraması (6. tur).** `yok…`, `bulunmad…`, `bulunmaz…`, `yazılmad…`, `yazılmaz…`,
+>   `absent`, `not found`, `no … in` (arada en çok dört sözcük), 5. turun kapsamıyla: 115 geçiş.
+>   Yanıtta, log satırında ya da hata metninde bir değerin olmadığını söyleyen 22 geçiş biçime (ham,
+>   sorgu-kaçışlı, testin render kümesi ya da testin aradığı biçimler), sınıf kümesine ve değer
+>   kümesine adıyla bağlı; bir başlık adının olmadığını söyleyen 6 geçiş sınıf kümesine
+>   (`designedHeaders`) bağlı; kalan 87 geçiş başka türden — olgu (kod, config, diff, ölçüm) 34,
+>   alıntı 16, tanım ya da kod tarifi 15, sözcük listesi ya da meta 8, test mesajı ya da tipi 5,
+>   mutasyon tarifi 4, PART III 3, UI metni 2. Satır satır liste teslim raporunda.
+> - **Evrensel sözcük süpürmesi yeniden koşuldu** (5. turun listesi ve kapsamı, bu turun metinleriyle):
+>   561 geçiş (5. turda 551): alıntı 246 · sayılı kümeye bağlı 78 · sözcük listesi ya da terim 51 ·
+>   kod/protokol belirteci 44 · PART II/III 33 · sayı 31 · test mesajı 20 · kod tarifi (okuma, adıyla)
+>   17 · olgu 16 · mutasyon tarifi 14 · UI metni 6 · biçim tanımı 3 · ölçülmeyenler listesi 1 · devir
+>   talimatı 1; **bağlı olmayan 0**.
+>
+> **Devirler, adıyla:** **OP-9** — linki `/operator/enroll?id=<id>#<token>` biçiminde bas (token
+> `NewEnrollmentToken`); ingress'in neyi log'ladığını ölç; DNS/TLS/Ingress kuralı (K2) ve operatör
+> host'una IP kısıtı (K4 — L2'nin çaresi); operatör host'u ingress'in müşteri host'larından biri
+> OLMASIN (L3); runbook'a `/operator/login` ile yanıt doğrulaması. **OP-11** — tenant ekranları
+> `operatorpages.TenantScreen` ile (adsız render edilemez); oturum bütçesini (100/10 dk) okuma başına
+> iki işlemle yeniden türet; konsoldan linkler ancak rota kayıtlıyken; *(5. tur, N5)* her yeni ekran
+> ve rota şunlara eklenir: `classRoutes` (C tablosu, `op8r5_test.go`) ve başlık tablolarından birine
+> bir sınıf, `designedHeaders`'a tasarlanan başlıkları, sızıntı testinin kollarına bir kol ve
+> `harvestWant`'e — `TestOperatorHeaders_TheWalkedRoutesEachHaveAClass` sınıfsız monte edilmiş bir
+> yöntem × rota çiftini kırmızıya çevirir, öbür üçü elle eklenir. **OP-14** — `password_ok`
+> audit türü (P9) bir migration'la; görüntüleyici `login`/`logout`/`enrollment` satırlarını gösterir.
+> **OP-10** — `/operator/legal` bu kabuğun içinde, aynı zincirle.
 
 ### Görevler — A2 tenant-ötesi okuma/yazma
 | ID | Görev | Efor | Kabul (özet) |

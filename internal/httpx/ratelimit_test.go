@@ -142,7 +142,7 @@ func TestTapLimiter_ByAddress(t *testing.T) {
 	if w.Code != http.StatusTooManyRequests {
 		t.Fatalf("the 4th request answered %d, want 429", w.Code)
 	}
-	if w.Header().Get("Retry-After") == "" {
+	if w.Result().Header.Get("Retry-After") == "" {
 		t.Fatal("no Retry-After on a 429")
 	}
 	if *served != 3 {

@@ -603,11 +603,21 @@ const (
 // name below is the constant itself rather than a string typed into a template, so
 // renaming a cookie renames it here; and
 // TestCookieNotice_ListsExactlyTheCookiesTheProductSets derives the set of cookie
-// names from the source of internal/session, internal/adminauth and this package
-// and fails when the product grows a seventh that this table does not mention.
+// names from the non-test Go files under internal/ and cmd/ -- the string literals of the
+// two name shapes it reads, `tappa_…` and `__Host-taptime_…` (cookieNameLiteral) -- and
+// fails when one of those literals is a name this table does not mention (or that its
+// named list of deliberate omissions does not). A cookie named in another shape is not
+// read by it; that is code review's.
 //
-// SIX COOKIES, AND THE SET IS THE MEASUREMENT rather than a claim: every
-// http.SetCookie in non-test code writes one of these six.
+// TEN COOKIES (re-counted 2026-10-02, M10 OP-8 -- this line said "six" from before
+// M7-02 and M7-04 added four). TestCookieNotice_ListsExactlyTheCookiesTheProductSets
+// holds the table equal, in both directions, to the names of those two shapes it reads
+// in the source, less the two operator cookies below.
+//
+// ⚠️ THE PLATFORM OPERATOR'S TWO COOKIES ARE LEFT OFF ON PURPOSE (OP-8): they are
+// `__Host-` cookies set by the operator surface on the operator's host
+// (TAPPA_OPERATOR_HOST) for Taptime staff, not for this site's visitors. The scan sees
+// them and names the omission with its reason (marketing_test.go, cookiesNotOnTheNotice).
 //
 // ⚠️ WHAT THE TABLE DOES NOT SAY, deliberately. It does not name the VALUE of
 // anything (§4.7) and it does not say what a value is derived from beyond "a

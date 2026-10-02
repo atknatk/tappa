@@ -376,3 +376,46 @@ templ Auth(title, script string) {
 		</body>
 	</html>
 }
+
+// Operator is the SIXTH named shell: the platform operator's surface (M10 OP-8, ADR
+// 0020 §4), on a host of its own.
+//
+// IT IS A SEPARATE SHELL FOR ONE REASON AND IT IS NOT WIDTH: the operator's screens are
+// meant not to be mistaken for a restaurant's panel, so their chrome -- the "TAPTIME
+// OPERATOR" bar and, on a tenant screen, the banner naming the tenant -- is drawn by
+// operatorpages' screen, scriptedScreen and tenantScreen, and this shell gives it a
+// full-bleed body with no column and no wordmark of the customer product to fight.
+// Panel's max-w-5xl well and Page's phone column both bring a frame the operator
+// chrome would have to undo.
+//
+// WHAT IT DOES NOT CHANGE: the shared document head (no third-party URL, no referrer,
+// RobotsPrivate), the porcelain ground, the ink text, no dark theme.
+//
+// It takes no script, and OperatorWithScript below is the slot -- the
+// Page/PageWithScript and Panel/PanelWithScript shape, so naming a script on an
+// operator screen is an act somebody performs in a template they chose. The
+// operator's Content-Security-Policy is set per response in internal/handler/operator;
+// measured there, of the 40 response classes of
+// TestOperatorHeaders_FortyResponseClassesCarryThePolicy the four enrollment ones carry a
+// script-src naming one file.
+templ Operator(title string) {
+	@OperatorWithScript(title, "") {
+		{ children... }
+	}
+}
+
+// OperatorWithScript is the operator shell plus at most ONE self-hosted script tag. In
+// the source today its caller outside this file is operatorpages' scriptedScreen, which
+// Enroll calls with its script (web/static/js/operator/enroll.js) -- read, not pinned.
+//
+// src must be an app-relative path under /static, and "" means no script. This shell
+// writes src as given; the caller passes a constant (enrollScript).
+templ OperatorWithScript(title, src string) {
+	<!DOCTYPE html>
+	<html lang="en">
+		@documentHead(title, src, RobotsPrivate)
+		<body class="min-h-screen bg-porcelain text-ink antialiased">
+			{ children... }
+		</body>
+	</html>
+}

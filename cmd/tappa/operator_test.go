@@ -236,6 +236,7 @@ func TestOpenOperatorSurface_APartialStructIsNeverSilentlyOff(t *testing.T) {
 func TestConfiguredSurface_HoldsTheAuthenticatorAndAnnouncesIt(t *testing.T) {
 	cfg := &config.Config{
 		OperatorTOTPKEK: randBytes(t, 32), OperatorTokenHMACKey: randBytes(t, 32), OperatorHost: "ops.taptime.mt",
+		BaseURL: "https://taptime.mt",
 	}
 	var buf bytes.Buffer
 	log := slog.New(logHandler(&buf, &config.Config{LogLevel: "info", LogFormat: config.LogFormatJSON}))
@@ -363,7 +364,8 @@ func TestOperatorSurface_TheRunbookGrepMatchesTheShippedLine(t *testing.T) {
 	} else {
 		closeFn()
 	}
-	cfg := &config.Config{OperatorTOTPKEK: randBytes(t, 32), OperatorTokenHMACKey: randBytes(t, 32), OperatorHost: "ops.taptime.mt"}
+	cfg := &config.Config{OperatorTOTPKEK: randBytes(t, 32), OperatorTokenHMACKey: randBytes(t, 32), OperatorHost: "ops.taptime.mt",
+		BaseURL: "https://taptime.mt"}
 	if _, err := configuredSurface(noStore{}, cfg, slog.New(logHandler(&on, shipped))); err != nil {
 		t.Fatal(err)
 	}
@@ -430,7 +432,8 @@ func TestOpenOperatorSurface_PrintsNoValue(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
 
-	cfg := &config.Config{OperatorDatabaseURL: dsn, OperatorTOTPKEK: kek, OperatorTokenHMACKey: hmacKey, OperatorHost: "ops.taptime.mt"}
+	cfg := &config.Config{OperatorDatabaseURL: dsn, OperatorTOTPKEK: kek, OperatorTokenHMACKey: hmacKey, OperatorHost: "ops.taptime.mt",
+		BaseURL: "https://taptime.mt"}
 	refusals := 0
 	for _, log := range loggers {
 		// The dial failure: not a refusal to boot but the UNAVAILABLE line, which logs

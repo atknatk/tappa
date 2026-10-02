@@ -1,0 +1,43 @@
+package operatorpages
+
+import "github.com/atknatk/tappa/web/templates/components"
+
+// Home is /operator, the console's front page.
+//
+// It shows no tenant data. ADR 0020 §4 names /operator as the tenant list, and that list
+// is OP-11's: in OP-8 the operator's database role has five definers and none of the
+// five reads a tenant (00026). The page says it is signed in and that this build has no
+// operator screen, and it carries no link of its own (the bar's sign-out form aside). The
+// session facts it states are ADR 0020 §2's, enforced by op_touch_session.
+//
+// It does not show the operator's address: the session resolves to an id, and none of
+// the five definers reads an operator's email (a new op_* is a migration).
+templ Home() {
+	@screen("Console", true) {
+		<section class="op-card">
+			<p class="docket-label">Operator console</p>
+			<h1 class="mt-1 font-display text-2xl font-bold tracking-tight">You are signed in</h1>
+			<p class="mt-3 text-sm">There is no operator screen in this build: sign-in and sign-out only.</p>
+			<p class="mt-3 text-sm text-ink/70">
+				A session ends after 30 minutes without use, and after 8 hours in any case. Sign out
+				when you are done.
+			</p>
+		</section>
+	}
+}
+
+// Problem is the operator surface's refusal and fault page. Its sentences come from the
+// handler's ProblemView constants.
+templ Problem(v ProblemView) {
+	@screen(v.Title, v.SignedIn) {
+		@components.Notice(components.ToneAlert, "") {
+			<h1 class="font-display text-xl font-bold tracking-tight">{ v.Title }</h1>
+			<p class="mt-2">{ v.Message }</p>
+		}
+		if v.Back != "" {
+			<p>
+				<a href={ templ.URL(v.Back) } class="op-link">{ v.BackLabel }</a>
+			</p>
+		}
+	}
+}
