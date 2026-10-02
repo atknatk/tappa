@@ -94,6 +94,29 @@ A/Y maddelerine ek olarak çıkanlar ve nereye işlendikleri:
 
 ## Cevaplananlar
 
+### Q29 — M10 white-label: tap ekranı markası (§9) ve akış sırası (2026-09-24, 2026-10-02)
+
+**Kararlar (kullanıcı):**
+- **D-C (2026-09-24):** tap ekranında tenant logosu + tap butonu tenant'ın vurgu renginde
+  (accent); sonuç ekranında yalnız logo.
+- **K-2a (2026-10-02, AskUserQuestion):** logosu olmayan ama accent seçmiş tenant'ın tap ekranında
+  başlıktaki `taptime` **ink** olur (porcelain üstünde 14,32:1) — ekranda tek vurgu rengi kalır.
+- **K-2b (2026-10-02, AskUserQuestion):** logo yükleyen tenant'ın tap ve sonuç ekranında üstte
+  logo, altında küçük **"taptime · punchless"** co-brand satırı (bugünkü büyük yeşil `taptime`'ın
+  yerine). Böylece K3 (co-brand) kullanıcı onaylı.
+- **Sıra (2026-10-02, orkestratör önerisi — otonomi kuralı; raporlandı, itiraz yok):**
+  A1 → White-label (WL-0..WL-10) → SES (EM-1..EM-8 + WL-11) → A2. Gerekçe: kullanıcı SES'in dış
+  adımlarını sonraya bıraktı ve paralel ilerleme istedi.
+
+**Kapsam:** D-C + K-2a + K-2b tap/sonuç ekranındaki marka değişikliklerinin TAMAMI; bunların
+dışındaki her tap ekranı değişikliği (§9) yeniden sorulur (ADR 0023 §7). Önerisiyle uygulanan
+öteki white-label kararları (K1 tek accent + WCAG kapısı, K4 panelde 4 px şerit, K5 PNG/JPEG,
+K6 aktivasyon Taptime + işveren adı, K7 Postgres bytea, K8 e-postada faz 1 yalnız ad) değişmedi.
+
+**Normatif metin:** [ADR 0023](../adr/0023-tenant-markasi-ve-arayuz-kurali.md) (tenant markası ve
+arayüz kuralı) · [ADR 0024](../adr/0024-kullanici-yukledigi-gorsel.md) (kullanıcı yüklediği görsel) ·
+[m10-platform.md](m10-platform.md) §2, §5, §6.
+
 ### Q05 — SDM mirroring modu: plain (2026-07-26)
 
 **Karar:** NTAG 424 DNA **plain SDM mirroring** — tap URL'si UID + ctr'yi **açık**

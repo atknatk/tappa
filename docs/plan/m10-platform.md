@@ -219,6 +219,17 @@ DB'siz yol yok); (3) white-label ürün cilası ve §9 kararına bağlı; (4) A2
 araçları — pilot büyüdükçe. Akışlar paralel ÇALIŞTIRILMAZ (paylaşılan Postgres, sıralı denetçi) —
 kullanıcının dış adımları hariç.
 
+> **Sıra güncellemesi (2026-10-02, 28. oturum — orkestratör önerisi, otonomi kuralı; kullanıcıya
+> raporlandı, itiraz yok).** Kullanıcı *"çok yavaş ilerliyoruz, ne kadar paralel ilerleyebilirsin"*
+> dedi ve SES'in dış adımlarını sonraya bıraktı; B'nin dış bağımlılığı beklerken C'nin bekleyeceği
+> bir şey yok. Yeni sıra: **Faz 0 → A1 (OP-4..OP-10) → C White-label (WL-0..WL-10) → B E-posta
+> (EM-1..EM-8 + WL-11) → A2.** WL-11 (e-postada tenant adı) EM-7'ye bağlı olduğu için B ile gider;
+> WL-8 (panel kabuğu) OP-10'dan sonra (aşağıdaki çakışma çözümü değişmedi). **Paralellik:**
+> veritabanına DDL/mutasyon yapmayan görevler `isolation: worktree` ile aynı anda yürür (OP-8, OP-9
+> ve WL-0 böyle yürüdü); migration'lı görevler (OP-10, WL-1, …) paylaşılan dev Postgres'te SIRAYLA;
+> tam DB test koşusunu aynı anda yalnız bir ajan yapar. Yukarıdaki *"paralel ÇALIŞTIRILMAZ"* cümlesi
+> bu kapsamda daraldı.
+
 **Numaralandırma:** her ADR/migration yazıldığı anda sıradaki boş numarayı alır (bugün ADR 0020,
 migration 00024). Önerilen ADR sırası: 0020 operatör kimliği · 0021 `op_*` arayüzü · 0022 e-posta
 taşıyıcısı · 0023 tenant markası/§9 · 0024 kullanıcı yüklediği görsel · 0025 tenant askıya alma.
@@ -4467,13 +4478,19 @@ metni Taptime'ı işleyen olarak adlandırıyor, plaket "taptime" basıyor).
   `ParseAccent` (kanonik büyük harf) · `OnColor` (ink ya da paper, yüksek kontrastlı olan) · `Edge`
   (porcelain'e karşı <3:1 → 2 px ink kenar, WCAG 1.4.11) · `Check` (en iyi metin kontrastı <4,5:1
   → RED) · `Suggest` (aynı ton, açıklığı düşürerek geçen en yakın renk). Red bandı bağıl parlaklık
-  L ∈ (0,1790; 0,2368) — orada ne paper ne ink 4,5'e ulaşır (ör. #808080 ve #E0457B red; #FFC72C
-  sarı ink metin + ink kenarla geçer; #DA291C kırmızı paper metinle 4,78 geçer). Aynı fonksiyon
-  yazma VE okuma tarafında (netx deseni). Palet sabitleri `tailwind.config.js`'den türetilip
-  testle kilitli (ikinci kopya yok).
+  L ∈ (paper sınırı; ink sınırı) = (0,1789826956…; 0,2368152180…), formülle tanımlı — orada ne
+  paper ne ink 4,5'e ulaşır (ör. #808080 ve #E0457B red; #FFC72C sarı ink metin + ink kenarla
+  geçer; #DA291C kırmızı paper metinle 4,78 geçer) *(WL-0 düzeltmesi: "(0,1790; 0,2368)" yazıyordu;
+  yuvarlanmış literal 1 092 rengi yanlış geçirir — ADR 0023 §3)*. Aynı fonksiyon yazma VE okuma
+  tarafında (netx deseni). Palet sabitlerinin Go kopyası `tailwind.config.js`'i okuyan bir
+  eşitlik testiyle kilitli *(WL-0 düzeltmesi: "ikinci kopya yok" uygulanamaz — `go:embed` paket
+  dizininin dışına çıkamaz)*.
 - **Asla değişmeyen:** beş kaşe damgası + durum→renk eşlemesi · tomato = hata/yıkıcı · saffron =
   FLAGGED/geç · Notice · docket/perforasyon · `.docket-label` · panelin birincil/yıkıcı butonları ·
-  focus halkası (ink) · **sonuç ekranında accent hiç yok** (renkler durumu anlatıyor).
+  odak göstergeleri — `.btn`'in ink halkası ve tap düğmesinin tarayıcıdan gelen outline'ı
+  (Chrome 154'te `rgb(0, 95, 204)`; kuralı renk koymadığı için accent onu taşımaz) *(WL-0
+  düzeltmesi: "focus halkası (ink)" yazıyordu)* · **sonuç ekranında accent hiç yok** (renkler
+  durumu anlatıyor).
 - **Enjeksiyon — CSP DEĞİŞMEZ:** durumsuz `GET /brand/theme/{HEX}.css` → gövde yalnız
   `:root{--brand-accent:R G B;--brand-on-accent:…;--brand-edge:…}`; DB okumaz, kimlik doğrulamaz,
   tenant verisi taşımaz (kurucusuna havuz verilmez — `/healthz` gibi yapısal); yalnız kanonik ve
@@ -4487,7 +4504,12 @@ metni Taptime'ı işleyen olarak adlandırıyor, plaket "taptime" basıyor).
   `Normalize(io.Reader)`: gövde `MaxBytesReader` 1 MiB, parça ≤512 KiB · `http.DetectContentType`
   magic bytes (istemci Content-Type ve dosya adı yok sayılır, LOGLANMAZ) · format-özel
   `png.DecodeConfig`/`jpeg.DecodeConfig` ile **decode'dan ÖNCE** her kenar 16–2048 px ve ≤4 MP
-  (decode-bomb; en kötü 16 MiB RGBA, 512 Mi pod içinde) · süreç geneli 1–2 slot semafor · uzun
+  (= 2²²; decode-bomb) · JPEG'te SOS sayısı decode'dan önce, çözücünün işleyeceğinin **üst
+  sınırı** olarak sayılır ve tavanı aşan red (CPU bombası) · süreç geneli semafor, N yuva (N <
+  `GOMAXPROCS` = 2 → N = 1), beklemeden alınır (doluysa hemen ret), yuva decode → küçültme →
+  kodlama boyunca tutulur ve goroutine dönünce bırakılır; ölçülen en
+  kötü decode **96 MiB** (progressive CMYK 4:4:4), GC payıyla birlikte 512 Mi'ye karşı hesaplanır
+  — *(WL-0 düzeltmesi: "en kötü 16 MiB RGBA · 1–2 slot" yazıyordu; ADR 0024 §2.5–2.6)* · uzun
   kenar 512 px'e elle box filtre (stdlib; `x/image/draw` bağımlılık olurdu) · PNG→PNG
   (BestCompression), JPEG→JPEG q85 **yeniden kodlama** → EXIF/XMP/ICC/metin chunk'ları ve IEND
   sonrası polyglot düşer — 🔴 **§4.2: telefon fotoğrafının EXIF GPS'i silinir (testle)** · çıktı
@@ -4495,8 +4517,11 @@ metni Taptime'ı işleyen olarak adlandırıyor, plaket "taptime" basıyor).
   tetikleyicisi — "digest"/"sha256" kullan).
 - **Depolama: Postgres `bytea`** — pod `readOnlyRootFilesystem` + hiç volume yok, kümede obje
   deposu yok (`50-backup.yaml` ölçmüş), `pg_dump` yedeğine kendiliğinden girer; 256 KiB × 1000
-  tenant ≈ 256 MB, TOAST satır dışında tutar. Yükleme `r.MultipartReader()` ile AKIŞ —
-  `ParseMultipartForm` büyük parçayı geçici dosyaya yazmaya kalkıp salt-okunur FS'te patlar.
+  tenant = 250 MiB *(WL-0 düzeltmesi: "≈ 256 MB")*, TOAST satır dışında tutar. Yükleme `r.MultipartReader()` ile AKIŞ — tek
+  `logo` parçası ve `LimitReader` denetimi için; `ParseMultipartForm` parçadan küçük bir eşikle
+  çağrılırsa geçici dosyaya yazmaya kalkıp salt-okunur FS'te patlar *(WL-0 düzeltmesi: "büyük
+  parçayı … patlar" yazıyordu — ölçüldü (S20): 1 MiB gövde tavanı altında `FormFile`/`FormValue`'nun
+  örtük 32 MiB ayrıştırması diske dökmüyor; ayrımı WL-7'nin sözdizimi pini yapar, ADR 0024 §6)*.
 - **Veri:** ayrı `tenant_branding` tablosu (0..1 ilişki; `store.Tenant`'a bytea taşıma riski yok):
   `tenant_id` PK (tablo-kısıtı biçimi — R5b), `accent char(6)` CHECK `^[0-9A-F]{6}$`, `logo bytea`
   ≤262144, `logo_sha256`, `logo_mime IN ('image/png','image/jpeg')`, `logo_width/height` 1–512,
@@ -4507,19 +4532,24 @@ metni Taptime'ı işleyen olarak adlandırıyor, plaket "taptime" basıyor).
   `GetTenantLogo(tenant_id, sha)`, `UpsertTenantAccent`, `UpsertTenantLogo`, `ClearTenantAccent`,
   `ClearTenantLogo` — hepsi açık `tenant_id` filtreli.
 - **Servis:** `GET /admin/brand/logo/{sha}` (panel okuma zinciri) ve `GET /t/logo/{sha}` (tap
-  grubu, canlı oturum şart) — admin çerezi `Path=/admin`, çalışan çerezi `Path=/` olduğu için tek
-  ortak rota iki çerezi alamaz. Tenant YALNIZ oturumdan; başka tenant'ın logosu ve var olmayan hash
+  grubu, canlı oturum şart) — admin çerezi `Path=/admin` olduğu için tap yüzeyindeki bir rota
+  yönetici kimliğini göremez ve iki yüzeyin çözümleyicisi/bütçesi ayrıdır *(WL-0 düzeltmesi:
+  "tek ortak rota iki çerezi alamaz" yazıyordu — çalışan çerezi `Path=/` olduğu için `/admin/…`'ya
+  da gider; ADR 0024 §5)*. Tenant YALNIZ oturumdan; başka tenant'ın logosu ve var olmayan hash
   **bayt-aynı 404** (kehanet yok). Başlıklar: saklanan mime, `private, max-age=31536000,
   immutable`, `ETag: "<sha>"`, nosniff, `Content-Security-Policy: default-src 'none'; sandbox`,
-  `Cross-Origin-Resource-Policy: same-origin`, sabit `Content-Disposition: inline;
-  filename="logo.png"`. Sayfa CSP'sine `img-src 'self'` YALNIZ `<img>` render edilen sayfaya
+  `Cross-Origin-Resource-Policy: same-origin`, `Content-Disposition: inline;
+  filename="logo.png"` ya da `"logo.jpg"` — mime'a göre *(WL-0 düzeltmesi: sabit `logo.png`)*. Sayfa CSP'sine `img-src 'self'` YALNIZ `<img>` render edilen sayfaya
   (`tapCSPFor(hasLogo)` / `adminCSPFor(hasLogo)`, `landingCSPFor` emsali). Kimliksiz hash-rotası
   elendi (SECURITY DEFINER ile tenant'lar arası okuma = ADR 0002 md.7'ye yeni istisna + bütçesiz DB
   okuması).
-- **Yüzeyler:** tap ekranı logo (sabit yükseklikli başlık yuvası) + accent tap butonunda (⏳ D-C)
-  · sonuç ekranı yalnız logo · tur/practice logo (faz 2) · panel kabuğu logo + tenant adı + 4 px
+- **Yüzeyler:** tap ekranı logo (sabit yükseklikli başlık yuvası, altında küçük "taptime ·
+  punchless" — K-2b ✅ 2026-10-02) + accent tap butonunda (✅ D-C 2026-09-24); logo yok ama accent
+  varsa başlıktaki `taptime` ink (K-2a ✅ 2026-10-02) · sonuç ekranı yalnız logo (+ altında
+  co-brand, K-2b) · tur/practice logo (faz 2) · panel kabuğu logo + tenant adı + 4 px
   accent şeridi (birincil butonlar yeşil kalır) · Account → "Your brand" editör + gerçek bileşen
-  önizlemesi (mevcut "What your staff read" deseni) · aktivasyon (Taptime + işveren adı, bugünkü
+  önizlemesi (mevcut "What your staff read" deseni; önizlemedeki tap düğmesi accent'i alır,
+  **formsuz** — ADR 0023 §2) · aktivasyon (Taptime + işveren adı, bugünkü
   gibi) / problem / landing / legal / signup / admin login / reset / operatör / AdminChoose =
   Taptime · CSV değişmez · e-posta faz 1 yalnız ad (sabit Taptime gönderen), logo faz 2 CID (≤32
   KiB varyant; uzak URL = takip pikseli, elendi). Plaket/oturum tenant uyuşmazlığında
@@ -4538,21 +4568,169 @@ metni Taptime'ı işleyen olarak adlandırıyor, plaket "taptime" basıyor).
 | ID | Görev | Efor | Ajan | Kabul (özet) | Bağımlılık |
 |---|---|---|---|---|---|
 | WL-0 | Kararlar (D-C + WL-K*) open-questions'a cevaplı + ADR 0023/0024 + tappa-brand skill'e "Tenant slotları" taslağı | S | orkestratör | kararlar kayıtlı; ADR'ler kabul | D-C |
-| WL-1 | Migration `tenant_branding` + `db/queries/branding.sql` + RLS testi | M | tappa-db-migrator | `make audit` R5/R5b 0; beşli tam; RLS testi `WHERE`'siz A bağlamında B'yi 0 görür + B `tenant_id`'li INSERT WITH CHECK ile red; `has_table_privilege('tappa_app','tenant_branding','DELETE')=false`; CHECK'ler hasmane değerlerle patlatılmış (küçük harf hex, 3 haneli hex, 262145 bayt, kısmi logo alanları); Down→Up→Down bayt-aynı; `GetTenantBrand` `logo` seçmiyor (test sorgu metnini okur) | WL-0 |
-| WL-2 | `internal/brand/accent.go` | S | builder | tablo değerleri ±0,01, L sınırları 0,1790 ve 0,2368 dahil; palet `tailwind.config.js`'den pinli (renk değişirse kırmızı); `Suggest` deterministik, her çıktısı `Check`'ten geçer (özellik testi); kapsam ≥%90 | WL-0 |
-| WL-3 | `internal/brand/logo.go` | M | builder | SVG/GIF/WebP/HTML/PNG-magic'li HTML red; 30000×30000 başlıklı dosya decode'dan ÖNCE red (bayt başına tahsis ölçülür); kesik red; IEND sonrası yük çıktıda yok; EXIF-GPS'li JPEG çıktısında `Exif` APP1 yok; CMYK JPEG, 16-bit, paletli, interlaced PNG normalize; ≤512 px, ≤256 KiB; `FuzzNormalize` panik yok, her başarılı çıktı yeniden decode olur ve sınırlarda; semafor -race altında ≤N; `go.mod` diff boş | WL-0 |
+| WL-1 | Migration `tenant_branding` + `db/queries/branding.sql` + RLS testi | M | tappa-db-migrator | `make audit` R5/R5b 0; beşli tam; RLS testi `WHERE`'siz A bağlamında B'yi 0 görür + B `tenant_id`'li INSERT WITH CHECK ile red; `has_table_privilege('tappa_app','tenant_branding','DELETE')=false`; CHECK'ler hasmane değerlerle patlatılmış (küçük harf hex, 3 haneli hex, 262145 bayt, kısmi logo alanları); `updated_at` + `updated_by` ve bileşik `FOREIGN KEY (updated_by, tenant_id) REFERENCES admin_users (id, tenant_id)` — başka tenant'ın yönetici id'si FK ile red *(WL-0, ADR 0023 §1)*; Down→Up→Down bayt-aynı; `GetTenantBrand` `logo` seçmiyor (test sorgu metnini okur) | WL-0 |
+| WL-2 | `internal/brand/accent.go` | S | builder | tablo değerleri ±0,01, **hesaplanan** L sınırları (0,1789826956… / 0,2368152180…) dahil, her iki yanındaki en yakın hex'le sınanır — literal yok *(WL-0: yuvarlanmış 0,1790/0,2368 bandın içinde; ADR 0023 §3)*; palet Go kopyası, `tailwind.config.js`'i okuyan eşitlik testiyle pinli (renk değişirse kırmızı); `Suggest` deterministik, her çıktısı `Check`'ten geçer (özellik testi); kapsam ≥%90 | WL-0 |
+| WL-3 | `internal/brand/logo.go` | M | builder | SVG/GIF/WebP/HTML/PNG-magic'li HTML red; 30000×30000 başlıklı dosya decode'dan ÖNCE red (bayt başına tahsis ölçülür); kesik red; IEND sonrası yük çıktıda yok; EXIF-GPS'li JPEG çıktısında `Exif` APP1 yok; CMYK JPEG, 16-bit, paletli, interlaced PNG normalize; ≤512 px, ≤256 KiB; `FuzzNormalize` panik yok, her başarılı çıktı yeniden decode olur ve sınırlarda; semafor -race altında ≤N; **WL-0 ekleri (ADR 0024 §2.5–2.6):** JPEG SOS sayımı çözücünün işleyeceğinin üst sınırı — tavan+1 taramalı dosya ve "dürüst olmayan" dosya (segment arası çöp + gizli SOS) decode'dan önce red, tavan kadar taramalının süresi karta; yuva decode → küçültme → kodlama boyunca tutulur, goroutine dönünce bırakılır (iptal edilen istekten sonra yuva dolu kalır); 512Mi konteynerde N eşzamanlı en kötü decode altında RSS ölçülür, `GOMEMLIMIT` ya da `2 × (N × tepe + taban)`; N < `GOMAXPROCS` → N = 1 (Go 1.25+ cgroup sınırından `GOMAXPROCS` = 2; podda `runtime.GOMAXPROCS(0)` bir kez ölçülür); yuva beklemeden alınır, N doluyken gelen istek decode'a girmeden hemen red; `go.mod` diff boş | WL-0 |
 | WL-4 | Domain `internal/domain/tenant/brand.go` | M | builder | kaydet/sil UPDATE + audit aynı tx (zorla patlatılan audit UPDATE'i geri alır; iki yön); detail tam 6 sabit anahtar; domain accent'i yeniden `Check` eder → `ErrAccentIllegible`; `ActorID` zorunlu | WL-1,2,3 |
-| WL-5 | Theme rotası + Tailwind token'ları (`brandtheme.go`, `tailwind.config.js`, `input.css`) | M | builder + tappa-brand | kurucu havuz almıyor; 200/404 matrisi (kanonik, küçük harf, geçersiz, red bandı); başlıklar birebir, gövde yalnız 3 özellik; marka yoksa tap butonu CDP computed `rgb(31,92,65)`/`rgb(255,253,244)`; yeni bir marka testi: tenant accent'i yalnız marka slotlarında (henüz yazılmadı — adı WL-5'te konur; mutasyon: `.stamp`'e `bg-brand` → kırmızı); `TestCompiledCSS_StampWordIsInk` yeşil; yorumdan ölü CSS kuralı doğmuyor | WL-2 |
-| WL-6 | Logo rotaları + sayfa başına `img-src` | M | builder | başlıklar birebir; A oturumu B'nin sha'sını isteyince aldığı 404 bilinmeyen sha'nınkiyle bayt-aynı; oturumsuz tap logosu 404; "sayfa `img-src`'yi ancak `<img` içeriyorsa adlandırır" testi (panel + tap); ücretli istek sayısı ölçülüp bütçeler güncellendi (sıcak 1, soğuk 2) | WL-1,4 |
-| WL-7 | Account → "Your brand" editörü (`brandactions.go`, account.templ/view, üç `ProtectWriting` rotası: logo, accent, sıfırla) | L | builder + tappa-brand | yükleme `MultipartReader` akış, `TMPDIR` salt-okunur/yokken bile başarılı (geçici dosya yok); yalnız tek `logo` parçası, bilinmeyen parça red; cross-origin POST resolver'dan önce red; manager POST 303 `not-permitted` + `brand_update_refused` + 0 UPDATE; okunaksız renk formu yeniden render + önerilen hex, yazma yok; önizleme gerçek tap bileşenlerini render eder; açık logo uyarısı (alfa ağırlıklı parlaklık paper'a <1,5:1 → uyarı, ret değil); `FactNoBulkImport` tripwire'ı "marka logosu handler'ı dışında multipart okuyucu yok" olarak yeniden türetildi (mutasyon: `employeeactions.go`'ya `FormFile` → kırmızı; SSS cümlesi değişmez); `<input type="color">` + hex alanı dokunma hedefi ≥44 px | WL-4,5,6 |
+| WL-5 | Theme rotası + Tailwind token'ları (`brandtheme.go`, `tailwind.config.js`, `input.css`) | M | builder + tappa-brand | kurucu havuz almıyor; 200/404 matrisi (kanonik, küçük harf, geçersiz, red bandı); başlıklar birebir, gövde yalnız 3 özellik; marka yoksa tap butonu CDP computed `rgb(31,92,65)`/`rgb(255,253,244)` (bir kez); derlenmiş `app.css`'te `:root` varsayılanlarını okuyan test *(WL-0, ADR 0023 İddia B)*; slot testi özelliğe de bakar: `--brand-accent` yalnız `background-color` bildirimlerinde, `--brand-on-accent` yalnız `color`'da, `--brand-edge` yalnız kenarda (mutasyon: `.tap-button{color:rgb(var(--brand-accent))}` → kırmızı) *(3. tur, ADR 0023 §3)*; yeni bir marka testi: tenant accent'i yalnız marka slotlarında (henüz yazılmadı — adı WL-5'te konur; mutasyon: `.stamp`'e `bg-brand` → kırmızı); `TestCompiledCSS_StampWordIsInk` yeşil; yorumdan ölü CSS kuralı doğmuyor | WL-2 |
+| WL-6 | Logo rotaları + sayfa başına `img-src` | M | builder | başlıklar birebir; A oturumu B'nin sha'sını isteyince aldığı 404 bilinmeyen sha'nınkiyle bayt-aynı; oturumsuz tap logosu 404; "sayfa `img-src`'yi ancak `<img` içeriyorsa adlandırır" testi (panel + tap); ücretli istek sayısı ölçülüp bütçeler güncellendi (sıcak 1, soğuk 2); **WL-0 ekleri:** `Content-Disposition` dosya adı mime'a göre; yönetici oturumu olmayan, çalışan çerezli istek `/admin/brand/logo/…`'dan logo baytı almaz (ADR 0024 §5) | WL-1,4 |
+| WL-7 | Account → "Your brand" editörü (`brandactions.go`, account.templ/view, üç `ProtectWriting` rotası: logo, accent, sıfırla) | L | builder + tappa-brand | yükleme `MultipartReader` akış, `TMPDIR` salt-okunur/yokken bile başarılı (geçici dosya yok); yalnız tek `logo` parçası, bilinmeyen parça red; cross-origin POST resolver'dan önce red; manager POST 303 `not-permitted` + `brand_update_refused` + 0 UPDATE; okunaksız renk formu yeniden render + önerilen hex, yazma yok; önizleme gerçek tap bileşenlerini render eder; açık logo uyarısı (alfa ağırlıklı parlaklık logonun oturduğu porcelain'e <1,5:1 → uyarı, ret değil — *WL-0 düzeltmesi: "paper'a" yazıyordu*); `FactNoBulkImport` tripwire'ı "marka logosu handler'ı dışında multipart okuyucu yok" olarak yeniden türetildi (mutasyon: `employeeactions.go`'ya `FormFile` → kırmızı; SSS cümlesi değişmez); `<input type="color">` + hex alanı dokunma hedefi ≥44 px; **WL-0 ekleri (ADR 0024 §6, ADR 0023 §2):** `TMPDIR` testi `FormFile`/`FormValue`'yu ayırt etmez (1 MiB tavan altında diske dökmezler) → logo handler dosya(lar)ının AST'sini okuyan pin: `FormValue`, `PostFormValue`, `FormFile`, `ParseMultipartForm`, `ParseForm` çağrısı ve `Form`/`PostForm`/`MultipartForm` okuması 0 (mutasyon: `r.FormValue("x")` → kırmızı); tenant başına yükleme bütçesi (aşım 429 + ret audit'i + 0 UPDATE); gövde okunmadan önce eşzamanlı yükleme kabul sınırı; `SetReadDeadline` ile gövde okuma süresi; `40-ingress.yaml:127-129`'un "small JSON body" yorumu güncellenir, istek tamponlaması kümede ölçülür; ret yollarının log satırlarında dosya adı/bayt 0; önizleme **gönderilemez** — `<form` ve `/api/checkin` 0, düğme `type="submit"` değil, hiçbir `<form>`'un soyundan değil, `form=` özniteliği yok; önizlemedeki logo `/admin/brand/logo/{sha}`'dan; önizleme **yalnız kaydedilmiş** accent'i gösterir (aday hex `<input type="color">`'un kendi rengiyle) — ADR 0023 §2 *(3. tur)*; önizleme WL-9'un ayırdığı tap bileşenlerini çağırır | WL-4,5,6,9 |
 | WL-8 | Panel kabuğu (`panelChrome`, `PanelChrome`, `review.go` `chrome()`) | S | builder | logo + tenant adı + şerit (K4); `chrome()` tam +1 PK okuması, EXPLAIN ANALYZE seed'de <1 ms; marka okuma hatası sayfayı düşürmez; AdminChoose değişmez | WL-5,6, OP-10 |
-| WL-9 | Tap, sonuç, tur ekranları (`base.templ` açık parametreli `BrandedPage…`, `tap.templ`, `result.templ`, `view.go`, `tap.go`/`checkin.go` `tapCSPFor`, `directory.go` `TapPage` markayı aynı tx'te okur, `result_test.go` beyaz listesi) | M | builder + tappa-brand | **§9 onayı (D-C) olmadan başlamaz**; `TapView` 3 ve `ResultView` 8 alan kalır (marka ayrı açık parametre; kartta onay alıntılı); logo `width`/`height` → CDP layout-shift 0; 390×844'te tap butonu üst kenarı ≤16 px kayar, hâlâ tek buton, "Tap" metni, ≥64 px; tek yeni metin `alt` = tenant adı; A çalışanı B plaketinde gövdede `/t/logo/` yok; marka yoksa HTML + CSP bayt-aynı (golden); okuma hatasında 200 + varsayılan | WL-5,6, D-C |
+| WL-9 | Tap, sonuç, tur ekranları (`base.templ` açık parametreli `BrandedPage…`, `tap.templ`, `result.templ`, `view.go`, `tap.go`/`checkin.go` `tapCSPFor`, `directory.go` `TapPage` markayı aynı tx'te okur, `result_test.go` beyaz listesi) | M | builder + tappa-brand | **§9 onayı (D-C) olmadan başlamaz**; `TapView` 3 ve `ResultView` 8 alan kalır (marka ayrı açık parametre; kartta onay alıntılı); logo `width`/`height` → CDP layout-shift 0; 390×844'te tap butonu üst kenarı ≤16 px kayar, hâlâ tek buton, "Tap" metni, ≥64 px; tek yeni metin `alt` = tenant adı; A çalışanı B plaketinde gövdede `/t/logo/` yok; marka yoksa HTML + CSP bayt-aynı (golden); okuma hatasında 200 + varsayılan; **WL-0 ekleri (ADR 0023 §2, §5–§7):** K-2a ve K-2b (2026-10-02) kartta alıntılı — logo varken üstte logo + altında "taptime · punchless", logosuz-accent'li tap ekranında başlıktaki `taptime` ink; markalı tenant'ın sonuç sayfasında tema `<link>`'i 0; uyuşmazlıkta **sonuç** sayfasında da `/t/logo/` ve tema `<link>`'i 0, eşleşen tenant'ta sonuçta logo var; golden aktivasyon ailesini de kapsar; 16 px bütçe ile logo yuvası aritmetiği (yuva ≤ `29 − aralık` px) orkestratörce karara bağlanır; **3. tur ekleri:** golden'a giren render'lar kartta **adıyla ve sayısıyla** listelenir (tap ekranı; sonuç ekranının hüküm × yön × iş türü × practice varyantlarından seçilenler; aktivasyon ailesi) — golden yalnız listelenen fikstürleri yakalar (ADR 0023 İddia B); `templ Tap` başlık ve düğme yüzü bileşenlerine ayrılır (Account önizlemesi için — WL-7 buna bağımlı), bölme sonrası tap ekranı golden'ı bayt-aynı | WL-5,6, D-C |
 | WL-10 | Güvenlik denetimi (tüm WL diff'i) | M | tappa-security-auditor | ONAY — izolasyon (RLS + handler), fuzz/bomb, başlıklar, CSP diff, multipart tripwire, bütçeler, audit, log'da dosya adı/byte yok | WL-7,8,9 |
 | WL-11 | E-posta entegrasyonu | S | builder | `"X\r\nBcc: y"` tenant adı ek başlık üretmez; RFC 2047; From alan adı hep Taptime | EM-7, WL-4 |
-| WL-12 | Dokümanlar (tappa-brand skill tenant slotları + kontrast kuralı, handoff §4, roadmap, state) | S | orkestratör | `make check` + `make audit` exit 0 | WL-10 |
+| WL-12 | Dokümanlar (tappa-brand skill tenant slotları + kontrast kuralı, handoff §4, roadmap, state) | S | orkestratör | `make check` + `make audit` exit 0; **WL-0 ekleri:** ADR 0005'e marka taklidi eki (`cmd/tappa/adr0005_test.go` sayımlarıyla birlikte — ADR 0023 sınır 1); skill bölümünden "taslak" kalkar; CLAUDE.md §9 tenant slotu cümlesi + §3 `internal/brand` | WL-10 |
 
 Bilinçli güncellenecek mevcut testler: `TestResultScreen_SaysExactlyThisAndNothingElse` (`alt`
 metni), `FactNoBulkImport`, `TestBrand_*`, panel CSP ↔ script karşılığı testi.
+
+> **Kart düzeltmesi (2026-10-02, WL-0 uygulaması sırasında).** Yazıldı:
+> [ADR 0023](../adr/0023-tenant-markasi-ve-arayuz-kurali.md) (slotlar, accent kapısı, §9 onayı) ·
+> [ADR 0024](../adr/0024-kullanici-yukledigi-gorsel.md) (logo dosyası: biçim, sınır, yeniden
+> kodlama, saklama, servis) · skill `tappa-brand` → *"Tenant slotları (taslak)"* (yalnız ek).
+> Tablonun bütünlüğü için blok WL-0 satırının değil tablonun altında. Tasarım özünden sapmalar
+> aşağıda; normatif hâlleri ADR'lerde. **Ölçüm yöntemi:** HEAD `c0c0250` üzerinde `rg`/`sed`
+> okuması (her olgu ADR'lerin "Bağlam — bugün" tablosunda `dosya:satır` ile) · stdlib sondası
+> (`image/png`, `image/jpeg`, `mime/multipart`, `net/http`) scratchpad'de ayrı modülde,
+> **go1.27.1** darwin/amd64 (CI 1.26.x'te yeniden ölçülmedi) · WCAG hesabı paleti
+> `tailwind.config.js`'den okuyan betikle, 2²⁴ rengin tamamı ayrıca sayıldı · `pages.Tap`'in
+> gerçek render'ı ve scratch'te derlenmiş `app.css` headless Chrome 154'te. Depoya kod ya da
+> migration yazılmadı.
+>
+> 0. **Sıra:** A1 → **C** → B → A2; WL-11 B ile birlikte. Kullanıcının *"çok yavaş, paralel
+>    ilerle"* talebi üzerine, SES'in dış adımları kullanıcı tarafından sonraya bırakıldığı için
+>    orkestratörün önerisi (otonomi kuralı); 2026-10-02'de kullanıcıya raporlandı, itiraz yok;
+>    D-D'nin (2026-09-24) sırasının yerine geçer. §2'nin şeması ve
+>    §6'nın D-D satırı orkestratörce güncellenir. ADR numaraları değişmedi: 0022 SES'e ayrılmış, 0023/0024 önce yazıldı — §2'nin
+>    *"yazıldığı anda sıradaki boş numara"* kuralına bu iki ADR için bilinçli istisna.
+> 1. **L sınırları tutuyor, "dahil" tutmuyor (WL-2).** Paletten: paper metin
+>    `L ≤ 0,1789826956…`, ink metin `L ≥ 0,2368152180…` (formülün çıktısı; yazım kesik) —
+>    0,1790/0,2368 bunların dört haneli yuvarlanmışı. Yuvarlanmış değerler bandın **içinde**:
+>    `L = 0,1790`'da paper 4,49966:1, `L = 0,2368`'de ink 4,49976:1. 2²⁴ renk sayıldı: dört haneli
+>    değerler dahil okunursa **1 092** renk 4,5'e ulaşmadan geçer (ör. `#008384`, 4,49995:1);
+>    altı haneli 0,178983 / 0,236815 bile **14** renk geçirir (paper 9, ör. `#22864B`
+>    4,4999988:1; ink 5, ör. `#1E93A0`). WL-2'nin kabulü *"hesaplanan iki sınır dahil; her iki
+>    yanındaki en yakın hex'le sınanır"* diye okunur; testte literal yok (WL-2 satırı 2. turda
+>    düzeltildi).
+> 2. **Örneklerin dördü tutuyor:** `#808080` 4,17 red · `#E0457B` 4,16 red · `#FFC72C` ink 10,56
+>    + kenar · `#DA291C` paper 4,78. Ek ölçüler: OnColor dönüm noktası `L = 0,2062727…` (bantta en
+>    iyi kontrast 4,0208); porcelain'e karşı 3:1 `L ≤ 0,2542173…`, üstünde Edge; kapı 2²⁴ rengin
+>    **1 949 736**'sını (%11,62) reddeder.
+> 3. **Bellek: "en kötü 16 MiB RGBA" yanlış (WL-3).** 2048² decode başına ölçülen `TotalAlloc`:
+>    16-bit PNG 38,13 · interlaced PNG 32,45 · progressive 4:4:4 JPEG 60,02 · 16-bit RGBA
+>    interlaced PNG 64,22 (512 KiB'a sığan düz örnek) · progressive CMYK 4:4:4 **96,02 MiB**.
+>    Progressive / 4 bileşenli JPEG'i reddetmek tepeyi ~64 MiB'a indirir (1,5 kat; 1. turda yanlış
+>    olarak "38 MiB" yazılmıştı). Semaforun kapsamı, GC payı ve CPU ilişkisi ADR 0024 §2.6'da.
+> 4. 🔴 **Tasarım özünde olmayan bomba sınıfı: JPEG tarama sayısı (CPU) — WL-3 kabulüne ek.**
+>    `image/jpeg` tarama sayısını sınırlamıyor; elle kurulmuş 2048² progressive JPEG'de 3 000
+>    tarama 56 KiB'ta **8,72 s**; 512 KiB'a ~32 000 sığar (doğrusal kestirim ~94 s); sunucuda
+>    `WriteTimeout` yok (`cmd/tappa/main.go:655-656`) ve router'ın `middleware.Timeout(30 s)`'i
+>    (`internal/httpx/router.go:83`, chi v5.3.1) yalnız context'e süre koyar — çözücü context
+>    okumaz. Kural (ADR 0024 §2.5): SOS sayısı decode'dan önce, çözücünün işleyeceğinin **üst
+>    sınırı** olarak sayılır (çözücü segmentler arası çöpü atlayıp yeniden hizalanır,
+>    `image/jpeg/reader.go:542-568`); tavan WL-3'te ölçümle (alt sınır 18; süre bütçesi için doğal
+>    aday 30 s). Ek kabul: tavan+1 taramalı dosya ve "dürüst olmayan" dosya decode'dan önce red;
+>    tavan kadar taramalının çözme süresi karta yazılır.
+> 5. **Odak halkası:** tasarım özünün *"focus halkası (ink)"*'ı `.btn` için doğru
+>    (`input.css:203-207`), `.tap-button` için değil — kuralı renk koymuyor; Chrome 154'te odakta
+>    `rgb(0, 95, 204)` (tarayıcının rengi). Accent onu taşımaz; değişiklik gerekmiyor.
+> 6. **`.tap-button` 7 `class` özniteliğinde** (tap 1 + aktivasyon/tur/problem/onay 6). Accent'i
+>    sınıf değil tema `<link>`'i taşır; WL-5/WL-9 o bağlantıyı tap ekranına ve panel kabuğuna
+>    ekler (panelin içindeki Account önizlemesinin düğmesi accent'i bilerek alır — madde 19).
+>    WL-9'un golden'ı aktivasyon ailesini de kapsamalı (bayt-aynı).
+> 7. **Accent bir dolgudur** (tap düğmesinin zemini — tap ekranı ve önizleme — ve şerit); kapı
+>    accent'in metin olarak okunurluğunu ölçmüyor (ADR 0023 §3). WL-5'in slot testine girer.
+> 8. **§9 sorusu — logosuz ama accent'li tenant'ın tap ekranı başlığı → kullanıcı kararı K-2a
+>    (2026-10-02): `taptime` ink.** Aynı gün K-2b: logo yükleyen tenant'ın tap ve sonuç ekranında
+>    üstte logo, altında küçük "taptime · punchless" (co-brand K3 böylece kullanıcı onaylı). İkisi
+>    ADR 0023 §2, §5–§7'de ve WL-9 satırında.
+> 9. **Açık logo uyarısının zemini:** WL-7 *paper* yazıyor; logo yuvası bugünkü başlık satırında,
+>    porcelain üstünde (`base.templ:66`) → uyarı porcelain'e karşı hesaplanır.
+> 10. **`Content-Disposition` dosya adı mime'a göre** (`logo.png` / `logo.jpg`), sabit değil (WL-6).
+> 11. **"≤4 MP" = 2²² = 2048²** okunur — kenar sınırıyla aynı küme (WL-3).
+> 12. **Kart metni:** "Yüzeyler" maddesindeki *"(⏳ D-C)"* bayattı — D-C ✅ 2026-09-24 (2. turda
+>     tasarım özünde düzeltildi). *"Plaket
+>     'taptime' basıyor"* yalnız landing çiziminde ölçüldü (`landing.templ:199`); fiziksel baskı
+>     ölçülmedi, skill'in plaket bölümü hâlâ `tappa` yazıyor (bu görev mevcut metni değiştirmedi).
+> 13. **Pinlerin kapsamı (WL-4/WL-5/WL-6):** `TestStaffQueries_CarryAnExplicitTenantPredicate`
+>     marka sorgularını ancak `internal/domain/tenant`'tan çağrılırlarsa görür — logo rotası
+>     sorguyu başka paketten çağırırsa o paketin kendi kopyası gerekir.
+>     `TestCompiledCSS_StampWordIsInk` `app.css` derlenmemişse atlanır ve zemin rengine bakmaz;
+>     WL-5'in slot testi o boşluğu kapatmalı.
+> 14. **Multipart — ölçülen kapsamıyla:** `ReadForm(64 KiB)` 600 KiB'lık parçada, `TMPDIR`
+>     yokken geçici dosya açmaya çalışıp düşüyor (ölçüldü). Ama `MaxBytesReader(1 MiB)` altında
+>     `r.FormFile`, `r.FormValue`, `r.PostFormValue` ve `ParseMultipartForm(1 MiB)` aynı koşulda
+>     **başarılı** — 32 MiB eşiğin altında kalıp diske dökmüyorlar (2. tur, S20). Yani tasarım
+>     özünün *"`TMPDIR` yokken başarılı"* kabulü `FormFile`'a dönüşü yakalamaz; ADR 0024 §6 ve
+>     WL-7 satırı bunu bir sözdizimi pinine bağladı. `FormValue`/`PostFormValue` multipart gövdede
+>     örtük `ParseMultipartForm(32 MiB)` çağırır (Go `net/http/request.go:1442-1474`) ve üretimde
+>     kullanılıyor (`adminlogin.go:880-881`). iPhone HEIC'in dosya seçicide JPEG'e çevrilip
+>     çevrilmediği ölçülmedi → WL-7'nin gerçek cihaz turu.
+> 15. **PNG→PNG ve 256 KiB:** fotoğraf benzeri 512 px PNG 440 KiB'a kodlanıyor → red; aynı
+>     görüntü JPEG q85'te 43 KiB. WL-7'nin ret cümlesi JPEG'i önermeli.
+> 16. **Devirler:** ADR 0005'e marka taklidi eki → **WL-12'nin kabulüne bağlandı** (2. tur;
+>     `cmd/tappa/adr0005_test.go` sayımlarıyla birlikte) · CLAUDE.md §9 (tenant slotu cümlesi) +
+>     §3 (`internal/brand`) — WL-12, orkestratör · WL-10 denetim listesine ADR 0024'ün sekiz
+>     iddiası (A–H) ve ADR 0023'ün dördü (A–D).
+> 17. **İki logo rotasının gerekçesi düzeltildi (WL-6).** *"Tek ortak rota iki çerezi alamaz"*
+>     tutmuyor: çalışan çerezi `Path=/` (`internal/session/cookie.go:182`), yani `/admin/…`'ya da
+>     gider. Doğru gerekçe: yönetici çerezi `/admin` dışına gitmez (`adminauth/cookie.go:48`) ve
+>     iki yüzeyin çözümleyicisi/bütçesi ayrıdır. Karar değişmedi (iki rota); WL-6'ya ek kabul:
+>     yönetici oturumu olmayan, çalışan çerezli istek `/admin/brand/logo/…`'dan logo baytı almaz.
+> 18. **Depolama aritmetiği:** 256 KiB × 1 000 tenant = 250 MiB (tasarım özü *"≈ 256 MB"*;
+>     ondalık 262 MB). Karar (K7, `bytea`) değişmedi.
+>
+> **2. tur (2026-10-02 — üçüncü göz RED, 3 bloklayan metin bulgusu + 9 bloklamayan;
+> tappa-security-auditor ONAY, 4 orta + 4 düşük; kullanıcının iki §9 kararı).** Yukarıdaki 0, 1,
+> 3, 4, 6, 7, 8, 12, 14, 16 güncellendi; ek maddeler:
+> 19. **Account → "Your brand" önizlemesi slot haritasına girdi** (ADR 0023 §2): önizleme tap
+>     ekranının gerçek bileşenleridir, panel kabuğunun tema bağlantısı yüzünden düğmesi accent'i
+>     alır ve logo orada da görünür. Önizleme **formsuz**: `pages.Tap`'in formu panelden
+>     `/api/checkin` POST'u göndermemeli (WL-7 kabulüne eklendi). K4 istisnası (panelde iki renk)
+>     önizlemeyle birlikte yazıldı.
+> 20. **Semafor, GC, CPU, bütçeler (güvenlik ORTA-1…4; ADR 0024 §2.6, §6):** yuva decode →
+>     küçültme → kodlama boyunca tutulur, goroutine dönünce bırakılır; `GOMEMLIMIT` ya da
+>     `2 × (N × tepe + taban)` — depoda GC ayarı 0; tek replika (`20-app.yaml:53`) → OOMKill tap
+>     dahil kesinti; N < `GOMAXPROCS` (CPU sınırı 2) → N = 1 (3. turda "öneri"den "kuralın
+>     sonucu"na düzeltildi); tenant başına yükleme bütçesi,
+>     gövde okunmadan önce eşzamanlı kabul sınırı, `SetReadDeadline`, ingress bağımlılığı adıyla
+>     (`40-ingress.yaml:127-129`). WL-3 ve WL-7 satırlarına eklendi.
+> 21. **`tenant_branding`'in `updated_at`/`updated_by` sütunları ve bileşik FK'sı** ADR 0023
+>     §1'e ve WL-1 satırına girdi (`admin_users_id_tenant_key`, `00006_create_admin_users.sql:85`).
+> 22. **K-2b'nin piksel aritmetiği:** co-brand satırı tek başına 15 px (ölçüldü), bugünkü başlık
+>     28 px; logo yuvası `H`, aralık `g` ise kayma `H + g − 13`. WL-9'un 16 px bütçesi yuvayı
+>     ≤ `29 − g` px'e bağlar (ör. 4 px aralıkla 25 px). 40 px'lik yuva 31 px kaydırır — yuva mı
+>     bütçe mi, orkestratörün WL-9 kararı.
+> 23. **§5 içinde düzeltilen satırlar (güvenlik DÜŞÜK-8):** tasarım özünün "Renk", "Logo",
+>     "Servis" ve "Yüzeyler" maddeleri (her düzeltme *"WL-0 düzeltmesi"* işaretli) ve WL-1, WL-2,
+>     WL-3, WL-5, WL-6, WL-7, WL-9, WL-12 satırları (*"WL-0 ekleri"* işaretli). §5 dışına
+>     dokunulmadı.
+>
+> **3. tur (2026-10-02 — kapanış denetçisi RED, 1 bloklayan + 6 bloklamayan, hepsi metin;
+> orkestratörün kararıyla yapıcı kapatır):**
+> 24. **İddia A'nın yakalama listesi daraltıldı** (ADR 0024): beş vakalık biçim testi ikinci kapının
+>     kaldırılmasını yakalamıyor (denetçinin mutantı: PNG imzalı HTML `Decode`'da, sıfır kenarlı
+>     başlık boyut kapısında düşer) — kapı sırası İddia B'nin bomba testinin konusu. ADR 0023
+>     İddia B: golden yalnız WL-9 kartında adıyla/sayısıyla listelenen fikstürleri yakalar; WL-9
+>     satırına liste şartı eklendi.
+> 25. **Semafor alma politikası tekleşti:** beklemeden dene, doluysa hemen ret. **N = 1** artık
+>     öneri değil, kuralın sonucu: Go 1.25+ `GOMAXPROCS`'u cgroup CPU sınırından alır (`go.mod`
+>     `go 1.26.2`), düğüm 16 CPU (`10-postgres.yaml:208`), sınır `"2"` (`20-app.yaml:502`) →
+>     `GOMAXPROCS` = 2 (türetildi; WL-3 podda bir kez ölçer).
+> 26. **Account önizlemesi:** düğme `submit` değil, bir formun içinde değil, `form=` yok; logo
+>     `/admin/brand/logo/{sha}`'dan; **yalnız kaydedilmiş** accent (aday hex için ikinci tema
+>     `<link>`'i K4 şeridini boyardı); `templ Tap`'in bölünmesi **WL-9**'da, WL-7 WL-9'a bağımlı
+>     (gerekçe: `tap.templ`'in sahibi WL-9, golden'ı tap ekranının değişmediğini gösterir).
+> 27. **Accent özellik kuralı:** `--brand-accent` derlenmiş CSS'te yalnız `background-color`'da —
+>     WL-5'in testi seçiciye ek olarak özelliğe bakar.
+> 28. **§5 kalıntıları:** "Depolama" maddesinin multipart cümlesi S20'ye göre düzeltildi; WL-7
+>     satırındaki "paper'a <1,5:1" porcelain'e çevrildi; "focus halkası (ink)" Chrome ölçümüne
+>     eşitlendi. Hepsi işaretli.
+> 29. **OP-8 sonrası (`71272fa`):** ADR'lerin Bağlam'ı `c0c0250`'yi sabitler; her iki ADR'ye
+>     tarihli not — `router.go` satırları +7 (`:99` → `:106`, `:111` → `:118`, `:151-156` →
+>     `:158-163`; `:83` yerinde), `operatorCSP` (`operator/render.go:28-29`) ve `enrollCSP()`
+>     (`:39-41`) eklendi, ikisi de `style-src 'self'` → dalın ucunda dokuz politika; `img-src`
+>     hâlâ yalnız `landingCSPFor`'da.
 
 ## 6. Kararlar
 
@@ -4562,7 +4740,7 @@ metni), `FactNoBulkImport`, `TestBrand_*`, panel CSP ↔ script karşılığı t
 | D-A | Depo PUBLIC — ne yapılsın? Scrub push'u? | private yap + push | **Public kalsın, yalnız push.** Sonuç: geçmişteki değeri öldüren tek önlem F0-1 (rotate); F0-5 sır kapısı kritik hale geldi — depo herkese açık kaldıkça her commit yayındır |
 | D-B | Süper admin modeli | (c) hibrit | **(c) ayrı operatör kimliği** — TOTP + `ops.taptime.mt` + `op_*` definer'lar; önceki "B — allow-list genişlet" kararının yerine geçer |
 | D-C | Tap ekranı markası (§9) | logo + accent tap butonunda | **Logo + tap butonu tenant renginde**; sonuç ekranında yalnız logo (§9 onayı — WL-9 kartına alıntılanır) |
-| D-D | Akış sırası | Faz 0 → A1 → B → C → A2 | **Faz 0 → Süper admin (A1) → SES (B) → White-label (C) → A2**; SES dış adımları paralel |
+| D-D | Akış sırası | Faz 0 → A1 → B → C → A2 | ~~**Faz 0 → Süper admin (A1) → SES (B) → White-label (C) → A2**; SES dış adımları paralel~~ → **2026-10-02: Faz 0 → A1 → White-label (C) → SES (B, WL-11 ile) → A2** (SES dış adımları kullanıcı tarafından sonraya bırakıldı; orkestratör önerisi, raporlandı, itiraz yok — §2 güncellemesi) |
 
 **⏳ Sırası gelince sorulacak:** OP-K5 askıdaki ayın faturalanması · EM-K9 Mailpit (yeni dev aracı,
 docker-compose, Go bağımlılığı değil) · OP-K12 T27/T37 (plan geçmişi, OP-17 öncesi) · OP-K2/K4

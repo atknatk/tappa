@@ -282,3 +282,113 @@ Slogan: **No app. No device. No fingerprints. Just tap.** · Kampanya: *Go punch
 Emoji ikon seti (marka mesajları hariç) · yuvarlak hap butonlar · gradient ·
 glassmorphism · sallanan animasyon · stok illüstrasyon · birden çok vurgu rengi ·
 mono olmayan sayı · adisyon yerine düz tablo satırı.
+
+## Tenant slotları (taslak)
+
+> Eklendi 2026-10-02, M10 WL-0. **Taslak:** kod henüz yok (WL-1…WL-9 yazacak); kesinleşince
+> WL-12 bu satırı günceller. Normatif kaynak:
+> [ADR 0023](../../../docs/adr/0023-tenant-markasi-ve-arayuz-kurali.md) (slotlar, kontrast,
+> §9 onayı) ve [ADR 0024](../../../docs/adr/0024-kullanici-yukledigi-gorsel.md) (logo dosyası).
+> Bu bölüm yukarıdaki metni değiştirmez; iki kurala **sayılı istisna** getirir: *"Palet
+> dışına çıkma"* (tenant accent'i aşağıdaki dolgularda; logonun pikselleri aşağıdaki dört
+> yerde — bir görselin renkleri palet kuralının konusu değil) ve *"birden çok vurgu rengi"*
+> (panel şeridi ve Account önizlemesinin tap düğmesi — "Dokunulmaz" altında). Taptime'ın
+> kendi arayüzü için palet kuralı aynen geçerli.
+
+Tenant iki şey verir: **bir accent** (altı haneli hex) ve **bir logo** (PNG/JPEG, sunucuda
+yeniden kodlanmış, uzun kenarı ≤512 px). Yazı tipi, ikinci renk, metin, favicon yok.
+
+### Hangi slot nerede
+
+| Yüzey | Logo | Accent | Not |
+|---|---|---|---|
+| Tap ekranı | üstte logo, **altında** "taptime · punchless" (K-2b) | **tap düğmesinin zemini** | kullanıcı kararları D-C (2026-09-24), K-2a ve K-2b (2026-10-02); hâlâ tek düğme, *"Tap"*, ≥64 px. Logo yok ama accent varsa başlıktaki `taptime` **ink** (K-2a) |
+| Sonuç ekranı | üstte logo, altında co-brand (K-2b) | **yok** — renkler durumu anlatır | D-C; logo yoksa bugünkü Wordmark |
+| Panel kabuğu | başlık + tenant adı | **4 px şerit** | birincil düğmeler yeşil kalır (K4) |
+| Panel → Account → "Your brand" önizlemesi | önizlemedeki tap başlığında (kaynak `/admin/brand/logo/{sha}`) | önizlemedeki **tap düğmesi** — **kaydedilmiş** accent | tap ekranının bileşenleri (bölmeyi WL-9 yapar), **gönderilemez**: `<form`/`/api/checkin` 0, düğme `submit` değil, bir formun içinde değil, `form=` yok — WL-7. Aday hex önizlemeye gitmez; `<input type="color">`'un kendi rengiyle görünür |
+| Aktivasyon, tur, problem, giriş, landing, legal, signup, operatör | yok | yok | Taptime (aktivasyon: K6; tur: faz 2'de logo — karar verilmedi) |
+| E-posta | faz 1 yok | yok | yalnız tenant adı, gövdede (K8) |
+
+Plaket başka bir tenant'ınsa tap ve sonuç ekranı Taptime varsayılanıyla açılır.
+`.tap-button` sınıfı yedi yerde kullanılıyor ama accent'i sınıf değil **sayfanın tema
+bağlantısı** taşır; tema tap ekranına ve panele bağlanır (panelin içindeki Account önizlemesi
+de bu yüzden accent'li düğme gösterir — bilerek), diğer altı kullanım yeşil kalır.
+
+### Accent'in kontrast kuralı
+
+Accent bir **dolgudur** — tap düğmesinin zemini (tap ekranı, Account önizlemesi) ya da şerit. Metin rengi, ince çizgi, ikon rengi
+olarak kullanılmaz: kapı accent'in kendisinin bir zeminde okunurluğunu ölçmez (ör. sarı
+`#FFC72C` porcelain'de 1,36:1). Derlenmiş CSS'te `--brand-accent` yalnız `background-color`
+içinde geçer; `--brand-on-accent` yalnız `color`'da, `--brand-edge` yalnız kenarda (WL-5'in testi
+özelliğe bakar, seçiciye değil).
+
+| Zemin | Üstündeki | Eşik | Kural |
+|---|---|---|---|
+| accent (tap düğmesi) | düğme metni — paper ya da ink, kontrastı yüksek olan | **4,5:1** | metin 20 px / 400, "büyük metin" değil; ikisi de 4,5'e ulaşmıyorsa renk **reddedilir**, form aynı tonun koyulaştırılmış hâlini önerir |
+| porcelain (sayfa) | accent'li düğmenin sınırı | **3:1** (WCAG 1.4.11) | ulaşmıyorsa düğmeye **2 px ink kenar** (ink on porcelain 14,32:1); kenar düğmenin kutusunu değiştirmez |
+| porcelain (panel) | 4 px şerit | — | dekoratif, `aria-hidden`; şart yok |
+
+Sınırlar palet değerlerinden **hesaplanır**, elle yazılmaz (Go'daki palet kopyası
+`tailwind.config.js`'e bir eşitlik testiyle bağlı): paper metin `L ≤ 0,1789826956…`, ink metin
+`L ≥ 0,2368152180…`, aradaki bant reddedilir; kenar `L > 0,2542173…`. Yazılı değerler kesiktir:
+dört haneli 0,1790 / 0,2368 1 092 rengi, altı haneli 0,178983 / 0,236815 bile 14 rengi 4,5'e
+ulaşmadan geçirir — testte literal kullanma, formülü kullan.
+
+| Renk | Sonuç |
+|---|---|
+| `#DA291C` | paper metin, 4,78:1 |
+| `#FFC72C` | ink metin 10,56:1 + ink kenar |
+| `#808080` | red (en iyisi 4,17:1) |
+| tappa-green | paper metin, 7,73:1 — marka ayarlamamış tenant'ın varsayılanı |
+
+### Logo: yerleşim ve boyut (öneri — WL-8/WL-9 ölçer)
+
+- **Tap ve sonuç ekranı:** Wordmark'ın yerinde, **sabit yükseklikli logo yuvası** ve
+  **altında** co-brand satırı (K-2b). Ölçüldü: bugünkü başlık **28 px**, co-brand satırı tek
+  başına **15 px**. Yuva `H`, aralık `g` ise düğme `H + g − 13` kayar; WL-9'un **16 px**
+  bütçesiyle `H + g ≤ 29` → ör. 4 px aralıkla yuva **≤25 px**. 40 px'lik yuva 31 px kaydırır
+  — bu durumda WL-9'un bütçesi değişmeli; sayıyı orkestratör WL-9'da koyar. Genişlik oranla,
+  öneri en çok sütunun yarısı. `width`/`height` öznitelikleri saklanan boyuttan hesaplanıp
+  yazılır — yüklenirken sayfa kaymaz.
+- **Panel:** başlıkta logo (öneri 32 px yükseklik) + tenant adı (Space Grotesk, kalın) +
+  co-brand satırı; 4 px şerit kabuğun en üstünde, sütun genişliğinde.
+- **Zemin:** logo sayfa zemininde (porcelain) durur; çerçeve, gölge, yuvarlatma yok. Açık
+  renkli logo uyarısı **porcelain'e** karşı hesaplanır (logo orada oturuyor).
+- **`alt`** = tenant adı. Tap ekranındaki yeni metin budur; co-brand satırı bugün Wordmark'ta
+  duran iki kelimeyi taşır.
+- Logo `<img>` ile gelir — CSS arka plan görseli değil (`alt` taşımaz, aynı CSP iznini ister).
+
+### Co-brand
+
+Logo olan yüzeyde küçük bir satır kalır: **"taptime · punchless"** — bugünkü `punchless`
+tonunda (10 px mono, büyük harf, geniş aralık, ink/70; porcelain'de 5,70:1). Tap ve sonuç
+ekranında yeri **logonun altı** (kullanıcı kararı K-2b, 2026-10-02). Gerekçe: aktivasyonun
+GDPR cümlesi Taptime'ı işleyen olarak adlandırıyor; çalışanın her gün gördüğü ekran aynı
+işleyeni göstermeli.
+
+**Logo yokken:** accent varsa tap ekranının başlığındaki `taptime` **ink** olur (K-2a,
+2026-10-02; porcelain'de 14,32:1) — ekranda tek vurgu rengi tenant'ın düğmesi kalır. Accent de
+yoksa başlık bugünkü gibidir.
+
+### Dokunulmaz — tenant markasından bağımsız
+
+Beş kaşe damgası ve durum→renk eşlemesi (kelime ink, renk çerçevede) · tomato = hata/yıkıcı ·
+saffron = FLAGGED/geç · `Notice` · docket + perforasyon · `.docket-label` · panelin birincil ve
+yıkıcı düğmeleri, sekme vurgusu, odak halkaları · sayfa zeminleri ve metin tonları · yazı
+tipleri · sonuç ekranında accent yok (logolu tenant'ta yalnız Wordmark yerini logo + co-brand
+satırına bırakır) · onay kutularının `accent-color`'ı (adı "accent" ama
+tenant accent'i **değil**).
+
+Panelde iki renk yan yana durur — yeşil panelin eylemlerinde, tenant rengi şeritte ve Account
+önizlemesinin tap düğmesinde. Bu, yukarıdaki *"birden çok vurgu rengi"* yasağının **bilinçli**
+istisnasıdır (K4): şerit eylem ya da bilgi taşımaz; önizlemedeki düğme bir eylem değil, tap
+ekranının görüntüsüdür.
+
+### Uygularken
+
+- Yeni token'lar `brand`, `on-brand`, `brand-edge` — şablon **yorumunda** sınıf adı yazma,
+  tarif et (yukarıdaki Tailwind tuzağı aynen geçerli).
+- Marka okunamadıysa sayfa düşmez: varsayılana döner (§4.6). Marka yoksa HTML bugünküyle
+  bayt-aynı: ek `<link>`, `<img>`, `img-src` yok.
+- Accent'i sonuç ekranına, damgaya, docket'e ya da birincil düğmeye taşıma.
+- Logo için uzak URL kullanma — e-postada da (izleme pikseli).
