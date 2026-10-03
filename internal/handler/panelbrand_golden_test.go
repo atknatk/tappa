@@ -19,7 +19,9 @@ package handler
 //
 // THIS FILE USES NOTHING WL-8 ADDED, on purpose: the same file, copied into an export
 // of df544c1, compiles there and printed the digests below (the WL-8 card records the
-// command). A render that is not in unbrandedChromeRenders is not held -- PART III.
+// command). Since the merge with M10 WL-9 the layout.PageWithScript entry passes a
+// zero layout.Brand, which df544c1 does not have: drop that argument to replay the
+// export. A render that is not in unbrandedChromeRenders is not held -- PART III.
 
 import (
 	"bytes"
@@ -78,7 +80,7 @@ func unbrandedChromeRenders() []unbrandedRender {
 			pages.AdminDashboard(pages.AdminDashboardView{PanelChrome: chrome("owner", pages.TabReports, waiting)}), nil},
 		// Every other shell that renders layout.documentHead.
 		unbrandedRender{"layout.Page", layout.Page("A page — Taptime"), body},
-		unbrandedRender{"layout.PageWithScript", layout.PageWithScript("A page — Taptime", "/static/js/tap.js"), body},
+		unbrandedRender{"layout.PageWithScript", layout.PageWithScript("A page — Taptime", "/static/js/tap.js", layout.Brand{}), body},
 		unbrandedRender{"layout.Marketing, public", layout.Marketing("Taptime", layout.RobotsPublic), body},
 		unbrandedRender{"layout.MarketingWithScript, private", layout.MarketingWithScript("Taptime", layout.RobotsPrivate, "/static/js/landing.js"), body},
 		unbrandedRender{"layout.Auth, no script", layout.Auth("Sign in — Taptime", ""), body},

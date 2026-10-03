@@ -8,10 +8,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/atknatk/tappa/internal/domain/checkin"
 	"github.com/atknatk/tappa/internal/domain/tap"
 	"github.com/atknatk/tappa/internal/geo"
 	"github.com/atknatk/tappa/internal/httpx"
+	"github.com/atknatk/tappa/web/templates/layout"
 	"github.com/atknatk/tappa/web/templates/pages"
 )
 
@@ -231,8 +234,100 @@ func (t *Tap) Checkin(w http.ResponseWriter, r *http.Request) {
 	case checkin.OutcomeActivation:
 		t.redirectToActivation(w, r)
 	default:
-		t.render(w, r, http.StatusOK, pages.Result(resultView(res)))
+		// The record is written: what remains is to SAY so, and from here the
+		// request's CANCELLATION decides nothing -- neither its deadline nor a client
+		// that went away. post keeps the request's values (request_id reaches the
+		// log) and drops its cancellation, both kinds; the brand read is bounded by
+		// brandWait on top of post, and the screen is rendered with post. A record
+		// that committed in the request's last seconds, or after its deadline,
+		// therefore still gets its whole confirmation; the response outlives the
+		// request deadline by at most how late Record returned past it, plus
+		// brandWait, plus the render; and a client that disconnected still costs this
+		// handler up to brandWait plus the render (resultBrandWait has the
+		// measurements).
+		post := context.WithoutCancel(r.Context())
+		readCtx, cancel := context.WithTimeout(post, t.brandWait)
+		logo := t.resultLogo(readCtx, id, tctx)
+		cancel()
+		t.render(w, r.WithContext(post), http.StatusOK, pages.Result(resultView(res), logo), logo.Drawn())
 	}
+}
+
+// resultBrandWait bounds the confirmation screen's brand read (resultLogo).
+//
+// WHY A BOUND, AND WHY NOT UNDER THE REQUEST'S CONTEXT: the read runs AFTER the record
+// committed, in a transaction of its own, so it asks the pool for a connection. Under
+// the request's context, a read that stalls (a saturated pool -- the same condition
+// that delays the record itself) lasts until the request deadline, httpx.RequestTimeout,
+// and the screen rendered after it gives up on that expired context and writes an
+// EMPTY body over a 200: a recorded tap with no "All done" (WL-9 security review: S1
+// in round 2, and in round 3 the window a bound of min(2 s, what is left of the
+// request) still left when the record commits in the request's last 2 s -- measured
+// with a fake and against Postgres with pool_max_conns=1: 200, 0 bytes, one record).
+// So Checkin bounds the read by this constant on a context that has the request's
+// values and not its cancellation, and renders with that same context.
+//
+// WHAT THE OVERRUN COSTS, MEASURED (a real http.Server behind AccessLog, Recoverer and
+// chi's Timeout, in production's order; WL-9 round 3 and its closing review): a 200
+// written after chi's deadline reaches the client in full, and chi's late
+// WriteHeader(504) is absorbed by the wrapped writer -- the access record says 200,
+// nothing else is logged. The overrun is how late Record returned past the deadline,
+// plus brandWait, plus the render. Two wrappers were measured to CUT the confirmation,
+// each while the access record still says 200: an http.Server WriteTimeout shorter
+// than the handler (the client gets EOF), and an http.TimeoutHandler around the router
+// with a shorter limit (the client gets a 503 of 77 bytes over a written record). A
+// ReadTimeout was measured not to. cmd/tappa sets neither;
+// TestServer_SetsNoWriteTimeoutThatCutsAConfirmation pins the WriteTimeout half only --
+// the TimeoutHandler half is a counted limit of ADR 0023's WL-9 note.
+//
+// WHAT A CLIENT THAT GOES AWAY COSTS, MEASURED (WL-9 round-3 closing review): post has
+// no cancellation, so the read runs to its bound and the screen is rendered into the
+// closed connection -- up to brandWait plus the render of this handler's goroutine,
+// and while the read waits, one place in the pool's queue. Ten concurrent POSTs whose
+// clients disconnected each ended at 2.00 s, and the goroutine count went back from 7
+// to 4: no leak. How many there can be at once is bounded ahead of this handler by the
+// tap surface's budgets (httpx: 3000 per address and 300 per session per 10 minutes).
+//
+// WHY 2 s: the read is one primary-key lookup plus, with a logo, one more (WL-8 put
+// the panel's equivalent read under 1 ms on the seed, EXPLAIN ANALYZE); 2 s is three
+// orders of magnitude above a healthy read and, today, 15 times below
+// httpx.RequestTimeout. TestNewTap_BoundsTheResultBrandRead holds the 2 s exactly and
+// that the request timeout stays at least 10 times above it. It is also about as long
+// as somebody standing at the plaque should wait past the record to be told the tap
+// counted: beyond it, the logo is the thing to drop.
+const resultBrandWait = 2 * time.Second
+
+// resultLogo is the business's logo for the confirmation screen (M10 WL-9, user
+// decision D-C: "on the result screen, only the logo"), or the zero Logo -- the
+// wordmark, as before.
+//
+// THE MISMATCH RULE FIRST (ADR 0023 §2). GET /t drew this tap's page without a brand
+// when TapPage answered ErrForeignLocation: the plaque on another business's wall, or
+// on no wall. The signed context carries both facts that answer was made of -- the
+// plaque's business and its wall, server-produced at GET time -- so the confirmation
+// screen asks the same question of the same facts and draws no brand on the same
+// taps. (A recorded tap on another business's plaque does not reach this screen
+// today: sys:tenant-mismatch is the first guardrail and its answer is the 403
+// problem screen. This is the screen's own rule rather than a reliance on that
+// order.)
+//
+// ONE READ OF ITS OWN, after the record committed (tenant.Directory.ResultBrand
+// says why it is not in the record's transaction), under ctx -- the caller's: the
+// request's values without its cancellation, bounded by brandWait (resultBrandWait).
+// A failure, its own timeout included, is logged and costs only the logo, because the
+// screen is rendered with a context the request's deadline cannot end (§4.6). The
+// accent is not asked for: this screen has no accent slot.
+func (t *Tap) resultLogo(ctx context.Context, id httpx.Identity, tctx tapContext) layout.Logo {
+	if tctx.TagTenantID != id.Session.TenantID || tctx.LocationID == uuid.Nil {
+		return layout.Logo{}
+	}
+	b, err := t.directory.ResultBrand(ctx, id.Session.TenantID)
+	if err != nil {
+		t.log.ErrorContext(ctx, "checkin: reading the business's brand failed; drawing Taptime's",
+			"tenant_id", id.TenantID(), "employee_id", id.EmployeeID(), "err", err)
+		return layout.Logo{}
+	}
+	return logoOf(b)
 }
 
 // renderCheckinFailure answers the paths where NOTHING was recorded.

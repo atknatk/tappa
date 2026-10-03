@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"reflect"
+	"time"
 
 	"github.com/a-h/templ"
 	"github.com/go-chi/chi/v5"
@@ -16,6 +17,7 @@ import (
 	"github.com/atknatk/tappa/internal/httpx"
 	"github.com/atknatk/tappa/internal/session"
 	"github.com/atknatk/tappa/internal/sun"
+	"github.com/atknatk/tappa/web/templates/layout"
 	"github.com/atknatk/tappa/web/templates/pages"
 )
 
@@ -69,7 +71,10 @@ type Tap struct {
 	// (checkin.go). Reduced to scheme://host at construction, the way an Origin
 	// header is written, so a BaseURL with a path still compares.
 	baseURL string
-	log     *slog.Logger
+	// brandWait bounds the confirmation screen's brand read: resultBrandWait
+	// (checkin.go), a field so a test can shorten it.
+	brandWait time.Duration
+	log       *slog.Logger
 }
 
 // ⚠️ THE AUDIT RECORDER IS NOT A FIELD ON Tap, and that is not an oversight:
@@ -90,6 +95,9 @@ type (
 	}
 	tapDirectory interface {
 		TapPage(ctx context.Context, tenantID, employeeID, locationID uuid.UUID) (tenant.TapPageFacts, error)
+		// ResultBrand is the confirmation screen's half of the business's brand: its
+		// logo and name, never its accent (user decision D-C; checkin.go).
+		ResultBrand(ctx context.Context, tenantID uuid.UUID) (tenant.PageBrand, error)
 	}
 	sessionVerifier interface {
 		Verify(ctx context.Context, t session.Token) (session.Resolved, error)
@@ -150,6 +158,7 @@ func NewTap(preview tapPreviewer, dir tapDirectory, sess sessionVerifier, checki
 		cookies:   session.NewCookies(cfg),
 		contexts:  ctxs,
 		baseURL:   originOf(cfg.BaseURL),
+		brandWait: resultBrandWait,
 		log:       log,
 	}
 	t.limiter = httpx.NewTapLimiter(httpx.TapLimitParams{
@@ -394,6 +403,11 @@ func (t *Tap) Page(w http.ResponseWriter, r *http.Request) {
 	// refusal (§4.6) instead of the page silently dropping it.
 	wall := tappedWallOf(pv)
 	facts, err := t.directory.TapPage(r.Context(), id.Session.TenantID, id.Session.EmployeeID, wall)
+	// look is the business's brand as this page draws it (M10 WL-9). It stays the
+	// zero value -- Taptime's own screen -- unless the directory answered without an
+	// error, so the two cases below that keep the page also keep it unbranded no
+	// matter what facts.Brand holds.
+	var look layout.Brand
 	switch {
 	case errors.Is(err, tenant.ErrForeignLocation):
 		// The plaque belongs to another tenant. The page renders WITHOUT a venue
@@ -401,13 +415,32 @@ func (t *Tap) Page(w http.ResponseWriter, r *http.Request) {
 		// and the tap proceeds to the POST, where sys:tenant-mismatch is the
 		// authority once M5-05 feeds it both tenants (hand-off N5). Refusing
 		// here would decide it, and would decide it without a record.
+		//
+		// AND WITHOUT A BRAND (ADR 0023 §2, the mismatch rule): either business's
+		// logo or colour would be the wrong one in front of this plaque.
 		t.log.WarnContext(ctx, "tap page: plaque belongs to another tenant",
 			"tag_uid", p.UID, "employee_id", id.EmployeeID(),
 			"session_tenant_id", id.TenantID(), "tag_tenant_id", pv.TenantID)
+	case errors.Is(err, tenant.ErrBrandUnread):
+		// The greeting and the venue were read; the brand was not. §4.6: the page
+		// renders with Taptime's look and the failure is loud in the log (ADR 0024
+		// §7) -- including a logo row only partly described, which is a read error
+		// and not "no logo" (ADR 0024's WL-6 hand-off).
+		t.log.ErrorContext(ctx, "tap page: reading the business's brand failed; drawing Taptime's",
+			"tenant_id", id.TenantID(), "employee_id", id.EmployeeID(), "err", err)
 	case err != nil:
 		t.log.ErrorContext(ctx, "tap page: loading the employee failed", "employee_id", id.EmployeeID(), "err", err)
 		t.renderRetryableProblem(w, r, http.StatusInternalServerError, tapProblemServer)
 		return
+	default:
+		if facts.Brand.AccentRefused {
+			// The panel chrome's rule (panelbrand.go), from the same read-side gate:
+			// the palette moved after the accent was saved, the screen draws no accent
+			// -- the theme route would 404 it -- and keeps the logo.
+			t.log.WarnContext(ctx, "tap page: the stored accent does not pass the legibility gate today; the screen draws no accent",
+				"tenant_id", id.TenantID())
+		}
+		look = tapBrandOf(facts.Brand)
 	}
 
 	signed, err := t.contexts.mint(tapContext{
@@ -434,7 +467,28 @@ func (t *Tap) Page(w http.ResponseWriter, r *http.Request) {
 		EmployeeName: facts.EmployeeName,
 		LocationName: facts.LocationName,
 		TapContext:   signed,
-	}))
+	}, look), look.Logo().Drawn())
+}
+
+// tapBrandOf maps the domain's brand onto the tap screen's two slots: the logo
+// (digest, stored box, the business's name as alt) and the accent's theme stylesheet
+// -- layout.ThemeOf, the panel shell's mechanism (M10 WL-8), from the colour the read
+// side has passed through brand.Check. layout refuses a logo of any other shape and
+// draws nothing for it.
+func tapBrandOf(b tenant.PageBrand) layout.Brand {
+	var theme layout.Theme
+	if b.HasAccent {
+		theme = layout.ThemeOf(b.Accent)
+	}
+	return layout.TapBrand(logoOf(b), theme)
+}
+
+// logoOf is the logo half of a page brand, for either screen.
+func logoOf(b tenant.PageBrand) layout.Logo {
+	if !b.HasLogo {
+		return layout.Logo{}
+	}
+	return layout.TapLogo(b.Logo.SHA256, b.Logo.Width, b.Logo.Height, b.Name)
 }
 
 // tappedWallOf is where the plaque's nullable wall becomes a plain id for this
@@ -488,9 +542,10 @@ const tapCSP = "default-src 'none'; script-src 'self'; style-src 'self'; font-sr
 // landingCSPFor's reason (marketing.go): a directive named for an image the page does
 // not load turns the next addition into a silent inheritance.
 //
-// render passes false: no tap screen draws the logo yet. WL-9 puts it on the tap and
-// result screens and passes each render's own answer -- the screens share render, so
-// the policy is decided per render and not per surface.
+// render takes each response's own answer (M10 WL-9): the tap and result screens pass
+// their logo's Drawn -- the same predicate the header draws the <img> from -- and the
+// failure screens pass false. The screens share render, so the policy is decided per
+// render and not per surface.
 func tapCSPFor(hasLogo bool) string { return logoImagePolicy(tapCSP, hasLogo) }
 
 // isNil reports whether v is nil OR a nil pointer wrapped in a non-nil
@@ -548,8 +603,10 @@ func (t *Tap) renderTooManyRequests(w http.ResponseWriter, r *http.Request) {
 	t.renderProblem(w, r, http.StatusTooManyRequests, tapProblemTooMany)
 }
 
+// renderProblem draws a failure screen. Taptime's own look on every one of them: no
+// business's brand reaches a problem screen (ADR 0023 §2), so none draws a logo.
 func (t *Tap) renderProblem(w http.ResponseWriter, r *http.Request, status int, v pages.ProblemView) {
-	t.render(w, r, status, pages.Problem(v))
+	t.render(w, r, status, pages.Problem(v), false)
 }
 
 // renderRetryableProblem is renderProblem plus the M5-06 card's "Try again", and
@@ -654,12 +711,15 @@ func (t *Tap) renderRetryableProblem(w http.ResponseWriter, r *http.Request, sta
 // page greets somebody by name and carries a signed context; a shared phone's
 // back button must not resurrect either from a cache, and no intermediary
 // should keep a copy.
-func (t *Tap) render(w http.ResponseWriter, r *http.Request, status int, c templ.Component) {
+//
+// drawsLogo is THIS response's answer to "does c draw the business's logo", and it
+// widens the policy by img-src 'self' only then (tapCSPFor).
+func (t *Tap) render(w http.ResponseWriter, r *http.Request, status int, c templ.Component, drawsLogo bool) {
 	ctx := r.Context() // see internal/handler/checkin.go: since round 4 this buys R7/R7b/R7c one extra level of paren depth, not visibility itself.
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
-	w.Header().Set("Content-Security-Policy", tapCSPFor(false))
+	w.Header().Set("Content-Security-Policy", tapCSPFor(drawsLogo))
 	w.WriteHeader(status)
 	if err := c.Render(r.Context(), w); err != nil {
 		// The status line is already on the wire, so there is nothing to send

@@ -1042,23 +1042,57 @@ func TestResultScreen_SaysExactlyThisAndNothingElse(t *testing.T) {
 		},
 	}
 	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			res := tc.res
-			res.Outcome = checkin.OutcomeRecorded
-			res.LocationName = "St Julians"
-			res.Timezone = "Europe/Malta"
-			res.OccurredAt = mustTime(t, "2026-07-31T12:03:22Z")
-
-			got := screenText(t, mustBody(t, res))
-			if got != tc.want {
-				t.Fatalf("this screen no longer says exactly what it is allowed to say.\n got: %s\nwant: %s\n\n"+
-					"A SENTENCE that nobody meant to add is what this test exists to stop (§9: ask before "+
-					"adding to this surface; §4.6: nothing here may imply an approval nothing granted, nor "+
-					"deny a record that exists). If the wording or the shell changed on purpose, update want.",
-					got, tc.want)
+		// M10 WL-9 UPDATED THIS ON PURPOSE (ADR 0023 §7 names this test): a business
+		// with a logo gets every row again with the header's text changed by user
+		// decision K-2b -- the logo's alt, the business's name, is the one new text,
+		// and the co-brand line carries the wordmark's two words. Nothing else moves.
+		for _, withLogo := range []bool{false, true} {
+			name, want := tc.name, tc.want
+			if withLogo {
+				name += ", a business with a logo"
+				want = strings.Replace(tc.want, shellText, shellTextWithLogo, 1)
 			}
-		})
+			t.Run(name, func(t *testing.T) {
+				res := tc.res
+				res.Outcome = checkin.OutcomeRecorded
+				res.LocationName = "St Julians"
+				res.Timezone = "Europe/Malta"
+				res.OccurredAt = mustTime(t, "2026-07-31T12:03:22Z")
+
+				body := mustBody(t, res)
+				if withLogo {
+					body = mustBodyWithLogo(t, res)
+				}
+				got := screenText(t, body)
+				if got != want {
+					t.Fatalf("this screen no longer says exactly what it is allowed to say.\n got: %s\nwant: %s\n\n"+
+						"A SENTENCE that nobody meant to add is what this test exists to stop (§9: ask before "+
+						"adding to this surface; §4.6: nothing here may imply an approval nothing granted, nor "+
+						"deny a record that exists). If the wording or the shell changed on purpose, update want.",
+						got, want)
+				}
+			})
+		}
 	}
+}
+
+// shellTextWithLogo is shellText for a business with a logo (K-2b): the <title>, the
+// logo's alt and the co-brand line.
+const shellTextWithLogo = "Tapped — Taptime " + brandTestName + " taptime · punchless"
+
+// mustBodyWithLogo renders one result through the production router for a business
+// whose brand has a logo and an accent (the accent must not reach this screen, D-C).
+func mustBodyWithLogo(t *testing.T, res checkin.Result) string {
+	t.Helper()
+	dir := &fakeDirectory{facts: okFacts(), resultBrand: testPageBrand(t, true, true)}
+	a := resultAnswer(t, dir, res, testTenant, tapLocation)
+	if a.status != http.StatusOK {
+		t.Fatalf("status = %d, want 200", a.status)
+	}
+	if !strings.Contains(string(a.body), "/t/logo/"+brandLogoSHA) {
+		t.Fatal("fixture: the business's logo is not on the screen")
+	}
+	return string(a.body)
 }
 
 // withNote attaches the deciding rule's sentence, the way tap.Decide does.
@@ -1739,6 +1773,24 @@ func TestScreens_RenderOnlyTheseElements(t *testing.T) {
 		assertTagSet(t, "confirmation", got, confirmation)
 	})
 
+	// M10 WL-9: a business with a logo adds exactly one element to this screen, the
+	// logo's <img> (user decision D-C). Its one text, alt, is on textAttrRE's list and
+	// is pinned by TestResultScreen_SaysExactlyThisAndNothingElse.
+	t.Run("every confirmation screen of a business with a logo", func(t *testing.T) {
+		got := map[string]bool{}
+		for _, verdict := range []string{"ok", "flag", "reject", "ignored", "something-new"} {
+			for _, practice := range []bool{false, true} {
+				body := mustBodyWithLogo(t, checkin.Result{
+					Outcome:      checkin.OutcomeRecorded,
+					Decision:     withNote(decisionOf(verdict, "in", practice), noteNoPlace),
+					LocationName: "St Julians", Timezone: "Europe/Malta", BusinessType: "restaurant",
+				})
+				collectTags(body, got)
+			}
+		}
+		assertTagSet(t, "confirmation with a logo", got, append(append([]string(nil), confirmation...), "img"))
+	})
+
 	t.Run("every failure screen", func(t *testing.T) {
 		got := map[string]bool{}
 		for _, v := range []pages.ProblemView{
@@ -1852,6 +1904,18 @@ func TestScreens_ReferenceOnlyOurOwnAssets(t *testing.T) {
 				LocationName: "St Julians", Timezone: "Europe/Malta", BusinessType: "restaurant",
 			})
 			assertRefs(t, "confirmation "+verdict, body, stylesheet)
+		}
+	})
+
+	// M10 WL-9: a business with a logo (and an accent) adds exactly one reference, the
+	// logo on the tap surface's own route; no theme stylesheet (D-C).
+	t.Run("every confirmation screen of a business with a logo", func(t *testing.T) {
+		for _, verdict := range []string{"ok", "flag", "reject", "ignored", "something-new"} {
+			body := mustBodyWithLogo(t, checkin.Result{
+				Outcome: checkin.OutcomeRecorded, Decision: withNote(decisionOf(verdict, "in", false), noteNoPlace),
+				LocationName: "St Julians", Timezone: "Europe/Malta", BusinessType: "restaurant",
+			})
+			assertRefs(t, "confirmation with a logo "+verdict, body, stylesheet, "/t/logo/"+brandLogoSHA)
 		}
 	})
 

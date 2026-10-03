@@ -310,10 +310,29 @@ const ActionTapRateLimited = "tap.rate_limited"
 // answer can carry up to 262 144 bytes (migration 00028's CHECK), read from the
 // database even for a 304. So a live session's 300 requests per window can pull
 // up to 300 x 256 KiB = 75 MiB of logo per 10 minutes. There is no separate byte
-// limit; it is counted in ADR 0024's WL-6 note rather than closed here. On THIS
-// surface the decision belongs to WL-9, the task that puts the logo on the tap and
-// result screens: set a byte budget or argue the 75 MiB away. (The panel's side is
-// WL-7's.)
+// limit; it is counted in ADR 0024's WL-6 note rather than closed here. (The panel's
+// side is WL-7's.)
+//
+// ✅ M10 WL-9 (2026-10-03) DREW THE LOGO AND DECIDED THIS SURFACE'S HALF: NO BYTE
+// BUDGET, ACCEPTED WITH ITS NUMBERS. Measured on the real page
+// (internal/handler: TestTapPage_ALogoTapIsTwoChargedRequestsWarmAndThreeCold): a tap
+// charges 3 with the logo cold and 2 warm -- the page, the logo once, the button; the
+// confirmation screen names the page's logo URL. A phone that keeps the logo in its
+// cache fetches it once per digest; the year of max-age is an upper bound, not a
+// promise -- an evicted cache or a new logo fetches it again.
+//
+// THE NUMBERS ACCEPTED, per request rather than per bucket: the tap page is about
+// 1.3 KiB, a logo answer up to 256 KiB, and a 304 reads the same bytes from the
+// database without sending them (ADR 0024's WL-6 note, limit 6). So a LIVE employee
+// session asking on purpose pulls up to 300 x 256 KiB = 75 MiB per 10 minutes, and an
+// address carrying ten or more live sessions up to tapAddressLimit x 256 KiB = 3000 x
+// 256 KiB = 750 MiB per 10 minutes. The sessions need not be stolen: the owner of a
+// business that signed itself up (sign-up is public) can invite and activate their
+// own staff, and no per-business ceiling on invitations or activations has been
+// measured. Without a session the logo route answers 404 before any read. A byte
+// counter would be a second, stateful dimension on the limiter in front of the
+// product's one sacred screen; the cost above is bounded by the two request buckets
+// and is accepted at that size, not argued away (ADR 0023's WL-9 note, Karar 9).
 const (
 	tapAddressLimit  = 3000
 	tapAddressPeriod = 10 * time.Minute

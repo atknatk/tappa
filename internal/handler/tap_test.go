@@ -12,6 +12,7 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"log/slog"
@@ -101,11 +102,46 @@ type fakeDirectory struct {
 	// got records the arguments, so the tenant the venue is read under can be
 	// asserted rather than assumed.
 	gotTenant, gotEmployee, gotLocation uuid.UUID
+
+	// The confirmation screen's brand read (M10 WL-9): what it answers, and who asked.
+	resultBrand    tenant.PageBrand
+	resultBrandErr error
+	resultTenants  []uuid.UUID
+	// resultBrandStall makes ResultBrand wait until its context ends -- a saturated
+	// pool or a stuck read (WL-9 2nd round, S1) -- and then fail as the real reader
+	// would, with ErrBrandUnread wrapping the context's error (resultStallCap if
+	// nothing ends it).
+	resultBrandStall bool
 }
+
+// resultStallCap is how long a stalled fake read waits for a context that nothing
+// bounds: well past every bound under test, so reaching it is a measured failure.
+const resultStallCap = 8 * time.Second
 
 func (f *fakeDirectory) TapPage(_ context.Context, tenantID, employeeID, locationID uuid.UUID) (tenant.TapPageFacts, error) {
 	f.gotTenant, f.gotEmployee, f.gotLocation = tenantID, employeeID, locationID
 	return f.facts, f.err
+}
+
+func (f *fakeDirectory) ResultBrand(ctx context.Context, tenantID uuid.UUID) (tenant.PageBrand, error) {
+	f.resultTenants = append(f.resultTenants, tenantID)
+	// A context that has already ended fails the read at once, as a real query does
+	// (pgx checks it before it sends anything).
+	if err := ctx.Err(); err != nil {
+		return tenant.PageBrand{}, fmt.Errorf("%w: %w", tenant.ErrBrandUnread, err)
+	}
+	if f.resultBrandStall {
+		// Stalls until ctx ends -- or, if nothing bounds ctx, until resultStallCap, so a
+		// missing bound shows up as a measured duration rather than a hung test.
+		select {
+		case <-ctx.Done():
+			return tenant.PageBrand{}, fmt.Errorf("%w: %w", tenant.ErrBrandUnread, ctx.Err())
+		case <-time.After(resultStallCap):
+			return tenant.PageBrand{}, fmt.Errorf("%w: nothing bounded the read; the fake gave up after %v",
+				tenant.ErrBrandUnread, resultStallCap)
+		}
+	}
+	return f.resultBrand, f.resultBrandErr
 }
 
 func okFacts() tenant.TapPageFacts {

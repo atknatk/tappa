@@ -164,6 +164,12 @@ func TourPageTitle(step int) string {
 // out" because direction is a COMPUTATION over the employee's last open entry
 // (§5), it belongs to the decision engine at POST time, and a page that guessed
 // it would sometimes contradict the confirmation screen that follows.
+//
+// THE BUSINESS'S BRAND IS NOT A FIELD EITHER (M10 WL-9): pages.Tap takes it as a
+// second parameter, a layout.Brand, which reaches the shell's two slots only (the
+// header and the button's fill -- user decisions D-C, K-2a, K-2b). The count is
+// enforced by internal/handler's TestTapView_FieldCountIsTheSpec, the signature by
+// TestScreens_TakeTheBrandAsAnExplicitParameter.
 type TapView struct {
 	// EmployeeName greets the person: "Hello Maria".
 	EmployeeName string
@@ -265,7 +271,9 @@ type ProblemView struct {
 // added). TestResultView_FieldCountIsTheSpec reflects over the type and fails on
 // any change to the count, so the tripwire is a test and this sentence is only
 // its explanation. Changing the number is fine — changing it without the
-// conversation §9 asks for is not.
+// conversation §9 asks for is not. The business's logo (M10 WL-9, user decision
+// D-C) did not change it: pages.Result takes it as a second parameter, a
+// layout.Logo -- a type with no accent in it.
 //
 // NO §4.7 VALUE CAN TRAVEL HERE, and that is a property of the field list rather
 // than of this comment: there is no field for a session token, a CMAC, a key, an

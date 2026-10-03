@@ -53,6 +53,7 @@ import (
 	"github.com/atknatk/tappa/internal/httpx"
 	"github.com/atknatk/tappa/internal/policy"
 	"github.com/atknatk/tappa/internal/sun"
+	"github.com/atknatk/tappa/web/templates/layout"
 	"github.com/atknatk/tappa/web/templates/pages"
 )
 
@@ -820,7 +821,7 @@ func TestQRScreens_SayNothingAboutTheQRRoute(t *testing.T) {
 		"problemServer": problemServer,
 	}
 	screens := map[string]templ.Component{
-		"pages.Tap": pages.Tap(pages.TapView{EmployeeName: "Maria Borg", LocationName: "St Julians", TapContext: "x.y"}),
+		"pages.Tap": pages.Tap(pages.TapView{EmployeeName: "Maria Borg", LocationName: "St Julians", TapContext: "x.y"}, layout.Brand{}),
 		"pages.Activate": pages.Activate(pages.ActivateView{
 			EmployeeName: "Maria Borg", EmployerName: "Kebab Factory Ltd", LocationName: "St Julians",
 			WiFiSSID: "KF-Guest", RetentionYears: 2, CSRFToken: "t",

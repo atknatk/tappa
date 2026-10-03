@@ -4,9 +4,9 @@
 // business rule and no query lives in internal/handler, and the alternative
 // (two store calls inside the tap handler) would put both there.
 //
-// It is deliberately thin. The tap page needs two display strings and nothing
-// else, so this package offers two display strings and nothing else; it will
-// grow when M6 needs it to, not before.
+// It is deliberately thin. The tap page needs two display strings and, since M10
+// WL-9, its business's brand (pagebrand.go), so that is what Directory offers; it
+// will grow when M6 needs it to, not before.
 package tenant
 
 import (
@@ -60,7 +60,9 @@ func NewDirectory(data Database) (*Directory, error) {
 var ErrForeignLocation = errors.New("tenant: location does not belong to this tenant")
 
 // TapPageFacts is everything the tap screen displays. Two strings, because the
-// screen is one greeting, one venue and one button (CLAUDE.md §9).
+// screen is one greeting, one venue and one button (CLAUDE.md §9), and since M10
+// WL-9 the business's brand, which the screen draws in two slots the user decided
+// (D-C, K-2a, K-2b: the header and the button's fill; ADR 0023 §2) and nowhere else.
 //
 // There is deliberately no status, no id and no shift here. A view model with a
 // field cannot help rendering it, and the tap screen's whole discipline is that
@@ -73,6 +75,12 @@ type TapPageFacts struct {
 	// the screen must say where it thinks they are). Empty when the plaque
 	// belongs to another tenant; see ErrForeignLocation.
 	LocationName string
+	// Brand is the session's business's brand, read in the same transaction as
+	// the two strings above. It is the ZERO value whenever LocationName is empty
+	// (ErrForeignLocation: the plaque is another business's, or on no wall -- ADR
+	// 0023 §2: either business's brand would be wrong there) and whenever the read
+	// failed (ErrBrandUnread). The zero value is Taptime's own screen.
+	Brand PageBrand
 }
 
 // TapPage loads the two display facts for a tap.
@@ -88,14 +96,26 @@ type TapPageFacts struct {
 //     onto this employee's screen. That is a disclosure choice, not the
 //     isolation defence — see ErrForeignLocation.
 //
-// Both reads run in ONE transaction, so the venue named on the page belongs to
-// the same snapshot as the employee row. Both queries carry an explicit
+// The reads run in ONE transaction, so the venue named on the page belongs to
+// the same snapshot as the employee row. Every query carries an explicit
 // tenant_id predicate on top of RLS (§4.5, belt and braces).
+//
+// THE BRAND IS THE THIRD READ AND THE LAST STATEMENT (M10 WL-9; ADR 0024's WL-6
+// hand-off: hasLogo is read in this transaction). It is skipped when the plaque is
+// foreign -- the page then draws Taptime's own look -- and when it fails the first
+// two reads still reach the page: the transaction is rolled back (a failed
+// statement aborts it, so a commit would fail), the facts are returned with a zero
+// Brand, and the error is ErrBrandUnread wrapping the cause (§4.6: a brand never
+// costs the page). The business's name for the logo's alt comes from the employee
+// read, which already joins it.
 func (d *Directory) TapPage(ctx context.Context, tenantID, employeeID, locationID uuid.UUID) (TapPageFacts, error) {
 	if tenantID == uuid.Nil || employeeID == uuid.Nil {
 		return TapPageFacts{}, errors.New("tenant: tap page: tenant and employee are required")
 	}
-	var out TapPageFacts
+	var (
+		out      TapPageFacts
+		brandErr error
+	)
 	foreign := false
 	err := d.data.WithTenant(ctx, tenantID, func(ctx context.Context, tx pgx.Tx) error {
 		q := store.New(tx)
@@ -127,8 +147,21 @@ func (d *Directory) TapPage(ctx context.Context, tenantID, employeeID, locationI
 			return fmt.Errorf("load venue: %w", err)
 		}
 		out.LocationName = venue.Name
+
+		b, err := pageBrandOf(q.GetTenantBrand(ctx, tenantID))
+		if err != nil {
+			brandErr = err
+			return errBrandRollback
+		}
+		if b.HasLogo {
+			b.Name = emp.TenantName
+		}
+		out.Brand = b
 		return nil
 	})
+	if errors.Is(err, errBrandRollback) {
+		return out, fmt.Errorf("%w: %w", ErrBrandUnread, brandErr)
+	}
 	if err != nil {
 		return TapPageFacts{}, fmt.Errorf("tenant: tap page: %w", err)
 	}

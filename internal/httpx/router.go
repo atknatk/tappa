@@ -24,6 +24,13 @@ type Mounter interface {
 	Mount(r chi.Router)
 }
 
+// RequestTimeout is the deadline NewRouter's middleware.Timeout puts on every request's
+// context. It is named because a bound elsewhere is sized against it: the tap
+// confirmation's brand read (internal/handler, resultBrandWait) has to stay well under
+// it, and TestNewTap_BoundsTheResultBrandRead compares the two
+// (TestNewRouter_EveryRequestCarriesTheRequestTimeout holds that this is the deadline).
+const RequestTimeout = 30 * time.Second
+
 // NewRouter builds the HTTP surface. Features are mounted in the order given.
 //
 // log is the process logger the access record is written to (M8-03). It is a
@@ -80,7 +87,7 @@ func NewRouter(cfg *config.Config, log *slog.Logger, features ...Mounter) http.H
 	// ordering keeps its guarantee without buying it with a dropped connection.
 	r.Use(AccessLog(log))
 	r.Use(middleware.Recoverer)
-	r.Use(middleware.Timeout(30 * time.Second))
+	r.Use(middleware.Timeout(RequestTimeout))
 	// THE CUSTOMER HALF OF THE OPERATOR HOST GATE (M10 OP-8, operatorhost.go): with an
 	// operator host configured, operatorHostOnly decides that host's requests. Mounted
 	// after AccessLog, so its 404 is recorded like the router's, and as middleware, so

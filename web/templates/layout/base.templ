@@ -6,16 +6,30 @@
 // environment is lit, and a half-done theme is worse than none.
 package layout
 
-// Page is the shell for a screen that needs NO JavaScript, which is every screen
-// except the tap page. See PageWithScript for the one exception and why it is
-// one.
+// Page is the shell for a screen that needs NO JavaScript and carries no business's
+// brand: activation, the tour, the problem screens, the password reset family.
+// PageWithScript is the tap screen's shell and BrandedPage the result screen's;
+// both say why below.
 templ Page(title string) {
-	@shell(title, "") {
+	@shell(title, "", Brand{}) {
 		{ children... }
 	}
 }
 
-// PageWithScript is the same shell plus exactly ONE self-hosted script tag.
+// BrandedPage is Page with the business's LOGO in the header (M10 WL-9): the result
+// screen's shell. It takes a Logo and nothing else, and that is user decision D-C
+// (2026-09-24) in the type rather than in a comment -- "on the result screen, only
+// the logo". There is no accent parameter, so this shell cannot write the theme
+// stylesheet: the result screen's colours tell the verdict (ADR 0023 §2, §6 item 8).
+// A zero Logo renders exactly what Page renders.
+templ BrandedPage(title string, logo Logo) {
+	@shell(title, "", Brand{logo: logo}) {
+		{ children... }
+	}
+}
+
+// PageWithScript is the same shell plus exactly ONE self-hosted script tag and the
+// business's brand -- the logo in the header and the accent's stylesheet.
 //
 // IT EXISTS FOR THE TAP PAGE AND NOTHING ELSE. §4.2 allows the browser's
 // location to be read at the moment of a tap and forbids every other shape of
@@ -27,20 +41,27 @@ templ Page(title string) {
 // keeps that property as well (without script it simply posts no coordinates,
 // which §5 rows 6-7 already treat as a legitimate state).
 //
+// THE BRAND BECAME A PARAMETER OF THIS SHELL IN M10 WL-9, rather than a third
+// shell, because the tap page is its only caller: a business with no brand passes
+// Brand{} and gets the page it got before, byte for byte (internal/handler:
+// TestUnbrandedScreens_AreByteIdenticalToTheGolden). The brand is what user
+// decisions D-C, K-2a and K-2b put on this screen and nothing more (ADR 0023 §7).
+//
 // src must be an app-relative path under /static. Nothing here builds a URL from
 // user input, and no page passes one in.
-templ PageWithScript(title, src string) {
-	@shell(title, src) {
+templ PageWithScript(title, src string, b Brand) {
+	@shell(title, src, b) {
 		{ children... }
 	}
 }
 
-// shell is the actual document. It is unexported so the two entry points above
-// are the whole vocabulary — a third variant should be a third named component
+// shell is the actual document. It is unexported so the three entry points above
+// are the whole vocabulary — a fourth variant should be a fourth named component
 // with its own reason, not an extra parameter nobody reads.
 //
-// It deliberately loads ONE stylesheet, the caller's optional script, and
-// NOTHING ELSE:
+// It deliberately loads ONE stylesheet (two on a tap screen whose business set an
+// accent -- see the brand paragraph at the end of this comment), the caller's
+// optional script, and NOTHING ELSE:
 //
 //   - No font <link>, no CDN, no analytics. A runtime request to a third party
 //     would send this page's URL, and on the activation page that URL carries
@@ -59,17 +80,61 @@ templ PageWithScript(title, src string) {
 //     — because M7-01 added the first page in the product whose whole purpose is
 //     to be found. This shell still passes RobotsPrivate and always will: every
 //     screen it renders is reached from a personal link.
-templ shell(title, script string) {
+//
+// THE BUSINESS'S BRAND ADDS TWO THINGS AND ONLY ON THE TWO BRANDED SHELLS (M10 WL-9):
+// the theme stylesheet, which documentHead writes SECOND in the head so it wins over
+// app.css's :root defaults by order (same specificity; ADR 0023 §4, measured in
+// WL-5) -- the result screen's shell never has one, BrandedPage takes no Theme -- and
+// the header, brandHeader below. Both are our own origin. With Brand{} neither changes
+// a byte.
+templ shell(title, script string, b Brand) {
 	<!DOCTYPE html>
 	<html lang="en">
-		@documentHead(title, script, RobotsPrivate, Theme{})
+		@documentHead(title, script, RobotsPrivate, b.theme)
 		<body class="min-h-screen bg-porcelain text-ink antialiased">
 			<main class="mx-auto flex w-full max-w-md flex-col gap-6 px-4 py-8">
-				@Wordmark()
+				@brandHeader(b)
 				{ children... }
 			</main>
 		</body>
 	</html>
+}
+
+// brandHeader is the top of a branded page (ADR 0023 §2, §5-§7), in three shapes:
+//
+//   - A LOGO: the logo in a slot 24 px tall, and under it, 4 px down, the co-brand
+//     line "taptime · punchless" in the tagline's own tone (user decision K-2b,
+//     2026-10-02). The two Taptime words the wordmark carries stay on the screen;
+//     the logo's alt -- the business's name -- is the one new text. The 24 px slot
+//     and the 4 px gap are the orchestrator's WL-9 numbers: the header grows from
+//     28 px to 24 + 4 + 15 = 43, so the tap button moves down 15 px, inside the
+//     16 px budget (the button's place is thumb memory). The width follows the
+//     stored box and stops at half the column; the logo keeps its proportions
+//     inside that box rather than stretching. The width and height attributes are
+//     the STORED box, so the browser knows the logo's proportions before its bytes
+//     arrive and nothing below it moves when they do (CDP: layout shift 0, WL-9
+//     card).
+//   - AN ACCENT AND NO LOGO: the wordmark with "taptime" in ink rather than green
+//     (user decision K-2a, 2026-10-02), so the tenant's button is the one accent
+//     colour on the screen. Same box as the wordmark, so nothing moves.
+//   - NEITHER: Wordmark itself, byte for byte.
+//
+// The logo sits on the porcelain ground with nothing drawn around it (skill
+// tappa-brand, "Tenant slotları").
+templ brandHeader(b Brand) {
+	if b.logo.Drawn() {
+		<header class="flex flex-col items-start gap-1">
+			<img src={ b.logo.src } width={ b.logo.widthAttr() } height={ b.logo.heightAttr() } alt={ b.logo.alt } class="h-6 w-auto max-w-[50%] object-contain object-left"/>
+			<span class="font-mono text-[10px] uppercase tracking-widest text-ink/70">taptime · punchless</span>
+		</header>
+	} else if b.inkWordmark() {
+		<header class="flex items-baseline justify-between">
+			<span class="font-display text-lg font-bold tracking-tight text-ink">taptime</span>
+			<span class="font-mono text-[10px] uppercase tracking-widest text-ink/70">punchless</span>
+		</header>
+	} else {
+		@Wordmark()
+	}
 }
 
 // documentHead is the <head> of EVERY page in the product, employee-facing and
@@ -90,7 +155,7 @@ templ shell(title, script string) {
 // theme is the tenant accent's stylesheet (M10 WL-8, ADR 0023 §4), written right
 // after app.css so that its :root rule wins by order. It is a layout.Theme, which is
 // built from a brand.Color only, and its zero value writes nothing: the panel shells
-// pass the business's, every other shell passes the zero value.
+// and the tap screen's shell pass the business's, every other shell passes the zero value.
 templ documentHead(title, script string, robots Robots, theme Theme) {
 	<head>
 		<meta charset="utf-8"/>

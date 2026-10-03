@@ -44,23 +44,80 @@ import "github.com/atknatk/tappa/web/templates/layout"
 // What the signature buys is not concealment, it is INTEGRITY plus provenance:
 // POST /api/checkin acts only on a context this server minted, for this
 // session, recently.
-templ Tap(v TapView) {
-	@layout.PageWithScript("Tap — Taptime", "/static/js/tap.js") {
-		<section class="docket">
-			<p class="docket-label">Tapping</p>
-			<h1 class="font-display text-3xl font-bold tracking-tight text-ink">
-				Hello { v.EmployeeName }
-			</h1>
-			if v.LocationName != "" {
-				<p class="mt-1 text-ink/70">{ v.LocationName }</p>
-			}
-		</section>
-		<form method="post" action="/api/checkin" data-tap-form class="flex flex-col gap-4">
-			<input type="hidden" name="ctx" value={ v.TapContext }/>
-			<input type="hidden" name="lat" value="" data-tap-lat/>
-			<input type="hidden" name="lng" value="" data-tap-lng/>
-			<input type="hidden" name="acc" value="" data-tap-acc/>
-			<button type="submit" class="tap-button" data-tap-button>Tap</button>
-		</form>
+//
+// THE BUSINESS'S BRAND IS A SECOND, EXPLICIT PARAMETER (M10 WL-9), not a field of
+// TapView: the view keeps its three fields, and b reaches the shell only -- the
+// header (logo and co-brand line, or the wordmark) and the accent's stylesheet,
+// which the button reads through its own class (user decisions D-C, K-2a, K-2b;
+// ADR 0023 §2, §7). Nothing below the header changes with it: one greeting, one
+// venue, one button, its word "Tap".
+//
+// THE GREETING AND THE BUTTON'S FACE ARE COMPONENTS OF THEIR OWN (TapHeading,
+// TapButtonFace) so the Account editor's preview (M10 WL-7) can draw the same two
+// without the form (ADR 0023 §2). Splitting them changed no byte of this screen
+// (TestUnbrandedScreens_AreByteIdenticalToTheGolden). The two are JOINED rather than
+// written as two lines because templ writes a space between two lines of a shell's
+// block, and the docket always closed straight into the form.
+templ Tap(v TapView, b layout.Brand) {
+	@layout.PageWithScript("Tap — Taptime", "/static/js/tap.js", b) {
+		@templ.Join(TapHeading(v.EmployeeName, v.LocationName), tapForm(v.TapContext))
+	}
+}
+
+// tapForm is the tap's one form: the signed context, the three coordinate fields
+// tap.js fills at the moment of the press (§4.2), and the button that submits them.
+//
+// THE ONE SPACE WRITTEN OUT after the last field is the space the form always had
+// there: templ writes none between an element and a component call, and the golden
+// holds the bytes from before the split. It changes nothing on screen -- the form
+// lays its children out as a column, which drops the white space between them.
+templ tapForm(signedContext string) {
+	<form method="post" action="/api/checkin" data-tap-form class="flex flex-col gap-4">
+		<input type="hidden" name="ctx" value={ signedContext }/>
+		<input type="hidden" name="lat" value="" data-tap-lat/>
+		<input type="hidden" name="lng" value="" data-tap-lng/>
+		<input type="hidden" name="acc" value="" data-tap-acc/>{ " " }
+		@TapButtonFace(TapButtonSubmits)
+	</form>
+}
+
+// TapHeading is the tap screen's docket: "Hello Maria" and the TAPPED venue, and
+// nothing else. An empty venue renders without the line rather than with a blank
+// one -- the plaque belongs to another business, or to no wall (ErrForeignLocation).
+templ TapHeading(employeeName, locationName string) {
+	<section class="docket">
+		<p class="docket-label">Tapping</p>
+		<h1 class="font-display text-3xl font-bold tracking-tight text-ink">
+			Hello { employeeName }
+		</h1>
+		if locationName != "" {
+			<p class="mt-1 text-ink/70">{ locationName }</p>
+		}
+	</section>
+}
+
+// TapButtonUse is where the tap button's face is drawn. A closed set of two, and the
+// zero value is the one that submits because the tap screen is the product; the
+// preview's value has to be named.
+type TapButtonUse int
+
+const (
+	// TapButtonSubmits is the tap screen's one button: the form's submit, which
+	// web/static/js/tap.js finds by its data attribute.
+	TapButtonSubmits TapButtonUse = iota
+	// TapButtonPreview is the same face drawn by the Account editor's preview (M10
+	// WL-7): type="button", no data attribute for tap.js to find, and nothing to
+	// submit -- ADR 0023 §2 requires the preview to be unsendable.
+	TapButtonPreview
+)
+
+// TapButtonFace is the tap button's face -- its class, which carries the 64 px target
+// and the tenant accent's fill (ADR 0023 §2-§4), and its one word. A value outside
+// the two above draws the preview's face: one that cannot submit.
+templ TapButtonFace(use TapButtonUse) {
+	if use == TapButtonSubmits {
+		<button type="submit" class="tap-button" data-tap-button>Tap</button>
+	} else {
+		<button type="button" class="tap-button">Tap</button>
 	}
 }

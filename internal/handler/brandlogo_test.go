@@ -961,16 +961,17 @@ func imagePolicyAgrees(body, policy string) bool {
 // so the corpus holds both halves: every section of a business with a logo (the
 // responses that draw it and must name img-src -- counted below, the TRUE half) and of
 // businesses without one. A page that names it without drawing an image, or draws one
-// without naming it, turns this red. The tap surface draws no logo yet (WL-9).
+// without naming it, turns this red. Since WL-9 the tap and result screens draw it
+// too, and the corpus counts their two logo-bearing renders in the TRUE half.
 //
 // THE CORPUS IS LISTED, NOT DERIVED, AND THE LIST IS PRINTED: every row of
 // pages.PanelSections, unbranded and under three brands, plus the named panel and tap
 // renders below. A render that is not in it is not covered -- PART III of
 // brandlogo.go's claim.
 func TestPageImages_ImgSrcIsNamedOnlyByAPageThatDrawsAnImage(t *testing.T) {
-	// THE PREDICATE CAN FAIL, both ways (anti-vacuity: today every body has no <img>
-	// and every policy no img-src, which a predicate that always said "agrees" would
-	// pass).
+	// THE PREDICATE CAN FAIL, both ways (anti-vacuity: a predicate that always said
+	// "agrees" would pass every render below; the corpus's TRUE half is counted at the
+	// end).
 	if imagePolicyAgrees(`<img src="/t/logo/x" alt="">`, tapCSPFor(false)) ||
 		imagePolicyAgrees(`<p>no image</p>`, tapCSPFor(true)) ||
 		imagePolicyAgrees(`<IMG/src=x>`, adminCSPFor(false)) ||
@@ -1081,6 +1082,18 @@ func TestPageImages_ImgSrcIsNamedOnlyByAPageThatDrawsAnImage(t *testing.T) {
 	limited := httptest.NewRecorder()
 	tp.renderTooManyRequests(limited, httptest.NewRequest(http.MethodGet, tapURL(), nil))
 	add("tap 429", read(limited))
+	// M10 WL-9: renders of a business WITH a brand -- the first on the tap surface
+	// that draw an <img> (limit 2 of the WL-6 note, the tap half).
+	add("tap GET /t, logo and accent", tapAnswer(t, &fakeDirectory{facts: brandedFacts(t, true, true)}))
+	add("tap GET /t, accent and no logo", tapAnswer(t, &fakeDirectory{facts: brandedFacts(t, false, true)}))
+	add("tap GET /t, another business's plaque, own brand set", tapAnswer(t, &fakeDirectory{
+		facts: tenant.TapPageFacts{EmployeeName: "Maria Borg", Brand: testPageBrand(t, true, true)}, err: tenant.ErrForeignLocation}))
+	add("tap POST, ok, logo and accent", resultAnswer(t, &fakeDirectory{facts: okFacts(), resultBrand: testPageBrand(t, true, true)},
+		okResult(), testTenant, tapLocation))
+	add("tap POST, ok, accent and no logo", resultAnswer(t, &fakeDirectory{facts: okFacts(), resultBrand: testPageBrand(t, false, true)},
+		okResult(), testTenant, tapLocation))
+	// Of these five, the two with a logo on the business's own plaque draw it.
+	logoRenders += 2
 
 	names := make([]string, 0, len(corpus))
 	drawn := 0
@@ -1105,7 +1118,7 @@ func TestPageImages_ImgSrcIsNamedOnlyByAPageThatDrawsAnImage(t *testing.T) {
 	// so the correspondence above was checked on responses that name img-src too, and
 	// not only on its absence.
 	if drawn != logoRenders || logoRenders == 0 {
-		t.Errorf("%d renders draw an <img>; the corpus holds %d logo-bearing panel renders", drawn, logoRenders)
+		t.Errorf("%d renders draw an <img>; the corpus holds %d logo-bearing renders (panel and tap)", drawn, logoRenders)
 	}
 	t.Logf("img-src correspondence over %d renders (%d panel sections; %d draw the logo): %s",
 		len(corpus), len(pages.PanelSections), drawn, strings.Join(names, "; "))

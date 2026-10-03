@@ -688,6 +688,13 @@ func run() error {
 		Handler:           httpx.NewRouter(cfg, slog.Default(), activation, tap, panelAuth, logos, marketing, signupFlow, resetFlow, ready, handler.NewBrandTheme(), operatorSurface),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       90 * time.Second,
+		// NO WriteTimeout, deliberately (WL-9 round 3): a recorded tap's confirmation
+		// may be written up to resultBrandWait after httpx.RequestTimeout, and a shorter
+		// WriteTimeout hands the client EOF while the access record says 200 (measured;
+		// TestServer_SetsNoWriteTimeoutThatCutsAConfirmation). Nor an http.TimeoutHandler
+		// around the router, for the same reason: measured, it answers 503 over a
+		// written record, and that test does not see it (ADR 0023, WL-9 note).
+		//
 		// 🔴 SET, RATHER THAN LEFT AT GO'S 1 MiB DEFAULT (M8-03 round 4). Every
 		// header this process reads is caller-supplied and unauthenticated, and the
 		// default ceiling is what made a 900 KB X-Request-Id — and therefore a

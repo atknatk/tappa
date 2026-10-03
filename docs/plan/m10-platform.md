@@ -9668,6 +9668,710 @@ metni), `FactNoBulkImport`, `TestBrand_*`, panel CSP ↔ script karşılığı t
 >   mutasyon tablosunda.
 > - **PART III** — Listede olmayan her biçim kod incelemesinin konusudur; tamlık iddiası yoktur.
 
+> **Kart düzeltmesi (2026-10-03, WL-9 uygulaması sırasında).** Yazıldı:
+> `web/templates/layout/brand.go` (yeni: `Logo`, `TapLogo`, `Brand`, `TapBrand(Logo, Theme)`,
+> `ThemeHref`; alanlar dışa kapalı, kurucular biçimi doğrular) · `web/templates/layout/theme.go` (yeni;
+> **WL-8'in `Theme`'i** — `ThemeOf(brand.Color)`, `Linked`, `Href`; iki yorum cümlesi dışında WL-8'inkiyle
+> aynı, aşağıda) · `web/templates/layout/base.templ` (`shell(title, script, Brand)`;
+> **`documentHead(title, script, robots, theme Theme)`** — WL-8'in imzası ve gövdesi, temayı `app.css`'ten
+> hemen sonra yazar; öteki kabuklar `Theme{}`; `brandHeader`; **`BrandedPage(title, Logo)`** — sonuç
+> ekranının kabuğu, tema parametresi yok; `PageWithScript(title, src, Brand)` — tap ekranının kabuğu, adı
+> korundu; `Page` değişmedi) · `web/templates/pages/tap.templ` (`Tap(v TapView, b
+> layout.Brand)`; bölme: `TapHeading`, `TapButtonFace(TapButtonUse)`, `tapForm`) ·
+> `web/templates/pages/result.templ` (`Result(v ResultView, logo layout.Logo)`) ·
+> `web/templates/pages/view.go` (yalnız yorum) · `internal/domain/tenant/pagebrand.go` (yeni:
+> `PageBrand`, `ErrBrandUnread`, `pageBrandOf`, `Directory.ResultBrand`) ·
+> `internal/domain/tenant/directory.go` (`TapPageFacts.Brand`; `TapPage` markayı aynı transaction'ın son
+> ifadesi olarak okur) · `internal/handler/tap.go` (`tapDirectory.ResultBrand`; `Page`'in markası;
+> `tapBrandOf`, `logoOf`; `render(…, drawsLogo)` → `tapCSPFor(drawsLogo)`) ·
+> `internal/handler/checkin.go` (`resultLogo`) · `internal/httpx/ratelimit.go` (yalnız yorum: bayt
+> kararı) · testler: `internal/handler/unbranded_golden_test.go` + `testdata/unbranded-golden/` (33
+> dosya), `internal/handler/tapbrand_test.go` (12 test), `internal/handler/tapbrand_db_test.go` (1 test),
+> `internal/domain/tenant/pagebrand_db_test.go` (4 test) · bilinçli güncellenen testler:
+> `result_test.go` (`TestResultScreen_SaysExactlyThisAndNothingElse` — her satırın logolu ikizi;
+> `TestScreens_RenderOnlyTheseElements`, `TestScreens_ReferenceOnlyOurOwnAssets` — logolu alt test),
+> `brandlogo_test.go` (img-src korpusuna +5 render), `tap_test.go` (`fakeDirectory.ResultBrand`),
+> `qr_db_test.go` (`pages.Tap`'in yeni imzası) · **[ADR 0023](../adr/0023-tenant-markasi-ve-arayuz-kurali.md)
+> değişikliği:** §7'nin sonuna tarihli *"WL-9 notu"*; İddia B, C, D'nin PART I'ine *"WL-9'da ölçüldü"*
+> işaretleri; *Karar verilmedi*'de yuva maddesi kapandı. Yeni sorgu, migration, bağımlılık yok:
+> `db/`, `internal/store/`, `go.mod`, `go.sum`, `sqlc.yaml` diff'i boş; `input.css` ve
+> `tailwind.config.js` diff'i boş. `internal/domain/tap`, `internal/policy`, panel kabuğu
+> (`panelChrome`, `PanelChrome`, `review.go`) dokunulmadı. **Ölçüm ortamı:** dev Postgres 17,
+> `tappa_app`; yerel Go 1.27.1 (staticcheck, vet ve DB'siz tam koşu `GOTOOLCHAIN=go1.26.7`); Tailwind
+> v3.4.17; headless Chrome 154.0.8037.93; ayrı git worktree, taban `df544c1`.
+>
+> **§9 onayı — kullanıcı kararları (alıntı):**
+> - **D-C (2026-09-24):** *"Logo + tap butonu tenant renginde; sonuç ekranında yalnız logo."*
+> - **K-2a (2026-10-02):** logosuz ama accent'li tenant'ta tap başlığındaki `taptime` **ink** — *"Ink
+>   (koyu) olsun"*.
+> - **K-2b (2026-10-02):** logo varken tap ve sonuç ekranında üstte logo, **altında** küçük "taptime ·
+>   punchless" co-brand satırı — *"Logo + küçük co-brand satırı"*.
+> - **Orkestratör kararı (2026-10-03, WL-9'a devredilen): 16 px bütçe korunur.** Logo yuvası 24 px,
+>   logo ile co-brand arası 4 px → tap düğmesinin üst kenarı 24 + 4 − 13 = 15 px kayar. Gerekçe:
+>   düğmenin yeri başparmak hafızası; 40 px'lik yuva 31 px kaydırırdı. **Ölçüldü: 15 px** (aritmetik
+>   tuttu; başlık 28 → 43 px, co-brand satırı 15 px).
+>
+> Bu dört karar dışında tap ve sonuç ekranına hiçbir öğe ya da metin eklenmedi; tur/practice/aktivasyon
+> ekranları değişmedi (golden).
+>
+> **Kabul — kanıtlar** (WL-9 satırının her maddesi):
+> 1. ✓ **§9 onayı (D-C) kartta alıntılı**, K-2a ve K-2b de (yukarıda).
+> 2. ✓ **`TapView` 3 ve `ResultView` 8 alan kalır, marka ayrı açık parametre:**
+>    `TestTapView_FieldCountIsTheSpec` (3), `TestResultView_FieldCountIsTheSpec` (8, değişmedi);
+>    `TestScreens_TakeTheBrandAsAnExplicitParameter` — `pages.Tap(TapView, layout.Brand)`,
+>    `pages.Result(ResultView, layout.Logo)`; `layout.Logo` accent taşımaz, yani sonuç ekranına accent
+>    tip düzeyinde gidemez.
+> 3. ✓ **Logo `width`/`height` → CDP layout-shift 0:** öznitelikler saklanan kutu
+>    (`TestTapPage_TheLogoCarriesItsStoredBox`, beş kutu); CDP'de dört logo varyantında tap ve sonuç
+>    ekranında layout-shift 0, logo kutusu baytlardan ÖNCE son hâlinde (aşağıdaki tablo); kontrol A/B
+>    ölçümün kaymayı gördüğünü gösterir (0,0144).
+> 4. ✓ **390×844'te tap butonu üst kenarı ≤16 px kayar, tek buton, "Tap", ≥64 px:** CDP 214 → 229
+>    (**+15**), yükseklik 64, `type="submit"`, metin `Tap`, düğme sayısı 1 — dört logolu varyantta;
+>    yalnız accent'te kayma 0. HTML'de: `TestTapPage_TheBrandFillsTheTwoSlotsAndNothingElse` (dört
+>    marka şeklinde tam bir `<button`, submit yüzü, kelime `Tap`); `TestTapPage_IsOneScreenOneButton`
+>    (markasız, değişmedi).
+> 5. ✓ **Tek yeni metin `alt` = tenant adı:** `TestTapPage_TheBrandFillsTheTwoSlotsAndNothingElse`
+>    (ekran metni birebir; logolu: `Tap — Taptime Kebab Factory Ltd taptime · punchless …`) ·
+>    `TestResultScreen_SaysExactlyThisAndNothingElse` (11 satırın logolu ikizi; kabuk metni
+>    `Tapped — Taptime Kebab Factory Ltd taptime · punchless`). Co-brand satırı wordmark'ın iki
+>    kelimesini taşır (ADR 0023 §6 madde 10).
+> 6. ✓ **A çalışanı B plaketinde gövdede `/t/logo/` yok — tap ve sonuç:**
+>    `TestTapDB_ABrandIsDrawnOnlyOnTheBusinesssOwnPlaque` (gerçek Postgres; iki işletme de logolu ve
+>    accent'li; B'nin plaketinde tap sayfası ve düğmeden sonraki 403 ekranı: `/t/logo/`,
+>    `/brand/theme/`, `<img` 0; CSP `img-src`'siz) · `TestTapPage_AnotherBusinesssPlaqueShowsNoBrand`
+>    (`ErrForeignLocation` + dolu marka → markasız yabancı sayfayla bayt eşit) ·
+>    `TestResultScreen_NoBrandWhereThePlaqueIsNotThisBusinesss` (bağlamda başka işletmenin plaketi,
+>    duvarsız plaket, `OutcomeForeignTenant`) · `TestTapPageDB_TheBrandComesWithTheGreetingAndTheVenue`
+>    (yabancı duvar ve duvarsız → sıfır marka).
+> 7. ✓ **Marka yoksa HTML + CSP bayt-aynı (golden):** `TestUnbrandedScreens_AreByteIdenticalToTheGolden`
+>    — 33 render, golden `df544c1`'den değişiklikten ÖNCE yazıldı (aşağıda liste).
+> 8. ✓ **Okuma hatasında 200 + varsayılan:** `TestTapPage_ABrandReadFailureRendersTaptimesPage` (200,
+>    markasız sayfayla bayt eşit, bir ERROR satırı) · `TestResultScreen_ABrandReadFailureCostsOnlyTheLogo`
+>    · `TestTapPageDB_ABrandReadFailureKeepsTheGreetingAndTheVenue` (gerçek bağlantıda iptal edilen
+>    transaction; selamlama + mekân korunur, `ErrBrandUnread` 22012'yi sarar) · yarım logo satırı okuma
+>    hatası gibi: `TestPageBrand_EveryReadFailureIsAnErrorNeverNoBrand` (14 yarım birleşim hata, hiçbiri
+>    `ErrLogoNotFound` değil) + handler ERROR satırı.
+> 9. ✓ **K-2a ve K-2b:** `TestTapPage_TheBrandFillsTheTwoSlotsAndNothingElse` başlığı şekle göre birebir
+>    sınar (yalnız accent: ink `taptime`; logo: logo + 4 px + co-brand); CDP: ink `taptime` 14,32:1,
+>    co-brand 5,70:1.
+> 10. ✓ **Markalı tenant'ın sonuç sayfasında tema `<link>`'i 0:** `TestResultScreen_DrawsTheLogoAndNoAccent`
+>     (logo + accent'li işletme: logo var, tema yok, tek stil dosyası) · DB testi (madde 6) · CDP (iki
+>     accent'li varyantın sonuç ekranında stil dosyası yalnız `app.css`).
+> 11. ✓ **Uyuşmazlıkta sonuçta da `/t/logo/` ve tema 0, eşleşen tenant'ta sonuçta logo var:** madde 6'nın
+>     testleri; kontroller `TestResultScreen_NoBrandWhereThePlaqueIsNotThisBusinesss`'in kontrol alt testi
+>     ve DB testinin A tarafı.
+> 12. ✓ **Golden aktivasyon ailesini de kapsar:** 10 aktivasyon render'ı (liste aşağıda); tur/practice'te
+>     logo yapılmadı (ADR 0023 §2: faz 2) ve `activate-tour-1..3`, `activate-done` bayt-aynı.
+> 13. ✓ **16 px bütçe ile yuva aritmetiği orkestratörce karara bağlandı:** 24 px + 4 px → 15 px, ölçüldü.
+> 14. ✓ **Golden'a giren render'lar adıyla ve sayısıyla:** aşağıda, 33.
+> 15. ✓ **`templ Tap` başlık ve düğme yüzü bileşenlerine ayrıldı, bölme sonrası golden bayt-aynı:**
+>     `TapHeading` (docket), `TapButtonFace(TapButtonSubmits | TapButtonPreview)`;
+>     `TestTapButtonFace_ThePreviewFaceCannotSubmit` (önizleme yüzü `type="button"`, veri özniteliği yok,
+>     bilinmeyen değer de önizleme yüzü); golden yeşil.
+> 16. ✓ **`hasLogo` `TapPage`'in transaction'ında; `ErrForeignLocation` → `false`** (ADR 0024 WL-6 devri):
+>     `directory.go`; `TestTapPageDB_TheBrandComesWithTheGreetingAndTheVenue`.
+> 17. ✓ **Sıcak/soğuk ücretli istek gerçek sayfayla yeniden ölçüldü:**
+>     `TestTapPage_ALogoTapIsTwoChargedRequestsWarmAndThreeCold` — soğuk 3, sıcak 2.
+> 18. ✓ **Tap tarafında yanıt başına bayt kararı (sınır 12):** bütçe YOK, gerekçeyle kabul (aşağıda).
+> 19. ✓ **`tapCSPFor(hasLogo)` render başına:** `TestPageImages_ImgSrcIsNamedOnlyByAPageThatDrawsAnImage`
+>     (34 render; +5 markalı tap/sonuç/uyuşmazlık — WL-6 sınır 2'nin tap yarısı kapandı) ·
+>     `TestTapResponses_CarryTheContentSecurityPolicy` (markasız literal, değişmedi).
+> 20. ✓ **WL-5 devirleri:** tema bağlantısı `app.css`'ten hemen sonra (madde 9'un testi bitişikliği sınar;
+>     CDP'de stil dosyası sırası `app.css`, `brand/theme/…`); bağlantı ortak `<head>`'e — panel kabuğuyla
+>     aynı `documentHead(…, theme)` mekanizmasıyla — yalnız accent varken girdiği için L1'in iki testi
+>     markasız render'larda değişmeden yeşil (bilinçli güncelleme gerekmedi;
+>     `TestScreens_ReferenceOnlyOurOwnAssets`'e logolu sonuç alt testi eklendi); `.tap-button`
+>     incelemesi: derlenmiş `app.css`'te `.tap-button` seçicili kurallarda sözde öğe 0, `inherit` /
+>     `currentColor` 0.
+>
+> **Golden — 33 render, adıyla** (`internal/handler/testdata/unbranded-golden/<ad>.golden`; durum + CSP +
+> gövde; `rec.Result()`; tap ekranının imzalı bağlam değeri `{{TAP-CONTEXT}}` ile maskeli ve varlığı
+> sınanır): **tap ekranı (2)** `tap-page`, `tap-page-foreign-plaque` · **tap ailesi problem ekranları
+> (7)** `tap-problem-bad-url`, `tap-problem-unknown-plaque`, `tap-problem-server-with-retry`,
+> `tap-problem-too-many`, `tap-problem-stale-context`, `tap-problem-post-unknown-plaque`,
+> `tap-problem-another-employers-plaque` · **sonuç ekranı (14; hüküm × yön × iş türü × practice)**
+> `result-ok-in-restaurant`, `result-ok-out-restaurant` (iki parçalı not), `result-ok-in-production`,
+> `result-ok-out-production`, `result-ok-in-other-trade`, `result-ok-out-other-trade`,
+> `result-ok-no-direction`, `result-ok-in-practice`, `result-ok-empty-note-no-venue`, `result-flag-in`,
+> `result-flag-in-practice`, `result-reject`, `result-ignored`, `result-unknown-verdict` · **aktivasyon
+> ailesi (10)** `activate-landing`, `activate-form`, `activate-failure`, `activate-phone-in-use-form`,
+> `activate-continue`, `activate-done`, `activate-done-without-session`, `activate-tour-1`,
+> `activate-tour-2`, `activate-tour-3`. Golden'ın `df544c1`'deki içeriğinin özeti (33 dosyanın ad
+> sırasıyla birleşimi): sha256 `55a759d8…abcc`; değişiklikten sonra aynı test yeşil. Golden ilk bölme
+> denemesinde iki boşluk farkını (docket → form arasına eklenen ve son alan → düğme arasından düşen bir
+> boşluk) yakaladı.
+>
+> **CDP ölçümü (bir kez, pin değil; betikler scratchpad'de, repoya girmedi).** Gerçek `handler.NewTap`
+> (sahte önizleyici/dizin/oturum/kayıt), `httpx.NewRouter` + `NewBrandTheme`, gerçek `tapCSPFor`;
+> Chrome `--headless=new --remote-debugging-pipe`; 390×844 DSF 3 mobil; logo rotası 800 ms gecikmeli;
+> sonuç ekranı formun gerçekten gönderilmesiyle. Önce (`df544c1`) ve sonra markasız sayfa aynı ölçüldü.
+>
+> | Varyant | başlık | düğme üst / yükseklik | kayma | düğme zemini / metni | logo kutusu (baytlardan önce → sonra) | layout-shift |
+> |---|---|---|---|---|---|---|
+> | markasız (önce ve sonra) | 28 | 214 / 64 | 0 | `rgb(31, 92, 65)` / `rgb(255, 253, 244)` | — | 0 |
+> | logo 512×128 | 43 | 229 / 64 | **+15** | aynı | 96×24 → 96×24 | **0** |
+> | logo 512×128 + `DA291C` | 43 | 229 / 64 | +15 | `rgb(218, 41, 28)` / paper | 96×24 → 96×24 | 0 |
+> | logo 128×512 | 43 | 229 / 64 | +15 | yeşil | 6×24 → 6×24 | 0 |
+> | logo 512×16 | 43 | 229 / 64 | +15 | yeşil | 179×24 → 179×24 (sütunun yarısı) | 0 |
+> | yalnız accent `FFC72C` (K-2a) | 28 | 214 / 64 | 0 | `rgb(255, 199, 44)` / ink + 2 px ink iç gölge | — | 0 |
+> | yalnız accent `DA291C` (K-2a) | 28 | 214 / 64 | 0 | `rgb(218, 41, 28)` / paper | — | 0 |
+> | başka işletmenin plaketi + logo + accent | 28 | 190 / 64 (mekânsız) | 0 | yeşil | `<img>` yok, tema yok | 0 |
+> | KONTROL A: öznitelik yok, yuva yüksekliği yok | 44,75 | 249,75 | — | — | 0×0 → 179×44,75 | **0,0144** |
+> | KONTROL B: öznitelik var, yuva yüksekliği yok | 44,75 | 249,75 | — | — | 0×0 → 179×44,75 | **0,0144** |
+> | KONTROL C: öznitelik yok, 24 px yuva | 43 | 229 | — | — | **0×24** → 96×24 | 0 |
+>
+> Kontrast (porcelain zemin, sRGB kompozit, hesaplanan computed renklerden): co-brand ink/70
+> **5,70:1** · K-2a `taptime` ink **14,32:1** · markasız `taptime` 6,85:1. Sonuç ekranlarının hiçbirinde
+> tema yok; logolularda CSP `img-src 'self'`, logosuzlarda yok. **Okuma:** sıfır kaymayı taşıyan 24 px
+> yuvadır; öznitelikler logonun kendi kutusunu baytlardan önce kesinleştirir (C'de 0 genişlikle açılır,
+> sağında öğe olmadığı için kayma sayılmaz). Her koşudan sonra `pgrep` boş.
+>
+> **Bayt bütçesi kararı (ADR 0024 WL-6 sınır 12, tap yarısı): bütçe YOK, gerekçeyle kabul.** Gerçek
+> sayfada bir tap soğukta 3, sıcakta 2 ücretli istek; sonuç ekranı sayfanın logo URL'ini adlandırır ve
+> yanıt `private, max-age=31536000, immutable` — logoyu önbellekte tutan telefon onu digest başına bir
+> kez çeker; bir yıllık `max-age` bir üst sınırdır, vaat değil (önbellek boşalırsa ya da logo değişirse
+> yeniden çeker). **Kabul edilen sayılar, istek başına maliyetle (2. tur, S2):** tap sayfası ~1,3 KiB,
+> logo yanıtı 256 KiB'a kadar; 304 de aynı baytı DB'den okur (ADR 0024 WL-6 sınır 6). Canlı bir oturum
+> bilerek isterse **75 MiB / oturum / 10 dk**; on ya da daha çok canlı oturum taşıyan bir adres
+> `tapAddressLimit` × 256 KiB = **750 MiB / adres / 10 dk**. Oturumların çalınması gerekmez: kayıt
+> herkese açık, işletme sahibi kendi çalışanlarını davet edip etkinleştirebilir; işletme başına
+> davet/etkinleştirme tavanı ölçülmedi. Oturumsuz istek okumadan 404 alır. Bayt sayacı, ürünün tek
+> kutsal ekranının önündeki sınırlayıcıya ikinci, durumlu bir boyut eklerdi; maliyet iki istek
+> kovasıyla sınırlı ve bu büyüklükte KABUL edilir. `internal/httpx/ratelimit.go`'nun yorumu kararı
+> taşır.
+>
+> **Kararlar (gerekçeli; ayrıntı ADR 0023 §7 WL-9 notu):** marka `TapPage`'in transaction'ının son
+> ifadesi, hata → iç sentinel'le rollback + facts korunur + `ErrBrandUnread` · yabancı plakette marka
+> okunmaz · sonuç ekranının markası kayıt commit edildikten SONRA kendi transaction'ında
+> (`Directory.ResultBrand`), accent dönmez · sonuç ekranında uyuşmazlık kuralı imzalı bağlamdan
+> (`TagTenantID`, `LocationID`) — GET'in `ErrForeignLocation`'ının aynası · marka hep-ya-hiç · `alt` mevcut
+> sorgulardan (`tenant_name`, `GetTenantClock.name`) · tema bağlantısı WL-8'in mekanizmasıyla
+> (`layout.Theme` / `ThemeOf(brand.Color)` / `documentHead(…, theme)`; orkestratörün koordinasyon notu),
+> yalnız accent varken · layout türleri dışa kapalı alanlı, doğrulayan kurucular · bölme için `templ.Join`
+> + açık `{ " " }` · tur/practice'te logo yok.
+>
+> **Sapmalar (gerekçeli):**
+> - **a. `PageWithScript` adı korundu, `BrandedPageWithScript` yazılmadı.** Kartın *"`BrandedPage…`"*'ı
+>   sonuç kabuğu `BrandedPage(title, Logo)` ile karşılandı; tap kabuğu tek çağıranı tap ekranı olan
+>   `PageWithScript`'e açık `Brand` parametresi olarak eklendi. Gerekçe: yeniden adlandırmak
+>   `admin.templ`, `adminreset.templ` ve `base.templ`'in panel/marketing/auth/operator yorumlarında bir
+>   dalga açardı (WL-8 paralel; `admin.templ` panel kabuğunun dosyası).
+> - **b. Ortak dosyalarda en küçük değişiklik (raporlanır):** `base.templ` → `documentHead` WL-8'in
+>   `theme Theme` parametresini aldı (imza ve gövde WL-8'inkiyle birebir; yorumunun son cümlesi *"panel
+>   kabukları ve tap ekranının kabuğu"* diye bir kelime grubu fazla); öteki dört çağrı yeri `Theme{}`
+>   (üçü WL-8'inkiyle aynı satır; `PanelWithScript`'in çağrısı WL-8'de `theme` — birleştirmede çağrı yeri
+>   çakışması); `theme.go` WL-8'inkinden iki cümlede ayrılır: WL-8'in testini adıyla anan cümle (o test
+>   bu ağaçta yok, `TestEveryNamedTestExists`'in bütçesi aşılırdı) ve *"her kabuk ama panelinki"*
+>   cümlesi (tap kabuğu da tema alır) — birleştirmede WL-8'inki alınıp ikinci cümle düzeltilir; `brandlogo_test.go` → img-src korpusuna 5 satır (WL-8 aynı testin panel tarafına dokunabilir);
+>   `tap_test.go` → `fakeDirectory`'ye bir metot ve üç alan; `qr_db_test.go` → `pages.Tap` çağrısına
+>   `layout.Brand{}`; `internal/httpx/ratelimit.go` → yalnız yorum.
+> - **c. Sonuç ekranının okuması `TapPage`'in transaction'ında değil.** ADR 0024 WL-6 devri *"tap ve
+>   sonuç ekranı `hasLogo`'yu `TapPage`'in transaction'ında okur"* diyor; POST yolunda `TapPage` yok ve
+>   kaydı yazan transaction'a okuma koymak §4.6'yı riske atardı (Karar 2).
+>
+> **Güvenlik ve doğruluk iddiası (WL-9, üç parçalı):**
+> - **Tehdit modeli:** Bu pinler tap ve sonuç ekranının, paylaşılan kabuğun ve marka okumasının koduna
+>   kazara giren sapmaya karşıdır; tarayıcıyı ya da testleri bilerek atlatmak için yazılmış kod, kod
+>   incelemesinin konusudur.
+> - **PART I — her madde: test · beslenen girdiler · assert · o assert'i kıran mutasyon:**
+>   1. `TestUnbrandedScreens_AreByteIdenticalToTheGolden` · 33 render, markasız fake'ler, bağlı
+>      yönlendirici · durum + CSP + gövde golden'a bayt eşit; golden dizini ile liste iki yönlü eşit;
+>      liste ve dizin tam olarak `unbrandedScreenCount` = 33 (2. tur, X22) (M08, M13, M23, M29, R3).
+>   2. `TestTapPage_TheBrandFillsTheTwoSlotsAndNothingElse` · dört marka şekli · başlık birebir; tema
+>      yalnız accent'te, tam bir, `app.css`'ten hemen sonra; `<img` yalnız logoda tam bir; yuvaların
+>      dışı markasız sayfayla bayt eşit; ekran metni birebir; tam bir submit `<button`, `Tap`; CSP
+>      şekle göre (M04, M05, M06, M07, M12, M27, M28, M30, M31).
+>   3. `TestTapPage_TheLogoCarriesItsStoredBox` · beş kutu · `width`/`height` = saklanan kutu (M06, M07,
+>      M28, M30).
+>   4. `TestTapPage_AnotherBusinesssPlaqueShowsNoBrand` · `ErrForeignLocation` + dolu marka · markasız
+>      yabancı sayfayla bayt eşit, CSP `tapCSP` (M09).
+>   5. `TestTapPage_ABrandReadFailureRendersTaptimesPage` · `ErrBrandUnread` + dolu marka · 200,
+>      markasız sayfa, CSP `tapCSP`, tam bir ERROR satırı nedenle (M10, M11).
+>   6. `TestResultScreen_DrawsTheLogoAndNoAccent` · logo + accent, kendi plaket · logo başlığı, tema 0,
+>      başlık dışı bayt eşit, CSP `+ img-src`, okuma bir kez oturumun işletmesinde (M06, M07, M08, M28).
+>   7. `TestResultScreen_NoBrandWhereThePlaqueIsNotThisBusinesss` · başka işletmenin plaketi (kayıtlı),
+>      duvarsız, `OutcomeForeignTenant` · `/t/logo/`, tema, `<img` 0; CSP `tapCSP`; okuma 0; kontrol
+>      logo var (M14, M15).
+>   8. `TestResultScreen_ABrandReadFailureCostsOnlyTheLogo` · okuma hatası · 200, markasız, bir ERROR
+>      (M16).
+>   9. `TestResultScreen_SaysExactlyThisAndNothingElse` · 11 satır × {markasız, logolu} · ekran metni
+>      birebir (M07, M28).
+>   10. `TestScreens_RenderOnlyTheseElements`, `TestScreens_ReferenceOnlyOurOwnAssets` (logolu alt testler)
+>       · beş hüküm × practice · etiketler = onay + `img`; referanslar = `app.css` + `/t/logo/<sha>` (M08).
+>   11. `TestPageImages_ImgSrcIsNamedOnlyByAPageThatDrawsAnImage` · 34 render · img-src ancak `<img`
+>       çizende (M12, M13).
+>   12. `TestTapButtonFace_ThePreviewFaceCannotSubmit` · üç değer · docket ve submit yüzü tap sayfasının
+>       baytları; önizleme/bilinmeyen `type="button"` (M24, M25).
+>   13. `TestLayoutBrand_RefusesAnyOtherShape` · 7 bozuk logo, sıfır `Theme`, `ThemeOf(DA291C)` · bozuk
+>       logolar sıfır değer, sıfır tema boş href, renk tek yazımıyla (M01, M02, M03).
+>   14. `TestTapView_FieldCountIsTheSpec` · 3 (M26); `TestResultView_FieldCountIsTheSpec` · 8
+>       (değişmedi); `TestScreens_TakeTheBrandAsAnExplicitParameter` · iki imza (mutasyon koşulmadı).
+>   15. `TestTapPage_ALogoTapIsTwoChargedRequestsWarmAndThreeCold` · gerçek yönlendirici, üretim
+>       bütçeleri · soğuk 3, sıcak 2; soğuk tap gerçek referansları çekti (M27, M30, M31).
+>   16. `TestTapDB_ABrandIsDrawnOnlyOnTheBusinesssOwnPlaque` · gerçek Postgres, iki markalı işletme ·
+>       B'nin plaketinde tap ve 403 ekranında marka 0; A'nın plaketinde A'nınki, B'ninki değil; sonuçta
+>       logo var, tema 0 (M19).
+>   17. `TestTapPageDB_TheBrandComesWithTheGreetingAndTheVenue` · gerçek Postgres · beş durum + iki
+>       yabancı (M18, M19).
+>   18. `TestTapPageDB_ABrandReadFailureKeepsTheGreetingAndTheVenue` · gerçek bağlantıda iptal · facts
+>       korunur, `ErrBrandUnread` 22012'yi sarar (M17, M21, M32).
+>   19. `TestResultBrandDB_TheLogoAndTheNameAndNeverTheAccent` · gerçek Postgres · logo + ad, accent asla
+>       (M22).
+>   20. `TestPageBrand_EveryReadFailureIsAnErrorNeverNoBrand` · dikiş · satır yok ve hepsi NULL sıfır;
+>       DB hatası, 14 yarım satır, kanonik olmayan accent hata (hiçbiri `ErrLogoNotFound` değil); kapının
+>       bugün reddettiği accent (`808080`, `E0457B`) logonun yanında hata değil — accent yok,
+>       `AccentRefused`, logo kalır (M21; birleştirmede A1, A2, A3).
+>   21. `TestTapPage_AnAccentTheGateRefusesTodayKeepsTheLogo` (birleştirmede) · `AccentRefused` logolu ve
+>       logosuz · tema 0; logoluda logo başlığı ve `+ img-src`; logosuzda markasız sayfayla bayt eşit;
+>       tam bir WARN, ERROR 0 (A4).
+>   22. `TestResultScreen_AStalledBrandReadStillSaysAllDone` (2. tur S1; 3. turda üç bütçe şekli, B1) ·
+>       bağlamı bitene dek bekleyen sahte `ResultBrand`; isteğin süresi üretimdeki gibi chi `Timeout`'u
+>       (`httpx.RequestID` arkasında); üç şekil: sınırdan çok bütçe (1,5 s istek, 50 ms sınır), sınırdan
+>       az bütçe (kayıt 1,5 s'lik isteğin 1. saniyesinde commit, sınır üretimdeki 2 s), süre commit'te
+>       bitmiş (800 ms istek, commit 1 s'de) · üçünde de 200, "All done", gövde markasız onay ekranıyla
+>       bayt eşit, CSP `tapCSP`; kayıt 1, okuma 1; tam bir ERROR süre aşımını adlandırır ve isteğin
+>       `request_id`'sini taşır; süre = commit + okumanın KENDİ sınırı (az değil, en çok +1 s) (R1, R2,
+>       K2, K9, K11, W0, W1, W2).
+>   23. `TestNewTap_BoundsTheResultBrandRead` (2. tur S1; 3. turda N3) · `NewTap` · alan
+>       `resultBrandWait`'e eşit; sabit tam 2 s; `httpx.RequestTimeout`'un en çok onda biri (R4, K9,
+>       K10a).
+>   24. `TestResultScreen_ARecordCommittedAtTheDeadlineKeepsItsLogo` (3. tur) · 800 ms istek, commit 1 s'de,
+>       sağlıklı okuma · logolu onay ekranıyla bayt eşit, CSP `+ img-src`, ERROR 0, ≤ 2 s (R2, R4, W0,
+>       W1, W2).
+>   25. `TestTapDB_ARecordedTapIsConfirmedInFullWhileThePoolIsHeld` (3. tur, B1) · gerçek Postgres,
+>       `pool_max_conns=1`'li havuz, gerçek kayıt; commit'ten hemen sonra tek bağlantı tutulur; 1,5 s'lik
+>       istek (chi `Timeout`) · 200, tam onay ekranı (`<title>`, `</html>`), logo yok, CSP `tapCSP`; süre
+>       ≥ 2 s ve ≤ 3,5 s; kayıt 0 → 1; tam bir ERROR `request_id` taşır; kontrol: tutulmadan logo
+>       çizilir (K2, K8, K11, W0, W1, W2).
+>   26. `TestResultBrandDB_TheReadEndsWhenItsContextDoes` (3. tur, N1) · marka sorgusunun yerine gerçek
+>       bağlantıda `pg_sleep(3)` (DDL'siz), 300 ms'lik bağlam · `ErrBrandUnread`
+>       `context.DeadlineExceeded`'i sarar, sıfır marka, ≤ 1,8 s; kontrol: sınırsız bağlamla 3 s uyur
+>       (K8).
+>   27. `TestNewRouter_EveryRequestCarriesTheRequestTimeout` (3. tur, N3) · `NewRouter` üstünden bağlanan
+>       özellik · isteğin son tarihi `httpx.RequestTimeout` (K10b).
+>   28. `TestServer_SetsNoWriteTimeoutThatCutsAConfirmation` (3. tur, B1) · `cmd/tappa`'nın test dışı Go
+>       dosyaları, AST · `http.Server` literal'i ≥ 1, `WriteTimeout` 0 (WT1).
+> - **PART II — pinler ve yakaladıkları:** PART I'in parantez içindeki mutasyonları — aşağıdaki tabloda.
+> - **PART III:** Listede olmayan her biçim kod incelemesinin konusu — tamlık iddiası yok.
+>
+> **Mutasyon tablosu** (scratch `mutate.py`: dosyayı yedekler, eski metnin tam bir kez geçtiğini ister,
+> mutantı yazar (sha farkı), `.templ` ise `templ generate`, testleri koşar, kararı testin kendi
+> `--- FAIL` satırlarından okur, geri yazar, sha eşitliğini doğrular; sonda üretilmiş `_templ.go`'ların
+> özeti başlangıçtakiyle aynı. Kapsam *H* = `./internal/handler/` içinde
+> `TestUnbrandedScreens_|TestTapPage_|TestResultScreen_|TestTapView_|TestScreens_|TestTapButtonFace_|TestLayoutBrand_|TestPageImages_|TestTapResponses_|TestPagePolicies_`;
+> *D* = `./internal/domain/tenant/` + `./internal/handler/`, `.env`'li, `TestTapPageDB_|TestResultBrandDB_|TestPageBrand_|TestTapPage_|TestTapDB_ABrandIsDrawnOnlyOnTheBusinesssOwnPlaque|TestUnbrandedScreens_|TestResultScreen_`.
+> Pozitif kontrol: değiştirilmemiş kodda iki kapsam da yeşil. **32 mutasyon, 32'si kırmızı** — son kod
+> ve test sürümüne (WL-8 mekanizmasına geçişten sonra) karşı tek koşuda, derleme hatası 0. İlk koşuda
+> M15 ve M32'nin ilk yazımı derlenmemişti (kullanılmayan import / değişken); tabloda derlenen biçimleri.)
+>
+> | # | Mutasyon | Nerede | Kapsam | Kırmızı |
+> |---|---|---|---|---|
+> | M01 | `TapLogo` digest yazım kapısı kalkar | `layout/brand.go` | H | `TestLayoutBrand_RefusesAnyOtherShape` |
+> | M02 | `TapLogo` kutu aralığı kalkar | `layout/brand.go` | H | `TestLayoutBrand_RefusesAnyOtherShape` |
+> | M03 | `TapBrand` temayı düşürür | `layout/brand.go` | H | `TestLayoutBrand_RefusesAnyOtherShape`, `TestTapPage_ALogoTapIsTwoChargedRequestsWarmAndThreeCold`, `TestTapPage_TheBrandFillsTheTwoSlotsAndNothingElse` |
+> | M04 | `documentHead` temayı `app.css`'ten ÖNCE yazar | `base.templ` | H | `TestTapPage_TheBrandFillsTheTwoSlotsAndNothingElse` |
+> | M05 | K-2a kapalı (accent'li logosuzda yeşil `taptime`) | `base.templ` | H | `TestTapPage_TheBrandFillsTheTwoSlotsAndNothingElse` |
+> | M06 | `<img>`'den `width`/`height` düşer | `base.templ` | H | `TestResultScreen_DrawsTheLogoAndNoAccent`, `TestTapPage_TheBrandFillsTheTwoSlotsAndNothingElse`, `TestTapPage_TheLogoCarriesItsStoredBox` |
+> | M07 | co-brand satırı logonun ÜSTÜNDE | `base.templ` | H | `TestResultScreen_DrawsTheLogoAndNoAccent`, `TestResultScreen_SaysExactlyThisAndNothingElse`, `TestTapPage_TheBrandFillsTheTwoSlotsAndNothingElse`, `TestTapPage_TheLogoCarriesItsStoredBox` |
+> | M08 | `BrandedPage` bir tema geçirir (`Theme{hex: "1F5C41"}`) | `base.templ` | H | `TestResultScreen_DrawsTheLogoAndNoAccent`, `TestResultScreen_NoBrandWhereThePlaqueIsNotThisBusinesss`, `TestScreens_ReferenceOnlyOurOwnAssets`, `TestUnbrandedScreens_AreByteIdenticalToTheGolden` |
+> | M09 | `ErrForeignLocation`'da markayı çizer | `tap.go` | H | `TestTapPage_AnotherBusinesssPlaqueShowsNoBrand` |
+> | M10 | `ErrBrandUnread` 500'e düşer | `tap.go` | H | `TestTapPage_ABrandReadFailureRendersTaptimesPage` |
+> | M11 | `ErrBrandUnread` loglanmaz | `tap.go` | H | `TestTapPage_ABrandReadFailureRendersTaptimesPage` |
+> | M12 | tap ekranı CSP'yi hiç genişletmez | `tap.go` | H | `TestPageImages_ImgSrcIsNamedOnlyByAPageThatDrawsAnImage`, `TestTapPage_TheBrandFillsTheTwoSlotsAndNothingElse` |
+> | M13 | `render` her yanıtta `img-src` | `tap.go` | H | `TestPageImages_ImgSrcIsNamedOnlyByAPageThatDrawsAnImage`, `TestResultScreen_ABrandReadFailureCostsOnlyTheLogo`, `TestResultScreen_DrawsTheLogoAndNoAccent`, `TestResultScreen_NoBrandWhereThePlaqueIsNotThisBusinesss`, `TestTapPage_ABrandReadFailureRendersTaptimesPage`, `TestTapPage_AnotherBusinesssPlaqueShowsNoBrand`, `TestTapPage_TheBrandFillsTheTwoSlotsAndNothingElse`, `TestTapResponses_CarryTheContentSecurityPolicy`, `TestUnbrandedScreens_AreByteIdenticalToTheGolden` |
+> | M14 | sonuçta işletme uyuşmazlığı denetimi kalkar | `checkin.go` | H | `TestResultScreen_NoBrandWhereThePlaqueIsNotThisBusinesss` |
+> | M15 | sonuçta duvarsız plaket denetimi kalkar | `checkin.go` | H | `TestResultScreen_NoBrandWhereThePlaqueIsNotThisBusinesss` |
+> | M16 | sonuç okuma hatası loglanmaz | `checkin.go` | H | `TestResultScreen_ABrandReadFailureCostsOnlyTheLogo` |
+> | M17 | marka hatasında closure `nil` (rollback yok → commit düşer) | `directory.go` | D | `TestTapPageDB_ABrandReadFailureKeepsTheGreetingAndTheVenue` |
+> | M18 | duvarsız plakette marka okunur | `directory.go` | D | `TestTapPageDB_TheBrandComesWithTheGreetingAndTheVenue` |
+> | M19 | `alt` için ad yazılmaz | `directory.go` | D | `TestTapDB_ABrandIsDrawnOnlyOnTheBusinesssOwnPlaque`, `TestTapPageDB_TheBrandComesWithTheGreetingAndTheVenue` |
+> | M20 | okuma tarafında `brand.Check` atlanır | `pagebrand.go` | D | `TestPageBrand_EveryReadFailureIsAnErrorNeverNoBrand` |
+> | M21 | okuma hatası "marka yok"a döner | `pagebrand.go` | D | `TestPageBrand_EveryReadFailureIsAnErrorNeverNoBrand`, `TestTapPageDB_ABrandReadFailureKeepsTheGreetingAndTheVenue` |
+> | M22 | `ResultBrand` accent'i de döner | `pagebrand.go` | D | `TestResultBrandDB_TheLogoAndTheNameAndNeverTheAccent` |
+> | M23 | `tapForm`'dan açık boşluk düşer | `tap.templ` | H | `TestUnbrandedScreens_AreByteIdenticalToTheGolden` |
+> | M24 | önizleme yüzü `submit` | `tap.templ` | H | `TestTapButtonFace_ThePreviewFaceCannotSubmit` |
+> | M25 | bilinmeyen değer submit yüzü | `tap.templ` | H | `TestTapButtonFace_ThePreviewFaceCannotSubmit` |
+> | M26 | `TapView`'a dördüncü alan | `view.go` | H | `TestTapView_FieldCountIsTheSpec` |
+> | M27 | `tapBrandOf` temayı kurmaz (`layout.Theme{}`) | `tap.go` | H | `TestTapPage_ALogoTapIsTwoChargedRequestsWarmAndThreeCold`, `TestTapPage_TheBrandFillsTheTwoSlotsAndNothingElse` |
+> | M28 | `alt` boş | `tap.go` | H | `TestResultScreen_DrawsTheLogoAndNoAccent`, `TestResultScreen_SaysExactlyThisAndNothingElse`, `TestTapPage_TheBrandFillsTheTwoSlotsAndNothingElse`, `TestTapPage_TheLogoCarriesItsStoredBox` |
+> | M29 | `templ.Join` yerine iki satır | `tap.templ` | H | `TestUnbrandedScreens_AreByteIdenticalToTheGolden` |
+> | M30 | `Page` markayı hiç kullanmaz | `tap.go` | H | `TestTapPage_ALogoTapIsTwoChargedRequestsWarmAndThreeCold`, `TestTapPage_TheBrandFillsTheTwoSlotsAndNothingElse`, `TestTapPage_TheLogoCarriesItsStoredBox` |
+> | M31 | `shell` temayı `documentHead`'e geçirmez (`Theme{}`) | `base.templ` | H | `TestTapPage_ALogoTapIsTwoChargedRequestsWarmAndThreeCold`, `TestTapPage_TheBrandFillsTheTwoSlotsAndNothingElse` |
+> | M32 | `TapPage` `ErrBrandUnread` yerine `nil` döner | `directory.go` | D | `TestTapPageDB_ABrandReadFailureKeepsTheGreetingAndTheVenue` |
+>
+> **Sayılı sınırlar.** (1) Golden yalnız listelenen 33 render'ı yakalar; yalnız durum, CSP ve gövde;
+> imzalı bağlam değeri maskeli; fikstürü olmayan varyant dışarıda (ADR 0023 İddia B). (2) CDP bir kez,
+> Chrome 154'te; pin değil. (3) Okunamayan marka hep-ya-hiç (logo da düşer, ERROR); kapının bugün
+> reddettiği accent yalnız accent'i düşürür, logo kalır (WARN — birleştirmede WL-8'in `accentOf`'u). (4) Sonuç ekranının uyuşmazlık kuralı GET anında imzalanan plaket gerçeğine bakar;
+> plaket GET–POST arasında (≤ 15 dk) taşınırsa kayıt kararı `sys:tenant-mismatch`'in POST anındaki
+> okumasıdır, logo kuralı bağlamınkidir. (5) Sonuç ekranı kayıttan sonra +1 transaction (1–2 PK okuması).
+> (6) Bayt: oturum başına 10 dk'da 75 MiB, adres başına 750 MiB, kabul. (7) Uzun ince logo 24 px yuvada küçük çizilir (128×512 →
+> 6×24 px, ölçüldü). (8) `.tap-button` incelemesi bir kez okundu, pin değil; WL-5 sınır 10 (kalıtım yolu)
+> aynen durur. (9) DB fikstürleri dev'de kalır (`tappa_app` DELETE taşımaz). (10) Layout kurucularının
+> doğrulaması tap rotasının biçimine bağlı (`/t/logo/` + 64 küçük hex); panel önizlemesinin kaynağı için
+> kurucu yok (WL-7). (13) Sonuç ekranının marka okuması kayıttan sonra en çok `resultBrandWait` = 2 s
+> bekler; yanıt isteğin süresini en çok (`Record`'un son tarihten sonraki dönüşü) + 2 s + render aşar
+> (2. tur S1, 3. tur B1; testte ölçülen en büyük aşım 2,2 s); bir `WriteTimeout` ya da `TimeoutHandler`
+> eklenirse bu aşımdan uzun olmalı. Tap ekranının okuması `TapPage`'in transaction'ında,
+> ayrıca sınırlı değil — takılan DB orada sayfanın tamamını bekletir, logoyu değil. (14) **Kırık logo** (2. tur, F6): logo isteği 404 olursa
+> (logo değişti, eski sayfa açık) tarayıcı 24 px yuvada kırık görsel simgesini ve kırpılmış `alt`'ı
+> (işletme adı) gösterir; `alt` = ad kabul şartının bedeli, kod değişmez — WL-12'ye. (15) **Commit'ten
+> önce biten süre** (WL-9 değiştirmedi; 3. turun dar kapanış denetimi ölçtü, 4. turda düzeltildi):
+> isteğin süresi `Record` dönmeden biterse cevap 500 ve **0 bayt**, ERROR `rendering the tap page failed
+> err="context deadline exceeded"` — problem ekranı bitmiş istek bağlamıyla render ediliyor; WL-9'dan
+> önce de böyleydi. COMMIT sunucuda uygulanıp pgx'in bağlam hatası döndürdüğü belirsiz durumda boş
+> 500'ün arkasında bir kayıt olabilir. Backlog'a devredildi (orkestratör). (16) WL-9'un testleri gerçek
+> Postgres'te yalnız "sınırdan az bütçe" şeklini ölçer; "süre commit'te bitmiş" şekli testte yalnız
+> sahteyle. Domain'e dokunmadan ölçülebilir (gerçek `Record`'u saran bir sarmalayıcıyla): 3. turun dar
+> kapanış denetçisi üç şekli de böyle gerçek DB'de ölçtü — üçünde de 200, tam gövde (4. turda
+> düzeltildi). (17) **`http.TimeoutHandler`** (4. tur): router'ın çevresine handler'dan kısa bir
+> `TimeoutHandler` konursa onay yerine 503 gider (ölçüldü: 1,3 s ile 77 bayt, kayıt 1, erişim kaydı
+> 200); bugün yok, AST pini onu görmez. `ReadTimeout` onayı kesmez (ölçüldü). (18) **İstemci kopması**
+> (4. tur): iptalsiz onay bağlamında kopuk istemcinin isteği de okumayı sınırına dek koşar — ≤
+> `brandWait` + render süren bir goroutine, okuma beklerken havuzda bir bekleme yeri (ölçüldü: 10
+> eşzamanlı kopuk POST 2,00 s'de bitti, goroutine 7 → 4, sızıntı yok); sayısı tap kovalarıyla sınırlı
+> (adres başına 3000, oturum başına 300 / 10 dk).
+>
+> **Bulgular (kapsam dışı, bloklamaz):**
+> - `cmd/rotatekek` `TestRotateScript_AccountsForEveryGoToolchainVariable` yerel Go 1.27.1'de kırmızı
+>   (`GOPACKAGESDRIVER` — 1.27'nin `go env`'i), `GOTOOLCHAIN=go1.26.7` ile yeşil; taban `df544c1`'de de
+>   aynı. CI 1.26.x.
+> - `internal/adminauth` `TestAuthenticate_TimingIsFlat` yük altında bir kez 1,53× ile kırmızı, tek
+>   başına yeniden koşuda yeşil (zamanlama testi; dokunulmadı).
+>
+> **Devirler:**
+> - **WL-7:** önizleme `pages.TapHeading` ve `pages.TapButtonFace(pages.TapButtonPreview)` çağırır; başlık
+>   için `layout.brandHeader` dışa açılmalı ve `TapLogo`'nun yanına panel rotası için bir kurucu
+>   (`/admin/brand/logo/`) gerekir; önizleme img-src korpusuna; panel tarafının bayt kararı.
+> - **WL-8 / birleştirme:** iki görev aynı `layout.Theme` + `documentHead(…, theme)` mekanizmasını
+>   kullanır. Beklenen çakışmalar: `documentHead` yorumunun son cümlesi, `theme.go`'nun iki cümlesi
+>   (add/add), iki çağrı yeri (`shell`: `b.theme`; `PanelWithScript`: `theme`). `TestCompiledCSS_*` /
+>   `themeBrandGolden`: WL-9 `input.css`'e ve `.tap-button`'a dokunmadı, golden değişmedi — WL-8'in beşinci
+>   sitesi tek başına girer. Accent + logo tek PK okuması için `pageBrandOf` hazır (`logoRefOf`'u sarar).
+> - **WL-10:** bu kartın üç parçalı iddiası, 32 mutasyon, sınırlar; `.tap-button` sözde öğe incelemesi
+>   (WL-5 sınır 10); `{ " " }` ve `templ.Join`'in golden'a bağlı gerekçesi.
+> - **WL-12:** skill *"Tenant slotları"*'ndan "taslak" kalkar, ölçülen sayılar girer (24 px yuva, 4 px
+>   aralık, 15 px kayma, co-brand 5,70:1, ink `taptime` 14,32:1, 128×512 → 6×24); CLAUDE.md §9 tenant
+>   slotu cümlesi; ADR 0023 *Karar verilmedi* listesinde yuva maddesi kapandı.
+>
+> **WL-8 ile birleştirme (2026-10-03, orkestratörün deneme ağacında: `scratchpad/wl9-trial/repo`,
+> HEAD `d814f90 trial: wl8` = dalın ucu `24ffe1f` + WL-8'in denetimdeki diff'i; WL-9 işi `git diff
+> HEAD` + izlenmeyen dosyalar; commit yok, HEAD değişmedi; WL-9 worktree'si taban olarak dokunulmadan
+> kaldı).** Son parmak izi `(git diff HEAD; git ls-files --others --exclude-standard | sort | xargs
+> cat) | shasum -a 256` = `35df55be80b5381562d8c9ae12e18e4d2a6d1c3a4f9694061a43f8b220228a23` (39
+> izlenmeyen dosya; `theme.go` bu ağaçta izlenen dosya).
+>
+> **Orkestratörün mekanik birleştirmesi — gözden geçirildi, doğru:** `base.templ`'de `shell` →
+> `b.theme`, `PanelWithScript` → `theme`; `documentHead` yorumu *"the panel shells and the tap
+> screen's shell pass the business's"*; `theme.go` WL-8'inki (test adıyla) + WL-9'un sıfır değer
+> cümlesi; `base_templ.go` `make gen`'den; `tapbrand_test.go`'da `wordmarkHTML` sabiti
+> `tapWordmarkHTML` (WL-8'in `panelbrand_test.go`'sunda aynı adlı işlev var).
+>
+> **Çözülen çakışmalar:**
+> 1. **Ad çakışması:** `unbranded_golden_test.go`'nun `unbrandedRender` tipi WL-8'in
+>    `panelbrand_golden_test.go`'sundaki aynı adlı tiple çakıştı (alanlar farklı). WL-9'unki
+>    `screenGolden`, listesi `unbrandedScreenRenders` oldu (WL-8'in `unbrandedChromeRenders`'ıyla
+>    karışmasın diye). Kapsamlar ayrık kaldı: WL-9'un golden'ı tap, sonuç, tap problem ve aktivasyon
+>    ailesinin 33 yanıtı (durum + CSP + gövde, `rec.Result()`); WL-8'inki panel kabukları ve
+>    `documentHead`'e ulaşan öbür kabuklar, 24 bileşen render'ı (uzunluk + sha256).
+> 2. **İmza:** WL-8'in golden'ı `layout.PageWithScript(title, src)`'i iki argümanla çağırıyordu; artık
+>    `layout.Brand{}` geçiriyor. Ölçüldü: o render'ın baytları değişmedi — WL-8'in `df544c1` özeti
+>    (798 bayt, `651c7283…085f`) aynen tutuyor. WL-8 dosyasının *"bu dosya WL-8'in eklediği hiçbir
+>    şeyi kullanmaz, `df544c1` dışa aktarımında derlenir"* yorumuna bir cümle eklendi: yeniden üretmek
+>    için o argüman düşürülür.
+> 3. **Anlamsal — img-src korpusu:** WL-8 `TestPageImages_ImgSrcIsNamedOnlyByAPageThatDrawsAnImage`'e
+>    *"`<img>` çizen render sayısı = logolu panel render'ı sayısı"* assert'i koymuştu; WL-9'un iki
+>    logolu tap render'ı onu kırdı (20 ≠ 18). WL-9'un bloğu `logoRenders += 2` ile sayıma girdi, ileti
+>    *"(panel and tap)"* oldu; korpus 61 render, 20'si logo çizer.
+> 4. **Anlamsal — saklı accent'in okuma tarafı kapısı:** WL-8 `brandread.go`'ya `accentOf` ekledi:
+>    kanonik ama `brand.Check`'in BUGÜN reddettiği accent hata değil — accent çizilmez, logo kalır,
+>    çağıran WARN log'lar. WL-9'un ilk teslimi aynı durumu `ErrBrandUnread` sayıp logoyu da
+>    düşürüyordu; birleşik ağaçta aynı satırdan panel logoyu, tap ekranı Taptime'ı çizecekti. WL-9
+>    `pageBrandOf` artık `accentOf`'u çağırıyor (`PageBrand.AccentRefused`); `Page` WARN log'luyor
+>    (panelin cümlesiyle). Okunamayan marka (DB hatası, yarım logo, kanonik olmayan accent) hep-ya-hiç
+>    kaldı. Testler: `TestPageBrand_EveryReadFailureIsAnErrorNeverNoBrand` (`808080`/`E0457B` logonun
+>    yanında artık `AccentRefused` + logo; kanonik olmayan dört yazım hata) ve yeni
+>    `TestTapPage_AnAccentTheGateRefusesTodayKeepsTheLogo`. ADR 0023 WL-9 notunun Karar 1 ve 4'ü,
+>    PART I madde 20–21, PART II ve sınır 3 buna göre; WL-8 notunun *"WL-9: …tek mekanizma kalmalı"*
+>    devrine tarihli bir *"(WL-9 birleştirmesi: …)"* notu eklendi; WL-9 notundaki *"theme.go iki
+>    cümlede ayrılır"* ve *"çakışma …"* cümleleri birleşmiş hâli anlatacak biçimde yeniden yazıldı.
+>
+> **Yeniden ölçülenler (birleşik ağaç):**
+> - **İki golden birlikte yeşil:** `TestUnbrandedScreens_AreByteIdenticalToTheGolden` (33, bayt-aynı)
+>   ve WL-8'in `TestPanelBrand_AnUnbrandedChromeIsTheChromeBeforeWL8` (24, `df544c1` özetleri).
+> - **`app.css`** `.tools/tailwindcss` ile yeniden derlendi (`126ba356…07ee`); `df544c1` derlemesine göre
+>   eklenen kurallar tam beş: WL-9'un `.w-auto`, `.max-w-[50%]`, `.object-contain`, `.object-left` ve
+>   WL-8'in `.panel-stripe`; çıkan 0. `TestCompiledCSS_BrandNamesOccurOnlyInTheGolden` (WL-8'in beşinci
+>   sitesiyle), `TestCompiledCSS_BrandVariablesOnlyInTheirSlots`, `TestCompiledCSS_RootDefaultsAreTheTappaGreenTheme`,
+>   `TestCompiledCSS_StampWordIsInk`, `TestCompiledCSS_GeneratesNoText`, `TestBrand_*` (7), `TestTheme_*`,
+>   iki tarama testi — 17'si yeşil, SKIP 0.
+> - **Zincir:** `gofmt -s -l` boş · `templ fmt` 0 değişiklik, `make gen` öncesi/sonrası özet aynı
+>   (`9d5f10b2…af2e`, templ + store) · `go build` ve `GOTOOLCHAIN=go1.26.7 go vet` temiz ·
+>   `GOTOOLCHAIN=go1.26.7` staticcheck 2025.1.1 temiz · `redline-check.sh` exit 0 · `go.mod`,
+>   `go.sum`, `sqlc.yaml`, `db/`, `internal/store`, `internal/domain/tap`, `internal/policy`,
+>   `docs/plan`, `scripts/`, `input.css`, `tailwind.config.js` diff'i 0 · DB'siz `cmd/tappa` ok
+>   (`TestEveryNamedTestExists` 60/60) · `./internal/handler -run TestComments_` ok · `.env` ile
+>   `-race`: `internal/handler`, `internal/brand`, `internal/domain/tenant`, `web/...` hepsi ok.
+>
+> **Yeniden koşulan mutasyonlar (birleşik ağaçta; `mutate_trial.py`: dosya yedeği
+> `scratchpad/wl9/bak-trial-*`, eski metin tam bir kez, mutant, gerekirse `templ generate`, test,
+> geri yazma + sha eşitliği; sonda üretilmiş `_templ.go` özeti başlangıçtakiyle aynı, HEAD `d814f90`;
+> kapsam *H* = `./internal/handler/` tamamı, DB'siz; *D* = `internal/domain/tenant` +
+> `internal/handler`, `.env`'li, `TestTapPageDB_|TestResultBrandDB_|TestPageBrand_|TestTapPage_|TestTapDB_ABrandIsDrawnOnlyOnTheBusinesssOwnPlaque|TestUnbrandedScreens_|TestResultScreen_|TestPanelBrand_`).
+> **23 mutasyon, 23'ü kırmızı, derleme hatası 0:**
+>
+> | # | Mutasyon | Kapsam | Kırmızı |
+> |---|---|---|---|
+> | T04 | `documentHead` temayı `app.css`'ten ÖNCE yazar | H | `TestPanelBrand_ABrandedBusinessGetsItsHeaderOnEverySection`, `TestTapPage_TheBrandFillsTheTwoSlotsAndNothingElse` |
+> | T05 | K-2a kapalı | H | `TestTapPage_TheBrandFillsTheTwoSlotsAndNothingElse` |
+> | T06 | `<img>`'den `width`/`height` düşer | H | `TestResultScreen_DrawsTheLogoAndNoAccent`, `TestTapPage_TheBrandFillsTheTwoSlotsAndNothingElse`, `TestTapPage_TheLogoCarriesItsStoredBox` |
+> | T07 | co-brand logonun üstünde | H | `TestResultScreen_DrawsTheLogoAndNoAccent`, `TestResultScreen_SaysExactlyThisAndNothingElse`, `TestTapPage_TheBrandFillsTheTwoSlotsAndNothingElse`, `TestTapPage_TheLogoCarriesItsStoredBox` |
+> | T08 | `BrandedPage` bir tema geçirir | H | `TestResultScreen_DrawsTheLogoAndNoAccent`, `TestResultScreen_NoBrandWhereThePlaqueIsNotThisBusinesss`, `TestScreens_ReferenceOnlyOurOwnAssets`, `TestUnbrandedScreens_AreByteIdenticalToTheGolden` |
+> | T12 | tap ekranı CSP'yi hiç genişletmez | H | `TestPageImages_ImgSrcIsNamedOnlyByAPageThatDrawsAnImage`, `TestTapPage_TheBrandFillsTheTwoSlotsAndNothingElse` |
+> | T13 | `render` her yanıtta `img-src` | H | `TestPageImages_…`, `TestResultScreen_ABrandReadFailureCostsOnlyTheLogo`, `TestResultScreen_DrawsTheLogoAndNoAccent`, `TestResultScreen_NoBrandWhereThePlaqueIsNotThisBusinesss`, `TestTapPage_ABrandReadFailureRendersTaptimesPage`, `TestTapPage_AnotherBusinesssPlaqueShowsNoBrand`, `TestTapPage_TheBrandFillsTheTwoSlotsAndNothingElse`, `TestTapResponses_CarryTheContentSecurityPolicy`, `TestUnbrandedScreens_AreByteIdenticalToTheGolden` |
+> | T23 | `tapForm`'dan açık boşluk düşer | H | `TestUnbrandedScreens_AreByteIdenticalToTheGolden` |
+> | T29 | `templ.Join` yerine iki satır | H | `TestUnbrandedScreens_AreByteIdenticalToTheGolden` |
+> | T31 | `shell`'de `Theme{}` (tap teması yazılmaz) | H | `TestTapPage_ALogoTapIsTwoChargedRequestsWarmAndThreeCold`, `TestTapPage_TheBrandFillsTheTwoSlotsAndNothingElse` |
+> | T33 | `PageWithScript` markayı düşürür (`Brand{}`) | H | `TestPageImages_ImgSrcIsNamedOnlyByAPageThatDrawsAnImage`, `TestTapPage_ALogoTapIsTwoChargedRequestsWarmAndThreeCold`, `TestTapPage_TheBrandFillsTheTwoSlotsAndNothingElse`, `TestTapPage_TheLogoCarriesItsStoredBox` |
+> | W1 | `PanelWithScript`'te `Theme{}` (WL-8'in tema yolu) | H | `TestPanelBrand_ABrandedBusinessGetsItsHeaderOnEverySection` |
+> | W3 | `documentHead` temayı hiç yazmaz | H | `TestPanelBrand_ABrandedBusinessGetsItsHeaderOnEverySection`, `TestTapPage_ALogoTapIsTwoChargedRequestsWarmAndThreeCold`, `TestTapPage_TheBrandFillsTheTwoSlotsAndNothingElse` |
+> | D17 | marka hatasında closure `nil` | D | `TestTapPageDB_ABrandReadFailureKeepsTheGreetingAndTheVenue` |
+> | D18 | duvarsız plakette marka okunur | D | `TestTapPageDB_TheBrandComesWithTheGreetingAndTheVenue` |
+> | D19 | `alt` için ad yazılmaz | D | `TestTapDB_ABrandIsDrawnOnlyOnTheBusinesssOwnPlaque`, `TestTapPageDB_TheBrandComesWithTheGreetingAndTheVenue` |
+> | D21 | okuma hatası "marka yok"a döner | D | `TestPageBrand_EveryReadFailureIsAnErrorNeverNoBrand`, `TestTapPageDB_ABrandReadFailureKeepsTheGreetingAndTheVenue` |
+> | D22 | `ResultBrand` accent'i de döner | D | `TestResultBrandDB_TheLogoAndTheNameAndNeverTheAccent` |
+> | D32 | `TapPage` `ErrBrandUnread` yerine `nil` | D | `TestTapPageDB_ABrandReadFailureKeepsTheGreetingAndTheVenue` |
+> | A1 | `pageBrandOf` `AccentRefused`'ı bildirmez | D | `TestPageBrand_EveryReadFailureIsAnErrorNeverNoBrand` |
+> | A2 | reddedilen accent `HasAccent` sayılır | D | `TestPageBrand_EveryReadFailureIsAnErrorNeverNoBrand` |
+> | A3 | reddedilen accent yine hata (ilk teslimin kuralı) | D | `TestPageBrand_EveryReadFailureIsAnErrorNeverNoBrand` |
+> | A4 | `Page` reddedilen accent'i loglamaz | H | `TestTapPage_AnAccentTheGateRefusesTodayKeepsTheLogo` |
+>
+> M20'nin hedefi (`pageBrandOf`'taki `brand.Check` çağrısı) birleştirmede `accentOf`'a (WL-8'in
+> kodu) taşındı; yerine A1–A3. Öteki mutasyonların hedefleri birleştirmede değişmedi.
+>
+> **Sayılı sınırlara ek (birleştirme):** (11) Kapının bugün reddettiği accent için tap ve panel aynı
+> sonucu verir (accent yok, logo var, WARN); bunu tek kaynak (`accentOf`) sağlar, iki yüzeyi birlikte
+> süren bir test yok. (12) WL-8'in panel golden'ı bileşen render'ıdır (uzunluk + sha256), WL-9'unki
+> yanıt render'ıdır (durum + CSP + gövde); `layout.Page` ve `layout.PageWithScript` ikisinde de var,
+> ölçtükleri biçim farklı.
+>
+> **2. tur (2026-10-03; 1. tur: üçüncü göz ONAY, güvenlik ONAY, bloklayan yok — ucuz bloklamayanlar
+> kapatıldı). Ağaç `scratchpad/wl9-r2/repo`, HEAD `6d31015` (dalın ucu: WL-8 `d76b88d` ve EM-3 içinde),
+> WL-9 işi `git diff HEAD` + izlenmeyen dosyalar; commit yok.** Bulgu → değişiklik → ölçüm:
+> - **S1 (güvenlik, KOD).** Sonuç ekranının marka okuması takılınca kayıt yazılmış ama onay ekranı boş
+>   geliyordu: sınırsız okuma isteğin bağlamı bitene dek bekliyor, render aynı bitmiş bağlamda çıkıp
+>   200'ün üstüne boş gövde yazıyordu. → `Checkin` okumayı isteğin bağlamının **`resultBrandWait` = 2 s**
+>   alt bağlamıyla koşar (`context.WithTimeout`), ekranı İSTEĞİN bağlamıyla render eder; `Tap.brandWait`
+>   alanı (testte kısaltılır), `resultLogo` artık bir `ctx` alır. Gerekçe: okuma bir, logoluda iki PK
+>   okuması (WL-8'in panel eşdeğeri seed'de < 1 ms); 2 s sağlıklı okumanın üç basamak üstü, chi'nin 30 s
+>   istek süresinin 15'te biri ve plaketin önünde "sayıldı" cümlesini bekleyen birinin bekleyeceği kadar —
+>   ötesinde düşen logo olmalı. → `TestResultScreen_AStalledBrandReadStillSaysAllDone` (sahte okuma
+>   bağlamı bitene dek bekler; 50 ms'lik `brandWait`, 1,5 s süreli istek: 200, "All done", markasız onay
+>   ekranıyla bayt eşit, kayıt 1, okuma 1, tam bir ERROR "context deadline exceeded") ve
+>   `TestNewTap_BoundsTheResultBrandRead`. Mutasyonlar: R1 (sınır kalkar, `WithCancel`) → yeni test
+>   KIRMIZI; R2 (render alt bağlamla) → yeni test + 21 test daha KIRMIZI (bitmiş bağlam her sonuç
+>   ekranını boşaltır); R4 (`brandWait: 0`) → `TestNewTap_BoundsTheResultBrandRead` KIRMIZI.
+>   Değişiklik küçük: `checkin.go` (dal + sabit + `resultLogo` imzası), `tap.go` (alan + `NewTap` +
+>   `time` import), `tap_test.go` (sahtede `resultBrandStall`), `tapbrand_test.go` (iki test). Tap
+>   ekranının okuması ayrıca sınırlanmadı (sınır 13).
+> - **S2 (güvenlik, metin).** Bayt kabulü oturum başına sayıyı veriyordu. → `ratelimit.go` WL-9
+>   paragrafı, ADR Karar 9 ve bu kartın bayt bölümü istek başına maliyetle: sayfa ~1,3 KiB, logo 256
+>   KiB'a kadar, 304 de baytı okur; 75 MiB / oturum, **750 MiB / adres** / 10 dk; oturumlar herkese açık
+>   kayıtla açılan kendi işletmesinden basılabilir, işletme başına davet/etkinleştirme tavanı ölçülmedi.
+> - **S3 (güvenlik, metin).** ADR 0023 *Sayılı sınırlar* 1'e tarihli WL-9 eki: logo piksellerinin durum
+>   kelimelerini ya da damgayı taklit etmesi ve görsel yüklenmezse gösterilen `alt` (serbest metin
+>   işletme adı); kim (yalnız sahip, kendi çalışanlarına), sonuç (basmadan bittiğini sanan çalışanın
+>   kaydı oluşmaz), hafifletenler (24 px yuva, `max-w-[50%]`, 64 px "Tap", docket ve damga); WL-12'nin
+>   ADR 0005 ekine devir.
+> - **F1.** ADR'deki WL-8 devrine düşülen birleştirme notu *"`accentOf` kullanılmadı"* diyordu; yanlış
+>   (`pageBrandOf` onu çağırıyor). → *"accent için `accentOf`'u çağırır — reddedilen accent tap
+>   ekranında da yalnız accent'i düşürür"*.
+> - **F2.** Kartta alt çizgisiz `-run` önekleri. → `TestTapDB_ABrandIsDrawnOnlyOnTheBusinesssOwnPlaque`
+>   (iki yer) ve `TestPanelBrand_`. Ölçüldü: kartın tamamı bir kopyada (`scratchpad/wl9/r2-cardcheck`,
+>   `rsync`) `docs/plan/m10-platform.md`'nin sonuna eklendi, `TestEveryNamedTestExists` YEŞİL (60/60);
+>   kontrol: bu notun ilk taslağı eski alt çizgisiz öneki adıyla anıyordu; aynı kopyada test onu adıyla
+>   KIRMIZI verdi (*"cites … which is not a test that exists"*, 61 > 60) — ad bu yüzden burada yazılmaz.
+> - **F3.** Kartın sınır 3'ü, PART I madde 20'si birleştirmeden bayattı, madde 21 yoktu. → ADR'yle
+>   hizalandı (madde 1: sayı; 20: `AccentRefused`; 21; 22–23: S1).
+> - **F4.** `brandlogo_test.go`'da *"The tap surface draws no logo yet (WL-9)"* ve aynı testin
+>   *"today every body has no <img>"* anti-vacuity yorumu bayattı. → ikisi düzeltildi.
+> - **F5.** *"Düzgün bir telefon her logoyu yılda bir çeker"* ölçülmemiş genel hükümdü. → koşullu:
+>   önbellekte tutan telefon digest başına bir kez; `max-age` üst sınır, tahliye ya da yeni logo yeniden
+>   çektirir; taşıyıcı ayak oturum ve adres başına sınır (S2).
+> - **F6 (bilgi).** Kırık logo görünümü → sınır 14 ve WL-12 devri; ADR sınır 11.
+> - **X22 (test).** Golden listesinden bir render ile dosyası BİRLİKTE silinince test yeşil kalıyordu. →
+>   `unbrandedScreenCount` = 33: liste ve dizin sayısı ona eşit olmalı. Mutasyon R3 (iki dosyalı,
+>   `scratchpad/wl9/r3.py`: `result-ok-in-other-trade` satırı ve golden'ı birlikte silinir, yedekten geri
+>   yazılır, sha eşit) → KIRMIZI: *"the golden list has 32 renders …"*, *"… holds 32 files …"*.
+>
+> **2. turun mutasyonları** (`mutate_r2.py`, yedekler `scratchpad/wl9/bak-r2-*`, sha ile geri
+> doğrulandı; kapsam `./internal/handler/` tamamı, DB'siz; pozitif kontrol yeşil): R1 KIRMIZI
+> (`TestResultScreen_AStalledBrandReadStillSaysAllDone`) · R2 KIRMIZI (22 test, aralarında
+> `TestResultScreen_AStalledBrandReadStillSaysAllDone`, `TestResultScreen_SaysExactlyThisAndNothingElse`,
+> `TestUnbrandedScreens_AreByteIdenticalToTheGolden`) · R3 KIRMIZI (`TestUnbrandedScreens_AreByteIdenticalToTheGolden`)
+> · R4 KIRMIZI (`TestNewTap_BoundsTheResultBrandRead`). Etkilenen eskiler yeniden: M14, M15 KIRMIZI
+> (`TestResultScreen_NoBrandWhereThePlaqueIsNotThisBusinesss`), M16 KIRMIZI
+> (`TestResultScreen_ABrandReadFailureCostsOnlyTheLogo`, `TestResultScreen_AStalledBrandReadStillSaysAllDone`),
+> M08, M13, M23, M29 KIRMIZI (golden testi sayı assert'iyle). **11 mutasyon, 11'i kırmızı.**
+>
+> **2. turun zinciri (HEAD `6d31015` + WL-9 diff'i):** `gofmt -s -l` boş · `templ fmt` 0 değişiklik,
+> `make gen` öncesi/sonrası özet aynı (`16467522…7f80`) · build, `GOTOOLCHAIN=go1.26.7` vet ve
+> staticcheck 2025.1.1 temiz · `redline-check.sh` exit 0 · `go.mod`, `go.sum`, `sqlc.yaml`, `db/`,
+> `internal/store`, `internal/domain/tap`, `internal/policy`, `docs/plan`, `scripts/`, `input.css`,
+> `tailwind.config.js` diff'i 0 · DB'siz `cmd/tappa` ok (`TestEveryNamedTestExists` 60/60) ·
+> `./internal/handler -run TestComments_` ok · iki golden yeşil (33 + 24) · `TestCompiledCSS_*`,
+> `TestBrand_*`, `TestTheme_*` ve iki tarama testi yeşil (`app.css` yeniden derlendi) · `.env`'li
+> `-race`: `internal/handler`, `internal/domain/tenant`, `internal/brand`, `web/...` ok.
+>
+> **2. turun parmak izi** (`git diff HEAD` + izlenmeyen 39 dosya, `scratchpad/wl9/fp-r2.sh`):
+> `f969892d3140bfdb9ba844996675620227f148b206c89731402f7e833829c894`. Kart ağacın dışındadır, izi etkilemez.
+>
+> **3. tur (2026-10-03; 2. turun dar kapanış denetimi RED: S1 tam kapanmamıştı). Ağaç aynı
+> (`scratchpad/wl9-r2/repo`, HEAD `6d31015`), commit yok.** Bulgu → değişiklik → ölçüm:
+> - **B1 (BLOKLAYAN, kod).** Okuma bağlamı `min(2 s, isteğin kalanı)` idi ve render isteğin
+>   bağlamıyla yapılıyordu: kayıt isteğin son 2 s'sinde commit olup okuma takılınca okuma isteğin
+>   sonuna dek sürüyor, render bitmiş bağlamda çıkıp 200'ün üstüne boş gövde yazıyordu (denetçi:
+>   sahteyle ve `pool_max_conns=1`'li gerçek Postgres'te 200, 0 bayt, kayıt 1). → Orkestratörün
+>   tasarımı: kayıt commit olduktan sonra `post := context.WithoutCancel(r.Context())`; okuma
+>   `context.WithTimeout(post, t.brandWait)`; render `r.WithContext(post)` ile. **WriteTimeout ve chi
+>   `Timeout` ölçüldü** (sonda `scratchpad/wl9/probe-r3-writetimeout.go.txt`, ağacın kopyasında koştu;
+>   gerçek `http.Server`, `RequestID` → `AccessLog` → `Recoverer` → chi `Timeout(1 s)`, handler 1,5
+>   s'de yazar): üretimin sunucusu (yalnız `ReadHeaderTimeout` 10 s, `IdleTimeout` 90 s) → istemci
+>   200, 2056 bayt, tam gövde; chi'nin geç `WriteHeader(504)`'ü chi'nin sarılı yazıcısında yutulur,
+>   erişim kaydı `status=200`, sunucu hata log'u boş. Aynı handler bitmiş istek bağlamını denetleyince
+>   (2. turun şekli) → 200, **0 bayt**, erişim kaydı yine `status=200` (sessiz). `WriteTimeout` 1 s,
+>   yazma 1,5 s'de → istemci **EOF**, erişim kaydı yine `status=200`. `WriteTimeout` 3 s → tam gövde.
+>   `cmd/tappa` `WriteTimeout` koymaz → aşım kesilmez, `min(brandWait, kalan − pay)` + atlama gerekmedi
+>   (o tasarım süresi commit'te bitmiş tap'in logosunu da düşürürdü). Yeni pin:
+>   `TestServer_SetsNoWriteTimeoutThatCutsAConfirmation` (AST; `main.go`'ya bir yorum satırı).
+>   Testler: `TestResultScreen_AStalledBrandReadStillSaysAllDone` artık üç bütçe şekli (sınırdan çok;
+>   sınırdan az — 1,5 s istek, commit 1 s'de, üretimin 2 s'si; süre commit'te bitmiş — 800 ms istek,
+>   commit 1 s'de), istek süresi chi `Timeout`'u ile; `TestResultScreen_ARecordCommittedAtTheDeadlineKeepsItsLogo`;
+>   `TestTapDB_ARecordedTapIsConfirmedInFullWhileThePoolIsHeld` (gerçek kayıt, `pool_max_conns=1`,
+>   commit'ten hemen sonra tek bağlantı tutulur; 2,26 s'de yeşil, kontrolde logo çizilir). Sahte
+>   okuma artık bitmiş bağlamla hemen düşer (pgx gibi) ve sınırsız bağlamda 8 s'de vazgeçer; DB
+>   testinin tutuşu en çok 10 s — sınırsız bir okuma testi kilitlemez, süreyle kırmızı olur. Bugünkü
+>   kod (2. turun kodu, W0) → fake ve DB testi KIRMIZI.
+> - **B1-metin.** `checkin.go`'nun üç yorumu ("never the confirmation", "a timeout included … costs
+>   only the logo", "the screen renders without the logo") yeni tasarımı ve ölçümü anlatır; ADR Karar
+>   2, sınır 10 ve yeni 12–13; kart sınır 13 ve yeni 15–16; test 22'nin adı artık ölçtüğü kümeye
+>   (üç bütçe şekli) uyuyor, PART I 22–28 hizalı. `Directory.ResultBrand`'in yorumu bağlamla bittiğini
+>   ve pinini söyler.
+> - **N1.** `ResultBrand`'in bağlamı dinlediği pinsizdi (K8 yeşil). → `TestResultBrandDB_TheReadEndsWhenItsContextDoes`:
+>   marka sorgusu yerine gerçek bağlantıda `pg_sleep(3)` (DDL'siz, `brandAbortingDB`'nin kalıbı), 300
+>   ms'lik bağlam → `ErrBrandUnread` + `context.DeadlineExceeded`, ≤ 1,8 s; kontrol 3 s uyur. K8 →
+>   KIRMIZI (tenant testi: 3 s sonra süre aşımı olmayan hata; DB handler testi: tutuş bitince logo).
+> - **N2.** ERROR satırının `request_id` taşıdığı assert edilmiyordu. → test 22'nin üç şeklinde ve DB
+>   testinde logger `httpx.WithRequestID`, istek `httpx.RequestID` arkasında, satırda
+>   `request_id=<id>` aranır. K2, K11 → KIRMIZI.
+> - **N3.** "2 s" ve "30 s" koda bağlı değildi (K9, K10 yeşil). → `httpx.RequestTimeout` (router'ın
+>   tek yazımı); `TestNewTap_BoundsTheResultBrandRead` sabitin tam 2 s olduğunu ve `RequestTimeout`'un en
+>   çok onda biri olduğunu tutar; `TestNewRouter_EveryRequestCarriesTheRequestTimeout` router'ın gerçek
+>   son tarihini ölçer. K9, K10a (sabit 1 s), K10b (router'da sabit yerine 1 s) → KIRMIZI.
+> - **N4.** PART I 14'te `TestResultView_FieldCountIsTheSpec` eksikti → ADR'yle hizalı.
+>
+> **3. turun mutasyonları** (`scratchpad/wl9/mutate_r3.py`, `mutations_r3.py`; yedekler
+> `scratchpad/wl9/bak-r3-*`, her biri sha ile geri doğrulandı; W0–W2, K2, K11, R1, R2, R4 için DB'siz
+> `./internal/handler/` tamamı, K9 `-run 'TestNewTap_|TestResultScreen_'`, K10a handler + httpx
+> `-run 'TestNewTap_|TestNewRouter_'`, K10b `./internal/httpx/` tamamı, WT1 `-run TestServer_`; DB'li
+> koşular `.env`'le tek test; pozitif kontrol: değiştirilmemiş ağaçta hepsi yeşil):
+>
+> | # | Mutasyon | Dosya | Kırmızıya dönen |
+> |---|---|---|---|
+> | W0 | 2. turun kodu: okuma `r.Context()`'ten, render `r` ile, `post` yok | `checkin.go` | `TestResultScreen_AStalledBrandReadStillSaysAllDone`, `TestResultScreen_ARecordCommittedAtTheDeadlineKeepsItsLogo`; DB: `TestTapDB_ARecordedTapIsConfirmedInFullWhileThePoolIsHeld` |
+> | W1 | render `r` ile (`post` değil) | `checkin.go` | aynı üçü |
+> | W2 | okuma `r.Context()`'ten türer | `checkin.go` | aynı üçü |
+> | K2 | okuma `context.Background()`'dan türer | `checkin.go` | `TestResultScreen_AStalledBrandReadStillSaysAllDone` (request_id yok); DB testi (request_id yok) |
+> | K11 | `post := context.Background()` | `checkin.go` | aynı ikisi (request_id yok) |
+> | K8 | `ResultBrand` `WithTenant(context.Background(), …)` | `pagebrand.go` | `TestResultBrandDB_TheReadEndsWhenItsContextDoes`; DB: `TestTapDB_ARecordedTapIsConfirmedInFullWhileThePoolIsHeld` |
+> | K9 | `resultBrandWait` 25 s | `checkin.go` | `TestNewTap_BoundsTheResultBrandRead`, `TestResultScreen_AStalledBrandReadStillSaysAllDone` |
+> | K10a | `RequestTimeout` 1 s | `router.go` | `TestNewTap_BoundsTheResultBrandRead` |
+> | K10b | router `middleware.Timeout(1 * time.Second)` | `router.go` | `TestNewRouter_EveryRequestCarriesTheRequestTimeout` |
+> | WT1 | `http.Server`'a `WriteTimeout: 30 * time.Second` | `main.go` | `TestServer_SetsNoWriteTimeoutThatCutsAConfirmation` |
+> | R1 | sınır kalkar (`context.WithCancel(post)`) | `checkin.go` | `TestResultScreen_AStalledBrandReadStillSaysAllDone` |
+> | R2 | render okumanın alt bağlamıyla | `checkin.go` | 23 test (aralarında `TestResultScreen_AStalledBrandReadStillSaysAllDone`, `TestResultScreen_ARecordCommittedAtTheDeadlineKeepsItsLogo`, `TestUnbrandedScreens_AreByteIdenticalToTheGolden`) |
+> | R3 | golden listesinden bir render + dosyası birlikte (`r3.py`) | iki dosya | `TestUnbrandedScreens_AreByteIdenticalToTheGolden` ("32 renders", "32 files") |
+> | R4 | `brandWait: 0` | `tap.go` | 10 test (aralarında `TestNewTap_BoundsTheResultBrandRead`, `TestResultScreen_ARecordCommittedAtTheDeadlineKeepsItsLogo`) |
+>
+> **14 mutasyon, 14'ü kırmızı**; derleme hatası 0 (W0'ın ilk yazımı kullanılmayan `post`la derlenmedi,
+> `post` satırı da kaldırılarak yeniden koşuldu).
+>
+> **3. turun zinciri:** `gofmt -s -l` boş · `templ fmt` 0 değişiklik; `make gen` öncesi/sonrası özet
+> (`*_templ.go` + `internal/store/*.go` + `*.templ`) aynı, `be8641f6…a134` · build;
+> `GOTOOLCHAIN=go1.26.7` vet ve staticcheck 2025.1.1 temiz · `redline-check.sh` exit 0 · `go.mod`,
+> `go.sum`, `sqlc.yaml`, `db/`, `internal/store`, `internal/domain/tap`, `internal/policy`,
+> `docs/plan`, `scripts/`, `input.css`, `tailwind.config.js`, `CLAUDE.md`, `docs/backlog.md` diff'i 0 ·
+> DB'siz `cmd/tappa` ok (96 s) · `./internal/handler -run TestComments_` ok · kart bir kopyada
+> `m10-platform.md`'ye eklendi, `TestEveryNamedTestExists` yeşil · `.env`'li `-race`: `internal/handler`
+> ok (305,7 s; iki golden 33 + 24 dahil), `internal/domain/tenant` ok, `internal/httpx` ok, `cmd/tappa`
+> ok (137,6 s). Paylaşılan dev Postgres goose 30'a geçerken (OP-13 A) `internal/db`'nin operatör
+> katalog testleri koşulmadı (orkestratörün notu; 00030 kaynaklı olası kırmızı bu ağacın değil);
+> koşulan paketlerde 00030 kaynaklı kırmızı çıkmadı.
+>
+> **3. turda değişen/eklenen dosyalar:** `internal/handler/checkin.go` (tasarım + üç yorum),
+> `internal/httpx/router.go` (`RequestTimeout`), `cmd/tappa/main.go` (yalnız yorum),
+> `internal/domain/tenant/pagebrand.go` (yalnız yorum), `internal/handler/tap_test.go` (sahte okuma),
+> `internal/handler/tapbrand_test.go`, `internal/handler/tapbrand_db_test.go`,
+> `internal/domain/tenant/pagebrand_db_test.go`, yeni `internal/httpx/requesttimeout_test.go`, yeni
+> `cmd/tappa/writetimeout_test.go`, ADR 0023.
+>
+> **3. turun parmak izi** (`git diff HEAD` + izlenmeyen 41 dosya, `scratchpad/wl9/fp-r3.sh`):
+> `0ba905f719ff0df1c463f84ed7c1acb227343e562fab11e4861a221690118704`. Kart ağacın dışındadır, izi etkilemez.
+>
+> **4. tur (2026-10-03; 3. turun dar kapanış denetimi ONAY — B1 kapandı, üç şekil de gerçek DB'de tam
+> gövde; sekiz bloklamayan bulgu, hepsi metin). Ağaç `scratchpad/wl9-r3/repo`, HEAD `796a850` (dalın
+> güncel ucu; 3. turun diff'i çakışmasız uygulanmış, başlangıç izi `0ba905f7…` ölçüldü), commit yok.
+> YALNIZ yorum, ADR ve kart metni değişti — kod ve testler değişmedi (kanıt aşağıda).** Bulgu →
+> değişiklik → ölçüm:
+> - **F1 (`checkin.go`, onay dalının yorumu).** *"drops only its deadline"* yanlıştı: `WithoutCancel`
+>   iptalin ikisini de düşürür (denetçi: istemci kopunca handler 2 s daha koştu). → yorum *"drops its
+>   cancellation, both kinds"* der ve kopuk istemcinin bedelini adlandırır.
+> - **F2 (`resultBrandWait` yorumu).** *"What would cut it is … WriteTimeout"* fazla genel. →
+>   ölçülen küme: onayı kesen iki sarmalayıcı, ikisinde de erişim kaydı 200 — handler'dan kısa
+>   `WriteTimeout` (EOF) ve router çevresinde handler'dan kısa `http.TimeoutHandler` (denetçi: 1,3 s ile
+>   503, 77 bayt, kayıt 1); `ReadTimeout` kesmez. AST pini yalnız `WriteTimeout`'u görür → ADR sınır
+>   14, kart sınır 17; `main.go`'nun yorumuna bir cümle.
+> - **F3 (`resultBrandWait` yorumu).** *"15 times below … (… holds both)"* yanlıştı (denetçinin X3c'si,
+>   `RequestTimeout` 20 s, yeşil). → *"today, 15 times below"*; test tam 2 s'yi ve en az 10 katı tutar —
+>   ADR'nin ifadesiyle aynı.
+> - **F4 (ADR sınır 12, kart sınır 15).** *"tap again"* ölçümle uyuşmuyordu. → denetçinin ölçümü: commit'ten
+>   önce süre biterse 500, 0 bayt, ERROR `rendering the tap page failed err="context deadline exceeded"`;
+>   problem ekranı bitmiş bağlamla render ediliyor, WL-9'dan önce de vardı; belirsiz commit'te boş
+>   500'ün arkasında bir kayıt olabilir. Backlog'a devredildi (orkestratör).
+> - **F5 (ADR sınır 13, kart sınır 16).** *"domain'e dokunmayı gerektirirdi"* gerekçesi yanlıştı. →
+>   "ölçülmedi, ama gerçek `Record`'u saran sarmalayıcıyla ölçülebilir; dar kapanış denetçisi ölçtü:
+>   üç şekil de 200, tam gövde" (kanıt olarak ADR'de).
+> - **F6 (ADR Karar 2 (c), sınır 10; kart sınır 13; `checkin.go` yorumu).** Aşım *"en çok 2 s +
+>   render"* eksikti. → (`Record`'un son tarihten sonraki dönüşü) + 2 s + render; test 22'nin üçüncü
+>   şekli 2,2 s ölçer.
+> - **F7 (`pagebrand.go`).** *"Every statement runs under ctx"* → okumanın ifadeleri ctx altında;
+>   hatadaki ROLLBACK `WithTenant`'ta `context.Background()` ile (`internal/db/tenant.go`).
+> - **F8 (ADR Karar 2 ve sınır 15; kart sınır 18; `checkin.go` yorumu).** İstemci kopmasının bedeli ve
+>   kapasitesi yazılı değildi. → ≤ `brandWait` + render süren bir goroutine, havuzda bir bekleme yeri;
+>   önünde `ByAddress` 3000 / 10 dk ve `BySession` 300 / 10 dk; denetçinin ölçümü: 10 eşzamanlı kopuk
+>   POST 2,00 s'de bitti, goroutine 7 → 4, sızıntı yok.
+>
+> **"Yalnız metin" kanıtı.** 3. turun ağacı düzenlemeden önce `scratchpad/wl9/r4-base`'e kopyalandı
+> (izi `0ba905f7…`, denetlenenle aynı). `scratchpad/wl9/tokdiff/main.go` iki ağacı dosya dosya
+> karşılaştırır; farklı her `.go` dosyası için `go/scanner`'ın yorumsuz token akışını (tür + literal,
+> konumsuz) karşılaştırır. Sonuç: farklı dosya 4 — `cmd/tappa/main.go` (2056 token, özdeş),
+> `internal/handler/checkin.go` (1498, özdeş), `internal/domain/tenant/pagebrand.go` (376, özdeş) ve
+> ADR 0023 (metin); eklenen/silinen dosya 0; kod değişikliği 0. Kontrol: `checkin.go`'da tek satırlık
+> bir kod değişikliğini (`post` → `r.Context()`) araç `GO-CODE-CHANGED` (1498 vs 1502) ve exit 1 ile
+> yakalar. Test dosyalarına dokunulmadı.
+>
+> **4. turun zinciri:** `gofmt -s -l` boş · `templ fmt` 0 değişiklik; `make gen` öncesi/sonrası özet aynı
+> (`2135527f…53a0`; 3. turdakinden farklı, çünkü HEAD `796a850` bir `.templ` daha taşıyor) · build;
+> `GOTOOLCHAIN=go1.26.7` vet ve staticcheck 2025.1.1 temiz · `redline-check.sh` exit 0 · `go.mod`,
+> `go.sum`, `sqlc.yaml`, `db/`, `internal/store`, `internal/domain/tap`, `internal/policy`,
+> `docs/plan`, `scripts/`, `input.css`, `tailwind.config.js`, `CLAUDE.md`, `docs/backlog.md` diff'i 0 ·
+> DB'siz `cmd/tappa` ok (107 s) · `./internal/handler -run TestComments_` ok · kart bir kopyada
+> `m10-platform.md`'nin `## 6. Kararlar` başlığından önce eklendi, `TestEveryNamedTestExists` yeşil.
+> Mutasyon koşulmadı: kod ve test değişmedi.
+>
+> **4. turun parmak izi** (`git diff HEAD` + izlenmeyen 41 dosya, HEAD `796a850`, `scratchpad/wl9/fp-r4.sh`):
+> `732f022fe93cdd29f3913d5e2085f419fc619a647718bad14f94c2a5c9cfad58`. Kart ağacın dışındadır, izi etkilemez.
+
 ## 6. Kararlar
 
 **✅ Kullanıcı kararları (2026-09-24):**
