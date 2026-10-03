@@ -216,12 +216,23 @@ const TapPath = "/t"
 
 func (t *Tap) Mount(r chi.Router) {
 	r.Group(func(r chi.Router) {
-		r.Use(t.limiter.ByAddress)
-		r.Use(httpx.Identify(t.cookies, t.sessions))
-		r.Use(t.limiter.BySession)
+		r.Use(t.chain()...)
 		r.Get(TapPath, t.Page)
 		r.Post("/api/checkin", t.Checkin)
 	})
+}
+
+// chain is the tap surface's middleware in the order TapLimiter's contract fixes:
+// ByAddress -> Identify -> BySession. Mount and the tap logo route (brandlogo.go) both
+// take it from here, so the order is written once and the logo request is metered by
+// the SAME limiter instance as the page and the button (ADR 0024 §5) rather than by a
+// second one built with other arguments.
+func (t *Tap) chain() []func(http.Handler) http.Handler {
+	return []func(http.Handler) http.Handler{
+		t.limiter.ByAddress,
+		httpx.Identify(t.cookies, t.sessions),
+		t.limiter.BySession,
+	}
 }
 
 // The failure screens for this endpoint. Package-level constants for the same
@@ -471,6 +482,17 @@ func tappedWallOf(pv sun.Preview) uuid.UUID {
 const tapCSP = "default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; " +
 	"form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
 
+// tapCSPFor is the policy a tap response is sent with: tapCSP, plus img-src 'self' when
+// that response draws the business's logo (ADR 0023 §4, ADR 0024 §5; brandlogo.go's
+// logoImagePolicy). It is a function of the RESPONSE rather than a third constant for
+// landingCSPFor's reason (marketing.go): a directive named for an image the page does
+// not load turns the next addition into a silent inheritance.
+//
+// render passes false: no tap screen draws the logo yet. WL-9 puts it on the tap and
+// result screens and passes each render's own answer -- the screens share render, so
+// the policy is decided per render and not per surface.
+func tapCSPFor(hasLogo bool) string { return logoImagePolicy(tapCSP, hasLogo) }
+
 // isNil reports whether v is nil OR a nil pointer wrapped in a non-nil
 // interface. See the audit recorder check in NewTap for why the distinction
 // matters at a constructor boundary.
@@ -637,7 +659,7 @@ func (t *Tap) render(w http.ResponseWriter, r *http.Request, status int, c templ
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
-	w.Header().Set("Content-Security-Policy", tapCSP)
+	w.Header().Set("Content-Security-Policy", tapCSPFor(false))
 	w.WriteHeader(status)
 	if err := c.Render(r.Context(), w); err != nil {
 		// The status line is already on the wire, so there is nothing to send

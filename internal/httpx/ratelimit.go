@@ -280,6 +280,40 @@ const ActionTapRateLimited = "tap.rate_limited"
 //	  120 and that test caught that 120 is exactly the number a 5-second reload
 //	  loop produces). Past this the caller is a script holding a stolen cookie,
 //	  and it is the one budget an attacker cannot escape by changing network.
+//
+// ✅ M10 WL-6 (2026-10-03) PUT A THIRD URL BEHIND THESE TWO BUCKETS AND COUNTED IT.
+// GET /t/logo/{sha} runs this limiter -- the same instance as GET /t and POST
+// /api/checkin (handler.Tap.chain) -- and each logo request is charged ONCE to each
+// bucket (measured against these defaults: the 300th request of a session, a page
+// after 299 logos, is served and the 301st is refused, page or logo alike;
+// TestLogoRoutes_ALogoRequestSpendsItsSurfacesBudget). Once WL-9 draws the logo on
+// the tap and result screens, a page load costs 1 charged request with the logo
+// cached and 2 without it (ADR 0024 §5); the result screen names the page's URL,
+// which the phone then holds (private, max-age a year, immutable). So a tap is 2
+// warm and 3 cold, and the arithmetic above becomes:
+//
+//	address  300 people x (page + button + cold logo + one retry = 4) = 1200,
+//	         under 3000 with 2.5x to spare
+//	session  a phone reloading every 5 s with its cache OFF pays page + logo on
+//	         every reload: 120 x 2 = 240, under 300; with the cache on, 120 + 1
+//
+// Both numbers stand; TestTapLimiter_DefaultsAreWideEnoughForAShiftChange carries
+// the new arithmetic. AS FAR AS THESE TWO BUCKETS ARE CONCERNED the logo route adds
+// no new capability: a caller holding the cookie could already spend the session
+// bucket with GET /t, and an anonymous caller on the venue's network the address
+// bucket with anonymous GET /t (the residual named above). A logo request with NO
+// session cookie resolves no session, so it costs no database work before its 404
+// -- measured with the cookie absent; a request carrying a non-empty cookie value
+// is resolved by Identify (one Verify) exactly as GET /t's is.
+//
+// ⚠️ WHAT THESE BUCKETS DO NOT BOUND IS BYTES. They count requests, and a logo
+// answer can carry up to 262 144 bytes (migration 00028's CHECK), read from the
+// database even for a 304. So a live session's 300 requests per window can pull
+// up to 300 x 256 KiB = 75 MiB of logo per 10 minutes. There is no separate byte
+// limit; it is counted in ADR 0024's WL-6 note rather than closed here. On THIS
+// surface the decision belongs to WL-9, the task that puts the logo on the tap and
+// result screens: set a byte budget or argue the 75 MiB away. (The panel's side is
+// WL-7's.)
 const (
 	tapAddressLimit  = 3000
 	tapAddressPeriod = 10 * time.Minute

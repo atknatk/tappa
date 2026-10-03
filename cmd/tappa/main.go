@@ -535,6 +535,22 @@ func run() error {
 		return err
 	}
 
+	// THE TWO LOGO ROUTES (M10 WL-6, ADR 0024 §5): GET /admin/brand/logo/{sha} and
+	// GET /t/logo/{sha}. They are given the panel and the tap handlers rather than a
+	// middleware of their own, so each route runs its surface's chain and spends that
+	// surface's budgets -- the panel's flood and session limiters, and the one
+	// TapLimiter GET /t and POST /api/checkin are metered by. The reader takes the pool
+	// and nothing else: it reads, it never writes, and the tenant it reads is the one
+	// each route's session resolved.
+	brandReader, err := tenant.NewBrandReader(data)
+	if err != nil {
+		return err
+	}
+	logos, err := handler.NewBrandLogos(brandReader, panelAuth, tap, slog.Default())
+	if err != nil {
+		return err
+	}
+
 	// The PUBLIC surface (M7-01): the landing page at / and the four legal documents
 	// under /legal. Until this line the root of the site answered 404 — the router
 	// registered /healthz and /static/* at the top level and nothing else.
@@ -652,7 +668,7 @@ func run() error {
 
 	srv := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           httpx.NewRouter(cfg, slog.Default(), activation, tap, panelAuth, marketing, signupFlow, resetFlow, ready, operatorSurface),
+		Handler:           httpx.NewRouter(cfg, slog.Default(), activation, tap, panelAuth, logos, marketing, signupFlow, resetFlow, ready, operatorSurface),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       90 * time.Second,
 		// 🔴 SET, RATHER THAN LEFT AT GO'S 1 MiB DEFAULT (M8-03 round 4). Every

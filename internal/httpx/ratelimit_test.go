@@ -389,13 +389,19 @@ func TestTapLimiter_NilRecorderStillRefuses(t *testing.T) {
 // in at once, two requests each, plus a third for retries.
 func TestTapLimiter_DefaultsAreWideEnoughForAShiftChange(t *testing.T) {
 	t.Parallel()
-	const crowd, requestsPerTap = 300, 3
-	if crowd*requestsPerTap >= tapAddressLimit {
+	// A tap is the page and the button; once the tap screen draws the business's logo
+	// (M10 WL-6 / WL-9, ADR 0024 §5) a phone without it cached also fetches
+	// GET /t/logo/{sha}, which runs this limiter too. One retry on top.
+	const crowd = 300
+	const page, button, coldLogo, retry = 1, 1, 1, 1
+	if requestsPerTap := page + button + coldLogo + retry; crowd*requestsPerTap >= tapAddressLimit {
 		t.Fatalf("tapAddressLimit=%d does not clear a %d-person shift change at %d requests each",
 			tapAddressLimit, crowd, requestsPerTap)
 	}
-	// One phone: a reload every five seconds for the whole window is still legal.
-	if int(tapSessionPeriod/(5*time.Second)) >= tapSessionLimit {
-		t.Fatalf("tapSessionLimit=%d refuses a phone reloading every 5s", tapSessionLimit)
+	// One phone: a reload every five seconds for the whole window is still legal, even
+	// with its cache off, so that every reload pays for the logo again.
+	if reloads := int(tapSessionPeriod / (5 * time.Second)); reloads*(page+coldLogo) >= tapSessionLimit {
+		t.Fatalf("tapSessionLimit=%d refuses a phone reloading every 5s with its cache off (%d requests)",
+			tapSessionLimit, reloads*(page+coldLogo))
 	}
 }

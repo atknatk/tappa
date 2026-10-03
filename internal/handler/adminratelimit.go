@@ -592,6 +592,21 @@ const (
 	// lever — showing the badge only on the review section — trades away the reason
 	// the badge exists, which is a manager seeing the backlog WITHOUT going to look
 	// for it. That is a product decision rather than this task's.
+	//
+	// ✅ M10 WL-6 (2026-10-03) MOUNTED GET /admin/brand/logo/{sha} BEHIND Protect AND
+	// COUNTED IT: one charge to the flood bucket and one to this one per request, the
+	// buckets the sections spend (TestLogoRoutes_ALogoRequestSpendsItsSurfacesBudget:
+	// after 299 logo requests the session's 300th request, a section, is served and the
+	// 301st is refused, section or logo alike). No page draws the logo yet. Once WL-8
+	// puts it in the panel shell, a section view costs 2 charged requests while the
+	// browser has not cached that logo and 1 after (ADR 0024 §5): every section names
+	// the same URL and the answer is private, max-age a year, immutable, so a session
+	// pays the extra request once per logo it has not seen -- a new upload is a new URL.
+	// The per-view figure above stays 1 in that steady state; the number is not moved.
+	// ⚠️ These budgets count REQUESTS, not bytes: a logo answer carries up to 262 144
+	// bytes (00028's CHECK), so a session's 300 can pull up to 75 MiB per window, and
+	// sign-up is public. No byte limit exists; ADR 0024's WL-6 note counts it and hands
+	// the decision to the upload route (WL-7).
 	adminSessionLimit  = 300
 	adminSessionPeriod = 10 * time.Minute
 

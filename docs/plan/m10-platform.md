@@ -6516,6 +6516,221 @@ metni), `FactNoBulkImport`, `TestBrand_*`, panel CSP ↔ script karşılığı t
 > üretilmiş logo baytları sunucu log'una parametre olarak düşebilir (sır değil; WL-1 sınırıyla
 > aynı — log okunmadı).
 
+> **Kart düzeltmesi (2026-10-03, WL-6 uygulaması sırasında; 2. ve 3. tur aynı gün).** Yazıldı:
+> `internal/handler/brandlogo.go` (`BrandLogos`, `NewBrandLogos`; iki rota
+> `GET /admin/brand/logo/{sha}` ve `GET /t/logo/{sha}`; `logoImagePolicy`; `If-None-Match`
+> taraması; tek ret yazıcısı) · `internal/domain/tenant/brandread.go` (`BrandReader`,
+> `NewBrandReader`, `Logo`, `PageLogo`, `ErrLogoNotFound`, `StoredLogo`, `LogoRef`) ·
+> `internal/handler/tap.go` (`Tap.chain` — `Tap.Mount` zinciri oradan alır; `tapCSPFor`;
+> `render` → `tapCSPFor(false)`) · `internal/handler/adminlogin.go` (`adminCSPFor`; `render` →
+> `adminCSPFor(false)`, `renderScripted` → `logoImagePolicy(adminScriptedCSP, false)`) ·
+> `cmd/tappa/main.go` (`tenant.NewBrandReader` + `handler.NewBrandLogos`, `NewRouter`'a
+> `logos`) · bütçe aritmetiği: `internal/httpx/ratelimit.go` (yorum),
+> `internal/httpx/ratelimit_test.go` (`TestTapLimiter_DefaultsAreWideEnoughForAShiftChange`
+> logoyu sayar), `internal/handler/adminratelimit.go` (yorum) · testler:
+> `internal/handler/brandlogo_test.go` (15 test), `internal/handler/brandlogo_db_test.go`
+> (1 test), `internal/domain/tenant/brandread_db_test.go` (5 test) ·
+> **[ADR 0024](../adr/0024-kullanici-yukledigi-gorsel.md) değişikliği:** §5'in normatif
+> metnine satır içi *"(WL-6 düzeltmesi, 2026-10-03: …)"* notları — tek 404'ün başlıkları ve
+> kapsamı, 200'ün `Content-Length`'i, 304 kuralı, yalnız GET (HEAD 405) — ve sona tarihli
+> *"WL-6 notu"* (kararlar, ölçüm, üç parçalı iddia, mutasyon tablosu, sınırlar, devirler).
+> Yeni sorgu, migration, bağımlılık yok: `db/`, `internal/store/`, `go.mod`, `go.sum`,
+> `sqlc.yaml`, `web/` diff'i boş — bugünkü sayfaların HTML'i değişmedi, hiçbir sayfaya
+> `<img>` eklenmedi. **Ölçüm ortamı:** dev Postgres 17 (paylaşılan), `tappa_app`; yerel Go
+> 1.27.1, staticcheck Go 1.26.7; ayrı git worktree. 1. tur `377daf3`, 2. tur `f3c9c04`
+> tabanında (OP-10B: `NewAdminAuth`'tan yasal metin parametresi ve `PanelSections`'tan
+> `/admin/legal` çıktı; birleştirme düzeltmesi `brandlogo_test.go`'daki `NewAdminAuth`
+> çağrısından `newFakeTexts()`).
+>
+> **Kabul — kanıtlar:**
+> 1. **İki rota, tenant yalnız oturumdan.** Panel rotası `AdminAuth.Protect()` (okuma zinciri:
+>    flood → requireAdmin → sessionGate), tap rotası `Tap.chain()` (ByAddress → Identify →
+>    BySession; `GET /t` ile aynı `TapLimiter` örneği). Yönetici oturumu olmayan, çalışan
+>    çerezli `/admin/brand/logo/…` isteği 303 → `/admin/login`, gövdede logo baytı yok, panel
+>    çözümleyicisi 0 kez, okuma 0 (`TestLogoRoutes_EachRouteReadsOnlyItsOwnSurfacesSession`);
+>    çözümleyicinin reddettiği panel oturumu (`adminauth.ErrNoSession`) aynı 303'ü alır, okuma
+>    0; iki işletmeye ait iki çerezle her rota kendi yüzeyinin işletmesini sunar (aynı test).
+>    Oturumsuz tap logosu 404 — çerezsiz, oturum adlandırmayan çerez, iptal edilmiş oturum,
+>    yalnız panel çerezi; okuyucu çağrılmaz (`TestLogoRoutes_EveryRefusalIsTheSameNotFound`).
+>    Sorgu dizesindeki `tenant`/`tenant_id` yok sayılır; her okuma oturumun işletmesi altında
+>    (aynı test).
+> 2. **Bayt-aynı 404, kehanet yok** (rotanın eşleştiği yollarda). Gerçek okuyucu + gerçek
+>    Postgres, ürünün yazıcısıyla saklanan iki logo: A oturumunun B'nin digest'ine ve
+>    bilinmeyen digest'e aldığı yanıt iki rotada durum + her başlık + gövde olarak bayt-aynı ve
+>    tek 404'e eşit; kontrol: B oturumu B'nin digest'ini alır
+>    (`TestLogoRoutesDB_AnotherBusinessesDigestIsAnUnknownDigest`). Domain'de aynı değer ve
+>    metin (`TestBrandReadDB_ALogoIsFoundOnlyInItsOwnBusiness`). `^[0-9a-f]{64}$` dışı sekiz
+>    `{sha}` segmenti (büyük harf, 63, 65, `.png` ekli, `%2F`, `%2E%2E`, `..`, 64 hex olmayan
+>    karakter) aynı 404 ve logo okumasına ulaşmaz — oturum çözümlemesi zincirde ondan önce
+>    olmuştur (`TestLogoRoutes_EveryRefusalIsTheSameNotFound`). Tek ret: `Not found.\n`,
+>    `Content-Type: text/plain; charset=utf-8`, `Content-Length`, `Cache-Control: no-store`,
+>    nosniff. Rotayla eşleşmeyen yollar (boş segment, ham `/`) yönlendiricinin kendi 404'ünü
+>    alır (`TestLogoRoutes_ShapesTheRouteDoesNotMatchGetTheRoutersAnswer`; sınır 3).
+> 3. **Başlıklar birebir** (`rec.Result().Header`, tam küme eşitliği):
+>    `Cache-Control: private, max-age=31536000, immutable` · `Content-Disposition: inline;
+>    filename="logo.png"` (image/png) / `"logo.jpg"` (image/jpeg) · `Content-Length` ·
+>    `Content-Security-Policy: default-src 'none'; sandbox` · `Content-Type` = saklanan sütun ·
+>    `Cross-Origin-Resource-Policy: same-origin` · `ETag: "<sha>"` · `X-Content-Type-Options:
+>    nosniff`; GIF gibi koklanan baytlar saklanan `image/png` ile sunulur; tür/dosya
+>    adı/işletme adlandıran sorgu ve istek başlıkları hiçbir baytı değiştirmez
+>    (`TestLogoRoutes_TheHeadersAreExactlyTheADRs`). Tel: `httpx.NewRouter` üzerinden,
+>    `OperatorHost` ayarsız, gerçek sunucuda 200/404/304 = handler başlıkları + `Date`
+>    (`TestLogoRoutes_TheWireCarriesWhatTheHandlerSets`).
+> 4. **Global middleware ölçüldü:** `RequestID`, `RealIP`, `AccessLog`, `Recoverer`,
+>    `Timeout(30 s)` hiçbir yanıt başlığı eklemez (madde 3'ün tel testi). `OperatorHost`
+>    ayarlıysa `operatorHostOnly` her host'ta kurulur ve yalnız o host'ta etki eder; o
+>    yapılandırmada müşteri host'unun logo yanıtı telde ölçülmedi (sınır 13). **Çakışma yok:**
+>    logo yanıtı sayfa render'ından geçmez, sayfa CSP'si yazılmaz; zincirin kendi retleri
+>    (303/429/500) logo baytı taşımaz.
+> 5. **`If-None-Match` → 304**, yalnız oturumun kendi satırı bulunduktan sonra (karar 6);
+>    `"<sha>"`, `W/"<sha>"`, `*`, liste içinde, ikinci satırda → 304 (5 başlık, gövde yok);
+>    başka etag, tırnaksız, büyük harf, eşleşmeden önce gelen bozuk üye, boş → 200; eşleşmeden
+>    SONRA gelen bozuk üye (`"<sha>", garbage` · `*garbage` · `"<sha>" junk` · iki satır)
+>    eşleşmeyi bozmaz → 304, tek satır içinde net/http ile aynı; **satırlarda farklı:** net/http
+>    yalnız ilk satırı okur, bu rota hepsini birleştirir — [`"x"`, `"<sha>"`] net/http'de 200,
+>    burada 304 (go1.27.1 `http.ServeContent` sondasıyla ölçüldü; sınır 14 — yalnız kendi
+>    logosu, sonuç 304, kehanet yok); başka işletmenin ve bilinmeyen digest'te
+>    `"<B-sha>"`/`*`/`W/"<B-sha>"` → aynı 404
+>    (`TestLogoRoutes_IfNoneMatchIsAnsweredOnlyForTheSessionsOwnLogo`,
+>    `TestIfNoneMatch_TheScanFollowsRFC9110`).
+> 6. **Sayfa `img-src`'yi ancak `<img` içeriyorsa adlandırır** — iki yüzey; test listeyi ve
+>    sayıyı her koşuda basar (2026-10-03, `f3c9c04` tabanında *"29 renders (9 panel
+>    sections)"*; 1. turun `377daf3` tabanında 30/10 — fark OP-10B'nin `/admin/legal`'ı
+>    çıkarması): `pages.PanelSections`'ın her satırı · transactions + `/admin/dockets` bir
+>    kayıtla · `/admin/login` · defter düşmüşken transactions · `GET /t` · bozuk URL ·
+>    bilinmeyen plaket · sunucu hatası · onay ekranı 4 hüküm × practice (8) · `POST`
+>    bilinmeyen plaket · başka işverenin plaketi · bayat bağlam · 429
+>    (`TestPageImages_ImgSrcIsNamedOnlyByAPageThatDrawsAnImage`). `hasLogo=false` iken
+>    politikalar bugünküyle bayt-aynı, `true` yalnız `; img-src 'self'` ekler
+>    (`TestPagePolicies_ALogoWidensByImgSrcAlone`, literal'e karşı;
+>    `TestTapResponses_CarryTheContentSecurityPolicy` yeşil). Yakaladığı mutasyonlar: img-src her
+>    sayfaya (M04a), tap render'larına (M04b), panel render'larına (M04c), transactions
+>    bölümüne (M04d).
+> 7. **Ücretli istek ölçüldü, bütçeler güncellendi (sayılar aynı):** bir logo isteği kendi
+>    yüzeyinin adres ve oturum kovasından birer düşer, kovalar sayfalarınkidir — 299 logo +
+>    sayfa (300.) → 200, 301. (logo ya da sayfa) → 429, tap ve panelde; 3000 oturumsuz logo
+>    isteği aynı adresin oturumlu `GET /t`/`GET /admin`'ini 429'a düşürür, başka adres 200;
+>    çerezsiz 3000 tap logo isteği 0 oturum çözümlemesi, 0 okuma (boş olmayan çerez değeri
+>    `GET /t`'deki gibi bir `Verify` öder) (`TestLogoRoutes_ALogoRequestSpendsItsSurfacesBudget`).
+>    WL-8/WL-9 çizince sayfa başına sıcak 1, soğuk 2. Tap aritmetiği: 300 × 4 = 1 200 < 3 000;
+>    önbelleği kapalı 5 sn yenileme 240 < 300
+>    (`TestTapLimiter_DefaultsAreWideEnoughForAShiftChange`). **Tap'ı engelleyebilir mi:** evet,
+>    çerezi tutan biri 300 logo isteğiyle o oturumu 10 dk 429'a düşürür — `GET /t` ile de
+>    düşürebilirdi; **bütçe kovaları bakımından** yeni yetenek değil. **Bayt bakımından** ekler:
+>    yanıt başına en çok 262 144 B (304'te de okunur), oturum başına 10 dk'da 75 MiB; ayrı bayt
+>    sınırı yok (sınır 12, devir WL-7/WL-9).
+> 8. **Belt:** logo okuması `internal/domain/tenant`'ta, o paketin
+>    `TestStaffQueries_CarryAnExplicitTenantPredicate`'i artık `GetTenantLogo`'yu türetir
+>    ("seen here" 1. turda 53 → 54); `TestBrandRead_TheBeltSeesBothReads` çağrı paketten
+>    çıkarsa kırmızı. Q01 (yüklem silindi) ve Q02 (`OR true`) belt'i kırmızıya çevirir;
+>    izolasyon testleri RLS yüzünden yeşil kalır (sınır 8).
+> 9. **`hasLogo` türetimi:** `BrandReader.PageLogo` — marka satırı yok, bütün alanları NULL
+>    satır ve logosuz accent'li satır aynı "logo yok" (hata yok); logolu satır digest + tür +
+>    kutu (`TestBrandReadDB_NoRowAndAnAllNullRowAreTheSameNoLogo`). Dört logo sütunu için okuma
+>    tarafının kendi hep-ya-hiç kuralı: dördü dolu → logo, dördü NULL → yok, diğer 14
+>    birleşimin her biri hata — tahmin edilen türle ya da 0×0 kutuyla çizilmez
+>    (`TestBrandRead_NoRowAndAnAllNullRowAreOneBranch` 14'ünü türetip sürer). 00028'in
+>    `tenant_branding_logo_all_or_none` CHECK'i bu satırları tabloya sokmaz. **2. tur:**
+>    denetçinin X11 (digest + kutu, tür NULL → `image/png`) ve X35 (digest + tür, kutu NULL →
+>    0×0) mutantlarını 1. turun testinde yeşil ölçtü; şimdi ikisi de kırmızı, 1. turun "digest
+>    yoksa logo yok" kuralı da (X36). **3. tur:** tarama da sayılıyor — 16 alt kümenin her biri
+>    tam bir kez (boş 1, dolu 1, yarım 14); kapanış denetçisinin A07 (`mask < 15`), A10
+>    (`mask := 1`) ve A08 (`< 15` + "dördü dolu → hata") mutasyonları önce yeşildi, şimdi
+>    kırmızı. Bugün çağıranı yok (WL-8/WL-9).
+> 10. **DB testleri gerçek Postgres'te, üretim yolunda** (WithTenant + açık yüklem; `WHERE`'siz
+>     RLS testi WL-1'in), iki işletmeli.
+>
+> **Kararlar (gerekçeli; ayrıntı ADR 0024 WL-6 notu):** 304 (yok sayma değil), aramadan sonra ·
+> HEAD desteklenmez (chi 405, zincirlerden önce) · 404 `http.NotFound` değil, `no-store`'lu
+> tek yazıcı · `Content-Length` eklendi (§5'in yedisine ek; chunk'lanmasın, recorder = tel) ·
+> devre dışı çalışanın canlı oturumu logoyu alır (`GET /t` de sayfayı render eder) · panel
+> rotası rol ayırmaz · okuyucu `Brands`'ten ayrı tip · `logoImagePolicy` transactions
+> bölümünün betikli politikasını da kapsar · giriş ve sıfırlama aileleri dokunulmadı ·
+> `logoRefOf` dört sütunda hep-ya-hiç (2. tur).
+>
+> **Sapmalar (gerekçeli):**
+> - **a. Kapsam genişlemesi — `Tap.Mount`:** üç `r.Use` satırı `r.Use(t.chain()...)` oldu.
+>   Gerekçe: logo rotası aynı sırayı ve aynı limiter örneğini almalı; iki yerde yazılı sıra
+>   ikinci bir temsil olurdu. Davranış değişmedi: `TestTapPage_MountOrderMetersTheSession`,
+>   `TestTapPage_RateLimitIsMountedAndBranded` ve tap paketinin geri kalanı yeşil.
+> - **b. Bütçe dosyaları:** `internal/httpx/ratelimit.go` ve `adminratelimit.go`'ya yalnız
+>   tarihli yorum (2. turda bayt uyarısı eklendi; 3. turda tap tarafının bayt kararı WL-9'a,
+>   panel tarafınınki WL-7'ye bağlandı); `ratelimit_test.go`'da aritmetik logoyu
+>   sayar (`requestsPerTap` 3 → sayfa + düğme + soğuk logo + yeniden deneme = 4; yenileme ×
+>   (sayfa + logo)).
+> - **c. `If-None-Match` RFC gerekçesi** RFC metni ağdan okunmadan, go1.27.1 `net/http/fs.go`'nun
+>   okunmasıyla yazıldı (sınır 9).
+>
+> **Mutasyon tablosu:** ADR 0024 → WL-6 notu. 2. turda `f3c9c04` tabanındaki birleşik ağacın son
+> sürümüne karşı hepsi yeniden koşuldu: **44 mutasyon, 44'ü kırmızı** (M01–M26 handler,
+> D01–D07 domain, X11/X35/X36 `logoRefOf`'un yarım sütunları, Q01–Q02 sorgu + `make sqlc`);
+> derleme hatası 0; her birinde mutantın uygulandığı ve geri yazıldığı sha ile doğrulandı;
+> karar testin kendi `--- FAIL` satırlarından okundu; ortak 41 satırın kırmızı listesi 1.
+> turdakiyle birebir aynı. 1. turun ilk koşusunda D06 (DB hatası ıskaya döner) **yeşil**
+> kalmıştı — başarısız veritabanı kontrolü eklendi. Q01/Q02'de üretim yolu izolasyon testleri
+> yeşil kaldı (RLS); kırmızıya dönen belt. **3. tur:** son kod ve test sürümüne karşı bir kez
+> daha: **47 mutasyon, 47'si kırmızı** — 2. turun 44'ü (kırmızı listeleri birebir aynı) +
+> A07, A10, A08 (seam testiyle koşuldu; 2. turun testinde yeşil ölçüldü, tarama sayımından
+> sonra kırmızı).
+>
+> **Devirler:**
+> - **WL-7:** önizlemenin `<img>`'i `/admin/brand/logo/{sha}`; `adminCSPFor(true)` yalnız o
+>   render çizdiğinde; önizleme img-src testinin listesine logolu fikstürle girer. **Bayt
+>   (sınır 12):** yükleme rotası gelince ya logo okuması için bir bayt bütçesi konur ya da
+>   75 MiB / oturum / 10 dk gerekçesiyle kabul edilir (kayıt herkese açık — panel tarafı).
+> - **WL-8:** kabuk `hasLogo`'yu `PageLogo`'dan (ya da accent'i de okuyan genişletmesinden —
+>   tek PK okuması) alır; hata → `false` + log; `render`/`renderScripted` `hasLogo` taşıyan yol
+>   ister; img-src testi logolu işletmenin bölümleriyle genişler (sınır 2'yi o kapatır).
+> - **WL-8 ve WL-9 — yarım satır ayrı ele alınmalı (3. tur gözlemi, kod değişmedi):**
+>   `PageLogo` yarım tanımlı satıra "logo yok" değil bir hata döndürür ve bu hata
+>   `ErrLogoNotFound` değildir. Denetçinin A04'ü (yarım satıra `ErrLogoNotFound`) WL-6'nın
+>   testlerinde fark edilmiyor — bugün çağıran yok. Bir çağıran `errors.Is(err,
+>   ErrLogoNotFound)` ile "logo yok" yazarsa yarım satır sessizleşir; çağıran yarım satırı
+>   okuma hatası gibi loglamalı (§4.6) ve kendi testinde sürmeli.
+> - **WL-9:** `hasLogo` `TapPage`'in transaction'ında; `ErrForeignLocation` → `false`;
+>   `Tap.render` render başına `tapCSPFor(hasLogo)`; `<img src="/t/logo/{sha}">` `width`/
+>   `height` ile; sıcak/soğuk aritmetiği gerçek sayfayla yeniden ölçülür. **Bayt (sınır 12):**
+>   tap tarafındaki 75 MiB / oturum / 10 dk ya bir bayt bütçesiyle sınırlanır ya da
+>   gerekçesiyle kabul edilir.
+> - **WL-10:** İddia D ve E'nin WL-6 parçaları, mutasyon tablosu, sayılı sınırlar.
+> - **WL-12 / orkestratör:** ADR 0024 İddia D/E PART I'in "WL-6'da ölçülecek" yarıları ölçüldü
+>   — işaret satırı önerilir; m10 §5 "Servis" maddesine `Content-Length`, 304 ve yalnız-GET
+>   (ADR §5'e satır içi yazıldı).
+>
+> **Sayılı sınırlar** (ADR 0024 WL-6 notundakiyle aynı on dört): (1) img-src testi yalnız
+> listelediği render'ları ve yalnız `<img` görür (CSS `url()`, SVG `<image>` sayılmaz) ·
+> (2) hiçbir render henüz `hasLogo=true` geçmez · (3) rotayla eşleşmeyen yol şekilleri chi'nin
+> 404'ünü, GET dışı metotlar 405'i alır (yedi standart metot `Allow: GET` ile, `FOO`
+> `Allow`'suz) — yalnız URL'e/metoda bağlı · (4) DB uçtan uca testinde oturum sahte;
+> 304/HEAD/bütçe/bozuk digest testleri sahte okuyucuyla · (5) süre kehaneti ölçülmedi ·
+> (6) 304 de baytı okur · (7) devre dışı çalışanın canlı oturumu logoyu alır · (8) tenant
+> yükleminin silinmesini yalnız belt yakalar · (9) RFC metni okunmadı · (10) ölçümler
+> go1.27.1'de · (11) fikstürler dev DB'de kalır · (12) yanıt başına bayt — ayrı bir sınır
+> yok (75 MiB / oturum / 10 dk) · (13) `OperatorHost` ayarlı yapılandırmada müşteri host'unun
+> logo yanıtı telde ölçülmedi · (14) `If-None-Match` satırlarında net/http'den farklı
+> (birleştirir; [`"x"`, `"<sha>"`] burada 304, orada 200) — yalnız kendi logosu, kehanet yok.
+>
+> **Doğruluk iddiası, üç parçalı** (ADR 0024 WL-6 notunun İddia D ve E'si):
+> - **PART I** — sevk edilen kodun ölçülen davranışı yukarıdaki on kabul maddesinde, her
+>   biri ölçen testin adıyla.
+> - **PART II** — adlı pinler: `TestLogoRoutes_TheHeadersAreExactlyTheADRs`,
+>   `TestLogoRoutes_TheWireCarriesWhatTheHandlerSets`, `TestLogoRoutes_EveryRefusalIsTheSameNotFound`,
+>   `TestLogoRoutes_ShapesTheRouteDoesNotMatchGetTheRoutersAnswer`,
+>   `TestLogoRoutes_EachRouteReadsOnlyItsOwnSurfacesSession`,
+>   `TestLogoRoutes_IfNoneMatchIsAnsweredOnlyForTheSessionsOwnLogo`,
+>   `TestIfNoneMatch_TheScanFollowsRFC9110`, `TestLogoDigest_OnlySixtyFourLowerCaseHexDigits`,
+>   `TestLogoFileName_FollowsTheStoredType`, `TestLogoRoutes_AReadFailureIsNotARefusal`,
+>   `TestLogoRoutes_ALogoRequestSpendsItsSurfacesBudget`, `TestNewBrandLogos_RefusesAMissingDependency`,
+>   `TestPagePolicies_ALogoWidensByImgSrcAlone`, `TestPageImages_ImgSrcIsNamedOnlyByAPageThatDrawsAnImage`,
+>   `TestLogoRoutes_AnUnresolvedIdentityIsNotNoSession`,
+>   `TestLogoRoutesDB_AnotherBusinessesDigestIsAnUnknownDigest`,
+>   `TestBrandReadDB_ALogoIsFoundOnlyInItsOwnBusiness`, `TestBrandReadDB_NoRowAndAnAllNullRowAreTheSameNoLogo`,
+>   `TestBrandRead_NoRowAndAnAllNullRowAreOneBranch`, `TestBrandRead_ANilTenantOpensNoTransaction`,
+>   `TestBrandRead_TheBeltSeesBothReads`, `TestStaffQueries_CarryAnExplicitTenantPredicate`,
+>   `TestTapResponses_CarryTheContentSecurityPolicy`; her birinin yakaladığı tam liste ADR
+>   notunun mutasyon tablosunda (47 mutasyon, hepsi koşuldu, hepsi kırmızı).
+> - **PART III** — Listede olmayan her biçim kod incelemesinin konusu — tamlık iddiası yok.
+
 ## 6. Kararlar
 
 **✅ Kullanıcı kararları (2026-09-24):**

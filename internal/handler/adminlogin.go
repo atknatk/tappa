@@ -1554,7 +1554,7 @@ func ptr(id uuid.UUID) *uuid.UUID { return &id }
 // threat behind it here: a browser that honours it will not let a password form be
 // repointed at another host.
 func (a *AdminAuth) render(w http.ResponseWriter, r *http.Request, status int, c templ.Component) {
-	a.renderWithPolicy(w, r, status, c, adminCSP)
+	a.renderWithPolicy(w, r, status, c, adminCSPFor(false))
 }
 
 // renderScripted is render for the ONE panel page that loads a script.
@@ -1566,7 +1566,7 @@ func (a *AdminAuth) render(w http.ResponseWriter, r *http.Request, status int, c
 // a single representation and not the "two policies to keep in step" shape that
 // this file argues against elsewhere.
 func (a *AdminAuth) renderScripted(w http.ResponseWriter, r *http.Request, status int, c templ.Component) {
-	a.renderWithPolicy(w, r, status, c, adminScriptedCSP)
+	a.renderWithPolicy(w, r, status, c, logoImagePolicy(adminScriptedCSP, false))
 }
 
 // ⚠️ LIMIT — NO Referrer-Policy HEADER (M6-03, informational). Measured on the
@@ -1642,6 +1642,17 @@ func (a *AdminAuth) redirect(w http.ResponseWriter, to string) {
 //	frame-ancestors 'none'  the panel must not be framed under someone else's page
 const adminCSP = "default-src 'none'; style-src 'self'; font-src 'self'; " +
 	"form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
+
+// adminCSPFor is the policy a panel-shell response is sent with: adminCSP, plus
+// img-src 'self' when that response draws the business's logo (ADR 0023 §4, ADR 0024
+// §5; brandlogo.go's logoImagePolicy, landingCSPFor's precedent). The scripted section
+// takes the same widening over adminScriptedCSP (renderScripted).
+//
+// render and renderScripted pass false: no panel page draws the logo yet. WL-8 puts it
+// in the panel shell and WL-7 in the Account preview; each passes its own render's
+// answer. The sign-in screens and the password-reset family never draw it (ADR 0023
+// §2 leaves them Taptime's) and keep their policies untouched.
+func adminCSPFor(hasLogo bool) string { return logoImagePolicy(adminCSP, hasLogo) }
 
 // adminScriptedCSP is adminCSP plus EXACTLY what HTMX needs, and nothing else.
 //
