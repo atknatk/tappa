@@ -5082,6 +5082,206 @@ metni), `FactNoBulkImport`, `TestBrand_*`, panel CSP ↔ script karşılığı t
 >     (`:39-41`) eklendi, ikisi de `style-src 'self'` → dalın ucunda dokuz politika; `img-src`
 >     hâlâ yalnız `landingCSPFor`'da.
 
+> **Kart düzeltmesi (2026-10-02, WL-2 uygulaması sırasında).** Yazıldı:
+> `internal/brand/doc.go` (paket belgesi — WL-3'ün `logo.go`'su aynı pakete girer),
+> `internal/brand/accent.go`, `internal/brand/accent_test.go` (13 test) ·
+> [ADR 0023](../adr/0023-tenant-markasi-ve-arayuz-kurali.md) §3'e tarihli *"WL-2 notu"* (kural
+> değişmedi; imzalar, ölçümler, `Suggest`'in okunuşu). Yeni bağımlılık yok (`go.mod`/`go.sum`/
+> `sqlc.yaml` diff boş), DB/HTTP/log yok; `accent.go` `errors` + `math` içe aktarır.
+> **Ölçüm ortamı:** darwin/amd64 (Intel i9-9980HK, 16 iş parçacığı), yerel Go 1.27.1;
+> staticcheck Go 1.26.7 ile. CI'nin 1.26.x'inde süreler yeniden ölçülmedi.
+>
+> 1. **Kabul — tablo değerleri ±0,01.** `TestAccent_TheDesignTableHolds`: ADR §3'ün yedi
+>    örneği (`#808080`, `#E0457B`, `#DA291C`, `#FFC72C`, tappa-green, tomato, saffron — L altı
+>    haneye, oranlar ±0,01, karar, `OnColor`, `Edge`, `Fill`) + `#EEEEEE` (porcelain 1,01, ink +
+>    kenar) + siyah (paper 20,61) + ADR'nin "kesik sınır geçirirdi" dediği üç renk (`#008384`,
+>    `#22864B`, `#1E93A0`: red, en iyi kontrast 4,50 ±0,01 ve < 4,5) + ink/porcelain 14,32.
+>    `#008384` **paper** tarafında (paper 4,49995:1; ADR hangi metin olduğunu yazmıyordu).
+> 2. **Kabul — hesaplanan sınırlar, literal yok.** Üretim kodu L sınırı hesaplamaz:
+>    `Check`/`OnColor`/`Edge` 4,5 ve 3 eşiklerini kontrast oranına doğrudan uygular. Sınırlar
+>    testte, `tailwind.config.js`'ten okunan paletle ADR §3 formüllerinden türetilir
+>    (paper 0,178982695642 · ink 0,236815218031 · kenar 0,254217381379 · dönüm 0,2062727488).
+>    `TestAccent_TheNearestHexEitherSideOfEachComputedBoundary` (2²⁴ tarama): paper `6E7B44`
+>    (4,87e-11 altında) geçer/paper · `7D5BEC` (4,18e-08 üstünde) red · ink `1E93A0` (2,92e-09
+>    altında) red · `8D76DA` (2,08e-07 üstünde) geçer/ink · kenar `B268EC` (2,77e-08 altında)
+>    kenarsız · `8F8A7A` (3,88e-10 üstünde) kenarlı. WL-0'ın dört komşusu yeniden üretildi; kenar
+>    çifti yeni. *"Dahil"*: taranan 2²⁴ rengin hiçbiri bir sınırın tam üstünde değil (en küçük
+>    mesafe 4,87e-11), *"uç geçer"* geçen yandaki en yakın renkle sınanır.
+>    `TestAccent_TheADRPrintsTheBoundariesThePaletteYields`: ADR §3'ün yazdığı dört kesik değer
+>    hesaplananın kesiği; *"4,0208"* ve *"1 949 736"* hesaplananla aynı — ADR'nin sayıları teste
+>    bağlandı, testte sınır literali yok.
+> 3. **Kabul — 2²⁴ uyuşmazlık 0.** `TestAccent_EveryColourAgreesWithTheBoundariesThePaletteImplies`:
+>    2²⁴ yineleme (x = 0 … 2²⁴−1; test yineleme sayısını assert eder, ayrık renk saymaz), red
+>    1 949 736; özellik başına uyuşmazlık 0 (`Check` ↔ doğrudan 4,5 ↔
+>    türetilmiş sınırlar; `OnColor`; `Edge` ↔ doğrudan 3:1 ↔ kenar sınırı; `Fill` ve ADR'nin üç
+>    sınıfı; `Hex` → `ParseAccent` gidiş-dönüş; `Suggest`: çıktı `Check`'ten geçer, hiçbir kanalı
+>    yükseltmez, geçen rengi değiştirmez, bisection adımına eşit, bir üst ızgara adımı red; yolun
+>    tepe adımı rengin kendisi). En küçük sınır mesafesi 4,87e-11 (> 1e-12 şartı), dönüm
+>    noktasına 1,41e-08; paper-metin sınıfında porcelain kontrastı en az 3,9857 (ADR "≥ 3,98").
+>    **Süre (ölçüldü; darwin/amd64, 16 donanım iş parçacığı — süre shard sayısına ve makinenin
+>    yüküne bağlı, her rakam koşuluyla):** düz, 16 shard 1,5 s · `-race`, 16 shard, 1 dk yük
+>    ortalaması 2,5 → 24,8 s · `-race`, 4 shard (`GOMAXPROCS=4`), yük ~8 → 18,9 s (daha önceki bir
+>    koşuda 16,3 s, yük kaydedilmedi) · `-race`, 8 shard 22,6 s (yük kaydedilmedi) · denetçinin
+>    ölçümü: `-race`, 16 shard, yük ~8 / ~54 → 24,3 / 34,6 s
+>    · `-race -cover` tam tarama go test'in 10 dk varsayılan zaman aşımında **bitmedi** (atomic
+>    kapsam sayaçları; 2¹⁷ renk tek goroutine'de 8,2 s, yalnız `-race` 0,34 s). Karar: kapsam
+>    enstrümantasyonu açıkken (`testing.CoverMode() != ""`) her 61. renk (275 037; 14,8 s) —
+>    `make test` (CI) `-cover`'sız olduğu için CI'da tam tarama koşar; `make cover` örneklem
+>    tarar. `-short` altında atlama **yok**: paket `-race`'te 16 shard, yük 2,5'te ~25 s;
+>    Makefile'ın *"-short tam dört
+>    SKIP"* sayımı değişmez.
+> 4. **Kabul — palet kopyası.** `TestPalette_TheGoCopyEqualsTailwindConfig` (dokuz token, iki
+>    yön) · negatif kontrol `TestPalette_TheComparisonSeesEveryKindOfDrift` (dosya metninde
+>    dokuz hex'in her biri tek tek değişince, token silinince/eklenince/yeniden adlandırılınca diff
+>    onu adlandırır) · ayrıştırıcının dejenere girdileri
+>    `TestPalette_TheParserRefusesWhatItCannotRead` (21 alt test: 10 bozuk satır biçimi, her biri
+>    iki geçerli satırın arasında ve hatanın o satırı adlandırması şartıyla; 11 blok düzeyi ve
+>    pozitif vaka — 2. tur). Mutasyonla: Go kopyasında ink ve
+>    line hex'i, tablo satırı (tomato → saffron sabiti), `tailwind.config.js`'te ink ve saffron →
+>    beşi de kırmızı.
+> 5. **Kabul — `Suggest` deterministik, her çıktısı `Check`'ten geçer.** Madde 3'ün taraması
+>    (2²⁴ girdi) · `TestSuggest_IsDeterministicUnderConcurrency` (32 goroutine, `-race`) ·
+>    `TestSuggest_IsTheBrightestPassingColourOnTheExactPath` (ızgarasız tam yol sayımı, 970 red
+>    renk örneklemi; en kısa aralık 4,5e-06, ızgara adımı 9,13e-13; ızgaranın 1/260100²'den ince
+>    olduğu pinli) · `TestSuggest_ThePathIsTextbookHSL` (1 021 919 nokta, 30 239'u yuvarlama
+>    eşitliği yakınında atlandı) · `TestSuggest_TheDesignExamples` (beklenenler Python
+>    `fractions` ile tam rasyonel sayımla bağımsız hesaplandı).
+> 6. **Kapsam:** `go test -race -count=1 -cover ./internal/brand/` → %100,0.
+>
+> **Sapmalar (gerekçeli):**
+> - **a. Kanonik yazım `RRGGBB`, `#` yok.** Brief *"#RRGGBB"* yazıyordu; ADR 0023 §1/§3
+>   (`^[0-9A-F]{6}$`, *"`#` yok"*) esas alındı.
+> - **b. Altıncı fonksiyon `NormalizeAccent`** (ADR beş sayıyordu): `<input type="color">`
+>   `#rrggbb` küçük harf gönderir; tek `#` ve küçük harf kabul, çıktının `Hex()`'i kanonik.
+>   `ParseAccent` katı kaldı (tema rotası ve saklanan satır için; küçük harf red).
+> - **c. `Check(c) (Fill, error)`**: `Fill{Accent, Text, Edge}` — tema rotasının üç değişkeni;
+>   red → `(Fill{}, ErrAccentIllegible)`. `OnColor` eşitlikte paper (eşitlik dönüm noktasında,
+>   o da red bandında).
+> - **d. `Suggest`'in tanımı.** *"Aynı ton, açıklığı düşürerek"* HSL'de: ton ve doygunluk sabit,
+>   açıklık iner (Sass `darken()`); sonuç bu yolda geçen en parlak renk; geçen renk değişmeden
+>   döner. Yol tam sayılarla (`510·2³¹` ızgara). Float neden değil (geçici test, teslimden önce
+>   silindi): 1 949 736 red rengin **7 430**'unda ders kitabı float HSL bisection'ı bu koddan
+>   farklı renk öneriyor; 7 430'un tamamında ızgarasız tam yol sayımı (`accentExactPath`) bu
+>   kodla aynı, float'la 0 (2'sinde orta nokta yuvarlama eşitliğine 1e-6'dan yakın düştü). Ör.
+>   `007EC6` → float `007AC1` (tam yolda olmayan renk — G ve B 35/36'da birlikte yuvarlanır), bu
+>   kod `007AC0` (Python `fractions` ile de doğrulandı; testte pinli). Kalıcı testte bu sayım
+>   örneklemle (970 renk) koşar; tam sayım `-race` dışında ~14 s.
+> - **e. Kapsam enstrümantasyonunda örneklem** (madde 3; ölçümle).
+> - **f. Eşdeğer mutantlar (4):** `Check`'te `<`→`<=`, `Edge`'de `<`→`<=`, `OnColor` eşitlik kuralı
+>   `>=`→`>`, doğrusallaştırma eşiği 0,04045→0,03928. İlk üçü: taranan 2²⁴ rengin hiçbiri sınırda
+>   ya da dönüm noktasında değil (4,87e-11 / 1,41e-08); dördüncüsü: iki eşik de 8 bitlik
+>   girdide 0..10'u doğrusal kola koyar (10/255 = 0,0392 < ikisi < 11/255 = 0,0431). Mutant
+>   koşuları bu ölçümü doğruladı (tarama mutant altında yeşil).
+> - **g.** ADR'nin *"1 092"* ve *"14 (paper 9, ink 5)"* sayıları scratch'te yeniden ölçüldü ve
+>   tuttu (1 092 = paper 611 + ink 481); testte yok — testte yanlış literal yazmamak için.
+>
+> **Devirler:**
+> - **WL-4:** domain `Check` → `ErrAccentIllegible`; saklanan değer `Color.Hex()` (WL-1'in CHECK'i
+>   ile aynı biçim).
+> - **WL-5:** tema rotası `ParseAccent` (katı; küçük harf ve `#` → 404) + `Check`; `Fill` üç
+>   değişkenin RGB'sini verir; `Edge == false` iken `--brand-edge`'in değeri WL-5'in kararı.
+> - **WL-7:** form değeri `NormalizeAccent` (handler sınırı, CLAUDE.md §7); okunaksızsa
+>   `Suggest(c).Hex()`. **Bilgi:** red renklerin **947 258**'i (%48,6) L'de ink sınırına paper
+>   sınırından yakın (scratch ölçümü); `Suggest` ADR'ye göre bunları da koyulaştırır, öneri
+>   girdiden belirgin koyu olabilir (ör. `1E93A0` → `1A818D`). Açma yönü ADR 0023 §3 değişikliği
+>   olur — *Karar verilmedi*, orkestratöre.
+> - **WL-10:** `internal/brand/accent.go` §4 kırmızı çizgilerine dokunmaz (DB, HTTP, log, sır,
+>   GPS yok); denetim listesine ADR 0023 §3'ün WL-2 notu.
+> - **WL-12:** CLAUDE.md §3'e `internal/brand` satırı (ADR 0023 Sonuçlar'da zaten listeli).
+> - **CI maliyeti:** `internal/brand` `-race` altında 16 iş parçacıklı makinede 1 dk yük 2,5'te
+>   ~25 s, yük ~54'te 34,6 s (denetçi); CI'nin çekirdek sayısında yeniden ölçülmedi.
+>
+> **Doğruluk iddiası (üç parça).**
+> - **PART I — ölçülen:** 2²⁴ yinelemenin (x = 0 … 2²⁴−1) her birinde `Check`'in kararı
+>   doğrudan 4,5 testine ve
+>   paletten türetilmiş sınırlara eşit, `Edge` 3:1 testine eşit, `OnColor` yüksek kontrastlıya
+>   eşit, `Suggest`'in çıktısı `Check`'ten geçiyor (kapsamsız koşuda
+>   `TestAccent_EveryColourAgreesWithTheBoundariesThePaletteImplies`); Go palet kopyası
+>   `tailwind.config.js`'in dokuz token'ına eşit (`TestPalette_TheGoCopyEqualsTailwindConfig`).
+> - **PART II — pinler ve pinlerin birlikte yakaladığı biçimler** (liste bir birleşimdir, pin
+>   başına eşleme değil; yapıcının mutasyonla ölçtüğü biçimler için tamdır — 2. turun 34
+>   mutasyonluk koşusunda öldürülen 30; denetçinin pinlerce öldürülen 15 ek varyantı bu
+>   listede yok; ürün için tamlık iddiası değildir — PART III): yukarıdaki iki test +
+>   `TestPalette_TheParserRefusesWhatItCannotRead` +
+>   `TestAccent_TheDesignTableHolds`, `TestAccent_TheNearestHexEitherSideOfEachComputedBoundary`,
+>   `TestAccent_TheADRPrintsTheBoundariesThePaletteYields`,
+>   `TestAccent_ParseAcceptsOneSpellingPerColour`,
+>   `TestAccent_NormalizeTakesWhatTheColourInputSends`,
+>   `TestPalette_TheComparisonSeesEveryKindOfDrift`, `TestSuggest_TheDesignExamples`,
+>   `TestSuggest_ThePathIsTextbookHSL`, `TestSuggest_IsTheBrightestPassingColourOnTheExactPath`;
+>   yakaladıkları: eşiğin 4,4999'a kayması · `Check` kararının ters çevrilmesi · `Edge`'in
+>   porcelain yerine paper'la ölçülmesi · doğrusallaştırma eşiğinin 0,05'e, 12,92'nin 12,0'a
+>   değişmesi · `OnColor`'ın ters çevrilmesi · luminans ağırlıklarının R↔B yer değiştirmesi ·
+>   Go kopyasında ya da `tailwind.config.js`'te bir hex'in değişmesi, tablo satırının başka
+>   sabite bağlanması · `Suggest`'in ilk red adımı, sabit oranlı koyulaştırma ya da girdiyi
+>   `Check`'siz döndürmesi · bisection'ın erken durması · yolun ikinci HSL parçasını yok
+>   sayması, aşağı yuvarlaması, ızgaranın 2²⁰'ye ya da 2⁸'e kabalaşması · siyah/beyaz `d = 1`
+>   korumasının kalkması · `ParseAccent`'in küçük harf ya da uzun girdi kabul etmesi ·
+>   `accentDecode`'un CSS üç haneli kısa biçimini açması (2. tur) · `NormalizeAccent`'in `#`
+>   atmaması · `Hex`'in küçük harf basması · `Fill`'in kenarı düşürmesi · palet ayrıştırıcısının
+>   tanımadığı satırı atlaması (2. tur) · kapsamsız koşunun 2²⁴ yineleme yerine örneklem
+>   taraması (2. tur)
+>   · ADR WL-2 notundaki bir komşu hex'in değişmesi (2. tur). Yakalamadıkları (eşdeğer, sapma
+>   f): `<`/`<=` (Check, Edge), eşitlik kuralı, 0,03928. Kapsam enstrümantasyonu açıkken tarama
+>   her 61. renktir.
+> - **PART III:** Listede olmayan her biçim kod incelemesinin konusu — tamlık iddiası yok.
+>
+> **2. tur (2026-10-03 — üçüncü göz RED: 2 bloklayan + 6 bloklamayan; hesaplar bağımsız
+> numpy/Fraction referansıyla doğrulandı).**
+> - **F1 (bloklayan):** palet ayrıştırıcı testi gevşek ayrıştırıcıyı ayırt etmiyordu — bozuk
+>   biçimler tek girdili blokta duruyordu ve "satırı atla" ayrıştırıcısı başka kuraldan ("no
+>   entries") düşüyordu. Şimdi on bozuk biçim geçerli `ink` ile `paper` satırlarının arasında ve
+>   hata o satırın numarasını taşımak zorunda. Mutasyon X11 (tanınmayan satırda `continue`) →
+>   10/10 satır alt testi KIRMIZI; 11 blok düzeyi/pozitif alt test yeşil kaldı.
+> - **F2 (bloklayan):** CSS üç haneli kısa biçimi (`ABC`, `abc`, `#ABC`, `#abc`; Normalize
+>   tablosuna ayrıca `e04`, `E04`) iki tabloya ret olarak girdi. Mutasyon X1 (`accentDecode` üç
+>   haneyi açar) → `TestAccent_ParseAcceptsOneSpellingPerColour` ve
+>   `TestAccent_NormalizeTakesWhatTheColourInputSends` KIRMIZI.
+> - **F3:** kapsamsız koşuda yineleme sayısının 2²⁴ olduğu artık assert ediliyor (ayrık renk
+>   sayısı değil — 3. tur N4). Mutasyon X9
+>   (`CoverMode` koşulu ters) → `TestAccent_EveryColourAgreesWithTheBoundariesThePaletteImplies`
+>   KIRMIZI.
+> - **F4:** ADR 0023 §3'ün normatif cümlesinin yanına tarihli not ve WL-2 notunda *"normatif
+>   cümle nasıl karşılanır"* maddesi: kodda L sınırı ne literal ne hesaplanmış; karar paletten
+>   hesaplanan oranın eşikle karşılaştırılması (sınır formülü onun L'ye göre çözülmüş hâli);
+>   sınırları test türetir.
+> - **F5:** `doc.go` WL-3'ün dosyası ve diğer görevlerin kodu hakkında olgu iddia etmiyor; kapsam
+>   ADR 0023 (§1–§3) ve ADR 0024'e atıfla.
+> - **F6:** `accentScanStride` yorumundaki süreler koşuluyla (shard sayısı, 1 dk yük ortalaması):
+>   `-race` 16 shard yük 2,5 → 24,8 s; 4 shard yük ~8 → 18,9 s (önceki koşu 16,3 s); denetçinin
+>   16 shard yük ~8 / ~54 → 24,3 / 34,6 s.
+> - **F7:** komşu testi kaynağı ADR 0023 §3'ün WL-2 notuna bağladı ve altı hex'in o notta
+>   geçtiğini okuyor. Mutasyon X12 (notta `B268EC` → `B268ED`) →
+>   `TestAccent_TheNearestHexEitherSideOfEachComputedBoundary` KIRMIZI.
+> - **F8:** PART II başlığı netleşti; 3. turda (N2) son hâli: *"pinler ve pinlerin birlikte
+>   yakaladığı biçimler"*.
+> - Yan düzeltme: `ParseAccent` tablosundaki tam genişlikli rakam kaynakta ham UTF-8 idi, bayt
+>   kaçışına (`\xef\xbc\x91`) çevrildi. (Kaynak bundan sonra da ASCII değildir — ölçüm 3.
+>   turda.)
+>
+> **3. tur (2026-10-03 — kapanış denetçisi ONAY; F1–F7 ✓, yapıcının üç mutasyonuna ek
+> denetçinin 15 varyantı da KIRMIZI; kalan sekiz not YALNIZ METİN, test mantığı değişmedi).**
+> - **N1:** PART II pin listesine `TestPalette_TheParserRefusesWhatItCannotRead` eklendi (X11'i
+>   tek öldüren test, `mutate-round2.txt`).
+> - **N2:** PART II başlığı *"pinler ve pinlerin birlikte yakaladığı biçimler"*; liste bir
+>   birleşim, yapıcının mutasyonla ölçtüğü biçimlerle sınırlı (denetçinin 15 varyantı listede
+>   yok); F8 satırı bu başlığa eşitlendi.
+> - **N3:** komşu testinin yorumu ölçülen kapsama bağlandı: taranan komşu tablodan farklıysa ya
+>   da tablodaki bir hex notta değişir ya da nottan çıkarsa kırmızı; notun bir hex'e verdiği rol
+>   (geçer / red) okunmuyor — iki hex'in rolü yer değiştirirse yeşil kalır.
+> - **N4:** tarama metni "2²⁴ yineleme (x = 0 … 2²⁴−1)" olarak bağlandı; assert yineleme sayısına
+>   bakar, ayrık renk saymaz (test yorumu, assert mesajı, bu kart, ADR notu).
+> - **N5:** ADR notunda `OnColor` eşik uygulamaz, paper ve ink oranlarını karşılaştırır;
+>   eşikleri `Check` (4,5) ve `Edge` (3) uygular.
+> - **N6:** ASCII olmayan karakter ölçümü (3. tur sonrası, `python3` sayımı): `accent_test.go` 25
+>   satır, `accent.go` 13, `doc.go` 5; karakterler §, —, ±, …, 🔴; Türkçe karakter 0. Üç
+>   `t.Errorf` dizgesi ASCII'ye çevrildi (`±0.01` → `+/-0.01`, `…` → `...`, `§3` → `section
+>   3`); test mesajlarında ASCII olmayan karakter 0. CLAUDE.md §7'nin kuralı (Türkçe karakter)
+>   ihlal edilmiyordu ve edilmiyor.
+> - **N7:** madde 3'ün ve "CI maliyeti" satırının süreleri koşuluyla (shard, yük) yazıldı.
+> - **N8:** ADR'deki satır içi notun tarihi 2026-10-03; WL-2 notunun "normatif cümle" maddesi
+>   *"2. tur, 2026-10-03; 3. turda düzeltildi"* diye işaretlendi.
+
 ## 6. Kararlar
 
 **✅ Kullanıcı kararları (2026-09-24):**

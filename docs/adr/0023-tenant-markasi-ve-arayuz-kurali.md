@@ -225,7 +225,10 @@ kullanmak kapıyı bozar, ölçüldü (2²⁴ rengin tamamı sayıldı):
 **Normatif:** testte ve kodda sınır literal yazılmaz, palet sabitlerinden hesaplanır; WL-2'nin
 *"L sınırları 0,1790 ve 0,2368 dahil"* kabulü *"hesaplanan iki sınır dahil; her iki yanındaki en
 yakın hex'le sınanır"* diye okunur. Kapı, 24 bitlik renklerin **1 949 736**'sını (%11,62)
-reddeder.
+reddeder. *(WL-2 notu, 2026-10-03: kodda L sınırı ne literal ne hesaplanmış olarak durur;
+karar, palet sabitlerinden hesaplanan kontrast oranının 4,5 ve 3 eşikleriyle
+karşılaştırılmasıdır — bu, paletten hesaplanmış sınırla aynı kümeyi verir. Sınırları
+paletten türeten taraf testtir. Ayrıntı ve ölçüm: aşağıdaki WL-2 notu.)*
 
 **Kabul edilen accent'in üç sınıfı** (sınırlar yukarıdaki formüllerin değeri): `L ≤ paper
 sınırı` → paper metin, kenar yok (porcelain'e karşı ≥ 3,98) · `ink sınırı ≤ L ≤ porcelain
@@ -242,6 +245,47 @@ sınırı` → paper metin, kenar yok (porcelain'e karşı ≥ 3,98) · `ink sı
 | saffron `#D98E2B` | 0,342721 | 2,62 | **6,16** | geçer, ink metin + ink kenar |
 
 Tasarım özündeki dört örneğin dördü de bu hesapla tutar.
+
+**WL-2 notu (2026-10-02 — uygulama ve ölçüm; bu bölümün kuralı değişmedi).**
+`internal/brand/accent.go` ve `accent_test.go`:
+- **İmzalar.** `Color{R, G, B}` ve `Hex()` (kanonik `RRGGBB`) · `ParseAccent` kanonik yazımı
+  kabul eder, başka yazımı `ErrAccentSyntax` ile reddeder (tema rotası, saklanan satır; ölçülen
+  ret listesi `TestAccent_ParseAcceptsOneSpellingPerColour`'da) · **altıncı fonksiyon
+  `NormalizeAccent`**: editörün `<input type="color">` değeri `#rrggbb` küçük harfle gelir;
+  tek `#` ve küçük harfi kabul eder, çıktısının `Hex()`'i kanoniktir (WL-7 handler sınırında
+  kullanır) ·
+  `Check(c) (Fill, error)`: `Fill{Accent, Text, Edge}` §4'ün üç değişkenini taşır, red
+  `(Fill{}, ErrAccentIllegible)` · `OnColor` eşitlikte paper'ı seçer; iki kontrast dönüm
+  noktasında eşittir ve dönüm noktası red bandının içindedir.
+- **Normatif cümle (*"testte ve kodda sınır literal yazılmaz, palet sabitlerinden
+  hesaplanır"*) nasıl karşılanır** (2. tur, 2026-10-03; 3. turda düzeltildi). *Kodda:* L
+  sınırı ne literal ne hesaplanmış olarak durur. Kontrast oranları palet sabitlerinden
+  hesaplanır; `Check` en iyi metin oranını 4,5 eşiğine, `Edge` porcelain oranını 3 eşiğine
+  doğrudan uygular; `OnColor` eşik uygulamaz, paper ve ink oranlarını birbiriyle
+  karşılaştırır. Sınır formülleri `Check` ve `Edge` karşılaştırmalarının L'ye göre çözülmüş
+  hâlidir (ör. paper oranı ≥ 4,5 ⇔ `L ≤ (L_paper+0.05)/4.5 − 0.05`), dönüm noktası formülü de
+  `OnColor` karşılaştırmasının; yani kararlar paletten hesaplanmış sınırlarla aynı kümeyi
+  verir. *Testte:* yukarıdaki tablonun dört değeri, `tailwind.config.js`'ten okunan paletle bu
+  formüllerden türetilir, literal yoktur; test bu ADR'nin yazdığı kesik değerleri ve red
+  sayısını o türetimle karşılaştırır (`TestAccent_TheADRPrintsTheBoundariesThePaletteYields`).
+  2²⁴ yinelemede (x = 0 … 2²⁴−1) `Check`, doğrudan oran ve türetilmiş sınır aynı kararı verdi; bir
+  rengin bir sınıra en küçük L mesafesi 4,87e-11, dönüm noktasına 1,41e-08
+  (`TestAccent_EveryColourAgreesWithTheBoundariesThePaletteImplies`; kapsam
+  enstrümantasyonu açıkken her 61. rengi tarar — gerekçesi testte ölçümle).
+- **Sınırların iki yanındaki en yakın renkler**
+  (`TestAccent_TheNearestHexEitherSideOfEachComputedBoundary`): paper `6E7B44` geçer /
+  `7D5BEC` red · ink `1E93A0` red / `8D76DA` geçer · kenar `B268EC` kenarsız / `8F8A7A`
+  kenarlı. Taranan 2²⁴ rengin hiçbiri bir sınırın tam üstünde değil; *"iki uç geçer"* bu
+  komşularla sınanır.
+- **`Suggest`'in okunuşu.** *"Aynı ton, açıklığı düşürerek"* HSL'de okundu: ton ve doygunluk
+  sabit, açıklık iner (Sass `darken()`); sonuç bu yolda `Check`'ten geçen en parlak
+  renktir, geçen renk değişmeden döner. Yol tam sayılarla hesaplanır: float aritmetiği iki
+  kanalın aynı noktada yuvarlandığı yerde yolda olmayan bir renk önerebiliyor (`007EC6` için
+  ders kitabı float bisection'ı `007AC1`, bu kod `007AC0` —
+  `TestSuggest_ThePathIsTextbookHSL`). Bu ADR'ye göre koyulaştırır, açmaz; WL-2'nin scratch
+  ölçümü: red renklerin 947 258'i (%48,6) L'de ink sınırına paper sınırından yakın, bunlarda
+  öneri girdiden belirgin koyu olabilir (ör. `1E93A0` → `1A818D`). Açma yönü bu bölümün
+  değişikliği olur — WL-2 kartında devredildi.
 
 **Aynı fonksiyon iki tarafta** (CLAUDE.md §5'in `internal/netx` deseni): yazma tarafında
 domain accent'i yeniden `Check` eder (→ **WL-4**: `ErrAccentIllegible`; form okunaksız
