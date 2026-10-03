@@ -239,8 +239,11 @@ func (s txStore) CloseOperatorSession(ctx context.Context, h string) error {
 
 // operatorSide is an Authenticator over the test transaction, with its clock pinned to
 // the middle of the DATABASE's current 30-second step (op_complete_enrollment binds the
-// first code's step to the database clock, cur ± 1).
+// first code's step to the database clock, cur ± 1) -- and pinned AGAIN before every
+// enrollment (resync).
 type operatorSide struct {
+	t    *testing.T
+	tx   pgx.Tx
 	auth *operatorauth.Authenticator
 	now  time.Time
 	addr int
@@ -248,19 +251,8 @@ type operatorSide struct {
 
 func newOperatorSide(t *testing.T, ctx context.Context, tx pgx.Tx) *operatorSide {
 	t.Helper()
-	var step int64
-	var left float64
-	for {
-		if err := tx.QueryRow(ctx, `SELECT floor(extract(epoch FROM clock_timestamp()) / 30)::bigint,
-		                                   (30 - mod(extract(epoch FROM clock_timestamp()), 30))::float8`).Scan(&step, &left); err != nil {
-			t.Fatalf("read the database's step: %v", err)
-		}
-		if left > 3 {
-			break
-		}
-		time.Sleep(time.Duration((left + 0.3) * float64(time.Second)))
-	}
-	o := &operatorSide{now: time.Unix(step*30+15, 0)}
+	o := &operatorSide{t: t, tx: tx}
+	o.resync(ctx)
 	key := func() operatorauth.Key {
 		b := make([]byte, 32)
 		if _, err := rand.Read(b); err != nil {
@@ -276,6 +268,32 @@ func newOperatorSide(t *testing.T, ctx context.Context, tx pgx.Tx) *operatorSide
 	}
 	o.auth = auth
 	return o
+}
+
+// resync pins the clock to the middle of the database's CURRENT step, read at least
+// three seconds before that step ends. Pinned only once, the clock's step fell outside
+// the database's cur ± 1 as soon as a test had run for 33 to 60 s -- the bound depends
+// on where in its step the pin fell -- and the next enrollment was refused: CI run
+// 37138148744, TestResetMFA_KillsTheOldSessionsAndIssuesANewLink, 39 s under -race
+// ("the new link: operatorauth: enrollment refused"). Reproduced by holding that
+// test's last enrollment until the database's step was two ahead of the pinned one;
+// one ahead stayed green. op_complete_enrollment does not compare with totp_last_step,
+// so a fresh step per enrollment is no replay this file needs to avoid.
+func (o *operatorSide) resync(ctx context.Context) {
+	o.t.Helper()
+	for {
+		var step int64
+		var left float64
+		if err := o.tx.QueryRow(ctx, `SELECT floor(extract(epoch FROM clock_timestamp()) / 30)::bigint,
+		                                     (30 - mod(extract(epoch FROM clock_timestamp()), 30))::float8`).Scan(&step, &left); err != nil {
+			o.t.Fatalf("read the database's step: %v", err)
+		}
+		if left > 3 {
+			o.now = time.Unix(step*30+15, 0)
+			return
+		}
+		time.Sleep(time.Duration((left + 0.3) * float64(time.Second)))
+	}
 }
 
 // nextAddr is a fresh documentation address per call: the enrollment budget is three
@@ -298,8 +316,11 @@ func totpCode(key []byte, at time.Time) string {
 }
 
 // enroll opens the link the way the enrollment page does: a fresh TOTP key for the
-// link's account, then the link's secret, the new passphrase and the first code.
+// link's account, then the link's secret, the new passphrase and the first code -- all
+// on a clock resynced to the database's step, so a refusal is the link's and never a
+// step the test's own running time left behind.
 func (o *operatorSide) enroll(ctx context.Context, link string) (operatorauth.Issued, error) {
+	o.resync(ctx)
 	u, err := url.Parse(link)
 	if err != nil {
 		return operatorauth.Issued{}, err

@@ -266,6 +266,33 @@ func (g *e2e) dbStepTime() time.Time {
 	}
 }
 
+// resync moves the Authenticator's clock to the database's CURRENT step, for the
+// request about to send a code. Pinned only in newE2E, the clock's step falls outside
+// the database's cur ± 1 once a test has run for 33 to 60 s (cmd/opadmin lost
+// TestResetMFA_KillsTheOldSessionsAndIssuesANewLink to exactly that in CI run
+// 37138148744; here, the sign-in was measured refused the same way once the database's
+// step was two ahead). A replay is sent WITHOUT a resync -- it must carry the step the
+// first use stored -- and stepStillBound guards it instead.
+func (g *e2e) resync() {
+	g.t.Helper()
+	g.now = g.dbStepTime()
+}
+
+// stepStillBound fails the test unless the database's step is STILL within one of
+// codeTime's step, read right AFTER a replay the database was meant to refuse: the
+// clock only moves forward, so the replay itself was inside op_open_session's cur ± 1
+// and refused for the replay alone (internal/operatorauth's helper of the same name).
+func (g *e2e) stepStillBound(codeTime time.Time) {
+	g.t.Helper()
+	var cur int64
+	if err := g.tx.QueryRow(g.ctx, `SELECT floor(extract(epoch FROM clock_timestamp()) / 30)::bigint`).Scan(&cur); err != nil {
+		g.t.Fatalf("read the database's step: %v", err)
+	}
+	if d := cur - codeTime.Unix()/30; d < -1 || d > 1 {
+		g.t.Fatalf("the run was too slow for a replay to be refused for the replay's reason alone: the database is at step %d, the replayed code's step is %d", cur, codeTime.Unix()/30)
+	}
+}
+
 func (g *e2e) exec(sql string, args ...any) {
 	g.t.Helper()
 	if _, err := g.tx.Exec(g.ctx, sql, args...); err != nil {
@@ -336,9 +363,11 @@ func (g *e2e) get(path string, cookies ...*http.Cookie) *httptest.ResponseRecord
 		header: map[string]string{"Sec-Fetch-Site": "same-origin"}})
 }
 
-// signIn drives the password and TOTP steps for f through the surface.
+// signIn drives the password and TOTP steps for f through the surface, on a resynced
+// clock.
 func (g *e2e) signIn(f fixture) *http.Cookie {
 	g.t.Helper()
+	g.resync()
 	rg := &rig{t: g.t, h: g.h, now: g.now}
 	return rg.signIn(f)
 }
@@ -457,10 +486,14 @@ func TestE2E_AReplayedCodeIsRefused(t *testing.T) {
 	if ch == nil {
 		t.Fatalf("the second password step = %d with no challenge", w.Code)
 	}
+	// No resync: the replay carries the step the sign-in's resync took and the database
+	// stored. That the database still binds that step (one password step later) is
+	// checked, not assumed: stepStillBound turns a run too slow for it red.
 	w = g.post("/operator/login/totp", url.Values{"code": {totpAt(f.key, g.now)}}, ch)
 	if w.Code != http.StatusUnauthorized || cookie(w, operatorauth.SessionCookieName) != nil || !strings.Contains(w.Body.String(), "That code was not accepted") {
 		t.Fatalf("the replayed code = %d, session cookie %v", w.Code, cookie(w, operatorauth.SessionCookieName) != nil)
 	}
+	g.stepStillBound(g.now)
 	if n := g.rows(f, "totp_failed"); n != 1 {
 		t.Fatalf("the replay wrote %d totp_failed row(s), want 1", n)
 	}
@@ -494,6 +527,9 @@ func TestE2E_WrongCodesLockTheAccountAndEachLeavesARow(t *testing.T) {
 	if n := g.count(`SELECT count(*)::int FROM platform_admins WHERE id = $1 AND totp_locked_until > clock_timestamp()`, f.id); n != 1 {
 		t.Fatal("five wrong codes did not lock the account")
 	}
+	// Resynced, so the database refuses the right code for the lock and not for a step
+	// the test's running time left behind.
+	g.resync()
 	w = g.post("/operator/login/totp", url.Values{"code": {totpAt(f.key, g.now)}}, ch)
 	if w.Code != http.StatusUnauthorized || cookie(w, operatorauth.SessionCookieName) != nil || !strings.Contains(w.Body.String(), "Sign-in is locked for a while") {
 		t.Fatalf("the right code while locked = %d, session cookie %v", w.Code, cookie(w, operatorauth.SessionCookieName) != nil)
@@ -581,7 +617,10 @@ func TestE2E_EnrollmentCompletesThroughTheDefinerAndIsRateLimited(t *testing.T) 
 	g := newE2E(t)
 	f, tok := g.pending()
 	key, blob := g.enrollPage(f.id)
+	// Every form is built right before its request, on a resynced clock: each refusal
+	// below is then the link's or the budget's, never a step left behind.
 	form := func(token, blob string, key []byte) url.Values {
+		g.resync()
 		return url.Values{"id": {f.id.String()}, "token": {token}, "blob": {blob}, "password": {e2ePassphrase},
 			"password_again": {e2ePassphrase}, "code": {totpAt(key, g.now)}}
 	}

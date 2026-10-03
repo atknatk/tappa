@@ -214,6 +214,9 @@ func TestTOTP_SameCodeFromNGoroutinesOpensExactlyOneSession(t *testing.T) {
 	ready.Wait()
 	close(start)
 	done.Wait()
+	// The losers are replays of the winner's step: refused for that alone only while
+	// the database still binds it.
+	stepStillBound(t, ctx, pool, now)
 
 	sessions := countInt(t, ctx, pool, `SELECT count(*) FROM platform_sessions WHERE admin_id = $1`, acc.id)
 	logins := countInt(t, ctx, pool, `SELECT count(*) FROM operator_audit_log WHERE kind = 'login' AND actor_admin_id = $1`, acc.id)
@@ -387,6 +390,9 @@ func TestLock_ThresholdAndWindowThroughTheSignIn(t *testing.T) {
 	sessions := func() int64 {
 		return countInt(t, ctx, tx, `SELECT count(*) FROM platform_sessions WHERE admin_id = $1`, locked.id)
 	}
+	// The database refuses this code for the LOCK; on a resynced clock (and now with
+	// it, which the window arithmetic below reads) that is its only reason.
+	now = resyncAuth(t, ctx, tx, a)
 	if _, err := a.TOTP(ctx, ch, codeAt(locked.key, now)); !errors.Is(err, ErrLocked) {
 		t.Fatalf("the right code on a locked account: %v, want ErrLocked", err)
 	}
@@ -416,6 +422,7 @@ func TestLock_ThresholdAndWindowThroughTheSignIn(t *testing.T) {
 	if _, err := a.TOTP(ctx, ch, codeAt(locked.key, now)); !errors.Is(err, ErrCodeRejected) {
 		t.Fatalf("a refused code after the window: %v, want ErrCodeRejected (the lock has ended)", err)
 	}
+	stepStillBound(t, ctx, tx, now)
 	if df, dl, f := rows("totp_failed", locked.id)-failedBefore, rows("locked", locked.id)-lockedBefore, failures(t, ctx, tx, locked.id); df != 1 || dl != 0 || f != 7 || sessions() != 0 {
 		t.Fatalf("a refused code after the window: totp_failed %+d, locked %+d, counter %d, sessions %d; want +1, +0, 7, 0", df, dl, f, sessions())
 	}
@@ -508,6 +515,16 @@ func TestLimits_ARefusedRequestWritesNoRowAndMovesNoCounter(t *testing.T) {
 	// with its control under the cap: measured (OP-6 verification, 2026-09-30), writing
 	// login_failed or enrollment_failed straight to the store, around the cap, stayed
 	// green while only unknown_email was driven here.
+	//
+	// Every enrollment below that the DATABASE answers carries a code of a resynced
+	// clock (freshCode): the arms run up to 33 s after the pin, past which a pinned
+	// step can leave op_complete_enrollment's cur ± 1, and the database's refusal of a
+	// wrong token or an unknown account would then be the step's.
+	freshCode := func(key []byte) string {
+		t.Helper()
+		now = resyncAuth(t, ctx, tx, a)
+		return codeAt(key, now)
+	}
 	passwordless := []struct {
 		kind string
 		want error
@@ -546,7 +563,7 @@ func TestLimits_ARefusedRequestWritesNoRowAndMovesNoCounter(t *testing.T) {
 		{"enrollment_failed", ErrEnrollment, func(addr string) error {
 			id, tok := uuid.New(), must(NewEnrollmentToken())
 			p, _ := a.BeginEnrollment(id)
-			_, err := a.CompleteEnrollment(ctx, addr, id, tok.RevealForLink(), p.Blob, strings.Repeat("new pass ", 2), codeAt(p.Secret.reveal(), now))
+			_, err := a.CompleteEnrollment(ctx, addr, id, tok.RevealForLink(), p.Blob, strings.Repeat("new pass ", 2), freshCode(p.Secret.reveal()))
 			return err
 		}},
 	}
@@ -611,7 +628,7 @@ func TestLimits_ARefusedRequestWritesNoRowAndMovesNoCounter(t *testing.T) {
 		t.Fatalf("token: %v", err)
 	}
 	c0 := cs.completes
-	if _, err := a.CompleteEnrollment(ctx, "198.51.100.10", p.id, wrongTok.RevealForLink(), pend.Blob, strings.Repeat("new pass ", 2), codeAt(pend.Secret.reveal(), now)); !errors.Is(err, ErrEnrollment) || digests != 1 || cs.completes != c0+1 {
+	if _, err := a.CompleteEnrollment(ctx, "198.51.100.10", p.id, wrongTok.RevealForLink(), pend.Blob, strings.Repeat("new pass ", 2), freshCode(pend.Secret.reveal())); !errors.Is(err, ErrEnrollment) || digests != 1 || cs.completes != c0+1 {
 		t.Fatalf("CONTROL, under the enrollment budget: %v, %d digest(s), %d database call(s), want ErrEnrollment, 1 and 1", err, digests, cs.completes-c0)
 	}
 	// ENROLLMENT, the per-address SHARE (OP-6 12c): one address gets enrollAddrLimit
@@ -635,7 +652,7 @@ func TestLimits_ARefusedRequestWritesNoRowAndMovesNoCounter(t *testing.T) {
 	}
 	for i := 0; i < enrollAddrLimit; i++ {
 		digests, c0 = 0, cs.completes
-		if _, err := a.CompleteEnrollment(ctx, "198.51.100.20", p.id, wrongTok.RevealForLink(), pend.Blob, strings.Repeat("new pass ", 2), codeAt(pend.Secret.reveal(), now)); !errors.Is(err, ErrEnrollment) || digests != 1 || cs.completes != c0+1 {
+		if _, err := a.CompleteEnrollment(ctx, "198.51.100.20", p.id, wrongTok.RevealForLink(), pend.Blob, strings.Repeat("new pass ", 2), freshCode(pend.Secret.reveal())); !errors.Is(err, ErrEnrollment) || digests != 1 || cs.completes != c0+1 {
 			t.Fatalf("CONTROL, request %d of one address under its enrollment share: %v, %d digest(s), %d database call(s), want ErrEnrollment, 1 and 1", i+1, err, digests, cs.completes-c0)
 		}
 	}
@@ -649,7 +666,7 @@ func TestLimits_ARefusedRequestWritesNoRowAndMovesNoCounter(t *testing.T) {
 			digests, cs.completes-c0, auditRows(t, ctx, tx)-before, p0, processCount())
 	}
 	digests, c0 = 0, cs.completes
-	if _, err := a.CompleteEnrollment(ctx, "198.51.100.21", p.id, wrongTok.RevealForLink(), pend.Blob, strings.Repeat("new pass ", 2), codeAt(pend.Secret.reveal(), now)); !errors.Is(err, ErrEnrollment) || digests != 1 || cs.completes != c0+1 {
+	if _, err := a.CompleteEnrollment(ctx, "198.51.100.21", p.id, wrongTok.RevealForLink(), pend.Blob, strings.Repeat("new pass ", 2), freshCode(pend.Secret.reveal())); !errors.Is(err, ErrEnrollment) || digests != 1 || cs.completes != c0+1 {
 		t.Fatalf("another address after one exhausted its share: %v, %d digest(s), %d database call(s), want ErrEnrollment, 1 and 1 -- the process budget's remainder is its", err, digests, cs.completes-c0)
 	}
 	a.digestFn = func(pw string) (string, error) { digests++; return orig(pw) }
@@ -701,6 +718,7 @@ func TestLimits_TheAuditCapCannotSwitchTheLockOff(t *testing.T) {
 	if _, err := a.TOTP(ctx, rch, codeAt(replayed.key, now)); !errors.Is(err, ErrCodeRejected) {
 		t.Fatalf("the same code again: %v, want ErrCodeRejected", err)
 	}
+	stepStillBound(t, ctx, tx, now)
 	if r, f := rows("totp_failed", replayed.id), failures(t, ctx, tx, replayed.id); r != 1 || f != 1 {
 		t.Fatalf("with the audit cap exhausted, a replayed code: %d totp_failed row(s), counter %d, want 1 and 1", r, f)
 	}
@@ -715,6 +733,8 @@ func TestLimits_TheAuditCapCannotSwitchTheLockOff(t *testing.T) {
 	if r := rows("totp_failed", acc.id); r != 5 || failures(t, ctx, tx, acc.id) != 5 {
 		t.Fatalf("with the audit cap exhausted: %d totp_failed row(s), counter %d, want 5 and 5", r, failures(t, ctx, tx, acc.id))
 	}
+	// Refused by the database for the LOCK: on a resynced clock, for nothing else.
+	now = resyncAuth(t, ctx, tx, a)
 	if _, err := a.TOTP(ctx, ch, codeAt(acc.key, now)); !errors.Is(err, ErrLocked) {
 		t.Fatalf("the right code after five failures: %v, want ErrLocked", err)
 	}
@@ -835,6 +855,7 @@ func TestTOTP_ANextStepCodeIsRetiredByItsOwnStep(t *testing.T) {
 	if _, err := a.TOTP(ctx, challengeFor(t, a, acc), code); !errors.Is(err, ErrCodeRejected) {
 		t.Fatalf("the same code again, one step later by Go's clock: %v, want ErrCodeRejected", err)
 	}
+	stepStillBound(t, ctx, tx, next)
 	if n := countInt(t, ctx, tx, `SELECT count(*) FROM platform_sessions WHERE admin_id = $1`, acc.id); n != 1 {
 		t.Fatalf("one six-digit code opened %d session(s), want 1", n)
 	}
@@ -881,6 +902,7 @@ func TestEnrollment_ANextStepFirstCodeCannotSignInAgain(t *testing.T) {
 	if _, err := a.TOTP(ctx, ch, code); !errors.Is(err, ErrCodeRejected) {
 		t.Fatalf("the enrollment's first code at sign-in, one step later by Go's clock: %v, want ErrCodeRejected", err)
 	}
+	stepStillBound(t, ctx, tx, next)
 	if n := countInt(t, ctx, tx, `SELECT count(*) FROM platform_sessions WHERE admin_id = $1`, p.id); n != 1 {
 		t.Fatalf("the enrollment's code opened %d session(s), want 1 (the enrollment's own)", n)
 	}
@@ -956,9 +978,15 @@ func TestEnrollment_CompletesOnceAndTheStoredEnvelopeOpens(t *testing.T) {
 	if _, err := a.TOTP(ctx, ch, code); !errors.Is(err, ErrCodeRejected) {
 		t.Fatalf("the enrollment's own code at sign-in: %v, want ErrCodeRejected (a replay)", err)
 	}
-	// The same link again.
+	stepStillBound(t, ctx, tx, now)
+	// The same link again -- NOT a replay (op_complete_enrollment does not compare with
+	// totp_last_step), so it is sent on a resynced clock with that clock's code, and the
+	// database refuses the USED TOKEN and nothing else. Measured: with the token made
+	// acceptable again (pending, unused) and the database's step held two ahead, the
+	// enrollment's own code on the pinned clock stayed green.
+	now = resyncAuth(t, ctx, tx, a)
 	before := auditRows(t, ctx, tx)
-	if _, err := a.CompleteEnrollment(ctx, testAddr, p.id, raw, pend.Blob, newPw, code); !errors.Is(err, ErrEnrollment) {
+	if _, err := a.CompleteEnrollment(ctx, testAddr, p.id, raw, pend.Blob, newPw, codeAt(shown, now)); !errors.Is(err, ErrEnrollment) {
 		t.Fatalf("a used link: %v, want ErrEnrollment", err)
 	}
 	if auditRows(t, ctx, tx)-before != 1 {
@@ -979,6 +1007,13 @@ func TestEnrollment_CompletesOnceAndTheStoredEnvelopeOpens(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: begin: %v", name, err)
 		}
+		// The two arms the database answers ran 18.6 and 23.1 s after the pin (-race, a
+		// developer machine); a slower run passes the 33 s after which the pinned step
+		// can fall out of the database's cur ± 1, and the database then refuses them for
+		// the step. Measured: with the last arm's expiry removed and the database's step
+		// held two ahead, the arm stayed green on the pinned clock and turned red on a
+		// resynced one. So each arm sends its code on a resynced clock (good reads now).
+		now = resyncAuth(t, ctx, tx, a)
 		before, d0, c0 := auditRows(t, ctx, tx), digests, cs.completes
 		if err := run(q, qraw, qpend); !errors.Is(err, want) {
 			t.Errorf("%s: %v, want %v", name, err, want)

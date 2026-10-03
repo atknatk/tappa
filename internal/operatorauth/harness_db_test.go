@@ -383,6 +383,38 @@ func dbStepTime(t *testing.T, ctx context.Context, q querier) time.Time {
 	}
 }
 
+// resyncAuth moves a's clock to the middle of the database's CURRENT step (dbStepTime's
+// rule) and returns that time, for a step-bound call made late in a test. Pinned once
+// at the start, the clock's step falls outside the database's cur ± 1 after 33 to 60 s
+// of test time (cmd/opadmin lost a test to it in CI run 37138148744), and a call meant
+// to be refused for ANOTHER reason is then refused for the step -- green, with its own
+// reason unchecked. A replay is never resynced -- it must carry the step the first use
+// stored -- and stepStillBound guards it instead. The budgets keep the clock newAuth
+// gave them (their windows do not move).
+func resyncAuth(t *testing.T, ctx context.Context, q querier, a *Authenticator) time.Time {
+	t.Helper()
+	now := dbStepTime(t, ctx, q)
+	a.now = func() time.Time { return now }
+	return now
+}
+
+// stepStillBound fails the test unless the database's step is STILL within one of
+// codeTime's step. It is read right AFTER a replay the database was meant to refuse:
+// the clock only moves forward, so the call itself was inside op_open_session's
+// cur ± 1, and its refusal was the replay guard's alone. A replay cannot be resynced (it
+// must carry the step the first use stored), so a run too slow for that is reported
+// red instead of passing on the clock's refusal.
+func stepStillBound(t *testing.T, ctx context.Context, q querier, codeTime time.Time) {
+	t.Helper()
+	var cur int64
+	if err := q.QueryRow(ctx, `SELECT floor(extract(epoch FROM clock_timestamp()) / 30)::bigint`).Scan(&cur); err != nil {
+		t.Fatalf("read the database's step: %v", err)
+	}
+	if d := cur - step(codeTime); d < -1 || d > 1 {
+		t.Fatalf("the run was too slow for a replay to be refused for the replay's reason alone: the database is at step %d, the replayed code's step is %d", cur, step(codeTime))
+	}
+}
+
 // codeAt is the six-digit code for key at t, computed with this package's own HOTP --
 // which the published RFC tables pin independently (totp_test.go).
 func codeAt(key []byte, t time.Time) string {

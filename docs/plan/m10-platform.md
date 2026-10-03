@@ -6352,6 +6352,29 @@ yasal belge içindi, M9-08'in kapsamı §4.5'i aşan beş işlev.
 >   ./internal/handler/operator` `ok` — üst düzey 81 PASS, 0 SKIP, 0 FAIL (alt testlerle 88), DATA
 >   RACE 0.
 
+> **Kart düzeltmesi (2026-10-03, CI run 37138148744 kararsızlığı — operatör test saati).**
+> `TestResetMFA_KillsTheOldSessionsAndIssuesANewLink` CI'da 39 s sürdü ve yeni link reddedildi
+> (`enrollment refused`). Sebep: testler operatorauth saatini başta bir kez DB'nin 30 s'lik adımına
+> sabitliyor; `op_complete_enrollment`/`op_open_session` ise adımı duvar saatine `cur ± 1` ile bağlıyor
+> → sabitlemenin bütçesi 33–60 s. Ölçüldü: son enrollment DB adımı +2'ye geçene dek bekletilince
+> kırmızı, +1'de yeşil; aynı bekleme düzeltilmiş kodda yeşil; e2e sign-in de aynı yolla kırmızıya
+> çevrildi. **Düzeltme yalnız test kodunda** (`cmd/opadmin/opadmin_db_test.go`,
+> `internal/handler/operator/op8_db_test.go`, `internal/operatorauth/flow_db_test.go`,
+> `internal/operatorauth/harness_db_test.go`): DB'nin cevapladığı her replay-dışı çağrı ">3 s kala"
+> kuralıyla yeniden eşitleniyor ve taze kodla gönderiliyor (opadmin `enroll`; e2e sign-in, enrollment ve
+> kilit postları; operatorauth ret kolları, kullanılmış link, iki kilit kolu ve sınır testinin dört
+> enrollment'ı). DB bağlaması ve ürün `Now` enjeksiyonu DEĞİŞMEDİ. **Üçüncü göz (1. tur RED):**
+> `TestEnrollment_CompletesOnceAndTheStoredEnvelopeOpens`'ın "same link again" kolu eski kodla ve tek
+> sabitlemeyle koşuyordu — kullanılmış link DML ile yeniden kabul edilebilir yapılıp adım +2'de
+> tutulunca yeşil kalıyordu (M6, maskeli); kol artık yeniden eşitleme + taze kodla koşuyor, M6 kırmızı.
+> Replay'ler tasarım gereği eşitlenmiyor: çağrıdan hemen SONRA okunan `stepStillBound` adım ±1
+> dışındaysa testi düşürüyor (yavaş koşu yanlış sebeple yeşil kalmaz, görünür biçimde kırmızı olur);
+> ölçüldü: +2 Fatal, +1 yeşil (operatorauth ve e2e). Orkestratör `verify_round2.py` ile M6, replay +2 ve
+> replay +1 kontrolünü birleşik ağaçta kendisi koştu: üçü beklendiği gibi. **Sınırlar:**
+> `TestCreate_AnExpiredLinkIsRefused`'ın 30 s'lik kontrol bütçesine iki eşitleme ile en çok 6,6 s uyku
+> girer (kalan süre ölçüldü: 23,0 s, yük altında ≈15 s) · `internal/db` `opStep` testleri Go saati
+> taşımıyor (≤0,13 s), değişmedi · `internal/operatorauth` `-count≥2` için `-timeout 40m` gerekir.
+
 ## 4. Akış B — E-posta (AWS SES)
 
 ### Öneri: SES SMTP arayüzü + stdlib `net/smtp` (STARTTLS 587), `eu-central-1` — ✅ (sıfır yeni modül)
