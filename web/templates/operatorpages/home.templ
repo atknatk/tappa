@@ -4,12 +4,14 @@ import "github.com/atknatk/tappa/web/templates/components"
 
 // Home is /operator, the console's front page.
 //
-// It shows no tenant data. ADR 0020 §4 names /operator as the tenant list, and that list
-// is OP-11's: the operator's database role has no definer that reads a tenant yet
-// (00026, 00027). The page says it is signed in and links the one operator screen this
-// build has -- Taptime's legal texts (OP-10) -- beside the bar's sign-out form. Its
-// links are held to the mounted routes by TestOperatorScreens_EveryActionAndLinkIsAMountedRoute.
-// The session facts it states are ADR 0020 §2's, enforced by op_touch_session.
+// It shows no tenant data and makes no read: it is the operator's menu. The page says it
+// is signed in and links the operator screens this build has -- the tenants (OP-11; ADR
+// 0020 §4 named /operator itself as the tenant list, but the list is a READ, two units of
+// the session budget and an audit row, and the front page every sign-in lands on is not
+// made to cost one) and Taptime's legal texts (OP-10) -- beside the bar's sign-out form.
+// Its links are held to the mounted routes by
+// TestOperatorScreens_EveryActionAndLinkIsAMountedRoute. The session facts it states are
+// ADR 0020 §2's, enforced by op_touch_session.
 //
 // It does not show the operator's address: the session resolves to an id, and no
 // definer reads an operator's email (a new op_* is a migration).
@@ -19,6 +21,10 @@ templ Home() {
 			<p class="docket-label">Operator console</p>
 			<h1 class="mt-1 font-display text-2xl font-bold tracking-tight">You are signed in</h1>
 			<ul class="mt-4 flex flex-col gap-1">
+				<li>
+					<a href="/operator/tenants" class="op-link">Tenants</a>
+					<span class="text-sm text-ink/70">— find a business, and see what it has live</span>
+				</li>
 				<li>
 					<a href="/operator/legal" class="op-link">Legal texts</a>
 					<span class="text-sm text-ink/70">— Taptime's privacy policy, terms, company details and cookie notice</span>

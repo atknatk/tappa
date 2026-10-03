@@ -61,9 +61,9 @@ import (
 	"github.com/atknatk/tappa/internal/sun"
 )
 
-// liveStore is operatorauth.Store and operator.LegalStore on a connection that IS
-// tappa_operator: each method is internal/db's production accessor, each statement its
-// own committed transaction.
+// liveStore is operatorauth.Store, operator.LegalStore and (OP-11) operator.TenantStore
+// on a connection that IS tappa_operator: each method is internal/db's production
+// accessor, each statement its own committed transaction.
 type liveStore struct {
 	mu   sync.Mutex
 	conn *pgx.Conn
@@ -121,6 +121,18 @@ func (s *liveStore) PublishLegal(ctx context.Context, h, slug, body string) erro
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return db.PublishLegal(ctx, s.conn, h, slug, body)
+}
+
+func (s *liveStore) TenantList(ctx context.Context, h string, q db.TenantListQuery) ([]db.TenantSummary, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return db.TenantList(ctx, s.conn, h, q)
+}
+
+func (s *liveStore) TenantDetail(ctx context.Context, h string, id uuid.UUID) (db.TenantOverview, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return db.TenantDetail(ctx, s.conn, h, id)
 }
 
 // legalE2E is one test's committed rig.
@@ -210,7 +222,8 @@ func newLegalE2E(t *testing.T) *legalE2E {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s, err := operator.New(auth, &liveStore{conn: l.op}, l.texts, opHost, opBase, log)
+	live := &liveStore{conn: l.op}
+	s, err := operator.New(auth, live, live, l.texts, opHost, opBase, log)
 	if err != nil {
 		t.Fatal(err)
 	}

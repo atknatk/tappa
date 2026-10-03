@@ -753,26 +753,32 @@ func TestEnrollScreen_TheListedFormsRenderItOnlyInRenderEnroll(t *testing.T) {
 
 // TestFormValues_TheListedSitesAloneRevealOrReadTheForm (3rd round).
 //
-// PART I -- the shipped package: reveal() is called at nine sites -- V1 six direct
+// PART I -- the shipped package: reveal() is called at twelve sites -- V1 six direct
 // arguments of (*operatorauth.Authenticator).Password (email, password), TOTP (code) and
 // CompleteEnrollment (token, password, code); V2 the Token key of the EnrollView literal in
-// (*Surface).enroll; V3 the two operands of the != in (*Surface).enroll. r.PostForm is read
-// in postValue, in (*Surface).enroll as .Get("id") and .Get("blob"), and (OP-10) in
-// (*Surface).publishLegal as .Get("slug") and .Get("body"), once each. CONTROL: postValue's
-// seven calls resolve, each with a constant credential name.
+// (*Surface).enroll; V3 the two operands of the != in (*Surface).enroll; and (OP-11, the
+// tenant search term) V4 one in tenantSearchTerm, V5 the Search key of the
+// db.TenantListQuery literal in (*Surface).listTenants, V6 the Search key of the
+// operatorpages.TenantsView literal in tenantsView. r.PostForm is read in postValue, in
+// (*Surface).enroll as .Get("id") and .Get("blob"), (OP-10) in (*Surface).publishLegal as
+// .Get("slug") and .Get("body"), and (OP-11) in (*Surface).searchTenants as .Get("page"),
+// once each. CONTROL: postValue's eight calls resolve, each with a constant credential
+// name.
 //
 // PART II -- red on:
 //
-//	FV1 a reveal() call at another site, or site counts other than 6 + 1 + 2;
+//	FV1 a reveal() call at another site, or site counts other than 6 + 1 + 2 + 1 + 1 + 1;
 //	FV2 reveal taken as a method value or expression;
-//	FV3 a constant string equal to "email", "password", "password_again", "code" or
-//	    "token" other than as postValue's name argument;
+//	FV3 a constant string equal to "email", "password", "password_again", "code",
+//	    "token" or (OP-11) "q" -- the search term, personal data when it is an address --
+//	    other than as postValue's name argument;
 //	FV4 a use of the request's Form, MultipartForm or RequestURI field, of its FormValue,
 //	    PostFormValue, FormFile, MultipartReader or ParseMultipartForm method, or of
 //	    url.URL's RawQuery field or String method;
 //	FV5 r.PostForm read other than in postValue, in (*Surface).enroll as .Get("id") or
-//	    .Get("blob"), and in (*Surface).publishLegal as .Get("slug") or .Get("body") (OP-10;
-//	    a count there other than one of each);
+//	    .Get("blob"), in (*Surface).publishLegal as .Get("slug") or .Get("body") (OP-10)
+//	    and in (*Surface).searchTenants as .Get("page") (OP-11) -- a count there other than
+//	    one of each;
 //	FV6 url.URL.Query other than once in (*Surface).enrollPage, as .Get("id");
 //	FV7 ParseForm other than once in (*Surface).readForm.
 //
@@ -789,7 +795,11 @@ func TestFormValues_TheListedSitesAloneRevealOrReadTheForm(t *testing.T) {
 	enrollPage := tp.method(t, "Surface", "enrollPage")
 	readForm := tp.method(t, "Surface", "readForm")
 	publishLegal := tp.method(t, "Surface", "publishLegal")
-	legalReads := map[string]int{}
+	searchTenants := tp.method(t, "Surface", "searchTenants")
+	listTenants := tp.method(t, "Surface", "listTenants")
+	searchTerm := lookupFunc(t, tp.pkg, "tenantSearchTerm")
+	tenantsView := lookupFunc(t, tp.pkg, "tenantsView")
+	legalReads, tenantReads := map[string]int{}, map[string]int{}
 	consumers := map[types.Object]string{}
 	for _, m := range []string{"Password", "TOTP", "CompleteEnrollment"} {
 		consumers[lookupMember(t, oa, "Authenticator", m)] = m
@@ -797,6 +807,20 @@ func TestFormValues_TheListedSitesAloneRevealOrReadTheForm(t *testing.T) {
 	enrollView, _ := op.Scope().Lookup("EnrollView").(*types.TypeName)
 	if enrollView == nil {
 		t.Fatal("PREMISE: operatorpages declares no EnrollView")
+	}
+	tenantsViewType, _ := op.Scope().Lookup("TenantsView").(*types.TypeName)
+	listQuery, _ := tp.imported(t, "github.com/atknatk/tappa/internal/db").Scope().Lookup("TenantListQuery").(*types.TypeName)
+	if tenantsViewType == nil || listQuery == nil {
+		t.Fatal("PREMISE: operatorpages declares no TenantsView, or internal/db no TenantListQuery")
+	}
+	// keyOfLiteral reports whether p is the key-value element `key: …` of a composite
+	// literal of the named type typ.
+	keyOfLiteral := func(p ast.Node, key string, typ *types.TypeName) bool {
+		if !isKeyOf(p, key) {
+			return false
+		}
+		lit, ok := tp.parents[p].(*ast.CompositeLit)
+		return ok && isNamed(tp.info.Types[lit].Type, typ)
 	}
 
 	var bad []string
@@ -816,6 +840,12 @@ func TestFormValues_TheListedSitesAloneRevealOrReadTheForm(t *testing.T) {
 			sites["V2 EnrollView.Token"]++
 		case tp.in(enroll, c.Pos()) && isNEQ(p):
 			sites["V3 !="]++
+		case tp.in(searchTerm, c.Pos()):
+			sites["V4 tenantSearchTerm"]++
+		case tp.in(listTenants, c.Pos()) && keyOfLiteral(p, "Search", listQuery):
+			sites["V5 TenantListQuery.Search"]++
+		case tp.in(tenantsView, c.Pos()) && keyOfLiteral(p, "Search", tenantsViewType):
+			sites["V6 TenantsView.Search"]++
 		default:
 			bad = append(bad, "FV1 reveal() at "+tp.where(id.Pos()))
 		}
@@ -824,11 +854,12 @@ func TestFormValues_TheListedSitesAloneRevealOrReadTheForm(t *testing.T) {
 		"V1 Password arg 2": 1, "V1 Password arg 3": 1, "V1 TOTP arg 2": 1,
 		"V1 CompleteEnrollment arg 3": 1, "V1 CompleteEnrollment arg 5": 1, "V1 CompleteEnrollment arg 6": 1,
 		"V2 EnrollView.Token": 1, "V3 !=": 2,
+		"V4 tenantSearchTerm": 1, "V5 TenantListQuery.Search": 1, "V6 TenantsView.Search": 1,
 	}
 	if fmt.Sprint(sites) != fmt.Sprint(want) {
 		bad = append(bad, fmt.Sprintf("FV1 reveal() sites %v, want %v", sites, want))
 	}
-	credentialNames := []string{"email", "password", "password_again", "code", "token"}
+	credentialNames := []string{"email", "password", "password_again", "code", "token", "q"}
 	names := 0
 	for _, cs := range tp.constStrings() {
 		if !slices.Contains(credentialNames, cs.val) {
@@ -871,6 +902,12 @@ func TestFormValues_TheListedSitesAloneRevealOrReadTheForm(t *testing.T) {
 					continue
 				}
 			}
+			if tp.in(searchTenants, id.Pos()) {
+				if k := tp.getKey(id); k == "page" {
+					tenantReads[k]++
+					continue
+				}
+			}
 			bad = append(bad, "FV5 r.PostForm at "+tp.where(id.Pos()))
 		case query:
 			if tp.in(enrollPage, id.Pos()) && tp.getKey(id) == "id" {
@@ -892,12 +929,15 @@ func TestFormValues_TheListedSitesAloneRevealOrReadTheForm(t *testing.T) {
 	if legalReads["slug"] != 1 || legalReads["body"] != 1 {
 		bad = append(bad, fmt.Sprintf("FV5 publishLegal reads r.PostForm %v, want slug and body once each", legalReads))
 	}
+	if len(tenantReads) != 1 || tenantReads["page"] != 1 {
+		bad = append(bad, fmt.Sprintf("FV5 searchTenants reads r.PostForm %v, want page once", tenantReads))
+	}
 	sort.Strings(bad)
 	for _, b := range bad {
 		t.Error(b)
 	}
-	if names != 7 {
-		t.Fatalf("CONTROL: %d postValue call(s) with a constant credential name resolved, want 7", names)
+	if names != 8 {
+		t.Fatalf("CONTROL: %d postValue call(s) with a constant credential name resolved, want 8", names)
 	}
 }
 
@@ -1151,13 +1191,14 @@ func TestResponseHeaders_TheListedNamesAreWrittenOnlyInTheirFunctions(t *testing
 	}
 }
 
-// operatorScreens are the seven screen constructors screens() (op8_test.go) renders, by
-// name -- the list SN1/SN2 compare with operatorpages' exported API (OP-10 added Legal).
-var operatorScreens = []string{"Code", "Enroll", "Home", "Legal", "Problem", "SignIn", "TenantScreen"}
+// operatorScreens are the nine screen constructors screens() (op8_test.go) renders, by
+// name -- the list SN1/SN2 compare with operatorpages' exported API (OP-10 added Legal,
+// OP-11 Tenants and TenantOverview).
+var operatorScreens = []string{"Code", "Enroll", "Home", "Legal", "Problem", "SignIn", "TenantOverview", "TenantScreen", "Tenants"}
 
 // TestOperatorPages_TheExportedScreensAreTheOnesScreensRenders (3rd round).
 //
-// PART I -- operatorpages' exported functions that return a templ.Component are the seven
+// PART I -- operatorpages' exported functions that return a templ.Component are the nine
 // of operatorScreens (read from the export data of the build being run).
 //
 // PART II -- red on: SN1 an exported constructor not in operatorScreens; SN2 a name in

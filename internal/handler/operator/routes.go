@@ -24,9 +24,12 @@ import (
 // çözümleyiciden önce (ucuz), oturum bütçesi kimlikten sonra"):
 //
 //	sign-in, TOTP step, enrollment     floodGate -> sameOriginGate(false)
-//	the console (GET /operator) and    floodGate -> sameOriginGate(true) -> requireOperator -> sessionGate
-//	the legal texts (GET, POST
-//	/operator/legal; OP-10)
+//	the console (GET /operator), the   floodGate -> sameOriginGate(true) -> requireOperator -> sessionGate
+//	legal texts (GET, POST
+//	/operator/legal; OP-10) and the
+//	tenants (GET, POST
+//	/operator/tenants, GET
+//	/operator/tenants/{id}; OP-11)
 //	sign-out (POST /operator/logout)   sameOriginGate(false) -> requireOperator -> logoutGate
 //
 // Sign-out is its own group, after the panel's measured lesson (adminlogin.go's sign-out
@@ -67,18 +70,22 @@ func (s *Surface) mount(r chi.Router) {
 			r.Get("/", s.home)
 			r.Get("/legal", s.legalPage)
 			r.Post("/legal", s.publishLegal)
+			r.Get("/tenants", s.tenantList)
+			r.Post("/tenants", s.searchTenants)
+			r.Get("/tenants/{id}", s.tenantOverview)
 		})
 	})
 }
 
-// The redirect targets. The templates spell their form actions and links as literals;
-// TestOperatorScreens_EveryActionAndLinkIsAMountedRoute holds the links of the 14 renders
-// screens() makes to the routes mount registers.
+// The redirect targets and the problem pages' ways back. The templates spell their form
+// actions and links as literals; TestOperatorScreens_EveryActionAndLinkIsAMountedRoute
+// holds the links of the renders screens() makes to the routes mount registers.
 const (
 	pathConsole = Prefix
 	pathSignIn  = Prefix + "/login"
 	pathCode    = Prefix + "/login/totp"
 	pathLegal   = Prefix + "/legal"
+	pathTenants = Prefix + "/tenants"
 )
 
 // hostGate is the OPERATOR half of ADR 0020 §4's two-way host gate: when
@@ -269,6 +276,25 @@ func operatorOf(r *http.Request) (operatorauth.Identity, bool) {
 	return id, ok
 }
 
+// storeSession is the session sessionGate resolved and its hash for the store -- the
+// argument of every op_* call a console screen makes (the legal texts, OP-10; the
+// tenants, OP-11). Through mount both are in place; a route mounted outside the chain by
+// mistake answers the sign-in.
+func (s *Surface) storeSession(w http.ResponseWriter, r *http.Request) (operatorauth.Identity, string, bool) {
+	id, ok := operatorOf(r)
+	tok, hasToken := sessionTokenOf(r)
+	if !ok || !hasToken {
+		s.redirect(w, pathSignIn)
+		return operatorauth.Identity{}, "", false
+	}
+	hash, err := s.auth.SessionHash(tok)
+	if err != nil {
+		s.redirect(w, pathSignIn)
+		return operatorauth.Identity{}, "", false
+	}
+	return id, hash, true
+}
+
 // requireOperator is the cheap half of the identity check: a request without an operator
 // session cookie (or with an empty one) gets the sign-in redirect and no store call. The
 // token it read is handed on through the request context (sessionTokenOf); sessionGate and
@@ -323,7 +349,7 @@ func (s *Surface) sessionGate(next http.Handler) http.Handler {
 // spendSession charges one unit of the session's budget (sessionLimit, surface.go) and,
 // past it, answers 429 -- the window's first refusal logged at WARN with the session's
 // id. sessionGate charges every request once; a read charges its second transaction
-// (legalPage).
+// (legalPage; tenants.go's listTenants and tenantOverview).
 func (s *Surface) spendSession(w http.ResponseWriter, r *http.Request, id operatorauth.Identity) bool {
 	if n := s.sessions.Charge(id.SessionID.String()); n > sessionLimit {
 		if s.sessions.FirstOverLimit(n) {

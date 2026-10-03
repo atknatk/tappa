@@ -2,11 +2,12 @@ package operatorpages
 
 import "github.com/atknatk/tappa/web/templates/layout"
 
-// THE OPERATOR CHROME (M10 OP-8). The seven exported screens of this package (OP-10
-// added Legal) render inside screen, scriptedScreen or tenantScreen below, and each of
-// the three draws bar first. Measured: TestOperatorScreens_EveryOneWearsTheOperatorChrome
-// renders 14 variants of the seven and looks for the "TAPTIME OPERATOR" lockup. A page
-// that called the layout shell itself would skip the bar; that is code review's.
+// THE OPERATOR CHROME (M10 OP-8). The nine exported screens of this package (OP-10
+// added Legal, OP-11 Tenants and TenantOverview) render inside screen, scriptedScreen or
+// tenantScreen below, and each of the three draws bar first. Measured:
+// TestOperatorScreens_EveryOneWearsTheOperatorChrome renders the variants screens() makes
+// of the nine and looks for the "TAPTIME OPERATOR" lockup. A page that called the layout
+// shell itself would skip the bar; that is code review's.
 //
 // HOW IT IS SET APART FROM THE RESTAURANT PANEL, AND WHY BY PLACEMENT RATHER THAN BY A
 // NEW COLOUR (skill tappa-brand: no colour outside the palette). The panel is light
@@ -45,13 +46,20 @@ templ bar(signedIn bool) {
 
 // tenantBanner names the tenant a screen is showing, under the bar and above the
 // screen's content (ADR 0020 §9). In this package's source today its caller is
-// tenantScreen, whose caller is TenantScreen, which refuses an unnamed tenant (read, not
-// pinned).
-templ tenantBanner(name string) {
+// tenantScreen, whose caller is TenantScreen, which refuses the zero name (read, not
+// pinned). A tenant named by its id (UnnamedTenant) shows the placeholder's words and
+// the id, mono. The name is isolated for bidirectional text: a tenant chose it, and a
+// direction override inside it must not turn the banner's other words around.
+templ tenantBanner(name TenantName) {
 	<section class="op-tenant" aria-label="Tenant">
 		<div class="mx-auto w-full max-w-3xl px-4 py-3">
 			<p class="docket-label">Tenant</p>
-			<p class="font-display text-xl font-bold tracking-tight">{ name }</p>
+			if name.byID {
+				<p class="font-display text-xl font-bold tracking-tight">{ unnamedTenant }</p>
+				<p class="break-all font-mono text-sm">{ name.v }</p>
+			} else {
+				<p class="font-display text-xl font-bold tracking-tight"><bdi>{ name.v }</bdi></p>
+			}
 		</div>
 	</section>
 }
@@ -79,8 +87,8 @@ templ scriptedScreen(title, src string) {
 
 // tenantScreen is a screen showing one tenant: the tenant's name is in the document
 // title and in the banner. Unexported; TenantScreen calls it after checking the name.
-templ tenantScreen(title, name string) {
-	@layout.Operator(title + " — " + name + " — Taptime operator") {
+templ tenantScreen(title string, name TenantName) {
+	@layout.Operator(title + " — " + name.title() + " — Taptime operator") {
 		@bar(true)
 		@tenantBanner(name)
 		<main class="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-8">

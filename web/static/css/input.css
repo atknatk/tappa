@@ -789,8 +789,14 @@
      phone, a rule between rows in the perforation tone. Ink on the docket's paper,
      16.17:1; the live chip is the tally's ink on green-lite, computed in
      TestLegalScreen_TheTextClearsAA. A component and not a chain: it repeats once per
-     version. */
-  .op-version {
+     version.
+     The tenant list's row (M10 OP-11) is the same row -- a tenant's name as its link, when
+     it signed up, its plan, its id -- so its selector is grouped onto this declaration
+     rather than copying it (the tally modifiers' rule above): one row shape, two names,
+     because a tenant is not a version. Its link is tappa-green on paper, 7.73:1, computed
+     in TestTenantScreens_TheTextClearsAA. */
+  .op-version,
+  .op-row {
     @apply flex flex-wrap items-baseline gap-x-4 gap-y-1 border-b border-line py-2 text-ink last:border-b-0;
   }
 }

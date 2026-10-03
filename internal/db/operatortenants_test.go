@@ -23,7 +23,8 @@ package db
 //     They take the lock SHARED through opLiveFixture, write their tenant fixtures only
 //     inside transactions that are rolled back, and leave, per run, by construction:
 //     one disabled account each, its revoked sessions, and the 'read' rows they
-//     committed (the lifecycle two, the pool test three) -- operator_audit_log is
+//     committed (the lifecycle two, the pool test five -- three through the accessors,
+//     and since OP-11 phase B two more through *OperatorDB's methods) -- operator_audit_log is
 //     append-only and its foreign keys keep the account and the sessions those rows
 //     name. No tenant row is committed.
 //
@@ -1883,7 +1884,10 @@ func TestOpReadTenants_TwoPhaseLifecycle(t *testing.T) {
 // letters passes BOTH phases -- the accessor sends phase one and phase two the same text
 // (a term changed on its way to either would miss the ticket and be refused) -- and no
 // error the accessor returns carries the term (a refused session, a refused page, a term
-// over the bound). It commits three 'read' rows (file header).
+// over the bound). OP-11 phase B: the same two reads through *OperatorDB's METHODS -- the
+// ones the /operator/tenants screens call -- on that pool: the list returns, the overview
+// of an unknown id is ErrNoSuchTenant, and each commits one more 'read' row. It commits
+// five 'read' rows (file header).
 func TestTenantList_OnThePoolTheTwoPhasesAreTwoTransactions(t *testing.T) {
 	ctx, f := opLiveFixture(t)
 	o, err := openOperatorDB(ctx, f.dsn, asOperator)
@@ -1994,5 +1998,21 @@ func TestTenantList_OnThePoolTheTwoPhasesAreTwoTransactions(t *testing.T) {
 	}
 	if n := f.liveReads(t, ctx, f.session); n != 3 {
 		t.Errorf("the three refused calls left %d 'read' row(s), want 3", n)
+	}
+
+	// Through the methods (OP-11 phase B), on the production-built pool: each is the two
+	// phases as two transactions -- inside one, phase two would refuse the ticket and the
+	// method would answer ErrOperatorRefused.
+	if rows, err := o.TenantList(ctx, f.hash, TenantListQuery{Search: tok, Number: 1, Size: 5}); err != nil || len(rows) != 0 {
+		t.Errorf("(*OperatorDB).TenantList on its pool: %d row(s), %v; want none and no error", len(rows), err)
+	}
+	if n := f.liveReads(t, ctx, f.session); n != 4 {
+		t.Errorf("the list method's read left the session with %d committed 'read' row(s), want 4", n)
+	}
+	if _, err := o.TenantDetail(ctx, f.hash, unknown); !errors.Is(err, ErrNoSuchTenant) {
+		t.Errorf("(*OperatorDB).TenantDetail of an unknown tenant on its pool: %v, want ErrNoSuchTenant", err)
+	}
+	if n := f.liveReads(t, ctx, f.session); n != 5 {
+		t.Errorf("the overview method's read left the session with %d committed 'read' row(s), want 5", n)
 	}
 }

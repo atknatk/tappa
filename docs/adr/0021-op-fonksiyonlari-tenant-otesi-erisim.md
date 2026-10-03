@@ -10,7 +10,10 @@
   `legal_documents` üzerindeki INSERT'ini kaybetti — bkz. "OP-10 uygulama notu".
   **OP-11 A fazı (2026-10-03):** tenant verisini okuyan ilk iki `op_read_*`
   (`op_read_tenants`, `op_read_tenant_detail`) migration `00029` ile doğdu; `op_begin_read`
-  iki okuma türü kazandı — bkz. "OP-11 uygulama notu".
+  iki okuma türü kazandı — bkz. "OP-11 uygulama notu". **OP-11 B fazı (2026-10-03):** tenant
+  listesi, araması ve genel bakışı operatör yüzeyinde (`/operator/tenants`,
+  `/operator/tenants/{id}`), `*OperatorDB`'nin iki yeni yöntemiyle; migration yok — bkz. aynı
+  notun "OP-11 B fazı eki".
 - **Tarih:** 2026-09-26 · aynı gün **2. tur** (güvenlik denetiminin RED'i: izsiz okuma),
   **3. tur** (güvenlik denetiminin RED'i: bilet süresinin saati; üçüncü gözün bulguları) ve
   **3. tur eki** (orkestratör kararı: enrollment ve kimlik bilgisi yazımı definer'da) ve
@@ -1607,6 +1610,140 @@ değişmedi; uygulamanın karar verdiği yerler, adıyla:
   ve çağrıları; `TestLocations_WiFiSSIDNeedsNoNewGrantOrPolicy` — `locations`'ın sütun düzeyi ACL
   girişleri; `TestSignupStructure_DecidesNothingAfterSignUp` — kayıt yolu dışında `Structure` adlı
   bir Go seçicisi (genel bakışın tipi dahil). Mutasyon tablosu OP-11A kart düzeltmesinde.
+- **PART III:** listede olmayan her biçim kod incelemesinin konusu — tamlık iddiası yok.
+
+**OP-11 B fazı eki (2026-10-03, ekranlar ve wiring).** Yukarıdaki notun *"ekran, wiring ve
+`*OperatorDB` yöntemleri B fazıdır"* cümlesi A fazının kaydıdır; B fazında tüketici yazıldı:
+`internal/handler/operator/tenants.go` (tüketici arayüzü `TenantStore`, üç handler, sınır
+denetimleri), `web/templates/operatorpages/tenants.templ` (`Tenants`, `TenantOverview`),
+`*OperatorDB`'ye `TenantList(ctx, sessionHash, q)` ve `TenantDetail(ctx, sessionHash, id)` —
+ikisi de `return F(ctx, o.pool, …)`. Migration yok; bağımlılık yok. Kararlar, ölçümüyle:
+
+1. **Rotalar konsolun grubunda:** `GET /operator/tenants` (her tenant'ın ilk sayfası), `POST
+   /operator/tenants` (arama ve her sayfa), `GET /operator/tenants/{id}` (genel bakış) — host
+   kapısı → güvenlik başlıkları → flood → same-origin (okuma kapısıyla) → `requireOperator` →
+   `sessionGate`. Konsol (`Home`) `/operator/tenants`'a link verir; `/operator`'un kendisi liste
+   DEĞİL: liste bir okumadır — iki bütçe birimi ve bir audit satırı — ve her girişin indiği
+   sayfa bu bedeli taşımaz. (Orkestratör kararı K2, 2026-10-03: konsol menü kalır; ADR 0020
+   §4'ün *"Rotalar"* maddesi ve §9'un *"Ekranda"* hücresi buna göre düzeltildi.)
+2. **Arama terimi isteğin yalnız gövdesinde; URL'de, `Location`'da, süreç log'unda ve audit
+   satırında yok (ölçülen kollar, PART I)** (A notu md. 14.3'ün (a) seçeneği). Tasarım gereği
+   gittiği yerler: arandığı sonuç sayfası, `internal/db`'nin iki aşamaya bağlı parametresi ve
+   deyimlerini parametreleriyle log'layan bir veritabanının kendi sunucu log'u (dev'in
+   `log_statement = all`'ı; üretim deyim log'lamaz — OP-11 notu md. 11 (d)). `GET
+   /operator/tenants` URL'den hiçbir şey okumaz (`?q=`, `?page=` arama değildir); her sayfa —
+   boş terimli olanlar da — bir POST'tur, sayfalayıcı terimi ve sayfayı gizli alanlarda taşır.
+   **PRG yok:** yönlendirmenin GET'i terimi bir URL'de, bir çerezde ya da sunucuda durum olarak
+   taşımak zorunda kalırdı; formu yeniden gönderen bir yeniden yükleme (tarayıcı önce sorar)
+   bir okuma daha olur (audit'te bir satır daha — doğru kayıt). Terim sayfada gösterilir — arama
+   kutusunda, *"matching"* satırında, sayfalayıcının gizli alanlarında — templ'in kaçışıyla ve
+   `bdi` ile yalıtılmış; ret, hata ve yönlendirme yanıtlarında yoktur; kutu `autocomplete="off"`.
+   Terim formdan çıkışına dek `formValue`'dadır (yer tutucuyu basar); `reveal()` üç yerde: sınır
+   denetimi, `db.TenantListQuery.Search`, `operatorpages.TenantsView.Search`.
+3. **Sınır (CLAUDE.md §7):** terimin uçları kırpılır; kalan geçerli UTF-8, en çok
+   `db.MaxTenantSearchRunes` karakter, kontrol karakteri (C0, C1) ve satır/paragraf ayırıcısı
+   yok — yoksa 400, store çağrısı yok. Sayfa 1..1000 (`maxTenantPage`: OFFSET maliyeti A notu
+   md. 8; 1 000 × 50 = 50 000 tenant), yalnız ondalık rakam; sayfa boyu 50 (`tenantPageSize`,
+   sabit — formdaki bir `size` okunmaz). Sonraki sayfa yalnız TAM sayfadan sonra ve 1000'den önce.
+   Id yalnız 36 karakterlik tireli biçim (iki harf büyüklüğü); başka biçim 404 (*"That link does
+   not name a tenant"*), store çağrısı ve ikinci bütçe birimi yok (2. turdan beri ölçülü: 99 bozuk
+   id 99 birim). `ErrNoSuchTenant` → 404, ayrı sayfa; `ErrOperatorRefused` → oturum
+   açmanın 303'ü (legal ekranıyla aynı: çerez burada silinmez); başka her veritabanı hatası →
+   503 (A notu md. 14.4'ün *"22023 → 500"* önerisi yerine: `internal/db`'nin hatası SQLSTATE'i
+   yalnız metninde taşır ve handler'ın doğruladığı yerde 22023 ulaşılamazdır; log satırı
+   SQLSTATE'i taşır).
+4. **Adsız tenant (A notu md. 14.5 seçimi B'ye bıraktı):** `tenants.name`'de boş olmama CHECK'i
+   yok; görünür karakteri olmayan bir ad (legal ekranının `visibleText` kuralı) başlıkta
+   `operatorpages.UnnamedTenant(id)` ile — *"Unnamed tenant"* ve altında id, belge başlığında
+   *"Unnamed tenant <id>"* — liste satırında *"Unnamed tenant"* olarak çizilir. 500 seçilseydi o
+   tenant'ın genel bakışı hiç açılamazdı; tenant yine id'siyle adlandırılmış olur. Sıfır
+   `TenantName` hâlâ reddedilir (`TenantScreen` → render'ın 500'ü).
+5. **Bütçe yeniden türetildi: `sessionLimit` 100 → 200** (orkestratör kararı K1, 2026-10-03:
+   200 kalır). Her liste sayfası, arama sayfası ve genel bakış iki birimdir (`sessionGate` +
+   handler'ın `spendSession`'ı); bozuk id'li bir genel bakış bir birim. Tarayıcının geri tuşu bir
+   sonuç sayfasına dönerken `no-store` bir POST yanıtına döner; tarayıcı aramayı yeniden
+   gönderirse (önce sorar; ölçülmedi) bir okuma daha olur, yani sonuç listesinden açılan bir
+   tenant iki okumaya mal olabilir. Bir operatör × (~15 genel bakış × 2 + ~15 liste ya da arama
+   sayfası × 2 + ~5 legal görüntü × 2 + ~5 konsol + birkaç yayın) ≈ 75 / pencere, × ~2,7 pay →
+   200. **Bu bir tahmindir, kullanım ölçümü değil:** operatör yüzeyinin kullanım verisi yok.
+   **Bedeli:** çalınmış bir oturum çerezi pencere başına 100 okuma — en çok 5 000 liste satırı
+   (50'lik 100 sayfa) — yaptırabilir ve her okuma `operator_audit_log`'da bir `read` satırı
+   bırakır. Bir okuma isteği ÜÇ tanımlayıcı işlemidir — `sessionGate`'in `op_touch_session`'ı,
+   `op_begin_read`, `op_read_*` (sızıntı testinin hasadı üçünü de sayar) —, yani bütçenin KABUL
+   ettiği istekler için tavan 100 okuma = 300 tanımlayıcı işlemi + 100 `read` satırı, ya da 200
+   konsol görüntüsü = 200 yüklem çağrısı (3. tur, güvenlik F2; 2. turdaki "200 işlem" yanlıştı).
+   Bütçenin REDDETTİĞİ istek yüklemi zaten koşmuştur (`Verify`, `spendSession`'dan önce): yüklemin
+   kendi işini bu sayı değil, adres başına flood kapısı sınırlar. **Daha dar biçim, devir (OP-13 B):** oturuma bağlı ayrı bir OKUMA sınırlayıcısı
+   (ör. `readLimit` 60 / 10 dk) ve `sessionLimit` 100'de; gerekçe: OP-12/13/14'ün okumaları bu
+   türetmeyi ≈280'e taşır (planlayıcının tahmini).
+6. **Wiring:** `cmd/tappa`'nın `operatorStore`'u `operatorauth.Store` ∪ `LegalStore` ∪
+   `TenantStore`; `configuredSurface`'in store'u TAM üç kullanım (`arg0 of operatorAuthenticator`,
+   `arg1 of operator.New`, `arg2 of operator.New`), `texts` `arg3 of operator.New`.
+   `legalSession` iki ekranın ortak yardımcısı olarak `storeSession` adıyla `routes.go`'ya taşındı
+   (davranış aynı).
+
+**Güvenlik iddiası — üç parça.**
+
+- **Tehdit modeli:** Bu ölçümler ve pinler, tenant ekranlarının koduna kazara giren bir
+  değişikliğe karşıdır — terimi bir log satırına, bir URL'e ya da başka bir sayfaya taşıyan, bir
+  sınır denetimini ya da ikinci bütçe birimini düşüren, bir adı kaçışsız çizen bir düzenleme —
+  ve bir oturum sahibinin URL, başlık ve form üzerinden yapabildiklerine (ölçülen kollar). Paketin
+  sınırlarını bilerek atlatmak için yazılmış kod (başka bir paketten log, bir `ResponseWriter`
+  sarmalayıcısı, yansıma) ve süreç dışındaki yüzeyler (ingress log'u, tarayıcı, PostgreSQL'in
+  deyim log'u) kod incelemesinin ve sayılı sınırların konusudur.
+- **PART I — bugün sevk edilen kodun ölçülen davranışı** (2026-10-03; ölçen testin adıyla):
+  - Terimin yolu, GERÇEK bir sunucudan telden okunarak: iki terimin (ad ve adres biçimli) kendisi,
+    ilk sekiz ve ilk dört karakteri, altı yazımda (ham, sorgu-kaçışlı, yol-kaçışlı, HTML-kaçışlı,
+    `%q`, JSON) on kolda süreç ve erişim log'unda ve telin başlıklarında YOK; gövdede yalnız iki
+    sonuç sayfasında VAR (pozitif kontrol: kutu, *"matching"* satırı, gizli alan) ve orada da
+    hiçbir `href`/`action`/`src` değerinde yok; o sayfada terim ve ilk dört karakteri tam üçer kez
+    (kutu, satır, Next'in gizli alanı) ve belge başlığında (`<title>`, tam olarak *"Tenants —
+    Taptime operator"*) hiç yok (3. tur, güvenlik F1); oturum reddinin
+    `Location`'ı tam olarak `/operator/login`; URL'deki terim store'a `""` ve sayfa 1 olarak gider —
+    `TestTenantSearch_NoLogLineHeaderOrOtherPageCarriesTheTerm`. Sızıntı sözleşmesinde G17 (terimler
+    ve önekleri), A44–A59 on altı kol, D7 (sonuç sayfası) ve hasat (`TenantList` 7×2,
+    `TenantDetail` 4×1) — `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor`.
+  - Sınır: on iki terim ve on bir sayfa reddi 400 ve SIFIR `TenantList` çağrısı (internal/db'nin
+    reddettiği çağrı da sayılır); kabul edilenler kırpılmış terimle; 16 KiB gövde 413; ret sayfaları
+    ve kutunun `maxlength`'i `db.MaxTenantSearchRunes`'tan — `TestTenantSearch_TheBoundaryRefusesBeforeTheStore`.
+  - Yirmi yedi yanıt sınıfı (C67–C93) düşmanca istek başlıkları ve URL'de terim ve sayfayla:
+    tasarlanan başlıklar, oturum açmanınki dışında `Location` yok, yansıma yok; sınıf başına store
+    sayıları — `TestOperatorHeaders_TheTenantClassesCarryThePolicy`.
+  - Bütçe: 100 genel bakış 200, 101. kapıda 429; üç okumanın her biri 199 birimden sonra ikinci
+    biriminde 429, store çağrısız; 1 konsol + 99 bozuk id'li genel bakıştan sonra 100 konsol
+    görüntüsü 200, 101.si 429 (bozuk id bir birim) — `TestTenantPages_AReadCountsTwiceAgainstTheSessionBudget`;
+    `TestSessionGate_ABudgetPerSession` (201. konsol isteği 429),
+    `TestLegalPage_AReadCountsTwiceAgainstTheSessionBudget` (100 legal görüntü).
+  - Ad ve id: başlıkta ve belge başlığında kaçışlı ad, etiketine bağlı mono olgular ve sayımlar,
+    UTC+2'de saklı kayıt zamanı genel bakışta ve liste satırında UTC, yedi bozuk yol biçimi 404 ve
+    store'suz, bilinmeyen id 404, hata 503 ve log satırında id var oturum hash'i yok —
+    `TestTenantOverview_NamesTheTenantInTheBannerAndRefusesABadPath`; altı görünmez ad yer
+    tutucuyla, liste satırında id'si görünür metin olarak — `TestTenantOverview_AnUnnamedTenantIsNamedByItsID`;
+    kaçış ve `bdi` — `TestTenantScreens_EscapeWhatATenantAndAnOperatorTyped`; sayfalayıcı ve
+    aranmamış listede *"matching"* satırının yokluğu — `TestTenantList_PagesForwardOnlyAfterAFullPage`;
+    kontrast (palet; şablonların mürekkep tonları `TestBrand_EveryInkToneClearsAA`'da) —
+    `TestTenantScreens_TheTextClearsAA`.
+  - PostgreSQL'e karşı uçtan uca: liste, üç arama (`id`/`text`/`address` sınıfları), genel bakış
+    (owner'ın sayımlarıyla eşit), bilinmeyen id (adını taşıyan `read` satırı), bozuk id (satırsız),
+    üç ölü oturum (303, satırsız); kelime ve adres operatörün hiçbir audit satırında, bilet
+    satırında ve log'da yok; her okumanın bileti tüketilmiş —
+    `TestE2E_TenantScreensReadThroughTheDefinersAndAuditEachRead`. Yöntemlerin kendisi üretim
+    kurucusunun havuzunda iki işlem — `TestTenantList_OnThePoolTheTwoPhasesAreTwoTransactions`.
+- **PART II — adıyla pinler ve yakaladıklarının tam listesi:**
+  `TestOperatorDB_IsTheStoreAndNothingMore` — `*OperatorDB`'nin yöntem kümesi `operatorauth.Store`
+  ∪ `LegalStore` ∪ `TenantStore` ∪ `Close` (üç arayüz ortak ad taşırsa kırmızı);
+  `TestOperatorDB_EveryMethodDelegatesVerbatim` — on bir yöntem, argümanlar sırasıyla;
+  `TestOperatorDB_HasNoTenantDoorAndNoRawSQLDoor` — öncül 12; `TestOperatorWiring_ThePoolReachesOnlyTheAuthenticator`
+  — store'un üç kullanımı, `texts`'in dördüncü argüman oluşu; `TestFormValues_TheListedSitesAloneRevealOrReadTheForm`
+  — FV1 V4–V6 (`reveal()`'ın üç yeni yeri), FV3 `"q"` (yalnız `postValue`'nun adı olarak), FV5
+  `searchTenants`'ın `.Get("page")`'i bir kez; `TestOperatorHeaders_TheWalkedRoutesEachHaveAClass`
+  — sekiz rota, on üç çift, C1–C93; `TestOperatorPages_TheExportedScreensAreTheOnesScreensRenders`
+  — dokuz ekran kurucusu; `TestProblemViews_TheListedBuildFormsOccurOnlyInRenderGo` — yirmi
+  değişken; `TestOperatorScreens_EveryActionAndLinkIsAMountedRoute` — yirmi bir render, `{id}`
+  rotası adıyla; `TestCustomerPanel_EverySectionCarriesNoOperatorElement` (değişmedi) — müşteri
+  panelinde `/operator` işareti. Mutasyon tablosu ve sayılı sınırlar (LT1–LT14: tarayıcının POST
+  geçmişi, ingress'in gövde log'u, geri tuşunun yeniden gönderimi, dev'in deyim log'u, 1000 sayfa,
+  …) OP-11B kart düzeltmesinde.
 - **PART III:** listede olmayan her biçim kod incelemesinin konusu — tamlık iddiası yok.
 
 ## Sonuçlar

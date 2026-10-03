@@ -406,9 +406,10 @@ func readLegalVersions(ctx context.Context, c OperatorConn, sessionHash string, 
 //
 // The tenant list (with its search) and one tenant's overview on the operator's surface
 // (migration 00029; ADR 0021 §2 v, §3.2). Two exported two-phase reads in LegalVersions'
-// shape -- free functions over an OperatorConn; *OperatorDB does not delegate to them
-// yet (TestOperatorDB_IsTheStoreAndNothingMore derives its method set from the
-// consumers' interfaces, and the consumer, the tenant screens, is OP-11 phase B).
+// shape -- free functions over an OperatorConn; since OP-11 phase B *OperatorDB delegates
+// to both, as internal/handler/operator's TenantStore (the /operator/tenants screens'
+// interface), and TestOperatorDB_IsTheStoreAndNothingMore derives that type's method set
+// from TenantStore, LegalStore and operatorauth.Store.
 //
 // These are the first operator reads of TENANT data, and inside the two functions no
 // row level security applies (their owner is BYPASSRLS): what keeps one tenant's rows

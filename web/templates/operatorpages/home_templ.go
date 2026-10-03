@@ -12,12 +12,14 @@ import "github.com/atknatk/tappa/web/templates/components"
 
 // Home is /operator, the console's front page.
 //
-// It shows no tenant data. ADR 0020 §4 names /operator as the tenant list, and that list
-// is OP-11's: the operator's database role has no definer that reads a tenant yet
-// (00026, 00027). The page says it is signed in and links the one operator screen this
-// build has -- Taptime's legal texts (OP-10) -- beside the bar's sign-out form. Its
-// links are held to the mounted routes by TestOperatorScreens_EveryActionAndLinkIsAMountedRoute.
-// The session facts it states are ADR 0020 §2's, enforced by op_touch_session.
+// It shows no tenant data and makes no read: it is the operator's menu. The page says it
+// is signed in and links the operator screens this build has -- the tenants (OP-11; ADR
+// 0020 §4 named /operator itself as the tenant list, but the list is a READ, two units of
+// the session budget and an audit row, and the front page every sign-in lands on is not
+// made to cost one) and Taptime's legal texts (OP-10) -- beside the bar's sign-out form.
+// Its links are held to the mounted routes by
+// TestOperatorScreens_EveryActionAndLinkIsAMountedRoute. The session facts it states are
+// ADR 0020 §2's, enforced by op_touch_session.
 //
 // It does not show the operator's address: the session resolves to an id, and no
 // definer reads an operator's email (a new op_* is a migration).
@@ -54,7 +56,7 @@ func Home() templ.Component {
 				}()
 			}
 			ctx = templ.InitializeContext(ctx)
-			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<section class=\"op-card\"><p class=\"docket-label\">Operator console</p><h1 class=\"mt-1 font-display text-2xl font-bold tracking-tight\">You are signed in</h1><ul class=\"mt-4 flex flex-col gap-1\"><li><a href=\"/operator/legal\" class=\"op-link\">Legal texts</a> <span class=\"text-sm text-ink/70\">— Taptime's privacy policy, terms, company details and cookie notice</span></li></ul><p class=\"mt-4 text-sm text-ink/70\">A session ends after 30 minutes without use, and after 8 hours in any case. Sign out when you are done.</p></section>")
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 1, "<section class=\"op-card\"><p class=\"docket-label\">Operator console</p><h1 class=\"mt-1 font-display text-2xl font-bold tracking-tight\">You are signed in</h1><ul class=\"mt-4 flex flex-col gap-1\"><li><a href=\"/operator/tenants\" class=\"op-link\">Tenants</a> <span class=\"text-sm text-ink/70\">— find a business, and see what it has live</span></li><li><a href=\"/operator/legal\" class=\"op-link\">Legal texts</a> <span class=\"text-sm text-ink/70\">— Taptime's privacy policy, terms, company details and cookie notice</span></li></ul><p class=\"mt-4 text-sm text-ink/70\">A session ends after 30 minutes without use, and after 8 hours in any case. Sign out when you are done.</p></section>")
 			if templ_7745c5c3_Err != nil {
 				return templ_7745c5c3_Err
 			}
@@ -122,7 +124,7 @@ func Problem(v ProblemView) templ.Component {
 				var templ_7745c5c3_Var6 string
 				templ_7745c5c3_Var6, templ_7745c5c3_Err = templ.JoinStringErrs(v.Title)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/home.templ`, Line: 40, Col: 70}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/home.templ`, Line: 46, Col: 70}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var6))
 				if templ_7745c5c3_Err != nil {
@@ -135,7 +137,7 @@ func Problem(v ProblemView) templ.Component {
 				var templ_7745c5c3_Var7 string
 				templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinStringErrs(v.Message)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/home.templ`, Line: 41, Col: 30}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/home.templ`, Line: 47, Col: 30}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var7))
 				if templ_7745c5c3_Err != nil {
@@ -172,7 +174,7 @@ func Problem(v ProblemView) templ.Component {
 				var templ_7745c5c3_Var9 string
 				templ_7745c5c3_Var9, templ_7745c5c3_Err = templ.JoinStringErrs(v.BackLabel)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/home.templ`, Line: 45, Col: 63}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/operatorpages/home.templ`, Line: 51, Col: 63}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var9))
 				if templ_7745c5c3_Err != nil {

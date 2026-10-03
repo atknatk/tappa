@@ -1,6 +1,7 @@
 // Package operatorpages is the platform operator's screens (M10 OP-8; ADR 0020 §4):
 // sign-in, the TOTP step, enrollment, the console's front page and its problem page,
-// and (OP-10) the legal texts screen, in the "TAPTIME OPERATOR" chrome.
+// (OP-10) the legal texts screen and (OP-11) the tenant list and a tenant's overview, in
+// the "TAPTIME OPERATOR" chrome.
 //
 // IT IS NOT web/templates/pages, ON PURPOSE. pages is what the customer product renders
 // and internal/handler imports it. Measured with `go list` (non-test imports, the build
@@ -27,16 +28,22 @@ import (
 // TenantName is the name of the tenant a cross-tenant screen is showing (ADR 0020 §9:
 // "tenant-ötesi her ekran girdiği tenant'ı başlıkta ADIYLA gösterir"; M9-08 kabul 2).
 //
-// ITS ZERO VALUE IS NOT A NAME. The field is unexported, so outside this package a name
-// is made with NewTenantName, which refuses an empty or blank one; TenantScreen refuses
+// ITS ZERO VALUE IS NOT A NAME. The fields are unexported, so outside this package a name
+// is made with NewTenantName, which refuses an empty or blank one, or -- for a tenant
+// whose stored name shows nothing (tenants.name has no CHECK against that) --
+// UnnamedTenant, which names it by its id and refuses an empty one; TenantScreen refuses
 // the zero value at render time. A screen rendered through TenantScreen carries the
 // tenant's name in its banner and title -- TestTenantScreen_RefusesToRenderWithoutAName
-// measures both refusals and a named render. Which pages show a tenant's data, and
-// whether each renders through TenantScreen, is code review's (OP-11); no test pins it.
-//
-// No tenant screen exists in OP-8 (the first ones are OP-11's); the slot is here so
-// the first one is born inside it.
-type TenantName struct{ v string }
+// measures the refusals and a named render, TestTenantOverview_AnUnnamedTenantIsNamedByItsID
+// the placeholder. Which pages show a tenant's data, and whether each renders through
+// TenantScreen, is code review's; no test pins it. OP-11's overview (TenantOverview) is
+// the first that does; the tenant LIST shows many tenants and names none in a banner.
+type TenantName struct {
+	v string
+	// byID marks the placeholder: v is the tenant's id, and the banner says "Unnamed
+	// tenant" above it.
+	byID bool
+}
 
 // ErrNoTenantName is NewTenantName's and TenantScreen's refusal.
 var ErrNoTenantName = errors.New("operatorpages: a tenant screen needs the tenant's name")
@@ -50,6 +57,28 @@ func NewTenantName(name string) (TenantName, error) {
 	return TenantName{v: name}, nil
 }
 
+// UnnamedTenant is the banner name of a tenant whose stored name shows nothing: the
+// words "Unnamed tenant" and its id. An empty id is refused -- the placeholder would
+// name nobody either.
+func UnnamedTenant(id string) (TenantName, error) {
+	if strings.TrimSpace(id) == "" {
+		return TenantName{}, ErrNoTenantName
+	}
+	return TenantName{v: id, byID: true}, nil
+}
+
+// title is the name as the document title spells it.
+func (n TenantName) title() string {
+	if n.byID {
+		return unnamedTenant + " " + n.v
+	}
+	return n.v
+}
+
+// unnamedTenant is the placeholder's words, on the banner, in the title and on a list
+// row whose tenant shows no name.
+const unnamedTenant = "Unnamed tenant"
+
 // TenantScreen is the chrome for a screen that shows ONE tenant's data: the operator bar,
 // then a banner naming the tenant, then the page. For the zero TenantName it returns
 // ErrNoTenantName before writing a byte (it checks first), and
@@ -60,7 +89,7 @@ func TenantScreen(title string, tenant TenantName) templ.Component {
 		if tenant.v == "" {
 			return ErrNoTenantName
 		}
-		return tenantScreen(title, tenant.v).Render(ctx, w)
+		return tenantScreen(title, tenant).Render(ctx, w)
 	})
 }
 
@@ -152,13 +181,56 @@ type LegalVersionRow struct {
 	Current bool
 }
 
+// TenantsView is /operator/tenants (M10 OP-11): a page of the tenant list, newest first,
+// and the search it is a page of. Every value is text the handler formatted; templ
+// escapes each one.
+type TenantsView struct {
+	// Search is the term as it was searched -- trimmed -- or "" for every tenant. It is
+	// shown back in the search box, in the "matching" line and in the pager's hidden
+	// fields: the page is the answer to a POST and the term is its own (this page's links
+	// and form actions carry no term; the forms post it).
+	Search string
+	// Page is the page number, from 1.
+	Page int
+	Rows []TenantRow
+	// HasNext offers the next page: the handler sets it on a full page short of its
+	// last.
+	HasNext bool
+}
+
+// TenantRow is one tenant of the list: a link to its overview, and the facts that tell
+// it from another (op_read_tenants' four columns).
+type TenantRow struct {
+	ID string
+	// Path is the overview's path, /operator/tenants/<id>.
+	Path string
+	// Name is the tenant's name, or "" when it shows nothing -- the row then says
+	// "Unnamed tenant" and the id beside it names the tenant.
+	Name      string
+	CreatedAt string // UTC
+	Plan      string
+}
+
+// TenantOverviewView is /operator/tenants/{id} (M10 OP-11): one tenant's identity and
+// four counts of what is live, rendered through TenantScreen.
+type TenantOverviewView struct {
+	Name         TenantName
+	ID           string
+	CreatedAt    string // UTC
+	Plan         string
+	BusinessType string
+	// The counts, formatted: every location; employees, plaques and panel accounts
+	// whose status is active.
+	Locations, ActiveEmployees, ActivePlaques, ActiveAdmins string
+}
+
 // ProblemView is a refusal or a fault the operator surface answers with a page.
 type ProblemView struct {
 	Title   string
 	Message string
 	// Back is a same-origin path offered as the way on ("" for none). The links of the
-	// ten pages internal/handler/operator's problemPages lists are held to mounted routes
-	// by TestProblemPages_LinkOnlyToMountedRoutes.
+	// pages internal/handler/operator's problemPages lists are held to mounted routes by
+	// TestProblemPages_LinkOnlyToMountedRoutes.
 	Back      string
 	BackLabel string
 	// SignedIn renders the sign-out control in the bar.

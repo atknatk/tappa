@@ -113,13 +113,13 @@ func TestOperatorHeaders_TheLegalClassesCarryThePolicy(t *testing.T) {
 			failing("LegalVersions", db.ErrOperatorRefused, func() req { return get(signIn()) })},
 		{"C55 legal page, the read's second unit refused", 429, func() *httptest.ResponseRecorder {
 			c := signIn()
-			for i := 0; i < 99; i++ { // 99 console views: 99 units
+			for i := 0; i < 199; i++ { // 199 console views: 199 units (sessionLimit 200 since OP-11)
 				if w := send(req{method: http.MethodGet, path: "/operator", cookies: []*http.Cookie{c}, header: sfs}); w.Code != http.StatusOK {
 					t.Fatalf("PREMISE: console view %d = %d", i+1, w.Code)
 				}
 			}
 			versionsBefore = g.store.count("LegalVersions")
-			return send(get(c)) // the gate's 100th unit, the handler's 101st
+			return send(get(c)) // the gate's 200th unit, the handler's 201st
 		}},
 		{"C56 publication", 303, once(func() req { return post(legalForm("privacy", "FAKE C56 text"), signIn()) })},
 		{"C57 publication without a cookie", 303, once(func() req { return post(legalForm("privacy", "FAKE C57 text")) })},
@@ -188,11 +188,12 @@ func TestOperatorHeaders_TheLegalClassesCarryThePolicy(t *testing.T) {
 }
 
 // TestLegalPage_AReadCountsTwiceAgainstTheSessionBudget measures surface.go's sessionLimit
-// re-derivation (OP-10): a legal page view is two units of the session's budget.
+// re-derivation (OP-10; the limit is 200 since OP-11's): a legal page view is two units of
+// the session's budget.
 //
-// PART I -- one session, 50 legal page views from 50 addresses: 50 x 200 and 50
-// LegalVersions calls; the 51st view is 429 at the gate (101 units) with no 51st read.
-// A second session: 1 console view and 49 legal views (99 units), then a legal view is
+// PART I -- one session, 100 legal page views from 100 addresses: 100 x 200 and 100
+// LegalVersions calls; the 101st view is 429 at the gate (201 units) with no 101st read.
+// A second session: 1 console view and 99 legal views (199 units), then a legal view is
 // 429 from the handler's second unit -- the gate's predicate ran (TouchOperatorSession
 // +1) and LegalVersions did not. CONTROL: a third session reads the page.
 //
@@ -208,22 +209,22 @@ func TestLegalPage_AReadCountsTwiceAgainstTheSessionBudget(t *testing.T) {
 			remote: fmt.Sprintf("198.18.%d.%d:1", n/200, n%200+1), header: map[string]string{"Sec-Fetch-Site": "same-origin"}})
 	}
 	a := g.signIn(g.active())
-	for i := 0; i < 50; i++ {
+	for i := 0; i < 100; i++ {
 		if w := view("/operator/legal", a); w.Code != http.StatusOK {
 			t.Fatalf("legal view %d of one session = %d, want 200", i+1, w.Code)
 		}
 	}
-	if got := g.store.count("LegalVersions"); got != 50 {
-		t.Fatalf("PREMISE: %d read(s) for 50 views", got)
+	if got := g.store.count("LegalVersions"); got != 100 {
+		t.Fatalf("PREMISE: %d read(s) for 100 views", got)
 	}
-	if w := view("/operator/legal", a); w.Code != http.StatusTooManyRequests || g.store.count("LegalVersions") != 50 {
-		t.Fatalf("the 51st legal view of one session = %d with %d read(s), want 429 and 50", w.Code, g.store.count("LegalVersions"))
+	if w := view("/operator/legal", a); w.Code != http.StatusTooManyRequests || g.store.count("LegalVersions") != 100 {
+		t.Fatalf("the 101st legal view of one session = %d with %d read(s), want 429 and 100", w.Code, g.store.count("LegalVersions"))
 	}
 	b := g.signIn(g.active())
 	if w := view("/operator", b); w.Code != http.StatusOK {
 		t.Fatalf("PREMISE: console view = %d", w.Code)
 	}
-	for i := 0; i < 49; i++ {
+	for i := 0; i < 99; i++ {
 		if w := view("/operator/legal", b); w.Code != http.StatusOK {
 			t.Fatalf("legal view %d of the second session = %d", i+1, w.Code)
 		}

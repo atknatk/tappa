@@ -11,7 +11,6 @@ import (
 
 	"github.com/atknatk/tappa/internal/db"
 	"github.com/atknatk/tappa/internal/domain/legal"
-	"github.com/atknatk/tappa/internal/operatorauth"
 	"github.com/atknatk/tappa/web/templates/operatorpages"
 )
 
@@ -35,8 +34,8 @@ import (
 // LegalStore is the operator database's slice this screen needs, declared at the
 // consumer (CLAUDE.md §7). *db.OperatorDB implements it by delegating to internal/db's
 // LegalVersions and PublishLegal (TestOperatorDB_EveryMethodDelegatesVerbatim), and
-// that type's method set is derived from this interface and operatorauth.Store
-// (TestOperatorDB_IsTheStoreAndNothingMore). sessionHash is operatorauth's
+// that type's method set is derived from this interface, TenantStore (tenants.go) and
+// operatorauth.Store (TestOperatorDB_IsTheStoreAndNothingMore). sessionHash is operatorauth's
 // SessionHash of the request's token -- on ADR 0020 §5's never-log list.
 type LegalStore interface {
 	// LegalVersions is ADR 0021 §2 v's two-phase read: op_begin_read writes and commits
@@ -82,7 +81,7 @@ const legalWriteTimeout = 10 * time.Second
 // request once, and the handler charges it once more before the read
 // (TestLegalPage_AReadCountsTwiceAgainstTheSessionBudget).
 func (s *Surface) legalPage(w http.ResponseWriter, r *http.Request) {
-	id, hash, ok := s.legalSession(w, r)
+	id, hash, ok := s.storeSession(w, r)
 	if !ok {
 		return
 	}
@@ -157,7 +156,7 @@ func (s *Surface) legalPage(w http.ResponseWriter, r *http.Request) {
 // hash are not arguments of them, and the leak test's arms A31-A43 search both on the
 // process log (TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor, G16 and G8).
 func (s *Surface) publishLegal(w http.ResponseWriter, r *http.Request) {
-	id, hash, ok := s.legalSession(w, r)
+	id, hash, ok := s.storeSession(w, r)
 	if !ok {
 		return
 	}
@@ -196,24 +195,6 @@ func (s *Surface) publishLegal(w http.ResponseWriter, r *http.Request) {
 			"slug", slug, "err", err)
 	}
 	s.redirect(w, pathLegal)
-}
-
-// legalSession is the session sessionGate resolved and its hash for the store. Through
-// mount both are in place; a route mounted outside the chain by mistake answers the
-// sign-in.
-func (s *Surface) legalSession(w http.ResponseWriter, r *http.Request) (operatorauth.Identity, string, bool) {
-	id, ok := operatorOf(r)
-	tok, hasToken := sessionTokenOf(r)
-	if !ok || !hasToken {
-		s.redirect(w, pathSignIn)
-		return operatorauth.Identity{}, "", false
-	}
-	hash, err := s.auth.SessionHash(tok)
-	if err != nil {
-		s.redirect(w, pathSignIn)
-		return operatorauth.Identity{}, "", false
-	}
-	return id, hash, true
 }
 
 // blankSymbol reports the symbols (category So) that render as nothing or as empty

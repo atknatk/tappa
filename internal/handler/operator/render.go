@@ -66,7 +66,8 @@ func (s *Surface) readForm(w http.ResponseWriter, r *http.Request, limit int64, 
 }
 
 // render writes one screen. It renders into a buffer first, so a component that refuses
-// (operatorpages.TenantScreen without a tenant's name) or fails writes no partial page:
+// (operatorpages.TenantScreen without a tenant's name -- the tenant overview renders
+// through it) or fails writes no partial page:
 // the status line has not been sent, and the answer is a plain 500
 // (TestTenantScreen_RefusesToRenderWithoutAName).
 func (s *Surface) render(w http.ResponseWriter, r *http.Request, status int, c templ.Component) {
@@ -115,9 +116,9 @@ func (s *Surface) renderEnroll(w http.ResponseWriter, r *http.Request, status in
 
 // The surface's fixed refusal and fault pages. Their sentences are constants, each
 // saying what to do next (skill tappa-brand: a message does not blame, it says what to
-// do). problemPages lists them (thirteen variables and problemTooMany twice), and
-// TestProblemPages_LinkOnlyToMountedRoutes renders the fifteen and holds their links to
-// the mounted routes. Pinned: TestProblemViews_TheListedBuildFormsOccurOnlyInRenderGo
+// do). problemPages lists them (twenty variables and problemTooMany twice), and
+// TestProblemPages_LinkOnlyToMountedRoutes renders the twenty-two and holds their links
+// to the mounted routes. Pinned: TestProblemViews_TheListedBuildFormsOccurOnlyInRenderGo
 // catches the list in its header.
 func problemTooMany(signedIn bool) operatorpages.ProblemView {
 	return operatorpages.ProblemView{
@@ -212,9 +213,66 @@ var (
 		BackLabel: "Back to the console",
 		SignedIn:  true,
 	}
+
+	// The tenant screens' pages (tenants.go). NONE REPEATS THE SEARCH TERM: the term
+	// belongs on the page it was searched from, and a refusal page is not one (the leak
+	// test's G17 holds the 400s, 413, 503 and 303 of a search to that). The four
+	// refusals of a search are answered before any store call and say nothing was
+	// searched; the numbers in two of them are db.MaxTenantSearchRunes and maxTenantPage
+	// (TestTenantSearch_TheBoundaryRefusesBeforeTheStore reads both off the pages).
+	problemTenantSearchTooLarge = operatorpages.ProblemView{
+		Title:     "That search was too large",
+		Message:   "A search is one line of at most 254 characters. Nothing was searched.",
+		Back:      pathTenants,
+		BackLabel: "Back to the tenants",
+		SignedIn:  true,
+	}
+	problemTenantSearchRefused = operatorpages.ProblemView{
+		Title: "That search could not be used",
+		Message: "A search is one line of at most 254 characters, with no line breaks or control characters. " +
+			"Nothing was searched.",
+		Back:      pathTenants,
+		BackLabel: "Back to the tenants",
+		SignedIn:  true,
+	}
+	problemTenantPageRefused = operatorpages.ProblemView{
+		Title:     "That page does not exist",
+		Message:   "The list has pages 1 to 1000. Nothing was searched; start again from the first page.",
+		Back:      pathTenants,
+		BackLabel: "Back to the tenants",
+		SignedIn:  true,
+	}
+	problemTenantsUnreadable = operatorpages.ProblemView{
+		Title:     "The tenants could not be loaded",
+		Message:   "Try again in a moment.",
+		Back:      pathConsole,
+		BackLabel: "Back to the console",
+		SignedIn:  true,
+	}
+	problemTenantNotAnID = operatorpages.ProblemView{
+		Title:     "That link does not name a tenant",
+		Message:   "Open the tenant from the list.",
+		Back:      pathTenants,
+		BackLabel: "Go to the tenants",
+		SignedIn:  true,
+	}
+	problemNoSuchTenant = operatorpages.ProblemView{
+		Title:     "There is no tenant with that id",
+		Message:   "The id may have been copied wrongly. Open the tenant from the list.",
+		Back:      pathTenants,
+		BackLabel: "Go to the tenants",
+		SignedIn:  true,
+	}
+	problemTenantUnreadable = operatorpages.ProblemView{
+		Title:     "That tenant could not be loaded",
+		Message:   "Try again in a moment.",
+		Back:      pathTenants,
+		BackLabel: "Back to the tenants",
+		SignedIn:  true,
+	}
 )
 
-// problemPages lists the thirteen variables above and problemTooMany(false) and (true),
+// problemPages lists the twenty variables above and problemTooMany(false) and (true),
 // for the link test.
 func problemPages() []operatorpages.ProblemView {
 	return []operatorpages.ProblemView{
@@ -222,5 +280,7 @@ func problemPages() []operatorpages.ProblemView {
 		problemUnavailable, problemEnrollIncomplete, problemEnrollRefused, problemSignOutFailed, problemSignOutThrottled,
 		problemLegalTooLarge, problemLegalUnknownDocument, problemLegalEmpty, problemLegalNotPublished,
 		problemLegalUnreadable,
+		problemTenantSearchTooLarge, problemTenantSearchRefused, problemTenantPageRefused, problemTenantsUnreadable,
+		problemTenantNotAnID, problemNoSuchTenant, problemTenantUnreadable,
 	}
 }

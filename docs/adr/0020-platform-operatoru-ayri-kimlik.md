@@ -350,8 +350,14 @@ bir restoran hesabına bağlı olmamalı* (m10-platform.md §1).
 ### 4. Rota ve host
 
 - **Rotalar:** `/operator/login`, `/operator/login/totp`, `/operator/enroll`,
-  `/operator/logout`, `/operator` (tenant listesi), `/operator/tenants/{id}`,
-  `/operator/legal`, `/operator/billing`, `/operator/plaques`, `/operator/audit`.
+  `/operator/logout`, `/operator` (konsol: menü — okuma yapmaz; oturum bütçesinden bir
+  birim, audit satırı yok), `/operator/tenants` (tenant listesi: `GET` her tenant'ın ilk
+  sayfası, `POST` arama ve her sayfa — OP-11), `/operator/tenants/{id}` (bir tenant'ın genel
+  bakışı), `/operator/legal`, `/operator/billing`, `/operator/plaques`, `/operator/audit`.
+  *(OP-11 notu, 2026-10-03: bu madde ilk yazıldığında `/operator`'u tenant listesi
+  sayıyordu. Liste bir okumadır — iki bütçe birimi ve bir `read` satırı — ve her girişin
+  indiği sayfa bu bedeli taşımasın diye kendi rotasına alındı; konsol ona link verir.
+  Gerekçe ve ölçüm: ADR 0021 → "OP-11 B fazı eki" md. 1.)*
 - **Host kapısı:** `TAPPA_OPERATOR_HOST` (D-B: `ops.taptime.mt`). Başka bir host'tan
   gelen `/operator/*` isteği **404** alır — ana host'ta (`taptime.mt/operator`) operatör
   yüzeyi yokmuş gibi görünür.
@@ -837,7 +843,7 @@ bir restoran hesabına bağlı olmamalı* (m10-platform.md §1).
 | M9-08 kriteri | Karşılığı |
 |---|---|
 | *"Operatörün her eylemi `audit_log`'a, ve hangi tenant adına yapıldığı okunabilir."* | **Yeniden okundu (K6):** her eylem `operator_audit_log`'a, satır tenant'ı adlandırır; tenant'ı **değiştirenler** ayrıca o tenant'ın `audit_log`'una aynı tx'te; okumalar yalnız operatör log'unda |
-| *"Tenant sınırının aşıldığı her yer, kodda ve ekranda adıyla görünür — sessiz bir çapraz-tenant okuma yok."* | Kodda: yalnız `op_` önekli fonksiyonlar (ADR 0021). Ekranda: tenant-ötesi her ekran girdiği tenant'ı başlıkta **adıyla** gösterir (OP-8). Sessizlik: okuma audit'i veri dönmeden commit edilir (§5) |
+| *"Tenant sınırının aşıldığı her yer, kodda ve ekranda adıyla görünür — sessiz bir çapraz-tenant okuma yok."* | Kodda: yalnız `op_` önekli fonksiyonlar (ADR 0021). Ekranda: tenant-ötesi her ekran girdiği tenant'ı başlıkta **adıyla** gösterir (OP-8). *(OP-11: liste tek bir tenant'a girmez ve başlık taşımaz, her satır tenant'ı adıyla gösterir; görünür adı olmayan bir tenant hem satırda hem genel bakışın başlığında "Unnamed tenant" ve id'siyle adlandırılır — sıfır `TenantName` hâlâ render edilemez.)* Sessizlik: okuma audit'i veri dönmeden commit edilir (§5) |
 | *"İzin listesi boşken panel kimseye açılmıyor, ve bu bir testle sabitlenmiş."* | `platform_admins` boşken kimse giremez; tohumlama ve kurulum sayfası yok (§1, §6) |
 | Ayrı rota ağacı; müşteri oturumu oraya hiçbir koşulda giremiyor (kabul 4, özet) | Ayrı host + ayrı çerez + ayrı tablo + ayrı çözümleme (§2, §4) — yapısal |
 

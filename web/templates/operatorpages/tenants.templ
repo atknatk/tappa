@@ -1,0 +1,156 @@
+package operatorpages
+
+import "strconv"
+
+// Tenants is /operator/tenants (M10 OP-11; ADR 0020 §4): the search, a page of the tenant
+// list newest first, and the pager.
+//
+// THE SEARCH IS A POST FORM, AND SO IS EVERY PAGE OF A LIST. A term can be a panel
+// account's email address -- personal data -- and a URL is written to the ingress's
+// access log and the browser's history; so the form posts the term in its body, and the
+// pager is two forms that post the term and the page number as hidden fields. The box
+// asks the browser to keep no history of what was typed in it (autocomplete off). The
+// links on this page carry no term.
+//
+// A TENANT CHOSE ITS NAME, AND THE OPERATOR TYPED THE TERM: both reach the page as data.
+// Every value is a templ expression, escaped, and the two are isolated for bidirectional
+// text (bdi), so a direction override inside one does not turn the words around it.
+// A row whose tenant shows no name says "Unnamed tenant"; its id is printed beside it.
+templ Tenants(v TenantsView) {
+	@screen("Tenants", true) {
+		<section class="op-card">
+			<p class="docket-label">Tenants</p>
+			<h1 class="mt-1 font-display text-2xl font-bold tracking-tight">Find a tenant</h1>
+			<form method="post" action="/operator/tenants" role="search" class="mt-5 flex flex-col gap-3">
+				<label for="tenant-search" class="docket-label">Search</label>
+				<input id="tenant-search" type="search" name="q" value={ v.Search } maxlength="254" autocomplete="off" spellcheck="false" class="op-input"/>
+				<p class="text-xs text-ink/70">
+					Part of a business name, a panel account's whole email address, or a tenant id. Leave it
+					empty to list every tenant.
+				</p>
+				<button type="submit" class="btn btn--primary">Search</button>
+			</form>
+			if v.Search != "" {
+				<p class="mt-4 text-sm">
+					Tenants matching <bdi class="font-mono">{ v.Search }</bdi>.
+				</p>
+				<p class="text-sm">
+					<a href="/operator/tenants" class="op-link">Show every tenant</a>
+				</p>
+			}
+			<p class="mt-2 text-sm">
+				<a href="/operator" class="op-link">Back to the console</a>
+			</p>
+		</section>
+		@tenantList(v)
+		@tenantPager(v)
+	}
+}
+
+// tenantList is the page of tenants on a docket: each row links to the tenant's
+// overview by its name and shows when it signed up (UTC), its plan and its id, mono.
+templ tenantList(v TenantsView) {
+	<section class="docket" aria-labelledby="tenant-list">
+		<h2 id="tenant-list" class="docket-label">Newest first · page <span class="font-mono">{ strconv.Itoa(v.Page) }</span></h2>
+		if len(v.Rows) == 0 {
+			if v.Page > 1 {
+				<p class="mt-2">This page is empty: the list ended on the page before.</p>
+			} else if v.Search != "" {
+				<p class="mt-2">No tenant matches that search.</p>
+			} else {
+				<p class="mt-2">There are no tenants yet.</p>
+			}
+		} else {
+			<ol class="mt-2">
+				for _, r := range v.Rows {
+					<li class="op-row">
+						<a href={ templ.URL(r.Path) } class="op-link">
+							if r.Name == "" {
+								<span class="italic">{ unnamedTenant }</span>
+							} else {
+								<bdi>{ r.Name }</bdi>
+							}
+						</a>
+						<span>Since { r.CreatedAt }</span>
+						<span>{ r.Plan }</span>
+						<span class="break-all text-xs text-ink/70">{ r.ID }</span>
+					</li>
+				}
+			</ol>
+		}
+	</section>
+}
+
+// tenantPager is the way to the page before and after this one -- each a form that
+// posts the same term and the page's number.
+templ tenantPager(v TenantsView) {
+	if v.Page > 1 || v.HasNext {
+		<nav class="flex flex-wrap items-center gap-x-6" aria-label="Pages of the list">
+			if v.Page > 1 {
+				@tenantPageForm(v.Search, v.Page-1, "Previous page")
+			}
+			if v.HasNext {
+				@tenantPageForm(v.Search, v.Page+1, "Next page")
+			}
+		</nav>
+	}
+}
+
+templ tenantPageForm(search string, page int, label string) {
+	<form method="post" action="/operator/tenants">
+		<input type="hidden" name="q" value={ search }/>
+		<input type="hidden" name="page" value={ strconv.Itoa(page) }/>
+		<button type="submit" class="op-link">{ label }</button>
+	</form>
+}
+
+// TenantOverview is /operator/tenants/{id} (M10 OP-11; ADR 0020 §4, §9): one tenant's
+// identity and four counts of what is live, inside TenantScreen -- the tenant's name is
+// in the banner and the document title, and a tenant whose stored name shows nothing is
+// named by its id. The counts are what op_read_tenant_detail returns: every location, and
+// the employees, plaques and panel accounts whose status is active -- no person, no
+// address, no plaque uid (ADR 0021, OP-11 note md. 5).
+templ TenantOverview(v TenantOverviewView) {
+	@TenantScreen("Tenant overview", v.Name) {
+		<section class="op-card">
+			<p class="docket-label">Tenant overview</p>
+			<dl class="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
+				@tenantFact("Tenant id", v.ID)
+				@tenantFact("Signed up", v.CreatedAt)
+				@tenantFact("Plan", v.Plan)
+				@tenantFact("Business type", v.BusinessType)
+			</dl>
+		</section>
+		<section class="docket" aria-labelledby="tenant-live">
+			<h2 id="tenant-live" class="docket-label">Live now</h2>
+			<dl class="mt-3 grid grid-cols-2 gap-4 sm:grid-cols-4">
+				@tenantCount("Locations", v.Locations)
+				@tenantCount("Active employees", v.ActiveEmployees)
+				@tenantCount("Active plaques", v.ActivePlaques)
+				@tenantCount("Active panel accounts", v.ActiveAdmins)
+			</dl>
+			<p class="mt-3 text-xs text-ink/70">
+				Counted when this page was opened. Locations have no status; the other three count the
+				active ones only.
+			</p>
+		</section>
+		<p class="flex flex-wrap gap-x-6">
+			<a href="/operator/tenants" class="op-link">Back to the tenants</a>
+			<a href="/operator" class="op-link">Back to the console</a>
+		</p>
+	}
+}
+
+templ tenantFact(label, value string) {
+	<div>
+		<dt class="docket-label">{ label }</dt>
+		<dd class="mt-1 break-all font-mono text-sm">{ value }</dd>
+	</div>
+}
+
+templ tenantCount(label, value string) {
+	<div>
+		<dt class="docket-label">{ label }</dt>
+		<dd class="mt-1 font-mono text-3xl font-bold">{ value }</dd>
+	</div>
+}

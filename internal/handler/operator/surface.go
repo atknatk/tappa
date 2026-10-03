@@ -1,7 +1,8 @@
 // Package operator is the platform operator's HTTP surface (M10; ADR 0020 §4, ADR 0021
 // §3.6): the sign-in with its TOTP step, the enrollment, the sign-out and the console's
-// front page (OP-8), Taptime's legal texts (OP-10, legal.go), on the operator's own
-// host, and the two 503 states OP-7 shipped.
+// front page (OP-8), Taptime's legal texts (OP-10, legal.go), the tenant list, its search
+// and one tenant's overview (OP-11, tenants.go), on the operator's own host, and the two
+// 503 states OP-7 shipped.
 //
 // 🔴 IT IS NOT internal/handler, AND THE PACKAGE BOUNDARY IS THE POINT. ADR 0021 §3.6:
 // the customer panel does not import the operator's packages. internal/handler is the
@@ -11,14 +12,15 @@
 //
 // WHAT IT SERVES. The operator's database role has five definers in 00026 --
 // op_touch_session, op_record_auth_event, op_open_session, op_complete_enrollment,
-// op_close_session -- and three in 00027 -- op_begin_read, op_read_legal_versions,
-// op_publish_legal; none of the eight reads a tenant (read from the two migrations). So
-// the routes are the sign-in,
-// the TOTP step, the enrollment, the sign-out, /operator itself and /operator/legal
-// (OP-10). ADR 0020 §4's /operator/tenants/{id}, /billing, /plaques and /audit are not
-// registered (TestSurface_TheScreensOfLaterTasksAreNotMounted), and the 14 renders of
-// screens() do not link to them (TestOperatorScreens_EveryActionAndLinkIsAMountedRoute);
-// they arrive with the definers that can serve them (OP-11, OP-14).
+// op_close_session --, three in 00027 -- op_begin_read, op_read_legal_versions,
+// op_publish_legal -- and two in 00029 -- op_read_tenants, op_read_tenant_detail, the two
+// that read a tenant (00029 also replaced op_begin_read; read from the three migrations).
+// So the routes are the sign-in, the TOTP step, the enrollment, the sign-out, /operator
+// itself, /operator/legal (OP-10) and /operator/tenants with /operator/tenants/{id}
+// (OP-11). ADR 0020 §4's /billing, /plaques and /audit are not registered
+// (TestSurface_TheScreensOfLaterTasksAreNotMounted), and the renders of screens() do not
+// link to them (TestOperatorScreens_EveryActionAndLinkIsAMountedRoute); they arrive with
+// the definers that can serve them (OP-12, OP-13, OP-14).
 package operator
 
 import (
@@ -57,6 +59,9 @@ type Surface struct {
 	// version list and publication, and the public pages' snapshot with its refresh.
 	legalStore LegalStore
 	texts      LegalTexts
+	// tenantStore is the tenant screens' (tenants.go): the operator database's tenant
+	// list and tenant overview, each a two-phase read.
+	tenantStore TenantStore
 	// host is TAPPA_OPERATOR_HOST, validated by internal/config: the host gate's
 	// comparison (httpx.OnHost).
 	host string
@@ -94,14 +99,18 @@ func Unavailable() *Surface { return &Surface{unavailable: true} }
 
 // New is the configured surface. It refuses the values a configured surface cannot do
 // without rather than degrade to Off silently: the Authenticator, the legal screen's
-// store and texts, the operator host, a base URL it can take the operator origin's
-// scheme and port from, and a logger.
-func New(auth *operatorauth.Authenticator, legalStore LegalStore, texts LegalTexts, host, baseURL string, log *slog.Logger) (*Surface, error) {
+// store and texts, the tenant screens' store, the operator host, a base URL it can take
+// the operator origin's scheme and port from, and a logger.
+func New(auth *operatorauth.Authenticator, legalStore LegalStore, tenantStore TenantStore, texts LegalTexts,
+	host, baseURL string, log *slog.Logger) (*Surface, error) {
 	if auth == nil {
 		return nil, errors.New("operator: a configured surface needs its Authenticator")
 	}
 	if legalStore == nil {
 		return nil, errors.New("operator: a configured surface needs its legal store (the operator database)")
+	}
+	if tenantStore == nil {
+		return nil, errors.New("operator: a configured surface needs its tenant store (the operator database)")
 	}
 	if texts == nil {
 		return nil, errors.New("operator: a configured surface needs the legal texts' snapshot")
@@ -117,14 +126,15 @@ func New(auth *operatorauth.Authenticator, legalStore LegalStore, texts LegalTex
 		return nil, err
 	}
 	return &Surface{
-		auth:       auth,
-		legalStore: legalStore,
-		texts:      texts,
-		host:       host,
-		origin:     origin,
-		log:        log,
-		sessions:   httpx.NewLimiter(sessionLimit, sessionPeriod),
-		signOuts:   httpx.NewLimiter(signOutLimit, signOutPeriod),
+		auth:        auth,
+		legalStore:  legalStore,
+		texts:       texts,
+		tenantStore: tenantStore,
+		host:        host,
+		origin:      origin,
+		log:         log,
+		sessions:    httpx.NewLimiter(sessionLimit, sessionPeriod),
+		signOuts:    httpx.NewLimiter(signOutLimit, signOutPeriod),
 		// limit 0: the window's first refusal is the first over the limit.
 		originRefusals: httpx.NewLimiter(0, originRefusalPeriod),
 	}, nil
@@ -225,27 +235,54 @@ const (
 	// sessionGate. Keyed on the session's id, so spending it takes that session's
 	// cookie. sessionGate charges one unit per request after the predicate, so it bounds
 	// the requests one session gets past the gate to a handler -- not the predicate's
-	// database work. Measured: one session, 101 console requests from 101 addresses ->
-	// 100 x 200, 1 x 429 and 101 predicate calls (TestSessionGate_ABudgetPerSession).
+	// database work. Measured: one session, 201 console requests from 201 addresses ->
+	// 200 x 200, 1 x 429 and 201 predicate calls (TestSessionGate_ABudgetPerSession).
 	// The predicate's work per address is bounded by the flood gate in front: an
 	// exhausted address with a live cookie gets 429 and 0 store calls
 	// (TestFloodGate_AnExhaustedAddressReachesNoConsolePredicate).
 	//
-	// RE-DERIVED IN OP-10 (the OP-8 note asked the first screen with a read to): a
-	// read costs two definer transactions (op_begin_read, op_read_*), and the read's
-	// handler charges a second unit (legalPage), so a legal page view is two units; a
-	// publication is one (op_publish_legal, then the snapshot's refresh on the
-	// customer pool); the console page is one. Measured: one session, 50 legal page
-	// views -> 50 x 200, the 51st -> 429 at the gate, 50 reads
-	// (TestLegalPage_AReadCountsTwiceAgainstTheSessionBudget).
+	// A READ IS TWO UNITS (OP-10's rule, the OP-8 note's request): it costs two definer
+	// transactions (op_begin_read, op_read_*), and the read's handler charges a second
+	// unit (spendSession: legalPage, and OP-11's listTenants and tenantOverview); a
+	// publication is one (op_publish_legal, then the snapshot's refresh on the customer
+	// pool); the console page is one.
 	//
-	//	one operator x (~10 legal page views x 2 + ~5 console views
-	//	                + a few publications)                     ~30 per window
-	//	x ~3 headroom                                             100
+	// RE-DERIVED IN OP-11. OP-10's derivation (~10 legal views x 2 + ~5 console views + a
+	// few publications ~ 30, x ~3 headroom = 100) had one screen with a read. The tenant
+	// screens add three, and they are what an operator walks: every list page, every page
+	// of a search and every overview is a read. A browser's Back from an overview to a
+	// search result shows a POST's no-store answer; if the browser re-sends the search (it
+	// asks first; not measured), that is one more read, so a tenant opened from a result
+	// list can cost two.
 	//
-	// OP-11's tenant screens are reads too; the derivation asks each to charge its second
-	// unit the same way (spendSession).
-	sessionLimit  = 100
+	//	one operator x (~15 tenant overviews x 2 + ~15 list or search pages x 2
+	//	                + ~5 legal page views x 2 + ~5 console views
+	//	                + a few publications)                     ~75 per window
+	//	x ~2.7 headroom                                           200
+	//
+	// THE MODEL IS AN ESTIMATE, NOT A MEASUREMENT OF USE: there is no usage data of the
+	// operator surface yet (orchestrator's decision K1, 2026-10-03, keeps 200). ITS COST: a
+	// stolen session cookie gets 100 reads per window -- at most 5 000 list rows (100 pages
+	// of 50) -- and each read leaves one 'read' row in operator_audit_log. A narrower shape
+	// was named and handed on, not built: a separate per-session READ limiter (e.g. 60 reads
+	// per 10 minutes) with sessionLimit back at 100 -- OP-13 phase B, because OP-12, OP-13
+	// and OP-14 add reads that would take this derivation to about 280.
+	//
+	// Measured: one session, 100 overviews -> 100 x 200 and 100 reads, the 101st -> 429 at
+	// the gate (201 units), each of the three tenant reads refused by its SECOND unit after
+	// 199, and an overview refused for a malformed id charged one unit, not two
+	// (TestTenantPages_AReadCountsTwiceAgainstTheSessionBudget); one session, 100 legal page
+	// views likewise (TestLegalPage_AReadCountsTwiceAgainstTheSessionBudget).
+	//
+	// WHAT THE NUMBER BOUNDS IN THE DATABASE. A read request is THREE definer transactions
+	// -- sessionGate's op_touch_session, op_begin_read and op_read_* (the leak test's harvest
+	// counts all three) -- so a session's 100 reads per window are 300 definer transactions
+	// and 100 'read' rows; its 200 console views are 200 predicate calls. That bounds the
+	// work of the requests the budget ADMITS. A request it refuses has already run the
+	// predicate (Verify runs before spendSession: the refused 201st console request above
+	// made the 201st predicate call), so the predicate's own work is bounded per address by
+	// the flood gate, not by this number -- the first paragraph's point.
+	sessionLimit  = 200
 	sessionPeriod = 10 * time.Minute
 
 	// signOutLimit: the per-address ceiling of a sign-out that carries a session cookie

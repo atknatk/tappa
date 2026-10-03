@@ -67,7 +67,8 @@ func (a *addrs) next() string {
 // classes whose last request goes to /operator/login, /operator/login/totp or
 // /operator/enroll (C1-C26, C38, C40 -- hostileDrive adds the query on those paths, C8's
 // hand-built request gets it from hostileOn) also carry hostileQuery (a token, an address,
-// a password, a code, a blob, and an id on a POST). On each of the 40, at WriteHeader:
+// a password, a code, a blob, since OP-11 a search term and a page, and an id on a POST).
+// On each of the 40, at WriteHeader:
 //   - the response's header NAMES are exactly the designed set (designedHeaders);
 //   - Content-Security-Policy is one value: enrollCSP on the four classes whose body loads
 //     a script (C18, C20, C21, C22 -- checked by name), operatorCSP on the other 36;
@@ -253,7 +254,7 @@ func TestOperatorHeaders_FortyResponseClassesCarryThePolicy(t *testing.T) {
 		{"C31 console, session budget", 429, func() *httptest.ResponseRecorder {
 			c := signIn()
 			var w *httptest.ResponseRecorder
-			for i := 0; i < 101; i++ {
+			for i := 0; i < 201; i++ {
 				w = send(get("/operator", c))
 			}
 			return w
@@ -470,13 +471,16 @@ var hostileHeaders = map[string]string{
 	"HX-Target":        "hostile-hx-target",
 }
 
-// hostileQuery is a query string carrying a value under five credential field names and
-// "blob"; hostileDrive appends it to the sign-in, code and enrollment requests (with an id
-// on a POST: the enrollment GET reads its id from the query by design).
+// hostileQuery is a query string carrying a value under five credential field names,
+// "blob", and (OP-11) the tenant search's two field names, "q" and "page" -- a search term
+// and a page put in the URL, where the screens must not read them; hostileDrive appends it
+// to the sign-in, code, enrollment, legal and tenant requests (with an id on a POST: the
+// enrollment GET reads its id from the query by design).
 var hostileQuery = url.Values{
 	"token": {"qry-hostile-token-" + strings.Repeat("q", 6)}, "email": {"qry-hostile@example.test"},
 	"password": {"qry hostile passphrase"}, "password_again": {"qry hostile passphrase"},
 	"code": {"917351"}, "blob": {"QRYblobHostileValue"},
+	"q": {"qry-hostile-search-term"}, "page": {"424242"},
 }
 
 // hostileValues are the hostile request values checkDesignedHeaders looks for in a response.
@@ -516,7 +520,7 @@ func hostileCookieLine(cookies []*http.Cookie) string {
 
 // hostileDrive is r with the hostile headers (a header the request sets itself --
 // Origin, Sec-Fetch-Site -- is kept), the second Cookie line and, on the sign-in, code,
-// enrollment and (OP-10) legal paths, the hostile query.
+// enrollment, (OP-10) legal and (OP-11) tenant paths, the hostile query.
 func hostileDrive(r req) req {
 	h := map[string]string{}
 	for k, v := range hostileHeaders {
@@ -528,8 +532,11 @@ func hostileDrive(r req) req {
 	r.header = h
 	r.cookieLine = hostileCookieLine(r.cookies)
 	path, _, _ := strings.Cut(r.path, "?")
+	if strings.HasPrefix(path, "/operator/tenants/") {
+		path = "/operator/tenants/{id}"
+	}
 	switch path {
-	case "/operator/login", "/operator/login/totp", "/operator/enroll", "/operator/legal":
+	case "/operator/login", "/operator/login/totp", "/operator/enroll", "/operator/legal", "/operator/tenants", "/operator/tenants/{id}":
 		q := url.Values{}
 		for k, v := range hostileQuery {
 			q[k] = v
@@ -562,13 +569,14 @@ func hostileOn(r *http.Request) {
 	r.URL.RawQuery = q.Encode()
 }
 
-// designed is a class's response headers beyond the four each of the 66 (C1-C66, the
-// three header tables) carries (Content-Security-Policy, Cache-Control,
+// designed is a class's response headers beyond the four each of the 93 (C1-C93, the
+// four header tables) carries (Content-Security-Policy, Cache-Control,
 // X-Content-Type-Options, Referrer-Policy):
 // its Location and Content-Type ("" = absent), its Allow values (chi writes one per
 // registered method, sorted here; "" = absent) and its Set-Cookie headers, each
 // "<cookie name>=set" or "<cookie name>=clear". Read off the shipped handlers and
-// measured on them (2026-10-02, the 4th round; C41-C48 the 5th; C49-C66 OP-10, 2026-10-03).
+// measured on them (2026-10-02, the 4th round; C41-C48 the 5th; C49-C66 OP-10, 2026-10-03;
+// C67-C93 OP-11, 2026-10-03).
 type designed struct {
 	loc, ct, allow string
 	cookies        []string
@@ -615,6 +623,21 @@ var designedHeaders = map[string]designed{
 	"C60": {ct: pageType}, "C61": {ct: pageType}, "C62": {ct: pageType}, "C63": {ct: pageType}, "C64": {loc: "/operator/legal"},
 	"C65": {loc: "/operator/login"},
 	"C66": {allow: "GET,POST"},
+	// OP-11's tenant screens (op11_test.go): the list, a search and an overview are pages,
+	// and so are their refusals -- a 400, 403, 404, 413, 429 or 503 page, none carrying a
+	// Location; the sign-in redirects of the gate and of a session the store refuses; the
+	// dead cookie cleared; PUT's and POST's 405. NO class of these redirects anywhere but
+	// the sign-in: a search answers 200 with its page (no PRG), so no Location can carry
+	// its term.
+	"C67": {ct: pageType}, "C68": {loc: "/operator/login"},
+	"C69": {loc: "/operator/login", cookies: []string{sessionClear}},
+	"C70": {loc: "/operator/login"}, "C71": {ct: pageType}, "C72": {loc: "/operator/login"}, "C73": {ct: pageType},
+	"C74": {ct: pageType}, "C75": {loc: "/operator/login"}, "C76": {ct: pageType}, "C77": {ct: pageType},
+	"C78": {ct: pageType}, "C79": {ct: pageType}, "C80": {ct: pageType}, "C81": {ct: pageType},
+	"C82": {loc: "/operator/login"}, "C83": {ct: pageType}, "C84": {allow: "GET,POST"},
+	"C85": {ct: pageType}, "C86": {loc: "/operator/login"}, "C87": {ct: pageType}, "C88": {ct: pageType},
+	"C89": {ct: pageType}, "C90": {loc: "/operator/login"}, "C91": {ct: pageType}, "C92": {loc: "/operator/login"},
+	"C93": {allow: "GET"},
 }
 
 // checkDesignedHeaders holds the response headers AT WriteHeader (w.Result().Header, the

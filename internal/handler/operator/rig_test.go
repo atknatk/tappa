@@ -26,6 +26,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
@@ -47,9 +48,10 @@ const (
 	custHost = "taptime.mt"
 )
 
-// fakeStore answers operatorauth.Store the way 00026's definers answer, and
-// operator.LegalStore the way 00027's do (OP-10), for the arms these tests drive, and
-// COUNTS its calls by method -- "the resolver was not called" is a count of zero here.
+// fakeStore answers operatorauth.Store the way 00026's definers answer,
+// operator.LegalStore the way 00027's do (OP-10) and operator.TenantStore the way 00029's
+// do (OP-11), for the arms these tests drive, and COUNTS its calls by method -- "the
+// resolver was not called" is a count of zero here.
 type fakeStore struct {
 	mu       sync.Mutex
 	calls    map[string]int
@@ -73,6 +75,16 @@ type fakeStore struct {
 	// lock -- a test's hook for another operator publishing between the screen's two
 	// reads (OP-10, round 3). It may call PublishLegal.
 	afterVersions func()
+	// The tenant screens' (OP-11): the tenants op_read_tenants lists, in the order it
+	// returns them (newest first -- a test puts them in that order); the overviews
+	// op_read_tenant_detail returns, by id; the queries and the ids the screens asked for.
+	tenants   []db.TenantSummary
+	overviews map[uuid.UUID]db.TenantOverview
+	queries   []db.TenantListQuery
+	details   []uuid.UUID
+	// matches, when set, replaces TenantList's matching rule -- a test that needs a full
+	// page of results without the term in the tenants' names.
+	matches func(term string, x db.TenantSummary) bool
 }
 
 // fakePublication is one PublishLegal the fake took: the session hash, the document, the
@@ -86,6 +98,7 @@ func newFakeStore() *fakeStore {
 	return &fakeStore{
 		calls: map[string]int{}, accounts: map[string]db.OperatorAccount{}, byID: map[uuid.UUID]db.OperatorAccount{},
 		live: map[string]db.OperatorSession{}, tokens: map[uuid.UUID]string{}, locked: map[uuid.UUID]bool{}, fail: map[string]error{},
+		overviews: map[uuid.UUID]db.TenantOverview{},
 	}
 }
 
@@ -275,6 +288,63 @@ func (f *fakeStore) PublishLegal(ctx context.Context, h, slug, body string) erro
 	return nil
 }
 
+// TenantList answers as op_begin_read + op_read_tenants do, through internal/db's
+// TenantList: a term internal/db will not send (invalid UTF-8, a NUL, more than
+// db.MaxTenantSearchRunes characters) is ErrTenantSearchRefused -- the call COUNTED, so a
+// screen that leaves the refusal to internal/db is seen calling the store; a dead session
+// is ErrOperatorRefused; otherwise the tenants whose name holds the term (case aside),
+// whose id is the term, or all of them for "", paged by Number and Size. (The address
+// branch is the database's: internal/db's tests measure it.)
+func (f *fakeStore) TenantList(_ context.Context, h string, q db.TenantListQuery) ([]db.TenantSummary, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.enter("TenantList"); err != nil {
+		return nil, err
+	}
+	if !utf8.ValidString(q.Search) || strings.ContainsRune(q.Search, 0) || utf8.RuneCountInString(q.Search) > db.MaxTenantSearchRunes {
+		return nil, db.ErrTenantSearchRefused
+	}
+	if _, ok := f.live[h]; !ok {
+		return nil, db.ErrOperatorRefused
+	}
+	f.queries = append(f.queries, q)
+	var found []db.TenantSummary
+	for _, x := range f.tenants {
+		switch {
+		case f.matches != nil:
+			if f.matches(q.Search, x) {
+				found = append(found, x)
+			}
+		case q.Search == "" || strings.Contains(strings.ToLower(x.Name), strings.ToLower(q.Search)) || x.ID.String() == strings.ToLower(q.Search):
+			found = append(found, x)
+		}
+	}
+	from := int(q.Number-1) * int(q.Size)
+	if from >= len(found) {
+		return nil, nil
+	}
+	return found[from:min(from+int(q.Size), len(found))], nil
+}
+
+// TenantDetail answers as op_begin_read + op_read_tenant_detail do: a dead session is
+// ErrOperatorRefused; an id the fake holds no overview for is ErrNoSuchTenant.
+func (f *fakeStore) TenantDetail(_ context.Context, h string, id uuid.UUID) (db.TenantOverview, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.enter("TenantDetail"); err != nil {
+		return db.TenantOverview{}, err
+	}
+	if _, ok := f.live[h]; !ok {
+		return db.TenantOverview{}, db.ErrOperatorRefused
+	}
+	f.details = append(f.details, id)
+	o, ok := f.overviews[id]
+	if !ok {
+		return db.TenantOverview{}, db.ErrNoSuchTenant
+	}
+	return o, nil
+}
+
 // fakeTexts is operator.LegalTexts: the snapshot (seeded by a test, or filled by a
 // refresh) and its refresh, which reads the fake store's publications -- the newest per
 // document wins, as ListPublishedLegalDocuments does, with the version's own time. A
@@ -451,7 +521,7 @@ func newRigAt(t *testing.T, level slog.Level) *rig {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s, err := operator.New(auth, g.store, g.texts, opHost, opBase, log)
+	s, err := operator.New(auth, g.store, g.store, g.texts, opHost, opBase, log)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -9,8 +9,9 @@ import (
 )
 
 // home is GET /operator: the console's front page, behind requireOperator and sessionGate.
-// It shows no tenant data -- 00026 has no definer that reads one -- and its links are held
-// to the mounted routes by TestOperatorScreens_EveryActionAndLinkIsAMountedRoute.
+// It shows no tenant data and makes no read -- it is the menu, linking the tenant screens
+// (OP-11) and the legal texts (OP-10) -- and its links are held to the mounted routes by
+// TestOperatorScreens_EveryActionAndLinkIsAMountedRoute.
 func (s *Surface) home(w http.ResponseWriter, r *http.Request) {
 	if _, ok := operatorOf(r); !ok {
 		// Unreachable through mount (sessionGate puts the identity in place); a route

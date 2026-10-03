@@ -33,3 +33,10 @@ const (
 	LegalVersionsLimitForTest = legalVersionsLimit
 	LegalWriteTimeoutForTest  = legalWriteTimeout
 )
+
+// TenantPageSizeForTest is tenants.go's tenantPageSize; MaxTenantPageForTest its
+// maxTenantPage.
+const (
+	TenantPageSizeForTest = tenantPageSize
+	MaxTenantPageForTest  = maxTenantPage
+)
