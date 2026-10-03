@@ -181,6 +181,10 @@ const storeDir = "internal/store"
 // logo's bytes from tenant_branding, read by tenant AND digest. The two per-page reads
 // carry no []byte field; internal/db's TestTenantBranding_PerPageReadsDoNotSelectTheLogo
 // pins their select lists on the shipped text.
+//
+// M10 WL-8 (2026-10-03) added GetTenantPanelBrand, the panel chrome's per-request read:
+// the business's name (tenants.name) beside GetTenantBrand's brand fields without the
+// audit pair. No []byte field -- the same test pins its select list.
 var storeSurface = map[string]string{
 	"AdvanceTagCounter":                  "(context.Context, AdvanceTagCounterParams{Ctr int32; TenantID uuid.UUID; Uid string}) (AdvanceTagCounterRow{Uid string; CtrGap int32}, error)",
 	"AppendPolicyVersion":                "(context.Context, AppendPolicyVersionParams{TenantID uuid.UUID; PolicyID uuid.UUID; VersionNo int32; Document []byte; CreatedBy *uuid.UUID}) (AppendPolicyVersionRow{ID uuid.UUID; VersionNo int32; CreatedAt time.Time}, error)",
@@ -248,6 +252,7 @@ var storeSurface = map[string]string{
 	"GetTenantBrandForUpdate":          "(context.Context, uuid.UUID) (GetTenantBrandForUpdateRow{Accent *string; LogoSha256 *string; LogoMime *string; LogoWidth *int32; LogoHeight *int32; UpdatedAt time.Time; UpdatedBy uuid.UUID}, error)",
 	"GetTenantClock":                   "(context.Context, uuid.UUID) (GetTenantClockRow{ID uuid.UUID; Name string; Timezone string}, error)",
 	"GetTenantLogo":                    "(context.Context, GetTenantLogoParams{TenantID uuid.UUID; LogoSha256 string}) (GetTenantLogoRow{Logo []byte; LogoMime *string}, error)",
+	"GetTenantPanelBrand":              "(context.Context, uuid.UUID) (GetTenantPanelBrandRow{Name string; Accent *string; LogoSha256 *string; LogoMime *string; LogoWidth *int32; LogoHeight *int32}, error)",
 	"GetTransactionReview":             "(context.Context, GetTransactionReviewParams{TenantID uuid.UUID; TransactionID uuid.UUID}) (GetTransactionReviewRow{ReviewerID uuid.UUID; Outcome string}, error)",
 	"InsertManualTransaction":          "(context.Context, InsertManualTransactionParams{TenantID uuid.UUID; Type string; OccurredAt time.Time; Trust int16; Note *string; EnteredBy uuid.UUID; EmployeeID uuid.UUID}) (InsertManualTransactionRow{ID uuid.UUID; OccurredAt time.Time; CreatedAt time.Time; Type *string; Verdict string; Channel string; Trust *int16; Practice bool; Queued bool}, error)",
 	"InsertTransaction":                "(context.Context, InsertTransactionParams{TenantID uuid.UUID; EmployeeID *uuid.UUID; LocationID *uuid.UUID; DepartmentID *uuid.UUID; TagUid *string; Ctr *int32; Type *string; OccurredAt time.Time; SourceIp *netip.Addr; IpMatch *bool; GpsLat pgtype.Numeric; GpsLng pgtype.Numeric; GpsMatch *bool; SunValid *bool; Trust *int16; Verdict string; Note *string; Channel string; EnteredBy *uuid.UUID; Practice bool; Queued bool; PolicyVersionID *uuid.UUID; MatchedSid *string; PolicyLayer *string; PolicyContext []byte}) (Transaction{ID uuid.UUID; TenantID uuid.UUID; EmployeeID *uuid.UUID; LocationID *uuid.UUID; DepartmentID *uuid.UUID; TagUid *string; Ctr *int32; Type *string; OccurredAt time.Time; SourceIp *netip.Addr; IpMatch *bool; GpsLat pgtype.Numeric; GpsLng pgtype.Numeric; GpsMatch *bool; SunValid *bool; Trust *int16; Verdict string; Note *string; Channel string; EnteredBy *uuid.UUID; Practice bool; Queued bool; CreatedAt time.Time; PolicyVersionID *uuid.UUID; MatchedSid *string; PolicyLayer *string; PolicyContext []byte}, error)",
@@ -805,11 +810,13 @@ func TestResolverAccess_NoSqlcQueryNamesADefiner(t *testing.T) {
 	// 122 -> 121 on 2026-10-03 (M10 OP-10 phase B): db/queries/legal.sql's
 	// PublishLegalDocument went with the M7-06 panel's legal screen (00027 revoked
 	// tappa_app's INSERT; the operator publishes through op_publish_legal).
-	if named != 121 {
-		t.Fatalf("%d named quer(ies) were seen across %d files; ONE HUNDRED AND TWENTY-ONE were "+
+	// 121 -> 122 on 2026-10-03 (M10 WL-8): branding.sql's GetTenantPanelBrand, the
+	// panel chrome's read; it calls no definer.
+	if named != 122 {
+		t.Fatalf("%d named quer(ies) were seen across %d files; ONE HUNDRED AND TWENTY-TWO were "+
 			"there when this was pinned (2026-10-03: 111 on 2026-08-24, + T73's three "+
 			"admin-password queries, + WL-1's eight branding queries, less OP-10's removed "+
-			"PublishLegalDocument). "+
+			"PublishLegalDocument, + WL-8's panel brand read). "+
 			"Update the number in the same edit that adds or removes a query", named, files)
 	}
 	if !t.Failed() {

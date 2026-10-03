@@ -122,7 +122,7 @@ func (a *AdminAuth) policiesSection(w http.ResponseWriter, r *http.Request) {
 	v.MayEdit = a.scribe.May(r.Context(), id.TenantID(), actorOf(id))
 	v.ProblemHeading, v.Problem = policyProblem(r.URL.Query().Get("problem"))
 	fillPoliciesView(&v, screen)
-	a.render(w, r, http.StatusOK, pages.AdminPolicies(v))
+	a.renderPanel(w, r, http.StatusOK, v.PanelChrome, pages.AdminPolicies(v))
 }
 
 // policyProblemSentence turns a query word into the sentence the page prints, or ""

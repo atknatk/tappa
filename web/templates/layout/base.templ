@@ -62,7 +62,7 @@ templ PageWithScript(title, src string) {
 templ shell(title, script string) {
 	<!DOCTYPE html>
 	<html lang="en">
-		@documentHead(title, script, RobotsPrivate)
+		@documentHead(title, script, RobotsPrivate, Theme{})
 		<body class="min-h-screen bg-porcelain text-ink antialiased">
 			<main class="mx-auto flex w-full max-w-md flex-col gap-6 px-4 py-8">
 				@Wordmark()
@@ -86,7 +86,12 @@ templ shell(title, script string) {
 // user input. robots is a CLOSED VOCABULARY rather than a free string — see the
 // Robots type — so the one page that asks to be indexed had to say so in a named
 // value that a test can count, not by editing a string literal in this head.
-templ documentHead(title, script string, robots Robots) {
+//
+// theme is the tenant accent's stylesheet (M10 WL-8, ADR 0023 §4), written right
+// after app.css so that its :root rule wins by order. It is a layout.Theme, which is
+// built from a brand.Color only, and its zero value writes nothing: the panel shells
+// pass the business's, every other shell passes the zero value.
+templ documentHead(title, script string, robots Robots, theme Theme) {
 	<head>
 		<meta charset="utf-8"/>
 		<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
@@ -94,6 +99,9 @@ templ documentHead(title, script string, robots Robots) {
 		<meta name="referrer" content="no-referrer"/>
 		<title>{ title }</title>
 		<link rel="stylesheet" href="/static/css/app.css"/>
+		if theme.Linked() {
+			<link rel="stylesheet" href={ theme.Href() }/>
+		}
 		if script != "" {
 			<script src={ script } defer></script>
 		}
@@ -167,8 +175,11 @@ templ Wordmark() {
 // TestPanelShells_TheScriptlessShellHasNoScriptSlot pins that, and
 // TestLayoutShells_EveryOneIsActuallyRendered stops this component going back to
 // being a comment.
-templ Panel(title string) {
-	@PanelWithScript(title, "") {
+//
+// theme (M10 WL-8) is the business's accent stylesheet for the panel's stripe, or the
+// zero layout.Theme; it is a stylesheet and nothing else (documentHead).
+templ Panel(title string, theme Theme) {
+	@PanelWithScript(title, "", theme) {
 		{ children... }
 	}
 }
@@ -217,10 +228,10 @@ templ Panel(title string) {
 //
 // WHAT IS TRUE: no SECTION reaches this shell without naming PanelShellWithScript.
 // Panel reaching it is the pair's implementation, not a route a page can take.
-templ PanelWithScript(title, src string) {
+templ PanelWithScript(title, src string, theme Theme) {
 	<!DOCTYPE html>
 	<html lang="en">
-		@documentHead(title, src, RobotsPrivate)
+		@documentHead(title, src, RobotsPrivate, theme)
 		<body class="min-h-screen bg-porcelain text-ink antialiased">
 			<main class="mx-auto flex w-full max-w-5xl flex-col gap-6 px-4 py-6">
 				{ children... }
@@ -316,7 +327,7 @@ templ Marketing(title string, robots Robots) {
 templ MarketingWithScript(title string, robots Robots, src string) {
 	<!DOCTYPE html>
 	<html lang="en">
-		@documentHead(title, src, robots)
+		@documentHead(title, src, robots, Theme{})
 		<body class="min-h-screen bg-porcelain text-ink antialiased">
 			{ children... }
 		</body>
@@ -370,7 +381,7 @@ templ MarketingWithScript(title string, robots Robots, src string) {
 templ Auth(title, script string) {
 	<!DOCTYPE html>
 	<html lang="en">
-		@documentHead(title, script, RobotsPrivate)
+		@documentHead(title, script, RobotsPrivate, Theme{})
 		<body class="min-h-screen bg-porcelain text-ink antialiased">
 			{ children... }
 		</body>
@@ -413,7 +424,7 @@ templ Operator(title string) {
 templ OperatorWithScript(title, src string) {
 	<!DOCTYPE html>
 	<html lang="en">
-		@documentHead(title, src, RobotsPrivate)
+		@documentHead(title, src, RobotsPrivate, Theme{})
 		<body class="min-h-screen bg-porcelain text-ink antialiased">
 			{ children... }
 		</body>

@@ -351,7 +351,7 @@ templ AdminChoose(v AdminChooseView) {
 // it. So this split does not make widening impossible — it makes the cheapest form
 // of it impossible, and leaves the remaining form deliberate and netted.
 templ PanelShell(c PanelChrome) {
-	@layout.Panel("Panel — Taptime") {
+	@layout.Panel("Panel — Taptime", c.Brand.Theme) {
 		@panelChrome(c)
 		{ children... }
 	}
@@ -374,7 +374,7 @@ templ PanelShell(c PanelChrome) {
 // cheapest edit — changing a string — is now rejected by the compiler, and the
 // remaining route requires naming a different component on purpose.
 templ PanelShellWithScript(c PanelChrome, script string) {
-	@layout.PanelWithScript("Panel — Taptime", script) {
+	@layout.PanelWithScript("Panel — Taptime", script, c.Brand.Theme) {
 		@panelChrome(c)
 		{ children... }
 	}
@@ -384,8 +384,15 @@ templ PanelShellWithScript(c PanelChrome, script string) {
 // one copy of a component call rather than one copy of the chrome. A second copy of
 // the lockup, the sign-out form and the navigation is the "second representation"
 // shape this file already argues against — the reason PanelShell exists at all.
+//
+// A BRANDED BUSINESS'S HEADER TAKES THE WORDMARK'S PLACE, and nothing else in the
+// chrome changes (M10 WL-8; panelbrandview.go has the rule and the zero value).
 templ panelChrome(c PanelChrome) {
-	@layout.Wordmark()
+	if c.Brand.Branded() {
+		@panelBrandHeader(c.Brand)
+	} else {
+		@layout.Wordmark()
+	}
 	<div class="flex flex-wrap items-baseline justify-between gap-3">
 		<div>
 			<p class="docket-label">Signed in as</p>
@@ -402,6 +409,35 @@ templ panelChrome(c PanelChrome) {
 	if s, ok := c.Section(); ok {
 		<h1 class="font-display text-2xl font-bold tracking-tight">{ s.Label }</h1>
 	}
+}
+
+// panelBrandHeader is the business's header (M10 WL-8; ADR 0023 §2, K4): the 4 px
+// stripe in its accent when the accent's stylesheet is linked, then its logo when it
+// has one, its name, and the co-brand line under the name. The stripe is decoration,
+// hidden from assistive technology and empty; the name is ink on the porcelain page
+// (14.32:1) and the co-brand line keeps the wordmark tagline's tone (5.70:1).
+//
+// THE LOGO'S ALT IS EMPTY, ON PURPOSE (orchestrator decision, WL-8 round 1): the name
+// is the visible text right beside it, so a named alt is read twice, and a logo that
+// fails to load would print the name inside its own box and push the page down by as
+// many lines as the name takes. With an empty alt the box stays as wide and as tall
+// as its attributes (ADR 0023 WL-8 note has both measurements). The tap screen, where
+// the name is not shown, keeps the name as its alt (WL-9).
+templ panelBrandHeader(b PanelBrand) {
+	<header class="flex flex-col gap-3">
+		if b.Theme.Linked() {
+			<div aria-hidden="true" class="panel-stripe"></div>
+		}
+		<div class="flex items-center gap-3">
+			if b.DrawsLogo() {
+				<img src={ b.Logo.Src } width={ itoa(b.Logo.Width) } height={ itoa(b.Logo.Height) } alt="" class="shrink-0"/>
+			}
+			<div class="min-w-0">
+				<p class="font-display text-lg font-bold tracking-tight">{ b.Name }</p>
+				<p class="font-mono text-[10px] uppercase tracking-widest text-ink/70">taptime · punchless</p>
+			</div>
+		</div>
+	</header>
 }
 
 // AdminDashboard is a section that has NOTHING IN IT YET, and says so.

@@ -191,7 +191,7 @@ func (a *AdminAuth) reviewSection(w http.ResponseWriter, r *http.Request) {
 		v.MoreHref = reviewHref + "?" + q.Encode()
 	}
 
-	a.render(w, r, http.StatusOK, pages.AdminReview(v))
+	a.renderPanel(w, r, http.StatusOK, v.PanelChrome, pages.AdminReview(v))
 }
 
 // confirmedDecision returns the outcome to confirm, having CHECKED IT, or "".
@@ -524,12 +524,24 @@ func oneOfWords(s string, allowed ...string) string {
 // section a manager asked for is still worth rendering; what is not acceptable is a
 // badge that vanishes and reads as "nothing waiting" (§4.6, the class M5-11
 // closed). PendingBadge.Known stays false and the navigation prints "?".
+//
+// IT ALSO READS THE BUSINESS'S BRAND (M10 WL-8), for the same reason it reads the
+// badge: the brand sits in the chrome, so it is read on every section, here, once.
+// What is pinned is that narrow: chrome calls the brand reader once per panel
+// request (internal/handler's WL-8 tests count the calls), and the reader runs one
+// statement, GetTenantPanelBrand, by primary key (internal/domain/tenant counts the
+// statements) -- EXPLAIN ANALYZE on the seed tenant, warm: 0.07-0.16 ms executing,
+// with and without a brand row (WL-8 card). Nothing counts what a section reads
+// besides. A failed or inconsistent read does not fail the page and does not draw
+// half a brand: the chrome is the unbranded one and the error is logged
+// (panelBrand, panelbrand.go).
 func (a *AdminAuth) chrome(r *http.Request, tab pages.PanelTab) pages.PanelChrome {
 	id := httpx.AdminOf(r)
 	c := pages.PanelChrome{
 		FullName: id.Admin.FullName,
 		Role:     id.Admin.Role,
 		Tab:      tab,
+		Brand:    a.panelBrand(r.Context(), id.TenantID()),
 	}
 	p, err := a.queue.Pending(r.Context(), id.TenantID())
 	if err != nil {

@@ -189,7 +189,7 @@ func (a *AdminAuth) billingSection(w http.ResponseWriter, r *http.Request) {
 	if word := oneOfWords(strings.TrimSpace(r.URL.Query().Get("problem")), billingProblemWords...); word != "" {
 		v.Problem = billingProblemSentence(word)
 	}
-	a.render(w, r, http.StatusOK, pages.AdminBilling(v))
+	a.renderPanel(w, r, http.StatusOK, v.PanelChrome, pages.AdminBilling(v))
 }
 
 // refuseBillingRead records that a non-owner was turned away from a READ.

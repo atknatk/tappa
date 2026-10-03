@@ -650,7 +650,7 @@ func TestBillingRoutes_AreRefusedCrossOriginBeforeTheResolverRuns(t *testing.T) 
 	}}
 	h, err := NewAdminAuth(admins, &fakeTrail{}, newFakeLedger(), newFakeLedger(), &fakeReviewer{},
 		&fakeStaff{}, &fakeInviter{}, &fakeVenues{}, &fakePlaques{}, &fakeRecorder{}, newFakeRules(),
-		newFakeScribe(), books, newFakeAccount(), nil, adminTestConfig(), slog.New(slog.DiscardHandler))
+		newFakeScribe(), books, newFakeAccount(), newFakeBrands(), nil, adminTestConfig(), slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}

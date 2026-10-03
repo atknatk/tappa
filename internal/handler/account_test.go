@@ -60,7 +60,7 @@ func accountBrowser(t *testing.T, accounts panelAccounts, trail *fakeTrail, role
 	}}
 	h, err := NewAdminAuth(admins, trail, newFakeLedger(), newFakeLedger(), &fakeReviewer{},
 		&fakeStaff{}, &fakeInviter{}, &fakeVenues{}, &fakePlaques{}, &fakeRecorder{}, newFakeRules(),
-		newFakeScribe(), newFakeBooks(), accounts, nil, adminTestConfig(), slog.New(slog.DiscardHandler))
+		newFakeScribe(), newFakeBooks(), accounts, newFakeBrands(), nil, adminTestConfig(), slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}

@@ -177,5 +177,5 @@ func (a *AdminAuth) renderAccountPasswordAgain(w http.ResponseWriter, r *http.Re
 	}
 	v := a.accountView(r, id, s)
 	v.PasswordError = msg
-	a.render(w, r, http.StatusOK, pages.AdminAccount(v))
+	a.renderPanel(w, r, http.StatusOK, v.PanelChrome, pages.AdminAccount(v))
 }

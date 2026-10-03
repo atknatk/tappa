@@ -233,7 +233,8 @@ func (a *AdminAuth) policyChangeReview(w http.ResponseWriter, r *http.Request) {
 		a.redirect(w, policiesReturn("unavailable"))
 		return
 	}
-	a.render(w, r, http.StatusOK, pages.AdminPolicyChange(a.policyChangeView(r, c, token)))
+	v := a.policyChangeView(r, c, token)
+	a.renderPanel(w, r, http.StatusOK, v.PanelChrome, pages.AdminPolicyChange(v))
 }
 
 // policyChangeApply verifies the confirmation and makes the change.
@@ -535,7 +536,8 @@ func (a *AdminAuth) policyVersionPage(w http.ResponseWriter, r *http.Request) {
 		a.renderProblem(w, r, http.StatusInternalServerError, problemPanelUnavailable)
 		return
 	}
-	a.render(w, r, http.StatusOK, pages.AdminPolicyVersion(a.policyVersionView(r, body)))
+	v := a.policyVersionView(r, body)
+	a.renderPanel(w, r, http.StatusOK, v.PanelChrome, pages.AdminPolicyVersion(v))
 }
 
 // --- the two screens this file renders -------------------------------------------

@@ -1052,8 +1052,13 @@ func TestTenantBranding_PerPageReadsDoNotSelectTheLogo(t *testing.T) {
 	t.Parallel()
 	consts := brandingQueryConstants(t)
 
-	want := "accent,logo_sha256,logo_mime,logo_width,logo_height,updated_at,updated_by"
-	for _, name := range []string{"getTenantBrand", "getTenantBrandForUpdate"} {
+	// The panel chrome's read (WL-8) selects the business's name and the brand fields a
+	// page draws, without the audit pair.
+	for name, want := range map[string]string{
+		"getTenantBrand":          "accent,logo_sha256,logo_mime,logo_width,logo_height,updated_at,updated_by",
+		"getTenantBrandForUpdate": "accent,logo_sha256,logo_mime,logo_width,logo_height,updated_at,updated_by",
+		"getTenantPanelBrand":     "name,accent,logo_sha256,logo_mime,logo_width,logo_height",
+	} {
 		stmt, ok := consts[name]
 		if !ok {
 			t.Fatalf("internal/store/branding.sql.go has no constant %s", name)
@@ -1118,9 +1123,10 @@ func TestTenantBranding_EveryStatementNamesTheTenant(t *testing.T) {
 		}
 		checked++
 	}
-	// Seven of branding.sql's eight statements are SELECT or UPDATE; a count below that
-	// means the constants were not found, and the loop above checked nothing.
-	if checked != 7 {
-		t.Errorf("checked %d SELECT/UPDATE statement(s) in internal/store/branding.sql.go, want 7", checked)
+	// Eight of branding.sql's nine statements are SELECT or UPDATE (WL-8 added the panel
+	// chrome's read); a count below that means the constants were not found, and the
+	// loop above checked nothing.
+	if checked != 8 {
+		t.Errorf("checked %d SELECT/UPDATE statement(s) in internal/store/branding.sql.go, want 8", checked)
 	}
 }

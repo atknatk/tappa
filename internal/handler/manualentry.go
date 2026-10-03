@@ -172,7 +172,7 @@ func (a *AdminAuth) manualEntryForm(w http.ResponseWriter, r *http.Request) {
 	now := time.Now().In(manualZone(subject.Zone))
 	v.Date = now.Format("2006-01-02")
 	v.Problem = oneOfWords(r.URL.Query().Get("problem"), manualProblemWords...)
-	a.render(w, r, http.StatusOK, pages.AdminManualEntry(v))
+	a.renderPanel(w, r, http.StatusOK, v.PanelChrome, pages.AdminManualEntry(v))
 }
 
 // manualEntryReview answers the form with exactly what would be written, and mints the
@@ -226,7 +226,7 @@ func (a *AdminAuth) manualEntryReview(w http.ResponseWriter, r *http.Request) {
 	v.WhenLocal = at.In(zone).Format("Monday 2 January 2006, 15:04")
 	v.WhenUTC = at.UTC().Format(time.RFC3339)
 	v.Backdated = a.entries.Backdated(at)
-	a.render(w, r, http.StatusOK, pages.AdminManualEntry(v))
+	a.renderPanel(w, r, http.StatusOK, v.PanelChrome, pages.AdminManualEntry(v))
 }
 
 // manualEntryRecord appends the record.
@@ -612,5 +612,5 @@ func (a *AdminAuth) renderManualForm(w http.ResponseWriter, r *http.Request, s m
 	v.Date, v.Time, v.Note = f.date, f.clock, f.note
 	v.Direction = string(f.direction)
 	v.Problem = problem
-	a.render(w, r, http.StatusOK, pages.AdminManualEntry(v))
+	a.renderPanel(w, r, http.StatusOK, v.PanelChrome, pages.AdminManualEntry(v))
 }

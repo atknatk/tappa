@@ -101,18 +101,19 @@ type GetTenantBrandRow struct {
 // branding.sql -- the tenant's brand: an accent and a logo (M10 WL-1; ADR 0023 §1,
 // ADR 0024 §4). Table: tenant_branding, migration 00028.
 //
-// TENANT SCOPE (CLAUDE.md section 4.5, belt + braces on RLS): the eight statements in
-// this file name @tenant_id explicitly (the WHERE of the seven SELECT/UPDATE is pinned
+// TENANT SCOPE (CLAUDE.md section 4.5, belt + braces on RLS): the nine statements in
+// this file name @tenant_id explicitly (the WHERE of the eight SELECT/UPDATE is pinned
 // by TestTenantBranding_EveryStatementNamesTheTenant) and are meant to run inside
 // db.(*DB).WithTenant, with the tenant taken from the verified session and not from
 // the request (ADR 0024 §5).
 //
-// TWO READS, AND THE DIFFERENCE BETWEEN THEM IS THE POINT. GetTenantBrand is the
-// per-page read (tap screen, panel chrome, editor) and does NOT select `logo`: the
-// bytes are up to 256 KiB and a page needs their digest and size to render an <img>,
-// not the bytes. Of the statements in this file, GetTenantLogo is the one that returns
-// the bytes; it is for the two logo routes (WL-6). A test reads the generated statement
-// text of the per-page reads (internal/db/branding_test.go).
+// THE PER-PAGE READS AND THE BYTES, AND THE DIFFERENCE BETWEEN THEM IS THE POINT.
+// GetTenantBrand (tap screen, editor) and GetTenantPanelBrand (the panel chrome, WL-8)
+// are per-page reads and do NOT select `logo`: the bytes are up to 256 KiB and a page
+// needs their digest and size to render an <img>, not the bytes. Of the statements in
+// this file, GetTenantLogo is the one that returns the bytes; it is for the two logo
+// routes (WL-6). A test reads the generated statement text of the per-page reads
+// (internal/db/branding_test.go).
 //
 // HOW A WRITE IS MEANT TO RUN (WL-4: the change and its audit_log row in ONE
 // transaction, with the value it replaced). Inside one WithTenant:
@@ -214,6 +215,56 @@ func (q *Queries) GetTenantLogo(ctx context.Context, arg GetTenantLogoParams) (G
 	row := q.db.QueryRow(ctx, getTenantLogo, arg.TenantID, arg.LogoSha256)
 	var i GetTenantLogoRow
 	err := row.Scan(&i.Logo, &i.LogoMime)
+	return i, err
+}
+
+const getTenantPanelBrand = `-- name: GetTenantPanelBrand :one
+SELECT name, accent, logo_sha256, logo_mime, logo_width, logo_height
+FROM tenant_branding
+JOIN tenants ON tenants.id = tenant_branding.tenant_id
+WHERE tenant_id = $1
+  AND tenants.id = $1
+`
+
+type GetTenantPanelBrandRow struct {
+	Name       string
+	Accent     *string
+	LogoSha256 *string
+	LogoMime   *string
+	LogoWidth  *int32
+	LogoHeight *int32
+}
+
+// The panel chrome's per-request read (M10 WL-8; ADR 0023 §2): the brand fields a
+// page draws -- GetTenantBrand's, without the audit pair -- and the business's NAME,
+// which the chrome prints beside the logo. One statement, so the chrome pays one more
+// read per panel request, not two; both tables are reached by their primary key
+// (tenant_branding_pkey, tenants_pkey -- EXPLAIN ANALYZE on the WL-8 card).
+//
+// IT STARTS FROM tenant_branding, SO A BUSINESS WITH NO BRAND ROW FINDS NO ROW
+// (pgx.ErrNoRows). The chrome draws the name only beside a brand, and a business that
+// never set one keeps today's chrome byte for byte (ADR 0023 §2), so the name is not
+// needed there. A row whose brand fields are all NULL (a cleared brand) returns the
+// name with NULLs; the reader treats it as no brand, like no row.
+//
+// tenant_id is written unqualified in the WHERE on purpose: tenants has no such
+// column (its scope key is id, migration 00001), so it names tenant_branding's; that
+// is the spelling internal/db's belt pattern reads
+// (TestTenantBranding_EveryStatementNamesTheTenant), and internal/domain/tenant's
+// (TestStaffQueries_CarryAnExplicitTenantPredicate) reads it as this statement's
+// subject, tenant_branding. tenants.id is bound to the same parameter as well: each
+// table this statement reads names the tenant (section 4.5).
+func (q *Queries) GetTenantPanelBrand(ctx context.Context, tenantID uuid.UUID) (GetTenantPanelBrandRow, error) {
+	row := q.db.QueryRow(ctx, getTenantPanelBrand, tenantID)
+	var i GetTenantPanelBrandRow
+	err := row.Scan(
+		&i.Name,
+		&i.Accent,
+		&i.LogoSha256,
+		&i.LogoMime,
+		&i.LogoWidth,
+		&i.LogoHeight,
+	)
 	return i, err
 }
 

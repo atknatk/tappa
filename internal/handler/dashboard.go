@@ -277,11 +277,12 @@ func mustSectionHref(tab pages.PanelTab) string {
 // PanelSections named, and the compiler carries that from the table to the view.
 func (a *AdminAuth) section(tab pages.PanelTab) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		a.render(w, r, http.StatusOK, pages.AdminDashboard(pages.AdminDashboardView{
+		v := pages.AdminDashboardView{
 			// a.chrome (review.go) reads the queue badge as well as the identity, so
 			// an unbuilt section shows the same backlog number as a built one. It is
 			// the one place that count is taken; see the cost measured there.
 			PanelChrome: a.chrome(r, tab),
-		}))
+		}
+		a.renderPanel(w, r, http.StatusOK, v.PanelChrome, pages.AdminDashboard(v))
 	}
 }

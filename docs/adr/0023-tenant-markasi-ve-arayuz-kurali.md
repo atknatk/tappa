@@ -1032,3 +1032,324 @@ okumadan, kalıtımla taşıyan bir kural bu iddianın dışındadır — §4 WL
   (m10-platform.md §2, akışlar arası çakışma çözümleri).
 - **WL-12'nin kabulüne eklenenler:** ADR 0005'e marka taklidi eki (sınır 1, `adr0005_test.go`
   sayımlarıyla birlikte) · skill'in *"Tenant slotları (taslak)"* bölümünden "taslak"ın kalkması.
+
+## WL-8 notu (2026-10-03 — panel kabuğu; uygulama ve ölçüm. §2'nin panel satırı ve §4'ün kuralları değişmedi)
+
+**Kod.** `db/queries/branding.sql` (`GetTenantPanelBrand`; `internal/store` üretimi) ·
+`internal/domain/tenant/brandread.go` (`PanelBrand` tipi, `BrandReader.PanelBrand`,
+`panelBrandOf`, `accentOf`) · `internal/handler/panelbrand.go` (`panelBrands`, `panelBrand`,
+`panelBrandView`) · `internal/handler/review.go` (`chrome()` markayı okur) ·
+`internal/handler/adminlogin.go` (`brands` alanı ve kurucu parametresi; `renderPanel`;
+`renderScripted` krom alır) · 15 kabuk sayfasının 22 render çağrısı `renderPanel`/
+`renderScripted`'e (`account.go`, `accountactions.go`, `accountpassword.go`, `anomalies.go`,
+`billing.go`, `billingactions.go`, `dashboard.go`, `employees.go`, `employeeactions.go`,
+`locations.go`, `locationactions.go`, `manualentry.go`, `policies.go`, `policyactions.go`,
+`reports.go`, `review.go`, `transactions.go`) · `internal/handler/brandlogo.go`
+(`adminLogoHref`) · `web/templates/layout/theme.go` (`Theme`, `ThemeOf`) ·
+`web/templates/layout/base.templ` (`documentHead`'e `theme Theme`; `Panel`/`PanelWithScript`
+tema alır; öteki dört kabuk sıfır değeri geçer) · `web/templates/pages/panelbrandview.go`
+(`PanelBrand`, `PanelLogo`, `PanelLogoOf`, `DrawsLogo`) · `web/templates/pages/adminview.go`
+(`PanelChrome.Brand`) · `web/templates/pages/admin.templ` (`PanelShell`, `PanelShellWithScript`,
+`panelChrome`, `panelBrandHeader`) · `web/static/css/input.css` (`.panel-stripe`) ·
+`cmd/tappa/main.go` (okuyucu `NewAdminAuth`'a). Testler: `internal/handler/panelbrand_test.go`,
+`panelbrand_golden_test.go`, `brandlogo_test.go` (img-src derlemi genişledi),
+`internal/domain/tenant/panelbrand_db_test.go`, `internal/brand/theme_test.go` (slot tablosu ve
+golden), `internal/db/branding_test.go` (sorgu sayısı ve seçim listesi),
+`cmd/tappa/storekeyshape_test.go` (envanter). Migration, bağımlılık yok (`db/migrations`,
+`go.mod`, `go.sum`, `sqlc.yaml` diff'i boş). Tap/sonuç şablonları ve `tap.go`, `checkin.go`,
+`directory.go` dokunulmadı; **ortak `base.templ`'e en küçük değişiklik** (yukarıda; WL-9 aynı
+dosyada çalışıyor). Ölçüm ortamı: dev Postgres 17 (paylaşılan, 00029'da), `tappa_app`; yerel
+go1.27.1 darwin/amd64, staticcheck go1.26.7; Tailwind v3.4.17; headless Chrome 154.0.8037.93;
+ayrı git worktree, taban `df544c1`.
+
+### Kararlar
+
+1. **Tenant adı için tek ifade, iki PK.** Oturum adı taşımaz (`adminauth.Resolved`:
+   `FullName`, `Role`), `GetTenantBrand` `tenants.name`'i seçmez. İki okuma (`GetTenantClock`
+   + `GetTenantBrand`) kabulün *"tam +1 PK okuması"*nı bozardı; `TouchAdminSession`'a
+   `tenants` join'i (sıfır ek okuma) elendi: panelin her istekteki yetki ifadesini bu görev
+   değiştirmez. Pin bu kadar: kromun **marka okuyucusuna istek başına bir çağrısı** (handler
+   testleri sayar) ve **okuyucunun tek ifadesi** (domain testi sayar); bir bölümün başka
+   okumaları sayılmaz (1. tur, F5). `GetTenantPanelBrand`: `FROM tenant_branding JOIN tenants`, ikisi de PK ile,
+   `WHERE tenant_id = @tenant_id AND tenants.id = @tenant_id` (her tablo tenant'ı adlandırır;
+   `tenant_id` nitelemesiz — `tenants`'ta o sütun yok, `internal/db`'nin kuşak deseni o yazımı
+   okur). `logo` seçilmez. **EXPLAIN ANALYZE** (seed tenant Kebab Factory, `tappa_app`, tenant
+   bağlamında, sıcak; satırlı ölçüm geri alınan bir transaction'da): satır yok → `Index Scan
+   using tenant_branding_pkey` (rows=0), `tenants_pkey` *never executed*, yürütme 0,071 /
+   0,111 ms; accent + logolu satır → iki `Index Scan` (`tenant_branding_pkey`, `tenants_pkey`),
+   yürütme 0,082 / 0,090 / 0,156 ms, generic plan 0,102 ms; planlama ≤0,161 ms. Hepsi < 1 ms.
+2. **Marka satırı yoksa satır yok.** Sorgu `tenant_branding`'den başlar: markasız işletme adı
+   okumaz, kabuk adı çizmez — markasız HTML bugünküyle bayt-aynı kalır.
+3. **Başlık kuralı.** *Markalı* = gate'ten bugün geçen accent **ya da** logo. Markalıda
+   Wordmark'ın yerine `panelBrandHeader`: 4 px şerit (yalnız accent geçiyorsa), logo (varsa),
+   ad (Space Grotesk kalın, ink), altında co-brand satırı *"taptime · punchless"* (10 px mono,
+   büyük harf, ink/70). Yalnız accent'li işletmede de ad + co-brand satırı çizilir; yeşil
+   `taptime` kalkar (K-2a'nın panel karşılığı; panelin yeşili eylemlerde kalır — K4).
+   Kabuğun geri kalanı (oturum bloğu, çıkış, sekmeler, başlık) değişmez.
+4. **Tema `<link>`'i `<head>`'de, `app.css`'ten hemen sonra.** `layout.documentHead` bir
+   `theme layout.Theme` alır; `Theme` yalnız `brand.Color`'dan kurulur (`ThemeOf`: `/brand/theme/`
+   + kanonik hex + `.css`), sıfır değer hiçbir şey yazmaz. Yalnız iki panel kabuğu
+   (`Panel`, `PanelWithScript`) işletmenin temasını geçer; `shell`, `MarketingWithScript`,
+   `Auth`, `OperatorWithScript` sıfır değeri. `<body>` içinde `<link>` elendi: geçerli HTML ama
+   ürünün tek `<head>` bileşeninin dışında ikinci bir stil kaynağı olurdu.
+5. **CSP yolu krom'dan.** `renderPanel(chrome)` → `adminCSPFor(chrome.DrawsLogo())`;
+   `renderScripted(chrome)` → `logoImagePolicy(adminScriptedCSP, chrome.DrawsLogo())`.
+   `DrawsLogo` şablonun `<img>`'i çizdiği yüklemin kendisidir; politika ve işaretleme aynı
+   değerden karar verir. `render` (false) kabuksuz sayfalarda kalır: picker, problem
+   sayfaları, docket parçası.
+6. **Logo kutusu: 32 px yükseklik, en çok 192 px genişlik**, oran korunur, saklanan boyuttan
+   büyük çizilmez (küçük logo büyütülüp bulanıklaşmaz); kenarlar en yakın piksele, en az 1.
+   Kutu `width`/`height` özniteliklerinin kendisidir — yeni CSS sınıfı gerekmedi (Tailwind
+   preflight'ın `img{height:auto}`'su yüksekliği öznitelik oranından hesaplar). 512×128 →
+   128×32 (Chrome'da ölçüldü).
+7. **Bugün gate'ten geçmeyen kaydedilmiş accent** (palet değişirse): okuma tarafı
+   `ParseAccent` + `Check` (`accentOf`). Geçmeyen → `AccentRefused`, şerit ve tema bağlantısı
+   yok (rota da aynı rengi 404'ler), WARN log; logo varsa logo + ad çizilir.
+8. **Hata yolları sayfayı düşürmez, sessizce "marka yok" da sayılmaz (§4.6).** Okuma hatası,
+   yarım tanımlı logo (`logoRefOf`'un 14 birleşimi — ADR 0024 WL-6 devri), kanonik olmayan
+   accent ve 64 küçük hex olmayan digest → ERROR log (tenant_id + hata; testte ad ve digest
+   aranır ve bulunmaz; sürücünün hata metni ölçülmedi) + markasız krom. Hiçbiri
+   `ErrLogoNotFound`'a çevrilmez. Reddedilen accent'in WARN satırında ad, accent ve digest
+   aranır ve bulunmaz (1. tur, F2).
+9. **Panel başlığındaki logonun `alt`'ı boş (`alt=""`)** — orkestratör kararı, 1. tur. Ad,
+   logonun hemen yanında görünür metindir (§2: panelde tenant adı görünür metin); ada eşit bir
+   `alt` ekran okuyucuda iki kez okunur ve logo yüklenemezse adı kutunun içine basıp sayfayı
+   adın satır sayısı kadar iter. Skill'in *"alt = tenant adı"* kuralı adın görünmediği tap
+   ekranı için yazıldı; orada geçerli kalır (WL-9). Ölçüm: aşağıda, Ölçümler.
+10. **AdminChoose ve panel problem sayfası Taptime'da; giriş sayfası yalnız iki noktada
+    ölçüldü.** `TestPanelBrand_TheSignInFamilyStaysTaptime`'in ölçtüğü: iki işletmeli giriş →
+    picker yürüyüşünde okuyucu 0 kez çağrılır; picker ve problem sayfası Wordmark taşır, şerit,
+    `<img>`, tema/logo yolu, co-brand yoktur, politika `adminCSP` literal'i; giriş sayfasının
+    (`/admin/login`: kendi `layout.Auth` kabuğu ve `adminLoginCSP`'si — Wordmark taşımaz, kendi
+    "taptime" paneli var) politikası img-src adlandırmaz. Parola sıfırlama ailesi (kendi
+    `render`'ı) bu testte koşulmaz. `layout.Page` ve `layout.Auth` kabukları sıfır temayla
+    golden'da bayt-aynı.
+
+### Ölçümler
+
+- **Markasız = bugünkü bayt.** 24 bileşen render'ı `df544c1`'inkiyle uzunluk + sha256 eşit
+  (`TestPanelBrand_AnUnbrandedChromeIsTheChromeBeforeWL8`; liste: `PanelShell` dokuz bölüm
+  sekmesinde, rozetin dört hâli, tanımsız sekme, kaçış gerektiren ad, `PanelShellWithScript`,
+  `AdminDashboard`, ve `documentHead`'e ulaşan öteki altı kabuk — `Page`, `PageWithScript`,
+  `Marketing`, `MarketingWithScript`, `Auth` iki hâliyle, `Operator`, `OperatorWithScript`).
+  Digest'ler aynı test dosyasının `df544c1` dışa aktarımında koşulmasıyla alındı.
+- **CSS.** Taze `app.css`'in `df544c1` derlemesine farkı tek kural:
+  `.panel-stripe{height:.25rem;--tw-bg-opacity:1;background-color:rgb(var(--brand-accent)/var(--tw-bg-opacity,1))}`.
+  `themeSlots`'a `.panel-stripe: --brand-accent`, `themeBrandGolden`'a bu kural (beşinci yer)
+  aynı düzenlemede girdi; şablon yorumlarından kural doğmadı.
+- **Chrome 154 (bir kez, pin değil; 1024 geniş, DSF 1, gerçek router):** şerit 4 px yükseklik,
+  992 px (sütun); DA291C pikselleri yalnız şeritte (3 968 = 992 × 4); logo kutusu 128 × 32;
+  tappa-green birincil düğmede ve sekme işaretinde kaldı (K4). **Kırık logo (1. tur, F1):**
+  `alt=""` ile logo 404 alınca yüklenmiş hâline göre farklı pikseller **yalnız** logonun
+  128 × 32 kutusu (4 096 px), kutunun dışında **0 px** — 18 karakterlik adla ve 112
+  karakterlik adla (`/admin`, 1024 geniş). Karşılaştırma için `alt` = ad iken: 16 karakterlik
+  fixture'da alt metni iki satıra sarılıp içeriği ~5 px itiyordu; denetçinin 114 karakterlik
+  adında kutu 128 × 216 oldu ve içerik +145 px kaydı (denetçinin ölçümü).
+- **Kontrast:** ad ink on porcelain 14,32:1; co-brand ink/70 on porcelain 5,70:1; şerit metin
+  taşımaz (§3 tablosu: dekoratif, şart yok). 1. turdan (F6) beri adın ve co-brand satırının
+  paragrafları **tam sınıf listeleriyle** pinli: adın paragrafı renk sınıfı taşımaz (sayfanın
+  ink'i), co-brand satırı Wordmark'ın tagline sınıflarını (ink/70) — renk sınıfı eklemek
+  `TestPanelBrand_ABrandedBusinessGetsItsHeaderOnEverySection`'ı kırmızıya çevirir (R06).
+- **EXPLAIN ANALYZE:** karar 1.
+- **img-src'nin `true` yarısı ilk kez ölçüldü** (ADR 0024 WL-6 sınır 2 kapandı): img-src derlemi
+  29 → 56 render, 18'i logoyu çizer ve img-src adlandırır.
+
+### Güvenlik ve doğruluk iddiası (WL-8, üç parçalı)
+
+- **Tehdit modeli:** Bu pinler panel kabuğuna, render yoluna, `input.css`'e ve okuma sorgusuna
+  kazara giren sapmaya karşıdır; bir testi atlatmak için bilerek yazılmış kod kod incelemesinin
+  konusudur.
+- **PART I — her madde: test · beslenen girdiler · assert · o assert'i kıran mutasyon:**
+  1. `TestPanelBrand_AnUnbrandedChromeIsTheChromeBeforeWL8` · sabit girdili 24 bileşen render'ı
+     (liste kabul 2'de) · her birinin uzunluğu ve sha256'sı `df544c1`'inkine eşit; derlem ve
+     golden aynı adları taşır · W09.
+  2. `TestPanelBrand_UnbrandedSectionsAreTheWordmarkChrome` · gerçek router, owner oturumu, dokuz
+     bölüm × dört işletme (marka yok; okuma düşer; yalnız reddedilen accent; büyük harf digest'li
+     logo) · 200; politika literal'e eşit; Wordmark tam bir kez ve sekme çubuğundan önce; tek stil
+     `app.css`, `<head>`'de; `<img`, şerit, tema/logo yolu, ad, co-brand yok; dört varyant bölüm
+     başına bayt-aynı; marka okuyucusuna istek başına bir çağrı, oturumun işletmesiyle (bölümün
+     başka okumaları sayılmaz); hata/digest ERROR, ret WARN, satır başına `tenant_id`, ad ve digest
+     yok · W01, W03, W09, W20, W22, W23.
+  3. `TestPanelBrand_ABrandedBusinessGetsItsHeaderOnEverySection` · aynı router, dokuz bölüm ×
+     dört marka (accent + logo; yalnız accent; yalnız logo; logo + bugün reddedilen accent) ·
+     politika img-src'yi tam logolu yanıtta adlandırır; stiller `app.css` ve (accent geçiyorsa)
+     hemen ardından `/brand/theme/DA291C.css`, hepsi `<head>`'de; şerit sınıfı accent'te 1, yoksa
+     0, ilk öğe ve `aria-hidden`; logolu yanıtta tek `<img>`: src, `width=128`, `height=32`, `alt`
+     **var ve boş**; ad ve co-brand **tam sınıf listeleriyle** (adda renk sınıfı yok); Wordmark yok;
+     tema bağlantısı ve başlık geri alınınca markasız sayfa bayt bayt; marka okuyucusuna istek
+     başına bir çağrı; log yok — ret varyantında istek başına bir WARN ve log **adı (tamamı ve ilk 8
+     karakteri), reddedilen accent'in hex'ini (808080), digest'i (tamamı ve ilk 8 hanesi)
+     taşımaz** · W02, W03, W04, W05, W06, W07, W08, W09, W20, W21, W23, W24, W27, W28, W29, R01,
+     R02, R03, R04, R05, R06.
+  4. `TestPageImages_ImgSrcIsNamedOnlyByAPageThatDrawsAnImage` (WL-6'nın, genişledi) · 56 render
+     (27'si markalı panel) · her yanıtta `<img` ⇔ img-src; `<img` çizen render sayısı derlemdeki
+     logolu panel render'ı sayısına (18) eşit ve > 0 · W02, W03, W04, W05, W06.
+  5. `TestPanelRenders_AShellPageIsRenderedWithItsChromesPolicy` · `pages`'in üretilmiş Go'sundan
+     türetilen kabuk sayfaları (15), `internal/handler`'ın test olmayan her `.go`'su, yedi kontrol
+     şekli · adıyla geçen kabuk sayfası yalnız `renderPanel`/`renderScripted`'ten ve yanındaki
+     krom sayfaya verilen view'un `PanelChrome`'u; ≥ 20 uyumlu çağrı · W05, W06.
+  6. `TestPanelBrand_TheThemeHrefIsTheThemeRoute` · beş renk, `httpx.NewRouter(nil, nil,
+     NewBrandTheme())` · `ThemeOf(c).Href()` = `/brand/theme/<HEX>.css`, 200 ve gövde
+     `brand.ThemeCSS(c)`; sıfır `Theme` bağlanmaz · W21.
+  7. `TestPanelBrand_TheLogoSrcIsTheLogoRoute` · tap + panel + logo rotaları, A işletmesi ·
+     `adminLogoHref` rotanın yolu; kromun `<img src>`'i aynı çerezle 200 `image/png` + A'nın
+     baytları · W29.
+  8. `TestPanelBrand_TheSignInFamilyStaysTaptime` · iki işletmeli giriş → picker, panel problem
+     sayfası, tam markalı okuyucu · yürüyüş boyunca okuyucu 0 kez; picker ve problem sayfası:
+     Wordmark, marka izi yok, `adminCSP` literal'i; giriş sayfası: politikada img-src yok
+     (Wordmark ve sıfırlama ailesi ölçülmez) · W26.
+  9. `TestPanelBrand_TheReaderIsRequired` · nil ve typed-nil okuyucu · kurucu hata döner · W30.
+  10. `TestPanelLogoOf_KeepsTheProportionsInsideTheSlot` · 11 listeli boyut, 4 ret, 1–512 × 1–512
+      taraması (262 144) · kutu 192 × 32'ye sığar, saklanandan büyük değil, bir kenar yuvada ya da
+      saklandığı gibi, öteki en yakın piksele yuvarlanmış oran (ya da 1) · W18, W19.
+  11. `TestBrandReadDB_PanelBrandIsOneStatementForItsOwnBusiness` · dev Postgres, iki işletme,
+      ayrı ad/accent/logo · her okuma kendi ad, accent ve logosu; 1 transaction, 1 ifade · W17.
+  12. `TestBrandReadDB_PanelBrandUnbrandedShapesAreTheZeroValue` · satırsız, bütün alanları NULL,
+      geçen accent, kolona doğrudan yazılmış 808080, 808080 + logo · sıfır değer / ad yalnız
+      markalıda / `AccentRefused` · W12, W14.
+  13. `TestBrandRead_PanelBrandOfKeepsEveryNonBrandAnError` · tohum satırlar (ErrNoRows, okuma hatası, 14 yarım logo, 5 bozuk accent, geçen/reddedilen
+      accent, reddedilen + logo) · hata olanlar hata, sıfır değer olanlar sıfır, ad yalnız
+      markalıda · W12, W13, W14.
+  14. `TestBrandRead_PanelBrandNeedsATenantAndReportsAFailingDatabase` · nil tenant, reddeden DB ·
+      hata, 0 transaction; DB hatası sıfır değer değil · W31.
+  15. `TestBrandRead_TheBeltSeesThePanelRead` · paketin türetilmiş store çağrıları ·
+      `GetTenantPanelBrand` içinde (öncül: kuşak bu paketten türer; kıran değişiklik çağrının paketten
+      çıkması — koşulmadı, WL-6'nın `TestBrandRead_TheBeltSeesBothReads` emsali) · —.
+  16. `TestStaffQueries_CarryAnExplicitTenantPredicate` (var olan kuşak) · `GetTenantPanelBrand`'in
+      gövdesi · özne `tenant_branding`'in `tenant_id`'si üst düzey bağlaçta parametreye bağlı ·
+      W15, W16.
+  17. `TestTenantBranding_EveryStatementNamesTheTenant` (sayı 7 → 8) ·
+      `internal/store/branding.sql.go` sabitleri · her SELECT/UPDATE'in son WHERE'i nitelemesiz
+      `tenant_id = $N` · W15.
+  18. `TestTenantBranding_PerPageReadsDoNotSelectTheLogo` · panel okumasının seçim listesi ·
+      tam `name,accent,logo_sha256,logo_mime,logo_width,logo_height`, `logo` belirteci yok · W32.
+  19. `TestStoreSurface_IsTheOneRecorded` (`cmd/tappa`, envanter + 121 → 122) · üretilmiş
+      `*Queries` yüzeyi · envanterle birebir · W32.
+  20. `TestCompiledCSS_BrandVariablesOnlyInTheirSlots`, `TestCompiledCSS_BrandNamesOccurOnlyInTheGolden`
+      (WL-5'in; `themeSlots` + golden'a şerit) · derlenmiş `app.css` · şerit yalnız
+      `background-color`'da `--brand-accent`; golden beş yer · W10, W11, W33.
+  21. `TestThemeSlotScan_RefusesEachShapeItExistsFor`, `TestThemeBrandScan_RefusesEachShapeItExistsFor`
+      (negatif kontroller; dört + iki yeni şekil) · sevk edilen şekil şeritle geçer; şeridin
+      accent'siz, `color`'da, etiket ya da kenarla okuması ve şerit kuralının `.btn--primary`'ye
+      taşınması ya da seçicisinin ona genişlemesi raporlanır · W33.
+- **PART II — pinler ve yakaladıkları:** PART I'in parantez içi mutasyonları — aşağıdaki
+  tabloda, kırmızıya döndükleri testle.
+- **PART III:** Listede olmayan her biçim kod incelemesinin konusudur; tamlık iddiası yoktur.
+
+### Mutasyon tablosu
+
+**1. turda 33 mutasyon, 33'ü kırmızı; düzeltme turunda W01–W33 (W25 hariç — `alt=""` artık
+sevk edilen şekil, yerini R02 aldı) son koda karşı yeniden ve R01–R06 ilk kez koşuldu: 38
+mutasyon, 38'i kırmızı, derleme hatası 0, hepsi sha256 ile geri yazıldı.**
+
+| ID | Yer | Mutasyon | Kırmızıya dönen |
+|---|---|---|---|
+| W01 | `panelbrand.go` | okuma hatasında ERROR logu silinir (sessiz varsayılan) | `TestPanelBrand_UnbrandedSectionsAreTheWordmarkChrome` |
+| W02 | `adminlogin.go` `renderPanel` | `adminCSPFor(false)` | `TestPageImages_ImgSrcIsNamedOnlyByAPageThatDrawsAnImage`, `TestPanelBrand_ABrandedBusinessGetsItsHeaderOnEverySection` |
+| W03 | `adminlogin.go` `renderPanel` | `adminCSPFor(true)` | `TestPageImages_…`, `…ABrandedBusiness…`, `…UnbrandedSections…` |
+| W04 | `adminlogin.go` `renderScripted` | img-src `false` | `TestPageImages_…`, `…ABrandedBusiness…` |
+| W05 | `review.go` | kabuk sayfası `a.render` ile | `TestPageImages_…`, `…ABrandedBusiness…`, `TestPanelRenders_AShellPageIsRenderedWithItsChromesPolicy` |
+| W06 | `review.go` | `renderPanel(…, pages.PanelChrome{}, …)` (başka krom) | `TestPageImages_…`, `…ABrandedBusiness…`, `TestPanelRenders_…` |
+| W07 | `admin.templ` | şerit koşulsuz (`if true`) | `…ABrandedBusiness…` |
+| W08 | `base.templ` | tema bağlantısı `app.css`'ten önce | `…ABrandedBusiness…` |
+| W09 | `base.templ` | tema bağlantısı koşulsuz (boş href) | `…ABrandedBusiness…`, `TestPanelBrand_AnUnbrandedChromeIsTheChromeBeforeWL8`, `…UnbrandedSections…` |
+| W10 | `input.css` | şerit accent'i `color`'da da okur | `TestCompiledCSS_BrandNamesOccurOnlyInTheGolden`, `TestCompiledCSS_BrandVariablesOnlyInTheirSlots` |
+| W11 | `input.css` | `.btn--primary` accent zemini (K4 ihlali) | aynı ikisi |
+| W12 | `brandread.go` `accentOf` | `Check` atlanır | `TestBrandReadDB_PanelBrandUnbrandedShapesAreTheZeroValue`, `TestBrandRead_PanelBrandOfKeepsEveryNonBrandAnError` |
+| W13 | `brandread.go` `panelBrandOf` | yarım logo hatası yutulur ("logo yok") | `TestBrandRead_PanelBrandOfKeepsEveryNonBrandAnError` |
+| W14 | `brandread.go` | ad markasıza da verilir | `…UnbrandedShapes…`, `…PanelBrandOfKeeps…` |
+| W15 | `branding.sql` + sqlc | `WHERE tenant_id = @tenant_id` silinir (yalnız `tenants.id`) | `TestStaffQueries_CarryAnExplicitTenantPredicate`, `TestTenantBranding_EveryStatementNamesTheTenant` |
+| W16 | `branding.sql` + sqlc | `… OR true` | `TestStaffQueries_CarryAnExplicitTenantPredicate` |
+| W17 | `brandread.go` | aynı tx'te ikinci ifade (`GetTenantBrand`) | `TestBrandReadDB_PanelBrandIsOneStatementForItsOwnBusiness` |
+| W18 | `panelbrandview.go` | küçük logo büyütülür | `TestPanelLogoOf_KeepsTheProportionsInsideTheSlot` |
+| W19 | `panelbrandview.go` | yuvarlama yerine taban | `TestPanelLogoOf_…` |
+| W20 | `review.go` `chrome()` | marka iki kez okunur | `…ABrandedBusiness…`, `…UnbrandedSections…` |
+| W21 | `layout/theme.go` | href küçük harf hex | `…ABrandedBusiness…`, `TestPanelBrand_TheThemeHrefIsTheThemeRoute` |
+| W22 | `panelbrand.go` | digest denetimi kapatılır | `…UnbrandedSections…` |
+| W23 | `panelbrand.go` | reddedilen accent WARN'ı kapatılır | `…ABrandedBusiness…`, `…UnbrandedSections…` |
+| W24 | `admin.templ` | Wordmark markalıda da çizilir | `…ABrandedBusiness…` |
+| W25 | `admin.templ` | *(1. tur: `alt=""` — artık sevk edilen şekil; düşürüldü, bkz. R02)* | — |
+| W26 | `adminlogin.go` `ChoosePage` | picker markayı okur | `TestPanelBrand_TheSignInFamilyStaysTaptime` |
+| W27 | `panelbrand.go` | reddedilen accent de tema alır | `…ABrandedBusiness…` |
+| W28 | `base.templ` `Panel` | temayı düşürür (`Theme{}`) | `…ABrandedBusiness…` |
+| W29 | `brandlogo.go` `adminLogoHref` | tap rotasının yolu | `…ABrandedBusiness…`, `TestPanelBrand_TheLogoSrcIsTheLogoRoute` |
+| W30 | `adminlogin.go` | `isNil(brands)` reddi silinir | `TestPanelBrand_TheReaderIsRequired` |
+| W31 | `brandread.go` | nil tenant reddi silinir | `TestBrandRead_PanelBrandNeedsATenantAndReportsAFailingDatabase` |
+| W32 | `branding.sql` + sqlc | panel okuması `logo`'yu da seçer | `TestTenantBranding_PerPageReadsDoNotSelectTheLogo`, `TestStoreSurface_IsTheOneRecorded` |
+| W33 | `theme_test.go` | `themeSlots`'tan `.panel-stripe` silinir | `TestCompiledCSS_BrandVariablesOnlyInTheirSlots`, `TestThemeSlotScan_RefusesEachShapeItExistsFor` |
+| R01 | `admin.templ` | logonun `alt` özniteliği silinir (denetçinin M07'si) | `…ABrandedBusiness…` |
+| R02 | `admin.templ` | `alt={ b.Name }` geri yazılır | `…ABrandedBusiness…` |
+| R03 | `panelbrand.go` | WARN satırına `"business", b.Name` (denetçinin M14'ü) | `…ABrandedBusiness…` |
+| R04 | `panelbrand.go` | WARN satırına `"accent", b.Accent.Hex()` | `…ABrandedBusiness…` |
+| R05 | `panelbrand.go` | WARN satırına `"logo", b.Logo.SHA256` | `…ABrandedBusiness…` |
+| R06 | `admin.templ` | adın paragrafına `text-saffron` (denetçinin M27'si) | `…ABrandedBusiness…` |
+
+Koşu kapsamları: handler mutasyonları `-run 'TestPanelBrand_|TestPanelLogoOf_|TestPanelRenders_|TestPageImages_|TestPagePolicies_'`
+(W30 yalnız `TestPanelBrand_TheReaderIsRequired`); domain `-run PanelBrand` (+ belt) .env'li; CSS
+`internal/brand`'in derlenmiş-CSS testleri ve iki tarama kontrolü (her CSS mutasyonu `app.css`'i yeniden derler);
+sorgu mutasyonları `make sqlc` + `internal/domain/tenant`, `internal/db`, `cmd/tappa`.
+
+### Sayılı sınırlar (WL-8)
+
+1. Golden yalnız listelediği 24 bileşen render'ını tutar; bölüm yanıtları (`time.Now()` içerir)
+   golden'da değil — router düzeyinde dört markasız varyantın birbirine eşitliği ve markalı
+   sayfanın, tema bağlantısı ve başlık geri alınınca markasız sayfaya eşitliği ölçülür.
+2. Chrome ölçümü bir kez, pin değil; 390 genişlik headless'ta ölçülemedi (pencere ~500'ün
+   altına inmiyor, görüntü kırpılır — WL-5 notundaki gibi).
+3. `GetTenantPanelBrand`'in `tenants` tarafı pinsiz. `AND tenants.id = @tenant_id`'yi tek
+   başına silmek eşdeğer bir mutanttır (join koşulu `tenants.id = tenant_branding.tenant_id`
+   ve öznenin `tenant_id = @tenant_id`'si aynı satırı bağlar). Pinsiz olan, `tenants`
+   tarafının join koşulunun bütünüdür: `JOIN tenants ON true` + yüklemin silinmesi
+   (denetçinin M22'si) yeşil kaldı — sonucu yalnız `tenants`'ın RLS'i
+   (`tenants_tenant_isolation`) tutar. İki kuşak da özneyi (`tenant_branding`) okur. Bu iki
+   ayrı düzenleme ister, yani kazara sapma tehdit modelinin dışındadır; kod incelemesinin
+   konusu.
+4. `TestPanelRenders_AShellPageIsRenderedWithItsChromesPolicy` yalnız çağrıda adıyla geçen kabuk
+   sayfasını görür; değişkende tutulup sonra render edilen bileşeni görmez.
+5. Kırık logo (404, iptal) `alt=""` ile kutusunu korur — ölçüldü, kısa ve 112 karakterlik adla
+   kutu dışında 0 px; normal yüklemede kutu öznitelik oranından ayrılır (HTML'in en-boy
+   eşlemesi) — **bekleyen** hâl headless'ta ayrıca yakalanamadı (`--timeout` isteği iptal edip
+   kırık hâle düşürüyor). Ölçüm Chrome 154'te, bir kez; pin değil.
+6. DB testlerinin fikstürleri dev DB'de kalır (`tenant_branding`'de DELETE yok).
+7. *(1. tur: kapandı.)* Panelde logonun `alt`'ı boş (karar 9); logo ekran okuyucuya bir şey
+   söylemez, adı görünür metin taşır.
+
+### 1. tur düzeltmeleri (2026-10-03; güvenlik denetimi ONAY, üçüncü göz ONAY, altı bloklamayan bulgu)
+
+- **F1 — logonun `alt`'ı.** Bulgu: `alt` = ad iken kırık logo adı kutuya basıyor; 114
+  karakterlik adda kutu 128 × 216, içerik +145 px (denetçi); "~5 px" yalnız 16 karakterlik
+  fixture'ın sayısıydı; ad iki kez okunuyordu. Değişiklik: `panelBrandHeader`'da `alt=""`
+  (orkestratör kararı); test `alt`'ın **var ve boş** olduğunu ister; karar 9, sınır 5 ve 7,
+  Ölçümler metni. Ölçüm: kırık logo kutu dışında 0 px (18 ve 112 karakter); R01 (`alt` silindi)
+  ve R02 (`alt`'a ad) kırmızı.
+- **F2 — log yorumunun hükmü.** Bulgu: WARN satırına adı yazan mutant (M14) yeşildi. Değişiklik:
+  PART I 3'ün ret varyantı logda adı (tamamı, ilk 8 karakter), reddedilen accent'in hex'ini ve
+  digest'i (tamamı, ilk 8 hane) arar; fake ret varyantında reddedilen accent'i de taşır. Ölçüm:
+  R03 (ad), R04 (accent), R05 (digest) kırmızı. `panelBrand`'in yorumu ERROR satırlarının yarısını
+  "ölçülmedi" diye ayırır.
+- **F3 — giriş sayfası.** Kabul 5, karar 10, PART I 8 ve testin yorumu testin ölçtüğüne
+  daraltıldı (YALNIZ METİN).
+- **F4 — sınır 3.** `tenants` tarafının join koşulu adlandırıldı; tek yüklem silmenin eşdeğer
+  mutant olduğu yazıldı (YALNIZ METİN).
+- **F5 — "+1 okuma".** PART I 2/3, karar 1, `review.go` `chrome()` yorumu ve `panelbrand.go`
+  başlığı "okuyucuya istek başına bir çağrı + okuyucuda bir ifade"ya daraltıldı (YALNIZ METİN).
+- **F6 — adın rengi.** Seçim: pinle (ucuz). Ad ve co-brand paragrafları tam sınıf listeleriyle
+  doğrulanır; R06 (adın paragrafına `text-saffron`) kırmızı.
+
+### Devirler
+
+- **WL-7:** Account önizlemesi `AdminAccount` içinde, `renderPanel`'den geçer; politika bugün
+  yalnız kromun `DrawsLogo`'suna bakar. Önizleme `<img>`'ini ayrı bir okumayla çizerse (krom
+  okuması düşüp önizlemeninki başarılı olursa) img-src eksik kalır: önizleme kromun
+  `PanelChrome.Brand`'ini kullanmalı ya da `renderPanel`'e kendi `<img>`'ini OR'lamalı (pin ve
+  img-src derlemi birlikte güncellenir). `NewAdminAuth`'a yazma tarafı `brands`'ten ayrı alan
+  olarak girer. Bayt (ADR 0024 WL-6 sınır 12): kabuk her bölümde logoyu çizer — sayfa başına
+  soğuk +1, sıcak 0.
+- **WL-9:** tap ekranının tema bağlantısı `layout.Theme` + `documentHead`'in `theme`
+  parametresiyle verilebilir; birleştirmede tek mekanizma kalmalı. Okuma tarafı kapısı
+  `accentOf` yeniden kullanılabilir.
+- **WL-10:** sınırlar 1–7; `base.templ`, `renderPanel` ve `GetTenantPanelBrand` diff'i.
+- **WL-12:** skill *"Tenant slotları"*: panel satırı ölçüldü (32 px yuva, ≤ 192 px; `.panel-stripe`
+  yalnız `--brand-accent`/`background-color`; yalnız accent'li işletmede de ad + co-brand);
+  skill'in *"alt = tenant adı"* cümlesi yüzeye göre yazılmalı: tap ekranında ad, panel
+  başlığında boş (karar 9).

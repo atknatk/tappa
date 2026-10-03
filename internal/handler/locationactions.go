@@ -284,7 +284,7 @@ func (a *AdminAuth) renderVenueFormAgain(w http.ResponseWriter, r *http.Request,
 	v := a.locationsShell(r, screen, plaques)
 	v.VenueForm = &form
 	bindFormTargets(&v)
-	a.render(w, r, http.StatusOK, pages.AdminLocations(v))
+	a.renderPanel(w, r, http.StatusOK, v.PanelChrome, pages.AdminLocations(v))
 }
 
 // renderDepartmentFormAgain is the same for the department form.
@@ -336,7 +336,7 @@ func (a *AdminAuth) renderDepartmentFormAgain(w http.ResponseWriter, r *http.Req
 	v := a.locationsShell(r, screen, plaques)
 	v.DepartmentForm = &form
 	bindFormTargets(&v)
-	a.render(w, r, http.StatusOK, pages.AdminLocations(v))
+	a.renderPanel(w, r, http.StatusOK, v.PanelChrome, pages.AdminLocations(v))
 }
 
 // formOutcome says what rebuilding a rejected form found.

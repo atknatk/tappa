@@ -210,6 +210,13 @@ type AdminAuth struct {
 	// stops a change to the roster or the venue side reaching it.
 	accounts panelAccounts
 
+	// brands reads the business's brand for the chrome of every panel section (M10
+	// WL-8, panelbrand.go): one more read per panel request. It is a field of its own,
+	// not a method on accounts, for the reason WL-6 gave the reader its own type
+	// (tenant.BrandReader, not tenant.Brands): a page view holds no value with a Save
+	// method on it, and accounts carries the one write to `tenants`.
+	brands panelBrands
+
 	// encoder drives the plaque personalisation relay (M8-05 FAZ B2c-2b,
 	// internal/encode). See plaqueencode.go for the whole surface.
 	//
@@ -259,7 +266,7 @@ type AdminAuth struct {
 // the argument; the short version is that its absence is a deployment fact (no https
 // base URL, therefore no NDEF template) rather than a wiring bug, and the surface
 // answers 503 with a named fault instead of 404.
-func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLedger, queue panelQueue, reviewer panelReviewer, staff panelStaff, invites panelInviter, venues panelVenues, plaques panelPlaques, entries panelRecorder, rules panelRules, scribe panelScribe, books panelBooks, accounts panelAccounts, encoder PlaqueEncoder, cfg *config.Config, log *slog.Logger) (*AdminAuth, error) {
+func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLedger, queue panelQueue, reviewer panelReviewer, staff panelStaff, invites panelInviter, venues panelVenues, plaques panelPlaques, entries panelRecorder, rules panelRules, scribe panelScribe, books panelBooks, accounts panelAccounts, brands panelBrands, encoder PlaqueEncoder, cfg *config.Config, log *slog.Logger) (*AdminAuth, error) {
 	switch {
 	case admins == nil:
 		return nil, errors.New("handler: nil admin authenticator")
@@ -349,6 +356,10 @@ func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLed
 	// assembled.
 	case accounts == nil:
 		return nil, errors.New("handler: nil business accounts")
+	// A nil brands would make every panel section's chrome panic (M10 WL-8). Refused
+	// here, typed nil included, for the M5-04 reason above.
+	case isNil(brands):
+		return nil, errors.New("handler: nil brand reader")
 	case cfg == nil:
 		return nil, errors.New("handler: nil config")
 	}
@@ -378,6 +389,7 @@ func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLed
 		scribe:         scribe,
 		books:          books,
 		accounts:       accounts,
+		brands:         brands,
 		encoder:        encoder,
 		cookies:        adminauth.NewCookies(cfg),
 		short:          newAdminCookies(cfg),
@@ -1553,20 +1565,36 @@ func ptr(id uuid.UUID) *uuid.UUID { return &id }
 // than inheriting the gap. form-action 'self' is the one directive with a concrete
 // threat behind it here: a browser that honours it will not let a password form be
 // repointed at another host.
+//
+// IT IS FOR A PAGE OUTSIDE THE PANEL SHELL -- the business picker, the problem pages,
+// the docket fragment -- which draws no logo. A page drawn in the panel shell goes
+// through renderPanel (or renderScripted), which takes its chrome (M10 WL-8):
+// TestPanelRenders_AShellPageIsRenderedWithItsChromesPolicy turns red on a shell page
+// passed here by name.
 func (a *AdminAuth) render(w http.ResponseWriter, r *http.Request, status int, c templ.Component) {
 	a.renderWithPolicy(w, r, status, c, adminCSPFor(false))
 }
 
-// renderScripted is render for the ONE panel page that loads a script.
+// renderPanel is render for a page drawn in the panel shell (pages.PanelShell). Its
+// policy names img-src exactly when chrome draws the business's logo --
+// PanelChrome.DrawsLogo, the predicate the template draws the <img> by (M10 WL-8;
+// ADR 0023 §4, ADR 0024 §5). chrome is the one the page's view carries, so the policy
+// and the markup are decided by the same value.
+func (a *AdminAuth) renderPanel(w http.ResponseWriter, r *http.Request, status int, chrome pages.PanelChrome, c templ.Component) {
+	a.renderWithPolicy(w, r, status, c, adminCSPFor(chrome.DrawsLogo()))
+}
+
+// renderScripted is renderPanel for the ONE panel page that loads a script.
 //
 // 🔴 IT IS A SEPARATE ENTRY POINT SO THAT THE WIDENING IS PER-PAGE RATHER THAN
 // PER-PANEL. M6-03 needed a script on the transactions section; giving the whole
 // panel script-src would have let every screen that loads nothing permit one.
 // Both policies are DERIVED FROM ONE BASE STRING below, so this is a parameter on
 // a single representation and not the "two policies to keep in step" shape that
-// this file argues against elsewhere.
-func (a *AdminAuth) renderScripted(w http.ResponseWriter, r *http.Request, status int, c templ.Component) {
-	a.renderWithPolicy(w, r, status, c, logoImagePolicy(adminScriptedCSP, false))
+// this file argues against elsewhere. Like renderPanel it takes the page's chrome,
+// and names img-src when the chrome draws the logo (M10 WL-8).
+func (a *AdminAuth) renderScripted(w http.ResponseWriter, r *http.Request, status int, chrome pages.PanelChrome, c templ.Component) {
+	a.renderWithPolicy(w, r, status, c, logoImagePolicy(adminScriptedCSP, chrome.DrawsLogo()))
 }
 
 // ⚠️ LIMIT — NO Referrer-Policy HEADER (M6-03, informational). Measured on the
@@ -1648,10 +1676,12 @@ const adminCSP = "default-src 'none'; style-src 'self'; font-src 'self'; " +
 // §5; brandlogo.go's logoImagePolicy, landingCSPFor's precedent). The scripted section
 // takes the same widening over adminScriptedCSP (renderScripted).
 //
-// render and renderScripted pass false: no panel page draws the logo yet. WL-8 puts it
-// in the panel shell and WL-7 in the Account preview; each passes its own render's
-// answer. The sign-in screens and the password-reset family never draw it (ADR 0023
-// §2 leaves them Taptime's) and keep their policies untouched.
+// render passes false: the pages it serves have no panel shell and draw no logo.
+// renderPanel and renderScripted pass the page's chrome's DrawsLogo (M10 WL-8: the
+// shell's header draws the logo on every section of a business that has one); WL-7's
+// Account preview is the next <img> and passes its own answer. The sign-in screens and
+// the password-reset family never draw it (ADR 0023 §2 leaves them Taptime's) and keep
+// their policies untouched.
 func adminCSPFor(hasLogo bool) string { return logoImagePolicy(adminCSP, hasLogo) }
 
 // adminScriptedCSP is adminCSP plus EXACTLY what HTMX needs, and nothing else.

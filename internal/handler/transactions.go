@@ -138,7 +138,7 @@ func (a *AdminAuth) transactionsSection(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// THE SCRIPTED POLICY IS NAMED HERE, on the one page that loads a script.
-	a.renderScripted(w, r, http.StatusOK, pages.AdminTransactions(v))
+	a.renderScripted(w, r, http.StatusOK, v.PanelChrome, pages.AdminTransactions(v))
 }
 
 // transactionDockets answers the HTMX paging request with the cards alone.

@@ -34,7 +34,19 @@ package tenant
 //     the reading side's own all-or-none rule, for rows 00028's CHECK keeps out of the
 //     table (TestBrandRead_NoRowAndAnAllNullRowAreOneBranch);
 //   - a nil tenant is refused before a transaction is opened, and a failing database
-//     is an error, never ErrLogoNotFound (TestBrandRead_ANilTenantOpensNoTransaction).
+//     is an error, never ErrLogoNotFound (TestBrandRead_ANilTenantOpensNoTransaction);
+//   - (WL-8) PanelBrand returns each business's own name, accent and logo in one
+//     transaction with one statement (TestBrandReadDB_PanelBrandIsOneStatementForItsOwnBusiness);
+//     no row, an all-NULL row and an accent the gate refuses without a logo are the
+//     zero value -- the last with AccentRefused -- and a refused accent beside a logo is
+//     the logo with the name (TestBrandReadDB_PanelBrandUnbrandedShapesAreTheZeroValue);
+//     panelBrandOf keeps a read error, each of the fourteen half-described logos and
+//     each malformed stored accent an error, and gives the name only to a branded
+//     answer (TestBrandRead_PanelBrandOfKeepsEveryNonBrandAnError); a nil tenant opens
+//     no transaction and a failing database is an error
+//     (TestBrandRead_PanelBrandNeedsATenantAndReportsAFailingDatabase);
+//     TestBrandRead_TheBeltSeesThePanelRead fails if GetTenantPanelBrand leaves this
+//     package's derived belt.
 //
 // PART II -- NAMED PINS: the tests above, and TestStaffQueries_CarryAnExplicitTenantPredicate
 // (query_test.go), which derives its query list from this package's store calls and so,
@@ -57,6 +69,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"github.com/atknatk/tappa/internal/brand"
 	"github.com/atknatk/tappa/internal/store"
 )
 
@@ -197,4 +210,110 @@ func logoRefOf(row store.GetTenantBrandRow, err error) (LogoRef, bool, error) {
 		Width:  int(*row.LogoWidth),
 		Height: int(*row.LogoHeight),
 	}, true, nil
+}
+
+// PanelBrand is the business's brand as the panel chrome draws it (M10 WL-8; ADR 0023
+// §2): the business's name, its accent, and its logo. The zero value is "nothing to
+// draw", and the chrome then renders as it did before WL-8.
+type PanelBrand struct {
+	// Name is the business's name. It is set only when Branded is true: the chrome
+	// prints it beside a brand and nowhere else.
+	Name string
+	// Accent is the stored accent; it means something only when HasAccent is true.
+	Accent brand.Color
+	// HasAccent: an accent is stored AND brand.Check passes it today.
+	HasAccent bool
+	// AccentRefused: an accent is stored and brand.Check refuses it today -- the palette
+	// or the gate's thresholds changed after it was saved (ADR 0023 §3: the database
+	// keeps the shape, the code re-checks the colour on the read side too). The page
+	// draws no accent, as the theme route would serve none (it 404s the same colour);
+	// the caller says so in its log.
+	AccentRefused bool
+	// Logo is the stored logo's digest, type and box; it means something only when
+	// HasLogo is true.
+	Logo    LogoRef
+	HasLogo bool
+}
+
+// Branded reports whether the chrome has anything of the business's to draw: an
+// accent that passes the gate, or a logo.
+func (b PanelBrand) Branded() bool { return b.HasAccent || b.HasLogo }
+
+// PanelBrand reads the business's brand for the panel chrome: ONE statement,
+// GetTenantPanelBrand, by primary key (the chrome's "+1 read" -- m10 WL-8's
+// acceptance; EXPLAIN ANALYZE on the WL-8 card).
+//
+// No brand row, a row whose brand fields are all NULL, and a row whose only accent the
+// gate refuses and which has no logo are the zero value (with AccentRefused set for
+// the last), not an error. An error is an error: a failed read, a stored accent that
+// is not six upper-case hex digits, and a half-described logo (logoRefOf's rule) --
+// never quietly "no brand", so the caller logs it (section 4.6; ADR 0024's WL-6 note,
+// the hand-off "a half row is to be handled apart").
+func (r *BrandReader) PanelBrand(ctx context.Context, tenantID uuid.UUID) (PanelBrand, error) {
+	if tenantID == uuid.Nil {
+		return PanelBrand{}, errors.New("tenant: panel brand: no tenant")
+	}
+	var out PanelBrand
+	err := r.data.WithTenant(ctx, tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		row, err := store.New(tx).GetTenantPanelBrand(ctx, tenantID)
+		out, err = panelBrandOf(row, err)
+		return err
+	})
+	if err != nil {
+		return PanelBrand{}, fmt.Errorf("tenant: panel brand: %w", err)
+	}
+	return out, nil
+}
+
+// panelBrandOf turns GetTenantPanelBrand's answer into the chrome's. The logo half is
+// logoRefOf's rule, unchanged (the four logo columns all or none); the accent half is
+// accentOf's.
+func panelBrandOf(row store.GetTenantPanelBrandRow, err error) (PanelBrand, error) {
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		return PanelBrand{}, nil
+	case err != nil:
+		return PanelBrand{}, err
+	}
+	ref, hasLogo, err := logoRefOf(store.GetTenantBrandRow{
+		LogoSha256: row.LogoSha256, LogoMime: row.LogoMime,
+		LogoWidth: row.LogoWidth, LogoHeight: row.LogoHeight,
+	}, nil)
+	if err != nil {
+		return PanelBrand{}, err
+	}
+	accent, hasAccent, refused, err := accentOf(row.Accent)
+	if err != nil {
+		return PanelBrand{}, err
+	}
+	out := PanelBrand{
+		Accent: accent, HasAccent: hasAccent, AccentRefused: refused,
+		Logo: ref, HasLogo: hasLogo,
+	}
+	if out.Branded() {
+		out.Name = row.Name
+	}
+	return out, nil
+}
+
+// accentOf is the READ side of ADR 0023 §3's gate for a stored accent: none stored is
+// (zero, false, false, nil); a stored accent brand.Check passes is (it, true, false,
+// nil); one it refuses is (zero, false, true, nil) -- no accent, and the caller logs;
+// a stored value that is not the canonical spelling (migration 00028's CHECK keeps it
+// out of the table) is an error.
+func accentOf(stored *string) (c brand.Color, ok, refused bool, err error) {
+	if stored == nil {
+		return brand.Color{}, false, false, nil
+	}
+	c, err = brand.ParseAccent(*stored)
+	if err != nil {
+		return brand.Color{}, false, false, fmt.Errorf("the stored accent: %w", err)
+	}
+	if _, err := brand.Check(c); err != nil {
+		if errors.Is(err, brand.ErrAccentIllegible) {
+			return brand.Color{}, false, true, nil
+		}
+		return brand.Color{}, false, false, fmt.Errorf("the stored accent: %w", err)
+	}
+	return c, true, false, nil
 }

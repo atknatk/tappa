@@ -239,6 +239,27 @@
     .tap-button { @apply transition-none active:scale-100; }
   }
 
+  /* --- the panel's stripe: the tenant accent's second slot (M10 WL-8) ---
+     ADR 0023 §2 and K4: 4 px, the panel column's width, at the top of the chrome of
+     every /admin section of a business whose accent the gate passes. It is the only
+     place the panel shows the accent (the Account preview's tap button aside, which
+     is the tap button's own slot); the panel's primary buttons, its tab marker and
+     its focus rings stay the palette's.
+
+     IT READS THE ACCENT IN ITS BACKGROUND COLOUR AND NOWHERE ELSE: no text, no border,
+     no ring, no shadow, no inherited value (ADR 0023 §3, the accent is a fill). The
+     element is empty and aria-hidden, so WCAG asks no contrast of it (§3's table: a
+     decorative stripe on porcelain, no requirement). Unbranded, the variable is the
+     :root default -- but the chrome draws no stripe then: the template writes the
+     element only when the theme stylesheet is linked.
+
+     It is in themeSlots (internal/brand/theme_test.go) with the accent alone, and its
+     compiled rule is an entry of themeBrandGolden; an edit to this rule edits that
+     list in the same change. */
+  .panel-stripe {
+    @apply h-1 bg-brand;
+  }
+
   /* --- button: the chain that was pasted three times --- */
   .btn {
     @apply inline-flex items-center justify-center min-h-11 px-4 py-2 font-display

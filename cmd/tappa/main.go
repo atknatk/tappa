@@ -530,7 +530,16 @@ func run() error {
 		}()
 	}
 
-	panelAuth, err := handler.NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, venues, plaques, entries, rules, ruleWriter, books, accounts, encoder, cfg, slog.Default())
+	// The business's brand, READ side (M10 WL-6, WL-8). The reader takes the pool and
+	// nothing else: it reads, it never writes, and the tenant it reads is the one each
+	// caller's session resolved. The panel reads it for its chrome on every section
+	// (WL-8); the two logo routes below read the bytes (WL-6).
+	brandReader, err := tenant.NewBrandReader(data)
+	if err != nil {
+		return err
+	}
+
+	panelAuth, err := handler.NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, venues, plaques, entries, rules, ruleWriter, books, accounts, brandReader, encoder, cfg, slog.Default())
 	if err != nil {
 		return err
 	}
@@ -539,13 +548,7 @@ func run() error {
 	// GET /t/logo/{sha}. They are given the panel and the tap handlers rather than a
 	// middleware of their own, so each route runs its surface's chain and spends that
 	// surface's budgets -- the panel's flood and session limiters, and the one
-	// TapLimiter GET /t and POST /api/checkin are metered by. The reader takes the pool
-	// and nothing else: it reads, it never writes, and the tenant it reads is the one
-	// each route's session resolved.
-	brandReader, err := tenant.NewBrandReader(data)
-	if err != nil {
-		return err
-	}
+	// TapLimiter GET /t and POST /api/checkin are metered by.
 	logos, err := handler.NewBrandLogos(brandReader, panelAuth, tap, slog.Default())
 	if err != nil {
 		return err

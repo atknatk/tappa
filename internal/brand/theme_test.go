@@ -185,11 +185,12 @@ var themeVariableProperty = map[string]string{
 // themeSlots is ADR 0023 §2's accent slots as they exist in input.css, each with
 // the variables it reads. The tap button's one class serves the tap screen and the
 // Account preview (§2: the preview renders the tap screen's own button). The panel's
-// stripe is a slot too and has no class yet (WL-8); it enters here when it does,
-// with --brand-accent only. A listed (slot, variable) pair the compiled stylesheet
-// does not read in its property is reported (rule 4 of themeSlotViolations).
+// stripe (WL-8) reads --brand-accent only: it carries no text and no edge. A listed
+// (slot, variable) pair the compiled stylesheet does not read in its property is
+// reported (rule 4 of themeSlotViolations).
 var themeSlots = map[string][]string{
-	".tap-button": {"--brand-accent", "--brand-on-accent", "--brand-edge"},
+	".tap-button":   {"--brand-accent", "--brand-on-accent", "--brand-edge"},
+	".panel-stripe": {"--brand-accent"},
 }
 
 // themeCSSRule is one rule of a compiled stylesheet: its enclosing at-rules, its
@@ -745,9 +746,11 @@ func TestThemeSlotScan_RefusesEachShapeItExistsFor(t *testing.T) {
 		t.Fatalf("ThemeCSS declares %v; the property rule knows %v", declared, keys)
 	}
 
-	// The shape `make css` ships today (WL-5), from input.css's two .tap-button rules.
+	// The shape `make css` ships today, from input.css's two .tap-button rules (WL-5)
+	// and its .panel-stripe rule (WL-8).
 	const slot = `.tap-button{border-radius:.125rem;--tw-bg-opacity:1;background-color:rgb(var(--brand-accent)/var(--tw-bg-opacity,1));--tw-text-opacity:1;color:rgb(var(--brand-on-accent)/var(--tw-text-opacity,1))}` +
 		`.tap-button{box-shadow:inset 0 0 0 2px rgb(var(--brand-edge)/1)}` +
+		`.panel-stripe{height:.25rem;--tw-bg-opacity:1;background-color:rgb(var(--brand-accent)/var(--tw-bg-opacity,1))}` +
 		`@media (prefers-reduced-motion:reduce){.tap-button{transition-property:none}}`
 	shipped := `/*! header */` + green + `.stamp{color:rgb(21 34 25/var(--tw-text-opacity,1))}` + slot
 	if v := themeSlotViolations(shipped); len(v) != 0 {
@@ -814,6 +817,15 @@ func TestThemeSlotScan_RefusesEachShapeItExistsFor(t *testing.T) {
 			shipped + `.tap-button{color:x\;background-color:rgb(var(--brand-accent))}`, "reads --brand-accent in color"},
 		{"the slot reads no accent",
 			strings.Replace(shipped, "background-color:rgb(var(--brand-accent)", "background-color:rgb(31 92 65", 1), "never reads --brand-accent"},
+		{"the panel stripe reads no accent (WL-8)",
+			strings.Replace(shipped, ".panel-stripe{height:.25rem;--tw-bg-opacity:1;background-color:rgb(var(--brand-accent)",
+				".panel-stripe{height:.25rem;--tw-bg-opacity:1;background-color:rgb(31 92 65", 1), "slot .panel-stripe never reads --brand-accent"},
+		{"the accent as the panel stripe's text colour (WL-8)",
+			shipped + `.panel-stripe{color:rgb(var(--brand-accent))}`, "reads --brand-accent in color"},
+		{"the label on the panel stripe (WL-8)",
+			shipped + `.panel-stripe{color:rgb(var(--brand-on-accent))}`, `".panel-stripe" is not a slot that may read it`},
+		{"the edge on the panel stripe (WL-8)",
+			shipped + `.panel-stripe{box-shadow:inset 0 0 0 2px rgb(var(--brand-edge)/1)}`, `".panel-stripe" is not a slot that may read it`},
 		{"the defaults are gone",
 			slot, "--brand-accent is defined 0 times"},
 		{"an unreadable stylesheet",
@@ -923,10 +935,11 @@ type themeBrandGoldenEntry struct {
 // `make css` on 2026-10-03 (WL-5): the :root defaults (three definitions), the tap
 // button's rule (its fill and its label), the tap button's inset edge, and the
 // landing's .p-brand rule, which is not a variable. The same four sites were measured
-// in a build with WL-6's templates and stylesheet merged in (WL-5 card). A change that
-// adds or rewrites a site -- WL-8's panel stripe is the next, and any new use of the
-// word in app.css is one -- edits this list in the same change; that edit is the
-// review.
+// in a build with WL-6's templates and stylesheet merged in (WL-5 card). WL-8 added
+// the fifth, the panel stripe's rule (its fill), read with `make css` on 2026-10-03:
+// the compiled file differs from the WL-6 tree's by that one rule and nothing else. A
+// change that adds or rewrites a site -- any new use of the word in app.css is one --
+// edits this list in the same change; that edit is the review.
 var themeBrandGolden = []themeBrandGoldenEntry{
 	{depth: 1, count: 3, rule: `:root{--brand-accent:31 92 65;--brand-on-accent:255 253 244;--brand-edge:none}`},
 	{depth: 1, count: 2, rule: `.tap-button{border-radius:.125rem;min-height:4rem;width:100%;--tw-bg-opacity:1` +
@@ -937,6 +950,8 @@ var themeBrandGolden = []themeBrandGoldenEntry{
 		`;transition-duration:.15s;transition-property:transform` +
 		`;transition-timing-function:cubic-bezier(.4,0,.2,1)}`},
 	{depth: 1, count: 1, rule: `.tap-button{box-shadow:inset 0 0 0 2px rgb(var(--brand-edge)/1)}`},
+	{depth: 1, count: 1, rule: `.panel-stripe{height:.25rem;--tw-bg-opacity:1` +
+		`;background-color:rgb(var(--brand-accent)/var(--tw-bg-opacity,1))}`},
 	{depth: 0, count: 1, rule: `.lp .plaque .p-brand{color:#9db3a5;font-family:var(--mono);font-size:10px` +
 		`;letter-spacing:3px;margin-bottom:18px}`},
 }
@@ -997,7 +1012,8 @@ func themeBrandPin(css string, golden []themeBrandGoldenEntry) []string {
 // background on .stamp, plainly and through \2d; a listed rule moved into an at-rule
 // after another rule, plainly or behind an escaped closing brace that evens the depth;
 // a listed rule given a selector list that adds .stamp behind escaped braces; a golden
-// entry deleted with app.css unchanged.
+// entry deleted with app.css unchanged; (WL-8) the panel stripe's rule moved to the
+// primary button, or its selector widened to it.
 // PART III: a form not on that list is code review's -- no completeness claim.
 func TestCompiledCSS_BrandNamesOccurOnlyInTheGolden(t *testing.T) {
 	t.Parallel()
@@ -1010,7 +1026,8 @@ func TestCompiledCSS_BrandNamesOccurOnlyInTheGolden(t *testing.T) {
 // it needs no app.css. It builds the shipped shape from the golden itself (the listed
 // rules, one after another) and asserts: no golden site is listed twice; themeBrandPin
 // reports nothing for the shipped shape; the golden holds the tap button's edge rule
-// (five shapes below edit it); the pin reports a difference for each shape on the
+// (five shapes below edit it) and the panel stripe's rule (two shapes, WL-8); the pin
+// reports a difference for each shape on the
 // list below, and for the shipped shape against the golden with any one entry left out.
 func TestThemeBrandScan_RefusesEachShapeItExistsFor(t *testing.T) {
 	t.Parallel()
@@ -1031,6 +1048,11 @@ func TestThemeBrandScan_RefusesEachShapeItExistsFor(t *testing.T) {
 	const edge = ".tap-button{box-shadow:inset 0 0 0 2px rgb(var(--brand-edge)/1)}"
 	if !strings.Contains(shipped, edge) {
 		t.Fatalf("PREMISE: the golden has no %q", edge)
+	}
+	// WL-8: the panel stripe's rule, which the two stripe shapes below edit.
+	const stripe = ".panel-stripe{height:.25rem;--tw-bg-opacity:1;background-color:rgb(var(--brand-accent)/var(--tw-bg-opacity,1))}"
+	if !strings.Contains(shipped, stripe) {
+		t.Fatalf("PREMISE: the golden has no %q", stripe)
 	}
 	for _, tc := range []struct{ name, css string }{
 		{"a definition behind a comment on :root (B1c5, 5th-round audit)",
@@ -1059,6 +1081,10 @@ func TestThemeBrandScan_RefusesEachShapeItExistsFor(t *testing.T) {
 			strings.Replace(shipped, edge, `.stamp,.x\{\}`+edge, 1)},
 		{"the edge moved into an at-rule behind an escaped closing brace (F4)",
 			strings.Replace(shipped, edge, `@media print{.x{color:red}.y\}`+edge+`}\{`, 1)},
+		{"the stripe's fill given to the panel's primary button (WL-8, K4)",
+			strings.Replace(shipped, stripe, strings.Replace(stripe, ".panel-stripe", ".btn--primary", 1), 1)},
+		{"the stripe's selector widened to the primary button (WL-8, K4)",
+			strings.Replace(shipped, stripe, strings.Replace(stripe, ".panel-stripe", ".panel-stripe,.btn--primary", 1), 1)},
 	} {
 		if d := themeBrandPin(tc.css, themeBrandGolden); len(d) == 0 {
 			t.Errorf("%s: the pin reports nothing", tc.name)

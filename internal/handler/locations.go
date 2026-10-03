@@ -318,7 +318,7 @@ func (a *AdminAuth) locationsSection(w http.ResponseWriter, r *http.Request) {
 		v.Problem = unresolvedCardProblem(r, v)
 	}
 
-	a.render(w, r, http.StatusOK, pages.AdminLocations(v))
+	a.renderPanel(w, r, http.StatusOK, v.PanelChrome, pages.AdminLocations(v))
 }
 
 // bindFormTargets fills in whichever card is open with the two values every form

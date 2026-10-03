@@ -181,7 +181,7 @@ func (a *AdminAuth) anomaliesSection(w http.ResponseWriter, r *http.Request) {
 
 	v := pages.AnomaliesView{PanelChrome: a.chrome(r, pages.TabAnomalies)}
 	fillAnomaliesView(&v, screen)
-	a.render(w, r, http.StatusOK, pages.AdminAnomalies(v))
+	a.renderPanel(w, r, http.StatusOK, v.PanelChrome, pages.AdminAnomalies(v))
 }
 
 // fillAnomaliesView maps the domain read onto the view.

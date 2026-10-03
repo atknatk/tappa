@@ -151,7 +151,7 @@ func (a *AdminAuth) employeesSection(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	a.render(w, r, http.StatusOK, pages.AdminEmployees(v))
+	a.renderPanel(w, r, http.StatusOK, v.PanelChrome, pages.AdminEmployees(v))
 }
 
 // employeesView builds the whole section. It answers (view, true), or writes a

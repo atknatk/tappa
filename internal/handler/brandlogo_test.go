@@ -131,7 +131,7 @@ func logoSurfaces(t *testing.T, reader logoReader, sess *fakeSessions, admins *f
 	ledger := newFakeLedger()
 	panel, err := NewAdminAuth(admins, &fakeTrail{}, ledger, ledger, &fakeReviewer{}, &fakeStaff{}, &fakeInviter{},
 		&fakeVenues{}, &fakePlaques{}, &fakeRecorder{}, newFakeRules(), newFakeScribe(), newFakeBooks(),
-		newFakeAccount(), nil, adminTestConfig(), discardLogger())
+		newFakeAccount(), newFakeBrands(), nil, adminTestConfig(), discardLogger())
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}
@@ -957,13 +957,16 @@ func imagePolicyAgrees(body, policy string) bool {
 
 // TestPageImages_ImgSrcIsNamedOnlyByAPageThatDrawsAnImage is ADR 0023 §4's rule over the
 // panel's and the tap surface's renders: a response's policy names img-src if and only
-// if its body contains an <img>. Today no render draws the logo, so the rule says
-// "none names it"; once WL-8/WL-9 pass hasLogo, a page that names it without drawing an
-// image, or draws one without naming it, turns this red.
+// if its body contains an <img>. Since WL-8 the panel chrome draws the business's logo,
+// so the corpus holds both halves: every section of a business with a logo (the
+// responses that draw it and must name img-src -- counted below, the TRUE half) and of
+// businesses without one. A page that names it without drawing an image, or draws one
+// without naming it, turns this red. The tap surface draws no logo yet (WL-9).
 //
 // THE CORPUS IS LISTED, NOT DERIVED, AND THE LIST IS PRINTED: every row of
-// pages.PanelSections plus the named panel and tap renders below. A render that is not
-// in it is not covered -- PART III of brandlogo.go's claim.
+// pages.PanelSections, unbranded and under three brands, plus the named panel and tap
+// renders below. A render that is not in it is not covered -- PART III of
+// brandlogo.go's claim.
 func TestPageImages_ImgSrcIsNamedOnlyByAPageThatDrawsAnImage(t *testing.T) {
 	// THE PREDICATE CAN FAIL, both ways (anti-vacuity: today every body has no <img>
 	// and every policy no img-src, which a predicate that always said "agrees" would
@@ -1002,6 +1005,23 @@ func TestPageImages_ImgSrcIsNamedOnlyByAPageThatDrawsAnImage(t *testing.T) {
 	}
 	for _, s := range pages.PanelSections {
 		add("panel GET "+s.Href, read(b.do(http.MethodGet, s.Href, nil)))
+	}
+	// PANEL, BRANDED (WL-8): every section under three brands. The two with a logo draw
+	// it on every section; the accent alone draws no image.
+	brands := newFakeBrands()
+	branded, _ := brandedPanel(t, brands)
+	logoRenders := 0
+	for _, v := range []struct {
+		name         string
+		accent, logo bool
+	}{{"accent and logo", true, true}, {"accent alone", true, false}, {"logo alone", false, true}} {
+		brands.set(wl8Brand(t, v.accent, v.logo), nil)
+		for _, s := range pages.PanelSections {
+			add("panel GET "+s.Href+", branded with "+v.name, read(branded.do(http.MethodGet, s.Href, nil)))
+			if v.logo {
+				logoRenders++
+			}
+		}
 	}
 	withRecords := panelBrowserWith(t, ledgerWithRecords(1, true))
 	add("panel GET "+transactionsHref+" with a record", read(withRecords.do(http.MethodGet, transactionsHref, nil)))
@@ -1063,8 +1083,12 @@ func TestPageImages_ImgSrcIsNamedOnlyByAPageThatDrawsAnImage(t *testing.T) {
 	add("tap 429", read(limited))
 
 	names := make([]string, 0, len(corpus))
+	drawn := 0
 	for _, r := range corpus {
 		names = append(names, r.name)
+		if imgElementRE.Match(r.a.body) {
+			drawn++
+		}
 		policy := r.a.header.Get("Content-Security-Policy")
 		if policy == "" {
 			t.Errorf("%s (%d) carries no Content-Security-Policy", r.name, r.a.status)
@@ -1077,6 +1101,12 @@ func TestPageImages_ImgSrcIsNamedOnlyByAPageThatDrawsAnImage(t *testing.T) {
 				r.name, r.a.status, imgElementRE.MatchString(string(r.a.body)), namesImgSrc(policy), policy)
 		}
 	}
-	t.Logf("img-src correspondence over %d renders (%d panel sections): %s",
-		len(corpus), len(pages.PanelSections), strings.Join(names, "; "))
+	// THE TRUE HALF IS MEASURED (WL-8): exactly the logo-bearing renders draw an <img>,
+	// so the correspondence above was checked on responses that name img-src too, and
+	// not only on its absence.
+	if drawn != logoRenders || logoRenders == 0 {
+		t.Errorf("%d renders draw an <img>; the corpus holds %d logo-bearing panel renders", drawn, logoRenders)
+	}
+	t.Logf("img-src correspondence over %d renders (%d panel sections; %d draw the logo): %s",
+		len(corpus), len(pages.PanelSections), drawn, strings.Join(names, "; "))
 }

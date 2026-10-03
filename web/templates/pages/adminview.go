@@ -358,6 +358,12 @@ type PanelChrome struct {
 	// so instead of saying zero — the class M5-11 closed: the product may not state
 	// something it has not measured.
 	Pending PendingBadge
+
+	// Brand is the business's brand in the chrome (M10 WL-8; ADR 0023 §2, K4): its
+	// name, its logo and the 4 px stripe in its accent. The zero value is "not
+	// branded" and the chrome is then what it was before WL-8 — the wordmark, no
+	// stylesheet after app.css, no <img>, no business name (panelbrandview.go).
+	Brand PanelBrand
 }
 
 // PendingBadge is what the navigation knows about the approval queue.

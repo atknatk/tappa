@@ -105,6 +105,13 @@ const (
 	tapLogoRoute   = "/t/logo/{sha}"
 )
 
+// adminLogoHref is the panel route's path for one digest: the <img src> the panel
+// chrome draws (M10 WL-8). It is built from adminLogoRoute, so the image and the route
+// are one string at compile time.
+func adminLogoHref(digest string) string {
+	return strings.Replace(adminLogoRoute, "{sha}", digest, 1)
+}
+
 // The logo response's policy headers (ADR 0024 §5).
 //
 //	Content-Security-Policy  default-src 'none'; sandbox -- the URL opened directly

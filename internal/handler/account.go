@@ -180,7 +180,7 @@ func (a *AdminAuth) accountSection(w http.ResponseWriter, r *http.Request) {
 	if word := oneOfWords(strings.TrimSpace(r.URL.Query().Get("problem")), accountProblemWords...); word != "" {
 		v.Problem = accountProblemSentence(word)
 	}
-	a.render(w, r, http.StatusOK, pages.AdminAccount(v))
+	a.renderPanel(w, r, http.StatusOK, v.PanelChrome, pages.AdminAccount(v))
 }
 
 // accountView maps stored settings onto the screen.

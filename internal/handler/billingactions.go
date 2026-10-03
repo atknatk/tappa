@@ -214,7 +214,8 @@ func (a *AdminAuth) billingCloseReview(w http.ResponseWriter, r *http.Request) {
 		a.redirect(w, billingReturn("unavailable"))
 		return
 	}
-	a.render(w, r, http.StatusOK, pages.AdminBillingClose(a.billingCloseView(r, d, token)))
+	v := a.billingCloseView(r, d, token)
+	a.renderPanel(w, r, http.StatusOK, v.PanelChrome, pages.AdminBillingClose(v))
 }
 
 // billingCloseApply verifies the confirmation and freezes the month.

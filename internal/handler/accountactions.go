@@ -282,7 +282,7 @@ func (a *AdminAuth) renderAccountFormAgain(w http.ResponseWriter, r *http.Reques
 	v.FieldError = msg
 	// 200 RATHER THAN 400, which is the answer saveVenue gives to the same question:
 	// the response IS the form, and a browser showing a form is not an error condition.
-	a.render(w, r, http.StatusOK, pages.AdminAccount(v))
+	a.renderPanel(w, r, http.StatusOK, v.PanelChrome, pages.AdminAccount(v))
 }
 
 // accountReturn is the section's own address with a word on it. Every part is

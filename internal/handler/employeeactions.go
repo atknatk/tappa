@@ -317,7 +317,7 @@ func (a *AdminAuth) addFormAgain(w http.ResponseWriter, r *http.Request, form co
 	if !ok {
 		return
 	}
-	a.render(w, r, http.StatusOK, pages.AdminEmployees(v))
+	a.renderPanel(w, r, http.StatusOK, v.PanelChrome, pages.AdminEmployees(v))
 }
 
 // employeeInvite mints an activation link for one person and SHOWS IT, once.
@@ -430,14 +430,15 @@ func (a *AdminAuth) employeeInvite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	a.render(w, r, http.StatusOK, pages.AdminInviteIssued(pages.InviteIssuedView{
+	issued := pages.InviteIssuedView{
 		PanelChrome:   a.chrome(r, pages.TabEmployees),
 		Name:          person.Name,
 		ActivationURL: sink.link,
 		Expires:       expiryPhrase(inv.CreatedAt, inv.ExpiresAt),
 		Retired:       inv.RetiredSiblings,
 		BackHref:      rosterReturn(f, employeeID, "", ""),
-	}))
+	}
+	a.renderPanel(w, r, http.StatusOK, issued.PanelChrome, pages.AdminInviteIssued(issued))
 }
 
 // expiryPhrase says how long the link lasts, as a LENGTH rather than as an instant.

@@ -145,7 +145,7 @@ func (a *AdminAuth) reportsSection(w http.ResponseWriter, r *http.Request) {
 
 	v := pages.ReportsView{PanelChrome: a.chrome(r, pages.TabReports)}
 	fillReportsView(&v, screen)
-	a.render(w, r, http.StatusOK, pages.AdminReports(v))
+	a.renderPanel(w, r, http.StatusOK, v.PanelChrome, pages.AdminReports(v))
 }
 
 // fillReportsView maps a domain report onto the view.
