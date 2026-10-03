@@ -260,11 +260,10 @@ func CloseOperatorSession(ctx context.Context, c OperatorConn, sessionHash strin
 // The legal texts on the operator's surface (migration 00027; ADR 0020 §7, ADR 0021
 // §2 v). Two exported calls -- a version list and a publication -- and, unexported,
 // the two phases the version list is made of. They are free functions over an
-// OperatorConn like the seven above and are NOT methods of *OperatorDB yet:
-// TestOperatorDB_IsTheStoreAndNothingMore pins that type's method set to
-// operatorauth.Store plus Close, and the consumer of these two (the /operator/legal
-// handler, OP-10 phase B) declares its own interface when it is written -- the method
-// set and that pin change together then, with the consumer named.
+// OperatorConn like the seven above; since OP-10 phase B *OperatorDB delegates to the
+// two exported ones, as internal/handler/operator's LegalStore (the /operator/legal
+// screen's interface), and TestOperatorDB_IsTheStoreAndNothingMore derives that type's
+// method set from LegalStore and operatorauth.Store.
 
 // legalVersionsReadKind is op_begin_read's read kind for the version list -- the one
 // value of operator_read_tickets_kind_check (00027).

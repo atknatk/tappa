@@ -236,6 +236,70 @@ func TestSessionToken_HashIsKeyedLowerHexOverTheString(t *testing.T) {
 	}
 }
 
+// touchRecorder is a Store whose session predicate records the hash it is handed and
+// answers a live session; every other method is nopStore's (a call fails the test).
+type touchRecorder struct {
+	nopStore
+	got []string
+}
+
+func (r *touchRecorder) TouchOperatorSession(_ context.Context, h string) (db.OperatorSession, error) {
+	r.got = append(r.got, h)
+	return db.OperatorSession{SessionID: uuid.New(), AdminID: uuid.New()}, nil
+}
+
+// TestSessionHash_IsTheHashVerifyHandsTheStore (M10 OP-10, phase B): for one token,
+// SessionHash returns the value Verify hands op_touch_session -- the session argument
+// the session-carrying op_* take -- and it is HMAC-SHA256 under the Authenticator's
+// token key over the token's string (another Authenticator's key gives another hash). A
+// token of the wrong shape is ErrNoSession with an empty hash, and the error's text
+// carries none of the three malformed values driven here. No store call is made by
+// SessionHash (the nopStore half fails the test on one).
+func TestSessionHash_IsTheHashVerifyHandsTheStore(t *testing.T) {
+	dummy, err := sharedDummy()
+	if err != nil {
+		t.Fatalf("dummy digest: %v", err)
+	}
+	key := testKey(t)
+	rec := &touchRecorder{nopStore: nopStore{t}}
+	a := build(rec, Config{TOTPKEK: NewKey(testKey(t)), TokenHMACKey: NewKey(key), Log: newTestLogger(&strings.Builder{})}, dummy)
+	other := build(nopStore{t}, Config{TOTPKEK: NewKey(testKey(t)), TokenHMACKey: NewKey(testKey(t)), Log: newTestLogger(&strings.Builder{})}, dummy)
+	tok, err := newSessionToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	h, err := a.SessionHash(tok)
+	if err != nil {
+		t.Fatalf("SessionHash of a well-formed token: %v", err)
+	}
+	if len(rec.got) != 0 {
+		t.Fatalf("SessionHash made %d store call(s)", len(rec.got))
+	}
+	if _, err := a.Verify(context.Background(), tok); err != nil {
+		t.Fatal(err)
+	}
+	if len(rec.got) != 1 || rec.got[0] != h {
+		t.Fatalf("Verify handed the store %d hash(es), the first equal to SessionHash's: %v", len(rec.got), len(rec.got) == 1 && rec.got[0] == h)
+	}
+	m := hmac.New(sha256.New, key)
+	_, _ = m.Write([]byte(tok.reveal()))
+	if want := fmt.Sprintf("%x", m.Sum(nil)); h != want {
+		t.Error("SessionHash is not HMAC-SHA256(token key, the token's string) in lower-case hex")
+	}
+	if ho, err := other.SessionHash(tok); err != nil || ho == h {
+		t.Errorf("another Authenticator's key gave the same hash (err %v)", err)
+	}
+	for _, bad := range []string{"", "FAKEshort", strings.Repeat("!", 43)} {
+		got, err := a.SessionHash(wrapSessionToken(bad))
+		if got != "" || !errors.Is(err, ErrNoSession) {
+			t.Errorf("a %d-character malformed token: hash %q, err %v; want \"\" and ErrNoSession", len(bad), got, err)
+		}
+		if bad != "" && err != nil && strings.Contains(err.Error(), bad) {
+			t.Errorf("the refusal's text carries the %d-character malformed token", len(bad))
+		}
+	}
+}
+
 // ----------------------------------------------------------------- challenge --
 
 // TestChallenge_BindsTheAccountAndExpires: a challenge verifies for the account it

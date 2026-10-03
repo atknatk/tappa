@@ -199,6 +199,48 @@ func run() error {
 			"why", db.RoleRiskWhy)
 	}
 
+	// 🔴 TAPPA'S OWN LEGAL TEXTS (M7-06; M10 OP-10). The SNAPSHOT the public pages serve
+	// from, on the customer pool -- legal_documents has no tenant_id at all (migration
+	// 00020), so nothing this store does can name a business. It no longer WRITES: since
+	// OP-10 the one writer is the platform operator's op_publish_legal (00027 revoked
+	// tappa_app's INSERT), so it takes no audit sink -- the publication's audit row is
+	// the definer's, in operator_audit_log. It is built HERE, before the operator
+	// surface, because that surface's legal screen refreshes it after a publication
+	// (ADR 0020 §7: one replica); the public surface below reads it.
+	texts, err := legal.NewStore(data)
+	if err != nil {
+		return err
+	}
+	// 🔴 THE SNAPSHOT IS FILLED HERE AND A FAILURE IS NOT FATAL, WHICH IS A DECISION.
+	// The public pages serve from memory precisely so /legal/* never touches the pool
+	// (internal/domain/legal says why), and this is the read that fills it. If the
+	// database is unreachable at boot the four pages fall back to exactly what they
+	// printed before M7-06 — "this text has not been published yet" — which
+	// UNDER-claims rather than over-claims, and is the direction this product is
+	// required to be wrong in. Refusing to start would take the whole marketing site
+	// down over a document nobody had published yet.
+	//
+	// IT NAMES NO TENANT, because there is none to name: legal.readContext runs the
+	// read under a uuid that matches no tenant, so every RLS-scoped table is empty for
+	// its duration and the only thing reachable is the one table whose policy is
+	// `USING (true)`.
+	if err := texts.Refresh(ctx); err != nil {
+		// 🔴 THE LOGGER IS BOUND TO A NAME FIRST, AND THAT IS §4.7 PLUMBING RATHER THAN
+		// STYLE. redline-check.sh's R7b scans for personal data inside a log call by
+		// matching `log.`/`slog.`/`fmt.` followed by the call -- so a logger reached
+		// through a CALL EXPRESSION (`slog.Default().Error(...)`) is invisible to it: the
+		// closing paren ends the pattern before the arguments are read. An audit measured
+		// it by injecting a name and an address here and watching redline-check return
+		// exit 0, while the identical leak written as `slog.Error(...)` returned exit 1.
+		//
+		// This was the ONLY line in the production tree with that shape -- every other
+		// logger is either injected into a constructor or bound to a `log` variable
+		// first, which is the form used in every internal/domain package. Binding it
+		// here removes the shape rather than documenting it, so R7b covers this file the
+		// way it covers the rest.
+		log := slog.Default()
+		log.Error("the published legal texts could not be read at start-up; /legal will show its placeholders until a refresh succeeds (the next publication, or the operator's legal screen)", "err", err)
+	}
 	// THE PLATFORM OPERATOR'S SURFACE (M10 OP-7) -- its own pool, as tappa_operator,
 	// opened and handed to its Authenticator inside openOperatorSurface and nowhere
 	// else; this function sees only the Surface it mounts and the closer it defers.
@@ -207,8 +249,9 @@ func run() error {
 	// customer product serves). Every other failure to open it -- a server that refused,
 	// the role gate, the pin, a malformed DSN, a key of the wrong size -- stops the boot.
 	// It is opened here, after the customer pool, so a customer database that is down is
-	// reported first.
-	operatorSurface, closeOperator, err := openOperatorSurface(ctx, cfg, slog.Default())
+	// reported first. It is handed the legal texts' snapshot (OP-10), which its legal
+	// screen refreshes; the operator's pool stays inside openOperatorSurface.
+	operatorSurface, closeOperator, err := openOperatorSurface(ctx, cfg, texts, slog.Default())
 	if err != nil {
 		return err
 	}
@@ -400,48 +443,6 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	// 🔴 TAPPA'S OWN LEGAL TEXTS (M7-06). It is the eighth writer and the only one
-	// whose rows belong to NO tenant: legal_documents has no tenant_id at all
-	// (migration 00020), so nothing this store does can name a business. It takes the
-	// same trail as the others because §4.3 applies here too — a publication changes
-	// what every visitor to /legal reads — and legal.NewStore REFUSES a nil sink for
-	// the same reason billing.NewBook does: the row is written with RecordTx, inside
-	// the transaction that publishes, so a trail that cannot be written rolls the
-	// publication back with it.
-	texts, err := legal.NewStore(data, trail)
-	if err != nil {
-		return err
-	}
-	// 🔴 THE SNAPSHOT IS FILLED HERE AND A FAILURE IS NOT FATAL, WHICH IS A DECISION.
-	// The public pages serve from memory precisely so /legal/* never touches the pool
-	// (internal/domain/legal says why), and this is the read that fills it. If the
-	// database is unreachable at boot the four pages fall back to exactly what they
-	// printed before M7-06 — "this text has not been published yet" — which
-	// UNDER-claims rather than over-claims, and is the direction this product is
-	// required to be wrong in. Refusing to start would take the whole marketing site
-	// down over a document nobody had published yet.
-	//
-	// IT NAMES NO TENANT, because there is none to name: legal.readContext runs the
-	// read under a uuid that matches no tenant, so every RLS-scoped table is empty for
-	// its duration and the only thing reachable is the one table whose policy is
-	// `USING (true)`.
-	if err := texts.Refresh(ctx); err != nil {
-		// 🔴 THE LOGGER IS BOUND TO A NAME FIRST, AND THAT IS §4.7 PLUMBING RATHER THAN
-		// STYLE. redline-check.sh's R7b scans for personal data inside a log call by
-		// matching `log.`/`slog.`/`fmt.` followed by the call -- so a logger reached
-		// through a CALL EXPRESSION (`slog.Default().Error(...)`) is invisible to it: the
-		// closing paren ends the pattern before the arguments are read. An audit measured
-		// it by injecting a name and an address here and watching redline-check return
-		// exit 0, while the identical leak written as `slog.Error(...)` returned exit 1.
-		//
-		// This was the ONLY line in the production tree with that shape -- every other
-		// logger is either injected into a constructor or bound to a `log` variable
-		// first, which is the form used in every internal/domain package. Binding it
-		// here removes the shape rather than documenting it, so R7b covers this file the
-		// way it covers the rest.
-		log := slog.Default()
-		log.Error("the published legal texts could not be read at start-up; /legal will show its placeholders until the next publication", "err", err)
-	}
 	// 🔴 THE BUSINESS'S OWN ROW (M7-05). It is the ninth writer and the only one that
 	// can UPDATE `tenants` — the row every other tenant-scoped query in the product is
 	// anchored to. It takes the same trail as the others and REFUSES a nil sink, for a
@@ -529,7 +530,7 @@ func run() error {
 		}()
 	}
 
-	panelAuth, err := handler.NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, venues, plaques, entries, rules, ruleWriter, books, texts, accounts, encoder, cfg, slog.Default())
+	panelAuth, err := handler.NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, venues, plaques, entries, rules, ruleWriter, books, accounts, encoder, cfg, slog.Default())
 	if err != nil {
 		return err
 	}

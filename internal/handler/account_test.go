@@ -60,7 +60,7 @@ func accountBrowser(t *testing.T, accounts panelAccounts, trail *fakeTrail, role
 	}}
 	h, err := NewAdminAuth(admins, trail, newFakeLedger(), newFakeLedger(), &fakeReviewer{},
 		&fakeStaff{}, &fakeInviter{}, &fakeVenues{}, &fakePlaques{}, &fakeRecorder{}, newFakeRules(),
-		newFakeScribe(), newFakeBooks(), newFakeTexts(), accounts, nil, adminTestConfig(), slog.New(slog.DiscardHandler))
+		newFakeScribe(), newFakeBooks(), accounts, nil, adminTestConfig(), slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}
@@ -766,9 +766,6 @@ func TestAccount_TheSectionIsInThePanelTable(t *testing.T) {
 					"on purpose — nothing on the page is a commercial term — and hiding the tab " +
 					"would leave a manager unable to check which zone their panel measures a " +
 					"day in. The SAVE is what is gated.")
-			}
-			if s.OperatorOnly {
-				t.Error("the Account tab is marked OperatorOnly; it is the customer's own screen")
 			}
 		}
 	}

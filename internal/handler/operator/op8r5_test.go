@@ -1,7 +1,8 @@
 package operator_test
 
 // op8r5_test.go -- OP-8's fifth round: the shared runner of the header tables, the class
-// -> route table (classRoutes) both header tables are held to, the eight classes the 4th
+// -> route table (classRoutes) the header tables are held to (OP-10 added a third table,
+// C49-C66, op10_test.go), the eight classes the 4th
 // audit found outside the 40 (N7), the walked-routes completeness test (N5) and the wire
 // test of the recorder's snapshot (F1 (b)).
 //
@@ -54,7 +55,7 @@ type classRoute struct {
 	status          int
 }
 
-// classRoutes maps each class of the two header tables to its route and status. The
+// classRoutes maps each class of the three header tables to its route and status. The
 // header tests hold each drive to its entry (the method and path it sent last, the status
 // it got); TestOperatorHeaders_TheWalkedRoutesEachHaveAClass holds the entries to the
 // routes the surface mounts.
@@ -79,6 +80,15 @@ var classRoutes = map[string]classRoute{
 	"C41": {"HEAD", "/operator/", 405}, "C42": {"POST", "/operator/", 405}, "C43": {"OPTIONS", "/operator/", 405},
 	"C44": {"PUT", "/operator/login/totp", 405}, "C45": {"PUT", "/operator/enroll", 405}, "C46": {"GET", "/operator/logout", 405},
 	"C47": {"POST", "/operator/login/totp", 413}, "C48": {"POST", "/operator/enroll", 413},
+	// OP-10's legal screen (op10_test.go, TestOperatorHeaders_TheLegalClassesCarryThePolicy).
+	"C49": {"GET", "/operator/legal", 200}, "C50": {"GET", "/operator/legal", 303}, "C51": {"GET", "/operator/legal", 303},
+	"C52": {"GET", "/operator/legal", 303}, "C53": {"GET", "/operator/legal", 503}, "C54": {"GET", "/operator/legal", 303},
+	"C55": {"GET", "/operator/legal", 429},
+	"C56": {"POST", "/operator/legal", 303}, "C57": {"POST", "/operator/legal", 303}, "C58": {"POST", "/operator/legal", 403},
+	"C59": {"POST", "/operator/legal", 413}, "C60": {"POST", "/operator/legal", 400}, "C61": {"POST", "/operator/legal", 400},
+	"C62": {"POST", "/operator/legal", 400}, "C63": {"POST", "/operator/legal", 503}, "C64": {"POST", "/operator/legal", 303},
+	"C65": {"POST", "/operator/legal", 303},
+	"C66": {"PUT", "/operator/legal", 405},
 }
 
 // routeOf is a request's method and path as a chi route: the query dropped, and the
@@ -214,12 +224,13 @@ func TestOperatorHeaders_TheWrongMethodAndOversizedClassesCarryThePolicy(t *test
 // TestOperatorHeaders_TheWalkedRoutesEachHaveAClass is the completeness check the 4th
 // audit asked for (N5), on the surface's MOUNTED routes as chi.Walk reports them.
 //
-// PART I -- the shipped surface: chi.Walk reports eight method x route pairs on five
-// routes; classRoutes has, for each pair, a class with a status other than 405, and for
-// each route a 405 class with a method not mounted on it; classRoutes' keys are C1-C48.
+// PART I -- the shipped surface: chi.Walk reports ten method x route pairs on six
+// routes (OP-10 added GET and POST /operator/legal); classRoutes has, for each pair, a
+// class with a status other than 405, and for each route a 405 class with a method not
+// mounted on it; classRoutes' keys are C1-C66.
 //
 // PART II -- red on: a walked pair with no class; a walked route with no 405 class; a key
-// of classRoutes outside C1-C48 or a missing one. (The header tests hold each class's
+// of classRoutes outside C1-C66 or a missing one. (The header tests hold each class's
 // drive to its classRoutes entry: an entry naming a route its class does not drive is red
 // there -- N5c in the card's 5th-round table is the converse.)
 //
@@ -241,7 +252,7 @@ func TestOperatorHeaders_TheWalkedRoutesEachHaveAClass(t *testing.T) {
 	for _, ms := range walked {
 		pairs += len(ms)
 	}
-	if len(walked) < 5 || pairs < 8 {
+	if len(walked) < 6 || pairs < 10 {
 		t.Fatalf("PREMISE: chi.Walk reported %d route(s), %d pair(s)", len(walked), pairs)
 	}
 	covered, wrongMethod := map[string]bool{}, map[string]bool{}
@@ -269,13 +280,13 @@ func TestOperatorHeaders_TheWalkedRoutesEachHaveAClass(t *testing.T) {
 	for _, m := range missing {
 		t.Error(m)
 	}
-	for i := 1; i <= 48; i++ {
+	for i := 1; i <= 66; i++ {
 		if _, ok := classRoutes["C"+strconv.Itoa(i)]; !ok {
 			t.Errorf("classRoutes has no C%d", i)
 		}
 	}
-	if len(classRoutes) != 48 {
-		t.Errorf("classRoutes has %d entries, want C1-C48", len(classRoutes))
+	if len(classRoutes) != 66 {
+		t.Errorf("classRoutes has %d entries, want C1-C66", len(classRoutes))
 	}
 }
 

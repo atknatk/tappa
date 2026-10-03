@@ -13,6 +13,7 @@ import (
 )
 
 const listPublishedLegalDocuments = `-- name: ListPublishedLegalDocuments :many
+
 SELECT DISTINCT ON (slug) id, slug, body, published_at
 FROM legal_documents
 ORDER BY slug, published_at DESC, id DESC
@@ -25,8 +26,24 @@ type ListPublishedLegalDocumentsRow struct {
 	PublishedAt time.Time
 }
 
+// The four LEGAL TEXTS (M7-06, migration 00020).
+//
+// 🔴 THE QUERY NAMES NO TENANT, AND THAT IS THE STRUCTURAL HALF OF section 4.5
+// HERE. legal_documents carries no tenant_id (see 00020 for why), so there is no
+// column to filter on and no tenant id to pass -- and a cross-tenant read cannot be
+// expressed on this path even by mistake. internal/handler's
+// TestLegalStore_CannotNameATenantAtAll asserts that over the GENERATED types
+// rather than over this file, so the property survives a hand edit here.
+//
+// THIS FILE HAS NO WRITE, SINCE M10 OP-10 (phase B). The M7-06 panel's INSERT
+// (PublishLegalDocument) is gone with the panel's legal screen: 00027 revoked
+// tappa_app's INSERT on legal_documents, and the one writer is the platform
+// operator's op_publish_legal (internal/db's PublishLegal, ADR 0020 section 7). What
+// remains is the READ the public pages' snapshot is filled from.
 // The CURRENT text of every document that has one -- at most one row per slug, the
-// most recently published. published_by is NOT selected; see PublishLegalDocument.
+// most recently published. published_by is NOT selected: 00020 grants tappa_app no
+// SELECT on it (a readable admin uuid on a table with no tenant scope is a fact about
+// somebody else's business any tenant's connection could fetch).
 //
 // DISTINCT ON rather than a window function or a correlated subquery: it walks
 // legal_documents_slug_published_idx (slug, published_at DESC) and stops at the
@@ -67,57 +84,4 @@ func (q *Queries) ListPublishedLegalDocuments(ctx context.Context) ([]ListPublis
 		return nil, err
 	}
 	return items, nil
-}
-
-const publishLegalDocument = `-- name: PublishLegalDocument :one
-
-INSERT INTO legal_documents (slug, body, published_by)
-VALUES ($1, $2, $3)
-RETURNING id, slug, body, published_at
-`
-
-type PublishLegalDocumentParams struct {
-	Slug        string
-	Body        string
-	PublishedBy *uuid.UUID
-}
-
-type PublishLegalDocumentRow struct {
-	ID          uuid.UUID
-	Slug        string
-	Body        string
-	PublishedAt time.Time
-}
-
-// The four LEGAL TEXTS (M7-06, migration 00020).
-//
-// 🔴 NEITHER QUERY NAMES A TENANT, AND THAT IS THE STRUCTURAL HALF OF section 4.5
-// HERE. legal_documents carries no tenant_id (see 00020 for why), so there is no
-// column to filter on and no tenant id to pass -- which means the generated
-// *Params types below have no TenantID field, and a cross-tenant read cannot be
-// expressed on this path even by mistake. internal/handler's
-// TestLegalStore_CannotNameATenantAtAll asserts that over the GENERATED types
-// rather than over this file, so the property survives a hand edit here.
-//
-// The exemption does not extend to the AUDIT TRAIL: a publication is recorded in
-// audit_log, whose tenant_id is NOT NULL, under the tenant of the admin who
-// published it -- their own, the same one every other panel write uses.
-// Appends one version. There is no UPDATE anywhere in this file and there cannot
-// be one: 00020 revokes UPDATE and DELETE from tappa_app and binds the table owner
-// with the 0005 trigger, so a correction is a NEW ROW (section 4.3's remedy).
-// ⚠️ published_by IS WRITTEN AND NEVER RETURNED, and that is a privilege as well as
-// a choice: 00020 grants tappa_app INSERT on that column and NO SELECT on it, so a
-// RETURNING list naming it would fail at run time. The reason is a cross-tenant
-// oracle — the table has no tenant scope, so a readable admin uuid is a fact about
-// somebody else's business that any tenant's connection could fetch.
-func (q *Queries) PublishLegalDocument(ctx context.Context, arg PublishLegalDocumentParams) (PublishLegalDocumentRow, error) {
-	row := q.db.QueryRow(ctx, publishLegalDocument, arg.Slug, arg.Body, arg.PublishedBy)
-	var i PublishLegalDocumentRow
-	err := row.Scan(
-		&i.ID,
-		&i.Slug,
-		&i.Body,
-		&i.PublishedAt,
-	)
-	return i, err
 }

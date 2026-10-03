@@ -1,6 +1,7 @@
 // Package operator is the platform operator's HTTP surface (M10; ADR 0020 §4, ADR 0021
 // §3.6): the sign-in with its TOTP step, the enrollment, the sign-out and the console's
-// front page (OP-8), on the operator's own host, and the two 503 states OP-7 shipped.
+// front page (OP-8), Taptime's legal texts (OP-10, legal.go), on the operator's own
+// host, and the two 503 states OP-7 shipped.
 //
 // 🔴 IT IS NOT internal/handler, AND THE PACKAGE BOUNDARY IS THE POINT. ADR 0021 §3.6:
 // the customer panel does not import the operator's packages. internal/handler is the
@@ -8,14 +9,16 @@
 // does or does not exist rather than a convention inside one package
 // (internal/handler's TestCustomerPanel_ImportsNoOperatorPackage pins the edge).
 //
-// WHAT OP-8 SERVES. The operator's database role has five definers in 00026 --
+// WHAT IT SERVES. The operator's database role has five definers in 00026 --
 // op_touch_session, op_record_auth_event, op_open_session, op_complete_enrollment,
-// op_close_session -- and none of the five reads a tenant. So the routes are the
-// sign-in, the TOTP step, the enrollment, the sign-out and /operator itself. ADR 0020
-// §4's /operator/tenants/{id}, /legal, /billing, /plaques and /audit are not registered
-// (TestSurface_TheScreensOfLaterTasksAreNotMounted), and the 12 renders of screens() do
-// not link to them (TestOperatorScreens_EveryActionAndLinkIsAMountedRoute); they arrive
-// with the definers that can serve them (OP-10, OP-11, OP-14).
+// op_close_session -- and three in 00027 -- op_begin_read, op_read_legal_versions,
+// op_publish_legal; none of the eight reads a tenant (read from the two migrations). So
+// the routes are the sign-in,
+// the TOTP step, the enrollment, the sign-out, /operator itself and /operator/legal
+// (OP-10). ADR 0020 §4's /operator/tenants/{id}, /billing, /plaques and /audit are not
+// registered (TestSurface_TheScreensOfLaterTasksAreNotMounted), and the 14 renders of
+// screens() do not link to them (TestOperatorScreens_EveryActionAndLinkIsAMountedRoute);
+// they arrive with the definers that can serve them (OP-11, OP-14).
 package operator
 
 import (
@@ -50,6 +53,10 @@ type Surface struct {
 	// the life of the process (m10-platform.md, OP-4 block, OP-7 rule (3): the
 	// *Authenticator is what is held; operatorauth.Config is never kept as a value).
 	auth *operatorauth.Authenticator
+	// legalStore and texts are the legal screen's (legal.go): the operator database's
+	// version list and publication, and the public pages' snapshot with its refresh.
+	legalStore LegalStore
+	texts      LegalTexts
 	// host is TAPPA_OPERATOR_HOST, validated by internal/config: the host gate's
 	// comparison (httpx.OnHost).
 	host string
@@ -86,11 +93,18 @@ func Off() *Surface { return &Surface{} }
 func Unavailable() *Surface { return &Surface{unavailable: true} }
 
 // New is the configured surface. It refuses the values a configured surface cannot do
-// without rather than degrade to Off silently: the Authenticator, the operator host,
-// a base URL it can take the operator origin's scheme and port from, and a logger.
-func New(auth *operatorauth.Authenticator, host, baseURL string, log *slog.Logger) (*Surface, error) {
+// without rather than degrade to Off silently: the Authenticator, the legal screen's
+// store and texts, the operator host, a base URL it can take the operator origin's
+// scheme and port from, and a logger.
+func New(auth *operatorauth.Authenticator, legalStore LegalStore, texts LegalTexts, host, baseURL string, log *slog.Logger) (*Surface, error) {
 	if auth == nil {
 		return nil, errors.New("operator: a configured surface needs its Authenticator")
+	}
+	if legalStore == nil {
+		return nil, errors.New("operator: a configured surface needs its legal store (the operator database)")
+	}
+	if texts == nil {
+		return nil, errors.New("operator: a configured surface needs the legal texts' snapshot")
 	}
 	if host == "" {
 		return nil, errors.New("operator: a configured surface needs TAPPA_OPERATOR_HOST")
@@ -103,12 +117,14 @@ func New(auth *operatorauth.Authenticator, host, baseURL string, log *slog.Logge
 		return nil, err
 	}
 	return &Surface{
-		auth:     auth,
-		host:     host,
-		origin:   origin,
-		log:      log,
-		sessions: httpx.NewLimiter(sessionLimit, sessionPeriod),
-		signOuts: httpx.NewLimiter(signOutLimit, signOutPeriod),
+		auth:       auth,
+		legalStore: legalStore,
+		texts:      texts,
+		host:       host,
+		origin:     origin,
+		log:        log,
+		sessions:   httpx.NewLimiter(sessionLimit, sessionPeriod),
+		signOuts:   httpx.NewLimiter(signOutLimit, signOutPeriod),
 		// limit 0: the window's first refusal is the first over the limit.
 		originRefusals: httpx.NewLimiter(0, originRefusalPeriod),
 	}, nil
@@ -204,23 +220,31 @@ func serviceUnavailable(body string) http.Handler {
 // primitive (httpx.Limiter), sized for ADR 0020's population -- one to three people --
 // and the window of sameOriginGate's log line.
 const (
-	// sessionLimit: requests per operator SESSION that pass the session predicate --
-	// ADR 0020 §4's "oturum bütçesi kimlikten sonra (anahtarı oturumdur)", the panel's
+	// sessionLimit: units per operator SESSION past the session predicate -- ADR 0020
+	// §4's "oturum bütçesi kimlikten sonra (anahtarı oturumdur)", the panel's
 	// sessionGate. Keyed on the session's id, so spending it takes that session's
-	// cookie. It is charged after the predicate, so it bounds the requests one session
-	// gets past the gate to a handler -- not the predicate's database work. Measured:
-	// one session, 101 requests from 101 addresses -> 100 x 200, 1 x 429 and 101
-	// predicate calls (TestSessionGate_ABudgetPerSession). The predicate's work per
-	// address is bounded by the flood gate in front: an exhausted address with a live
-	// cookie gets 429 and 0 store calls
+	// cookie. sessionGate charges one unit per request after the predicate, so it bounds
+	// the requests one session gets past the gate to a handler -- not the predicate's
+	// database work. Measured: one session, 101 console requests from 101 addresses ->
+	// 100 x 200, 1 x 429 and 101 predicate calls (TestSessionGate_ABudgetPerSession).
+	// The predicate's work per address is bounded by the flood gate in front: an
+	// exhausted address with a live cookie gets 429 and 0 store calls
 	// (TestFloodGate_AnExhaustedAddressReachesNoConsolePredicate).
 	//
-	//	one operator x (~20 page views + a few posts)            ~25 per window
-	//	x 4 headroom                                              100
+	// RE-DERIVED IN OP-10 (the OP-8 note asked the first screen with a read to): a
+	// read costs two definer transactions (op_begin_read, op_read_*), and the read's
+	// handler charges a second unit (legalPage), so a legal page view is two units; a
+	// publication is one (op_publish_legal, then the snapshot's refresh on the
+	// customer pool); the console page is one. Measured: one session, 50 legal page
+	// views -> 50 x 200, the 51st -> 429 at the gate, 50 reads
+	// (TestLegalPage_AReadCountsTwiceAgainstTheSessionBudget).
 	//
-	// OP-8 has one route behind it (/operator, no definer call past the predicate).
-	// OP-11's screens cost two transactions per read (op_begin_read, op_read_*) and
-	// should re-derive this.
+	//	one operator x (~10 legal page views x 2 + ~5 console views
+	//	                + a few publications)                     ~30 per window
+	//	x ~3 headroom                                             100
+	//
+	// OP-11's tenant screens are reads too; the derivation asks each to charge its second
+	// unit the same way (spendSession).
 	sessionLimit  = 100
 	sessionPeriod = 10 * time.Minute
 

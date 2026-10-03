@@ -49,14 +49,21 @@ const (
 	gDigest      = "G12 password digest"
 	gEmail       = "G13 operator address"
 	gKeys        = "G14 server key (TOTP KEK, token HMAC key)"
-	gAddr        = "G15 client address" // this package's own claim (routes.go rateKey); on no never-log list
+	gAddr        = "G15 client address"   // this package's own claim (routes.go rateKey); on no never-log list
+	gLegal       = "G16 legal form value" // OP-10: a posted text or an unknown slug; this package's own claim (legal.go); on no never-log list
 )
 
 // neverLog is the CLOSED criterion: each never-log item of CLAUDE.md §7, ADR 0020 §5 and
 // ADR 0021 §3.5 that exists on this surface, with the group(s) standing for it. The test
 // requires at least one member in EACH group of EACH item, and the table's length is a
 // pinned literal. Items not on this surface, by name: CMAC, the invite code, a full GPS
-// coordinate, the read ticket (OP-10).
+// coordinate, and the read ticket -- OP-10's version list is a read, but its ticket is
+// made and consumed inside internal/db (db.LegalVersions runs op_begin_read and
+// op_read_legal_versions on its own connection argument; the ticket's type, readTicket,
+// is unexported there, and the signatures of the LegalStore interface this package calls
+// carry no ticket -- read from the source), so the arms here have no ticket value to
+// search and a fake store has none to hand over; its printing paths are internal/db's
+// TestReadTicket_PrintsOnlyThePlaceholder.
 var neverLog = []struct {
 	item   string
 	groups []string
@@ -77,9 +84,10 @@ var neverLog = []struct {
 
 const neverLogItems = 12
 
-// minNeedle is the shortest needle searched: the six-digit codes. No text this surface
-// writes carries a run of six digits of its own (its numbers are statuses, sizes and
-// durations of at most four digits), so a code found was put there.
+// minNeedle is the shortest needle searched: the six-digit codes. The texts the arms below
+// make carry no run of six digits of their own (statuses, sizes and durations of at most
+// four digits; the legal list's byte counts are of the arms' short texts and its times
+// are dates), so a code found was put there.
 const minNeedle = 6
 
 // renderings are the SEARCHED forms, numbered; each turns a member into ONE needle. Each
@@ -282,31 +290,49 @@ func (h *hashRecorder) CompleteOperatorEnrollment(ctx context.Context, admin uui
 	return h.fakeStore.CompleteOperatorEnrollment(ctx, admin, raw, d, sealed, step, s)
 }
 
+// The legal screen's two calls (OP-10): the session hash, and the posted text. The slug
+// is not recorded: it is one of legal.Slugs (legal.Valid runs before the call), a public
+// path's last element, written on the screen by design.
+func (h *hashRecorder) LegalVersions(ctx context.Context, s string, page db.LegalVersionsPage) ([]db.LegalVersion, error) {
+	h.record("LegalVersions", s)
+	return h.fakeStore.LegalVersions(ctx, s, page)
+}
+
+func (h *hashRecorder) PublishLegal(ctx context.Context, s, slug, body string) error {
+	h.record("PublishLegal", s, body)
+	return h.fakeStore.PublishLegal(ctx, s, slug, body)
+}
+
 // harvestWant pins the harvest: calls per method and the arity of each call's record.
 // The counts are the arms' own, derived where each arm is driven (comments at the arms).
 var harvestWant = map[string]struct{ calls, arity int }{
 	"OperatorByEmail":            {calls: 9, arity: 1},    // A2 A3 A4 A20 A20b A23 A26b A28 A30b
 	"RecordOperatorAuthEvent":    {calls: 7, arity: 1},    // A2 A3 A6 A14 A15 A17 A28
 	"OpenOperatorSession":        {calls: 5, arity: 1},    // A7 A20b A24 A26b A30b
-	"TouchOperatorSession":       {calls: 104, arity: 1},  // A8 A9 A21, A27 x 101
+	"TouchOperatorSession":       {calls: 116, arity: 1},  // A8 A9 A21, A27 x 101, A31-A41, A43 (A42 is refused before the gate)
 	"CloseOperatorSession":       {calls: 3002, arity: 1}, // A10 A22, A30a x 3000 (A30 is refused first)
 	"CompleteOperatorEnrollment": {calls: 3, arity: 4},    // A16 A17 A25
+	"LegalVersions":              {calls: 5, arity: 1},    // A31 A33 A39 A41 A43
+	"PublishLegal":               {calls: 4, arity: 2},    // A32 A37 A38 A40
 }
 
 // TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor -- THE CONTRACT (M10 OP-8; the
 // shape is internal/operatorauth's
 // TestLeak_NoInputInAnyErrorOrLogLine, m10-platform.md OP-4 block, OP-8 list):
 //
-// No member of the GROUPS G1-G15 (constants above) occurs, in any of the RENDERINGS
+// No member of the GROUPS G1-G16 (constants above) occurs, in any of the RENDERINGS
 // R1-R10 (renderings), on any of the SURFACES S1-S4 (leakSurfaces; S4 is the response
-// headers AT WriteHeader, the recorder's Result().Header), in any of the 30 numbered ARMS
-// A1-A30 below -- EXCEPT the DESIGNED EGRESS D1-D5, each of which is
+// headers AT WriteHeader, the recorder's Result().Header), in any of the 43 numbered ARMS
+// A1-A43 below -- EXCEPT the DESIGNED EGRESS D1-D6, each of which is
 // pinned the other way: the value IS on its surface in its arm. The groups are measured
 // against the CLOSED list neverLog (12 items, a pinned literal): every group of every item
-// has a member. G15 (the client address) is bound to no item -- the package's own claim.
-// The fake store's harvest -- session hashes, raw link tokens, digests, envelopes,
-// addresses it was handed -- is searched too (G5, G8, G12, G11, G13) and pinned method by
-// method by COUNT and ARITY (harvestWant), not by content.
+// has a member. G15 (the client address) and G16 (a legal text posted to the operator's
+// screen, or an unknown slug posted with one -- OP-10) are bound to no item -- the
+// package's own claims. The fake store's harvest -- session hashes, raw link tokens,
+// digests, envelopes, addresses, posted legal texts it was handed -- is searched too
+// (G5, G8, G12, G11, G13, G16) and pinned method by method by COUNT and ARITY
+// (harvestWant), not by content. The read ticket is not searched: no value of it reaches
+// this package (neverLog's comment).
 //
 // POSITIVE CONTROLS, each independent of what it checks:
 //   - RENDERINGS: every needle of every member must occur in the text its rendering's
@@ -322,7 +348,9 @@ var harvestWant = map[string]struct{ calls, arity int }{
 //     A20b, A26b, A30b), D2 the session token in its Set-Cookie (S4; A7, A16 and the code
 //     steps of A20b, A26b, A30b), D3 the enrollment page's TOTP key, base32 and URI (S3; A11), D4 the
 //     pending blob in the form (S3; A11-A14), D5 the link token echoed into the
-//     re-rendered enrollment form (S3; A12-A14).
+//     re-rendered enrollment form (S3; A12-A14), D6 the legal snapshot's texts in the
+//     legal page's editors (S3; A31: the seeded text, A33 and A43: it and the published
+//     one -- in A43 the text whose refresh failed is NOT one of them).
 //
 // THE ARMS (handler order, then the faults and ceilings):
 //
@@ -336,7 +364,14 @@ var harvestWant = map[string]struct{ calls, arity int }{
 //	check fails · A22 the sign-out fails · A23 the password step for A24 (D1) · A24 opening
 //	the session fails · A25 completing the enrollment fails · A26 the flood ceiling ·
 //	A27 the session budget · A28 credentials in the query · A29 a link token in the query ·
-//	A30 the sign-out ceiling (3 000 cookie-bearing sign-outs, then the operator's)
+//	A30 the sign-out ceiling (3 000 cookie-bearing sign-outs, then the operator's) ·
+//	OP-10's legal screen, on A20b's session: A31 legal page (D6) · A32 publication ·
+//	A33 legal page after it (D6) · A34 a text with no visible character · A35 a document
+//	that does not exist · A36 an oversized text · A37 the publication fails · A38 the
+//	snapshot's refresh fails · A43 legal page, snapshot behind and its
+//	refresh still fails (the warning, the heal's log line; D6) · A39 the version list
+//	fails · A40 the publication's session is refused · A41 the version list's session is
+//	refused · A42 a cross-origin publication
 //
 // NOT CLAIMED, BY NAME: split or partial values; renderings not on the list (base32,
 // %X, a case-folded value, ...); what operatorauth's own types print (its
@@ -356,7 +391,8 @@ func TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	surface, err := operator.New(auth, opHost, opBase, plog)
+	texts := newFakeTexts(store.fakeStore)
+	surface, err := operator.New(auth, store, texts, opHost, opBase, plog)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -400,6 +436,24 @@ func TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor(t *testing.T) {
 	set.add(gDigest, string(digest))
 	set.add(gEmail, email, unknown)
 	set.add(gKeys, string(kek), string(tokenKey))
+	// G16's members: the legal texts the arms post (with a control member whose %q, JSON,
+	// URL and HTML forms differ from it) and an unknown slug. bigMark is the oversized
+	// text's searched part (the 300 KiB filler around it is not a member: searching it
+	// under ten renderings on every surface of every arm costs more than it measures).
+	const (
+		seedBody    = "FAKE seeded privacy text: \"quoted\" <b>bold</b> & 'single' end"
+		pubBody     = "FAKE published terms text v1 -- ü ħ ż -- clause one."
+		blankBody   = "\u200b\u2060\u3164\u2800 \r\n\ufeff\u180e"
+		badSlug     = "privacy<script>FAKEslug"
+		badSlugBody = "FAKE text posted under an unknown slug"
+		bigMark     = "FAKEoversizedLEGALmark"
+		failBody    = "FAKE text whose publication fails"
+		refreshBody = "FAKE cookie notice whose refresh fails"
+		refusedBody = "FAKE imprint whose session is refused"
+		crossBody   = "FAKE text posted cross-origin"
+	)
+	bigBody := bigMark + strings.Repeat("x", 300<<10)
+	set.add(gLegal, seedBody, pubBody, blankBody, badSlug, badSlugBody, bigMark, failBody, refreshBody, refusedBody, crossBody)
 	const remote, remote2, remote3, remote4 = "198.51.100.23", "198.51.100.24", "198.51.100.25", "198.51.100.26"
 	for _, a := range []string{remote, remote2, remote3, remote4} {
 		set.add(gAddr, a, httpx.RateKey(netip.MustParseAddr(a)))
@@ -553,6 +607,55 @@ func TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor(t *testing.T) {
 	fail("CompleteOperatorEnrollment", errFakeDB)
 	post("A25 completing the enrollment fails", "/operator/enroll", enroll(linkToken, newPass, newPass, pageCode)) // [P3]
 	fail("CompleteOperatorEnrollment", nil)
+	// OP-10's legal screen on A20b's session ([T] a touch; [L] LegalVersions; [Q]
+	// PublishLegal).
+	texts.put("privacy", seedBody)
+	legalForm := func(slug, body string) url.Values { return url.Values{"slug": {slug}, "body": {body}} }
+	get("A31 legal page", "/operator/legal", live)                                    // [T L1]
+	w = post("A32 publication", "/operator/legal", legalForm("terms", pubBody), live) // [T Q1]
+	if w.Code != http.StatusSeeOther || texts.refreshCount() != 1 {
+		t.Fatalf("PREMISE: A32 = %d with %d refresh(es), want a publication and its refresh", w.Code, texts.refreshCount())
+	}
+	get("A33 legal page after the publication", "/operator/legal", live)                                 // [T L2]
+	post("A34 a text with no visible character", "/operator/legal", legalForm("terms", blankBody), live) // [T]
+	post("A35 a document that does not exist", "/operator/legal", legalForm(badSlug, badSlugBody), live) // [T]
+	post("A36 an oversized text", "/operator/legal", legalForm("terms", bigBody), live)                  // [T]
+	fail("PublishLegal", errFakeDB)
+	post("A37 the publication fails", "/operator/legal", legalForm("terms", failBody), live) // [T Q2]
+	fail("PublishLegal", nil)
+	texts.mu.Lock()
+	texts.fail = errFakeDB
+	texts.mu.Unlock()
+	post("A38 the refresh fails", "/operator/legal", legalForm("cookies", refreshBody), live) // [T Q3]
+	w = get("A43 legal page, snapshot behind", "/operator/legal", live)                       // [T L5]
+	if !strings.Contains(w.Body.String(), "The public page is behind") ||
+		!strings.Contains(results["A43 legal page, snapshot behind"].process, "could not refresh it") {
+		t.Fatal("PREMISE: A43 did not render the warning and log the heal's failure -- the arm is not the branch it names")
+	}
+	texts.mu.Lock()
+	texts.fail = nil
+	texts.mu.Unlock()
+	fail("LegalVersions", errFakeDB)
+	get("A39 the version list fails", "/operator/legal", live) // [T L3]
+	fail("LegalVersions", nil)
+	fail("PublishLegal", db.ErrOperatorRefused)
+	post("A40 the publication's session is refused", "/operator/legal", legalForm("imprint", refusedBody), live) // [T Q4]
+	fail("PublishLegal", nil)
+	fail("LegalVersions", db.ErrOperatorRefused)
+	get("A41 the version list's session is refused", "/operator/legal", live) // [T L4]
+	fail("LegalVersions", nil)
+	do("A42 a cross-origin publication", req{method: http.MethodPost, path: "/operator/legal", form: legalForm("terms", crossBody),
+		origin: "https://taptime.mt", header: map[string]string{"Sec-Fetch-Site": "same-site"}, cookies: []*http.Cookie{live}})
+	for arm, want := range map[string]int{
+		"A31 legal page": 200, "A33 legal page after the publication": 200, "A34 a text with no visible character": 400,
+		"A35 a document that does not exist": 400, "A36 an oversized text": 413, "A37 the publication fails": 503,
+		"A38 the refresh fails": 303, "A39 the version list fails": 503, "A40 the publication's session is refused": 303,
+		"A41 the version list's session is refused": 303, "A42 a cross-origin publication": 403,
+	} {
+		if got := results[arm].w.Code; got != want {
+			t.Fatalf("PREMISE: %s = %d, want %d -- the arm is not the branch it names", arm, got, want)
+		}
+	}
 	do("A28 credentials in the query", req{method: http.MethodPost, // [E8 R7]: the empty body's empty address
 		path: "/operator/login?email=" + url.QueryEscape(email) + "&password=" + url.QueryEscape(queryPass), form: url.Values{}, origin: opOrigin})
 	get("A29 a link token in the query", "/operator/enroll?id="+pending.String()+"&token="+queryToken)
@@ -604,6 +707,13 @@ func TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor(t *testing.T) {
 		set.add(gEnvelope, v[2])
 		set.add(gSessionHash, v[3])
 	}
+	for _, v := range store.got["LegalVersions"] {
+		set.add(gSessionHash, v[0])
+	}
+	for _, v := range store.got["PublishLegal"] {
+		set.add(gSessionHash, v[0])
+		set.add(gLegal, v[1])
+	}
 	// THE HARVEST PIN: count and arity, method by method.
 	for m, want := range harvestWant {
 		calls := store.got[m]
@@ -632,20 +742,25 @@ func TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor(t *testing.T) {
 			}
 		}
 	}
-	if !set.inGroup(gAddr) {
-		t.Errorf("group %q has no member", gAddr)
+	for _, g := range []string{gAddr, gLegal} {
+		if !set.inGroup(g) {
+			t.Errorf("group %q has no member", g)
+		}
 	}
 
 	// THE DESIGNED EGRESS, positively.
 	allowed := map[string]map[string][]string{ // arm -> surface -> values allowed there
-		"A4 right password":         {"S4 response headers": {ch.Value}},
-		"A7 right code":             {"S4 response headers": {sess.Value}},
-		"A11 enrollment page":       {"S3 response body": {pk, pageKey[1], blob}},
-		"A12 passwords differ":      {"S3 response body": {blob, linkToken}},
-		"A13 weak password":         {"S3 response body": {blob, linkToken}},
-		"A14 wrong first code":      {"S3 response body": {blob, linkToken}},
-		"A16 enrollment completed":  {"S4 response headers": {enrolled.Value}},
-		"A23 password step for A24": {"S4 response headers": {ch2.Value}},
+		"A4 right password":                    {"S4 response headers": {ch.Value}},
+		"A7 right code":                        {"S4 response headers": {sess.Value}},
+		"A11 enrollment page":                  {"S3 response body": {pk, pageKey[1], blob}},
+		"A12 passwords differ":                 {"S3 response body": {blob, linkToken}},
+		"A13 weak password":                    {"S3 response body": {blob, linkToken}},
+		"A14 wrong first code":                 {"S3 response body": {blob, linkToken}},
+		"A16 enrollment completed":             {"S4 response headers": {enrolled.Value}},
+		"A23 password step for A24":            {"S4 response headers": {ch2.Value}},
+		"A31 legal page":                       {"S3 response body": {seedBody}},
+		"A33 legal page after the publication": {"S3 response body": {seedBody, pubBody}},
+		"A43 legal page, snapshot behind":      {"S3 response body": {seedBody, pubBody}},
 	}
 	for arm := range results {
 		if strings.HasSuffix(arm, " (password)") {

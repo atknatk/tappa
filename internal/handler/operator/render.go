@@ -11,9 +11,10 @@ import (
 )
 
 // operatorCSP is the content policy securityHeaders sets (renderEnroll sets enrollCSP
-// instead). Measured, on the response headers at WriteHeader, on the 48 classes of the two
-// header tables (TestOperatorHeaders_FortyResponseClassesCarryThePolicy and
-// TestOperatorHeaders_TheWrongMethodAndOversizedClassesCarryThePolicy).
+// instead). Measured, on the response headers at WriteHeader, on the 66 classes of the
+// three header tables (TestOperatorHeaders_FortyResponseClassesCarryThePolicy,
+// TestOperatorHeaders_TheWrongMethodAndOversizedClassesCarryThePolicy and
+// TestOperatorHeaders_TheLegalClassesCarryThePolicy).
 //
 // It is the panel's adminCSP, directive for directive, for the panel's reasons
 // (internal/handler/adminlogin.go): default-src 'none' with no script-src names no script
@@ -34,8 +35,8 @@ const operatorCSP = "default-src 'none'; style-src 'self'; font-src 'self'; " +
 // whose attribute-driven requests are a known way to turn an HTML injection into script
 // behaviour under a 'self' policy; a source naming the one path does not let a page under
 // this policy load them. No 'unsafe-inline', no 'unsafe-eval', no connect-src. Measured on
-// the response headers at WriteHeader of the 48 classes of the two header tables: the four
-// scripted classes (C18, C20, C21, C22) carry it, the other 44 do not.
+// the response headers at WriteHeader of the 66 classes of the three header tables: the
+// four scripted classes (C18, C20, C21, C22) carry it, the other 62 do not.
 func (s *Surface) enrollCSP() string {
 	return operatorCSP + "; script-src " + s.origin + operatorpages.EnrollScript()
 }
@@ -44,18 +45,18 @@ func (s *Surface) enrollCSP() string {
 // form: an account id (36), a link token (43), a pending blob (under 200), two passwords
 // (72 bytes each at most that count) and a code -- under 1 KiB. 16 KiB leaves room for a
 // password manager's padding and keeps a caller from making the form parser read the
-// ingress's 1 MiB.
+// ingress's 1 MiB. (The legal text's form has its own bound, maxLegalBody.)
 const maxFormBytes = 16 << 10
 
-// readForm parses the request under maxFormBytes; the handlers read r.PostForm (the body),
-// not r.Form. A body past the bound gets 413, one that does not parse gets 400 -- before a
-// credential is read from it -- and it reports false.
-func (s *Surface) readForm(w http.ResponseWriter, r *http.Request) bool {
-	r.Body = http.MaxBytesReader(w, r.Body, maxFormBytes)
+// readForm parses the request under limit; the handlers read r.PostForm (the body), not
+// r.Form. A body past the bound gets 413 with tooLarge, one that does not parse gets 400
+// -- before a value is read from it -- and it reports false.
+func (s *Surface) readForm(w http.ResponseWriter, r *http.Request, limit int64, tooLarge operatorpages.ProblemView) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, limit)
 	if err := r.ParseForm(); err != nil {
-		var tooLarge *http.MaxBytesError
-		if errors.As(err, &tooLarge) {
-			s.problem(w, r, http.StatusRequestEntityTooLarge, problemFormTooLarge)
+		var past *http.MaxBytesError
+		if errors.As(err, &past) {
+			s.problem(w, r, http.StatusRequestEntityTooLarge, tooLarge)
 			return false
 		}
 		s.problem(w, r, http.StatusBadRequest, problemBadForm)
@@ -83,11 +84,12 @@ func (s *Surface) render(w http.ResponseWriter, r *http.Request, status int, c t
 }
 
 // redirect answers 303 See Other: a POST becomes a plain GET and a refresh is harmless.
-// Measured: in the response headers at WriteHeader of the 48 classes of the two header
-// tables (TestOperatorHeaders_FortyResponseClassesCarryThePolicy and
-// TestOperatorHeaders_TheWrongMethodAndOversizedClassesCarryThePolicy), Location is the
-// designed path on each 303 and absent on the others, with a hostile Location and a
-// hostile Referer request header sent. Pinned:
+// Measured: in the response headers at WriteHeader of the 66 classes of the three header
+// tables (TestOperatorHeaders_FortyResponseClassesCarryThePolicy,
+// TestOperatorHeaders_TheWrongMethodAndOversizedClassesCarryThePolicy and
+// TestOperatorHeaders_TheLegalClassesCarryThePolicy), Location is the designed path on
+// each 303 and absent on the others, with a hostile Location and a hostile Referer
+// request header sent. Pinned:
 // TestResponseHeaders_TheListedNamesAreWrittenOnlyInTheirFunctions catches the list in its
 // header.
 func (s *Surface) redirect(w http.ResponseWriter, to string) {
@@ -101,9 +103,9 @@ func (s *Surface) problem(w http.ResponseWriter, r *http.Request, status int, v 
 
 // renderEnroll renders the enrollment screen -- its first load and its re-render after a
 // refusal the person can fix -- and sets enrollCSP, the policy that names the screen's
-// script. Measured on the response headers at WriteHeader: of the 48 classes of the two
+// script. Measured on the response headers at WriteHeader: of the 66 classes of the three
 // header tables, the four whose body loads a script (C18, C20, C21, C22) carry enrollCSP
-// and the other 44 carry operatorCSP.
+// and the other 62 carry operatorCSP.
 // Pinned: TestEnrollScreen_TheListedFormsRenderItOnlyInRenderEnroll catches the list in
 // its header.
 func (s *Surface) renderEnroll(w http.ResponseWriter, r *http.Request, status int, v operatorpages.EnrollView) {
@@ -113,10 +115,10 @@ func (s *Surface) renderEnroll(w http.ResponseWriter, r *http.Request, status in
 
 // The surface's fixed refusal and fault pages. Their sentences are constants, each
 // saying what to do next (skill tappa-brand: a message does not blame, it says what to
-// do). problemPages lists them (eight variables and problemTooMany twice), and
-// TestProblemPages_LinkOnlyToMountedRoutes renders the ten and holds their links to the
-// mounted routes. Pinned: TestProblemViews_TheListedBuildFormsOccurOnlyInRenderGo catches
-// the list in its header.
+// do). problemPages lists them (thirteen variables and problemTooMany twice), and
+// TestProblemPages_LinkOnlyToMountedRoutes renders the fifteen and holds their links to
+// the mounted routes. Pinned: TestProblemViews_TheListedBuildFormsOccurOnlyInRenderGo
+// catches the list in its header.
 func problemTooMany(signedIn bool) operatorpages.ProblemView {
 	return operatorpages.ProblemView{
 		Title:    "Too many requests",
@@ -168,13 +170,57 @@ var (
 		Back:      pathSignIn,
 		BackLabel: "Go to the sign-in",
 	}
+
+	// The legal texts' pages (legal.go). Each says whether anything was published -- or,
+	// for problemLegalNotPublished, that it is not known: an error from the publication
+	// (legalWriteTimeout's cancel, a connection lost after the COMMIT was sent) does not
+	// prove the row was not written, and the version list one click away does.
+	problemLegalTooLarge = operatorpages.ProblemView{
+		Title:     "That text is too long",
+		Message:   "A document can be at most 256 KiB. Nothing was published.",
+		Back:      pathLegal,
+		BackLabel: "Back to the legal texts",
+		SignedIn:  true,
+	}
+	problemLegalUnknownDocument = operatorpages.ProblemView{
+		Title:     "That document does not exist",
+		Message:   "The form named a document Taptime does not publish. Nothing was published.",
+		Back:      pathLegal,
+		BackLabel: "Back to the legal texts",
+		SignedIn:  true,
+	}
+	problemLegalEmpty = operatorpages.ProblemView{
+		Title: "There is no text to publish",
+		Message: "The box had no visible text — spaces, line breaks and invisible characters do not count. " +
+			"Nothing was published.",
+		Back:      pathLegal,
+		BackLabel: "Back to the legal texts",
+		SignedIn:  true,
+	}
+	problemLegalNotPublished = operatorpages.ProblemView{
+		Title: "The publication was not confirmed",
+		Message: "The database did not confirm it. Check the version list before you publish again " +
+			"— it shows whether this text went through.",
+		Back:      pathLegal,
+		BackLabel: "Back to the legal texts",
+		SignedIn:  true,
+	}
+	problemLegalUnreadable = operatorpages.ProblemView{
+		Title:     "The legal texts could not be loaded",
+		Message:   "Try again in a moment.",
+		Back:      pathConsole,
+		BackLabel: "Back to the console",
+		SignedIn:  true,
+	}
 )
 
-// problemPages lists the eight variables above and problemTooMany(false) and (true), for
-// the link test.
+// problemPages lists the thirteen variables above and problemTooMany(false) and (true),
+// for the link test.
 func problemPages() []operatorpages.ProblemView {
 	return []operatorpages.ProblemView{
 		problemTooMany(false), problemTooMany(true), problemCrossOrigin, problemFormTooLarge, problemBadForm,
 		problemUnavailable, problemEnrollIncomplete, problemEnrollRefused, problemSignOutFailed, problemSignOutThrottled,
+		problemLegalTooLarge, problemLegalUnknownDocument, problemLegalEmpty, problemLegalNotPublished,
+		problemLegalUnreadable,
 	}
 }

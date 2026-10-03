@@ -266,7 +266,7 @@ func policyBrowserWith(t *testing.T, rules panelRules, scribe panelScribe) *brow
 	}}
 	h, err := NewAdminAuth(admins, &fakeTrail{}, newFakeLedger(), newFakeLedger(), &fakeReviewer{},
 		&fakeStaff{}, &fakeInviter{}, &fakeVenues{}, &fakePlaques{}, &fakeRecorder{}, rules, scribe,
-		newFakeBooks(), newFakeTexts(), newFakeAccount(), nil, adminTestConfig(), slog.New(slog.DiscardHandler))
+		newFakeBooks(), newFakeAccount(), nil, adminTestConfig(), slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}
@@ -1435,7 +1435,7 @@ func mountedRoutes(t *testing.T) map[string]bool {
 	r := chi.NewRouter()
 	h, err := NewAdminAuth(&fakeAdmins{}, &fakeTrail{}, newFakeLedger(), newFakeLedger(),
 		&fakeReviewer{}, &fakeStaff{}, &fakeInviter{}, &fakeVenues{}, &fakePlaques{},
-		&fakeRecorder{}, newFakeRules(), newFakeScribe(), newFakeBooks(), newFakeTexts(), newFakeAccount(), nil, adminTestConfig(), discardLogger())
+		&fakeRecorder{}, newFakeRules(), newFakeScribe(), newFakeBooks(), newFakeAccount(), nil, adminTestConfig(), discardLogger())
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}
@@ -1599,14 +1599,6 @@ func policyShellBaseline(t *testing.T) string {
 	t.Helper()
 	c := pages.PanelChrome{
 		FullName: policyTestAdminName, Role: policyTestAdminRole, Tab: pages.TabPolicies,
-		// ⚠️ Operator MIRRORS THE FIXTURE, NOT A WISH (M7-06). This baseline is compared
-		// BYTE FOR BYTE against a page rendered through the real handler, and that
-		// handler computes this bit from adminTestConfig's allow-list — which names
-		// panelTestAdmin, so the nav it draws carries the operator tab. A baseline that
-		// left this false would differ from every page in the suite by one <a>, and the
-		// difference would be reported as "markup outside the section", which is the one
-		// thing this test exists to catch. It must track the fixture.
-		Operator: true,
 	}
 	p, err := newFakeLedger().Pending(context.Background(), panelTestTenant)
 	if err != nil {

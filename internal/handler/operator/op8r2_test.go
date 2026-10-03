@@ -515,8 +515,8 @@ func hostileCookieLine(cookies []*http.Cookie) string {
 }
 
 // hostileDrive is r with the hostile headers (a header the request sets itself --
-// Origin, Sec-Fetch-Site -- is kept), the second Cookie line and, on the sign-in, code
-// and enrollment paths, the hostile query.
+// Origin, Sec-Fetch-Site -- is kept), the second Cookie line and, on the sign-in, code,
+// enrollment and (OP-10) legal paths, the hostile query.
 func hostileDrive(r req) req {
 	h := map[string]string{}
 	for k, v := range hostileHeaders {
@@ -529,7 +529,7 @@ func hostileDrive(r req) req {
 	r.cookieLine = hostileCookieLine(r.cookies)
 	path, _, _ := strings.Cut(r.path, "?")
 	switch path {
-	case "/operator/login", "/operator/login/totp", "/operator/enroll":
+	case "/operator/login", "/operator/login/totp", "/operator/enroll", "/operator/legal":
 		q := url.Values{}
 		for k, v := range hostileQuery {
 			q[k] = v
@@ -562,13 +562,13 @@ func hostileOn(r *http.Request) {
 	r.URL.RawQuery = q.Encode()
 }
 
-// designed is a class's response headers beyond the four each of the 48 (C1-C48, both
-// header tables) carries (Content-Security-Policy, Cache-Control, X-Content-Type-Options,
-// Referrer-Policy):
+// designed is a class's response headers beyond the four each of the 66 (C1-C66, the
+// three header tables) carries (Content-Security-Policy, Cache-Control,
+// X-Content-Type-Options, Referrer-Policy):
 // its Location and Content-Type ("" = absent), its Allow values (chi writes one per
 // registered method, sorted here; "" = absent) and its Set-Cookie headers, each
 // "<cookie name>=set" or "<cookie name>=clear". Read off the shipped handlers and
-// measured on them (2026-10-02, the 4th round; C41-C48 the 5th).
+// measured on them (2026-10-02, the 4th round; C41-C48 the 5th; C49-C66 OP-10, 2026-10-03).
 type designed struct {
 	loc, ct, allow string
 	cookies        []string
@@ -604,6 +604,17 @@ var designedHeaders = map[string]designed{
 	"C41": {allow: "GET"}, "C42": {allow: "GET"}, "C43": {allow: "GET"},
 	"C44": {allow: "GET,POST"}, "C45": {allow: "GET,POST"}, "C46": {allow: "POST"},
 	"C47": {ct: pageType}, "C48": {ct: pageType},
+	// OP-10's legal screen (op10_test.go): the page and its refusals are pages; the
+	// sign-in redirects of the gate and of a session the store refuses; the dead cookie
+	// cleared; the publication's 303 back to the screen, a failed refresh after it
+	// included (C64, POST -> 303 -> GET); PUT's 405.
+	"C49": {ct: pageType}, "C50": {loc: "/operator/login"},
+	"C51": {loc: "/operator/login", cookies: []string{sessionClear}},
+	"C52": {loc: "/operator/login"}, "C53": {ct: pageType}, "C54": {loc: "/operator/login"}, "C55": {ct: pageType},
+	"C56": {loc: "/operator/legal"}, "C57": {loc: "/operator/login"}, "C58": {ct: pageType}, "C59": {ct: pageType},
+	"C60": {ct: pageType}, "C61": {ct: pageType}, "C62": {ct: pageType}, "C63": {ct: pageType}, "C64": {loc: "/operator/legal"},
+	"C65": {loc: "/operator/login"},
+	"C66": {allow: "GET,POST"},
 }
 
 // checkDesignedHeaders holds the response headers AT WriteHeader (w.Result().Header, the

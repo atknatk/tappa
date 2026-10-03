@@ -21,10 +21,17 @@
 // repo has paid three times for second representations, so its bounds are written
 // down:
 //
-//   - It is refreshed by the process that publishes. A SECOND process would serve
-//     the previous text until it restarted. Tappa deploys to ONE VPS (CLAUDE.md §1)
-//     so there is one process today; a second one makes this wrong, and
-//     Store.Refresh is the one function that would have to be called on a timer.
+//   - It is refreshed by the process that publishes: since M10 OP-10 (phase B) the
+//     platform operator's /operator/legal calls Store.Refresh after op_publish_legal
+//     (ADR 0020 §7, one replica). A SECOND process would serve the previous text
+//     until it restarted. Tappa deploys to ONE VPS (CLAUDE.md §1) so there is one
+//     process today; a second one makes this wrong, and Store.Refresh is the one
+//     function that would have to be called on a timer.
+//   - THIS PACKAGE NO LONGER WRITES. The M7-06 panel's Store.Publish (an INSERT on
+//     tappa_app's pool plus an audit_log row) went with the panel's legal screen:
+//     00027 revoked tappa_app's INSERT on legal_documents, and the one writer is the
+//     operator's op_publish_legal (internal/db.PublishLegal), whose audit row is in
+//     operator_audit_log. What is left here is the snapshot and the read that fills it.
 //   - It is loaded at boot and a failure there is LOGGED, not fatal. A database
 //     that is down at boot must not take the marketing site down with it, and the
 //     pages degrade to exactly what they printed before this task existed: "this
@@ -44,7 +51,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
-	"github.com/atknatk/tappa/internal/audit"
 	"github.com/atknatk/tappa/internal/db"
 	"github.com/atknatk/tappa/internal/store"
 )
@@ -73,9 +79,9 @@ func Valid(slug string) bool {
 // Doc is one published text.
 type Doc struct {
 	Slug string
-	// Body is what somebody typed, stored and returned VERBATIM. The form re-fills
-	// itself from this, so a round trip through the screen must not silently
-	// rewrite anybody's words.
+	// Body is what somebody typed, stored and returned VERBATIM. The operator's
+	// legal screen re-opens its editor on this, so a round trip through the screen
+	// must not silently rewrite anybody's words.
 	Body        string
 	PublishedAt time.Time
 	// Paragraphs is Body already split, computed ONCE when the snapshot is installed.
@@ -84,7 +90,8 @@ type Doc struct {
 	// deliberately rate-limit-free (handler.Marketing carries the argument), so any
 	// per-request work there is work an anonymous caller can ask for as often as they
 	// like. A security audit measured the splitting cost at 253 ms for a pathological
-	// 9 MB body; the body is now bounded (handler.maxLegalBody) AND the split happens
+	// 9 MB body; the body is now bounded (256 KiB: op_publish_legal's octet_length
+	// check, and internal/handler/operator's maxLegalBody) AND the split happens
 	// at publication rather than at render, so the read is a map lookup.
 	Paragraphs []string
 }
@@ -138,7 +145,7 @@ func Paragraphs(body string) []string {
 // 🔴 IT IS ONE PASS, AND THE FIRST VERSION WAS A `for strings.Contains(…)` LOOP THAT
 // RE-SCANNED THE WHOLE STRING PER COLLAPSED NEWLINE. A security audit measured it:
 // a body of 9 MB of blank lines cost 253 ms, against 9.5 ms for 9 MB of prose. The
-// input is bounded now (handler.maxLegalBody) and the split is precomputed, so
+// input is bounded now (256 KiB, op_publish_legal) and the split is precomputed, so
 // neither the size nor the frequency is what it was — but a quadratic loop over
 // attacker-shaped input is the wrong thing to leave standing behind two other fixes.
 func normalizeNewlines(s string) string {
@@ -174,51 +181,7 @@ type Database interface {
 	WithTenant(ctx context.Context, tenantID uuid.UUID, fn db.TxFunc) error
 }
 
-// Trail is the slice of audit.Recorder this package needs (§7).
-//
-// IT IS RecordTx AND NOT Record, the same choice internal/domain/signup makes and
-// for the same reason. §4.3 requires the change to reach audit_log; RecordTx makes
-// the row share the fate of the INSERT it describes, so there can be neither a
-// published text with no trail entry nor a trail entry for a publication that
-// rolled back. Record — its own transaction — is for the caller whose main
-// transaction FAILED, and there is no such caller here.
-type Trail interface {
-	RecordTx(ctx context.Context, tx pgx.Tx, e audit.Event) (uuid.UUID, error)
-}
-
-// ActionPublished is the audit action a publication writes.
-//
-// It follows the vocabulary the panel already uses — `<subject>.<past participle>`
-// — so a reader scanning `action LIKE 'legal.%'` sees one shape.
-const ActionPublished = "legal.published"
-
-// PublishedDetail is the audit row's payload.
-//
-// 🔴 THE TEXT ITSELF IS NOT IN IT, AND THAT IS A SIZE DECISION RATHER THAN A SECRET
-// ONE. A legal document is thousands of characters and audit_log.detail is jsonb on
-// a table nothing may delete from; copying every version of every document into it
-// would grow the trail without adding a fact, because legal_documents is
-// APPEND-ONLY and already holds every version verbatim. What the row carries is
-// enough to find that version: which document, how long the text was, and the
-// row's own id.
-//
-// EXPLICIT EMPTIES, NO omitempty — a key that is absent cannot be told apart from a
-// value that was empty, and this row exists so somebody can reconstruct what
-// happened.
-type PublishedDetail struct {
-	Slug string `json:"slug"`
-	// DocumentID is the legal_documents row. It is the join to the text.
-	DocumentID string `json:"document_id"`
-	// Bytes is the length of the body as stored. It is what lets a reader tell "the
-	// policy was replaced" from "a typo was fixed" without reading both versions.
-	Bytes int `json:"bytes"`
-	// Replaced is true when this slug already had a text. The FIRST publication of a
-	// document and a revision of one are different events to whoever is auditing.
-	Replaced bool `json:"replaced"`
-}
-
-// Store reads and publishes the texts, and holds the snapshot the public pages
-// serve from.
+// Store holds the snapshot the public pages serve from, and the read that fills it.
 //
 // ⚠️ IT STILL GOES THROUGH WithTenant EVEN THOUGH THE TABLE HAS NO TENANT. That is
 // not a contradiction: WithTenant is this application's ONLY door to the pool
@@ -228,40 +191,43 @@ type PublishedDetail struct {
 // alternative — a second, context-less pool accessor — is the "general bypass door"
 // ADR 0002 forbids, and it would exist for a table that does not need it.
 type Store struct {
-	data  Database
-	trail Trail
-	snap  atomic.Pointer[map[string]Doc]
-	// writing serialises publications.
+	data Database
+	snap atomic.Pointer[map[string]Doc]
+	// refreshing serialises Refresh's read-and-install.
 	//
-	// 🔴 WITHOUT IT THE SNAPSHOT CAN GO BACKWARDS, and a security audit named the
-	// window: Publish reads every current text INSIDE its transaction and installs the
-	// result AFTER commit, so two concurrent publications of the same document can
-	// commit in one order and install in the other — leaving /legal/* serving the
-	// SUPERSEDED text until the next publication or a restart. The database is right
-	// either way (the table is append-only and the newest row wins on the next read);
-	// it is the cache that would be wrong.
+	// 🔴 WITHOUT IT THE SNAPSHOT CAN GO BACKWARDS. Two refreshes that overlap -- two
+	// operators publishing at once, each refreshing after its own publication -- can
+	// READ in one order and INSTALL in the other, leaving /legal/* serving the
+	// superseded text until the next refresh or a restart (the M7-06 security audit
+	// named this window on the old publish path; the read-then-install shape is the
+	// same). Held across the read AND the install, a refresh that starts later reads a
+	// later committed state and installs it later. The database is right either way (the
+	// table is append-only and the newest row wins on the next read); it is the cache
+	// that would be wrong.
 	//
-	// A MUTEX IS AFFORDABLE HERE AND WOULD NOT BE ANYWHERE ELSE IN THIS PRODUCT. This
-	// path runs a handful of times in the lifetime of a deployment, by one of two or
-	// three people, and it holds the lock across one short transaction. Nothing on the
-	// tap path, the panel's reads or the public pages touches it — Published() is a
-	// lock-free atomic load.
-	writing sync.Mutex
+	// WHAT IS MEASURED IS HALF OF THAT: two refreshes never READ at once
+	// (TestRefresh_TwoRefreshesNeverReadAtOnce). That the INSTALL is inside the lock too
+	// -- the half that orders the installs -- is not measured: a lock released between
+	// the read and the install leaves that test green (OP-10 phase B, round 2), and
+	// pausing a refresh between the two needs a hook this type does not have. It is held
+	// by reading Refresh, whose first two statements are the Lock and its deferred
+	// Unlock.
+	//
+	// A MUTEX IS AFFORDABLE HERE. Refresh runs at boot, after a publication and when
+	// the operator's legal screen finds the snapshot behind the version list -- a
+	// handful of times in the lifetime of a deployment -- and holds the lock across one
+	// short read. Nothing on the tap path, the panel's reads or the public pages
+	// touches it: Published() is a lock-free atomic load.
+	refreshing sync.Mutex
 }
 
 // NewStore builds a Store with an EMPTY snapshot, which is the state the pages
 // rendered in before this package existed: every document unpublished.
-func NewStore(data Database, trail Trail) (*Store, error) {
+func NewStore(data Database) (*Store, error) {
 	if data == nil {
 		return nil, errors.New("legal: nil database")
 	}
-	if trail == nil {
-		// §4.3 is not optional and a Store that cannot write the trail must not be
-		// constructible — otherwise the ONE path that publishes a legal text is the
-		// one path with no record of who published it.
-		return nil, errors.New("legal: nil audit trail")
-	}
-	s := &Store{data: data, trail: trail}
+	s := &Store{data: data}
 	empty := map[string]Doc{}
 	s.snap.Store(&empty)
 	return s, nil
@@ -276,7 +242,7 @@ func NewStore(data Database, trail Trail) (*Store, error) {
 // TestMarketing_HandlerHoldsNoStatefulDependency already makes about the handler.
 //
 // The returned map MUST NOT be written to. It is shared by every reader; a
-// publication replaces the pointer rather than mutating the map, so a reader that
+// refresh replaces the pointer rather than mutating the map, so a reader that
 // already holds one keeps a consistent view of the version it started with.
 func (s *Store) Published() map[string]Doc {
 	if m := s.snap.Load(); m != nil {
@@ -313,6 +279,8 @@ var readContext = uuid.MustParse("00000000-0000-4000-8000-00000000f00d")
 // could be scoped to, so there is no parameter for a caller to get wrong. See
 // readContext for what it runs under instead.
 func (s *Store) Refresh(ctx context.Context) error {
+	s.refreshing.Lock()
+	defer s.refreshing.Unlock()
 	var rows []store.ListPublishedLegalDocumentsRow
 	err := s.data.WithTenant(ctx, readContext, func(ctx context.Context, tx pgx.Tx) error {
 		var e error
@@ -346,94 +314,4 @@ func (s *Store) set(rows []store.ListPublishedLegalDocumentsRow) {
 		}
 	}
 	s.snap.Store(&next)
-}
-
-// ErrUnknownSlug is returned for a document this product does not have.
-var ErrUnknownSlug = errors.New("legal: unknown document")
-
-// ErrEmptyBody is returned for a body with no text in it.
-//
-// IT IS REFUSED IN GO AS WELL AS IN THE COLUMN, and the duplication is on purpose:
-// the CHECK is what makes it impossible, this is what makes it EXPLAINABLE. A
-// 23514 surfacing as "an internal error" would tell an operator who pasted
-// whitespace nothing about what to do next.
-var ErrEmptyBody = errors.New("legal: a document with no text is not a publication")
-
-// Publish appends one version, records it, and installs the new snapshot.
-//
-// 🔴 FOUR THINGS IN ONE TRANSACTION, AND THE FOURTH IS WHY THERE IS NO SEPARATE
-// REFRESH. The INSERT, the audit_log row (RecordTx — see Trail), and the read-back
-// of every current text all run inside one db.WithTenant; the snapshot pointer is
-// replaced only AFTER that transaction commits. So the memory the public pages
-// serve from can never show a version the database rolled back, and a publication
-// costs no second round trip to become visible.
-//
-// tenantID and actorID are the PUBLISHER'S OWN, taken from their resolved session.
-// That is the whole of this path's §4.5 story: legal_documents needs no tenant
-// (00020), audit_log's is NOT NULL and gets the publisher's, and no code here can
-// name anybody else's — there is no parameter for one.
-//
-// The body is stored VERBATIM. Trimming happens on the way in (the handler) and
-// splitting happens on the way out (Paragraphs); the column holds what was typed.
-func (s *Store) Publish(ctx context.Context, tenantID, actorID uuid.UUID, slug, body string) (Doc, error) {
-	s.writing.Lock()
-	defer s.writing.Unlock()
-	if !Valid(slug) {
-		return Doc{}, fmt.Errorf("%w: %q", ErrUnknownSlug, slug)
-	}
-	if strings.TrimSpace(body) == "" {
-		return Doc{}, ErrEmptyBody
-	}
-	// Read BEFORE the write so "was there already a text?" is a fact about the
-	// world the publisher acted on, not about the row they just inserted.
-	_, replaced := s.Published()[slug]
-
-	var doc Doc
-	var rows []store.ListPublishedLegalDocumentsRow
-	err := s.data.WithTenant(ctx, tenantID, func(ctx context.Context, tx pgx.Tx) error {
-		q := store.New(tx)
-		var actor *uuid.UUID
-		if actorID != uuid.Nil {
-			a := actorID
-			actor = &a
-		}
-		row, e := q.PublishLegalDocument(ctx, store.PublishLegalDocumentParams{
-			Slug: slug, Body: body, PublishedBy: actor,
-		})
-		if e != nil {
-			return e
-		}
-		doc = Doc{
-			Slug:        row.Slug,
-			Body:        row.Body,
-			PublishedAt: row.PublishedAt,
-			Paragraphs:  Paragraphs(row.Body),
-		}
-		var actorPtr *uuid.UUID
-		if actorID != uuid.Nil {
-			a := actorID
-			actorPtr = &a
-		}
-		if _, e = s.trail.RecordTx(ctx, tx, audit.Event{
-			TenantID: tenantID,
-			ActorID:  actorPtr,
-			Action:   ActionPublished,
-			Target:   slug,
-			Detail: PublishedDetail{
-				Slug:       slug,
-				DocumentID: row.ID.String(),
-				Bytes:      len(row.Body),
-				Replaced:   replaced,
-			},
-		}); e != nil {
-			return e
-		}
-		rows, e = q.ListPublishedLegalDocuments(ctx)
-		return e
-	})
-	if err != nil {
-		return Doc{}, fmt.Errorf("legal: publish %q: %w", slug, err)
-	}
-	s.set(rows)
-	return doc, nil
 }

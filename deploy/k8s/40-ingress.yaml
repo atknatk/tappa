@@ -124,8 +124,13 @@ metadata:
     # A redirect is what keeps a mistyped http:// link from producing either.
     nginx.ingress.kubernetes.io/ssl-redirect: "true"
     nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
-    # Every request this product accepts is a form post or a small JSON body. The
-    # largest is a legal document body typed into /admin/legal.
+    # Every request this product accepts is a form post or a small JSON body. Since
+    # M10 OP-10 the largest one -- a legal text, 256 KiB at most -- is posted on the
+    # OPERATOR's host (/operator/legal), which this Ingress does not route (that host
+    # gets its own Ingress: deploy/README.md, "Bekliyor: K2/K4"). The largest bound a
+    # handler behind this Ingress sets itself is the sign-up form's 64 KiB
+    # (signupMaxFormBytes). "1m" was not re-derived when the legal screen moved:
+    # lowering it needs every route on this host measured first.
     nginx.ingress.kubernetes.io/proxy-body-size: "1m"
 spec:
   ingressClassName: nginx

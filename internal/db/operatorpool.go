@@ -22,7 +22,10 @@ import (
 // connects as tappa_operator through TAPPA_OPERATOR_DATABASE_URL, and it is the second
 // pool this process may open -- *DB, tappa_app's, is the first. The two share no
 // connection and no type, and the customer side is never handed this one (cmd/tappa's
-// TestOperatorWiring_ThePoolReachesOnlyTheAuthenticator).
+// TestOperatorWiring_ThePoolReachesOnlyTheAuthenticator: the pool goes to the
+// operator's Authenticator and, since OP-10 phase B, to the operator surface's legal
+// slot -- and to no other name in cmd/tappa's main.go and operator.go, the scope that
+// test reads by syntax; it is not a whole-program proof).
 //
 // WHAT IT IS NOT, AND EACH ABSENCE IS A DECISION:
 //
@@ -35,7 +38,7 @@ import (
 //     with the measurement). Its pool IS one, and every method below hands that pool
 //     to the free function in operator.go of the same name, which owns the statement.
 //     Exported Exec/QueryRow would let any package holding this value send SQL text
-//     of its own on the operator's connection, beside the seven statements whose
+//     of its own on the operator's connection, beside the statements whose
 //     bound-parameters-only rule TestOperatorSQL_OnlyBoundParameters reads; without
 //     them such code does not compile (measured: "has no field or method Exec"). The
 //     SQL is written once, in operator.go (TestOperatorDB_EveryMethodDelegatesVerbatim).
@@ -47,9 +50,11 @@ import (
 //     production constructor included -- through fmt's verbs, slog and encoding/json and
 //     finds neither the DSN nor its password.
 //
-// It satisfies internal/operatorauth's Store (operatorauth cannot be imported here --
-// it imports this package -- so the external test asserts it, and cmd/tappa's wiring
-// does not compile without it).
+// It satisfies internal/operatorauth's Store and internal/handler/operator's LegalStore
+// (neither can be imported here -- both import this package -- so the external test
+// asserts it, and cmd/tappa's wiring does not compile without it). Its method set is
+// those two interfaces' and Close, derived from them by
+// TestOperatorDB_IsTheStoreAndNothingMore.
 type OperatorDB struct {
 	pool *pgxpool.Pool
 }
@@ -460,7 +465,9 @@ func (o *OperatorDB) Close() { o.pool.Close() }
 
 // The seven methods below are internal/operatorauth's Store. Each is ONE statement on
 // the pool and hands its arguments, in order, to operator.go's function of the same
-// name -- which owns the SQL, the bound parameters and the error contract.
+// name -- which owns the SQL, the bound parameters and the error contract. (The two
+// after them are the legal screen's, delegated the same way; LegalVersions is two
+// statements.)
 
 // OperatorByEmail is the login lookup (operator.go).
 func (o *OperatorDB) OperatorByEmail(ctx context.Context, email string) (OperatorAccount, error) {
@@ -496,4 +503,23 @@ func (o *OperatorDB) TouchOperatorSession(ctx context.Context, sessionHash strin
 // CloseOperatorSession is op_close_session (operator.go).
 func (o *OperatorDB) CloseOperatorSession(ctx context.Context, sessionHash string) error {
 	return CloseOperatorSession(ctx, o.pool, sessionHash)
+}
+
+// The two methods below are internal/handler/operator's LegalStore (M10 OP-10, phase
+// B): the /operator/legal screen's version list and publication. Same shape as the
+// seven above -- one call to operator.go's function of the same name with the pool as
+// its connection.
+
+// LegalVersions is the version list's two-phase read (operator.go). On the POOL each of
+// its two statements is an implicit transaction of its own, so phase one (op_begin_read,
+// the audit row) has committed before phase two (op_read_legal_versions) runs --
+// measured on a pool built by the production constructor:
+// TestLegalVersions_OnThePoolTheTwoPhasesAreTwoTransactions.
+func (o *OperatorDB) LegalVersions(ctx context.Context, sessionHash string, page LegalVersionsPage) ([]LegalVersion, error) {
+	return LegalVersions(ctx, o.pool, sessionHash, page)
+}
+
+// PublishLegal is op_publish_legal (operator.go).
+func (o *OperatorDB) PublishLegal(ctx context.Context, sessionHash, slug, body string) error {
+	return PublishLegal(ctx, o.pool, sessionHash, slug, body)
 }

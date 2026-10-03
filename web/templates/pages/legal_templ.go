@@ -18,8 +18,9 @@ import "github.com/atknatk/tappa/web/templates/layout"
 // company and retention periods are commitments — none of those facts was in this
 // repository, and writing plausible ones would have produced a document that is
 // legally wrong and looks finished. M7-06 did not change that judgement; it built
-// the form (/admin/legal, migration 00020) so the facts can arrive from the person
-// who has them instead of from a developer editing Go source.
+// a form (migration 00020) so the facts can arrive from the person who has them
+// instead of from a developer editing Go source -- since M10 OP-10 the platform
+// operator's /operator/legal, on the operator's own host.
 //
 // ⚠️ THE STATE IS PER DOCUMENT AND THERE IS NO "THE LEGAL PAGES ARE LIVE" MOMENT.
 // Publishing the privacy policy replaces the skeleton on /legal/privacy, makes that
@@ -93,7 +94,7 @@ func Legal(v LegalPageView) templ.Component {
 				var templ_7745c5c3_Var4 string
 				templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(v.Page.Title)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/legal.templ`, Line: 42, Col: 83}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/legal.templ`, Line: 43, Col: 83}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
 				if templ_7745c5c3_Err != nil {
@@ -106,7 +107,7 @@ func Legal(v LegalPageView) templ.Component {
 				var templ_7745c5c3_Var5 string
 				templ_7745c5c3_Var5, templ_7745c5c3_Err = templ.JoinStringErrs(v.Page.Lede)
 				if templ_7745c5c3_Err != nil {
-					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/legal.templ`, Line: 43, Col: 65}
+					return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/legal.templ`, Line: 44, Col: 65}
 				}
 				_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var5))
 				if templ_7745c5c3_Err != nil {
@@ -199,7 +200,7 @@ func legalBody(v LegalPageView) templ.Component {
 			var templ_7745c5c3_Var7 string
 			templ_7745c5c3_Var7, templ_7745c5c3_Err = templ.JoinStringErrs(p)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/legal.templ`, Line: 75, Col: 10}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/legal.templ`, Line: 76, Col: 10}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var7))
 			if templ_7745c5c3_Err != nil {
@@ -222,7 +223,7 @@ func legalBody(v LegalPageView) templ.Component {
 			var templ_7745c5c3_Var8 string
 			templ_7745c5c3_Var8, templ_7745c5c3_Err = templ.JoinStringErrs(v.PublishedAt)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/legal.templ`, Line: 80, Col: 53}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/legal.templ`, Line: 81, Col: 53}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var8))
 			if templ_7745c5c3_Err != nil {
@@ -282,7 +283,7 @@ func legalDraftNotice(p LegalPage) templ.Component {
 			var templ_7745c5c3_Var10 string
 			templ_7745c5c3_Var10, templ_7745c5c3_Err = templ.JoinStringErrs(n)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/legal.templ`, Line: 105, Col: 50}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/legal.templ`, Line: 106, Col: 50}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var10))
 			if templ_7745c5c3_Err != nil {
@@ -345,7 +346,7 @@ func legalCookieTable(rows []CookieRow) templ.Component {
 			var templ_7745c5c3_Var12 string
 			templ_7745c5c3_Var12, templ_7745c5c3_Err = templ.JoinStringErrs(c.Name)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/legal.templ`, Line: 146, Col: 88}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/legal.templ`, Line: 147, Col: 88}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var12))
 			if templ_7745c5c3_Err != nil {
@@ -358,7 +359,7 @@ func legalCookieTable(rows []CookieRow) templ.Component {
 			var templ_7745c5c3_Var13 string
 			templ_7745c5c3_Var13, templ_7745c5c3_Err = templ.JoinStringErrs(c.Purpose)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/legal.templ`, Line: 147, Col: 62}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/legal.templ`, Line: 148, Col: 62}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var13))
 			if templ_7745c5c3_Err != nil {
@@ -371,7 +372,7 @@ func legalCookieTable(rows []CookieRow) templ.Component {
 			var templ_7745c5c3_Var14 string
 			templ_7745c5c3_Var14, templ_7745c5c3_Err = templ.JoinStringErrs(c.Lifetime)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/legal.templ`, Line: 148, Col: 70}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/legal.templ`, Line: 149, Col: 70}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var14))
 			if templ_7745c5c3_Err != nil {
@@ -384,7 +385,7 @@ func legalCookieTable(rows []CookieRow) templ.Component {
 			var templ_7745c5c3_Var15 string
 			templ_7745c5c3_Var15, templ_7745c5c3_Err = templ.JoinStringErrs(c.Scope)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/legal.templ`, Line: 149, Col: 67}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/legal.templ`, Line: 150, Col: 67}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var15))
 			if templ_7745c5c3_Err != nil {
@@ -397,7 +398,7 @@ func legalCookieTable(rows []CookieRow) templ.Component {
 			var templ_7745c5c3_Var16 string
 			templ_7745c5c3_Var16, templ_7745c5c3_Err = templ.JoinStringErrs(c.Flags)
 			if templ_7745c5c3_Err != nil {
-				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/legal.templ`, Line: 150, Col: 67}
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/templates/pages/legal.templ`, Line: 151, Col: 67}
 			}
 			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var16))
 			if templ_7745c5c3_Err != nil {

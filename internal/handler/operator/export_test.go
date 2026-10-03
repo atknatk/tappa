@@ -22,3 +22,14 @@ func FormValueForTest(v string) formValue { return formValue{v: &v} }
 
 // ProblemPagesForTest is problemPages() (render.go).
 func ProblemPagesForTest() []operatorpages.ProblemView { return problemPages() }
+
+// VisibleTextForTest is legal.go's visibleText.
+func VisibleTextForTest(body string) bool { return visibleText(body) }
+
+// MaxLegalBodyForTest is legal.go's maxLegalBody; LegalVersionsLimitForTest its page;
+// LegalWriteTimeoutForTest the bound of a publication and its refresh.
+const (
+	MaxLegalBodyForTest       = maxLegalBody
+	LegalVersionsLimitForTest = legalVersionsLimit
+	LegalWriteTimeoutForTest  = legalWriteTimeout
+)

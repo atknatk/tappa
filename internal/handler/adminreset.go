@@ -38,8 +38,9 @@ import (
 //	POST /admin/reset/new   spends the token, writes the new digest, revokes every
 //	                        session, and sends the person to the sign-in form.
 //
-// 🔴 IT IS A SEPARATE TYPE FROM AdminAuth, AND THE REASON IS THE OPPOSITE OF
-// legaladmin.go's. Every panel SECTION lives on AdminAuth because it needs
+// 🔴 IT IS A SEPARATE TYPE FROM AdminAuth, AND THE REASON IS THE OPPOSITE OF A PANEL
+// SECTION'S (legaladmin.go was one until OP-10 phase B moved the legal texts to the
+// platform operator's surface). Every panel SECTION lives on AdminAuth because it needs
 // a.chrome() and the identity the Protect chain resolved. This flow has neither: it
 // is reachable with no credential at all, renders no panel shell, and must not touch
 // the session resolver. What it shares with AdminAuth is one constant (adminCSP) and
@@ -1007,12 +1008,13 @@ func (h *AdminReset) recordForLink(ctx context.Context, resolved db.ResolvedPass
 //     flow touches that table nowhere. It is an edge of §4.6.
 //   - IT IS THE PACKAGE-WIDE SHAPE, not this file's choice. All THREE audit writers in
 //     internal/handler use Record (adminlogin.go:1499, activate.go:925 and this one),
-//     and EVERY non-comment mention of RecordTx outside internal/audit is under
-//     internal/domain/* — 27 of them (tenant 17, billing/legal/manual/review/signup 2
-//     each), and ZERO anywhere else — because that is where the transaction is owned.
-//     (An audit reported this as "25 call sites"; re-counted here rather than quoted,
-//     because a number nobody re-derives is a number that drifts.) A handler has no tx
-//     to join here:
+//     and EVERY non-comment mention of RecordTx in a non-test file outside internal/audit
+//     is where a transaction is owned: 28 under internal/domain/* (tenant 20,
+//     billing/manual/review/signup 2 each; legal 0 since OP-10 phase B, whose
+//     publication's audit row is op_publish_legal's own) and 3 in internal/encode's
+//     rows.go — ZERO in internal/handler. (An audit reported this as "25 call sites",
+//     a later count as 27; re-counted 2026-10-03 rather than quoted, because a number
+//     nobody re-derives is a number that drifts.) A handler has no tx to join here:
 //     adminauth.Resets.Consume opens and commits its own, and internal/adminauth's
 //     reset.go REFUSES to take an audit.Recorder, with its reason written out ("a
 //     data-layer function that logs on its own behalf writes a trail nobody can

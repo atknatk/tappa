@@ -1,6 +1,6 @@
 // Package operatorpages is the platform operator's screens (M10 OP-8; ADR 0020 §4):
 // sign-in, the TOTP step, enrollment, the console's front page and its problem page,
-// in the "TAPTIME OPERATOR" chrome.
+// and (OP-10) the legal texts screen, in the "TAPTIME OPERATOR" chrome.
 //
 // IT IS NOT web/templates/pages, ON PURPOSE. pages is what the customer product renders
 // and internal/handler imports it. Measured with `go list` (non-test imports, the build
@@ -106,6 +106,50 @@ type EnrollView struct {
 	Mismatch     bool // the two passwords differ
 	WeakPassword bool // the password rule refused it
 	CodeRejected bool // the first code was not accepted
+}
+
+// LegalView is /operator/legal (M10 OP-10; ADR 0020 §7): one editor per document and
+// the version list. Every value is text the handler formatted; templ escapes each one.
+type LegalView struct {
+	Docs     []LegalDoc
+	Versions []LegalVersionRow
+	// Limit is the number of versions the list asks the database for (newest first).
+	// When Versions holds that many, the page says older versions are not listed.
+	Limit int
+}
+
+// LegalDoc is one document's editor.
+type LegalDoc struct {
+	// Slug is the form's hidden value -- one of internal/domain/legal.Slugs.
+	Slug string
+	// Path is the document's public path ("/legal/privacy"). It is shown as text, not
+	// linked: the public pages are on the customer host, and a link there would be an
+	// absolute URL (TestOperatorScreens_EveryActionAndLinkIsAMountedRoute counts them).
+	Path string
+	// Published, PublishedAt (UTC) and Body are the snapshot the public page serves;
+	// Body re-opens the editor, so an edit starts from the live text.
+	Published   bool
+	PublishedAt string
+	Body        string
+	// Behind says the snapshot is OLDER than the version the list shows live for this
+	// document (a refresh after a publication failed, or another process published): the
+	// editor opened on the public page's text, and LiveAt (UTC) is when the live version
+	// was published.
+	Behind bool
+	LiveAt string
+}
+
+// LegalVersionRow is one row of the version list (op_read_legal_versions): no text,
+// its length in bytes.
+type LegalVersionRow struct {
+	Path        string
+	PublishedAt string
+	Bytes       string
+	// Publisher is the operator's name, or "tenant admin (legacy)" for a version the
+	// M7-06 panel (or the owner's SQL) wrote -- ADR 0020 §7.
+	Publisher string
+	// Current marks the version the public page serves (the newest of its document).
+	Current bool
 }
 
 // ProblemView is a refusal or a fault the operator surface answers with a page.

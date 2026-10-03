@@ -282,13 +282,9 @@ func TestBillingTab_IsHiddenFromAManagerAndTheRoutingTableIsUntouched(t *testing
 	// AND ONLY THAT ONE IS MISSING — a filter that dropped more would be a different bug
 	// wearing this one's clothes.
 	for _, s := range pages.PanelSections {
-		// ⚠️ OperatorOnly JOINED OwnerOnly HERE IN M7-06 AND IT IS A SECOND CONDITION,
-		// NOT A LOOSENING. This browser's identity is not on the operator allow-list
-		// either, so the legal-texts tab is correctly absent for a reason that has
-		// nothing to do with the role filter this test is about. Skipping it keeps this
-		// assertion aimed at what it is named for; the operator filter has its own test
-		// in legaladmin_test.go, which drives BOTH arms.
-		if s.OwnerOnly || s.OperatorOnly {
+		// (M7-06's operator-only legal-texts row and its condition here went with M10
+		// OP-10: publishing moved to the platform operator's own surface.)
+		if s.OwnerOnly {
 			continue
 		}
 		if !strings.Contains(mgrHTML, `href="`+s.Href+`"`) {
@@ -654,7 +650,7 @@ func TestBillingRoutes_AreRefusedCrossOriginBeforeTheResolverRuns(t *testing.T) 
 	}}
 	h, err := NewAdminAuth(admins, &fakeTrail{}, newFakeLedger(), newFakeLedger(), &fakeReviewer{},
 		&fakeStaff{}, &fakeInviter{}, &fakeVenues{}, &fakePlaques{}, &fakeRecorder{}, newFakeRules(),
-		newFakeScribe(), books, newFakeTexts(), newFakeAccount(), nil, adminTestConfig(), slog.New(slog.DiscardHandler))
+		newFakeScribe(), books, newFakeAccount(), nil, adminTestConfig(), slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}

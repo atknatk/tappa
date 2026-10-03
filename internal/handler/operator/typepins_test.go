@@ -546,10 +546,12 @@ func isNamed(ty types.Type, target *types.TypeName) bool {
 
 // TestProblemViews_TheListedBuildFormsOccurOnlyInRenderGo (3rd round, F2).
 //
-// PART I -- the shipped package: eight keyed ProblemView literals, each the value of a
-// package-level variable of render.go, one keyed literal in problemTooMany; problemPages
-// uses the eight variables and calls problemTooMany with false and with true; each Back in
-// those literals is a constant. CONTROL: the same type resolution finds the three
+// PART I -- the shipped package: thirteen keyed ProblemView literals (OP-8's eight and the
+// legal screen's five, OP-10), each the value of a package-level variable of render.go,
+// one keyed literal in problemTooMany; problemPages uses the thirteen variables and calls
+// problemTooMany with false and with true; each Back in those literals is a constant. (The
+// premise below asks for at least eight -- OP-8's floor; PV2 holds every variable to
+// problemPages, whatever their number.) CONTROL: the same type resolution finds the three
 // operatorpages.SignInView literals of signin.go and their Failed/Expired keys.
 //
 // PART II -- red on:
@@ -754,7 +756,9 @@ func TestEnrollScreen_TheListedFormsRenderItOnlyInRenderEnroll(t *testing.T) {
 // PART I -- the shipped package: reveal() is called at nine sites -- V1 six direct
 // arguments of (*operatorauth.Authenticator).Password (email, password), TOTP (code) and
 // CompleteEnrollment (token, password, code); V2 the Token key of the EnrollView literal in
-// (*Surface).enroll; V3 the two operands of the != in (*Surface).enroll. CONTROL: postValue's
+// (*Surface).enroll; V3 the two operands of the != in (*Surface).enroll. r.PostForm is read
+// in postValue, in (*Surface).enroll as .Get("id") and .Get("blob"), and (OP-10) in
+// (*Surface).publishLegal as .Get("slug") and .Get("body"), once each. CONTROL: postValue's
 // seven calls resolve, each with a constant credential name.
 //
 // PART II -- red on:
@@ -766,8 +770,9 @@ func TestEnrollScreen_TheListedFormsRenderItOnlyInRenderEnroll(t *testing.T) {
 //	FV4 a use of the request's Form, MultipartForm or RequestURI field, of its FormValue,
 //	    PostFormValue, FormFile, MultipartReader or ParseMultipartForm method, or of
 //	    url.URL's RawQuery field or String method;
-//	FV5 r.PostForm read other than in postValue and, in (*Surface).enroll, as .Get("id")
-//	    or .Get("blob");
+//	FV5 r.PostForm read other than in postValue, in (*Surface).enroll as .Get("id") or
+//	    .Get("blob"), and in (*Surface).publishLegal as .Get("slug") or .Get("body") (OP-10;
+//	    a count there other than one of each);
 //	FV6 url.URL.Query other than once in (*Surface).enrollPage, as .Get("id");
 //	FV7 ParseForm other than once in (*Surface).readForm.
 //
@@ -783,6 +788,8 @@ func TestFormValues_TheListedSitesAloneRevealOrReadTheForm(t *testing.T) {
 	enroll := tp.method(t, "Surface", "enroll")
 	enrollPage := tp.method(t, "Surface", "enrollPage")
 	readForm := tp.method(t, "Surface", "readForm")
+	publishLegal := tp.method(t, "Surface", "publishLegal")
+	legalReads := map[string]int{}
 	consumers := map[types.Object]string{}
 	for _, m := range []string{"Password", "TOTP", "CompleteEnrollment"} {
 		consumers[lookupMember(t, oa, "Authenticator", m)] = m
@@ -858,6 +865,12 @@ func TestFormValues_TheListedSitesAloneRevealOrReadTheForm(t *testing.T) {
 					continue
 				}
 			}
+			if tp.in(publishLegal, id.Pos()) {
+				if k := tp.getKey(id); k == "slug" || k == "body" {
+					legalReads[k]++
+					continue
+				}
+			}
 			bad = append(bad, "FV5 r.PostForm at "+tp.where(id.Pos()))
 		case query:
 			if tp.in(enrollPage, id.Pos()) && tp.getKey(id) == "id" {
@@ -875,6 +888,9 @@ func TestFormValues_TheListedSitesAloneRevealOrReadTheForm(t *testing.T) {
 	}
 	if queries != 1 || parses != 1 {
 		bad = append(bad, fmt.Sprintf("FV6/FV7 URL.Query in enrollPage %d time(s), ParseForm in readForm %d (want 1, 1)", queries, parses))
+	}
+	if legalReads["slug"] != 1 || legalReads["body"] != 1 {
+		bad = append(bad, fmt.Sprintf("FV5 publishLegal reads r.PostForm %v, want slug and body once each", legalReads))
 	}
 	sort.Strings(bad)
 	for _, b := range bad {
@@ -1037,10 +1053,11 @@ var guardedHeaders = map[string]map[string]int{
 }
 
 // TestResponseHeaders_TheListedNamesAreWrittenOnlyInTheirFunctions (3rd round). The
-// response headers' behaviour is measured on the headers at WriteHeader by the two header
-// tables (TestOperatorHeaders_FortyResponseClassesCarryThePolicy and
-// TestOperatorHeaders_TheWrongMethodAndOversizedClassesCarryThePolicy: 48 classes, hostile
-// request headers); this pin is the source-side list below.
+// response headers' behaviour is measured on the headers at WriteHeader by the three
+// header tables (TestOperatorHeaders_FortyResponseClassesCarryThePolicy,
+// TestOperatorHeaders_TheWrongMethodAndOversizedClassesCarryThePolicy and, OP-10,
+// TestOperatorHeaders_TheLegalClassesCarryThePolicy: 66 classes, hostile request
+// headers); this pin is the source-side list below.
 //
 // PART I -- the shipped package: the constant occurrences of each guardedHeaders name are
 // its allowed functions with its allowed counts; each http.Header Set/Add takes a
@@ -1134,14 +1151,14 @@ func TestResponseHeaders_TheListedNamesAreWrittenOnlyInTheirFunctions(t *testing
 	}
 }
 
-// operatorScreens are the six screen constructors screens() (op8_test.go) renders, by
-// name -- the list SN1/SN2 compare with operatorpages' exported API.
-var operatorScreens = []string{"Code", "Enroll", "Home", "Problem", "SignIn", "TenantScreen"}
+// operatorScreens are the seven screen constructors screens() (op8_test.go) renders, by
+// name -- the list SN1/SN2 compare with operatorpages' exported API (OP-10 added Legal).
+var operatorScreens = []string{"Code", "Enroll", "Home", "Legal", "Problem", "SignIn", "TenantScreen"}
 
 // TestOperatorPages_TheExportedScreensAreTheOnesScreensRenders (3rd round).
 //
-// PART I -- operatorpages' exported functions that return a templ.Component are the six of
-// operatorScreens (read from the export data of the build being run).
+// PART I -- operatorpages' exported functions that return a templ.Component are the seven
+// of operatorScreens (read from the export data of the build being run).
 //
 // PART II -- red on: SN1 an exported constructor not in operatorScreens; SN2 a name in
 // operatorScreens that is not one.

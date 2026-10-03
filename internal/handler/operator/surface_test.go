@@ -16,6 +16,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/atknatk/tappa/internal/db"
+	"github.com/atknatk/tappa/internal/domain/legal"
 	"github.com/atknatk/tappa/internal/handler/operator"
 	"github.com/atknatk/tappa/internal/httpx"
 	"github.com/atknatk/tappa/internal/operatorauth"
@@ -117,8 +118,9 @@ func TestSurface_OffAnswers503UnderThePrefixAndNowhereElse(t *testing.T) {
 	}
 }
 
-// noStore satisfies operatorauth.Store without a database: operatorauth.New calls no
-// method, and nothing in this file sends a request that would reach one.
+// noStore satisfies operatorauth.Store and operator.LegalStore without a database:
+// operatorauth.New calls no method, and nothing in this file sends a request that would
+// reach one.
 type noStore struct{}
 
 func (noStore) OperatorByEmail(context.Context, string) (db.OperatorAccount, error) {
@@ -140,6 +142,18 @@ func (noStore) TouchOperatorSession(context.Context, string) (db.OperatorSession
 	return db.OperatorSession{}, db.ErrOperatorRefused
 }
 func (noStore) CloseOperatorSession(context.Context, string) error { return db.ErrOperatorRefused }
+func (noStore) LegalVersions(context.Context, string, db.LegalVersionsPage) ([]db.LegalVersion, error) {
+	return nil, db.ErrOperatorRefused
+}
+func (noStore) PublishLegal(context.Context, string, string, string) error {
+	return db.ErrOperatorRefused
+}
+
+// noTexts is an empty legal snapshot whose refresh does nothing.
+type noTexts struct{}
+
+func (noTexts) Published() map[string]legal.Doc { return map[string]legal.Doc{} }
+func (noTexts) Refresh(context.Context) error   { return nil }
 
 func authenticator(t *testing.T) *operatorauth.Authenticator {
 	t.Helper()
@@ -163,7 +177,7 @@ func authenticator(t *testing.T) *operatorauth.Authenticator {
 // paths with the router's own 404 bytes (its hostGate), and the customer routes are
 // unchanged. CONTROL: the same surface on the operator host serves its sign-in.
 func TestSurface_ConfiguredAnswersOnlyOnTheOperatorHost(t *testing.T) {
-	s, err := operator.New(authenticator(t), "ops.taptime.mt", "https://taptime.mt", slog.New(slog.DiscardHandler))
+	s, err := operator.New(authenticator(t), noStore{}, noTexts{}, "ops.taptime.mt", "https://taptime.mt", slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -190,28 +204,32 @@ func TestSurface_ConfiguredAnswersOnlyOnTheOperatorHost(t *testing.T) {
 	}
 }
 
-// TestSurface_NewRefusesWhatAConfiguredSurfaceNeeds: no Authenticator, no host, no
-// logger, a base URL the operator origin cannot be taken from -- each refused rather
-// than degraded to Off.
+// TestSurface_NewRefusesWhatAConfiguredSurfaceNeeds: no Authenticator, no legal store,
+// no legal snapshot (OP-10), no host, no logger, a base URL the operator origin cannot be
+// taken from -- each refused rather than degraded to Off.
 func TestSurface_NewRefusesWhatAConfiguredSurfaceNeeds(t *testing.T) {
 	a, log := authenticator(t), slog.New(slog.DiscardHandler)
 	for name, c := range map[string]struct {
 		auth      *operatorauth.Authenticator
+		store     operator.LegalStore
+		texts     operator.LegalTexts
 		host, url string
 		log       *slog.Logger
 	}{
-		"no Authenticator":             {nil, "ops.taptime.mt", "https://taptime.mt", log},
-		"no host":                      {a, "", "https://taptime.mt", log},
-		"no logger":                    {a, "ops.taptime.mt", "https://taptime.mt", nil},
-		"no base URL":                  {a, "ops.taptime.mt", "", log},
-		"a base URL with no scheme":    {a, "ops.taptime.mt", "taptime.mt", log},
-		"a base URL of another scheme": {a, "ops.taptime.mt", "ftp://taptime.mt", log},
+		"no Authenticator":             {nil, noStore{}, noTexts{}, "ops.taptime.mt", "https://taptime.mt", log},
+		"no legal store":               {a, nil, noTexts{}, "ops.taptime.mt", "https://taptime.mt", log},
+		"no legal snapshot":            {a, noStore{}, nil, "ops.taptime.mt", "https://taptime.mt", log},
+		"no host":                      {a, noStore{}, noTexts{}, "", "https://taptime.mt", log},
+		"no logger":                    {a, noStore{}, noTexts{}, "ops.taptime.mt", "https://taptime.mt", nil},
+		"no base URL":                  {a, noStore{}, noTexts{}, "ops.taptime.mt", "", log},
+		"a base URL with no scheme":    {a, noStore{}, noTexts{}, "ops.taptime.mt", "taptime.mt", log},
+		"a base URL of another scheme": {a, noStore{}, noTexts{}, "ops.taptime.mt", "ftp://taptime.mt", log},
 	} {
-		if s, err := operator.New(c.auth, c.host, c.url, c.log); err == nil || s != nil {
+		if s, err := operator.New(c.auth, c.store, c.texts, c.host, c.url, c.log); err == nil || s != nil {
 			t.Errorf("%s: New built a configured surface", name)
 		}
 	}
-	if s, err := operator.New(a, "ops.taptime.mt", "https://taptime.mt", log); err != nil || s == nil {
+	if s, err := operator.New(a, noStore{}, noTexts{}, "ops.taptime.mt", "https://taptime.mt", log); err != nil || s == nil {
 		t.Fatalf("CONTROL: a complete configuration was refused: %v", err)
 	}
 	if operator.Off().Configured() || operator.Unavailable().Configured() || (&operator.Surface{}).Configured() ||
@@ -228,7 +246,7 @@ func TestSurface_NewRefusesWhatAConfiguredSurfaceNeeds(t *testing.T) {
 // same router does write its record (the log is live), and the configured surface's 404
 // is recorded as usual (the exemption is the 503's, not the prefix's).
 func TestSurface_ItsDesigned503IsNotAnAlertEvent(t *testing.T) {
-	configured, err := operator.New(authenticator(t), "ops.taptime.mt", "https://taptime.mt", slog.New(slog.DiscardHandler))
+	configured, err := operator.New(authenticator(t), noStore{}, noTexts{}, "ops.taptime.mt", "https://taptime.mt", slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -720,6 +720,15 @@
      (the .pw-toggle note above measured it) and this element sets its own display. */
   .op-token-field { @apply flex flex-col gap-1.5; }
   .op-token-field[hidden] { display: none; }
+  /* One row of the legal texts' version list (M10 OP-10), inside a docket: the time,
+     the document, the length and the publisher in the docket's mono, wrapping on a
+     phone, a rule between rows in the perforation tone. Ink on the docket's paper,
+     16.17:1; the live chip is the tally's ink on green-lite, computed in
+     TestLegalScreen_TheTextClearsAA. A component and not a chain: it repeats once per
+     version. */
+  .op-version {
+    @apply flex flex-wrap items-baseline gap-x-4 gap-y-1 border-b border-line py-2 text-ink last:border-b-0;
+  }
 }
 
 /* =====================================================================

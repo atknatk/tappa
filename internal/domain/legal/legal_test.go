@@ -1,9 +1,15 @@
 package legal_test
 
 import (
+	"context"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
+	"github.com/google/uuid"
+
+	"github.com/atknatk/tappa/internal/db"
 	"github.com/atknatk/tappa/internal/domain/legal"
 )
 
@@ -142,27 +148,89 @@ func TestValid_IsTheClosedSet(t *testing.T) {
 	}
 }
 
-// TestNewStore_RefusesAMissingTrail — §4.3 is not optional.
-//
-// A Store that could be built without an audit sink is a Store whose ONE write path
-// could publish a legal text with no record of who did it. The constructor refuses
-// rather than degrading, which is the shape billing.NewBook already uses for the same
-// reason.
-func TestNewStore_RefusesAMissingTrail(t *testing.T) {
+// overlapDB is a Database whose WithTenant records how many calls are inside it at once
+// and holds the first one until a second arrives or holdFor passes. It does not run the
+// callback (the read needs a real transaction); Refresh then installs an empty snapshot.
+type overlapDB struct {
+	mu       sync.Mutex
+	inside   int
+	max      int
+	arrived  chan struct{}
+	holdFor  time.Duration
+	released bool
+}
+
+func (d *overlapDB) WithTenant(context.Context, uuid.UUID, db.TxFunc) error {
+	d.mu.Lock()
+	d.inside++
+	if d.inside > d.max {
+		d.max = d.inside
+	}
+	first := !d.released
+	d.released = true
+	d.mu.Unlock()
+	if first {
+		select {
+		case <-d.arrived:
+		case <-time.After(d.holdFor):
+		}
+	} else {
+		close(d.arrived)
+	}
+	d.mu.Lock()
+	d.inside--
+	d.mu.Unlock()
+	return nil
+}
+
+// TestRefresh_TwoRefreshesNeverReadAtOnce: Store.Refresh holds its lock across the read
+// and the install (the field comment on Store.refreshing says why: two overlapping
+// refreshes could install in the reverse of the order they read). Two concurrent
+// refreshes are driven against a database that holds the first read open until a second
+// read arrives (or 300 ms pass): at most one read is ever inside it. Without the lock the
+// second read arrives while the first is held -- two at once, red. (A slow scheduler can
+// only make the held read time out first, which reads as one at a time: the direction
+// this cannot be wrong in is red.)
+func TestRefresh_TwoRefreshesNeverReadAtOnce(t *testing.T) {
 	t.Parallel()
-	if _, err := legal.NewStore(nil, nil); err == nil {
+	d := &overlapDB{arrived: make(chan struct{}), holdFor: 300 * time.Millisecond}
+	s, err := legal.NewStore(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wg sync.WaitGroup
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := s.Refresh(context.Background()); err != nil {
+				t.Error(err)
+			}
+		}()
+	}
+	wg.Wait()
+	if d.max != 1 {
+		t.Errorf("%d refresh reads were inside the database at once, want 1", d.max)
+	}
+}
+
+// TestNewStore_RefusesAMissingDatabaseAndStartsEmpty.
+//
+// Since M10 OP-10 (phase B) the Store has no write and no audit sink: the one writer
+// of legal_documents is the platform operator's op_publish_legal, whose audit row is in
+// operator_audit_log (internal/db's TestOpPublishLegal_WritesTheVersionAndItsAuditRowTogether).
+// What the constructor still refuses is a missing database -- the read that fills the
+// snapshot needs one.
+func TestNewStore_RefusesAMissingDatabaseAndStartsEmpty(t *testing.T) {
+	t.Parallel()
+	if _, err := legal.NewStore(nil); err == nil {
 		t.Error("NewStore accepted a nil database")
 	}
-	if _, err := legal.NewStore(stubDB{}, nil); err == nil {
-		t.Error("NewStore accepted a nil audit trail. §4.3 requires every change to reach " +
-			"audit_log, and this type's only write is the one that changes what every " +
-			"visitor to /legal reads.")
-	}
-	// POSITIVE CONTROL: with both, it builds — otherwise the refusals above could be
-	// a constructor that refuses everything.
-	s, err := legal.NewStore(stubDB{}, stubTrail{})
+	// POSITIVE CONTROL: with a database, it builds -- otherwise the refusal above could
+	// be a constructor that refuses everything.
+	s, err := legal.NewStore(stubDB{})
 	if err != nil {
-		t.Fatalf("NewStore with both dependencies: %v", err)
+		t.Fatalf("NewStore with a database: %v", err)
 	}
 	// AND IT STARTS EMPTY, which is the state the pages rendered in before this
 	// package existed: every document unpublished, every page honest about it.

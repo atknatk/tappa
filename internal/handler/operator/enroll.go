@@ -102,7 +102,7 @@ func groupKey(k string) string {
 // test's designed egress D5). A refusal the person cannot fix (ErrEnrollment: a wrong,
 // used or expired link, a foreign or expired page) is a problem page without a form.
 func (s *Surface) enroll(w http.ResponseWriter, r *http.Request) {
-	if !s.readForm(w, r) {
+	if !s.readForm(w, r, maxFormBytes, problemFormTooLarge) {
 		return
 	}
 	// An id that does not parse becomes uuid.Nil, which CompleteEnrollment refuses as a

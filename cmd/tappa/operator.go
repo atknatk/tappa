@@ -31,12 +31,19 @@ const (
 // with the function that closes what it opened.
 //
 // 🔴 THE OPERATOR'S POOL NEVER LEAVES THIS FUNCTION. It is opened here, handed to
-// configuredSurface (which hands it to operatorauth.New as the Store and to nothing
-// else), and its Close is returned as a bound method value -- which carries one call and
-// no object, so nothing in run() can hand the pool to a customer handler (ADR 0021 §3.6:
-// the operator's pool goes to the operator's side only).
-// TestOperatorWiring_ThePoolReachesOnlyTheAuthenticator reads both functions' syntax
-// trees for exactly that.
+// configuredSurface (whose syntax tree uses it exactly twice: as operatorauth.New's Store,
+// through operatorAuthenticator, and as operator.New's LegalStore -- OP-10), and its Close
+// is returned as a bound method value -- which carries one call and no object, so nothing
+// in run() can hand the pool to a customer handler (ADR 0021 §3.6: the operator's pool
+// goes to the operator's side only). TestOperatorWiring_ThePoolReachesOnlyTheAuthenticator
+// reads the three functions' syntax trees for exactly that.
+//
+// texts is the customer side's legal snapshot (internal/domain/legal.Store, on
+// tappa_app's pool) -- the SAME store the public pages read (the wiring test pins one
+// legal.NewStore in the command): the operator's legal screen refreshes it after a
+// publication, and again when a view finds it behind the version list. It
+// goes the other way -- from run() into the operator surface -- and carries two methods
+// (operator.LegalTexts: Published, Refresh).
 //
 // THREE OUTCOMES, AND WHICH ONE STOPS THE BOOT IS THE DECISION:
 //
@@ -63,7 +70,7 @@ const (
 //     Those are a configuration that is present and dangerous or broken, and must be
 //     loud -- the customer pool's rule; with the Deployment's maxUnavailable: 0 the
 //     previous pod keeps serving while the new one refuses.
-func openOperatorSurface(ctx context.Context, cfg *config.Config, log *slog.Logger) (*operator.Surface, func(), error) {
+func openOperatorSurface(ctx context.Context, cfg *config.Config, texts operator.LegalTexts, log *slog.Logger) (*operator.Surface, func(), error) {
 	if !cfg.OperatorSurfaceConfigured() {
 		log.Info("operator surface is off: no TAPPA_OPERATOR_* variable is set, so /operator answers 503 and the customer product is unaffected",
 			operatorSurfaceKey, operatorSurfaceOff)
@@ -81,7 +88,7 @@ func openOperatorSurface(ctx context.Context, cfg *config.Config, log *slog.Logg
 	if err != nil {
 		return nil, nil, err
 	}
-	surface, err := configuredSurface(pool, cfg, log)
+	surface, err := configuredSurface(pool, texts, cfg, log)
 	if err != nil {
 		pool.Close()
 		return nil, nil, err
@@ -89,19 +96,28 @@ func openOperatorSurface(ctx context.Context, cfg *config.Config, log *slog.Logg
 	return surface, pool.Close, nil
 }
 
+// operatorStore is what the operator's pool is to the surface: the Authenticator's
+// Store and the legal screen's LegalStore (OP-10) -- *db.OperatorDB's method set
+// (TestOperatorDB_IsTheStoreAndNothingMore derives it from these two and Close).
+type operatorStore interface {
+	operatorauth.Store
+	operator.LegalStore
+}
+
 // configuredSurface builds the operator's Authenticator around store and the surface
-// that holds it, and announces the configured state. The process keeps the
-// *Authenticator, inside the Surface (m10-platform.md, OP-4 block, OP-7 decision (3)).
+// that holds it -- store again as its legal store, texts as its legal snapshot -- and
+// announces the configured state. The process keeps the *Authenticator, inside the
+// Surface (m10-platform.md, OP-4 block, OP-7 decision (3)).
 //
 // It is split from openOperatorSurface so the configured path can be driven without a
 // tappa_operator login (that role is NOLOGIN on a development database); store is
 // openOperatorSurface's pool in production.
-func configuredSurface(store operatorauth.Store, cfg *config.Config, log *slog.Logger) (*operator.Surface, error) {
+func configuredSurface(store operatorStore, texts operator.LegalTexts, cfg *config.Config, log *slog.Logger) (*operator.Surface, error) {
 	auth, err := operatorAuthenticator(store, cfg, log)
 	if err != nil {
 		return nil, err
 	}
-	surface, err := operator.New(auth, cfg.OperatorHost, cfg.BaseURL, log)
+	surface, err := operator.New(auth, store, texts, cfg.OperatorHost, cfg.BaseURL, log)
 	if err != nil {
 		return nil, err
 	}

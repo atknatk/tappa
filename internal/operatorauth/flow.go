@@ -175,6 +175,25 @@ func (a *Authenticator) Verify(ctx context.Context, t SessionToken) (Identity, e
 	}
 }
 
+// SessionHash is the value the operator's session-carrying op_* functions take as their
+// session argument: the token hashed under the operator's key -- the one Verify hands
+// op_touch_session. The definer resolves it through the same predicate on every call
+// (ADR 0021 §2 i), so holding it is not a session check; the HTTP surface asks for it
+// behind its session gate, for the calls that act on the session (OP-10: the legal
+// screen's version list and publication). A token of the wrong shape is ErrNoSession,
+// and the error names neither the token nor the hash.
+//
+// The hash is on ADR 0020 §5's never-log list with the token itself: the caller's job is
+// to hand it to its store (internal/handler/operator's leak test searches it, G8, on the
+// legal screen's arms).
+func (a *Authenticator) SessionHash(t SessionToken) (string, error) {
+	h, err := t.hash(a.keys.tokenKey.bytes())
+	if err != nil {
+		return "", ErrNoSession
+	}
+	return h, nil
+}
+
 // Logout revokes the session through the same predicate and writes its 'logout' row in
 // one statement (op_close_session). A dead session is ErrNoSession.
 func (a *Authenticator) Logout(ctx context.Context, t SessionToken) error {

@@ -47,7 +47,7 @@ sınırı değişiyor.
 | Router'da `middleware.Timeout(30 * time.Second)` (chi v5.3.1): isteğin **context'ine** 30 s süre koyar ve 504'ü handler **döndükten sonra** ertelenmiş çağrıda yazar; handler'ı kesmez. `image/png` ve `image/jpeg` çözücüleri context almaz — 30 s bir decode'u durdurmaz | `internal/httpx/router.go:83`; `go.mod` chi `v5.3.1`; chi `middleware/timeout.go:32-47` (modül önbelleğinde okundu) |
 | Pod: `readOnlyRootFilesystem: true`, uygulama konteynerinde volume **yok**, bellek sınırı **512Mi**, CPU sınırı **2**, **tek replika** | `deploy/k8s/20-app.yaml:493`, `:497-503`, `:53`; `rg -n 'volumes\|volumeMounts\|emptyDir' deploy/k8s/20-app.yaml` → 0 |
 | Depoda `GOMEMLIMIT` / `GOGC` / `SetMemoryLimit` / `SetGCPercent` ayarı **0** (tek `rg` isabeti `scripts/rotate-kek.sh:271`'de `GOGCCFLAGS` geçen bir yorum) | `rg -n 'GOMEMLIMIT\|GOGC\|SetMemoryLimit\|SetGCPercent' --glob '!*.md' .` |
-| Ingress `proxy-body-size: "1m"`; yorumu *"Every request this product accepts is a form post or a small JSON body"* diyor — logo yüklemesiyle bu önkabul güncelliğini yitirir. İstek tamponlama için annotation yok (ingress-nginx varsayılanı; kümede **ölçülmedi**) | `deploy/k8s/40-ingress.yaml:127-129` |
+| Ingress `proxy-body-size: "1m"`; yorumu *"Every request this product accepts is a form post or a small JSON body"* diyor — logo yüklemesiyle bu önkabul güncelliğini yitirir. İstek tamponlama için annotation yok (ingress-nginx varsayılanı; kümede **ölçülmedi**) | `deploy/k8s/40-ingress.yaml:127-134` (OP-10B'den beri; yorum 127-133, ayar 134) |
 | Bütçeler: panel oturumu 300 / 10 dk, adres 3000 / 10 dk, kayıt 3 tenant / saat / adres | `internal/handler/adminratelimit.go:595-596`, `:152-153`; `internal/handler/signupratelimit.go:145-146` |
 | `r.FormValue`, `r.PostFormValue` ve `r.FormFile` multipart gövdede örtük olarak `ParseMultipartForm(32 MiB)` çağırır; `PostFormValue` üretimde kullanılıyor | Go 1.27.1 `net/http/request.go:37`, `:1442-1474`; `internal/handler/adminlogin.go:880-881` |
 | `ProtectWriting` zinciri (`floodGate → sameOriginGate → requireAdmin → sessionGate`) gövde okumuyor: aynı-origin kapısı `Origin` ve `Sec-Fetch-Site` başlıklarını okur; `internal/httpx`'te form okuyucu çağrısı 0 | `internal/handler/adminlogin.go:680-687`, `:1556-1565`; `rg -n 'Form' internal/httpx --glob '!*_test.go'` (yorum dışı 0) |
@@ -316,7 +316,7 @@ PNG → PNG (`BestCompression`), JPEG → JPEG (q85). Saklanan ve sunulan tek ş
     kayıt herkese açık olduğu için tenant'lar arası açlık sayılı sınır 11'dedir.)*
   - gövde okunmadan önce **eşzamanlı yükleme kabul sınırı** (dolu ise gövde okunmadan ret);
   - gövde okuması için `http.NewResponseController(w).SetReadDeadline`;
-  - ingress bağımlılığı adıyla yazılır: `40-ingress.yaml:127-129`'un *"small JSON body"*
+  - ingress bağımlılığı adıyla yazılır: `40-ingress.yaml:127-133`'ün *"small JSON body"*
     önkabulü güncellenir ve istek tamponlamasının kümede açık olduğu ölçülür.
   Kabul: bütçe aşımı 429 + `tenant.brand_update_refused` + 0 UPDATE; kabul sınırı doluyken
   ikinci eşzamanlı yükleme gövdesi okunmadan reddedilir; yavaş gönderilen gövde okuma süresinde

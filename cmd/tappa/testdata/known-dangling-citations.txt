@@ -26,6 +26,21 @@
 # citation cannot resolve regardless. danglingBudget was raised
 # in the same change (visible in review), which is the mechanism's own rule for a
 # justified growth.
+# 2026-10-03: SIX entries added (54 -> 60), the same sanctioned exception as the
+# 2026-09-19 one: tests REMOVED with the code they measured, cited by records this
+# change may not rewrite. M10 OP-10 phase B removed the M7-06 panel's legal screen, its
+# env allow-list and internal/domain/legal's write path (Store.Publish, the audit Trail):
+# publishing moved to the platform operator's op_publish_legal (ADR 0020 §7). The four
+# allow-list tests (TestOperatorGate_EmptyAllowListAdmitsNobody,
+# TestOperatorGate_IsNotJoinableByRegisteringABusiness,
+# TestOperatorGate_TheServerRefusesTheRouteItself,
+# TestOperatorRefusal_ShowsTheCallerTheirOWNIdAndNobodyElses) measured a gate that no
+# longer exists; TestNewStore_RefusesAMissingTrail and
+# TestLegalDB_PublishWritesTheTextTheTrailAndTheSnapshotOrNoneOfThem measured a trail and
+# a writer that no longer exist. They are cited by ADR 0016's body (immutable history:
+# its OP-4 block says which sections were superseded), docs/plan/m7-portal.md (the M7-06
+# record) and docs/plan/m10-platform.md (OP-4's and OP-10A's records, which name these
+# tests as what B removes). danglingBudget was raised in the same change.
 TestAccount
 TestAccount_TheSignUpConfirmation
 TestAdminReset_TheUndeliverableLineClaimsOnly
@@ -45,11 +60,17 @@ TestEmployeesSection_OffersNoWriteAtAll
 TestForbiddenColumn_RefusesTheFiveByName
 TestGetAdminByEmail
 TestLanding_OffersNoLinkToAWizardThatIsNotMounted
+TestLegalDB_PublishWritesTheTextTheTrailAndTheSnapshotOrNoneOfThem
 TestManualEntryRecord_RefusesWithoutTheConfirmation
 TestManualQuery_CARRIESTheTenantPredicate
 TestManualQuery_CARRIESTheTenantPredicateItselfIsAText
 TestMarketing_PolicyNamesWhatThePageLoads
 TestMoney_ScaleMatchesTheSchema
+TestNewStore_RefusesAMissingTrail
+TestOperatorGate_EmptyAllowListAdmitsNobody
+TestOperatorGate_IsNotJoinableByRegisteringABusiness
+TestOperatorGate_TheServerRefusesTheRouteItself
+TestOperatorRefusal_ShowsTheCallerTheirOWNIdAndNobodyElses
 TestPanelEmployeesDB_ASecondInvitationDoesNotRetireTheFirst
 TestPanelLandingDB_ManualRecordsKeepTheDate
 TestPanelProblemPages_CountTheWriteRoutesStillTellingReaders

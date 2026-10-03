@@ -589,8 +589,8 @@ func TestOperatorDB_HasNoTenantDoorAndNoRawSQLDoor(t *testing.T) {
 		}
 		return false
 	}
-	if rt.NumMethod() < 8 {
-		t.Fatalf("PREMISE: *OperatorDB has %d methods; Close and the seven Store methods should all be there", rt.NumMethod())
+	if rt.NumMethod() < 10 {
+		t.Fatalf("PREMISE: *OperatorDB has %d methods; Close, the seven Store methods and the two LegalStore methods (OP-10) should all be there", rt.NumMethod())
 	}
 	for i := 0; i < rt.NumMethod(); i++ {
 		m := rt.Method(i)
@@ -615,7 +615,9 @@ func TestOperatorDB_HasNoTenantDoorAndNoRawSQLDoor(t *testing.T) {
 // OperatorDB method but Close is a single `return F(ctx, o.pool, <its other parameters
 // in order>)` where F has the method's own name and is operator.go's function -- so
 // the SQL is written once, and an argument swapped between two same-typed parameters
-// (three strings in CompleteOperatorEnrollment) does not compile into a green build.
+// (three strings in CompleteOperatorEnrollment and in PublishLegal) does not compile into
+// a green build. Nine methods: the seven operatorauth.Store ones and, since OP-10 phase
+// B, LegalVersions and PublishLegal.
 func TestOperatorDB_EveryMethodDelegatesVerbatim(t *testing.T) {
 	fset := token.NewFileSet()
 	pool, err := parser.ParseFile(fset, "operatorpool.go", nil, 0)
@@ -694,8 +696,8 @@ func TestOperatorDB_EveryMethodDelegatesVerbatim(t *testing.T) {
 		}
 		delegating++
 	}
-	if delegating != 7 {
-		t.Fatalf("%d delegating methods on OperatorDB, want the seven operatorauth.Store methods", delegating)
+	if delegating != 9 {
+		t.Fatalf("%d delegating methods on OperatorDB, want the seven operatorauth.Store methods and the two operator.LegalStore methods (OP-10)", delegating)
 	}
 }
 

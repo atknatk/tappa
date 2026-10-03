@@ -2,7 +2,6 @@ package legal
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -11,7 +10,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
-	"github.com/atknatk/tappa/internal/audit"
 	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/db"
 	"github.com/atknatk/tappa/test/fixtures"
@@ -31,12 +29,14 @@ import (
 //
 // ⚠️ SINCE MIGRATION 00027 (M10 OP-10) THE APPLICATION ROLE CANNOT WRITE THIS TABLE:
 // tappa_app lost INSERT, and the one writer is the operator's op_publish_legal (its
-// tests are internal/db's operatorlegal_test.go). So the versions these tests need are
-// appended through the OWNER's connection (ownerPublish) -- a stand-in for that writer,
-// because every property below belongs to the TABLE (who can see it, who can change it,
-// what the boot read finds), not to the writer. Store.Publish, the M7-06 panel's path,
-// is now refused by the database; TestLegalDB_PublishWritesTheTextTheTrailAndTheSnapshotOrNoneOfThem
-// measures that it leaves none of the three behind.
+// tests are internal/db's operatorlegal_test.go; the screen that calls it,
+// internal/handler/operator's). So the versions these tests need are appended through
+// the OWNER's connection (ownerPublish) -- a stand-in for that writer, because every
+// property below belongs to the TABLE (who can see it, who can change it, what the boot
+// read finds), not to the writer. The M7-06 panel's Store.Publish was removed in OP-10's
+// phase B; the application role's refused INSERT is measured below
+// (TestLegalDB_TheTableTakesNoUpdateAndNoDelete) and in internal/db
+// (TestOperator00027_TheApplicationCanNoLongerWriteALegalText).
 
 type dbFixture struct {
 	data  *db.DB
@@ -58,11 +58,7 @@ func newDBFixture(t *testing.T) *dbFixture {
 		t.Fatalf("db.New: %v", err)
 	}
 	t.Cleanup(data.Close)
-	trail, err := audit.New(data)
-	if err != nil {
-		t.Fatalf("audit.New: %v", err)
-	}
-	s, err := NewStore(data, trail)
+	s, err := NewStore(data)
 	if err != nil {
 		t.Fatalf("NewStore: %v", err)
 	}
@@ -93,48 +89,6 @@ func (f *dbFixture) seedTenant(t *testing.T, tenantID, adminID uuid.UUID) {
 	})
 	if err != nil {
 		t.Fatalf("seed: %v", err)
-	}
-}
-
-// TestLegalDB_PublishWritesTheTextTheTrailAndTheSnapshotOrNoneOfThem.
-//
-// 🔴 §4.3 — THE AUDIT ROW SHARES THE TRANSACTION, so a publication leaves the text, the
-// trail row and the snapshot together or none of them. Since 00027 the database refuses
-// this path's INSERT (tappa_app holds no INSERT on legal_documents), so the "none of
-// them" half is the reachable one, and it is what is measured: the call fails with
-// 42501, no version with that text exists, the publisher's tenant has no trail row for
-// it, and the snapshot did not change. (The precompute of paragraphs that this test used
-// to pin on Store.set is pinned on the boot read, which goes through the same set:
-// TestLegalDB_RefreshNeedsNoTenantAndSeesNothingElse.)
-func TestLegalDB_PublishWritesTheTextTheTrailAndTheSnapshotOrNoneOfThem(t *testing.T) {
-	f := newDBFixture(t)
-	ctx := context.Background()
-
-	body := "This is a FAKE placeholder text written by a test. It is not a policy. " + uuid.NewString()
-	_, err := f.store.Publish(ctx, f.tenantA, f.adminA, "privacy", body)
-	if err == nil {
-		t.Fatal("Store.Publish succeeded: tappa_app can still append a legal version, which 00027 revoked")
-	}
-	if !strings.Contains(err.Error(), "42501") {
-		t.Errorf("Store.Publish failed with %v, want the privilege refusal (42501)", err)
-	}
-	if got := ownerScalar(t, `SELECT count(*)::text FROM legal_documents WHERE body = $1`, body); got != "0" {
-		t.Errorf("%s version(s) with the refused text exist; a refused publication writes no text", got)
-	}
-	if _, ok := f.store.Published()["privacy"]; ok {
-		t.Error("the snapshot carries a privacy text after a refused publication on an empty store")
-	}
-	var n int
-	err = f.data.WithTenant(ctx, f.tenantA, func(ctx context.Context, tx pgx.Tx) error {
-		return tx.QueryRow(ctx,
-			`SELECT count(*) FROM audit_log WHERE tenant_id = $1 AND action = $2`,
-			f.tenantA, ActionPublished).Scan(&n)
-	})
-	if err != nil {
-		t.Fatalf("counting the publisher's trail: %v", err)
-	}
-	if n != 0 {
-		t.Errorf("the publisher's tenant carries %d legal.published row(s) for a publication the database refused", n)
 	}
 }
 
@@ -336,11 +290,7 @@ func TestLegalDB_RefreshNeedsNoTenantAndSeesNothingElse(t *testing.T) {
 	ownerPublish(t, "cookies", body, f.adminA)
 
 	// A FRESH store, so the snapshot can only come from the read.
-	trail, err := audit.New(f.data)
-	if err != nil {
-		t.Fatalf("audit.New: %v", err)
-	}
-	fresh, err := NewStore(f.data, trail)
+	fresh, err := NewStore(f.data)
 	if err != nil {
 		t.Fatalf("NewStore: %v", err)
 	}
@@ -382,6 +332,11 @@ func TestLegalDB_RefreshNeedsNoTenantAndSeesNothingElse(t *testing.T) {
 // document and a public page. Both are measured, because a guard that only lives in
 // the language it was written in is a guard the next caller skips.
 //
+// THE GO HALF MOVED WITH THE WRITER (M10 OP-10, phase B). It was Store.Publish's
+// ErrEmptyBody; the one writer is now the operator's screen, and its refusal of a body
+// with no visible text -- before any store call -- is internal/handler/operator's
+// TestLegalPublish_RefusesAnEmptyBodyAndSaysSo. This test keeps the COLUMN half.
+//
 // Since 00027 tappa_app cannot INSERT at all, so the column is driven from the OWNER's
 // connection -- the CHECK binds every writer, op_publish_legal's definer included --
 // inside a transaction that is rolled back (no row stays). That the application's own
@@ -390,9 +345,6 @@ func TestLegalDB_AnEmptyBodyIsRefusedByTheColumnAndNotOnlyByGo(t *testing.T) {
 	f := newDBFixture(t)
 	ctx := context.Background()
 
-	if _, err := f.store.Publish(ctx, f.tenantA, f.adminA, "privacy", "   "); !errors.Is(err, ErrEmptyBody) {
-		t.Errorf("Publish with a whitespace body returned %v, want ErrEmptyBody", err)
-	}
 	err := f.data.WithTenant(ctx, f.tenantA, func(ctx context.Context, tx pgx.Tx) error {
 		_, e := tx.Exec(ctx, `INSERT INTO legal_documents (slug, body) VALUES ('privacy', '   ')`)
 		return e

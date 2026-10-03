@@ -114,12 +114,6 @@ data:
   # empty, because the signed tap context's own 15-minute TTL refuses first.
   TAPPA_FRESHNESS_SECONDS: "180"
 
-  # 🔴 EMPTY MEANS NOBODY, AND THAT IS THE CORRECT FIRST-DEPLOY VALUE. This is the
-  # allow-list for /admin/legal, the screen that publishes TAPPA's own privacy
-  # policy and terms. There is no "unconfigured, therefore open" branch. Fill it
-  # AFTER the first sign-in: open /admin/legal, and the refusal page prints your own
-  # admin_users.id to paste here. It is an id and never an email — an email is
-  # unique only within one business and sign-up is public, so an address-keyed
-  # allow-list can be joined by registering a business with that address (measured;
-  # internal/config.OperatorAdminIDs carries the break in full).
-  TAPPA_OPERATOR_ADMIN_IDS: "f3c91606-d2ac-488e-aa0f-d0df52c7f571"
+  # (Tappa's own legal texts are published by the platform operator on its own host,
+  # /operator/legal -- M10 OP-10, ADR 0020 §7. The customer panel's legal screen and
+  # its env allow-list were removed with it; there is no key for it here.)

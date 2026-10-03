@@ -198,17 +198,6 @@ type AdminAuth struct {
 	// nothing) is measured by a static call-graph test rather than implied by a type.
 	books panelBooks
 
-	// texts publishes TAPPA'S OWN legal documents (M7-06, internal/domain/legal). It
-	// is an eighth package and the ONLY field on this type that reaches rows
-	// belonging to no tenant — legal_documents has no tenant_id at all (00020).
-	//
-	// ⚠️ IT IS ON AdminAuth FOR THE REASON EVERY OTHER SECTION IS: legaladmin.go needs
-	// a.render (the ONE place the panel's policy, cache header and nosniff are set)
-	// and the identity the Protect chain resolved. A second type would either copy
-	// that header block or need render exported. What it does NOT share is the
-	// audience — see legaladmin.go.
-	texts panelTexts
-
 	// accounts is the business's own row: the settings section's read and its one
 	// write (M7-05, internal/domain/tenant).
 	//
@@ -238,28 +227,13 @@ type AdminAuth struct {
 	// 🔴 WHAT IS NOT DONE INSTEAD, because both alternatives are worse. The routes are
 	// NOT mounted conditionally — dashboard.go's own rule is that "the routing table
 	// is complete or it is not, and a route that exists only in some deployments is a
-	// route whose absence is indistinguishable from a 404 for a mistyped URL", which
-	// is why the operator legal screen is mounted for everybody and refuses almost
-	// everybody. And a PLACEHOLDER host is not substituted: Q08 is open (ADR 0017 §6
+	// route whose absence is indistinguishable from a 404 for a mistyped URL". And a
+	// PLACEHOLDER host is not substituted: Q08 is open (ADR 0017 §6
 	// md. 11) and a plaque encoded against the wrong host is a physical plaque swap,
 	// so inventing one would be the most expensive possible way to keep a constructor
 	// happy. A nil encoder answers 503 with a named fault, and cmd/tappa says so in
 	// the log at start-up.
 	encoder PlaqueEncoder
-
-	// operators is the allow-list that gates `texts` (config.OperatorAdminIDs). It is
-	// a plain slice rather than a set because it has a handful of entries and is
-	// walked once per panel render; a map would be a second representation of two or
-	// three uuids.
-	//
-	// 🔴 IT IS admin_users.id AND NOT AN EMAIL, and that is a correction rather than a
-	// preference: an address is unique only within a tenant and sign-up is public, so
-	// an address-keyed list can be JOINED by registering a business. legaladmin.go's
-	// mayPublishLegal carries the measurement.
-	//
-	// 🔴 EMPTY MEANS NOBODY. There is no branch anywhere that reads an empty list as
-	// "unconfigured, therefore open".
-	operators []uuid.UUID
 
 	// See adminratelimit.go for why there are three and what each may refuse.
 	floodLimiter   *limiter
@@ -285,7 +259,7 @@ type AdminAuth struct {
 // the argument; the short version is that its absence is a deployment fact (no https
 // base URL, therefore no NDEF template) rather than a wiring bug, and the surface
 // answers 503 with a named fault instead of 404.
-func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLedger, queue panelQueue, reviewer panelReviewer, staff panelStaff, invites panelInviter, venues panelVenues, plaques panelPlaques, entries panelRecorder, rules panelRules, scribe panelScribe, books panelBooks, texts panelTexts, accounts panelAccounts, encoder PlaqueEncoder, cfg *config.Config, log *slog.Logger) (*AdminAuth, error) {
+func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLedger, queue panelQueue, reviewer panelReviewer, staff panelStaff, invites panelInviter, venues panelVenues, plaques panelPlaques, entries panelRecorder, rules panelRules, scribe panelScribe, books panelBooks, accounts panelAccounts, encoder PlaqueEncoder, cfg *config.Config, log *slog.Logger) (*AdminAuth, error) {
 	switch {
 	case admins == nil:
 		return nil, errors.New("handler: nil admin authenticator")
@@ -367,15 +341,6 @@ func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLed
 	// product because two halves were never assembled.
 	case books == nil:
 		return nil, errors.New("handler: nil billing register")
-	// THE SAME ARGUMENT, ONCE MORE (M7-06), and here the dead capability would be
-	// the four documents this product has been promising to publish since M7-01. A
-	// nil texts would put a "Tappa legal texts" tab in an operator's navigation whose
-	// page panics — and, worse, it would leave /legal/* serving the placeholder
-	// forever with a form that appears to accept text. The M5-04 lesson is that a
-	// capability can be delivered, tested and DEAD in the wired product because two
-	// halves were never assembled.
-	case texts == nil:
-		return nil, errors.New("handler: nil legal texts")
 	// THE SAME ARGUMENT, ONCE MORE (M7-05). A nil accounts would put an Account tab in
 	// every navigation whose page panics, on the ONE screen that says which timezone
 	// every date in this panel is worked out in — and it would put a Save button under
@@ -412,10 +377,8 @@ func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLed
 		rules:          rules,
 		scribe:         scribe,
 		books:          books,
-		texts:          texts,
 		accounts:       accounts,
 		encoder:        encoder,
-		operators:      cfg.OperatorAdminIDs,
 		cookies:        adminauth.NewCookies(cfg),
 		short:          newAdminCookies(cfg),
 		choices:        choices,

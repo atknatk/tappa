@@ -353,6 +353,19 @@ func (m *Marketing) legal(w http.ResponseWriter, r *http.Request, p pages.LegalP
 	m.render(w, r, pages.Legal(v))
 }
 
+// legalSlugOf turns "/legal/privacy" into "privacy".
+//
+// 🔴 THE SLUG IS DERIVED FROM THE PATH RATHER THAN STORED BESIDE IT, which is what
+// keeps the database's closed set and the router's closed set from becoming two
+// lists that drift. pages.LegalPages owns the URL; 00020's CHECK owns the value; this
+// is the one line that says they are the same thing, and
+// TestLegalSlugs_AreExactlyTheDocumentsWithAPage fails if any pair stops matching.
+// (It lived beside the M7-06 panel's legal screen until M10 OP-10 moved publishing
+// to the operator's surface; the public page is its one reader now.)
+func legalSlugOf(path string) string {
+	return strings.TrimPrefix(path, "/legal/")
+}
+
 // render writes one component with the headers this surface needs.
 //
 // 🔴 IT IS DELIBERATELY NOT AdminAuth.render, AND THE DIFFERENCE IS ONE HEADER. The

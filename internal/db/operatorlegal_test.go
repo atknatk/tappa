@@ -1975,7 +1975,9 @@ func TestOpPublishLegal_TheTableStaysAppendOnly(t *testing.T) {
 // and the committed audit row must say so: the page the caller asked for travels
 // through both phases (a Number lost on the way would either fail the hash or record
 // page 1 -- the audit row's content does not depend on what legal_documents holds). It
-// commits one 'read' row (file header).
+// commits one 'read' row (file header). OP-10 phase B: the same read through
+// *OperatorDB's METHOD -- the one the /operator/legal screen calls -- on that pool
+// returns rows and commits one more 'read' row (two in all).
 func TestLegalVersions_OnThePoolTheTwoPhasesAreTwoTransactions(t *testing.T) {
 	ctx, f := opLiveFixture(t)
 	o, err := openOperatorDB(ctx, f.dsn, asOperator)
@@ -2018,6 +2020,13 @@ func TestLegalVersions_OnThePoolTheTwoPhasesAreTwoTransactions(t *testing.T) {
 	}
 	if n := f.liveReads(t, ctx, f.session); n != 1 {
 		t.Errorf("the refused calls left the session with %d 'read' row(s), want 1", n)
+	}
+	// Through the method (OP-10 phase B), on the production-built pool.
+	if _, err := o.LegalVersions(ctx, f.hash, LegalVersionsPage{Number: 1, Size: 5}); err != nil {
+		t.Fatalf("(*OperatorDB).LegalVersions on its pool: %v", err)
+	}
+	if n := f.liveReads(t, ctx, f.session); n != 2 {
+		t.Errorf("the method's read left the session with %d committed 'read' row(s), want 2", n)
 	}
 }
 

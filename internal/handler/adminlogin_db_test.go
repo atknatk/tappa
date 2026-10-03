@@ -198,7 +198,7 @@ func newPanelHarness(t *testing.T) *panelHarness {
 	if err != nil {
 		t.Fatalf("billing.NewBook: %v", err)
 	}
-	h, err := NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, venues, plaques, entries, rules, newFakeScribe(), books, newFakeTexts(), newFakeAccount(), nil, cfg, slog.New(slog.DiscardHandler))
+	h, err := NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, venues, plaques, entries, rules, newFakeScribe(), books, newFakeAccount(), nil, cfg, slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}
@@ -457,19 +457,6 @@ func TestPanelE2E_SignInAndOut(t *testing.T) {
 	// SECTION TABLE rather than against a sentence, so this stays true as the
 	// sections are filled in one by one.
 	for _, sec := range pages.PanelSections {
-		// 🔴 AN OperatorOnly SECTION IS THE ONE THING A CUSTOMER'S PANEL MUST *NOT*
-		// OFFER (M7-06), so the assertion is INVERTED for it rather than skipped. This
-		// admin signed up through the product and is on nobody's operator allow-list;
-		// a panel that showed them "Tappa legal texts" would be offering a customer the
-		// controls for Tappa's own published documents. Turning the loop's one lost
-		// case into an asserted absence keeps the sweep total.
-		if sec.OperatorOnly {
-			if strings.Contains(panel, htmlText(sec.Label)) {
-				t.Fatalf("a real signed-up customer's panel offers the %q section, which "+
-					"publishes TAPPA's own legal documents", sec.Label)
-			}
-			continue
-		}
 		// htmlText, not the raw label: "Locations & Wall Tags" reaches the page as
 		// "Locations &amp; Wall Tags", and the first version of this loop compared the
 		// unescaped string and failed on exactly that section.
@@ -479,6 +466,17 @@ func TestPanelE2E_SignInAndOut(t *testing.T) {
 	}
 	if !strings.Contains(panel, "Nothing here yet") {
 		t.Fatalf("the default section does not say it is empty")
+	}
+	// 🔴 NO OPERATOR ELEMENT ON A CUSTOMER'S PANEL (M10 OP-10). Until OP-10 the panel
+	// carried the M7-06 "Taptime legal texts" tab for an env allow-list of customer
+	// admins; publishing moved to the platform operator's surface, and this real,
+	// signed-up customer's panel is scanned for the operator's markers --
+	// panelOperatorMarkers, the same list TestCustomerPanel_EverySectionCarriesNoOperatorElement
+	// drives on every section with the fake services.
+	for _, m := range panelOperatorMarkers {
+		if strings.Contains(strings.ToLower(panel), strings.ToLower(m)) {
+			t.Errorf("a real signed-up customer's panel carries the operator marker %q", m)
+		}
 	}
 
 	// Sign out: the row is revoked in the database, not merely forgotten by the

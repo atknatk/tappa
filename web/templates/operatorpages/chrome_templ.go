@@ -10,11 +10,11 @@ import templruntime "github.com/a-h/templ/runtime"
 
 import "github.com/atknatk/tappa/web/templates/layout"
 
-// THE OPERATOR CHROME (M10 OP-8). The six exported screens of this package render
-// inside screen, scriptedScreen or tenantScreen below, and each of the three draws bar
-// first. Measured: TestOperatorScreens_EveryOneWearsTheOperatorChrome renders 12
-// variants of the six and looks for the "TAPTIME OPERATOR" lockup. A page that called
-// the layout shell itself would skip the bar; that is code review's.
+// THE OPERATOR CHROME (M10 OP-8). The seven exported screens of this package (OP-10
+// added Legal) render inside screen, scriptedScreen or tenantScreen below, and each of
+// the three draws bar first. Measured: TestOperatorScreens_EveryOneWearsTheOperatorChrome
+// renders 14 variants of the seven and looks for the "TAPTIME OPERATOR" lockup. A page
+// that called the layout shell itself would skip the bar; that is code review's.
 //
 // HOW IT IS SET APART FROM THE RESTAURANT PANEL, AND WHY BY PLACEMENT RATHER THAN BY A
 // NEW COLOUR (skill tappa-brand: no colour outside the palette). The panel is light

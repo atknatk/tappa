@@ -32,6 +32,7 @@ import (
 
 	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/db"
+	"github.com/atknatk/tappa/internal/domain/legal"
 	"github.com/atknatk/tappa/internal/handler/operator"
 	"github.com/atknatk/tappa/internal/httpx"
 	"github.com/atknatk/tappa/internal/operatorauth"
@@ -46,9 +47,9 @@ const (
 	custHost = "taptime.mt"
 )
 
-// fakeStore answers operatorauth.Store the way 00026's definers answer, for the arms
-// these tests drive, and COUNTS its calls by method -- "the resolver was not called"
-// is a count of zero here.
+// fakeStore answers operatorauth.Store the way 00026's definers answer, and
+// operator.LegalStore the way 00027's do (OP-10), for the arms these tests drive, and
+// COUNTS its calls by method -- "the resolver was not called" is a count of zero here.
 type fakeStore struct {
 	mu       sync.Mutex
 	calls    map[string]int
@@ -59,6 +60,26 @@ type fakeStore struct {
 	tokens   map[uuid.UUID]string          // pending account -> its raw link token (unused)
 	locked   map[uuid.UUID]bool            // accounts whose op_open_session the "database" refuses as locked
 	fail     map[string]error              // method -> the error it returns instead
+	// The legal screen's (OP-10): the versions, oldest first, as op_read_legal_versions
+	// would list them newest first; the publications op_publish_legal took; the pages
+	// LegalVersions was asked for.
+	versions  []db.LegalVersion
+	published []fakePublication
+	pages     []db.LegalVersionsPage
+	// beforePublish and afterPublish run inside PublishLegal, at its entry and after the
+	// version is recorded -- a test's hook for a client that leaves (OP-10, round 2).
+	beforePublish, afterPublish func()
+	// afterVersions runs once LegalVersions has built its answer and released the fake's
+	// lock -- a test's hook for another operator publishing between the screen's two
+	// reads (OP-10, round 3). It may call PublishLegal.
+	afterVersions func()
+}
+
+// fakePublication is one PublishLegal the fake took: the session hash, the document, the
+// text and the version's publication time.
+type fakePublication struct {
+	hash, slug, body string
+	at               time.Time
 }
 
 func newFakeStore() *fakeStore {
@@ -186,6 +207,147 @@ func (f *fakeStore) CloseOperatorSession(_ context.Context, h string) error {
 	return nil
 }
 
+// LegalVersions answers as op_begin_read + op_read_legal_versions do: a dead session is
+// ErrOperatorRefused; otherwise the versions newest first, at most page.Size.
+func (f *fakeStore) LegalVersions(_ context.Context, h string, page db.LegalVersionsPage) ([]db.LegalVersion, error) {
+	out, hook, err := f.legalVersions(h, page)
+	if err == nil && hook != nil {
+		hook()
+	}
+	return out, err
+}
+
+func (f *fakeStore) legalVersions(h string, page db.LegalVersionsPage) ([]db.LegalVersion, func(), error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.enter("LegalVersions"); err != nil {
+		return nil, nil, err
+	}
+	if _, ok := f.live[h]; !ok {
+		return nil, nil, db.ErrOperatorRefused
+	}
+	f.pages = append(f.pages, page)
+	var out []db.LegalVersion
+	for i := len(f.versions) - 1; i >= 0 && len(out) < int(page.Size); i-- {
+		out = append(out, f.versions[i])
+	}
+	return out, f.afterVersions, nil
+}
+
+// PublishLegal answers as op_publish_legal does: a cancelled context is its error (a
+// statement on a cancelled context does not run); a dead session is ErrOperatorRefused;
+// otherwise the version is appended, published by the session's operator, and the
+// document's previous version stops being current.
+func (f *fakeStore) PublishLegal(ctx context.Context, h, slug, body string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.beforePublish != nil {
+		f.beforePublish()
+	}
+	if err := f.enter("PublishLegal"); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	s, ok := f.live[h]
+	if !ok {
+		return db.ErrOperatorRefused
+	}
+	// A minute apart: the screen prints times to the minute, so two versions' times are
+	// told apart on the page (the behind warning's LiveAt is measured that way).
+	at := time.Unix(1_900_000_000+60*int64(len(f.versions)), 0).UTC()
+	f.published = append(f.published, fakePublication{hash: h, slug: slug, body: body, at: at})
+	for i := range f.versions {
+		if f.versions[i].Slug == slug {
+			f.versions[i].Current = false
+		}
+	}
+	admin, name := s.AdminID, "Fake Operator "+s.AdminID.String()[:4]
+	f.versions = append(f.versions, db.LegalVersion{
+		ID: uuid.New(), Slug: slug, PublishedAt: at,
+		BodyBytes: int32(len(body)), PublishedBy: db.LegalPublishedByOperator, PublisherID: &admin, PublisherName: &name,
+		Current: true,
+	})
+	if f.afterPublish != nil {
+		f.afterPublish()
+	}
+	return nil
+}
+
+// fakeTexts is operator.LegalTexts: the snapshot (seeded by a test, or filled by a
+// refresh) and its refresh, which reads the fake store's publications -- the newest per
+// document wins, as ListPublishedLegalDocuments does, with the version's own time. A
+// refresh on a cancelled context fails with the context's error, as a query would; each
+// refresh records whether its context carried a deadline and how far off it was.
+type fakeTexts struct {
+	mu        sync.Mutex
+	store     *fakeStore
+	docs      map[string]legal.Doc
+	refreshes int
+	fail      error           // Refresh returns it instead of reading
+	deadlines []time.Duration // per refresh: time left to the context's deadline, -1 for none
+	// beforeRefresh runs inside Refresh before it reads the store -- a test's hook for a
+	// publication landing between the screen's list read and its heal (round 3). It may
+	// call the store's PublishLegal.
+	beforeRefresh func()
+}
+
+func newFakeTexts(store *fakeStore) *fakeTexts {
+	return &fakeTexts{store: store, docs: map[string]legal.Doc{}}
+}
+
+func (t *fakeTexts) Published() map[string]legal.Doc {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	out := make(map[string]legal.Doc, len(t.docs))
+	for k, v := range t.docs {
+		out[k] = v
+	}
+	return out
+}
+
+func (t *fakeTexts) Refresh(ctx context.Context) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.refreshes++
+	left := time.Duration(-1)
+	if d, ok := ctx.Deadline(); ok {
+		left = time.Until(d)
+	}
+	t.deadlines = append(t.deadlines, left)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if t.fail != nil {
+		return t.fail
+	}
+	if t.beforeRefresh != nil {
+		t.beforeRefresh()
+	}
+	t.store.mu.Lock()
+	pubs := append([]fakePublication(nil), t.store.published...)
+	t.store.mu.Unlock()
+	for _, p := range pubs {
+		t.docs[p.slug] = legal.Doc{Slug: p.slug, Body: p.body, PublishedAt: p.at, Paragraphs: legal.Paragraphs(p.body)}
+	}
+	return nil
+}
+
+// put seeds the snapshot with a published text (a test whose subject is the read).
+func (t *fakeTexts) put(slug, body string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.docs[slug] = legal.Doc{Slug: slug, Body: body, PublishedAt: time.Date(2026, 8, 14, 9, 30, 0, 0, time.UTC),
+		Paragraphs: legal.Paragraphs(body)}
+}
+
+func (t *fakeTexts) refreshCount() int {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.refreshes
+}
+
 // fixture is an active operator the fake store knows: its address, its password (a
 // bcrypt at the MINIMUM cost -- these tests are about text and order, not time; the
 // cost is operatorauth's pin and 00026's CHECK) and its TOTP key, sealed under the rig's
@@ -204,6 +366,7 @@ type fixture struct {
 type rig struct {
 	t       *testing.T
 	store   *fakeStore
+	texts   *fakeTexts
 	auth    *operatorauth.Authenticator
 	surface *operator.Surface
 	h       http.Handler
@@ -279,6 +442,7 @@ func newRig(t *testing.T) *rig {
 func newRigAt(t *testing.T, level slog.Level) *rig {
 	t.Helper()
 	g := &rig{t: t, store: newFakeStore(), kek: randBytes(t, 32), now: time.Unix(1_900_000_005, 0), logs: &bytes.Buffer{}}
+	g.texts = newFakeTexts(g.store)
 	log := captureAt(g.logs, level)
 	auth, err := operatorauth.New(g.store, operatorauth.Config{
 		TOTPKEK: operatorauth.NewKey(g.kek), TokenHMACKey: operatorauth.NewKey(randBytes(t, 32)),
@@ -287,7 +451,7 @@ func newRigAt(t *testing.T, level slog.Level) *rig {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s, err := operator.New(auth, opHost, opBase, log)
+	s, err := operator.New(auth, g.store, g.texts, opHost, opBase, log)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -356,8 +520,9 @@ type req struct {
 	origin             string            // "" = no Origin header
 	header             map[string]string // extra headers
 	cookies            []*http.Cookie
-	cookieLine         string // a SECOND Cookie header line, after the cookies' own
-	remote             string // "" = 192.0.2.10:4000
+	cookieLine         string          // a SECOND Cookie header line, after the cookies' own
+	remote             string          // "" = 192.0.2.10:4000
+	ctx                context.Context // nil = the request's own
 }
 
 func (g *rig) do(r req) *httptest.ResponseRecorder {
@@ -386,6 +551,9 @@ func (g *rig) do(r req) *httptest.ResponseRecorder {
 	hr.RemoteAddr = "192.0.2.10:4000"
 	if r.remote != "" {
 		hr.RemoteAddr = r.remote
+	}
+	if r.ctx != nil {
+		hr = hr.WithContext(r.ctx)
 	}
 	w := httptest.NewRecorder()
 	g.h.ServeHTTP(w, hr)

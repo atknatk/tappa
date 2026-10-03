@@ -699,6 +699,130 @@ bir restoran hesabına bağlı olmamalı* (m10-platform.md §1).
   `clock_timestamp()` oldu. Ekran, `legal.Store.Refresh` wiring'i ve "Tamamen kaldırılanlar"
   listesi B fazındadır. Ayrıntı: [ADR 0021](0021-op-fonksiyonlari-tenant-otesi-erisim.md) →
   "OP-10 uygulama notu".
+- **OP-10 B fazı notu (2026-10-03).** Ekran, wiring ve emeklilik uygulandı (ayrıntı ve
+  ölçümler: [m10-platform.md](../plan/m10-platform.md) → OP-10B kart düzeltmesi):
+  `internal/handler/operator/legal.go` — `GET`/`POST /operator/legal`, konsolun grubunda
+  (host kapısı → güvenlik başlıkları → flood → same-origin, okuma kapısıyla →
+  `requireOperator` → `sessionGate`); `operatorpages.Legal`; `*db.OperatorDB`'ye
+  `LegalVersions`/`PublishLegal` (handler paketindeki `operator.LegalStore`);
+  `operatorauth.(*Authenticator).SessionHash` (handler'ın oturum taşıyan `op_*` çağrıları
+  için, `Verify`'ın store'a verdiği değer). Kaldırılanlar §7'nin listesidir: `TabLegal`,
+  `PanelSection.OperatorOnly`, `PanelChrome.Operator`, `mayPublishLegal`,
+  `config.OperatorAdminIDs`, `TAPPA_OPERATOR_ADMIN_IDS` (`deploy/k8s/05-config.yaml`,
+  `.env.example`, `deploy/README.md`), `internal/handler/legaladmin.go`, panelin
+  `legaladmin.templ`'i, `legal.Store.Publish`/`Trail`/`ActionPublished`/`PublishedDetail`,
+  `db/queries/legal.sql`'in `PublishLegalDocument`'ı; `legal.NewStore(data)`. **K11:**
+  KF hesabı panelde sıradan müşteri. Bu bölüme eklenen kararlar: (a) yayın formu
+  `slug` ve `body` taşır; yayımlayan oturumdan gelir, formdaki başka alanlar okunmaz;
+  (b) gövdenin uçları kırpılır, içi yazıldığı gibi saklanır; görünür karakter kuralı:
+  Unicode L/N/P/S kategorilerinden, `Other_Default_Ignorable_Code_Point` ve adı konmuş üç
+  boş sembol (U+2800, U+303F, U+1D159 — üçü de dev veritabanında `[:space:]` değil, ölçüldü)
+  dışında en az bir karakter; U+FFFC görünür sayılır (karar: gömülü nesnenin yerini tutan
+  görünür bir glif — Unicode adından, çizim ölçülmedi) (OP-10A'nın ölçtüğü sekiz kod
+  noktasının sekizi de reddedilir);
+  (c) 256 KiB istek gövdesine (`MaxBytesReader`, kodlanmış form) uygulanır — çözülen
+  değer kodlamasından uzun olamaz; (d) yayın ve ardından `legal.Store.Refresh` istek
+  bağlamından KOPUK koşar (`context.WithoutCancel` + 10 sn zaman aşımı): bağlantıyı yayından
+  sonra kapatan bir tarayıcı, sürüm commit olmuşken tazelemeyi iptal ettiremez. Tazeleme
+  hatası loglanır ve yanıt yine 303'tür (POST → 303 → GET: yeniden yükleme ikinci kez
+  yayımlamaz); ekran her açılışta anlık görüntüyü (listeden ÖNCE okunur: önce okunan anlık
+  görüntü sonra okunan listeden yeni olamaz) listenin canlı sürümüyle karşılaştırır (yayın
+  zamanı ve bayt uzunluğu), farklıysa bir kez tazeler; uyarı yalnız anlık görüntünün
+  `published_at`'ı canlı sürümünkinden ÖNCE ise ya da (eşit zamanda, id'nin vekili olarak)
+  uzunluğu farklıysa çıkar (iyileştirmenin kurduğu, daha geç yayımlanmış bir sürüm uyarı
+  vermez). Veritabanının sırası `(published_at DESC, id DESC)`'tir; anlık görüntü id taşımaz,
+  bu yüzden aynı slug'ın iki yayını aynı mikro saniyeye düşerse karşılaştırma iki yönde
+  yanılır — bir görüntülük yanlış uyarı ya da aynı uzunlukta başka metinde ne tazeleme ne
+  uyarı (kart LB11; kesin düzeltme `legal.Doc`'a `ID`, yazılmadı) — o
+  belgenin editörü *"The public page is behind"* uyarısını canlı sürümün zamanıyla gösterir — editör
+  sayfanın metnini taşır, yayımlamak en yeni sürümün yerine geçer; yayının KENDİ hatası 503'tür
+  ve sayfası satırın yazılmadığını iddia etmez (bir hata bunu kanıtlamaz — zaman aşımının
+  iptali, COMMIT'ten sonra kopan bağlantı), sürüm listesine bakmayı söyler; (e) okuma oturum bütçesine
+  iki birim sayılır (`sessionGate` + ekran), `sessionLimit` 100 korundu; (f) sürüm listesi
+  en yeni 100 sürüm, gövdesiz, yayımlayan operatörün adı ya da *"tenant admin (legacy)"*;
+  geri alma eski metni yeniden yayımlamaktır (yeni satır), "bu sürüme dön" düğmesi yeni bir
+  `op_read_*` ister ve bu görevde yok. ADR 0016 Sonuçlar'ın *"bu metni kim yayımladı
+  sorusunu cevaplayan bir ekran yok"* maddesi bu sürüm listesiyle kapandı (`op_*`
+  üzerinden; `tappa_app` `published_by`'ı hâlâ okuyamaz).
+
+  **Güvenlik iddiası — üç parça.**
+  **(I) Sevk edilen kodun ölçülen davranışı, adıyla test ve küme.** (i) `/operator/legal`'in
+  18 yanıt sınıfı (C49–C66) 15 düşmanca istek başlığı, ikinci `Cookie` satırı ve düşmanca
+  sorgu dizgisiyle sürüldü: WriteHeader anında durum, `Location`, başlık adları ve değerleri
+  tasarlanana eşit; düşmanca değer gövdede ve başlık değerlerinde ham ya da sorgu-kaçışlı
+  biçimiyle bulunmadı; çapraz-origin yayında (C58) ve `PUT`'ta (C66) store çağrısı 0, ikinci
+  bütçe biriminin reddettiği okumada (C55) `LegalVersions` çağrısı 0
+  (`TestOperatorHeaders_TheLegalClassesCarryThePolicy`). (ii) Operatör host'u dışında
+  `/operator/legal` yedi yöntemde router'ın kendi 404'ü, store çağrısı 0
+  (`TestHostGate_OperatorRoutesAnswerTheRoutersOwn404OnEveryOtherHost`; yolları onu
+  içerir). (iii) Sızıntı sözleşmesinin A31–A43 kollarında (sözleşmenin on gösterimi, dört
+  yüzeyi) oturum hash'i (G8) ve yasal form değeri (G16: gönderilen metinler, bilinmeyen
+  slug) tasarlanmış çıkış D6 dışında bulunmadı — D6: ekranın editörleri anlık görüntünün
+  metnini gösterir (`TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor`). Okuma
+  bileti `internal/db`'nin içinde üretilip tüketilir ve `LegalStore`'un imzalarında yok
+  (kaynak okundu); sızıntı testinin kollarında aranacak bir değeri yok. (iv) Yayın gönderen oturumun hash'iyle gider; formdaki
+  `published_by`, `admin_id` ve `session` alanları başka birini adlandırırken yayımlayan
+  oturumun operatörüdür; anlık görüntü yayın başına bir kez tazelenir; geri alma üçüncü
+  sürümdür (`TestLegalPublish_TheSessionPublishesAndThePublicSnapshotFollows`). (v) Dokuz
+  slug biçimi (`TestLegalPublish_RefusesASlugTheProductDoesNotHave`), 24 görünmez gövde
+  (`TestLegalPublish_RefusesAnEmptyBodyAndSaysSo`, `TestVisibleText_TheListedInvisibleBodiesAreRefused`)
+  ve 256 KiB + 1 baytlık istek (`TestLegalPublish_RefusesABodyBiggerThanTheCeiling`) store
+  çağrısı yapmadan reddedildi; tam 256 KiB yayımlandı. (vi) Okuma iki birim: tek oturum 50
+  görüntü → 50 × 200, 51. 429 (`TestLegalPage_AReadCountsTwiceAgainstTheSessionBudget`).
+  (vii) Gerçek Postgres'te: yayın → bir sürüm (`published_by` = operatör) ve bir
+  `legal_publish` satırı (detail'de slug ve bayt, metin değil) → müşteri host'unda
+  `/legal/privacy` yeni metni gösterir → sürüm listesi yayımlayanın adıyla, canlı → geri
+  alma yeni satırdır, yayımlanan sürüm durur; iki görüntü iki `read` satırı ve tüketilmiş iki
+  bilet; yayından ve geri almadan sonra ekran "geride" demez — Postgres'in kendi tiplerinde
+  anlık görüntü listenin canlı sürümünden ESKİ değil (iddia bu kadar: uyarı tek yönlü
+  olduğundan listeden bir mikro saniye yeni bir anlık görüntü de uyarı vermez, yani iki
+  zamanın EŞİTLİĞİNİ bu test ölçmez)
+  (`TestE2E_LegalPublishRefreshesThePublicPageAndTheListNamesThePublisher`);
+  MFA'sız, iptal edilmiş, 31 dk boşta ve 8 saati geçmiş dört oturumla yayın 303; NUL baytlı
+  metin 503, 256 KiB üstü 413, bilinmeyen slug ve görünmez metin 400; ardından operatörün
+  sürümü ve `legal_publish` satırı 0 (`TestE2E_LegalPublishRefusesDeadSessionsAndBadTextsWritingNothing`).
+  (viii) Müşteri panelinin dokuz bölümü sahip ve yönetici olarak altı operatör işareti
+  taşımadı ve `/admin/legal` GET/POST 404 (`TestCustomerPanel_EverySectionCarriesNoOperatorElement`;
+  gerçek kayıt olmuş bir müşterinin paneli aynı listeyle `adminlogin_db_test.go`'da).
+  (ix) Herkese açık yol: `marketing.go` `Refresh`/`Publish`/`PublishLegal`/`Paragraphs`
+  çağırmaz, sayfalar anlık görüntüyü okur, refresh 0 (`TestLegalPublicPath_WritesNothing`);
+  okuyucunun tek yöntemi bağlamsız ve hatasız (`TestLegalReader_CannotReachTheDatabase`).
+  (x) İstemci handler'dan ÖNCE ve sürüm kaydedildikten hemen SONRA ayrıldığında (istek
+  bağlamı iptal) yayın saklanır ve anlık görüntü yeni metni sunar; her tazelemenin bağlamı
+  iptal edilmemiş ve ≤ 10 sn son tarihlidir; kontroller: istek bağlamı gerçekten iptal
+  edildi, sahte store ve anlık görüntü iptal edilmiş bağlamı reddeder
+  (`TestLegalPublish_AClientThatLeavesStillGetsThePublicationAndTheRefresh`). (xi) Tazelemesi
+  başarısız yayın 303; ardından ekran 200, bir tazeleme dener, uyarıyı bir kez ve canlı
+  sürümün zamanıyla gösterir, editör sayfanın sunduğu metni taşır; tazeleme düzelince sonraki
+  görüntü anlık görüntüyü iyileştirir (bir tazeleme, uyarı yok), ondan sonraki görüntü
+  tazelemez; uyarının zamanı Notice bloğunun içinde canlı sürümünkidir, anlık görüntününki
+  değil (sahte sürümler bir dakika arayla); kontrol: güncel anlık görüntüde uyarı yok, tazeleme
+  yok (`TestLegalPublish_AFailedRefreshRedirectsAndTheScreenSaysThePageIsBehind`; sızıntı kolu A43
+  aynı dalın gövdesini ve log satırını arar). (xii) İki okumanın arasına giren bir yayın (ve
+  tazelemesi): görüntü 200, uyarı yok, kendi tazelemesi yok, editör listenin canlı gösterdiği
+  sürümü taşır (`TestLegalPage_AVersionPublishedBetweenTheTwoReadsIsNotCalledBehind`);
+  iyileştirmenin tazelemesi listeden yeni bir sürüm kurduğunda uyarı yok
+  (`TestLegalPage_ASnapshotNewerThanTheListAfterTheHealIsNotCalledBehind`).
+  **(II) Pinler:** `TestOperatorDB_IsTheStoreAndNothingMore` (yöntem kümesi
+  `operatorauth.Store` ∪ `operator.LegalStore` ∪ `Close`), `TestOperatorDB_EveryMethodDelegatesVerbatim`
+  (dokuz yöntem), `TestOperatorDB_HasNoTenantDoorAndNoRawSQLDoor` (öncül 10),
+  `TestOperatorWiring_ThePoolReachesOnlyTheAuthenticator` (havuz → `configuredSurface` ve
+  `Close`; store → `operatorAuthenticator` ve `operator.New`'in ikinci argümanı; `texts` →
+  `configuredSurface` → `operator.New`'in üçüncü argümanı; `legal.NewStore` komutta bir kez ve
+  `run()`'ın bağladığı değer tam olarak açılış `Refresh`'inin alıcısı, `openOperatorSurface`'in
+  üçüncü ve `handler.NewMarketing`'in ilk argümanı — operatörün tazelediği anlık görüntü
+  herkese açık sayfaların okuduğudur; `run()` yüzeyi
+  `httpx.NewRouter`'a verir), `TestFormValues_TheListedSitesAloneRevealOrReadTheForm` (FV5:
+  `publishLegal`'de `.Get("slug")` ve `.Get("body")` birer kez),
+  `TestResponseHeaders_TheListedNamesAreWrittenOnlyInTheirFunctions` (RH4: yönlendirme hedefi
+  `pathLegal` dahil monte edilmiş sabitler), `TestOperatorPages_TheExportedScreensAreTheOnesScreensRenders`
+  (yedi ekran), `TestOperatorHeaders_TheWalkedRoutesEachHaveAClass` (C1–C66; altı rota, on
+  çift), `TestProblemViews_TheListedBuildFormsOccurOnlyInRenderGo` (on üç değişken).
+  Her pinin yakaladığı liste testin başlığındadır.
+  **(III)** Bu nottaki ölçümler adıyla geçen testlerin sürdüğü kümelerdir ve pinler yalnız
+  kendi listelerini yakalar; listede olmayan her biçim kod incelemesinin konusudur — tamlık
+  iddiası yok.
+  **Sınırlar:** kartta (OP-10B bloğu, LB1–LB11; LB10: iki operatör arasında kaybolan güncelleme — düzeltmesi migration ister; LB11: aynı mikro saniyede iki yayın — karşılaştırma id taşımaz).
 
 ### 8. Yapılmayacaklar
 

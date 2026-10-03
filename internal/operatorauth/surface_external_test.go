@@ -35,6 +35,7 @@ import (
 
 	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/db"
+	"github.com/atknatk/tappa/internal/domain/legal"
 	"github.com/atknatk/tappa/internal/handler/operator"
 	"github.com/atknatk/tappa/internal/httpx"
 	"github.com/atknatk/tappa/internal/operatorauth"
@@ -120,6 +121,19 @@ func (s *surfStore) CloseOperatorSession(context.Context, string) error {
 	return db.ErrOperatorRefused
 }
 
+// surfLegal is the operator surface's legal store and snapshot (OP-10) for a rig whose
+// tests send no legal request: every call is refused, the snapshot is empty.
+type surfLegal struct{}
+
+func (surfLegal) LegalVersions(context.Context, string, db.LegalVersionsPage) ([]db.LegalVersion, error) {
+	return nil, db.ErrOperatorRefused
+}
+func (surfLegal) PublishLegal(context.Context, string, string, string) error {
+	return db.ErrOperatorRefused
+}
+func (surfLegal) Published() map[string]legal.Doc { return map[string]legal.Doc{} }
+func (surfLegal) Refresh(context.Context) error   { return nil }
+
 const (
 	surfHost   = "ops.taptime.mt"
 	surfOrigin = "https://ops.taptime.mt"
@@ -162,7 +176,7 @@ func newSurfRig(t *testing.T) *surfRig {
 		t.Fatal(err)
 	}
 	g.comparisons, g.digests = operatorauth.CountWork(a)
-	s, err := operator.New(a, surfHost, "https://taptime.mt", log)
+	s, err := operator.New(a, surfLegal{}, surfLegal{}, surfHost, "https://taptime.mt", log)
 	if err != nil {
 		t.Fatal(err)
 	}

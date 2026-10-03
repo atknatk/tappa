@@ -31,7 +31,7 @@ func (s *Surface) signInPage(w http.ResponseWriter, r *http.Request) {
 // unknown address's path (dummy bcrypt, unknown_email row, ErrRefused). The checks before
 // Password are readForm's: a body over 16 KiB is 413, a body that does not parse is 400.
 func (s *Surface) signIn(w http.ResponseWriter, r *http.Request) {
-	if !s.readForm(w, r) {
+	if !s.readForm(w, r, maxFormBytes, problemFormTooLarge) {
 		return
 	}
 	email, password := postValue(r, "email"), postValue(r, "password")
@@ -75,7 +75,7 @@ func (s *Surface) code(w http.ResponseWriter, r *http.Request) {
 		s.redirect(w, pathSignIn)
 		return
 	}
-	if !s.readForm(w, r) {
+	if !s.readForm(w, r, maxFormBytes, problemFormTooLarge) {
 		return
 	}
 	code := postValue(r, "code")

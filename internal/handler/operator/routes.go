@@ -24,7 +24,9 @@ import (
 // çözümleyiciden önce (ucuz), oturum bütçesi kimlikten sonra"):
 //
 //	sign-in, TOTP step, enrollment     floodGate -> sameOriginGate(false)
-//	the console (GET /operator)        floodGate -> sameOriginGate(true) -> requireOperator -> sessionGate
+//	the console (GET /operator) and    floodGate -> sameOriginGate(true) -> requireOperator -> sessionGate
+//	the legal texts (GET, POST
+//	/operator/legal; OP-10)
 //	sign-out (POST /operator/logout)   sameOriginGate(false) -> requireOperator -> logoutGate
 //
 // Sign-out is its own group, after the panel's measured lesson (adminlogin.go's sign-out
@@ -63,17 +65,20 @@ func (s *Surface) mount(r chi.Router) {
 		r.Group(func(r chi.Router) {
 			r.Use(s.floodGate, s.sameOriginGate(true), s.requireOperator, s.sessionGate)
 			r.Get("/", s.home)
+			r.Get("/legal", s.legalPage)
+			r.Post("/legal", s.publishLegal)
 		})
 	})
 }
 
 // The redirect targets. The templates spell their form actions and links as literals;
-// TestOperatorScreens_EveryActionAndLinkIsAMountedRoute holds the links of the 12 renders
+// TestOperatorScreens_EveryActionAndLinkIsAMountedRoute holds the links of the 14 renders
 // screens() makes to the routes mount registers.
 const (
 	pathConsole = Prefix
 	pathSignIn  = Prefix + "/login"
 	pathCode    = Prefix + "/login/totp"
+	pathLegal   = Prefix + "/legal"
 )
 
 // hostGate is the OPERATOR half of ADR 0020 §4's two-way host gate: when
@@ -101,8 +106,9 @@ func (s *Surface) hostGate(next http.Handler) http.Handler {
 //	Referrer-Policy          no-referrer: the enrollment page's URL carries the account id
 //	                         (the document head's meta tag says the same for navigations)
 //
-// Measured: TestOperatorHeaders_FortyResponseClassesCarryThePolicy (40 classes) and
-// TestOperatorHeaders_TheWrongMethodAndOversizedClassesCarryThePolicy (8 more) drive 48
+// Measured: TestOperatorHeaders_FortyResponseClassesCarryThePolicy (40 classes),
+// TestOperatorHeaders_TheWrongMethodAndOversizedClassesCarryThePolicy (8 more) and
+// TestOperatorHeaders_TheLegalClassesCarryThePolicy (OP-10, C49-C66) drive 66
 // response classes with hostile request headers and hold the response headers AT
 // WriteHeader (the recorder's snapshot) to the designed names and values;
 // TestOperatorHeaders_TheRecorderSnapshotIsWhatTheWireCarries measures that snapshot
@@ -307,14 +313,25 @@ func (s *Surface) sessionGate(next http.Handler) http.Handler {
 			s.redirect(w, pathSignIn)
 			return
 		}
-		if n := s.sessions.Charge(id.SessionID.String()); n > sessionLimit {
-			if s.sessions.FirstOverLimit(n) {
-				s.log.WarnContext(r.Context(), "operator session budget reached",
-					"session_id", id.SessionID.String(), "limit", sessionLimit, "period", sessionPeriod.String())
-			}
-			s.problem(w, r, http.StatusTooManyRequests, problemTooMany(true))
+		if !s.spendSession(w, r, id) {
 			return
 		}
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), identityKey{}, id)))
 	})
+}
+
+// spendSession charges one unit of the session's budget (sessionLimit, surface.go) and,
+// past it, answers 429 -- the window's first refusal logged at WARN with the session's
+// id. sessionGate charges every request once; a read charges its second transaction
+// (legalPage).
+func (s *Surface) spendSession(w http.ResponseWriter, r *http.Request, id operatorauth.Identity) bool {
+	if n := s.sessions.Charge(id.SessionID.String()); n > sessionLimit {
+		if s.sessions.FirstOverLimit(n) {
+			s.log.WarnContext(r.Context(), "operator session budget reached",
+				"session_id", id.SessionID.String(), "limit", sessionLimit, "period", sessionPeriod.String())
+		}
+		s.problem(w, r, http.StatusTooManyRequests, problemTooMany(true))
+		return false
+	}
+	return true
 }

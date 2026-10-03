@@ -239,7 +239,7 @@ func TestAdminLogin_RefusedSignInStillRendersTheFailureNotice(t *testing.T) {
 func TestAdminLogin_ChromeLinksReachRoutesThatAreMounted(t *testing.T) {
 	auth, err := NewAdminAuth(&fakeAdmins{}, &fakeTrail{}, newFakeLedger(), newFakeLedger(),
 		&fakeReviewer{}, &fakeStaff{}, &fakeInviter{}, &fakeVenues{}, &fakePlaques{},
-		&fakeRecorder{}, newFakeRules(), newFakeScribe(), newFakeBooks(), newFakeTexts(),
+		&fakeRecorder{}, newFakeRules(), newFakeScribe(), newFakeBooks(),
 		newFakeAccount(), nil, adminTestConfig(), slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)

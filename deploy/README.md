@@ -304,9 +304,11 @@ curl -sS -o /dev/null -D - https://taptime.mt/healthz | \
 ```
 
 **8. `/signup`'tan ilk işletmeyi aç.** İlk deploy **boş şemadır**, seed yoktur
-(kullanıcı kararı). Sonra `/admin/legal`'e gir, reddetme sayfasının bastığı kendi
-`admin_users.id`'ni `05-config.yaml` → `TAPPA_OPERATOR_ADMIN_IDS`'e yaz ve
-`kubectl -n tappa rollout restart deployment/tappa`.
+(kullanıcı kararı). Taptime'ın kendi yasal metinlerini (gizlilik politikası, şartlar,
+künye, çerez bildirimi) **platform operatörü** yayımlar: operatör host'unda
+`/operator/legal` (M10 OP-10, ADR 0020 §7) — operatör hesabı için aşağıdaki
+*"Operator accounts (M10 OP-9)"* runbook'u. Müşteri panelinde bu ekran ve onun env izin
+listesi yok (OP-10'da kaldırıldı); bu adım için ayarlanacak bir ConfigMap anahtarı yok.
 
 **9. Yedek — hedefi seç, sırrı yaz, CronJob'ı uygula.**
 
@@ -1089,10 +1091,36 @@ bağlanır ve sorgular yalnız `usename = 'tappa_operator'` satırlarını seçe
 
 ### Bekliyor: K2/K4 (kullanıcı kararı) — `ops.taptime.mt` DNS'i, Ingress, IP kısıtı
 
-`deploy/k8s/40-ingress.yaml` **değişmedi.** Operatör yüzeyi `TAPPA_OPERATOR_HOST`'ta
+`deploy/k8s/40-ingress.yaml`'ın kuralları **değişmedi** (OP-10 B'de yalnız gövde sınırının
+yorumu düzeltildi: o Ingress operatör host'unu yönlendirmez). Operatör yüzeyi `TAPPA_OPERATOR_HOST`'ta
 yaşar ve uygulamanın iki yönlü host kapısı (OP-8) operatör rotalarını müşteri host'larında,
 müşteri rotalarını operatör host'unda 404'e çevirir; Ingress'in işi o host'u pod'a
-getirmektir. **Taslak** (uygulanmadı; kural metni öneridir):
+getirmektir. **Taslak** (uygulanmadı; kural metni öneridir) — **iki Ingress**, çünkü gövde
+sınırı yola göre değişir ve ingress-nginx'te `proxy-body-size` gibi ek açıklamalar bir Ingress
+kaynağının **bütün** yollarına uygulanır; yol başına farklı bir sınır, o yol için ayrı bir
+Ingress kaynağı demektir (ingress-nginx'in ek açıklama modeli; **kümede ölçülmedi** — iki
+kaynağın aynı host'ta tek `server` bloğunda birleştiği ve her birinin `location`'ının kendi
+sınırını taşıdığı, uygulandıktan sonra `nginx -T` ile doğrulanmalı):
+
+- **`tappa-operator`** — `/` (Prefix), **`24k`**. Operatör yüzeyinin `/operator/legal` dışındaki
+  her gövde okuması `readForm`'dan `maxFormBytes` = 16 KiB ile geçer (`/operator/login`,
+  `/operator/login/totp`, `/operator/enroll` — oturum öncesi yolların üçü; kaynak okundu:
+  `internal/handler/operator/render.go`, `signin.go`, `enroll.go`); `/operator/logout` ve
+  `GET`'ler gövde okumaz. 24k = 16 KiB + 8 KiB pay: sınırın hemen üstünü nginx'in markasız
+  413'ü değil uygulamanın kendi 413 sayfası karşılar, ve oturum öncesi bir istemci nginx'e
+  320 KiB tamponlatamaz (tek Ingress taslağının açığı buydu).
+- **`tappa-operator-legal`** — yalnız `/operator/legal` (Exact), **`320k`**. Uygulama istek
+  gövdesini 262 144 baytta (256 KiB, `maxLegalBody`) keser ve aşanı kendi 413 sayfasıyla ("That
+  text is too long") reddeder — `TestLegalPublish_RefusesABodyBiggerThanTheCeiling`: tam 256 KiB
+  yayımlanır, +1 bayt 413. Buradaki sınır o sayıdan BÜYÜK olmalı; 320k = sınır + 64 KiB pay
+  (nginx'te k = 1024 bayt). Rota oturum kapısının arkasındadır, ama nginx gövdeyi uygulamadan
+  ÖNCE tamponlar: oturumsuz bir istemci de bu yola 320 KiB'a kadar gönderebilir (uygulama 303
+  ile sign-in'e yollar) — sayılı sınır, tek yol.
+
+Her iki kaynak aynı `tls` bloğunu taşır (aynı sır); `cert-manager.io/cluster-issuer` yalnız
+birinde (tek Certificate). **K4 izin listesi iki kaynağa da yazılmalıdır:** ek açıklama
+kaynak başınadır, yalnız birine yazılırsa öbür yol (ör. `/operator/legal`) her adrese açık
+kalır.
 
 ```yaml
 apiVersion: networking.k8s.io/v1
@@ -1104,7 +1132,9 @@ metadata:
     cert-manager.io/cluster-issuer: letsencrypt-prod
     nginx.ingress.kubernetes.io/ssl-redirect: "true"
     nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
-    nginx.ingress.kubernetes.io/proxy-body-size: "64k"
+    # /operator/legal dışındaki her yol: uygulamanın en büyük gövde sınırı 16 KiB
+    # (maxFormBytes, readForm) + 8 KiB pay. Gerekçe yukarıda.
+    nginx.ingress.kubernetes.io/proxy-body-size: "24k"
     # K4 (opsiyonel): yalnız operatörün ağları. Ölçülmedi: Cloudflare proxy'si (turuncu
     # bulut) açıksa ingress istemciyi değil Cloudflare'in kenar adresini görür ve bu liste
     # istemcinin değil kenarın adresini sınar — ops kaydı DNS-only olmalı
@@ -1112,6 +1142,7 @@ metadata:
     # proxy-real-ip-cidr (40-ingress.yaml'ın (b) seçeneği) PAYLAŞILAN ConfigMap'tedir (~20
     # uygulama) ve CIDR yanlışsa origin'e doğrudan gelen biri sahte X-Forwarded-For ile bu
     # izin listesini geçer. Ek açıklamanın adı ingress-nginx sürümüne göre doğrulanmalı.
+    # İKİ KAYNAĞA DA (aşağıdaki tappa-operator-legal).
     # nginx.ingress.kubernetes.io/whitelist-source-range: "<ops CIDR>,<ops CIDR>"
 spec:
   ingressClassName: nginx
@@ -1125,6 +1156,36 @@ spec:
         paths:
           - path: /
             pathType: Prefix
+            backend:
+              service:
+                name: tappa
+                port:
+                  name: http
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: tappa-operator-legal
+  namespace: tappa
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    # Yasal metin yayını (OP-10): uygulamanın sınırı 262 144 bayt + 64 KiB pay.
+    nginx.ingress.kubernetes.io/proxy-body-size: "320k"
+    # K4: tappa-operator'dakiyle AYNI liste — burada yoksa bu yol her adrese açıktır.
+    # nginx.ingress.kubernetes.io/whitelist-source-range: "<ops CIDR>,<ops CIDR>"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - ops.taptime.mt
+      secretName: ops-taptime-tls
+  rules:
+    - host: ops.taptime.mt
+      http:
+        paths:
+          - path: /operator/legal
+            pathType: Exact
             backend:
               service:
                 name: tappa

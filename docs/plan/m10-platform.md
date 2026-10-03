@@ -4991,6 +4991,450 @@ yasal belge içindi, M9-08'in kapsamı §4.5'i aşan beş işlev.
 >     PASS. Kalıcı veri bu koşuda md. 12'nin oranıyla: "op10" hesap/oturum/`read` 36 → 38,
 >     `legal_documents` 3242 → 3247, bilet 0, `legal_publish` 0.
 
+> **Kart düzeltmesi (2026-10-03, OP-10 B fazı — ekran, wiring ve emeklilik — uygulaması sırasında).**
+> Yazıldı: `internal/handler/operator/legal.go` (yeni: `LegalStore`, `LegalTexts`,
+> `legalPage`, `publishLegal`, `legalSession`, `visibleText`, `blankSymbol`, `liveVersion`,
+> `compare`, `snapshotDiffers`, `legalView`, `maxLegalBody`, `legalVersionsLimit`,
+> `legalWriteTimeout`), `routes.go` (`GET`/`POST /legal` konsol grubunda; `pathLegal`;
+> `spendSession` — `sessionGate`'in bütçe dalı ayrıldı), `surface.go` (`New(auth, legalStore,
+> texts, host, baseURL, log)`; `sessionLimit` türetmesi), `render.go` (`readForm(w, r, limit,
+> tooLarge)`; beş yeni `ProblemView`), `signin.go`/`enroll.go` (yeni `readForm` imzası);
+> `web/templates/operatorpages/legal.templ` (yeni `Legal`; geride uyarısı `components.Notice`),
+> `view.go` (`LegalView`, `LegalDoc` — `Behind`, `LiveAt` dahil —, `LegalVersionRow`), `home.templ` (konsoldan `/operator/legal` linki), `chrome.templ` (yorum);
+> `input.css` (`.op-version`); `internal/db/operatorpool.go` (`LegalVersions`, `PublishLegal`
+> yöntemleri + yorumlar), `operator.go` (OP-10 bölümünün yorumu); `internal/operatorauth/flow.go`
+> (`(*Authenticator).SessionHash`); `internal/domain/legal/legal.go` (`Publish`, `Trail`,
+> `ActionPublished`, `PublishedDetail`, `ErrEmptyBody`, `ErrUnknownSlug` kaldırıldı;
+> `NewStore(data)`; `Refresh` kilitli; kilidin yorumu ölçülene daraltıldı); `docs/plan/m10-platform.md`
+> (yalnız WL-7 satırı, 3. turda koordinatörün isteğiyle); `db/queries/legal.sql` (`PublishLegalDocument`
+> kaldırıldı) + `make gen` (`internal/store/legal.sql.go`, `querier.go`); `cmd/tappa/main.go`
+> (`texts` operatör yüzeyinden önce kurulur, `NewStore(data)`, `NewAdminAuth` texts'siz; açılış
+> log satırı),
+> `cmd/tappa/operator.go` (`openOperatorSurface(ctx, cfg, texts, log)`, `operatorStore`,
+> `configuredSurface(store, texts, cfg, log)`); panelden kaldırılanlar:
+> `internal/handler/legaladmin.go` (+ testi), `adminlogin.go` (`texts`, `operators`),
+> `dashboard.go` (iki rota), `review.go` (`Operator`), `web/templates/pages/legaladmin.templ`
+> (+ `_templ.go`), `legaladminview.go`, `adminview.go` (`TabLegal`, `OperatorOnly`, satır,
+> `PanelChrome.Operator`), `admin.templ` (filtre); `internal/config/config.go`
+> (`OperatorAdminIDs` + ayrıştırıcı + testi); `deploy/k8s/05-config.yaml`, `.env.example`,
+> `deploy/README.md` (8. adım; K2/K4 taslağının gövde sınırı `320k`), `deploy/k8s/40-ingress.yaml`
+> (yorum); `marketing.go` (`legalSlugOf` buraya taşındı); `adminreset.go` (iki eskimiş yorum:
+> `legaladmin.go` atfı, `RecordTx` sayımı). Testler: `internal/handler/operator/op10_test.go` (yeni),
+> `op10_db_test.go` (yeni), `rig_test.go`, `leak_test.go`, `op8_test.go`, `op8r2_test.go`,
+> `op8r5_test.go`, `typepins_test.go`, `surface_test.go`, `op8_db_test.go`, `export_test.go`;
+> `internal/handler/legalpublic_test.go` (yeni — taşınan dört test + panel taraması),
+> `legalfake_test.go`, panelin 18 test dosyasında `NewAdminAuth` çağrısı, `adminlogin_db_test.go`,
+> `billingactions_test.go`, `account_test.go`, `policies_test.go`; `internal/db/operatorpool_external_test.go`,
+> `operatorpool_test.go`, `operatorlegal_test.go`; `internal/operatorauth/units_test.go`,
+> `surface_external_test.go`; `internal/domain/legal/legal_test.go`, `legal_db_test.go`,
+> `stub_test.go`; `internal/config/config_test.go`; `cmd/tappa/operator_test.go`,
+> `storekeyshape_test.go`, `testnames_test.go` + `testdata/known-dangling-citations.txt`.
+> ADR 0020 §7 *"OP-10 B fazı notu"* (üç parçalı güvenlik iddiası), ADR 0021 *"OP-10 B fazı
+> eki"*. Migration YOK, bağımlılık YOK (`go.mod`, `go.sum`, `sqlc.yaml` diff boş).
+>
+> **Kararlar, ölçümüyle:**
+> 1. **Oturum argümanı.** Handler'ın oturum taşıyan `op_*` çağrıları için
+>    `operatorauth.(*Authenticator).SessionHash(tok)`; `Verify`'ın `op_touch_session`'a verdiği
+>    değerle aynı, token anahtarına bağlı, bozuk token `ErrNoSession` ve boş hash
+>    (`TestSessionHash_IsTheHashVerifyHandsTheStore`). Hash `legalSession`'da istenir; ekran
+>    `sessionGate`'in arkasındadır.
+> 2. **Rotalar.** `GET /operator/legal` (editörler + sürüm listesi) ve `POST /operator/legal`
+>    (yayın), konsolun grubunda: host kapısı → güvenlik başlıkları → flood → same-origin
+>    (okuma kapısıyla: `same-site`/`cross-site` getirme 303) → `requireOperator` →
+>    `sessionGate`. Konsol (`Home`) `/operator/legal`'e link verir.
+> 3. **Bütçe (OP-8'in OP-11'e devri burada ödendi).** Okuma iki işlem (`op_begin_read`,
+>    `op_read_legal_versions`) ve iki birim sayılır: `sessionGate` + `legalPage`
+>    (`spendSession`). `sessionLimit` 100 korundu, türetmesi yeniden yazıldı (~10 legal
+>    görüntü × 2 + ~5 konsol + birkaç yayın ≈ 30, × ~3). Ölçülen: tek oturum 50 legal görüntü →
+>    50 × 200 ve 50 okuma, 51. → 429 kapıda; 1 konsol + 49 legal (99 birim) sonrası görüntü →
+>    429 ekranın ikinci biriminde, yüklem +1, okuma +0
+>    (`TestLegalPage_AReadCountsTwiceAgainstTheSessionBudget`).
+> 4. **Yayın formu.** `slug` ve `body`; `legal.Valid(slug)` (büyük harf, boşluklu, beşinci
+>    belge, yol, NUL: 400 — dokuz biçim, `TestLegalPublish_RefusesASlugTheProductDoesNotHave`);
+>    gövdenin uçları `strings.TrimSpace` ile kırpılır, içi yazıldığı gibi; yayımlayan
+>    oturumdan — formdaki `published_by`/`admin_id`/`session` alanları başka birini adlandırırken
+>    yayın gönderen oturumun hash'iyle gitti (`TestLegalPublish_TheSessionPublishesAndThePublicSnapshotFollows`).
+>    `multipart/form-data` gövde `ParseForm`'da ayrıştırılmaz → boş slug → 400 (kod okundu).
+> 5. **Görünür karakter kuralı (A'nın devri md. 14.3, sınır L2).** Gövdede Unicode
+>    L/N/P/S kategorilerinden, `Other_Default_Ignorable_Code_Point` ve adı konmuş üç boş sembol
+>    (`blankSymbol`: U+2800, U+303F, U+1D159) dışında en az bir karakter. Pozitif tanım seçildi:
+>    bir "görünmezler listesi" uzatılacak bir liste olurdu. Üç sembolün üçü de dev veritabanında
+>    (`en_US.utf8`) `'^[[:space:]]*$'` değil ve `btrim`'den sonra boş değil — yani tek başına
+>    sütunun kontrolünü geçer (ölçüldü, salt okunur işlem). U+FFFC (OBJECT REPLACEMENT
+>    CHARACTER) görünür sayılır: gömülü bir nesnenin yerini tutan görünür bir glif — karar,
+>    Unicode adından; çizimi ölçülmedi.
+>    A'nın sekiz kod noktasının sekizi de (tek tek, üçlü, birlikte, boşluklarla) reddedilir;
+>    ayrıca boşluk/satır sonu, NBSP ailesi, kontroller, yumuşak tire, tek birleşik işaret,
+>    Hangul dolguları (U+115F, U+1160, U+3164, U+FFA0 — kategori L ama ODICP), varyasyon
+>    seçicisi, bidi kontrolleri, U+303F, U+1D159 ve üç boş sembol birlikte: 24 tablo girişi;
+>    kabul: harf, Maltaca harf, rakam, noktalama, sembol, görünmezler arasında bir harf, bir
+>    cümle, U+FFFC — 8 giriş (`TestVisibleText_TheListedInvisibleBodiesAreRefused`,
+>    `TestLegalPublish_RefusesAnEmptyBodyAndSaysSo`: 400, store 0, refresh 0).
+> 6. **256 KiB.** `maxLegalBody` (`legaladmin.go`'dan taşındı) istek gövdesine (`MaxBytesReader`,
+>    URL-kodlu form) uygulanır; çözülen değer kodlamasından uzun olamaz, yani veritabanının
+>    `octet_length > 262144` sınırının içindedir. Tam 256 KiB'lık istek yayımlanır, +1 bayt 413,
+>    store 0 (`TestLegalPublish_RefusesABodyBiggerThanTheCeiling`). Bedeli: kodlama payı kadar
+>    küçük bir metin sınırı (sınır LB6).
+> 7. **Refresh — bağlam, PRG, iyileştirme, uyarı (2. tur).** (a) Yayın ve ardından
+>    `legal.Store.Refresh`, `context.WithTimeout(context.WithoutCancel(r.Context()), 10 sn)`
+>    altında koşar: yayından sonra bağlantıyı kapatan bir tarayıcı (ingress isteği iptal eder)
+>    commit olmuş bir sürümün tazelemesini iptal ettiremez. Ölçülen: istek bağlamı handler'dan
+>    ÖNCE iptal → yayın saklanır, anlık görüntü yeni metin; sahte store sürümü kaydettikten hemen
+>    SONRA iptal → anlık görüntü yeni metin; iki tazelemenin bağlamı da iptalsiz ve ≤ 10 sn son
+>    tarihli; kontroller: istek bağlamı gerçekten iptal edildi, sahteler iptal edilmiş bağlamı
+>    reddeder (`TestLegalPublish_AClientThatLeavesStillGetsThePublicationAndTheRefresh`; M28 =
+>    X24'ün tersi, M29, M30 KIRMIZI). 3. tur (F3): "≤ 10 sn" sabitin kendisiyle karşılaştırılıyordu
+>    (X02 — `time.Hour` — yeşildi); aynı test artık `legalWriteTimeout == 10*time.Second`'ı
+>    `maxLegalBody` emsaliyle pinler (M43 = X02 KIRMIZI). (b) Tazeleme hatası loglanır ve yanıt yine **303 →
+>    `/operator/legal`** (POST → 303 → GET): F5 ekranı yeniden okur, ikinci kez yayımlamaz —
+>    1. turun 503 sayfası ve `problemLegalNotRefreshed` kaldırıldı. (c) Ekran her açılışta anlık
+>    görüntüyü listenin canlı sürümüyle karşılaştırır (`compare`; listenin 100'lük sayfasında
+>    olmayan bir canlı sürüm karşılaştırılmaz). **3. tur (F1):** anlık görüntü listeden ÖNCE
+>    okunur — önce okunan anlık görüntü sonra okunan listeden yeni olamaz; ters sırada iki
+>    okumanın arasına giren bir yayın (ve tazelemesi) anlık görüntüyü listeden yeni yapıyordu:
+>    görüntü boşuna tazeliyor, editörü listenin göstermediği sürümle açıyor ve (1./2. turun
+>    "farklı = geride" kuralıyla) uyarının üç cümlesi de yanlış çıkıyordu (denetçinin probe'u).
+>    İkinci bir koruma da kondu: *farklı* (belge yok, başka zaman ya da başka uzunluk) bir kez
+>    tazelemenin sebebidir; *uyarı* yalnız anlık görüntü canlı sürümden ESKİ ise (yok, daha
+>    önce yayımlanmış ya da aynı zaman + başka uzunluk) çıkar — iyileştirmenin tazelemesi
+>    listenin okunmasından sonra commit edilen bir sürümü kurabilir, o görüntü uyarı vermez.
+>    Veritabanının "güncel"i seçtiği sıra `(published_at DESC, id DESC)`'tir
+>    (`ListPublishedLegalDocuments`, `op_read_legal_versions`); `legal.Doc` id taşımadığından
+>    `compare` yalnız `published_at`'ı karşılaştırır ve EŞİT zamanda id'nin vekili olarak
+>    uzunluğu kullanır — "uyarı yalnız ESKİ anlık görüntüde" hükmü bu eşitlik durumunu
+>    dışarıda bırakır (4. tur, N1; LB11). Ölçülen: iki okuma arasına giren yayın → 200, uyarı yok, görüntünün
+>    kendi tazelemesi yok, editör listenin canlı gösterdiği sürümü taşır; kontrol: sonraki
+>    görüntü yeni sürüm, uyarı yok, tazeleme yok
+>    (`TestLegalPage_AVersionPublishedBetweenTheTwoReadsIsNotCalledBehind`; M41 = sıra ters
+>    KIRMIZI: 2 tazeleme, editör yeni sürüm); iyileştirmenin kurduğu sürüm listeden yeni → uyarı
+>    yok; kontrol: aynı anlık görüntü iyileştirmeden önce "geride" (bir uyarı)
+>    (`TestLegalPage_ASnapshotNewerThanTheListAfterTheHealIsNotCalledBehind`; M42 = yön
+>    düşürüldü KIRMIZI). İki koruma bağımsız pinlidir: M41 tek başına uyarı ÜRETMEZ (yön kuralı
+>    tutar), sıranın kendisi tazeleme sayısı ve editörün metniyle ölçülür. Hâlâ gerideyse o
+>    belgenin editörü *"The public page is behind"* uyarısını canlı sürümün yayın zamanıyla
+>    gösterir ve editörün sayfanın metniyle açıldığını, yayımlamanın en yeni sürümün yerine
+>    geçeceğini söyler. **3. tur (F2):** uyarının zamanı artık yalnız Notice bloğunun içinde
+>    aranır ve anlık görüntünün zamanı orada OLMAMALIDIR; sahte sürümler bir dakika arayla
+>    (ekran zamanı dakikaya basar; 1 sn arayla iki zaman aynı basılıyordu ve sürüm listesi
+>    satırları aynı dizgeyi taşıdığından X10/X11 yeşildi) — M44 (X10: `LiveAt` = anlık
+>    görüntünün zamanı) ve M45 (X11: `LiveAt` boş) KIRMIZI. Ölçülen: tazelemesi başarısız yayın 303, sürüm
+>    saklandı; ardından ekran 200, bir tazeleme denedi, uyarı bir kez ve canlı zamanla, editör
+>    sayfanın metnini taşır; tazeleme düzelince sonraki görüntü iyileştirir (bir tazeleme, uyarı
+>    yok), ondan sonraki görüntü tazelemez; kontrol: güncel anlık görüntüde uyarı yok, tazeleme
+>    yok (`TestLegalPublish_AFailedRefreshRedirectsAndTheScreenSaysThePageIsBehind`; M15 = PRG'nin
+>    tersi, M31 iyileştirme yok, M32 her görüntüde tazeleme, M33 uyarı yok KIRMIZI). Gerçek
+>    Postgres'te yayından ve geri almadan sonra ekran uyarı göstermez: anlık görüntü listenin
+>    canlı sürümünden ESKİ değil (E2E; M35 — karşılaştırma hep "geride" — E2E'de KIRMIZI: bu,
+>    E2E iddiasının pozitif kontrolüdür). İddia bu kadar (4. tur, N2): uyarı 3. turdan beri tek
+>    yönlü olduğundan anlık görüntüyü bir mikro saniye ileri alan bir mutasyon (denetçinin X17'si)
+>    E2E'de YEŞİL — iki zamanın EŞİTLİĞİNİ bu E2E ölçmez; `op10_db_test.go`'nun yorumu buna
+>    daraltıldı. (d) Yalnız-tazele eylemi
+>    EKLENMEDİ: bedeli yeni bir POST sınıfı (C67) ve onun `classRoutes`/`designedHeaders`/sızıntı
+>    kolu/`harvestWant`/tip pinleri + ekranda ikinci bir düğme; GET'teki iyileştirme onu gereksiz
+>    kılar — ekranı yeniden yüklemek tazeleme eylemidir (uyarının metni bunu söyler).
+>    (e) `Refresh` kilitli (eski `writing` mutex'inin gerekçesi: çakışan iki tazeleme ters sırada
+>    kurulabilir). Ölçülen YARISI: iki eşzamanlı tazelemenin okuması aynı anda veritabanında olmaz
+>    (`TestRefresh_TwoRefreshesNeverReadAtOnce`; M24 KIRMIZI). Kurulumun da kilidin içinde olduğu
+>    (kurulum sırasını veren yarı) ölçülmedi: kilidi okuma ile kurulum arasında bırakan M38 (X27)
+>    YEŞİL — iki adımın arasında durdurmak tipte olmayan bir kanca ister; `legal.Store.refreshing`
+>    yorumu buna göre daraltıldı (kilit ve ertelenmiş açılışı `Refresh`'in ilk iki ifadesi, kod
+>    okundu).
+> 8. **Ret yolları.** 413 (gövde), 400 (form okunamadı, belge yok, görünür metin yok), 303
+>    (oturum yayın/okuma anında reddedildi: `ErrOperatorRefused`), 503 (veritabanı hatası;
+>    okuma hatası). Log satırları belgeyi, operatörün id'sini, uzunluğu ve `internal/db`'nin
+>    hatasını (çağrı + SQLSTATE) taşır; metin ve hash argüman değil — sızıntı testi
+>    A31–A43'te arar. Ekranın iyileştirme dalının log satırı yalnız hatayı taşır (A43).
+>    2. tur: yayın hatasının 503 sayfası artık *"hiçbir şey yayımlanmadı"* DEMEZ — bir hata
+>    satırın yazılmadığını kanıtlamaz (10 sn zaman aşımının iptali, COMMIT gönderildikten sonra
+>    kopan bağlantı); başlık *"The publication was not confirmed"*, metin sürüm listesine
+>    bakmayı söyler (E2E'nin NUL kolu metni ve `/operator/legal` linkini arar). Öbür üç ret
+>    sayfası (413, iki 400) store'a gitmeden döner ve *"Nothing was published"* der (aynı
+>    E2E). İyileştirme bir GET'te koşar ama satır yazmaz: müşteri havuzunda bir okuma ve
+>    bellekteki anlık görüntünün değişimi.
+> 9. **Sürüm listesi.** Tek sayfa: en yeni 100 (`op_read_legal_versions` tavanı 200); 100 satır
+>    dolunca sayfa *"older versions are not shown"* der. Gövde yok, uzunluk bayt; yayımlayan
+>    operatörün `display_name`'i ya da *"tenant admin (legacy)"*; her belgenin canlı sürümü
+>    *Live* çipi (`TestLegalPage_ShowsWhoPublishedEachVersion`). Geri alma = eski metni
+>    yeniden yayımlamak (yeni satır). "Bu sürüme dön" düğmesi yeni bir `op_read_*` ister —
+>    YOK, devir.
+> 10. **UI (tappa-brand).** "TAPTIME OPERATOR" kabuğu (`screen(…, signedIn)`), her belge bir
+>     `op-card` (başlık: herkese açık yol, mono; canlı tarih; editör; *"Publish a new
+>     version"*), sürüm listesi bir `docket` içinde mono satırlar (`.op-version` bileşeni;
+>     yorumda utility adı yok). Herkese açık sayfalara link verilmez (başka host → mutlak URL);
+>     yol metin olarak yazılır. Kontrast (palet `tailwind.config.js`'ten, WCAG 2.1):
+>     ink/paper 16,17:1, ink %70/paper 6,05:1, ink/green-lite 13,70:1 (Live çipi),
+>     paper/tappa-green 7,73:1 (düğme), geride uyarısı (`components.Notice`, `ToneWarn`:
+>     saffron sol kenar, `saffron-lite` zemin; anlam başlık metninde, renk yalnız pekiştirir):
+>     ink/saffron-lite 13,97:1, ink %85/saffron-lite 9,13:1 — `TestLegalScreen_TheTextClearsAA`.
+>     `app.css`: +2 kural (`.op-version`, `.op-version:last-child`), 0 kaldırılan, 49 943 → 50 308 bayt
+>     (yorumlardan doğan kural yok — kural kümesi karşılaştırıldı); 2. turun uyarısı yeni kural
+>     getirmedi (bileşenin sınıfları zaten derleniyordu; yeniden derlendi: aynı 564 kural, aynı bayt).
+> 11. **Wiring.** `texts` (müşteri havuzundaki anlık görüntü) operatör yüzeyinden önce kurulur
+>     ve `openOperatorSurface`'e verilir; operatör havuzu `configuredSurface`'te iki yere gider:
+>     `operatorAuthenticator` (→ `operatorauth.New`) ve `operator.New`'in `LegalStore` yuvası.
+>     **Tek anlık görüntü (2. tur, B3):** `legal.NewStore` komutta bir kez; `run()`'ın bağladığı
+>     değerin kullanımları TAM küme: açılış `Refresh`'inin alıcısı, `openOperatorSurface`'in
+>     üçüncü, `handler.NewMarketing`'in ilk argümanı (M36/M37 ikinci `NewStore` — X19 — ve M39
+>     başka bir adla devretme KIRMIZI). Testin adı OP-7'nindir ve kuralın tamamı değildir;
+>     yeniden adlandırılmadı çünkü `m10-platform.md` onu üç, ADR 0020 §7 bir kez anar — ad
+>     değişseydi o atıflar sarkardı; başlığında açıklandı. `operatorpool.go`'nun *"komutta başka
+>     hiçbir yere"* cümlesi testin sözdizimsel kapsamına (main.go + operator.go, ad eşlemesi)
+>     bağlandı.
+> 12. **K11 / panel.** Panelin dokuz bölümü sahip ve yönetici olarak altı operatör işaretini
+>     taşımaz; `/admin/legal` GET/POST 404 (`TestCustomerPanel_EverySectionCarriesNoOperatorElement`;
+>     kontrol: işaretli bir işletme adı Account bölümünde bulunur); gerçek kayıtlı müşterinin
+>     paneli aynı listeyle (`adminlogin_db_test.go`).
+> 13. **Taşınan/korunan testler.** `TestLegalPublicPath_WritesNothing` ve
+>     `TestLegalReader_CannotReachTheDatabase` aynı adla `internal/handler/legalpublic_test.go`'da;
+>     ikincisinin pozitif kontrolü artık `legal.Store.Refresh` (bağlamlı, hatalı — G/Ç biçimli).
+>     `TestLegalSlugs_AreExactlyTheDocumentsWithAPage` ve `TestLegalStore_CannotNameATenantAtAll`
+>     (INSERT yarısı sorguyla gitti) aynı dosyada. `TestLegalDB_AnEmptyBodyIsRefusedByTheColumnAndNotOnlyByGo`
+>     kolon yarısıyla kaldı; "Go" yarısı `TestLegalPublish_RefusesAnEmptyBodyAndSaysSo`.
+>     M7-06'nın `TestLegalPublish_RefusesASlugTheProductDoesNotHave`,
+>     `TestLegalPublish_RefusesAnEmptyBodyAndSaysSo`, `TestLegalPublish_RefusesABodyBiggerThanTheCeiling`,
+>     `TestLegalScreen_ReopensOnPastedMarkupWithoutExecutingIt` adları operatör ekranının
+>     testleri olarak yaşar. Silinenler (adları burada yazılmadı — var olmayan bir testin adı
+>     bir atıf olurdu): panel ekranının dört izin listesi testi, iki ret/tenant testi ve
+>     belge-durum testi; config'in izin listesi ayrıştırıcı testi; `NewStore`'un nil-trail
+>     testi (yerine `TestNewStore_RefusesAMissingDatabaseAndStartsEmpty`) ve `Store.Publish`'in
+>     "metin, iz ve anlık görüntü birlikte ya da hiçbiri" testi (yazan yol yok; `tappa_app`'in
+>     reddedilen INSERT'i `TestLegalDB_TheTableTakesNoUpdateAndNoDelete` ve
+>     `TestOperator00027_TheApplicationCanNoLongerWriteALegalText`'te kalır).
+> 14. **Sarkan atıf bütçesi 54 → 60** (ölçüldü: silinen testlerden altısının adı değişmez
+>     kayıtlarda geçiyor — ADR 0016 gövdesi, `m7-portal.md`, bu kartın OP-4 ve OP-10A blokları:
+>     dört izin listesi testi, nil-trail testi, `Store.Publish`'in üçlü testi); altı ad
+>     `cmd/tappa/testdata/known-dangling-citations.txt`'e, gerekçesi envanterin başlığına yazıldı.
+>     Öbür silinenlerin (iki ret/tenant, belge-durum, ayrıştırıcı) belgelerde atfı yoktu.
+>     `TestEveryNamedTestExists`: 60 canlı, 60 bütçe.
+> 15. **Adlandırılmış sorgu sayısı birleşik ağaçta 122 → 121** (`TestResolverAccess_NoSqlcQueryNamesADefiner`;
+>     `PublishLegalDocument` gitti; WL-1'in sekiz sorgusuyla — bu worktree'nin tabanında, WL-1'den
+>     önce 114 → 113; birleşmede koordinatör çözdü) ve `storeSurface` envanterinden aynı satır.
+>
+> **Pin değişiklikleri ve gerekçeleri (hiçbiri daraltılmadı):**
+> - `TestOperatorDB_IsTheStoreAndNothingMore` — istenen küme `operatorauth.Store` ∪
+>   `operator.LegalStore` ∪ `Close`'dan türetilir (A'nın md. 11'de adlandırdığı tüketici); iki
+>   arayüz ortak ad taşırsa kırmızı (bir yöntem ikisinin yerine geçemesin); öncül LegalStore ≥ 2.
+> - `TestOperatorDB_EveryMethodDelegatesVerbatim` — 7 → 9 (iki yeni yöntem aynı
+>   `return F(ctx, o.pool, …)` kuralına tabi; `PublishLegal`'de üç aynı tipli argüman).
+> - `TestOperatorDB_HasNoTenantDoorAndNoRawSQLDoor` — öncül 8 → 10.
+> - `TestLegalVersions_OnThePoolTheTwoPhasesAreTwoTransactions` — genişletildi: aynı okuma
+>   yöntemin kendisiyle, üretim kurucusunun havuzunda (M06 bu kolda kırmızı).
+> - `TestOperatorWiring_ThePoolReachesOnlyTheAuthenticator` — kurallarıyla yeniden yazıldı:
+>   çağrı adı paket niteleyicisiyle (`operator.New` ≠ `operatorauth.New`); `configuredSurface`'in
+>   store'u TAM iki kullanım (`arg0 of operatorAuthenticator`, `arg1 of operator.New`),
+>   `operatorAuthenticator`'ın store'u `arg0 of operatorauth.New`, `texts` →
+>   `arg1 of configuredSurface` → `arg2 of operator.New`; bir kullanımın eksilmesi de kırmızı.
+>   2. tur: `legal.NewStore` komutta bir kez; `run()`'ın onu bağladığı ad TAM üç kullanım
+>   (`recv of Refresh`, `arg2 of openOperatorSurface`, `arg0 of handler.NewMarketing`);
+>   `boundName` nitelikli adı da eşler (`legal.NewStore` ≠ `encode.NewStore`).
+> - `TestProblemViews_TheListedBuildFormsOccurOnlyInRenderGo` — kod değişmedi; başlığı on üç
+>   değişkeni söyler (1. turda eskimiş "eight" kalmıştı; öncül ≥ 8, PV2 her değişkeni
+>   `problemPages`'e bağlar).
+> - `TestFormValues_TheListedSitesAloneRevealOrReadTheForm` — FV5'e `publishLegal`'in
+>   `.Get("slug")` ve `.Get("body")`'si, birer kez (sayı pinli).
+> - `TestOperatorPages_TheExportedScreensAreTheOnesScreensRenders` — `Legal` (yedi ekran);
+>   `screens()` 14 render.
+> - `TestOperatorHeaders_TheWalkedRoutesEachHaveAClass` — C1–C66, öncül 6 rota / 10 çift.
+> - `TestSurface_TheScreensOfLaterTasksAreNotMounted` — `/operator/legal` listeden çıktı.
+> - `classRoutes` (+C49–C66; 2. tur: C64 503 → 303), `designedHeaders` (+C49–C66; C64 sayfa →
+>   `Location: /operator/legal`), `hostileDrive` (sorgu `/operator/legal`'de de), `operatorRoutes`
+>   (+GET/POST `/operator/legal`), `harvestWant` (+`LegalVersions` 5×1, `PublishLegal` 4×2,
+>   `TouchOperatorSession` 104 → 116), sızıntı: G16, A31–A43 (A38 PREMISE 303; A43 = geride
+>   ekran, iyileştirmesi başarısız — uyarı ve log satırı PREMISE'le, D6: tohum ve yayımlanan
+>   metin, tazelemesi başarısız metin ekranda YOK), D6.
+> - `TestTablesLock_IsTakenOncePerTestTree` — değişmedi: iki yeni E2E testi kilidi `newE2E`
+>   üzerinden bir kez alır (PASS).
+>
+> **Kabul — karşılıkları:** `has_any_column_privilege(tappa_app,'legal_documents','INSERT') = false`
+> → A fazı (`TestOperator00027_TheApplicationCanNoLongerWriteALegalText`; ADR 0020 §7'nin ölçüm
+> sözleşmesi) · yayın sonrası `/legal/privacy` yeni metin →
+> `TestE2E_LegalPublishRefreshesThePublicPageAndTheListNamesThePublisher` (Marketing handler'ı,
+> `tappa_app` havuzundaki anlık görüntü) · `TestLegalPublicPath_WritesNothing` +
+> `TestLegalReader_CannotReachTheDatabase` yeşil · sürüm listesi yayımlayanı gösterir → aynı E2E +
+> `TestLegalPage_ShowsWhoPublishedEachVersion` · geri alma = yeni satır → E2E (eski metnin sürüm
+> sayısı +1, yayımlananınki değişmez) + `TestLegalPublish_TheSessionPublishesAndThePublicSnapshotFollows`
+> · `rg --hidden 'OperatorAdminIDs|OperatorOnly|TabLegal|mayPublishLegal|TAPPA_OPERATOR_ADMIN_IDS'`
+> kod+deploy'da 0 (`db/migrations` ve ADR/plan belgeleri hariç; dahil sayım: 00020 ×2, ADR 0016 ×5,
+> ADR 0020 ×10, m10 ×6, m7 ×3, m9 ×1, state ×3) — not: `rg` gizli dosyaları varsayılan olarak
+> atlar, `.env.example` için `--hidden` gerekir · müşteri panel taramasında operatör öğesi yok →
+> `TestCustomerPanel_EverySectionCarriesNoOperatorElement` + `adminlogin_db_test.go`.
+>
+> **Kaçış denemeleri** (her biri bir testte; sonuç parantezde): (E1) çapraz-origin yayın, canlı
+> çerezle (403, store 0 — C58; sızıntı A42) · (E2) MFA'sız, iptal edilmiş, 31 dk boşta, 8 saati
+> geçmiş oturumla yayın, gerçek Postgres (303, sürüm 0, `legal_publish` 0 — E2E) · (E3) bozuk
+> biçimli/ölü çerez (303 + çerez silinir — C51; müşteri tarafının 43 karakterlik bir değeri bu
+> biçimdedir, OP-8'in `TestE2E_CrossCookie_NeitherSideAcceptsTheOthersValue`'su aynı kapıyı
+> gerçek değerle ölçer) · (E4) 256 KiB + 1 (413, store 0) · (E5) görünmez karakterli gövde, 21
+> biçim (400, store 0) · (E6) bilinmeyen/büyük harfli/yollu/NUL'lu slug, 9 biçim (400) · (E7)
+> NUL baytlı metin, gerçek Postgres (503; sürüm 0; log metni taşımaz — E2E) · (E8) aynı bilet iki
+> kez — handler düzeyinde: ekran bilet tutmaz, her görüntü yeni iki aşamalı okuma; iki görüntü →
+> iki `read` satırı, iki tüketilmiş bilet, 0 tüketilmemiş (E2E) · (E9) müşteri panelinden eski
+> `/admin/legal` GET ve POST (404) · (E10) operatör host'u dışında `/operator/legal`, yedi yöntem,
+> ingress manifestinin host'ları ve altı host daha (router'ın 404'ü, store 0 —
+> `TestHostGate_OperatorRoutesAnswerTheRoutersOwn404OnEveryOtherHost`) · (E11) `same-site` getirmeyle legal sayfa (303, yüklem yok —
+> C52) · (E12) formda başka bir yayımlayan (`published_by`, `admin_id`, `session`) (yok sayıldı)
+> · (E13) `PUT /operator/legal` (405, Allow GET,POST, store 0 — C66) · (E14) ikinci bütçe birimi
+> tükenmişken okuma (429, okuma 0 — C55) · (E15) 15 düşmanca istek başlığı + düşmanca sorgu, 18
+> sınıf (yansıma yok — ham ve sorgu-kaçışlı biçimler) · (E16) istemci handler'dan önce ayrıldı
+> (yayın ve tazeleme yine koşar, 303) · (E17) istemci commit ile tazeleme arasında ayrıldı
+> (anlık görüntü yeni metin) · (E18) tazelemesi başarısız yayından sonra F5 (303 → GET: ikinci
+> yayın yok; ekran geride uyarısı) · (E19) U+303F, U+1D159 ve üç boş sembol birlikte (400,
+> store 0) · (E20) ekranın iki okuması arasına giren başka bir operatörün yayını (uyarı yok,
+> fazladan tazeleme yok, editör listeyle tutarlı) · (E21) iyileştirmenin tazelemesi listeden yeni
+> bir sürüm kurar (uyarı yok).
+>
+> **Mutasyonlar** (kopyala-geri-yaz; yedekler `scratchpad/op10b/mut_backup/`; her biri `go vet`
+> ile derlendi; geri yükleme sha256 ile doğrulandı; templ mutasyonunda `templ generate`
+> mutasyonla ve geri yüklemeyle koştu). Kırmızı veren testin ilk hata satırı. 2. turda M01–M27
+> (M15 yeniden tanımlandı) son ağaçta YENİDEN koşuldu ve M28–M40 eklendi; 3. turda M41–M45
+> eklendi ve `legal.go`'ya dokunan M15, M28–M33, M35 son ağaçta yeniden koşuldu (M31, M32, M35
+> yeni adlara göre yeniden yazıldı: `snapshotDiffers`, `sameLength`); 45'in 44'ü KIRMIZI,
+> M38 YEŞİL (ölçülmeyen yarı, karar 7(e)):
+>
+> | # | Mutasyon | Sonuç |
+> |---|---|---|
+> | M01 | yayından sonra `Refresh(ctx)` yok | KIRMIZI — `TestLegalPublish_TheSessionPublishesAndThePublicSnapshotFollows`, sızıntı PREMISE A32 (0 refresh), E2E (anlık görüntü eski metin) |
+> | M02 | yayın formdaki `session` alanının hash'iyle | KIRMIZI — `TestLegalPublish_TheSessionPublishesAndThePublicSnapshotFollows` (303 /operator/login), `TestFormValues_TheListedSitesAloneRevealOrReadTheForm` (FV5) |
+> | M03 | legal formun sınırı 1 GiB | KIRMIZI — `…BodyBiggerThanTheCeiling`, C59, sızıntı PREMISE A36 |
+> | M04 | `readForm`'da `MaxBytesReader` yok | KIRMIZI — C59, `…BodyBiggerThanTheCeiling` |
+> | M05 | panelde "Taptime legal texts" bölümü geri | KIRMIZI — `TestCustomerPanel_EverySectionCarriesNoOperatorElement` (navigasyonda `/admin/legal`) |
+> | M06 | `(*OperatorDB).LegalVersions` tek transaction'da | KIRMIZI — `TestOperatorDB_EveryMethodDelegatesVerbatim`, `TestLegalVersions_OnThePoolTheTwoPhasesAreTwoTransactions` (ErrOperatorRefused) |
+> | M07 | sızıntı kolu A32 boşaltıldı (metinsiz) | KIRMIZI — sızıntı PREMISE A32 (400) |
+> | M08 | başarı satırına metin | KIRMIZI — sızıntı: G16 S1'de |
+> | M09 | hata satırına oturum hash'i | KIRMIZI — sızıntı: G8 S1'de (A37) |
+> | M10 | `visibleText` = `TrimSpace` | KIRMIZI — `TestVisibleText_TheListedInvisibleBodiesAreRefused`, `TestLegalPublish_RefusesAnEmptyBodyAndSaysSo`, C62 |
+> | M11 | slug kontrolü yok | KIRMIZI — `…RefusesASlug…`, C61 |
+> | M12 | okumanın ikinci birimi yok | KIRMIZI — `…AReadCountsTwice…`, C55 |
+> | M13 | legal rotaları giriş grubunda (oturum kapısız) | KIRMIZI — C49 (303) |
+> | M14 | legal rotaları okuma kapısız (`sameOriginGate(false)`) | KIRMIZI — C52 (200) |
+> | M15 | PRG'nin tersi: tazeleme hatası 503 + sorun sayfası (2. turda yeniden tanımlandı; 1. turdaki "hata başarı gibi" artık tasarımdır) | KIRMIZI — C64 (503 ≠ 303), `TestLegalPublish_AFailedRefreshRedirectsAndTheScreenSaysThePageIsBehind`, sızıntı PREMISE A38 |
+> | M16 | yayının oturum reddi 503 | KIRMIZI — C65, sızıntı PREMISE A40 |
+> | M17 | legacy sürüm "operator" etiketli | KIRMIZI — `TestLegalPage_ShowsWhoPublishedEachVersion` |
+> | M18 | editör `templ.Raw` | KIRMIZI — `TestLegalScreen_ReopensOnPastedMarkupWithoutExecutingIt` |
+> | M19 | `openOperatorSurface` havuzu log satırına | KIRMIZI — wiring (`arg2 of log.Debug`) |
+> | M20 | `configuredSurface` legal yuvaya ara değişken | KIRMIZI — wiring |
+> | M21 | `*OperatorDB`'ye `Ping` | KIRMIZI — `…IsTheStoreAndNothingMore`, `…DelegatesVerbatim` |
+> | M22 | `(*OperatorDB).PublishLegal` slug/gövde yer değiştirmiş | KIRMIZI — `…DelegatesVerbatim` |
+> | M23 | `SessionHash` challenge anahtarıyla | KIRMIZI — `TestSessionHash_IsTheHashVerifyHandsTheStore`, C49, `TestLegalPublish_TheSessionPublishesAndThePublicSnapshotFollows` |
+> | M24 | `legal.Store.Refresh` kilitsiz | ilk koşuda YEŞİL (test yoktu) → `TestRefresh_TwoRefreshesNeverReadAtOnce` yazıldı → KIRMIZI (2 okuma aynı anda) |
+> | M25 | ekran 200'lük sayfa ister | KIRMIZI — `…ShowsWhoPublishedEachVersion` (105 satır) |
+> | M26 | `legalSession` boş hash | KIRMIZI — C49 (303) |
+> | M27 | `marketing.go` anlık görüntünün `Refresh`'ini çağırır | KIRMIZI — `TestLegalPublicPath_WritesNothing` (statik yarı) |
+> | M28 | X24'ün tersi: yayından sonraki `Refresh` istek bağlamıyla | KIRMIZI — `TestLegalPublish_AClientThatLeavesStillGetsThePublicationAndTheRefresh` ((a) anlık görüntü boş) |
+> | M29 | yayın istek bağlamıyla | KIRMIZI — aynı test ((a) 500: yayın iptal edilmiş bağlamla reddedildi) |
+> | M30 | kopuk bağlam zaman aşımsız | KIRMIZI — aynı test (tazelemenin son tarihi yok) |
+> | M31 | iyileştirme yok (GET hiç tazelemez) | KIRMIZI — `TestLegalPublish_AFailedRefreshRedirectsAndTheScreenSaysThePageIsBehind`, sızıntı PREMISE A43 (log satırı yok) |
+> | M32 | her görüntüde tazeleme | KIRMIZI — aynı test (kontrol: güncel anlık görüntüde +1 tazeleme) |
+> | M33 | editörde geride uyarısı yok (templ) | KIRMIZI — aynı test, sızıntı PREMISE A43 |
+> | M34 | `blankSymbol`'den U+303F çıkarıldı | KIRMIZI — `TestVisibleText_TheListedInvisibleBodiesAreRefused`, `TestLegalPublish_RefusesAnEmptyBodyAndSaysSo` |
+> | M35 | `behind` hep doğru (uzunluk bir fazla) | KIRMIZI — E2E (yayından sonra ekran "geride" der: E2E'nin uyarısız iddiasının pozitif kontrolü), `…AFailedRefresh…` (kontrol) |
+> | M36 | X19: operatör yüzeyine ikinci bir `legal.NewStore` | KIRMIZI — wiring (`legal.NewStore` iki kez; `texts`'in `arg2 of openOperatorSurface`'i yok) |
+> | M37 | X19b: herkese açık sayfalara ikinci bir `legal.NewStore` | KIRMIZI — wiring |
+> | M38 | X27: kilit okuma ile kurulum arasında bırakılır | YEŞİL — `TestRefresh_TwoRefreshesNeverReadAtOnce` kurulum sırasını ölçmez; iddia daraltıldı (karar 7(e)) |
+> | M39 | X19c: tek `NewStore`, operatöre başka bir adla (`opTexts := texts`) | KIRMIZI — wiring (`assigned to another name`; tam küme kuralı sayım kuralından bağımsız) |
+> | M40 | yayın hatasının 503 sayfası yine *"That text was not published"* der | KIRMIZI — `TestE2E_LegalPublishRefusesDeadSessionsAndBadTextsWritingNothing` (NUL kolu) |
+> | M41 | F1: anlık görüntü listeden SONRA okunur (sıra ters) | KIRMIZI — `TestLegalPage_AVersionPublishedBetweenTheTwoReadsIsNotCalledBehind` (2 tazeleme, 1 beklenir; editör yeni sürüm) |
+> | M42 | uyarı her farkta (yön düşürüldü) | KIRMIZI — `TestLegalPage_ASnapshotNewerThanTheListAfterTheHealIsNotCalledBehind` (uyarı var) |
+> | M43 | X02: `legalWriteTimeout` = `time.Hour` | KIRMIZI — `TestLegalPublish_AClientThatLeavesStillGetsThePublicationAndTheRefresh` (1h ≠ 10s) |
+> | M44 | X10: `LiveAt` = anlık görüntünün zamanı | KIRMIZI — `TestLegalPublish_AFailedRefreshRedirectsAndTheScreenSaysThePageIsBehind` (Notice'te canlı zaman yok, anlık görüntününki var) |
+> | M45 | X11: `LiveAt` boş | KIRMIZI — aynı test (Notice'te canlı zaman yok) |
+>
+> Pozitif kontrol: pristine ağaçta hedefli `-race` koşusu yeşil (aşağıda). Sayı bu koşuların
+> kaydıdır, ağın kapsamının değil.
+>
+> **Kalıcı test verisi (ölçüldü, sahip bağlantısı, salt okunur işlem; iki E2E testinin bir
+> koşusu çevresinde):** `op10b-` hesapları +2 (ikisi de `disabled`), oturumlar +7 (canlısı 0),
+> audit satırları +9 (birinci test: login, iki `read`, iki `legal_publish`, logout; ikinci:
+> login, bir `read`, logout), bilet 0, `legal_documents` +2 (birinci testin yayını ve geri
+> alması). Bu sayım, koşu öncesinde formun taşıyabileceği bir `privacy` metni VARKEN alındı:
+> geri alma onu yeniden yayımlar, sayfa başladığı yerde biter. Öyle bir metin YOKSA dal dört
+> yayın yapar — koşunun metni, bir FAKE önceki metin, koşunun metni yeniden, önceki metin geri
+> alma olarak: **+4 sürüm ve +4 `legal_publish`** (audit +11) ve sayfa testin FAKE metniyle
+> biter (kod okundu; bu dal bu koşuda sürülmedi). `op10_db_test.go`'nun başlığı da "iki ya da
+> dört" der (1. turda "iki ya da üç" yazıyordu). `internal/db`'nin
+> genişletilen havuz testi koşu başına bir `read` satırı daha commit eder.
+>
+> **Sayılı sınırlar (OP-10B):**
+> - **LB1** — Sürüm listesi tek sayfa (en yeni 100); daha eskisi bu ekranda görünmez. Devir:
+>   sayfalama (sorgu dizgisi; FV6 pini genişler).
+> - **LB2** — "Bu sürüme dön" düğmesi yok: geri alma metni elle yeniden yapıştırmaktır; eski
+>   bir sürümün gövdesini okuyan bir `op_read_*` (kendi türü, migration) ister.
+> - **LB3** — Görünür karakter kuralı Unicode kategorisine dayanır ve adı konmuş boş semboller
+>   `blankSymbol`'dür: U+2800, U+303F, U+1D159 (2. tur: U+303F ve U+1D159 eklendi). U+FFFC
+>   görünür sayılır (karar, çizimi ölçülmedi). L/N/P/S'de olup bu üçün dışında boş çizilen bir
+>   sembol (ör. bir yazı tipinde glif taşımayan bir kod noktası) geçer — kod incelemesinin
+>   konusu.
+> - **LB4** — Anlık görüntü tek replikada tazelenir (ADR 0016 Sonuçlar (i)); HTTP önbelleği 5 dk
+>   (ii) aynen. Tazeleme hatasında yayın veritabanındadır ve yanıt 303'tür; herkese açık sayfa
+>   bir sonraki BAŞARILI tazelemeye kadar — bir sonraki yayın, operatörün legal ekranının bir
+>   sonraki görüntüsü (iyileştirme) ya da yeniden başlatma — eski metni gösterir; ekran geride
+>   olduğu sürece her görüntüde bunu söyler. Ekranı kimse açmazsa ve yayın olmazsa sayfa yeniden
+>   başlatmaya kadar geride kalır (ERROR log satırı kalır). Çok replikada iyileştirme yalnız
+>   GET'i karşılayan replikayı düzeltir (ADR 0016'nın zamanlayıcı devri). Yalnız-tazele eylemi
+>   yok (bedeli karar 7(d)'de).
+> - **LB5** — Oturum hash'i handler paketinde düz bir `string`'dir (`SessionHash`'in dönüşü,
+>   `LegalStore`'a verilir). Bu B fazının yeni bir gevşemesi değil: OP-7'den beri
+>   `operatorauth.Store`'un (`OpenOperatorSession`, `TouchOperatorSession`,
+>   `CloseOperatorSession`) ve `internal/db`'nin `op_*` imzaları hash'i `string` olarak taşır
+>   (kaynak okundu); B fazı aynı tipi bir pakete daha taşıdı. Tip düzeyinde ayrım (adlandırılmış
+>   bir hash tipi) yok — o, OP-7 imzalarını da değiştiren ayrı bir iştir. Sızıntı sözleşmesi
+>   G8'i A31–A43 kollarında dört yüzeyde arar; kolların dışı kod incelemesinin.
+> - **LB6** — 256 KiB istek gövdesine uygulanır: URL kodlaması büyüten bir metin (satır
+>   sonları `%0D%0A`, ASCII dışı harfler `%XX`) 256 KiB'tan kısayken 413 alabilir; panelin
+>   M7-06 davranışıyla aynı.
+> - **LB7** — E2E'nin kalıcı satırları (yukarıda); paylaşılan dev veritabanının `/legal/privacy`'si
+>   önceden metin yoksa test metniyle biter.
+> - **LB8** — E2E'nin herkese açık sayfa kontrolü, başka bir paketin testinin aynı anda commit
+>   ettiği bir `privacy` sürümüyle yarışabilir (pencere bir ifade boyu; gözlenmedi).
+> - **LB9** — Bu koşuda `internal/db`'nin `TestRLS_EveryTenantScopedTableIsEnabledAndForced` ve
+>   `TestRLS_TheForceGateActuallyFires`'ı KIRMIZI: paylaşılan dev veritabanı goose 28'de (paralel
+>   WL-1 akışının `tenant_branding`'i), bu worktree'nin `db/migrations`'ı 00027'de biter — test
+>   canlı katalogdaki tabloyu migration'larda arar. OP-10B'nin değişikliği değil; birleşmeden
+>   sonra yeniden koşulmalı.
+> - **LB10** — İki yetkili operatör arasında **kaybolan güncelleme** (güvenlik denetimi S1): formda
+>   temel sürüm alanı yok ve `publishLegal` bir temel sürüm karşılaştırmaz. A sayfayı T0'da açar,
+>   B T1'de v3'ü yayımlar, A T2'de T0 sayfasından yayımlar: v3, A'nın v2+düzeltmesiyle ezilir ve
+>   ekran bunu söylemez (A'nın sayfası T0'da "geride" değildi; uyarı açılıştaki durumu anlatır).
+>   **Kayıt kaybı yok:** tablo append-only, v3 bir satır olarak ve `legal_publish` satırıyla
+>   kalır, sürüm listesi onu gösterir. Gerçek düzeltme formda bir temel sürüm alanı ve
+>   `op_publish_legal`'e bir beklenen-sürüm parametresi ister — **migration**; bu görevde YOK
+>   (yeni migration yasak), devir.
+> - **LB11** — **Aynı mikro saniyede iki yayın** (4. tur, N1). Veritabanı güncel sürümü
+>   `(published_at DESC, id DESC)` ile seçer; `legal.Doc` id taşımaz, `compare` yalnız
+>   `published_at`'ı karşılaştırır ve eşit zamanda uzunluğu id'nin vekili yapar. Aynı slug'ın iki
+>   yayını aynı `clock_timestamp()` mikro saniyesine düşerse (`op_publish_legal`'de slug başına
+>   kilit yok) vekil iki yönde yanılır: **(i)** iyileştirmeden sonra anlık görüntü listeden
+>   (id'ce) yeni ve uzunluğu farklıysa bir görüntülük yanlış uyarı; **(ii)** aynı uzunlukta farklı
+>   metin varsa ne tazeleme ne uyarı (2. turdan beri). Kesin düzeltme `legal.Doc`'a `ID` ekleyip
+>   `(PublishedAt, ID)` karşılaştırmaktır — yazılmadı (ürün kodu bu turda değişmez). Denetçinin
+>   X2 ve X4 mutasyonlarının tam pakette YEŞİL kalmasının sebebi budur: eşit zaman kolu hiçbir
+>   testte sürülmez. `legal.go`'nun `compare` ve `legalPage` yorumları bunu söyler.
+>
+> **Devirler:** `legal.Doc`'a `ID` ve `(PublishedAt, ID)` karşılaştırması (LB11) · yayında temel sürüm kontrolü — form alanı + `op_publish_legal`'e beklenen-sürüm
+> parametresi, migration (LB10) · **WL-7:** `40-ingress.yaml:127-133`'ün yorumu — OP-10B'nin
+> eklediği *"the largest bound a handler behind this Ingress sets itself is the sign-up form's 64
+> KiB"* cümlesi bugün doğru, ama logo yüklemesi (`internal/brand.LogoMaxInputBytes` = 512 KiB)
+> bu Ingress'ten geçecek; WL-7 bu cümleyi de günceller (m10'un WL-7 satırı genişletildi) ·
+> adlandırılmış oturum-hash tipi (LB5; OP-7 imzalarıyla) · sürüm listesi sayfalaması (LB1) · "bu sürüme dön" için eski gövdeyi okuyan
+> `op_read_*` (LB2) · çoklu replikada Refresh zamanlayıcısı (ADR 0016) · OP-11'in okuma ekranları
+> ikinci bütçe birimini `spendSession` ile harcar (surface.go'nun türetmesi) · canlıdaki
+> ConfigMap'te kalmış bir `TAPPA_OPERATOR_ADMIN_IDS` anahtarını kod okumaz; manifestten düştü
+> (kümede ölçülmedi) · K2/K4'ün operatör Ingress'i: `deploy/README.md` taslağı **iki Ingress**
+> (3. tur, güvenlik S2: tek Ingress'in `320k`'sı `path: /` ile bütün `/operator/*`'a, oturum
+> öncesi yollara da uygulanıyordu): `tappa-operator` `/` Prefix **`24k`** — `/operator/legal`
+> dışındaki her gövde okuması `readForm`'dan `maxFormBytes` = 16 KiB ile geçer (login, totp,
+> enroll; logout ve GET'ler gövde okumaz; kaynak okundu), 24k = 16 KiB + 8 KiB pay;
+> `tappa-operator-legal` `/operator/legal` Exact **`320k`** (1. turdaki `"64k"` 64 KiB'den uzun
+> her yasal metni nginx'te keserdi; uygulamanın sınırı 262 144 bayt, tam 256 KiB yayımlanır, +1
+> bayt uygulamanın kendi 413 sayfası — `TestLegalPublish_RefusesABodyBiggerThanTheCeiling`; 320k =
+> sınır + 64 KiB pay). ingress-nginx'te ek açıklamalar Ingress kaynağının bütün yollarına
+> uygulanır, yol başına sınır ayrı kaynak ister — belge cümlesi; **kümede ölçülmedi**, taslak
+> uygulanmadı. K4 izin listesi iki kaynağa da yazılmalı (biri eksikse o yol her adrese açık).
+> Kalan sayılı nokta: nginx gövdeyi uygulamadan önce tamponlar, oturumsuz bir istemci de
+> `/operator/legal`'e 320 KiB'a kadar gönderebilir (uygulama 303). `40-ingress.yaml`'ın yorumu düzeltildi: o Ingress
+> operatör host'unu yönlendirmez; arkasındaki handler'ların koyduğu en büyük sınır kayıt
+> formunun 64 KiB'ı (`signupMaxFormBytes`); `"1m"` yeniden türetilmedi · 🔴 A ve B birlikte `main`'e (ADR 0021 OP-10 notu md. 15).
+
 ### Görevler — A2 tenant-ötesi okuma/yazma
 | ID | Görev | Efor | Kabul (özet) |
 |---|---|---|---|
@@ -5230,7 +5674,7 @@ metni Taptime'ı işleyen olarak adlandırıyor, plaket "taptime" basıyor).
 | WL-4 | Domain `internal/domain/tenant/brand.go` | M | builder | kaydet/sil UPDATE + audit aynı tx (zorla patlatılan audit UPDATE'i geri alır; iki yön); detail tam 6 sabit anahtar; domain accent'i yeniden `Check` eder → `ErrAccentIllegible`; `ActorID` zorunlu | WL-1,2,3 |
 | WL-5 | Theme rotası + Tailwind token'ları (`brandtheme.go`, `tailwind.config.js`, `input.css`) | M | builder + tappa-brand | kurucu havuz almıyor; 200/404 matrisi (kanonik, küçük harf, geçersiz, red bandı); başlıklar birebir, gövde yalnız 3 özellik; marka yoksa tap butonu CDP computed `rgb(31,92,65)`/`rgb(255,253,244)` (bir kez); derlenmiş `app.css`'te `:root` varsayılanlarını okuyan test *(WL-0, ADR 0023 İddia B)*; slot testi özelliğe de bakar: `--brand-accent` yalnız `background-color` bildirimlerinde, `--brand-on-accent` yalnız `color`'da, `--brand-edge` yalnız kenarda (mutasyon: `.tap-button{color:rgb(var(--brand-accent))}` → kırmızı) *(3. tur, ADR 0023 §3)*; yeni bir marka testi: tenant accent'i yalnız marka slotlarında (henüz yazılmadı — adı WL-5'te konur; mutasyon: `.stamp`'e `bg-brand` → kırmızı); `TestCompiledCSS_StampWordIsInk` yeşil; yorumdan ölü CSS kuralı doğmuyor | WL-2 |
 | WL-6 | Logo rotaları + sayfa başına `img-src` | M | builder | başlıklar birebir; A oturumu B'nin sha'sını isteyince aldığı 404 bilinmeyen sha'nınkiyle bayt-aynı; oturumsuz tap logosu 404; "sayfa `img-src`'yi ancak `<img` içeriyorsa adlandırır" testi (panel + tap); ücretli istek sayısı ölçülüp bütçeler güncellendi (sıcak 1, soğuk 2); **WL-0 ekleri:** `Content-Disposition` dosya adı mime'a göre; yönetici oturumu olmayan, çalışan çerezli istek `/admin/brand/logo/…`'dan logo baytı almaz (ADR 0024 §5) | WL-1,4 |
-| WL-7 | Account → "Your brand" editörü (`brandactions.go`, account.templ/view, üç `ProtectWriting` rotası: logo, accent, sıfırla) | L | builder + tappa-brand | yükleme `MultipartReader` akış, `TMPDIR` salt-okunur/yokken bile başarılı (geçici dosya yok); yalnız tek `logo` parçası, bilinmeyen parça red; cross-origin POST resolver'dan önce red; manager POST 303 `not-permitted` + `brand_update_refused` + 0 UPDATE; okunaksız renk formu yeniden render + önerilen hex, yazma yok; önizleme gerçek tap bileşenlerini render eder; açık logo uyarısı (alfa ağırlıklı parlaklık logonun oturduğu porcelain'e <1,5:1 → uyarı, ret değil — *WL-0 düzeltmesi: "paper'a" yazıyordu*); `FactNoBulkImport` tripwire'ı "marka logosu handler'ı dışında multipart okuyucu yok" olarak yeniden türetildi (mutasyon: `employeeactions.go`'ya `FormFile` → kırmızı; SSS cümlesi değişmez); `<input type="color">` + hex alanı dokunma hedefi ≥44 px; **WL-0 ekleri (ADR 0024 §6, ADR 0023 §2):** `TMPDIR` testi `FormFile`/`FormValue`'yu ayırt etmez (1 MiB tavan altında diske dökmezler) → logo handler dosya(lar)ının AST'sini okuyan pin: `FormValue`, `PostFormValue`, `FormFile`, `ParseMultipartForm`, `ParseForm` çağrısı ve `Form`/`PostForm`/`MultipartForm` okuması 0 (mutasyon: `r.FormValue("x")` → kırmızı); tenant başına yükleme bütçesi (aşım 429 + ret audit'i + 0 UPDATE); gövde okunmadan önce eşzamanlı yükleme kabul sınırı; `SetReadDeadline` ile gövde okuma süresi; `40-ingress.yaml:127-129`'un "small JSON body" yorumu güncellenir, istek tamponlaması kümede ölçülür; ret yollarının log satırlarında dosya adı/bayt 0; önizleme **gönderilemez** — `<form` ve `/api/checkin` 0, düğme `type="submit"` değil, hiçbir `<form>`'un soyundan değil, `form=` özniteliği yok; önizlemedeki logo `/admin/brand/logo/{sha}`'dan; önizleme **yalnız kaydedilmiş** accent'i gösterir (aday hex `<input type="color">`'un kendi rengiyle) — ADR 0023 §2 *(3. tur)*; önizleme WL-9'un ayırdığı tap bileşenlerini çağırır | WL-4,5,6,9 |
+| WL-7 | Account → "Your brand" editörü (`brandactions.go`, account.templ/view, üç `ProtectWriting` rotası: logo, accent, sıfırla) | L | builder + tappa-brand | yükleme `MultipartReader` akış, `TMPDIR` salt-okunur/yokken bile başarılı (geçici dosya yok); yalnız tek `logo` parçası, bilinmeyen parça red; cross-origin POST resolver'dan önce red; manager POST 303 `not-permitted` + `brand_update_refused` + 0 UPDATE; okunaksız renk formu yeniden render + önerilen hex, yazma yok; önizleme gerçek tap bileşenlerini render eder; açık logo uyarısı (alfa ağırlıklı parlaklık logonun oturduğu porcelain'e <1,5:1 → uyarı, ret değil — *WL-0 düzeltmesi: "paper'a" yazıyordu*); `FactNoBulkImport` tripwire'ı "marka logosu handler'ı dışında multipart okuyucu yok" olarak yeniden türetildi (mutasyon: `employeeactions.go`'ya `FormFile` → kırmızı; SSS cümlesi değişmez); `<input type="color">` + hex alanı dokunma hedefi ≥44 px; **WL-0 ekleri (ADR 0024 §6, ADR 0023 §2):** `TMPDIR` testi `FormFile`/`FormValue`'yu ayırt etmez (1 MiB tavan altında diske dökmezler) → logo handler dosya(lar)ının AST'sini okuyan pin: `FormValue`, `PostFormValue`, `FormFile`, `ParseMultipartForm`, `ParseForm` çağrısı ve `Form`/`PostForm`/`MultipartForm` okuması 0 (mutasyon: `r.FormValue("x")` → kırmızı); tenant başına yükleme bütçesi (aşım 429 + ret audit'i + 0 UPDATE); gövde okunmadan önce eşzamanlı yükleme kabul sınırı; `SetReadDeadline` ile gövde okuma süresi; `40-ingress.yaml:127-133`'ün "small JSON body" yorumu güncellenir — OP-10B'nin eklediği *"the largest bound a handler behind this Ingress sets itself is the sign-up form's 64 KiB"* cümlesi dahil: logo yüklemesi (`internal/brand.LogoMaxInputBytes` = 512 KiB) bu Ingress'ten geçer, **WL-7 bu cümleyi de günceller** *(OP-10B 3. tur)*; istek tamponlaması kümede ölçülür; ret yollarının log satırlarında dosya adı/bayt 0; önizleme **gönderilemez** — `<form` ve `/api/checkin` 0, düğme `type="submit"` değil, hiçbir `<form>`'un soyundan değil, `form=` özniteliği yok; önizlemedeki logo `/admin/brand/logo/{sha}`'dan; önizleme **yalnız kaydedilmiş** accent'i gösterir (aday hex `<input type="color">`'un kendi rengiyle) — ADR 0023 §2 *(3. tur)*; önizleme WL-9'un ayırdığı tap bileşenlerini çağırır | WL-4,5,6,9 |
 | WL-8 | Panel kabuğu (`panelChrome`, `PanelChrome`, `review.go` `chrome()`) | S | builder | logo + tenant adı + şerit (K4); `chrome()` tam +1 PK okuması, EXPLAIN ANALYZE seed'de <1 ms; marka okuma hatası sayfayı düşürmez; AdminChoose değişmez | WL-5,6, OP-10 |
 | WL-9 | Tap, sonuç, tur ekranları (`base.templ` açık parametreli `BrandedPage…`, `tap.templ`, `result.templ`, `view.go`, `tap.go`/`checkin.go` `tapCSPFor`, `directory.go` `TapPage` markayı aynı tx'te okur, `result_test.go` beyaz listesi) | M | builder + tappa-brand | **§9 onayı (D-C) olmadan başlamaz**; `TapView` 3 ve `ResultView` 8 alan kalır (marka ayrı açık parametre; kartta onay alıntılı); logo `width`/`height` → CDP layout-shift 0; 390×844'te tap butonu üst kenarı ≤16 px kayar, hâlâ tek buton, "Tap" metni, ≥64 px; tek yeni metin `alt` = tenant adı; A çalışanı B plaketinde gövdede `/t/logo/` yok; marka yoksa HTML + CSP bayt-aynı (golden); okuma hatasında 200 + varsayılan; **WL-0 ekleri (ADR 0023 §2, §5–§7):** K-2a ve K-2b (2026-10-02) kartta alıntılı — logo varken üstte logo + altında "taptime · punchless", logosuz-accent'li tap ekranında başlıktaki `taptime` ink; markalı tenant'ın sonuç sayfasında tema `<link>`'i 0; uyuşmazlıkta **sonuç** sayfasında da `/t/logo/` ve tema `<link>`'i 0, eşleşen tenant'ta sonuçta logo var; golden aktivasyon ailesini de kapsar; 16 px bütçe ile logo yuvası aritmetiği (yuva ≤ `29 − aralık` px) orkestratörce karara bağlanır; **3. tur ekleri:** golden'a giren render'lar kartta **adıyla ve sayısıyla** listelenir (tap ekranı; sonuç ekranının hüküm × yön × iş türü × practice varyantlarından seçilenler; aktivasyon ailesi) — golden yalnız listelenen fikstürleri yakalar (ADR 0023 İddia B); `templ Tap` başlık ve düğme yüzü bileşenlerine ayrılır (Account önizlemesi için — WL-7 buna bağımlı), bölme sonrası tap ekranı golden'ı bayt-aynı | WL-5,6, D-C |
 | WL-10 | Güvenlik denetimi (tüm WL diff'i) | M | tappa-security-auditor | ONAY — izolasyon (RLS + handler), fuzz/bomb, başlıklar, CSP diff, multipart tripwire, bütçeler, audit, log'da dosya adı/byte yok | WL-7,8,9 |
@@ -5350,7 +5794,7 @@ metni), `FactNoBulkImport`, `TestBrand_*`, panel CSP ↔ script karşılığı t
 >     dahil kesinti; N < `GOMAXPROCS` (CPU sınırı 2) → N = 1 (3. turda "öneri"den "kuralın
 >     sonucu"na düzeltildi); tenant başına yükleme bütçesi,
 >     gövde okunmadan önce eşzamanlı kabul sınırı, `SetReadDeadline`, ingress bağımlılığı adıyla
->     (`40-ingress.yaml:127-129`). WL-3 ve WL-7 satırlarına eklendi.
+>     (`40-ingress.yaml:127-133`). WL-3 ve WL-7 satırlarına eklendi.
 > 21. **`tenant_branding`'in `updated_at`/`updated_by` sütunları ve bileşik FK'sı** ADR 0023
 >     §1'e ve WL-1 satırına girdi (`admin_users_id_tenant_key`, `00006_create_admin_users.sql:85`).
 > 22. **K-2b'nin piksel aritmetiği:** co-brand satırı tek başına 15 px (ölçüldü), bugünkü başlık

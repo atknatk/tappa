@@ -1,0 +1,103 @@
+package operatorpages
+
+import (
+	"strconv"
+
+	"github.com/atknatk/tappa/web/templates/components"
+)
+
+// Legal is /operator/legal (M10 OP-10; ADR 0020 §7): Taptime's own four documents --
+// one editor each, re-opened on the text the public page serves -- and the version
+// list with who published each version.
+//
+// UNDOING A PUBLICATION IS A PUBLICATION. legal_documents is append-only (ADR 0016 §3),
+// so the page says so beside the editors: the earlier text is published again and
+// becomes a new version. The list carries no text (op_read_legal_versions returns a
+// length, not a body); a "publish this version again" control would need a read of an
+// old text, which is a new op_read_* (a migration) and not part of this screen.
+//
+// The texts reach the page as data: the editor's content and every list value are
+// templ expressions, escaped (TestLegalScreen_ReopensOnPastedMarkupWithoutExecutingIt).
+templ Legal(v LegalView) {
+	@screen("Legal texts", true) {
+		<section class="op-card">
+			<p class="docket-label">Legal texts</p>
+			<h1 class="mt-1 font-display text-2xl font-bold tracking-tight">Taptime's legal texts</h1>
+			<p class="mt-3 text-sm">
+				Publishing adds a new version; nothing is overwritten. To undo a change, publish
+				the earlier text again.
+			</p>
+			<p class="mt-3 text-sm text-ink/70">The public pages are on the customer site, under /legal.</p>
+			<p class="mt-2 text-sm">
+				<a href="/operator" class="op-link">Back to the console</a>
+			</p>
+		</section>
+		for _, d := range v.Docs {
+			@legalEditor(d)
+		}
+		@legalVersions(v)
+	}
+}
+
+// legalEditor is one document's form. The slug field names the document; the server
+// checks it against the closed set, and the form carries nothing else but the text. When
+// the public page is behind the list's live version (LegalDoc.Behind) the editor says so
+// above the form: it opened on the page's text, not on the newest version.
+templ legalEditor(d LegalDoc) {
+	<section class="op-card" aria-labelledby={ "legal-" + d.Slug }>
+		<h2 id={ "legal-" + d.Slug } class="font-mono text-base font-bold">{ d.Path }</h2>
+		if d.Published {
+			<p class="mt-1 text-sm text-ink/70">Live since <span class="font-mono">{ d.PublishedAt }</span></p>
+		} else {
+			<p class="mt-1 text-sm text-ink/70">Not published. The public page shows its placeholder.</p>
+		}
+		if d.Behind {
+			<div class="mt-4">
+				@components.Notice(components.ToneWarn, "The public page is behind") {
+					<p>
+						The newest version, published <span class="font-mono">{ d.LiveAt }</span>, has not reached
+						the public page yet. This editor opened on the text the page shows, so publishing it
+						replaces the newest version.
+					</p>
+					<p class="mt-2">Reload this screen to try again. The page also catches up after the next publication or a restart.</p>
+				}
+			</div>
+		}
+		<form method="post" action="/operator/legal" class="mt-5 flex flex-col gap-3">
+			<input type="hidden" name="slug" value={ d.Slug }/>
+			<label for={ "legal-body-" + d.Slug } class="docket-label">Text</label>
+			<textarea id={ "legal-body-" + d.Slug } name="body" rows="12" required class="op-input">{ d.Body }</textarea>
+			<p class="text-xs text-ink/70">A blank line starts a new paragraph. At most 256 KiB.</p>
+			<button type="submit" class="btn btn--primary">Publish a new version</button>
+		</form>
+	</section>
+}
+
+// legalVersions is the version list, newest first, on a docket: the publication time
+// (UTC), the document, the length and the publisher, mono, with the live version of
+// each document marked.
+templ legalVersions(v LegalView) {
+	<section class="docket" aria-labelledby="legal-versions">
+		<h2 id="legal-versions" class="docket-label">Versions, newest first</h2>
+		if len(v.Versions) == 0 {
+			<p class="mt-2">Nothing has been published yet.</p>
+		} else {
+			<ol class="mt-2">
+				for _, r := range v.Versions {
+					<li class="op-version">
+						<span>{ r.PublishedAt }</span>
+						<span>{ r.Path }</span>
+						<span>{ r.Bytes }</span>
+						<span>{ r.Publisher }</span>
+						if r.Current {
+							<span class="tally tally--active">Live</span>
+						}
+					</li>
+				}
+			</ol>
+			if v.Limit > 0 && len(v.Versions) >= v.Limit {
+				<p class="mt-2 text-xs text-ink/70">The newest { strconv.Itoa(v.Limit) } are listed. Older versions are not shown here.</p>
+			}
+		}
+	</section>
+}

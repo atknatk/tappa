@@ -2,40 +2,29 @@ package handler
 
 import (
 	"context"
-	"errors"
 	"sync"
 	"time"
-
-	"github.com/google/uuid"
 
 	"github.com/atknatk/tappa/internal/domain/legal"
 )
 
-// fakeTexts is the double for internal/domain/legal.Store.
+// fakeTexts is the double for internal/domain/legal.Store, as the PUBLIC surface sees
+// it (legalReader: Published) -- and with the store's other method, Refresh, COUNTED, so
+// a test can say the public pages never reached it.
 //
 // 🔴 IT STARTS EMPTY, WHICH IS THE STATE THE PRODUCT SHIPPED IN. A double that
 // pre-populated the four documents would make every "the placeholder is still
-// showing" assertion vacuous — and that placeholder is the sentence M7-01 shipped
-// and M7-06 has to remove exactly once, for exactly the document that was published.
+// showing" assertion vacuous.
+//
+// (Until M10 OP-10 it was also the M7-06 panel's writer, with a Publish that recorded
+// the publisher's tenant and admin id. The panel's legal screen is gone -- the platform
+// operator publishes through op_publish_legal -- and so is that method.)
 type fakeTexts struct {
 	mu sync.Mutex
 	// docs is the snapshot.
 	docs map[string]legal.Doc
-	// calls records every Publish that reached this double, in order, so a test can
-	// assert what the handler passed rather than only what came back.
-	calls []fakePublish
-	// err, when set, is what Publish returns instead of writing.
-	err error
-}
-
-// fakePublish is one recorded call. The TENANT AND ACTOR ARE RECORDED because the
-// §4.5 story of this whole feature is that they are the caller's own and nobody
-// else's; a test that only checked the body would not notice them being wrong.
-type fakePublish struct {
-	TenantID uuid.UUID
-	ActorID  uuid.UUID
-	Slug     string
-	Body     string
+	// reads counts Published calls; refreshes counts Refresh calls.
+	reads, refreshes int
 }
 
 func newFakeTexts() *fakeTexts { return &fakeTexts{docs: map[string]legal.Doc{}} }
@@ -43,6 +32,7 @@ func newFakeTexts() *fakeTexts { return &fakeTexts{docs: map[string]legal.Doc{}}
 func (f *fakeTexts) Published() map[string]legal.Doc {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.reads++
 	out := make(map[string]legal.Doc, len(f.docs))
 	for k, v := range f.docs {
 		out[k] = v
@@ -50,28 +40,16 @@ func (f *fakeTexts) Published() map[string]legal.Doc {
 	return out
 }
 
-func (f *fakeTexts) Publish(_ context.Context, tenantID, actorID uuid.UUID, slug, body string) (legal.Doc, error) {
+// Refresh is the store's read of the database; the public surface's reader has no such
+// method, and this one only counts.
+func (f *fakeTexts) Refresh(context.Context) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.calls = append(f.calls, fakePublish{TenantID: tenantID, ActorID: actorID, Slug: slug, Body: body})
-	if f.err != nil {
-		return legal.Doc{}, f.err
-	}
-	if !legal.Valid(slug) {
-		return legal.Doc{}, errors.New("fake: unknown slug")
-	}
-	d := legal.Doc{
-		Slug:        slug,
-		Body:        body,
-		PublishedAt: time.Date(2026, 8, 14, 9, 30, 0, 0, time.UTC),
-		Paragraphs:  legal.Paragraphs(body),
-	}
-	f.docs[slug] = d
-	return d, nil
+	f.refreshes++
+	return nil
 }
 
-// put installs a published document without going through Publish, for tests whose
-// subject is the READ.
+// put installs a published document, for tests whose subject is the READ.
 func (f *fakeTexts) put(slug, body string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -85,8 +63,8 @@ func (f *fakeTexts) put(slug, body string) {
 	}
 }
 
-func (f *fakeTexts) published() []fakePublish {
+func (f *fakeTexts) counts() (reads, refreshes int) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return append([]fakePublish(nil), f.calls...)
+	return f.reads, f.refreshes
 }

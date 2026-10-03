@@ -1409,6 +1409,26 @@ keskinleştirdiği yerler, adıyla (ayrıntı ve ölçümler: [m10-platform.md](
   tablosu OP-10A kart düzeltmesinde.
 - **PART III:** listede olmayan her biçim kod incelemesinin konusu — tamlık iddiası yok.
 
+**OP-10 B fazı eki (2026-10-03).** Yukarıdaki md. 13'ün *"`*OperatorDB`'ye yöntem
+eklenmedi"* cümlesi A fazının kaydıdır; B fazında tüketici yazıldı ve küme onunla değişti:
+`*OperatorDB`'ye `LegalVersions(ctx, sessionHash, page)` ve `PublishLegal(ctx,
+sessionHash, slug, body)` eklendi, ikisi de `return F(ctx, o.pool, …)`; tüketici arayüzü
+`internal/handler/operator`'ın `LegalStore`'u. Pinler daraltılmadan güncellendi:
+`TestOperatorDB_IsTheStoreAndNothingMore` kümeyi `operatorauth.Store` ∪
+`operator.LegalStore` ∪ `Close` diye türetir (iki arayüz ortak ad taşırsa kırmızı),
+`TestOperatorDB_EveryMethodDelegatesVerbatim` dokuz yöntem, `TestOperatorDB_HasNoTenantDoorAndNoRawSQLDoor`
+öncülü 10; `TestLegalVersions_OnThePoolTheTwoPhasesAreTwoTransactions` aynı okumayı
+yöntemin kendisiyle, üretim kurucusunun havuzunda da sürer (bir `read` satırı daha commit
+eder). Ekranın oturum argümanı `operatorauth.(*Authenticator).SessionHash`'tir
+(`TestSessionHash_IsTheHashVerifyHandsTheStore`); okuma bileti `LegalStore`'un
+imzalarında yok — bilet `internal/db.LegalVersions`'ın iki aşaması arasında kalır (kaynak
+okundu). `PublishLegal` istek bağlamından kopuk bir bağlamla (`context.WithoutCancel`, 10 sn
+zaman aşımı) çağrılır: istemcinin ayrılması `op_publish_legal`'i ve ardından gelen tazelemeyi
+iptal etmez (`TestLegalPublish_AClientThatLeavesStillGetsThePublicationAndTheRefresh`; sahte
+store'da ölçüldü — sürücünün ifade ortasındaki iptale davranışı ölçülmedi). Ekranın ölçümleri ve üç parçalı
+güvenlik iddiası: [ADR 0020](0020-platform-operatoru-ayri-kimlik.md) §7, *"OP-10 B fazı
+notu"*.
+
 ## Sonuçlar
 
 - **OP-5:** tablolar (bilet tablosu dahil) + `01-roles.sql` + runbook bu ADR'nin §1 ve

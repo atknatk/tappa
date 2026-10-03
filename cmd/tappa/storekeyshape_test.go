@@ -288,7 +288,6 @@ var storeSurface = map[string]string{
 	"NextPolicyVersionNo":              "(context.Context, NextPolicyVersionNoParams{TenantID uuid.UUID; PolicyID uuid.UUID}) (int32, error)",
 	"PolicyNameTaken":                  "(context.Context, PolicyNameTakenParams{TenantID uuid.UUID; Name string}) (bool, error)",
 	"PreviewBillingPeriod":             "(context.Context, PreviewBillingPeriodParams{PeriodMonth pgtype.Date; TenantID uuid.UUID}) (PreviewBillingPeriodRow{TenantID uuid.UUID; TenantName string; Plan string; Timezone string; PeriodMonth pgtype.Date; PeriodFrom time.Time; PeriodTo time.Time; FirstChargeableMonth pgtype.Date; FreePeriod bool; EmployeeCount int32; UnstampedEmployees int32; UnitPrice pgtype.Numeric; AmountDue pgtype.Numeric; PeriodHasEnded bool; PeriodIsAfterSignup bool}, error)",
-	"PublishLegalDocument":             "(context.Context, PublishLegalDocumentParams{Slug string; Body string; PublishedBy *uuid.UUID}) (PublishLegalDocumentRow{ID uuid.UUID; Slug string; Body string; PublishedAt time.Time}, error)",
 	"RecordAuditEvent":                 "(context.Context, RecordAuditEventParams{TenantID uuid.UUID; ActorID *uuid.UUID; Action string; Target *string; Detail []byte}) (RecordAuditEventRow{ID uuid.UUID; At time.Time}, error)",
 	"RenameTenantPolicy":               "(context.Context, RenameTenantPolicyParams{Name string; TenantID uuid.UUID; ID uuid.UUID}) (RenameTenantPolicyRow{ID uuid.UUID; Name string}, error)",
 	"RetireTagForReplacement":          "(context.Context, RetireTagForReplacementParams{ReplacedBy string; TenantID uuid.UUID; Uid string}) (RetireTagForReplacementRow{Uid string; TenantID uuid.UUID; LocationID *uuid.UUID; LastCtr int32; Status string; RetiredAt *time.Time; ReplacedBy *string; CreatedAt time.Time; EncodedAt *time.Time}, error)",
@@ -803,10 +802,14 @@ func TestResolverAccess_NoSqlcQueryNamesADefiner(t *testing.T) {
 	// is 114 now (111 + T73's three). ADR 0018 / md.5 added ZERO queries -- it only
 	// added a parameter to the existing InsertUnassigned.
 	// 114 -> 122 on 2026-10-03 (M10 WL-1): branding.sql's eight queries.
-	if named != 122 {
-		t.Fatalf("%d named quer(ies) were seen across %d files; ONE HUNDRED AND TWENTY-TWO were "+
+	// 122 -> 121 on 2026-10-03 (M10 OP-10 phase B): db/queries/legal.sql's
+	// PublishLegalDocument went with the M7-06 panel's legal screen (00027 revoked
+	// tappa_app's INSERT; the operator publishes through op_publish_legal).
+	if named != 121 {
+		t.Fatalf("%d named quer(ies) were seen across %d files; ONE HUNDRED AND TWENTY-ONE were "+
 			"there when this was pinned (2026-10-03: 111 on 2026-08-24, + T73's three "+
-			"admin-password queries, + WL-1's eight branding queries). "+
+			"admin-password queries, + WL-1's eight branding queries, less OP-10's removed "+
+			"PublishLegalDocument). "+
 			"Update the number in the same edit that adds or removes a query", named, files)
 	}
 	if !t.Failed() {
