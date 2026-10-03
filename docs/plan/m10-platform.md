@@ -5838,7 +5838,7 @@ yasal belge içindi, M9-08'in kapsamı §4.5'i aşan beş işlev.
 | EM-4 | Şablonlar (`web/templates/email/*.templ` + metin üreticileri) | M | builder + tappa-brand | tam 1 mutlak URL; `<img`/`@font-face`/`<link`/`<script` 0; `<script>`'li ad escape; Maltaca doğru; konu ASCII ise olduğu gibi, değilse `=?utf-8?q?` *(EM-1 düzeltmesi: `mime.QEncoding` ASCII konuyu değiştirmez — ADR 0022)*; kontrast AA (hesaplanmış) | EM-1 |
 | EM-5 | Asenkron reset teslimi + `emailResetChannel` + main `case email` | M–L | builder + güvenlik | kanal gecikmesi 2 s iken kayıtlı/kayıtsız medyanları [taban, taban+50 ms] (yeni TimingIsFlat; senkron kodda kırmızı olduğu gösterilir); grant başına tam 1 audit; kuyruk dolu → senkron undelivered; boşaltma HTTP kapanışıyla eşzamanlı ve `httpShutdownGrace` içinde, ADR 0022 §6.6(b)'nin uçuşta-istekli tarifiyle pinli *(EM-1 düzeltmesi: `TestShutdownBudget_*` yalnız iki sabiti okur, ardışık bir beklemeyi yakalamaz — ölçüldü)*; grant başına `recover` → henüz satır yazılmadıysa `undelivered`; M7-04'ün sahteye karşı koşmuş kriterleri GERÇEK SMTP'ye karşı yeniden koşulmuş (tablo rapora); canlı duman: Gmail "Show original" SPF=PASS (mail.taptime.mt), DKIM=PASS, DMARC=PASS | EM-2,3,4 + kullanıcı dış adımları |
 | EM-6 | Adres okuma + "e-postayı değiştir" aksiyonu | M | tappa-db-migrator + builder + tappa-brand | RLS izolasyon (A, B'nin adresini okuyamaz); değişiklik bekleyen davetleri aynı tx'te iptal; audit; log'da `.Email` yok (R7b); migration beklenmiyor (ölç) | EM-5 |
-| EM-7 | `invite.EmailChannel` + `emailLinkSink` + davet anahtarı + limitler | M–L | builder + güvenlik + tappa-brand | email modunda gövdede `/activate?code=` 0; `invite.code_emailed` 1, `code_shown_to_manager` 0; adres yok/geçersiz/yönetici adresi → `employee_invites` satırı 0; N+1. davet oran sınırında red, satır basılmaz; SMTP hatası log'da yalnız class/code (`employeeactions.go:419` yolu sızıntı testiyle kapalı); yedek yalnız owner'a + `manager_panel` audit | EM-6 |
+| EM-7 | `invite.EmailChannel` + `emailLinkSink` + davet anahtarı + limitler | M–L | builder + güvenlik + tappa-brand | 🔴 **Ön koşul (EM-4 devri, 2026-10-03):** `email` modu açılmadan önce KULLANICI KARARI — tenant/çalışan adı yalnız doğrulanmış tenant'ta mı gösterilir, yoksa saldırganın yazdığı düzyazı ve rakamların DKIM imzalı davette görünmesi açıkça kabul mü edilir (ADR 0022 §8, sayılı sınır 22); cevap state.md'ye tarihiyle · email modunda gövdede `/activate?code=` 0; `invite.code_emailed` 1, `code_shown_to_manager` 0; adres yok/geçersiz/yönetici adresi → `employee_invites` satırı 0; N+1. davet oran sınırında red, satır basılmaz; SMTP hatası log'da yalnız class/code (`employeeactions.go:419` yolu sızıntı testiyle kapalı); yedek yalnız owner'a + `manager_panel` audit | EM-6 |
 | EM-8 | M6-11 kanal ayrımı + gerçek cihaz turu | S + kullanıcı | builder + kullanıcı | Gmail Android/iOS, Outlook, Apple Mail'den aktivasyon → NFC tap'te oturum tanınıyor; sonuç tablosu state.md'de | EM-7 |
 | EM-9 | "Parolanız değişti" bildirimi (linksiz, yalnız giriş sayfası adresi) | S | builder | — | EM-5 |
 | EM-10 | Bounce/complaint (SNS → HTTPS, imza doğrulama) | L | — | pilot sonrası, kendi ADR'si | — |
@@ -6459,6 +6459,343 @@ yasal belge içindi, M9-08'in kapsamı §4.5'i aşan beş işlev.
 > satır sınırı uygulanmaz, yalnız 998 · (9) gerçek SES'e karşı davranış ölçülmedi (EM-5) ·
 > (10) "0 dial" sahte sunucunun kabul ettiği bağlantı sayısıyla ölçülür; ürün kodunda dial kancası
 > yok · (11) fuzz başlık üreticisini sürer, ağ yolunu değil · (12) gövde içeriği kısıtlanmaz.
+
+> **Kart düzeltmesi (2026-10-03, EM-4 uygulaması sırasında; 2. ve 3. tur aynı gün).** Yazıldı:
+> `web/templates/email/` (yeni paket, altı dosya): `email.go` (paket belgesi + üç parçalı iddia +
+> bilinen sınırlar; `RenderInvitation`, `RenderPasswordReset`, `InvitationView`, `ResetView`,
+> `ErrBaseURL`, `ErrLink`, `ErrLifetime`, `checkLink`, `validBase`, `validHostName`,
+> `loopbackHost`, `lifetime`) · `letter.go` (`letter` — iki parçanın okuduğu tek cümle kaynağı;
+> `invitationLetter`, `resetLetter`, ad kapısı `nameShown`) · `text.go` (düz metin üreticisi) ·
+> `message.templ` + üretilen `message_templ.go` (tek HTML bileşeni, satır içi stil) ·
+> `email_test.go` (23 test, DB'siz). Hiçbir handler'a bağlanmadı (EM-5/EM-7); davranış bugün
+> değişmez. `go.mod`/`go.sum`/`sqlc.yaml` diff boş; üretim bağımlılığı yalnız `internal/mail`
+> (+ templ, stdlib `net/netip`): `go list -deps ./web/templates/email` → depo paketi olarak yalnız
+> `internal/mail` ve kendisi. `internal/mail` değişmedi. Testler `internal/adminauth`,
+> `internal/domain/signup`, `internal/domain/tenant`'ı yalnız test için import eder. **Ölçüm
+> ortamı:** go1.27.1 darwin/amd64 (testler go1.26.7'de de, `-race` ile yeşil); staticcheck
+> `GOTOOLCHAIN=go1.26.7` (tüm depo, çıkış 0); ayrı worktree, taban `b06370c` (dalın ucu önce
+> `df544c1`'e, sonra `e08045f`'e ilerledi; worktree bilerek ilerletilmedi). DB'ye bağlanılmadı; ağ yalnız `127.0.0.1` (konu
+> testinin dinleyicisi, bağlantı kabul etmediği assert edilir).
+> **ADR 0022 (bu worktree'de):** §8'e tarihli *"EM-4 notu"* (ad kapısı, URL sayımı ve taban kuralı,
+> adsız sıfırlama, düz metin üreticisi, ana tarayıcı cümlesi, renk okuyucusu, kontrast) · İddia
+> H'nin PART I'i *"ölçülecek"*ten test adlarıyla *"ölçüldü"*ye ve **listelenen** kümeye bağlı,
+> PART II'nin *Yakalamadığı*'sı ölçülmüş sınırlara · sayılı sınır 22'ye EM-4 yarısı ve EM-7'nin
+> önündeki ürün kararı · Sonuçlar'daki EM-4/EM-7/WL-11 devir maddesi. Normatif kural değişmedi.
+> `TestEveryNamedTestExists` yeşil (sarkan 60/60, bütçe değişmedi).
+>
+> **Kabul (kart satırı + EM-1/EM-2 devirleri):**
+> - ✓ **tam 1 mutlak URL** — parçalar **ayrı** sayılır, her biri tam 1 ve o da link: HTML'de
+>   tek `href` (görünen metinde URL yok), düz metinde link kendi satırında bir kez; iki şablon ×
+>   2 düz + 33 düşmanca ad — `TestRender_EachPartCarriesExactlyOneAbsoluteURL`. Link yalnız
+>   beklenen kökte: `BaseURL` (sondaki `/`'ler kırpılır) + yol + `?<param>=` + 1–128
+>   `[A-Za-z0-9_-]`; taban yalnız `https`, düz `http` yalnız loopback'te (`localhost`,
+>   `*.localhost`, 127.0.0.0/8), host için bir sözdizimi kuralı (IPv4 biçimi doğrulanmaz), port
+>   1–65535; 52 red + 12 kabul satırı (2'si ölçülmüş sınır) —
+>   `TestRender_RefusesALinkOutsideTheExpectedAddress`; `adminauth`'un bastığı
+>   sıfırlama linki kabul — `TestRender_AcceptsTheResetLinkAdminauthMints`.
+> - ✓ **`<img`/`@font-face`/`<link`/`<script` 0** — ayrıca `<style`, `<iframe`, `<object`,
+>   `<embed`, `<svg`, `<video`, `<audio`, `<form`, `<base`, `@import`, `url(`, ` src=`,
+>   ` srcset=`, ` background=`, ` poster=`, ` action=` 0; öğe kümesi tam olarak html, head, meta,
+>   title, body, div, p, h1, a; öznitelikler yalnız lang, charset, name, content, style, href; tek
+>   `<a>`; `<meta charset="utf-8">` var — `TestRender_LoadsNothingAndUsesOnlyTheseElements`.
+> - ✓ **`<script>`'li ad escape** — iki katman, ayrı ölçüldü: (1) ad kapısı `<`, `>`, `/`, `"`
+>   taşıyan adı **gizler** (`TestNames_AnAddressShapedNameIsWithheld`); (2) kapı atlanıp
+>   `<script>alert(1)</script> "q" 'a' & <img src=x>` doğrudan altı yuvaya verildiğinde templ
+>   hepsini kaçışlar, kaçışlı metin 6 kez, ham `<script`/`<img`/`"q"`/`'a'` 0 —
+>   `TestTemplate_EscapesWhateverReachesIt`. Gösterilen adın `'` ve `&`'ı HTML'de
+>   `&#39;`/`&amp;`, düz metinde olduğu gibi — `TestNames_AnOrdinaryNameIsShownVerbatim`.
+> - ✓ **Maltaca doğru** — ċ ġ ħ ż ve büyükleri iki parçada UTF-8 bayt olarak; `Ħal Għaxaq`
+>   adı düz metinde birebir, HTML'de kaçışlı — `TestNames_AnOrdinaryNameIsShownVerbatim`.
+> - ✓ **konu ASCII ise olduğu gibi, değilse `=?utf-8?q?`** (EM-1 düzeltme 4) — iki konu sabit
+>   (`Your Taptime invitation`, `Reset your Taptime password`), adla değişmez, ad taşımaz,
+>   yazdırılabilir ASCII, `=?` yok, `mime.QEncoding` değiştirmez; kontrol: Maltaca girdi
+>   `=?utf-8?q?` olur. Bütün ileti `internal/mail`'in derleyicisinden geçer: iptal edilmiş
+>   bağlamla `Send` → `timeout` (derlemeden **sonraki** sınıf), `invalid_message` değil; kontrol:
+>   `=?…?=` konu aynı yoldan `invalid_message`; dinleyiciye 0 bağlantı —
+>   `TestSubject_IsFixedASCIIAndPassesTheMailComposer`.
+> - ✓ **kontrast AA (hesaplanmış) ve palet** — her metin düğümünün rengi ve zemini kendi öğesinin
+>   ya da en yakın atasının satır içi stilinden okunur; biri eksikse kırmızı; her çift ≥ 4,5:1.
+>   Palet iki yoldan: (1) çözülmüş belgedeki her `#`-dizisi **tam altı hane** ve palet token'ı;
+>   (2) renk taşıyan her bildirim (`color`, `*color*`, `background*`, `border*`, `outline*`,
+>   `box-shadow`, `text-shadow`, `fill`, `stroke`) yalnız palet hex'i, uzunluk ve çizgi biçimi
+>   içerir — `red`, `transparent`, `currentColor`, `rgb(`, `hsl(`, `var(`, 4/8 haneli hex red —
+>   `TestContrast_EveryTextOnItsGroundClearsAA` (kontrolleri `TestContrast_MathIsNotVacuous`,
+>   `TestContrast_ColourReaderCatchesWhatItExistsToCatch`). Tablo aşağıda.
+> - ✓ EM-2 devri **"Text ve HTML zorunlu"** — ikisi de dolu ve geçerli UTF-8; derleyici yolu
+>   bunu da sınar.
+> - ✓ ADR §8: **davet metni ana tarayıcı** — *"in your phone's main browser — the one that opens
+>   when you tap a link"* ve *"choose "Open in browser" first"* iki parçada, *"own browser"* hiçbir
+>   parçada yok — `TestInvitation_SaysToUseThePhonesMainBrowser`; **wordmark** metin, görsel yok;
+>   wordmark, başlık ve düğme Space Grotesk'i ilk sırada adlandırır —
+>   `TestRender_DisplayFaceOnWordmarkHeadingAndButton`; **"Tappa" 0**, "Taptime" var —
+>   `TestRender_SaysTaptimeNotTheCodeName`; iki parça aynı cümleleri söyler —
+>   `TestRender_TheTwoPartsSayTheSameWords`; süre ifadesi aşağı yuvarlar —
+>   `TestLifetime_NeverOverstates`.
+> - ✓ **Taze `app.css` farkı 0:** Tailwind v3.4.17 (`.tools/tailwindcss`, `--minify`), **taban
+>   `b06370c`'de** önce ve sonra (2. ve 3. tur dahil) → 50 308 bayt, `cmp` özdeş (sha256
+>   `e095e51c…`). Bayt sayısı tabana bağlıdır: denetçinin birleşik ağaçta ölçtüğü değer
+>   50 472 bayt / `45f9ca40…`, fark orada da 0 (denetçinin ölçümü; bu turda yeniden koşulmadı). Pozitif
+>   kontrol (1. tur): e-posta `.templ`'ine yorumda *"italic table"* eklenince +26 bayt, `.table` ve
+>   `.italic` kuralları doğdu (geri alındı, sha256 doğrulandı). Gerekçe ve stil açıklamaları
+>   `.templ`'de değil Go dosyalarında (Tailwind onları okumaz).
+>
+> **2. tur — üçüncü göz RED (iki pin kendi listesini kaçırıyordu) ve güvenlik ONAY bulguları:**
+> - **B1 (bloklayan) — seed okuyucusu.** Çalışan regex'i virgülden sonra boşluk istiyordu;
+>   `seed.sql`'in boşluksuz yazılmış üç satırı (Peter Falzon, Rosaria Schembri, Joseph Buttigieg)
+>   atlanıyordu (33/36) ve *"≥ 30"* eşiği bunu gizliyordu. Şimdi `,\s*`; her INSERT bloğu ikinci,
+>   bağımsız bir çapayla (`('<uuid>'` satır başı) sayılır ve okunan ad sayısı satır sayısına
+>   **eşit** olmak zorunda (2 tenant, 36 çalışan). **D-01** (boşluksuz satıra `'J.B. Falzon'`)
+>   → KIRMIZI (`TestNames_AnOrdinaryNameIsShownVerbatim`).
+> - **B2 (bloklayan) — palet taraması.** 6/3 haneli hex taraması `border:1px solid red`'i ve
+>   8 haneli `#C9D2C880`'ı görmüyordu. Şimdi yukarıdaki iki yol + öznitelik izin listesi
+>   (`bgcolor=`). **C-01** ve **C-02** → KIRMIZI (`TestContrast_EveryTextOnItsGroundClearsAA`);
+>   `bgcolor` (M48) → KIRMIZI (`TestRender_LoadsNothingAndUsesOnlyTheseElements`).
+> - **B3 — ikinci parametre satırı** değeri `&next=x`: reddin tek sebebi artık `&` ve `=`.
+>   **A15** (`tokenByte` `&` ve `=` kabul) → KIRMIZI, yalnız `a_second_parameter` alt testinde.
+> - **B4 (metin) — iddialar ölçülen kümeye bağlandı.** *"URL benzeri ad gizlenir"* →
+>   *"listelenen düşmanca küme gizlenir"*; kalan sınıra *"dedektörün etiket ayracı olmayan,
+>   noktaya benzeyen her karakter (harf, işaret, rakam) gösterilir"* eklendi ve U+0660, U+06F0
+>   (Nd) ölçüldü. Noktalama olan üç benzer nokta (U+00B7, U+30FB, U+2027) gizlenir ve
+>   listeye girdi — **A20** (U+00B7 kabulü) artık **KIRMIZI** (`TestNames_AnAddressShapedNameIsWithheld`).
+> - **B5 — ana tarayıcı cümlesi:** *"in that phone's own web browser"* →
+>   *"in your phone's main browser — the one that opens when you tap a link"*; test
+>   `TestInvitation_SaysToUseThePhonesMainBrowser` (eski adla anan her yer değişti; ayrıca *"own
+>   browser"* yasak). M49 (eski cümle geri) → KIRMIZI.
+> - **B6 — düğme yazı tipi** `'Space Grotesk',Arial,Helvetica,sans-serif`; yeni pin
+>   `TestRender_DisplayFaceOnWordmarkHeadingAndButton` (M52 → KIRMIZI).
+> - **Öneri (kabul):** `.`'nın ardından `,` ve `)` de serbest — `Kebab Co., Ltd.`,
+>   `Kebab Factory (Malta Ltd.)` gösterilir; ardından harf, rakam, `-`, `(`, `'`, `&`, `.`, `!`
+>   gelirse gizli — `TestNames_TheDotRule` (16 satır; gösterilen satırlarda dedektör 0).
+>   M50 (`,` reddi) ve M51 (`-` kabulü) → KIRMIZI.
+> - **Güvenlik DÜŞÜK — host adı:** `validHostName` (etiketler 1–63 `[A-Za-z0-9-]`, `-` ile
+>   başlamaz/bitmez, ≤ 253) + port 1–65535; `https://:443`, `https://-`, `app-.`, `app..`,
+>   `app_x`, `:`, `:0`, `:65536` red. M41 (eski `u.Host != ""`) ve M43 (port denetimi yok) →
+>   KIRMIZI.
+> - **Güvenlik DÜŞÜK — `http`:** yalnız loopback (`localhost`, `*.localhost`, IPv4 127.0.0.0/8 —
+>   `netip`'in `IsLoopback`'i); `http://taptime.mt`, `http://192.0.2.1`,
+>   `http://localhost.evil.example` red; `http://localhost:8080`, `http://127.0.0.1:8080`,
+>   `http://app.localhost` geçer. `[::1]` köşeli parantez bayt kümesinin dışında olduğu için
+>   **hiç** kabul edilmez (IPv6 taban yok). M42 (her host'ta http) → KIRMIZI.
+> - **Güvenlik ORTA — EM-7 devri:** aşağıda, net madde olarak.
+>
+> **3. tur — dar kapanış denetimi RED (hepsi pin boşluğu; yalnız test satırları ve metin değişti,
+> ürün kodu yorumsuz karşılaştırmayla birebir aynı — `email.go`, `letter.go`, `text.go` yorumlar
+> çıkarılınca özdeş, `message.templ`/`message_templ.go` bayt bayt özdeş):**
+> - **F1 — loopback tanımı.** Red satırları: `http://127.0.0.1.evil.example`,
+>   `http://127.evil.example`, `http://evillocalhost`, `http://10.0.0.1`,
+>   `http://192.168.1.10:8080`. **V01** (`"127."` öneki), **V02** (noktasız `localhost` soneki),
+>   **V08** (`IsPrivate`) → KIRMIZI, her biri yalnız kendi satırlarında.
+> - **F2 — kısaltmalar.** `colourProperty` artık `text-decoration*`, `column-rule*`,
+>   `-webkit-text-stroke*`, `text-emphasis*` okur (`caret-color`, `accent-color` zaten `*color*`);
+>   kontrol testinde her biri birer satır + *"underline red"* reddi. **P02** (düğmenin kendi
+>   `text-decoration`'ına `underline red`) → KIRMIZI.
+> - **F5 — boyamayı değiştirenler.** `opacity`, `filter`, `-webkit-filter`, `backdrop-filter`,
+>   `-webkit-backdrop-filter`, `mix-blend-mode`, `background-blend-mode` bildirimleri yasak
+>   (`blendingProperty`, kontrol listesinde). **P06** (`filter:invert(1)`) ve P06b
+>   (`mix-blend-mode`) → KIRMIZI.
+> - **F3 — izin listesinin sayımı.** `TestNames_EveryASCIICharacterBetweenTwoLetters`: 0x21–0x7E'nin
+>   her karakteri iki harf arasında; yalnız harf, rakam ve `& ' - , ( ) !` (testte yazılı, `nameMarks`'tan
+>   okunmaz) gösterilir — 69. `TestNames_TheDotRule`'a 0x20–0x7E taraması: `.`'dan sonra yalnız
+>   `" ),"`. **N01–N07** (`;` `?` `=` `%` `_` `<` `*`) → KIRMIZI. **X01b**: mesajda tanımı yoktu;
+>   yeniden kurgum *"`_` hem ad karakteri hem `.`'dan sonra serbest"* → KIRMIZI (iki taramada da).
+>   Not: `.`'dan sonra **yalnız** kendisi zaten gizlenen bir karakteri serbest bırakan mutasyon
+>   eşdeğerdir (ad o karakter yüzünden yine gizlenir).
+> - **F4 — etiket kuralları.** Red satırları: `https://-app.taptime.test`, 64 baytlık etiket,
+>   63 baytlık etiketlerden 254 baytlık host; kabul kontrolleri 63 baytlık etiket ve 253 baytlık
+>   host (uzunlukları testte assert edilir). **V05** (iki sınır birden), V05a (253), V05b (63) ve
+>   **V06** (baştaki `-`) → KIRMIZI.
+> - **F6 (metin).** `validBase`/`validHostName` belgesi: *"sözdizimi kuralı; IPv4 biçimi
+>   doğrulanmaz"*; `https://999.999.999.999` ve `https://1.2.3` iki *"known limit"* kabul satırı
+>   olarak ölçüldü (kural sıkılaşırsa kırmızıya döner). Ürün kodu değişmedi (tur kuralı).
+> - **F7 (metin).** Paket belgesi: *"her DOĞRULAMA hatası (`ErrBaseURL`, `ErrLink`,
+>   `ErrLifetime`) değer anmayan sentinel'dir; `render`'ın tek öteki hatası templ'in yazıcıdan
+>   gelen hatasını sarar"*.
+> - **F8 (metin).** CSS bayt sayısı ölçüldüğü tabana bağlandı (yukarıda).
+> - **F9.** Bilgi; EM-7 satırını orkestratör günceller — kartın EM-7 devri zaten aynı ön koşulu yazar.
+>
+> **Kararlar (ölçümle):**
+> 1. **DKIM imzalı içerik (sayılı sınır 22'nin EM-4 yarısı) — ad kapısı, izin listesi, gizleme.**
+>    Ad yalnız her rune'u harf, birleşen işaret, ondalık rakam, U+0020 ya da `& ' ’ - – — , ( ) !`
+>    ise, en az bir harf varsa ve her `.` adın sonundaysa ya da ardından boşluk, `,` veya `)`
+>    geliyorsa gösterilir; değilse nötr sözcükler (*"Hello,"*, *"Your employer"*) durur, e-posta
+>    yine gider. Elenenler: (a) **yalnız kaçışlama** — HTML'i korur, linkleşmeyi değil (ADR §8);
+>    (b) **adı dönüştürmek** — sahibinin yazmadığı bir dize basar; (c) **kötü biçim listesi** —
+>    CLAUDE.md §5'in adres aralığı geçmişi. Ölçümler: `.` dışında NFKC biçimi `.` ya da U+3002
+>    taşıyan **34** kod noktası (Python 3.14 `unicodedata`, Unicode 16.0) — hepsi Po/No/So,
+>    hiçbiri harf/işaret/ondalık rakam; testte koşan Go'nun tablolarıyla yeniden ölçülür;
+>    Python'un IDNA 2003 codec'i `evil<c>example`'ı U+3002, U+FF0E, U+FF61, U+FE52, U+2024 için
+>    `evil.example`'a çevirir. **Listelenen** 33 düşmanca ad + 34 NFKC noktası gizlenir ve o
+>    kümede gövdenin görünen metninde (HTML) linklenebilir dizi **0**, düz metinde linkten başka
+>    **0** — dedektör bilerek geniş; kontrolü `TestLinkifiable_CatchesWhatItExistsToCatch`.
+>    **Bedel ölçüldü:** seed'deki 2 tenant ve 36 çalışan adının **0**'ı gizlenir.
+> 2. **URL sayımı:** parçalar ayrı sayılır, her biri tam 1; HTML'de görünen bir kopya yok.
+> 3. **Düz metin üreticisi düz Go** (`strings.Builder`); tek kontrol yukarı akışta.
+> 4. **Tek yapı, iki ileti:** `letter` + tek templ bileşeni + tek metin yazıcısı.
+> 5. **Link parametre, yapı alanı değil:** paket yeni bir taşıyıcı eklemez.
+> 6. **Sıfırlama e-postası kimseyi adlandırmaz** (bedeli EM-5'e).
+> 7. **Wordmark küçük harf `taptime`**; Space Grotesk yerel yazı tipi olarak wordmark, başlık ve
+>    düğmede ilk sırada, `@font-face` yok; `<meta name="color-scheme" content="light">`; karanlık
+>    mod **ölçülmedi**.
+> 8. **Süre ifadesi aşağı yuvarlar** (uzunluk, saat dilimi yok).
+> 9. **(2. tur) Taban kuralı:** `https`; `http` yalnız loopback (tam olarak `localhost`,
+>    `*.localhost`, IPv4 127.0.0.0/8); host adı **sözdizimi** (IPv4 biçimi doğrulanmaz — ölçülmüş
+>    sınır); port aralığı.
+>
+> **Kontrast (WCAG bağıl parlaklık; testin günlüğünden):**
+>
+> | Metin · zemin | Nerede | Oran |
+> |---|---|---|
+> | ink · paper | başlık, paragraflar, kapanış satırı (kart) | **16,17:1** |
+> | ink · porcelain | alt bilgi | **14,32:1** |
+> | paper · tappa-green | düğme etiketi | **7,73:1** |
+> | tappa-green · porcelain | wordmark (22 px kalın) | **6,85:1** |
+>
+> Metin dışı: kartın 1 px `line` kenarı süstür, bilgi taşımaz (line · paper 1,52:1 — skill'in
+> damga kenarı için yazdığı aynı bilinçli kabul); düğmenin sınırı tappa-green · paper 7,73:1.
+>
+> **Mutasyonlar** (betik `scratchpad/em4/mutate.py`: tek eşleşme şartı, `.templ`'de `make templ`
+> ile yeniden üretim, karar `go test`'in çıkış kodundan, derleme hatası "yakalandı" sayılmaz,
+> her mutasyondan sonra paketin altı dosyası ve `seed.sql` bayt bayt manifestle karşılaştırıldı):
+> **3. turun son, tam koşusu: 68 mutasyon, 67 KIRMIZI, 1 YEŞİL** (eşdeğer). Bir mutasyon birden
+> çok değişiklik taşıyabilir (V05, X01b).
+>
+> | # | Mutasyon | Sonuç (kırmızıya dönen testler) |
+> |---|---|---|
+> | M01 | `nameShown` her adı kabul | KIRMIZI — ALineBreak…, AnAddressShaped…, KnownLimitIsAnUnusualName…, TheDotRule, TheGateTakes…, EachPartCarries…, LoadsNothing… |
+> | M02 | nokta kuralı düştü | KIRMIZI — AnAddressShaped…, KnownLimitIsAnUnusualName…, TheDotRule |
+> | M03 | `:` `/` `@` kabul | KIRMIZI — AnAddressShaped…, KnownLimitIsAnUnusualName… |
+> | M04 | U+3002 kabul | KIRMIZI — AnAddressShaped… |
+> | M05 | denetim karakterleri + U+2028 kabul | KIRMIZI — ALineBreak…, AnAddressShaped… |
+> | M06 | paragrafta `templ.Raw` | KIRMIZI — EscapesWhateverReachesIt, AnOrdinaryName… |
+> | M07 | alt bilgide ikinci link | KIRMIZI — EachPartCarries…, LoadsNothing…, DisplayFace… |
+> | M08 | izleme pikseli | KIRMIZI — EachPartCarries…, LoadsNothing…, EscapesWhatever… |
+> | M09 | `<style>` içinde uzak `@font-face` | KIRMIZI — EachPartCarries…, LoadsNothing… |
+> | M10 | düz metin linki atlar | KIRMIZI — EachPartCarries… |
+> | M11 | link değerinin bayt kuralı düştü | KIRMIZI — RefusesALink… |
+> | M12 | `checkLink` her linki kabul | KIRMIZI — RefusesALink… |
+> | M13 | taban yolunda `//` kabul | KIRMIZI — RefusesALink… |
+> | M14 | taban her şemayı kabul | KIRMIZI — RefusesALink… |
+> | M15 | davet konusunda tenant adı | KIRMIZI — Subject… |
+> | M16 | ASCII dışı konu | KIRMIZI — Subject… |
+> | M17 | düğme etiketi saffron · tappa-green | KIRMIZI — Contrast… |
+> | M18 | palet dışı altı haneli kenar rengi | KIRMIZI — Contrast… |
+> | M19 | sayfa zeminleri kaldırıldı | KIRMIZI — Contrast… |
+> | M20 | gün sayısı yukarı yuvarlar | KIRMIZI — Lifetime… |
+> | M21 | 1 dk altı kabul | KIRMIZI — Lifetime… |
+> | M22 | `<meta charset>` kaldırıldı | KIRMIZI — LoadsNothing… |
+> | M23 | ana tarayıcı cümlesi düştü | KIRMIZI — SaysToUseThePhonesMainBrowser |
+> | M24 | düz metin kapanış satırını atlar | KIRMIZI — TheTwoPartsSayTheSameWords |
+> | M25 | ad sınırı 120 → 100 | KIRMIZI — TheGateTakesEveryStoredLength |
+> | M26 | link değerinde `%` kabul | KIRMIZI — RefusesALink… |
+> | M27 | alt bilginin kendi rengi kaldırıldı | **YEŞİL — eşdeğer:** atası (`div`) aynı ink'i açıkça yazar; iddia "öğenin ya da en yakın atasının açık rengi"dir |
+> | M28 | harfsiz ad kabul | KIRMIZI — AnAddressShaped… |
+> | M30 | tabanın kendi ayrıştırmasıyla eşitliği düştü | KIRMIZI — RefusesALink… |
+> | M31 | link etiketiyle aynı satırda | KIRMIZI — EachPartCarries… |
+> | M32 | link düğmenin görünen metni de | KIRMIZI — EachPartCarries…, TheTwoParts…, EscapesWhatever…, AnAddressShaped…, KnownLimit…, TheDotRule |
+> | M34 | her Unicode boşluğu kabul | KIRMIZI — ALineBreak…, AnAddressShaped… |
+> | M35 | `.` yalnız en sonda (bedel yönü) | KIRMIZI — AnOrdinaryName…, TheDotRule |
+> | M37 | tam 1 saat dakika okunur | KIRMIZI — Lifetime…, TheTwoParts… |
+> | M38 | değer uzunluk sınırı düştü | KIRMIZI — RefusesALink… |
+> | M39 | selamlama kapıyı atlar | KIRMIZI — ALineBreak…, AnAddressShaped…, EachPartCarries… |
+> | M40 | tabanın bayt kümesi düştü | KIRMIZI — RefusesALink… |
+> | M41 | host adı kuralı → 1. turun `u.Host != ""`'i | KIRMIZI — RefusesALink… (`:443`, `-`, `app-.`, `app..`, `app_x` satırları) |
+> | M42 | her host'ta düz `http` | KIRMIZI — RefusesALink… (public ad, public IP, `localhost.evil.example`) |
+> | M43 | port denetimi yok | KIRMIZI — RefusesALink… (boş port, 0, 65536) |
+> | A15 | `tokenByte` `&` ve `=` kabul | KIRMIZI — RefusesALink…/a_second_parameter (yalnız o satır) |
+> | A20 | U+00B7 kabul | KIRMIZI — AnAddressShaped… |
+> | C-01 | kenarda `red` | KIRMIZI — Contrast… |
+> | C-02 | kenarda `#C9D2C880` | KIRMIZI — Contrast… |
+> | M48 | `<body bgcolor=…>` | KIRMIZI — LoadsNothing… |
+> | M49 | *"own web browser"* geri | KIRMIZI — SaysToUseThePhonesMainBrowser |
+> | M50 | `.`'dan sonra `,` reddi (bedel yönü) | KIRMIZI — TheDotRule |
+> | M51 | `.`'dan sonra `-` kabulü | KIRMIZI — AnAddressShaped…, TheDotRule |
+> | M52 | düğme sistem yığınına döndü | KIRMIZI — DisplayFaceOnWordmarkHeadingAndButton |
+> | D-01 | `seed.sql`'de boşluksuz satıra `'J.B. Falzon'` | KIRMIZI — AnOrdinaryNameIsShownVerbatim (okuyucu satırı okur, ad gizlenir) |
+> | V01 | loopback'e `"127."` öneki | KIRMIZI — RefusesALink…/`127.0.0.1.evil.example`, `127.evil.example` |
+> | V02 | noktasız `localhost` soneki | KIRMIZI — RefusesALink…/`evillocalhost` |
+> | V08 | loopback'e `IsPrivate` | KIRMIZI — RefusesALink…/`10.0.0.1`, `192.168.1.10:8080` |
+> | V05 | 253 ve 63 bayt sınırları birden düştü | KIRMIZI — RefusesALink…/254 baytlık host, 64 baytlık etiket |
+> | V05a | yalnız 253 bayt sınırı düştü | KIRMIZI — RefusesALink…/254 baytlık host |
+> | V05b | yalnız 63 bayt sınırı düştü | KIRMIZI — RefusesALink…/64 baytlık etiket |
+> | V06 | etiket başında `-` serbest | KIRMIZI — RefusesALink…/`-app.taptime.test` |
+> | P02 | düğmede `text-decoration:underline red` | KIRMIZI — Contrast… |
+> | P06 | düğmede `filter:invert(1)` | KIRMIZI — Contrast… |
+> | P06b | kartta `mix-blend-mode:difference` | KIRMIZI — Contrast… |
+> | N01–N07 | `nameMarks`'a `;` `?` `=` `%` `_` `<` `*` (her biri ayrı) | KIRMIZI — EveryASCIICharacterBetweenTwoLetters (yedisi de) |
+> | X01b | `_` hem ad karakteri hem `.`'dan sonra (yeniden kurgu) | KIRMIZI — EveryASCII…, TheDotRule |
+>
+> (M29, M33, M36, M44–M47 numaraları kullanılmadı.) Araç hataları, dürüstçe (1. tur): M02
+> **derlenmedi** (kullanılmayan `i`) ve "yakalandı" sayılmadı — `false &&` biçimiyle yeniden
+> koşuldu; harness ilk koşuda `templ generate -path` kullandı ve üretilen dosyanın `FileName`'i
+> değişti — geri yükleme denetimi yakaladı, harness `make templ`'in tam ağaç biçimine çevrildi.
+>
+> **Üç parçalı doğruluk iddiası (paket belgesinde birebir):**
+> - **PART I** — bugünkü kod, ölçülen davranış: yukarıdaki kabul maddeleri, her biri test adıyla;
+>   ad iddiası **listelenen** kümeye bağlı.
+> - **PART II** — adıyla pinler ve her birinin yakaladığı tam liste: mutasyon tablosu (67
+>   kırmızı) + iki ölçülmüş sınır testi `TestNames_KnownLimitIsALookalikeDotAndPlainProse` ve
+>   `TestNames_KnownLimitIsAnUnusualNameWithheld` (sınır kalkarsa kırmızıya döner ve metin
+>   güncellenir).
+> - **PART III** — Listede olmayan her biçim kod incelemesinin konusu — tamlık iddiası yok.
+>
+> **Sayılı sınırlar:**
+> 1. **İstemcilerin neyi linklediği ölçülmedi** — dedektör bizimdir; "linklenebilir dizi 0"
+>    dedektörümüzün, listelenen kümedeki sayısıdır (ADR 0022 sayılı sınır 22).
+> 2. **Dedektörün etiket ayracı olmayan, noktaya benzeyen her karakter (harf, işaret, rakam)
+>    gösterilir** — ölçülen örnekler U+A4F8 (Lm), U+0323 (Mn), U+0660 ve U+06F0 (Nd);
+>    `evil<c>example` insana adres gibi okunur.
+> 3. **Rakamlar, tam genişlikli rakamlar ve düz saldırgan düzyazısı** gösterilir (*"Your account is
+>    suspended Call 21234567 now!"*); bir istemcinin veri dedektörünün telefon numarasını
+>    tıklanabilir yapması ölçülmedi — gösterildiği ölçüldü. Geri arama oltalaması — EM-7 devrine
+>    bakın.
+> 4. **Meşru ama alışılmadık ad gizlenir** (`J.B. Bar`, `Fish/Chips`, `Wine+Dine`, `Bar #1`,
+>    `The "Spot"`, `Ristorante: Da Mario`) — bedeli yalnız o adın görünmemesi; seed'de 0 —
+>    ölçüldü, `TestNames_KnownLimitIsAnUnusualNameWithheld`.
+> 5. **Süre ifadesi çağıranın süresidir**, okunduğu andaki kalan süre değil.
+> 6. **Karanlık mod** ve istemcilerin satır içi stili nasıl yeniden boyadığı ölçülmedi; Outlook
+>    masaüstü `max-width`'i yok sayabilir (ölçülmedi; tablo düzeni bilerek yok: `<table>` sözcüğü
+>    Tailwind'e `.table` kuralı doğurtur — kontrol ölçümünde doğurttu).
+> 7. **Gerçek posta istemcilerinde görüntü** ölçülmedi — EM-8.
+> 8. **Üretici bağı yarım:** sıfırlamanın üreticisi testte sürülür, davetin `activationURL`'i
+>    dışa kapalı — EM-7'nin testi gerçek `invite.Delivery.ActivationURL`'i `RenderInvitation`'a
+>    vermeli.
+> 9. **Bir öğenin kendi rengi**, atası aynısını yazıyorsa düşebilir (M27, eşdeğer).
+> 10. **IPv6 taban yok:** köşeli parantez bayt kümesinin dışında; `http://[::1]` dahil hiçbir
+>     IPv6 literal taban kabul edilmez (bugünkü yapılandırmalar ad kullanır — `localhost`).
+> 11. **Host kuralı sözdizimidir:** IPv4 biçimli ama adres olmayan host (`https://999.999.999.999`,
+>     `https://1.2.3`) `https`'te geçer — ölçüldü, iki kabul satırı; `http`'de böyle bir host
+>     loopback olmadığı için zaten reddedilir.
+> 12. **`.`'dan sonra yalnız kendisi gizlenen bir karakteri serbest bırakmak eşdeğerdir** — ad o
+>     karakter yüzünden yine gizlenir; ASCII taramaları ancak karakter listeye de girerse kırmızıya
+>     döner (X01b).
+>
+> **Devirler:**
+> - **EM-7 — ÜRÜN KARARI ŞART (güvenlik ORTA, 2. tur):** EM-7 `email` modunu açmadan **önce**
+>   kullanıcıya sorulur ve cevabı `state.md`'ye tarihiyle yazılır: DKIM imzalı davette
+>   saldırganın seçtiği düzyazı ve rakamlar (geri arama oltalaması: *"Your account is suspended
+>   Call 21234567 now!"*, tam genişlikli rakamlar) ve noktaya benzeyen harf/işaret/rakam taşıyan
+>   adlar bugün **gösterilir** (sayılı sınır 2, 3). Seçenekler: (a) tenant/çalışan adını yalnız
+>   **doğrulanmış** tenant'ta göstermek (doğrulanmamışta nötr sözcükler); (b) riskin kullanıcıca
+>   **açıkça kabulü**. Karar EM-7'nindir, WL-11'in değil; WL-11 yalnız başlık tarafını (aşağıda)
+>   taşır. Bugün çağıran olmadığı için bloklamaz.
+> - **EM-7 (bağlantı):** `RenderInvitation(ctx, d.ActivationURL, email.InvitationView{BaseURL:
+>   cfg.BaseURL, EmployeeName, TenantName, ValidFor: inv.ExpiresAt.Sub(inv.CreatedAt)})`; testi
+>   gerçek `IssueAndDeliver` linkini bu fonksiyona verir (sınır 8). `Message` loglanmaz;
+>   `ErrLink`/`ErrBaseURL`/`ErrLifetime` log'a girebilir (değer taşımaz). Prod `BaseURL`'i
+>   `https` olmalı — değilse render `ErrBaseURL` döner (taban kuralı).
+> - **EM-5:** `RenderPasswordReset(ctx, delivery.Link, email.ResetView{BaseURL: cfg.BaseURL,
+>   ValidFor: …})` → `To = delivery.Recipient`, `Ref = reset_id`; render hatası bir
+>   programcı/yapılandırma hatasıdır → gönderim yok, `undelivered` satırı (§6). `ValidFor` olarak
+>   `ResetTTL` mi `ExpiresAt − now` mı — karar EM-5'in. Birden çok hesaba çözülen adres için
+>   e-postada işletme adı: eklenirse ad kapısından geçer ve EM-7'nin ürün kararı ona da uygulanır.
+> - **EM-9:** üçüncü `letter` (sabit ASCII konu) + kendi link denetimi (giriş sayfası adresi,
+>   sorgu/token **yok** — `checkLink`'in `?<param>=` biçimi uymaz, `validBase`'i kullanan ayrı bir
+>   denetim gerekir); markup değişmez; testlerin kalıbı üçüncü iletiye genişletilir.
+> - **WL-11:** başlıklara tenant verisi girmez — EM-4'te iki konu da sabit ve adla değişmediği
+>   ölçüldü. *"X via Taptime"* gönderen adı (VIES koşulu) WL-11'in. Gövdedeki adın kararı
+>   yukarıdaki EM-7 maddesindedir.
+> - **EM-8:** gerçek cihaz turunda e-postanın Gmail/Outlook/Apple Mail'de görünümü ve *"Open in
+>   browser"* ile *"main browser"* talimatlarının işe yaradığı.
 
 ### Kullanıcının dış adımları (EM-2 ile paralel başlar; sıralı)
 1. AWS hesabı: root için MFA, günlük kullanım için ayrı yönetici kullanıcı, fatura alarmı (~$5).

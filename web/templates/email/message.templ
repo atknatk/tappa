@@ -1,0 +1,38 @@
+package email
+
+// messageHTML is the text/html part of every message (email.go says why one
+// component serves both). The rules it keeps are listed and measured in email.go;
+// the reasons for the styling are written there too, because this file is read as
+// raw text by the stylesheet build.
+templ messageHTML(l letter, link string) {
+	<!DOCTYPE html>
+	<html lang="en">
+		<head>
+			<meta charset="utf-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1"/>
+			<meta name="color-scheme" content="light"/>
+			<title>{ l.subject }</title>
+		</head>
+		<body style="margin:0;padding:0;background-color:#EDF0EA;color:#152219">
+			<div style="background-color:#EDF0EA;color:#152219;padding:24px 16px">
+				<div style="max-width:480px;margin:0 auto">
+					<p style="margin:0 0 16px;font-family:'Space Grotesk',Arial,Helvetica,sans-serif;font-size:22px;line-height:28px;font-weight:700;color:#1F5C41">taptime</p>
+					<div style="background-color:#FFFDF4;color:#152219;border:1px solid #C9D2C8;padding:24px">
+						<h1 style="margin:0 0 16px;font-family:'Space Grotesk',Arial,Helvetica,sans-serif;font-size:22px;line-height:28px;font-weight:700;color:#152219">{ l.heading }</h1>
+						for _, p := range l.before {
+							<p style="margin:0 0 16px;font-family:Arial,Helvetica,sans-serif;font-size:16px;line-height:24px;color:#152219">{ p }</p>
+						}
+						<p style="margin:24px 0">
+							<a href={ templ.URL(link) } style="display:inline-block;background-color:#1F5C41;color:#FFFDF4;font-family:'Space Grotesk',Arial,Helvetica,sans-serif;font-size:16px;line-height:20px;font-weight:700;text-decoration:none;padding:14px 22px">{ l.action }</a>
+						</p>
+						for _, p := range l.after {
+							<p style="margin:0 0 16px;font-family:Arial,Helvetica,sans-serif;font-size:16px;line-height:24px;color:#152219">{ p }</p>
+						}
+						<p style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:20px;color:#152219">{ l.closing }</p>
+					</div>
+					<p style="margin:16px 0 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:20px;color:#152219">{ footer }</p>
+				</div>
+			</div>
+		</body>
+	</html>
+}

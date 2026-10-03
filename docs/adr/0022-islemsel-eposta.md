@@ -500,6 +500,89 @@ gövdesinde saldırganın seçtiği bir metin ve tıklanabilir bir URL bulunan b
 (EM-4, EM-7, WL-11): tenant adının e-postadaki biçimi (ör. URL benzeri adın reddi ya da
 nötrleştirilmesi, adın yalnız doğrulanmış tenant'ta gösterilmesi) — sayılı sınır 22.
 
+**EM-4 notu (2026-10-03, uygulama — `web/templates/email`; davranış bugün değişmez, hiçbir
+handler çağırmaz; 2. tur aynı gün).** Normatif içerik değişmedi; §8'in dört açık noktası şöyle
+kapandı:
+- **Ad kapısı (sayılı sınır 22'nin EM-4 yarısı) — kaçışlamanın üstüne bir izin listesi, ad
+  temizlenmez, gizlenir.** Tenant ya da çalışan adı gövdede yalnız her rune'u harf, birleşen
+  işaret, ondalık rakam, U+0020 boşluk ya da `& ' ’ - – — , ( ) !` ise, en az bir harf varsa ve
+  her `.` adın sonundaysa ya da ardından boşluk, `,` veya `)` geliyorsa gösterilir (`Ltd.`,
+  `Co., Ltd.`, `(Malta Ltd.)` geçer; `evil.example` geçmez). Basılabilir ASCII'nin tamamı
+  sayılır (3. tur): iki harf arasında yalnız harf, rakam ve `& ' - , ( ) !` gösterilir
+  (`TestNames_EveryASCIICharacterBetweenTwoLetters`), `.`'dan sonra yalnız boşluk, `)` ve `,`
+  (`TestNames_TheDotRule`, 0x20–0x7E taraması + tablo); geçmeyen adın yerine nötr sözcükler (*"Hello,"*, *"Your employer"*)
+  durur ve e-posta yine gider. Gerekçe: testlerin dedektörünün saydığı her adres biçimi
+  listenin dışında bir karakter ister (`:`, `/`, `@`, iki etiket arasında nokta) ve `.` dışında
+  NFKC biçimi `.` ya da U+3002 taşıyan **34** kod noktasının (Unicode 16.0, Python
+  `unicodedata` ile ölçüldü; Python'un `idna` codec'i (IDNA 2003) `evil<c>example`'ı U+3002,
+  U+FF0E, U+FF61, U+FE52 ve U+2024 için `evil.example`'a çevirir — ölçüldü) hiçbiri harf, işaret
+  ya da ondalık rakam değildir (34'ü testte, testi koşan Go'nun `unicode` tablolarıyla yeniden
+  ölçülür — go1.27.1'de Unicode 17.0, go1.26.7'de de yeşil). Kötü biçimleri saymak yerine izin
+  listesi: CLAUDE.md §5'in adres aralığı geçmişi. **Ölçülen küme (gizlenir):** testin listelediği
+  düşmanca adlar — URL, çıplak ve noktalı alan adı, 34 NFKC noktası, noktaya benzeyen üç
+  noktalama (U+00B7, U+30FB, U+2027), `@`'li adres, IP, `javascript:`, işaretleme, bidi, sıfır
+  genişlikli boşluk, CR/LF/U+2028/U+2029/NEL/TAB, harfsiz ad — ve gövdenin görünen metninde
+  linklenebilir dizi **0** (`TestNames_AnAddressShapedNameIsWithheld`; dedektörün kendi
+  kontrolü `TestLinkifiable_CatchesWhatItExistsToCatch`). Bedel ölçüldü: seed'deki 2 tenant ve
+  **36** çalışan adının **0**'ı gizlenir — okuyucu her satırdan tam bir ad okur ve satır sayısı
+  ikinci, bağımsız bir çapayla sayılır (1. turda okuyucu virgülden sonra boşluk istiyor ve
+  boşluksuz yazılmış 3 satırı sessizce atlıyordu; denetçi 33/36 ölçtü) —
+  `TestNames_AnOrdinaryNameIsShownVerbatim`; alışılmadık ama meşru adlar (`J.B. Bar`,
+  `Fish/Chips`, `Wine+Dine`) gizlenir (`TestNames_KnownLimitIsAnUnusualNameWithheld`);
+  satır sonu taşıyan ad düz metne satır eklemez (`TestNames_ALineBreakNeverReachesTheTextPart`).
+  **Kalan, sayılı:** istemcilerin neyi linklediği **ölçülmedi** (dedektör bizimdir ve bilerek
+  geniştir); **dedektörün etiket ayracı olmayan, noktaya benzeyen her karakter (harf, işaret,
+  rakam) gösterilir** — ölçülen örnekler U+A4F8 (Lm), U+0323 (Mn), U+0660 ve U+06F0 (Nd):
+  `evil<c>example` insana adres gibi okunur; rakamlar (telefon numarası; bir istemcinin veri
+  dedektörü ölçülmedi), tam genişlikli rakamlar ve düz saldırgan düzyazısı (*"Your account is
+  suspended Call 21234567 now!"*) gösterilir — `TestNames_KnownLimitIsALookalikeDotAndPlainProse`
+  ile ölçülmüş sınır. **Bu kalan, EM-7'nin önünde bir ürün kararıdır:** EM-7 `email` modunu
+  açmadan önce kullanıcı, ya adın yalnız doğrulanmış tenant'ta gösterilmesini ya da DKIM imzalı
+  davette saldırganın seçtiği düzyazının ve rakamların görünme riskinin açıkça kabulünü
+  seçer (sayılı sınır 22).
+- **URL sayımı — parçalar ayrı sayılır, her biri tam 1.** HTML'de tek mutlak URL tek `href`'tir
+  (görünen metinde URL yok); düz metinde link kendi satırında bir kez. Link, `BaseURL`
+  (sondaki `/`'ler `internal/invite` ve sıfırlama handler'ı gibi kırpılır) + yol + `?<param>=` +
+  1–128 `[A-Za-z0-9_-]` biçiminde olmak zorundadır; değilse `ErrLink`/`ErrBaseURL` ve boş
+  `Message`. Taban: yalnız `https` — **düz `http` yalnız loopback'te** (`localhost`,
+  `*.localhost`, 127.0.0.0/8; güvenlik denetimi kararı, 2. tur: başka host'ta kod ya da token
+  açık metin gider — `127.` ile başlayan ad, noktasız `…localhost` ve özel 10/8, 192.168/16
+  adresleri red, 3. tur); host için bir **sözdizimi** kuralı: etiketler `[A-Za-z0-9-]`, 1–63
+  bayt, kenarda `-` yok, toplam ≤ 253 bayt (`https://:443`, `https://-`, `-app.`, 64 baytlık
+  etiket, 254 baytlık host red); **IPv4 biçimi doğrulanmaz** — `https://999.999.999.999` ve
+  `https://1.2.3` geçer (ölçülmüş bilinen sınır); port 1–65535; IPv6 literal bayt kümesi
+  dışında. Ad kapısı sayesinde **ölçülen ad kümesinde
+  gövdenin görünen metninde linklenebilir başka dizi 0** (dedektörümüzle) — yani §8'in
+  *"yalnız şablon literali"* çekincesi o kümede sayıyı değiştirmez. Testler
+  `TestRender_EachPartCarriesExactlyOneAbsoluteURL`,
+  `TestRender_RefusesALinkOutsideTheExpectedAddress`, `TestRender_AcceptsTheResetLinkAdminauthMints`.
+- **Sıfırlama e-postası kimseyi adlandırmaz.** `ResetDelivery` bugün ad taşımaz ve adın
+  eklenmesi, herkesin her adres için tetikleyebildiği bir e-postaya kayıtta seçilmiş metni
+  sokar. Bedeli: birden çok yönetici hesabına çözülen bir adres hesap başına bir, birbirine
+  benzeyen e-posta alır (en çok `MaxCandidates` = 8) — EM-5'in kararı; ad eklenirse kural ad
+  kapısıdır.
+- **Düz metin üreticisi düz Go'dur** (`text/template` değil, templ değil): templ HTML için
+  kaçışlar (`&` → `&amp;`), düz metnin kaçışlanacak sözdizimi yoktur; tek kontrol yukarı akıştadır
+  (ad kapısı denetim karakteri, satır sonu, U+2028, bidi geçersiz kılma kabul etmez; link değeri
+  yalnız base64url). İki parça **aynı** cümle dizilerinden basılır
+  (`TestRender_TheTwoPartsSayTheSameWords`). Konu sabit ASCII'dir, `mime.QEncoding`'den değişmeden
+  geçer ve bütün ileti `internal/mail`'in derleyicisinden geçer
+  (`TestSubject_IsFixedASCIIAndPassesTheMailComposer`). Davet metni linkin telefonun **ana
+  tarayıcısında** — *"the one that opens when you tap a link"* — açılmasını söyler, *"own
+  browser"* demez (varsayılanı Safari olmayan bir iPhone'da "own" Safari diye okunabilir) —
+  `TestInvitation_SaysToUseThePhonesMainBrowser`. Kontrast her metin düğümü için satır içi
+  stillerden hesaplanır ve renk taşıyan her bildirim (`color`, `*color*`, `background*`,
+  `border*`, `outline*`, `text-decoration*`, `column-rule*`, `-webkit-text-stroke*`,
+  `text-emphasis*`, gölgeler, `fill`, `stroke`) yalnız palet hex'i, uzunluk ve çizgi biçimi
+  içerir; `opacity`, `filter`, `backdrop-filter` ve karışım kipleri hiç bildirilmez; her
+  `#`-dizisi tam altı hanedir (1. turdaki tarama `red`'i ve 8 haneli `#C9D2C880`'ı, 2. turunki
+  düğmenin kendi `text-decoration`'ındaki `red`'i ve `filter`'ı görmüyordu — denetçi ölçtü)
+  — `TestContrast_EveryTextOnItsGroundClearsAA`: ink/paper 16,17:1 · ink/porcelain 14,32:1 ·
+  paper/tappa-green 7,73:1 · tappa-green/porcelain 6,85:1; istemcilerin karanlık modu
+  **ölçülmedi**. Wordmark ürün kilidi gibi küçük harf *"taptime"*, düzyazıda *"Taptime"*;
+  wordmark, başlık ve düğme Space Grotesk'i yerel yazı tipi olarak ilk sırada adlandırır
+  (`TestRender_DisplayFaceOnWordmarkHeadingAndButton`).
+
 ### 9. Oran sınırları (→ EM-5, EM-7)
 
 - **Davet:** tenant başına saatte 50 + günde 300; çalışan başına saatte 3 (m10'un başlangıç
@@ -750,15 +833,28 @@ adresine eşit çalışana kod basılmaz.**
 
 **İddia H — şablonun e-posta gövdesine yazdığı literal mutlak URL tektir ve gövde uzak kaynak
 yüklemez.**
-- **PART I:** EM-4'te ölçülecek: her şablonda şablonun yazdığı mutlak URL sayısı 1; `<img`, `@font-face`,
-  `<link`, `<script` 0; `<script>` içeren ad kaçışlı; Maltaca ad gövdede doğru; başlık
-  kodlayıcısı Maltaca girdiyi `=?utf-8?q?` yapar ve sabit ASCII konu değişmeden geçer (S9).
-- **PART II:** EM-4'ün şablon testleri (bu liste). Yakaladıkları: izleme pikseli, uzak yazı
-  tipi, şablonda ikinci link, kaçışsız ad. **Yakalamadığı:** tenant ya da çalışan adının
-  içindeki URL benzeri **metin** — kaçışlı ve literal olarak bir link değildir, ama istemciler
-  düz metindeki URL'leri çoğunlukla link yapar (ölçülmedi); sonuç Taptime alan adıyla
-  SPF/DKIM/DMARC'tan geçen bir oltalama e-postasıdır (§8, sayılı sınır 22; tasarım kararı
-  EM-4/EM-7/WL-11'de).
+- **PART I:** EM-4'te ölçüldü (2026-10-03; ayrıntı §8'in EM-4 notu ve `web/templates/email`'in
+  paket belgesi): davet ve sıfırlamada her parçada tam 1 mutlak URL ve o da link (HTML'de tek
+  `href`, düz metinde kendi satırında bir kez), düz ve düşmanca ad kümesiyle
+  (`TestRender_EachPartCarriesExactlyOneAbsoluteURL`); link `BaseURL` + yol + `?<param>=` +
+  base64url değilse red (`TestRender_RefusesALinkOutsideTheExpectedAddress`); `<img`,
+  `<link`, `<script`, `<style`, `@font-face`, `@import`, `url(` ve `src`/`srcset`/`background`
+  özniteliği 0, öğeler tam olarak html, head, meta, title, body, div, p, h1, a
+  (`TestRender_LoadsNothingAndUsesOnlyTheseElements`); `<script>`, tırnak ve `&` kapı atlanarak
+  şablona verildiğinde kaçışlı (`TestTemplate_EscapesWhateverReachesIt`); Maltaca ad (ċ ġ ħ ż,
+  iki harf büyüklüğü) iki parçada UTF-8 olarak doğru (`TestNames_AnOrdinaryNameIsShownVerbatim`);
+  sabit ASCII konu `mime.QEncoding`'den değişmeden geçer, Maltaca girdi `=?utf-8?q?` olur (S9)
+  ve ileti `internal/mail`'in derleyicisinden geçer
+  (`TestSubject_IsFixedASCIIAndPassesTheMailComposer`); testin **listelediği** düşmanca ad kümesi
+  gizlenir ve o kümede gövdenin görünen metninde linkten başka linklenebilir dizi 0
+  (`TestNames_AnAddressShapedNameIsWithheld`).
+- **PART II:** yukarıdaki testler; her birinin yakaladığı mutasyonlar M10 EM-4 kartında
+  (izleme pikseli, uzak yazı tipi, ikinci link, `templ.Raw`, linkin düz metinden düşmesi, kapının
+  kaldırılması ya da gevşetilmesi, konuda ad, palet dışı renk, AA altı çift). **Yakalamadığı:**
+  istemcilerin gerçekte neyi linklediği (ölçülmedi; dedektör bizimdir); dedektörün etiket
+  ayracı olmayan, noktaya benzeyen her karakter (harf, işaret, rakam), rakamlar ve düz
+  saldırgan düzyazısı gösterilir (`TestNames_KnownLimitIsALookalikeDotAndPlainProse` — ölçülmüş
+  sınır; sayılı sınır 22; EM-7'nin önünde ürün kararı).
 - **PART III:** Listede olmayan her biçim kod incelemesinin konusu — tamlık iddiası yok.
 
 **İddia I — yapılandırma eksikse süreç açılmaz.**
@@ -929,7 +1025,14 @@ EM-2 sapması j).**
     serbest metinli tenant adı + keyfi adreslere davet → Taptime alan adıyla SPF/DKIM/DMARC'tan
     geçen, gövdesinde saldırganın seçtiği metin ve istemcinin link yaptığı bir URL bulunan bir
     oltalama e-postası. Oran sınırları (§9) hacmi sınırlar, içeriği değil. Tasarım kararı
-    EM-4/EM-7/WL-11'de; istemcilerin otomatik linklemesi ölçülmedi.
+    EM-4/EM-7/WL-11'de; istemcilerin otomatik linklemesi ölçülmedi. **EM-4 (2026-10-03):**
+    gövdedeki ad bir izin listesinden geçmezse gizlenir (§8'in EM-4 notu) — testin listelediği
+    düşmanca küme gövdeye **girmez**; **kalan:** dedektörün etiket ayracı olmayan, noktaya
+    benzeyen her karakter (harf, işaret, rakam), rakamlar (telefon numarası, tam genişlikli
+    rakamlar) ve düz saldırgan düzyazısı gösterilir, istemci davranışı ölçülmedi
+    (`TestNames_KnownLimitIsALookalikeDotAndPlainProse`). **EM-7 `email` modunu açmadan önce**
+    kullanıcının ürün kararı gerekir: adı yalnız doğrulanmış tenant'ta göstermek ya da bu
+    riskin açıkça kabulü.
 23. **Kök havuzu yasağının ortam yolları** (B32): `RootCAs: nil` Linux'ta sistem köklerini
     okur; manifestteki `SSL_CERT_FILE`/`SSL_CERT_DIR` env'ini §2'nin (c) pini yakalar, ama
     `/etc/ssl/certs` üzerine bağlanan bir volume, değiştirilmiş bir imaj ya da imaj içindeki kök
@@ -1036,7 +1139,11 @@ karşılığı olanlar: köşeli alan adı → 7 · dönüştürülmüş/kısa y
   (yalnız `mail.Config`), config'te CA anahtarı 0, manifestte `SSL_CERT_FILE`/`SSL_CERT_DIR`
   env'i 0.
 - **EM-4 / EM-7 / WL-11'e devir (tasarım kararı, §8):** tenant adının e-postadaki biçimi —
-  URL benzeri adın DKIM imzalı oltalamaya dönüşmesi (sayılı sınır 22).
+  URL benzeri adın DKIM imzalı oltalamaya dönüşmesi (sayılı sınır 22). **EM-4 kapattığı
+  yarı:** ad kapısı (izin listesi, gizleme) — §8'in EM-4 notu. **Açık kalan:** adın yalnız
+  doğrulanmış tenant'ta gösterilmesi ya da riskin açıkça kabulü — **EM-7 `email` modunu açmadan
+  önce kullanıcıya sorulacak ürün kararı** (sayılı sınır 22); sıfırlama e-postasında ad (EM-5;
+  bugün yok).
 - **EM-5'e devir (§6):** tampon 32 + ölçüm, koşullu panik kuralı, §6.6(b)'nin T ≥ D'li
   davranış testi (başlama sırası `go`'dan önce kaydedilir ya da assert edilmez).
 - **Q02 cevaplandı** — orkestratör `open-questions.md`'de "Cevaplananlar"a taşır (bu ADR o
