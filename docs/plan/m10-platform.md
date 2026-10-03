@@ -4678,6 +4678,7 @@ yasal belge içindi, M9-08'in kapsamı §4.5'i aşan beş işlev.
 >   `TestApply_AFailureAnywhereLeavesNoRow` kırmızısı oldu (mutant o koda dokunmuyordu;
 >   denetçi 8 tam + 25 tek koşuda yeniden üretemedi). Bu turun koşularında görülmedi: üç
 >   DB'li mutant koşusu (K10, K14, X37) ve son `-race` koşusu.
+>   **2026-10-03 · kök neden ölçüldü (CI run 37084001714):** advisory kilit KUYRUĞU — test kilidi bir bağlantıda PAYLAŞIMLI tutarken reset-mfa alt testi `ownerTx` ile ikinci bir bağlantıdan yeniden istiyordu, araya giren `internal/db` `opTx` DIŞLAYICI isteği o isteği kuyrukta bekletip kendisi üst bağlantıyı bekledi (Postgres'in göremediği istemci tarafı döngü; iki pakette 3'er dk zaman aşımı) · sondayla birebir üretildi (aynı `:828` hatası, 184,67 sn) · düzeltme: alt test `beginOwnerTx` ile üst ağacın kilidi altında, yeniden istemeden → aynı sonda 5,43 sn yeşil · pin `TestTablesLock_IsTakenOncePerTestTree` (dört paketin test kaynağı; tek bulgu buydu).
 > - **Mutasyonlar (4. tur, `mutate4.py`):** **5/5 kırmızı** — K10 500 ms pay →
 >   `TestScript_GenerationGuards` · K7a `main` 29 dk geçmişle üretir · K7b `main` 1 sa ileriyle
 >   üretir → ikisi `TestMain_TheBinaryRefusesARedirectedStderr` · K14 70 baytlık dolgu →

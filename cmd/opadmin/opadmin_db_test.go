@@ -77,7 +77,9 @@ func ownerConn(t *testing.T, ctx context.Context) *pgx.Conn {
 }
 
 // sharedTablesLock holds the operator-tables lock SHARED on its own connection for the
-// rest of the test.
+// rest of the test. ONCE PER TEST TREE, at the top level of the test (or of the one
+// helper it calls): a subtest or a helper must not ask for it again on another
+// connection while its parent holds it -- see TestTablesLock_IsTakenOncePerTestTree.
 func sharedTablesLock(t *testing.T, ctx context.Context) {
 	t.Helper()
 	if _, err := ownerConn(t, ctx).Exec(ctx, `SELECT pg_advisory_lock_shared(hashtext($1))`, operatorTablesTestLock); err != nil {
@@ -85,12 +87,19 @@ func sharedTablesLock(t *testing.T, ctx context.Context) {
 	}
 }
 
-// ownerTx is an owner transaction rolled back when the test ends.
+// ownerTx is an owner transaction rolled back when the test ends, under the tables lock.
 func ownerTx(t *testing.T) (context.Context, pgx.Tx) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	t.Cleanup(cancel)
 	sharedTablesLock(t, ctx)
+	return ctx, beginOwnerTx(t, ctx)
+}
+
+// beginOwnerTx is ownerTx WITHOUT the tables lock, for a subtest whose parent already
+// holds it for the whole tree.
+func beginOwnerTx(t *testing.T, ctx context.Context) pgx.Tx {
+	t.Helper()
 	tx, err := ownerConn(t, ctx).Begin(ctx)
 	if err != nil {
 		t.Fatalf("BEGIN: %v", err)
@@ -100,7 +109,7 @@ func ownerTx(t *testing.T) (context.Context, pgx.Tx) {
 			t.Logf("rollback: %v", err)
 		}
 	})
-	return ctx, tx
+	return tx
 }
 
 // execScriptStmt sends one statement of a generated script on pc the way psql does: a
@@ -822,7 +831,12 @@ func TestApply_AFailureAnywhereLeavesNoRow(t *testing.T) {
 	})
 
 	t.Run("reset-mfa between its two updates", func(t *testing.T) {
-		ctx, tx := ownerTx(t)
+		// NOT ownerTx: this tree already holds the tables lock (above), and a second
+		// SHARED request on another connection queues behind any EXCLUSIVE request
+		// internal/db made in between, which waits on the first -- held until this
+		// subtest returns. Measured: CI run 37084001714 lost this subtest and an
+		// internal/db test to that wait (3 minutes each).
+		tx := beginOwnerTx(t, ctx)
 		o := newOperatorSide(t, ctx, tx)
 		email := randomEmail(t, "op9.atomicreset.")
 		g, s1 := createdAndEnrolled(t, ctx, tx, o, email)
