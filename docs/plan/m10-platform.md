@@ -4686,6 +4686,311 @@ yasal belge içindi, M9-08'in kapsamı §4.5'i aşan beş işlev.
 >   · X37 (30 sn pay, 3. turdan yeniden) → `TestResetMFA_AClockAheadDoesNotReopenAUsedLink`,
 >   `TestScript_GenerationGuards`.
 
+> **Kart düzeltmesi (2026-10-03, OP-10 A fazı — veri katmanı — uygulaması sırasında).**
+> Yazıldı: `db/migrations/00027_move_legal_publishing_to_the_operator.sql` (üç `op_*`, iki kapalı
+> küme, `published_at` DEFAULT'u, yetkiler), `internal/db/operator.go` (dışa açık `LegalVersions`,
+> `PublishLegal`, `LegalVersionsPage`, `LegalVersion`, `LegalPublisherKind`; paket içi
+> `beginOperatorRead`, `readLegalVersions`, `readTicket`; `OperatorConn`'a `Query`),
+> `db/queries/operator.sql` (üç ifade belgeye eklendi), `db/queries/legal.sql` (eşitlik kırıcı
+> yorumu — `published_at` DEFAULT'u değişti) + `make gen` (`internal/store/legal.sql.go`,
+> `querier.go`: yalnız yorum), `internal/db/operatorlegal_test.go` (yeni, 22 test; 2. turda 24), ADR 0021
+> "OP-10 uygulama notu", ADR 0020 §7 tarihli not. Güncellenen pinler (zayıflatılmadı, gerekçe
+> md. 9): `TestOperator00026_PrivilegeMatrix`, `TestOperator00026_TableShapeChecks`,
+> `TestOperatorSQL_OnlyBoundParameters`, `TestOperatorAccessors_TheCustomerRoleCannotUseThem`.
+> Gerekçeli kapsam genişlemesi (md. 10): `internal/domain/legal/legal_db_test.go`. Handler, ekran,
+> wiring ve izin listesinin kaldırılması B fazıdır (md. 14). Ölçüm: dev Postgres 17.10,
+> `tappa_owner`; kimlik `SET LOCAL SESSION AUTHORIZATION` ile.
+>
+> 1. **Kriter düzeltmesi (OP-4 bloğu md. 2'nin uygulanışı):** `has_table_privilege(tappa_app,
+>    'legal_documents','INSERT') = false` 00027'den ÖNCE de yeşildi (ölçüldü, `BEGIN … ROLLBACK`:
+>    `has_table_privilege` = `f`, `has_any_column_privilege` = `t`, `tappa_app` yazabiliyordu).
+>    Kanıt `has_any_column_privilege(…,'INSERT') = false` ve beş sütunda
+>    `has_column_privilege(…,'INSERT') = false`; tablo düzeyi sorgunun kör olduğu, sütun grant'ı
+>    savepoint içinde geri verilerek aynı testte gösterilir
+>    (`TestOperator00027_TheApplicationCanNoLongerWriteALegalText`). Tablo düzeyi `REVOKE INSERT`
+>    sütun grant'larını da sildi; sütun düzeyi yazım (`REVOKE INSERT (slug, body) …`)
+>    `has_any_column_privilege`'ı `t` bıraktı (ölçüldü; mutasyon M9 kırmızı).
+> 2. **`op_begin_read(p_session text, p_kind text, p_params jsonb) RETURNS text` — genel ilk aşama.**
+>    Okuma türleri kapalı küme (bugün `legal_versions`): fonksiyonda (22023) ve
+>    `operator_read_tickets_kind_check`'te (OP-5 md. 14 c: şekilden kapalı kümeye). Her tür
+>    anahtarlarını tam adlandırır; hash'lenen metin tipli değerlerden yeniden kurulan jsonb
+>    nesnesidir (`op_read_*` aynısını kendi argümanlarından kurar). Bilet: üç
+>    `gen_random_uuid()`'nin SHA-256'sı (366 bit `pg_strong_random`; `pgcrypto`'ya migration
+>    bağımlılığı eklenmedi). Ömür **30 sn** (OP-5 md. 14 a). Audit: tür `read`, `target_scope` =
+>    okuma türü, içeriksiz sayfa; yeni CHECK `operator_audit_log_read_has_scope`. Kısıt
+>    yakalayıcı: bilet satırının DETAIL'i bilet hash'ini taşırdı → sabit 28000.
+> 3. **`op_read_legal_versions(p_session, p_ticket, p_page_number, p_page_size)`** — ilk
+>    `op_read_*`. Tek tüketen `UPDATE`, altı koşul `WHERE`'de pozitif; LIMIT gövdede
+>    `least(sayfa, 200)`. Sütunlar: `version_id, slug, published_at, body_bytes, publisher_kind,
+>    publisher_admin_id, publisher_name, is_current`. Eski satır (M7-06 paneli: müşteri
+>    `admin_users.id`'si ya da NULL) `publisher_kind = 'legacy'`, id ve ad NULL — müşteri admin
+>    id'si döndürülmez. Gövde döndürülmez (uzunluğu döner). Sıralama herkese açık okumanınki.
+> 4. **`op_publish_legal(p_session, p_slug, p_body) RETURNS void`** — sürüm + `legal_publish`
+>    satırı tek ifade; `published_by` = oturumun operatörü (aktör parametresi yok, imza pinli);
+>    `detail` = `{slug, document_id, bytes}`. 256 KiB = `octet_length > 262144` → 22023.
+>    **Ölçülerek eklenen:** 00020'nin `btrim(body) <> ''` CHECK'i satır sonu/sekmeden ibaret gövdeyi
+>    geçirir (`btrim(E'  \n\t ') <> ''` = `t`, ölçüldü); fonksiyon `[:space:]` dışında karakter
+>    taşımayan gövdeyi reddeder. Kısıta ulaşan argümanlar yakalanır (tek 22023, DETAIL yok).
+> 5. **`legal_documents.published_at` DEFAULT `clock_timestamp()`** ve sütun tanımlayıcının INSERT
+>    listesinde değil (00026'nın biçimi; K6'nın "açıkça yaz" yolu seçilmedi — yazılabilir saat
+>    sütunu, ADR 0015). `db/queries/legal.sql`'in eşitlik kırıcı yorumu güncellendi.
+> 6. **00026'nın ön koşulu tekrarlandı** (dokuz rol şekli testte:
+>    `TestOperator00027_PreconditionRefusesAWrongCluster`).
+> 7. **Down:** `tappa_app`'in INSERT'ini geri verir (00020'nin sütun grant'ı; bilinçli gerileme,
+>    00026 durumu); audit tür CHECK'i yeni türden satır VARSA `NOT VALID` döner (ek-yalnız
+>    kanıt). **Ölçüm (dev, `pg_dump --schema-only`, `\restrict` satırları ayıklanarak):**
+>    `read` satırı yokken v26 → Up → Down şeması v26'yla birebir (sha256 öneki `4d918cd2e29385f9`
+>    iki tarafta), Up → Down → Up v27 birebir (`ca32c68b7a009540` iki tarafta); son hâlde
+>    (`read` satırları varken) Down şemasının v26'dan tek farkı `NOT VALID`, yeniden Up birebir
+>    (`ac206fedc7a6548b` iki tarafta). Mutasyonlardan sonra migration'a yalnız fonksiyon
+>    gövdelerinin DIŞINDAKİ yorumlarda dokunuldu; son dosya (sha256 öneki `a6b992b6d7cfe784`)
+>    Down → Up ile yeniden uygulandı ve şema dökümü yine `ac206fedc7a6548b`. Her adımda
+>    `goose version`/`status` ölçüldü; migration komutları zincirlenmedi.
+> 8. **Eşzamanlı görünmezlik — ölçülen davranış, ilk test yanlış nesneyi bekliyordu:** A'nın açık
+>    ilk aşamasının bileti başka bağlantıdan görünmez (sahibin sayımı 0, A'nınki 1); AYNI oturumla
+>    okuyan B veri almaz — `op_touch_session`'ın oturum satırı kilidinde bekler
+>    (`pg_stat_activity.wait_event_type = 'Lock'`) ve A geri alınınca 28000 alır. Testin ilk hâli
+>    anında ret bekledi ve 180 sn'lik son süresine kadar asılı kaldı.
+> 9. **Pin güncellemeleri ve nedenleri:** `TestOperator00026_PrivilegeMatrix` — tanımlayıcının yeni
+>    sütunları (platform_admins `display_name`, operator_audit_log `id`) ve `opdefinerTenantGrants`'a
+>    `legal_documents:SELECT`/`:INSERT` tam sütun listesiyle (OP-5 uygulama notunun kuralı);
+>    `TestOperator00026_TableShapeChecks` — fikstür bilet türü `'probe'` → `'legal_versions'`:
+>    00027'nin kapalı kümesiyle `'probe'` HER INSERT'i tür CHECK'ine takıyordu, yani 61 sn ve
+>    `created_xact` '1'/'2' retleri yanlış sebeple 23514 kalıyordu (sessiz zayıflama) ve kontrol
+>    kırmızıydı; retler artık kısıt ADIYLA pinli (`opWantConstraint`).
+>    `TestOperatorSQL_OnlyBoundParameters` — 7 → 10 sabit, ve `Query` çağrıları da okunuyor (aksi
+>    hâlde `op_read_*`'ın çağrısı taramanın dışında kalırdı). `TestOperatorAccessors_TheCustomerRoleCannotUseThem`
+>    — iki yeni erişimci (42501).
+> 10. **Gerekçeli kapsam genişlemesi — `internal/domain/legal/legal_db_test.go`:** REVOKE, altı DB
+>     testini kırdı (hepsi `Store.Publish` ile tohumluyordu; ölçüldü: altısı 42501). Adlar korundu;
+>     sürümler sahibin bağlantısıyla (`ownerPublish`) — `op_publish_legal`'in yerine geçen —
+>     ekleniyor; `TestLegalDB_PublishWritesTheTextTheTrailAndTheSnapshotOrNoneOfThem` artık "hiçbiri"
+>     yarısını ölçer (42501, metin yok, iz yok, anlık görüntü değişmedi);
+>     `TestLegalDB_AnEmptyBodyIsRefusedByTheColumnAndNotOnlyByGo` kolonu sahibin geri alınan
+>     transaction'ında sürer ve `tappa_app`'in INSERT'inin 42501 olduğunu da söyler.
+> 11. **`*OperatorDB`'ye yöntem EKLENMEDİ (ölçülerek en dar değişiklik):**
+>     `TestOperatorDB_IsTheStoreAndNothingMore` yöntem kümesini `operatorauth.Store` + `Close`'a
+>     türeterek pinler; yöntem eklemek ya o pini değiştirmeyi ya da `operatorauth.Store`'u
+>     büyütmeyi isterdi, tüketicisi (B'nin handler'ı) henüz yokken. OP-7'nin pinleri
+>     (`TestConstructors_BodiesAreTheReviewedOnes`, `TestConstructors_TheHookReachesOnlyThePin`,
+>     `TestOperatorWiring_ThePoolReachesOnlyTheAuthenticator`, `TestOperatorDB_EveryMethodDelegatesVerbatim`,
+>     `TestOperatorDB_HasNoTenantDoorAndNoRawSQLDoor`) dokunulmadı ve yeşil.
+> 12. **Kalıcı test verisi (ölçüldü — son `-race` koşusu öncesi/sonrası, `internal/db` +
+>     `internal/domain/legal`: "op10" hesapları 10 → 12, oturumları 10 → 12, `read` satırları
+>     10 → 12, `legal_publish` 0 → 0, bilet 0 → 0, `legal_documents` 3222 → 3227; aktif "op10"
+>     hesabı 0, iptal edilmemiş oturumu 0):** `internal/db` koşu başına
+>     2 operatör hesabı (`disabled`), 2 oturum (`revoked`), 2 `read` audit satırı bırakır
+>     (`TestOpReadLegalVersions_TwoPhaseLifecycle` ve `TestLegalVersions_OnThePoolTheTwoPhasesAreTwoTransactions`
+>     bir `read` satırı commit eder; satırı 00026'nın tetikleyicisi sahibe karşı da korur, onun
+>     başvurduğu hesap ve oturumu `ON DELETE RESTRICT` yabancı anahtarları tutar); bilet 0,
+>     `legal_documents` 0. `TestOpReadLegalVersions_AnUncommittedTicketIsInvisibleToAnotherSession`
+>     commit ettiği hesap ve oturumu temizlikte siler. Okuma tarafının koşullarını commit'siz
+>     sürmek için testler bileti sahibin bağlantısıyla `created_xact` = commit edilmiş bir
+>     transaction'ın kimliği olarak yazar (`opForgeTicket`/`opCommittedXact`) — sahibin yazabildiği,
+>     tanımlayıcının yazamadığı sütun. `internal/domain/legal` koşu başına 5 FAKE sürüm commit
+>     eder (önce 7; `Store.Publish` ile).
+> 13. **Mutasyonlar** (her biri ilgili testte KIRMIZI; migration mutasyonları dosyanın
+>     kopyasından yazılıp `goose down` → `up-by-one` ile uygulandı, her adımda sürüm ölçüldü;
+>     yedekler `scratchpad/op10a/orig/`; sonda pristine dosya — o anki sha256 öneki `b7473528` —
+>     geri yazıldı ve uygulandı; Go mutasyonlarında `operator.go` aynı şekilde geri yazıldı):
+>
+>     | # | Mutasyon | Kırmızı test (ilk hata satırı) |
+>     |---|---|---|
+>     | M1 | okuma süresi `now()` | `TestOpReadLegalVersions_ExpiryIsTheWallClock` (savepoint kolu) |
+>     | M2 | okuma süresi `statement_timestamp()` | aynı test (DO kolu: `1/2`, `0/3` beklenirken) |
+>     | M3 | `pg_xact_status(...) = 'committed'` silindi | `TestOpReadLegalVersions_ATicketFromThisTransactionIsRefused` (A1) |
+>     | M4 | `consumed_at IS NULL` silindi | `TestOpReadLegalVersions_TwoPhaseLifecycle` (commit sonrası üçüncü okuma) |
+>     | M5 | parametre bağı düştü (iki fonksiyonda) | `TestOpReadLegalVersions_TwoPhaseLifecycle` (başka sayfa) |
+>     | M6 | `op_publish_legal` oturumu touch'sız arar | `TestOpPublishLegal_RefusesEveryDeadSession` |
+>     | M7 | audit ayrı ifadede, hatası yutuluyor | `TestOpPublishLegal_AFailedAuditRowTakesTheVersionWithIt` |
+>     | M8 | 256 KiB sınırı +1 | `TestOpPublishLegal_RefusesADocumentWithoutEchoingIt` |
+>     | M9 | sütun düzeyi `REVOKE INSERT (slug, body)` | `TestOperator00027_TheApplicationCanNoLongerWriteALegalText` |
+>     | M10 | `published_by` istemciden (`p_publisher` DEFAULT NULL) | `TestOperator00027_TheThreeFunctionsAndTheirExactSignatures` |
+>     | M11 | `tappa_app`'e EXECUTE | aynı test + `…TheApplicationCanNoLongerWriteALegalText` + `TestOperator00026_ForwardCatalogPin` |
+>     | M12 | bilet ömrü 59 sn | `TestOpBeginRead_WritesOneAuditRowAndStoresNoTicket` |
+>     | M13 | `published_at` DEFAULT `now()` kaldı | `…TheThreeFunctionsAndTheirExactSignatures` + `TestOpPublishLegal_WritesTheVersionAndItsAuditRowTogether` |
+>     | M14 | oturum bağı silindi | `TestOpReadLegalVersions_AForgedTicketIsRefused` |
+>     | M15 | LIMIT tavanı silindi | `TestOpReadLegalVersions_PagesAreCappedAndOrdered` (300 satır) |
+>     | M16 | fazla anahtar kabul | `TestOpBeginRead_RefusesDeadSessionsAndBadParameters` |
+>     | M17 | `op_publish_legal`'de kısıt yakalayıcı yok | `TestOpPublishLegal_RefusesADocumentWithoutEchoingIt` (23514 + DETAIL) |
+>     | M18 | `op_begin_read`'de kısıt yakalayıcı yok | `TestOpBeginRead_ARefusedWriteCarriesNoTicketHash` (DETAIL 375 bayt) |
+>     | M19 | boşluk-yalnız gövde kontrolü yok | `TestOpPublishLegal_RefusesADocumentWithoutEchoingIt` |
+>     | M21 | Down `tappa_app` INSERT'ini geri vermiyor | `TestOperator00027_DownGivesTheWriteBackAndUpTakesItAgain` |
+>     | M22 | Down her zaman `NOT VALID` | aynı test (2. dal) |
+>     | M23 | ön koşul "operatörün üyesi" kontrolü yok | `TestOperator00027_PreconditionRefusesAWrongCluster` |
+>     | G1 | erişimci sayfa argümanlarını yer değiştiriyor | `TestLegalVersions_OnThePoolTheTwoPhasesAreTwoTransactions` + `…PagesAreCappedAndOrdered` |
+>     | G2 | `readTicket.Format` ham bileti basıyor | `TestReadTicket_PrintsOnlyThePlaceholder` |
+>     | G3 | `PublishLegal` çalışma anında kurulan SQL metni | `TestOperatorSQL_OnlyBoundParameters` |
+>     | G4 | `LegalVersions` ikinci aşamayı atlıyor | `TestLegalVersions_OnThePoolTheTwoPhasesAreTwoTransactions` |
+>
+>     (M20 numarası kullanılmadı.) Pozitif kontrol: pristine dosyada 22 testin 22'si yeşil.
+> 14. **B fazına devir (numaralı):**
+>     1. **Erişimciler (`internal/db`):** `LegalVersions(ctx, c OperatorConn, sessionHash string,
+>        page LegalVersionsPage) ([]LegalVersion, error)` — HAVUZLA çağrılır (tek transaction'da
+>        `ErrOperatorRefused`); `PublishLegal(ctx, c OperatorConn, sessionHash, slug, body string)
+>        error` — ölü oturum `ErrOperatorRefused`, reddedilen belge `SQLSTATE 22023` taşıyan bir
+>        veritabanı hatası (sentinel değil; `PgError`'a ulaşılamaz). Sayfa: `Number` ≥ 1, `Size` 1..200.
+>     2. **`*OperatorDB` yöntemleri:** `LegalVersions(ctx, sessionHash, page)` ve
+>        `PublishLegal(ctx, sessionHash, slug, body)`, `return F(ctx, o.pool, …)` biçiminde; AYNI
+>        değişiklikte: handler paketinde tüketici arayüzü; `TestOperatorDB_IsTheStoreAndNothingMore`
+>        istenen kümeyi `operatorauth.Store` ∪ o arayüz ∪ `Close` diye türetir;
+>        `TestOperatorDB_EveryMethodDelegatesVerbatim` sayısı 7 → 9;
+>        `TestOperatorDB_HasNoTenantDoorAndNoRawSQLDoor` öncülü 8 → 10;
+>        `cmd/tappa`'nın `TestOperatorWiring_ThePoolReachesOnlyTheAuthenticator`'ı (pinlediği
+>        kural: `configuredSurface`'in store'u `operatorAuthenticator`'a, o da `operatorauth.New`'e
+>        gider) legal handler'ına da izin verecek şekilde, kurallarıyla yeniden yazılır.
+>     3. **Handler `/operator/legal`** OP-8 kabuğunun içinde, aynı zincirle (host kapısı, oturum
+>        kapısı, oturum bütçesi — bir okuma iki DB çağrısıdır —, POST'ta kabuğun
+>        CSRF/`Sec-Fetch-Site` kapısı). GET: sürüm listesi + `legal.Store.Published()` anlık
+>        görüntüsünden güncel metinler; `publisher_kind = 'legacy'` → "tenant admin (legacy)".
+>        POST: slug `legal.Slugs` içinde, **görünür karakter denetimi** (2. tur, md. 22: ne
+>        veritabanının `[:space:]` kontrolü ne `strings.TrimSpace` U+180E, U+200B, U+200C,
+>        U+200D, U+2060, U+2800, U+3164, U+FEFF'den ibaret bir gövdeyi reddeder — ölçüldü;
+>        önerilen biçim `unicode.IsSpace` + `unicode.Is(unicode.Cf, r)` + ölçülen kod noktaları
+>        (Hangul dolgusu U+3164, Braille boşluğu U+2800) — liste ve karar B'nin),
+>        `http.MaxBytesReader` ile 256 KiB
+>        (`internal/handler/legaladmin.go:92`'deki `maxLegalBody` emsali — o dosya kalkınca sabit
+>        operatör handler'ında yeniden bildirilir; `internal/domain/legal`'in yorumları
+>        `handler.maxLegalBody`'yi anar); `PublishLegal`; ardından **`legal.Store.Refresh(ctx)`** (tek
+>        replika; ADR 0020 §7) — Refresh hatası log'lanır, yayın veritabanında vardır.
+>        Geri alma = eski metni yeni sürüm olarak yayımlamak; sürüm listesi gövde taşımaz — bir
+>        "bu sürüme dön" düğmesi yeni bir `op_read_*` (kendi türü: `op_begin_read`'in kümesi +
+>        `operator_read_tickets_kind_check`, bir migration'da) ister.
+>     4. **Panelden kaldırılacaklar:** `TabLegal`, `PanelSection.OperatorOnly`, `PanelChrome.Operator`,
+>        `mayPublishLegal`, `config.OperatorAdminIDs`, `TAPPA_OPERATOR_ADMIN_IDS`
+>        (`deploy/k8s/05-config.yaml:125`, `.env.example:124`, `deploy/README.md:308` — bugünkü
+>        satırlar), `internal/handler/legaladmin.go` ve testleri; `legal.Store.Publish` + `Trail` +
+>        `ActionPublished` + `PublishedDetail` (00027'den sonra veritabanı bu yolu 42501 ile
+>        reddeder) ve `db/queries/legal.sql`'in `PublishLegalDocument`'ı + `make gen`
+>        (`cmd/tappa/storekeyshape_test.go` imza listesinde `PublishLegalDocument` var);
+>        `TestLegalDB_PublishWritesTheTextTheTrailAndTheSnapshotOrNoneOfThem` ya `Store.Publish`'le
+>        gider ya da uygulama tarafı REVOKE regresyonu olarak kalır — B karar verir ve yazar.
+>        **(2. tur ekleri)** `TestLegalDB_AnEmptyBodyIsRefusedByTheColumnAndNotOnlyByGo`
+>        (`internal/domain/legal/legal_db_test.go`, bugün satır 389) de `Store.Publish` ve
+>        `ErrEmptyBody` kullanıyor — `Publish` kalkınca testin "Go" yarısı (boş gövde Go'da
+>        reddedilir) operatör handler'ının testine taşınır, kolon yarısı yerinde kalır;
+>        `cmd/tappa/main.go:411`'deki `legal.NewStore(data, trail)` çağrısının imzası
+>        `Trail` kalkınca değişir (`NewStore`'un nil-trail reddi ve `TestNewStore_RefusesAMissingTrail`
+>        onunla birlikte).
+>        `rg` kriteri: *"`db/migrations` ve ADR geçmişi hariç"* (OP-4 bloğu md. 20).
+>     5. **`TestLegalPublicPath_WritesNothing` (`internal/handler/legaladmin_test.go:607`) ve
+>        `TestLegalReader_CannotReachTheDatabase` (`:547`) VAR** (ölçüldü). `legaladmin_test.go`
+>        silinince aynı adlarla kalan bir dosyaya taşınır (OP-10 kabulü). İkincisinin pozitif
+>        kontrolü `panelTexts.Publish`'i kullanıyor — o özne `legaladmin.go`'yla gider; başka bir
+>        G/Ç biçimli arayüzle (örn. legal handler'ının arayüzü) bağımsız kalacak şekilde değiştirilir.
+>        Birincisinin canlı yarısı `fakeTexts`'i (`legalfake_test.go`) kullanıyor.
+>        M7-06 testleri ADR 0016'da, `m7-portal.md`'de ve bu dosyada adıyla anılıyor; silinirlerse
+>        `TestEveryNamedTestExists` kırılır — ya aynı adla tutulur ya da sarkan atıf bütçesi aynı
+>        değişiklikte gerekçesiyle artırılır (OP-4 bloğu "OP-10 tuzağı"). Bugün: 54 canlı, 54 bütçe.
+>     6. **OP-8 kabuğu yükümlülükleri:** `TestSurface_TheScreensOfLaterTasksAreNotMounted`
+>        `/operator/legal`'i "monte DEĞİL" listesinde tutuyor — aynı değişiklikte çıkarılır;
+>        yeni her yöntem × rota: `classRoutes` (`op8r5_test.go`) + başlık tablolarından birinde bir
+>        sınıf, `designedHeaders` (`op8r2_test.go`), sızıntı testinin kolları (`leak_test.go`),
+>        `harvestWant` (`leak_test.go:287`) — `TestOperatorHeaders_TheWalkedRoutesEachHaveAClass`
+>        sınıfsız monte edilmiş bir çifti kırmızıya çevirir, öbür üçü elle eklenir; konsoldan link
+>        ancak rota kayıtlıyken (`TestOperatorScreens_EveryActionAndLinkIsAMountedRoute`).
+>     7. **Asla loglanmayanlar:** okuma bileti `internal/db`'den çıkmaz (paket içi `readTicket`);
+>        handler oturum hash'ini ve `PgError.Detail`'i log'lamaz; yayımlanan gövde log'a yazılmaz.
+>     8. **Ekranın kapattığı metin:** ADR 0016 Sonuçlar *"kim yayımladı ekranı yok"* (ADR 0020
+>        yerine geçilenler tablosu) B'nin ekranıyla kapanır.
+> 15. **Sayılı sınırlar (A):** (L1) md. 12'nin kalıcı satırları — ve **dev'in herkese açık yasal
+>     sayfaları test metni gösterir**: `internal/domain/legal`'in `ownerPublish`'i koşu başına 5
+>     FAKE sürüm commit eder ve dört slug'ın dördünün güncel sürümü bir test metnidir; §4.6
+>     açısından sorun değil, demo öncesi dev veritabanı sıfırlanır (2. tur, güvenlik D4);
+>     (L2) boşluk-yalnız gövde kontrolü locale'e bağlıdır (md. 22'nin ölçülen listesi; üretimin
+>     ctype'ı ölçülmedi) ve sekiz ölçülen kod noktasından ibaret bir gövdeyi ne o kontrol ne Go'nun
+>     `TrimSpace`'i reddeder — boş görünen bir yasal sayfa yayımlanabilir (güvenilen operatör girdisi; bütünlük, güvenlik
+>     değil), görünür karakter denetimi B'de (md. 14.3); (L3) Down `tappa_app`'e
+>     INSERT'i geri verir; (L4) geniş varsayılan ACL altında `pg_dump` geri yüklemesi `tappa_app`'e
+>     `legal_documents` INSERT'i geri verebilir ve `USING (true) WITH CHECK (true)` politikası onu
+>     durdurmaz — `scripts/pg-restore-verify.sh`'in tablo ve sütun yetki karşılaştırmasının
+>     raporlaması beklenir (bu görevde ölçülmedi); politikayı `WITH CHECK (false)` ile daraltmak
+>     ölçülüp alınmadı (redline R5b, ADR 0021 OP-10 notu md. 14); (L5) sınır 4'ün penceresi 30 sn;
+>     (L6) aynı oturumla eşzamanlı çağrılar oturum satırı kilidinde sıraya girer (md. 8); (L7) iki
+>     kopya kanonikleştirme (`op_begin_read`'in `v_bound`'ı, `op_read_*`'ın
+>     `jsonb_build_object`'i) — kaymayı gerçek begin → read yolu ölçer
+>     (`TestOpReadLegalVersions_TwoPhaseLifecycle`), yalnız böyle bir testi olan türler için.
+> 16. **Güvenlik iddiası** ADR 0021 → "OP-10 uygulama notu" sonunda üç parçalı (PART I ölçen
+>     testlerin adlarıyla, PART II pinler, PART III).
+>
+> **2. tur (2026-10-03; üçüncü göz ONAY + tappa-security-auditor ONAY, kalan düşük bulgular).**
+> Dal ucu `85bcf6b`'ye hızlı ileri sarıldı (çakışma yok: ucun dosyaları `cmd/opadmin/*`,
+> `internal/brand/*`, ADR 0023/0024, `docs/plan/*`). Migration'da yalnız fonksiyon gövdesi DIŞI
+> bir yorum değişti (md. 21; dosya sha256 öneki `aad7653eb6cefb49`), şema dökümü yine
+> `ac206fedc7a6548b`.
+>
+> 17. 🔴 **A, B olmadan `main`'e GİTMEMELİ (B11, güvenlik D3).** 00027 deploy edilip B gelmezse
+>     panelin `/admin/legal` POST'u `Store.Publish`'in 42501'iyle 500 döner
+>     (`problemLegalUnavailable`, `internal/handler/legaladmin.go`'nun `default` dalı) ve
+>     operatörün yasal metin ekranı yoktur; o arada bir yasal metin ancak `tappa_owner`'ın SQL'iyle
+>     eklenir — `legal_publish` satırı bırakmadan, sürüm listesinde `legacy` sınıflanarak. ADR 0021
+>     OP-10 notu md. 15.
+> 18. **Kilit pini (B1):** ucun `TestTablesLock_IsTakenOncePerTestTree`'si (`cmd/opadmin/tableslock_test.go`)
+>     `opLiveFixture` yüzünden kırmızıydı (ölçüldü: "the lock statement is in
+>     [TestOperatorDB_RunsAsTappaOperator opLiveFixture opTx], want [… opTx]"). `tablesLockStatements`'a
+>     `opLiveFixture` eklendi, `tablesLockDirs` ve PART II yorumları güncellendi; test PASS ve
+>     `internal/db` için tarama bulgusu 0 (fonksiyon başına tek istek, alt testte/döngüde yok).
+> 19. **Tüketim koşullarının kaynak pini (D1 + B7 + U15):** `TestOpRead_EveryReadConsumesItsTicketAsTheADRSays`
+>     — adı `op_read_` ile başlayan HER fonksiyon (katalogdan, adla) normalleştirilmiş kaynağında:
+>     oturum önce `op_touch_session` ile çözülür; `operator_read_tickets`'ın TEK UPDATE'i
+>     `SET consumed_at = clock_timestamp() WHERE …`; WHERE'de altı koşul (hash: ham bilet ‖
+>     parametre nesnesi; `session_id = v_session`; `kind = '…'` ve değeri tür CHECK'inin kümesinde;
+>     `consumed_at IS NULL`; `expires_at > clock_timestamp()`; `pg_xact_status(created_xact) =
+>     'committed'` POZİTİF); hemen ardından `IF NOT FOUND … 28000`; `RETURN QUERY` ondan sonra.
+>     Pozitif kontrol: `op_read_legal_versions`'ın bir kopyası savepoint içinde 11 bozuk biçimde
+>     yaratılır (her koşulun silinmesi, U1 yazımı, IF'e taşınmış negatif yazım, kapalı küme dışı
+>     tür, `now()`, parametresiz hash, ret dalının silinmesi) ve her biri adıyla yakalanır;
+>     değiştirilmemiş kopya yakalanmaz.
+> 20. **Biletin kaynağı (B4):** `TestOpBeginRead_TheTicketIsDrawnFromTheStrongRandomSource` —
+>     `v_ticket`'ın TEK ataması üç `uuid_send(pg_catalog.gen_random_uuid())` üzerinden SHA-256,
+>     saklanan hash ondan, dönüş o; `pg_catalog.gen_random_uuid()` `LANGUAGE internal`. Kontrol:
+>     saat+oturum türevli bilet (U2) bir kopyada yakalanır.
+> 21. **Şema kümeleri ve küçük testler:** `TestOperator00026_TableShapeChecks`'e kapalı küme dışı
+>     bilet türü (`'probe'` → `operator_read_tickets_kind_check`, B2) ve kapsamsız `read` satırı
+>     (→ `operator_audit_log_read_has_scope`, B3; kapsamlı satır kontrol) eklendi;
+>     `TestOperator00027_DownGivesTheWriteBackAndUpTakesItAgain` bilet tür CHECK'inin tanımını
+>     Up'tan önce (kapalı küme), Down'dan sonra (00026'nın şekli) ve yeniden Up'tan sonra ölçer;
+>     `TestOpReadLegalVersions_PagesAreCappedAndOrdered` Maltaca bir gövdede `body_bytes`'ın bayt
+>     (52) olduğunu, karakter (46) olmadığını ölçer (B5; `LegalVersion.BodyBytes` yorumu buna
+>     bağlandı); `TestLegalVersions_OnThePoolTheTwoPhasesAreTwoTransactions` artık erişimciyle 2.
+>     sayfayı okur ve commit edilen audit satırının sayfa 2 / boyut 5 olduğunu ölçer (B6 — satır
+>     içeriği tablodaki veriye bağlı değil). Metin (B10): test yorumu 18 vakalık listeye ve altı
+>     ölü oturuma bağlandı; 22023'ün dalları migration'da ve ADR notunda aynı beş dalla sayıldı
+>     (migration'ın eski "four" listesi boşluk-yalnız gövdeyi saymıyordu — yalnız yorum).
+> 22. **Boşluk sınıfı ölçüldü (güvenlik D2):** dev, `datctype = en_US.utf8`, sağlayıcı libc.
+>     `[:space:]` kontrolü REDDEDER: U+0009–000D, U+0020, U+0085, U+2000, U+2003, U+2028,
+>     U+2029, U+205F, U+3000; KABUL EDER: U+00A0, U+1680, U+180E, U+200B, U+200C, U+200D, U+202F,
+>     U+2060, U+2800, U+3164, U+FEFF. Go 1.26.7 `strings.TrimSpace` bunlardan U+00A0, U+1680,
+>     U+202F'yi de kırpar; U+180E, U+200B, U+200C, U+200D, U+2060, U+2800, U+3164, U+FEFF'yi ne
+>     kontrol ne `TrimSpace` reddeder (altısı `unicode.Cf`, U+2800 ve U+3164 değil). Üretimin
+>     ctype'ı ölçülmedi. B'ye devir md. 14.3, sınır L2.
+> 23. **Mutasyonlar (2. tur; her biri KIRMIZI, pristine'de yeşil; migration mutasyonları `goose
+>     down` → `up-by-one`, her adımda sürüm ölçüldü):**
+>
+>     | # | Mutasyon | Kırmızı test (ilk hata satırı) |
+>     |---|---|---|
+>     | U1 | `pg_xact_status(...) = 'committed'` → `k.created_xact <> pg_current_xact_id()` | `TestOpRead_EveryReadConsumesItsTicketAsTheADRSays` ("lacks created by a COMMITTED transaction, positive form") |
+>     | U15 | tüketen UPDATE'ten `k.kind = 'legal_versions'` silindi | aynı test ("lacks this read kind") |
+>     | C1 | hash koşulu silindi | aynı test ("lacks the hash of (raw ticket, …)") |
+>     | C2 | oturum koşulu silindi | aynı test ("lacks this session") |
+>     | C3 | `consumed_at IS NULL` silindi | aynı test ("lacks not yet consumed") |
+>     | C4 | `expires_at > clock_timestamp()` silindi | aynı test ("lacks not expired by the wall clock") |
+>     | C5 | commit koşulu silindi | aynı test ("lacks created by a COMMITTED transaction") |
+>     | U2 | bilet `sha256(clock_timestamp()::text ‖ p_session)` | `TestOpBeginRead_TheTicketIsDrawnFromTheStrongRandomSource` |
+>     | U8 | Up'ın bilet tür CHECK'i şekil kuralına gevşedi | `TestOperator00026_TableShapeChecks` ('probe' bileti başarılı) |
+>     | U12 | `operator_audit_log_read_has_scope` silindi | `TestOperator00026_TableShapeChecks` (kapsamsız `read` başarılı) |
+>     | U13 | `octet_length(d.body)` → `length(d.body)` | `TestOpReadLegalVersions_PagesAreCappedAndOrdered` (46, 52 beklenirken) |
+>     | D4 | Down bilet tür CHECK'ini şekle döndürmüyor | `TestOperator00027_DownGivesTheWriteBackAndUpTakesItAgain` |
+>     | GB | `LegalVersions` iki aşamada da `Number = 1` | `TestLegalVersions_OnThePoolTheTwoPhasesAreTwoTransactions` (audit sayfa 1) |
+>
+>     Sonda pristine 00027 geri yazıldı, Down → Up ile iki kez uygulandı, şema `ac206fedc7a6548b`;
+>     `operator.go` pristine'e geri yazıldı.
+> 24. **Doğrulama (2. tur):** hedefli `-race -v` (`internal/db`, `internal/domain/legal`,
+>     `cmd/tappa`, `cmd/opadmin`; .env'li): 408 üst düzey PASS, 0 SKIP, 0 FAIL (alt testlerle 875),
+>     DATA RACE 0; `TestTablesLock_IsTakenOncePerTestTree` ve `TestEveryNamedTestExists` (54/54)
+>     PASS. Kalıcı veri bu koşuda md. 12'nin oranıyla: "op10" hesap/oturum/`read` 36 → 38,
+>     `legal_documents` 3242 → 3247, bilet 0, `legal_publish` 0.
+
 ### Görevler — A2 tenant-ötesi okuma/yazma
 | ID | Görev | Efor | Kabul (özet) |
 |---|---|---|---|

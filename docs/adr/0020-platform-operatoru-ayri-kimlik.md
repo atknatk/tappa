@@ -686,6 +686,19 @@ bir restoran hesabına bağlı olmamalı* (m10-platform.md §1).
   (`TAPPA_OPERATOR_ADMIN_IDS`, `mayPublishLegal`) yorumunda taşıyor ve uygulanmış
   migration değiştirilmez (CLAUDE.md §3). Kriter: *"`db/migrations` ve ADR geçmişi
   hariç"*.
+- **OP-10 A fazı notu (2026-10-03).** Veri katmanı uygulandı:
+  `db/migrations/00027_move_legal_publishing_to_the_operator.sql`. Tablo düzeyi
+  `REVOKE INSERT ON legal_documents FROM tappa_app` ölçü sözleşmesiyle ölçüldü (dev, `BEGIN …
+  ROLLBACK` ve sonra canlı katalogda: `has_any_column_privilege` `t` → `f`, `slug`/`body`/
+  `published_by` INSERT üçü de `f`, SELECT (id, slug, body, published_at) `t`); sütun düzeyi
+  yazım (`REVOKE INSERT (slug, body) …`) `has_any_column_privilege`'ı `t` bıraktı.
+  `op_publish_legal(p_session, p_slug, p_body)` `void` döndürür, `published_by`'ı oturumun
+  operatöründen alır, 256 KiB'ı `octet_length(body) > 262144` ile uygular; sürüm listesi ilk
+  `op_read_*`'tır (`op_read_legal_versions`) ve eski satırları `publisher_kind = 'legacy'`
+  olarak, müşteri admin id'si olmadan döndürür. `published_at`'in DEFAULT'u
+  `clock_timestamp()` oldu. Ekran, `legal.Store.Refresh` wiring'i ve "Tamamen kaldırılanlar"
+  listesi B fazındadır. Ayrıntı: [ADR 0021](0021-op-fonksiyonlari-tenant-otesi-erisim.md) →
+  "OP-10 uygulama notu".
 
 ### 8. Yapılmayacaklar
 

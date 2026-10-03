@@ -55,3 +55,24 @@
 
 -- CloseOperatorSession -- logout through the touch predicate (00026 §5.5).
 --   SELECT public.op_close_session($1);
+
+-- ============================================================================
+-- OP-10 (migration 00027): the legal texts on the operator's surface.
+
+-- BeginOperatorRead -- phase one of the two-phase reads (ADR 0021 §2 v 1): resolves
+-- the session, writes the read's 'read' audit row and a ticket bound to it, returns the
+-- RAW ticket. $2 is a read kind (00027's closed set: 'legal_versions'), $3 that kind's
+-- parameter object. The caller COMMITS before phase two.
+--   SELECT public.op_begin_read($1, $2, $3::jsonb);
+
+-- ReadLegalVersions -- phase two of the version list: $2 is the RAW ticket, $3/$4 the
+-- page the ticket was bound to. One consuming UPDATE (session, kind, hash of ticket and
+-- page, unconsumed, unexpired by the wall clock, created by a COMMITTED transaction),
+-- then the page, newest first, capped at 200 rows.
+--   SELECT version_id, slug, published_at, body_bytes, publisher_kind,
+--          publisher_admin_id, publisher_name, is_current
+--   FROM public.op_read_legal_versions($1, $2, $3, $4);
+
+-- PublishLegal -- one new version and its 'legal_publish' audit row, one statement
+-- (ADR 0020 §7). published_by is the session's operator; there is no actor argument.
+--   SELECT public.op_publish_legal($1, $2, $3);

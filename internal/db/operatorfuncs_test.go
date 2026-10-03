@@ -1351,6 +1351,13 @@ func TestOperator00026_TableShapeChecks(t *testing.T) {
 		sqlstateCheckViolation, "a login row without its session")
 	opWant(t, opTry(t, ctx, tx, `INSERT INTO operator_audit_log (kind) VALUES ('bogus')`),
 		sqlstateCheckViolation, "a kind outside the closed set")
+	// 00027 (OP-10): a 'read' row names WHAT was read (operator_audit_log_read_has_scope);
+	// the same row with its scope is the control.
+	opWantConstraint(t, opTry(t, ctx, tx, `INSERT INTO operator_audit_log (kind, session_id, actor_admin_id) VALUES ('read', $1, $2)`, sid, a.id),
+		"operator_audit_log_read_has_scope", "a 'read' row without its target_scope")
+	if err := opTry(t, ctx, tx, `INSERT INTO operator_audit_log (kind, session_id, actor_admin_id, target_scope) VALUES ('read', $1, $2, 'legal_versions')`, sid, a.id); err != nil {
+		t.Fatalf("CONTROL: a 'read' row with its scope was refused: %v", err)
+	}
 	var auditID uuid.UUID
 	if err := tx.QueryRow(ctx, `INSERT INTO operator_audit_log (kind, session_id, actor_admin_id) VALUES ('login', $1, $2) RETURNING id`,
 		sid, a.id).Scan(&auditID); err != nil {
@@ -1358,19 +1365,32 @@ func TestOperator00026_TableShapeChecks(t *testing.T) {
 	}
 
 	// tickets: the lifetime ceiling and the real-xid CHECK bind the OWNER too.
+	//
+	// ⚠️ THE KIND IS 'legal_versions' AND EACH REFUSAL NAMES ITS CONSTRAINT (00027,
+	// OP-10). 00027 turned operator_read_tickets_kind_check from a shape into the closed
+	// set of read kinds. Measured on 00027 (BEGIN ... ROLLBACK): a 30-second ticket of
+	// the old fixture kind 'probe' is refused by operator_read_tickets_kind_check, and so
+	// is a 'probe' ticket living 61 seconds with created_xact = '2' -- so with 'probe'
+	// the control turns red and the 23514 refusals below hold for the wrong reason. The
+	// kind is now a member of the set, and the refusals are pinned by constraint NAME.
 	ticket := func(extraCols, extraVals string, args ...any) error {
 		all := append([]any{opRandHex(t), sid, auditID}, args...)
 		return opTry(t, ctx, tx, `INSERT INTO operator_read_tickets (ticket_hash, session_id, kind, audit_id, expires_at`+extraCols+`)
-		                          VALUES ($1, $2, 'probe', $3, clock_timestamp() + interval '30 seconds'`+extraVals+`)`, all...)
+		                          VALUES ($1, $2, 'legal_versions', $3, clock_timestamp() + interval '30 seconds'`+extraVals+`)`, all...)
 	}
 	if err := ticket("", ""); err != nil {
 		t.Fatalf("CONTROL: a 30-second ticket was refused: %v", err)
 	}
-	opWant(t, opTry(t, ctx, tx, `INSERT INTO operator_read_tickets (ticket_hash, session_id, kind, audit_id, expires_at)
-	                              VALUES ($1, $2, 'probe', $3, clock_timestamp() + interval '61 seconds')`, opRandHex(t), sid, auditID),
-		sqlstateCheckViolation, "a ticket living 61 seconds")
-	opWant(t, ticket(", created_xact", ", '2'::xid8"), sqlstateCheckViolation, "created_xact = 2 (pg_xact_status says committed)")
-	opWant(t, ticket(", created_xact", ", '1'::xid8"), sqlstateCheckViolation, "created_xact = 1")
+	opWantConstraint(t, opTry(t, ctx, tx, `INSERT INTO operator_read_tickets (ticket_hash, session_id, kind, audit_id, expires_at)
+	                              VALUES ($1, $2, 'legal_versions', $3, clock_timestamp() + interval '61 seconds')`, opRandHex(t), sid, auditID),
+		"operator_read_tickets_ttl_ceiling", "a ticket living 61 seconds")
+	opWantConstraint(t, ticket(", created_xact", ", '2'::xid8"), "operator_read_tickets_xact_is_real", "created_xact = 2 (pg_xact_status says committed)")
+	opWantConstraint(t, ticket(", created_xact", ", '1'::xid8"), "operator_read_tickets_xact_is_real", "created_xact = 1")
+	// ...and the kind itself: a ticket of a kind outside the closed set (the old fixture
+	// kind) is refused by the kind CHECK, by name.
+	opWantConstraint(t, opTry(t, ctx, tx, `INSERT INTO operator_read_tickets (ticket_hash, session_id, kind, audit_id, expires_at)
+	                              VALUES ($1, $2, 'probe', $3, clock_timestamp() + interval '30 seconds')`, opRandHex(t), sid, auditID),
+		"operator_read_tickets_kind_check", "a ticket of a kind outside 00027's closed set")
 
 	// tappa_opdefiner's grants, as statements (ADR 0021 §1, O-2, O-4).
 	asDefiner := func(sql string, args ...any) error {
@@ -1378,7 +1398,7 @@ func TestOperator00026_TableShapeChecks(t *testing.T) {
 		return opExecAs(t, ctx, tx, "tappa_opdefiner", sql, args...)
 	}
 	binding := `INSERT INTO public.operator_read_tickets (ticket_hash, session_id, kind, audit_id, expires_at%s)
-	            VALUES ($1, $2, 'probe', $3, clock_timestamp() + interval '30 seconds'%s)`
+	            VALUES ($1, $2, 'legal_versions', $3, clock_timestamp() + interval '30 seconds'%s)`
 	if err := asDefiner(fmt.Sprintf(binding, "", ""), opRandHex(t), sid, auditID); err != nil {
 		t.Fatalf("CONTROL: the definer cannot insert a ticket with the binding columns: %v", err)
 	}

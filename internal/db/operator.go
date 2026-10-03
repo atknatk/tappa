@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"encoding"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -50,10 +51,11 @@ import (
 
 // OperatorConn is the connection an operator statement runs on: tappa_operator's
 // pool (OP-7) or a transaction impersonating it. *pgxpool.Pool, *pgx.Conn and pgx.Tx
-// all satisfy it.
+// all satisfy it. Query is for the op_read_* functions, which return rows (OP-10).
 type OperatorConn interface {
 	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
 }
 
 // ErrOperatorRefused is every op_* refusal: 00026 raises SQLSTATE 28000 for a dead
@@ -132,6 +134,16 @@ WHERE id = $1 AND status = 'active'`
 	touchOperatorSessionSQL = `SELECT session_id, admin_id FROM public.op_touch_session($1)`
 
 	closeOperatorSessionSQL = `SELECT public.op_close_session($1)`
+
+	// OP-10 (migration 00027). The read kind and its parameters are bound values like
+	// everything else; $3 is the parameters' JSON text, cast on the server.
+	beginOperatorReadSQL = `SELECT public.op_begin_read($1, $2, $3::jsonb)`
+
+	readLegalVersionsSQL = `SELECT version_id, slug, published_at, body_bytes, publisher_kind,
+       publisher_admin_id, publisher_name, is_current
+FROM public.op_read_legal_versions($1, $2, $3, $4)`
+
+	publishLegalSQL = `SELECT public.op_publish_legal($1, $2, $3)`
 )
 
 // maxOperatorEmailBytes is 00026's CHECK on platform_admins.email (254). A longer
@@ -242,6 +254,177 @@ func CloseOperatorSession(ctx context.Context, c OperatorConn, sessionHash strin
 	_, err := c.Exec(ctx, closeOperatorSessionSQL, sessionHash)
 	return operatorErr("close operator session", err)
 }
+
+// ------------------------------------------------------------------ OP-10 --
+//
+// The legal texts on the operator's surface (migration 00027; ADR 0020 §7, ADR 0021
+// §2 v). Two exported calls -- a version list and a publication -- and, unexported,
+// the two phases the version list is made of. They are free functions over an
+// OperatorConn like the seven above and are NOT methods of *OperatorDB yet:
+// TestOperatorDB_IsTheStoreAndNothingMore pins that type's method set to
+// operatorauth.Store plus Close, and the consumer of these two (the /operator/legal
+// handler, OP-10 phase B) declares its own interface when it is written -- the method
+// set and that pin change together then, with the consumer named.
+
+// legalVersionsReadKind is op_begin_read's read kind for the version list -- the one
+// value of operator_read_tickets_kind_check (00027).
+const legalVersionsReadKind = "legal_versions"
+
+// LegalVersionsPage is a page of the version list: Number from 1, Size 1..200 (ADR 0021
+// §2 iii's ceiling). The database refuses anything else (op_begin_read, 22023) before
+// writing a row; nothing here re-checks it, so the rule lives in one place.
+type LegalVersionsPage struct {
+	Number int32
+	Size   int32
+}
+
+// LegalPublisherKind says who published a version, as op_read_legal_versions answers.
+type LegalPublisherKind string
+
+const (
+	// LegalPublishedByOperator: published_by is a platform_admins.id (op_publish_legal).
+	LegalPublishedByOperator LegalPublisherKind = "operator"
+	// LegalPublishedByLegacy: any other row -- the M7-06 panel's (a customer admin's id,
+	// or none) or one the owner wrote. ADR 0020 §7: the screen says "tenant admin
+	// (legacy)". The customer admin's id is not returned.
+	LegalPublishedByLegacy LegalPublisherKind = "legacy"
+)
+
+// LegalVersion is one row of op_read_legal_versions -- a fixed column list (ADR 0021
+// §2 ii). BodyBytes is the stored text's length in BYTES (octet_length: a letter that
+// UTF-8 writes in two bytes counts two -- measured on a Maltese text by
+// TestOpReadLegalVersions_PagesAreCappedAndOrdered); the text itself is not part of the
+// list.
+type LegalVersion struct {
+	ID          uuid.UUID
+	Slug        string
+	PublishedAt time.Time
+	BodyBytes   int32
+	PublishedBy LegalPublisherKind
+	// PublisherID and PublisherName are the operator's for an operator row, nil for a
+	// legacy one.
+	PublisherID   *uuid.UUID
+	PublisherName *string
+	// Current: this is the version the public page serves (the newest of its slug).
+	Current bool
+}
+
+// legalVersionsParams is the version list's parameter object as op_begin_read takes
+// it: exactly these two keys (00027). The database rebuilds the object it hashes from
+// the typed values, so this spelling is not what binds the ticket.
+type legalVersionsParams struct {
+	PageNumber int32 `json:"page_number"`
+	PageSize   int32 `json:"page_size"`
+}
+
+// LegalVersions is the two-phase read of ADR 0021 §2 v for the version list: phase one
+// (op_begin_read) writes the read's audit row and a ticket and must COMMIT; phase two
+// (op_read_legal_versions) consumes the ticket and returns the rows.
+//
+// 🔴 TWO TRANSACTIONS, AND THE CONNECTION DECIDES WHETHER THEY ARE TWO. On the pool
+// (*pgxpool.Pool, which is how *OperatorDB holds its connection) each statement is an
+// implicit transaction of its own, so phase one has committed before phase two starts
+// -- measured on a pool built by the production constructor:
+// TestLegalVersions_OnThePoolTheTwoPhasesAreTwoTransactions. On a pgx.Tx both phases
+// run in the caller's transaction and the database refuses phase two (the ticket's
+// transaction has not committed), which comes back as ErrOperatorRefused -- measured in
+// the same test. ADR 0021 §4: "ikisini tek transaction'da birleştiren bir erişimci
+// yazılamaz -- veritabanı zaten reddeder".
+func LegalVersions(ctx context.Context, c OperatorConn, sessionHash string, page LegalVersionsPage) ([]LegalVersion, error) {
+	params, err := json.Marshal(legalVersionsParams{PageNumber: page.Number, PageSize: page.Size})
+	if err != nil {
+		return nil, fmt.Errorf("db: legal versions: encode the page: %w", err)
+	}
+	t, err := beginOperatorRead(ctx, c, sessionHash, legalVersionsReadKind, params)
+	if err != nil {
+		return nil, err
+	}
+	return readLegalVersions(ctx, c, sessionHash, t, page)
+}
+
+// PublishLegal is op_publish_legal: one new version of one document and its
+// 'legal_publish' audit row, in one statement. The publisher is the operator the
+// session resolves to; there is no parameter for it. A dead session is
+// ErrOperatorRefused; a document the database will not take (a slug outside the closed
+// set, a blank body, more than 256 KiB) is a database error carrying SQLSTATE 22023.
+// The caller refreshes the public snapshot afterwards (internal/domain/legal.Store.Refresh
+// -- ADR 0020 §7, one replica).
+func PublishLegal(ctx context.Context, c OperatorConn, sessionHash, slug, body string) error {
+	_, err := c.Exec(ctx, publishLegalSQL, sessionHash, slug, body)
+	return operatorErr("publish legal document", err)
+}
+
+// beginOperatorRead is op_begin_read: the RAW ticket of a read whose audit row the
+// statement wrote. kind is a read kind (00027's closed set) and params that kind's
+// parameter object as JSON.
+func beginOperatorRead(ctx context.Context, c OperatorConn, sessionHash, kind string, params []byte) (readTicket, error) {
+	var raw string
+	if err := c.QueryRow(ctx, beginOperatorReadSQL, sessionHash, kind, string(params)).Scan(&raw); err != nil {
+		return readTicket{}, operatorErr("begin operator read", err)
+	}
+	return readTicket{v: &raw}, nil
+}
+
+// readLegalVersions is op_read_legal_versions: consume the ticket (bound to the session,
+// the read kind and these page values), then the page of versions.
+func readLegalVersions(ctx context.Context, c OperatorConn, sessionHash string, t readTicket, page LegalVersionsPage) ([]LegalVersion, error) {
+	rows, err := c.Query(ctx, readLegalVersionsSQL, sessionHash, t.reveal(), page.Number, page.Size)
+	if err != nil {
+		return nil, operatorErr("read legal versions", err)
+	}
+	defer rows.Close()
+	var out []LegalVersion
+	for rows.Next() {
+		var (
+			v    LegalVersion
+			kind string
+		)
+		if err := rows.Scan(&v.ID, &v.Slug, &v.PublishedAt, &v.BodyBytes, &kind,
+			&v.PublisherID, &v.PublisherName, &v.Current); err != nil {
+			return nil, operatorErr("read legal versions", err)
+		}
+		v.PublishedBy = LegalPublisherKind(kind)
+		out = append(out, v)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, operatorErr("read legal versions", err)
+	}
+	return out, nil
+}
+
+// readTicket is op_begin_read's answer: the RAW read ticket, which CLAUDE.md §7 and ADR
+// 0021 §3.5 put on the never-log list (raw or hashed). The type is unexported and no
+// exported function takes or returns it -- LegalVersions hands it from phase one to
+// phase two -- and it is the SealedSecret pattern all the same: the five redacting
+// methods, and the value behind a *string (SealedSecret's comment says why a *string and
+// not a byte slice). Through fmt's verbs, slog and encoding/json it prints the
+// placeholder (TestReadTicket_PrintsOnlyThePlaceholder's matrix).
+type readTicket struct{ v *string }
+
+const ticketRedacted = "db.readTicket(redacted)"
+
+var (
+	_ fmt.Formatter          = readTicket{}
+	_ fmt.Stringer           = readTicket{}
+	_ fmt.GoStringer         = readTicket{}
+	_ slog.LogValuer         = readTicket{}
+	_ encoding.TextMarshaler = readTicket{}
+)
+
+// reveal is the one reader: the raw ticket for op_read_*, or "" for the zero value
+// (which no ticket hash matches -- the fail-closed direction).
+func (t readTicket) reveal() string {
+	if t.v == nil {
+		return ""
+	}
+	return *t.v
+}
+
+func (readTicket) Format(f fmt.State, _ rune)   { _, _ = f.Write([]byte(ticketRedacted)) }
+func (readTicket) String() string               { return ticketRedacted }
+func (readTicket) GoString() string             { return ticketRedacted }
+func (readTicket) LogValue() slog.Value         { return slog.StringValue(ticketRedacted) }
+func (readTicket) MarshalText() ([]byte, error) { return []byte(ticketRedacted), nil }
 
 // operatorErr is rule (c): a PostgreSQL error leaves this file as ITS SQLSTATE ONLY.
 // 28000 becomes ErrOperatorRefused; any other SQLSTATE becomes a fresh error naming

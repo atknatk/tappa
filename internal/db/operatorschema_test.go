@@ -772,13 +772,17 @@ func TestOperator00026_PrivilegeMatrix(t *testing.T) {
 		{"tappa_operator", "operator_read_tickets", "UPDATE", ""},
 		// tappa_opdefiner: reads what it decides on, writes credentials and state, never
 		// SELECTs the digest or the sealed secret, never INSERTs an account.
-		{"tappa_opdefiner", "platform_admins", "SELECT", "id,email,status,totp_last_step,totp_failures,totp_locked_until,enroll_token_hash,enroll_expires_at,enroll_used_at"},
+		// display_name: 00027 (OP-10) -- op_read_legal_versions names the operator who
+		// published a version. Not a credential column.
+		{"tappa_opdefiner", "platform_admins", "SELECT", "id,email,display_name,status,totp_last_step,totp_failures,totp_locked_until,enroll_token_hash,enroll_expires_at,enroll_used_at"},
 		{"tappa_opdefiner", "platform_admins", "INSERT", ""},
 		{"tappa_opdefiner", "platform_admins", "UPDATE", "status,password_hash,totp_secret_sealed,totp_last_step,totp_failures,totp_locked_until,last_login_at,enroll_used_at"},
 		{"tappa_opdefiner", "platform_sessions", "SELECT", "id,admin_id,token_hash,created_at,mfa_verified_at,last_used_at,revoked_at"},
 		{"tappa_opdefiner", "platform_sessions", "INSERT", "admin_id,token_hash,mfa_verified_at"},
 		{"tappa_opdefiner", "platform_sessions", "UPDATE", "last_used_at,revoked_at"},
-		{"tappa_opdefiner", "operator_audit_log", "SELECT", ""},
+		// id: 00027 (OP-10) -- op_begin_read's INSERT ... RETURNING id (the ticket's
+		// audit_id). No other column: the log is read through op_read_audit (OP-14).
+		{"tappa_opdefiner", "operator_audit_log", "SELECT", "id"},
 		{"tappa_opdefiner", "operator_audit_log", "INSERT", "kind,session_id,actor_admin_id,target_admin_id,target_tenant_id,target_scope,page_number,page_size,detail"},
 		{"tappa_opdefiner", "operator_audit_log", "UPDATE", ""},
 		{"tappa_opdefiner", "operator_read_tickets", "SELECT", "id,ticket_hash,session_id,kind,target_tenant_id,audit_id,created_xact,expires_at,consumed_at"},
@@ -891,7 +895,16 @@ func TestOperator00026_PrivilegeMatrix(t *testing.T) {
 	// order (or "*" for a table-level verb), in the same change as its migration. The
 	// seven secret columns can never be added for SELECT: the named check below does not
 	// consult the allow-list, and the allow-list is itself checked against them.
-	opdefinerTenantGrants := map[string]string{}
+	//
+	// 00027 (OP-10): legal_documents -- not a tenant table, but outside the four, so it
+	// is listed here. op_read_legal_versions reads the version list's columns
+	// (published_by to resolve the publisher, body for its length), op_publish_legal
+	// writes the three columns a publication carries; published_at is NOT writable (its
+	// DEFAULT is the wall clock), and there is no UPDATE, DELETE or TRUNCATE.
+	opdefinerTenantGrants := map[string]string{
+		"legal_documents:SELECT": "id,slug,body,published_at,published_by",
+		"legal_documents:INSERT": "slug,body,published_by",
+	}
 	neverSelect := [][2]string{
 		{"tags", "aes_key_ref"}, {"tags", "app_key_ref"}, {"admin_users", "password_hash"},
 		{"sessions", "token_hash"}, {"admin_sessions", "token_hash"},

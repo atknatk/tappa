@@ -16,14 +16,15 @@ import (
 )
 
 // tablesLockDirs are the test packages that take the operator-tables lock, relative to
-// this directory: internal/db EXCLUSIVE (opTx) and SHARED (one test), the others SHARED.
+// this directory: internal/db EXCLUSIVE (opTx) and SHARED (TestOperatorDB_RunsAsTappaOperator
+// and opLiveFixture, OP-10), the others SHARED.
 var tablesLockDirs = []string{".", "../../internal/db", "../../internal/handler/operator", "../../internal/operatorauth"}
 
 // tablesLockStatements are the functions that send the lock statement themselves, per
 // directory -- the closed list the scan must find (its control against going blind).
 var tablesLockStatements = map[string][]string{
 	".":                               {"sharedTablesLock"},
-	"../../internal/db":               {"TestOperatorDB_RunsAsTappaOperator", "opTx"},
+	"../../internal/db":               {"TestOperatorDB_RunsAsTappaOperator", "opLiveFixture", "opTx"},
 	"../../internal/handler/operator": {"newE2E"},
 	"../../internal/operatorauth":     {"sharedTablesLock"},
 }
@@ -202,7 +203,8 @@ func parsePackages(t *testing.T, fset *token.FileSet, dir string) map[string][]*
 // sending the statement or calling a function of the same package that does
 // (transitively). The statement itself is in exactly tablesLockStatements' functions:
 // cmd/opadmin sharedTablesLock (ownerTx; TestApply_AFailureAnywhereLeavesNoRow), internal/db
-// opTx (EXCLUSIVE) and TestOperatorDB_RunsAsTappaOperator, internal/handler/operator newE2E,
+// opTx (EXCLUSIVE), TestOperatorDB_RunsAsTappaOperator and opLiveFixture (SHARED; OP-10's
+// three tests whose subject is a commit), internal/handler/operator newE2E,
 // internal/operatorauth sharedTablesLock (ownerTx, ownerPool). Measured when written: the
 // one finding was the subtest above; after the fix, none. POSITIVE CONTROL: the same scan
 // finds the CI shape, a function that asks twice and one that asks in a loop -- and not

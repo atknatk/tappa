@@ -35,14 +35,15 @@ type ListPublishedLegalDocumentsRow struct {
 // versions ever published.
 //
 // ⚠️ id DESC IS A DETERMINISTIC TIEBREAK, NOT A "LATER" ONE, and the difference is
-// written down so the next reader does not mistake it for one. published_at
-// defaults to now(), which is TRANSACTION time, so two versions of the SAME slug
-// appended inside ONE transaction would carry the identical timestamp; a uuid v4
-// carries no time, so id DESC cannot say which of those two is newer. What it does
-// guarantee is that every read resolves the tie the SAME WAY -- a legal document
+// written down so the next reader does not mistake it for one. Two versions of the
+// SAME slug can carry the identical published_at (rows written before 00027, whose
+// DEFAULT was now() -- TRANSACTION time -- by one transaction; since 00027 the
+// DEFAULT is clock_timestamp(), which makes a tie a matter of clock resolution); a
+// uuid v4 carries no time, so id DESC cannot say which of those two is newer. What it
+// does guarantee is that every read resolves the tie the SAME WAY -- a legal document
 // that alternates between two texts depending on the executor's mood is the worse
-// failure. The case is not reachable today: the operator screen appends at most one
-// version per slug per request, so within a transaction the slugs are distinct.
+// failure. op_read_legal_versions (00027) uses the same ORDER BY (published_at DESC,
+// id DESC) for its version list and for the version it marks current.
 func (q *Queries) ListPublishedLegalDocuments(ctx context.Context) ([]ListPublishedLegalDocumentsRow, error) {
 	rows, err := q.db.Query(ctx, listPublishedLegalDocuments)
 	if err != nil {

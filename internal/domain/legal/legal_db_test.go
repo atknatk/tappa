@@ -28,6 +28,15 @@ import (
 // Tappa — and TestLegalDB_TheTableIsVisibleToEveryTenantAndScopedToNone measures
 // exactly that, in both directions, so a later reader cannot mistake it for an
 // isolation failure.
+//
+// ⚠️ SINCE MIGRATION 00027 (M10 OP-10) THE APPLICATION ROLE CANNOT WRITE THIS TABLE:
+// tappa_app lost INSERT, and the one writer is the operator's op_publish_legal (its
+// tests are internal/db's operatorlegal_test.go). So the versions these tests need are
+// appended through the OWNER's connection (ownerPublish) -- a stand-in for that writer,
+// because every property below belongs to the TABLE (who can see it, who can change it,
+// what the boot read finds), not to the writer. Store.Publish, the M7-06 panel's path,
+// is now refused by the database; TestLegalDB_PublishWritesTheTextTheTrailAndTheSnapshotOrNoneOfThem
+// measures that it leaves none of the three behind.
 
 type dbFixture struct {
 	data  *db.DB
@@ -89,85 +98,55 @@ func (f *dbFixture) seedTenant(t *testing.T, tenantID, adminID uuid.UUID) {
 
 // TestLegalDB_PublishWritesTheTextTheTrailAndTheSnapshotOrNoneOfThem.
 //
-// 🔴 §4.3 — THE AUDIT ROW SHARES THE TRANSACTION. Publish uses RecordTx rather than
-// Record, so a published text with no trail entry and a trail entry for a
-// publication that rolled back are both unreachable. Both facts are counted.
+// 🔴 §4.3 — THE AUDIT ROW SHARES THE TRANSACTION, so a publication leaves the text, the
+// trail row and the snapshot together or none of them. Since 00027 the database refuses
+// this path's INSERT (tappa_app holds no INSERT on legal_documents), so the "none of
+// them" half is the reachable one, and it is what is measured: the call fails with
+// 42501, no version with that text exists, the publisher's tenant has no trail row for
+// it, and the snapshot did not change. (The precompute of paragraphs that this test used
+// to pin on Store.set is pinned on the boot read, which goes through the same set:
+// TestLegalDB_RefreshNeedsNoTenantAndSeesNothingElse.)
 func TestLegalDB_PublishWritesTheTextTheTrailAndTheSnapshotOrNoneOfThem(t *testing.T) {
 	f := newDBFixture(t)
 	ctx := context.Background()
 
-	const body = "This is a FAKE placeholder text written by a test. It is not a policy."
-	doc, err := f.store.Publish(ctx, f.tenantA, f.adminA, "privacy", body)
-	if err != nil {
-		t.Fatalf("Publish: %v", err)
+	body := "This is a FAKE placeholder text written by a test. It is not a policy. " + uuid.NewString()
+	_, err := f.store.Publish(ctx, f.tenantA, f.adminA, "privacy", body)
+	if err == nil {
+		t.Fatal("Store.Publish succeeded: tappa_app can still append a legal version, which 00027 revoked")
 	}
-	if doc.Body != body {
-		t.Errorf("the stored body is %q, want the text as typed", doc.Body)
+	if !strings.Contains(err.Error(), "42501") {
+		t.Errorf("Store.Publish failed with %v, want the privilege refusal (42501)", err)
 	}
-	// 🔴 published_by IS WRITTEN AND CANNOT BE READ BACK BY THIS ROLE, which is a
-	// grant rather than an omission: the table has no tenant scope, so a readable
-	// admin uuid would be a fact about somebody else's business that any tenant's
-	// connection could fetch (measured by a security audit). So the value is checked
-	// through the OWNER connection, and the application's inability to read it is
-	// asserted as its own property below.
-	if got := ownerScalar(t, `SELECT published_by::text FROM legal_documents WHERE id = $1`, docIDOf(t, f, "privacy")); got != f.adminA.String() {
-		t.Errorf("published_by = %s, want the publisher %s", got, f.adminA)
+	if got := ownerScalar(t, `SELECT count(*)::text FROM legal_documents WHERE body = $1`, body); got != "0" {
+		t.Errorf("%s version(s) with the refused text exist; a refused publication writes no text", got)
 	}
-
-	// The SNAPSHOT was replaced in the same call, so the public pages can serve it
-	// with no second round trip.
-	got, ok := f.store.Published()["privacy"]
-	if !ok || got.Body != body {
-		t.Errorf("the snapshot does not carry the text that was just published: %+v", got)
+	if _, ok := f.store.Published()["privacy"]; ok {
+		t.Error("the snapshot carries a privacy text after a refused publication on an empty store")
 	}
-	// 🔴 AND IT CARRIES THE PARAGRAPHS, ALREADY SPLIT. This is the assertion that makes
-	// the precompute real rather than decorative: /legal/* is unmetered, so the split
-	// happens once here instead of on every anonymous GET (a security audit measured
-	// 253 ms per request for a pathological body). It is asserted on the STORE's own
-	// output, because the handler package's double computes them itself — a mutation
-	// that deleted the precompute from Store.set survived every handler test and was
-	// caught only here.
-	if len(got.Paragraphs) == 0 {
-		t.Error("the snapshot carries a body and no paragraphs, so the public page would " +
-			"either render nothing or have to split the text on every anonymous request")
-	}
-	if want := Paragraphs(body); len(got.Paragraphs) != len(want) {
-		t.Errorf("the snapshot carries %d paragraphs, want %d", len(got.Paragraphs), len(want))
-	}
-
-	// The TRAIL row is there, under the PUBLISHER'S OWN tenant.
-	var action, target string
-	var actor *uuid.UUID
+	var n int
 	err = f.data.WithTenant(ctx, f.tenantA, func(ctx context.Context, tx pgx.Tx) error {
 		return tx.QueryRow(ctx,
-			`SELECT action, target, actor_id FROM audit_log
-			 WHERE tenant_id = $1 AND action = $2 ORDER BY at DESC LIMIT 1`,
-			f.tenantA, ActionPublished).Scan(&action, &target, &actor)
-	})
-	if err != nil {
-		t.Fatalf("reading the trail: %v", err)
-	}
-	if target != "privacy" {
-		t.Errorf("the trail names target %q, want the document", target)
-	}
-	if actor == nil || *actor != f.adminA {
-		t.Errorf("the trail names actor %v, want the publisher %s", actor, f.adminA)
-	}
-
-	// AND THE OTHER TENANT'S TRAIL IS UNTOUCHED. Publishing is not something that
-	// happens to a customer.
-	var n int
-	err = f.data.WithTenant(ctx, f.tenantB, func(ctx context.Context, tx pgx.Tx) error {
-		return tx.QueryRow(ctx,
 			`SELECT count(*) FROM audit_log WHERE tenant_id = $1 AND action = $2`,
-			f.tenantB, ActionPublished).Scan(&n)
+			f.tenantA, ActionPublished).Scan(&n)
 	})
 	if err != nil {
-		t.Fatalf("counting B's trail: %v", err)
+		t.Fatalf("counting the publisher's trail: %v", err)
 	}
 	if n != 0 {
-		t.Errorf("tenant B's trail carries %d legal.published rows; a publication belongs to "+
-			"the tenant of the admin who made it and to nobody else", n)
+		t.Errorf("the publisher's tenant carries %d legal.published row(s) for a publication the database refused", n)
+	}
+}
+
+// ownerPublish appends one version through the OWNER's connection and commits it -- the
+// stand-in for op_publish_legal (see the file header). by is written as published_by,
+// the value the M7-06 panel wrote (a customer admin's id).
+func ownerPublish(t *testing.T, slug, body string, by uuid.UUID) {
+	t.Helper()
+	if got := ownerScalar(t, `WITH v AS (INSERT INTO legal_documents (slug, body, published_by)
+	                                     VALUES ($1, $2, $3) RETURNING id)
+	                         SELECT count(*)::text FROM v`, slug, body, by); got != "1" {
+		t.Fatalf("the owner appended %s versions, want 1", got)
 	}
 }
 
@@ -183,9 +162,7 @@ func TestLegalDB_PublishWritesTheTextTheTrailAndTheSnapshotOrNoneOfThem(t *testi
 func TestLegalDB_TheApplicationCannotReadWhoPublished(t *testing.T) {
 	f := newDBFixture(t)
 	ctx := context.Background()
-	if _, err := f.store.Publish(ctx, f.tenantA, f.adminA, "privacy", "FAKE text for the grant probe."); err != nil {
-		t.Fatalf("Publish: %v", err)
-	}
+	ownerPublish(t, "privacy", "FAKE text for the grant probe.", f.adminA)
 	err := f.data.WithTenant(ctx, f.tenantB, func(ctx context.Context, tx pgx.Tx) error {
 		var n int
 		return tx.QueryRow(ctx, `SELECT count(published_by) FROM legal_documents`).Scan(&n)
@@ -207,13 +184,6 @@ func TestLegalDB_TheApplicationCannotReadWhoPublished(t *testing.T) {
 		t.Fatalf("tappa_app cannot read legal_documents.body either (%v); the refusal above "+
 			"proves nothing about the column grant", err)
 	}
-}
-
-// docIDOf returns the newest row id for a slug, through the owner connection.
-func docIDOf(t *testing.T, f *dbFixture, slug string) string {
-	t.Helper()
-	return ownerScalar(t, `SELECT id::text FROM legal_documents WHERE slug = $1
-	                       ORDER BY published_at DESC, id DESC LIMIT 1`, slug)
 }
 
 // ownerScalar runs one scalar query through the migrate (superuser) connection.
@@ -247,18 +217,19 @@ func ownerScalar(t *testing.T, sql string, args ...any) string {
 //
 // A published legal text that can be edited in place has no history, and "what did
 // the policy say on the day of the complaint" is the only question anybody will ever
-// ask of it. A correction is a NEW ROW.
+// ask of it. A correction is a NEW ROW -- appended, since 00027, by the operator's
+// op_publish_legal and not by this role, whose INSERT is refused as well.
 func TestLegalDB_TheTableTakesNoUpdateAndNoDelete(t *testing.T) {
 	f := newDBFixture(t)
 	ctx := context.Background()
-	if _, err := f.store.Publish(ctx, f.tenantA, f.adminA, "terms", "FAKE first version."); err != nil {
-		t.Fatalf("Publish: %v", err)
-	}
+	first := "FAKE first version. " + uuid.NewString()
+	ownerPublish(t, "terms", first, f.adminA)
 
 	probes := []struct{ name, sql string }{
 		{"UPDATE the body", `UPDATE legal_documents SET body = 'rewritten' WHERE slug = 'terms'`},
 		{"UPDATE the date", `UPDATE legal_documents SET published_at = now() WHERE slug = 'terms'`},
 		{"DELETE the row", `DELETE FROM legal_documents WHERE slug = 'terms'`},
+		{"INSERT a version (00027)", `INSERT INTO legal_documents (slug, body) VALUES ('terms', 'FAKE text')`},
 	}
 	for _, p := range probes {
 		err := f.data.WithTenant(ctx, f.tenantA, func(ctx context.Context, tx pgx.Tx) error {
@@ -267,7 +238,8 @@ func TestLegalDB_TheTableTakesNoUpdateAndNoDelete(t *testing.T) {
 		})
 		if err == nil {
 			t.Errorf("%s succeeded as tappa_app. 00020 revokes UPDATE and DELETE precisely so "+
-				"that a correction has to be a new row.", p.name)
+				"that a correction has to be a new row, and 00027 revokes INSERT so that the "+
+				"operator's op_publish_legal is the one writer.", p.name)
 			continue
 		}
 		if !strings.Contains(err.Error(), "42501") && !strings.Contains(err.Error(), "permission denied") {
@@ -275,14 +247,21 @@ func TestLegalDB_TheTableTakesNoUpdateAndNoDelete(t *testing.T) {
 		}
 	}
 
-	// POSITIVE CONTROL: an INSERT still works, or the refusals above could be a table
-	// nothing can touch at all.
-	if _, err := f.store.Publish(ctx, f.tenantA, f.adminA, "terms", "FAKE second version."); err != nil {
-		t.Fatalf("a second version could not be appended: %v — a correction is a new row and "+
-			"that path must stay open", err)
+	// POSITIVE CONTROL: the role still READS the table, or the refusals above could be a
+	// table it cannot reach at all.
+	var n int
+	if err := f.data.WithTenant(ctx, f.tenantA, func(ctx context.Context, tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SELECT count(*) FROM legal_documents WHERE body = $1`, first).Scan(&n)
+	}); err != nil || n != 1 {
+		t.Fatalf("tappa_app reads %d copies of the first version (%v), want 1", n, err)
 	}
-	// AND THE LATEST WINS.
-	if got := f.store.Published()["terms"].Body; got != "FAKE second version." {
+	// A correction is a new row, and THE LATEST WINS on the next read of the snapshot.
+	second := "FAKE second version. " + uuid.NewString()
+	ownerPublish(t, "terms", second, f.adminA)
+	if err := f.store.Refresh(ctx); err != nil {
+		t.Fatalf("Refresh: %v", err)
+	}
+	if got := f.store.Published()["terms"].Body; got != second {
 		t.Errorf("the snapshot serves %q after a correction; the newest version must win", got)
 	}
 }
@@ -302,9 +281,7 @@ func TestLegalDB_TheTableIsVisibleToEveryTenantAndScopedToNone(t *testing.T) {
 	f := newDBFixture(t)
 	ctx := context.Background()
 	body := "FAKE imprint written by " + f.tenantA.String()
-	if _, err := f.store.Publish(ctx, f.tenantA, f.adminA, "imprint", body); err != nil {
-		t.Fatalf("Publish: %v", err)
-	}
+	ownerPublish(t, "imprint", body, f.adminA)
 
 	read := func(tenantID uuid.UUID) string {
 		t.Helper()
@@ -355,10 +332,8 @@ func TestLegalDB_TheTableIsVisibleToEveryTenantAndScopedToNone(t *testing.T) {
 func TestLegalDB_RefreshNeedsNoTenantAndSeesNothingElse(t *testing.T) {
 	f := newDBFixture(t)
 	ctx := context.Background()
-	body := "FAKE cookie notice framing."
-	if _, err := f.store.Publish(ctx, f.tenantA, f.adminA, "cookies", body); err != nil {
-		t.Fatalf("Publish: %v", err)
-	}
+	body := "FAKE cookie notice framing. " + uuid.NewString()
+	ownerPublish(t, "cookies", body, f.adminA)
 
 	// A FRESH store, so the snapshot can only come from the read.
 	trail, err := audit.New(f.data)
@@ -406,6 +381,11 @@ func TestLegalDB_RefreshNeedsNoTenantAndSeesNothingElse(t *testing.T) {
 // check exists so the sentence cannot be the only thing standing between a blank
 // document and a public page. Both are measured, because a guard that only lives in
 // the language it was written in is a guard the next caller skips.
+//
+// Since 00027 tappa_app cannot INSERT at all, so the column is driven from the OWNER's
+// connection -- the CHECK binds every writer, op_publish_legal's definer included --
+// inside a transaction that is rolled back (no row stays). That the application's own
+// INSERT is refused before any CHECK is asserted too.
 func TestLegalDB_AnEmptyBodyIsRefusedByTheColumnAndNotOnlyByGo(t *testing.T) {
 	f := newDBFixture(t)
 	ctx := context.Background()
@@ -413,32 +393,60 @@ func TestLegalDB_AnEmptyBodyIsRefusedByTheColumnAndNotOnlyByGo(t *testing.T) {
 	if _, err := f.store.Publish(ctx, f.tenantA, f.adminA, "privacy", "   "); !errors.Is(err, ErrEmptyBody) {
 		t.Errorf("Publish with a whitespace body returned %v, want ErrEmptyBody", err)
 	}
-	// STRAIGHT AT THE COLUMN, bypassing the Go guard entirely.
 	err := f.data.WithTenant(ctx, f.tenantA, func(ctx context.Context, tx pgx.Tx) error {
 		_, e := tx.Exec(ctx, `INSERT INTO legal_documents (slug, body) VALUES ('privacy', '   ')`)
 		return e
 	})
-	if err == nil {
+	if err == nil || !strings.Contains(err.Error(), "42501") {
+		t.Errorf("tappa_app's INSERT answered %v, want the privilege refusal (42501) since 00027", err)
+	}
+
+	// STRAIGHT AT THE COLUMN, bypassing every guard but the schema's.
+	dsn := os.Getenv("DATABASE_MIGRATE_URL")
+	if dsn == "" {
+		t.Skip("DATABASE_MIGRATE_URL not set; the column is driven from the owner's connection")
+	}
+	conn, err := pgx.Connect(ctx, dsn)
+	if err != nil {
+		t.Fatalf("owner connect: %v", err)
+	}
+	defer func() { _ = conn.Close(ctx) }()
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		t.Fatalf("BEGIN: %v", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	try := func(sql string) error {
+		t.Helper()
+		sp, err := tx.Begin(ctx)
+		if err != nil {
+			t.Fatalf("savepoint: %v", err)
+		}
+		_, e := sp.Exec(ctx, sql)
+		if e != nil {
+			if err := sp.Rollback(ctx); err != nil {
+				t.Fatalf("rollback to savepoint: %v", err)
+			}
+			return e
+		}
+		if err := sp.Commit(ctx); err != nil {
+			t.Fatalf("release savepoint: %v", err)
+		}
+		return nil
+	}
+	if err := try(`INSERT INTO legal_documents (slug, body) VALUES ('privacy', '   ')`); err == nil {
 		t.Error("the column accepted a whitespace-only body. A document with nothing in it " +
 			"renders as a page that is neither a placeholder nor a text.")
 	} else if !strings.Contains(err.Error(), "23514") {
 		t.Errorf("the column refused with %v, want a check violation (23514)", err)
 	}
 	// AND A FIFTH SLUG.
-	err = f.data.WithTenant(ctx, f.tenantA, func(ctx context.Context, tx pgx.Tx) error {
-		_, e := tx.Exec(ctx, `INSERT INTO legal_documents (slug, body) VALUES ('refunds', 'text')`)
-		return e
-	})
-	if err == nil {
+	if err := try(`INSERT INTO legal_documents (slug, body) VALUES ('refunds', 'text')`); err == nil {
 		t.Error("the column accepted a slug with no page. Its text would be stored at no URL.")
 	}
 	// POSITIVE CONTROL: a real slug with real text goes in, so the refusals above are
 	// not a table that refuses everything.
-	err = f.data.WithTenant(ctx, f.tenantA, func(ctx context.Context, tx pgx.Tx) error {
-		_, e := tx.Exec(ctx, `INSERT INTO legal_documents (slug, body) VALUES ('terms', 'FAKE control text')`)
-		return e
-	})
-	if err != nil {
+	if err := try(`INSERT INTO legal_documents (slug, body) VALUES ('terms', 'FAKE control text')`); err != nil {
 		t.Fatalf("a valid insert was refused (%v); every refusal above is vacuous", err)
 	}
 }

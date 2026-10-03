@@ -65,7 +65,7 @@ func TestOperatorErr_NeverCarriesAPgError(t *testing.T) {
 // TestOperatorSQL_OnlyBoundParameters is OP-7 (b) where the SQL lives, read from
 // operator.go's own syntax tree: every statement is a package CONSTANT; the only quoted
 // literal in any of them is the schema constant 'active' (the two lookups); every
-// Exec/QueryRow on the connection takes one of those constants -- never a string built
+// Exec/QueryRow/Query on the connection takes one of those constants -- never a string built
 // at run time -- and passes exactly as many arguments as the statement has $n
 // placeholders. And each constant appears, whitespace aside, in db/queries/operator.sql,
 // the canonical document (ADR 0021 §2 vi) -- so the mirror cannot drift silently.
@@ -100,8 +100,10 @@ func TestOperatorSQL_OnlyBoundParameters(t *testing.T) {
 			}
 		}
 	}
-	if len(consts) != 7 {
-		t.Fatalf("found %d statement constants in operator.go, want 7 (two lookups, five op_* calls)", len(consts))
+	// 7 until OP-10; 00027 added three (op_begin_read, op_read_legal_versions,
+	// op_publish_legal).
+	if len(consts) != 10 {
+		t.Fatalf("found %d statement constants in operator.go, want 10 (two lookups, eight op_* calls)", len(consts))
 	}
 	quoted := regexp.MustCompile(`'[^']*'`)
 	placeholder := regexp.MustCompile(`\$(\d+)`)
@@ -125,8 +127,10 @@ func TestOperatorSQL_OnlyBoundParameters(t *testing.T) {
 		if !ok {
 			return true
 		}
+		// Query since OP-10 (op_read_* returns rows): a statement method left out of
+		// this list is a call the scan would not read.
 		sel, ok := call.Fun.(*ast.SelectorExpr)
-		if !ok || (sel.Sel.Name != "Exec" && sel.Sel.Name != "QueryRow") {
+		if !ok || (sel.Sel.Name != "Exec" && sel.Sel.Name != "QueryRow" && sel.Sel.Name != "Query") {
 			return true
 		}
 		calls++
@@ -149,8 +153,8 @@ func TestOperatorSQL_OnlyBoundParameters(t *testing.T) {
 		_ = sql
 		return true
 	})
-	if calls != 7 {
-		t.Fatalf("%d Exec/QueryRow call(s) in operator.go, want 7 -- one per statement", calls)
+	if calls != 10 {
+		t.Fatalf("%d Exec/QueryRow/Query call(s) in operator.go, want 10 -- one per statement", calls)
 	}
 
 	doc, err := os.ReadFile(filepath.Join("..", "..", "db", "queries", "operator.sql"))
@@ -259,6 +263,13 @@ func TestOperatorAccessors_TheCustomerRoleCannotUseThem(t *testing.T) {
 		},
 		"TouchOperatorSession": func(c OperatorConn) error { _, e := TouchOperatorSession(ctx, c, opRandHex(t)); return e },
 		"CloseOperatorSession": func(c OperatorConn) error { return CloseOperatorSession(ctx, c, opRandHex(t)) },
+		// OP-10 (00027): the version list's first phase is the call that meets the
+		// missing EXECUTE, and the publication.
+		"LegalVersions": func(c OperatorConn) error {
+			_, e := LegalVersions(ctx, c, opRandHex(t), LegalVersionsPage{Number: 1, Size: 10})
+			return e
+		},
+		"PublishLegal": func(c OperatorConn) error { return PublishLegal(ctx, c, opRandHex(t), "privacy", "FAKE text") },
 	} {
 		err := opAs(t, ctx, tx, "tappa_app", func(sp pgx.Tx) error { return call(sp) })
 		if err == nil || errors.Is(err, ErrOperatorRefused) || errors.Is(err, ErrNoOperator) || !strings.Contains(err.Error(), "SQLSTATE 42501") {
