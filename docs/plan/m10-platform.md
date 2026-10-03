@@ -5691,6 +5691,202 @@ metni), `FactNoBulkImport`, `TestBrand_*`, panel CSP ↔ script karşılığı t
 >
 > **Orkestratör notu (2026-10-03, birleştirmede) — 🔴 WL-7 BLOKESİ:** logo yükleme rotası (WL-7) canlıya bağlanmadan önce podda ÜRÜN TABANIYLA RSS ve `runtime.GOMAXPROCS(0)` ölçülür (güvenlik denetimi #1; ADR 0024 §2.6 — konteyner ölçümü pod değil, ürün tabanı dahil değil); bütçe deneme başına, gövde okunmadan ve `Normalize`'dan önce düşülür (ADR 0024 §6, sayılı sınır 11). WL-1'e: `logo_sha256` üzerinde GLOBAL UNIQUE yok.
 
+> **Kart düzeltmesi (2026-10-03, WL-1 uygulaması sırasında).** Yazıldı:
+> `db/migrations/00028_create_tenant_branding.sql` · `db/queries/branding.sql` (sekiz sorgu) ·
+> `internal/store/branding.sql.go` + `models.go` + `querier.go` (sqlc üretimi) ·
+> `internal/db/branding_test.go` (12 test) · ADR 0023 §1'e tarihli *"WL-1 notu"* (kural
+> değişmedi; eklemeler, R5b düzeltmesi, üç parçalı iddia ve mutasyon listesi orada). Mevcut
+> testlerde bilinçli güncelleme: `cmd/tappa/storekeyshape_test.go` (envanter 115 → 123 imza,
+> store dosyası 19 → 20, `db/queries` dosyası 18 → 19, adlı sorgu 114 → 122, `[]byte` taşıyıcı
+> 5 → 6 — altıncısı `GetTenantLogoRow.Logo`) · `internal/db/rlsforce_test.go` (FORCE kapısının
+> beklenen listesine `tenant_branding`) · `internal/db/rls_test.go` (yalnız başlık yorumu:
+> tabloların neden orada değil `branding_test.go`'da sınandığı). `go.mod`/`go.sum`/`sqlc.yaml`
+> diff boş. **Ölçüm ortamı:** dev Postgres 17 (paylaşılan, varsayılan ACL `tappa_app=arwd`),
+> uygulama rolü `tappa_app`; yerel Go 1.27.1, staticcheck Go 1.26.7; şema dökümleri pg_dump 18.4
+> istemcisiyle (`--schema-only --no-comments`, goose tablosu ve dizisi hariç, `\restrict`/
+> `\unrestrict` satırları ayıklanmış).
+>
+> **Kabul — kanıtlar:**
+> 1. `make audit` R5/R5b 0: `./scripts/redline-check.sh` exit 0; R5/R5b FAIL yok, `00028`'i
+>    adlandıran satır yok (R5 WARN'u yalnız 00020/00026'nın önceden var olan muafiyetleri).
+> 2. Beşli tam: `tenant_id uuid NOT NULL` · `PRIMARY KEY (tenant_id)` (tablo-kısıtı yazımı —
+>    tek indeks, `TestTenantBranding_CatalogShape`) · ENABLE + FORCE (`TestTenantBranding_CatalogShape`,
+>    `TestRLS_EveryTenantScopedTableIsEnabledAndForced`) · tek politika, ALL, USING ve WITH CHECK
+>    ikisi de `NULLIF(current_setting('app.tenant_id', true), '')::uuid` (katalogdan birebir) ·
+>    `tappa_app` grant'ları.
+> 3. RLS `WHERE`'siz: A bağlamında `SELECT tenant_id FROM tenant_branding` tam olarak `[A]`;
+>    pozitif kontrol B bağlamında `[B]` (`TestRLS_TenantBranding_ReadIsolationWithoutWhere`).
+>    B'nin `tenant_id`'siyle INSERT 42501 RLS; satırı olmayan C için de aynı kod ve **aynı
+>    mesaj** (WITH CHECK birincil anahtardan önce — varlık kehaneti yok); pozitif kontrol C kendi
+>    bağlamında ekler (`TestRLS_TenantBranding_WriteWithCheck`).
+> 4. `has_table_privilege('tappa_app','tenant_branding','DELETE') = false`; ayrıca TRUNCATE,
+>    REFERENCES, TRIGGER false; tablo düzeyi INSERT/UPDATE false; sütun matrisi SELECT = 10
+>    sütun, INSERT = `tenant_id,updated_by`, UPDATE = `accent,logo,logo_sha256,logo_mime,
+>    logo_width,logo_height,updated_at,updated_by`; `DELETE FROM tenant_branding` 42501
+>    "permission denied", satır yerinde (`TestTenantBranding_AppPrivileges`).
+> 5. CHECK'ler hasmane değerlerle — 34 alt test, her ret SQLSTATE **ve kısıt adıyla** pinli
+>    (`TestTenantBranding_ChecksRefuseHostileValues`): accent küçük harf, karışık, 3 hane, `#`'li
+>    6 karakter, `#`'li 7 karakter (22001), 7 hex (22001, kesilmedi), hex olmayan harf, baştaki
+>    boşluk, boş · logo 262145 bayt, 0 bayt · sha büyük harf, 63 karakter, başka baytların sha'sı
+>    · mime `image/gif`, `image/svg+xml`, `IMAGE/PNG`, `image/png ` · genişlik 0/513/−1, yükseklik
+>    0/513 · sevk edilen `SetTenantLogo` baytsız · kısmi logo: beş sütunun her biri tek başına
+>    ve her biri eksikken (10). Pozitif kontroller: `1F5C41`; 262144 bayt 512×512 jpeg; 1 bayt
+>    1×1 png. Her vaka geri alınan bir transaction'da koşar. Ayrı bir kabul vakası (2. tur,
+>    güvenlik bulgusu): sonu boşluklu accent `1F5C41   ` **kabul edilir** ve `1F5C41` olarak
+>    saklanır (char(6) ataması fazla karakterlerin hepsi boşluksa kırpar; boşluk olmayan fazla
+>    karakter 22001).
+> 6. `updated_at` + `updated_by` + bileşik `FOREIGN KEY (updated_by, tenant_id) REFERENCES
+>    admin_users (id, tenant_id) ON DELETE RESTRICT`: başka tenant'ın (gerçek) yönetici id'si
+>    hem INSERT (`EnsureTenantBrand`) hem UPDATE (`SetTenantAccent`) yolunda 23503
+>    `tenant_branding_updated_by_fk`; pozitif kontrol A'nın yöneticisi
+>    (`TestTenantBranding_UpdatedByIsAnAdminOfTheSameTenant`).
+> 7. Down→Up→Down bayt-aynı (ölçüm; kalıcı test değil — sayılı sınır 1): v27 taban dökümü
+>    `ac206fedc7a6548b…` · Down → `ac206fedc7a6548b…` · Up → `af847d50ba028f04…` · Down →
+>    `ac206fedc7a6548b…` · Up → `af847d50ba028f04…`. Yorum düzeltmelerinden sonra son dosya
+>    (sha256 `f21fb92df6e1b987…`) Down → Up ile yeniden uygulandı: Down `ac206fedc7a6548b…`, Up
+>    `af847d50ba028f04…`. Her adımda goose sürümü ölçüldü, goose komutları zincirlenmedi.
+> 8. `GetTenantBrand` `logo` seçmiyor — test sevk edilen sorgu metnini okur
+>    (`internal/store/branding.sql.go` sabitleri, go/ast): `getTenantBrand` ve
+>    `getTenantBrandForUpdate`'in seçim listesi tam olarak
+>    `accent,logo_sha256,logo_mime,logo_width,logo_height,updated_at,updated_by`, metinde `logo`
+>    belirteci ve `*` yok; pozitif kontrol `getTenantLogo` = `logo,logo_mime`
+>    (`TestTenantBranding_PerPageReadsDoNotSelectTheLogo`).
+>
+> **Sapmalar (sayılı):**
+> 1. **Eklenen beş şey** (ADR 0023 §1 / ADR 0024 §4 yazmıyordu; ADR 0023 WL-1 notunda):
+>    `created_at` · `updated_by NOT NULL` · logo alt sınırı (`BETWEEN 1 AND 262144`) ·
+>    `tenant_branding_logo_sha256_matches_logo` (`logo_sha256 = encode(sha256(logo),'hex')`) ·
+>    sütun düzeyi INSERT/UPDATE.
+> 2. **ADR §1'in "tablo-kısıtı biçiminde — R5b" ifadesi:** biçimi isteyen R5'in indeks kuralıdır,
+>    R5b değil (ölçüldü: sütun yazımı `[R5 · FAIL] … eksik → tenant_id ONDE olan indeks`).
+> 3. **Sorgu adları** tasarım özünün `UpsertTenantAccent`/`UpsertTenantLogo` adları yerine:
+>    `EnsureTenantBrand` (INSERT … ON CONFLICT DO NOTHING) + `GetTenantBrandForUpdate` +
+>    `SetTenantAccent`/`SetTenantLogo` (UPDATE) + `ClearTenantAccent`/`ClearTenantLogo` (UPDATE … NULL).
+>    Gerekçe: WL-4'ün audit "before"u. Ölçüldü: iki yazıcıda ikincinin "önceki"si birincinin
+>    commit ettiği değerdir — yeni satırda ikinci yazıcı `EnsureTenantBrand`'de, var olan
+>    satırda `GetTenantBrandForUpdate`'te bekler (test bekleme ifadesini `pg_stat_activity`'den
+>    okur); Ensure atlanırsa kilit, birincinin commit edilmemiş ilk satırını bulmaz
+>    (`pgx.ErrNoRows`) (`TestTenantBranding_EnsureThenLockReturnsWhatTheOtherWriterCommitted`).
+>    Set/Clear `:execrows` (beklenen 1).
+> 4. **Tenant içi benzersizlik:** `(tenant_id, logo_sha256)` ayrı kısıt olarak yazılmadı —
+>    `tenant_id` birincil anahtar, tenant başına tek sha. Global UNIQUE yok (WL-3 devri).
+> 5. **`accent char(6)` korundu** (ADR §1). Ölçülen tuzak: açık `::char(6)` uzun değeri sessizce
+>    keser ve kesik değer CHECK'ten geçer; sorgular `text` geçirir (mutant: kesilip kabul).
+>    Atamada boşluk olmayan fazla karakter 22001; fazla karakterlerin hepsi sondaki boşluksa
+>    kırpılır ve değer kanonik saklanır (ölçüldü, yukarıdaki kabul vakası).
+> 6. **Kalıcı Down/Up testi yazılmadı** — gerekçe sayılı sınır 1.
+> 7. **Ek test (brief'te yok):** `TestTenantBranding_EveryStatementNamesTheTenant` — yedi
+>    SELECT/UPDATE'in `WHERE`'inde `tenant_id = $n`. Gerekçe ölçüldü: `GetTenantLogo`'nun açık
+>    tenant yüklemi (parametre korunarak) düşürüldüğünde, bu test eklenmeden önce
+>    `branding_test.go`'nun testleri, FORCE kapısı ve `TestStoreSurface_*` yeşildi (RLS tek
+>    başına gizliyor).
+>
+> **Mutasyon tablosu** (her biri tek düzenleme; M-satırları migration mutantı: dev'e Up → test
+> → Down, her adımda goose sürümü ölçüldü; Q-satırları sorgu mutantı: DDL yok,
+> `db/queries/branding.sql` → `make sqlc` → test → geri; yedekler yalnız scratchpad'de. 2. turda
+> üçüncü göz M-satırlarını son test sürümüne karşı yeniden üretti ve aynı pinler kırmızıya
+> döndü):
+>
+> | # | Mutasyon | Kırmızı |
+> |---|---|---|
+> | M01 | FORCE RLS kaldırıldı | `TestTenantBranding_CatalogShape`, `TestRLS_EveryTenantScopedTableIsEnabledAndForced`, redline R5 |
+> | M02 | politikadan `NULLIF` (çıplak cast) | `TestRLS_TenantBranding_NoContextFailsClosed` (22P02), `TestTenantBranding_CatalogShape`; redline geçti |
+> | M03 | `WITH CHECK` kaldırıldı | `TestTenantBranding_CatalogShape`, redline R5 — davranış testleri yeşil (ALL politikası USING'i yazmaya da uygular) |
+> | M04 | DELETE grant'ı | `TestTenantBranding_AppPrivileges` |
+> | M05 | accent CHECK `[0-9A-Fa-f]` | `TestTenantBranding_ChecksRefuseHostileValues` (küçük harf, karışık) |
+> | M06 | boyut sınırı 262145 | `TestTenantBranding_ChecksRefuseHostileValues` (262145 bayt) |
+> | M07 | hep-ya-hiç CHECK kaldırıldı | `TestTenantBranding_ChecksRefuseHostileValues` (11 vaka) |
+> | M08 | FK tek sütun `(updated_by) → admin_users(id)` | `TestTenantBranding_UpdatedByIsAnAdminOfTheSameTenant`, `TestTenantBranding_CatalogShape` |
+> | M09 | `logo_sha256` üzerinde global UNIQUE | `TestTenantBranding_SameLogoInTwoTenants` (23505), `TestTenantBranding_CatalogShape` |
+> | M10 | birincil anahtar (tenant_id indeksi) kaldırıldı | bu dosyanın 10 DB testi (`ON CONFLICT` 42P10 + katalog), redline R5 |
+> | M11 | Down boş | ölçüm: Down sonrası v27'de döküm `af847d50…` (tablo kaldı), sonraki Up 42P07 |
+> | Q12 | `GetTenantBrand`'e `logo` | `TestTenantBranding_PerPageReadsDoNotSelectTheLogo`, `TestStoreSurface_IsTheOneRecorded`, `TestStoreSurface_NoByteCarryingQueryReadsTags` |
+> | M13 | `REVOKE ALL` kaldırıldı (dev `arwd`) | `TestTenantBranding_AppPrivileges`, `TestRLS_TenantBranding_WriteWithCheck` (tenant_id UPDATE'i yetki yerine RLS'e takıldı); dar `ar` varsayılanında (üçüncü göz A15, 2. tur) `TestTenantBranding_AppPrivileges` (tablo düzeyi INSERT true, on INSERT sütunu) |
+> | M14 | `_matches_logo` kaldırıldı | `TestTenantBranding_ChecksRefuseHostileValues` (başka baytların sha'sı) |
+> | M15 | `_hex` kaldırıldı | `TestTenantBranding_ChecksRefuseHostileValues` (büyük harf, 63 karakter → `_matches_logo`) |
+> | M16 | PK sütun yazımında | redline R5 (testler yeşil — aynı indeks) |
+> | M17 | mime kümesine `image/gif` | `TestTenantBranding_ChecksRefuseHostileValues` |
+> | M18 | tablo düzeyi INSERT | `TestTenantBranding_AppPrivileges` |
+> | M19 | iki sha CHECK'inin bildirim sırası değişti (kontrol) | yeşil — büyük harf sha yine `_hex`: değerlendirme ad sırasıyla |
+> | Q20 | `SetTenantAccent`'te `::char(6)` | `TestTenantBranding_ChecksRefuseHostileValues` (7 hex kesilip kabul; `#`'li 7 karakter accent CHECK'ine düştü) |
+> | Q21 | `GetTenantBrand` seçiminde `to_jsonb(tenant_branding)::text AS accent` | `internal/db` testleri derlenmedi (alan tipi değişti), `TestStoreSurface_IsTheOneRecorded` |
+> | Q22b | `GetTenantLogo` `WHERE`'inde `@tenant_id::uuid IS NOT NULL` | `TestTenantBranding_EveryStatementNamesTheTenant` (öncesinde hepsi yeşildi) |
+> | Q23 | `GetTenantBrandForUpdate`'ten `FOR UPDATE` | `TestTenantBranding_EnsureThenLockReturnsWhatTheOtherWriterCommitted` (var olan satır) |
+> | A07a (üçüncü göz, 2. tur) | `GetTenantLogo` `WHERE (tenant_id = @tenant_id OR true)` | **hiçbiri** — bütün testler yeşil (belt deseni yüklemin varlığına bakar, anlamına değil; RLS satırı gizler). PART III'ün kod incelemesine bıraktığı biçim |
+>
+> **Olay (M11 temizliği):** boş Down mutantı tabloyu v27'de bıraktı. Elle `DROP TABLE` bir
+> PreToolUse kancası tarafından engellendi (*"an agent must not issue it"*); kanca aşılmadı.
+> Kalan tablonun dökümü saf 00028 Up'ınınkiyle bayt-aynıydı (`af847d50…`), bu yüzden goose'a
+> DDL'siz (`SELECT 1`) bir Up ile sürüm 28 kaydettirildi, saf dosya geri kondu ve döküm
+> `af847d50…` doğrulandı. Sonraki bütün Down'lar goose'un kendi Down'ı (`DROP TABLE
+> tenant_branding`) ile yapıldı — brief'in istediği migrate-down yolu.
+>
+> **Devirler:**
+> - **WL-4:** yazma tek `WithTenant` içinde: `EnsureTenantBrand(tenant, actor)` →
+>   `GetTenantBrandForUpdate` ("before") → `SetTenantAccent`/`SetTenantLogo`/`Clear*`
+>   (`:execrows`, 1 beklenir) → `RecordTx`. Accent: `brand.Color.Hex()` → `SetTenantAccentParams.Accent`.
+>   Logo: `brand.Logo{Data, SHA256, MIME, Width, Height}` → `SetTenantLogoParams` (Width/Height
+>   `int32`); DB sha'yı baytlara karşı yeniden doğrular (uyuşmazlık 23514
+>   `tenant_branding_logo_sha256_matches_logo`). `ActorID` = `updated_by`: NOT NULL ve bileşik
+>   FK — başka tenant'ın yöneticisi 23503. `ClearTenant*` UPDATE'tir; satır kalır. **Audit
+>   "after":** saklanan accent argümanın metninden farklı olabilir (sonu boşluklu değer kırpılıp
+>   kabul edilir — ölçüldü) → "after"ı DB'den oku ya da Go'da kanonik `Color.Hex()` kullan.
+> - **WL-6:** `GetTenantLogo(tenant: oturumdan, sha)` başka tenant'ın sha'sı ve bilinmeyen sha
+>   için aynı `pgx.ErrNoRows` döner (bayt-aynı 404'ün DB yarısı). `LogoMime *string`: satır
+>   bulunduğunda hep-ya-hiç CHECK'i dolu olmasını sağlar. URL'deki sha handler sınırında
+>   `^[0-9a-f]{64}$` ile doğrulanmalı (geçersiz biçim DB'ye gitmeden 404). Logo rotasının
+>   çağırdığı paketin kendi belt testi (`TestStaffQueries_…` deseni) WL-6'nın.
+> - **WL-7/WL-8/WL-9:** `GetTenantBrand` `pgx.ErrNoRows` **ve** bütün alanları NULL satır = "marka
+>   yok"; ikisi aynı ele alınmalı (sil işlemleri satırı NULL'larla bırakır). Okuma tarafı accent'i
+>   yeniden `ParseAccent` + `Check`'ten geçirir (ADR 0023 §3) — DB yalnız biçimi tutar.
+> - **WL-10:** ADR 0023 WL-1 notunun üç parçalı iddiası ve mutasyon listesi; aşağıdaki sayılı
+>   sınırlar; `log_statement=all` olan dev'de testlerin rastgele logo baytları sunucu log'una
+>   parametre olarak düşer (sır değil, sahte bayt).
+> - **WL-12 / orkestratör:** §5 tasarım özündeki sorgu adları (`UpsertTenant*`) bu karta göre
+>   güncellenir; ADR 0024 İddia D PART I'in *"WL-1'de ölçülecek"* yarısı artık ölçüldü — ADR 0023
+>   WL-1 notuna işaret eden bir satır önerilir (bu görev ADR 0024'e dokunmadı).
+> - **Operatör:** `updated_by NOT NULL` + bileşik FK yalnız operatörün **kendini**
+>   `updated_by`'a yazmasını engeller (operatör bir `admin_users` satırı değildir). Bir definer'ın
+>   sıfırlamasını engellemez — üçüncü göz ölçtü (2. tur; yalıtılmış DB, BYPASSRLS rol, geri
+>   alınan tx): `UPDATE tenant_branding SET accent = NULL, updated_at = now() WHERE tenant_id =
+>   …` → `UPDATE 1`, `updated_by` değişmedi. Böyle bir sıfırlama yazılırsa son değişiklik
+>   tenant'ın son yöneticisine yanlış atfedilmiş kalır; bir operatör sıfırlaması tasarlanırsa
+>   (`op_*`) atıf ayrıca çözülmeli (ör. `operator_audit_log` + ayrı sütun — yeni migration).
+>
+> **Sayılı sınırlar:**
+> 1. **Down→Up→Down bir ölçümdür, kalıcı test değil.** 00028 `tenants` ve `admin_users` üzerine
+>    ikişer RI tetikleyicisi koyar (ölçüldü: `pg_trigger.tgconstrrelid = tenant_branding` →
+>    tenants 2, admin_users 2); Up/Down bunları yaratır ve kaldırır, yani bir test
+>    transaction'ında koşturulan Up/Down bu iki tabloda DDL kilidi alır ve transaction bitene dek
+>    tutar; paylaşılan DB'de paralel koşan ve bu iki tabloyu kullanan testler bekleyebilir
+>    (OP-6'nın 40P01/55P03 dersi). Kilit düzeyi ve bekleme bu görevde ölçülmedi. Emsal: OP-10A'nın
+>    ölçümü.
+> 2. ~~M13'ün dar `ar` varsayılanı ölçülmedi~~ — **kapandı (2. tur):** üçüncü göz `REVOKE ALL`
+>    kaldırılmış hâli dar `ar` ACL'de koşturdu (A15): `TestTenantBranding_AppPrivileges` kırmızı
+>    (tablo düzeyi INSERT true, INSERT sütunları on).
+> 3. ~~M01–M18 test dosyasının eski sürümüne karşı koşuldu~~ — **kapandı (2. tur):** üçüncü göz
+>    bütün mutasyonları son test sürümüne karşı yeniden üretti, pinler birebir tuttu. (Yapıcı
+>    tarafında: M06/M07 ve Q12/Q20/Q22b/Q23 son sürüme karşı koşulmuştu.)
+> 4. Q21'de metin pininin kendi kararı gözlenmedi (paket derlenmedi).
+> 5. Metin pinleri (`…PerPageReadsDoNotSelectTheLogo`, `…EveryStatementNamesTheTenant`) sevk
+>    edilen metni okur; tam seçim listesi karşılaştırması ve `tenant_id = $n` deseninin
+>    dışındaki yazımlar kod incelemesinin konusu. **Ölçüldü (üçüncü göz A07a, 2. tur):**
+>    `GetTenantLogo` için `WHERE (tenant_id = @tenant_id OR true)` bütün testlerde yeşil — belt
+>    deseni yüklemin varlığını görür, anlamını görmez; RLS satırı yine gizler.
+> 6. Test fikstürleri (rastgele uuid'li tenant, yönetici, marka satırları) dev DB'de kalır
+>    (`tappa_app` DELETE taşımaz; `make db-reset` temizler).
+>
+> **2. tur (2026-10-03 — üçüncü göz ONAY, tappa-security-auditor ONAY; yalnız metin
+> kapanışı):** ADR 0023 WL-1 notunun PART II başlığı ölçülene eşitlendi (migration ve sorgu
+> mutasyonları ayrı, Q21 eklendi, son test sürümüyle yeniden üretim ve A15/A07a ölçümleri
+> atıflı) · migration Down yorumu: iki FK'nin dahili RI tetikleyicileri (dev: `tenant_branding`
+> 4, `tenants` 2, `admin_users` 2 — ölçüldü) kısıtlarla birlikte düşer; Up kullanıcı
+> tetikleyicisi yaratmaz · char(6) cümlesi üç yerde (migration, `branding.sql` + üretilmiş yorum,
+> ADR) "boşluk olmayan fazla karakter 22001; sondaki boşluklar kırpılır" diye düzeltildi ve
+> kabul vakası eklendi · operatör devri ölçülene eşitlendi. Migration'ın SQL'i değişmedi
+> (yalnız yorum); dev DB yeniden uygulanmadı (goose yorum değişikliğini sürüm saymaz), şema
+> dökümü `af847d50…`.
+
 ## 6. Kararlar
 
 **✅ Kullanıcı kararları (2026-09-24):**

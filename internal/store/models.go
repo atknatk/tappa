@@ -261,6 +261,19 @@ type Tenant struct {
 	VatCheckedAt          *time.Time
 }
 
+type TenantBranding struct {
+	TenantID   uuid.UUID
+	Accent     *string
+	Logo       []byte
+	LogoSha256 *string
+	LogoMime   *string
+	LogoWidth  *int32
+	LogoHeight *int32
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
+	UpdatedBy  uuid.UUID
+}
+
 type Transaction struct {
 	ID              uuid.UUID
 	TenantID        uuid.UUID

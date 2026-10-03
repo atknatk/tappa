@@ -640,7 +640,8 @@ func TestRLS_TheGateScansTheTablesAnOperatorWouldBreak(t *testing.T) {
 		"admin_users", "admin_sessions", "password_resets",
 		"policies", "policy_versions", "policy_attachments",
 		"employee_invites", "billing_periods",
-		"tenants", // scoped by its own primary key
+		"tenant_branding", // M10 WL-1, migration 00028
+		"tenants",         // scoped by its own primary key
 	} {
 		if !have[want] {
 			t.Errorf("the gate does not scan %s (it scans %v). Every assertion in this file "+

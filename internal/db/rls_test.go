@@ -54,6 +54,9 @@ import (
 // covered: tenants, locations, departments, employees, sessions, tags, transactions,
 // audit_log, transaction_reviews, admin_users, admin_sessions, password_resets,
 // policies, policy_versions, policy_attachments, employee_invites, billing_periods.
+// tenant_branding (00028) holds one row per tenant, so the write list's "own" control
+// would collide on its primary key -- the reason tenants has its own test below; its
+// isolation tests are in branding_test.go.
 
 // ---------------------------------------------------------------- pools -----
 

@@ -113,6 +113,107 @@ Marka hukuki delil değildir; değiştirilebilir (UPDATE), sıfırlama `UPDATE �
 `audit_log`'dadır (→ **WL-4**: kaydet/sil UPDATE + audit aynı transaction'da, `RecordTx`;
 zorla patlatılan audit UPDATE'i geri alır, iki yönde).
 
+**WL-1 notu (2026-10-03 — uygulama ve ölçüm; bu bölümün kuralı değişmedi).** Migration
+`db/migrations/00028_create_tenant_branding.sql`, sorgular `db/queries/branding.sql`, testler
+`internal/db/branding_test.go`. Ölçüm ortamı: dev Postgres 17, uygulama rolü `tappa_app`.
+- **Bu bölümün ve ADR 0024 §4'ün yazmadığı, eklenen beş şey:** (1) `created_at timestamptz NOT
+  NULL DEFAULT now()` (CLAUDE.md §6 tablo iskeleti); (2) `updated_by` **NOT NULL** — ADR 0024
+  §6'da marka yazımı sahibin panel rotalarından gelir; (3) logo boyutuna alt sınır:
+  `octet_length(logo) BETWEEN 1 AND 262144`; (4) `tenant_branding_logo_sha256_matches_logo`:
+  `logo_sha256 = encode(sha256(logo), 'hex')` — rotalar `immutable` önbellekle sha adresli
+  servis eder (ADR 0024 §5), kısıt adresin baytlara ait olmasını satırın özelliği yapar;
+  (5) yetkiler sütun düzeyinde: `REVOKE ALL`, sonra `SELECT` (tablo) · `INSERT (tenant_id,
+  updated_by)` · `UPDATE (accent, logo, logo_sha256, logo_mime, logo_width, logo_height,
+  updated_at, updated_by)`; DELETE, TRUNCATE, REFERENCES, TRIGGER yok.
+- **"tablo-kısıtı biçiminde — R5b" düzeltmesi:** bu biçimi isteyen R5b değil, R5'in indeks
+  kuralıdır. Ölçüldü: aynı tablo `tenant_id uuid NOT NULL PRIMARY KEY` yazımıyla
+  `scripts/redline-check.sh` → `[R5 · FAIL] … eksik → tenant_id ONDE olan indeks` (indeks
+  katalogda aynı).
+- **Benzersizlik (ADR 0024 WL-3 devri):** `logo_sha256` üzerinde UNIQUE yok; `(tenant_id,
+  logo_sha256)` birincil anahtardan çıkar (tenant başına tek satır, tek sha).
+- **`accent char(6)`:** açık `::char(6)` dönüşümü uzun değeri sessizce keser
+  (`'1F5C41ZZ'::char(6)` = `1F5C41`, CHECK'ten geçer — ölçüldü); sorgular değeri `text` olarak
+  verir. Atamada fazla karakterlerden biri boşluk değilse 22001; fazla karakterlerin hepsi
+  sondaki boşluksa kırpılır ve değer kanonik saklanır (`1F5C41   ` → `1F5C41`, kabul —
+  ölçüldü, `TestTenantBranding_ChecksRefuseHostileValues` içinde ayrı vaka). Saklanan değer
+  argümanın metninden farklı olabilir; WL-4 audit "after"unu DB'den okur ya da `Color.Hex()`
+  kullanır. Mutant `sqlc.arg(accent)::char(6)`: `1F5C41A` kesilip kabul edildi.
+- **Sorgular** (planın `UpsertTenant*` adlarının yerine): `GetTenantBrand` ve
+  `GetTenantBrandForUpdate` (`logo` seçmez) · `GetTenantLogo` (tenant + sha) ·
+  `EnsureTenantBrand` · `SetTenantAccent` · `ClearTenantAccent` · `SetTenantLogo` ·
+  `ClearTenantLogo`. WL-4'ün yazma sırası Ensure → ForUpdate → Set/Clear → audit'tir; ölçülen
+  iki sırada (yeni satır: ikinci yazıcı Ensure'da bekler; var olan satır: ForUpdate'te bekler)
+  ikinci yazıcının "önceki" değeri birincinin yazdığıdır. Ensure atlanırsa, birincinin
+  commit edilmemiş ilk satırı varken kilit satır bulmaz (`pgx.ErrNoRows`, ölçüldü).
+- **Güvenlik iddiası (WL-1, üç parçalı).**
+  - **PART I — ölçülen davranış:** A bağlamında `WHERE`'siz `SELECT tenant_id FROM
+    tenant_branding` yalnız A'yı döndürür, B'nin satırı B bağlamında okunur; A bağlamında
+    `GetTenantLogo` B'nin sha'sıyla, filtre A'yı da B'yi de adlandırsa `pgx.ErrNoRows` alır
+    (`TestRLS_TenantBranding_ReadIsolationWithoutWhere`) · A bağlamında B'nin (satırı var) ve
+    C'nin (satırı yok) `tenant_id`'siyle INSERT 42501 RLS ile reddedilir, iki ret aynı kod ve
+    mesajdır; `WHERE`'siz UPDATE yalnız A'nın satırını değiştirir; `tenant_id`'yi değiştiren
+    UPDATE yetkiyle reddedilir (`TestRLS_TenantBranding_WriteWithCheck`) · bir kez yazılıp
+    boşalmış GUC'lu bağlantıda `WHERE`'siz okuma hata vermeden 0 satır döner
+    (`TestRLS_TenantBranding_NoContextFailsClosed`) · `has_table_privilege('tappa_app',
+    'tenant_branding','DELETE') = false`, sütun yetki matrisi yukarıdaki gibi, `DELETE` yetkiyle
+    reddedilir (`TestTenantBranding_AppPrivileges`) · 34 hasmane değer adı verilen kısıta ya da
+    22001'e takılır, sonu boşluklu accent kabul edilip kanonik saklanır
+    (`TestTenantBranding_ChecksRefuseHostileValues`) · başka tenant'ın yönetici
+    id'si `updated_by`'da 23503 `tenant_branding_updated_by_fk` alır
+    (`TestTenantBranding_UpdatedByIsAnAdminOfTheSameTenant`) · aynı baytlar iki tenant'ta
+    kabul edilir (`TestTenantBranding_SameLogoInTwoTenants`) · `GetTenantBrand` ve
+    `GetTenantBrandForUpdate`'in sevk edilen metninde seçim listesi tam olarak yedi sütundur,
+    `logo` belirteci ve `*` yoktur (`TestTenantBranding_PerPageReadsDoNotSelectTheLogo`) · yedi
+    SELECT/UPDATE'in `WHERE`'i `tenant_id = $n` taşır
+    (`TestTenantBranding_EveryStatementNamesTheTenant`).
+  - **PART II — yapıcının koşturduğu mutasyonlar ve kırmızıya dönen pinler (bu liste o
+    koşuların tamamı; her mutasyon tek düzenleme).** Migration mutasyonları dev'e Up edildi,
+    test koşuldu, Down edildi; ilk koşuları test dosyasının o günkü sürümüneydi ve 2. turda
+    üçüncü göz hepsini son test sürümüne karşı yeniden üretti — aynı pinler kırmızıya döndü.
+    Sorgu mutasyonları (aşağıda ayrı) DDL'siz: `db/queries/branding.sql` değişti, `make sqlc`,
+    test koşuldu, geri alındı.
+    *Migration:* FORCE kaldırıldı → `TestTenantBranding_CatalogShape`,
+    `TestRLS_EveryTenantScopedTableIsEnabledAndForced`, redline R5 ·
+    politikadan `NULLIF` kaldırıldı → `TestRLS_TenantBranding_NoContextFailsClosed`,
+    `TestTenantBranding_CatalogShape` (redline R5 geçti) ·
+    `WITH CHECK` kaldırıldı → `TestTenantBranding_CatalogShape`, redline R5 ·
+    DELETE grant'ı → `TestTenantBranding_AppPrivileges` ·
+    tablo düzeyi INSERT → `TestTenantBranding_AppPrivileges` ·
+    `REVOKE ALL` kaldırıldı (dev'in `arwd` varsayılanında) → `TestTenantBranding_AppPrivileges`,
+    `TestRLS_TenantBranding_WriteWithCheck`; dar `ar` varsayılanında (üçüncü göz, 2. tur) →
+    `TestTenantBranding_AppPrivileges` (tablo düzeyi INSERT, on INSERT sütunu) ·
+    accent CHECK'i küçük harfe açıldı · boyut sınırı 262145 · hep-ya-hiç CHECK'i kaldırıldı ·
+    `_matches_logo` kaldırıldı · `_hex` kaldırıldı · mime kümesine `image/gif` →
+    `TestTenantBranding_ChecksRefuseHostileValues` ·
+    FK tek sütunlu → `TestTenantBranding_UpdatedByIsAnAdminOfTheSameTenant`,
+    `TestTenantBranding_CatalogShape` ·
+    `logo_sha256` üzerinde global UNIQUE → `TestTenantBranding_SameLogoInTwoTenants`,
+    `TestTenantBranding_CatalogShape` ·
+    birincil anahtar kaldırıldı → `internal/db/branding_test.go`'daki DB testlerinin onu
+    (`ON CONFLICT` 42P10 ve katalog), redline R5 ·
+    birincil anahtar sütun yazımında → redline R5 (davranış ve katalog testleri yeşil).
+    *Sorgu:* `SetTenantAccent`'te `sqlc.arg(accent)::char(6)` → `TestTenantBranding_ChecksRefuseHostileValues` ·
+    `GetTenantBrand`'e `logo` → `TestTenantBranding_PerPageReadsDoNotSelectTheLogo`,
+    `TestStoreSurface_IsTheOneRecorded`, `TestStoreSurface_NoByteCarryingQueryReadsTags` ·
+    `GetTenantBrand`'in seçiminde `to_jsonb(tenant_branding)::text AS accent` → sqlc alan tipini
+    değiştirdi, `internal/db` test paketi derlenmedi; `TestStoreSurface_IsTheOneRecorded`
+    (metin pininin bu metin üzerindeki kararı gözlenmedi) ·
+    `GetTenantLogo`'nun `WHERE`'inde `tenant_id = @tenant_id` yerine `@tenant_id::uuid IS NOT
+    NULL` → `TestTenantBranding_EveryStatementNamesTheTenant` (bu test eklenmeden önce
+    `internal/db/branding_test.go`'daki testler ve `TestStoreSurface_*` yeşildi) ·
+    `GetTenantBrandForUpdate`'ten `FOR UPDATE` kaldırıldı →
+    `TestTenantBranding_EnsureThenLockReturnsWhatTheOtherWriterCommitted`.
+    Yeşil kalanlar ve sebepleri: `WITH CHECK`'in kaldırılmasında davranış testleri —
+    `USING`'i olup `WITH CHECK`'i olmayan bir ALL politikası yazmada da `USING`'i uygular
+    (PostgreSQL kuralı; testlerin yeşil kalmasıyla tutarlı); FORCE'un kaldırılmasında davranış
+    testleri — FORCE tablo sahibini bağlar, `tappa_app` sahip değildir; `GetTenantLogo`'nun
+    `WHERE`'i `(tenant_id = @tenant_id OR true)` olunca bütün testler (üçüncü göz, 2. tur) — belt
+    testinin deseni yüklemin varlığına bakar, anlamına bakmaz; RLS satırı yine gizler. Down'ın
+    boşaltılması bir testle değil ölçümle görüldü: boş Down sonrası şema dökümü v28'inkine eşit
+    kaldı ve sonraki Up 42P07 ile düştü. Kontrol koşusu: iki sha CHECK'inin bildirim sırası
+    değişti → yeşil (büyük harf sha yine `_hex` ile reddedildi; değerlendirme ad sırasıyla).
+  - **PART III:** Listede olmayan her biçim kod incelemesinin konusu — tamlık iddiası yok.
+
 ### 2. Slot haritası — ekran ekran
 
 Tablo **sayılı listedir**: bir yüzey burada yoksa marka almaz, ve eklenmesi bu ADR'nin
