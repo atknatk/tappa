@@ -630,6 +630,33 @@ bir restoran hesabına bağlı olmamalı* (m10-platform.md §1).
   kimlik bilgisini bir yapılandırma dosyasına taşır (A-0'ın sınıfı: sır bir kayıt
   dosyasında). Herkese açık kurulum sayfası — tablo boşken herkese açık bir yazma yolu,
   yarışı kazananı platform operatörü yapar.
+- **OP-9 notu (2026-10-02): uygulandı — `cmd/opadmin`.** Ayrıntı ve ölçümler:
+  [m10-platform.md](../plan/m10-platform.md) → *"Kart düzeltmesi (2026-10-02, OP-9
+  uygulaması sırasında)"*; runbook `deploy/README.md` → *"Operator accounts (M10 OP-9)"*.
+  Bu bölüme eklenen kararlar: (a) link sırrı `operatorauth`'un sözleşmesiyle (256 bit,
+  43 karakter base64url, anahtarsız SHA-256 hex) **`cmd/opadmin`'de** basılır, paket import
+  edilmez — `go list -deps ./internal/operatorauth` pgx ve `database/sql` listeliyor
+  (ölçüldü); eşitlik testten pinli. (b) `reset-mfa` ve `disable` hesabı **id VE e-posta**
+  ile bulur. (c) `reset-mfa` yukarıdaki tanıma ek olarak **parola özetini de siler**
+  (enrollment yenisini yazar) ve şunları reddeder: `disabled` hesap; hash'i zaten bu
+  betiğinki olan hesap (ardı ardına ikinci uygulama); ve — 2. tur, A-B-A — betik
+  üretildikten **sonra** link verilmiş hesap (`enroll_issued_at` ≥ betiğin üretim zamanı).
+  `create` ve `reset-mfa` üretimden 30 dk sonra ve üretim zamanı veritabanı saatinin
+  önündeyse (3. tur: kodda pay yok — ölçülen en küçük ret +250 ms; 2. turun 30 sn payı
+  ölçülmüş bir tekrar penceresiydi)
+  reddedilir; korumanın iki saati karşılaştırmaktan kalanı `deploy/README.md` sınır O9-5'te. (d) SQL kendi `BEGIN … COMMIT`'ini taşır, hesabın işi tek
+  bir `DO` bloğunda; **2. tur:** link sırrının hash'i, e-posta ve ad ifade metninde değil
+  **`COPY … FROM STDIN` veri satırında** gider — §5'in *"enrollment token'ı HİÇBİR YERDE
+  loglanmaz … ham hâlleri de hash'leri de"* kuralı, sunucu log'unun yazdığı ifade metnine karşı; ifade metninde hesap id'si,
+  dolgu, üretim zamanı ve sabitler kalır; veri satırında değerlerden önce 100 baytlık sabit bir
+  dolgu durur (bir COPY hatası satırın ilk 100 baytını CONTEXT'e yazar — ölçüldü); ölçülen
+  istemci kipleri: psql dosyayı okurken (stdin, `-f`, `\i`) — `psql -c` dosyayı tek ifade
+  olarak gönderir ve hash başarısız ifadenin metniyle log'a düşer (ölçüldü). Ölçüm ve kapsamı:
+  README sınır O9-3. (e) opadmin'in
+  eylemleri `operator_audit_log`'a yazılmaz (tür kümesi kapalı — migration ister; OP-14'e,
+  adıyla; README sınır O9-1). (f) Ingress ölçümü (§6'nın OP-9'a bıraktığı): Go `net/http`,
+  curl ve headless Chrome linkin fragment'ını ne istek satırında ne `Referer`'da gönderdi;
+  ingress satırı hesap id'sini taşır.
 
 ### 7. Yasal metinlerin taşınması ve izin listesinin emekliye ayrılması (OP-10)
 

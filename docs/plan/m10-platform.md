@@ -4335,6 +4335,356 @@ yasal belge içindi, M9-08'in kapsamı §4.5'i aşan beş işlev.
 > audit türü (P9) bir migration'la; görüntüleyici `login`/`logout`/`enrollment` satırlarını gösterir.
 > **OP-10** — `/operator/legal` bu kabuğun içinde, aynı zincirle.
 
+> **Kart düzeltmesi (2026-10-02, OP-9 uygulaması sırasında).** Yazıldı: `cmd/opadmin/`
+> (`main.go`; testler `main_test.go`, `deps_test.go`, `opadmin_db_test.go`),
+> `deploy/README.md` → *"Operator accounts (M10 OP-9) — `cmd/opadmin`"* runbook'u (create ·
+> reset-mfa · disable · sayılı sınırlar O9-1…O9-5 · K2/K4 taslağı · ingress ölçümü), ADR 0020
+> §6'ya tarihli OP-9 notu. Migration YOK, yeni bağımlılık YOK (`go.mod`/`go.sum` diff boş),
+> `internal/operatorauth` ve ingress manifesti DEĞİŞMEDİ. Ölçüm: dev Postgres 17.10, sahip
+> (`tappa_owner`, süper kullanıcı); DB testleri sahibin geri alınan transaction'ında, operatör
+> rolüne `SET LOCAL SESSION AUTHORIZATION` ile; iki üst düzey test (`TestApply_AFailureAnywhereLeavesNoRow`,
+> `TestApply_ARowHeldElsewhereFailsFastNotForever`) betiğin KENDİ transaction'ını ölçtüğü için
+> sahibin bağlantısında üst düzeyde uygular — her koşuda enjekte edilmiş bir hata ya da
+> `lock_timeout` vardır, doğru betik satır bırakmaz (koşulardan sonra `platform_admins`'te bu
+> testlerin adres önekiyle 0 satır, ölçüldü). Bu paketin operatör tablolarına dokunan her testi
+> `tappa/test/operator-tables` kilidini PAYLAŞIMLI alır. Kararlar ve ölçümler:
+>
+> 1. **OP-9 satırı ve OP-4 bloğunun "OP-9:" maddesi şöyle okunmalı: link sırrı
+>    `operatorauth.NewEnrollmentToken` ile DEĞİL, onun sözleşmesiyle basılır.** Ölçüldü:
+>    `go list -deps ./internal/operatorauth` `github.com/jackc/pgx/v5` ve `database/sql`
+>    listeliyor (operatorauth → `internal/db`); import etmek §6'nın "sürücü yok"unu bozardı.
+>    Tek kaynağı sürücüsüz bir pakete taşımak, OP-8'in aynı anda düzenlediği paketi ve onu
+>    adıyla süren sızıntı/redaksiyon testlerini değiştirirdi. Seçilen: üç stdlib çağrısı
+>    (`crypto/rand` 32 bayt → `base64.RawURLEncoding`; `sha256` → küçük harf hex)
+>    `cmd/opadmin`'de; eşitlik TESTTEN pinli (test ikilisi operatorauth'u import eder, komut
+>    ikilisi etmez): `TestLinkSecret_HashIsOperatorauthsHash` (105 girdi: 100 basılmış + boş,
+>    ASCII dışı, 200 karakter), `TestLinkSecret_Shape` (1000 çekiliş: 43 karakter, kanonik, 32
+>    bayt, OP-8'in `enroll.js` deseni), ve 00026'ya karşı `TestCreate_TheLinkEnrollsTheAccount`
+>    (operatorauth'un `CompleteEnrollment`'ı opadmin'in sırrını kabul eder; veritabanının
+>    `encode(sha256(convert_to(…, 'UTF8')), 'hex')`'i saklanan hash'e eşit).
+> 2. **Link** OP-8'in biçimi: `https://<host>/operator/enroll?id=<uuid>#<sır>`
+>    (`TestLink_IsTheShapeTheOperatorPageReads`). **`--host`** zorunlu bayrak, config'in
+>    `isDNSHostName` kuralı — iki fonksiyonun gövdesi yorumsuz basılıp karşılaştırılır
+>    (`TestHost_IsConfigsRule`); ortam değişkeninden okunmaz (`TestDeps_NoEnvironmentAndNoDSNName`'in
+>    saydığı on ortam çağrısı kaynakta yok). `TAPPA_BASE_URL` eşitsizliği burada sınanmaz
+>    (opadmin onu bilmez; yanlış host'lu link 404 verir).
+> 3. **Ingress ölçümü (ADR 0020 §6'nın OP-9'a bıraktığı).** Yerel ham TCP dinleyici, link
+>    biçiminde URL, sır yerine 43 karakterlik rastgele değer: Go `net/http`, curl 8.7.1 ve
+>    headless Chrome 154'ün gönderdiği baytlarda (istek satırı + Chrome'un alt kaynak
+>    isteklerindeki 4 `Referer`) hesap id'si var, `#` ve sır yok. ingress-nginx'in varsayılan
+>    satırı `$request` ve `$http_referer` yazar (belgeden; kümede ölçülmedi). Sonda repo
+>    dışında, scratchpad'de.
+> 4. **Hedef = id VE e-posta** (`reset-mfa`, `disable`): ikisi aynı satırı göstermezse SQL
+>    reddeder (`TestResetMFA_RefusesWhatItMustNot`,
+>    `TestApply_ASecondCreateAndAMismatchedDisableAreRefused`). Gerekçe: id'yi insan kopyalar;
+>    başka bir operatörün id'si yanlışlıkla yapıştırılırsa adres eşleşmez. Id ise link için
+>    şart (yalnız e-postayla hedeflemek linke id koyamazdı). E-posta citext ile harf duyarsız.
+> 5. **`reset-mfa` (ADR §6 tanımı + üç karar):** zarf silinir, sayaç (`totp_failures`,
+>    `totp_locked_until`) sıfırlanır, `pending`, açık oturumlar iptal, yeni hash +
+>    `enroll_used_at = NULL` AYNI ifadede (OP-5 md. 18), issued/expires tek `v_now`'dan.
+>    **(a) parola özeti de silinir** — enrollment yenisini koşulsuz yazar; `pending` bir
+>    hesabın özetini ne giriş araması (RLS yalnız `active`) ne definer okur (definer'ın
+>    `SELECT` listesinde yok — `TestOperator00026_PrivilegeMatrix`). **(b) `disabled`
+>    hesap reddedilir** — bir MFA sıfırlaması kapatılmış bir operatörü geri almaz; geri alma
+>    opadmin'de yok (adres kayıtlı kalır, `create` aynı adresi reddeder). **(c) aynı SQL'in
+>    ikinci uygulaması reddedilir** (hesabın hash'i zaten bu betiğinkiyse): ölçülen mutant (M10)
+>    kullanılmış bir linki 30 dk yeniden açardı. *(2. tur: bu denetim yalnız ARDI ARDINA ikinci
+>    uygulamayı tutuyordu; A-B-A — R1, R2, R1 — kullanılmış R1 linkini yeniden açıyordu, ölçüldü.
+>    2. turda üretim zamanı korumasıyla daraltıldı — 30 sn'lik bir pencere kaldı, ölçüldü (makine
+>    20 sn ileri, R2 hemen → R1 yeniden kabul, kullanılmış link yeniden enroll); 3. turda gelecek
+>    payı sıfırlanınca o pencere — veritabanı saati geri atmadıkça — kapandı, ölçüldü; kalan
+>    README O9-5 — aşağıdaki "2. tur" S2 ve
+>    "3. tur".)* `pending` hesaba
+>    uygulanabilir: süresi geçen `create` linkinin yenileme yolu. `totp_last_step` dokunulmaz
+>    ~~(monoton tekrar koruması)~~ *(2. tur, güvenlik 5: gerekçe yanlıştı — `op_complete_enrollment`
+>    adımı `<` yüklemi olmadan yazar; sıfırlama + yeniden enroll sonrası adım geriye gidebilir.
+>    Güvenlik etkisi yok: tekrar koruması yeni sırla baştan başlar.)*
+> 6. **`disable`:** `disabled` + açık oturumlar iptal; ikinci uygulama durumu değiştirmez,
+>    NOTICE önceki durumu söyler. `pending` bir hesap kapatılınca token'ı ölüdür
+>    (`op_complete_enrollment` `pending` ister).
+> 7. **Transaction biçimi — ölçüldü, karar.** Sunucu 17.10, istemci psql 18.4, geçici tablolarda, opadmin'in zarfıyla
+>    (BEGIN · 2× SET LOCAL · DO · COMMIT), enjekte edilmiş hata:
+>
+>    | psql | hata yeri | BEGIN var | BEGIN yok | çıkış |
+>    |---|---|---|---|---|
+>    | varsayılan | DO'dan önce | 0 satır | **1 satır** | 0 |
+>    | varsayılan | DO içinde | 0 | 0 | 0 |
+>    | varsayılan | DO'dan sonra | 0 | **1** | 0 |
+>    | `-v ON_ERROR_STOP=1` | üçü | 0 | — | **3** |
+>    | `-1 -v ON_ERROR_STOP=1`, hatasız | — | 1 satır, 2 `WARNING` | — | 0 |
+>
+>    Karar: SQL kendi `BEGIN … COMMIT`'ini taşır, iş TEK `DO` bloğunda (tek ifade: içindeki
+>    hata bloğun yazılarını geri alır — ölçüldü: create'te INSERT, reset-mfa'da ilk UPDATE), runbook `psql -X -v ON_ERROR_STOP=1` (`-1` yok; eklenirse
+>    zararsız). `BEGIN` yük taşır: DO'dan önce/sonra hata + varsayılan psql (`TestApply_AFailureAnywhereLeavesNoRow`,
+>    pgx ile ifade ifade, hatadan sonra devam ederek — psql'in ölçülen davranışı) ve iki
+>    `SET LOCAL`. Gerçek `create` SQL'i gerçek psql'den geçti (COMMIT yerine okuma + ROLLBACK):
+>    `BEGIN · SET · SET · NOTICE · DO`, ttl `00:30:00`, kalıcı satır 0. *(2. tur, B8: bu tablo
+>    `ON_ERROR_ROLLBACK` kapalıyken ölçüldü — psqlrc'de `on` ise DO'dan önce/sonra hata bir
+>    savepoint'e geri sarılır ve DO'nun yazısı commit edilir: çıkış 0, 1 satır, ölçüldü;
+>    runbook `-X` ile psqlrc'yi atlar. Zarf 2. turda yedi ifadedir — aşağıdaki S1.)*
+> 8. **Değerler hex:** e-posta ve ad ~~`pg_catalog.convert_from(pg_catalog.decode('<hex>',
+>    'hex'), 'UTF8')` olarak girer~~ *(2. tur, S1: hash'le birlikte COPY veri satırında hex
+>    olarak gider, ifade metninde değil; 1. turun bu metin testi yeniden adlandırıldı:
+>    `TestSQL_TheValuesTravelAsCopyData`)*; tırnaklama yok (
+>    `'`, `$$`, ters eğik çizgi, `$opadmin$` taşıyan girdi bayt bayt saklandı —
+>    `TestCreate_StoresHostileInputByteForByte`). E-posta ASCII (dot-atom + DNS alanı, ≤ 254
+>    bayt, yerel kısım ≤ 64) — giriş kimliğinde başka yazıdan benzer harf ikinci bir yazım
+>    olurdu; ad UTF-8, ≤ 200 karakter, harf/işaret/rakam/noktalama/sembol + ASCII boşluk
+>    (kontrol, biçim — bidi, sıfır genişlik — ve öteki ayırıcılar reddedilir).
+> 9. **stderr terminal kapısı (karar):** `create`/`reset-mfa` stderr bir karakter aygıtı
+>    değilse çalışmaz (`TestRun_RefusesALinkWhenStderrIsNotATerminal`,
+>    `TestMain_StderrIsTerminalReadsTheMode`); `disable` link basmaz, çalışır. SQL önce yazılır,
+>    link ancak sonra (`TestLeak_AFailedWritePrintsNoLink`). *(2. tur, B5: bu iki test `main`'in
+>    kablosunu ölçmüyordu — `main` `true` geçirince yeşil kalıyorlardı; derlenmiş komutu koşan
+>    `TestMain_TheBinaryRefusesARedirectedStderr` eklendi. Sıra da değişti: COMMIT, rapor
+>    stderr'e ulaştıktan sonra yazılır — S1/gözlem.)*
+> 10. **Rol kapısı:** DO bloğunun ilk ifadesi süper kullanıcı ya da BYPASSRLS olmayan rolü
+>     reddeder (`TestApply_RefusesARoleRLSWouldFilter`: `tappa_app` ve `tappa_operator`, üç alt
+>     komut). **`lock_timeout` 5 sn:** başka bir transaction'ın tuttuğu satırda betik ~5 sn'de
+>     55P03 ile düşer (`TestApply_ARowHeldElsewhereFailsFastNotForever`, ölçülen 5,10 sn).
+>     Kısıt reddi adıyla döner, DETAIL'siz (ikinci `create` → `platform_admins_pkey`,
+>     büyük harfli var olan adres → `platform_admins_email_key`).
+> 11. **Kabul — OP-9 satırı:** *sürücü yok* → `TestDeps_NoDriverInTheClosure` (beş port,
+>     yalnız stdlib + komut; `database/sql`, `net`, `os/exec`, `plugin` yok; pozitif kontrol:
+>     aynı denetim operatorauth'ta pgx'i bulur) + `TestDeps_ImportsAreTheListedOnes`; *owner DSN
+>     adı kaynakta yok* → `TestDeps_NoEnvironmentAndNoDSNName` (+ cmd/tappa'nın
+>     `TestPackaging_TheCommandCannotMigrate`'i ürün kaynaklarını tarar, `cmd/opadmin` dahil);
+>     *çıktı tek transaction* → md. 7; *ham token stdout'ta yok* →
+>     `TestLeak_TheSecretIsOnlyInTheLinkOnStderr` (stdout/SQL, sekiz kodlama, varsayılan
+>     slog/log Debug text+JSON, pozitif kontrol); *süresi geçen token red* →
+>     `TestCreate_AnExpiredLinkIsRefused` (saat enjekte edilmeden: issued/expires 30 dk + 1 sn
+>     geri → red; 31 sn ileri → kabul). Uçtan uca: `TestCreate_TheLinkEnrollsTheAccount`,
+>     `TestResetMFA_KillsTheOldSessionsAndIssuesANewLink` (eski oturum ölü, eski link red,
+>     yeni link enroll), `TestDisable_EndsSessionsAndSignIn` (oturum ve giriş red).
+>     **K2/K4 YAPILMADI** — kullanıcı kararı; README'de taslak (ayrı `tappa-operator` Ingress'i,
+>     opsiyonel `whitelist-source-range`, Cloudflare proxy'si açıkken kaynak adresin ölçülmesi
+>     gerektiği notu).
+> 12. **Mutasyonlar (kopyala-geri-yaz, yedek scratchpad'de; her biri birim + ilgili DB
+>     testleri):** 21/21 kırmızı — M1 sır stdout'a · M1b SQL'de hash yerine ham sır · M2 TTL 31
+>     dk · M2b `expires` ikinci saat okumasından · M3 `BEGIN` kaldırıldı · M4 pgx import'u · M5
+>     anahtarlı hash · M6 terminal kapısı kaldırıldı · M7 `enroll_used_at` korunur · M8 oturumlar
+>     iptal edilmez · M9 hedef yalnız id · M10 ikinci uygulama denetimi kaldırıldı · M11
+>     `disabled` denetimi kaldırıldı · M12 link SQL'den önce basılır · M13 e-posta tırnakla ·
+>     M14 host kuralı büyük harf kabul · M15 ortam okuması · M16 kısıt işleyicisi kaldırıldı ·
+>     M17 rol kapısı kaldırıldı · M18 `lock_timeout` kaldırıldı · M19 `reset-mfa` zarfı korur.
+> 13. **Sayılı sınırlar** (README O9-1…O9-5): opadmin'in eylemleri `operator_audit_log`'a
+>     yazılmaz (tür kümesi kapalı — yeni tür bir migration; **OP-14'e, adıyla**); terminal
+>     kapısı dosya kipine bakar (kendini kaydeden terminal ve `/dev/null` geçer); ~~hatalı bir
+>     ifade sunucu log'una SQL metnini (id, hex adres/ad, sırrın SHA-256'sı) yazar — sunucu log'u
+>     okunmadı~~ *(2. tur, S1: ADR 0020 §5'le çelişiyordu, sayılı sınır değil hataydı —
+>     düzeltildi; README O9-3 yeniden yazıldı)*. Güvenlik iddiası `cmd/opadmin/main.go`
+>     başlığında üç parçalı (PART I ölçülen davranış + test adları; PART II ~~dokuz~~ *(3. tur:
+>     on üç)* pin ve yakaladıkları; PART III tamlık iddiası yok).
+>
+> **2. tur (2026-10-02, üçüncü göz RED + `tappa-security-auditor` RED'inden sonra).** Aynı ölçüm
+> düzeni; sondalar sır değeri basmaz (link sırrı çıktıda uzunluğuyla değiştirilir; aktarıcı
+> bulundu/bulunmadı ve sayı basar).
+>
+> - **S1 · enrollment hash'i sunucu log'una gidiyordu — düzeltildi, seçenek (b) (rotatekek
+>   sınıfı).** Sunucu log'u okunmadı (kural); ölçülen, log'un **girdileridir**: psql'in
+>   gönderdiği protokol mesajları ve sunucunun döndürdüğü hata alanları. Sonda: scratchpad'de
+>   psql ile sunucu arasında kayıt yapan bir TCP aktarıcısı (parola mesajı kaydedilmez), psql
+>   18.4. **Önce (1. tur kodu):** create başarı → gönderilen 5 ifadenin 1'i (DO) hash + hex
+>   adres/ad taşıyor (geliştirme DB'si `log_statement=all` + `log_min_duration_statement=0`
+>   koşar: her uygulama log'a); var olmayan hesaba reset-mfa → hatanın ifadesi hash taşıyor
+>   (`log_min_error_statement=error`, üretimin varsayılanı: her ret log'a); BEGIN'den hemen
+>   sonra hata + varsayılan psql → 25P02 alan DO ifadesi hash taşıyor. **Sonra (2. tur kodu,
+>   aynı senaryolar):** gönderilen 6–8 ifadenin **0**'ı bu üç değerden birini taşıyor; değerler
+>   yalnız **1 COPY veri mesajında**; dönen hata/uyarı alanlarında 0; BEGIN'den sonra hata +
+>   varsayılan psql → COPY başlamadı, psql veri satırını (`-- …`) önde gelen yorum olarak
+>   **atladı**, `\.` için *"invalid command"* yazdı, COPY veri mesajı 0; `ON_ERROR_STOP=1` →
+>   ilk hatada durdu. Şekil: `BEGIN · SET LOCAL search_path · SET LOCAL lock_timeout · CREATE
+>   TEMP TABLE pg_temp.opadmin_in … ON COMMIT DROP · COPY … FROM STDIN` + tek veri satırı
+>   (`-- <hash> <hex e-posta> [<hex ad>]`) `· DO · COMMIT`; DO satırı okur, biçimini denetler
+>   (tek satır, alan sayısı, hex desenleri), hex'i çözer. İfade metninde kalan: sabitler,
+>   doğrulanmış hesap id'si, üretim zamanı. Depo testleri: `TestLog_TheValuesReachTheServerOnlyAsCopyData`
+>   (yedi ret yolu pgx ile ifade ifade: ifade metinleri + dönen hata alanları; pozitif kontrol:
+>   hash'i yankılayan bir hata görülür), `TestApply_ARowHeldElsewhereFailsFastNotForever`
+>   (55P03 yolu), `TestSQL_TheValuesTravelAsCopyData` (metin; pozitif kontrol). **(a) seçilmedi:**
+>   `SET LOCAL log_*` süper kullanıcı ister; başarısız bir `SET`'ten sonra hash taşıyan DO 25P02
+>   alır ve metni yine log'a gider (varsayılan psql); `pg_stat_statements`/`pg_stat_activity`'yi
+>   kapsamaz. **(c) seçilmedi.** Kapsam dışı, adıyla (README O9-3): bir COPY **veri** hatası
+>   satırı CONTEXT'e yazar (tetiklenmedi); `auto_explain`/`pg_stat_statements` yüklü sunucu
+>   (geliştirmede ikisi de yok; üretim manifesti `args: []`).
+> - **S2 · A-B-A — önce KIRMIZI, sonra YEŞİL.** `TestResetMFA_ABAReplayIsRefused` 1. tur
+>   kodunda koşuldu: R1'in ikinci uygulaması kabul edildi, hesap `active` → `pending`, R1'in
+>   **kullanılmış linki hesabı yeniden enroll etti**. Tasarım: betik üretim zamanı T'yi taşır;
+>   (i) `reset-mfa`, hesabın `enroll_issued_at` ≥ T ise reddeder (betik üretildikten sonra link
+>   verilmiş); (ii) `create`/`reset-mfa` T + 30 dk geçtiyse reddeder; (iii) T veritabanı
+>   saatinin ~~30 sn'den fazla~~ önündeyse reddeder *(3. tur: pay sıfır — aşağıda)*.
+>   Ön denetimler `FOR UPDATE` altında; UPDATE'in WHERE'i durumu, hash'i ve veriliş zamanını
+>   yeniden şart koşar ve tek satır ister (X12'yi de kapatır). Saat kayması ölçüldü: bu makine
+>   ↔ geliştirme DB'si −1,1 ms (test log'u; psql ile ±6 ms, ~100 ms gidiş-dönüş). ~~**Kalan
+>   pencere (README O9-5):** üreten makinenin saati veritabanınınkinin önündeyse, R1'in
+>   uygulanmasından en çok 30 sn sonra uygulanan bir R2'nin veriliş zamanı R1'in T'sinden
+>   küçük kalabilir ve R1'in yeniden uygulanması kabul edilir~~ *(3. tur: pay sıfırlanınca
+>   kapandı; O9-5 yeniden yazıldı)*; üretimdeki kayma ölçülmedi.
+>   `disable` T taşımaz (link vermez). Runbook: üret, hemen uygula, dosyayı sil.
+>   `TestScript_GenerationGuards`: 29 dk kabul / 31 dk red, ~~+20 sn kabul / +40 sn red~~, son
+>   verilişten önce üretilmiş reset red. *(3. tur: bu test yalnız `create`'i koşuyordu — B-1;
+>   şimdi iki alt komut, +1/+20 sn red ve bekleyip aynı dosya kabul.)*
+> - **B2** · runbook'a 55P03 adımı (`ALTER ROLE tappa_operator NOLOGIN` + `pg_terminate_backend`
+>   + yeniden uygula + `LOGIN`) ve README O9-4. **Ölçülmedi:** kilit tutan bir operatör
+>   oturumu kalıcı satır bırakmadan kurulamıyor (committed bir hesap ister; `totp_failed`
+>   satırı silinemez audit'e düşer) — üçüncü gözün ölçümüne dayanır.
+> - **B3** · `main.go` başlığı: hesap id'si ifade metninde tırnak içinde, kanonik uuid
+>   biçimine doğrulanmış (`TestRun_RefusesTheEscapeTable`'ın beş id vakası).
+> - **B4** · deny-list yorumu daraltıldı; `TestDeps_StartsNoProcess` (`os.StartProcess`,
+>   `syscall.Exec`/`ForkExec`/`StartProcess`; pozitif kontrol).
+> - **B5** · `TestMain_TheBinaryRefusesARedirectedStderr` (yukarıda md. 9).
+> - **B6** · 255 baytlık vaka artık tam 255; 254 bayt kabul (`TestRun_AcceptsTheBoundaries`;
+>   DB'de saklandığı `TestCreate_StoresHostileInputByteForByte`).
+> - **B7** · README "Doğrula": kullanımdan sonra son sütun pozitif kalabilir.
+> - **B8** · kapsam yazıldı (md. 7 notu, main.go başlığı, README).
+> - **B9** · zehir ifadesi tek başına: varsayılan psql çıkış **0**, `ON_ERROR_STOP=1` çıkış **3**
+>   (ölçüldü); `refuse`'un yorumu ve README düzeltildi.
+> - **Güvenlik 3** · O9-1'in iz listesi ölçülene eşitlendi (`disable` için damga yok, her
+>   `reset-mfa` `enroll_issued_at`'i ezer); OP-14 devri README'de de "adıyla". **OP-14'e,
+>   adıyla:** opadmin eylemleri için bir audit türü (migration).
+> - **Güvenlik 4** · README link teslimi: `tmux clear-history`/screen tamponu, pano yöneticisi,
+>   tarayıcı geçmişi (fragment'lı girdi ölçülmedi) adıyla.
+> - **Güvenlik 5** · md. 5'in "monoton" gerekçesi düzeltildi.
+> - **Güvenlik 6** · K4 taslağına XFF sahteciliği uyarısı (`40-ingress.yaml` (b)).
+> - **Gözlemler:** X12 → UPDATE'in yeniden denetimi + `TestSQL_ResetRechecksUnderTheRowLock`
+>   (metin pini; eşzamanlı davranış kalıcı satırsız ölçülemedi). X13 → daha önce iptal
+>   edilmiş oturumun `revoked_at`'i ikinci `disable`'da korunur (`TestDisable_EndsSessionsAndSignIn`).
+>   stderr yazımı başarısızsa → COMMIT yerine zehir (`TestLeak_AFailedReportWithholdsTheCommit`
+>   + DB'de 0 satır, `TestApply_AFailureAnywhereLeavesNoRow`). flag paketinin tekrarlanan
+>   değeri yankılaması → değişmedi (operatörün kendi girdisi, kendi stderr'ine).
+> - **Testin kendi sızıntısı:** 1. turda `TestCreate_TheLinkEnrollsTheAccount` ham link sırrını
+>   bir bağlı parametreyle sunucuya gönderiyordu (geliştirme DB'si parametreleri log'lar) —
+>   o sorgu kaldırıldı; eşitlik Go'da ve başarılı enrollment'ta ölçülür. *(3. tur, B-3: başarılı
+>   enrollment'ın kendisi de bağlı parametre yoludur — `o.enroll` → `operatorauth.CompleteEnrollment`
+>   → `db.CompleteOperatorEnrollment` ham sırrı `$2` olarak gönderir; geliştirme DB'si
+>   `log_statement=all` + `log_parameter_max_length=-1` ile koşar, yani DB testlerinin her
+>   `o.enroll` çağrısı bir geri alınan fixture'ın ham link sırrını geliştirme log'una yazar.
+>   operatorauth'un kendi suite'iyle aynı sınıf; ürüne etkisi yok — üretim bu iki ayarı
+>   koşmaz.)*
+> - **Mutasyonlar (2. tur, `mutate2.py` — kopyala-geri-yaz, 2. tur koduna yeniden
+>   bağlanmış):** **34/34 kırmızı.** 1. turun 21'i (M1…M19, M1b, M2b; M13 artık "e-posta ifade
+>   metnine tırnakla") + yeniler: N1 hash DO metnine geri (S1) → `TestLog_…`, `TestSQL_TheValuesTravelAsCopyData`,
+>   `TestApply_ARowHeldElsewhereFailsFastNotForever` · N2a A-B-A ön denetimi kaldırıldı → `TestSQL_ResetRechecksUnderTheRowLock`,
+>   `TestLog_…`, `TestScript_GenerationGuards` (A-B-A testi YEŞİL kalır: UPDATE'in WHERE kemeri
+>   "changed under this script" ile reddeder — iki katman, bilerek) · N2b yalnız WHERE kemeri
+>   kaldırıldı → yalnız metin pini kırmızı (ön denetim davranışı tutar) · N2c ikisi birden →
+>   `TestResetMFA_ABAReplayIsRefused` dahil dört test · N3 yaş koruması · N4 gelecek koruması →
+>   `TestScript_…`, `TestLog_…` · N5 `main` `true` geçirir → `TestMain_TheBinaryRefusesARedirectedStderr`
+>   · N6 `maxEmailBytes = 256` → `TestRun_AcceptsTheBoundaries`, kaçış tablosu · N7
+>   `revoked_at IS NULL` süzgeci → `TestDisable_…` · N8 rapor başarısızken COMMIT → `TestLeak_AFailedReportWithholdsTheCommit`
+>   + DB alt testi (satır commit edildi, temizlik sildi, sonda 0 satır) · N9 veri satırında
+>   `-- ` yok → zarf testleri ve DB testleri · N10 `os.StartProcess` eklendi → `TestDeps_StartsNoProcess`
+>   · N11 `FOR UPDATE` kaldırıldı → yalnız metin pini (eşzamanlı davranış ölçülmedi).
+>
+> **3. tur (2026-10-02, üçüncü göz RED — 1 bloklayan + 5 bloklamayan; `tappa-security-auditor`
+> ONAY, 4 düşük).** Aynı ölçüm düzeni.
+>
+> - **B-1 · reset-mfa'nın üretim zamanı korumaları pinsizdi** (X11 `generationGuards`'ı
+>   reset'ten silmek, X35 yalnız gelecek korumasını silmek → suite yeşil). `TestScript_GenerationGuards`
+>   artık **iki alt komutu** koşar: `create` ve `reset-mfa` için 29 dk kabul / 31 dk red, +250
+>   ms (4. tur), +1 sn ve +20 sn red, +1 sn'lik aynı dosya veritabanı saati geçince kabul; reset vakalarında
+>   hesabın son verilişi önce 2 sa geriye çekilir (yoksa (i) yaş korumasını maskeler). Denetçinin
+>   sondası test oldu: `TestResetMFA_AClockAheadDoesNotReopenAUsedLink` — 10 dk ileri saatle
+>   üretilen R1 ilk uygulamada reddedilir (mutant altında test sondanın kalanını koşar ve
+>   yeniden açılan linki raporlar); 2 sn ileri: R1 red → bekle → aynı R1 kabul → L1 kullanıldı
+>   → R2 uygulandı, kullanıldı → R1 yeniden uygulanması red, L1 red. Metinler (README tablosu,
+>   `main.go` PART I) alt komutu adlandırır.
+> - **Karar · gelecek payı 30 sn → 0** (kodda pay yok; ölçülen en küçük ret +250 ms — 4. tur;
+>   daha küçük ileri farklar ölçülmedi). Gerekçe ölçüldü: 30 sn'lik pay ölçülmüş bir tekrar
+>   penceresiydi (2. tur O9-5; üçüncü göz: makine 20 sn ileri, R2 hemen → R1 yeniden kabul ve
+>   kullanılmış link yeniden enroll). Pay 0 iken kabul edilmiş bir betiğin T'si kendi
+>   verilişinden geride ya da eşittir (koruma ve veriliş aynı DO'da, aynı veritabanı saatiyle,
+>   bu sırayla okunur), veritabanı saati geri atmadıkça sonraki bir veriliş ondan ileridedir ve (i) yeniden uygulamayı
+>   reddeder. Bedel: ileri saatli bir makinede betik, veritabanı saati T'yi geçene kadar
+>   reddedilir — **aynı dosya** sonra uygulanır (testte ölçüldü). Kalan (O9-5): veritabanı
+>   saatinin geri atması (ölçülmedi); saat **geride**: bir verilişten sonraki s içinde üretilen
+>   reset, makine saati verilişi geçene kadar reddedilir (üçüncü gözün 2 dk'lık ölçümü), yaş
+>   penceresi s kadar kısalır. DB testleri artık betikleri **veritabanı saatiyle** üretir
+>   (`dbGen`). Gerekçesi ölçülen saat farkıdır — DB − makine −0,89…−2,5 ms, yani DB geride ve
+>   pay 0; makine saatiyle üretip hemen uygulamanın yarışacağı **tahmindi, yeniden
+>   üretilmedi** (4. tur: kapanış denetçisi makine saatli üretimi tam suite'te 3/3 ve tek alt
+>   testte 300/300 yeşil ölçtü). Korumaların kendisi açık ofsetlerle sürülür.
+> - **B-2 · veri satırı denetimi pinsizdi** (X1 `v_rows <> 1` → `< 1`, X2 alan sayısı, X26 `--`
+>   işareti). `TestPayload_OnlyTheOneLineOfTheExpectedShapeIsAccepted`: elle düzenlenmiş sekiz
+>   satır — ikinci satır · fazla alan · eksik alan · işaret değişmiş · dolgu değişmiş · dolgu
+>   yok · hex olmayan alan · büyük harfli hash — hepsi DO tarafından reddedilir, hesap satırı 0;
+>   düzenlenmemiş betik kabul (pozitif kontrol).
+> - **B-3** · yukarıdaki "Testin kendi sızıntısı" maddesi ölçülene eşitlendi.
+> - **B-4** · README reset-mfa: tek cümle yerine her ret için "ne yapılacak" tablosu (`disabled`
+>   ve id/adres uyuşmazlığında yeni reset de reddedilir; geride saatte yeni reset de
+>   reddedilir); O9-5 iki yönü yazar.
+> - **B-5** · md. 5'teki "kapandı" niteleyicisiz değil artık (2. turda pencere kaldı, 3. turda
+>   kapandı, kalan O9-5).
+> - **B-6 · istemci kipi — ölçüldü.** Aynı reddedilen reset-mfa betiği, aktarıcıyla: dosya
+>   stdin'de / `-f` / `\i` → 6 ifade, değer taşıyan 0, değerler 1 COPY veri mesajında, çıkış 3;
+>   `psql -c "$(cat dosya)"` → **1 ifade, değerleri taşıyor**, `\` için sözdizimi hatası, çıkış 1
+>   (başarısız ifadenin metni `log_min_error_statement` ile log'a). `main.go` başlığı ölçülen
+>   kiplere bağlandı; SQL'in kendi başlığı ve README: "stdin (`< dosya`) ya da `-f`; `-c` ya da GUI
+>   sorgu aracı değil"; O9-3'ün kapsam dışı listesinde.
+> - **Güvenlik S1-artık · COPY hatasının CONTEXT'i — düzeltildi (dolgu).** Ölçüldü: bir COPY veri
+>   hatası (fazla sütun) CONTEXT'e satırın **ilk 100 baytını** ve `...` yazar (150 baytlık bir
+>   satırla, geçici tabloda). İptal yolu aynı geri çağırmaya varır (PostgreSQL kaynağı;
+>   denetçinin satır atıfları — ölçülmedi). Çare: veri satırında değerlerden önce 100 baytlık
+>   sabit `copyPadding` (`-- ` + 100 bayt + boşluk → hash 104. bayttan başlar); DO onu tam
+>   eşitlikle denetler. Testler: `TestCopy_ADataErrorShowsThePaddingNotTheValues` (gerçek
+>   sunucu: veri hatasının CONTEXT'i dolguyu gösterir, betiğin veri satırı değerlerini — hash,
+>   adres, ad — değil;
+>   pozitif kontrol: dolgusuz sentetik satırda ilk değer CONTEXT'te),
+>   `TestSQL_TheFirst100BytesOfTheDataLineHoldNoValue` (metin; pozitif kontrol), dolgu
+>   değişmiş/yok vakaları B-2'nin testinde. O9-3 iptal tetikleyicilerini adıyla yazar.
+> - **Güvenlik test** · `TestLog_…`'un pozitif kontrolü artık **sentetik** bir değerle (betiğin
+>   kopyasında hash'in yerine konmuş) çalışır; gerçek bir test hash'i sunucuya gönderilmez.
+> - **Güvenlik doküman** · bu bloktaki "O9-1…O9-3" → "O9-1…O9-5" (iki yer); README'nin beklenen
+>   psql çıktısı ölçülen şekle eşitlendi: `BEGIN · SET · SET · CREATE TABLE · COPY 1 · NOTICE ·
+>   DO · COMMIT` (ölçüldü, COMMIT yerine ROLLBACK ile).
+> - **X25 (not)** · `serverSaw` artık hex alanların çözüldüğü metni de (adres, ad) arar.
+> - **Mutasyonlar (3. tur, `mutate3.py`):** **43/43 kırmızı** — 2. turun 34'ü (iki çapası 3.
+>   tur koduna yeniden bağlandı: N4 artık "gelecek koruması", N9 "dolgudan önce işaret yok") +
+>   X11 `generationGuards` reset'ten silindi → `TestScript_GenerationGuards`,
+>   `TestResetMFA_AClockAheadDoesNotReopenAUsedLink` · X35 gelecek koruması yalnız reset için
+>   atlandı → aynı ikisi · X36 yaş koruması yalnız reset için → `TestScript_GenerationGuards` ·
+>   X37 30 sn'lik pay geri → aynı ikisi · X1 `v_rows <> 1` → `< 1` · X2 alan sayısı denetimi
+>   yok · X26 `--` işareti denetimi yok · P1 dolgu denetimi yok → dördü
+>   `TestPayload_OnlyTheOneLineOfTheExpectedShapeIsAccepted` · P2 dolgu 29 bayt →
+>   `TestCopy_ADataErrorShowsThePaddingNotTheValues`, `TestSQL_TheFirst100BytesOfTheDataLineHoldNoValue`,
+>   `TestPayload_…`. **Ölçümün kendi kusuru, düzeltildi:** ilk koşuda X1/X2/X26/P1 YEŞİL çıktı —
+>   koşturucunun DB deseni 3. turun iki yeni test önekini (`TestPayload_`, `TestCopy_`)
+>   içermiyordu, yani bu dört mutantı yakalayan test hiç koşmadı; desen düzeltilip altısı
+>   yeniden koşuldu (6/6 kırmızı). Aynı koşu iki test kusuru gösterdi, ikisi de düzeltildi: P2
+>   altında `TestCopy_…` sabit bir dilim indeksi yüzünden **derlenmiyordu** (artık `min` ile) ve
+>   N9 altında `TestSQL_TheFirst100BytesOfTheDataLineHoldNoValue` `disable` satırında boş dilimi indeksleyip **panic**
+>   ediyordu (DB testleri koşmadan ikili duruyordu; artık alan sayısını denetleyip `t.Fatalf`).
+>
+> **4. tur — kapanış (2026-10-03, kapanış denetçisi ONAY; ucuz bloklamayanlar).** Kapanış
+> denetçisi iptal yolunu gerçek sunucuda ölçtü: `pg_cancel_backend` ve `statement_timeout`
+> (57014) CONTEXT'te dolguyu gösteriyor, değeri değil; gerçek alt sınır 96 bayt, pay 4 bayt.
+>
+> - **F1** · README reset-mfa tablosunun son satırı 3. turda bir 4. hücre ve başıboş bir
+>   satır taşıyordu (`TAPPA_OPERATOR_TOTP_KEK` cümlesi tablonun içinde kalmıştı); paragraf
+>   tablonun dışına alındı. Doğrulandı: goldmark v1.7.8 GFM ile bölüm render edildi — iki
+>   tablonun her satırı 3 hücre (4 ve 7 satır), cümle bir `<p>` içinde.
+> - **F2** · sıfır payın pini ~1 sn çözünürlükteydi (K10, 500 ms pay, yeşil kalıyordu):
+>   `TestScript_GenerationGuards` iki alt komut için **+250 ms red** vakası koşar. Metinler
+>   ölçülen çözünürlüğe bağlandı ("kodda pay yok; ölçülen en küçük ret +250 ms").
+> - **G1** · `TestMain_TheBinaryRefusesARedirectedStderr`'in `/dev/null` kolu derlenmiş
+>   komutun SQL'indeki üretim zamanının koşu anından ±5 sn içinde olduğunu denetler (K7a
+>   −29 dk, K7b +1 sa).
+> - **G2** · `TestCopy_ADataErrorShowsThePaddingNotTheValues` değerlerin tamamını ve **ilk 8
+>   baytını** arar (K14, 70 baytlık dolgu: CONTEXT hash'in ilk 26 karakterini gösteriyordu).
+> - **F3/F4/F5** · md. 13 "on üç"; PART II'nin `TestSQL_TheValuesTravelAsCopyData` maddesine
+>   dolgu eklendi; SQL başlığında GUI "ölçülmedi" diye bağlandı.
+> - **F6** · `dbGen` gerekçesi yukarıda ölçülen saat farkına bağlandı; yarış iddiası "tahmin,
+>   yeniden üretilmedi".
+> - **G3 (gözlem, doğrulanamadı)** · kapanış denetçisinin bir koşusunda açıklanamayan tek bir
+>   `TestApply_AFailureAnywhereLeavesNoRow` kırmızısı oldu (mutant o koda dokunmuyordu;
+>   denetçi 8 tam + 25 tek koşuda yeniden üretemedi). Bu turun koşularında görülmedi: üç
+>   DB'li mutant koşusu (K10, K14, X37) ve son `-race` koşusu.
+> - **Mutasyonlar (4. tur, `mutate4.py`):** **5/5 kırmızı** — K10 500 ms pay →
+>   `TestScript_GenerationGuards` · K7a `main` 29 dk geçmişle üretir · K7b `main` 1 sa ileriyle
+>   üretir → ikisi `TestMain_TheBinaryRefusesARedirectedStderr` · K14 70 baytlık dolgu →
+>   `TestCopy_ADataErrorShowsThePaddingNotTheValues`, `TestSQL_TheFirst100BytesOfTheDataLineHoldNoValue`
+>   · X37 (30 sn pay, 3. turdan yeniden) → `TestResetMFA_AClockAheadDoesNotReopenAUsedLink`,
+>   `TestScript_GenerationGuards`.
+
 ### Görevler — A2 tenant-ötesi okuma/yazma
 | ID | Görev | Efor | Kabul (özet) |
 |---|---|---|---|

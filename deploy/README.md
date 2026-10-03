@@ -847,6 +847,302 @@ ve `.env`'e dördü birlikte (`.env.example`'daki yorumlu blok): DSN
 
 ---
 
+## Operator accounts (M10 OP-9) — `cmd/opadmin`
+
+**Ne:** platform operatörü hesabı `cmd/opadmin`'in ürettiği SQL ile doğar, sıfırlanır ve
+kapanır (ADR 0020 §6). 00026 `platform_admins` üzerinde INSERT'i uygulama rollerine ve
+`tappa_operator`'a vermez (katalog pinleri: `TestOperator00026_PrivilegeMatrix`,
+`TestOperator00026_AppHoldsNothingUnderTheProductionDefaultACL`), SQL'i sahip uygular.
+`opadmin` bir **filtredir** (`cmd/rotatekek` emsali): bağımlılık kapanışı standart kütüphane +
+komutun kendisi, içinde `database/sql`, `net`, `os/exec` yok, ve sayılı ortam çağrıları
+kaynakta yok (ölçen: `TestDeps_NoDriverInTheClosure`,
+`TestDeps_NoEnvironmentAndNoDSNName`) — SQL'i stdout'a yazar, sen onu `psql` ile
+**`tappa_owner`** olarak uygularsın.
+
+| Alt komut | Ne yapar | Link |
+|---|---|---|
+| `create --email ADRES --name "AD" --host OPS_HOST` | yeni `pending` hesap; id'yi opadmin üretir | evet |
+| `reset-mfa --id ID --email ADRES --host OPS_HOST` | TOTP zarfı ve parola özeti silinir, kilit sayacı sıfırlanır, hesap `pending`'e döner, açık oturumları iptal edilir | evet |
+| `disable --id ID --email ADRES` | hesap `disabled`, açık oturumları iptal edilir | hayır |
+
+**Kurallar (hepsi kodda; adı geçen testler ölçer):**
+
+- **Link biçimi** (OP-8'in sayfası okur): `https://<OPS_HOST>/operator/enroll?id=<hesap id>#<link sırrı>`.
+  Hesap id'si sorguda (bir kimlik bilgisi değil), sır **fragment**'ta. Link **bir kez**
+  kullanılır ve SQL'in **uygulandığı** andan itibaren **30 dk** geçerlidir (veritabanının
+  saati; `TestCreate_AnExpiredLinkIsRefused`).
+- **Link stderr'e bir kez** yazılır; SQL'de link sırrının SHA-256'sı vardır, kendisi yoktur
+  (ölçen: `TestLeak_TheSecretIsOnlyInTheLinkOnStderr` — stdout ve varsayılan logger'lar).
+  `create` ve `reset-mfa` stderr bir terminal değilse **çalışmaz** (yönlendirilmiş bir stderr
+  linki bir dosyaya ya da log'a koyardı). Denetim dosya kipine bakar: kendini kaydeden bir terminal (`script`, tmux
+  `pipe-pane`, terminal oturum kaydı, ekran kaydı) da geçer — o sırada bunları kapat (O9-2).
+- **`--host`** `TAPPA_OPERATOR_HOST`'un değeridir, aynı kuralla: küçük harfli DNS adı;
+  şema, port, yol yok (`TestHost_IsConfigsRule`).
+- **Hedef iki anahtarla:** `reset-mfa` ve `disable` hesabı `--id` **ve** `--email` ile
+  bulur; ikisi aynı satırı göstermiyorsa SQL reddeder ve transaction geri alınır (yanlış
+  kopyalanmış bir id başka bir operatörü sıfırlamasın diye;
+  `TestApply_ASecondCreateAndAMismatchedDisableAreRefused`,
+  `TestResetMFA_RefusesWhatItMustNot`). Hesap id'si: `SELECT id, email, status FROM
+  platform_admins ORDER BY created_at;`. E-posta büyük/küçük harf duyarsız eşleşir.
+- **SQL tek transaction:** `BEGIN` · iki `SET LOCAL` · geçici `pg_temp.opadmin_in` tablosu ·
+  `COPY … FROM STDIN` ve **tek veri satırı** · tek bir `DO` bloğu · `COMMIT`. Link sırrının
+  SHA-256'sı, e-posta ve ad **ifade metninde değil, COPY veri satırında** hex olarak gider
+  (2. tur): sunucu log'u ifade **metnini** yazar (`log_statement=all` her ifadeyi —
+  geliştirme DB'si böyle koşar —, `log_min_error_statement=error` başarısız ifadeyi —
+  üretimin varsayılanı), COPY verisi ifade metni değildir. Ölçüldü (psql 18.4, kayıt yapan
+  bir aktarıcı üzerinden, ölçülen yollarda; dosya stdin'de, `-f` ile ve `\i` ile): psql'in
+  gönderdiği ifadelerde bu üç değerden hiçbiri yoktu; sunucuya yalnız tek COPY veri
+  mesajında ulaştılar. 🔴 **Yalnız psql dosyayı okurken: `< dosya` ya da `-f dosya`.**
+  `psql -c "$(cat dosya)"` dosyayı **tek ifade** olarak gönderir (ölçüldü: 1 ifade, hash'i
+  taşıyor, `\` için sözdizimi hatası — başarısız ifadenin metni log'a); bir GUI sorgu aracı
+  aynı sınıftır (ölçülmedi). Veri satırında değerlerden önce 100 baytlık sabit bir dolgu
+  alanı durur: bir COPY hatası satırın ilk 100 baytını CONTEXT'e yazar (3. tur, aşağıda
+  O9-3). İfade metninde kalanlar: sabitler, hesap id'si (tırnak içinde, kanonik uuid
+  biçimine doğrulanmış), dolgu ve üretim zamanı. Okunur hâller stderr raporunda ve
+  uygulamadaki `NOTICE` satırındadır. Kısıt reddi kısıtın **adıyla** döner, satırı
+  yankılamadan.
+- **Üretim zamanı (2. ve 3. tur):** betik, üretildiği andaki makine saatini taşır.
+  `create`/`reset-mfa` **üretimden 30 dk sonra** ve üretim zamanı veritabanı saatinin
+  **önündeyse** (3. tur: kodda pay yok — ölçülen en küçük ret +250 ms, daha küçüğü ölçülmedi;
+  2. turun 30 sn payı ölçülmüş bir tekrar penceresiydi)
+  reddedilir — ileri bir saatle üretilmiş dosya, veritabanı saati üretim zamanını geçince
+  **aynen** yeniden uygulanır. `reset-mfa` ayrıca hesabın son linki bu betik üretildikten
+  **sonra** verilmişse reddedilir (A-B-A: R1 uygulanıp kullanılır, R2 uygulanıp
+  kullanılır, R1 yeniden uygulanır → red). Ölçenler: `TestScript_GenerationGuards` (iki
+  alt komut: 29/31 dk, +250 ms/+1/+20 sn, bekleyip aynı dosya), `TestResetMFA_ABAReplayIsRefused`,
+  `TestResetMFA_AClockAheadDoesNotReopenAUsedLink` (saat 2 sn ve 10 dk ileri). Yani:
+  **üret, hemen uygula, dosyayı sil.**
+- 🔴 **`-X -v ON_ERROR_STOP=1` şart.** Ölçüldü (geliştirme DB'si — sunucu 17.10, istemci
+  psql 18.4 — geçici tablolarda): psql varsayılanında bir hata olsa da çıkış **0**'dır —
+  transaction geri alınır ama komut "başarılı" görünür; `ON_ERROR_STOP=1` ile hata **çıkış
+  3** verir. Reddetme ifadesi (opadmin bir girdiyi reddedince stdout'a yazdığı `DO … RAISE`)
+  de varsayılan psql'de çıkış **0**, `ON_ERROR_STOP=1` ile **3** verir. `-X` psqlrc'yi
+  atlar: psqlrc'de `ON_ERROR_ROLLBACK=on` varsa psql her ifadeyi bir savepoint'e sarar ve
+  `DO` bloğundan **önceki ya da sonraki** bir hata geri sarılır, `DO`'nun yazısı **commit
+  edilir** (ölçüldü, çıkış 0, 1 satır). `-1` gerekmez (SQL kendi `BEGIN`'ini taşır);
+  yanlışlıkla eklenirse iki `WARNING` basar, sonuç aynıdır.
+
+### create — kurulumun ilk operatörü dahil
+
+Birleştirilmiş commit'in checkout'unda, repo kökünde. Komut satırı adres, ad ve host taşır
+— kabuk geçmişine giren satırda sır yok; link programın **çıktısıdır**.
+
+```bash
+umask 077
+OPDIR="$(mktemp -d)"
+
+# 1) SQL'i üret: stdout dosyaya, stderr TERMİNALDE (rapor + link, bir kez)
+go run ./cmd/opadmin create --email ops@example.com --name "Ada Operator" --host ops.taptime.mt \
+    > "$OPDIR/op.sql"
+# beklenen: çıkış 0; stderr'de hesap id'si, adres, ad ve link.
+
+# 2) Oku: başlıkta hesap id'si; BEGIN … COMMIT; tek DO bloğu.
+less "$OPDIR/op.sql"
+
+# 3) Uygula — tappa_owner, ilk hatada dur
+kubectl --context hetzner-k8s-1 -n tappa exec -i statefulset/tappa-postgres -- \
+    sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' \
+    < "$OPDIR/op.sql"
+# beklenen: BEGIN · SET · SET · CREATE TABLE · COPY 1 · NOTICE: opadmin create: pending operator account … · DO · COMMIT; çıkış 0
+# çıkış 3 → reddedildi ve transaction geri alındı; mesaj nedeni adıyla söyler
+#   (ör. "refused by constraint platform_admins_email_key" = bu adres zaten kayıtlı).
+
+# 4) Dosyayı sil — uygulanmış bir betik saklanmaz
+rm -rf "$OPDIR"; unset OPDIR
+```
+
+**Linki ilet.** Kendi hesabınsa linki doğrudan tarayıcına yapıştır. Başkası içinse geçmiş
+tutmayan bir kanaldan (yüz yüze, telefonda okuyarak, kaybolan mesaj) ver; bilet sistemine,
+e-postaya, geçmişi saklanan bir sohbete yapıştırma. Sonra terminalin kaydırma geçmişini
+temizle (macOS Terminal: ⌘K; genel: `clear && printf '\e[3J'`). **Bu komutların
+silmedikleri, adıyla:** tmux/screen'in kendi geçmişi (`tmux clear-history` ayrıca gerekir;
+screen'de kaydırma tamponu) · bir pano yöneticisinin tuttuğu kopya (kopyala-yapıştır
+yaptıysan) · tarayıcı geçmişinde fragment'lı URL'nin kalıp kalmadığı (OP-8'in sayfası
+fragment'ı `history.replaceState` ile adres çubuğundan siler; geçmiş girdisi bu turda
+**ölçülmedi**). 30 dk içinde kullanılmazsa: aynı hesap için yeni bir `reset-mfa` yeni bir
+link basar ve eskisini geçersiz kılar.
+
+**Doğrula** (yalnız durum; değer basmaz):
+
+```bash
+kubectl --context hetzner-k8s-1 -n tappa exec -i statefulset/tappa-postgres -- \
+    sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -At -U "$POSTGRES_USER" -d "$POSTGRES_DB"' <<'SQL'
+SELECT id, status, enroll_used_at IS NOT NULL AS used,
+       round(extract(epoch FROM enroll_expires_at - clock_timestamp()))::int AS seconds_left
+  FROM platform_admins ORDER BY created_at;
+SQL
+# create'ten sonra: <id>|pending|f|~1800 · kişi linki kullandıktan sonra: <id>|active|t|<sayı>
+# (kullanımdan sonra enroll_expires_at silinmez: son sütun pozitif kalabilir ve anlamı yoktur —
+#  link "used" sütunu t olduğu için ölüdür)
+```
+
+### reset-mfa — cihaz kaybı ya da süresi geçmiş link
+
+```bash
+umask 077; OPDIR="$(mktemp -d)"
+go run ./cmd/opadmin reset-mfa --id <HESAP_ID> --email <ADRES> --host ops.taptime.mt > "$OPDIR/op.sql"
+# 3. adımdaki kubectl … psql -X -v ON_ERROR_STOP=1 … < "$OPDIR/op.sql"
+# beklenen NOTICE: "account … was active, is now pending; N live session(s) revoked; …"
+rm -rf "$OPDIR"; unset OPDIR
+```
+
+Kişi yeni linkle **yeniden enroll olur** (yeni parola + yeni TOTP anahtarı). Reddedilenler
+— transaction geri alınır — ve her birinde ne yapılacağı:
+
+| Ret | Ölçen | Yapılacak |
+|---|---|---|
+| id ile adres aynı hesabı göstermiyor | `TestResetMFA_RefusesWhatItMustNot` | girdiyi düzelt (yeni betik aynı girdiyle yine reddedilir) |
+| hesap `disabled` | `TestResetMFA_RefusesWhatItMustNot` | opadmin'de yolu yok (aşağıda, *disable*) |
+| hesabın hash'i zaten bu betiğinki (aynı dosya ardı ardına) | `TestResetMFA_RefusesWhatItMustNot` | betik uygulanmış; gerekiyorsa yeni bir `reset-mfa` üret |
+| hesaba bu betik üretildikten sonra link verilmiş | `TestResetMFA_ABAReplayIsRefused`, `TestScript_GenerationGuards` | yeni bir `reset-mfa` üret — makine saati veritabanınınkinin **gerisindeyse** yeni betik de, makine saati son verilişi geçene kadar reddedilir (O9-5) |
+| betik 30 dk'dan eski | `TestScript_GenerationGuards` | yeni bir `reset-mfa` üret |
+| üretim zamanı veritabanı saatinin önünde | `TestScript_GenerationGuards` | veritabanı saati geçince **aynı dosyayı** yeniden uygula, ya da makinenin saatini düzelt |
+
+`TAPPA_OPERATOR_TOTP_KEK` kaybolursa geri dönüş her operatör için bu adımdır ("Operator
+surface (M10 OP-7)" → 4. adım).
+
+### disable — erişimi hemen kes
+
+```bash
+umask 077; OPDIR="$(mktemp -d)"
+go run ./cmd/opadmin disable --id <HESAP_ID> --email <ADRES> > "$OPDIR/op.sql"
+# 3. adımdaki kubectl … psql -X -v ON_ERROR_STOP=1 … < "$OPDIR/op.sql"
+# beklenen NOTICE: "account … was active, is now disabled; N live session(s) revoked"
+rm -rf "$OPDIR"; unset OPDIR
+```
+
+Açık oturumlar aynı transaction'da iptal edilir; parola adımı `disabled` hesaba bilinmeyen
+bir adresin yanıtını (`ErrRefused`) verir (`TestDisable_EndsSessionsAndSignIn`). İkinci
+uygulamadan sonra durum `disabled`, oturum sayısı ve daha önce iptal edilmiş oturumun
+`revoked_at`'i aynıdır. `disable` üretim zamanı taşımaz (link vermez). **Kapatılmış bir
+operatörü geri almak opadmin'de yok** (bilinçli: o bir MFA sıfırlaması değil, ayrı bir karar)
+— adres `platform_admins`'te kayıtlı kalır, yeni bir `create` aynı adresi reddeder.
+
+🔴 **`ERROR: canceling statement due to lock timeout` (SQLSTATE `55P03`) gördüysen:** betik
+hesabın satırını 5 sn içinde kilitleyemedi ve **transaction geri alındı** (rotatekek'in
+`lock_timeout` emsali). Bir `tappa_operator` oturumu o satırı tutuyor olabilir: oturum
+gerektirmeyen `op_record_auth_event('totp_failed', <aktif adres>)` açık bir transaction'da
+çağrılırsa satır kilidi transaction bitene kadar kalır (üçüncü göz ölçtü; DSN sahibi bunu
+süresiz tutabilir — sınır O9-4). Acil `disable` için sıra:
+
+```bash
+kubectl --context hetzner-k8s-1 -n tappa exec -i statefulset/tappa-postgres -- \
+    sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' <<'SQL'
+ALTER ROLE tappa_operator NOLOGIN;
+SELECT pid, state, xact_start FROM pg_stat_activity WHERE usename = 'tappa_operator';
+SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE usename = 'tappa_operator';
+SQL
+# sonra disable betiğini yeniden uygula (yukarıdaki 3. adım), ardından:
+#   ALTER ROLE tappa_operator LOGIN;   (parola değişmez; operatör yüzeyinin havuzu yeniden bağlanır)
+```
+
+`NOLOGIN` yeni bağlantıyı keser, `pg_terminate_backend` `tappa_operator`'ın açık
+bağlantılarını düşürür — operatör yüzeyi o arada hata verir; müşteri ürünü `tappa_app` ile
+bağlanır ve sorgular yalnız `usename = 'tappa_operator'` satırlarını seçer. Bu adımlar bu turda
+**ölçülmedi** (kalıcı satır bırakmadan kilit tutan bir operatör oturumu kurulamadı).
+
+### Sayılı sınırlar (OP-9)
+
+- **O9-1 · opadmin'in eylemleri `operator_audit_log`'a yazılmaz.** 00026'nın tür kümesi
+  kapalıdır (beş oturum öncesi başarısızlık + `login`, `enrollment`, `logout`) ve bir
+  sahip eylemi türü yeni bir migration ister — **OP-14'e, adıyla**. Veritabanında kalan
+  iz dardır: `create` → `created_at` ve `enroll_issued_at`; `reset-mfa` →
+  `enroll_issued_at` (her `reset-mfa` bir öncekinin değerini **ezer**) ve o anda açık
+  oturumların `revoked_at`'i; `disable` → yalnız `status` (zaman damgası yok — `disabled_at`
+  sütunu yok) ve o anda açık oturum **varsa** onların `revoked_at`'i. Ötesi psql oturumunun
+  kendisi.
+- **O9-2 · Terminal denetimi dosya kipine bakar:** kendini kaydeden bir terminal de bir
+  karakter aygıtıdır ve geçer; `/dev/null` da geçer (link ekrana çıkmaz, atılır).
+- **O9-3 · Sunucu log'una ifade metni düşer; o metinde hesap id'si, dolgu, üretim zamanı ve
+  sabitler vardır** — link sırrının hash'i, e-posta ve ad **COPY veri satırındadır**
+  (yukarıda). Ölçüm yöntemi ve kapsamı: sunucu log'u **okunmadı** (ajan kuralı); ölçülen,
+  psql'in sunucuya **gönderdiği** (kayıt yapan aktarıcı; dosya stdin'de, `-f`, `\i`) ve
+  sunucunun **döndürdüğü** hata alanlarıdır (ERROR/DETAIL/HINT/CONTEXT — log'un STATEMENT
+  yanında yazdığı satırlar); depoda `TestLog_TheValuesReachTheServerOnlyAsCopyData` (yedi ret
+  yolu) ve kilit zaman aşımı için `TestApply_ARowHeldElsewhereFailsFastNotForever`. **COPY
+  hatasının CONTEXT'i** (3. tur): bir veri hatası ya da COPY sırasında gelen bir **iptal**
+  (`pg_cancel_backend`, TTY'li psql'de Ctrl-C, ileride bir `statement_timeout`) satırın ilk
+  100 baytını CONTEXT'e yazar — ölçüldü (veri hatası: 100 bayt + `...`; iptal yolu
+  PostgreSQL kaynağından, ölçülmedi); o 100 bayt `-- ` ve dolgudur, değerler 104. bayttan
+  başlar (`TestCopy_ADataErrorShowsThePaddingNotTheValues`); DO bloğu dolguyu tam eşitlikle
+  denetler. Kapsam dışı, adıyla: **dosyayı okumayan istemci kipleri** (`psql -c`, GUI sorgu
+  araçları — `-c` ölçüldü: hash STATEMENT satırına düşer) · `auto_explain` ya da
+  `pg_stat_statements` yüklü bir sunucu (geliştirme DB'sinde ikisi de yok; üretimin manifesti
+  `args: []`).
+- **O9-4 · DSN sahibi bir `disable`/`reset-mfa`'yı geciktirebilir:** açık bir transaction'da
+  hesabın satırını tutan bir `op_*` çağrısı betiği 5 sn sonra `55P03` ile düşürür; çare
+  yukarıdaki `NOLOGIN` + `pg_terminate_backend` adımıdır (ölçülmedi).
+- **O9-5 · Üretim zamanı korumaları iki saati karşılaştırır** — hesabın `enroll_issued_at`'i
+  ve veritabanının saati ile betiğin üretim zamanı (opadmin'i koşan makinenin saati).
+  **Makine ileride:** betik veritabanı saati üretim zamanını geçene kadar reddedilir (aynı
+  dosya sonra uygulanır). Bu ret yüzünden kabul edilmiş bir R1'in üretim zamanı kendi
+  verilişinden geride ya da eşittir; veritabanı saati geri atmadıkça sonraki bir veriliş ondan
+  ileridedir, yani R1'in yeniden uygulanması reddedilir — 2. turun 30 sn'lik penceresi bu
+  varsayımla **kapandı** (3. tur; saat
+  2 sn ve 10 dk ileriyken ölçüldü: `TestResetMFA_AClockAheadDoesNotReopenAUsedLink`).
+  **Makine geride (s kadar):** bir verilişten sonraki s içinde üretilen `reset-mfa`, makine
+  saati verilişi geçene kadar reddedilir (üçüncü göz ölçtü: 2 dk geride, `create`'ten sonra
+  üretilen reset reddedildi); 30 dk'lık yaş penceresi s kadar kısalır. **Kalan:** veritabanı
+  saatinin iki veriliş arasında **geri** atması (NTP düzeltmesi) sonraki verilişe daha erken
+  bir damga verebilir — ölçülmedi. Geliştirme makinesi ↔ DB farkı: **~1 ms** (test log'u);
+  üretimdeki fark ölçülmedi.
+
+### Bekliyor: K2/K4 (kullanıcı kararı) — `ops.taptime.mt` DNS'i, Ingress, IP kısıtı
+
+`deploy/k8s/40-ingress.yaml` **değişmedi.** Operatör yüzeyi `TAPPA_OPERATOR_HOST`'ta
+yaşar ve uygulamanın iki yönlü host kapısı (OP-8) operatör rotalarını müşteri host'larında,
+müşteri rotalarını operatör host'unda 404'e çevirir; Ingress'in işi o host'u pod'a
+getirmektir. **Taslak** (uygulanmadı; kural metni öneridir):
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: tappa-operator
+  namespace: tappa
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "64k"
+    # K4 (opsiyonel): yalnız operatörün ağları. Ölçülmedi: Cloudflare proxy'si (turuncu
+    # bulut) açıksa ingress istemciyi değil Cloudflare'in kenar adresini görür ve bu liste
+    # istemcinin değil kenarın adresini sınar — ops kaydı DNS-only olmalı
+    # (40-ingress.yaml'ın (a) seçeneği, taptime.mt için seçilen). use-forwarded-headers +
+    # proxy-real-ip-cidr (40-ingress.yaml'ın (b) seçeneği) PAYLAŞILAN ConfigMap'tedir (~20
+    # uygulama) ve CIDR yanlışsa origin'e doğrudan gelen biri sahte X-Forwarded-For ile bu
+    # izin listesini geçer. Ek açıklamanın adı ingress-nginx sürümüne göre doğrulanmalı.
+    # nginx.ingress.kubernetes.io/whitelist-source-range: "<ops CIDR>,<ops CIDR>"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - ops.taptime.mt
+      secretName: ops-taptime-tls
+  rules:
+    - host: ops.taptime.mt
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: tappa
+                port:
+                  name: http
+```
+
+**Ingress neyi log'lar (ADR 0020 §6'nın OP-9'a bıraktığı ölçüm).** ingress-nginx'in
+varsayılan erişim satırı istek satırını (`$request`: yöntem, yol, **sorgu**) ve `Referer`
+başlığını yazar (ingress-nginx belgesi; kümede ölçülmedi). Ölçüldü (2026-10-02, yerel ham
+TCP dinleyici, link biçiminde bir URL, sır yerine 43 karakterlik rastgele bir değer): Go
+`net/http`, curl 8.7.1 ve headless Chrome 154'ün gönderdiği baytlarda — istek satırı ve
+Chrome'un alt kaynak isteklerindeki dört `Referer` başlığı dahil — hesap id'si **var**,
+fragment ve sır **yok**. Yani ingress satırı hesap id'sini taşır (kimlik bilgisi değil),
+link sırrını bu üç istemcide taşımaz; başka istemciler ölçülmedi.
+
+---
+
 ## Elle deploy / rollback
 
 > 🔴 **ÖNCE ŞUNU ÖLÇ: BU BÖLÜM DOCKER HUB'I TARİF EDİYOR, KÜME BUGÜN HÂLÂ GHCR
