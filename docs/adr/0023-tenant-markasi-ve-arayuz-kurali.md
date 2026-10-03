@@ -579,6 +579,218 @@ sabitleri değişirse daha önce kaydedilmiş bir accent kapıdan düşebilir.
   panel + tap). `Tap.render` tap, sonuç ve tap-problem yanıtlarında ortak olduğundan
   politika render başına hesaplanır.
 
+**WL-5 notu (2026-10-03 — uygulama ve ölçüm; bu bölümün kuralı değişmedi).** Kod:
+`internal/brand/theme.go` (`ThemeCSS`), `internal/handler/brandtheme.go` (`BrandTheme`,
+`NewBrandTheme`), `cmd/tappa/main.go` (rota `httpx.NewRouter`'a verilir), `tailwind.config.js`,
+`web/static/css/input.css`. Tema `<link>`'i bir sayfaya eklenmedi (WL-8, WL-9): `web/templates` diff'i
+boş. Ölçüm ortamı: darwin/amd64, Go 1.27.1 (staticcheck Go 1.26.7), Tailwind v3.4.17,
+headless Chrome 154.0.8037.93. Bu notta satır numarası yok; kurallar seçici adıyla anılır
+(`.stamp`, `.stamp--*`, `.tap-button`, `.btn`). Bir testi anan cümle o testin aşağıdaki PART I
+maddesine bağlıdır; mutasyon kimlikleri (H…, C…, X…) WL-5 kartının mutasyon tablosundadır.
+- **Gövde `brand.ThemeCSS`'te**, `Check`'in `Fill`'inden. `Check`'in reddettiği accent için
+  `ThemeCSS` gövde vermez (`""`, `ErrAccentIllegible`). `ThemeCSS` bir `Color` alır, rotanın
+  dizgesini almaz: gövde fonksiyonun sabit metni ve `Fill` baytlarının ondalık yazımıdır. Gramer:
+  `--brand-accent` ve `--brand-on-accent` `R G B`; `--brand-edge` `R G B` (ink) ya da `none`.
+- **`Edge == false` iken `--brand-edge: none`** (WL-2 devri). `none` bir renk değildir. Bugün (WL-5)
+  onu okuyan kural `.tap-button`'ın `box-shadow: inset 0 0 0 2px rgb(var(--brand-edge)/1)`'idir;
+  `none` ile bu bildirim hesaplanan değer anında geçersiz olur ve `box-shadow` ilk değerine,
+  `none`'a düşer. Chrome 154'te markasız düğmenin `background-color`, `color` ve `box-shadow`'u WL-5
+  öncesiyle aynı ölçüldü (bir kez; §3'ün *"computed style bugünküyle aynı"* şartı). Kenarı accent'in
+  kendi rengiyle çizen aday `box-shadow`'u ve köşelerde 36 pikseli değiştirdi (ölçüldü).
+- **Kenarın mekanizması iç gölge** — CDP'de ölçülen temaların hepsinde düğme kutusu 358×64,
+  `border` 0.
+- **Token'lar `colors` altında değil, ADR 0023 §3'ün izin verdiği özelliğin altında:**
+  `backgroundColor.brand`, `textColor['on-brand']`, `boxShadowColor['brand-edge']`, değerler
+  `rgb(var(--…) / <alpha-value>)`. İki gerekçe: `colors` dokuz token'lık paletin bloğudur ve WL-2'nin
+  Go kopya testi onu satır satır hex olarak okur; ve şablona yazılan `text-brand`, `border-brand`,
+  `bg-on-brand`, `ring-brand-edge`, `text-brand-edge` derlenmiş CSS'te kural üretmedi (ölçüldü, S1).
+- **Varsayılanlar** `input.css` `@layer base`'te bir `:root` kuralı; derlenmiş hâli
+  `ThemeCSS(tappa-green)` ile bayt-aynıdır (PART I madde 13). `.tap-button` artık `bg-brand
+  text-on-brand` + iç gölge okur; bugünkü yedi `class` kullanımı aynı kuralı alır.
+- **Rota** (davranışı PART I madde 2–8): `/brand/theme/` + `ParseAccent`'in kabul ettiği hex +
+  `.css`, sorgusuz ve `Check`'ten geçen accent 200; ret `http.NotFound`. Sorgu reddi: gövde sorguya
+  bağlı değil, kabul etmek bir yıl önbelleklenen tek gövdenin URL'lerini çoğaltırdı. **HEAD**
+  `/healthz` ve `/readyz` emsaliyle kabul. Chi'nin tanımadığı PROPFIND'in 405'i `Allow` taşımadı
+  (bir kez ölçüldü; test yalnız durumu okur).
+- **Rota ve gövde sürümü.** URL rengi adlandırır; gövde ayrıca palete, `ThemeCSS`'in biçimine ve
+  `Check`'in eşiklerine bağlıdır ve tarayıcı `immutable` gövdeyi bir yıl yeniden sormaz. Bunlardan
+  biri değişince yeni bir rota verilmesi bir **kuraldır, kod incelemesinin konusudur**; testin bu
+  kuraldan tuttuğu PART I madde 8'dedir, tutmadığı sınır (2)'dedir.
+- **Slot tablosu** (PART I madde 11): bugün `.tap-button`, üç değişkenle. Panel şeridinin sınıfı
+  WL-8'de yalnız `--brand-accent` ile girer. Şablona çıplak yazılan bir accent yardımcısı `app.css`'e
+  seçicisi slot tablosunda olmayan bir kural derler ve `TestCompiledCSS_BrandVariablesOnlyInTheirSlots`
+  onu raporlar (ölçüldü: sınıf özniteliği, şablon yorumu, var olan bir yardımcı — C3, C4, S2). Test
+  adları CSS kaçışlarını çözerek ve yorumları düşürerek okur (4. ve 5. tur). Bu test, ayrıştırıcısının
+  okuduğu kurallar için, *"nerede ve hangi özellikte okunur"* ve *"nerede, kaç kez tanımlanır"*
+  sorularını cevaplar; `brand` sözcüğünün dosyada geçtiği yerleri geçiş golden'ı tutar (aşağıda).
+  `app.css` dışından gelen bir yol (ikinci bir stil dosyası, betikten yazılan stil) iki testin de
+  dışında.
+- **Geçiş golden'ı** (PART I madde 14 ve 15). Elle yazılmış ayrıştırıcının görmediği bir yazım 4.
+  turda (kaçışlı ad) ve 5. turda (tanımdan önce yorum) bulundu; bu yüzden `brand`'in geçtiği yerler
+  ayrıca ayrıştırıcısız sayılır. `TestCompiledCSS_BrandNamesOccurOnlyInTheGolden` derlenmiş
+  `app.css`'te önce süslü paranteze çözülen kaçışları (`\{`, `\}`, `\7d `) U+FFFD ile değiştirir —
+  tarayıcı için onlar bir adın harfidir, bloğun kenarı değil; 6. turda E1, E1c, E2 ve F4 bu adım
+  olmadan yeşildi — sonra metni iki kez okur: yazıldığı hâliyle ve kalan kaçışlar çözülmüş hâliyle.
+  İki okumada da `brand` sözcüğünün harf büyüklüğünden bağımsız her geçişini bir *yer* olarak sayar:
+  geçişteki süslü parantez derinliği ve önceki `}`'den sonraki `}`'e kadar olan metin. Pencere
+  küçük harfe indirilerek karşılaştırılır: golden'ın metinleri küçük harflidir, ve pencerede
+  yalnız harf büyüklüğü değişen bir kural golden'ı yeşil bırakır (denetçinin CASE1'i). Bu yerlerin
+  çoklu kümesi koddaki `themeBrandGolden` listesine birebir eşit olmalıdır. Golden yerlerin
+  metnini tutar, anlamını değil: tanımın nerede olduğu madde 11 ve 13'ündür (E3 — tanımlar yalnız
+  dengelenmiş, korunmuş bir yorumda — golden'ı yeşil, 11 ve 13'ü kırmızı bıraktı).
+  **Bugünkü golden: dört yer, yedi geçiş** — `:root` varsayılanları (3), `.tap-button` ana kuralı
+  (2: zemin ve etiket), `.tap-button` iç gölgesi (1) ve açılış sayfasının `.lp .plaque .p-brand`
+  kuralı (1; bir değişken değil). WL-6'nın şablonları ve stil dosyası eklenmiş bir derlemede aynı
+  dört yer ölçüldü. Seçim `--brand-` değil `brand`: daha geniştir; token yardımcılarının adlarını
+  (`.bg-brand`, `.shadow-brand-edge`) ve yazıldığı hâliyle okumada kaçışlı tire yazımlarını da sayar.
+  Bedeli: değişken olmayan bir yer (`.p-brand`) listede durur, ve `app.css`'e gelecekte giren her
+  `brand` sözcüğü (ör. yeni bir `.brand-mark` sınıfı) bu testi kırmızıya çevirir; o düzenleme
+  golden'ı da günceller. Pencere *önceki `}` → sonraki `}`*; bugünkü dört yerde bu, kuralın seçicisi
+  ve bloğudur (ölçüldü). Derinlik ölçülen D1 biçimini ayırır (D1 kırmızı; derinliği çıkarılmış pinle
+  yeşil — D1GU3). Bu listeye giren ya da listedeki kuralı değiştiren bir değişiklik (WL-8'in şeridi
+  ilki) listeyi aynı düzenlemede günceller; o düzenleme incelemenin konusudur.
+- **CDP (bir kez, pin değil):** gerçek `pages.Tap` render'ı `tapCSP` ile, `httpx.NewRouter` +
+  `NewBrandTheme` üstünden, 390×844 DSF 3. Markasız: `background-color` **`rgb(31, 92, 65)`**,
+  `color` **`rgb(255, 253, 244)`**, `box-shadow` `none`; tappa-green teması aynı; `FFC72C` →
+  `rgb(255, 199, 44)` / `rgb(21, 34, 25)` / `rgb(21, 34, 25) 0px 0px 0px 2px inset`; `DA291C` → paper
+  metin, kenar yok; 404 alan `808080` ve `1f5c41` bağlantıları → varsayılan. Düğmenin ekran
+  görüntüsü WL-5 öncesiyle: markasız 0, tappa-green teması 0 piksel farkı; kenarı accent rengiyle
+  çizen varyant 36 piksel (köşeler). Yöntem ve tablo: m10-platform.md → WL-5 kartı.
+- **Sınırlar:** (1) Madde 11, 13 ve 14'ün testleri derlenmiş `app.css` ister: CI onu `make
+  check`'ten önce derler (`.github/workflows/ci.yml` → *"Build the stylesheet (make css)"*), yani
+  orada koşarlar; `make css` koşulmamış yerel bir koşuda SKIP ederler ve SKIP bir geçiş değildir.
+  Madde 12 ve 15'in testleri `app.css` istemez. (2) Rota/gövde defterinden test yalnız madde 8'i
+  tutar. Kaydın özeti yerinde yeniden yazılırsa yeşildir (ölçüldü, V5); silinen kaydı ve 15 rengin
+  dışında kalıp 15'ini aynı bırakan bir değişikliği görmez. (3) `none` yalnız Chrome 154'te
+  ölçüldü. (4) Slot testi derlenmiş `app.css`'in kurallarını okur — öğeleri, kaskadı, opaklığı ve
+  başka stil dosyalarını değil; bir slot sınıfının slot olmayan bir öğeye yazılmasını görmez. (5) Tek bir
+  sayfanın şablonuna yazılan tema bağlantısını DB'siz koşan testlerin hiçbiri kırmızıya çevirmedi
+  (ölçüldü, L2); ortak `<head>`'e yazılanı `TestScreens_ReferenceOnlyOurOwnAssets` ve
+  `TestTour_PointsOnlyAtItsOwnFlow` kırmızıya çevirdi (ölçüldü, L1) — tek sayfalık bağlantının ağı
+  WL-9'un golden'ı. (6) Madde 1'in testi imzayı ve alanları görür; `serve`'ün ulaşabileceği paket
+  düzeyi durum ya da fonksiyonu görmez (ölçüldü, A9) — kod incelemesinin konusu. (7) Madde 10'un
+  testi sözdizimseldir (`main.go` AST'si): rota bir değişken ya da yardımcı üzerinden verilirse
+  yanlış-kırmızı verir, `run()` dışındaki bir `NewRouter`'ı okumaz. (8) Rota bütçesiz (`/static`
+  gibi): istek başına `ParseAccent` + `Check` + en çok 82 baytlık yazma; ADR bütçe istemiyor.
+  (9) Golden bir yerin metnini ve derinliğini tutar, dosyadaki sırasını değil: aynı derinlikte, aynı
+  metinle yeri değişen bir kural aynı yeri verir (ölçüldü: kenar kuralı `:root`'tan hemen sonraya
+  taşındı, O1, yeşil; denetçinin F3 ve E16'sı yeşil). Derlenmiş dosyada iki kez yazılan bir kural
+  kırmızıdır (O2; denetçinin F1/F2'si). Golden de sınır 4'teki gibi derlenmiş `app.css`'ten başka
+  stil dosyası okumaz. 4. turun sınır 9'u (kenarın ikinci bir iç gölge okuması) kapandı: X5a madde
+  14'ü kırmızıya çevirir. (10) **Kalıtım yolu:** accent'i `brand` sözcüğü ve değişken okuması
+  olmadan taşıyan bir kural — bir slot öğesinden `inherit` ya da `currentColor` ile — hiçbir testte
+  görünmez. Ölçüldü: `input.css`'e `.tap-button::after{content:"";position:fixed;inset:0;
+  background-color:inherit}` (E5) yazılınca WL-5'in brand testleri ve handler'daki WL-5 kümesi yeşil
+  kaldı; denetçi bunun accent'i bütün ekrana çizdiğini ölçtü. Bu yol kazara da yazılır: konumlanmış
+  bir sözde öğe + `background: inherit` + ebeveynde unutulmuş `position: relative`. Denetçinin D9'u
+  — dalga efekti olarak `.tap-button::after{content:"";position:absolute;inset:0;background:inherit;
+  opacity:.15;pointer-events:none}`, `.tap-button`'da `position:relative` yok — Chrome'da ilk
+  taşıyıcı bloğu (500×757) kapladı ve accent'i docket'in üstüne boyadı (paper `rgb(255, 253, 244)` →
+  `rgb(249, 221, 211)`); brand testlerinin 9'u, handler testlerinin 22'si ve DB'siz 2601 testin
+  tamamı yeşil kaldı. Kod incelemesinin konusu (WL-10); WL-9 tema bağlantısını tap ekranına
+  eklediğinde bu yol bir tenant accent'iyle etkinleşir.
+  (11) Yorum ya da dizge içindeki süslü parantez kaçış değildir ve nötrleştirilmez; bilerek
+  dengelenmiş bir yazım golden'ı yeşil bırakır (ölçüldü: F4'ün kaçışlar yerine korunmuş yorumlardaki
+  `}` ve `{` ile kurulmuş hâli, F5 — WL-5'in brand testlerinin hepsi yeşil). Tehdit modelinin
+  dışında: kod incelemesi.
+- **Güvenlik ve doğruluk iddiası (WL-5, üç parçalı).**
+  - **Tehdit modeli:** Bu pinler `input.css` / `tailwind.config.js`'e kazara giren sapmaya karşıdır; tarayıcıyı atlatmak için bilerek yazılmış bir stil dosyası kod incelemesinin konusudur.
+  - **PART I — her madde: test · beslenen girdiler · assert · o assert'i kıran mutasyon**
+    (bu listede her assert'in yanında onu kıran mutasyon yazılı; *öncül* diye işaretli olanlar
+    testin kendi girdilerini doğrular, ürün hakkında iddia değildir):
+    1. `TestBrandTheme_TheConstructorTakesNothing` · `NewBrandTheme` ve `BrandTheme`'in derlenmiş
+       tipi (`reflect`) · parametre sayısı 0 (H1); tek sonuç `*BrandTheme` (H20); alan sayısı 0
+       (H2, H3).
+    2. `TestBrandTheme_AnswersOnlyACanonicalLegibleHex` · `httpx.NewRouter(nil, nil,
+       NewBrandTheme())`; kabul tarafı: §3 tablosunun beş kabul rengi, siyah, beyaz ve
+       `brand.Check`'in kararının değiştiği üç yerin kabul tarafındaki komşuları; ret tarafı: iki
+       red bandı komşusu, `808080`, `E0457B` ve testte listelenen yazım, uzantı, yol ve sorgu
+       biçimleri · her kabul yolu 200 (H21) ve başlık haritası tam olarak üç başlık (H9, H10, H29,
+       A3c);
+       200 gövdesi gramere uyar, accent kendi baytları, etiket `Fill.Text`, kenar `Fill.Edge`'e göre
+       ve `ThemeCSS(c)`'ye eşit (H12, H16, H17); her ret yolu bağlanmamış bir yolun 404'üyle durum,
+       başlık haritası ve gövdede aynı (H4, H5, H6, H7, H8, H11, A3b); kabul edilenler iki `Edge` dalını
+       kapsar (öncül).
+    3. `TestBrandTheme_OnTheWireOnlyNetHTTPAddsHeaders` · gerçek sunucu; cevap bayt bayt, Go'nun
+       HTTP ayrıştırıcısı olmadan okunur (`Connection` başlığı taşımayan bir keep-alive istek, sonra
+       aynı bağlantıda ikinci bir istek); `1F5C41`, bağlanmamış bir yol ve `808080` · 200'ün durum
+       satırı `HTTP/1.1 200 OK` ve sıralanmış başlık satırları tam olarak `Cache-Control`,
+       `Content-Length` (gövde uzunluğu), `Content-Type`, `Date`, `X-Content-Type-Options` —
+       üçü değerleriyle (H9, H10, H29, H22, H23, A3c); gövdesi `ThemeCSS`'inki; ret, bağlanmamış
+       yolun 404'üyle durum satırı, başlık satırları (`Date` değeri hariç) ve gövdede aynı (H11,
+       A3b); üç cevabın her birinden sonra bağlantı tam olarak ikinci isteğin 404'ünü — yönlendiricinin
+       kendi bağlantısında verdiği 404 ile, `Date` değeri hariç, bayt bayt aynı — taşır ve kapanır
+       (X8b, W1b).
+    4. `TestBrandTheme_HeadIsGetWithoutTheBody` · madde 3'ün bayt bayt okuması, `FFC72C` ve
+       `808080` · HEAD'in durum satırı ve sıralanmış başlık satırları GET'inkiyle, `Date` değeri
+       hariç, aynı (H13, H22); HEAD'in başlık bloğundan sonra bağlantı tam olarak ikinci isteğin
+       404'ünü taşır ve kapanır (X8, W2h, A3b, A3c); GET'in gövdesinden sonra da (X8b, W1b).
+    5. `TestBrandTheme_OtherMethodsAre405` · iki yol; POST, PUT, PATCH, DELETE, OPTIONS, TRACE,
+       CONNECT ve PROPFIND · yedi standart metot 405 ve `Allow` tam olarak GET, HEAD (A19);
+       PROPFIND 405 (H25).
+    6. `TestBrandTheme_TheOperatorHostGateLeavesItToTheCustomerHost` · `Config{OperatorHost}` ile
+       kurulan yönlendirici, üç yol, müşteri ve operatör host'u · müşteri host'unda cevap ayarsız
+       yönlendiricininkiyle durum, başlık haritası ve gövdede aynı (H26); operatör host'unda
+       kapının bağlanmamış yol 404'üyle aynı (G1); müşteri host'unda `1F5C41` 200 ve üç başlık
+       (öncül).
+    7. `TestBrandTheme_TheAnswerDoesNotDependOnWhoAsks` · iki yol × dört istek giydirmesi
+       (çalışan çerezi, panel çerezi, `Authorization`, yönlendirme + fetch başlıkları) · her
+       giydirmenin cevabı çıplak isteğinkiyle durum, başlık haritası ve gövdede aynı (H14); çıplak
+       cevapta `Set-Cookie` ve `Vary` yok (H27).
+    8. `TestBrandTheme_ANewBodyNeedsANewRoute` · `chi.Walk` ile `Mount`'un kaydettiği yollar; 15
+       rengin (§3 tablosunun yedisi, siyah, beyaz, madde 2'deki üç yerin iki yanındaki komşular)
+       `ThemeCSS` cevaplarının sha256 özeti; `brandThemeShipped` defteri · `Mount` tek yol kaydeder
+       (M8b); defterde hiçbir rota ve hiçbir özet iki kez geçmez (V3); bugünkü özet defterde tam
+       bir kez geçer (V1, V2, T1); o kaydın rotası `Mount`'un kaydettiği yoldur (M8, V4).
+    9. `TestTheme_TheBodyIsTheGatesFill` · §3 tablosunun yedi rengi, siyahtan başlayan her 4099.
+       renk, 256 gri · `Check`'in reddettiğine gövde yok (H4); kabul edilene gramer ve kanonik
+       ondalık (H17, H18), kendi baytları, `OnColor`'ın etiketi (H16), `Edge`'e göre ink ya da
+       `none` (H15, M3); tablo satırlarında kapı tablonun etiket ve kenarıyla uyuşur (H28); tarama
+       parçalarının ikisi de kapının dört cevabına rastlar (öncül).
+    10. `TestBrandThemeWiring_RunMountsTheThemeRoute` · `main.go`'nun AST'si · `run()`'da tam bir
+        `NewRouter` çağrısı (W2); onun argümanlarında tam bir argümansız `handler.NewBrandTheme()`
+        (W1).
+    11. `TestCompiledCSS_BrandVariablesOnlyInTheirSlots` · derlenmiş `app.css` (yoksa SKIP) ·
+        ayrıştırıcının okuduğu kurallar için (kaçışlar çözülmüş, yorumlar düşürülmüş)
+        `themeSlotViolations` boş: `--brand-` bildirimlerin dışında — seçicide, at-rule başlığında,
+        yorumda, blok içi yorumda — geçmez (K1, K2, E3); okuduğu bir tanım üst düzey `:root`'ta (C5,
+        B1c3, E2) ve okuduğu tanımlarda her değişken bir kez (B1c5, C12, E3); bir okuma
+        `themeSlots`'taki bir seçicide (C2, C3, C4, S2, C11, ST, X9a, X9b, X9c, X9d, E1, E1b, E1c, F4)
+        ve `themeVariableProperty`'nin adlandırdığı özellikte (C1, C10); kenarı okuyan gölge `inset`
+        (A16); `themeSlots`'taki her (seçici, değişken) çifti okunur (C9). Bu madde, ayrıştırıcının
+        okuduğu kurallar için, *nerede ve hangi özellikte okunur* ve *nerede, kaç kez tanımlanır*
+        sorularıdır.
+    12. `TestThemeSlotScan_RefusesEachShapeItExistsFor` · sevk edilen şekil, tarama listesindeki
+        bozuk şekiller, varsayılan listesindeki bozuk şekiller, iki üst düzey `:root` · tarama
+        tablosunun değişken adları `ThemeCSS`'in bildirdikleriyle eşit (H30); sevk edilen şekil iki
+        okumadan da geçer (öncül); tarama listesindeki her şekil kendi ihlal metniyle raporlanır
+        (U1, U2, U5); varsayılan listesindeki her şekil tappa-green teması olarak okunmaz (U3);
+        iki üst düzey `:root` reddedilir (U4).
+    13. `TestCompiledCSS_RootDefaultsAreTheTappaGreenTheme` · derlenmiş `app.css` (yoksa SKIP;
+        adlar çözülerek eşlenir) · ayrıştırıcının bulduğu, `--brand-*` tanımlayan üst düzey `:root`
+        kuralı tam bir tane (C12, B1c5, E2, E3); accent ve etiket paletin tappa-green ve paper'ı (C6,
+        C7); `Edge(tappa-green)` false ve kenar `none` (C8); kuralın yazıldığı metin (yorumsuz seçici
+        + `{`…`}`) `ThemeCSS(tappa-green)`'e bayt bayt eşit (X10). Bu madde *varsayılanlar ne*
+        sorusudur; tanımların kaç kez ve nerede olduğu madde 11'in kural 2'sindedir.
+    14. `TestCompiledCSS_BrandNamesOccurOnlyInTheGolden` · derlenmiş `app.css`'in tamamı (yoksa
+        SKIP); süslü paranteze çözülen kaçışlar U+FFFD'ye çevrildikten sonra yazıldığı hâliyle ve
+        kalan kaçışları çözülmüş hâliyle · iki okumada da `brand`'in harf büyüklüğünden bağımsız her
+        geçişinin (derinlik, küçük harfe indirilmiş çevreleyen metin) çoklu kümesi
+        `themeBrandGolden`'a birebir eşit (B1c3,
+        B1c5, K1, K2, X5a, ST, X9a, X9b, X9c, X9d, X11, C1, C2, C3, C5, C6, C10, C11, C12, S2, A16,
+        X10, D1, O2, E1, E1b, E1c, E2, F4, GD, GD2). Bu madde yerlerin metnini ve derinliğini tutar,
+        anlamını değil; tanımın yeri madde 11 ve 13'ündür (E3 bu maddeyi yeşil bırakır). Pencerede
+        yalnız harf büyüklüğü değişen bir kural bu maddeyi yeşil bırakır (denetçinin CASE1'i).
+    15. `TestThemeBrandScan_RefusesEachShapeItExistsFor` · golden'ın kendi kuralları art arda
+        (sevk edilen şekil), testte listelenen on üç şekil, birer satırı eksik golden · golden bir
+        yeri iki kez listelemez (öncül); golden kenar kuralını taşır (öncül; satırını silen GD2 bu
+        testi de kırmızıya çevirdi); sevk edilen şekil fark vermez (öncül); listedeki her şekil
+        fark verir (GU1, GU2, GU3, GU4, GU5, GU6); sevk edilen şekil birer satırı eksik golden'a
+        karşı fark verir (GU4).
+  - **PART II — pinler ve yakaladıkları:** PART I'in parantez içindeki mutasyonları — her biri
+    kartın tablosunda, kırmızıya döndüğü testle ve koşulduğu `-run` kapsamıyla.
+  - **PART III:** Listede olmayan her biçim kod incelemesinin konusu — tamlık iddiası yok.
+
 ### 5. Co-brand (K3, K-2b)
 
 Logo olan yüzeyde küçük bir **"taptime · punchless"** satırı kalır (tap, sonuç, panel). Tap
@@ -602,11 +814,18 @@ WL-9'da koyar (*Karar verilmedi*).
 ### 6. Tenant slotu olmayan öğeler — sayılı liste
 
 Aşağıdakiler marka girdisinden **bağımsızdır**; tenant'ın accent'i ya da logosu bunlara
-uygulanmaz (→ **WL-5**: *"tenant accent'i yalnız marka slotlarında"* testi — adı WL-5'te
-konur; mutasyon: `.stamp`'e accent zemini → kırmızı):
+uygulanmaz (→ **WL-5**: *"tenant accent'i yalnız marka slotlarında"* testi — WL-5'te adı
+`TestCompiledCSS_BrandVariablesOnlyInTheirSlots` oldu ve derlenmiş `app.css`'in kurallarını okur;
+mutasyon: `.stamp`'e accent zemini → kırmızı, ölçüldü — §4 WL-5 notu):
 
 1. Beş kaşe damgası (APPROVED / FLAGGED / REJECTED / IGNORED-RECORDED / TRAINING) ve
-   durum→renk eşlemesi (`input.css:180-189`; `TestCompiledCSS_StampWordIsInk`).
+   durum→renk eşlemesi (`input.css` → `.stamp` ve beş `.stamp--*` kuralı).
+   `TestCompiledCSS_StampWordIsInk` bunun bir yarısını okur: derlenmiş `app.css`'in iç içe süslü
+   parantez taşımayan kurallarından seçici metni `\.stamp\b` desenine uyanların her `color:` değeri
+   ink'i (`rgb(21 34 25`) içerir, böyle en az bir bildirim var, ve beş değiştirici (`approved`,
+   `flagged`, `rejected`, `ignored`, `training`) bir `.stamp--…` seçicisinde geçer;
+   `background-color` ve `border-color`'a bakmaz. Accent'in damgaya girmemesini
+   `TestCompiledCSS_BrandVariablesOnlyInTheirSlots` okur (§4 WL-5 notu, PART I madde 11).
 2. tomato = hata / yıkıcı eylem; saffron = FLAGGED / geç kalma; `Notice` bileşeni.
 3. Docket, perforasyon, `.docket-label`.
 4. Panelin birincil ve yıkıcı düğmeleri, sekme vurgusu, form odak halkaları (tappa-green /
@@ -693,22 +912,25 @@ Her iddia üç parçadır. PART I'deki "ölçülecek" davranışların testleri 
 kendi görevlerinde konur, burada **tarifleriyle** yazılır.
 
 **İddia A — tema rotası tenant verisi taşımaz ve veritabanına gitmez.**
-- **PART I:** bugün rota yok (ölçüldü). WL-5'te ölçülecek: rota kurucusunun imzası bir havuz
+- **PART I:** bugün rota yok (ölçüldü). WL-5'te, sürülen vakalarda ölçüldü (§4 WL-5 notu): rota kurucusunun imzası bir havuz
   ya da sorgu arayüzü almaz; 200 gövdesi `^:root\{--brand-accent:\d{1,3} \d{1,3} \d{1,3};
   --brand-on-accent:…;--brand-edge:…\}$` biçimine birebir uyar; kanonik olmayan, küçük harfli,
   geçersiz ve red bandındaki hex 404 alır.
-- **PART II:** WL-5'in kurucu imzası testi (havuz parametresi yok) · gövde biçimi testi ·
-  200/404 matris testi. Yakaladıkları: kurucuya havuz eklenmesi; gövdeye üç özellik dışında bir
+- **PART II:** WL-5'in kurucu imzası testi (havuz parametresi yok;
+  `TestBrandTheme_TheConstructorTakesNothing`) · gövde biçimi testi
+  (`TestTheme_TheBodyIsTheGatesFill`) · 200/404 matris testi
+  (`TestBrandTheme_AnswersOnlyACanonicalLegibleHex`). Yakaladıkları: kurucuya havuz eklenmesi; gövdeye üç özellik dışında bir
   şey girmesi; `Check`'ten geçmeyen bir hex'in 200 alması.
 - **PART III:** Listede olmayan her biçim kod incelemesinin konusu — tamlık iddiası yok.
 
 **İddia B — marka ayarlamamış tenant'ın sayfası bugünküyle aynıdır.**
 - **PART I:** WL-9'da ölçülecek: marka satırı olmayan bir tenant'ın tap ve sonuç ekranının HTML
-  gövdesi ve CSP başlığı, değişiklik öncesi golden dosyayla bayt-aynı. WL-5'te bir kez ölçülecek
-  (CDP, pin değil): tap düğmesinin computed zemini `rgb(31, 92, 65)`, metni `rgb(255, 253, 244)`.
+  gövdesi ve CSP başlığı, değişiklik öncesi golden dosyayla bayt-aynı. WL-5'te bir kez ölçüldü
+  (CDP, pin değil; §4 WL-5 notu): tap düğmesinin computed zemini `rgb(31, 92, 65)`, metni `rgb(255, 253, 244)`.
 - **PART II:** WL-9'un golden testi — **WL-9 kartında adıyla ve sayısıyla listelenen**
   fikstürler (tap ekranı; sonuç ekranının hüküm × yön × iş türü × practice varyantlarından
-  seçilenler; aktivasyon ailesi), her biri HTML + CSP · WL-5'in derlenmiş-CSS testi —
+  seçilenler; aktivasyon ailesi), her biri HTML + CSP · WL-5'in derlenmiş-CSS testi
+  (`TestCompiledCSS_RootDefaultsAreTheTappaGreenTheme`) —
   `app.css`'teki `:root` bildiriminde `--brand-accent` ve `--brand-on-accent` varsayılanlarını
   okur (`TestCompiledCSS_StampWordIsInk` emsali; `app.css` yoksa o da atlanır). Yakaladıkları:
   markasız tenant'ın **golden fikstürü olan** render'larının HTML'inde ya da CSP'sinde bir bayt
@@ -716,14 +938,19 @@ kendi görevlerinde konur, burada **tarifleriyle** yazılır.
   Fikstürü olmayan bir varyant bu testin dışındadır.
 - **PART III:** Listede olmayan her biçim kod incelemesinin konusu — tamlık iddiası yok.
 
-**İddia C — accent §6'nın sayılı öğelerine uygulanmaz.**
-- **PART I:** WL-5'te ölçülecek: derlenmiş CSS'te marka değişkenlerini okuyan kurallar §2'nin
-  slot sınıflarındadır ve §3'ün özellik kuralına uyar (`--brand-accent` yalnız
-  `background-color`'da); `.stamp`'e accent zemini eklemek ve `.tap-button`'ın `color`'ına
-  `--brand-accent` yazmak (iki mutasyon) testi kırmızıya çevirir.
+**İddia C — derlenmiş `app.css`'te marka değişkenlerini okuyan kurallar §2'nin slot sınıflarında ve
+§3'ün özelliğindedir; `brand` sözcüğünün geçtiği yerler bir listeye eşittir.** (WL-5'in 6. turunda
+PART I'e daraltıldı; ilk başlık *"accent §6'nın sayılı öğelerine uygulanmaz"* idi. Accent'i değişken
+okumadan, kalıtımla taşıyan bir kural bu iddianın dışındadır — §4 WL-5 notu, sınır 10.)
+- **PART I:** WL-5'te ölçüldü (§4 WL-5 notu, madde 11 ve 14): ayrıştırıcının okuduğu kurallarda
+  marka değişkenlerini okuyanlar §2'nin slot sınıflarındadır ve §3'ün özellik kuralına uyar
+  (`--brand-accent` yalnız `background-color`'da); `brand`'in derlenmiş dosyada geçtiği yerler
+  `themeBrandGolden`'a eşittir; `.stamp`'e accent zemini eklemek ve `.tap-button`'ın `color`'ına
+  `--brand-accent` yazmak (iki mutasyon) iki testi de kırmızıya çevirir.
   WL-9'da ölçülecek: markalı (accent'li) bir tenant'ın sonuç sayfasında tema `<link>`'i 0 —
   D-C'nin *"sonuç ekranında accent yok"* yarısı.
-- **PART II:** WL-5'in slot testi (adı WL-5'te) · `TestCompiledCSS_StampWordIsInk` — derlenmiş
+- **PART II:** WL-5'in slot testi (`TestCompiledCSS_BrandVariablesOnlyInTheirSlots`) · geçiş golden'ı
+  (`TestCompiledCSS_BrandNamesOccurOnlyInTheGolden`) · `TestCompiledCSS_StampWordIsInk` — derlenmiş
   `app.css`'te `.stamp` seçicili kuralların `color:` bildirimlerini okur; zemin ve kenar
   renklerine bilerek bakmaz; `app.css` derlenmemişse atlanır (skip) ·
   `TestBrand_NoOffPaletteColourInAnySource` — şablonlarda ve `input.css`'te varsayılan Tailwind

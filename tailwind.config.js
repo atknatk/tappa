@@ -44,6 +44,17 @@ module.exports = {
         'perf-bottom': 'radial-gradient(circle at 6px 100%, transparent 5px, #FFFDF4 5px)',
       },
       backgroundSize: { perf: '12px 8px' },
+      // THE TENANT ACCENT'S THREE TOKENS (ADR 0023 §3-§4, M10 WL-5), each declared
+      // under the property ADR 0023 §3 allows it: the accent is a fill, its label a
+      // text colour, its edge a box shadow. Measured (WL-5 card, S1): text-brand,
+      // border-brand, bg-on-brand, ring-brand-edge and text-brand-edge in a template
+      // compile to no rule. They live outside `colors` on purpose: that block is the
+      // nine-token palette, and the Go copy's test reads it line by line as hexes.
+      // The values are the variables input.css defaults on :root and the theme route
+      // (GET /brand/theme/{HEX}.css) overrides.
+      backgroundColor: { brand: 'rgb(var(--brand-accent) / <alpha-value>)' },
+      textColor: { 'on-brand': 'rgb(var(--brand-on-accent) / <alpha-value>)' },
+      boxShadowColor: { 'brand-edge': 'rgb(var(--brand-edge) / <alpha-value>)' },
     },
   },
   plugins: [],

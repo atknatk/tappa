@@ -85,6 +85,39 @@
 }
 
 @layer base {
+  /* --- the tenant accent's three variables: the UNBRANDED defaults (M10 WL-5) ---
+     ADR 0023 §4. A page that carries a tenant's accent is to link the theme
+     stylesheet GET /brand/theme/{HEX}.css AFTER this file; its body is one :root
+     rule with these same three properties, so it wins by order. A page without that
+     link keeps the values below.
+
+     THE DEFAULTS ARE THE THEME OF tappa-green: compiled, this rule is byte for byte
+     the body that route answers for 1F5C41 (internal/brand ThemeCSS) — accent
+     tappa-green, label paper, and no edge.
+     TestCompiledCSS_RootDefaultsAreTheTappaGreenTheme compares the compiled rule
+     with that body, and its accent and label with the Go palette's tappa-green and
+     paper.
+
+     --brand-edge is the word none, not a colour, when there is no edge. Today (WL-5)
+     the rule that reads it is .tap-button's inset box shadow below; with none that
+     declaration is invalid at computed-value time and box-shadow computes to none,
+     what the button had before these variables existed (measured in Chrome 154,
+     WL-5 card). ThemeCSS's comment has the reason.
+
+     TestCompiledCSS_BrandVariablesOnlyInTheirSlots reads the compiled app.css (no
+     other stylesheet) and reports a read of these variables by a selector outside
+     its slot table (today .tap-button) or in a property other than the one each is
+     allowed (accent: background colour, label: text colour, edge: inset box
+     shadow). The Tailwind tokens are declared per property in tailwind.config.js
+     for the same reason. TestCompiledCSS_BrandNamesOccurOnlyInTheGolden compares
+     every place the word brand occurs in the compiled app.css with a list in
+     internal/brand/theme_test.go: a new slot, or any edit to the rules on that
+     list, updates the list in the same change. */
+  :root {
+    --brand-accent: 31 92 65;
+    --brand-on-accent: 255 253 244;
+    --brand-edge: none;
+  }
   html {
     @apply bg-porcelain text-ink font-display antialiased;
   }
@@ -188,11 +221,18 @@
   .stamp--ignored  { --stamp-tone: theme('colors.line'); @apply border-line bg-line/10 rotate-2; }
   .stamp--training { --stamp-tone: theme('colors.ink'); @apply border-ink border-dashed bg-ink/10 rotate-3; }
 
-  /* --- tap screen: a target big enough for a gloved or wet finger --- */
+  /* --- tap screen: a target big enough for a gloved or wet finger ---
+     THE FILL, THE LABEL AND THE EDGE ARE THE TENANT ACCENT'S SLOT (ADR 0023 §2-§4,
+     M10 WL-5). Unbranded they resolve to the :root defaults in the base layer,
+     tappa-green and paper with no edge; Chrome 154 computed this button's
+     background, colour and box shadow as before WL-5 (measured once on the tap
+     screen, WL-5 card). The edge is an INSET shadow because ADR 0023 §3 requires a
+     mechanism that does not change the button's box. */
   .tap-button {
-    @apply w-full min-h-16 rounded-sm bg-tappa-green text-paper font-display
+    @apply w-full min-h-16 rounded-sm bg-brand text-on-brand font-display
            text-xl tracking-tight active:scale-[0.99] transition-transform
            focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2;
+    box-shadow: inset 0 0 0 2px theme('boxShadowColor.brand-edge');
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -282,9 +322,12 @@
      TestPanelScreens_FormControlsCarryATouchTargetClass covers the markup side,
      which the anchor/button scan never reached.
 
-     ⚠️ THE STYLESHEET HALF SKIPS IN CI. app.css is gitignored and `make check`
-     does not build it, so that half runs locally only — an inherited debt, not a
-     property of these rules. The markup half runs everywhere. */
+     ⚠️ THE STYLESHEET HALF NEEDS A COMPILED app.css. The file is gitignored; CI
+     builds it before `make check` (.github/workflows/ci.yml, "Build the stylesheet
+     (make css)"), so that half runs there, and it SKIPs in a local run without a
+     prior `make css`. The markup half needs no stylesheet. (Until M10 WL-5 this
+     comment said the stylesheet half skips in CI; that stopped being true when the
+     CI step was added on 2026-08-15.) */
   .filter-bar {
     @apply flex flex-wrap items-end gap-3 border border-line bg-paper px-4 py-3;
   }
@@ -869,6 +912,8 @@ html:has(.lp) { scroll-behavior: smooth; }
 /* the scene: plaque + docket */
 .lp .scene { position: relative; min-height: 430px; display: flex; align-items: center; justify-content: center; }
 .lp .plaque { width: 230px; background: var(--ink); border-radius: 20px; padding: 28px 22px 22px; color: #F2F5EF; text-align: center; box-shadow: 0 24px 60px rgba(15,25,18,.35); position: relative; z-index: 2; }
+/* The next rule is one of the four sites on the occurrence golden (themeBrandGolden,
+   internal/brand/theme_test.go): an edit to it edits that list in the same change. */
 .lp .plaque .p-brand { font-family: var(--mono); font-size: 10px; letter-spacing: 3px; color: #9DB3A5; margin-bottom: 18px; }
 .lp .plaque .p-ring { width: 84px; height: 84px; margin: 0 auto 18px; border-radius: 50%; border: 2px dashed #6FA88B; display: flex; align-items: center; justify-content: center; position: relative; }
 .lp .plaque .p-ring svg { width: 36px; height: 36px; }

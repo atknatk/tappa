@@ -403,11 +403,11 @@ func TestPanelScreens_EveryPressTargetCarriesATouchTargetClass(t *testing.T) {
 // TestPanelScreens_TouchTargetClassesReserve44px is the second half: the classes
 // the markup test accepts must actually reserve 44px.
 //
-// ⚠️ IT SKIPS IN CI AND THAT IS A KNOWN, INHERITED DEBT, not a property of this
-// test. web/static/css/app.css is gitignored and `make check` does not run
-// `make css`, so the two TestCompiledCSS_* tests have always skipped there too. A
-// SKIP IS NOT A PASS. What holds in CI is the markup half above; what holds
-// locally, after `make css`, is both.
+// ⚠️ IT NEEDS A COMPILED web/static/css/app.css, which is gitignored. CI builds it
+// before `make check` (.github/workflows/ci.yml, "Build the stylesheet (make css)",
+// added 2026-08-15), so this test runs there; a local run without a prior
+// `make css` SKIPs it, and a SKIP IS NOT A PASS. (Until M10 WL-5 this comment said it
+// skips in CI.)
 func TestPanelScreens_TouchTargetClassesReserve44px(t *testing.T) {
 	raw, err := fs.ReadFile(web.Static(), "css/app.css")
 	if err != nil {
@@ -1000,12 +1000,15 @@ var (
 // until 2026-08-04 and no test noticed. A number in a comment is a claim; this
 // file's whole discipline is that a claim nobody re-derives is a claim that rots.
 //
-// 🔴 IT READS SOURCES, NOT THE COMPILED STYLESHEET, AND THAT IS THE POINT. The two
-// TestCompiledCSS_* tests and TestPanelScreens_TouchTargetClassesReserve44px read
-// web/static/css/app.css, which is gitignored and which `make check` never builds
-// — so all three ALWAYS SKIP IN CI, and a skip is not a pass. input.css and
-// tailwind.config.js are both committed, so this test runs everywhere, every time.
-// It is the only accessibility net in the product that CI actually executes.
+// 🔴 IT READS SOURCES, NOT THE COMPILED STYLESHEET. The two TestCompiledCSS_* tests
+// in result_test.go and TestPanelScreens_TouchTargetClassesReserve44px read
+// web/static/css/app.css, which is gitignored: CI builds it before `make check`
+// (.github/workflows/ci.yml, "Build the stylesheet (make css)"), and a local run
+// without a prior `make css` SKIPs them -- a skip is not a pass. input.css and
+// tailwind.config.js are both committed, so this test needs no build step. (Until
+// M10 WL-5 this paragraph said those three always skip in CI and that this was the
+// only accessibility net CI executes; the CI step added on 2026-08-15 made both
+// sentences false.)
 
 // docketLabelGrounds are the light surfaces a .docket-label can be rendered on.
 //
@@ -1056,7 +1059,11 @@ var docketLabelGrounds = map[string]string{
 // surface colour forces a decision (is a label allowed here?) instead of silently
 // creating a ground nobody checked.
 var nonSurfaceGrounds = map[string]string{
-	"tappa-green": "the primary button and .tap-button; their label is text-paper, and no docket-label is ever placed on one",
+	// M10 WL-5: .tap-button no longer names this token -- its fill is the tenant
+	// accent's slot, tappa-green by default through --brand-accent (input.css) -- so
+	// the reason no longer names it. The sign-in brand panel's logo dot was missing
+	// from the reason before WL-5 and is added with it.
+	"tappa-green": "the primary button (its label is text-paper) and the round logo dot on the sign-in screen's ink brand panel; today (M10 WL-5) no docket-label is placed on either, which no test pins",
 	// ⚠️ ink IS NO LONGER "inside .stamp only", and the reason is corrected here
 	// rather than left saying something that stopped being true — the same
 	// correction tomato and line already carry below. The 2026-09-14 sign-in
@@ -1676,10 +1683,11 @@ const maxHandWrittenLine = 400
 // somebody filing the next library somewhere new, which a pattern listing filenames
 // cannot do.
 //
-// ⚠️ IT DOES NOT PROVE app.css IS FREE OF DEAD RULES. The compiled stylesheet is
-// gitignored and `make check` never builds it, so no test in this product reads it
-// outside a local run. What this closes is the CAUSE that was actually measured;
-// the general dead-rule question is recorded as a limit in docs/plan/m6-dashboard.md.
+// ⚠️ IT DOES NOT PROVE app.css IS FREE OF DEAD RULES. It reads the content globs,
+// not the compiled stylesheet. What this closes is the CAUSE that was actually
+// measured; the general dead-rule question is recorded as a limit in
+// docs/plan/m6-dashboard.md. (Until M10 WL-5 this paragraph said `make check` never
+// builds app.css; CI has built it since 2026-08-15.)
 func TestTailwind_ScansNoMinifiedSource(t *testing.T) {
 	root := filepath.Join("..", "..")
 	globs := tailwindContentGlobs(t)

@@ -5,7 +5,9 @@
 // The accent colour (accent.go): its canonical spelling, WCAG 2.x relative
 // luminance and contrast, the gate (Check), the label colour drawn on the accent
 // (OnColor), the ink edge it needs on the porcelain page (Edge) and the nearest
-// colour that passes when it does not (Suggest).
+// colour that passes when it does not (Suggest). The body of the theme stylesheet
+// that carries an accepted accent to a page (theme.go, ThemeCSS) is built from
+// Check's answer, ADR 0023 §4.
 //
 // WHY A PACKAGE OF ITS OWN. ADR 0023 §3 asks the same accent gate on two sides,
 // the pattern CLAUDE.md §5 names for internal/netx: the side that STORES an accent
