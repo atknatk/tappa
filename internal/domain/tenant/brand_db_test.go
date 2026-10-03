@@ -832,8 +832,8 @@ func TestBrandDB_RefusalsBeforeTheDatabaseWriteNothing(t *testing.T) {
 // the five actors, so the answer does not say which of them asked. The round on two
 // tenants WITHOUT a brand row pins where the gate runs: before EnsureTenantBrand, whose
 // INSERT would otherwise meet the composite foreign key first for an id that is not an
-// admin of the tenant (23503, a different answer from the manager's) and would create
-// the row for the others.
+// admin of the tenant; that answer is SQLSTATE 23503, a different one from the
+// manager's, and the INSERT would create the row for the others.
 func TestBrandDB_OnlyAnActiveOwnerOfThisTenantMayWrite(t *testing.T) {
 	f := newBrandFixture(t)
 
