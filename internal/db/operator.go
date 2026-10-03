@@ -32,7 +32,10 @@ import (
 // PostgreSQL actually checks.
 //
 // NOTHING HERE CALLS set_config: no tenant context is produced or consumed (ADR 0021
-// §3.6), and none of the five op_* born in 00026 touches a tenant table.
+// §3.6), and none of the five op_* born in 00026 touches a tenant table. The two reads
+// 00029 adds (OP-11) read tenant tables WITHOUT a tenant context: they cross the
+// boundary as their BYPASSRLS owner, the one crossing ADR 0021 permits, and their
+// statements name the tenant themselves.
 //
 // THREE RULES THE OP-7 CARD NAMED, KEPT HERE BECAUSE THE SQL NOW LIVES HERE
 // (m10-platform.md, "Kabullere bağlananlar — OP-7" (b), (c), (d)):
@@ -144,6 +147,14 @@ WHERE id = $1 AND status = 'active'`
 FROM public.op_read_legal_versions($1, $2, $3, $4)`
 
 	publishLegalSQL = `SELECT public.op_publish_legal($1, $2, $3)`
+
+	// OP-11 (migration 00029). Phase one of both is beginOperatorReadSQL above.
+	readTenantsSQL = `SELECT tenant_id, tenant_name, created_at, plan
+FROM public.op_read_tenants($1, $2, $3, $4, $5)`
+
+	readTenantDetailSQL = `SELECT tenant_id, tenant_name, created_at, plan, business_type,
+       location_count, active_employee_count, active_plaque_count, active_admin_count
+FROM public.op_read_tenant_detail($1, $2, $3)`
 )
 
 // maxOperatorEmailBytes is 00026's CHECK on platform_admins.email (254). A longer
@@ -391,10 +402,192 @@ func readLegalVersions(ctx context.Context, c OperatorConn, sessionHash string, 
 	return out, nil
 }
 
+// ------------------------------------------------------------------ OP-11 --
+//
+// The tenant list (with its search) and one tenant's overview on the operator's surface
+// (migration 00029; ADR 0021 §2 v, §3.2). Two exported two-phase reads in LegalVersions'
+// shape -- free functions over an OperatorConn; *OperatorDB does not delegate to them
+// yet (TestOperatorDB_IsTheStoreAndNothingMore derives its method set from the
+// consumers' interfaces, and the consumer, the tenant screens, is OP-11 phase B).
+//
+// These are the first operator reads of TENANT data, and inside the two functions no
+// row level security applies (their owner is BYPASSRLS): what keeps one tenant's rows
+// out of another's overview is the tenant filter each statement of
+// op_read_tenant_detail carries, and what limits the list is its fixed column list and
+// the 200-row ceiling (00029 section 4).
+
+// The read kinds of 00029 -- members of operator_read_tickets_kind_check.
+const (
+	tenantsReadKind      = "tenants"
+	tenantDetailReadKind = "tenant_detail"
+)
+
+// MaxTenantSearchRunes is the tenant list's bound on the search term, in characters
+// (00029: the longest thing the term can usefully be is an e-mail address). TenantList
+// refuses a longer term itself, before a round trip; op_begin_read refuses it again
+// (SQLSTATE 22023) for a caller that is not TenantList. The two copies are held equal
+// by TestTenantList_TheSearchTermMeetsTheSameBoundInGoAndSQL.
+const MaxTenantSearchRunes = 254
+
+// ErrTenantSearchRefused is TenantList's answer for a search term it will not send: one
+// PostgreSQL cannot hold as text at all (invalid UTF-8, a NUL character -- it would fail
+// inside the statement with an encoding error, 22021 or 22P05, not with op_begin_read's
+// own refusal, and no name or address can contain it) or one longer than
+// MaxTenantSearchRunes characters. It is decided here, without a round trip. For the long
+// term the reason is the server's statement log: where statements are logged with their
+// parameters (the development database, log_statement = all -- the OP-11 A security
+// review measured it there) sending the term writes it to that log in full, only for
+// op_begin_read to refuse it. (By the same mechanism a term within the bound reaches that
+// log in development -- an inference from that measurement, the log was not read here;
+// production logs no statements -- ADR 0021, "Karar verilmedi".) No row is written
+// (nothing was read).
+var ErrTenantSearchRefused = errors.New("db: tenant search term refused")
+
+// ErrNoSuchTenant is TenantDetail's answer when the id names no tenant. It is NOT a
+// refusal: phase one has committed the 'read' row naming that id before phase two looked
+// (00029 section 4.2), so the trail already holds the attempt.
+var ErrNoSuchTenant = errors.New("db: no such tenant")
+
+// TenantListQuery is a page of the tenant list. Search is matched against a tenant's
+// name (case-insensitive substring, metacharacter-free), an admin's address (exact,
+// case-insensitive; only for a term containing '@') and the tenant's id (a whole
+// hyphenated uuid); "" lists every tenant. The read's audit row records the term's class
+// -- none, text, address or id -- never the term (00029 section 3). Number from 1, Size
+// 1..200; Search at most MaxTenantSearchRunes characters. The database refuses any other
+// page (op_begin_read, 22023) before writing a row.
+type TenantListQuery struct {
+	Search string
+	Number int32
+	Size   int32
+}
+
+// TenantSummary is one row of op_read_tenants -- a fixed column list (ADR 0021 §2 ii):
+// what tells one tenant from another in a list, nothing more. Newest first.
+type TenantSummary struct {
+	ID        uuid.UUID
+	Name      string
+	CreatedAt time.Time
+	Plan      string
+}
+
+// TenantOverview is op_read_tenant_detail's row: the tenant's identity for the banner of
+// its screens (ADR 0020 §9) and four counts of what is live -- not the tenant's data.
+// tenants.structure is deliberately not in it: nothing reads that column after sign-up
+// (internal/handler's TestSignupStructure_DecidesNothingAfterSignUp), the operator's
+// overview included.
+type TenantOverview struct {
+	ID           uuid.UUID
+	Name         string
+	CreatedAt    time.Time
+	Plan         string
+	BusinessType string
+	// Locations counts every location; the other three count rows whose status is
+	// 'active' (employees, plaques, panel accounts).
+	Locations       int64
+	ActiveEmployees int64
+	ActivePlaques   int64
+	ActiveAdmins    int64
+}
+
+// tenantsParams and tenantDetailParams are the two kinds' parameter objects as
+// op_begin_read takes them: exactly these keys (00029). The database rebuilds the object
+// it hashes from the typed values, so this spelling does not bind the ticket.
+type tenantsParams struct {
+	PageNumber int32  `json:"page_number"`
+	PageSize   int32  `json:"page_size"`
+	Query      string `json:"query"`
+}
+
+type tenantDetailParams struct {
+	TenantID uuid.UUID `json:"tenant_id"`
+}
+
+// storableText reports whether PostgreSQL can hold s as text: valid UTF-8 (the server
+// encoding) and no NUL. storableAddress's rule, for a search term.
+func storableText(s string) bool {
+	return utf8.ValidString(s) && !strings.ContainsRune(s, 0)
+}
+
+// TenantList is the two-phase read of the tenant list: op_begin_read writes the read's
+// 'read' row -- the page and the term's class, never the term -- and a ticket bound to the
+// session and to every parameter; op_read_tenants consumes it and returns the page. As
+// with LegalVersions, the two phases are two transactions only on a pool; on a pgx.Tx the
+// database refuses phase two and this returns ErrOperatorRefused. A dead session is
+// ErrOperatorRefused; a term it will not send is ErrTenantSearchRefused; a page outside
+// the database's bounds is a database error carrying 22023.
+func TenantList(ctx context.Context, c OperatorConn, sessionHash string, q TenantListQuery) ([]TenantSummary, error) {
+	if !storableText(q.Search) || utf8.RuneCountInString(q.Search) > MaxTenantSearchRunes {
+		return nil, ErrTenantSearchRefused
+	}
+	params, err := json.Marshal(tenantsParams{PageNumber: q.Number, PageSize: q.Size, Query: q.Search})
+	if err != nil {
+		return nil, fmt.Errorf("db: tenant list: encode the page: %w", err)
+	}
+	t, err := beginOperatorRead(ctx, c, sessionHash, tenantsReadKind, params)
+	if err != nil {
+		return nil, err
+	}
+	return readTenants(ctx, c, sessionHash, t, q)
+}
+
+// TenantDetail is the two-phase read of one tenant's overview. An id that names no
+// tenant is ErrNoSuchTenant -- after the 'read' row naming it has committed. A dead
+// session is ErrOperatorRefused (and so is a pgx.Tx, as for TenantList).
+func TenantDetail(ctx context.Context, c OperatorConn, sessionHash string, tenantID uuid.UUID) (TenantOverview, error) {
+	params, err := json.Marshal(tenantDetailParams{TenantID: tenantID})
+	if err != nil {
+		return TenantOverview{}, fmt.Errorf("db: tenant detail: encode the parameters: %w", err)
+	}
+	t, err := beginOperatorRead(ctx, c, sessionHash, tenantDetailReadKind, params)
+	if err != nil {
+		return TenantOverview{}, err
+	}
+	return readTenantDetail(ctx, c, sessionHash, t, tenantID)
+}
+
+// readTenants is op_read_tenants: consume the ticket (bound to the session, the kind,
+// the term and the page), then the page of tenants.
+func readTenants(ctx context.Context, c OperatorConn, sessionHash string, t readTicket, q TenantListQuery) ([]TenantSummary, error) {
+	rows, err := c.Query(ctx, readTenantsSQL, sessionHash, t.reveal(), q.Search, q.Number, q.Size)
+	if err != nil {
+		return nil, operatorErr("read tenants", err)
+	}
+	defer rows.Close()
+	var out []TenantSummary
+	for rows.Next() {
+		var s TenantSummary
+		if err := rows.Scan(&s.ID, &s.Name, &s.CreatedAt, &s.Plan); err != nil {
+			return nil, operatorErr("read tenants", err)
+		}
+		out = append(out, s)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, operatorErr("read tenants", err)
+	}
+	return out, nil
+}
+
+// readTenantDetail is op_read_tenant_detail: consume the ticket (bound to the session,
+// the kind and the tenant id), then the overview -- one row, or none for an unknown id.
+func readTenantDetail(ctx context.Context, c OperatorConn, sessionHash string, t readTicket, tenantID uuid.UUID) (TenantOverview, error) {
+	var o TenantOverview
+	err := c.QueryRow(ctx, readTenantDetailSQL, sessionHash, t.reveal(), tenantID).Scan(
+		&o.ID, &o.Name, &o.CreatedAt, &o.Plan, &o.BusinessType,
+		&o.Locations, &o.ActiveEmployees, &o.ActivePlaques, &o.ActiveAdmins)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return TenantOverview{}, ErrNoSuchTenant
+	}
+	if err != nil {
+		return TenantOverview{}, operatorErr("read tenant detail", err)
+	}
+	return o, nil
+}
+
 // readTicket is op_begin_read's answer: the RAW read ticket, which CLAUDE.md §7 and ADR
 // 0021 §3.5 put on the never-log list (raw or hashed). The type is unexported and no
-// exported function takes or returns it -- LegalVersions hands it from phase one to
-// phase two -- and it is the SealedSecret pattern all the same: the five redacting
+// exported function takes or returns it -- LegalVersions, TenantList and TenantDetail
+// each hand it from their phase one to their phase two -- and it is the SealedSecret
+// pattern all the same: the five redacting
 // methods, and the value behind a *string (SealedSecret's comment says why a *string and
 // not a byte slice). Through fmt's verbs, slog and encoding/json it prints the
 // placeholder (TestReadTicket_PrintsOnlyThePlaceholder's matrix).

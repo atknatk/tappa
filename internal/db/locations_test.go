@@ -345,20 +345,30 @@ func TestRLS_LocationWiFiSSID_IsolatedAcrossTenants(t *testing.T) {
 // also EXERCISED. And the attacl check is what makes the reasoning transferable --
 // on employee_invites, where 00009 does grant column-level SELECT to
 // tappa_resolver, this same conclusion would NOT follow.
+//
+// 00029 (M10 OP-11) put the FIRST column-level ACL on locations: tappa_opdefiner may
+// SELECT tenant_id (the operator overview counts a tenant's locations). 00010's
+// reasoning is about tappa_app's TABLE-level grant reaching columns added later, so the
+// check is now precise rather than a count of every role's entries: no column-level
+// entry FOR tappa_app, and every other column-level entry is one named below -- a new
+// one still turns this red until it is named, with its reason.
 func TestLocations_WiFiSSIDNeedsNoNewGrantOrPolicy(t *testing.T) {
 	d := appDB(t)
 	assertAppRole(t, d)
 
 	var appSelect, appInsert, appUpdate, resolverSelect bool
-	var colACLs, policies int
+	var colACLs string
+	var policies int
 	var rowSec, forceSec bool
 	if err := d.pool.QueryRow(context.Background(), `
 		SELECT has_column_privilege('tappa_app', 'locations', 'wifi_ssid', 'SELECT'),
 		       has_column_privilege('tappa_app', 'locations', 'wifi_ssid', 'INSERT'),
 		       has_column_privilege('tappa_app', 'locations', 'wifi_ssid', 'UPDATE'),
 		       has_column_privilege('tappa_resolver', 'locations', 'wifi_ssid', 'SELECT'),
-		       (SELECT count(*) FROM pg_attribute
-		         WHERE attrelid = 'locations'::regclass AND attnum > 0 AND attacl IS NOT NULL),
+		       (SELECT coalesce(string_agg(a.attname || ':' || pg_get_userbyid(x.grantee) || ':' || x.privilege_type,
+		                                   ',' ORDER BY a.attnum, x.grantee, x.privilege_type), '')
+		          FROM pg_attribute a, aclexplode(a.attacl) AS x
+		         WHERE a.attrelid = 'locations'::regclass AND a.attnum > 0 AND a.attacl IS NOT NULL),
 		       (SELECT count(*) FROM pg_policies WHERE tablename = 'locations'),
 		       (SELECT relrowsecurity FROM pg_class WHERE oid = 'locations'::regclass),
 		       (SELECT relforcerowsecurity FROM pg_class WHERE oid = 'locations'::regclass)`,
@@ -373,8 +383,10 @@ func TestLocations_WiFiSSIDNeedsNoNewGrantOrPolicy(t *testing.T) {
 	if resolverSelect {
 		t.Error("tappa_resolver can read locations.wifi_ssid; the bounded-bypass role has no business on this table (ADR 0002 madde 7)")
 	}
-	if colACLs != 0 {
-		t.Errorf("locations has %d column-level ACL(s); 00010's reasoning ('the table grant covers new columns') only holds while this is 0", colACLs)
+	// The one named column-level entry: 00029's (tappa_opdefiner, SELECT, tenant_id).
+	if colACLs != "tenant_id:tappa_opdefiner:SELECT" {
+		t.Errorf("locations' column-level ACL entries are (%s), want only 00029's (tenant_id:tappa_opdefiner:SELECT); "+
+			"00010's reasoning ('the table grant covers new columns') holds only while tappa_app has none and every other is named", colACLs)
 	}
 	if policies != 1 || !rowSec || !forceSec {
 		t.Errorf("locations RLS state: policies=%d rowsecurity=%v force=%v, want 1/true/true (00010 must not have disturbed 00002)",

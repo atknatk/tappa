@@ -61,8 +61,9 @@
 
 -- BeginOperatorRead -- phase one of the two-phase reads (ADR 0021 §2 v 1): resolves
 -- the session, writes the read's 'read' audit row and a ticket bound to it, returns the
--- RAW ticket. $2 is a read kind (00027's closed set: 'legal_versions'), $3 that kind's
--- parameter object. The caller COMMITS before phase two.
+-- RAW ticket. $2 is a read kind (00027's closed set: 'legal_versions'; 00029 added
+-- 'tenants' and 'tenant_detail'), $3 that kind's parameter object. The caller COMMITS
+-- before phase two.
 --   SELECT public.op_begin_read($1, $2, $3::jsonb);
 
 -- ReadLegalVersions -- phase two of the version list: $2 is the RAW ticket, $3/$4 the
@@ -76,3 +77,27 @@
 -- PublishLegal -- one new version and its 'legal_publish' audit row, one statement
 -- (ADR 0020 §7). published_by is the session's operator; there is no actor argument.
 --   SELECT public.op_publish_legal($1, $2, $3);
+
+-- ============================================================================
+-- OP-11 (migration 00029): the tenant list and one tenant's overview. Phase one of
+-- both is BeginOperatorRead above, with kind 'tenants' ({page_number, page_size,
+-- query}) or 'tenant_detail' ({tenant_id}). Inside both functions no row level
+-- security applies (their owner is BYPASSRLS); the detail's statements name the tenant
+-- themselves, and the list is bounded by its four columns and the 200-row ceiling.
+
+-- ReadTenants -- phase two of the list: $2 is the RAW ticket, $3 the search term ('' for
+-- every tenant), $4/$5 the page -- all bound in the ticket. The term matches a name as a
+-- case-insensitive substring (strpos, no LIKE metacharacters), an admin's address
+-- exactly (citext) -- only when the term contains '@' --, or the tenant's id when the
+-- whole term is a hyphenated uuid; those two gates are the predicates by which phase
+-- one writes the read's class ('address', 'id') into its audit row. Newest tenant first,
+-- capped at 200 rows.
+--   SELECT tenant_id, tenant_name, created_at, plan
+--   FROM public.op_read_tenants($1, $2, $3, $4, $5);
+
+-- ReadTenantDetail -- phase two of the overview: $2 is the RAW ticket, $3 the tenant id
+-- bound in it. Zero rows for an id that names no tenant; otherwise the identity and four
+-- counts (locations; active employees, plaques and panel accounts).
+--   SELECT tenant_id, tenant_name, created_at, plan, business_type,
+--          location_count, active_employee_count, active_plaque_count, active_admin_count
+--   FROM public.op_read_tenant_detail($1, $2, $3);

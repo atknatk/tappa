@@ -563,8 +563,12 @@ func TestOperator00027_DownGivesTheWriteBackAndUpTakesItAgain(t *testing.T) {
 	if app, fns, def, validated := state(tx); app || fns != 3 || def != "clock_timestamp()" || !validated {
 		t.Fatalf("PREMISE: before Down app INSERT=%v functions=%d default=%s validated=%v", app, fns, def, validated)
 	}
-	if got := ticketKind(tx); got != kindClosed {
-		t.Fatalf("PREMISE: before Down the ticket kind CHECK is %s, want %s", got, kindClosed)
+	// The database is at HEAD, not at 00027: a later migration widens the closed set
+	// (00029 added 'tenants' and 'tenant_detail'), so the premise is "a closed set that
+	// holds legal_versions" -- what 00027's Down must turn back into the shape. After
+	// 00027's Up runs again (below) the set is exactly 00027's.
+	if got := ticketKind(tx); !strings.Contains(got, "'legal_versions'::text") || strings.Contains(got, "~") {
+		t.Fatalf("PREMISE: before Down the ticket kind CHECK is %s, want a closed set holding 'legal_versions'", got)
 	}
 
 	// Branch 1: a 'read' row exists -> the restored CHECK is NOT VALID.
@@ -969,7 +973,9 @@ func TestOpRead_EveryReadConsumesItsTicketAsTheADRSays(t *testing.T) {
 		{"the commit condition as created_xact <> pg_current_xact_id()", "pg_xact_status(k.created_xact) = 'committed'", "k.created_xact <> pg_current_xact_id()", "COMMITTED"},
 		{"the commit condition negated into an IF", "\n       AND pg_xact_status(k.created_xact) = 'committed';", ";\n    IF pg_xact_status(k.created_xact) <> 'committed' THEN RAISE EXCEPTION 'x'; END IF;", "COMMITTED"},
 		{"the kind condition removed", "\n       AND k.kind = 'legal_versions'", "", "this read kind"},
-		{"a kind outside the closed set", "k.kind = 'legal_versions'", "k.kind = 'tenant_detail'", "does not hold"},
+		// (Until 00029 this control used 'tenant_detail'; 00029 made that a member of the
+		// set, so the control now names a kind no migration adds.)
+		{"a kind outside the closed set", "k.kind = 'legal_versions'", "k.kind = 'zz_not_a_read_kind'", "does not hold"},
 		{"the consumed condition removed", "\n       AND k.consumed_at IS NULL", "", "not yet consumed"},
 		{"the expiry condition removed", "\n       AND k.expires_at > clock_timestamp()", "", "not expired"},
 		{"the expiry on a frozen clock", "k.expires_at > clock_timestamp()", "k.expires_at > now()", "not expired"},
@@ -1210,7 +1216,10 @@ func TestOpBeginRead_RefusesDeadSessionsAndBadParameters(t *testing.T) {
 		kind   any
 		params any
 	}{
-		{"another kind", "tenants", opLegalParams(1, 10)},
+		// A kind outside the closed set. (Until 00029 this case sent 'tenants'; 00029
+		// made that a kind, and its refusal of these parameters is a missing 'query' key
+		// -- a different branch -- so the case now names a kind no migration adds.)
+		{"another kind", "zz_not_a_read_kind", opLegalParams(1, 10)},
 		{"NULL kind", nil, opLegalParams(1, 10)},
 		{"NULL parameters", legalVersionsReadKind, nil},
 		{"an array", legalVersionsReadKind, `[1, 10]`},

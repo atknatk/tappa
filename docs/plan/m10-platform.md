@@ -5448,6 +5448,328 @@ yasal belge içindi, M9-08'in kapsamı §4.5'i aşan beş işlev.
 | OP-18 | Operatör encode'u + tenant tarafı encode'u kapatma (ADR 0017 md.12 kapanır; A-2, A-7) | L | Android uygulaması operatör host'una giriş yapar; önce operatörün hedef tenant'a yazabilmesi |
 | OP-19 | Süreç ayrımı (aynı imaj, ayrı Deployment) | — | K9: pilot sonrası yeniden bak |
 
+> **Kart düzeltmesi (2026-10-03, OP-11 A fazı — veri katmanı — uygulaması sırasında).**
+> Yazıldı: `db/migrations/00029_read_tenants_from_the_operator.sql` (iki `op_read_*`, değiştirilen
+> `op_begin_read`, genişletilen bilet tür kümesi, tanımlayıcının tenant tablolarındaki ilk sütun
+> yetkileri), `internal/db/operator.go` (dışa açık `TenantList`, `TenantDetail`, `TenantListQuery`,
+> `TenantSummary`, `TenantOverview`, `MaxTenantSearchRunes`, `ErrTenantSearchRefused`,
+> `ErrNoSuchTenant`; paket içi `readTenants`, `readTenantDetail`, `storableText`), `db/queries/operator.sql`
+> (iki ifade belgeye eklendi), `internal/db/operatortenants_test.go` (yeni, 17 test), ADR 0021
+> "OP-11 uygulama notu" + Durum satırı. Güncellenen pinler (zayıflatılmadı, gerekçe md. 9):
+> `TestOperator00026_PrivilegeMatrix`, `TestOperatorSQL_OnlyBoundParameters`,
+> `TestOperatorAccessors_TheCustomerRoleCannotUseThem`, `TestOperator00027_DownGivesTheWriteBackAndUpTakesItAgain`,
+> `TestOpRead_EveryReadConsumesItsTicketAsTheADRSays`, `TestOpBeginRead_RefusesDeadSessionsAndBadParameters`,
+> `TestLocations_WiFiSSIDNeedsNoNewGrantOrPolicy`; yalnız yorum: `internal/db/encodedat_test.go`
+> (tags ACL'inin tarifine 00029'un SELECT'i eklendi). Ekran, wiring, `*OperatorDB` yöntemleri B
+> fazıdır (md. 14). Ölçüm: dev Postgres 17.10, `tappa_owner`; kimlik `SET LOCAL SESSION AUTHORIZATION`
+> ile. Taban `e0f53b6` (dal `m10-a1` ucu).
+>
+> 1. **Ad sapması (ADR 0021 §2 v 6 kazanır):** satırdaki `op_list_tenants` / `op_tenant_detail`
+>    yerine `op_read_tenants(p_session, p_ticket, p_query, p_page_number, p_page_size)` ve
+>    `op_read_tenant_detail(p_session, p_ticket, p_tenant_id uuid)` — `op_read_` öneki ve ikinci
+>    argümanda ham bilet (OP-4 bloğu "OP-11" maddesi de böyle okur).
+> 2. **"Her çağrı tam 1 operatör audit satırı" = kabul edilen her okuma `op_begin_read`'de tam 1
+>    `read` satırı** (ADR 0021 Sonuçlar). Okuma aşaması satır yazmaz (ölçüldü: delta 0); iki tür
+>    için ayrı ayrı gerçek commit'le sayıldı (`TestOpReadTenants_TwoPhaseLifecycle`: 1 / 1).
+> 3. **`op_begin_read` yerinde değiştirildi (`CREATE OR REPLACE`):** türler `legal_versions`
+>    (değişmedi), `tenants` (`{page_number, page_size, query}`, `query` ≤ 254 karakter JSON dizgisi,
+>    `''` = bütün tenant'lar), `tenant_detail` (`{tenant_id}`, tireli uuid, iki harf büyüklüğü;
+>    hash'lenen metin uuid değerinden). 22023 kolları 00027'ninkiyle aynı mesaj; yeni yirmi ret
+>    kolu testte. 🔴 **Birinci aşama tenant'ın varlığına bakmaz** (reddi iz bırakmaz → geri alınan
+>    bir çağrıya varlık kehaneti olurdu, B14'ün okuma hâli); varlık ikinci aşamada, `read` satırı
+>    commit edildikten sonra: bilinmeyen id = 0 satır (`ErrNoSuchTenant`), 28000/22023'ten ayrı.
+> 4. **Arama terimi audit'e GİRMEZ (karar, GDPR/§7):** ne ham ne hash'i — terim bir yönetici
+>    adresi olabilir (kişisel veri) ve append-only tabloya yazılırsa silinemez; ADR 0021 §2 v 1
+>    zaten öyle diyor. Audit satırı: `target_scope = 'tenants'`, sayfa, `detail = {"search": <sınıf>}`
+>    (§2 v 1'in "arama yapıldı" olgusu; anahtar kümesi birebir test edilir; 1. turda `bool`idi,
+>    sınıf 2. turun kararı — md. 18). Sonuç sayısı audit'e
+>    giremez (satır sorgudan ÖNCE commit edilir). Ayrıntı: `target_scope = 'tenant_detail'`,
+>    `target_tenant_id`, sayfa yok, `detail = {}`. Bilet satırı da `target_tenant_id` taşır
+>    (bilgi amaçlı; bağlayan hash).
+> 5. **Arama anlamı:** (a) ad — `strpos(lower(name), lower(term)) > 0`, LIKE DEĞİL: `%`, `_`, `\`
+>    metakarakter değil, kaçış gereksiz (kaçış ikinci bir temsildir — silmek kaçmaktan güçlü);
+>    (b) yönetici adresi — BİREBİR, citext `OPERATOR(public.=)`; alt dizi değil, çünkü alt dizi
+>    kişisel verinin taranmasıdır (`@gmail` her tenant'ı listelerdi), birebir bir aramadır; her
+>    durum/rol; adres döndürülmez; `employees.email` aranmaz; değerle bağlı (`t.id IN (…)`);
+>    (c) id — terim tam tireli uuid ise. Sıra `created_at DESC, id DESC` (tenant'ın değiştiremediği
+>    anahtar — `tappa_app` `name`'i günceller, `created_at`'i güncelleyemez, 00024).
+> 6. **Sütunlar:** liste `tenant_id, tenant_name, created_at, plan`; ayrıntı aynı dört +
+>    `business_type, location_count, active_employee_count, active_plaque_count,
+>    active_admin_count`. VAT numarası, fiyat, saat dilimi, VAT kararı, adres, ad-soyad YOK
+>    (OP-12/13/16 kendi okumalarını yapar). Ayrıntının tenant verisine dokunan her sorgusu (satır
+>    ve dört sayım) tenant'ı adlandırır.
+>    🔴 **`structure` ölçülerek çıkarıldı:** ilk tasarım onu da döndürüyordu; tam koşu
+>    `internal/handler`'ın `TestSignupStructure_DecidesNothingAfterSignUp`'ını kırmızıya çevirdi
+>    (`internal/db/operator.go`'daki `o.Structure` seçicisi). O test M7-03 B'nin kararını tutar:
+>    `tenants.structure`'ı kayıttan sonra hiçbir şey okumaz, sihirbazın metni buna dayanır.
+>    Testi gevşetmek yerine (izin listesine `internal/db/operator.go` eklemek) sütun genel
+>    bakıştan, tanımlayıcının yetkisinden ve Go tipinden çıkarıldı — operatörün bir tenant'ı
+>    tanıması için gerekmiyor; genel bakış onun ilk okuyucusu olmuyor.
+> 7. **Yetkiler (tenant tablolarında İLK):** `tappa_opdefiner` SELECT — `tenants` (id, name,
+>    created_at, plan, business_type), `locations` (tenant_id), `employees` (tenant_id,
+>    status), `tags` (tenant_id, status), `admin_users` (tenant_id, email, status). Katalogdan
+>    türetilen sır biçimli dokuz tenant-tablosu sütununun (yedi "asla" + `tenant_branding.logo`,
+>    `logo_sha256`) hiçbirinde SELECT yok; tanımlayıcı olarak `aes_key_ref`/`app_key_ref`/
+>    `password_hash` okuma denemesi 42501. `tappa_app`: yeni yetki yok; `tappa_operator`: iki yeni
+>    fonksiyonda EXECUTE, hiçbir tablo yetkisi yok (2. tur, B3 metin düzeltmesi).
+> 8. **Down:** iki okuma düşer; `op_begin_read` 00027'nin gövdesine BİREBİR döner (test 00027
+>    dosyasıyla `prosrc` karşılaştırır); tanımlayıcının beş tablodaki bütün yetkileri alınır;
+>    bilet tür CHECK'i 00027'nin kümesine — iki türden bilet varsa `NOT VALID` (canlıda kullanıldıktan
+>    sonra bu dal). **Ölçüm (dev, `pg_dump --schema-only`, `\restrict` ayıklanarak):** v28 tabanı
+>    `f0dc03e20de806e8` (iki döküm birebir). `structure` çıkarılan dosya (önce Down ile v28'e
+>    inildi, dosya değişti, Up): Up → `9f792800b4010c64`; Down → `f0dc03e20de806e8` birebir;
+>    Up → `9f792800b4010c64` birebir. Mutasyonlardan sonra yalnız fonksiyon gövdesi DIŞI yorumlar
+>    değişti; SON dosya (sha256 öneki `a2ee6d44c71dac3f`) yine Down → Up ile uygulandı:
+>    `f0dc03e20de806e8` / `9f792800b4010c64`, ikisi de birebir. (İlk hâlin — `structure`'lı
+>    — döngüsü de aynı biçimde birebirdi: `16d6c67d6468687b`.) Her goose adımı ayrı komut, sürüm her
+>    adımda ölçüldü.
+> 9. **Başka görevlerin testlerinde güncellemeler — neden:** (a) `TestOperatorSQL_OnlyBoundParameters`
+>    10 → 12 sabit ve çağrı; (b) `TestOperatorAccessors_TheCustomerRoleCannotUseThem` iki erişimci
+>    (42501); (c) `TestOperator00026_PrivilegeMatrix` izin listesine beş tablo, tam sütun listesiyle
+>    (OP-5 notunun kuralı; "asla" sütunları listeye giremez — test kendisi denetler); (d)
+>    `TestOperator00027_DownGivesTheWriteBackAndUpTakesItAgain`'in öncülü — veritabanı HEAD'de, küme
+>    00029 ile genişledi; öncül artık "`legal_versions`'ı tutan kapalı küme" (00027'nin Up'ı yeniden
+>    koşunca tam 00027 kümesi hâlâ ölçülür); (e) `TestOpRead_EveryReadConsumesItsTicketAsTheADRSays`
+>    ve `TestOpBeginRead_RefusesDeadSessionsAndBadParameters` "küme dışı tür" kolları
+>    `tenant_detail`/`tenants` kullanıyordu — 00029 onları üye yaptı (ikincisi sessizce BAŞKA bir
+>    dalı — eksik `query` anahtarını — sınar hâle gelirdi); artık hiçbir migration'ın eklemediği bir
+>    ad; (f) `TestLocations_WiFiSSIDNeedsNoNewGrantOrPolicy` `locations`'taki sütun ACL'i
+>    **sayısını** (0) istiyordu — 00029'un `tenant_id` SELECT'i onu 1 yaptı (ölçüldü, kırmızı).
+>    00010'un gerekçesi `tappa_app`'in tablo düzeyi yetkisi hakkında; test artık girişleri okur:
+>    `tappa_app` için sıfır, öteki her giriş ADIYLA (bugün yalnız `tenant_id:tappa_opdefiner:SELECT`)
+>    — yeni bir giriş yine kırmızı (L1 mutasyonu). Düşen garanti: "hiçbir rol `locations`'ta sütun
+>    ACL'i tutmaz" — 00029 bilinçli olarak tuttuğu için düşmesi gerekiyordu, yerine adlı liste geldi.
+> 10. **Kalıcı test verisi (ölçüldü — son `-race` koşusu öncesi/sonrası, `internal/db` + `cmd/tappa` +
+>     `cmd/opadmin`; dev'deki mutlak sayılar mutasyon koşularıyla birikti, yazılan şey FARK):**
+>     `tenants`/`tenant_detail` `read` satırları +2/+2 (20/18 → 22/20), "op10 live" hesapları +4
+>     (ikisi bu dosyanın, ikisi OP-10'un), aktif hesap 0 → 0, iptal edilmemiş oturum 0 → 0, bilet 0 → 0,
+>     adında `op11` geçen tenant 0 → 0, `legal_documents` +0. Bu dosyanın koşu başına bıraktığı: 2 hesap (`disabled`), referanslı
+>     oturumları (`revoked`), 5 `read` satırı (`TestOpReadTenants_TwoPhaseLifecycle` tür başına bir:
+>     2; `TestTenantList_OnThePoolTheTwoPhasesAreTwoTransactions` 3 — iki `tenants`, bir
+>     `tenant_detail`; 1. turda 4'tü, 2. turun B5 okuması beşinciyi ekledi — md. 21). Hiçbir tenant
+>     satırı commit edilmez: fikstürler geri alınan transaction'larda.
+> 11. **Kilit:** yeni testler kilidi yalnız `opTx`/`opLiveFixture` üzerinden, fonksiyon başına bir kez,
+>     alt test/döngü dışında alır — `TestTablesLock_IsTakenOncePerTestTree` PASS ("70 tests reach it").
+> 12. **Maliyet — gözlem** (dev, 2026-10-03, `SELECT count(*) FROM tenants` = 586 538, test kalıntısı):
+>     liste ilk sayfa 88–196 ms (paralel sıralı tarama + top-N), 200'lük 2000. sayfa 580 ms (diske
+>     taşan sıralama); ayrıntı en büyük dev kadrolu tenant'ta sıcak 10–13 ms, soğuk 1,4 sn. İndeks yok.
+> 13. **Mutasyonlar** (her biri KIRMIZI; migration mutasyonları `goose down` → mutant → `up-by-one`
+>     → test → `down` → pristine → `up-by-one`, her adımda sürüm ölçüldü ve sonda şema dökümü
+>     `9f792800b4010c64`'e eşit; dosya mutasyonları kopyadan geri yazıldı ve `cmp` ile doğrulandı;
+>     yedekler `scratchpad/op11a/orig/`). **Tablonun tamamı SON dosyalarda koşuldu** (`structure`
+>     çıkarıldıktan sonra mutantlar yeniden üretildi ve 36'sı yeniden koşuldu):
+>
+>     | # | Mutasyon | Kırmızı test (ilk hata) |
+>     |---|---|---|
+>     | M1 | liste süresi `now()` | `TestOpReadTenants_ExpiryIsTheWallClock` + kaynak pini + `TestOperator00026_NoFrozenClock` + imza testi |
+>     | M2 | ayrıntıda commit koşulu yok | `TestOpReadTenants_ATicketFromThisTransactionIsRefused` (A1) + kaynak pini |
+>     | M3 | listede tür koşulu yok | `TestOpReadTenants_AForgedTicketIsRefused` (tür karışıklığı) + kaynak pini |
+>     | M4 | lokasyon sayısı tenant filtresiz | `TestOpReadTenantDetail_CountsOnlyTheNamedTenantsRows` (bütün tenant'ların lokasyonları / 2) |
+>     | M5 | çalışan sayısı statüsüz | aynı (5 / 3) |
+>     | M24 | plaket sayısı statüsüz | aynı (4 / 2) |
+>     | M26 | yönetici sayısı tenant filtresiz | aynı (bütün tenant'ların aktif yöneticileri / 2) |
+>     | M27 | ayrıntı satırı tenant filtresiz (`LIMIT 1`) | aynı (başka tenant'ın adı) |
+>     | M6 | adres eşleşmesi bağsız `EXISTS` | `TestOpReadTenants_SearchMatchesNameAddressAndIDOnly` (A'nın adresi her tenant'ı döndürdü) |
+>     | M8 | adres `email::text = term` (harfe duyarlı) | aynı (büyük harfli adres boş) |
+>     | M29 | id eşleşmesi yok | aynı (D'nin id'si boş) |
+>     | M7 | ad eşleşmesi kaçışsız `ILIKE '%' || term || '%'` | `TestOpReadTenants_LikeMetacharactersAreLiteral` (`%` "plain"i döndürdü) |
+>     | M9 | gövdede 200 tavanı yok | `TestOpReadTenants_PagesAreCappedAndOrdered` (210 / 200) |
+>     | M10 | id eşitlik kırıcısı ASC | aynı (ikizler ters) |
+>     | M25 | OFFSET bir sayfa ileride | aynı (10 / 200) |
+>     | M11 | audit `detail`'i terimi taşır | `TestOpBeginRead_TheTenantKindsBindEveryParameterAndAuditNoTerm` |
+>     | M13 | ayrıntı id'si biçim denetimsiz cast | aynı (`22P02`; süslü parantezli uuid kabul) |
+>     | M28 | ayrıntının audit satırı tenant'sız | aynı |
+>     | M12 | terim sınırı 255 | `TestTenantList_TheSearchTermMeetsTheSameBoundInGoAndSQL` |
+>     | M14 | terim İKİ hash'ten de çıkarıldı | `TestOpReadTenants_TwoPhaseLifecycle` (başka terim okundu) + birinci aşama testi (hash) |
+>     | M15 | `op_read_tenants` EXECUTE `tappa_app`'e | imza testi + `TestOperator00029_TheDefinerReadsNamedColumnsAndNoSecret` + `TestOperator00026_ForwardCatalogPin` |
+>     | M16 | tanımlayıcıya `tags.aes_key_ref` SELECT | `…TheDefinerReadsNamedColumnsAndNoSecret` + `TestOperator00026_PrivilegeMatrix` |
+>     | M17 | `tappa_operator`'a `tenants` (id, name) SELECT | aynı ikisi |
+>     | M18 | ayrıntı `search_path = pg_catalog, public` | imza testi + ileri pin (gölge testi YEŞİL kaldı — gövde `public.`-nitelenmiş; bulgu değil, sınır L10) |
+>     | M19 | liste oturumu touch'sız çözer | `TestOpReadTenants_RefusesEveryDeadSession` + kaynak pini |
+>     | D1 | Down `tenants` yetkisini bırakır | `TestOperator00029_DownRestoresTheLegalOnlyReadAndUpTakesItAgain` |
+>     | D2 | Down her zaman `NOT VALID` | aynı (2. dal) |
+>     | D3 | Down `op_begin_read`'i 00027'den farklı gövdeyle | aynı (iki dal) |
+>     | D4 | ön koşulda "operatörün üyesi var" yok | `TestOperator00029_PreconditionRefusesAWrongCluster` |
+>     | G1 | Go tarafı terim reddi yok | `TestTenantList_TheSearchTermMeetsTheSameBoundInGoAndSQL` (bağlantı kullanıldı) |
+>     | G2 | ikinci aşamaya sayfa ters | `TestOpReadTenants_PagesAreCappedAndOrdered` + havuz testi |
+>     | G3 | bilinmeyen tenant `ErrNoSuchTenant` değil boş | ayrıntı testi + havuz testi |
+>     | G5 | parametre anahtarı `search` | havuz testi (22023) |
+>     | G7 | `MaxTenantSearchRunes` 255 | sınır testi + birinci aşama testi |
+>     | G8 | `TenantDetail` ikinci aşamaya başka id | havuz testi (`ErrOperatorRefused`) |
+>     | L1 | `locations`'a ikinci sütun ACL'i (`tappa_resolver`) | `TestLocations_WiFiSSIDNeedsNoNewGrantOrPolicy` (geri alındı, şema eşit) |
+>
+>     (M20–M23, G4, G6 numaraları kullanılmadı.) 36 mutasyon, 36 kırmızı. Pozitif kontrol: pristine'de
+>     17 yeni testin 17'si yeşil; hedefli `-race` koşusu md. 15.
+> 14. **B fazına devir (numaralı):**
+>     1. **`*OperatorDB` yöntemleri:** `TenantList(ctx, sessionHash, q)` ve `TenantDetail(ctx,
+>        sessionHash, id)`, `return F(ctx, o.pool, …)`; AYNI değişiklikte handler paketinde tüketici
+>        arayüzü (ör. `TenantStore`); `TestOperatorDB_IsTheStoreAndNothingMore` kümeyi
+>        `operatorauth.Store` ∪ `LegalStore` ∪ yeni arayüz ∪ `Close` diye türetir;
+>        `TestOperatorDB_EveryMethodDelegatesVerbatim` 9 → 11; `TestOperatorDB_HasNoTenantDoorAndNoRawSQLDoor`
+>        öncülü 10 → 12; `cmd/tappa`'nın `TestOperatorWiring_ThePoolReachesOnlyTheAuthenticator` kuralı
+>        yeni handler'a izin verecek şekilde.
+>     2. **Rotalar:** `GET /operator/tenants` (liste + arama + sayfa) ve `GET /operator/tenants/{id}`
+>        (genel bakış) — OP-8 kabuğu, aynı zincir; `TestSurface_TheScreensOfLaterTasksAreNotMounted`
+>        listesinden çıkar (yorumundaki *"definers 00026 and 00027 do not have"* cümlesi de);
+>        `classRoutes`, `designedHeaders`, sızıntı kolları, `harvestWant`; konsoldan link ancak rota
+>        kayıtlıyken.
+>     3. 🔴 **Terim URL'de taşınırsa ingress erişim log'una ve tarayıcı geçmişine girer** — terim bir
+>        adres olabilir (kişisel veri; §3.5 enrollment token'ı aynı sebeple sorgu dizgisinden
+>        çıkarmıştı). Karar B'nin: (a) arama POST gövdesiyle (sayfalama gizli alanla), (b) GET `?q=` +
+>        ingress log politikası. Öneri (a). Terim `slog`'a, hata mesajına, `Location`'a yazılmaz.
+>     4. **Sınırda doğrulama:** terim geçerli UTF-8, NUL/kontrol karakteri yok, ≤ `db.MaxTenantSearchRunes`
+>        rune (trim B'nin kararı; veritabanı terimi olduğu gibi bağlar); `ErrTenantSearchRefused` → 400;
+>        sayfa numarası 1..999999999, sayfa boyu handler'ın SABİTİ (kullanıcıdan değil); id `uuid.Parse`
+>        — bozuk id veritabanına gitmez (404/400); `ErrNoSuchTenant` → 404 (okuma audit'lidir);
+>        `ErrOperatorRefused` → oturum kapısı davranışı; 22023 veritabanı hatası → 500 (handler
+>        doğruladıysa ulaşılamaz).
+>     5. **Ad başlıkta:** `operatorpages.TenantScreen(title, NewTenantName(o.Name))`; `tenants.name`'de
+>        boş olmama CHECK'i YOK (dev'de boş ad 0, ölçüldü) — `NewTenantName` boşu reddeder, B ret
+>        yolunu seçer (TenantScreen sözleşmesi: 500).
+>     6. **Bütçe:** her liste/ayrıntı görüntüsü iki veritabanı işlemi (`op_begin_read` + `op_read_*`) +
+>        oturum kapısı; `sessionLimit` türetmesi okuma başına iki birimle yeniden yazılır (OP-8 devri).
+>     7. **Sayfalama:** "sonraki" yalnız tam sayfa dönünce; derin OFFSET maliyeti (md. 12) — makul bir
+>        üst sınır B'nin.
+>     8. **Etiketler:** sayılar yalnız `active` statüdekiler (lokasyon hariç); zaman render'da.
+>     9. **OP-12/13/15'e:** `op_read_tenants`'ın dönüş tipini değiştirmek (ör. OP-15'in `suspended_at`'i)
+>        `CREATE OR REPLACE` ile olmaz — `DROP FUNCTION` + `CREATE` + sahip/REVOKE/GRANT, ve
+>        `op00029Functions` pini; yeni okuma türü `op_begin_read`'i (`CREATE OR REPLACE`) ve
+>        `operator_read_tickets_kind_check`'i genişletir, Down'ı bilet varsa `NOT VALID`; yeni her
+>        tanımlayıcı sütunu `TestOperator00026_PrivilegeMatrix` izin listesine, `locations`'a ise
+>        `TestLocations_WiFiSSIDNeedsNoNewGrantOrPolicy`'nin adlı listesine.
+> 15. **Doğrulama:** hedefli `-race -v` (`internal/db`, `cmd/tappa`, `cmd/opadmin`; .env'li): 427 üst
+>     düzey PASS, 0 SKIP, 0 FAIL (alt testlerle 921), DATA RACE 0; `TestTablesLock_IsTakenOncePerTestTree`
+>     ve `TestEveryNamedTestExists` PASS; `./internal/handler -run TestComments_` PASS (ilk koşuda
+>     `TestComments_DoNotQuoteTheDriftingRosterSize` migration'daki bir kadro sayısı alıntısını
+>     yakaladı — alıntı kaldırıldı, sorgusu yazıldı); `gofmt -l -s` boş; `GOTOOLCHAIN=go1.26.7 go vet`
+>     ve `staticcheck` temiz; `make gen` idempotent (parmak izi önce/sonra aynı); `redline-check.sh`
+>     exit 0 (R5 muafiyetleri değişmedi: 5 tablo). **Tam suite** (`go test ./... -count=1`, .env'li,
+>     son dosyalarla): 26 paket ok; kırmızı yalnız (a) `cmd/rotatekek` `TestRotateScript_AccountsForEveryGoToolchainVariable`
+>     (bilinen T72: yerel go 1.27'nin `GOPACKAGESDRIVER`'ı) ve (b) worktree'de `web/static/css/app.css`
+>     yok (gitignore'lu derleme artefaktı, `make css` koşulmadı) — `internal/handler`'da iki,
+>     `internal/handler/operator`'da bir, `internal/httpx`'te bir test, dördünün mesajı da app.css.
+>     İlk tam koşu bir GERÇEK bulgu verdi (md. 6: `structure`), düzeltildi, ikinci koşuda yok.
+>     Bitişte `pg_stat_activity`'de oturum 0, danışma kilidi 0. `scripts/pg-restore-verify.sh` KOŞULMADI — yeni
+>     veritabanı ister (bu görevde yasak); uyumu metinden: yeni tablo yok (ENABLE/FORCE sayıları
+>     değişmez), yeni yetkiler sütun düzeyi SELECT ve script onları `column_privileges` ile
+>     karşılaştırır (00027'nin `legal_documents` yetkileriyle aynı yol).
+> 16. **Sayılı sınırlar (A):** (L1) md. 10'un kalıcı satırları; (L2) liste maliyeti tenant sayısıyla
+>     doğrusal, derin OFFSET hepsini sıralar — bir DSN sahibi pahalı sayfalar isteyebilir (her biri
+>     bir `read` satırı bırakır); (L3) **audit neyin arandığını söylemez** — arama yapıldığını ve
+>     (2. turdan beri, md. 18) aramanın içeriksiz SINIFINI söyler (`none`/`text`/`address`/`id`);
+>     terimin kendisi bilet hash'inde geri çevrilemez biçimde bağlıdır (bilinçli: GDPR, ADR §2 v 1); (L4) sınır
+>     4'ün penceresi 30 sn (geri alınan okuma yeniden okunur); (L5) aynı oturumla eşzamanlı çağrılar
+>     oturum satırı kilidinde sıraya girer; (L6) iki kopya kanonikleştirme (`op_begin_read`'in
+>     `v_bound`'ı, `op_read_*`'ın `jsonb_build_object`'i) — kayma fail-closed'dır (her okuma reddedilir)
+>     ve gerçek yolu süren iki test onu yakalar; (L7) ad eşleşmesi `lower()`'ın locale'ine bağlı (dev
+>     `en_US.utf8` libc, Malta harfleri ölçüldü; üretimin ctype'ı ölçülmedi); (L8) adres eşleşmesi
+>     her durum ve rolü kapsar (devre dışı bir sahibin adresi tenant'ını bulur — destek ihtiyacı);
+>     (L9) Down tanımlayıcının beş tablodaki BÜTÜN yetkilerini alır (00029 öncesi hiç yoktu — ölçülü);
+>     (L10) M18: `search_path`'e `public` eklemek gölge testinde görünmez (gövde nitelenmiş) — onu ileri
+>     pin tutar; (L11) tür koşulunun davranış kanıtı sahte biletlerle (gerçek biletlerde hash'ler zaten
+>     ayrışır); (L12) `pg-restore-verify.sh` koşulmadı (md. 15).
+> 17. **Güvenlik iddiası** ADR 0021 → "OP-11 uygulama notu" sonunda üç parçalı (PART I ölçen
+>     testlerin adlarıyla, PART II pinler, PART III).
+>
+> **Kabul (satır):** tappa_app EXECUTE yok ✓ (imza testi, `…TheDefinerReadsNamedColumnsAndNoSecret`,
+> ileri pin; M15 kırmızı) · tappa_operator `tenants` doğrudan SELECT yok ✓ (aynı test + PrivilegeMatrix;
+> M17 kırmızı) · süresi geçmiş/MFA'sız/iptal hash → exception ✓ (`TestOpReadTenants_RefusesEveryDeadSession`,
+> birinci aşama testi; M19 kırmızı) · her çağrı tam 1 operatör audit satırı ✓ (md. 2) · anahtar/hash
+> sütunları `has_column_privilege(opdefiner,…)=false` ✓ (dokuz türetilmiş sütun + yedi adlı; M16
+> kırmızı) · tenant başlıkta adıyla — A: ayrıntı adı döndürür ✓ (`TestOpReadTenantDetail_CountsOnlyTheNamedTenantsRows`),
+> ekran B (md. 14.5).
+>
+> **2. tur (2026-10-03; üçüncü göz ONAY — 27 mutasyon, 23 kırmızı — + tappa-security-auditor ONAY;
+> orkestratör kararı + bloklamayan bulgular).** Taban değişmedi (`e0f53b6`; dal ucu `b06370c`'ye
+> birleştirmeyi orkestratör yapar). Migration önce `down`, dosya düzenlendi, sonra `up-by-one`.
+>
+> 18. **Arama SINIFI audit'e girer (orkestratör kararı; güvenlik ORTA + üçüncü göz B6):** `detail =
+>     {"search": "none"|"text"|"address"|"id"}`, `op_begin_read` terimden türetir, sırayla ilk uyan:
+>     `none` (boş) · `id` (terimin tamamı tireli uuid, harf büyüklüğü serbest) · `address` (`@`
+>     içerir) · `text` (geri kalan). **Kurallar ve sıra = `op_read_tenants`'ın koşabildiği dallar:**
+>     id dalı yalnız tam uuid'de, adres dalı **artık yalnız `@`'li terimde** (aynı yüklemle kapılı —
+>     `v_address := strpos(p_query, '@') > 0`), ad eşleşmesi her zaman. Sınıf terimin ulaşabildiği en
+>     dar dalı adlandırır: `text` bir arama yalnız ad eşleştirebilir. uuid `@` içermez, ikisi
+>     çakışmaz; `none` önce, çünkü `''` ikisi de değil. Kapının kaybettirdiği: `@`'siz bir yönetici
+>     adresi — kayıt reddeder (`internal/domain/signup`), dev'de 0 (ölçüldü:
+>     `SELECT count(*) FROM admin_users WHERE strpos(email::text, '@') = 0` → 0). Sınıf içeriksizdir
+>     (terimin hiçbir karakteri yok) ve çağıran onu taklit edemez (terim bilet hash'ine bağlı; okuma
+>     sınıfın türetildiği terimi koşar). Terim — ham ya da hash'i — yine hiçbir satırda yok.
+> 19. **Go tarafı uzunluk sınırı (güvenlik DÜŞÜK):** `TenantList` `utf8.RuneCountInString(term) >
+>     MaxTenantSearchRunes` → `ErrTenantSearchRefused`, gidiş-dönüşsüz; veritabanının 254'ü ikinci
+>     kopya. Gerekçe (güvenlik denetiminin ölçümü): dev'de `log_statement = all` uzun terimi
+>     reddedilmek üzere tam hâliyle sunucu log'una yazıyordu. Sınır içindeki terimin de dev log'una
+>     gittiği aynı mekanizmadan çıkarımdır, bu turda okunmadı (sunucu log'u okunmaz).
+> 20. **B1 — Down'ın `NOT VALID` dalının üçüncü kolu:** yalnız `tenant_detail` bileti varken Down
+>     `NOT VALID` döner. **B2 — "Only" ölçüldü:** plan, işletme türü, yapı, saat dilimi, bir
+>     fikstürün VAT numarası ve `@`'siz yönetici adresi terim olarak hiçbir fikstürü bulmaz; dönen her
+>     satırın ADI terimi taşır; kontrol: aynı adres `@`'li hâliyle bulunur. **B3:** ADR'deki
+>     "`tappa_operator` ve `tappa_app` hiçbir şey almadı" → "`tappa_app` hiçbir yetki almadı;
+>     `tappa_operator` iki yeni fonksiyonda EXECUTE aldı, hiçbir tablo yetkisi almadı" (kartta md. 7
+>     aynı düzeltme). **B5 — uygulandı (devir değil):** büyük harf ve Malta harfli bir terim
+>     (`ĦAMRUN Żebbuġ ĊAFÈ <TOKEN>`) üretim kurucusunun havuzunda iki aşamadan geçer; bilinmeyen oturum,
+>     201'lik sayfa ve sınır aşımı retlerinin hata metninde terim yok
+>     (`TestTenantList_OnThePoolTheTwoPhasesAreTwoTransactions`; Gi ve Gb kırmızı).
+> 21. **Güncellenen testler:** `TestOpBeginRead_TheTenantKindsBindEveryParameterAndAuditNoTerm` (sekiz
+>     terimde dört sınıf + kenarlar: bir karakter fazlalı uuid `text`, `@`'li uuid `address`, tek `@`
+>     `address`, büyük harfli uuid `id`, Malta harfli ad `text`; satırlarda terim yok);
+>     `TestTenantList_TheSearchTermMeetsTheSameBoundInGoAndSQL` (erişimcide 255 → sentinel, 0 deyim; 254
+>     → 1 deyim; veritabanında 254/255); `TestOpReadTenants_SearchMatchesNameAddressAndIDOnly` (md. 20);
+>     `TestOperator00029_DownRestoresTheLegalOnlyReadAndUpTakesItAgain` (üç dal);
+>     `TestTenantList_OnThePoolTheTwoPhasesAreTwoTransactions` (sınıf `text`, md. 20 B5; artık üç `read`
+>     satırı commit eder — koşu başına bu dosyadan toplam beş).
+> 22. **Ölçüm:** v28 tabanı `f0dc03e20de806e8`; 2. turun dosyası (sha256 öneki `6b0944113d536461`):
+>     Up → `24c6f40fcaebea22`, Down → `f0dc03e20de806e8` birebir, Up → `24c6f40fcaebea22` birebir.
+> 23. **Mutasyonlar (2. tur; hepsi KIRMIZI, harness 1. turunki — migration mutasyonları goose döngüsüyle,
+>     sonda şema `24c6f40fcaebea22`):**
+>
+>     | # | Mutasyon | Kırmızı test (ilk hata) |
+>     |---|---|---|
+>     | Y10 | Down'ın `NOT VALID` koşulu yalnız `kind IN ('tenants')` | `TestOperator00029_DownRestoresTheLegalOnlyReadAndUpTakesItAgain` (3. dal: Down 23514 ile düşer) |
+>     | Y3 | aramaya `OR t.plan = p_query` | `TestOpReadTenants_SearchMatchesNameAddressAndIDOnly` ("standard" fikstürü buldu) |
+>     | C1 | sınıf hep `text` | `TestOpBeginRead_TheTenantKindsBindEveryParameterAndAuditNoTerm` |
+>     | C2 | sınıfın `@` kontrolü kaldırıldı | aynı (adres terimi `text`) |
+>     | A1 | adres dalı kapısız (`v_address := true`) | `TestOpReadTenants_SearchMatchesNameAddressAndIDOnly` (`@`'siz adres E'yi buldu) |
+>     | A2 | kapılı adres dalı bağsız `EXISTS` | aynı (A'nın adresi her tenant'ı döndürdü) |
+>     | GL | Go tarafı uzunluk sınırı yok | `TestTenantList_TheSearchTermMeetsTheSameBoundInGoAndSQL` (bağlantı kullanıldı) |
+>     | G7 | `MaxTenantSearchRunes` 255 | aynı + birinci aşama testi (255 karakter veritabanında reddedildi) |
+>     | Gi | birinci aşamaya terim küçük harfle | `TestTenantList_OnThePoolTheTwoPhasesAreTwoTransactions` (`ErrOperatorRefused`) |
+>     | Gb | birinci aşama hatası terimi `%q` ile sarar | aynı (hata metninde terim) |
+>
+> 24. **Sayılı sınırlar (2. tur eki):** (L13) **DSN sahibi (ya da oturumu olan bir operatör) bir adres
+>     listesini deneyebilir;** deneme başına commit edilmiş bir `read` satırı ve artık `address` sınıfı
+>     kalır, içerik kalmaz — hangi adreslerin denendiği izden okunamaz (bilinçli), ne kadar ve hangi
+>     türde denendiği okunur; (L14) sınıf terimin ulaşabildiği dalı adlandırır, eşleşen dalı değil
+>     (`address` sınıflı bir arama adla da eşleşmiş olabilir); (L15) `@`'siz yönetici adresi adres olarak
+>     aranamaz (md. 18); (L16) **birleştirmeye dek (B7):** dev DB 29'dayken dalın ucundaki (OP-11'siz)
+>     dört test dev'e karşı kırmızıdır — `TestOperator00026_PrivilegeMatrix`,
+>     `TestOperator00027_DownGivesTheWriteBackAndUpTakesItAgain`, `TestLocations_WiFiSSIDNeedsNoNewGrantOrPolicy`,
+>     `TestOpRead_EveryReadConsumesItsTicketAsTheADRSays`; OP-11 birleştirilince yeşile döner (bu
+>     worktree'de dördü yeşil). CI kendi veritabanını dalın migration'larından kurar, etkilenmez.
+>
+> **3. tur (2026-10-03, kapanış; dar kapanış üçüncü gözü ONAY + güvenlik yeniden denetimi ONAY).**
+> Migration'a DOKUNULMADI (dosya sha256 öneki `6b0944113d536461`, şema `24c6f40fcaebea22`, goose 29);
+> yalnız test ve metin.
+>
+> 25. **F1 — sınıf ↔ dal eşitliği id ve `none` kenarında da testle bağlı:** sınıf tablosuna
+>     (`TestOpBeginRead_TheTenantKindsBindEveryParameterAndAuditNoTerm`, artık on bir terim) `" "` →
+>     `text`, `{uuid}` → `text`, tiresiz uuid → `text` eklendi; aramaya
+>     (`TestOpReadTenants_SearchMatchesNameAddressAndIDOnly`) D'nin id'si süslü parantezde ve tiresiz →
+>     D bulunmaz, `" "` → ad eşleşmesi: dönen her satırın adında boşluk var ve adlarının hepsi boşluk
+>     içeren beş fikstür ilk sayfayı tutar. Mutasyonlar (goose döngüsüyle; her birinin sonunda şema
+>     `24c6f40fcaebea22`, goose 29):
+>
+>     | # | Mutasyon | Kırmızı test (ilk hata) |
+>     |---|---|---|
+>     | X2 | yalnız SINIF regex'i tiresiz uuid'i kabul eder | sınıf testi (tiresiz uuid `id`, `text` beklenirken) |
+>     | X9 | yalnız DAL regex'i `{uuid}`'i kabul eder | arama testi (`{D}` D'yi buldu) |
+>     | X3 | iki regex de tiresiz uuid'i kabul eder | sınıf testi + arama testi (tiresiz D, D'yi buldu) |
+>     | X15 | `btrim(v_query) = ''` → `none` | sınıf testi (`" "` `none`, `text` beklenirken) |
+>
+> 26. **F2 (metin):** md. 10 artık 5 `read` satırı diyor; md. 16 L3 sınıfı anıyor. **F3 (metin):**
+>     `db/queries/operator.sql`'in ReadTenants yorumu `@` kapısını ve "tireli uuid"i söylüyor; `make gen`
+>     sonrası `internal/store` diff'i yok (yorum yalnız `-- name:`'siz belgede; sqlc onu okumaz).
+
 ## 4. Akış B — E-posta (AWS SES)
 
 ### Öneri: SES SMTP arayüzü + stdlib `net/smtp` (STARTTLS 587), `eu-central-1` — ✅ (sıfır yeni modül)

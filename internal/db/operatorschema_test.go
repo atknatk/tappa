@@ -901,9 +901,20 @@ func TestOperator00026_PrivilegeMatrix(t *testing.T) {
 	// (published_by to resolve the publisher, body for its length), op_publish_legal
 	// writes the three columns a publication carries; published_at is NOT writable (its
 	// DEFAULT is the wall clock), and there is no UPDATE, DELETE or TRUNCATE.
+	//
+	// 00029 (OP-11): the FIRST grants on tenant tables -- op_read_tenants and
+	// op_read_tenant_detail read exactly these columns (00029 section 2): the tenant's
+	// identity for the list and the overview, the scope column and status of the four
+	// tables the overview counts, and admin_users.email for the list's exact address
+	// match. SELECT only; none of the "asla" columns (checked below against this list).
 	opdefinerTenantGrants := map[string]string{
 		"legal_documents:SELECT": "id,slug,body,published_at,published_by",
 		"legal_documents:INSERT": "slug,body,published_by",
+		"tenants:SELECT":         "id,name,business_type,plan,created_at",
+		"locations:SELECT":       "tenant_id",
+		"employees:SELECT":       "tenant_id,status",
+		"tags:SELECT":            "tenant_id,status",
+		"admin_users:SELECT":     "tenant_id,email,status",
 	}
 	neverSelect := [][2]string{
 		{"tags", "aes_key_ref"}, {"tags", "app_key_ref"}, {"admin_users", "password_hash"},
