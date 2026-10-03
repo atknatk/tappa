@@ -25,10 +25,15 @@
 -- Steps 1 and 2 together are why the "before" value is the stored one when two owners
 -- save at the same time. Without step 1, two FIRST saves would both read "no row" in
 -- step 2 and the second audit row would record a NULL "before" that was never stored.
--- With it, the second transaction waits -- in step 1 on the first one's uncommitted
--- insert when the row is new, in step 2 on its row lock when the row exists -- and
--- step 2 then returns what the first one committed. Measured for those two orders:
--- TestTenantBranding_EnsureThenLockReturnsWhatTheOtherWriterCommitted.
+-- With it, the second transaction waits, and step 2 then returns what the first one
+-- committed. Where it waits depends on how far the first one has got: in step 1 on the
+-- first one's uncommitted insert when the row is new; when the row exists, in step 2 on
+-- the first one's row lock if the first has not yet run its step 3 UPDATE, and in step
+-- 1 if it has (Ensure's conflict check meets the uncommitted new row version). WL-1
+-- measured the new row and the existing row before the UPDATE
+-- (TestTenantBranding_EnsureThenLockReturnsWhatTheOtherWriterCommitted); WL-4 measured
+-- the four cases, new or existing row with the first held before or after its UPDATE
+-- (TestBrandDB_TheSecondOfTwoConcurrentSavesRecordsTheFirstAsItsBefore).
 --
 -- NO DELETE. A reset is an UPDATE that sets the field back to NULL (ADR 0023 §1); the
 -- application role holds no DELETE on this table (migration 00028).

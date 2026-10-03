@@ -94,6 +94,42 @@ type Logo struct {
 	Width  int    // 1..LogoMaxOutputEdge
 	Height int    // 1..LogoMaxOutputEdge
 	SHA256 string // lowercase hex sha256 of Data
+
+	// mint is what Normalize returned; this package sets it in one place, the return
+	// of normalizeHeld. It is unexported, and Go does not let a composite literal
+	// outside this package name it, so such a literal carries a nil mint (reflect and
+	// unsafe aside). Normalized reads it (M10 WL-4).
+	mint *logoMint
+}
+
+// logoMint is the five fields of a Logo as Normalize returned them, with the bytes
+// kept as their digest.
+type logoMint struct {
+	sum    [sha256.Size]byte
+	mime   string
+	width  int
+	height int
+}
+
+// Normalized reports whether l is a value Normalize returned whose five exported
+// fields are still the ones Normalize set: Data hashes to the digest Normalize
+// computed, SHA256 is that digest in lowercase hex, and MIME, Width and Height are
+// the values Normalize returned. ADR 0024 §3 stores Normalize's output; the write side
+// (internal/domain/tenant, WL-4) refuses a Logo for which this is false. Measured on a
+// PNG's and a JPEG's Normalize output, a copy of each, each of the five fields
+// changed, a byte of Data changed in place, a literal with the same five values and
+// the zero Logo (TestLogo_NormalizedIsTrueOnlyForNormalizeOutput), and on the logos
+// the package's tests hand to logoCheckOutput.
+func (l Logo) Normalized() bool {
+	if l.mint == nil {
+		return false
+	}
+	sum := sha256.Sum256(l.Data)
+	return sum == l.mint.sum &&
+		l.SHA256 == hex.EncodeToString(sum[:]) &&
+		l.MIME == l.mint.mime &&
+		l.Width == l.mint.width &&
+		l.Height == l.mint.height
 }
 
 // LogoGate is ADR 0024 §2.6's process-wide semaphore around the full-size decode. One
@@ -260,6 +296,7 @@ func (g *LogoGate) normalizeHeld(ctx context.Context, data []byte) (Logo, error)
 		Width:  w,
 		Height: h,
 		SHA256: hex.EncodeToString(sum[:]),
+		mint:   &logoMint{sum: sum, mime: format.mime(), width: w, height: h},
 	}, nil
 }
 

@@ -214,6 +214,168 @@ zorla patlatılan audit UPDATE'i geri alır, iki yönde).
     değişti → yeşil (büyük harf sha yine `_hex` ile reddedildi; değerlendirme ad sırasıyla).
   - **PART III:** Listede olmayan her biçim kod incelemesinin konusu — tamlık iddiası yok.
 
+**WL-4 notu (2026-10-03 — uygulama ve ölçüm; bu bölümün kuralı değişmedi).** Kod
+`internal/domain/tenant/brand.go` (`Brands`: `SaveAccent`, `ClearAccent`, `SaveLogo`,
+`ClearLogo`), testler `internal/domain/tenant/brand_db_test.go`; ek olarak
+`internal/brand/logo.go`'ya `Logo.Normalized` (aşağıda karar 5 — WL-3'ün dosyası, kapsam
+genişlemesi) ve `internal/brand/logo_normalized_test.go`. Ölçüm ortamı: dev Postgres 17,
+`tappa_app`; yerel Go 1.27.1. Yeni sorgu, migration ve bağımlılık yok.
+- **Karar 1 — `detail`'in altı anahtarı ADR 0024 §6'nınkidir** (`field`, `before`, `after`,
+  `bytes`, `width`, `height`); bu not yalnız değerlerini yazar. `field`: `accent` ya da `logo`.
+  `before`/`after`: accent'in altı hanesi ya da logonun sha256'sı, yoksa `null`; "before"
+  `GetTenantBrandForUpdate`'ten, "after" Set/Clear'dan sonra aynı transaction'da okunan
+  `GetTenantBrand`'den. `bytes`: logo kaydında yazılan baytın sayısı (geri okunan sha yazılanla
+  eşit değilse yazma hata verir — **kodda, ölçülmedi**: birincil anahtar ve
+  `_matches_logo` CHECK'i varken testler bu dala ulaşmaz, dal kaldırılınca hepsi yeşil kaldı,
+  mutasyon A15), diğer üç işlemde `null`. `width`/`height`: "after"ta logo
+  varsa DB'nin değeri, yoksa `null`. `omitempty` yok — `null` anahtarı silmez. Eylem
+  `tenant.brand_updated`, `actor_id` = `ActorID`, `target` = tenant id (`Accounts.Save`
+  emsali). Logonun baytı, dosya adı ve istemci `Content-Type`'ı `detail`'i dolduran kodda
+  geçmez (ADR 0024 İddia G).
+- **Karar 2 — yetki: aktif owner, domain'de ikinci kez.** ADR 0024 §6 owner'ı adlandırır ve
+  kapıyı handler'a koyar (`mayEditAccount`, WL-7); domain onu tekrar sorar: yazmanın kendi
+  transaction'ında, tenant bağlamında `GetAdminByID` ile `role = 'owner'` ve
+  `status = 'active'`. Manager, devre dışı owner, başka tenant'ın yöneticisi ve yönetici
+  olmayan id aynı `ErrBrandNotPermitted` değerini (sarılmadan, tek metinle) alır; hangisi
+  olduğu söylenmez; yazma, satır yaratma ve audit 0. Kapı `EnsureTenantBrand`'den önce koşar:
+  sonrasına taşınırsa (mutasyon A01) satırı olmayan tenant'ta o tenant'ın yöneticisi olmayan
+  üç id 23503 FK hatası, manager ve devre dışı owner `ErrBrandNotPermitted` alır — yanıt
+  hangisi olduğunu söyler.
+  Gerekçe: domain accent'i handler'a güvenmeden yeniden `Check` ettiği gibi yetkiyi de
+  yeniden sorar; rol oturumdaki iddiadan değil DB'den okunur. Ret satırı
+  (`tenant.brand_update_refused`) domain'in değil WL-7'nin — `accountactions.go`'nun emsali.
+  WL-7 domain'in `ErrBrandNotPermitted`'ini de kendi reddi gibi ele alır: yalnız 303
+  `not-permitted` değil, **`tenant.brand_update_refused` satırını da yazar** — ana
+  transaction geri alındığı için `RecordTx` ile değil, kendi transaction'ını açan
+  `audit.Recorder.Record` ile (ADR 0024 §6; `internal/audit/audit.go`). Policy motoru
+  seçilmedi: marka için bir eylem ve guardrail ADR 0023/0024'te yok; eklemek §5/§3 değişikliği
+  olurdu.
+- **Karar 3 — aynı değeri yeniden kaydetmek bir eylemdir:** UPDATE koşar (`updated_at`,
+  `updated_by` değişir) ve "before" = "after" olan bir satır yazılır (`Accounts.Save`
+  emsali; `TestBrandDB_SavingTheSameAccentAgainIsRecorded`). Var olmayan satırı temizlemek
+  de satırı yaratır (`EnsureTenantBrand`) ve `before`, `after`, `bytes`, `width`, `height`
+  `null` olan bir satır yazar (`TestBrandDB_ClearingWithoutABrandRowCreatesTheRowAndRecordsIt`).
+- **Karar 4 — accent girdisi `brand.Color`'dır** (WL-7'de `NormalizeAccent`'in çıktısı);
+  domain `Check` eder, okunaksızsa `brand.ErrAccentIllegible` transaction açılmadan döner;
+  saklanan `Color.Hex()`'tir.
+- **Karar 5 — logo girdisi `brand.Logo`'dur; `Normalized()` yanlışsa `SaveLogo`
+  transaction açmadan `ErrBrandLogoNotNormalized` döner.**
+  `brand.Logo`'nun alanları dışa açıktır; kapı olmasaydı tablo ayırt edemezdi — ölçüldü:
+  domain kontrolü kaldırılınca (mutasyon M12a) APP1 `Exif` segmentli bir JPEG, kendi sha'sıyla
+  bir `Logo` literaline konup **saklandı**. `Normalized()` `Normalize`'ın döndürdüğü değere
+  dışa kapalı bir `mint` iliştirir ve beş alanın hâlâ o değer olduğunu (baytın sha256'sı
+  dahil) sınar; paket dışındaki bir literal `mint` taşımaz. Ölçüm:
+  `TestLogo_NormalizedIsTrueOnlyForNormalizeOutput` (PNG ve JPEG çıktısı, kopyası, beş
+  alanın her biri değişince, yerinde değişen bir bayt, aynı beş değerli literal, sıfır
+  `Logo`); `logoCheckOutput`'a verilen logolarda `Normalized()` doğru.
+- **Ölçüm — iki yazıcı nerede bekler** (`TestBrandDB_TheSecondOfTwoConcurrentSavesRecordsTheFirstAsItsBefore`,
+  ikinci yazıcının `pg_stat_activity`'deki ifadesi): yeni satırda `EnsureTenantBrand`
+  (birincinin commit edilmemiş INSERT'i); var olan satırda, birinci UPDATE'inden **önce**
+  tutulunca `GetTenantBrandForUpdate`, **sonra** tutulunca `EnsureTenantBrand` (birincinin
+  commit edilmemiş yeni satır sürümü). WL-1'in "var olan satırda ForUpdate'te bekler" ölçümü
+  birincinin UPDATE'ten önceki hâlidir. Dört durumda ikincinin "before"u birincinin
+  "after"ıdır.
+- **Güvenlik iddiası (WL-4, üç parçalı).**
+  - **PART I — ölçülen davranış** (dev Postgres, `tappa_app`, testlerin adlandırdığı
+    girdilerde): SaveAccent → SaveLogo (PNG) → SaveLogo (JPEG) → ClearAccent → ClearLogo dizisi
+    her değeri saklar, `updated_by`'ı yazan owner yapar, yazma başına bir
+    `tenant.brand_updated` satırı ekler; ClearLogo'dan sonra beş logo sütunu tek tek NULL
+    (`TestBrandDB_EachWriteStoresItsValueAndOneTrailRow`) · dört yazmanın eklediği satırın
+    anahtarları tam olarak altıdır (`TestBrandDB_TheDetailHasExactlyTheSixKeys`) · hata
+    döndüren trail ile dört yazma, satırı olmayan ve olan tenant'ta satırı olduğu gibi bırakır
+    (satır yaratmaz); satırını yazıp sonra hata döndüren trail ile ne değişiklik ne o satır
+    kalır; kendisine verilen transaction'dan marka satırını okuyan trail her yazmanın kendi
+    sonucunu görür (`TestBrandDB_TheChangeAndItsTrailRowShareOneTransaction`) · Set/Clear
+    ifadesi hata döndürünce ya da 0 satır değiştirince dört yazma satırı ve trail'i olduğu gibi
+    bırakır (`TestBrandDB_AFailedWriteLeavesNoTrailRow`) · iki okunaksız accent, değişmemiş
+    `Normalize` çıktısı olmayan dört logo değeri, nil aktör ve nil tenant (dört yazmada)
+    transaction açılmadan reddedilir, satır ve trail olduğu gibi kalır
+    (`TestBrandDB_RefusalsBeforeTheDatabaseWriteNothing`) · manager, devre dışı owner, öbür
+    tenant'ın owner'ı bu tenant'ta, bu tenant'ın owner'ı öbür tenant'ta ve yönetici olmayan id
+    dört yazmada, marka satırı olan iki tenant'ta ve olmayan iki tenant'ta
+    `ErrBrandNotPermitted` değerinin kendisini (`==`) beşi için tek metinle alır; iki
+    tenant'ın satırı ve trail'i değişmez, satır yaratılmaz
+    (`TestBrandDB_OnlyAnActiveOwnerOfThisTenantMayWrite`) · satırı olmayan tenant'ta
+    ClearAccent ve ClearLogo satırı bütün marka alanları NULL olarak yaratır ve `before`,
+    `after`, `bytes`, `width`, `height` `null` olan bir satır yazar
+    (`TestBrandDB_ClearingWithoutABrandRowCreatesTheRowAndRecordsIt`) · eylem ve iki `field`
+    değeri ADR 0024 §6'nın yazımıdır, testler trail'i literal eylem adıyla okur
+    (`TestBrandTrail_TheActionAndFieldNamesAreTheADRs`) · iki eşzamanlı SaveAccent'in dört
+    durumunda ikinci yukarıdaki ifadede bekler ve "before"u birincinin "after"ıdır
+    (`TestBrandDB_TheSecondOfTwoConcurrentSavesRecordsTheFirstAsItsBefore`) · saklı accent'i
+    yeniden kaydetmek UPDATE'i koşar ve "before" = "after" satırı yazar
+    (`TestBrandDB_SavingTheSameAccentAgainIsRecorded`) · `Normalized()` yukarıdaki karar 5'in
+    girdilerinde (`TestLogo_NormalizedIsTrueOnlyForNormalizeOutput`).
+  - **PART II — koşturulan mutasyonların tamamı ve kırmızıya dönen testleri** (her biri tek
+    düzenleme; kopyala → düzenle → koş → geri yaz, yedekler scratchpad'de; sorgu mutasyonları
+    `make sqlc` ile, DDL yok; koşulan testler: `internal/domain/tenant` içinde
+    `TestBrandDB_*`, `TestNewBrands_RefusesAMissingDependency`, 2. turda ayrıca
+    `TestBrandTrail_TheActionAndFieldNamesAreTheADRs`,
+    `TestStaffQueries_CarryAnExplicitTenantPredicate`; `internal/brand` içinde
+    `TestLogo_NormalizedIsTrueOnlyForNormalizeOutput`, `TestLogoMetadata_*`, `TestLogoOutput_*`;
+    `internal/db` içinde `TestTenantBranding_*`, `TestRLS_TenantBranding_*`). Kısaltmalar:
+    *Each* = `TestBrandDB_EachWriteStoresItsValueAndOneTrailRow`, *Keys* =
+    `TestBrandDB_TheDetailHasExactlyTheSixKeys`, *Tx* =
+    `TestBrandDB_TheChangeAndItsTrailRowShareOneTransaction`, *Fail* =
+    `TestBrandDB_AFailedWriteLeavesNoTrailRow`, *Refuse* =
+    `TestBrandDB_RefusalsBeforeTheDatabaseWriteNothing`, *Owner* =
+    `TestBrandDB_OnlyAnActiveOwnerOfThisTenantMayWrite`, *Conc* =
+    `TestBrandDB_TheSecondOfTwoConcurrentSavesRecordsTheFirstAsItsBefore`, *Same* =
+    `TestBrandDB_SavingTheSameAccentAgainIsRecorded`.
+
+    | # | Mutasyon | Kırmızı |
+    |---|---|---|
+    | M01a | audit, Set'ten sonra **iç içe ayrı** bir `WithTenant` transaction'ında | *Tx* (trail'in transaction'ı eski değeri gördü), *Refuse* (pozitif kontrolde 2 yerine 4 transaction) |
+    | M01b | audit, değişiklik commit edildikten **sonra** ayrı transaction'da | *Tx* (hata döndüren ve yazıp-hata-döndüren trail: değişiklik kaldı), *Refuse* (pozitif kontrol), *Conc* (birinci UPDATE'ten sonra tutulan iki durum) |
+    | M02 | "before" `FOR UPDATE`'siz `GetTenantBrand`'den | *Conc* (var olan satır, birinci UPDATE'ten önce tutulu: ikinci beklemedi) |
+    | M03a | `SetTenantAccent`'e `updated_by = uuid.Nil` | *Each*, *Keys*, *Tx*, *Fail*, *Refuse*, *Owner*, *Conc*, *Same* (23503 `tenant_branding_updated_by_fk`) |
+    | M03b | sorgu: `updated_by = COALESCE(updated_by, @updated_by)` (eski yazar kalır) | *Same*, *Conc*, `TestTenantBranding_UpdatedByIsAnAdminOfTheSameTenant` |
+    | M04a | `SaveAccent`'ten `requireActor` | *Refuse* (nil aktör ve nil tenant: transaction açıldı, hata başka) |
+    | M04b | `ClearLogo`'dan `requireActor` | *Refuse* (aynı iki satır, ClearLogo) |
+    | M05 | domain `brand.Check`'i | *Refuse* (`808080`, `E0457B` yazıldı) |
+    | M06a | `Hex()` yerine renk girdisinin yazımı `#rrggbb` | *Each*, *Keys*, *Tx*, *Fail*, *Refuse*, *Owner*, *Conc*, *Same* (22001) |
+    | M06b | `Hex()` yerine küçük harf `rrggbb` | aynı sekiz test (23514 `tenant_branding_accent_canonical`) |
+    | M06c | kontrol: accent "after"ı DB'den değil argümandan | **yeşil — eşdeğer**: argüman `Hex()`'tir, altı büyük harf hane, boşluk yok; WL-1'in kırpma vakası bu girdiyle oluşmaz |
+    | M07 | `detail`'e yedinci anahtar `file_name` | *Each*, *Keys*, *Conc*, *Same* |
+    | M07b | `height`'a `omitempty` (eksik anahtar) | *Each*, *Keys* (SaveAccent, ClearAccent, ClearLogo), *Conc*, *Same* |
+    | M08 | "before" (`ForUpdate`, ErrNoRows → boş) Ensure'dan **önce** | *Conc* (yeni satırın iki durumu: "before" `null`; var olan satır UPDATE'ten sonra: ikinci `GetTenantBrandForUpdate`'te bekledi) |
+    | M09 | Set/Clear'ın 1 satır beklentisi | *Fail* (0 satır durumu) |
+    | M10a | sorgu: `ClearTenantLogo`'dan `logo_width = NULL` | *Each*, *Keys*, *Tx*, *Owner* (pozitif kontrol), `TestTenantBranding_StoreRoundTrip` (23514 `tenant_branding_logo_all_or_none`) |
+    | M10b | `ClearLogo` `ClearTenantAccent`'i çağırır | *Each*, *Tx* |
+    | M11 | sorgu: `SetTenantAccent` `WHERE (tenant_id = @tenant_id OR true)` | `TestStaffQueries_CarryAnExplicitTenantPredicate`, `TestRLS_TenantBranding_WriteWithCheck`; davranış testleri yeşil (RLS satırı gizler) |
+    | M12a | `SaveLogo`'dan `Normalized()` kontrolü | *Refuse* (literal, Exif'li ham JPEG ve alanı değişmiş çıktı **yazıldı**; sıfır `Logo` transaction açtı) |
+    | M12b | `Normalized()` hep `true` | *Refuse*, `TestLogo_NormalizedIsTrueOnlyForNormalizeOutput` |
+    | M12c | `Normalized()` yalnız `mint`'in varlığına bakar | *Refuse* (alanı değişmiş çıktı), `TestLogo_NormalizedIsTrueOnlyForNormalizeOutput` |
+    | M12d | `Normalized()`'dan `SHA256` dizgesi karşılaştırması | `TestLogo_NormalizedIsTrueOnlyForNormalizeOutput` |
+    | M13a | domain rol kapısı (`mayEditBrand` çağrısı) | *Owner* (manager ve devre dışı owner **yazdı**; başka tenant'ın ve yönetici olmayan id 23503 FK ile reddedildi, satırlar değişmedi — hata `ErrBrandNotPermitted` değil) |
+    | M13b | rol koşulu (manager kabul) | *Owner* (manager satırları) |
+    | M13c | durum koşulu (devre dışı kabul) | *Owner* (devre dışı owner satırları) |
+    | M14 | trail hatası yutulur | *Tx* (iki hata durumu) |
+    | M15 | `EnsureTenantBrand` çağrısı | *Each*, *Keys*, *Tx*, *Fail*, *Refuse*, *Owner*, *Conc*, *Same* |
+    | M16 | "after" = "before" (geri okuma yok) | *Each*, *Keys*, *Tx*, *Fail*, *Refuse*, *Owner*, *Conc* |
+    | M17 | Set/Clear'ın hatası yutulur | *Fail* ("ifade hata verir": yalnız hata metni — 1 satır beklentisi 0 satırı yakaladı, satır ve trail değişmedi) |
+    | A01 (2. tur) | rol kapısı `EnsureTenantBrand`'den **sonra** | *Owner* (satırsız tenant turu: başka tenant'ın owner'ı bu tenant'ta, bu tenant'ın owner'ı öbür tenant'ta ve yönetici olmayan id dört yazmada 23503 aldı; manager ve devre dışı owner `ErrBrandNotPermitted`; üç farklı hata metni. Satırlı tur yeşil kaldı) |
+    | A07c (2. tur) | rol ve durum hataya sarılır (`%w: role …, status …`) ve `write()`'taki `ErrBrandNotPermitted` toparlaması kaldırılır | *Owner* (iki tur: değer `==` değil, altı farklı metin) |
+    | A12 (2. tur) | `ActionBrandUpdated` = `tenant.brand_changed` | `TestBrandTrail_TheActionAndFieldNamesAreTheADRs`, *Each*, *Keys*, *Conc*, *Same*, *Clear* |
+    | A15 (2. tur) | `brandDetailOf`'un geri-okuma sha kontrolü | **yeşil** — dal ulaşılamaz (Karar 1'de "kodda, ölçülmedi") |
+
+    *Clear* = `TestBrandDB_ClearingWithoutABrandRowCreatesTheRowAndRecordsIt`. Pozitif kontrol:
+    değiştirilmemiş kodda aynı test kümesi yeşil (M00; 2. turun testleriyle yeniden). M01a, M01b
+    ve M02 test dosyasının 1. tur son sürümüne karşı yeniden koşuldu (eşzamanlılık testi M02'den
+    sonra yeniden yazıldı: ilk sürümü yalnız "UPDATE'ten sonra" tutuyordu ve M02 yeşil kalmıştı —
+    o tutmada ikinci yazıcı `EnsureTenantBrand`'de bekler, `FOR UPDATE`'e ulaşmaz). M-satırları
+    2. turun eklediği testlere karşı yeniden koşulmadı; A-satırları 2. turun test dosyasına karşı
+    koşuldu.
+  - **PART III:** Listede olmayan her biçim kod incelemesinin konusu — tamlık iddiası yok.
+- **Sayılı sınırlar.** (1) Rol okuması düz bir `SELECT`'tir: okumadan sonra commit edilen bir
+  rol düşürmesini o yazma görmez (ölçülmedi). (2) `Normalized()` `reflect`/`unsafe` ile
+  aşılabilir; `Normalize` çıktısının değişmemiş kopyası kabul edilir (tasarım). (3) Audit
+  satırlarının sırası sınanmaz (`at` = transaction başlangıcı). (4) Test fikstürleri dev DB'de
+  kalır (`tappa_app` DELETE taşımaz; `make db-reset`). (5) Eşzamanlılık testi
+  `pg_stat_activity`'yi `tappa_app` olarak okur (aynı rolün oturumu görünür).
+  (6) `log_statement=all` olan dev'de testlerin üretilmiş logo baytları sunucu log'una
+  parametre olarak düşebilir (sır değil; WL-1 sınırıyla aynı — log okunmadı).
+
 ### 2. Slot haritası — ekran ekran
 
 Tablo **sayılı listedir**: bir yüzey burada yoksa marka almaz, ve eklenmesi bu ADR'nin

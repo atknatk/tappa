@@ -84,6 +84,9 @@ func logoCheckOutput(t testing.TB, l Logo) image.Image {
 	if l.SHA256 != hex.EncodeToString(sum[:]) {
 		t.Fatal("SHA256 is not the digest of Data")
 	}
+	if !l.Normalized() {
+		t.Fatal("Normalize's output reports Normalized() == false")
+	}
 	var img image.Image
 	var err error
 	if l.MIME == LogoMIMEPNG {
