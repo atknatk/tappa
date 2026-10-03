@@ -5283,6 +5283,109 @@ metni), `FactNoBulkImport`, `TestBrand_*`, panel CSP ↔ script karşılığı t
 > - **N8:** ADR'deki satır içi notun tarihi 2026-10-03; WL-2 notunun "normatif cümle" maddesi
 >   *"2. tur, 2026-10-03; 3. turda düzeltildi"* diye işaretlendi.
 
+> **Kart düzeltmesi (2026-10-03, WL-3 uygulaması sırasında; 2. tur aynı gün).** Yazıldı:
+> `internal/brand/logo.go` (`LogoGate`, `NewLogoGate`, `Normalize`, `Logo`, dokuz ret sınıfı
+> `ErrLogo*`), `internal/brand/logo_resize.go` (kutu filtresi) ve testleri (`logo_*_test.go`;
+> fikstürler kodla üretilir, ikili dosya eklenmedi). Paket belgesi (`doc.go`) WL-2'nin. Ölçümler,
+> kararlar, devirler ve üç parçalı iddialar: [ADR 0024](../adr/0024-kullanici-yukledigi-gorsel.md)
+> → *"WL-3 notu"*. `go.mod`/`go.sum`/`sqlc.yaml` diff'i boş.
+>
+> **Kabul satırı → ölçen test:**
+> 1. SVG/GIF/WebP/HTML/PNG-magic'li HTML red → `TestLogoFormat_RefusesWhatIsNotPNGOrJPEG`
+>    (on bir girdi + SOI'den sonra çöp baytlı JPEG; hepsi `ErrLogoFormat`); istemci başlığı →
+>    `TestLogoFormat_ClientHeadersDoNotDecide` (üç etiketli parça; `image/jpeg` etiketli çöp
+>    baytlı JPEG de `ErrLogoFormat`); üçüncü kapının yazımı →
+>    `TestLogoDecode_CallsTheSniffedFormatsOwnDecoder`.
+> 2. 30000×30000 başlıklı dosya decode'dan önce red, tahsis ölçülür →
+>    `TestLogoBomb_HugeHeaderRefusedBeforeDecode`: PNG (75 B) çağrı boyunca 5 392 B, JPEG
+>    (219 B) 17 920 B (4 KiB'lık okuma tamponu dahil); pozitif kontrol: kapıdan geçen 2048²
+>    başlıklı verisiz PNG 16,8 MB. Kenarlar → `TestLogoDimensions_EachEdgeAndThePixelCount`.
+> 3. Kesik red → `TestLogoTruncated_EveryPrefixRefused` (dört dosyanın her öneki).
+> 4. IEND sonrası yük çıktıda (testin girdisinde) 0 → `TestLogoMetadata_PNGChunksAndTrailingBytesDoNotSurvive`
+>    (çıktı tam olarak `IHDR IDAT IEND`, IEND'den sonra 0 bayt).
+> 5. EXIF-GPS'li JPEG'in çıktısında `Exif` APP1 (testin girdisinde) 0 →
+>    `TestLogoMetadata_ExifGPSDoesNotReachTheOutput` (girdide APP1 `Exif`, APP2 `ICC_PROFILE`, COM,
+>    APP15, EOI sonrası HTML; çıktının işaretleri S14 kümesinde, `FF E1` 0).
+> 6. CMYK JPEG, 16-bit, paletli, interlaced PNG normalize → `TestLogoNormalize_EveryDecodedLayout`
+>    (18 satır, her biri kendi biçiminde, dört iç noktada girdinin rengiyle).
+> 7. ≤512 px, ≤256 KiB → `TestLogoOutput_Within512AndTheSizeLimit` (sınır 262 144 dahil;
+>    400² gürültü PNG `ErrLogoOutputTooLarge`), kalite → `TestLogoOutput_JPEGQualityIs85`.
+> 8. `FuzzNormalize` — koşunun girdilerinde panik 0, her başarılı çıktı yeniden decode olur ve
+>    sınırlarda; ret tam olarak bir sınıf ve sınıfın metni.
+> 9. Semafor `-race` altında ≤N → `TestLogoGate_ConcurrentDecodesNeverExceedN` (N = 1 ve 3).
+> 10. JPEG SOS sayımı üst sınır; tavan+1 ve dürüst olmayan dosya decode'dan önce red →
+>     `TestLogoScans_CeilingAcceptedOneMoreRefused`, `TestLogoScans_DishonestFilesRefused` —
+>     **yedi yerleşim**, her biri kandırdığı sayaçla: üst düzey `FF D0`, `FF 00`, dolgu `FF FF`,
+>     `00 11 22` (segment yürüyücüsü); yükü `FF DA FF FF` olan APP1 (başlığı uzunlukla atlayan
+>     sayaç); DQT değerlerinde `FF E1 FF F0` (APPn'i uzunlukla atlayan sayaç); yükü `FF D9` olan
+>     APP1 (ilk `FF D9`'da duran sayaç). Adlandırılan sayaç ≤ 100 sayar, çözücü gizli DC
+>     taramasını çalıştırır (her piksel 77), ham sayım > 100 → red. Üst sınır gerekçesinin
+>     dayandığı fonksiyonlar (`decode`, bayt okuyucular, `findRST`) go1.26.6 ve go1.27.1'de aynı
+>     metin; `image/jpeg`'in bütünü değil — 1.27.1 standart dışı ("flex") alt örneklemeli üç
+>     bileşenli JPEG'i normalize eder, CI'nin 1.26.6'sı `ErrLogoFormat` verir (ölçüldü).
+>     **Tavan 100**; tavandaki süre: 2048², `Normalize` uçtan uca, üç koşunun ortancası,
+>     go1.27.1 / go1.26.7: gri progressive ilk AC 367 / 422 ms · gri iyileştirme 911 / 955 ms ·
+>     CMYK ilk AC 525 / 574 ms · CMYK iyileştirme **1 052 / 1 068 ms**; tarama sayısından bağımsız
+>     boyut-bağlı ardışık dosya 1 327–1 480 / 1 153–1 293 ms. Tek koşuda en uzun 1 662 ms.
+> 11. Yuva decode → küçültme → kodlama boyunca, goroutine dönünce bırakılır; iptal edilen
+>     istekten sonra dolu → `TestLogoGate_SlotHeldThroughDecodeResizeEncode` (beş aşama),
+>     `TestLogoGate_CancelledContextKeepsTheSlotUntilTheDecodeReturns` (tutulan + canlı),
+>     `TestLogoGate_ErrorPathsGiveTheSlotBack`; gövde okunurken biten istek yuvayı almaz →
+>     `TestLogoGate_ContextEndedDuringTheReadTakesNoSlot`.
+> 12. N eşzamanlı en kötü decode altında bellek → `TestLogoMemory_WorstDecodeAllocations`,
+>     `TestLogoMemory_ProcessRSS`: tepe progressive CMYK 4:4:4 2048² — `TotalAlloc` 98,45 MiB, heap
+>     nesne tepesi 99,0–99,3 MiB, taze süreçte üç ardışık çağrının RSS tepesi **138,6–154,7 MiB**
+>     (iki kipli; RSS'te en kötü dosya CMYK). **Konteynerde ölçüldü** (WL-3'ün üçüncü gözü,
+>     go1.26.6 linux/amd64, `--memory=512m --cpus=2`, ürün tabanı dahil değil): CMYK 137–153
+>     (`VmHWM`) / 139–155 MiB (`memory.peak`). **Seçim: `2 × (N × tepe + taban) < 512Mi`
+>     hesabı** → N = 1, tepe ≈99 MiB ile **taban < 157 MiB**; `GOMEMLIMIT`'in etkisi beş
+>     koşuda ayrılmadı. **Öneri** (manifest değişmedi): `deploy/k8s/20-app.yaml` uygulama
+>     konteyneri `env`'ine `GOMEMLIMIT=400MiB` — ürün geneli kemer.
+> 13. N < `GOMAXPROCS` → N = 1: `LogoDecodeSlots = 1`, `TestNewLogoGate_RefusesFewerThanOneSlot`;
+>     konteynerde `GOMAXPROCS` = 2 ölçüldü (NumCPU 4, `cpu.max` "200000 100000").
+> 14. Yuva beklemeden alınır, N doluyken red decode'a ve incelemeye girmeden →
+>     `TestLogoGate_FullGateRefusesBeforeDecoding`: dolu kapıda 2048² progressive CMYK 537 768 B,
+>     37 000 `tEXt`'li paletli PNG 537 672 B (incelemesi yuva boşken 145 MiB), SVG 4 696 B —
+>     üçü de ≤ 1 MiB ile `ErrLogoBusy`.
+> 15. `go.mod` diff boş — `git diff --stat go.mod go.sum sqlc.yaml` 0.
+>
+> **Sapmalar (gerekçeli):**
+> - **İnceleme de yuvanın içinde** (ADR yuvayı *"decode'dan önce"* der): paletli PNG'nin
+>   `DecodeConfig`'i chunk fırtınasında 144,5 MiB kısa ömürlü tahsis yapar; yuvanın dışında N ile
+>   sınırlanmazdı (ADR 0024 WL-3 notu, karar 2).
+> - **Okuma iki tamponla** (4 KiB, sonra sınır + 1): `io.ReadAll`'ın tahsisi sürüme göre değişiyor
+>   (aynı 518 KB: go1.27.1'de 1 065 360 B, go1.26.6 `-race`'te 2 128 048 B); okuma tahsisinin üst
+>   sınırı artık sınır + 32 KiB — ikinci tamponu gerektiren okumalarda 536 624–537 728 B, ilk
+>   tamponda bitenlerde 4 144–5 248 B (karar 4). Brief'in "≤ 1 MiB" pini 1. turun koduyla tutmazdı.
+> - **Hata metni:** `TestLogoErrors_TextIsTheClassOnly` iki değer taşıyan nedeni ölçer — PNG
+>   chunk uzunluğu (`ErrLogoCorrupt`) ve quoted-printable okuyucusunun bayt adı (`ErrLogoRead`).
+> - **Linux RSS dalı** (`VmHWM`) kapanış denetçisinin konteynerinde koştu (go1.26.8): decode
+>   öncesi 8,0–13,2 MiB, CMYK 139,4–145,8 MiB.
+> - **Podda ölçülmedi:** ürün tabanıyla RSS — deploy'da orkestratörün, WL-7'ye bloke.
+> - **Ölçüm testleri `-race` altında atlanır** (`TestLogoScans_WorstCaseDecodeTime`,
+>   `TestLogoMemory_WorstDecodeAllocations`, `TestLogoMemory_ProcessRSS`); CI yalnız `-race`
+>   koştuğu için bu üçü CI'da koşmaz — ADR'nin iki "CI'da yeniden üretir" cümlesi düzeltildi.
+> - **Progressive / 4 bileşenli JPEG'i reddetme alternatifi seçilmedi**; taban podda ölçülüp
+>   157 MiB'ı aşarsa yeniden açılır.
+> - **256 KiB:** ADR §3'ün kendisi (PNG → PNG, JPEG → JPEG q85, aşan → ret); merdiven eklenmedi.
+>
+> **Devirler:** WL-1/WL-6 — `logo_sha256` üzerine global UNIQUE konmaz (`(tenant_id,
+> logo_sha256)` ya da hiç; İddia D); "logo değişmedi mi" yeniden normalize edip sha
+> karşılaştırmaz (PNG çıktısı Go sürümüne göre değişiyor: 180 383 B / 180 355 B). WL-7 — wiring
+> `brand.NewLogoGate(brand.LogoDecodeSlots)` bir kez ve bunu pinleyen test; handler
+> `gate.Normalize(r.Context(), part)` (parçayı doğrudan verebilir); ret → kullanıcı cümlesi ve
+> log sınıfı `errors.Is` ile (`ErrLogoBusy` → "tekrar dene", sunucu tarafında yeniden denenmez;
+> `ErrLogoScans` → "standart JPEG olarak kaydet"; `ErrLogoOutputTooLarge` → "sadeleştir / JPEG
+> dene"; `ErrLogoVerify` → iç hata); `ErrLogoRead` bir `*http.MaxBytesError` sarabilir; log'a
+> sınıf yazılır, `errors.As` ile çözücünün ya da okuyucunun mesajı yazılmaz; açık logo uyarısı
+> `Normalize` çıktısından; eşzamanlı okuma başına en çok ≈0,52 MiB; yükleme bütçesi deneme
+> başına, gövde okunmadan önce — sonuca göre düşülürse decode'a ulaşan retler (`ErrLogoCorrupt`,
+> `ErrLogoOutputTooLarge`, `ErrLogoVerify`, yuva alındıktan sonra biten bağlam) bedava decode
+> olur (ADR 0024 §6 düzeltmesi; tenant'lar arası açlık sayılı sınır 11); gövde öncesi kabul
+> sınırı ve okuma süresi WL-7'nin.
+>
+> **Orkestratör notu (2026-10-03, birleştirmede) — 🔴 WL-7 BLOKESİ:** logo yükleme rotası (WL-7) canlıya bağlanmadan önce podda ÜRÜN TABANIYLA RSS ve `runtime.GOMAXPROCS(0)` ölçülür (güvenlik denetimi #1; ADR 0024 §2.6 — konteyner ölçümü pod değil, ürün tabanı dahil değil); bütçe deneme başına, gövde okunmadan ve `Normalize`'dan önce düşülür (ADR 0024 §6, sayılı sınır 11). WL-1'e: `logo_sha256` üzerinde GLOBAL UNIQUE yok.
+
 ## 6. Kararlar
 
 **✅ Kullanıcı kararları (2026-09-24):**

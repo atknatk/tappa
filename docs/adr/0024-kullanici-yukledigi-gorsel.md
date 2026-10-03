@@ -5,7 +5,9 @@
   logonun kendisi kullanıcı kararı **D-C** (2026-09-24, [ADR 0023](0023-tenant-markasi-ve-arayuz-kurali.md) §7).
   **Uygulama: yok** (HEAD `c0c0250`'de üretim kodunda görsel paketi import eden, multipart
   okuyan ya da şablonda `<img>` render eden yer 0 — aşağıda ölçüldü); uygulama WL-1, WL-3,
-  WL-4, WL-6, WL-7, denetim WL-10.
+  WL-4, WL-6, WL-7, denetim WL-10. **WL-3 (2026-10-03):** `internal/brand/logo.go` ve
+  `logo_resize.go` — biçim kapıları, sınırlar, tarama tavanı, semafor, kutu filtresi,
+  yeniden kodlama; tavan, süre ve bellek ölçümleri sondaki *"WL-3 notu"*nda.
 - **Tarih:** 2026-10-02
 - **Bağlam:** [M10 Akış C](../plan/m10-platform.md) §5, görev WL-0. Sapmalar ve ölçüm komutları:
   aynı dosya → *"Kart düzeltmesi (2026-10-02, WL-0 uygulaması sırasında)"*.
@@ -66,8 +68,12 @@ ucundaki dokuz politikada `img-src` hâlâ yalnız `landingCSPFor`'dadır (`mark
 ### Ölçülen standart kütüphane davranışı
 
 Sonda: yalnız stdlib, scratchpad'de ayrı modül; **go1.27.1 darwin/amd64**. Depo `go 1.26.2`
-ister ve CI 1.26.x koşar; bu sayılar CI araç zincirinde yeniden ölçülmedi — WL-3'ün testleri
-onları CI'da yeniden üretir. Fikstürler ImageMagick ve elle kurulmuş başlıklarla üretildi.
+ister ve CI 1.26.6 koşar (`ci.yml:91`); bu sayılar CI araç zincirinde yeniden ölçülmedi.
+*(WL-3 düzeltmesi, 2026-10-03: burada "WL-3'ün testleri onları CI'da yeniden üretir"
+yazıyordu — tutmuyor. CI yalnız `go test -race -count=1 ./...` koşar (`Makefile:248`,
+`ci.yml:200-201`) ve S7–S9'un sayılarını üreten üç ölçüm testi `-race` altında atlanır;
+CI'da koşan, WL-3'ün kabul pinleridir. Sayılar `-race`'siz yerel koşudan — WL-3 notu, sayılı
+sınır 2.)* Fikstürler ImageMagick ve elle kurulmuş başlıklarla üretildi.
 
 | # | Girdi | Ölçülen |
 |---|---|---|
@@ -175,8 +181,11 @@ S4 ve S6 kuralın sebebidir: çözücü **başlıktaki** boyuta göre ayırır, 
      sınırıdır. GC payı: depoda `GOMEMLIMIT`/`GOGC` ayarı yok (Bağlam); `GOGC=100`'de heap hedefi
      canlı heap'in yaklaşık iki katıdır. Bu yüzden ya `GOMEMLIMIT` konur ya da sınır
      `2 × (N × tepe + taban) < 512Mi` ile hesaplanır. Kabul: WL-3, 512Mi sınırlı bir konteynerde N
-     eşzamanlı en kötü decode altında **RSS**'i ölçer ve karta yazar. Tek replika, yani OOMKill
-     tap dahil ürünün durması demektir (`20-app.yaml:53`).
+     eşzamanlı en kötü decode altında **RSS**'i ölçer ve karta yazar. *(WL-3 düzeltmesi: bir
+     konteynerde ölçüldü — WL-3'ün üçüncü gözü, go1.26.6 linux/amd64, `--memory=512m
+     --cpus=2`, ürünün kendi tabanı dahil değil; sayılar WL-3 notunda. Podda ürün tabanıyla RSS
+     ölçülmedi — deploy'da orkestratörün.)* Tek replika, yani OOMKill tap dahil ürünün durması
+     demektir (`20-app.yaml:53`).
    - **CPU — kural ve sonucu:** N < `GOMAXPROCS` (bir yuva bir çekirdeği tutar; en az bir
      çekirdek tap yoluna kalmalı). `GOMAXPROCS`'un kaynağı: Go 1.25 ve sonrasının çalışma zamanı
      Linux'ta cgroup CPU sınırını okur ve varsayılanı mantıksal CPU sayısı ile o sınırın küçüğüne
@@ -184,7 +193,9 @@ S4 ve S6 kuralın sebebidir: çözücü **başlıktaki** boyuta göre ayırır, 
      `godebug` yönergesi 0). Düğüm 16 CPU (`10-postgres.yaml:208`), sınır `"2"`
      (`20-app.yaml:502`) → `GOMAXPROCS` = 2 (türetildi, podda ölçülmedi) → **N = 1 kuralın
      sonucudur**, öneri değil. Kabul: WL-3 pod içinde `runtime.GOMAXPROCS(0)`'ı bir kez ölçer ve
-     karta yazar; 2'den farklıysa N yeniden hesaplanır.
+     karta yazar; 2'den farklıysa N yeniden hesaplanır. *(WL-3 düzeltmesi: `--cpus=2`
+     sınırlı bir konteynerde ölçüldü — `GOMAXPROCS` = 2 (NumCPU 4, `cpu.max` "200000 100000"),
+     türetme tutuyor; podun kendisinde ölçülmedi — deploy'da orkestratörün.)*
    - **Alternatif** (WL-3'ün seçimi, gerekçesiyle): progressive ya da 4 bileşenli JPEG'i
      reddetmek tepeyi 96'dan **~64 MiB**'a indirir — 1,5 kat; kalan en kötü 16-bit RGBA
      interlaced PNG'dir (S7: 512 KiB'a sığan düz örnekte 64,22 MiB). Bedeli, tasarımcıların sık
@@ -293,7 +304,16 @@ PNG → PNG (`BestCompression`), JPEG → JPEG (q85). Saklanan ve sunulan tek ş
   yazar (oturum başına 10 dakikada ≈75 MiB). Gövde okuma fazı semaforun **önünde** ve süresizdir
   (`ReadTimeout` yok); bugün onu sınırlayan ölçülmüş ayar ingress'in `proxy-body-size: "1m"`'idir
   (istek tamponlaması kümede ölçülmedi). Kurallar:
-  - **tenant başına yükleme bütçesi** (pencere başına sayı ve bayt);
+  - **tenant başına yükleme bütçesi** (pencere başına sayı ve bayt); *(WL-3 düzeltmesi,
+    güvenlik denetimi: bütçe **deneme başına** düşülür — gövde okunmadan ve `Normalize`
+    çağrılmadan **önce**; sonuca göre düşülen bir bütçede decode'a ulaşan her ret bedava bir
+    tam decode olur — `ErrLogoCorrupt`, `ErrLogoOutputTooLarge`, `ErrLogoVerify` ve yuva
+    alındıktan sonra biten bağlam. Decode'dan önce dönen retler (`ErrLogoBusy`,
+    `ErrLogoInputTooLarge`, `ErrLogoRead`, `ErrLogoFormat`, `ErrLogoDimensions`,
+    `ErrLogoScans`, okuma sırasında biten bağlam) decode etmez — tahsisi ölçülen dördünde
+    (meşgul, boyut, tarama, okuma sırasında biten bağlam) 4 696–550 400 B (WL-3 notu). Kapı
+    süreç genelinde tek yuva, bütçe tenant başına ve
+    kayıt herkese açık olduğu için tenant'lar arası açlık sayılı sınır 11'dedir.)*
   - gövde okunmadan önce **eşzamanlı yükleme kabul sınırı** (dolu ise gövde okunmadan ret);
   - gövde okuması için `http.NewResponseController(w).SetReadDeadline`;
   - ingress bağımlılığı adıyla yazılır: `40-ingress.yaml:127-129`'un *"small JSON body"*
@@ -330,7 +350,8 @@ vermez.**
   HTML reddedilir; istemcinin `Content-Type`'ı ve dosya adı sonucu değiştirmez.
 - **PART II:** WL-3'in biçim tablosu testi (bu beş vaka) · WL-3'in "istemci başlığı yok
   sayılır" testi. Yakaladıkları: tablodaki beş vakadan birinin (SVG, GIF, WebP, HTML, PNG imzalı
-  HTML) kabul edilmesi; istemcinin `Content-Type`'ının ya da dosya adının sonucu değiştirmesi.
+  HTML) kabul edilmesi; istemcinin `Content-Type`'ının ya da dosya adının sonucu değiştirmesi
+  *(WL-3 düzeltmesi: testin ölçtüğü üç etiketli parçada — WL-3 notu, İddia A)*.
   Kapıların **sırası** (`DecodeConfig`'in `Decode`'dan önce gelmesi) bu testin değil, İddia B'nin
   bomba testinin konusudur: ikinci kapı kaldırılsa da PNG imzalı HTML `Decode`'da ve sıfır
   kenarlı başlık boyut kapısında düşer, bu beş vakalık test yeşil kalır.
@@ -342,12 +363,15 @@ vermez.**
   taramalı JPEG ve "dürüst olmayan" JPEG (segmentler arası çöp, uzunluk alanına gizlenmiş SOS)
   decode'dan önce reddedilir; kesik dosya reddedilir; eşzamanlı çözme `-race` altında N'yi
   aşmaz; context'i iptal edilen istekten sonra yuva decode bitene kadar dolu kalır. WL-3'te bir
-  kez ölçülecek (pin değil): 512Mi konteynerde N eşzamanlı en kötü decode altında RSS.
+  kez ölçülecek (pin değil): 512Mi konteynerde N eşzamanlı en kötü decode altında RSS *(WL-3
+  düzeltmesi: N = 1 ile bir konteynerde ölçüldü, podda değil — WL-3 notu)*.
 - **PART II:** WL-3'in bomba testi (tahsis ölçümüyle) · tarama tavanı testi (dürüst olmayan
   vakayla) · kesik girdi testi · semafor testi (iptal vakasıyla) · fuzz testi. Yakaladıkları:
   `DecodeConfig` kapısından önce `Decode` çağrılması; tarama sayımının kaldırılması ya da
-  çözücüden az sayan bir sayıma dönüşmesi; yeniden decode'un sınır dışı bir çıktıyı kabul
-  etmesi; semaforun atlanması ya da iptalde erken bırakılması; çözücüde panik.
+  çözücüden az sayan bir sayıma dönüşmesi *(WL-3 düzeltmesi: dürüst olmayan dosya testinin
+  yedi yerleşiminden birinde az sayan bir sayıma — WL-3 notu, İddia B PART II; genel "az sayan
+  her sayım" iddiası yok)*; yeniden decode'un sınır dışı bir çıktıyı kabul etmesi; semaforun
+  atlanması ya da iptalde erken bırakılması; çözücüde panik.
 - **PART III:** Listede olmayan her biçim kod incelemesinin konusu — tamlık iddiası yok.
 
 **İddia C — saklanan bayt girdinin meta verisini ve ek yükünü taşımaz.**
@@ -355,7 +379,10 @@ vermez.**
   `Exif` APP1 yok; IEND sonrası yük çıktıda yok; çıktının bölüm listesi S14'teki kümedir.
 - **PART II:** WL-3'in meta veri testleri (JPEG APP1/COM, PNG `eXIf`/`tEXt`/`iCCP`, IEND ve EOI
   sonrası bayt) · çıktı bölüm listesi testi. Yakaladıkları: yüklenen baytın saklanması;
-  kodlayıcının meta veri yazan bir yolla değiştirilmesi.
+  kodlayıcının meta veri yazan bir yolla değiştirilmesi *(WL-3 düzeltmesi: testlerin
+  girdilerindeki segment ve chunk'lardan birini çıktıya taşıyan bir yolla — JPEG'de APP1
+  `Exif`, APP2 `ICC_PROFILE`, COM, APP15, EOI sonrası bayt; PNG'de `eXIf`, `tEXt`, `zTXt`,
+  `iCCP`, IEND sonrası bayt; WL-3 notu, İddia C)*.
 - **PART III:** Listede olmayan her biçim kod incelemesinin konusu — tamlık iddiası yok.
 
 **İddia D — bir tenant'ın logosu başka tenant'ın oturumuna sunulmaz ve varlığı ayırt
@@ -426,7 +453,9 @@ edilemez.**
 
 ## Sayılı sınırlar ve kabul edilen riskler
 
-1. **Ölçümler go1.27.1'de.** CI 1.26.x; WL-3 testleri sayıları CI'da yeniden üretir.
+1. **Ölçümler go1.27.1'de.** CI 1.26.6. *(WL-3 düzeltmesi: "WL-3 testleri sayıları CI'da
+   yeniden üretir" yazıyordu — tutmuyor: CI yalnız `-race` koşar ve sayıları üreten üç ölçüm
+   testi `-race` altında atlanır; CI'da WL-3'ün kabul pinleri koşar — WL-3 notu, sayılı sınır 2.)*
 2. **Tarama tavanı, GC ayarı ve yükleme bütçelerinin sayıları henüz yok** — WL-3 ve WL-7'nin
    kararı, ölçümle (§2.5, §2.6, §6). N = 1, `GOMAXPROCS` = 2 türetmesinin sonucudur; podda
    ölçülen `GOMAXPROCS` 2'den farklı çıkarsa yeniden hesaplanır (§2.6).
@@ -442,14 +471,24 @@ edilemez.**
    sunulmaz.
 10. **Önbellek:** logo değişince eski sha'nın URL'i onu daha önce almış tarayıcılarda bir yıl
     durabilir (`private`, içerik adresli); sunucu eski sha'ya 404 verir.
+11. **Tenant'lar arası açlık (WL-3 güvenlik denetimi, 2026-10-03).** Decode kapısı süreç
+    genelinde tek yuvadır (N = 1), yükleme bütçesi tenant başınadır (§6) ve kayıt herkese
+    açıktır (adres başına saatte 3 tenant, Bağlam): birkaç tenant'ın bütçeleri birlikte tek
+    yuvayı sürekli dolu tutabilir; ölçülen en kötü decode ≈1–1,7 s (WL-3 notu). O sürede başka
+    tenant'ların yüklemeleri `ErrLogoBusy` alır; yuva bir çekirdeği tutar ve N < `GOMAXPROCS`
+    tap yoluna bir çekirdek bırakır (konteynerde `GOMAXPROCS` = 2 ölçüldü). Çare
+    WL-7'de: §6'nın gövde öncesi kabul sınırı, deneme başına düşülen bütçe ve öneri olarak
+    süreç geneli bir deneme tavanı (pencere başına, tenant'tan bağımsız).
 
 ## Karar verilmedi
 
-- JPEG tarama tavanının sayısı ve tavanın süre bütçesi (doğal aday router'ın 30 s'si) — WL-3.
-  (Semafor N karara bağlı değil, kuralın sonucu: N = 1 — §2.6.)
-- GC: `GOMEMLIMIT` mi, `2 × (N × tepe + taban)` hesabı mı (§2.6) — WL-3, RSS ölçümüyle.
-- Progressive / 4 bileşenli JPEG'i tamamen reddetme alternatifi (§2.6; 96 → ~64 MiB) — WL-3
-  ölçümle seçer.
+- ~~JPEG tarama tavanının sayısı ve tavanın süre bütçesi~~ → **WL-3 notu (2026-10-03): tavan
+  100**, tavandaki ölçülen en kötü süre ≈1,1 s. (Semafor N karara bağlı değil, kuralın
+  sonucu: N = 1 — §2.6.)
+- ~~GC: `GOMEMLIMIT` mi, `2 × (N × tepe + taban)` hesabı mı~~ → **WL-3 notu: hesap**
+  (tepe ≈99 MiB ölçüldü; `GOMEMLIMIT=400MiB` ve `=128MiB` ile beş taze süreçlik ölçüm, iki en
+  kötü dosyada tek sürecin RSS tepesinde bir etki ayırmadı); taban podda ölçülmedi.
+- ~~Progressive / 4 bileşenli JPEG'i tamamen reddetme alternatifi~~ → **WL-3 notu: seçilmedi.**
 - Tenant yükleme bütçesinin, kabul sınırının ve okuma süresinin sayıları (§6) — WL-7.
 - E-postada logo (faz 2, CID, ≤32 KiB varyant) — ADR 0023.
 
@@ -464,3 +503,293 @@ edilemez.**
   rotasının gerekçesi düzeltildi.
 - Yeni bağımlılık yok: `image/png`, `image/jpeg`, `mime/multipart`, `net/http`,
   `crypto/sha256` — stdlib.
+
+## WL-3 notu (2026-10-03; 2. tur aynı gün)
+
+Kod: `internal/brand/logo.go` (`LogoGate`, `Normalize`, okuma, kapılar, tarama sayımı, yeniden
+kodlama), `internal/brand/logo_resize.go` (kutu filtresi). `go.mod`/`go.sum` diff'i boş.
+Ölçüm ortamı: go1.27.1, go1.26.6 ve go1.26.7, darwin/amd64, Intel i9-9980HK. CI
+(`ci.yml:91`) ve Dockerfile (`GO_IMAGE=golang:1.26.6-bookworm`) **1.26.6** kullanır;
+`image/jpeg`, `image/png` ve `compress/flate` 1.26.6 ile 1.26.7 arasında diff ile aynı, paketin
+testleri 1.26.6'da `-race` ile de koşuldu. Aynı makinede paralel bir yapıcı koşuyordu, süreler
+bu yüzden üç koşunun ortancası ve aralığıyla yazıldı. Fikstürler testte kodla üretilir (ikili
+dosya eklenmedi): CMYK/YCCK ve progressive JPEG, interlaced PNG, meta veri segmentleri ve
+tarama bombaları elle yazılan baytlardır (`logo_forge_test.go`).
+
+### Kararlar
+
+1. **Tarama tavanı: `LogoJPEGScanCeiling = 100`.** Sayım §2.5'in (a) biçimi: ham baytta her
+   `FF DA` çifti (`bytes.Count`); çözücüye aynı baytlar verilir. Üst sınır gerekçesi çözücünün
+   okunmasıdır. Dayandığı kod 1.26.6 ile 1.27.1'de metin olarak aynıdır (3. tur, fonksiyon
+   fonksiyon karşılaştırıldı): `decode` (1.27.1 `reader.go:525-671`, 1.26.6 `:520-666`),
+   `fill`, `readByte`, `readByteStuffedByte`, `unreadByteStuffedByte`, `readFull`, `ignore`,
+   `scan.go`'nun `findRST`'i, `huffman.go`'nun `ensureNBits`/`decodeHuffman`'ı. Paketler başka
+   yerde farklıdır: 1.27.1 standart dışı alt örneklemeli ("flex") üç bileşenli JPEG'i çözer,
+   1.26.6 reddeder (`processSOF`, `makeImg`, `convertToRGB`, `receiveExtend`, `processSOS`'un
+   MCU geometrisi, `reconstructBlock`, `reconstructProgressiveImage`); `processSOS`'un farkı
+   yalnız MCU sayısının hesabıdır, tampon ve işaret okumasına dokunmaz. Bu döngü bir işareti
+   akışın iki bitişik baytı olarak okur — `FF` olmayan baytların
+   üstünden tek tek hizalanır, dolgu `FF`'lerini tek tek atlar, üst düzey RST'yi ve başıboş
+   `FF 00`'ı uzunluksuz işaret sayar — ve en çok iki bayt (dolgu baytı) geri gider, bir tarama
+   başlığı ise en az sekiz bayttır; yani çalıştırdığı her tarama kendi `FF DA` çiftinde başlar.
+   Tavanın seçimi, ölçüyle:
+   - **alt sınır:** ölçülen gerçek kodlayıcılar (256×256 kaynak, ham `FF DA` sayımı) —
+     ImageMagick 7.1.2 `-interlace JPEG`: gri **6**, YCbCr **10**, CMYK **18**; libjpeg-turbo
+     3.2.0 `cjpeg -progressive` 10, `-optimize` 10, `jpegtran -progressive` 10. S10'un 18'i
+     tekrar üretildi. libjpeg-turbo'nun tarama betiği sınırı 100 (S10).
+   - **süre:** tavanda tarama-bağlı en kötü dosyalar ≈0,4–1,1 s; tarama sayısından bağımsız,
+     **boyutla** sınırlı en kötü dosya (ardışık JPEG, tarama başına blok başına bir bit, 512 KiB'a
+     sığan tarama sayısı) ≈1,2–1,5 s (tablo). Yani 100'de tarama bombası, tavan olmadan da var
+     olan boyut-bağlı dosyadan pahalı değildir; tavanı düşürmek en kötü süreyi düşürmez.
+   - Sayım bir APPn segmentindeki ya da bir küçük resimdeki `FF DA`'yı da sayar (ölçüldü: APP1
+     içinde 101 çift → `ErrLogoScans`); bu yönde hata reddetmektir.
+2. **Yuvanın kapsamı: inceleme de yuvanın içinde.** Okuma (en çok 512 KiB + 1) yuvanın
+   dışında; sonra yuva beklemeden alınır, sonra §1–§2.5 kapıları, decode, filtre, kodlama ve
+   çıktının ikinci decode'u; yuva `Normalize` dönerken ertelenmiş çağrıyla bırakılır. §2.6 yuvayı
+   *"decode'dan önce"* der; WL-3 kapıları da içine aldı. Gerekçe, ölçüyle: paletli bir PNG'de
+   `png.DecodeConfig` IDAT'a kadar ek chunk'ları ayrıştırır ve her atlanan chunk için 4 KiB'lık
+   bir tampon heap'e kaçar — PLTE'den sonra 37 000 boş `tEXt` taşıyan 518 100 baytlık dosyanın
+   yalnız incelemesi **144,5 MiB** kısa ömürlü tahsis ve ≈31 ms CPU (heap nesne tepesi 4,2 MiB);
+   yuvanın dışındaki inceleme N ile sınırlanmazdı. Pin (2. tur): dolu kapıda aynı dosya
+   **537 672 B** ile `ErrLogoBusy` alır; incelemeyi yuvadan önce koşturup hatasını yuvadan sonra
+   döndüren mutant (K09, M31) aynı istekte 152,6 MB ve 42 ms ayırdı.
+3. **Okuma ile yuva arasında bağlam denetimi (2. tur, güvenlik denetimi #3).** Gövdesi
+   okunurken bağlamı biten istek yuvayı almaz: `context.Canceled`, yuvanın içinde aşama 0,
+   539 256 B. Önce: aynı istek yuvayı alıp 100 taramalı CMYK dosyayı sonuna kadar decode
+   ediyordu (denetçi: yuva 766 ms tutuldu; mutant M32: 100,8 MB).
+4. **Okuma: iki tampon (2. tur).** `io.ReadAll`'ın büyüme politikası sürüme göre değişiyor —
+   aynı 518 KB yükleme go1.27.1'de 1 065 360 B, go1.26.6 `-race`'te 2 128 048 B ayırdı. Okuma
+   artık 4 KiB'lık bir tampon ve, o dolarsa, sınır + 1 baytlık tek bir tamponla yapılır. Okuma
+   tahsisinin **üst sınırı sınır + 32 KiB**'tır (`TestLogoRead_AllocatesBoundedByTheLimit`;
+   sınır + 1, Go'nun 8 KiB'lık sayfalarında 520 KiB). Ölçülen, go1.27.1 ve go1.26.6, dokuz boyut
+   × üç okuyucu biçimi = 27 okuma: ikinci tamponu gerektiren 17'sinde (4 097 bayt ve üstü üç
+   biçimde; 4 096 bayt "bütün" ve "bayt bayt" biçimde) 536 624–537 728 B; ilk tamponda biten
+   10'unda (0, 1 ve 4 095 bayt üç biçimde; EOF'u son veriyle dönen "yarım" biçimde 4 096 bayt)
+   4 144–5 248 B. WL-7 için: eşzamanlı okuma başına en çok ≈0,52 MiB.
+5. **GC: `2 × (N × tepe + taban) < 512Mi` hesabı; `GOMEMLIMIT` öneri olarak.** Çağrı başına
+   ölçülen tepe (tablo) **≈99 MiB** (progressive 4:4:4 CMYK, 2048²: `TotalAlloc` 98,45 MiB, heap
+   nesne tepesi 99,0–99,3 MiB) → N = 1 ile hesap **taban < 157 MiB** ister. Taban — ürün
+   sürecinin podda boştaki RSS'i — ölçülmedi (sayılı sınır 1). `GOMEMLIMIT` ölçüldü, beş taze
+   süreçlik aralıklarla (üç ardışık çağrı): CMYK'da ayarsız 138,6–154,7 · `GOMEMLIMIT=400MiB`
+   138,7–139,0 · `=128MiB` 138,2–154,5 · `GOGC=50` 138,8–154,5 MiB; 16-bit PNG'de 144,8–146,2 ·
+   145,1–145,8 · 144,8–145,6 · 105,8–137,4 MiB. CMYK iki kiplidir (≈139 ve ≈154); beş koşu
+   `GOMEMLIMIT`'in bir etkisini ayırmaya yetmedi. Tepe tek decode'un canlı patlamasıdır;
+   `GOMEMLIMIT` bütün sürecin GC payını sınırın yakınında sıkar. **Öneri (manifest
+   değiştirilmedi):** `deploy/k8s/20-app.yaml` uygulama konteynerinin `env`'ine
+   `GOMEMLIMIT=400MiB` — ürün geneli bir kemer olarak; logo yolu için gereken, tabanın podda
+   ölçülmesidir.
+6. **Progressive / 4 bileşenli JPEG'i reddetme alternatifi seçilmedi.** Hesap ≈99 MiB tepeyle
+   taban < 157 MiB'ta tutuyor; ret tepeyi ~64 MiB'a indirir ama tasarımcıların CMYK baskı
+   logolarını keser. Taban podda ölçülüp 157 MiB'ı aşarsa yeniden açılır.
+7. **Kutu filtresi:** alan ağırlıklı ortalama, tamsayı aritmetiği (filtrenin pikselleri
+   mimariden bağımsız — karar 10'a bakınız, saklanan bayt değil), premultiplied 16-bit örnekler
+   (saydam piksel komşusuna renk vermez), en yakına yuvarlama; büyütmez — sığan logo boyutunu
+   korur (`TestLogoOutput_Within512AndTheSizeLimit`, M22). Maliyet: 2048² → 512² **80–132 ms**,
+   1,22 MB/çağrı (`BenchmarkLogoResize_2048To512`, beş decode tipi). Kalite: 2048²'lik 1 px
+   siyah-beyaz dama tahtası 512²'de 127/128 gri
+   (`TestLogoResize_FineDetailAveragesInsteadOfAliasing`); kendi boyutunda her piksel stdlib'in
+   NRGBA dönüşümüyle aynı (`TestLogoResize_IdentityWhenItFits`; düşük alfada bir seviye kayıp —
+   `{133 8 140 15}` → `{133 7 140 15}` — premultiplied filtrenin bedeli).
+8. **256 KiB stratejisi:** §3'ün kendisi — PNG → PNG `BestCompression`, JPEG → JPEG q85, aşan
+   → `ErrLogoOutputTooLarge`; kalite merdiveni ya da biçim değişimi eklenmedi (ADR açık
+   bırakmıyor). Ölçü: 512² gürültü JPEG q85 çıktısı **198 617 B** (sınırın altında); 400²
+   gürültü PNG (480 673 B girdi) → `ErrLogoOutputTooLarge`.
+9. **Hata metni sınıfın metnidir.** Ret sınıfları `ErrLogoBusy`, `ErrLogoInputTooLarge`,
+   `ErrLogoRead`, `ErrLogoFormat`, `ErrLogoDimensions`, `ErrLogoScans`, `ErrLogoCorrupt`,
+   `ErrLogoOutputTooLarge`, `ErrLogoVerify` (§6'nın log sınıfları için WL-7 eşler). Çözücünün
+   ve okuyucunun mesajı girdiden değer taşıyabilir (`image/png`: *"Bad chunk length: %d"*,
+   *"bit depth %d, color type %d"*; `mime/quotedprintable`: *"invalid unescaped byte 0x%02x in
+   body"* — `multipart.Part` bu aktarım kodlamasını çağıranı için çözer); `errors.As` ile
+   erişilir, `Error()` metnine girmez (`TestLogoErrors_TextIsTheClassOnly`: iki neden de
+   ölçüldü; M18 — `Error()` nedeni taşır — ve M37 — `ErrLogoRead` `fmt.Errorf("%w: %w")` ile
+   nedeni taşır — KIRMIZI).
+10. **Saklanan baytın sha256'sı Go sürümleri arasında kararlı değildir (2. tur, güvenlik
+    denetimi #5; yeniden ölçüldü).** 300×200 gürültü PNG'nin çıktısı go1.26.6'da 180 383 B,
+    go1.27.1'de 180 355 B; JPEG çıktısı ikisinde aynı (47 765 B, aynı sha). Filtre değil,
+    kodlayıcı (`compress/flate`) değişiyor. Devirler aşağıda.
+
+### Ölçümler
+
+Süreler — `Normalize` uçtan uca (inceleme + decode + filtre + kodlama + ikinci decode),
+2048×2048, üç koşunun ortancası (aralık), `TestLogoScans_WorstCaseDecodeTime`:
+
+| Dosya | Tarama · bayt | go1.27.1 | go1.26.7 |
+|---|---|---|---|
+| gri progressive, DC + 99 ilk AC (EOB koşusu) | 100 · 10 157 | 367 ms (364–374) | 422 ms (389–424) |
+| gri progressive, DC + 1 AC + 98 iyileştirme | 100 · 10 157 | 911 ms (907–933) | 955 ms (741–956) |
+| CMYK 4:4:4 progressive, DC + 99 ilk AC | 100 · 34 755 | 525 ms (522–550) | 574 ms (520–590) |
+| CMYK 4:4:4 progressive, DC + 4 AC + 95 iyileştirme | 100 · 34 755 | 1 052 ms (1 049–1 058) | 1 068 ms (870–1 131) |
+| gri progressive, 60 DC + 1 AC + 39 iyileştirme | 100 · 493 249 | 700 ms (542–723) | — |
+| CMYK progressive, 15 DC + 4 AC + 81 iyileştirme | 100 · 493 661 | 1 113 ms (831–1 297) | — |
+| gri ardışık, 60 tarama (boyut-bağlı) | 60 · 492 949 | 1 327 ms (1 240–1 366) | 1 153 ms (1 062–1 228) |
+| CMYK 4:4:4 ardışık, 15 tarama (boyut-bağlı) | 15 · 492 536 | 1 480 ms (1 464–1 662) | 1 293 ms (1 218–1 335) |
+
+Tek koşuda gözlenen en uzun: 1 662 ms. `-race` altında aynı 2048² iyileştirme dosyası ≈9 s
+sürdü (bir kez gözlendi). Bütçe: router'ın 30 s'si; testin tek iddiası bu. (Süreler 1. turun
+kodunda ölçüldü; 2. turun değişiklikleri — okuma, bağlam denetimi — decode yoluna girmez.)
+
+Bellek, yerel süreç — `TestLogoMemory_WorstDecodeAllocations` (çağrı başına `TotalAlloc`,
+100 µs'de bir örneklenen heap nesne tepesi; go1.27.1, parantez go1.26.6) ve
+`TestLogoMemory_ProcessRSS` / `TestLogoMemory_Child` (her ölçüm taze bir alt süreç, üç ardışık
+çağrı, `GOGC`/`GOMEMLIMIT` ayarsız; darwin'de `getrusage` tepe RSS, sürecin decode öncesi RSS'i
+6,1–6,7 MiB; beş süreçlik aralık, go1.27.1):
+
+| Dosya (2048²) | TotalAlloc | heap tepe | süreç RSS tepe |
+|---|---|---|---|
+| progressive CMYK 4:4:4 JPEG | 98,45 (98,45) MiB | 99,30 (99,03) MiB | **138,6–154,7 MiB** |
+| 16-bit RGBA interlaced PNG | 68,22 (67,91) MiB | 65,59 (65,28) MiB | 144,8–146,2 MiB |
+| 8-bit RGBA PNG | 20,05 (19,74) MiB | 20,92 (20,29) MiB | 44,1–59,3 MiB |
+| 4:2:0 JPEG | 8,29 (8,30) MiB | 9,19 (8,87) MiB | 22,1–28,5 MiB |
+
+RSS'te en kötü dosya CMYK'dır (iki kipli: ≈139 ve ≈154 MiB); 1. turda tek değer (137,4) yazılmıştı.
+
+**Konteynerde ölçüldü (pod değil, ürünün kendi tabanı dahil değil) — WL-3'ün üçüncü gözü,
+2026-10-03:** go1.26.6 linux/amd64, `docker --memory=512m --cpus=2`. `GOMAXPROCS` = **2** (NumCPU
+4, `cpu.max` "200000 100000") → §2.6'nın N = 1 türetmesi tutuyor. Taze süreç, üç ardışık çağrı,
+`VmHWM` / cgroup `memory.peak`: CMYK progressive 2048² **137–153 / 139–155 MiB**; 16-bit
+interlaced PNG 113–126; 8-bit RGBA PNG 49–58; 4:2:0 JPEG 21–23 MiB. Kalan: podda ürün tabanıyla
+RSS — deploy'da orkestratörün (WL-7'ye bloke olarak).
+
+Ret yolları (2. turun kodu, go1.27.1) — `TestLogoBomb_HugeHeaderRefusedBeforeDecode`: 30000×30000
+PNG (75 B; go1.26.6/7'de 72 B — `compress/flate` çıktısı sürüme göre değişiyor) çağrı boyunca
+**5 392 B**, 30000×30000 JPEG (219 B) **17 920 B** ayırır (4 KiB'lık okuma tamponu dahil);
+kontrol: kapıdan geçen 2048² başlıklı verisiz PNG decode edilir, 16,8 MB.
+`TestLogoScans_CeilingAcceptedOneMoreRefused`: 101 taramalı 2048² gri ve CMYK ret 550 400 B
+(aynı yerleşimin decode'u 21,0 MB / 100,7 MB). `TestLogoGate_FullGateRefusesBeforeDecoding`:
+dolu kapıda 2048² progressive CMYK 537 768 B, 37 000 `tEXt`'li paletli PNG 537 672 B, SVG
+4 696 B — üçü de `ErrLogoBusy`; yuva boşken ilk ikisi 102,4 MB ve 305,5 MB.
+`TestLogoGate_ContextEndedDuringTheReadTakesNoSlot`: 539 256 B, yuva 0 kez.
+`FuzzNormalize`: 1. turda 60 s / 3 584 572 ve 45 s / 1 875 674 çalıştırma, 2. turun kodunda
+kısa koşu (teslim raporunda), hata 0; korpus tohumları her `go test`'te koşar.
+
+### Güvenlik iddiaları — WL-3'ün ölçtüğü parçalar (üç parçalı)
+
+**İddia A (WL-3).**
+- **PART I:** `TestLogoFormat_RefusesWhatIsNotPNGOrJPEG` — listelediği on bir girdi (SVG, XML
+  önsözlü SVG, GIF, WebP, HTML, PNG imzalı HTML, JPEG imzalı HTML, BMP, PDF, düz metin, boş)
+  ve SOI'den sonra bir çöp baytı taşıyan JPEG (çözücü okur, koklama JPEG demez) `ErrLogoFormat`
+  alır; aynı resmin PNG'si ve JPEG'i kendi biçiminde normalize olur.
+  `TestLogoFormat_ClientHeadersDoNotDecide` — üç etiketli multipart parçası: `image/png` +
+  `logo.png` etiketli SVG `ErrLogoFormat`; `image/jpeg` + `logo.jpg` etiketli, SOI'den sonra
+  çöp baytlı JPEG `ErrLogoFormat` (etiket koklamanın yerine geçmiyor); `image/svg+xml` +
+  `logo.svg` etiketli PNG, etiketsiz okuyucununkiyle bayt-aynı çıktıyla kabul.
+  `TestLogoDecode_CallsTheSniffedFormatsOwnDecoder` — `logo.go` ve `logo_resize.go`'da `image`
+  paketinin `Decode`/`DecodeConfig` çağrısı 0, biçimin kendi dört çağrısı mevcut.
+- **PART II:** biçim tablosu testi — yakaladığı: listedeki on iki ret girdisinden birinin kabul
+  edilmesi; koklama kapısının çözücüleri denemeye çevrilmesi (mutasyon M17). Başlık testi —
+  yakaladığı: üç girdisinde parçanın `Content-Type`'ının ya da dosya adının sonucu
+  değiştirmesi; `image/png`/`image/jpeg` etiketinin çözücüyü seçmesi (M34 — denetçinin K10b'si).
+  Sözdizimi pini — yakaladığı: iki dosyada `image` içe aktarmasının yerel adıyla yazılmış bir
+  `Decode`/`DecodeConfig` çağrısı (M27).
+- **PART III:** Listede olmayan her biçim kod incelemesinin konusu — tamlık iddiası yok.
+
+**İddia B (WL-3).**
+- **PART I:** bomba testi (yukarıdaki tahsisler); `TestLogoDimensions_EachEdgeAndThePixelCount`
+  — on bir boyut × iki biçim, sıfır ve negatif genişlikli PNG (`ErrLogoFormat`), yüksekliği 0
+  olan JPEG (`ErrLogoDimensions`); tavan testi — 100 tarama kabul, 101 `ErrLogoScans`;
+  `TestLogoScans_DishonestFilesRefused` — **yedi yerleşim**, her biri kandırdığı sayaçla
+  adlandırılmış: DC taramasından önce üst düzey `FF D0`, `FF 00`, dolgu `FF FF`, `00 11 22`
+  (segment uzunluğunu izleyen yürüyücü); yükü `FF DA FF FF` olan bir APP1 (her bulduğu `FF DA`'nın
+  "başlığını" ardındaki iki baytla atlayan sayaç — denetçinin K01'i); DQT değerlerinde
+  `FF E1 FF F0` (`FF Ex` gördüğü yerde APPn yükünü uzunlukla atlayan sayaç — K02); yükü `FF D9`
+  olan bir APP1 (ilk `FF D9`'da duran sayaç — K04; gerçek dosyalarda EXIF küçük resminin EOI'si
+  orada durur). Her birinde, çözücünün çalıştırdığı 101 tarama için adlandırılan sayaç ≤ 100
+  sayar, stdlib çözücü dosyayı çözer ve her piksel DC taramasının seviyesindedir (77), ham sayım
+  > 100 → `ErrLogoScans`; ham sayımı tam 100 olan aynı yerleşim kabul. Kontrol: dürüst dosyada
+  dört sayaç ham sayımı verir.
+  `TestLogoTruncated_EveryPrefixRefused` — dört dosyanın (PNG, JPEG, progressive JPEG,
+  interlaced PNG) her öneki ret. `TestLogoInput_OverTheLimitRefusedBeforeInspection`,
+  `TestLogoRead_AllocatesBoundedByTheLimit` (dokuz boyut × üç okuyucu biçimi: dönen bayt
+  yüklemenin öneki, tahsis ≤ sınır + 32 KiB). Semafor: `TestLogoGate_ConcurrentDecodesNeverExceedN`
+  (`-race`, N = 1 ve 3, 16 goroutine × 5: içerideki çağrı sayısının tepesi N),
+  `TestLogoGate_FullGateRefusesBeforeDecoding` (dolu kapıda üç yükleme ≤ 1 MiB ile `ErrLogoBusy`,
+  yuvanın içinde aşama 0), `TestLogoGate_ContextEndedDuringTheReadTakesNoSlot`,
+  `TestLogoGate_SlotHeldThroughDecodeResizeEncode` (beş aşamanın her birinde dışarıdan gelen
+  ikinci yükleme `ErrLogoBusy`), `TestLogoGate_CancelledContextKeepsTheSlotUntilTheDecodeReturns`
+  (iptalden sonra 200 ms boyunca ve canlı 1024² decode süresince her yoklama `ErrLogoBusy`; çağrı
+  `context.Canceled` döner, sonra yuva boş), `TestLogoGate_ErrorPathsGiveTheSlotBack`;
+  `TestLogoVerifyOutput_RefusesWhatTheFilterDidNotMake`; `FuzzNormalize`. Bir kez ölçülen (pin
+  değil): yukarıdaki süre ve bellek tabloları.
+- **PART II:** yakaladıkları, mutasyonla: `Decode`'un `DecodeConfig`'ten önce çağrılması (M01,
+  bomba testi); kenar sınırının 2049'a (M02) ya da alt kenarın 15'e (M04) gevşemesi (boyut
+  testi); sayımın kaldırılması (M06), bir fazla tavan (M07), tarama kapısının düşmesi (M08)
+  (tavan testi); sayımın, dürüst olmayan dosya testinin yedi yerleşiminden birinde az sayan
+  adlandırılmış dört sayaçtan birine dönmesi — segment yürüyücüsü (M05), başlığı uzunlukla
+  atlayan (M29, K01), APPn'i uzunlukla atlayan (M30, K02), ilk `FF D9`'da duran (M36, K04);
+  yuvanın iptalde (M12) ya da `Decode` dönünce
+  (M13) bırakılması, beklemeli alma (M14), semaforun kaldırılması (M15), decode sonrası iptal
+  denetiminin kalkması (M20), incelemenin yuvadan önce koşması (M28: hatası önce; M31, K09:
+  hatası yuvadan sonra — dolu kapıdaki chunk fırtınasının tahsisi), okuma ile yuva arasındaki
+  bağlam denetiminin kalkması (M32) (semafor testleri); okumanın sınırı +1'siz tutması (M21) ve
+  `io.ReadAll`'a dönmesi (M35, dolu kapı testinin 1 MiB'ı — go1.27.1'de 1 065 360 B); çıktının
+  ikinci denetiminin atlanması (M19); fuzz korpusunda panik ya da sınır dışı başarı.
+  Yakalamadığı, sayılı: piksel sınırının 2²³'e gevşemesi (M03) — eşdeğer mutant: iki kenar
+  ≤ 2048 iken çarpım ≤ 2²² (aritmetik), piksel sınırı bağlamaz.
+- **PART III:** Listede olmayan her biçim kod incelemesinin konusu — tamlık iddiası yok.
+
+**İddia C (WL-3).**
+- **PART I:** `TestLogoMetadata_PNGChunksAndTrailingBytesDoNotSurvive` — `eXIf` (GPS IFD'li
+  TIFF), betikli `tEXt`/`zTXt`, `iCCP` ve IEND sonrası HTML taşıyan PNG'nin çıktısı tam olarak
+  `IHDR IDAT IEND`, IEND'den sonra 0 bayt, yedi iğne (`<script`, `<html`, TIFF imzası, dört chunk
+  adı) 0. `TestLogoMetadata_ExifGPSDoesNotReachTheOutput` — GPS IFD'li `Exif` APP1, APP2
+  `ICC_PROFILE`, betikli COM, HTML'li APP15 ve EOI sonrası HTML taşıyan JPEG'in çıktısı son
+  baytında EOI'ye temiz yürür, işaretleri S14 kümesinde (`SOI DQT SOF0 DHT SOS EOI`), `Exif`, iki
+  TIFF imzası, `ICC_PROFILE`, `<script`, `<html` ve `FF E1` 0. `TestLogoOutput_JPEGQualityIs85` —
+  çıktının DQT'si `image/jpeg`'in q85 tabloları.
+- **PART II:** yakaladıkları: yüklenen baytın saklanması (M09), IEND sonrası baytın korunması
+  (M10), girdinin APP1'inin (M11) ya da APP2'sinin (M33, denetçinin K05'i) çıktıya taşınması,
+  kalitenin değişmesi (M25). Testlerin girdilerinde olmayan bir segment ya da chunk'ın çıktıya
+  taşınması bu listede değildir.
+- **PART III:** Listede olmayan her biçim kod incelemesinin konusu — tamlık iddiası yok.
+
+### Devirler (2. tur, güvenlik denetimi)
+
+- **WL-1 / WL-6 — `logo_sha256`:** sütunun üzerine **global UNIQUE konmaz**: iki tenant aynı
+  baytı yüklediğinde ikincinin yazımı hata verir ve başka bir tenant'ta aynı logonun varlığını
+  sızdırır (İddia D'nin kehaneti). Ya `(tenant_id, logo_sha256)` ya hiç. "Logo değişmedi mi"
+  denetimi yüklemeyi yeniden normalize edip sha karşılaştırmaz — Go sürümü değişince aynı girdi
+  başka bayt verir (karar 10).
+- **WL-7:** (i) `NewLogoGate` N ≥ 1'in her değerini kabul eder; kapının wiring'de bir kez
+  `LogoDecodeSlots` ile kurulduğunu pinleyen test WL-7'nin. (ii) Açık logo uyarısı (ADR 0023)
+  `Normalize`'ın çıktısından hesaplanır; yüklenen bayt kapının dışında yeniden decode edilmez.
+  (iii) Gövde okuması yuvanın dışındadır: §6'nın kabul sınırı gelene kadar eşzamanlı okuma
+  başına ≈0,52 MiB (karar 4). (iv) `ErrLogoBusy` sunucu tarafında yeniden denenmez; kullanıcıya
+  "tekrar dene" döner. (v) Yükleme bütçesi deneme başına ve gövde okunmadan / `Normalize`'dan
+  önce düşülür (§6 düzeltmesi); tenant'lar arası açlık sayılı sınır 11.
+
+### Sayılı sınırlar (WL-3)
+
+1. **Podda ölçülmedi; konteynerde ölçüldü.** 512Mi/2 CPU'lu bir konteynerde `GOMAXPROCS` ve
+   üç ardışık çağrının tepe RSS'i WL-3'ün üçüncü gözünce ölçüldü (yukarıda); ürünün kendi
+   tabanıyla podda RSS ölçülmedi — deploy'da orkestratörün. Taban bu yüzden bilinmiyor.
+2. **Ölçüm testleri `-race` altında atlanır** (`TestLogoScans_WorstCaseDecodeTime`,
+   `TestLogoMemory_WorstDecodeAllocations`, `TestLogoMemory_ProcessRSS`): CI yalnız
+   `go test -race -count=1 ./...` koşar (`Makefile:248`, `ci.yml:200-201`), yani bu üçü CI'da
+   koşmaz ve S7–S9'un sayılarını CI yeniden üretmez; sayılar `-race`'siz yerel koşudandır.
+   Kabul pinleri `-race` altında koşar.
+3. **Süreler bu makinede ve yük altında**; başka donanımda farklıdır.
+4. **Üst sınır kanıtı çözücünün okunmasına dayanır**: karar 1'in adlandırdığı fonksiyonlar
+   1.26.6 ve 1.27.1'de aynı metindir; `image/jpeg` paketinin bütünü değil (1.27.1'in "flex"
+   alt örneklemesi). Go'nun `image/jpeg`'i değişirse o fonksiyonlar yeniden okunur. Dürüst
+   olmayan dosya testi yedi yerleşimi ve adlandırdığı dört sayacı ölçer. Sürümler arası kabul
+   farkı (3. tur, ölçüldü): Y 2×2, Cb 1×1, Cr 2×1 alt örneklemeli 64×64 bir JPEG go1.27.1'de
+   normalize olur, CI'nin go1.26.6'sında `DecodeConfig`'te düşer ve `ErrLogoFormat` alır.
+5. **PNG chunk fırtınası:** 37 000 boş `tEXt` (518 KB) RGBA PNG'de çağrı 146,8 MiB kısa ömürlü
+   tahsis ve ≈34 ms; paletlide 291,4 MiB ve ≈73 ms (heap nesne tepesi 4,2–4,5 MiB) — yuvanın
+   içinde (dolu kapıda 537 672 B, karar 2), chunk sayısı kapısı eklenmedi.
+6. **Düşük alfada bir seviye kayıp** (karar 7) ve §3'ün Orientation/ICC bedelleri.
+7. **Fuzz:** yerel koşular, hata 0; sürekli fuzz koşusu kurulmadı.
+8. **Kaçış denemeleri** (bir kez, yukarıdakilerin dışında): 100 MiB'a açılan zlib (205 KB) →
+   `ErrLogoCorrupt`, 0,49 MiB; sayıları aşan DHT, `Pq=2` DQT, APP14'süz 4 bileşen, ikinci SOF
+   30000² → `ErrLogoCorrupt`; SOF9, SOF3, 12-bit SOF1, 16-bit paletli PNG, GIF başlığı + PNG,
+   BOM + PNG, boşluk + PNG → `ErrLogoFormat`; IDAT CRC'si bozuk → `ErrLogoCorrupt`; APNG
+   (`acTL`/`fcTL`/`fdAT`) → durağan PNG, çıktı `IHDR IDAT IEND`; arka arkaya iki PNG → ilki;
+   ≈512 KiB DHT segmenti → 5 ms, kabul.
+9. **Linux'ta RSS ölçümü `VmHWM`'yi okur** (`ru_maxrss` exec boyunca ebeveynden miras kalır —
+   denetçinin konteynerinde önce = sonra = 141,9 MiB ölçüldü); test, decode öncesi tepe 32 MiB'ı
+   aşan ya da sonrakinden küçük olmayan bir okumayı reddeder. Linux dalı bu makinede derlendi
+   (`GOOS=linux`); kapanış denetçisi onu `docker --rm --memory=512m --cpus=2` golang:1.26
+   (go1.26.8, CI'nin 1.26.6'sı değil) ile koşturdu: decode öncesi 8,0–13,2 MiB; CMYK progressive
+   2048² 139,4–145,8, 16-bit interlaced PNG 119,8–126,4, 8-bit RGBA PNG 45,2–61,3, 4:2:0 JPEG
+   23,3–23,7 MiB; `-race -cover` geçti (%94,4).
+10. **Saklanan baytın sha256'sı Go sürümüne bağlıdır** (karar 10).
