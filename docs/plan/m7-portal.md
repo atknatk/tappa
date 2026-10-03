@@ -635,6 +635,28 @@ location + dinamik lokasyon listesi → admin hesabı → APPROVED damgalı done
 > Bu daraltma, kartın **komut satırını** da değiştiriyor: beklenen commit artık
 > `feat(auth): add admin invite and password reset` değil, yalnız kurtarma.
 
+> **Kart notu (2026-10-03, M10 EM-1 — [ADR 0022](../adr/0022-islemsel-eposta.md)).** Bu kart
+> `done`; not, kartın Q02'ye bağladığı dört cümlenin bugün nereye taşındığını yazar. **Bugün
+> davranış değişmedi:** `TAPPA_RESET_DELIVERY`'nin tek yasal değeri hâlâ `none`
+> (`internal/config/config.go:824-831`).
+>
+> 1. **Q02 cevaplandı:** AWS SES, `eu-central-1`, SMTP arayüzü + stdlib `net/smtp` (ADR 0022
+>    §1). Üst listedeki *"E-posta sağlayıcısı AB bölgesinde, GDPR işleme sözleşmesi var"*
+>    kriterinin bölge yarısı orada; işleme sözleşmesi / alt işleyici listesi kullanıcının dış
+>    adımıdır ([m10](m10-platform.md) §4, adım 12) — **ölçülmedi**.
+> 2. **6. düzeltme maddesinin devri:** *"Q02'yi cevaplayan kişi … sahtelere karşı yapılmış
+>    denetimleri yeniden koşma yükümlülüğünü devralır"* — bu yükümlülük **EM-5'in kabulündedir**
+>    (m10 §4: M7-04'ün sahteye karşı koşmuş kriterleri gerçek SMTP'ye karşı yeniden koşulur,
+>    tablo rapora). Ölü üç kriter ve iki savunma EM-5 sevk edilip ConfigMap `email`'e
+>    çevrildiği gün canlanır.
+> 3. **4. düzeltme maddesinin ardılı** (*"gönderim istek yolundan çıkarılmalıdır"*) artık
+>    normatif: ADR 0022 §6 (sınırlı süreç içi işçi, kapanışta `httpShutdownGrace` içine
+>    yuvalanan boşaltma, artık risk sayılı).
+> 4. **3. düzeltme maddesinin *"kapatan şey aynı: adres doğrulama (Q02)"* cümlesi:** Q02'nin
+>    cevabı adres **doğrulamasını getirmez**. Doğrulama signup e-posta doğrulamasıdır — EM-11,
+>    pilot sonrası, kendi ADR'si (ADR 0022 §13 md. 2). 00017'nin artık-kilidi bu yüzden açık
+>    kalır.
+
 **Kabul kriterleri.**
 - Magic link ve/veya şifre ile giriş (handoff §9).
 - Sıfırlama token'ı tek kullanımlık, süreli, hash'i saklanıyor.
@@ -1498,6 +1520,23 @@ tek yolu Go kaynağını düzenlemekti.
 > ikincisini kapsamıyor, yani davet **kendi ADR'siyle** gelir — `password_resets`'e
 > bindirmek, halihazırda dağıtılmış her sıfırlama token'ını bir **hesap yaratma**
 > yetkisine yükseltirdi.
+
+> **Kart notu (2026-10-03, M10 EM-1 — [ADR 0022](../adr/0022-islemsel-eposta.md)).**
+> **Bağımlılık satırındaki *"Q02 (BLOKE)"* artık bir KARARA değil bir TAŞIYICIYA bağlıdır.**
+> Q02 ADR 0022 ile cevaplandı (AWS SES, `eu-central-1`, SMTP + `net/smtp`), ama taşıyıcı
+> henüz yok: bu kartın kilidi **EM-12** olarak açılır ve EM-7'ye (davetin e-posta kanalı)
+> bağlıdır — kendi kartı ve kendi ADR'siyle ([m10](m10-platform.md) §4 tablosu). Aşağıdaki
+> *"bugün yapılırsa ikinci bir ölü özellik sevk edilir"* tuzağı EM-7 sevk edilene dek aynen
+> geçerlidir.
+>
+> - ADR 0022'nin alıcı kuralı (§4), sızıntı kuralı (§3), log kuralı (§10) ve oran sınırları /
+>   devre kesici (§9) yönetici davetini de kapsar.
+> - ADR 0022 §7'nin *"linki göster"* yedeği (adresi olmayan çalışan için, owner-only) bu
+>   kartın 2. kabul kriteriyle (*"panelde gösterilmiyor"*) bağdaşmaz; yönetici davetine
+>   uygulanmaz.
+> - ADR 0005 Y-D'nin 2026-10-03 ek notu (*"daralır, kapanmaz"* — adresi davet eden yazar) bu
+>   kartın *"Y-D'nin yönetici tarafındaki ikizi"* cümlesine de uygulanır; EM-12'nin ADR'si
+>   ölçer.
 
 **Amaç.** Bir işletmenin sahibinin **ikinci bir yönetici** (`role='manager'`)
 davet edebilmesi.

@@ -65,7 +65,7 @@ gözlemlenebilir sinyalle tespit ederiz, o sinyalin hangi görevde uygulandığ�
 | 2 | **Sahte GPS** (A3) | Web'de konum doğrulaması yok; attestation **uygulama** ister (app-less vaadi) | GPS-only tap oranı, çalışan kırılımında | [M6-11](../plan/m6-dashboard.md) |
 | 3 | **URL biriktirme** (A1/Q21) | SUN payload'ında **zaman yok**; uçak modunda dokunup URL toplamak mümkün, sunucu o okumaları hiç görmez | `tap:ctrGap` → `base:ctr-gap-review`; boşluk metriği | baseline [M3-06](../plan/m3-policy-motoru.md) · metrik [M6-11](../plan/m6-dashboard.md) |
 | 4 | **Mekânda bırakılmış proxy** (Y-E) ⚠️ *2026-08-19'da DARALTILDI — §4'ün ek notu* | IP taşınabilir; mekânın WiFi'ında proxy+VPN, uzaktaki tap'i mekânın IP'sinden gösterir. Kriptografik çözümü yok. ⚠️ Bunun altındaki **ayrı** bir yüzey — panelden `/0` vererek **yapılandırmayla üretilen** sahte IP kanıtı — kabul edilmiş DEĞİLDİR ve M8-04'te kapatıldı | `tap:gpsConflict` → `base:gps-conflict-review`; "IP eşleşti ama GPS uyuşmuyor" metriği | baseline [M3-06](../plan/m3-policy-motoru.md) · metrik [M6-11](../plan/m6-dashboard.md) |
-| 5 | **Müdürün kimlik basması** (Y-D) | Davet kodunu üreten ve gören kişi = bordroyu şişirmede en güçlü teşviği olan kişi | Tek cihaz/oturumdan aktive N çalışan + hiç çapraz-lokasyon göstermeyen çalışan | rapor [M6-11](../plan/m6-dashboard.md) · davet kanalı [M5-02](../plan/m5-tap-akisi.md) (Q02) |
+| 5 | **Müdürün kimlik basması** (Y-D) ⚠️ *2026-10-03: EM-7 sevk edilince DARALIR, kapanmaz; bugün değişmedi — §5'in ek notu* | Davet kodunu üreten ve gören kişi = bordroyu şişirmede en güçlü teşviği olan kişi | Tek cihaz/oturumdan aktive N çalışan + hiç çapraz-lokasyon göstermeyen çalışan | rapor [M6-11](../plan/m6-dashboard.md) · davet kanalı [M5-02](../plan/m5-tap-akisi.md) (Q02) · e-posta kanalı EM-7 ([ADR 0022](0022-islemsel-eposta.md) §7) |
 | 6 | **Fiziksel plaket devri** | Plaket duvardan sökülüp taşınabilir; pasif çipin "yerini" doğrulayan bir bağı yok | Lokasyon–IP/GPS uyumsuzluğu → `flag`; müdür `lost` işaretler | baseline [M3-06](../plan/m3-policy-motoru.md) · guardrail [M3-05](../plan/m3-policy-motoru.md) |
 | 7 | **Encode oturumunun APDU dökümü** (ADR 0017 §2.2) | Boş çipte kimlik doğrulama anahtarı **fabrika varsayılanıdır, yani halka açıktır**; oturum anahtarları ondan türer. Dökümü gören taraf `ChangeKey` gövdesini çözüp o plaketin anahtarını öğrenir. **Çipin kişiselleştirme protokolünün yapısal özelliği** — altı kapatma yolu denendi, altısı da başarısız (ADR 0017 §2.2). 🔴 **KAPSAM 2026-08-21'DE BÜYÜDÜ:** ADR 0017 §6 md. 13 `FileAR.Write`/`ReadWrite`/`Change`'i **aynı `0x01` anahtarına** bağladı, yani sızan şey artık yalnız SUN imzalama yetkisi değil, **dosya YAZMA ve YENİDEN YAPILANDIRMA yetkisi**dir | 🔴 **Doğrudan sinyal YOK, ve sonuç iki dallı:** *(a)* **sahte SUN** — burada §5'in diğer üç kanıtı (oturum çerezi · IP · GPS) bağlamaya devam eder → kanıtsız tap `flag`'lenir · *(b)* 🔴 **NDEF'i repointleme (oltalama)** — md. 13'ten sonra mümkün, ve burada **üç kanıt HİÇ devreye girmez**: repointlenen plaketin tap'i **bize hiç ulaşmaz** (risk 8'in ölçümü) | Karşı önlem tespit değil **kapsama**: encode kontrollü ortamda, plaket duvara çıkmadan; şüphede ADR 0003 md. 5 → **`retire + replace`**. 🔴 **Maruziyet ilk encode turuyla SINIRLI DEĞİL** — her **kurtarma** turu da fabrika anahtarı altında koşar (ADR 0017 §5.3) |
 | 8 | **Anahtar 0 fabrika varsayılanında kalan plaket** (ADR 0017 §5.0) — ⚠️ **2026-08-21'de DARALDI: oltalama yarısı kapandı, hizmet reddi yarısı duruyor** | İkinci bir plaket-başına anahtarı saklayacak şema yok (`tags` tek `aes_key_ref`, ADR 0003 md. 4); karar verilene kadar uygulama anahtarı 0 **halka açık** kalır. ⚠️ ADR 0017 §6 md. 13 (FAZ B2b) `FileAR.Write`/`ReadWrite`/`Change`'i **anahtar `0x01`**'e kilitledi → **elinde YALNIZ halka açık fabrika anahtarı 0 olan** tarafa karşı **NDEF yazılamaz ve SDM kapatılamaz**. 🔴 **Risk 7'nin kümesine karşı DEĞİL:** `0x01` her encode ve her kurtarma oturumunda o dökümü görene sızar ve md. 13'ten sonra **aynı zamanda yazma yetkisidir**. **Kalan:** aynı kişi anahtar 0'ı (ve 2–4'ü) üzerine yazabilir → **hizmet reddi** ve gelecekteki anahtar-0 kişiselleştirmemizin **önden alınması** | 🔴 **Tespit sinyali YOK, ve sebebi risk 6'dan farklı:** repointlenen plaketin tap'i **bize hiç ulaşmaz**, yani konum çelişkisi de dahil hiçbir kayıt doğmaz. Dolaylı işaret (plaketin sessizleşmesi) **yapısal olarak yetmiyor**: `ListTagLastSeen` satırı **yalnız en az bir tap üretmiş** plaket için doğar (ölçüldü 2026-08-20, yerel DB: 137 699 plaketin 79 995'i, yani **57 704'ü hiç satır üretmiyor**), yani **ilk tap'inden önce** repointlenen plaket stok plaketten ayırt edilemez | Şema kararı [M8-05](../plan/m8-deploy-pilot.md) FAZ B md. 9 · pilot kapısı Q23 md. 7 · *"anahtar 0 fabrikadayken plaket duvara çıkamaz"* güvenlik çizgisi (`deploy/README.md`) |
@@ -423,6 +423,61 @@ bir kanaldan değil, **çalışanın kendi kanalına** (kişisel e-posta/SMS) gi
 böylece kodu üreten ile gören ayrışır ve saldırının önkoşulu (müdürün kodu
 görmesi) kalkar. Bu, kabulü zamanla bir **azaltıma** çeviren somut görevdir; risk
 o zamana dek kabul, sinyali M6-11'de canlıdır.
+
+> 🔴 **EK NOT — 2026-10-03, M10 EM-1 ([ADR 0022](0022-islemsel-eposta.md)). Yukarıdaki
+> paragrafın *"saldırının önkoşulu … kalkar"* cümlesi DÜZELTİLİR: Q02'nin cevabıyla önkoşul
+> KALKMAZ, DARALIR — ve bugün hiçbir şey değişmedi.** Paragraf silinmiyor (append kuralı);
+> risk 5 kabul olarak durur.
+>
+> **Bugün (HEAD `f3c9c04`, ölçüldü).** Davetin üretimdeki tek kanalı hâlâ
+> `ManagerVisibleChannel`'dır (`internal/handler/employeeactions.go:385`) ve her teslimat
+> `invite.code_shown_to_manager` audit satırı yazar (`internal/invite/channel.go:85`,
+> `:137-154`). Q02 ADR 0022 ile cevaplandı ama taşıyıcı henüz yok (EM-2…EM-7): yukarıdaki
+> saldırı bugün **aynen** mümkündür.
+>
+> **EM-7 sevk edilip `TAPPA_INVITE_DELIVERY=email` açılınca ne değişir.** Kod çalışanın
+> satırındaki adrese gider ve panel yanıtı linki taşımaz (ADR 0022 §7, İddia G). Saldırının
+> önkoşulu *"müdür kodu görür"*den *"müdür bir posta kutusunu denetler"*e kayar. **Kalkmaz**,
+> çünkü adresi müdür **kendisi yazar** (`employees.email`'i panel doldurur —
+> `internal/domain/tenant/staff.go:670-693`; "e-postayı değiştir" eylemi EM-6). ADR 0022'nin
+> kapısı yalnız **birebir** durumu kapatır: aynı tenant'taki bir yöneticinin adresine `citext`
+> eşitlikte kod basılmaz. **Kapatmadıkları (artık risk):** artı-adresleme (`mail.ParseAddress`
+> `ali+payroll@…` biçimini kabul eder — ADR 0022 S8), takma ad, müdürün açtığı ikinci bir
+> posta kutusu, müdürün denetlediği herhangi bir alan adı.
+>
+> **Daralmanın ölçüsü — ve ne kadar dar olduğu.** Müdürün, gelen kutusunu okuyabildiği bir
+> adres yazması gerekir; **tek bir kutu yeter**. Artı-adresleme (`boss+g1@…`, `boss+g2@…`)
+> yönetici adresine `citext` eşitlik kapısını da (`boss@…`'a eşit değil) tenant içi tekil
+> indeksi de (`employees_tenant_email_key`, `00003_create_employees_sessions.sql:83-84` —
+> adresler farklı) geçer, yani **bir kutu N hayali çalışana** yeter. Kayıttaki iz dar:
+> adres `employees` satırında **ancak düzenlenene dek** durur. `invite.code_emailed`'ın
+> detail'inde adres yoktur (ADR 0022 §7), `employee.added` yalnız `has_email` boolean'ını
+> taşır (`internal/domain/tenant/staff.go:362-376`, `:484`), EM-6'nın "e-postayı değiştir"
+> satırı da adres taşımaz — yani müdür adresi kendi kutusuna çevirip aktive ettikten sonra geri
+> çevirirse iz yalnız **"değişti"** der, değeri söylemez. *"Bu çalışanın kodu nereye gitti"*
+> sorusu kayıtta **cevaplanmaz**. (Alıcının anahtarlı özetini audit'e yazmak ADR 0022'de
+> *karar verilmedi* — gerekçesiyle.) Tespit sinyali (tek cihaz/oturumdan N aktivasyon, çapraz
+> lokasyon yok — M6-11) değişmez.
+>
+> **Daralmayan yol.** `email` modunda adresi olmayan çalışan için "linki göster" yedeği (ADR
+> 0022 §7, K3) yukarıdaki saldırıyı **aynen** taşır ve `manager_panel` kanalıyla audit'lenir;
+> M6-11 iki kanalı ayrı gösterir (EM-8). Yedek *"yalnız owner'a açık"* tasarlandı, ama **EM-12'ye
+> dek owner-only kısıtı boştur**: bugün yönetici yaratan tek üretim yolu kayıt sihirbazıdır ve
+> `role = 'owner'` yazar (`internal/domain/signup/signup.go:723-731`); `manager` EM-12 ile
+> gelir. O güne dek bu yoldaki daralma **yalnız kanal ayrımıdır** (EM-8). `panel` modu (bugünkü
+> davranış) seçili kaldıkça daralma yoktur. Yönetici daveti (M7-07, EM-12) bu riskin yönetici
+> tarafındaki ikizidir ve kendi ADR'sinde ölçülür.
+>
+> **Bu ekin sayılı sınırları.**
+> 1. Tek kutu N hayali çalışana yeter (artı-adresleme, takma ad); kapı yalnız birebir yönetici
+>    adresini reddeder.
+> 2. Kayıtta alıcı adresi yalnız `employees` satırındadır ve adres düzenlenene dek; EM-6 satırı
+>    değişikliğin olduğunu gösterir, değeri göstermez.
+> 3. Owner-only yedek kısıtı EM-12'ye dek boştur; daralma kanal ayrımıdır.
+> 4. `panel` modu seçiliyken daralma yoktur.
+>
+> **İddia sınırı.** *"Daralır"* EM-7'nin kabulündeki pinlerle (ADR 0022 İddia G) tanımlıdır.
+> Listede olmayan her biçim kod incelemesinin konusu — tamlık iddiası yok.
 
 ### 6. Fiziksel plaket devri
 
@@ -871,6 +926,10 @@ bir kez daha işlemek olurdu.
 - **[M5-02](../plan/m5-tap-akisi.md) müdür-kimlik riskini azaltır:** Q02 çözülünce
   davet kodu çalışanın kendi kanalına gider; Risk 5'in önkoşulu (müdürün kodu
   görmesi) kalkar. Risk kabul olarak durur ama azaltım yolu bu görevdedir.
+  ⚠️ *2026-10-03 düzeltmesi (M10 EM-1, [ADR 0022](0022-islemsel-eposta.md)): "kalkar"
+  değil **"daralır"** — önkoşul *"müdür kodu görür"*den *"müdür adresi yazar ve posta
+  kutusunu denetler"*e kayar; azaltım EM-7 ile gelir ve bugün değişen bir şey yok. Ayrıntı
+  §5'in ek notunda.*
 - **§4.1 sınırı normatif olarak çizildi:** parmak izinin çözdüğü tek şey buddy
   punching'dir; başka hiçbir risk için "biyometri çözerdi" argümanı bu belgede
   geçerli değildir (sahte GPS ve müdür-kimlik biyometriyle *kısmen* ilgilidir ama

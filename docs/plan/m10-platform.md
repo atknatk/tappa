@@ -5535,6 +5535,609 @@ yasal belge içindi, M9-08'in kapsamı §4.5'i aşan beş işlev.
 > `Authorization: Basic …` başlığı yakalanmaz (`scripts/secretscan.sh` sınır listesi). EM-3'ün
 > runbook'u SMTP değerlerini yalnız Secret'a yazar; hiçbir belgeye değer yazılmaz (A-0).
 
+> **Kart düzeltmesi (2026-10-03, EM-1 uygulaması sırasında; 2., 3., eşitleme, 4. tur ve son eşitleme aynı gün).** Yazıldı:
+> [ADR 0022](../adr/0022-islemsel-eposta.md) (yeni — işlemsel e-posta: SES SMTP + `net/smtp`) ·
+> [ADR 0005](../adr/0005-kabul-edilen-riskler.md) (ana tablonun 5. satırında iki hücreye tarihli
+> işaret, §5'e *"EK NOT — 2026-10-03"* ve kendi sayılı sınırları, Sonuçlar'daki M5-02 maddesine
+> *"kalkar değil daralır"* düzeltmesi; daha önce var olan metinden silinen kelime 0) ·
+> [ADR 0015](../adr/0015-sifirlama-tokeni-tek-gecislik-yetkidir.md) (başlıkta *"Durum notu"*
+> satırı + sonda *"Durum notu — 2026-10-03"*) · [m7-portal.md](m7-portal.md) (M7-04 ve M7-07'ye
+> tarihli *"Kart notu"*). Kod dosyası değişmedi; `cmd/tappa/adr0005_test.go` **değişmedi** —
+> risk sayısı *"sekiz"* ve B3 tablosu etkilenmedi, ana tabloya yeni satır eklenmedi, 5. satır
+> `| 5 | **…` biçimini korudu. Q02'nin "Cevaplananlar"a taşınması orkestratörün. **Ölçüm
+> ortamı:** ayrı git worktree, dal ucu `f3c9c04`; stdlib sondası go1.27.1 **ve** go1.26.6
+> (darwin/amd64, çıktı birebir aynı); SDK modül sayımı scratchpad'de; EM-2'nin `internal/mail`'i
+> ayrı worktree'de **yalnız okundu**; DB'ye bağlanılmadı, AWS hesabına erişilmedi.
+>
+> **Kabul — kanıtlar:**
+> 1. **(b)/(c) ölçüleriyle elendi.** (c): scratchpad'de iki modül, `go mod tidy` +
+>    `go list -m -f '{{if not .Main}}{{.Path}}{{end}}' all` → yalnız `service/sesv2` + `aws`
+>    **6** modül (2 doğrudan + 4 dolaylı), `config` eklenince **15** (2 doğrudan + 13 dolaylı);
+>    depo `go.mod`'u bugün **10** modül gerektirir (ADR 0022 S11, B25). (b): m10 tablosunun
+>    *"§3 gerilimi"* gerekçesi ölçüldü ve **eleme gerekçesi olmaktan çıkarıldı** —
+>    `rg -l '"crypto/hmac"' --glob '*.go' --glob '!*_test.go' internal cmd web` →
+>    `internal/sun` dışında **12** üretim dosyası (token/kod özetleri, anahtar türetme, HMAC
+>    imzalı durum çerezleri, TOTP — B24) ve ADR 0020'nin *"Kriptografinin yeri"* kararı
+>    (2026-09-26) §3'ü fiilen AES'e bağladı; eleyen, SigV4 protokolünün sahipliği (saat
+>    bağımlılığı dahil) ve yalnız-SES test yolu.
+> 2. **Y-D "kalkar" değil "daralır".** ADR 0005 §5 ek notu üç hâli tarihli yazar: bugün (HEAD
+>    `f3c9c04`) hiçbir şey değişmedi — tek kanal `ManagerVisibleChannel`
+>    (`employeeactions.go:385`); EM-7 ile önkoşul *"müdür kodu görür"*den *"müdür bir posta
+>    kutusunu denetler"*e kayar; **tek kutu N hayali çalışana yeter** (artı-adresleme citext
+>    eşitlik kapısını ve tekil indeksi geçer); iz yalnız adres düzenlenene dek; owner-only yedek
+>    EM-12'ye dek boş. ADR'deki iki *"kalkar"* cümlesinin ikisinin de **hemen yanına** düzeltme
+>    kondu. `go test -count=1 ./cmd/tappa` → `ok`; iki ADR 0005 testinin çıktısı
+>    *"13 rows, 3 without…"* ve *"main risk table: 8 rows, prose says sekiz"*.
+> 3. **ADR 0015 durum notu** (karar değişmedi; teslimat yükümlülüğünün evi ADR 0022; yeni artık
+>    risk: basım–audit arası süreç ölümü) · **M7-04 notu** (Q02 cevabı; 6. düzeltme maddesinin
+>    yükümlülüğü EM-5'te; 4. maddenin ardılı ADR 0022 §6'da; *"kapatan şey adres doğrulama"* →
+>    Q02 doğrulama getirmez, EM-11) · **M7-07 notu** (kilit artık EM-7'ye bağlı, EM-12 olarak
+>    açılır; owner-only yedek yönetici davetine uygulanmaz).
+> 4. **Bağlam bugünkü kod ölçülerek** — ADR 0022 B1–B36, S1–S14 (her satırda komut ya da
+>    `dosya:satır`).
+> 5. **Güvenlik iddiaları üç parçalı** — on iddia (A–J); PART I henüz bu ağaçta olmayan
+>    testleri **tarifle** anar, EM-2'nin testlerini `…` önekiyle *"birleştirildiğinde"* diye;
+>    PART II pinleri, her birinin yakaladığını ve **yakalamadığını** sayar; PART III tek
+>    gerekçesiz cümle, on kez.
+> 6. **Yalnız var olan test adları anıldı**; `TestEveryNamedTestExists` yeşil
+>    (*"60 live, 60 budgeted"*, tabanla aynı).
+> 7. **Sır değeri yok**; `./scripts/redline-check.sh` → exit 0 (çıktı tabanla aynı, yalnız bir
+>    WARN satırının sırası farklı).
+>
+> **Karta düzeltmeler — §4'ün tasarım özü ve görev tablosu, ölçümle:**
+> 1. 🔴 **EM-5 "kapanışta ≤3 s boşaltma (`shutdownbudget_test.go`)" — mevcut testler bir
+>    boşaltmayı GÖREMEZ.** 1. turun bu maddesi *"ardışık eklenirse test kırmızı"* diyordu;
+>    **yanlıştı** (üçüncü göz ölçtü: `main.go`'da Shutdown'dan sonra `time.Sleep(3s)` → üç
+>    kapanış testi PASS — test yalnız `httpShutdownGrace`, `DefaultCloseGrace` ve YAML'ı okur;
+>    gerçek marj 2 s olurdu, istenen 5 s). ADR 0022 §6.6: boşaltma HTTP boşaltmasıyla eşzamanlı
+>    başlar (ör. `srv.RegisterOnShutdown` — Shutdown onu `go f()` ile başlatır ve beklemez,
+>    `net/http/server.go:3257-3259`), `cmd/tappa` havuzu kapatmadan önce onu bekler; **pin
+>    (tarif, 3. turda yeniden yazıldı):** (a) adlandırılmış boşaltma sabiti D
+>    `httpShutdownGrace`'e iki emsal yuvalanma testinin biçimiyle bağlanır; (b) kapanış dizisi
+>    testin çağırabildiği bir işleve yazılır, **T ≥ D süren bir istek uçuştayken** sürülür ve
+>    toplam süre **< T + D − pay** assert edilir (pay ≥ `shutdownPollIntervalMax` = 500 ms,
+>    `server.go:3227`). Uçuşta istek yokken doğru, işlev içi `Sleep(D)` ve ardışık uygulama üçü de
+>    ≈D ölçülür (denetçinin ölçümü, ADR B34); T = D = 1 s'de 1,056 / 2,089 / 2,141 s. Başlama sırası
+>    assert edilecekse an `go`'dan önce kaydedilir (`go f()` içinde kaydedilen anla assert 2000'de
+>    1896 kırmızı), ya da hiç assert edilmez. Dizi işlevinin **dışında** `main`'e eklenen
+>    bekleme, pay'den kısa bekleme ve testin kurmadığı koşulda ödenen bekleme *Yakalamadığı*'dadır.
+> 2. **EM-5 "grant başına tam 1 audit" → hesap başına audit bütçesinin içinde ve süreç ölmediği
+>    sürece.** `adminresetlimits.go:168-228`: yönetici başına 10 dk'da 10; aşınca tek
+>    `admin.recovery.rate_limited` satırı (`recordForAdmin`, `adminreset.go:927-950`).
+> 3. **EM-5 "işçi mevcut `h.deliver`'ı çağırır" — gönderim ve audit aynı ctx'i paylaşır**
+>    (`adminreset.go:522-596`); audit'e ayrı sınır. **İşçide panik** `middleware.Recoverer`'ın
+>    (`router.go:82`) dışında: grant başına `recover` → **henüz satır yazılmadıysa**
+>    `undelivered`, panik değeri loglanmaz, yeniden fırlatılmaz
+>    (`internal/encode/session.go:1865-1870`'in yeniden fırlatması bir istek goroutine'i
+>    içindir); 250 ile audit arasındaki panik sınır 15'te.
+> 4. **EM-4 "konu `=?utf-8?q?`"** — konular sabit ASCII; `mime.QEncoding.Encode` ASCII'yi
+>    değiştirmez (S9). Kriter: başlık kodlayıcısı Maltaca girdide `=?utf-8?q?` üretir; sabit
+>    konular düz geçer.
+> 5. **(c) satırı "servis başına ≥4; config ile +8-9"** → ölçüldü **6 / 15** (+9).
+> 6. **Oran sınırları** — sıfırlama yayılımı kaynak adres başına 10 dk'da 20 × 8 = **160**
+>    (saatte 960); **davet yolu da:** kayıt adres başına saatte 3 tenant ve ömür boyu tavansız,
+>    tek adres ikinci saatte 6 × 50 = 300 ile devre kesiciye (~300/saat) ulaşır. Paylaşılan
+>    kesici ve tek SES hesabı: itibar (bounce/complaint) düşer, SES hesabı duraklatabilir
+>    (belge; ölçülmedi). Alıcı başına sıfırlama tavanı karar verilmedi (M7-04 düzeltme 1(iii)).
+> 7. **EM-3** — `TestLoad_ResetDeliveryIsAClosedSetAndFailsClosed` `"Q02"` alt dizgesini arar
+>    (`config_test.go:475`); kodda Q02'yi açık diye anan metin
+>    `rg -c 'Q02' --glob '!docs/**' --glob '!.claude/**' .` → **17 dosya, 27 satır**.
+> 8. **EM-7** — saklanan adres kuralı (`staff.go:670-693`) gönderim kuralından zayıf; ASCII dışı
+>    saklanmış adres davette reddedilir, migration yok.
+> 9. **Prod'da `localhost` reddinin gerekçesi ölçüldü:** `smtp.PlainAuth` `localhost` adında
+>    TLS'siz bağlantıda kimliği gönderir (S3).
+> 10. **`smtp.SendMail`'in elenmesi ölçüldü** (S2, S4).
+> 11. **Alıcı kuralı** — `ali@[192.0.2.1]` geçer (S8).
+> 12. **EM-2 "`MinVersion` konmazsa" kriteri tarif edilen testle yakalanamaz:** `MinVersion == 0`
+>     iken istemci 1.2 altını zaten reddeder (S12, `crypto/tls/common.go:1239`; go1.27.1 ve
+>     go1.26.6). İddia A'da *Yakalamadığı*'na taşındı.
+> 13. **`mime/quotedprintable` satır sonu kaybı** (S13: `"a\r\x1d\nb"` → 1 CRLF) — EM-2 kodlamadan
+>     önce LF'ye normalize eder; ADR 0022 §2'de normatif.
+>
+> **2. tur (2026-10-03 — üçüncü göz RED, güvenlik RED; belge düzeyinde, normatif içerik
+> değişti).** Kapananlar:
+> - **EM-K9, kullanıcı kararı** (*"hayir sahte birsey eklemene gerek yok ses'e baglariz
+>   direkt"*): Mailpit yok, dev'de `none`/`panel`, doğrulama Go testlerindeki sahte SMTP sonra
+>   doğrudan SES (önce sandbox) — ADR 0022 §12; *Karar verilmedi*'den çıktı. **Prod'da özel kök
+>   havuzu yasak** (§2; EM-3 kaynak pini, tarif).
+> - **Güvenlik (bloklayan):** ADR 0005 ekinin *"bu çalışanın kodu nereye gitti sorusu kayıtta
+>   cevaplanır"* cümlesi Y-D saldırganına karşı yanlıştı (`invite.code_emailed` ve EM-6 satırı
+>   adres taşımaz, `employee.added` yalnız `has_email` — `staff.go:362-376`) → *"adres
+>   düzenlenene dek; EM-6 satırı değişikliğin olduğunu gösterir, değeri göstermez"*; ADR 0022
+>   sayılı sınır 2 ve 19, ADR 0005 ekinin sayılı sınırları. Alıcının anahtarlı özeti ADR 0022
+>   *Karar verilmedi*'de (yeni anahtar, GDPR, değişmez `audit_log`) — uygulanmadı.
+>   *"Hayali çalışan başına bir kutu"* yanlıştı → tek kutu N hayali çalışana. Owner-only kısıt
+>   EM-12'ye dek boş (`signup.go:723-731`) → daralma yalnız kanal ayrımı (EM-8).
+> - **Üçüncü göz (bloklayan):** F1 (yukarıdaki düzeltme 1) · F2 (düzeltme 12) · F3: §3'ün
+>   *"dışa kapalı alan da `%+v` ile basılır"* cümlesi `error` türü için yanlıştı (`%v`/`%+v`/`%s`
+>   `Error()`'u çağırır, alanları yalnız `%#v` gösterir) → kural EM-2'nin reflect tabanlı alan +
+>   yöntem pinine bağlandı (`…SendError_HasOnlyAClassAndACode`, birleştirildiğinde).
+> - **Üçüncü göz (bloklamayan):** F5 (15 modül) · F6 (davet yolu + SES itibarı, sınır 6) · F7
+>   (İddia F başlığı daraltıldı; DATA sonlandırıcısından sonraki iptal → link gitmiş ama
+>   `undelivered`, sınır 15) · F8 (tampon gerekçesi §6.2; §10'un `invite_id`/`reset_id`/`ip`
+>   eklemesi m10'dan sapma olarak yazıldı) · F9 (B24 düzeltildi + ADR 0020 atfı; B5 aralığı
+>   522-596; R7 tavsiyesi tanımlayıcıyı da kapsar, emsal `key32(name)` — `config.go:681-694`;
+>   İddia I'da `465` her ortamda; İddia D'de derleme zamanı doğrulamaları adıyla; go1.26.6
+>   ölçümü).
+> - **Güvenlik (bloklamayan):** `Message` üçüncü beyan edilmiş taşıyıcı (EM-2'de yöntem 0 —
+>   okundu; belge devri EM-2'ye) · işçide panik (düzeltme 3) · `message_id` kuralı (§2: şekil
+>   `[A-Za-z0-9._-]` ≤128, yankı ise düşer) · SES geri bildirim yönlendirmesi (§11, yeni dış
+>   adım; ölçülmedi) · sekizinci sınıf `invalid_message`.
+> - **EM-2'nin sapmaları (a–i) normatif yazıldı** (§2–§4, Sonuçlar): `invalid_message`, AUTH 4xx
+>   → `throttled` + tek deneme, `ErrNotConfigured`, kendi `Message-ID`'miz, QUIT 221
+>   beklenmez, başlık reddi C1 / U+2028 / U+2029 / `=?` ile (fuzz bulgusu: encoded-word
+>   görünümlü ASCII konu CRLF + sahte `Bcc:`'ye çözülür), `Ref` iletilmez ve biçimli, ayrı
+>   görünen ad kontrolü yok, süre iki yoldan (`SetDeadline` tek başına pinsiz — sınır 16).
+>
+> **3. tur (2026-10-03 — kapanış üçüncü gözü RED, güvenlik yeniden denetimi RED).** Kapananlar:
+> - **B1, bayt tavanı (güvenlik YÜKSEK + üçüncü göz) — orkestratör kuralı, EM-2 sapması j:** ham
+>   bağlantı `NewClient`'ten önce deneme başına sayan bir sarmalayıcıya sarılır, tavan
+>   **256 KiB**, TLS öncesi/sonrası tek sayaç, aşımda `network` (ADR 0022 §2, §3; **İddia J**,
+>   erişilebilirlik). Ölçüldü: `textproto` satırı sınırsız okur (`reader.go:43-45`, `:60-80`,
+>   `:287-300` — B31) ve 32 MiB'lık bir TLS öncesi selamlama `smtp.NewClient`'te hatasız kabul
+>   edilip +287,8 MiB (go1.27.1) / +255,8 MiB (go1.26.6) ayırttı (S14, `net.Pipe` sondası);
+>   denetçinin ~120 MiB → OOM ölçümü yeniden koşturulmadı. Sonuçlar'daki sayı *"on iddia
+>   (A–J)"*.
+> - **E1, `message_id` yankı kuralı — orkestratör kuralı, EM-2 sapması k:** değer listesine tel
+>   üstündeki AUTH PLAIN argümanı ve kullanıcı adı girer; id ile değerlerden biri (`Text`/`HTML`
+>   dahil) arasında **k = 8** karakterlik ortak `[A-Za-z0-9._-]` penceresi varsa id düşer (§2).
+>   Denetçinin ölçümü B33 olarak kayıtlı (`x<token>`, `<token>-000000` 2. turun kuralını
+>   geçiyordu). İddia B PART I'e `x<kod>`, `<kod>.1`, `<kod>-000000` ve AUTH argümanı vakaları
+>   eklendi; sınır 17 yeniden yazıldı (biçim değiştiren ve <8'lik parçalara bölen yankı); yanlış
+>   pozitif sınır 21 (yalnız `message_id` kaybı).
+> - **F1-r2, kapanış tarifi:** düzeltme 1 yeniden yazıldı (T ≥ D uçuşta istek, < T + D − pay,
+>   başlama anı `go`'dan önce ya da sıra assert'i yok, yakalamadıkları dürüstçe). Denetçinin
+>   ölçümü B34, `shutdownPollIntervalMax` B35.
+> - **Güvenlik ORTA — DKIM imzalı içerik:** §8 (*"tek URL"* yalnız şablon literali), İddia H
+>   başlığı daraltıldı ve *Yakalamadığı*'na URL benzeri ad, sayılı sınır 22; tasarım kararı
+>   EM-4/EM-7/WL-11'e devredildi.
+> - **Güvenlik DÜŞÜK + 3E N2 — kök havuzu yasağının iki yolu:** `RootCAs: nil` Linux'ta
+>   `SSL_CERT_FILE`/`SSL_CERT_DIR`'i okur (`crypto/x509/root.go:124-138`, B32); EM-3 pinleri
+>   (a) yalnız `mail.Config` — atama ve anahtarlı bileşik değer, (b) config'te CA anahtarı 0,
+>   (c) manifestte `SSL_CERT_*` env'i 0. Volume / imaj yolu İddia I *Yakalamadığı* + sınır 23;
+>   `TAPPA_SMTP_HOST` izinli ad listesi yok sınır 24.
+> - **Güvenlik DÜŞÜK — dev'de `email` modu:** boot hatası **yok** (orkestratör kararı); §12'de
+>   kabul edilen risk: hedef gerçek röle, prod kimliği `.env`'e konmaz (`.env` `.gitignore:7`,
+>   R7d listesine girmez — `redline-check.sh:1834`), seed'de **37** adres (`@kebabfactory.mt`,
+>   `@kebabmfg.mt`; `grep -ohE … test/fixtures/seed.sql | sort -u | wc -l`), yerel deneme için
+>   sandbox'ta kısıtlı ayrı IAM kimliği dış adım olarak; sınır 25.
+> - **Güvenlik DÜŞÜK — panik kuralı:** §6.4 koşullu (*"henüz satır yazılmadıysa"*); 250 ile audit
+>   arası panik sınır 15'e eklendi.
+> - **3E N1:** §10 kümesine `err_type` (değeri yalnız `%T`) ve `err` (değeri kimlikli sarmalar +
+>   yalnız `*SendError`) eklendi, değerleri sınırlandı; m10 sapma paragrafı güncellendi.
+> - **3E N3:** §3 tablosu koda göre: tekrar yapılamazsa (süre yok ya da geri çekilmede bağlam
+>   biter) sınıf `throttled` kalır (EM-2 dalında `mail.go`'daki `Send` + `pause`).
+> - **3E N4:** §6.2 *"her boyda"* daraltıldı: tek adres 10 dk'da ≤160 grant; tek işçi en kötü
+>   süreyle 40 işler, yani 32 tek adresle de dolabilir, ≥160 yalnız birden çok adresle.
+> - **EM-2'nin 2. tur kararları:** `To`'da `=?` reddi (§4); STARTTLS'e 454/502 ve STARTTLS
+>   sonrası EHLO → `tls_unavailable` (§3); `Reply-To` `New`'de alıcı kuralıyla (§4, §5);
+>   kullanıcı adı redakte eden tipte (§5, İddia D).
+> - **Gerekçeli sapma:** İddia H ve I için istenen *"PART III'e bir cümle"* PART III'e değil,
+>   PART II'nin **Yakalamadığı** kısmına ve sayılı sınırlara yazıldı — PART III bu deponun
+>   kuralıyla tek gerekçesiz cümledir (agent-brief, M10 OP-8).
+>
+> **Eşitleme turu (2026-10-03 — EM-2'nin teslim ettiği 2. tur koduna; EM-2'nin
+> `internal/mail`'i yalnız okundu).** ADR 0022'de:
+> 1. **Yankı listesi** (§2): ham ileti, `To`, `From`, `Subject`, `Ref`, `Text`, `HTML`,
+>    kullanıcı adı, **parola**, AUTH PLAIN argümanı (EM-2 `mail.go`, `Send`'deki `sent`);
+>    parolanın gerekçesi (`x<parola>` base64'lü AUTH argümanıyla 8'lik pencere paylaşmaz); 8'den
+>    kısa id birebir alt dizgeyle de düşer; `To`/`From` çıkarılması (M39/M40) yeşil — **ölçülmüş
+>    eşdeğerlik** (ham ileti kapsar), açık değil. İddia B PART I/II buna göre
+>    (`…Send_ReadsTheMessageIDFromThe250Reply`, M21/M36/M37/M38/M41–M46 kırmızı).
+> 2. **Duraklamada `throttled`** (§3 tablosu): gerekçe eklendi — gönderimi bitiren rölenin
+>    4xx'i; `timeout` sağlayıcı kısıtlamasını gizler ve kod taşımaz.
+> 3. **`mail.Credential`** (`credential.go`): parola **ve** kullanıcı adı; §5 tablosu ve paragrafı,
+>    İddia D (`…Credential_IsRedactedInEveryRendering`, `…Credential_KnownLimitIsReflection`).
+> 4. **`Message` redakte ediyor** (`Format`/`String`/`GoString`/`LogValue`/`MarshalText`, derleme
+>    anı doğrulamaları, ⚠️ *"loglanmaz"* doc'u); §2 paragrafı ve sınır 20: istisna = dışa kapalı
+>    alandaki `Message` yansımayla basılır (`…Message_KnownLimitIsAnUnexportedField`) ve
+>    alanlarını doğrudan loglayan çağıran. İddia D `…Message_PrintsAsAPlaceholder`'ı anar.
+> 5. **Tavanın gerekçesi** (§2): sayaç el sıkışmayı da sayar; dürüst röle birkaç yüz bayt + bir
+>    TLS uçuşu (zincir birkaç KiB, RSA-4096 < 16 KiB) → tavan >10×; `ReadResponse`
+>    `strings.Builder` → tavan altında karesel büyüme yok; ölçülen 0,9–2,1 MiB (bütçe 4 MiB).
+>    Bir `Send` en çok 2 × 256 KiB okur (yalnız 4xx yeniden denenir).
+> 6. **Sınıf eşlemesi** (§3): STARTTLS'e her kod, başarısız el sıkışma, STARTTLS sonrası EHLO →
+>    `tls_unavailable`, tekrar yok; `network` yeniden denenmez (`…Send_ANetworkFailureIsNotRetried`
+>    — veri sonu noktasından sonra kopuş çift teslim riski); `classify`'ın önceliği birebir yazıldı
+>    (tavan → süre → kod → aşama).
+> 7. **EM-2'nin yeni test adları** yalnız `…` önekiyle, *"birleştirildiğinde"*: İddia J
+>    (`…Send_CapsWhatTheRelayCanMakeItRead`, `…Send_ANetworkFailureIsNotRetried`), İddia D
+>    (`…Message_PrintsAsAPlaceholder`, `…Message_KnownLimitIsAnUnexportedField`). İddia J PART II
+>    gerçek testle eşitlendi: **bölünmüş (TLS öncesi + sonrası) vaka testte yok** → sayacın
+>    STARTTLS'te sıfırlanması *Yakalamadığı*'na taşındı; küçük tavan büyütmesi de.
+> 8. **EM-2'nin 12 sayılı sınırı:** karşılığı olanlar (1 → 7, 2 → 17/21, 5 → 16, 7 → 20) adıyla
+>    eşlendi; olmayanlar 26–33 olarak eklendi (kasıtlı yansıma · tavan altı ayırma · açık
+>    `MinVersion` · RFC 2047'nin 76 karakteri · gerçek SES ölçülmedi · "0 dial" dolaylı sayım ·
+>    fuzz yalnız başlık üreticisi · gövde içeriği kısıtlanmaz).
+> - **Belge notu EM-2'ye:** kodun yorumu pencere kuralını *"ADR 0022 §3"*'e bağlıyor; kural §2'de.
+>
+> **4. tur (2026-10-03, kapanış — yalnız ADR metni; birleşik ağaçta denetim: güvenlik ONAY,
+> üçüncü göz RED yalnız EM-2'nin pini için).** Orkestratör EM-2'nin `internal/mail`'ini bu
+> worktree'ye takip dışı kopyaladı; kopyaya dokunulmadı. ADR 0022'de:
+> - **F9 / D3 — birleştirme sonrası çeviri:** `…X` önekli 11 farklı test atfı (13 yer) gerçek
+>   `TestX` adlarına çevrildi; İddia C'nin üç testi adıyla (`TestSend_RefusesBadInputBeforeAnyDial`,
+>   `FuzzCompose`, `TestHeaderBlock_RefusesWhatItCannotWriteVerbatim`); başlıktaki *"bu ağaçta
+>   yok … birleştirilmedi"*, iddia girişindeki *"Test önekiyle anılmaz"* ve bütün
+>   *"birleştirildiğinde"* ifadeleri kaldırıldı/güncellendi; Sonuçlar'daki *"§3'e bağlıyor"*
+>   notu kaldırıldı. `TestEveryNamedTestExists` (kopyayla): 2560 bildirilmiş test, 5707 atıf,
+>   **sarkan 60/60**. B4 ve ADR 0015'teki `main.go:610-620` tarihli bırakıldı ve dalın ucu
+>   eklendi: `e0f53b6`'da `:626-636` (`git show e0f53b6:cmd/tappa/main.go` ile okundu).
+> - **F2 — §6.6(b):** pay gerekçesi düzeltildi — yoklama adımı **doğru** uygulamayı yavaşlatır
+>   (`server.go:3262-3272`, en çok 500 ms + %10 sapma; B35). Koşul: **D − pay > ≈550 ms**
+>   (+ gürültü); örnek T = D = 1 s, pay 300 ms. Denetçinin ölçümü B37 (T = 1,2 s, D = 0,9 s,
+>   pay 500 ms → doğru uygulama 12 koşunun 5'inde eşiği aştı). Yakalamadığı: D − pay − ≈550 ms'den
+>   kısa ek bekleme.
+> - **F3:** İddia J — sayacın STARTTLS'te sıfırlanması (M01) ve el sıkışmada tavan → `network`
+>   (M16) *Yakalamadığı*'ndan çıktı, PART I/II'ye *"EM-2'nin 4. tur teslimine göre"* (bölünmüş
+>   vaka, el sıkışma vakası). `classify` sırası (M15): §3'te *"Pin durumu"* + sayılı sınır 35
+>   (EM-2 eklemezse sınır; orkestratör eşitler).
+> - **F4:** §3 `tls_unavailable` hücresi daraltıldı — el sıkışmada tavan → `network`, süre/iptal →
+>   `timeout`.
+> - **F5 + D2:** sınır 17 — EHLO argümanı (`localhost`) ve SNI'daki röle adı telde ama listede
+>   değil (sır değiller); 8'den kısa parçalar **ayraçla (sıra korunarak) ya da sırası bozularak**.
+> - **F6:** §10 `err` — `ErrNotConfigured` istisnası yazıldı.
+> - **F7:** İddia A — başka ada verilmiş, aranan adı taşımayan ve (kontrol) tam aranan adı
+>   taşıyan sertifika satırları (`TestSend_NoTLSMeansNoAuth`, kopyada `send_test.go:291-296`);
+>   yakaladıkları: `ServerName` sabitlenmesi (M09) ve adın doğrulanmaması.
+> - **F8:** İddia D — `Message` için *"her yazdırma yolu"* testin listelediği 13 biçime daraltıldı
+>   (`TestMessage_PrintsAsAPlaceholder`); slog `Resolve`, `%x`, `%d` EM-2'nin 4. tur teslimine göre.
+> - **D1 — kesik 250:** §2 tavan kuralına istisna (veri sonu yanıtında `250 ` okunduysa kesilme
+>   kabul, gönderim başarılı, id boş — süre ve iptal dahil); §3 `timeout` satırı; sayılı sınır
+>   34; kök neden B38 (`bufio/bufio.go:405-428`: kısmi satır hatasız döner) + QUIT'in yanıtı
+>   beklenmez. Pinleyen test satırı EM-2'ye devredildi.
+> - `mail.go`'daki *"(doc.go, PART III)"* EM-2'nin yorumu; ADR'de değişiklik yok.
+>
+> **Son eşitleme (2026-10-03 — EM-2'nin kapanış teslimi; `internal/mail` kopyası orkestratörce
+> yenilendi, dokunulmadı).** ADR 0022'deki *"teslimine göre"* işaretleri (8 yer) olgulara
+> çevrildi; kalan sayı **0**:
+> - **Bağlantı sayısı** (§2): `TestSend_ClassifiesEachStep` — 4xx'te 2; selamlama 554, AUTH 535,
+>   MAIL 550, RCPT 550, DATA 554, veri sonu 554'te 1; bağlam baştan bitmişse 0. Orkestratörün
+>   ölçümü: `auth`/`rejected` yeniden denenirse kırmızı.
+> - **Tavan** (İddia J PART I/II, §3 *"Pin durumu"*): `TestSend_TheReplyCapCoversTheWholeAttempt`
+>   — bölünmüş vaka (200 KiB EHLO + 100 KiB 250 → `network`, iki kontrol başarılı; M01 kırmızı)
+>   ve el sıkışma vakası (64 bayt bütçe → `network`, sunucu el sıkışmayı tamamlamaz, 64 KiB
+>   kontrol başarılı; M16 kırmızı); `crypto/tls` sayacın hatasını `errors.Is`'e görünür verir.
+> - **M15** (süre/tavan sırası): sayılı sınır 35 — pinsiz, çünkü test tavan hatası ile bitmiş
+>   bağlamı aynı anda gerektirir (zamanlanamayan yarış); "EM-2 eklerse" koşulu kaldırıldı.
+> - **Kesik 250** (sınır 34): `TestSend_ACutReplyToTheEndOfDataIsAcceptance` (`"250 Ok "` +
+>   300 KiB, CRLF yok → başarı, boş id, ≤ 2 s; M66 kırmızı).
+> - **`Message` yazdırma** (İddia D): `slog.AnyValue(m).Resolve()`, `%x`, `%d` artık testte
+>   (EM-2'nin numaralamasıyla M14 kırmızı).
+> - **Yankı kaçışı** (sınır 17): `TestMessageID_KnownLimitIsACutOrReorderedEcho` — her 7
+>   karakterde bir ayraçla sırası korunarak bölünmüş ve ters çevrilmiş değer geçer; kontrol:
+>   8'lik kesintisiz dizi yakalanır; gömülü ve 8'den kısa parça da sınırda.
+> - `TestEveryNamedTestExists` kopyayla: 2563 bildirilmiş test, 5728 atıf, sarkan **60/60**.
+>
+> **Sayılı sınırlar (bu görevin):**
+> 1. Stdlib sondaları go1.27.1 ve go1.26.6 darwin/amd64'te; CI'nin tam sürümü (1.26.x) ile
+>    aynı ana sürüm, CI makinesinde koşturulmadı.
+> 2. SES davranışları (sandbox red metni, 250'de message-id, kendi `Message-ID`'mize ne yaptığı,
+>    tıklama izleme yönlendirmesi, bastırılmış adrese gönderimin sessizliği, geri bildirim
+>    yönlendirmesinin gövde taşıması ve kapatılma koşulu, hesap duraklatma, SigV4 ±5 dk)
+>    **ölçülmedi** — EM-5'in canlı dumanı ölçer.
+> 3. Kapanış aritmetiği ve R7 tuzağı kaynak okumasıyla; `time.Sleep(3s)` mutasyonu üçüncü gözün
+>    ölçümüdür, bu turda yeniden koşturulmadı; aynı biçimde B33 (yankı) ve B34 (kapanış
+>    süreleri) denetçinin ölçümleridir. EM-2'nin 0,9–2,1 MiB ayırma ölçümü ve M-mutasyon
+>    sonuçları EM-2'nin kartından alındı, bu görevde yeniden koşturulmadı (EM-2'nin kodu
+>    yalnız okundu).
+> 4. Postmark / Resend / kendi SMTP ölçerek karşılaştırılmadı (Q02'nin listesi); seçim K7.
+> 5. AWS işleme sözleşmesi (DPA) ve Hetzner'in 587 çıkışı ölçülmedi.
+> 6. iOS uygulama-içi tarayıcının çerez ayrımı ölçülmedi (EM-8).
+> 7. EM-2'nin test adları bu ağaçta yok; ADR onları `…` önekiyle anar, birleştirmede tam adla
+>    güncellenebilir.
+>
+> **Devirler:**
+> - **EM-2:** `Message`'ın belge yorumuna *"üçüncü beyan edilmiş taşıyıcı"* cümlesi (§2); sapma
+>   j (256 KiB tavan + İddia J'nin dört vakası) ve k (8'lik pencere + İddia B'nin `message_id`
+>   vakaları); 2. tur kararları (`To`'da `=?`, STARTTLS sınıfı, `Reply-To`, kullanıcı adı tipi).
+> - **EM-3:** config tablosu (§5), fail-closed matris (iki akış kapalıyken eksik anahtarla boot
+>   başarılı), `465` her ortamda, prod'da `localhost`/IP reddi, R7 tuzağı (tanımlayıcı dahil),
+>   **özel kök havuzu yasağının üç pini** (yalnız `mail.Config` — atama + anahtarlı bileşik
+>   değer; config'te CA anahtarı 0; manifestte `SSL_CERT_*` env'i 0),
+>   `TestLoad_ResetDeliveryIsAClosedSetAndFailsClosed`'un
+>   `"Q02"` beklentisi, ConfigMap yorumu, iki manifest, runbook (değer yazılmaz), dokunduğu
+>   dosyalarda Q02 metni.
+> - **EM-4:** §8; konu kriteri düzeltme 4 ile; URL benzeri tenant adının e-postadaki biçimi
+>   (sınır 22) — EM-7 ve WL-11 ile birlikte.
+> - **EM-5:** §6 (tampon 32 + ölçüm, audit'e ayrı sınır, kuyruk dolu → senkron `undelivered`,
+>   koşullu panik kuralı, eşzamanlı boşaltma + iki pin — (b) T ≥ D'li, devre kesici açıkken
+>   sonuç), 2 s'lik yeni
+>   zamanlama testi (senkron kodda kırmızı olduğu kartta), grant başına satır testi (beş yol,
+>   bütçe içinde), senkron varsayan iki testin güncellenmesi, M7-04 kriterlerinin gerçek SMTP'ye
+>   karşı yeniden koşusu, canlı duman (SPF/DKIM/DMARC PASS + message-id + kendi `Message-ID`'miz
+>   + izleme kapalı).
+> - **EM-6:** adres okuma sorgusu (açık tenant filtresi + RLS testi), "e-postayı değiştir" +
+>   aynı-tx iptal + audit (detail'de adres yok), migration beklenmiyor (ölç).
+> - **EM-7:** §7 (basımdan önce adres; üç ret; senkron gönderim; `invite.code_emailed`;
+>   başarısızlık satırı; `employeeactions.go:419` sızıntı testi; owner-only yedek — rol testi
+>   fikstürle; oran sınırları); anahtarlı alıcı özeti kararı (*Karar verilmedi*) burada ya da
+>   Q13 ile ayrı ADR'de.
+> - **EM-8:** M6-11'de iki kanal ayrı; gerçek cihaz turu.
+> - **EM-9:** linksiz bildirim.
+> - **Orkestratör:** Q02'yi "Cevaplananlar"a taşı (`q02.md`) · `open-questions.md` Y-D satırının
+>   *"Q02 çözülünce kod çalışanın kendi kanalına"* cümlesi · M5-02 kartında 5 Q02 anışı ·
+>   CLAUDE.md §3 (`internal/mail`) ve §7 (sıfırlama token'ı, SMTP kimliği, e-posta adresi) · m10
+>   dış adımlarına iki adım: SES geri bildirim yönlendirmesi; yerel SES denemesi için sandbox'ta
+>   kısıtlı ayrı IAM kimliği (prod kimliği `.env`'e yazılmaz) · EM-2 birleştirilince ADR'deki
+>   `…` önekli test adlarını tam adla güncellemek (isteğe bağlı).
+
+> **Kart düzeltmesi (2026-10-03, EM-2 uygulaması sırasında; 2. ve 3. tur aynı gün).** Yazıldı:
+> `internal/mail/` (yeni paket, on dosya): `doc.go` (paket belgesi + üç parçalı iddia + bilinen
+> sınırlar) · `mail.go` (`Message` ve redaksiyonu, `Receipt`, `Config`, `SMTP`, `New`, `Send`,
+> `attempt`, `data`, `cappedConn`) · `errors.go` (`Class`, sekiz sınıf sabiti, `SendError`,
+> `ErrNotConfigured`, `classify`) · `compose.go` (alıcı/başlık kuralları, `headerBlock`,
+> `compose`, `alternative`, `messageID`, `echoWindow`) · `credential.go` (`Credential` —
+> kullanıcı adı ve parola; `invite.Code` deseni) · testler: `fakesmtp_test.go` (test içi sahte
+> SMTP; dört anahtar ve öz-imzalı sertifika her koşuda bellekte üretilir, dosya yok),
+> `send_test.go`, `cap_test.go`, `leak_external_test.go`, `compose_test.go` (`FuzzCompose`
+> dahil). Config/manifest/handler YOK (EM-3, EM-5, EM-7). `go.mod`/`go.sum`/`sqlc.yaml` diff boş;
+> `go list -deps ./internal/mail` standart olmayan tek paket olarak kendisini verir. **Ölçüm
+> ortamı:** yerel Go 1.27.1 darwin/amd64; `-race -cover` ve staticcheck `GOTOOLCHAIN=go1.26.7`;
+> ayrı git worktree, taban `f3c9c04`. DB'ye bağlanılmadı; ağ yalnız `127.0.0.1`.
+>
+> **2. tur — denetim bulgularının kapanışı:**
+> - **Güvenlik YÜKSEK — yanıt bayt tavanı.** Ham bağlantı `NewClient`'ten önce `cappedConn`'a
+>   sarılır; deneme başına okunan her bayt (selamlama, EHLO, TLS el sıkışması ve TLS üstündeki her
+>   yanıt) tek sayaçtan geçer, `maxReplyBytes` = 256 KiB, aşılınca `network`. Ölçüm
+>   (`TestSend_CapsWhatTheRelayCanMakeItRead`, 4 MiB = tavanın 16 katı): **önce** (tavan yok,
+>   M34) beş satırın beşi 5 s'lik süre sonuna kadar tutuldu, canlı heap tepe +10–28 MiB, ayrılan
+>   10,5–33 MiB (selin büyüklüğüyle büyür); **sonra** 1–18 ms'de `network`, ayrılan 0,9–2,1 MiB
+>   (üç `-race` koşusu), bütçe 16 × tavan = 4 MiB. Satırlar: satır sonu olmayan tek satır,
+>   1 KiB'lık devam satırları, boş devam satırları (selamlamada), TLS öncesi EHLO yanıtı, TLS
+>   üstünden veri sonu yanıtı. Gerekçe (256 KiB): dürüst bir röle denemede birkaç yüz bayt yanıt +
+>   bir TLS sunucu uçuşu (sertifika zinciri birkaç KiB; uzun bir RSA-4096 zinciri < 16 KiB) gönderir.
+>   Go 1.26.7 ve 1.27.1'in `textproto.ReadResponse`'u çok satırlı yanıtı `strings.Builder`'la
+>   kurar (kaynak okundu) — tavan altında karesel bir büyüme yok.
+> - **Güvenlik ORTA — yankı kuralı iki yönlü.** Kimlik, gönderilen bir değerle 8 karakterlik
+>   ortak bir `[A-Za-z0-9._-]` penceresi paylaşıyorsa (ya da 8'den kısaysa bir değerin içinde
+>   geçiyorsa) düşer. Liste: ham ileti, To, From, Subject, Ref, Text, HTML, kullanıcı adı, parola,
+>   AUTH PLAIN argümanı (base64). Ölçülen dört biçim (`q.<değer>`, `<değer>-0`, `x<parola>`,
+>   `maria.borg-1`) ve koordinatörün beşi (`x<değer>`, `<değer>-000000`, `<değer>.1`, AUTH
+>   argümanı birebir, kullanıcı adı önekli) düşer; gerçekçi SES kimliği (`0107018f…-000000`)
+>   geçer: `TestSend_ReadsTheMessageIDFromThe250Reply`. Listenin her girdisi için yalnız o
+>   girdinin yakalayabildiği bir satır var (o parçanın rölenin aldığı iletide OLMADIĞI kontrolüyle):
+>   ham ileti (MIME sınırı parçası), kullanıcı adı, parola, AUTH argümanının bir koşusu, Text ve
+>   HTML (QP yumuşak kırılımının böldüğü değer), Subject (RFC 2047'nin değiştirdiği `_`), Ref.
+>   **To ve From girdileri eşdeğerdir:** ikisi de ham iletinin `To:`/`From:` başlıklarında birebir
+>   durur, yani kaldırılmaları hiçbir testi kızartamaz (M39, M40 — ölçüldü); ADR listesinde
+>   oldukları için tutuldu. Parola ADR'nin listesinde yok — eklendi, çünkü `x<parola>` AUTH
+>   argümanının base64 penceresiyle yakalanmaz.
+> - **B4 — To'da `=?`:** alıcı kuralına eklendi; kontrol: `net/mail` o adresi kendisine çözer,
+>   `mime.WordDecoder` CRLF + Bcc üretir. Satır `TestSend_RefusesBadInputBeforeAnyDial`'da,
+>   tohum `FuzzCompose`'ta; M47 → kırmızı.
+> - **B5 — sertifika adı:** havuzun GÜVENDİĞİ üç sertifika: başka ad (`other.test`), aranan adı
+>   taşımayan (127.0.0.1'e yalnız `localhost`, `localhost`'a yalnız IP), kontrol olarak yalnız
+>   aranan adı taşıyan → ilk ikisi `tls_unavailable` + 0 AUTH, kontrol bağlanır
+>   (`TestSend_NoTLSMeansNoAuth`, iki ad). X01 (M48, `ServerName` sabit) ve X03 (M49, zincir
+>   doğrulanır ad doğrulanmaz) → kırmızı.
+> - **B6 — X04 (MinVersion silindi) yeşil, SAYILI SINIR.** İstemcinin varsayılan alt sürümü zaten
+>   1.2. Deneme: `GODEBUG=tls10server=1` Go 1.27'de kaldırılmış (`fatal error: removed GODEBUG …`),
+>   `GODEBUG=tls10default=1` ile de MinVersion'sız istemci TLS 1.1 sunucuya bağlanmadı. Yani
+>   açık `MinVersion` bugün varsayılanla aynıdır; ancak varsayılan düşerse koruyucu olur.
+> - **B7 — ağ hatası yeniden denenmez:** `TestSend_ANetworkFailureIsNotRetried` — veri sonundan
+>   sonra düşen bağlantı ve DATA sırasında RST → `network`, bağlantı 1. X14 (M51) → kırmızı.
+> - **B8:** yankı girdileri — ORTA ile kapandı (X06 = M37, X07 = M38 kırmızı; X08 = M39 eşdeğer,
+>   yukarıda).
+> - **B3 — Ref:** sahte sunucu artık her komut satırını tam kaydeder; `TestSend_TheMessageOnTheWire`
+>   Ref kimliğinin hiçbir komut satırında ve ileti satırında olmadığını assert eder (kontrol:
+>   ≥6 satır kaydedildi). X20 (M52, Ref EHLO adı) → kırmızı.
+> - **B1:** PART III tek cümle: *"Any form not listed above is the subject of code review — no
+>   completeness claim."* Ölçülmüş sınırlar ayrı bir "KNOWN LIMITS" paragrafında.
+> - **B2:** "her biçimde yer tutucu" cümlesi kaldırıldı; iddia testin listelediği biçimlere ve
+>   "değer de ilk 8 karakteri de yok" assert'ine bağlandı; `Config`/`SMTP` içinde alanın bir
+>   işaretçi ADRESİ olarak basıldığı (dolaylılığın kendisi) yazıldı.
+> - **B9:** RST testi `data()`'nın gövde yazma hata dalını sürer. Kapsanmayan iki dal (DATA
+>   komutunun yazımı ve `DotWriter.Close` hatası) ulaşılabilirdir ama yalnız yarışlı zamanlamayla;
+>   "ulaşılamaz" cümlesi geri çekildi (aşağıda kapsam).
+> - **B10:** `ClassInvalidAddress` yorumu (New `SendError` döndürmez) · `ClassInvalidMessage`
+>   yorumuna Ref ve `=?` · `credential.go`'da `reveal()`'ın çağıranları (hiçbir test çağırmaz) ·
+>   QUIT satırı ölçülen sınıra (≤1 s) · `compose.go`'daki iki QP cümlesi uzlaştırıldı · "every
+>   reader" → "`mime.WordDecoder` decodes it (measured)".
+> - **B11:** STARTTLS'e 454/502 ve STARTTLS sonrası EHLO hatası → `tls_unavailable` — kabul
+>   edildi, ADR §3 tablosuna devredildi (aşağıda). **Reply-To** artık `New`'de alıcı kuralıyla
+>   doğrulanır (görünen ad, açılı ayraç, `=?` → ret; `TestNew_RefusesAnInvalidConfig`). M53 →
+>   kırmızı.
+> - **B12:** `Message` kendi basım yollarında yer tutucu basar (`Format` her fiil, `String`,
+>   `GoString`, `LogValue`, `MarshalText`) — `TestMessage_PrintsAsAPlaceholder`; doc'ta ⚠️ uyarı
+>   (*"loglanmaz — `invite.Delivery` / `ResetDelivery` gibi beyan edilmiş istisna"*). Sınır ölçüldü:
+>   dışa kapalı bir alanda tutulan `Message` alanlarıyla basılır
+>   (`TestMessage_KnownLimitIsAnUnexportedField`) — alanlar dışa açık dizgeler olduğu için
+>   dolaylılık (işaretçi) API'yi bozmadan uygulanamaz. M54, M55 → kırmızı.
+> - **Güvenlik DÜŞÜK — kullanıcı adı:** `Config.Username` artık `Credential` (parolayla aynı
+>   tip); `TestCredential_IsRedactedInEveryRendering` kullanıcı adını da arar.
+> - **Güvenlik DÜŞÜK — `RootCAs`:** EM-3'e devredildi (aşağıda).
+> - **B13:** sayılı sınır (konular ASCII).
+> - **Tekrar duraklaması (koordinatör sorusu):** süre kalmadığında ya da duraklama sırasında bağlam
+>   bittiğinde sınıf **`throttled` kalır** (değiştirilmedi). Gerekçe `ClassThrottled` yorumunda:
+>   gönderimi bitiren rölenin 4xx'idir, süre yalnız yeniden denenmemesine karar verdi; `timeout`
+>   demek çağıranın log'undaki tek operasyonel sinyali (sağlayıcı kısıtlaması) gizler ve taşıyacak
+>   bir yanıt kodu olmaz. Ölçüm: `TestSend_RetriesA4xxOnceOnANewConnection` (iki satır) `451` ile
+>   `throttled` bekler.
+>
+> **3. tur (kapanış) — birleşik ağaç denetimlerinin bulguları:** (yalnız `internal/mail`
+> değişti; ürün kodunda yalnız yorumlar, testlerde yeni satırlar ve iki yeni test)
+> - **F1 (bloklayan) — "5xx yeniden denenmez" her adımda pinli.** `TestSend_ClassifiesEachStep`'in
+>   her satırı artık bağlantı sayısını da assert eder: her 4xx satırında 2, diğer her satırda tam
+>   1 (selamlama 554, AUTH 535, AUTH'a meydan okuma, MAIL 550, RCPT 550/600, DATA 554, veri sonu
+>   554, düşen bağlantılar, bozuk selamlama); bağlam önceden bitmişse 0. Denetçinin M29'u (`auth`
+>   yeniden denenir — bizde M57) ve M31'i (554 yeniden denenir — M58) → **kırmızı**.
+> - **F3 — tavanın pinsiz üç davranışı.** `TestSend_TheReplyCapCoversTheWholeAttempt`: TLS
+>   öncesi 200 KiB geçerli EHLO + TLS sonrası 100 KiB geçerli 250 → `network`; iki kontrol (her
+>   yarı tek başına) başarılı → sayaç STARTTLS'te sıfırlanmıyor (denetçinin M01'i — bizde M62 →
+>   **kırmızı**). El sıkışma başladığında 64 bayt bütçe → `network` ve sunucuda el sıkışma
+>   TAMAMLANMAMIŞ (tavanı TLS değil sayaç kesti); 64 KiB bütçe kontrolü başarılı (M16 — bizde M63,
+>   aşım TLS aşamasında `tls_unavailable` → **kırmızı**). Ölçülen: `crypto/tls` sayacın hatasını
+>   `errors.Is`'in göreceği biçimde döndürür. **M15 (sınıflandırmada süre denetimi tavandan önce,
+>   bizde M64) YEŞİL — sayılı sınır:** iki koşulu aynı anda tetikleyen bir satır ucuz değil
+>   (tavan hatası ile biten bağlamın aynı ana denk gelmesi zamanlanamayan bir yarış).
+> - **F8 — `Message` testi:** `TestMessage_PrintsAsAPlaceholder`'a `slog.AnyValue(m).Resolve()`
+>   (yer tutucu DİZGE), `%x`, `%d`. Denetçinin M14'ü (`LogValue` + derleme anı satırı birlikte
+>   silinir — bizde M65) → **kırmızı**.
+> - **Güvenlik D1 — veri sonu yanıtında kesilen 250 satırı BAŞARIDIR (karar korunur, pinlendi).**
+>   `TestSend_ACutReplyToTheEndOfDataIsAcceptance`: `"250 Ok "` + 300 KiB, CRLF yok → başarı,
+>   `MessageID` boş, ≤2 s. Kök neden yorumda: `bufio.Reader.ReadLine` veri varken hatayı düşürür
+>   ve 250'den sonra okuma yoktur. "Tek satır, satır sonu yok … `network`" genellemesi `doc.go`,
+>   `maxReplyBytes` ve `ClassNetwork` yorumlarında bu istisnayla daraltıldı. Mutasyon M66 (250
+>   satırı 64 KiB'tan uzunsa `network`) → **kırmızı**.
+> - **F5:** yankı listesi yorumu listeye daraltıldı; EHLO argümanı ve SNI'daki ad listede değil
+>   (sır değiller) diye yazıldı.
+> - **F10:** `SMTP.attempt` yorumu "(doc.go, KNOWN LIMITS)" · `cap_test.go`'daki "tavan büyürse
+>   bütçe kızarır" cümlesi ölçüme bağlandı: ×2 (M60) bölünmüş satırı ve kesik-250 testini
+>   kızartır, yığın bütçesi YEŞİL kalır; ×4 (M61) bütçeyi de kızartır (5,0–6,5 MiB / 4 MiB) ·
+>   `doc.go`'da "within milliseconds" → testin izin verdiği 2 s.
+> - **D2:** yankı kaçışı "en az her 7 karakterde bir ayraçla (`.`, `_`, `-`) sırası korunarak
+>   bölünmüş ya da sırası bozulmuş" diye düzeltildi (`doc.go` KNOWN LIMITS, `echoWindow` yorumu);
+>   sınır ölçülerek pinlendi: `TestMessageID_KnownLimitIsACutOrReorderedEcho` (kontrol: 8
+>   karakterlik bitişik koşu yakalanır).
+> - **"§3's" → "§2's"** (`compose.go`, `mail.go`).
+>
+> **Kabul — kanıtlar (1. turdan; 2. turda değişenler işaretli):**
+> 1. **STARTTLS ilan edilmezse `ClassTLS` + sunucu 0 AUTH.** `TestSend_NoTLSMeansNoAuth`, iki
+>    sunucu adıyla (`127.0.0.1`, `localhost`): ilan yok · 454 · 502 · güvenilmeyen sertifika ·
+>    *(2. tur)* güvenilen ama başka ada ait ya da aranan adı taşımayan sertifika · en çok TLS 1.1 →
+>    `tls_unavailable`, 0 AUTH, 0 MAIL, bağlantı 1; iki kontrol satırı bağlanır. Gerekçe:
+>    `TestPlainAuth_SendsInClearForTheLoopbackNames` (çıplak net/smtp bu iki adda AUTH'u düz
+>    metinde gönderir, `mail.example.test` adında göndermez).
+> 2. **250'den Message-ID** — `TestSend_DeliversOverSTARTTLSAndReturnsTheProvidersMessageID`,
+>    *(2. tur, genişledi)* `TestSend_ReadsTheMessageIDFromThe250Reply`.
+> 3. **Deadline ≤100 ms** — `TestSend_ReturnsWithin100msOfTheDeadline` (sekiz adım × üç süre
+>    kaynağı; aşım bir `-race` koşusunda 31 µs – 1,55 ms, gözlem).
+> 4. **CRLF → 0 dial** — `TestSend_RefusesBadInputBeforeAnyDial` (*2. tur:* To'da `=?` satırı ve
+>    çözücü kontrolü); bağlantı sayısı tam kontrol sayısıdır.
+> 5. **30 s fuzz** — `FuzzCompose` *(2. tur kahini To'da `=?`'yi de reddeder; tohum eklendi)*;
+>    koşu sonucu aşağıda.
+> 6. **550 sızmaz** — `TestSendError_CarriesNoServerText`, `TestSendError_HasOnlyAClassAndACode`.
+> 7. **Kimlik bilgisi redaksiyonu** *(2. tur: kullanıcı adı dahil)* —
+>    `TestCredential_IsRedactedInEveryRendering`, `TestCredential_KnownLimitIsReflection`.
+> 8. **Kapsam ve yarış:** sonuçlar aşağıda.
+> 9. **Bağımlılık** — `TestMail_ImportsOnlyTheStandardLibrary`, `go list -deps`.
+> 10. **net/smtp dondurulmuş** — `SMTP.attempt` yorumu; `TestSend_DotStuffsALoneDotLine`.
+>
+> **Kapsam:** `go test -race -cover ./internal/mail` → **%97,5** (`GOTOOLCHAIN=go1.26.7`; Go 1.27.1 ile bir koşuda %97,7 — farkın hangi dalda olduğu ölçülmedi). `-race -count=3` (go1.26.7) yeşil. **30 s fuzz** (bir kez): 843.981 çalıştırma, 0 hata.
+> Go 1.27.1 koşusunda kapsanmayan altı blok: `alternative`'in ve `compose`'un `bytes.Buffer` hata dalları (üç;
+> `bytes.Buffer`'a yazma hata vermez), taze soketin `SetDeadline` hatası, `data()`'da DATA komutu
+> yazımının ve `DotWriter.Close`'un hata dalı (ulaşılabilir, yalnız yarışlı zamanlamayla).
+>
+> **ADR'ye devredilecekler (EM-1 / orkestratör):**
+> - **To'da `=?` reddi** (alıcı kuralının parçası; gerekçe ve ölçüm yukarıda, B4).
+> - **STARTTLS sınıf eşlemesi:** STARTTLS'e 4xx/5xx, el sıkışma hatası ve STARTTLS sonrası EHLO
+>   hatası → `tls_unavailable`, yeniden denenmez (§3 tablosu).
+> - **Yanıt bayt tavanı:** deneme başına 256 KiB, TLS öncesi ve sonrası tek sayaç, aşılınca
+>   `network`; gerekçe ve ölçüm yukarıda.
+> - **Yankı kuralı:** 8 karakterlik pencere, iki yön; liste ADR'nin listesi **+ parola** (gerekçe
+>   yukarıda); To ve From girdilerinin ham iletiyle eşdeğer olduğu (mutasyonla ölçüldü).
+> - **Reply-To** alıcı kuralıyla, görünen ad yok.
+> - **Duraklama sınıfı** `throttled` kalır (gerekçe yukarıda) — ADR farklı karar verirse değişiklik
+>   `Send`'de tek satır.
+> - 1. turdan devam eden sapmalar a–i (sekizinci sınıf `invalid_message`; AUTH'a 4xx → `throttled`
+>   + tek deneme; `ErrNotConfigured`; kendi `Message-ID` başlığımız; QUIT 221'i beklenmez; başlık
+>   reddi üst kümesi; Ref iletiye girmez; `Name == ""` eşitlikte; iki süre mekanizması).
+> - **3. tur — EM-1'e:** (a) M01 (STARTTLS'te sayaç sıfırlanması) artık YAKALANIYOR — ADR'nin
+>   "Yakalamadığı" listesinden çıkar; pin `TestSend_TheReplyCapCoversTheWholeAttempt` (bölünmüş
+>   satır + iki kontrol; el sıkışma içinde aşım `network`, M16'yı da kızartır). (b) **D1
+>   istisnası:** tavanın kestiği satır veri sonu 250 yanıtıysa gönderim BAŞARIDIR (`MessageID`
+>   boş) — "aşılınca `network`" kuralının tek istisnası, pin
+>   `TestSend_ACutReplyToTheEndOfDataIsAcceptance`. (c) "5xx yeniden denenmez" her adımda pinli:
+>   `TestSend_ClassifiesEachStep` bağlantı sayısı sütunu. (d) M15 (süre denetimi tavandan önce)
+>   yakalanmıyor — "Yakalamadığı" listesinde KALIR. (e) Yankı kaçışı tarifi: dönüştürme, en az her
+>   7 karakterde ayraç (sıra korunarak), sıra bozma, 8'den kısa gömülü parça — ölçülü pin
+>   `TestMessageID_KnownLimitIsACutOrReorderedEcho`. (f) Yeni test adları:
+>   `TestSend_TheReplyCapCoversTheWholeAttempt`, `TestSend_ACutReplyToTheEndOfDataIsAcceptance`,
+>   `TestMessageID_KnownLimitIsACutOrReorderedEcho`; genişleyenler `TestSend_ClassifiesEachStep`
+>   (bağlantı sayısı), `TestMessage_PrintsAsAPlaceholder` (Resolve, `%x`, `%d`). (g) Kural ADR
+>   §2'de: koddaki atıflar "§2's window rule".
+>
+> **Mutasyon tablosu — 3. tur ekleri (son ağaçta):** 12 mutasyon, `mutate.sh` (paket sha'sı önce
+> ve sonra `f5d73e48d2b9abc4`; ardından yalnız `cap_test.go`'nun bir yorumu değişti):
+> M57 (`auth` yeniden denenir; denetçinin M29'u) · M58 (554 yeniden denenir; M31) · M27 (5xx
+> yeniden denenir) → `TestSend_ClassifiesEachStep` kırmızı · M62 (sayaç STARTTLS'te sıfırlanır;
+> M01) · M63 (TLS aşamasında aşım `tls_unavailable`; M16) → `TestSend_TheReplyCapCoversTheWholeAttempt`
+> kırmızı · M65 (`Message.LogValue` + derleme anı satırı yok; M14) → `TestMessage_PrintsAsAPlaceholder`
+> kırmızı · M66 (kesik 250 → `network`) → `TestSend_ACutReplyToTheEndOfDataIsAcceptance` kırmızı ·
+> M60 (tavan ×2) → bölünmüş satır + kesik-250 kırmızı, yığın bütçesi yeşil · M61 (×4) → yığın
+> bütçesi de kırmızı · M51 (ağ hatası yeniden denenir) · M34 (tavan yok) → kırmızı ·
+> **M64 (süre denetimi tavandan önce; M15) → YEŞİL, sayılı sınır.** 12'nin 11'i kırmızı.
+>
+> **Mutasyon tablosu (2. tur, son ağaçta yeniden koşuldu).** `mutate.sh`: her mutasyonda paket
+> dosyaları tam yolla yedeklendi, uygulandığı `cmp` ile kanıtlandı, önce `go vet` (derlenmeyen
+> sayılmaz), sonra paketin tamamı; karar `go test`'in kendi çıkış kodundan; geri yükleme `cmp`
+> ile; paket sha'sı önce ve sonra `c6922f3a4019bd0b`. **59 mutasyon: 54 kırmızı · 1 derlenmez
+> (M15a — derleme anı pini) · 4 yeşil:** M13c ve M50 sayılı sınır, M39 ve M40 ölçülmüş eşdeğerlik
+> (To/From ham iletide birebir). M46'nın ilk biçimi derlenmedi (kullanılmayan import), derlenen
+> biçimi kırmızı.
+>
+> | # | Ne | Sonuç (kırmızıya dönen test) |
+> |---|---|---|
+> | M01a · M01b | STARTTLS kapısı kapalı · fırsatçı | NoTLSMeansNoAuth |
+> | M02 | MinVersion TLS 1.0 | NoTLSMeansNoAuth |
+> | M03a · M03b | `Unwrap` · neden alanı + `Unwrap` | HasOnlyAClassAndACode (+ CarriesNoServerText) |
+> | M04 | `Error()`'a sunucu metni | CarriesNoServerText, HasOnlyAClassAndACode, ClassifiesEachStep, … |
+> | M05 · M06 · M07 · M08 | CR/LF temizle · yalnız CRLF çifti · NUL/DEL serbest · U+2028/9 serbest | RefusesBadInput…, FuzzCompose, TestNew_… |
+> | M09 · M10 · M11 · M19 | görünen ad · 255 bayt · çoklu alıcı · ASCII denetimi yok | RefusesBadInput… (+ FuzzCompose, TestNew_…) |
+> | M12 · M25 · M27 | 4xx sınırsız · bekleme süreyi yok sayar · 5xx yeniden denenir | RetriesA4xx… |
+> | M13 · M13b | süre yok sayılır · AfterFunc yok | ReturnsWithin100ms… |
+> | M13c | yalnız SetDeadline yok | **YEŞİL** — sayılı sınır 5 |
+> | M14 · M15b | `Credential.String` değeri döndürür · LogValue + iddia yok | Credential_IsRedactedInEveryRendering |
+> | M15a | yalnız LogValue yok | **derlenmez** — PART II pini |
+> | M16 | Message-ID sabit | ReadsTheMessageID…, DeliversOverSTARTTLS…, RetriesA4xx…, …QUIT… |
+> | M17 | nokta doldurma yok | DotStuffsALoneDotLine, TheMessageOnTheWire |
+> | M18 | `headerBlock` bayt denetimi yok | HeaderBlock_RefusesWhatItCannotWriteVerbatim |
+> | M20 · M47 | Subject/From'da `=?` serbest · To'da `=?` serbest | RefusesBadInput…, FuzzCompose, TestNew_… |
+> | M21 · M36 | yankı kuralı hiç yok · yalnız pencere yok | ReadsTheMessageID… |
+> | M22 | satır sonu kanonikleştirme yok | FuzzCompose |
+> | M23 · M24 · M31 · M33 | STARTTLS 4xx → throttled · `ctx.Err` yok · AUTH 5xx → rejected · selamlama 5xx yeniden | NoTLSMeansNoAuth · ClassifiesEachStep (+ CarriesNoServerText) |
+> | M26 | AUTH, TLS kapısından önce | NoTLSMeansNoAuth, DeliversOverSTARTTLS… |
+> | M28 | `InsecureSkipVerify` | NoTLSMeansNoAuth |
+> | M29 | Ref bir `X-` başlığına | TheMessageOnTheWire, FuzzCompose, ReadsTheMessageID… |
+> | M30 | QUIT 221'i bekler | AServerThatNeverAnswersQUIT… |
+> | M34 · M35 | yanıt tavanı yok · tavan ×64 | CapsWhatTheRelayCanMakeItRead |
+> | M37 (X06) · M38 (X07) | ham ileti · kullanıcı adı listede yok | ReadsTheMessageID… |
+> | M39 (X08) · M40 | From · To listede yok | **YEŞİL** — eşdeğer (ham iletide birebir) |
+> | M41 · M42 · M43 · M44 · M45 · M46 | Subject · Ref · Text · HTML · parola · AUTH argümanı listede yok | ReadsTheMessageID… |
+> | M48 (X01) · M49 (X03) | `ServerName` sabit · zincir doğrulanır ad doğrulanmaz | NoTLSMeansNoAuth |
+> | M50 (X04) | MinVersion satırı silindi | **YEŞİL** — sayılı sınır 6 |
+> | M51 (X14) | ağ hatası yeniden denenir | ANetworkFailureIsNotRetried |
+> | M52 (X20) | Ref EHLO adı olarak gönderilir | TheMessageOnTheWire |
+> | M53 | Reply-To görünen adla kabul | TestNew_…, TheMessageOnTheWire |
+> | M54 · M55 | `Message.LogValue` To'yu · `Message.Format` Text'i basar | Message_PrintsAsAPlaceholder |
+>
+> Üçüncü gözün yeşil kalan 13'ünden tanımı bana iletilen sekizi yeniden kuruldu: X01, X03, X06,
+> X07, X14, X20 → **kırmızı**; X04 sayılı sınır; X08 eşdeğer. **X12, X15, X24, X31, X34'ün
+> tanımları bu turun mesajında yoktu** — yeniden koşulmadı; orkestratör tanımlarını iletirse
+> koşulur.
+>
+> **Devirler:**
+> - **EM-3:** `mail.Config`: `Username` ve `Password` ikisi de `mail.NewCredential(...)`;
+>   `ReplyTo` tek çıplak adres (görünen ad `New`'de reddedilir). Üretim politikası `New`'de değil:
+>   localhost/IP literal yasağı, 465 reddi ve **üretim config'inden `RootCAs == nil` çıktığını
+>   sabitleyen bir pin** (ADR 0022 2. tur üretimde özel kök havuzunu yasaklıyor) EM-3'ün. `New`
+>   hata metni alanı adlandırır, değer basmaz. `internal/mail` yalnız stdlib.
+> - **EM-5:** `errors.As(err, &se *mail.SendError)`; log yalnız `se.Class`, `se.SMTPCode`,
+>   `Receipt.MessageID` (boş olabilir — yankı kuralının bedeli). `mail.Message` loglanmaz (⚠️
+>   doc). `Send` süresi `min(bağlam, Config.Timeout)`. Canlı dumanda: SES 250 biçimi, MessageID'nin
+>   dolduğu ve gerçek SES kimliğinin gövdeyle 8 karakter paylaşmadığı; SES'in bizim Message-ID
+>   başlığımızla ne yaptığı. Link arayan testler gövdeyi QP-çözmeli.
+> - **EM-7:** zincirdeki `*mail.SendError` metin taşımaz; `Message` (Ref = davet kimliği) panel
+>   log yoluna konmaz; saklanan adres alıcı kuralını geçmezse `invalid_address`, dial yok — EM-7
+>   kodu basmadan önce aynı kuralı (artık `=?` dahil) uygular.
+> - **EM-4:** konu ASCII ise değişmeden; konuda ve alıcıda `=?` reddedilir; Text ve HTML zorunlu.
+> - **WL-11:** başlıklara tenant verisi girmez; `"X\r\nBcc: y"` konuya/görünen ada gelirse ret.
+>
+> **Sayılı sınırlar:** (1) köşeli alan adı kabul · (2) yankı kuralı dönüştürülmüş yankıyı
+> (base64, harf), en az her 7 karakterde bir ayraçla sırası korunarak bölünmüş ya da sırası
+> bozulmuş yankıyı (ölçüldü) ve 8 karakterden kısa gömülü parçayı yakalamaz; bedeli olan yanlış
+> pozitif (meşru bir kimliğin gövdeyle şans eseri 8 karakter paylaşması) yalnız `message_id`'nin
+> kaybıdır · (3) yanıt baytı deneme başına 256 KiB ile sınırlı; aşılınca `network` — veri sonu
+> 250 satırı kesilirse istisna: başarı, `MessageID` boş (karar, pinli); tavan altında ayrılan
+> bellek ölçülen 0,9–2,1 MiB; sınıflandırmada tavan denetimi süreden önce gelir ve hiçbir test
+> ikisini ayırmaz (M64) · (4) kimlik bilgisi kasıtlı yansımayla okunur (ölçüldü) ·
+> (5) ham bağlantının `SetDeadline`'ı ayrıca pinli değil (M13c) · (6) açık `MinVersion` bugün Go
+> varsayılanına eşit; silinmesi görünmez (X04 = M50) · (7) dışa kapalı alandaki `Message` ve
+> alanlarını loglayan çağıran linki ve adresi basar (ölçüldü) · (8) RFC 2047'nin 76 karakterlik
+> satır sınırı uygulanmaz, yalnız 998 · (9) gerçek SES'e karşı davranış ölçülmedi (EM-5) ·
+> (10) "0 dial" sahte sunucunun kabul ettiği bağlantı sayısıyla ölçülür; ürün kodunda dial kancası
+> yok · (11) fuzz başlık üreticisini sürer, ağ yolunu değil · (12) gövde içeriği kısıtlanmaz.
+
 ### Kullanıcının dış adımları (EM-2 ile paralel başlar; sıralı)
 1. AWS hesabı: root için MFA, günlük kullanım için ayrı yönetici kullanıcı, fatura alarmı (~$5).
 2. SES `eu-central-1` → Identities → Domain `taptime.mt`: Easy DKIM (RSA 2048); Custom MAIL FROM

@@ -7,6 +7,8 @@
 - **İlgili:** [ADR 0002](0002-tenant-baglami-ve-rls.md) md.7 (altıncı çözümleyici
   notu) · [ADR 0014](0014-parola-digestinin-tabani-islenebilirlik.md) (00018) ·
   [ADR 0005](0005-kabul-edilen-riskler.md)
+- **Durum notu:** 2026-10-03 — teslimat yükümlülüğünün normatif metni artık
+  [ADR 0022](0022-islemsel-eposta.md); bu ADR'nin kararı değişmedi (sondaki *"Durum notu"*).
 
 ## Neden ayrı bir ADR
 
@@ -185,3 +187,32 @@ arasında.
    kalıp). Reddedildi: herkese açık bir formda adres yazan biri, herhangi bir
    yöneticiyi **kendi panelinden edebilirdi** — M7-02'nin bir kez sevk ettiği zarar
    sınıfı.
+
+## Durum notu — 2026-10-03 (M10 EM-1, [ADR 0022](0022-islemsel-eposta.md))
+
+Bu ADR'nin kararı (tek geçişlik yetki, oturum vermez, yazılabilir sütun kümesi, süre tavanı,
+tüketim + oturum iptali tek transaction) **değişmedi**. Değişen, B fazına bıraktığı teslimat
+yükümlülüğünün **evi**dir.
+
+- **Bugün (HEAD `f3c9c04`, ölçüldü).** B fazı sevk edildi, teslimatsız:
+  `TAPPA_RESET_DELIVERY`'nin tek yasal değeri `none` (`internal/config/config.go:814`,
+  `:824-831`; `deploy/k8s/05-config.yaml:106`) ve `main.go` o değerde kanalı `nil` bırakır
+  (`cmd/tappa/main.go:610-620` `f3c9c04`'te; dalın ucu `e0f53b6`'da `:626-636`) — hiçbir token
+  basılmaz. *"Ele geçirmeyle arasında duran şey
+  ham token'ın yöneticinin kendi satırındaki adrese teslim edilip çağırana asla
+  döndürülmemesidir"* yükümlülüğü bugün **teslimatın olmamasıyla** karşılanıyor; ayrıntılı
+  defter M7-04 kartının 6. düzeltme maddesinde.
+- **E-posta teslimatı artık ADR 0022'de normatiftir:** sağlayıcı (Q02'nin cevabı: AWS SES,
+  `eu-central-1`, SMTP arayüzü), alıcının yöneticinin **kendi satırından** okunması
+  (`ResetDelivery.Recipient`, `internal/handler/adminreset.go:171-187` — değişmez), linkin log'a
+  ve kalıcı depoya yazılmaması, gönderim hatasının yalnız sınıf + kod taşıması (ADR 0022 §3) ve
+  gönderimin **istek yolundan çıkması** (ADR 0022 §6, EM-5).
+- **Bu ADR'nin kabul ettiği risklere eklenen bir artık** (ADR 0022 sayılı sınır 1): gönderim
+  süreç içi bir işçiye taşındığı için, basım ile audit arasında süreç ölürse (SIGKILL, OOM,
+  panik) `password_resets` satırı `admin.recovery.requested`/`undelivered` satırı olmadan en
+  çok `ResetTTL` (1 saat) canlı kalır. Bugünkü senkron yolda aynı pencere vardır, daha dar.
+- **Kabul edilen risklerin ilk maddesi** (rakip emekliye ayırma = kurtarma reddi) ve onu
+  sınırlayan istek-uç-noktası oran sınırı ADR 0022'yle değişmez; ikisi de teslimat açıldığı
+  gün **canlanır** (bugün basılmayan link kimseyi emekliye ayırmıyor — M7-04 kart notu 6).
+  Alıcı başına bir gönderim tavanı bu yüzden ADR 0022'de **karar verilmedi**: o sınırı
+  yeniden üretir.
