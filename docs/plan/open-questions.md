@@ -79,7 +79,7 @@ A/Y maddelerine ek olarak çıkanlar ve nereye işlendikleri:
 
 | ID | Soru | Bloklar | Sahip | Durum |
 |---|---|---|---|---|
-| Q02 | **E-posta sağlayıcısı.** Davet linki, şifre sıfırlama, rapor gönderimi buna bağlı. Postmark / Resend / SES / kendi SMTP. AB bölgesi ve GDPR işleme sözleşmesi şart. | M5-02, M7-04 | A | açık |
+| Q02 | **E-posta sağlayıcısı.** Davet linki, şifre sıfırlama, rapor gönderimi buna bağlı. Postmark / Resend / SES / kendi SMTP. AB bölgesi ve GDPR işleme sözleşmesi şart. | M5-02, M7-04 | A | **AWS SES `eu-central-1`, SMTP + `net/smtp`** (2026-10-03) — aşağı bak |
 | Q03 | **Admin şifre hash'i.** stdlib'de uygun KDF yok. Öneri: `golang.org/x/crypto/bcrypt` veya `argon2id`. CLAUDE.md §1 gereği yeni bağımlılık onay ister. | M6-01 | C→A | **bcrypt** (2026-07-26) — aşağı bak |
 | Q05 | **SDM mirroring modu.** Plain (UID + ctr açık) mı, şifreli PICC data mı? Karar ADR 0003 olacak. | M2-01 | C→A | **plain** (2026-07-26) — aşağı bak |
 | Q06 | **Etiket anahtar stratejisi.** Plaket başına rastgele mi, master'dan UID ile türetilmiş mi? Türetme encode'u kolaylaştırır ama master sızarsa tüm park düşer. | M2-01/M2-05 | C→A | **plaket-başına rastgele** (2026-07-26) — aşağı bak |
@@ -93,6 +93,47 @@ A/Y maddelerine ek olarak çıkanlar ve nereye işlendikleri:
 | Q28 | **Uyarı hedefi ve log saklama süresi.** M8-03 altı sinyali log'dan **hesaplanabilir** kıldı (olay adları ve eşikler yazılı, testle pinli) ama **hiçbir teslimat kanalı yok**: bir eşik aşıldığında kimse haberdar olmuyor. İki karar birlikte: **(a)** uyarı nereye gidecek — kümedeki mevcut SigNoz kurulumu mu, e-posta mı (Q02'ye bağlanır), başka bir şey mi; **(b)** log'lar ne kadar saklanacak — bugün node'da bir **süre** değil bir **boyut** var (10Mi × 5) ve gerçek üst sınır *"bir sonraki deploy"*, ⚠️ ve `tappa` namespace'i işletmediğimiz bir SigNoz toplayıcısına **rıza verilmeden** dahil edilmiş durumda, TTL'i **doğrulanamadı**. 🔴 GDPR bağı gerçek: log satırları IP ve çalışan id'si taşır, ve Q13'ün silme akışı `employees` üzerinde bir UPDATE'tir — **log'a ulaşmaz**. ⚠️ Bu soru M8-03'ten **önce yoktu** ve yokluğu ölçülerek bulundu: kart *"teslimat Q12'ye bağlı"* diyordu, oysa Q12 **barındırma** sorusudur (2. tur denetimi, 2026-08-19). | M8-06 (pilot kapısı) · M8-03 kriter 3-4 | A | açık |
 
 ## Cevaplananlar
+
+### Q02 — E-posta sağlayıcısı: AWS SES (`eu-central-1`), SMTP arayüzü + stdlib `net/smtp` (2026-10-03)
+
+**Karar:** İşlemsel e-posta AWS SES üzerinden, bölge `eu-central-1`, SMTP arayüzüyle gönderilir
+— port 587, STARTTLS zorunlu (ilan edilmezse gönderim yok), TLS ≥ 1.2; istemci stdlib
+`net/smtp` (yeni Go bağımlılığı yok). Gönderen sabit `Taptime <no-reply@taptime.mt>`, MAIL FROM
+alan adı `mail.taptime.mt`. M10 e-posta kararları K1–K8 ve K10–K13 *"önerisiyle uygulanır"*
+(m10 §6).
+
+**EM-K9 — kullanıcı kararı (2026-10-03), birebir:** *"hayir sahte birsey eklemene gerek yok
+ses'e baglariz direkt"*. Yerel posta yakalayıcı (Mailpit) yok; geliştirmede e-posta
+gönderilmez (`none`/`panel` modları kalır); taşıyıcı Go testlerindeki sahte SMTP sunucusuyla
+doğrulanır, sonra doğrudan SES'e (önce sandbox) bağlanılır. Prod'da özel kök sertifika havuzu
+yasaktır (ADR 0022 §2).
+
+**Gerekçe (ADR 0022 *Elenen seçenekler*):** SMTP + `net/smtp` sıfır yeni modülle aynı kod
+yolunu test içi sahte sunucuda koşturur. SES v2 HTTP + elle SigV4: imza protokolü ve sunucu
+saati bağımlılığı bizde, test yolu yalnız SES. `aws-sdk-go-v2`: ölçüldü, yalnız `sesv2` ile 6,
+kimlik zinciriyle 15 modül (`go.mod` bugün 10) ve CLAUDE.md §1 onayı. Postmark / Resend / kendi
+SMTP ölçerek karşılaştırılmadı; seçim K7.
+
+**Kapsam:** davet linki (EM-6, EM-7 — gönderim senkron, kod basılmadan önce adres kontrolü),
+şifre sıfırlama (EM-5 — gönderim istek yolundan çıkar), "parolanız değişti" bildirimi (EM-9).
+**Rapor gönderimi kapsam dışı** (m10 §7). Q02'nin cevabı adres **doğrulamasını** getirmez
+(signup e-posta doğrulaması EM-11, ADR 0013 (c)). ADR 0005 Y-D **daralır, kapanmaz** (EM-7 ile;
+tek kutu N hayali çalışana yeter, iz adres düzenlenene dek). *"AB bölgesi ve GDPR işleme
+sözleşmesi"*: bölge `eu-central-1`; AWS'nin alt işleyici olarak gizlilik politikasına ve DPA
+listesine eklenmesi kullanıcının dış adımıdır (m10 §4 adım 12) — hesaptaki işleme sözleşmesi
+ölçülmedi.
+
+**Bugün:** davranış değişmedi — `TAPPA_RESET_DELIVERY=none`, davet panel kanalı
+(`ManagerVisibleChannel`); taşıyıcı EM-2…EM-5'te gelir, açılış bir ConfigMap değişikliği ve
+deploy kararıdır.
+
+**Bloke ettikleri:** M5-02'nin "kod çalışanın kendi kanalına" adımı → EM-7 · M7-04'ün sevk
+edilen yapılandırmada ölü üç kriteri → EM-5 (gerçek SMTP'ye karşı yeniden koşu) · M7-07 →
+EM-12 (EM-7'ye bağlı, kendi ADR'si).
+
+**Normatif metin:** [ADR 0022](../adr/0022-islemsel-eposta.md) · [ADR 0005](../adr/0005-kabul-edilen-riskler.md)
+§5'in 2026-10-03 ek notu · [ADR 0015](../adr/0015-sifirlama-tokeni-tek-gecislik-yetkidir.md)
+durum notu · [m10-platform.md](m10-platform.md) §4, §6.
 
 ### Q29 — M10 white-label: tap ekranı markası (§9) ve akış sırası (2026-09-24, 2026-10-02)
 
