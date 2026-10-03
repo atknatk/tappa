@@ -1,8 +1,8 @@
 # Tappa — the NON-SECRET half of the server's environment (M8-02).
 #
-# Everything here is safe in a public git history. The four values that are not
-# (DATABASE_URL and the three 32-byte keys) live in a Secret this repository never
-# contains — see deploy/examples/.
+# Everything here is safe in a public git history. The values that are not
+# (DATABASE_URL, the 32-byte keys, and the optional operator and SMTP credentials)
+# live in a Secret this repository never contains — see deploy/examples/.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -98,12 +98,41 @@ data:
   # PILOTING with it is not, and this comment is where that distinction is recorded.
   TAPPA_RETENTION_YEARS: "2"
 
-  # The only value this build implements. An unknown value is a startup failure
-  # rather than a silent no-delivery (internal/config.resetDelivery); Q02 — which
-  # mail provider, in which region, under which processing agreement — is unanswered,
-  # so the panel's recovery form says on screen that this deployment cannot send a
-  # link instead of pretending it did.
+  # 🔴 TRANSACTIONAL E-MAIL (ADR 0022; M10 EM-3) — BOTH FLOWS OFF, WHICH IS TODAY'S
+  # BEHAVIOUR, UNCHANGED. Each mode is a closed set and an unknown value is a startup
+  # failure, never a silent fallback (internal/config.deliveryMode):
+  #   TAPPA_RESET_DELIVERY   none | email   none: the panel's recovery form says on
+  #                                         screen that this deployment sends no link
+  #   TAPPA_INVITE_DELIVERY  panel | email  panel: the activation link is shown on the
+  #                                         manager's own screen (ADR 0005 Y-D)
+  # "email" is valid configuration but THIS BUILD REFUSES TO BOOT ON IT until the
+  # channel exists (resets: EM-5; invitations: EM-7). Switching a flow on is a deploy
+  # decision, made AFTER the two SMTP credentials are in tappa-secrets — a flow on with
+  # a credential missing is a startup failure. maxUnavailable: 0 keeps the OLD pod
+  # serving only while that pod lives: the deploy applies this ConfigMap first, so a
+  # recreated old pod (drain, eviction) reads it and refuses too, and with replicas: 1
+  # the tap surface is down. Revert this ConfigMap AT ONCE — `rollout undo` does not
+  # bring it back (deploy/README.md, "Transactional e-mail", step 3).
+  # cmd/tappa's TestPackaging_TheConfigMapShipsTodaysDelivery pins these two values.
   TAPPA_RESET_DELIVERY: "none"
+  TAPPA_INVITE_DELIVERY: "panel"
+
+  # The relay (ADR 0022 §1, §5): AWS SES's SMTP endpoint in eu-central-1, STARTTLS on
+  # 587. NOT READ while both flows above are off — and therefore not checked at boot
+  # either: TestPackaging_TheConfigMapsMailSettingsLoadInProduction loads them with
+  # both flows on, so a wrong value here is red in CI rather than on the day of the
+  # switch. In production the host may not be localhost, a *.localhost name or an IP
+  # address in any spelling (other loopback names are not refused), and 465 (implicit
+  # TLS) is refused in every environment.
+  # The two credentials are NOT here: they are tappa-secrets keys (20-app.yaml).
+  TAPPA_SMTP_HOST: "email-smtp.eu-central-1.amazonaws.com"
+  TAPPA_SMTP_PORT: "587"
+  # The fixed sender (ADR 0022 K5): no tenant name in the header (ADR 0023 §8).
+  TAPPA_MAIL_FROM: "Taptime <no-reply@taptime.mt>"
+  # Optional, and EMPTY on purpose — empty is unset: no Reply-To header, so a reply
+  # goes to the no-reply sender. Set, it must be ONE bare address (no display name).
+  # No mailbox for replies is decided yet; inventing one here would be worse.
+  TAPPA_MAIL_REPLY_TO: ""
 
   # The decision-engine windows (CLAUDE.md §5). They are the shipped defaults,
   # written out rather than left implicit because the Policies screen shows a

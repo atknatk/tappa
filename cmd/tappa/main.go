@@ -139,6 +139,18 @@ func run() error {
 	// FAILS — a process that cannot reach its database must still be identifiable.
 	logBuild(slog.Default(), buildinfo.Read())
 
+	// 🔴 A DELIVERY MODE THE CONFIGURATION ACCEPTS AND THIS BUILD DOES NOT IMPLEMENT
+	// STOPS THE BOOT HERE, before the database is dialled (M10 EM-3). internal/config
+	// accepts "email" for both flows and validates the transport's settings for it (ADR
+	// 0022 §5); the channels that would use them are EM-5's and EM-7's. Without this the
+	// invitation half would be a SILENT default — nothing below reads InviteDelivery, so
+	// "email" would boot and keep showing codes on the manager's panel while the operator
+	// believed they were being mailed. TestArtifact_RefusesAnEmailDeliveryThisBuildLacks
+	// drives the shipped binary to this line.
+	if err := unbuiltDelivery(cfg); err != nil {
+		return err
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -610,12 +622,13 @@ func run() error {
 	// cannot sign in get back in without another owner doing it for them.
 	//
 	// 🔴 THE DELIVERY CHANNEL IS nil, AND THAT IS THE SHIPPED STATE RATHER THAN A
-	// MISSING WIRE. Q02 — which mail provider, in which region, under which processing
-	// agreement — is unanswered, so this process has no mail transport; and unlike
-	// invitations there is no interim channel available, because the interim channel
-	// would be "show the link to whoever typed the address into a public form", which
-	// ADR 0015 identifies as the one thing standing between minting and account
-	// takeover. config.ResetDelivery carries the argument in full.
+	// MISSING WIRE. Q02 is answered (ADR 0022: SES over SMTP) and internal/mail exists,
+	// but the reset channel that would use it must first take delivery off the request
+	// path (ADR 0022 §6) — that is EM-5, and until then "email" stops the boot at the top
+	// of run(). Unlike invitations there is no interim channel available, because the
+	// interim channel would be "show the link to whoever typed the address into a public
+	// form", which ADR 0015 identifies as the one thing standing between minting and
+	// account takeover. config.ResetDelivery carries the argument in full.
 	//
 	// WHAT nil DOES: the request form says, before anything is typed, that this
 	// deployment cannot send a link — and the POST answers without resolving the
@@ -624,17 +637,18 @@ func run() error {
 	// benefit at all.
 	//
 	// THE VALUE IS SWITCHED ON A CONFIG STRING rather than hardcoded so that the day a
-	// transport exists it is one case in this switch and nothing else moves. An
-	// unknown value never reaches here: config.Load refuses to boot on it.
+	// channel exists it is one case in this switch (and one line out of
+	// unbuiltDelivery) and nothing else moves. Neither an unknown value nor "email"
+	// reaches here: config.Load refuses the first, unbuiltDelivery the second.
 	var resetChannel handler.ResetChannel
 	switch cfg.ResetDelivery {
 	case config.ResetDeliveryNone:
 		resetChannel = nil
 	default:
-		// Unreachable: config.Load validates the value. It is written anyway because
-		// an unreachable branch that fails CLOSED is what stops the next person's new
-		// case from silently defaulting to "no delivery, but the screen says a link is
-		// on its way".
+		// Unreachable today (see above). It is written anyway because an unreachable
+		// branch that fails CLOSED is what stops the next person's new case from
+		// silently defaulting to "no delivery, but the screen says a link is on its
+		// way".
 		return fmt.Errorf("main: TAPPA_RESET_DELIVERY=%q passed config validation but nothing implements it", cfg.ResetDelivery)
 	}
 	resets, err := adminauth.NewResets(data, cfg)
@@ -730,6 +744,24 @@ func logBuild(log *slog.Logger, b buildinfo.Build) {
 		return
 	}
 	log.Info("build", b.LogArgs()...)
+}
+
+// unbuiltDelivery refuses a delivery mode internal/config accepts and this build does
+// not implement: today "email", for either flow (M10 EM-3). Each refusal names the
+// variable, the value to go back to and the task that will implement it; config.Load
+// has already refused every value outside the two closed sets, and the transport's
+// settings are already validated by the time this runs. The day a channel exists its
+// line leaves this function (EM-5: reset; EM-7: invitations).
+func unbuiltDelivery(cfg *config.Config) error {
+	if cfg.ResetDelivery != config.ResetDeliveryNone {
+		return fmt.Errorf("main: TAPPA_RESET_DELIVERY=%s is valid configuration, but this build has no reset e-mail "+
+			"channel yet (ADR 0022 §6, M10 EM-5); set it to %s", cfg.ResetDelivery, config.ResetDeliveryNone)
+	}
+	if cfg.InviteDelivery != config.InviteDeliveryPanel {
+		return fmt.Errorf("main: TAPPA_INVITE_DELIVERY=%s is valid configuration, but this build delivers activation "+
+			"links only on the manager's panel (ADR 0022 §7, M10 EM-7); set it to %s", cfg.InviteDelivery, config.InviteDeliveryPanel)
+	}
+	return nil
 }
 
 // logHandler builds the process's base slog handler from the configuration.

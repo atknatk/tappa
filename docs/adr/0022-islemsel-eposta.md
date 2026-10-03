@@ -208,7 +208,8 @@ adımıdır — AWS hesabındaki işleme sözleşmesinin geçerliliği bu ADR'de
   `SSL_CERT_DIR` env'i 0. **(c)'nin gerekçesi:** `RootCAs: nil` Linux'ta sistem köklerini
   okur ve `SSL_CERT_FILE` / `SSL_CERT_DIR` bu konumları değiştirir (B32) — manifestte bir env
   ya da `/etc/ssl/certs` üzerine bağlanan bir volume, yasağı **hiçbir Go ataması olmadan**
-  aşar. Volume yolu (c)'nin dışındadır (İddia I, *Yakalamadığı*).
+  aşar. Volume yolu (c)'nin dışındadır (İddia I, *Yakalamadığı*). *(EM-3 2. ve 3. tur: mount
+  yolu ayrıca pinlendi — uygulama manifestinde hiç mount yok; sayılı sınır 23 ve EM-3 notu.)*
 - **`smtp.SendMail` kullanılmaz** (S2 düz metne düşer, S4 Message-ID'yi atar, S5 süre yok).
 - **Yeniden deneme:** **4xx** yanıt — AUTH'a verilen 4xx dahil (RFC 4954 §6: 454 geçici kimlik
   doğrulama hatası; EM-2 sapması b) — için bellekte, **yeni bir bağlantıda**, süre içinde
@@ -652,7 +653,11 @@ var; değerleri yukarıda sınırlandı).
 - **Kabul edilen risk — dev'de `email` modu (güvenlik DÜŞÜK, 3. tur; orkestratör kararı).**
   *"Geliştirmede e-posta gönderilmez"* mekanik bir kapı **değil**, bir varsayılandır: dev'de
   `TAPPA_*_DELIVERY=email` boot hatası **vermez**, çünkü kullanıcı *"ses'e baglariz direkt"*
-  dedi ve dev'den SES sandbox'ına bilinçli bir deneme engellenmemeli. Bedeli, sayılı:
+  dedi ve dev'den SES sandbox'ına bilinçli bir deneme engellenmemeli. (**EM-3 eki,
+  2026-10-03:** §12 ve sayılı sınır 25, EM-5/EM-7 kanalları bağlandıktan sonraki durumu
+  anlatır; o güne dek ikili, kanalı olmayan `email` modunu **her ortamda** reddeder —
+  `cmd/tappa`'nın `unbuiltDelivery`'si. Yapılandırma (`config.Load`) dev'de reddetmez.)
+  Bedeli, sayılı:
   - `email` modu dev'de açılırsa ulaşılabilir tek hedef **gerçek bir röledir** (yerel
     yakalayıcı yok, §2'nin kök havuzu yasağı test dışı özel köke izin vermez).
   - **Prod IAM kimliği `.env`'e konmaz.** `.env` depoda yok sayılır ve R7d'nin taradığı dosya
@@ -858,6 +863,7 @@ yüklemez.**
 - **PART III:** Listede olmayan her biçim kod incelemesinin konusu — tamlık iddiası yok.
 
 **İddia I — yapılandırma eksikse süreç açılmaz.**
+- **Tehdit modeli (EM-3'te eklendi; manifest ve Dockerfile pinleri için):** "Bu pinler manifestlere ve Dockerfile'a kazara giren sapmaya karşıdır; pini atlatmak için bilerek yazılmış bir manifest ya da imaj kod incelemesinin konusudur."
 - **PART I:** bugün `TestLoad_ResetDeliveryIsAClosedSetAndFailsClosed` (B2). EM-3'te ölçülecek:
   her eksik anahtar ayrı bir vaka olarak boot hatası; `465` **her ortamda** (dev dahil) red;
   `localhost`, `*.localhost` ve IP literal **prod'da** red; iki akış kapalıyken eksik SMTP
@@ -868,9 +874,9 @@ yüklemez.**
   `SSL_CERT_*` pini · `TestPackaging_EverySecretConfigReadsIsInjectedByTheManifest`.
   Yakaladıkları: eksik anahtarla açılan süreç; ortamlardan birinde `465`'in kabulü; manifestte
   olmayan yeni değişken; test dışı Go kodunda `mail.Config`'e özel kök havuzu (iki yazım
-  biçimiyle); manifestte kök konumunu değiştiren env. **Yakalamadığı:** `/etc/ssl/certs` ya da
-  imajın kök deposu üzerine bağlanan bir volume veya değiştirilmiş bir imaj — Go ataması da env
-  de olmadan kök havuzunu değiştirir (B32; sayılı sınır 23); `TAPPA_SMTP_HOST`'u değiştirebilen
+  biçimiyle); manifestte kök konumunu değiştiren env. **Yakalamadığı:** değiştirilmiş bir imaj
+  — Go ataması da env de olmadan kök havuzunu değiştirir (B32; sayılı sınır 23; kök konumlarına
+  bağlanan bir volume EM-3'ten beri pinli — EM-3 notu); `TAPPA_SMTP_HOST`'u değiştirebilen
   birinin röleyi, herkese açık güvenilir sertifikası olan kendi sunucusuna çevirmesi (izinli ad
   listesi yok — sayılı sınır 24); kurulum kodunun `mail.Config` dışında bir yolla `tls.Config`
   kurması (pin bilerek `mail.Config`'e daraltıldı).
@@ -1034,16 +1040,30 @@ EM-2 sapması j).**
     kullanıcının ürün kararı gerekir: adı yalnız doğrulanmış tenant'ta göstermek ya da bu
     riskin açıkça kabulü.
 23. **Kök havuzu yasağının ortam yolları** (B32): `RootCAs: nil` Linux'ta sistem köklerini
-    okur; manifestteki `SSL_CERT_FILE`/`SSL_CERT_DIR` env'ini §2'nin (c) pini yakalar, ama
-    `/etc/ssl/certs` üzerine bağlanan bir volume, değiştirilmiş bir imaj ya da imaj içindeki kök
-    deposu Go ataması ve env olmadan aynı sonucu verir — pinsiz, kod ve manifest incelemesinin
-    konusu.
+    okur. **Pinli (EM-3, fail-closed — tablolarındaki biçimlerle):** üst düzey manifestlerde ve
+    Dockerfile'da `SSL_CERT` kelimesi — kaçış, satır devamı, büyük/küçük harf ve kelimenin
+    **tamamını** tutan bir `ARG` dahil (§2'nin (c)'si, `TestPackaging_NothingMovesTheSystemRoots`)
+    — ve uygulama manifestinde **hiçbir bildirilmiş mount**
+    (`TestPackaging_NoMountShadowsTheSystemRoots`); `/etc/ssl` ya da `/etc/pki` altına,
+    kendisine ya da atasına bir volume bunun içindedir. **Pinsiz** — kod ve manifest
+    incelemesinin konusu: kök deposu değiştirilmiş bir imaj ve **Dockerfile'a eklenen bir `COPY
+    … /etc/ssl/certs/` satırı** (kurumsal bir CA'yı imaja koymak — gerçekçi, kazara bir sapma,
+    pinden geçer, R11); masum parçalardan kurulan bir ad (`ARG P=SSL_` + `ENV ${P}CERT_FILE`,
+    E01) ve `!!` taşımayan açık bir YAML etiketi (`!<tag:yaml.org,2002:binary>`, E02);
+    **taranan dosyaların dışındaki kanallar** — bir kustomize patch'i (R06b), alt dizindeki bir
+    kustomization (R06c; tarama yalnız `deploy/k8s/*.yaml`), Helm `extraEnv` gibi bir değer
+    şablonu (R07b), `deploy.yml`'e eklenecek bir `kubectl set env`, canlı `tappa-config`'e elle
+    eklenmiş bir anahtar (`kubectl apply`'ın üçlü birleştirmesi elle eklenen anahtarı
+    silmeyebilir — ölçülmedi); ve pinleri atlatmak için **bilerek** yazılmış her manifest ya
+    da imaj (EM-3 notunun tehdit modeli).
 24. **`TAPPA_SMTP_HOST` için izinli ad listesi yok:** ConfigMap'i değiştirebilen biri röleyi,
     herkese açık güvenilir sertifikası olan kendi sunucusuna çevirebilir; TLS doğrulaması geçer
     ve SMTP kimliği ile her link o sunucuya gider. Bunu yapabilen yetki bugün Secret'ı da
     okuyabiliyorsa yeni bir yetki değildir — ConfigMap ve Secret yetkilerinin kümede aynı
     olduğu **ölçülmedi**.
-25. **Dev'de `email` modu boot'ta reddedilmez** (§12, orkestratör kararı): dev'de açılırsa hedef
+25. **Dev'de `email` modu boot'ta reddedilmez** (§12, orkestratör kararı; EM-5/EM-7 kanalları
+    bağlandıktan sonraki durum — o güne dek ikili `email`'i her ortamda reddeder, §12'nin EM-3
+    eki): dev'de açılırsa hedef
     gerçek bir röledir; `.env`'e yazılan bir prod kimliğini R7d görmez (B36); seed'in 37 adresi
     gerçek davet alabilir. Önerilen önlem dış adımdır (sandbox'ta kısıtlı ayrı IAM kimliği), kod
     kapısı değildir.
@@ -1137,7 +1157,7 @@ karşılığı olanlar: köşeli alan adı → 7 · dönüştürülmüş/kısa y
   35 olarak kaldı (zamanlanamayan yarış).
 - **EM-3'e devir (pinler, §2):** `mail.Config{RootCAs: …}` ve `c.RootCAs = …` kaynak pini
   (yalnız `mail.Config`), config'te CA anahtarı 0, manifestte `SSL_CERT_FILE`/`SSL_CERT_DIR`
-  env'i 0.
+  env'i 0. — **kapandı** (aşağıda *"EM-3 notu"*).
 - **EM-4 / EM-7 / WL-11'e devir (tasarım kararı, §8):** tenant adının e-postadaki biçimi —
   URL benzeri adın DKIM imzalı oltalamaya dönüşmesi (sayılı sınır 22). **EM-4 kapattığı
   yarı:** ad kapısı (izin listesi, gizleme) — §8'in EM-4 notu. **Açık kalan:** adın yalnız
@@ -1165,3 +1185,190 @@ karşılığı olanlar: köşeli alan adı → 7 · dönüştürülmüş/kısa y
   kimliği; prod kimliği `.env`'e yazılmaz (§12).
 - **Yeni bağımlılık yok:** `net/smtp`, `net/mail`, `net/textproto`, `mime`, `mime/multipart`,
   `mime/quotedprintable`, `crypto/tls`, `crypto/x509`, `crypto/rand` — stdlib.
+
+## EM-3 notu — 2026-10-03 (uygulama; normatif içerik değişmedi)
+
+EM-3 §5'i ve §2'nin üç pinini uyguladı. Taban dal ucu `b06370c`; DB'ye bağlanılmadı, kümeye
+dokunulmadı (`kubectl` yok, `tappa-secrets`'a hiçbir fiil yok).
+
+- **Yazıldı:** `internal/config` — `TAPPA_RESET_DELIVERY` `none` | `email`,
+  `TAPPA_INVITE_DELIVERY` `panel` | `email` (ikisi de kapalı küme; boş = kapalı; büyük harf ve
+  çevreleyen boşluk affedilir; ret mesajı kümeyi ve bu ADR'yi adlandırır, **değeri tekrar
+  etmez**), `Config.InviteDelivery`, `Config.Mail` (`mail.Config`; kullanıcı adı ve parola
+  `mail.NewCredential` ile **yüklenirken** sarılır), `SMTPCredentialVariables()` ·
+  `cmd/tappa/main.go` — `unbuiltDelivery`: `email` her iki akışta da açılışı **veritabanı
+  aranmadan** durdurur (EM-5 / EM-7'ye dek) · `deploy/k8s/05-config.yaml` (iki akış
+  `none`/`panel`, host `email-smtp.eu-central-1.amazonaws.com`, port 587, `Taptime
+  <no-reply@taptime.mt>`, `TAPPA_MAIL_REPLY_TO` **boş**) · `deploy/k8s/20-app.yaml` (iki
+  `optional: true` `secretKeyRef`) · `deploy/README.md` *"Transactional e-mail (M10 EM-3)"*
+  runbook'u · `deploy/examples/` iki dosyasında yorumlu iki girdi. `cfg.Mail` ile hiçbir
+  gönderici kurulmaz; `mail.New` yalnız sonda yapılandırmasıyla doğrulama için çağrılır
+  (`mailRule`, `config.Load` sırasında) ve bağlantı açmaz (gönderici kurmak EM-5/EM-7'nin).
+- **Döngü yok, ölçüldü:** `go list -deps ./internal/mail` → depodan yalnız kendisi;
+  `go list -deps ./internal/config` → depodan `internal/mail`, `internal/policy`, kendisi. §5'in
+  *"config sarar"* yolu uygulandı; OP-7 emsaline dönülmedi.
+- **`TestLoad_ResetDeliveryIsAClosedSetAndFailsClosed`'un `"Q02"` beklentisi bilerek
+  değişti:** artık `TAPPA_RESET_DELIVERY`, `"none"`, `"email"` ve `ADR 0022`'yi arar ve
+  değerin tekrar edilmediğini ister (§5 *"Bayatlayan metin"*). Dokunulan dosyalarda Q02'yi
+  *"cevapsız"* diye anan metin düzeltildi: `config.go`, `main.go`, `05-config.yaml`,
+  `deploy/README.md` (kabul edilmiş sınırlar 3. madde). Dokunulmayan dosyalardaki anışlar
+  (`internal/invite`, `internal/adminauth`, `internal/handler`, uygulanmış migration
+  yorumları) sayılı sınır 13'te kalır.
+
+**Kararlar (gerekçeli):**
+1. **Kural tek kaynaktan:** `From`, `Reply-To` ve iki kimlik bilgisi için config kuralı
+   kopyalamaz, `mail.New`'e sorar (`mailRule`: `mail.New`'in kabul ettiği sabit bir sonda
+   yapılandırmasında yalnız sınanan alanı değiştirir, ret değişkenin adıyla sarılır; bağlantı
+   açılmaz). Pin: `TestLoad_SenderAddressesFollowTheTransportsOwnRule` her satırı hem
+   `config.Load`'a hem `mail.New`'e sorar; ikisi **tablodaki 21 satırdan birinde**
+   ayrışırsa kırmızı — yalnız orada: üçüncü gözün X06'sı (kuralı hiçbir satırın ulaşmadığı
+   uzunluktaki bir From için atlayan değişiklik) yeşil kaldı. Tablo bir örneklemdir.
+2. **Üretimde host kuralı §5'ten bir adım dar** (ama loopback adları üzerinde tam değil —
+   sınırlarda): `localhost`, `*.localhost` ve
+   `netip.ParseAddr`'ın kabul ettiği IP literal'e ek olarak **son etiketi rakamla başlayan**
+   ad da reddedilir — C çözücülerinin IPv4 diye okuduğu yazımlar (`127.1`, `0x7f000001`);
+   hiçbir üst düzey alan adı rakamla başlamaz. Ve **her ortamda tek yazım:** küçük harfli DNS
+   adı (`isDNSHostName`, `TAPPA_OPERATOR_HOST`'un kuralı) ya da IP literal — `LOCALHOST` ve
+   `localhost.` üretim kuralına hiç ulaşmaz (tek yazım büyük harfi ve sondaki noktayı
+   kapatır, başka loopback adlarını değil). Geliştirmede loopback ve IP izinli (§12).
+3. **Yalnız boşluk = eksik** (operatör DSN'i emsali): `mail.New` boşluktan oluşan bir parolayı
+   kabul ederdi.
+4. **`email` config'te geçerli, `cmd/tappa`'da reddedilir:** `main.go` `InviteDelivery`'yi hiç
+   okumuyordu; ret olmasa davet akışında `email` **sessiz bir varsayılan** olurdu (kod yine
+   yöneticinin ekranında). §12 ve sayılı sınır 25, EM-5/EM-7 kanalları bağlandıktan sonraki
+   durumu anlatır; o güne dek ikili, kanalı olmayan `email` modunu **her ortamda** reddeder
+   (`unbuiltDelivery`) — §12'ye aynı cümle eklendi. Yapılandırmanın (`config.Load`) dev'de
+   `email`'i reddetmemesi korunur.
+5. **(c) Dockerfile'ı da tarar:** imajın `ENV`'i de hizmet konteynerinin ortamıdır — §2'nin
+   *"manifest"*inden geniş, gerekçeli.
+6. **`TAPPA_MAIL_REPLY_TO` ConfigMap'te boş:** karar verilmiş bir yanıt kutusu yok; boş =
+   başlık yok.
+7. **Yalnız 465 reddedilir** (§5'in yazdığı); SES'in ikinci örtük TLS portu 2465 kabul edilir
+   (sayılı sınır, aşağıda).
+
+**Tehdit modeli (manifest ve Dockerfile pinleri; 3. tur):** "Bu pinler manifestlere ve Dockerfile'a kazara giren sapmaya karşıdır; pini atlatmak için bilerek yazılmış bir manifest ya da imaj kod incelemesinin konusudur."
+Bu yüzden pinler **dar anlamda fail-closed**'dur: YAML ya da Dockerfile sözdizimini
+ayrıştırmazlar, metni bir ayrıştırıcıdan **geniş** okurlar (ucuz olduğu yerde yorumlar dahil);
+meşru bir gelecek ihtiyacı (bir mount, bir ters bölü, bir etiket) testi kırmızıya çevirir ve o
+değişiklik pini bilerek günceller. Reddettikleri **tablolarındaki biçimlerdir**, fazlası değil:
+masum parçalardan kurulan bir ad (E01), `!!` taşımayan açık bir etiket (E02) ve imaja COPY
+edilen bir kök dosyası (R11) geçer — tablolarda *KNOWN LIMIT* satırı olarak ölçülüdür.
+
+**İddia I'nın PART II'si artık adlarıyla:** fail-closed matris
+`TestLoad_MailSettingsFailClosedWhenAFlowIsEmail` (3 akış biçimi × 4 zorunlu anahtar ×
+{gerçekten yok (`os.Unsetenv`), boş, yalnız boşluk} = 36 vaka, ayrıca tek geçişte dördü) ·
+iki akış kapalıyken okunmaz
+`TestLoad_MailSettingsAreNotReadWhileBothFlowsAreOff` · 465 her ortamda
+`TestLoad_SMTPPortRefusesImplicitTLSEverywhere` · üretimde loopback/IP
+`TestLoad_SMTPHostRefusesLoopbackAndAddressesInProduction` (2. tur: `::`, `::ffff:7f00:1`,
+`::ffff:127.0.0.1` satırları) · hata metninde değer yok
+`TestLoad_MailErrorsNameTheVariableNeverTheValue` — iki kimlikte **her 3 baytlık pencere**
+aranır (3. tur; nöbetçiler bunun için kurgulandı — kapanış denetçisinin N12/N12b'si), öteki
+değerlerde yalnız **önek** (tamamı ve ilk 8, 4 ya da 3 karakteri; 2. tur, X07) · alan eşlemesi (kimlikler yer
+değiştirmemiş, `RootCAs` nil) `TestLoad_MailConfigCarriesTheEnvironmentsValues` · §2 (a)
+`TestMailConfig_NoProductCodeSetsTheRootPool` (go/types, dışa aktarım verisiyle; kontrolü
+`TestRootPoolUses_SeesEveryWrittenForm`) · (b) `TestPackaging_ConfigNamesNoCertificateVariable`
+(yüklemi `TestCertificateVariable`) · (c) `TestPackaging_NothingMovesTheSystemRoots` (kuralı
+`TestRootPinFindings`) · mount `TestPackaging_NoMountShadowsTheSystemRoots` (kuralı
+`TestMountFindings`) ·
+manifest `TestPackaging_EverySecretConfigReadsIsInjectedByTheManifest`,
+`TestPackaging_TheSMTPCredentialsAreOptionalSecretKeys`,
+`TestPackaging_TheConfigMapShipsTodaysDelivery`,
+`TestPackaging_TheConfigMapsMailSettingsLoadInProduction` · ikili
+`TestArtifact_RefusesAnEmailDeliveryThisBuildLacks`, `TestUnbuiltDelivery_RefusesEmailForEitherFlow`.
+**İddia D'nin EM-3 vakası:** `TestLoad_MailCredentialsAreRedactedInTheConfig` (`Config` ve
+`Mail` üzerinde altı `fmt` fiili, slog metin/JSON, `encoding/json`; değer de ilk 8 karakteri de
+yok).
+
+**2. tur (2026-10-03 — güvenlik ONAY 1 ORTA + 2 DÜŞÜK, üçüncü göz RED; yalnız test ve metin):**
+- **(a) aynı biçimli struct (güvenlik ORTA, üçüncü göz X14):** `mail.Config`'inkiyle aynı
+  alanları taşıyan başka bir struct `mail.Config`'e dönüşür, yani `s := shape(c); s.RootCAs = p;
+  return mail.Config(s)`, `(*shape)(c).RootCAs = p` ve `mail.Config(struct{…}{RootCAs: p})`
+  `mail.Config`'in alanını **adlandırmadan** havuzu kurar — üçü de yeşildi. Taramaya iki kural
+  eklendi: (1) `RootCAs` adlı her alan seçicisi ya da bileşik değer anahtarı, alanı **tanımlayan**
+  struct'ın tipi `mail.Config`'in struct'ıyla `types.Identical` ise; (2) hedefi `mail.Config` ya
+  da `*mail.Config` olan ve kaynağı başka bir tip olan her dönüşüm — `unsafe.Pointer`'dan
+  `*mail.Config`'e dönüşüm dahil. Kontrol örneği üç biçimi, `unsafe.Pointer` dönüşümünü ve
+  dönüştürülmeden kurulan aynı biçimli bir literali taşır — üç kuralın her biri için yalnız onun
+  yakaladığı bir satır; başka biçimli bir struct'ın `RootCAs` alanı ve `mail.Config`'in kendine
+  dönüşümü raporlanmaz. Turun mutasyonlarında 1. turun M38'i (eski kuralda anahtarların
+  atlanması) artık **eşdeğerdir**: aynı satırları yeni anahtar kuralı yakalar.
+  **(a)'nın yakalamadığı (güncel):** `reflect`; `*mail.Config`'e dönüştürmeden alanın belleğine
+  yazan `unsafe` aritmetiği (`unsafe.Add`, bir ofset); `internal/mail` içinde kurulup dışarı
+  verilen bütün bir `mail.Config` değeri (bugün yok).
+- **Kök konumlarına mount (güvenlik DÜŞÜK):** sayılı sınır 23 yalnız *"`/etc/ssl/certs`
+  üzerine volume"* diyordu. Go Linux'ta (go1.27.1 `crypto/x509/root_linux.go`, okundu)
+  `certFiles`'ın — `/etc/ssl` ve `/etc/pki` altında altı demet yolu — yalnız **var olan
+  ilkini** okur (*"stop after finding one"*) ve iki `certDirectories`'in — `/etc/ssl/certs` ve
+  `/etc/pki/tls/certs` — **her** dosyasını okur. Yani ilk demeti değiştiren bir mount ya da bu
+  iki dizine `subPath` ile eklenen tek bir PEM yeter; bir ata dizine (`/etc/ssl`, `/etc`, `/`)
+  mount da öyle. *"Hiç mount yok"* bu yollardan **geniştir** — güvenli yönde. 2. turda mount'lar ayrıştırılıp yolları karşılaştırılıyordu; **3.
+  turda fail-closed** (kapanış denetçisinin M-flow'u — `volumeMounts` satırındaki akış dizisi —
+  ayrıştırıcıyı geçti): `deploy/k8s/20-app.yaml`'ın ham metni, yorumlar dahil, boşluk ve ters
+  bölüler atılıp küçük harfe çevrildiğinde `volumemounts` de `mountpath` de **içermez**
+  (`TestPackaging_NoMountShadowsTheSystemRoots`, kuralı `mountFindings` / `TestMountFindings`).
+  Bugün öyle. İlk meşru mount testi kırmızıya çevirir ve yol kuralını o değişiklik yazar; bütün
+  dosya okunduğu için init konteynerinin mount'u da sayılır (bilerek fazla yaklaşım).
+- **(c) yazımları (üçüncü göz X16; 3. turda fail-closed):** kural tek işlevdir,
+  `rootPinFindings` (tablosu `TestRootPinFindings` — kapanış denetçisinin N14b'si ters bölü
+  yasağını kaldırınca paket yeşil kalmıştı): (1) **her dosyada** (manifestler + Dockerfile) ham
+  metin, **yorumlar dahil**, boşluk ve ters bölüler atılıp küçük harfe çevrildiğinde
+  `ssl_cert` içermez — YAML kaçışı, ters bölüden sonra boşluklu Dockerfile satır devamı (D-cont-ws,
+  denetçi ölçtü: Docker `SSL_CERT_FILE` kurar), katlanmış skaler, büyük/küçük harf ve
+  kelimenin **tamamını** (`SSL_CERT` ya da `SSL_CERT_`) tutan bir `ARG` (D-arg) bunun içindedir;
+  kelimeyi masum parçalara bölen bir `ARG` (`ARG P=SSL_` + `ENV ${P}CERT_FILE`, E01) pinsizdir —
+  kuralın sıkıştırmaya dayandığını kelimeyi
+  `SSL_CERT`'ün **içinden** bölen tablo satırları ölçer (kapanış turunda eklendi; onlarsız
+  sıkıştırmayı kaldıran mutasyon yeşil kalıyordu); yorum ayıklanmadığı için tırnaklı `#` hilesi
+  (C-hash, C-hash-sq, D-hash) kendiliğinden kapanır; (2) **manifestlerde**, yalnız `#` ile
+  başlayan satırlar dışında, ters bölü yok (`\x53SL_CERT_FILE` gibi bir kaçış — sıkıştırma
+  onu birleştirmez, ters bölü kuralı okur) ve `!!` etiketi yok (`!!binary`, `!!str` — C-binary);
+  `!!` taşımayan açık etiket (`!<tag:yaml.org,2002:binary>`, E02) pinsizdir. Bugün hepsi 0.
+  **Bedeli, sayılı:** ileride meşru bir ters bölü (ör. bir ingress annotation regex'i) ya da
+  etiket; **hizmet dışı** bir manifestte (ör. migrate Job'ı ya da Postgres) ya da Dockerfile'ın
+  **build** aşamasında meşru bir `SSL_CERT` (R14, R15 — kural dosyanın tamamını okur, aşamayı ya
+  da kaynağın kime gittiğini bilmez); `SSL_CERT` anan bir yorum — her biri testi kırmızıya
+  çevirir ve o değişiklik pini günceller.
+- **4. tur (kapanış denetimi):** `TestRootPinFindings`'e denetçinin tanıkları satır olarak
+  eklendi — sekmeli ve CR'li satır devamı (S04), `#` taşıyan satırda kaçış ve sonda yorumlu
+  `!!binary` (S08), akış eşlemesinde tırnaklı `#`'ten sonra kaçış (S08b), alt çizgisiz
+  `ARG P=SSL_CERT` (S09), `\u` ve `\U` kaçışları (S11), `!!str` (S10) — ve üç *KNOWN LIMIT*
+  satırı (E01, E02, R11; beklenen bulgu 0). Taranan küme kendi testi olan bir işlevdir
+  (`rootPinFiles` / `TestRootPinFiles`: Dockerfile, `20-app.yaml`, `05-config.yaml` ve ≥ 8
+  manifest; döngü taranan dosyaları sayar) — W01/W04 kırmızı. `TestMountFindings`'e iki bütün
+  pod satırı (yalnız birinde mount). **Sayılı sınır:** mount pininin test gövdesi kurala hangi
+  metni verdiğinin kendi kâhinidir — çağrı yerinde dosyayı dilimleyen bir değişiklik (W02, W03)
+  yakalanmaz; kod incelemesinin konusu.
+- **(b) sözcük listesi (üçüncü göz X15):** `CAFILE`, `CAPATH` (OpenSSL `-CAfile`/`-CApath`,
+  curl `--capath`), `CABUNDLE`, `TRUST`, `TRUSTSTORE` ve `CERT` **içeren** her parça eklendi.
+  **Liste kapalı değildir:** listede olmayan sözcüklerle adlandırılmış bir değişken (`…_POOL`,
+  `…_ISSUER`) geçer; onun `mail.Config`'e ulaşmasını (a) yakalar. Ve tarama yalnız
+  `internal/config`'in dosyalarını okur — başka bir paketin doğrudan `os.Getenv`'i (b)'nin
+  dışındadır.
+- **Davet kümesi (X23):** davet akışının kötü değer listesine `e-mail` eklendi.
+
+**EM-3'ün sayılı sınırları (bu ADR'nin 23 ve 24'üne ek):**
+- Üretim host kuralı yalnız `localhost`, `*.localhost` ve IP adresini (her yazımıyla)
+  reddeder ve **yazıma** bakar, çözümlemeye değil: `ip6-localhost`, `localhost.localdomain`
+  ve loopback'e çözülen her DNS adı üretimde **kabul edilir** (üçüncü gözün B7'si). Tek
+  etiketli bir ad (`relay`) da kabul edilir; küme içinde arama listesiyle bir servise
+  çözülebilir (TLS'i herkese açık bir sertifikayla geçmesi ise beklenmez — ölçülmedi).
+- "Değer yok" ölçüsü: iki kimlikte her 3 baytlık pencere aranır (1–2 baytlık sızıntı
+  ölçülmez); öteki değerlerde yalnız **önek** — tamamı ve ilk 8, 4 ya da 3 karakteri; bir
+  sonekin ya da iç parçanın sızması orada ölçülmez.
+- Yorum ayıklayıcıya (`stripYAMLComments`, tırnaklı `#`'te keser) dayanan pinler kalır: iki
+  kimliğin `optional: true` pini ve ConfigMap değer pinleri — tehdit modelinin
+  *"bilerek yazılmış"* kısmı; kök konumu ve mount pinleri artık ona dayanmaz.
+- 2465 (SES belgesi, ölçülmedi) kabul edilir: o portta her gönderim süre dolana dek bekler,
+  kimlik gitmez.
+- Akışlar kapalıyken ayarlar okunmaz: ConfigMap'teki bozuk bir değer açılışta değil CI'da
+  (`TestPackaging_TheConfigMapsMailSettingsLoadInProduction`), Secret'taki bozuk bir kimlik ise
+  ancak akış açıldığında görünür.
+- `Config`'in kalanı (ham anahtarlar) redakte edilmez — backlog T80; yalnız iki SMTP kimliği
+  kendi tipiyle redakte.
+
+**Devirler:** EM-5 — `case email` → `mail.New(cfg.Mail)` + `unbuiltDelivery`'den sıfırlama
+satırının çıkması + `TestUnbuiltDelivery_RefusesEmailForEitherFlow` ve
+`TestArtifact_RefusesAnEmailDeliveryThisBuildLacks`'in o satırının güncellenmesi;
+`TestPackaging_TheConfigMapShipsTodaysDelivery` ancak akışı açan deploy kararıyla değişir.
+EM-7 — davet satırı için aynısı.

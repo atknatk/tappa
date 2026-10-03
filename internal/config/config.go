@@ -19,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/atknatk/tappa/internal/mail"
 	"github.com/atknatk/tappa/internal/policy"
 )
 
@@ -91,17 +92,18 @@ type Config struct {
 	OperatorHost string
 
 	// ResetDelivery names the transport that carries an admin password-reset link
-	// to the administrator's own address (M7-04 phase B, TAPPA_RESET_DELIVERY).
+	// to the administrator's own address (M7-04 phase B, TAPPA_RESET_DELIVERY):
+	// ResetDeliveryNone or ResetDeliveryEmail.
 	//
-	// 🔴 TODAY THE ONLY LEGAL VALUE IS "none", AND THAT IS AN HONEST STATE RATHER
-	// THAN A PLACEHOLDER. Q02 — which mail provider, in which region, under which
-	// processing agreement — is unanswered, so this repository has no mail
-	// transport at all. What this field must NOT do is imply one: a value naming a
-	// provider, or a second field carrying an API endpoint, would be choosing Q02
-	// by the back door (the M7-04 card's correction 5 makes the same point about
-	// the schema, which is why 00019 has no delivery column either).
+	// Q02 IS ANSWERED by ADR 0022 (AWS SES in eu-central-1, spoken to as a plain SMTP
+	// relay with STARTTLS), so "email" is a value this package ACCEPTS — and when it is
+	// set, the transport's settings must be complete and valid (Mail, below), or the
+	// process does not start. Accepting it here is not implementing it: until the reset
+	// path takes its delivery off the request (ADR 0022 §6, EM-5) cmd/tappa refuses to
+	// boot on "email". The value names the MECHANISM, not a provider — the provider is
+	// TAPPA_SMTP_HOST's business.
 	//
-	// 🔴 AND THERE IS NO INTERIM CHANNEL, WHICH IS THE DIFFERENCE FROM invites.
+	// 🔴 THERE IS NO INTERIM CHANNEL, WHICH IS THE DIFFERENCE FROM invites.
 	// internal/invite ships ManagerVisibleChannel — an uncomfortable name for
 	// showing an activation link on the manager's own screen — because a manager
 	// seeing an employee's code is an ACCEPTED risk (ADR 0005 Y-D). The equivalent
@@ -116,6 +118,39 @@ type Config struct {
 	// who writes TAPPA_RESET_DELIVERY=smtp must find out at boot that nothing
 	// implements it, rather than from a customer who never received a link.
 	ResetDelivery string
+
+	// InviteDelivery names where an employee's activation link goes
+	// (TAPPA_INVITE_DELIVERY): InviteDeliveryPanel — the manager's own screen,
+	// internal/invite.ManagerVisibleChannel, an ACCEPTED risk (ADR 0005 Y-D) and today's
+	// only channel — or InviteDeliveryEmail, the employee's own address (ADR 0022 §7).
+	// Like ResetDelivery, "email" is accepted here and refused by cmd/tappa until the
+	// invitation's e-mail channel exists (EM-7); an unknown value is a startup failure.
+	InviteDelivery string
+
+	// Mail is the transactional e-mail transport's configuration (ADR 0022 §5), in the
+	// shape internal/mail.New takes. Nothing calls mail.New with it yet: that is the
+	// reset and invitation channels' wiring (EM-5, EM-7), and until then a flow set to
+	// "email" stops the boot in cmd/tappa.
+	//
+	// 🔴 IT IS THE ZERO VALUE UNLESS A FLOW ABOVE IS "email". With both flows off
+	// (none + panel) the TAPPA_SMTP_* and TAPPA_MAIL_* variables are neither READ nor
+	// VALIDATED (ADR 0022 §5): the runbook's intermediate state — credentials already in
+	// the Secret, the ConfigMap still none/panel — must boot exactly as before, and a
+	// field nothing should use stays empty so nothing can use it by accident. With a flow
+	// on, every required setting must be present and valid, or Load fails naming the
+	// VARIABLE (loadMail).
+	//
+	// Username and Password are mail.Credential, wrapped here, at load: they print as a
+	// placeholder through this struct's exported fields
+	// (TestLoad_MailCredentialsAreRedactedInTheConfig). That is all it buys — the rest of
+	// this struct still holds raw keys, and redacting it as a whole is backlog T80.
+	//
+	// RootCAs IS NEVER SET (ADR 0022 §2): nil means the image's system roots, and no
+	// variable of this package names a certificate authority. A private root would let
+	// whoever holds it read the SMTP credentials and every link in transit.
+	// TestMailConfig_NoProductCodeSetsTheRootPool and
+	// TestPackaging_ConfigNamesNoCertificateVariable pin the two halves.
+	Mail mail.Config
 
 	GPSRadiusMeters float64
 	Debounce        time.Duration
@@ -276,7 +311,15 @@ func Load() (*Config, error) {
 	} else {
 		push(trustedProxySanity(c.TrustedProxies, c.IsProd()))
 	}
-	if c.ResetDelivery, err = resetDelivery(env("TAPPA_RESET_DELIVERY", ResetDeliveryNone)); err != nil {
+	if c.ResetDelivery, err = deliveryMode(envResetDelivery, ResetDeliveryNone, ResetDeliveryEmail); err != nil {
+		push(err)
+	}
+	if c.InviteDelivery, err = deliveryMode(envInviteDelivery, InviteDeliveryPanel, InviteDeliveryEmail); err != nil {
+		push(err)
+	}
+	// After both modes and TAPPA_ENV: whether the transport's settings are read at all
+	// depends on the first, and what a host may be depends on the second.
+	for _, err := range loadMail(c) {
 		push(err)
 	}
 	// GPS radius and debounce are BOUNDED parameters (ADR 0004 §11): they read the
@@ -809,25 +852,252 @@ func prefixes(s string) ([]netip.Prefix, error) {
 	return out, nil
 }
 
-// ResetDeliveryNone is the only transport this repository implements for admin
-// password-reset links: there isn't one. See Config.ResetDelivery.
-const ResetDeliveryNone = "none"
+// The two delivery modes (ADR 0022 §5). Each flow is a CLOSED SET of two: the value
+// that sends nothing by e-mail, which is also the default, and "email".
+const (
+	// ResetDeliveryNone: no reset link is sent, and the panel's recovery form says so
+	// on screen. See Config.ResetDelivery.
+	ResetDeliveryNone = "none"
+	// ResetDeliveryEmail: the reset link goes to the administrator's own address.
+	ResetDeliveryEmail = "email"
+	// InviteDeliveryPanel: the activation link is shown on the manager's panel.
+	InviteDeliveryPanel = "panel"
+	// InviteDeliveryEmail: the activation link goes to the employee's own address.
+	InviteDeliveryEmail = "email"
+)
 
-// resetDelivery parses TAPPA_RESET_DELIVERY.
+// The transactional e-mail variables (ADR 0022 §5). They are constants so the loader,
+// its messages and cmd/tappa's manifest tests cannot spell one differently from another.
 //
-// EMPTY IS "none", AND AN UNKNOWN VALUE IS A STARTUP FAILURE. The package doc's rule
-// is "never a silent default"; the value with a default here is the one that does
-// LESS, and the one that must never be guessed at is a transport nothing implements.
-// Naming the open question in the error is the point of the message: whoever set this
-// variable is trying to make the product send mail, and the answer they need is which
-// decision is missing rather than which string is invalid.
-func resetDelivery(s string) (string, error) {
-	v := strings.ToLower(strings.TrimSpace(s))
-	if v == "" || v == ResetDeliveryNone {
-		return ResetDeliveryNone, nil
+// 🔴 THESE NAMES NEVER ENTER A fmt OR log CALL DIRECTLY. redline R7 reads the text of
+// such a call — literals and identifiers alike — for words like the one the credential
+// variable's name ends in, so a variable reaches a message only as the neutral `name`
+// parameter of a helper (mailRequired, mailRule, smtpHost, smtpPort), key32's precedent.
+// The identifiers are chosen to stay clear of those words too.
+const (
+	envResetDelivery  = "TAPPA_RESET_DELIVERY"
+	envInviteDelivery = "TAPPA_INVITE_DELIVERY"
+	envSMTPHost       = "TAPPA_SMTP_HOST"
+	envSMTPPort       = "TAPPA_SMTP_PORT"
+	envSMTPUser       = "TAPPA_SMTP_USERNAME"
+	envSMTPPass       = "TAPPA_SMTP_PASSWORD"
+	envMailFrom       = "TAPPA_MAIL_FROM"
+	envMailReplyTo    = "TAPPA_MAIL_REPLY_TO"
+)
+
+// SMTPCredentialVariables returns the two variables that carry the relay's credentials,
+// in a fresh slice. They are the only e-mail settings that are secrets:
+// deploy/k8s/20-app.yaml must take both from tappa-secrets with `optional: true` (a
+// deployment with both flows off never holds them), and neither may be a ConfigMap key
+// (cmd/tappa's packaging test reads this list rather than a copy).
+func SMTPCredentialVariables() []string { return []string{envSMTPUser, envSMTPPass} }
+
+// smtpPortDefault is the STARTTLS submission port ADR 0022 §1 chose (and SES's).
+const smtpPortDefault = 587
+
+// smtpPortImplicitTLS is SMTPS, refused in every environment (ADR 0022 §5): on this
+// port the server expects a TLS handshake before any SMTP, and internal/mail speaks
+// SMTP first and upgrades with STARTTLS — the two would wait on each other until the
+// send's deadline, on every send.
+const smtpPortImplicitTLS = 465
+
+// deliveryMode parses one flow's mode from the variable name.
+//
+// EMPTY IS off, AND AN UNKNOWN VALUE IS A STARTUP FAILURE. The package doc's rule is
+// "never a silent default"; the value with a default here is the one that sends NOTHING
+// by e-mail, and the one that must never be guessed at is a transport. Case and
+// surrounding blanks are forgiven, because the set has two members and no two of them
+// differ only in case. The message names the set and never repeats the value: a value
+// pasted into the wrong variable could be anything, a credential included.
+func deliveryMode(name, off, on string) (string, error) {
+	v := strings.ToLower(strings.TrimSpace(os.Getenv(name)))
+	switch v {
+	case "":
+		return off, nil
+	case off, on:
+		return v, nil
 	}
-	return "", fmt.Errorf("TAPPA_RESET_DELIVERY: %q is not implemented; the only value this build accepts is %q, because no mail transport has been chosen yet (docs/plan/open-questions.md Q02: provider, region and processing agreement). While it is %q the panel's recovery form says so on screen instead of pretending a link was sent",
-		s, ResetDeliveryNone, ResetDeliveryNone)
+	return "", fmt.Errorf("%s: must be %q or %q (ADR 0022 §5; empty means %q). "+
+		"The value is not repeated here", name, off, on, off)
+}
+
+// loadMail reads and validates the transport's settings into c.Mail — ONLY when a flow
+// is "email" (Config.Mail says why both-off reads nothing).
+//
+// 🔴 FAIL-CLOSED, AND EVERY REFUSAL NAMES ITS VARIABLE AND NEVER ITS VALUE. A flow set
+// to "email" with a setting missing would boot a process that fails on its first send
+// — for a reset, silently, because the request answers the same either way (ADR 0022
+// §6). So every required setting is checked here, all of them in one pass, each
+// refusal its own error. The value is never repeated: these variables hold a
+// credential, and a value pasted into the wrong one would reach the process log.
+//
+// THE RULES ARE NOT RESTATED HERE. What a sender, a Reply-To or a credential may be is
+// internal/mail's rule (ADR 0022 §4, mail.New) and this function asks it (mailRule)
+// rather than keeping a second copy that could drift. What is decided here is what only
+// the deployment knows: which settings are required, the port, and — in production —
+// what the relay's host may be (smtpHost).
+func loadMail(c *Config) []error {
+	var why string
+	switch {
+	case c.ResetDelivery == ResetDeliveryEmail && c.InviteDelivery == InviteDeliveryEmail:
+		why = envResetDelivery + " and " + envInviteDelivery + " are " + ResetDeliveryEmail
+	case c.ResetDelivery == ResetDeliveryEmail:
+		why = envResetDelivery + " is " + ResetDeliveryEmail
+	case c.InviteDelivery == InviteDeliveryEmail:
+		why = envInviteDelivery + " is " + InviteDeliveryEmail
+	default:
+		return nil
+	}
+	var errs []error
+	push := func(err error) {
+		if err != nil {
+			errs = append(errs, err)
+		}
+	}
+	// "Set" means not blank: a value of spaces is refused as missing, the operator DSN's
+	// precedent (loadOperatorSurface) — mail.New would accept a password of spaces.
+	present := func(name string) (string, bool) {
+		v := os.Getenv(name)
+		if strings.TrimSpace(v) == "" {
+			push(mailRequired(name, why))
+			return "", false
+		}
+		return v, true
+	}
+	host, hostOK := present(envSMTPHost)
+	if hostOK {
+		push(smtpHost(envSMTPHost, host, c.IsProd()))
+	}
+	port, err := smtpPort(envSMTPPort, os.Getenv(envSMTPPort))
+	push(err)
+	user, userOK := present(envSMTPUser)
+	if userOK {
+		push(mailRule(envSMTPUser, func(m *mail.Config) { m.Username = mail.NewCredential(user) }))
+	}
+	pass, passOK := present(envSMTPPass)
+	if passOK {
+		push(mailRule(envSMTPPass, func(m *mail.Config) { m.Password = mail.NewCredential(pass) }))
+	}
+	from, fromOK := present(envMailFrom)
+	if fromOK {
+		push(mailRule(envMailFrom, func(m *mail.Config) { m.From = from }))
+	}
+	// OPTIONAL: unset means no Reply-To header (replies go to From). Set, it is held to
+	// the RECIPIENT rule — one bare address — which is mail.New's to apply.
+	replyTo := os.Getenv(envMailReplyTo)
+	if replyTo != "" {
+		push(mailRule(envMailReplyTo, func(m *mail.Config) { m.ReplyTo = replyTo }))
+	}
+	if len(errs) > 0 {
+		return errs
+	}
+	c.Mail = mail.Config{
+		Host:     host,
+		Port:     port,
+		Username: mail.NewCredential(user),
+		Password: mail.NewCredential(pass),
+		From:     from,
+		ReplyTo:  replyTo,
+	}
+	return nil
+}
+
+// mailRequired is a missing e-mail setting's refusal, naming the variable and the flow
+// that needs it.
+func mailRequired(name, why string) error {
+	return fmt.Errorf("%s is required while %s (ADR 0022 §5): the process would otherwise start and fail "+
+		"on its first send. Set it before switching a flow to email (deploy/README.md, the transactional "+
+		"e-mail runbook), or switch the flow back off", name, why)
+}
+
+// mailProbe is a configuration mail.New accepts, with no value from the environment in
+// it. mailRule starts from it and replaces ONE field, so a refusal can only be about the
+// value under test. The relay host is a reserved name (RFC 2606 .invalid) and nothing is
+// dialled: mail.New builds a sender and checks its fields, it opens no connection.
+func mailProbe() mail.Config {
+	return mail.Config{
+		Host:     "relay.invalid",
+		Port:     smtpPortDefault,
+		Username: mail.NewCredential("probe"),
+		Password: mail.NewCredential("probe"),
+		From:     "probe@relay.invalid",
+	}
+}
+
+// mailRule asks internal/mail — the ONE place the sender, Reply-To and credential rules
+// live (ADR 0022 §4) — whether a value is acceptable, and names the variable when it is
+// not. mail.New's messages name its own field and never a value.
+func mailRule(name string, set func(*mail.Config)) error {
+	probe := mailProbe()
+	set(&probe)
+	if _, err := mail.New(probe); err != nil {
+		return fmt.Errorf("%s: refused by the transport's own rule (ADR 0022 §4; the value is not repeated here): %w", name, err)
+	}
+	return nil
+}
+
+// smtpPort parses the relay's port: unset is 587; otherwise a decimal 1-65535, and
+// never 465 (smtpPortImplicitTLS), in ANY environment — the refusal is about the
+// protocol, not about how careful a deployment has to be.
+func smtpPort(name, raw string) (int, error) {
+	if raw == "" {
+		return smtpPortDefault, nil
+	}
+	p, err := strconv.Atoi(raw)
+	if err != nil || p < 1 || p > 65535 {
+		return 0, fmt.Errorf("%s: must be a port number, 1-65535 (unset means %d; the value is not repeated here)",
+			name, smtpPortDefault)
+	}
+	if p == smtpPortImplicitTLS {
+		return 0, fmt.Errorf("%s: %d is implicit TLS (SMTPS) and is refused in every environment: the transport "+
+			"speaks SMTP first and upgrades with STARTTLS, so on that port both ends wait for the other until "+
+			"every send times out (ADR 0022 §5). Use %d", name, smtpPortImplicitTLS, smtpPortDefault)
+	}
+	return p, nil
+}
+
+// smtpHost validates the relay's host.
+//
+// EVERYWHERE: ONE SPELLING — a lower-case DNS name (isDNSHostName, operatorHost's rule:
+// no scheme, port, path or trailing dot, refused rather than normalised) or an IP
+// address literal. The one spelling is what keeps the production rule below from
+// being walked around by CASE OR A TRAILING DOT: "LOCALHOST" and "localhost." never get
+// that far. It does not make the rule complete over loopback names — see the limits.
+//
+// IN PRODUCTION, NOT `localhost`, NOT `*.localhost`, NOT AN ADDRESS (ADR 0022 §5): `localhost`,
+// any `*.localhost` (RFC 6761: loopback), an IP literal (netip.ParseAddr accepts it),
+// and a name whose LAST label starts with a digit. That last one is how an IPv4 address
+// is spelled in the forms C resolvers accept (127.1, 0x7f000001) and no top-level domain
+// starts with a digit. Why the relay must be a name: the TLS certificate is verified
+// against it, and the production relay is a public service behind a public certificate;
+// net/smtp's own PlainAuth sends credentials in clear to exactly `localhost`,
+// `127.0.0.1` and `::1` (ADR 0022 S3) — internal/mail refuses AUTH without STARTTLS
+// itself, and this is the second, independent fence. Development may point anywhere
+// (ADR 0022 §12: an `email` mode there is an accepted, counted risk).
+//
+// WHAT THIS DOES NOT DO: it does not hold the host to a list of allowed relays — a
+// writer of the ConfigMap could point it at their own server with a publicly trusted
+// certificate (ADR 0022 counted limit 24); and it reads the SPELLING, not what the name
+// resolves to — other loopback names (ip6-localhost, localhost.localdomain, a single
+// label such as relay that the cluster's search list may complete) are accepted in
+// production (round 2, the third eye's B7; the EM-3 note in ADR 0022 counts them).
+func smtpHost(name, v string, prod bool) error {
+	_, ipErr := netip.ParseAddr(v)
+	isIP := ipErr == nil
+	if !isIP && !isDNSHostName(v) {
+		return fmt.Errorf("%s: must be a lower-case DNS host name such as email-smtp.eu-central-1.amazonaws.com, "+
+			"with no scheme, port or trailing dot (the value is not repeated here)", name)
+	}
+	if !prod {
+		return nil
+	}
+	labels := strings.Split(v, ".")
+	last := labels[len(labels)-1]
+	if isIP || v == "localhost" || strings.HasSuffix(v, ".localhost") || (last[0] >= '0' && last[0] <= '9') {
+		return fmt.Errorf("%s: in production the relay must not be localhost, a *.localhost name or an IP "+
+			"address in any spelling (ADR 0022 §5; the value is not repeated here)", name)
+	}
+	return nil
 }
 
 // intEnvRequiredRange reads an integer env var that has NO DEFAULT: unset or

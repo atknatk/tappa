@@ -42,6 +42,12 @@ func setRequired(t *testing.T) {
 	for _, name := range config.OperatorSurfaceVariables() {
 		t.Setenv(name, "")
 	}
+	// Both delivery flows off and every transactional e-mail variable cleared (M10
+	// EM-3), for the same reason: off is the shipped state, and an ambient value
+	// would decide whether the transport's settings are read at all.
+	for _, name := range mailVariables() {
+		t.Setenv(name, "")
+	}
 }
 
 // otherKey is a valid 32-byte key that is NOT all zeroes, so it differs from the
@@ -431,17 +437,20 @@ func loadErr(t *testing.T) error {
 	return err
 }
 
-// TestLoad_ResetDeliveryIsAClosedSetAndFailsClosed covers M7-04 phase B's one
-// configuration knob.
+// TestLoad_ResetDeliveryIsAClosedSetAndFailsClosed covers M7-04 phase B's
+// configuration knob, as M10 EM-3 widened it: {none, email}.
 //
 // 🔴 THE POINT IS THE UNKNOWN VALUE, not the default. An operator who writes
 // TAPPA_RESET_DELIVERY=smtp is trying to make the product send recovery mail; if
 // that silently fell back to "no delivery", the panel would go on telling every
 // visitor that nothing can be sent while the person who configured it believed
 // otherwise — and the first evidence would be a customer who never received a link.
-// So it is a startup failure, and the message names the OPEN QUESTION rather than
-// the invalid string, because the missing thing is a decision (Q02) rather than a
-// spelling.
+// So it is a startup failure.
+//
+// ⚠️ DELIBERATELY CHANGED BY EM-3 (ADR 0022 §5, "Bayatlayan metin"): until then the
+// message had to name Q02, the open question that blocked any transport. ADR 0022
+// answered it, so the message now names the closed set and the ADR — and it no longer
+// repeats the value (a value pasted into the wrong variable could be a credential).
 func TestLoad_ResetDeliveryIsAClosedSetAndFailsClosed(t *testing.T) {
 	setRequired(t)
 
@@ -455,26 +464,38 @@ func TestLoad_ResetDeliveryIsAClosedSetAndFailsClosed(t *testing.T) {
 		t.Errorf("ResetDelivery = %q, want %q", c.ResetDelivery, config.ResetDeliveryNone)
 	}
 
-	// The one legal value, in the spelling an operator is most likely to use.
-	for _, spelling := range []string{"none", "NONE", "  none  "} {
+	// The two legal values, in the spellings an operator is most likely to use. "email"
+	// needs the transport's settings; the inert value needs nothing.
+	setMail(t)
+	for spelling, want := range map[string]string{
+		"none": config.ResetDeliveryNone, "NONE": config.ResetDeliveryNone, "  none  ": config.ResetDeliveryNone,
+		"email": config.ResetDeliveryEmail, "EMAIL": config.ResetDeliveryEmail, " email ": config.ResetDeliveryEmail,
+	} {
 		t.Setenv("TAPPA_RESET_DELIVERY", spelling)
 		c, err := config.Load()
 		if err != nil {
 			t.Fatalf("TAPPA_RESET_DELIVERY=%q must load: %v", spelling, err)
 		}
-		if c.ResetDelivery != config.ResetDeliveryNone {
-			t.Errorf("TAPPA_RESET_DELIVERY=%q gave %q", spelling, c.ResetDelivery)
+		if c.ResetDelivery != want {
+			t.Errorf("TAPPA_RESET_DELIVERY=%q gave %q, want %q", spelling, c.ResetDelivery, want)
 		}
 	}
 
-	for _, bad := range []string{"smtp", "ses", "sendgrid", "true", "yes"} {
+	for _, bad := range []string{"smtp", "ses", "sendgrid", "true", "yes", "mail", "e-mail", "panel", "qq-delivery-sentinel"} {
 		t.Setenv("TAPPA_RESET_DELIVERY", bad)
-		if _, err := config.Load(); err == nil {
+		_, err := config.Load()
+		if err == nil {
 			t.Errorf("TAPPA_RESET_DELIVERY=%q loaded; nothing in this build implements it, so "+
 				"the server would start and quietly send nothing", bad)
-		} else if !strings.Contains(err.Error(), "Q02") {
-			t.Errorf("TAPPA_RESET_DELIVERY=%q: the error does not point at the open question "+
-				"that has to be answered first: %v", bad, err)
+			continue
+		}
+		for _, must := range []string{"TAPPA_RESET_DELIVERY", `"none"`, `"email"`, "ADR 0022"} {
+			if !strings.Contains(err.Error(), must) {
+				t.Errorf("TAPPA_RESET_DELIVERY=%q: the error does not say %s: %v", bad, must, err)
+			}
+		}
+		if bad == "qq-delivery-sentinel" && strings.Contains(err.Error(), bad) {
+			t.Errorf("the refusal repeats the value it refused: %v", err)
 		}
 	}
 }

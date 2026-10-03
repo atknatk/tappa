@@ -6797,6 +6797,261 @@ yasal belge içindi, M9-08'in kapsamı §4.5'i aşan beş işlev.
 > - **EM-8:** gerçek cihaz turunda e-postanın Gmail/Outlook/Apple Mail'de görünümü ve *"Open in
 >   browser"* ile *"main browser"* talimatlarının işe yaradığı.
 
+> **Kart düzeltmesi (2026-10-03, EM-3 uygulaması sırasında; 2. ve 3. tur aynı gün).** Yazıldı:
+> `internal/config` (`config.go`: `deliveryMode` — iki akış, kapalı küme; `loadMail`,
+> `mailRequired`, `mailProbe`, `mailRule`, `smtpPort`, `smtpHost`; `Config.InviteDelivery`,
+> `Config.Mail` (`mail.Config`, kimlikler `mail.NewCredential` ile yüklenirken sarılı);
+> `SMTPCredentialVariables()`; `resetDelivery` → `deliveryMode`) · `cmd/tappa/main.go`
+> (`unbuiltDelivery` — `run()`'ın başında, `logBuild`'den sonra, `db.New`'den ÖNCE; iki yorum
+> bloğu bayat Q02 metninden arındı) · `deploy/k8s/05-config.yaml` (iki akış `none`/`panel`,
+> host/port/from, boş `TAPPA_MAIL_REPLY_TO`) · `deploy/k8s/20-app.yaml` (iki `optional: true`
+> `secretKeyRef`) · `deploy/README.md` (*"Transactional e-mail (M10 EM-3)"* runbook'u +
+> kabul edilmiş sınırlar 3. maddesi) · `deploy/examples/{secret,externalsecret}.example.yaml`
+> (yorumlu iki girdi, değer `REPLACE_ME`) · ADR 0022 (§2, İddia I, sayılı sınır 23 ve 25,
+> §12'ye EM-3 ekleri; *"EM-3 notu"* + 2. tur bloğu + tehdit modeli; Sonuçlar'daki EM-3 devrine
+> *"kapandı"*). Testler: `internal/config/mail_test.go` (yeni, **9** test),
+> `internal/config/config_test.go` (`setRequired` e-posta değişkenlerini temizler;
+> `TestLoad_ResetDeliveryIsAClosedSetAndFailsClosed` bilerek güncellendi),
+> `cmd/tappa/mailconfig_test.go` (yeni, **14** test — 1. turda 10; 2. turda mount pini ve iki
+> yardımcı testi eklendi; 3. turda iki yardımcı test `TestRootPinFindings` ve
+> `TestMountFindings` ile değiştirildi; 4. turda `TestRootPinFiles`; `grep -c '^func Test'`), `cmd/tappa/race_{on,off}_test.go`
+> (yeni; `raceBuild`, internal/db emsali). `cfg.Mail` ile hiçbir gönderici kurulmaz; `mail.New`
+> yalnız sonda yapılandırmasıyla doğrulama için çağrılır (`mailRule`, `config.Load` sırasında)
+> ve bağlantı açmaz. `internal/mail` **değişmedi**. `go.mod`/`go.sum`/`sqlc.yaml` diff boş.
+> **Ölçüm ortamı:** yerel Go 1.27.1 darwin/amd64; staticcheck `GOTOOLCHAIN=go1.26.7`; ayrı git
+> worktree, taban `b06370c` (dal ucu `24ffe1f`; worktree ilerletilmedi, birleştirme
+> orkestratörün — arada EM-4 de ADR 0022'ye dokundu); DB'ye bağlanılmadı, `kubectl` yok,
+> `tappa-secrets`'a dokunulmadı.
+>
+> **Tehdit modeli (manifest ve Dockerfile pinleri):** "Bu pinler manifestlere ve Dockerfile'a
+> kazara giren sapmaya karşıdır; pini atlatmak için bilerek yazılmış bir manifest ya da imaj kod
+> incelemesinin konusudur." Bu yüzden pinler **dar anlamda fail-closed**'dur: YAML ya da
+> Dockerfile sözdizimini ayrıştırmazlar, metni bir ayrıştırıcıdan geniş okurlar; meşru bir
+> gelecek ihtiyacı (bir mount, bir ters bölü, bir etiket) testi kırmızıya çevirir ve o değişiklik
+> pini bilerek günceller. Reddettikleri **tablolarındaki biçimlerdir**, fazlası değil: masum
+> parçalardan kurulan bir ad (E01), `!!` taşımayan açık bir etiket (E02) ve imaja COPY edilen
+> bir kök dosyası (R11) geçer — tablolarda *KNOWN LIMIT* satırı.
+>
+> **Kabul — kanıtlar:**
+> 1. **Fail-closed matris tablo testi, her eksik anahtar ayrı vaka** —
+>    `TestLoad_MailSettingsFailClosedWhenAFlowIsEmail`: 3 açılış biçimi × 4 zorunlu anahtar ×
+>    {gerçekten yok (`os.Unsetenv`), boş, yalnız boşluk} = **36 vaka** + her biçimde bir kontrol
+>    + tek geçişte dördü. İki akış kapalıyken okunmaz: `TestLoad_MailSettingsAreNotReadWhileBothFlowsAreOff`.
+> 2. **Packaging testi yeşil** — `TestPackaging_EverySecretConfigReadsIsInjectedByTheManifest` +
+>    `TestPackaging_TheSMTPCredentialsAreOptionalSecretKeys`.
+> 3. **Prod'da localhost/465 red** — `TestLoad_SMTPPortRefusesImplicitTLSEverywhere` ·
+>    `TestLoad_SMTPHostRefusesLoopbackAndAddressesInProduction` (23 değer × 3 ortam). Kapsamı:
+>    üretimde yalnız `localhost`, `*.localhost` ve IP adresi (her yazımıyla) red.
+> 4. **ConfigMap hâlâ none/panel** — `TestPackaging_TheConfigMapShipsTodaysDelivery` ·
+>    `TestPackaging_TheConfigMapsMailSettingsLoadInProduction`.
+> 5. **From/Reply-To — tek kaynak** — `TestLoad_SenderAddressesFollowTheTransportsOwnRule`:
+>    ayrışma **tablodaki 21 satırdan birinde** kırmızı (X06 örneklemin dışında).
+> 6. **Hata metninde değer yok — testin aradığı biçimlerde** —
+>    `TestLoad_MailErrorsNameTheVariableNeverTheValue`: iki kimlikte **her 3 baytlık pencere**
+>    (3. tur — `noCredential`; nöbetçiler İngilizce üçlü içermeyecek biçimde kurgulandı, kontrol
+>    karakteri değerin ortasında, yani iki ucun 3'er baytı da nöbetçi baytı); öteki değerlerde
+>    yalnız **önek** (tamamı ve ilk 8, 4, 3 karakter — `noValue`). İkilinin çıktısında her 4
+>    baytlık pencere (`TestArtifact_RefusesAnEmailDeliveryThisBuildLacks`).
+> 7. **§2 pinleri** — (a) `TestMailConfig_NoProductCodeSetsTheRootPool` (37 paket, go/types):
+>    `mail.Config.RootCAs`'ın her kullanımı · konumsal literal · aynı biçimli struct'ın
+>    `RootCAs` seçicisi/anahtarı · `mail.Config`/`*mail.Config`'e başka tipten dönüşüm; kontrol
+>    `TestRootPoolUses_SeesEveryWrittenForm` (14 biçim + 5 negatif). (b)
+>    `TestPackaging_ConfigNamesNoCertificateVariable` + `TestCertificateVariable`. (c)
+>    **fail-closed (3. tur):** `TestPackaging_NothingMovesTheSystemRoots`, kuralı tek işlev
+>    `rootPinFindings` + tablosu `TestRootPinFindings` — her dosyada (manifestler + Dockerfile)
+>    ham metin, **yorumlar dahil**, boşluk ve ters bölüler atılıp küçük harfe çevrilince
+>    `ssl_cert` yok; manifestlerde (yalnız `#` ile başlayan satırlar dışında) ters bölü ve `!!`
+>    yok. **Mount, fail-closed (3. tur):** `TestPackaging_NoMountShadowsTheSystemRoots`, kuralı
+>    `mountFindings` + `TestMountFindings` — `20-app.yaml`'ın ham, sıkıştırılmış metninde
+>    `volumemounts` ve `mountpath` yok.
+>    **Bugünkü manifestlerin ve Dockerfile'ın yeni pinlerden geçtiğinin kanıtı:** ölçüm
+>    (`measure3.py`, scratchpad) — 9 manifest + Dockerfile, yorumlar dahil `ssl_cert` 0; ters bölü
+>    ve `!!` (tam satır yorumlar dışında) manifestlerde 0; `20-app.yaml`'da `volumemounts`/`mountpath`
+>    0 — ve iki pin testi sevk edilen ağaçta **yeşil**.
+> 8. **İddia D'nin EM-3 vakası** — `TestLoad_MailCredentialsAreRedactedInTheConfig`.
+> 9. **İkili** — `TestArtifact_RefusesAnEmailDeliveryThisBuildLacks` · `TestUnbuiltDelivery_RefusesEmailForEitherFlow`.
+> 10. **Döngü yok** — `go list -deps ./internal/mail` → depodan yalnız kendisi.
+>
+> **Kararlar:** (1) kural tek kaynak, `mailRule`; (2) üretim host kuralı ADR §5'ten bir adım
+> dar ama loopback adları üzerinde tam değil; her ortamda tek yazım; (3) yalnız boşluk = eksik;
+> (4) `email` config'te geçerli, `cmd/tappa` DB'den önce reddeder (ADR §12 eki); (5) (c)
+> Dockerfile'ı da tarar; (6) `TAPPA_MAIL_REPLY_TO` boş; (7) yalnız 465 red; (8) `Config.Mail`
+> doğrudan `mail.Config`. **2. tur:** (9) pin (a)'ya iki kural; (10) mount pini; (11) (b)
+> listesi genişledi; (12) runbook geri alması *"hemen"*; (13) dış adım aralığı ADR §12'yle
+> eşit. **3. tur:** (14) tehdit modeli yazıldı, manifest/Dockerfile pinleri **fail-closed**:
+> yorumlar dahil sıkıştırılmış metinde `ssl_cert` yok; mount pini *"hiç mount yok"*
+> (path ayrıştırıcısı ve iki yardımcı testi kaldırıldı); ters bölü ve `!!` yasakları tek
+> işlevde, kendi tablosuyla; (15) kimliklerde 3 baytlık pencere araması, öteki değerlerde
+> önek — metin buna daraltıldı; (16) manifest yorumlarındaki *"maxUnavailable: 0 the old pod
+> keeps serving"* cümleleri runbook'un *"güvence kısa ömürlü"* açıklamasıyla hizalandı.
+>
+> **Doğruluk iddiası — üç parçalı:**
+> - **PART I (bugün ölçüldü):** yukarıdaki kanıtlar; mutasyon tablosu (aşağıda).
+> - **PART II (pinler):** matris, kapalı-akış, port, host, tek-kaynak, değer-yok, alan
+>   eşlemesi, redaksiyon, (a)(b)(c), mount, manifest dörtlüsü, ikili. **Yakaladıkları:**
+>   mutasyon tablosundaki her kırmızı. **Yakalamadıkları:** `reflect`; `*mail.Config`'e
+>   dönüştürmeden alanın belleğine yazan `unsafe` aritmetiği; `internal/mail` içinde kurulup
+>   verilen bütün bir `mail.Config`; kök deposu değiştirilmiş imaj (ADR sınır 23); pinleri
+>   atlatmak için **bilerek** yazılmış manifest ya da imaj — tehdit modeli (ör. masum
+>   parçalardan kurulan bir ad: `ARG A=SSL_` + `ARG B=CERT_FILE`; ya da bir YAML kaçışı içeren,
+>   `#` ile başlayan bir çok satırlı tırnaklı değer satırı); yorum ayıklayıcıya dayanan iki
+>   pin (kimlik `optional` pini, ConfigMap değer pinleri) tırnaklı `#` ile; izinli röle listesi
+>   (sınır 24); `localhost`/`*.localhost`/IP dışındaki loopback adları ve loopback'e çözülen
+>   adlar; (b)'nin listesinde olmayan sözcük ve başka paketin doğrudan `os.Getenv`'i ((a) yine
+>   de `mail.Config`'e ulaşmasını yakalar); 21 satırın dışındaki From/Reply-To değerleri (X06);
+>   kimliklerin 1–2 baytı, öteki değerlerin soneki ya da iç parçası.
+> - **PART III:** Listede olmayan her biçim kod incelemesinin konusu — tamlık iddiası yok.
+>
+> **Mutasyon tablosu:** `mutate3.py` (scratchpad; 1. ve 2. turun tablosunu yeniden okur — 2. turun `R2-pki`'si yardımcısı kaldırıldığı, `R2-noValue3` kontrolü önermesi değiştiği için düştü — + 3. tur): her mutasyonda dosya yedeklendi, uygulandığı bayt farkıyla kanıtlandı, `go build ./...` + `go vet`, sonra ilgili testler; karar `go test`'in çıkış kodundan; geri yükleme bayt eşitliğiyle; dokunulan dosyaların parmak izi önce ve sonra `882f56eb6b66ab05` (tam koşu). **72 satır: 71 kırmızı, 1 yeşil (M38, eşdeğer), 0 derlenmeyen.** N14d ilk koşuda yeşildi (tablonun her satırı `SSL_CERT`'ü harfiyen taşıyordu); kelimenin **içinden** bölen üç satır eklendi ve D-cont-ws, N14b–N14e son ağaçta yeniden koşuldu (`a20659c76a11f412` önce/sonra): hepsi kırmızı. Koordinatörün M-flow, M-block, D-cont-ws, N14b, D-arg, C-binary'si ve C-hash, C-hash-sq, D-hash, N12, N12b **kırmızı**.
+>
+> | # | Mutasyon | Sonuç | Kırmızıya dönen test |
+> |---|---|---|---|
+> | M01 | HOST presence check skipped | kırmızı | TestLoad_MailSettingsFailClosedWhenAFlowIsEmail |
+> | M02 | USERNAME presence check skipped | kırmızı | TestLoad_MailSettingsFailClosedWhenAFlowIsEmail |
+> | M03 | PASSWORD presence check skipped | kırmızı | TestLoad_MailSettingsFailClosedWhenAFlowIsEmail |
+> | M04 | FROM presence check skipped | kırmızı | TestLoad_MailSettingsFailClosedWhenAFlowIsEmail |
+> | M05 | invitation-only email does not read the settings | kırmızı | TestLoad_MailConfigCarriesTheEnvironmentsValues, TestLoad_MailSettingsFailClosedWhenAFlowIsEmail, TestLoad_SMTPHostRefusesLoopbackAndAddressesInProduction |
+> | M06 | settings read and validated with both flows off | kırmızı | TestLoad_DebounceRange, TestLoad_DefaultsWithinRange, TestLoad_EnvIsAClosedSet, TestLoad_FreshnessRange, TestLoad_GPSRadiusRange, TestLoad_InviteDeliveryIsAClosedSetAndFailsClosed, TestLoad_InviteKeyMustDifferFromSessionKey, TestLoad_MailSettingsAreNotReadWhileBothFlowsAreOff, TestLoad_OperatorHostIsOneSpelling, TestLoad_OperatorKeysDifferFromEveryOtherKey, TestLoad_OperatorSurfaceIsAllOrNothing, TestLoad_PreviousTagKEKIsOptionalButValidatedWhenSet, TestLoad_ResetDeliveryIsAClosedSetAndFailsClosed, TestLoad_RetentionYearsIsRequiredAndBounded, TestLoad_TrustedProxiesDefaultRoute, TestLoad_UnsetPreviousKEKIsNilNotEmptySlice |
+> | M07 | 465 accepted everywhere | kırmızı | TestLoad_SMTPPortRefusesImplicitTLSEverywhere |
+> | M08 | 465 refused only in production | kırmızı | TestLoad_SMTPPortRefusesImplicitTLSEverywhere |
+> | M09 | prod: localhost allowed | kırmızı | TestLoad_SMTPHostRefusesLoopbackAndAddressesInProduction |
+> | M10 | prod: IP literal allowed | kırmızı | TestLoad_SMTPHostRefusesLoopbackAndAddressesInProduction |
+> | M11 | prod: *.localhost allowed | kırmızı | TestLoad_SMTPHostRefusesLoopbackAndAddressesInProduction |
+> | M12 | prod: numeric last label allowed (127.1, 0x7f000001) | kırmızı | TestLoad_SMTPHostRefusesLoopbackAndAddressesInProduction |
+> | M13 | dev refuses loopback/IP like prod | kırmızı | TestLoad_SMTPHostRefusesLoopbackAndAddressesInProduction |
+> | M14 | Reply-To not checked at all | kırmızı | TestLoad_MailErrorsNameTheVariableNeverTheValue, TestLoad_SenderAddressesFollowTheTransportsOwnRule |
+> | M15 | From checked with the recipient rule (a second rule) | kırmızı | TestLoad_InviteDeliveryIsAClosedSetAndFailsClosed, TestLoad_MailConfigCarriesTheEnvironmentsValues, TestLoad_MailCredentialsAreRedactedInTheConfig, TestLoad_MailSettingsFailClosedWhenAFlowIsEmail, TestLoad_ResetDeliveryIsAClosedSetAndFailsClosed, TestLoad_SMTPHostRefusesLoopbackAndAddressesInProduction, TestLoad_SMTPPortRefusesImplicitTLSEverywhere, TestLoad_SenderAddressesFollowTheTransportsOwnRule |
+> | M16 | host refusal repeats the value | kırmızı | TestLoad_MailErrorsNameTheVariableNeverTheValue, TestLoad_SMTPHostRefusesLoopbackAndAddressesInProduction |
+> | M17 | delivery refusal repeats the value | kırmızı | TestLoad_InviteDeliveryIsAClosedSetAndFailsClosed, TestLoad_ResetDeliveryIsAClosedSetAndFailsClosed |
+> | M18 | username and password swapped in Mail | kırmızı | TestLoad_MailConfigCarriesTheEnvironmentsValues |
+> | M19 | pin (a): keyed RootCAs in config's mail.Config literal | kırmızı | TestMailConfig_NoProductCodeSetsTheRootPool |
+> | M20 | pin (a): assignment to cfg.Mail.RootCAs in cmd/tappa | kırmızı | TestMailConfig_NoProductCodeSetsTheRootPool |
+> | M21 | pin (a): positional mail.Config literal | kırmızı | TestMailConfig_NoProductCodeSetsTheRootPool |
+> | M22 | pin (b): a CA variable in config | kırmızı | TestPackaging_ConfigNamesNoCertificateVariable, TestPackaging_EverySecretConfigReadsIsInjectedByTheManifest |
+> | M23 | pin (c): SSL_CERT_FILE env on the serving container | kırmızı | TestPackaging_NothingMovesTheSystemRoots |
+> | M24 | pin (c): SSL_CERT_DIR as a ConfigMap key | kırmızı | TestPackaging_NothingMovesTheSystemRoots |
+> | M25 | pin (c): SSL_CERT_FILE in the image (Dockerfile ENV) | kırmızı | TestPackaging_NothingMovesTheSystemRoots |
+> | M26 | password key not optional | kırmızı | TestPackaging_TheSMTPCredentialsAreOptionalSecretKeys |
+> | M27 | a credential as a ConfigMap key | kırmızı | TestPackaging_TheSMTPCredentialsAreOptionalSecretKeys |
+> | M28 | ConfigMap ships reset email | kırmızı | TestPackaging_TheConfigMapShipsTodaysDelivery |
+> | M29 | ConfigMap ships invite email | kırmızı | TestPackaging_TheConfigMapShipsTodaysDelivery |
+> | M30 | main: the delivery refusal is not called | kırmızı | TestArtifact_RefusesAnEmailDeliveryThisBuildLacks |
+> | M31 | main: invitation email not refused | kırmızı | TestArtifact_RefusesAnEmailDeliveryThisBuildLacks, TestUnbuiltDelivery_RefusesEmailForEitherFlow |
+> | M32 | unknown delivery value falls back to off | kırmızı | TestLoad_InviteDeliveryIsAClosedSetAndFailsClosed, TestLoad_ResetDeliveryIsAClosedSetAndFailsClosed |
+> | M33 | blank counted as present | kırmızı | TestLoad_MailSettingsFailClosedWhenAFlowIsEmail |
+> | M34 | default port 25 | kırmızı | TestLoad_MailConfigCarriesTheEnvironmentsValues, TestLoad_SMTPPortRefusesImplicitTLSEverywhere |
+> | M35 | password entry removed from the manifest | kırmızı | TestPackaging_EverySecretConfigReadsIsInjectedByTheManifest, TestPackaging_TheSMTPCredentialsAreOptionalSecretKeys |
+> | M36 | ConfigMap ships port 465 | kırmızı | TestPackaging_TheConfigMapsMailSettingsLoadInProduction |
+> | M37 | ConfigMap ships an IP literal host | kırmızı | TestPackaging_TheConfigMapsMailSettingsLoadInProduction |
+> | M38 | pin (a) scanner: ignores composite-literal keys (only selector uses) | yeşil — **eşdeğer** (2. turun anahtar kuralı aynı satırları yakalar; R2-key-rule ayrıca kırmızı) |  |
+> | M39 | pin (a) scanner: matches tls.Config's RootCAs too | kırmızı | TestRootPoolUses_SeesEveryWrittenForm |
+> | X04 | prod host rule exempts :: | kırmızı | TestLoad_SMTPHostRefusesLoopbackAndAddressesInProduction |
+> | X05 | prod host rule exempts ::ffff:7f00:1 | kırmızı | TestLoad_SMTPHostRefusesLoopbackAndAddressesInProduction |
+> | X07 | password refusal carries the value's first 3 bytes | kırmızı | TestLoad_MailErrorsNameTheVariableNeverTheValue |
+> | X14a | pin (a): same-shaped struct, field set, converted back | kırmızı | TestMailConfig_NoProductCodeSetsTheRootPool |
+> | X14b | pin (a): pointer conversion to a same-shaped struct | kırmızı | TestMailConfig_NoProductCodeSetsTheRootPool |
+> | X14c | pin (a): anonymous same-shaped literal converted | kırmızı | TestMailConfig_NoProductCodeSetsTheRootPool |
+> | X15 | pin (b): a TAPPA_SMTP_CAFILE variable | kırmızı | TestPackaging_ConfigNamesNoCertificateVariable, TestPackaging_EverySecretConfigReadsIsInjectedByTheManifest |
+> | X15b | pin (b) predicate: CAFILE dropped from the list | kırmızı | TestCertificateVariable |
+> | X23 | invitation flow accepts e-mail | kırmızı | TestLoad_InviteDeliveryIsAClosedSetAndFailsClosed |
+> | R2-unset | a really-unset setting is skipped (LookupEnv) | kırmızı | TestLoad_MailSettingsFailClosedWhenAFlowIsEmail |
+> | R2-mount | manifest: a subPath PEM mounted into /etc/ssl/certs | kırmızı | TestPackaging_NoMountShadowsTheSystemRoots |
+> | R2-mount-etc | manifest: /etc mounted (an ancestor) | kırmızı | TestPackaging_NoMountShadowsTheSystemRoots |
+> | R2-yaml-escape | ConfigMap key spelled with a YAML escape | kırmızı | TestPackaging_NothingMovesTheSystemRoots |
+> | R2-docker-cont | Dockerfile ENV split by a line continuation | kırmızı | TestPackaging_NothingMovesTheSystemRoots |
+> | R2-shape-rule | pin (a) scanner: same-shape selector rule removed | kırmızı | TestRootPoolUses_SeesEveryWrittenForm |
+> | R2-conv-rule | pin (a) scanner: conversion rule removed | kırmızı | TestRootPoolUses_SeesEveryWrittenForm |
+> | R2-key-rule | pin (a) scanner: same-shape literal key rule removed | kırmızı | TestRootPoolUses_SeesEveryWrittenForm |
+> | M-block | app manifest: block-style volumeMounts | kırmızı | TestPackaging_NoMountShadowsTheSystemRoots |
+> | M-flow | app manifest: flow sequence on the volumeMounts line | kırmızı | TestPackaging_NoMountShadowsTheSystemRoots |
+> | D-cont-ws | Dockerfile: continuation with a blank after the backslash | kırmızı | TestPackaging_NothingMovesTheSystemRoots |
+> | D-arg | Dockerfile: ARG holds the prefix, ENV substitutes it | kırmızı | TestPackaging_NothingMovesTheSystemRoots |
+> | D-hash | Dockerfile: a quoted # before the name | kırmızı | TestPackaging_NothingMovesTheSystemRoots |
+> | C-hash | app manifest: flow env entry after a quoted # | kırmızı | TestPackaging_NothingMovesTheSystemRoots |
+> | C-hash-sq | ConfigMap: single-quoted # before the name | kırmızı | TestPackaging_NothingMovesTheSystemRoots |
+> | C-binary | ConfigMap: a !!binary tag | kırmızı | TestPackaging_NothingMovesTheSystemRoots |
+> | N14b | rule: the backslash ban removed | kırmızı | TestRootPinFindings |
+> | N14c | rule: the !! ban removed | kırmızı | TestRootPinFindings |
+> | N14d | rule: search the text as written, not squeezed | kırmızı (re-run after the squeeze rows were added; first run GREEN) | TestRootPinFindings |
+> | N14e | rule: comments stripped at the first # (round 1's stripper) | kırmızı | TestRootPinFindings |
+> | N-mount | rule: mountFindings checks mountpath only | kırmızı | TestMountFindings |
+> | N12 | password refusal carries the value's LAST 3 bytes | kırmızı | TestLoad_MailErrorsNameTheVariableNeverTheValue |
+> | N12b | password refusal carries an 8-byte inner part | kırmızı | TestLoad_MailErrorsNameTheVariableNeverTheValue |
+> | N12u | username refusal carries the value's last 3 bytes | kırmızı | TestLoad_MailErrorsNameTheVariableNeverTheValue |
+>
+> **Sayılı sınırlar:** (1) üretim host kuralı yalnız `localhost`, `*.localhost` ve IP adresini
+> reddeder ve yazıma bakar · (2) 2465 kabul (SES belgesi, ölçülmedi) · (3) akışlar kapalıyken
+> ayarlar okunmaz — ConfigMap'teki bozuk değer CI'da, Secret'taki bozuk kimlik akış açılınca
+> görünür · (4) `Config`'in kalanı redakte değil (T80) · (5) (b)'nin sözcük listesi kapalı değil
+> · (6) (a) `reflect`'i ve dönüşümsüz `unsafe` yazımını görmez · (7) kök deposu değiştirilmiş
+> imaj ve bilerek yazılmış manifest/imaj pinsiz (tehdit modeli) · (8) **fail-closed bedeli:**
+> meşru bir mount, manifestte ters bölü (ör. ingress annotation regex'i), `!!` etiketi ya da
+> `SSL_CERT` anan bir yorum ilgili pini kırmızıya çevirir ve o değişiklik pini günceller;
+> mount pini bütün `20-app.yaml`'ı okur, init konteynerinin mount'u da sayılır · (9) "değer
+> yok": kimliklerde 3 baytlık pencere, öteki değerlerde önek · (10) tek-kaynak testi 21 satırlık
+> örneklem · (11) SES kimlik boyları (20/44 bayt), `read -rs` davranışı ve eski pod'un konteyner
+> yeniden başlamasında ConfigMap'i yeniden okuması ölçülmedi · (12) sayılı sınır 13: dokunulmayan
+> dosyalardaki Q02 anışları duruyor.
+>
+> **4. tur (kapanış denetimi RED → yalnız test satırı ve metin; pin kodu değişmedi).**
+> Bulgu → değişiklik → ölçüm:
+> 1. **(bloklayan) `TestRootPinFindings` kuralın iddia ettiği biçimleri kapsamıyordu** — beş
+>    kural mutasyonu tam pakette yeşildi. → Denetçinin tanıkları satır oldu: sekmeli ve CR LF'li
+>    satır devamı (S04), tırnaklı `#` taşıyan satırda `\x53SL_CERT_FILE` ve sonda yorumlu `?
+>    !!binary` (S08), akış eşlemesinde tırnaklı `#`'ten sonra kaçış (S08b), alt çizgisiz `ARG
+>    P=SSL_CERT` (S09), `\u0053…` ve `\U00000053…` (S11). → **Ölçüm:** denetçinin `scan.py`'sindeki
+>    edit'ler birebir içe aktarılıp bu worktree'de koşuldu (`mutate4.py`): S04, S08, S08b, S09,
+>    S11 **kırmızı** (`TestRootPinFindings`).
+> 2. **S10 eşdeğer** → `!!str` satırı → S10 **kırmızı**.
+> 3. **W01–W04 (test gövdesi bağlantısı) yeşil** → taranan küme `rootPinFiles` işlevi, kendi testi
+>    `TestRootPinFiles` (Dockerfile manifest=false, `20-app.yaml` ve `05-config.yaml`
+>    manifest=true, ≥ 8 manifest); pin döngüsü taradığı dosyaları sayar; `TestMountFindings`'e
+>    iki bütün pod satırı (temiz init + mount'lu hizmet; mount'lu init + temiz hizmet). Bu bir
+>    test yeniden düzenlemesidir, kural işlevleri (`squeezed`, `withoutCommentLines`,
+>    `rootPinFindings`, `mountFindings`) değişmedi. → **Ölçüm:** W01a (küme Dockerfile'sız),
+>    W01b (döngü son dosyayı atlıyor), W04 (döngü `20-app.yaml`'ı atlıyor), W05 (`05-config.yaml`
+>    Dockerfile diye okunuyor) **kırmızı**; kural düzeyinde dilimleme (R-first, R-after)
+>    **kırmızı** (`TestMountFindings`). **W02, W03** (denetçinin çağrı yeri dilimlemesi, birebir)
+>    **yeşil** — sayılı sınır: mount pininin test gövdesi kurala hangi metni verdiğinin kendi
+>    kâhinidir; kod incelemesi.
+> 4. **Bağlı olmayan genel hükümler daraltıldı** (test yorumları, ADR, README, kart): tehdit
+>    modelinin *"okunabilecek her şey"*i → *"tablolarındaki biçimler"* + E01, E02, R11 *KNOWN
+>    LIMIT* satırları (beklenen bulgu 0); *"önek tutan ARG"* → *"kelimenin tamamını tutan ARG;
+>    masum parçalara bölen pinsiz"*; *"no explicit tag such as !!binary"* → `!!`-kısaltma
+>    etiketleri, açık etiket (E02) pinsiz; *"none of those survives the squeeze"* → kaçış
+>    `SSL_CERT`'ün içindeyse sıkıştırmadan sağ çıkar, ters bölü kuralı okur; *"every manifest
+>    under deploy/k8s"* → üst düzey (R06c); *"the serving pod mounts nothing"* → *"the app
+>    manifest declares no mount"* (kubelet `/etc/hosts`, `/etc/resolv.conf`, `/etc/hostname`,
+>    `/dev/termination-log`'u kendi bağlar).
+> 5. **Go'nun okuduğu, kaynaktan** (`$(go env GOROOT)/src/crypto/x509/root_linux.go`, go1.27.1,
+>    okundu): `certFiles`'tan yalnız var olan ilki (*"stop after finding one"*), `certDirectories`
+>    `/etc/ssl/certs` ve `/etc/pki/tls/certs`'ün her dosyası → test yorumu, README ve ADR buna
+>    göre; *"hiç mount yok"* bu yollardan geniş, güvenli yönde. Fail-closed bedeline hizmet dışı
+>    manifestte ya da Dockerfile build aşamasında meşru bir `SSL_CERT` (R14, R15) eklendi.
+> 6. **R11 açıkça:** *"Dockerfile'a eklenen bir `COPY … /etc/ssl/certs/` satırı pinsizdir"* —
+>    README sınır 2 ve ADR sınır 23; yeni pin yok. **Tarama dışı kanallar** sayılı sınıra:
+>    kustomize patch'i (R06b), alt dizin kustomization (R06c), Helm `extraEnv` (R07b), `deploy.yml`'e
+>    eklenecek `kubectl set env`, canlı `tappa-config`'e elle eklenen anahtar (üçlü birleştirme —
+>    ölçülmedi).
+> 7. **İddia I'nın başına** tehdit modeli cümlesi (ADR).
+>
+> **4. tur mutasyonları** (`mutate4.py`, dokunulan dosyanın parmak izi önce/sonra
+> `8b5556efb2f1e0c2`): S04, S08, S08b, S09, S10, S11, W01a, W01b, W04, W05, R-first, R-after
+> **kırmızı** (12); W02, W03 **yeşil** — sayılı sınır (2). 3. turun tablosu (aşağıda) bu turda
+> yeniden koşulmadı; bu turun değişiklikleri yalnız test satırı, test yorumu, set işlevi ve metin.
+>
+> **Devirler:**
+> - **EM-5:** `main.go`'da `case config.ResetDeliveryEmail` → `mail.New(cfg.Mail)` +
+>   `unbuiltDelivery`'den sıfırlama satırı çıkar; `TestUnbuiltDelivery_RefusesEmailForEitherFlow`
+>   ve `TestArtifact_RefusesAnEmailDeliveryThisBuildLacks`'in sıfırlama satırı güncellenir; ADR
+>   §12'nin EM-3 eki o gün tarihlenir. ConfigMap'i `email`'e çevirmek deploy kararı:
+>   `TestPackaging_TheConfigMapShipsTodaysDelivery` bilerek güncellenir; runbook'un *"Geri alma —
+>   HEMEN"* bölümü o deploy'un planıdır.
+> - **EM-7:** davet satırı için aynısı; `IssueAndDeliver`'a e-posta kanalı.
+> - **Orkestratör:** `.env.example`'a e-posta değişkenleri eklenmedi (dev'de iki akış boş).
+>   Birleştirmede ADR 0022'nin EM-4 değişiklikleriyle çakışma olabilir (bu worktree `b06370c`
+>   üzerinde).
+
 ### Kullanıcının dış adımları (EM-2 ile paralel başlar; sıralı)
 1. AWS hesabı: root için MFA, günlük kullanım için ayrı yönetici kullanıcı, fatura alarmı (~$5).
 2. SES `eu-central-1` → Identities → Domain `taptime.mt`: Easy DKIM (RSA 2048); Custom MAIL FROM

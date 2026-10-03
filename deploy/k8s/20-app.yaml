@@ -318,8 +318,9 @@ spec:
           # ready-made credential for reading every tenant's rows. Listing only the
           # names it needs means there is nothing to reach for. (Some of them are
           # optional: TAPPA_TAG_KEK_PREVIOUS, present only during a KEK rotation,
-          # and the four TAPPA_OPERATOR_* keys, present only once the operator
-          # surface is configured. No count is written here because one went stale
+          # the four TAPPA_OPERATOR_* keys, present only once the operator surface
+          # is configured, and the two TAPPA_SMTP_* credentials, present only once
+          # the e-mail runbook has run. No count is written here because one went stale
           # here once; what keeps this list honest is
           # TestPackaging_EverySecretConfigReadsIsInjectedByTheManifest.)
           #
@@ -421,6 +422,37 @@ spec:
                 secretKeyRef:
                   name: tappa-secrets
                   key: TAPPA_OPERATOR_HOST
+                  optional: true
+            # 🔴 THE SMTP RELAY'S CREDENTIALS (ADR 0022 §5, M10 EM-3): TWO KEYS, BOTH
+            # `optional: true`, BOTH FROM tappa-secrets — and neither fact is decoration.
+            #
+            #   optional   tappa-secrets holds neither until the transactional e-mail
+            #              runbook (deploy/README.md) has been run, and kubelet refuses
+            #              to start the container on a missing Secret key. With both
+            #              delivery flows off (05-config.yaml: none / panel) the process
+            #              never reads them, so their absence is the steady state.
+            #   Secret     for SES the username is an access key id and the password
+            #              its SMTP secret: neither belongs in the ConfigMap, which is
+            #              in git. The non-secret half (host, port, sender) is there.
+            #
+            # 🔴 ORDER: the keys go into the Secret BEFORE a flow is switched to email.
+            # A flow on with a key missing is a startup failure (internal/config names
+            # the variable). maxUnavailable: 0 keeps the old pod serving only while it
+            # lives — a recreated one reads the new ConfigMap and refuses too, and with
+            # replicas: 1 the tap surface is down (deploy/README.md, "Transactional
+            # e-mail", step 3). TestPackaging_TheSMTPCredentialsAreOptionalSecretKeys reads
+            # internal/config's own list of the two and pins both facts.
+            - name: TAPPA_SMTP_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: tappa-secrets
+                  key: TAPPA_SMTP_USERNAME
+                  optional: true
+            - name: TAPPA_SMTP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: tappa-secrets
+                  key: TAPPA_SMTP_PASSWORD
                   optional: true
           # ------------------------------------------------------------ probes --
           #

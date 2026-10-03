@@ -1204,6 +1204,221 @@ link sırrını bu üç istemcide taşımaz; başka istemciler ölçülmedi.
 
 ---
 
+## Transactional e-mail (M10 EM-3) — SMTP kimliği ve iki akış
+
+**Ne:** işlemsel e-posta (ADR 0022) **iki akışla** açılır, ikisi de
+`deploy/k8s/05-config.yaml`'da: `TAPPA_RESET_DELIVERY` (`none` | `email` — panel parola
+sıfırlama linki) ve `TAPPA_INVITE_DELIVERY` (`panel` | `email` — çalışan aktivasyon linki).
+Röle AWS SES'in SMTP arayüzüdür (`eu-central-1`, STARTTLS, port 587). Sır olmayan ayarlar
+ConfigMap'tedir (`TAPPA_SMTP_HOST`, `TAPPA_SMTP_PORT`, `TAPPA_MAIL_FROM`,
+`TAPPA_MAIL_REPLY_TO`); iki **kimlik bilgisi** `tappa-secrets`'tadır (`TAPPA_SMTP_USERNAME`,
+`TAPPA_SMTP_PASSWORD`) ve `20-app.yaml` onları `optional: true` ile okur
+(`TestPackaging_TheSMTPCredentialsAreOptionalSecretKeys`). Kök sertifika ayarı **yoktur**:
+röle imajın sistem kökleriyle doğrulanır (Dockerfile `ca-certificates.crt`'yi kopyalar);
+özel bir kök havuzu — bir CA dosyası, `SSL_CERT_FILE`/`SSL_CERT_DIR`, `/etc/ssl` ya da
+`/etc/pki` altına (ya da üstüne) bağlanan bir volume, `subPath` ile eklenen tek bir PEM
+dahil — **yasaktır** (ADR 0022 §2: kökü denetleyen taraf SMTP kimliğini ve her linki
+okur. Go Linux'ta `/etc/ssl` ve `/etc/pki` altındaki altı demet yolundan yalnız var olan
+ilkini, ve `/etc/ssl/certs` ile `/etc/pki/tls/certs` dizinlerinin **her** dosyasını okur —
+go1.27.1 `crypto/x509/root_linux.go`. Bu yüzden uygulama manifestinde bugün **hiç bildirilmiş
+mount yoktur** — o yollardan geniş, güvenli yönde — ve ilk mount bir pini kırmızıya çevirir).
+
+**Bugünkü durum (EM-3 sevk edildiğinde):** iki akış **kapalı** (`none` / `panel`) —
+davranış değişmedi (`TestPackaging_TheConfigMapShipsTodaysDelivery`). Akışlar kapalıyken
+SMTP değişkenleri **okunmaz ve doğrulanmaz**: `tappa-secrets`'ta kimlik olsa da olmasa da
+süreç aynı açılır. `email` geçerli bir yapılandırmadır, ama **bu derleme onunla açılmayı
+reddeder** (açılış log'unda `"msg":"fatal"` + *"… is valid configuration, but this build
+has no reset e-mail channel yet (… M10 EM-5)"* ya da *"… delivers activation links only on
+the manager's panel (… M10 EM-7)"*): sıfırlama kanalı EM-5, davet kanalı EM-7 ile gelir.
+Aşağıdaki 0–2. adımlar EM-3 birleştikten sonra **her an** koşulabilir; 3. adım (akışı
+açmak) o görevler sevk edildikten **sonra**dır.
+
+### 🔴 Sıra
+
+1. **Kullanıcının dış adımları** — [m10-platform.md](../docs/plan/m10-platform.md) §4
+   *"Kullanıcının dış adımları"* 1–9 (SES kimliği `taptime.mt`, DKIM, MAIL FROM
+   `mail.taptime.mt`, DNS, yapılandırma seti, production access, IAM) ve
+   [ADR 0022](../docs/adr/0022-islemsel-eposta.md) §11: yapılandırma seti
+   `tappa-transactional` **TLS Require**, açılma ve tıklama izleme **KAPALI** (tıklama izleme
+   linki — yani davet kodunu ya da sıfırlama token'ını — AWS'nin yönlendiricisinden geçirir),
+   geri bildirim yönlendirmesi kapalı ya da bildirim adresi **yalnız operatörün** okuduğu bir
+   kutu, IAM yalnız `ses:SendRawEmail` (kaynak: kimlik + yapılandırma seti ARN'si, koşul
+   `ses:FromAddress = no-reply@taptime.mt`). SMTP kullanıcı adı ve parolası AWS konsolunda
+   **bir kez** gösterilir → doğrudan parola yöneticisine; sohbete, commit'e, ekran
+   görüntüsüne, bir dosyaya **değil** (dış adım 9, Olay A-0).
+2. **Bu bölümün 0–2. adımları** — kimlikler `tappa-secrets`'a (dış adım 10).
+3. **Akışı aç** (3. adım) — ancak **2. maddeden SONRA**. Kimlik eksikken bir akış `email`
+   olursa yeni pod açılmayı **reddeder** (`config.Load` eksik değişkeni adıyla söyler,
+   değerini asla); `maxUnavailable: 0` eski pod'u servis verirken tutar, rollout zaman
+   aşımına uğrar ve deploy başarısız görünür — **ama bu güvence kısa ömürlüdür**, 3.
+   adımın *"Geri alma"*sı nedenini yazar.
+
+Her `kubectl` satırı **`--context hetzner-k8s-1 -n tappa`** taşır. **Hiçbir değer ekrana,
+bir dosyaya, bir komut satırına ya da bu belgeye yazılmaz** — örnek bir değer bile: değerler
+`read -rs` ile yerel kabuğun değişkenlerine terminalde **yankılanmadan** girer, `printf`
+(kabuğun yerleşiği — süreç argümanı olmaz; `kubectl create secret --from-literal` ise değeri
+`ps`'te görünen bir argüman yapar) ile stdin'e verilir, ve sonunda `unset` edilir.
+
+### 0) Secret'ı kim yönetiyor — ölç
+
+```bash
+kubectl --context hetzner-k8s-1 -n tappa get externalsecret
+# "No resources found" → düz Secret yolu (1a). tappa-secrets listeleniyorsa → 1b:
+#   Secret'a doğrudan yazılan anahtarları bir sonraki eşitleme SİLER.
+```
+
+### 1a) İki kimliği `tappa-secrets`'a ekle — düz Secret yolu, TEK yazma
+
+```bash
+umask 077
+printf 'SES SMTP kullanici adi: '; read -rs SMTP_USER; echo   # yapıştır, Enter — ekranda görünmez
+printf 'SES SMTP parolasi: ';      read -rs SMTP_PASS; echo
+printf '{"stringData":{"TAPPA_SMTP_USERNAME":"%s","TAPPA_SMTP_PASSWORD":"%s"}}' "$SMTP_USER" "$SMTP_PASS" \
+  | kubectl --context hetzner-k8s-1 -n tappa patch secret tappa-secrets --type merge --patch-file /dev/stdin
+# beklenen: secret/tappa-secrets patched   (kubectl'in --patch-file bayrağı gerekir)
+unset SMTP_USER SMTP_PASS
+```
+
+`read -r` değeri olduğu gibi alır, baştaki/sondaki boşlukları kırpar (yapıştırmanın satır
+sonu dahil). SES'in SMTP parolası base64'tür (`+`, `/` taşıyabilir, `"` ya da `\`
+taşımaz), yani JSON'a kaçışsız girer. **İkisi TEK yamada:** akışlar kapalıyken önemi yok,
+ama bir akış açıkken yarım bir çift açılışı durdurur.
+
+### 1b) external-secrets yolu (Secret'ı bir `ExternalSecret` yönetiyorsa)
+
+İki değeri parola yöneticisinden **doğrudan** Infisical'a, `/tappa/` altına aynı adlarla gir
+(kabuk gerekmez). Sonra canlı `ExternalSecret`'in `data:` listesine iki girdiyi **birlikte**
+ekle (`deploy/examples/externalsecret.example.yaml`'da yorumda duruyorlar) ve uygula;
+`kubectl --context hetzner-k8s-1 -n tappa get externalsecret tappa-secrets` →
+`SecretSynced`. ⚠️ `ExternalSecret`'te anahtar başına `optional` yoktur: uzak değerlerden
+biri eksikse **bütün** eşitleme durur — ikisini Infisical'a girmeden girdileri açma.
+
+### 2) Doğrula — yalnız ADLAR ve BOYUTLAR
+
+```bash
+kubectl --context hetzner-k8s-1 -n tappa describe secret tappa-secrets | grep TAPPA_SMTP_
+# beklenen iki satır. SES'te kullanıcı adı bir erişim anahtarı kimliğidir (20 bayt), SMTP
+# parolası 44 bayt — AWS belgesine dayanır, burada ölçülmedi. Fazlası değere bir karakter
+# (çoğunlukla 1b yolunda yapıştırılmış bir satır sonu) girdiğini gösterir: değeri yeniden
+# gir (açılış bir satır sonunu kontrol karakteri diye reddeder, bir boşluğu reddetmez).
+```
+
+Secret'ın değişmesi çalışan pod'u yeniden başlatmaz; akışlar kapalıyken süreç bu iki
+anahtarı zaten okumaz. **Rollout gerekmez.**
+
+### 3) Akışı aç — EM-5 / EM-7 sevk edildikten SONRA
+
+`05-config.yaml`'da `TAPPA_RESET_DELIVERY: "email"` (EM-5 + dış adımlar 1–10 ve geri
+bildirim adımı bitince — ADR 0022 §12) ya da
+`TAPPA_INVITE_DELIVERY: "email"` (EM-7 sevk edilince). Bu bir **deploy kararıdır**
+(`main`'e birleştirme — CLAUDE.md §10) ve onu yapan değişiklik
+`TestPackaging_TheConfigMapShipsTodaysDelivery`'yi **bilerek** günceller. Önce 0–2. adımlar.
+
+**Açılış reddi** (rollout `status` zaman aşımına uğrar, eski pod servis verir): yeni pod'un
+log'unda `"msg":"fatal"` satırı nedeni adıyla söyler — *"TAPPA_SMTP_… is required while
+TAPPA_…_DELIVERY is email"* (eksik ya da yalnız boşluk), *"TAPPA_SMTP_PORT: … 465 is
+implicit TLS"* (465 her ortamda red; 587 kullan), *"TAPPA_SMTP_HOST: in production the relay
+must not be localhost, a \*.localhost name or an IP address"* (yalnız bu üçü — başka
+loopback adları reddedilmez; sayılı sınır 1),
+*"TAPPA_SMTP_HOST: must be a lower-case DNS host name"* (şema, port, büyük harf, sondaki
+nokta), *"TAPPA_MAIL_FROM: refused by the transport's own rule"* / aynısı
+`TAPPA_MAIL_REPLY_TO` ve iki kimlik için (`internal/mail`'in kuralı: kontrol karakteri,
+`=?`, ikinci adres; Reply-To'da görünen ad), ya da *"… is valid configuration, but this
+build …"* (kanalı henüz olmayan bir akış). Satırlar değişkenin adını söyler; testin
+aradığı biçimlerde değeri **tekrar etmez** — iki kimlikte hiçbir 3 baytlık parçasını, öteki
+değerlerde ne tamamını ne ilk 8, 4 ya da 3 karakterini
+(`TestLoad_MailErrorsNameTheVariableNeverTheValue`).
+
+**Geri alma — HEMEN, isteğe bağlı değil.** `maxUnavailable: 0`'ın *"eski pod servis
+vermeye devam eder"* güvencesi yalnız eski pod **yaşadığı sürece** geçerlidir:
+
+- deploy ConfigMap'i **uygulamanın kendisinden önce** uygular (`deploy.yml`:
+  `kubectl apply -f deploy/k8s/05-config.yaml` önce) — yani canlı ConfigMap artık
+  `email` der;
+- eski pod **yeniden yaratılırsa** (node drain, tahliye; büyük olasılıkla konteynerin
+  yeniden başlaması da — ortam konteyner başlarken okunur, ölçülmedi) **canlı**
+  ConfigMap'ten okur ve o da açılmaz;
+- `replicas: 1`: o an **tap yüzeyi kapanır** — hiçbir pod servis vermez.
+
+Bu yüzden açılış reddini görür görmez: ConfigMap'te akışı `none` / `panel`'e **geri al ve
+uygula** (deploy'la ya da `kubectl --context hetzner-k8s-1 -n tappa apply -f
+deploy/k8s/05-config.yaml` ile), sonra başarısız rollout'u yeniden başlat.
+`kubectl rollout undo` **yetmez**: Deployment'ı geri alır, ConfigMap'i **getirmez** — geri
+alınan pod da `email` okur. Kimlikleri de kaldırmak istersen (akışlar kapalıyken güvenli):
+
+```bash
+kubectl --context hetzner-k8s-1 -n tappa patch secret tappa-secrets --type json -p '[
+  {"op":"remove","path":"/data/TAPPA_SMTP_USERNAME"},
+  {"op":"remove","path":"/data/TAPPA_SMTP_PASSWORD"}]'
+```
+
+(1b yolunda önce `ExternalSecret`'in `data:` listesinden iki girdiyi kaldır — Operator
+surface bölümünün *"Geri alma"*sındaki sıra.)
+
+### Döndürme (dış adım 8; ADR 0022 sayılı sınır 10)
+
+SMTP kimliği uzun ömürlü bir IAM anahtarıdır ve döndürmesi elledir: IAM'de **yeni** SMTP
+kimliği üret → 1a (ya da 1b) yeni değerlerle → `kubectl --context hetzner-k8s-1 -n tappa
+rollout restart deployment/tappa` (çalışan süreç eski değerleri kendi ortamında tutar) →
+bir gönderimin geçtiğini gör → eski erişim anahtarını IAM'de **devre dışı bırak**, sonra sil.
+
+### Geliştirme (ADR 0022 §12, EM-K9)
+
+Geliştirmede e-posta **gönderilmez**: yerel posta yakalayıcı (Mailpit) yoktur, `.env`'de iki
+akış boştur (= `none` / `panel`). Taşıyıcı `internal/mail`'in testlerindeki öz-imzalı sahte
+SMTP sunucusuyla doğrulanır. `email` modu geliştirmede yapılandırma tarafından
+**reddedilmez** (kabul edilen risk, ADR 0022 sayılı sınır 25; `localhost` ve IP de orada
+izinlidir, 465 değil) — açılırsa:
+
+- hedef **gerçek bir röledir** (özel kök havuzu test dışında yasak, yani yerel bir sahte
+  sunucuya güvenilmez);
+- 🔴 **prod SMTP kimliği `.env`'e yazılmaz:** `.env` git'te yok sayılır ve R7d'nin taradığı
+  dosya listesine girmez — oraya yazılan bir değeri hiçbir tarama görmez;
+- seed'deki 37 adres (`@kebabfactory.mt`, `@kebabmfg.mt`) gerçek bir davet alabilir.
+
+**Öneri (dış adım):** yerelden SES denemesi için **ayrı**, sandbox'ta kalan, kısıtlı bir IAM
+kimliği (yalnız `ses:SendRawEmail`; sandbox yalnız doğrulanmış alıcılara gönderir — SES
+belgesi, ölçülmedi — bu da seed adreslerini korur). EM-5 / EM-7'ye dek bu derleme `email`
+ile zaten açılmaz.
+
+### Sayılı sınırlar (EM-3)
+
+1. **Röle için izinli ad listesi yok** (ADR 0022 sınır 24): ConfigMap'i değiştirebilen biri
+   `TAPPA_SMTP_HOST`'u herkese açık güvenilir sertifikası olan kendi sunucusuna çevirebilir;
+   TLS doğrulaması geçer, kimlik ve linkler o sunucuya gider. Üretim kuralı yalnız
+   `localhost`, `*.localhost` adını ve IP adresini (her yazımıyla) reddeder; kural
+   yazıma bakar, çözümlemeye değil — `ip6-localhost`, `localhost.localdomain` ya da tek
+   etiketli bir ad (`relay`) üretimde **kabul edilir**.
+2. **Kök deposu.** Tehdit modeli (ADR 0022 EM-3 notu, birebir): "Bu pinler manifestlere ve Dockerfile'a kazara giren sapmaya karşıdır; pini atlatmak için bilerek yazılmış bir manifest ya da imaj kod incelemesinin konusudur."
+   **Pinli, fail-closed — tablolarındaki biçimlerle:** üst düzey manifestlerde
+   (`deploy/k8s/*.yaml`) ve Dockerfile'da `SSL_CERT` kelimesi (yorumlar dahil; kaçış, satır
+   devamı, büyük/küçük harf, kelimenin **tamamını** tutan bir `ARG`) —
+   `TestPackaging_NothingMovesTheSystemRoots`; manifestlerde ters bölü ve `!!` etiketi yok;
+   uygulama manifestinde **hiç bildirilmiş mount yok** — `TestPackaging_NoMountShadowsTheSystemRoots`.
+   **Pinsiz** (ADR 0022 sınır 23 ve EM-3 notu; kod ve manifest incelemesinin konusu):
+   - **Dockerfile'a eklenen bir `COPY … /etc/ssl/certs/` satırı** — kurumsal bir CA'yı imaja
+     koymak; gerçekçi bir kazara sapma ve pinden **geçer** (R11). Kök deposu başka yoldan
+     değiştirilmiş bir imaj da.
+   - Masum parçalardan kurulan bir ad (`ARG P=SSL_` + `ENV ${P}CERT_FILE`, E01) ve `!!`
+     taşımayan açık bir YAML etiketi (`!<tag:yaml.org,2002:binary>`, E02).
+   - Taranan dosyaların dışındaki kanallar: kustomize patch'i (R06b), alt dizindeki
+     kustomization (R06c), Helm `extraEnv` gibi bir değer şablonu (R07b), `deploy.yml`'e
+     eklenecek bir `kubectl set env`, canlı `tappa-config`'e elle eklenmiş bir anahtar
+     (`kubectl apply`'ın üçlü birleştirmesi onu silmeyebilir — ölçülmedi).
+   - Pinleri atlatmak için **bilerek** yazılmış her manifest ya da imaj (tehdit modeli).
+
+   **Bedeli:** meşru bir mount; manifestte meşru bir ters bölü ya da etiket; **hizmet dışı**
+   bir manifestte (migrate Job'ı, Postgres) ya da Dockerfile'ın **build** aşamasında meşru bir
+   `SSL_CERT` (R14, R15) — her biri ilgili pini kırmızıya çevirir ve o değişiklik pini günceller.
+3. **Yalnız 465 reddedilir.** SES'in ikinci örtük TLS portu 2465 (SES belgesi, ölçülmedi)
+   kabul edilir; o portta her gönderim süre dolana dek bekler ve `timeout` olur — kimlik
+   gitmez (STARTTLS olmadan AUTH yok), ama gönderim de olmaz.
+4. **Akışlar kapalıyken ayarlar okunmaz** — ConfigMap'teki bozuk bir değer açılışta değil,
+   CI'da görünür (`TestPackaging_TheConfigMapsMailSettingsLoadInProduction`), Secret'taki
+   bozuk bir kimlik ise ancak akış açıldığında.
+
+---
+
 ## Elle deploy / rollback
 
 > 🔴 **ÖNCE ŞUNU ÖLÇ: BU BÖLÜM DOCKER HUB'I TARİF EDİYOR, KÜME BUGÜN HÂLÂ GHCR
@@ -4225,8 +4440,11 @@ kişisel veriyle koşan bir DB testi aynı süreç log'una yazar.
 2. **`TAPPA_RETENTION_YEARS=2` GEÇİCİ.** Bu sayı çalışana GDPR Art. 13 metninde
    gösteriliyor, yani hukuki bir beyan; hukukçu onayı bekliyor (Q13 / backlog B3).
    Deploy için kabul, **pilot için değil** — M8-06 kapısının maddelerinden biri.
-3. **`TAPPA_RESET_DELIVERY=none`** — Q02 (hangi posta sağlayıcı, hangi bölge,
-   hangi işleme sözleşmesi) cevapsız. Panelin kurtarma formu ekranda bunu söylüyor.
+3. **`TAPPA_RESET_DELIVERY=none`** (ve `TAPPA_INVITE_DELIVERY=panel`) — Q02'nin cevabı
+   ADR 0022 (AWS SES, `eu-central-1`, SMTP + STARTTLS); yapılandırma EM-3'le hazır, ama
+   sıfırlama kanalı EM-5'e, davet kanalı EM-7'ye ve kullanıcının dış adımlarına bağlı —
+   o güne dek bu derleme `email` ile açılmaz. Panelin kurtarma formu ekranda bunu
+   söylüyor. Runbook: *"Transactional e-mail (M10 EM-3)"*.
 4. **HSTS ingress'ten miras alınıyor** (`max-age=31536000; includeSubDomains`,
    ölçüldü). Uygulamanın **kendi** başlığını set etmesi (backlog T28) hâlâ açık;
    `preload` set edilmedi ve kolayca set edilmemeli.
