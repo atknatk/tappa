@@ -321,7 +321,7 @@ func TestTapPage_NoSessionRedirectsToActivation(t *testing.T) {
 	if w.Code != http.StatusSeeOther {
 		t.Fatalf("status = %d, want 303 (activation page, §5 row 3)", w.Code)
 	}
-	if loc := w.Header().Get("Location"); loc != "/activate" {
+	if loc := w.Header().Get("Location"); loc != activationFromTap {
 		t.Fatalf("Location = %q, want /activate", loc)
 	}
 	if pv.calls != 0 {
@@ -342,7 +342,7 @@ func TestTapPage_RevokedSessionRedirectsToActivation(t *testing.T) {
 
 	w := get(t, h, tapURL(), sessionCookie())
 
-	if w.Code != http.StatusSeeOther || w.Header().Get("Location") != "/activate" {
+	if w.Code != http.StatusSeeOther || w.Header().Get("Location") != activationFromTap {
 		t.Fatalf("status = %d Location = %q, want 303 /activate", w.Code, w.Header().Get("Location"))
 	}
 }

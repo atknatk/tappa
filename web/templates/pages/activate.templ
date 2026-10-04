@@ -106,6 +106,15 @@ templ wizardShell(v ActivateView) {
 	</div>
 }
 
+// heldByLabel is "Name — Employer" or just the name. Built in Go so no
+// punctuation lands after a name that may itself end in a full stop ("Ltd.").
+func heldByLabel(v ActivateView) string {
+	if v.HeldByEmployer == "" {
+		return v.HeldByName
+	}
+	return v.HeldByName + " — " + v.HeldByEmployer
+}
+
 func clampStep(step int) int {
 	if step < 1 || step > ActivateStepTap {
 		return 1
@@ -119,15 +128,8 @@ func clampStep(step int) int {
 templ wizardHolder(v ActivateView) {
 	if v.HeldByName != "" {
 		@components.Notice(components.ToneAlert, "This phone belongs to someone else") {
-			<p>
-				It is signed in as
-				<span class="font-bold">{ v.HeldByName }</span>
-				if v.HeldByEmployer != "" {
-					({ v.HeldByEmployer })
-				}
-				. Finishing setup signs { v.HeldByName } out and hands this phone to
-				{ v.EmployeeName }.
-			</p>
+			<p>It is signed in as <span class="font-bold">{ heldByLabel(v) }</span></p>
+			<p class="mt-2">Finishing setup hands this phone to { v.EmployeeName } and signs { v.HeldByName } out of it.</p>
 			<p class="mt-2 font-bold text-ink">
 				If you did not expect this, close the page and tell your manager. Their
 				hours are recorded on this phone.
@@ -301,11 +303,7 @@ templ wizardPrivacy(v ActivateView) {
 			</p>
 		}
 		<p class="text-center text-sm text-ink/70">
-			Setting up this phone for
-			<span class="font-bold text-ink">{ v.EmployeeName }</span>
-			at
-			<span class="font-bold text-ink">{ v.EmployerName }</span>
-			.
+			Setting up this phone for <span class="font-bold text-ink">{ v.EmployeeName }</span> at <span class="font-bold text-ink">{ v.EmployerName }</span>
 		</p>
 		<button type="submit" class="tap-button">Agree and continue</button>
 		<a href="/activate?step=1" class="wizard-back">Back</a>
@@ -387,9 +385,11 @@ templ wizardTap(v ActivateView) {
 					Now tap the plaque.
 				</h1>
 				<p class="mt-3 text-base text-ink/85">
-					Hold the top of your phone against any Taptime plaque at
-					<span class="font-bold">{ v.EmployerName }</span>. That first tap finishes
-					setting up this phone — it doesn't clock you in.
+					Hold the top of your phone against any Taptime plaque at your workplace,
+					<span class="font-bold">{ v.EmployerName }</span>
+				</p>
+				<p class="mt-2 text-base text-ink/85">
+					That first tap finishes setting up this phone — it doesn't clock you in.
 				</p>
 			</section>
 			@plaqueWait()
@@ -408,6 +408,11 @@ templ wizardTap(v ActivateView) {
 			}
 			<p class="text-center text-sm text-ink/70">
 				When the tap goes through, your phone shows “Activation complete”.
+			</p>
+			<p class="border-l-4 border-saffron bg-paper px-4 py-3 text-sm text-ink/85">
+				<span class="font-bold">Tapped and saw “Finish setup in this browser”?</span>
+				The plaque opened a different browser from this one. Open the link your
+				workplace sent you in that browser and go through the steps there.
 			</p>
 			<div class="wizard-actions">
 				<a href="/activate?step=3" class="wizard-back">Back</a>
@@ -433,6 +438,34 @@ templ plaqueWait() {
 		</span>
 		<span class="plaque-wait-phone"></span>
 	</div>
+}
+
+// AlreadySetUp greets a phone that is already activated and comes back to the
+// activation link or the reloaded waiting tab. Neutral, no button (§9): the next
+// thing to do is tap a plaque.
+templ AlreadySetUp(v AlreadySetUpView) {
+	@layout.Page("Already set up — Taptime") {
+		<div class="wizard">
+			<section class="docket wizard-panel">
+				<div class="flex items-start justify-between gap-3">
+					<p class="docket-label">Setup</p>
+					<span class="stamp stamp--approved">Activated</span>
+				</div>
+				<h1 class="mt-3 font-display text-3xl font-bold leading-tight tracking-tight text-ink">
+					This phone is already set up
+				</h1>
+				if v.EmployeeName != "" {
+					<p class="mt-1 font-display text-base text-ink/85">Signed in as { v.EmployeeName }</p>
+				}
+			</section>
+			@components.Notice(components.ToneOK, "") {
+				Tap a plaque to check in. There is nothing else to do here.
+			}
+			<p class="pt-2 text-center font-display text-lg tracking-tight text-ink/70">
+				You can close this page.
+			</p>
+		</div>
+	}
 }
 
 // Activated is what the ACTIVATING TAP renders (ADR 0025): this phone now has a

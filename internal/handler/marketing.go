@@ -661,6 +661,15 @@ func cookieNotice() []pages.CookieRow {
 			Flags: flags,
 		},
 		{
+			Name: activatedCookieName,
+			Purpose: "Set for a few minutes right after a phone finishes setup, so the setup " +
+				"page that is still open in another tab can tell that it was THIS setup that " +
+				"finished. It holds no password and no code.",
+			Lifetime: humanSeconds(activatedCookieMaxAge),
+			Scope:    sessionCookiePath,
+			Flags:    flags,
+		},
+		{
 			Name: adminauth.CookieName,
 			Purpose: "Keeps a manager signed in to the dashboard. A separate cookie from the " +
 				"employee one, sent only to the dashboard, so neither can be used in the " +

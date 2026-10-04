@@ -344,7 +344,7 @@ func TestTapDB_SessionlessTapRedirectsAndWritesNothing(t *testing.T) {
 		if w.Code != http.StatusSeeOther {
 			t.Fatalf("open %d: status = %d, want 303", i, w.Code)
 		}
-		if loc := w.Header().Get("Location"); loc != "/activate" {
+		if loc := w.Header().Get("Location"); loc != activationFromTap {
 			t.Fatalf("open %d: Location = %q, want /activate", i, loc)
 		}
 	}

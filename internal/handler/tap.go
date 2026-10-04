@@ -637,8 +637,13 @@ func isNil(v any) bool {
 // that was measured. It is written down instead, here and on the card.
 func (t *Tap) redirectToActivation(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
-	http.Redirect(w, r, "/activate", http.StatusSeeOther)
+	// ?from=tap lets /activate tell a browser that never ran the wizard to open
+	// the link HERE, instead of sending the person to their manager (ADR 0025).
+	http.Redirect(w, r, activationFromTap, http.StatusSeeOther)
 }
+
+// activationFromTap is where a session-less tap is sent.
+const activationFromTap = "/activate?from=tap"
 
 // renderTooManyRequests is the branded 429 body, handed to httpx.TapLimiter at
 // construction. The limiter has already set Retry-After, Cache-Control and

@@ -114,6 +114,11 @@ type fakeSessions struct {
 	steps      *[]string
 	verify     func() (session.Resolved, error)
 	tokenValue string
+	// sessionID, when set, is the id Issue hands out and Verify resolves to, so a
+	// test can line the activated marker up with the live session (or not).
+	sessionID uuid.UUID
+	// employeeID, when set, is who Verify says holds the session.
+	employeeID uuid.UUID
 	// tok is the token Issue hands back; newHandler builds it, because a token
 	// can only be obtained through the session package's public door.
 	tok session.Token
@@ -147,15 +152,26 @@ func (f *fakeSessions) Issue(_ context.Context, p session.IssueParams) (session.
 	if f.issueErr != nil {
 		return session.Issued{}, f.issueErr
 	}
+	id := f.sessionID
+	if id == uuid.Nil {
+		id = uuid.New()
+	}
 	return session.Issued{
-		Session: session.Session{ID: uuid.New(), TenantID: p.TenantID, EmployeeID: p.EmployeeID, DeviceInfo: p.DeviceInfo},
+		Session: session.Session{ID: id, TenantID: p.TenantID, EmployeeID: p.EmployeeID, DeviceInfo: p.DeviceInfo},
 		Token:   f.tok,
 	}, nil
 }
 
 func (f *fakeSessions) Verify(context.Context, session.Token) (session.Resolved, error) {
 	if f.verify == nil {
-		return session.Resolved{ID: uuid.New(), TenantID: testTenant, EmployeeID: testEmployee}, nil
+		id, emp := f.sessionID, f.employeeID
+		if id == uuid.Nil {
+			id = uuid.New()
+		}
+		if emp == uuid.Nil {
+			emp = testEmployee
+		}
+		return session.Resolved{ID: id, TenantID: testTenant, EmployeeID: emp}, nil
 	}
 	return f.verify()
 }
@@ -291,7 +307,7 @@ func newHandlerWith(t *testing.T, inv *fakeInvites, sess *fakeSessions, rec *fak
 			a.CompleteByTap(w, r, p)
 			return
 		}
-		http.Redirect(w, r, "/activate", http.StatusSeeOther)
+		http.Redirect(w, r, activationFromTap, http.StatusSeeOther)
 	})
 	return r
 }
@@ -1194,7 +1210,7 @@ func TestTap_WithoutConsentIsNotPending(t *testing.T) {
 		} else {
 			w = doTap(t, h, activationTapURL, c)
 		}
-		if w.Code != http.StatusSeeOther || w.Header().Get("Location") != "/activate" {
+		if w.Code != http.StatusSeeOther || w.Header().Get("Location") != activationFromTap {
 			t.Errorf("status = %d Location = %q, want 303 /activate", w.Code, w.Header().Get("Location"))
 		}
 	}
@@ -1333,9 +1349,10 @@ func TestRateLimit_SuccessNeverConsumesBudget(t *testing.T) {
 }
 
 // TestStatus_ReportsTheStateWithoutNamingAnybody is the waiting screen's poll:
-// "waiting" from the cookie alone, "done" once the activation cookie is gone and a
-// live session is there, "none" otherwise. It carries no name and no id, is never
-// cached, and is metered on its own budget.
+// "waiting" from the consent binding alone, "done" ONLY when the tappa_activated
+// marker names the live session this browser holds (the activation THIS browser
+// completed), "none" otherwise — including any OTHER live session. It carries no
+// name and no id, is never cached, and is metered on its own budget.
 func TestStatus_ReportsTheStateWithoutNamingAnybody(t *testing.T) {
 	read := func(w *httptest.ResponseRecorder) string {
 		t.Helper()
@@ -1345,9 +1362,12 @@ func TestStatus_ReportsTheStateWithoutNamingAnybody(t *testing.T) {
 		}
 		return body.State
 	}
-	live := &fakeSessions{}
+	sid := uuid.MustParse("55555555-5555-4555-8555-555555555555")
+	live := &fakeSessions{sessionID: sid}
 	h := newHandler(t, &fakeInvites{}, live, &fakeAudit{})
 	sessionCookie := &http.Cookie{Name: session.CookieName, Value: "FAKEsessionFAKEsessionFAKEsessionFAKEsess12"}
+	marker := &http.Cookie{Name: activatedCookieName, Value: sid.String()}
+	otherMarker := &http.Cookie{Name: activatedCookieName, Value: uuid.New().String()}
 
 	for _, tc := range []struct {
 		name    string
@@ -1356,9 +1376,14 @@ func TestStatus_ReportsTheStateWithoutNamingAnybody(t *testing.T) {
 	}{
 		{"consented, waiting", []*http.Cookie{pendingCookie()}, "waiting"},
 		{"consented, and an older session on the phone", []*http.Cookie{pendingCookie(), sessionCookie}, "waiting"},
-		{"activated", []*http.Cookie{sessionCookie}, "done"},
+		{"activated here: marker names the live session", []*http.Cookie{sessionCookie, marker}, "done"},
+		// THE SWITCH CASE: the phone holds somebody's live session but THIS browser
+		// completed no activation — no marker, or a marker for another session.
+		{"a live session but no marker (someone else's phone)", []*http.Cookie{sessionCookie}, "none"},
+		{"a marker for a different session", []*http.Cookie{sessionCookie, otherMarker}, "none"},
+		{"code without consent, plus a live session", []*http.Cookie{codeCookie(), sessionCookie}, "none"},
+		{"a marker with no session", []*http.Cookie{marker}, "none"},
 		{"nothing at all", nil, "none"},
-		{"code but no consent and no session", []*http.Cookie{codeCookie()}, "none"},
 	} {
 		w := get(t, h, ActivationStatusPath, tc.cookies...)
 		if w.Code != http.StatusOK {
@@ -1375,10 +1400,22 @@ func TestStatus_ReportsTheStateWithoutNamingAnybody(t *testing.T) {
 		}
 	}
 
-	revoked := &fakeSessions{verify: func() (session.Resolved, error) { return session.Resolved{}, session.ErrRevoked }}
+	revoked := &fakeSessions{sessionID: sid, verify: func() (session.Resolved, error) { return session.Resolved{}, session.ErrRevoked }}
 	h2 := newHandler(t, &fakeInvites{}, revoked, &fakeAudit{})
-	if got := read(get(t, h2, ActivationStatusPath, sessionCookie)); got != "none" {
+	if got := read(get(t, h2, ActivationStatusPath, sessionCookie, marker)); got != "none" {
 		t.Errorf("a revoked session: state = %q, want none", got)
+	}
+
+	// END TO END THROUGH THE HANDLER: the activating tap sets the marker for the
+	// session it issued, and that marker makes the poll say done.
+	h4 := newHandler(t, &fakeInvites{}, &fakeSessions{sessionID: sid}, &fakeAudit{})
+	tw := doTap(t, h4, activationTapURL, pendingCookie())
+	m := cookieNamed(tw, activatedCookieName)
+	if m == nil || m.Value != sid.String() || !m.HttpOnly || m.MaxAge != activatedCookieMaxAge {
+		t.Fatalf("the activating tap did not set the activated marker for its session: %+v", m)
+	}
+	if got := read(get(t, h4, ActivationStatusPath, sessionCookie, m)); got != "done" {
+		t.Errorf("after the tap: state = %q, want done", got)
 	}
 
 	// Its own budget: past statusLimit the poll is refused, and the activation
@@ -1392,6 +1429,80 @@ func TestStatus_ReportsTheStateWithoutNamingAnybody(t *testing.T) {
 	}
 	if w := get(t, h3, "/activate?step=4", pendingCookie()); w.Code != http.StatusOK {
 		t.Fatalf("polling spent the flood ceiling: the wizard answered %d", w.Code)
+	}
+}
+
+// TestPage_LandingWithoutALinkSaysWhatIsTrue covers the three people who reach
+// /activate with no activation cookie (third eye #2, #3): an already set-up phone
+// is told so; a tap from a browser that never ran the wizard is told to open the
+// link HERE (the link still works); anybody else gets "you need your link".
+func TestPage_LandingWithoutALinkSaysWhatIsTrue(t *testing.T) {
+	sessionCookie := &http.Cookie{Name: session.CookieName, Value: "FAKEsessionFAKEsessionFAKEsessionFAKEsess12"}
+	h := newHandler(t, &fakeInvites{}, &fakeSessions{}, &fakeAudit{})
+
+	if body := get(t, h, "/activate", sessionCookie).Body.String(); !strings.Contains(body, "This phone is already set up") ||
+		strings.Contains(body, "Ask your manager") {
+		t.Error("an activated phone reloading /activate must be told it is already set up")
+	}
+	if body := get(t, h, activationFromTap).Body.String(); !strings.Contains(body, "Finish setup in this browser") ||
+		strings.Contains(body, "Ask your manager") {
+		t.Error("a tap from a browser without the wizard must be told to open the link here")
+	}
+	if body := get(t, h, "/activate").Body.String(); !strings.Contains(body, "You need your activation link") {
+		t.Error("a bare visit keeps the original landing")
+	}
+
+	// A SPENT link reopened on the phone holding that employee's session: already
+	// set up, recorded, and not charged to the invitation's budget.
+	rec := &fakeAudit{}
+	used := &fakeInvites{lookup: func(invite.Code) (invite.Context, error) { return okContext("active"), invite.ErrCodeUsed }}
+	hu := newHandler(t, used, &fakeSessions{employeeID: testEmployee}, rec)
+	for i := 0; i < inviteFailureLimit+2; i++ {
+		w := get(t, hu, "/activate?code="+fakeCode, sessionCookie)
+		if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "This phone is already set up") {
+			t.Fatalf("reopen %d: status %d, want the already-set-up page", i, w.Code)
+		}
+	}
+	if !rec.has(ActionActivationFailed) {
+		t.Error("the spent-code attempt must still leave a trace (§4.6)")
+	}
+	// ...but on ANOTHER employee's phone the same spent link is the generic refusal.
+	hx := newHandler(t, used, &fakeSessions{employeeID: uuid.New()}, &fakeAudit{})
+	if w := get(t, hx, "/activate?code="+fakeCode, sessionCookie); w.Code != http.StatusBadRequest {
+		t.Errorf("a spent link on someone else's phone answered %d, want 400", w.Code)
+	}
+}
+
+// TestWizard_NoStrayPunctuationAfterNames: an employer name that ends in a full
+// stop ("Kebab Factory Ltd.") must not produce "Ltd. ." or "Ltd.." anywhere on
+// the wizard (third eye #5).
+func TestWizard_NoStrayPunctuationAfterNames(t *testing.T) {
+	ltd := func(status string) func(invite.Code) (invite.Context, error) {
+		return func(invite.Code) (invite.Context, error) {
+			c := okContext(status)
+			c.TenantName = "Kebab Factory Ltd."
+			return c, nil
+		}
+	}
+	victim := &http.Cookie{Name: session.CookieName, Value: victimSession}
+	for _, tc := range []struct {
+		inv    *fakeInvites
+		sess   *fakeSessions
+		target string
+		cookie []*http.Cookie
+	}{
+		{&fakeInvites{lookup: ltd("invited")}, &fakeSessions{}, "/activate?step=1", []*http.Cookie{codeCookie()}},
+		{&fakeInvites{lookup: ltd("invited")}, &fakeSessions{}, "/activate?step=2", []*http.Cookie{codeCookie()}},
+		{&fakeInvites{lookup: ltd("invited")}, &fakeSessions{}, "/activate?step=4", []*http.Cookie{pendingCookie()}},
+		{&fakeInvites{lookup: ltd("active")}, &fakeSessions{employeeID: uuid.New()}, "/activate?step=2", []*http.Cookie{codeCookie(), victim}},
+	} {
+		h := newHandler(t, tc.inv, tc.sess, &fakeAudit{})
+		text := strings.Join(strings.Fields(screenText(t, get(t, h, tc.target, tc.cookie...).Body.String())), " ")
+		for _, bad := range []string{" .", "..", " ,", "( "} {
+			if strings.Contains(text, bad) {
+				t.Errorf("%s renders %q: %s", tc.target, bad, text)
+			}
+		}
 	}
 }
 

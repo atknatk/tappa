@@ -304,6 +304,14 @@ func TestE2E_ActivationFlow(t *testing.T) {
 	if got := h.status(t, c); got != "done" {
 		t.Errorf("status after the tap = %q, want done", got)
 	}
+	// The waiting tab RELOADED after success, and the link reopened on this phone:
+	// both are "already set up", never "ask your manager" (third eye #3).
+	if reload := h.getBody(t, c, "/activate"); !strings.Contains(reload, "This phone is already set up") {
+		t.Error("reloading /activate on the activated phone must say it is already set up")
+	}
+	if again := h.getBody(t, c, "/activate?code="+url.QueryEscape(code)); !strings.Contains(again, "This phone is already set up") {
+		t.Error("reopening the spent link on the activated phone must say it is already set up")
+	}
 
 	// 6. The SAME URL again (a reload): the phone is activated now, so it is an
 	// ordinary tap page — and still nothing is consumed or issued twice.
@@ -359,7 +367,7 @@ func TestE2E_ConsentWithoutATapActivatesNothing(t *testing.T) {
 	}
 	before := h.lastCtr(t, h.tagUID)
 	resp, _ := h.tapWith(t, c, h.nextTap(t))
-	if resp.StatusCode != http.StatusSeeOther || resp.Header.Get("Location") != "/activate" {
+	if resp.StatusCode != http.StatusSeeOther || resp.Header.Get("Location") != activationFromTap {
 		t.Fatalf("an unconsented tap answered %d %q, want 303 /activate", resp.StatusCode, resp.Header.Get("Location"))
 	}
 	if h.lastCtr(t, h.tagUID) != before {
@@ -379,7 +387,7 @@ func TestE2E_ReplayedSUNCannotActivate(t *testing.T) {
 
 	for _, ctr := range []uint32{uint32(h.startCtr), uint32(h.startCtr) - 50} {
 		resp, page := h.tapWith(t, c, signedTapURL(t, tapFakeTagKey, h.tagUID, ctr))
-		if resp.StatusCode != http.StatusBadRequest || !strings.Contains(page, "go through") {
+		if resp.StatusCode != http.StatusBadRequest || !strings.Contains(page, "finish setup") {
 			t.Errorf("ctr %d: answered %d, want the refused-tap screen", ctr, resp.StatusCode)
 		}
 	}

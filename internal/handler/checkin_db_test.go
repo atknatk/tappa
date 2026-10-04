@@ -412,7 +412,7 @@ func TestCheckinDB_Row3_NoSessionRedirectsAndWritesNOTHING(t *testing.T) {
 		if w.Code != http.StatusSeeOther {
 			t.Fatalf("post %d: status = %d, want 303", i, w.Code)
 		}
-		if loc := w.Header().Get("Location"); loc != "/activate" {
+		if loc := w.Header().Get("Location"); loc != activationFromTap {
 			t.Fatalf("post %d: Location = %q", i, loc)
 		}
 	}

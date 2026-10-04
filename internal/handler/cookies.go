@@ -335,6 +335,39 @@ func (c codeCookies) rebind(w http.ResponseWriter, r *http.Request, rawBinding s
 	c.set(w, parts[0], parts[1], rawBinding, expires)
 }
 
+// activatedCookieName is the short-lived marker an activating tap leaves behind
+// (audit round 1, third eye #1): it carries the id of the session that tap just
+// issued, and GET /activate/status answers "done" only when the browser's live
+// session IS that session. Without it "done" was answered for any live session —
+// including the other employee's on a phone being handed over. The value is a
+// session ID, not a token: it authenticates nothing on its own.
+const (
+	activatedCookieName   = "tappa_activated"
+	activatedCookieMaxAge = 15 * 60
+)
+
+// setDone writes the marker after a completed activation.
+func (c codeCookies) setDone(w http.ResponseWriter, sessionID string) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     activatedCookieName,
+		Value:    sessionID,
+		Path:     "/",
+		MaxAge:   activatedCookieMaxAge,
+		HttpOnly: true,
+		Secure:   c.secure(),
+		SameSite: http.SameSiteLaxMode,
+	})
+}
+
+// readDone returns the session id the marker names, if any.
+func (c codeCookies) readDone(r *http.Request) (string, bool) {
+	ck, err := r.Cookie(activatedCookieName)
+	if err != nil || ck.Value == "" {
+		return "", false
+	}
+	return ck.Value, true
+}
+
 // read lifts the state off a request. The second result is false when the cookie
 // is absent, empty or malformed; the caller shows the generic "you need your
 // link" page and consumes nothing.

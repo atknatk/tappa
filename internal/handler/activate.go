@@ -221,6 +221,16 @@ var (
 		Hint:    "Try your link again in a minute.",
 	}
 
+	// problemFinishHere answers a tap from a browser that has no activation cookie
+	// and no session — almost always because the link was opened inside a chat or
+	// mail app and the plaque opened the phone's real browser. The link still
+	// works, so the manager is NOT the answer (third eye #2).
+	problemFinishHere = pages.ProblemView{
+		Title:   "Finish setup in this browser",
+		Message: "This browser hasn't been set up yet. Your activation link still works.",
+		Hint:    "Open the link your workplace sent you in this browser, go through the steps here, then tap the plaque again.",
+	}
+
 	// The activating tap's refusals (ADR 0025). None of them activates anything
 	// and none writes an attendance record; each one is in audit_log. They say
 	// what to DO, because the person is standing at a plaque.
@@ -269,6 +279,9 @@ func (a *Activation) Page(w http.ResponseWriter, r *http.Request) {
 		if a.overInviteBudget(w, r, ip, ictx) {
 			return
 		}
+		if errors.Is(err, invite.ErrCodeUsed) && a.alreadySetUpFor(w, r, ip, ictx) {
+			return
+		}
 		if err != nil {
 			a.rejectCode(w, r, ip, ictx, err, "activate_page")
 			return
@@ -306,7 +319,7 @@ func (a *Activation) Page(w http.ResponseWriter, r *http.Request) {
 
 	st, ok := a.codes.read(r)
 	if !ok {
-		a.renderProblem(w, r, http.StatusOK, problemNoLink)
+		a.landWithoutLink(w, r)
 		return
 	}
 	ictx, err := a.invites.Lookup(r.Context(), st.code)
@@ -328,6 +341,52 @@ func (a *Activation) Page(w http.ResponseWriter, r *http.Request) {
 		step:            wizardStep(r, st.pending()),
 		switchConfirmed: held != nil && st.pending(),
 	})
+}
+
+// landWithoutLink answers GET /activate for a browser with no activation cookie
+// (audit round 1, third eye #2 and #3). Three different people arrive here and
+// each is told the thing that is true for them:
+//
+//	a phone that is ALREADY set up    "already set up — tap a plaque". This is the
+//	                                  waiting tab reloaded after success, or the
+//	                                  link opened again. Sending them to their
+//	                                  manager would be wrong advice.
+//	a tap from a browser that never   ?from=tap: the NFC tap opened a browser that
+//	ran the wizard                    is not the one the link was opened in (the
+//	                                  in-app-browser case). The link still works —
+//	                                  open it HERE.
+//	anybody else                      the original "you need your activation link".
+func (a *Activation) landWithoutLink(w http.ResponseWriter, r *http.Request) {
+	held, err := a.heldBy(r)
+	if err != nil {
+		a.log.Error("activation page: could not determine the phone's holder", "err", err)
+		a.renderProblem(w, r, http.StatusInternalServerError, problemServer)
+		return
+	}
+	if held != nil {
+		a.render(w, r, http.StatusOK, pages.AlreadySetUp(pages.AlreadySetUpView{EmployeeName: held.FullName}))
+		return
+	}
+	if r.URL.Query().Get("from") == "tap" {
+		a.renderProblem(w, r, http.StatusOK, problemFinishHere)
+		return
+	}
+	a.renderProblem(w, r, http.StatusOK, problemNoLink)
+}
+
+// alreadySetUpFor handles a SPENT invitation opened on the phone that holds that
+// very employee's live session: the person is fine, and "this link can't be used,
+// ask your manager" would send them away for nothing. The attempt is still
+// recorded (§4.6) but charged to the IP window only — it is not abuse. It reports
+// whether it answered.
+func (a *Activation) alreadySetUpFor(w http.ResponseWriter, r *http.Request, ip string, ictx invite.Context) bool {
+	held, err := a.heldBy(r)
+	if err != nil || held == nil || held.EmployeeID != ictx.EmployeeID {
+		return false
+	}
+	a.failAttempt(r.Context(), ip, ictx, "already_used_on_this_phone", againstIPOnly)
+	a.render(w, r, http.StatusOK, pages.AlreadySetUp(pages.AlreadySetUpView{EmployeeName: held.FullName}))
+	return true
 }
 
 // wizardStep reads ?step= for the activation wizard (ADR 0025) and decides which
@@ -873,6 +932,8 @@ func (a *Activation) finishActivation(w http.ResponseWriter, r *http.Request, ip
 	}
 	// The credential is spent; do not leave a dead one in the browser.
 	a.codes.clear(w)
+	// The marker the waiting tab's poll needs to say "done" for THIS activation.
+	a.codes.setDone(w, issued.Session.ID.String())
 
 	a.record(r.Context(), audit.Event{
 		TenantID: act.TenantID,
@@ -904,7 +965,8 @@ func (a *Activation) finishActivation(w http.ResponseWriter, r *http.Request, ip
 // phone's default browser in a new tab; the cookies are shared).
 //
 //	{"state":"waiting"}  this browser still holds a consented activation
-//	{"state":"done"}     no activation cookie, and a live session — finished
+//	{"state":"done"}     the activation THIS browser completed: the tappa_activated
+//	                     marker names the live session it holds
 //	{"state":"none"}     neither: nothing to wait for (expired, cleared, other)
 //
 // IT IS CHEAP ON PURPOSE. "waiting" is answered from the cookie alone; only the
@@ -926,18 +988,32 @@ func (a *Activation) Status(w http.ResponseWriter, r *http.Request) {
 		a.writeStatus(w, http.StatusOK, "waiting")
 		return
 	}
+	// "done" ONLY for the activation this browser just completed: the marker the
+	// activating tap set must name the session the browser now holds. Any other
+	// live session — the previous holder's on a phone being handed over, an older
+	// one of the same person — is "none" (third eye, audit round 1).
+	marker, ok := a.codes.readDone(r)
+	if !ok {
+		a.writeStatus(w, http.StatusOK, "none")
+		return
+	}
 	tok, err := a.cookies.Read(r)
 	if err != nil {
 		a.writeStatus(w, http.StatusOK, "none")
 		return
 	}
-	if _, err := a.sessions.Verify(r.Context(), tok); err != nil {
+	res, err := a.sessions.Verify(r.Context(), tok)
+	if err != nil {
 		if errors.Is(err, session.ErrNoSession) || errors.Is(err, session.ErrRevoked) {
 			a.writeStatus(w, http.StatusOK, "none")
 			return
 		}
 		a.log.Error("activation status: verifying the session failed", "err", err)
 		a.writeStatus(w, http.StatusServiceUnavailable, "unknown")
+		return
+	}
+	if res.ID.String() != marker {
+		a.writeStatus(w, http.StatusOK, "none")
 		return
 	}
 	a.writeStatus(w, http.StatusOK, "done")

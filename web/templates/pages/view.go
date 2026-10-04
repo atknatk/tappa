@@ -90,6 +90,12 @@ const (
 	ActivateStepTap = 4
 )
 
+// AlreadySetUpView greets a phone that is already activated and opens the
+// activation link (or reloads the waiting tab) again.
+type AlreadySetUpView struct {
+	EmployeeName string
+}
+
 // ActivatedView is the confirmation the ACTIVATING TAP renders (ADR 0025). It has
 // no button by construction (§9): the next thing that happens is another touch on
 // a plaque, and that one is an ordinary check-in.

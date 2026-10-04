@@ -117,7 +117,7 @@ func TestCheckin_NoSessionRedirectsAndNeverReachesTheDomain(t *testing.T) {
 	if w.Code != http.StatusSeeOther {
 		t.Fatalf("status = %d, want 303", w.Code)
 	}
-	if loc := w.Header().Get("Location"); loc != "/activate" {
+	if loc := w.Header().Get("Location"); loc != activationFromTap {
 		t.Fatalf("Location = %q, want /activate", loc)
 	}
 	if len(svc.calls) != 0 {
