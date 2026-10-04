@@ -40,8 +40,10 @@ GET'te (plaketin açtığı `/t`) doğuyor; ve §5'in "Practice tap" kuralı kal
    (bağlı) bir aktivasyon varsa isteği `Activation.CompleteByTap`'e verir — oturum
    olsun olmasın (onay adımı başka çalışanın oturumunu devralmayı zaten açıkça
    onaylattı). Sıra: davet hâlâ geçerli mi → kanal NFC mi (QR aktive edemez) →
-   **`sun.Verify`** (önce CMAC, sonra atomik `ctr` ilerletmesi, §4.4) → plaket
-   `active`, duvarda ve **davetle aynı tenant'ta** → `ConsumeInviteAndActivate`
+   **ilerletmeyen ön kontrol** (`PreviewWithoutReplayProtection`): plaket **davetle
+   aynı tenant'ta**, `active` ve duvarda mı — değilse HİÇBİR sayaç ilerlemeden ret
+   (denetim R5) → **`sun.Verify`** (önce CMAC, sonra atomik `ctr`, §4.4) →
+   `ConsumeInviteAndActivate`
    (onay **ve** bağ artık bu tek ifadenin WHERE'inde) → ikinci cihazsa önce iptal,
    sonra oturum → çerez değişimi → `activation.completed` (plaketin uid'i ve
    lokasyonu ile). Bu dokunuş **`transactions` satırı yazmaz** (§5 satır 3 gibi:
@@ -52,8 +54,16 @@ GET'te (plaketin açtığı `/t`) doğuyor; ve §5'in "Practice tap" kuralı kal
 5. **Aktivasyon çerezi davetin `expires_at`'ine kadar yaşar** (üst sınır 30 gün).
 6. **`GET /activate/status`** (`waiting|done|none`, no-store, kendi oran bütçesi):
    bekleme sekmesi (`activate.js`) aktivasyonun diğer sekmede bittiğini görür.
-7. Aktivasyon ekranları tap CSP'sini + `connect-src 'self'` taşır.
-8. `/activate/tour` ve `/activate/done` kaldırıldı.
+   `done` yalnız aktivasyon dokunuşunun bıraktığı `tappa_activated` işaret çerezi
+   (15 dk, değeri verilen oturumun id'si) tarayıcının canlı oturumunu adlandırıyorsa
+   döner; başka bir canlı oturum (devredilen telefon) `none`'dır.
+7. **İniş metinleri:** oturumsuz bir dokunuş `/activate?from=tap`'e gider ve linki
+   **bu tarayıcıda** açması söylenir (uygulama-içi tarayıcı vakası; link hâlâ
+   geçerli). Kurulu bir telefon `/activate`'i yeniler ya da harcanmış linkini açarsa
+   "This phone is already set up" görür. Canlı oturumlu telefonda QR taraması
+   bekleyen aktivasyona rağmen sıradan check-in kalır (yalnız NFC devralır, R6).
+8. Aktivasyon ekranları tap CSP'sini + `connect-src 'self'` taşır.
+9. `/activate/tour` ve `/activate/done` kaldırıldı.
 
 ## Güvenlik değerlendirmesi
 
@@ -66,8 +76,11 @@ GET'te (plaketin açtığı `/t`) doğuyor; ve §5'in "Practice tap" kuralı kal
 - **Replay:** aktivasyon dokunuşu `sun.Verify`'ın kendisidir; aynı `(tag, ctr)` ile
   N eşzamanlı istek → tam 1 ilerletme, aynı davetle N farklı geçerli dokunuş → tam 1
   oturum (tek ifadeli tüketim). İkisi de `-race` ile test altında.
-- **Tenant:** yalnız davetin tenant'ına ait aktif plaket kabul edilir; yabancı
-  tenant'ın uid'i bu tenant'ın audit izine **yazılmaz**.
+- **Tenant:** yalnız davetin tenant'ına ait aktif plaket kabul edilir ve bu,
+  **sayaç ilerlemeden önce** ilerletmeyen ön kontrolde sınanır — B tenant'ının
+  plaketine dokunan A davetlisi B'nin `last_ctr`'ını oynatamaz. Yabancı tenant'ın
+  uid'i bu tenant'ın audit izine **yazılmaz**. Bilinmeyen uid, yabancı plaket ve
+  sahte imza **aynı ekranı ve durum kodunu** alır (§4.7, kehanet yok).
 - **Bedel 1 — GET ile durum değişimi.** `/t` artık (yalnız bağlı tarayıcıda) sayaç
   ilerletir ve oturum verir. Plaket URL'si zaten tek kullanımlıktır (sayaç), ön-
   getirme (prefetch) en kötü ihtimalle o dokunuşu harcar; çalışan yeniden dokunur.
@@ -94,3 +107,12 @@ GET'te (plaketin açtığı `/t`) doğuyor; ve §5'in "Practice tap" kuralı kal
 `internal/handler/sunurl_test.go` bunu AN12196 KAT'ına sabitlenmiş bağımsız bir
 test yardımcısıyla üretir. Bu, check-in yolunda reddedilen "ikinci SDM
 implementasyonu" duruşunun bilinçli ve dar bir istisnasıdır (yalnız `_test.go`).
+
+## Birleştirme sırası (zorunlu)
+
+`origin/m10-a1` migration **00026–00029** ve ADR **0020–0024**'ü kullanıyor; bu iş
+o yüzden **00030** ve **0025** aldı. **`m10-a1` önce `main`'e birleşmeli.** Bu dal
+önce birleşirse üretim 00030'a çıkar ve 00026–00029 sonradan "eksik" kalır: goose
+`up` onları **`-allow-missing` olmadan uygulamaz**. Ayrıca
+`cmd/tappa/storekeyshape_test.go`'daki sorgu sayısı iki dal birleşince yeniden
+hesaplanır (bu dal +2).

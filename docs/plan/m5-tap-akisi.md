@@ -437,7 +437,7 @@ oturum çerezi.
 >    `active` çalışan + geçerli kullanılmamış davet = yeni telefon.
 >    `RevokeAllForEmployee` **`Issue`'dan ÖNCE** çağrılır — sıra taşıyıcıdır, çünkü
 >    o sorgu çalışanın **tüm canlı** oturumlarını iptal eder ve sonra çağrılsaydı
->    yeni oturumu da öldürürdü (`TestTap_SecondDeviceRevokesBeforeIssuing`
+>    yeni oturumu da öldürürdü (`Submit_SecondDeviceRevokesBeforeIssuing`
 >    sırayı ölçüyor). Aktivasyon öncesi form **uyarır** ("This is a new phone…"),
 >    sonrası onay ekranı **söyler**, `audit_log`'a `activation.device_replaced`
 >    yazılır. Gerekçe: çalınan telefon senaryosunda tek çare budur ve M5-01
@@ -2249,7 +2249,7 @@ sözleşme aşağıdaki kart düzeltmesinde.
 > (`TestInput_HasNoClientPracticeField` — alan eklendi, test **RED**), damga ve
 > "does not count toward your hours" cümlesi `result.templ`'de pinli. M5-07'nin
 > eklediği: aynı iddianın **HTTP sınırından** denenmesi
-> (`TestE2E_AClientCannotDeclareThePracticeFlag` — `practice`,
+> (`TourDB_AClientCannotDeclareOrRefuseThePracticeFlag` — `practice`,
 > `Practice`, `is_practice`, `training`, `practice_tap` alanlarıyla hem **talep**
 > hem **ret** denendi, ikisi de kolonu değiştirmedi; handler yalnız `ctx`,
 > `occurred_at`, `lat`, `lng` okuyor).
@@ -2293,7 +2293,7 @@ sözleşme aşağıdaki kart düzeltmesinde.
 > **3. Tur SUNUCU TARAFINDA üç GET'tir; JS yok, istemci state'i yok, YAZMA yok.**
 > `GET /activate/tour?step=1..3`, ilerleme bir **link**. Adım dışı/bozuk değer
 > **1'e kırpılır** (hata ekranı değil). Tur `transactions`, `audit_log` veya çerez
-> **yazmaz** — ölçüldü (`TestSubmit_RecordsConsentAndIssuesNoSession`: 7 istek boyunca iki sayaç da
+> **yazmaz** — ölçüldü (`TourDB_WritesNothing`: 7 istek boyunca iki sayaç da
 > sabit, ardından **pozitif kontrol** olarak gerçek bir tap sayacı +1 yapıyor).
 > "Atlanabilir" bunun sonucudur: atlamak da bitirmek de aynı linki izlemektir.
 > Turun view modeli **tek alan** taşır (`TourView.Step`) ve **hiçbir kişisel veri**
@@ -2304,7 +2304,7 @@ sözleşme aşağıdaki kart düzeltmesinde.
 > öyle demiyor.** `GetLastTransactionForEmployee` **verdict ve kanal yüklemi
 > taşımıyor** ve §4.6 her kararlı tap'i yazıyor, dolayısıyla practice hakkı
 > **herhangi bir önceki kayıtla** harcanır. Ölçüldü
-> (`TestDecide_FirstTapAfterActivationIsNotPractice`):
+> (`Decide_ThePracticeRunIsSpentByANYPriorRecord`):
 >
 > | Önceki kayıt | Sonraki tap practice mi |
 > |---|---|
@@ -2325,7 +2325,7 @@ sözleşme aşağıdaki kart düzeltmesinde.
 > `/activate/done?replaced=1`** (bugünkü davranışın aynısı). Gerekçe ölçülebilir:
 > `SecondDeviceReplaced` tam olarak `employees.status` zaten `'active'` iken
 > doğrudur, ve hiç aktive olmamış biri hiç oturum tutmamıştır → hiç tap etmemiştir.
-> Uçtan uca kanıt: `TestE2E_SecondDeviceRevokesTheFirst`.
+> Uçtan uca kanıt: `TourDB_ASecondDeviceIsNotShownThePractisePromise`.
 > Slaytın metni yine de **"ilk tap"** hakkında konuşuyor, "sıradaki tap" hakkında
 > değil — turu elle açan ikinci cihaz kullanıcısı için de doğru kalsın diye.
 >
@@ -2334,7 +2334,7 @@ sözleşme aşağıdaki kart düzeltmesinde.
 > sınırını *"kapsam ekran başına ve elle"* diye yazmıştı; tur o günden beri eklenen
 > ilk ekran, ve liste genişletildi: metin (`Tour_SaysExactlyThisAndNothingElse`,
 > `screenText` ile tüm belge), eleman (`Tour_RendersOnlyTheseElements`,
-> **13** etiketlik kapalı küme) ve referans (`TestWizard_EveryStepPointsOnlyAtItsOwnFlow`,
+> **13** etiketlik kapalı küme) ve referans (`Tour_PointsOnlyAtItsOwnFlow`,
 > adım başına birebir href **değer** kümesi). Mutasyonla: eklenen cümle **RED**,
 > eklenen `<iframe srcdoc>` **RED** (metin testi görmüyor — `srcdoc` `textAttrRE`'de
 > yok, kapalı küme yakalıyor), `https://evil.example/x` **RED**.
@@ -2347,7 +2347,7 @@ sözleşme aşağıdaki kart düzeltmesinde.
 > sayısı 0"* kuralının tam ihlali. `refRE`'ye `ping` eklendi; repoda hiçbir şablonda
 > `ping` geçmediği için mevcut hiçbir beklenti kımıldamadı (ölçüldü). Mutasyon iki
 > yerde **RED**: tur slaytında ve **ortak `Problem` şablonunda** (on bir ekran).
-> `TestWizard_EveryStepPointsOnlyAtItsOwnFlow`'un *"her slaytın yaydığı adres kümesini
+> `Tour_PointsOnlyAtItsOwnFlow`'un *"her slaytın yaydığı adres kümesini
 > pinler"* cümlesi de **öznitelik adlarını sayacak** şekilde indirildi — liste hâlâ
 > bir liste, ve bunu artık yorumun kendisi söylüyor.
 >
@@ -3565,7 +3565,7 @@ UPDATE değil.)
 > yazıyordu** ("resetting activated_at does NOT by itself hand a second practice
 > tap to someone who has already tapped"). Kart, repoda ölçülmüş ve yazılmış bir
 > gerçeğe rağmen tersini varsaymıştı. Ölçüm
-> `TestSeedDB_ASecondActivationWritesNoRecordAndLeavesTheChainAlone` olarak pinlendi.
+> `SeedDB_ASecondActivationIsNotASecondPracticeRun` olarak pinlendi.
 > **Kusurun kendisi değişmedi:** düz HTTP + tek geriye tarihli `occurred_at` ile
 > erişilebilir, ve `sys:occurred-at-bound` tavanı 72 saattir.
 >
