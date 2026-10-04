@@ -819,7 +819,7 @@ func TestQRScreens_SayNothingAboutTheQRRoute(t *testing.T) {
 		"problemNoLink": problemNoLink, "problemBadLink": problemBadLink,
 		"problemTooMany": problemTooMany, "problemServer": problemServer,
 		"problemActivationTapFailed": problemActivationTapFailed, "problemActivationNeedsTouch": problemActivationNeedsTouch,
-		"problemActivationPlaqueOut": problemActivationPlaqueOut, "problemActivationNotReady": problemActivationNotReady,
+		"problemActivationNotReady": problemActivationNotReady, "problemFinishHere": problemFinishHere, "problemSignedOut": problemSignedOut,
 	}
 	screens := map[string]templ.Component{
 		"pages.Tap": pages.Tap(pages.TapView{EmployeeName: "Maria Borg", LocationName: "St Julians", TapContext: "x.y"}, layout.Brand{}),

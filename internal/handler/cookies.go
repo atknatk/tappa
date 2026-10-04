@@ -359,6 +359,21 @@ func (c codeCookies) setDone(w http.ResponseWriter, sessionID string) {
 	})
 }
 
+// clearDone expires the marker. Called whenever a NEW activation starts or is
+// consented in this browser (audit round 2, A): an older marker plus an older live
+// session must not answer "done" for somebody else's waiting tab.
+func (c codeCookies) clearDone(w http.ResponseWriter) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     activatedCookieName,
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: true,
+		Secure:   c.secure(),
+		SameSite: http.SameSiteLaxMode,
+	})
+}
+
 // readDone returns the session id the marker names, if any.
 func (c codeCookies) readDone(r *http.Request) (string, bool) {
 	ck, err := r.Cookie(activatedCookieName)

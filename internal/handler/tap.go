@@ -116,6 +116,7 @@ type (
 	tapActivation interface {
 		Pending(r *http.Request) bool
 		CompleteByTap(w http.ResponseWriter, r *http.Request, p sun.Params)
+		HolderDeactivated(ctx context.Context, tenantID, employeeID uuid.UUID) (bool, error)
 	}
 )
 
@@ -359,9 +360,30 @@ func (t *Tap) Page(w http.ResponseWriter, r *http.Request) {
 	// ordinary check-in rather than becoming a stream of activation refusals.
 	// Without a live session a QR tap still reaches CompleteByTap, which tells the
 	// person to hold the phone to the plaque.
+	//
+	// AND NOT OVER A DEACTIVATED EMPLOYEE'S LIVE SESSION (audit round 2, security
+	// LOW 2): that session is kept alive on purpose so the attempt reaches §5 row 4
+	// and is RECORDED with a security alert (ADR 0010). Handing the tap to the
+	// activation flow instead would let a deactivated person's touch end as an
+	// activation refusal that no manager is alerted to. Asked only in the rare
+	// pending-plus-live case, so ordinary taps pay nothing for it.
 	if t.activation.Pending(r) && (p.HasSUN() || id.State != httpx.SessionLive) {
-		t.activation.CompleteByTap(w, r, p)
-		return
+		if id.State == httpx.SessionLive {
+			deactivated, err := t.activation.HolderDeactivated(ctx, id.Session.TenantID, id.Session.EmployeeID)
+			if err != nil {
+				t.log.ErrorContext(ctx, "tap page: reading the session holder's status failed", "err", err)
+				t.renderRetryableProblem(w, r, http.StatusInternalServerError, tapProblemServer)
+				return
+			}
+			if !deactivated {
+				t.activation.CompleteByTap(w, r, p)
+				return
+			}
+			// fall through: the ordinary page, whose POST records row 4
+		} else {
+			t.activation.CompleteByTap(w, r, p)
+			return
+		}
 	}
 
 	switch id.State {
@@ -639,11 +661,22 @@ func (t *Tap) redirectToActivation(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	// ?from=tap lets /activate tell a browser that never ran the wizard to open
 	// the link HERE, instead of sending the person to their manager (ADR 0025).
-	http.Redirect(w, r, activationFromTap, http.StatusSeeOther)
+	// A REVOKED session is a different story (audit round 2, C): this phone was
+	// signed out, almost always because the account was set up on another one,
+	// and "your link still works" would be false — it gets its own landing.
+	to := activationFromTap
+	if httpx.IdentityOf(r).State == httpx.SessionRevoked {
+		to = activationSignedOut
+	}
+	http.Redirect(w, r, to, http.StatusSeeOther)
 }
 
-// activationFromTap is where a session-less tap is sent.
-const activationFromTap = "/activate?from=tap"
+// activationFromTap is where a session-less tap is sent; activationSignedOut is
+// where a tap with a revoked session is sent.
+const (
+	activationFromTap   = "/activate?from=tap"
+	activationSignedOut = "/activate?from=signedout"
+)
 
 // renderTooManyRequests is the branded 429 body, handed to httpx.TapLimiter at
 // construction. The limiter has already set Retry-After, Cache-Control and

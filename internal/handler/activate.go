@@ -181,6 +181,7 @@ func (a *Activation) Mount(r chi.Router) {
 	r.Get("/activate", a.Page)
 	r.Post("/activate", a.Continue)
 	r.Get(ActivationStatusPath, a.Status)
+	r.Get(ActivationCompletePath, a.Complete)
 	r.Post("/api/activate", a.Submit)
 }
 
@@ -227,15 +228,24 @@ var (
 	// works, so the manager is NOT the answer (third eye #2).
 	problemFinishHere = pages.ProblemView{
 		Title:   "Finish setup in this browser",
-		Message: "This browser hasn't been set up yet. Your activation link still works.",
-		Hint:    "Open the link your workplace sent you in this browser, go through the steps here, then tap the plaque again.",
+		Message: "This browser hasn't been set up for Taptime yet.",
+		Hint: "If you still have the link your workplace sent you, open it in this browser and go through the " +
+			"steps here, then tap the plaque again. Otherwise, ask your manager for a new link.",
+	}
+	// problemSignedOut answers a tap from a phone whose session was REVOKED —
+	// almost always because the account was set up on another phone since (audit
+	// round 2, C). "Your link still works" would be false here.
+	problemSignedOut = pages.ProblemView{
+		Title:   "This phone was signed out",
+		Message: "Your account has been set up on another phone, so this one no longer works.",
+		Hint:    "If that wasn't you, tell your manager.",
 	}
 
 	// The activating tap's refusals (ADR 0025). None of them activates anything
 	// and none writes an attendance record; each one is in audit_log. They say
 	// what to DO, because the person is standing at a plaque.
 	// problemActivationTapFailed is ONE screen for an unknown plaque, another
-	// employer's plaque and a signature that did not verify (§4.7, audit R5): the
+	// employer's plaque, a plaque out of service and a signature that did not verify (§4.7, audit R5): the
 	// advice is the same for all three and telling them apart would be an oracle.
 	problemActivationTapFailed = pages.ProblemView{
 		Title:   "That tap didn't finish setup",
@@ -246,11 +256,6 @@ var (
 		Title:   "Hold your phone against the plaque",
 		Message: "Activation needs a real tap on the plaque, so this didn't finish it.",
 		Hint:    "Touch the top of your phone to the plaque to finish.",
-	}
-	problemActivationPlaqueOut = pages.ProblemView{
-		Title:   "This plaque isn't in service",
-		Message: "Your phone isn't activated yet, and nothing was recorded.",
-		Hint:    "Tap another plaque at your workplace, or tell your manager.",
 	}
 	problemActivationNotReady = pages.ProblemView{
 		Title:   "Finish the setup steps first",
@@ -367,8 +372,12 @@ func (a *Activation) landWithoutLink(w http.ResponseWriter, r *http.Request) {
 		a.render(w, r, http.StatusOK, pages.AlreadySetUp(pages.AlreadySetUpView{EmployeeName: held.FullName}))
 		return
 	}
-	if r.URL.Query().Get("from") == "tap" {
+	switch r.URL.Query().Get("from") {
+	case "tap":
 		a.renderProblem(w, r, http.StatusOK, problemFinishHere)
+		return
+	case "signedout":
+		a.renderProblem(w, r, http.StatusOK, problemSignedOut)
 		return
 	}
 	a.renderProblem(w, r, http.StatusOK, problemNoLink)
@@ -488,6 +497,7 @@ func (a *Activation) startActivation(w http.ResponseWriter, r *http.Request, raw
 		return
 	}
 	a.codes.set(w, token, raw, "", expires)
+	a.codes.clearDone(w)
 	a.redirect(w, r, "/activate")
 }
 
@@ -634,6 +644,9 @@ func (a *Activation) Submit(w http.ResponseWriter, r *http.Request) {
 	// The cookie now carries the binding. Its raw value exists as a local in this
 	// function and as a header on this response, nowhere else.
 	a.codes.rebind(w, r, rawBinding, consented.ExpiresAt)
+	// A previous activation's marker in this browser belongs to a previous
+	// waiting tab (audit round 2, A).
+	a.codes.clearDone(w)
 
 	a.record(r.Context(), audit.Event{
 		TenantID: consented.TenantID,
@@ -755,9 +768,13 @@ func (a *Activation) CompleteByTap(w http.ResponseWriter, r *http.Request, p sun
 		a.renderProblem(w, r, http.StatusBadRequest, problemActivationTapFailed)
 		return
 	}
+	// A plaque out of service gets the SAME answer too (audit round 2, security
+	// LOW 1): its status is known before any signature is checked — sun.Verify
+	// never unwraps a key for a dead tag — so a specific screen here would tell an
+	// unsigned URL whether a uid is retired, lost or in the box.
 	if pv.TagStatus != "active" || pv.Location == nil {
 		a.failTap(r.Context(), ip, ictx, "tag_not_active", p.UID)
-		a.renderProblem(w, r, http.StatusConflict, problemActivationPlaqueOut)
+		a.renderProblem(w, r, http.StatusBadRequest, problemActivationTapFailed)
 		return
 	}
 
@@ -789,6 +806,17 @@ func (a *Activation) CompleteByTap(w http.ResponseWriter, r *http.Request, p sun
 	}
 
 	a.finishActivation(w, r, ip, st, activationTap{UID: res.Tag.UID, LocationID: *res.Location})
+}
+
+// HolderDeactivated reports whether the employee a live session belongs to has
+// been deactivated. The Tap handler asks it before letting a pending activation
+// take over a live session (§5 row 4 must still fire for that person).
+func (a *Activation) HolderDeactivated(ctx context.Context, tenantID, employeeID uuid.UUID) (bool, error) {
+	ictx, err := a.invites.ActivationContext(ctx, tenantID, employeeID)
+	if err != nil {
+		return false, fmt.Errorf("handler: session holder status: %w", err)
+	}
+	return ictx.Status == "deactivated", nil
 }
 
 // activationTap is the plaque that completed an activation, for the audit row.
@@ -950,14 +978,57 @@ func (a *Activation) finishActivation(w http.ResponseWriter, r *http.Request, ip
 		},
 	})
 
-	// The confirmation is rendered on THIS response, not behind a redirect: the
-	// URL is the plaque's /t?… and a 303 elsewhere would only add a hop. A reload
-	// re-presents a counter value that is now spent and lands on the ordinary
-	// tap page — which is right, because by then this phone IS activated.
-	a.render(w, r, http.StatusOK, pages.Activated(pages.ActivatedView{
-		EmployeeName: act.FullName,
-		SecondDevice: act.SecondDeviceReplaced,
-	}))
+	// 303 TO A PAGE OF ITS OWN (audit round 2, B). The confirmation used to be
+	// rendered at the plaque's /t?… URL, and that was WRONG, not merely untidy: a
+	// reload or a restored tab re-opened a spent counter as the ordinary tap page,
+	// whose button could only produce a recorded sun-invalid reject — and that
+	// reject then debounced the person's real tap seconds later. The completion
+	// page is idempotent and has no button.
+	dest := ActivationCompletePath
+	if act.SecondDeviceReplaced {
+		dest += "?replaced=1"
+	}
+	a.redirect(w, r, dest)
+}
+
+// ActivationCompletePath is where a completed activation lands.
+const ActivationCompletePath = "/activate/complete"
+
+// Complete serves GET /activate/complete — the "Activation complete" screen.
+//
+// IDEMPOTENT ON RELOAD and GATED: while the tappa_activated marker names the
+// live session this browser holds, it shows the confirmation; afterwards (marker
+// expired) a phone with a live session sees "already set up"; anybody else gets
+// the ordinary no-link landing. It writes nothing.
+func (a *Activation) Complete(w http.ResponseWriter, r *http.Request) {
+	ip := clientIP(r)
+	if a.flooded(w, r, ip, "activate_complete") {
+		return
+	}
+	if marker, ok := a.codes.readDone(r); ok {
+		if tok, err := a.cookies.Read(r); err == nil {
+			res, err := a.sessions.Verify(r.Context(), tok)
+			switch {
+			case err == nil && res.ID.String() == marker:
+				name := ""
+				if ictx, cerr := a.invites.ActivationContext(r.Context(), res.TenantID, res.EmployeeID); cerr == nil {
+					name = ictx.FullName
+				} else {
+					a.log.Error("activation complete: loading the employee failed", "err", cerr)
+				}
+				a.render(w, r, http.StatusOK, pages.Activated(pages.ActivatedView{
+					EmployeeName: name,
+					SecondDevice: r.URL.Query().Get("replaced") == "1",
+				}))
+				return
+			case err != nil && !errors.Is(err, session.ErrNoSession) && !errors.Is(err, session.ErrRevoked):
+				a.log.Error("activation complete: verifying the session failed", "err", err)
+				a.renderProblem(w, r, http.StatusInternalServerError, problemServer)
+				return
+			}
+		}
+	}
+	a.landWithoutLink(w, r)
 }
 
 // Status serves GET /activate/status — what the waiting screen's script polls to
@@ -992,6 +1063,13 @@ func (a *Activation) Status(w http.ResponseWriter, r *http.Request) {
 	// activating tap set must name the session the browser now holds. Any other
 	// live session — the previous holder's on a phone being handed over, an older
 	// one of the same person — is "none" (third eye, audit round 1).
+	// An activation cookie WITHOUT a binding means a newer activation is under way
+	// in this browser and has not been consented yet: whatever marker is still
+	// around belongs to an older one (audit round 2, A).
+	if _, has := a.codes.read(r); has {
+		a.writeStatus(w, http.StatusOK, "none")
+		return
+	}
 	marker, ok := a.codes.readDone(r)
 	if !ok {
 		a.writeStatus(w, http.StatusOK, "none")

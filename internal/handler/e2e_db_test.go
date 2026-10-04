@@ -165,6 +165,14 @@ func (h *harness) tapWith(t *testing.T, c *http.Client, target string) (*http.Re
 	if err != nil {
 		t.Fatalf("tap %s: %v", target, err)
 	}
+	// A completed activation answers 303 to its own page (audit round 2, B) —
+	// followed here, the way a phone does, so callers read the confirmation.
+	if resp.StatusCode == http.StatusSeeOther && strings.HasPrefix(resp.Header.Get("Location"), ActivationCompletePath) {
+		body(t, resp)
+		if resp, err = nc.Get(h.server.URL + resp.Header.Get("Location")); err != nil {
+			t.Fatalf("follow to the completion page: %v", err)
+		}
+	}
 	return resp, body(t, resp)
 }
 
@@ -313,8 +321,15 @@ func TestE2E_ActivationFlow(t *testing.T) {
 		t.Error("reopening the spent link on the activated phone must say it is already set up")
 	}
 
-	// 6. The SAME URL again (a reload): the phone is activated now, so it is an
-	// ordinary tap page — and still nothing is consumed or issued twice.
+	// The completion page is its own URL now (audit round 2, B): reloading IT is
+	// harmless and shows the same confirmation.
+	if again := h.getBody(t, c, ActivationCompletePath); !strings.Contains(again, "Activation complete") ||
+		strings.Contains(again, "<button") {
+		t.Error("reloading the completion page must show the confirmation again, with no button")
+	}
+
+	// 6. The SAME tap URL again (back button): the phone is activated now, so it is
+	// an ordinary tap page — and still nothing is consumed or issued twice.
 	again, againBody := h.tapWith(t, c, tapURL)
 	if again.StatusCode != http.StatusOK || strings.Contains(againBody, "Activation complete") {
 		t.Errorf("a reloaded activation URL answered %d with the activation screen", again.StatusCode)
@@ -465,11 +480,13 @@ func TestE2E_ConcurrentActivatingTapsProduceExactlyOneSession(t *testing.T) {
 						t.Error(err)
 						return
 					}
-					b, _ := io.ReadAll(resp.Body)
+					if _, err := io.Copy(io.Discard, resp.Body); err != nil {
+						t.Error(err)
+					}
 					resp.Body.Close()
 					mu.Lock()
 					statuses = append(statuses, resp.StatusCode)
-					if resp.StatusCode == http.StatusOK && strings.Contains(string(b), "Activation complete") {
+					if resp.StatusCode == http.StatusSeeOther && strings.HasPrefix(resp.Header.Get("Location"), ActivationCompletePath) {
 						completed++
 					}
 					mu.Unlock()
@@ -537,7 +554,7 @@ func TestE2E_DeadPlaqueCannotActivate(t *testing.T) {
 			h.retireTag(t, h.tagUID, status)
 
 			resp, page := h.tapWith(t, c, h.nextTap(t))
-			if resp.StatusCode != http.StatusConflict || !strings.Contains(page, "in service") {
+			if resp.StatusCode != http.StatusBadRequest || !strings.Contains(page, "finish setup") {
 				t.Fatalf("a %s plaque answered %d", status, resp.StatusCode)
 			}
 			if got := h.lastCtr(t, h.tagUID); got != h.startCtr {

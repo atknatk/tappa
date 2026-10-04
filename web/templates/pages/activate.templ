@@ -149,7 +149,7 @@ templ wizardWelcome(v ActivateView) {
 	<section class="wizard-panel">
 		<p class="docket-label">{ v.EmployerName }</p>
 		<h1 class="mt-1 font-display text-3xl font-bold leading-tight tracking-tight text-ink">
-			Hi { v.EmployeeName }.
+			<span class="block">Hi { v.EmployeeName }</span>
 			<span class="block text-ink/70">Let's set up your phone.</span>
 		</h1>
 		<p class="mt-3 text-base text-ink/85">
@@ -489,7 +489,7 @@ templ activatedBody(name string, secondDevice bool) {
 			Activation complete
 		</h1>
 		if name != "" {
-			<p class="mt-1 font-display text-base text-ink/85">You're all set, { name }.</p>
+			<p class="mt-1 font-display text-base text-ink/85">This phone is set up for { name }</p>
 		}
 	</section>
 	@components.Notice(components.ToneOK, "This phone is now your time clock.") {

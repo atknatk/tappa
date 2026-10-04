@@ -119,6 +119,8 @@ type fakeSessions struct {
 	sessionID uuid.UUID
 	// employeeID, when set, is who Verify says holds the session.
 	employeeID uuid.UUID
+	// issuedID is the id of the last session Issue handed out.
+	issuedID uuid.UUID
 	// tok is the token Issue hands back; newHandler builds it, because a token
 	// can only be obtained through the session package's public door.
 	tok session.Token
@@ -156,6 +158,7 @@ func (f *fakeSessions) Issue(_ context.Context, p session.IssueParams) (session.
 	if id == uuid.Nil {
 		id = uuid.New()
 	}
+	f.issuedID = id
 	return session.Issued{
 		Session: session.Session{ID: id, TenantID: p.TenantID, EmployeeID: p.EmployeeID, DeviceInfo: p.DeviceInfo},
 		Token:   f.tok,
@@ -1007,8 +1010,10 @@ func TestTap_CompletesAConsentedActivation(t *testing.T) {
 
 	w := doTap(t, h, activationTapURL, pendingCookie())
 
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", w.Code)
+	// Audit round 2, B: the success is NOT rendered at the plaque's /t?… URL — a
+	// reload there would re-open a spent counter as a tap page with a button.
+	if w.Code != http.StatusSeeOther || w.Header().Get("Location") != ActivationCompletePath {
+		t.Fatalf("status = %d Location = %q, want 303 %s", w.Code, w.Header().Get("Location"), ActivationCompletePath)
 	}
 	if ver.calls != 1 {
 		t.Fatalf("sun.Verify calls = %d, want 1 (the atomic advance, §4.4)", ver.calls)
@@ -1022,7 +1027,15 @@ func TestTap_CompletesAConsentedActivation(t *testing.T) {
 	if c := cookieNamed(w, activationCookieName); c == nil || c.MaxAge >= 0 {
 		t.Fatal("the spent activation cookie was left in the browser")
 	}
-	body := w.Body.String()
+	sess.verify = func() (session.Resolved, error) {
+		return session.Resolved{ID: sess.issuedID, TenantID: testTenant, EmployeeID: testEmployee}, nil
+	}
+	confirm := get(t, h, ActivationCompletePath, cookieNamed(w, session.CookieName), cookieNamed(w, activatedCookieName))
+	body := confirm.Body.String()
+	// Idempotent: a reload of the completion page shows the same thing.
+	if again := get(t, h, ActivationCompletePath, cookieNamed(w, session.CookieName), cookieNamed(w, activatedCookieName)); again.Body.String() != body {
+		t.Error("reloading the completion page changed it")
+	}
 	for _, want := range []string{"Activation complete", "You can close this page", "tap the plaque again", "Maria Borg"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("the confirmation does not say %q", want)
@@ -1071,17 +1084,17 @@ func TestTap_RefusalsActivateNothing(t *testing.T) {
 			r := genuineTap()
 			r.SUNValid, r.Tag.Status = false, "retired"
 			return r, nil
-		}, http.StatusConflict, "tag_not_active", testPlaqueUID, "isn't in service", 0},
+		}, http.StatusBadRequest, "tag_not_active", testPlaqueUID, "didn't finish setup", 0},
 		{"lost plaque", activationTapURL, func(sun.Params) (sun.Result, error) {
 			r := genuineTap()
 			r.SUNValid, r.Tag.Status = false, "lost"
 			return r, nil
-		}, http.StatusConflict, "tag_not_active", testPlaqueUID, "isn't in service", 0},
+		}, http.StatusBadRequest, "tag_not_active", testPlaqueUID, "didn't finish setup", 0},
 		{"plaque on no wall", activationTapURL, func(sun.Params) (sun.Result, error) {
 			r := genuineTap()
 			r.SUNValid, r.Tag.Status, r.Location, r.Tag.LocationID = false, "unassigned", nil, nil
 			return r, nil
-		}, http.StatusConflict, "tag_not_active", testPlaqueUID, "isn't in service", 0},
+		}, http.StatusBadRequest, "tag_not_active", testPlaqueUID, "didn't finish setup", 0},
 		// R5: another employer's plaque is refused on the NON-advancing preview, so
 		// its counter is never touched — and with the same screen and status as an
 		// unknown plaque or a bad signature (§4.7).
@@ -1247,7 +1260,14 @@ func TestTap_SecondDeviceRevokesBeforeIssuing(t *testing.T) {
 	if got := strings.Join(steps, ","); got != "activate,revoke,issue" {
 		t.Fatalf("order = %q, want activate,revoke,issue", got)
 	}
-	if !strings.Contains(w.Body.String(), "Your other phone has been signed out") {
+	if w.Header().Get("Location") != ActivationCompletePath+"?replaced=1" {
+		t.Errorf("Location = %q: the confirmation must be able to say the other phone was signed out", w.Header().Get("Location"))
+	}
+	sess.verify = func() (session.Resolved, error) {
+		return session.Resolved{ID: sess.issuedID, TenantID: testTenant, EmployeeID: testEmployee}, nil
+	}
+	done := get(t, h, ActivationCompletePath+"?replaced=1", cookieNamed(w, session.CookieName), cookieNamed(w, activatedCookieName))
+	if !strings.Contains(done.Body.String(), "Your other phone has been signed out") {
 		t.Error("the confirmation must say the other phone was signed out")
 	}
 	if !rec.has(ActionDeviceReplaced) || !rec.has(ActionActivationCompleted) {
@@ -1342,7 +1362,7 @@ func TestRateLimit_SuccessNeverConsumesBudget(t *testing.T) {
 		if w := post(t, h, consent(), codeCookie()); w.Code != http.StatusSeeOther {
 			t.Fatalf("consent %d was throttled: status %d", i, w.Code)
 		}
-		if w := doTap(t, h, activationTapURL, pendingCookie()); w.Code != http.StatusOK {
+		if w := doTap(t, h, activationTapURL, pendingCookie()); w.Code != http.StatusSeeOther {
 			t.Fatalf("activating tap %d was throttled: status %d", i, w.Code)
 		}
 	}
@@ -1382,6 +1402,9 @@ func TestStatus_ReportsTheStateWithoutNamingAnybody(t *testing.T) {
 		{"a live session but no marker (someone else's phone)", []*http.Cookie{sessionCookie}, "none"},
 		{"a marker for a different session", []*http.Cookie{sessionCookie, otherMarker}, "none"},
 		{"code without consent, plus a live session", []*http.Cookie{codeCookie(), sessionCookie}, "none"},
+		// Audit round 2, A: an OLD marker and its live session, while a NEWER
+		// activation is open in this browser (not yet consented) — never done.
+		{"old marker + another activation under way", []*http.Cookie{codeCookie(), sessionCookie, marker}, "none"},
 		{"a marker with no session", []*http.Cookie{marker}, "none"},
 		{"nothing at all", nil, "none"},
 	} {
@@ -1448,6 +1471,13 @@ func TestPage_LandingWithoutALinkSaysWhatIsTrue(t *testing.T) {
 		strings.Contains(body, "Ask your manager") {
 		t.Error("a tap from a browser without the wizard must be told to open the link here")
 	}
+	if body := get(t, h, activationSignedOut).Body.String(); !strings.Contains(body, "This phone was signed out") ||
+		strings.Contains(body, "still works") {
+		t.Error("a tap from a signed-out phone must say so, not that a link still works")
+	}
+	if body := get(t, h, activationFromTap).Body.String(); !strings.Contains(body, "If you still have the link") {
+		t.Error("the from=tap landing must not promise the link still works")
+	}
 	if body := get(t, h, "/activate").Body.String(); !strings.Contains(body, "You need your activation link") {
 		t.Error("a bare visit keeps the original landing")
 	}
@@ -1481,6 +1511,7 @@ func TestWizard_NoStrayPunctuationAfterNames(t *testing.T) {
 		return func(invite.Code) (invite.Context, error) {
 			c := okContext(status)
 			c.TenantName = "Kebab Factory Ltd."
+			c.FullName = "Joe Borg Jr."
 			return c, nil
 		}
 	}
@@ -1883,8 +1914,8 @@ func TestB1_TakeoverNeedsAnExplicitConfirmation(t *testing.T) {
 		t.Fatalf("a confirmed switch: status %d, consent %d, issued %d — want 303/1/0", w2.Code, inv.consentCalls, sess.issued)
 	}
 	w3 := doTap(t, h, activationTapURL, pendingCookie(), victimCookie)
-	if w3.Code != http.StatusOK || sess.issued != 1 {
-		t.Fatalf("the confirmed hand-over's tap: status %d, issued %d — want 200/1", w3.Code, sess.issued)
+	if w3.Code != http.StatusSeeOther || sess.issued != 1 {
+		t.Fatalf("the confirmed hand-over's tap: status %d, issued %d — want 303/1", w3.Code, sess.issued)
 	}
 }
 
@@ -2385,6 +2416,13 @@ func TestTap_IndistinguishableRefusals(t *testing.T) {
 			r.SUNValid = false
 			return r, nil
 		},
+		// Audit round 2, security LOW 1: a plaque out of service, known before any
+		// signature is checked, answers the same.
+		"retired": func(sun.Params) (sun.Result, error) {
+			r := genuineTap()
+			r.SUNValid, r.Tag.Status = false, "retired"
+			return r, nil
+		},
 	}
 	var first string
 	var firstCode int
@@ -2397,6 +2435,50 @@ func TestTap_IndistinguishableRefusals(t *testing.T) {
 		}
 		if w.Code != firstCode || w.Body.String() != first {
 			t.Errorf("%s: answer differs from the others (status %d vs %d)", name, w.Code, firstCode)
+		}
+	}
+}
+
+// TestActivation_ANewActivationClearsAnOldMarker is audit round 2, A: opening a
+// link and consenting both expire a previous activation's tappa_activated marker,
+// so an older "done" can never answer for a newer waiting tab.
+func TestActivation_ANewActivationClearsAnOldMarker(t *testing.T) {
+	h := newHandler(t, &fakeInvites{}, &fakeSessions{}, &fakeAudit{})
+	old := &http.Cookie{Name: activatedCookieName, Value: uuid.New().String()}
+	for name, w := range map[string]*httptest.ResponseRecorder{
+		"opening a link": get(t, h, "/activate?code="+fakeCode, old),
+		"consenting":     post(t, h, consent(), codeCookie(), old),
+	} {
+		c := cookieNamed(w, activatedCookieName)
+		if c == nil || c.MaxAge >= 0 {
+			t.Errorf("%s did not expire the old activated marker", name)
+		}
+	}
+}
+
+// TestComplete_IsGatedAndIdempotent: the completion page shows the confirmation
+// only for the session the marker names; a phone with some other live session is
+// "already set up"; nobody else gets a confirmation at all.
+func TestComplete_IsGatedAndIdempotent(t *testing.T) {
+	sid := uuid.MustParse("66666666-6666-4666-8666-666666666666")
+	h := newHandler(t, &fakeInvites{}, &fakeSessions{sessionID: sid}, &fakeAudit{})
+	sc := &http.Cookie{Name: session.CookieName, Value: "FAKEsessionFAKEsessionFAKEsessionFAKEsess12"}
+	for _, tc := range []struct {
+		name    string
+		cookies []*http.Cookie
+		want    string
+	}{
+		{"marker names the session", []*http.Cookie{sc, {Name: activatedCookieName, Value: sid.String()}}, "Activation complete"},
+		{"marker for another session", []*http.Cookie{sc, {Name: activatedCookieName, Value: uuid.New().String()}}, "This phone is already set up"},
+		{"no marker, live session", []*http.Cookie{sc}, "This phone is already set up"},
+		{"nothing", nil, "You need your activation link"},
+	} {
+		body := get(t, h, ActivationCompletePath, tc.cookies...).Body.String()
+		if !strings.Contains(body, tc.want) {
+			t.Errorf("%s: want %q", tc.name, tc.want)
+		}
+		if strings.Contains(body, "<button") || strings.Contains(body, "<form") {
+			t.Errorf("%s: the completion page has a button", tc.name)
 		}
 	}
 }

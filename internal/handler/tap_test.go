@@ -185,6 +185,9 @@ func newTapHandlerWithAudit(t *testing.T, pv *fakePreviewer, dir *fakeDirectory,
 type noActivation struct{}
 
 func (noActivation) Pending(*http.Request) bool { return false }
+func (noActivation) HolderDeactivated(context.Context, uuid.UUID, uuid.UUID) (bool, error) {
+	return false, nil
+}
 func (noActivation) CompleteByTap(http.ResponseWriter, *http.Request, sun.Params) {
 	panic("CompleteByTap reached for a phone with no pending activation")
 }
@@ -194,6 +197,12 @@ func (noActivation) CompleteByTap(http.ResponseWriter, *http.Request, sun.Params
 type pendingActivation struct {
 	calls int
 	got   sun.Params
+	// deactivated is what HolderDeactivated answers for the live session.
+	deactivated bool
+}
+
+func (p *pendingActivation) HolderDeactivated(context.Context, uuid.UUID, uuid.UUID) (bool, error) {
+	return p.deactivated, nil
 }
 
 func (*pendingActivation) Pending(*http.Request) bool { return true }
@@ -285,6 +294,27 @@ func TestTapPage_AQRScanWithALiveSessionStaysACheckIn(t *testing.T) {
 	}
 }
 
+// TestTapPage_ADeactivatedHolderStaysOnRowFour is audit round 2 (security LOW 2):
+// a deactivated employee's live session keeps the ordinary tap page even when a
+// pending activation sits in the same browser, so the POST records §5 row 4 and
+// raises the security alert (ADR 0010) instead of ending in an activation refusal.
+func TestTapPage_ADeactivatedHolderStaysOnRowFour(t *testing.T) {
+	pv := &fakePreviewer{preview: okPreview(true)}
+	act := &pendingActivation{deactivated: true}
+	tp, err := NewTap(pv, &fakeDirectory{facts: okFacts()}, &fakeSessions{}, &fakeCheckins{}, act, &fakeAudit{},
+		tapCfg(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatalf("NewTap: %v", err)
+	}
+	r := chi.NewRouter()
+	tp.Mount(r)
+	w := get(t, r, tapURL(), sessionCookie())
+	if w.Code != http.StatusOK || act.calls != 0 || !strings.Contains(w.Body.String(), "data-tap-button") {
+		t.Fatalf("status %d, activation calls %d: a deactivated holder's tap must reach the ordinary page (row 4)",
+			w.Code, act.calls)
+	}
+}
+
 // TestNewTap_RequiresTheActivationFlow: without it a consented activation could
 // never complete, so its absence is a boot error.
 func TestNewTap_RequiresTheActivationFlow(t *testing.T) {
@@ -342,7 +372,7 @@ func TestTapPage_RevokedSessionRedirectsToActivation(t *testing.T) {
 
 	w := get(t, h, tapURL(), sessionCookie())
 
-	if w.Code != http.StatusSeeOther || w.Header().Get("Location") != activationFromTap {
+	if w.Code != http.StatusSeeOther || w.Header().Get("Location") != activationSignedOut {
 		t.Fatalf("status = %d Location = %q, want 303 /activate", w.Code, w.Header().Get("Location"))
 	}
 }
