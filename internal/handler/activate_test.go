@@ -25,14 +25,17 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
 	"github.com/atknatk/tappa/internal/audit"
 	"github.com/atknatk/tappa/internal/config"
+	"github.com/atknatk/tappa/internal/db"
 	"github.com/atknatk/tappa/internal/invite"
 	"github.com/atknatk/tappa/internal/session"
+	"github.com/atknatk/tappa/internal/sun"
 )
 
 // fakeCode is an obviously fake, searchable 43-character stand-in (agent-brief
@@ -63,8 +66,22 @@ func okContext(status string) invite.Context {
 type fakeInvites struct {
 	lookup        func(invite.Code) (invite.Context, error)
 	activate      func(invite.Code) (invite.Activation, error)
+	consentErr    error
 	activateCalls int
+	consentCalls  int
 	steps         *[]string
+}
+
+func (f *fakeInvites) RecordConsent(_ context.Context, c invite.Code, _ invite.Binding) (invite.Context, error) {
+	f.consentCalls++
+	if f.steps != nil {
+		*f.steps = append(*f.steps, "consent")
+	}
+	ictx, err := f.Lookup(context.Background(), c)
+	if err != nil {
+		return ictx, err
+	}
+	return ictx, f.consentErr
 }
 
 func (f *fakeInvites) Lookup(_ context.Context, c invite.Code) (invite.Context, error) {
@@ -74,7 +91,7 @@ func (f *fakeInvites) Lookup(_ context.Context, c invite.Code) (invite.Context, 
 	return f.lookup(c)
 }
 
-func (f *fakeInvites) Activate(_ context.Context, c invite.Code) (invite.Activation, error) {
+func (f *fakeInvites) Activate(_ context.Context, c invite.Code, _ invite.Binding) (invite.Activation, error) {
 	f.activateCalls++
 	if f.steps != nil {
 		*f.steps = append(*f.steps, "activate")
@@ -181,8 +198,59 @@ func (f *fakeAudit) has(action string) bool {
 	return false
 }
 
+// fakeVerifier stands in for sun.Verifier's ADVANCING entry point. By default it
+// answers like a genuine first touch of an active, mounted plaque of testTenant.
+type fakeVerifier struct {
+	calls  int
+	verify func(sun.Params) (sun.Result, error)
+}
+
+// testPlaqueUID is a well-formed 7-byte uid for the activating tap's URL.
+const testPlaqueUID = "04AC7E55000601"
+
+var testPlaqueWall = uuid.MustParse("44444444-4444-4444-8444-444444444444")
+
+func genuineTap() sun.Result {
+	wall := testPlaqueWall
+	return sun.Result{
+		SUNValid: true,
+		Tag:      db.ResolvedTag{UID: testPlaqueUID, TenantID: testTenant, LocationID: &wall, Status: "active"},
+		Location: &wall,
+	}
+}
+
+func (f *fakeVerifier) Verify(_ context.Context, p sun.Params) (sun.Result, error) {
+	f.calls++
+	if f.verify == nil {
+		return genuineTap(), nil
+	}
+	return f.verify(p)
+}
+
+// activationTapURL is a syntactically valid NFC tap URL (the fake verifier does the
+// cryptography's job, so the cmac's value does not matter here).
+const activationTapURL = "/t?tag=" + testPlaqueUID + "&ctr=0005F2&cmac=EA2AA40369E4FAE0"
+
+// activationQRURL is the same plaque's static QR URL: no SUN.
+const activationQRURL = "/t?tag=" + testPlaqueUID
+
+// handlerOpts lets a test swap the verifier; the zero value is a genuine tap.
+type handlerOpts struct{ verifier *fakeVerifier }
+
 func newHandler(t *testing.T, inv *fakeInvites, sess *fakeSessions, rec *fakeAudit) http.Handler {
 	t.Helper()
+	return newHandlerWith(t, inv, sess, rec, handlerOpts{})
+}
+
+// newHandlerWith mounts the activation routes plus a stand-in for GET /t that
+// does exactly what the Tap handler does with a consented activation: parse the
+// SUN URL, ask Pending, hand the tap to CompleteByTap. A non-pending tap answers
+// 303 to /activate, which is the Tap handler's §5 row 3 answer for no session.
+func newHandlerWith(t *testing.T, inv *fakeInvites, sess *fakeSessions, rec *fakeAudit, o handlerOpts) http.Handler {
+	t.Helper()
+	if o.verifier == nil {
+		o.verifier = &fakeVerifier{}
+	}
 	sess.tok = sess.token(t)
 	cfg := &config.Config{
 		Env:            config.EnvDev,
@@ -191,12 +259,24 @@ func newHandler(t *testing.T, inv *fakeInvites, sess *fakeSessions, rec *fakeAud
 	}
 	// Discard log output: these tests assert on responses and audit events, and a
 	// test that also asserted on log text would fail for cosmetic reasons.
-	a, err := NewActivation(inv, sess, rec, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	a, err := NewActivation(inv, sess, o.verifier, rec, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatalf("NewActivation: %v", err)
 	}
 	r := chi.NewRouter()
 	a.Mount(r)
+	r.Get(TapPath, func(w http.ResponseWriter, r *http.Request) {
+		p, err := sun.Parse(r.URL.Query())
+		if err != nil {
+			http.Error(w, "bad url", http.StatusBadRequest)
+			return
+		}
+		if a.Pending(r) {
+			a.CompleteByTap(w, r, p)
+			return
+		}
+		http.Redirect(w, r, "/activate", http.StatusSeeOther)
+	})
 	return r
 }
 
@@ -231,6 +311,31 @@ const fakeCSRF = "TESTcsrfTESTcsrfTESTcsrfTESTcsrfTESTcsrf123"
 
 func codeCookie() *http.Cookie {
 	return &http.Cookie{Name: activationCookieName, Value: fakeCSRF + "." + fakeCode}
+}
+
+// fakeBinding is the consent binding a consented browser carries (ADR 0025).
+const fakeBinding = "BINDbindBINDbindBINDbindBINDbindBINDbind123"
+
+// pendingCookie is the activation cookie AFTER consent: code plus binding. A
+// browser holding it is waiting for its first NFC tap.
+func pendingCookie() *http.Cookie {
+	return &http.Cookie{Name: activationCookieName, Value: fakeCSRF + "." + fakeCode + "." + fakeBinding}
+}
+
+// tap is GET /t as the plaque opens it.
+func doTap(t *testing.T, h http.Handler, target string, cookies ...*http.Cookie) *httptest.ResponseRecorder {
+	t.Helper()
+	return get(t, h, target, cookies...)
+}
+
+// cookieNamed finds a Set-Cookie on a response.
+func cookieNamed(w *httptest.ResponseRecorder, name string) *http.Cookie {
+	for _, c := range w.Result().Cookies() {
+		if c.Name == name {
+			return c
+		}
+	}
+	return nil
 }
 
 // consent is a well-formed submission: the consent box AND the form token.
@@ -281,7 +386,7 @@ func TestPage_ValidCodeMovesIntoCookieAndRedirects(t *testing.T) {
 	}
 	csrf, code, ok := strings.Cut(found.Value, ".")
 	if !ok || code != fakeCode {
-		t.Fatalf("the cookie must carry <csrf>.<code>, got a value that does not split to the code")
+		t.Fatalf("the cookie must carry <csrf>.<code> and NO binding before consent, got a value that does not split to the code")
 	}
 	if csrf == "" || csrf == fakeCode {
 		t.Fatal("the synchronizer token must be present and must NOT be derived from the code")
@@ -292,8 +397,33 @@ func TestPage_ValidCodeMovesIntoCookieAndRedirects(t *testing.T) {
 	if found.SameSite != http.SameSiteLaxMode {
 		t.Error("SameSite must be Lax: it is the CSRF defence for POST /api/activate")
 	}
-	if found.MaxAge != activationCookieMaxAge {
-		t.Errorf("MaxAge = %d, want %d", found.MaxAge, activationCookieMaxAge)
+	// ADR 0025: the cookie lives until the invitation expires. The fake context
+	// carries no expiry, so this lands on the 1-second floor — never 0 (a session
+	// cookie) and never negative (a deletion).
+	if found.MaxAge < 1 {
+		t.Errorf("MaxAge = %d, want >= 1", found.MaxAge)
+	}
+}
+
+// TestActivationCookie_LivesUntilTheInvitationExpires pins the user decision of
+// ADR 0025 at the arithmetic: the cookie's lifetime is the invitation's remaining
+// life, bounded above by the ceiling and below by one second.
+func TestActivationCookie_LivesUntilTheInvitationExpires(t *testing.T) {
+	now := time.Date(2026, 10, 4, 12, 0, 0, 0, time.UTC)
+	for _, tc := range []struct {
+		name    string
+		expires time.Time
+		want    int
+	}{
+		{"seven days left", now.Add(7 * 24 * time.Hour), 7 * 24 * 3600},
+		{"ninety minutes left", now.Add(90 * time.Minute), 90 * 60},
+		{"beyond the ceiling", now.Add(400 * 24 * time.Hour), int(activationCookieCeiling / time.Second)},
+		{"already expired", now.Add(-time.Hour), 1},
+		{"zero expiry", time.Time{}, 1},
+	} {
+		if got := activationCookieMaxAge(tc.expires, now); got != tc.want {
+			t.Errorf("%s: MaxAge = %d, want %d", tc.name, got, tc.want)
+		}
 	}
 }
 
@@ -301,8 +431,7 @@ func TestPage_ValidCodeMovesIntoCookieAndRedirects(t *testing.T) {
 // requires this screen to show.
 func TestPage_RendersTheNoticeAndTheWiFiStep(t *testing.T) {
 	h := newHandler(t, &fakeInvites{}, &fakeSessions{}, &fakeAudit{})
-	body := get(t, h, "/activate", codeCookie()).Body.String()
-
+	privacy := get(t, h, "/activate?step=2", codeCookie()).Body.String()
 	for _, want := range []string{
 		"Maria Borg",             // identity
 		"Kebab Factory Ltd",      // GDPR Art. 13(1)(a) controller
@@ -311,18 +440,95 @@ func TestPage_RendersTheNoticeAndTheWiFiStep(t *testing.T) {
 		"No fingerprints",        // §4.1, stated to the employee
 		"2",                      // retention, from configuration
 		"years",                  //
-		"KF-StJulians-Staff",     // the Wi-Fi step
-		"You can skip this",      // the step is optional
-		"Activate this phone",    // the single button
+		"Agree and continue",     // the consent button
 		`action="/api/activate"`, // the endpoint the card names
+		`name="consent"`,         // the box
 	} {
-		if !strings.Contains(body, want) {
-			t.Errorf("the activation page does not mention %q", want)
+		if !strings.Contains(privacy, want) {
+			t.Errorf("the privacy step does not mention %q", want)
 		}
 	}
-	// The form must NOT carry the code.
-	if strings.Contains(body, fakeCode) {
-		t.Fatal("the rendered form contains the invite code")
+	// The Wi-Fi step is step 3, which exists only after consent.
+	ready := get(t, h, "/activate?step=3", pendingCookie()).Body.String()
+	for _, want := range []string{"KF-StJulians-Staff", "You can skip this", "Stay in this browser"} {
+		if !strings.Contains(ready, want) {
+			t.Errorf("the get-ready step does not mention %q", want)
+		}
+	}
+	// No step carries the code or the binding.
+	for _, body := range []string{privacy, ready} {
+		if strings.Contains(body, fakeCode) || strings.Contains(body, fakeBinding) {
+			t.Fatal("a rendered wizard step contains the invite code or the consent binding")
+		}
+	}
+}
+
+// TestWizard_StepsAreGETLinksAndConsentGatesTheLaterOnes: the wizard works
+// without JavaScript (every step is a GET), and steps 3 and 4 do not exist for a
+// browser that has not consented — they would describe a tap that cannot finish.
+func TestWizard_StepsAreGETLinksAndConsentGatesTheLaterOnes(t *testing.T) {
+	h := newHandler(t, &fakeInvites{}, &fakeSessions{}, &fakeAudit{})
+	for _, tc := range []struct {
+		target string
+		cookie *http.Cookie
+		want   string // a phrase only that step renders
+	}{
+		{"/activate", codeCookie(), "set up your phone"},
+		{"/activate?step=1", codeCookie(), "set up your phone"},
+		{"/activate?step=2", codeCookie(), "Agree and continue"},
+		{"/activate?step=3", codeCookie(), "Agree and continue"}, // clamped: no consent yet
+		{"/activate?step=4", codeCookie(), "Agree and continue"}, // clamped
+		{"/activate?step=nonsense", codeCookie(), "set up your phone"},
+		{"/activate?step=3", pendingCookie(), "Two quick things before you tap"},
+		{"/activate?step=4", pendingCookie(), "Now tap the plaque"},
+		{"/activate", pendingCookie(), "Now tap the plaque"}, // a consented return lands on the wait
+	} {
+		w := get(t, h, tc.target, tc.cookie)
+		if w.Code != http.StatusOK {
+			t.Errorf("%s: status %d, want 200", tc.target, w.Code)
+			continue
+		}
+		if !strings.Contains(w.Body.String(), tc.want) {
+			t.Errorf("%s (pending=%v): want the step that says %q", tc.target, strings.Count(tc.cookie.Value, ".") == 2, tc.want)
+		}
+	}
+	welcome := get(t, h, "/activate", codeCookie()).Body.String()
+	if !strings.Contains(welcome, `href="/activate?step=2"`) {
+		t.Error("step 1's Next must be a plain link (works without JavaScript)")
+	}
+}
+
+// TestWizard_WaitingScreenLoadsOnlyItsOwnScript: the waiting screen is the one
+// step with a script — same-origin, external, deferred — and it is told where to
+// poll. Every activation screen carries the CSP.
+func TestWizard_WaitingScreenLoadsOnlyItsOwnScript(t *testing.T) {
+	h := newHandler(t, &fakeInvites{}, &fakeSessions{}, &fakeAudit{})
+	w := get(t, h, "/activate?step=4", pendingCookie())
+	body := w.Body.String()
+	if !strings.Contains(body, `<script src="/static/js/activate.js" defer>`) {
+		t.Error("the waiting screen must load web/static/js/activate.js")
+	}
+	if strings.Count(body, "<script") != 1 {
+		t.Errorf("want exactly one script element, got %d", strings.Count(body, "<script"))
+	}
+	if !strings.Contains(body, `data-status-url="`+ActivationStatusPath+`"`) {
+		t.Error("the waiting screen must name the status endpoint")
+	}
+	if !strings.Contains(body, "data-wait-done hidden") {
+		t.Error("the success block must start hidden")
+	}
+	if got := w.Header().Get("Content-Security-Policy"); got != activationCSP {
+		t.Errorf("CSP = %q, want %q", got, activationCSP)
+	}
+	if !strings.Contains(activationCSP, "connect-src 'self'") || !strings.Contains(activationCSP, "frame-ancestors 'none'") {
+		t.Errorf("activationCSP lost a directive: %q", activationCSP)
+	}
+	other := get(t, h, "/activate?step=2", codeCookie())
+	if strings.Contains(other.Body.String(), "<script") {
+		t.Error("the other steps carry no script")
+	}
+	if other.Header().Get("Content-Security-Policy") == "" {
+		t.Error("every activation screen carries the CSP")
 	}
 }
 
@@ -331,7 +537,7 @@ func TestPage_RendersTheNoticeAndTheWiFiStep(t *testing.T) {
 // a dev deployment make a legal-looking claim.
 func TestPage_NonProdShowsTheConfigNotice(t *testing.T) {
 	h := newHandler(t, &fakeInvites{}, &fakeSessions{}, &fakeAudit{})
-	body := get(t, h, "/activate", codeCookie()).Body.String()
+	body := get(t, h, "/activate?step=2", codeCookie()).Body.String()
 	if !strings.Contains(body, "placeholder value, not legal advice") {
 		t.Fatal("a non-production deployment must mark the retention figure as configuration")
 	}
@@ -694,8 +900,8 @@ func TestSubmit_ConsentIsRequired(t *testing.T) {
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400", w.Code)
 	}
-	if inv.activateCalls != 0 {
-		t.Fatal("the code was consumed without consent")
+	if inv.activateCalls != 0 || inv.consentCalls != 0 {
+		t.Fatal("consent was recorded (or the code consumed) without the box being ticked")
 	}
 	if !strings.Contains(w.Body.String(), "Please tick the box") {
 		t.Error("the form must come back with the error attached")
@@ -705,60 +911,286 @@ func TestSubmit_ConsentIsRequired(t *testing.T) {
 	}
 }
 
-// TestSubmit_HappyPath: session cookie set, activation cookie cleared, 303 to the
-// mini tour, one audit row.
-//
-// THE DESTINATION CHANGED IN M5-07 and the reason is on Submit: a FIRST
-// activation lands on /activate/tour, a second device still lands on the
-// confirmation. The split is what keeps the tour's third slide ("your first tap
-// is a practice run") true of everyone who is shown it.
-func TestSubmit_HappyPath(t *testing.T) {
+// TestSubmit_RecordsConsentAndIssuesNoSession is ADR 0025's first half: the
+// wizard's consent POST records consent, binds it to this browser and moves on to
+// the get-ready step — and it consumes NOTHING and issues NO session.
+func TestSubmit_RecordsConsentAndIssuesNoSession(t *testing.T) {
+	inv := &fakeInvites{}
 	sess := &fakeSessions{}
 	rec := &fakeAudit{}
-	h := newHandler(t, &fakeInvites{}, sess, rec)
+	h := newHandler(t, inv, sess, rec)
 
 	w := post(t, h, consent(), codeCookie())
 
 	if w.Code != http.StatusSeeOther {
 		t.Fatalf("status = %d, want 303 (POST/redirect/GET keeps a refresh from re-posting)", w.Code)
 	}
-	if loc := w.Header().Get("Location"); loc != "/activate/tour" {
-		t.Fatalf("Location = %q, want /activate/tour (a first activation is shown the tour)", loc)
+	if loc := w.Header().Get("Location"); loc != "/activate?step=3" {
+		t.Fatalf("Location = %q, want /activate?step=3", loc)
 	}
-	if sess.issued != 1 {
-		t.Fatalf("sessions issued = %d, want 1", sess.issued)
+	if inv.consentCalls != 1 {
+		t.Fatalf("RecordConsent calls = %d, want 1", inv.consentCalls)
+	}
+	if inv.activateCalls != 0 {
+		t.Fatal("the consent POST consumed the invitation; only the NFC tap may (ADR 0025)")
+	}
+	if sess.issued != 0 || sess.revoked != 0 {
+		t.Fatalf("the consent POST issued %d / revoked %d sessions; it must do neither", sess.issued, sess.revoked)
+	}
+	if cookieNamed(w, session.CookieName) != nil {
+		t.Fatal("the consent POST set a session cookie")
+	}
+	ck := cookieNamed(w, activationCookieName)
+	if ck == nil {
+		t.Fatal("the activation cookie was not rewritten with the consent binding")
+	}
+	parts := strings.Split(ck.Value, ".")
+	if len(parts) != 3 || parts[0] != fakeCSRF || parts[1] != fakeCode || len(parts[2]) != 43 {
+		t.Fatalf("the cookie must become <csrf>.<code>.<binding> with a fresh 43-char binding; got %d parts", len(parts))
+	}
+	if !ck.HttpOnly || ck.SameSite != http.SameSiteLaxMode || ck.MaxAge < 1 {
+		t.Errorf("the rebound cookie lost a hardening attribute: HttpOnly=%v SameSite=%v MaxAge=%d", ck.HttpOnly, ck.SameSite, ck.MaxAge)
+	}
+	if !rec.has(ActionActivationConsented) || rec.has(ActionActivationCompleted) {
+		t.Errorf("audit = %v, want activation.consented and NOT activation.completed", rec.actions())
 	}
 
-	var sessionSet, activationCleared bool
-	for _, c := range w.Result().Cookies() {
-		switch c.Name {
-		case session.CookieName:
-			sessionSet = true
-			if !c.HttpOnly {
-				t.Error("the session cookie must be HttpOnly")
-			}
-		case activationCookieName:
-			if c.MaxAge < 0 {
-				activationCleared = true
-			}
-		}
-	}
-	if !sessionSet {
-		t.Error("no session cookie was set: activation did not finish")
-	}
-	if !activationCleared {
-		t.Error("the spent activation cookie was left in the browser")
-	}
-	if !rec.has(ActionActivationCompleted) {
-		t.Errorf("audit = %v, want activation.completed", rec.actions())
+	// A SECOND consent mints a DIFFERENT binding: the browser that agreed last wins.
+	w2 := post(t, h, consent(), codeCookie())
+	if b2 := cookieNamed(w2, activationCookieName); b2 == nil || strings.Split(b2.Value, ".")[2] == parts[2] {
+		t.Fatal("a repeated consent must mint a fresh binding")
 	}
 }
 
-// TestSubmit_SecondDeviceRevokesBeforeIssuing is the ORDER test, and the order is
+// TestTap_CompletesAConsentedActivation is ADR 0025's second half: the first NFC
+// tap from the consenting browser verifies the SUN with the ADVANCING path,
+// consumes the invitation, issues exactly one session, clears the activation
+// cookie, records the plaque — and renders a confirmation with no button.
+func TestTap_CompletesAConsentedActivation(t *testing.T) {
+	inv := &fakeInvites{}
+	sess := &fakeSessions{}
+	rec := &fakeAudit{}
+	ver := &fakeVerifier{}
+	h := newHandlerWith(t, inv, sess, rec, handlerOpts{verifier: ver})
+
+	w := doTap(t, h, activationTapURL, pendingCookie())
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+	if ver.calls != 1 {
+		t.Fatalf("sun.Verify calls = %d, want 1 (the atomic advance, §4.4)", ver.calls)
+	}
+	if inv.activateCalls != 1 || sess.issued != 1 {
+		t.Fatalf("activate=%d issued=%d, want 1/1", inv.activateCalls, sess.issued)
+	}
+	if c := cookieNamed(w, session.CookieName); c == nil || !c.HttpOnly {
+		t.Fatal("no HttpOnly session cookie was set")
+	}
+	if c := cookieNamed(w, activationCookieName); c == nil || c.MaxAge >= 0 {
+		t.Fatal("the spent activation cookie was left in the browser")
+	}
+	body := w.Body.String()
+	for _, want := range []string{"Activation complete", "You can close this page", "tap the plaque again", "Maria Borg"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the confirmation does not say %q", want)
+		}
+	}
+	if strings.Contains(body, "<button") || strings.Contains(body, "<form") {
+		t.Error("the confirmation has a button; §9 says the next action is a physical tap")
+	}
+	var done *audit.Event
+	for i := range rec.events {
+		if rec.events[i].Action == ActionActivationCompleted {
+			done = &rec.events[i]
+		}
+	}
+	if done == nil {
+		t.Fatalf("audit = %v, want activation.completed", rec.actions())
+	}
+	d := done.Detail.(activationDetail)
+	if d.TagUID != testPlaqueUID || d.LocationID != testPlaqueWall.String() {
+		t.Errorf("the completed row must name the plaque: tag_uid=%q location_id=%q", d.TagUID, d.LocationID)
+	}
+}
+
+// TestTap_RefusalsActivateNothing: every way the activating tap can be refused —
+// a replayed or forged SUN, a plaque out of service or on no wall, another
+// employer's plaque, an unknown plaque, a QR scan — consumes nothing, issues
+// nothing, is audited with its own reason and says what to do.
+func TestTap_RefusalsActivateNothing(t *testing.T) {
+	other := uuid.MustParse("99999999-9999-4999-8999-999999999999")
+	for _, tc := range []struct {
+		name       string
+		target     string
+		verify     func(sun.Params) (sun.Result, error)
+		wantStatus int
+		wantReason string
+		wantTagUID string
+		wantWords  string
+		wantVerify int
+	}{
+		{"replayed or forged sun", activationTapURL, func(sun.Params) (sun.Result, error) {
+			r := genuineTap()
+			r.SUNValid = false
+			return r, nil
+		}, http.StatusBadRequest, "sun_invalid", testPlaqueUID, "Hold your phone against the plaque again", 1},
+		{"retired plaque", activationTapURL, func(sun.Params) (sun.Result, error) {
+			r := genuineTap()
+			r.SUNValid, r.Tag.Status = false, "retired"
+			return r, nil
+		}, http.StatusConflict, "tag_not_active", testPlaqueUID, "isn't in service", 1},
+		{"lost plaque", activationTapURL, func(sun.Params) (sun.Result, error) {
+			r := genuineTap()
+			r.SUNValid, r.Tag.Status = false, "lost"
+			return r, nil
+		}, http.StatusConflict, "tag_not_active", testPlaqueUID, "isn't in service", 1},
+		{"plaque on no wall", activationTapURL, func(sun.Params) (sun.Result, error) {
+			r := genuineTap()
+			r.SUNValid, r.Tag.Status, r.Location, r.Tag.LocationID = false, "unassigned", nil, nil
+			return r, nil
+		}, http.StatusConflict, "tag_not_active", testPlaqueUID, "isn't in service", 1},
+		{"another employer's plaque", activationTapURL, func(sun.Params) (sun.Result, error) {
+			r := genuineTap()
+			r.Tag.TenantID = other
+			return r, nil
+		}, http.StatusForbidden, "foreign_tenant_tag", "", "belongs to another workplace", 1},
+		{"unknown plaque", activationTapURL, func(sun.Params) (sun.Result, error) {
+			return sun.Result{}, sun.ErrUnknownTag
+		}, http.StatusNotFound, "unknown_tag", "", "We don't know that plaque", 1},
+		{"a QR scan cannot activate", activationQRURL, nil, http.StatusBadRequest, "no_sun", "", "Hold your phone against the plaque", 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			inv := &fakeInvites{}
+			sess := &fakeSessions{}
+			rec := &fakeAudit{}
+			ver := &fakeVerifier{verify: tc.verify}
+			h := newHandlerWith(t, inv, sess, rec, handlerOpts{verifier: ver})
+
+			w := doTap(t, h, tc.target, pendingCookie())
+
+			if w.Code != tc.wantStatus {
+				t.Errorf("status = %d, want %d", w.Code, tc.wantStatus)
+			}
+			if ver.calls != tc.wantVerify {
+				t.Errorf("sun.Verify calls = %d, want %d", ver.calls, tc.wantVerify)
+			}
+			if inv.activateCalls != 0 || sess.issued != 0 || sess.revoked != 0 {
+				t.Fatalf("a refused tap activated=%d issued=%d revoked=%d", inv.activateCalls, sess.issued, sess.revoked)
+			}
+			if cookieNamed(w, session.CookieName) != nil {
+				t.Fatal("a refused tap set a session cookie")
+			}
+			if !strings.Contains(strings.ReplaceAll(w.Body.String(), "&#39;", "'"), tc.wantWords) {
+				t.Errorf("the refusal does not say %q", tc.wantWords)
+			}
+			if len(rec.events) != 1 || rec.events[0].Action != ActionActivationFailed {
+				t.Fatalf("audit = %v, want exactly one activation.failed", rec.actions())
+			}
+			d := rec.events[0].Detail.(activationDetail)
+			if d.Reason != tc.wantReason || d.TagUID != tc.wantTagUID {
+				t.Errorf("reason=%q tag_uid=%q, want %q/%q", d.Reason, d.TagUID, tc.wantReason, tc.wantTagUID)
+			}
+		})
+	}
+}
+
+// TestTap_DeadInvitationIsRefusedAndClearsTheCookie: an invitation that expired
+// (or was used, or cancelled) between consent and tap cannot complete, and the
+// cookie that can no longer do anything is dropped so the phone's next tap is an
+// ordinary one. The plaque's counter is never touched for it.
+func TestTap_DeadInvitationIsRefusedAndClearsTheCookie(t *testing.T) {
+	for _, sentinel := range []error{invite.ErrCodeExpired, invite.ErrCodeUsed, invite.ErrCodeCancelled, invite.ErrNotActivatable} {
+		t.Run(sentinel.Error(), func(t *testing.T) {
+			inv := &fakeInvites{lookup: func(invite.Code) (invite.Context, error) { return okContext("invited"), sentinel }}
+			sess := &fakeSessions{}
+			rec := &fakeAudit{}
+			ver := &fakeVerifier{}
+			h := newHandlerWith(t, inv, sess, rec, handlerOpts{verifier: ver})
+
+			w := doTap(t, h, activationTapURL, pendingCookie())
+			if w.Code != http.StatusBadRequest {
+				t.Errorf("status = %d, want 400", w.Code)
+			}
+			if ver.calls != 0 || inv.activateCalls != 0 || sess.issued != 0 {
+				t.Fatalf("verify=%d activate=%d issued=%d, want 0/0/0", ver.calls, inv.activateCalls, sess.issued)
+			}
+			if c := cookieNamed(w, activationCookieName); c == nil || c.MaxAge >= 0 {
+				t.Error("a dead invitation's cookie must be cleared")
+			}
+			if !rec.has(ActionActivationFailed) {
+				t.Errorf("audit = %v, want activation.failed", rec.actions())
+			}
+		})
+	}
+}
+
+// TestTap_ConsentMissingSendsBackToTheWizard: the row's consent belongs to another
+// browser (it consented later), so this browser's binding no longer matches.
+// Nothing is activated, the stale binding is dropped from the cookie, and the
+// person is told to go through the steps again.
+func TestTap_ConsentMissingSendsBackToTheWizard(t *testing.T) {
+	inv := &fakeInvites{activate: func(invite.Code) (invite.Activation, error) {
+		return invite.Activation{Context: okContext("invited")}, invite.ErrConsentMissing
+	}}
+	sess := &fakeSessions{}
+	rec := &fakeAudit{}
+	h := newHandler(t, inv, sess, rec)
+
+	w := doTap(t, h, activationTapURL, pendingCookie())
+	if w.Code != http.StatusConflict {
+		t.Errorf("status = %d, want 409", w.Code)
+	}
+	if sess.issued != 0 {
+		t.Fatal("a consent-less activation issued a session")
+	}
+	if !strings.Contains(w.Body.String(), "Finish the setup steps first") {
+		t.Error("the refusal must send the person back through the wizard")
+	}
+	ck := cookieNamed(w, activationCookieName)
+	if ck == nil || strings.Count(ck.Value, ".") != 1 || ck.MaxAge < 1 {
+		t.Fatal("the cookie must keep the code and drop the stale binding")
+	}
+}
+
+// TestTap_WithoutConsentIsNotPending: a cookie WITHOUT a binding — the state of a
+// browser that has not agreed yet, and of a PLANTED cookie (cookies.go, measure 3)
+// — does not make a tap an activation. It falls through to §5 row 3 (the wizard),
+// and the plaque's counter is not touched.
+func TestTap_WithoutConsentIsNotPending(t *testing.T) {
+	inv := &fakeInvites{}
+	sess := &fakeSessions{}
+	ver := &fakeVerifier{}
+	h := newHandlerWith(t, inv, sess, &fakeAudit{}, handlerOpts{verifier: ver})
+
+	for _, c := range []*http.Cookie{codeCookie(), nil} {
+		var w *httptest.ResponseRecorder
+		if c == nil {
+			w = doTap(t, h, activationTapURL)
+		} else {
+			w = doTap(t, h, activationTapURL, c)
+		}
+		if w.Code != http.StatusSeeOther || w.Header().Get("Location") != "/activate" {
+			t.Errorf("status = %d Location = %q, want 303 /activate", w.Code, w.Header().Get("Location"))
+		}
+	}
+	if ver.calls != 0 || inv.activateCalls != 0 || sess.issued != 0 {
+		t.Fatalf("an unconsented tap reached verify=%d activate=%d issue=%d", ver.calls, inv.activateCalls, sess.issued)
+	}
+	for _, v := range []string{"", ".", "a.b.c.d", "a..c", ".b.c"} {
+		r := httptest.NewRequest(http.MethodGet, activationTapURL, nil)
+		r.AddCookie(&http.Cookie{Name: activationCookieName, Value: v})
+		if st, ok := (codeCookies{}).read(r); ok && st.pending() {
+			t.Errorf("cookie %q read as a pending activation", v)
+		}
+	}
+}
+
+// TestTap_SecondDeviceRevokesBeforeIssuing is the ORDER test, and the order is
 // the whole decision: RevokeAllForEmployee kills every LIVE session of the
 // employee, so issuing first would kill the session just issued and the new phone
-// would be signed out before it ever tapped.
-func TestSubmit_SecondDeviceRevokesBeforeIssuing(t *testing.T) {
+// would be signed out at the very tap that activated it.
+func TestTap_SecondDeviceRevokesBeforeIssuing(t *testing.T) {
 	var steps []string
 	inv := &fakeInvites{
 		steps: &steps,
@@ -770,21 +1202,16 @@ func TestSubmit_SecondDeviceRevokesBeforeIssuing(t *testing.T) {
 	rec := &fakeAudit{}
 	h := newHandler(t, inv, sess, rec)
 
-	w := post(t, h, consent(), codeCookie())
+	w := doTap(t, h, activationTapURL, pendingCookie())
 
 	if got := strings.Join(steps, ","); got != "activate,revoke,issue" {
 		t.Fatalf("order = %q, want activate,revoke,issue", got)
 	}
-	if loc := w.Header().Get("Location"); loc != "/activate/done?replaced=1" {
-		t.Errorf("Location = %q: the confirmation must be able to say the other phone was signed out, "+
-			"and a second device must NOT be sent through the tour — see Submit for why the tour's "+
-			"practice promise is false for somebody who has already tapped", loc)
+	if !strings.Contains(w.Body.String(), "Your other phone has been signed out") {
+		t.Error("the confirmation must say the other phone was signed out")
 	}
-	if !rec.has(ActionDeviceReplaced) {
-		t.Errorf("audit = %v, want activation.device_replaced", rec.actions())
-	}
-	if !rec.has(ActionActivationCompleted) {
-		t.Errorf("audit = %v, want activation.completed too", rec.actions())
+	if !rec.has(ActionDeviceReplaced) || !rec.has(ActionActivationCompleted) {
+		t.Errorf("audit = %v, want activation.device_replaced and activation.completed", rec.actions())
 	}
 }
 
@@ -811,20 +1238,20 @@ func TestSubmit_WithoutTheCookieIsRefused(t *testing.T) {
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400", w.Code)
 	}
-	if inv.activateCalls != 0 {
-		t.Fatal("a code was consumed without one being presented")
+	if inv.activateCalls != 0 || inv.consentCalls != 0 {
+		t.Fatal("a code was consumed (or consented) without one being presented")
 	}
 }
 
-// TestSubmit_SessionIssueFailureIsLoud: the code is already spent, so this cannot
+// TestTap_SessionIssueFailureIsLoud: the code is already spent, so this cannot
 // be dressed up as "your link is invalid" — that would send the employee to their
 // manager with the wrong story and hide a server fault.
-func TestSubmit_SessionIssueFailureIsLoud(t *testing.T) {
+func TestTap_SessionIssueFailureIsLoud(t *testing.T) {
 	rec := &fakeAudit{}
 	sess := &fakeSessions{issueErr: errors.New("boom")}
 	h := newHandler(t, &fakeInvites{}, sess, rec)
 
-	w := post(t, h, consent(), codeCookie())
+	w := doTap(t, h, activationTapURL, pendingCookie())
 
 	if w.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want 500", w.Code)
@@ -866,72 +1293,106 @@ func TestRateLimit_PerInviteTripsAndIsAudited(t *testing.T) {
 }
 
 // TestRateLimit_SuccessNeverConsumesBudget is the "meşru akış sınıra değmez"
-// property, measured rather than asserted by choosing a big number: a successful
-// activation costs nothing, so a whole venue onboarding cannot trip the limit.
+// property, measured rather than asserted by choosing a big number: neither a
+// consent nor a completed activation costs anything, so a whole venue onboarding
+// cannot trip the limit.
 func TestRateLimit_SuccessNeverConsumesBudget(t *testing.T) {
 	h := newHandler(t, &fakeInvites{}, &fakeSessions{}, &fakeAudit{})
 	for i := 0; i < inviteFailureLimit*3; i++ {
 		if w := post(t, h, consent(), codeCookie()); w.Code != http.StatusSeeOther {
-			t.Fatalf("successful activation %d was throttled: status %d", i, w.Code)
+			t.Fatalf("consent %d was throttled: status %d", i, w.Code)
+		}
+		if w := doTap(t, h, activationTapURL, pendingCookie()); w.Code != http.StatusOK {
+			t.Fatalf("activating tap %d was throttled: status %d", i, w.Code)
 		}
 	}
 }
 
-// TestDone_RequiresTheSessionCookie: the confirmation is the moment a browser
-// that silently dropped the cookie can be caught, with a sentence that says what
-// to change.
-func TestDone_RequiresTheSessionCookie(t *testing.T) {
-	h := newHandler(t, &fakeInvites{}, &fakeSessions{}, &fakeAudit{})
+// TestStatus_ReportsTheStateWithoutNamingAnybody is the waiting screen's poll:
+// "waiting" from the cookie alone, "done" once the activation cookie is gone and a
+// live session is there, "none" otherwise. It carries no name and no id, is never
+// cached, and is metered on its own budget.
+func TestStatus_ReportsTheStateWithoutNamingAnybody(t *testing.T) {
+	read := func(w *httptest.ResponseRecorder) string {
+		t.Helper()
+		var body struct{ State string }
+		if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+			t.Fatalf("status body is not JSON: %v (%q)", err, w.Body.String())
+		}
+		return body.State
+	}
+	live := &fakeSessions{}
+	h := newHandler(t, &fakeInvites{}, live, &fakeAudit{})
+	sessionCookie := &http.Cookie{Name: session.CookieName, Value: "FAKEsessionFAKEsessionFAKEsessionFAKEsess12"}
 
-	w := get(t, h, "/activate/done")
-	if !strings.Contains(w.Body.String(), "keep the sign-in") {
-		t.Fatal("a missing session cookie must be explained here, not at the plaque tomorrow")
+	for _, tc := range []struct {
+		name    string
+		cookies []*http.Cookie
+		want    string
+	}{
+		{"consented, waiting", []*http.Cookie{pendingCookie()}, "waiting"},
+		{"consented, and an older session on the phone", []*http.Cookie{pendingCookie(), sessionCookie}, "waiting"},
+		{"activated", []*http.Cookie{sessionCookie}, "done"},
+		{"nothing at all", nil, "none"},
+		{"code but no consent and no session", []*http.Cookie{codeCookie()}, "none"},
+	} {
+		w := get(t, h, ActivationStatusPath, tc.cookies...)
+		if w.Code != http.StatusOK {
+			t.Errorf("%s: status %d", tc.name, w.Code)
+		}
+		if got := read(w); got != tc.want {
+			t.Errorf("%s: state = %q, want %q", tc.name, got, tc.want)
+		}
+		if w.Header().Get("Cache-Control") != "no-store" || !strings.HasPrefix(w.Header().Get("Content-Type"), "application/json") {
+			t.Errorf("%s: headers %v", tc.name, w.Header())
+		}
+		if strings.Contains(w.Body.String(), "Maria") || strings.Contains(w.Body.String(), testEmployee.String()) {
+			t.Errorf("%s: the status names somebody: %s", tc.name, w.Body.String())
+		}
 	}
 
-	sess := &fakeSessions{verify: func() (session.Resolved, error) {
-		return session.Resolved{}, session.ErrNoSession
-	}}
-	h2 := newHandler(t, &fakeInvites{}, sess, &fakeAudit{})
-	w2 := get(t, h2, "/activate/done", &http.Cookie{Name: session.CookieName, Value: fakeCode})
-	if !strings.Contains(w2.Body.String(), "keep the sign-in") {
-		t.Fatal("an unknown session must land on the same explanation")
+	revoked := &fakeSessions{verify: func() (session.Resolved, error) { return session.Resolved{}, session.ErrRevoked }}
+	h2 := newHandler(t, &fakeInvites{}, revoked, &fakeAudit{})
+	if got := read(get(t, h2, ActivationStatusPath, sessionCookie)); got != "none" {
+		t.Errorf("a revoked session: state = %q, want none", got)
 	}
-}
 
-// TestDone_ShowsTheConfirmationWithoutAButton (skill tappa-brand: the
-// confirmation has no button — the next action is a physical touch).
-func TestDone_ShowsTheConfirmationWithoutAButton(t *testing.T) {
-	h := newHandler(t, &fakeInvites{}, &fakeSessions{}, &fakeAudit{})
-	w := get(t, h, "/activate/done", &http.Cookie{Name: session.CookieName, Value: fakeCode})
-
-	body := w.Body.String()
-	if !strings.Contains(body, "All done — you can close this page.") {
-		t.Error("the confirmation must use the brand's closing line")
+	// Its own budget: past statusLimit the poll is refused, and the activation
+	// flow from the same address is NOT (the flood ceiling was not charged).
+	h3 := newHandler(t, &fakeInvites{}, &fakeSessions{}, &fakeAudit{})
+	for i := 0; i < statusLimit; i++ {
+		get(t, h3, ActivationStatusPath, pendingCookie())
 	}
-	if strings.Contains(body, "<button") || strings.Contains(body, "<form") {
-		t.Error("the confirmation screen must carry no button and no form")
+	if w := get(t, h3, ActivationStatusPath, pendingCookie()); w.Code != http.StatusTooManyRequests {
+		t.Fatalf("past statusLimit: status %d, want 429", w.Code)
 	}
-	if !strings.Contains(body, "KF-StJulians-Staff") {
-		t.Error("the Wi-Fi reminder belongs on the confirmation too")
+	if w := get(t, h3, "/activate?step=4", pendingCookie()); w.Code != http.StatusOK {
+		t.Fatalf("polling spent the flood ceiling: the wizard answered %d", w.Code)
 	}
 }
 
 // TestNoResponseBodyEverCarriesTheCode drives the whole flow and greps every
-// byte of every body. The Set-Cookie header is the ONE place the code appears,
-// by construction, and the test states that rather than pretending otherwise.
+// byte of every body for the code AND the consent binding. The Set-Cookie header
+// is the ONE place either appears, by construction.
 func TestNoResponseBodyEverCarriesTheCode(t *testing.T) {
 	h := newHandler(t, &fakeInvites{}, &fakeSessions{}, &fakeAudit{})
 
 	responses := []*httptest.ResponseRecorder{
 		get(t, h, "/activate?code="+fakeCode),
 		get(t, h, "/activate", codeCookie()),
+		get(t, h, "/activate?step=2", codeCookie()),
 		post(t, h, url.Values{"csrf": {fakeCSRF}}, codeCookie()), // consent missing: re-renders the form
 		post(t, h, consent(), codeCookie()),
-		get(t, h, "/activate/done", &http.Cookie{Name: session.CookieName, Value: fakeCode}),
+		get(t, h, "/activate?step=3", pendingCookie()),
+		get(t, h, "/activate?step=4", pendingCookie()),
+		get(t, h, ActivationStatusPath, pendingCookie()),
+		doTap(t, h, activationTapURL, pendingCookie()),
 	}
 	for i, w := range responses {
-		if strings.Contains(w.Body.String(), fakeCode) {
-			t.Errorf("response %d carries the invite code in its BODY", i)
+		for _, secret := range []string{fakeCode, fakeBinding} {
+			if strings.Contains(w.Body.String(), secret) {
+				t.Errorf("response %d carries a credential in its BODY", i)
+			}
 		}
 		if w.Body.Len() == 0 && w.Code != http.StatusSeeOther {
 			t.Errorf("response %d is empty; the assertion above proves nothing", i)
@@ -941,8 +1402,8 @@ func TestNoResponseBodyEverCarriesTheCode(t *testing.T) {
 				continue // the declared, intended carrier
 			}
 			for _, v := range values {
-				if strings.Contains(v, fakeCode) {
-					t.Errorf("response %d leaks the code in header %s", i, name)
+				if strings.Contains(v, fakeCode) || strings.Contains(v, fakeBinding) {
+					t.Errorf("response %d leaks a credential in header %s", i, name)
 				}
 			}
 		}
@@ -962,6 +1423,9 @@ func TestNoCacheHeaders(t *testing.T) {
 		get(t, h, "/activate", codeCookie()),
 		get(t, h, "/activate?code="+fakeCode),
 		post(t, h, consent(), codeCookie()),
+		get(t, h, "/activate?step=4", pendingCookie()),
+		get(t, h, ActivationStatusPath, pendingCookie()),
+		doTap(t, h, activationTapURL, pendingCookie()),
 	} {
 		if got := w.Header().Get("Cache-Control"); got != "no-store" {
 			t.Errorf("Cache-Control = %q, want no-store", got)
@@ -1048,13 +1512,19 @@ func TestNoLogLineEverCarriesTheCode(t *testing.T) {
 		t.Helper()
 		sess.tok = sess.token(t)
 		cfg := &config.Config{Env: config.EnvDev, BaseURL: "http://localhost:8080", RetentionYears: 2}
-		a, err := NewActivation(inv, sess, &fakeAudit{}, cfg,
+		a, err := NewActivation(inv, sess, &fakeVerifier{}, &fakeAudit{}, cfg,
 			slog.New(slog.NewTextHandler(&logged, &slog.HandlerOptions{Level: slog.LevelDebug})))
 		if err != nil {
 			t.Fatalf("NewActivation: %v", err)
 		}
 		r := chi.NewRouter()
 		a.Mount(r)
+		r.Get(TapPath, func(w http.ResponseWriter, r *http.Request) {
+			p, err := sun.Parse(r.URL.Query())
+			if err == nil && a.Pending(r) {
+				a.CompleteByTap(w, r, p)
+			}
+		})
 		return r
 	}
 
@@ -1062,6 +1532,7 @@ func TestNoLogLineEverCarriesTheCode(t *testing.T) {
 	happy := build(&fakeInvites{}, &fakeSessions{})
 	get(t, happy, "/activate?code="+fakeCode)
 	post(t, happy, consent(), codeCookie())
+	doTap(t, happy, activationTapURL, pendingCookie())
 
 	for _, e := range []error{
 		invite.ErrUnknownCode,
@@ -1080,11 +1551,12 @@ func TestNoLogLineEverCarriesTheCode(t *testing.T) {
 		h := build(inv, &fakeSessions{})
 		get(t, h, "/activate?code="+fakeCode)
 		post(t, h, consent(), codeCookie())
+		doTap(t, h, activationTapURL, pendingCookie())
 	}
 
 	// A session-issue failure, and a rate-limit trip.
 	broken := build(&fakeInvites{}, &fakeSessions{issueErr: errors.New("boom")})
-	post(t, broken, consent(), codeCookie())
+	doTap(t, broken, activationTapURL, pendingCookie())
 
 	limited := build(&fakeInvites{lookup: func(invite.Code) (invite.Context, error) {
 		return okContext("invited"), invite.ErrCodeUsed
@@ -1099,6 +1571,9 @@ func TestNoLogLineEverCarriesTheCode(t *testing.T) {
 	}
 	if strings.Contains(out, fakeCode) {
 		t.Fatal("a log line carries the raw invite code")
+	}
+	if strings.Contains(out, fakeBinding) || strings.Contains(out, fakeBinding[:8]) {
+		t.Fatal("a log line carries the consent binding")
 	}
 	if strings.Contains(out, fakeCode[:8]) {
 		t.Fatal("a log line carries a prefix of the invite code")
@@ -1236,7 +1711,14 @@ func TestB1_ForgedPostWithoutTheTokenIsRefused(t *testing.T) {
 func TestB1_TakeoverNeedsAnExplicitConfirmation(t *testing.T) {
 	inv, sess := victimHolds(t)
 	rec := &fakeAudit{}
-	h := newHandler(t, inv, sess, rec)
+	// The plaque the hand-over is completed on belongs to the OFFERED employee's
+	// employer — the same tenant as the invitation, or the tap is refused.
+	ver := &fakeVerifier{verify: func(sun.Params) (sun.Result, error) {
+		r := genuineTap()
+		r.Tag.TenantID = attackerContext().TenantID
+		return r, nil
+	}}
+	h := newHandlerWith(t, inv, sess, rec, handlerOpts{verifier: ver})
 
 	victimCookie := &http.Cookie{Name: session.CookieName, Value: victimSession}
 	w := post(t, h, consent(), codeCookie(), victimCookie)
@@ -1244,7 +1726,7 @@ func TestB1_TakeoverNeedsAnExplicitConfirmation(t *testing.T) {
 	if w.Code != http.StatusConflict {
 		t.Fatalf("status = %d, want 409", w.Code)
 	}
-	if inv.activateCalls != 0 || sess.issued != 0 {
+	if inv.activateCalls != 0 || inv.consentCalls != 0 || sess.issued != 0 {
 		t.Fatal("the activation replaced another employee's session without being told to")
 	}
 	body := w.Body.String()
@@ -1258,11 +1740,16 @@ func TestB1_TakeoverNeedsAnExplicitConfirmation(t *testing.T) {
 		t.Errorf("audit = %v, want activation.blocked", rec.actions())
 	}
 
-	// With the explicit tick it goes through — a genuine hand-over of a shared
-	// phone must remain possible.
+	// With the explicit tick the CONSENT goes through — a genuine hand-over of a
+	// shared phone must remain possible — and the hand-over itself happens on the
+	// tap, which takes precedence over the session the phone still carries.
 	w2 := post(t, h, url.Values{"consent": {"yes"}, "csrf": {fakeCSRF}, "switch": {"yes"}}, codeCookie(), victimCookie)
-	if w2.Code != http.StatusSeeOther || sess.issued != 1 {
-		t.Fatalf("a confirmed switch was refused: status %d, issued %d", w2.Code, sess.issued)
+	if w2.Code != http.StatusSeeOther || inv.consentCalls != 1 || sess.issued != 0 {
+		t.Fatalf("a confirmed switch: status %d, consent %d, issued %d — want 303/1/0", w2.Code, inv.consentCalls, sess.issued)
+	}
+	w3 := doTap(t, h, activationTapURL, pendingCookie(), victimCookie)
+	if w3.Code != http.StatusOK || sess.issued != 1 {
+		t.Fatalf("the confirmed hand-over's tap: status %d, issued %d — want 200/1", w3.Code, sess.issued)
 	}
 }
 
@@ -1306,8 +1793,16 @@ func TestB1_FullAuditScenarioNowFails(t *testing.T) {
 	req3.AddCookie(&http.Cookie{Name: session.CookieName, Value: victimSession})
 	w3 := httptest.NewRecorder()
 	h.ServeHTTP(w3, req3)
-	if w3.Code == http.StatusSeeOther || sess.issued != 0 {
-		t.Fatalf("STEP 3 completed the takeover: status %d, sessions issued %d", w3.Code, sess.issued)
+	if w3.Code == http.StatusSeeOther || sess.issued != 0 || inv.consentCalls != 0 {
+		t.Fatalf("STEP 3 completed the takeover: status %d, sessions issued %d, consents %d", w3.Code, sess.issued, inv.consentCalls)
+	}
+
+	// STEP 4 (ADR 0025) — the victim taps a plaque while the planted code sits in
+	// their browser. A planted cookie carries no consent binding, so the tap is
+	// not an activation: nothing is verified, consumed or issued.
+	w4 := doTap(t, h, activationTapURL, codeCookie(), &http.Cookie{Name: session.CookieName, Value: victimSession})
+	if w4.Code == http.StatusOK || sess.issued != 0 || inv.activateCalls != 0 {
+		t.Fatalf("STEP 4 activated a planted code on a tap: status %d, issued %d", w4.Code, sess.issued)
 	}
 }
 
@@ -1357,7 +1852,7 @@ func TestB4_ConsentSlipDoesNotBurnTheInviteBudget(t *testing.T) {
 			t.Fatalf("slip %d answered %d, want 400 (a 429 means the slip burned the budget)", i, w.Code)
 		}
 	}
-	// The employee can still complete their activation.
+	// The employee can still give their consent.
 	if w := post(t, h, consent(), codeCookie()); w.Code != http.StatusSeeOther {
 		t.Fatalf("after %d consent slips the employee is locked out: status %d", inviteFailureLimit*3, w.Code)
 	}
@@ -1478,9 +1973,32 @@ func TestFlood_LegitimateFlowIsUnaffected(t *testing.T) {
 	h := newHandler(t, &fakeInvites{}, &fakeSessions{}, &fakeAudit{})
 	for i := 0; i < 200; i++ {
 		if w := post(t, h, consent(), codeCookie()); w.Code != http.StatusSeeOther {
-			t.Fatalf("successful activation %d was throttled: status %d", i, w.Code)
+			t.Fatalf("successful consent %d was throttled: status %d", i, w.Code)
 		}
 	}
+}
+
+// TestFlood_RefusedTapsAreBounded: a loop of bad activating taps (a reloaded,
+// replayed URL) writes rows only up to the invitation's window.
+func TestFlood_RefusedTapsAreBounded(t *testing.T) {
+	rec := &fakeAudit{}
+	ver := &fakeVerifier{verify: func(sun.Params) (sun.Result, error) {
+		r := genuineTap()
+		r.SUNValid = false
+		return r, nil
+	}}
+	h := newHandlerWith(t, &fakeInvites{}, &fakeSessions{}, rec, handlerOpts{verifier: ver})
+	const n = 200
+	limited := 0
+	for i := 0; i < n; i++ {
+		if doTap(t, h, activationTapURL, pendingCookie()).Code == http.StatusTooManyRequests {
+			limited++
+		}
+	}
+	if limited == 0 {
+		t.Fatal("nothing was rate limited; the bound below would prove nothing")
+	}
+	auditRowsAreBounded(t, "replayed activating tap", len(rec.events), n)
 }
 
 // TestCrossSite_IsCaseInsensitive: measured before the fix, "Cross-Site" and
@@ -1530,8 +2048,8 @@ func TestHeldBy_FailsClosedOnADatabaseError(t *testing.T) {
 	if w.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d, want 500: an unknown holder must not be treated as no holder", w.Code)
 	}
-	if inv.activateCalls != 0 || sess.issued != 0 {
-		t.Fatal("an activation completed while the session lookup was failing")
+	if inv.activateCalls != 0 || inv.consentCalls != 0 || sess.issued != 0 {
+		t.Fatal("consent was recorded while the session lookup was failing")
 	}
 
 	// The page must fail closed too.
@@ -1691,7 +2209,7 @@ func TestBudgets_AnonymousRefusalsStopFillingTheLog(t *testing.T) {
 	sess := &fakeSessions{}
 	sess.tok = sess.token(t)
 	cfg := &config.Config{Env: config.EnvDev, BaseURL: "http://localhost:8080", RetentionYears: 2}
-	a, err := NewActivation(inv, sess, &fakeAudit{}, cfg,
+	a, err := NewActivation(inv, sess, &fakeVerifier{}, &fakeAudit{}, cfg,
 		slog.New(slog.NewTextHandler(&logged, &slog.HandlerOptions{Level: slog.LevelDebug})))
 	if err != nil {
 		t.Fatalf("NewActivation: %v", err)

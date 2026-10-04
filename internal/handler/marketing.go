@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/a-h/templ"
 	"github.com/go-chi/chi/v5"
@@ -649,12 +650,15 @@ func cookieNotice() []pages.CookieRow {
 		},
 		{
 			Name: activationCookieName,
-			Purpose: "Carries the invitation while that one page is being completed, so the " +
-				"code stays out of the address bar, out of browser history and out of any " +
-				"link that leaves this site. Cleared as soon as the invitation is used.",
-			Lifetime: humanSeconds(activationCookieMaxAge),
-			Scope:    sessionCookiePath,
-			Flags:    flags,
+			Purpose: "Carries the invitation while the phone is being set up, so the code " +
+				"stays out of the address bar, out of browser history and out of any link " +
+				"that leaves this site. Once the privacy notice is accepted it also marks " +
+				"this browser as the one that accepted it, so only this browser's first tap " +
+				"on a plaque can finish setup. Cleared as soon as the invitation is used.",
+			Lifetime: "until the invitation expires (at most " +
+				humanSeconds(int(activationCookieCeiling/time.Second)) + ")",
+			Scope: sessionCookiePath,
+			Flags: flags,
 		},
 		{
 			Name: adminauth.CookieName,

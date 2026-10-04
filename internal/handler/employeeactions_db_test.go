@@ -287,26 +287,30 @@ func TestPanelEmployeesDB_ASecondInvitationRETIRESTheFirst(t *testing.T) {
 			"invitation must not be recorded as a spent one", cancelled, used)
 	}
 
-	// POSITIVE CONTROL: the newest link activates.
-	if !activateOverHTTP(t, p, codeB) {
-		t.Fatal("the newest link did not activate anybody; the refusal below would then " +
-			"be about a broken flow rather than about the stale code")
-	}
-	if got := employeeStatusOf(t, p, p.tenantID, employee); got != "active" {
-		t.Fatalf("status = %q after activation, want active", got)
+	// POSITIVE CONTROL: the newest link gets through the wizard to a recorded
+	// consent — the step that makes a browser able to activate on its first tap
+	// (ADR 0025; the tap itself is driven end to end in e2e_db_test.go, this
+	// harness mounts no plaque).
+	if !consentOverHTTP(t, p, codeB) {
+		t.Fatal("the newest link could not even record consent; the refusal below would " +
+			"then be about a broken flow rather than about the stale code")
 	}
 
-	// 🔴 AND THE STALE LINK IS REFUSED. This is the takeover path, closed.
-	if activateOverHTTP(t, p, codeA) {
-		t.Error("the RETIRED invitation still activated. That is the account-takeover " +
+	// 🔴 AND THE STALE LINK IS REFUSED — before consent, so no browser holding it can
+	// ever reach a tap that activates. This is the takeover path, closed.
+	if consentOverHTTP(t, p, codeA) {
+		t.Error("the RETIRED invitation still reached consent. That is the account-takeover " +
 			"path this migration exists to close: whoever holds an older link would sign " +
 			"in as this person and sign their phone out.")
 	}
-	// NOTHING WAS CONSUMED BY THE REFUSED ATTEMPT either: a refusal that burned the
-	// row would be a different defect wearing the same green.
+	// NOTHING WAS CONSUMED BY EITHER: consent is not activation, and a refusal that
+	// burned the row would be a different defect wearing the same green.
 	cancelled, used = invitationStamps(t, p, employee)
-	if cancelled != 1 || used != 1 {
-		t.Errorf("after the refused attempt: %d cancelled / %d used, want 1 / 1", cancelled, used)
+	if cancelled != 1 || used != 0 {
+		t.Errorf("after the consent and the refused attempt: %d cancelled / %d used, want 1 / 0", cancelled, used)
+	}
+	if got := employeeStatusOf(t, p, p.tenantID, employee); got != "invited" {
+		t.Fatalf("status = %q after consent alone, want invited — consent activates nobody", got)
 	}
 
 	// THE SCREEN SAYS WHAT IT NOW DOES. The sentence it used to carry — that earlier
@@ -517,9 +521,11 @@ func pendingInvitations(t *testing.T, p *panelHarness, employee uuid.UUID) int {
 	return n
 }
 
-// activateOverHTTP walks the employee's own two-step flow with a FRESH cookie jar, so
-// each activation is a different phone rather than the same browser twice.
-func activateOverHTTP(t *testing.T, p *panelHarness, code string) bool {
+// consentOverHTTP walks the employee's own wizard with a FRESH cookie jar — open
+// the link, read step 2, post the consent — and reports whether the consent was
+// recorded (the POST lands on step 3). Since ADR 0025 that is as far as a link
+// alone can go: activation is the first NFC tap's.
+func consentOverHTTP(t *testing.T, p *panelHarness, code string) bool {
 	t.Helper()
 	jar, err := cookiejar.New(nil)
 	if err != nil {
@@ -530,10 +536,15 @@ func activateOverHTTP(t *testing.T, p *panelHarness, code string) bool {
 	if err != nil {
 		t.Fatalf("GET /activate: %v", err)
 	}
-	page := readAll(t, res)
+	readAll(t, res)
 	if res.StatusCode != http.StatusOK {
 		return false
 	}
+	privacy, err := c.Get(p.server.URL + "/activate?step=2")
+	if err != nil {
+		t.Fatalf("GET step 2: %v", err)
+	}
+	page := readAll(t, privacy)
 	done, err := c.PostForm(p.server.URL+"/api/activate", url.Values{
 		"consent": {"yes"}, "csrf": {formToken(t, page)},
 	})
@@ -541,9 +552,7 @@ func activateOverHTTP(t *testing.T, p *panelHarness, code string) bool {
 		t.Fatalf("POST /api/activate: %v", err)
 	}
 	readAll(t, done)
-	// The two landing places of a SUCCESSFUL activation: a first one lands on the mini
-	// tour, a second device on the confirmation.
-	return done.Request.URL.Path == "/activate/tour" || done.Request.URL.Path == "/activate/done"
+	return done.StatusCode == http.StatusOK && done.Request.URL.Query().Get("step") == "3"
 }
 
 // TestPanelEmployeesDB_ADeactivatedPersonGetsNoInvitation. The consuming statement

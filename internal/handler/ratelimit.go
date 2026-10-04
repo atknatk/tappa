@@ -85,7 +85,7 @@ func newLimiter(limit int, period time.Duration) *limiter {
 	return httpx.NewLimiter(limit, period)
 }
 
-// The three budgets. Each number is defended by an arithmetic worst case rather
+// The four budgets. Each number is defended by an arithmetic worst case rather
 // than chosen for feeling generous.
 const (
 	// floodLimit / floodPeriod: 600 requests in 10 minutes from one address, i.e.
@@ -93,20 +93,21 @@ const (
 	// the only case where refusing everything from that address is the right
 	// answer.
 	//
-	// WHAT ONE ACTIVATION ACTUALLY COSTS, counted by a middleware in front of the
-	// real router rather than by reading the flow (M5-07). There is NO single
-	// number, because the mini tour can be walked or skipped and both are ordinary:
+	// WHAT ONE ACTIVATION ACTUALLY COSTS since the wizard (ADR 0025), counted by
+	// walking the flow:
 	//
-	//	4 requests  the pre-tour shape (M5-02..M5-06): GET /activate?code= ->
-	//	            303 -> GET /activate -> POST /api/activate -> GET /activate/done
-	//	5 requests  first activation, tour SKIPPED (the redirect lands on
-	//	            /activate/tour, the visitor follows the way out)
-	//	7 requests  first activation, tour WALKED (two more slides)
+	//	8 requests  GET /activate?code= -> 303 -> GET /activate (step 1) ->
+	//	            GET ?step=2 -> POST /api/activate -> 303 -> GET ?step=3 ->
+	//	            GET ?step=4, then the activating tap on GET /t, which charges
+	//	            this budget too (CompleteByTap)
 	//
-	// A second device is the 4-request shape: Submit sends it straight to the
-	// confirmation. So a venue onboarding fifteen people costs 60, 75 or 105
-	// requests depending on how many read the tour — against a ceiling of 600,
-	// i.e. 150, 120 or 85 complete activations per window per address key.
+	// Skipping ahead is not possible past consent, so 8 is also the floor for a
+	// careful reader and about the ceiling for anyone who does not go Back. The
+	// waiting screen's poll is NOT charged here (statusLimit, below). A venue
+	// onboarding fifteen people therefore costs about 120 requests against a
+	// ceiling of 600 — 75 complete activations per window per address key.
+	//
+	// (The pre-wizard figures were 4, 5 or 7 requests depending on the tour.)
 	//
 	// ⚠️ THIS PARAGRAPH USED TO SAY "about 45 requests" FOR FIFTEEN PEOPLE, and it
 	// was already wrong before the tour existed: 45 implies three requests each,
@@ -124,8 +125,8 @@ const (
 	//     wifi is a legitimate burst, and this is the one budget that can refuse
 	//     a VALID activation. Refusing a real activation to save 480 counter
 	//     increments is a bad trade.
-	//   · HIGHER buys nothing: 600 already carries a fifteen-person crew reading
-	//     every slide (105 requests) with more than five times the room to spare,
+	//   · HIGHER buys nothing: 600 already carries a fifteen-person crew walking
+	//     the whole wizard (about 120 requests) with five times the room to spare,
 	//     and every failure mode past this ceiling is already bounded by the other
 	//     two budgets. (This line also said "~45"; same drift, same fix.)
 	// What genuinely improved is not the number but the KEY, and that was the
@@ -145,4 +146,13 @@ const (
 	// consumed code does not.
 	inviteFailureLimit  = 10
 	inviteFailurePeriod = 10 * time.Minute
+
+	// statusLimit / statusPeriod meter GET /activate/status, the waiting screen's
+	// poll (ADR 0025), on a budget of its own. One tab polls every 3 seconds and
+	// gives up after 10 minutes — at most 200 requests — so 2400 per address in
+	// 10 minutes carries a dozen people waiting on the same venue network at once.
+	// It refuses nothing but the poll: the page itself still works, it just stops
+	// updating by itself.
+	statusLimit  = 2400
+	statusPeriod = 10 * time.Minute
 )

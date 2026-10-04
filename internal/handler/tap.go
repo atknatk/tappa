@@ -46,6 +46,11 @@ import (
 // states the contract in full); the other half — the strict, atomic advance of
 // tags.last_ctr — happens on POST /api/checkin or it does not happen at all.
 //
+// ⚠️ ONE EXCEPTION, AND IT IS NOT THIS HANDLER'S CODE (ADR 0025): a browser holding
+// a CONSENTED activation hands the whole GET to Activation.CompleteByTap, which
+// runs the full sun.Verify — atomic advance included — because the activating tap
+// has no button after it. That tap writes no `transactions` row either.
+//
 // ORDER OF CHECKS, and why identity comes before the tag:
 //
 //	· parse the SUN URL     pure, no state, and a malformed URL is not a tap.
@@ -64,9 +69,14 @@ type Tap struct {
 	directory tapDirectory
 	sessions  sessionVerifier
 	checkins  checkinRecorder
-	cookies   session.Cookies
-	contexts  tapContexts
-	limiter   *httpx.TapLimiter
+	// activation completes a CONSENTED activation on its first NFC tap (ADR
+	// 0020). It is the Activation handler, reached through the narrow interface
+	// below: the advancing SUN verify it needs lives THERE, so this handler's
+	// own vocabulary still holds only the non-advancing preview.
+	activation tapActivation
+	cookies    session.Cookies
+	contexts   tapContexts
+	limiter    *httpx.TapLimiter
 	// baseURL is this deployment's own origin, for the Origin check on the POST
 	// (checkin.go). Reduced to scheme://host at construction, the way an Origin
 	// header is written, so a BaseURL with a path still compares.
@@ -102,14 +112,24 @@ type (
 	sessionVerifier interface {
 		Verify(ctx context.Context, t session.Token) (session.Resolved, error)
 	}
+	// tapActivation is the slice of the activation flow the tap page needs.
+	tapActivation interface {
+		Pending(r *http.Request) bool
+		CompleteByTap(w http.ResponseWriter, r *http.Request, p sun.Params)
+	}
 )
 
 // NewTap wires the screen. Every dependency is required: a nil one cannot fail
 // safely on a path whose failure mode is a missing hour on a payslip.
-func NewTap(preview tapPreviewer, dir tapDirectory, sess sessionVerifier, checkins checkinRecorder, rec auditRecorder, cfg *config.Config, log *slog.Logger) (*Tap, error) {
+func NewTap(preview tapPreviewer, dir tapDirectory, sess sessionVerifier, checkins checkinRecorder, activation tapActivation, rec auditRecorder, cfg *config.Config, log *slog.Logger) (*Tap, error) {
 	switch {
 	case preview == nil:
 		return nil, errors.New("handler: nil sun previewer")
+	case isNil(activation):
+		// REQUIRED: without it a consented activation can never complete, and
+		// every tap from such a phone would bounce to the waiting screen forever
+		// (ADR 0025). A boot error, not a silent loop.
+		return nil, errors.New("handler: nil activation flow")
 	case dir == nil:
 		return nil, errors.New("handler: nil directory")
 	case sess == nil:
@@ -151,15 +171,16 @@ func NewTap(preview tapPreviewer, dir tapDirectory, sess sessionVerifier, checki
 		return nil, err
 	}
 	t := &Tap{
-		sun:       preview,
-		directory: dir,
-		sessions:  sess,
-		checkins:  checkins,
-		cookies:   session.NewCookies(cfg),
-		contexts:  ctxs,
-		baseURL:   originOf(cfg.BaseURL),
-		brandWait: resultBrandWait,
-		log:       log,
+		sun:        preview,
+		directory:  dir,
+		sessions:   sess,
+		checkins:   checkins,
+		activation: activation,
+		cookies:    session.NewCookies(cfg),
+		contexts:   ctxs,
+		baseURL:    originOf(cfg.BaseURL),
+		brandWait:  resultBrandWait,
+		log:        log,
 	}
 	t.limiter = httpx.NewTapLimiter(httpx.TapLimitParams{
 		Log: log,
@@ -306,8 +327,7 @@ func (t *Tap) Page(w http.ResponseWriter, r *http.Request) {
 	}
 
 	id := httpx.IdentityOf(r)
-	switch id.State {
-	case httpx.SessionUnresolved:
+	if id.State == httpx.SessionUnresolved {
 		// 🔴 THIS IS NOT "NO SESSION", and conflating the two is the trap
 		// state.md hand-off 3 names: Identity's ZERO VALUE has Err == nil AND
 		// Live() == false, so `if id.Err != nil {500} else if !id.Live()
@@ -323,7 +343,21 @@ func (t *Tap) Page(w http.ResponseWriter, r *http.Request) {
 		// which is a database that may be back in a second.
 		t.renderRetryableProblem(w, r, http.StatusInternalServerError, tapProblemServer)
 		return
+	}
 
+	// A CONSENTED ACTIVATION TAKES THE TAP (ADR 0025). A browser that agreed to
+	// the notice in the wizard and holds the consent binding completes its
+	// activation with this touch — whatever session it carries, because the
+	// wizard already made the person confirm replacing another employee's one
+	// (Submit, measure 2). No `transactions` row is written on this path; the
+	// next tap is an ordinary check-in. A planted cookie has no binding and is not
+	// pending, so it falls through to the branches below.
+	if t.activation.Pending(r) {
+		t.activation.CompleteByTap(w, r, p)
+		return
+	}
+
+	switch id.State {
 	case httpx.SessionAbsent, httpx.SessionRevoked:
 		// §5 ROW 3: no session, or an invalid one -> the activation page, and NO
 		// RECORD. This redirect is the wiring M5-02 could not do (it built the
@@ -529,10 +563,9 @@ func tappedWallOf(pv sun.Preview) uuid.UUID {
 //	                       invisibly under someone else's page and have them
 //	                       click. Refusing to be framed removes that outright.
 //
-// SCOPE: this header is set on THIS package's tap responses. The activation
-// screens (M5-02) do not carry it — extending it there is a deliberate change to
-// a flow that took four audit rounds to settle, and it belongs in its own task
-// rather than as a side effect of this one.
+// SCOPE: this header is set on THIS package's tap responses. Since ADR 0025 the
+// activation screens carry it too, plus connect-src 'self' for the waiting
+// screen's poll (activationCSP, activate.go).
 const tapCSP = "default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; " +
 	"form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
 
@@ -584,6 +617,10 @@ func isNil(v any) bool {
 // M5-02 shipped: the form names the employer and the employee directly above
 // the button, so the only thing between a planted cookie and a confused tap is
 // a person reading a name they do not recognise.
+//
+// ✅ SINCE ADR 0025 a planted cookie cannot ACTIVATE anything through this page:
+// completing an activation on a tap needs the consent binding, which no cross-site
+// navigation can plant (Activation.Pending). What remains is the one below.
 //
 // Deliberately NOT done here: giving the redirect its own one-shot marker so
 // /activate could refuse a planted cookie arriving this way. It would mean

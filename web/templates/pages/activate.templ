@@ -7,77 +7,226 @@ import (
 	"github.com/atknatk/tappa/web/templates/layout"
 )
 
-// Activate is the activation screen: identity, the GDPR Art. 13 notice, the
-// optional Wi-Fi step, and ONE button.
+// Activate is the activation WIZARD (ADR 0025): three short steps and a waiting
+// screen, each one a plain GET, so it works with JavaScript off.
 //
-// It follows the tap screen's discipline without being it (skill tappa-brand,
-// CLAUDE.md §9): no menu, no tabs, no settings, one action. The difference is
-// that this screen legitimately carries text — it is the only moment an employee
-// is told what the product records about them, and consent has to be informed to
-// be consent.
+//	1  Welcome      how Taptime works, in three lines
+//	2  Privacy      the GDPR Art. 13 notice and the consent box — the only form
+//	3  Get ready    the venue Wi-Fi, and "stay in this browser"
+//	4  Tap          "now tap the plaque"; the tap itself finishes activation
 //
-// THE FORM CARRIES NO CODE. It posts two fields: the consent box and the
-// synchronizer token. The invite code reached the server in the link and now
-// lives in an HttpOnly cookie (internal/handler/cookies.go), so it is not in
-// this HTML, not in the address bar after the first hop, and not in a screenshot
-// of this page.
+// NOTHING ON THESE SCREENS ACTIVATES ANYTHING. The consent form records consent
+// and binds it to this browser; the session is born on the first genuine NFC tap
+// (GET /t), which renders Activated. That is why step 4 has no primary button:
+// the next action is physical.
 //
-// IT ALWAYS SAYS WHOSE ACTIVATION THIS IS. The employer and the employee are on
-// the docket at the top AND on the line directly above the button, because a
-// planted cookie on a session-less phone is still possible (cookies.go, measure
-// 3 and its M5-04 note) and the only thing between that and a confused tap is a
-// person reading a name they do not recognise before pressing anything.
+// THE FORM CARRIES NO CODE. It posts the consent box, the optional switch box and
+// the synchronizer token. The invite code lives in an HttpOnly cookie
+// (internal/handler/cookies.go), not in this HTML.
+//
+// IT ALWAYS SAYS WHOSE ACTIVATION THIS IS. The employee's name heads step 1 and the
+// employer is named on every step, because a planted cookie on a session-less
+// phone is still possible (cookies.go, measure 3): the defence that remains is a
+// person reading a name they do not recognise before agreeing to anything.
 templ Activate(v ActivateView) {
-	@layout.Page("Activate your phone — Taptime") {
-		<section class="docket">
-			<p class="docket-label">Activating</p>
-			<h1 class="font-display text-2xl font-bold tracking-tight text-ink">
-				Hello { v.EmployeeName }
-			</h1>
-			<p class="mt-1 text-ink/70">{ v.EmployerName }</p>
-			if v.LocationName != "" {
-				<p class="text-ink/70">{ v.LocationName }</p>
-			}
-		</section>
-		if v.HeldByName != "" {
-			@components.Notice(components.ToneAlert, "This phone belongs to someone else") {
-				<p>
-					It is signed in as
-					<span class="font-bold">{ v.HeldByName }</span>
-					if v.HeldByEmployer != "" {
-						({ v.HeldByEmployer })
-					}
-					. Finishing here signs { v.HeldByName } out and hands this phone to
-					{ v.EmployeeName }.
-				</p>
-				<p class="mt-2 font-bold text-tomato">
-					If you did not expect this, close the page and tell your manager. Their
-					hours are recorded on this phone.
-				</p>
+	if v.Step == ActivateStepTap {
+		@layout.PageWithScript("Tap the plaque — Taptime", "/static/js/activate.js", layout.Brand{}) {
+			@wizardShell(v) {
+				@wizardTap(v)
 			}
 		}
-		if v.SecondDevice {
-			@components.Notice(components.ToneWarn, "This is a new phone") {
-				You are already set up on another phone. Finishing here signs that one out —
-				only the phone you are holding will work afterwards. If you did not expect
-				this, stop and tell your manager.
+	} else {
+		@layout.Page(wizardTitle(v.Step)) {
+			@wizardShell(v) {
+				switch v.Step {
+					case 2:
+						@wizardPrivacy(v)
+					case 3:
+						@wizardReady(v)
+					default:
+						@wizardWelcome(v)
+				}
 			}
 		}
-		@components.Card("Before you start") {
-			<ul class="mt-3 flex flex-col gap-3 text-sm text-ink/85">
-				<li>
-					<span class="font-bold">What a tap records.</span>
+	}
+}
+
+func wizardTitle(step int) string {
+	switch step {
+	case 2:
+		return "Your privacy — Taptime"
+	case 3:
+		return "Get ready — Taptime"
+	default:
+		return "Welcome — Taptime"
+	}
+}
+
+func wizardStepName(step int) string {
+	switch step {
+	case 2:
+		return "Privacy"
+	case 3:
+		return "Get ready"
+	case ActivateStepTap:
+		return "Tap"
+	default:
+		return "Welcome"
+	}
+}
+
+// wizardSegment is one bar of the progress indicator. The classes are LITERALS in
+// this file on purpose: Tailwind reads .templ files and not .go files, so a class
+// assembled anywhere else would silently drop out of the stylesheet.
+func wizardSegment(n, current int) string {
+	if n <= current {
+		return "wizard-segment wizard-segment--done"
+	}
+	return "wizard-segment"
+}
+
+// wizardShell is the frame every step shares: progress, the step's body, and the
+// actions pinned toward the bottom of a phone screen where a thumb reaches them.
+templ wizardShell(v ActivateView) {
+	<div class="wizard">
+		<nav aria-label="Setup progress">
+			<p class="docket-label">
+				Step <span class="num">{ strconv.Itoa(clampStep(v.Step)) }</span> of <span class="num">{ strconv.Itoa(ActivateStepTap) }</span>
+				· { wizardStepName(clampStep(v.Step)) }
+			</p>
+			<ol class="mt-2 grid grid-cols-4 gap-1.5" role="list">
+				for n := 1; n <= ActivateStepTap; n++ {
+					<li class={ wizardSegment(n, clampStep(v.Step)) } aria-current?={ n == clampStep(v.Step) }>
+						<span class="sr-only">{ wizardStepName(n) }</span>
+					</li>
+				}
+			</ol>
+		</nav>
+		{ children... }
+	</div>
+}
+
+func clampStep(step int) int {
+	if step < 1 || step > ActivateStepTap {
+		return 1
+	}
+	return step
+}
+
+// wizardHolder is the two warnings that must be seen BEFORE agreeing to anything:
+// this phone carries somebody else's session, or this person is replacing their
+// own other phone. They sit on steps 1 and 2.
+templ wizardHolder(v ActivateView) {
+	if v.HeldByName != "" {
+		@components.Notice(components.ToneAlert, "This phone belongs to someone else") {
+			<p>
+				It is signed in as
+				<span class="font-bold">{ v.HeldByName }</span>
+				if v.HeldByEmployer != "" {
+					({ v.HeldByEmployer })
+				}
+				. Finishing setup signs { v.HeldByName } out and hands this phone to
+				{ v.EmployeeName }.
+			</p>
+			<p class="mt-2 font-bold text-ink">
+				If you did not expect this, close the page and tell your manager. Their
+				hours are recorded on this phone.
+			</p>
+		}
+	}
+	if v.SecondDevice {
+		@components.Notice(components.ToneWarn, "This is a new phone") {
+			You are already set up on another phone. When you finish here, that one is
+			signed out — only the phone you are holding will work. If you did not
+			expect this, stop and tell your manager.
+		}
+	}
+}
+
+templ wizardWelcome(v ActivateView) {
+	<section class="wizard-panel">
+		<p class="docket-label">{ v.EmployerName }</p>
+		<h1 class="mt-1 font-display text-3xl font-bold leading-tight tracking-tight text-ink">
+			Hi { v.EmployeeName }.
+			<span class="block text-ink/70">Let's set up your phone.</span>
+		</h1>
+		<p class="mt-3 text-base text-ink/85">
+			{ v.EmployerName } uses Taptime to record your shifts. Setup takes about a
+			minute, and there is nothing to install.
+		</p>
+	</section>
+	<section class="docket wizard-panel">
+		<p class="docket-label">How it works</p>
+		<ol class="mt-3 flex flex-col gap-4" role="list">
+			<li class="flex gap-3">
+				<span class="wizard-index">01</span>
+				<div>
+					<p class="font-display text-base font-bold tracking-tight">Tap the plaque</p>
+					<p class="mt-0.5 font-display text-sm text-ink/80">
+						Hold the top of your phone against the Taptime plaque by the door. A page
+						opens by itself.
+					</p>
+				</div>
+			</li>
+			<li class="flex gap-3">
+				<span class="wizard-index">02</span>
+				<div>
+					<p class="font-display text-base font-bold tracking-tight">Press one button</p>
+					<p class="mt-0.5 font-display text-sm text-ink/80">
+						Taptime works out whether you are arriving or leaving, so you never have to
+						choose.
+					</p>
+				</div>
+			</li>
+			<li class="flex gap-3">
+				<span class="wizard-index">03</span>
+				<div>
+					<p class="font-display text-base font-bold tracking-tight">Nothing in the background</p>
+					<p class="mt-0.5 font-display text-sm text-ink/80">
+						No fingerprints, no face scan. Your location is read only at the moment you
+						tap — never between taps.
+					</p>
+				</div>
+			</li>
+		</ol>
+	</section>
+	@wizardHolder(v)
+	<div class="wizard-actions">
+		<a href="/activate?step=2" class="tap-button flex items-center justify-center">Next</a>
+	</div>
+}
+
+// wizardPrivacy is the GDPR Art. 13 notice and the consent box. The words of the
+// notice are the activation page's (M5-02), unchanged in substance; what changed
+// is that agreeing no longer activates anything (ADR 0025).
+templ wizardPrivacy(v ActivateView) {
+	<section class="wizard-panel">
+		<p class="docket-label">Your privacy</p>
+		<h1 class="mt-1 font-display text-3xl font-bold leading-tight tracking-tight text-ink">
+			What Taptime records — and what it never does.
+		</h1>
+	</section>
+	@wizardHolder(v)
+	<section class="docket wizard-panel">
+		<ul class="flex flex-col gap-4 font-display text-sm text-ink/85" role="list">
+			<li>
+				<p class="text-base font-bold tracking-tight text-ink">What a tap records</p>
+				<p class="mt-0.5">
 					When you touch the plaque, Taptime saves the time, your phone's internet (IP)
 					address and — only at that moment — your location. Nothing runs in the
 					background and nothing is recorded between taps.
-				</li>
-				<li>
-					<span class="font-bold">No fingerprints. Ever.</span>
-					Taptime collects no biometric data of any kind: no fingerprints, no face, no voice.
-					Your phone's own screen lock stays private to your phone.
-				</li>
-				<li>
-					<span class="font-bold">How long records are kept.</span>
+				</p>
+			</li>
+			<li>
+				<p class="text-base font-bold tracking-tight text-ink">No fingerprints. Ever.</p>
+				<p class="mt-0.5">
+					Taptime collects no biometric data of any kind: no fingerprints, no face, no
+					voice. Your phone's own screen lock stays private to your phone.
+				</p>
+			</li>
+			<li>
+				<p class="text-base font-bold tracking-tight text-ink">How long records are kept</p>
+				<p class="mt-0.5">
 					Your attendance records are kept for
 					<span class="num font-bold">{ strconv.Itoa(v.RetentionYears) }</span>
 					if v.RetentionYears == 1 {
@@ -86,276 +235,241 @@ templ Activate(v ActivateView) {
 						years,
 					}
 					as set by your employer.
-				</li>
-				<li>
-					<span class="font-bold">Who is responsible.</span>
+				</p>
+			</li>
+			<li>
+				<p class="text-base font-bold tracking-tight text-ink">Who is responsible</p>
+				<p class="mt-0.5">
 					{ v.EmployerName } is the controller of these records; Taptime processes them
 					on their behalf. To see, correct or ask about your data, speak to your
 					manager.
-				</li>
-			</ul>
-			if v.ShowConfigNotice {
-				<p class="mt-4 border-t border-line pt-3 font-mono text-[11px] leading-relaxed text-ink/70">
-					Non-production deployment: the retention period above is read from this
-					server's configuration and is a placeholder value, not legal advice.
 				</p>
-			}
-		}
-		@components.Card("Join the Wi-Fi") {
-			if v.WiFiSSID != "" {
-				<p class="mt-2 text-sm text-ink/85">
-					Connect to
-					<span class="num font-bold">{ v.WiFiSSID }</span>
-					before you tap: being on the venue's network is how Taptime can tell you are
-					really here.
-				</p>
-			} else {
-				<p class="mt-2 text-sm text-ink/85">
-					This place has no staff network to join, so Taptime will use your location at
-					the moment you tap instead.
-				</p>
-			}
-			<p class="mt-2 text-sm text-ink/70">
-				You can skip this — activation works either way. Without the network, taps fall
-				back to your location and may need your manager to confirm them.
+			</li>
+		</ul>
+		if v.ShowConfigNotice {
+			<p class="mt-4 border-t border-line pt-3 font-mono text-[11px] leading-relaxed text-ink/70">
+				Non-production deployment: the retention period above is read from this
+				server's configuration and is a placeholder value, not legal advice.
 			</p>
 		}
-		<form method="post" action="/api/activate" class="flex flex-col gap-4">
-			<input type="hidden" name="csrf" value={ v.CSRFToken }/>
-			if v.HeldByName != "" {
-				<label class="flex items-start gap-3 border-l-4 border-tomato bg-paper px-4 py-4">
-					<input
-						type="checkbox"
-						name="switch"
-						value="yes"
-						required
-						checked?={ v.SwitchConfirmed }
-						class="mt-1 h-5 w-5 shrink-0 accent-tomato"
-					/>
-					<span class="text-sm text-ink/85">
-						I understand this signs { v.HeldByName } out of this phone.
+	</section>
+	<form method="post" action="/api/activate" class="wizard-actions">
+		<input type="hidden" name="csrf" value={ v.CSRFToken }/>
+		if v.HeldByName != "" {
+			<label class="flex items-start gap-3 border-l-4 border-tomato bg-paper px-4 py-4">
+				<input
+					type="checkbox"
+					name="switch"
+					value="yes"
+					required
+					checked?={ v.SwitchConfirmed }
+					class="mt-0.5 h-6 w-6 shrink-0 accent-tomato"
+				/>
+				<span class="text-sm text-ink/85">
+					I understand this signs { v.HeldByName } out of this phone.
+				</span>
+			</label>
+			if v.SwitchMissing {
+				@components.Notice(components.ToneAlert, "") {
+					<span class="font-bold text-ink">
+						Nothing was changed. Tick the box above if you really mean to take this
+						phone over.
 					</span>
-				</label>
-				if v.SwitchMissing {
-					@components.Notice(components.ToneAlert, "") {
-						<span class="font-bold text-tomato">
-							Nothing was changed. Tick the box above if you really mean to take
-							this phone over.
-						</span>
+				}
+			}
+		}
+		<label class="wizard-consent">
+			<input
+				type="checkbox"
+				name="consent"
+				value="yes"
+				required
+				checked?={ v.Consented }
+				class="mt-0.5 h-6 w-6 shrink-0 accent-tappa-green"
+				if v.ConsentMissing {
+					aria-invalid="true"
+					aria-describedby="consent-error"
+				}
+			/>
+			<span class="text-sm text-ink/85">
+				I have read what Taptime records and how long it is kept.
+			</span>
+		</label>
+		if v.ConsentMissing {
+			<p id="consent-error" class="border-l-4 border-tomato bg-paper px-4 py-3 text-sm font-bold text-ink">
+				Please tick the box above so we know you have read this.
+			</p>
+		}
+		<p class="text-center text-sm text-ink/70">
+			Setting up this phone for
+			<span class="font-bold text-ink">{ v.EmployeeName }</span>
+			at
+			<span class="font-bold text-ink">{ v.EmployerName }</span>
+			.
+		</p>
+		<button type="submit" class="tap-button">Agree and continue</button>
+		<a href="/activate?step=1" class="wizard-back">Back</a>
+	</form>
+}
+
+// wizardReady is the two practical things that decide whether the first tap
+// works: being on the venue's network, and tapping from THIS browser — the
+// session cookie lives in the browser that receives it, and an NFC tag opens the
+// phone's DEFAULT browser, which is not the in-app browser of the chat or mail
+// app the invitation link was probably opened from.
+templ wizardReady(v ActivateView) {
+	<section class="wizard-panel">
+		<p class="docket-label">Get ready</p>
+		<h1 class="mt-1 font-display text-3xl font-bold leading-tight tracking-tight text-ink">
+			Two quick things before you tap.
+		</h1>
+	</section>
+	<section class="docket wizard-panel">
+		<div class="flex gap-3">
+			<span class="wizard-index">01</span>
+			<div class="font-display">
+				<p class="text-base font-bold tracking-tight">Join the Wi-Fi</p>
+				if v.WiFiSSID != "" {
+					<p class="mt-1 text-sm text-ink/85">
+						Connect to
+						<span class="num font-bold">{ v.WiFiSSID }</span>
+						when you are at work. Being on the venue's network is how Taptime knows
+						you are really there.
+					</p>
+					<p class="mt-1 text-sm text-ink/70">
+						You can skip this. Your taps then use your location instead, and your
+						manager may need to confirm them.
+					</p>
+				} else {
+					<p class="mt-1 text-sm text-ink/85">
+						This workplace has no staff network to join, so Taptime checks your
+						location at the moment you tap instead.
+					</p>
+				}
+			</div>
+		</div>
+		<div class="mt-5 flex gap-3 border-t border-dashed border-line pt-5">
+			<span class="wizard-index">02</span>
+			<div class="font-display">
+				<p class="text-base font-bold tracking-tight">Stay in this browser</p>
+				<p class="mt-1 text-sm text-ink/85">
+					Your phone remembers you in the browser where you finish setup — and tapping
+					the plaque always opens your phone's usual browser, like Safari or Chrome.
+				</p>
+				<p class="mt-2 text-sm text-ink/85">
+					<span class="font-bold">Opened this link inside a chat or email app?</span>
+					Open it in Safari or Chrome first — look for “Open in browser” in that app's
+					menu — and go through these steps there.
+				</p>
+			</div>
+		</div>
+	</section>
+	<div class="wizard-actions">
+		<a href="/activate?step=4" class="tap-button flex items-center justify-center">I'm ready</a>
+		<a href="/activate?step=2" class="wizard-back">Back</a>
+	</div>
+}
+
+// wizardTap is the waiting screen. Its words are true with and without the
+// script: without it, the tap opens a page that says "Activation complete" and
+// this one simply stays as it is; with it (web/static/js/activate.js), this page
+// notices through GET /activate/status and swaps itself to the same message.
+//
+// THE SUCCESS BLOCK IS IN THE HTML FROM THE START, hidden. The script only flips
+// two `hidden` attributes — it writes no markup and no text, so there is nothing
+// for it to inject and the CSP needs no inline anything.
+templ wizardTap(v ActivateView) {
+	<div data-activation-wait data-status-url={ v.StatusURL } class="flex flex-col gap-6">
+		<div data-wait-pending class="flex flex-col gap-6">
+			<section class="wizard-panel">
+				<p class="docket-label">Last step</p>
+				<h1 class="mt-1 font-display text-3xl font-bold leading-tight tracking-tight text-ink">
+					Now tap the plaque.
+				</h1>
+				<p class="mt-3 text-base text-ink/85">
+					Hold the top of your phone against any Taptime plaque at
+					<span class="font-bold">{ v.EmployerName }</span>. That first tap finishes
+					setting up this phone — it doesn't clock you in.
+				</p>
+			</section>
+			@plaqueWait()
+			<p class="wizard-waiting" role="status">
+				<span class="wizard-waiting-dot" aria-hidden="true"></span>
+				Waiting for your tap…
+			</p>
+			if v.SecondDevice || v.HeldByName != "" {
+				@components.Notice(components.ToneWarn, "") {
+					if v.HeldByName != "" {
+						Your tap signs { v.HeldByName } out of this phone.
+					} else {
+						Your tap signs your other phone out.
 					}
 				}
 			}
-			<label class="flex items-start gap-3 bg-paper border border-line px-4 py-4">
-				<input
-					type="checkbox"
-					name="consent"
-					value="yes"
-					required
-					class="mt-1 h-5 w-5 shrink-0 accent-tappa-green"
-					if v.ConsentMissing {
-						aria-invalid="true"
-						aria-describedby="consent-error"
-					}
-				/>
-				<span class="text-sm text-ink/85">
-					I have read what Taptime records and how long it is kept.
-				</span>
-			</label>
-			if v.ConsentMissing {
-				<p id="consent-error" class="border-l-4 border-tomato bg-paper px-4 py-3 text-sm font-bold text-tomato">
-					Please tick the box above so we know you have read this. Nothing was
-					activated.
-				</p>
-			}
 			<p class="text-center text-sm text-ink/70">
-				This sets up this phone for
-				<span class="font-bold text-ink">{ v.EmployeeName }</span>
-				at
-				<span class="font-bold text-ink">{ v.EmployerName }</span>
-				.
+				When the tap goes through, your phone shows “Activation complete”.
 			</p>
-			<button type="submit" class="tap-button">Activate this phone</button>
-		</form>
+			<div class="wizard-actions">
+				<a href="/activate?step=3" class="wizard-back">Back</a>
+			</div>
+		</div>
+		<div data-wait-done hidden tabindex="-1" class="flex flex-col gap-6">
+			@activatedBody(v.EmployeeName, v.SecondDevice)
+		</div>
+	</div>
+}
+
+// plaqueWait is the waiting animation: a plaque, and a phone that comes down to
+// meet it while two rings spread. Pure CSS (input.css, .plaque-wait); it stops
+// moving under prefers-reduced-motion and says nothing to a screen reader, which
+// gets the status line below it instead.
+templ plaqueWait() {
+	<div class="plaque-wait" aria-hidden="true">
+		<span class="plaque-wait-ring"></span>
+		<span class="plaque-wait-ring plaque-wait-ring--late"></span>
+		<span class="plaque-wait-plaque">
+			<span class="font-display text-lg font-bold tracking-tight text-tappa-green">taptime</span>
+			<span class="mt-1 font-mono text-[9px] uppercase tracking-widest text-ink/70">Hold your phone here</span>
+		</span>
+		<span class="plaque-wait-phone"></span>
+	</div>
+}
+
+// Activated is what the ACTIVATING TAP renders (ADR 0025): this phone now has a
+// session. No button (§9): the next thing that happens is another touch on a
+// plaque, and that one is an ordinary check-in.
+templ Activated(v ActivatedView) {
+	@layout.Page("Activation complete — Taptime") {
+		<div class="wizard">
+			@activatedBody(v.EmployeeName, v.SecondDevice)
+		</div>
 	}
 }
 
-// Done is the confirmation. No button (skill tappa-brand): the next thing that
-// happens is a physical touch on a plaque, so there is nothing to press here.
-templ Done(v DoneView) {
-	@layout.Page("You're set up — Taptime") {
-		<section class="docket">
-			<p class="docket-label">Activated</p>
-			<h1 class="font-display text-2xl font-bold tracking-tight text-ink">
-				You're set, { v.EmployeeName }
-			</h1>
-			if v.LocationName != "" {
-				<p class="mt-1 text-ink/70">{ v.LocationName }</p>
-			}
-		</section>
-		@components.Notice(components.ToneOK, "This phone is now your time clock.") {
-			Hold it near the plaque at the door and press the one button you see. That is
-			the whole thing — there is nothing to install and nothing to remember.
+templ activatedBody(name string, secondDevice bool) {
+	<section class="docket wizard-panel">
+		<div class="flex items-start justify-between gap-3">
+			<p class="docket-label">Setup</p>
+			<span class="stamp stamp--approved">Activated</span>
+		</div>
+		<h1 class="mt-3 font-display text-3xl font-bold leading-tight tracking-tight text-ink">
+			Activation complete
+		</h1>
+		if name != "" {
+			<p class="mt-1 font-display text-base text-ink/85">You're all set, { name }.</p>
 		}
-		if v.WiFiSSID != "" {
-			@components.Card("") {
-				<p class="text-sm text-ink/85">
-					One last thing: connect to
-					<span class="num font-bold">{ v.WiFiSSID }</span>
-					when you are at work, so Taptime can see you are on site.
-				</p>
-			}
+	</section>
+	@components.Notice(components.ToneOK, "This phone is now your time clock.") {
+		To check in, tap the plaque again — that next tap counts.
+	}
+	if secondDevice {
+		@components.Notice(components.ToneWarn, "") {
+			Your other phone has been signed out. Only this one works now.
 		}
-		if v.SecondDevice {
-			@components.Notice(components.ToneWarn, "") {
-				Your other phone has been signed out. Only this one works now.
-			}
-		}
-		<p class="pt-2 text-center font-display text-lg tracking-tight text-ink/70">
-			All done — you can close this page.
-		</p>
 	}
-}
-
-// Tour is the mini tour (M5-07): three slides between a FIRST activation and the
-// confirmation. It teaches the product in the order somebody meets it — where to
-// put the phone, what to press, and what the first tap will be.
-//
-// IT STORES NOTHING AND IT CANNOT. No `transactions` row, no `audit_log` row and
-// no cookie is written on this path; the only thing remembered is which URL the
-// visitor is looking at. That is what makes the card's "the tour can be skipped"
-// true by construction rather than by promise — skipping and finishing are the
-// SAME act, following a link to /activate/done, so neither one changes a record.
-// TestTourDB_WritesNothing counts the rows across a full walk and across a skip.
-//
-// 🔴 WHY SLIDE THREE DOES NOT SAY "YOUR NEXT TAP WILL BE PRACTICE". Measured
-// rather than assumed (internal/domain/tap, isPracticeTap): a tap is practice
-// when the person has NO PRIOR RECORD AT ALL and the verdict is ok or flag. Three
-// measured consequences shaped the words:
-//
-//   - A REJECTED FIRST TAP SPENDS THE PRACTICE RUN. §4.6 records every decided
-//     tap and GetLastTransactionForEmployee carries no verdict predicate, so after
-//     a reject — a retired plaque, an invalid SUN, a deactivated account — the
-//     next tap is an ordinary one. Measured as the SEQUENCE, not deduced from two
-//     halves: TestTourDB_ARejectedFirstTapSpendsThePracticeRun drives a retired
-//     plaque, then the same plaque back in service, and reads practice=false off
-//     the second row.
-//   - SO DOES an `ignored` duplicate, an ordinary earlier `ok` or `flag`, and so
-//     would a manual record a manager enters first (M6-04, not reachable today).
-//   - SOMEBODY SETTING UP A SECOND PHONE has already tapped, so nothing about
-//     their next tap is a practice run. That case never reaches this screen:
-//     Submit sends a second-device activation straight to the confirmation. It is
-//     the one moment the difference is knowable — employees.status was already
-//     'active' (invite.Activation.SecondDeviceReplaced), and a person who has
-//     never been activated has never held a session and so has never tapped.
-//
-// What survives all three is what the slide actually says: the FIRST tap is a
-// practice run, a TRAINING mark means that tap does not count toward hours, and
-// the screen after a tap is what really happened. That last sentence is not
-// decoration — it points the employee at the one surface that REPORTS instead of
-// predicting (pages.Result, whose words are pinned in result_test.go).
-//
-// NO SCRIPT AND NO REMEMBERED PROGRESS. Advancing is a link and a GET, so the tour
-// works on a locked-down work phone with JavaScript switched off — the same
-// property the activation form has, for the same reason (layout.Page).
-templ Tour(v TourView) {
-	@layout.Page(TourPageTitle(v.Step)) {
-		<section class="docket">
-			<p class="docket-label">
-				Step { strconv.Itoa(v.Step) } of { strconv.Itoa(TourSteps) }
-			</p>
-			<h1 class="font-display text-2xl font-bold tracking-tight text-ink">
-				@tourHeading(v.Step)
-			</h1>
-		</section>
-		@components.Card("") {
-			@tourBody(v.Step)
-		}
-		@tourNav(v.Step)
-	}
-}
-
-// tourHeading, tourBody and tourNav all treat an UNKNOWN step as step one, and
-// they do it the same way on purpose: the handler already clamps, so a mismatch
-// between the three would only ever show up as a slide whose heading, words and
-// buttons disagreed about which slide it is.
-templ tourHeading(step int) {
-	switch step {
-		case 2:
-			One button
-		case 3:
-			First tap is practice
-		default:
-			Tap the plaque
-	}
-}
-
-templ tourBody(step int) {
-	switch step {
-		case 2:
-			<p class="mt-2 text-sm text-ink/85">
-				The page opens with your name on it and a single button. Press it — that is
-				the whole thing.
-			</p>
-			<p class="mt-2 text-sm text-ink/85">
-				Taptime works out whether you are arriving or leaving, so you never have to
-				choose.
-			</p>
-		case 3:
-			<p class="mt-2 text-sm text-ink/85">
-				Go ahead and try it: your first tap is a practice run.
-			</p>
-			<p class="mt-3">
-				<span class="stamp stamp--training">TRAINING</span>
-			</p>
-			<p class="mt-3 text-sm text-ink/85">
-				The screen marks a practice tap like that, and a TRAINING tap never counts
-				toward your hours.
-			</p>
-			<p class="mt-3 text-sm text-ink/70">
-				Whatever a tap turns out to be, the screen right after it says so.
-			</p>
-		default:
-			<p class="mt-2 text-sm text-ink/85">
-				Hold the top of your phone against the Taptime plaque by the door. Your phone
-				opens this page for you — there is nothing to install and nothing to
-				remember.
-			</p>
-			<p class="mt-3 text-sm text-ink/70">
-				If your phone does not react, ask your manager.
-			</p>
-	}
-}
-
-// tourNav is the only way forward and the only way out, and both are ANCHORS. A
-// link issues a GET and carries no body, so nothing on this screen can post
-// anything — the same rule pages.Problem keeps, for the same reason (§9: nothing
-// on a screen may produce an attendance record).
-//
-// EVERY HREF IS A LITERAL. Building "/activate/tour?step=" + a number in Go would
-// work, but a URL assembled outside the template is exactly the shape that put
-// four stamp classes out of the compiled stylesheet once already, and a literal
-// is also what lets a test pin the set of addresses these screens point at.
-templ tourNav(step int) {
-	switch step {
-		case 2:
-			<a href="/activate/tour?step=3" class="tap-button flex items-center justify-center">Next</a>
-			@tourSkip()
-		case 3:
-			<a href="/activate/done" class="tap-button flex items-center justify-center">Got it</a>
-		default:
-			<a href="/activate/tour?step=2" class="tap-button flex items-center justify-center">Next</a>
-			@tourSkip()
-	}
-}
-
-// tourSkip is the escape hatch the card asks for. It is 44px tall because that is
-// the smallest target skill tappa-brand allows, and quiet because leaving early
-// is a perfectly ordinary choice — the practice tap lands either way, which is
-// what TestTourDB_SkippingTheTourStillLeavesThePracticeFlag proves end to end.
-templ tourSkip() {
-	<a href="/activate/done" class="flex min-h-11 items-center justify-center text-sm text-ink/70">
-		Skip the tour
-	</a>
+	<p class="pt-2 text-center font-display text-lg tracking-tight text-ink/70">
+		You can close this page.
+	</p>
 }
 
 // Problem is every failure screen. The handler picks the words from a fixed set
@@ -364,12 +478,13 @@ templ tourSkip() {
 // internal/handler/activate_test.go.
 //
 // ONE TEMPLATE SERVES BOTH FLOWS, so a sentence added here appears on ALL of
-// them — ELEVEN screens, counted rather than guessed: five activation failures
-// (internal/handler/activate.go: problemNoLink, problemBadLink, problemTooMany,
-// problemNoSession, problemServer) and six tap failures (tap.go's tapProblem*).
-// An earlier version of this paragraph said "three activation failures", which
-// was wrong in exactly the way a field count that stops matching its struct is
-// wrong.
+// them — SIXTEEN screens since ADR 0025, counted rather than guessed: ten
+// activation failures (internal/handler/activate.go: problemNoLink,
+// problemBadLink, problemTooMany, problemServer and the six problemActivation*
+// refusals of the activating tap; problemNoSession went with /activate/done) and
+// six tap failures (tap.go's tapProblem*). Earlier versions of this paragraph
+// said "three" and then "five" activation failures, which was wrong in exactly
+// the way a field count that stops matching its struct is wrong.
 //
 // THAT REACH IS WHY THE COPY IS PINNED AS WHOLE TEXT rather than by keyword: an
 // audit added a plain sentence to this template and to two of the constants and
@@ -378,7 +493,7 @@ templ tourSkip() {
 // sentence added HERE — the cross-flow vector, the one that reaches all eleven —
 // is caught by those six.
 //
-// THE FIVE ACTIVATION CONSTANTS ARE NOT PINNED, and that is a scope decision
+// THE ACTIVATION CONSTANTS ARE NOT PINNED HERE, and that is a scope decision
 // rather than an oversight. Their words are M5-02's copy, that flow took four
 // audit rounds to settle, and a test written from here would quietly take
 // ownership of text this task never reviewed. What is checked from here is the

@@ -40,6 +40,7 @@ import (
 	"github.com/atknatk/tappa/internal/domain/checkin"
 	"github.com/atknatk/tappa/internal/domain/tenant"
 	"github.com/atknatk/tappa/internal/httpx"
+	"github.com/atknatk/tappa/internal/invite"
 	"github.com/atknatk/tappa/internal/session"
 	"github.com/atknatk/tappa/internal/store"
 	"github.com/atknatk/tappa/internal/sun"
@@ -95,6 +96,11 @@ type tapHarness struct {
 	employeeID uuid.UUID
 	tagUID     string
 	startCtr   int32
+	// invites and activation are the REAL activation flow, mounted on the same
+	// router (ADR 0025): the activating tap is GET /t, so "consent, then tap,
+	// then check in" only exists end to end on one router.
+	invites    *invite.Manager
+	activation *Activation
 }
 
 func newTapHarness(t *testing.T) *tapHarness {
@@ -161,15 +167,28 @@ func newTapHarness(t *testing.T) *tapHarness {
 	if err != nil {
 		t.Fatalf("checkin.New: %v", err)
 	}
-	tp, err := NewTap(sun.NewVerifier(data, kek), directory, sessions, checkins, trail, cfg,
+	// The activation flow is real too (ADR 0025): a phone holding a consented
+	// activation completes it on GET /t, so the tap page cannot be built without it.
+	invites, err := invite.New(data, cfg)
+	if err != nil {
+		t.Fatalf("invite.New: %v", err)
+	}
+	verifier := sun.NewVerifier(data, kek)
+	act, err := NewActivation(invites, sessions, verifier, trail, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatalf("NewActivation: %v", err)
+	}
+	tp, err := NewTap(verifier, directory, sessions, checkins, act, trail, cfg,
 		slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatalf("NewTap: %v", err)
 	}
 	r := chi.NewRouter()
 	tp.Mount(r)
+	act.Mount(r)
 
 	h := &tapHarness{
+		invites: invites, activation: act,
 		router: r, cfg: cfg, tap: tp, checkins: checkins, trail: trail, data: data, cookies: session.NewCookies(cfg), sessions: sessions,
 		tenantID: uuid.New(), locationID: uuid.New(), employeeID: uuid.New(),
 		startCtr: 700,

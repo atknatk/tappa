@@ -171,13 +171,90 @@ func newTapHandler(t *testing.T, pv *fakePreviewer, dir *fakeDirectory, sess *fa
 func newTapHandlerWithAudit(t *testing.T, pv *fakePreviewer, dir *fakeDirectory, sess *fakeSessions) (http.Handler, *Tap, *fakeAudit) {
 	t.Helper()
 	rec := &fakeAudit{}
-	tp, err := NewTap(pv, dir, sess, &fakeCheckins{}, rec, tapCfg(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	tp, err := NewTap(pv, dir, sess, &fakeCheckins{}, noActivation{}, rec, tapCfg(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatalf("NewTap: %v", err)
 	}
 	r := chi.NewRouter()
 	tp.Mount(r)
 	return r, tp, rec
+}
+
+// noActivation is the activation flow for a phone with nothing pending — the
+// ordinary state of every phone after its first tap.
+type noActivation struct{}
+
+func (noActivation) Pending(*http.Request) bool { return false }
+func (noActivation) CompleteByTap(http.ResponseWriter, *http.Request, sun.Params) {
+	panic("CompleteByTap reached for a phone with no pending activation")
+}
+
+// pendingActivation stands in for a browser holding a CONSENTED activation (ADR
+// 0020). It records what the tap page handed it.
+type pendingActivation struct {
+	calls int
+	got   sun.Params
+}
+
+func (*pendingActivation) Pending(*http.Request) bool { return true }
+func (p *pendingActivation) CompleteByTap(w http.ResponseWriter, _ *http.Request, sp sun.Params) {
+	p.calls++
+	p.got = sp
+	w.WriteHeader(http.StatusTeapot)
+}
+
+// TestTapPage_APendingActivationTakesTheTap: a browser that consented in the
+// wizard completes its activation with the tap — before §5 row 3's redirect, and
+// whatever session it carries — and the page's own preview, directory read and
+// context minting never run for it (ADR 0025).
+func TestTapPage_APendingActivationTakesTheTap(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		sess    *fakeSessions
+		cookies []*http.Cookie
+	}{
+		{"no session", &fakeSessions{}, nil},
+		{"a live session of somebody", &fakeSessions{}, []*http.Cookie{sessionCookie()}},
+		{"a revoked session", &fakeSessions{verify: func() (session.Resolved, error) {
+			return session.Resolved{ID: uuid.New(), TenantID: testTenant, EmployeeID: testEmployee}, session.ErrRevoked
+		}}, []*http.Cookie{sessionCookie()}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			pv := &fakePreviewer{preview: okPreview(true)}
+			act := &pendingActivation{}
+			tp, err := NewTap(pv, &fakeDirectory{facts: okFacts()}, tc.sess, &fakeCheckins{}, act, &fakeAudit{},
+				tapCfg(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+			if err != nil {
+				t.Fatalf("NewTap: %v", err)
+			}
+			r := chi.NewRouter()
+			tp.Mount(r)
+
+			w := get(t, r, tapURL(), tc.cookies...)
+			if w.Code != http.StatusTeapot || act.calls != 1 {
+				t.Fatalf("status %d, CompleteByTap calls %d — want the activation to take the tap", w.Code, act.calls)
+			}
+			if act.got.UID != tapUID || !act.got.HasSUN() {
+				t.Errorf("the parsed SUN URL did not reach the activation: %+v", act.got)
+			}
+			if pv.calls != 0 {
+				t.Errorf("the non-advancing preview ran %d times for an activating tap", pv.calls)
+			}
+		})
+	}
+}
+
+// TestNewTap_RequiresTheActivationFlow: without it a consented activation could
+// never complete, so its absence is a boot error.
+func TestNewTap_RequiresTheActivationFlow(t *testing.T) {
+	var typedNil *pendingActivation
+	for _, a := range []tapActivation{nil, typedNil} {
+		_, err := NewTap(&fakePreviewer{preview: okPreview(true)}, &fakeDirectory{facts: okFacts()},
+			&fakeSessions{}, &fakeCheckins{}, a, &fakeAudit{}, tapCfg(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+		if err == nil {
+			t.Errorf("NewTap accepted a nil activation flow (%T)", a)
+		}
+	}
 }
 
 // sessionCookie is what a phone that has activated carries.
@@ -255,7 +332,7 @@ func TestTapPage_LiveSessionOfADeactivatedEmployeeStillRenders(t *testing.T) {
 // exactly that wiring mistake.
 func TestTapPage_UnresolvedIdentityIsNotNoSession(t *testing.T) {
 	tp, err := NewTap(&fakePreviewer{preview: okPreview(true)}, &fakeDirectory{facts: okFacts()},
-		&fakeSessions{}, &fakeCheckins{}, &fakeAudit{}, tapCfg(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+		&fakeSessions{}, &fakeCheckins{}, noActivation{}, &fakeAudit{}, tapCfg(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatalf("NewTap: %v", err)
 	}
@@ -623,7 +700,7 @@ func TestTapPage_IsNotCached(t *testing.T) {
 // hand-off 6).
 func TestTapPage_RateLimitIsMountedAndBranded(t *testing.T) {
 	tp, err := NewTap(&fakePreviewer{preview: okPreview(true)}, &fakeDirectory{facts: okFacts()},
-		&fakeSessions{}, &fakeCheckins{}, &fakeAudit{}, tapCfg(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+		&fakeSessions{}, &fakeCheckins{}, noActivation{}, &fakeAudit{}, tapCfg(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatalf("NewTap: %v", err)
 	}
@@ -787,7 +864,7 @@ func TestNewTap_RefusesATypedNilAuditRecorder(t *testing.T) {
 	var typedNil *audit.Recorder // nil pointer, non-nil interface once passed
 
 	_, err := NewTap(&fakePreviewer{preview: okPreview(true)}, &fakeDirectory{facts: okFacts()},
-		&fakeSessions{}, &fakeCheckins{}, typedNil, tapCfg(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+		&fakeSessions{}, &fakeCheckins{}, noActivation{}, typedNil, tapCfg(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err == nil {
 		t.Fatal("a typed-nil audit recorder was accepted: the trail would fail at the first " +
 			"refused tap instead of at startup")
@@ -829,7 +906,7 @@ func TestTapPage_CarriesAContentPolicy(t *testing.T) {
 // now a startup error, so it cannot be made again by leaving an argument out.
 func TestNewTap_RefusesANilAuditRecorder(t *testing.T) {
 	_, err := NewTap(&fakePreviewer{preview: okPreview(true)}, &fakeDirectory{facts: okFacts()},
-		&fakeSessions{}, &fakeCheckins{}, nil, tapCfg(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+		&fakeSessions{}, &fakeCheckins{}, noActivation{}, nil, tapCfg(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err == nil {
 		t.Fatal("a nil audit recorder was accepted: half of an accepted M5-03 criterion would silently not happen")
 	}
@@ -844,7 +921,7 @@ func TestTapPage_MountOrderMetersTheSession(t *testing.T) {
 	// STABLE one — a fresh uuid per request would silently spread three requests
 	// across three buckets and the test would pass while measuring nothing.
 	tp, err := NewTap(&fakePreviewer{preview: okPreview(true)}, &fakeDirectory{facts: okFacts()},
-		fixedSessions(), &fakeCheckins{}, &fakeAudit{}, tapCfg(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+		fixedSessions(), &fakeCheckins{}, noActivation{}, &fakeAudit{}, tapCfg(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatalf("NewTap: %v", err)
 	}

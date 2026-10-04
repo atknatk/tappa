@@ -412,6 +412,15 @@ type Querier interface {
 	//
 	// This is the ONLY statement in db/queries that writes employee_invites.used_at
 	// (greppable), which is what makes the un-consume limit in the header hold.
+	//
+	// CONSENT IS PART OF THE PREDICATE (ADR 0025, migration 00030). Activation now
+	// happens on the first NFC tap, not on the form, so the statement also requires
+	// the consent the wizard recorded AND the binding of the browser that recorded
+	// it. Both live in the same WHERE as used_at for the reason the rest of this
+	// statement does: a read-then-write ("was consent given?" in Go, then consume)
+	// would be the tags.last_ctr TOCTOU again. No path through the generated store
+	// can activate an employee whose invitation was not consented to by the browser
+	// presenting it.
 	ConsumeInviteAndActivate(ctx context.Context, arg ConsumeInviteAndActivateParams) (ConsumeInviteAndActivateRow, error)
 	// THE reset statement, and the most critical query in M7-04. ONE statement does all
 	// three halves -- spend the token, retire its siblings, write the new digest -- so
@@ -2026,7 +2035,7 @@ type Querier interface {
 	// later" -- and a closing 'out' closes it whatever flag it carries. It is also moot
 	// today: a practice row is ALWAYS type='in' (tap.isPracticeTap requires no prior
 	// tap and no open check-in, so resolveDirection cannot return 'out' for it), pinned
-	// by TestDecide_PracticeIsAlwaysAnIn.
+	// by TestDecide_NoNewRecordIsEverPractice.
 	//
 	// COST, MEASURED (EXPLAIN (ANALYZE, BUFFERS), 5001 rows for one person, ADR 0008):
 	// the predicate NEVER narrows the index range -- `practice` is not in
@@ -2716,6 +2725,11 @@ type Querier interface {
 	// for aes_key_ref's reason (this file's header): a wrapped key does not travel back
 	// out through a query result.
 	InsertUnassigned(ctx context.Context, arg InsertUnassignedParams) (InsertUnassignedRow, error)
+	// A READ used ONLY to label a refused activation for audit_log (internal/invite
+	// classify): "nobody consented / another browser consented" versus the other
+	// refusals. It is NOT a gate -- the gate is the consuming statement's own WHERE,
+	// and nothing branches on this value before consuming.
+	InviteConsentMatches(ctx context.Context, arg InviteConsentMatchesParams) (bool, error)
 	// Every session of one admin, newest first: the read side of "sign out everywhere"
 	// and of the panel's device list. Revoked rows are included on purpose; the caller
 	// filters on revoked_at, so the history stays visible (section 4.6).
@@ -4367,6 +4381,21 @@ type Querier interface {
 	// RETURNING id, at: the caller logs the id (a stable, non-secret handle) instead
 	// of the payload, and `at` lets a test assert the row exists without re-reading.
 	RecordAuditEvent(ctx context.Context, arg RecordAuditEventParams) (RecordAuditEventRow, error)
+	// The wizard's consent POST (ADR 0025). It records WHEN the employee agreed to the
+	// GDPR Art. 13 notice and WHICH browser did (the HMAC of a token that lives only in
+	// that browser's HttpOnly cookie). It consumes NOTHING and activates NOBODY:
+	// used_at is not in its SET list and employees is not touched.
+	//
+	// The same liveness predicate as the consuming statement, so consent cannot be
+	// recorded against an invitation that could never be completed (spent, retired,
+	// expired, or an employee who is deactivated). Re-consenting from another browser
+	// is allowed and MOVES the binding: the last browser to agree is the one whose tap
+	// can complete the activation. That is deliberate -- the person may have started
+	// in a chat app's in-app browser and finished in the phone's real one.
+	//
+	// code_hash and consent_binding_hash are matched or written, never returned
+	// (section 4.7).
+	RecordInviteConsent(ctx context.Context, arg RecordInviteConsentParams) (RecordInviteConsentRow, error)
 	// Change a customer policy's NAME, and only a customer's.
 	//
 	// 🔴 IT EXISTS BECAUSE THE CONFIRMATION SCREEN PROMISED IT. The authoring form makes

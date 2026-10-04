@@ -68,6 +68,35 @@ type ActivateView struct {
 	// form returns for an unrelated reason.
 	SwitchMissing   bool
 	SwitchConfirmed bool
+
+	// Step is the wizard screen (ADR 0025): 1..ActivateSteps, or ActivateStepTap
+	// for the waiting screen. The handler clamps it; the template treats anything
+	// it does not know as step 1.
+	Step int
+	// Consented is true once THIS browser has agreed to the notice (it holds the
+	// consent binding). Steps 3 and 4 exist only then.
+	Consented bool
+	// StatusURL is what the waiting screen's script polls. A same-origin path,
+	// handed in rather than typed into the template so route and page agree.
+	StatusURL string
+}
+
+// ActivateSteps is how many wizard steps precede the waiting screen, and
+// ActivateStepTap is the waiting screen itself ("now tap the plaque"). The
+// progress bar draws ActivateStepTap segments, so the waiting screen reads as the
+// last step rather than as something after the wizard.
+const (
+	ActivateSteps   = 3
+	ActivateStepTap = 4
+)
+
+// ActivatedView is the confirmation the ACTIVATING TAP renders (ADR 0025). It has
+// no button by construction (§9): the next thing that happens is another touch on
+// a plaque, and that one is an ordinary check-in.
+type ActivatedView struct {
+	EmployeeName string
+	// SecondDevice reports that the employee's other phone was signed out.
+	SecondDevice bool
 }
 
 // ConfirmView is the same-site confirmation step: a cross-site navigation
@@ -93,63 +122,6 @@ type ConfirmView struct {
 	Code         string
 	EmployeeName string
 	EmployerName string
-}
-
-// DoneView is the confirmation after a successful activation.
-type DoneView struct {
-	EmployeeName string
-	LocationName string
-	// WiFiSSID repeats the network name as a reminder, or "" when there is none.
-	WiFiSSID string
-	// SecondDevice reports that other phones were signed out, so the person is
-	// not surprised later.
-	SecondDevice bool
-}
-
-// TourSteps is how many slides the mini tour has (M5-07's card: "Tap the plaque"
-// -> "One button" -> "First tap is practice").
-//
-// IT IS A CONSTANT BECAUSE THE SLIDES COUNT THEMSELVES OUT LOUD. Every slide
-// renders "Step N of TourSteps", so a number typed into the prose would be a
-// second source of truth that drifts the moment a slide is added — the failure
-// mode agent-brief.md lists as its own class of finding. The handler clamps
-// against this same constant, and TestTour_HasExactlyTourStepsSlides ties it to
-// the slides that actually render.
-const TourSteps = 3
-
-// TourView is one slide of the mini tour shown right after a first activation.
-//
-// ONE FIELD, AND IT CARRIES NO PERSONAL DATA AT ALL — not a name, not a venue,
-// not an id. That is the strongest form of this package's §4.7 rule: the other
-// views promise "no field a secret could travel in", and this one has no field a
-// PERSON could travel in either. The tour teaches; it reports nothing, so it
-// needs to know nothing. The consequence is that the whole tour is literals from
-// activate.templ, and the only value reaching the template from a request is a
-// small integer the handler has already clamped.
-//
-// IT IS ALSO WHY THE TOUR NEEDS NO WRITE OF ANY KIND. There is no progress to
-// remember: which slide you are on is the URL you are looking at, so skipping and
-// finishing are the same act — following a link — and neither leaves a
-// `transactions` row, an `audit_log` row or a cookie behind.
-type TourView struct {
-	// Step is 1..TourSteps. The handler clamps anything else to 1 rather than
-	// erroring: a mistyped step is not a failure worth a screen.
-	Step int
-}
-
-// TourPageTitle is the browser title for one slide. It lives in Go rather than in
-// the template because layout.Page takes the title as a value; the SLIDES
-// themselves are literals in activate.templ, where Tailwind can see their classes
-// (see the note on ResultView for what happens to a class name that lives here).
-func TourPageTitle(step int) string {
-	switch step {
-	case 2:
-		return "One button — Taptime"
-	case 3:
-		return "Your first tap — Taptime"
-	default:
-		return "How Taptime works — Taptime"
-	}
 }
 
 // TapView is the tap screen — the one an employee sees several times a day, and

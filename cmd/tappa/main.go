@@ -315,7 +315,11 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	activation, err := handler.NewActivation(invites, sessions, trail, cfg, slog.Default())
+	// ONE verifier for both consumers below. The activation flow gets it whole
+	// because the activating tap (ADR 0025) must run the ATOMIC counter advance;
+	// the tap page gets it through an interface that names only the preview.
+	verifier := sun.NewVerifier(data, cfg.TagKEK, cfg.TagKEKPrevious)
+	activation, err := handler.NewActivation(invites, sessions, verifier, trail, cfg, slog.Default())
 	if err != nil {
 		return err
 	}
@@ -345,7 +349,7 @@ func run() error {
 	// An open window is ANNOUNCED, repeatedly, for the whole time it stays open:
 	// see announceKEKRotationWindow.
 	go announceKEKRotationWindow(ctx, len(cfg.TagKEKPrevious) > 0, slog.Default())
-	tap, err := handler.NewTap(sun.NewVerifier(data, cfg.TagKEK, cfg.TagKEKPrevious), directory, sessions, checkins, trail, cfg, slog.Default())
+	tap, err := handler.NewTap(verifier, directory, sessions, checkins, activation, trail, cfg, slog.Default())
 	if err != nil {
 		return err
 	}

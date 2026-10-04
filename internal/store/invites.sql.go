@@ -100,6 +100,8 @@ WITH consumed AS (
       AND used_at IS NULL
       AND cancelled_at IS NULL
       AND now() < expires_at
+      AND consented_at IS NOT NULL
+      AND consent_binding_hash = $3::text
       AND EXISTS (SELECT 1 FROM employees e
                   WHERE e.id = employee_invites.employee_id
                     AND e.tenant_id = employee_invites.tenant_id
@@ -119,8 +121,9 @@ RETURNING e.id, e.tenant_id, e.location_id, e.department_id, e.full_name,
 `
 
 type ConsumeInviteAndActivateParams struct {
-	TenantID uuid.UUID
-	CodeHash string
+	TenantID           uuid.UUID
+	CodeHash           string
+	ConsentBindingHash string
 }
 
 type ConsumeInviteAndActivateRow struct {
@@ -286,8 +289,17 @@ type ConsumeInviteAndActivateRow struct {
 //
 // This is the ONLY statement in db/queries that writes employee_invites.used_at
 // (greppable), which is what makes the un-consume limit in the header hold.
+//
+// CONSENT IS PART OF THE PREDICATE (ADR 0025, migration 00030). Activation now
+// happens on the first NFC tap, not on the form, so the statement also requires
+// the consent the wizard recorded AND the binding of the browser that recorded
+// it. Both live in the same WHERE as used_at for the reason the rest of this
+// statement does: a read-then-write ("was consent given?" in Go, then consume)
+// would be the tags.last_ctr TOCTOU again. No path through the generated store
+// can activate an employee whose invitation was not consented to by the browser
+// presenting it.
 func (q *Queries) ConsumeInviteAndActivate(ctx context.Context, arg ConsumeInviteAndActivateParams) (ConsumeInviteAndActivateRow, error) {
-	row := q.db.QueryRow(ctx, consumeInviteAndActivate, arg.TenantID, arg.CodeHash)
+	row := q.db.QueryRow(ctx, consumeInviteAndActivate, arg.TenantID, arg.CodeHash, arg.ConsentBindingHash)
 	var i ConsumeInviteAndActivateRow
 	err := row.Scan(
 		&i.ID,
@@ -528,6 +540,31 @@ func (q *Queries) GetInviteRecipient(ctx context.Context, arg GetInviteRecipient
 	return i, err
 }
 
+const inviteConsentMatches = `-- name: InviteConsentMatches :one
+SELECT (consented_at IS NOT NULL
+        AND consent_binding_hash IS NOT DISTINCT FROM $1::text)::boolean AS matches
+FROM employee_invites
+WHERE code_hash = $2
+  AND tenant_id = $3
+`
+
+type InviteConsentMatchesParams struct {
+	ConsentBindingHash string
+	CodeHash           string
+	TenantID           uuid.UUID
+}
+
+// A READ used ONLY to label a refused activation for audit_log (internal/invite
+// classify): "nobody consented / another browser consented" versus the other
+// refusals. It is NOT a gate -- the gate is the consuming statement's own WHERE,
+// and nothing branches on this value before consuming.
+func (q *Queries) InviteConsentMatches(ctx context.Context, arg InviteConsentMatchesParams) (bool, error) {
+	row := q.db.QueryRow(ctx, inviteConsentMatches, arg.ConsentBindingHash, arg.CodeHash, arg.TenantID)
+	var matches bool
+	err := row.Scan(&matches)
+	return matches, err
+}
+
 const listPendingInvitesForEmployee = `-- name: ListPendingInvitesForEmployee :many
 SELECT id, tenant_id, employee_id, created_at, expires_at
 FROM employee_invites
@@ -623,4 +660,52 @@ SELECT pg_advisory_xact_lock(hashtextextended('invite-limits:' || ($1::uuid)::te
 func (q *Queries) LockTenantForInviteLimits(ctx context.Context, tenantID uuid.UUID) error {
 	_, err := q.db.Exec(ctx, lockTenantForInviteLimits, tenantID)
 	return err
+}
+
+const recordInviteConsent = `-- name: RecordInviteConsent :one
+UPDATE employee_invites
+SET consented_at         = now(),
+    consent_binding_hash = $1::text
+WHERE employee_invites.code_hash = $2
+  AND employee_invites.tenant_id = $3
+  AND employee_invites.used_at IS NULL
+  AND employee_invites.cancelled_at IS NULL
+  AND now() < employee_invites.expires_at
+  AND EXISTS (SELECT 1 FROM employees e
+              WHERE e.id = employee_invites.employee_id
+                AND e.tenant_id = employee_invites.tenant_id
+                AND e.status IN ('invited', 'active'))
+RETURNING employee_invites.id, employee_invites.consented_at
+`
+
+type RecordInviteConsentParams struct {
+	ConsentBindingHash string
+	CodeHash           string
+	TenantID           uuid.UUID
+}
+
+type RecordInviteConsentRow struct {
+	ID          uuid.UUID
+	ConsentedAt *time.Time
+}
+
+// The wizard's consent POST (ADR 0025). It records WHEN the employee agreed to the
+// GDPR Art. 13 notice and WHICH browser did (the HMAC of a token that lives only in
+// that browser's HttpOnly cookie). It consumes NOTHING and activates NOBODY:
+// used_at is not in its SET list and employees is not touched.
+//
+// The same liveness predicate as the consuming statement, so consent cannot be
+// recorded against an invitation that could never be completed (spent, retired,
+// expired, or an employee who is deactivated). Re-consenting from another browser
+// is allowed and MOVES the binding: the last browser to agree is the one whose tap
+// can complete the activation. That is deliberate -- the person may have started
+// in a chat app's in-app browser and finished in the phone's real one.
+//
+// code_hash and consent_binding_hash are matched or written, never returned
+// (section 4.7).
+func (q *Queries) RecordInviteConsent(ctx context.Context, arg RecordInviteConsentParams) (RecordInviteConsentRow, error) {
+	row := q.db.QueryRow(ctx, recordInviteConsent, arg.ConsentBindingHash, arg.CodeHash, arg.TenantID)
+	var i RecordInviteConsentRow
+	err := row.Scan(&i.ID, &i.ConsentedAt)
+	return i, err
 }

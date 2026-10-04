@@ -309,13 +309,14 @@ func newSeedFlow(t *testing.T) *seedFlow {
 	if err != nil {
 		t.Fatalf("checkin.New: %v", err)
 	}
-	tp, err := NewTap(sun.NewVerifier(data, kek), directory, sessions, checkins, trail, cfg, quiet)
-	if err != nil {
-		t.Fatalf("NewTap: %v", err)
-	}
-	act, err := NewActivation(invites, sessions, trail, cfg, quiet)
+	verifier := sun.NewVerifier(data, kek)
+	act, err := NewActivation(invites, sessions, verifier, trail, cfg, quiet)
 	if err != nil {
 		t.Fatalf("NewActivation: %v", err)
+	}
+	tp, err := NewTap(verifier, directory, sessions, checkins, act, trail, cfg, quiet)
+	if err != nil {
+		t.Fatalf("NewTap: %v", err)
 	}
 
 	srv := httptest.NewServer(httpx.NewRouter(cfg, nil, tp, act))

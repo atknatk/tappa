@@ -7,13 +7,15 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/invite"
 )
 
-// The activation cookie: the short-lived carrier of the invite code between
-// GET /activate and POST /api/activate.
+// The activation cookie: the carrier of the invite code (and, after consent, the
+// consent binding — ADR 0025) between GET /activate, the consent POST and the
+// first NFC tap on GET /t that completes the activation.
 //
 // WHY THE CODE TRAVELS IN A COOKIE AND NOT IN THE FORM. The obvious design puts
 // the code in a hidden input and posts it back. That works, and it puts a §4.7
@@ -99,8 +101,16 @@ import (
 //     one-shot marker. Making the form say WHOSE activation this is (it does) is
 //     the mitigation that exists now; it is not a substitute for that decision.
 //
-// The cookie value is "<csrf>.<code>". Both halves are 43-character base64url,
-// and '.' is outside that alphabet, so the split is unambiguous.
+//     ✅ ADR 0025 TOOK THAT DECISION for the case that matters most now that a tap
+//     ACTIVATES: completion needs the consent BINDING, which only the CSRF-checked
+//     consent POST mints and which a cross-site GET cannot plant. A planted code
+//     therefore makes a tap fall through to §5 row 3 (the wizard, naming the
+//     stranger) and never completes an activation. Rendering that stranger's
+//     wizard remains possible, as before.
+//
+// The cookie value is "<csrf>.<code>", and after consent (ADR 0025)
+// "<csrf>.<code>.<binding>". Every part is 43-character base64url, and '.' is
+// outside that alphabet, so the split is unambiguous.
 //
 // KNOWN LIMIT — COOKIE SHADOWING, deliberately not addressed here. A page on a
 // SUBDOMAIN (or anything that can write a Domain-scoped cookie for this site) can
@@ -153,11 +163,20 @@ const (
 	// one never disturbs the other.
 	activationCookieName = "tappa_activation"
 
-	// activationCookieMaxAge is 15 minutes. It only has to survive the time
-	// between opening the link and reading two screens of text, and a shorter
-	// window shrinks the period in which a shared phone left unlocked on a
-	// counter carries someone else's activation credential.
-	activationCookieMaxAge = 15 * 60
+	// activationCookieCeiling caps the cookie's lifetime. Since ADR 0025 the
+	// cookie lives UNTIL THE INVITATION EXPIRES (user decision): activation now
+	// completes on the first NFC tap, which may be the next shift rather than the
+	// next minute, so a 15-minute cookie would strand an employee who consented
+	// at home and taps at work. The invitation's own expires_at is the natural
+	// bound — past it the code is dead anyway — and this ceiling only guards a
+	// caller that hands over a zero or absurd expiry. It matches internal/invite's
+	// maximum TTL.
+	//
+	// THE COST, stated: a shared phone left unlocked now carries a pending
+	// activation for days, not minutes. What it carries is bounded: completing it
+	// still needs a genuine NFC tap on one of that employer's plaques (SUN, §4.4),
+	// and the cookie is cleared the moment the activation completes.
+	activationCookieCeiling = 30 * 24 * time.Hour
 )
 
 // activationState is what the cookie carries: the invite code and the
@@ -200,7 +219,16 @@ const (
 type activationState struct {
 	csrf string
 	code invite.Code
+	// binding is the consent binding (ADR 0025), present only after this browser
+	// agreed to the notice. Its presence is what makes an activation PENDING: the
+	// next NFC tap from this browser completes it. Same redaction as the code.
+	binding    invite.Binding
+	hasBinding bool
 }
+
+// pending reports whether this browser has consented and is waiting for its
+// first tap.
+func (st activationState) pending() bool { return st.hasBinding }
 
 // newCSRFToken draws a fresh synchronizer token. It MUST NOT be derived from the
 // code: an attacker who plants a cookie knows their own code, so a derived token
@@ -232,7 +260,7 @@ type codeCookies struct {
 // session.NewCookies row for row (prod is always Secure; a non-prod deployment
 // served over plain http relaxes so http://localhost works). The two are
 // deliberately independent codecs rather than one shared type: the session cookie
-// lives a year and the activation cookie fifteen minutes, and a shared type would
+// lives a year and the activation cookie until its invitation expires, and a shared type would
 // grow parameters until neither guarantee was legible.
 //
 // The same residual gap applies and is not papered over: a Config that skipped
@@ -252,16 +280,59 @@ func (c codeCookies) secure() bool { return !c.insecure }
 // nowhere else in this package.
 // set takes the raw code as a plain argument rather than inside a struct, so the
 // only place it is spelled as a string is the one line that writes the header.
-func (c codeCookies) set(w http.ResponseWriter, csrf, rawCode string) {
+//
+// rawBinding is "" before consent and the freshly minted binding after it; the
+// value is then "<csrf>.<code>.<binding>". expires is the invitation's own
+// expiry (ADR 0025): the cookie dies with the code it carries.
+func (c codeCookies) set(w http.ResponseWriter, csrf, rawCode, rawBinding string, expires time.Time) {
+	value := csrf + "." + rawCode
+	if rawBinding != "" {
+		value += "." + rawBinding
+	}
 	http.SetCookie(w, &http.Cookie{
 		Name:     activationCookieName,
-		Value:    csrf + "." + rawCode,
+		Value:    value,
 		Path:     "/",
-		MaxAge:   activationCookieMaxAge,
+		MaxAge:   activationCookieMaxAge(expires, time.Now()),
 		HttpOnly: true,
 		Secure:   c.secure(),
 		SameSite: http.SameSiteLaxMode,
 	})
+}
+
+// activationCookieMaxAge is the seconds left until the invitation expires,
+// bounded by activationCookieCeiling. An expiry already in the past yields 1
+// rather than 0 or a negative number: net/http reads MaxAge 0 as "no Max-Age at
+// all" (a SESSION cookie that could outlive the code) and a negative one as a
+// deletion; one second is the honest "this is about to be dead".
+func activationCookieMaxAge(expires, now time.Time) int {
+	left := expires.Sub(now)
+	if left > activationCookieCeiling {
+		left = activationCookieCeiling
+	}
+	secs := int(left / time.Second)
+	if secs < 1 {
+		return 1
+	}
+	return secs
+}
+
+// rebind rewrites the activation cookie with a new consent binding ("" removes
+// it), keeping the synchronizer token and the code the request already carried.
+// It re-reads the RAW cookie rather than taking the code as an argument, so the
+// code is never handed back out of its redacting type: it moves from one header
+// to the next as a function local (the same discipline as set). A request
+// without a well-formed cookie writes nothing.
+func (c codeCookies) rebind(w http.ResponseWriter, r *http.Request, rawBinding string, expires time.Time) {
+	ck, err := r.Cookie(activationCookieName)
+	if err != nil {
+		return
+	}
+	parts := strings.Split(ck.Value, ".")
+	if (len(parts) != 2 && len(parts) != 3) || parts[0] == "" || parts[1] == "" {
+		return
+	}
+	c.set(w, parts[0], parts[1], rawBinding, expires)
 }
 
 // read lifts the state off a request. The second result is false when the cookie
@@ -276,12 +347,22 @@ func (c codeCookies) read(r *http.Request) (activationState, bool) {
 	if err != nil || ck.Value == "" {
 		return activationState{}, false
 	}
-	csrf, code, ok := strings.Cut(ck.Value, ".")
-	if !ok || csrf == "" || code == "" {
+	parts := strings.Split(ck.Value, ".")
+	if len(parts) != 2 && len(parts) != 3 {
 		return activationState{}, false
 	}
-	// Wrapped immediately: the raw code is a local for exactly one statement.
-	return activationState{csrf: csrf, code: invite.ParseCode(code)}, true
+	for _, p := range parts {
+		if p == "" {
+			return activationState{}, false
+		}
+	}
+	// Wrapped immediately: the raw values are locals for exactly one statement.
+	st := activationState{csrf: parts[0], code: invite.ParseCode(parts[1])}
+	if len(parts) == 3 {
+		st.binding = invite.ParseBinding(parts[2])
+		st.hasBinding = true
+	}
+	return st, true
 }
 
 // csrfMatches compares the token the form sent with the one in the cookie, in

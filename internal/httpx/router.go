@@ -131,7 +131,7 @@ func NewRouter(cfg *config.Config, log *slog.Logger, features ...Mounter) http.H
 	}
 
 	// Roadmap: POST /api/checkin (M5-05), dashboard routes. See docs/handoff.md
-	// §8. /activate, /activate/done and /api/activate are mounted by
+	// §8. /activate, /activate/status and /api/activate are mounted by
 	// internal/handler.Activation (M5-02); GET /t by internal/handler.Tap
 	// (M5-04).
 	//

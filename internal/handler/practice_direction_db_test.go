@@ -15,6 +15,11 @@ package handler
 // `AND NOT t.practice` in GetLastOpenTransaction. This file is the pin: the same
 // two arms that measured the defect, now measured through checkin.Service.Record.
 //
+// SINCE ADR 0025 THE ENGINE WRITES NO PRACTICE ROW (the activating NFC tap replaced
+// the training tap), so the training row each arm needs is SEEDED as the historic
+// row it now can only be — transactions are immutable (§4.3), so every practice row
+// written before ADR 0025 is still there and still read by this query.
+//
 // WHY THE MANUAL CHANNEL AND NOT HTTP TAPS. ADR 0006 measures the person-debounce
 // on the SERVER clock over `channel IN ('nfc','qr')` rows, so three NFC taps by one
 // person cost two real waits (~62 s). A manual row is exempt from that leg — which
@@ -38,7 +43,6 @@ import (
 
 	"github.com/atknatk/tappa/internal/domain/checkin"
 	"github.com/atknatk/tappa/internal/domain/tap"
-	"github.com/atknatk/tappa/internal/invite"
 	"github.com/atknatk/tappa/test/fixtures"
 )
 
@@ -104,18 +108,12 @@ func TestSeedDB_APracticeRowNeverHidesAnOlderOpenCheckIn(t *testing.T) {
 			p := f.hire(t, "Practice Chain", venue.ID, "active")
 
 			practiceAt := now.Add(a.practiceAt)
-			training := f.enterManually(t, p.id, plaque, &practiceAt)
-			if !training.Decision.Practice {
-				t.Fatalf("precondition: the person's first record must be the TRAINING tap, practice = false")
-			}
-			if training.Decision.Type == nil || *training.Decision.Type != tap.TypeIn {
-				t.Fatalf("precondition: a practice record is always an `in`, got %v", show(training.Decision.Type))
-			}
+			f.seedHistoricPractice(t, p.id, venue.ID, plaque, practiceAt)
 
 			realIn := now.Add(-3 * time.Hour)
 			entry := f.enterManually(t, p.id, plaque, &realIn)
 			if entry.Decision.Practice {
-				t.Fatal("the SECOND record is still marked TRAINING: the practice run is spent by any prior row")
+				t.Fatal("the engine wrote a TRAINING record; ADR 0025 retired the practice tap")
 			}
 			if entry.Decision.Type == nil || *entry.Decision.Type != tap.TypeIn {
 				t.Fatalf("the real check-in came out as %v, want in — a training tap must not hold the chain open",
@@ -146,27 +144,15 @@ func TestSeedDB_APracticeRowNeverHidesAnOlderOpenCheckIn(t *testing.T) {
 	}
 }
 
-// TestSeedDB_ASecondActivationIsNotASecondPracticeRun measures the sentence the
-// M5-11 card got wrong, and it is here rather than in the card's history because
-// the card's "real-life scenario" made the defect look reachable by a route it is
-// not reachable by.
+// TestSeedDB_ASecondActivationWritesNoRecordAndLeavesTheChainAlone: somebody who
+// loses their phone and activates a new one (the second-device path) gets NO record
+// for the activating tap and no training row after it (ADR 0025), activated_at does
+// not move, and their next tap toggles against the check-in that was already open.
 //
-// The card said: employee checks in -> loses the phone -> re-activates on a new one
-// -> "the first record after activation is practice=true by definition", so the
-// checkout is a training tap and the entry never closes. MEASURED: it is not. The
-// practice run is spent by the person's FIRST RECORD EVER, not by each activation.
-// Two independent reasons, either alone sufficient:
-//
-//	tap.isPracticeTap requires LastForPerson == nil, and a re-activated employee
-//	has a history.
-//	ConsumeInviteAndActivate COALESCEs activated_at, so a second activation does
-//	not even move the stamp the rule reads.
-//
-// This does NOT make the defect theoretical — it was reachable over plain HTTP with
-// one back-dated occurred_at, which is what the test above pins. It makes the CARD'S
-// ROUTE wrong, and a wrong route in a defect report is how a fix ends up guarding
-// the thing that was never the problem.
-func TestSeedDB_ASecondActivationIsNotASecondPracticeRun(t *testing.T) {
+// (Before ADR 0025 this measured that a re-activation was not a SECOND practice run:
+// the practice rule read "first record ever", so a person with history never got
+// one. Now no activation produces one, which is the stronger statement.)
+func TestSeedDB_ASecondActivationWritesNoRecordAndLeavesTheChainAlone(t *testing.T) {
 	f := newSeedFlow(t)
 	venue := f.venue(t, fixtures.LocKFStJulians)
 	plaque := fixtures.TagKFStJulians
@@ -176,42 +162,52 @@ func TestSeedDB_ASecondActivationIsNotASecondPracticeRun(t *testing.T) {
 
 	firstAt := now.Add(-5 * time.Hour)
 	first := f.enterManually(t, p.id, plaque, &firstAt)
-	if !first.Decision.Practice {
-		t.Fatal("precondition: the person's first record must be the TRAINING tap")
+	if first.Decision.Practice || first.Decision.Type == nil || *first.Decision.Type != tap.TypeIn {
+		t.Fatalf("precondition: the first record is an ordinary `in`; practice=%v type=%v",
+			first.Decision.Practice, show(first.Decision.Type))
 	}
 
 	before := f.activatedAt(t, p.id)
-	f.reactivate(t, p)
-	after := f.activatedAt(t, p.id)
-	if !before.Equal(after) {
+	rowsBefore := f.rowsFor(t, p.id)
+	f.reactivate(t, p, plaque)
+	if got := f.rowsFor(t, p.id); got != rowsBefore {
+		t.Fatalf("the activating tap wrote %d record(s); it is not attendance", got-rowsBefore)
+	}
+	if after := f.activatedAt(t, p.id); !before.Equal(after) {
 		t.Errorf("a second activation moved activated_at from %s to %s; "+
-			"ConsumeInviteAndActivate COALESCEs it precisely so the practice rule's input is stable",
-			before, after)
+			"ConsumeInviteAndActivate COALESCEs it", before, after)
 	}
 
 	secondAt := now.Add(-2 * time.Hour)
 	second := f.enterManually(t, p.id, plaque, &secondAt)
 	if second.Decision.Practice {
-		t.Fatal("the first record after a SECOND activation is marked TRAINING. That would be a " +
-			"second unpaid tap for somebody who only changed phones, and it would put a practice " +
-			"row on top of an open check-in — the exact shape ADR 0008 is about.")
+		t.Fatal("the first record after a SECOND activation is marked TRAINING")
 	}
-	// And it is an `in`, not an `out`: the training tap five hours ago is the only
-	// earlier row and a training tap is NOT an open check-in (§5, M5-07). That
-	// behaviour is unchanged by ADR 0008 and is asserted here so the fix cannot
-	// quietly turn practice rows back into chain-holding ones.
-	if second.Decision.Type == nil || *second.Decision.Type != tap.TypeIn {
-		t.Fatalf("the record after re-activation came out as %v, want in: the only earlier row is "+
-			"a training tap, and a training tap never holds the chain open", show(second.Decision.Type))
+	if second.Decision.Type == nil || *second.Decision.Type != tap.TypeOut {
+		t.Fatalf("the record after re-activation came out as %v, want out: it closes the check-in "+
+			"that was open before the phone changed", show(second.Decision.Type))
 	}
-	if n := f.openCheckIns(t, p.id); n != 1 {
-		t.Fatalf("%d open check-in(s), want exactly 1 (the record just written); a training row "+
-			"must not be counted as one", n)
+	f.assertNoOpenCheckIn(t, p.id)
+}
+
+// seedHistoricPractice writes one TRAINING row the way the engine wrote them
+// before ADR 0025: an `in`, verdict ok, practice=true, both stamps at `at`.
+func (f *seedFlow) seedHistoricPractice(t *testing.T, employeeID, locationID uuid.UUID, plaque string, at time.Time) {
+	t.Helper()
+	err := f.data.WithTenant(context.Background(), f.tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		_, e := tx.Exec(ctx,
+			`INSERT INTO transactions (tenant_id, employee_id, location_id, tag_uid, type,
+			                           occurred_at, created_at, verdict, channel, sun_valid, trust, practice)
+			 VALUES ($1, $2, $3, $4, 'in', $5, $5, 'ok', 'nfc', true, 100, true)`,
+			f.tenantID, employeeID, locationID, plaque, at)
+		return e
+	})
+	if err != nil {
+		t.Fatalf("seeding a historic practice row: %v", err)
 	}
 }
 
-// activatedAt reads the employee's activation stamp — the other input to §5's
-// practice rule.
+// activatedAt reads the employee's activation stamp.
 func (f *seedFlow) activatedAt(t *testing.T, employeeID uuid.UUID) time.Time {
 	t.Helper()
 	var at time.Time
@@ -227,45 +223,17 @@ func (f *seedFlow) activatedAt(t *testing.T, employeeID uuid.UUID) time.Time {
 }
 
 // reactivate walks an ALREADY ACTIVE employee through a second activation — the
-// "new phone" path M5-02 shipped, which revokes the old sessions before issuing the
-// new one and lands on the confirmation rather than the tour.
-func (f *seedFlow) reactivate(t *testing.T, p *phone) {
+// "new phone" path: the wizard warns, the consent records, and the activating tap
+// on plaque revokes the old sessions before issuing the new one (ADR 0025).
+func (f *seedFlow) reactivate(t *testing.T, p *phone, plaque string) {
 	t.Helper()
-	ch := &linkChannel{}
-	if _, err := f.invites.IssueAndDeliver(context.Background(), invite.IssueParams{
-		TenantID: f.tenantID, EmployeeID: p.id,
-	}, ch); err != nil {
-		t.Fatalf("IssueAndDeliver for %s: %v", p.name, err)
-	}
-	link, err := url.Parse(ch.url)
-	if err != nil {
-		t.Fatalf("activation url: %v", err)
-	}
-	code := link.Query().Get("code")
-	if code == "" {
-		t.Fatal("the delivered link carries no code")
-	}
+	code := f.inviteCode(t, p)
 	status, page := f.openPage(t, p, "/activate?code="+url.QueryEscape(code), seedOffSiteAddr)
 	if status != http.StatusOK {
 		t.Fatalf("GET /activate status = %d, want 200", status)
 	}
-	req, err := http.NewRequest(http.MethodPost, f.server.URL+"/api/activate",
-		strings.NewReader(url.Values{"consent": {"yes"}, "csrf": {formToken(t, page)}}.Encode()))
-	if err != nil {
-		t.Fatalf("build activate POST: %v", err)
+	if !strings.Contains(page, "This is a new phone") {
+		t.Fatal("a second activation must warn before it signs the other phone out")
 	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	resp, err := p.client.Do(req)
-	if err != nil {
-		t.Fatalf("POST /api/activate: %v", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("re-activation status = %d, want 200", resp.StatusCode)
-	}
-	// A second device skips the tour on purpose (M5-02): the tour's words are about
-	// a first tap, and this person has already had theirs.
-	if resp.Request.URL.Path != "/activate/done" {
-		t.Fatalf("a second activation landed on %s, want /activate/done", resp.Request.URL.Path)
-	}
+	f.consentAndTap(t, p, plaque)
 }

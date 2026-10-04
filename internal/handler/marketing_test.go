@@ -2094,7 +2094,7 @@ func TestCookieNotice_LifetimesMatchTheCodeThatWritesThem(t *testing.T) {
 		sec  int
 		want string
 	}{
-		{activationCookieMaxAge, "15 minutes"},
+		{int(activationCookieCeiling.Seconds()), "30 days"},
 		{adminLoginCookieMaxAge, "15 minutes"},
 		{adminChoiceCookieMaxAge, "5 minutes"},
 		{adminConfirmMaxAge, "10 minutes"},

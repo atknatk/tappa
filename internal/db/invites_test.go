@@ -129,7 +129,63 @@ func newInvite(t *testing.T, d *DB, tenantID, employeeID uuid.UUID, ttl time.Dur
 	if row.UsedAt != nil {
 		t.Fatalf("a fresh invite has used_at = %v, want NULL", row.UsedAt)
 	}
+	// Every invite these tests consume is CONSENTED (ADR 0025, migration 00030),
+	// written directly so that it holds for dead invites too — an expired one, a
+	// deactivated employee's. That keeps the older tests about what they were
+	// about: the predicate that refuses them is still the one they name, not the
+	// missing consent. The consent tests below start from unconsentedInvite.
+	consentRaw(t, d, tenantID, row.ID, bindingFor(codeHash))
 	return row.ID, codeHash
+}
+
+// unconsentedInvite is newInvite without the consent: the state between "the link
+// was sent" and "the employee agreed in the wizard".
+func unconsentedInvite(t *testing.T, d *DB, tenantID, employeeID uuid.UUID, ttl time.Duration) (uuid.UUID, string) {
+	t.Helper()
+	codeHash := randCodeHash(t)
+	var row store.CreateInviteRow
+	if err := d.WithTenant(context.Background(), tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		var e error
+		row, e = store.New(tx).CreateInvite(ctx, store.CreateInviteParams{
+			TenantID: tenantID, EmployeeID: employeeID, CodeHash: codeHash, ExpiresAt: time.Now().Add(ttl),
+		})
+		return e
+	}); err != nil {
+		t.Fatalf("CreateInvite: %v", err)
+	}
+	return row.ID, codeHash
+}
+
+// bindingFor derives a stand-in consent binding hash from a code hash, so a test
+// can consume an invite without carrying a second value around. Any 64-hex value
+// satisfies the column's shape CHECK; production derives it with the invite HMAC.
+func bindingFor(codeHash string) string {
+	b := []byte(codeHash)
+	for i := range b {
+		// rotate each hex digit by one: still lowercase hex, never equal to the input
+		switch {
+		case b[i] == '9':
+			b[i] = 'a'
+		case b[i] == 'f':
+			b[i] = '0'
+		default:
+			b[i]++
+		}
+	}
+	return string(b)
+}
+
+// consentRaw stamps consent on an invite with a plain UPDATE as tappa_app — the
+// column grant of 00030 is what allows it.
+func consentRaw(t *testing.T, d *DB, tenantID, inviteID uuid.UUID, bindingHash string) {
+	t.Helper()
+	if err := d.WithTenant(context.Background(), tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		_, e := tx.Exec(ctx, `UPDATE employee_invites SET consented_at = now(), consent_binding_hash = $3
+		                      WHERE id = $1 AND tenant_id = $2`, inviteID, tenantID, bindingHash)
+		return e
+	}); err != nil {
+		t.Fatalf("consent: %v", err)
+	}
 }
 
 // consume runs the real activation statement in the tenant's context. It takes the
@@ -146,7 +202,7 @@ func consume(t *testing.T, d *DB, tenantID uuid.UUID, codeHash string) (store.Co
 	err := d.WithTenant(context.Background(), tenantID, func(ctx context.Context, tx pgx.Tx) error {
 		var e error
 		row, e = store.New(tx).ConsumeInviteAndActivate(ctx, store.ConsumeInviteAndActivateParams{
-			CodeHash: codeHash, TenantID: tenantID,
+			CodeHash: codeHash, TenantID: tenantID, ConsentBindingHash: bindingFor(codeHash),
 		})
 		return e
 	})
@@ -1033,18 +1089,24 @@ func TestEmployeeInvites_UpdateIsColumnScoped(t *testing.T) {
 	inviteID, codeHash := newInvite(t, d, tenantID, employeeID, time.Hour)
 
 	// Catalog view first: used_at writable, the rest not.
-	var cUsed, cExpires, cEmployee, cHash, cCreated bool
+	var cUsed, cExpires, cEmployee, cHash, cCreated, cConsented, cBinding bool
 	if err := d.pool.QueryRow(context.Background(), `
 		SELECT has_column_privilege('tappa_app', 'employee_invites', 'used_at',     'UPDATE'),
 		       has_column_privilege('tappa_app', 'employee_invites', 'expires_at',  'UPDATE'),
 		       has_column_privilege('tappa_app', 'employee_invites', 'employee_id', 'UPDATE'),
 		       has_column_privilege('tappa_app', 'employee_invites', 'code_hash',   'UPDATE'),
-		       has_column_privilege('tappa_app', 'employee_invites', 'created_at',  'UPDATE')`,
-	).Scan(&cUsed, &cExpires, &cEmployee, &cHash, &cCreated); err != nil {
+		       has_column_privilege('tappa_app', 'employee_invites', 'created_at',  'UPDATE'),
+		       has_column_privilege('tappa_app', 'employee_invites', 'consented_at',         'UPDATE'),
+		       has_column_privilege('tappa_app', 'employee_invites', 'consent_binding_hash', 'UPDATE')`,
+	).Scan(&cUsed, &cExpires, &cEmployee, &cHash, &cCreated, &cConsented, &cBinding); err != nil {
 		t.Fatalf("read column privileges: %v", err)
 	}
 	if !cUsed {
 		t.Error("tappa_app cannot UPDATE used_at: consumption would be impossible")
+	}
+	if !cConsented || !cBinding {
+		t.Errorf("tappa_app cannot UPDATE consented_at=%v consent_binding_hash=%v: the wizard could not record consent (00030)",
+			cConsented, cBinding)
 	}
 	if cExpires || cEmployee || cHash || cCreated {
 		t.Errorf("tappa_app can UPDATE expires_at=%v employee_id=%v code_hash=%v created_at=%v, want all false",
@@ -1113,7 +1175,7 @@ func TestConsumeInvite_DeactivatedEmployeeCannotBurnTheInvite(t *testing.T) {
 	var queryErr error
 	if err := d.WithTenant(context.Background(), tenantID, func(ctx context.Context, tx pgx.Tx) error {
 		_, queryErr = store.New(tx).ConsumeInviteAndActivate(ctx, store.ConsumeInviteAndActivateParams{
-			CodeHash: codeHash, TenantID: tenantID,
+			CodeHash: codeHash, TenantID: tenantID, ConsentBindingHash: bindingFor(codeHash),
 		})
 		return nil // deliberately NOT propagated -- this is the bug being defended against
 	}); err != nil {
@@ -1163,5 +1225,169 @@ func cancelPending(t *testing.T, d *DB, tenantID, employeeID uuid.UUID) {
 	if len(ids) == 0 {
 		t.Fatal("nothing was cancelled; the fixture has no spendable invitation and the " +
 			"assertions that follow would be vacuous")
+	}
+}
+
+// --- Consent (ADR 0025, migration 00030) -------------------------------------------
+
+// recordConsent runs the real RecordInviteConsent statement in the tenant context.
+func recordConsent(t *testing.T, d *DB, tenantID uuid.UUID, codeHash, bindingHash string) error {
+	t.Helper()
+	return d.WithTenant(context.Background(), tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		_, e := store.New(tx).RecordInviteConsent(ctx, store.RecordInviteConsentParams{
+			ConsentBindingHash: bindingHash, CodeHash: codeHash, TenantID: tenantID,
+		})
+		return e
+	})
+}
+
+// consumeWith is consume with an explicit binding hash.
+func consumeWith(t *testing.T, d *DB, tenantID uuid.UUID, codeHash, bindingHash string) error {
+	t.Helper()
+	return d.WithTenant(context.Background(), tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		_, e := store.New(tx).ConsumeInviteAndActivate(ctx, store.ConsumeInviteAndActivateParams{
+			CodeHash: codeHash, TenantID: tenantID, ConsentBindingHash: bindingHash,
+		})
+		return e
+	})
+}
+
+// TestConsumeInvite_RequiresConsentFromTheSameBinding is the database half of ADR
+// 0020: the consuming statement refuses an invitation nobody consented to, and one
+// consented to by a DIFFERENT browser, and the refusal spends nothing.
+func TestConsumeInvite_RequiresConsentFromTheSameBinding(t *testing.T) {
+	d := appDB(t)
+	tenantID, locationID := newTenant(t, d)
+	employeeID := newEmployee(t, d, tenantID, locationID, "invited")
+	inviteID, codeHash := unconsentedInvite(t, d, tenantID, employeeID, time.Hour)
+	mine, theirs := randCodeHash(t), randCodeHash(t)
+
+	if err := consumeWith(t, d, tenantID, codeHash, mine); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("no consent: err = %v, want pgx.ErrNoRows", err)
+	}
+	if err := recordConsent(t, d, tenantID, codeHash, theirs); err != nil {
+		t.Fatalf("record consent: %v", err)
+	}
+	if err := consumeWith(t, d, tenantID, codeHash, mine); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("another browser's consent: err = %v, want pgx.ErrNoRows", err)
+	}
+	if used := inviteUsedAt(t, d, tenantID, inviteID); used != nil {
+		t.Fatalf("a refused consumption spent the invite (used_at = %v)", used)
+	}
+	var status string
+	if err := d.WithTenant(context.Background(), tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SELECT status FROM employees WHERE id = $1 AND tenant_id = $2`, employeeID, tenantID).Scan(&status)
+	}); err != nil {
+		t.Fatalf("read status: %v", err)
+	}
+	if status != "invited" {
+		t.Fatalf("status = %q after refused consumptions, want invited", status)
+	}
+
+	// The binding MOVES with a later consent: the browser that agreed last wins.
+	if err := recordConsent(t, d, tenantID, codeHash, mine); err != nil {
+		t.Fatalf("re-consent: %v", err)
+	}
+	if err := consumeWith(t, d, tenantID, codeHash, theirs); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("superseded binding: err = %v, want pgx.ErrNoRows", err)
+	}
+	if err := consumeWith(t, d, tenantID, codeHash, mine); err != nil {
+		t.Fatalf("matching consent: %v", err)
+	}
+	if used := inviteUsedAt(t, d, tenantID, inviteID); used == nil {
+		t.Fatal("a consented consumption left used_at NULL")
+	}
+}
+
+// TestRecordInviteConsent_ConsumesNothingAndRefusesDeadInvites: consent is a
+// record, not an activation, and it cannot be recorded on an invitation that could
+// never complete.
+func TestRecordInviteConsent_ConsumesNothingAndRefusesDeadInvites(t *testing.T) {
+	d := appDB(t)
+	tenantID, locationID := newTenant(t, d)
+
+	t.Run("live invite: recorded, nothing consumed", func(t *testing.T) {
+		employeeID := newEmployee(t, d, tenantID, locationID, "invited")
+		inviteID, codeHash := unconsentedInvite(t, d, tenantID, employeeID, time.Hour)
+		if err := recordConsent(t, d, tenantID, codeHash, randCodeHash(t)); err != nil {
+			t.Fatalf("record consent: %v", err)
+		}
+		if used := inviteUsedAt(t, d, tenantID, inviteID); used != nil {
+			t.Fatalf("consent consumed the invite (used_at = %v)", used)
+		}
+		var consented *time.Time
+		var status string
+		if err := d.WithTenant(context.Background(), tenantID, func(ctx context.Context, tx pgx.Tx) error {
+			if e := tx.QueryRow(ctx, `SELECT consented_at FROM employee_invites WHERE id = $1 AND tenant_id = $2`,
+				inviteID, tenantID).Scan(&consented); e != nil {
+				return e
+			}
+			return tx.QueryRow(ctx, `SELECT status FROM employees WHERE id = $1 AND tenant_id = $2`,
+				employeeID, tenantID).Scan(&status)
+		}); err != nil {
+			t.Fatalf("read back: %v", err)
+		}
+		if consented == nil {
+			t.Fatal("consented_at is NULL after RecordInviteConsent")
+		}
+		if status != "invited" {
+			t.Fatalf("consent changed the employee's status to %q", status)
+		}
+	})
+
+	t.Run("expired invite", func(t *testing.T) {
+		employeeID := newEmployee(t, d, tenantID, locationID, "invited")
+		_, codeHash := unconsentedInvite(t, d, tenantID, employeeID, -time.Minute)
+		if err := recordConsent(t, d, tenantID, codeHash, randCodeHash(t)); !errors.Is(err, pgx.ErrNoRows) {
+			t.Fatalf("err = %v, want pgx.ErrNoRows", err)
+		}
+	})
+
+	t.Run("consumed invite", func(t *testing.T) {
+		employeeID := newEmployee(t, d, tenantID, locationID, "invited")
+		_, codeHash := newInvite(t, d, tenantID, employeeID, time.Hour)
+		if _, err := consume(t, d, tenantID, codeHash); err != nil {
+			t.Fatalf("consume: %v", err)
+		}
+		if err := recordConsent(t, d, tenantID, codeHash, randCodeHash(t)); !errors.Is(err, pgx.ErrNoRows) {
+			t.Fatalf("err = %v, want pgx.ErrNoRows", err)
+		}
+	})
+
+	t.Run("deactivated employee", func(t *testing.T) {
+		employeeID := newEmployee(t, d, tenantID, locationID, "deactivated")
+		_, codeHash := unconsentedInvite(t, d, tenantID, employeeID, time.Hour)
+		if err := recordConsent(t, d, tenantID, codeHash, randCodeHash(t)); !errors.Is(err, pgx.ErrNoRows) {
+			t.Fatalf("err = %v, want pgx.ErrNoRows", err)
+		}
+	})
+}
+
+// TestEmployeeInvites_ConsentColumnsAreOneFact: the shape CHECK keeps a raw token
+// out of consent_binding_hash, and the pair CHECK keeps consent and binding
+// together (00030).
+func TestEmployeeInvites_ConsentColumnsAreOneFact(t *testing.T) {
+	d := appDB(t)
+	tenantID, locationID := newTenant(t, d)
+	employeeID := newEmployee(t, d, tenantID, locationID, "invited")
+	inviteID, _ := unconsentedInvite(t, d, tenantID, employeeID, time.Hour)
+
+	exec := func(sql string, args ...any) error {
+		return d.WithTenant(context.Background(), tenantID, func(ctx context.Context, tx pgx.Tx) error {
+			_, e := tx.Exec(ctx, sql, args...)
+			return e
+		})
+	}
+	for name, err := range map[string]error{
+		"raw token as binding": exec(`UPDATE employee_invites SET consented_at = now(), consent_binding_hash = $3
+			WHERE id = $1 AND tenant_id = $2`, inviteID, tenantID, "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"),
+		"consent without binding": exec(`UPDATE employee_invites SET consented_at = now()
+			WHERE id = $1 AND tenant_id = $2`, inviteID, tenantID),
+		"binding without consent": exec(`UPDATE employee_invites SET consent_binding_hash = $3
+			WHERE id = $1 AND tenant_id = $2`, inviteID, tenantID, randCodeHash(t)),
+	} {
+		if err == nil || !strings.Contains(err.Error(), "23514") {
+			t.Errorf("%s: err = %v, want a CHECK violation (23514)", name, err)
+		}
 	}
 }

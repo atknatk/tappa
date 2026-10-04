@@ -180,7 +180,7 @@ func TestInviteEmailDB_OnePressOneMessageCarryingTheMintedLink(t *testing.T) {
 	if !strings.HasPrefix(link, p.server.URL+"/activate?code=") || !strings.Contains(msg.html, `href="`+link+`"`) {
 		t.Fatalf("the message's link %q is not this deployment's activation link in both parts", link)
 	}
-	if !activateOverHTTP(t, p, codeFromLink(t, link)) {
+	if !consentOverHTTP(t, p, codeFromLink(t, link)) {
 		t.Fatal("the emailed link did not activate the employee: it is not the link IssueAndDeliver minted")
 	}
 	rows := trailDetails(t, p, invite.ActionCodeEmailed, employee)
@@ -453,7 +453,7 @@ func TestInviteEmailDB_OnlyTheOwnerSeesALinkOnScreen(t *testing.T) {
 	if res.StatusCode != http.StatusOK {
 		t.Fatalf("the owner's fallback answered %d", res.StatusCode)
 	}
-	if !activateOverHTTP(t, p, codeFromLink(t, activationLinkIn(t, body))) {
+	if !consentOverHTTP(t, p, codeFromLink(t, activationLinkIn(t, body))) {
 		t.Error("the link the owner was shown does not activate")
 	}
 	shown := trailDetails(t, p, invite.ActionCodeShownToManager, noAddress)

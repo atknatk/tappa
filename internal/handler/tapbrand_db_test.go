@@ -269,7 +269,7 @@ func TestTapDB_ARecordedTapIsConfirmedInFullWhileThePoolIsHeld(t *testing.T) {
 	post := func(rec checkinRecorder, c tapContext, cookie *http.Cookie, requestID string) (*httptest.ResponseRecorder, string, time.Duration) {
 		t.Helper()
 		var logs bytes.Buffer
-		tp, err := NewTap(sun.NewVerifier(one, kek), dir, sessions, rec, trail, &cfg,
+		tp, err := NewTap(sun.NewVerifier(one, kek), dir, sessions, rec, noActivation{}, trail, &cfg,
 			slog.New(httpx.WithRequestID(slog.NewTextHandler(&logs, nil))))
 		if err != nil {
 			t.Fatalf("NewTap: %v", err)

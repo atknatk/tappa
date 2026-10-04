@@ -100,4 +100,3 @@ TestSignupProvision_ADuplicateVATLeavesNOTHINGBEHIND
 TestStaffQueries_ASubqueryWith
 TestStaffQueries_ASubqueryWithNoWhereIsInvisible
 TestStripTemplComments_
-TestTourDB_Skipping

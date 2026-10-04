@@ -46,6 +46,7 @@ import (
 	"github.com/atknatk/tappa/internal/invite"
 	"github.com/atknatk/tappa/internal/policy"
 	"github.com/atknatk/tappa/internal/session"
+	"github.com/atknatk/tappa/internal/sun"
 	"github.com/atknatk/tappa/web/templates/pages"
 )
 
@@ -294,7 +295,7 @@ func newPanelHarnessWith(t *testing.T, o panelHarnessOptions) *panelHarness {
 	if err != nil {
 		t.Fatalf("session.New: %v", err)
 	}
-	activation, err := NewActivation(invites, sessions, trail, cfg, slog.New(slog.DiscardHandler))
+	activation, err := NewActivation(invites, sessions, sun.NewVerifier(data, cfg.TagKEK), trail, cfg, slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("NewActivation: %v", err)
 	}
