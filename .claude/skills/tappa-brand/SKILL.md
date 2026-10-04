@@ -212,7 +212,13 @@ ailesinin tamamı taranıp 0 eşleşme —
 `internal/handler/qr_db_test.go → TestQRScreens_SayNothingAboutTheQRRoute`) ve
 bu **bilinçli**: plaketler henüz QR ile basılmadığı için ekranın var olmayan bir
 şeyi tarif etmesi yanlış olurdu (kullanıcı kararı, 2026-08-01).
-**Ama ölçülen kusur duruyor:** tur slayt 1 *"If your phone does not react, ask
+> **ADR 0025 (2026-10-04):** aşağıda anılan tur **kaldırıldı**; aktivasyon sihirbazı o
+> cümleyi taşımıyor ve QR'dan bahsetmiyor (tripwire sihirbazın dört adımını da
+> tarıyor). Yerine gelen daha sert kusur: **QR ile aktivasyon YOK** — aktivasyon
+> fiziksel NFC dokunuşu ister, yani iPhone X ve öncesi bugün aktive olamaz (ürün
+> kararı bekliyor). Aşağıdaki paragraf tarihseldir.
+
+**Ama ölçülen kusur duruyordu:** tur slayt 1 *"If your phone does not react, ask
 your manager."* diyor; **iPhone X ve öncesi arka planda NFC etiketi okuyamaz**,
 yani o çalışan için sayfa **hiç açılmaz** ve bu cümle onun **her günkü yolunu bir
 arıza gibi** çerçeveliyor. Plaketler QR ile basıldığı anda slayt 1 (ve genel
