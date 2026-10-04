@@ -45,6 +45,7 @@ type (
 	// the one handler besides the check-in POST that may advance a counter, and
 	// it is a separate interface so the Tap page's tapPreviewer still cannot.
 	activationVerifier interface {
+		PreviewWithoutReplayProtection(ctx context.Context, p sun.Params) (sun.Preview, error)
 		Verify(ctx context.Context, p sun.Params) (sun.Result, error)
 	}
 	sessionManager interface {
@@ -223,10 +224,13 @@ var (
 	// The activating tap's refusals (ADR 0025). None of them activates anything
 	// and none writes an attendance record; each one is in audit_log. They say
 	// what to DO, because the person is standing at a plaque.
+	// problemActivationTapFailed is ONE screen for an unknown plaque, another
+	// employer's plaque and a signature that did not verify (§4.7, audit R5): the
+	// advice is the same for all three and telling them apart would be an oracle.
 	problemActivationTapFailed = pages.ProblemView{
-		Title:   "That tap didn't go through",
+		Title:   "That tap didn't finish setup",
 		Message: "Your phone isn't activated yet, and nothing was recorded.",
-		Hint:    "Hold your phone against the plaque again.",
+		Hint:    "Hold the top of your phone against a Taptime plaque at your workplace and try again.",
 	}
 	problemActivationNeedsTouch = pages.ProblemView{
 		Title:   "Hold your phone against the plaque",
@@ -237,16 +241,6 @@ var (
 		Title:   "This plaque isn't in service",
 		Message: "Your phone isn't activated yet, and nothing was recorded.",
 		Hint:    "Tap another plaque at your workplace, or tell your manager.",
-	}
-	problemActivationForeignPlaque = pages.ProblemView{
-		Title:   "That plaque belongs to another workplace",
-		Message: "Your phone isn't activated yet, and nothing was recorded.",
-		Hint:    "Tap a plaque at your own workplace to finish.",
-	}
-	problemActivationUnknownPlaque = pages.ProblemView{
-		Title:   "We don't know that plaque",
-		Message: "Your phone isn't activated yet, and nothing was recorded.",
-		Hint:    "Tap a plaque at your own workplace, or tell your manager.",
 	}
 	problemActivationNotReady = pages.ProblemView{
 		Title:   "Finish the setup steps first",
@@ -671,32 +665,60 @@ func (a *Activation) CompleteByTap(w http.ResponseWriter, r *http.Request, p sun
 		return
 	}
 
-	res, err := a.sun.Verify(r.Context(), p)
+	// THE PLAQUE IS JUDGED BEFORE ANYTHING ADVANCES (audit R5). The preview resolves
+	// the tag's tenant and status WITHOUT touching tags.last_ctr; only a plaque of
+	// the invitation's own tenant that is in service goes on to sun.Verify. Without
+	// this, an invitee of tenant A tapping tenant B's plaque moved B's counter while
+	// leaving no row in B's trail — the gap checkin.go's tenant gate closes for an
+	// ordinary tap.
+	//
+	// ONE ANSWER FOR THREE REFUSALS (§4.7): an unknown uid, another tenant's plaque
+	// and a signature that does not verify all render problemActivationTapFailed
+	// with the same status, so a pending invitee cannot use the activation path to
+	// learn which uids exist or whose they are. audit_log keeps the distinction.
+	pv, err := a.sun.PreviewWithoutReplayProtection(r.Context(), p)
 	if err != nil {
 		if errors.Is(err, sun.ErrUnknownTag) {
 			a.failTap(r.Context(), ip, ictx, "unknown_tag", "")
 			a.log.Warn("activation tap: unknown plaque", "tag_uid", p.UID, "invite_id", nonNil(ictx.InviteID))
-			a.renderProblem(w, r, http.StatusNotFound, problemActivationUnknownPlaque)
+			a.renderProblem(w, r, http.StatusBadRequest, problemActivationTapFailed)
+			return
+		}
+		a.log.Error("activation tap: plaque pre-check failed", "tag_uid", p.UID, "err", err)
+		a.renderProblem(w, r, http.StatusInternalServerError, problemServer)
+		return
+	}
+	// The foreign plaque's uid is NOT written into this tenant's trail (§4.5).
+	if pv.TenantID != ictx.TenantID {
+		a.failTap(r.Context(), ip, ictx, "foreign_tenant_tag", "")
+		a.log.Warn("activation tap: plaque of another tenant", "tag_uid", p.UID,
+			"invite_tenant_id", ictx.TenantID, "tag_tenant_id", pv.TenantID)
+		a.renderProblem(w, r, http.StatusBadRequest, problemActivationTapFailed)
+		return
+	}
+	if pv.TagStatus != "active" || pv.Location == nil {
+		a.failTap(r.Context(), ip, ictx, "tag_not_active", p.UID)
+		a.renderProblem(w, r, http.StatusConflict, problemActivationPlaqueOut)
+		return
+	}
+
+	// Only now the advancing path: CMAC first, then the atomic counter (§4.4).
+	res, err := a.sun.Verify(r.Context(), p)
+	if err != nil {
+		if errors.Is(err, sun.ErrUnknownTag) {
+			a.failTap(r.Context(), ip, ictx, "unknown_tag", "")
+			a.renderProblem(w, r, http.StatusBadRequest, problemActivationTapFailed)
 			return
 		}
 		a.log.Error("activation tap: sun verification failed", "tag_uid", p.UID, "err", err)
 		a.renderProblem(w, r, http.StatusInternalServerError, problemServer)
 		return
 	}
-
-	// TENANT FIRST: a plaque of another employer is refused before its status is
-	// even discussed, and its uid is NOT written into this tenant's trail (§4.5 —
-	// one tenant's inventory is not another tenant's business).
-	if res.Tag.TenantID != ictx.TenantID {
-		a.failTap(r.Context(), ip, ictx, "foreign_tenant_tag", "")
-		a.log.Warn("activation tap: plaque of another tenant", "tag_uid", p.UID,
-			"invite_tenant_id", ictx.TenantID, "tag_tenant_id", res.Tag.TenantID)
-		a.renderProblem(w, r, http.StatusForbidden, problemActivationForeignPlaque)
-		return
-	}
-	if res.Tag.Status != "active" || res.Location == nil {
-		a.failTap(r.Context(), ip, ictx, "tag_not_active", p.UID)
-		a.renderProblem(w, r, http.StatusConflict, problemActivationPlaqueOut)
+	// Belt over the pre-check: what Verify resolved must still be our tenant's
+	// active, mounted plaque. Unreachable unless the row changed in between.
+	if res.Tag.TenantID != ictx.TenantID || res.Tag.Status != "active" || res.Location == nil {
+		a.failTap(r.Context(), ip, ictx, "tag_changed", "")
+		a.renderProblem(w, r, http.StatusBadRequest, problemActivationTapFailed)
 		return
 	}
 	if !res.SUNValid {

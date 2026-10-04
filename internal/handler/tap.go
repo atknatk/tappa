@@ -70,7 +70,7 @@ type Tap struct {
 	sessions  sessionVerifier
 	checkins  checkinRecorder
 	// activation completes a CONSENTED activation on its first NFC tap (ADR
-	// 0020). It is the Activation handler, reached through the narrow interface
+	// 0025). It is the Activation handler, reached through the narrow interface
 	// below: the advancing SUN verify it needs lives THERE, so this handler's
 	// own vocabulary still holds only the non-advancing preview.
 	activation tapActivation
@@ -352,7 +352,14 @@ func (t *Tap) Page(w http.ResponseWriter, r *http.Request) {
 	// (Submit, measure 2). No `transactions` row is written on this path; the
 	// next tap is an ordinary check-in. A planted cookie has no binding and is not
 	// pending, so it falls through to the branches below.
-	if t.activation.Pending(r) {
+	//
+	// ONLY A TAP THAT CAN ACTIVATE TAKES OVER A LIVE SESSION (audit R6, user
+	// decision): a QR scan carries no proof of a touch and can never complete an
+	// activation, so for somebody who already has a working session it stays an
+	// ordinary check-in rather than becoming a stream of activation refusals.
+	// Without a live session a QR tap still reaches CompleteByTap, which tells the
+	// person to hold the phone to the plaque.
+	if t.activation.Pending(r) && (p.HasSUN() || id.State != httpx.SessionLive) {
 		t.activation.CompleteByTap(w, r, p)
 		return
 	}

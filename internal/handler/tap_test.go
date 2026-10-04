@@ -190,7 +190,7 @@ func (noActivation) CompleteByTap(http.ResponseWriter, *http.Request, sun.Params
 }
 
 // pendingActivation stands in for a browser holding a CONSENTED activation (ADR
-// 0020). It records what the tap page handed it.
+// 0025). It records what the tap page handed it.
 type pendingActivation struct {
 	calls int
 	got   sun.Params
@@ -241,6 +241,47 @@ func TestTapPage_APendingActivationTakesTheTap(t *testing.T) {
 				t.Errorf("the non-advancing preview ran %d times for an activating tap", pv.calls)
 			}
 		})
+	}
+}
+
+// TestTapPage_AQRScanWithALiveSessionStaysACheckIn is audit R6 (user decision): a
+// pending activation takes over only a tap that CAN activate. A QR scan from a
+// phone that already has a live session is an ordinary check-in page; without a
+// live session the same scan still goes to the activation flow (which refuses it
+// with "hold your phone against the plaque").
+func TestTapPage_AQRScanWithALiveSessionStaysACheckIn(t *testing.T) {
+	qr := "/t?tag=" + tapUID
+	build := func(sess *fakeSessions) (http.Handler, *pendingActivation, *fakePreviewer) {
+		pv := &fakePreviewer{preview: okPreview(true)}
+		act := &pendingActivation{}
+		tp, err := NewTap(pv, &fakeDirectory{facts: okFacts()}, sess, &fakeCheckins{}, act, &fakeAudit{},
+			tapCfg(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+		if err != nil {
+			t.Fatalf("NewTap: %v", err)
+		}
+		r := chi.NewRouter()
+		tp.Mount(r)
+		return r, act, pv
+	}
+
+	h, act, pv := build(&fakeSessions{})
+	w := get(t, h, qr, sessionCookie())
+	if w.Code != http.StatusOK || act.calls != 0 || pv.calls != 1 {
+		t.Fatalf("live session + QR: status %d, activation calls %d, previews %d — want the ordinary tap page",
+			w.Code, act.calls, pv.calls)
+	}
+	if !strings.Contains(w.Body.String(), "data-tap-button") {
+		t.Error("live session + QR did not render the tap button")
+	}
+
+	h2, act2, _ := build(&fakeSessions{})
+	if w := get(t, h2, qr); w.Code != http.StatusTeapot || act2.calls != 1 {
+		t.Fatalf("no session + QR: status %d, activation calls %d — want the activation flow", w.Code, act2.calls)
+	}
+
+	h3, act3, _ := build(&fakeSessions{})
+	if w := get(t, h3, tapURL(), sessionCookie()); w.Code != http.StatusTeapot || act3.calls != 1 {
+		t.Fatalf("live session + NFC: status %d, activation calls %d — an NFC tap still activates", w.Code, act3.calls)
 	}
 }
 

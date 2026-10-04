@@ -494,8 +494,13 @@ func TestE2E_ForeignTenantPlaqueCannotActivate(t *testing.T) {
 	h.consent(t, c, h.issue(t))
 
 	resp, page := h.tapWith(t, c, signedTapURL(t, tapFakeTagKey, foreignUID, 101))
-	if resp.StatusCode != http.StatusForbidden || !strings.Contains(page, "belongs to another workplace") {
+	if resp.StatusCode != http.StatusBadRequest || !strings.Contains(page, "finish setup") {
 		t.Fatalf("a foreign plaque answered %d", resp.StatusCode)
+	}
+	// R5: the foreign plaque's counter did NOT move — it is refused on the
+	// non-advancing preview, before sun.Verify.
+	if got := h.lastCtr(t, foreignUID); got != 100 {
+		t.Fatalf("the foreign tenant's plaque counter moved to %d, want 100", got)
 	}
 	h.assertSessionCount(t, 0)
 	h.assertInviteConsumed(t, false)
@@ -601,7 +606,7 @@ func TestE2E_SecondDeviceRevokesTheFirst(t *testing.T) {
 }
 
 // TestE2E_AClientCannotDeclareThePracticeFlag: with the practice tap retired (ADR
-// 0020) the engine sets practice on nothing — and no form field a client can
+// 0025) the engine sets practice on nothing — and no form field a client can
 // invent turns it back on, on a first record or on a checkout (the M4-06
 // hours-inflation exploit stays closed at the HTTP boundary too).
 func TestE2E_AClientCannotDeclareThePracticeFlag(t *testing.T) {

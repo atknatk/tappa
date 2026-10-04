@@ -201,8 +201,9 @@ func (f *fakeAudit) has(action string) bool {
 // fakeVerifier stands in for sun.Verifier's ADVANCING entry point. By default it
 // answers like a genuine first touch of an active, mounted plaque of testTenant.
 type fakeVerifier struct {
-	calls  int
-	verify func(sun.Params) (sun.Result, error)
+	calls    int // ADVANCING Verify calls
+	previews int
+	verify   func(sun.Params) (sun.Result, error)
 }
 
 // testPlaqueUID is a well-formed 7-byte uid for the activating tap's URL.
@@ -225,6 +226,21 @@ func (f *fakeVerifier) Verify(_ context.Context, p sun.Params) (sun.Result, erro
 		return genuineTap(), nil
 	}
 	return f.verify(p)
+}
+
+// PreviewWithoutReplayProtection answers from the same scripted result, without
+// counting as a Verify: calls counts ADVANCES only, which is what the R5 tests
+// assert on.
+func (f *fakeVerifier) PreviewWithoutReplayProtection(_ context.Context, p sun.Params) (sun.Preview, error) {
+	f.previews++
+	res := genuineTap()
+	if f.verify != nil {
+		var err error
+		if res, err = f.verify(p); err != nil {
+			return sun.Preview{}, err
+		}
+	}
+	return sun.Preview{CMACValid: res.SUNValid, TenantID: res.Tag.TenantID, TagStatus: res.Tag.Status, Location: res.Location}, nil
 }
 
 // activationTapURL is a syntactically valid NFC tap URL (the fake verifier does the
@@ -1034,30 +1050,38 @@ func TestTap_RefusalsActivateNothing(t *testing.T) {
 			r := genuineTap()
 			r.SUNValid = false
 			return r, nil
-		}, http.StatusBadRequest, "sun_invalid", testPlaqueUID, "Hold your phone against the plaque again", 1},
+		}, http.StatusBadRequest, "sun_invalid", testPlaqueUID, "didn't finish setup", 1},
 		{"retired plaque", activationTapURL, func(sun.Params) (sun.Result, error) {
 			r := genuineTap()
 			r.SUNValid, r.Tag.Status = false, "retired"
 			return r, nil
-		}, http.StatusConflict, "tag_not_active", testPlaqueUID, "isn't in service", 1},
+		}, http.StatusConflict, "tag_not_active", testPlaqueUID, "isn't in service", 0},
 		{"lost plaque", activationTapURL, func(sun.Params) (sun.Result, error) {
 			r := genuineTap()
 			r.SUNValid, r.Tag.Status = false, "lost"
 			return r, nil
-		}, http.StatusConflict, "tag_not_active", testPlaqueUID, "isn't in service", 1},
+		}, http.StatusConflict, "tag_not_active", testPlaqueUID, "isn't in service", 0},
 		{"plaque on no wall", activationTapURL, func(sun.Params) (sun.Result, error) {
 			r := genuineTap()
 			r.SUNValid, r.Tag.Status, r.Location, r.Tag.LocationID = false, "unassigned", nil, nil
 			return r, nil
-		}, http.StatusConflict, "tag_not_active", testPlaqueUID, "isn't in service", 1},
+		}, http.StatusConflict, "tag_not_active", testPlaqueUID, "isn't in service", 0},
+		// R5: another employer's plaque is refused on the NON-advancing preview, so
+		// its counter is never touched — and with the same screen and status as an
+		// unknown plaque or a bad signature (§4.7).
 		{"another employer's plaque", activationTapURL, func(sun.Params) (sun.Result, error) {
 			r := genuineTap()
 			r.Tag.TenantID = other
 			return r, nil
-		}, http.StatusForbidden, "foreign_tenant_tag", "", "belongs to another workplace", 1},
+		}, http.StatusBadRequest, "foreign_tenant_tag", "", "didn't finish setup", 0},
+		{"another employer's plaque with a forged signature", activationTapURL, func(sun.Params) (sun.Result, error) {
+			r := genuineTap()
+			r.Tag.TenantID, r.SUNValid = other, false
+			return r, nil
+		}, http.StatusBadRequest, "foreign_tenant_tag", "", "didn't finish setup", 0},
 		{"unknown plaque", activationTapURL, func(sun.Params) (sun.Result, error) {
 			return sun.Result{}, sun.ErrUnknownTag
-		}, http.StatusNotFound, "unknown_tag", "", "We don't know that plaque", 1},
+		}, http.StatusBadRequest, "unknown_tag", "", "didn't finish setup", 0},
 		{"a QR scan cannot activate", activationQRURL, nil, http.StatusBadRequest, "no_sun", "", "Hold your phone against the plaque", 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1073,7 +1097,7 @@ func TestTap_RefusalsActivateNothing(t *testing.T) {
 				t.Errorf("status = %d, want %d", w.Code, tc.wantStatus)
 			}
 			if ver.calls != tc.wantVerify {
-				t.Errorf("sun.Verify calls = %d, want %d", ver.calls, tc.wantVerify)
+				t.Errorf("ADVANCING sun.Verify calls = %d, want %d", ver.calls, tc.wantVerify)
 			}
 			if inv.activateCalls != 0 || sess.issued != 0 || sess.revoked != 0 {
 				t.Fatalf("a refused tap activated=%d issued=%d revoked=%d", inv.activateCalls, sess.issued, sess.revoked)
@@ -2230,5 +2254,38 @@ func TestBudgets_AnonymousRefusalsStopFillingTheLog(t *testing.T) {
 	}
 	if !strings.Contains(logged.String(), "will not be logged this window") {
 		t.Error("the suppression itself must be announced once, or the log lies by omission")
+	}
+}
+
+// TestTap_IndistinguishableRefusals: an unknown uid, another employer's plaque
+// and a forged signature on our own plaque produce BYTE-IDENTICAL responses, so
+// the activation path is no oracle for which plaques exist or whose they are.
+func TestTap_IndistinguishableRefusals(t *testing.T) {
+	other := uuid.MustParse("99999999-9999-4999-8999-999999999999")
+	shapes := map[string]func(sun.Params) (sun.Result, error){
+		"unknown": func(sun.Params) (sun.Result, error) { return sun.Result{}, sun.ErrUnknownTag },
+		"foreign": func(sun.Params) (sun.Result, error) {
+			r := genuineTap()
+			r.Tag.TenantID = other
+			return r, nil
+		},
+		"forged": func(sun.Params) (sun.Result, error) {
+			r := genuineTap()
+			r.SUNValid = false
+			return r, nil
+		},
+	}
+	var first string
+	var firstCode int
+	for name, v := range shapes {
+		h := newHandlerWith(t, &fakeInvites{}, &fakeSessions{}, &fakeAudit{}, handlerOpts{verifier: &fakeVerifier{verify: v}})
+		w := doTap(t, h, activationTapURL, pendingCookie())
+		if first == "" {
+			first, firstCode = w.Body.String(), w.Code
+			continue
+		}
+		if w.Code != firstCode || w.Body.String() != first {
+			t.Errorf("%s: answer differs from the others (status %d vs %d)", name, w.Code, firstCode)
+		}
 	}
 }
