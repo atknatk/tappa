@@ -52,7 +52,7 @@ GET'te (plaketin açtığı `/t`) doğuyor; ve §5'in "Practice tap" kuralı kal
    satırlar kalır (§4.3 değişmezlik; ADR 0008'in "practice satırı açık girişi
    saklamaz" kuralı tarihsel satırlar için yürürlükte).
 5. **Aktivasyon çerezi davetin `expires_at`'ine kadar yaşar** (üst sınır 30 gün).
-6. **`GET /activate/status`** (`waiting|done|none`, no-store, kendi oran bütçesi):
+6. **`GET /activate/complete`** başarı sayfası; **`GET /activate/status`** (`waiting|done|none`, no-store, kendi oran bütçesi):
    bekleme sekmesi (`activate.js`) aktivasyonun diğer sekmede bittiğini görür.
    `done` yalnız aktivasyon dokunuşunun bıraktığı `tappa_activated` işaret çerezi
    (15 dk, değeri verilen oturumun id'si) tarayıcının canlı oturumunu adlandırıyorsa
@@ -107,6 +107,27 @@ GET'te (plaketin açtığı `/t`) doğuyor; ve §5'in "Practice tap" kuralı kal
 `internal/handler/sunurl_test.go` bunu AN12196 KAT'ına sabitlenmiş bağımsız bir
 test yardımcısıyla üretir. Bu, check-in yolunda reddedilen "ikinci SDM
 implementasyonu" duruşunun bilinçli ve dar bir istisnasıdır (yalnız `_test.go`).
+
+## Denetim 2. tur düzeltmeleri (2026-10-04)
+
+- **Başarı kendi sayfasında:** aktivasyon dokunuşu `/t?…` adresinde onay
+  göstermez; `303 → /activate/complete` (`tappa_activated` işaretiyle kapılı,
+  yenilemede aynı). Eski hâl, yenilemede harcanmış sayacı butonlu tap sayfası olarak
+  açıyordu; buton yalnız `sys:sun-invalid` reddi yazıp gerçek dokunuşu 60 sn
+  debounce'a sokuyordu. **Yapılmayan (§5'e dokunduğu için):** canlı oturumla
+  harcanmış bir sayacın önizlemesinde butonsuz sayfa göstermek — bugün o buton
+  §4.6 gereği kaydedilen bir reddi üretiyor; davranışı değiştirmek ayrı karar.
+- **İşaret temizliği:** link açmak ve onay vermek eski `tappa_activated`'ı siler;
+  bu tarayıcıda başka bir aktivasyon çerezi varken `status` asla `done` demez.
+- **Dürüst inişler:** iptal edilmiş oturumla dokunuş `/activate?from=signedout`
+  ("This phone was signed out"); `from=tap` metni linkin hâlâ geçerli olduğunu vaat
+  etmez.
+- **Hizmet dışı plaket** de aynı genel reddi alır (durumu imzadan önce bilinir).
+- **Deaktive çalışanın canlı oturumu** bekleyen aktivasyona rağmen sıradan tap
+  sayfasında kalır → §5 satır 4 kaydı + güvenlik uyarısı. **Bedeli:** ayrılmış bir
+  çalışanın oturumunu taşıyan telefonu yeni çalışana DOKUNUŞLA devretmek mümkün
+  değil — yeni çalışan başka bir tarayıcıda kurmalı ya da çerezler silinmeli. Ürün
+  kararı bekliyor.
 
 ## Birleştirme sırası (zorunlu)
 
