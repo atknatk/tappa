@@ -215,12 +215,11 @@ type Employee struct {
 	// department shift over the location shift (§5, Q17, M4-05); this field lets the
 	// caller resolve which Shift to put in Input.Shift.
 	Department *uuid.UUID
-	// ActivatedAt is when the invite was activated, the SERVER-side source for the
-	// practice flag (§5, M4-06): the first genuine tap after activation is a
-	// practice tap. It lives here — not in Input as a client-supplied bool —
-	// precisely so practice CANNOT be claimed by the request body (the M4-06
-	// exploit: body practice=true to keep a real check-in open). Zero value means
-	// "activation time unknown" and the M4-06 logic treats it accordingly.
+	// ActivatedAt is when the invite was activated. It USED to be the server-side
+	// source of the practice flag (M4-06: first tap after activation = practice);
+	// ADR 0025 retired the practice tap, so Decide no longer reads it. It stays
+	// because the caller loads it with the employee row and it is a fact about the
+	// person, not a decision input anybody can supply.
 	ActivatedAt time.Time
 }
 
@@ -506,8 +505,10 @@ type Decision struct {
 	// hours, so no float touches a time figure (§6); a pointer so "not computed" is
 	// unambiguously distinct from "0 minutes late".
 	MinutesLate *int
-	// Practice marks a training tap (TRAINING stamp; never counts toward hours, §5,
-	// M4-06). SERVER-derived from Employee.ActivatedAt, never a client claim.
+	// Practice marks a training tap (TRAINING stamp; never counts toward hours).
+	// Since ADR 0025 Decide never sets it: the activating NFC tap replaced the
+	// M4-06 practice tap. It remains so the record writer keeps one shape and
+	// historic practice rows (immutable, §4.3) still have a name.
 	Practice bool
 	// Redirect is the non-recording outcome selector — RedirectActivation for the
 	// no-session case (§5 line 3), RedirectNone otherwise (see Redirect).

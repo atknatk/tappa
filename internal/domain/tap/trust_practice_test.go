@@ -164,8 +164,8 @@ func TestDecide_QRChannelEndToEnd(t *testing.T) {
 // --- Practice tap: server-derived, never client-declared --------------------------
 
 // TestInput_HasNoClientPracticeField closes the M4-06 hours-inflation exploit
-// STRUCTURALLY: Input offers NO place for a client to declare practice, so practice
-// can only ever be the server derivation (isPracticeTap). If a future change adds a
+// STRUCTURALLY: Input offers NO place for a client to declare practice (and since
+// ADR 0025 the server derives none either). If a future change adds a
 // practice/isPractice field to Input, this test fails and forces a security review.
 func TestInput_HasNoClientPracticeField(t *testing.T) {
 	t.Parallel()
@@ -177,63 +177,38 @@ func TestInput_HasNoClientPracticeField(t *testing.T) {
 	}
 }
 
-// TestDecide_PracticeIsServerDerived proves practice is derived ONLY from
-// Employee.ActivatedAt + Input.LastForPerson — the first record after activation is
-// practice, every later tap is not, and an unknown activation time is never
-// practice. It holds for both an ok and a flag (a practice tap is still a recorded
-// attendance tap); it is proven independent of any client input by the structural
-// test above (Input has no practice field to set).
-func TestDecide_PracticeIsServerDerived(t *testing.T) {
+// TestDecide_FirstTapAfterActivationIsNotPractice is ADR 0025's change to §5's
+// "practice tap" rule, pinned: the activating NFC tap replaced the training tap, so
+// the first RECORD after activation — the shape that used to be practice — is an
+// ordinary one, on both of the verdicts that record attendance.
+func TestDecide_FirstTapAfterActivationIsNotPractice(t *testing.T) {
 	t.Parallel()
-
-	t.Run("first_tap_after_activation_is_practice_ok", func(t *testing.T) {
-		t.Parallel()
-		in := onSiteInput() // IP match -> ok; LastForPerson nil; ActivatedAt set
-		got := Decide(in)
-		if got.Verdict != VerdictOK {
-			t.Fatalf("precondition: want ok, got %q via %q", got.Verdict, got.MatchedSid)
-		}
-		if !got.Practice {
-			t.Errorf("the first tap after activation must be practice=true")
-		}
-	})
-
-	t.Run("first_tap_after_activation_is_practice_flag", func(t *testing.T) {
-		t.Parallel()
-		in := baseInput() // no evidence -> flag; still the first recorded tap
-		got := Decide(in)
-		if got.Verdict != VerdictFlag {
-			t.Fatalf("precondition: want flag, got %q via %q", got.Verdict, got.MatchedSid)
-		}
-		if !got.Practice {
-			t.Errorf("a flagged first tap after activation must still be practice=true")
-		}
-	})
-
-	t.Run("second_tap_is_not_practice", func(t *testing.T) {
-		t.Parallel()
-		in := onSiteInput()
-		// A prior tap exists (well outside the debounce window so it is not ignored):
-		// this is no longer the first record, so practice must be false.
-		in.LastForPerson = &Transaction{OccurredAt: in.Now.Add(-90 * time.Second), Direction: TypeIn}
-		got := Decide(in)
-		if got.Verdict == VerdictIgnored {
-			t.Fatalf("precondition: 90s gap must not debounce; got ignored")
-		}
-		if got.Practice {
-			t.Errorf("a tap with a prior record must not be practice")
-		}
-	})
-
-	t.Run("unknown_activation_time_is_not_practice", func(t *testing.T) {
-		t.Parallel()
-		in := onSiteInput()
-		in.Employee.ActivatedAt = time.Time{} // activation time unknown
-		got := Decide(in)
-		if got.Practice {
-			t.Errorf("an unknown activation time must not be practice (zero ActivatedAt)")
-		}
-	})
+	for _, tc := range []struct {
+		name    string
+		in      func() Input
+		wantVer Verdict
+	}{
+		{"first_tap_ok", onSiteInput, VerdictOK},   // IP match; LastForPerson nil; ActivatedAt set
+		{"first_tap_flag", baseInput, VerdictFlag}, // no evidence; still the first record
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			in := tc.in()
+			if in.Employee == nil || in.Employee.ActivatedAt.IsZero() || in.LastForPerson != nil {
+				t.Fatalf("precondition: want the old practice shape (activated, no prior record)")
+			}
+			got := Decide(in)
+			if got.Verdict != tc.wantVer {
+				t.Fatalf("precondition: want %q, got %q via %q", tc.wantVer, got.Verdict, got.MatchedSid)
+			}
+			if got.Practice {
+				t.Errorf("the first tap after activation must be an ordinary record since ADR 0025; Practice=true")
+			}
+			if got.Type == nil || *got.Type != TypeIn {
+				t.Errorf("a first record is a check-IN; Type = %v", got.Type)
+			}
+		})
+	}
 }
 
 // TestDecide_CheckoutIsNeverPractice is the exploit proof (M4-06). A CHECKOUT
@@ -253,32 +228,6 @@ func TestDecide_CheckoutIsNeverPractice(t *testing.T) {
 	}
 	if got.Practice {
 		t.Errorf("a checkout must never be practice (it has a prior tap): the hours-inflation exploit must stay closed")
-	}
-}
-
-// TestDecide_NonRecordVerdictsAreNotPractice: only a recorded attendance tap
-// (ok/flag) can be practice. reject/ignored/redirect carry no worked hours, so even
-// a first-tap-after-activation shape on those verdicts is not marked practice.
-func TestDecide_NonRecordVerdictsAreNotPractice(t *testing.T) {
-	t.Parallel()
-	cases := []struct {
-		name   string
-		mutate func(in *Input)
-	}{
-		{"reject_lost_tag", func(in *Input) { in.Tag.Status = TagLost }},
-		{"reject_sun_invalid", func(in *Input) { in.SUN = SUNResult{Valid: false} }},
-		{"redirect_no_session", func(in *Input) { in.Employee = nil }},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			t.Parallel()
-			in := baseInput() // LastForPerson nil + ActivatedAt set: the practice shape
-			c.mutate(&in)
-			got := Decide(in)
-			if got.Practice {
-				t.Errorf("%s: a non-record verdict must not be practice; Practice=true", c.name)
-			}
-		})
 	}
 }
 
@@ -322,106 +271,11 @@ func TestDecide_ManualChannelSkipsSUN(t *testing.T) {
 	}
 }
 
-// TestDecide_ThePracticeRunIsSpentByANYPriorRecord is the measurement the mini
-// tour's third slide (M5-07) is written against, and it exists because that slide
-// makes a CLAIM ABOUT THE SYSTEM to somebody who cannot check it.
-//
-// The claim under test is "your first tap is a practice run". What the engine
-// actually does is narrower: a tap is practice only when the person has NO PRIOR
-// RECORD, and §4.6 records EVERY decided tap — GetLastTransactionForEmployee
-// carries no verdict predicate and no channel predicate (db/queries/transactions.sql
-// says so at the query). So a first tap that is REJECTED, or an `ignored`
-// duplicate, or a manual row a manager entered, all leave a record and the run is
-// gone.
-//
-// ⚠️ THE TABLE IS NOT "EXHAUSTIVE", AND THE FIRST VERSION OF THIS SENTENCE SAID IT
-// WAS. It cannot be, in an interesting way: tap.Transaction carries NO verdict and
-// NO channel, so from the engine's side every row below is the SAME INPUT — one
-// non-nil predecessor. What the rows enumerate is the SITUATIONS a reader would
-// otherwise assume are different, and the finding is that none of them is. (The
-// version an audit caught also omitted the most ordinary predecessor of all, an
-// earlier `ok`; it is row one now.) pages.Tour's words are chosen so that every
-// row here leaves them true.
-//
-// WHY A TABLE AND NOT FOUR TESTS: these are the same question asked of different
-// predecessors, and the answer that would be a bug — "some verdicts do not count"
-// — is only visible when they are read side by side.
-func TestDecide_ThePracticeRunIsSpentByANYPriorRecord(t *testing.T) {
-	t.Parallel()
-
-	// A predecessor far outside the debounce window, so nothing below is `ignored`
-	// for the wrong reason.
-	priorAt := func(in Input) *Transaction {
-		return &Transaction{OccurredAt: in.Now.Add(-300 * time.Second)}
-	}
-
-	tests := []struct {
-		name string
-		// prior describes the record the engine can see, if any. The VERDICT of that
-		// record is deliberately absent from Transaction: the query does not filter
-		// on it, so the engine cannot tell an `ok` predecessor from a `reject` one —
-		// which is the whole finding.
-		prior        func(in Input) *Transaction
-		wantPractice bool
-		why          string
-	}{
-		{
-			name:         "no_prior_record_at_all",
-			prior:        func(Input) *Transaction { return nil },
-			wantPractice: true,
-			why:          "the case the tour's slide is about",
-		},
-		{
-			name:         "after_an_ordinary_earlier_ok",
-			prior:        priorAt,
-			wantPractice: false,
-			why: "the most common predecessor there is, and it was missing from the first " +
-				"version of this table — the engine cannot tell it from any other row",
-		},
-		{
-			name:         "after_a_rejected_first_tap",
-			prior:        priorAt,
-			wantPractice: false,
-			why: "a reject IS a record (§4.6), so it spends the practice run: the tour " +
-				"may not promise the NEXT tap will be a practice one",
-		},
-		{
-			name:         "after_an_ignored_duplicate",
-			prior:        priorAt,
-			wantPractice: false,
-			why:          "an ignored duplicate is recorded too, and spends it the same way",
-		},
-		{
-			name:         "after_a_manual_row_a_manager_entered",
-			prior:        priorAt,
-			wantPractice: false,
-			why:          "channel is not read here either (M6-04 will make this reachable)",
-		},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			in := onSiteInput()
-			in.LastForPerson = tc.prior(in)
-			got := Decide(in)
-			if got.Verdict != VerdictOK {
-				t.Fatalf("precondition: want ok, got %q via %q", got.Verdict, got.MatchedSid)
-			}
-			if got.Practice != tc.wantPractice {
-				t.Errorf("Practice = %v, want %v — %s", got.Practice, tc.wantPractice, tc.why)
-			}
-		})
-	}
-}
-
-// TestDecide_TheFirstTapCanNeverBeIgnored is the other half of the promise: the
-// person-debounce needs a PREVIOUS tap to measure a gap against, and on a first
-// tap there is none. So of the four verdicts, only three can befall the tap the
-// tour is talking about — ok and flag are practice, reject is not.
-//
-// It matters because "ignored" is the one verdict whose screen says nothing at all
-// about hours; if a first tap could land there, the tour would be promising a
-// TRAINING mark on a screen that never shows one.
+// TestDecide_TheFirstTapCanNeverBeIgnored: the person-debounce needs a PREVIOUS
+// tap to measure a gap against, and on a first tap there is none. Still worth
+// pinning after ADR 0025: the activation screen promises "to check in, tap the
+// plaque again", and that next tap — the employee's first record — must be able to
+// land as a real ok/flag rather than a silent duplicate.
 func TestDecide_TheFirstTapCanNeverBeIgnored(t *testing.T) {
 	t.Parallel()
 	in := onSiteInput() // LastForPerson nil -> SecondsSincePersonLastTap is not set
@@ -429,81 +283,20 @@ func TestDecide_TheFirstTapCanNeverBeIgnored(t *testing.T) {
 	if got.Verdict == VerdictIgnored {
 		t.Fatalf("a first tap has no predecessor to be a duplicate of; got ignored via %q", got.MatchedSid)
 	}
-	if !got.Practice {
-		t.Fatalf("precondition: the first tap after activation is the practice run")
-	}
 }
 
-// TestDecide_APracticeTapCanStillFlag pins the combination pages.Tour and
-// pages.Result both have to survive: practice is set on the SAME ok/flag gate as
-// direction, so a training tap at a venue with no evidence is `flag` AND practice.
-// The tour says a TRAINING mark means the tap does not count toward hours, and
-// that has to stay true of the flagged one too — which is why result.templ drops
-// "before it counts" from the flag sentence when Practice is set.
-func TestDecide_APracticeTapCanStillFlag(t *testing.T) {
-	t.Parallel()
-	in := baseInput() // no IP, no GPS
-	got := Decide(in)
-	if got.Verdict != VerdictFlag {
-		t.Fatalf("precondition: want flag, got %q via %q", got.Verdict, got.MatchedSid)
-	}
-	if !got.Practice {
-		t.Errorf("a flagged first tap is still the practice run")
-	}
-	if got.Type == nil || *got.Type != TypeIn {
-		t.Errorf("a flagged practice tap still carries a direction; Type = %v", got.Type)
-	}
-}
-
-// TestDecide_QRFirstTapIsStillThePracticeRun: the channel is not read by
-// isPracticeTap, so somebody whose phone cannot read the chip (M5-08's iPhone X
-// note) gets the same practice run as everybody else — with or without an IP
-// match, i.e. on both the `ok` and the `flag` the QR baseline can produce.
-func TestDecide_QRFirstTapIsStillThePracticeRun(t *testing.T) {
-	t.Parallel()
-	for _, tc := range []struct {
-		name    string
-		mutate  func(in *Input)
-		wantVer Verdict
-	}{
-		{"qr_with_an_ip_match", withIP, VerdictOK},
-		{"qr_without_one", func(*Input) {}, VerdictFlag},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			in := baseInput()
-			in.Channel = ChannelQR
-			in.SUN = SUNResult{Valid: false} // a static QR carries no chip signature
-			tc.mutate(&in)
-			got := Decide(in)
-			if got.Verdict != tc.wantVer {
-				t.Fatalf("precondition: want %q, got %q via %q", tc.wantVer, got.Verdict, got.MatchedSid)
-			}
-			if !got.Practice {
-				t.Errorf("a QR first tap must still be the practice run")
-			}
-		})
-	}
-}
-
-// TestDecide_PracticeIsAlwaysAnIn pins the invariant ADR 0008 relies on:
-// a practice record NEVER carries direction `out`.
+// TestDecide_NoNewRecordIsEverPractice is the property ADR 0025 leaves behind: the
+// engine never produces a practice record, whatever the history, activation,
+// evidence or channel. It checks the PROPERTY over every combination rather than a
+// list (the M5-10 lesson), so a branch that started setting Practice again fails
+// here without anybody remembering to add a case.
 //
-// WHY IT HAS TO BE PINNED AT ALL. GetLastOpenTransaction excludes practice rows from
-// the OUTER filter but leaves its NOT EXISTS ("was this entry closed later?")
-// practice-neutral. That split is only safe while a practice row cannot BE a closing
-// `out` — otherwise a training tap could silently close somebody's shift and the
-// anti-join would never see it. The implication holds structurally (isPracticeTap
-// requires LastOpenIn == nil; resolveDirection returns TypeOut only for a
-// non-practice LastOpenIn) and this test is what keeps it holding.
-//
-// IT CHECKS A PROPERTY, NOT A LIST (the M5-10 lesson): every combination below is
-// run and the assertion is the implication itself, so a new field or a new branch
-// that produced a practice `out` fails here without anybody remembering to add a
-// case. The two counters underneath are the non-vacuity control — a mutation that
-// simply stopped setting Practice, or stopped ever producing `out`, would satisfy
-// the implication trivially and is caught by them instead.
-func TestDecide_PracticeIsAlwaysAnIn(t *testing.T) {
+// HISTORIC PRACTICE ROWS ARE STILL IN THE TABLE (immutable, §4.3), so the history
+// dimension keeps the open-practice-in shapes: a practice row may still be READ as
+// LastOpenIn, and must still never close a chain (ADR 0008). The `out` counter is
+// the non-vacuity control — an engine that stopped producing `out` at all would
+// make "no practice" trivially true of a table that no longer exercises direction.
+func TestDecide_NoNewRecordIsEverPractice(t *testing.T) {
 	t.Parallel()
 
 	prior := func(in Input) *Transaction {
@@ -526,13 +319,10 @@ func TestDecide_PracticeIsAlwaysAnIn(t *testing.T) {
 		{"open_real_in", func(in *Input) {
 			in.LastForPerson, in.LastOpenIn = prior(*in), openIn(*in, false)
 		}},
-		{"open_practice_in", func(in *Input) {
+		{"open_historic_practice_in", func(in *Input) {
 			in.LastForPerson, in.LastOpenIn = prior(*in), openIn(*in, true)
 		}},
-		// The inconsistent shape a caller must never produce, kept because it is the
-		// one that used to re-open the hours-inflation exploit (M4-07).
 		{"open_real_in_without_a_prior_tap", func(in *Input) { in.LastOpenIn = openIn(*in, false) }},
-		{"open_practice_in_without_a_prior_tap", func(in *Input) { in.LastOpenIn = openIn(*in, true) }},
 	}
 	activation := []dim{
 		{"activated", func(*Input) {}},
@@ -551,9 +341,7 @@ func TestDecide_PracticeIsAlwaysAnIn(t *testing.T) {
 		{"manual", func(in *Input) { in.Channel, in.SUN = ChannelManual, SUNResult{Valid: false} }},
 	}
 
-	var (
-		combos, sawPractice, sawOut int
-	)
+	var combos, recorded, sawOut int
 	for _, h := range history {
 		for _, a := range activation {
 			for _, e := range evidence {
@@ -567,20 +355,11 @@ func TestDecide_PracticeIsAlwaysAnIn(t *testing.T) {
 
 					got := Decide(in)
 					combos++
+					if got.Verdict == VerdictOK || got.Verdict == VerdictFlag {
+						recorded++
+					}
 					if got.Practice {
-						sawPractice++
-						if got.Type == nil || *got.Type != TypeIn {
-							// Dereferenced: %v on a *Type prints an ADDRESS, and a
-							// failure message that costs a second run to read is half
-							// a message.
-							dir := "<none>"
-							if got.Type != nil {
-								dir = string(*got.Type)
-							}
-							t.Errorf("%s: a practice record came out as %q — ADR 0008 lets "+
-								"GetLastOpenTransaction's NOT EXISTS stay practice-neutral only "+
-								"because this cannot happen", name, dir)
-						}
+						t.Errorf("%s: Decide produced a practice record; ADR 0025 retired the practice tap", name)
 					}
 					if got.Type != nil && *got.Type == TypeOut {
 						sawOut++
@@ -589,14 +368,9 @@ func TestDecide_PracticeIsAlwaysAnIn(t *testing.T) {
 			}
 		}
 	}
-
-	// Non-vacuity: the implication above is worthless unless BOTH sides occur.
-	if sawPractice == 0 {
-		t.Fatalf("%d combinations produced no practice record at all: the implication is vacuous", combos)
+	if recorded == 0 || sawOut == 0 {
+		t.Fatalf("%d combinations: %d recorded, %d check-outs — the table no longer exercises "+
+			"the records practice used to be set on", combos, recorded, sawOut)
 	}
-	if sawOut == 0 {
-		t.Fatalf("%d combinations produced no `out` at all: this table cannot tell a "+
-			"practice `out` from an engine that stopped producing `out` entirely", combos)
-	}
-	t.Logf("%d combinations: %d practice records, %d check-outs, no overlap", combos, sawPractice, sawOut)
+	t.Logf("%d combinations: %d recorded, %d check-outs, 0 practice", combos, recorded, sawOut)
 }

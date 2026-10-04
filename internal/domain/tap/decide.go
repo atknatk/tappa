@@ -55,9 +55,9 @@ var markSessionPresent = uuid.UUID{0: 0x01}
 //   - Type (direction, M4-04): a toggle against the person's last open check-in.
 //   - MinutesLate (M4-05): lateness against the resolved shift; report only.
 //   - Trust (M4-06): 20 + 50(IP) + 30(GPS); INDEPENDENT of the verdict.
-//   - Practice (M4-06): the first record after activation, SERVER-derived from
-//     Employee.ActivatedAt + LastForPerson — Input carries no client practice flag,
-//     which is what closes the hours-inflation exploit (see isPracticeTap).
+//   - Practice: ALWAYS false since ADR 0025 — the activating NFC tap replaced the
+//     M4-06 training tap. Input still carries no client practice flag, so nothing
+//     can claim one either.
 //
 // The QR channel needs no code here: sys:sun-invalid is NFC-only, so a SUN-less QR
 // tap is not denied, and base:qr-requires-ip (Q15) sends a QR tap without an IP
@@ -241,11 +241,14 @@ func Decide(in Input) Decision {
 		dir, note := resolveDirection(in)
 		dec.Type = &dir
 		dec.Note = appendNote(dec.Note, note)
-		// Practice tap (M4-06). Only a RECORDED attendance tap (ok/flag — the same
-		// gate as direction) can be a TRAINING tap: a reject/ignored/redirect has no
-		// worked hours to exclude. The value is SERVER-derived (isPracticeTap), so a
-		// client cannot claim it; a checkout is structurally never practice.
-		dec.Practice = isPracticeTap(in)
+		// NO PRACTICE TAP ANY MORE (ADR 0025). The first tap after activation used
+		// to be a TRAINING record that never counted toward hours (M4-06); the
+		// activation itself now happens on a physical NFC tap, which IS the
+		// training moment and writes no attendance row at all. So every record
+		// this engine decides is an ordinary one and dec.Practice stays false.
+		// The field and the transactions.practice column stay: historic rows are
+		// immutable (§4.3) and keep being read as practice (resolveDirection,
+		// ADR 0008).
 	}
 
 	// --- 6. Lateness (M4-05) -------------------------------------------------
@@ -504,12 +507,10 @@ const staleOpenInNote = "stale open check-in (possible forgotten checkout)"
 // through checkin and only a hand-built Input reaches it — which is exactly what
 // TestDecide_DirectionPracticeOpenInDoesNotCloseChain does, and all it can prove.
 //
-// This is only about a PRIOR practice record's effect on the chain; whether
-// the CURRENT tap is itself practice is derived in M4-06 (Decision.Practice, from
-// Employee.ActivatedAt) — a practice tap still gets a direction computed here and is
-// still recorded, it simply must never later reappear as a LastOpenIn. That
-// direction is ALWAYS `in` and it is a structural fact, not a convention: see
-// isPracticeTap.
+// This is only about a PRIOR practice record's effect on the chain. Since ADR 0025
+// no NEW record is practice, so the only practice rows this can meet are historic
+// ones (written before the activation tap replaced the training tap); they were
+// always `in` (ADR 0008) and must still never reappear as a LastOpenIn.
 func resolveDirection(in Input) (dir Type, note string) {
 	open := in.LastOpenIn
 	if open == nil || open.Practice {
@@ -636,56 +637,6 @@ func trustScore(ipMatch, gpsMatch bool) int {
 		score += 30
 	}
 	return score
-}
-
-// isPracticeTap reports whether this tap is the person's FIRST RECORD EVER — the
-// §5/M4-06 practice (TRAINING) tap that must never count toward worked hours. It is
-// derived ENTIRELY on the server from two facts:
-//
-//   - the employee has a known activation time (Employee.ActivatedAt is not the
-//     zero value), and
-//   - the person has NO prior tap (Input.LastForPerson == nil).
-//
-// ⚠️ "FIRST AFTER ACTIVATION" AND "FIRST EVER" ARE NOT THE SAME SENTENCE, and this
-// function means the second one. Somebody who loses their phone and RE-ACTIVATES on
-// a new one does NOT get a second training tap: their next record is an ordinary
-// one. MEASURED end to end (M5-11) — one record, then a real second activation over
-// HTTP (which lands on /activate/done, the second-device path), then another record:
-// practice=true, then practice=FALSE. Two independent reasons, either alone enough:
-// LastForPerson is non-nil, and activated_at is not even moved by the second
-// activation (ConsumeInviteAndActivate COALESCEs it, db/queries/invites.sql).
-//
-// 🔴 PRACTICE IMPLIES DIRECTION `in`, STRUCTURALLY. This function requires
-// LastOpenIn == nil, and resolveDirection returns TypeOut only when LastOpenIn is a
-// non-practice row — so a practice record can never be an `out`. Both are computed
-// from the same Input in the same branch of Decide, so the implication holds for
-// every tap, not by convention. It is what lets GetLastOpenTransaction's NOT EXISTS
-// stay practice-neutral while its outer filter excludes practice (ADR 0008), and it
-// is pinned by TestDecide_PracticeIsAlwaysAnIn.
-//
-// It reads NO client-supplied practice flag — Input carries none BY DESIGN
-// (types.go), which is what closes the M4-06 hours-inflation exploit: a client that
-// could set practice=true on a CHECKOUT would keep the check-in open and over-
-// report hours. Here a checkout is STRUCTURALLY never practice, because a checkout
-// necessarily has a prior tap, so LastForPerson != nil. A nil Employee (no session)
-// is never practice — there is no record to mark. This is a plain BOOLEAN FACT, not
-// a separate "training mode" state (M4-06 trap).
-//
-// DEFENSE IN DEPTH (M4-07, hardening carried over from M4-06 — state.md session
-// note): it ALSO requires LastOpenIn == nil, mirroring resolveDirection's stale-
-// practice guard. A CONSISTENT M5 query never yields the shape "LastForPerson == nil
-// yet LastOpenIn != nil" (an open check-in IS a prior tap for that person), so the
-// LastForPerson check already covers the real world. But an INCONSISTENT caller with
-// that shape would otherwise mark a checkout (LastOpenIn present -> resolveDirection
-// returns out) as practice, re-opening the exact hours-inflation exploit; requiring
-// LastOpenIn == nil keeps isPracticeTap and resolveDirection in agreement so a
-// checkout can never be practice regardless of which of the two prior-tap signals
-// the caller happens to pass.
-func isPracticeTap(in Input) bool {
-	return in.Employee != nil &&
-		!in.Employee.ActivatedAt.IsZero() &&
-		in.LastForPerson == nil &&
-		in.LastOpenIn == nil
 }
 
 // ipMatches reports whether src falls inside any of the location's registered

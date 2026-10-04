@@ -209,18 +209,13 @@ func TestDecide_RustyBarNightShiftFullRound(t *testing.T) {
 	}
 }
 
-// --- isPracticeTap defense-in-depth (M4-07 hardening) -----------------------------
+// --- Practice defense-in-depth (M4-07 hardening, kept after ADR 0025) ------------
 
-// TestDecide_CheckoutNotPracticeInconsistentCaller pins the M4-06 hardening carried
-// into M4-07 (state.md session note) and the matching one-line change in decide.go
-// (isPracticeTap now also requires LastOpenIn == nil). Even an INCONSISTENT caller —
-// one that passes LastForPerson == nil (as if no prior tap) yet a non-nil LastOpenIn
-// (an open check-in, which IS a prior tap) — must NOT mark the resulting checkout as
-// practice. A practice checkout would leave the check-in open and inflate hours (the
-// M4-06 exploit). A CONSISTENT M5 query never produces this shape; this is defense in
-// depth, mirroring resolveDirection's stale-practice guard so the two agree. Without
-// the decide.go change this test FAILS (isPracticeTap would return true), so it is a
-// genuine, non-vacuous proof of the production hardening.
+// TestDecide_CheckoutNotPracticeInconsistentCaller: even an INCONSISTENT caller —
+// LastForPerson == nil yet a non-nil LastOpenIn — must not get a practice checkout,
+// which would leave the check-in open and inflate hours (the M4-06 exploit). Since
+// ADR 0025 Decide sets no practice at all, so this is now a regression guard: a
+// change that brought practice derivation back must not bring the exploit with it.
 func TestDecide_CheckoutNotPracticeInconsistentCaller(t *testing.T) {
 	t.Parallel()
 
