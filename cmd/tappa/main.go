@@ -562,7 +562,18 @@ func run() error {
 		return err
 	}
 
-	panelAuth, err := handler.NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, venues, plaques, entries, rules, ruleWriter, books, accounts, brandReader, encoder, cfg, slog.Default())
+	// The business's brand, WRITE side (M10 WL-4, wired by WL-7): the Account editor's
+	// three routes. It takes the same audit recorder every writer takes, because each
+	// write and its tenant.brand_updated row share one transaction (RecordTx); the role
+	// gate and the "is this the logo gate's output" check are inside it, so a route
+	// that reached it without the handler's own checks still could not store a brand an
+	// owner did not set or bytes the re-encoder did not write.
+	brandWriter, err := tenant.NewBrands(data, trail, slog.Default())
+	if err != nil {
+		return err
+	}
+
+	panelAuth, err := handler.NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, venues, plaques, entries, rules, ruleWriter, books, accounts, brandReader, brandWriter, encoder, cfg, slog.Default())
 	if err != nil {
 		return err
 	}

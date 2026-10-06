@@ -607,6 +607,15 @@ const (
 	// bytes (00028's CHECK), so a session's 300 can pull up to 75 MiB per window, and
 	// sign-up is public. No byte limit exists; ADR 0024's WL-6 note counts it and hands
 	// the decision to the upload route (WL-7).
+	// ✅ M10 WL-7 DECIDED IT FOR THE PANEL: NO BYTE BUDGET, ACCEPTED WITH THE NUMBERS --
+	// the tap side's decision (WL-9, internal/httpx/ratelimit.go), for the same reasons
+	// and smaller ones. 75 MiB per session per 10 minutes; a panel session is an owner's
+	// or a manager's, not an employee's, so an address carries few of them. The answer
+	// is private and immutable for a year, so a browser that keeps its cache pays it once
+	// per logo, and a new upload is a new URL; a 304 still reads the row (WL-6 note,
+	// limit 6). A byte counter would be a second, stateful dimension on the bucket every
+	// section shares. The UPLOAD side has its own bounds instead (brandactions.go,
+	// brandupload.go): per business, per attempt, before the body is read.
 	adminSessionLimit  = 300
 	adminSessionPeriod = 10 * time.Minute
 

@@ -85,7 +85,7 @@ templ PageWithScript(title, src string, b Brand) {
 // the theme stylesheet, which documentHead writes SECOND in the head so it wins over
 // app.css's :root defaults by order (same specificity; ADR 0023 §4, measured in
 // WL-5) -- the result screen's shell never has one, BrandedPage takes no Theme -- and
-// the header, brandHeader below. Both are our own origin. With Brand{} neither changes
+// the header, BrandHeader below. Both are our own origin. With Brand{} neither changes
 // a byte.
 templ shell(title, script string, b Brand) {
 	<!DOCTYPE html>
@@ -93,14 +93,14 @@ templ shell(title, script string, b Brand) {
 		@documentHead(title, script, RobotsPrivate, b.theme)
 		<body class="min-h-screen bg-porcelain text-ink antialiased">
 			<main class="mx-auto flex w-full max-w-md flex-col gap-6 px-4 py-8">
-				@brandHeader(b)
+				@BrandHeader(b)
 				{ children... }
 			</main>
 		</body>
 	</html>
 }
 
-// brandHeader is the top of a branded page (ADR 0023 §2, §5-§7), in three shapes:
+// BrandHeader is the top of a branded page (ADR 0023 §2, §5-§7), in three shapes:
 //
 //   - A LOGO: the logo in a slot 24 px tall, and under it, 4 px down, the co-brand
 //     line "taptime · punchless" in the tagline's own tone (user decision K-2b,
@@ -121,7 +121,13 @@ templ shell(title, script string, b Brand) {
 //
 // The logo sits on the porcelain ground with nothing drawn around it (skill
 // tappa-brand, "Tenant slotları").
-templ brandHeader(b Brand) {
+//
+// IT IS EXPORTED FOR ONE CALLER BESIDE shell: the Account editor's preview (M10 WL-7,
+// pages.accountBrandPreview), which draws the tap screen's header with this component
+// rather than a copy of it -- ADR 0023 §2's "the preview is the tap screen's own
+// components". Exporting changed no byte this component writes
+// (TestUnbrandedScreens_AreByteIdenticalToTheGolden).
+templ BrandHeader(b Brand) {
 	if b.logo.Drawn() {
 		<header class="flex flex-col items-start gap-1">
 			<img src={ b.logo.src } width={ b.logo.widthAttr() } height={ b.logo.heightAttr() } alt={ b.logo.alt } class="h-6 w-auto max-w-[50%] object-contain object-left"/>

@@ -31,6 +31,11 @@ func ThemeOf(c brand.Color) Theme { return Theme{hex: c.Hex()} }
 // Linked reports whether this is a theme to link (false for the zero value).
 func (t Theme) Linked() bool { return t.hex != "" }
 
+// Hex is the accent's canonical spelling (six upper-case hex digits), or "" for the zero
+// value. The Account editor (M10 WL-7) starts its colour picker on it, so the picker and
+// the stylesheet the page links are the same colour.
+func (t Theme) Hex() string { return t.hex }
+
 // Href is the stylesheet's path, or "" for the zero value.
 func (t Theme) Href() string {
 	if t.hex == "" {

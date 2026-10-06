@@ -116,6 +116,13 @@ func panelBrandView(b tenant.PanelBrand) pages.PanelBrand {
 	v := pages.PanelBrand{Name: businessName(b.Name)}
 	if b.HasLogo {
 		v.Logo = pages.PanelLogoOf(adminLogoHref(b.Logo.SHA256), b.Logo.Width, b.Logo.Height)
+		// The Account editor's preview (M10 WL-7): the tap screen's header shape, the
+		// panel's route, from this same read. Only where the chrome draws the logo too,
+		// so the preview never adds the page's first <img> (adminCSPFor reads the
+		// chrome's DrawsLogo alone).
+		if v.Logo.Src != "" {
+			v.Preview = layout.PreviewLogo(b.Logo.SHA256, b.Logo.Width, b.Logo.Height, v.Name)
+		}
 	}
 	if b.HasAccent {
 		v.Theme = layout.ThemeOf(b.Accent)

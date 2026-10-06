@@ -292,8 +292,11 @@ const (
 	FactGPSAloneApprovesATap Fact = "fact:gps-alone-approves-a-tap"
 	// TRIPWIRE: there is no file import. Derived as an ABSENCE — no non-test Go
 	// source under internal/ or cmd/ reads a multipart upload (FormFile,
-	// MultipartReader, ParseMultipartForm). The FAQ says "there is no file import
-	// today"; the day one exists this fails and the sentence is rewritten.
+	// MultipartReader, ParseMultipartForm) EXCEPT the brand logo handler,
+	// internal/handler/brandupload.go, and that one only through the multipart
+	// stream (M10 WL-7: a business's logo is not an import of people or records).
+	// The FAQ says "there is no file import today"; the day one exists this fails
+	// and the sentence is rewritten.
 	FactNoBulkImport Fact = "absent:multipart-upload"
 	// TRIPWIRE: there is no integration API. Derived as an ABSENCE — the only
 	// "/api…" literals in non-test Go source are the tap form's own two POSTs

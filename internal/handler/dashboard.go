@@ -220,6 +220,18 @@ func (a *AdminAuth) mountWriting(r chi.Router) {
 		// (K-A), so it is NOT owner-only. It is a separate route from accountSave for
 		// exactly that reason: the two must never share a gate.
 		r.Post(accountPasswordHref, a.accountPasswordSave)
+		// 🔴 THE ACCOUNT SECTION'S BRAND EDITOR (M10 WL-7): the colour and taking a logo
+		// or a colour back are two ordinary writes on this chain. The LOGO UPLOAD is a
+		// nested group for the encode relay's reason below: its gate (brandupload.go)
+		// keys a per-business budget and an admission place on the resolved identity, so
+		// it has to run after requireAdmin, and it is the only thing between the
+		// resolver and the one multipart body this product reads.
+		r.Post(brandAccentHref, a.brandAccentSave)
+		r.Post(brandResetHref, a.brandReset)
+		r.Group(func(r chi.Router) {
+			r.Use(a.brandUploadGate)
+			r.Post(brandLogoHref, a.brandLogoSave)
+		})
 
 		// 🔴 THE PLAQUE ENCODE RELAY (M8-05 FAZ B2c-2b) — A NESTED GROUP INSIDE THIS
 		// ONE, AND THE NESTING IS THE WHOLE REASON IT IS NOT THREE MORE r.Post LINES

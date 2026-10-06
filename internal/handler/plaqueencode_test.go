@@ -142,7 +142,7 @@ func encodeRouter(t *testing.T, admins *fakeAdmins, enc PlaqueEncoder, log *slog
 	}
 	h, err := NewAdminAuth(admins, &fakeTrail{}, newFakeLedger(), newFakeLedger(), &fakeReviewer{},
 		&fakeStaff{}, &fakeInviter{}, &fakeVenues{}, &fakePlaques{}, &fakeRecorder{},
-		newFakeRules(), newFakeScribe(), newFakeBooks(), newFakeAccount(), newFakeBrands(),
+		newFakeRules(), newFakeScribe(), newFakeBooks(), newFakeAccount(), newFakeBrands(), newFakeBrandWriter(),
 		enc, adminTestConfig(), log)
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)

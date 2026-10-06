@@ -10,19 +10,28 @@ package layout
 // wordmark -- and internal/handler's TestUnbrandedScreens_AreByteIdenticalToTheGolden
 // compares the listed renders with goldens written before this file existed.
 //
-// THE FIELDS ARE UNEXPORTED AND THE CONSTRUCTORS VALIDATE, so the only image URL a
-// header can write is the one built here: "/t/logo/" plus a 64-digit lower-case hex
-// digest, with a box in 1..512. Any other shape becomes the zero Logo, which draws
-// nothing and widens no policy. The handler decides the Content-Security-Policy from
-// Logo.Drawn, the same predicate the header draws the <img> from, so the page names
-// img-src exactly when it draws an image.
+// THE FIELDS ARE UNEXPORTED AND THE CONSTRUCTORS VALIDATE, so the only image URLs a
+// header can write are the two built here: "/t/logo/" (TapLogo) or, for the Account
+// editor's preview inside the panel, "/admin/brand/logo/" (PreviewLogo, M10 WL-7), plus
+// a 64-digit lower-case hex digest, with a box in 1..512. Any other shape becomes the
+// zero Logo, which draws nothing and widens no policy. The handler decides the
+// Content-Security-Policy from Logo.Drawn, the same predicate the header draws the
+// <img> from, so the page names img-src exactly when it draws an image.
 
 import "strconv"
 
 // tapLogoRoute is the tap surface's logo route (GET /t/logo/{sha}, ADR 0024 §5;
-// internal/handler/brandlogo.go). The Account preview reads the panel's route instead;
-// that constructor is WL-7's.
+// internal/handler/brandlogo.go). The Account preview reads the panel's route instead
+// (previewLogoRoute, PreviewLogo).
 const tapLogoRoute = "/t/logo/"
+
+// previewLogoRoute is the panel's logo route (GET /admin/brand/logo/{sha}, ADR 0024 §5).
+// The Account editor's preview (M10 WL-7) is drawn inside the panel, where the panel
+// cookie (Path=/admin) is what the browser sends and a live employee session is not:
+// the tap route would answer it 404 (ADR 0023 §2, "Account önizlemesi"). internal/handler's
+// TestBrandPreview_TheLogoIsThePanelRoute requests the src this writes through the
+// panel's own logo route.
+const previewLogoRoute = "/admin/brand/logo/"
 
 // logoMaxEdge is the stored logo's longest edge (ADR 0024 §3; brand.LogoMaxOutputEdge,
 // migration 00028's CHECK). A box outside 1..512 is not one a stored logo can have.
@@ -45,6 +54,18 @@ func TapLogo(sha256 string, width, height int, alt string) Logo {
 		return Logo{}
 	}
 	return Logo{src: tapLogoRoute + sha256, width: width, height: height, alt: alt}
+}
+
+// PreviewLogo describes the same logo as TapLogo, served by the panel's route: the
+// Account editor's preview of the tap screen (M10 WL-7). The rule for the digest and
+// the box is TapLogo's, so a value one of them refuses the other refuses too.
+func PreviewLogo(sha256 string, width, height int, alt string) Logo {
+	l := TapLogo(sha256, width, height, alt)
+	if !l.Drawn() {
+		return Logo{}
+	}
+	l.src = previewLogoRoute + sha256
+	return l
 }
 
 // Drawn reports whether this logo is drawn. It is the page's hasLogo: the handler names

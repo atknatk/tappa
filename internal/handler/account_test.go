@@ -60,7 +60,7 @@ func accountBrowser(t *testing.T, accounts panelAccounts, trail *fakeTrail, role
 	}}
 	h, err := NewAdminAuth(admins, trail, newFakeLedger(), newFakeLedger(), &fakeReviewer{},
 		&fakeStaff{}, &fakeInviter{}, &fakeVenues{}, &fakePlaques{}, &fakeRecorder{}, newFakeRules(),
-		newFakeScribe(), newFakeBooks(), accounts, newFakeBrands(), nil, adminTestConfig(), slog.New(slog.DiscardHandler))
+		newFakeScribe(), newFakeBooks(), accounts, newFakeBrands(), newFakeBrandWriter(), nil, adminTestConfig(), slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}
@@ -864,6 +864,15 @@ func TestAccount_TheVATMarkersClassesLiveWhereTailwindLooks(t *testing.T) {
 // statement.
 func TestAccount_NeverShowsTheStructureAnswer(t *testing.T) {
 	html := accountPage(t, newFakeAccount())
+	// M10 WL-7: the brand editor's logo form is the product's one multipart form, and
+	// its encoding attribute carries the four letters this scan looks for. That one
+	// attribute -- the transfer encoding, not the structure answer -- is taken out
+	// before the scan, exactly once; any other "multi" on the page is still found.
+	const uploadEncoding = `enctype="multipart/form-data"`
+	if n := strings.Count(html, uploadEncoding); n != 1 {
+		t.Fatalf("PREMISE: the owner's account page carries the upload form's encoding %d times, want 1", n)
+	}
+	html = strings.Replace(html, uploadEncoding, "", 1)
 	for _, forbidden := range []string{"several sites", "one site", "single", "multi"} {
 		if strings.Contains(html, htmlText(forbidden)) {
 			t.Errorf("the account screen prints %q.\nThe single/multi answer gates nothing "+

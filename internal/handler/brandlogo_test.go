@@ -21,6 +21,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"reflect"
 	"regexp"
 	"sort"
@@ -131,7 +132,7 @@ func logoSurfaces(t *testing.T, reader logoReader, sess *fakeSessions, admins *f
 	ledger := newFakeLedger()
 	panel, err := NewAdminAuth(admins, &fakeTrail{}, ledger, ledger, &fakeReviewer{}, &fakeStaff{}, &fakeInviter{},
 		&fakeVenues{}, &fakePlaques{}, &fakeRecorder{}, newFakeRules(), newFakeScribe(), newFakeBooks(),
-		newFakeAccount(), newFakeBrands(), nil, adminTestConfig(), discardLogger())
+		newFakeAccount(), newFakeBrands(), newFakeBrandWriter(), nil, adminTestConfig(), discardLogger())
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}
@@ -1022,6 +1023,17 @@ func TestPageImages_ImgSrcIsNamedOnlyByAPageThatDrawsAnImage(t *testing.T) {
 			if v.logo {
 				logoRenders++
 			}
+		}
+	}
+	// M10 WL-7: the Account section re-rendered for a refused colour -- the editor's other
+	// render path -- with a logo (the preview draws a second <img>) and without one.
+	for _, withLogo := range []bool{true, false} {
+		bp := newBrandPanel(t, "owner", panelTestTenant)
+		bp.brands.set(wl8Brand(t, true, withLogo), nil)
+		add("panel POST "+brandAccentHref+", refused colour, logo "+strconv.FormatBool(withLogo),
+			read(bp.browser(t).do(http.MethodPost, brandAccentHref, url.Values{"accent_hex": {"808080"}})))
+		if withLogo {
+			logoRenders++
 		}
 	}
 	withRecords := panelBrowserWith(t, ledgerWithRecords(1, true))

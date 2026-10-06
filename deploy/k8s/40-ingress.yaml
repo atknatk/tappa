@@ -124,13 +124,24 @@ metadata:
     # A redirect is what keeps a mistyped http:// link from producing either.
     nginx.ingress.kubernetes.io/ssl-redirect: "true"
     nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
-    # Every request this product accepts is a form post or a small JSON body. Since
-    # M10 OP-10 the largest one -- a legal text, 256 KiB at most -- is posted on the
+    # Every request this product accepts is a form post or a small JSON body, and --
+    # since M10 WL-7 -- one file upload: the business's logo, POST
+    # /admin/account/brand/logo on THIS host, a multipart body the handler caps at
+    # 1 MiB (internal/handler brandUploadMaxBody) carrying one part of at most 512 KiB
+    # (internal/brand.LogoMaxInputBytes). That 1 MiB is the largest bound a handler
+    # behind this Ingress sets itself; the sign-up form's 64 KiB (signupMaxFormBytes)
+    # is the next. The legal text (256 KiB at most, M10 OP-10) is posted on the
     # OPERATOR's host (/operator/legal), which this Ingress does not route (that host
-    # gets its own Ingress: deploy/README.md, "Bekliyor: K2/K4"). The largest bound a
-    # handler behind this Ingress sets itself is the sign-up form's 64 KiB
-    # (signupMaxFormBytes). "1m" was not re-derived when the legal screen moved:
-    # lowering it needs every route on this host measured first.
+    # gets its own Ingress: deploy/README.md, "Bekliyor: K2/K4"). "1m" is the upload's
+    # own cap, so it cannot be lowered without refusing logos the handler accepts; a
+    # body declared over it is the controller's to refuse (its 413), before the pod.
+    # REQUEST BUFFERING IS NOT SET HERE AND HAS NOT BEEN MEASURED IN THE CLUSTER (the
+    # controller's documented default buffers; this cluster's value was not read): if
+    # the controller buffers a body before proxying it, the handler's read deadline on
+    # the connection (brandUploadReadTimeout, 15 s) times a read from the controller,
+    # and a slow client is held by the controller's own body timeout instead; if it
+    # streams, the deadline meets the client. Measuring it is the orchestrator's (M10
+    # WL-7 card, hand-off).
     nginx.ingress.kubernetes.io/proxy-body-size: "1m"
 spec:
   ingressClassName: nginx

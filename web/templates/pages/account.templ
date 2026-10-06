@@ -1,6 +1,9 @@
 package pages
 
-import "github.com/atknatk/tappa/web/templates/components"
+import (
+	"github.com/atknatk/tappa/web/templates/components"
+	"github.com/atknatk/tappa/web/templates/layout"
+)
 
 // The ACCOUNT section (M7-05) — the business's own facts, the three it may change,
 // what the VAT register said, and the sentence its staff read after a good tap.
@@ -46,6 +49,7 @@ templ AdminAccount(v AccountView) {
 		} else {
 			@accountNoForm(v)
 		}
+		@accountBrand(v.Brand, v.PanelChrome)
 		@accountPasswordForm(v)
 		@accountMessages(v)
 	}
@@ -425,4 +429,177 @@ templ accountMessages(v AccountView) {
 			</div>
 		</div>
 	</section>
+}
+
+// accountBrand is the "Your brand" editor (M10 WL-7; ADR 0023 §2, ADR 0024 §6): the
+// preview of the tap screen with what is SAVED, and, for an owner, the three forms --
+// upload a logo, save a colour, and take either back. pages.BrandEditor carries the
+// rules; the section's id is the fragment the three routes send the browser back to.
+// The preview is drawn from the page's chrome (c), not from e: see accountBrandPreview.
+//
+// 🔴 THE PREVIEW IS DRAWN OUTSIDE THE FORMS AND BEFORE THEM, so no form is its
+// ancestor and nothing inside it names one (ADR 0023 §2: the tap button's preview face
+// cannot submit, and a button drawn inside an editor form would belong to that form).
+// The manager reads the preview and the reason, and no form.
+templ accountBrand(e BrandEditor, c PanelChrome) {
+	<section id="brand" class="bg-paper border border-line px-4 py-4">
+		<h2 class="font-display text-lg font-bold tracking-tight">Your brand</h2>
+		<p class="mt-2 max-w-2xl text-sm text-ink/85">
+			Your logo goes on the screens your staff see when they tap in and out, and at
+			the top of this panel. Your colour goes on their tap button, and on the strip
+			along the top of this panel.
+		</p>
+		if e.Outcome.Shown() {
+			<div class="mt-4">
+				@components.Notice(e.Outcome.Tone, e.Outcome.Heading) {
+					<p>{ e.Outcome.Sentence }</p>
+				}
+			</div>
+		}
+		<div class="mt-4 grid grid-cols-1 gap-6 md:grid-cols-2">
+			@accountBrandPreview(c)
+			if e.CanEdit {
+				<div class="flex flex-col gap-6">
+					@accountBrandLogo(e)
+					@accountBrandAccent(e)
+				</div>
+			} else {
+				<p class="max-w-2xl text-sm text-ink/85">{ e.WhyNotEdit }</p>
+			}
+		</div>
+	</section>
+}
+
+// accountBrandPreview is the tap screen as the employee sees it, drawn with the tap
+// screen's own three components: the header (layout.BrandHeader -- logo and co-brand
+// line, the ink wordmark, or the wordmark), the greeting (TapHeading) and the button's
+// face (TapButtonFace with the preview value: a button that cannot submit). The block
+// is inert, so the button is no tab stop and the copy of the screen is not read twice
+// by a screen reader; the caption above it says what it is in words.
+//
+// 🔴 IT TAKES THE CHROME, NOT THE EDITOR. Its header is PanelBrand.TapHeader -- the
+// logo and the theme the shell itself was drawn with -- and its greeting the signed-in
+// admin's name, so what a refused save puts back on the editor's form (the colour that
+// was tried) is not one of its inputs. The accent reaches the button the way it reaches
+// the tap screen's: through the theme stylesheet the panel shell links when a colour is
+// saved. The logo is the panel's route (layout.PreviewLogo), which the panel cookie
+// reaches.
+templ accountBrandPreview(c PanelChrome) {
+	<div class="flex flex-col gap-2">
+		<p class="docket-label">What your staff see when they tap</p>
+		<div inert class="mx-auto flex w-full max-w-sm flex-col gap-6 border border-line bg-porcelain px-4 py-8">
+			@layout.BrandHeader(c.Brand.TapHeader())
+			@TapHeading(c.FullName, "")
+			@TapButtonFace(TapButtonPreview)
+		</div>
+		<p class="text-xs text-ink/70">
+			This is a picture of the tap screen with what is saved now. Its button does
+			nothing.
+		</p>
+	</div>
+}
+
+// accountBrandLogo is the logo upload, and the way to take the logo off again.
+//
+// 🔴 THE FORM IS multipart AND IT IS THE ONLY ONE IN THE PRODUCT. The route reads it
+// as a stream, one part named logo and nothing else (internal/handler, brandupload.go),
+// so this form carries no other field. The help text says what the server checks, in
+// the order somebody can act on: the two kinds of file, the size, and that the image
+// is a logo -- ADR 0024 §7's "a logo, not a photo of a person".
+templ accountBrandLogo(e BrandEditor) {
+	<div class="flex flex-col gap-2">
+		<form method="post" action={ templ.URL(e.LogoPostHref) } enctype="multipart/form-data" class="flex flex-col gap-2">
+			<label class="docket-label" for="brand-logo">Logo</label>
+			<input
+				class="filter-input"
+				id="brand-logo"
+				type="file"
+				name="logo"
+				accept="image/png,image/jpeg"
+				required
+				aria-describedby="brand-logo-help"
+			/>
+			<p class="text-xs text-ink/70" id="brand-logo-help">
+				A PNG or JPEG file, up to { itoa(e.LogoMaxKB) } KB: a logo, not a photo of a
+				person. We make our own smaller copy, and that copy is what your staff see.
+			</p>
+			<div>
+				<button class="btn btn--primary" type="submit">Upload logo</button>
+			</div>
+		</form>
+		if e.HasLogo {
+			<form method="post" action={ templ.URL(e.ResetPostHref) }>
+				<input type="hidden" name="what" value="logo"/>
+				<button class="btn btn--quiet" type="submit">Remove the logo</button>
+			</form>
+		}
+	</div>
+}
+
+// accountBrandAccent is the tap button's colour.
+//
+// TWO INPUTS AND NO SCRIPT: the colour input, whose own swatch shows a colour that is
+// picked but not saved, and a text box for a code somebody already has. The panel loads
+// no script, so the two cannot follow each other; the help says that a typed code wins,
+// which is the rule the handler applies.
+//
+// A COLOUR THE BUTTON'S WORD CANNOT BE READ ON IS NOT SAVED (ADR 0023 §3). The form
+// then comes back with the colour that was tried in the picker, the message under the
+// inputs, and one press to take the darker version of the same colour instead -- a
+// separate form, so the suggestion is never mixed into what was typed. Its swatch is a
+// disabled colour input: the browser paints it, and nothing is sent from it.
+templ accountBrandAccent(e BrandEditor) {
+	<div class="flex flex-col gap-2">
+		<form method="post" action={ templ.URL(e.AccentPostHref) } class="flex flex-col gap-2">
+			<label class="docket-label" for="brand-accent">Tap button colour</label>
+			<div class="flex items-stretch gap-2">
+				<input
+					class="filter-input w-24 shrink-0"
+					id="brand-accent"
+					type="color"
+					name="accent"
+					value={ e.PickerValue() }
+					aria-describedby="brand-accent-help"
+				/>
+				<input
+					class="filter-input"
+					id="brand-accent-hex"
+					type="text"
+					name="accent_hex"
+					value={ e.Typed }
+					maxlength="16"
+					autocomplete="off"
+					spellcheck="false"
+					aria-label="Colour code, like 1F5C41"
+					aria-describedby={ e.AccentDescribedBy() }
+				/>
+			</div>
+			<p class="text-xs text-ink/70" id="brand-accent-help">
+				Pick a colour, or type its code in the box. A typed code is used instead of
+				the picker. The word on the button has to stay readable, so a colour it
+				cannot be read on is not saved.
+			</p>
+			if e.AccentError != "" {
+				<p class="text-sm text-tomato" id="brand-accent-error">
+					{ e.AccentError } <span class="font-mono">{ e.AccentErrorCode }</span>.
+				</p>
+			}
+			<div>
+				<button class="btn btn--primary" type="submit">Save colour</button>
+			</div>
+		</form>
+		if e.Suggest != "" {
+			<form method="post" action={ templ.URL(e.AccentPostHref) } class="flex items-center gap-2">
+				<input type="hidden" name="accent_hex" value={ e.SuggestHex }/>
+				<input class="filter-input w-11 shrink-0" type="color" value={ e.SuggestValue() } disabled aria-label="The suggested colour"/>
+				<button class="btn btn--quiet" type="submit">Use <span class="ml-1 font-mono">{ e.Suggest }</span></button>
+			</form>
+		}
+		if e.HasAccent {
+			<form method="post" action={ templ.URL(e.ResetPostHref) }>
+				<input type="hidden" name="what" value="accent"/>
+				<button class="btn btn--quiet" type="submit">Back to Taptime green</button>
+			</form>
+		}
+	</div>
 }

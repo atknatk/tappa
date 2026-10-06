@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/a-h/templ"
 	"github.com/go-chi/chi/v5"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/atknatk/tappa/internal/adminauth"
 	"github.com/atknatk/tappa/internal/audit"
+	"github.com/atknatk/tappa/internal/brand"
 	"github.com/atknatk/tappa/internal/config"
 	"github.com/atknatk/tappa/internal/httpx"
 	"github.com/atknatk/tappa/web/templates/pages"
@@ -217,6 +219,19 @@ type AdminAuth struct {
 	// method on it, and accounts carries the one write to `tenants`.
 	brands panelBrands
 
+	// brandWriter is the business's brand, WRITE side: the Account editor's three
+	// routes (M10 WL-7, brandactions.go and brandupload.go). A field apart from brands
+	// for the reason brands gives: the chrome's reader holds no Save method.
+	brandWriter panelBrandWriter
+	// logoGate is the process's one decode gate for uploaded logos (ADR 0024 §2.6,
+	// brand.NewLogoGate(brand.LogoDecodeSlots)), built here because this value is
+	// built once per process (cmd/tappa); uploads is the admission in front of the
+	// body (brandupload.go, step 4) and brandUploadTimeout its read deadline (step 5) --
+	// a field so a test can shorten it, set to brandUploadReadTimeout here.
+	logoGate           logoNormalizer
+	uploads            *uploadAdmission
+	brandUploadTimeout time.Duration
+
 	// encoder drives the plaque personalisation relay (M8-05 FAZ B2c-2b,
 	// internal/encode). See plaqueencode.go for the whole surface.
 	//
@@ -256,6 +271,10 @@ type AdminAuth struct {
 	// bucket rather than a share of sessionLimiter's, and plaqueencode.go's
 	// adminEncodeLimit carries the arithmetic for why.
 	encodeLimiter *limiter
+	// The two brand budgets, keyed on the business (brandactions.go): logo uploads, and
+	// accent saves and removals.
+	brandUploadLimiter *limiter
+	brandWriteLimiter  *limiter
 
 	log *slog.Logger
 }
@@ -266,7 +285,7 @@ type AdminAuth struct {
 // the argument; the short version is that its absence is a deployment fact (no https
 // base URL, therefore no NDEF template) rather than a wiring bug, and the surface
 // answers 503 with a named fault instead of 404.
-func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLedger, queue panelQueue, reviewer panelReviewer, staff panelStaff, invites panelInviter, venues panelVenues, plaques panelPlaques, entries panelRecorder, rules panelRules, scribe panelScribe, books panelBooks, accounts panelAccounts, brands panelBrands, encoder PlaqueEncoder, cfg *config.Config, log *slog.Logger) (*AdminAuth, error) {
+func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLedger, queue panelQueue, reviewer panelReviewer, staff panelStaff, invites panelInviter, venues panelVenues, plaques panelPlaques, entries panelRecorder, rules panelRules, scribe panelScribe, books panelBooks, accounts panelAccounts, brands panelBrands, brandWriter panelBrandWriter, encoder PlaqueEncoder, cfg *config.Config, log *slog.Logger) (*AdminAuth, error) {
 	switch {
 	case admins == nil:
 		return nil, errors.New("handler: nil admin authenticator")
@@ -360,6 +379,10 @@ func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLed
 	// here, typed nil included, for the M5-04 reason above.
 	case isNil(brands):
 		return nil, errors.New("handler: nil brand reader")
+	// A nil brandWriter would put three forms on the Account section whose routes panic
+	// (M10 WL-7) -- the M5-04 reason once more. Typed nil included.
+	case isNil(brandWriter):
+		return nil, errors.New("handler: nil brand writer")
 	case cfg == nil:
 		return nil, errors.New("handler: nil config")
 	}
@@ -373,6 +396,13 @@ func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLed
 	}
 	if log == nil {
 		log = slog.Default()
+	}
+	// THE ONE LOGO DECODE GATE (ADR 0024 §2.6, WL-3's hand-off). N = brand.LogoDecodeSlots
+	// is the rule's result, not a choice made here; TestBrandUpload_TheGateIsBuiltOnceWithTheRulesSlots
+	// pins this call and its argument.
+	logoGate, err := brand.NewLogoGate(brand.LogoDecodeSlots)
+	if err != nil {
+		return nil, err
 	}
 	return &AdminAuth{
 		admins:         admins,
@@ -390,6 +420,9 @@ func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLed
 		books:          books,
 		accounts:       accounts,
 		brands:         brands,
+		brandWriter:    brandWriter,
+		logoGate:       logoGate,
+		uploads:        newUploadAdmission(brandUploadsInFlight),
 		encoder:        encoder,
 		cookies:        adminauth.NewCookies(cfg),
 		short:          newAdminCookies(cfg),
@@ -404,6 +437,10 @@ func NewAdminAuth(admins adminAuthenticator, rec auditRecorder, records panelLed
 		logoutLimiter:  newLimiter(adminLogoutLimit, adminLogoutPeriod),
 		encodeLimiter:  newLimiter(adminEncodeLimit, adminEncodePeriod),
 		log:            log,
+
+		brandUploadLimiter: newLimiter(brandUploadLimit, brandUploadPeriod),
+		brandWriteLimiter:  newLimiter(brandWriteLimit, brandWritePeriod),
+		brandUploadTimeout: brandUploadReadTimeout,
 	}, nil
 }
 
@@ -1678,10 +1715,11 @@ const adminCSP = "default-src 'none'; style-src 'self'; font-src 'self'; " +
 //
 // render passes false: the pages it serves have no panel shell and draw no logo.
 // renderPanel and renderScripted pass the page's chrome's DrawsLogo (M10 WL-8: the
-// shell's header draws the logo on every section of a business that has one); WL-7's
-// Account preview is the next <img> and passes its own answer. The sign-in screens and
-// the password-reset family never draw it (ADR 0023 §2 leaves them Taptime's) and keep
-// their policies untouched.
+// shell's header draws the logo on every section of a business that has one). WL-7's
+// Account preview draws a second <img> only where the chrome draws the first
+// (pages.PanelBrand.Preview, from the same read), so the chrome's answer covers it. The
+// sign-in screens and the password-reset family never draw it (ADR 0023 §2 leaves them
+// Taptime's) and keep their policies untouched.
 func adminCSPFor(hasLogo bool) string { return logoImagePolicy(adminCSP, hasLogo) }
 
 // adminScriptedCSP is adminCSP plus EXACTLY what HTMX needs, and nothing else.

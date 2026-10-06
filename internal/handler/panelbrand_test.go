@@ -117,7 +117,7 @@ func newAdminRouterWithBrands(t *testing.T, admins *fakeAdmins, brands panelBran
 	records := newFakeLedger()
 	h, err := NewAdminAuth(admins, &fakeTrail{}, records, records, &fakeReviewer{}, &fakeStaff{}, &fakeInviter{},
 		&fakeVenues{}, &fakePlaques{}, &fakeRecorder{}, newFakeRules(), newFakeScribe(), newFakeBooks(),
-		newFakeAccount(), brands, nil, adminTestConfig(), log)
+		newFakeAccount(), brands, newFakeBrandWriter(), nil, adminTestConfig(), log)
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}
@@ -294,9 +294,14 @@ func TestPanelBrand_UnbrandedSectionsAreTheWordmarkChrome(t *testing.T) {
 			if want := wantSectionPolicy(s.Href, false); got.csp != want {
 				t.Errorf("%s: policy %q, want today's %q", where, got.csp, want)
 			}
-			nav := strings.Index(got.body, `<nav class="tab-bar"`)
-			if strings.Count(got.body, wordmark) != 1 || nav < 0 || strings.Index(got.body, wordmark) > nav {
-				t.Errorf("%s: the wordmark is not the chrome's opening (count %d)", where, strings.Count(got.body, wordmark))
+			// M10 WL-7: the Account section's brand editor draws the tap screen's header in
+			// its preview -- the wordmark, unbranded -- so the chrome is read with that
+			// one region taken out (withoutBrandEditor counts it: once on the Account
+			// section, nowhere else). The full bodies are still compared below.
+			chrome := withoutBrandEditor(t, s.Href, got.body)
+			nav := strings.Index(chrome, `<nav class="tab-bar"`)
+			if strings.Count(chrome, wordmark) != 1 || nav < 0 || strings.Index(chrome, wordmark) > nav {
+				t.Errorf("%s: the wordmark is not the chrome's opening (count %d)", where, strings.Count(chrome, wordmark))
 			}
 			if hrefs, inHead := stylesheetsOf(got.body); !slices.Equal(hrefs, []string{"/static/css/app.css"}) || !inHead {
 				t.Errorf("%s: stylesheets %v (all in head: %v), want app.css alone", where, hrefs, inHead)
@@ -382,9 +387,13 @@ func TestPanelBrand_ABrandedBusinessGetsItsHeaderOnEverySection(t *testing.T) {
 	wordmark := wordmarkHTML(t)
 	brands := newFakeBrands()
 	b, logs := brandedPanel(t, brands)
+	// M10 WL-7: the Account section's brand editor is the subject of its own tests
+	// (brandactions_test.go); here every page is the chrome around a body, so the editor
+	// region is taken out of the reference and of every answer (withoutBrandEditor:
+	// once on the Account section, nowhere else).
 	reference := map[string]string{}
 	for _, s := range pages.PanelSections {
-		reference[s.Href] = getSection(t, b, s.Href).body
+		reference[s.Href] = withoutBrandEditor(t, s.Href, getSection(t, b, s.Href).body)
 	}
 	themeLink := `<link rel="stylesheet" href="/brand/theme/DA291C.css">`
 	appLink := `<link rel="stylesheet" href="/static/css/app.css">`
@@ -436,7 +445,11 @@ func TestPanelBrand_ABrandedBusinessGetsItsHeaderOnEverySection(t *testing.T) {
 			if v.accent && !strings.Contains(got.body, `<header class="flex flex-col gap-3">`+stripe) {
 				t.Errorf("%s: the stripe is not the chrome's first element, empty and aria-hidden", where)
 			}
-			imgs := imgTagRE.FindAllString(got.body, -1)
+			// The chrome with the Account editor's region taken out (M10 WL-7): that region
+			// carries the preview's own <img>, the tap screen's header shape, and is
+			// measured by TestBrandPreview_IsTheTapScreensOwnComponentsAndCannotSubmit.
+			chrome := withoutBrandEditor(t, s.Href, got.body)
+			imgs := imgTagRE.FindAllString(chrome, -1)
 			switch {
 			case !v.logo && len(imgs) != 0:
 				t.Errorf("%s: %d <img> without a logo", where, len(imgs))
@@ -455,14 +468,14 @@ func TestPanelBrand_ABrandedBusinessGetsItsHeaderOnEverySection(t *testing.T) {
 				!strings.Contains(got.body, `<p class="font-mono text-[10px] uppercase tracking-widest text-ink/70">taptime · punchless</p>`) {
 				t.Errorf("%s: the header does not carry the name and the co-brand line in exactly their classes", where)
 			}
-			if strings.Contains(got.body, wordmark) {
+			if strings.Contains(chrome, wordmark) {
 				t.Errorf("%s: the wordmark is still drawn beside the business's header", where)
 			}
-			header := brandHeadRE.FindAllString(got.body, -1)
+			header := brandHeadRE.FindAllString(chrome, -1)
 			if len(header) != 1 {
 				t.Fatalf("%s: %d brand headers", where, len(header))
 			}
-			back := strings.Replace(strings.Replace(got.body, themeLink, "", 1), header[0], wordmark, 1)
+			back := strings.Replace(strings.Replace(chrome, themeLink, "", 1), header[0], wordmark, 1)
 			if back != reference[s.Href] {
 				t.Errorf("%s: with the theme link and the header undone, the page is not the no-brand page", where)
 			}
@@ -633,7 +646,7 @@ func TestPanelBrand_TheReaderIsRequired(t *testing.T) {
 	for name, brands := range map[string]panelBrands{"nil": nil, "typed nil": (*fakeBrands)(nil)} {
 		_, err := NewAdminAuth(&fakeAdmins{}, &fakeTrail{}, records, records, &fakeReviewer{}, &fakeStaff{}, &fakeInviter{},
 			&fakeVenues{}, &fakePlaques{}, &fakeRecorder{}, newFakeRules(), newFakeScribe(), newFakeBooks(),
-			newFakeAccount(), brands, nil, adminTestConfig(), discardLogger())
+			newFakeAccount(), brands, newFakeBrandWriter(), nil, adminTestConfig(), discardLogger())
 		if err == nil {
 			t.Errorf("a %s brand reader was accepted", name)
 		}
@@ -878,4 +891,64 @@ func TestPanelRenders_AShellPageIsRenderedWithItsChromesPolicy(t *testing.T) {
 	}
 	t.Logf("%d shell pages derived; %d shell renders in %d files, each through renderPanel/renderScripted with its own chrome",
 		len(shells), conforming, scanned)
+}
+
+// withoutBrandEditor is body with the Account section's "Your brand" editor (M10 WL-7)
+// taken out: the <section id="brand"> element and everything inside it, matched by
+// counting nested <section> tags. It requires the region exactly once on the Account
+// section and nowhere on any other, so the cut can neither miss the editor nor hide
+// anything else. And it requires what it cuts to hold the tap screen's header shape
+// ONLY inside the preview block: with that block (previewSpan) taken out too, the
+// region draws no wordmark, no "taptime" or "punchless" word, no co-brand line, no
+// <header> and no <img> -- so a second header drawn elsewhere in the editor, which the
+// chrome's own counts no longer see once the region is cut, is seen here.
+func withoutBrandEditor(t *testing.T, href, body string) string {
+	t.Helper()
+	const open = `<section id="brand"`
+	want := 0
+	if href == accountHref {
+		want = 1
+	}
+	if n := strings.Count(body, open); n != want {
+		t.Fatalf("%s: the brand editor's region is on the page %d times, want %d", href, n, want)
+	}
+	start := strings.Index(body, open)
+	if start < 0 {
+		return body
+	}
+	depth := 0
+	for i := start; i < len(body); {
+		switch {
+		case strings.HasPrefix(body[i:], "<section"):
+			depth++
+			i += len("<section")
+		case strings.HasPrefix(body[i:], "</section>"):
+			depth--
+			i += len("</section>")
+			if depth == 0 {
+				brandEditorDrawsNoSecondHeader(t, href, body[start:i])
+				return body[:start] + body[i:]
+			}
+		default:
+			i++
+		}
+	}
+	t.Fatalf("%s: the brand editor's region does not close", href)
+	return ""
+}
+
+// brandEditorDrawsNoSecondHeader is withoutBrandEditor's check on the region it cuts:
+// outside the one preview block, nothing of the tap screen's or the chrome's header.
+func brandEditorDrawsNoSecondHeader(t *testing.T, href, region string) {
+	t.Helper()
+	_, start, end, ok := previewSpan(t, region)
+	if !ok {
+		t.Fatalf("%s: the brand editor has no preview block", href)
+	}
+	rest := region[:start] + region[end:]
+	for _, never := range []string{wordmarkHTML(t), ">taptime<", ">punchless<", "taptime · punchless", "<header", "<img"} {
+		if n := strings.Count(rest, never); n != 0 {
+			t.Errorf("%s: outside its preview, the brand editor draws %q %d times", href, never, n)
+		}
+	}
 }

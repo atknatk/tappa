@@ -11199,6 +11199,763 @@ metni), `FactNoBulkImport`, `TestBrand_*`, panel CSP ↔ script karşılığı t
 > **4. turun parmak izi** (`git diff HEAD` + izlenmeyen 41 dosya, HEAD `796a850`, `scratchpad/wl9/fp-r4.sh`):
 > `732f022fe93cdd29f3913d5e2085f419fc619a647718bad14f94c2a5c9cfad58`. Kart ağacın dışındadır, izi etkilemez.
 
+> **Kart düzeltmesi (2026-10-03, WL-7 uygulaması sırasında).** Yazıldı:
+> `internal/handler/brandupload.go` (logo yükleme: `brandUploadGate`, `brandLogoSave`,
+> `readLogoPart`, `uploadAdmission`, `closeUnread`) · `internal/handler/brandactions.go` (accent
+> `brandAccentSave`, sıfırla `brandReset`, görünüm `brandEditorOf`, üç rotanın sözlüğü
+> `brandOutcomes`, bütçeleri, ret satırı `tenant.brand_update_refused`) ·
+> `internal/handler/dashboard.go` (`mountWriting`: üç rota, yükleme iç içe grupta) ·
+> `internal/handler/adminlogin.go` (`NewAdminAuth` +1 parametre `brandWriter`; tek decode kapısı
+> `brand.NewLogoGate(brand.LogoDecodeSlots)` burada kurulur; alanlar `logoGate`, `uploads`,
+> `brandUploadTimeout`, iki marka bütçesi) · `internal/handler/account.go` (editör görünümü ve
+> `?brand=` sözlüğü) · `internal/handler/panelbrand.go` (`PanelBrand.Preview`) ·
+> `cmd/tappa/main.go` (`tenant.NewBrands`) · `web/templates/pages/account.templ` (`accountBrand`,
+> `accountBrandPreview`, `accountBrandLogo`, `accountBrandAccent`) ·
+> `web/templates/pages/brandeditorview.go` · `web/templates/pages/accountview.go` (`Brand`) ·
+> `web/templates/pages/panelbrandview.go` (`Preview`, `TapHeader`) · `web/templates/layout/brand.go`
+> (`PreviewLogo`) · `web/templates/layout/base.templ` (`brandHeader` → `BrandHeader`) ·
+> `web/templates/layout/theme.go` (`Theme.Hex`) · `internal/brand/default.go` (`DefaultAccent`) ·
+> `internal/brand/logo_light.go` (`LogoContrastOnPorcelain`, `LogoLooksLight`,
+> `LogoLightRatio`) · yorumlar: `deploy/k8s/40-ingress.yaml`, `internal/handler/adminratelimit.go`,
+> `web/templates/pages/landingview.go` (`FactNoBulkImport`'un türetimi) · testler:
+> `brandupload_test.go` (18), `brandactions_test.go` (19), `brandupload_db_test.go` (2),
+> `brandfake_test.go` (yardımcılar), `internal/brand/logo_light_test.go` (3) · bilinçli
+> güncellenen testler: `marketing_facts_test.go` (`FactNoBulkImport` türetimi + negatif kontrol),
+> `panelbrand_test.go` (iki WL-8 testi, editör bölgesi çıkarılarak — ADR 0023 WL-7 notu),
+> `account_test.go` (`TestAccount_NeverShowsTheStructureAnswer`, `enctype` özniteliği),
+> `brandlogo_test.go` (img-src derlemine +2), 21 test dosyasında `NewAdminAuth` çağrısına
+> `newFakeBrandWriter()` · **ADR değişikliği:** [ADR 0023](../adr/0023-tenant-markasi-ve-arayuz-kurali.md)
+> §3'ün WL-2 notuna ve *Karar verilmedi*'ye satır içi kapanış + sona *"WL-7 notu"*;
+> [ADR 0024](../adr/0024-kullanici-yukledigi-gorsel.md) *Karar verilmedi*'nin sayı maddesi
+> kapandı + sona *"WL-7 notu"* (kararlar, ölçümler, üç parçalı iddia, mutasyon tablosu, sınırlar,
+> devirler). Yeni bağımlılık, sorgu, migration yok: `go.mod`, `go.sum`, `sqlc.yaml`, `db/`,
+> `internal/store/` diff'i boş. **Ölçüm ortamı:** ayrı git worktree, taban `66a471e`; dev
+> Postgres 17 (paylaşılan), `tappa_app`; yerel go1.27.1 (vet ve staticcheck `GOTOOLCHAIN=go1.26.7`);
+> Tailwind v3.4.17; headless Chrome 154.
+>
+> **Orkestratör kararı (2026-10-03): `Suggest`'in yönü — koyulaştırma kalır.** Açma yönü düğme
+> metnini paper'dan ink'e çevirir; bu, markanın görünüşünü küçük bir ton farkından çok daha fazla
+> değiştirir. Öneri yalnız bir öneridir, sahibi başka bir rengi elle seçebilir. ADR 0023 §3
+> değişmedi; WL-2 kartının *"Devirler → WL-7 … Açma yönü ADR 0023 §3 değişikliği olur — Karar
+> verilmedi"* maddesi bununla kapandı.
+>
+>
+> **2. tur (2026-10-06 — üçüncü göz RED: B1–B5 bloklayan, N1–N8 bloklamayan; hepsi bu turda
+> kapandı).**
+> - **B1 — önizlemenin "tam üç bileşen, başka bir şey değil"i:** sıra döngüsü yalnız ilk eşleşmeyi
+>   buluyordu; şimdi her bileşen blokta `strings.Count == 1`, blok sayfanın tek `inert` öğesi ve
+>   iç içe `div`ler sayılarak kesilir (`previewSpan`). X01 (iki Tap düğmesi) ve X02 (iki
+>   selamlama) kırmızı.
+> - **B2 — GERÇEK HATA SINIFI, KOD DÜZELTMESİ:** önizleme `BrandEditor`'dan (reddedilen kaydın geri
+>   yazdığı görünüm) değil, kabuğun kendisinden çizilir: `accountBrandPreview(c PanelChrome)` →
+>   `layout.BrandHeader(c.Brand.TapHeader())`, `TapHeading(c.FullName, "")`;
+>   `BrandEditor.Preview` ve `BrandEditor.GreetingName` kaldırıldı, `PanelBrand.TapHeader()`
+>   eklendi. Aday rengin önizlemeye (K-2a'nın ink wordmark'ına) gidebileceği bir alan artık yok:
+>   denetçinin X06'sı derlenmez; kalan tek yol kabuğun kendisi (A11) ve kırmızı.
+>   `TestBrandPreview_ARefusedColourLeavesThePreviewAsSaved`: beş saklı marka × beş reddedilen
+>   kayıt, önizleme bloğu ve editör dışındaki sayfa düz yüklemeyle bayt-eşit.
+> - **B3 — sapma (e)'nin daraltması geri alındı:** `withoutBrandEditor` kestiği bölgede, önizleme
+>   bloğu dışında Wordmark, `taptime`/`punchless`, co-brand satırı, `<header`, `<img` 0 ister. X03
+>   kırmızı.
+> - **B4 — kapının sırası pinli:** `TestBrandRoutes_AManagersRefusalsCostTheOwnersBudgetsNothing`
+>   (TEK `AdminAuth`: yöneticinin üç reddinden sonra sahibin on yüklemesi ve otuz değişikliği,
+>   hiçbiri 429; sonra ikisi de 429) ve `TestBrandUpload_TheGateRunsInItsOrder` (2→3, 3→4, 4→5).
+>   X19, X19b, X31, X20 ve kendi R01, R02, R03 kırmızı. Tehdit modeli cümlesi daraltılmadı.
+> - **B5 — gövde pinli:** `bodyHits` (fail-closed): dosyada `.Body` yalnız kapının tek
+>   `http.MaxBytesReader` sınırında; kapanışta istek gövdesi hiç; istekte `Context` ve
+>   `MultipartReader` dışında yöntem 0; istek paket dışına yalnız `httpx.AdminOf`'a ve `next`'e.
+>   X24 ve R04 (`r.Clone`) kırmızı; negatif kontrol 21 yeni biçim.
+> - **N1** açık logo testinin yorumu daraltıldı (`<`/`<=` eşdeğer, sınır 18) · **N2** hata
+>   cümlesinin kodu mono `<span>`'da (`AccentErrorCode`; R05 kırmızı; `app.css` 1. turla
+>   bayt-aynı, 50 992 B) · **N3** giriş metni ve `logo-removed` sonuç ekranını da söyler ·
+>   **N4** `closeUnread` yorumu karar 3'e hizalandı · **N5** `not-permitted` ne yapılacağını
+>   söyler · **N6** "five saved states" · **N7** `TestBrandEditor_TheFormsSendWhatTheRoutesRead`
+>   (X27, X28, X22, X29), `TestBrandWrite_AFormOverItsBoundIsNotRead` (X30),
+>   `TestBrandRoutes_TheWriterIsRequired` (X14); X16 sınır 16'da, X17/X18 sınır 17'de · **N8**
+>   orkestratör devri açıkça üç ölçüm: RSS, GOMAXPROCS ve Ingress istek tamponlaması.
+> - Kaza ve geri alma: bir ara adımda PATH'teki templ v0.3.1020 33 `_templ.go` dosyasını yeniden
+>   üretti; `make gen` (sabit v0.3.833) ile hepsi geri üretildi, `git status`'ta yalnız 1. turun
+>   iki üretilmiş dosyası değişik (`account_templ.go`, `base_templ.go`).
+>
+>
+> **3. tur (2026-10-06 — dar kapanış denetimi RED: F1 bloklayan, O1 bloklamayan; 1. turun beş
+> bloklayanı kapandı). YALNIZ TEST VE METİN; ürün kodu değişmedi.**
+> - **F1:** 2. turun B5 cümlesi parçanın sınırının okunurken uygulandığını `bodyHits`'e bağlıyordu;
+>   `bodyHits` gövdeyi görür, parçanın okunuşunu görmez. Denetçinin Q9'u (`readLogoBytes(part)` →
+>   `io.ReadAll(part)`) yeşil kalıyordu. Yeni `TestBrandUpload_TheLimitIsAppliedAsThePartIsRead`
+>   okunan baytı sayar: 1 000 KiB'lık parçada 1 024 225 B'lık gövdenin 528 384'ü okunur (üst
+>   sınır sınır + 16 KiB), sonuç `logo-too-large`; sınır + 1 ve tam sınır vakalarıyla. Q9 ve Q10
+>   (`ReadForm`) kırmızı. `brandupload.go`'nun başındaki cümle ve ADR 0024'ün B5 maddesi iki ayrı
+>   pine bağlandı: gövde `bodyHits` ile, parçanın okunurken sınırı yeni sayımla, parçaların ham ve
+>   tek tek okunması quoted-printable biçimiyle.
+> - **O1:** `TestBrandUpload_ReadsTheBodyOnlyAsAStream`'in yorumu artık yalnız tuttuğunu söyler:
+>   gövde multipart okuyucudan önce hiçbir şeye verilmez; okuyucunun parçayı nasıl okuduğunu iki
+>   test tutar.
+> - **Kanıt:** 2. tura göre ürün `.go` dosyalarında yalnız `//` satırları değişti
+>   (`internal/handler/brandupload.go`: başlık, PART I'e bir madde, `readLogoBytes`'in yorumu).
+> - **Orkestratör betiği:** `scratchpad/wl7/verify_round3.py <kopya>` — yolunda `wl7-orch` geçmeyen
+>   kopyayı reddeder; Q9 ve Q10'u uygular, ilgili testleri `DATABASE_URL`'siz koşar, sha256 ile
+>   geri yazar; derlenmeyen mutantı `BUILD-FAILED` diye ayırır (`--with-build-check` bunu kasıtlı
+>   derlenmeyen B0 ile gösterir).
+>
+> **4. tur (2026-10-06 — güvenlik denetimi ONAY; yalnız metin):** denetimin DÜŞÜK bulgusu — kabulün
+> 503'ü ve `logo-busy` işletme bütçesinden düşüyor — sayılı sınır 3'e tek cümleyle eklendi
+> (ADR 0024'ün WL-7 notu ve bu kartın aynı maddesi); davranış, kod, test ve yorum değişmedi.
+>
+>
+> **Kabul — WL-7 satırının her maddesi → ölçen test:**
+> 1. ✓ **Yükleme `MultipartReader` ile akış, geçici dosya yok; `TMPDIR` salt-okunur ve yokken
+>    başarılı:** `TestBrandUpload_SucceedsWithTMPDIRMissingOrReadOnly` (700×700 JPEG, 64 KiB'tan
+>    büyük; `TMPDIR` yok ve 0500 dizin — öncül: `os.CreateTemp` başarısız; ikisinde de
+>    `logo-saved`). Mutasyon U26 (`ParseMultipartForm(64 KiB)` + `FormFile`) → kırmızı.
+> 2. ✓ **Yalnız tek `logo` parçası, bilinmeyen parça red:**
+>    `TestBrandUpload_AcceptsOnePartNamedLogoAndNothingElse` (16 gövde biçimi: iki `logo`, logo +
+>    alan, önce alan, adda yol `../logo`, `logo/x`, `LOGO`, `attachment`, parçasız, boş parça,
+>    urlencoded, `multipart/mixed`, sınırsız, başka sınır, kesik gövde, quoted-printable parça;
+>    önsöz + sonsöz kabul). Mutasyonlar U09, U10, U11, U13, U14.
+> 3. ✓ **AST pini (logo handler dosyası + ulaştığı paket fonksiyonları):**
+>    `TestBrandUpload_ReadsTheBodyOnlyAsAStream` (dosya düzeyinde beş çağrı ve üç alan, herhangi
+>    bir alıcı; dosyanın 11 fonksiyonunun ulaştığı kapanışta — 23 fonksiyon, testin çıktısında
+>    adlarıyla — beş çağrı ve
+>    `*http.Request` olarak bildirilmiş değerin üç alanı; dosyada tam bir `MultipartReader`;
+>    2. turda gövdenin kendisi: dosyada `.Body` yalnız kapının tek `http.MaxBytesReader`
+>    sınırında, kapanışta istekte `Context`/`MultipartReader` dışında yöntem 0, istek paket
+>    dışına yalnız `httpx.AdminOf`'a ve `next`'e) + negatif kontrol
+>    `TestBrandUploadPin_RefusesEachShapeItExistsFor` (14 + 21 biçim + kapanış yürüyüşü).
+>    Mutasyon U24 (`r.FormValue("x")`) → kırmızı; U25 (`r.MultipartForm`), U27
+>    (`renderProblem`'e `r.PostFormValue`), X24 (`io.ReadAll(r.Body)` okuyucudan önce), R04
+>    (`r.Clone`) → kırmızı.
+> 4. ✓ **Cross-origin POST çözümleyiciden ÖNCE red:**
+>    `TestBrandRoutes_CrossOriginIsRefusedBeforeTheResolver` (üç rota × {başka `Origin`, `Origin`'siz
+>    `Sec-Fetch-Site: cross-site`}: 303 `/admin`, `Verify` 0, yazma/decode/iz 0). Mutasyon D01
+>    (accent rotası okuma zincirinde).
+> 5. ✓ **Manager POST → 303 `not-permitted` + `brand_update_refused` + 0 UPDATE:**
+>    `TestBrandRoutes_AManagerIsRefusedRecordedAndChangesNothing` (üç rota; yükleme gövdesi hiç
+>    gönderilmeden yanıtlanır; üç satır, `detail` tam beş anahtar) ·
+>    `TestBrandRoutesDB_AnOwnersBrandIsStoredAndAManagersChangesNothing` (gerçek Postgres: satır
+>    `updated_at` mikro saniyesine kadar değişmedi, üç ret satırı işletmenin izinde) ·
+>    `TestBrandRoutes_AManagersRefusalsCostTheOwnersBudgetsNothing` (2. tur; TEK `AdminAuth`:
+>    yöneticinin üç reddi sahibin on yüklemesinden ve otuz değişikliğinden hiçbirini 429'a
+>    düşürmez). Mutasyonlar U01, A01, A02, A10, X19, X19b, X31, R03.
+> 6. ✓ **Okunaksız renk → form yeniden + `Suggest(c).Hex()`, yazma yok:**
+>    `TestBrandAccent_AnIllegibleColourComesBackWithItsSuggestion` (`808080`, `E0457B`, `1E93A0`,
+>    `7D5BEC`: 200, yazma 0, seçicide denenen renk, mesajda ve ayrı formda önerinin hex'i;
+>    öneri gönderilince tam o renk kaydedilir). Mutasyonlar A04, A05.
+> 7. ✓ **Önizleme gerçek tap bileşenlerini çağırır; logo `/admin/brand/logo/{sha}`'dan; yalnız
+>    kaydedilen accent:** `TestBrandPreview_IsTheTapScreensOwnComponentsAndCannotSubmit` (iki rol ×
+>    beş saklı marka; blok sırayla `layout.BrandHeader(TapBrand(…))`, `TapHeading`,
+>    `TapButtonFace(TapButtonPreview)` ve başka bir şey değil) ·
+>    `TestBrandPreview_TheLogoIsThePanelRoute` (src panel rotası, kutu saklanan 512×128, `alt` ad;
+>    aynı çerezle 200 ve logonun baytları) · `TestBrandPreview_ShowsOnlyTheSavedAccent` (reddedilen
+>    `808080` denemesinde stil dosyaları `app.css` + kaydedilen `DA291C`; `808080` yalnız seçicide
+>    ve kutuda) · `TestBrandPreview_ARefusedColourLeavesThePreviewAsSaved` (2. tur: beş saklı
+>    marka × beş reddedilen kayıt, önizleme bloğu ve editör dışındaki sayfa düz yüklemeyle
+>    BAYT-EŞİT). Önizleme 2. turda kabuktan çizilir (`PanelBrand.TapHeader`, `PanelChrome.FullName`);
+>    `BrandEditor`'ın önizleme alanları kaldırıldı. Üç bileşenin her biri blokta TAM BİR KEZ;
+>    editörün geri kalanında başlık/wordmark/`<img>` 0 (`withoutBrandEditor`). Mutasyonlar T01,
+>    T03, P01, P02, A11, A13, X01, X02, X03, X21.
+> 8. ✓ **Önizleme gönderilemez:** aynı test: önizlemede `<form` 0 ve `/api/checkin` 0, sayfada
+>    `form=` 0, düğme `type="button"` ve hiçbir formun soyundan değil (etiket yürüyüşü), blok
+>    `inert`; CDP: düğme odaklanamaz, formda değil. Tap ekranına öğe eklenmedi (WL-9 golden'ı).
+>    Mutasyonlar T01, T02, T04.
+> 9. ✓ **Açık logo uyarısı (alfa ağırlıklı parlaklık, porcelain'e < 1,5:1), ret değil:**
+>    `TestLogoLight_AlphaWeightedLuminanceOnPorcelain` (dokuz resim; eşiğin iki yanında C5C5C5
+>    1,5002 / C6C6C6 1,4847) · `TestLogoLight_ReadsOnlyANormalizeOutput` ·
+>    `TestBrandUpload_ALightLogoIsSavedWithAWarning` (açık logo kaydedilir, `logo-saved-light`).
+>    Mutasyonlar L01–L04, U19.
+> 10. ✓ **`FactNoBulkImport` "marka logosu handler'ı dışında multipart okuyucu yok":**
+>     türetim `bulkImportViolation` (muaf tek dosya yoluyla, orada yalnız akış) ·
+>     `TestFactMechanisms_SayNoWhenTheFactIsAbsent` (altı sentetik kaynak) ·
+>     `TestLandingFacts_EveryDeclaredFactIsDerivedAndClaimed`. Mutasyon U29
+>     (`employeeactions.go`'ya `FormFile`) → kırmızı. SSS cümlesi değişmedi.
+> 11. ✓ **`<input type="color">` ve kod kutusu ≥ 44 px:** `TestBrandEditor_EveryControlIsATouchTarget`
+>     (editörün her kontrolü ve düğmesi `panelTouchTargets`'tan bir sınıf taşır) +
+>     `TestPanelScreens_TouchTargetClassesReserve44px` (sınıfın 44 px'i derlenmiş CSS'te) +
+>     CDP (seçici 96×44, kutu 220×44 / 363×44, öneri örneği 44×44). Mutasyon T05.
+> 12. ✓ **Tenant başına yükleme bütçesi (aşım 429 + ret izi + 0 UPDATE):**
+>     `TestBrandUpload_TheBusinessBudgetRefusesPastTenBeforeReadingTheBody` (11. ve 12. deneme
+>     gövdesi gönderilmeden 429; tek ret satırı; başka işletme etkilenmez) + DB testinde 429 ve
+>     satır değişmez. Mutasyonlar U02, A03.
+> 13. ✓ **Gövde okunmadan önce eşzamanlı kabul sınırı:**
+>     `TestBrandUpload_AdmissionRefusesBeforeTheBodyIsRead` (ham TCP; aynı işletmenin ikincisi ve
+>     yerlerin bir fazlası gövdesiz 503; yer, bağlantı bitince boşalır) ·
+>     `TestBrandUpload_TheGateRunsInItsOrder` (2. tur: 2→3, 3→4, 4→5 sırası; kabul dolu iken
+>     1 MiB+1 bildiren deneme `logo-too-large`, 503 değil). Mutasyonlar U04, U05, U21, X20, R01,
+>     R02.
+> 14. ✓ **`SetReadDeadline` ile gövde okuma süresi:** `TestBrandUpload_ASlowBodyIsCutAtTheReadDeadline`,
+>     `TestBrandUpload_TheReadDeadlineReachesTheConnectionThroughTheRouter`,
+>     `TestBrandUpload_WithoutAConnectionDeadlineNothingIsRead`. Mutasyonlar U06, U07, U16.
+> 15. ✓ **`LogoMaxInputBytes` (512 KiB) tavanı:** `TestBrandUpload_ExactlyTheLimitIsReadAndOneMoreIsRefused`
+>     (524 288 B decode'a tam gider; 524 289 B decode'suz `logo-too-large`) +
+>     `TestBrandUpload_ABodyOverTheCapIsRefused` (1 MiB gövde tavanı) ·
+>     `TestBrandUpload_TheLimitIsAppliedAsThePartIsRead` (3. tur: okunan bayt sayılır — 1 000
+>     KiB'lık parçada 1 024 225 B'lık gövdenin 528 384'ü okunur, sınır + 16 KiB üst sınırının
+>     altında). Mutasyonlar U03, U08, U12, U15, Q9, Q10.
+> 16. ✓ **`40-ingress.yaml:127-133`:** "small JSON body" yorumu ve OP-10B'nin *"the largest bound …
+>     the sign-up form's 64 KiB"* cümlesi güncellendi (en büyük sınır artık yüklemenin 1 MiB'ı;
+>     `1m` yüklemenin kendi tavanı; tamponlama ölçülmedi). Kümede ölçüm orkestratöre devir.
+> 17. ✓ **Ret yollarının log satırlarında dosya adı ve bayt 0:**
+>     `TestBrandUpload_ARefusalLogsItsClassAndNeverTheFile` (yedi ret + `Detail`'inde işaret
+>     taşıyan pgconn hatası; sınıf loglanır, işaret metin/hex/tırnaklı hiçbir satırda yok).
+>     Mutasyon U22.
+> 18. ✓ **Golden'lar:** `TestPanelBrand_AnUnbrandedChromeIsTheChromeBeforeWL8` (24 render) ve
+>     `TestUnbrandedScreens_AreByteIdenticalToTheGolden` (33 yanıt) yeşil, golden dosyaları
+>     değişmedi; markasız dört varyantın Account bölümü birbirine bayt-aynı
+>     (`TestPanelBrand_UnbrandedSectionsAreTheWordmarkChrome`).
+> 19. ✓ **(2. tur, N7) Formların alan adları rotaların sabitleri; nil yazıcı reddedilir; küçük
+>     formların 2 KiB sınırı:** `TestBrandEditor_TheFormsSendWhatTheRoutesRead`,
+>     `TestBrandRoutes_TheWriterIsRequired`, `TestBrandWrite_AFormOverItsBoundIsNotRead`.
+>     Mutasyonlar X27, X28, X22, X29, X14, X30.
+>
+>
+> **Kararlar (gerekçeli; ayrıntı ADR 0024 ve ADR 0023'ün WL-7 notları):**
+> - **Rotalar** `/admin/account/brand/logo`, `/accent`, `/reset` — Account bölümünün adresi altında,
+>   `mountWriting`'de (`ProtectWriting`: Origin çözümleyiciden önce); yükleme iç içe grupta kendi
+>   kapısıyla (`brandUploadGate`; encode rölesinin emsali: işletme başına anahtar kimlikten sonra).
+> - **Kapı sırası:** sahip → işletme bütçesi → bildirilen uzunluk → kabul → bağlantı okuma süresi +
+>   1 MiB → akış → `Normalize` → `SaveLogo` → 303. Gövde akıştan önce okunmaz (dört ret ham TCP'de
+>   gövdesiz ölçüldü).
+> - **Sayılar:** yükleme 10 deneme / işletme / 10 dk (deneme başına, gövdeden önce); accent +
+>   sıfırla 30 / işletme / 10 dk (WL-4'ün "bütçe ya da gerekçe" devri: bütçe seçildi — her
+>   değişiklik kalıcı bir iz satırı); kabul 4 eşzamanlı, işletme başına 1; okuma süresi 15 s;
+>   gövde 1 MiB; parça 512 KiB. Bütçe ret satırı pencere ve işletme başına bir kez.
+> - **`closeUnread`** (`Connection: close`) her yükleme reddinde — ölçülen bir kusuru kapatır (kaçış
+>   10).
+> - **`multipart/mixed` reddi** — `r.MultipartReader()` onu da okuyor (kaçış 8).
+> - **`NextRawPart`** — QP çözülmez; parçanın dosya adı ve türü okunmaz.
+> - **İkinci parça decode'dan önce sorulur** — parça kendi tamponuna okunur, sonra gövdenin sonu
+>   aranır; bedeli yükleme başına iki kopya (≈ 1,03 MiB), ölçüldü.
+> - **Süre kurulamazsa okunmaz** (500); üretim yönlendiricisinde kurulduğu ölçüldü.
+> - **Decode kapısı `NewAdminAuth`'ta kurulur** (`brand.NewLogoGate(brand.LogoDecodeSlots)`); AST pini
+>   tek kurulumu ve tek `NewAdminAuth` çağrısını sayar. Testler kapıyı sayaçla sarar (aynı paket).
+> - **Yazıcı ayrı alan** (`brandWriter`, okuyucu `brands`'ten ayrı — WL-8'in devri); `NewAdminAuth`
+>   +1 parametre, 28 test çağrısı mekanik olarak güncellendi.
+> - **Önizleme kabuğun tek okumasından** (`PanelChrome.Brand`, `PanelBrand.Preview`); `img-src`
+>   kararı kabuğunki (önizleme `<img>`'i yalnız kabuğunki varken). WL-6'nın *"önizleme
+>   `adminCSPFor(true)`'yu yalnız kendi `<img>`'i çizdiğinde geçer"* devri böyle karşılandı: iki
+>   `<img>` aynı değerden, aynı dalda.
+> - **Önizleme `inert`, formsuz, formlardan önce;** selamlama oturumdaki yöneticinin adı, mekân
+>   satırı yok (uydurma bir kişi ya da mekân yok).
+> - **İki accent girdisi** (seçici + kod kutusu, yazılan kazanır), **ayrı öneri formu**, öneri
+>   örneği devre dışı bir renk girdisi (satır içi stil CSP'ye takılır).
+> - **"Sıfırla" alan başına** (`what=logo`/`accent`), tek transaction ve tek iz satırı; ikisini birden
+>   silen `Reset` gerekmedi (WL-4'e geri dönüş yok).
+> - **Sonuç sözcükleri** ayrı bir kapalı sözlükte (`?brand=`), editörün içinde çizilir;
+>   `not-permitted` yöneticinin sözcüğüdür.
+> - **Panel tarafının bayt kararı** (WL-6 sınır 12): bütçe yok, gerekçeyle kabul
+>   (`adminratelimit.go`).
+> - **Logo olmayan dosya** iz satırı değil sınıflı log satırıdır; iz satırı rol, bütçe ve alanın reddi
+>   içindir.
+>
+> **Sapmalar (gerekçeli):**
+> - **a. Yükleme ayrı dosyada (`brandupload.go`).** Kart `brandactions.go` diyor; accent ve sıfırla
+>   formlarını `ParseForm` ile okur, logo dosyası ise sözdizimi pininin konusudur ve içinde başka
+>   hiçbir şey olmamalı. `brandactions.go` accent/sıfırla ve ortak parçaları taşır.
+> - **b. Kapsam genişlemesi — `internal/brand`'a iki küçük dosya:** `logo_light.go` (açık logo
+>   ölçüsü, palet sabitlerini ve `accentLuminance`'ı kullandığı için orada) ve `default.go`
+>   (`DefaultAccent`, seçicinin varsayılanı, palet sabitinden). WL-2/WL-3'ün dosyalarına
+>   dokunulmadı.
+> - **c. Kapsam genişlemesi — `layout` ve `pages`:** `brandHeader` → `BrandHeader` (WL-9'un devri),
+>   `PreviewLogo`, `Theme.Hex`, `PanelBrand.Preview`; render baytı değişmedi (iki golden yeşil).
+> - **d. "Markasız tenant'ın account sayfası bayt-aynı kalır" şöyle okundu:** panel kabuğu (WL-8'in
+>   24 render'lık golden'ı) bayt-aynı ve markasız DÖRT varyantın (marka yok, okuma hatası, bugün
+>   reddedilen accent, bozuk digest) Account sayfası birbirine bayt-aynı. Account sayfasının
+>   gövdesi editörü kazandığı için WL-7 öncesine bayt-aynı OLAMAZ — görevin kendisi bu bölüm.
+> - **e. Bilinçli güncellenen WL-8 testleri:** iki test kabuğu editör bölgesi çıkarılarak okur
+>   (`withoutBrandEditor`, bölge Account'ta tam bir kez, başka yerde hiç). 2. turda (denetçinin
+>   B3'ü: bu çıkarma WL-8'in "wordmark tam bir kez" sayımını daraltıyordu) yardımcı, çıkardığı
+>   bölgeden önizleme bloğunu da çıkarıp kalan kısımda Wordmark, `taptime`/`punchless`,
+>   co-brand satırı, `<header` ve `<img` 0 ister — daraltma geri alındı.
+> - **f. `TestAccount_NeverShowsTheStructureAnswer`:** `enctype="multipart/form-data"` "multi"
+>   taşır; o öznitelik bir kez çıkarılarak taranır.
+> - **g. Mutasyon koşuları ve düzeltilen bir test.** İlk koşuda U15/U16'nın ilk yazımı derlenmedi
+>   (kaldırılan dal kullanılmayan değişken/import bıraktı; derlenen biçimle yeniden yazıldı) ve U14
+>   (`NextRawPart` → `NextPart`) YEŞİL kaldı: QP vakası yalnız PNG imzasını kodluyordu. Test bütün
+>   logoyu kodlayacak biçimde güçlendirildi, ama ikinci koşuda (60 mutasyon) U14 yine YEŞİL kaldı:
+>   `quotedprintable.Writer` metin kipinde imzanın CR/LF'sini satır sonu olarak yazıyor, çözülen
+>   bayt PNG değil. Düzeltme: `Binary = true` + kodlananın logoya bayt bayt geri çözüldüğünü
+>   denetleyen öncül. Tablo, son test ve kod sürümüne karşı, sıfırdan senkronlanmış kopyada, tek
+>   ve kesintisiz üçüncü koşuda üretildi; önceki iki koşunun sonuçları sayılmadı.
+> - **h. Gerçek cihaz turu yapılmadı** (iPhone HEIC dosya seçicisi; ADR 0024 §1'in WL-7 devri) —
+>   orkestratöre/kullanıcıya devir.
+>
+>
+> **Öz denetim — kaçış denemeleri (22 + 2. turda 5; her biri sevk edilen kodda, sonucu ve ölçen test):**
+> 1. *Piksel / açılma bombası* — 3000×16 ve 8×8 PNG rota üzerinden `logo-dimensions`, decode'dan
+>    önce (WL-3 kapısı); en kötü dosya (2048² progressive CMYK, 33 KiB → ≈ 99 MiB heap) tek yuvada,
+>    yerel RSS tepe 114 MiB. `TestBrandUpload_EachRefusalOfTheDecoderHasItsWord`, RSS sondası.
+> 2. *Biçim karışıklığı* — SVG (betikli), GIF, WebP başlığı, PNG imzalı HTML: `logo-format`;
+>    parçanın `Content-Type: image/png` başlığı bir cümleyi resim yapmaz. Aynı test +
+>    `TestBrandUpload_TheBusinessBudgetRefusesPastTenBeforeReadingTheBody`.
+> 3. *Quoted-printable ile kaçırılmış PNG* — ham okunur, `logo-format`; `NextPart`'a dönüş (U14)
+>    kırmızı. `TestBrandUpload_AcceptsOnePartNamedLogoAndNothingElse`.
+> 4. *İki `logo` parçası* — `logo-parts`, decode yok. Aynı test.
+> 5. *Parça adında yol / büyük harf / ek* — `../logo`, `logo/x`, `LOGO`: `logo-parts`; dosya adı
+>    (`filename`) hiç okunmaz, loglanmaz. Aynı test + log testi.
+> 6. *`attachment` ile `form-data` dışı parça* — `logo-parts`. Aynı test.
+> 7. *Sınır oyunları* — sınırsız `Content-Type`, gövdede başka sınır, kesik gövde: `unreadable`;
+>    önsöz/sonsöz kabul. Aynı test.
+> 8. *`multipart/mixed`* — **bulundu ve kapatıldı:** `r.MultipartReader()` mixed'i de okuyor,
+>    mixed bir gövde kaydedildi (ilk koşu); artık `mime.ParseMediaType` → `unreadable` (U09).
+> 9. *Yavaş gövde (slowloris)* — 300 ms süreyle on bayttan sonra duran gövde `logo-slow`, yer
+>    boşalır; üretim yönlendiricisinden de. `TestBrandUpload_ASlowBodyIsCutAtTheReadDeadline`,
+>    `TestBrandUpload_TheReadDeadlineReachesTheConnectionThroughTheRouter`.
+> 10. *Reddedilen gövdeyi tutmak* — **bulundu ve kapatıldı:** net/http küçük okunmamış gövdeyi
+>     yanıttan önce okumaya çalışıyordu; gövdesini göndermeyen istemcinin bütçe ve kabul retleri 5 s
+>     içinde yanıt almadı. `closeUnread` (`Connection: close`) her ret dalında (U21).
+> 11. *Eşzamanlı yükleme sınırını aşmak* — aynı işletmenin ikincisi ve dört işletmenin ardından
+>     beşincisi gövdesiz 503. `TestBrandUpload_AdmissionRefusesBeforeTheBodyIsRead`.
+> 12. *Tam 512 KiB ve +1 bayt* — 524 288 decode'a tam; 524 289 decode'suz `logo-too-large`.
+>     `TestBrandUpload_ExactlyTheLimitIsReadAndOneMoreIsRefused`.
+> 13. *`Content-Length` yalanı* — 1 MiB+1 bildirip hiç göndermemek: gövdesiz `logo-too-large`;
+>     bildirilenden kısa gövde (sunucu yalnız bildirileni okur): `unreadable`; bildirilenden az
+>     gönderip durmak: okuma süresi (`logo-slow`); `-1` (chunked) ile 1 MiB'ı aşmak: gövde tavanı
+>     `logo-too-large`. `TestBrandUpload_ABodyOverTheCapIsRefused` + 7 ve 9.
+> 14. *Cross-origin* — üç rota, iki biçim, çözümleyici 0. `TestBrandRoutes_CrossOriginIsRefusedBeforeTheResolver`.
+> 15. *CSRF* — aynı kapı (`sameOriginGate`; panelin emsali, eşzamanlayıcı belirteç yok);
+>     `SameSite`'ın tutmadığı aynı-site kökenleri de reddedilir.
+> 16. *Manager rolü* — üç rota, gövde okunmadan, satır değişmez, iz satırı. Fake + DB testleri.
+> 17. *Rol oturumdan sonra düştü* — alanın `ErrBrandNotPermitted`'i aynı 303 + alanın nedeniyle
+>     ret satırı. `TestBrandUpload_TheDomainsAnswersAreTheHandlersOwn`,
+>     `TestBrandAccent_TheDomainsAnswersAreTheHandlersOwn`.
+> 18. *Başka tenant'ın sha'sı / kimliği* — editörde sha ya da tenant girdisi yok; gövdeye
+>     `tenant_id`/`actor_id` yazmak komutu değiştirmez (`TestBrandReset_TakesBackOneInputAtATime`,
+>     A14); önizlemenin src'si oturumun işletmesinin digest'i, logo rotası yalnız oturumun
+>     işletmesini sunar (WL-6).
+> 19. *Accent alanında `#`, küçük harf, boşluk, Unicode rakam* — `#da291c`, `da291c`, çevresinde
+>     boşluk: tek renk kaydedilir; tam genişlikli ve Arap-Hint rakamları, iç boşluk, `##`, `0x`,
+>     kısa/uzun, renk adı: kaydedilmez. `TestBrandAccent_TheBoundaryReadsWhatTheColourInputSends`.
+> 20. *Sıfırla yarışı* — 18 eşzamanlı accent kaydı/sıfırlaması gerçek Postgres'te: her biri kendi
+>     sözcüğü, her biri bir iz satırı, son accent üçünden biri.
+>     `TestBrandRoutesDB_ConcurrentWritesLeaveOneOfTheirStates`.
+> 21. *Yansıyan sözcük (`?brand=<script>`)* — kapalı sözlük; bilinmeyen sözcük hiçbir şey çizmez,
+>     sayfa bayt-aynı. `TestBrandOutcomes_EveryWordIsDrawnAndNoOtherText`.
+> 22. *Log'a sızma* — dosya adı, parça türü, baytlar, pgconn `Detail`: hiçbiri.
+>     `TestBrandUpload_ARefusalLogsItsClassAndNeverTheFile`.
+> 23. *(2. tur) Yöneticinin sahibin bütçesini harcaması* — denetçi buldu (X19b: 1. ve 2. adım yer
+>     değiştirince bir yönetici sahibi 10 dk bütçesinin dışında bırakabilirdi); kod doğruydu, pin
+>     yoktu. Şimdi TEK `AdminAuth`'lu test: yöneticinin üç reddinden sonra sahibin kırk isteği
+>     hiç 429 almaz. `TestBrandRoutes_AManagersRefusalsCostTheOwnersBudgetsNothing`.
+> 24. *(2. tur) Gövdeyi akıştan önce tamponlamak* — denetçi buldu (X24: `io.ReadAll(r.Body)` 1 MiB'ı
+>     okuyup sonra akışa veriyordu); pin şimdi `.Body`'nin kapının sınırı dışındaki her adlanışını,
+>     istekte başka her yöntemi ve isteğin paket dışına verilmesini görür.
+>     `TestBrandUpload_ReadsTheBodyOnlyAsAStream`.
+> 25. *(2. tur) Aday rengi önizlemeye sızdırmak* — denetçi buldu (X06: aday temanın
+>     `BrandEditor.Preview`'a yazılması markasız işletmede ink wordmark çizdiriyordu). Kod
+>     düzeltildi: önizlemenin girdisi artık yalnız kabuk; o alan yok, X06 derlenmez; kabuğun
+>     kendisi üstünden yol (A11) stil dosyası listesi ve bayt-eşitlik testiyle kırmızı.
+>     `TestBrandPreview_ARefusedColourLeavesThePreviewAsSaved`.
+> 26. *(2. tur) Önizlemede ikinci düğme ya da ikinci başlık* — denetçi buldu (X01, X02, X03); sayım
+>     artık her bileşen için tam bir kez ve editörün geri kalanında başlık/`<img>` 0.
+> 27. *(2. tur) Bir formun alan adını tek tarafta değiştirmek* — denetçi buldu (X27, X28: sayfadan
+>     yapılan her yükleme `logo-parts` alır ya da yazılan kod sessizce yok sayılır); formların
+>     gönderdiği alanlar artık rotaların sabitleriyle karşılaştırılır.
+>     `TestBrandEditor_TheFormsSendWhatTheRoutesRead`.
+>
+>
+> **CDP ölçümü (bir kez, pin değil; Chrome 154 `--headless=new --remote-debugging-pipe`; sonda
+> worktree'nin scratch rsync kopyasında, repoya girmedi; sonda `pgrep` 0).** Gerçek
+> `httpx.NewRouter` + panel + iki logo rotası + tema rotası; 390×844 DSF 3 mobil ve 1024×768; üç
+> marka (yok · `FFC72C` · `DA291C` + 512×128 logo) × iki rol; sahip için ayrıca okunaksız `808080`
+> denemesinin dönüşü (form sayfadan gönderildi).
+>
+> | Ölçü | 390×844 | 1024×768 |
+> |---|---|---|
+> | yatay kaydırma (`scrollWidth`) | 390 (yok) | 1024 (yok) |
+> | önizleme bloğu | 324 × 288 (logolu 303) | 384 × 288 (303) |
+> | önizleme başlığı | 28 px; logolu 43 px, logo 96×24 (doğal 512×128) | aynı |
+> | önizleme düğmesi | 290×64, `type=button`, odaklanamaz, formda değil | 350×64 |
+> | dosya girdisi | 324×44 | 467×44 |
+> | renk seçici | 96×44 | 96×44 |
+> | kod kutusu | 220×44 | 363×44 |
+> | öneri örneği (devre dışı renk girdisi) | 44×44 | 44×44 |
+> | düğmeler (Upload, Save, Remove, Back to green, Use #757575) | 117–178 × 44–48 | aynı |
+>
+> Önizleme düğmesinin zemini/metni kaydedilen accent'in: varsayılan `rgb(31, 92, 65)` / paper
+> **7,73:1**; `FFC72C` / ink **10,56:1** + `rgb(21, 34, 25) 0 0 0 2px inset`; `DA291C` / paper
+> **4,78:1**. Reddedilen denemede stil dosyaları `app.css` + kaydedilen tema; `808080` hiçbir stil
+> dosyasında yok; öneri `#757575`.
+>
+> **Kontrast (computed renklerden kendi hesabım; sRGB'de alfa kompoziti; WCAG 2.x):** editörün kendi
+> metinlerinde en düşük **5,30:1** (hata cümlesi, tomato on paper, 14 px); yardım ve açıklama
+> metinleri ink/70–ink/85 paper üstünde ≥ 6,05:1; önizlemedeki `punchless` porcelain üstünde
+> 5,70:1; önizlemenin başlıkları ink. 4,5'in altında metin 0 (önizlemenin "Tap"ı tenant accent'idir,
+> kapı ≥ 4,5 garanti eder: en düşük ölçülen 4,78).
+>
+> **Derlenmiş `app.css`** (`.tools/tailwindcss -i … --minify`, Tailwind v3.4.17): 50 800 → 50 992 B
+> (+192 B); eklenen kurallar tam beş — `.ml-1`, `.w-24`, `.max-w-sm`, `.items-stretch`,
+> `md:grid-cols-2` — hepsi bir `class` özniteliğinden; çıkan 0; "brand" geçen yeni kural 0
+> (`TestCompiledCSS_BrandNamesOccurOnlyInTheGolden` değişmeden yeşil). Yorumda utility adı yazılmadı.
+>
+> **Yerel RSS** (darwin/amd64, Intel i9-9980HK, go1.27.1, `-race` yok, her ölçüm taze bir test
+> süreci, `ru_maxrss` — üç tekrar; sonda scratch kopyada):
+>
+> | Durum | Tepe RSS | Süre |
+> |---|---|---|
+> | boşta (sunucu kurulu) | 12,0 MiB | — |
+> | tek yükleme, en kötü dosya (2048² progressive CMYK 4:4:4, 33 045 B) | 114,1–114,2 MiB | 290–469 ms |
+> | tek yükleme, 2048² 16-bit RGBA interlaced PNG (247 495 B) | 80,9–81,4 MiB | 203–303 ms |
+> | dört eşzamanlı yükleme (dört işletme; biri decode, üçü `logo-busy`) | 115,9–116,2 MiB | 281–353 ms |
+>
+> Aritmetik: kabul 4 × yükleme başına ≈ 1,03 MiB tampon + N = 1 × decode (yerelde boşa göre ≈ +102
+> MiB) + taban ≈ tek yüklemenin tepesi + 2 MiB — ölçülenle tutuyor. Tavan taramalı JPEG'in decode
+> süresi WL-3'te ≈ 1,05 s.
+>
+> **2. turda ölçümler:** derlenmiş `app.css` 1. turla bayt-aynı (50 992 B; mono `<span>`'ın sınıfı
+> zaten vardı, yeni yorumlar kural doğurmadı). CDP yeniden koşulmadı: kutu ya da renk değiştiren
+> bir biçim değişikliği yok (hata cümlesinin kodu aynı tomato renginde, paper üstünde 5,30:1;
+> önizleme aynı üç bileşen, aynı sınıflar). Yerel RSS ölçümü yeniden koşulmadı: yükleme yolunun
+> kodu değişmedi (yalnız yorumlar).
+>
+> **Orkestratöre devir — podda ölçüm tarifi**
+>
+> Ürün imajı `FROM scratch` (kabuk yok), konteyner sınırı `cpu: "2"`, `memory: 512Mi`
+> (`deploy/k8s/20-app.yaml`). Kural (ADR 0024 §2.6, WL-3 notu): `2 × (N × tepe + taban) < 512Mi`,
+> N = 1, tepe ≈ 99 MiB heap → **taban < 157 MiB** olmalı; `GOMAXPROCS` = 2 olmalı (N < GOMAXPROCS).
+>
+> 1. **Taban (ürünün kendi RSS'i, WL-7'yi beklemez):**
+>    `POD=$(kubectl -n tappa get pod -l app.kubernetes.io/name=tappa -o jsonpath='{.items[0].metadata.name}')`
+>    `kubectl -n tappa debug -it "$POD" --image=busybox:1.36 --target=tappa -- sh -c 'grep -E "^(VmRSS|VmHWM):" /proc/1/status'`
+>    (ephemeral konteyner hedefin PID ad alanını paylaşır; scratch imajda `/tappa` PID 1'dir).
+>    Bakılacak: `VmHWM` (süreç başladığından beri tepe) ve `VmRSS`. Karar: `VmHWM < 157 MiB` →
+>    N = 1 ve 512Mi sınırı tutar; değilse `GOMEMLIMIT` ya da sınır yeniden hesaplanır.
+> 2. **`GOMAXPROCS` (ürün süreci bunu yayımlamaz):** aynı düğümde, aynı CPU sınırıyla tek seferlik
+>    bir sonda pod'u:
+>    `kubectl -n tappa run gmp-probe --rm -i --restart=Never --image=golang:1.26.6 --overrides='{"spec":{"nodeName":"<düğüm>","containers":[{"name":"gmp-probe","image":"golang:1.26.6","command":["sh","-c","printf \"package main\\nimport (\\\"fmt\\\";\\\"runtime\\\")\\nfunc main(){fmt.Println(runtime.GOMAXPROCS(0), runtime.NumCPU())}\\n\" > /tmp/m.go && go run /tmp/m.go"],"resources":{"limits":{"cpu":"2","memory":"512Mi"}}}]}}'`
+>    Bakılacak: ilk sayı 2 (Go 1.25+ cgroup CPU sınırını okur). 2'den farklıysa N yeniden hesaplanır.
+> 3. **Tepe, WL-7 yayına girdikten sonra (bir test işletmesinde, sahibin oturumuyla):** WL-3'ün en kötü
+>    dosyasını (2048² progressive CMYK 4:4:4, 33 045 B, sha256
+>    `e3401702c4455ce833b5ae39c31f8dd2ef7ac1285e7039f3cc8afea7ab5c42d0`; bu oturumun scratchpad'inde
+>    `wl7/worst/jpeg_cmyk_4:4:4_progressive_2048.bin`, `internal/brand`'in `logoWorstFiles`'ı üretir)
+>    Account → "Your brand" → Upload logo ile bir kez yükle; 1. adımı tekrarla. Bakılacak: `VmHWM`
+>    artışı (yerelde boşa göre ≈ +102 MiB) ve 512Mi'ye kalan pay. Bütçe işletme başına 10
+>    deneme / 10 dk'dır.
+> 4. **İstek tamponlaması (Ingress):** `kubectl -n ingress-nginx get configmap ingress-nginx-controller -o yaml | grep -i -E 'proxy-request-buffering|client-body'`
+>    ve Ingress'in kendi annotation'ları (`kubectl -n tappa get ingress tappa -o yaml`). Bakılacak:
+>    `proxy-request-buffering` (yoksa denetleyicinin varsayılanı `on`) ve `client-body-timeout`. Açıksa
+>    podun 15 s okuma süresi denetleyiciden okumayı sınırlar, yavaş istemciyi denetleyicinin kendi
+>    süresi tutar; kapalıysa süre istemciye kadar uzanır. Sonuç `40-ingress.yaml`'ın yorumuna yazılır.
+>
+> ### Mutasyon tablosu
+>
+> Koşu: `scratchpad/wl7/mutate.py` — worktree'nin sıfırdan `rsync`'lenmiş kopyasında (worktree'ye
+> dokunmaz); her mutasyon için dosyayı tam göreli yoluyla `backups/<id>/` altına yedekler, her eski
+> metnin tam bir kez geçtiğini ister, mutantı yazar (sha farkı), `.templ` ise `templ generate`,
+> kapsamı koşar, kararı testlerin kendi `--- FAIL` satırlarından okur, yedeği geri yazar ve sha256
+> eşitliğini doğrular. Kapsamlar: **H** = `./internal/handler/`, `-run` deseni
+> `Test(Brand|PanelBrand)` önekli aileler + `TestPageImages_`, `TestAccount_`, `TestFactMechanisms_`,
+> `TestLandingFacts_`, `TestPanelScreens_` (DB'siz) · **B** = `./internal/brand/`,
+> `TestLogoLight_` ve `TestDefaultAccent_` · **D** = `./internal/handler/`, `TestBrandRoutesDB_`,
+> `.env`'li gerçek Postgres. Pozitif kontrol: değiştirilmemiş kopyada üç kapsam da yeşil.
+>
+> 2. tur (2026-10-06): tablo, 2. turun son koduna karşı, sıfırdan senkronlanmış kopyada yeniden
+> koşuldu — 1. turun 60 satırı (T03 ve T04 kabuktan çizilen önizlemenin yeni satırlarına
+> uyarlandı) ve 2. turun 20 satırı (denetçinin X kimlikleri, onun mutantıyla aynı; yapıcının
+> kendi R'leri). Koşu `.env` yüklü bir kabuktan başladığı için H kapsamı `TestBrandRoutesDB_`'yi de
+> gerçek Postgres'e karşı koştu. A11 ilk koşuda derlenmedi (`brandactions.go` artık `layout`'u
+> içe aktarmıyor); kendi içe aktarmasıyla yeniden yazılıp aynı kopyada tek başına koşuldu ve
+> tabloda o koşunun sonucu durur. Denetçinin X06'sı yazıldığı biçimiyle koşuldu ve DERLENMEDİ
+> (`BrandEditor`'ın `Preview` alanı yok — B2'nin kod düzeltmesi); kırmızı sayılmadı.
+>
+> 3. tur (2026-10-06): dar kapanış denetiminin Q9 ve Q10'u, onun mutantlarıyla aynı metinle
+> (`scratchpad/wl7/verify_round3.py`'nin tanımlarından), 3. turun koduna karşı sıfırdan
+> senkronlanmış kopyada H kapsamında koşuldu; tablonun son iki satırı.
+>
+> **83 mutasyon: 81 kırmızı, 1 yeşil, 1 derlenmedi; geri yazma sha256 eşit: 83/83**
+>
+> | # | Mutasyon | Nerede | Kapsam | Sonuç | Kırmızıya dönen |
+> |---|---|---|---|---|---|
+> | U01 | upload gate: owner check removed | `brandupload.go` | H+D | KIRMIZI | `TestBrandRoutesDB_AnOwnersBrandIsStoredAndAManagersChangesNothing`, `TestBrandRoutes_AManagerIsRefusedRecordedAndChangesNothing`, `TestBrandRoutes_AManagersRefusalsCostTheOwnersBudgetsNothing` |
+> | U02 | upload gate: business budget not checked | `brandupload.go` | H+D | KIRMIZI | `TestBrandRoutesDB_AnOwnersBrandIsStoredAndAManagersChangesNothing`, `TestBrandRoutes_AManagersRefusalsCostTheOwnersBudgetsNothing`, `TestBrandUpload_TheBusinessBudgetRefusesPastTenBeforeReadingTheBody`, `TestBrandUpload_TheGateRunsInItsOrder` |
+> | U03 | upload gate: declared length over the cap admitted | `brandupload.go` | H | KIRMIZI | `TestBrandUpload_ABodyOverTheCapIsRefused`, `TestBrandUpload_TheGateRunsInItsOrder` |
+> | U04 | admission: no limit at all | `brandupload.go` | H | KIRMIZI | `TestBrandUpload_AdmissionRefusesBeforeTheBodyIsRead`, `TestBrandUpload_TheGateRunsInItsOrder` |
+> | U05 | admission: per-business limit removed | `brandupload.go` | H | KIRMIZI | `TestBrandUpload_AdmissionRefusesBeforeTheBodyIsRead` |
+> | U06 | read deadline not set | `brandupload.go` | H | KIRMIZI | `TestBrandUpload_ASlowBodyIsCutAtTheReadDeadline`, `TestBrandUpload_TheReadDeadlineReachesTheConnectionThroughTheRouter`, `TestBrandUpload_WithoutAConnectionDeadlineNothingIsRead` |
+> | U07 | read deadline failure ignored (fail open) | `brandupload.go` | H | KIRMIZI | `TestBrandUpload_WithoutAConnectionDeadlineNothingIsRead` |
+> | U08 | 1 MiB body cap removed | `brandupload.go` | H | KIRMIZI | `TestBrandUpload_ABodyOverTheCapIsRefused`, `TestBrandUpload_ReadsTheBodyOnlyAsAStream` |
+> | U09 | request media type not checked (multipart/mixed read) | `brandupload.go` | H | KIRMIZI | `TestBrandUpload_AcceptsOnePartNamedLogoAndNothingElse` |
+> | U10 | part name not checked | `brandupload.go` | H | KIRMIZI | `TestBrandUpload_ARefusalLogsItsClassAndNeverTheFile`, `TestBrandUpload_AcceptsOnePartNamedLogoAndNothingElse` |
+> | U11 | a second part accepted | `brandupload.go` | H | KIRMIZI | `TestBrandUpload_AcceptsOnePartNamedLogoAndNothingElse` |
+> | U12 | part limit off by one (512 KiB + 1 reaches the decoder) | `brandupload.go` | H | KIRMIZI | `TestBrandUpload_ExactlyTheLimitIsReadAndOneMoreIsRefused` |
+> | U13 | empty part not told apart | `brandupload.go` | H | KIRMIZI | `TestBrandUpload_ARefusalLogsItsClassAndNeverTheFile`, `TestBrandUpload_AcceptsOnePartNamedLogoAndNothingElse` |
+> | U17 | ErrLogoVerify not internal | `brandupload.go` | H | KIRMIZI | `TestBrandUpload_EachRefusalOfTheDecoderHasItsWord` |
+> | U18 | busy decoder said unavailable | `brandupload.go` | H | KIRMIZI | `TestBrandUpload_EachRefusalOfTheDecoderHasItsWord` |
+> | U19 | light warning never given | `brandupload.go` | H | KIRMIZI | `TestBrandUpload_ALightLogoIsSavedWithAWarning` |
+> | U20 | domain refusal not recorded | `brandupload.go` | H | KIRMIZI | `TestBrandUpload_ARefusalLogsItsClassAndNeverTheFile`, `TestBrandUpload_TheDomainsAnswersAreTheHandlersOwn` |
+> | U21 | closeUnread a no-op (net/http drains the refused body) | `brandupload.go` | H | KIRMIZI | `TestBrandRoutes_AManagerIsRefusedRecordedAndChangesNothing`, `TestBrandUpload_AdmissionRefusesBeforeTheBodyIsRead`, `TestBrandUpload_TheBusinessBudgetRefusesPastTenBeforeReadingTheBody` |
+> | U22 | refusal word carries the part's name (logged) | `brandupload.go` | H | KIRMIZI | `TestBrandUpload_ARefusalLogsItsClassAndNeverTheFile`, `TestBrandUpload_AcceptsOnePartNamedLogoAndNothingElse` |
+> | U23 | the domain is handed a rebuilt Logo, not Normalize's value | `brandupload.go` | H+D | KIRMIZI | `TestBrandRoutesDB_AnOwnersBrandIsStoredAndAManagersChangesNothing`, `TestBrandUpload_AnOwnersLogoIsNormalizedAndHandedOnUnchanged` |
+> | U24 | a form helper in the logo handler (FormValue) | `brandupload.go` | H | KIRMIZI | `TestBrandRoutesDB_AnOwnersBrandIsStoredAndAManagersChangesNothing`, `TestBrandRoutes_AManagersRefusalsCostTheOwnersBudgetsNothing`, `TestBrandUpload_ALightLogoIsSavedWithAWarning`, `TestBrandUpload_ARefusalLogsItsClassAndNeverTheFile`, `TestBrandUpload_AcceptsOnePartNamedLogoAndNothingElse`, `TestBrandUpload_AdmissionRefusesBeforeTheBodyIsRead`, `TestBrandUpload_AnOwnersLogoIsNormalizedAndHandedOnUnchanged`, `TestBrandUpload_EachRefusalOfTheDecoderHasItsWord`, `TestBrandUpload_ExactlyTheLimitIsReadAndOneMoreIsRefused`, `TestBrandUpload_ReadsTheBodyOnlyAsAStream`, `TestBrandUpload_SucceedsWithTMPDIRMissingOrReadOnly`, `TestBrandUpload_TheBusinessBudgetRefusesPastTenBeforeReadingTheBody`, `TestBrandUpload_TheDomainsAnswersAreTheHandlersOwn`, `TestBrandUpload_TheReadDeadlineReachesTheConnectionThroughTheRouter` |
+> | U25 | a field read in the logo handler (r.MultipartForm) | `brandupload.go` | H | KIRMIZI | `TestBrandUpload_ReadsTheBodyOnlyAsAStream` |
+> | U26 | the upload read with ParseMultipartForm(64 KiB) + FormFile | `brandupload.go` | H | KIRMIZI | `TestBrandUpload_ABodyOverTheCapIsRefused`, `TestBrandUpload_ARefusalLogsItsClassAndNeverTheFile`, `TestBrandUpload_ASlowBodyIsCutAtTheReadDeadline`, `TestBrandUpload_AcceptsOnePartNamedLogoAndNothingElse`, `TestBrandUpload_ExactlyTheLimitIsReadAndOneMoreIsRefused`, `TestBrandUpload_ReadsTheBodyOnlyAsAStream`, `TestBrandUpload_SucceedsWithTMPDIRMissingOrReadOnly`, `TestBrandUpload_TheReadDeadlineReachesTheConnectionThroughTheRouter`, `TestFactMechanisms_SayNoWhenTheFactIsAbsent`, `TestLandingFacts_EveryDeclaredFactIsDerivedAndClaimed` |
+> | U27 | a helper the logo handler reaches reads the form | `adminlogin.go` | H | KIRMIZI | `TestBrandUpload_AdmissionRefusesBeforeTheBodyIsRead`, `TestBrandUpload_ReadsTheBodyOnlyAsAStream`, `TestBrandUpload_TheBusinessBudgetRefusesPastTenBeforeReadingTheBody` |
+> | U28 | the decode gate built with 2 slots | `adminlogin.go` | H | KIRMIZI | `TestBrandUpload_TheGateIsBuiltOnceWithTheRulesSlots` |
+> | U29 | FormFile in the employees' actions (the card's FactNoBulkImport mutation) | `employeeactions.go` | H | KIRMIZI | `TestFactMechanisms_SayNoWhenTheFactIsAbsent`, `TestLandingFacts_EveryDeclaredFactIsDerivedAndClaimed` |
+> | A01 | accent: owner check removed | `brandactions.go` | H+D | KIRMIZI | `TestBrandRoutesDB_AnOwnersBrandIsStoredAndAManagersChangesNothing`, `TestBrandRoutes_AManagerIsRefusedRecordedAndChangesNothing`, `TestBrandRoutes_AManagersRefusalsCostTheOwnersBudgetsNothing` |
+> | A02 | reset: owner check removed | `brandactions.go` | H+D | KIRMIZI | `TestBrandRoutesDB_AnOwnersBrandIsStoredAndAManagersChangesNothing`, `TestBrandRoutes_AManagerIsRefusedRecordedAndChangesNothing`, `TestBrandRoutes_AManagersRefusalsCostTheOwnersBudgetsNothing` |
+> | A03 | budget refusal row on every refused request | `brandactions.go` | H | KIRMIZI | `TestBrandUpload_TheBusinessBudgetRefusesPastTenBeforeReadingTheBody`, `TestBrandWrite_TheBusinessBudgetRefusesPastThirty` |
+> | A04 | accent: the gate not asked at the boundary | `brandactions.go` | H | KIRMIZI | `TestBrandAccent_AnIllegibleColourComesBackWithItsSuggestion`, `TestBrandEditor_EveryControlIsATouchTarget`, `TestBrandPreview_ARefusedColourLeavesThePreviewAsSaved`, `TestBrandPreview_ShowsOnlyTheSavedAccent` |
+> | A05 | suggestion is the refused colour itself | `brandactions.go` | H | KIRMIZI | `TestBrandAccent_AnIllegibleColourComesBackWithItsSuggestion`, `TestBrandEditor_TheFormsSendWhatTheRoutesRead`, `TestBrandPreview_ShowsOnlyTheSavedAccent` |
+> | A06 | the picker wins over a typed code | `brandactions.go` | H | KIRMIZI | `TestBrandAccent_AnIllegibleColourComesBackWithItsSuggestion`, `TestBrandAccent_TheBoundaryReadsWhatTheColourInputSends`, `TestBrandEditor_TheFormsSendWhatTheRoutesRead`, `TestBrandPreview_ARefusedColourLeavesThePreviewAsSaved`, `TestBrandPreview_ShowsOnlyTheSavedAccent`, `TestBrandRoutesDB_ConcurrentWritesLeaveOneOfTheirStates`, `TestBrandWrite_AFormOverItsBoundIsNotRead` |
+> | A07 | typed code not trimmed | `brandactions.go` | H | KIRMIZI | `TestBrandAccent_TheBoundaryReadsWhatTheColourInputSends` |
+> | A08 | reset what=logo clears the accent | `brandactions.go` | H | KIRMIZI | `TestBrandReset_TakesBackOneInputAtATime`, `TestBrandRoutesDB_AnOwnersBrandIsStoredAndAManagersChangesNothing` |
+> | A09 | reset: an unknown value clears the logo | `brandactions.go` | H | KIRMIZI | `TestBrandReset_TakesBackOneInputAtATime` |
+> | A10 | refusal row records what was posted | `brandactions.go` | H | KIRMIZI | `TestBrandRoutesDB_AnOwnersBrandIsStoredAndAManagersChangesNothing`, `TestBrandRoutes_AManagerIsRefusedRecordedAndChangesNothing`, `TestBrandUpload_ReadsTheBodyOnlyAsAStream`, `TestBrandUpload_TheBusinessBudgetRefusesPastTenBeforeReadingTheBody`, `TestBrandUpload_TheDomainsAnswersAreTheHandlersOwn` |
+> | A11 | the refused colour painted through a second theme | `brandactions.go` | H | KIRMIZI | `TestBrandPreview_ARefusedColourLeavesThePreviewAsSaved`, `TestBrandPreview_ShowsOnlyTheSavedAccent` |
+> | A12 | outcome word not from the closed list | `brandactions.go` | H | KIRMIZI | `TestBrandOutcomes_EveryWordIsDrawnAndNoOtherText`, `TestBrandUpload_ALightLogoIsSavedWithAWarning` |
+> | A13 | the picker ignores the saved colour | `brandactions.go` | H | KIRMIZI | `TestBrandPreview_IsTheTapScreensOwnComponentsAndCannotSubmit` |
+> | P01 | preview logo from the tap route | `panelbrand.go` | H+D | KIRMIZI | `TestBrandPreview_IsTheTapScreensOwnComponentsAndCannotSubmit`, `TestBrandPreview_TheLogoIsThePanelRoute`, `TestBrandRoutesDB_AnOwnersBrandIsStoredAndAManagersChangesNothing` |
+> | P02 | preview logo's alt empty | `panelbrand.go` | H | KIRMIZI | `TestBrandPreview_IsTheTapScreensOwnComponentsAndCannotSubmit`, `TestBrandPreview_TheLogoIsThePanelRoute` |
+> | T01 | preview button is the submitting face | `account.templ` | H | KIRMIZI | `TestBrandPreview_IsTheTapScreensOwnComponentsAndCannotSubmit` |
+> | T02 | preview not inert | `account.templ` | H | KIRMIZI | `TestBrandEditor_AManagerSeesThePreviewAndNoForm`, `TestBrandEditor_TheFormsSendWhatTheRoutesRead`, `TestBrandOutcomes_EveryWordIsDrawnAndNoOtherText`, `TestBrandPreview_ARefusedColourLeavesThePreviewAsSaved`, `TestBrandPreview_IsTheTapScreensOwnComponentsAndCannotSubmit`, `TestBrandPreview_TheLogoIsThePanelRoute`, `TestBrandRoutesDB_AnOwnersBrandIsStoredAndAManagersChangesNothing`, `TestPanelBrand_ABrandedBusinessGetsItsHeaderOnEverySection`, `TestPanelBrand_UnbrandedSectionsAreTheWordmarkChrome` |
+> | T03 | preview header always the wordmark | `account.templ` | H | KIRMIZI | `TestBrandPreview_ARefusedColourLeavesThePreviewAsSaved`, `TestBrandPreview_IsTheTapScreensOwnComponentsAndCannotSubmit`, `TestBrandPreview_TheLogoIsThePanelRoute`, `TestBrandRoutesDB_AnOwnersBrandIsStoredAndAManagersChangesNothing` |
+> | T04 | preview inside the accent form | `account.templ` | H | KIRMIZI | `TestBrandEditor_TheFormsSendWhatTheRoutesRead`, `TestBrandPreview_IsTheTapScreensOwnComponentsAndCannotSubmit` |
+> | T05 | color input without its touch-target class | `account.templ` | H | KIRMIZI | `TestBrandEditor_EveryControlIsATouchTarget`, `TestPanelScreens_FormControlsCarryATouchTargetClass` |
+> | L01 | alpha ignored and transparent pixels counted | `logo_light.go` | B | KIRMIZI | `TestLogoLight_AlphaWeightedLuminanceOnPorcelain` |
+> | L02 | measured against paper, not porcelain | `logo_light.go` | B | KIRMIZI | `TestLogoLight_AlphaWeightedLuminanceOnPorcelain` |
+> | L03 | any Logo decoded (Normalized check removed) | `logo_light.go` | B | KIRMIZI | `TestLogoLight_ReadsOnlyANormalizeOutput` |
+> | L04 | mean of 8-bit values instead of linear luminance | `logo_light.go` | B | KIRMIZI | `TestLogoLight_AlphaWeightedLuminanceOnPorcelain` |
+> | U14 | NextPart (quoted-printable decoded) instead of NextRawPart | `brandupload.go` | H | KIRMIZI | `TestBrandUpload_AcceptsOnePartNamedLogoAndNothingElse` |
+> | U15 | body-cap error not classified | `brandupload.go` | H | KIRMIZI | `TestBrandUpload_ABodyOverTheCapIsRefused` |
+> | U16 | deadline error not classified | `brandupload.go` | H | KIRMIZI | `TestBrandUpload_ASlowBodyIsCutAtTheReadDeadline`, `TestBrandUpload_TheReadDeadlineReachesTheConnectionThroughTheRouter` |
+> | D01 | the accent route mounted on the READ chain (Protect, not ProtectWriting) | `dashboard.go` | H | KIRMIZI | `TestBrandRoutes_CrossOriginIsRefusedBeforeTheResolver` |
+> | D02 | the upload route registered without its gate | `dashboard.go` | H | KIRMIZI | `TestBrandRoutesDB_AnOwnersBrandIsStoredAndAManagersChangesNothing`, `TestBrandRoutes_AManagerIsRefusedRecordedAndChangesNothing`, `TestBrandRoutes_AManagersRefusalsCostTheOwnersBudgetsNothing`, `TestBrandUpload_ABodyOverTheCapIsRefused`, `TestBrandUpload_ASlowBodyIsCutAtTheReadDeadline`, `TestBrandUpload_AdmissionRefusesBeforeTheBodyIsRead`, `TestBrandUpload_TheBusinessBudgetRefusesPastTenBeforeReadingTheBody`, `TestBrandUpload_TheGateRunsInItsOrder`, `TestBrandUpload_TheReadDeadlineReachesTheConnectionThroughTheRouter`, `TestBrandUpload_WithoutAConnectionDeadlineNothingIsRead` |
+> | A14 | reset: the command takes the tenant from the form | `brandactions.go` | H | KIRMIZI | `TestBrandReset_TakesBackOneInputAtATime` |
+> | A15 | accent: the domain's refusal not recorded | `brandactions.go` | H | KIRMIZI | `TestBrandAccent_TheDomainsAnswersAreTheHandlersOwn` |
+> | A16 | the forms drawn for a manager | `brandactions.go` | H | KIRMIZI | `TestBrandEditor_AManagerSeesThePreviewAndNoForm`, `TestBrandPreview_IsTheTapScreensOwnComponentsAndCannotSubmit` |
+> | P03 | preview logo built whatever the chrome draws (expected equivalent) | `panelbrand.go` | H | yeşil | — |
+> | L05 | the default accent is paper | `default.go` | B+H | KIRMIZI | `TestBrandAccent_TheBoundaryReadsWhatTheColourInputSends`, `TestBrandPreview_IsTheTapScreensOwnComponentsAndCannotSubmit`, `TestDefaultAccent_IsTappaGreen` |
+> | X01 | preview draws the tap button twice | `account.templ` | H | KIRMIZI | `TestBrandPreview_IsTheTapScreensOwnComponentsAndCannotSubmit` |
+> | X02 | preview draws the greeting twice | `account.templ` | H | KIRMIZI | `TestBrandPreview_IsTheTapScreensOwnComponentsAndCannotSubmit` |
+> | X03 | the tap header drawn a second time in the editor, outside the preview | `account.templ` | H | KIRMIZI | `TestBrandEditor_TheFormsSendWhatTheRoutesRead`, `TestBrandOutcomes_EveryWordIsDrawnAndNoOtherText`, `TestBrandPreview_ARefusedColourLeavesThePreviewAsSaved`, `TestBrandPreview_IsTheTapScreensOwnComponentsAndCannotSubmit`, `TestPanelBrand_ABrandedBusinessGetsItsHeaderOnEverySection`, `TestPanelBrand_UnbrandedSectionsAreTheWordmarkChrome` |
+> | X21 | the preview greets the business, not the signed-in admin | `account.templ` | H | KIRMIZI | `TestBrandPreview_IsTheTapScreensOwnComponentsAndCannotSubmit` |
+> | X27 | the logo form's file input renamed | `account.templ` | H | KIRMIZI | `TestBrandEditor_TheFormsSendWhatTheRoutesRead` |
+> | X28 | the hex box renamed | `account.templ` | H | KIRMIZI | `TestBrandEditor_TheFormsSendWhatTheRoutesRead` |
+> | R05 | the error's colour code not in mono | `account.templ` | H | KIRMIZI | `TestBrandAccent_AnIllegibleColourComesBackWithItsSuggestion`, `TestBrandAccent_TheBoundaryReadsWhatTheColourInputSends` |
+> | X14 | NewAdminAuth accepts a nil brand writer | `adminlogin.go` | H | KIRMIZI | `TestBrandRoutes_TheWriterIsRequired` |
+> | X19 | a manager's refused upload is charged to the business's upload budget | `brandupload.go` | H+D | KIRMIZI | `TestBrandRoutes_AManagersRefusalsCostTheOwnersBudgetsNothing` |
+> | X19b | upload gate steps 1 and 2 swapped (budget before owner) | `brandupload.go` | H+D | KIRMIZI | `TestBrandRoutes_AManagersRefusalsCostTheOwnersBudgetsNothing` |
+> | R01 | upload gate steps 2 and 3 swapped (length before budget) | `brandupload.go` | H | KIRMIZI | `TestBrandUpload_TheGateRunsInItsOrder` |
+> | X20 | upload gate steps 3 and 4 swapped (length after admission) | `brandupload.go` | H | KIRMIZI | `TestBrandUpload_TheGateRunsInItsOrder` |
+> | R02 | upload gate steps 4 and 5 swapped (deadline before admission) | `brandupload.go` | H | KIRMIZI | `TestBrandUpload_TheGateRunsInItsOrder` |
+> | X24 | the whole body buffered (io.ReadAll) before the multipart reader | `brandupload.go` | H | KIRMIZI | `TestBrandUpload_ReadsTheBodyOnlyAsAStream` |
+> | R04 | the request cloned before the stream (a method that hands the body on) | `brandupload.go` | H | KIRMIZI | `TestBrandUpload_ReadsTheBodyOnlyAsAStream` |
+> | X31 | accent: budget charged before the owner check | `brandactions.go` | H+D | KIRMIZI | `TestBrandRoutes_AManagersRefusalsCostTheOwnersBudgetsNothing` |
+> | R03 | reset: budget charged before the owner check | `brandactions.go` | H+D | KIRMIZI | `TestBrandRoutes_AManagersRefusalsCostTheOwnersBudgetsNothing` |
+> | X22 | 'Remove the logo' offered whether or not a logo is saved | `brandactions.go` | H | KIRMIZI | `TestBrandEditor_TheFormsSendWhatTheRoutesRead` |
+> | X29 | 'Back to Taptime green' offered whether or not an accent is saved | `brandactions.go` | H | KIRMIZI | `TestBrandEditor_TheFormsSendWhatTheRoutesRead` |
+> | X30 | the accent form's body not bounded | `brandactions.go` | H | KIRMIZI | `TestBrandWrite_AFormOverItsBoundIsNotRead` |
+> | X06 | the auditor's X06 as written: the tried colour's theme into the editor's preview field | `brandactions.go` | H | derlenmedi | — |
+> | Q9 | the part read with io.ReadAll (no limit as it is read) | `brandupload.go` | H | KIRMIZI | `TestBrandUpload_TheLimitIsAppliedAsThePartIsRead` |
+> | Q10 | the stream read with multipart.Reader.ReadForm | `brandupload.go` | H | KIRMIZI | `TestBrandUpload_AcceptsOnePartNamedLogoAndNothingElse`, `TestBrandUpload_TheLimitIsAppliedAsThePartIsRead` |
+>
+> Yeşil kalan P03 eşdeğerdir: `PanelLogoOf` ve `PreviewLogo` aynı kutuları reddeder ve digest'i
+> `panelBrand` önceden denetler, yani koşulsuz kurulan önizleme logosu kabuğunki olmadan çizilemez.
+>
+> ### Güvenlik ve doğruluk iddiası (WL-7, üç parçalı; İddia F, G, H'nin WL-7 parçaları)
+>
+> - **Tehdit modeli:** Bu pinler üç marka rotasına, okudukları gövdeye, kapının sırasına, editörün
+>   görünümüne ve yükleme tripwire'ına KAZARA giren sapmaya karşıdır; bir pini atlatmak için bilerek
+>   yazılmış kod (isteği başka bir değişkene alıp onun üstünden okumak, reflect, okuyucuyu başka
+>   pakete taşımak) kod incelemesinin konusudur.
+> - **PART I — her madde: test · beslenen girdiler · assert · o assert'i kıran mutasyon:**
+>   1. `TestBrandUpload_AnOwnersLogoIsNormalizedAndHandedOnUnchanged` · sahibin 64×32 PNG'si, gerçek
+>      sunucu, gerçek kapı · 303 `logo-saved`, bir decode, `Normalized()` doğru bir değerin oturumun
+>      işletmesi ve yöneticisi için tek kaydı · U23.
+>   2. `TestBrandUpload_SucceedsWithTMPDIRMissingOrReadOnly` · 64 KiB'tan büyük 700×700 JPEG, `TMPDIR`
+>      yok / salt-okunur (geçici dosya açılamıyor — öncül) · `logo-saved` · U26.
+>   3. `TestBrandUpload_ALightLogoIsSavedWithAWarning` · porcelain'e yakın ve koyu PNG · ikisi de
+>      kaydedilir, `logo-saved-light` / `logo-saved`, uyarı editörde · U19.
+>   4. `TestBrandUpload_AcceptsOnePartNamedLogoAndNothingElse` · 16 gövde biçimi · her birinin sözcüğü;
+>      decode'a yalnız akıştan geçen ikisi ulaşır · U09, U10, U11, U13, U14.
+>   5. `TestBrandUpload_ExactlyTheLimitIsReadAndOneMoreIsRefused` · 524 288 / 524 289 baytlık parça ·
+>      ilki decode'a tam, ikincisi decode'suz `logo-too-large` · U12.
+>   5a. `TestBrandUpload_TheLimitIsAppliedAsThePartIsRead` (3. tur) · `readLogoPart`, okunan baytı
+>      sayan bir gövdeyle; 1 000 KiB'lık, sınır + 1 baytlık ve tam sınırda parça · ilk ikisi
+>      `logo-too-large`, üçüncüsü tam döner; üçünde de gövdeden en çok sınır + 16 KiB okunur
+>      (ölçülen: 1 024 225 baytlık gövdenin 528 384'ü) · Q9 (parça önce bütünüyle okunur,
+>      `io.ReadAll`), Q10 (`ReadForm`).
+>   6. `TestBrandUpload_ABodyOverTheCapIsRefused` · gövdesi gönderilmeyen 1 MiB+1 uzunluk; önsözü 1
+>      MiB'ı aşan chunked gövde · ikisi `logo-too-large`, decode/yazma 0 · U03, U08, U15.
+>   7. `TestBrandUpload_TheBusinessBudgetRefusesPastTenBeforeReadingTheBody` · on deneme, gövdesiz iki
+>      deneme, başka işletme · gövdesiz iki 429, bütçe nedenli tek ret satırı, on decode, başka
+>      işletme okunur · U02, U21, A03.
+>   8. `TestBrandUpload_AdmissionRefusesBeforeTheBodyIsRead` · ham TCP'de tutulan yarım gövdeler ·
+>      aynı işletmenin ikincisi ve yerlerin bir fazlası gövdesiz 503; bağlantı bitince yer boşalır ·
+>      U04, U05, U21.
+>   8a. `TestBrandUpload_TheGateRunsInItsOrder` (2. tur) · 1 MiB+1 bildiren on deneme, sonra küçük
+>      bir deneme; kabul dolu iken 1 MiB+1 bildiren ve küçük bir deneme, süre kurulamayan
+>      bağlantıda · on kez `logo-too-large`, sonra 429 (bütçe uzunluktan önce); `logo-too-large`,
+>      503 değil (uzunluk kabulden önce); 503, 500 değil (kabul süreden önce) · R01, X20, R02.
+>   8b. `TestBrandRoutes_AManagersRefusalsCostTheOwnersBudgetsNothing` (2. tur) · TEK `AdminAuth`
+>      üstünden yöneticinin üç POST'u, sonra sahibin on yüklemesi ve otuz değişikliği · yöneticinin
+>      üçü `not-permitted` ve üç satır; sahibin kırkı kendi sözcüğüyle, hiçbiri 429; on birinci
+>      yükleme ve otuz birinci değişiklik 429 (sahip kontrolü üç rotada da bütçeden önce) · X19,
+>      X19b, X31, R03.
+>   9. `TestBrandUpload_ASlowBodyIsCutAtTheReadDeadline`, `TestBrandUpload_TheReadDeadlineReachesTheConnectionThroughTheRouter`
+>      · 300 ms süre, on bayt sonra duran gövde, chi ve `httpx.NewRouter` · süre ile 5 s arasında
+>      `logo-slow`, yer boşalır, decode yok · U06, U16.
+>   10. `TestBrandUpload_WithoutAConnectionDeadlineNothingIsRead` · süre kurulamayan yazıcı · 500;
+>       kabul/decode/yazma 0 · U06, U07.
+>   11. `TestBrandUpload_EachRefusalOfTheDecoderHasItsWord` · kapının on bir hatası, altı gerçek dosya ·
+>       her birinin sözcüğü, ERROR satırı tam olarak iç üçünde, kayıt yok · U17, U18.
+>   12. `TestBrandUpload_TheDomainsAnswersAreTheHandlersOwn`, `TestBrandAccent_TheDomainsAnswersAreTheHandlersOwn`
+>       · yazıcının reddi ve hatası · `not-permitted` + alanın nedenli ret satırı; `unavailable` ·
+>       U20, A15.
+>   13. `TestBrandUpload_ARefusalLogsItsClassAndNeverTheFile` · adı, parça türü ve baytları işaret
+>       taşıyan dosyanın yedi reddi + `Detail`'i işaret taşıyan pgconn hatası · sınıf loglanır;
+>       işaret ve `Detail` hiçbir satırda yok · U22.
+>   14. `TestBrandUpload_ReadsTheBodyOnlyAsAStream`, `TestBrandUploadPin_RefusesEachShapeItExistsFor`
+>       · bu dosyanın fonksiyonları ve ulaştıkları paket fonksiyonları (çıktıda adlarıyla) · beş
+>       çağrı ve üç alan okuması 0; tek `MultipartReader`; gövde (`.Body`) dosyada yalnız kapının
+>       tek `X.Body = http.MaxBytesReader(W, X.Body, N)` sınırında adlanır, kapanışta `*http.Request`
+>       olarak bildirilmiş değerin gövdesi hiç; istekte `Context` ve `MultipartReader` dışında
+>       yöntem çağrısı 0; istek paket dışına yalnız `httpx.AdminOf`'a ve kapının `next`'ine verilir
+>       (2. tur, fail-closed) · U24, U25, U26, U27, X24, R04. Bu pin GÖVDEYİ görür: gövdeyi
+>       multipart okuyucudan başka hiçbir şeyin almadığını. Okuyucunun bir parçayı NASIL okuduğunu
+>       görmez — parçanın sınırı okunurken uygulanması 5a'nın sayımıyla, parçaların ham ve tek tek
+>       okunması (`NextRawPart`; `NextPart` ve `ReadForm` çözer ve tamponlar) 4'ün quoted-printable
+>       biçimiyle tutulur (3. tur).
+>   15. `TestBrandUpload_TheGateIsBuiltOnceWithTheRulesSlots` · `internal` ve `cmd`'nin test dışı Go'su
+>       · tek `brand.NewLogoGate(brand.LogoDecodeSlots)`, `NewAdminAuth`'ta; tek `NewAdminAuth`,
+>       `main`'de · U28.
+>   16. `TestBrandRoutes_CrossOriginIsRefusedBeforeTheResolver` · üç rota × iki biçim · 303 `/admin`,
+>       çözümleyici 0 · D01.
+>   17. `TestBrandRoutes_AManagerIsRefusedRecordedAndChangesNothing`,
+>       `TestBrandRoutesDB_AnOwnersBrandIsStoredAndAManagersChangesNothing` · yöneticinin üç POST'u
+>       (yükleme gövdesiz); gerçek Postgres'te ayrıca sahibin yüklemesi, accent'i, bütçesi ve
+>       sıfırlamaları · `not-permitted`, her biri tam beş anahtarlı bir satır, satır değişmez;
+>       saklanan digest yeniden kodlayıcınınki · U01, A01, A02, A10, U23, P01.
+>   18. `TestBrandAccent_TheBoundaryReadsWhatTheColourInputSends`,
+>       `TestBrandAccent_AnIllegibleColourComesBackWithItsSuggestion` · on üç yazım; dört reddedilen
+>       renk · tek renk kaydedilir ya da form kaydedilmeden `Suggest`'in rengiyle döner ve öneri
+>       gönderilince kaydedilir · A04, A05, A06, A07.
+>   19. `TestBrandReset_TakesBackOneInputAtATime`, `TestBrandWrite_TheBusinessBudgetRefusesPastThirty`
+>       · A03, A08, A09, A14.
+>   20. `TestBrandOutcomes_EveryWordIsDrawnAndNoOtherText` · A12.
+>   21. `TestBrandPreview_IsTheTapScreensOwnComponentsAndCannotSubmit`, `TestBrandPreview_TheLogoIsThePanelRoute`,
+>       `TestBrandPreview_ShowsOnlyTheSavedAccent`, `TestBrandEditor_EveryControlIsATouchTarget`,
+>       `TestBrandEditor_AManagerSeesThePreviewAndNoForm` · iki rol × beş saklı marka; reddedilen renk
+>       · önizleme sayfanın tek `inert` bloğu ve tap ekranının üç bileşenini HER BİRİNİ TAM BİR KEZ
+>       taşır, başka bir şey değil (2. tur); formsuz, gönderemez; editörün geri kalanında başlık,
+>       wordmark, co-brand satırı ve `<img>` 0 (`withoutBrandEditor`, 2. tur); logosu panel
+>       rotasından saklanan kutuyla; yalnız kaydedilen tema; her kontrol dokunma hedefi; yöneticiye
+>       form yok · T01, T02, T03, T04, T05, A11, A13, A16, P01, P02, L05, X01, X02, X03, X21.
+>   21a. `TestBrandPreview_ARefusedColourLeavesThePreviewAsSaved` (2. tur) · beş saklı marka × beş
+>       reddedilen kayıt (seçilmiş, yazılmış ve bandın öbür yanından okunaksız renk, renk olmayan
+>       kod, alanın reddettiği okunur renk) · 200 ve hata; önizleme bloğu ve editör dışındaki sayfa
+>       aynı işletmenin düz yüklemesiyle BAYT-EŞİT · A11 (önizlemenin reddedilen kaydın yazdığı bir
+>       girdisi kalmadı; geriye kalan tek yol kabuğun kendisi).
+>   21b. `TestBrandEditor_TheFormsSendWhatTheRoutesRead`, `TestBrandWrite_AFormOverItsBoundIsNotRead`,
+>       `TestBrandRoutes_TheWriterIsRequired` (2. tur) · her form çizili ve hiçbir şey kaydedilmemişken;
+>       iki küçük form 2 KiB'ta ve bir bayt fazlasında; nil yazıcıyla `NewAdminAuth` · her formun
+>       gönderdiği alanlar rotaların sabitleri, "geri al" formları yalnız kaydedilen varken; sınırda
+>       okunur, ötesinde `unreadable`; ret · X27, X28, X22, X29, X30, X14.
+>   22. `TestPanelBrandView_ThePreviewLogoIsDrawnOnlyWhereTheChromesIs` · tablo sınırında ve ötesinde
+>       digest ve kutular · önizlemenin `<img>`'i kabuğunki olmadan asla · P03 eşdeğer (iki kurucu
+>       aynı biçimleri reddeder), yeşil kalır.
+>   23. `TestBrandRoutesDB_ConcurrentWritesLeaveOneOfTheirStates` · gerçek Postgres'te 18 eşzamanlı
+>       değişiklik · her biri kendi sözcüğü, her biri bir iz satırı, saklanan accent onlardan biri ·
+>       mutasyon koşulmadı.
+>   24. `TestLogoLight_AlphaWeightedLuminanceOnPorcelain`, `TestLogoLight_ReadsOnlyANormalizeOutput`,
+>       `TestDefaultAccent_IsTappaGreen` · L01, L02, L03, L04, L05.
+>   25. `TestFactMechanisms_SayNoWhenTheFactIsAbsent`, `TestLandingFacts_EveryDeclaredFactIsDerivedAndClaimed`
+>       · `FactNoBulkImport`'un yeniden türetimi · U26, U29.
+> - **PART II — pinler ve yakaladıkları:** PART I'in testleri; her birinin yakaladığı tam liste
+>   aşağıdaki mutasyon tablosunda.
+> - **PART III:** Listede olmayan her biçim kod incelemesinin konusu — tamlık iddiası yok.
+>
+> ### Sayılı sınırlar (WL-7)
+>
+> 1. **Okuma süresi bağlantınındır**, HTTP/1.1'de ölçüldü (chi ve `httpx.NewRouter`); HTTP/2
+>    üzerinden ölçülmedi (Ingress → pod HTTP/1.1).
+> 2. **İstek tamponlaması kümede ölçülmedi** (Ingress yorumu ve devir): açıksa podun 15 s'si
+>    denetleyiciden okumayı sınırlar, yavaş istemciyi denetleyicinin kendi süresi tutar.
+> 3. **Tenant'lar arası açlık (§ sınır 11) sürüyor:** dört yer süreç genelindedir; dört işletme
+>    yavaş gövdelerle her biri 15 s yer tutabilir — işletme başına 10 deneme × 15 s = pencerede en
+>    çok 150 s; kayıt herkese açık. Süreç geneli bir deneme tavanı (öneri) uygulanmadı. İşletme
+>    bütçesi 2. adımda, kabulün 503'ünden ve decode yuvasının `logo-busy`'sinden önce düşüldüğü
+>    için bu açlıkta — ya da yalnız başka bir işletmenin o anki decode'u sırasında — sahibin aldığı
+>    her 503 ve `logo-busy` da on denemeden birini tüketir ve on tekrar denemeden sonra pencerenin
+>    geri kalanı 429'dur (yalnız logo yükleme, tap yolu etkilenmez; davranış değiştirilmedi,
+>    güvenlik denetiminin DÜŞÜK bulgusu).
+> 4. **Bütçeler süreç içidir** (`httpx.Limiter`): yeniden başlatmada sıfırlanır, sabit pencere 2×
+>    patlamaya izin verir.
+> 5. **Logo olmayan bir dosya iz satırı yazmaz** (yalnız sınıfıyla log); iz satırı sahip olmayan
+>    rol, bütçe ve alanın reddi içindir.
+> 6. **Ret, gövde gönderilirken yazılır ve bağlantı kapanır** (`closeUnread`): bir tarayıcının
+>    yüklemesi bitmeden yanıtı gösterip göstermediği gerçek cihazda ölçülmedi; 1 MiB üstü dosyayı
+>    üretimde denetleyici (413) karşılar — ölçülmedi.
+> 7. **iPhone dosya seçicisinin HEIC'i JPEG'e çevirip çevirmediği ölçülmedi** (§1'in devri; gerçek
+>    cihaz turu yapılmadı).
+> 8. **Sözdizimi pini** dosyada alanın ve gövdenin (`.Body`) HER adlanışını, kapanışta yalnız
+>    `*http.Request` olarak bildirilmiş bir değerinkini görür; takma adla (`q := r`) kapanışta
+>    okunan alan ya da gövde, reflect, fonksiyon değeri olarak taşınıp sonra çağrılan yardımcı ve
+>    başka pakete taşınmış bir okuyucu pinin dışındadır (sonuncusunu `FactNoBulkImport`
+>    `FormFile`/`MultipartReader`/`ParseMultipartForm` için görür, `FormValue`/`ParseForm` için
+>    görmez). İsteğin paket içi bir çağrıya verilmesi o çağrı kapanışta olduğu için serbesttir;
+>    paket içinde aynı adlı bir yöntemi olan başka bir paketin yöntemi de (aşırı yaklaşımın
+>    bedeli) serbest sayılır.
+> 9. **Açık logo uyarısı yalnız yükleme yanıtında** (yönlendirme sözcüğü); sonraki ziyaret uyarmaz.
+> 10. **Sahip olmayanın ret satırları her istekte** — sayısı panelin oturum bütçesiyle sınırlı (300 /
+>     oturum / 10 dk), `refuseAccountSave` emsali.
+> 11. **Eşzamanlılık DB'de yalnız accent ve accent sıfırlamasıyla** sınandı (18 istek); logo yazma
+>     ile logo sıfırlamanın yarışı, kabulün işletme başına tek yükleme kuralı dışında, koşulmadı.
+> 12. **CDP bir kez, pin değil**; yerel RSS darwin'de, pod ölçülmedi (devir).
+> 13. **`inert` desteklemeyen bir tarayıcıda** önizleme düğmesi odaklanabilir; yine `type="button"`
+>     ve formsuzdur, gönderemez.
+> 14. **DB fikstürleri dev veritabanında kalır** (`tappa_app`'ın DELETE yetkisi yok).
+> 15. **DB fikstürü her rol için ayrı bir `AdminAuth` kurar** (sahip ve yönetici iki sunucu), yani
+>     gerçek Postgres testi iki rolün bütçe paylaşımını göremez; o sıra tek `AdminAuth`'lu sahte
+>     testte ölçülür (`TestBrandRoutes_AManagersRefusalsCostTheOwnersBudgetsNothing`, 2. tur).
+> 16. **Kod kutusunun `maxlength="16"`'sı pinli değil** (denetçinin X16'sı): tarayıcı ipucudur;
+>     sunucuda sınır formun 2 KiB'ı (`TestBrandWrite_AFormOverItsBoundIsNotRead`) ve
+>     `NormalizeAccent`'tir.
+> 17. **`closeUnread`'in tek daldan kaldırılması testlerde eşdeğer kalır** (denetçinin X17 ve X18'i):
+>     3. adımın reddinde bildirilen gövde ≥ 256 KiB olduğu için net/http bağlantıyı zaten kapatır;
+>     6. adımın reddinde 5. adımın süresi kurulmuştur, yani okunmamış kalan en çok 15 s ve 256 KiB
+>     okunur. Fark (15 s'ye kadar tutulan bir yanıt) ölçülmedi.
+> 18. **Açık logo eşiğinde `<` ile `<=` farkı ölçülemez** (denetçinin X09'u): tam 1,5:1'e düşen bir
+>     fikstür yok ve düz griler eşiğin iki yanına düşer (C5C5C5 1,5002, C6C6C6 1,4847); eşdeğer
+>     sayıldı, test yorumu buna daraltıldı.
+>
+> ### Devirler
+>
+> - **Orkestratör (kubectl) — üç ölçüm: RSS, GOMAXPROCS ve Ingress istek tamponlaması.** WL-7
+>   satırının *"istek tamponlaması kümede ölçülür"* maddesi de bu devirle karşılanır (kubectl
+>   ajanlara yasak; orkestratör kararı yalnız RSS ve GOMAXPROCS'u adlandırıyordu, tamponlama da
+>   kapsamındadır). Podda ürün tabanıyla RSS (`VmHWM`, ephemeral `busybox` konteyneri,
+>   `--target=tappa`; karar eşiği taban < 157 MiB), `runtime.GOMAXPROCS(0)` (aynı düğümde aynı CPU
+>   sınırıyla tek seferlik sonda pod'u; beklenen 2), WL-7 yayına girdikten sonra WL-3'ün en kötü
+>   dosyasıyla tepe, Ingress'in `proxy-request-buffering` ve `client-body-timeout` değerleri —
+>   komutlar WL-7 kartında. WL-7'nin canlı blokesi bu ölçümlere bağlı kalır.
+> - **Gerçek cihaz turu (orkestratör/kullanıcı):** iPhone'da HEIC seçimi; büyük dosyanın erken
+>   reddinde tarayıcının gösterdiği.
+> - **WL-10:** bu notun üç parçalı iddiası (kodda `internal/handler/brandupload.go`'nun başı),
+>   mutasyon tablosu, sınırlar; `closeUnread` ve `multipart/mixed` bulguları; `FactNoBulkImport`
+>   muafiyetinin yolu; `NewAdminAuth`'un imzası; ADR 0023'ün WL-7 notundaki önizleme kuralları.
+> - **WL-12:** skill *"Tenant slotları"* — Account önizlemesi ölçüldü (`inert`, formsuz, tap
+>   ekranının üç bileşeni, yalnız kaydedilen accent; seçici + kod kutusu, öneri koyulaştırır);
+>   ADR 0005'e marka taklidi eki (değişmedi, WL-12'nin).
+>
+> **Zincir (3. tur, teslimden önce, son sürüme karşı):**
+> - `gofmt -s -l` boş · `make gen` idempotent (parmak izi önce ve sonra aynı) · `go build ./...` ·
+>   `GOTOOLCHAIN=go1.26.7 go vet ./...` rc=0 · `GOTOOLCHAIN=go1.26.7 go run
+>   honnef.co/go/tools/cmd/staticcheck@2025.1.1 ./internal/handler/` rc=0 ·
+>   `./scripts/redline-check.sh` rc=0.
+> - Ürün kodu: 2. turun anlık görüntüsüne göre 282 ürün dosyasında (`.go`, `_templ.go`, `.templ`;
+>   testler hariç) değişen 27 satırın 27'si `//` yorumu, hepsi `internal/handler/brandupload.go`'da.
+> - `TestEveryNamedTestExists` worktree'de (`DATABASE_URL`'siz) ve worktree'siz bir kopyada bu kart
+>   `m10-platform.md`'ye "## 6. Kararlar"dan önce eklenmiş hâliyle yeşil ·
+>   `./internal/handler -run TestComments_` ok.
+> - `.env` ile `-race`: `internal/handler` ok (308 s).
+> - `verify_round3.py` bir `wl7-orch` kopyasında: kontrol yeşil, Q9 ve Q10 kırmızı, B0
+>   `BUILD-FAILED`, dosya sha256 ile geri yazıldı; `wl7-orch` geçmeyen iki yol (mutasyon kopyası ve
+>   worktree) reddedildi.
+> - 2. turun zinciri (bütün `-race` paketleri, iki golden, `app.css`) ürün kodu değişmediği için
+>   yeniden koşulmadı; 2. turun sonuçları geçerli.
+> - Bilinen kırmızı, kapsam dışı: `cmd/rotatekek` (T72, yerel go 1.27).
+
 ## 6. Kararlar
 
 **✅ Kullanıcı kararları (2026-09-24):**

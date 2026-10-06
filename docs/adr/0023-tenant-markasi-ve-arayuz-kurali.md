@@ -548,7 +548,8 @@ Tasarım özündeki dört örneğin dördü de bu hesapla tutar.
   `TestSuggest_ThePathIsTextbookHSL`). Bu ADR'ye göre koyulaştırır, açmaz; WL-2'nin scratch
   ölçümü: red renklerin 947 258'i (%48,6) L'de ink sınırına paper sınırından yakın, bunlarda
   öneri girdiden belirgin koyu olabilir (ör. `1E93A0` → `1A818D`). Açma yönü bu bölümün
-  değişikliği olur — WL-2 kartında devredildi.
+  değişikliği olur — WL-2 kartında devredildi. *(WL-7 notu, 2026-10-03: karara bağlandı —
+  koyulaştırma kalır, bu bölüm değişmez; gerekçe aşağıdaki WL-7 notunda.)*
 
 **Aynı fonksiyon iki tarafta** (CLAUDE.md §5'in `internal/netx` deseni): yazma tarafında
 domain accent'i yeniden `Check` eder (→ **WL-4**: `ErrAccentIllegible`; form okunaksız
@@ -1349,6 +1350,8 @@ okumadan, kalıtımla taşıyan bir kural bu iddianın dışındadır — §4 WL
 - E-postada *"X via Taptime"* gönderen adı (yalnız VIES-doğrulanmış tenant koşuluyla, WL-11) ve
   logo (faz 2, CID, ≤32 KiB varyant; uzak URL elendi — izleme pikseli).
 - Accent'in durum renklerine yakınlık kuralı (sınır 2).
+- ~~`Suggest`'in yönü (WL-2'nin devri: koyulaştırma mı, açma mı)~~ → **karara bağlandı:
+  orkestratör, 2026-10-03 — koyulaştırma kalır** (§3 değişmez; WL-7 notu).
 - Logo yuvasının kesin boyutları — skill taslağı aritmetikle öneri yazar; WL-8/WL-9 ölçer. *(Tap ve
   sonuç ekranı: WL-9 notu, 24 px yuva; panel: WL-8.)*
 
@@ -1689,3 +1692,135 @@ sorgu mutasyonları `make sqlc` + `internal/domain/tenant`, `internal/db`, `cmd/
   yalnız `--brand-accent`/`background-color`; yalnız accent'li işletmede de ad + co-brand);
   skill'in *"alt = tenant adı"* cümlesi yüzeye göre yazılmalı: tap ekranında ad, panel
   başlığında boş (karar 9).
+
+## WL-7 notu (2026-10-03 — Account → "Your brand" editörü; §2'nin önizleme satırı ve §3'ün kapısı değişmedi)
+
+Kod: `internal/handler/brandactions.go` (editörün görünümü `brandEditorOf`, accent ve sıfırla
+rotaları, üç rotanın ortak sözlüğü, bütçesi ve ret satırı) · `internal/handler/brandupload.go`
+(logo yükleme — ADR 0024'ün WL-7 notu) · `web/templates/pages/account.templ` (`accountBrand`,
+`accountBrandPreview`, `accountBrandLogo`, `accountBrandAccent`) ·
+`web/templates/pages/brandeditorview.go` (`BrandEditor`, `BrandOutcome`) ·
+`web/templates/pages/panelbrandview.go` (`PanelBrand.Preview`) · `web/templates/layout/brand.go`
+(`PreviewLogo` — panel rotasının kurucusu, WL-9'un devri) · `layout/base.templ` (`brandHeader`
+→ `BrandHeader`, dışa açıldı; render baytı değişmedi) · `layout/theme.go` (`Theme.Hex`) ·
+`internal/brand/default.go` (`DefaultAccent`) · `internal/brand/logo_light.go`
+(`LogoContrastOnPorcelain`, `LogoLooksLight`, `LogoLightRatio = 1.5`).
+
+### Kararlar
+
+1. **`Suggest`'in yönü: koyulaştırma kalır (orkestratör kararı, 2026-10-03).** Açma yönü düğme
+   metnini paper'dan ink'e çevirir ve bu, markanın görünüşünü küçük bir ton farkından çok daha
+   fazla değiştirir; öneri yalnız bir öneridir, sahibi başka bir rengi elle seçebilir. §3
+   değişmedi; WL-2'nin "Karar verilmedi" maddesi kapandı (yukarıda).
+2. **Önizleme yalnız kaydedileni gösterir, tek okumadan.** Editör, kabuğun kendi marka okumasından
+   (`PanelChrome.Brand`) kurulur: önizlemenin logosu `PanelBrand.Preview`
+   (`layout.PreviewLogo`: saklanan kutu, `alt` = işletme adı, kaynak
+   `/admin/brand/logo/{sha}`), accent'i kabuğun zaten bağladığı tema stil dosyası. `Preview`
+   yalnız kabuğun logosu çizildiğinde kurulur, yani sayfanın `img-src`'si kabuğun kararıdır
+   (`TestPanelBrandView_ThePreviewLogoIsDrawnOnlyWhereTheChromesIs`). Aday renk önizlemeye
+   gitmez; reddedilen bir deneme sayfayı kaydedilen tema ile geri getirir, aday yalnız
+   `<input type="color">`'un kendi boyasında ve yazılan kutuda durur
+   (`TestBrandPreview_ShowsOnlyTheSavedAccent`).
+3. **Önizleme tap ekranının kendi üç bileşenidir ve gönderilemez.** `layout.BrandHeader`,
+   `pages.TapHeading` (oturumdaki yöneticinin adıyla, mekânsız), `pages.TapButtonFace(TapButtonPreview)`
+   — formların dışında ve önünde, `inert` bir blokta (düğme sekme durağı değil, ekran okuyucu
+   kopyayı iki kez okumaz; blok üstündeki başlık ne olduğunu yazıyla söyler). Önizlemede
+   `<form` 0, `/api/checkin` 0; sayfada `form=` özniteliği 0; düğme `type="button"` ve hiçbir
+   formun soyundan değil (`TestBrandPreview_IsTheTapScreensOwnComponentsAndCannotSubmit`, iki rol
+   × beş saklı marka). Tap ekranına hiçbir öğe eklenmedi (WL-9 golden'ı, 33 yanıt, bayt-aynı).
+4. **İki accent girdisi, betik yok.** Panel betik yüklemez, renk seçici ile kutu birbirini
+   izleyemez: yazılan kod seçiciye üstün gelir (yardım metni söyler). Sınır: `NormalizeAccent`
+   öncesinde `strings.TrimSpace`; başka yazım "That is not a colour code" ile form geri gelir.
+   Okunaksız renkte form, denenen renkle ve `Suggest`'in rengini taşıyan AYRI bir formla geri
+   gelir (öneri yazılanla karışmaz); öneri rengini göstermek için devre dışı bir
+   `<input type="color">` kullanılır — CSP `style-src 'self'` satır içi stile izin vermez,
+   tarayıcı seçicinin kendi boyasını çizer.
+5. **"Sıfırla" alan başınadır** (`what=logo` | `what=accent`): her biri WL-4'ün tek
+   `ClearLogo`/`ClearAccent`'i — bir transaction, bir iz satırı. İkisini birden silen bir
+   `Reset` yazılmadı (WL-4'e geri dönüş gerekmedi); bilinmeyen değer hiçbir şey silmez.
+6. **Markasız işletmenin editörü dört markasız biçimde bayt-aynı** (marka yok, okuma hatası,
+   bugün reddedilen accent, bozuk digest): okunamayan marka "yok" gibi çizilir — kabuğun §4.6
+   düşüşü. Bu yüzden editör "okunamadı" uyarısı taşımaz;
+   `TestPanelBrand_UnbrandedSectionsAreTheWordmarkChrome` dört varyantın tam gövdelerini hâlâ
+   karşılaştırır.
+7. **Açık logo uyarısı porcelain'e karşı** (WL-0 düzeltmesi): logonun piksellerinin alfa
+   ağırlıklı ortalama bağıl parlaklığı ile porcelain arasındaki oran 1,5'in altındaysa kayıt
+   `logo-saved-light` ile döner — uyarı, ret değil. Doğrusal parlaklığın ortalaması (8 bitlik
+   değerlerin değil): siyah-beyaz yarı yarıya 1,66:1 (uyarı yok); eşiğin iki yanındaki en yakın
+   griler C5C5C5 1,5002:1 ve C6C6C6 1,4847:1; hiç opak pikseli olmayan logo 1:1. Yalnız
+   `Normalize` çıktısını okur (≤ 512 × 512), aksi `ErrLogoNotNormalized`
+   (`TestLogoLight_AlphaWeightedLuminanceOnPorcelain`, `TestLogoLight_ReadsOnlyANormalizeOutput`).
+
+### Ölçümler
+
+- **CDP (bir kez, pin değil; Chrome 154 headless, betik ve döküm scratchpad'de, repoya girmedi):**
+  gerçek `httpx.NewRouter` + panel + logo rotaları + tema rotası, 390×844 DSF 3 mobil ve
+  1024×768; üç marka (yok, `FFC72C`, `DA291C` + 512×128 logo) × iki rol, sahip için ayrıca
+  okunaksız `808080` denemesinin dönüşü. Yatay kaydırma 0 (`scrollWidth` = genişlik). Dokunma
+  hedefleri: dosya girdisi 324×44 (1024'te 467×44), renk seçici 96×44, kod kutusu 220×44
+  (363×44), öneri örneği 44×44, düğmeler 117–178 × 44–48; önizleme düğmesi 290×64 (350×64),
+  `type="button"`, odaklanamaz (`inert`), formda değil. Önizleme başlığı logosuz 28 px, logolu
+  43 px (logo 96×24, doğal 512×128) — tap ekranının ölçüsü (WL-9 notu). Önizleme düğmesinin
+  zemini/metni kaydedilen accent'in: varsayılan `rgb(31, 92, 65)`/paper 7,73:1; `FFC72C`/ink
+  10,56:1 + 2 px ink iç gölge; `DA291C`/paper 4,78:1. Reddedilen denemede stil dosyaları
+  `app.css` + kaydedilen tema (ör. `FFC72C`), `808080` hiçbir stil dosyasında yok; öneri
+  `#757575`.
+- **Kontrast (computed renklerden kendi hesabım, sRGB kompozit):** editörün kendi metinlerinde
+  en düşük oran hata cümlesi, tomato on paper **5,30:1**; ink/70 yardım metni paper üstünde
+  6,05:1; önizlemedeki `punchless` porcelain üstünde 5,70:1. Tümü ≥ 4,5.
+- **Derlenmiş `app.css`:** taban 50 800 B → 50 992 B (+192 B); eklenen kurallar tam beş, hepsi
+  bir `class` özniteliğinden: `.ml-1`, `.w-24`, `.max-w-sm`, `.items-stretch`,
+  `md:grid-cols-2`; çıkan 0; "brand" geçen yeni kural 0 (`themeBrandGolden` değişmedi).
+
+### Bilinçli güncellenen testler
+
+- `TestPanelBrand_UnbrandedSectionsAreTheWordmarkChrome`,
+  `TestPanelBrand_ABrandedBusinessGetsItsHeaderOnEverySection` (WL-8): önizleme Wordmark'ı ve
+  logoyu bir kez daha çizdiği için kabuk, Account bölümünün editör bölgesi çıkarılarak okunur
+  (`withoutBrandEditor`: bölge Account bölümünde tam bir kez, diğer bölümlerde hiç). Markasız
+  dört varyantın tam gövde karşılaştırması değişmedi.
+- `TestAccount_NeverShowsTheStructureAnswer`: logo formunun `enctype="multipart/form-data"`
+  özniteliği "multi" taşır; tam olarak o öznitelik, bir kez, taramadan önce çıkarılır.
+- `TestPageImages_ImgSrcIsNamedOnlyByAPageThatDrawsAnImage`: derlem 61 → 63 render (okunaksız
+  renk dönüşü, logolu ve logosuz); logo çizen 20 → 21.
+
+### 2. tur (2026-10-06 — üçüncü göz bulguları)
+
+- **Önizleme artık editörün görünümünden değil, kabuğun kendisinden çizilir (kod düzeltmesi;
+  karar 2'yi yapıyla tutar).** `accountBrandPreview` `PanelChrome` alır: başlığı
+  `PanelBrand.TapHeader()` (= `layout.TapBrand(PanelBrand.Preview, PanelBrand.Theme)`, yani
+  kabuğun bağladığı tema ve önizleme logosu), selamlaması `PanelChrome.FullName`.
+  `BrandEditor.Preview` ve `BrandEditor.GreetingName` kaldırıldı. Reddedilen bir kaydın geri
+  yazdığı tek değer `BrandEditor`'dır (`Picker`, `Typed`, hata), ve o artık önizlemenin girdisi
+  değil: denetçinin X06'sı (aday rengin temasını `BrandEditor.Preview`'a yazan mutasyon; markasız
+  işletmede K-2a'nın ink wordmark'ını çizdiriyordu) bu yüzden artık derlenmez. Geriye kalan tek
+  yol kabuğun kendisidir (A11); onu stil dosyası listesi ve yeni bayt-eşitlik testi görür:
+  `TestBrandPreview_ARefusedColourLeavesThePreviewAsSaved` — beş saklı marka × beş reddedilen
+  kayıt (seçilmiş, yazılmış ve bandın öbür yanından okunaksız renk, renk olmayan kod, alanın
+  reddettiği okunur renk): önizleme bloğu ve editör dışındaki sayfa düz yüklemeyle bayt-eşit;
+  öncül: markasız ve yalnız-accent işletmenin düz önizlemeleri farklı wordmark çizer.
+- **Karar 3'ün "başka bir şey değil"i ölçülür:** önizleme sayfanın tek `inert` öğesidir, blok
+  iç içe `div`ler sayılarak kesilir ve üç bileşenin her biri blokta tam bir kez geçer
+  (denetçinin X01'i — iki Tap düğmesi — ve X02'si — iki selamlama — artık kırmızı).
+- **Editörün geri kalanında ikinci başlık yok:** `withoutBrandEditor` kestiği bölgeden önizleme
+  bloğunu da çıkarır ve kalan kısımda Wordmark, `taptime`/`punchless` sözcüğü, co-brand satırı,
+  `<header` ve `<img` sayısının 0 olduğunu ister (WL-8'in iki testi ve önizleme testi bu
+  yardımcıyı çağırır; denetçinin X03'ü artık kırmızı). "Bilinçli güncellenen testler"deki
+  daraltma böylece geri alındı.
+- **Formlar ile rotalar aynı adları kullanır:** `TestBrandEditor_TheFormsSendWhatTheRoutesRead`
+  editörün her formunun gönderdiği alanları (ad, tür, gizli değer; devre dışı kontrol
+  gönderilmez) handler sabitleriyle karşılaştırır (`logoPartName`, `brandFieldPicker`,
+  `brandFieldTyped`, `brandFieldWhat` = `brandFieldLogo` | `brandFieldAccent`); hiçbir şey
+  kaydedilmemişken iki "geri al" formu çizilmez.
+- **Metin:** hata cümlesindeki renk kodu (`1F5C41` örneği ve önerinin `#757575`'i) artık
+  düzyazının ardından ayrı bir mono `<span>` içinde (veri; `accountStillOnFile` emsali;
+  `BrandEditor.AccentErrorCode`). Bölümün girişi *"Everything else stays as it is."* yerine
+  logonun nerede çıktığını tam söyler (tap ekranı ve dokunuştan sonraki ekran, panelin üstü) ve
+  rengin nerede çıktığını (tap düğmesi ve panelin üstündeki şerit); `logo-removed` *"The tap
+  screen and the screen after a tap show the Taptime name again."*; `not-permitted` ne
+  yapılacağını da söyler (*"Ask an owner to make the change."*).
+- **Derlenmiş `app.css` 1. turla bayt-aynı** (50 992 B): mono `<span>`'ın sınıfı zaten vardı,
+  yeni yorumlar kural doğurmadı. CDP bu turda yeniden koşulmadı: kutu ve renk değiştiren bir
+  biçim değişikliği yok (hata cümlesinin kodu aynı tomato renginde, 5,30:1).
+
+Üç parçalı iddia, mutasyon tablosu, sayılı sınırlar ve devirler: ADR 0024'ün WL-7 notu.

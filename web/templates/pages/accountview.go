@@ -137,6 +137,10 @@ type AccountView struct {
 	// cannot be written by hand yet.
 	BrandNote string
 
+	// Brand is the "Your brand" editor (M10 WL-7): the logo and the accent, a preview
+	// of the tap screen with what is saved, and -- for an owner -- the three forms.
+	Brand BrandEditor
+
 	// --- notices and links --------------------------------------------------------
 
 	// Saved is the confirmation sentence after a successful save, "" otherwise. It

@@ -47,6 +47,38 @@ import (
 // multipartUploadRE matches the three ways non-test Go reads a file upload.
 var multipartUploadRE = regexp.MustCompile(`\.(?:FormFile|MultipartReader|ParseMultipartForm)\(`)
 
+// logoUploadFile is the ONE file allowed to read a multipart body (M10 WL-7, ADR 0024
+// §6): the brand logo handler, as a path from the repository root -- the spelling
+// nonTestGoSource keys its map by. The fact the FAQ states is about a file IMPORT of
+// people or records; a business's logo is not one, and the derivation was rewritten in
+// the WL-7 change to say so -- the sentence on the page did not change.
+var logoUploadFile = filepath.Join("internal", "handler", "brandupload.go")
+
+// bulkImportViolation is FactNoBulkImport's derivation over a set of non-test Go
+// sources: "" when no file but the logo handler reads a multipart body, and the logo
+// handler reads it only through the multipart reader; otherwise the reason. Package
+// level so TestFactMechanisms_SayNoWhenTheFactIsAbsent can drive it with sources it
+// writes itself.
+func bulkImportViolation(goSrc map[string]string) string {
+	for path, src := range goSrc {
+		hits := multipartUploadRE.FindAllString(src, -1)
+		if len(hits) == 0 {
+			continue
+		}
+		if path != logoUploadFile {
+			return path + " reads a file upload. The FAQ says there is no file import; " +
+				"if there is one now, rewrite the answer"
+		}
+		for _, h := range hits {
+			if h != ".MultipartReader(" {
+				return path + " reads the logo upload through " + strings.TrimSuffix(h, "(") +
+					" rather than the multipart stream ADR 0024 §6 requires"
+			}
+		}
+	}
+	return ""
+}
+
 // apiLiteralRE matches a "/api…" route literal in Go source: a path, which is
 // what a registration carries, and not a quoted sentence that happens to start
 // with one (ratelimit.go quotes a card's Turkish sentence about /api/activate).
@@ -272,13 +304,9 @@ func factDerivations(t *testing.T) map[pages.Fact]func() string {
 			return ""
 		},
 		pages.FactNoBulkImport: func() string {
-			for path, src := range goSrc {
-				if multipartUploadRE.MatchString(src) {
-					return path + " reads a file upload. The FAQ says there is no file import; " +
-						"if there is one now, rewrite the answer"
-				}
-			}
-			return ""
+			// "No multipart reader outside the brand logo handler" (M10 WL-7): the one
+			// exempt file is named, not matched.
+			return bulkImportViolation(goSrc)
 		},
 		pages.FactNoIntegrationAPI: func() string {
 			for path, src := range goSrc {
@@ -844,6 +872,26 @@ func TestFactMechanisms_SayNoWhenTheFactIsAbsent(t *testing.T) {
 	}
 	if multipartUploadRE.MatchString(`// FormFile was considered and rejected`) {
 		t.Error("the upload scanner matches prose rather than a call")
+	}
+	// M10 WL-7: the one exemption is the logo handler's file, by its path, and only for
+	// the multipart stream. A reader anywhere else -- the employees' actions, the case
+	// the WL-7 card names -- or a form helper in the logo handler itself is a violation.
+	employees := filepath.Join("internal", "handler", "employeeactions.go")
+	for _, tc := range []struct {
+		name string
+		src  map[string]string
+		ok   bool
+	}{
+		{"the logo handler's stream alone", map[string]string{logoUploadFile: `mr, err := r.MultipartReader()`, employees: `x := 1`}, true},
+		{"FormFile in the employees' actions", map[string]string{logoUploadFile: `mr, err := r.MultipartReader()`, employees: `f, _, err := r.FormFile("staff")`}, false},
+		{"a stream in the employees' actions", map[string]string{employees: `mr, err := r.MultipartReader()`}, false},
+		{"FormFile in the logo handler", map[string]string{logoUploadFile: `f, _, err := r.FormFile("logo")`}, false},
+		{"ParseMultipartForm in the logo handler", map[string]string{logoUploadFile: `mr, _ := r.MultipartReader(); r.ParseMultipartForm(64 << 10)`}, false},
+		{"the same file name in another directory", map[string]string{filepath.Join("internal", "brandupload.go"): `mr, err := r.MultipartReader()`}, false},
+	} {
+		if got := bulkImportViolation(tc.src) == ""; got != tc.ok {
+			t.Errorf("bulkImportViolation, %s: holds %v, want %v", tc.name, got, tc.ok)
+		}
 	}
 
 	// The finger-or-face tripwire sees the API and the vendor readers, and not the

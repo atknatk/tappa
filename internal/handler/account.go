@@ -180,6 +180,8 @@ func (a *AdminAuth) accountSection(w http.ResponseWriter, r *http.Request) {
 	if word := oneOfWords(strings.TrimSpace(r.URL.Query().Get("problem")), accountProblemWords...); word != "" {
 		v.Problem = accountProblemSentence(word)
 	}
+	// The brand editor's own notice (M10 WL-7), from its own closed vocabulary.
+	v.Brand.Outcome = brandOutcomeOf(r)
 	a.renderPanel(w, r, http.StatusOK, v.PanelChrome, pages.AdminAccount(v))
 }
 
@@ -247,6 +249,9 @@ func (a *AdminAuth) accountView(r *http.Request, id httpx.AdminIdentity, s tenan
 		v.BillingHref = billingHref
 	}
 	fillAccountVAT(&v, s.VAT, zone)
+	// The "Your brand" editor (M10 WL-7), from the chrome built above -- the one brand
+	// read this page makes (brandactions.go, brandEditorOf).
+	v.Brand = brandEditorOf(id, v.PanelChrome)
 	return v
 }
 

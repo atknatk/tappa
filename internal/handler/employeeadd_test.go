@@ -374,7 +374,7 @@ func TestEmployeeAdd_IsRefusedCrossOriginBeforeTheResolverRuns(t *testing.T) {
 	}}
 	h, err := NewAdminAuth(admins, &fakeTrail{}, newFakeLedger(), newFakeLedger(), &fakeReviewer{},
 		staff, &fakeInviter{}, &fakeVenues{}, &fakePlaques{}, &fakeRecorder{}, newFakeRules(),
-		newFakeScribe(), newFakeBooks(), newFakeAccount(), newFakeBrands(), nil, adminTestConfig(),
+		newFakeScribe(), newFakeBooks(), newFakeAccount(), newFakeBrands(), newFakeBrandWriter(), nil, adminTestConfig(),
 		slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)

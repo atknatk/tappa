@@ -218,7 +218,7 @@ func newPanelHarnessWithResetChannel(t *testing.T, channel func(t *testing.T, cf
 	if err != nil {
 		t.Fatalf("billing.NewBook: %v", err)
 	}
-	h, err := NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, venues, plaques, entries, rules, newFakeScribe(), books, newFakeAccount(), newFakeBrands(), nil, cfg, slog.New(slog.DiscardHandler))
+	h, err := NewAdminAuth(admins, trail, records, records, reviewer, staff, invites, venues, plaques, entries, rules, newFakeScribe(), books, newFakeAccount(), newFakeBrands(), newFakeBrandWriter(), nil, cfg, slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("NewAdminAuth: %v", err)
 	}
