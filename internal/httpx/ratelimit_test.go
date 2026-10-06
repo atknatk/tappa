@@ -107,6 +107,72 @@ func TestLimiter_EvictsWhenTheMapIsFull(t *testing.T) {
 	}
 }
 
+// TestLimiter_TryChargeDecidesAsAllowedThenChargeDid pins that the atomic step is
+// a drop-in for the two-step shape it replaces (M10 EM-5A, 2nd round): over one
+// window, its expiry and a second window, a TryCharge limiter and an
+// Allowed-then-Charge twin give the same decision and the same count for every
+// event, sequentially.
+func TestLimiter_TryChargeDecidesAsAllowedThenChargeDid(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 10, 3, 9, 0, 0, 0, time.UTC)
+	one, two := NewLimiter(3, time.Minute), NewLimiter(3, time.Minute)
+	one.now = func() time.Time { return now }
+	two.now = one.now
+	for i := 0; i < 14; i++ {
+		if i == 7 {
+			now = now.Add(time.Minute) // the window rolls mid-sequence
+		}
+		within, n := one.TryCharge("k")
+		allowed := two.Allowed("k")
+		m := two.Charge("k")
+		if within != allowed || n != m {
+			t.Fatalf("event %d: TryCharge said (%v, %d), Allowed+Charge said (%v, %d)", i, within, n, allowed, m)
+		}
+	}
+}
+
+// TestLimiter_TryChargeIsExactUnderConcurrency is the property the two-step shape
+// lacked: 200 goroutines charging one key of a budget of 10 at once get EXACTLY 10
+// "within" answers, and the one charge that crossed the line (FirstOverLimit) went to
+// a REFUSED caller — which is the caller that writes the single "rate limited" row.
+// Repeated, with -race in CI's run, because a race is a probability.
+func TestLimiter_TryChargeIsExactUnderConcurrency(t *testing.T) {
+	t.Parallel()
+	for run := 0; run < 50; run++ {
+		l := NewLimiter(10, time.Minute)
+		var (
+			mu            sync.Mutex
+			within, overs int
+			overRefused   bool
+			wg            sync.WaitGroup
+			start         = make(chan struct{})
+		)
+		for g := 0; g < 200; g++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				<-start
+				ok, n := l.TryCharge("k")
+				mu.Lock()
+				defer mu.Unlock()
+				if ok {
+					within++
+				}
+				if l.FirstOverLimit(n) {
+					overs++
+					overRefused = !ok
+				}
+			}()
+		}
+		close(start)
+		wg.Wait()
+		if within != 10 || overs != 1 || !overRefused {
+			t.Fatalf("run %d: %d within (want 10), %d first-over (want 1), first-over refused: %v (want true)",
+				run, within, overs, overRefused)
+		}
+	}
+}
+
 // ---------------------------------------------------------------- tap limiter --
 
 func tapProbe() (http.Handler, *int) {

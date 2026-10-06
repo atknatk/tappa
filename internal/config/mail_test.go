@@ -543,7 +543,8 @@ func TestLoad_MailErrorsNameTheVariableNeverTheValue(t *testing.T) {
 // environment's value for each field — the credentials in the right slots (read back by
 // deliberate reflection; a swap would pass mail.New), the port's default, no Reply-To
 // when unset, NO root pool (ADR 0022 §2), and the zero timeouts that mean internal/mail's
-// defaults. And mail.New accepts the result, which is what EM-5 and EM-7 will call.
+// defaults. And mail.New accepts the result, which is what cmd/tappa calls for the
+// reset flow (EM-5) and EM-7 will call for invitations.
 func TestLoad_MailConfigCarriesTheEnvironmentsValues(t *testing.T) {
 	setRequired(t)
 	setMail(t)

@@ -98,10 +98,10 @@ type Config struct {
 	// Q02 IS ANSWERED by ADR 0022 (AWS SES in eu-central-1, spoken to as a plain SMTP
 	// relay with STARTTLS), so "email" is a value this package ACCEPTS — and when it is
 	// set, the transport's settings must be complete and valid (Mail, below), or the
-	// process does not start. Accepting it here is not implementing it: until the reset
-	// path takes its delivery off the request (ADR 0022 §6, EM-5) cmd/tappa refuses to
-	// boot on "email". The value names the MECHANISM, not a provider — the provider is
-	// TAPPA_SMTP_HOST's business.
+	// process does not start. cmd/tappa builds the channel for it since M10 EM-5 (the
+	// reset path's delivery runs off the request, ADR 0022 §6); the shipped ConfigMap
+	// still says "none", and switching it is a deploy decision (ADR 0022 §12). The value
+	// names the MECHANISM, not a provider — the provider is TAPPA_SMTP_HOST's business.
 	//
 	// 🔴 THERE IS NO INTERIM CHANNEL, WHICH IS THE DIFFERENCE FROM invites.
 	// internal/invite ships ManagerVisibleChannel — an uncomfortable name for
@@ -123,14 +123,15 @@ type Config struct {
 	// (TAPPA_INVITE_DELIVERY): InviteDeliveryPanel — the manager's own screen,
 	// internal/invite.ManagerVisibleChannel, an ACCEPTED risk (ADR 0005 Y-D) and today's
 	// only channel — or InviteDeliveryEmail, the employee's own address (ADR 0022 §7).
-	// Like ResetDelivery, "email" is accepted here and refused by cmd/tappa until the
-	// invitation's e-mail channel exists (EM-7); an unknown value is a startup failure.
+	// "email" is accepted here and refused by cmd/tappa until the invitation's e-mail
+	// channel exists (EM-7) — the reset flow's exists since EM-5; an unknown value is a
+	// startup failure.
 	InviteDelivery string
 
 	// Mail is the transactional e-mail transport's configuration (ADR 0022 §5), in the
-	// shape internal/mail.New takes. Nothing calls mail.New with it yet: that is the
-	// reset and invitation channels' wiring (EM-5, EM-7), and until then a flow set to
-	// "email" stops the boot in cmd/tappa.
+	// shape internal/mail.New takes. cmd/tappa calls mail.New with it when the reset
+	// flow is "email" (M10 EM-5); the invitation channel's wiring is EM-7's, and until
+	// then an invitation flow set to "email" stops the boot in cmd/tappa.
 	//
 	// 🔴 IT IS THE ZERO VALUE UNLESS A FLOW ABOVE IS "email". With both flows off
 	// (none + panel) the TAPPA_SMTP_* and TAPPA_MAIL_* variables are neither READ nor

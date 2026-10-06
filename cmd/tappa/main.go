@@ -58,6 +58,7 @@ import (
 	"github.com/atknatk/tappa/internal/handler"
 	"github.com/atknatk/tappa/internal/httpx"
 	"github.com/atknatk/tappa/internal/invite"
+	"github.com/atknatk/tappa/internal/mail"
 	"github.com/atknatk/tappa/internal/session"
 	"github.com/atknatk/tappa/internal/sun"
 )
@@ -79,6 +80,11 @@ import (
 // failure mode is a process that looks like it shut down cleanly.
 // TestShutdownBudget_TheTwoGoWaitsFitInsideTheKubernetesGrace reads all three,
 // including the YAML, and refuses the drift.
+//
+// The reset outbox's drain (handler.ResetDrainGrace, M10 EM-5) is NOT a third term:
+// it runs beside Shutdown, not after it (shutdown, below), and nests inside this
+// number — TestShutdownBudget_TheResetDrainNestsInsideTheHTTPGrace and
+// TestShutdown_DrainsTheResetOutboxAlongsideTheHTTPServer hold the two halves.
 const httpShutdownGrace = 20 * time.Second
 
 func main() {
@@ -96,33 +102,37 @@ func run() error {
 
 	// 🔴 THE HANDLER IS WRAPPED SO A CONTEXT-CARRYING RECORD GAINS ITS REQUEST ID
 	// (M8-03). It is wrapped HERE, at the one place the process logger is built,
-	// rather than at each of the 24 slog.Default() reads below: every service in
+	// rather than at each of the 26 slog.Default() reads below: every service in
 	// this file is handed slog.Default(), so wrapping the default handler reaches
 	// all of them and there is no injected logger that could miss it.
 	//
-	// ⚠️ 24, RE-COUNTED (23 until M10 OP-7 added the operator surface's read). A first
-	// round wrote 44 and said all of them were in this file; both halves were wrong,
-	// and the second half mattered because it made the §7 argument rest on a tree
-	// that does not exist.
+	// ⚠️ 26, RE-COUNTED AT M10 EM-5 (2026-10-03), which added the reset e-mail
+	// channel's read — and found 25 before it, not the 24 written here: M10 WL-6's
+	// brand-logo constructor had added one uncounted (24 at M10 OP-7, 23 before). A
+	// first round wrote 44 and said all of them were in this file; both halves were
+	// wrong, and the second half mattered because it made the §7 argument rest on a
+	// tree that does not exist.
 	//
 	// ⚠️ THE MEASUREMENT IS WRITTEN AS A COMMAND, NOT AS A BARE NUMBER, BECAUSE THE
 	// BARE NUMBER HAS NOW GONE STALE TWICE. This block wrote 44 in one round and 26
 	// in another; 26 was already wrong when it was typed, because the same round
 	// added three of the comment mentions it was supposed to be excluding. Run it:
 	//
-	//     grep -c 'slog[.]Default()' cmd/tappa/main.go     ->  28
+	//     grep -c 'slog[.]Default()' cmd/tappa/main.go     ->  30
 	//
-	// 28 = 24 real reads + 4 mentions inside comments (three in this block, one in
+	// 30 = 26 real reads + 4 mentions inside comments (three in this block, one in
 	// the legal-texts branch below). The bracket spelling is deliberate: it matches
 	// the same lines as the escaped-dot form while NOT matching itself, so writing
 	// the command here does not change the number the command reports.
 	//
-	// So: 24 real reads in this file, ALL of them below this line — and 20 more OUTSIDE
+	// So: 26 real reads in this file, ALL of them below this line — and 23 more OUTSIDE
 	// it, every one a `if log == nil { log = slog.Default() }` fall-back in a
-	// constructor (12 under internal/domain, 7 under internal/handler, 1 in
-	// internal/httpx). 44 in the production tree altogether.
+	// constructor (13 under internal/domain, 9 under internal/handler, 1 in
+	// internal/httpx; counted at M10 EM-5 with the same grep over internal, web and
+	// cmd, test files and comment lines left out). 49 in the production tree
+	// altogether.
 	//
-	// Those 20 do not weaken the sentence above, they widen it, and that is the
+	// Those 23 do not weaken the sentence above, they widen it, and that is the
 	// honest way to put it: the wrap is on the DEFAULT handler, so a service built
 	// with a nil logger picks up the same wrapped handler by the same route. They
 	// pre-date this card and none of them is a §7 violation being introduced here.
@@ -142,11 +152,12 @@ func run() error {
 	// 🔴 A DELIVERY MODE THE CONFIGURATION ACCEPTS AND THIS BUILD DOES NOT IMPLEMENT
 	// STOPS THE BOOT HERE, before the database is dialled (M10 EM-3). internal/config
 	// accepts "email" for both flows and validates the transport's settings for it (ADR
-	// 0022 §5); the channels that would use them are EM-5's and EM-7's. Without this the
-	// invitation half would be a SILENT default — nothing below reads InviteDelivery, so
-	// "email" would boot and keep showing codes on the manager's panel while the operator
-	// believed they were being mailed. TestArtifact_RefusesAnEmailDeliveryThisBuildLacks
-	// drives the shipped binary to this line.
+	// 0022 §5); the reset flow's channel exists since EM-5 (the switch further down),
+	// the invitation's is EM-7's. Without this the invitation half would be a SILENT
+	// default — nothing below reads InviteDelivery, so "email" would boot and keep
+	// showing codes on the manager's panel while the operator believed they were being
+	// mailed. TestArtifact_RefusesAnEmailDeliveryThisBuildLacks drives the shipped binary
+	// to this line.
 	if err := unbuiltDelivery(cfg); err != nil {
 		return err
 	}
@@ -621,34 +632,41 @@ func run() error {
 	// PANEL PASSWORD RECOVERY (M7-04 phase B) — the flow that lets an operator who
 	// cannot sign in get back in without another owner doing it for them.
 	//
-	// 🔴 THE DELIVERY CHANNEL IS nil, AND THAT IS THE SHIPPED STATE RATHER THAN A
-	// MISSING WIRE. Q02 is answered (ADR 0022: SES over SMTP) and internal/mail exists,
-	// but the reset channel that would use it must first take delivery off the request
-	// path (ADR 0022 §6) — that is EM-5, and until then "email" stops the boot at the top
-	// of run(). Unlike invitations there is no interim channel available, because the
-	// interim channel would be "show the link to whoever typed the address into a public
-	// form", which ADR 0015 identifies as the one thing standing between minting and
-	// account takeover. config.ResetDelivery carries the argument in full.
+	// 🔴 THE DELIVERY CHANNEL IS WHAT TAPPA_RESET_DELIVERY SAYS, AND THE SHIPPED
+	// ConfigMap STILL SAYS "none" (ADR 0022 §12: switching it is a deploy decision,
+	// taken after the user's SES steps). Unlike invitations there is no interim channel,
+	// because the interim channel would be "show the link to whoever typed the address
+	// into a public form", which ADR 0015 identifies as the one thing standing between
+	// minting and account takeover. config.ResetDelivery carries the argument in full.
 	//
-	// WHAT nil DOES: the request form says, before anything is typed, that this
-	// deployment cannot send a link — and the POST answers without resolving the
+	// WHAT nil DOES ("none"): the request form says, before anything is typed, that
+	// this deployment cannot send a link — and the POST answers without resolving the
 	// address, minting a row or retiring anybody's pending link. The alternative
 	// (mint and fail to send) would manufacture the harm ADR 0015 accepts, for no
 	// benefit at all.
 	//
-	// THE VALUE IS SWITCHED ON A CONFIG STRING rather than hardcoded so that the day a
-	// channel exists it is one case in this switch (and one line out of
-	// unbuiltDelivery) and nothing else moves. Neither an unknown value nor "email"
-	// reaches here: config.Load refuses the first, unbuiltDelivery the second.
+	// WHAT "email" BUILDS (M10 EM-5): the SMTP transport from the settings config.Load
+	// has already validated (mail.New — its errors name a field, never a value), and
+	// the channel that renders the e-mail and hands it to it. NewAdminReset then starts
+	// the outbox's worker, so the send is off the request path (ADR 0022 §6); the
+	// shutdown sequence below drains it.
 	var resetChannel handler.ResetChannel
 	switch cfg.ResetDelivery {
 	case config.ResetDeliveryNone:
 		resetChannel = nil
+	case config.ResetDeliveryEmail:
+		sender, err := mail.New(cfg.Mail)
+		if err != nil {
+			return fmt.Errorf("main: building the reset e-mail transport: %w", err)
+		}
+		if resetChannel, err = handler.NewEmailResetChannel(sender, cfg.BaseURL, slog.Default()); err != nil {
+			return err
+		}
 	default:
-		// Unreachable today (see above). It is written anyway because an unreachable
-		// branch that fails CLOSED is what stops the next person's new case from
-		// silently defaulting to "no delivery, but the screen says a link is on its
-		// way".
+		// Unreachable (config.Load refuses every value outside the closed set). It is
+		// written anyway because an unreachable branch that fails CLOSED is what stops
+		// the next person's new case from silently defaulting to "no delivery, but the
+		// screen says a link is on its way".
 		return fmt.Errorf("main: TAPPA_RESET_DELIVERY=%q passed config validation but nothing implements it", cfg.ResetDelivery)
 	}
 	resets, err := adminauth.NewResets(data, cfg)
@@ -718,12 +736,50 @@ func run() error {
 		return err
 	case <-ctx.Done():
 		// Drain in-flight taps before exiting: a dropped request is a lost
-		// attendance record, and records are never lost (CLAUDE.md §4).
+		// attendance record, and records are never lost (CLAUDE.md §4). The reset
+		// outbox drains beside them; the deferred closes above run after both.
 		slog.Info("shutting down")
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), httpShutdownGrace)
-		defer cancel()
-		return srv.Shutdown(shutdownCtx)
+		return shutdown(srv, httpShutdownGrace, resetFlow, handler.ResetDrainGrace)
 	}
+}
+
+// drainer is the one thing the shutdown sequence needs from the recovery flow,
+// declared at the consumer (§7). handler.AdminReset.Drain is the implementation.
+type drainer interface {
+	Drain(ctx context.Context) error
+}
+
+// shutdown drains the HTTP server and the reset outbox AT THE SAME TIME, and returns
+// when both are done — before run()'s deferred closes, so the database pool is still
+// open for the outbox's last rows (ADR 0022 §6.6).
+//
+// 🔴 CONCURRENT, NOT SEQUENTIAL, AND THAT IS WHAT KEEPS THE KILL BUDGET.
+// TestShutdownBudget_TheTwoGoWaitsFitInsideTheKubernetesGrace counts httpShutdownGrace
+// and encode.DefaultCloseGrace and nothing else; a drain run AFTER Shutdown returned
+// would add drainGrace to that sum without any test reading it (ADR 0022 B18: a 3 s
+// sleep added here left the three budget tests green), and a drain run BEFORE Shutdown
+// keeps the listener open for drainGrace, taking requests whose grants the closed
+// outbox can only record undelivered. Started first, in its own goroutine, the
+// sequence costs max(httpGrace, drainGrace) and closes the listener at once — and
+// drainGrace nests inside httpGrace (TestShutdownBudget_TheResetDrainNestsInsideTheHTTPGrace).
+// TestShutdown_DrainsTheResetOutboxAlongsideTheHTTPServer drives this function with a
+// request in flight and a stuck send, and holds both halves: the listener refuses a new
+// connection within 300 ms, and the total stays under T + D - margin.
+//
+// The outbox stops taking grants the moment the drain starts; a request still in
+// flight that mints after that records its grants undelivered, synchronously, inside
+// the HTTP drain (handler.AdminReset.dispatch).
+func shutdown(srv *http.Server, httpGrace time.Duration, outbox drainer, drainGrace time.Duration) error {
+	drained := make(chan error, 1)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), drainGrace)
+		defer cancel()
+		drained <- outbox.Drain(ctx)
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), httpGrace)
+	defer cancel()
+	httpErr := srv.Shutdown(ctx)
+	return errors.Join(httpErr, <-drained)
 }
 
 // logBuild states which commit is serving.
@@ -754,16 +810,13 @@ func logBuild(log *slog.Logger, b buildinfo.Build) {
 }
 
 // unbuiltDelivery refuses a delivery mode internal/config accepts and this build does
-// not implement: today "email", for either flow (M10 EM-3). Each refusal names the
+// not implement: today "email" for INVITATIONS (M10 EM-3). The refusal names the
 // variable, the value to go back to and the task that will implement it; config.Load
 // has already refused every value outside the two closed sets, and the transport's
 // settings are already validated by the time this runs. The day a channel exists its
-// line leaves this function (EM-5: reset; EM-7: invitations).
+// line leaves this function — the reset flow's left with EM-5 (its channel is the
+// ResetDeliveryEmail case in run()); the invitation's leaves with EM-7.
 func unbuiltDelivery(cfg *config.Config) error {
-	if cfg.ResetDelivery != config.ResetDeliveryNone {
-		return fmt.Errorf("main: TAPPA_RESET_DELIVERY=%s is valid configuration, but this build has no reset e-mail "+
-			"channel yet (ADR 0022 §6, M10 EM-5); set it to %s", cfg.ResetDelivery, config.ResetDeliveryNone)
-	}
 	if cfg.InviteDelivery != config.InviteDeliveryPanel {
 		return fmt.Errorf("main: TAPPA_INVITE_DELIVERY=%s is valid configuration, but this build delivers activation "+
 			"links only on the manager's panel (ADR 0022 §7, M10 EM-7); set it to %s", cfg.InviteDelivery, config.InviteDeliveryPanel)

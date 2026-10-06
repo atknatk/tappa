@@ -121,6 +121,36 @@ func (l *Limiter) Allowed(key string) bool {
 func (l *Limiter) Charge(key string) int {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	return l.chargeLocked(key)
+}
+
+// TryCharge charges one event against key and reports, from the SAME locked step,
+// whether that event was inside the budget (the count after charging is at most
+// the limit) and the count after charging — so FirstOverLimit(count) still marks
+// the one event that crossed the line.
+//
+// 🔴 IT EXISTS BECAUSE "Allowed, then Charge" IS TWO LOCKED STEPS, NOT ONE (M10
+// EM-5A, second audit round). Sequentially the two shapes decide identically:
+// Allowed is count < limit before the charge, which is count <= limit after it. But
+// N goroutines can all read Allowed before any of them charges, so an audit budget
+// of 10 wrote up to 24 rows, and the rate_limited row — written only when the
+// charge that returns limit+1 belonged to a refused caller — was lost whenever an
+// "allowed" caller drew that charge (measured on the reset flow's fallback rows,
+// 244 of 300 runs over budget, 63 with no rate_limited row). One lock for the read
+// and the write makes the budget exact under any number of callers.
+//
+// A refused event IS charged, exactly as Allowed+Charge callers already did on
+// their refusal branch; a caller that used to skip the charge on refusal (a pure log
+// budget) now counts past the limit, which changes no decision inside the window.
+func (l *Limiter) TryCharge(key string) (within bool, count int) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	count = l.chargeLocked(key)
+	return count <= l.limit, count
+}
+
+// chargeLocked is Charge's step; l.mu must be held.
+func (l *Limiter) chargeLocked(key string) int {
 	now := l.clock()
 	w, ok := l.windows[key]
 	if !ok || now.Sub(w.start) >= l.period {

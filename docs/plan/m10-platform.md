@@ -8052,6 +8052,438 @@ yasal belge içindi, M9-08'in kapsamı §4.5'i aşan beş işlev.
 >   Birleştirmede ADR 0022'nin EM-4 değişiklikleriyle çakışma olabilir (bu worktree `b06370c`
 >   üzerinde).
 
+> **Kart düzeltmesi (2026-10-03, EM-5A uygulaması sırasında; 2. tur aynı gün; 3. ve 4. tur
+> 2026-10-06).** EM-5 iki
+> kısma bölündü (orkestratör kararı, 2026-10-03). **EM-5A** = kod + test içi bir SMTP sahtesine
+> karşı ölçülen her kabul + `unbuiltDelivery`'nin sıfırlama yarısının kalkması (bu blok).
+> **EM-5B** = aşağıdaki satır. Normatif kaynak [ADR 0022](../adr/0022-islemsel-eposta.md) §6;
+> kararlar, sapmalar ve üç parçalı iddia ADR'nin *"EM-5A notu"*ndadır (aynı ağaçta, kodla
+> birlikte yazıldı).
+>
+> **Tehdit modeli:** *"Bu pinler bu dosyalara, çağıranlarına ve `cmd/tappa`'nın kapanış dizisine
+> kazara giren sapmaya karşıdır; bir pini atlatmak için bilerek yazılmış kod, kod incelemesinin
+> konusudur."*
+>
+> **EM-5B — kalan ve neden kaldığı:** *"M7-04'ün sahteye karşı koşmuş kriterleri GERÇEK SMTP'ye
+> karşı yeniden koşulmuş (tablo rapora)"* ve *"canlı duman: Gmail Show original SPF=PASS
+> (`mail.taptime.mt`), DKIM=PASS, DMARC=PASS"* — ikisi de gerçek bir SES kimliği, doğrulanmış
+> alan adı, DNS kayıtları ve SMTP kimlik bilgisi ister, yani **kullanıcının SES dış adımlarına**
+> (m10 §4 1–10 + geri bildirim adımı) bağlıdır; EM-K9 gereği aradaki yerel posta servisi yoktur.
+> EM-5B ayrıca 250'de SES message-id'sinin dolduğunu ve yankı kuralından geçtiğini, kendi
+> `Message-ID`'mize ne olduğunu, izlemenin kapalı olduğunu ölçer ve ConfigMap'i `email`'e çevirir
+> (deploy kararı; `TestPackaging_TheConfigMapShipsTodaysDelivery` bilerek güncellenir).
+> **Önkoşullar — ConfigMap'i `email`'e çevirmeden ÖNCE üçü de karşılanır** (biri yetmez; her
+> biri ayrı bir açığı kapatır):
+> (a) **§9 devre kesicisi (EM-7) ya da açık bir kullanıcı risk kabulü** — kesici olmadan
+> sıfırlama gönderimlerinin süreç geneli üst sınırı yoktur (ADR 0022 ana listesinin sayılı sınırı
+> 6 — paylaşılan devre kesicisi ve tek SES hesabı; aşağıdaki EM-5A listesinin 6. maddesi değil —
+> ve §9 sapması).
+> (b) **Alıcı başına gönderim tavanı kararı ya da açık kullanıcı risk kabulü** (aşağıdaki sınır
+> 13). (a) bunu **karşılamaz**: devre kesici süreç geneli bir tavandır, tek alıcıda yoğunlaşan
+> bir bombayı durdurmaz; tetiklendiğinde bütün tenant'ların sıfırlamasını durdurur, yani bombayı
+> bir kurtarma kesintisine çevirir.
+> (c) **Kuyruk-akıbeti numaralandırma kanalı: bilinçli kullanıcı kabulü ya da grant akıbetinin
+> istekçiye yansımasını azaltan bir tasarım** (aşağıdaki sınır 12).
+>
+> **Yazıldı:** `internal/handler/adminresetoutbox.go` (yeni: kuyruk, tek işçi, grant başına
+> `recover`, iki fazlı `Drain`, `boundedBy`, sabitler) · `internal/handler/resetmail.go` (yeni:
+> `emailResetChannel`, `NewEmailResetChannel`) · `internal/handler/adminreset.go` (`dispatch`,
+> iki bağlamlı `deliver`, `recordOutcome`/`recordWorkerOutcome`, `ResetDelivery.ResetID`, beş
+> bütçenin `TryCharge`'a geçişi, bütçe ve audit-hata satırları `*Context`, defter yorumları) ·
+> `internal/httpx/ratelimit.go` (`Limiter.TryCharge`, 2. tur) · `internal/handler/adminresetlimits.go`
+> (yorum) · `cmd/tappa/main.go` (`case config.ResetDeliveryEmail`, `shutdown()`,
+> `unbuiltDelivery`, `slog.Default()` sayımı yeniden sayıldı) · testler:
+> `internal/handler/adminresetoutbox_test.go`, `internal/handler/resetmail_test.go`,
+> `internal/handler/fakesmtp_test.go` (test içi röle), `cmd/tappa/shutdown_test.go` (yeni);
+> `adminreset_test.go`, `adminreset_db_test.go`, `adminlogin_db_test.go` (harness: kanal seçimi +
+> boşaltma), `internal/httpx/ratelimit_test.go`, `cmd/tappa/mailconfig_test.go`,
+> `cmd/tappa/shutdownbudget_test.go`, `internal/config/mail_test.go` (yorum) · metin eşitlemesi:
+> `internal/config/config.go`, `web/templates/email/email.go`, `deploy/k8s/05-config.yaml`
+> (yalnız yorum; değerler `none`/`panel`), `deploy/README.md` (üç yer) ·
+> `docs/adr/0022-islemsel-eposta.md` (*"EM-5A notu"* + §6.2, §6.5, §6.6, §12, İddia E/F, sınır
+> 25, *Karar verilmedi*'ye işaretler). Migration yok, `go.mod`/`go.sum`/`sqlc.yaml` diff boş.
+> **Ölçüm ortamı:** go1.27.1 darwin/amd64 (`-race`), staticcheck `GOTOOLCHAIN=go1.26.7`; dev
+> Postgres (paylaşımlı, yük ortalaması 4–9); röle yalnız `127.0.0.1`. Taze worktree'de
+> gitignore'lu `web/static/css/app.css` yoktur ve `internal/handler`'ın iki stil testini
+> kırmızıya çevirir; Tailwind ikilisiyle üretildi (bu görevle ilgisiz).
+>
+> **Kabul — kanıtlar:**
+> 1. ✓ **Sabit süre.** `TestAdminReset_TimingIsFlatWhileTheRelayTakesTwoSeconds` — kanal 2 s,
+>    medyanlar [250, 300] ms: ölçülen 250,3–251,8 ms (altı koşu, `-race`); **kontrol** testin
+>    içinde: senkron yol (`h.deliver`) aynı kanalla ≥ 2 s. **Senkron kodda kırmızı:** M01
+>    (gönderim istek içinde) → kayıtlı medyan 2,04 s. Gerçek taşıyıcıyla:
+>    `TestEmailResetChannel_TimingIsFlatWithASlowRelay` (röle veri sonu yanıtını 2 s tutuyor) →
+>    250,2–251,0 ms; M01 → 2,00 s.
+> 2. ✓ **Grant başına tam 1 satır, bütçe içinde — eşzamanlı yazıcılar altında da.**
+>    `TestResetOutbox_EveryGrantInsideTheBudgetEndsInExactlyOneRow` (sekiz alt test: gönderildi,
+>    gönderim hatası, kuyruk dolu, kuyruk kapalı, satırdan önce panik, satırdan sonra panik,
+>    boşaltma, hesap bütçesi aşımı → 10 + 1 `rate_limited`, bütçe dışı grant'ın kendi satırı yok) ·
+>    `TestResetOutbox_ConcurrentRequestsForOneAccountStayInsideItsBudget` (router'dan tek hesaba
+>    20 eşzamanlı istek; kuyruk boş / kapalı / dolu → her durumda tam 10 + 1) ·
+>    `TestResetOutbox_RacingRowWritersStayInsideTheBudget` (40 eşzamanlı yedek satır × 100 koşu;
+>    işçi + yedek 60 grant × 30 koşu; bir linkin 40 eşzamanlı reddi × 100 koşu → her koşuda tam
+>    bütçe + 1) · `TestLimiter_TryChargeIsExactUnderConcurrency` · akışın öteki üç kapısı (3. tur):
+>    `TestAdminResetBudgets_EveryGateIsExactUnderConcurrentCallers` — tek adresten aynı anda 100
+>    istek / 100 gönderim / bir linkin 160 sunumu, her biri 200 koşu → tam 20 yanıt, tam 10
+>    `Consume`, tam 60 süreç-log satırı (MY04a, MY04b, MY04e kırmızı).
+> 3. ✓ **Kuyruk dolu → senkron `undelivered`.** `TestAdminReset_AFullOutboxRecordsTheGrantAtOnceAndDoesNotWait`
+>    — satır yanıt dönerken var, yanıt ≤ taban + 50 ms, grant gönderilmez; neden cümlesi
+>    *"the delivery queue was full…"* (kapanırken: *"…closed for shutdown…"*). Satır isteğin
+>    kendi bağlamıyla (iptali düşürülmüş) yazılır — ziyaretçi gitse de:
+>    `TestResetOutbox_AClientThatLeavesStillGetsItsFallbackRow`.
+> 4. ✓ **Kapanış.** `TestShutdown_DrainsTheResetOutboxAlongsideTheHTTPServer` (§6.6(b)): T = 2 s
+>    süren istek uçuşta + röleye takılı bir gönderim + iki bekleyen; D' = `ResetDrainGrace` −
+>    `ResetDrainWriteReserve` = 2 s; **iki assert:** (i) `shutdown()` çağrıldıktan sonra
+>    **≤ 300 ms** içinde dinleyici yeni bağlantıyı reddeder — ölçülen **≈0,18–0,21 ms** (beş koşu,
+>    `-race`); (ii) toplam süre **< T + D' − 600 ms = 3,4 s** — ölçülen **2,05–2,12 s**;
+>    D' − pay = 1,4 s > ≈550 ms (B35); üç grant'ın her biri tek `undelivered`, röle tek çağrı.
+>    **İki ardışık düzen de kırmızı:** Shutdown'dan SONRA boşaltma (M13) 4,10 s — süre assert'i;
+>    Shutdown'dan ÖNCE boşaltma (X03) dinleyici ≈2,0 s açık — ret assert'i (1. turda bu düzen
+>    yeşildi: uçuştaki istek boşaltma sırasında koştuğu için o da ≈max(T, D') sürer); dizide
+>    `Sleep(drainGrace)` (M14) 5,13 s. `TestShutdownBudget_TheResetDrainNestsInsideTheHTTPGrace`
+>    (§6.6(a); M15, M16 kırmızı). Gerçek ikili: `TestArtifact_BootsAndStopsWithTheResetEmailChannel`
+>    (SIGTERM → 0).
+> 5. ✓ **Grant başına `recover`.** `TestResetOutbox_APanickingSendBecomesUndeliveredAndTheWorkerLives`
+>    (değeri alıcıyı ve linki taşıyan panik → `undelivered`, değer log'da yok, aynı işçi sonraki
+>    grant'ı teslim eder) · `TestResetOutbox_ASecondFaultLeavesTheWorkerAlive` (gönderim ve audit
+>    yazıcısı aynı grant'ta panik eder → işçi yaşar) · satır testinin iki panik alt testi; M04 ve
+>    X15 test ikilisini öldürür.
+> 6. ✓ **Log.** `TestEmailResetChannel_LogsOnlyIdsClassAndCode` — dokuz röle davranışı; hata
+>    satırı yalnız `class`, `smtp_code`, `err_type=*mail.SendError` (+ `ip`, `admin_user_id`,
+>    `reset_id`); her satırın her anahtarı ADR §10'un kümesinde; log'da adres (her harf
+>    büyüklüğü), link, token, base64 link, SMTP kullanıcı adı/parolası (ve her 8'lik pencere),
+>    rölenin sözleri yok; id'si token'ı yansıtan 250 → `message_id=""` ·
+>    `TestEmailResetChannel_QueueAndBudgetLinesLogOnlyIds` (2. tur — kuyruk dolu, kuyruk kapanıyor
+>    ve hesap bütçesi satırı: aynı anahtar ve değer taraması) ·
+>    `TestAdminReset_ADeliveryFailureNeverLogsTheChannelsText` (işçiye taşındı) ·
+>    `TestEmailResetChannel_AStoredAddressTheRelayCannotTakeIsNeverDialled` ·
+>    `TestResetOutbox_TheGrantAndBudgetLinesCarryTheRequestsID` (3. turda genişledi: ölçülen
+>    sekiz satır — gönderim hatasının düz hata ve `*mail.SendError` dalları, hesap ve link
+>    bütçesi, başarısız audit yazımı, panik, kuyruk reddi, kanalın başarı satırı — isteğin
+>    kimliğini taşır; `SendError` satırının anahtarları kapalı kümede; başka satır ölçülmedi).
+> 7. ✓ **Wiring.** `main.go`: `case config.ResetDeliveryEmail` → `mail.New(cfg.Mail)` +
+>    `handler.NewEmailResetChannel` + `NewAdminReset`'in başlattığı işçi + `shutdown()`.
+>    `unbuiltDelivery`'nin sıfırlama yarısı kalktı, davet yarısı kaldı
+>    (`TestUnbuiltDelivery_RefusesEmailForEitherFlow`, `TestArtifact_RefusesAnEmailDeliveryThisBuildLacks`
+>    — M29, M31 kırmızı); `TestArtifact_BootsAndStopsWithTheResetEmailChannel` M30'u (kanal nil)
+>    yakalar. ConfigMap `none`/`panel` (`TestPackaging_TheConfigMapShipsTodaysDelivery` değişmedi).
+> 8. ✓ **M7-04 kriterleri, test içi SMTP'ye karşı** — tablo aşağıda.
+>
+> **M7-04 kriterleri — test içi SMTP'ye (gerçek `mail.SMTP`, TCP + STARTTLS) karşı yeniden koşu:**
+>
+> | M7-04 kriteri | Test | Sonuç |
+> |---|---|---|
+> | Magic link / şifre ile giriş | — (girişin konusu; teslimle ilgisiz) | kapsam dışı |
+> | Token tek kullanımlık, süreli, hash'i saklanıyor | `TestPanelRecoveryDB_EndToEndThroughTheSMTPTransport` (e-postadan okunan link bir kez harcandı, tekrarı reddedildi); süre/hash adminauth'un DB testleri, kanaldan bağımsız | ✓ |
+> | Sağlayıcı AB bölgesinde, GDPR | — (dış adım; ConfigMap host `email-smtp.eu-central-1…`, EM-3) | EM-5B / dış adım |
+> | Gönderim başarısızlığı dürüstçe bildiriliyor, yutulmuyor | `TestEmailResetChannel_LogsOnlyIdsClassAndCode` (her röle hatası → `undelivered` + sınıf/kod satırı) | ✓ |
+> | Token/kod log'a yazılmıyor | `TestEmailResetChannel_LogsOnlyIdsClassAndCode`, `TestEmailResetChannel_QueueAndBudgetLinesLogOnlyIds`, `TestResetOutbox_APanickingSendBecomesUndeliveredAndTheWorkerLives` | ✓ |
+> | B1 — istek uç noktası adres başına oran sınırlı | `TestAdminResetBudgets_RefuseAtTheCeilingAndDoNotShareABucket` — kapı kanaldan önce; e-posta kanalıyla anlamı değişmez (2. turda kapı `TryCharge`'a geçti, davranış aynı) | ✓ (kanaldan bağımsız) |
+> | B2 — başarısız her deneme bir yere düşüyor | `TestPanelRecoveryDB_EndToEndThroughTheSMTPTransport` (e-postalanmış linkin tekrarı → `refused` satırı); süreç-log kolu `TestAdminResetBudgets_TheProcessLogBudgetCoversItsTwoCoLiveConsumers` | ✓ |
+> | B3 — link yalnız yöneticinin KENDİ satırındaki adrese | `TestEmailResetChannel_SendsEachLinkToTheRowsAddressAndNamesNobody`, `TestPanelRecoveryDB_EndToEndThroughTheSMTPTransport` (form büyük harfle yazdı, RCPT satırdaki adres) | ✓ |
+> | B4 — store `*Params` yazdırılmıyor | `TestStoreParams_AreNeverHandedToAPrintingCall` (kaynak taraması; yeni dosyaları da tarar) | ✓ (kanaldan bağımsız) |
+> | B5 — kayıtlı/kayıtsız: durum, gövde, ifade, zamanlama | gövde: `TestPanelRecoveryDB_EndToEndThroughTheSMTPTransport` (kayıtsız adres bayt-bayt aynı sayfa, ileti yok); zamanlama: `TestEmailResetChannel_TimingIsFlatWithASlowRelay` | ✓ |
+>
+> **Kararlar (ADR'de gerekçeli):** tek işçi · tampon 32 (dolu tamponun 33 satırı gerçek Postgres'e
+> yapıcıda 116–184 ms, üçüncü gözde yük altında 150–294 ms → yazım payı 1 s ≈ 3,4–8,6 kat) ·
+> boşaltma D = 3 s, iki faz · eşzamanlılık açık goroutine ile (`RegisterOnShutdown` değil) ·
+> audit'e ayrı bağlam; kuyruk-dolu yedeğinin satırı isteğin bağlamıyla · panik kuralı "satırın
+> yazımına başlanmadıysa" · `ValidFor = ExpiresAt − now` (gönderim anı; *"59 minutes"*) · birden
+> çok hesaba çözülen adres: ad eklenmedi · `ResetID` eklendi · beş sabit `reason` · BaseURL
+> açılışta sınanır · **bütçeler tek adım: `httpx.Limiter.TryCharge`** (2. tur).
+>
+> **Sapmalar:** §10'a `queue` anahtarı (`full`|`closing`) · §9 devre kesicisi kurulmadı (EM-7'ye
+> devir; *"kesici açıkken sonuç"* açık) · `RegisterOnShutdown` yerine açık goroutine.
+>
+> **1. turun öz denetiminde bulunan ve düzeltilen üç kusur:** (1) kuyruk-dolu yedeğinin satırı
+> önce işçinin bağlamına bağlıydı — kuyruğun bütçesi tükenince HTTP boşaltmasındaki bir isteğin
+> satırı düşerdi (M36); (2) `Drain`'in tükenen-bütçe işlemi `defer`'deki `stop` ile yarışıp hiç
+> yapılmayabiliyordu (M38); (3) `context.AfterFunc` bitmiş bağlamda bile ayrı goroutine'de koşar
+> — durdurucu bittikten sonra kurulan bağlam bir an canlıydı; M36 bu yüzden ilk koşuda **yeşil**
+> kalmıştı (M37).
+>
+> **2. tur (2026-10-03 — üçüncü göz RED, dört bloklayan; bulgu → değişiklik → ölçüm):**
+> - **B1** — kapanış testi Shutdown'dan ÖNCE ve ardışık boşaltan düzeni (X03) göremiyordu: 5/5
+>   yeşil, 2,000–2,002 s, çünkü uçuştaki istek boşaltma sırasında koşuyordu. Üretimde bedeli en
+>   kötü 3 + 20 + 5 = 28 s (öldürme 30 s'de) ve D boyunca açık dinleyiciden gelen sıfırlamaların
+>   `closing` → `undelivered` alması. → Teste dinleyici-ret assert'i eklendi (sınır **300 ms**,
+>   ölçülen ≈0,18–0,21 ms); ADR §6.6'nın iki cümlesi, karar 4, test yorumu ve log satırı
+>   düzeltildi. → X03 KIRMIZI (dinleyici ≈2,0 s açık), M13 KIRMIZI kaldı.
+> - **B2** — sayılı sınır 4 (*"iki goroutine … en çok bir satır"*) yanlıştı: yedek satırı her istek
+>   kendi goroutine'inde yazar. Üçüncü gözün ölçümü: 40 eşzamanlı yedek satırda 300 koşunun 244'ü
+>   bütçe aşımı (en çok 24 / bütçe 10), 63'ünde `rate_limited` yok; gerçek router'da `closing`
+>   2/40, `full` 9/40. → Yapısal düzeltme: `httpx.Limiter.TryCharge` (okuma + yazma tek kilitte,
+>   sırayla eski çiftle aynı karar); sıfırlama akışının beş bütçesi ona geçti; yarış testleri
+>   eklendi; eşzamanlılık testi üç kuyruk durumuna genişledi. → `TryCharge`'ı bölen mutasyon
+>   (M39, ilkel testinde M39h) KIRMIZI; yeni testler `-count=5 -race` yeşil.
+> - **B3** — kuyruk-reddi satırı hiçbir log taramasına girmiyordu (X19, X19b yeşildi). →
+>   `TestEmailResetChannel_QueueAndBudgetLinesLogOnlyIds` (dolu, kapanan kuyruk ve bütçe satırı;
+>   anahtar kümesi + adres/link/token/kimlik iğneleri; kontrol değerin önekiyle eşleşir). → X19,
+>   X19b ve denetçinin X20'si KIRMIZI; İddia B başlığı ölçtüğüne göre daraltıldı.
+> - **B4** — `dispatch`'ın yedek satırının bütçeyi atlaması (X12) yeşildi. → B2'nin testleriyle
+>   KIRMIZI; M24 cümlesi `recordOutcome` ile sınırlandı.
+> - **N1** ikinci işçi *Yakalamadığı*'ndan çıktı (X02 kırmızı: tam-kuyruk ve satır testleri; denetçinin koşusunda kapanış testi de)
+>   · **N2** `TestResetOutbox_AClientThatLeavesStillGetsItsFallbackRow` → X10 kırmızı · **N3**
+>   `audit write failed` ve bütçe satırları `*Context`'e çevrildi (seçim: kodu çevirmek, ucuzdu),
+>   istek-kimliği testi (3. turdaki adıyla `TestResetOutbox_TheGrantAndBudgetLinesCarryTheRequestsID`)
+>   → X13, M40, M41 kırmızı · **N4**
+>   `TestResetOutbox_AnOfferRacingTheDrainNeverSendsOnAClosedQueue` → X14 kırmızı (*send on closed
+>   channel*, üç tekrarda üçü) · **N5** `TestResetOutbox_ASecondFaultLeavesTheWorkerAlive` → X15
+>   kırmızı · **N6** karar 2'nin oranı ölçülen aralıkla · **N7** bu kartta tehdit modeli; sayılı
+>   sınırlar ADR'ninkiyle aynı liste · **N8** satır sırası cümlesi daraltıldı · **N9** EM-5B
+>   önkoşulu · **N10** `deliver`'da `defer cancelSend()` · **N11** satır testi
+>   `TestResetOutbox_EveryGrantInsideTheBudgetEndsInExactlyOneRow` olarak yeniden adlandırıldı,
+>   bütçe dışı grant'ın satırsız kaldığını sayıyor; İddia F başlığı sınır 6'yı dışarıda tutuyor.
+>
+> **3. tur (2026-10-06 — kapanış denetimi RED, bir bloklayan; yalnız test ve metin değişti, ürün
+> kodunun satırları 2. turunkiyle aynı — yorumsuz AST karşılaştırmasıyla gösterildi):**
+> - **F1** (bloklayan) — `SendError` dalının hata satırı bağlamsız yazılsa (MY07a) yeşil kalıyordu:
+>   testin kanalı yalnız düz hata döndürüyordu, oysa e-posta kanalı her röle reddinde
+>   `*mail.SendError` döndürür. → İstek-kimliği testine `&mail.SendError{Class: rejected,
+>   SMTPCode: 550}` vakası (satırın anahtarları ayrıca kapalı kümede); test
+>   `TestResetOutbox_TheGrantAndBudgetLinesCarryTheRequestsID` oldu. → MY07a KIRMIZI.
+> - **F2** — ADR İddia F başlığına sayılı sınır 3 (audit yazıcısında panik) ve başarısız audit
+>   yazımı (0 satır, loglanır) koşulu eklendi.
+> - **F3** — sayılı sınır 7 (kart + ADR) ve `adminresetoutbox.go` PART II *"WHAT THEY DO NOT
+>   CATCH"*: Shutdown'dan ÖNCE 300 ms'lik ret sınırından kısa bekleme. → MY09 (250 ms) YEŞİL,
+>   MY10 (400 ms) KIRMIZI (ret 400–403 ms, sınır 300 ms).
+> - **F4** — seçim: **ikisi birden.** Başarı satırı (MY07c) ve link bütçesi satırı (MY07d) teste
+>   eklendi **ve** açılış cümlesi ölçülen sekiz satıra daraltıldı (*"lines about anything else
+>   are not measured"*). Düz hata dalı (MY07e) ve panik satırı (MY07f) da koşuldu. → MY07a–f
+>   KIRMIZI.
+> - **F5** — `TestAdminResetBudgets_EveryGateIsExactUnderConcurrentCallers` (istek, gönderim,
+>   süreç-log). İlk biçimi (40 çağıran, istek goroutine içinde kuruluyor, gerçek 250 ms taban,
+>   10 koşu) MY04a'yı **yeşil** bıraktı (koşu başına aşım ≈%2, 50 koşuda 1). İstekler başlama
+>   çizgisinden önce kurulup taban no-op yapılınca koşu başına aşım `-race`'siz %7–48, `-race`
+>   ile %53–90 ölçüldü; 200 koşu. → MY04a, MY04b, MY04e KIRMIZI; `Request`'teki *"concurrent
+>   requests can no longer all read allowed"* yorumu pinli olduğu için kaldı.
+> - **F6** — EM-5B önkoşulundaki sınır 6'nın ADR **ana** listesinin 6. maddesi olduğu yazıldı
+>   (kart + ADR); ADR'nin İddia F *Yakalamadığı*'ndaki *"süreç ölümü (sayılı sınır 1)"* da ana
+>   listeye bağlandı (EM-5A listesinin 1. maddesi SES'tir).
+> - **F7** — `defer cancelSend()`'in pinsiz olduğu (MY06 YEŞİL) sayılı sınır 11 oldu (kart + ADR +
+>   kodun COUNTED LIMITS'i).
+> - **Öz denetimde bulunan:** M03'ün önceki turlardaki KIRMIZI'sı bir **derleme hatasıydı**
+>   (*"declared and not used: ctx"*) — testi hiç ölçmüyordu. Mutasyon derlenecek biçime getirildi
+>   → KIRMIZI, sebebi doğru (kapalı ve dolu kuyrukta grant'lar 0 satır). Koşucu artık derlenmeyen
+>   bir mutasyonu `BUILD-FAILED` diye ayırıyor; 3. turun tam koşusunda başka derleme hatası yok.
+> - **Zincirde bulunan:** iki yeni test satırı bağlantı değerini (`qCq0…`) bir *"token"*/
+>   *"password"* kelimesiyle aynı satırda yazıyordu → redline R7d (a0-token) FAIL. Muafiyet
+>   eklenmedi (secretscan'e dokunulmadı): değer `strings.Repeat("A", 43)` oldu (biçimi geçerli,
+>   açıkça sentetik; sahteler değeri karşılaştırmaz) → redline exit 0; iki teste yönelen 12
+>   mutasyon (X13, M40, M41, MY07a–f, MY04a/b/e) bu hâlde yeniden koşuldu, hepsi KIRMIZI.
+> - **Orkestratör betiği:** `scratchpad/em5/verify_round3.py <kopya-yolu>` — yolunda `em5-orch`
+>   yoksa reddeder; her test için önce mutasyonsuz bir KONTROL koşusu, sonra MY07a, MY07c, MY07d,
+>   MY04a'yı (ve MY04b, MY04e'yi) kopyada uygular, ilgili testi koşar, okunmuş baytlardan geri
+>   yazar, sha256'yı karşılaştırır; derlenmeyen mutasyon `BUILD-FAILED` olur.
+>
+> **4. tur (2026-10-06 — güvenlik denetimi ONAY, EM-5A'yı bloklayan bulgu yok; iki ORTA bulgu
+> ConfigMap'i `email`'e çevirmeyi blokluyor; yalnız metin — yorum, ADR, kart; `.go` dosyalarında
+> yalnız `//` satırları değişti, 3. turun kopyasına karşı satır satır gösterildi):**
+> - **ORTA — kuyruk-akıbeti numaralandırma kanalı** (ölçülmedi). Kuyruk tek, FIFO ve tek işçili;
+>   bir istekçinin kendi grant'ının gönderim anı (`Date`), e-postadaki kalan süre (`ValidFor`) ve
+>   kuyruk doluyken kendi tenant'ına düşen `undelivered` satırı önündeki grant sayısına, o da
+>   önceki isteklerin kayıtlı adrese çözülüp çözülmediğine bağlı. → `adminreset.go`'nun *"does
+>   not tell anyone whether an address is registered"* maddesi ölçülen kümeye (durum, gövde,
+>   yanıt süresi) daraltıldı ve kanalı adıyla anıyor; `adminresetoutbox.go`'nun COUNTED LIMITS'i
+>   ve ADR İddia E'nin kapsam cümlesi; **sayılı sınır 12**; EM-5B önkoşulu **(c)**.
+> - **ORTA — alıcı başına gönderim tavanı yok.** Hesap bütçesi satırları sınırlar, gönderimleri
+>   değil; tek alıcıya giden hacmi yalnız kaynak adres başına istek bütçesi sınırlar. →
+>   `recordForAdmin` ve `adminResetRequestLimit` yorumları; **sayılı sınır 13**; EM-5B önkoşulu
+>   **(b)** — devre kesicinin (EM-7) tek alıcılı bombayı durdurmadığı, tetiklenince bütün
+>   tenant'ların kurtarmasını durdurduğu açıkça yazıldı; ADR *Karar verilmedi* maddesi işaretlendi.
+> - **DÜŞÜK** → **sınır 14** (kuyruk doluyken yedek satırın `done()`'dan önceki senkron yazımı,
+>   yalnız kayıtlı adreste; gerçek DB ile ölçülmedi), **15** (`ExpiresAt` uygulama saatiyle,
+>   süre dolumu DB `now()`'ıyla — `ValidFor` saat kaymasında uzun yazabilir), **16** (istek
+>   yolunun bağlamsız log satırları, adlarıyla; ADR karar 9 ve İddia F'nin *"başka satırlar
+>   ölçülmedi"* cümleleri ona bağlandı).
+>
+> **Mutasyon tablosu** (kopyala → değiştir → test → geri yaz → sha256 doğrula;
+> `scratchpad/em5/mutate.py`; 3. turun tam koşusu, son Go kodu ve testleriyle — sonradan yalnız
+> metin değişti: ADR ve 4. turda `.go` dosyalarının `//` satırları; 69 satırın hepsi `sha-ok`, yani her mutasyondan sonra dosya baytı baytına geri
+> yazıldı; derlenmeyen mutasyon yok):
+>
+> | # | Mutasyon | Dosya | Koşulan test(ler) | Sonuç |
+> |---|---|---|---|---|
+> | M01 | `Request` senkron gönderir (EM-5 öncesi yol) | adminreset.go | iki zamanlama testi | KIRMIZI (2,04 s / 2,00 s) |
+> | M02 | `offer` kuyruk doluyken bloklar | adminresetoutbox.go | `TestAdminReset_AFullOutboxRecordsTheGrantAtOnceAndDoesNotWait` | KIRMIZI |
+> | M03 | reddedilen sunum satır yazmaz | adminresetoutbox.go | tam-kuyruk + satır testi | KIRMIZI (0 satır; 1.–2. turda kırmızısı derleme hatasıydı — 3. turda düzeltildi) |
+> | M04 | `recover` paniği yeniden fırlatır | adminresetoutbox.go | panik testi | KIRMIZI (ikili ölür) |
+> | M05 | `recover` panik değerini loglar | adminresetoutbox.go | panik testi | KIRMIZI |
+> | M06 | panik kuralı koşulsuz | adminresetoutbox.go | satır testi | KIRMIZI (2 satır) |
+> | M07 | satırdan önceki panikte satır yok | adminresetoutbox.go | satır + panik testi | KIRMIZI |
+> | M08 | `decided` satırdan sonra kurulur | adminreset.go | satır testi | KIRMIZI (2 satır) |
+> | M09 | boşaltmanın gönderim durdurması yok sayılır | adminresetoutbox.go | satır testi | KIRMIZI |
+> | M09b | aynısı | adminresetoutbox.go | `TestShutdown_DrainsTheResetOutboxAlongsideTheHTTPServer` | KIRMIZI |
+> | M10 | uçuştaki gönderim kesmede iptal edilmez | adminresetoutbox.go | kapanış testi | KIRMIZI |
+> | M10b | aynısı | adminresetoutbox.go | satır testi | KIRMIZI |
+> | M11 | bütçe sonundan önce gönderim kesmesi yok | adminresetoutbox.go | kapanış testi | KIRMIZI |
+> | M11b | aynısı | adminresetoutbox.go | `TestResetOutboxDB_AFullOutboxFitsTheWriteReserve` | KIRMIZI |
+> | M12 | `Drain` kuyruğu kapatmaz | adminresetoutbox.go | satır testi | KIRMIZI |
+> | M13 | boşaltma Shutdown'dan SONRA | main.go | kapanış testi | KIRMIZI (süre) |
+> | M14 | dizide `Sleep(drainGrace)` | main.go | kapanış testi | KIRMIZI |
+> | M14b | dizide 200 ms `Sleep` (Shutdown başladıktan sonra) | main.go | kapanış testi | **YEŞİL** — ölçülmüş sınır (pay 600 ms) |
+> | M15 | `ResetDrainGrace` 25 s | adminresetoutbox.go | `TestShutdownBudget_TheResetDrainNestsInsideTheHTTPGrace` | KIRMIZI |
+> | M16 | yazım payı = bütçe | adminresetoutbox.go | yuvalanma testi | KIRMIZI |
+> | M17 | hata satırına `err` | adminreset.go | `TestEmailResetChannel_LogsOnlyIdsClassAndCode` | KIRMIZI (anahtar kümesi) |
+> | M17b | `SendError` olmayan satıra `err` | adminreset.go | `TestAdminReset_ADeliveryFailureNeverLogsTheChannelsText` | KIRMIZI |
+> | M18 | `class`/`smtp_code` düşer | adminreset.go | log testi | KIRMIZI |
+> | M19 | başarı satırına alıcı | resetmail.go | log testi | KIRMIZI |
+> | M20 | kanal `SendError`'ı sarar | resetmail.go | log testi | KIRMIZI |
+> | M21 | e-posta tam TTL'i yazar | resetmail.go | `TestEmailResetChannel_StatesTheTimeLeftWhenSent`, `TestEmailResetChannel_ALinkWithUnderAMinuteLeftIsNotSent` | KIRMIZI |
+> | M22 | kurucuda BaseURL sınaması yok | resetmail.go | `TestEmailResetChannel_RefusesWhatItCannotBuild` | KIRMIZI |
+> | M23 | nil gönderici kabul | resetmail.go | kurucu testi | KIRMIZI |
+> | M24 | `recordOutcome` hesap bütçesini atlar | adminreset.go | satır testi | KIRMIZI |
+> | M25 | iş, isteğin iptalini taşır | adminresetoutbox.go | `TestResetOutbox_TheRequestEndingDoesNotCancelTheSend` | KIRMIZI |
+> | M26 | satır gönderimin iptal edilmiş bağlamıyla | adminreset.go | satır testi (boşaltma) | KIRMIZI |
+> | M27 | yazılan satır tükenen bütçeyi aşar | adminresetoutbox.go | `TestResetOutbox_ASpentBudgetAbandonsTheRowBeingWritten` | KIRMIZI |
+> | M28 | kuyruk boyu 8 | adminresetoutbox.go | `TestAdminResetConstants_ShippedValuesArePinned` | KIRMIZI |
+> | M29 | `unbuiltDelivery` sıfırlamayı yine reddeder | main.go | `TestUnbuiltDelivery_RefusesEmailForEitherFlow`, `TestArtifact_RefusesAnEmailDeliveryThisBuildLacks` | KIRMIZI |
+> | M30 | `run()` kanalı nil bırakır | main.go | `TestArtifact_BootsAndStopsWithTheResetEmailChannel` | KIRMIZI |
+> | M31 | `unbuiltDelivery` daveti reddetmez | main.go | iki `unbuiltDelivery` testi | KIRMIZI |
+> | M32 | kapanan kuyruk "dolu" yazılır | adminresetoutbox.go | satır testi | KIRMIZI |
+> | M33 | boşaltma başladıktan sonra kuyruk grant alır | adminresetoutbox.go | satır testi | KIRMIZI (ikili ölür) |
+> | M34 | `recordOutcome` bütçeyi atlar | adminreset.go | `TestResetOutbox_ConcurrentRequestsForOneAccountStayInsideItsBudget` | KIRMIZI |
+> | M35 | kanal alıcıyı iletiye yazmaz | resetmail.go | `TestEmailResetChannel_SendsEachLinkToTheRowsAddressAndNamesNobody` | KIRMIZI |
+> | M36 | isteğin yedek satırı kuyruğun bütçesine bağlı | adminresetoutbox.go | spent-budget testi | KIRMIZI |
+> | M37 | `boundedBy`'ın eşzamanlı kontrolü yok | adminresetoutbox.go | `TestResetOutbox_AnEndedStopperEndsTheContextAtOnce` | KIRMIZI |
+> | M38 | `Drain`'in tükenen-bütçe dalı işçiyi durdurmaz | adminresetoutbox.go | spent-budget testi | KIRMIZI |
+> | M39 | `TryCharge` → *"`Allowed`, sonra `Charge`"* | httpx/ratelimit.go | `TestResetOutbox_RacingRowWritersStayInsideTheBudget`, eşzamanlılık testi | KIRMIZI (11 satır; bir koşuda 0 `rate_limited`) |
+> | M39h | aynısı | httpx/ratelimit.go | `TestLimiter_TryChargeIsExactUnderConcurrency` | KIRMIZI (13 within) |
+> | M40 | `audit write failed` bağlamsız | adminreset.go | `TestResetOutbox_TheGrantAndBudgetLinesCarryTheRequestsID` | KIRMIZI |
+> | M41 | hesap bütçesi satırı bağlamsız | adminreset.go | istek-kimliği testi | KIRMIZI |
+> | MY07a | `SendError` dalının hata satırı bağlamsız (3. tur) | adminreset.go | istek-kimliği testi | KIRMIZI (2. turda yeşil) |
+> | MY07b | kuyruk reddi satırı bağlamsız (3. tur) | adminresetoutbox.go | istek-kimliği testi | KIRMIZI |
+> | MY07c | kanalın başarı satırı bağlamsız (3. tur) | resetmail.go | istek-kimliği testi | KIRMIZI (2. turda yeşil) |
+> | MY07d | link bütçesi satırı bağlamsız (3. tur) | adminreset.go | istek-kimliği testi | KIRMIZI (2. turda yeşil) |
+> | MY07e | düz hata dalının satırı bağlamsız (3. tur) | adminreset.go | istek-kimliği testi | KIRMIZI |
+> | MY07f | panik satırı bağlamsız (3. tur) | adminresetoutbox.go | istek-kimliği testi | KIRMIZI |
+> | MY04a | istek bütçesi → *"`Allowed`, sonra `Charge`"* (3. tur) | adminreset.go | `TestAdminResetBudgets_EveryGateIsExactUnderConcurrentCallers` | KIRMIZI (21–22 yanıt; 2. turda yeşil) |
+> | MY04b | gönderim bütçesi → aynısı (3. tur) | adminreset.go | kapılar testi | KIRMIZI (11 `Consume`) |
+> | MY04e | süreç-log bütçesi → aynısı (3. tur) | adminreset.go | kapılar testi | KIRMIZI (61 satır) |
+> | MY06 | `deliver`'da `defer cancelSend()` yok (3. tur) | adminreset.go | `-race`: `TestResetOutbox_`, `TestAdminReset_`, `TestAdminResetBudgets_`, `TestAdminResetConstants_`, `TestEmailResetChannel_` aileleri | **YEŞİL** — sayılı sınır 11 |
+> | MY09 | Shutdown'dan ÖNCE 250 ms `Sleep` (3. tur) | main.go | kapanış testi (`-count=5 -race`) | **YEŞİL** — sayılı sınır 7 (ret sınırı 300 ms) |
+> | MY10 | Shutdown'dan ÖNCE 400 ms `Sleep` (3. tur) | main.go | kapanış testi (`-count=5 -race`) | KIRMIZI (ret ≈400 ms) |
+> | X02 | iki işçi (denetçi) | adminresetoutbox.go | tam-kuyruk + satır testi (`-race`) | KIRMIZI |
+> | X03 | boşaltma Shutdown'dan ÖNCE, ardışık (denetçi) | main.go | kapanış testi | KIRMIZI (dinleyici ≈2,0 s açık; 1. turda yeşil) |
+> | X10 | yedek satır `r.Context()`'e bağlı (denetçi) | adminresetoutbox.go | `TestResetOutbox_AClientThatLeavesStillGetsItsFallbackRow` | KIRMIZI (1. turda yeşil) |
+> | X12 | `dispatch`'ın yedek satırı bütçeyi atlar (denetçi) | adminresetoutbox.go | yarış + eşzamanlılık testi | KIRMIZI (40 satır; 1. turda yeşil) |
+> | X13 | işin bağlamı `context.Background()` (denetçi) | adminresetoutbox.go | istek-kimliği testi | KIRMIZI (1. turda yeşil) |
+> | X14 | `offer` kilitsiz (denetçi) | adminresetoutbox.go | `TestResetOutbox_AnOfferRacingTheDrainNeverSendsOnAClosedQueue` (`-race`) | KIRMIZI (kapalı kanala gönderim; 1. turda yeşil) |
+> | X15 | yedek satır yazımı `contain` dışında (denetçi) | adminresetoutbox.go | `TestResetOutbox_ASecondFaultLeavesTheWorkerAlive` | KIRMIZI (ikili ölür; 1. turda yeşil) |
+> | X19 | kuyruk değerinde alıcı (denetçi) | adminresetoutbox.go | `TestEmailResetChannel_QueueAndBudgetLinesLogOnlyIds` | KIRMIZI (1. turda yeşil) |
+> | X19b | kuyruk satırına `to` anahtarı (denetçi) | adminresetoutbox.go | kuyruk-ve-bütçe testi | KIRMIZI (1. turda yeşil) |
+> | X20 | bütçe satırına olay ayrıntısı (denetçi) | adminreset.go | kuyruk-ve-bütçe testi | KIRMIZI (1. turda yeşil) |
+>
+> 69 satır: 66 KIRMIZI, 3 YEŞİL (M14b ve MY09 — sayılı sınır 7; MY06 — sayılı sınır 11).
+>
+> **Kaçış denemeleri (öz denetim; her biri bir testle ölçüldü):**
+> 1. Tek hesaba eşzamanlı 20 istek (20 adres), kuyruk boş / kapalı / dolu → bir sayfa, 10 + 1.
+> 2. Tek hesaba 40 eşzamanlı yedek satır (100 koşu) ve işçiyle yarışan 60 grant (30 koşu) → tam bütçe.
+> 3. Bir linkin 40 eşzamanlı reddi (100 koşu) → 10 + 1.
+> 4. Kuyruk tam doluyken kapanış → 33 satırın hepsi yazım payında.
+> 5. Röle bağlantıyı kabul edip hiç selamlamıyor → `timeout`, 1 satır.
+> 6. TLS el sıkışmasında takılma → `timeout`, 1 satır.
+> 7. 4xx (iki kez 451) → `throttled 451`; 5xx (RCPT 550, veri sonu 554, AUTH 535).
+> 8. Gönderim panik → `undelivered`, işçi yaşar; satırdan sonra panik → ikinci satır yok; gönderim
+>    ve audit yazıcısı birlikte panik → işçi yaşar.
+> 9. İstek bağlamının iptali (gönderim uçuştayken; kuyruk kapanırken/doluyken) → gönderim tamamlanır
+>    ya da yedek satır yazılır.
+> 10. Boşaltmanın kesmesi uçuştaki gönderimi iptal eder; bekleyenler gönderilmez.
+> 11. Birden çok hesaba çözülen adres → hesap başına bir ileti, kendi linki, ad yok.
+> 12. Log'da adres sızıntısı: büyük harfli adres, link, base64 link röle metninde → log'da yok;
+>     kuyruk ve bütçe satırları dahil anahtar kümesi kapalı.
+> 13. 250 yanıtı token'ı id içinde yansıtıyor → `message_id=""`.
+> 14. Zaman ölçümünde sızıntı: 2 s'lik kanal/röle → medyanlar tabanın ≤ 1,8 ms üstünde.
+> 15. Satırda ASCII dışı adres → `invalid_address`, röle aranmaz.
+> 16. Linkin kalan ömrü 1 dakikanın altında → render reddi, gönderim yok.
+> 17. Geçersiz `TAPPA_BASE_URL` ve nil gönderici → açılışta red.
+> 18. Boşaltma başladıktan sonra gelen istek → senkron `undelivered` (`closing`).
+> 19. 30 sunum bir `Drain`'le yarışır (200 koşu, `-race`) → kapalı kuyruğa gönderim yok.
+> 20. Boşaltma bütçesi bir satır yazılırken doldu → satır bırakılır, işçi ≤ 1 s'de biter;
+>     ardından gelen isteğin satırı yine yazılır.
+> 21. Bitmiş durdurucuyla kurulan bağlam → dönerken bitmiş.
+> 22. Gerçek ikili `email` ile açılış + SIGTERM → çıkış 0, kimlik baytı yok.
+> 23. Kapanışta uçuşta istek + takılı gönderim → dinleyici ≈0,2 ms'de kapalı, toplam 2,05–2,12 s.
+> 24. Grant ve bütçe satırlarının istek kimliğini kaybetmesi → ölçülen sekiz satırın hepsinde
+>     kimlik var, `SendError` dalı ve kanalın başarı satırı dahil (3. tur).
+> 25. Tek adresten aynı anda 100 istek / 100 gönderim / bir linkin 160 sunumu (her biri 200 koşu,
+>     istekler önceden kurulu) → tam 20 / tam 10 / tam 60 (3. tur).
+>
+> **Sayılı sınırlar (EM-5A — ADR 0022 *"EM-5A notu"*nun listesiyle aynı):**
+> 1. Gerçek röle (SES) ölçülmedi — EM-5B; bütün ölçümler test içi röleye karşı.
+> 2. Tek işçi: kuyruk dolarken bir grant'ın gönderimi en kötü durumda dakikalarca (32 × 15 s)
+>    gecikebilir; e-postanın ömür ifadesi bunu yansıtır, 1 dakikanın altı gönderilmez.
+> 3. Audit yazıcısının içindeki panik 0 ya da 1 satır bırakır.
+> 4. Bütçeler tek adımdır (`TryCharge`); kalan, M7-04'ün bütçe sınırlarıdır: sabit pencere (sınırda
+>    2× patlama), süreç içi ve süreç başına sayaç, 100 000 anahtarda açık-yönlü unutma. Aynı
+>    iki-adım deseni sıfırlama akışının dışındaki bütçelerde (giriş, aktivasyon, kayıt) durur —
+>    kapsam dışı, sayıldı.
+> 5. Kuyruk-dolu ve panik log satırlarının kendi bütçesi yok; hacim adres başına istek bütçesiyle
+>    sınırlı, dağıtık saldırganda sınırsız.
+> 6. Boşaltma bütçesi biterse yazılmakta olan satırlar bırakılır ve loglanır.
+> 7. Kapanış testinin yakalamadıkları: `run()`'da dizi işlevinin dışına eklenen bekleme; dizi
+>    içinde Shutdown'dan ÖNCE 300 ms'lik ret sınırından kısa bekleme (MY09, 250 ms yeşil; MY10,
+>    400 ms kırmızı); Shutdown başladıktan sonra dizi içinde 600 ms'den kısa ek bekleme (M14b
+>    ölçüldü); testin kurmadığı bir koşulda ödenen bekleme.
+> 8. Kayıtlı bir adrese gerçek ikiliden gönderim koşulmadı (yönetici fikstürü + güvenilir röle
+>    gerekir) — EM-5B.
+> 9. §9 devre kesicisi yok (sapma, devir; EM-5B önkoşulu).
+> 10. Zaman testleri 50 ms'lik bant; ölçülen medyanlar tabanın en çok 1,8 ms üstünde (yük 4–9, tam
+>     `internal/handler` `-race` koşusu dahil), kararsızlık görülmedi; daha ağır makinede ölçülmedi.
+> 11. `deliver`'daki `defer cancelSend()` hiçbir testle pinli değil (MY06 — kaldırılması yeşil
+>     kaldı). Yalnız panik eden bir gönderimde iş görür: o olmadan o gönderimin zamanlayıcısı
+>     `resetSendGrace`'e (15 s), `sendsStopped` üzerindeki durdurma kancası boşaltmaya dek yaşar —
+>     panik başına tutulan bellek; kaybolan ya da yanlış bir satır değil (panik satırı ve
+>     `undelivered` satırı yine yazılır).
+> 12. **Kuyruk-akıbeti numaralandırma kanalı** (ORTA, ölçülmedi; güvenlik denetimi, 4. tur).
+>     Kuyruk tek, FIFO ve tek işçilidir; bütün istekçiler onu paylaşır. Bir istekçinin **kendi**
+>     grant'ının akıbeti önündeki grant sayısına bağlıdır: gönderim anı (`Date` başlığı gönderimde
+>     yazılır — `internal/mail`), e-postadaki kalan süre (`ValidFor = ExpiresAt − now`, gönderim
+>     anında — `resetmail.go`) ve kuyruk doluyken kendi tenant'ına düşen `undelivered` satırı
+>     (`dispatch`). Önündeki grant sayısı önceki isteklerin kayıtlı bir adrese çözülüp
+>     çözülmediğine bağlıdır; kendi yönetici hesabı ve posta kutusu olan biri (kayıt herkese
+>     açık — herhangi bir müşteri) kayıt bilgisini **dolaylı** okuyabilir. İddia E yalnız yanıtı
+>     kapsar; `adminreset.go`'nun *"does not tell anyone whether an address is registered"*
+>     cümlesi yanıtla daraltıldı. **EM-5B önkoşulu** (Devirler).
+> 13. **Alıcı başına gönderim tavanı yok** (ORTA; güvenlik denetimi, 4. tur). Hesap bütçesi audit
+>     **satırlarını** sınırlar, gönderimleri değil (satır gönderimden sonra yazılır; bütçe dışındaki
+>     grant yine gönderilir — `recordForAdmin`). Tek bir alıcıya giden hacmi yalnız **kaynak adres
+>     başına** istek bütçesi sınırlar (`adminResetRequestLimit`); tek işçi bütün gönderimleri
+>     birlikte sınırlar, bir alıcının payını değil; dağıtık bir kaynakta sınır yoktur. Planlanan §9
+>     devre kesicisi (EM-7) **süreç geneli** bir tavandır: tek alıcıda yoğunlaşan bir bombayı
+>     **durdurmaz**, tetiklendiğinde bütün tenant'ların sıfırlamasını durdurur — bombayı bir kurtarma
+>     kesintisine çevirir. ADR ana listesinin sınır 6'sının ve *Karar verilmedi*'deki maddenin bu
+>     akıştaki karşılığı. **EM-5B önkoşulu** (Devirler).
+> 14. **Kuyruk doluyken yedek yolun senkron audit yazımı ölçülmedi** (DÜŞÜK). Kuyruk bir grant'ı
+>     reddedince satırı istek kendisi, `done()`'dan (tabanın bitişinden) **önce** yazar — ve yalnız
+>     kayıtlı adreste (kayıtsız adresin grant'ı yoktur), en çok `MaxCandidates` (8) grant için.
+>     Yazım tabanın (250 ms) altında kaldığı sürece fark yanıtta görünmez; gerçek Postgres'le, tam
+>     pencerede ve kuyruk doluyken **hiç ölçülmedi** (tam-kuyruk testi sahte izle ölçer).
+> 15. **`ValidFor` saat kaymasında linkin gerçek ömründen uzun olabilir** (DÜŞÜK). `ExpiresAt`
+>     uygulamanın saatiyle basılır (`internal/adminauth/reset.go`, `r.now().Add(ttl)`), süre dolumunu
+>     ise veritabanının `now()`'ı uygular (`db/queries/passwordresets.sql`); e-postadaki süre
+>     gönderimde uygulamanın saatiyle hesaplanır. Veritabanının saati ilerideyse e-posta linkin
+>     kalan ömründen fazlasını yazar (fark kadar). Ölçülmedi.
+> 16. **İstek yolunun kendi log satırları `request_id` taşımaz** (DÜŞÜK). `*Context` olmadan
+>     yazılırlar, yani httpx'in sarmalayıcısı kimliği ekleyemez; istek-kimliği testi bunları
+>     ölçmez (*"başka satırlar ölçülmedi"*, İddia F). Adlarıyla (`adminreset.go`): adres bütçesi
+>     *"panel recovery rate limited"* `scope=address` · *"panel recovery: issuing failed"* ·
+>     kayıtsız adresin *"panel recovery refused"* (`no active admin for that address`) ·
+>     `logUndeliverableAttempt`'in *"panel recovery refused"* (`a recovery link was presented…`) ·
+>     `beginPost`'un *"panel recovery refused: not same-origin"* ve *"… csrf mismatch"*; aynı
+>     biçimde yeni-parola yolunun satırları — *"panel recovery rate limited"* `scope=submit`,
+>     *"panel recovery completed"*, *"panel recovery: spending the link failed"*, *"panel recovery
+>     refused"* (`link did not resolve` ve `link resolved but could not be…`), yolun kendi
+>     origin/csrf satırları — iki *"minting the csrf value failed"* ve iki render satırı.
+>
+> **Devirler:**
+> - **EM-5B:** yukarıdaki satır ve önkoşulu + ADR *"EM-5A notu"*nun devir listesi.
+> - **EM-7:** davet kanalı + `unbuiltDelivery`'nin davet satırı; §9'un paylaşılan devre kesicisi
+>   ve *"kesici açıkken sıfırlama sonucu"*.
+> - **EM-9:** üçüncü mektup; bu kuyruğu kullanabilir.
+> - **Bütçeler (kapsam dışı gözlem):** giriş, aktivasyon ve kayıt akışlarının *"`Allowed`, sonra
+>   `Charge`"* çiftleri aynı yarış sınıfındadır; `TryCharge` hazır, geçiş ayrı bir kart.
+
 ### Kullanıcının dış adımları (EM-2 ile paralel başlar; sıralı)
 1. AWS hesabı: root için MFA, günlük kullanım için ayrı yönetici kullanıcı, fatura alarmı (~$5).
 2. SES `eu-central-1` → Identities → Domain `taptime.mt`: Easy DKIM (RSA 2048); Custom MAIL FROM

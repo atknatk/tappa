@@ -90,6 +90,11 @@ func (f *fakeResets) calls() (issue, consume int) {
 }
 
 // recordingChannel is a ResetChannel that keeps what it was handed.
+//
+// ITS DELAY HONOURS THE CONTEXT, like the real transport (internal/mail ends a
+// conversation when its context ends): the outbox's shutdown drain cancels a send in
+// flight, and a fake that slept through that would measure a channel the product
+// does not have.
 type recordingChannel struct {
 	mu        sync.Mutex
 	delivered []ResetDelivery
@@ -97,13 +102,19 @@ type recordingChannel struct {
 	err       error
 }
 
-func (c *recordingChannel) DeliverReset(_ context.Context, d ResetDelivery) error {
+func (c *recordingChannel) DeliverReset(ctx context.Context, d ResetDelivery) error {
 	c.mu.Lock()
 	delay, err := c.delay, c.err
 	c.delivered = append(c.delivered, d)
 	c.mu.Unlock()
 	if delay > 0 {
-		time.Sleep(delay)
+		t := time.NewTimer(delay)
+		defer t.Stop()
+		select {
+		case <-t.C:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
 	return err
 }
@@ -138,15 +149,43 @@ func grantFor(recipient string) adminauth.ResetGrant {
 // newResetRouter wires the REAL handler with the REAL budgets, so a test drives what
 // production drives (the M5-04 lesson: a test that builds its own limiter measures
 // its own limiter).
+//
+// With a channel it also starts the REAL outbox worker, so sends happen after the
+// response, exactly as in production: a test that reads what the channel or the trail
+// received must drain first (drain, below). The cleanup drains whatever a test left.
 func newResetRouter(t *testing.T, resets panelResets, mail ResetChannel, trail *fakeTrail) (http.Handler, *AdminReset) {
 	t.Helper()
 	h, err := NewAdminReset(resets, mail, trail, adminTestConfig(), slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("NewAdminReset: %v", err)
 	}
+	stopWorkerAtCleanup(t, h)
 	r := chi.NewRouter()
 	h.Mount(r)
 	return r, h
+}
+
+// stopWorkerAtCleanup drains h's outbox when the test ends, so no worker outlives it.
+func stopWorkerAtCleanup(t *testing.T, h *AdminReset) {
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := h.Drain(ctx); err != nil {
+			t.Errorf("the outbox did not drain at cleanup: %v", err)
+		}
+	})
+}
+
+// drain empties h's outbox — every accepted grant has its outcome row — so what the
+// channel and the trail received is complete and race-free to read. It is the
+// production Drain with a generous budget; the outbox takes no grant afterwards.
+func drain(t *testing.T, h *AdminReset) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := h.Drain(ctx); err != nil {
+		t.Fatalf("the outbox did not drain: %v", err)
+	}
 }
 
 // requestReset drives the whole request form: GET for the synchronizer token, then
@@ -180,10 +219,11 @@ func TestAdminReset_RegisteredAndUnregisteredAreByteIdentical(t *testing.T) {
 		known: {grantFor(known)},
 	}}
 	mail := &recordingChannel{}
-	router, _ := newResetRouter(t, resets, mail, &fakeTrail{})
+	router, h := newResetRouter(t, resets, mail, &fakeTrail{})
 
 	registered := requestReset(t, newBrowser(t, router), known)
 	unregistered := requestReset(t, newBrowser(t, router), "nobody@unregistered.example.test")
+	drain(t, h)
 
 	if registered != unregistered {
 		t.Errorf("the two answers differ.\nREGISTERED:\n%s\n\nUNREGISTERED:\n%s", registered, unregistered)
@@ -297,6 +337,7 @@ func TestAdminReset_NoResponseCarriesTheLink(t *testing.T) {
 	csrf := csrfFrom(t, bodies["GET "+adminResetPath])
 	sent := b.do(http.MethodPost, adminResetPath, url.Values{"csrf": {csrf}, "email": {known}})
 	bodies["POST "+adminResetPath] = htmlOf(t, sent)
+	drain(t, h)
 
 	delivered := mail.all()
 	if len(delivered) != 1 {
@@ -347,9 +388,10 @@ func TestAdminReset_DeliveryGoesToTheAddressOnTheRow(t *testing.T) {
 	g := grantFor(onTheRow)
 	resets := &fakeResets{grantsFor: map[string][]adminauth.ResetGrant{typed: {g}}}
 	mail := &recordingChannel{}
-	router, _ := newResetRouter(t, resets, mail, &fakeTrail{})
+	router, h := newResetRouter(t, resets, mail, &fakeTrail{})
 
 	requestReset(t, newBrowser(t, router), typed)
+	drain(t, h)
 
 	delivered := mail.all()
 	if len(delivered) != 1 {
@@ -413,7 +455,7 @@ func TestAdminReset_AFailedDeliveryIsRecordedAndNotShown(t *testing.T) {
 	known := "owner@registered.example.test"
 	resets := &fakeResets{grantsFor: map[string][]adminauth.ResetGrant{known: {grantFor(known)}}}
 	trail := &fakeTrail{}
-	router, _ := newResetRouter(t, resets, &recordingChannel{err: errors.New("smtp: nope")}, trail)
+	router, h := newResetRouter(t, resets, &recordingChannel{err: errors.New("smtp: nope")}, trail)
 
 	failed := requestReset(t, newBrowser(t, router), known)
 
@@ -421,6 +463,7 @@ func TestAdminReset_AFailedDeliveryIsRecordedAndNotShown(t *testing.T) {
 	// an address that HAS an administrator, which answers the enumeration question
 	// exactly.
 	ok := requestReset(t, newBrowser(t, router), "nobody@unregistered.example.test")
+	drain(t, h)
 	if failed != ok {
 		t.Error("a failed delivery produced a different page from an unregistered address, " +
 			"which tells a stranger that the address is registered")
@@ -785,6 +828,8 @@ func TestAdminResetConstants_ShippedValuesArePinned(t *testing.T) {
 			"audit_log only; it never refuses a request (see adminAccountLimit)"},
 		{"adminResetUnknownLimit", adminResetUnknownLimit, 60,
 			"process log only; ratelimit.go's number for the same job"},
+		{"resetOutboxSize", resetOutboxSize, 32,
+			"four full ResetWindows; a full outbox's 33 rows were measured to fit ResetDrainWriteReserve (adminresetoutbox.go)"},
 	} {
 		if tc.got != tc.want {
 			t.Errorf("%s = %d, want %d.\nRe-derive it rather than editing this line: %s",
@@ -797,6 +842,21 @@ func TestAdminResetConstants_ShippedValuesArePinned(t *testing.T) {
 			"and every millisecond is a held goroutine. The measurement and its three arms "+
 			"are at resetRequestFloor; do not restate a multiple here that drifts from it.",
 			resetRequestFloor)
+	}
+	// The outbox's clocks (M10 EM-5, ADR 0022 §6): adminresetoutbox.go argues each one.
+	for _, tc := range []struct {
+		name      string
+		got, want time.Duration
+	}{
+		{"resetSendGrace", resetSendGrace, 15 * time.Second},
+		{"resetAuditGrace", resetAuditGrace, 5 * time.Second},
+		{"ResetDrainGrace", ResetDrainGrace, 3 * time.Second},
+		{"ResetDrainWriteReserve", ResetDrainWriteReserve, time.Second},
+	} {
+		if tc.got != tc.want {
+			t.Errorf("%s = %v, want %v. Re-derive it at its declaration rather than editing this line.",
+				tc.name, tc.got, tc.want)
+		}
 	}
 	if adminauth.ResetWindow != adminauth.MaxCandidates {
 		t.Errorf("adminauth.ResetWindow = %d and MaxCandidates = %d; a recovery link outside "+
@@ -858,7 +918,7 @@ func TestAdminReset_ACompletedRecoveryIsNeverSilenced(t *testing.T) {
 		},
 	}
 	trail := &fakeTrail{}
-	router, _ := newResetRouter(t, resets, &recordingChannel{}, trail)
+	router, h := newResetRouter(t, resets, &recordingChannel{}, trail)
 
 	// STEP 1 — burn the account budget from the public form. One MORE than the
 	// ceiling, which is what makes the suppression row appear, and still well under
@@ -872,6 +932,9 @@ func TestAdminReset_ACompletedRecoveryIsNeverSilenced(t *testing.T) {
 				"spent by SERVED requests, not by refused ones", i, rec.Code)
 		}
 	}
+	// The rows are written by the outbox's worker after each response; draining makes
+	// them all present. Step 2 needs no outbox: spending a link is Submit's.
+	drain(t, h)
 	if n := trail.count(ActionAdminResetRequested); n != adminResetAccountLimit {
 		t.Fatalf("%d requested row(s), want %d — the account budget did not trip and the "+
 			"suppression this test is about never happened", n, adminResetAccountLimit)
@@ -920,12 +983,18 @@ func TestAdminReset_ARefusedLinkIsBudgetedOnTheLinkAndNotOnTheAccount(t *testing
 			consumeResolved: resolved,
 		}
 		trail := &fakeTrail{}
-		router, _ := newResetRouter(t, resets, &recordingChannel{}, trail)
+		router, h := newResetRouter(t, resets, &recordingChannel{}, trail)
 
 		b := newBrowser(t, router)
 		csrf := csrfFrom(t, htmlOf(t, b.do(http.MethodGet, adminResetPath, nil)))
 		for i := 0; i < adminResetAccountLimit+1; i++ {
 			b.do(http.MethodPost, adminResetPath, url.Values{"csrf": {csrf}, "email": {victim}})
+		}
+		// The budget is spent by the worker's rows, after the responses.
+		drain(t, h)
+		if n := trail.count(ActionAdminResetLimited); n != 1 {
+			t.Fatalf("%d rate_limited row(s) after the flood, want 1 — the account budget was not "+
+				"spent, so this subtest would not be testing what it claims", n)
 		}
 
 		submitLink(t, newBrowser(t, router), "qCq0TQlXqhQ0T2vJmMHhVh2mSpXk4rKzM0f7YyQvCJ8", "a-good-enough-password")
@@ -1131,6 +1200,7 @@ func newResetRouterLogging(t *testing.T, resets panelResets, mail ResetChannel, 
 	if err != nil {
 		t.Fatalf("NewAdminReset: %v", err)
 	}
+	stopWorkerAtCleanup(t, h)
 	r := chi.NewRouter()
 	h.Mount(r)
 	return r
@@ -1328,14 +1398,21 @@ func TestAdminReset_ADeliveryFailureNeverLogsTheChannelsText(t *testing.T) {
 	g := grantFor(recipient)
 	resets := &fakeResets{grantsFor: map[string][]adminauth.ResetGrant{recipient: {g}}}
 
+	// ONE HANDLER PER ERROR SHAPE (M10 EM-5): the send happens on the outbox's worker,
+	// so the channel is fixed for a handler's life and the log is read after a drain.
 	var logged bytes.Buffer
-	h, err := NewAdminReset(resets, nil, &fakeTrail{}, adminTestConfig(),
-		slog.New(slog.NewTextHandler(&logged, &slog.HandlerOptions{Level: slog.LevelDebug})))
-	if err != nil {
-		t.Fatalf("NewAdminReset: %v", err)
+	newFlow := func(ch ResetChannel) *AdminReset {
+		h, err := NewAdminReset(resets, ch, &fakeTrail{}, adminTestConfig(),
+			slog.New(slog.NewTextHandler(&logged, &slog.HandlerOptions{Level: slog.LevelDebug})))
+		if err != nil {
+			t.Fatalf("NewAdminReset: %v", err)
+		}
+		stopWorkerAtCleanup(t, h)
+		return h
 	}
-	link := g.Issued.Link(h.linkBase)
-	token := strings.TrimPrefix(link, h.linkBase+"?t=")
+	linkBase := strings.TrimRight(adminTestConfig().BaseURL, "/") + adminResetNewPath
+	link := g.Issued.Link(linkBase)
+	token := strings.TrimPrefix(link, linkBase+"?t=")
 	if token == link || token == "" {
 		t.Fatalf("could not take the token out of %q", link)
 	}
@@ -1359,13 +1436,14 @@ func TestAdminReset_ADeliveryFailureNeverLogsTheChannelsText(t *testing.T) {
 		}
 	}
 
-	router := chi.NewRouter()
-	h.Mount(router)
 	var got string
 	for name, channelErr := range shapes {
 		logged.Reset()
-		h.mail = &recordingChannel{err: channelErr}
+		h := newFlow(&recordingChannel{err: channelErr})
+		router := chi.NewRouter()
+		h.Mount(router)
 		requestReset(t, newBrowser(t, router), recipient)
+		drain(t, h)
 		got = logged.String()
 		if !strings.Contains(got, "delivery failed") {
 			t.Fatalf("%s: the failure was not logged at all, so §7 is broken in the other "+

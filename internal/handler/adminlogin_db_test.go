@@ -87,11 +87,31 @@ type panelHarness struct {
 	// this harness rather than on one of its own for the reason the activation flow
 	// is: the loop a person actually walks crosses two features — sign in, discover
 	// you cannot, recover, sign in again — and a harness that only serves half of it
-	// can only measure half of it.
+	// can only measure half of it. It is nil when the harness was built with another
+	// channel (newPanelHarnessWithResetChannel).
 	mail *recordingChannel
+	// reset is the recovery flow itself, so a test can drain its outbox (M10 EM-5:
+	// the send happens on a worker, after the response).
+	reset *AdminReset
 }
 
 func newPanelHarness(t *testing.T) *panelHarness {
+	t.Helper()
+	return newPanelHarnessWithResetChannel(t, nil)
+}
+
+// drainReset empties the recovery flow's outbox: every link handed over has been
+// sent (or recorded undelivered) and its audit row written.
+func (p *panelHarness) drainReset(t *testing.T) {
+	t.Helper()
+	drain(t, p.reset)
+}
+
+// newPanelHarnessWithResetChannel is newPanelHarness with the recovery flow wired to
+// the channel channel builds from the harness's own configuration (its BaseURL is the
+// test server's address, which a channel may need to validate). nil means the
+// recordingChannel every other test uses.
+func newPanelHarnessWithResetChannel(t *testing.T, channel func(t *testing.T, cfg *config.Config) ResetChannel) *panelHarness {
 	t.Helper()
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
@@ -247,11 +267,20 @@ func newPanelHarness(t *testing.T) *panelHarness {
 	if err != nil {
 		t.Fatalf("adminauth.NewResets: %v", err)
 	}
-	ph := &panelHarness{mail: &recordingChannel{}}
-	resetFlow, err := NewAdminReset(resets, ph.mail, trail, cfg, slog.New(slog.DiscardHandler))
+	ph := &panelHarness{}
+	var resetChannel ResetChannel
+	if channel == nil {
+		ph.mail = &recordingChannel{}
+		resetChannel = ph.mail
+	} else {
+		resetChannel = channel(t, cfg)
+	}
+	resetFlow, err := NewAdminReset(resets, resetChannel, trail, cfg, slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatalf("NewAdminReset: %v", err)
 	}
+	stopWorkerAtCleanup(t, resetFlow)
+	ph.reset = resetFlow
 	resetFlow.Mount(r)
 
 	jar, err := cookiejar.New(nil)

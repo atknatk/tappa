@@ -56,10 +56,11 @@ import (
 // without them.
 //
 // 🔴 THREE OF THIS FEATURE'S FIVE ACCEPTANCE CRITERIA — AND TWO OF ITS DEFENCES —
-// ARE UNREACHABLE IN THE SHIPPED
-// CONFIGURATION, AND THAT SENTENCE BELONGS HERE RATHER THAN SPREAD ACROSS FOUR FILES.
-// With TAPPA_RESET_DELIVERY=none — today's only legal value, because Q02 is
-// unanswered — no link is ever issued, so:
+// ARE UNREACHABLE WHILE THE DEPLOYMENT RUNS WITH TAPPA_RESET_DELIVERY=none, AND THAT
+// SENTENCE BELONGS HERE RATHER THAN SPREAD ACROSS FOUR FILES. Since M10 EM-5 the build
+// implements "email" (emailResetChannel, ADR 0022), but the value a deployment runs
+// with is its ConfigMap's — deploy/k8s/05-config.yaml, where switching it is a deploy
+// decision (ADR 0022 §12). With "none" no link is ever issued, so:
 //
 //	criterion 1, harm (a)   the recovery-denial the request budget bounds cannot
 //	                        happen: nothing is minted, so nothing is retired.
@@ -76,11 +77,14 @@ import (
 //	                        only to the address on the administrator's own row" is
 //	                        vacuously true in production.
 //
-// Their evidence is therefore tests — fakes in adminreset_test.go, and the
-// panelHarness's recordingChannel against real Postgres in adminreset_db_test.go —
-// and NOT observation of the running product. Criteria 4 and 5 are live either way:
-// the *Params rule is a scan over source, and the identical-answer rule is exercised
-// by the short-circuited POST that every visitor gets today.
+// Their evidence is therefore tests — fakes in adminreset_test.go, the
+// panelHarness's recordingChannel against real Postgres in adminreset_db_test.go, and
+// (since EM-5) the e-mail channel against an in-test SMTP server in
+// resetmail_test.go and adminreset_db_test.go — and NOT observation of the running
+// product against a real relay, which is EM-5B's. Criteria 4 and 5 are live either
+// way: the *Params rule is a scan over source, and the identical-answer rule is
+// exercised by the short-circuited POST that every visitor gets on a "none"
+// deployment.
 //
 // ⚠️ TWO MORE THINGS ARE DEAD IN THE SHIPPED CONFIGURATION AND THIS LEDGER MISSED
 // THEM, WHICH IS WORTH ADDING BECAUSE THE LEDGER'S ONLY JOB IS TO BE COMPLETE. Both
@@ -102,13 +106,25 @@ import (
 // exactly that day.
 //
 // THIS IS COUNTED, NOT CLAIMED CLOSED. It is the second stopping rule's shape: a
-// measured gap is safer than a closure nobody verified. Whoever answers Q02 turns all
-// three on with one case in main.go's switch, and inherits the obligation to re-run
-// the audits that were done against fakes.
+// measured gap is safer than a closure nobody verified. EM-5 added the case to
+// main.go's switch (ResetDeliveryEmail) and re-ran the audits against an in-test SMTP
+// server; switching the ConfigMap to "email" turns all three on, and re-running them
+// against the REAL relay is EM-5B's obligation (ADR 0022 §6.7).
 //
 // WHAT THIS FLOW DELIBERATELY DOES NOT DO:
 //
-//   - It does not tell anyone whether an address is registered. See Request.
+//   - It does not tell anyone whether an address is registered THROUGH ITS RESPONSE:
+//     the status, the body and the time to answer are the same for every address
+//     (see Request; the time is measured with the relay taking 2 s). THAT IS THE
+//     WHOLE MEASURED CLAIM. Not claimed, because nothing measured it: the delivery
+//     queue is one FIFO with one worker shared by every requester, so when a
+//     requester's OWN e-mail is sent (its Date header), the time left it states
+//     (ValidFor is computed at send time) and whether a full queue records it
+//     undelivered in their own tenant all depend on how many grants were ahead of it
+//     — and that depends on whether earlier requests resolved to registered
+//     addresses. Anyone with an admin account and a mailbox of their own (signup is
+//     public) can read that indirectly. ADR 0022's EM-5A note counts it (limit 12)
+//     and makes it a precondition of switching the ConfigMap to "email" (EM-5B).
 //   - It does not sign anybody in. A reset token permits exactly one state
 //     transition and grants no session (ADR 0015); the successful path ends on the
 //     sign-in form, which is also what Consume's own revocation makes necessary —
@@ -123,7 +139,8 @@ type AdminReset struct {
 	// 🔴 NIL IS A REAL, NAMED STATE AND NOT AN OVERSIGHT — this is the one dependency
 	// in internal/handler whose constructor does not refuse it, so it is argued
 	// rather than assumed. Nil means "this deployment has no way to send the link",
-	// which is TODAY'S SHIPPED TRUTH (config.ResetDelivery, Q02).
+	// which is what TAPPA_RESET_DELIVERY=none — the shipped ConfigMap's value —
+	// builds (config.ResetDelivery; cmd/tappa's switch).
 	//
 	// WHY IT IS A NIL FIELD RATHER THAN A SECOND BOOLEAN OR A SECOND METHOD ON THE
 	// INTERFACE: the fact "can this deployment deliver?" has to be readable BEFORE
@@ -133,6 +150,10 @@ type AdminReset struct {
 	// has paid for repeatedly.
 	mail  ResetChannel
 	audit auditRecorder
+	// outbox carries each minted grant from the request to the one worker that sends
+	// it (adminresetoutbox.go, ADR 0022 §6). It exists exactly when mail does: a
+	// deployment that cannot deliver mints nothing, so it has nothing to hand over.
+	outbox *resetOutbox
 	// cookies writes the two short-lived recovery cookies (the synchronizer token,
 	// and the one that carries the link's token out of the URL).
 	cookies adminCookies
@@ -180,18 +201,28 @@ type panelResets interface {
 // Recipient IS READ FROM THE ADMINISTRATOR'S OWN ROW (adminauth.ResetGrant), never
 // from the submitted form, which is the acceptance criterion "link yalnızca
 // yöneticinin KENDİ satırındaki adrese gider" made structural.
+//
+// ResetID is the reset ROW's id — never the token, never its hash. A channel may
+// log it next to its own receipt (ADR 0022 §10), which is what joins a relay's
+// message id to this flow's audit row.
 type ResetDelivery struct {
 	Recipient string
 	Link      string
 	ExpiresAt time.Time
+	ResetID   uuid.UUID
 }
 
 // ResetChannel delivers a reset link to the administrator it belongs to.
 //
 // ONE METHOD, DECLARED AT THE CONSUMER (§7), for the reason internal/invite.Channel
 // gives: the producer of a delivery mechanism does not get to define what this flow
-// needs from it. And, unlike invites, there is no interim implementation at all —
-// see config.ResetDelivery for why showing the link to the requester is not one.
+// needs from it. The one implementation is emailResetChannel (resetmail.go, M10
+// EM-5). Unlike invites there is no interim one — see config.ResetDelivery for why
+// showing the link to the requester is not one.
+//
+// IT IS CALLED BY THE OUTBOX'S WORKER, NEVER BY A REQUEST (adminresetoutbox.go), with
+// a context that the request's end does not cancel and that resetSendGrace and the
+// shutdown drain do. An implementation must return when that context ends.
 type ResetChannel interface {
 	DeliverReset(ctx context.Context, d ResetDelivery) error
 }
@@ -286,8 +317,12 @@ const (
 // EVERY DEPENDENCY IS REQUIRED EXCEPT THE CHANNEL. A nil recorder would silently drop
 // the §4.6 trail this whole flow is judged on, and a nil Resets would put a form on
 // screen whose submit panics — the M5-04 shape (a capability delivered, tested and
-// DEAD in the wired product). The channel is the one thing this deployment genuinely
-// does not have; see the field.
+// DEAD in the wired product). The channel is the one thing a "none" deployment
+// genuinely does not have; see the field.
+//
+// WITH A CHANNEL, THIS STARTS THE OUTBOX'S ONE WORKER GOROUTINE, and the caller owns
+// stopping it: Drain at shutdown (cmd/tappa's shutdown sequence). Until Drain, the
+// worker waits for grants and costs nothing.
 func NewAdminReset(resets panelResets, mail ResetChannel, rec auditRecorder, cfg *config.Config, log *slog.Logger) (*AdminReset, error) {
 	switch {
 	case resets == nil:
@@ -300,7 +335,7 @@ func NewAdminReset(resets panelResets, mail ResetChannel, rec auditRecorder, cfg
 	if log == nil {
 		log = slog.Default()
 	}
-	return &AdminReset{
+	h := &AdminReset{
 		resets:         resets,
 		mail:           mail,
 		audit:          rec,
@@ -313,7 +348,12 @@ func NewAdminReset(resets panelResets, mail ResetChannel, rec auditRecorder, cfg
 		linkLimiter:    newLimiter(adminResetLinkLimit, adminResetLinkPeriod),
 		unknownLimiter: newLimiter(adminResetUnknownLimit, adminResetUnknownPeriod),
 		log:            log,
-	}, nil
+	}
+	if mail != nil {
+		h.outbox = newResetOutbox(resetOutboxSize)
+		go h.work()
+	}
+	return h, nil
 }
 
 // Mount registers the routes.
@@ -433,7 +473,10 @@ func (h *AdminReset) RequestPage(w http.ResponseWriter, r *http.Request) {
 //	                  can shed load from.
 //	delivery check    before resolution, so the undeliverable answer cannot depend on
 //	                  the address.
-//	resolve + issue + deliver
+//	resolve + issue + hand over
+//	                  minting is synchronous; the SEND is not — each grant goes to
+//	                  the outbox without blocking (adminresetoutbox.go), so the
+//	                  relay's time never reaches this response.
 //	floor             applied on EVERY exit below the budget check, including the
 //	                  ones that did nothing.
 func (h *AdminReset) Request(w http.ResponseWriter, r *http.Request) {
@@ -441,17 +484,18 @@ func (h *AdminReset) Request(w http.ResponseWriter, r *http.Request) {
 	if !h.beginPost(w, r, ip, "admin_reset_request") {
 		return
 	}
-	if !h.requestLimiter.Allowed(ip) {
-		// The refusal itself is charged (ratelimit.go's rule: a limiter whose own
-		// refusals are free is a cheaper way to reach the thing it protects).
-		if n := h.requestLimiter.Charge(ip); h.requestLimiter.FirstOverLimit(n) {
+	// ONE LOCKED STEP decides and charges (httpx.Limiter.TryCharge; M10 EM-5A): the
+	// refusal itself is charged, as before (ratelimit.go's rule: a limiter whose own
+	// refusals are free is a cheaper way to reach the thing it protects), and
+	// concurrent requests can no longer all read "allowed" before any of them charges.
+	if within, n := h.requestLimiter.TryCharge(ip); !within {
+		if h.requestLimiter.FirstOverLimit(n) {
 			h.log.Warn("panel recovery rate limited", "scope", "address", "ip", ip,
 				"limit", adminResetRequestLimit, "period", adminResetRequestPeriod.String())
 		}
 		h.problem(w, r, http.StatusTooManyRequests, problemResetTooMany)
 		return
 	}
-	h.requestLimiter.Charge(ip)
 
 	// FROM HERE EVERY EXIT PAYS THE FLOOR. It is armed after the budget check on
 	// purpose: a refused request must not be slower than a served one, and holding a
@@ -491,15 +535,14 @@ func (h *AdminReset) Request(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for _, g := range grants {
-		h.deliver(r.Context(), ip, g)
+		h.dispatch(r, ip, g)
 	}
 	if len(grants) == 0 {
 		// Unattributable: nothing resolved, so there is no tenant and audit_log's
 		// tenant_id is NOT NULL with an FK (00005). Logged WITHOUT the address, and
 		// bounded, so a flood of guesses cannot write a list of guessed addresses into
 		// the process log or fill a disk.
-		if h.unknownLimiter.Allowed(ip) {
-			h.unknownLimiter.Charge(ip)
+		if within, _ := h.unknownLimiter.TryCharge(ip); within {
 			h.log.Info("panel recovery refused", "reason", "no active admin for that address", "ip", ip)
 		}
 	}
@@ -510,7 +553,8 @@ func (h *AdminReset) Request(w http.ResponseWriter, r *http.Request) {
 	}))
 }
 
-// deliver hands ONE link to the channel and records what happened.
+// deliver hands ONE link to the channel and records what happened. Since M10 EM-5 it
+// runs on the outbox's worker (adminresetoutbox.go), never on a request.
 //
 // ORDER: deliver FIRST, then record. It is the OPPOSITE of
 // internal/invite.ManagerVisibleChannel's order, and the difference is what the row
@@ -519,21 +563,37 @@ func (h *AdminReset) Request(w http.ResponseWriter, r *http.Request) {
 // there is exactly one outcome per attempt: writing "requested" before the send would
 // mean a failed send needs a SECOND row correcting the first, in a table nothing can
 // delete from.
-func (h *AdminReset) deliver(ctx context.Context, ip string, g adminauth.ResetGrant) {
+//
+// TWO CONTEXTS, BOTH FROM base (the request's, without its cancellation): the send's,
+// bounded by resetSendGrace and ended by the shutdown drain, and the row's, bounded by
+// resetAuditGrace. Before EM-5 the two shared one context, so a send that spent the
+// whole budget took the row down with it (ADR 0022 §6.3).
+//
+// decided is set the moment the outcome row's write BEGINS: from there a panic must
+// not produce a second row (handle).
+func (h *AdminReset) deliver(base context.Context, ip string, g adminauth.ResetGrant, decided *bool) {
 	action := ActionAdminResetRequested
 	outcome := "ok"
 	reason := ""
-	if err := h.mail.DeliverReset(ctx, ResetDelivery{
+	sendCtx, cancelSend := h.outbox.sendContext(base)
+	// Deferred, so a send that panics still releases its timer and its stop hook.
+	defer cancelSend()
+	err := h.mail.DeliverReset(sendCtx, ResetDelivery{
 		Recipient: g.Recipient,
 		// Link IS the §4.7 secret. It is built here and passed straight on; it is
 		// never assigned to a named variable that a later edit might log, and it is
 		// never returned to the caller of this request.
 		Link:      g.Issued.Link(h.linkBase),
 		ExpiresAt: g.Issued.Reset.ExpiresAt,
-	}); err != nil {
+		ResetID:   g.Issued.Reset.ID,
+	})
+	// Released as soon as the send returns (the defer above covers only a panic): the
+	// row below must never run on the send's context.
+	cancelSend()
+	if err != nil {
 		action = ActionAdminResetUndelivered
 		outcome = "undelivered"
-		reason = "the recovery link could not be handed to the delivery channel"
+		reason = resetReasonSendFailed
 		// 🔴 THE CHANNEL'S ERROR TEXT IS NOT LOGGED, AND THE FIRST VERSION OF THIS LINE
 		// PASSED IT AS "err". The comment above it promised "NOT the address and NOT
 		// the link" and the promise did not survive that argument: a security audit
@@ -562,18 +622,45 @@ func (h *AdminReset) deliver(ctx context.Context, ip string, g adminauth.ResetGr
 		// WHAT IS LOGGED INSTEAD is a CLASSIFICATION: the failure happened, to which
 		// administrator, from which address, and the concrete Go type of the error. A
 		// type name cannot contain a token, so the leak is structurally impossible
-		// rather than filtered.
+		// rather than filtered. For the e-mail channel the classification has two more
+		// fields, and only these two: internal/mail.SendError's Class and SMTPCode —
+		// a type that carries no text by construction (ADR 0022 §3, §10).
 		//
 		// ⚠️ THE RESIDUAL, NAMED: the provider's own message — the thing an operator
 		// wants at the exact moment a customer says "the link never arrived" — is NOT
-		// in our log. That is the price, and it is paid to the right party: the CHANNEL
-		// is the only code that knows which parts of its own text are safe, and it
-		// already inherits the three obligations at adminauth.IssuedReset.Link. Whoever
-		// implements one for Q02 logs its own diagnostics under those obligations. The
-		// occurrence is never swallowed (§7): it is here, and it is an audit row.
-		h.log.Error("panel recovery: delivery failed", "ip", ip,
-			"admin_user_id", g.Issued.Reset.AdminUserID, "err_type", fmt.Sprintf("%T", err))
+		// in our log. That is the price, and it is paid to the right party: the
+		// relay's console holds it, reachable through the message id the channel logs
+		// on success (ADR 0022 §11). The occurrence is never swallowed (§7): it is
+		// here, and it is an audit row.
+		if class, code, ok := sendErrorClass(err); ok {
+			h.log.ErrorContext(base, "panel recovery: delivery failed", "ip", ip,
+				"admin_user_id", g.Issued.Reset.AdminUserID, "reset_id", g.Issued.Reset.ID,
+				"err_type", fmt.Sprintf("%T", err), "class", class, "smtp_code", code)
+		} else {
+			h.log.ErrorContext(base, "panel recovery: delivery failed", "ip", ip,
+				"admin_user_id", g.Issued.Reset.AdminUserID, "reset_id", g.Issued.Reset.ID,
+				"err_type", fmt.Sprintf("%T", err))
+		}
 	}
+	*decided = true
+	h.recordWorkerOutcome(base, g, action, outcome, reason)
+}
+
+// recordWorkerOutcome is recordOutcome on the WORKER's row context: resetAuditGrace,
+// and ended the moment the shutdown drain's whole budget is spent (the process is
+// about to close its pool).
+func (h *AdminReset) recordWorkerOutcome(base context.Context, g adminauth.ResetGrant, action, outcome, reason string) {
+	ctx, cancel := h.outbox.auditContext(base)
+	defer cancel()
+	h.recordOutcome(ctx, g, action, outcome, reason)
+}
+
+// recordOutcome writes a grant's ONE outcome row — requested or undelivered —
+// through the per-account audit budget, on the bounded context its caller made for
+// it (never the send's). Every path a grant can take ends here exactly once: deliver,
+// the full or closing outbox (dispatch, on the REQUEST's row context), the drain's
+// unsent tail (deliverJob) and a worker panic before the row (handle).
+func (h *AdminReset) recordOutcome(ctx context.Context, g adminauth.ResetGrant, action, outcome, reason string) {
 	h.recordForAdmin(ctx, g.Issued.Reset.TenantID, g.Issued.Reset.AdminUserID, audit.Event{
 		TenantID: g.Issued.Reset.TenantID,
 		ActorID:  ptr(g.Issued.Reset.AdminUserID),
@@ -729,15 +816,14 @@ func (h *AdminReset) Submit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !h.submitLimiter.Allowed(ip) {
-		if n := h.submitLimiter.Charge(ip); h.submitLimiter.FirstOverLimit(n) {
+	if within, n := h.submitLimiter.TryCharge(ip); !within {
+		if h.submitLimiter.FirstOverLimit(n) {
 			h.log.Warn("panel recovery rate limited", "scope", "submit", "ip", ip,
 				"limit", adminResetSubmitLimit, "period", adminResetSubmitPeriod.String())
 		}
 		h.problem(w, r, http.StatusTooManyRequests, problemResetTooMany)
 		return
 	}
-	h.submitLimiter.Charge(ip)
 
 	consumed, resolved, err := h.resets.Consume(r.Context(), adminauth.ParseResetToken(raw), chosen)
 	switch {
@@ -819,8 +905,7 @@ func (h *AdminReset) Submit(w http.ResponseWriter, r *http.Request) {
 // THE VISITOR GETS THE SAME SCREEN EITHER WAY.
 func (h *AdminReset) refused(w http.ResponseWriter, r *http.Request, ip string, resolved db.ResolvedPasswordReset) {
 	if resolved.TenantID == uuid.Nil {
-		if h.unknownLimiter.Allowed(ip) {
-			h.unknownLimiter.Charge(ip)
+		if within, _ := h.unknownLimiter.TryCharge(ip); within {
 			// Neither the submitted value nor its hash (§4.7). "link" rather than the
 			// word redline R7 matches inside a log call — activate.go's precedent.
 			h.log.Info("panel recovery refused", "reason", "link did not resolve", "ip", ip)
@@ -924,10 +1009,23 @@ type adminResetDetail struct {
 // adminAccountLimit's design and is needed here for a sharper version of the same
 // reason: this surface needs no credential at all, so an unbounded row per request
 // would be a write primitive into a named tenant's append-only table.
+//
+// ⚠️ IT BOUNDS ROWS, NOT SENDS. The row is written AFTER the send, so a grant past
+// this budget is still delivered; the only limit on how many e-mails one recipient
+// receives is the per-SOURCE-address request budget (the one worker bounds all sends
+// together, not one recipient's share), and a distributed source has none. There is
+// no per-recipient send ceiling (ADR 0022 EM-5A note, limit 13 — an EM-5B
+// precondition; the planned §9 breaker does not stop it).
 func (h *AdminReset) recordForAdmin(ctx context.Context, tenantID, adminUserID uuid.UUID, e audit.Event) {
 	key := adminUserID.String()
-	if !h.accountLimiter.Allowed(key) {
-		if n := h.accountLimiter.Charge(key); h.accountLimiter.FirstOverLimit(n) {
+	// ONE LOCKED STEP (httpx.Limiter.TryCharge): the outbox's worker and every
+	// request's fallback row can write for the same administrator at once, and with
+	// "Allowed, then Charge" they all read "allowed" first — measured: up to 24 rows
+	// against a budget of 10, and the rate_limited row lost. With one step exactly
+	// the budget is written, and the charge that crosses the line is a refused one.
+	within, n := h.accountLimiter.TryCharge(key)
+	if !within {
+		if h.accountLimiter.FirstOverLimit(n) {
 			h.record(ctx, audit.Event{
 				TenantID: tenantID,
 				ActorID:  ptr(adminUserID),
@@ -940,12 +1038,11 @@ func (h *AdminReset) recordForAdmin(ctx context.Context, tenantID, adminUserID u
 					SuppressedFrom: n,
 				},
 			})
-			h.log.Warn("panel recovery rate limited", "scope", "account",
+			h.log.WarnContext(ctx, "panel recovery rate limited", "scope", "account",
 				"admin_user_id", adminUserID)
 		}
 		return
 	}
-	h.accountLimiter.Charge(key)
 	h.record(ctx, e)
 }
 
@@ -969,8 +1066,11 @@ func (h *AdminReset) recordForAdmin(ctx context.Context, tenantID, adminUserID u
 // the writing stops.
 func (h *AdminReset) recordForLink(ctx context.Context, resolved db.ResolvedPasswordReset, e audit.Event) {
 	key := resolved.ID.String()
-	if !h.linkLimiter.Allowed(key) {
-		if n := h.linkLimiter.Charge(key); h.linkLimiter.FirstOverLimit(n) {
+	// One locked step, for recordForAdmin's reason: replays of one link from many
+	// addresses at once must not all read "allowed" before any of them charges.
+	within, n := h.linkLimiter.TryCharge(key)
+	if !within {
+		if h.linkLimiter.FirstOverLimit(n) {
 			h.record(ctx, audit.Event{
 				TenantID: resolved.TenantID,
 				ActorID:  ptr(resolved.AdminUserID),
@@ -984,12 +1084,11 @@ func (h *AdminReset) recordForLink(ctx context.Context, resolved db.ResolvedPass
 					SuppressedFrom: n,
 				},
 			})
-			h.log.Warn("panel recovery rate limited", "scope", "link",
+			h.log.WarnContext(ctx, "panel recovery rate limited", "scope", "link",
 				"admin_user_id", resolved.AdminUserID, "reset_id", key)
 		}
 		return
 	}
-	h.linkLimiter.Charge(key)
 	h.record(ctx, e)
 }
 
@@ -1031,7 +1130,7 @@ func (h *AdminReset) recordForLink(ctx context.Context, resolved db.ResolvedPass
 // limit is safer than a closure nobody verified.
 func (h *AdminReset) record(ctx context.Context, e audit.Event) {
 	if _, err := h.audit.Record(ctx, e); err != nil {
-		h.log.Error("audit write failed", "action", e.Action, "err", err)
+		h.log.ErrorContext(ctx, "audit write failed", "action", e.Action, "err", err)
 	}
 }
 
@@ -1135,10 +1234,9 @@ func (h *AdminReset) logUndeliverableAttempt(r *http.Request, where string, pres
 		return
 	}
 	ip := clientIP(r)
-	if !h.unknownLimiter.Allowed(ip) {
+	if within, _ := h.unknownLimiter.TryCharge(ip); !within {
 		return
 	}
-	h.unknownLimiter.Charge(ip)
 	h.log.Info("panel recovery refused",
 		"reason", "a recovery link was presented and this deployment issues none",
 		"at", where, "ip", ip)

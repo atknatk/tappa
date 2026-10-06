@@ -1,8 +1,8 @@
 // Package email renders Taptime's transactional e-mails (M10 EM-4; normative
 // source ADR 0022 §8): the invitation and the password reset. Each renderer
 // returns a mail.Message with Subject, Text and HTML filled; To and Ref stay
-// empty and are the caller's (EM-5 for the reset, EM-7 for the invitation). No
-// handler calls this package yet.
+// empty and are the caller's: internal/handler's emailResetChannel for the reset
+// (EM-5), EM-7 for the invitation (RenderInvitation has no caller yet).
 //
 // ONE STRUCTURE, TWO MESSAGES. Both e-mails are a letter (letter.go): a heading,
 // paragraphs, one action and a closing line, rendered by ONE templ component
@@ -232,8 +232,9 @@ type InvitationView struct {
 // (ResetDelivery: recipient, link, expiry), and a business name here would put
 // signup-chosen text into an e-mail that anyone can trigger for any address
 // (ADR 0022 counted limit 22). The cost — one address that belongs to several
-// administrator accounts gets one e-mail per account that look alike — is EM-5's
-// to weigh, with nameShown as the rule if it adds one.
+// administrator accounts gets one e-mail per account that look alike — was EM-5's
+// to weigh, and EM-5 kept the e-mail nameless (internal/handler's
+// emailResetChannel); a name added later goes through nameShown.
 type ResetView struct {
 	// BaseURL is cfg.BaseURL; the link must be BaseURL + "/admin/reset/new?t=" +
 	// the token.

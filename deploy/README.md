@@ -1226,12 +1226,15 @@ mount yoktur** — o yollardan geniş, güvenli yönde — ve ilk mount bir pini
 **Bugünkü durum (EM-3 sevk edildiğinde):** iki akış **kapalı** (`none` / `panel`) —
 davranış değişmedi (`TestPackaging_TheConfigMapShipsTodaysDelivery`). Akışlar kapalıyken
 SMTP değişkenleri **okunmaz ve doğrulanmaz**: `tappa-secrets`'ta kimlik olsa da olmasa da
-süreç aynı açılır. `email` geçerli bir yapılandırmadır, ama **bu derleme onunla açılmayı
-reddeder** (açılış log'unda `"msg":"fatal"` + *"… is valid configuration, but this build
-has no reset e-mail channel yet (… M10 EM-5)"* ya da *"… delivers activation links only on
-the manager's panel (… M10 EM-7)"*): sıfırlama kanalı EM-5, davet kanalı EM-7 ile gelir.
+süreç aynı açılır. `email` geçerli bir yapılandırmadır, ama **davet akışında bu derleme
+onunla açılmayı reddeder** (açılış log'unda `"msg":"fatal"` + *"… delivers activation
+links only on the manager's panel (… M10 EM-7)"*): davet kanalı EM-7 ile gelir.
+**Sıfırlama kanalı M10 EM-5'ten beri bu derlemededir** — `TAPPA_RESET_DELIVERY=email` ile
+süreç açılır, gönderim istek yolunun dışında bir işçide yapılır ve kapanışta HTTP
+boşaltmasıyla eşzamanlı boşaltılır (ADR 0022 §6); ConfigMap yine `none` taşır.
 Aşağıdaki 0–2. adımlar EM-3 birleştikten sonra **her an** koşulabilir; 3. adım (akışı
-açmak) o görevler sevk edildikten **sonra**dır.
+açmak) sıfırlama için kullanıcının dış adımlarından ve EM-5B'nin gerçek SES ölçümlerinden,
+davet için EM-7'den **sonra**dır.
 
 ### 🔴 Sıra
 
@@ -1378,8 +1381,9 @@ izinlidir, 465 değil) — açılırsa:
 
 **Öneri (dış adım):** yerelden SES denemesi için **ayrı**, sandbox'ta kalan, kısıtlı bir IAM
 kimliği (yalnız `ses:SendRawEmail`; sandbox yalnız doğrulanmış alıcılara gönderir — SES
-belgesi, ölçülmedi — bu da seed adreslerini korur). EM-5 / EM-7'ye dek bu derleme `email`
-ile zaten açılmaz.
+belgesi, ölçülmedi — bu da seed adreslerini korur). Davet akışında EM-7'ye dek bu derleme
+`email` ile zaten açılmaz; **sıfırlama akışında EM-5'ten beri açılır** — dev'de
+`TAPPA_RESET_DELIVERY=email` gerçek röleye gider (ADR 0022 sınır 25).
 
 ### Sayılı sınırlar (EM-3)
 
@@ -4441,9 +4445,10 @@ kişisel veriyle koşan bir DB testi aynı süreç log'una yazar.
    gösteriliyor, yani hukuki bir beyan; hukukçu onayı bekliyor (Q13 / backlog B3).
    Deploy için kabul, **pilot için değil** — M8-06 kapısının maddelerinden biri.
 3. **`TAPPA_RESET_DELIVERY=none`** (ve `TAPPA_INVITE_DELIVERY=panel`) — Q02'nin cevabı
-   ADR 0022 (AWS SES, `eu-central-1`, SMTP + STARTTLS); yapılandırma EM-3'le hazır, ama
-   sıfırlama kanalı EM-5'e, davet kanalı EM-7'ye ve kullanıcının dış adımlarına bağlı —
-   o güne dek bu derleme `email` ile açılmaz. Panelin kurtarma formu ekranda bunu
+   ADR 0022 (AWS SES, `eu-central-1`, SMTP + STARTTLS); yapılandırma EM-3'le hazır.
+   Sıfırlama kanalı EM-5'ten beri derlemede, ama açmak kullanıcının dış adımlarına ve
+   EM-5B'nin gerçek SES ölçümlerine bağlı; davet kanalı EM-7'ye dek yok (bu derleme
+   davet akışında `email` ile açılmaz). `none` iken panelin kurtarma formu ekranda bunu
    söylüyor. Runbook: *"Transactional e-mail (M10 EM-3)"*.
 4. **HSTS ingress'ten miras alınıyor** (`max-age=31536000; includeSubDomains`,
    ölçüldü). Uygulamanın **kendi** başlığını set etmesi (backlog T28) hâlâ açık;

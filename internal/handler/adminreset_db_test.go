@@ -2,13 +2,22 @@ package handler
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 	"net/url"
+	"os"
+	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+
+	"github.com/atknatk/tappa/internal/adminauth"
+	"github.com/atknatk/tappa/internal/audit"
+	"github.com/atknatk/tappa/internal/config"
+	"github.com/atknatk/tappa/internal/db"
 )
 
 // The WIRED recovery flow, over real HTTP against real Postgres.
@@ -54,6 +63,8 @@ func TestPanelRecoveryDB_EndToEnd(t *testing.T) {
 	if strings.Contains(body, "Nothing was sent") {
 		t.Fatal("the harness wired no delivery channel; this test would then measure the dark path")
 	}
+	// The send happens on the outbox's worker after the response (M10 EM-5).
+	p.drainReset(t)
 
 	delivered := p.mail.all()
 	if len(delivered) != 1 {
@@ -168,6 +179,7 @@ func TestPanelRecoveryDB_AnUnregisteredAddressIsIndistinguishable(t *testing.T) 
 
 	knownCode, known := ask(t, p.email)
 	unknownCode, unknown := ask(t, "nobody-"+uuid.NewString()+"@m7.example")
+	p.drainReset(t)
 
 	if knownCode != unknownCode {
 		t.Errorf("registered answered %d and unregistered answered %d", knownCode, unknownCode)
@@ -184,6 +196,188 @@ func TestPanelRecoveryDB_AnUnregisteredAddressIsIndistinguishable(t *testing.T) 
 	// AND THE TRAIL SEPARATES THEM, which is where the difference is allowed to live.
 	if n := p.auditCount(t, ActionAdminResetRequested); n != 1 {
 		t.Errorf("%d requested row(s), want 1", n)
+	}
+}
+
+// TestPanelRecoveryDB_EndToEndThroughTheSMTPTransport is M10 EM-5's re-run of the
+// M7-04 loop with the delivery a deployment set to "email" really has: the e-mail
+// channel and internal/mail's SMTP transport, over TCP and STARTTLS to an in-test
+// relay, against real Postgres. The link is read out of the e-mail the relay received
+// — not out of a recorder — and walked to a changed password.
+//
+// What it re-runs (M7-04 criteria): 3 — the message goes to the address on the
+// administrator's ROW (the form typed it upper-cased); 2, audit half — the requested,
+// completed and (on a replay of the e-mailed link) refused rows are in this tenant;
+// 5, body half — the answer does not carry the link, and an unregistered address gets
+// the byte-identical page and no message; the original "single use" — the e-mailed
+// link spent once, refused on replay. The real relay (SES) is EM-5B's.
+func TestPanelRecoveryDB_EndToEndThroughTheSMTPTransport(t *testing.T) {
+	relay := newFakeRelay(t, relayScript{})
+	p := newPanelHarnessWithResetChannel(t, func(t *testing.T, cfg *config.Config) ResetChannel {
+		user, pass := relayCredentials(t)
+		ch, err := NewEmailResetChannel(relay.sender(t, user, pass, 5*time.Second), cfg.BaseURL, slog.New(slog.DiscardHandler))
+		if err != nil {
+			t.Fatalf("NewEmailResetChannel: %v", err)
+		}
+		return ch
+	})
+	before := p.storedDigest(t)
+
+	res, body := p.get(t, adminResetPath)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("GET %s = %d", adminResetPath, res.StatusCode)
+	}
+	res, body = p.post(t, adminResetPath, url.Values{"csrf": {csrfFrom(t, body)}, "email": {strings.ToUpper(p.email)}})
+	if res.StatusCode != http.StatusOK || !strings.Contains(body, "Check your email") {
+		t.Fatalf("POST %s = %d, or not the deliverable page", adminResetPath, res.StatusCode)
+	}
+	p.drainReset(t)
+
+	sessions := relay.completed()
+	if len(sessions) != 1 {
+		t.Fatalf("the relay received %d message(s), want 1", len(sessions))
+	}
+	if got := sessions[0].rcptTo; len(got) != 1 || got[0] != "RCPT TO:<"+p.email+">" {
+		t.Errorf("RCPT %q, want the address on the administrator's row (%q)", got, p.email)
+	}
+	m := parseRelayed(t, sessions[0].message)
+	linkRe := regexp.MustCompile(regexp.QuoteMeta(p.server.URL+adminResetNewPath+"?t=") + `[A-Za-z0-9_-]+`)
+	link := linkRe.FindString(m.text)
+	if link == "" || !strings.Contains(m.html, link) {
+		t.Fatalf("the e-mail does not carry one recovery link in both parts (text has %q)", link)
+	}
+	if strings.Contains(body, link) {
+		t.Fatal("the response carries the recovery link back to whoever asked for it")
+	}
+	if n := p.auditCount(t, ActionAdminResetRequested); n != 1 {
+		t.Errorf("%d requested row(s), want 1", n)
+	}
+
+	const newPassword = "a-password-from-the-mailbox"
+	if res, _ = p.get(t, strings.TrimPrefix(link, p.server.URL)); res.StatusCode != http.StatusSeeOther {
+		t.Fatalf("opening the e-mailed link answered %d, want 303", res.StatusCode)
+	}
+	res, form := p.get(t, adminResetNewPath)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("the recovery form answered %d", res.StatusCode)
+	}
+	res, _ = p.post(t, adminResetNewPath, url.Values{
+		"csrf": {csrfFrom(t, form)}, "password": {newPassword}, "password_confirm": {newPassword},
+	})
+	if res.StatusCode != http.StatusSeeOther {
+		t.Fatalf("setting the password answered %d, want 303", res.StatusCode)
+	}
+	if p.storedDigest(t) == before {
+		t.Error("the stored digest did not change")
+	}
+	if n := p.auditCount(t, ActionAdminResetCompleted); n != 1 {
+		t.Errorf("%d completed row(s), want 1", n)
+	}
+
+	// THE E-MAILED LINK WORKS ONCE (criterion 2's audit half): replayed, it is refused
+	// on the one refusal screen and the refusal is an attributable row.
+	if res, _ = p.get(t, strings.TrimPrefix(link, p.server.URL)); res.StatusCode != http.StatusSeeOther {
+		t.Fatalf("re-opening the e-mailed link answered %d, want 303", res.StatusCode)
+	}
+	res, form = p.get(t, adminResetNewPath)
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("the recovery form answered %d on a replay", res.StatusCode)
+	}
+	res, replayed := p.post(t, adminResetNewPath, url.Values{
+		"csrf": {csrfFrom(t, form)}, "password": {"yet-another-password"}, "password_confirm": {"yet-another-password"},
+	})
+	if res.StatusCode != http.StatusBadRequest || !strings.Contains(replayed, "no longer works") {
+		t.Errorf("replaying the e-mailed link answered %d without the refusal screen", res.StatusCode)
+	}
+	if n := p.auditCount(t, ActionAdminResetRefused); n != 1 {
+		t.Errorf("%d refusal row(s), want 1", n)
+	}
+
+	// AND AN UNREGISTERED ADDRESS GETS THE SAME PAGE AND NO MESSAGE (criterion 5's
+	// body half, with the SMTP transport behind the registered arm).
+	_, page := p.get(t, adminResetPath)
+	res, unknown := p.post(t, adminResetPath, url.Values{
+		"csrf": {csrfFrom(t, page)}, "email": {"nobody-" + uuid.NewString() + "@m10.example"},
+	})
+	p.drainReset(t)
+	if res.StatusCode != http.StatusOK || unknown != body {
+		t.Errorf("an unregistered address answered %d with a page that differs from the registered one", res.StatusCode)
+	}
+	if n := len(relay.completed()); n != 1 {
+		t.Errorf("the relay holds %d message(s) after the unregistered request, want still 1", n)
+	}
+}
+
+// TestResetOutboxDB_AFullOutboxFitsTheWriteReserve measures what
+// ResetDrainWriteReserve has to hold: a FULL outbox — one grant in flight and
+// resetOutboxSize waiting — drained with a budget just over the reserve, so the sends
+// stop at once and every row is written by the REAL audit recorder into real
+// Postgres. The drain must finish inside its budget, with exactly one undelivered row
+// per grant. The log line is the measurement the reserve is argued from.
+func TestResetOutboxDB_AFullOutboxFitsTheWriteReserve(t *testing.T) {
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		t.Skip("DATABASE_URL not set; skipping (real Postgres required). Run `make test`.")
+	}
+	data, err := db.New(context.Background(), &config.Config{DatabaseURL: withSmallPool(dsn)})
+	if err != nil {
+		t.Fatalf("db.New: %v", err)
+	}
+	t.Cleanup(data.Close)
+	trail, err := audit.New(data)
+	if err != nil {
+		t.Fatalf("audit.New: %v", err)
+	}
+	tenantID := uuid.New()
+	if err := data.WithTenant(context.Background(), tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		_, e := tx.Exec(ctx, `INSERT INTO tenants (id, name, vat_number, business_type, structure)
+			 VALUES ($1, 'Outbox Drain Ltd', $2, 'bar', 'single')`, tenantID, "VAT-"+tenantID.String())
+		return e
+	}); err != nil {
+		t.Fatalf("insert tenant: %v", err)
+	}
+	inTenant := func(gs []adminauth.ResetGrant) []adminauth.ResetGrant {
+		for i := range gs {
+			gs[i].Issued.Reset.TenantID = tenantID
+		}
+		return gs
+	}
+	first := inTenant(grantsFor("first@drain.example.test", 1))
+	queued := inTenant(grantsFor("queued@drain.example.test", resetOutboxSize))
+	ch := newGateChannel()
+	h, err := NewAdminReset(&fakeResets{grantsFor: map[string][]adminauth.ResetGrant{
+		"first@drain.example.test": first, "queued@drain.example.test": queued,
+	}}, ch, trail, adminTestConfig(), slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatalf("NewAdminReset: %v", err)
+	}
+	stopWorkerAtCleanup(t, h)
+	router := mountReset(h)
+	requestReset(t, newBrowser(t, router), "first@drain.example.test")
+	ch.waitStarted(t)
+	requestReset(t, newBrowser(t, router), "queued@drain.example.test")
+
+	const lead = 100 * time.Millisecond
+	ctx, cancel := context.WithTimeout(context.Background(), ResetDrainWriteReserve+lead)
+	defer cancel()
+	start := time.Now()
+	if err := h.Drain(ctx); err != nil {
+		t.Fatalf("a full outbox did not drain inside ResetDrainWriteReserve (%v): %v", ResetDrainWriteReserve, err)
+	}
+	took := time.Since(start)
+	rows := 1 + resetOutboxSize
+	t.Logf("a full outbox: %d undelivered rows written in %v after the sends stopped (reserve %v)",
+		rows, took-lead, ResetDrainWriteReserve)
+
+	var n int
+	if err := data.WithTenant(context.Background(), tenantID, func(ctx context.Context, tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SELECT count(*) FROM audit_log WHERE tenant_id = $1 AND action = $2`,
+			tenantID, ActionAdminResetUndelivered).Scan(&n)
+	}); err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if n != rows {
+		t.Errorf("%d undelivered row(s) in the tenant, want %d — one per grant", n, rows)
 	}
 }
 

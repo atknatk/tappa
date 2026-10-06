@@ -10,6 +10,7 @@ import (
 
 	"github.com/atknatk/tappa/internal/domain/tenant"
 	"github.com/atknatk/tappa/internal/encode"
+	"github.com/atknatk/tappa/internal/handler"
 )
 
 // TestShutdownBudget_TheTwoGoWaitsFitInsideTheKubernetesGrace binds three numbers
@@ -136,5 +137,35 @@ func TestShutdownBudget_TheRefusalRecordNestsInsideTheHTTPGrace(t *testing.T) {
 	// detach decorative.
 	if tenant.RefusalRecordGrace < time.Second {
 		t.Errorf("tenant.RefusalRecordGrace is %v, too short to complete one INSERT", tenant.RefusalRecordGrace)
+	}
+}
+
+// TestShutdownBudget_TheResetDrainNestsInsideTheHTTPGrace binds the reset outbox's
+// drain budget to the HTTP drain it runs BESIDE (M10 EM-5, ADR 0022 §6.6(a)).
+//
+// WHY NESTING RATHER THAN ADDING, as for the two tests above: the shutdown sequence
+// starts the drain in its own goroutine before Shutdown and waits for both
+// (shutdown, in main.go), so the drain costs max(httpShutdownGrace, ResetDrainGrace)
+// — and stays out of TestShutdownBudget_TheTwoGoWaitsFitInsideTheKubernetesGrace's sum
+// only while it nests. That it RUNS beside Shutdown is a behaviour, held by
+// TestShutdown_DrainsTheResetOutboxAlongsideTheHTTPServer; this holds the numbers.
+func TestShutdownBudget_TheResetDrainNestsInsideTheHTTPGrace(t *testing.T) {
+	if handler.ResetDrainGrace > httpShutdownGrace {
+		t.Fatalf("the reset outbox may take %v to drain (handler.ResetDrainGrace) but the HTTP drain it "+
+			"runs beside only lasts httpShutdownGrace (%v); past that the drain is a third wait in "+
+			"sequence, and the kill budget above does not count it", handler.ResetDrainGrace, httpShutdownGrace)
+	}
+	// The drain's two phases (send, then write what was not sent) must both exist: a
+	// write reserve as long as the whole budget leaves no time to send anything queued.
+	if handler.ResetDrainWriteReserve <= 0 || handler.ResetDrainWriteReserve >= handler.ResetDrainGrace {
+		t.Fatalf("handler.ResetDrainWriteReserve is %v against a drain budget of %v: it must be positive "+
+			"(the unsent rows need time inside the budget) and shorter than the budget (the queued "+
+			"grants need time to be sent)", handler.ResetDrainWriteReserve, handler.ResetDrainGrace)
+	}
+	// POSITIVE CONTROL, as above: a drain too short for one relay round trip would turn
+	// every grant still queued at a deploy into an undelivered row.
+	if handler.ResetDrainGrace-handler.ResetDrainWriteReserve < time.Second {
+		t.Errorf("the drain leaves %v for sending, too short for one relay conversation",
+			handler.ResetDrainGrace-handler.ResetDrainWriteReserve)
 	}
 }

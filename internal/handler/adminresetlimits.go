@@ -115,6 +115,12 @@ const (
 	// and it does not depend on whether the address is registered: the budget is
 	// checked before the address is resolved, so a refusal cannot answer the question
 	// the flow spends the rest of its length refusing to answer.
+	//
+	// ⚠️ IT IS ALSO THE ONLY LIMIT ON HOW MANY RESET E-MAILS ONE RECIPIENT RECEIVES,
+	// and only per source address: the account budget bounds audit rows, not sends,
+	// the outbox's one worker bounds all sends together rather than one recipient's
+	// share, and a distributed source is not bounded at all. No per-recipient ceiling
+	// exists (ADR 0022 EM-5A note, limit 13).
 	adminResetRequestLimit  = 20
 	adminResetRequestPeriod = 10 * time.Minute
 
@@ -307,11 +313,11 @@ const (
 //
 // ⚠️ WHAT IT DOES NOT GUARANTEE, and the sentence is deliberately weaker than "the
 // timing is identical": a floor equalises everything that finishes UNDER it. Work
-// that overruns — a slow query, a saturated pool, and above all a real mail transport
-// once Q02 is answered — leaks again, and the leak is proportional to the overrun
-// rather than bounded. THE SUCCESSOR IS NAMED RATHER THAN IMPLIED: when a transport
-// exists, the send belongs off the request path entirely (a detached worker with its
-// own context), at which point the response time stops depending on the recipient at
-// all. That is infrastructure this product does not have yet, and building it for a
-// channel that does not exist would be guessing at its shape.
+// that overruns — a slow query, a saturated pool — leaks again, and the leak is
+// proportional to the overrun rather than bounded. THE MAIL TRANSPORT IS NO LONGER IN
+// THAT LIST (M10 EM-5): the send left the request path for a detached worker with its
+// own context (adminresetoutbox.go), so what the floor still has to hold is the
+// minting — measured above — and the hand-over, which never blocks.
+// TestAdminReset_TimingIsFlatWhileTheRelayTakesTwoSeconds holds both medians inside
+// [floor, floor+50ms] with the channel taking two seconds.
 const resetRequestFloor = 250 * time.Millisecond
