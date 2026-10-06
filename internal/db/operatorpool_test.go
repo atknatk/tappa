@@ -589,8 +589,8 @@ func TestOperatorDB_HasNoTenantDoorAndNoRawSQLDoor(t *testing.T) {
 		}
 		return false
 	}
-	if rt.NumMethod() < 12 {
-		t.Fatalf("PREMISE: *OperatorDB has %d methods; Close, the seven Store methods, the two LegalStore methods (OP-10) and the two TenantStore methods (OP-11) should all be there", rt.NumMethod())
+	if rt.NumMethod() < 13 {
+		t.Fatalf("PREMISE: *OperatorDB has %d methods; Close, the seven Store methods, the two LegalStore methods (OP-10), the two TenantStore methods (OP-11) and the PlaqueStore method (OP-13) should all be there", rt.NumMethod())
 	}
 	for i := 0; i < rt.NumMethod(); i++ {
 		m := rt.Method(i)
@@ -616,8 +616,9 @@ func TestOperatorDB_HasNoTenantDoorAndNoRawSQLDoor(t *testing.T) {
 // in order>)` where F has the method's own name and is operator.go's function -- so
 // the SQL is written once, and an argument swapped between two same-typed parameters
 // (three strings in CompleteOperatorEnrollment and in PublishLegal) does not compile into
-// a green build. Eleven methods: the seven operatorauth.Store ones, since OP-10 phase B
-// LegalVersions and PublishLegal, and since OP-11 phase B TenantList and TenantDetail.
+// a green build. Twelve methods: the seven operatorauth.Store ones, since OP-10 phase B
+// LegalVersions and PublishLegal, since OP-11 phase B TenantList and TenantDetail, and
+// since OP-13 phase B TenantPlaques.
 func TestOperatorDB_EveryMethodDelegatesVerbatim(t *testing.T) {
 	fset := token.NewFileSet()
 	pool, err := parser.ParseFile(fset, "operatorpool.go", nil, 0)
@@ -696,8 +697,8 @@ func TestOperatorDB_EveryMethodDelegatesVerbatim(t *testing.T) {
 		}
 		delegating++
 	}
-	if delegating != 11 {
-		t.Fatalf("%d delegating methods on OperatorDB, want the seven operatorauth.Store methods, the two operator.LegalStore methods (OP-10) and the two operator.TenantStore methods (OP-11)", delegating)
+	if delegating != 12 {
+		t.Fatalf("%d delegating methods on OperatorDB, want the seven operatorauth.Store methods, the two operator.LegalStore methods (OP-10), the two operator.TenantStore methods (OP-11) and the operator.PlaqueStore method (OP-13)", delegating)
 	}
 }
 

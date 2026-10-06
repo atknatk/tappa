@@ -2,9 +2,10 @@ package operator_test
 
 // op11_test.go -- M10 OP-11 phase B: /operator/tenants and /operator/tenants/{id} on the
 // shipped router with the fake store (rig_test.go). The header table of their response
-// classes (C67-C93), the session budget's second unit for each of the three reads, the
-// search term's path (the POST body, the result page, and nowhere else -- on the wire
-// too), the boundary's refusals before any store call, the pager, the overview's banner
+// classes (C67-C93), the read's second unit for each of the three reads (the read
+// budget's since OP-13 phase B), the search term's path (the POST body, the result page,
+// and nowhere else -- on the wire too), the boundary's refusals before any store call,
+// the pager, the overview's banner
 // and its placeholder for a tenant whose name shows nothing, the escaping of what a
 // tenant and an operator typed, and the screens' contrast. Against PostgreSQL:
 // op11_db_test.go.
@@ -162,14 +163,15 @@ func TestOperatorHeaders_TheTenantClassesCarryThePolicy(t *testing.T) {
 			return w
 		}
 	}
-	// spent is a session with 199 of its 200 units spent on console views: the next read
-	// passes the gate (the 200th unit) and is refused by its own second unit.
+	// spent is a session with its 60 reads spent on list views (readLimit, OP-13 phase B):
+	// the next read passes the gate (its 61st unit of 100) and is refused by the read
+	// budget.
 	spent := func() *http.Cookie {
 		t.Helper()
 		c := signIn()
-		for i := 0; i < 199; i++ {
-			if w := send(req{method: http.MethodGet, path: "/operator", cookies: []*http.Cookie{c}, header: sfs}); w.Code != http.StatusOK {
-				t.Fatalf("PREMISE: console view %d = %d", i+1, w.Code)
+		for i := 0; i < 60; i++ {
+			if w := send(list(c)); w.Code != http.StatusOK {
+				t.Fatalf("PREMISE: list view %d = %d", i+1, w.Code)
 			}
 		}
 		return c
@@ -186,7 +188,7 @@ func TestOperatorHeaders_TheTenantClassesCarryThePolicy(t *testing.T) {
 		})},
 		{"C71 tenant list, the read fails", 503, failing("TenantList", errFakeDB, func() req { return list(signIn()) })},
 		{"C72 tenant list, the read's session is refused", 303, failing("TenantList", db.ErrOperatorRefused, func() req { return list(signIn()) })},
-		{"C73 tenant list, the read's second unit refused", 429, func() *httptest.ResponseRecorder {
+		{"C73 tenant list, the read budget refused", 429, func() *httptest.ResponseRecorder {
 			c := spent()
 			return counted("C73", once(func() req { return list(c) }))()
 		}},
@@ -231,7 +233,7 @@ func TestOperatorHeaders_TheTenantClassesCarryThePolicy(t *testing.T) {
 		{"C81 search, the read fails", 503, failing("TenantList", errFakeDB, func() req { return search(searchForm("FAKE C81", ""), signIn()) })},
 		{"C82 search, the read's session is refused", 303,
 			failing("TenantList", db.ErrOperatorRefused, func() req { return search(searchForm("FAKE C82", ""), signIn()) })},
-		{"C83 search, the read's second unit refused", 429, func() *httptest.ResponseRecorder {
+		{"C83 search, the read budget refused", 429, func() *httptest.ResponseRecorder {
 			c := spent()
 			return counted("C83", once(func() req { return search(searchForm("FAKE C83", ""), c) }))()
 		}},
@@ -248,7 +250,7 @@ func TestOperatorHeaders_TheTenantClassesCarryThePolicy(t *testing.T) {
 		{"C89 tenant overview, the read fails", 503, failing("TenantDetail", errFakeDB, func() req { return overview(tenant.String(), signIn()) })},
 		{"C90 tenant overview, the read's session is refused", 303,
 			failing("TenantDetail", db.ErrOperatorRefused, func() req { return overview(tenant.String(), signIn()) })},
-		{"C91 tenant overview, the read's second unit refused", 429, func() *httptest.ResponseRecorder {
+		{"C91 tenant overview, the read budget refused", 429, func() *httptest.ResponseRecorder {
 			c := spent()
 			return counted("C91", once(func() req { return overview(tenant.String(), c) }))()
 		}},
@@ -290,19 +292,24 @@ func TestOperatorHeaders_TheTenantClassesCarryThePolicy(t *testing.T) {
 	}
 }
 
-// TestTenantPages_AReadCountsTwiceAgainstTheSessionBudget measures surface.go's
-// sessionLimit re-derivation (OP-11): each of the three tenant reads -- the list, a
-// search, an overview -- is two units of the session's budget of 200.
+// TestTenantPages_AReadCountsTwiceAgainstTheSessionBudget measures the two units of each
+// of the three tenant reads -- the list, a search, an overview. THE NAME IS OP-11'S AND NO
+// LONGER THE WHOLE RULE: until OP-13 phase B both units were the session budget's
+// (sessionLimit 200); since then the gate charges one unit of the session's REQUEST budget
+// (sessionLimit, 100) and the handler one of its READ budget (readLimit, 60). The name
+// stays because docs/plan/m10-platform.md and ADR 0021 cite it in records that are not
+// rewritten after the fact.
 //
-// PART I -- one session, 100 overviews from 100 addresses: 100 x 200 and 100
-// TenantDetail calls; the 101st is 429 at the gate (201 units) with no 101st read. Then,
-// for each of the three reads, a fresh session: 1 console view and 99 reads of that kind
-// (199 units) -- all 200 -- and the next read of that kind is 429 from the handler's second
-// unit: the gate's predicate ran (TouchOperatorSession +1) and the store's read did not.
-// CONTROL: another session reads each. And an overview refused for a malformed id is ONE
-// unit (2nd round, B2): a session with 1 console view and 99 such overviews (each 404, no
-// TenantDetail call) has 100 console views left -- all 200 -- and the 101st is 429; had
-// each malformed id cost two, the second of those console views would be.
+// PART I -- one session, 60 overviews from 60 addresses: 60 x 200 and 60 TenantDetail
+// calls; the 61st is 429 from the read budget with no 61st read. Then, for each of the
+// three reads, a fresh session: 60 reads of that kind -- all 200 -- and the next read of
+// that kind is 429 from the read budget: the gate's predicate ran (TouchOperatorSession
+// +1) and the store's read did not. CONTROL: another session reads each. And an overview
+// refused for a malformed id spends NO read (2nd round's B2, re-measured for the read
+// budget): a session with 30 such overviews (each 404, no TenantDetail call) still reads
+// 60 overviews -- all 200 -- and the 61st is 429; had each malformed id spent a read, the
+// 31st of those overviews would be. The session's request budget is then at 91 units: 9
+// console views are 200 and the next is 429 at the gate.
 //
 // PART II -- the counts above. PART III -- This test measures these sequences only; a read
 // a later screen adds is code review's (and its own test's) -- no completeness claim.
@@ -333,49 +340,40 @@ func TestTenantPages_AReadCountsTwiceAgainstTheSessionBudget(t *testing.T) {
 		}},
 	}
 	a := g.signIn(g.active())
-	for i := 0; i < 100; i++ {
+	for i := 0; i < 60; i++ {
 		if w := send(reads[2].req(a)); w.Code != http.StatusOK {
 			t.Fatalf("overview %d of one session = %d, want 200", i+1, w.Code)
 		}
 	}
-	if got := g.store.count("TenantDetail"); got != 100 {
-		t.Fatalf("PREMISE: %d read(s) for 100 overviews", got)
+	if got := g.store.count("TenantDetail"); got != 60 {
+		t.Fatalf("PREMISE: %d read(s) for 60 overviews", got)
 	}
-	if w := send(reads[2].req(a)); w.Code != http.StatusTooManyRequests || g.store.count("TenantDetail") != 100 {
-		t.Fatalf("the 101st overview of one session = %d with %d read(s), want 429 and 100", w.Code, g.store.count("TenantDetail"))
+	if w := send(reads[2].req(a)); w.Code != http.StatusTooManyRequests || g.store.count("TenantDetail") != 60 {
+		t.Fatalf("the 61st overview of one session = %d with %d read(s), want 429 and 60", w.Code, g.store.count("TenantDetail"))
 	}
 	for _, rd := range reads {
 		b := g.signIn(g.active())
-		if w := send(req{method: http.MethodGet, path: "/operator", cookies: []*http.Cookie{b}, header: sfs}); w.Code != http.StatusOK {
-			t.Fatalf("PREMISE: console view = %d", w.Code)
-		}
-		for i := 0; i < 99; i++ {
+		for i := 0; i < 60; i++ {
 			if w := send(rd.req(b)); w.Code != http.StatusOK {
 				t.Fatalf("%s: read %d of the session = %d", rd.name, i+1, w.Code)
 			}
 		}
 		touches, stored := g.store.count("TouchOperatorSession"), g.store.count(rd.store)
 		if w := send(rd.req(b)); w.Code != http.StatusTooManyRequests {
-			t.Fatalf("%s: the read that crosses the budget by its second unit = %d, want 429", rd.name, w.Code)
+			t.Fatalf("%s: the 61st read = %d, want 429", rd.name, w.Code)
 		}
 		if g.store.count("TouchOperatorSession") != touches+1 || g.store.count(rd.store) != stored {
-			t.Errorf("%s refused by its second unit: predicate +%d, %s +%d; want +1, +0", rd.name,
+			t.Errorf("%s refused by the read budget: predicate +%d, %s +%d; want +1, +0", rd.name,
 				g.store.count("TouchOperatorSession")-touches, rd.store, g.store.count(rd.store)-stored)
 		}
 		if w := send(rd.req(g.signIn(g.active()))); w.Code != http.StatusOK {
 			t.Fatalf("CONTROL: %s from another session = %d", rd.name, w.Code)
 		}
 	}
-	// A malformed id: one unit, the gate's.
+	// A malformed id: one unit of the request budget, none of the read budget.
 	c := g.signIn(g.active())
-	console := func() *httptest.ResponseRecorder {
-		return send(req{method: http.MethodGet, path: "/operator", cookies: []*http.Cookie{c}, header: sfs})
-	}
-	if w := console(); w.Code != http.StatusOK {
-		t.Fatalf("PREMISE: console view = %d", w.Code)
-	}
 	details := g.store.count("TenantDetail")
-	for i := 0; i < 99; i++ {
+	for i := 0; i < 30; i++ {
 		w := send(req{method: http.MethodGet, path: "/operator/tenants/" + strings.ReplaceAll(tenant.String(), "-", ""),
 			cookies: []*http.Cookie{c}, header: sfs})
 		if w.Code != http.StatusNotFound {
@@ -385,13 +383,24 @@ func TestTenantPages_AReadCountsTwiceAgainstTheSessionBudget(t *testing.T) {
 	if g.store.count("TenantDetail") != details {
 		t.Fatalf("PREMISE: the malformed ids reached the store %d time(s)", g.store.count("TenantDetail")-details)
 	}
-	for i := 0; i < 100; i++ {
+	for i := 0; i < 60; i++ {
+		if w := send(reads[2].req(c)); w.Code != http.StatusOK {
+			t.Fatalf("overview %d after 30 malformed-id overviews = %d, want 200 -- a malformed id spent a read", i+1, w.Code)
+		}
+	}
+	if w := send(reads[2].req(c)); w.Code != http.StatusTooManyRequests {
+		t.Errorf("the 61st overview after 30 malformed-id overviews = %d, want 429 (the read budget)", w.Code)
+	}
+	console := func() *httptest.ResponseRecorder {
+		return send(req{method: http.MethodGet, path: "/operator", cookies: []*http.Cookie{c}, header: sfs})
+	}
+	for i := 0; i < 9; i++ {
 		if w := console(); w.Code != http.StatusOK {
-			t.Fatalf("console view %d after 99 malformed-id overviews = %d, want 200 -- a malformed id cost more than one unit", i+1, w.Code)
+			t.Fatalf("console view %d at 91 units = %d, want 200", i+1, w.Code)
 		}
 	}
 	if w := console(); w.Code != http.StatusTooManyRequests {
-		t.Errorf("the 101st console view after 99 malformed-id overviews = %d, want 429 (201 units)", w.Code)
+		t.Errorf("the 101st request of the session = %d, want 429 at the gate", w.Code)
 	}
 }
 

@@ -26,9 +26,10 @@ import (
 // EVERY VIEW IS A TWO-PHASE READ through TenantStore: op_begin_read commits the read's
 // audit row, then op_read_tenants / op_read_tenant_detail consume the ticket. The ticket
 // never reaches this package (internal/db hands it from one phase to the other); this
-// file writes no SQL. Each view is charged TWO units of the session budget -- sessionGate
-// one, the handler the second (spendSession) -- because it is two database transactions
-// (surface.go, sessionLimit).
+// file writes no SQL. Each view is charged TWICE -- sessionGate one unit of the session's
+// request budget, the handler one unit of its read budget (spendRead; until OP-13 phase B
+// the second unit was the session budget's too) -- because it is two database
+// transactions (surface.go, sessionLimit and readLimit).
 //
 // THE SEARCH TERM IS SENT IN THE REQUEST'S BODY, NOT IN ITS URL. A term can be a panel
 // account's email address -- personal data. In a URL it would be written to the
@@ -127,9 +128,9 @@ func (s *Surface) searchTenants(w http.ResponseWriter, r *http.Request) {
 	s.listTenants(w, r, id, hash, term, page)
 }
 
-// listTenants charges the read's second unit, reads the page and renders it.
+// listTenants charges the read's unit of the read budget, reads the page and renders it.
 func (s *Surface) listTenants(w http.ResponseWriter, r *http.Request, id operatorauth.Identity, hash string, term formValue, page int32) {
-	if !s.spendSession(w, r, id) {
+	if !s.spendRead(w, r, id) {
 		return
 	}
 	rows, err := s.tenantStore.TenantList(r.Context(), hash,
@@ -162,8 +163,8 @@ func (s *Surface) listTenants(w http.ResponseWriter, r *http.Request, id operato
 // banner (operatorpages.TenantScreen; ADR 0020 §9).
 //
 // The id is read from the path and checked HERE: the 36-character hyphenated form, in
-// either case (tenantID) -- anything else is a 404 with no store call and no second
-// budget unit. An id that names no tenant is a 404 too, a different page, after the
+// either case (tenantID) -- anything else is a 404 with no store call and no unit of the
+// read budget. An id that names no tenant is a 404 too, a different page, after the
 // database has committed the 'read' row naming it (00029: phase one does not look the
 // tenant up, so a refused call cannot tell anyone whether it exists).
 func (s *Surface) tenantOverview(w http.ResponseWriter, r *http.Request) {
@@ -176,7 +177,7 @@ func (s *Surface) tenantOverview(w http.ResponseWriter, r *http.Request) {
 		s.problem(w, r, http.StatusNotFound, problemTenantNotAnID)
 		return
 	}
-	if !s.spendSession(w, r, id) {
+	if !s.spendRead(w, r, id) {
 		return
 	}
 	o, err := s.tenantStore.TenantDetail(r.Context(), hash, tenant)
@@ -194,7 +195,7 @@ func (s *Surface) tenantOverview(w http.ResponseWriter, r *http.Request) {
 		s.problem(w, r, http.StatusServiceUnavailable, problemTenantUnreadable)
 		return
 	}
-	name, err := tenantBanner(o)
+	name, err := tenantBanner(o.ID, o.Name)
 	if err != nil {
 		// Not reached: tenantBanner names a tenant without a visible name by its id,
 		// which the database always returns. Were it reached, the zero name makes
@@ -272,12 +273,13 @@ func namedVisibly(name string) bool { return visibleText(name) }
 
 // tenantBanner is the name a tenant's screen carries in its banner and title: the
 // tenant's own name, or -- when the name has no visible character -- the placeholder
-// that names the tenant by its id (operatorpages.UnnamedTenant).
-func tenantBanner(o db.TenantOverview) (operatorpages.TenantName, error) {
-	if namedVisibly(o.Name) {
-		return operatorpages.NewTenantName(o.Name)
+// that names the tenant by its id (operatorpages.UnnamedTenant). The overview and the
+// plaque screen (OP-13) both call it, with the id and the name their one read returned.
+func tenantBanner(id uuid.UUID, name string) (operatorpages.TenantName, error) {
+	if namedVisibly(name) {
+		return operatorpages.NewTenantName(name)
 	}
-	return operatorpages.UnnamedTenant(o.ID.String())
+	return operatorpages.UnnamedTenant(id.String())
 }
 
 // tenantsView builds the list screen. Next is offered only after a FULL page (a page of
@@ -305,12 +307,13 @@ func tenantsView(rows []db.TenantSummary, term formValue, page int32) operatorpa
 }
 
 // tenantOverviewView builds the overview screen: the identity facts and the four counts,
-// formatted for the page's mono figures.
+// formatted for the page's mono figures, and (OP-13) the path of the tenant's plaques.
 func tenantOverviewView(o db.TenantOverview, name operatorpages.TenantName) operatorpages.TenantOverviewView {
 	count := func(n int64) string { return strconv.FormatInt(n, 10) }
 	return operatorpages.TenantOverviewView{
 		Name:            name,
 		ID:              o.ID.String(),
+		PlaquesPath:     plaquesPath(o.ID),
 		CreatedAt:       utcStamp(o.CreatedAt),
 		Plan:            o.Plan,
 		BusinessType:    o.BusinessType,

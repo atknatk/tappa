@@ -51,7 +51,9 @@ const seedKM = "20000000-0000-4000-8000-000000000001"
 //  3. the overview: 200; the banner carries the tenant's name as the owner reads it,
 //     escaped; the four counts equal the owner's own counts of the tenant's locations and
 //     of its active employees, plaques and panel accounts (read before and after the page;
-//     retried while another test changes them); one 'read' row naming the tenant;
+//     retried while another test changes them); exactly one 'read' row naming the tenant
+//     per view (a retry is a view and has its own -- OP-13 B's 2nd round, the sibling of its
+//     B1: until then 1 to 3 rows were accepted, so a view that read twice passed);
 //  4. an id no tenant has: 404 with its page, and a committed 'read' row naming that id;
 //     a malformed id: 404 and no row;
 //  5. sessions the predicate refuses -- never MFA-stamped, revoked, idle 31 minutes -- get
@@ -195,8 +197,10 @@ func TestE2E_TenantScreensReadThroughTheDefinersAndAuditEachRead(t *testing.T) {
 	detailsBefore := reads()
 	var page string
 	var settled bool
+	views := 0
 	for attempt := 0; attempt < 3 && !settled; attempt++ {
 		before := counts()
+		views++
 		w := l.get("/operator/tenants/"+tenant.String(), sess)
 		if w.Code != http.StatusOK {
 			t.Fatalf("the overview = %d; log: %s", w.Code, l.logs.String())
@@ -219,8 +223,8 @@ func TestE2E_TenantScreensReadThroughTheDefinersAndAuditEachRead(t *testing.T) {
 		!strings.Contains(page, "<title>Tenant overview — "+html.EscapeString(name)+" — Taptime operator</title>") {
 		t.Errorf("the overview's banner or title does not carry the tenant's name")
 	}
-	if n := reads() - detailsBefore; n < 1 || n > 3 {
-		t.Errorf("the overview view(s) wrote %d 'read' row(s)", n)
+	if n := reads() - detailsBefore; n != views {
+		t.Errorf("the overview's %d view(s) wrote %d 'read' row(s), want exactly one per view", views, n)
 	}
 	if scope, detail, page, size, target := lastRead(); scope != "tenant_detail" || detail != `{}` || page != nil || size != nil ||
 		target == nil || *target != tenant {

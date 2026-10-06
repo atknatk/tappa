@@ -26,11 +26,17 @@ import (
 //	sign-in, TOTP step, enrollment     floodGate -> sameOriginGate(false)
 //	the console (GET /operator), the   floodGate -> sameOriginGate(true) -> requireOperator -> sessionGate
 //	legal texts (GET, POST
-//	/operator/legal; OP-10) and the
+//	/operator/legal; OP-10), the
 //	tenants (GET, POST
 //	/operator/tenants, GET
-//	/operator/tenants/{id}; OP-11)
+//	/operator/tenants/{id}; OP-11) and
+//	a tenant's plaques (GET
+//	/operator/tenants/{id}/plaques;
+//	OP-13)
 //	sign-out (POST /operator/logout)   sameOriginGate(false) -> requireOperator -> logoutGate
+//
+// The reads behind sessionGate -- the legal page, the tenant list and search, the overview
+// and the plaques -- each charge the read budget once more in their handler (spendRead).
 //
 // Sign-out is its own group, after the panel's measured lesson (adminlogin.go's sign-out
 // group): no flood gate is in front of it, and a sign-out with a session cookie charges
@@ -73,6 +79,7 @@ func (s *Surface) mount(r chi.Router) {
 			r.Get("/tenants", s.tenantList)
 			r.Post("/tenants", s.searchTenants)
 			r.Get("/tenants/{id}", s.tenantOverview)
+			r.Get("/tenants/{id}/plaques", s.tenantPlaques)
 		})
 	})
 }
@@ -93,7 +100,8 @@ const (
 // for a path it does not know (ADR 0020 §4: "ana host'ta operatör yüzeyi yokmuş gibi
 // görünür"). Measured against the router's own 404 (status, body, Content-Type, nosniff;
 // no CSP, Location or cookie) on the hosts the shipped ingress names plus six more, under
-// seven methods and nine paths: TestHostGate_OperatorRoutesAnswerTheRoutersOwn404OnEveryOtherHost.
+// the methods and operator paths that test lists (a tenant's plaques among them since
+// OP-13): TestHostGate_OperatorRoutesAnswerTheRoutersOwn404OnEveryOtherHost.
 func (s *Surface) hostGate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !httpx.OnHost(r, s.host) {
@@ -113,11 +121,13 @@ func (s *Surface) hostGate(next http.Handler) http.Handler {
 //	Referrer-Policy          no-referrer: the enrollment page's URL carries the account id
 //	                         (the document head's meta tag says the same for navigations)
 //
-// Measured: TestOperatorHeaders_FortyResponseClassesCarryThePolicy (40 classes),
-// TestOperatorHeaders_TheWrongMethodAndOversizedClassesCarryThePolicy (8 more) and
-// TestOperatorHeaders_TheLegalClassesCarryThePolicy (OP-10, C49-C66) drive 66
-// response classes with hostile request headers and hold the response headers AT
-// WriteHeader (the recorder's snapshot) to the designed names and values;
+// Measured: TestOperatorHeaders_FortyResponseClassesCarryThePolicy (C1-C40),
+// TestOperatorHeaders_TheWrongMethodAndOversizedClassesCarryThePolicy (C41-C48),
+// TestOperatorHeaders_TheLegalClassesCarryThePolicy (OP-10, C49-C66),
+// TestOperatorHeaders_TheTenantClassesCarryThePolicy (OP-11, C67-C93) and
+// TestOperatorHeaders_ThePlaqueClassesCarryThePolicy (OP-13, C94 on) drive the response
+// classes of the tests' classRoutes with hostile request headers and hold the response
+// headers AT WriteHeader (the recorder's snapshot) to the designed names and values;
 // TestOperatorHeaders_TheRecorderSnapshotIsWhatTheWireCarries measures that snapshot
 // equal to the header section a real server sends for three classes (C1, C18, C28),
 // Content-Length and Date aside; trailers are not compared. The tests' headers list the
@@ -278,8 +288,8 @@ func operatorOf(r *http.Request) (operatorauth.Identity, bool) {
 
 // storeSession is the session sessionGate resolved and its hash for the store -- the
 // argument of every op_* call a console screen makes (the legal texts, OP-10; the
-// tenants, OP-11). Through mount both are in place; a route mounted outside the chain by
-// mistake answers the sign-in.
+// tenants, OP-11; the plaques, OP-13). Through mount both are in place; a route mounted
+// outside the chain by mistake answers the sign-in.
 func (s *Surface) storeSession(w http.ResponseWriter, r *http.Request) (operatorauth.Identity, string, bool) {
 	id, ok := operatorOf(r)
 	tok, hasToken := sessionTokenOf(r)
@@ -346,15 +356,33 @@ func (s *Surface) sessionGate(next http.Handler) http.Handler {
 	})
 }
 
-// spendSession charges one unit of the session's budget (sessionLimit, surface.go) and,
-// past it, answers 429 -- the window's first refusal logged at WARN with the session's
-// id. sessionGate charges every request once; a read charges its second transaction
-// (legalPage; tenants.go's listTenants and tenantOverview).
+// spendSession charges one unit of the session's request budget (sessionLimit,
+// surface.go) and, past it, answers 429 -- the window's first refusal logged at WARN with
+// the session's id. sessionGate calls it once for every request past the predicate; a
+// read's second unit is spendRead's, below.
 func (s *Surface) spendSession(w http.ResponseWriter, r *http.Request, id operatorauth.Identity) bool {
 	if n := s.sessions.Charge(id.SessionID.String()); n > sessionLimit {
 		if s.sessions.FirstOverLimit(n) {
 			s.log.WarnContext(r.Context(), "operator session budget reached",
 				"session_id", id.SessionID.String(), "limit", sessionLimit, "period", sessionPeriod.String())
+		}
+		s.problem(w, r, http.StatusTooManyRequests, problemTooMany(true))
+		return false
+	}
+	return true
+}
+
+// spendRead charges one unit of the session's READ budget (readLimit, surface.go) and,
+// past it, answers 429 with the same page -- the window's first refusal logged at WARN
+// with the session's id. The read handlers call it once, after their own refusals and
+// before the store (legalPage; tenants.go's listTenants and tenantOverview; plaques.go's
+// tenantPlaques). The count Charge returns is the one the refusal is decided on: there is
+// no separate read of the budget to race (surface.go, readLimit).
+func (s *Surface) spendRead(w http.ResponseWriter, r *http.Request, id operatorauth.Identity) bool {
+	if n := s.reads.Charge(id.SessionID.String()); n > readLimit {
+		if s.reads.FirstOverLimit(n) {
+			s.log.WarnContext(r.Context(), "operator read budget reached",
+				"session_id", id.SessionID.String(), "limit", readLimit, "period", readPeriod.String())
 		}
 		s.problem(w, r, http.StatusTooManyRequests, problemTooMany(true))
 		return false

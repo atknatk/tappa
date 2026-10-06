@@ -546,10 +546,11 @@ func isNamed(ty types.Type, target *types.TypeName) bool {
 
 // TestProblemViews_TheListedBuildFormsOccurOnlyInRenderGo (3rd round, F2).
 //
-// PART I -- the shipped package: thirteen keyed ProblemView literals (OP-8's eight and the
-// legal screen's five, OP-10), each the value of a package-level variable of render.go,
-// one keyed literal in problemTooMany; problemPages uses the thirteen variables and calls
-// problemTooMany with false and with true; each Back in those literals is a constant. (The
+// PART I -- the shipped package: keyed ProblemView literals (OP-8's, the legal screen's,
+// OP-10, the tenant screens', OP-11, and the plaque screen's, OP-13), each the value of a
+// package-level variable of render.go, one keyed literal in problemTooMany; problemPages
+// uses every one of those variables and calls problemTooMany with false and with true;
+// each Back in those literals is a constant. (The
 // premise below asks for at least eight -- OP-8's floor; PV2 holds every variable to
 // problemPages, whatever their number.) CONTROL: the same type resolution finds the three
 // operatorpages.SignInView literals of signin.go and their Failed/Expired keys.
@@ -1093,11 +1094,13 @@ var guardedHeaders = map[string]map[string]int{
 }
 
 // TestResponseHeaders_TheListedNamesAreWrittenOnlyInTheirFunctions (3rd round). The
-// response headers' behaviour is measured on the headers at WriteHeader by the three
-// header tables (TestOperatorHeaders_FortyResponseClassesCarryThePolicy,
-// TestOperatorHeaders_TheWrongMethodAndOversizedClassesCarryThePolicy and, OP-10,
-// TestOperatorHeaders_TheLegalClassesCarryThePolicy: 66 classes, hostile request
-// headers); this pin is the source-side list below.
+// response headers' behaviour is measured on the headers at WriteHeader by the header
+// tables (TestOperatorHeaders_FortyResponseClassesCarryThePolicy,
+// TestOperatorHeaders_TheWrongMethodAndOversizedClassesCarryThePolicy and, OP-10, OP-11
+// and OP-13, TestOperatorHeaders_TheLegalClassesCarryThePolicy,
+// TestOperatorHeaders_TheTenantClassesCarryThePolicy and
+// TestOperatorHeaders_ThePlaqueClassesCarryThePolicy: every class of classRoutes, hostile
+// request headers); this pin is the source-side list below.
 //
 // PART I -- the shipped package: the constant occurrences of each guardedHeaders name are
 // its allowed functions with its allowed counts; each http.Header Set/Add takes a
@@ -1191,14 +1194,15 @@ func TestResponseHeaders_TheListedNamesAreWrittenOnlyInTheirFunctions(t *testing
 	}
 }
 
-// operatorScreens are the nine screen constructors screens() (op8_test.go) renders, by
+// operatorScreens are the ten screen constructors screens() (op8_test.go) renders, by
 // name -- the list SN1/SN2 compare with operatorpages' exported API (OP-10 added Legal,
-// OP-11 Tenants and TenantOverview).
-var operatorScreens = []string{"Code", "Enroll", "Home", "Legal", "Problem", "SignIn", "TenantOverview", "TenantScreen", "Tenants"}
+// OP-11 Tenants and TenantOverview, OP-13 TenantPlaques).
+var operatorScreens = []string{"Code", "Enroll", "Home", "Legal", "Problem", "SignIn", "TenantOverview", "TenantPlaques",
+	"TenantScreen", "Tenants"}
 
 // TestOperatorPages_TheExportedScreensAreTheOnesScreensRenders (3rd round).
 //
-// PART I -- operatorpages' exported functions that return a templ.Component are the nine
+// PART I -- operatorpages' exported functions that return a templ.Component are the ten
 // of operatorScreens (read from the export data of the build being run).
 //
 // PART II -- red on: SN1 an exported constructor not in operatorScreens; SN2 a name in

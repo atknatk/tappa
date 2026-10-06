@@ -1,7 +1,7 @@
 // Package operatorpages is the platform operator's screens (M10 OP-8; ADR 0020 §4):
 // sign-in, the TOTP step, enrollment, the console's front page and its problem page,
-// (OP-10) the legal texts screen and (OP-11) the tenant list and a tenant's overview, in
-// the "TAPTIME OPERATOR" chrome.
+// (OP-10) the legal texts screen, (OP-11) the tenant list and a tenant's overview and
+// (OP-13) a tenant's plaques, in the "TAPTIME OPERATOR" chrome.
 //
 // IT IS NOT web/templates/pages, ON PURPOSE. pages is what the customer product renders
 // and internal/handler imports it. Measured with `go list` (non-test imports, the build
@@ -37,7 +37,8 @@ import (
 // measures the refusals and a named render, TestTenantOverview_AnUnnamedTenantIsNamedByItsID
 // the placeholder. Which pages show a tenant's data, and whether each renders through
 // TenantScreen, is code review's; no test pins it. OP-11's overview (TenantOverview) is
-// the first that does; the tenant LIST shows many tenants and names none in a banner.
+// the first that does and OP-13's plaques (TenantPlaques) the second; the tenant LIST
+// shows many tenants and names none in a banner.
 type TenantName struct {
 	v string
 	// byID marks the placeholder: v is the tenant's id, and the banner says "Unnamed
@@ -222,7 +223,63 @@ type TenantOverviewView struct {
 	// The counts, formatted: every location; employees, plaques and panel accounts
 	// whose status is active.
 	Locations, ActiveEmployees, ActivePlaques, ActiveAdmins string
+	// PlaquesPath is the tenant's plaque screen, /operator/tenants/<id>/plaques (OP-13).
+	PlaquesPath string
 }
+
+// TenantPlaquesView is /operator/tenants/{id}/plaques (M10 OP-13): one tenant's plaques,
+// read-only, rendered through TenantScreen. Every value is text the handler formatted;
+// templ escapes each one.
+type TenantPlaquesView struct {
+	Name TenantName
+	ID   string
+	// OverviewPath is the tenant's overview, /operator/tenants/<id> -- the way back.
+	OverviewPath string
+	// Total is every plaque the tenant holds and Shown the rows below (the read returns
+	// 200 at most); Truncated says Shown is fewer than Total. Noun is "plaque" or
+	// "plaques", for Total.
+	Total, Shown string
+	Truncated    bool
+	Noun         string
+	Rows         []PlaqueRow
+}
+
+// PlaqueRow is one plaque. Label, Sentence and Tone are the handler's reading of the
+// plaque's state; StoredStatus is set only for a state that reading does not know, and
+// is the stored status quoted. Location is the location's name, or "" when the plaque has
+// no location or the name shows nothing (LocationID then names it); the times are UTC,
+// "" for a time the plaque does not have.
+type PlaqueRow struct {
+	UID                   string
+	Label, Sentence       string
+	Tone                  PlaqueTone
+	StoredStatus          string
+	Location, LocationID  string
+	EncodedAt, CreatedAt  string
+	RetiredAt, ReplacedBy string
+	LastCtr               string
+}
+
+// PlaqueTone is the chip a plaque's state is drawn with -- the brand's fixed status
+// mapping, where the word on the chip carries the meaning and the tone repeats it. Its
+// zero value is PlaqueToneUnknown, so a row whose tone was never set draws the
+// unrecognised chip, not an in-service one.
+type PlaqueTone int
+
+const (
+	// PlaqueToneUnknown: a state the reading does not know -- the ink tone, which is no
+	// status.
+	PlaqueToneUnknown PlaqueTone = iota
+	// PlaqueToneInService: on a wall with its encode recorded -- the tone of an active
+	// lifecycle state.
+	PlaqueToneInService
+	// PlaqueToneStock: in stock and ready -- the neutral tone.
+	PlaqueToneStock
+	// PlaqueToneAttention: no encode recorded -- the warning tone.
+	PlaqueToneAttention
+	// PlaqueToneOut: retired or lost, taps on it rejected -- the rejection tone.
+	PlaqueToneOut
+)
 
 // ProblemView is a refusal or a fault the operator surface answers with a page.
 type ProblemView struct {

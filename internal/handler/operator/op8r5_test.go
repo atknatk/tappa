@@ -2,7 +2,8 @@ package operator_test
 
 // op8r5_test.go -- OP-8's fifth round: the shared runner of the header tables, the class
 // -> route table (classRoutes) the header tables are held to (OP-10 added a third table,
-// C49-C66, op10_test.go), the eight classes the 4th
+// C49-C66, op10_test.go; OP-11 a fourth, C67-C93, op11_test.go; OP-13 a fifth, C94-C103,
+// op13_test.go), the eight classes the 4th
 // audit found outside the 40 (N7), the walked-routes completeness test (N5) and the wire
 // test of the recorder's snapshot (F1 (b)).
 //
@@ -55,7 +56,7 @@ type classRoute struct {
 	status          int
 }
 
-// classRoutes maps each class of the four header tables to its route and status. The
+// classRoutes maps each class of the header tables to its route and status. The
 // header tests hold each drive to its entry (the method and path it sent last, the status
 // it got); TestOperatorHeaders_TheWalkedRoutesEachHaveAClass holds the entries to the
 // routes the surface mounts.
@@ -105,19 +106,35 @@ var classRoutes = map[string]classRoute{
 	"C89": {"GET", "/operator/tenants/{id}", 503}, "C90": {"GET", "/operator/tenants/{id}", 303},
 	"C91": {"GET", "/operator/tenants/{id}", 429}, "C92": {"GET", "/operator/tenants/{id}", 303},
 	"C93": {"POST", "/operator/tenants/{id}", 405},
+	// OP-13's plaque screen (op13_test.go, TestOperatorHeaders_ThePlaqueClassesCarryThePolicy).
+	"C94": {"GET", "/operator/tenants/{id}/plaques", 200}, "C95": {"GET", "/operator/tenants/{id}/plaques", 303},
+	"C96": {"GET", "/operator/tenants/{id}/plaques", 303}, "C97": {"GET", "/operator/tenants/{id}/plaques", 303},
+	"C98": {"GET", "/operator/tenants/{id}/plaques", 404}, "C99": {"GET", "/operator/tenants/{id}/plaques", 404},
+	"C100": {"GET", "/operator/tenants/{id}/plaques", 503}, "C101": {"GET", "/operator/tenants/{id}/plaques", 303},
+	"C102": {"GET", "/operator/tenants/{id}/plaques", 429},
+	"C103": {"POST", "/operator/tenants/{id}/plaques", 405},
 }
 
+// classCount is the number of classes of the header tables, C1 to C<classCount>.
+const classCount = 103
+
 // routeOf is a request's method and path as a chi route: the query dropped, the prefix
-// itself written as the pattern chi.Walk reports for the console ("/operator/"), and a
-// path one segment under /operator/tenants/ written as its pattern (OP-11's overview:
-// chi routes any one segment there to {id}).
+// itself written as the pattern chi.Walk reports for the console ("/operator/"), a path
+// one segment under /operator/tenants/ written as its pattern (OP-11's overview: chi
+// routes any one segment there to {id}), and one segment followed by /plaques written as
+// the plaque screen's (OP-13).
 func routeOf(l driveLog) string {
 	p, _, _ := strings.Cut(l.path, "?")
 	if p == operator.Prefix {
 		p += "/"
 	}
-	if rest, ok := strings.CutPrefix(p, operator.Prefix+"/tenants/"); ok && rest != "" && !strings.Contains(rest, "/") {
-		p = operator.Prefix + "/tenants/{id}"
+	if rest, ok := strings.CutPrefix(p, operator.Prefix+"/tenants/"); ok && rest != "" {
+		switch seg, tail, more := strings.Cut(rest, "/"); {
+		case !more:
+			p = operator.Prefix + "/tenants/{id}"
+		case seg != "" && tail == "plaques":
+			p = operator.Prefix + "/tenants/{id}/plaques"
+		}
 	}
 	return l.method + " " + p
 }
@@ -245,14 +262,14 @@ func TestOperatorHeaders_TheWrongMethodAndOversizedClassesCarryThePolicy(t *test
 // TestOperatorHeaders_TheWalkedRoutesEachHaveAClass is the completeness check the 4th
 // audit asked for (N5), on the surface's MOUNTED routes as chi.Walk reports them.
 //
-// PART I -- the shipped surface: chi.Walk reports thirteen method x route pairs on eight
+// PART I -- the shipped surface: chi.Walk reports fourteen method x route pairs on nine
 // routes (OP-10 added GET and POST /operator/legal; OP-11 GET and POST /operator/tenants
-// and GET /operator/tenants/{id}); classRoutes has, for each pair, a class with a status
-// other than 405, and for each route a 405 class with a method not mounted on it;
-// classRoutes' keys are C1-C93.
+// and GET /operator/tenants/{id}; OP-13 GET /operator/tenants/{id}/plaques); classRoutes
+// has, for each pair, a class with a status other than 405, and for each route a 405
+// class with a method not mounted on it; classRoutes' keys are C1 to C<classCount>.
 //
 // PART II -- red on: a walked pair with no class; a walked route with no 405 class; a key
-// of classRoutes outside C1-C93 or a missing one. (The header tests hold each class's
+// of classRoutes outside C1 to C<classCount> or a missing one. (The header tests hold each class's
 // drive to its classRoutes entry: an entry naming a route its class does not drive is red
 // there -- N5c in the card's 5th-round table is the converse.)
 //
@@ -274,7 +291,7 @@ func TestOperatorHeaders_TheWalkedRoutesEachHaveAClass(t *testing.T) {
 	for _, ms := range walked {
 		pairs += len(ms)
 	}
-	if len(walked) < 8 || pairs < 13 {
+	if len(walked) < 9 || pairs < 14 {
 		t.Fatalf("PREMISE: chi.Walk reported %d route(s), %d pair(s)", len(walked), pairs)
 	}
 	covered, wrongMethod := map[string]bool{}, map[string]bool{}
@@ -302,13 +319,13 @@ func TestOperatorHeaders_TheWalkedRoutesEachHaveAClass(t *testing.T) {
 	for _, m := range missing {
 		t.Error(m)
 	}
-	for i := 1; i <= 93; i++ {
+	for i := 1; i <= classCount; i++ {
 		if _, ok := classRoutes["C"+strconv.Itoa(i)]; !ok {
 			t.Errorf("classRoutes has no C%d", i)
 		}
 	}
-	if len(classRoutes) != 93 {
-		t.Errorf("classRoutes has %d entries, want C1-C93", len(classRoutes))
+	if len(classRoutes) != classCount {
+		t.Errorf("classRoutes has %d entries, want C1-C%d", len(classRoutes), classCount)
 	}
 }
 

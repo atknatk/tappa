@@ -61,9 +61,9 @@ import (
 	"github.com/atknatk/tappa/internal/sun"
 )
 
-// liveStore is operatorauth.Store, operator.LegalStore and (OP-11) operator.TenantStore
-// on a connection that IS tappa_operator: each method is internal/db's production
-// accessor, each statement its own committed transaction.
+// liveStore is operatorauth.Store, operator.LegalStore, (OP-11) operator.TenantStore and
+// (OP-13) operator.PlaqueStore on a connection that IS tappa_operator: each method is
+// internal/db's production accessor, each statement its own committed transaction.
 type liveStore struct {
 	mu   sync.Mutex
 	conn *pgx.Conn
@@ -133,6 +133,12 @@ func (s *liveStore) TenantDetail(ctx context.Context, h string, id uuid.UUID) (d
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return db.TenantDetail(ctx, s.conn, h, id)
+}
+
+func (s *liveStore) TenantPlaques(ctx context.Context, h string, id uuid.UUID) (db.TenantPlaqueInventory, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return db.TenantPlaques(ctx, s.conn, h, id)
 }
 
 // legalE2E is one test's committed rig.
@@ -223,7 +229,7 @@ func newLegalE2E(t *testing.T) *legalE2E {
 		t.Fatal(err)
 	}
 	live := &liveStore{conn: l.op}
-	s, err := operator.New(auth, live, live, l.texts, opHost, opBase, log)
+	s, err := operator.New(auth, live, live, live, l.texts, opHost, opBase, log)
 	if err != nil {
 		t.Fatal(err)
 	}

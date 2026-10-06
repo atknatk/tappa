@@ -2,10 +2,10 @@ package operator_test
 
 // op10_test.go -- M10 OP-10 phase B: /operator/legal on the shipped router with the fake
 // store and snapshot (rig_test.go). The header table of its response classes (C49-C66),
-// the session budget's second unit for a read, the publication (the publisher is the
-// session's; the snapshot is refreshed), the refusals before any store call, the escaping
-// of a re-opened text, the version list's publisher, and the visible-text rule. Against
-// PostgreSQL: op10_db_test.go.
+// the read's second unit (the read budget's since OP-13 phase B), the publication (the
+// publisher is the session's; the snapshot is refreshed), the refusals before any store
+// call, the escaping of a re-opened text, the version list's publisher, and the
+// visible-text rule. Against PostgreSQL: op10_db_test.go.
 
 import (
 	"context"
@@ -40,7 +40,8 @@ func legalForm(slug, body string) url.Values { return url.Values{"slug": {slug},
 // the eighteen's last request carries the hostile query (hostileDrive adds it on
 // /operator/legal; C60's hand-built request gets it from hostileOn); no script; and the
 // store counts below: C58 (cross-origin) and C66 (PUT) make no store call, C55 (the
-// read's second unit refused) makes no LegalVersions call.
+// read refused by the read budget -- OP-13 phase B; the session budget's second unit
+// before it) makes no LegalVersions call.
 //
 // PART II -- the list above, on these eighteen classes.
 //
@@ -111,15 +112,15 @@ func TestOperatorHeaders_TheLegalClassesCarryThePolicy(t *testing.T) {
 		{"C53 legal page, the version list fails", 503, failing("LegalVersions", errFakeDB, func() req { return get(signIn()) })},
 		{"C54 legal page, the version list's session is refused", 303,
 			failing("LegalVersions", db.ErrOperatorRefused, func() req { return get(signIn()) })},
-		{"C55 legal page, the read's second unit refused", 429, func() *httptest.ResponseRecorder {
+		{"C55 legal page, the read budget refused", 429, func() *httptest.ResponseRecorder {
 			c := signIn()
-			for i := 0; i < 199; i++ { // 199 console views: 199 units (sessionLimit 200 since OP-11)
-				if w := send(req{method: http.MethodGet, path: "/operator", cookies: []*http.Cookie{c}, header: sfs}); w.Code != http.StatusOK {
-					t.Fatalf("PREMISE: console view %d = %d", i+1, w.Code)
+			for i := 0; i < 60; i++ { // 60 legal views: the read budget (readLimit 60, OP-13) spent
+				if w := send(get(c)); w.Code != http.StatusOK {
+					t.Fatalf("PREMISE: legal view %d = %d", i+1, w.Code)
 				}
 			}
 			versionsBefore = g.store.count("LegalVersions")
-			return send(get(c)) // the gate's 200th unit, the handler's 201st
+			return send(get(c)) // the 61st read: the gate's 61st unit of 100, the read budget's 61st of 60
 		}},
 		{"C56 publication", 303, once(func() req { return post(legalForm("privacy", "FAKE C56 text"), signIn()) })},
 		{"C57 publication without a cookie", 303, once(func() req { return post(legalForm("privacy", "FAKE C57 text")) })},
@@ -183,19 +184,25 @@ func TestOperatorHeaders_TheLegalClassesCarryThePolicy(t *testing.T) {
 		t.Errorf("classes %v loaded a script, want none", scripted)
 	}
 	if n := g.store.count("LegalVersions") - versionsBefore; n != 0 {
-		t.Errorf("C55: the read refused by its second unit still called LegalVersions %d time(s)", n)
+		t.Errorf("C55: the read refused by the read budget still called LegalVersions %d time(s)", n)
 	}
 }
 
-// TestLegalPage_AReadCountsTwiceAgainstTheSessionBudget measures surface.go's sessionLimit
-// re-derivation (OP-10; the limit is 200 since OP-11's): a legal page view is two units of
-// the session's budget.
+// TestLegalPage_AReadCountsTwiceAgainstTheSessionBudget measures a legal page view's two
+// units. THE NAME IS OP-10'S AND NO LONGER THE WHOLE RULE: until OP-13 phase B both units
+// were the session budget's (sessionLimit, 200 since OP-11); since then the gate charges
+// one unit of the session's REQUEST budget (sessionLimit, 100) and the handler one of its
+// READ budget (readLimit, 60). The name stays because docs/plan/m10-platform.md and ADR
+// 0021 cite it in records that are not rewritten after the fact (cmd/tappa's
+// TestOperatorWiring_ThePoolReachesOnlyTheAuthenticator keeps its OP-7 name for the same
+// reason).
 //
-// PART I -- one session, 100 legal page views from 100 addresses: 100 x 200 and 100
-// LegalVersions calls; the 101st view is 429 at the gate (201 units) with no 101st read.
-// A second session: 1 console view and 99 legal views (199 units), then a legal view is
-// 429 from the handler's second unit -- the gate's predicate ran (TouchOperatorSession
-// +1) and LegalVersions did not. CONTROL: a third session reads the page.
+// PART I -- one session, 60 legal page views from 60 addresses: 60 x 200 and 60
+// LegalVersions calls; the 61st view is 429 from the read budget -- the gate's predicate
+// ran (TouchOperatorSession +1) and LegalVersions did not -- and the window's first read
+// refusal is the read budget's WARN line. The same session then has 39 console views
+// left (61 + 39 = 100 units of the request budget), all 200, and the next is 429 at the
+// gate. CONTROL: another session reads the page.
 //
 // PART II -- the counts above. PART III -- This test measures these sequences only; a
 // read added by a later screen is code review's (and its own test's) -- no completeness
@@ -209,33 +216,31 @@ func TestLegalPage_AReadCountsTwiceAgainstTheSessionBudget(t *testing.T) {
 			remote: fmt.Sprintf("198.18.%d.%d:1", n/200, n%200+1), header: map[string]string{"Sec-Fetch-Site": "same-origin"}})
 	}
 	a := g.signIn(g.active())
-	for i := 0; i < 100; i++ {
+	for i := 0; i < 60; i++ {
 		if w := view("/operator/legal", a); w.Code != http.StatusOK {
 			t.Fatalf("legal view %d of one session = %d, want 200", i+1, w.Code)
 		}
 	}
-	if got := g.store.count("LegalVersions"); got != 100 {
-		t.Fatalf("PREMISE: %d read(s) for 100 views", got)
+	if got := g.store.count("LegalVersions"); got != 60 {
+		t.Fatalf("PREMISE: %d read(s) for 60 views", got)
 	}
-	if w := view("/operator/legal", a); w.Code != http.StatusTooManyRequests || g.store.count("LegalVersions") != 100 {
-		t.Fatalf("the 101st legal view of one session = %d with %d read(s), want 429 and 100", w.Code, g.store.count("LegalVersions"))
+	touches := g.store.count("TouchOperatorSession")
+	if w := view("/operator/legal", a); w.Code != http.StatusTooManyRequests || g.store.count("LegalVersions") != 60 {
+		t.Fatalf("the 61st legal view of one session = %d with %d read(s), want 429 and 60", w.Code, g.store.count("LegalVersions"))
 	}
-	b := g.signIn(g.active())
-	if w := view("/operator", b); w.Code != http.StatusOK {
-		t.Fatalf("PREMISE: console view = %d", w.Code)
+	if g.store.count("TouchOperatorSession") != touches+1 {
+		t.Errorf("the view refused by the read budget: predicate +%d, want +1", g.store.count("TouchOperatorSession")-touches)
 	}
-	for i := 0; i < 99; i++ {
-		if w := view("/operator/legal", b); w.Code != http.StatusOK {
-			t.Fatalf("legal view %d of the second session = %d", i+1, w.Code)
+	if !strings.Contains(g.logs.String(), "operator read budget reached") {
+		t.Error("the read budget's first refusal wrote no WARN line")
+	}
+	for i := 0; i < 39; i++ {
+		if w := view("/operator", a); w.Code != http.StatusOK {
+			t.Fatalf("console view %d after 61 legal views = %d, want 200 -- the request budget is 100", i+1, w.Code)
 		}
 	}
-	touches, reads := g.store.count("TouchOperatorSession"), g.store.count("LegalVersions")
-	if w := view("/operator/legal", b); w.Code != http.StatusTooManyRequests {
-		t.Fatalf("the view that crosses the budget by its second unit = %d, want 429", w.Code)
-	}
-	if g.store.count("TouchOperatorSession") != touches+1 || g.store.count("LegalVersions") != reads {
-		t.Errorf("the view refused by its second unit: predicate +%d, reads +%d; want +1, +0",
-			g.store.count("TouchOperatorSession")-touches, g.store.count("LegalVersions")-reads)
+	if w := view("/operator", a); w.Code != http.StatusTooManyRequests {
+		t.Errorf("the 101st request of the session = %d, want 429 at the gate", w.Code)
 	}
 	if w := view("/operator/legal", g.signIn(g.active())); w.Code != http.StatusOK {
 		t.Fatalf("CONTROL: another session's legal view = %d", w.Code)

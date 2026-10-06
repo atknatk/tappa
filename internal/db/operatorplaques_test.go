@@ -21,9 +21,9 @@ package db
 //     They take the lock SHARED through opLiveFixture and write their plaque fixtures only
 //     inside transactions that are rolled back. What they leave per run, by construction:
 //     one disabled account each, its revoked sessions, and the 'read' rows they committed
-//     (the lifecycle one, the pool test two -- one when the database holds no plaque at
-//     all) -- operator_audit_log is append-only and its foreign keys keep the account and
-//     the sessions those rows name.
+//     (the lifecycle one, the pool test three since OP-13 phase B drove the method there
+//     too -- two when the database holds no plaque at all) -- operator_audit_log is
+//     append-only and its foreign keys keep the account and the sessions those rows name.
 //
 // 🔴 NO TEST HERE COMMITS A ROW TO `tags`. A plaque row is the one record of a chip's keys
 // and is never deleted by any cleanup (agent-brief, 2026-09-26): a fixture plaque that
@@ -1983,7 +1983,11 @@ func TestOpReadTenantPlaques_TwoPhaseLifecycle(t *testing.T) {
 // committed tenant that holds plaques (the database's tenant with the most; this test
 // writes none): the inventory carries the owner's name for it, and every plaque it returns
 // is one the owner reads as that tenant's, in the list's order; Total is not below the rows
-// returned. It commits two 'read' rows (one when the database holds no plaque).
+// returned. Since OP-13 phase B the METHOD (*OperatorDB).TenantPlaques -- the one the
+// plaque screen calls -- is driven on the same pool too: an unknown id is ErrNoSuchTenant
+// after one more committed 'read' row (inside one transaction it would be
+// ErrOperatorRefused). It commits three 'read' rows (two when the database holds no
+// plaque).
 func TestTenantPlaques_OnThePoolTheTwoPhasesAreTwoTransactions(t *testing.T) {
 	ctx, f := opLiveFixture(t)
 	o, err := openOperatorDB(ctx, f.dsn, asOperator)
@@ -2012,6 +2016,13 @@ func TestTenantPlaques_OnThePoolTheTwoPhasesAreTwoTransactions(t *testing.T) {
 	}
 	if n := f.liveReads(t, ctx, f.session); n != 1 {
 		t.Errorf("the session has %d committed 'read' row(s), want 1 (the refused calls none)", n)
+	}
+	// Through the method (OP-13 phase B), on the production-built pool.
+	if _, err := o.TenantPlaques(ctx, f.hash, unknown); !errors.Is(err, ErrNoSuchTenant) {
+		t.Errorf("(*OperatorDB).TenantPlaques of an unknown tenant on its pool: %v, want ErrNoSuchTenant", err)
+	}
+	if n := f.liveReads(t, ctx, f.session); n != 2 {
+		t.Errorf("the method's read left the session with %d committed 'read' row(s), want 2", n)
 	}
 
 	var real uuid.UUID
@@ -2049,8 +2060,8 @@ func TestTenantPlaques_OnThePoolTheTwoPhasesAreTwoTransactions(t *testing.T) {
 			}
 		}
 	}
-	if n := f.liveReads(t, ctx, f.session); n != 2 {
-		t.Errorf("the session has %d committed 'read' row(s), want 2", n)
+	if n := f.liveReads(t, ctx, f.session); n != 3 {
+		t.Errorf("the session has %d committed 'read' row(s), want 3", n)
 	}
 }
 

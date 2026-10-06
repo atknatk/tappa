@@ -11,10 +11,8 @@ import (
 )
 
 // operatorCSP is the content policy securityHeaders sets (renderEnroll sets enrollCSP
-// instead). Measured, on the response headers at WriteHeader, on the 66 classes of the
-// three header tables (TestOperatorHeaders_FortyResponseClassesCarryThePolicy,
-// TestOperatorHeaders_TheWrongMethodAndOversizedClassesCarryThePolicy and
-// TestOperatorHeaders_TheLegalClassesCarryThePolicy).
+// instead). Measured, on the response headers at WriteHeader, on every class of the header
+// tables (the tests' classRoutes; the tables are named at securityHeaders, routes.go).
 //
 // It is the panel's adminCSP, directive for directive, for the panel's reasons
 // (internal/handler/adminlogin.go): default-src 'none' with no script-src names no script
@@ -35,8 +33,8 @@ const operatorCSP = "default-src 'none'; style-src 'self'; font-src 'self'; " +
 // whose attribute-driven requests are a known way to turn an HTML injection into script
 // behaviour under a 'self' policy; a source naming the one path does not let a page under
 // this policy load them. No 'unsafe-inline', no 'unsafe-eval', no connect-src. Measured on
-// the response headers at WriteHeader of the 66 classes of the three header tables: the
-// four scripted classes (C18, C20, C21, C22) carry it, the other 62 do not.
+// the response headers at WriteHeader of every class of the header tables: the four
+// scripted classes (C18, C20, C21, C22) carry it, no other class does.
 func (s *Surface) enrollCSP() string {
 	return operatorCSP + "; script-src " + s.origin + operatorpages.EnrollScript()
 }
@@ -66,8 +64,8 @@ func (s *Surface) readForm(w http.ResponseWriter, r *http.Request, limit int64, 
 }
 
 // render writes one screen. It renders into a buffer first, so a component that refuses
-// (operatorpages.TenantScreen without a tenant's name -- the tenant overview renders
-// through it) or fails writes no partial page:
+// (operatorpages.TenantScreen without a tenant's name -- the tenant overview and the
+// plaque screen render through it) or fails writes no partial page:
 // the status line has not been sent, and the answer is a plain 500
 // (TestTenantScreen_RefusesToRenderWithoutAName).
 func (s *Surface) render(w http.ResponseWriter, r *http.Request, status int, c templ.Component) {
@@ -85,12 +83,10 @@ func (s *Surface) render(w http.ResponseWriter, r *http.Request, status int, c t
 }
 
 // redirect answers 303 See Other: a POST becomes a plain GET and a refresh is harmless.
-// Measured: in the response headers at WriteHeader of the 66 classes of the three header
-// tables (TestOperatorHeaders_FortyResponseClassesCarryThePolicy,
-// TestOperatorHeaders_TheWrongMethodAndOversizedClassesCarryThePolicy and
-// TestOperatorHeaders_TheLegalClassesCarryThePolicy), Location is the designed path on
-// each 303 and absent on the others, with a hostile Location and a hostile Referer
-// request header sent. Pinned:
+// Measured: in the response headers at WriteHeader of every class of the header tables
+// (named at securityHeaders, routes.go), Location is the designed path on each 303 and
+// absent on the others, with a hostile Location and a hostile Referer request header
+// sent. Pinned:
 // TestResponseHeaders_TheListedNamesAreWrittenOnlyInTheirFunctions catches the list in its
 // header.
 func (s *Surface) redirect(w http.ResponseWriter, to string) {
@@ -104,9 +100,9 @@ func (s *Surface) problem(w http.ResponseWriter, r *http.Request, status int, v 
 
 // renderEnroll renders the enrollment screen -- its first load and its re-render after a
 // refusal the person can fix -- and sets enrollCSP, the policy that names the screen's
-// script. Measured on the response headers at WriteHeader: of the 66 classes of the three
-// header tables, the four whose body loads a script (C18, C20, C21, C22) carry enrollCSP
-// and the other 62 carry operatorCSP.
+// script. Measured on the response headers at WriteHeader: of the classes of the header
+// tables, the four whose body loads a script (C18, C20, C21, C22) carry enrollCSP and
+// every other class carries operatorCSP.
 // Pinned: TestEnrollScreen_TheListedFormsRenderItOnlyInRenderEnroll catches the list in
 // its header.
 func (s *Surface) renderEnroll(w http.ResponseWriter, r *http.Request, status int, v operatorpages.EnrollView) {
@@ -116,10 +112,10 @@ func (s *Surface) renderEnroll(w http.ResponseWriter, r *http.Request, status in
 
 // The surface's fixed refusal and fault pages. Their sentences are constants, each
 // saying what to do next (skill tappa-brand: a message does not blame, it says what to
-// do). problemPages lists them (twenty variables and problemTooMany twice), and
-// TestProblemPages_LinkOnlyToMountedRoutes renders the twenty-two and holds their links
-// to the mounted routes. Pinned: TestProblemViews_TheListedBuildFormsOccurOnlyInRenderGo
-// catches the list in its header.
+// do). problemPages lists them (every variable below and problemTooMany twice), and
+// TestProblemPages_LinkOnlyToMountedRoutes renders each and holds their links to the
+// mounted routes. Pinned: TestProblemViews_TheListedBuildFormsOccurOnlyInRenderGo catches
+// the list in its header.
 func problemTooMany(signedIn bool) operatorpages.ProblemView {
 	return operatorpages.ProblemView{
 		Title:    "Too many requests",
@@ -270,10 +266,20 @@ var (
 		BackLabel: "Back to the tenants",
 		SignedIn:  true,
 	}
+
+	// The plaque screen's own page (plaques.go); its malformed and unknown ids answer with
+	// the two tenant pages above.
+	problemPlaquesUnreadable = operatorpages.ProblemView{
+		Title:     "The plaques could not be loaded",
+		Message:   "Try again in a moment.",
+		Back:      pathTenants,
+		BackLabel: "Back to the tenants",
+		SignedIn:  true,
+	}
 )
 
-// problemPages lists the twenty variables above and problemTooMany(false) and (true),
-// for the link test.
+// problemPages lists the variables above and problemTooMany(false) and (true), for the
+// link test.
 func problemPages() []operatorpages.ProblemView {
 	return []operatorpages.ProblemView{
 		problemTooMany(false), problemTooMany(true), problemCrossOrigin, problemFormTooLarge, problemBadForm,
@@ -282,5 +288,6 @@ func problemPages() []operatorpages.ProblemView {
 		problemLegalUnreadable,
 		problemTenantSearchTooLarge, problemTenantSearchRefused, problemTenantPageRefused, problemTenantsUnreadable,
 		problemTenantNotAnID, problemNoSuchTenant, problemTenantUnreadable,
+		problemPlaquesUnreadable,
 	}
 }

@@ -353,11 +353,23 @@ bir restoran hesabına bağlı olmamalı* (m10-platform.md §1).
   `/operator/logout`, `/operator` (konsol: menü — okuma yapmaz; oturum bütçesinden bir
   birim, audit satırı yok), `/operator/tenants` (tenant listesi: `GET` her tenant'ın ilk
   sayfası, `POST` arama ve her sayfa — OP-11), `/operator/tenants/{id}` (bir tenant'ın genel
-  bakışı), `/operator/legal`, `/operator/billing`, `/operator/plaques`, `/operator/audit`.
+  bakışı), `/operator/tenants/{id}/plaques` (bir tenant'ın plaket envanteri — OP-13),
+  `/operator/legal`, `/operator/billing`, `/operator/audit`.
   *(OP-11 notu, 2026-10-03: bu madde ilk yazıldığında `/operator`'u tenant listesi
   sayıyordu. Liste bir okumadır — iki bütçe birimi ve bir `read` satırı — ve her girişin
   indiği sayfa bu bedeli taşımasın diye kendi rotasına alındı; konsol ona link verir.
   Gerekçe ve ölçüm: ADR 0021 → "OP-11 B fazı eki" md. 1.)*
+  *(OP-13 notu, 2026-10-06, bütçe: yukarıdaki OP-11 notunun *"iki bütçe birimi"* o günün
+  kaydıdır. OP-13 B'den itibaren bir okuma `sessionGate`'te oturum bütçesine (`sessionLimit`
+  100) bir birim ve ayrı bir `readLimit`'e (60 / 10 dk) handler'da bir birim sayılır. Bkz. ADR
+  0021 → "OP-13 B fazı eki" md. 8.)*
+  *(OP-13 notu, 2026-10-06: bu madde ilk yazıldığında plaket ekranını `/operator/plaques`
+  diye adlandırıyordu. Envanter BİR tenant'ındır — okuması tenant'ı adlandırır, başlığı onun
+  adını taşır — bu yüzden tenant'ın altına alındı: `GET /operator/tenants/{id}/plaques`,
+  genel bakış ona link verir, konsol vermez; `/operator/plaques` kayıtlı değildir
+  (`TestSurface_TheScreensOfLaterTasksAreNotMounted` onu hâlâ sürer). Platform geneli bir
+  stok görünümü bu görevde yok (OP-13 kararı K13-3). Gerekçe ve ölçüm: ADR 0021 →
+  "OP-13 B fazı eki" md. 1.)*
 - **Host kapısı:** `TAPPA_OPERATOR_HOST` (D-B: `ops.taptime.mt`). Başka bir host'tan
   gelen `/operator/*` isteği **404** alır — ana host'ta (`taptime.mt/operator`) operatör
   yüzeyi yokmuş gibi görünür.
@@ -744,7 +756,11 @@ bir restoran hesabına bağlı olmamalı* (m10-platform.md §1).
   sayfanın metnini taşır, yayımlamak en yeni sürümün yerine geçer; yayının KENDİ hatası 503'tür
   ve sayfası satırın yazılmadığını iddia etmez (bir hata bunu kanıtlamaz — zaman aşımının
   iptali, COMMIT'ten sonra kopan bağlantı), sürüm listesine bakmayı söyler; (e) okuma oturum bütçesine
-  iki birim sayılır (`sessionGate` + ekran), `sessionLimit` 100 korundu; (f) sürüm listesi
+  iki birim sayılır (`sessionGate` + ekran), `sessionLimit` 100 korundu *(OP-13 notu,
+  2026-10-06: bu, OP-10'un bütçesinin kaydıdır. OP-13 B'den itibaren okuma ayrı bir
+  `readLimit`'e (60 / 10 dk) handler'da bir birim sayılır; `sessionLimit` 100'dür ve yalnız
+  istek sayar — okumanın ikinci birimi artık oturum bütçesinin değil. Bkz. ADR 0021 →
+  "OP-13 B fazı eki" md. 8.)*; (f) sürüm listesi
   en yeni 100 sürüm, gövdesiz, yayımlayan operatörün adı ya da *"tenant admin (legacy)"*;
   geri alma eski metni yeniden yayımlamaktır (yeni satır), "bu sürüme dön" düğmesi yeni bir
   `op_read_*` ister ve bu görevde yok. ADR 0016 Sonuçlar'ın *"bu metni kim yayımladı
@@ -775,6 +791,9 @@ bir restoran hesabına bağlı olmamalı* (m10-platform.md §1).
   ve 256 KiB + 1 baytlık istek (`TestLegalPublish_RefusesABodyBiggerThanTheCeiling`) store
   çağrısı yapmadan reddedildi; tam 256 KiB yayımlandı. (vi) Okuma iki birim: tek oturum 50
   görüntü → 50 × 200, 51. 429 (`TestLegalPage_AReadCountsTwiceAgainstTheSessionBudget`).
+  *(OP-13 notu, 2026-10-06: test adını korur; OP-13 B'den beri okuma ayrı bir `readLimit`'e bir
+  birim sayılır ve test 60 görüntü → 60 × 200, 61.'si okuma bütçesinden 429, ardından oturum
+  bütçesini (`sessionLimit` 100) ölçer. Bkz. ADR 0021 → "OP-13 B fazı eki" md. 8.)*
   (vii) Gerçek Postgres'te: yayın → bir sürüm (`published_by` = operatör) ve bir
   `legal_publish` satırı (detail'de slug ve bayt, metin değil) → müşteri host'unda
   `/legal/privacy` yeni metni gösterir → sürüm listesi yayımlayanın adıyla, canlı → geri
@@ -843,7 +862,7 @@ bir restoran hesabına bağlı olmamalı* (m10-platform.md §1).
 | M9-08 kriteri | Karşılığı |
 |---|---|
 | *"Operatörün her eylemi `audit_log`'a, ve hangi tenant adına yapıldığı okunabilir."* | **Yeniden okundu (K6):** her eylem `operator_audit_log`'a, satır tenant'ı adlandırır; tenant'ı **değiştirenler** ayrıca o tenant'ın `audit_log`'una aynı tx'te; okumalar yalnız operatör log'unda |
-| *"Tenant sınırının aşıldığı her yer, kodda ve ekranda adıyla görünür — sessiz bir çapraz-tenant okuma yok."* | Kodda: yalnız `op_` önekli fonksiyonlar (ADR 0021). Ekranda: tenant-ötesi her ekran girdiği tenant'ı başlıkta **adıyla** gösterir (OP-8). *(OP-11: liste tek bir tenant'a girmez ve başlık taşımaz, her satır tenant'ı adıyla gösterir; görünür adı olmayan bir tenant hem satırda hem genel bakışın başlığında "Unnamed tenant" ve id'siyle adlandırılır — sıfır `TenantName` hâlâ render edilemez.)* Sessizlik: okuma audit'i veri dönmeden commit edilir (§5) |
+| *"Tenant sınırının aşıldığı her yer, kodda ve ekranda adıyla görünür — sessiz bir çapraz-tenant okuma yok."* | Kodda: yalnız `op_` önekli fonksiyonlar (ADR 0021). Ekranda: tenant-ötesi her ekran girdiği tenant'ı başlıkta **adıyla** gösterir (OP-8). *(OP-11: liste tek bir tenant'a girmez ve başlık taşımaz, her satır tenant'ı adıyla gösterir; görünür adı olmayan bir tenant hem satırda hem genel bakışın başlığında "Unnamed tenant" ve id'siyle adlandırılır — sıfır `TenantName` hâlâ render edilemez.)* *(OP-13: plaket ekranı da `TenantScreen` içindedir; başlıktaki ad envanter okumasının kendisinden gelir — ayrı bir genel bakış okuması yapılmaz — ve okumanın döndürdüğü tenant yolun tenant'ı değilse ekran 503'tür.)* Sessizlik: okuma audit'i veri dönmeden commit edilir (§5) |
 | *"İzin listesi boşken panel kimseye açılmıyor, ve bu bir testle sabitlenmiş."* | `platform_admins` boşken kimse giremez; tohumlama ve kurulum sayfası yok (§1, §6) |
 | Ayrı rota ağacı; müşteri oturumu oraya hiçbir koşulda giremiyor (kabul 4, özet) | Ayrı host + ayrı çerez + ayrı tablo + ayrı çözümleme (§2, §4) — yapısal |
 

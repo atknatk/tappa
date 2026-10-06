@@ -109,7 +109,8 @@ templ tenantPageForm(search string, page int, label string) {
 // in the banner and the document title, and a tenant whose stored name shows nothing is
 // named by its id. The counts are what op_read_tenant_detail returns: every location, and
 // the employees, plaques and panel accounts whose status is active -- no person, no
-// address, no plaque uid (ADR 0021, OP-11 note md. 5).
+// address, no plaque uid (ADR 0021, OP-11 note md. 5). Under the counts, a link to the
+// tenant's plaques (OP-13), a read of its own.
 templ TenantOverview(v TenantOverviewView) {
 	@TenantScreen("Tenant overview", v.Name) {
 		<section class="op-card">
@@ -132,6 +133,9 @@ templ TenantOverview(v TenantOverviewView) {
 			<p class="mt-3 text-xs text-ink/70">
 				Counted when this page was opened. Locations have no status; the other three count the
 				active ones only.
+			</p>
+			<p class="mt-2">
+				<a href={ templ.URL(v.PlaquesPath) } class="op-link">See this tenant's plaques</a>
 			</p>
 		</section>
 		<p class="flex flex-wrap gap-x-6">

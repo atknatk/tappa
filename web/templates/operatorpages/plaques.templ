@@ -1,0 +1,101 @@
+package operatorpages
+
+// TenantPlaques is /operator/tenants/{id}/plaques (M10 OP-13; ADR 0020 §4, §9): one
+// tenant's plaques, inside TenantScreen -- the tenant's name in the banner and the document
+// title, and a tenant whose stored name shows nothing named by its id.
+//
+// IT IS READ-ONLY, AND ITS MARKUP SAYS SO: the screen's own markup has no form and no
+// button -- the page's one form is the bar's sign-out -- and two links out. A plaque is
+// retired, unmounted or encoded somewhere else (the panel, the encode flow), never here.
+//
+// Each row is one plaque on the docket: its uid, a chip naming its state with the
+// handler's word for it, the sentence that says what the state means, and the facts --
+// where it is mounted, when its encode was recorded, when it was added and retired, what
+// replaced it and its counter -- every figure and time in the data face. A state the
+// handler's reading does not know is drawn as such, with the status as it is stored.
+templ TenantPlaques(v TenantPlaquesView) {
+	@TenantScreen("Plaques", v.Name) {
+		<section class="op-card">
+			<p class="docket-label">Plaques</p>
+			<h1 class="mt-1 font-display text-2xl font-bold tracking-tight">Plaque inventory</h1>
+			if len(v.Rows) == 0 {
+				<p class="mt-3 text-sm">This tenant has no plaques.</p>
+			} else if v.Truncated {
+				<p class="mt-3 text-sm">
+					The first <span class="font-mono">{ v.Shown }</span> of <span class="font-mono">{ v.Total }</span> plaques are listed, in the
+					panel's own order: those with no location first.
+				</p>
+			} else {
+				<p class="mt-3 text-sm">
+					<span class="font-mono">{ v.Total }</span> { v.Noun }, in the panel's own order: those with no location first.
+				</p>
+			}
+			<p class="mt-1 text-xs text-ink/70">Read when this page was opened. Nothing on this page changes a plaque.</p>
+			<p class="mt-2 flex flex-wrap gap-x-6">
+				<a href={ templ.URL(v.OverviewPath) } class="op-link">Back to the overview</a>
+				<a href="/operator/tenants" class="op-link">Back to the tenants</a>
+			</p>
+		</section>
+		if len(v.Rows) > 0 {
+			<section class="docket" aria-labelledby="tenant-plaques">
+				<h2 id="tenant-plaques" class="docket-label">Plaques of this tenant</h2>
+				<ol class="mt-2">
+					for _, r := range v.Rows {
+						@plaqueRow(r)
+					}
+				</ol>
+			</section>
+		}
+	}
+}
+
+// plaqueRow is one plaque on the docket. The location's name is a tenant's text and sits in
+// a bdi element, like a tenant's name.
+templ plaqueRow(r PlaqueRow) {
+	<li class="op-row">
+		<span class="font-mono font-bold">{ r.UID }</span>
+		@plaqueChip(r)
+		<span class="w-full text-sm">{ r.Sentence }</span>
+		if r.StoredStatus != "" {
+			<span class="text-sm">Stored status <span class="font-mono">{ r.StoredStatus }</span></span>
+		}
+		if r.LocationID == "" {
+			<span class="text-sm">No location</span>
+		} else if r.Location != "" {
+			<span class="text-sm">At <bdi>{ r.Location }</bdi></span>
+		} else {
+			<span class="text-sm">At an unnamed location <span class="break-all font-mono">{ r.LocationID }</span></span>
+		}
+		if r.EncodedAt != "" {
+			<span class="text-sm">Encoded <span class="font-mono">{ r.EncodedAt }</span></span>
+		} else {
+			<span class="text-sm">No encode recorded</span>
+		}
+		<span class="text-sm">Added <span class="font-mono">{ r.CreatedAt }</span></span>
+		if r.RetiredAt != "" {
+			<span class="text-sm">Retired <span class="font-mono">{ r.RetiredAt }</span></span>
+		}
+		if r.ReplacedBy != "" {
+			<span class="text-sm">Replaced by <span class="font-mono">{ r.ReplacedBy }</span></span>
+		}
+		<span class="text-sm">Counter <span class="font-mono">{ r.LastCtr }</span></span>
+	</li>
+}
+
+// plaqueChip is the state's chip: the word is the row's label, the frame and ground its
+// tone's. A tone this switch does not name -- the zero value included -- draws the
+// unrecognised chip.
+templ plaqueChip(r PlaqueRow) {
+	switch r.Tone {
+		case PlaqueToneInService:
+			<span class="tally tally--mounted">{ r.Label }</span>
+		case PlaqueToneStock:
+			<span class="tally tally--stock">{ r.Label }</span>
+		case PlaqueToneAttention:
+			<span class="tally tally--unencoded">{ r.Label }</span>
+		case PlaqueToneOut:
+			<span class="tally tally--withdrawn">{ r.Label }</span>
+		default:
+			<span class="tally tally--unrecognised">{ r.Label }</span>
+	}
+}

@@ -254,8 +254,11 @@ func TestOperatorHeaders_FortyResponseClassesCarryThePolicy(t *testing.T) {
 		{"C31 console, session budget", 429, func() *httptest.ResponseRecorder {
 			c := signIn()
 			var w *httptest.ResponseRecorder
-			for i := 0; i < 201; i++ {
+			for i := 0; i < 101; i++ { // sessionLimit 100 (100 x 200, the 101st 429)
 				w = send(get("/operator", c))
+				if i < 100 && w.Code != http.StatusOK {
+					t.Fatalf("PREMISE: C31's console view %d = %d", i+1, w.Code)
+				}
 			}
 			return w
 		}},
@@ -312,7 +315,7 @@ func TestOperatorHeaders_FortyResponseClassesCarryThePolicy(t *testing.T) {
 	}
 }
 
-// TestProblemPages_LinkOnlyToMountedRoutes renders the ten ProblemViews problemPages lists
+// TestProblemPages_LinkOnlyToMountedRoutes renders every ProblemView problemPages lists
 // and holds each link to a route the surface mounts (operatorRoutes).
 // TestProblemViews_TheListedBuildFormsOccurOnlyInRenderGo is the pin on where ProblemView
 // fields are set (its header lists what it catches).
@@ -520,7 +523,7 @@ func hostileCookieLine(cookies []*http.Cookie) string {
 
 // hostileDrive is r with the hostile headers (a header the request sets itself --
 // Origin, Sec-Fetch-Site -- is kept), the second Cookie line and, on the sign-in, code,
-// enrollment, (OP-10) legal and (OP-11) tenant paths, the hostile query.
+// enrollment, (OP-10) legal, (OP-11) tenant and (OP-13) plaque paths, the hostile query.
 func hostileDrive(r req) req {
 	h := map[string]string{}
 	for k, v := range hostileHeaders {
@@ -534,9 +537,13 @@ func hostileDrive(r req) req {
 	path, _, _ := strings.Cut(r.path, "?")
 	if strings.HasPrefix(path, "/operator/tenants/") {
 		path = "/operator/tenants/{id}"
+		if strings.HasSuffix(r.path, "/plaques") || strings.Contains(r.path, "/plaques?") {
+			path = "/operator/tenants/{id}/plaques"
+		}
 	}
 	switch path {
-	case "/operator/login", "/operator/login/totp", "/operator/enroll", "/operator/legal", "/operator/tenants", "/operator/tenants/{id}":
+	case "/operator/login", "/operator/login/totp", "/operator/enroll", "/operator/legal", "/operator/tenants", "/operator/tenants/{id}",
+		"/operator/tenants/{id}/plaques":
 		q := url.Values{}
 		for k, v := range hostileQuery {
 			q[k] = v
@@ -569,14 +576,14 @@ func hostileOn(r *http.Request) {
 	r.URL.RawQuery = q.Encode()
 }
 
-// designed is a class's response headers beyond the four each of the 93 (C1-C93, the
-// four header tables) carries (Content-Security-Policy, Cache-Control,
-// X-Content-Type-Options, Referrer-Policy):
+// designed is a class's response headers beyond the four each class of the header tables
+// carries (Content-Security-Policy, Cache-Control, X-Content-Type-Options,
+// Referrer-Policy):
 // its Location and Content-Type ("" = absent), its Allow values (chi writes one per
 // registered method, sorted here; "" = absent) and its Set-Cookie headers, each
 // "<cookie name>=set" or "<cookie name>=clear". Read off the shipped handlers and
 // measured on them (2026-10-02, the 4th round; C41-C48 the 5th; C49-C66 OP-10, 2026-10-03;
-// C67-C93 OP-11, 2026-10-03).
+// C67-C93 OP-11, 2026-10-03; C94-C103 OP-13, 2026-10-06).
 type designed struct {
 	loc, ct, allow string
 	cookies        []string
@@ -638,6 +645,14 @@ var designedHeaders = map[string]designed{
 	"C85": {ct: pageType}, "C86": {loc: "/operator/login"}, "C87": {ct: pageType}, "C88": {ct: pageType},
 	"C89": {ct: pageType}, "C90": {loc: "/operator/login"}, "C91": {ct: pageType}, "C92": {loc: "/operator/login"},
 	"C93": {allow: "GET"},
+	// OP-13's plaque screen (op13_test.go): the inventory and its refusals are pages -- a
+	// 404, 429 or 503 page, none carrying a Location; the sign-in redirects of the gate and
+	// of a session the store refuses; the dead cookie cleared; POST's 405. The screen has no
+	// form, so no class of it answers a POST but the 405.
+	"C94": {ct: pageType}, "C95": {loc: "/operator/login"},
+	"C96": {loc: "/operator/login", cookies: []string{sessionClear}},
+	"C97": {loc: "/operator/login"}, "C98": {ct: pageType}, "C99": {ct: pageType}, "C100": {ct: pageType},
+	"C101": {loc: "/operator/login"}, "C102": {ct: pageType}, "C103": {allow: "GET"},
 }
 
 // checkDesignedHeaders holds the response headers AT WriteHeader (w.Result().Header, the

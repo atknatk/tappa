@@ -17,7 +17,11 @@
   okuyan `op_read_tenant_plaques` migration `00030` ile doğdu; `op_begin_read` bir okuma türü
   (`tenant_plaques`) kazandı; tanımlayıcı `tags`'in iki anahtar dışındaki bütün sütunlarını
   okur, iki anahtarda (`aes_key_ref`, `app_key_ref`) sütun yetkisi yoktur; ölçülen okuma
-  biçimleri "OP-13 uygulama notu" PART I'de. Ekran B fazıdır.
+  biçimleri "OP-13 uygulama notu" PART I'de. Ekran B fazıdır. **OP-13 B fazı (2026-10-06):**
+  plaket envanteri operatör yüzeyinde (`/operator/tenants/{id}/plaques`), `*OperatorDB`'nin
+  yeni `TenantPlaques` yöntemiyle; okumalar oturum başına ayrı bir okuma bütçesi
+  (`readLimit` 60 / 10 dk) öder, `sessionLimit` istek sayar (100); migration yok — bkz. aynı
+  notun "OP-13 B fazı eki".
 - **Tarih:** 2026-09-26 · aynı gün **2. tur** (güvenlik denetiminin RED'i: izsiz okuma),
   **3. tur** (güvenlik denetiminin RED'i: bilet süresinin saati; üçüncü gözün bulguları) ve
   **3. tur eki** (orkestratör kararı: enrollment ve kimlik bilgisi yazımı definer'da) ve
@@ -1680,6 +1684,14 @@ ikisi de `return F(ctx, o.pool, …)`. Migration yok; bağımlılık yok. Kararl
    kendi işini bu sayı değil, adres başına flood kapısı sınırlar. **Daha dar biçim, devir (OP-13 B):** oturuma bağlı ayrı bir OKUMA sınırlayıcısı
    (ör. `readLimit` 60 / 10 dk) ve `sessionLimit` 100'de; gerekçe: OP-12/13/14'ün okumaları bu
    türetmeyi ≈280'e taşır (planlayıcının tahmini).
+   *(OP-13 notu, 2026-10-06: bu madde OP-11 B'nin bütçesini kaydeder ve o gün için doğrudur.
+   OP-13 B'den itibaren yukarıdaki "daha dar biçim" yapıldı: bir okuma oturum bütçesine
+   (`sessionLimit` 100, yalnız istek sayar) `sessionGate`'te bir birim ve ayrı bir okuma
+   bütçesine (`readLimit` 60 / 10 dk, `spendRead`) handler'da bir birim sayılır; okumanın ikinci
+   birimi artık oturum bütçesinin değildir ve `sessionLimit` 200 değil 100'dür. Aynısı bu ekin
+   md. 1'indeki *"iki bütçe birimi"*, md. 3'ündeki *"ikinci bütçe birimi"* (bozuk id bugün okuma
+   birimi harcamaz) ve aşağıdaki güvenlik iddiasının *"ikinci bütçe birimi"* için de geçerlidir.
+   Bkz. "OP-13 B fazı eki" md. 8.)*
 6. **Wiring:** `cmd/tappa`'nın `operatorStore`'u `operatorauth.Store` ∪ `LegalStore` ∪
    `TenantStore`; `configuredSurface`'in store'u TAM üç kullanım (`arg0 of operatorAuthenticator`,
    `arg1 of operator.New`, `arg2 of operator.New`), `texts` `arg3 of operator.New`.
@@ -2024,6 +2036,193 @@ adıyla:
   Gh yeni pine karşı yeniden kırmızı; dosya mutasyonlarının 1. turdakileri 2. tur ağacında
   yeniden koşuldu, sonuç aynı) OP-13 A kart düzeltmesinde.
 - **PART III:** listede olmayan her biçim kod incelemesinin konusu — tamlık iddiası yok.
+
+**OP-13 B fazı eki (2026-10-06, ekran, wiring ve okuma bütçesi).** Yukarıdaki notun *"ekran,
+wiring ve `*OperatorDB` yöntemi B fazıdır"* cümlesi A fazının kaydıdır; B fazında tüketici
+yazıldı: `internal/handler/operator/plaques.go` (tüketici arayüzü `PlaqueStore`, handler
+`tenantPlaques`, sözlük `plaqueWords`), `web/templates/operatorpages/plaques.templ`
+(`TenantPlaques`), `*OperatorDB`'ye `TenantPlaques(ctx, sessionHash, tenantID)` —
+`return TenantPlaques(ctx, o.pool, …)`. Migration yok; bağımlılık yok. Kararlar, ölçümüyle:
+
+1. **Rota `GET /operator/tenants/{id}/plaques`, konsolun grubunda** (host kapısı → güvenlik
+   başlıkları → flood → same-origin, okuma kapısıyla → `requireOperator` → `sessionGate`).
+   Envanter BİR tenant'ındır: genel bakış ona link verir, konsol vermez. ADR 0020 §4'ün
+   *"Rotalar"* maddesi buna göre düzeltildi (OP-13 notu); `/operator/plaques` kayıtlı
+   değildir ve yönlendiricinin kendi 404'ünü verir.
+2. **Tek okuma, başlık dahil.** Başlıktaki ad `TenantPlaqueInventory.TenantName`'den gelir;
+   ayrı bir genel bakış okuması yapılmaz (ikisi iki okuma, iki `read` satırı, iki okuma
+   birimi olurdu). Görünür adı olmayan tenant OP-11'in yer tutucusuyla (`tenantBanner`, iki
+   ekranın ortak yardımcısı) id'siyle adlandırılır. Okumanın döndürdüğü tenant yolun
+   tenant'ı DEĞİLSE ekran 503'tür (`errPlaquesOfAnotherTenant`; internal/db'nin satır
+   denetiminin handler'daki kopyası — başlık sorulmamış bir tenant'ı adlandırmasın).
+3. **Durum sözlüğü kapalı ve fail-closed.** `TenantPlaque.Shape()`'in yedi değerinin her
+   birine bir etiket, bir cümle ve bir ton (`plaqueWords`); A-1 kendi adıyla (*"On a wall,
+   never encoded"*). Sözlüğün anahtar kümesi, internal/db'nin tipi `PlaqueShape` olan
+   sabitlerinden go/types ile TÜRETİLEN kümeye eşittir (sekizinci şekil eklenirse kırmızı);
+   sözlükte olmayan bir şekil `unrecognised`'ın sözüyle söylenir; `unrecognised` satır
+   düşmez, saklı durumu `strconv.Quote` ile gösterir (boş değer, boşluk, harf büyüklüğü,
+   kontrol karakteri görünür). Cümleler şemanın ve ürünün kendi kuralını söyler: takma
+   damga ister (00025, `AssignTagToLocation`), emekli ve kayıp plakete dokunuş reddedilir
+   (§5 satır 1, `sys:tag-not-active`). Emeklinin halefi olmayabilir (`tags.replaced_by`
+   boş bırakılabilir; dev'de 18 340 emeklinin 8 968'i halefsiz, 2026-10-06), bu yüzden
+   cümlesi (*"Taken out of service, with or without a replacement; taps on it are
+   rejected."*) ikisini de iddia etmez; halef varsa satırın *"Replaced by"* olgusu söyler
+   (2. tur, B7).
+4. **Ton eşlemesi markanın sabit eşlemesidir, yeni zemin yok:** hizmette → `tally--mounted`
+   (yeşil, `tally--active`'in bildirimine gruplandı), damgasız (A-1 ve stokta damgasız) →
+   `tally--unencoded` (saffron), stokta → `tally--stock` (line), emekli/kayıp →
+   `tally--withdrawn` (tomato), tanınmayan → `tally--unrecognised` (ink, durum olmayan ton).
+   Kelime her zaman ink; kontrast (WCAG 2.1, sRGB, paper üstünde kompozit): yeşil-lite
+   13,70 · saffron-lite 13,97 · tomato %10 13,99 · line %10 15,55 · ink %10 13,27 ·
+   ink/paper 16,17 · ink %70 6,05 · tappa-green/paper 7,73 (`TestPlaqueScreen_TheChipsAndTextClearAA`).
+   `app.css` (gitignore'lu, yeniden derlendi): 554 → 554 kural, beş seçici listesi
+   genişledi, başka değişiklik yok; 50 800 → 50 887 bayt; yorumlardan doğan kural yok.
+5. **Yazma eylemi yok:** sayfanın tek formu ve tek düğmesi çubuğun çıkışıdır; `hx-`
+   özniteliği yoktur (ölçüldü).
+6. **Hatalar (OP-11 B kalıbı):** bozuk id 404 *"That link does not name a tenant"* — store
+   çağrısı yok, okuma birimi yok; `ErrNoSuchTenant` 404 (adını taşıyan `read` satırı
+   yazılmış); `ErrOperatorRefused` oturum açmanın 303'ü; başka her hata 503 *"The plaques
+   could not be loaded"* — log satırı tenant id'sini taşır, oturum hash'ini taşımaz.
+7. **Zaman UTC'de render'da** (`utcStamp`); uid, zamanlar ve sayaç mono; kesilmiş envanter
+   *"The first 200 of N plaques are listed"*; plaketsiz tenant *"This tenant has no
+   plaques."* (docket çizilmez).
+8. **OKUMA BÜTÇESİ (OP-11 B fazının devri, burada yapıldı).** Oturuma bağlı ikinci bir
+   sınırlayıcı: `readLimit` 60 / 10 dk; her okuma handler'ı onu BİR kez, kendi retlerinden
+   SONRA ve store'dan ÖNCE öder (`spendRead`: `legalPage`, `listTenants`, `tenantOverview`,
+   `tenantPlaques`) — bozuk id, reddedilen terim, sayfa ya da form okuma birimi harcamaz.
+   `sessionLimit` artık yalnız istek sayar ve OP-10'un 100'üne döndü (okumanın ikinci birimi
+   artık oturum bütçesinin değil). Türetme (`surface.go`): okuma ≈ 4 destek vakası × ~5
+   okuma + ~5 legal + ~5 liste ≈ 30, × 2 pay → 60; istek ≈ 30 okuma + ~5 konsol + ~2 yayın +
+   ~3 ret ≈ 40, × 2,5 → 100. **Model bir tahmindir** (kullanım verisi yok) ve OP-11'inkine
+   (~15 genel bakış + ~15 liste/arama + ~5 legal + ~10 plaket ≈ 45) göre payı 1,33'tür:
+   o yürüyüşte bir pencerede ~30'dan fazla tenant'ı (genel bakış + plaket) süpüren operatör
+   429 alır ve sonraki pencereyi bekler. **Bedeli — çalınmış oturum çerezi:** pencere başına
+   60 okuma (en çok 3 000 liste satırı ya da 200'er plaketlik 60 envanter = 12 000 plaket
+   satırı) ve okuma olmayan 40 istek; her okuma bir `read` satırı. **Yarış yok:** `Charge`
+   kilit altında tek artırım ve ret onun döndürdüğü sayıyla verilir; paketin kaynağında
+   `Allowed` adlı seçici yasaktır (kaynak pini, aşağıda — eşzamanlılık testi oku-sonra-yaz
+   biçimini yalnız yarış tutarsa yakalar, pin her seferinde; 2. tur, B2).
+9. **Wiring:** `operator.New`'e ayrı bir `PlaqueStore` yuvası (OP-11'in her store'a ayrı
+   parametre kararı); `cmd/tappa`'nın `operatorStore`'u dört arayüzün birleşimi;
+   `configuredSurface`'in store'u TAM dört kullanım (`arg0 of operatorAuthenticator`,
+   `arg1`–`arg3 of operator.New`), `texts` `arg4 of operator.New`.
+
+**Güvenlik iddiası — üç parça.**
+
+- **Tehdit modeli:** Bu ölçümler ve pinler, plaket ekranının ve okuma bütçesinin koduna
+  KAZARA giren bir değişikliğe karşıdır — bir anahtar sütununu ya da varlığını bir alana,
+  bir satırı komşu bir duruma, başlığı başka bir tenant'a taşıyan, bir sınır denetimini ya
+  da okuma birimini düşüren bir düzenleme — ve bir oturum sahibinin URL, yöntem ve başlıkla
+  yapabildiklerine (ölçülen kollar). Pini atlatmak için bilerek yazılmış kod ve süreç
+  dışındaki yüzeyler kod incelemesinin ve sayılı sınırların konusudur.
+- **PART I — bugün sevk edilen kodun ölçülen davranışı** (2026-10-06; test · girdiler ·
+  assert · onu kıran mutasyon — mutasyon tablosu OP-13 B kart düzeltmesinde):
+  - `TestE2E_PlaqueScreenReadsThroughTheDefinerAndAuditsEachRead` (PostgreSQL) · seed Kebab
+    Factory (ya da en çok plaketli tenant) · genel bakış ekranı linkler; ekranın satırları
+    sahibin listesinin uid'leri ve sırası, her satırın çipi ve cümlesi sahibin
+    sütunlarından çıkan şeklin sözü; görüntü başına TAM bir `read` satırı (satır sayısı =
+    görüntü sayısı; 1. turda 1–3 aralığı kabul ediliyordu, 2. tur B1) — kapsam
+    `tenant_plaques`, tenant adlı, sayfasız, `detail` `{}` — ve başka kapsamda satır 0;
+    sahibin okuduğu bütün `aes_key_ref`/`app_key_ref` değerleri sekiz biçimde sayfada 0,
+    32+ onaltılık hane dizisi 0; bilinmeyen id 404 + adını taşıyan satır; bozuk id 404 +
+    satırsız; üç ölü oturum 303 + satırsız; her okumanın bileti tüketilmiş · D01db (başlık
+    için genel bakış okuması), D02db (sayfada 32 haneli dizi), X03 (başarılı okumadan sonra
+    ikinci `TenantPlaques`).
+  - `TestPlaqueScreen_NoKeyReachesThePage` · `db.TenantPlaque`, `db.TenantPlaqueInventory`,
+    `operatorpages.PlaqueRow`, `operatorpages.TenantPlaquesView` alan kümeleri tam liste;
+    sahte store'da her plaketin yanında anahtar biçimli iki değer (44 ve 16 bayt) · sayfada 0
+    (sekiz biçim), 32+ onaltılık dizi 0; CONTROL görünen bir alana konan anahtar bulunur ·
+    K01, K02.
+  - `TestPlaqueScreen_EveryShapeHasItsSentenceAndAnUnknownStatusStaysVisible` · on bir
+    plaket (yedi şekil, beşinci bir durum, boş durum, büyük harfli durum, yasak kombinasyon,
+    halefsiz ve emeklilik zamansız bir emekli); her plaketin eklenme zamanı UTC+2'de saklı ·
+    her satır kendi etiketi, ton sınıfı ve cümlesiyle, sırasıyla; dört tanınmayan satır saklı
+    durumunu tırnaklı gösterir; iki emekli aynı sözle, *"Replaced by"* yalnız halefli olanda;
+    zamanlar UTC'de (sayfada `11:30` yok), mono, `bdi`; tek form ve tek düğme çıkış · M17,
+    M19–M23, T01–T05, T09, X08.
+  - `TestPlaqueWords_NameEveryShapeAndNothingElse` · go/types ile türetilen yedi sabit ·
+    sözlük anahtarları eşit, etiket/cümle boş ve ortak değil, bilinmeyen şekil
+    `unrecognised` · M17, M18, M19.
+  - `TestPlaqueScreen_NamesTheTenantAndRefusesABadPath` · `<script>`'li ad, altı görünmez ad,
+    yedi bozuk id, sondaki `/`, ek parça, `%2F`/`%2f`, HEAD/POST/PUT/DELETE, bilinmeyen id,
+    store hatası, oturum reddi, başka tenant'a cevap veren store · başlıkta ve `<title>`'da
+    kaçışlı ad; tek okuma (`TenantPlaques` 1, başka okuma 0); genel bakış linki ve geri
+    linki — genel bakışın linki *"See this tenant's plaques"* der, *"every plaque"* demez
+    (ekran en çok 200 gösterir; 2. tur, B6); 404/405 store'suz; 503 log'unda tenant id var
+    hash ve token yok; 303 · M03, M13–M16, M27, M29, T06, D01.
+  - `TestPlaqueScreen_TheFirst200OfNAndAnEmptyTenant` · 205, 200, 3/1000, 1, 0 plaket ·
+    *"The first 200 of 205"* mono, ilk 200 sırasıyla; tam sayı; tekil; boş cümle, docket
+    yok · M24–M26, T07, T08.
+  - `TestOperatorHeaders_ThePlaqueClassesCarryThePolicy` · C94–C103, 15 düşmanca başlık,
+    düşmanca sorgu · tasarlanan başlık adları ve değerleri, yansıma yok, betik yok; C98 ve
+    C102'de `TenantPlaques` 0, C103'te store 0 · M01–M03, M05b, M06, M07, M09, M13, M14, S02.
+  - `TestReadBudget_TheReadsOfEveryScreenShareOneBudgetPerSession` · beş okuma rotasından
+    12'şer okuma; altı ret türünden 5'er (bozuk id'li plaket ve genel bakış, sınır üstü
+    terim, 1..1000 dışı sayfa, `maxFormBytes` üstü gövde, okunamayan form); aynı operatörün
+    yeni oturumu · 60 × 200, her rotanın 61.'si 429 (yüklem +1, store +0) ve OTURUM AÇIK
+    biçimde (çubuğun çıkışıyla — `problemTooMany(true)`), tek WARN kaydı `limit=60
+    period=10m0s`; 35 konsol 200, 101. istek 429 (oturum açık biçim); 30 ret okuma birimi
+    harcamaz; bütçe hesabın değil oturumun · M03, M04, M05b, M06–M10, M11b, M12b, S01–S03,
+    X17, X20, X22 (2. tur, B3 ve B9).
+  - `TestReadBudget_ConcurrentReadsOfOneSessionStopAtTheLimit` · tek oturumdan eşzamanlı 100
+    okuma · 60 × 200, 40 × 429, store 60 · M05b, M06, M07, M09, S02; oku-sonra-yaz biçimini
+    (X01) OLASILIKLA yakalar — ölçüm kart düzeltmesinde; her seferinde yakalayan aşağıdaki
+    kaynak pinidir.
+  - `TestTenantPages_AReadCountsTwiceAgainstTheSessionBudget`,
+    `TestLegalPage_AReadCountsTwiceAgainstTheSessionBudget` (OP-10/11 adları korunarak) · 60
+    okuma, 61.'si okuma bütçesinden 429; istek bütçesi 100'de · M06–M09, S02 ve sırasıyla M12b,
+    M10 (genel bakış, liste) ve M11b (legal).
+  - `TestLeak_NoOperatorCredentialOnASurfaceItWasNotMeantFor` · A60–A66 (plaket ekranı,
+    bilinmeyen/bozuk id, hata, oturum reddi, başka tenant'a cevap, okuma bütçesi) · G1–G17
+    × R1–R10 × S1–S4, hasat `TenantPlaques` 65×1, `TouchOperatorSession` 198 · M27, D01, S03.
+  - `TestPlaqueScreen_EachChipHasTheRuleTheContrastTestComputes` · ekranın yazdığı beş ton
+    sınıfı · `input.css`'te her birinin tek kuralı, tonun zemini ve çerçevesi · C01, C02.
+  - `TestTenantPlaques_OnThePoolTheTwoPhasesAreTwoTransactions` (internal/db) · yöntemin
+    KENDİSİ üretim kurucusunun havuzunda: bilinmeyen id `ErrNoSuchTenant` + bir `read` satırı ·
+    kendi mutasyonu yok; yöntemin argüman sadakatini `TestOperatorDB_EveryMethodDelegatesVerbatim`
+    tutar (W02; aynı mutasyon bu testte YEŞİL kaldı, W02db — ölçüldü: nil tenant da
+    bilinmeyen bir id'dir).
+- **PART II — adıyla pinler ve yakaladıklarının tam listesi:**
+  `TestOperatorDB_IsTheStoreAndNothingMore` — yöntem kümesi Store ∪ LegalStore ∪ TenantStore
+  ∪ PlaqueStore ∪ Close (W03); `TestOperatorDB_EveryMethodDelegatesVerbatim` — on iki yöntem,
+  argümanlar sırasıyla (W02, W03); `TestOperatorDB_HasNoTenantDoorAndNoRawSQLDoor` — öncül 13;
+  `TestOperatorWiring_ThePoolReachesOnlyTheAuthenticator` — store'un dört kullanımı, `texts`
+  beşinci argüman (W01); `TestOperatorHeaders_TheWalkedRoutesEachHaveAClass` — dokuz rota,
+  on dört çift, C1–C103; `TestOperatorPages_TheExportedScreensAreTheOnesScreensRenders` — on
+  ekran kurucusu; `TestProblemViews_TheListedBuildFormsOccurOnlyInRenderGo` — render.go'nun
+  her değişkeni `problemPages`'te (M28); `TestOperatorScreens_EveryActionAndLinkIsAMountedRoute`
+  — yirmi beş render, iki `{id}` rotası; `TestSurface_TheScreensOfLaterTasksAreNotMounted` —
+  fatura ve audit ekranları ve `/operator/plaques` yönlendiricinin kendi 404'ünü verir;
+  `TestPlaqueWords_NameEveryShapeAndNothingElse` — sözlük = türetilen şekil kümesi;
+  `TestPlaqueScreen_NoKeyReachesThePage` — dört tipin alan listesi;
+  `TestReadBudget_NoOperatorSourceAsksTheLimiterBeforeCharging` — paketin dosyalarında
+  `Allowed` adlı seçici (alıcısı ne olursa olsun, çağrılsın ya da çağrılmasın; RB1) ve
+  `httpx.Limiter`'ın `Allowed`'ını gösteren tanımlayıcı (RB2) yok; CONTROL `Charge`'ı
+  gösteren seçiciler ≥ 4, biri `spendRead`'de (X01; 2. tur, B2).
+- **PART III:** Listede olmayan her biçim kod incelemesinin konusu — tamlık iddiası yok.
+
+**Sayılı sınırlar (OP-13 B)** — LP1–LP18 kart düzeltmesinde; burada en ağırları: **LP1**
+sabit pencere sınırda iki katı patlamaya izin verir (kısa sürede 120 okuma); **LP3** model
+tahmindir, OP-11'in yürüyüş modeline göre pay 1,33; **LP6** tip duvarı listelenmiş bir alana
+kopyalanan anahtarı görmez — o yarı tanımlayıcının iki anahtarda SELECT'sizliği (A fazı) ve
+imza pinidir, E2E yalnız okuduğu tenant'ın kendi anahtar değerlerini sekiz biçimde arar.
+*(3. tur, güvenlik denetiminin DÜŞÜK bulgusu, 2026-10-06:)* sayfa taraması tırnaklı ya da
+kaçışlı biçimi aramaz — saklı durum `strconv.Quote` ile basılır ve bir bayt dizisi orada
+`\x..` kaçışlarıyla görünür (denetçi `Status`'a 16 rastgele bayt koydu; sekiz biçimin 0'ı
+yakaladı); ve `TestPlaqueScreen_NoKeyReachesThePage`'in sayfa yarısı alan listesi pininin
+ölçtüğünü YENİDEN ölçer — sahte store yalnız `TenantPlaque`'ı kopyalar, o yarı kendi başına
+kırmızıya dönemez. Asıl koruma tip duvarı + tanımlayıcının kolon yetkisidir. Yol bugün
+ulaşılamaz (ölçüldü, dev, salt-okuma: `has_column_privilege('tappa_operator', 'tags', …,
+'SELECT')` `aes_key_ref`, `app_key_ref` ve `status` için false — rol `tags`'i yalnız
+tanımlayıcıdan okur —; `tags_status_check` dört değer, yani bir anahtar `status`'a giremez);
+**LP9** E2E'nin şekil kapsamı okuduğu tenant'ın tuttuğu şekillerdir (Kebab Factory: duvarda,
+kayıp, A-1, emekli), diğerleri yalnız sahte store'la ölçülür; **LP18** *(3. tur)* sekme
+başlığında bidi yalıtımı yok — OP-11'den miras, bu görevin diff'i getirmedi: `tenantScreen`
+(`web/templates/operatorpages/chrome.templ`) tenant adını `<title>`'a templ'in kaçışıyla ama
+yalıtımsız yazar ve `<title>` `bdi` taşıyamaz; banner ve konum adı `bdi` içindedir.
+`tenants.name`'de biçim karakterlerini (ör. U+202E) engelleyen CHECK yok (ölçüldü: tablonun
+dört CHECK'i ad dışı sütunlarda). Sonuç yalnız sekme başlığındaki metnin görsel sırasının
+değişmesidir; hiçbir karar sekme başlığına dayanmaz.
 
 ## Sonuçlar
 

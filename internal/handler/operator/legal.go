@@ -77,15 +77,17 @@ const legalWriteTimeout = 10 * time.Second
 // version list.
 //
 // THE READ IS TWO DATABASE TRANSACTIONS (op_begin_read, then op_read_legal_versions --
-// ADR 0021 §2 v), and the session budget counts it as two: sessionGate charged this
-// request once, and the handler charges it once more before the read
-// (TestLegalPage_AReadCountsTwiceAgainstTheSessionBudget).
+// ADR 0021 §2 v), and it is counted twice: sessionGate charged this request one unit of
+// the session's request budget, and the handler charges one unit of the session's read
+// budget before the read (spendRead; since OP-13 phase B -- until then the second unit
+// was the session budget's too; TestLegalPage_AReadCountsTwiceAgainstTheSessionBudget
+// keeps its OP-10 name).
 func (s *Surface) legalPage(w http.ResponseWriter, r *http.Request) {
 	id, hash, ok := s.storeSession(w, r)
 	if !ok {
 		return
 	}
-	if !s.spendSession(w, r, id) {
+	if !s.spendRead(w, r, id) {
 		return
 	}
 	// THE SNAPSHOT IS READ BEFORE THE LIST. A snapshot read first cannot be newer than a

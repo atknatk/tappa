@@ -49,9 +49,10 @@ const (
 )
 
 // fakeStore answers operatorauth.Store the way 00026's definers answer,
-// operator.LegalStore the way 00027's do (OP-10) and operator.TenantStore the way 00029's
-// do (OP-11), for the arms these tests drive, and COUNTS its calls by method -- "the
-// resolver was not called" is a count of zero here.
+// operator.LegalStore the way 00027's do (OP-10), operator.TenantStore the way 00029's do
+// (OP-11) and operator.PlaqueStore the way 00030's does (OP-13), for the arms these tests
+// drive, and COUNTS its calls by method -- "the resolver was not called" is a count of
+// zero here.
 type fakeStore struct {
 	mu       sync.Mutex
 	calls    map[string]int
@@ -85,6 +86,29 @@ type fakeStore struct {
 	// matches, when set, replaces TenantList's matching rule -- a test that needs a full
 	// page of results without the term in the tenants' names.
 	matches func(term string, x db.TenantSummary) bool
+	// The plaque screen's (OP-13): each tenant's inventory by id, and the ids the screen
+	// asked for.
+	inventories map[uuid.UUID]fakeInventory
+	plaqueAsks  []uuid.UUID
+}
+
+// fakeInventory is one tenant's plaques as the fake holds them. Each plaque carries the
+// two key columns the schema holds beside it (fakePlaque) -- KEPT here and never returned:
+// db.TenantPlaque has no field for them, so TenantPlaques cannot hand them to the screen
+// (TestPlaqueScreen_NoKeyReachesThePage puts key-shaped values in them and searches the
+// page). total, when not zero, is the count the read reports (a tenant holding more
+// plaques than the read returns); asTenant, when set, is the tenant id the read reports
+// instead of the one asked for (a store that answers for another tenant).
+type fakeInventory struct {
+	name     string
+	plaques  []fakePlaque
+	total    int64
+	asTenant uuid.UUID
+}
+
+type fakePlaque struct {
+	db.TenantPlaque
+	aesKeyRef, appKeyRef []byte
 }
 
 // fakePublication is one PublishLegal the fake took: the session hash, the document, the
@@ -98,7 +122,7 @@ func newFakeStore() *fakeStore {
 	return &fakeStore{
 		calls: map[string]int{}, accounts: map[string]db.OperatorAccount{}, byID: map[uuid.UUID]db.OperatorAccount{},
 		live: map[string]db.OperatorSession{}, tokens: map[uuid.UUID]string{}, locked: map[uuid.UUID]bool{}, fail: map[string]error{},
-		overviews: map[uuid.UUID]db.TenantOverview{},
+		overviews: map[uuid.UUID]db.TenantOverview{}, inventories: map[uuid.UUID]fakeInventory{},
 	}
 }
 
@@ -345,6 +369,41 @@ func (f *fakeStore) TenantDetail(_ context.Context, h string, id uuid.UUID) (db.
 	return o, nil
 }
 
+// TenantPlaques answers as op_begin_read + op_read_tenant_plaques do: a dead session is
+// ErrOperatorRefused; an id the fake holds no inventory for is ErrNoSuchTenant; otherwise
+// the tenant's name, its first db.MaxTenantPlaques plaques in the order the fake holds them
+// (a test puts them in the list's order) and the total -- the plaque fields only, never the
+// key columns beside them.
+func (f *fakeStore) TenantPlaques(_ context.Context, h string, id uuid.UUID) (db.TenantPlaqueInventory, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.enter("TenantPlaques"); err != nil {
+		return db.TenantPlaqueInventory{}, err
+	}
+	if _, ok := f.live[h]; !ok {
+		return db.TenantPlaqueInventory{}, db.ErrOperatorRefused
+	}
+	f.plaqueAsks = append(f.plaqueAsks, id)
+	x, ok := f.inventories[id]
+	if !ok {
+		return db.TenantPlaqueInventory{}, db.ErrNoSuchTenant
+	}
+	inv := db.TenantPlaqueInventory{TenantID: id, TenantName: x.name, Total: int64(len(x.plaques))}
+	if x.total != 0 {
+		inv.Total = x.total
+	}
+	if x.asTenant != uuid.Nil {
+		inv.TenantID = x.asTenant
+	}
+	for i, p := range x.plaques {
+		if i == db.MaxTenantPlaques {
+			break
+		}
+		inv.Plaques = append(inv.Plaques, p.TenantPlaque)
+	}
+	return inv, nil
+}
+
 // fakeTexts is operator.LegalTexts: the snapshot (seeded by a test, or filled by a
 // refresh) and its refresh, which reads the fake store's publications -- the newest per
 // document wins, as ListPublishedLegalDocuments does, with the version's own time. A
@@ -508,12 +567,27 @@ func newRig(t *testing.T) *rig {
 	return newRigAt(t, slog.LevelDebug)
 }
 
+// lockedWriter serialises the writes of the rig's two log handlers (text and JSON, each
+// with its own lock) into one buffer, so requests the rig serves CONCURRENTLY
+// (TestReadBudget_ConcurrentReadsOfOneSessionStopAtTheLimit) write their access records
+// without a data race. A test reads the buffer when no request is in flight.
+type lockedWriter struct {
+	mu sync.Mutex
+	w  io.Writer
+}
+
+func (l *lockedWriter) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.w.Write(p)
+}
+
 // newRigAt is newRig with its process and access log at level.
 func newRigAt(t *testing.T, level slog.Level) *rig {
 	t.Helper()
 	g := &rig{t: t, store: newFakeStore(), kek: randBytes(t, 32), now: time.Unix(1_900_000_005, 0), logs: &bytes.Buffer{}}
 	g.texts = newFakeTexts(g.store)
-	log := captureAt(g.logs, level)
+	log := captureAt(&lockedWriter{w: g.logs}, level)
 	auth, err := operatorauth.New(g.store, operatorauth.Config{
 		TOTPKEK: operatorauth.NewKey(g.kek), TokenHMACKey: operatorauth.NewKey(randBytes(t, 32)),
 		Now: func() time.Time { return g.now }, Log: log,
@@ -521,7 +595,7 @@ func newRigAt(t *testing.T, level slog.Level) *rig {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s, err := operator.New(auth, g.store, g.store, g.texts, opHost, opBase, log)
+	s, err := operator.New(auth, g.store, g.store, g.store, g.texts, opHost, opBase, log)
 	if err != nil {
 		t.Fatal(err)
 	}

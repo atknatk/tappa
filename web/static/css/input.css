@@ -378,7 +378,11 @@
   .tally {
     @apply inline-block border px-2 py-0.5 text-[11px] uppercase tracking-widest text-ink;
   }
-  .tally--rejected { @apply border-tomato bg-tomato/10; }
+  /* M10 OP-13: a plaque the operator's inventory shows as retired or lost -- taps on it
+     are rejected (§5 row 1), so it takes the rejection tone. Grouped, not copied (the
+     M6-05 rule below): one declaration per tone, a separate name per meaning. */
+  .tally--rejected,
+  .tally--withdrawn { @apply border-tomato bg-tomato/10; }
   /* M6-04: the two decided states. Same fixed mapping — a human approval is
      tappa-green, a refusal is tomato — and the same rule that the word carries
      the meaning: the text says "Approved by a manager", not just "Approved", so
@@ -399,12 +403,20 @@
      different facts, and a template writing `tally--approved` on a human being
      would read as though the person had been through the queue. Separate selectors,
      one declaration: the mapping is shared, the meaning is not. */
+  /* M10 OP-13 adds three plaque states to these groups, the same way: a plaque on a wall
+     with its encode recorded is in service (the active tone), one with no encode recorded
+     needs a person (the waiting tone -- incident A-1's shape among them), one in stock is
+     neutral. No ground is new, so the contrast surface does not grow;
+     TestPlaqueScreen_TheChipsAndTextClearAA computes each ground from the palette. */
   .tally--approved,
-  .tally--active   { @apply border-tappa-green bg-green-lite; }
+  .tally--active,
+  .tally--mounted  { @apply border-tappa-green bg-green-lite; }
   .tally--queued,
-  .tally--invited  { @apply border-saffron bg-saffron-lite; }
+  .tally--invited,
+  .tally--unencoded { @apply border-saffron bg-saffron-lite; }
   .tally--manual,
-  .tally--deactivated { @apply border-line bg-line/10; }
+  .tally--deactivated,
+  .tally--stock { @apply border-line bg-line/10; }
   /* M6-09: the LOCK tone, and it is the one chip on the product that is not a
      status. A guardrail is not a state a rule is in — it is structure, part of the
      product rather than a setting — and the policies screen has to make that
@@ -419,7 +431,10 @@
      ground is 13.27:1 and its ink border is 16.17:1 — AA for the 11px bold text
      the chip uses, and past 1.4.11's 3:1 for the frame, which the saffron and
      line chips do not reach and do not need to (the word carries the meaning). */
-  .tally--locked { @apply border-ink bg-ink/10; }
+  /* M10 OP-13: a plaque whose stored state the inventory does not know is drawn in the
+     same ink tone -- it is no status, and it must not look like one of the four. */
+  .tally--locked,
+  .tally--unrecognised { @apply border-ink bg-ink/10; }
 
   /* --- the report row: a person's week inside a docket (M6-07) ---
      THESE EXIST FOR TWO REASONS AT ONCE, and the second one is measured. The brand

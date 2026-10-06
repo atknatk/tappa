@@ -593,7 +593,10 @@ func readTenantDetail(ctx context.Context, c OperatorConn, sessionHash string, t
 //
 // One tenant's plaque inventory on the operator's surface (migration 00030; ADR 0021 §2 v,
 // §3.2; CLAUDE.md §4.7). One exported two-phase read in TenantDetail's shape -- a free
-// function over an OperatorConn. The screen and *OperatorDB's method are OP-13 phase B.
+// function over an OperatorConn; since OP-13 phase B *OperatorDB delegates to it, as
+// internal/handler/operator's PlaqueStore (the /operator/tenants/{id}/plaques screen's
+// interface), and TestOperatorDB_IsTheStoreAndNothingMore derives that type's method set
+// from PlaqueStore too.
 //
 // Inside op_read_tenant_plaques no row level security applies (its owner is BYPASSRLS):
 // what keeps another tenant's plaques out is the tenant filter on each of its three table

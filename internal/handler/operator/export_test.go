@@ -5,6 +5,7 @@ import (
 
 	"github.com/a-h/templ"
 
+	"github.com/atknatk/tappa/internal/db"
 	"github.com/atknatk/tappa/web/templates/operatorpages"
 )
 
@@ -40,3 +41,24 @@ const (
 	TenantPageSizeForTest = tenantPageSize
 	MaxTenantPageForTest  = maxTenantPage
 )
+
+// PlaqueWordForTest is one entry of plaques.go's dictionary, exported field by field.
+type PlaqueWordForTest struct {
+	Label, Sentence string
+	Tone            operatorpages.PlaqueTone
+}
+
+// PlaqueWordsForTest is plaques.go's plaqueWords, copied.
+func PlaqueWordsForTest() map[db.PlaqueShape]PlaqueWordForTest {
+	out := map[db.PlaqueShape]PlaqueWordForTest{}
+	for k, w := range plaqueWords {
+		out[k] = PlaqueWordForTest{w.label, w.sentence, w.tone}
+	}
+	return out
+}
+
+// PlaqueWordForShapeForTest is plaques.go's plaqueWordFor.
+func PlaqueWordForShapeForTest(shape db.PlaqueShape) PlaqueWordForTest {
+	w := plaqueWordFor(shape)
+	return PlaqueWordForTest{w.label, w.sentence, w.tone}
+}

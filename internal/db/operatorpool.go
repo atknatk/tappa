@@ -24,9 +24,9 @@ import (
 // connection and no type, and the customer side is never handed this one (cmd/tappa's
 // TestOperatorWiring_ThePoolReachesOnlyTheAuthenticator: the pool goes to the
 // operator's Authenticator and, since OP-10 phase B, to the operator surface's legal
-// slot and (OP-11 phase B) its tenant slot -- and to no other name in cmd/tappa's
-// main.go and operator.go, the scope that test reads by syntax; it is not a
-// whole-program proof).
+// slot, (OP-11 phase B) its tenant slot and (OP-13 phase B) its plaque slot -- and to no
+// other name in cmd/tappa's main.go and operator.go, the scope that test reads by syntax;
+// it is not a whole-program proof).
 //
 // WHAT IT IS NOT, AND EACH ABSENCE IS A DECISION:
 //
@@ -51,10 +51,10 @@ import (
 //     production constructor included -- through fmt's verbs, slog and encoding/json and
 //     finds neither the DSN nor its password.
 //
-// It satisfies internal/operatorauth's Store and internal/handler/operator's LegalStore
-// and TenantStore (none can be imported here -- both packages import this one -- so the
-// external test asserts it, and cmd/tappa's wiring does not compile without it). Its
-// method set is those three interfaces' and Close, derived from them by
+// It satisfies internal/operatorauth's Store and internal/handler/operator's LegalStore,
+// TenantStore and PlaqueStore (none can be imported here -- both packages import this
+// one -- so the external test asserts it, and cmd/tappa's wiring does not compile without
+// it). Its method set is those four interfaces' and Close, derived from them by
 // TestOperatorDB_IsTheStoreAndNothingMore.
 type OperatorDB struct {
 	pool *pgxpool.Pool
@@ -466,9 +466,10 @@ func (o *OperatorDB) Close() { o.pool.Close() }
 
 // The seven methods below are internal/operatorauth's Store. Each is ONE statement on
 // the pool and hands its arguments, in order, to operator.go's function of the same
-// name -- which owns the SQL, the bound parameters and the error contract. (The four
-// after them are the legal screen's and the tenant screens', delegated the same way;
-// LegalVersions, TenantList and TenantDetail are two statements each.)
+// name -- which owns the SQL, the bound parameters and the error contract. (The ones
+// after them are the legal screen's, the tenant screens' and the plaque screen's,
+// delegated the same way; LegalVersions, TenantList, TenantDetail and TenantPlaques are
+// two statements each.)
 
 // OperatorByEmail is the login lookup (operator.go).
 func (o *OperatorDB) OperatorByEmail(ctx context.Context, email string) (OperatorAccount, error) {
@@ -540,4 +541,15 @@ func (o *OperatorDB) TenantList(ctx context.Context, sessionHash string, q Tenan
 // TenantDetail is one tenant's overview, a two-phase read (operator.go).
 func (o *OperatorDB) TenantDetail(ctx context.Context, sessionHash string, tenantID uuid.UUID) (TenantOverview, error) {
 	return TenantDetail(ctx, o.pool, sessionHash, tenantID)
+}
+
+// The method below is internal/handler/operator's PlaqueStore (M10 OP-13, phase B): the
+// /operator/tenants/{id}/plaques screen's one read. Same shape as the eleven above; on the
+// POOL its two statements are two implicit transactions -- the method itself is driven on
+// a pool built by the production constructor in
+// TestTenantPlaques_OnThePoolTheTwoPhasesAreTwoTransactions.
+
+// TenantPlaques is one tenant's plaque inventory, a two-phase read (operator.go).
+func (o *OperatorDB) TenantPlaques(ctx context.Context, sessionHash string, tenantID uuid.UUID) (TenantPlaqueInventory, error) {
+	return TenantPlaques(ctx, o.pool, sessionHash, tenantID)
 }
