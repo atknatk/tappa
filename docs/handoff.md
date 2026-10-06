@@ -76,12 +76,32 @@ istediğin sisteme CSV/API ile ver."* Bordro/izin/vardiya planlama MVP'de YOK.
 - **İmza motif:** "mutfak adisyonu" (kitchen docket) — işlem kayıtları
   perforeli fiş kartları olarak gösterilir; APPROVED/FLAGGED/REJECTED
   damgaları hafif eğik "kaşe" stilinde.
-- **Marka mesajları** (onaylı işlem sonrası ekranda, tenant'a özel,
-  panelden düzenlenebilir olacak):
-  - KF check-in: "Have a great shift — keep those kebabs rolling! 🌯"
-  - KF check-out: "Great work today. See you next shift! 👋"
-  - KM check-in: "Have a productive shift — stay safe on the floor! 🏭"
-  - KM check-out: "Shift complete. Thank you for your work today! 👋"
+- **Marka mesajları** (onaylı işlem sonrası ekranda). *Bugün* işletmenin
+  **türüne** göre seçilir (restoran · üretim · diğer) ve tenant düzenleyemez —
+  panel bunu açıkça söyler. Düzenlenebilir metin white-label'ın da dışında
+  bırakıldı (2026-10-06 notu; bu madde önceden "tenant'a özel, panelden
+  düzenlenebilir olacak" diyordu):
+  - restoran giriş (KF): "Have a great shift — keep those kebabs rolling! 🌯"
+  - restoran çıkış (KF): "Great work today. See you next shift! 👋"
+  - üretim giriş (KM): "Have a productive shift — stay safe on the floor! 🏭"
+  - üretim çıkış (KM): "Shift complete. Thank you for your work today! 👋"
+- **Müşterinin kendi markası (white-label, M10).** İşletme iki şey verir: kendi
+  **logosu** (PNG ya da JPEG) ve **tek bir vurgu rengi**; yazı tipi, ikinci renk
+  ya da metin vermez. Logo çalışanın tap ekranının ve dokunuştan sonraki ekranın
+  başında küçük durur, altında ürünün kendi adı küçük bir satırda kalır
+  (*taptime · punchless*) — kayıtları işleyen biz olduğumuz için. Renk iki yere
+  boyanır: çalışanın ekranında yalnız **tap düğmesine** (düğme yine tek, yine "Tap"),
+  panelde başlığın üstündeki ince bir **şeride**. Panelde ayrıca işletmenin logosu ve
+  adı görünür. **Değişmeyenler:** APPROVED/FLAGGED/REJECTED
+  damgaları ve renkleri, kitchen docket, panelin kendi düğmeleri; dokunuştan sonraki
+  ekranda tenant rengi **yoktur** — renk orada kaydın durumunu anlatır. Üzerindeki
+  yazı okunamayacak bir renk kaydedilmez, panel aynı rengin koyusunu önerir; çok açık
+  bir logo uyarıyla kaydedilir. Logoyu ve rengi yalnız işletmenin sahibi değiştirir.
+  Aktivasyon, giriş ekranları, tanıtım sitesi ve e-postalar Taptime kalır
+  (e-postada logo yok; işletmenin adının gösterilip gösterilmeyeceği karara bağlı —
+  EM-7). Bilinçli kabul:
+  bir logo, ekranın kendi "tamamlandı" diline benzeyecek biçimde çizilebilir —
+  logo içeriği denetlenmez.
 
 ## 5. Hazır Müşteriler (design partner, 100+ kullanıcı)
 

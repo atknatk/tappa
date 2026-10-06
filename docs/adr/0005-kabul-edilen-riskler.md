@@ -46,7 +46,7 @@ satış ve gelecekteki tasarım tek yere baksın. Kabul edilmiş bir risk çöz�
 
 ## Karar
 
-Aşağıdaki **sekiz risk** kabul edilir. Her biri için: neden çözemiyoruz, hangi
+Aşağıdaki **dokuz risk** kabul edilir. Her biri için: neden çözemiyoruz, hangi
 gözlemlenebilir sinyalle tespit ederiz, o sinyalin hangi görevde uygulandığı ve
 (buddy punching için ayrıca) satış cevabı.
 
@@ -59,6 +59,16 @@ gözlemlenebilir sinyalle tespit ederiz, o sinyalin hangi görevde uygulandığ�
 > ifadesinin **ilk istisnasıdır** ve gizlenmiyor — sinyal sütununda ne varsa
 > **dolaylı** olduğu yazılıdır.
 
+> ⚠️ **9, 2026-10-06'da eklendi (M10 WL-12; kaynak [ADR 0023](0023-tenant-markasi-ve-arayuz-kurali.md)
+> *"Sayılı sınırlar"* 1 ve onun WL-9 eki).** Yine *"Append kuralı"* gereği yeni ADR açılmadı;
+> cümledeki sayı **sekiz**'den **dokuz**'a bu ekle birlikte çıktı ve
+> `TestADR0005_TheRiskCountMatchesTheTable` onu tabloya bağlar. Risk 9 bir **white-label**
+> riskidir: dört kanıtın değil, tenant'ın tap ve sonuç ekranına koyduğu **pikselin**
+> riskidir. 🔴 **Kalıbı 7 ve 8 gibi bozuyor:** doğrudan tespit sinyali yok (aşağıda, risk 9'un
+> bölümü). Ve
+> kabulün sebebi bir §4 kırmızı çizgisi değil, bir **kullanıcı kararıdır** — yapısal çare,
+> CLAUDE.md §9'un sorusuna verilen **D-C** cevabını geri almak olurdu.
+
 | # | Risk | Neden çözemiyoruz (hangi kırmızı çizgi) | Tespit sinyali | Uygulandığı görev |
 |---|---|---|---|---|
 | 1 | **Buddy punching** (A4/Q19) | Tek çözümü biyometri (§4.1) **veya** uygulama kurulumu — ikisi de ürünün varlık sebebine aykırı | Eş-zamanlı tap çiftleri raporu | [M6-11](../plan/m6-dashboard.md) |
@@ -69,6 +79,7 @@ gözlemlenebilir sinyalle tespit ederiz, o sinyalin hangi görevde uygulandığ�
 | 6 | **Fiziksel plaket devri** | Plaket duvardan sökülüp taşınabilir; pasif çipin "yerini" doğrulayan bir bağı yok | Lokasyon–IP/GPS uyumsuzluğu → `flag`; müdür `lost` işaretler | baseline [M3-06](../plan/m3-policy-motoru.md) · guardrail [M3-05](../plan/m3-policy-motoru.md) |
 | 7 | **Encode oturumunun APDU dökümü** (ADR 0017 §2.2) | Boş çipte kimlik doğrulama anahtarı **fabrika varsayılanıdır, yani halka açıktır**; oturum anahtarları ondan türer. Dökümü gören taraf `ChangeKey` gövdesini çözüp o plaketin anahtarını öğrenir. **Çipin kişiselleştirme protokolünün yapısal özelliği** — altı kapatma yolu denendi, altısı da başarısız (ADR 0017 §2.2). 🔴 **KAPSAM 2026-08-21'DE BÜYÜDÜ:** ADR 0017 §6 md. 13 `FileAR.Write`/`ReadWrite`/`Change`'i **aynı `0x01` anahtarına** bağladı, yani sızan şey artık yalnız SUN imzalama yetkisi değil, **dosya YAZMA ve YENİDEN YAPILANDIRMA yetkisi**dir | 🔴 **Doğrudan sinyal YOK, ve sonuç iki dallı:** *(a)* **sahte SUN** — burada §5'in diğer üç kanıtı (oturum çerezi · IP · GPS) bağlamaya devam eder → kanıtsız tap `flag`'lenir · *(b)* 🔴 **NDEF'i repointleme (oltalama)** — md. 13'ten sonra mümkün, ve burada **üç kanıt HİÇ devreye girmez**: repointlenen plaketin tap'i **bize hiç ulaşmaz** (risk 8'in ölçümü) | Karşı önlem tespit değil **kapsama**: encode kontrollü ortamda, plaket duvara çıkmadan; şüphede ADR 0003 md. 5 → **`retire + replace`**. 🔴 **Maruziyet ilk encode turuyla SINIRLI DEĞİL** — her **kurtarma** turu da fabrika anahtarı altında koşar (ADR 0017 §5.3) |
 | 8 | **Anahtar 0 fabrika varsayılanında kalan plaket** (ADR 0017 §5.0) — ⚠️ **2026-08-21'de DARALDI: oltalama yarısı kapandı, hizmet reddi yarısı duruyor** | İkinci bir plaket-başına anahtarı saklayacak şema yok (`tags` tek `aes_key_ref`, ADR 0003 md. 4); karar verilene kadar uygulama anahtarı 0 **halka açık** kalır. ⚠️ ADR 0017 §6 md. 13 (FAZ B2b) `FileAR.Write`/`ReadWrite`/`Change`'i **anahtar `0x01`**'e kilitledi → **elinde YALNIZ halka açık fabrika anahtarı 0 olan** tarafa karşı **NDEF yazılamaz ve SDM kapatılamaz**. 🔴 **Risk 7'nin kümesine karşı DEĞİL:** `0x01` her encode ve her kurtarma oturumunda o dökümü görene sızar ve md. 13'ten sonra **aynı zamanda yazma yetkisidir**. **Kalan:** aynı kişi anahtar 0'ı (ve 2–4'ü) üzerine yazabilir → **hizmet reddi** ve gelecekteki anahtar-0 kişiselleştirmemizin **önden alınması** | 🔴 **Tespit sinyali YOK, ve sebebi risk 6'dan farklı:** repointlenen plaketin tap'i **bize hiç ulaşmaz**, yani konum çelişkisi de dahil hiçbir kayıt doğmaz. Dolaylı işaret (plaketin sessizleşmesi) **yapısal olarak yetmiyor**: `ListTagLastSeen` satırı **yalnız en az bir tap üretmiş** plaket için doğar (ölçüldü 2026-08-20, yerel DB: 137 699 plaketin 79 995'i, yani **57 704'ü hiç satır üretmiyor**), yani **ilk tap'inden önce** repointlenen plaket stok plaketten ayırt edilemez | Şema kararı [M8-05](../plan/m8-deploy-pilot.md) FAZ B md. 9 · pilot kapısı Q23 md. 7 · *"anahtar 0 fabrikadayken plaket duvara çıkamaz"* güvenlik çizgisi (`deploy/README.md`) |
+| 9 | **Marka taklidi** ([ADR 0023](0023-tenant-markasi-ve-arayuz-kurali.md) *"Sayılı sınırlar"* 1 ve WL-9 eki) — *2026-10-06'da eklendi, M10 WL-12* | Logo sahibin yüklediği **serbest piksellerdir**, kırık görselde görünen `alt`'ı **serbest metin** işletme adıdır; ürün logonun **ne çizdiğini okumaz** — yeniden kodlama meta veriyi düşürür, pikseli taşır ([ADR 0024](0024-kullanici-yukledigi-gorsel.md) §3, sınır 8). Yapısal tek çare tenant piksellerini tap ve sonuç ekranından kaldırmaktır: **§4 kırmızı çizgisi değil**, kullanıcının §9 kararı **D-C**'nin (2026-09-24) tersi | 🔴 **Doğrudan sinyal YOK.** Başka işletmenin markasıyla: taklitçinin çalışanı gerçek plakete dokunursa `sys:tenant-mismatch` yönlendirir — **iki tenant'ta da satır yok**, ekran markasız ve *"That plaque isn't yours"* der; sunucu log'unda **iki pinsiz WARN** (GET + POST). Dolaylı iz: NFC okuması çipin sayacını tüketir, gerçek işletmenin o plakette bir sonraki kayıtlı dokunuşu `tap:ctrGap ≥ 1` taşır ve **gerçek işletmenin kendi** onay kuyruğuna düşer — ama yalnız bir sayaç boşluğu olarak, sebebini söylemeden; QR'da yok. Piksel taklidinde: basılmayan düğme **kayıt üretmez**; dolaylı tek iz (sonraki dokunuşun `tap:ctrGap`'i) sahibin kendi onay kuyruğuna düşer. İki dolaylı iz de türetildi, ölçülmedi | Kapsama, tespit değil: 24 px yuva + uyuşmazlık kuralı (WL-9, ADR 0023 §2) · yazma yalnız aktif sahibin (WL-4, WL-7) · logo yalnız oturumun kendi işletmesine (WL-6, ADR 0024 İddia D) |
 
 Referanslanan `sid`'ler kodda gerçektir ve bu ADR'yle **birebir** eşleşir:
 `base:ctr-gap-review` ve `base:gps-conflict-review` `internal/policy/baseline.go`'da
@@ -581,7 +592,8 @@ ağaçta encode'a özgü cihaz kimliği, izin listesi ya da ağ kısıtı **yok*
 > ⚠️ **BU RİSK 2026-08-21'DE DARALDI VE AŞAĞISININ BİR KISMI O TARİHTEN ÖNCEYE
 > AİTTİR.** M8-05 FAZ B2b, ADR 0017 §6 md. 13'ü kapatarak `FileAR.Write`,
 > `FileAR.ReadWrite` **ve** `FileAR.Change`'i plaket-başına anahtar `0x01`'e
-> kilitledi. **Sicile satır EKLENMEDİ** — sekiz risk, sekiz satır; değişen bu
+> kilitledi. **Sicile satır EKLENMEDİ** — o gün sekiz risk, sekiz satır *(2026-10-06'dan
+> beri dokuz: risk 9 ayrı bir eklemedir, bu daralmayla ilgisi yok)*; değişen bu
 > riskin **kapsamıdır**. Ne kaldığı ve ne gittiği aşağıda *"Ne daraldı"* alt
 > başlığında **tek tek sayılıdır**; oradan önceki paragraflar riskin **tam**
 > hâlini anlatır ve tarihsel kayıt olarak **silinmedi** (bu belgenin append
@@ -772,20 +784,154 @@ ama **bir plaket anahtar 0 fabrika varsayılanındayken duvara çıkamaz.**
 WHERE'i yalnız `tenant_id` + `uid` + `status = 'unassigned'` bakar, anahtar 0
 durumunu okuyan hiçbir sütun ya da kontrol ağaçta yok.
 
+### 9. Marka taklidi (ADR 0023 *"Sayılı sınırlar"* 1)
+
+> 📍 **YETKİLİ METİN: [ADR 0023](0023-tenant-markasi-ve-arayuz-kurali.md) §2 (slot haritası
+> ve uyuşmazlık kuralı), §5–§7 (co-brand ve üç §9 kararı), *"Sayılı sınırlar"* 1 ve onun WL-9
+> eki; [ADR 0024](0024-kullanici-yukledigi-gorsel.md) §3–§6 (logonun yeniden kodlanması,
+> saklanması, sunulması, yazma yetkisi).** Aşağısı sicil için yapılmış bir **özettir**;
+> çelişirse ADR 0023/0024 geçerlidir ve bu bölüm o gün düzeltilir. Eklendi 2026-10-06, M10
+> WL-12 (white-label'ın belge görevi), HEAD `26e9ce0` üzerinde okunarak.
+
+**Ne kabul ediliyor — iki biçim.**
+
+1. **Başka bir işletmenin markası.** Kayıt herkese açıktır ([ADR 0013](0013-kayit-sihirbazi-ve-ilk-gelen-sirasi.md)):
+   kendi kendine kayıt olan biri tenant'ına başka bir işletmenin adını (serbest metin, en çok
+   120 karakter — kayıtta `MaxCompanyNameRunes`, Account'ta `AccountNameLimit`), logosunu ve
+   rengini verebilir. Logo ve renk yalnız o tenant'ın **kendi** oturumlarına çizilir: logo
+   rotası işletmeyi oturumdan alır ve başka işletmenin digest'ine bilinmeyen digest'le
+   bayt-aynı 404 verir (ADR 0024 İddia D,
+   `TestLogoRoutesDB_AnotherBusinessesDigestIsAnUnknownDigest`); tap ekranı markayı yalnız
+   plaket oturumun işletmesinin duvarındaysa okur (ADR 0023 §2 uyuşmazlık kuralı,
+   `TestTapDB_ABrandIsDrawnOnlyOnTheBusinesssOwnPlaque`). Yani taklidin muhatabı, telefonunu
+   taklitçinin davetiyle **onun** tenant'ına etkinleştirmiş kişidir; gerçek işletmenin
+   çalışanı kendi ekranında taklitçinin logosunu görmez. Aktivasyon ekranı logo taşımaz (K6),
+   işveren adını ise WL'den önce de basıyordu.
+2. **Logonun pikselleri Taptime'ın kendi ekran dilini taklit eder** (ADR 0023 sınır 1'in
+   WL-9 eki, güvenlik denetiminin S3'ü): tap ekranında bir *"✓ Tapped in"*, REJECTED ya da
+   FLAGGED bir sonuç ekranında bir *"APPROVED"* damgası çizen logo. Ve **`alt`**: logo isteği
+   404 alırsa (ör. logo değişti, eski sayfa açık) tarayıcı 24 px yuvada kırık görsel simgesini
+   ve `alt`'ı — işletme adını, yukarıdaki serbest metni — kırpılmış gösterir (ADR 0023 §7
+   WL-9 notu, sınır 11). `alt` = ad tap ekranında, sonuç ekranında ve Account önizlemesinde
+   geçerlidir; panel başlığında `alt` boştur ve kırık logo kutusunun dışına bir piksel bile
+   basmaz (ADR 0023 WL-8 notu, karar 9 ve sınır 5).
+
+**Kim yapabilir.** Yalnız işletmenin **aktif sahibi**: logo ve renk yazımı handler'da
+`mayEditAccount` (canlı oturum + `owner`), domain'de ikinci kez — rol ve durum DB'den
+okunur (ADR 0023 WL-4 notu, karar 2; `TestBrandDB_OnlyAnActiveOwnerOfThisTenantMayWrite`,
+`TestBrandRoutes_AManagerIsRefusedRecordedAndChangesNothing`). `alt`'ı taşıyan işletme adı
+da sahibin alanıdır (kayıtta kendisi yazar; Account'ta aynı `mayEditAccount` kapısı).
+Muhatap yalnız **kendi** çalışanlarıdır. Kayıt herkese açık olduğu için sahip olmak bir
+kayıt kadar ucuzdur; işletme başına davet/etkinleştirme tavanı ölçülmedi (ADR 0023 WL-9
+notu, karar 9).
+
+**Sonuç.**
+- **Tap ekranında:** çalışan logoyu *"bitti"* diye okuyup düğmeye **basmadan** ayrılırsa
+  **kayıt oluşmaz**. Kaydı yazan sayfa açılışı değil düğmenin `POST /api/checkin`'idir
+  (ADR 0023 §2); eksik kalan, o çalışanın saatidir.
+- **Sonuç ekranında:** kayıt **zaten yazılmıştır** (CLAUDE.md §4.6) — logo kararı
+  değiştiremez, yalnız çalışana yanlış söyler. Gerçek karar logonun altında, docket ve kaşe
+  damgasında, kendi rengiyle çizilir.
+- **Biçim 1, gerçek işletmenin plaketinde:** taklitçi tenant'ın oturumu gerçek işletmenin
+  plaketine dokunursa `sys:tenant-mismatch` yönlendirir — **iki tenant'ta da satır yazılmaz**
+  (`TestCheckinDB_ForeignTenantTapIsRefusedAndWritesNOTHING`), tap ve sonuç ekranı Taptime
+  varsayılanıyla çizilir (`TestTapPage_AnotherBusinesssPlaqueShowsNoBrand`,
+  `TestResultScreen_NoBrandWhereThePlaqueIsNotThisBusinesss`) ve ekran *"That plaque isn't
+  yours — This plaque belongs to a different employer, so nothing was recorded."* der. Taklit,
+  gerçek işletmenin plaketinde bir kayıt **sahteleyemez** ve onun hiçbir satırını
+  değiştiremez — plaketin `last_ctr`'ı da ilerlemez
+  (`TestCheckinDB_ForeignTenantTapNeverTouchesTheOtherTenantsCounter`). **Ama** NFC okuması
+  çipin sayacını tüketmiştir; gerçek işletmenin o plakette bir sonraki kayıtlı dokunuşu bu
+  yüzden onay kuyruğuna düşebilir (aşağıda, *"Tespit sinyali"*).
+
+**Neden çözemiyoruz.** Logo bir görseldir ve ürün görselin **ne çizdiğini okumaz**: yeniden
+kodlama meta veriyi ve ek yükü düşürür, pikselleri taşır (ADR 0024 §3; sınır 8) — logo
+içeriği hiçbir yerde denetlenmez (ADR 0023 sınır 1). `alt`'ın işletme adı olması bir kabul
+şartıdır: tap ekranında tenant adının göründüğü tek yer logonun `alt`'ıdır (ADR 0023 §2),
+adı oradan çıkarmak logoyu ekran okuyucu için adsız bırakır. Yapısal tek çare tenant
+piksellerini tap ve sonuç ekranından kaldırmaktır — bu, CLAUDE.md §9'un *"bu ekrana özellik
+eklemek istiyorsan önce sor"* sorusuna kullanıcının verdiği **D-C** (2026-09-24: *"Logo + tap
+butonu tenant renginde; sonuç ekranında yalnız logo"*) ve **K-2b** (2026-10-02) cevaplarının
+tersidir. Risk 9 bu yüzden D-C'nin **bedeli** olarak kabul edilir — risk 1'in §4.1'in bedeli
+olması gibi, ama bir kırmızı çizginin değil bir kullanıcı kararının.
+
+**Hafifletenler — kapsama, tespit değil; hiçbiri kapatmaz.**
+- **Yuva küçük:** tap ve sonuç ekranında logo 24 px yüksekliğinde bir yuvadadır, genişliği
+  saklanan kutudan gelir ve en çok sütunun yarısıdır (ölçüldü: 512×128 → 96×24, 512×16 →
+  179×24 — ADR 0023 §7 WL-9 notu; `TestTapPage_TheLogoCarriesItsStoredBox`). Panelde 32 px,
+  en çok 192 px (WL-8 notu, karar 6).
+- **Tek düğme yerinde:** tap ekranında 64 px'lik tek *"Tap"* düğmesi kalır; logo onu 15 px
+  aşağı iter, kaldırmaz ve yanına bir şey koymaz
+  (`TestTapPage_TheBrandFillsTheTwoSlotsAndNothingElse`: tam bir `<button`, kelimesi `Tap`).
+- **Sonuç ekranında gerçek karar:** docket ve kaşe damgası logonun altında, accent'siz
+  (`TestResultScreen_DrawsTheLogoAndNoAccent`); ekran metni birebir
+  (`TestResultScreen_SaysExactlyThisAndNothingElse`).
+- **Kanal dar:** logo yalnız oturumun kendi işletmesine sunulur, uyuşmazlıkta hiç çizilmez;
+  yazma yalnız aktif sahibin (yukarıda).
+- **İz:** her logo ve renk değişikliği aynı transaction'da bir `tenant.brand_updated` satırı
+  yazar — alan, önceki ve sonraki değer (logoda sha256), kutu, yazan
+  (`TestBrandDB_EachWriteStoresItsValueAndOneTrailRow`). Kimin ne zaman yüklediğini söyler,
+  logonun **ne çizdiğini** söylemez.
+
+**Tespit sinyali — dürüst cevap: doğrudan yok.** 7 ve 8'den sonra bu belgenin genel kalıbını
+bozan **üçüncü** risk, ve gizlenmiyor:
+- **Biçim 1:** doğrudan izler, taklitçinin çalışanının gerçek plakette gördüğü *"That plaque
+  isn't yours"* ekranı ve sunucu log'undaki **iki WARN** satırıdır — tap sayfasının GET'i
+  (*"tap page: plaque belongs to another tenant"*, `internal/handler/tap.go`) ve kaydın
+  POST'u (`internal/domain/checkin`); ikisi de testle pinli değil. Yönlendirme hiçbir
+  tenant'a **satır** yazmaz (§4.5). **Dolaylı bir iz ise gerçek işletmeye düşer:** sayaç
+  yalnız oturumun kendi işletmesinin plaketinde ilerletilir (`internal/domain/checkin`), ama
+  NFC okuması çipin `ctr`'sini zaten tüketmiştir; boşluk `ctr − eski last_ctr − 1` olarak
+  hesaplanır (`db/queries/tags.sql`), yani gerçek işletmenin o plakette bir sonraki
+  **kayıtlı** dokunuşu `tap:ctrGap ≥ 1` taşır ve `base:ctr-gap-review` onu **gerçek
+  işletmenin kendi** onay kuyruğuna düşürür (`internal/policy/baseline.go`). İz yalnız bir
+  sayaç boşluğudur: sebebini söylemez ve risk 3'ün (URL biriktirme) iziyle aynı şekildedir.
+  QR kanalında sayaç yoktur, bu iz orada da yoktur. Bu yol risk 3'ün mekanizmasından
+  **türetildi, bu görevde ölçülmedi**.
+- **Biçim 2:** basılmayan düğme hiçbir şey üretmez. Dolaylı tek iz plaketin sayacıdır: NFC
+  okuması çipin `ctr`'sini ilerletir, `GET /t` ilerletmez (risk 3), yani o plakette bir
+  sonraki **kayıtlı** dokunuş `tap:ctrGap > 0` taşır ve `base:ctr-gap-review`'e düşer. **Ama**
+  o baseline tenant'ın değiştirebildiği bir kuraldır ve review sahibin kendi onay kuyruğuna
+  gider — iz **saldırganın elindedir**. QR kanalında sayaç yoktur. Bu yol risk 3'ün
+  mekanizmasından **türetildi, bu görevde ölçülmedi**.
+
+**Bu ekin sayılı sınırları.**
+1. Logo içeriği hiçbir yerde okunmaz; durum kelimesi taklidi bir tespit değil bir kabuldür.
+2. Kırık logo `alt`'ı tap ekranında, sonuç ekranında ve Account önizlemesinde işletme adını
+   gösterir; ad serbest metin, 120 karaktere kadar.
+3. Tespit sinyali yok. Dolaylı `ctrGap` izi biçim 2'de sahibin elindedir, biçim 1'de gerçek
+   işletmenin kuyruğuna düşer ama sebebini söylemez; ikisi de türetildi, ölçülmedi; QR'da
+   yoktur.
+4. Biçim 1'in iki WARN satırı (GET ve POST) testle pinli değildir.
+5. Kayıt herkese açıktır; işletme başına davet/etkinleştirme tavanı ölçülmedi.
+
+**İddia sınırı.** Yukarıdaki *"yalnız kendi oturumlarına"*, *"iki tenant'ta da satır yok"* ve
+*"yalnız aktif sahip"* cümleleri adı geçen testlerle tanımlıdır. Listede olmayan her biçim
+kod incelemesinin konusu — tamlık iddiası yok.
+
+**İptal koşulu.** Tenant pikselleri tap ve sonuç ekranından kalkarsa (D-C geri alınırsa) bu
+risk *"Append kuralı"* gereği **iptal edilir ama silinmez**.
+
 ---
 
 ## Kabul edilen ORTA/DÜŞÜK denetim bulguları (M8-04 FAZ B3, 2026-08-20)
 
-> **Bunlar yukarıdaki SEKİZ RİSKTEN AYRI bir sınıftır ve tabloya eklenmediler.**
-> Risk 1–8 ürünün **kalıntı tehditleri**dir — bir saldırganın yapabildiği bir şey.
-> ⚠️ *"ALTI"* 2026-08-20'de **sekiz** oldu (risk 7 ve 8, ADR 0017); bu paragrafın
-> ayrımı değişmedi, yalnız sayısı.
+> **Bunlar yukarıdaki ana tablonun RİSKLERİNDEN AYRI bir sınıftır ve tabloya eklenmediler.**
+> Ana tablonun riskleri ürünün **kalıntı tehditleri**dir — bir saldırganın yapabildiği bir şey.
+> ⚠️ *"ALTI"* 2026-08-20'de **sekiz** oldu (risk 7 ve 8, ADR 0017), 2026-10-06'da **dokuz**
+> (risk 9, marka taklidi — M10 WL-12); bu paragrafın ayrımı değişmedi, yalnız sayısı. **Ve bu
+> paragraf sayıyı artık tekrar etmiyor:** iki eklemede de buradaki kopyayı elle düzeltmek
+> gerekti ve hiçbir kapı onu tutmuyordu. Sayı ana tablonun cümlesindedir;
+> `TestADR0005_TheRiskCountMatchesTheTable` onu tabloya bağlar. Marka taklidi bu tabloya
+> değil ana tabloya girdi: M8-04'ün bir denetim bulgusu değil, bir saldırganın yapabildiği
+> bir şeydir.
 > Aşağıdaki tablo M8-04 güvenlik denetiminin **kapatılmayıp KABUL EDİLEN** ORTA/DÜŞÜK
 > bulgularını tutar: çoğu bir **kapının darlığı**, bir **geliştirme ortamı** koşulu ya
 > da bir **dağıtım ön koşulu**. Karışmasınlar diye ayrı duruyorlar. ⚠️ Bu blok
 > *"'Aşağıdaki **altı risk** kabul edilir' cümlesi değişmedi"* diyordu; **artık
 > değişti** — Append kuralı gereği risk 7 ve 8 o tabloya eklendi ve cümle
-> **sekiz**'e çıktı. Değişmeyen şey **bu tablonun ondan ayrı olmasıdır**.
+> **sekiz**'e çıktı *(2026-10-06'da risk 9 ile **dokuz**)*. Değişmeyen şey **bu tablonun
+> ondan ayrı olmasıdır**.
 >
 > 🔴 **CÜMLE DARALTILDI, ÇÜNKÜ GENİŞ HÂLİ YANLIŞTI — ÖLÇÜLDÜ (2026-08-20, FAZ B3
 > düzeltme turu).** İlk yazımı *"kapatılmayan ORTA/DÜŞÜK bulgularıdır"* diyordu, yani
@@ -923,6 +1069,15 @@ bir kez daha işlemek olurdu.
   🔴 **Risk 7 ve 8 bu cümlenin DIŞINDADIR ve bu bir eksiklik değil, bir olgudur:**
   ikisinin de M6-11'e verecek bir sinyali yok (7'ninki dolaylı, 8'inki hiç yok).
   Encode riskleri panelde değil, **süreçte ve pilot kapısında** karşılanır.
+  ⚠️ *2026-10-06 (M10 WL-12): **risk 9 da** bu cümlenin dışındadır — M6-11'e verecek
+  **kendine ait** bir sinyali yok (risk 9'un bölümü); biçim 1'in dolaylı sayaç boşluğu risk
+  3'ün iziyle aynı şekildedir ve ondan ayırt edilmez (türetildi, ölçülmedi). Marka taklidi
+  panelde değil **yüzeyin darlığında** karşılanır: 24 px
+  yuva, uyuşmazlık kuralı, yazmanın yalnız aktif sahibe açık olması.*
+- **[ADR 0023](0023-tenant-markasi-ve-arayuz-kurali.md) ile bağ (risk 9):** marka taklidi
+  §9 onayı **D-C**'nin bedelidir. ADR 0023'ün slot haritası ve uyuşmazlık kuralı (§2) onun
+  hafifleticileridir; o ADR yeni bir yüzeye logo eklerse (ör. faz 2'nin tur ekranları) risk
+  9'un muhatabı genişler ve risk 9'un bölümü o değişiklikle birlikte güncellenir.
 - **[M5-02](../plan/m5-tap-akisi.md) müdür-kimlik riskini azaltır:** Q02 çözülünce
   davet kodu çalışanın kendi kanalına gider; Risk 5'in önkoşulu (müdürün kodu
   görmesi) kalkar. Risk kabul olarak durur ama azaltım yolu bu görevdedir.

@@ -67,6 +67,10 @@ internal/operatorauth/ platform operatörü kimliği (ADR 0020): parola, TOTP, o
                       çerez, limiter. Tenant kapsamsız; DB'ye yalnız op_* ile gider.
 internal/store/       sqlc ÜRETİMİ — elle dokunma
 internal/geo/         haversine, GPS yarıçap kontrolü
+internal/brand/       tenant markasının çekirdeği (ADR 0023/0024): accent WCAG kapısı
+                      (ParseAccent, Check, Suggest), tema gövdesi, logo kapısı (Normalize:
+                      PNG/JPEG, decode'dan önce sınır, yeniden kodlama; bir decode semaforu
+                      taşır). DB, log, sır yok.
 internal/netx/        adres aralığı aritmetiği (bir liste yer kanıtı olamayacak
                       kadar geniş mi). Saf: `net/netip` + `math/big`, başka hiçbir
                       şey — bu yüzden hem tenant hem tap ondan çağırabilir.
@@ -252,6 +256,8 @@ perforeli fiş kartı, APPROVED/FLAGGED/REJECTED hafif eğik kaşe damgası.
 buton YOK — "All done — you can close this page." Bir sonraki işlem zaten yeni fiziksel
 dokunuş gerektirir. Bu ekrana özellik eklemek istiyorsan önce sor.
 
+**Tenant markası (M10 white-label — ADR 0023/0024, skill `tappa-brand` → "Tenant slotları").** İşletme sayılı slotları boyar: bir logo (tap ve sonuç ekranında 24 px yuva + altında "taptime · punchless", panelde 32 px) ve tek bir accent. Accent'in ürün yüzeyinde boyadığı CSS slotları iki tanedir: tap düğmesinin zemini ve panelin 4 px şeridi (editörün renk seçicisi kendi rengini gösterir — ADR 0023 §2); accent WCAG kapısından geçer. Kaşe damgaları, durum→renk eşlemesi, docket ve sonuç ekranının renkleri değişmez; sonuç ekranında accent yoktur. Bu, "paletin dışına çıkma" ve tap ekranı kuralına kullanıcının §9 kararlarıyla (D-C; K-2a, K-2b) verilmiş sayılı istisnadır — tap/sonuç ekranındaki başka her değişiklik yine önce sorulur. Marka taklidi kabul edilmiş bir risktir (ADR 0005, risk 9).
+
 ## 10. Çalışma şekli
 
 - **Ana oturum iş yapmaz, organize eder.** Her görev bir alt ajana (model `opus`)
@@ -299,7 +305,7 @@ dokunuş gerektirir. Bu ekrana özellik eklemek istiyorsan önce sor.
 durum yazma — çelişirler.
 
 Plan sistemi [docs/plan/](docs/plan/) altında: [roadmap](docs/plan/roadmap.md)
-(M0–M9, 83 görev, sıralama gerekçesi) · `m*-*.md` görev kartları ·
+(M0–M9: 83 görev; M10'un görevleri [m10-platform.md](docs/plan/m10-platform.md)'de; sıralama gerekçesi) · `m*-*.md` görev kartları ·
 [state.md](docs/plan/state.md) (nerede kaldık) ·
 [open-questions.md](docs/plan/open-questions.md) (karara bağlanmamışlar).
 Nasıl çalıştığı: [docs/plan/README.md](docs/plan/README.md).

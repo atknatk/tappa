@@ -8578,9 +8578,9 @@ metni Taptime'ı işleyen olarak adlandırıyor, plaket "taptime" basıyor).
   tenant_id)`, logo alanları hep-birlikte-dolu CHECK; ENABLE+FORCE RLS, NULLIF politikası; GRANT
   SELECT/INSERT/UPDATE, DELETE YOK (sıfırlama UPDATE … NULL). Değiştirilebilir (marka hukuki delil
   değil); geçmiş audit_log'da. sqlc: `GetTenantBrand` (logo byte'larını SEÇMEZ — testle),
-  `GetTenantLogo(tenant_id, sha)`, `UpsertTenantAccent`, `UpsertTenantLogo`, `ClearTenantAccent`,
-  `ClearTenantLogo` — hepsi açık `tenant_id` filtreli.
-- **Servis:** `GET /admin/brand/logo/{sha}` (panel okuma zinciri) ve `GET /t/logo/{sha}` (tap
+  `GetTenantLogo(tenant_id, sha)`, `GetTenantPanelBrand` (WL-8), `EnsureTenantBrand`,
+  `GetTenantBrandForUpdate`, `SetTenantAccent`, `SetTenantLogo`, `ClearTenantAccent`, `ClearTenantLogo` — hepsi açık `tenant_id` filtreli *(WL-12 düzeltmesi, 2026-10-06: tasarım özü `UpsertTenantAccent`/`UpsertTenantLogo` diyordu; WL-1 kart düzeltmesi md. 3 — audit "before"u için ayrı Ensure + ForUpdate + Set)*.
+- **Servis** *(WL-12 notu, 2026-10-06: yalnız GET — başka yöntem 405; 200 yanıtı `Content-Length` taşır; `If-None-Match` eşleşirse gövdesiz 304 — ADR 0024 §5 ve WL-6 notu)*: `GET /admin/brand/logo/{sha}` (panel okuma zinciri) ve `GET /t/logo/{sha}` (tap
   grubu, canlı oturum şart) — admin çerezi `Path=/admin` olduğu için tap yüzeyindeki bir rota
   yönetici kimliğini göremez ve iki yüzeyin çözümleyicisi/bütçesi ayrıdır *(WL-0 düzeltmesi:
   "tek ortak rota iki çerezi alamaz" yazıyordu — çalışan çerezi `Path=/` olduğu için `/admin/…`'ya
@@ -11955,6 +11955,185 @@ metni), `FactNoBulkImport`, `TestBrand_*`, panel CSP ↔ script karşılığı t
 > - 2. turun zinciri (bütün `-race` paketleri, iki golden, `app.css`) ürün kodu değişmediği için
 >   yeniden koşulmadı; 2. turun sonuçları geçerli.
 > - Bilinen kırmızı, kapsam dışı: `cmd/rotatekek` (T72, yerel go 1.27).
+
+> **Kart düzeltmesi (2026-10-06, WL-12 uygulaması sırasında).** Kartın *"Ajan"* sütunu
+> orkestratör diyordu; iş, test koduna da dokunduğu için ikiye bölündü (orkestratör kararı):
+> **yapıcı** ADR 0005 eki + `cmd/tappa/adr0005_test.go`, skill `tappa-brand` → *"Tenant
+> slotları"*, `docs/handoff.md` §4 ve ADR 0023/0024'teki WL-12 devirleri; **orkestratör**
+> CLAUDE.md §9 + §3, `roadmap.md`, `state.md` (yapıcının önerdiği metin teslim raporunda).
+> Yazıldı (taban HEAD `26e9ce0`, worktree; commit yok):
+> `docs/adr/0005-kabul-edilen-riskler.md` · `cmd/tappa/adr0005_test.go` (yalnız yorum) ·
+> `.claude/skills/tappa-brand/SKILL.md` · `docs/handoff.md` ·
+> `docs/adr/0023-tenant-markasi-ve-arayuz-kurali.md` · `docs/adr/0024-kullanici-yukledigi-gorsel.md`.
+> Ürün kodu, şablon, migration, sorgu yok; `go.mod`/`go.sum` diff'i boş. Ölçüm ortamı:
+> darwin/amd64, yerel Go 1.27.1 (zincir Go 1.26.7 ile), Tailwind v3.4.17; DB'ye yazılmadı.
+>
+> 1. **ADR 0005'e risk 9 — marka taklidi** (ADR 0023 *"Sayılı sınırlar"* 1 ve onun WL-9 eki).
+>    *"Append kuralı"* gereği yeni ADR açılmadı: ana tabloya 9. satır + *"### 9. Marka
+>    taklidi"* bölümü. Kapsam: (a) başka bir işletmenin adı, logosu, rengi — muhatap yalnız
+>    taklitçinin **kendi** tenant'ına etkinleştirilmiş oturumlar (logo rotası tenant'ı oturumdan
+>    alır; uyuşmazlık kuralı); (b) logonun piksellerinin Taptime'ın durum kelimelerini ve
+>    damgasını taklit etmesi; kırık görselde `alt` = işletme adı (serbest metin, en çok 120
+>    karakter — `MaxCompanyNameRunes`, `AccountNameLimit`). **Kim:** yalnız aktif sahip
+>    (handler `mayEditAccount` + domain'de ikinci kez). **Sonuç:** tap ekranında düğmeye
+>    basılmazsa kayıt yok; sonuç ekranında kayıt zaten yazılmış, logo yalnız yanlış söyler;
+>    gerçek işletmenin plaketinde `sys:tenant-mismatch` iki tenant'a da satır yazmaz.
+>    **Hafifletenler:** 24 px yuva, en çok sütunun yarısı, tek *"Tap"* düğmesi, sonuçta logonun
+>    altındaki docket ve damga, kanalın darlığı, `tenant.brand_updated` izi. **Tespit sinyali
+>    yok** (7 ve 8'den sonra üçüncü istisna; açıkça yazıldı). Kabulün sebebi bir §4 kırmızı
+>    çizgisi değil, §9 kararı D-C'dir — ADR'de bu ayrım yazılı; *"İptal koşulu"* D-C'nin geri
+>    alınması.
+> 2. **Sayımlar — bilinçli değişen ve değişmeyen.** `TestADR0005_TheRiskCountMatchesTheTable`
+>    ana tabloyu sayar ve cümledeki sayı sözcüğünü okur: **8 satır / "sekiz" → 9 satır /
+>    "dokuz"** (aynı düzenlemede). `TestADR0005_TheAnchorCountsMatchTheProse`'un okuduğu B3
+>    tablosu **değişmedi** — 13 satır, 3 çapasız (T28 · T38 · T39): marka taklidi M8-04'ün
+>    bir denetim bulgusu değil, bir saldırganın yapabildiği bir şeydir, yani ana tabloya girer.
+>    Testin **kodu** değişmedi, çünkü sayılar ADR'nin düzyazısındadır ve test onları oradan
+>    okur (testin kendi gerekçesi: *"rewriting the prose to suit the test would be the test
+>    dictating the document"*). Testte değişen tek şey bir yorum: *"~450 lines below this
+>    table"* — 2026-10-06'da tablo başlığından B3 başlığına **715** satırdı ve ek onu yine
+>    kaydırdı; bağsız bir sayı olduğu için silindi, yerine sayısız tarif ve tarihli bir not.
+>    **B3 bölümünün kendi kopyası** (*"SEKİZ RİSKTEN AYRI"*, *"Risk 1–8"*) her eklemede elle
+>    düzeltilmek zorundaydı ve hiçbir kapı onu tutmuyordu: sayı oradan kaldırıldı, yerine teste
+>    işaret. Risk 8'in tarihli notundaki *"sekiz risk, sekiz satır"* o güne bağlandı; Sonuçlar'a
+>    risk 9 için iki madde.
+>    **Mutasyon (worktree'siz kopyada, `go test -count=1 -run TestADR0005_ ./cmd/tappa/`, dosya
+>    sha ile geri yazıldı):** M0 kontrol YEŞİL · M1 cümle *"sekiz"*'e geri, satır 9 duruyor →
+>    KIRMIZI · M2 satır 9 silindi, cümle *"dokuz"* → KIRMIZI · M3 satır 9 kalın değil → KIRMIZI ·
+>    M4 satır 9 `10` numaralı → KIRMIZI (dördü de `TestADR0005_TheRiskCountMatchesTheTable`).
+> 3. **ADR 0023 sınır 1'in ilk cümlesi daraltıldı (gerekçeli genişleme):** *"Plaket
+>    uyuşmazlığı `sys:tenant-mismatch` ile kayda geçer"* bir `transactions` satırı demek
+>    değildir — yönlendirme iki tenant'a da yazmaz
+>    (`TestCheckinDB_ForeignTenantTapIsRefusedAndWritesNOTHING`), çalışana *"That plaque isn't
+>    yours"* ekranı gider ve sunucu log'una bir WARN düşer (`internal/domain/checkin`; testle
+>    pinli değil). ADR 0005 risk 9 bu yüzden tespit sinyalini *yok* yazar. *(2. turda
+>    düzeltildi: WARN iki tane, ve gerçek işletmeye dolaylı bir sayaç izi düşer — aşağıda B3.)*
+> 4. **Skill `tappa-brand` → *"Tenant slotları"*:** başlıktan *"(taslak)"* kalktı, bölümde
+>    *"taslak"* sözcüğü 0. Ölçülen kurallar kaynaklarıyla: slot haritası (`alt` yüzeye göre:
+>    tap, sonuç, önizleme = ad; panel = boş); tap/sonuç başlığının üç şekli (24 px yuva + 4 px
+>    aralık → 15 px kayma; 43 px başlık; co-brand 5,70:1; ink `taptime` 14,32:1; 512×128 →
+>    96×24, 512×16 → 179×24, 128×512 → 6×24; kırık logo); panel (32 px, ≤ 192 px, şerit 4 px,
+>    `alt=""`, yalnız accent'li işletmede de ad + co-brand); Account önizlemesi (tek `inert`
+>    blok, üç bileşen, formsuz, yalnız kaydedilen accent, seçici + kod kutusu, `Suggest`
+>    koyulaştırır — `808080` → `#757575`, dokunma hedefleri); kontrast kapısı (4,5 / 3,
+>    1 949 736 red, hesaplanan sınırlar, renk tablosu); açık logo uyarısı (1,5:1, porcelain,
+>    `C5C5C5` / `C6C6C6`); token'lar `colors`'ta değil özelliğe göre; slot testi **seçici ve
+>    özellik** (WL-5 devrinin *"seçiciye değil"* yarım cümlesi düzeltildi); geçiş golden'ı
+>    bugün beş yer; kalıtım yolu testsiz. Ayrıca bölüm dışı tek düzeltme (gerekçeli
+>    genişleme): *"Tap ekranı"* bölümündeki *"marka mesajı tenant'a özel ve panelden
+>    düzenlenebilir"* yanlıştı — iş türüne göre seçilir, tenant düzenleyemez
+>    (`TestAccount_SaysTheMessagesCannotBeEdited`, `result.templ` `brandMessage`).
+>    Sayı düzeltmesi: `.tap-button` bugün **sekiz** `class` özniteliğinde (WL-0'da yedi; WL-9'un
+>    önizleme yüzü), ölçüldü.
+> 5. **Tailwind tuzağı ölçüldü — skill tarama dışında.** `tailwind.config.js` `content` =
+>    `./web/templates/**/*.templ`, `./web/static/js/**/*.js`. Taban derleme (HEAD `26e9ce0`)
+>    50 992 B, sha256 `9f58524d6f08…`; WL-12 düzenlemeleriyle aynı bayt; derlemede olmayan iki
+>    yardımcı adı skill dosyasına yazılınca yine aynı; aynı iki ad `tap.templ`'de bir yorum
+>    satırına yazılınca 51 255 B (pozitif kontrol), geri yazınca aynı sha. Skill bunu kendi
+>    başında yazar.
+> 6. **`docs/handoff.md` §4:** *"Müşterinin kendi markası (white-label, M10)"* maddesi —
+>    logo + tek renk, nerede görünür, neyin değişmez, okunaksız renk ve açık logo, yalnız sahip,
+>    Taptime kalan yüzeyler, bilinçli kabul. Aynı bölümdeki *"marka mesajları … tenant'a özel,
+>    panelden düzenlenebilir olacak"* maddesi bugünkü ürüne eşitlendi (tarihli not).
+> 7. **ADR 0023 / 0024'teki WL-12 devirleri — kapanış:**
+>
+>    | Devir (kaynak) | İstenen | Durum |
+>    |---|---|---|
+>    | WL-12 satırı; ADR 0023 sınır 1 + Sonuçlar; ADR 0024 sınır 6; WL-0 madde 16; WL-9 S3 | ADR 0005 marka taklidi eki + sayımlar | yapıldı (madde 1–2) |
+>    | WL-12 satırı; ADR 0023 WL-9 devri; WL-9 kartı | skill'den *"taslak"*, ölçülen sayılar | yapıldı (madde 4) |
+>    | WL-5 kartı | token'lar özelliğe göre; slot testinin seçici + özellik okuması | yapıldı |
+>    | WL-8 kartı; ADR 0023 WL-8 devri | panel satırı; `alt` yüzeye göre | yapıldı; ADR'ye kapanış notu |
+>    | WL-7 kartı; ADR 0024 WL-7 devri | Account önizlemesi | yapıldı; ADR'ye kapanış notu |
+>    | ADR 0023 WL-9 devri; WL-9 sınır 14 / F6 | kırık logo görünümü skill'e | yapıldı |
+>    | ADR 0023 WL-9 devri; WL-9 kartı | *Karar verilmedi* yuva maddesi | ikinci madde (*"Logo yuvasının kesin boyutları"*) de kapatıldı (ilki zaten çizikti) |
+>    | WL-1 kartı — *"WL-12 / orkestratör"* | (a) §5 tasarım özündeki `UpsertTenant*` adları; (b) ADR 0024 İddia D'nin WL-1 yarısına işaret | (a) **orkestratör** (plan belgesi; ADR 0023 WL-1 notu adları zaten düzeltiyor); (b) yapıldı |
+>    | WL-4 kartı — *"WL-12 / orkestratör"* | (a) ADR 0024 İddia G'nin WL-4 yarısına işaret; (b) §3/§6'ya `Logo.Normalized()` ve domain'in ret kuralı | ikisi de yapıldı (§3: `Normalized()`; §6: domain'in ikinci yetki sorusu) |
+>    | WL-6 kartı + ADR 0024 WL-6 devri — *"WL-12 / orkestratör"* | (a) İddia D/E'nin WL-6 yarılarına işaret; (b) m10 §5 *"Servis"*'e `Content-Length`, 304, yalnız GET | (a) yapıldı; (b) **orkestratör** (plan belgesi) |
+>    | WL-12 satırı; ADR 0023 §7 + Sonuçlar | CLAUDE.md §9 cümlesi + §3 `internal/brand` | **orkestratör** (metin önerisi teslim raporunda) |
+>    | WL-12 satırı | roadmap, state | **orkestratör** |
+>    | (genişleme, aynı sınıf) | ADR 0024 İddia A, B, C (WL-3), F, H ve G'nin WL-7 yarısı; *"testleri henüz yoktur"* giriş cümlesi; iki ADR'nin başlığındaki *"Uygulama: yok"* | işaret satırları ve tarihli durum notu eklendi; İddia G'nin WL-10 yarısı yazılmadı (WL-10'un kaydı ADR'de yok) |
+>
+> 8. **Belgelerdeki test adları:** değişen satırlarda anılan 67 farklı `Test…` adının 67'si
+>    tanımlı (ayrı betikle sayıldı); `TestEveryNamedTestExists` zincirde. Bu karttaki `-run`
+>    önekleri (`TestADR0005_` ve zincirdeki dört handler öneki) alt çizgiyle biter; kartın
+>    kendisindeki adların hepsi de tanımlı.
+>
+> **Bulgular (kapsam dışı, bloklamaz):**
+> - `docs/handoff.md` §4'ün ilk maddesi *"İsim: Tappa"* diyor; kullanıcı-yüzü marka Taptime
+>   (`docs/backlog.md` kaydı, kullanıcı kararı). Ürün adı kararı — dokunulmadı.
+> - Skill'in *"Plaket baskısı"* bölümü hâlâ `tappa` kelime markası diyor (WL-0 madde 12'nin
+>   notu; değişmedi).
+> - ADR 0020 sınır 8: operatör risklerinin ADR 0005'e eklenmesi **açık iş** (OP-4'ün dışında
+>   bırakılmıştı); WL-12'nin kapsamı değil.
+>
+> **Sayılı sınırlar:** (1) Risk 9'un dolaylı izi (`tap:ctrGap` → `base:ctr-gap-review`) risk
+> 3'ün mekanizmasından türetildi, ölçülmedi. (2) Biçim 1'in WARN satırı testle pinli değil.
+> (3) Skill'deki Chrome sayıları WL-7/WL-8/WL-9 notlarından aktarıldı, bu görevde yeniden
+> ölçülmedi; pin olanlar test adıyla anıldı. (4) Tailwind ölçümü tek derlemede, bu makinede.
+> (5) `make check`'in son adımı (`git diff --exit-code`) commit'lenmemiş iş yüzünden kopyada
+> bu değişiklikleri gösterir; onun yerine kopyanın dosya ağacı `make check` öncesi ve sonrası
+> sha256 ile karşılaştırıldı (aşağıda).
+>
+> **Zincir** (worktree'siz `rsync` kopyasında, `GOTOOLCHAIN=go1.26.7`, `.env`'li; `app.css`
+> standalone CLI ile derlendi):
+> - `make check` **rc=2** (644 s) — iki paket kırmızı, ikisi de bu değişiklikten değil:
+>   (a) `internal/db`'de dört operatör testi (`TestOperator00026_ArgumentsNeverComeBackInAnError`,
+>   `TestOperator00026_PrivilegeMatrix`, `TestOperator00030_TheFunctionAndItsExactSignature`,
+>   `TestOperator00030_DownGivesBack00029AndUpTakesItAgain`) — **00031 kaynaklı**: paylaşılan dev
+>   DB goose 31'de, ağaç 30'da (orkestratörün notu; hata metinleri `operator_audit` türünü ve
+>   `op_record_auth_event`'in yeni iletisini gösteriyor); (b) `cmd/tappa`'da üç paketleme testi
+>   (`TestPackaging_TheArtifactKnowsWhatItWasBuiltFrom`,
+>   `TestArtifact_ServesFromAnEmptyWorkingDirectory`,
+>   `TestArtifact_SaysWhatItIsEVENWhenTheBootFails`) — **kopya kaynaklı**: Go'nun VCS kökü
+>   `.git`'i **dizin** olarak arar (go1.26.7 `cmd/go/internal/vcs/vcs.go:218`, `isDir: true`);
+>   kopyada `.git` worktree'nin işaretçi dosyası olduğu için ikili revizyonsuz derlenir.
+>   Worktree'de aynı üç test yeşil/SKIP — ama orada da `.git` dosya olduğu için Go ana checkout'a
+>   yürür ve **ana checkout'un HEAD'ini** damgalar (ölçülen: `cec65b0`, `vcs.modified=false`),
+>   yani worktree'deki yeşil de bu ağacı ölçmüyor (T87 sınıfı). Geri kalan 30 paket `ok`;
+>   `cmd/tappa`'da bu üçü dışında hepsi yeşil.
+> - `make check`'in `git diff --exit-code` adımı commit'lenmemiş iş yüzünden anlamlı değil; yerine
+>   kopyanın dosya ağacının sha256'sı: `make check` öncesi ve sonrası aynı; son metinle yeniden
+>   kurulan kopyada `make fmt gen` öncesi/sonrası aynı (`5cb40c6c…`, 836 dosya) — fmt ve gen hiçbir
+>   dosyayı değiştirmedi. `make lint` rc=0.
+> - Son metinle: `go test -race ./cmd/tappa` yalnız yukarıdaki üç kopya kırmızısı;
+>   `TestEveryNamedTestExists` yeşil (60 / 60 sarkan, bütçe değişmedi; bu kart m10'un sonuna
+>   eklenmiş kopyada da yeşil); `TestADR0005_TheRiskCountMatchesTheTable` *"9 rows, prose says
+>   dokuz"*, `TestADR0005_TheAnchorCountsMatchTheProse` *"13 rows, 3 without a mechanical
+>   anchor"*; `internal/handler` için `TestLandingFacts_`, `TestFactMechanisms_`,
+>   `TestPageImages_`, `TestUnbrandedScreens_` `ok`.
+> - `make audit` **rc=0** iki araç zinciriyle de: `GOTOOLCHAIN=go1.26.7` ve yerel go1.27.1 —
+>   `govulncheck exit=0 - redline-check exit=0`. (T72 `cmd/rotatekek`'in testidir, audit'in
+>   değil; `make check`'te go1.26.7 ile `cmd/rotatekek` `ok`.)
+> - `gofmt -s -l` boş; `go.mod`/`go.sum` diff'i boş.
+>
+> **2. tur (2026-10-06 — üçüncü göz RED: yapıcının kısmında 1 bloklayan + 4 bloklamayan, hepsi
+> metin; orkestratörün kararıyla YALNIZ METİN — kod ve test değişmedi):**
+> - **B3 (bloklayan) — risk 9, biçim 1'in izi eksikti.** Metin *"görünür tek iz … gerçek işletme
+>   bunu görmez … M6-11'in okuyacağı bir satır yoktur"* diyordu. İki şey eksikti: (a) uyuşmazlıkta
+>   sayaç ilerletilmiyor (`internal/domain/checkin`), ama NFC okuması çipin `ctr`'sini tüketiyor;
+>   boşluk `ctr − eski last_ctr − 1` (`db/queries/tags.sql`), `base:ctr-gap-review` → review
+>   (`internal/policy/baseline.go`) — yani gerçek işletmenin o plakette bir sonraki kayıtlı
+>   dokunuşu **kendi** onay kuyruğuna düşer; QR'da yok; (b) GET de bir WARN yazıyor
+>   (`internal/handler/tap.go`, *"tap page: plaque belongs to another tenant"*), pinsiz. →
+>   ADR 0005 tablo satırı 9'un *"Tespit sinyali"* hücresi, `### 9`'un *"Sonuç"* maddesi (plaketin
+>   `last_ctr`'ı ilerlemez — `TestCheckinDB_ForeignTenantTapNeverTouchesTheOtherTenantsCounter` —
+>   ama sayaç tüketilmiştir), *"Tespit sinyali → Biçim 1"*, sayılı sınırlar 3 ve 4, Sonuçlar'daki
+>   risk 9 notu (*"kendine ait sinyal yok; dolaylı boşluk risk 3'ünkiyle aynı şekilde"*) ve ADR
+>   0023 sınır 1'in WL-12 notu düzeltildi. *"Doğrudan sinyal yok"* sonucu değişmedi; iz türetildi,
+>   ölçülmedi.
+> - **N2.** Skill *"panel kabuğunun 24 bileşen render'ı"* → WL-8'in 24 render'ı: 16'sı panel kabuğu,
+>   8'i `documentHead`'e ulaşan öteki kabuklar (`panelbrand_golden_test.go`'nun listesiyle sayıldı:
+>   9 bölüm + 7 panel varyantı + 8 kabuk).
+> - **N4.** handoff §4: renk iki yerde — çalışanın ekranında yalnız tap düğmesi, panelde şerit.
+> - **N5.** handoff §4'ün e-posta cümlesi: logo yok; adın gösterilip gösterilmeyeceği EM-7'nin
+>   bekleyen kullanıcı kararı. Skill'in e-posta satırı da aynı biçime çekildi (aynı iddia).
+> - **N6.** ADR 0023 sınır 1'in WL-12 notu: alıntılanan cümle maddenin **ikinci** cümlesi.
+> - **Zincir (2. tur; worktree'siz `rsync` kopyası, `GOTOOLCHAIN=go1.26.7`):** bu kart
+>   `m10-platform.md`'ye *"## 6. Kararlar"*dan önce eklenmiş hâlde `TestEveryNamedTestExists`
+>   YEŞİL (60 / 60 sarkan, bütçe değişmedi); `go test ./cmd/tappa -run TestADR0005_` YEŞİL —
+>   *"9 rows, prose says dokuz"*, *"13 rows, 3 without a mechanical anchor"* (sayımlar 1. turla
+>   aynı); `./scripts/redline-check.sh` rc=0. Ürün kodu ve test değişmediği için 1. turun
+>   `make check` / `make audit` sonuçları geçerli. Go dosyası değişmedi.
 
 ## 6. Kararlar
 

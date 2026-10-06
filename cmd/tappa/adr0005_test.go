@@ -274,12 +274,20 @@ var adr0005NumberWords = map[string]int{
 //
 // 🔴 WHY IT EXISTS, and it is not a hypothetical. The sibling gate above
 // (TestADR0005_TheAnchorCountsMatchTheProse) slices only the M8-04 B3 section,
-// which sits ~450 lines below this table — so
+// which sits below every risk's own subsection — so
 // when M8-05 appended risks 7 and 8 on 2026-08-20 the sentence "Aşağıdaki **altı
 // risk** kabul edilir" was left describing a table that now held eight, and every
 // existing gate stayed green. Four of that round's blocking findings were the same
 // class in other files: a count copied into prose and left behind. This repository's
 // rule is that a number is BOUND, DATED, or DELETED; this one is now bound.
+//
+// (Where the B3 section sits used to be written as "~450 lines below". From the
+// table's header row to the B3 heading it was 715 lines on 2026-10-06, before M10
+// WL-12 appended risk 9, and that append moved it again: a line count is exactly
+// the unbound number this file exists to remove, so it is gone. WL-12's is the
+// first append since this gate was written — the prose went "sekiz" -> "dokuz" in
+// the same change as row 9, and the B3 section's own copy of the count was
+// replaced by a pointer to this test rather than edited by hand a second time.)
 //
 // It deliberately does NOT re-check anchors, cell shape or names — that is the other
 // test's job and duplicating it would give two places to update for one change.

@@ -10,7 +10,11 @@
   yeniden kodlama; tavan, süre ve bellek ölçümleri sondaki *"WL-3 notu"*nda. **WL-6
   (2026-10-03):** `internal/handler/brandlogo.go` ve `internal/domain/tenant/brandread.go` —
   iki logo rotası, sayfa politikasının img-src yarısı, `hasLogo` türetimi; kararlar, ölçümler
-  ve İddia D/E'nin WL-6 parçaları sondaki *"WL-6 notu"*nda.
+  ve İddia D/E'nin WL-6 parçaları sondaki *"WL-6 notu"*nda. *(WL-12, 2026-10-06, HEAD
+  `26e9ce0`: WL-1 ve WL-4 notları ADR 0023 §1'in altında; **WL-7 (2026-10-03/06):**
+  `internal/handler/brandupload.go` ve `brandactions.go` — yükleme, renk ve sıfırla rotaları;
+  İddia F, G, H'nin WL-7 parçaları sondaki *"WL-7 notu"*nda. Aşağıdaki *"Güvenlik iddiaları"*nın
+  her *"ölçülecek"* yarısına ölçüldüğü notu gösteren bir işaret eklendi.)*
 - **Tarih:** 2026-10-02
 - **Bağlam:** [M10 Akış C](../plan/m10-platform.md) §5, görev WL-0. Sapmalar ve ölçüm komutları:
   aynı dosya → *"Kart düzeltmesi (2026-10-02, WL-0 uygulaması sırasında)"*.
@@ -209,6 +213,11 @@ S4 ve S6 kuralın sebebidir: çözücü **başlıktaki** boyuta göre ayırır, 
 Kabul edilen her görsel decode edilir, uzun kenarı **≤512 px**'e elle yazılmış bir kutu
 filtresiyle küçültülür (stdlib; `x/image/draw` bağımlılık olurdu) ve **yeniden kodlanır**:
 PNG → PNG (`BestCompression`), JPEG → JPEG (q85). Saklanan ve sunulan tek şey bu çıktıdır.
+*(WL-4, 2026-10-03 — ADR 0023 §1'in WL-4 notu, karar 5: domain bunu yazmadan önce sorar.
+`brand.Logo`'nun alanları dışa açık olduğu için `SaveLogo` `Logo.Normalized()` ister;
+`Normalize`'ın döndürmediği ya da sonradan değiştirilmiş bir değer transaction açılmadan
+`ErrBrandLogoNotNormalized` alır — `TestBrandDB_RefusalsBeforeTheDatabaseWriteNothing`,
+`TestLogo_NormalizedIsTrueOnlyForNormalizeOutput`.)*
 
 - S14'te ölçülen girdilerde standart kodlayıcılar S14'teki bölümleri yazdı; S11–S13'te
   ölçülen EXIF (GPS IFD'li), `eXIf`, `tEXt`, `iCCP`, `COM`, APP1 ve IEND/EOI sonrası bayt
@@ -294,7 +303,11 @@ PNG → PNG (`BestCompression`), JPEG → JPEG (q85). Saklanan ve sunulan tek ş
 - **Yetki:** owner (`mayEditAccount`, `accountactions.go:95-97`); üç `ProtectWriting` rotası —
   logo, accent, sıfırla; aynı-origin kapısı çözümleyiciden önce (→ **WL-7**: cross-origin POST
   çözümleyiciden önce red; manager POST'u 303 `not-permitted` + `tenant.brand_update_refused` +
-  0 UPDATE). Askı: `suspensionGate` bu rotaları kapsar (OP-15).
+  0 UPDATE). Askı: `suspensionGate` bu rotaları kapsar (OP-15). *(WL-4, 2026-10-03 — ADR 0023
+  §1'in WL-4 notu, karar 2: domain yetkiyi ikinci kez, yazmanın kendi transaction'ında DB'den
+  sorar — aktif `owner` değilse `ErrBrandNotPermitted`, domain'in yazması ve izi 0 (ret
+  satırını WL-7'nin handler'ı ayrı transaction'da yazar);
+  `TestBrandDB_OnlyAnActiveOwnerOfThisTenantMayWrite`.)*
 - **Gövde yalnız `r.MultipartReader()` ile okunur.** Logo handler'ı ve onun çağırdığı handler
   paketi fonksiyonları `r.FormValue`, `r.PostFormValue`, `r.FormFile`, `r.ParseMultipartForm`,
   `r.ParseForm` çağırmaz ve `r.Form`, `r.PostForm`, `r.MultipartForm` alanlarını okumaz.
@@ -358,12 +371,17 @@ PNG → PNG (`BestCompression`), JPEG → JPEG (q85). Saklanan ve sunulan tek ş
 ## Güvenlik iddiaları — üç parçalı
 
 PART I'deki "ölçülecek" davranışların testleri henüz yoktur; adları kendi görevlerinde konur,
-burada **tarifleriyle** yazılır. Sonda ölçümleri (S1–S20) go1.27.1'de alındı.
+burada **tarifleriyle** yazılır. Sonda ölçümleri (S1–S20) go1.27.1'de alındı. *(WL-12,
+2026-10-06: ilk cümle bayatladı — WL-1, WL-3, WL-4, WL-6 ve WL-7 sevk edildi. Her *"ölçülecek"*
+yarısının yanına, onu ölçen notu ve testleri gösteren bir işaret kondu; tarifler ve
+PART II'ler değişmedi.)*
 
 **İddia A — kabul edilen bayt PNG ya da JPEG olarak decode edilebilir; koklama tek başına karar
 vermez.**
 - **PART I:** S1, S2 (bugün ölçüldü). WL-3'te ölçülecek: SVG, GIF, WebP, HTML ve imzası PNG olan
-  HTML reddedilir; istemcinin `Content-Type`'ı ve dosya adı sonucu değiştirmez.
+  HTML reddedilir; istemcinin `Content-Type`'ı ve dosya adı sonucu değiştirmez. *(WL-3'te
+  ölçüldü — WL-3 notu, İddia A (WL-3): `TestLogoFormat_RefusesWhatIsNotPNGOrJPEG`,
+  `TestLogoFormat_ClientHeadersDoNotDecide`.)*
 - **PART II:** WL-3'in biçim tablosu testi (bu beş vaka) · WL-3'in "istemci başlığı yok
   sayılır" testi. Yakaladıkları: tablodaki beş vakadan birinin (SVG, GIF, WebP, HTML, PNG imzalı
   HTML) kabul edilmesi; istemcinin `Content-Type`'ının ya da dosya adının sonucu değiştirmesi
@@ -380,7 +398,11 @@ vermez.**
   decode'dan önce reddedilir; kesik dosya reddedilir; eşzamanlı çözme `-race` altında N'yi
   aşmaz; context'i iptal edilen istekten sonra yuva decode bitene kadar dolu kalır. WL-3'te bir
   kez ölçülecek (pin değil): 512Mi konteynerde N eşzamanlı en kötü decode altında RSS *(WL-3
-  düzeltmesi: N = 1 ile bir konteynerde ölçüldü, podda değil — WL-3 notu)*.
+  düzeltmesi: N = 1 ile bir konteynerde ölçüldü, podda değil — WL-3 notu)*. *(WL-3'te ölçüldü
+  — WL-3 notu, İddia B (WL-3): `TestLogoBomb_HugeHeaderRefusedBeforeDecode`,
+  `TestLogoScans_CeilingAcceptedOneMoreRefused`, `TestLogoScans_DishonestFilesRefused`,
+  `TestLogoTruncated_EveryPrefixRefused`, `TestLogoGate_ConcurrentDecodesNeverExceedN`,
+  `TestLogoGate_CancelledContextKeepsTheSlotUntilTheDecodeReturns`.)*
 - **PART II:** WL-3'in bomba testi (tahsis ölçümüyle) · tarama tavanı testi (dürüst olmayan
   vakayla) · kesik girdi testi · semafor testi (iptal vakasıyla) · fuzz testi. Yakaladıkları:
   `DecodeConfig` kapısından önce `Decode` çağrılması; tarama sayımının kaldırılması ya da
@@ -393,6 +415,8 @@ vermez.**
 **İddia C — saklanan bayt girdinin meta verisini ve ek yükünü taşımaz.**
 - **PART I:** S11–S14 (bugün ölçüldü). WL-3'te ölçülecek: EXIF-GPS'li JPEG'in çıktısında
   `Exif` APP1 yok; IEND sonrası yük çıktıda yok; çıktının bölüm listesi S14'teki kümedir.
+  *(WL-3'te ölçüldü — WL-3 notu, İddia C (WL-3): `TestLogoMetadata_ExifGPSDoesNotReachTheOutput`,
+  `TestLogoMetadata_PNGChunksAndTrailingBytesDoNotSurvive`.)*
 - **PART II:** WL-3'in meta veri testleri (JPEG APP1/COM, PNG `eXIf`/`tEXt`/`iCCP`, IEND ve EOI
   sonrası bayt) · çıktı bölüm listesi testi. Yakaladıkları: yüklenen baytın saklanması;
   kodlayıcının meta veri yazan bir yolla değiştirilmesi *(WL-3 düzeltmesi: testlerin
@@ -406,7 +430,11 @@ edilemez.**
 - **PART I:** bugün rota ve tablo yok (ölçüldü). WL-1'de ölçülecek: `WHERE`'siz A bağlamı B'nin
   satırını 0 görür; B'nin `tenant_id`'li INSERT'i WITH CHECK ile reddedilir. WL-6'da: A
   oturumunun B'nin sha'sına aldığı 404 bilinmeyen sha'nınkiyle bayt-aynı; oturumsuz tap logosu
-  404.
+  404. *(WL-1'de ölçüldü — ADR 0023 §1'in WL-1 notu, PART I:
+  `TestRLS_TenantBranding_ReadIsolationWithoutWhere`, `TestRLS_TenantBranding_WriteWithCheck`.
+  WL-6'da ölçüldü — aşağıdaki WL-6 notu, İddia D (WL-6):
+  `TestLogoRoutesDB_AnotherBusinessesDigestIsAnUnknownDigest`,
+  `TestLogoRoutes_EveryRefusalIsTheSameNotFound`.)*
 - **PART II:** WL-1'in RLS testi · WL-6'nın bayt-aynı 404 testi · oturumsuz istek testi ·
   `TestStaffQueries_CarryAnExplicitTenantPredicate` — `internal/domain/tenant`'ın üretim
   dosyalarının çağırdığı her store sorgusunun metninde `@tenant_id` yüklemi arar; marka
@@ -417,7 +445,10 @@ edilemez.**
 - **PART III:** Listede olmayan her biçim kod incelemesinin konusu — tamlık iddiası yok.
 
 **İddia E — logo yanıtı tarayıcıda belge olarak koşmaz.**
-- **PART I:** WL-6'da ölçülecek: yanıt başlıkları §5'teki listeyle birebir.
+- **PART I:** WL-6'da ölçülecek: yanıt başlıkları §5'teki listeyle birebir. *(WL-6'da ölçüldü —
+  aşağıdaki WL-6 notu, İddia E (WL-6): `TestLogoRoutes_TheHeadersAreExactlyTheADRs`,
+  `TestPageImages_ImgSrcIsNamedOnlyByAPageThatDrawsAnImage`; liste §5'in yedisi +
+  `Content-Length` — §5'in WL-6 düzeltmesi.)*
 - **PART II:** WL-6'nın başlık testi · sayfa `img-src` testi. Yakaladıkları: `nosniff`,
   `sandbox`, CORP ya da sabit `Content-Type`'ın düşmesi; `<img>` render etmeyen sayfaya
   `img-src` eklenmesi.
@@ -427,7 +458,10 @@ edilemez.**
 - **PART I:** S17, S18, S20 (bugün ölçüldü; S20: 1 MiB tavan altında `FormFile`/`FormValue`
   geçici dosya yazmaz, yani `TMPDIR` testi onları ayırt etmez). WL-7'de ölçülecek: `TMPDIR`
   salt-okunur/yokken yükleme başarılı; ikinci ya da bilinmeyen parça red; handler dosya(lar)ında
-  §6'nın beş form okuyucu çağrısı ve üç alan okuması 0.
+  §6'nın beş form okuyucu çağrısı ve üç alan okuması 0. *(WL-7'de ölçüldü — aşağıdaki WL-7 notu,
+  PART I madde 2, 4 ve 14: `TestBrandUpload_SucceedsWithTMPDIRMissingOrReadOnly`,
+  `TestBrandUpload_AcceptsOnePartNamedLogoAndNothingElse`,
+  `TestBrandUpload_ReadsTheBodyOnlyAsAStream`.)*
 - **PART II:** WL-7'nin sözdizimi pini (logo handler dosya(lar)ının AST'si; aradığı küme:
   `FormValue`, `PostFormValue`, `FormFile`, `ParseMultipartForm`, `ParseForm` çağrıları ve
   `Form`, `PostForm`, `MultipartForm` alan okumaları) · `TMPDIR` testi · parça testi ·
@@ -441,7 +475,11 @@ edilemez.**
 **İddia G — audit ve log görselin baytını ve dosya adını taşımaz.**
 - **PART I:** WL-4'te ölçülecek: `detail` anahtar kümesi tam olarak altı sabit anahtar. WL-7'de
   ölçülecek: ret yollarının log satırlarında dosya adı ve bayt dizisi 0. WL-10'da bir kez
-  okunacak (pin değil).
+  okunacak (pin değil). *(WL-4'te ölçüldü — ADR 0023 §1'in WL-4 notu, karar 1 ve PART I:
+  `TestBrandDB_TheDetailHasExactlyTheSixKeys`, aynı transaction
+  `TestBrandDB_TheChangeAndItsTrailRowShareOneTransaction`. WL-7'de ölçüldü — aşağıdaki WL-7
+  notu, PART I madde 13: `TestBrandUpload_ARefusalLogsItsClassAndNeverTheFile`. WL-10'un okuması
+  bu ADR'ye yazılmadı.)*
 - **PART II:** WL-4'ün detail anahtar testi · aynı-tx testi (audit patlarsa UPDATE geri alınır) ·
   WL-7'nin ret-yolu log testi. Yakaladıkları: detail'e yedinci anahtar girmesi; audit'in tx
   dışına çıkması; testin sürdüğü ret yollarında log'a dosya adı ya da bayt yazılması.
@@ -451,6 +489,10 @@ edilemez.**
 - **PART I:** bugün yükleme yolu yok; bugünkü bütçeler ve ingress tavanı ölçüldü (Bağlam).
   WL-7'de ölçülecek: tenant bütçesi aşımı 429 + ret audit'i + 0 UPDATE; kabul sınırı doluyken
   ikinci eşzamanlı yükleme gövdesi okunmadan red; yavaş gönderilen gövde okuma süresinde kesilir.
+  *(WL-7'de ölçüldü — aşağıdaki WL-7 notu, PART I madde 7, 8 ve 9:
+  `TestBrandUpload_TheBusinessBudgetRefusesPastTenBeforeReadingTheBody`,
+  `TestBrandUpload_AdmissionRefusesBeforeTheBodyIsRead`,
+  `TestBrandUpload_ASlowBodyIsCutAtTheReadDeadline`; sayılar WL-7 notu, karar 2.)*
 - **PART II:** WL-7'nin bütçe testi · kabul sınırı testi · okuma süresi testi. Yakaladıkları:
   bütçe sayacının atlanması; gövdenin kabul sınırından önce okunması; okuma süresinin
   konmaması.
@@ -478,7 +520,8 @@ edilemez.**
 3. **Orientation ve ICC düşer** (§3).
 4. **HEIC yolu ölçülmedi** (§1).
 5. **Kutu filtresi bir kalite tercihidir**, Lanczos değil; küçültülmüş logo yumuşak görünebilir.
-6. **Marka taklidi** — ADR 0023 sınır 1 (ADR 0005 eki WL-12'nin kabulünde).
+6. **Marka taklidi** — ADR 0023 sınır 1 (ADR 0005 eki WL-12'nin kabulünde). *(WL-12,
+   2026-10-06: eklendi — [ADR 0005](0005-kabul-edilen-riskler.md) risk 9.)*
 7. **Ingress'e bağımlılık:** gövde okuma fazının bugünkü sınırı ingress'in `proxy-body-size`'ı
    ve istek tamponlamasıdır; tamponlamanın kümede açık olduğu ölçülmedi (§6, WL-7).
 8. **Piksel verisine gömülü yük** yeniden kodlamadan sağ çıkabilir (§1); tarayıcı tarafındaki
@@ -1179,7 +1222,8 @@ ulaşılamaz; ikincisi sahte okuyucuyla (`image/svg+xml`) `TestLogoRoutes_AReadF
   sınırlar.
 - **WL-12 / orkestratör:** İddia D ve E PART I'in *"WL-6'da ölçülecek"* yarıları ölçüldü —
   yukarıdaki notlara işaret eden bir satır önerilir; m10 §5 "Servis" maddesine
-  `Content-Length` ve 304 kararı.
+  `Content-Length` ve 304 kararı. *(WL-12, 2026-10-06: işaret satırları İddia D ve E'ye
+  yazıldı; m10 §5 "Servis" maddesi plan belgesidir, orkestratörün.)*
 
 ## WL-7 notu (2026-10-03; 2. ve 3. tur 2026-10-06 — yükleme rotası, accent ve sıfırla; §2, §6'nın kuralları değişmedi)
 
@@ -1566,7 +1610,9 @@ Yeşil kalan P03 eşdeğerdir: `PanelLogoOf` ve `PreviewLogo` aynı kutuları re
   muafiyetinin yolu; `NewAdminAuth`'un imzası; ADR 0023'ün WL-7 notundaki önizleme kuralları.
 - **WL-12:** skill *"Tenant slotları"* — Account önizlemesi ölçüldü (`inert`, formsuz, tap
   ekranının üç bileşeni, yalnız kaydedilen accent; seçici + kod kutusu, öneri koyulaştırır);
-  ADR 0005'e marka taklidi eki (değişmedi, WL-12'nin).
+  ADR 0005'e marka taklidi eki (değişmedi, WL-12'nin). *(WL-12, 2026-10-06: ikisi de
+  yapıldı — skill *"Tenant slotları"* → *"Account → Your brand: önizleme ve editör"*; ADR 0005
+  risk 9.)*
 
 ### 2. tur (2026-10-06 — üçüncü göz bulguları B1–B5, N1–N8)
 

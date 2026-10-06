@@ -11,6 +11,10 @@
   uygulanır"* (aynı §6).
   **Uygulama: yok.** Bu ADR yazıldığında (HEAD `c0c0250`) `internal/brand` paketi,
   `tenant_branding` tablosu ve marka rotası yoktur (aşağıda ölçüldü); uygulama WL-1…WL-12.
+  *(WL-12, 2026-10-06, HEAD `26e9ce0`: WL-1…WL-9 sevk edildi — notları aşağıda, bölümlerinin
+  altında; WL-10 güvenlik denetimi ONAY (orkestratörün bildirimi; kaydı bu ADR'de değil);
+  WL-11 (e-posta, §8) SES akışıyla (B) birlikte bekliyor; WL-12 belgeler: skill bölümü,
+  ADR 0005 risk 9, handoff §4.)*
 - **Tarih:** 2026-10-02
 - **Bağlam:** [M10 Akış C](../plan/m10-platform.md) §5, görev WL-0. Sapma listesi ve ölçüm
   komutları: aynı dosya → *"Kart düzeltmesi (2026-10-02, WL-0 uygulaması sırasında)"*.
@@ -18,7 +22,8 @@
   yeniden kodlama, saklama, servis) · [ADR 0002](0002-tenant-baglami-ve-rls.md) md.7 ·
   [ADR 0005](0005-kabul-edilen-riskler.md) (marka taklidi — açık ek, aşağıda) ·
   [ADR 0020](0020-platform-operatoru-ayri-kimlik.md) (operatör yüzeyi Taptime kalır) ·
-  CLAUDE.md §4.5, §4.6, §9 · skill `tappa-brand` → *"Tenant slotları (taslak)"*
+  CLAUDE.md §4.5, §4.6, §9 · skill `tappa-brand` → *"Tenant slotları"* (WL-0'da *"(taslak)"*;
+  WL-12'de ölçülen kurallarla kesinleşti)
 
 ## Neden bir ADR
 
@@ -803,7 +808,9 @@ gördüğü ekran aynı işleyeni göstermeli; ve landing'in çizdiği plaket `T
 (`landing.templ:199`). Fiziksel plaket baskısı bu görevde **ölçülmedi** (skill'in plaket
 bölümü baskıyı öneri olarak yazar). Ton: bugünkü `punchless` tonu (10 px mono, ink/70;
 porcelain'de 5,70:1). Yerleşim ve boyut: skill → *"Tenant slotları (taslak)"*; kesinleşmesi
-**WL-8/WL-9**.
+**WL-8/WL-9**. *(WL-12, 2026-10-06: kesinleşti — tap ve sonuç ekranı 24 px yuva + 4 px aralık
+(§7'nin WL-9 notu), panel 32 px, en çok 192 px (WL-8 notu, karar 6); skill bölümünün adı artık
+*"Tenant slotları"*.)*
 
 **K-2b'nin aritmetiği (WL-9'un 16 px bütçesiyle).** Bugünkü başlık 28 px, co-brand satırı tek
 başına 15 px (ölçüldü). Logo yuvası `H`, araları `g` ise yeni başlık `H + g + 15`, düğmenin
@@ -1207,6 +1214,8 @@ yalnız `brandHeader`'ın dört yardımcısı girdi (`.w-auto`, `.max-w-[50%]`, 
   ölçülen sayılar girer (24 px yuva, 4 px aralık, 15 px kayma, 5,70:1, 14,32:1); CLAUDE.md §9
   cümlesi; aşağıdaki *Karar verilmedi* maddesi kapandı; sınır 11'in kırık logo görünümü skill'e;
   aşağıdaki *Sayılı sınırlar* 1'in WL-9 ekinin ADR 0005 marka taklidi ekine girmesi.
+  *(WL-12, 2026-10-06: skill, *Karar verilmedi*, kırık logo ve ADR 0005 risk 9 yapıldı;
+  CLAUDE.md §9 cümlesi orkestratörün.)*
 
 ### 8. E-posta (K8) — WL-11'e
 
@@ -1324,6 +1333,16 @@ okumadan, kalıtımla taşıyan bir kural bu iddianın dışındadır — §4 WL
    Hafifletenler: 24 px yuva ve `max-w-[50%]` (logo küçük ve başlıkta), 64 px'lik tek "Tap" düğmesi,
    sonuç ekranında logonun altındaki docket ve kaşe damgası. WL-12'nin ADR 0005 marka taklidi ekine
    bu iki biçim de girer.
+   *(WL-12, 2026-10-06: eklendi — [ADR 0005](0005-kabul-edilen-riskler.md) **risk 9**, ana tablo
+   ve kendi bölümü; ana tablonun sayısı sekiz → dokuz, `TestADR0005_TheRiskCountMatchesTheTable`
+   bağlar. **Bu maddenin ikinci cümlesi daraltıldı:** *"Plaket uyuşmazlığı `sys:tenant-mismatch`
+   ile kayda geçer"* bir `transactions` satırı demek değildir — yönlendirme iki tenant'a da satır
+   yazmaz (`TestCheckinDB_ForeignTenantTapIsRefusedAndWritesNOTHING`), çalışana *"That plaque
+   isn't yours"* ekranı gider ve sunucu log'una iki WARN satırı düşer (GET ve POST; ikisi de
+   testle pinli değil). Gerçek işletmeye yalnız dolaylı bir iz düşer: NFC okuması çipin
+   sayacını tükettiği için o plaketteki bir sonraki kayıtlı dokunuşu `tap:ctrGap ≥ 1` taşır ve
+   `base:ctr-gap-review` ile kendi onay kuyruğuna girer — sebebini söylemeden; QR'da yok;
+   türetildi, ölçülmedi. ADR 0005 risk 9 bu yüzden tespit sinyalini **yok** yazar.)*
 2. **Durum renklerine yakın accent kabul edilir.** tomato `Check`'ten 5,30 ile geçer. §2'ye
    göre accent bir kaşe damgasıyla aynı ekranı panel bölümlerinde paylaşabilir: 4 px şerit
    olarak, Account bölümünde ayrıca önizlemenin tap düğmesi olarak. Tap ekranında damga yok,
@@ -1352,8 +1371,10 @@ okumadan, kalıtımla taşıyan bir kural bu iddianın dışındadır — §4 WL
 - Accent'in durum renklerine yakınlık kuralı (sınır 2).
 - ~~`Suggest`'in yönü (WL-2'nin devri: koyulaştırma mı, açma mı)~~ → **karara bağlandı:
   orkestratör, 2026-10-03 — koyulaştırma kalır** (§3 değişmez; WL-7 notu).
-- Logo yuvasının kesin boyutları — skill taslağı aritmetikle öneri yazar; WL-8/WL-9 ölçer. *(Tap ve
-  sonuç ekranı: WL-9 notu, 24 px yuva; panel: WL-8.)*
+- ~~Logo yuvasının kesin boyutları — skill taslağı aritmetikle öneri yazar; WL-8/WL-9 ölçer.~~
+  → **karara bağlandı ve ölçüldü** (WL-12, 2026-10-06): tap ve sonuç ekranı 24 px yuva, 4 px
+  aralık, en çok sütunun yarısı (§7'nin WL-9 notu); panel 32 px yükseklik, en çok 192 px
+  genişlik (WL-8 notu, karar 6). Skill bölümü bu sayıları ölçülmüş olarak taşır.
 
 ## Sonuçlar
 
@@ -1368,6 +1389,9 @@ okumadan, kalıtımla taşıyan bir kural bu iddianın dışındadır — §4 WL
   (m10-platform.md §2, akışlar arası çakışma çözümleri).
 - **WL-12'nin kabulüne eklenenler:** ADR 0005'e marka taklidi eki (sınır 1, `adr0005_test.go`
   sayımlarıyla birlikte) · skill'in *"Tenant slotları (taslak)"* bölümünden "taslak"ın kalkması.
+  *(WL-12, 2026-10-06: ikisi de yapıldı — ADR 0005 risk 9; sayımlar: ana tablo 8 → 9 satır ve
+  cümle *"sekiz"* → *"dokuz"*, B3 tablosu değişmedi (13 satır, 3 çapasız); skill bölümü
+  *"Tenant slotları"*.)*
 
 ## WL-8 notu (2026-10-03 — panel kabuğu; uygulama ve ölçüm. §2'nin panel satırı ve §4'ün kuralları değişmedi)
 
@@ -1691,7 +1715,7 @@ sorgu mutasyonları `make sqlc` + `internal/domain/tenant`, `internal/db`, `cmd/
 - **WL-12:** skill *"Tenant slotları"*: panel satırı ölçüldü (32 px yuva, ≤ 192 px; `.panel-stripe`
   yalnız `--brand-accent`/`background-color`; yalnız accent'li işletmede de ad + co-brand);
   skill'in *"alt = tenant adı"* cümlesi yüzeye göre yazılmalı: tap ekranında ad, panel
-  başlığında boş (karar 9).
+  başlığında boş (karar 9). *(WL-12, 2026-10-06: yapıldı — skill *"Tenant slotları"*.)*
 
 ## WL-7 notu (2026-10-03 — Account → "Your brand" editörü; §2'nin önizleme satırı ve §3'ün kapısı değişmedi)
 
