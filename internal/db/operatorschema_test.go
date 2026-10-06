@@ -907,13 +907,18 @@ func TestOperator00026_PrivilegeMatrix(t *testing.T) {
 	// identity for the list and the overview, the scope column and status of the four
 	// tables the overview counts, and admin_users.email for the list's exact address
 	// match. SELECT only; none of the "asla" columns (checked below against this list).
+	//
+	// 00030 (OP-13): op_read_tenant_plaques reads one tenant's plaques -- every tags column
+	// but the two keys (aes_key_ref, app_key_ref: "asla", checked below) -- and the name of
+	// the entrance each is mounted at (locations id, name). SELECT only; still no INSERT,
+	// UPDATE, DELETE or TRUNCATE on tags (the read writes no plaque, CLAUDE.md §4.4).
 	opdefinerTenantGrants := map[string]string{
 		"legal_documents:SELECT": "id,slug,body,published_at,published_by",
 		"legal_documents:INSERT": "slug,body,published_by",
 		"tenants:SELECT":         "id,name,business_type,plan,created_at",
-		"locations:SELECT":       "tenant_id",
+		"locations:SELECT":       "id,tenant_id,name",
 		"employees:SELECT":       "tenant_id,status",
-		"tags:SELECT":            "tenant_id,status",
+		"tags:SELECT":            "uid,tenant_id,location_id,last_ctr,status,retired_at,replaced_by,created_at,encoded_at",
 		"admin_users:SELECT":     "tenant_id,email,status",
 	}
 	neverSelect := [][2]string{

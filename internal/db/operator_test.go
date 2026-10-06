@@ -101,9 +101,10 @@ func TestOperatorSQL_OnlyBoundParameters(t *testing.T) {
 		}
 	}
 	// 7 until OP-10; 00027 added three (op_begin_read, op_read_legal_versions,
-	// op_publish_legal), 00029 two (op_read_tenants, op_read_tenant_detail).
-	if len(consts) != 12 {
-		t.Fatalf("found %d statement constants in operator.go, want 12 (two lookups, ten op_* calls)", len(consts))
+	// op_publish_legal), 00029 two (op_read_tenants, op_read_tenant_detail), 00030 one
+	// (op_read_tenant_plaques).
+	if len(consts) != 13 {
+		t.Fatalf("found %d statement constants in operator.go, want 13 (two lookups, eleven op_* calls)", len(consts))
 	}
 	quoted := regexp.MustCompile(`'[^']*'`)
 	placeholder := regexp.MustCompile(`\$(\d+)`)
@@ -153,8 +154,8 @@ func TestOperatorSQL_OnlyBoundParameters(t *testing.T) {
 		_ = sql
 		return true
 	})
-	if calls != 12 {
-		t.Fatalf("%d Exec/QueryRow/Query call(s) in operator.go, want 12 -- one per statement", calls)
+	if calls != 13 {
+		t.Fatalf("%d Exec/QueryRow/Query call(s) in operator.go, want 13 -- one per statement", calls)
 	}
 
 	doc, err := os.ReadFile(filepath.Join("..", "..", "db", "queries", "operator.sql"))
@@ -276,6 +277,8 @@ func TestOperatorAccessors_TheCustomerRoleCannotUseThem(t *testing.T) {
 			return e
 		},
 		"TenantDetail": func(c OperatorConn) error { _, e := TenantDetail(ctx, c, opRandHex(t), uuid.New()); return e },
+		// OP-13 (00030): the inventory meets the missing EXECUTE in its first phase.
+		"TenantPlaques": func(c OperatorConn) error { _, e := TenantPlaques(ctx, c, opRandHex(t), uuid.New()); return e },
 	} {
 		err := opAs(t, ctx, tx, "tappa_app", func(sp pgx.Tx) error { return call(sp) })
 		if err == nil || errors.Is(err, ErrOperatorRefused) || errors.Is(err, ErrNoOperator) || !strings.Contains(err.Error(), "SQLSTATE 42501") {

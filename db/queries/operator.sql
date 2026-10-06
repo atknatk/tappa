@@ -62,8 +62,8 @@
 -- BeginOperatorRead -- phase one of the two-phase reads (ADR 0021 §2 v 1): resolves
 -- the session, writes the read's 'read' audit row and a ticket bound to it, returns the
 -- RAW ticket. $2 is a read kind (00027's closed set: 'legal_versions'; 00029 added
--- 'tenants' and 'tenant_detail'), $3 that kind's parameter object. The caller COMMITS
--- before phase two.
+-- 'tenants' and 'tenant_detail', 00030 'tenant_plaques'), $3 that kind's parameter
+-- object. The caller COMMITS before phase two.
 --   SELECT public.op_begin_read($1, $2, $3::jsonb);
 
 -- ReadLegalVersions -- phase two of the version list: $2 is the RAW ticket, $3/$4 the
@@ -101,3 +101,23 @@
 --   SELECT tenant_id, tenant_name, created_at, plan, business_type,
 --          location_count, active_employee_count, active_plaque_count, active_admin_count
 --   FROM public.op_read_tenant_detail($1, $2, $3);
+
+-- ============================================================================
+-- OP-13 (migration 00030): one tenant's plaque inventory. Phase one is BeginOperatorRead
+-- above, with kind 'tenant_plaques' and the overview's parameter object ({tenant_id}) --
+-- the KIND tells the two reads' tickets apart. Inside the function no row level security
+-- applies (its owner is BYPASSRLS); each of its three table references names the tenant,
+-- and the definer holds no SELECT on either plaque key (the forms measured to fail: ADR
+-- 0021, "OP-13 uygulama notu", PART I). Three of them, the writes' RETURNING *, do not
+-- isolate the key grant: they need a write privilege on tags as well, which the definer
+-- does not hold either, and each missing grant refuses them on its own (measured).
+
+-- ReadTenantPlaques -- phase two of the inventory: $2 is the RAW ticket, $3 the tenant id
+-- bound in it. Zero rows for an id that names no tenant; one row with NULL plaque columns
+-- and plaque_count 0 for a tenant without plaques; otherwise one row per plaque, stock
+-- first then by uid, capped at 200, every row carrying the tenant's name and plaque_count
+-- (every plaque the tenant holds, counted before the cap). status is returned verbatim;
+-- encoded_at is the one encode signal.
+--   SELECT tenant_id, tenant_name, uid, status, location_id, location_name,
+--          encoded_at, created_at, retired_at, replaced_by, last_ctr, plaque_count
+--   FROM public.op_read_tenant_plaques($1, $2, $3);

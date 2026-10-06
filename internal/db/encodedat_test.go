@@ -151,7 +151,8 @@ func TestRLS_Tags00022_EncodedMarkerIsIsolatedByTenant(t *testing.T) {
 	//     `tappa_app=ar`) and has_column_privilege(...,'INSERT') is `t` for ALL TEN
 	//     columns, aes_key_ref and encoded_at included. (Migration 00029, M10 OP-11,
 	//     added `tappa_opdefiner=r` on tenant_id and status -- SELECT, for the operator
-	//     overview's plaque count; still no INSERT column grant.)
+	//     overview's plaque count -- and 00030, M10 OP-13, on every other column but the
+	//     two keys, for the operator's plaque inventory; still no INSERT column grant.)
 	//   * THE ERROR IS THE POLICY ITSELF. Measured with VERBOSITY verbose:
 	//     `SQLSTATE=42501  MSG=new row violates row-level security policy for table
 	//     "tags"`. 42501 is insufficient_privilege, and RLS raises it too -- the code

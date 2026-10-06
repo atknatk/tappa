@@ -13,7 +13,11 @@
   iki okuma türü kazandı — bkz. "OP-11 uygulama notu". **OP-11 B fazı (2026-10-03):** tenant
   listesi, araması ve genel bakışı operatör yüzeyinde (`/operator/tenants`,
   `/operator/tenants/{id}`), `*OperatorDB`'nin iki yeni yöntemiyle; migration yok — bkz. aynı
-  notun "OP-11 B fazı eki".
+  notun "OP-11 B fazı eki". **OP-13 A fazı (2026-10-03):** bir tenant'ın plaket envanterini
+  okuyan `op_read_tenant_plaques` migration `00030` ile doğdu; `op_begin_read` bir okuma türü
+  (`tenant_plaques`) kazandı; tanımlayıcı `tags`'in iki anahtar dışındaki bütün sütunlarını
+  okur, iki anahtarda (`aes_key_ref`, `app_key_ref`) sütun yetkisi yoktur; ölçülen okuma
+  biçimleri "OP-13 uygulama notu" PART I'de. Ekran B fazıdır.
 - **Tarih:** 2026-09-26 · aynı gün **2. tur** (güvenlik denetiminin RED'i: izsiz okuma),
   **3. tur** (güvenlik denetiminin RED'i: bilet süresinin saati; üçüncü gözün bulguları) ve
   **3. tur eki** (orkestratör kararı: enrollment ve kimlik bilgisi yazımı definer'da) ve
@@ -1744,6 +1748,281 @@ ikisi de `return F(ctx, o.pool, …)`. Migration yok; bağımlılık yok. Kararl
   panelinde `/operator` işareti. Mutasyon tablosu ve sayılı sınırlar (LT1–LT14: tarayıcının POST
   geçmişi, ingress'in gövde log'u, geri tuşunun yeniden gönderimi, dev'in deyim log'u, 1000 sayfa,
   …) OP-11B kart düzeltmesinde.
+- **PART III:** listede olmayan her biçim kod incelemesinin konusu — tamlık iddiası yok.
+
+## OP-13 uygulama notu (2026-10-03, A fazı — veri katmanı)
+
+Uygulama: `db/migrations/00030_read_plaques_from_the_operator.sql` + `internal/db/operator.go`
+(dışa açık `TenantPlaques`, `TenantPlaqueInventory` (+`Truncated`), `TenantPlaque` (+`Shape`),
+`PlaqueShape` ve yedi değeri, `MaxTenantPlaques`; paket içi `readTenantPlaques`) +
+`db/queries/operator.sql` (belge) + `internal/db/operatorplaques_test.go`. Ekran, wiring ve
+`*OperatorDB` yöntemi B fazıdır. Kararın gövdesi değişmedi; uygulamanın karar verdiği yerler,
+adıyla:
+
+1. **Ad §2 v 6'nın kuralıyla:** `op_read_tenant_plaques(p_session, p_ticket, p_tenant_id uuid)`.
+2. **`op_begin_read` yerinde değiştirildi** (`CREATE OR REPLACE`): 00029'un Up gövdesi + iki
+   satır — kapalı küme `tenant_plaques`'ı adlandırır ve bu tür 00029'un `tenant_detail` dalını
+   alır (`{tenant_id}`, tireli uuid, iki harf büyüklüğü; hash'lenen metin uuid değerinden). İki
+   tür aynı tenant için **aynı** metni hash'ler; bu yüzden bir genel bakış biletini envantere
+   (ve tersini) açtırmayan şey biletin **türü**dür — iki okumanın da tüketen `UPDATE`'indeki
+   `k.kind = '…'` koşulu burada yük taşır (OP-11'de iki okumanın parametre nesneleri
+   farklıydı). Birinci aşama tenant'a yine **bakmaz** (B14'ün okuma hâli).
+3. **Audit satırı:** `target_scope = 'tenant_plaques'`, `target_tenant_id` = istenen id, sayfa
+   yok, `detail = {}`; bilet satırı aynı `target_tenant_id`'yi taşır. Yeni audit türü yok.
+4. **Tek okuma, üç cevap** (ekranın bütçesi bir okuma, iz bir satır): başlığın **adı** her
+   satırda; **varlık** — bilinmeyen id **sıfır satır** (Go'da `ErrNoSuchTenant`, okuma satırı
+   zaten commit edilmiş), 28000'den ve 22023'ten ayrı; **plaketler** — plaketsiz tenant plaket
+   sütunları `NULL`, `plaque_count` 0 olan **tek** satır okur (`LEFT JOIN`).
+5. **Sütunlar (§2 ii):** tenant'ın kendi listesinin (`ListTagsForTenant`) sütunları + girişin
+   adı: `tenant_id, tenant_name, uid, status, location_id, location_name, encoded_at,
+   created_at, retired_at, replaced_by, last_ctr, plaque_count`. **`last_ctr` döner**
+   (orkestratör kararı K13-1): sayaç bir sır değildir (plain SDM'de URL'de düz, ADR 0003), §4.7
+   yalnız anahtarları korur, ve *"plaketim çalışmıyor"* sorusunun ilk cevabı odur. **Anahtar
+   yok** — ne sütun olarak ne bir ifade olarak; *"anahtar 0 var mı"* da bir anahtar okumasıdır
+   ve döndürülmez (iki plaket yalnız `app_key_ref`'te ayrışırken okuma onları uid dışında
+   **aynı** satır olarak verir — ölçüldü). Tek encode sinyali `encoded_at`'tir.
+6. **Durum olduğu gibi döner, Go'da kapalı okunur.** SQL `status`'u eşlemez, süzmez
+   (`CASE`/`WHERE` yok): şemanın bugün adlandırmadığı bir değer çağırana kendisi olarak ulaşır.
+   `TenantPlaque.Shape()` `status × encoded_at × konum` üzerinden **kapalı** bir eşlemedir: altı
+   şekil şemanın izin verdiği hâllerdir — **A-1** (`active`, duvarda, damgasız; backlog T75)
+   kendi şeklidir (`on_a_wall_never_encoded`) —, geri kalan her şey (beşinci bir değer, boş,
+   başka harf büyüklüğü, şemanın yasakladığı bir kombinasyon) `unrecognised`'dır: satır
+   düşürülmez, komşu bir duruma okunmaz.
+7. **Sıra, tavan, sayı:** tenant'ın kendi listesinin sırası (`location_id NULLS FIRST, uid` —
+   uid birincil anahtar, sıra tam); gövdede `LIMIT 200`; `plaque_count` pencereyle LIMIT'ten
+   **önce** sayılır (`count(g.uid) OVER ()`), yani *"first 200 of N"* söylenebilir. Sayfalama
+   **yok** (K13-2); platform geneli stok görünümü **yok** (K13-3, OP-18 tasarlanınca ölçülür);
+   T76 bu karta **katılmadı** (K13-4).
+8. **Kemer — her tablo referansı tenant'ı adlandırır** (§3.2): `t.id = p_tenant_id`,
+   `g.tenant_id = p_tenant_id` (JOIN koşulunun kendisinde, `t` üzerinden değil),
+   `l.tenant_id = p_tenant_id`. Üçüncüsü bugün **yapısal olarak gereksizdir**:
+   `tags_location_fk` = `(location_id, tenant_id) → locations (id, tenant_id)`, yani bir
+   plaketin girişi daima kendi tenant'ınındır; filtre kural gereği yazıldı (sınır L1).
+   `replaced_by` yalnız metin olarak döner, birleştirilmez; `tags_replaced_by_fk` de bileşiktir
+   (`(replaced_by, tenant_id) → tags (uid, tenant_id)`), başka tenant'ın uid'ini adlandıramaz
+   (ölçüldü: 23503).
+9. **Tanımlayıcının yeni yetkileri — yalnız yeni sütunlar:** `tags` SELECT (uid, location_id,
+   last_ctr, retired_at, replaced_by, created_at, encoded_at) — 00029'un `tenant_id, status`'u
+   ile iki anahtar dışındaki **her** sütun —; `locations` SELECT (id, name). 00029'un
+   sütunları **yeniden verilmedi** ve Down onları **almaz**: sütun başına alıcı başına tek ACL
+   girdisi vardır, `REVOKE ALL` (00029'un Down'ının yazımı) genel bakışın sayımlarını 42501'e
+   çevirirdi. Down sütun düzeyinde geri alır; ölçüldü: Down sonrası tanımlayıcının listeleri
+   00029'unkiler, genel bakış hâlâ okur. `tappa_app` hiçbir yetki almadı; `tappa_operator`
+   yalnız yeni fonksiyonda EXECUTE aldı, hiçbir tablo yetkisi almadı.
+10. **§4.4 — okuma `tags`'e yazmaz:** tanımlayıcının `tags` üzerinde INSERT/UPDATE/DELETE/
+    TRUNCATE'i yok; okumadan sonra her fikstür satırının fiziksel sürümü (`ctid`, `xmin`) ve
+    `last_ctr`'ı aynı; ardından sevk edilen `AdvanceTagCounter` sayacı ilerletir, aynı değerin
+    tekrarı `pgx.ErrNoRows`'dur, ikinci okuma ilerlemiş değeri verir.
+11. **Yeni pin — tanımlayıcının `op_*` dışı EXECUTE'u** (OP-12 planının notu): sahibi
+    olmadığı ve EXECUTE edebildiği her fonksiyonu PUBLIC de edebilir ve hiçbiri SECURITY
+    DEFINER değildir — bütün şemalarda. Adıyla: `resolve_tag_by_uid` (`tappa_resolver`'ın,
+    dönüşünde `aes_key_ref` var) tanımlayıcıya kapalı. 00030 bu kümeye bir şey eklemez.
+    OP-12'nin fatura yardımcılarına vereceği EXECUTE bu pine adlı bir izin listesiyle girer.
+12. **Başka görevlerin testlerinde güncellemeler (zayıflatılmadı):**
+    `TestOperatorSQL_OnlyBoundParameters` 12 → 13 sabit/çağrı;
+    `TestOperatorAccessors_TheCustomerRoleCannotUseThem` + `TenantPlaques`;
+    `TestOperator00026_PrivilegeMatrix` izin listesi (`tags`, `locations` tam sütun listeleriyle);
+    `TestLocations_WiFiSSIDNeedsNoNewGrantOrPolicy` adlı ACL listesi (+`id`, `name`; `wifi_ssid`
+    yine yok); `TestOperator00029_TheFunctionsAndTheirExactSignatures`'ın tür CHECK pini *"00029'un
+    üç türünü tutan kapalı küme"* oldu (HEAD'deki tam küme `TestOperator00030_TheFunctionAndItsExactSignature`'da);
+    `TestOperator00029_DownRestoresTheLegalOnlyReadAndUpTakesItAgain` 00029'a önce sonraki her
+    migration'ın Down'unu işlem içinde koşarak iner (00030'unkini) — yoksa öncülü HEAD'in
+    dört türlü CHECK'ine takılırdı.
+13. **Down/Up ölçümü** (dev, `pg_dump --schema-only`, `\restrict` satırları ayıklanarak): v29
+    `24c6f40fcaebea22` → Up → `66338d9974f75bb3` → Down → `24c6f40fcaebea22` birebir → Up →
+    `66338d9974f75bb3` birebir. Down'ın `op_begin_read` gövdesi canlı 00029 gövdesiyle bayt
+    bayt eşit (uygulamadan önce salt-okumayla ölçüldü). Mutasyon döngülerinden sonra şema yine
+    `66338d9974f75bb3`.
+14. **Maliyet — gözlem:** plaketler `tags_tenant_idx`'ten, girişler `locations_tenant_idx`'ten,
+    tenant'ın satırlarının tek sıralaması (gövdenin SELECT'inin en çok plaketli dev tenant'ında
+    EXPLAIN ANALYZE'ı; o tenant'ın sorgusu migration'ın yorumunda).
+15. **Down'ın tür koşulu (2. tur, üçüncü gözün bulgusu; Up değişmedi):** CHECK, 00029'un
+    kümesinin **dışındaki herhangi bir** türden bilet varsa — tüketilmiş ya da değil, bu
+    dosyanın türü ya da sonraki bir migration'ınki — `NOT VALID` döner:
+    `WHERE kind <> ALL (ARRAY['legal_versions', 'tenants', 'tenant_detail'])`. 1. turdaki
+    `WHERE kind = 'tenant_plaques'` Down'ları **bileştirmiyordu**: Down'ı kendi türünün
+    biletlerini `NOT VALID` bir CHECK altında bırakan sonraki bir migration, bu Down'a hiç
+    adlandırmadığı bir tür bırakır ve doğrulanmış `ADD` 23514'le düşerdi (ölçüldü; şimdi
+    testte bir dal). Küme 00029'un dosyasından türetilir ve test Down'ın üç kullanımını ona
+    karşı pinler. **Sonraki A'lar için kural:** her yeni A'nın Down'ı, **önceki** migration'ın
+    bildiği tür kümesinin **dışındaki her** bilette `NOT VALID` döner (kendi türünde değil);
+    ve Up'ı da aynı soruyu sorar — kendi kümesinin dışındaki bir türden bilet varsa (daha
+    sonraki bir migration'ın Down'ının bıraktığı) CHECK'i `NOT VALID` ekler, yoksa yeniden
+    yukarı çıkış 23514'le düşer (3. tur, F2; 00030'un kendi Up'ı bunu yapmaz — L11).
+
+**Sayılı sınırlar (OP-13 A):**
+- **L1** — `l.tenant_id = p_tenant_id` filtresinin kaldırılması **YEŞİL** kalır (mutasyon U3,
+  ölçüldü): bileşik `tags_location_fk` aynı tenant'ı yapısal olarak zorlar. Filtre bugün
+  ölçülebilir bir etki taşımaz; FK düşerse kemer odur.
+- **L2** — Go'daki satır-tenant denetimi (`errPlaqueOfAnotherTenant`) tek başına **ulaşılamaz**
+  bir daldır (mutasyon G11 YEŞİL): SQL'in `t.id = p_tenant_id`'si önce cevap verir.
+- **L3** — sınır 4'ün penceresi 30 sn (geri alınan okuma bileti yeniden okunur).
+- **L4** — `search_path`'e `public` eklemek gölge testinde görünmez (gövde nitelenmiş); onu
+  imza testi ve ileri pin tutar (mutasyon U15). Çağıranın `pg_temp`'te tanımladığı bir
+  fonksiyon (örn. `pg_temp.sha256`) gövdenin çağrısını ele geçirmez — fonksiyon araması
+  `pg_temp`'e bakmaz; ölçüldü, bir kez.
+- **L5** — bir görünüm üzerinden anahtar okumak, tanımlayıcıya o görünümde bir yetki ister
+  (ölçüldü: yetkisiz 42501); `public`'teki görünümlerdeki her yetki `TestOperator00026_PrivilegeMatrix`'in
+  izin listesi dışında kırmızıdır, `pg_temp`'teki bir görünümü o tarama görmez.
+- **L6** — havuz testinin işlenmiş-tenant yarısı veritabanının **en çok plaketli** tenant'ını
+  okur ve yalnız değişmeyen olguları karşılaştırır (ad, uid'lerin o tenant'a ait oluşu, sıra,
+  Total ≥ satır); veritabanında hiç plaket yoksa o yarı SKIP'tir (yalnız migrate'li veritabanı).
+- **L7** — testler `tags`'e satır commit etmez (fikstürler geri alınan işlemlerde; ölçüldü:
+  `op13` adlı tenant'ların plaketi koşudan önce ve sonra 0). Commit eden iki test koşu başına
+  şunları bırakır (2. tur, ölçüldü): **+3** `read` satırı (yaşam döngüsü 1, havuz testi 2;
+  append-only), **+2** `platform_admins` satırı (`disabled`) ve **+2** `platform_sessions`
+  satırı (iptal edilmiş) — audit satırlarının yabancı anahtarları onları tutar; bilet 0.
+- **L8** — tanımlayıcının sütun yetkisi tablonun gelecekteki sütunlarını kapsamaz; `tags`'e
+  eklenecek yeni bir anahtar biçimli sütun türetilen listeye girer ve isimli denetimi kırmızıya
+  çevirir (testin kendi kuralı) — bu bir tasarım, tamlık iddiası değil.
+- **L9** — **30 → 29 → 28 zinciri, 00029'un kümesi dışında herhangi bir türden bilet varken
+  VE 00029'un kendi iki türünden (`tenants`, `tenant_detail`) hiç bilet yokken 29 → 28'de
+  düşer** (ölçüldü, testte iki dal: bir `tenant_plaques` bileti ve sonraki bir migration'ın
+  türü; 3. tur, F2: 2. tur yalnız `tenant_plaques`'ı sayıyordu — 4. tur, N2: 3. turun
+  "herhangi" hükmü bu ikinci koşulu söylemiyordu): 00030'un Down'ı `NOT VALID` döner; 00029'un
+  Down'ı (uygulanmış, değiştirilemez) `NOT VALID` dalını yalnız kendi iki türünden bir bilet
+  varsa seçer, yoksa doğrulanmış `ADD`'i 23514'le düşer. **Kendi türlerinden bir bilet varsa**
+  — tenant ekranlarına hizmet vermiş bir veritabanının şekli — 00029'un Down'ı `NOT VALID`
+  dalına gider ve 29 → 28 **geçer** (kapanış denetimi ölçtü; bu testin sürdüğü bir dal değil,
+  00029'un Down kaynağıyla tutarlı). Yanılgı muhafazakâr yöndeydi. Yalnız ikinci koşulda,
+  29'dan aşağı inecek biri önce kümenin dışındaki türlerin biletlerini kaldırmak zorundadır;
+  bu dosya hiçbir bileti silmez.
+- **L10** — Down ve ön koşul mutasyonları goose döngüsüyle değil, testlerin dosyanın kendi
+  bölümlerini koştuğu geri alınan işlemlerde ölçüldü (bozuk bir Down'ı goose ile uygulamak
+  paylaşılan veritabanını bozuk bir 29'da bırakırdı).
+- **L11** — **Up tarafı da bileşmez** (3. tur, F2; ölçüldü, testte bir dal): sonraki bir
+  migration'ın Down'ı kendi türünün biletini bırakmışken (ve 00030'un Down'ı koştuktan sonra)
+  00030'un Up'ı yeniden koşarsa, §1'i dört türlü CHECK'i **doğrulanmış** ekler ve 23514'le
+  düşer. Goose adımı kendi işleminde koşar: adım geri alınır, veritabanı 29'da ve bozulmamış
+  kalır; yeniden yukarı çıkmak o biletlerin kaldırılmasını ister. 00030'un Up'ı bu turda
+  değiştirilmedi (sevk kararı); kural aşağıda sonraki A'lar için.
+- **L12** — **Gh pininin "her dosya"sı testin derleme bağlamıdır** (4. tur, N3):
+  `TestPlaqueShape_TheSevenValuesAreTheOnesShapeReturns` `go/build`'in, testin koştuğu
+  bağlamda (GOOS/GOARCH, cgo ayarı, etiketler) seçtiği `GoFiles`'ı okur. CI testleri
+  `CGO_ENABLED=1` ile koşar (`-race` linux/amd64'te cgo ister — `ci.yml`), ürün ikilisi ise
+  `CGO_ENABLED=0` ile derlenir (`Makefile` `build`, Dockerfile'ın derlemesi); yani `!cgo`
+  kısıtlı bir dosyadaki sabit CI'da pinden geçer ve sevk edilen ikilide bulunur. Pin ayrıca
+  `return` ifadelerini okur, ertelenmiş (`defer`) bir fonksiyonun adlandırılmış sonuca
+  yaptığını okumaz (kurgulanmış bir biçim). İkisi de kod incelemesinin konusu.
+
+**Güvenlik iddiası — üç parça.**
+
+- **Tehdit modeli:** bu ölçümler ve pinler, plaket okumasının SQL'ine, yetkilerine ve Go
+  erişimcisine **kazara** giren bir değişikliğe karşıdır — bir tenant filtresini, bir bilet
+  koşulunu, bir sütun yetkisini düşüren ya da bir anahtar sütununu (ifade içinde dahi) okumaya
+  çalışan bir düzenleme — ve bir DSN sahibinin `tappa_operator` olarak yapabildiklerine (ölçülen
+  kollar). Pini atlatmak için bilerek yazılmış kod ve sahibin (`tappa_owner`) yapabildikleri
+  kod incelemesinin ve sayılı sınırların konusudur.
+- **PART I — bugün sevk edilen kodun ölçülen davranışı** (dev Postgres 17.10, 2026-10-03; test ·
+  girdiler · assert · onu kırmızıya çeviren mutasyon):
+  - `TestOperator00030_TheDefinerCannotReadAPlaqueKey` · katalogdan türetilen `tags` anahtar
+    sütunları, sır biçimli bütün tenant sütunları, tanımlayıcı olarak **yirmi yedi** ifade
+    (1. tur: seçim listesi, `WHERE … app_key_ref IS NOT NULL`, toplama, `octet_length`, tam
+    satır, `*`; 2. tur: `row_to_json(g)`, `g::text`, `to_jsonb(g)`, onun üzerinde `jsonb_each`,
+    `g IS NOT NULL`, `pg_column_size(g)`, `(g).uid`, `(tags.*)`, anahtarla `ORDER BY`/`GROUP BY`/
+    `IS DISTINCT FROM`/`NATURAL JOIN`/`max(octet_length(…))`/alt sorgu, `*`'lı CTE, `TABLE`,
+    üç yazmanın `RETURNING *`'ı), üç `COPY` biçimi (tablo, sütun listesi, sorgu), `pg_stats`,
+    `op_read_tenant_plaques`'ın iki değiştirilmiş kopyası, ikiz plaketler · türetilen liste tam
+    olarak `aes_key_ref`, `app_key_ref`; ikisinde de SELECT/INSERT/UPDATE yok; yirmi yedi ifade
+    ve üç `COPY` 42501 — yirmi dördü ve üç `COPY` anahtar sütunlarında SELECT yetkisi olmadığı
+    için; üç yazmanın `RETURNING *`'ı ise anahtar yetkisini **yalıtmaz**: ayrıca `tags` üzerinde
+    bir yazma yetkisi ister, tanımlayıcıda o da yoktur (`has_table_privilege` INSERT/UPDATE/DELETE
+    = false), ve eksik iki yetkiden **her biri tek başına** reddeder — geri alınan işlemde
+    ölçüldü: yalnız INSERT/UPDATE/DELETE verilince üçü 42501, yalnız iki anahtarda SELECT
+    verilince üçü 42501, ikisi birden verilince üçü geçer (kapanış denetiminin ölçümü, 4. turda
+    yeniden üretildi). Hangi denetimin önce düştüğü — PG17 `ExecCheckOneRelPerms`'e göre
+    DELETE'te tablo yetkisi, UPDATE ve INSERT'te SELECT sütun denetimi önce — bir kaynak
+    okumasıdır, ölçüm değil (4. tur, N1: 3. turun *"daha önce, hiç yazma yetkisi olmadığı
+    için"* cümlesi aşırıydı; 2. tur onları "anahtar yetkisi" sayıyordu); `pg_stats`'ta sahip iki anahtar sütununun satırını görür, tanımlayıcı 0
+    (izinli `status`'unkini görür — kontrol); değiştirilmiş gövde çalışırken 42501, değişmemiş
+    kopya plaketlerin hepsini okur; hiçbir tanımlayıcı gövdesi anahtar adlandırmaz; ikizler uid
+    dışında aynı satır; `tappa_operator` `tags`/`locations`'ta yetkisiz ve doğrudan okuma 42501;
+    `tappa_app`'in çağrısı 42501 · U11, U12, U13, U19.
+  - `TestOperator00030_TheFunctionAndItsExactSignature` · katalog · tam imza ve sonuç, sahip,
+    `proconfig`, tek overload, EXECUTE yalnız `tappa_operator`; ileri, donan saat ve tüketim
+    taramaları onu okudu ve bulgu yok; tür CHECK'i tam dört tür · U13, U15.
+  - `TestOperator00030_TheDefinerExecutesOnlyItsOwnAndPublicFunctions` · bütün şemalardaki
+    fonksiyonlar · bulgu 0; `resolve_tag_by_uid` kapalı; iki kontrol (resolver'a EXECUTE, PUBLIC'i
+    alınmış bir fonksiyon) bildirilir.
+  - `TestOperator00030_DownGivesBack00029AndUpTakesItAgain` · dosyanın Down/Up'ı işlem içinde;
+    00029'un dosyasından türetilen küme; dört dal (tüketilmemiş `tenant_plaques` bileti,
+    yalnız **tüketilmiş** bir bilet, yalnız **sonraki bir migration'ın** türü — Up'ı ve
+    biletini bırakan Down'ı simüle edilir —, hiç bilet) ve L9'un zinciri · Down'ın koşulu ve iki
+    CHECK'i tam olarak 00029'un kümesi; Down: okuma yok, `op_begin_read` 00029 gövdesi,
+    tanımlayıcının listeleri ve ACL girdileri 00029'unkiler, genel bakış okur, `tenant_plaques`
+    birinci aşaması 22023, yeni bilet 23514; ilk üç dalda `NOT VALID`, dördüncüde VALIDATED;
+    zincirde 00029'un Down'ı 23514 (`tenant_plaques` biletiyle ve sonraki-tür biletiyle — L9);
+    sonraki-tür bileti dururken 00030'un Up'ı yeniden 23514 (L11; 3. tur); Up yeniden 00030 ·
+    D1–D5, SD6 (`AND consumed_at IS NULL`), SD7 (yalnız kendi türü — sonraki-tür dalı 23514),
+    SD8 (kümeden bir tür eksik).
+  - `TestOperator00030_PreconditionRefusesAWrongCluster` · on rol şekli · 55000 ve 00030 · D6.
+  - `TestOperator00030_CallersTempTableIsNeverRead` · yedi tablo adının çağıranın geçici
+    tablosuyla gölgelenmesi (GRANT adımıyla) · okuma ve yazma gerçek tablolarda.
+  - `TestOpBeginRead_ThePlaqueKindBindsTheTenantAndNothingElse` · tür, on iki parametre reddi,
+    altı ölü oturum, üç kontrol türü · tek satır + tek bilet + hash, 22023/28000 satırsız · U14.
+  - `TestOpReadTenantPlaques_ReturnsOnlyTheNamedTenantsPlaques` · her durumdan plaketli iki
+    tenant (2. tur: duvarda ve damgalı bir **kayıp** plaket dahil) · her okuma sahibin okumasına
+    birebir eşit, ötekinin uid'i ve girişi yok; erişimcinin **her alanı** plaket plaket sahibin
+    okumasına eşit (2. tur); ad, Total, sekiz plaketin şekli (A-1 ve damgalı kayıp dahil); okuma
+    audit yazmaz · U1, U10, G1, G10, Ga, Gk (`LastCtr` hep 0), Gl (`created_at` ↔ `retired_at`),
+    Gm (`LocationName` düşmüş).
+  - `TestOpReadTenantPlaques_MatchesTheTenantsOwnList` · `tappa_app` olarak RLS altında
+    `ListTagsForTenant` · aynı plaketler, aynı sıra, aynı sütunlar · U1, U9.
+  - `TestOpReadTenantPlaques_AnUnknownTenantReadsNothingAndAnEmptyOneItsName` · bilinmeyen ve
+    plaketsiz tenant · 0 satır / `ErrNoSuchTenant`; tek satır, NULL'lar, 0 · U2, U8, G7, G8.
+  - `TestOpReadTenantPlaques_TheFirst200AndTheWholeCount` · 205 ve 200 plaket · 200 satır =
+    sahibin listesinin ilk 200'ü, `plaque_count` 205; Total/Truncated · U7, U9, G6, G10.
+  - `TestOpReadTenantPlaques_ATicketFromThisTransactionIsRefused` · A1/A2 · 28000 · U5.
+  - `TestOpReadTenantPlaques_AForgedTicketIsRefused` · başka oturum, başka tenant, verilmemiş ve
+    NULL bilet, aynı hash'in üç başka türü, envanter biletinin genel bakışa gösterilmesi ·
+    28000, tüketim 0 · U4.
+  - `TestOpReadTenantPlaques_RefusesEveryDeadSession` · altı ölü oturum · 28000 · U16.
+  - `TestOpReadTenantPlaques_ExpiryIsTheWallClock` · dolmuş; savepoint ×3; uykusu içinde tek
+    `DO` (0/3) · U6.
+  - `TestOpReadTenantPlaques_TheReadWritesNoPlaque` · `ctid`/`xmin`/`last_ctr`, katalog,
+    `AdvanceTagCounter` + tekrar · değişmez; yazma yetkisi yok; ilerleme ve `ErrNoRows` · U17.
+  - `TestOpReadTenantPlaques_TwoPhaseLifecycle` · gerçek commit'ler · tek `read` satırı, geri
+    alınan okuma yeniden okur, commit edilmiş tüketimden sonra 28000 · U18.
+  - `TestTenantPlaques_OnThePoolTheTwoPhasesAreTwoTransactions` · üretim kurucusunun havuzu ·
+    iki işlem, bilinmeyen id `ErrNoSuchTenant` + satır, tek işlemde ve bilinmeyen oturumda
+    `ErrOperatorRefused`, işlenmiş tenant'ın envanteri · G5, G8, G9, U14.
+  - `TestTenantPlaque_ShapeIsAClosedMapping` · dört şema durumu × duvar × damga çarpımının
+    **on altı** hücresinin tamamı (tablonun çarpımı tam kapsadığı da denetlenir) + dokuz tuhaf
+    durum değeri × dört hücre · izinli altı hâl kendi şeklinde (kayıp plaket dört hücrede de
+    `lost`), yasak altı hücre ve her tuhaf değer `unrecognised` · G1–G4, Ga, Gb, Gc, Gd.
+  - `TestPlaqueShape_TheSevenValuesAreTheOnesShapeReturns` · paketin ürün kaynağı (`go/build`'in
+    `GoFiles`'ı), standart kütüphanenin `go/types`'ıyla **tip denetlenerek** (kaynak içe
+    aktarıcı; yeni bağımlılık yok) · (a) paket kapsamındaki tipi `PlaqueShape` olan **bütün**
+    sabitler — `go/build`'in testin **kendi** derleme bağlamında seçtiği dosyaların hangisinde,
+    hangi yazımla (tipli, tipsiz + dönüşüm) — tam yedi (L12); (b) `Shape`'in
+    **her** `return`'ü bu sabitlerden birine çözülen tek bir ad — literal, dönüşüm, çağrı
+    (yardımcının dönüşü dahil), yerel ya da tipsiz sabit, değişken **bulgudur** (kabul edilen
+    tek biçim adlandırılır; reddedilenler değil — fail-closed); (c) `Shape` yedisinin her birini
+    döndürür; kontroller: sentetik paketlerde literal, dönüşüm, yardımcının dönüşü ve tipsiz sabit
+    bulgu verir, tipsiz bir spec ve ikinci dosyadaki sabit sayılır · Gh, X7 (`return
+    PlaqueShape("damaged")`), X8 (tipsiz `PlaqueDamaged = PlaqueShape("damaged")`), X9 (`return
+    "damaged"`), X16 (başka dosyada sabit), X17 (`return lostShape()`). (3. tur, F1: 2. turun pini
+    yalnız `operator.go`'nun sözdizimini okuyordu — tipli spec, ad dönüşü — ve dört yazım onu
+    geçti.) Tehdit modeli: kazara sapma — bir hâlin bir yerde eklenip ötekinde unutulması; tip
+    denetimli bir okumayı bilerek atlatan kod kod incelemesinin konusudur.
+- **PART II — adıyla pinler ve yakaladıklarının tam listesi:**
+  `TestOperator00030_TheFunctionAndItsExactSignature` — fonksiyonun tam argüman listesi ve
+  sonuç tipi (dönüşe bir sütun giremez), sahip, overload, `proconfig`, dört rolün EXECUTE'u,
+  tür CHECK'i; `TestOperator00026_PrivilegeMatrix` (genişletildi) — tanımlayıcının `tags` ve
+  `locations` üzerindeki tam sütun listeleri, "asla" sütunlarının izin listesine girememesi,
+  `public`'teki her ilişkide (görünümler dahil) liste dışı yetki; `TestLocations_WiFiSSIDNeedsNoNewGrantOrPolicy`
+  — `locations`'ın sütun düzeyi ACL girdileri; `TestOpRead_EveryReadConsumesItsTicketAsTheADRSays`
+  — adı `op_read_` ile başlayan her fonksiyonun tüketen `UPDATE`'i (bu okuma dahil; U4, U5, U16,
+  U18); `TestOperator00026_NoFrozenClock` (U6); `TestOperator00030_TheDefinerExecutesOnlyItsOwnAndPublicFunctions`
+  — tanımlayıcının yabancı EXECUTE kümesi; `TestOperatorSQL_OnlyBoundParameters` — on üç sabit ve
+  çağrıları; `TestPlaqueShape_TheSevenValuesAreTheOnesShapeReturns` — paketin tipi `PlaqueShape`
+  olan sabit kümesi (yedi, adıyla) ve `Shape`'in her `return`'ünün o sabitlerden birinin adı
+  oluşu; yakaladıkları: o kümeye bir sabit eklenmesi (testin derleme bağlamında seçilen her
+  dosyada, her yazımla — L12), adla olmayan her
+  dönüş (literal, dönüşüm, çağrı), dönmeyen bir sabit. Mutasyon tablosu (1. tur 37: 35 kırmızı,
+  2 tasarım gereği yeşil — U3/L1, G11/L2; 2. tur 11 yeni, 11 kırmızı; 3. tur 5 yeni, 5 kırmızı,
+  Gh yeni pine karşı yeniden kırmızı; dosya mutasyonlarının 1. turdakileri 2. tur ağacında
+  yeniden koşuldu, sonuç aynı) OP-13 A kart düzeltmesinde.
 - **PART III:** listede olmayan her biçim kod incelemesinin konusu — tamlık iddiası yok.
 
 ## Sonuçlar

@@ -472,8 +472,15 @@ func TestOperator00029_TheFunctionsAndTheirExactSignatures(t *testing.T) {
 	                              AND conname = 'operator_read_tickets_kind_check'`).Scan(&kinds); err != nil {
 		t.Fatal(err)
 	}
-	if want := `CHECK ((kind = ANY (ARRAY['legal_versions'::text, 'tenants'::text, 'tenant_detail'::text])))`; kinds != want {
-		t.Errorf("operator_read_tickets_kind_check is %s, want %s", kinds, want)
+	// The database is at HEAD, not at 00029: a later migration widens the closed set
+	// (00030 added 'tenant_plaques'), so this pin is "a closed set (no pattern) that holds
+	// 00029's three kinds"; the exact set at HEAD is the newest migration's own pin
+	// (TestOperator00030_TheFunctionAndItsExactSignature), and 00029's exact set after
+	// 00030's Down is TestOperator00030_DownGivesBack00029AndUpTakesItAgain's.
+	for _, kind := range []string{legalVersionsReadKind, tenantsReadKind, tenantDetailReadKind} {
+		if !strings.Contains(kinds, "'"+kind+"'::text") || strings.Contains(kinds, "~") {
+			t.Errorf("operator_read_tickets_kind_check is %s, want a closed set holding %q", kinds, kind)
+		}
 	}
 }
 
@@ -597,7 +604,8 @@ func TestOperator00029_TheDefinerReadsNamedColumnsAndNoSecret(t *testing.T) {
 }
 
 // TestOperator00029_DownRestoresTheLegalOnlyReadAndUpTakesItAgain runs 00029's Down and
-// Up from the migration file inside the test's transaction. Down removes the two reads,
+// Up from the migration file inside the test's transaction, after taking that transaction
+// to 00029 (opAtVersion: every later migration's Down first). Down removes the two reads,
 // gives op_begin_read back 00027's body VERBATIM (compared with 00027's file), takes
 // every privilege on the five tables away from tappa_opdefiner, and puts the ticket kind
 // CHECK back to 00027's set -- NOT VALID when a ticket of either new kind exists (branch
@@ -605,6 +613,9 @@ func TestOperator00029_TheDefinerReadsNamedColumnsAndNoSecret(t *testing.T) {
 // does (branch 2). Up takes it all again.
 func TestOperator00029_DownRestoresTheLegalOnlyReadAndUpTakesItAgain(t *testing.T) {
 	ctx, tx := opTx(t)
+	// The database is at HEAD; 00029's Down is measured from 00029's own state, which the
+	// transaction reaches by running every later Down first (00030's since OP-13).
+	opAtVersion(t, ctx, tx, 29, legalVersionsReadKind, tenantsReadKind, tenantDetailReadKind)
 	up, down := opMigrationSections(t, op00029File)
 	b27, err := os.ReadFile(filepath.Join("..", "..", "db", "migrations", "00027_move_legal_publishing_to_the_operator.sql"))
 	if err != nil {

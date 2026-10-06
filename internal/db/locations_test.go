@@ -383,9 +383,12 @@ func TestLocations_WiFiSSIDNeedsNoNewGrantOrPolicy(t *testing.T) {
 	if resolverSelect {
 		t.Error("tappa_resolver can read locations.wifi_ssid; the bounded-bypass role has no business on this table (ADR 0002 madde 7)")
 	}
-	// The one named column-level entry: 00029's (tappa_opdefiner, SELECT, tenant_id).
-	if colACLs != "tenant_id:tappa_opdefiner:SELECT" {
-		t.Errorf("locations' column-level ACL entries are (%s), want only 00029's (tenant_id:tappa_opdefiner:SELECT); "+
+	// The named column-level entries, every one tappa_opdefiner's SELECT: 00029's
+	// tenant_id (the tenant overview counts a tenant's places) and 00030's id and name (the
+	// plaque inventory names the entrance a plaque is mounted at). Not wifi_ssid.
+	if colACLs != "id:tappa_opdefiner:SELECT,tenant_id:tappa_opdefiner:SELECT,name:tappa_opdefiner:SELECT" {
+		t.Errorf("locations' column-level ACL entries are (%s), want only 00029's and 00030's "+
+			"(id:tappa_opdefiner:SELECT,tenant_id:tappa_opdefiner:SELECT,name:tappa_opdefiner:SELECT); "+
 			"00010's reasoning ('the table grant covers new columns') holds only while tappa_app has none and every other is named", colACLs)
 	}
 	if policies != 1 || !rowSec || !forceSec {

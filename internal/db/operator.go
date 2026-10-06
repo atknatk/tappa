@@ -33,9 +33,9 @@ import (
 //
 // NOTHING HERE CALLS set_config: no tenant context is produced or consumed (ADR 0021
 // §3.6), and none of the five op_* born in 00026 touches a tenant table. The two reads
-// 00029 adds (OP-11) read tenant tables WITHOUT a tenant context: they cross the
-// boundary as their BYPASSRLS owner, the one crossing ADR 0021 permits, and their
-// statements name the tenant themselves.
+// 00029 adds (OP-11) and the one 00030 adds (OP-13) read tenant tables WITHOUT a tenant
+// context: they cross the boundary as their BYPASSRLS owner, the one crossing ADR 0021
+// permits, and their statements name the tenant themselves.
 //
 // THREE RULES THE OP-7 CARD NAMED, KEPT HERE BECAUSE THE SQL NOW LIVES HERE
 // (m10-platform.md, "Kabullere bağlananlar — OP-7" (b), (c), (d)):
@@ -155,6 +155,11 @@ FROM public.op_read_tenants($1, $2, $3, $4, $5)`
 	readTenantDetailSQL = `SELECT tenant_id, tenant_name, created_at, plan, business_type,
        location_count, active_employee_count, active_plaque_count, active_admin_count
 FROM public.op_read_tenant_detail($1, $2, $3)`
+
+	// OP-13 (migration 00030). Phase one is beginOperatorReadSQL above.
+	readTenantPlaquesSQL = `SELECT tenant_id, tenant_name, uid, status, location_id, location_name,
+       encoded_at, created_at, retired_at, replaced_by, last_ctr, plaque_count
+FROM public.op_read_tenant_plaques($1, $2, $3)`
 )
 
 // maxOperatorEmailBytes is 00026's CHECK on platform_admins.email (254). A longer
@@ -584,10 +589,220 @@ func readTenantDetail(ctx context.Context, c OperatorConn, sessionHash string, t
 	return o, nil
 }
 
+// ------------------------------------------------------------------ OP-13 --
+//
+// One tenant's plaque inventory on the operator's surface (migration 00030; ADR 0021 §2 v,
+// §3.2; CLAUDE.md §4.7). One exported two-phase read in TenantDetail's shape -- a free
+// function over an OperatorConn. The screen and *OperatorDB's method are OP-13 phase B.
+//
+// Inside op_read_tenant_plaques no row level security applies (its owner is BYPASSRLS):
+// what keeps another tenant's plaques out is the tenant filter on each of its three table
+// references, and what keeps the plaque KEYS out is the definer's column grant -- it holds
+// no SELECT on aes_key_ref or app_key_ref; the forms measured to fail (42501) are listed in
+// ADR 0021's "OP-13 uygulama notu", PART I -- a changed function body among those that fail
+// on that grant. Three of the listed forms, the writes' RETURNING *, do not isolate it: they
+// need a write privilege on tags too, which the definer does not hold either, and each of
+// the two missing grants refuses them on its own (measured). No field below carries a key,
+// a key's presence or anything computed from one.
+
+// tenantPlaquesReadKind is 00030's read kind -- a member of operator_read_tickets_kind_check.
+const tenantPlaquesReadKind = "tenant_plaques"
+
+// MaxTenantPlaques is op_read_tenant_plaques' row ceiling: the body's LIMIT 200 (ADR 0021
+// §2 iii). There is no paging (OP-13 decision K13-2); TenantPlaqueInventory.Total says how
+// many plaques the tenant holds in all.
+const MaxTenantPlaques = 200
+
+// TenantPlaqueInventory is the one read's three answers: the tenant -- its name for the
+// header of the screen (ADR 0020 §9) --, the fact that it exists (an id that names no tenant
+// is ErrNoSuchTenant, never an empty inventory), and its plaques: the first
+// MaxTenantPlaques of them in the tenant's own list order (stock first, then by uid) and
+// Total, every plaque it holds, counted by the same statement.
+type TenantPlaqueInventory struct {
+	TenantID   uuid.UUID
+	TenantName string
+	Total      int64
+	Plaques    []TenantPlaque
+}
+
+// Truncated reports whether the tenant holds more plaques than the read returned.
+func (i TenantPlaqueInventory) Truncated() bool { return i.Total > int64(len(i.Plaques)) }
+
+// TenantPlaque is one plaque: the columns of the tenant's own list (db/queries/tags.sql
+// ListTagsForTenant) and the name of the location it is mounted at. Status is the
+// database's value VERBATIM -- the function maps nothing -- and Shape is the closed reading
+// of it.
+type TenantPlaque struct {
+	UID          string
+	Status       string
+	LocationID   *uuid.UUID
+	LocationName *string
+	// EncodedAt is the one record that the chip took its keys (ADR 0017 §5.1 step 9); nil
+	// means the encode was never recorded.
+	EncodedAt  *time.Time
+	CreatedAt  time.Time
+	RetiredAt  *time.Time
+	ReplacedBy *string
+	// LastCtr is the chip's read counter as last accepted. Read here, never written: the
+	// advance is AdvanceTagCounter's one conditional statement (CLAUDE.md §4.4).
+	LastCtr int32
+}
+
+// PlaqueShape is a plaque's state read from status, encoded_at and location together.
+type PlaqueShape string
+
+// The shapes. Six name the states the schema allows (tags_status_check's four values,
+// the two in-service ones split by the encode stamp); PlaqueUnrecognised is everything
+// else.
+const (
+	// PlaqueOnAWall: active, mounted, encode recorded.
+	PlaqueOnAWall PlaqueShape = "on_a_wall"
+	// PlaqueOnAWallNeverEncoded: active and mounted with NO encode stamp -- the A-1 shape
+	// (backlog T75): the plaque takes taps although nothing records that it ever received
+	// its keys.
+	PlaqueOnAWallNeverEncoded PlaqueShape = "on_a_wall_never_encoded"
+	// PlaqueInStock: unassigned (no wall), encode recorded -- ready to mount.
+	PlaqueInStock PlaqueShape = "in_stock"
+	// PlaqueInStockNotEncoded: unassigned with no encode stamp -- the panel refuses to
+	// mount it (migration 00025).
+	PlaqueInStockNotEncoded PlaqueShape = "in_stock_not_encoded"
+	// PlaqueRetired: replaced; taps reject (ReplacedBy names the successor, if any).
+	PlaqueRetired PlaqueShape = "retired"
+	// PlaqueLost: reported lost; taps reject.
+	PlaqueLost PlaqueShape = "lost"
+	// PlaqueUnrecognised: a status the mapping does not name, or a combination the schema
+	// forbids (an active or retired plaque with no location, an unassigned one with a
+	// location). FAIL-CLOSED: such a row is neither dropped nor read as a neighbouring
+	// state -- it is this, for the screen to show as unrecognised.
+	PlaqueUnrecognised PlaqueShape = "unrecognised"
+)
+
+// Shape is the closed mapping. The status comparison is exact (no case folding, no
+// trimming): the database's CHECK writes the four values in lower case, and anything
+// else is not one of them.
+func (p TenantPlaque) Shape() PlaqueShape {
+	mounted := p.LocationID != nil
+	switch p.Status {
+	case "active":
+		switch {
+		case !mounted:
+			return PlaqueUnrecognised
+		case p.EncodedAt == nil:
+			return PlaqueOnAWallNeverEncoded
+		default:
+			return PlaqueOnAWall
+		}
+	case "unassigned":
+		switch {
+		case mounted:
+			return PlaqueUnrecognised
+		case p.EncodedAt == nil:
+			return PlaqueInStockNotEncoded
+		default:
+			return PlaqueInStock
+		}
+	case "retired":
+		if !mounted {
+			return PlaqueUnrecognised
+		}
+		return PlaqueRetired
+	case "lost":
+		return PlaqueLost
+	}
+	return PlaqueUnrecognised
+}
+
+// TenantPlaques is the two-phase read of one tenant's plaque inventory: op_begin_read
+// writes the read's 'read' row (target_scope 'tenant_plaques', the tenant named) and a
+// ticket bound to the session and the tenant; op_read_tenant_plaques consumes it and
+// returns the inventory. An id that names no tenant is ErrNoSuchTenant -- after the 'read'
+// row naming it has committed. A dead session is ErrOperatorRefused, and so is a pgx.Tx (the
+// two phases are two transactions only on a pool, as for TenantList).
+func TenantPlaques(ctx context.Context, c OperatorConn, sessionHash string, tenantID uuid.UUID) (TenantPlaqueInventory, error) {
+	// The parameter object is the overview's, {tenant_id}: 00030 gives the kind 00029's
+	// tenant_detail branch, and the KIND is what tells the two reads' tickets apart.
+	params, err := json.Marshal(tenantDetailParams{TenantID: tenantID})
+	if err != nil {
+		return TenantPlaqueInventory{}, fmt.Errorf("db: tenant plaques: encode the parameters: %w", err)
+	}
+	t, err := beginOperatorRead(ctx, c, sessionHash, tenantPlaquesReadKind, params)
+	if err != nil {
+		return TenantPlaqueInventory{}, err
+	}
+	return readTenantPlaques(ctx, c, sessionHash, t, tenantID)
+}
+
+// errPlaqueOfAnotherTenant is readTenantPlaques' refusal of a row that names another tenant
+// than the one asked for. The statement cannot produce one (`t.id = p_tenant_id`); this is
+// the Go side's copy of that filter, so a regression in the SQL is an error here rather
+// than another tenant's plaques on the screen.
+var errPlaqueOfAnotherTenant = errors.New("db: read tenant plaques: a row names another tenant")
+
+// readTenantPlaques is op_read_tenant_plaques: consume the ticket (bound to the session, the
+// kind and the tenant id), then the inventory -- zero rows for an unknown id, one row with
+// no plaque for a tenant without plaques, otherwise one row per plaque (at most
+// MaxTenantPlaques), every row carrying the tenant and the total.
+func readTenantPlaques(ctx context.Context, c OperatorConn, sessionHash string, t readTicket, tenantID uuid.UUID) (TenantPlaqueInventory, error) {
+	rows, err := c.Query(ctx, readTenantPlaquesSQL, sessionHash, t.reveal(), tenantID)
+	if err != nil {
+		return TenantPlaqueInventory{}, operatorErr("read tenant plaques", err)
+	}
+	defer rows.Close()
+	var (
+		inv  TenantPlaqueInventory
+		seen bool
+	)
+	for rows.Next() {
+		// The plaque columns are NULL on the one row of a tenant without plaques (the
+		// LEFT JOIN), so they scan into pointers whatever the column's own nullability.
+		var (
+			id          uuid.UUID
+			name        string
+			uid, status *string
+			p           TenantPlaque
+			createdAt   *time.Time
+			lastCtr     *int32
+			total       int64
+		)
+		if err := rows.Scan(&id, &name, &uid, &status, &p.LocationID, &p.LocationName,
+			&p.EncodedAt, &createdAt, &p.RetiredAt, &p.ReplacedBy, &lastCtr, &total); err != nil {
+			return TenantPlaqueInventory{}, operatorErr("read tenant plaques", err)
+		}
+		if id != tenantID {
+			return TenantPlaqueInventory{}, errPlaqueOfAnotherTenant
+		}
+		seen = true
+		inv.TenantID, inv.TenantName, inv.Total = id, name, total
+		if uid == nil {
+			continue
+		}
+		// A missing status stays "" -- which Shape reads as unrecognised (fail-closed) --
+		// rather than becoming any status.
+		p.UID, p.Status, p.CreatedAt, p.LastCtr = *uid, valueOr(status), valueOr(createdAt), valueOr(lastCtr)
+		inv.Plaques = append(inv.Plaques, p)
+	}
+	if err := rows.Err(); err != nil {
+		return TenantPlaqueInventory{}, operatorErr("read tenant plaques", err)
+	}
+	if !seen {
+		return TenantPlaqueInventory{}, ErrNoSuchTenant
+	}
+	return inv, nil
+}
+
+// valueOr is *p, or T's zero value for nil.
+func valueOr[T any](p *T) T {
+	var zero T
+	if p == nil {
+		return zero
+	}
+	return *p
+}
+
 // readTicket is op_begin_read's answer: the RAW read ticket, which CLAUDE.md §7 and ADR
 // 0021 §3.5 put on the never-log list (raw or hashed). The type is unexported and no
-// exported function takes or returns it -- LegalVersions, TenantList and TenantDetail
-// each hand it from their phase one to their phase two -- and it is the SealedSecret
+// exported function takes or returns it -- LegalVersions, TenantList, TenantDetail and
+// TenantPlaques each hand it from their phase one to their phase two -- and it is the SealedSecret
 // pattern all the same: the five redacting
 // methods, and the value behind a *string (SealedSecret's comment says why a *string and
 // not a byte slice). Through fmt's verbs, slog and encoding/json it prints the
