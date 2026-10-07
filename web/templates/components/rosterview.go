@@ -166,6 +166,20 @@ type RosterActionsView struct {
 	Departments  []OptionView
 	LocationID   string
 	DepartmentID string
+
+	// Email is the address on file, "" when there is none (M10 EM-6). It is read in
+	// the SAME request from its own query (GetEmployeeEmail) and rendered as data —
+	// it is personal data, not a credential, and the handler never logs it.
+	//
+	// 🔴 IT IS THE ONLY ADDRESS ON THIS SCREEN. RosterRowView still has no address:
+	// the list shows fifty people and none of their addresses; the card shows the one
+	// person a manager opened.
+	Email string
+	// CanChangeEmail is true for an OWNER (the POST's own gate,
+	// mayChangeEmployeeEmail); a manager sees the address and the sentence that says
+	// who can change it, never a form the server would refuse.
+	CanChangeEmail bool
+	EmailAction    string
 }
 
 // RosterFilterView is the employees section's filter bar: what can be picked, and

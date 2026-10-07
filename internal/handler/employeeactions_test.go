@@ -183,6 +183,8 @@ func TestEmployeesSection_EveryControlLeadsSomewhereThatExists(t *testing.T) {
 		employeeInviteHref:     true,
 		employeeDeactivateHref: true,
 		employeeMoveHref:       true,
+		// M10 EM-6: the owner's address form (this browser is an owner's).
+		employeeEmailHref: true,
 	}
 	for action := range want {
 		if !got[action] {

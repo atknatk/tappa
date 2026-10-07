@@ -175,9 +175,15 @@ var (
 //
 // 🔴 THE FIELDS THAT ARE NOT HERE ARE THE POINT (section 4.7), exactly as on
 // ledger.Person: there is no Email, no invitation code, no code hash, no session
-// token and no device label. The query does not select them, this struct has no
-// field for them, and the view model above it has none either -- three independent
-// walls.
+// token and no device label. The query does not select them and this struct has no
+// field for them.
+//
+// ⚠️ THE THIRD WALL USED TO BE "the view model above it has none either", AND M10
+// EM-6 NARROWED IT FOR THE ADDRESS ONLY. The action card now shows the address on
+// file (components.RosterActionsView.Email), read by its OWN query through
+// Staff.Email (staffemail.go) — not through this struct, which Deactivate and Move
+// hand back and which still cannot carry one. For the code, the hash, the token and
+// the device label the view model has no field either.
 type Person struct {
 	ID   uuid.UUID
 	Name string
@@ -969,13 +975,20 @@ func wrap(op string, err error) error {
 		errors.Is(err, ErrAlreadyDeactivated),
 		errors.Is(err, ErrUnknownPlacement),
 		errors.Is(err, ErrSamePlacement),
-		// The four M6-13 refusals. Each is a different sentence to a manager and
-		// each must survive the wrap, or the handler's errors.Is chain falls through
-		// to "the panel is unavailable" and a mistyped address becomes a 500.
+		// The four M6-13 refusals, each a different sentence to a manager, and M10
+		// EM-6's own (ErrEmployeeEmail and ErrEmailTaken serve the address change too).
+		//
+		// ⚠️ CORRECTED BY MEASUREMENT (M10 EM-6). This comment used to say each must
+		// be listed "or the handler's errors.Is chain falls through to 'the panel is
+		// unavailable'". It does not: the default branch wraps with %w, and errors.Is
+		// sees through it — dropping ErrSameEmail from this list left every test green.
+		// What the list keeps is the sentinel's own TEXT, without a "tenant: <op>:"
+		// prefix; the match survives either way.
 		errors.Is(err, ErrEmployeeName),
 		errors.Is(err, ErrEmployeeEmail),
 		errors.Is(err, ErrEmployeeRole),
-		errors.Is(err, ErrEmailTaken):
+		errors.Is(err, ErrEmailTaken),
+		errors.Is(err, ErrSameEmail):
 		return err
 	default:
 		return fmt.Errorf("tenant: %s: %w", op, err)

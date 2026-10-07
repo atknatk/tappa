@@ -78,6 +78,10 @@ type panelStaff interface {
 	Add(ctx context.Context, c tenant.AddCommand) (tenant.Person, error)
 	Deactivate(ctx context.Context, c tenant.DeactivateCommand) (tenant.Person, error)
 	Move(ctx context.Context, c tenant.MoveCommand) (tenant.Person, error)
+	// The address on file (M10 EM-6, employeeemail.go): the card reads it, the
+	// owner's form changes it.
+	Email(ctx context.Context, tenantID, employeeID uuid.UUID) (string, error)
+	ChangeEmail(ctx context.Context, c tenant.EmailCommand) (tenant.EmailChange, error)
 }
 
 // panelInviter is the slice of internal/invite the panel needs: ONE method, and it
@@ -101,6 +105,7 @@ var (
 	employeeInviteHref     = employeesHref + "/invite"
 	employeeDeactivateHref = employeesHref + "/deactivate"
 	employeeMoveHref       = employeesHref + "/move"
+	employeeEmailHref      = employeesHref + "/email"
 )
 
 // maxEmployeeActionBody is the ceiling on an action POST's body.
@@ -123,7 +128,11 @@ var (
 	// told from a fresh save — so the sentence beside it is built the way the moved
 	// one is: it names the state the SAME request read back from the database
 	// (who, and where they work), never the event.
-	rosterDoneWords = []string{"added", "deactivated", "moved"}
+	//
+	// "email" (M10 EM-6) is in the "moved" class: the notice beside it states the
+	// address the SAME request read back (or that there is none), never the event, so
+	// a replayed URL restates something true.
+	rosterDoneWords = []string{"added", "deactivated", "moved", "email"}
 	// 🔴 M6-13 ADDED FIVE WORDS HERE AND THEY WERE DELETED IN THE SAME MILESTONE,
 	// BECAUSE NO CODE PATH COULD PRODUCE ONE. `bad-name`, `bad-email`, `bad-role`,
 	// `email-taken` and `no-venue` arrived with sentences and headings on the roster
@@ -152,6 +161,10 @@ var (
 		// one is "you did not confirm, or waited too long", the other is "this browser
 		// is confirming a different person".
 		"confirm-required", "confirm-stale",
+		// The address change's four refusals (M10 EM-6, employeeemail.go). Every one
+		// is produced by a branch of employeeEmail and driven by a test — the rule the
+		// paragraph above records after M6-13 shipped five words nothing produced.
+		"bad-email", "email-taken", "same-email", "not-permitted",
 	}
 )
 

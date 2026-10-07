@@ -1779,6 +1779,7 @@ type Querier interface {
 	//	$ grep -rn '^UPDATE employees' db/queries/
 	//	db/queries/employees.sql:...  DeactivateEmployee        status -> 'deactivated'
 	//	db/queries/employees.sql:...  MoveEmployee              location_id / department_id
+	//	db/queries/employees.sql:...  SetEmployeeEmail          email (M10 EM-6)
 	//	db/queries/invites.sql:...    ConsumeInviteAndActivate  status -> 'active'
 	//
 	// ⚠️ THE ANCHOR IS PART OF THE COMMAND. Without `^` the same grep returns SIX lines:
@@ -1788,10 +1789,10 @@ type Querier interface {
 	// the same defect as a stale number and is corrected the same way: print the command
 	// that actually produces the list
 	//
-	// Each writes a DIFFERENT part of the lifecycle and no two of them overlap:
+	// Each writes a DIFFERENT part of the row and no two of them overlap:
 	// deactivation never sets 'active', activation never sets 'deactivated', and the
-	// move statement does not name status at all. That is the property; the count is
-	// how a reader checks it.
+	// move and address statements do not name status at all. That is the property; the
+	// list is how a reader checks it.
 	//
 	// 🔴 THE CREATION SIDE IS COUNTED THE SAME WAY, and it is a SEPARATE count because
 	// an INSERT is a different verb with a different risk. It is the whole of how a row
@@ -1810,13 +1811,19 @@ type Querier interface {
 	// tappa_app table-wide UPDATE on employees, so hand-written SQL outside the
 	// generated store could write anything. What this buys is that the generated
 	// Querier -- the only database surface a handler may touch (CLAUDE.md section 3) --
-	// offers exactly these three transitions and no others. There is deliberately NO
+	// offers exactly the UPDATEs listed above and no others. There is deliberately NO
 	// reactivate query: see DeactivateEmployee.
 	//
 	// TENANT SCOPE (CLAUDE.md section 4.5, belt + braces on RLS): every query here
 	// carries an explicit tenant_id predicate and runs inside db.(*DB).WithTenant.
 	// The tenant comes from the context-less resolver (ADR 0002 madde 7), never from
 	// the client.
+	//
+	// ⚠️ THE ADDRESS (M10 EM-6). Until EM-6 no query here returned `email` -- the reads
+	// below say why, each in its own words: no screen had a reader for it. EM-6 gives it
+	// ONE reader (the action card shows the address on file) and ONE writer, and all of
+	// that lives in the three statements at the end of this file. Every other read here
+	// still leaves the column out.
 	// Everything the activation page must render about WHO is activating, in one
 	// round trip: the greeting name, the current lifecycle status, the location whose
 	// WiFi step comes next, and the DATA CONTROLLER's name for the GDPR Art. 13
@@ -1853,6 +1860,21 @@ type Querier interface {
 	// screens that greet somebody is the point, and a second near-identical query
 	// would be the drift this file's header warns about.
 	GetEmployeeActivationContext(ctx context.Context, arg GetEmployeeActivationContextParams) (GetEmployeeActivationContextRow, error)
+	// The address on file for ONE person (M10 EM-6): what the action card shows.
+	//
+	// 🔴 IT IS A SEPARATE READ FROM GetPanelEmployeeForAction, NOT A WIDENING OF IT.
+	// That read feeds tenant.Person, which Deactivate and Move hand back and the panel
+	// logs around; Person has no address field and that is one of its walls. Adding the
+	// column there would put an address on a value whose every other consumer has no use
+	// for it. Here the address travels in its own small result, to the one screen that
+	// renders it.
+	//
+	// email IS NULLABLE (00003): NULL means "no address on file", which is an ordinary
+	// state (an employee who is handed a link in person), not a missing row.
+	//
+	// TENANT SCOPE (section 4.5, belt + braces): explicit predicate on top of RLS. A
+	// foreign id returns no row, which the caller reads as "not on this roster".
+	GetEmployeeEmail(ctx context.Context, arg GetEmployeeEmailParams) (GetEmployeeEmailRow, error)
 	// Everything the DECISION engine needs to know about the person tapping
 	// (M5-05). It is a SECOND read of the same table rather than a widening of
 	// GetEmployeeActivationContext above, and the reason is that the two answer
@@ -3868,6 +3890,29 @@ type Querier interface {
 	// is one week wide), and a business with a year of records behind a one-week window is
 	// the selective case.
 	ListWorkedShiftEvents(ctx context.Context, arg ListWorkedShiftEventsParams) ([]ListWorkedShiftEventsRow, error)
+	// The same row as GetEmployeeEmail, ROW-LOCKED FOR UPDATE until the transaction ends
+	// (M10 EM-6, step 2 of internal/domain/tenant.Staff.ChangeEmail).
+	//
+	// 🔴 THE LOCK MODE IS THE POINT, AND IT IS FOR UPDATE RATHER THAN THE WEAKER MODE A
+	// PLAIN UPDATE TAKES. An UPDATE that does not touch a key column takes FOR NO KEY
+	// UPDATE, which does NOT conflict with the FOR KEY SHARE lock a foreign-key check
+	// takes -- and CreateInvite's insert into employee_invites takes exactly that on this
+	// row. So without FOR UPDATE an invitation inserted by a concurrent, not yet committed
+	// transaction is invisible to the change and survives it. FOR UPDATE waits for that
+	// transaction to end; the change's SECOND cancellation then sees and retires the new
+	// invitation. Measured both ways in staffemail_db_test.go.
+	//
+	// ⚠️ ITS COST: FOR UPDATE also conflicts with the FOR KEY SHARE every other foreign-
+	// key insert takes on this row -- a tap's transactions row, a new session -- so for
+	// the few statements of the change's transaction those wait. That is a counted limit
+	// (ADR 0022's EM-6 note), not a hidden one.
+	//
+	// It returns the address so the change compares against the value it LOCKED, not a
+	// value read a round trip earlier: two managers saving the same address at once
+	// produce one write.
+	//
+	// TENANT SCOPE (section 4.5, belt + braces): explicit predicate on top of RLS.
+	LockEmployeeForEmailChange(ctx context.Context, arg LockEmployeeForEmailChangeParams) (LockEmployeeForEmailChangeRow, error)
 	// SERIALISE ONE PERSON'S TAP DECISION (ADR 0006, layer 4).
 	//
 	// 🔴 THE DEBOUNCE IS A READ-THEN-DECIDE, and without this it loses the same way
@@ -4444,6 +4489,25 @@ type Querier interface {
 	// never debounces (the safe zero value, section 4.6) — the same answer the
 	// unbounded query produced by returning an age too large to win the min.
 	SecondsSinceLastRecordedTap(ctx context.Context, arg SecondsSinceLastRecordedTapParams) (float64, error)
+	// Writes the address on file, or clears it (NULL) (M10 EM-6).
+	//
+	// 🔴 IT NAMES email AND NOTHING ELSE. A changed address cannot activate, deactivate
+	// or move anybody, which keeps the header's list of UPDATEs a list of disjoint
+	// writes.
+	//
+	// THE VALUE IS VALIDATED BEFORE IT ARRIVES (internal/domain/tenant, against
+	// internal/mail's recipient rule), and the column is citext with a PARTIAL unique
+	// index (tenant_id, email) WHERE email IS NOT NULL -- so another person in the SAME
+	// business holding the address answers 23505 on employees_tenant_email_key, which the
+	// caller turns into a sentence, and NULL never collides.
+	//
+	// The invitations this change must retire are retired by CancelPendingInvitesForEmployee
+	// in the SAME transaction, not here: one statement per table keeps each table's
+	// writes greppable in its own file.
+	//
+	// TENANT SCOPE (section 4.5, belt + braces): explicit predicate on top of RLS. A
+	// foreign id matches nothing.
+	SetEmployeeEmail(ctx context.Context, arg SetEmployeeEmailParams) (SetEmployeeEmailRow, error)
 	// The standalone set-password statement passwordresets.sql said M7-05 would need and
 	// must NOT reach for ConsumePasswordResetAndSetPassword to write. Its authority is the
 	// current session's identity: the caller passes the id it authenticated as, so the

@@ -1095,8 +1095,10 @@ func TestManualEntryRecord_ARefreshOfARefusedWriteCannotAppendASecondRecord(t *t
 // rule mountWriting's comment now follows after drifting three times.
 //
 // IT ASSERTS ALMOST NOTHING ON PURPOSE. The debt is pre-existing and belongs to the
-// screens that own those handlers (M6-04/05/06); what this holds is that THIS task's
-// own handlers are not part of it, and that the census is not silently reading nothing.
+// screens that own those handlers (M6-04/05/06); what this holds is that the handlers
+// which adopted the writer's page (the manual entry's, and since M10 EM-6 round 3 the
+// address change's) are not part of it, and that the census is not silently reading
+// nothing.
 func TestPanelProblemPages_CountTheWriteRoutesStillTellingReadersTheirPageIsEmpty(t *testing.T) {
 	fset := token.NewFileSet()
 	pkgs, err := parser.ParseDir(fset, ".", func(fi os.FileInfo) bool {
@@ -1179,10 +1181,23 @@ func TestPanelProblemPages_CountTheWriteRoutesStillTellingReadersTheirPageIsEmpt
 		"still telling a writer their page is empty: %s",
 		unavailable, len(census), writeFailed, strings.Join(census, ", "))
 
-	// 🔴 THE ONE ASSERTION: THIS TASK'S HANDLERS ARE NOT ON THAT LIST. The rest is
-	// somebody else's screen and is printed rather than failed.
+	// 🔴 THE ONE ASSERTION: THE HANDLERS THAT ADOPTED THE WRITER'S PAGE ARE NOT ON THAT
+	// LIST. The rest is somebody else's screen and is printed rather than failed.
+	//
+	// M10 EM-6 round 3 adopted it for the address change, so its handler joins the
+	// manual entry's here. It is named EXACTLY (the name plus the " (" the census
+	// appends), not by prefix: a later employeeEmailSomething is not this route and is
+	// not covered by this task's measurement.
+	//
+	// The name is checked against the derived write routes first. Without that, a
+	// rename or a route moved out of mountWriting would empty the census of this
+	// handler and the assertion below would hold vacuously.
+	if !writers["employeeEmail"] {
+		t.Fatal("employeeEmail is not among the handlers mountWriting registers, so the " +
+			"assertion that it uses the writer's problem page would hold over nothing")
+	}
 	for _, entry := range census {
-		if strings.HasPrefix(entry, "manualEntry") {
+		if strings.HasPrefix(entry, "manualEntry") || strings.HasPrefix(entry, "employeeEmail (") {
 			t.Errorf("%s still shows a WRITER the reader's problem page", entry)
 		}
 	}

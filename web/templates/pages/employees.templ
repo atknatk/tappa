@@ -76,6 +76,13 @@ templ AdminEmployees(v EmployeesView) {
 								button below — until they open it, there is nothing to tap with.
 							</p>
 						}
+					case "email":
+						// M10 EM-6 — THE "moved" CLASS: the sentence is the address the SAME
+						// request read back, so a replayed or hand-made URL restates what is
+						// on file rather than claiming a change happened.
+						if v.Actions != nil {
+							<p>{ emailLine(v.Actions) }</p>
+						}
 					default:
 						if v.Actions != nil {
 							<p>{ movedLine(v.Actions) }</p>
@@ -135,6 +142,31 @@ templ AdminEmployees(v EmployeesView) {
 						// the second line points at the card rather than guessing.
 						<p>That is already where they work, so there was nothing to save.</p>
 						<p class="mt-1">If you had just changed it, check the placement above — a save you made a moment ago, or somebody else's, may already have applied it.</p>
+						// THE ADDRESS CHANGE'S FOUR REFUSALS (M10 EM-6). Each one says that
+						// nothing was changed, because in each one nothing was — no address
+						// written, no link stopped, no trail row except the refused attempt's.
+					case "bad-email":
+						<p>
+							Nothing was changed. Use a plain address such as name@example.com: no
+							spaces, no accented or non-Latin letters, no name in front of it, and at
+							most 254 characters. To remove the address, leave the box empty.
+						</p>
+					case "email-taken":
+						<p>
+							Nothing was changed. Somebody in this business already has that address —
+							and capitals make no difference, so changing them will not help.
+						</p>
+					case "same-email":
+						<p>That is already their address, so nothing was changed and no activation link was affected.</p>
+					case "not-permitted":
+						// NO "the attempt was recorded" HERE, deliberately: this word arrives in a
+						// query string anybody can type, and a sentence about a record would be
+						// a claim the URL cannot back (the M6-04 banner lesson). The rule is true
+						// whatever produced the URL.
+						<p>
+							Nothing was changed. Only the business owner can change an employee's
+							address.
+						</p>
 					default:
 						// "not-invitable". It is the DEFAULT rather than a case because it was
 						// the section's original single problem word; the M6-13 words above are
@@ -282,9 +314,21 @@ func doneRosterHeading(done string) string {
 		return "Deactivated"
 	case "added":
 		return "On the roster"
+	case "email":
+		return "Address on file"
 	default:
 		return "Where they work now"
 	}
+}
+
+// emailLine says what address is on file NOW, from the card the same request read
+// (M10 EM-6) — movedLine's rule: a state the server measured in this request, never
+// the event, so a stale or hand-made address can only restate something true.
+func emailLine(a *components.RosterActionsView) string {
+	if a.Email == "" {
+		return a.Name + " has no address on file."
+	}
+	return a.Name + "'s address on file is " + a.Email + "."
 }
 
 // movedLine says WHERE somebody works, from the card the same request read out of
@@ -324,6 +368,14 @@ func problemRosterHeading(problem string) string {
 		return "Nothing to change"
 	case "not-invitable":
 		return "No invitation was created"
+	case "bad-email":
+		return "That address cannot be used"
+	case "email-taken":
+		return "That address is already taken"
+	case "same-email":
+		return "Nothing to change"
+	case "not-permitted":
+		return "Only the owner can do that"
 	default:
 		return "We could not read that"
 	}

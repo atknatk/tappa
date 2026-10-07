@@ -1855,3 +1855,358 @@ başına test adı ve sonuç). Gerçek SMTP'ye karşı yeniden koşu EM-5B'dir.
 - **EM-7:** davet kanalı + `unbuiltDelivery`'nin davet satırı; §9'un paylaşılan devre kesicisi
   ve *"kesici açıkken sıfırlama sonucu"* kararı (bu nottaki sapma).
 - **EM-9:** `resetLetter` emsaliyle üçüncü mektup; gönderim yolu olarak bu kuyruk kullanılabilir.
+
+## EM-6 notu — 2026-10-06 (uygulama; §7'den bir sapma — aşağıda)
+
+Taban dal ucu `26e9ce0`. **E-posta gönderilmez;** davranış bugün panelde bir kart bölümü ve bir
+POST rotası ekler. **Migration yok — ölçüldü:** `employees.email` 00003'ten beri `citext` ve
+tenant içi kısmi tekil indeksli (B14); `tappa_app` tabloya UPDATE (00003) ve
+`employee_invites.cancelled_at`'e sütun UPDATE'i (00012) taşır; `FOR UPDATE` satır kilidi UPDATE
+yetkisiyle alınır. `go.mod`/`go.sum`/`sqlc.yaml` diff boş. DB testleri dev Postgres'e test
+tenant'ı, çalışan, davet ve audit satırı yazar (öteki DB testleri gibi); süper kullanıcı sondası
+tek bir transaction'da koşar ve geri alınır.
+
+**Yazıldı:** `db/queries/employees.sql` — `GetEmployeeEmail`, `LockEmployeeForEmailChange`
+(`FOR UPDATE`), `SetEmployeeEmail` · `internal/domain/tenant/staffemail.go` — `Staff.Email`,
+`Staff.ChangeEmail`, `ErrSameEmail`, `ActionEmployeeEmailChanged` · `internal/mail` —
+`ValidRecipient` (yeni dışa açık işlev; gövdesi `validRecipient`'in kendisidir; `doc.go`'nun
+PART I'inde bir madde) ·
+`internal/handler/employeeemail.go` — `POST /admin/employees/email` (`mountWriting`, yani
+`ProtectWriting`), `mayChangeEmployeeEmail`, `ActionEmployeeEmailChangeRefused` · eylem kartında
+*"Email on file"* bölümü (`web/templates/components/roster.templ`) ve dört ret + bir bildirim
+cümlesi (`web/templates/pages/employees.templ`).
+
+**Kapsam kararı.** *Hangi adres:* `employees.email` — davetin gideceği adres. Yönetici adresi
+(`admin_users.email`) bir giriş kimliği ve sıfırlama hedefidir, başka bir güvenlik sınırıdır
+(ADR 0015); bu görevin değil. *Hangi ekran:* paneldeki eylem kartı (`?manage=<id>`); liste satırı
+adres göstermez. Ekleme formu (M6-13) değişmedi.
+
+**Kararlar (gerekçeli):**
+1. **Yalnız owner değiştirir; her yönetici okur.** Öteki çalışan eylemleri (ekle, davet et,
+   deaktive et, taşı) her yöneticiye açıktır; bu açık değildir, çünkü `email` modunda (EM-7) adres,
+   çalışanın kimliğiyle telefon bağlayan bir kimlik bilgisinin GİTTİĞİ yerdir. Var olan bir
+   çalışanın adresini kendi kutusuna çeviren bir manager onun bir sonraki linkini alırdı — Y-D'nin
+   e-posta biçimi. K3 aynı modda linki bir yöneticinin önüne koymanın tek öteki yolunu (owner-only
+   "linki göster" yedeği) zaten owner'a ayırır; bu ona uyar. Mekanizma `mayRemove`/
+   `mayEditAccount` biçimidir (rol oturumdan, ek sorgu yok); reddedilen deneme 303
+   `problem=not-permitted` ve `employee.email_change_refused` satırı (detail tam olarak `outcome`,
+   `reason`, `role`, `required_role`; gönderilen değer YOK). **Elenen:** (a) her yönetici —
+   yukarıdaki devralma; (b) policy motoru — `accountactions.go`'nun üç ölçümü aynen geçerli.
+   **Sayılı:** B28 yüzünden kapı bugün hiçbir gerçek isteği ayırmaz (testler manager oturumunu
+   fikstürle kurar); manager hâlâ istediği adresle birini EKLEYEBİLİR — sayılı sınır 2'nin
+   "tek kutu N hayali çalışan" artığı, var olan birinin devralınması değil.
+2. **Kural Send'in kuralıdır:** `mail.ValidRecipient` (§4), ikinci kopya yok —
+   `TestValidRecipient_AgreesWithSend` onu Send'in `invalid_address` cevabına bağlar. Form
+   sınırında yalnız çevreleyen boşluk kırpılır (`strings.TrimSpace`, sıfırlama formu emsali —
+   kenardaki NBSP, U+2028, NEL ve CR LF de kırpılır, U+200B kırpılmaz ve kuralda reddedilir;
+   go1.27.1 sondası); büyük/küçük harf korunur (tekillik `citext`'in); Unicode normalleştirmesi
+   YOK — ASCII dışı her bayt reddedilir, yani ASCII DIŞI bir homoglyph (Kiril, tam genişlikli
+   harf) de reddedilir. **ASCII içindeki benzerler geçer** (`rn`/`m`, `l`/`I`/`1`, `0`/`O`):
+   onlar sıradan karakterlerdir ve kural onları ayıramaz (2. tur düzeltmesi — ilk metin
+   *"homoglyph de reddedilir"* diyordu, geniş). Boş = adres kaldırılır (NULL; `''` kısmi tekil
+   indekse girerdi).
+3. **Beş adım, tek transaction, sıra = eşzamanlılık tasarımı** (`Staff.ChangeEmail`'in yorumu):
+   bekleyen davetleri iptal (davet satırı kilitleri ÖNCE — aktivasyon ifadesinin sırası) → çalışanı
+   `FOR UPDATE` kilitle (eşzamanlı `CreateInvite`'ın FK kontrolünün `FOR KEY SHARE`'iyle çakışan
+   tek mod; düz UPDATE'in `FOR NO KEY UPDATE`'i çakışmaz) → TEKRAR iptal (beklerken commit edilen
+   daveti yakalar) → adresi yaz (kilitlenen değere karşı karşılaştırarak) → iz (`RecordTx`). Her
+   ret adım 1'den sonra transaction'ı geri alır — adım 1'in iptalleri dahil.
+4. **Aynı adres = byte eşitliği** → `ErrSameEmail`, hiçbir şey yazılmaz/iptal edilmez/izlenmez.
+   Yalnız harf büyüklüğü değişen adres BİR yazımdır ve linkleri iptal eder (güvenli yön).
+5. **İz:** `employee.email_changed`, detail tam olarak `had_email`, `has_email`,
+   `retired_invitations`; adres yok (§7: satır değişikliğin olduğunu gösterir, değeri göstermez).
+   **Log:** yalnız `employee_id`, `actor_id`, `has_email`, `retired_invitations`.
+6. **Sonuçların gittiği yer — ve hiçbirinde yazılan adres geri verilmez** (URL'ye konamaz:
+   adres çubuğu, geçmiş, Referer). Başarı ve `bad-email`, `email-taken`, `same-email`,
+   `not-permitted` retleri → kişinin kartına 303; `ErrUnknownEmployee` → kartsız listeye 303
+   (`problem=unknown`); okunamayan gövde ya da uuid olmayan id → kartsız listeye 303
+   (`problem=unreadable`); başka her hata → 500, **yazanın** sorun sayfası
+   (`problemPanelWriteFailed`, *"We could not save that"* — 3. tur; önceden okuyanın
+   *"We could not read your records"* sayfasıydı). (2. tur düzeltmesi — ilk metin
+   *"her sonuç karta 303"* diyordu, koddan genişti.) Bildirim `"moved"` sınıfındadır:
+   `done=email` aynı istekte okunan adresi basar, olayı değil.
+7. **Kart okuması ayrı bir sorgudur** (`GetEmployeeEmail`) — `tenant.Person` adres alanı
+   taşımaz ve taşımamaya devam eder; okuma başarısızsa kart hiç çizilmez (*"No address on file"*
+   yalan olurdu).
+
+**Sapma (§7'den, açıkça).** §7 adres okumasını *"yeni bir sqlc sorgusu … gövde için işletme
+adıyla (EM-6)"* diye tarif eder ve onu `IssueAndDeliver`'dan ÖNCE koyar. `GetEmployeeEmail`
+işletme adını seçmez: okuyucusu (kart) adı kullanmaz ve okuyucusuz sütun seçilmez. Daha önemlisi,
+aşağıdaki sayılı sınır 1 EM-7'nin okumasının **yerini** değiştirir — davet basan transaction'ın
+İÇİNDE, `CreateInvite`'tan SONRA — ve o sorgunun biçimi (işletme adı dahil) EM-7'nindir.
+
+**Güvenlik iddiaları — üç parçalı (EM-6).** Tehdit modeli: *"Bu pinler bu dosyalara,
+çağıranlarına ve üç sorguya kazara giren sapmaya karşıdır; bir pini atlatmak için bilerek
+yazılmış kod, kod incelemesinin konusudur."* Mutasyonlar kopyala-değiştir-geri yaz yöntemiyle,
+her birinin uygulandığı `diff` ile ve geri alındığı `cmp` ile doğrulanarak koşuldu; numaralar M10
+EM-6 kartının tablosudur.
+
+*İddia G (EM-6 eki) — A tenant'ı B'nin bir çalışanının adresini okuyamaz ve değiştiremez.*
+- **PART I:** `TestRLS_EmployeeEmail_AnotherTenantsAddressIsNeitherReadNorWritten` — `tappa_app`,
+  A'nın bağlamında, üç sorgu B'nin KENDİ tenant id'si ve çalışanıyla (yüklem eşleşirdi, yalnız RLS
+  cevap verebilir) → satır yok; tenant yüklemsiz `WHERE id = …` sondası → 0; kontrol: B'nin
+  bağlamında aynı okuma B'nin adresini verir.
+  `TestEmployeeEmailQueries_CarryTheirOwnTenantPredicate` — `tappa_owner` (süper kullanıcı, RLS
+  uygulanmaz), A'nın tenant'ı + B'nin çalışanı → üç sorgu satır yok; kontrol: B'nin tenant'ıyla
+  B'nin adresi; transaction geri alınır.
+  `TestStaffEmailDB_ATenantCannotReadOrChangeAnotherTenantsAddress` — alan yolu: A'dan okuma ve
+  değişiklik `ErrUnknownEmployee`; B'nin adresi, linki ve iki tenant'ın izi değişmez; kontrol: A
+  aynı adresi kendi çalışanına yazabilir (tekillik işletme başınadır).
+- **PART II:** sorgunun kendi tenant yüklemini silen M17/M18/M19 →
+  `TestEmployeeEmailQueries_CarryTheirOwnTenantPredicate` ve
+  `TestStaffQueries_CarryAnExplicitTenantPredicate` kırmızı (RLS testi bu üçünde yeşil kalır —
+  ölçüldü; o açık yüklemi değil RLS'i ölçer). **Ölçülmeyen:** `employees` RLS politikasını gevşeten mutasyon bu
+  görevde koşulmadı (paylaşılan dev Postgres'te DDL yok); RLS testinin onu yakalayacağı bir tasarım
+  iddiasıdır, ölçüm değil.
+- **PART III:** Listede olmayan her biçim kod incelemesinin konusu — tamlık iddiası yok.
+
+*İddia K — bir değişiklik, kişinin harcanabilir davetlerini aynı transaction'da iptal eder ve
+tek bir iz satırı yazar; reddedilen değişiklik hiçbir şeyi iptal etmez.*
+- **PART I:** `TestStaffEmailDB_AChangeRetiresTheLinksInTheSameTransaction` (reddeden izle adres ve
+  iki link aynı kalır; gerçek izle iki bekleyen iptal, süresi dolmuş/harcanmış/meslektaşınki
+  dokunulmaz, tek satır, anahtarlar tam üç, adres yok) ·
+  `TestStaffEmailDB_ARefusedChangeRetiresNothing` (aynı adres, kırpılmış aynı adres, başka
+  büyüklükte meslektaş adresi, kuralı geçmeyen adres) ·
+  `TestStaffEmailDB_AnInvitationBeingIssuedIsRetiredByTheChange` (açık tutulan bir basım
+  transaction'ı varken değişiklik 400 ms içinde bitmez; basım commit edince yeni davet iptal) ·
+  `TestStaffEmailDB_AnActivationInFlightDoesNotDeadlockTheChange` (davet kilidini tutan aktivasyon
+  taklidi ve değişiklik ikisi de başarılı, 40P01 yok) ·
+  `TestStaffEmailDB_TwoOwnersSavingTheSameAddressWriteOnce` (25 tur × 8 yarışçı, her tur tam bir
+  yazım) · `TestStaffEmailDB_ACapitalsOnlyChangeIsAWrite` (2. tur: yalnız harfi değişen adres
+  bir yazımdır — yeni yazım saklanır, link iptal, tek iz satırı) · `TestEmployeeEmailDB_AChangedAddressKillsTheLinkSentBefore` (gerçek HTTP: değişiklikten
+  önce basılan link aktive etmez; kontrol: sonra basılan eder).
+- **PART II:** M01 (adım 1 yok → 40P01), M02 (adım 3 yok → yeni davet yaşar), M03 (`FOR UPDATE`
+  yok → iki test), M04 (`FOR NO KEY UPDATE` → değişiklik beklemez), M05 (karşılaştırma yok), M07
+  (iz yazılmaz), M08 (iz hatası yutulur), M09 (detail'de adres), M40 (iptal süresi dolmuşu da
+  kapsar) — hepsi kırmızı. **Yakalamadığı:** sayılı sınırlar 1–4.
+- **PART III:** Listede olmayan her biçim kod incelemesinin konusu — tamlık iddiası yok.
+
+*İddia L — saklanan adres, Send'in kabul edeceği adrestir.*
+- **PART I:** `TestValidRecipient_AgreesWithSend` (39 değer — `TestSend_RefusesBadInputBeforeAnyDial`'ın
+  `To` satırları ve kontrolleri ile Kiril/tam genişlikli harf, sıfır genişlikli boşluk, NBSP, RLO,
+  çift `@`, boş taraflar: ikisi de 6 kabul, 33 red; red hiç bağlanmaz) ·
+  `TestStaffEmailDB_TheRuleIsTheSendRule` (reddedilen hiçbir şey saklanmaz; kabul edilen kırpılıp
+  bayt bayt saklanır, harf korunur; 254 bayt kabul, 255 red; boş = NULL, ikinci adressiz kişi
+  yasal).
+- **PART II:** M10 (zayıf kural), M11 (kırpma yok), M12 (boş → `''`), M20 (küçük harfe çevirme),
+  M35 (ASCII'siz kopya kural), M36 (sabit doğru) — kırmızı.
+- **PART III:** Listede olmayan her biçim kod incelemesinin konusu — tamlık iddiası yok.
+
+*İddia M — yalnız owner değiştirir; manager'ın denemesi işletmenin izine düşer; adres hiçbir log
+satırına, yönlendirmeye ya da iz satırına girmez.*
+- **PART I:** `TestEmployeeEmail_OnlyAnOwnerReachesTheDomain` · `TestEmployeeEmail_TheCardOffersTheFormOnlyToAnOwner` ·
+  `TestEmployeeEmailDB_AManagersAttemptLandsInTheBusinessesTrail` ·
+  `TestEmployeeEmail_EveryOutcomeIsASentenceAndNoneCarriesTheAddress` ·
+  `TestEmployeeEmail_IsBehindTheWriteChain` (çapraz köken 0 çözücü okuması, anonim → giriş,
+  büyük gövde → `unreadable`) · `TestEmployeeEmail_AFailedAddressReadShowsNoCard` ·
+  `TestEmployeeEmail_AStoredAddressIsEscapedWhereItIsRendered` (ekleme formunun zayıf kuralıyla
+  saklanabilen işaretli bir adres metinde ve `value`'da kaçışlı) ·
+  `TestStaffEmailDB_TheDomainNeverLogsTheAddress` · `scripts/redline-check.sh` R7b.
+- **PART II:** M16 (alan log'unda adres — test ve R7b kırmızı), M21 (kapı her role açık), M22
+  (ret izi yok), M23 (ret izinde adres), M24 (sunucu kapısı yok), M25 (tenant gövdeden), M26
+  (başarı log'unda büyük harfli adres), M27 (adres yönlendirmede), M28 (aynı adres başarı diye),
+  M29 (form herkese), M30 (okuma hatası yutulur), M31 (manager cümlesi yok), M32 (adres satırı
+  boş — yalnız manager kolunda), M33 (rota takılı değil), M34 (rota okuma zincirinde), M37
+  (bildirim olay iddia eder), M43 (bilinmeyen kişi 500), M44 (adres `templ.Raw` ile) — kırmızı.
+- **PART III:** Listede olmayan her biçim kod incelemesinin konusu — tamlık iddiası yok.
+
+*İddia N (3. tur) — yarıda düşen bir değişiklik hiçbir şey yazmaz ve yöneticiye bunu yazanın
+sayfasıyla söyler; tekrar basmak iki kez yazmaz.*
+- **PART I:** `TestEmployeeEmailDB_AFailedChangeWritesNothingAndARetryWritesOnce` — gerçek HTTP,
+  gerçek Postgres, gerçek `Staff`; yalnız izi reddeden, teste özel `peekingTrail` ile (4. tur;
+  paylaşılan `failingTrail`'e dokunulmadı). Reddetmeden ÖNCE, kendisine verilen `tx` üzerinden —
+  değişikliğin kendi, commit edilmemiş transaction'ı — o anki durumu okur ve test bunu ister:
+  **adres yeni değerde, harcanabilir link 0** (ölçüldü: ikisi de öyle). Yani iz gerçekten son
+  adımdır ve adres yazımı ile iptal, iz düştüğünde transaction'ın İÇİNDEDİR; aşağıdaki sıfırlar
+  bunların geri alındığını gösterir, hiç başlamamış bir değişikliği değil. (3. turda bu yalnız
+  çağrı sayısından ve kodun sırasından çıkarılıyordu — denetçinin E6b'si yeşil kaldı, aşağıda
+  A41.) Cevap 500, gövde *"We could not save that"* ve *"nothing was written"*; reddeden iz tam 1
+  kez çağrıldı. **Sayılar:** adres eski değerinde, bayt bayt · harcanabilir link 1 → 1
+  (iptal edilmedi) · `employee.email_changed` 1 → 1 · kişi hakkında HERHANGİ bir eylemdeki iz
+  satırı 2 → 2 (handler'ın izi gerçek olduğundan onun yazdığı bir satır da sayılırdı) · log satırı
+  adres taşımaz. Sağlıklı panelde tekrar: 303 `done=email`, adres yeni, link 0, eski link aktive
+  etmez, `employee.email_changed` 1 → 2 (tek yazım). Aynı adres bir kez daha (arada yeni bir link
+  basılmış): 303 `problem=same-email`, `employee.email_changed` 2 → 2, iz satırları 5 → 5, yeni
+  link 1 → 1 (iptal EDİLMEDİ — ret, adım 1'in iptalini de geri alır), adres değişmedi ·
+  `TestEmployeeEmail_EveryOutcomeIsASentenceAndNoneCarriesTheAddress` (500 satırı yeni gövdeyi
+  okur; 4. turdan beri `tenant.wrap` gibi sarılmış bir `*pgconn.PgError{Code: "40P01"}` ayrı bir
+  satırdır ve aynı sayfayı ister) · `TestPanelProblemPages_CountTheWriteRoutesStillTellingReadersTheirPageIsEmpty`
+  (`employeeEmail` listede değil; önce `mountWriting`'in onu kaydettiğini ister, yoksa iddia boş
+  küme üzerinde tutardı) · alan katmanında
+  `TestStaffEmailDB_AChangeRetiresTheLinksInTheSameTransaction`'ın reddeden iz kolu.
+- **PART II:** A39 (500 okuyanın sayfasına geri döner → sayım testi, sonuç tablosunun 500 satırı
+  ve DB testi kırmızı) · A40 (iz satırı, değişiklik commit edildikten SONRA ayrı bir
+  transaction'da → handler'ın ve alanın atomiklik testleri kırmızı; ölçülen hâli: adres yeni,
+  link 0, iz satırı yok ve tekrar `same-email` ile reddedilir — yani iz kalıcı olarak kayıp).
+  2. turun A23'ü de bu testi kırmızıya çevirir (küçük harfe çevrilen eski adres bayt bayt
+  eşleşmez). · A41 (= denetçinin E6b'si: iz yazımı aynı transaction'ın BAŞINA taşındı) → handler
+  testi kırmızı (`tx` içi okuma: adres eski, link 1; 500 sonrası sayılar sağlıklı koşuyla AYNI —
+  yani yalnız sayılar bu mutasyonu göremez) ve alanın testi kırmızı · A42 (= E4: `*pgconn.PgError`
+  alt kümesi yeni bir yardımcı metot üzerinden okuyanın sayfasına) → sonuç tablosunun 40P01
+  satırı kırmızı (sayım testi bu mutasyonda yeşil kalır: yalnız handler'ın kendi gövdesini okur).
+  **Yakalamadığı:** sayım, handler'ın çağırdığı yardımcıların içini görmez; o alt kümenin pini
+  40P01 satırıdır, başka bir `PgError` kodu için ayrı satır yok.
+- **PART III:** Listede olmayan her biçim kod incelemesinin konusu — tamlık iddiası yok.
+
+**EM-6'nın sayılı sınırları (bu ADR'nin sınırlarına ek):**
+1. **EM-7'nin okuma yeri — açık yarış, ölçülmedi (EM-7 kodu yok).** Değişiklik commit'ten SONRA
+   basılan davet canlıdır (değişiklikten sonra basıldı) ve hangi adrese gideceği EM-7'nin
+   okumasına bağlıdır. §7'nin bugünkü cümlesi (*"`IssueAndDeliver`'dan önce"*, ayrı transaction)
+   bu sırayı açık bırakır: eski adres okunur → değişiklik commit → davet basılır (adım 3 onu
+   göremez) → eski adrese canlı bir kod. Kapanan biçim: adres, davet basan transaction'ın İÇİNDE,
+   `CreateInvite`'tan SONRA okunur — `CreateInvite`'ın FK kilidi (`FOR KEY SHARE`) adım 2'nin
+   `FOR UPDATE`'iyle çakışır, yani okuma ya değişikliğin yeni adresini görür ya da değişiklik onu
+   bekler ve adım 3'te o daveti iptal eder. Mekanizmanın kendisi
+   `TestStaffEmailDB_AnInvitationBeingIssuedIsRetiredByTheChange` ile ölçüldü.
+2. **Deadlock penceresi:** değişikliğin birkaç ifadelik transaction'ı içinde hem basılıp hem
+   HARCANAN bir davet adım 3 ile kilitlenir; biri 40P01 ile düşer, yarım iş kalmaz. Davetin
+   "basılan" yarısı bu pencereye ancak adım 1 ile adım 2 ARASINDA commit edilirse girer (adım 1
+   onu görmemiş, adım 3 görür). **Ölçüldü (EM-6 1. tur üçüncü göz; bu görevde yeniden
+   koşturulmadı):** üç denemenin üçünde düşen (kurban) aktivasyon oldu, yönetici başarı gördü.
+   Değişikliğin düştüğü yön ölçülmedi; düşerse yöneticiye yazanın sorun sayfası (*"We could not
+   save that"*, 500 — 3. tur) gider — 40P01'e ayrı cümle yok. Sayfanın *"nothing was written"*
+   cümlesi o yönde de doğrudur (Postgres transaction'ı bütün olarak iptal eder, İddia N).
+   **Handler katmanında ölçülüyor (4. tur):** sarılmış bir `*pgconn.PgError{Code: "40P01"}`
+   `TestEmployeeEmail_EveryOutcomeIsASentenceAndNoneCarriesTheAddress`'te ayrı bir satırdır ve
+   yazanın sayfasını, 500'ü ister (A42 kırmızı). **Ölçülmeyen:** veritabanında gerçek bir
+   deadlock'ta değişikliğin düşen taraf olduğu koşu — yani 40P01'in gerçekten bu dala bu biçimde
+   ulaştığı uçtan uca gösterilmedi.
+3. **`FOR UPDATE` aynı kişinin FK ekleyen öteki yazımlarını** (tap kaydı, yeni oturum, davet)
+   değişikliğin transaction'ı boyunca bekletir. **Ölçüldü (EM-6 1. tur üçüncü göz; bu görevde
+   yeniden koşturulmadı):** değişiklikler koşarken aynı kişiye 100 tap — 100'ü kaydedildi; tap
+   gecikmesi p50 93 → 135 ms, p90 201 → 274 ms, en çok 452 → 714 ms.
+4. **Eşzamanlı FARKLI iki adres** ikisi de yazar, son yazan kalır, iz iki satır (aynı adres = tek
+   yazım, pinli).
+5. **Ekleme formunun kuralı zayıf kaldı** (M6-13, B14): ASCII dışı bir adresle eklenen kişinin
+   adresi kartta olduğu gibi görünür, değiştirme formu aynı değeri kaydetmeyi `bad-email` ile
+   reddeder; EM-7 basımda reddeder. Ekleme kuralını sıkılaştırmak sevk edilmiş bir akışı değiştirir
+   — bu görevin değil.
+6. **Yönetici adresine eşit çalışan adresi burada reddedilmez** — §7 o kapıyı basım anına koyar
+   (EM-7).
+7. **Owner kartındaki adres METİN satırı tek başına pinsiz** (M32 yalnız manager kolunda
+   kırmızı; owner kolunda formun `value`'su aynı adresi taşır). Formun `value`'su ise 2. turdan
+   beri ayrıca pinli: girdi id'siyle bulunur ve değeri kayıtlı adresle bayt-aynı olmalı (A33
+   kırmızı).
+8. **`wrap()`'taki `ErrSameEmail` satırı davranış-eşdeğerdir** (M14 yeşil): varsayılan dal `%w` ile
+   sarar ve `errors.Is` görür; liste yalnız metni öneksiz tutar. M6-13'ün aynı listede aksini
+   söyleyen cümlesi ölçümle düzeltildi.
+9. **R7b'nin ara değişken sınırı** (`redline-check.sh` sınır 1): adresi bir yerel değişkene alıp
+   loglayan satır taramadan geçer; testler yalnız ölçülen satırları kapsar.
+10. **Tarayıcının `type="email"` alanı** IDN alan adlı bir adresi punycode'a çevirip gönderebilir;
+    sunucu sonucu ASCII kuralıyla değerlendirir — ölçülmedi.
+11. **Belirsiz commit doğrudan ölçülmedi** (3. tur). `COMMIT` sunucuya ulaşıp cevabı uygulamaya
+    ulaşmazsa değişiklik yazılmış ama yönetici 500 görmüş olur; o zaman sayfanın *"nothing was
+    written"* cümlesi yanlıştır. Ölçülen, o durumun SONRAKİ hâlidir: adres zaten kayıtlıyken aynı
+    adresi tekrar basmak `same-email` ile reddedilir ve hiçbir şey yazmaz — yani *"pressing again
+    will not enter it twice"* o durumda da tutar. Bu sınır bütün panel yazımlarınındır (manuel
+    kayıt dahil), bu rotaya özgü değil. Yönetici araya FARKLI bir adres yazarsa bu ikinci bir
+    değişikliktir (iki iz satırı) — "iki kez" değil.
+
+**EM-6 2. tur (2026-10-06 — üçüncü göz RED, tek bloklayan bir test fikstürüydü; yalnız test ve
+metin değişti, ürün kodunda yalnız yorum satırları):**
+- **B1 (bloklayan):** handler testinin fikstür adresi tamamen küçük harfti, yani
+  `TestEmployeeEmail_OnlyAnOwnerReachesTheDomain`'in *"ham değer iletilir"* iddiası küçük harfe
+  çeviren bir handler'ı (A23) göremiyordu → fikstür büyük harfli
+  (`Maria.ZZ7Q.Borg@Kebab.example.test`), sızıntı denetimleri küçük harfe çevrilmiş metinde
+  arar; uçtan uca DB testinin adresi de büyük harfli → A23 KIRMIZI.
+- **A11:** bayt eşitliği kuralını ölçen test yoktu (`EqualFold` mutasyonu yeşil) →
+  `TestStaffEmailDB_ACapitalsOnlyChangeIsAWrite` → KIRMIZI.
+- **A33:** formun `value`'su silinince test yeşildi (adres metin olarak da görünür) → owner
+  kolunda girdi id'siyle bulunur, değeri kayıtlı adresle bayt-aynı → KIRMIZI.
+- **A18:** üretilmiş `getEmployeeEmail`'in `lower(email)` döndürmesi yeşildi (bütün fikstürler
+  küçük harf) → domain ve `internal/db` fikstürleri karışık harfli; kart okumasının bayt
+  sadakati `TestStaffEmailDB_TheRuleIsTheSendRule` ve iki tenant testinin kontrollerinde → KIRMIZI.
+- **A38:** ret yoluna bir adres okuması eklemek yeşildi (sahte `Email()` okumayı saymıyordu) →
+  sahte üç çağrıyı da sayar; manager kolu yönlendirme izlenmeden ÖNCE üçünün de 0 olduğunu ister
+  → KIRMIZI.
+- **Metin:** karar 2 (ASCII içindeki benzerler geçer), karar 6 (sonuçların gerçek kümesi),
+  sınır 2 ve 3 (denetçinin ölçümleri), sınır 7 (`value` artık pinli); `employeeemail.go`'da iz
+  satırlarının içeriği ve sonuç kümesi; `compose.go`'da `ValidRecipient`'in ölçüldüğü küme
+  (`doc.go` ile aynı cümle); `staffemail.go`'da homoglyph cümlesi.
+  `TestEmployeeEmail_EveryOutcomeIsASentenceAndNoneCarriesTheAddress` artık handler'ın her dalını
+  sürer (okunamayan gövde, uuid olmayan id, manager, beş alan sonucu, 500 — 500'ün gövdesi de
+  okunur).
+
+**EM-6 3. tur (2026-10-06 — koordinatör kararı: 2. turun bloklamayan gözlemi, 500'ün okuyanın
+sayfası olması, `problemPanelWriteFailed`'e geçer):**
+- **Karar ve kapsam.** `employeeemail.go`'nun 500 dalı artık yazanın sayfasını gösterir
+  (*"We could not save that … nothing was written … pressing again will not enter it twice"*);
+  okuyanın sayfası (*"this page is not showing anything"*) yöneticinin az önce yaptığı şeyi
+  anlatmıyordu. Ürün kodunda değişen **yalnız bu çağrı yeridir** (yorumsuz AST karşılaştırması:
+  çağrı yeri geri çevrilince 2. turla aynı); `adminlogin.go`'da yalnız yorum. Öteki çalışan
+  eylemleri (`employeeAdd`, `employeeInvite`, `employeeDeactivate`, `employeeMove`) başka
+  ekranlarındır ve dokunulmadı.
+- **Sayfanın iki iddiası bu rota için ölçüldü, ödünç alınmadı** — İddia N. Atomiklik: beş adımın
+  hepsi tek `WithTenant` içindedir; son adım (iz) düşünce adres, link iptali ve iz birlikte geri
+  alınır (sayılar İddia N'de). Durmayı gerektiren bir bulgu yok: değişiklik tek transaction'dır.
+- **İkinci gönderim — ölçüldü, raporlandı:** aynı adresin ikinci kez gönderilmesi bir no-op'tur
+  (`ErrSameEmail`, 303 `problem=same-email`); ikinci bir iz satırı YAZILMAZ (`employee.email_changed`
+  2 → 2, kişi hakkındaki bütün iz satırları 5 → 5) ve arada basılmış link iptal edilmez. Ret,
+  kilitli değerle bayt eşitliğine dayanır; yalnız harfi farklı adres bir yazımdır (karar 4).
+- **Sayım:** `TestPanelProblemPages_CountTheWriteRoutesStillTellingReadersTheirPageIsEmpty`'nin tek
+  iddiası artık `employeeEmail`'i de tutar (tam ad, önek değil) ve önce rotanın `mountWriting`'de
+  kayıtlı olduğunu ister. Ölçülen sayım: okuyanın sayfası 41 kullanım, bunların 15'i bir yazma
+  handler'ında (16 → 15); yazanın sayfası 5 kullanım.
+- **Mutasyonlar** (`scratchpad/em6/verify_round3.py`, em6-orch kopyasında; taban YEŞİL, dosyalar
+  sha ile geri yüklendi): 2. turun beşi (A23, A11, A33, A18, A38) yine KIRMIZI; A39 (500 okuyanın
+  sayfasına geri) → sayım testi, `EveryOutcome…/database` ve yeni DB testi KIRMIZI; A40 (iz ayrı
+  transaction'da, değişiklikten sonra) → `TestEmployeeEmailDB_AFailedChangeWritesNothingAndARetryWritesOnce`
+  ve `TestStaffEmailDB_AChangeRetiresTheLinksInTheSameTransaction` KIRMIZI.
+- **Metin:** karar 6 ve sınır 2 yeni sayfayı adlandırır; sınır 11 (belirsiz commit) eklendi.
+
+**EM-6 4. tur (2026-10-07 — 3. turun dar kapanış denetimi ONAY, bloklayan yok; dört DÜŞÜK bulgu
+commit'ten önce kapatıldı. Yalnız test ve metin: ürün kodunda davranış değişmedi, yalnız
+`employeeemail.go`'da yorum):**
+- **Yorum düzeltmesi.** `employeeemail.go`'nun 500 dalındaki yorum aynı adresin *"before any
+  write"* reddedildiğini söylüyordu; adım 1'in iptali (bir UPDATE) karşılaştırmadan ÖNCE koşar ve
+  ret onu geri alarak gelir. Yorum artık *"refuses as ErrSameEmail and rolls back, step 1's
+  retirement included"* der (`staffemail.go`'nun kendi yorumu, İddia N ve kart bunu zaten doğru
+  yazıyordu).
+- **Yeni kanıt 1 — "önceki dört ifade koştu" artık ölçülüyor.**
+  `TestEmployeeEmailDB_AFailedChangeWritesNothingAndARetryWritesOnce`'ın kırık izi teste özel
+  `peekingTrail`'dir: reddetmeden önce kendisine verilen `tx` üzerinden adresi ve harcanabilir
+  linkleri okur; test **adres yeni, link 0** ister (ölçüldü: ikisi de öyle). Denetçinin E6b'si
+  (A41) artık bu testte de KIRMIZI; A41 altında `tx` içi okuma *adres eski, link 1* verdi ve 500
+  sonrası sayılar sağlıklı koşuyla birebir aynıydı — eksik olan tam olarak bu okumaydı.
+- **Yeni kanıt 2 — 40P01 satırı.** `TestEmployeeEmail_EveryOutcomeIsASentenceAndNoneCarriesTheAddress`'e
+  `tenant.wrap` gibi sarılmış `&pgconn.PgError{Code: "40P01"}` döndüren `deadlock` satırı eklendi:
+  500, yazanın sayfası. Denetçinin E4'ü (A42: `PgError` alt kümesi bir yardımcı metot üzerinden
+  okuyanın sayfasına) artık bu satırda KIRMIZI. Sınır 2 buna göre düzeltildi: 40P01 handler
+  katmanında ölçülüyor, veritabanında gerçek bir deadlock ölçülmedi.
+- **Mutasyonlar** (`scratchpad/em6/verify_round4.py`, em6-orch kopyasında; taban YEŞİL; 4 dosya sha
+  ile geri yüklendi, kopya worktree ile `diff -rq` aynı): A23, A11, A33, A18, A38, A39, A40 yine
+  KIRMIZI (A39 artık `EveryOutcome…/deadlock`'u da düşürür); **A41** KIRMIZI —
+  `TestEmployeeEmailDB_AFailedChangeWritesNothingAndARetryWritesOnce` ve
+  `TestStaffEmailDB_AChangeRetiresTheLinksInTheSameTransaction`; **A42** KIRMIZI —
+  `TestEmployeeEmail_EveryOutcomeIsASentenceAndNoneCarriesTheAddress/deadlock`. ALL RED.
+- **Metin:** İddia N'nin PART I ve PART II'si, sınır 2; kartın iddia özeti (G, K, L, M, N).
+
+**EM-6 5. tur (2026-10-07 — güvenlik denetimi ONAY; tek DÜŞÜK bulgu commit'ten önce kapatıldı.
+Yalnız test: ürün kodu ve yorumları aynen kaldı):**
+- **Bulgu:** rol kapısının (`mayChangeEmployeeEmail`) rolü NEREDEN okuduğu ve hangi rolleri
+  geçirdiği sabitlenmemişti. Denetçinin iki mutasyonu bütün EM-6 testlerinde yeşil kaldı: S10
+  (kapı gövdedeki `role=owner`'ı da kabul eder) ve S2 (izin listesi yasak listesine döner:
+  `Role != "manager"`). Tenant için bu sabitleme vardı (M25), rol için yoktu.
+- **Yeni kanıt (İddia M'nin PART I'indeki `TestEmployeeEmail_OnlyAnOwnerReachesTheDomain`):**
+  her kolun formu artık `role=owner` taşır (yabancı `tenant_id` ve `actor_id`'nin yanında).
+  Reddedilen kollar üçtür: `manager`, canlı oturum + boş rol (`no role`) ve canlı oturum +
+  tanımsız rol (`auditor`, `undefined role`). Her biri için beklenen: 303
+  `problem=not-permitted`, staff yüzeyine 0 çağrı (Person okuması, adres okuması ve değişiklik
+  0), tam bir `employee.email_change_refused` satırı ve satırın `role`'ü OTURUMUN rolü — gönderilen
+  `owner` değil.
+- **Mutasyonlar** (`scratchpad/em6/verify_round5.py`, em6-orch kopyasında; taban YEŞİL; 4 dosya sha
+  ile geri yüklendi, kopya worktree ile `diff -rq` aynı): önceki dokuzu (A23, A11, A33, A18, A38,
+  A39, A40, A41, A42) yine KIRMIZI; **A43** (= S10) KIRMIZI — `manager`, `no role` ve
+  `undefined role` kollarının üçü; **A44** (= S2) KIRMIZI — `no role` ve `undefined role` kolları
+  (`manager` kolu bu mutasyonda doğal olarak yeşil kalır). ALL RED.
+- **Sınır:** kartın formu POST kapısıyla aynı yüklemi paylaşır (`employees.go`, `CanChangeEmail`);
+  A44 ikisini birlikte değiştirir ve POST kolları onu yakalar. Ama
+  `TestEmployeeEmail_TheCardOffersTheFormOnlyToAnOwner` yalnız owner ve manager'ı sürer: yüklemi
+  değil yalnız formun gösterimini tanımsız bir role açan bir değişiklik bu testlerde görülmez.
+  Form gösterimi tek başına yetki vermez — POST kapısı ayrıca sabitli.
+
+**Devirler — EM-7:** adres okumasını davet basan transaction'a, `CreateInvite`'tan sonraya koy
+(sınır 1; §7'nin *"`IssueAndDeliver`'dan önce"* cümlesi buna göre güncellenir) · işletme adı o
+sorguda · yönetici adresine `citext` eşitlik kapısı basımda · ASCII dışı saklanmış adres → davet
+reddi · 40P01 için ayrı bir cümle istenirse · *Karar verilmedi*'deki anahtarlı alıcı özeti bu
+satırı (`employee.email_changed`) da kapsar.

@@ -762,10 +762,14 @@ var (
 	// and counts rows). A security lens confirmed the same for the shipped sentence's
 	// last clause.
 	//
-	// ⚠️ IT IS USED ON internal/handler/manualentry.go's CALL SITES ONLY, AND THE REST
-	// ARE COUNTED RATHER THAN CONVERTED — by a test, not by this comment. Converting
-	// them is a mechanical edit across five files owned by M6-04/05/06 and belongs to
-	// whoever owns those screens; the pattern is here, ready.
+	// ⚠️ IT IS USED ON internal/handler/manualentry.go's CALL SITES AND ON
+	// internal/handler/employeeemail.go's ONE (M10 EM-6 round 3), AND THE REST ARE
+	// COUNTED RATHER THAN CONVERTED — by a test, not by this comment. Converting them
+	// is a mechanical edit across five files owned by M6-04/05/06 and belongs to
+	// whoever owns those screens; the pattern is here, ready. A call site that adopts
+	// this page adopts its two claims, so it brings its own measurement of them: the
+	// address change's is TestEmployeeEmailDB_AFailedChangeWritesNothingAndARetryWritesOnce
+	// (the manual entry's is the test named above).
 	//
 	// 🔴 THE CENSUS IS DERIVED AND PRINTED BY
 	// TestPanelProblemPages_CountTheWriteRoutesStillTellingReadersTheirPageIsEmpty,

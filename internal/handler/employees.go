@@ -18,8 +18,8 @@ import (
 	"github.com/atknatk/tappa/web/templates/pages"
 )
 
-// The EMPLOYEES SECTION — the roster READ. Its four WRITES are employeeactions.go
-// (M6-05 phase B).
+// The EMPLOYEES SECTION — the roster READ. Its WRITES are employeeactions.go
+// (M6-05 phase B, M6-13) and employeeemail.go (M10 EM-6).
 //
 // ⚠️ THIS BLOCK USED TO SAY "PHASE A: the LIST, and nothing that changes it" AND
 // LISTED THE FOUR ACTIONS AS DELIBERATELY ABSENT. They have landed, so the sentence
@@ -40,6 +40,12 @@ import (
 // addresses; ledger.Person has no field for them; components.RosterRowView has none
 // either. This handler maps the second onto the third and could not carry one if it
 // tried.
+//
+// ⚠️ THE ACTION CARD IS THE EXCEPTION FOR THE ADDRESS, SINCE M10 EM-6, and only the
+// card. rosterActions reads the ONE person's address on file through its own query
+// (GetEmployeeEmail) and puts it in RosterActionsView.Email, because changing an
+// address starts from seeing it. A row of the list still has no address; an address
+// is personal data rather than a credential, and it is never logged (R7b).
 //
 // 🔴 §4.6 — A FAILED READ IS AN ERROR, NEVER AN EMPTY ROSTER. If the database does
 // not answer, this renders a problem page. "Nobody works here" is a claim about a
@@ -443,6 +449,20 @@ func (a *AdminAuth) rosterActions(w http.ResponseWriter, r *http.Request, f ledg
 		a.log.Error("panel: could not read the employee for the action card", "err", err)
 		return nil, firstWord(problem, "actions-unavailable")
 	}
+	// THE ADDRESS ON FILE (M10 EM-6) — a second read, for the reason GetEmployeeEmail
+	// gives: tenant.Person has no address field and keeps it that way. Its failure is
+	// answered like the person's: no card and a sentence, never a card that shows "no
+	// address" because a read failed — that would invite an owner to type one over an
+	// address that is in fact on file.
+	email, err := a.staff.Email(r.Context(), httpx.AdminOf(r).TenantID(), employeeID)
+	switch {
+	case err == nil:
+	case errors.Is(err, tenant.ErrUnknownEmployee):
+		return nil, firstWord(problem, "unknown")
+	default:
+		a.log.Error("panel: could not read the employee's address for the action card", "err", err)
+		return nil, firstWord(problem, "actions-unavailable")
+	}
 
 	hidden := []components.FormField{{Name: "id", Value: person.ID.String()}}
 	for key, values := range rosterQuery(f) {
@@ -504,6 +524,13 @@ func (a *AdminAuth) rosterActions(w http.ResponseWriter, r *http.Request, f ledg
 		Departments:      optionViews(screen.Options.Departments),
 		LocationID:       person.LocationID.String(),
 		DepartmentID:     uuidParam(person.DepartmentID),
+		// M10 EM-6. The form is offered to an OWNER only, which is the same
+		// predicate the POST checks (mayChangeEmployeeEmail) — so the screen cannot
+		// offer what the server would refuse, and a manager reads the sentence that
+		// says who can.
+		Email:          email,
+		CanChangeEmail: mayChangeEmployeeEmail(httpx.AdminOf(r)),
+		EmailAction:    employeeEmailHref,
 	}
 	return v, problem
 }

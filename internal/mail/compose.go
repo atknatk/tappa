@@ -44,6 +44,21 @@ func validRecipient(to string) bool {
 	return err == nil && a.Address == to
 }
 
+// ValidRecipient reports whether to passes the recipient rule Send applies to
+// Message.To before any dial — the same function Send's own invalid_address refusal
+// calls, exported so a caller that STORES an address for a later send (M10 EM-6: the
+// panel's change-the-address action) refuses what Send would refuse, with no second
+// copy of the rule to drift. (A value it accepts can still fail later for another
+// reason: a 5xx at RCPT, say.)
+//
+// It is a SHAPE rule (ADR 0022 §4), not a deliverability check: no DNS, no MX, no
+// mailbox. It normalises nothing — an input with surrounding whitespace is refused,
+// so trimming is the caller's boundary decision. TestValidRecipient_AgreesWithSend
+// holds it to Send's invalid_address answer on every value that test lists (the To
+// rows of TestSend_RefusesBadInputBeforeAnyDial and its controls, plus EM-6's review
+// shapes) — not on every To value any test in this package sends.
+func ValidRecipient(to string) bool { return validRecipient(to) }
+
 // printableASCII reports whether every byte of s is 0x21..0x7e, or 0x20..0x7e when
 // space is allowed. Everything else — CR, LF, TAB, NUL, DEL, any byte >= 0x80 — is
 // refused, never stripped.

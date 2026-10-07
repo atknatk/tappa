@@ -162,6 +162,9 @@ func (a *AdminAuth) mountWriting(r chi.Router) {
 		r.Post(employeeInviteHref, a.employeeInvite)
 		r.Post(employeeDeactivateHref, a.employeeDeactivate)
 		r.Post(employeeMoveHref, a.employeeMove)
+		// 🔴 THE ADDRESS CHANGE (M10 EM-6). Here for the ordinary reason — the Origin
+		// check must run AHEAD of the resolver — and owner-only inside the handler.
+		r.Post(employeeEmailHref, a.employeeEmail)
 		r.Post(venueSaveHref, a.saveVenue)
 		r.Post(departmentSaveHref, a.saveDepartment)
 		// 🔴 THE TWO REMOVALS ARE POSTs AND THEY LIVE HERE, WHICH IS THE WHOLE OF T3.

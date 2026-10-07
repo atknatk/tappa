@@ -159,6 +159,58 @@ templ RosterActions(v RosterActionsView) {
 					</p>
 				}
 			</div>
+			// 🔴 THE ADDRESS ON FILE (M10 EM-6). It sits beside the invitation because
+			// that is what it is for: once links are e-mailed, the address is where a
+			// link goes, so changing it retires every link not yet used (the domain
+			// does that in the same transaction as the write) and the help line says so
+			// BEFORE the save rather than after it.
+			//
+			// THE FORM IS AN OWNER'S, and the screen withholds it from anybody else
+			// with a sentence rather than a missing control — the server refuses a
+			// manager (and records the attempt), so offering the form would offer a
+			// refusal. The address itself is shown to every admin.
+			//
+			// MONO AND BREAKING ANYWHERE, because an address is data to be read
+			// character by character and a 254-byte one must not push the card wider
+			// than a phone.
+			<div class="flex flex-col gap-3 border-t border-line pt-4">
+				<div>
+					<p class="docket-label">Email on file</p>
+					if v.Email != "" {
+						<p class="break-all font-mono text-sm text-ink">{ v.Email }</p>
+					} else {
+						<p class="text-sm text-ink">No address on file.</p>
+					}
+				</div>
+				if v.CanChangeEmail {
+					<form method="post" action={ templ.URL(v.EmailAction) } class="flex flex-wrap items-end gap-3">
+						@hiddenFields(v.Hidden)
+						<div class="filter-field">
+							<label class="docket-label" for="change-email">New address</label>
+							<input
+								class="filter-input font-mono"
+								id="change-email"
+								type="email"
+								name="email"
+								value={ v.Email }
+								maxlength="254"
+								autocomplete="off"
+								spellcheck="false"
+								aria-describedby="change-email-help"
+							/>
+							<p id="change-email-help" class="mt-1 text-xs text-ink/85">
+								Leave it empty to remove the address. Saving a different address stops
+								every activation link for { v.Name } that has not been used yet.
+							</p>
+						</div>
+						<div class="filter-actions">
+							<button type="submit" class="btn btn--primary">Save address</button>
+						</div>
+					</form>
+				} else {
+					<p class="text-xs text-ink/85">Only the business owner can change an address.</p>
+				}
+			</div>
 			<div class="flex flex-wrap items-center gap-3 border-t border-line pt-4">
 				// 🔴 A LINK TO A GET, NOT A CONTROL THAT WRITES (M6-08). Entering a record
 				// is a two-step flow with its own confirmation, so what belongs on this

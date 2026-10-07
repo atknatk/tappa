@@ -520,6 +520,56 @@ type fakeStaff struct {
 	deactivations []tenant.DeactivateCommand
 	moves         []tenant.MoveCommand
 	adds          []tenant.AddCommand
+
+	// The address on file (M10 EM-6). email is what Email answers; emailErr fails
+	// the read; changeErr fails the change; emailChanges records every change asked.
+	email        string
+	emailErr     error
+	changeErr    error
+	emailChanges []tenant.EmailCommand
+	// emailReads counts Email calls, so a test can assert that a path which must do no
+	// database work (the address change's role refusal) did not read the address.
+	emailReads int
+}
+
+// Email answers the configured address and counts the read.
+func (f *fakeStaff) Email(_ context.Context, _, _ uuid.UUID) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.emailReads++
+	if f.emailErr != nil {
+		return "", f.emailErr
+	}
+	return f.email, nil
+}
+
+// ChangeEmail records the command and answers the configured refusal, or a change
+// that retired nothing. It does NOT validate the address: what the handler forwards is
+// measured here, and the rule itself against real Postgres in internal/domain/tenant.
+func (f *fakeStaff) ChangeEmail(_ context.Context, c tenant.EmailCommand) (tenant.EmailChange, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.emailChanges = append(f.emailChanges, c)
+	if f.changeErr != nil {
+		return tenant.EmailChange{}, f.changeErr
+	}
+	return tenant.EmailChange{EmployeeID: c.EmployeeID, HasEmail: c.Email != ""}, nil
+}
+
+func (f *fakeStaff) emailCommands() []tenant.EmailCommand {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]tenant.EmailCommand, len(f.emailChanges))
+	copy(out, f.emailChanges)
+	return out
+}
+
+// staffCalls is every call the address route could make on this fake: Person reads,
+// Email reads and ChangeEmail commands.
+func (f *fakeStaff) staffCalls() (persons, emailReads, changes int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.lookups), f.emailReads, len(f.emailChanges)
 }
 
 // Add records the command and answers with the person it would have created

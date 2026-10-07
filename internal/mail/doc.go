@@ -81,7 +81,11 @@
 //     TestMessage_PrintsAsAPlaceholder lists;
 //   - configuration: New refuses each invalid field and quotes no value, and holds
 //     Reply-To to the recipient rule — TestNew_RefusesAnInvalidConfig; only New
-//     builds a usable sender — TestSend_ANilOrZeroSMTPIsNotConfigured.
+//     builds a usable sender — TestSend_ANilOrZeroSMTPIsNotConfigured;
+//   - the recipient rule, exported for a caller that STORES an address for a later
+//     send (M10 EM-6): ValidRecipient answers false exactly when Send refuses the
+//     value as invalid_address, on every value TestValidRecipient_AgreesWithSend
+//     lists, and a refused value is never dialled.
 //
 // PART II — NAMED PINS, AND EXACTLY WHAT EACH CATCHES:
 //   - TestSendError_HasOnlyAClassAndACode: SendError's fields are exactly

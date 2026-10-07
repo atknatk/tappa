@@ -234,6 +234,7 @@ var storeSurface = map[string]string{
 	"GetBillingPeriod":                 "(context.Context, GetBillingPeriodParams{TenantID uuid.UUID; PeriodMonth pgtype.Date}) (GetBillingPeriodRow{ID uuid.UUID; TenantID uuid.UUID; TenantName string; PeriodMonth pgtype.Date; PeriodFrom time.Time; PeriodTo time.Time; Timezone string; Plan string; FreePeriod bool; EmployeeCount int32; UnstampedEmployees int32; UnitPrice pgtype.Numeric; Currency string; AmountDue pgtype.Numeric; ClosedBy uuid.UUID; ClosedAt time.Time}, error)",
 	"GetDepartmentShift":               "(context.Context, GetDepartmentShiftParams{TenantID uuid.UUID; ID uuid.UUID}) (GetDepartmentShiftRow{ID uuid.UUID; TenantID uuid.UUID; Name string; ShiftStart pgtype.Time; ShiftEnd pgtype.Time; Overnight bool}, error)",
 	"GetEmployeeActivationContext":     "(context.Context, GetEmployeeActivationContextParams{TenantID uuid.UUID; EmployeeID uuid.UUID}) (GetEmployeeActivationContextRow{ID uuid.UUID; FullName string; Status string; LocationID uuid.UUID; TenantName string}, error)",
+	"GetEmployeeEmail":                 "(context.Context, GetEmployeeEmailParams{TenantID uuid.UUID; ID uuid.UUID}) (GetEmployeeEmailRow{ID uuid.UUID; Email *string}, error)",
 	"GetEmployeeForTap":                "(context.Context, GetEmployeeForTapParams{TenantID uuid.UUID; EmployeeID uuid.UUID}) (GetEmployeeForTapRow{Status string; LocationID uuid.UUID; DepartmentID *uuid.UUID; ActivatedAt *time.Time; TenantTimezone string; TenantBusinessType string}, error)",
 	"GetLastOpenTransaction":           "(context.Context, GetLastOpenTransactionParams{TenantID uuid.UUID; EmployeeID *uuid.UUID}) (Transaction{ID uuid.UUID; TenantID uuid.UUID; EmployeeID *uuid.UUID; LocationID *uuid.UUID; DepartmentID *uuid.UUID; TagUid *string; Ctr *int32; Type *string; OccurredAt time.Time; SourceIp *netip.Addr; IpMatch *bool; GpsLat pgtype.Numeric; GpsLng pgtype.Numeric; GpsMatch *bool; SunValid *bool; Trust *int16; Verdict string; Note *string; Channel string; EnteredBy *uuid.UUID; Practice bool; Queued bool; CreatedAt time.Time; PolicyVersionID *uuid.UUID; MatchedSid *string; PolicyLayer *string; PolicyContext []byte}, error)",
 	"GetLastTransactionForEmployee":    "(context.Context, GetLastTransactionForEmployeeParams{TenantID uuid.UUID; EmployeeID *uuid.UUID}) (Transaction{ID uuid.UUID; TenantID uuid.UUID; EmployeeID *uuid.UUID; LocationID *uuid.UUID; DepartmentID *uuid.UUID; TagUid *string; Ctr *int32; Type *string; OccurredAt time.Time; SourceIp *netip.Addr; IpMatch *bool; GpsLat pgtype.Numeric; GpsLng pgtype.Numeric; GpsMatch *bool; SunValid *bool; Trust *int16; Verdict string; Note *string; Channel string; EnteredBy *uuid.UUID; Practice bool; Queued bool; CreatedAt time.Time; PolicyVersionID *uuid.UUID; MatchedSid *string; PolicyLayer *string; PolicyContext []byte}, error)",
@@ -286,6 +287,7 @@ var storeSurface = map[string]string{
 	"ListTagsForTenant":                "(context.Context, uuid.UUID) ([]ListTagsForTenantRow{Uid string; TenantID uuid.UUID; LocationID *uuid.UUID; LastCtr int32; Status string; RetiredAt *time.Time; ReplacedBy *string; CreatedAt time.Time; EncodedAt *time.Time}, error)",
 	"ListTapsTakenTogether":            "(context.Context, ListTapsTakenTogetherParams{TenantID uuid.UUID; MinDays int32; RowLimit int32; FromAt time.Time; ToAt time.Time; Zone string; WithinSeconds float64}) ([]ListTapsTakenTogetherRow{FirstEmployeeName *string; SecondEmployeeName *string; LocationName *string; Together int64; Days int64; ClosestSeconds int32}, error)",
 	"ListWorkedShiftEvents":            "(context.Context, ListWorkedShiftEventsParams{TenantID uuid.UUID; FromAt time.Time; UntilAt time.Time; RowLimit int32}) ([]ListWorkedShiftEventsRow{EmployeeID *uuid.UUID; OccurredAt time.Time; Type *string; Verdict string; Channel string; LocationID *uuid.UUID; ReviewOutcome *string; EmployeeName *string; LocationName *string; LocationShiftStart pgtype.Time; LocationShiftEnd pgtype.Time; LocationOvernight *bool; DepartmentShiftStart pgtype.Time; DepartmentShiftEnd pgtype.Time; DepartmentOvernight *bool}, error)",
+	"LockEmployeeForEmailChange":       "(context.Context, LockEmployeeForEmailChangeParams{TenantID uuid.UUID; ID uuid.UUID}) (LockEmployeeForEmailChangeRow{ID uuid.UUID; Email *string}, error)",
 	"LockEmployeeForTap":               "(context.Context, LockEmployeeForTapParams{TenantID uuid.UUID; EmployeeID uuid.UUID}) (error)",
 	"MarkAdminLoggedIn":                "(context.Context, MarkAdminLoggedInParams{ID uuid.UUID; TenantID uuid.UUID}) (MarkAdminLoggedInRow{ID uuid.UUID; LastLoginAt *time.Time}, error)",
 	"MarkTagEncoded":                   "(context.Context, MarkTagEncodedParams{Uid string; TenantID uuid.UUID}) (MarkTagEncodedRow{Uid string; EncodedAt *time.Time}, error)",
@@ -302,6 +304,7 @@ var storeSurface = map[string]string{
 	"RevokeSession":                    "(context.Context, RevokeSessionParams{ID uuid.UUID; TenantID uuid.UUID}) (RevokeSessionRow{ID uuid.UUID; RevokedAt *time.Time}, error)",
 	"RevokeSessionsForEmployee":        "(context.Context, RevokeSessionsForEmployeeParams{TenantID uuid.UUID; EmployeeID uuid.UUID}) ([]uuid.UUID, error)",
 	"SecondsSinceLastRecordedTap":      "(context.Context, SecondsSinceLastRecordedTapParams{TenantID uuid.UUID; EmployeeID *uuid.UUID; WindowSeconds float64}) (float64, error)",
+	"SetEmployeeEmail":                 "(context.Context, SetEmployeeEmailParams{Email *string; TenantID uuid.UUID; ID uuid.UUID}) (SetEmployeeEmailRow{ID uuid.UUID; Email *string}, error)",
 	"SetOwnAdminPassword":              "(context.Context, SetOwnAdminPasswordParams{PasswordHash string; ID uuid.UUID; TenantID uuid.UUID}) (uuid.UUID, error)",
 	"SetPolicyEnabled":                 "(context.Context, SetPolicyEnabledParams{Enabled bool; TenantID uuid.UUID; ID uuid.UUID}) (SetPolicyEnabledRow{ID uuid.UUID; Name string; Layer string; Enabled bool}, error)",
 	"SetTenantAccent":                  "(context.Context, SetTenantAccentParams{Accent string; UpdatedBy uuid.UUID; TenantID uuid.UUID}) (int64, error)",
@@ -812,11 +815,14 @@ func TestResolverAccess_NoSqlcQueryNamesADefiner(t *testing.T) {
 	// tappa_app's INSERT; the operator publishes through op_publish_legal).
 	// 121 -> 122 on 2026-10-03 (M10 WL-8): branding.sql's GetTenantPanelBrand, the
 	// panel chrome's read; it calls no definer.
-	if named != 122 {
-		t.Fatalf("%d named quer(ies) were seen across %d files; ONE HUNDRED AND TWENTY-TWO were "+
-			"there when this was pinned (2026-10-03: 111 on 2026-08-24, + T73's three "+
+	// 122 -> 125 on 2026-10-06 (M10 EM-6): employees.sql's GetEmployeeEmail,
+	// LockEmployeeForEmailChange and SetEmployeeEmail, the address read and change; none
+	// calls a definer.
+	if named != 125 {
+		t.Fatalf("%d named quer(ies) were seen across %d files; ONE HUNDRED AND TWENTY-FIVE were "+
+			"there when this was pinned (2026-10-06: 111 on 2026-08-24, + T73's three "+
 			"admin-password queries, + WL-1's eight branding queries, less OP-10's removed "+
-			"PublishLegalDocument, + WL-8's panel brand read). "+
+			"PublishLegalDocument, + WL-8's panel brand read, + EM-6's three address queries). "+
 			"Update the number in the same edit that adds or removes a query", named, files)
 	}
 	if !t.Failed() {
