@@ -104,31 +104,33 @@ func opClock(t *testing.T, ctx context.Context, q opQuerier) time.Time {
 // --------------------------------------------------------------- catalogue --
 
 // TestOperator00033_TheKindsTheShapeAndTheClock pins 00033 at HEAD on the catalogue:
-//   - operator_audit_log_kind_check is exactly the fourteen kinds (00031's eleven and the three
-//     owner kinds) and operator_audit_log_actor_shape exactly the three arms -- the owner arm
-//     an account and nothing else -- both validated;
+//   - operator_audit_log_kind_check is a closed set that begins with 00033's fourteen kinds
+//     (00031's eleven and the three owner kinds), in order -- a later migration appends (00034
+//     did: HEAD's exact text is TestOperator00034_TheFunctionsAndTheirExactSignatures' pin) --
+//     and operator_audit_log_actor_shape exactly the three arms -- the owner arm an account and
+//     nothing else -- both validated;
 //   - the trigger: on operator_audit_log, BEFORE INSERT FOR EACH ROW, enabled, running
 //     tappa_audit_at_is_the_wall_clock(); the table's triggers are exactly it and 00026's two;
 //     the function belongs to the table's owner, is SECURITY INVOKER and VOLATILE, takes no
 //     argument, returns trigger, pins the schema's trigger search_path, and its body is exactly
 //     "NEW.at := pg_catalog.clock_timestamp(); RETURN NEW;" -- no condition, no frozen clock;
 //   - op_begin_read and op_read_audit keep their identities, one overload each, EXECUTE for
-//     tappa_operator alone; their live bodies are 00033's, and 00033's are 00032's but for the
-//     two lists (undoing the edits gives 00032's byte for byte); op_record_auth_event is
-//     00031's body, untouched;
+//     tappa_operator alone; their live bodies are the newest migration's (00033's until 00034
+//     replaced them; at 00033 itself the Down test's premise pins 00033's), and 00033's are
+//     00032's but for the two lists (undoing the edits gives 00032's byte for byte);
+//     op_record_auth_event is 00031's body, untouched;
 //   - no function tappa_opdefiner owns names an owner kind except those two lists -- no op_*
 //     writes an owner row; the forward, frozen-clock and consumption scans and the definer's
 //     foreign EXECUTE scan raise nothing; the definer's INSERT list on the log still lacks `at`.
 func TestOperator00033_TheKindsTheShapeAndTheClock(t *testing.T) {
 	ctx, tx := opTx(t)
-	for _, c := range []struct{ name, want string }{
-		{"operator_audit_log_kind_check", opKindCheckDef(opAuditKinds)},
-		{"operator_audit_log_actor_shape", opActorShapeDef33(opAuthEventKinds, opOwnerKinds)},
-	} {
-		def, valid := opConstraint(t, ctx, tx, "operator_audit_log", c.name)
-		if def != c.want || !valid {
-			t.Errorf("%s is %s (validated %v),\n want %s, validated", c.name, def, valid, c.want)
-		}
+	if def, valid := opConstraint(t, ctx, tx, "operator_audit_log", "operator_audit_log_kind_check"); !valid ||
+		len(opQuotedArrays(def)) != 1 || len(opQuotedArrays(def)[0]) < len(opAuditKinds33) ||
+		!slices.Equal(opQuotedArrays(def)[0][:len(opAuditKinds33)], opAuditKinds33) {
+		t.Errorf("operator_audit_log_kind_check is %s (validated %v),\n want a closed set that begins with 00033's %v, validated", def, valid, opAuditKinds33)
+	}
+	if def, valid := opConstraint(t, ctx, tx, "operator_audit_log", "operator_audit_log_actor_shape"); def != opActorShapeDef33(opAuthEventKinds, opOwnerKinds) || !valid {
+		t.Errorf("operator_audit_log_actor_shape is %s (validated %v),\n want %s, validated", def, valid, opActorShapeDef33(opAuthEventKinds, opOwnerKinds))
 	}
 
 	// The trigger and its function.
@@ -198,8 +200,8 @@ func TestOperator00033_TheKindsTheShapeAndTheClock(t *testing.T) {
 		                             WHERE n.nspname = 'public' AND p.proname = $1`, fn).Scan(&live); err != nil {
 			t.Fatal(err)
 		}
-		if live != b33 {
-			t.Errorf("the live %s is not 00033's body", fn)
+		if newest := opNewestUpBody(t, fn); live != newest {
+			t.Errorf("the live %s is not the newest migration's body", fn)
 		}
 		if n := opInt(t, ctx, tx, `SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
 		                             WHERE n.nspname = 'public' AND p.proname = $1`, fn); n != 1 {
@@ -594,7 +596,7 @@ func TestOperator00033_TheClockFunctionRunsOnlyAsItsTrigger(t *testing.T) {
 //   - with a session and an actor, an actor alone, a session alone, no account, a tenant, a
 //     scope, a page number, a page size, a detail naming an address or a name, it is refused,
 //     each by actor_shape (23514, the constraint named);
-//   - a kind outside the fourteen ('operator_enabled', the right kind in another case or with a
+//   - a kind outside the set ('operator_enabled', the right kind in another case or with a
 //     trailing space), written with a session so that actor_shape lets it through, is refused by
 //     the kind CHECK;
 //   - the other two arms are as 00031 left them: a pre-session row without a session passes and
@@ -649,7 +651,7 @@ func TestOperator00033_TheOwnerArmIsExactlyAnAccountAndNothingElse(t *testing.T)
 	refusedBy("a row breaking the kind CHECK and target_scope's", "operator_audit_log_kind_check",
 		`INSERT INTO operator_audit_log (kind, session_id, actor_admin_id, target_scope) VALUES ('zz_not_a_kind', $1, $2, 'Not A Scope')`,
 		session, a.id)
-	// A kind outside the fourteen, written with a session and an actor so that actor_shape -- the
+	// A kind outside the set, written with a session and an actor so that actor_shape -- the
 	// CHECKs run in name order, actor_shape first -- lets it through to the kind CHECK.
 	for _, kind := range []string{"operator_enabled", "Operator_Created", "operator_created "} {
 		refusedBy("the kind "+kind, "operator_audit_log_kind_check",
@@ -853,7 +855,7 @@ func TestOperator00033_DownGivesBack00032AndUpTakesItAgain(t *testing.T) {
 		set        []string
 	}{
 		{"00033's Down: the audit condition", auditPart, opAuditKinds31},
-		{"00033's Up: the audit condition", upAudit, opAuditKinds},
+		{"00033's Up: the audit condition", upAudit, opAuditKinds33},
 	} {
 		if got, want := conds(c.part), whole(c.set); len(got) != 1 || got[0] != want {
 			t.Errorf("%s is %q; want exactly one, whole: %q", c.what, got, want)
@@ -875,7 +877,7 @@ func TestOperator00033_DownGivesBack00032AndUpTakesItAgain(t *testing.T) {
 		{"00033's Down: the kind CHECKs", lists(auditPart, `operator_audit_log_kind_check\s+CHECK \(kind IN \(([^)]*)\)\)`), [][]string{opAuditKinds31, opAuditKinds31}},
 		{"00033's Down: the actor_shape lists", lists(auditPart, `kind (?:NOT )?IN \(([^)]*)\)\s+AND session_id`),
 			[][]string{opAuthEventKinds, opAuthEventKinds, opAuthEventKinds, opAuthEventKinds}},
-		{"00033's Up: the kind CHECKs", lists(upAudit, `operator_audit_log_kind_check\s+CHECK \(kind IN \(([^)]*)\)\)`), [][]string{opAuditKinds, opAuditKinds}},
+		{"00033's Up: the kind CHECKs", lists(upAudit, `operator_audit_log_kind_check\s+CHECK \(kind IN \(([^)]*)\)\)`), [][]string{opAuditKinds33, opAuditKinds33}},
 		{"00033's Up: the actor_shape lists", lists(upAudit, `kind (?:NOT )?IN \(([^)]*)\)\s+AND session_id`),
 			[][]string{opAuthEventKinds, opOwnerKinds, sessionless, opAuthEventKinds, opOwnerKinds, sessionless}},
 	} {
@@ -933,7 +935,7 @@ func TestOperator00033_DownGivesBack00032AndUpTakesItAgain(t *testing.T) {
 	at33 := func(s state, when string, nv bool) {
 		t.Helper()
 		if s.trigger != 1 || s.function != 1 || s.begin != begin33 || s.audit != audit33 || !s.operatorExec || s.appExec || s.definerACL != acl ||
-			s.kinds != notValid(opKindCheckDef(opAuditKinds), nv) || s.kindsValid == nv ||
+			s.kinds != notValid(opKindCheckDef(opAuditKinds33), nv) || s.kindsValid == nv ||
 			s.shape != notValid(opActorShapeDef33(opAuthEventKinds, opOwnerKinds), nv) || s.shapeValid == nv {
 			t.Errorf("%s: trigger=%d function=%d begin is 00033's=%v audit is 00033's=%v operator=%v app=%v acl=(%s)\n kinds=%s (%v)\n shape=%s (%v)\n want 00033's state, NOT VALID=%v",
 				when, s.trigger, s.function, s.begin == begin33, s.audit == audit33, s.operatorExec, s.appExec, s.definerACL,
@@ -1037,7 +1039,7 @@ func TestOperator00033_DownGivesBack00032AndUpTakesItAgain(t *testing.T) {
 	sp = branch()
 	for _, s := range []string{
 		`ALTER TABLE operator_audit_log DROP CONSTRAINT operator_audit_log_kind_check`,
-		`ALTER TABLE operator_audit_log ADD CONSTRAINT operator_audit_log_kind_check CHECK (kind IN ('` + strings.Join(opAuditKinds, "', '") + `', 'zz_later_kind'))`,
+		`ALTER TABLE operator_audit_log ADD CONSTRAINT operator_audit_log_kind_check CHECK (kind IN ('` + strings.Join(opAuditKinds33, "', '") + `', 'zz_later_kind'))`,
 	} {
 		if _, err := sp.Exec(ctx, s); err != nil {
 			t.Fatalf("simulate a later migration's Up: %v", err)
@@ -1048,7 +1050,7 @@ func TestOperator00033_DownGivesBack00032AndUpTakesItAgain(t *testing.T) {
 	}
 	for _, s := range []string{
 		`ALTER TABLE operator_audit_log DROP CONSTRAINT operator_audit_log_kind_check`,
-		`ALTER TABLE operator_audit_log ADD CONSTRAINT operator_audit_log_kind_check CHECK (kind IN ('` + strings.Join(opAuditKinds, "', '") + `')) NOT VALID`,
+		`ALTER TABLE operator_audit_log ADD CONSTRAINT operator_audit_log_kind_check CHECK (kind IN ('` + strings.Join(opAuditKinds33, "', '") + `')) NOT VALID`,
 	} {
 		if _, err := sp.Exec(ctx, s); err != nil {
 			t.Fatalf("simulate a later migration's Down: %v", err)
@@ -1125,7 +1127,7 @@ func TestOperator00033_PreconditionRefusesAWrongCluster(t *testing.T) {
 		{"the kind CHECK missing", []string{`ALTER TABLE operator_audit_log DROP CONSTRAINT operator_audit_log_kind_check`}, "as migration 00031 left them"},
 		{"actor_shape missing", []string{`ALTER TABLE operator_audit_log DROP CONSTRAINT operator_audit_log_actor_shape`}, "as migration 00031 left them"},
 		{"the kind CHECK without password_ok", []string{fmtKinds(kinds, quoted(opAuditKinds27))}, "as migration 00031 left them"},
-		{"the kind CHECK already naming operator_created", []string{fmtKinds(kinds, quoted(opAuditKinds))}, "as migration 00031 left them"},
+		{"the kind CHECK already naming operator_created", []string{fmtKinds(kinds, quoted(opAuditKinds33))}, "as migration 00031 left them"},
 	} {
 		sp, err := tx.Begin(ctx)
 		if err != nil {

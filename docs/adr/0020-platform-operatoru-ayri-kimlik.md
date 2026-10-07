@@ -1087,7 +1087,16 @@ m10-platform.md §3'ün ölçütleriyle:
   çereziyle **aynı origin**'de koşar. OP-8'de ölçülerek.
 - Müşteri tarafında `audit_log` okuyan yüzeylerin `actor_kind = "operator"` satırını
   nasıl gösterdiği (`actor_id` `admin_users`'ta bulunmaz) — ilk değiştiren `op_*`'ın
-  kartı (OP-15/OP-16).
+  kartı (OP-15/OP-16). → **OP-16 A'da karara bağlandı (2026-10-07, 00034): v1'de
+  GÖSTERİLMEZ, çünkü gösterecek yüzey yok.** İlk değiştiren `op_*` (`op_record_vat_check`)
+  tenant'ın `audit_log`'una `tenant.vat_rechecked` yazar (`actor_id` operatör,
+  `detail.actor_kind = "operator"`); müşteri tarafında `audit_log` okuyan iki sorgu bunu
+  döndüremez — `ListPlaqueHistory` yalnız `action LIKE 'plaque.%'`, `ConfirmRecentRemoval`
+  yalnız `location.deleted` ve oturumdaki yöneticinin satırı (sorgu metni okundu). OP-15'in
+  `tenant.suspended`/`tenant.reinstated`'ı da `tenant.*`'tır, aynı hüküm. **OP-18'e devir:**
+  operatör `plaque.*` yazdığında `ListPlaqueHistory`'nin `admin_users` LEFT JOIN'i satırı
+  *"adsız yönetici"* okur (`by_system = false`, ad `''`) — o kart `actor_kind`'ı okumalı. ADR
+  0021 "OP-16 uygulama notu", LV9.
 
 ## Sonuçlar
 

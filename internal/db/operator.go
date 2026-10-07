@@ -38,7 +38,9 @@ import (
 // context: they cross the boundary as their BYPASSRLS owner, the one crossing ADR 0021
 // permits, and their statements name the tenant themselves. 00031's read of the operator's
 // own log (OP-14) reads one tenant column, the name of each tenant its page's rows name,
-// by the value each row carries.
+// by the value each row carries. 00034's write (OP-16) is the first that CHANGES a tenant --
+// its VAT verdict, and a row in that tenant's audit_log -- and it too names the tenant in
+// every statement rather than setting a context.
 //
 // THREE RULES THE OP-7 CARD NAMED, KEPT HERE BECAUSE THE SQL NOW LIVES HERE
 // (m10-platform.md, "Kabullere bağlananlar — OP-7" (b), (c), (d)):
@@ -866,6 +868,7 @@ var operatorAuditKinds = [...]OperatorAuditKind{
 	OperatorAuditLogin, OperatorAuditEnrollment, OperatorAuditLogout, OperatorAuditRead,
 	OperatorAuditLegalPublish,
 	OperatorAuditOperatorCreated, OperatorAuditOperatorMFAReset, OperatorAuditOperatorDisabled,
+	OperatorAuditTenantVATChecked,
 }
 
 // OperatorAuditKinds returns the closed set of audit kinds, in the CHECK's order -- a fresh
@@ -1264,10 +1267,127 @@ func scanTenantBilling(ctx context.Context, tx pgx.Tx, sessionHash string, t rea
 	return tl, nil
 }
 
+// ------------------------------------------------------------------ OP-16 --
+//
+// One tenant's VAT number and verdict on the operator's surface, and the operator's record of
+// a VIES re-check (migration 00034; ADR 0021 §2 v, §3.2, §3.3, §3.4 -- K6 and B14; CLAUDE.md
+// §4.5, §4.6). A two-phase read in TenantPlaques' shape, and the FIRST operator write that
+// changes a tenant: RecordTenantVATCheck writes the tenant's verdict, a row in that tenant's
+// audit_log and a row in the operator's log in ONE call. The screen, the VIES call and
+// *OperatorDB's methods are OP-16 phase B.
+//
+// 🔴 A VERDICT, NEVER AN OUTAGE. The write takes a bool: there is no way to send "VIES did not
+// answer" through it, and the database refuses a NULL verdict as well (22023, nothing written --
+// 00034's second copy of the rule). What to do on an outage is the caller's: nothing.
+//
+// The VAT number travels as a plain string (it is a public register's key, not a credential),
+// and it stays out of the process log all the same -- the orchestrator's K16-4: no function here
+// logs, and 00034 puts it in no message, LOG line or audit detail.
+
+// tenantVATReadKind is 00034's read kind -- a member of operator_read_tickets_kind_check.
+const tenantVATReadKind = "tenant_vat"
+
+// OperatorAuditTenantVATChecked (00034, CHECK order: after the owner kinds) is the operator's
+// row of every accepted RecordTenantVATCheck call -- the session, the operator, the tenant, and
+// nothing else (operator_audit_log_tenant_write_shape). Whether a verdict CHANGED is the
+// tenant's own audit_log row ('tenant.vat_rechecked'), which the call writes only when the
+// tenant and its number matched.
+const OperatorAuditTenantVATChecked OperatorAuditKind = "tenant_vat_checked"
+
+// The two statements; phase one of the read is beginOperatorReadSQL. Mirrored in
+// db/queries/operator.sql.
+const (
+	readTenantVATSQL = `SELECT tenant_id, tenant_name, vat_number, vat_verified, vat_checked_at
+FROM public.op_read_tenant_vat($1, $2, $3)`
+
+	recordTenantVATCheckSQL = `SELECT public.op_record_vat_check($1, $2, $3, $4)`
+)
+
+// TenantVATStatus is op_read_tenant_vat's row: the tenant -- its name for the header of the
+// screen (ADR 0020 §9) --, its VAT number, and the verdict on it in 00017's four states:
+// CheckedAt nil (never asked); CheckedAt set and Verified nil (asked, no answer -- written only
+// by sign-up, never by RecordTenantVATCheck); Verified true (VIES confirmed the number); Verified
+// false (VIES answered: not a valid number). Nothing else of the tenant.
+type TenantVATStatus struct {
+	TenantID   uuid.UUID
+	TenantName string
+	Number     string
+	Verified   *bool
+	CheckedAt  *time.Time
+}
+
+// TenantVAT is the two-phase read of one tenant's VAT number and verdict: op_begin_read writes
+// the read's 'read' row (target_scope 'tenant_vat', the tenant named, no page, detail {}) and a
+// ticket bound to the session and the tenant; op_read_tenant_vat consumes it and returns the
+// row. An id that names no tenant is ErrNoSuchTenant -- after the 'read' row naming it has
+// committed. A dead session is ErrOperatorRefused, and so is a pgx.Tx (the two phases are two
+// transactions only on a pool, as for TenantList).
+func TenantVAT(ctx context.Context, c OperatorConn, sessionHash string, tenantID uuid.UUID) (TenantVATStatus, error) {
+	// The parameter object is the overview's, {tenant_id}: 00034 gives the kind 00029's
+	// tenant_detail branch, and the KIND is what tells the three reads' tickets apart.
+	params, err := json.Marshal(tenantDetailParams{TenantID: tenantID})
+	if err != nil {
+		return TenantVATStatus{}, fmt.Errorf("db: tenant vat: encode the parameters: %w", err)
+	}
+	t, err := beginOperatorRead(ctx, c, sessionHash, tenantVATReadKind, params)
+	if err != nil {
+		return TenantVATStatus{}, err
+	}
+	return readTenantVAT(ctx, c, sessionHash, t, tenantID)
+}
+
+// errVATOfAnotherTenant is readTenantVAT's refusal of a row that names another tenant than the
+// one asked for. The statement cannot produce one (`t.id = p_tenant_id`); this is the Go side's
+// copy of that filter, so a regression in the SQL is an error here rather than another tenant's
+// number on the screen.
+var errVATOfAnotherTenant = errors.New("db: read tenant vat: a row names another tenant")
+
+// readTenantVAT is op_read_tenant_vat: consume the ticket (bound to the session, the kind and
+// the tenant id), then the row -- or none for an unknown id.
+func readTenantVAT(ctx context.Context, c OperatorConn, sessionHash string, t readTicket, tenantID uuid.UUID) (TenantVATStatus, error) {
+	var s TenantVATStatus
+	err := c.QueryRow(ctx, readTenantVATSQL, sessionHash, t.reveal(), tenantID).Scan(
+		&s.TenantID, &s.TenantName, &s.Number, &s.Verified, &s.CheckedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return TenantVATStatus{}, ErrNoSuchTenant
+	}
+	if err != nil {
+		return TenantVATStatus{}, operatorErr("read tenant vat", err)
+	}
+	if s.TenantID != tenantID {
+		return TenantVATStatus{}, errVATOfAnotherTenant
+	}
+	return s, nil
+}
+
+// RecordTenantVATCheck is op_record_vat_check: the operator records VIES's verdict on number
+// for one tenant -- valid true or false; there is no third value. In one call the database
+//   - sets the tenant's verdict and its time (the wall clock) -- but only if the tenant exists
+//     AND its number is still number, the one the operator read and sent to VIES;
+//   - when it did, writes the tenant's own audit_log row: 'tenant.vat_rechecked', the operator
+//     as actor, the verdict before and after with their times (UTC), no number;
+//   - writes the operator's 'tenant_vat_checked' row naming the tenant, whatever it found.
+//
+// The call is BOUND TO A COMMITTED READ: unless this session read this tenant through TenantVAT
+// (its first phase committed before this call's transaction), it is refused with SQLSTATE 22023
+// and touches nothing -- OP-16 B's flow (TenantVAT, VIES outside the database, then this call)
+// meets the binding by construction.
+//
+// The answer does not say which of those happened (ADR 0021 §2 v 7): nil for every tenant state,
+// a mismatched number and an unknown tenant alike; a dead session is ErrOperatorRefused; any
+// other failure is a database error carrying its SQLSTATE and nothing else. One exception is
+// counted (ADR 0021's OP-16 note, LV3): while another transaction holds an existing tenant's row
+// the call waits, whatever the number, and a lock_timeout on c turns the wait into 55P03. To see
+// the result, read it (TenantVAT).
+func RecordTenantVATCheck(ctx context.Context, c OperatorConn, sessionHash string, tenantID uuid.UUID, number string, valid bool) error {
+	_, err := c.Exec(ctx, recordTenantVATCheckSQL, sessionHash, tenantID, number, valid)
+	return operatorErr("record tenant vat check", err)
+}
+
 // readTicket is op_begin_read's answer: the RAW read ticket, which CLAUDE.md §7 and ADR
 // 0021 §3.5 put on the never-log list (raw or hashed). The type is unexported and no
 // exported function takes or returns it -- LegalVersions, TenantList, TenantDetail,
-// TenantPlaques, OperatorAudit and TenantBilling each hand it from their phase one to their phase two --
+// TenantPlaques, OperatorAudit, TenantBilling and TenantVAT each hand it from their phase one to their phase two --
 // and it is the SealedSecret pattern all the same: the five redacting methods, and the
 // value behind a *string (SealedSecret's comment says why a *string and not a byte slice).
 // Through fmt's verbs, slog and encoding/json it prints the placeholder

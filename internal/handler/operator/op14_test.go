@@ -456,8 +456,9 @@ func TestAuditScreen_EveryRowSaysWhatTheLogHolds(t *testing.T) {
 // otherwise (2nd round: a hyphen, a leading digit and a leading underscore are not a token;
 // 3rd round: nor is a byte past ASCII -- z and a right-to-left override, z and an accented
 // letter --, so no bidi control and no look-alike letter reaches the page from a value).
-// CONTROL: the derived set has fourteen members (eleven since 00031, the three owner kinds
-// since 00033 -- M10 OP-14 D), password_ok and operator_disabled among them.
+// CONTROL: the derived set has fifteen members (eleven since 00031, the three owner kinds
+// since 00033 -- M10 OP-14 D --, tenant_vat_checked since 00034 -- M10 OP-16), password_ok,
+// operator_disabled and tenant_vat_checked among them.
 //
 // PART II -- red on: a constant of the type with no word; a word for a value that is no
 // constant; an empty or a shared word; a fallback that names an unknown kind as a known one.
@@ -478,8 +479,9 @@ func TestAuditWords_NameEveryKindAndNothingElse(t *testing.T) {
 		derived = append(derived, constant.StringVal(c.Val()))
 	}
 	slices.Sort(derived)
-	if len(derived) != 14 || !slices.Contains(derived, string(db.OperatorAuditPasswordOK)) ||
-		!slices.Contains(derived, string(db.OperatorAuditOperatorDisabled)) {
+	if len(derived) != 15 || !slices.Contains(derived, string(db.OperatorAuditPasswordOK)) ||
+		!slices.Contains(derived, string(db.OperatorAuditOperatorDisabled)) ||
+		!slices.Contains(derived, string(db.OperatorAuditTenantVATChecked)) {
 		t.Fatalf("CONTROL: the derived kinds are %v", derived)
 	}
 	var listed []string

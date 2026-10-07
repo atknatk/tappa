@@ -97,6 +97,7 @@ var opKindsAt30 = []string{"legal_versions", "tenants", "tenant_detail", "tenant
 // what its Down does with such a row.)
 var opAuditKindsAddedBy = map[int][]string{
 	33: {"operator_created", "operator_mfa_reset", "operator_disabled"},
+	34: {"tenant_vat_checked"},
 }
 
 // opAtVersion takes the test's transaction to migration `version`: from the newest file
@@ -133,10 +134,11 @@ func opAtVersion(t *testing.T, ctx context.Context, tx pgx.Tx, version int, kind
 		t.Fatalf("remove the tickets version %d does not know, inside the transaction: %v", version, err)
 	}
 	// The same for the AUDIT kinds a later migration added (since OP-14 D: 00033's three owner
-	// kinds), so that migration's Down restores the kind CHECK and actor_shape VALIDATED, the
-	// shape the version's own tests expect. operator_audit_log is append-only: its row trigger
-	// is disabled for the delete and enabled again, all inside the transaction -- and only when
-	// such a row exists (none does unless an opadmin script was applied to this database).
+	// kinds; since OP-16: 00034's tenant_vat_checked), so that migration's Down restores the
+	// kind CHECK and actor_shape VALIDATED, the shape the version's own tests expect.
+	// operator_audit_log is append-only: its row trigger is disabled for the delete and enabled
+	// again, all inside the transaction -- and only when such a row exists (none does unless an
+	// opadmin script was applied to this database, or an operator's VAT re-check committed).
 	var addedKinds []string
 	for _, f := range later {
 		addedKinds = append(addedKinds, opAuditKindsAddedBy[f.n]...)
@@ -163,10 +165,37 @@ func opAtVersion(t *testing.T, ctx context.Context, tx pgx.Tx, version int, kind
 			}
 		}
 	}
+	if len(later) == 0 {
+		return
+	}
+	// THE LOCKS THE DOWNS TAKE (the OP-16 card's T9; the orchestrator's condition): a later
+	// migration's Down runs DDL in this transaction and holds its table locks until the test
+	// ends, so it runs only under the operator-tables lock held EXCLUSIVE (opTx takes it so), and
+	// the strong locks it leaves on tables of public -- anything above what a writer takes -- are
+	// logged with how long they were held ("OP16-T9").
+	opMustHoldTheTablesLockExclusive(t, ctx, tx)
 	for _, f := range later {
 		_, down := opMigrationSections(t, f.name)
 		opRunSection(t, ctx, tx, down, f.name+" Down, to reach version "+strconv.Itoa(version))
 	}
+	rows, err := tx.Query(ctx, `
+		SELECT c.relname || ':' || l.mode FROM pg_catalog.pg_locks l JOIN pg_catalog.pg_class c ON c.oid = l.relation
+		 WHERE l.locktype = 'relation' AND l.granted AND l.pid = pg_backend_pid()
+		   AND c.relnamespace = 'public'::regnamespace
+		   AND l.mode IN ('ShareUpdateExclusiveLock', 'ShareLock', 'ShareRowExclusiveLock', 'ExclusiveLock', 'AccessExclusiveLock')
+		 ORDER BY 1`)
+	if err != nil {
+		t.Fatalf("read the locks the Downs left: %v", err)
+	}
+	strong, err := pgx.CollectRows(rows, pgx.RowTo[string])
+	if err != nil {
+		t.Fatalf("read the locks the Downs left: %v", err)
+	}
+	start := time.Now()
+	t.Logf("OP16-T9: opAtVersion(%d) ran %d Down(s); this transaction holds %v", version, len(later), strong)
+	t.Cleanup(func() {
+		t.Logf("OP16-T9: opAtVersion(%d)'s locks held %v, until the rollback", version, time.Since(start).Round(time.Millisecond))
+	})
 }
 
 // opBeginReadBody returns the body (prosrc) of op_begin_read as a migration file's UP

@@ -175,3 +175,35 @@
 -- the read's 'read' row, committed by phase one, stays. The number is not a parameter: SET
 -- takes none, and this file carries no quoted literal.
 --   SET LOCAL statement_timeout = 15000;
+
+-- ============================================================================
+-- OP-16 (migration 00034): one tenant's VAT number and verdict, and the operator's record of a
+-- VIES re-check -- the first operator statement that CHANGES a tenant. Phase one of the read is
+-- BeginOperatorRead above, with kind 'tenant_vat' and the overview's parameter object
+-- {tenant_id} (00029's branch; the KIND tells the three reads' tickets apart); its 'read' row
+-- names the tenant, no page, detail {}. Inside both functions no row level security applies
+-- (their owner is BYPASSRLS): every reference to the tenant names p_tenant_id. The definer
+-- reads the number and the verdict, writes the verdict and its time -- NOT the number -- and
+-- appends the tenant's audit_log row (K6).
+
+-- ReadTenantVAT -- phase two: $2 is the RAW ticket, $3 the tenant id, bound in it. Zero rows
+-- for an id that names no tenant; otherwise one: the tenant's id and name, its VAT number and
+-- the verdict on it (vat_verified NULL with vat_checked_at NULL: never asked; with a time: asked,
+-- no answer; true / false: VIES's verdict).
+--   SELECT tenant_id, tenant_name, vat_number, vat_verified, vat_checked_at
+--   FROM public.op_read_tenant_vat($1, $2, $3);
+
+-- RecordTenantVATCheck -- a one-phase write, RETURNS void: $2 the tenant, $3 the VAT number
+-- the operator read and asked VIES about, $4 VIES's verdict (true or false; NULL -- "no answer"
+-- -- is refused with 22023 and writes nothing). Bound to a committed read: unless $1's session
+-- read $2 through ReadTenantVAT's first phase in an earlier, committed transaction, the same
+-- 22023, and nothing is read from tenants, locked or written. In one call: the tenant's verdict
+-- and its time (the wall clock), only if the tenant exists AND its number is still $3; then, only when that
+-- changed the tenant, the tenant's audit_log row ('tenant.vat_rechecked', the operator as actor,
+-- {actor_kind, before, after}, times in UTC, no number, `at` the same wall-clock read); and on
+-- every accepted call the operator's 'tenant_vat_checked' row naming the tenant, detail {}. The
+-- tenant is read by its id alone and the number compared in a variable (no statement names $3).
+-- The answer is the same whatever the tenant held, whether the number matched or whether the
+-- tenant exists -- but for a wait while another transaction holds an existing tenant's row
+-- (ADR 0021's OP-16 note, LV3).
+--   SELECT public.op_record_vat_check($1, $2, $3, $4);

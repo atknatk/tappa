@@ -508,8 +508,11 @@ func opBillingScales(t *testing.T, ctx context.Context, tx pgx.Tx, hash string, 
 // DEFINER, proconfig, one overload, EXECUTE for tappa_operator alone; op_begin_read and
 // op_read_audit keep their identities (op_read_audit's is 00031's, column for column); the
 // forward, frozen-clock and consumption scans walked them and raise nothing; the ticket kind
-// CHECK at HEAD is exactly the six kinds, validated; and, read from the catalogue, NO column
-// of the result is a float (float4, float8) or money, and the two money columns are numeric.
+// CHECK at HEAD is a closed set that begins with 00032's six kinds, in order, validated (00034
+// appended 'tenant_vat': HEAD's exact set is TestOperator00034_TheFunctionsAndTheirExactSignatures'
+// pin, 00032's exact set is the premise of TestOperator00032_DownGivesBack00031AndUpTakesItAgain,
+// which reaches 00032 through the later Downs); and, read from the catalogue, NO column of the
+// result is a float (float4, float8) or money, and the two money columns are numeric.
 func TestOperator00032_TheFunctionsAndTheirExactSignatures(t *testing.T) {
 	ctx, tx := opTx(t)
 	var args, result, owner string
@@ -627,13 +630,16 @@ func TestOperator00032_TheFunctionsAndTheirExactSignatures(t *testing.T) {
 		}
 	}
 	def, valid := opConstraint(t, ctx, tx, "operator_read_tickets", "operator_read_tickets_kind_check")
-	if def != opKindCheckDef(opKindsAt32) || !valid {
-		t.Errorf("operator_read_tickets_kind_check is %s (validated %v),\n want %s, validated", def, valid, opKindCheckDef(opKindsAt32))
+	if lists := opQuotedArrays(def); !valid || len(lists) != 1 || len(lists[0]) < len(opKindsAt32) ||
+		!slices.Equal(lists[0][:len(opKindsAt32)], opKindsAt32) {
+		t.Errorf("operator_read_tickets_kind_check is %s (validated %v),\n want a closed set that begins with 00032's %v, validated", def, valid, opKindsAt32)
 	}
 }
 
 // TestOperator00032_TheDefinerReadsBillingAndTheOperatorDoesNot is OP-12's "who reads what"
-// on the catalogue and as statements:
+// on the catalogue and as statements, AT 00032 (opAtVersion: 00034 widened the definer's list
+// on tenants and gave it UPDATE on two of its columns -- HEAD's whole lists are
+// TestOperator00026_PrivilegeMatrix's):
 //   - tappa_opdefiner's SELECT on tenants, employees and billing_periods is EXACTLY the lists
 //     the read needs (00029's columns and 00032's) -- not closed_by, id or created_at of a
 //     frozen month, not a name, address or id of an employee; it holds no INSERT, UPDATE,
@@ -647,6 +653,7 @@ func TestOperator00032_TheFunctionsAndTheirExactSignatures(t *testing.T) {
 //     functions (00032 grants beside it and revokes nothing of it).
 func TestOperator00032_TheDefinerReadsBillingAndTheOperatorDoesNot(t *testing.T) {
 	ctx, tx := opTx(t)
+	opAtVersion(t, ctx, tx, 32, opKindsAt32...)
 	for _, c := range []struct{ role, table, priv, want string }{
 		{"tappa_opdefiner", "tenants", "SELECT", opBillingDefinerTenants},
 		{"tappa_opdefiner", "employees", "SELECT", opBillingDefinerEmployees},

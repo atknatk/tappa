@@ -205,10 +205,15 @@ var auditKindWords = map[db.OperatorAuditKind]string{
 	db.OperatorAuditOperatorCreated:  "Operator account created",
 	db.OperatorAuditOperatorMFAReset: "Operator account reset to a new setup link",
 	db.OperatorAuditOperatorDisabled: "Operator account disabled",
+	// M10 OP-16 (migration 00034): written on every accepted call, whether or not the number
+	// matched and the verdict changed -- so the word says a re-check was recorded, not that a
+	// verdict moved (the tenant's own audit row says that).
+	db.OperatorAuditTenantVATChecked: "VAT re-check recorded",
 }
 
 // auditScopeWords is the word for each read kind op_read_audit returns as a row's scope --
-// the six kinds of operator_read_tickets_kind_check (00032 added OP-12's tenant_billing).
+// the seven kinds of operator_read_tickets_kind_check (00032 added OP-12's tenant_billing,
+// 00034 OP-16's tenant_vat).
 // The end-to-end test reads that CHECK and op_read_audit's own list from the catalog and
 // holds this map's keys equal to both
 // (TestE2E_AuditWordsCoverEveryScopeAndSearchClassTheDatabaseReturns), and a test without a
@@ -222,6 +227,7 @@ var auditScopeWords = map[string]string{
 	"tenant_plaques": "a tenant's plaques",
 	"operator_audit": "this audit log",
 	"tenant_billing": "a tenant's billing",
+	"tenant_vat":     "a tenant's VAT number",
 }
 
 // auditSearchWords is the word for each search class a tenant-list read records (00029:

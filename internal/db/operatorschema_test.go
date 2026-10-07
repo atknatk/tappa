@@ -857,6 +857,12 @@ func TestOperator00026_PrivilegeMatrix(t *testing.T) {
 		{"tappa_opdefiner", "operator_read_tickets", "created_at", "INSERT", false},
 		{"tappa_opdefiner", "operator_read_tickets", "consumed_at", "INSERT", false},
 		{"tappa_opdefiner", "operator_audit_log", "at", "INSERT", false},
+		// 00034 (OP-16): the definer writes the verdict, not the number (ADR 0021 §3.3), and
+		// K6's tenant row names its time while its id is the column's DEFAULT.
+		{"tappa_opdefiner", "tenants", "vat_number", "UPDATE", false},
+		{"tappa_opdefiner", "tenants", "vat_verified", "UPDATE", true},
+		{"tappa_opdefiner", "audit_log", "at", "INSERT", true},
+		{"tappa_opdefiner", "audit_log", "id", "INSERT", false},
 	}
 	for _, n := range named {
 		var got bool
@@ -938,10 +944,20 @@ func TestOperator00026_PrivilegeMatrix(t *testing.T) {
 	// status; no name, address or id of a person), and a frozen month's figures
 	// (billing_periods: NOT id, created_at or closed_by -- who closed a month is the tenant's
 	// administrator). SELECT only: billing_periods is append-only and the definer closes nothing.
+	//
+	// 00034 (OP-16): the FIRST WRITE grants on tenant tables. op_read_tenant_vat reads the
+	// tenant's VAT number and verdict (tenants vat_number, vat_verified, vat_checked_at);
+	// op_record_vat_check writes the verdict and its time -- UPDATE on vat_verified and
+	// vat_checked_at, and NOT on vat_number (ADR 0021 §3.3's named decision, asserted by name
+	// below) -- and appends K6's row to the tenant's audit_log: INSERT on the six columns that
+	// row names, `at` among them (the wall clock, written explicitly), NOT id; no SELECT,
+	// UPDATE, DELETE or TRUNCATE on audit_log.
 	opdefinerTenantGrants := map[string]string{
 		"legal_documents:SELECT": "id,slug,body,published_at,published_by",
 		"legal_documents:INSERT": "slug,body,published_by",
-		"tenants:SELECT":         "id,name,business_type,plan,timezone,created_at,price_per_employee_month",
+		"tenants:SELECT":         "id,name,vat_number,business_type,plan,timezone,created_at,price_per_employee_month,vat_verified,vat_checked_at",
+		"tenants:UPDATE":         "vat_verified,vat_checked_at",
+		"audit_log:INSERT":       "tenant_id,actor_id,action,target,detail,at",
 		"locations:SELECT":       "id,tenant_id,name",
 		"employees:SELECT":       "tenant_id,status,activated_at,deactivated_at",
 		"tags:SELECT":            "uid,tenant_id,location_id,last_ctr,status,retired_at,replaced_by,created_at,encoded_at",

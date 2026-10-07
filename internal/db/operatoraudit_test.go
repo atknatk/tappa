@@ -97,10 +97,21 @@ const (
 // opAuditKinds is the closed set of operator_audit_log kinds at HEAD, in the CHECK's order --
 // the list the four copies are held to (TestOperatorAuditKinds_TheSchemaTheFunctionsAndTheGoListAgree
 // against the database, TestOperatorAuditKinds_TheTypedConstantsAreTheList against the Go
-// constants). 00031 made it eleven; 00033 (OP-14 D) added the three owner kinds, opOwnerKinds.
+// constants). 00031 made it eleven; 00033 (OP-14 D) added the three owner kinds, opOwnerKinds;
+// 00034 (OP-16) the first tenant-writing kind, opTenantWriteKinds.
 var opAuditKinds = []string{"login_failed", "unknown_email", "totp_failed", "locked", "enrollment_failed",
 	"password_ok", "login", "enrollment", "logout", "read", "legal_publish",
+	"operator_created", "operator_mfa_reset", "operator_disabled", "tenant_vat_checked"}
+
+// opAuditKinds33 is the set at 00033 -- what 00033's own tests pin (its Down test reaches 00033
+// through 00034's Down) and what 00034's Down gives back.
+var opAuditKinds33 = []string{"login_failed", "unknown_email", "totp_failed", "locked", "enrollment_failed",
+	"password_ok", "login", "enrollment", "logout", "read", "legal_publish",
 	"operator_created", "operator_mfa_reset", "operator_disabled"}
+
+// opTenantWriteKinds is operator_audit_log_tenant_write_shape's list at HEAD (00034): the kinds an
+// op_* that CHANGES a tenant writes -- a row that names its tenant and nothing else.
+var opTenantWriteKinds = []string{"tenant_vat_checked"}
 
 // opAuditKinds31 is the set at 00031 and 00032 -- what 00031's own tests reach (opAtVersion
 // first runs 00033's Down) and what 00033's Down gives back.
@@ -365,10 +376,11 @@ func opLogFunctionBody(t *testing.T, section, create, fn string) string {
 // overload, EXECUTE for tappa_operator alone; op_begin_read and op_record_auth_event keep their
 // identities; the forward, frozen-clock and consumption scans walked them and raise nothing;
 // and the three CHECKs at HEAD -- the audit kinds a closed set holding 00031's eleven,
-// actor_shape's pre-session arm exactly the six, both validated (00033 widened both: HEAD's
-// exact texts are TestOperator00033_TheKindsTheShapeAndTheClock's pin), and the ticket kinds a
-// closed set holding 00031's five (00032 widened it: HEAD's exact set is TestOperator00032_TheFunctionsAndTheirExactSignatures'
-// pin, and 00031's exact set after 00032's Down is TestOperator00032_DownGivesBack00031AndUpTakesItAgain's).
+// actor_shape's pre-session arm exactly the six, both validated (00033 and 00034 widened the
+// kinds, 00033 the shape: HEAD's exact texts are TestOperator00034_TheFunctionsAndTheirExactSignatures'
+// pin), and the ticket kinds a closed set holding 00031's five (00032 and 00034 widened it:
+// HEAD's exact set is the same 00034 pin, and 00031's exact set after 00032's Down is
+// TestOperator00032_DownGivesBack00031AndUpTakesItAgain's).
 func TestOperator00031_TheFunctionsAndTheirExactSignatures(t *testing.T) {
 	ctx, tx := opTx(t)
 	var args, result, owner string
@@ -459,8 +471,8 @@ func TestOperator00031_TheFunctionsAndTheirExactSignatures(t *testing.T) {
 	}
 	// The audit CHECKs at HEAD: a closed set holding 00031's eleven kinds, and an actor_shape
 	// whose FIRST arm -- the pre-session one -- is 00031's six, both validated. (00033 widened
-	// both: HEAD's exact texts are TestOperator00033_TheKindsTheShapeAndTheClock's pin, and
-	// 00031's exact texts after 00033's and 00032's Downs are this file's Down test's.)
+	// both and 00034 the kinds: HEAD's exact texts are TestOperator00034_TheFunctionsAndTheirExactSignatures'
+	// pin, and 00031's exact texts after the later Downs are this file's Down test's.)
 	kinds, kindsValid := opConstraint(t, ctx, tx, "operator_audit_log", "operator_audit_log_kind_check")
 	if arrays := opQuotedArrays(kinds); len(arrays) != 1 || strings.Contains(kinds, "~") || !kindsValid {
 		t.Errorf("operator_audit_log_kind_check is %s (validated %v), want one validated closed list", kinds, kindsValid)
@@ -1167,7 +1179,10 @@ func TestOperator00031_CallersTempTableIsNeverRead(t *testing.T) {
 //   - op_begin_read's 'operator_audit' first phase takes EVERY kind the CHECK names and the empty filter,
 //     and refuses a kind outside it;
 //   - op_read_audit reads {"filter": k} out of a filter row for EVERY kind the CHECK names and
-//     for "all", and not for a kind outside it.
+//     for "all", and not for a kind outside it;
+//   - (00034) operator_audit_log_tenant_write_shape names exactly opTenantWriteKinds, each a member
+//     of the kind CHECK and of neither of actor_shape's session-less arms -- a tenant-writing
+//     row carries its session and its operator.
 //
 // So a migration that widens the kind CHECK (OP-15, OP-16) and not the two functions' lists
 // and the Go list turns this red, and the other way round.
@@ -1190,6 +1205,15 @@ func TestOperatorAuditKinds_TheSchemaTheFunctionsAndTheGoListAgree(t *testing.T)
 	if arms := opQuotedArrays(shape); len(arms) != 3 || !slices.Equal(arms[0], opAuthEventKinds) ||
 		!slices.Equal(arms[1], opOwnerKinds) || !slices.Equal(arms[2], sessionless) {
 		t.Errorf("actor_shape's arms name %v, want %v, %v and %v", arms, opAuthEventKinds, opOwnerKinds, sessionless)
+	}
+	tenantWrite, _ := opConstraint(t, ctx, tx, "operator_audit_log", "operator_audit_log_tenant_write_shape")
+	if lists := opQuotedArrays(tenantWrite); len(lists) != 1 || !slices.Equal(lists[0], opTenantWriteKinds) {
+		t.Errorf("operator_audit_log_tenant_write_shape names %v, want exactly %v", lists, opTenantWriteKinds)
+	}
+	for _, k := range opTenantWriteKinds {
+		if !slices.Contains(schema, k) || slices.Contains(sessionless, k) {
+			t.Errorf("the tenant-writing kind %s is not a session kind of the CHECK", k)
+		}
 	}
 	var goList, goOwner []string
 	for _, k := range OperatorAuditKinds() {
@@ -1967,9 +1991,10 @@ type opLogShape struct {
 //     there all the same;
 //   - values planted in detail -- a ticket-shaped hex string, a TOTP-shaped code, a token, an
 //     address, a search term -- appear in NO field of ANY row returned;
-//   - the scope is returned for the six read kinds (00032 added 'tenant_billing') and NULL for
-//     an unknown one; names come from platform_admins and tenants by the row's ids (an unknown
-//     tenant: no name);
+//   - the scope is returned for the seven read kinds (00032 added 'tenant_billing', 00034
+//     'tenant_vat') and NULL for an unknown one; names come from platform_admins and tenants by
+//     the row's ids (an unknown tenant: no name); 00034's 'tenant_vat_checked' row -- its tenant
+//     and nothing else -- is recognised, and a VAT read whose detail carries a number is not;
 //   - every read kind the ticket CHECK names is a scope the list knows, with its shipped
 //     detail -- a read kind added without a shape here turns this red.
 func TestOpReadAudit_TheDetailIsShownOnlyInAShapeOnTheList(t *testing.T) {
@@ -1999,7 +2024,7 @@ func TestOpReadAudit_TheDetailIsShownOnlyInAShapeOnTheList(t *testing.T) {
 	readOf := func(scope, detail string) opLogRow {
 		r := sess("read", scope, detail)
 		switch scope {
-		case tenantDetailReadKind, tenantPlaquesReadKind:
+		case tenantDetailReadKind, tenantPlaquesReadKind, tenantVATReadKind:
 			r.tenant = &tenant
 		case tenantBillingReadKind:
 			r.tenant = &tenant
@@ -2028,6 +2053,10 @@ func TestOpReadAudit_TheDetailIsShownOnlyInAShapeOnTheList(t *testing.T) {
 		{name: "read tenant_detail {}", row: readOf(tenantDetailReadKind, ""), recog: true, scope: tenantDetailReadKind},
 		{name: "read tenant_plaques {}", row: readOf(tenantPlaquesReadKind, ""), recog: true, scope: tenantPlaquesReadKind},
 		{name: "read tenant_billing {}", row: readOf(tenantBillingReadKind, ""), recog: true, scope: tenantBillingReadKind},
+		{name: "read tenant_vat {}", row: readOf(tenantVATReadKind, ""), recog: true, scope: tenantVATReadKind},
+		// 00034's operator row: the session, the actor, the tenant and nothing else (the
+		// tenant-write CHECK refuses any other shape of it, so there is no off-list case to write).
+		{name: "tenant_vat_checked {}", row: opLogRow{kind: string(OperatorAuditTenantVATChecked), session: &session, actor: &a.id, tenant: &tenant}, recog: true},
 		{name: "read tenants none", row: readOf(tenantsReadKind, `{"search": "none"}`), recog: true, scope: tenantsReadKind, search: "none"},
 		{name: "read tenants text", row: readOf(tenantsReadKind, `{"search": "text"}`), recog: true, scope: tenantsReadKind, search: "text"},
 		{name: "read tenants address", row: readOf(tenantsReadKind, `{"search": "address"}`), recog: true, scope: tenantsReadKind, search: "address"},
@@ -2057,6 +2086,7 @@ func TestOpReadAudit_TheDetailIsShownOnlyInAShapeOnTheList(t *testing.T) {
 		{name: "a filter with an extra key", row: readOf(operatorAuditReadKind, `{"filter": "all", "code": `+q(totpLike)+`}`), scope: operatorAuditReadKind},
 		{name: "a plaque read carrying its tenant id", row: readOf(tenantPlaquesReadKind, `{"tenant_id": `+q(tenant.String())+`}`), scope: tenantPlaquesReadKind},
 		{name: "a billing read carrying its page", row: readOf(tenantBillingReadKind, `{"page_number": 1}`), scope: tenantBillingReadKind},
+		{name: "a VAT read carrying a number", row: readOf(tenantVATReadKind, `{"vat_number": `+q(termLike)+`}`), scope: tenantVATReadKind},
 		{name: "a read of an unknown scope", row: readOf("zz_later_scope", "")},
 		{name: "legal_publish {}", row: sess("legal_publish", "", "")},
 		{name: "legal_publish with a slug in another case", row: sess("legal_publish", "", legal(q("PRIVACY"), q(doc.String()), "10"))},
@@ -2075,7 +2105,7 @@ func TestOpReadAudit_TheDetailIsShownOnlyInAShapeOnTheList(t *testing.T) {
 	}
 	// The read kinds the ticket CHECK names, each with its shipped detail.
 	shipped := map[string]string{legalVersionsReadKind: "", tenantsReadKind: `{"search": "text"}`, tenantDetailReadKind: "",
-		tenantPlaquesReadKind: "", operatorAuditReadKind: `{"filter": "all"}`, tenantBillingReadKind: ""}
+		tenantPlaquesReadKind: "", operatorAuditReadKind: `{"filter": "all"}`, tenantBillingReadKind: "", tenantVATReadKind: ""}
 	ticketKinds, _ := opConstraint(t, ctx, tx, "operator_read_tickets", "operator_read_tickets_kind_check")
 	for _, arr := range opQuotedArrays(ticketKinds) {
 		for _, k := range arr {
@@ -2306,7 +2336,7 @@ func TestOpReadAudit_ATicketFromThisTransactionIsRefused(t *testing.T) {
 // filter and its page. Refused (28000, ticket not consumed): another session of the same
 // operator; another filter (a kind, and the empty one for a kind's ticket); another page number; another
 // page size; a ticket no op_begin_read issued, and NULL; and the KIND condition's own case --
-// the log read's own hash under every other read kind (five since 00032); and, the other direction, a
+// the log read's own hash under every other read kind (five since 00032, six since 00034); and, the other direction, a
 // log-read ticket shown to the version list with the version list's hash. CONTROL: the right
 // session, filter and page are read.
 func TestOpReadAudit_AForgedTicketIsRefused(t *testing.T) {
@@ -2340,7 +2370,7 @@ func TestOpReadAudit_AForgedTicketIsRefused(t *testing.T) {
 		})
 		opWantClean(t, err, sqlstateInvalidAuthorization, opAuditReadRefusal, fmt.Sprintf("a ticket never issued (%T)", raw))
 	}
-	for _, kind := range []string{legalVersionsReadKind, tenantsReadKind, tenantDetailReadKind, tenantPlaquesReadKind, tenantBillingReadKind} {
+	for _, kind := range []string{legalVersionsReadKind, tenantsReadKind, tenantDetailReadKind, tenantPlaquesReadKind, tenantBillingReadKind, tenantVATReadKind} {
 		raw := opRandHex(t)
 		opForgeRead(t, ctx, tx, session, a.id, kind, opLogTicketHash(raw, "read", 2, 50), nil, xact, "30 seconds")
 		_, err := opReadLog(t, ctx, tx, hash, raw, "read", 2, 50)

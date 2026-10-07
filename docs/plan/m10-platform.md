@@ -10543,6 +10543,695 @@ yasal belge içindi, M9-08'in kapsamı §4.5'i aşan beş işlev.
 >    - OP-16 B: operatörün `VATChecker` adaptörü bu `Check`'i sarar; Unknown'da yazma çağrısı
 >      0 kabulü bu fazla anlam kazanır.
 
+> **OP-16A — operatörün VAT yeniden denetimi: veri katmanı (00034)**
+>
+> **Kart düzeltmesi (2026-10-07, uygulama sırasında).** Taban `8575d24` (dal `m10-a1` ucu;
+> OP-11…OP-14D ve OP-12A/B commit'li).
+> Migration **00034** (`db/migrations/00034_recheck_a_tenants_vat_from_the_operator.sql`). Yazıldı:
+> `internal/db/operator.go` (yalnız kendi OP-16 bloğu: `tenantVATReadKind`,
+> `OperatorAuditTenantVATChecked`, `readTenantVATSQL`, `recordTenantVATCheckSQL`, `TenantVATStatus`,
+> `TenantVAT`, `readTenantVAT`, `errVATOfAnotherTenant`, `RecordTenantVATCheck`; `operatorAuditKinds`
+> dizisine bir ad; başlığa ve `readTicket`'ın yorumuna birer cümle), `db/queries/operator.sql` (belge;
+> `-- name:` yok), `internal/handler/operator/audit.go` (bir tür sözcüğü *"VAT re-check recorded"*,
+> bir kapsam sözcüğü *"a tenant's VAT number"*), ADR 0021 (Durum satırı, §1 tablosu, "OP-16 uygulama
+> notu", Sonuçlar), ADR 0020 ("Karar verilmedi"nin `actor_kind` maddesi kapandı). Yeni test dosyası:
+> `internal/db/operatorvat_test.go` (28 test; 27 DB ister — 2. turda +1, 3. turda +1). Güncellenen pinler md. 9. `go.mod`, `go.sum`,
+> `sqlc.yaml` diff'i boş; `make gen` `internal/store`'da ve `*_templ.go`'da diff vermedi. Ekran, VIES
+> çağrısı, bütçe ve `*OperatorDB` yöntemleri B fazıdır; C (VIES istemcisinin `userError`'ı) ayrı.
+>
+> **İki aşamalı çalışma (paylaşılan dev Postgres):** Aşama 1 veritabanına DDL'siz yazıldı; yalnız
+> salt-okur sondalar (`BEGIN TRANSACTION READ ONLY … ROLLBACK`, `tappa_owner`; koşucu
+> `scratchpad/op16a/ro.sh` — DDL/DML/COMMIT/DO ile başlayan satırı ya da yazan bir `op_*` çağrısı olan
+> dosyayı reddeder; rol sondası `SET LOCAL SESSION AUTHORIZATION`). Aşama 2 (orkestratörün
+> *"uygula"*sından sonra): `goose up-by-one` → 34, DB testleri, Down/Up döngüsü (`pg_dump
+> --schema-only` sha), mutasyonlar. **Dev DB Aşama 1 sonunda 33, Aşama 2 sonunda 34.**
+>
+> 1. **Adlar (ADR 0021 §2 v 6):** `op_read_tenant_vat(p_session, p_ticket, p_tenant_id)` →
+>    `(tenant_id, tenant_name, vat_number, vat_verified, vat_checked_at)`;
+>    `op_record_vat_check(p_session, p_tenant_id, p_vat_number, p_valid boolean) RETURNS void`. Okuma
+>    türü `tenant_vat`; audit türü `tenant_vat_checked` (CHECK'te sahip türlerinden sonra, oturumlu);
+>    tenant satırının eylemi `tenant.vat_rechecked` (müşterinin `tenant.account_updated`,
+>    `tenant.brand_*` kalıbı — salt-okur ölçüm: beş `tenant.*` eylemi var, ikisi `before`/`after`).
+> 2. **Okuma (K16-1):** iki aşamalı; parametre nesnesi genel bakışın `{tenant_id}`'si —
+>    `op_begin_read`'in 00029 dalına üçüncü tür; üç okuma aynı metni hash'ler, **tür** ayırır. Bilinmeyen
+>    tenant 0 satır → `ErrNoSuchTenant`; kemer `t.id = p_tenant_id`; Go'da kemerin kopyası
+>    `errVATOfAnotherTenant`. Numara sunucuda okunur; B onu VIES'e oradan gönderir.
+> 3. **Yazmanın şekli (md. 5 A3; PostgreSQL 17'de `RETURNING OLD` yok — önceki değerler iki
+>    değişkende):** (a) oturum; (b) `p_tenant_id`/`p_vat_number`/`p_valid` NULL → **22023**, tek sabit
+>    mesaj, hiçbir şey okunmadan/yazılmadan — `p_valid` NULL *"VIES cevap vermedi"*dir (§4.6, "kesintide
+>    yazma yok"un ikinci kopyası); (b2) *3. tur (D1):* **commit edilmiş okumaya bağ** — aynı oturumun
+>    aynı tenant için `tenant_vat` bileti ve 'read' satırı, biletin `created_xact`'i `committed`
+>    (`op_read_tenant_vat`'ın deseni); yoksa (b)'nin aynı 22023'ü, `tenants`'a hiç dokunmadan;
+>    bağın sınırı oturum, biletin ömrü değil; (c) tenant'ın numarası ve önceki hükmü `FOR NO KEY UPDATE` ile
+>    (orkestratörün kararı; LV5), **yalnız tenant id'siyle** — *2. tur (F1):* hiçbir ifade numarayı
+>    koşul olarak taşımaz; (d) **yalnız** `IF FOUND AND v_number = p_vat_number` ise (numara
+>    değişkende karşılaştırılır; T3) `UPDATE` id ile, hüküm + **tek** `clock_timestamp()` okuması;
+>    (e) aynı `IF`'te tenant satırı, `INSERT … VALUES` (B14: var olmayan tenant'a satır yok, FK
+>    tetiklenmez): `actor_id` operatör,
+>    `target` tenant id'si, `at` = (d)'nin okuması açıkça (K6), `detail` tam olarak `{"actor_kind":
+>    "operator", "before": {"verified", "checked_at"}, "after": {"verified", "checked_at"}}`, zamanlar
+>    UTC metni (altı hane, `Z`; `to_char(… AT TIME ZONE 'UTC', …)` — çağıranın `TimeZone`'una bağlı
+>    değil: salt-okur ölçümde aynı an jsonb'nin kendi biçiminde `+14:00`, bu biçimde `Z`), numara yok;
+>    (f) operatör satırı **her kabul edilen çağrıda** (K16-3: `detail` `{}`). Kısıt yakalayıcı 00027
+>    deseninde (tek 22023, DETAIL yok, LOG satırı yalnız kısıt adı + SQLSTATE; alt-işlem (c)–(f)'yi geri
+>    alır). Dönüş `void`; cevap tenant'ın hâlinden, numara uyuşmasından ve tenant'ın varlığından bağımsız.
+> 4. **`operator_audit_log_tenant_write_shape` doğdu** (ilk tenant-yazan `op_*` yükü): `kind <> ALL
+>    (ARRAY['tenant_vat_checked']) OR (target_tenant_id IS NOT NULL AND target_admin_id IS NULL AND
+>    target_scope IS NULL AND page_number IS NULL AND page_size IS NULL AND detail = '{}')`. OP-15'in
+>    iki türü listeye iki ad olarak girer. `actor_shape` değişmedi (tür oturumsuz kollarda değil →
+>    oturum ve aktör zorunlu). Doğrulanmış eklenir; `NOT VALID` dalı gerekmez (yalnız kendi türlerini
+>    bağlar) — LV7.
+> 5. **Yetkiler ve ADR §3.3'ün adlı kararı:** tanımlayıcı `tenants`'ta `SELECT (vat_number,
+>    vat_verified, vat_checked_at)`, **`UPDATE (vat_verified, vat_checked_at)` — `vat_number` YOK**;
+>    `audit_log`'da `INSERT (tenant_id, actor_id, action, target, detail, at)`, `id` değil, SELECT/UPDATE/
+>    DELETE yok. `tappa_app` hiçbir şey almadı; `tappa_operator` yalnız iki fonksiyonda EXECUTE.
+> 6. **Kopyalar birlikte genişledi:** audit türünün beş kopyası (CHECK, `op_begin_read`, `op_read_audit`,
+>    `OperatorAuditKinds`, `auditKindWords`) + test kopyaları (`opAuditKinds`, `opAuditKindsAddedBy`);
+>    okuma türünün kopyaları (bilet CHECK'i, `op_begin_read`'in kapalı kümesi ve dalı, `op_read_audit`'in
+>    iki listesi, `tenantVATReadKind`, `auditScopeWords`, `opKindsAt34`). `op_begin_read` ve
+>    `op_read_audit` 00033'ün gövdeleri + altı liste düzenlemesi (diff: −3 +3, −3 +5 satır); test
+>    düzenlemeleri geri alınca 00033'ün gövdesini bayt bayt ister.
+> 7. **Down:** iki fonksiyon düşer; iki gövde 00033'ün Up gövdesine bayt bayt (md5 eşit, md. 10);
+>    yetkiler **adlı sütunlarla** geri alınır (`REVOKE ALL` yok — test Down'daki üç `REVOKE`'un Up'ın üç
+>    `GRANT`'ına eşit olduğunu ister); tenant-yazma CHECK'i düşer; tür CHECK'i 00033'ün on dört, bilet
+>    CHECK'i 00032'nin altı türüne — önceki kümenin dışında satır varsa `NOT VALID`. Satırlar ve
+>    hükümler kalır. T9 (`tenants`/`audit_log` sütun `REVOKE`'unun kilidi) Down testinde ölçüldü: ilişki
+>    kilidi almaz (Aşama 2).
+> 8. **Ön koşul:** rol denetimleri; 00033'ün izleri (iki fonksiyon tanımlayıcının, 00032'nin okuması,
+>    00033'ün `at` tetikleyicisi, tür CHECK'i `operator_disabled`'ı adlandırır ve bu türü adlandırmaz,
+>    bilet CHECK'i `tenant_billing`'i adlandırır ve `tenant_vat`'ı adlandırmaz, bu dosyanın CHECK'i yok);
+>    ve **kayma denetimi** (OP-15 kartının önerisi, ilk burada): tanımlayıcının `tenants`'ta UPDATE'i ve
+>    `audit_log`'da hiçbir yetkisi yok, `tappa_app`'in üç VAT sütununda UPDATE'i yok — sütun yetkisi
+>    başka bir elin verdiği geniş yetkiyi daraltamaz (00024'ün ölçümü).
+> 9. **Başka görevlerin testlerinde güncellemeler — neden (zayıflatılmadı):** (a) `opAuditKinds` on beş,
+>    `opAuditKinds33` on dört (00033'ün testleri); `opTenantWriteKinds`; (b)
+>    `TestOperator00033_TheKindsTheShapeAndTheClock`: tür CHECK'i *"00033'ün on dördüyle başlayan
+>    kapalı küme"*, canlı gövdeler *"en yeni migration'ın gövdesi"* (yeni yardımcı `opNewestUpBody`) —
+>    HEAD'in tam metni ve gövdeleri `TestOperator00034_TheFunctionsAndTheirExactSignatures`'ta,
+>    00033'ünkiler 00033'ün Down testinin öncülünde; Down testinin ve ön koşul testinin 00033 kümeleri
+>    `opAuditKinds33`; (c) `TestOperator00032_TheFunctionsAndTheirExactSignatures`: bilet CHECK'i
+>    *"00032'nin altısıyla başlayan kapalı küme"*; (d) `TestOperator00032_TheDefinerReadsBillingAndTheOperatorDoesNot`
+>    `opAtVersion(32)` ile koşar (HEAD'in tam listeleri `TestOperator00026_PrivilegeMatrix`'te); (e)
+>    `TestOperator00026_PrivilegeMatrix`: `tenants:SELECT`, `tenants:UPDATE`, `audit_log:INSERT` tam
+>    sütun listeleri + dört adlı hücre; (f) `TestOperatorSQL_OnlyBoundParameters` 16 → 18; (g)
+>    `TestOperatorAccessors_TheCustomerRoleCannotUseThem` + `TenantVAT`, `RecordTenantVATCheck`; (h)
+>    `TestOperatorAuditKinds_TheSchemaTheFunctionsAndTheGoListAgree` tenant-yazma CHECK'inin listesini
+>    ister; (i) `TestOpReadAudit_TheDetailIsShownOnlyInAShapeOnTheList`: `read tenant_vat {}`,
+>    `tenant_vat_checked {}` (tanınır), numara taşıyan VAT okuması (tanınmaz), "every read kind"
+>    haritasında `tenant_vat`; (j) `TestOpReadAudit_AForgedTicketIsRefused` altıncı tür; (k)
+>    `opAuditKindsAddedBy[34]`; (l) `TestAuditWords_NameEveryKindAndNothingElse` CONTROL 14 → 15; (m)
+>    *(Aşama 2)* `opAtVersion` Down koşmadan önce danışma kilidinin EXCLUSIVE tutulduğunu ister
+>    (`opMustHoldTheTablesLockExclusive`) ve güçlü kilitleri + süreyi `OP16-T9` satırıyla loglar. Ayrıca
+>    iki 00031 test yorumu ve iki 00033 test yorumu HEAD pininin yeni yerini adlandırır.
+> 10. **Salt-okur ölçümler (Aşama 1, 2026-10-07, dev, PostgreSQL 17.10, goose 33):** canlı
+>     `op_begin_read` 9425 karakter / 9426 bayt, md5 `8c7ce71f3bd238f378a06509098350e1`; canlı
+>     `op_read_audit` 5587, md5 `f1a46beb7f4ddde1c010578ac5636ba7` — 00033 Up = 00034 Down (dosyalardan
+>     aynı md5). `tenants` sütunları attnum sırasıyla `id, name, vat_number, business_type, structure,
+>     plan, timezone, created_at, price_per_employee_month, vat_verified, vat_checked_at`; tanımlayıcı
+>     `tenants`'ta SELECT `id,name,business_type,plan,timezone,created_at,price_per_employee_month`,
+>     UPDATE/INSERT yok, `audit_log`'da hiçbir şey; `tappa_operator` iki tabloda hiçbir şey; `tappa_app`
+>     `tenants` UPDATE `name,business_type,timezone`, `audit_log` `ar`. Tanımlayıcı olarak `vat_number`
+>     okuması 42501. `audit_log`: `at` DEFAULT `now()`, tek FK `tenant_id`, iki append-only tetikleyici,
+>     INSERT tetikleyicisi yok; `tenants`'ta tetikleyici yok; `tenants`'a FK'li 17 tablo. Satırlar:
+>     00033 türleri dışında 0, 00032 bilet türleri dışında 0, `tenant_vat_checked` 0, `tenant_vat` okuma
+>     0, `tenant.vat_rechecked` 0, bilet tablosu boş. Aday adlar boş. Sunucu `TimeZone` `UTC`;
+>     `tappa_operator` `plpgsql` USAGE tutar. `audit_log` ≈ 390 bin satır; eylem süzgeçli `count(*)`
+>     113 ms (testlerin "bütün `audit_log`" sayımının bedeli).
+>
+> **Sayılı sınırlar:** ADR 0021 "OP-16 uygulama notu" **LV1–LV10** (LV1 = kartın T5'i: DSN sahibi
+> istediği hükmü basar; LV2 = T10: istatistik kehaneti — *2. turda tenant'a daraltıldı*: numara
+> argümanı hiçbir sayacı "bu tenant'ın numarası mı" dışında oynatmaz, kalan `tenants`
+> (`idx_tup_fetch`, `n_tup_upd`) = var olmayan (0, 0), var olan + uyuşmayan (1, 0), eşleşme (3, 1);
+> LV3 kilit beklemesi — *2. turda:* var olan tenant için her numarayla bekler, var olmayan için
+> beklemez; `lock_timeout` altında 55P03 (ölçüldü), REPEATABLE READ'de 40001 (belge); LV4 = T4 iki saat; LV5 satır kilidi `FOR NO KEY UPDATE` — FK denetimlerini bekletmez, ölçüldü; LV6 tanımlayıcı
+> olarak koşan ifade tür satırı yazabilir; LV7 tenant-yazma CHECK'inin doğrulanmış eklenmesi; LV8
+> `audit_log.at` tetikleyicisiz; LV9 = ADR 0020'nin `actor_kind` maddesi; LV10 hüküm Down'da kalır).
+>
+> **Güvenlik iddiası** ADR 0021 → "OP-16 uygulama notu" sonunda üç parçalı: tehdit modeli cümlesi
+> (*"Bu pinler kazara sapmaya karşıdır; bir pini bilerek atlatmak kod incelemesinin konusudur."*),
+> PART I ölçüm + test adı (Aşama 2'de koşuldu, sonuçlarıyla), PART II adlı pinler (`opVATWriteSourceRules` ve
+> katalog/kopya pinleri), PART III *"Listede olmayan her biçim kod incelemesinin konusu — tamlık
+> iddiası yok."*
+>
+> **Kabul — karşılıkları (A'nın payı):** *tappa_app `vat_*` hâlâ UPDATE edemiyor* →
+> `TestAccountDB_TheAppRoleHoldsNoUpdateOnTheVATColumnsOrTheTerms` ve
+> `TestTenants00024_TheAppMayUpdateThreeColumnsAndDeleteNothing` değişmedi +
+> `TestOperator00034_TheDefinerWritesTheVerdictAndNotTheNumber` (tanımlayıcının `vat_number` UPDATE'i
+> yok; `tappa_app`'in üç VAT sütunu) + ön koşulun kayma denetimi; *tenant audit önce/sonra* →
+> `TestOpRecordVATCheck_TheDetailIsTheBeforeAndAfterInEveryStartingState`; *VIES kesintisinde yazma
+> yok* (A katmanı) → `TestOpRecordVATCheck_ANullVerdictIsRefusedAndWritesNothing`. Kalıp: iki aşama
+> (`TestOpReadTenantVAT_TwoPhaseLifecycle`, `TestTenantVAT_OnThePoolTheTwoPhasesAreTwoTransactions`),
+> `void` + durum bağımsızlığı (`TestOpRecordVATCheck_TheAnswerIsTheSameWhateverTheTenantsState`), B14
+> (`TestOpRecordVATCheck_AnUnknownTenantIsTheSameVoid`), numara bağı
+> (`TestOpRecordVATCheck_AMismatchedNumberChangesNothingAndLeavesTheOperatorsRow`), kemer
+> (`TestOpReadTenantVAT_ReturnsOnlyTheNamedTenantsNumberAndState`,
+> `TestOpRecordVATCheck_ACallForOneTenantTouchesNoOther`), `at` ≤ 1 sn
+> (`TestOpRecordVATCheck_TheTenantRowsTimeIsTheWallClock`), aynı işlem
+> (`TestOpRecordVATCheck_TheThreeWritesShareOneTransaction`), ölü oturum
+> (`TestOpRecordVATCheck_RefusesEveryDeadSession`, `TestOpReadTenantVAT_RefusesEveryDeadSession`),
+> süre (`TestOpReadTenantVAT_ExpiryIsTheWallClock`), sahtecilik (`TestOpReadTenantVAT_AForgedTicketIsRefused`,
+> `TestOpReadTenantVAT_ATicketFromThisTransactionIsRefused`), bilinmeyen tenant
+> (`TestOpReadTenantVAT_AnUnknownTenantReadsNothing`), ilk faz (`TestOpBeginRead_TheVATKindBindsTheTenantAndNothingElse`),
+> tür şekli (`TestOperator00034_TheTenantWriteKindNamesItsTenantAndNothingElse`), katalog + kaynak
+> pinleri (`TestOperator00034_TheFunctionsAndTheirExactSignatures`), gölge
+> (`TestOperator00034_CallersTempTableIsNeverRead`), Down/Up (`TestOperator00034_DownGivesBack00033AndUpTakesItAgain`),
+> ön koşul (`TestOperator00034_PreconditionRefusesAWrongCluster`), donan saat
+> (`TestOperator00026_NoFrozenClock`), PrivilegeMatrix (`TestOperator00026_PrivilegeMatrix`), bağlı
+> parametre (`TestOperatorSQL_OnlyBoundParameters`), kopyalar
+> (`TestOperatorAuditKinds_TheSchemaTheFunctionsAndTheGoListAgree`,
+> `TestOperatorAuditKinds_TheTypedConstantsAreTheList`, `TestAuditWords_NameEveryKindAndNothingElse`,
+> `TestAuditWords_NameEveryScopeTheNewestMigrationReturns`), satır kilidi
+> (`TestOpRecordVATCheck_TheRowLockLetsTheTenantsWritesThrough`), kilit bekleyişi
+> (`TestOpRecordVATCheck_ALockWaitTellsTheTenantNotTheNumber`, 2. tur), commit edilmiş okumaya bağ
+> (`TestOpRecordVATCheck_IsBoundToACommittedReadOfTheTenant`, 3. tur). DB'siz olanlar Aşama 1'de,
+> DB'li olanlar Aşama 2'de ve 2. turda yeşil.
+>
+> **DB'siz zincir (Aşama 1, worktree ve `scratchpad/op16a/tree` — `.git`'siz kopya, `app.css` Tailwind
+> CLI ile derlendi, 51 168 bayt):** `gofmt -s -l` boş; `go build ./...`, `go vet ./...` 0; staticcheck
+> 2025.1.1 (`GOTOOLCHAIN=go1.26.7`) `./...` 0; `make gen` worktree'de diff vermedi; redline
+> worktree'de temiz (çıktı OP-14 D'ninkiyle aynı boyda, muaf satırlar aynı); `go test -count=1 ./...`
+> kopyada 30 paket ok, kırmızılar: T72 (`TestRotateScript_AccountsForEveryGoToolchainVariable`, yerel go
+> 1.27.1) ve kopyanın `.git`'sizliği (`TestPackaging_TheArtifactKnowsWhatItWasBuiltFrom`,
+> `TestArtifact_SaysWhatItIsEVENWhenTheBootFails` — worktree'de yeşil); `-race` `internal/db`,
+> `internal/handler/operator`, `cmd/opadmin` ok; `TestEveryNamedTestExists` 60 canlı / 60 bütçe.
+>
+> **Aşama 2 (2026-10-07, orkestratörün *"uygula"*sından sonra; aynı dev veritabanı).**
+>
+> - **Kararlar uygulandı:** (1) satır kilidi `FOR NO KEY UPDATE` (LV5 yazıldı; kaynak pini gövdede
+>   `FOR NO KEY UPDATE` ister, `FOR UPDATE`/`FOR SHARE`/`FOR KEY SHARE` reddeder; mutasyon W19 kırmızı);
+>   (2) 00032'nin yetki testi `opAtVersion(32)` ile — `opAtVersion` artık Down koşmadan önce danışma
+>   kilidinin EXCLUSIVE tutulduğunu ister; (3) havuz testi: numara yalnız bellekte, yalnız eşitlikle
+>   karşılaştırılır; reddedilen çağrıların hata alanlarında ve erişimcinin metninde numara yok
+>   (`TestOpRecordVATCheck_TheRowLockLetsTheTenantsWritesThrough` ölçer).
+> - **goose döngüsü** (bir adım bir komut, `goose_step.sh`; `pg_dump --schema-only` sha256, rastgele
+>   `\restrict` satırları çıkarılmış): 33 `d5366ec2e11ea354…` → Up 34 `022a1a22456ef342…` → Down 33
+>   `d5366ec2e11ea354…` → Up 34 `022a1a22456ef342…`. 33'te kalınan pencere ≈2 sn. Uygulanan dosya
+>   sha256 `89cce358…01b4e` = deponun dosyası. Döngü bilet commit eden testlerden **önce** koşuldu.
+>   **Dev DB son durumda 34.**
+> - **Ölçülmemiş iki pin doğrulandı:** `opTenantWriteShapeDef` canlı CHECK metnine eşit; LV2'nin
+>   `n_tup_upd` sayıları +1 / +0 / +0 (eşleşen / bilinmeyen tenant / uyuşmayan numara).
+> - **T9:** sütun `REVOKE`'u `tenants`/`audit_log`'da ilişki kilidi almaz (oturumun kilitleri Down
+>   öncesi = sonrası; başka oturumun `ROW EXCLUSIVE NOWAIT`'i verilir). `opAtVersion`'ın test işleminde
+>   tuttuğu güçlü kilitler yalnız `operator_audit_log` ve `operator_read_tickets` üzerinde
+>   `AccessExclusiveLock`, 94 ms – 1,089 sn (en uzunu `opAtVersion(31)`, üç Down), danışma kilidi
+>   EXCLUSIVE altında; tenant tablolarına yazan paketler beklemez.
+> - **Satır kilidi:** yazmanın kilidi tutulurken başka oturumun tap INSERT'i + `audit_log` INSERT'i
+>   5 ms; `FOR UPDATE` tutulurken 305 ms'de 55P03 (`lock_timeout` 300 ms).
+> - **Zincir:** OP-16 kümesi 26/26 yeşil; `internal/db` `-race` 380 PASS / 0 FAIL / 0 SKIP, yarış
+>   yok; tam `go test -race ./...` (`.git`'siz kopyada) 30 paket ok — kırmızılar yalnız T72
+>   (`TestRotateScript_AccountsForEveryGoToolchainVariable`, yerel go 1.27.1) ve kopyanın
+>   `.git`'sizliği (`cmd/tappa`'nın üç artifact testi; worktree'de yeşil).
+> - **Commit eden testler** (`TestOpReadTenantVAT_TwoPhaseLifecycle`,
+>   `TestTenantVAT_OnThePoolTheTwoPhasesAreTwoTransactions`; yalnız okuma commit ederler) ayrı ve
+>   bir kez koşuldu: `tenant_vat` 'read' satırı +3, devre dışı operatör hesabı +2, iptal edilmiş
+>   oturum +2; bilet, tenant, `tenant_vat_checked`, `tenant.vat_rechecked` 0. Aşama 2 toplamı:
+>   `tenant_vat` 'read' 9 (üç koşu), OP-16 fixture tenant'ı 0, kilit sondası satırı 0.
+>
+> **Mutasyonlar — `scratchpad/op16a/verify_round1.py`** (yalnız `op16a-orch` kopyası; SQL mutantları
+> testin geri alınan işleminde, bir kanca dosyanın fonksiyonlarını işlem içinde yeniden kurar; sha ile
+> geri yazma; commit eden testler hiçbir `-run` kümesinde değil — koşucu böyle bir kümeyi reddeder;
+> veritabanı önce/sonra: gövde md5'leri, CHECK'ler, ACL'ler, VAT satırları, goose sürümü). Koşu 1a:
+> 60/60 istenen kırmızı, ama hüküm FAIL — tek fark sondanın tablo çapındaki bilet sayısıydı (1 → 0),
+> başka oturumların commit ettiği giriş/okuma satırları yüzünden; `tenant_vat` sayıları aynıydı. Sonda
+> `tenant_vat` türüne daraltıldı, koşu 1b: kontroller yeşil, **60/60 istenen kırmızı, hepsi geri
+> yazıldı, veritabanı değişmedi, VERDICT PASS.** Yalnız kaynak pininin yakaladığı W20 (satır kilidi
+> yok) — tek oturumlu testte davranış farkı yok, LV3/LV5'in sınıfı.
+>
+> | # | mutasyon (kopyada) | sonuç | istenen | geri yazıldı | kırmızı testler |
+> |---|---|---|---|---|---|
+> | CTL-file | the copy unchanged | GREEN | GREEN | evet | — |
+> | CTL-hook | the hook re-creates the four functions unchanged | GREEN | GREEN | evet | — |
+> | W1 | belt: the UPDATE without the tenant (by the number alone) | RED | RED | evet | W.NOOTHER, W.MISMATCH, SIG34 |
+> | W2 | the UPDATE without the number (by the tenant alone) | RED | RED | evet | W.NOOTHER, W.MISMATCH, TEMP34, SIG34 |
+> | W3 | belt: the EXISTS without the tenant | RED | RED | evet | W.NOOTHER, W.MISMATCH, SIG34 |
+> | W4 | the EXISTS without the number (a row for a mismatch) | RED | RED | evet | W.MISMATCH, SIG34 |
+> | W5 | B14: the tenant row without its EXISTS | RED | RED | evet | W.MISMATCH, W.UNKNOWN, W.SAME, SIG34 |
+> | W6 | belt: the tenant row lands in another tenant's log | RED | RED | evet | W.NOOTHER, W.DETAIL, SIG34 |
+> | W7 | the operator row only when the tenant matched | RED | RED | evet | W.MISMATCH, W.UNKNOWN, SIG34 |
+> | W8 | belt: the operator row names the number's tenant | RED | RED | evet | W.NOOTHER, W.MISMATCH, SIG34 |
+> | W9 | a NULL verdict accepted | RED | RED | evet | W.NULL, W.SAME, SIG34 |
+> | W10 | an outage written as 'invalid' (coalesce(p_valid, false)) | RED | RED | evet | W.NULL, SIG34 |
+> | W11 | the tenant row's at = now() | RED | RED | evet | W.DETAIL, W.CLOCK, SIG34 |
+> | W12 | the one clock read = now() | RED | RED | evet | W.CLOCK, NOFROZEN, SIG34 |
+> | W13 | the one clock read = statement_timestamp() | RED | RED | evet | W.CLOCK, NOFROZEN |
+> | W14 | at left to the column's DEFAULT now() | RED | RED | evet | W.DETAIL, W.CLOCK, SIG34 |
+> | W15 | detail without actor_kind | RED | RED | evet | W.DETAIL |
+> | W16 | detail's before is the after | RED | RED | evet | W.DETAIL |
+> | W17 | detail's time in jsonb's own form (the caller's TimeZone) | RED | RED | evet | W.DETAIL, W.CLOCK |
+> | W18 | detail carries the number | RED | RED | evet | W.DETAIL |
+> | W19 | FOR UPDATE in place of FOR NO KEY UPDATE | RED | RED | evet | W.LOCK, SIG34 |
+> | W20 | no row lock (source pin only) | RED | RED | evet | SIG34 |
+> | W21 | a catcher that swallows every error | RED | RED | evet | W.ONETX, SIG34 |
+> | W22 | no catcher (the constraint's own 23514 and name reach the caller) | RED | RED | evet | W.ONETX, SIG34 |
+> | W23 | the operator row carries the verdict (the tenant-write CHECK refuses it) | RED | RED | evet | W.SAME, W.DETAIL |
+> | W24 | the session predicate bypassed (any session hash, live or dead) | RED | RED | evet | W.NULL, W.DEAD |
+> | R1 | belt: the read also returns other tenants | RED | RED | evet | R.ONLY, SIG34 |
+> | R2 | the read consumes a 'tenant_detail' ticket | RED | RED | evet | R.FORGED, R.SAMETX |
+> | C1 | the ticket CHECK without tenant_vat | RED | RED | evet | BEGIN, SIG34 |
+> | C2 | op_begin_read's closed set without tenant_vat | RED | RED | evet | BEGIN, SIG34 |
+> | C3 | op_begin_read's {tenant_id} branch without tenant_vat | RED | RED | evet | BEGIN, SIG34 |
+> | C4 | op_begin_read's filter list without tenant_vat_checked | RED | RED | evet | SIG34, KINDS |
+> | C5 | op_read_audit's filter shape without tenant_vat_checked | RED | RED | evet | SIG34, KINDS |
+> | C6 | op_read_audit's {} read scopes without tenant_vat | RED | RED | evet | SHAPES, SIG34 |
+> | C7 | op_read_audit's returned scopes without tenant_vat | RED | RED | evet | SHAPES, SIG34 |
+> | C8 | the kind CHECK without tenant_vat_checked | RED | RED | evet | W.DETAIL, SIG34, KINDS |
+> | C9 | the tenant-write CHECK loose: any detail | RED | RED | evet | SIG34, SHAPE34 |
+> | C10 | the tenant-write CHECK loose: no tenant required | RED | RED | evet | SIG34, SHAPE34 |
+> | C11 | the tenant-write CHECK dropped | RED | RED | evet | SIG34, SHAPE34, KINDS |
+> | P1 | the definer granted UPDATE (vat_number) | RED | RED | evet | PRIV, DEF34 |
+> | P2 | the definer granted SELECT on audit_log | RED | RED | evet | PRIV, DEF34 |
+> | P3 | the definer lost UPDATE (vat_checked_at) | RED | RED | evet | W.DETAIL, PRIV, DEF34 |
+> | P4 | tappa_app granted UPDATE (vat_verified) | RED | RED | evet | DEF34 |
+> | P5 | the definer granted INSERT (id) on audit_log | RED | RED | evet | PRIV, DEF34 |
+> | G1 | OperatorAuditKinds misses tenant_vat_checked | RED | RED | evet | WORDS, KINDS, KCONST |
+> | G2 | the Go read kind misspelled | RED | RED | evet | BEGIN, SHAPES, R.FORGED |
+> | G3 | the screen has no word for tenant_vat_checked | RED | RED | evet | WORDS, E2EW |
+> | G4 | the screen has no word for the tenant_vat scope | RED | RED | evet | SCOPEW, E2EW |
+> | D1 | Down: op_begin_read keeps tenant_vat (not 00033's body) | RED | RED | evet | DOWN34 |
+> | D2 | Down: op_read_audit keeps tenant_vat_checked (not 00033's body) | RED | RED | evet | DOWN34 |
+> | D3 | Down: REVOKE ALL ON tenants FROM the definer | RED | RED | evet | DOWN32, DOWN34 |
+> | D4 | Down: the kind CHECK never NOT VALID | RED | RED | evet | DOWN34 |
+> | D5 | Down: the ticket CHECK always NOT VALID | RED | RED | evet | DOWN34 |
+> | D6 | Down: the ticket condition names tenant_vat as known | RED | RED | evet | DOWN34 |
+> | D7 | Down: the INSERT revoke misses at | RED | RED | evet | DOWN34 |
+> | D8 | Down: the tenant-write CHECK not dropped | RED | RED | evet | DOWN34 |
+> | D9 | Up: the kind CHECK never NOT VALID | RED | RED | evet | DOWN34 |
+> | D10 | Up: the UPDATE grant names vat_number | RED | RED | evet | DOWN34 |
+> | PR1 | precondition: the drift check removed | RED | RED | evet | PRE34 |
+> | PR2 | precondition: 00032's tenant_billing not checked | RED | RED | evet | PRE34 |
+> | PR3 | precondition: 00033's trigger not checked | RED | RED | evet | PRE34 |
+> | PR4 | precondition: this file's CHECK already there not checked | RED | RED | evet | PRE34 |
+>
+> Kısaltmalar:
+> - SIG34 = `TestOperator00034_TheFunctionsAndTheirExactSignatures`
+> - DEF34 = `TestOperator00034_TheDefinerWritesTheVerdictAndNotTheNumber`
+> - SHAPE34 = `TestOperator00034_TheTenantWriteKindNamesItsTenantAndNothingElse`
+> - TEMP34 = `TestOperator00034_CallersTempTableIsNeverRead`
+> - DOWN34 = `TestOperator00034_DownGivesBack00033AndUpTakesItAgain`
+> - PRE34 = `TestOperator00034_PreconditionRefusesAWrongCluster`
+> - DOWN32 = `TestOperator00032_DownGivesBack00031AndUpTakesItAgain`
+> - PRIV = `TestOperator00026_PrivilegeMatrix`
+> - NOFROZEN = `TestOperator00026_NoFrozenClock`
+> - KINDS = `TestOperatorAuditKinds_TheSchemaTheFunctionsAndTheGoListAgree`
+> - KCONST = `TestOperatorAuditKinds_TheTypedConstantsAreTheList`
+> - WORDS = `TestAuditWords_NameEveryKindAndNothingElse`
+> - SCOPEW = `TestAuditWords_NameEveryScopeTheNewestMigrationReturns`
+> - E2EW = `TestE2E_AuditWordsCoverEveryScopeAndSearchClassTheDatabaseReturns`
+> - SHAPES = `TestOpReadAudit_TheDetailIsShownOnlyInAShapeOnTheList`
+> - BEGIN = `TestOpBeginRead_TheVATKindBindsTheTenantAndNothingElse`
+> - R.ONLY = `TestOpReadTenantVAT_ReturnsOnlyTheNamedTenantsNumberAndState`
+> - R.FORGED = `TestOpReadTenantVAT_AForgedTicketIsRefused`
+> - R.SAMETX = `TestOpReadTenantVAT_ATicketFromThisTransactionIsRefused`
+> - W.NULL = `TestOpRecordVATCheck_ANullVerdictIsRefusedAndWritesNothing`
+> - W.DETAIL = `TestOpRecordVATCheck_TheDetailIsTheBeforeAndAfterInEveryStartingState`
+> - W.MISMATCH = `TestOpRecordVATCheck_AMismatchedNumberChangesNothingAndLeavesTheOperatorsRow`
+> - W.UNKNOWN = `TestOpRecordVATCheck_AnUnknownTenantIsTheSameVoid`
+> - W.SAME = `TestOpRecordVATCheck_TheAnswerIsTheSameWhateverTheTenantsState`
+> - W.CLOCK = `TestOpRecordVATCheck_TheTenantRowsTimeIsTheWallClock`
+> - W.ONETX = `TestOpRecordVATCheck_TheThreeWritesShareOneTransaction`
+> - W.LOCK = `TestOpRecordVATCheck_TheRowLockLetsTheTenantsWritesThrough`
+> - W.NOOTHER = `TestOpRecordVATCheck_ACallForOneTenantTouchesNoOther`
+> - W.DEAD = `TestOpRecordVATCheck_RefusesEveryDeadSession`
+>
+> **2. tur (2026-10-07, üçüncü gözün RED'i: F1 bloklayan, F2–F4 düşük, F5 bilgi; orkestratörün
+> kararı "seçenek (a)").**
+>
+> - **F1 — numara tenant argümanından bağımsız sızıyordu.** 1. turun gövdesi numarayı kilitli
+>   okumada, `UPDATE`'te ve `EXISTS`'te koşul olarak taşıyordu; planlayıcı onları
+>   `tenants_vat_number_key`'den cevapladı (`id` yalnız süzgeç) → rastgele bir tenant id'siyle geri
+>   alınan tek çağrı, numaranın herhangi bir tenant'a kayıtlı olup olmadığını izsiz söylüyordu.
+>   **Düzeltme:** kilitli okuma yalnız `t.id = p_tenant_id` (`FOR NO KEY UPDATE` kaldı) ve
+>   `vat_number`'ı da döndürür; numara plpgsql'de değişkenle karşılaştırılır; `UPDATE` (id ile) ve
+>   tenant satırı (`INSERT … VALUES`) `IF FOUND AND v_number = p_vat_number` içinde; operatör
+>   satırı dışında, her kabul edilen çağrıda. **Ölçüm** (geri alınan savepoint'te bir çağrı;
+>   `tenants` `idx_scan` / `idx_tup_fetch` / `n_tup_upd`; "önce" = 1. turun gövdesi aynı testte,
+>   mutasyon W26):
+>
+>   | Çağrı | 1. tur | 2. tur |
+>   |---|---|---|
+>   | var olmayan tenant, kayıtsız numara | 3 / 0 / 0 | 1 / 0 / 0 |
+>   | var olmayan tenant, **başka bir tenant'ın** numarası | 3 / **3** / 0 | 1 / 0 / 0 |
+>   | var olan tenant, kayıtsız numara | 3 / 0 / 0 | 1 / 1 / 0 |
+>   | var olan tenant, **başka bir tenant'ın** numarası | 3 / **3** / 0 | 1 / 1 / 0 |
+>   | var olan tenant, kendi numarası | 4 / 4 / 1 | 3 / 3 / 1 |
+>
+>   Pin (`TestOpRecordVATCheck_AnUnknownTenantIsTheSameVoid`): ısınmadan sonra her ölçüm iki kez;
+>   kayıtsız numara ile başka bir tenant'ın numarası, var olmayan ve var olan tenant için,
+>   `pg_stat_xact_user_tables`'ın her tablosunun yedi sayacını aynı oynatmak zorunda; kalan iki bit
+>   (tenant var mı, numara kendi numarası mı) ölçülen değerlerinde pinli (LV2). Kaynak pini:
+>   `p_vat_number` gövdede tam iki kez (NULL reddi, koruma), `vat_number =` ve `exists` hiç.
+> - **F2 — LV3:** hata biçimi yazıldı (55P03 ölçüldü; REPEATABLE READ'de 40001 belgeden); *"cevap
+>   oturum ve argümanlarla belirlenir"* eşzamanlı kilit sahibi istisnasıyla daraltıldı (00034
+>   başlığı ve §7 yorumu, ADR md. 3, `RecordTenantVATCheck`'in yorumu, sorgu belgesi). Yeni test
+>   `TestOpRecordVATCheck_ALockWaitTellsTheTenantNotTheNumber`: başka oturum commit edilmiş en eski
+>   numaralı tenant'ı tutarken (`lock_timeout` 300 ms) kendi numarası 308 ms, başka tenant'ın
+>   numarası 305 ms, kayıtsız numara 305 ms → üçü de 55P03, hiçbir alanda numara ya da oturum
+>   hash'i yok; var olmayan tenant 8 ms / 5 ms `void`; kilit bırakılınca `void`. 1. turun gövdesinde
+>   başka tenant'ın numarası 6 ms'de `void` dönüyordu (W26).
+> - **F3:** `GRANT UPDATE (vat_checked_at) ON tenants TO tappa_app` vakası ön koşul testine eklendi
+>   (mutasyon PR5 = MX1 kırmızı); ayrıca `op_begin_read`'in yokluğu vakası (yorum onu anıyordu).
+> - **F4:** ADR PART I artık "dokuz rol şekli, 00033'ün on üç izi, dokuz kayma şekli"; ön koşul
+>   testinin yorumu vakalarla aynı.
+> - **F5:** dokunulmadı.
+> - **Yeniden uygulama** (goose, bir adım bir komut; `pg_dump --schema-only` sha256, `\restrict`
+>   satırları çıkarılmış): 34 (1. tur) `022a1a22456ef342…` → Down 33 `d5366ec2e11ea354…` → Up 34
+>   (2. tur) `f5b88aaa13e31723…` → Down 33 `d5366ec2e11ea354…` → Up 34 `f5b88aaa13e31723…`. Şema
+>   farkı yalnız `op_record_vat_check`'in gövdesi. Uygulanan dosya sha256 `bc075818…45b5301` =
+>   deponun dosyası. Döngü bilet commit eden testlerden önce. **Dev DB son durumda 34.**
+> - **Commit eden iki test** ayrı ve bir kez: `tenant_vat` 'read' 12 → 15 (+3), devre dışı hesap
+>   +2, iptal edilmiş oturum +2; bilet, tenant, `tenant_vat_checked`, `tenant.vat_rechecked`, kilit
+>   sondası satırı ve OP-16 fixture tenant'ı 0. (12'nin 9'u 1. turundu; aradaki +3 bu oturumun
+>   dışından — denetçinin koşusu olmalı.)
+> - **Zincir:** `gofmt -s -l` boş; `go build ./...`, `go vet ./...` 0; staticcheck 2025.1.1
+>   (`GOTOOLCHAIN=go1.26.7`) `./...` 0 bulgu; `make gen` idempotent (durum ve diff sha'sı önce =
+>   sonra); redline temiz (8328 bayt, 1. turla aynı); `go.mod`/`go.sum`/`sqlc.yaml` diff 0 satır;
+>   `TestComments_DoNotQuoteTheDriftingRosterSize` ok; `TestEveryNamedTestExists` worktree'de 60 / 60 ve kart `m10-platform.md`'nin
+>   başlığından önce eklenmiş kopyada da 60 / 60 (2996 test fonksiyonu, 870 dosya); `.env`'li `-race`: `internal/db` 379 PASS
+>   (commit eden iki test `-skip` ile dışarıda, ayrı koşuldu: 2 PASS) / 0 FAIL / 0 SKIP, yarış yok;
+>   `internal/handler/operator` (`app.css`'li kopyada) ok, 448 sn.
+>
+> **Mutasyonlar — `scratchpad/op16a/verify_round2.py`** (yalnız `op16a-orch` kopyası; commit eden
+> testler hiçbir `-run` kümesinde değil; veritabanı önce/sonra aynı). 1. turun 60'ı yeni gövdeye
+> göre yeniden demirlendi; eklenenler W25 (F1 geri: kilitli okuma numarayla), W26 (1. turun bütün
+> gövdesi), PR5 (MX1). Kontroller yeşil, **63/63 istenen kırmızı, hepsi geri yazıldı, VERDICT
+> PASS.** Yalnız kaynak pininin yakaladığı W1 (korumanın altında `UPDATE` numarayla — numara
+> UNIQUE ve koruma onun tenant'ın numarası olduğunu bildiği için aynı satır; kemerin ikinci katı).
+>
+> | # | mutasyon (kopyada) | sonuç | istenen | geri yazıldı | kırmızı testler |
+> |---|---|---|---|---|---|
+> | CTL-file | the copy unchanged | GREEN | GREEN | evet | — |
+> | CTL-hook | the hook re-creates the four functions unchanged | GREEN | GREEN | evet | — |
+> | W1 | belt: the UPDATE by the number, not the tenant (under the guard: the source pin's) | RED | RED | evet | SIG34 |
+> | W2 | the guard without the number: an UPDATE on a mismatch | RED | RED | evet | W.NOOTHER, W.MISMATCH, TEMP34, SIG34 |
+> | W3 | the guard dropped (IF true) | RED | RED | evet | W.MISMATCH, W.UNKNOWN, W.SAME, SIG34 |
+> | W4 | the guard compares the number in a statement (an EXISTS by the number) | RED | RED | evet | W.UNKNOWN, SIG34 |
+> | W5 | B14: the tenant row outside the guard | RED | RED | evet | W.MISMATCH, W.UNKNOWN, W.SAME |
+> | W6 | belt: the tenant row lands in another tenant's log | RED | RED | evet | W.NOOTHER, W.DETAIL, SIG34 |
+> | W7 | the operator row only when the tenant matched (inside the guard) | RED | RED | evet | W.MISMATCH, W.UNKNOWN, SIG34 |
+> | W8 | belt: the operator row names the number's tenant | RED | RED | evet | W.NOOTHER, W.MISMATCH, SIG34 |
+> | W9 | a NULL verdict accepted | RED | RED | evet | W.NULL, W.SAME, SIG34 |
+> | W10 | an outage written as 'invalid' (coalesce(p_valid, false)) | RED | RED | evet | W.NULL, SIG34 |
+> | W11 | the tenant row's at = now() | RED | RED | evet | W.DETAIL, W.CLOCK, SIG34 |
+> | W12 | the one clock read = now() | RED | RED | evet | W.CLOCK, NOFROZEN, SIG34 |
+> | W13 | the one clock read = statement_timestamp() | RED | RED | evet | W.CLOCK, NOFROZEN |
+> | W14 | at left to the column's DEFAULT now() | RED | RED | evet | W.DETAIL, W.CLOCK, SIG34 |
+> | W15 | detail without actor_kind | RED | RED | evet | W.DETAIL |
+> | W16 | detail's before is the after | RED | RED | evet | W.DETAIL |
+> | W17 | detail's time in jsonb's own form (the caller's TimeZone) | RED | RED | evet | W.DETAIL, W.CLOCK |
+> | W18 | detail carries the number | RED | RED | evet | W.DETAIL |
+> | W19 | FOR UPDATE in place of FOR NO KEY UPDATE | RED | RED | evet | W.LOCK, SIG34 |
+> | W20 | no row lock (round 2: the lock-wait test sees it too) | RED | RED | evet | W.WAIT, SIG34 |
+> | W21 | a catcher that swallows every error | RED | RED | evet | W.ONETX, SIG34 |
+> | W22 | no catcher (the constraint's own 23514 and name reach the caller) | RED | RED | evet | W.ONETX, SIG34 |
+> | W23 | the operator row carries the verdict (the tenant-write CHECK refuses it) | RED | RED | evet | W.SAME, W.DETAIL |
+> | W24 | the session predicate bypassed (any session hash, live or dead) | RED | RED | evet | W.NULL, W.DEAD |
+> | W25 | F1 back: the locking read by the tenant AND the number (round 1's read) | RED | RED | evet | W.WAIT, W.UNKNOWN, SIG34 |
+> | W26 | round 1's whole body (the leak's 'before') | RED | RED | evet | W.WAIT, W.UNKNOWN, SIG34 |
+> | R1 | belt: the read also returns other tenants | RED | RED | evet | R.ONLY, SIG34 |
+> | R2 | the read consumes a 'tenant_detail' ticket | RED | RED | evet | R.FORGED, R.SAMETX |
+> | C1 | the ticket CHECK without tenant_vat | RED | RED | evet | BEGIN, SIG34 |
+> | C2 | op_begin_read's closed set without tenant_vat | RED | RED | evet | BEGIN, SIG34 |
+> | C3 | op_begin_read's {tenant_id} branch without tenant_vat | RED | RED | evet | BEGIN, SIG34 |
+> | C4 | op_begin_read's filter list without tenant_vat_checked | RED | RED | evet | SIG34, KINDS |
+> | C5 | op_read_audit's filter shape without tenant_vat_checked | RED | RED | evet | SIG34, KINDS |
+> | C6 | op_read_audit's {} read scopes without tenant_vat | RED | RED | evet | SHAPES, SIG34 |
+> | C7 | op_read_audit's returned scopes without tenant_vat | RED | RED | evet | SHAPES, SIG34 |
+> | C8 | the kind CHECK without tenant_vat_checked | RED | RED | evet | W.DETAIL, SIG34, KINDS |
+> | C9 | the tenant-write CHECK loose: any detail | RED | RED | evet | SIG34, SHAPE34 |
+> | C10 | the tenant-write CHECK loose: no tenant required | RED | RED | evet | SIG34, SHAPE34 |
+> | C11 | the tenant-write CHECK dropped | RED | RED | evet | SIG34, SHAPE34, KINDS |
+> | P1 | the definer granted UPDATE (vat_number) | RED | RED | evet | PRIV, DEF34 |
+> | P2 | the definer granted SELECT on audit_log | RED | RED | evet | PRIV, DEF34 |
+> | P3 | the definer lost UPDATE (vat_checked_at) | RED | RED | evet | W.DETAIL, PRIV, DEF34 |
+> | P4 | tappa_app granted UPDATE (vat_verified) | RED | RED | evet | DEF34 |
+> | P5 | the definer granted INSERT (id) on audit_log | RED | RED | evet | PRIV, DEF34 |
+> | G1 | OperatorAuditKinds misses tenant_vat_checked | RED | RED | evet | WORDS, KINDS, KCONST |
+> | G2 | the Go read kind misspelled | RED | RED | evet | BEGIN, SHAPES, R.FORGED |
+> | G3 | the screen has no word for tenant_vat_checked | RED | RED | evet | WORDS, E2EW |
+> | G4 | the screen has no word for the tenant_vat scope | RED | RED | evet | SCOPEW, E2EW |
+> | D1 | Down: op_begin_read keeps tenant_vat (not 00033's body) | RED | RED | evet | DOWN34 |
+> | D2 | Down: op_read_audit keeps tenant_vat_checked (not 00033's body) | RED | RED | evet | DOWN34 |
+> | D3 | Down: REVOKE ALL ON tenants FROM the definer | RED | RED | evet | DOWN32, DOWN34 |
+> | D4 | Down: the kind CHECK never NOT VALID | RED | RED | evet | DOWN34 |
+> | D5 | Down: the ticket CHECK always NOT VALID | RED | RED | evet | DOWN34 |
+> | D6 | Down: the ticket condition names tenant_vat as known | RED | RED | evet | DOWN34 |
+> | D7 | Down: the INSERT revoke misses at | RED | RED | evet | DOWN34 |
+> | D8 | Down: the tenant-write CHECK not dropped | RED | RED | evet | DOWN34 |
+> | D9 | Up: the kind CHECK never NOT VALID | RED | RED | evet | DOWN34 |
+> | D10 | Up: the UPDATE grant names vat_number | RED | RED | evet | DOWN34 |
+> | PR1 | precondition: the drift check removed | RED | RED | evet | PRE34 |
+> | PR2 | precondition: 00032's tenant_billing not checked | RED | RED | evet | PRE34 |
+> | PR3 | precondition: 00033's trigger not checked | RED | RED | evet | PRE34 |
+> | PR5 | MX1: the precondition without tappa_app's vat_checked_at arm | RED | RED | evet | PRE34 |
+> | PR4 | precondition: this file's CHECK already there not checked | RED | RED | evet | PRE34 |
+>
+> Kısaltmalar:
+> - SIG34 = `TestOperator00034_TheFunctionsAndTheirExactSignatures`
+> - DEF34 = `TestOperator00034_TheDefinerWritesTheVerdictAndNotTheNumber`
+> - SHAPE34 = `TestOperator00034_TheTenantWriteKindNamesItsTenantAndNothingElse`
+> - TEMP34 = `TestOperator00034_CallersTempTableIsNeverRead`
+> - DOWN34 = `TestOperator00034_DownGivesBack00033AndUpTakesItAgain`
+> - PRE34 = `TestOperator00034_PreconditionRefusesAWrongCluster`
+> - DOWN32 = `TestOperator00032_DownGivesBack00031AndUpTakesItAgain`
+> - PRIV = `TestOperator00026_PrivilegeMatrix`
+> - NOFROZEN = `TestOperator00026_NoFrozenClock`
+> - KINDS = `TestOperatorAuditKinds_TheSchemaTheFunctionsAndTheGoListAgree`
+> - KCONST = `TestOperatorAuditKinds_TheTypedConstantsAreTheList`
+> - WORDS = `TestAuditWords_NameEveryKindAndNothingElse`
+> - SCOPEW = `TestAuditWords_NameEveryScopeTheNewestMigrationReturns`
+> - E2EW = `TestE2E_AuditWordsCoverEveryScopeAndSearchClassTheDatabaseReturns`
+> - SHAPES = `TestOpReadAudit_TheDetailIsShownOnlyInAShapeOnTheList`
+> - BEGIN = `TestOpBeginRead_TheVATKindBindsTheTenantAndNothingElse`
+> - R.ONLY = `TestOpReadTenantVAT_ReturnsOnlyTheNamedTenantsNumberAndState`
+> - R.FORGED = `TestOpReadTenantVAT_AForgedTicketIsRefused`
+> - R.SAMETX = `TestOpReadTenantVAT_ATicketFromThisTransactionIsRefused`
+> - W.NULL = `TestOpRecordVATCheck_ANullVerdictIsRefusedAndWritesNothing`
+> - W.DETAIL = `TestOpRecordVATCheck_TheDetailIsTheBeforeAndAfterInEveryStartingState`
+> - W.MISMATCH = `TestOpRecordVATCheck_AMismatchedNumberChangesNothingAndLeavesTheOperatorsRow`
+> - W.UNKNOWN = `TestOpRecordVATCheck_AnUnknownTenantIsTheSameVoid`
+> - W.SAME = `TestOpRecordVATCheck_TheAnswerIsTheSameWhateverTheTenantsState`
+> - W.CLOCK = `TestOpRecordVATCheck_TheTenantRowsTimeIsTheWallClock`
+> - W.ONETX = `TestOpRecordVATCheck_TheThreeWritesShareOneTransaction`
+> - W.LOCK = `TestOpRecordVATCheck_TheRowLockLetsTheTenantsWritesThrough`
+> - W.WAIT = `TestOpRecordVATCheck_ALockWaitTellsTheTenantNotTheNumber`
+> - W.NOOTHER = `TestOpRecordVATCheck_ACallForOneTenantTouchesNoOther`
+> - W.DEAD = `TestOpRecordVATCheck_RefusesEveryDeadSession`
+>
+> **3. tur (2026-10-07, güvenlik denetimi ONAY; üç DÜŞÜK bulgu + bir not; orkestratörün D1 kararı:
+> yazmayı commit edilmiş okumaya BAĞLA). Aşama 1 — DB'ye dokunulmadı.**
+>
+> - **D1 — bağ (md. 3 (b2), 00034 §7 (b2)).** `op_record_vat_check`, NULL reddinden hemen sonra ve
+>   `tenants`'a ilk atıftan önce şunu ister:
+>   `EXISTS (SELECT 1 FROM public.operator_read_tickets AS k JOIN public.operator_audit_log AS r ON
+>   r.id = k.audit_id WHERE k.session_id = v_session AND k.kind = 'tenant_vat' AND
+>   k.target_tenant_id = p_tenant_id AND pg_xact_status(k.created_xact) = 'committed' AND r.kind =
+>   'read' AND r.session_id = v_session AND r.target_scope = 'tenant_vat' AND r.target_tenant_id =
+>   p_tenant_id)`. Yoksa (b)'nin aynı 22023'ü, aynı sabit ileti, DETAIL yok; okuma, kilit, yazı yok.
+>   **Gerekçe:** oturum kimliği 'read' satırında var, yani en dar doğru bağ **oturum**dur (aynı
+>   operatörün başka oturumu ve başka operatör reddedilir). "Bu işlemden önce commit edilmiş"
+>   ayrımı `op_read_tenant_vat`'ın *ATicketFromThisTransactionIsRefused* deseninin aynısı: bilet ve
+>   'read' satırı tek `op_begin_read`'in tek işlemidir, biletin `created_xact`'i `pg_xact_status` ile
+>   `committed` olmalı. **Bağın sınırı oturum, biletin ömrü değil:** bilet tüketilmiş ya da süresi
+>   dolmuş olabilir — OP-16 B okuma ile yazma arasında VIES'e veritabanı dışında, VIES ne kadar
+>   sürerse sorar; biletin 30 sn'lik ömrü bu akışı kırabilirdi. Yeni yetki yok (00026'nın bilet,
+>   00027/00031'in günlük `SELECT`'leri). Go'da `RecordTenantVATCheck` ve sorgu belgesi bağı anar;
+>   B akışı yapısı gereği geçer (havuz testi Aşama 2'de ölçer: `TenantVAT` → aynı havuz ve
+>   oturumla `RecordTenantVATCheck` → `void`, geri alınan işlemde ve tenant'ın olmayan bir
+>   numarayla; okunmamış tenant → 22023).
+> - **Testler:** yeni `TestOpRecordVATCheck_IsBoundToACommittedReadOfTheTenant` (okuma yok; başka
+>   tenant'ın okuması; başka türün — `tenant_detail` — okuması; aynı operatörün başka oturumunun ve
+>   başka operatörün okuması; bu işlemde açılmış okuma → her biri 22023 ve sıfır yazı; ret için var
+>   olan ve olmayan tenant'ta aynı istatistik vektörü, `tenants` hiç oynamıyor; kontrol: süresi
+>   dolmuş ve tüketilmiş commit edilmiş okumayla bugünkü davranış). Mevcut testler bağı
+>   `opVATReadFor` ile kurar — okuma tarafının testlerinin kullandığı aynı commit'siz sahte okuma
+>   (`opForgeVAT` + `opCommittedXact`); hiçbir test öncekinden fazla commit etmez. Down testinin 2.
+>   dalı artık okumanın biletini de taşır (bilet CHECK'i de `NOT VALID`); gölge testi, okuması
+>   yalnız gölge tablolarda olan bir tenant için 22023 ister.
+> - **D1 metni:** LV2 yeniden yazıldı — yinelenebilirlik ve denetçinin maliyeti (3000 aday 1423 ms,
+>   ~474 µs/aday; 8 hane ~13 saat), bağ, sayılı kalan (okumadan sonra numara değişirse o oturumda
+>   sınanabilmesi — uygulamada numarayı değiştiren yol yok; "tenant var mı"nın okumanın ikinci
+>   aşamasında zaten görünmesi; bağın bilet tablosuna dayanması; çok eski işlemde `pg_xact_status`
+>   NULL), denetçinin kanal listesi (`n_tup_hot_upd`, `audit_log` `n_tup_ins`, `pg_statio_*`, WAL,
+>   zamanlama, 55P03 CONTEXT'indeki `ctid`).
+> - **D2:** LV5'in "Kalan"ına kasıtlı tutma yazıldı; bağdan sonra tutmak commit edilmiş bir okuma
+>   izi gerektirir — `TestOpRecordVATCheck_ALockWaitTellsTheTenantNotTheNumber`'a vaka: başka oturum
+>   satırı tutarken o tenant'ı okumamış oturumun çağrısı 55P03 değil 22023 (satıra varmadı). Rol
+>   düzeyi zaman aşımı yapılmadı — backlog'da.
+> - **D3:** `TestOperator00034_PreconditionRefusesAWrongCluster`'a üyelik vakası (`GRANT UPDATE
+>   (vat_verified) ON tenants TO tappa_resolver; GRANT tappa_resolver TO tappa_app`, geri alınan
+>   savepoint'te); artık 9 rol şekli, 13 iz, 10 kayma şekli.
+> - **S2:** `TestOpRecordVATCheck_AMismatchedNumberChangesNothingAndLeavesTheOperatorsRow`'a `%` ve
+>   son karakteri `_` olan kendi numarası; kaynak pini `like`/`similar to`/`~`'yi de yasaklar.
+> - **Kaynak pini:** `opVATWriteSourceRules`'a bağın tam metni (NULL reddinin hemen ardında, `begin`
+>   ve kilitli okumadan önce); sayımlar: dört `RAISE`, tek `EXISTS` (bağınki), biletleri okuyan tek
+>   ifade; sıra: NULL reddi < bağ < `tenants`. Testin kendi kontrollerine beş yeni bozma (bağ
+>   kapalı, bu işlemin okumasını kabul, tenant'ı yok sayma, oturumu yok sayma, `LIKE` koruması).
+>   DB'siz denetim (`scratchpad/op16a/check_pins.py`, dosyanın gövdesine karşı): 10 kural sağlanıyor,
+>   15 kontrolün 15'i raporlanıyor.
+> - **Aşama 1 zinciri (worktree, `.env` YOK):** `gofmt -s -l` boş; `go build ./...`, `go vet ./...` 0;
+>   staticcheck 2025.1.1 0 bulgu; `make gen` idempotent; redline temiz (8328 bayt); bağımlılık
+>   diff'i 0; `TestComments_DoNotQuoteTheDriftingRosterSize` ok; `TestEveryNamedTestExists`
+>   60 / 60; DB'siz `go test ./internal/db/` ok (45 PASS, 337 SKIP — DB testleri);
+>   `./internal/handler/operator/` `app.css`'li kopyada ok (worktree'de `app.css` derlenmemiş
+>   olduğundan `TestHostGate_TheOperatorHostServesNoCustomerRoute` 404 — önceden var, bu işle ilgisiz).
+> - **Aşama 2'de (orkestratörün "uygula"sından sonra):** 00034 Down/Up (`pg_dump` sha eşitliği),
+>   bütün `internal/db` + `internal/handler/operator`, mutasyonlar B1 bağ kaldırıldı · B2 aynı
+>   işlemdeki okumayı kabul · B3 tenant'ı yok sayma · B4 oturumu/operatörü yok sayma · B5 bağ kilitli
+>   okumadan SONRA · B6 ret iletisinde `p_tenant_id` · D3-mut ön koşulun `tappa_app` kolları yalnız
+>   doğrudan ACL · S2-mut koruma `LIKE` ile — ve önceki 63'ün yeniden koşusu.
+>
+> **3. tur — Aşama 2 (orkestratörün "uygula"sından sonra, 2026-10-07).**
+>
+> - **goose, tek koşu, adımlar arasında bekleme yok** (`pg_dump --schema-only` sha256): 34 (2. tur)
+>   `f5b88aaa13e31723…` → Down 33 `d5366ec2e11ea354…` → Up 34 (3. tur) `26acd0f24ff7b7ea…` → Down 33
+>   `d5366ec2e11ea354…` → Up 34 `26acd0f24ff7b7ea…`. Down sonrası = 00033 durumu, iki Up eşit; şema
+>   farkı yalnız bağ bloğu; 33'te iki pencere ~1 sn; uygulanan dosya sha256 `52743a7c…26392ba` =
+>   deponun dosyası. **Dev DB 34.**
+> - **Testler (`.env`'li `-race`):** `internal/db` tamamı 382 PASS / 0 FAIL / 0 SKIP, yarış yok
+>   (commit eden iki test bir kez, bu koşunun içinde); `internal/handler/operator` `app.css`'li
+>   kopyada 130 PASS / 0 FAIL / 0 SKIP. Ölçülenler: bağın reddi var olan ve olmayan tenant için aynı
+>   vektör, `tenants` yok; kilit bekleme testinde okumamış oturum 4 ms'de 22023, okumuş oturumun üç
+>   çağrısı 305–309 ms'de 55P03, var olmayan tenant 4–6 ms `void`.
+> - **DB önce/sonra** (salt-okur sondalar; aynı anda OP-14E denetçisinin `internal/operatorauth`
+>   koşusu da DB'deydi, genel sayımlar ona da aittir):
+>   - `internal/db` koşusu: `tenant_vat` 'read' 15 → 18 (+3 — yaşam döngüsü 1, havuz 2; önceki
+>     turlarla aynı, yani havuz testinin yeni B akışı ölçümü **commit etmiyor**);
+>     `tenant_vat_checked` 0, `tenant.vat_rechecked` 0, kilit sondası 0, bilet 0, OP-16 fixture
+>     tenant'ı 0; VAT durumu olan tenant sayıları (`vat_verified` 25282, `vat_checked_at` 25908)
+>     değişmedi. Genel: oturum +14 (iptal +13), devre dışı hesap +13, operatör günlüğü +28,
+>     `audit_log` +36, tenant +189 (başka paketlerin ve eşzamanlı koşunun commit eden fikstürleri;
+>     hiçbirinin VAT durumu yok).
+>   - Mutasyon turu: önce = sonra, her sayım ve VAT özeti (`vat_set_rows` 25910, özet değişmedi).
+> - **Mutasyonlar — `scratchpad/op16a/verify_round3.py`** (yalnız `op16a-orch` kopyası; havuz testi
+>   ve yaşam döngüsü testi hiçbir `-run` kümesinde değil; disk 106 Gi boş): kontroller yeşil,
+>   **71/71 istenen kırmızı**, hepsi geri yazıldı, veritabanı önce/sonra aynı, VERDICT PASS.
+>   Yeni sekiz: B1 bağ kaldırıldı → bağ testi, kilit bekleme, gölge, kaynak pini · B2 bu işlemin
+>   okumasını kabul → bağ testi, kaynak pini · B3 tenant'ı yok sayma → bağ testi, kaynak pini · B4
+>   oturumu/operatörü yok sayma → bağ testi, kilit bekleme, kaynak pini · B5 bağ kilitli okumadan
+>   sonra → bağ testi (ret `tenants`'ı okur: var olan `idx_tup_fetch` 1, olmayan 0), kilit bekleme
+>   (okumamış oturum 55P03'e kadar bekler), kaynak pini · B6 retin iletisinde `p_tenant_id` → bağ
+>   testi, kilit bekleme, gölge, kaynak pini · S2-mut koruma `LIKE` ile → uyuşmazlık testi
+>   (davranış) ve kaynak pini · D3-mut (PR6) ön koşulun `tappa_app` kolları yalnız doğrudan ACL →
+>   ön koşul testi. Yalnız kaynak pininin yakaladığı tek mutasyon yine W1 (eşdeğer davranış; 2. tur).
+>
+> | # | mutasyon (kopyada) | sonuç | istenen | geri yazıldı | kırmızı testler |
+> |---|---|---|---|---|---|
+> | CTL-file | the copy unchanged | GREEN | GREEN | evet | — |
+> | CTL-hook | the hook re-creates the four functions unchanged | GREEN | GREEN | evet | — |
+> | W1 | belt: the UPDATE by the number, not the tenant (under the guard: the source pin's) | RED | RED | evet | SIG34 |
+> | W2 | the guard without the number: an UPDATE on a mismatch | RED | RED | evet | W.NOOTHER, W.MISMATCH, TEMP34, SIG34 |
+> | W3 | the guard dropped (IF true) | RED | RED | evet | W.MISMATCH, W.UNKNOWN, W.SAME, SIG34 |
+> | W4 | the guard compares the number in a statement (an EXISTS by the number) | RED | RED | evet | W.UNKNOWN, SIG34 |
+> | W5 | B14: the tenant row outside the guard | RED | RED | evet | W.MISMATCH, W.UNKNOWN, W.SAME |
+> | W6 | belt: the tenant row lands in another tenant's log | RED | RED | evet | W.NOOTHER, W.DETAIL, SIG34 |
+> | W7 | the operator row only when the tenant matched (inside the guard) | RED | RED | evet | W.MISMATCH, W.UNKNOWN, SIG34 |
+> | W8 | belt: the operator row names the number's tenant | RED | RED | evet | W.NOOTHER, W.MISMATCH, SIG34 |
+> | W9 | a NULL verdict accepted | RED | RED | evet | W.SAME, SIG34 |
+> | W10 | an outage written as 'invalid' (coalesce(p_valid, false)) | RED | RED | evet | SIG34 |
+> | W11 | the tenant row's at = now() | RED | RED | evet | W.DETAIL, W.CLOCK, SIG34 |
+> | W12 | the one clock read = now() | RED | RED | evet | W.CLOCK, NOFROZEN, SIG34 |
+> | W13 | the one clock read = statement_timestamp() | RED | RED | evet | W.CLOCK, NOFROZEN |
+> | W14 | at left to the column's DEFAULT now() | RED | RED | evet | W.DETAIL, W.CLOCK, SIG34 |
+> | W15 | detail without actor_kind | RED | RED | evet | W.DETAIL |
+> | W16 | detail's before is the after | RED | RED | evet | W.DETAIL |
+> | W17 | detail's time in jsonb's own form (the caller's TimeZone) | RED | RED | evet | W.DETAIL, W.CLOCK |
+> | W18 | detail carries the number | RED | RED | evet | W.DETAIL |
+> | W19 | FOR UPDATE in place of FOR NO KEY UPDATE | RED | RED | evet | W.LOCK, SIG34 |
+> | W20 | no row lock (round 2: the lock-wait test sees it too) | RED | RED | evet | W.WAIT, SIG34 |
+> | W21 | a catcher that swallows every error | RED | RED | evet | W.ONETX, SIG34 |
+> | W22 | no catcher (the constraint's own 23514 and name reach the caller) | RED | RED | evet | W.ONETX, SIG34 |
+> | W23 | the operator row carries the verdict (the tenant-write CHECK refuses it) | RED | RED | evet | W.SAME, W.DETAIL |
+> | W24 | the session predicate bypassed (any session hash, live or dead) | RED | RED | evet | W.NULL, W.DEAD |
+> | W25 | F1 back: the locking read by the tenant AND the number (round 1's read) | RED | RED | evet | W.WAIT, W.UNKNOWN, SIG34 |
+> | W26 | round 1's whole body (the leak's 'before') | RED | RED | evet | W.WAIT, W.UNKNOWN, SIG34 |
+> | B1 | the binding removed | RED | RED | evet | W.WAIT, W.BIND, TEMP34, SIG34 |
+> | B2 | the binding accepts a read of this transaction ('in progress') | RED | RED | evet | W.BIND, SIG34 |
+> | B3 | the binding ignores the tenant | RED | RED | evet | W.BIND, SIG34 |
+> | B4 | the binding ignores the session and the operator | RED | RED | evet | W.WAIT, W.BIND, SIG34 |
+> | B5 | the binding AFTER the locking read | RED | RED | evet | W.WAIT, W.BIND, SIG34 |
+> | B6 | the binding's refusal names p_tenant_id | RED | RED | evet | W.WAIT, W.BIND, TEMP34, SIG34 |
+> | S2 | the guard compares by LIKE (S2-mut) | RED | RED | evet | W.MISMATCH, SIG34 |
+> | R1 | belt: the read also returns other tenants | RED | RED | evet | R.ONLY, SIG34 |
+> | R2 | the read consumes a 'tenant_detail' ticket | RED | RED | evet | R.FORGED, R.SAMETX |
+> | C1 | the ticket CHECK without tenant_vat | RED | RED | evet | BEGIN, SIG34 |
+> | C2 | op_begin_read's closed set without tenant_vat | RED | RED | evet | BEGIN, SIG34 |
+> | C3 | op_begin_read's {tenant_id} branch without tenant_vat | RED | RED | evet | BEGIN, SIG34 |
+> | C4 | op_begin_read's filter list without tenant_vat_checked | RED | RED | evet | SIG34, KINDS |
+> | C5 | op_read_audit's filter shape without tenant_vat_checked | RED | RED | evet | SIG34, KINDS |
+> | C6 | op_read_audit's {} read scopes without tenant_vat | RED | RED | evet | SHAPES, SIG34 |
+> | C7 | op_read_audit's returned scopes without tenant_vat | RED | RED | evet | SHAPES, SIG34 |
+> | C8 | the kind CHECK without tenant_vat_checked | RED | RED | evet | W.DETAIL, SIG34, KINDS |
+> | C9 | the tenant-write CHECK loose: any detail | RED | RED | evet | SIG34, SHAPE34 |
+> | C10 | the tenant-write CHECK loose: no tenant required | RED | RED | evet | SIG34, SHAPE34 |
+> | C11 | the tenant-write CHECK dropped | RED | RED | evet | SIG34, SHAPE34, KINDS |
+> | P1 | the definer granted UPDATE (vat_number) | RED | RED | evet | PRIV, DEF34 |
+> | P2 | the definer granted SELECT on audit_log | RED | RED | evet | PRIV, DEF34 |
+> | P3 | the definer lost UPDATE (vat_checked_at) | RED | RED | evet | W.DETAIL, PRIV, DEF34 |
+> | P4 | tappa_app granted UPDATE (vat_verified) | RED | RED | evet | DEF34 |
+> | P5 | the definer granted INSERT (id) on audit_log | RED | RED | evet | PRIV, DEF34 |
+> | G1 | OperatorAuditKinds misses tenant_vat_checked | RED | RED | evet | WORDS, KINDS, KCONST |
+> | G2 | the Go read kind misspelled | RED | RED | evet | BEGIN, SHAPES, R.FORGED |
+> | G3 | the screen has no word for tenant_vat_checked | RED | RED | evet | WORDS, E2EW |
+> | G4 | the screen has no word for the tenant_vat scope | RED | RED | evet | SCOPEW, E2EW |
+> | D1 | Down: op_begin_read keeps tenant_vat (not 00033's body) | RED | RED | evet | DOWN34 |
+> | D2 | Down: op_read_audit keeps tenant_vat_checked (not 00033's body) | RED | RED | evet | DOWN34 |
+> | D3 | Down: REVOKE ALL ON tenants FROM the definer | RED | RED | evet | DOWN32, DOWN34 |
+> | D4 | Down: the kind CHECK never NOT VALID | RED | RED | evet | DOWN34 |
+> | D5 | Down: the ticket CHECK always NOT VALID | RED | RED | evet | DOWN34 |
+> | D6 | Down: the ticket condition names tenant_vat as known | RED | RED | evet | DOWN34 |
+> | D7 | Down: the INSERT revoke misses at | RED | RED | evet | DOWN34 |
+> | D8 | Down: the tenant-write CHECK not dropped | RED | RED | evet | DOWN34 |
+> | D9 | Up: the kind CHECK never NOT VALID | RED | RED | evet | DOWN34 |
+> | D10 | Up: the UPDATE grant names vat_number | RED | RED | evet | DOWN34 |
+> | PR1 | precondition: the drift check removed | RED | RED | evet | PRE34 |
+> | PR2 | precondition: 00032's tenant_billing not checked | RED | RED | evet | PRE34 |
+> | PR3 | precondition: 00033's trigger not checked | RED | RED | evet | PRE34 |
+> | PR5 | MX1: the precondition without tappa_app's vat_checked_at arm | RED | RED | evet | PRE34 |
+> | PR6 | D3-mut: the precondition's tappa_app arms read the direct ACL only | RED | RED | evet | PRE34 |
+> | PR4 | precondition: this file's CHECK already there not checked | RED | RED | evet | PRE34 |
+>
+> Kısaltmalar:
+> - SIG34 = `TestOperator00034_TheFunctionsAndTheirExactSignatures`
+> - DEF34 = `TestOperator00034_TheDefinerWritesTheVerdictAndNotTheNumber`
+> - SHAPE34 = `TestOperator00034_TheTenantWriteKindNamesItsTenantAndNothingElse`
+> - TEMP34 = `TestOperator00034_CallersTempTableIsNeverRead`
+> - DOWN34 = `TestOperator00034_DownGivesBack00033AndUpTakesItAgain`
+> - PRE34 = `TestOperator00034_PreconditionRefusesAWrongCluster`
+> - DOWN32 = `TestOperator00032_DownGivesBack00031AndUpTakesItAgain`
+> - PRIV = `TestOperator00026_PrivilegeMatrix`
+> - NOFROZEN = `TestOperator00026_NoFrozenClock`
+> - KINDS = `TestOperatorAuditKinds_TheSchemaTheFunctionsAndTheGoListAgree`
+> - KCONST = `TestOperatorAuditKinds_TheTypedConstantsAreTheList`
+> - WORDS = `TestAuditWords_NameEveryKindAndNothingElse`
+> - SCOPEW = `TestAuditWords_NameEveryScopeTheNewestMigrationReturns`
+> - E2EW = `TestE2E_AuditWordsCoverEveryScopeAndSearchClassTheDatabaseReturns`
+> - SHAPES = `TestOpReadAudit_TheDetailIsShownOnlyInAShapeOnTheList`
+> - BEGIN = `TestOpBeginRead_TheVATKindBindsTheTenantAndNothingElse`
+> - R.ONLY = `TestOpReadTenantVAT_ReturnsOnlyTheNamedTenantsNumberAndState`
+> - R.FORGED = `TestOpReadTenantVAT_AForgedTicketIsRefused`
+> - R.SAMETX = `TestOpReadTenantVAT_ATicketFromThisTransactionIsRefused`
+> - W.NULL = `TestOpRecordVATCheck_ANullVerdictIsRefusedAndWritesNothing`
+> - W.DETAIL = `TestOpRecordVATCheck_TheDetailIsTheBeforeAndAfterInEveryStartingState`
+> - W.MISMATCH = `TestOpRecordVATCheck_AMismatchedNumberChangesNothingAndLeavesTheOperatorsRow`
+> - W.UNKNOWN = `TestOpRecordVATCheck_AnUnknownTenantIsTheSameVoid`
+> - W.SAME = `TestOpRecordVATCheck_TheAnswerIsTheSameWhateverTheTenantsState`
+> - W.CLOCK = `TestOpRecordVATCheck_TheTenantRowsTimeIsTheWallClock`
+> - W.ONETX = `TestOpRecordVATCheck_TheThreeWritesShareOneTransaction`
+> - W.LOCK = `TestOpRecordVATCheck_TheRowLockLetsTheTenantsWritesThrough`
+> - W.WAIT = `TestOpRecordVATCheck_ALockWaitTellsTheTenantNotTheNumber`
+> - W.BIND = `TestOpRecordVATCheck_IsBoundToACommittedReadOfTheTenant`
+> - W.NOOTHER = `TestOpRecordVATCheck_ACallForOneTenantTouchesNoOther`
+> - W.DEAD = `TestOpRecordVATCheck_RefusesEveryDeadSession`
+>
+> **Güvenlik denetimleri (2026-10-07, orkestratör).** 2. turun güvenlik denetimi ONAY verdi: F1 kapandı;
+> üç DÜŞÜK bulgu (D1, D2, D3) ve S2 notu 3. turda kapatıldı. 3. turun dar kapanış denetimi ONAY verdi, bulgu yok.
+> Bağın dokuz ret vakası ölçüldü (okuma yok, başka tenant, başka tür, başka oturum, başka operatör, bu işlemin
+> ya da savepoint'inin okuması, geri alınmış işlemin bileti, durumu bilinmeyen eski xid, geçici gölge tablo); F1 bağlı
+> gövdede de kapalı. Denetçinin 18 mutantının 18'i kırmızı; X2, X4, X5 ve X13 davranışça eşdeğer, kaynak pini tutuyor.
+> Notlar: (N1) bağ reddi ile NULL reddi yalnız CONTEXT satırındaki satır numarasıyla ayrılır, çağırana zaten bildiğinden
+> fazlasını söylemez; (N2) bağın EXISTS'i bilet tablosunu tam tarar (uygun indeks ve budama yok), yani yazmanın maliyeti
+> zamanla büyür; bu backlog T110'a yazıldı. D2'nin rol düzeyi zaman aşımı backlog T108'de.
+
 ## 4. Akış B — E-posta (AWS SES)
 
 ### Öneri: SES SMTP arayüzü + stdlib `net/smtp` (STARTTLS 587), `eu-central-1` — ✅ (sıfır yeni modül)

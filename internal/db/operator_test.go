@@ -103,9 +103,10 @@ func TestOperatorSQL_OnlyBoundParameters(t *testing.T) {
 	// 7 until OP-10; 00027 added three (op_begin_read, op_read_legal_versions,
 	// op_publish_legal), 00029 two (op_read_tenants, op_read_tenant_detail), 00030 one
 	// (op_read_tenant_plaques), 00031 one (op_read_audit), 00032 one (op_read_tenant_billing),
-	// and OP-12 phase B the billing read's own time bound (a SET LOCAL statement_timeout).
-	if len(consts) != 16 {
-		t.Fatalf("found %d statement constants in operator.go, want 16 (two lookups, thirteen op_* calls, one SET LOCAL)", len(consts))
+	// OP-12 phase B the billing read's own time bound (a SET LOCAL statement_timeout), and
+	// 00034 two (op_read_tenant_vat, op_record_vat_check).
+	if len(consts) != 18 {
+		t.Fatalf("found %d statement constants in operator.go, want 18 (two lookups, fifteen op_* calls, one SET LOCAL)", len(consts))
 	}
 	quoted := regexp.MustCompile(`'[^']*'`)
 	placeholder := regexp.MustCompile(`\$(\d+)`)
@@ -155,8 +156,8 @@ func TestOperatorSQL_OnlyBoundParameters(t *testing.T) {
 		_ = sql
 		return true
 	})
-	if calls != 16 {
-		t.Fatalf("%d Exec/QueryRow/Query call(s) in operator.go, want 16 -- one per statement", calls)
+	if calls != 18 {
+		t.Fatalf("%d Exec/QueryRow/Query call(s) in operator.go, want 18 -- one per statement", calls)
 	}
 
 	doc, err := os.ReadFile(filepath.Join("..", "..", "db", "queries", "operator.sql"))
@@ -291,6 +292,12 @@ func TestOperatorAccessors_TheCustomerRoleCannotUseThem(t *testing.T) {
 		},
 		// OP-12 (00032): the billing months meet the missing EXECUTE in their first phase.
 		"TenantBilling": func(c OperatorConn) error { _, e := TenantBilling(ctx, c, opRandHex(t), uuid.New(), 1); return e },
+		// OP-16 (00034): the VAT read meets the missing EXECUTE in its first phase, the write in
+		// its one statement.
+		"TenantVAT": func(c OperatorConn) error { _, e := TenantVAT(ctx, c, opRandHex(t), uuid.New()); return e },
+		"RecordTenantVATCheck": func(c OperatorConn) error {
+			return RecordTenantVATCheck(ctx, c, opRandHex(t), uuid.New(), "VAT-OP16-ZZ", true)
+		},
 	} {
 		err := opAs(t, ctx, tx, "tappa_app", func(sp pgx.Tx) error { return call(sp) })
 		if err == nil || errors.Is(err, ErrOperatorRefused) || errors.Is(err, ErrNoOperator) || !strings.Contains(err.Error(), "SQLSTATE 42501") {
